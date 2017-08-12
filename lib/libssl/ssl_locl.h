@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.184 2017/08/10 17:18:38 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.188 2017/08/12 02:55:22 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -341,15 +341,12 @@ __BEGIN_HIDDEN_DECLS
 #define SSL_USE_TLS1_2_CIPHERS(s) \
 	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_TLS1_2_CIPHERS)
 
-/* Mostly for SSLv3 */
 #define SSL_PKEY_RSA_ENC	0
 #define SSL_PKEY_RSA_SIGN	1
-#define SSL_PKEY_DSA_SIGN	2
-#define SSL_PKEY_DH_RSA		3
-#define SSL_PKEY_DH_DSA		4
-#define SSL_PKEY_ECC            5
-#define SSL_PKEY_GOST01		6
-#define SSL_PKEY_NUM		7
+#define SSL_PKEY_DH_RSA		2
+#define SSL_PKEY_ECC            3
+#define SSL_PKEY_GOST01		4
+#define SSL_PKEY_NUM		5
 
 #define SSL_MAX_EMPTY_RECORDS	32
 
@@ -1138,7 +1135,7 @@ int ssl3_get_finished(SSL *s, int state_a, int state_b);
 int ssl3_send_change_cipher_spec(SSL *s, int state_a, int state_b);
 int ssl3_do_write(SSL *s, int type);
 int ssl3_send_alert(SSL *s, int level, int desc);
-int ssl3_get_req_cert_type(SSL *s, unsigned char *p);
+int ssl3_get_req_cert_types(SSL *s, CBB *cbb);
 long ssl3_get_message(SSL *s, int st1, int stn, int mt, long max, int *ok);
 int ssl3_send_finished(SSL *s, int a, int b, const char *sender, int slen);
 int ssl3_num_ciphers(void);
@@ -1379,6 +1376,11 @@ int SSL_state_func_code(int _state);
 #define SSLerror(s, r) SSL_error_internal(s, r, __FILE__, __LINE__)
 #define SSLerrorx(r) ERR_PUT_error(ERR_LIB_SSL,(0xfff),(r),__FILE__,__LINE__)
 void SSL_error_internal(const SSL *s, int r, char *f, int l);
+
+void tls1_get_formatlist(SSL *s, int client_formats, const uint8_t **pformats,
+    size_t *pformatslen);
+void tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
+    size_t *pcurveslen);
 
 __END_HIDDEN_DECLS
 

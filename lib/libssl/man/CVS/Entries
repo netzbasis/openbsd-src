@@ -53,7 +53,7 @@
 /SSL_SESSION_print.3/1.1/Tue Dec  6 23:45:34 2016//
 /SSL_SESSION_set1_id_context.3/1.1/Mon Apr 10 15:37:55 2017//
 /SSL_accept.3/1.3/Tue Dec  6 12:24:33 2016//
-/SSL_alert_type_string.3/1.2/Thu Dec  1 22:46:21 2016//
+/SSL_alert_type_string.3/1.3/Fri Aug 11 22:12:40 2017//
 /SSL_clear.3/1.2/Thu Dec  1 22:45:28 2016//
 /SSL_connect.3/1.4/Fri Dec 16 15:39:08 2016//
 /SSL_copy_session_id.3/1.2/Mon Apr 10 15:37:55 2017//

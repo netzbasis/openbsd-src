@@ -6,12 +6,13 @@
 /dwmmc.c/1.6/Fri Aug  4 08:18:31 2017//
 /ehci_fdt.c/1.1/Sat Apr 29 20:49:09 2017//
 /exrtc.c/1.2/Sat Mar 11 00:18:43 2017//
-/files.fdt/1.20/Sat Jul 29 17:25:20 2017//
+/files.fdt/1.21/Fri Aug 11 22:06:20 2017//
 /if_dwge_fdt.c/1.4/Sun Jul 23 17:09:19 2017//
 /plrtc.c/1.1/Wed Jan 25 10:14:40 2017//
 /psci.c/1.2/Mon Feb 27 08:39:25 2017//
 /rkclock.c/1.9/Mon Aug  7 22:20:39 2017//
 /rkclock_clocks.h/1.8/Mon Aug  7 22:20:39 2017//
+/rkdwusb.c/1.1/Fri Aug 11 22:06:20 2017//
 /rkgpio.c/1.1/Sat May  6 18:25:43 2017//
 /rkgrf.c/1.2/Sun Jul 23 17:07:18 2017//
 /rkpinctrl.c/1.4/Sun Jul 23 17:08:29 2017//
@@ -28,5 +29,5 @@
 /sxitwi.c/1.1/Sun Jul 23 19:26:03 2017//
 /syscon.c/1.1/Thu Mar  9 20:04:21 2017//
 /virtio_mmio.c/1.2/Fri Feb 24 17:12:31 2017//
-/xhci_fdt.c/1.4/Tue Aug  1 16:18:12 2017//
+/xhci_fdt.c/1.5/Sat Aug 12 03:20:37 2017//
 D

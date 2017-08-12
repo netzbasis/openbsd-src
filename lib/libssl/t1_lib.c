@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.124 2017/08/10 17:18:38 jsing Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.127 2017/08/12 02:55:22 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -342,7 +342,7 @@ tls1_ec_nid2curve_id(int nid)
  * the client/session formats. Otherwise return the custom format list if one
  * exists, or the default formats if a custom list has not been specified.
  */
-static void
+void
 tls1_get_formatlist(SSL *s, int client_formats, const uint8_t **pformats,
     size_t *pformatslen)
 {
@@ -365,7 +365,7 @@ tls1_get_formatlist(SSL *s, int client_formats, const uint8_t **pformats,
  * the client/session curves. Otherwise return the custom curve list if one
  * exists, or the default curves if a custom list has not been specified.
  */
-static void
+void
 tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
     size_t *pcurveslen)
 {
@@ -631,18 +631,15 @@ tls1_check_ec_tmp_key(SSL *s)
 
 static unsigned char tls12_sigalgs[] = {
 	TLSEXT_hash_sha512, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha512, TLSEXT_signature_dsa,
 	TLSEXT_hash_sha512, TLSEXT_signature_ecdsa,
 #ifndef OPENSSL_NO_GOST
 	TLSEXT_hash_streebog_512, TLSEXT_signature_gostr12_512,
 #endif
 
 	TLSEXT_hash_sha384, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha384, TLSEXT_signature_dsa,
 	TLSEXT_hash_sha384, TLSEXT_signature_ecdsa,
 
 	TLSEXT_hash_sha256, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha256, TLSEXT_signature_dsa,
 	TLSEXT_hash_sha256, TLSEXT_signature_ecdsa,
 
 #ifndef OPENSSL_NO_GOST
@@ -651,11 +648,9 @@ static unsigned char tls12_sigalgs[] = {
 #endif
 
 	TLSEXT_hash_sha224, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha224, TLSEXT_signature_dsa,
 	TLSEXT_hash_sha224, TLSEXT_signature_ecdsa,
 
 	TLSEXT_hash_sha1, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha1, TLSEXT_signature_dsa,
 	TLSEXT_hash_sha1, TLSEXT_signature_ecdsa,
 };
 
@@ -674,11 +669,8 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 {
 	int extdatalen = 0;
 	unsigned char *ret = p;
-	int using_ecc;
 	size_t len;
 	CBB cbb;
-
-	using_ecc = ssl_has_ecc_ciphers(s);
 
 	ret += 2;
 	if (ret >= limit)
@@ -697,63 +689,6 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 	if (len > (limit - ret))
 		return NULL;
 	ret += len;
-
-	if (using_ecc) {
-		size_t curveslen, formatslen, lenmax;
-		const uint16_t *curves;
-		const uint8_t *formats;
-		int i;
-
-		/*
-		 * Add TLS extension ECPointFormats to the ClientHello message.
-		 */
-		tls1_get_formatlist(s, 0, &formats, &formatslen);
-
-		if ((size_t)(limit - ret) < 5)
-			return NULL;
-
-		lenmax = limit - ret - 5;
-		if (formatslen > lenmax)
-			return NULL;
-		if (formatslen > 255) {
-			SSLerror(s, ERR_R_INTERNAL_ERROR);
-			return NULL;
-		}
-
-		s2n(TLSEXT_TYPE_ec_point_formats, ret);
-		s2n(formatslen + 1, ret);
-		*(ret++) = (unsigned char)formatslen;
-		memcpy(ret, formats, formatslen);
-		ret += formatslen;
-
-		/*
-		 * Add TLS extension EllipticCurves to the ClientHello message.
-		 */
-		tls1_get_curvelist(s, 0, &curves, &curveslen);
-
-		if ((size_t)(limit - ret) < 6)
-			return NULL;
-
-		lenmax = limit - ret - 6;
-		if (curveslen * 2 > lenmax)
-			return NULL;
-		if (curveslen * 2 > 65532) {
-			SSLerror(s, ERR_R_INTERNAL_ERROR);
-			return NULL;
-		}
-
-		s2n(TLSEXT_TYPE_elliptic_curves, ret);
-		s2n((curveslen * 2) + 2, ret);
-
-		/* NB: draft-ietf-tls-ecc-12.txt uses a one-byte prefix for
-		 * elliptic_curve_list, but the examples use two bytes.
-		 * https://www1.ietf.org/mail-archive/web/tls/current/msg00538.html
-		 * resolves this to two bytes.
-		 */
-		s2n(curveslen * 2, ret);
-		for (i = 0; i < curveslen; i++)
-			s2n(curves[i], ret);
-	}
 
 	if (!(SSL_get_options(s) & SSL_OP_NO_TICKET)) {
 		int ticklen;
@@ -931,13 +866,11 @@ skip_ext:
 unsigned char *
 ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 {
-	int using_ecc, extdatalen = 0;
+	int extdatalen = 0;
 	unsigned char *ret = p;
 	int next_proto_neg_seen;
 	size_t len;
 	CBB cbb;
-
-	using_ecc = ssl_using_ecc_cipher(s);
 
 	ret += 2;
 	if (ret >= limit)
@@ -956,33 +889,6 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 	if (len > (limit - ret))
 		return NULL;
 	ret += len;
-
-	if (using_ecc && s->version != DTLS1_VERSION) {
-		const unsigned char *formats;
-		size_t formatslen, lenmax;
-
-		/*
-		 * Add TLS extension ECPointFormats to the ServerHello message.
-		 */
-		tls1_get_formatlist(s, 0, &formats, &formatslen);
-
-		if ((size_t)(limit - ret) < 5)
-			return NULL;
-
-		lenmax = limit - ret - 5;
-		if (formatslen > lenmax)
-			return NULL;
-		if (formatslen > 255) {
-			SSLerror(s, ERR_R_INTERNAL_ERROR);
-			return NULL;
-		}
-
-		s2n(TLSEXT_TYPE_ec_point_formats, ret);
-		s2n(formatslen + 1, ret);
-		*(ret++) = (unsigned char)formatslen;
-		memcpy(ret, formats, formatslen);
-		ret += formatslen;
-	}
 
 	/*
 	 * Currently the server should not respond with a SupportedCurves
@@ -1194,71 +1100,7 @@ ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
 		if (!tlsext_clienthello_parse_one(s, &cbs, type, al))
 			return 0;
 
-		if (type == TLSEXT_TYPE_ec_point_formats &&
-		    s->version != DTLS1_VERSION) {
-			unsigned char *sdata = data;
-			size_t formatslen;
-			uint8_t *formats;
-
-			if (size < 1) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-			formatslen = *(sdata++);
-			if (formatslen != size - 1) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-
-			if (!s->internal->hit) {
-				free(SSI(s)->tlsext_ecpointformatlist);
-				SSI(s)->tlsext_ecpointformatlist = NULL;
-				SSI(s)->tlsext_ecpointformatlist_length = 0;
-
-				if ((formats = reallocarray(NULL, formatslen,
-				    sizeof(uint8_t))) == NULL) {
-					*al = TLS1_AD_INTERNAL_ERROR;
-					return 0;
-				}
-				memcpy(formats, sdata, formatslen);
-				SSI(s)->tlsext_ecpointformatlist = formats;
-				SSI(s)->tlsext_ecpointformatlist_length =
-				    formatslen;
-			}
-		} else if (type == TLSEXT_TYPE_elliptic_curves &&
-		    s->version != DTLS1_VERSION) {
-			unsigned char *sdata = data;
-			size_t curveslen, i;
-			uint16_t *curves;
-
-			if (size < 2) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-			n2s(sdata, curveslen);
-			if (curveslen != size - 2 || curveslen % 2 != 0) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-			curveslen /= 2;
-
-			if (!s->internal->hit) {
-				if (SSI(s)->tlsext_supportedgroups) {
-					*al = TLS1_AD_DECODE_ERROR;
-					return 0;
-				}
-				SSI(s)->tlsext_supportedgroups_length = 0;
-				if ((curves = reallocarray(NULL, curveslen,
-				    sizeof(uint16_t))) == NULL) {
-					*al = TLS1_AD_INTERNAL_ERROR;
-					return 0;
-				}
-				for (i = 0; i < curveslen; i++)
-					n2s(sdata, curves[i]);
-				SSI(s)->tlsext_supportedgroups = curves;
-				SSI(s)->tlsext_supportedgroups_length = curveslen;
-			}
-		} else if (type == TLSEXT_TYPE_session_ticket) {
+		if (type == TLSEXT_TYPE_session_ticket) {
 			if (s->internal->tls_session_ticket_ext_cb &&
 			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
 				*al = TLS1_AD_INTERNAL_ERROR;
@@ -1510,39 +1352,7 @@ ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 		if (!tlsext_serverhello_parse_one(s, &cbs, type, al))
 			return 0;
 
-		if (type == TLSEXT_TYPE_ec_point_formats &&
-		    s->version != DTLS1_VERSION) {
-			unsigned char *sdata = data;
-			size_t formatslen;
-			uint8_t *formats;
-
-			if (size < 1) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-			formatslen = *(sdata++);
-			if (formatslen != size - 1) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-
-			if (!s->internal->hit) {
-				free(SSI(s)->tlsext_ecpointformatlist);
-				SSI(s)->tlsext_ecpointformatlist = NULL;
-				SSI(s)->tlsext_ecpointformatlist_length = 0;
-
-				if ((formats = reallocarray(NULL, formatslen,
-				    sizeof(uint8_t))) == NULL) {
-					*al = TLS1_AD_INTERNAL_ERROR;
-					return 0;
-				}
-				memcpy(formats, sdata, formatslen);
-				SSI(s)->tlsext_ecpointformatlist = formats;
-				SSI(s)->tlsext_ecpointformatlist_length =
-				    formatslen;
-			}
-		}
-		else if (type == TLSEXT_TYPE_session_ticket) {
+		if (type == TLSEXT_TYPE_session_ticket) {
 			if (s->internal->tls_session_ticket_ext_cb &&
 			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
 				*al = TLS1_AD_INTERNAL_ERROR;
@@ -1779,29 +1589,6 @@ ssl_check_serverhello_tlsext(SSL *s)
 	int ret = SSL_TLSEXT_ERR_NOACK;
 	int al = SSL_AD_UNRECOGNIZED_NAME;
 
-	/* If we are client and using an elliptic curve cryptography cipher
-	 * suite, then if server returns an EC point formats lists extension
-	 * it must contain uncompressed.
-	 */
-	if (ssl_using_ecc_cipher(s) &&
-	    s->internal->tlsext_ecpointformatlist != NULL &&
-	    s->internal->tlsext_ecpointformatlist_length > 0) {
-		/* we are using an ECC cipher */
-		size_t i;
-		unsigned char *list;
-		int found_uncompressed = 0;
-		list = SSI(s)->tlsext_ecpointformatlist;
-		for (i = 0; i < SSI(s)->tlsext_ecpointformatlist_length; i++) {
-			if (*(list++) == TLSEXT_ECPOINTFORMAT_uncompressed) {
-				found_uncompressed = 1;
-				break;
-			}
-		}
-		if (!found_uncompressed) {
-			SSLerror(s, SSL_R_TLS_INVALID_ECPOINTFORMAT_LIST);
-			return -1;
-		}
-	}
 	ret = SSL_TLSEXT_ERR_OK;
 
 	if (s->ctx != NULL && s->ctx->internal->tlsext_servername_callback != 0)
@@ -2140,7 +1927,6 @@ static tls12_lookup tls12_md[] = {
 
 static tls12_lookup tls12_sig[] = {
 	{EVP_PKEY_RSA, TLSEXT_signature_rsa},
-	{EVP_PKEY_DSA, TLSEXT_signature_dsa},
 	{EVP_PKEY_EC, TLSEXT_signature_ecdsa},
 	{EVP_PKEY_GOSTR01, TLSEXT_signature_gostr01},
 };
@@ -2228,7 +2014,6 @@ tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize)
 
 	CBS_init(&cbs, data, dsize);
 
-	c->pkeys[SSL_PKEY_DSA_SIGN].digest = NULL;
 	c->pkeys[SSL_PKEY_RSA_SIGN].digest = NULL;
 	c->pkeys[SSL_PKEY_RSA_ENC].digest = NULL;
 	c->pkeys[SSL_PKEY_ECC].digest = NULL;
@@ -2246,9 +2031,6 @@ tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize)
 		switch (sig_alg) {
 		case TLSEXT_signature_rsa:
 			idx = SSL_PKEY_RSA_SIGN;
-			break;
-		case TLSEXT_signature_dsa:
-			idx = SSL_PKEY_DSA_SIGN;
 			break;
 		case TLSEXT_signature_ecdsa:
 			idx = SSL_PKEY_ECC;
@@ -2276,8 +2058,6 @@ tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize)
 	/* Set any remaining keys to default values. NOTE: if alg is not
 	 * supported it stays as NULL.
 	 */
-	if (!c->pkeys[SSL_PKEY_DSA_SIGN].digest)
-		c->pkeys[SSL_PKEY_DSA_SIGN].digest = EVP_sha1();
 	if (!c->pkeys[SSL_PKEY_RSA_SIGN].digest) {
 		c->pkeys[SSL_PKEY_RSA_SIGN].digest = EVP_sha1();
 		c->pkeys[SSL_PKEY_RSA_ENC].digest = EVP_sha1();

@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.163 2017/08/10 17:18:38 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.166 2017/08/12 02:55:22 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -2041,7 +2041,7 @@ SSL_CTX_set_verify_depth(SSL_CTX *ctx, int depth)
 void
 ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
 {
-	int		 rsa_enc, rsa_sign, dh_tmp, dsa_sign;
+	int		 rsa_enc, rsa_sign, dh_tmp;
 	int		 have_ecc_cert;
 	unsigned long	 mask_k, mask_a;
 	X509		*x = NULL;
@@ -2057,11 +2057,9 @@ ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
 	rsa_enc = (cpk->x509 != NULL && cpk->privatekey != NULL);
 	cpk = &(c->pkeys[SSL_PKEY_RSA_SIGN]);
 	rsa_sign = (cpk->x509 != NULL && cpk->privatekey != NULL);
-	cpk = &(c->pkeys[SSL_PKEY_DSA_SIGN]);
-	dsa_sign = (cpk->x509 != NULL && cpk->privatekey != NULL);
-/* FIX THIS EAY EAY EAY */
 	cpk = &(c->pkeys[SSL_PKEY_ECC]);
 	have_ecc_cert = (cpk->x509 != NULL && cpk->privatekey != NULL);
+
 	mask_k = 0;
 	mask_a = 0;
 
@@ -2072,18 +2070,15 @@ ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
 	}
 
 	if (rsa_enc)
-		mask_k|=SSL_kRSA;
+		mask_k |= SSL_kRSA;
 
 	if (dh_tmp)
-		mask_k|=SSL_kDHE;
+		mask_k |= SSL_kDHE;
 
 	if (rsa_enc || rsa_sign)
-		mask_a|=SSL_aRSA;
+		mask_a |= SSL_aRSA;
 
-	if (dsa_sign)
-		mask_a|=SSL_aDSS;
-
-	mask_a|=SSL_aNULL;
+	mask_a |= SSL_aNULL;
 
 	/*
 	 * An ECC certificate may be usable for ECDH and/or
@@ -2098,7 +2093,7 @@ ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
 		/* Key usage, if present, must allow signing. */
 		if ((x->ex_flags & EXFLAG_KUSAGE) == 0 ||
 		    (x->ex_kusage & X509v3_KU_DIGITAL_SIGNATURE))
-			mask_a|=SSL_aECDSA;
+			mask_a |= SSL_aECDSA;
 	}
 
 	mask_k |= SSL_kECDHE;
@@ -2159,8 +2154,6 @@ ssl_get_server_send_pkey(const SSL *s)
 
 	if (alg_a & SSL_aECDSA) {
 		i = SSL_PKEY_ECC;
-	} else if (alg_a & SSL_aDSS) {
-		i = SSL_PKEY_DSA_SIGN;
 	} else if (alg_a & SSL_aRSA) {
 		if (c->pkeys[SSL_PKEY_RSA_ENC].x509 == NULL)
 			i = SSL_PKEY_RSA_SIGN;
@@ -2197,10 +2190,7 @@ ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *cipher, const EVP_MD **pmd)
 	alg_a = cipher->algorithm_auth;
 	c = s->cert;
 
-	if ((alg_a & SSL_aDSS) &&
-	    (c->pkeys[SSL_PKEY_DSA_SIGN].privatekey != NULL))
-		idx = SSL_PKEY_DSA_SIGN;
-	else if (alg_a & SSL_aRSA) {
+	if (alg_a & SSL_aRSA) {
 		if (c->pkeys[SSL_PKEY_RSA_SIGN].privatekey != NULL)
 			idx = SSL_PKEY_RSA_SIGN;
 		else if (c->pkeys[SSL_PKEY_RSA_ENC].privatekey != NULL)

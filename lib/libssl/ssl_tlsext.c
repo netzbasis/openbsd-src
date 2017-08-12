@@ -1,6 +1,7 @@
-/* $OpenBSD: ssl_tlsext.c,v 1.3 2017/07/24 17:39:43 jsing Exp $ */
+/* $OpenBSD: ssl_tlsext.c,v 1.6 2017/08/11 20:14:13 doug Exp $ */
 /*
  * Copyright (c) 2016, 2017 Joel Sing <jsing@openbsd.org>
+ * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +20,213 @@
 
 #include "bytestring.h"
 #include "ssl_tlsext.h"
+
+
+/*
+ * Supported Elliptic Curves - RFC 4492 section 5.1.1
+ */
+int
+tlsext_ec_clienthello_needs(SSL *s)
+{
+	return ssl_has_ecc_ciphers(s);
+}
+
+int
+tlsext_ec_clienthello_build(SSL *s, CBB *cbb)
+{
+	CBB curvelist;
+	size_t curves_len;
+	int i;
+	const uint16_t *curves;
+
+	tls1_get_curvelist(s, 0, &curves, &curves_len);
+
+	if (curves_len == 0) {
+		SSLerror(s, ERR_R_INTERNAL_ERROR);
+		return 0;
+	}
+
+	if (!CBB_add_u16_length_prefixed(cbb, &curvelist))
+		return 0;
+
+	for (i = 0; i < curves_len; i++) {
+		if (!CBB_add_u16(&curvelist, curves[i]))
+			return 0;
+	}
+
+	if (!CBB_flush(cbb))
+		return 0;
+
+	return 1;
+}
+
+int
+tlsext_ec_clienthello_parse(SSL *s, CBS *cbs, int *alert)
+{
+	CBS curvelist;
+	size_t curves_len;
+
+	if (!CBS_get_u16_length_prefixed(cbs, &curvelist))
+		goto err;
+	if (CBS_len(cbs) != 0)
+		goto err;
+
+	curves_len = CBS_len(&curvelist);
+	if (curves_len == 0 || curves_len % 2 != 0)
+		goto err;
+	curves_len /= 2;
+
+	if (!s->internal->hit) {
+		int i;
+		uint16_t *curves;
+
+		if (SSI(s)->tlsext_supportedgroups != NULL)
+			goto err;
+
+		if ((curves = reallocarray(NULL, curves_len,
+		    sizeof(uint16_t))) == NULL) {
+			*alert = TLS1_AD_INTERNAL_ERROR;
+			return 0;
+		}
+
+		for (i = 0; i < curves_len; i++) {
+			if (!CBS_get_u16(&curvelist, &curves[i])) {
+				free(curves);
+				goto err;
+			}
+		}
+
+		if (CBS_len(&curvelist) != 0) {
+			free(curves);
+			goto err;
+		}
+
+		SSI(s)->tlsext_supportedgroups = curves;
+		SSI(s)->tlsext_supportedgroups_length = curves_len;
+	}
+
+	return 1;
+
+ err:
+	*alert = TLS1_AD_DECODE_ERROR;
+	return 0;
+}
+
+/* This extension is never used by the server. */
+int
+tlsext_ec_serverhello_needs(SSL *s)
+{
+	return 0;
+}
+
+int
+tlsext_ec_serverhello_build(SSL *s, CBB *cbb)
+{
+	return 0;
+}
+
+int
+tlsext_ec_serverhello_parse(SSL *s, CBS *cbs, int *alert)
+{
+	return 0;
+}
+
+/*
+ * Supported Point Formats Extension - RFC 4492 section 5.1.2
+ */
+static int
+tlsext_ecpf_build(SSL *s, CBB *cbb)
+{
+	CBB ecpf;
+	size_t formats_len;
+	const uint8_t *formats;
+
+	tls1_get_formatlist(s, 0, &formats, &formats_len);
+
+	if (formats_len == 0) {
+		SSLerror(s, ERR_R_INTERNAL_ERROR);
+		return 0;
+	}
+
+	if (!CBB_add_u8_length_prefixed(cbb, &ecpf))
+		return 0;
+	if (!CBB_add_bytes(&ecpf, formats, formats_len))
+		return 0;
+	if (!CBB_flush(cbb))
+		return 0;
+
+	return 1;
+}
+
+static int
+tlsext_ecpf_parse(SSL *s, CBS *cbs, int *alert)
+{
+	CBS ecpf;
+
+	if (!CBS_get_u8_length_prefixed(cbs, &ecpf))
+		goto err;
+	if (CBS_len(&ecpf) == 0)
+		goto err;
+	if (CBS_len(cbs) != 0)
+		goto err;
+
+	/* Must contain uncompressed (0) */
+	if (!CBS_contains_zero_byte(&ecpf)) {
+		SSLerror(s, SSL_R_TLS_INVALID_ECPOINTFORMAT_LIST);
+		goto err;
+	}
+
+	if (!s->internal->hit) {
+		if (!CBS_stow(&ecpf, &(SSI(s)->tlsext_ecpointformatlist),
+		    &(SSI(s)->tlsext_ecpointformatlist_length)))
+			goto err;
+	}
+
+	return 1;
+
+ err:
+	*alert = TLS1_AD_INTERNAL_ERROR;
+	return 0;
+}
+
+int
+tlsext_ecpf_clienthello_needs(SSL *s)
+{
+	return ssl_has_ecc_ciphers(s);
+}
+
+int
+tlsext_ecpf_clienthello_build(SSL *s, CBB *cbb)
+{
+	return tlsext_ecpf_build(s, cbb);
+}
+
+int
+tlsext_ecpf_clienthello_parse(SSL *s, CBS *cbs, int *alert)
+{
+	return tlsext_ecpf_parse(s, cbs, alert);
+}
+
+int
+tlsext_ecpf_serverhello_needs(SSL *s)
+{
+	if (s->version == DTLS1_VERSION)
+		return 0;
+
+	return ssl_using_ecc_cipher(s);
+}
+
+int
+tlsext_ecpf_serverhello_build(SSL *s, CBB *cbb)
+{
+	return tlsext_ecpf_build(s, cbb);
+}
+
+int
+tlsext_ecpf_serverhello_parse(SSL *s, CBS *cbs, int *alert)
+{
+	return tlsext_ecpf_parse(s, cbs, alert);
+}
 
 /*
  * Renegotiation Indication - RFC 5746.
@@ -312,6 +520,24 @@ static struct tls_extension tls_extensions[] = {
 		.serverhello_needs = tlsext_ri_serverhello_needs,
 		.serverhello_build = tlsext_ri_serverhello_build,
 		.serverhello_parse = tlsext_ri_serverhello_parse,
+	},
+	{
+		.type = TLSEXT_TYPE_ec_point_formats,
+		.clienthello_needs = tlsext_ecpf_clienthello_needs,
+		.clienthello_build = tlsext_ecpf_clienthello_build,
+		.clienthello_parse = tlsext_ecpf_clienthello_parse,
+		.serverhello_needs = tlsext_ecpf_serverhello_needs,
+		.serverhello_build = tlsext_ecpf_serverhello_build,
+		.serverhello_parse = tlsext_ecpf_serverhello_parse,
+	},
+	{
+		.type = TLSEXT_TYPE_elliptic_curves,
+		.clienthello_needs = tlsext_ec_clienthello_needs,
+		.clienthello_build = tlsext_ec_clienthello_build,
+		.clienthello_parse = tlsext_ec_clienthello_parse,
+		.serverhello_needs = tlsext_ec_serverhello_needs,
+		.serverhello_build = tlsext_ec_serverhello_build,
+		.serverhello_parse = tlsext_ec_serverhello_parse,
 	},
 };
 

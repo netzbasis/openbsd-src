@@ -1,8 +1,8 @@
-/*	$OpenBSD: db_ctf.c,v 1.11 2017/08/10 19:39:38 mpi Exp $	*/
+/*	$OpenBSD: db_ctf.c,v 1.14 2017/08/11 20:47:21 mpi Exp $	*/
 
 /*
+ * Copyright (c) 2016-2017 Martin Pieuchot
  * Copyright (c) 2016 Jasper Lievisse Adriaanse <jasper@openbsd.org>
- * Copyright (c) 2016 Martin Pieuchot <mpi@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -58,6 +58,7 @@ static char		*db_ctf_decompress(const char *, size_t, off_t);
 const struct ctf_type	*db_ctf_type_by_symbol(Elf_Sym *);
 const struct ctf_type	*db_ctf_type_by_index(uint16_t);
 void			 db_ctf_pprint_struct(const struct ctf_type *, vaddr_t);
+void			 db_ctf_pprint_ptr(const struct ctf_type *, vaddr_t);
 
 /*
  * Entrypoint to verify CTF presence, initialize the header, decompress
@@ -238,31 +239,9 @@ db_ctf_type_len(const struct ctf_type *ctt)
 	return tlen;
 }
 
-void
-db_ctf_dump_object()
-{
-	uint32_t		 objtoff = db_ctf.cth->cth_objtoff;
-	size_t			 idx = 0, i = 0;
-	uint16_t		*dsp;
-	Elf_Sym			*st;
-	int			 l;
-	char			*name;
-
-	while (objtoff < db_ctf.cth->cth_funcoff) {
-		dsp = (uint16_t *)(db_ctf.data + objtoff);
-
-		l = db_printf("  [%zu] %u", i++, *dsp);
-		if ((st = db_ctf_idx2sym(&idx, STT_OBJECT)) != NULL) {
-			db_symbol_values(st, &name, NULL);
-			db_printf("%*s %s (%zu)\n", (14 - l), "", name, idx);
-		} else
-			db_printf("\n");
-
-		objtoff += sizeof(*dsp);
-	}
-	db_printf("\n");
-}
-
+/*
+ * Return the CTF type associated to an ELF symbol.
+ */
 const struct ctf_type *
 db_ctf_type_by_symbol(Elf_Sym *st)
 {
@@ -270,6 +249,9 @@ db_ctf_type_by_symbol(Elf_Sym *st)
 	uint32_t		 objtoff = db_ctf.cth->cth_objtoff;
 	uint16_t		*dsp;
 	size_t			 idx = 0;
+
+	if (!db_ctf.ctf_found || st == NULL)
+		return NULL;
 
 	while (objtoff < db_ctf.cth->cth_funcoff) {
 		dsp = (uint16_t *)(db_ctf.data + objtoff);
@@ -286,6 +268,9 @@ db_ctf_type_by_symbol(Elf_Sym *st)
 	return NULL;
 }
 
+/*
+ * Return the CTF type corresponding to a given index in the type section.
+ */
 const struct ctf_type *
 db_ctf_type_by_index(uint16_t index)
 {
@@ -315,12 +300,14 @@ db_ctf_type_by_index(uint16_t index)
 	return NULL;
 }
 
+/*
+ * Pretty print `addr'.
+ */
 void
 db_ctf_pprintf(const struct ctf_type *ctt, vaddr_t addr)
 {
 	const struct ctf_type	*ref;
 	uint16_t		 kind;
-	const char		*name;
 
 	kind = CTF_INFO_KIND(ctt->ctt_info);
 
@@ -339,11 +326,7 @@ db_ctf_pprintf(const struct ctf_type *ctt, vaddr_t addr)
 		db_ctf_pprint_struct(ctt, addr);
 		break;
 	case CTF_K_POINTER:
-		ref = db_ctf_type_by_index(ctt->ctt_type);
-		name = db_ctf_off2name(ref->ctt_name);
-		if (name != NULL)
-			db_printf("(%s *)", name);
-		db_printf("0x%lx", addr);
+		db_ctf_pprint_ptr(ctt, addr);
 		break;
 	case CTF_K_TYPEDEF:
 	case CTF_K_VOLATILE:
@@ -413,6 +396,42 @@ db_ctf_pprint_struct(const struct ctf_type *ctt, vaddr_t addr)
 		}
 	}
 	db_printf("}");
+}
+
+void
+db_ctf_pprint_ptr(const struct ctf_type *ctt, vaddr_t addr)
+{
+	const char		*name, *modif = "";
+	const struct ctf_type	*ref;
+	uint16_t		 kind;
+
+	ref = db_ctf_type_by_index(ctt->ctt_type);
+	kind = CTF_INFO_KIND(ref->ctt_info);
+
+	switch (kind) {
+	case CTF_K_VOLATILE:
+		modif = "volatile ";
+		ref = db_ctf_type_by_index(ref->ctt_type);
+		break;
+	case CTF_K_CONST:
+		modif = "const ";
+		ref = db_ctf_type_by_index(ref->ctt_type);
+		break;
+	case CTF_K_STRUCT:
+		modif = "struct ";
+		break;
+	case CTF_K_UNION:
+		modif = "union ";
+		break;
+	default:
+		break;
+	}
+
+	name = db_ctf_off2name(ref->ctt_name);
+	if (name != NULL)
+		db_printf("(%s%s *)", modif, name);
+
+	db_printf("0x%lx", addr);
 }
 
 static const char *
@@ -486,15 +505,11 @@ exit:
  * print <symbol name>
  */
 void
-db_ctf_pprint_cmd(db_expr_t addr, int have_addr, db_expr_t count,
-    char *modifiers)
+db_ctf_pprint_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
 	Elf_Sym *st;
 	const struct ctf_type *ctt;
 	int t;
-
-	if (!db_ctf.ctf_found)
-		return;
 
 	/*
 	 * Read the struct name from the debugger input.
@@ -512,9 +527,9 @@ db_ctf_pprint_cmd(db_expr_t addr, int have_addr, db_expr_t count,
 		return;
 	}
 
-
 	if ((ctt = db_ctf_type_by_symbol(st)) == NULL) {
-		db_printf("Type not found %s\n", db_tok_string);
+	        modif[0] = '\0';
+		db_print_cmd(addr, 0, 0, modif);
 		db_flush_lex();
 		return;
 	}

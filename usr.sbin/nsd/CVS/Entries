@@ -1,6 +1,6 @@
 /LICENSE/1.2/Thu Nov  5 22:58:42 2015//
 /Makefile.bsd-wrapper/1.15/Mon Jun 12 18:49:34 2017//
-/Makefile.in/1.20/Mon Oct 24 09:44:43 2016//
+/Makefile.in/1.21/Fri Aug 11 12:51:42 2017//
 /acx_nlnetlabs.m4/1.3/Fri Jun 24 08:34:03 2016//
 /answer.c/1.2/Fri Jun 24 08:34:03 2016//
 /answer.h/1.1.1.3/Tue Nov 26 12:50:12 2013//
@@ -11,8 +11,8 @@
 /config.h.in/1.22/Thu Jul 27 20:03:05 2017//
 /configlexer.lex/1.8/Sat Apr 15 09:15:45 2017//
 /configparser.y/1.19/Sat Apr 15 09:15:45 2017//
-/configure/1.32/Sat Apr 15 09:16:05 2017//
-/configure.ac/1.31/Sat Apr 15 09:15:45 2017//
+/configure/1.33/Fri Aug 11 12:52:02 2017//
+/configure.ac/1.32/Fri Aug 11 12:51:42 2017//
 /configyyrename.h/1.1.1.5/Fri Jul 17 17:36:01 2015//
 /dbaccess.c/1.4/Fri Feb 17 20:04:45 2017//
 /dbcreate.c/1.3/Fri Feb 17 20:04:45 2017//
@@ -20,8 +20,8 @@
 /difffile.h/1.2/Fri Feb 17 20:04:45 2017//
 /dname.c/1.11/Fri Jul 17 17:36:33 2015//
 /dname.h/1.2/Wed Dec  9 00:36:26 2015//
-/dns.c/1.16/Mon Oct 24 09:44:43 2016//
-/dns.h/1.14/Mon Oct 24 09:44:43 2016//
+/dns.c/1.17/Fri Aug 11 12:51:42 2017//
+/dns.h/1.15/Fri Aug 11 12:51:42 2017//
 /edns.c/1.3/Mon Oct 24 09:44:43 2016//
 /edns.h/1.2/Mon Oct 24 09:44:43 2016//
 /install-sh/1.2/Thu Nov  5 22:58:42 2015//
@@ -34,7 +34,7 @@
 /mini_event.c/1.2/Fri Feb 17 20:04:45 2017//
 /mini_event.h/1.2/Fri Feb 17 20:04:45 2017//
 /mkinstalldirs/1.4/Thu Nov  5 21:21:59 2015//
-/namedb.c/1.7/Fri Feb 17 20:04:45 2017//
+/namedb.c/1.8/Fri Aug 11 12:51:42 2017//
 /namedb.h/1.8/Fri Feb 17 20:04:45 2017//
 /netio.c/1.2/Fri Dec 11 12:28:49 2015//
 /netio.h/1.2/Fri Dec 11 12:28:49 2015//
@@ -63,7 +63,7 @@
 /radtree.h/1.2/Fri Feb 17 20:04:45 2017//
 /rbtree.c/1.3/Fri Feb 17 20:04:45 2017//
 /rbtree.h/1.2/Fri Feb 17 20:04:45 2017//
-/rdata.c/1.13/Sat Apr 15 09:15:45 2017//
+/rdata.c/1.14/Fri Aug 11 12:51:42 2017//
 /rdata.h/1.1.1.3/Tue Nov 26 12:50:15 2013//
 /region-allocator.c/1.10/Fri Dec 11 12:28:49 2015//
 /region-allocator.h/1.2/Wed Dec  9 00:36:26 2015//
@@ -88,12 +88,12 @@
 /xfrd-disk.h/1.3/Tue Jan 17 06:21:41 2017//
 /xfrd-notify.c/1.2/Fri Feb 17 20:04:45 2017//
 /xfrd-notify.h/1.2/Fri Feb 17 20:04:45 2017//
-/xfrd-tcp.c/1.18/Fri Feb 17 20:04:45 2017//
+/xfrd-tcp.c/1.19/Fri Aug 11 12:51:42 2017//
 /xfrd-tcp.h/1.2/Fri Feb 17 20:04:45 2017//
 /xfrd.c/1.15/Sat Apr 15 09:15:45 2017//
 /xfrd.h/1.6/Fri Feb 17 20:04:45 2017//
 /zlexer.lex/1.4/Mon Oct 24 09:45:45 2016//
-/zonec.c/1.21/Sat Apr 15 09:15:45 2017//
+/zonec.c/1.22/Fri Aug 11 12:51:42 2017//
 /zonec.h/1.7/Tue Feb  4 03:07:25 2014//
-/zparser.y/1.15/Mon Oct 24 09:44:43 2016//
+/zparser.y/1.16/Fri Aug 11 12:52:50 2017//
 D
