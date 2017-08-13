@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.127 2017/08/12 02:55:22 jsing Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.131 2017/08/12 23:38:12 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -654,14 +654,11 @@ static unsigned char tls12_sigalgs[] = {
 	TLSEXT_hash_sha1, TLSEXT_signature_ecdsa,
 };
 
-int
-tls12_get_req_sig_algs(SSL *s, unsigned char *p)
+void
+tls12_get_req_sig_algs(SSL *s, unsigned char **sigalgs, size_t *sigalgs_len)
 {
-	size_t slen = sizeof(tls12_sigalgs);
-
-	if (p)
-		memcpy(p, tls12_sigalgs, slen);
-	return (int)slen;
+	*sigalgs = tls12_sigalgs;
+	*sigalgs_len = sizeof(tls12_sigalgs);
 }
 
 unsigned char *
@@ -689,105 +686,6 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 	if (len > (limit - ret))
 		return NULL;
 	ret += len;
-
-	if (!(SSL_get_options(s) & SSL_OP_NO_TICKET)) {
-		int ticklen;
-		if (!s->internal->new_session && s->session && s->session->tlsext_tick)
-			ticklen = s->session->tlsext_ticklen;
-		else if (s->session && s->internal->tlsext_session_ticket &&
-		    s->internal->tlsext_session_ticket->data) {
-			ticklen = s->internal->tlsext_session_ticket->length;
-			s->session->tlsext_tick = malloc(ticklen);
-			if (!s->session->tlsext_tick)
-				return NULL;
-			memcpy(s->session->tlsext_tick,
-			    s->internal->tlsext_session_ticket->data, ticklen);
-			s->session->tlsext_ticklen = ticklen;
-		} else
-			ticklen = 0;
-		if (ticklen == 0 && s->internal->tlsext_session_ticket &&
-		    s->internal->tlsext_session_ticket->data == NULL)
-			goto skip_ext;
-		/* Check for enough room 2 for extension type, 2 for len
- 		 * rest for ticket
-  		 */
-		if ((size_t)(limit - ret) < 4 + ticklen)
-			return NULL;
-		s2n(TLSEXT_TYPE_session_ticket, ret);
-
-		s2n(ticklen, ret);
-		if (ticklen) {
-			memcpy(ret, s->session->tlsext_tick, ticklen);
-			ret += ticklen;
-		}
-	}
-skip_ext:
-
-	if (TLS1_get_client_version(s) >= TLS1_2_VERSION) {
-		if ((size_t)(limit - ret) < sizeof(tls12_sigalgs) + 6)
-			return NULL;
-
-		s2n(TLSEXT_TYPE_signature_algorithms, ret);
-		s2n(sizeof(tls12_sigalgs) + 2, ret);
-		s2n(sizeof(tls12_sigalgs), ret);
-		memcpy(ret, tls12_sigalgs, sizeof(tls12_sigalgs));
-		ret += sizeof(tls12_sigalgs);
-	}
-
-	if (s->tlsext_status_type == TLSEXT_STATUSTYPE_ocsp &&
-	    s->version != DTLS1_VERSION) {
-		int i;
-		long extlen, idlen, itmp;
-		OCSP_RESPID *id;
-
-		idlen = 0;
-		for (i = 0; i < sk_OCSP_RESPID_num(s->internal->tlsext_ocsp_ids); i++) {
-			id = sk_OCSP_RESPID_value(s->internal->tlsext_ocsp_ids, i);
-			itmp = i2d_OCSP_RESPID(id, NULL);
-			if (itmp <= 0)
-				return NULL;
-			idlen += itmp + 2;
-		}
-
-		if (s->internal->tlsext_ocsp_exts) {
-			extlen = i2d_X509_EXTENSIONS(s->internal->tlsext_ocsp_exts, NULL);
-			if (extlen < 0)
-				return NULL;
-		} else
-			extlen = 0;
-
-		if ((size_t)(limit - ret) < 7 + extlen + idlen)
-			return NULL;
-		s2n(TLSEXT_TYPE_status_request, ret);
-		if (extlen + idlen > 0xFFF0)
-			return NULL;
-		s2n(extlen + idlen + 5, ret);
-		*(ret++) = TLSEXT_STATUSTYPE_ocsp;
-		s2n(idlen, ret);
-		for (i = 0; i < sk_OCSP_RESPID_num(s->internal->tlsext_ocsp_ids); i++) {
-			/* save position of id len */
-			unsigned char *q = ret;
-			id = sk_OCSP_RESPID_value(s->internal->tlsext_ocsp_ids, i);
-			/* skip over id len */
-			ret += 2;
-			itmp = i2d_OCSP_RESPID(id, &ret);
-			/* write id len */
-			s2n(itmp, q);
-		}
-		s2n(extlen, ret);
-		if (extlen > 0)
-			i2d_X509_EXTENSIONS(s->internal->tlsext_ocsp_exts, &ret);
-	}
-
-	if (s->ctx->internal->next_proto_select_cb &&
-	    !S3I(s)->tmp.finish_md_len) {
-		/* The client advertises an emtpy extension to indicate its
-		 * support for Next Protocol Negotiation */
-		if ((size_t)(limit - ret) < 4)
-			return NULL;
-		s2n(TLSEXT_TYPE_next_proto_neg, ret);
-		s2n(0, ret);
-	}
 
 	if (s->internal->alpn_client_proto_list != NULL &&
 	    S3I(s)->tmp.finish_md_len == 0) {
@@ -868,7 +766,6 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 {
 	int extdatalen = 0;
 	unsigned char *ret = p;
-	int next_proto_neg_seen;
 	size_t len;
 	CBB cbb;
 
@@ -894,23 +791,6 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 	 * Currently the server should not respond with a SupportedCurves
 	 * extension.
 	 */
-
-	if (s->internal->tlsext_ticket_expected &&
-	    !(SSL_get_options(s) & SSL_OP_NO_TICKET)) {
-		if ((size_t)(limit - ret) < 4)
-			return NULL;
-
-		s2n(TLSEXT_TYPE_session_ticket, ret);
-		s2n(0, ret);
-	}
-
-	if (s->internal->tlsext_status_expected) {
-		if ((size_t)(limit - ret) < 4)
-			return NULL;
-
-		s2n(TLSEXT_TYPE_status_request, ret);
-		s2n(0, ret);
-	}
 
 #ifndef OPENSSL_NO_SRTP
 	if (SSL_IS_DTLS(s) && s->internal->srtp_profile) {
@@ -947,26 +827,6 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 			return NULL;
 		memcpy(ret, cryptopro_ext, sizeof(cryptopro_ext));
 		ret += sizeof(cryptopro_ext);
-	}
-
-	next_proto_neg_seen = S3I(s)->next_proto_neg_seen;
-	S3I(s)->next_proto_neg_seen = 0;
-	if (next_proto_neg_seen && s->ctx->internal->next_protos_advertised_cb) {
-		const unsigned char *npa;
-		unsigned int npalen;
-		int r;
-
-		r = s->ctx->internal->next_protos_advertised_cb(s, &npa, &npalen,
-		    s->ctx->internal->next_protos_advertised_cb_arg);
-		if (r == SSL_TLSEXT_ERR_OK) {
-			if ((size_t)(limit - ret) < 4 + npalen)
-				return NULL;
-			s2n(TLSEXT_TYPE_next_proto_neg, ret);
-			s2n(npalen, ret);
-			memcpy(ret, npa, npalen);
-			ret += npalen;
-			S3I(s)->next_proto_neg_seen = 1;
-		}
 	}
 
 	if (S3I(s)->alpn_selected != NULL) {
@@ -1064,13 +924,11 @@ ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
 	unsigned short len;
 	unsigned char *data = *p;
 	unsigned char *end = d + n;
-	int sigalg_seen = 0;
 	CBS cbs;
 
 	s->internal->servername_done = 0;
 	s->tlsext_status_type = -1;
 	S3I(s)->renegotiate_seen = 0;
-	S3I(s)->next_proto_neg_seen = 0;
 	free(S3I(s)->alpn_selected);
 	S3I(s)->alpn_selected = NULL;
 	s->internal->srtp_profile = NULL;
@@ -1100,165 +958,14 @@ ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
 		if (!tlsext_clienthello_parse_one(s, &cbs, type, al))
 			return 0;
 
-		if (type == TLSEXT_TYPE_session_ticket) {
-			if (s->internal->tls_session_ticket_ext_cb &&
-			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
-				*al = TLS1_AD_INTERNAL_ERROR;
-				return 0;
-			}
-		} else if (type == TLSEXT_TYPE_signature_algorithms) {
-			int dsize;
-			if (sigalg_seen || size < 2) {
-				*al = SSL_AD_DECODE_ERROR;
-				return 0;
-			}
-			sigalg_seen = 1;
-			n2s(data, dsize);
-			size -= 2;
-			if (dsize != size || dsize & 1) {
-				*al = SSL_AD_DECODE_ERROR;
-				return 0;
-			}
-			if (!tls1_process_sigalgs(s, data, dsize)) {
-				*al = SSL_AD_DECODE_ERROR;
-				return 0;
-			}
-		} else if (type == TLSEXT_TYPE_status_request &&
-		    s->version != DTLS1_VERSION) {
-
-			if (size < 5) {
-				*al = SSL_AD_DECODE_ERROR;
-				return 0;
-			}
-
-			s->tlsext_status_type = *data++;
-			size--;
-			if (s->tlsext_status_type == TLSEXT_STATUSTYPE_ocsp) {
-				const unsigned char *sdata;
-				int dsize;
-				/* Read in responder_id_list */
-				n2s(data, dsize);
-				size -= 2;
-				if (dsize > size) {
-					*al = SSL_AD_DECODE_ERROR;
-					return 0;
-				}
-
-				/*
-				 * We remove any OCSP_RESPIDs from a
-				 * previous handshake to prevent
-				 * unbounded memory growth.
-				 */
-				sk_OCSP_RESPID_pop_free(s->internal->tlsext_ocsp_ids,
-				    OCSP_RESPID_free);
-				s->internal->tlsext_ocsp_ids = NULL;
-				if (dsize > 0) {
-					s->internal->tlsext_ocsp_ids =
-					    sk_OCSP_RESPID_new_null();
-					if (s->internal->tlsext_ocsp_ids == NULL) {
-						*al = SSL_AD_INTERNAL_ERROR;
-						return 0;
-					}
-				}
-
-				while (dsize > 0) {
-					OCSP_RESPID *id;
-					int idsize;
-					if (dsize < 4) {
-						*al = SSL_AD_DECODE_ERROR;
-						return 0;
-					}
-					n2s(data, idsize);
-					dsize -= 2 + idsize;
-					size -= 2 + idsize;
-					if (dsize < 0) {
-						*al = SSL_AD_DECODE_ERROR;
-						return 0;
-					}
-					sdata = data;
-					data += idsize;
-					id = d2i_OCSP_RESPID(NULL,
-					    &sdata, idsize);
-					if (!id) {
-						*al = SSL_AD_DECODE_ERROR;
-						return 0;
-					}
-					if (data != sdata) {
-						OCSP_RESPID_free(id);
-						*al = SSL_AD_DECODE_ERROR;
-						return 0;
-					}
-					if (!sk_OCSP_RESPID_push(
-					    s->internal->tlsext_ocsp_ids, id)) {
-						OCSP_RESPID_free(id);
-						*al = SSL_AD_INTERNAL_ERROR;
-						return 0;
-					}
-				}
-
-				/* Read in request_extensions */
-				if (size < 2) {
-					*al = SSL_AD_DECODE_ERROR;
-					return 0;
-				}
-				n2s(data, dsize);
-				size -= 2;
-				if (dsize != size) {
-					*al = SSL_AD_DECODE_ERROR;
-					return 0;
-				}
-				sdata = data;
-				if (dsize > 0) {
-					sk_X509_EXTENSION_pop_free(s->internal->tlsext_ocsp_exts,
-					    X509_EXTENSION_free);
-
-					s->internal->tlsext_ocsp_exts =
-					    d2i_X509_EXTENSIONS(NULL,
-					    &sdata, dsize);
-					if (!s->internal->tlsext_ocsp_exts ||
-						    (data + dsize != sdata)) {
-						*al = SSL_AD_DECODE_ERROR;
-						return 0;
-					}
-				}
-			} else {
-				/* We don't know what to do with any other type
- 			 	* so ignore it.
- 			 	*/
-				s->tlsext_status_type = -1;
-			}
-		}
-		else if (type == TLSEXT_TYPE_next_proto_neg &&
-		    S3I(s)->tmp.finish_md_len == 0 &&
-		    S3I(s)->alpn_selected == NULL) {
-			/* We shouldn't accept this extension on a
-			 * renegotiation.
-			 *
-			 * s->internal->new_session will be set on renegotiation, but we
-			 * probably shouldn't rely that it couldn't be set on
-			 * the initial renegotation too in certain cases (when
-			 * there's some other reason to disallow resuming an
-			 * earlier session -- the current code won't be doing
-			 * anything like that, but this might change).
-
-			 * A valid sign that there's been a previous handshake
-			 * in this connection is if S3I(s)->tmp.finish_md_len >
-			 * 0.  (We are talking about a check that will happen
-			 * in the Hello protocol round, well before a new
-			 * Finished message could have been computed.) */
-			S3I(s)->next_proto_neg_seen = 1;
-		}
-		else if (type ==
+		if (type ==
 		    TLSEXT_TYPE_application_layer_protocol_negotiation &&
 		    s->ctx->internal->alpn_select_cb != NULL &&
 		    S3I(s)->tmp.finish_md_len == 0) {
 			if (tls1_alpn_handle_client_hello(s, data,
 			    size, al) != 1)
 				return (0);
-			/* ALPN takes precedence over NPN. */
-			S3I(s)->next_proto_neg_seen = 0;
 		}
-
 		/* session ticket processed earlier */
 #ifndef OPENSSL_NO_SRTP
 		else if (SSL_IS_DTLS(s) && type == TLSEXT_TYPE_use_srtp) {
@@ -1293,25 +1000,6 @@ err:
 	return 0;
 }
 
-/*
- * ssl_next_proto_validate validates a Next Protocol Negotiation block. No
- * elements of zero length are allowed and the set of elements must exactly fill
- * the length of the block.
- */
-static char
-ssl_next_proto_validate(const unsigned char *d, unsigned int len)
-{
-	CBS npn, value;
-
-	CBS_init(&npn, d, len);
-	while (CBS_len(&npn) > 0) {
-		if (!CBS_get_u8_length_prefixed(&npn, &value) ||
-		    CBS_len(&value) == 0)
-			return 0;
-	}
-	return 1;
-}
-
 int
 ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 {
@@ -1323,7 +1011,6 @@ ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 	CBS cbs;
 
 	S3I(s)->renegotiate_seen = 0;
-	S3I(s)->next_proto_neg_seen = 0;
 	free(S3I(s)->alpn_selected);
 	S3I(s)->alpn_selected = NULL;
 
@@ -1352,63 +1039,7 @@ ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 		if (!tlsext_serverhello_parse_one(s, &cbs, type, al))
 			return 0;
 
-		if (type == TLSEXT_TYPE_session_ticket) {
-			if (s->internal->tls_session_ticket_ext_cb &&
-			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
-				*al = TLS1_AD_INTERNAL_ERROR;
-				return 0;
-			}
-			if ((SSL_get_options(s) & SSL_OP_NO_TICKET) || (size > 0)) {
-				*al = TLS1_AD_UNSUPPORTED_EXTENSION;
-				return 0;
-			}
-			s->internal->tlsext_ticket_expected = 1;
-		}
-		else if (type == TLSEXT_TYPE_status_request &&
-		    s->version != DTLS1_VERSION) {
-			/* MUST be empty and only sent if we've requested
-			 * a status request message.
-			 */
-			if ((s->tlsext_status_type == -1) || (size > 0)) {
-				*al = TLS1_AD_UNSUPPORTED_EXTENSION;
-				return 0;
-			}
-			/* Set flag to expect CertificateStatus message */
-			s->internal->tlsext_status_expected = 1;
-		}
-		else if (type == TLSEXT_TYPE_next_proto_neg &&
-		    S3I(s)->tmp.finish_md_len == 0) {
-			unsigned char *selected;
-			unsigned char selected_len;
-
-			/* We must have requested it. */
-			if (s->ctx->internal->next_proto_select_cb == NULL) {
-				*al = TLS1_AD_UNSUPPORTED_EXTENSION;
-				return 0;
-			}
-			/* The data must be valid */
-			if (!ssl_next_proto_validate(data, size)) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return 0;
-			}
-			if (s->ctx->internal->next_proto_select_cb(s, &selected,
-			    &selected_len, data, size,
-			    s->ctx->internal->next_proto_select_cb_arg) !=
-			    SSL_TLSEXT_ERR_OK) {
-				*al = TLS1_AD_INTERNAL_ERROR;
-				return 0;
-			}
-			s->internal->next_proto_negotiated = malloc(selected_len);
-			if (!s->internal->next_proto_negotiated) {
-				*al = TLS1_AD_INTERNAL_ERROR;
-				return 0;
-			}
-			memcpy(s->internal->next_proto_negotiated, selected, selected_len);
-			s->internal->next_proto_negotiated_len = selected_len;
-			S3I(s)->next_proto_neg_seen = 1;
-		}
-		else if (type ==
-		    TLSEXT_TYPE_application_layer_protocol_negotiation) {
+		if (type == TLSEXT_TYPE_application_layer_protocol_negotiation) {
 			unsigned int len;
 
 			/* We must have requested it. */
@@ -1997,36 +1628,30 @@ tls12_get_hash(unsigned char hash_alg)
 /* Set preferred digest for each key type */
 
 int
-tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize)
+tls1_process_sigalgs(SSL *s, CBS *cbs)
 {
-	int idx;
 	const EVP_MD *md;
 	CERT *c = s->cert;
-	CBS cbs;
+	int idx;
 
 	/* Extension ignored for inappropriate versions */
 	if (!SSL_USE_SIGALGS(s))
 		return 1;
 
 	/* Should never happen */
-	if (!c || dsize < 0)
+	if (c == NULL)
 		return 0;
-
-	CBS_init(&cbs, data, dsize);
 
 	c->pkeys[SSL_PKEY_RSA_SIGN].digest = NULL;
 	c->pkeys[SSL_PKEY_RSA_ENC].digest = NULL;
 	c->pkeys[SSL_PKEY_ECC].digest = NULL;
 	c->pkeys[SSL_PKEY_GOST01].digest = NULL;
 
-	while (CBS_len(&cbs) > 0) {
+	while (CBS_len(cbs) > 0) {
 		uint8_t hash_alg, sig_alg;
 
-		if (!CBS_get_u8(&cbs, &hash_alg) ||
-		    !CBS_get_u8(&cbs, &sig_alg)) {
-			/* Should never happen */
+		if (!CBS_get_u8(cbs, &hash_alg) || !CBS_get_u8(cbs, &sig_alg))
 			return 0;
-		}
 
 		switch (sig_alg) {
 		case TLSEXT_signature_rsa:
@@ -2055,7 +1680,8 @@ tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize)
 
 	}
 
-	/* Set any remaining keys to default values. NOTE: if alg is not
+	/*
+	 * Set any remaining keys to default values. NOTE: if alg is not
 	 * supported it stays as NULL.
 	 */
 	if (!c->pkeys[SSL_PKEY_RSA_SIGN].digest) {

@@ -64,7 +64,7 @@
 /setjmp.h/1.1/Wed Jan 28 01:39:39 2004//
 /signal.h/1.9/Tue May 10 18:39:42 2016//
 /smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
-/specialreg.h/1.60/Wed Aug  9 21:23:38 2017//
+/specialreg.h/1.61/Sat Aug 12 19:53:37 2017//
 /spinlock.h/1.2/Sat Jun  1 20:47:40 2013//
 /stdarg.h/1.9/Tue Mar 11 19:45:27 2014//
 /sysarch.h/1.13/Sun May  5 19:25:57 2013//
@@ -72,6 +72,6 @@
 /trap.h/1.3/Sun Jun 28 01:16:29 2015//
 /tss.h/1.4/Wed Mar 23 16:54:34 2011//
 /vga_post.h/1.2/Wed Mar 23 16:54:34 2011//
-/vmmvar.h/1.44/Sat Aug  5 05:49:37 2017//
+/vmmvar.h/1.45/Sat Aug 12 19:56:08 2017//
 /vmparam.h/1.21/Sun Feb  8 03:48:25 2015//
 D

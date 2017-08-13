@@ -1,4 +1,4 @@
-/* $OpenBSD: tlsexttest.c,v 1.8 2017/08/11 21:22:12 jsing Exp $ */
+/* $OpenBSD: tlsexttest.c,v 1.12 2017/08/12 23:39:24 beck Exp $ */
 /*
  * Copyright (c) 2017 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
@@ -995,7 +995,7 @@ test_tlsext_ri_serverhello(void)
 	}
 
         S3I(ssl)->send_connection_binding = 1;
-	
+
 	if (!tlsext_ri_serverhello_needs(ssl)) {
 		FAIL("serverhello should need RI\n");
 		goto err;
@@ -1070,6 +1070,165 @@ test_tlsext_ri_serverhello(void)
 	failure = 0;
 
  err:
+	CBB_cleanup(&cbb);
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+	free(data);
+
+	return (failure);
+}
+
+/*
+ * Signature Algorithms - RFC 5246 section 7.4.1.4.1.
+ */
+
+static unsigned char tlsext_sigalgs_clienthello[] = {
+	0x00, 0x1a, 0x06, 0x01, 0x06, 0x03, 0xef, 0xef,
+	0x05, 0x01, 0x05, 0x03, 0x04, 0x01, 0x04, 0x03,
+	0xee, 0xee, 0xed, 0xed, 0x03, 0x01, 0x03, 0x03,
+	0x02, 0x01, 0x02, 0x03,
+};
+
+static int
+test_tlsext_sigalgs_clienthello(void)
+{
+	unsigned char *data = NULL;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	int failure = 0;
+	size_t dlen;
+	int alert;
+	CBB cbb;
+	CBS cbs;
+
+	CBB_init(&cbb, 0);
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	ssl->client_version = TLS1_1_VERSION;
+
+	if (tlsext_sigalgs_clienthello_needs(ssl)) {
+		fprintf(stderr, "FAIL: clienthello should not need sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+	ssl->client_version = TLS1_2_VERSION;
+
+	if (!tlsext_sigalgs_clienthello_needs(ssl)) {
+		fprintf(stderr, "FAIL: clienthello should need sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+	if (!tlsext_sigalgs_clienthello_build(ssl, &cbb)) {
+		fprintf(stderr, "FAIL: clienthello failed to build sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+	if (!CBB_finish(&cbb, &data, &dlen))
+		errx(1, "failed to finish CBB");
+
+	if (dlen != sizeof(tlsext_sigalgs_clienthello)) {
+		fprintf(stderr, "FAIL: got clienthello sigalgs with length %zu, "
+		    "want length %zu\n", dlen, sizeof(tlsext_sigalgs_clienthello));
+		failure = 1;
+		goto done;
+	}
+
+	if (memcmp(data, tlsext_sigalgs_clienthello, dlen) != 0) {
+		fprintf(stderr, "FAIL: clienthello SNI differs:\n");
+		fprintf(stderr, "received:\n");
+		hexdump(data, dlen);
+		fprintf(stderr, "test data:\n");
+		hexdump(tlsext_sigalgs_clienthello, sizeof(tlsext_sigalgs_clienthello));
+		failure = 1;
+		goto done;
+	}
+
+	CBS_init(&cbs, tlsext_sigalgs_clienthello, sizeof(tlsext_sigalgs_clienthello));
+	if (!tlsext_sigalgs_clienthello_parse(ssl, &cbs, &alert)) {
+		fprintf(stderr, "FAIL: failed to parse clienthello SNI\n");
+		failure = 1;
+		goto done;
+	}
+
+	if (ssl->cert->pkeys[SSL_PKEY_RSA_SIGN].digest != EVP_sha512()) {
+		fprintf(stderr, "FAIL: RSA sign digest mismatch\n");
+		failure = 1;
+		goto done;
+	}
+	if (ssl->cert->pkeys[SSL_PKEY_RSA_ENC].digest != EVP_sha512()) {
+		fprintf(stderr, "FAIL: RSA enc digest mismatch\n");
+		failure = 1;
+		goto done;
+	}
+	if (ssl->cert->pkeys[SSL_PKEY_ECC].digest != EVP_sha512()) {
+		fprintf(stderr, "FAIL: ECC digest mismatch\n");
+		failure = 1;
+		goto done;
+	}
+	if (ssl->cert->pkeys[SSL_PKEY_GOST01].digest != EVP_streebog512()) {
+		fprintf(stderr, "FAIL: GOST01 digest mismatch\n");
+		failure = 1;
+		goto done;
+	}
+		
+ done:
+	CBB_cleanup(&cbb);
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+	free(data);
+
+	return (failure);
+}
+
+static int
+test_tlsext_sigalgs_serverhello(void)
+{
+	unsigned char *data = NULL;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	int failure = 0;
+	size_t dlen;
+	int alert;
+	CBB cbb;
+	CBS cbs;
+
+	CBB_init(&cbb, 0);
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_server_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	if (tlsext_sigalgs_serverhello_needs(ssl)) {
+		fprintf(stderr, "FAIL: serverhello should not need sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+	if (tlsext_sigalgs_serverhello_build(ssl, &cbb)) {
+		fprintf(stderr, "FAIL: serverhello should not build sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+	if (!CBB_finish(&cbb, &data, &dlen))
+		errx(1, "failed to finish CBB");
+
+	CBS_init(&cbs, tlsext_sigalgs_clienthello, sizeof(tlsext_sigalgs_clienthello));
+	if (tlsext_sigalgs_serverhello_parse(ssl, &cbs, &alert)) {
+		fprintf(stderr, "FAIL: failed to parse serverhello sigalgs\n");
+		failure = 1;
+		goto done;
+	}
+
+ done:
 	CBB_cleanup(&cbb);
 	SSL_CTX_free(ssl_ctx);
 	SSL_free(ssl);
@@ -1236,7 +1395,7 @@ test_tlsext_sni_serverhello(void)
 	if ((ssl->session->tlsext_hostname = strdup(TEST_SNI_SERVERNAME)) ==
 	    NULL)
 		errx(1, "failed to strdup tlsext_hostname");
-	
+
 	if (!tlsext_sni_serverhello_needs(ssl)) {
 		FAIL("serverhello should need SNI\n");
 		goto err;
@@ -1298,6 +1457,428 @@ test_tlsext_sni_serverhello(void)
 	return (failure);
 }
 
+static unsigned char tls_ocsp_clienthello_default[] = {
+	0x01, 0x00, 0x00, 0x00, 0x00
+};
+
+static int
+test_tlsext_ocsp_clienthello(void)
+{
+	unsigned char *data = NULL;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	size_t dlen;
+	int failure;
+	int alert;
+	CBB cbb;
+	CBS cbs;
+
+	failure = 1;
+
+	CBB_init(&cbb, 0);
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	if (tlsext_ocsp_clienthello_needs(ssl)) {
+		FAIL("clienthello should not need ocsp\n");
+		goto err;
+	}
+	SSL_set_tlsext_status_type(ssl, TLSEXT_STATUSTYPE_ocsp);
+
+	if (!tlsext_ocsp_clienthello_needs(ssl)) {
+		FAIL("clienthello should need ocsp\n");
+		goto err;
+	}
+	if (!tlsext_ocsp_clienthello_build(ssl, &cbb)) {
+		FAIL("clienthello failed to build SNI\n");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen))
+		errx(1, "failed to finish CBB");
+
+	if (dlen != sizeof(tls_ocsp_clienthello_default)) {
+		FAIL("got ocsp clienthello with length %zu, "
+		    "want length %zu\n", dlen,
+		    sizeof(tls_ocsp_clienthello_default));
+		goto err;
+	}
+	if (memcmp(data, tls_ocsp_clienthello_default, dlen) != 0) {
+		FAIL("ocsp clienthello differs:\n");
+		fprintf(stderr, "received:\n");
+		hexdump(data, dlen);
+		fprintf(stderr, "test data:\n");
+		hexdump(tls_ocsp_clienthello_default,
+		    sizeof(tls_ocsp_clienthello_default));
+		goto err;
+	}
+	CBS_init(&cbs, tls_ocsp_clienthello_default,
+	    sizeof(tls_ocsp_clienthello_default));
+	if (!tlsext_ocsp_clienthello_parse(ssl, &cbs, &alert)) {
+		FAIL("failed to parse ocsp clienthello\n");
+		goto err;
+	}
+
+	failure = 0;
+
+ err:
+	CBB_cleanup(&cbb);
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+	free(data);
+
+	return (failure);
+}
+
+static int
+test_tlsext_ocsp_serverhello(void)
+{
+	unsigned char *data = NULL;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	size_t dlen;
+	int failure;
+	CBB cbb;
+
+	failure = 1;
+
+	CBB_init(&cbb, 0);
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	if (tlsext_ocsp_serverhello_needs(ssl)) {
+		FAIL("serverhello should not need ocsp\n");
+		goto err;
+	}
+
+	ssl->internal->tlsext_status_expected = 1;
+
+	if (!tlsext_ocsp_serverhello_needs(ssl)) {
+		FAIL("serverhello should need ocsp\n");
+		goto err;
+	}
+	if (!tlsext_ocsp_serverhello_build(ssl, &cbb)) {
+		FAIL("serverhello failed to build ocsp\n");
+		goto err;
+	}
+
+	if (!CBB_finish(&cbb, &data, &dlen))
+		errx(1, "failed to finish CBB");
+
+	failure = 0;
+
+ err:
+	CBB_cleanup(&cbb);
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+	free(data);
+
+	return (failure);
+}
+
+/*
+ * Session ticket - RFC 5077 since no known implementations use 4507.
+ *
+ * Session tickets can be length 0 (special case) to 2^16-1.
+ *
+ * The state is encrypted by the server so it is opaque to the client.
+ */
+static uint8_t tlsext_sessionticket_hello_min[1];
+static uint8_t tlsext_sessionticket_hello_max[65535];
+
+static int
+test_tlsext_sessionticket_clienthello(void)
+{
+	unsigned char *data = NULL;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	int failure;
+	CBB cbb;
+	size_t dlen;
+	uint8_t dummy[1234];
+
+	failure = 1;
+
+	CBB_init(&cbb, 0);
+
+	/* Create fake session tickets with random data. */
+	arc4random_buf(tlsext_sessionticket_hello_min,
+	    sizeof(tlsext_sessionticket_hello_min));
+	arc4random_buf(tlsext_sessionticket_hello_max,
+	    sizeof(tlsext_sessionticket_hello_max));
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	/* Should need a ticket by default. */
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("clienthello should need Sessionticket for default "
+		    "ciphers\n");
+		goto err;
+	}
+
+	/* Test disabling tickets. */
+	if ((SSL_set_options(ssl, SSL_OP_NO_TICKET) & SSL_OP_NO_TICKET) == 0) {
+		FAIL("Cannot disable tickets in the TLS connection");
+		return 0;
+	}
+	if (tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("clienthello should not need SessionTicket if it was disabled");
+		goto err;
+	}
+
+	/* Test re-enabling tickets. */
+	if ((SSL_clear_options(ssl, SSL_OP_NO_TICKET) & SSL_OP_NO_TICKET) != 0) {
+		FAIL("Cannot re-enable tickets in the TLS connection");
+		return 0;
+	}
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("clienthello should need SessionTicket if it was disabled");
+		goto err;
+	}
+
+	/* Since we don't have a session, we should build an empty ticket. */
+	if (!tlsext_sessionticket_clienthello_build(ssl, &cbb)) {
+		FAIL("Cannot build a ticket");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen)) {
+		FAIL("Cannot finish CBB");
+		goto err;
+	}
+	if (dlen != 0) {
+		FAIL("Expected 0 length but found %zu\n", dlen);
+		goto err;
+	}
+
+	CBB_cleanup(&cbb);
+	CBB_init(&cbb, 0);
+	free(data);
+	data = NULL;
+
+	/* With a new session (but no ticket), we should still have 0 length */
+	if ((ssl->session = SSL_SESSION_new()) == NULL)
+		errx(1, "failed to create session");
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("Should still want a session ticket with a new session");
+		goto err;
+	}
+	if (!tlsext_sessionticket_clienthello_build(ssl, &cbb)) {
+		FAIL("Cannot build a ticket");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen)) {
+		FAIL("Cannot finish CBB");
+		goto err;
+	}
+	if (dlen != 0) {
+		FAIL("Expected 0 length but found %zu\n", dlen);
+		goto err;
+	}
+
+	CBB_cleanup(&cbb);
+	CBB_init(&cbb, 0);
+	free(data);
+	data = NULL;
+
+	/* With a new session (and ticket), we should use that ticket */
+	SSL_SESSION_free(ssl->session);
+	if ((ssl->session = SSL_SESSION_new()) == NULL)
+		errx(1, "failed to create session");
+
+	arc4random_buf(&dummy, sizeof(dummy));
+	if ((ssl->session->tlsext_tick = malloc(sizeof(dummy))) == NULL) {
+		errx(1, "failed to malloc");
+	}
+	memcpy(ssl->session->tlsext_tick, dummy, sizeof(dummy));
+	ssl->session->tlsext_ticklen = sizeof(dummy);
+
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("Should still want a session ticket with a new session");
+		goto err;
+	}
+	if (!tlsext_sessionticket_clienthello_build(ssl, &cbb)) {
+		FAIL("Cannot build a ticket");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen)) {
+		FAIL("Cannot finish CBB");
+		goto err;
+	}
+	if (dlen != sizeof(dummy)) {
+		FAIL("Expected %zu length but found %zu\n", sizeof(dummy), dlen);
+		goto err;
+	}
+	if (memcmp(data, dummy, dlen) != 0) {
+		FAIL("serverhello SNI differs:\n");
+		compare_data(data, dlen,
+		    dummy, sizeof(dummy));
+		goto err;
+	}
+
+	CBB_cleanup(&cbb);
+	CBB_init(&cbb, 0);
+	free(data);
+	data = NULL;
+	free(ssl->session->tlsext_tick);
+	ssl->session->tlsext_tick = NULL;
+	ssl->session->tlsext_ticklen = 0;
+
+	/*
+	 * Send in NULL to disable session tickets at runtime without going
+	 * through SSL_set_options().
+	 */
+	if (!SSL_set_session_ticket_ext(ssl, NULL, 0)) {
+		FAIL("Could not set a NULL custom ticket");
+		goto err;
+	}
+	/* Should not need a ticket in this case */
+	if (tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("Should not want to use session tickets with a NULL custom");
+		goto err;
+	}
+
+	/*
+	 * If you want to remove the tlsext_session_ticket behavior, you have
+	 * to do it manually.
+	 */
+	free(ssl->internal->tlsext_session_ticket);
+	ssl->internal->tlsext_session_ticket = NULL;
+
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("Should need a session ticket again when the custom one is removed");
+		goto err;
+	}
+
+	/* Test a custom session ticket (not recommended in practice) */
+	if (!SSL_set_session_ticket_ext(ssl, tlsext_sessionticket_hello_max,
+	    sizeof(tlsext_sessionticket_hello_max))) {
+		FAIL("Should be able to set a custom ticket");
+		goto err;
+	}
+	if (!tlsext_sessionticket_clienthello_needs(ssl)) {
+		FAIL("Should need a session ticket again when the custom one is not empty");
+		goto err;
+	}
+	if (!tlsext_sessionticket_clienthello_build(ssl, &cbb)) {
+		FAIL("Cannot build a ticket with a max length random payload");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen)) {
+		FAIL("Cannot finish CBB");
+		goto err;
+	}
+	if (dlen != sizeof(tlsext_sessionticket_hello_max)) {
+		FAIL("Expected %zu length but found %zu\n",
+		    sizeof(tlsext_sessionticket_hello_max), dlen);
+		goto err;
+	}
+	if (memcmp(data, tlsext_sessionticket_hello_max,
+	    sizeof(tlsext_sessionticket_hello_max)) != 0) {
+		FAIL("Expected to get what we passed in");
+		compare_data(data, dlen,
+		    tlsext_sessionticket_hello_max,
+		    sizeof(tlsext_sessionticket_hello_max));
+		goto err;
+	}
+
+	failure = 0;
+
+ err:
+	CBB_cleanup(&cbb);
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+	free(data);
+
+	return (failure);
+}
+
+
+static int
+test_tlsext_sessionticket_serverhello(void)
+{
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
+	int failure;
+	uint8_t *data;
+	size_t dlen;
+	CBB cbb;
+
+	CBB_init(&cbb, 0);
+
+	failure = 1;
+
+	if ((ssl_ctx = SSL_CTX_new(TLS_server_method())) == NULL)
+		errx(1, "failed to create SSL_CTX");
+	if ((ssl = SSL_new(ssl_ctx)) == NULL)
+		errx(1, "failed to create SSL");
+
+	/*
+	 * By default, should not need a session ticket since the ticket
+	 * is not yet expected.
+	 */
+	if (tlsext_sessionticket_serverhello_needs(ssl)) {
+		FAIL("serverhello should not need SessionTicket by default\n");
+		goto err;
+	}
+
+	/* Test disabling tickets. */
+	if ((SSL_set_options(ssl, SSL_OP_NO_TICKET) & SSL_OP_NO_TICKET) == 0) {
+		FAIL("Cannot disable tickets in the TLS connection");
+		return 0;
+	}
+	if (tlsext_sessionticket_serverhello_needs(ssl)) {
+		FAIL("serverhello should not need SessionTicket if it was disabled");
+		goto err;
+	}
+
+	/* Test re-enabling tickets. */
+	if ((SSL_clear_options(ssl, SSL_OP_NO_TICKET) & SSL_OP_NO_TICKET) != 0) {
+		FAIL("Cannot re-enable tickets in the TLS connection");
+		return 0;
+	}
+	if (tlsext_sessionticket_serverhello_needs(ssl)) {
+		FAIL("serverhello should not need SessionTicket yet");
+		goto err;
+	}
+
+	/* Set expected to require it. */
+	ssl->internal->tlsext_ticket_expected = 1;
+	if (!tlsext_sessionticket_serverhello_needs(ssl)) {
+		FAIL("serverhello should now be required for SessionTicket");
+		goto err;
+	}
+
+	/* server hello's session ticket should always be 0 length payload. */
+	if (!tlsext_sessionticket_serverhello_build(ssl, &cbb)) {
+		FAIL("Cannot build a ticket with a max length random payload");
+		goto err;
+	}
+	if (!CBB_finish(&cbb, &data, &dlen)) {
+		FAIL("Cannot finish CBB");
+		goto err;
+	}
+	if (dlen != 0) {
+		FAIL("Expected 0 length but found %zu\n", dlen);
+		goto err;
+	}
+
+	failure = 0;
+
+ err:
+	SSL_CTX_free(ssl_ctx);
+	SSL_free(ssl);
+
+	return (failure);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1314,8 +1895,17 @@ main(int argc, char **argv)
 	failed |= test_tlsext_ri_clienthello();
 	failed |= test_tlsext_ri_serverhello();
 
+	failed |= test_tlsext_sigalgs_clienthello();
+	failed |= test_tlsext_sigalgs_serverhello();
+
 	failed |= test_tlsext_sni_clienthello();
 	failed |= test_tlsext_sni_serverhello();
+
+	failed |= test_tlsext_ocsp_clienthello();
+	failed |= test_tlsext_ocsp_serverhello();
+
+	failed |= test_tlsext_sessionticket_clienthello();
+	failed |= test_tlsext_sessionticket_serverhello();
 
 	return (failed);
 }

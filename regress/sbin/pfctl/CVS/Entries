@@ -444,6 +444,9 @@
 /pfcmd1.in/1.1/Sat Jul  3 02:32:45 2010//
 /pfcmd1.ok/1.1/Sat Jul  3 02:32:45 2010//
 /pfcmd1.opts/1.2/Sat Jul 15 15:59:52 2017//
+/pfcmdfail1.in/1.1/Sun Aug 13 02:20:43 2017//
+/pfcmdfail1.ok/1.1/Sun Aug 13 02:20:43 2017//
+/pfcmdfail1.opts/1.1/Sun Aug 13 02:20:43 2017//
 /pfi1.in/1.1/Tue Jan  6 12:34:05 2004//
 /pfi1.ok/1.1/Tue Jan  6 12:34:05 2004//
 /pfi2.in/1.1/Tue Jan  6 12:34:05 2004//
