@@ -13,7 +13,7 @@
 /chio.h/1.7/Wed May 31 03:01:44 2006//
 /conf.h/1.143/Sun Sep  4 10:51:24 2016//
 /core.h/1.7/Sat Sep 17 06:09:08 2016//
-/ctf.h/1.4/Mon May  8 11:14:33 2017//
+/ctf.h/1.5/Sun Aug 13 14:56:05 2017//
 /device.h/1.54/Fri Dec 11 16:07:02 2015//
 /dir.h/1.5/Mon Jun  2 23:28:21 2003//
 /dirent.h/1.11/Fri Dec 13 18:09:27 2013//
@@ -46,7 +46,7 @@
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
 /kernel.h/1.17/Mon Jul 20 23:47:20 2015//
 /kthread.h/1.6/Mon Nov 18 20:21:51 2013//
-/ktrace.h/1.34/Thu Apr 20 15:21:51 2017//
+/ktrace.h/1.35/Sun Aug 13 18:51:06 2017//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.9/Sun Mar 24 17:45:25 2013//
@@ -67,7 +67,7 @@
 /pipe.h/1.15/Mon Mar 25 17:21:35 2013//
 /pledge.h/1.31/Thu Apr 20 15:21:51 2017//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
-/pool.h/1.73/Fri Jun 23 01:02:18 2017//
+/pool.h/1.74/Sun Aug 13 20:26:33 2017//
 /proc.h/1.239/Fri Apr 28 13:50:55 2017//
 /protosw.h/1.25/Fri Apr 14 20:46:31 2017//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
@@ -128,7 +128,7 @@
 /varargs.h/1.2/Sat Jan  3 14:55:34 2004//
 /videoio.h/1.16/Fri Feb 17 06:48:33 2017//
 /vmmeter.h/1.15/Wed Jul 27 14:44:59 2016//
-/vnode.h/1.138/Fri Sep 16 03:40:28 2016//
+/vnode.h/1.140/Sun Aug 13 22:02:22 2017//
 /wait.h/1.17/Fri Jun 13 22:40:31 2014//
 /witness.h/1.1/Thu Apr 20 12:59:36 2017//
 D

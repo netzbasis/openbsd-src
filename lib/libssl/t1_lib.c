@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.131 2017/08/12 23:38:12 beck Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.134 2017/08/13 21:10:42 bcook Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -270,7 +270,7 @@ tls1_ec_curve_id2nid(const uint16_t curve_id)
 }
 
 uint16_t
-tls1_ec_nid2curve_id(int nid)
+tls1_ec_nid2curve_id(const int nid)
 {
 	/* ECC curves from draft-ietf-tls-ecc-12.txt (Oct. 17, 2005) */
 	switch (nid) {
@@ -720,40 +720,6 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 	}
 #endif
 
-	/*
-	 * Add padding to workaround bugs in F5 terminators.
-	 * See https://tools.ietf.org/html/draft-agl-tls-padding-03
-	 *
-	 * Note that this seems to trigger issues with IronPort SMTP
-	 * appliances.
-	 *
-	 * NB: because this code works out the length of all existing
-	 * extensions it MUST always appear last.
-	 */
-	if (s->internal->options & SSL_OP_TLSEXT_PADDING) {
-		int hlen = ret - (unsigned char *)s->internal->init_buf->data;
-
-		/*
-		 * The code in s23_clnt.c to build ClientHello messages
-		 * includes the 5-byte record header in the buffer, while the
-		 * code in s3_clnt.c does not.
-		 */
-		if (S3I(s)->hs.state == SSL23_ST_CW_CLNT_HELLO_A)
-			hlen -= 5;
-		if (hlen > 0xff && hlen < 0x200) {
-			hlen = 0x200 - hlen;
-			if (hlen >= 4)
-				hlen -= 4;
-			else
-				hlen = 0;
-
-			s2n(TLSEXT_TYPE_padding, ret);
-			s2n(hlen, ret);
-			memset(ret, 0, hlen);
-			ret += hlen;
-		}
-	}
-
 	if ((extdatalen = ret - p - 2) == 0)
 		return p;
 
@@ -811,23 +777,6 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		ret += el;
 	}
 #endif
-
-	if (((S3I(s)->hs.new_cipher->id & 0xFFFF) == 0x80 ||
-	    (S3I(s)->hs.new_cipher->id & 0xFFFF) == 0x81) &&
-	    (SSL_get_options(s) & SSL_OP_CRYPTOPRO_TLSEXT_BUG)) {
-		static const unsigned char cryptopro_ext[36] = {
-			0xfd, 0xe8, /*65000*/
-			0x00, 0x20, /*32 bytes length*/
-			0x30, 0x1e, 0x30, 0x08, 0x06, 0x06, 0x2a, 0x85,
-			0x03, 0x02, 0x02, 0x09, 0x30, 0x08, 0x06, 0x06,
-			0x2a, 0x85, 0x03, 0x02, 0x02, 0x16, 0x30, 0x08,
-			0x06, 0x06, 0x2a, 0x85, 0x03, 0x02, 0x02, 0x17
-		};
-		if ((size_t)(limit - ret) < sizeof(cryptopro_ext))
-			return NULL;
-		memcpy(ret, cryptopro_ext, sizeof(cryptopro_ext));
-		ret += sizeof(cryptopro_ext);
-	}
 
 	if (S3I(s)->alpn_selected != NULL) {
 		const unsigned char *selected = S3I(s)->alpn_selected;
