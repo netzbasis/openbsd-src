@@ -1,5 +1,7 @@
+/*	$OpenBSD: rthread_once.c,v 1.1 2017/08/15 06:13:24 guenther Exp $ */
 /*
- * Copyright (c) 2014 Philip Guenther <guenther@openbsd.org>
+ * Copyright (c) 2004,2005 Ted Unangst <tedu@openbsd.org>
+ * All Rights Reserved.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,30 +16,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <signal.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
+#include <pthread.h>
 
-#include "thread_private.h"
-
-void
-_thread_set_callbacks(const struct thread_callbacks *cb, size_t len)
+int
+pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
 {
-	sigset_t allmask, omask;
-
-	if (sizeof(*cb) != len) {
-		fprintf(stderr, "library mismatch: libc expected %zu but"
-		    " libpthread gave %zu\n", sizeof(*cb), len);
-		fflush(stderr);
-		_exit(44);
+	pthread_mutex_lock(&once_control->mutex);
+	if (once_control->state == PTHREAD_NEEDS_INIT) {
+		init_routine();
+		once_control->state = PTHREAD_DONE_INIT;
 	}
+	pthread_mutex_unlock(&once_control->mutex);
 
-	sigfillset(&allmask);
-	if (sigprocmask(SIG_BLOCK, &allmask, &omask) == 0) {
-		/* mprotect RW */
-		memcpy(&_thread_cb, cb, sizeof(_thread_cb));
-		/* mprotect RO | LOCKPERM | NOUNMAP */
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-	}
+	return (0);
 }

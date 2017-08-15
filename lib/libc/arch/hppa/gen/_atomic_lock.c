@@ -1,5 +1,6 @@
+/* $OpenBSD: _atomic_lock.c,v 1.1 2017/08/15 06:13:24 guenther Exp $ */
 /*
- * Copyright (c) 2014 Philip Guenther <guenther@openbsd.org>
+ * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,30 +15,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <signal.h>
+#include <machine/spinlock.h>
+#ifdef DIAGNOSTIC
 #include <stdio.h>
-#include <string.h>
-#include <unistd.h>
+#include <stdlib.h>
+#endif
 
-#include "thread_private.h"
-
-void
-_thread_set_callbacks(const struct thread_callbacks *cb, size_t len)
+int
+_atomic_lock(volatile _atomic_lock_t *lock)
 {
-	sigset_t allmask, omask;
+	volatile _atomic_lock_t old;
 
-	if (sizeof(*cb) != len) {
-		fprintf(stderr, "library mismatch: libc expected %zu but"
-		    " libpthread gave %zu\n", sizeof(*cb), len);
-		fflush(stderr);
-		_exit(44);
+#ifdef DIAGNOSTIC
+	if ((unsigned long)lock & 0xf) {
+		printf("lock not 16 byte aligned\n");
+		abort();
 	}
+#endif
 
-	sigfillset(&allmask);
-	if (sigprocmask(SIG_BLOCK, &allmask, &omask) == 0) {
-		/* mprotect RW */
-		memcpy(&_thread_cb, cb, sizeof(_thread_cb));
-		/* mprotect RO | LOCKPERM | NOUNMAP */
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-	}
+	asm volatile ("ldcws 0(%2),%0"
+		     : "=&r" (old), "+m" (lock)
+		     : "r" (lock));
+
+	return (old == _ATOMIC_LOCK_LOCKED);
 }

@@ -1,5 +1,6 @@
+/*	$OpenBSD: sched.h,v 1.1 2017/08/15 07:02:34 guenther Exp $	*/
 /*
- * Copyright (c) 2014 Philip Guenther <guenther@openbsd.org>
+ * Copyright (c) 2017 Philip Guenther <guenther@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,30 +15,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <signal.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
+#ifndef	_LIBC_SCHED_H_
+#define	_LIBC_SCHED_H_
 
-#include "thread_private.h"
+#include_next <sched.h>
 
-void
-_thread_set_callbacks(const struct thread_callbacks *cb, size_t len)
-{
-	sigset_t allmask, omask;
+PROTO_NORMAL(sched_yield);
 
-	if (sizeof(*cb) != len) {
-		fprintf(stderr, "library mismatch: libc expected %zu but"
-		    " libpthread gave %zu\n", sizeof(*cb), len);
-		fflush(stderr);
-		_exit(44);
-	}
-
-	sigfillset(&allmask);
-	if (sigprocmask(SIG_BLOCK, &allmask, &omask) == 0) {
-		/* mprotect RW */
-		memcpy(&_thread_cb, cb, sizeof(_thread_cb));
-		/* mprotect RO | LOCKPERM | NOUNMAP */
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-	}
-}
+#endif /* !_LIBC_SCHED_H_ */
