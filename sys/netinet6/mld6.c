@@ -1,4 +1,4 @@
-/*	$OpenBSD: mld6.c,v 1.48 2016/07/05 10:17:14 mpi Exp $	*/
+/*	$OpenBSD: mld6.c,v 1.54 2017/05/16 12:24:02 mpi Exp $	*/
 /*	$KAME: mld6.c,v 1.26 2001/02/16 14:50:35 itojun Exp $	*/
 
 /*
@@ -109,16 +109,15 @@ mld6_init(void)
 	hbh_buf[3] = 0;
 	hbh_buf[4] = IP6OPT_ROUTER_ALERT;
 	hbh_buf[5] = IP6OPT_RTALERT_LEN - 2;
-	bcopy((caddr_t)&rtalert_code, &hbh_buf[6], sizeof(u_int16_t));
+	memcpy(&hbh_buf[6], (caddr_t)&rtalert_code, sizeof(u_int16_t));
 
+	ip6_initpktopts(&ip6_opts);
 	ip6_opts.ip6po_hbh = hbh;
 }
 
 void
 mld6_start_listening(struct in6_multi *in6m)
 {
-	int s = splsoftnet();
-
 	/*
 	 * RFC2710 page 10:
 	 * The node never sends a Report or Done for the link-scope all-nodes
@@ -139,14 +138,11 @@ mld6_start_listening(struct in6_multi *in6m)
 		in6m->in6m_state = MLD_IREPORTEDLAST;
 		mld_timers_are_running = 1;
 	}
-	splx(s);
 }
 
 void
 mld6_stop_listening(struct in6_multi *in6m)
 {
-	int s = splsoftnet();
-
 	mld_all_nodes_linklocal.s6_addr16[1] = htons(in6m->in6m_ifidx);/* XXX */
 	mld_all_routers_linklocal.s6_addr16[1] =
 	    htons(in6m->in6m_ifidx); /* XXX: necessary when mrouting */
@@ -156,7 +152,6 @@ mld6_stop_listening(struct in6_multi *in6m)
 	    __IPV6_ADDR_MC_SCOPE(&in6m->in6m_addr) > __IPV6_ADDR_SCOPE_INTFACELOCAL)
 		mld6_sendpkt(in6m, MLD_LISTENER_DONE,
 		    &mld_all_routers_linklocal);
-	splx(s);
 }
 
 void
@@ -171,7 +166,7 @@ mld6_input(struct mbuf *m, int off)
 
 	IP6_EXTHDR_GET(mldh, struct mld_hdr *, m, off, sizeof(*mldh));
 	if (mldh == NULL) {
-		icmp6stat.icp6s_tooshort++;
+		icmp6stat_inc(icp6s_tooshort);
 		return;
 	}
 
@@ -331,7 +326,6 @@ void
 mld6_fasttimeo(void)
 {
 	struct ifnet *ifp;
-	int s;
 
 	/*
 	 * Quick check to see if any work needs to be done, in order
@@ -340,11 +334,9 @@ mld6_fasttimeo(void)
 	if (!mld_timers_are_running)
 		return;
 
-	s = splsoftnet();
 	mld_timers_are_running = 0;
 	TAILQ_FOREACH(ifp, &ifnet, if_list)
 		mld6_checktimer(ifp);
-	splx(s);
 }
 
 void
@@ -353,7 +345,7 @@ mld6_checktimer(struct ifnet *ifp)
 	struct in6_multi *in6m;
 	struct ifmaddr *ifma;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 	TAILQ_FOREACH(ifma, &ifp->if_maddrlist, ifma_list) {
 		if (ifma->ifma_addr->sa_family != AF_INET6)
@@ -453,17 +445,16 @@ mld6_sendpkt(struct in6_multi *in6m, int type, const struct in6_addr *dst)
 	im6o.im6o_ifidx = ifp->if_index;
 	im6o.im6o_hlim = 1;
 
-	if_put(ifp);
-
 	/*
 	 * Request loopback of the report if we are acting as a multicast
 	 * router, so that the process-level routing daemon can hear it.
 	 */
 #ifdef MROUTING
-	im6o.im6o_loop = (ip6_mrouter != NULL);
+	im6o.im6o_loop = (ip6_mrouter[ifp->if_rdomain] != NULL);
 #endif
+	if_put(ifp);
 
-	icmp6stat.icp6s_outhist[type]++;
+	icmp6stat_inc(icp6s_outhist + type);
 	ip6_output(mh, &ip6_opts, NULL, ia6 ? 0 : IPV6_UNSPECSRC, &im6o,
 	    NULL);
 }

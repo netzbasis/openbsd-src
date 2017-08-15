@@ -17,11 +17,11 @@
  *	2.
  *		                                        [ exp(x) - 1 ]^2
  *	    0        <= x <= ln2/2  :  coshl(x) := 1 + -------------------
- *			       			           2*exp(x)
+ *						           2*exp(x)
  *
  *		                                   exp(x) +  1/exp(x)
  *	    ln2/2    <= x <= 22     :  coshl(x) := -------------------
- *			       			           2
+ *						           2
  *	    22       <= x <= lnovft :  coshl(x) := expl(x)/2
  *	    lnovft   <= x <= ln2ovft:  coshl(x) := expl(x/2)/2 * expl(x/2)
  *	    ln2ovft  <  x	    :  coshl(x) := huge*huge (overflow)
@@ -80,3 +80,4 @@ coshl(long double x)
     /* |x| >= log(2*maxdouble), cosh(x) overflow */
 	return huge*huge;
 }
+DEF_STD(coshl);

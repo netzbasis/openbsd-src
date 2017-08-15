@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.86 2016/07/04 18:01:44 guenther Exp $
+#	$OpenBSD: Makefile,v 1.89 2017/07/01 13:50:45 djm Exp $
 
 .PATH:		${.CURDIR}/..
 .include "${.CURDIR}/../Makefile.inc"
@@ -25,7 +25,7 @@ LIB_SRCS+=	digest-libc.c
 SRCS=	${LIB_SRCS} \
 	authfd.c authfile.c bufaux.c buffer.c canohost.c \
 	channels.c cipher.c \
-	cleanup.c compat.c crc32.c deattack.c fatal.c \
+	cleanup.c compat.c crc32.c fatal.c \
 	hostfile.c log.c match.c nchan.c packet.c opacket.c readpass.c \
 	ttymodes.c xmalloc.c atomicio.c \
 	key.c dispatch.c kex.c mac.c uidswap.c uuencode.c misc.c utf8.c \
@@ -35,12 +35,8 @@ SRCS=	${LIB_SRCS} \
 	kexc25519.c kexc25519c.c kexc25519s.c \
 	chacha.c poly1305.c cipher-chachapoly.c ssh-ed25519.c hmac.c umac.c
 
-.if (${SSH1:L} == "yes")
-SRCS+=	cipher-3des1.c cipher-bf1.c
-.endif
-
 .if (${OPENSSL:L} == "yes")
-SRCS+=	bufec.c bufbn.c rsa.c \
+SRCS+=	bufec.c bufbn.c \
 	ssh-dss.c ssh-rsa.c ssh-ecdsa.c dh.c \
 	kexdh.c kexgex.c kexecdh.c \
 	kexdhc.c kexgexc.c kexecdhc.c \

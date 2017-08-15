@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_crypto_wep.c,v 1.14 2015/11/24 13:45:06 mpi Exp $	*/
+/*	$OpenBSD: ieee80211_crypto_wep.c,v 1.16 2017/06/03 11:58:10 tb Exp $	*/
 
 /*-
  * Copyright (c) 2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -66,8 +66,10 @@ ieee80211_wep_set_key(struct ieee80211com *ic, struct ieee80211_key *k)
 void
 ieee80211_wep_delete_key(struct ieee80211com *ic, struct ieee80211_key *k)
 {
-	if (k->k_priv != NULL)
-		free(k->k_priv, M_DEVBUF, 0);
+	if (k->k_priv != NULL) {
+		explicit_bzero(k->k_priv, sizeof(struct ieee80211_wep_ctx));
+		free(k->k_priv, M_DEVBUF, sizeof(struct ieee80211_wep_ctx));
+	}
 	k->k_priv = NULL;
 }
 
@@ -123,6 +125,7 @@ ieee80211_wep_encrypt(struct ieee80211com *ic, struct mbuf *m0,
 	memcpy(wepseed, ivp, IEEE80211_WEP_IVLEN);
 	memcpy(wepseed + IEEE80211_WEP_IVLEN, k->k_key, k->k_len);
 	rc4_keysetup(&ctx->rc4, wepseed, IEEE80211_WEP_IVLEN + k->k_len);
+	explicit_bzero(wepseed, sizeof(wepseed));
 
 	/* encrypt frame body and compute WEP ICV */
 	m = m0;
@@ -218,6 +221,7 @@ ieee80211_wep_decrypt(struct ieee80211com *ic, struct mbuf *m0,
 	memcpy(wepseed, ivp, IEEE80211_WEP_IVLEN);
 	memcpy(wepseed + IEEE80211_WEP_IVLEN, k->k_key, k->k_len);
 	rc4_keysetup(&ctx->rc4, wepseed, IEEE80211_WEP_IVLEN + k->k_len);
+	explicit_bzero(wepseed, sizeof(wepseed));
 
 	MGET(n0, M_DONTWAIT, m0->m_type);
 	if (n0 == NULL)

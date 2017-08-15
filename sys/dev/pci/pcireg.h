@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcireg.h,v 1.50 2016/06/02 21:01:51 kettenis Exp $	*/
+/*	$OpenBSD: pcireg.h,v 1.55 2017/08/09 21:42:44 mlarkin Exp $	*/
 /*	$NetBSD: pcireg.h,v 1.26 2000/05/10 16:58:42 thorpej Exp $	*/
 
 /*
@@ -152,6 +152,8 @@ typedef u_int8_t pci_revision_t;
 #define	PCI_CLASS_SATCOM			0x0f
 #define	PCI_CLASS_CRYPTO			0x10
 #define	PCI_CLASS_DASP				0x11
+#define	PCI_CLASS_ACCELERATOR			0x12
+#define	PCI_CLASS_INSTRUMENTATION		0x13
 #define	PCI_CLASS_UNDEFINED			0xff
 
 /* 0x00 prehistoric subclasses */
@@ -168,6 +170,7 @@ typedef u_int8_t pci_revision_t;
 #define	PCI_SUBCLASS_MASS_STORAGE_SATA		0x06
 #define	PCI_SUBCLASS_MASS_STORAGE_SAS		0x07
 #define	PCI_SUBCLASS_MASS_STORAGE_NVM		0x08
+#define	PCI_SUBCLASS_MASS_STORAGE_UFS		0x09
 #define	PCI_SUBCLASS_MASS_STORAGE_MISC		0x80
 
 /* 0x02 network subclasses */
@@ -178,6 +181,7 @@ typedef u_int8_t pci_revision_t;
 #define	PCI_SUBCLASS_NETWORK_ISDN		0x04
 #define	PCI_SUBCLASS_NETWORK_WORLDFIP		0x05
 #define	PCI_SUBCLASS_NETWORK_PCIMGMULTICOMP	0x06
+#define	PCI_SUBCLASS_NETWORK_INFINIBAND		0x07
 #define	PCI_SUBCLASS_NETWORK_MISC		0x80
 
 /* 0x03 display subclasses */
@@ -210,6 +214,7 @@ typedef u_int8_t pci_revision_t;
 #define	PCI_SUBCLASS_BRIDGE_RACEWAY		0x08
 #define	PCI_SUBCLASS_BRIDGE_STPCI		0x09
 #define	PCI_SUBCLASS_BRIDGE_INFINIBAND		0x0a
+#define	PCI_SUBCLASS_BRIDGE_AS			0x0b
 #define	PCI_SUBCLASS_BRIDGE_MISC		0x80
 
 /* 0x07 communications subclasses */
@@ -228,6 +233,8 @@ typedef u_int8_t pci_revision_t;
 #define	PCI_SUBCLASS_SYSTEM_RTC			0x03
 #define	PCI_SUBCLASS_SYSTEM_PCIHOTPLUG		0x04
 #define	PCI_SUBCLASS_SYSTEM_SDHC		0x05
+#define	PCI_SUBCLASS_SYSTEM_IOMMU		0x06
+#define	PCI_SUBCLASS_SYSTEM_ROOTCOMPEVENT	0x07
 #define	PCI_SUBCLASS_SYSTEM_MISC		0x80
 
 /* 0x09 input subclasses */
@@ -331,6 +338,7 @@ typedef u_int8_t pci_revision_t;
 #define PCI_CARDBUSCIS	0x28
 #define PCI_SUBVEND_0	0x2c
 #define PCI_SUBDEV_0	0x2e
+#define PCI_EXROMADDR_0	0x30
 #define PCI_INTLINE	0x3c
 #define PCI_INTPIN	0x3d
 #define PCI_MINGNT	0x3e
@@ -362,6 +370,7 @@ typedef u_int8_t pci_revision_t;
 
 #define PCI_SUBVEND_1	0x34
 #define PCI_SUBDEV_1	0x36
+#define PCI_EXROMADDR_1	0x38
 
 /* config registers for header type 2 devices */
 
@@ -567,6 +576,7 @@ typedef u_int8_t pci_revision_t;
 #define PCI_PCIE_LCSR_ASPM_L0S	0x00000001
 #define PCI_PCIE_LCSR_ASPM_L1	0x00000002
 #define PCI_PCIE_LCSR_ES	0x00000080
+#define PCI_PCIE_LCSR_ECPM	0x00000100
 #define PCI_PCIE_SLCAP		0x14
 #define PCI_PCIE_SLCAP_ABP	0x00000001
 #define PCI_PCIE_SLCAP_PCP	0x00000002
@@ -592,6 +602,15 @@ typedef u_int8_t pci_revision_t;
 #define PCI_PCIE_SLCSR_LACS	0x01000000
 #define PCI_PCIE_RCSR		0x1c
 #define PCI_PCIE_LCAP2		0x2c
+
+/*
+ * PCI Express; enhanced capabilities
+ */
+#define PCI_PCIE_ECAP		0x100
+#define	PCI_PCIE_ECAP_ID(x)	(((x) & 0x0000ffff))
+#define PCI_PCIE_ECAP_VER(x)	(((x) >> 16) & 0x0f)
+#define	PCI_PCIE_ECAP_NEXT(x)	(((x) >> 20) & 0xffc)
+#define PCI_PCIE_ECAP_LAST	0x0
 
 /*
  * Extended Message Signaled Interrups; access via capability pointer.

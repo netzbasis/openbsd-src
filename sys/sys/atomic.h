@@ -1,4 +1,4 @@
-/*	$OpenBSD: atomic.h,v 1.3 2015/02/10 11:39:18 dlg Exp $ */
+/*	$OpenBSD: atomic.h,v 1.5 2017/05/27 19:47:08 kettenis Exp $ */
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
  *
@@ -49,7 +49,7 @@ atomic_cas_ulong(volatile unsigned long *p, unsigned long o, unsigned long n)
 static inline void *
 atomic_cas_ptr(volatile void *pp, void *o, void *n)
 {
-	void * volatile *p = pp;
+	void * volatile *p = (void * volatile *)pp;
 	return __sync_val_compare_and_swap(p, o, n);
 }
 #endif
@@ -78,7 +78,7 @@ atomic_swap_ulong(volatile unsigned long *p, unsigned long v)
 static inline void *
 atomic_swap_ptr(volatile void *pp, void *v)
 {
-	void * volatile *p = pp;
+	void * volatile *p = (void * volatile *)pp;
 	return __sync_lock_test_and_set(p, v);
 }
 #endif
@@ -217,6 +217,14 @@ atomic_sub_long_nv(volatile unsigned long *p, unsigned long v)
 
 #ifndef membar_sync
 #define membar_sync() __sync_synchronize()
+#endif
+
+#ifndef membar_enter_after_atomic
+#define membar_enter_after_atomic() membar_enter()
+#endif
+
+#ifndef membar_exit_before_atomic
+#define membar_exit_before_atomic() membar_exit()
 #endif
 
 #endif /* _SYS_ATOMIC_H_ */

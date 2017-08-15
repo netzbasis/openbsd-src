@@ -1,4 +1,4 @@
-/*	$OpenBSD: import.c,v 1.105 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: import.c,v 1.108 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -127,7 +127,7 @@ cvs_import(int argc, char **argv)
 			logmsg = cvs_logmsg_create(NULL, NULL, NULL, NULL);
 	}
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_connect_to_server();
 
 		cvs_client_send_request("Argument -b%s", IMPORT_DEFAULT_BRANCH);
@@ -211,6 +211,17 @@ import_printf(const char *fmt, ...)
 	buf_puts(logbuf, str);
 
 	free(str);
+}
+
+void
+cvs_import_ignored(const char *path)
+{
+	const char *p;
+
+	for (p = path; p[0] == '.' && p[1] == '/';)
+		p += 2;
+
+	import_printf("I %s/%s\n", import_repository, p);
 }
 
 void
@@ -371,8 +382,8 @@ import_new(struct cvs_file *cf)
 	rcs_write(cf->file_rcs);
 	import_printf("N %s/%s\n", import_repository, cf->file_path);
 
-	rcsnum_free(branch);
-	rcsnum_free(brev);
+	free(branch);
+	free(brev);
 }
 
 static void
@@ -403,7 +414,7 @@ import_update(struct cvs_file *cf)
 	buf_free(b2);
 	if (ret == 0) {
 		import_tag(cf, brev, rev);
-		rcsnum_free(brev);
+		free(brev);
 		if (cvs_noexec != 1)
 			rcs_write(cf->file_rcs);
 		import_printf("U %s/%s\n", import_repository, cf->file_path);
@@ -438,7 +449,7 @@ import_update(struct cvs_file *cf)
 	if (kflag)
 		rcs_kwexp_set(cf->file_rcs, kflag);
 
-	rcsnum_free(brev);
+	free(brev);
 	rcs_write(cf->file_rcs);
 }
 

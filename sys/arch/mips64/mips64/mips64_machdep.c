@@ -1,4 +1,4 @@
-/*	$OpenBSD: mips64_machdep.c,v 1.21 2016/08/16 13:03:58 visa Exp $ */
+/*	$OpenBSD: mips64_machdep.c,v 1.23 2017/06/08 12:02:52 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010, 2012 Miodrag Vallat.
@@ -51,6 +51,7 @@
 
 #include <machine/autoconf.h>
 #include <machine/cpu.h>
+#include <mips64/cache.h>
 #include <mips64/mips_cpu.h>
 #include <mips64/mips_opcode.h>
 
@@ -227,7 +228,7 @@ void
 tlb_asid_wrap(struct cpu_info *ci)
 {
 	tlb_flush(ci->ci_hw.tlbsize);
-#ifdef CPU_R8000
+#if defined(CPU_OCTEON) || defined(CPU_R8000)
 	Mips_InvalidateICache(ci, 0, ci->ci_l1inst.size);
 #endif
 }
@@ -546,4 +547,18 @@ classify_insn(uint32_t insn)
 	}
 
 	return INSNCLASS_NEUTRAL;
+}
+
+/*
+ * Smash the startup code. There is no way to really unmap it
+ * because the kernel runs in the kseg0 or xkphys space.
+ */
+void
+unmap_startup(void)
+{
+	extern uint32_t kernel_text[], endboot[];
+	uint32_t *word = kernel_text;
+
+	while (word < endboot)
+		*word++ = 0x00000034u;	/* TEQ zero, zero */
 }

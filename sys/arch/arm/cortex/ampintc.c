@@ -1,4 +1,4 @@
-/* $OpenBSD: ampintc.c,v 1.14 2016/08/21 06:47:47 jsg Exp $ */
+/* $OpenBSD: ampintc.c,v 1.20 2017/04/30 16:45:45 mpi Exp $ */
 /*
  * Copyright (c) 2007,2009,2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -56,11 +56,11 @@
 #define 	ICD_DIR_IMP_SH		0
 #define 	ICD_DIR_IMP_M		0xfff
 
-#define IRQ_TO_REG32(i)		(((i) >> 5) & 0x7)
+#define IRQ_TO_REG32(i)		(((i) >> 5) & 0x1f)
 #define IRQ_TO_REG32BIT(i)	((i) & 0x1f)
-#define IRQ_TO_REG4(i)		(((i) >> 2) & 0x3f)
+#define IRQ_TO_REG4(i)		(((i) >> 2) & 0xff)
 #define IRQ_TO_REG4BIT(i)	((i) & 0x3)
-#define IRQ_TO_REG16(i)		(((i) >> 4) & 0xf)
+#define IRQ_TO_REG16(i)		(((i) >> 4) & 0x3f)
 #define IRQ_TO_REGBIT_S(i)	8
 #define IRQ_TO_REG4BIT_M(i)	8
 
@@ -132,6 +132,7 @@ struct ampintc_softc {
 	int			 sc_nintr;
 	bus_space_tag_t		 sc_iot;
 	bus_space_handle_t	 sc_d_ioh, sc_p_ioh;
+	uint8_t			 sc_cpu_mask[ICD_ICTR_CPU_M + 1];
 	struct evcount		 sc_spur;
 	struct interrupt_controller sc_ic;
 };
@@ -177,7 +178,7 @@ void		 ampintc_eoi(uint32_t);
 void		 ampintc_set_priority(int, int);
 void		 ampintc_intr_enable(int);
 void		 ampintc_intr_disable(int);
-void		 ampintc_route(int, int , int);
+void		 ampintc_route(int, int , struct cpu_info *);
 
 struct cfattach	ampintc_ca = {
 	sizeof (struct ampintc_softc), ampintc_match, ampintc_attach
@@ -191,6 +192,7 @@ static char *ampintc_compatibles[] = {
 	"arm,cortex-a7-gic",
 	"arm,cortex-a9-gic",
 	"arm,cortex-a15-gic",
+	"arm,gic-400",
 	NULL
 };
 
@@ -212,7 +214,8 @@ ampintc_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct ampintc_softc *sc = (struct ampintc_softc *)self;
 	struct fdt_attach_args *faa = aux;
-	int i, nintr;
+	int i, nintr, ncpu;
+	uint32_t ictr;
 
 	ampintc = sc;
 
@@ -232,11 +235,16 @@ ampintc_attach(struct device *parent, struct device *self, void *aux)
 
 	evcount_attach(&sc->sc_spur, "irq1023/spur", NULL);
 
-	nintr = 32 * (bus_space_read_4(sc->sc_iot, sc->sc_d_ioh,
-	    ICD_ICTR) & ICD_ICTR_ITL_M);
+	ictr = bus_space_read_4(sc->sc_iot, sc->sc_d_ioh, ICD_ICTR);
+	nintr = 32 * ((ictr >> ICD_ICTR_ITL_SH) & ICD_ICTR_ITL_M);
 	nintr += 32; /* ICD_ICTR + 1, irq 0-31 is SGI, 32+ is PPI */
 	sc->sc_nintr = nintr;
-	printf(" nirq %d\n", nintr);
+	ncpu = ((ictr >> ICD_ICTR_CPU_SH) & ICD_ICTR_CPU_M) + 1;
+	printf(" nirq %d, ncpu %d\n", nintr, ncpu);
+
+	KASSERT(curcpu()->ci_cpuid <= ICD_ICTR_CPU_M);
+	sc->sc_cpu_mask[curcpu()->ci_cpuid] =
+	    bus_space_read_1(sc->sc_iot, sc->sc_d_ioh, ICD_IPTRn(0));
 
 	/* Disable all interrupts, clear all pending */
 	for (i = 0; i < nintr/32; i++) {
@@ -377,11 +385,10 @@ ampintc_calc_mask(void)
 		if (min != IPL_NONE) {
 			ampintc_set_priority(irq, min);
 			ampintc_intr_enable(irq);
-			ampintc_route(irq, IRQ_ENABLE, 0);
+			ampintc_route(irq, IRQ_ENABLE, ci);
 		} else {
 			ampintc_intr_disable(irq);
-			ampintc_route(irq, IRQ_DISABLE, 0);
-
+			ampintc_route(irq, IRQ_DISABLE, ci);
 		}
 	}
 	ampintc_setipl(ci->ci_cpl);
@@ -450,16 +457,19 @@ ampintc_eoi(uint32_t eoi)
 }
 
 void
-ampintc_route(int irq, int enable, int cpu)
+ampintc_route(int irq, int enable, struct cpu_info *ci)
 {
-	uint8_t  val;
 	struct ampintc_softc	*sc = ampintc;
+	uint8_t			 mask, val;
+
+	KASSERT(ci->ci_cpuid <= ICD_ICTR_CPU_M);
+	mask = sc->sc_cpu_mask[ci->ci_cpuid];
 
 	val = bus_space_read_1(sc->sc_iot, sc->sc_d_ioh, ICD_IPTRn(irq));
 	if (enable == IRQ_ENABLE)
-		val |= (1 << cpu);
+		val |= mask;
 	else
-		val &= ~(1 << cpu);
+		val &= ~mask;
 	bus_space_write_1(sc->sc_iot, sc->sc_d_ioh, ICD_IPTRn(irq), val);
 }
 
@@ -481,18 +491,22 @@ ampintc_irq_handler(void *frame)
 		if ((cnt++ % 100) == 0) {
 			printf("irq  %d fired * _100\n", iack_val);
 #ifdef DDB
-			Debugger();
+			db_enter();
 #endif
 		}
 
 	}
 #endif
 
-	if (iack_val == 1023) {
+	irq = iack_val & ICPIAR_IRQ_M;
+
+	if (irq == 1023) {
 		sc->sc_spur.ec_count++;
 		return;
 	}
-	irq = iack_val & ((1 << sc->sc_nintr) - 1);
+
+	if (irq >= sc->sc_nintr)
+		return;
 
 	pri = sc->sc_ampintc_handler[irq].iq_irq;
 	s = ampintc_splraise(pri);

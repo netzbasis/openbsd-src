@@ -1,4 +1,4 @@
-/*	$OpenBSD: iked.h,v 1.98 2016/09/04 10:26:02 vgross Exp $	*/
+/*	$OpenBSD: iked.h,v 1.115 2017/04/26 10:42:38 henning Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -19,8 +19,11 @@
 #include <sys/types.h>
 #include <sys/tree.h>
 #include <sys/queue.h>
+#include <arpa/inet.h>
 #include <limits.h>
 #include <imsg.h>
+
+#include <openssl/evp.h>
 
 #include "types.h"
 #include "dh.h"
@@ -154,6 +157,7 @@ struct iked_flow {
 
 	RB_ENTRY(iked_flow)		 flow_node;
 	TAILQ_ENTRY(iked_flow)		 flow_entry;
+	int				 flow_ipcomp;
 };
 RB_HEAD(iked_flows, iked_flow);
 TAILQ_HEAD(iked_saflows, iked_flow);
@@ -169,6 +173,7 @@ struct iked_childsa {
 	uint8_t				 csa_persistent;/* do not rekey */
 	uint8_t				 csa_esn;	/* use ESN */
 	uint8_t				 csa_transport;	/* transport mode */
+	uint8_t				 csa_acquired;	/* no rekey for me */
 
 	struct iked_spi			 csa_spi;
 
@@ -253,8 +258,8 @@ struct iked_policy {
 	unsigned int			 pol_ipproto;
 
 	struct iked_addr		 pol_peer;
-	struct group			*pol_peerdh;
 	struct iked_static_id		 pol_peerid;
+	uint32_t			 pol_peerdh;
 
 	struct iked_addr		 pol_local;
 	struct iked_static_id		 pol_localid;
@@ -371,6 +376,7 @@ struct iked_sa {
 
 	int				 sa_natt;	/* for IKE messages */
 	int				 sa_udpencap;	/* for pfkey */
+	int				 sa_usekeepalive;/* NAT-T keepalive */
 
 	int				 sa_state;
 	unsigned int			 sa_stateflags;
@@ -426,16 +432,23 @@ struct iked_sa {
 	struct iked_childsas		 sa_childsas;	/* IPSec Child SAs */
 	struct iked_saflows		 sa_flows;	/* IPSec flows */
 
-	struct iked_sa			*sa_next;	/* IKE SA rekeying */
-	uint64_t			 sa_rekeyspi;	/* peerspi for rekey*/
+	struct iked_sa			*sa_nexti;	/* initiated IKE SA */
+	struct iked_sa			*sa_nextr;	/* simultaneous rekey */
+	uint64_t			 sa_rekeyspi;	/* peerspi CSA rekey*/
+	struct ibuf			*sa_simult;	/* simultaneous rekey */
 
 	uint8_t				 sa_ipcomp;	/* IPcomp transform */
 	uint16_t			 sa_cpi_out;	/* IPcomp outgoing */
 	uint16_t			 sa_cpi_in;	/* IPcomp incoming*/
 
 	struct iked_timer		 sa_timer;	/* SA timeouts */
-#define IKED_IKE_SA_DELETE_TIMEOUT	 300		/* 5 minutes */
+#define IKED_IKE_SA_EXCHANGE_TIMEOUT	 300		/* 5 minutes */
+#define IKED_IKE_SA_REKEY_TIMEOUT	 120		/* 2 minutes */
+#define IKED_IKE_SA_DELETE_TIMEOUT	 120		/* 2 minutes */
 #define IKED_IKE_SA_ALIVE_TIMEOUT	 60		/* 1 minute */
+
+	struct iked_timer		 sa_keepalive;	/* keepalive timer */
+#define IKED_IKE_SA_KEEPALIVE_TIMEOUT	 20
 
 	struct iked_timer		 sa_rekey;	/* rekey timeout */
 
@@ -493,6 +506,7 @@ struct iked_message {
 	struct iked_id		 msg_auth;	/* AUTH payload */
 	struct iked_id		 msg_id;
 	struct iked_id		 msg_cert;
+	struct ibuf		*msg_cookie;
 
 	/* Parse stack */
 	struct iked_proposal	*msg_prop;
@@ -656,6 +670,9 @@ int	 config_getreset(struct iked *, struct imsg *);
 int	 config_setpolicy(struct iked *, struct iked_policy *,
 	    enum privsep_procid);
 int	 config_getpolicy(struct iked *, struct imsg *);
+int	 config_setflow(struct iked *, struct iked_policy *,
+	    enum privsep_procid);
+int	 config_getflow(struct iked *, struct imsg *);
 int	 config_setsocket(struct iked *, struct sockaddr_storage *, in_port_t,
 	    enum privsep_procid);
 int	 config_getsocket(struct iked *env, struct imsg *,
@@ -668,6 +685,8 @@ int	 config_setcompile(struct iked *, enum privsep_procid);
 int	 config_getcompile(struct iked *, struct imsg *);
 int	 config_setocsp(struct iked *);
 int	 config_getocsp(struct iked *, struct imsg *);
+int	 config_setkeys(struct iked *);
+int	 config_getkey(struct iked *, struct imsg *);
 
 /* policy.c */
 void	 policy_init(struct iked *);
@@ -691,6 +710,7 @@ void	 childsa_free(struct iked_childsa *);
 struct iked_childsa *
 	 childsa_lookup(struct iked_sa *, uint64_t, uint8_t);
 void	 flow_free(struct iked_flow *);
+int	 flow_equal(struct iked_flow *, struct iked_flow *);
 struct iked_sa *
 	 sa_lookup(struct iked *, uint64_t, uint64_t, unsigned int);
 struct iked_user *
@@ -741,6 +761,7 @@ struct ibuf *
 	 dsa_setkey(struct iked_dsa *, void *, size_t, uint8_t);
 void	 dsa_free(struct iked_dsa *);
 int	 dsa_init(struct iked_dsa *, const void *, size_t);
+size_t	 dsa_prefix(struct iked_dsa *);
 size_t	 dsa_length(struct iked_dsa *);
 int	 dsa_update(struct iked_dsa *, const void *, size_t);
 ssize_t	 dsa_sign_final(struct iked_dsa *, void *, size_t);
@@ -751,11 +772,13 @@ pid_t	 ikev2(struct privsep *, struct privsep_proc *);
 void	 ikev2_recv(struct iked *, struct iked_message *);
 void	 ikev2_init_ike_sa(struct iked *, void *);
 int	 ikev2_sa_negotiate(struct iked_proposals *, struct iked_proposals *,
-	    struct iked_proposals *);
+	    struct iked_proposals *, int);
 int	 ikev2_policy2id(struct iked_static_id *, struct iked_id *, int);
 int	 ikev2_childsa_enable(struct iked *, struct iked_sa *);
 int	 ikev2_childsa_delete(struct iked *, struct iked_sa *,
 	    uint8_t, uint64_t, uint64_t *, int);
+void	 ikev2_ikesa_recv_delete(struct iked *, struct iked_sa *);
+void	 ikev2_ike_sa_timeout(struct iked *env, void *);
 
 struct ibuf *
 	 ikev2_prfplus(struct iked_hash *, struct ibuf *, struct ibuf *,
@@ -851,6 +874,9 @@ int	 ca_setcert(struct iked *, struct iked_sahdr *, struct iked_id *,
 	    uint8_t, uint8_t *, size_t, enum privsep_procid);
 int	 ca_setauth(struct iked *, struct iked_sa *,
 	    struct ibuf *, enum privsep_procid);
+void	 ca_getkey(struct privsep *, struct iked_id *, enum imsg_type);
+int	 ca_privkey_serialize(EVP_PKEY *, struct iked_id *);
+int	 ca_pubkey_serialize(EVP_PKEY *, struct iked_id *);
 void	 ca_sslinit(void);
 void	 ca_sslerror(const char *);
 char	*ca_asn1_name(uint8_t *, size_t);
@@ -933,7 +959,7 @@ void	 print_verbose(const char *, ...)
 
 /* imsg_util.c */
 struct ibuf *
-	 ibuf_new(void *, size_t);
+	 ibuf_new(const void *, size_t);
 struct ibuf *
 	 ibuf_static(void);
 int	 ibuf_cat(struct ibuf *, struct ibuf *);
@@ -956,7 +982,8 @@ void	 ibuf_zero(struct ibuf *);
 /* log.c */
 void	log_init(int, int);
 void	log_procinit(const char *);
-void	log_verbose(int);
+void	log_setverbose(int);
+int	log_getverbose(void);
 void	log_warn(const char *, ...)
 	    __attribute__((__format__ (printf, 1, 2)));
 void	log_warnx(const char *, ...)

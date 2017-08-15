@@ -1,4 +1,4 @@
-/*	$OpenBSD: e_powl.c,v 1.5 2013/11/12 20:35:19 martynas Exp $	*/
+/*	$OpenBSD: e_powl.c,v 1.7 2017/01/21 08:29:13 krw Exp $	*/
 
 /*
  * Copyright (c) 2008 Stephen L. Moshier <steve@moshier.net>
@@ -463,6 +463,7 @@ if( nflg )
 
 return( z );
 }
+DEF_STD(powl);
 
 
 /* Find a multiple of 1/NXT that is within 1/NXT of x. */
@@ -590,7 +591,7 @@ if( s < (-MAXLOGL+2.0L) )
 /* First bit of the power */
 if( n & 1 )
 	y = x;
-		
+
 else
 	{
 	y = 1.0L;

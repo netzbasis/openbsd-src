@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-add.c,v 1.128 2016/02/15 09:47:49 dtucker Exp $ */
+/* $OpenBSD: ssh-add.c,v 1.133 2017/07/01 13:50:45 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -51,7 +51,6 @@
 
 #include "xmalloc.h"
 #include "ssh.h"
-#include "rsa.h"
 #include "log.h"
 #include "sshkey.h"
 #include "sshbuf.h"
@@ -71,9 +70,6 @@ static char *default_files[] = {
 	_PATH_SSH_CLIENT_ID_DSA,
 	_PATH_SSH_CLIENT_ID_ECDSA,
 	_PATH_SSH_CLIENT_ID_ED25519,
-#ifdef WITH_SSH1
-	_PATH_SSH_CLIENT_IDENTITY,
-#endif
 	NULL
 };
 
@@ -156,6 +152,11 @@ delete_all(int agent_fd)
 {
 	int ret = -1;
 
+	/*
+	 * Since the agent might be forwarded, old or non-OpenSSH, when asked
+	 * to remove all keys, attempt to remove both protocol v.1 and v.2
+	 * keys.
+	 */
 	if (ssh_remove_all_identities(agent_fd, 2) == 0)
 		ret = 0;
 	/* ignore error-code for ssh1 */
@@ -296,7 +297,7 @@ add_file(int agent_fd, const char *filename, int key_only)
 		goto out;
 	}
 	if ((r = sshkey_cert_copy(cert, private)) != 0) {
-		error("%s: key_cert_copy: %s", __func__, ssh_err(r));
+		error("%s: sshkey_cert_copy: %s", __func__, ssh_err(r));
 		sshkey_free(cert);
 		goto out;
 	}
@@ -352,50 +353,36 @@ static int
 list_identities(int agent_fd, int do_fp)
 {
 	char *fp;
-	int r, had_identities = 0;
+	int r;
 	struct ssh_identitylist *idlist;
 	size_t i;
-#ifdef WITH_SSH1
-	int version = 1;
-#else
-	int version = 2;
-#endif
 
-	for (; version <= 2; version++) {
-		if ((r = ssh_fetch_identitylist(agent_fd, version,
-		    &idlist)) != 0) {
-			if (r != SSH_ERR_AGENT_NO_IDENTITIES)
-				fprintf(stderr, "error fetching identities for "
-				    "protocol %d: %s\n", version, ssh_err(r));
-			continue;
-		}
-		for (i = 0; i < idlist->nkeys; i++) {
-			had_identities = 1;
-			if (do_fp) {
-				fp = sshkey_fingerprint(idlist->keys[i],
-				    fingerprint_hash, SSH_FP_DEFAULT);
-				printf("%u %s %s (%s)\n",
-				    sshkey_size(idlist->keys[i]),
-				    fp == NULL ? "(null)" : fp,
-				    idlist->comments[i],
-				    sshkey_type(idlist->keys[i]));
-				free(fp);
-			} else {
-				if ((r = sshkey_write(idlist->keys[i],
-				    stdout)) != 0) {
-					fprintf(stderr, "sshkey_write: %s\n",
-					    ssh_err(r));
-					continue;
-				}
-				fprintf(stdout, " %s\n", idlist->comments[i]);
-			}
-		}
-		ssh_free_identitylist(idlist);
-	}
-	if (!had_identities) {
-		printf("The agent has no identities.\n");
+	if ((r = ssh_fetch_identitylist(agent_fd, &idlist)) != 0) {
+		if (r != SSH_ERR_AGENT_NO_IDENTITIES)
+			fprintf(stderr, "error fetching identities: %s\n",
+			    ssh_err(r));
+		else
+			printf("The agent has no identities.\n");
 		return -1;
 	}
+	for (i = 0; i < idlist->nkeys; i++) {
+		if (do_fp) {
+			fp = sshkey_fingerprint(idlist->keys[i],
+			    fingerprint_hash, SSH_FP_DEFAULT);
+			printf("%u %s %s (%s)\n", sshkey_size(idlist->keys[i]),
+			    fp == NULL ? "(null)" : fp, idlist->comments[i],
+			    sshkey_type(idlist->keys[i]));
+			free(fp);
+		} else {
+			if ((r = sshkey_write(idlist->keys[i], stdout)) != 0) {
+				fprintf(stderr, "sshkey_write: %s\n",
+				    ssh_err(r));
+				continue;
+			}
+			fprintf(stdout, " %s\n", idlist->comments[i]);
+		}
+	}
+	ssh_free_identitylist(idlist);
 	return 0;
 }
 

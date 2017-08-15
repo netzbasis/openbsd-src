@@ -1,4 +1,4 @@
-/*	$OpenBSD: pas.c,v 1.27 2014/09/14 14:17:25 jsg Exp $	*/
+/*	$OpenBSD: pas.c,v 1.29 2016/09/19 06:46:44 ratchov Exp $	*/
 /*	$NetBSD: pas.c,v 1.37 1998/01/12 09:43:43 thorpej Exp $	*/
 
 /*
@@ -101,7 +101,6 @@ struct pas_softc {
 
 };
 
-int	pas_getdev(void *, struct audio_device *);
 void	pasconf(int, int, int, int);
 
 
@@ -112,8 +111,6 @@ void	pasconf(int, int, int, int);
 struct audio_hw_if pas_hw_if = {
 	sbdsp_open,
 	sbdsp_close,
-	0,
-	sbdsp_query_encoding,
 	sbdsp_set_params,
 	sbdsp_round_blocksize,
 	0,
@@ -124,7 +121,6 @@ struct audio_hw_if pas_hw_if = {
 	sbdsp_haltdma,
 	sbdsp_haltdma,
 	sbdsp_speaker_ctl,
-	pas_getdev,
 	0,
 	sbdsp_mixer_set_port,
 	sbdsp_mixer_get_port,
@@ -132,11 +128,9 @@ struct audio_hw_if pas_hw_if = {
 	sb_malloc,
 	sb_free,
 	sb_round,
-        sb_mappage,
 	sbdsp_get_props,
 	sbdsp_trigger_output,
-	sbdsp_trigger_input,
-	NULL
+	sbdsp_trigger_input
 };
 
 /* The Address Translation code is used to convert I/O register addresses to
@@ -148,12 +142,6 @@ static char *pasnames[] = {
 	"CDPC",
 	"16",
 	"16Basic"
-};
-
-static struct audio_device pas_device = {
-	"PAS,??",
-	"",
-	"pas"
 };
 
 /*XXX assume default I/O base address */
@@ -418,19 +406,5 @@ pasattach(parent, self, aux)
 	
 	sbdsp_attach(&sc->sc_sbdsp);
 
-	snprintf(pas_device.name, sizeof pas_device.name, "pas,%s",
-	    pasnames[sc->model]);
-	snprintf(pas_device.version, sizeof pas_device.version, "%d",
-	    sc->rev);
-
 	audio_attach_mi(&pas_hw_if, &sc->sc_sbdsp, &sc->sc_sbdsp.sc_dev);
-}
-
-int
-pas_getdev(addr, retp)
-	void *addr;
-	struct audio_device *retp;
-{
-	*retp = pas_device;
-	return 0;
 }

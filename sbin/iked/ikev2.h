@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.h,v 1.23 2015/10/31 19:28:19 naddy Exp $	*/
+/*	$OpenBSD: ikev2.h,v 1.26 2017/03/27 10:06:41 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -234,9 +234,6 @@ extern struct iked_constmap ikev2_xformauth_map[];
 #define IKEV2_XFORMDH_ECP_256		19	/* DH Group 19 */
 #define IKEV2_XFORMDH_ECP_384		20	/* DH Group 20 */
 #define IKEV2_XFORMDH_ECP_521		21	/* DH Group 21 */
-#define IKEV2_XFORMDH_MODP_1024_160	22	/* DH Group 22 */
-#define IKEV2_XFORMDH_MODP_2048_224	23	/* DH Group 23 */
-#define IKEV2_XFORMDH_MODP_2048_256	24	/* DH Group 24 */
 #define IKEV2_XFORMDH_ECP_192		25	/* DH Group 25 */
 #define IKEV2_XFORMDH_ECP_224		26	/* DH Group 26 */
 #define IKEV2_XFORMDH_BRAINPOOL_P224R1	27	/* DH Group 27 */
@@ -351,6 +348,7 @@ struct ikev2_notify {
 #define IKEV2_N_PSK_CONFIRM			16426	/* RFC6631 */
 #define IKEV2_N_ERX_SUPPORTED			16427	/* RFC6867 */
 #define IKEV2_N_IFOM_CAPABILITY			16428	/* OA3GPP */
+#define IKEV2_N_FRAGMENTATION_SUPPORTED		16430	/* RFC7383 */
 #define IKEV2_N_SIGNATURE_HASH_ALGORITHMS	16431	/* RFC7427 */
 
 extern struct iked_constmap ikev2_n_map[];
@@ -411,6 +409,12 @@ struct ikev2_cert {
 #define IKEV2_CERT_HASHURL_X509		12	/* RFC4306 */
 #define IKEV2_CERT_HASHURL_X509_BUNDLE	13	/* RFC4306 */
 #define IKEV2_CERT_OCSP			14	/* RFC4806 */
+/*
+ * As of November 2014, work was still in progress to add a more generic
+ * format for raw public keys (RFC7296), so we use a number in IANA's private
+ * use range (201-255, same RFC) for ECDSA.
+ */
+#define IKEV2_CERT_ECDSA		201	/* Private */
 
 extern struct iked_constmap ikev2_cert_map[];
 
@@ -458,6 +462,12 @@ struct ikev2_auth {
 #define IKEV2_AUTH_GSPM			12	/* RFC6467 */
 #define IKEV2_AUTH_NULL			13	/* RFC7619 */
 #define IKEV2_AUTH_SIG			14	/* RFC7427 */
+#define IKEV2_AUTH_SIG_ANY		255	/* Internal (any signature) */
+/*
+ * AUTH_SIG also serves as an indication that a given policy has
+ * been configured to accept RSA or ECDSA payloads, as long as it
+ * successfully authenticates against a configured CA.
+ */
 
 extern struct iked_constmap ikev2_auth_map[];
 

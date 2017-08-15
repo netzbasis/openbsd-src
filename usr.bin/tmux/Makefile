@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.83 2015/12/08 01:10:31 nicm Exp $
+# $OpenBSD: Makefile,v 1.89 2017/07/12 09:24:17 nicm Exp $
 
 PROG=	tmux
 SRCS=	alerts.c \
@@ -10,10 +10,7 @@ SRCS=	alerts.c \
 	cmd-bind-key.c \
 	cmd-break-pane.c \
 	cmd-capture-pane.c \
-	cmd-choose-buffer.c \
-	cmd-choose-client.c \
 	cmd-choose-tree.c \
-	cmd-clear-history.c \
 	cmd-command-prompt.c \
 	cmd-confirm-before.c \
 	cmd-copy-mode.c \
@@ -21,6 +18,7 @@ SRCS=	alerts.c \
 	cmd-display-message.c \
 	cmd-display-panes.c \
 	cmd-find-window.c \
+	cmd-find.c \
 	cmd-if-shell.c \
 	cmd-join-pane.c \
 	cmd-kill-pane.c \
@@ -41,6 +39,7 @@ SRCS=	alerts.c \
 	cmd-new-window.c \
 	cmd-paste-buffer.c \
 	cmd-pipe-pane.c \
+	cmd-queue.c \
 	cmd-refresh-client.c \
 	cmd-rename-session.c \
 	cmd-rename-window.c \
@@ -70,11 +69,9 @@ SRCS=	alerts.c \
 	cmd-unbind-key.c \
 	cmd-wait-for.c \
 	cmd.c \
-	cmd-find.c \
-	cmd-queue.c \
 	colour.c \
-	control.c \
 	control-notify.c \
+	control.c \
 	environ.c \
 	format.c \
 	grid-view.c \
@@ -89,7 +86,7 @@ SRCS=	alerts.c \
 	layout-set.c \
 	layout.c \
 	log.c \
-	mode-key.c \
+	mode-tree.c \
 	names.c \
 	notify.c \
 	options-table.c \
@@ -105,7 +102,6 @@ SRCS=	alerts.c \
 	server-fn.c \
 	server.c \
 	session.c \
-	signal.c \
 	status.c \
 	style.c \
 	tmux.c \
@@ -114,9 +110,11 @@ SRCS=	alerts.c \
 	tty-term.c \
 	tty.c \
 	utf8.c \
-	window-choose.c \
+	window-buffer.c \
+	window-client.c \
 	window-clock.c \
 	window-copy.c \
+	window-tree.c \
 	window.c \
 	xmalloc.c \
 	xterm-keys.c

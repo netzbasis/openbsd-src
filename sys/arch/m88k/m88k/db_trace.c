@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.15 2016/03/09 08:58:50 mpi Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.17 2017/05/30 15:39:04 mpi Exp $	*/
 /*
  * Mach Operating System
  * Copyright (c) 1993-1991 Carnegie Mellon University
@@ -458,7 +458,7 @@ static int next_address_likely_wrong = 0;
 static vaddr_t
 stack_decode(db_addr_t addr, vaddr_t *stack, int (*pr)(const char *, ...))
 {
-	db_sym_t proc;
+	Elf_Sym *proc;
 	db_expr_t offset_from_proc;
 	uint instructions_to_search;
 	db_addr_t check_addr;
@@ -470,7 +470,7 @@ stack_decode(db_addr_t addr, vaddr_t *stack, int (*pr)(const char *, ...))
 	vaddr_t str30_addr = 0;
 	vaddr_t last_subu_addr = 0;
 
-	/* get what we hope will be the db_sym_t for the function name */
+	/* get what we hope will be the symbol for the function name */
 	proc = db_search_symbol(addr, DB_STGY_PROC, &offset_from_proc);
 	if (offset_from_proc == addr) /* i.e. no symbol found */
 		proc = NULL;
@@ -806,11 +806,8 @@ db_stack_trace_cmd2(db_regs_t *regs, int (*pr)(const char *, ...))
  * printed.
  */
 void
-db_stack_trace_print(db_expr_t addr,
-		   int have_addr,
-		   db_expr_t count,
-		   char *modif,
-		   int (*pr)(const char *, ...))
+db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
+    char *modif, int (*pr)(const char *, ...))
 {
 	enum {
 		Default, Stack, Frame

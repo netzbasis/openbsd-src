@@ -1,4 +1,4 @@
-#	$OpenBSD: Syslogd.pm,v 1.19 2016/07/12 15:44:58 bluhm Exp $
+#	$OpenBSD: Syslogd.pm,v 1.22 2016/12/27 19:43:07 bluhm Exp $
 
 # Copyright (c) 2010-2015 Alexander Bluhm <bluhm@openbsd.org>
 # Copyright (c) 2014 Florian Riehm <mail@friehm.de>
@@ -23,6 +23,8 @@ use parent 'Proc';
 use Carp;
 use Cwd;
 use File::Basename;
+use File::Copy;
+use File::Temp qw(tempfile tempdir);
 use Sys::Hostname;
 use Time::HiRes qw(time alarm sleep);
 
@@ -39,9 +41,17 @@ sub new {
 	$args{foreground} && $args{daemon}
 	    and croak "$class cannot run in foreground and as daemon";
 	$args{func} = sub { Carp::confess "$class func may not be called" };
+	$args{execfile} ||= $ENV{SYSLOGD} ? $ENV{SYSLOGD} : "syslogd";
 	$args{conffile} ||= "syslogd.conf";
 	$args{outfile} ||= "file.log";
-	$args{outpipe} ||= "pipe.log";
+	unless ($args{outpipe}) {
+		my $dir = tempdir("syslogd-regress-XXXXXXXXXX",
+		    CLEANUP => 1, TMPDIR => 1);
+		chmod(0755, $dir)
+		    or die "$class chmod directory $dir failed: $!";
+		$args{tempdir} = $dir;
+		$args{outpipe} = "$dir/pipe.log";
+	}
 	$args{outconsole} ||= "console.log";
 	$args{outuser} ||= "user.log";
 	if ($args{memory}) {
@@ -54,6 +64,7 @@ sub new {
 	    or croak "$class connect addr not given";
 
 	_make_abspath(\$self->{$_}) foreach (qw(conffile outfile outpipe));
+	_make_abspath(\$self->{ktracefile}) if $self->{chdir};
 
 	# substitute variables in config file
 	my $curdir = dirname($0) || ".";
@@ -68,9 +79,9 @@ sub new {
 	open(my $fh, '>', $self->{conffile})
 	    or die ref($self), " create conf file $self->{conffile} failed: $!";
 	print $fh "*.*\t$self->{outfile}\n";
-	print $fh "*.*\t|dd of=$self->{outpipe}\n";
-	print $fh "*.*\t/dev/console\n";
-	print $fh "*.*\tsyslogd-regress\n";
+	print $fh "*.*\t|dd of=$self->{outpipe}\n" unless $self->{nopipe};
+	print $fh "*.*\t/dev/console\n" unless $self->{noconsole};
+	print $fh "*.*\tsyslogd-regress\n" unless $self->{nouser};
 	my $memory = $self->{memory};
 	print $fh "*.*\t:$memory->{size}:$memory->{name}\n" if $memory;
 	my $loghost = $self->{loghost};
@@ -97,9 +108,12 @@ sub create_out {
 
 	open($fh, '>', $self->{outpipe})
 	    or die ref($self), " create pipe file $self->{outpipe} failed: $!";
-	close $fh;
-	chmod(0666, $self->{outpipe})
+	chmod(0644, $self->{outpipe})
 	    or die ref($self), " chmod pipe file $self->{outpipe} failed: $!";
+	my @cmd = (@sudo, "chown", "_syslogd", $self->{outpipe});
+	system(@cmd)
+	    and die ref($self), " chown pipe file $self->{outpipe} failed: $!";
+	close $fh;
 
 	foreach my $dev (qw(console user)) {
 		my $file = $self->{"out$dev"};
@@ -152,6 +166,10 @@ sub child {
 	}
 	print STDERR "syslogd not running\n";
 
+	chdir $self->{chdir}
+	    or die ref($self), " chdir '$self->{chdir}' failed: $!"
+	    if $self->{chdir};
+
 	my @libevent;
 	foreach (qw(EVENT_NOKQUEUE EVENT_NOPOLL EVENT_NOSELECT)) {
 		push @libevent, "$_=1" if delete $ENV{$_};
@@ -160,8 +178,7 @@ sub child {
 	my @ktrace = $ENV{KTRACE} || ();
 	@ktrace = "ktrace" if $self->{ktrace} && !@ktrace;
 	push @ktrace, "-i", "-f", $self->{ktracefile} if @ktrace;
-	my $syslogd = $ENV{SYSLOGD} ? $ENV{SYSLOGD} : "syslogd";
-	my @cmd = (@sudo, @libevent, @ktrace, $syslogd,
+	my @cmd = (@sudo, @libevent, @ktrace, $self->{execfile},
 	    "-f", $self->{conffile});
 	push @cmd, "-d" if !$self->{foreground} && !$self->{daemon};
 	push @cmd, "-F" if $self->{foreground};
@@ -189,7 +206,7 @@ sub up {
 		# check fstat kqueue entry to detect statup
 		open(my $fh, '<', $self->{fstatfile}) or die ref($self),
 		    " open $self->{fstatfile} for reading failed: $!";
-		last if grep { /kqueue/ } <$fh>;
+		last if grep { /kqueue .* state: W/ } <$fh>;
 		time() < $end
 		    or croak ref($self), " no 'kqueue' in $self->{fstatfile} ".
 		    "after $timeout seconds";
@@ -210,6 +227,35 @@ sub up {
 	}
 
 	return $self;
+}
+
+sub down {
+	my $self = Proc::up(shift, @_);
+
+	if (my $dir = $self->{tempdir}) {
+		# keep all logs in single directory for easy debugging
+		copy($_, ".") foreach glob("$dir/*");
+	}
+
+	return $self unless $self->{daemon};
+
+	my $timeout = shift || 10;
+	my $end = time() + $timeout;
+
+	my @sudo = $ENV{SUDO} ? $ENV{SUDO} : "env";
+	my @pkill = (@sudo, "pkill", "-TERM", "-x", "syslogd");
+	my @pgrep = ("pgrep", "-x", "syslogd");
+	system(@pkill) && $? != 256
+	    and die ref($self), " system '@pkill' failed: $?";
+	do {
+		sleep .1;
+		system(@pgrep) && $? != 256
+		    and die ref($self), " system '@pgrep' failed: $?";
+		return $self if $? == 256;
+		print STDERR "syslogd still running\n";
+	} while (time() < $end);
+
+	return;
 }
 
 sub fstat {

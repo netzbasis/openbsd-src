@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.303 2016/09/02 10:47:17 otto Exp $	*/
+/*	$OpenBSD: editor.c,v 1.307 2017/05/19 12:54:30 otto Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -70,20 +70,16 @@ struct space_allocation {
 
 /* entries for swap and var are changed by editor_allocspace() */
 struct space_allocation alloc_big[] = {
-	{   MEG(80),         GIG(1),   5, "/"		},
+	{  MEG(150),         GIG(1),   5, "/"		},
 	{   MEG(80),       MEG(256),  10, "swap"	},
 	{  MEG(120),         GIG(4),   8, "/tmp"	},
 	{   MEG(80),         GIG(4),  13, "/var"	},
 	{  MEG(900),         GIG(2),   5, "/usr"	},
 	{  MEG(512),         GIG(1),   3, "/usr/X11R6"	},
-	{    GIG(2),        GIG(10),  10, "/usr/local"	},
+	{ MEG(1200),        GIG(10),  15, "/usr/local"	},
 	{    GIG(1),         GIG(2),   2, "/usr/src"	},
-#ifdef STATICLINKING
-	{ MEG(2600),         GIG(3),   4, "/usr/obj"	},
-#else
-	{ MEG(1300),         GIG(2),   4, "/usr/obj"	},
-#endif
-	{    GIG(1),       GIG(300),  40, "/home"	}
+	{    GIG(3),         GIG(6),   4, "/usr/obj"	},
+	{    GIG(1),       GIG(300),  35, "/home"	}
 	/* Anything beyond this leave for the user to decide */
 };
 
@@ -216,7 +212,7 @@ editor(int f)
 	}
 
 #ifdef SUN_CYLCHECK
-	if ((newlab.d_flags & D_VENDOR) && !aflag) {
+	if ((newlab.d_flags & D_VENDOR) && !quiet) {
 		puts("This platform requires that partition offsets/sizes "
 		    "be on cylinder boundaries.\n"
 		    "Partition offsets/sizes will be rounded to the "
@@ -266,9 +262,10 @@ editor(int f)
 
 		case 'A':
 			if (ioctl(f, DIOCGPDINFO, &newlab) == 0) {
-				++aflag;
+				aflag = 1;
+				++quiet;
 				editor_allocspace(&newlab);
-				--aflag;
+				--quiet;
 			} else
 				newlab = lastlabel;
 			break;
@@ -1266,7 +1263,7 @@ getuint64(struct disklabel *lp, char *prompt, char *helpstring,
 			if ((cyls * lp->d_secpercyl) - offset > maxval)
 				cyls--;
 			rval = (cyls * lp->d_secpercyl) - offset;
-			if (!aflag)
+			if (!quiet)
 				printf("Rounding size to cylinder (%d sectors)"
 				    ": %llu\n", lp->d_secpercyl, rval);
 		}
@@ -2107,10 +2104,10 @@ align:
 	if (adj > 0)
 		DL_SETPSIZE(pp, DL_GETPSIZE(pp) - adj);
 
-	if (orig_offset != DL_GETPOFFSET(pp) && !aflag)
+	if (orig_offset != DL_GETPOFFSET(pp) && !quiet)
 		printf("Rounding offset to bsize (%llu sectors): %llu\n",
 		    bsize, DL_GETPOFFSET(pp));
-	if (orig_size != DL_GETPSIZE(pp) && !aflag)
+	if (orig_size != DL_GETPSIZE(pp) && !quiet)
 		printf("Rounding size to bsize (%llu sectors): %llu\n",
 		    bsize, DL_GETPSIZE(pp));
 #endif
@@ -2386,6 +2383,7 @@ parse_autotable(char *filename)
 		    idx + 1, sizeof(*sa))) == NULL)
 			err(1, NULL);
 		sa = &(alloc_table[0].table[idx]);
+		memset(sa, 0, sizeof(*sa));
 		idx++;
 
 		if ((sa->mp = get_token(&buf, &len)) == NULL ||

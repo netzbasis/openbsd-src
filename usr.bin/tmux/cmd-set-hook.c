@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-hook.c,v 1.6 2016/05/12 13:21:56 nicm Exp $ */
+/* $OpenBSD: cmd-set-hook.c,v 1.11 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2012 Thomas Adam <thomas@xteddy.org>
@@ -27,7 +27,7 @@
  * Set or show global or session hooks.
  */
 
-enum cmd_retval cmd_set_hook_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval cmd_set_hook_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_set_hook_entry = {
 	.name = "set-hook",
@@ -36,9 +36,9 @@ const struct cmd_entry cmd_set_hook_entry = {
 	.args = { "gt:u", 1, 2 },
 	.usage = "[-gu] " CMD_TARGET_SESSION_USAGE " hook-name [command]",
 
-	.tflag = CMD_SESSION_CANFAIL,
+	.target = { 't', CMD_FIND_SESSION, CMD_FIND_CANFAIL },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_set_hook_exec
 };
 
@@ -49,14 +49,14 @@ const struct cmd_entry cmd_show_hooks_entry = {
 	.args = { "gt:", 0, 1 },
 	.usage = "[-g] " CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_set_hook_exec
 };
 
-enum cmd_retval
-cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_set_hook_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args	*args = self->args;
 	struct cmd_list	*cmdlist;
@@ -68,22 +68,22 @@ cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 	if (args_has(args, 'g'))
 		hooks = global_hooks;
 	else {
-		if (cmdq->state.tflag.s == NULL) {
+		if (item->target.s == NULL) {
 			target = args_get(args, 't');
 			if (target != NULL)
-				cmdq_error(cmdq, "no such session: %s", target);
+				cmdq_error(item, "no such session: %s", target);
 			else
-				cmdq_error(cmdq, "no current session");
+				cmdq_error(item, "no current session");
 			return (CMD_RETURN_ERROR);
 		}
-		hooks = cmdq->state.tflag.s->hooks;
+		hooks = item->target.s->hooks;
 	}
 
 	if (self->entry == &cmd_show_hooks_entry) {
 		hook = hooks_first(hooks);
 		while (hook != NULL) {
 			tmp = cmd_list_print(hook->cmdlist);
-			cmdq_print(cmdq, "%s -> %s", hook->name, tmp);
+			cmdq_print(item, "%s -> %s", hook->name, tmp);
 			free(tmp);
 
 			hook = hooks_next(hook);
@@ -93,7 +93,7 @@ cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	name = args->argv[0];
 	if (*name == '\0') {
-		cmdq_error(cmdq, "invalid hook name");
+		cmdq_error(item, "invalid hook name");
 		return (CMD_RETURN_ERROR);
 	}
 	if (args->argc < 2)
@@ -103,7 +103,7 @@ cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if (args_has(args, 'u')) {
 		if (cmd != NULL) {
-			cmdq_error(cmdq, "command passed to unset hook: %s",
+			cmdq_error(item, "command passed to unset hook: %s",
 			    name);
 			return (CMD_RETURN_ERROR);
 		}
@@ -112,12 +112,13 @@ cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 	}
 
 	if (cmd == NULL) {
-		cmdq_error(cmdq, "no command to set hook: %s", name);
+		cmdq_error(item, "no command to set hook: %s", name);
 		return (CMD_RETURN_ERROR);
 	}
-	if (cmd_string_parse(cmd, &cmdlist, NULL, 0, &cause) != 0) {
+	cmdlist = cmd_string_parse(cmd, NULL, 0, &cause);
+	if (cmdlist == NULL) {
 		if (cause != NULL) {
-			cmdq_error(cmdq, "%s", cause);
+			cmdq_error(item, "%s", cause);
 			free(cause);
 		}
 		return (CMD_RETURN_ERROR);

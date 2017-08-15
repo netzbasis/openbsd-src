@@ -1,4 +1,4 @@
-/*	$OpenBSD: xform.c,v 1.54 2015/12/10 21:00:51 naddy Exp $	*/
+/*	$OpenBSD: xform.c,v 1.58 2017/05/31 00:34:33 djm Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
@@ -60,6 +60,7 @@
 #include <crypto/blf.h>
 #include <crypto/cast.h>
 #include <crypto/rijndael.h>
+#include <crypto/aes.h>
 #include <crypto/cryptodev.h>
 #include <crypto/xform.h>
 #include <crypto/gmac.h>
@@ -71,7 +72,7 @@ int  des_set_key(void *, caddr_t);
 int  des3_setkey(void *, u_int8_t *, int);
 int  blf_setkey(void *, u_int8_t *, int);
 int  cast5_setkey(void *, u_int8_t *, int);
-int  rijndael128_setkey(void *, u_int8_t *, int);
+int  aes_setkey(void *, u_int8_t *, int);
 int  aes_ctr_setkey(void *, u_int8_t *, int);
 int  aes_xts_setkey(void *, u_int8_t *, int);
 int  null_setkey(void *, u_int8_t *, int);
@@ -79,14 +80,14 @@ int  null_setkey(void *, u_int8_t *, int);
 void des3_encrypt(caddr_t, u_int8_t *);
 void blf_encrypt(caddr_t, u_int8_t *);
 void cast5_encrypt(caddr_t, u_int8_t *);
-void rijndael128_encrypt(caddr_t, u_int8_t *);
+void aes_encrypt(caddr_t, u_int8_t *);
 void null_encrypt(caddr_t, u_int8_t *);
 void aes_xts_encrypt(caddr_t, u_int8_t *);
 
 void des3_decrypt(caddr_t, u_int8_t *);
 void blf_decrypt(caddr_t, u_int8_t *);
 void cast5_decrypt(caddr_t, u_int8_t *);
-void rijndael128_decrypt(caddr_t, u_int8_t *);
+void aes_decrypt(caddr_t, u_int8_t *);
 void null_decrypt(caddr_t, u_int8_t *);
 void aes_xts_decrypt(caddr_t, u_int8_t *);
 
@@ -112,9 +113,8 @@ u_int32_t lzs_dummy(u_int8_t *, u_int32_t, u_int8_t **);
 #define AESCTR_BLOCKSIZE	16
 
 struct aes_ctr_ctx {
-	u_int32_t	ac_ek[4*(AES_MAXROUNDS + 1)];
+	AES_CTX		ac_key;
 	u_int8_t	ac_block[AESCTR_BLOCKSIZE];
-	int		ac_nr;
 };
 
 #define AES_XTS_BLOCKSIZE	16
@@ -160,13 +160,13 @@ struct enc_xform enc_xform_cast5 = {
 	NULL
 };
 
-struct enc_xform enc_xform_rijndael128 = {
-	CRYPTO_RIJNDAEL128_CBC, "Rijndael-128/AES",
+struct enc_xform enc_xform_aes = {
+	CRYPTO_AES_CBC, "AES",
 	16, 16, 16, 32,
-	sizeof(rijndael_ctx),
-	rijndael128_encrypt,
-	rijndael128_decrypt,
-	rijndael128_setkey,
+	sizeof(AES_CTX),
+	aes_encrypt,
+	aes_decrypt,
+	aes_setkey,
 	NULL
 };
 
@@ -402,21 +402,21 @@ cast5_setkey(void *sched, u_int8_t *key, int len)
 }
 
 void
-rijndael128_encrypt(caddr_t key, u_int8_t *blk)
+aes_encrypt(caddr_t key, u_int8_t *blk)
 {
-	rijndael_encrypt((rijndael_ctx *) key, (u_char *) blk, (u_char *) blk);
+	AES_Encrypt((AES_CTX *)key, blk, blk);
 }
 
 void
-rijndael128_decrypt(caddr_t key, u_int8_t *blk)
+aes_decrypt(caddr_t key, u_int8_t *blk)
 {
-	rijndael_decrypt((rijndael_ctx *) key, (u_char *) blk, (u_char *) blk);
+	AES_Decrypt((AES_CTX *)key, blk, blk);
 }
 
 int
-rijndael128_setkey(void *sched, u_int8_t *key, int len)
+aes_setkey(void *sched, u_int8_t *key, int len)
 {
-	return rijndael_set_key((rijndael_ctx *)sched, (u_char *)key, len * 8);
+	return AES_Setkey((AES_CTX *)sched, key, len);
 }
 
 void
@@ -457,7 +457,7 @@ aes_ctr_crypt(caddr_t key, u_int8_t *data)
 	     i >= AESCTR_NONCESIZE + AESCTR_IVSIZE; i--)
 		if (++ctx->ac_block[i])   /* continue on overflow */
 			break;
-	rijndaelEncrypt(ctx->ac_ek, ctx->ac_nr, ctx->ac_block, keystream);
+	AES_Encrypt(&ctx->ac_key, ctx->ac_block, keystream);
 	for (i = 0; i < AESCTR_BLOCKSIZE; i++)
 		data[i] ^= keystream[i];
 	explicit_bzero(keystream, sizeof(keystream));
@@ -472,9 +472,7 @@ aes_ctr_setkey(void *sched, u_int8_t *key, int len)
 		return -1;
 
 	ctx = (struct aes_ctr_ctx *)sched;
-	ctx->ac_nr = rijndaelKeySetupEnc(ctx->ac_ek, (u_char *)key,
-	    (len - AESCTR_NONCESIZE) * 8);
-	if (ctx->ac_nr == 0)
+	if (AES_Setkey(&ctx->ac_key, key, len - AESCTR_NONCESIZE) != 0)
 		return -1;
 	bcopy(key + len - AESCTR_NONCESIZE, ctx->ac_block, AESCTR_NONCESIZE);
 	return 0;
@@ -491,7 +489,7 @@ aes_xts_reinit(caddr_t key, u_int8_t *iv)
 	 * Prepare tweak as E_k2(IV). IV is specified as LE representation
 	 * of a 64-bit block number which we allow to be passed in directly.
 	 */
-	bcopy(iv, &blocknum, AES_XTS_IVSIZE);
+	memcpy(&blocknum, iv, AES_XTS_IVSIZE);
 	for (i = 0; i < AES_XTS_IVSIZE; i++) {
 		ctx->tweak[i] = blocknum & 0xff;
 		blocknum >>= 8;
@@ -523,11 +521,10 @@ aes_xts_crypt(struct aes_xts_ctx *ctx, u_int8_t *data, u_int do_encrypt)
 	carry_in = 0;
 	for (i = 0; i < AES_XTS_BLOCKSIZE; i++) {
 		carry_out = ctx->tweak[i] & 0x80;
-		ctx->tweak[i] = (ctx->tweak[i] << 1) | (carry_in ? 1 : 0);
-		carry_in = carry_out;
+		ctx->tweak[i] = (ctx->tweak[i] << 1) | carry_in;
+		carry_in = carry_out >> 7;
 	}
-	if (carry_in)
-		ctx->tweak[0] ^= AES_XTS_ALPHA;
+	ctx->tweak[0] ^= (AES_XTS_ALPHA & -carry_in);
 	explicit_bzero(block, sizeof(block));
 }
 

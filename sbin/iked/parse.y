@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.58 2016/09/03 09:20:07 vgross Exp $	*/
+/*	$OpenBSD: parse.y,v 1.65 2017/04/24 07:07:25 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -31,6 +31,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <openssl/pem.h>
+#include <openssl/evp.h>
+
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -59,10 +62,14 @@ static struct file {
 	int			 lineno;
 	int			 errors;
 } *file;
+EVP_PKEY	*wrap_pubkey(FILE *);
+EVP_PKEY	*find_pubkey(const char *);
+int		 set_policy(char *, int, struct iked_policy *);
+int		 set_policy_auth_method(const char *, EVP_PKEY *,
+		     struct iked_policy *);
 struct file	*pushfile(const char *, int);
 int		 popfile(void);
 int		 check_file_secrecy(int, const char *);
-int		 check_pubkey(char *, int );
 int		 yyparse(void);
 int		 yylex(void);
 int		 yyerror(const char *, ...)
@@ -125,7 +132,6 @@ struct iked_transform ikev2_default_ike_transforms[] = {
 	{ IKEV2_XFORMTYPE_PRF,	IKEV2_XFORMPRF_HMAC_SHA1 },
 	{ IKEV2_XFORMTYPE_INTEGR, IKEV2_XFORMAUTH_HMAC_SHA2_256_128 },
 	{ IKEV2_XFORMTYPE_INTEGR, IKEV2_XFORMAUTH_HMAC_SHA1_96 },
-	{ IKEV2_XFORMTYPE_DH,	IKEV2_XFORMDH_MODP_2048_256 },
 	{ IKEV2_XFORMTYPE_DH,	IKEV2_XFORMDH_MODP_2048 },
 	{ IKEV2_XFORMTYPE_DH,	IKEV2_XFORMDH_MODP_1536 },
 	{ IKEV2_XFORMTYPE_DH,	IKEV2_XFORMDH_MODP_1024 },
@@ -226,12 +232,6 @@ const struct ipsec_xf groupxfs[] = {
 	{ "grp20",		IKEV2_XFORMDH_ECP_384 },
 	{ "ecp521",		IKEV2_XFORMDH_ECP_521 },
 	{ "grp21",		IKEV2_XFORMDH_ECP_521 },
-	{ "modp1024-160",	IKEV2_XFORMDH_MODP_1024_160 },
-	{ "grp22",		IKEV2_XFORMDH_MODP_1024_160 },
-	{ "modp2048-224",	IKEV2_XFORMDH_MODP_2048_224 },
-	{ "grp23",		IKEV2_XFORMDH_MODP_2048_224 },
-	{ "modp2048-256",	IKEV2_XFORMDH_MODP_2048_256 },
-	{ "grp24",		IKEV2_XFORMDH_MODP_2048_256 },
 	{ "ecp192",		IKEV2_XFORMDH_ECP_192 },
 	{ "grp25",		IKEV2_XFORMDH_ECP_192 },
 	{ "ecp224",		IKEV2_XFORMDH_ECP_224 },
@@ -249,11 +249,13 @@ const struct ipsec_xf groupxfs[] = {
 };
 
 const struct ipsec_xf methodxfs[] = {
+	{ "none",		IKEV2_AUTH_NONE },
 	{ "rsa",		IKEV2_AUTH_RSA_SIG },
-	{ "dss",		IKEV2_AUTH_DSS_SIG },
-	{ "ecdsa-256",		IKEV2_AUTH_ECDSA_256 },
-	{ "ecdsa-384",		IKEV2_AUTH_ECDSA_384 },
-	{ "ecdsa-521",		IKEV2_AUTH_ECDSA_521 },
+	{ "ecdsa256",		IKEV2_AUTH_ECDSA_256 },
+	{ "ecdsa384",		IKEV2_AUTH_ECDSA_384 },
+	{ "ecdsa521",		IKEV2_AUTH_ECDSA_521 },
+	{ "rfc7427",		IKEV2_AUTH_SIG },
+	{ "signature",		IKEV2_AUTH_SIG_ANY },
 	{ NULL }
 };
 
@@ -377,7 +379,7 @@ typedef struct {
 
 %}
 
-%token	FROM ESP AH IN PEER ON OUT TO SRCID DSTID RSA PSK PORT
+%token	FROM ESP AH IN PEER ON OUT TO SRCID DSTID PSK PORT
 %token	FILENAME AUTHXF PRFXF ENCXF ERROR IKEV2 IKESA CHILDSA
 %token	PASSIVE ACTIVE ANY TAG TAP PROTO LOCAL GROUP NAME CONFIG EAP USER
 %token	IKEV1 FLOW SA TCPMD5 TUNNEL TRANSPORT COUPLE DECOUPLE SET
@@ -462,8 +464,10 @@ ikev2rule	: IKEV2 name ikeflags satype af proto hosts_list peers
 		    filters {
 			if (create_ike($2, $5, $6, $7, &$8, $9, $10, $4, $3,
 			    $11.srcid, $11.dstid, $12, &$13, &$14,
-			    $16, $15) == -1)
+			    $16, $15) == -1) {
+				yyerror("create_ike failed");
 				YYERROR;
+			}
 		}
 		;
 
@@ -810,12 +814,7 @@ ipcomp		: /* empty */			{ $$ = 0; }
 		;
 
 ikeauth		: /* empty */			{
-			$$.auth_method = IKEV2_AUTH_RSA_SIG;
-			$$.auth_eap = 0;
-			$$.auth_length = 0;
-		}
-		| RSA				{
-			$$.auth_method = IKEV2_AUTH_RSA_SIG;
+			$$.auth_method = IKEV2_AUTH_SIG_ANY;	/* default */
 			$$.auth_eap = 0;
 			$$.auth_length = 0;
 		}
@@ -840,6 +839,21 @@ ikeauth		: /* empty */			{
 
 			$$.auth_method = IKEV2_AUTH_RSA_SIG;
 			$$.auth_eap = EAP_TYPE_MSCHAP_V2;
+			$$.auth_length = 0;
+		}
+		| STRING			{
+			const struct ipsec_xf *xf;
+
+			if ((xf = parse_xf($1, 0, methodxfs)) == NULL ||
+			    xf->id == IKEV2_AUTH_NONE) {
+				yyerror("not a valid authentication mode");
+				free($1);
+				YYERROR;
+			}
+			free($1);
+
+			$$.auth_method = xf->id;
+			$$.auth_eap = 0;
 			$$.auth_length = 0;
 		}
 		;
@@ -1121,7 +1135,6 @@ lookup(char *s)
 		{ "proto",		PROTO },
 		{ "psk",		PSK },
 		{ "quick",		QUICK },
-		{ "rsa",		RSA },
 		{ "sa",			SA },
 		{ "set",		SET },
 		{ "skip",		SKIP },
@@ -1520,9 +1533,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -1581,11 +1595,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
@@ -1665,44 +1680,182 @@ get_id_type(char *string)
 		return (IKEV2_ID_FQDN);
 }
 
+EVP_PKEY *
+wrap_pubkey(FILE *fp)
+{
+	EVP_PKEY	*key = NULL;
+	struct rsa_st	*rsa = NULL;
+
+	key = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
+	if (key == NULL) {
+		/* reading PKCS #8 failed, try PEM */
+		rewind(fp);
+		rsa = PEM_read_RSAPublicKey(fp, NULL, NULL, NULL);
+		fclose(fp);
+		if (rsa == NULL)
+			return (NULL);
+		if ((key = EVP_PKEY_new()) == NULL) {
+			RSA_free(rsa);
+			return (NULL);
+		}
+		if (!EVP_PKEY_set1_RSA(key, rsa)) {
+			RSA_free(rsa);
+			EVP_PKEY_free(key);
+			return (NULL);
+		}
+		/* Always free RSA *rsa */
+		RSA_free(rsa);
+	} else {
+		fclose(fp);
+	}
+
+	return (key);
+}
+
+EVP_PKEY *
+find_pubkey(const char *keyfile)
+{
+	FILE		*fp = NULL;
+	if ((fp = fopen(keyfile, "r")) == NULL)
+		return (NULL);
+
+	return (wrap_pubkey(fp));
+}
+
 int
-check_pubkey(char *idstr, int type)
+set_policy_auth_method(const char *peerid, EVP_PKEY *key,
+    struct iked_policy *pol)
+{
+	struct rsa_st		*rsa;
+	EC_KEY			*ec_key;
+	u_int8_t		 method;
+	u_int8_t		 cert_type;
+	struct iked_auth	*ikeauth;
+
+	method = IKEV2_AUTH_NONE;
+	cert_type = IKEV2_CERT_NONE;
+
+	if (key != NULL) {
+		/* infer policy from key type */
+		if ((rsa = EVP_PKEY_get1_RSA(key)) != NULL) {
+			method = IKEV2_AUTH_RSA_SIG;
+			cert_type = IKEV2_CERT_RSA_KEY;
+			RSA_free(rsa);
+		} else if ((ec_key = EVP_PKEY_get1_EC_KEY(key)) != NULL) {
+			const EC_GROUP *group = EC_KEY_get0_group(ec_key);
+			if (group == NULL) {
+				EC_KEY_free(ec_key);
+				return (-1);
+			}
+			switch (EC_GROUP_get_degree(group)) {
+			case 256:
+				method = IKEV2_AUTH_ECDSA_256;
+				break;
+			case 384:
+				method = IKEV2_AUTH_ECDSA_384;
+				break;
+			case 521:
+				method = IKEV2_AUTH_ECDSA_521;
+				break;
+			default:
+				EC_KEY_free(ec_key);
+				return (-1);
+			}
+			cert_type = IKEV2_CERT_ECDSA;
+			EC_KEY_free(ec_key);
+		}
+
+		if (method == IKEV2_AUTH_NONE || cert_type == IKEV2_CERT_NONE)
+			return (-1);
+	} else {
+		/* default to IKEV2_CERT_X509_CERT otherwise */
+		method = IKEV2_AUTH_SIG;
+		cert_type = IKEV2_CERT_X509_CERT;
+	}
+
+	ikeauth = &pol->pol_auth;
+
+	if (ikeauth->auth_method == IKEV2_AUTH_SHARED_KEY_MIC) {
+		if (key != NULL &&
+		    method != IKEV2_AUTH_RSA_SIG)
+			goto mismatch;
+		return (0);
+	}
+
+	if (ikeauth->auth_method != IKEV2_AUTH_NONE &&
+	    ikeauth->auth_method != IKEV2_AUTH_SIG_ANY &&
+	    ikeauth->auth_method != method)
+		goto mismatch;
+
+	ikeauth->auth_method = method;
+	pol->pol_certreqtype = cert_type;
+
+	log_debug("%s: using %s for peer %s", __func__,
+	    print_xf(method, 0, methodxfs), peerid);
+
+	return (0);
+
+ mismatch:
+	log_warnx("%s: ikeauth policy mismatch, %s specified, but only %s "
+	    "possible", __func__, print_xf(ikeauth->auth_method, 0, methodxfs),
+	    print_xf(method, 0, methodxfs));
+	return (-1);
+}
+
+int
+set_policy(char *idstr, int type, struct iked_policy *pol)
 {
 	char		 keyfile[PATH_MAX];
-	FILE		*fp = NULL;
-	const char	*suffix = NULL;
+	const char	*prefix = NULL;
+	EVP_PKEY	*key = NULL;
 
 	switch (type) {
 	case IKEV2_ID_IPV4:
-		suffix = "ipv4";
+		prefix = "ipv4";
 		break;
 	case IKEV2_ID_IPV6:
-		suffix = "ipv6";
+		prefix = "ipv6";
 		break;
 	case IKEV2_ID_FQDN:
-		suffix = "fqdn";
+		prefix = "fqdn";
 		break;
 	case IKEV2_ID_UFQDN:
-		suffix = "ufqdn";
+		prefix = "ufqdn";
 		break;
+	case IKEV2_ID_ASN1_DN:
+		/* public key authentication is not supported with ASN.1 IDs */
+		goto done;
 	default:
 		/* Unspecified ID or public key not supported for this type */
+		log_debug("%s: unknown type = %d", __func__, type);
 		return (-1);
 	}
 
 	lc_string(idstr);
 	if ((size_t)snprintf(keyfile, sizeof(keyfile),
-	    IKED_CA IKED_PUBKEY_DIR "%s/%s", suffix,
+	    IKED_CA IKED_PUBKEY_DIR "%s/%s", prefix,
 	    idstr) >= sizeof(keyfile)) {
 		log_warnx("%s: public key path is too long", __func__);
 		return (-1);
 	}
 
-	if ((fp = fopen(keyfile, "r")) == NULL)
-		return (-1);
-	fclose(fp);
+	if ((key = find_pubkey(keyfile)) == NULL) {
+		log_warnx("%s: could not find pubkey for %s", __func__,
+		    keyfile);
+	}
 
-	log_debug("%s: found public key file %s", __func__, keyfile);
+ done:
+	if (set_policy_auth_method(keyfile, key, pol) < 0) {
+		EVP_PKEY_free(key);
+		log_warnx("%s: failed to set policy auth method for %s",
+		    __func__, keyfile);
+		return (-1);
+	}
+
+	if (key != NULL) {
+		EVP_PKEY_free(key);
+		log_debug("%s: found pubkey for %s", __func__, keyfile);
+	}
 
 	return (0);
 }
@@ -2344,12 +2497,16 @@ print_policy(struct iked_policy *pol)
 	print_verbose(" lifetime %llu bytes %llu",
 	    pol->pol_lifetime.lt_seconds, pol->pol_lifetime.lt_bytes);
 
-	if (pol->pol_auth.auth_method == IKEV2_AUTH_SHARED_KEY_MIC) {
-			print_verbose(" psk 0x");
-			for (i = 0; i < pol->pol_auth.auth_length; i++)
-				print_verbose("%02x",
-				    pol->pol_auth.auth_data[i]);
-	} else {
+	switch (pol->pol_auth.auth_method) {
+	case IKEV2_AUTH_NONE:
+		print_verbose (" none");
+		break;
+	case IKEV2_AUTH_SHARED_KEY_MIC:
+		print_verbose(" psk 0x");
+		for (i = 0; i < pol->pol_auth.auth_length; i++)
+			print_verbose("%02x", pol->pol_auth.auth_data[i]);
+		break;
+	default:
 		if (pol->pol_auth.auth_eap)
 			print_verbose(" eap \"%s\"",
 			    print_map(pol->pol_auth.auth_eap, eap_type_map));
@@ -2429,6 +2586,9 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 
 	bzero(&pol, sizeof(pol));
 	bzero(&prop, sizeof(prop));
+	bzero(&ikexforms, sizeof(ikexforms));
+	bzero(&ipsecxforms, sizeof(ipsecxforms));
+	bzero(&flows, sizeof(flows));
 	bzero(idstr, sizeof(idstr));
 
 	pol.pol_id = ++policy_id;
@@ -2626,6 +2786,8 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 
 	for (j = 0, ipa = hosts->src, ipb = hosts->dst; ipa && ipb;
 	    ipa = ipa->next, ipb = ipb->next, j++) {
+		if (j >= nitems(flows))
+			fatalx("create_ike: too many flows");
 		memcpy(&flows[j].flow_src.addr, &ipa->address,
 		    sizeof(ipa->address));
 		flows[j].flow_src.addr_af = ipa->af;
@@ -2653,8 +2815,10 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 
 		flows[j].flow_ipproto = ipproto;
 
-		pol.pol_nflows++;
-		RB_INSERT(iked_flows, &pol.pol_flows, &flows[j]);
+		if (RB_INSERT(iked_flows, &pol.pol_flows, &flows[j]) == NULL)
+			pol.pol_nflows++;
+		else
+			warnx("create_ike: duplicate flow");
 	}
 
 	for (j = 0, ipa = ikecfg; ipa; ipa = ipa->next, j++) {
@@ -2691,11 +2855,14 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 		}
 	}
 
-	/* Check if we have a raw public key for this peer */
-	if (check_pubkey(idstr, idtype) != -1)
-		pol.pol_certreqtype = IKEV2_CERT_RSA_KEY;
+	/* Make sure that we know how to authenticate this peer */
+	if (idtype && set_policy(idstr, idtype, &pol) < 0) {
+		log_debug("%s: set_policy failed", __func__);
+		return (-1);
+	}
 
 	config_setpolicy(env, &pol, PROC_IKEV2);
+	config_setflow(env, &pol, PROC_IKEV2);
 
 	rules++;
 	return (0);

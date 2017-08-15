@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifstated.h,v 1.10 2016/07/19 08:04:53 benno Exp $	*/
+/*	$OpenBSD: ifstated.h,v 1.18 2017/08/14 03:15:28 rob Exp $	*/
 
 /*
  * Copyright (c) 2004 Ryan McBride
@@ -29,7 +29,6 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 
-
 struct ifsd_expression;
 TAILQ_HEAD(ifsd_expression_list, ifsd_expression);
 
@@ -53,7 +52,7 @@ struct ifsd_external {
 	int				 prevstatus;
 	u_int32_t			 frequency;
 	u_int32_t			 refcount;
-	u_int32_t			 lastexec;
+	time_t				 lastexec;
 	pid_t				 pid;
 };
 
@@ -64,23 +63,19 @@ struct ifsd_action {
 	TAILQ_ENTRY(ifsd_action)	 entries;
 	struct ifsd_action		*parent;
 	union {
-		char			*logmessage;
 		char			*command;
 		struct ifsd_state	*nextstate;
 		char			*statename;
 		struct {
 			struct ifsd_action_list	 actions;
 			struct ifsd_expression	*expression;
-			u_int8_t		 ignore_init;
 		} c;
 	} act;
 	u_int32_t			 type;
-#define IFSD_ACTION_LOG			0
 #define IFSD_ACTION_COMMAND		1
 #define IFSD_ACTION_CHANGESTATE		2
 #define IFSD_ACTION_CONDITION		3
 };
-
 
 struct ifsd_expression {
 	TAILQ_ENTRY(ifsd_expression)	 entries;
@@ -95,9 +90,9 @@ struct ifsd_expression {
 	} u;
 	int				 depth;
 	u_int32_t			 type;
-#define IFSD_OPER_AND	1
-#define IFSD_OPER_OR	2
-#define IFSD_OPER_NOT	3
+#define IFSD_OPER_AND		1
+#define IFSD_OPER_OR		2
+#define IFSD_OPER_NOT		3
 #define IFSD_OPER_EXTERNAL	4
 #define IFSD_OPER_IFSTATE	5
 	u_int8_t			 truth;
@@ -112,15 +107,15 @@ struct ifsd_state {
 	struct ifsd_external_list	 external_tests;
 	TAILQ_ENTRY(ifsd_state)		 entries;
 	struct ifsd_action		*init;
-	struct ifsd_action		*always;
-	u_int32_t			 entered;
+	struct ifsd_action		*body;
+	time_t				 entered;
 	char				*name;
 };
 
 TAILQ_HEAD(ifsd_state_list, ifsd_state);
 
 struct ifsd_config {
-	struct ifsd_state		 always;
+	struct ifsd_state		 initstate;
 	struct ifsd_state_list		 states;
 	struct ifsd_state		*curstate;
 	struct ifsd_state		*nextstate;
@@ -135,20 +130,3 @@ enum	{ IFSD_EVTIMER_ADD, IFSD_EVTIMER_DEL };
 struct ifsd_config *parse_config(char *, int);
 int	cmdline_symset(char *);
 void	clear_config(struct ifsd_config *);
-
-/* log.c */
-void	log_init(int);
-void	log_warn(const char *, ...)
-		__attribute__((__format__ (printf, 1, 2)));
-void	log_warnx(const char *, ...)
-		__attribute__((__format__ (printf, 1, 2)));
-void	log_info(const char *, ...)
-		__attribute__((__format__ (printf, 1, 2)));
-void	log_debug(const char *, ...)
-		__attribute__((__format__ (printf, 1, 2)));
-void	vlog(int, const char *, va_list)
-		__attribute__((__format__ (printf, 2, 0)));
-void	logit(int, const char *, ...)
-		__attribute__((__format__ (printf, 2, 3)));
-void fatal(const char *) __dead;
-void fatalx(const char *) __dead;

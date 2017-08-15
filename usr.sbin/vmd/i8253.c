@@ -1,3 +1,4 @@
+/* $OpenBSD: i8253.c,v 1.17 2017/08/14 19:46:44 jasper Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -24,19 +25,21 @@
 #include <event.h>
 #include <string.h>
 #include <stddef.h>
+#include <unistd.h>
 
 #include "i8253.h"
 #include "proc.h"
 #include "vmm.h"
+#include "atomicio.h"
 
 extern char *__progname;
 
 /*
- * Counter 0 is used to generate the legacy hardclock interrupt (HZ).
- * Counters 1 and 2 are not connected to any output (although someone
- * could hook counter 2 up to an emulated pcppi(4) at some point).
+ * Channel 0 is used to generate the legacy hardclock interrupt (HZ).
+ * Channels 1 and 2 are not connected to any output (although someone
+ * could hook channel 2 up to an emulated pcppi(4) at some point).
  */
-struct i8253_counter i8253_counter[3];
+struct i8253_channel i8253_channel[3];
 
 /*
  * i8253_init
@@ -49,21 +52,127 @@ struct i8253_counter i8253_counter[3];
 void
 i8253_init(uint32_t vm_id)
 {
-	memset(&i8253_counter, 0, sizeof(struct i8253_counter));
-	gettimeofday(&i8253_counter[0].tv, NULL);
-	i8253_counter[0].start = 0xFFFF;
-	i8253_counter[0].mode = TIMER_RATEGEN;
-	evtimer_set(&i8253_counter[0].timer, i8253_fire,
-	    (void *)(uint64_t)vm_id);
-	i8253_reset(0);
+	memset(&i8253_channel, 0, sizeof(struct i8253_channel));
+	gettimeofday(&i8253_channel[0].tv, NULL);
+	i8253_channel[0].start = 0xFFFF;
+	i8253_channel[0].mode = TIMER_INTTC;
+	i8253_channel[0].last_r = 1;
+	i8253_channel[0].vm_id = vm_id;
+
+	i8253_channel[1].start = 0xFFFF;
+	i8253_channel[1].mode = TIMER_INTTC;
+	i8253_channel[1].last_r = 1;
+	i8253_channel[1].vm_id = vm_id;
+
+	i8253_channel[2].start = 0xFFFF;
+	i8253_channel[2].mode = TIMER_INTTC;
+	i8253_channel[2].last_r = 1;
+	i8253_channel[2].vm_id = vm_id;
+
+	evtimer_set(&i8253_channel[0].timer, i8253_fire, &i8253_channel[0]);
+	evtimer_set(&i8253_channel[1].timer, i8253_fire, &i8253_channel[1]);
+	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
+}
+
+/*
+ * i8253_do_readback
+ *
+ * Handles the readback status command. The readback status command latches
+ * the current counter value plus various status bits.
+ *
+ * Parameters:
+ *  data: The command word written by the guest VM
+ */
+void
+i8253_do_readback(uint32_t data)
+{
+	struct timeval now, delta;
+	uint64_t ns, ticks;
+
+	/* bits are inverted here - !TIMER_RB_STATUS == enable chan readback */
+	if (data & ~TIMER_RB_STATUS) {
+		i8253_channel[0].rbs = (data & TIMER_RB_C0) ? 1 : 0;
+		i8253_channel[1].rbs = (data & TIMER_RB_C1) ? 1 : 0;
+		i8253_channel[2].rbs = (data & TIMER_RB_C2) ? 1 : 0;
+	}
+
+	/* !TIMER_RB_COUNT == enable counter readback */
+	if (data & ~TIMER_RB_COUNT) {
+		if (data & TIMER_RB_C0) {
+			gettimeofday(&now, NULL);
+			delta.tv_sec = now.tv_sec - i8253_channel[0].tv.tv_sec;
+			delta.tv_usec = now.tv_usec -
+			    i8253_channel[0].tv.tv_usec;
+			if (delta.tv_usec < 0) {
+				delta.tv_sec--;
+				delta.tv_usec += 1000000;
+			}
+			if (delta.tv_usec > 1000000) {
+				delta.tv_sec++;
+				delta.tv_usec -= 1000000;
+			}
+			ns = delta.tv_usec * 1000 + delta.tv_sec * 1000000000;
+			ticks = ns / NS_PER_TICK;
+			if (i8253_channel[0].start)
+				i8253_channel[0].olatch =
+				    i8253_channel[0].start -
+				    ticks % i8253_channel[0].start;
+			else
+				i8253_channel[0].olatch = 0;
+		}
+
+		if (data & TIMER_RB_C1) {
+			gettimeofday(&now, NULL);
+			delta.tv_sec = now.tv_sec - i8253_channel[1].tv.tv_sec;
+			delta.tv_usec = now.tv_usec -
+			    i8253_channel[1].tv.tv_usec;
+			if (delta.tv_usec < 0) {
+				delta.tv_sec--;
+				delta.tv_usec += 1000000;
+			}
+			if (delta.tv_usec > 1000000) {
+				delta.tv_sec++;
+				delta.tv_usec -= 1000000;
+			}
+			ns = delta.tv_usec * 1000 + delta.tv_sec * 1000000000;
+			ticks = ns / NS_PER_TICK;
+			if (i8253_channel[1].start)
+				i8253_channel[1].olatch =
+				    i8253_channel[1].start -
+				    ticks % i8253_channel[1].start;
+			else
+				i8253_channel[1].olatch = 0;
+		}
+
+		if (data & TIMER_RB_C2) {
+			gettimeofday(&now, NULL);
+			delta.tv_sec = now.tv_sec - i8253_channel[2].tv.tv_sec;
+			delta.tv_usec = now.tv_usec -
+			    i8253_channel[2].tv.tv_usec;
+			if (delta.tv_usec < 0) {
+				delta.tv_sec--;
+				delta.tv_usec += 1000000;
+			}
+			if (delta.tv_usec > 1000000) {
+				delta.tv_sec++;
+				delta.tv_usec -= 1000000;
+			}
+			ns = delta.tv_usec * 1000 + delta.tv_sec * 1000000000;
+			ticks = ns / NS_PER_TICK;
+			if (i8253_channel[2].start)
+				i8253_channel[2].olatch =
+				    i8253_channel[2].start -
+				    ticks % i8253_channel[2].start;
+			else
+				i8253_channel[2].olatch = 0;
+		}
+	}
 }
 
 /*
  * vcpu_exit_i8253
  *
  * Handles emulated i8253 PIT access (in/out instruction to PIT ports).
- * We don't emulate all the modes of the i8253, just the basic squarewave
- * "rategen" clock.
  *
  * Parameters:
  *  vrp: vm run parameters containing exit information for the I/O
@@ -82,20 +191,20 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 	struct timeval now, delta;
 	union vm_exit *vei = vrp->vrp_exit;
 
+	get_input_data(vei, &out_data);
+
 	if (vei->vei.vei_port == TIMER_CTRL) {
 		if (vei->vei.vei_dir == VEI_DIR_OUT) { /* OUT instruction */
-			out_data = vei->vei.vei_data;
 			sel = out_data &
 			    (TIMER_SEL0 | TIMER_SEL1 | TIMER_SEL2);
 			sel = sel >> 6;
-			if (sel > 2) {
-				log_warnx("%s: i8253 PIT: unuspported "
-				    "counter selected (%d)",
-				    __progname, sel);
-				goto ret;
+
+			if (sel == 3) {
+				i8253_do_readback(out_data);
+				return (0xFF);
 			}
 
-			rw = vei->vei.vei_data & (TIMER_LATCH | TIMER_16BIT);
+			rw = out_data & (TIMER_LATCH | TIMER_16BIT);
 
 			/*
 			 * Since we don't truly emulate each tick of the PIT
@@ -109,9 +218,9 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 			if (rw == TIMER_LATCH) {
 				gettimeofday(&now, NULL);
 				delta.tv_sec = now.tv_sec -
-				    i8253_counter[sel].tv.tv_sec;
+				    i8253_channel[sel].tv.tv_sec;
 				delta.tv_usec = now.tv_usec -
-				    i8253_counter[sel].tv.tv_usec;
+				    i8253_channel[sel].tv.tv_usec;
 				if (delta.tv_usec < 0) {
 					delta.tv_sec--;
 					delta.tv_usec += 1000000;
@@ -123,9 +232,12 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 				ns = delta.tv_usec * 1000 +
 				    delta.tv_sec * 1000000000;
 				ticks = ns / NS_PER_TICK;
-				i8253_counter[sel].olatch =
-				    i8253_counter[sel].start -
-				    ticks % i8253_counter[sel].start;
+				if (i8253_channel[sel].start) {
+					i8253_channel[sel].olatch =
+					    i8253_channel[sel].start -
+					    ticks % i8253_channel[sel].start;
+				} else
+					i8253_channel[sel].olatch = 0;
 				goto ret;
 			} else if (rw != TIMER_16BIT) {
 				log_warnx("%s: i8253 PIT: unsupported counter "
@@ -137,42 +249,47 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 		} else {
 			log_warnx("%s: i8253 PIT: read from control port "
 			    "unsupported", __progname);
-			vei->vei.vei_data = 0;
+			set_return_data(vei, 0);
 		}
 	} else {
 		sel = vei->vei.vei_port - (TIMER_CNTR0 + TIMER_BASE);
 
-		if (sel != 0) {
-			log_warnx("%s: i8253 PIT: nonzero channel %d "
-			    "selected", __func__, sel);
-		}
-
 		if (vei->vei.vei_dir == VEI_DIR_OUT) { /* OUT instruction */
-			if (i8253_counter[sel].last_w == 0) {
-				out_data = vei->vei.vei_data;
-				i8253_counter[sel].ilatch |= (out_data & 0xff);
-				i8253_counter[sel].last_w = 1;
+			if (i8253_channel[sel].last_w == 0) {
+				i8253_channel[sel].ilatch |= (out_data & 0xff);
+				i8253_channel[sel].last_w = 1;
 			} else {
-				out_data = vei->vei.vei_data;
-				i8253_counter[sel].ilatch |= ((out_data & 0xff) << 8);
-				i8253_counter[sel].start =
-				    i8253_counter[sel].ilatch;
-				i8253_counter[sel].last_w = 0;
-				mode = out_data & 0xe;
+				i8253_channel[sel].ilatch |= ((out_data & 0xff) << 8);
+				i8253_channel[sel].start =
+				    i8253_channel[sel].ilatch;
+				i8253_channel[sel].last_w = 0;
+				mode = (out_data & 0xe) >> 1;
 
-				i8253_counter[sel].mode = mode;
+				if (i8253_channel[sel].start == 0)
+					i8253_channel[sel].start = 0xffff;
 
+				log_debug("%s: channel %d reset, mode=%d, start=%d", __func__,
+				    sel, mode, i8253_channel[sel].start);
+				i8253_channel[sel].mode = mode;
 				i8253_reset(sel);
 			}
 		} else {
-			if (i8253_counter[sel].last_r == 0) {
-				data = i8253_counter[sel].olatch >> 8;
-				vei->vei.vei_data = data;
-				i8253_counter[sel].last_w = 1;
+			if (i8253_channel[sel].rbs) {
+				i8253_channel[sel].rbs = 0;
+				data = i8253_channel[sel].mode << 1;
+				data |= TIMER_16BIT;
+				set_return_data(vei, data);
+				goto ret;
+			}
+
+			if (i8253_channel[sel].last_r == 0) {
+				data = i8253_channel[sel].olatch >> 8;
+				set_return_data(vei, data);
+				i8253_channel[sel].last_r = 1;
 			} else {
-				data = i8253_counter[sel].olatch & 0xFF;
-				vei->vei.vei_data = data;
-				i8253_counter[sel].last_w = 0;
+				data = i8253_channel[sel].olatch & 0xFF;
+				set_return_data(vei, data);
+				i8253_channel[sel].last_r = 0;
 			}
 		}
 	}
@@ -194,30 +311,12 @@ i8253_reset(uint8_t chn)
 {
 	struct timeval tv;
 
-	if (chn != 0) {
-		/*
-		 * Channels other than 0 are not likely to be programmed
-		 * by the guest. Long ago, channel 1 was used to refresh
-		 * RAM, and channel 2 is sometimes routed to the PC
-		 * speaker.
-		 */
-		log_debug("%s: unsupported channel %d start request",
-		    __func__, chn);
-		return;
-	}
-
-	if (i8253_counter[chn].mode != TIMER_RATEGEN &&
-	    i8253_counter[chn].mode != (TIMER_RATEGEN | 0x8)) {
-		log_warnx("%s: unsupported counter mode 0x%x",
-		    __func__, i8253_counter[chn].mode);
-		return;
-	}
-
-	evtimer_del(&i8253_counter[chn].timer);
+	evtimer_del(&i8253_channel[chn].timer);
 	timerclear(&tv);
 
-	tv.tv_usec = (i8253_counter[chn].start * NS_PER_TICK) / 1000;
-	evtimer_add(&i8253_counter[chn].timer, &tv);
+	i8253_channel[chn].in_use = 1;
+	tv.tv_usec = (i8253_channel[chn].start * NS_PER_TICK) / 1000;
+	evtimer_add(&i8253_channel[chn].timer, &tv);
 }
 
 /*
@@ -235,11 +334,63 @@ void
 i8253_fire(int fd, short type, void *arg)
 {
 	struct timeval tv;
+	struct i8253_channel *ctr = (struct i8253_channel *)arg;
 
 	timerclear(&tv);
-	tv.tv_usec = (i8253_counter[0].start * NS_PER_TICK) / 1000;
+	tv.tv_usec = (ctr->start * NS_PER_TICK) / 1000;
 
-	vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 0);
-	
-	evtimer_add(&i8253_counter[0].timer, &tv);
+	vcpu_assert_pic_irq(ctr->vm_id, 0, 0);
+
+	if (ctr->mode != TIMER_INTTC)
+		evtimer_add(&ctr->timer, &tv);
+}
+
+int
+i8253_dump(int fd)
+{
+	log_debug("%s: sending PIT", __func__);
+	if (atomicio(vwrite, fd, &i8253_channel, sizeof(i8253_channel)) !=
+	    sizeof(i8253_channel)) {
+		log_warnx("%s: error writing PIT to fd", __func__);
+		return (-1);
+	}
+	return (0);
+}
+
+int
+i8253_restore(int fd, uint32_t vm_id)
+{
+	int i;
+	log_debug("%s: restoring PIT", __func__);
+	if (atomicio(read, fd, &i8253_channel, sizeof(i8253_channel)) !=
+	    sizeof(i8253_channel)) {
+		log_warnx("%s: error reading PIT from fd", __func__);
+		return (-1);
+	}
+
+	for (i = 0; i < 3; i++) {
+		memset(&i8253_channel[i].timer, 0, sizeof(struct event));
+		i8253_channel[i].vm_id = vm_id;
+		evtimer_set(&i8253_channel[i].timer, i8253_fire,
+		    &i8253_channel[i]);
+		i8253_reset(i);
+	}
+	return (0);
+}
+
+void
+i8253_stop()
+{
+	int i;
+	for (i = 0; i < 3; i++)
+		evtimer_del(&i8253_channel[i].timer);
+}
+
+void
+i8253_start()
+{
+	int i;
+	for (i = 0; i < 3; i++)
+		if(i8253_channel[i].in_use)
+			i8253_reset(i);
 }

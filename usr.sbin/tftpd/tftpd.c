@@ -1,4 +1,4 @@
-/*	$OpenBSD: tftpd.c,v 1.37 2016/09/04 14:41:49 florian Exp $	*/
+/*	$OpenBSD: tftpd.c,v 1.39 2017/05/26 17:38:46 florian Exp $	*/
 
 /*
  * Copyright (c) 2012 David Gwynne <dlg@uq.edu.au>
@@ -1584,6 +1584,12 @@ getip(void *s)
 int
 rdaemon(int devnull)
 {
+	if (devnull == -1) {
+		errno = EBADF;
+		return (-1);
+	}
+	if (fcntl(devnull, F_GETFL) == -1)
+		return (-1);
 
 	switch (fork()) {
 	case -1:
@@ -1627,7 +1633,7 @@ syslog_err(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_EMERG, fmt, ap);
+	syslog_vstrerror(errno, LOG_CRIT, fmt, ap);
 	va_end(ap);
 
 	exit(ecode);
@@ -1639,7 +1645,7 @@ syslog_errx(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_CRIT, fmt, ap);
 	va_end(ap);
 
 	exit(ecode);
@@ -1651,7 +1657,7 @@ syslog_warn(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_WARNING, fmt, ap);
+	syslog_vstrerror(errno, LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1661,7 +1667,7 @@ syslog_warnx(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 

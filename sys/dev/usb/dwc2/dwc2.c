@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2.c,v 1.36 2015/12/23 12:38:40 visa Exp $	*/
+/*	$OpenBSD: dwc2.c,v 1.46 2017/06/29 17:36:16 deraadt Exp $	*/
 /*	$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $	*/
 
 /*-
@@ -31,11 +31,6 @@
  */
 
 #if 0
-#include <sys/cdefs.h>
-__KERNEL_RCSID(0, "$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $");
-#endif
-
-#if 0
 #include "opt_usb.h"
 #endif
 
@@ -47,12 +42,12 @@ __KERNEL_RCSID(0, "$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $");
 #include <sys/select.h>
 #include <sys/proc.h>
 #include <sys/queue.h>
+#include <sys/endian.h>
 #if 0
 #include <sys/cpu.h>
 #endif
 
 #include <machine/bus.h>
-#include <machine/endian.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
@@ -94,7 +89,6 @@ STATIC usbd_status	dwc2_open(struct usbd_pipe *);
 STATIC int		dwc2_setaddr(struct usbd_device *, int);
 STATIC void		dwc2_poll(struct usbd_bus *);
 STATIC void		dwc2_softintr(void *);
-STATIC void		dwc2_waitintr(struct dwc2_softc *, struct usbd_xfer *);
 
 #if 0
 STATIC usbd_status	dwc2_allocm(struct usbd_bus *, struct usb_dma *, uint32_t);
@@ -406,38 +400,6 @@ dwc2_softintr(void *v)
 }
 
 STATIC void
-dwc2_waitintr(struct dwc2_softc *sc, struct usbd_xfer *xfer)
-{
-	struct dwc2_hsotg *hsotg = sc->sc_hsotg;
-	uint32_t intrs;
-	int timo;
-
-	xfer->status = USBD_IN_PROGRESS;
-	for (timo = xfer->timeout; timo >= 0; timo--) {
-		usb_delay_ms(&sc->sc_bus, 1);
-		if (sc->sc_dying)
-			break;
-		intrs = dwc2_read_core_intr(hsotg);
-
-		DPRINTFN(15, "0x%08x\n", intrs);
-
-		if (intrs) {
-			mtx_enter(&hsotg->lock);
-			dwc2_interrupt(sc);
-			mtx_leave(&hsotg->lock);
-			if (xfer->status != USBD_IN_PROGRESS)
-				return;
-		}
-	}
-
-	/* Timeout */
-	DPRINTF("timeout\n");
-
-	xfer->status = USBD_TIMEOUT;
-	usb_transfer_complete(xfer);
-}
-
-STATIC void
 dwc2_timeout(void *addr)
 {
 	struct usbd_xfer *xfer = addr;
@@ -565,7 +527,7 @@ dwc2_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 	bool wake;
 	int err;
 
-	SPLUSBCHECK;
+	splsoftassert(IPL_SOFTUSB);
 
 	DPRINTF("xfer=%p\n", xfer);
 
@@ -874,7 +836,7 @@ fail:
 	usb_transfer_complete(xfer);
 	splx(s);
 
-	return USBD_IN_PROGRESS;
+	return err;
 }
 
 STATIC void
@@ -987,16 +949,12 @@ dwc2_device_ctrl_transfer(struct usbd_xfer *xfer)
 STATIC usbd_status
 dwc2_device_ctrl_start(struct usbd_xfer *xfer)
 {
-	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 	usbd_status err;
 
 	DPRINTF("\n");
 
 	xfer->status = USBD_IN_PROGRESS;
 	err = dwc2_device_start(xfer);
-
-	if (sc->sc_bus.use_polling)
-		dwc2_waitintr(sc, xfer);
 
 	return err;
 }
@@ -1044,16 +1002,12 @@ dwc2_device_bulk_transfer(struct usbd_xfer *xfer)
 STATIC usbd_status
 dwc2_device_bulk_start(struct usbd_xfer *xfer)
 {
-	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 	usbd_status err;
 
 	DPRINTF("xfer=%p\n", xfer);
 
 	xfer->status = USBD_IN_PROGRESS;
 	err = dwc2_device_start(xfer);
-
-	if (sc->sc_bus.use_polling)
-		dwc2_waitintr(sc, xfer);
 
 	return err;
 }
@@ -1103,15 +1057,10 @@ dwc2_device_intr_transfer(struct usbd_xfer *xfer)
 STATIC usbd_status
 dwc2_device_intr_start(struct usbd_xfer *xfer)
 {
-	struct dwc2_pipe *dpipe = DWC2_XFER2DPIPE(xfer)
-	struct dwc2_softc *sc = DWC2_DPIPE2SC(dpipe);
 	usbd_status err;
 
 	xfer->status = USBD_IN_PROGRESS;
 	err = dwc2_device_start(xfer);
-
-	if (sc->sc_bus.use_polling)
-		dwc2_waitintr(sc, xfer);
 
 	return err;
 }
@@ -1407,7 +1356,7 @@ dwc2_worker(struct task *wk, void *priv)
 	struct dwc2_softc *sc = priv;
 	struct dwc2_hsotg *hsotg = sc->sc_hsotg;
 
-/* Debugger(); */
+/* db_enter(); */
 #if 0
 	struct usbd_xfer *xfer = dwork->xfer;
 	struct dwc2_xfer *dxfer = DWC2_XFER2DXFER(xfer);
@@ -1436,16 +1385,13 @@ dwc2_worker(struct task *wk, void *priv)
 	}
 }
 
-int dwc2_intr(void *p)
+int
+dwc2_intr(void *p)
 {
 	struct dwc2_softc *sc = p;
-	struct dwc2_hsotg *hsotg;
+	struct dwc2_hsotg *hsotg = sc->sc_hsotg;
 	int ret = 0;
 
-	if (sc == NULL)
-		return 0;
-
-	hsotg = sc->sc_hsotg;
 	mtx_enter(&hsotg->lock);
 
 	if (sc->sc_dying)
@@ -1493,56 +1439,6 @@ dwc2_detach(struct dwc2_softc *sc, int flags)
 	return rv;
 }
 
-bool
-dwc2_shutdown(struct device *self, int flags)
-{
-	struct dwc2_softc *sc = (void *)self;
-
-	sc = sc;
-
-	return true;
-}
-
-void
-dwc2_childdet(struct device *self, struct device *child)
-{
-	struct dwc2_softc *sc = (void *)self;
-
-	sc = sc;
-}
-
-int
-dwc2_activate(struct device *self, int act)
-{
-	struct dwc2_softc *sc = (void *)self;
-
-	sc = sc;
-
-	return 0;
-}
-
-#if 0
-bool
-dwc2_resume(struct device *dv, const pmf_qual_t *qual)
-{
-	struct dwc2_softc *sc = (void *)dv;
-
-	sc = sc;
-
-	return true;
-}
-
-bool
-dwc2_suspend(struct device *dv, const pmf_qual_t *qual)
-{
-	struct dwc2_softc *sc = (void *)dv;
-
-	sc = sc;
-
-	return true;
-}
-#endif
-
 /***********************************************************************/
 int
 dwc2_init(struct dwc2_softc *sc)
@@ -1563,15 +1459,12 @@ dwc2_init(struct dwc2_softc *sc)
 	    USB_MEM_RESERVE);
 #endif
 
-	pool_init(&sc->sc_xferpool, sizeof(struct dwc2_xfer), 0, 0, 0,
+	pool_init(&sc->sc_xferpool, sizeof(struct dwc2_xfer), 0, IPL_USB, 0,
 	    "dwc2xfer", NULL);
-	pool_setipl(&sc->sc_xferpool, IPL_USB);
-	pool_init(&sc->sc_qhpool, sizeof(struct dwc2_qh), 0, 0, 0,
+	pool_init(&sc->sc_qhpool, sizeof(struct dwc2_qh), 0, IPL_USB, 0,
 	    "dwc2qh", NULL);
-	pool_setipl(&sc->sc_qhpool, IPL_USB);
-	pool_init(&sc->sc_qtdpool, sizeof(struct dwc2_qtd), 0, 0, 0,
+	pool_init(&sc->sc_qtdpool, sizeof(struct dwc2_qtd), 0, IPL_USB, 0,
 	    "dwc2qtd", NULL);
-	pool_setipl(&sc->sc_qtdpool, IPL_USB);
 
 	sc->sc_hsotg = malloc(sizeof(struct dwc2_hsotg), M_DEVBUF,
 	    M_ZERO | M_WAITOK);
@@ -1756,7 +1649,7 @@ void dwc2_host_complete(struct dwc2_hsotg *hsotg, struct dwc2_qtd *qtd,
 	timeout_del(&xfer->timeout_handle);
 	usb_rem_task(xfer->device, &xfer->abort_task);
 
-	KASSERT(mtx_owned(&hsotg->lock));
+	MUTEX_ASSERT_LOCKED(&hsotg->lock);
 
 	TAILQ_INSERT_TAIL(&sc->sc_complete, dxfer, xnext);
 

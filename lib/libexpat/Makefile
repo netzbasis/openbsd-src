@@ -1,10 +1,15 @@
-#	$OpenBSD: Makefile,v 1.10 2016/09/04 09:54:25 natano Exp $
+#	$OpenBSD: Makefile,v 1.14 2017/07/28 09:32:49 aoyama Exp $
 
 .PATH: ${.CURDIR}/lib
+
+.include <bsd.own.mk>		# to check ${COMPILER_VERSION}
 
 LIB=	expat
 SRCS=	xmlparse.c xmltok.c xmlrole.c
 CFLAGS+=-I${.CURDIR} -DHAVE_EXPAT_CONFIG_H
+.if ${COMPILER_VERSION:L} != "gcc3"
+CFLAGS+=-fvisibility=hidden
+.endif
 
 PC_FILES=expat.pc
 CLEANFILES+=${PC_FILES}
@@ -17,10 +22,11 @@ includes:
 	  ${INSTALL} ${INSTALL_COPY} -m 444 -o $(BINOWN) -g $(BINGRP) \
 	  ${.CURDIR}/lib/expat_external.h ${DESTDIR}/usr/include/expat_external.h
 
+all: ${PC_FILES}
 ${PC_FILES}: lib/expat.h
 	/bin/sh ${.CURDIR}/generate_pkgconfig.sh -c ${.CURDIR} -o ${.OBJDIR}
 
-beforeinstall: ${PC_FILES}
+beforeinstall:
 	${INSTALL} ${INSTALL_COPY} -o root -g ${SHAREGRP} \
 	    -m ${SHAREMODE} ${.OBJDIR}/${PC_FILES} ${DESTDIR}/usr/lib/pkgconfig/
 

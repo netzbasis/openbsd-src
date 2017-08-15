@@ -1,4 +1,4 @@
-/*      $OpenBSD: aes_xts.c,v 1.2 2013/10/06 16:59:34 jsing Exp $  */
+/*      $OpenBSD: aes_xts.c,v 1.4 2017/05/17 17:54:29 mikeb Exp $  */
 
 /*
  * Copyright (c) 2002 Markus Friedl.  All rights reserved.

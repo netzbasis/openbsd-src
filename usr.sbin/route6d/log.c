@@ -1,3 +1,5 @@
+/*	$OpenBSD: log.c,v 1.4 2017/07/28 13:05:21 florian Exp $	*/
+
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
  *
@@ -91,7 +93,7 @@ vlog(int pri, const char *fmt, va_list ap)
 
 	(void)vsnprintf(tmpbuf, sizeof(tmpbuf), fmt, ap);
 	(void)strlcpy(logbuf, logqueue, sizeof(logbuf));
-	(void)strlcat(logbuf, tmpbuf, sizeof(tmpbuf));
+	(void)strlcat(logbuf, tmpbuf, sizeof(logbuf));
 
 	logqueue[0] = '\0';
 
@@ -109,17 +111,17 @@ log_warn(const char *emsg, ...)
 	va_list	 ap;
 
 	if (emsg == NULL)
-		logit(LOG_CRIT, "%s", strerror(errno));
+		logit(LOG_ERR, "%s", strerror(errno));
 	else {
 		va_start(ap, emsg);
 
 		/* best effort to even work in out of memory situations */
 		if (asprintf(&nfmt, "%s: %s", emsg, strerror(errno)) == -1) {
 			/* we tried it... */
-			vlog(LOG_CRIT, emsg, ap);
-			logit(LOG_CRIT, "%s", strerror(errno));
+			vlog(LOG_ERR, emsg, ap);
+			logit(LOG_ERR, "%s", strerror(errno));
 		} else {
-			vlog(LOG_CRIT, nfmt, ap);
+			vlog(LOG_ERR, nfmt, ap);
 			free(nfmt);
 		}
 		va_end(ap);
@@ -132,7 +134,7 @@ log_warnx(const char *emsg, ...)
 	va_list	 ap;
 
 	va_start(ap, emsg);
-	vlog(LOG_CRIT, emsg, ap);
+	vlog(LOG_ERR, emsg, ap);
 	va_end(ap);
 }
 

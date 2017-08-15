@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackingElement.pm,v 1.244 2016/06/25 18:02:59 espie Exp $
+# $OpenBSD: PackingElement.pm,v 1.246 2017/05/15 15:14:11 schwarze Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -599,7 +599,7 @@ sub register_manpage
 	# XXX don't bother register stuff from partial packages
 	return if defined $self->{tempname};
 	my $fname = $self->fullname;
-	if ($fname =~ m,^(.*/man)/((?:man|cat).*),) {
+	if ($fname =~ m,^(.*/man(?:/\w+)?)/((?:man|cat)[1-9n]\w*/.*),) {
 		push(@{$state->{$key}{$1}}, $2);
     	}
 }
@@ -1313,29 +1313,6 @@ sub destate
 	}
 }
 
-package OpenBSD::PackingElement::Sysctl;
-our @ISA=qw(OpenBSD::PackingElement::Action);
-
-sub keyword() { 'sysctl' }
-__PACKAGE__->register_with_factory;
-
-sub new
-
-{
-	my ($class, $args) = @_;
-	if ($args =~ m/^\s*(.*)\s*(\=|\>=)\s*(.*)\s*$/o) {
-		bless { name => $1, mode => $2, value => $3}, $class;
-	} else {
-		die "Bad syntax for \@sysctl";
-	}
-}
-
-sub stringize
-{
-	my $self = shift;
-	return $self->{name}.$self->{mode}.$self->{value};
-}
-
 package OpenBSD::PackingElement::ExeclikeAction;
 use File::Basename;
 use OpenBSD::Error;
@@ -1920,7 +1897,7 @@ sub register_old_keyword
 }
 
 for my $k (qw(src display mtree ignore_inst dirrm pkgcfl pkgdep newdepend
-    libdepend endfake ignore vendor incompatibility md5)) {
+    libdepend endfake ignore vendor incompatibility md5 sysctl)) {
 	__PACKAGE__->register_old_keyword($k);
 }
 

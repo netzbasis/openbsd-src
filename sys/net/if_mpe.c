@@ -1,4 +1,4 @@
-/* $OpenBSD: if_mpe.c,v 1.54 2016/04/13 11:41:15 mpi Exp $ */
+/* $OpenBSD: if_mpe.c,v 1.62 2017/08/14 16:14:02 reyk Exp $ */
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@spootnik.org>
@@ -53,7 +53,7 @@
 
 void	mpeattach(int);
 int	mpeoutput(struct ifnet *, struct mbuf *, struct sockaddr *,
-	    	       struct rtentry *);
+		       struct rtentry *);
 int	mpeioctl(struct ifnet *, u_long, caddr_t);
 void	mpestart(struct ifnet *);
 int	mpe_clone_create(struct if_clone *, int);
@@ -78,7 +78,7 @@ mpeattach(int nmpe)
 int
 mpe_clone_create(struct if_clone *ifc, int unit)
 {
-	struct ifnet 		*ifp;
+	struct ifnet		*ifp;
 	struct mpe_softc	*mpeif;
 
 	if ((mpeif = malloc(sizeof(*mpeif),
@@ -89,6 +89,7 @@ mpe_clone_create(struct if_clone *ifc, int unit)
 	ifp = &mpeif->sc_if;
 	snprintf(ifp->if_xname, sizeof ifp->if_xname, "mpe%d", unit);
 	ifp->if_flags = IFF_POINTOPOINT;
+	ifp->if_xflags = IFXF_CLONED;
 	ifp->if_softc = mpeif;
 	ifp->if_mtu = MPE_MTU;
 	ifp->if_ioctl = mpeioctl;
@@ -117,19 +118,16 @@ int
 mpe_clone_destroy(struct ifnet *ifp)
 {
 	struct mpe_softc	*mpeif = ifp->if_softc;
-	int			s;
 
 	LIST_REMOVE(mpeif, sc_list);
 
 	if (mpeif->sc_smpls.smpls_label) {
-		s = splsoftnet();
 		rt_ifa_del(&mpeif->sc_ifa, RTF_MPLS,
 		    smplstosa(&mpeif->sc_smpls));
-		splx(s);
 	}
 
 	if_detach(ifp);
-	free(mpeif, M_DEVBUF, 0);
+	free(mpeif, M_DEVBUF, sizeof *mpeif);
 	return (0);
 }
 
@@ -140,8 +138,8 @@ struct sockaddr_storage	 mpedst;
 void
 mpestart(struct ifnet *ifp0)
 {
-	struct mbuf 		*m;
-	struct sockaddr		*sa = (struct sockaddr *)&mpedst;
+	struct mbuf		*m;
+	struct sockaddr		*sa = sstosa(&mpedst);
 	sa_family_t		 af;
 	struct rtentry		*rt;
 	struct ifnet		*ifp;
@@ -273,7 +271,7 @@ mpeioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct mpe_softc	*ifm;
 	struct ifreq		*ifr;
 	struct shim_hdr		 shim;
-	int			 s, error = 0;
+	int			 error = 0;
 
 	ifr = (struct ifreq *)data;
 	switch (cmd) {
@@ -323,7 +321,6 @@ mpeioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		if (error)
 			break;
 		ifm = ifp->if_softc;
-		s = splsoftnet();
 		if (ifm->sc_smpls.smpls_label) {
 			/* remove old MPLS route */
 			rt_ifa_del(&ifm->sc_ifa, RTF_MPLS,
@@ -333,7 +330,6 @@ mpeioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ifm->sc_smpls.smpls_label = shim.shim_label;
 		error = rt_ifa_add(&ifm->sc_ifa, RTF_MPLS,
 		    smplstosa(&ifm->sc_smpls));
-		splx(s);
 		if (error) {
 			ifm->sc_smpls.smpls_label = 0;
 			break;
@@ -344,10 +340,8 @@ mpeioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ifm = ifp->if_softc;
 		if (ifr->ifr_rdomainid != ifp->if_rdomain) {
 			if (ifm->sc_smpls.smpls_label) {
-				s = splsoftnet();
 				rt_ifa_add(&ifm->sc_ifa, RTF_MPLS,
 				    smplstosa(&ifm->sc_smpls));
-				splx(s);
 			}
 		}
 		/* return with ENOTTY so that the parent handler finishes */
@@ -392,17 +386,17 @@ mpe_input(struct mbuf *m, struct ifnet *ifp, struct sockaddr_mpls *smpls,
 		ip->ip_sum = 0;
 		ip->ip_sum = in_cksum(m, hlen);
 	}
-	
+
 	/* new receive if and move into correct rtable */
 	m->m_pkthdr.ph_ifidx = ifp->if_index;
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 
 #if NBPFILTER > 0
-	if (ifp && ifp->if_bpf)
+	if (ifp->if_bpf)
 		bpf_mtap_af(ifp->if_bpf, AF_INET, m, BPF_DIRECTION_IN);
 #endif
 
-	niq_enqueue(&ipintrq, m);
+	ipv4_input(ifp, m);
 }
 
 #ifdef INET6
@@ -430,10 +424,10 @@ mpe_input6(struct mbuf *m, struct ifnet *ifp, struct sockaddr_mpls *smpls,
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 
 #if NBPFILTER > 0
-	if (ifp && ifp->if_bpf)
+	if (ifp->if_bpf)
 		bpf_mtap_af(ifp->if_bpf, AF_INET6, m, BPF_DIRECTION_IN);
 #endif
 
-	niq_enqueue(&ip6intrq, m);
+	ipv6_input(ifp, m);
 }
 #endif	/* INET6 */

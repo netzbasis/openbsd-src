@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfscanf.c,v 1.32 2015/08/31 02:53:57 guenther Exp $ */
+/*	$OpenBSD: vfscanf.c,v 1.34 2016/10/30 05:07:06 jsg Exp $ */
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -42,6 +42,7 @@
 #include "local.h"
 
 #ifdef FLOATING_POINT
+#include <float.h>
 #include "floatio.h"
 #endif
 
@@ -401,7 +402,7 @@ literal:
 				}
 				nread += sum;
 			} else {
-				size_t r = fread((void *)va_arg(ap, char *), 1,
+				size_t r = fread(va_arg(ap, char *), 1,
 				    width, fp);
 
 				if (r == 0)

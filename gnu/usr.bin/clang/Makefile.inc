@@ -1,9 +1,17 @@
-# $OpenBSD: Makefile.inc,v 1.1 2016/09/05 10:56:48 pascal Exp $
+# $OpenBSD: Makefile.inc,v 1.5 2017/04/17 15:53:21 kettenis Exp $
 
 LLVM_SRCS?=	${.CURDIR}/../../../llvm
 
+.if ${COMPILER_VERSION:L} != "clang"
+CC=		clang
+CXX=		clang++
+.endif
+
+BOOTSTRAP_CLANG?=no
+.if ${BOOTSTRAP_CLANG} == "yes"
 CC=		egcc
 CXX=		eg++
+.endif
 
 DEBUG=
 NOPIE=
@@ -15,7 +23,11 @@ CPPFLAGS+=	-DNDEBUG
 CPPFLAGS+=	-D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS \
 		-D__STDC_FORMAT_MACROS
 
+.if ${MACHINE_ARCH} == "arm"
+TRIPLE=		armv7-unknown-openbsd${OSREV}-gnueabi
+.else
 TRIPLE=		${MACHINE_ARCH}-unknown-openbsd${OSREV}
+.endif
 CPPFLAGS+=	-DLLVM_DEFAULT_TARGET_TRIPLE=\"${TRIPLE}\"
 CPPFLAGS+=	-DLLVM_HOST_TRIPLE=\"${TRIPLE}\"
 CPPFLAGS+=	-DLLVM_PREFIX=\"/usr\"

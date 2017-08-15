@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_http.c,v 1.62 2016/08/01 21:25:53 benno Exp $	*/
+/*	$OpenBSD: relay_http.c,v 1.66 2017/05/28 10:39:15 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -418,7 +418,6 @@ relay_read_http(struct bufferevent *bev, void *arg)
 			cre->toread = TOREAD_UNLIMITED;
 			bev->readcb = relay_read;
 			break;
-		case HTTP_METHOD_DELETE:
 		case HTTP_METHOD_GET:
 		case HTTP_METHOD_HEAD:
 		/* WebDAV methods */
@@ -426,6 +425,7 @@ relay_read_http(struct bufferevent *bev, void *arg)
 		case HTTP_METHOD_MOVE:
 			cre->toread = 0;
 			break;
+		case HTTP_METHOD_DELETE:
 		case HTTP_METHOD_OPTIONS:
 		case HTTP_METHOD_POST:
 		case HTTP_METHOD_PUT:
@@ -715,11 +715,6 @@ relay_reset_http(struct ctl_relay_event *cre)
 	struct http_descriptor	*desc = cre->desc;
 
 	relay_httpdesc_free(desc);
-	if (cre->buf != NULL) {
-		free(cre->buf);
-		cre->buf = NULL;
-		cre->buflen = 0;
-	}
 	desc->http_method = 0;
 	desc->http_chunked = 0;
 	cre->headerlen = 0;
@@ -1597,7 +1592,7 @@ relay_apply_actions(struct ctl_relay_event *cre, struct kvlist *actions)
 			/* perform this later */
 			break;
 		default:
-			fatalx("relay_action: invalid action");
+			fatalx("%s: invalid action", __func__);
 			/* NOTREACHED */
 		}
 
@@ -1790,7 +1785,7 @@ relay_test(struct protocol *proto, struct ctl_relay_event *cre)
 			DPRINTF("%s: session %d, res %d", __func__,
 			    con->se_id, res);
 			if (res == RES_BAD || res == RES_INTERNAL)
-				return(res);
+				return (res);
 			res = 0;
 			r = TAILQ_NEXT(r, rule_entry);
 		}

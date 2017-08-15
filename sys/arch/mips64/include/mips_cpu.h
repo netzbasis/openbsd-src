@@ -1,4 +1,4 @@
-/*	$OpenBSD: mips_cpu.h,v 1.4 2016/08/14 08:23:52 visa Exp $	*/
+/*	$OpenBSD: mips_cpu.h,v 1.6 2017/06/11 03:35:30 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -218,6 +218,7 @@
 #define	COP_0_CONFIG		$16
 
 /* MIPS64 release 2 */
+#define	COP_0_USERLOCAL		$4, 2
 #define	COP_0_TLB_PG_GRAIN	$5, 1
 #define	COP_0_EBASE		$15, 1
 
@@ -318,6 +319,21 @@
 #define	CONFIG3_TL		0x00000001
 
 /*
+ * Config4 register
+ */
+#define	CONFIG4_M		0x80000000u
+#define	CONFIG4_IE		0x60000000u
+#define	CONFIG4_AE		0x10000000u
+#define	CONFIG4_VTLBSizeExt	0x0f000000u	/* when MMUExtDef=3 */
+#define	CONFIG4_KScrExist	0x00ff0000u
+#define	CONFIG4_MMUExtDef	0x0000c000u
+#define	CONFIG4_MMUExtDef_SHIFT	14
+#define	CONFIG4_FTLBPageSize	0x00001f00u	/* when MMUExtDef=2 or 3 */
+#define	CONFIG4_FTLBWays	0x000000f0u	/* when MMUExtDef=2 or 3 */
+#define	CONFIG4_FTLBSets	0x0000000fu	/* when MMUExtDef=2 or 3 */
+#define	CONFIG4_MMUSizeExt	0x000000ffu	/* when MMUExtDef=1 */
+
+/*
  * PageGrain register
  */
 #define	PGRAIN_RIE		0x80000000
@@ -325,6 +341,11 @@
 #define	PGRAIN_ELPA		0x20000000
 #define	PGRAIN_ESP		0x10000000
 #define	PGRAIN_IEC		0x08000000
+
+/*
+ * HWREna register
+ */
+#define	HWRENA_ULR		0x20000000u
 
 #endif	/* _KERNEL || _STANDALONE */
 

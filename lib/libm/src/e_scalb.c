@@ -25,6 +25,7 @@ scalb(double x, int fn)
 {
 	return scalbn(x, fn);
 }
+DEF_NONSTD(scalb);
 
 #else
 
@@ -32,7 +33,7 @@ double
 scalb(double x, double fn)
 {
 	if (isnan(x)||isnan(fn)) return x*fn;
-	if (!finite(fn)) {
+	if (!isfinite(fn)) {
 	    if(fn>0.0) return x*fn;
 	    else       return x/(-fn);
 	}
@@ -41,4 +42,5 @@ scalb(double x, double fn)
 	if (-fn > 65000.0) return scalbn(x,-65000);
 	return scalbn(x,(int)fn);
 }
+DEF_NONSTD(scalb);
 #endif

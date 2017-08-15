@@ -1,4 +1,4 @@
-/*	$OpenBSD: ehci.c,v 1.192 2016/08/18 11:59:58 jsg Exp $ */
+/*	$OpenBSD: ehci.c,v 1.200 2017/05/15 10:52:08 mpi Exp $ */
 /*	$NetBSD: ehci.c,v 1.66 2004/06/30 03:11:56 mycroft Exp $	*/
 
 /*
@@ -117,7 +117,6 @@ int		ehci_setaddr(struct usbd_device *, int);
 void		ehci_poll(struct usbd_bus *);
 void		ehci_softintr(void *);
 int		ehci_intr1(struct ehci_softc *);
-void		ehci_waitintr(struct ehci_softc *, struct usbd_xfer *);
 void		ehci_check_intr(struct ehci_softc *, struct usbd_xfer *);
 void		ehci_check_qh_intr(struct ehci_softc *, struct usbd_xfer *);
 void		ehci_check_itd_intr(struct ehci_softc *, struct usbd_xfer *);
@@ -338,9 +337,8 @@ ehci_init(struct ehci_softc *sc)
 			    sc->sc_bus.bdev.dv_xname);
 			return (ENOMEM);
 		}
-		pool_init(ehcixfer, sizeof(struct ehci_xfer), 0, 0, 0,
-		    "ehcixfer", NULL);
-		pool_setipl(ehcixfer, IPL_SOFTUSB);
+		pool_init(ehcixfer, sizeof(struct ehci_xfer), 0, IPL_SOFTUSB,
+		    0, "ehcixfer", NULL);
 	}
 
 	/* frame list size at default, read back what we got and use that */
@@ -489,7 +487,8 @@ ehci_init(struct ehci_softc *sc)
 	ehci_free_sqh(sc, sc->sc_async_head);
 #endif
  bad1:
-	free(sc->sc_softitds, M_USB, sc->sc_flsize);
+	free(sc->sc_softitds, M_USB,
+	    sc->sc_flsize * sizeof(struct ehci_soft_itd *));
 	usb_freemem(&sc->sc_bus, &sc->sc_fldma);
 	return (err);
 }
@@ -919,37 +918,6 @@ ehci_idone(struct usbd_xfer *xfer)
 	DPRINTFN(/*12*/2, ("ehci_idone: ex=%p done\n", ex));
 }
 
-/*
- * Wait here until controller claims to have an interrupt.
- * Then call ehci_intr and return.  Use timeout to avoid waiting
- * too long.
- */
-void
-ehci_waitintr(struct ehci_softc *sc, struct usbd_xfer *xfer)
-{
-	int timo;
-	u_int32_t intrs;
-
-	xfer->status = USBD_IN_PROGRESS;
-	for (timo = xfer->timeout; timo >= 0; timo--) {
-		usb_delay_ms(&sc->sc_bus, 1);
-		if (sc->sc_bus.dying)
-			break;
-		intrs = EHCI_STS_INTRS(EOREAD4(sc, EHCI_USBSTS)) &
-			sc->sc_eintrs;
-		if (intrs) {
-			ehci_intr1(sc);
-			if (xfer->status != USBD_IN_PROGRESS)
-				return;
-		}
-	}
-
-	/* Timeout */
-	xfer->status = USBD_TIMEOUT;
-	usb_transfer_complete(xfer);
-	/* XXX should free TD */
-}
-
 void
 ehci_poll(struct usbd_bus *bus)
 {
@@ -975,7 +943,8 @@ ehci_detach(struct device *self, int flags)
 
 	usb_delay_ms(&sc->sc_bus, 300); /* XXX let stray task complete */
 
-	free(sc->sc_softitds, M_USB, sc->sc_flsize);
+	free(sc->sc_softitds, M_USB,
+	    sc->sc_flsize * sizeof(struct ehci_soft_itd *));
 	usb_freemem(&sc->sc_bus, &sc->sc_fldma);
 	/* XXX free other data structures XXX */
 
@@ -1115,7 +1084,7 @@ ehci_activate(struct device *self, int act)
 usbd_status
 ehci_reset(struct ehci_softc *sc)
 {
-	u_int32_t hcr;
+	u_int32_t hcr, usbmode;
 	int i;
 
 	EOWRITE4(sc, EHCI_USBCMD, 0);	/* Halt controller */
@@ -1129,6 +1098,9 @@ ehci_reset(struct ehci_softc *sc)
 	if (!hcr)
 		printf("%s: halt timeout\n", sc->sc_bus.bdev.dv_xname);
 
+	if (sc->sc_flags & EHCIF_USBMODE)
+		usbmode = EOREAD4(sc, EHCI_USBMODE);
+
 	EOWRITE4(sc, EHCI_USBCMD, EHCI_CMD_HCRESET);
 	for (i = 0; i < 100; i++) {
 		usb_delay_ms(&sc->sc_bus, 1);
@@ -1141,6 +1113,9 @@ ehci_reset(struct ehci_softc *sc)
 		printf("%s: reset timeout\n", sc->sc_bus.bdev.dv_xname);
 		return (USBD_IOERROR);
 	}
+
+	if (sc->sc_flags & EHCIF_USBMODE)
+		EOWRITE4(sc, EHCI_USBMODE, usbmode);
 
 	return (USBD_NORMAL_COMPLETION);
 }
@@ -1537,7 +1512,7 @@ ehci_open(struct usbd_pipe *pipe)
 void
 ehci_add_qh(struct ehci_soft_qh *sqh, struct ehci_soft_qh *head)
 {
-	SPLUSBCHECK;
+	splsoftassert(IPL_SOFTUSB);
 
 	usb_syncmem(&head->dma, head->offs + offsetof(struct ehci_qh, qh_link),
 	    sizeof(head->qh.qh_link), BUS_DMASYNC_POSTWRITE);
@@ -1561,7 +1536,7 @@ ehci_add_qh(struct ehci_soft_qh *sqh, struct ehci_soft_qh *head)
 void
 ehci_rem_qh(struct ehci_softc *sc, struct ehci_soft_qh *sqh)
 {
-	SPLUSBCHECK;
+	splsoftassert(IPL_SOFTUSB);
 	/* XXX */
 	usb_syncmem(&sqh->dma, sqh->offs + offsetof(struct ehci_qh, qh_link),
 	    sizeof(sqh->qh.qh_link), BUS_DMASYNC_POSTWRITE);
@@ -2165,7 +2140,7 @@ ehci_root_ctrl_start(struct usbd_xfer *xfer)
 	s = splusb();
 	usb_transfer_complete(xfer);
 	splx(s);
-	return (USBD_IN_PROGRESS);
+	return (err);
 }
 
 void
@@ -2968,9 +2943,6 @@ ehci_device_ctrl_start(struct usbd_xfer *xfer)
 	xfer->status = USBD_IN_PROGRESS;
 	splx(s);
 
-	if (sc->sc_bus.use_polling)
-		ehci_waitintr(sc, xfer);
-
 	return (USBD_IN_PROGRESS);
 
  bad3:
@@ -3068,9 +3040,6 @@ ehci_device_bulk_start(struct usbd_xfer *xfer)
 	xfer->status = USBD_IN_PROGRESS;
 	splx(s);
 
-	if (sc->sc_bus.use_polling)
-		ehci_waitintr(sc, xfer);
-
 	return (USBD_IN_PROGRESS);
 }
 
@@ -3097,9 +3066,6 @@ ehci_device_bulk_done(struct usbd_xfer *xfer)
 
 	if (xfer->status != USBD_NOMEM) {
 		ehci_free_sqtd_chain(sc, ex);
-		usb_syncmem(&xfer->dmabuf, 0, xfer->length,
-		    usbd_xfer_isread(xfer) ?
-		    BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE);
 	}
 }
 
@@ -3187,9 +3153,6 @@ ehci_device_intr_start(struct usbd_xfer *xfer)
 	xfer->status = USBD_IN_PROGRESS;
 	splx(s);
 
-	if (sc->sc_bus.use_polling)
-		ehci_waitintr(sc, xfer);
-
 	return (USBD_IN_PROGRESS);
 }
 
@@ -3260,9 +3223,6 @@ ehci_device_intr_done(struct usbd_xfer *xfer)
 		splx(s);
 	} else if (xfer->status != USBD_NOMEM) {
 		ehci_free_sqtd_chain(sc, ex);
-		usb_syncmem(&xfer->dmabuf, 0, xfer->length,
-		    usbd_xfer_isread(xfer) ?
-		    BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE);
 	}
 }
 

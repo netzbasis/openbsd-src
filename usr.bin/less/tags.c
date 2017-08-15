@@ -77,6 +77,8 @@ cleantags(void)
 	 */
 	while ((tp = taglist.tl_first) != TAG_END) {
 		TAG_RM(tp);
+		free(tp->tag_file);
+		free(tp->tag_pattern);
 		free(tp);
 	}
 	curtag = NULL;
@@ -134,7 +136,7 @@ off_t
 tagsearch(void)
 {
 	if (curtag == NULL)
-		return (-1);   /* No tags loaded! */
+		return (-1);	/* No tags loaded! */
 	if (curtag->tag_linenum != 0)
 		return (find_pos(curtag->tag_linenum));
 	return (ctagsearch());

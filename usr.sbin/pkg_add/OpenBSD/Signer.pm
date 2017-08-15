@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: Signer.pm,v 1.7 2016/09/06 10:41:51 espie Exp $
+# $OpenBSD: Signer.pm,v 1.10 2016/10/03 13:17:30 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -23,10 +23,10 @@ use warnings;
 
 # the factory that chooses what method to use to sign things
 package OpenBSD::Signer;
+use OpenBSD::PackageInfo;
 
 my $h = {
-	x509 => 'OpenBSD::Signer::X509',
-	signify => 'OpenBSD::Signer::SIGNIFY',
+	signify2 => 'OpenBSD::Signer::SIGNIFY2',
 };
 
 sub factory
@@ -42,31 +42,8 @@ sub factory
 	}
 }
 
-package OpenBSD::Signer::X509;
-sub new
-{
-	my ($class, $state, @p) = @_;
-
-	if (@p != 3 || !-f $p[1] || !-f $p[2]) {
-		$state->usage("$p[0] signature wants -s cert -s privkey");
-	}
-	bless {cert => $p[1], privkey => $p[2]}, $class;
-}
-
-sub new_sig
-{
-	require OpenBSD::x509;
-	return OpenBSD::PackingElement::DigitalSignature->blank('x509');
-}
-
-sub compute_signature
-{
-	my ($self, $state, $plist) = @_;
-	return OpenBSD::x509::compute_signature($plist, $self->{cert}, 
-	    $self->{privkey});
-}
-
-package OpenBSD::Signer::SIGNIFY;
+package OpenBSD::Signer::SIGNIFY2;
+our @ISA = qw(OpenBSD::Signer);
 sub new
 {
 	my ($class, $state, @p) = @_;
@@ -74,38 +51,27 @@ sub new
 		$state->usage("$p[0] signature wants -s privkey");
 	}
 	my $o = bless {privkey => $p[1]}, $class;
-	my $signer = $o->{privkey};
-	$signer =~ s/\.sec$//;
-	my $pubkey = "$signer.pub";
-	$signer =~ s,.*/,,;
-	$o->{signer} = $signer;
-	if (!-f $pubkey) {
-		$pubkey =~ s,.*/,/etc/signify/,;
-		if (!-f $pubkey) {
-			$state->errsay("warning: public key not found");
-			return $o;
-		}
-	}
-	$o->{pubkey} = $pubkey;
 	return $o;
 }
 
-sub new_sig
+sub sign
 {
-	require OpenBSD::signify;
-	return OpenBSD::PackingElement::DigitalSignature->blank('signify');
+	my ($signer, $pkg, $state, $tmp) = @_;
+	my $privkey = $signer->{privkey};
+ 	my $url = $pkg->url;
+	if (!$pkg->{repository}->is_local_file) {
+		$pkg->close(1);
+		$state->fatal("Signing distant package #1 is not supported",
+		    $url);
+	}
+	$url =~ s/^file://;
+	$state->system(OpenBSD::Paths->signify, '-zS', '-s', $privkey, '-m', $url, '-x', $tmp);
 }
 
-sub compute_signature
+sub want_local
 {
-	my ($self, $state, $plist) = @_;
-
-	OpenBSD::PackingElement::Signer->add($plist, $self->{signer});
-
-	return OpenBSD::signify::compute_signature($plist, $state, 
-	    $self->{privkey}, $self->{pubkey});
+	return 1;
 }
-
 # specific parameter handling plus element creation
 package OpenBSD::CreateSign::State;
 our @ISA = qw(OpenBSD::AddCreateDelete::State);
@@ -132,32 +98,6 @@ sub new_gstream
 	    -Level => $level, -Time => 0, -Append => 1) or
 		$state->fatal("Can't append to archive #1: #2", 
 		    $state->{archive_filename}, $!);
-}
-
-sub add_signature
-{
-	my ($state, $plist) = @_;
-
-	if ($plist->has('digital-signature') || $plist->has('signer')) {
-		if ($state->defines('resign')) {
-			if ($state->defines('nosig')) {
-				$state->errsay("NOT CHECKING DIGITAL SIGNATURE FOR #1",
-				    $plist->pkgname);
-			} else {
-				if (!$plist->check_signature($state)) {
-					$state->fatal("#1 is corrupted",
-					    $plist->pkgname);
-				}
-			}
-			$state->errsay("Resigning #1", $plist->pkgname);
-			delete $plist->{'digital-signature'};
-			delete $plist->{signer};
-		}
-	}
-
-	my $sig = $state->{signer}->new_sig;
-	$sig->add_object($plist);
-	$sig->{b64sig} = $state->{signer}->compute_signature($state, $plist);
 }
 
 sub ntodo

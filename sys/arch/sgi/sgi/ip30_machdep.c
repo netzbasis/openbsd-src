@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip30_machdep.c,v 1.65 2016/03/06 19:42:27 mpi Exp $	*/
+/*	$OpenBSD: ip30_machdep.c,v 1.68 2016/10/27 13:19:27 visa Exp $	*/
 
 /*
  * Copyright (c) 2008, 2009 Miodrag Vallat.
@@ -452,7 +452,9 @@ ip30_nmi_handler()
 	ENABLEIPI();
 
 	if (!CPU_IS_PRIMARY(ci)) {
-		for (;;) ;
+		for (;;)
+			continue;
+		/* NOTREACHED */
 	}
 #endif
 

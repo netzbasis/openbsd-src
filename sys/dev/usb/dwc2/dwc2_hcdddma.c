@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2_hcdddma.c,v 1.11 2015/12/18 17:23:14 mmcc Exp $	*/
+/*	$OpenBSD: dwc2_hcdddma.c,v 1.13 2017/06/29 17:36:16 deraadt Exp $	*/
 /*	$NetBSD: dwc2_hcdddma.c,v 1.6 2014/04/03 06:34:58 skrll Exp $	*/
 
 /*
@@ -40,10 +40,6 @@
 /*
  * This file contains the Descriptor DMA implementation for Host mode
  */
-#if 0
-#include <sys/cdefs.h>
-__KERNEL_RCSID(0, "$NetBSD: dwc2_hcdddma.c,v 1.6 2014/04/03 06:34:58 skrll Exp $");
-#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -122,7 +118,7 @@ STATIC int dwc2_desc_list_alloc(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh,
 	memset(qh->desc_list, 0,
 	       sizeof(struct dwc2_hcd_dma_desc) * dwc2_max_desc_num(qh));
 
-	qh->n_bytes = malloc(sizeof(u32) * dwc2_max_desc_num(qh), M_DEVBUF,
+	qh->n_bytes = mallocarray(dwc2_max_desc_num(qh), sizeof(u32), M_DEVBUF,
 	    M_ZERO | M_WAITOK);
 
 	return 0;

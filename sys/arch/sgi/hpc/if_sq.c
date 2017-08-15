@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sq.c,v 1.26 2016/04/13 11:34:00 mpi Exp $	*/
+/*	$OpenBSD: if_sq.c,v 1.29 2017/03/08 15:07:10 mpi Exp $	*/
 /*	$NetBSD: if_sq.c,v 1.42 2011/07/01 18:53:47 dyoung Exp $	*/
 
 /*
@@ -580,7 +580,7 @@ sq_set_filter(struct sq_softc *sc)
 	/*
 	 * Unless otherwise specified, always accept broadcast frames.
 	 */
-	if ((sc->sc_rxcmd & ~RXCMD_REC_MASK) == RXCMD_REC_NONE)
+	if ((sc->sc_rxcmd & RXCMD_REC_MASK) == RXCMD_REC_NONE)
 		sc->sc_rxcmd |= RXCMD_REC_BROAD;
 }
 
@@ -747,8 +747,7 @@ sq_start(struct ifnet *ifp)
 			 */
 			ifq_set_oactive(&ifp->if_snd);
 			bus_dmamap_unload(sc->sc_dmat, dmamap);
-			if (m != NULL)
-				m_freem(m);
+			m_freem(m);
 			break;
 		}
 
@@ -1320,7 +1319,6 @@ sq_txring_hpc1(struct sq_softc *sc)
 		m_freem(sc->sc_txmbuf[i]);
 		sc->sc_txmbuf[i] = NULL;
 
-		ifp->if_opackets++;
 		sc->sc_nfreetx++;
 
 		SQ_TRACE(SQ_DONE_DMA, sc, i, status);
@@ -1408,7 +1406,6 @@ sq_txring_hpc3(struct sq_softc *sc)
 		m_freem(sc->sc_txmbuf[i]);
 		sc->sc_txmbuf[i] = NULL;
 
-		ifp->if_opackets++;
 		sc->sc_nfreetx++;
 
 		SQ_TRACE(SQ_DONE_DMA, sc, i, status);

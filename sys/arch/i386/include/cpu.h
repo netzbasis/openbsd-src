@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.148 2016/07/28 21:57:57 kettenis Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.156 2017/07/12 06:26:33 natano Exp $	*/
 /*	$NetBSD: cpu.h,v 1.35 1996/05/05 19:29:26 christos Exp $	*/
 
 /*-
@@ -69,6 +69,36 @@
 
 struct intrsource;
 
+/* VMXON region (Intel) */
+struct vmxon_region {
+	uint32_t	vr_revision;
+};
+
+/*
+ * VMX for Intel CPUs
+ */
+struct vmx {
+	uint64_t	vmx_cr0_fixed0;
+	uint64_t	vmx_cr0_fixed1;
+	uint64_t	vmx_cr4_fixed0;
+	uint64_t	vmx_cr4_fixed1;
+	uint32_t	vmx_vmxon_revision;
+	uint32_t	vmx_msr_table_size;
+	uint32_t	vmx_cr3_tgt_count;
+	uint64_t	vmx_vm_func;
+};
+
+/*
+ * SVM for AMD CPUs
+ */
+struct svm {
+};
+
+union vmm_cpu_cap {
+	struct vmx vcc_vmx;
+	struct svm vcc_svm;
+};
+
 #ifdef _KERNEL
 /* XXX stuff to move to cpuvar.h later */
 struct cpu_info {
@@ -127,6 +157,8 @@ struct cpu_info {
 	u_int32_t	ci_feature_tpmflags;	/* thermal & power bits */
 	u_int32_t	cpu_class;		/* CPU class */
 	u_int32_t	ci_cflushsz;		/* clflush cache-line size */
+	u_int32_t	ci_amdcacheinfo[4];	/* AMD cache info */
+	u_int32_t	ci_extcacheinfo[4];	/* Intel cache info */
 
 	int		ci_inatomic;
 
@@ -153,9 +185,18 @@ struct cpu_info {
 
 	struct ksensordev	ci_sensordev;
 	struct ksensor		ci_sensor;
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 	struct gmonparam	*ci_gmon;
 #endif
+	u_int32_t		ci_vmm_flags;
+#define CI_VMM_VMX		(1 << 0)
+#define CI_VMM_SVM		(1 << 1)
+#define CI_VMM_RVI		(1 << 2)
+#define CI_VMM_EPT		(1 << 3)
+#define CI_VMM_DIS		(1 << 4)
+	union vmm_cpu_cap	ci_vmm_cap;
+	uint64_t		ci_vmxon_region_pa; /* Must be 64 bit */
+	struct vmxon_region	*ci_vmxon_region;
 };
 
 /*
@@ -175,6 +216,7 @@ struct cpu_info {
 
 #define	CPUF_PRESENT	0x1000		/* CPU is present */
 #define	CPUF_RUNNING	0x2000		/* CPU is running */
+#define CPUF_VMM	0x4000		/* CPU is executing in VMM mode */
 
 /*
  * We statically allocate the CPU info for the primary CPU (or,
@@ -481,8 +523,9 @@ int	cpu_paenable(void *);
 #define CPU_SSE			14	/* supports SSE */
 #define CPU_SSE2		15	/* supports SSE2 */
 #define CPU_XCRYPT		16	/* supports VIA xcrypt in userland */
-#define CPU_LIDSUSPEND		17	/* lid close causes a suspend */
-#define CPU_MAXID		18	/* number of valid machdep ids */
+#define CPU_LIDACTION		18	/* action caused by lid close */
+#define CPU_FORCEUKBD		19	/* Force ukbd(4) as console keyboard */
+#define CPU_MAXID		20	/* number of valid machdep ids */
 
 #define	CTL_MACHDEP_NAMES { \
 	{ 0, 0 }, \
@@ -502,7 +545,9 @@ int	cpu_paenable(void *);
 	{ "sse", CTLTYPE_INT }, \
 	{ "sse2", CTLTYPE_INT }, \
 	{ "xcrypt", CTLTYPE_INT }, \
-	{ "lidsuspend", CTLTYPE_INT }, \
+	{ 0, 0 }, \
+	{ "lidaction", CTLTYPE_INT }, \
+	{ "forceukbd", CTLTYPE_INT }, \
 }
 
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.109 2016/09/02 15:44:26 mpi Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.139 2017/08/13 17:57:32 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -46,12 +46,12 @@
 
 #include <net/if.h>
 #include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
+
+#include <arpa/inet.h>
 
 #include <errno.h>
 #include <ifaddrs.h>
@@ -60,80 +60,41 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "dhcp.h"
 #include "dhcpd.h"
+#include "log.h"
 #include "privsep.h"
 
 
-struct dhcp_timeout timeout;
-
 void packethandler(struct interface_info *ifi);
-
-void
-get_hw_address(struct interface_info *ifi)
-{
-	struct ifaddrs *ifap, *ifa;
-	struct sockaddr_dl *sdl;
-	int found;
-
-	if (getifaddrs(&ifap) != 0)
-		error("getifaddrs failed");
-
-	found = 0;
-	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
-		if ((ifa->ifa_flags & IFF_LOOPBACK) ||
-		    (ifa->ifa_flags & IFF_POINTOPOINT) ||
-		    (!(ifa->ifa_flags & IFF_UP)))
-			continue;
-
-		if (strcmp(ifi->name, ifa->ifa_name) != 0)
-			continue;
-		found = 1;
-
-		if (ifa->ifa_addr->sa_family != AF_LINK)
-			continue;
-
-		sdl = (struct sockaddr_dl *)ifa->ifa_addr;
-		if (sdl->sdl_type != IFT_ETHER ||
-		    sdl->sdl_alen != ETHER_ADDR_LEN)
-			continue;
-
-		memcpy(ifi->hw_address.ether_addr_octet, LLADDR(sdl),
-		    ETHER_ADDR_LEN);
-		ifi->flags |= IFI_VALID_LLADDR;
-	}
-
-	if (!found)
-		error("%s: no such interface", ifi->name);
-
-	freeifaddrs(ifap);
-}
+void flush_unpriv_ibuf(const char *);
 
 /*
  * Loop waiting for packets, timeouts or routing messages.
  */
 void
-dispatch(struct interface_info *ifi)
+dispatch(struct interface_info *ifi, int routefd)
 {
-	struct client_state *client = ifi->client;
-	int count, to_msec;
-	struct pollfd fds[3];
-	time_t cur_time, howlong;
-	void (*func)(void *);
-	void *arg;
+	struct pollfd		 fds[3];
+	void			(*func)(struct interface_info *);
+	time_t			 cur_time, howlong;
+	int			 nfds, to_msec;
 
-	while (quit == 0) {
-		if (timeout.func) {
+	while (quit == 0 || quit == SIGHUP) {
+		if (quit == SIGHUP) {
+			sendhup();
+			to_msec = 100;
+		} else if (ifi->timeout_func != NULL) {
 			time(&cur_time);
-			if (timeout.when <= cur_time) {
-				func = timeout.func;
-				arg = timeout.arg;
-				cancel_timeout();
-				(*(func))(arg);
+			if (ifi->timeout <= cur_time) {
+				func = ifi->timeout_func;
+				cancel_timeout(ifi);
+				(*(func))(ifi);
 				continue;
 			}
 			/*
@@ -142,10 +103,10 @@ dispatch(struct interface_info *ifi)
 			 * int for poll, while not polling with a
 			 * negative timeout and blocking indefinitely.
 			 */
-			howlong = timeout.when - cur_time;
+			howlong = ifi->timeout - cur_time;
 			if (howlong > INT_MAX / 1000)
-				howlong = INT_MAX / 1000;
-			to_msec = howlong * 1000;
+					howlong = INT_MAX / 1000;
+				to_msec = howlong * 1000;
 		} else
 			to_msec = -1;
 
@@ -155,7 +116,7 @@ dispatch(struct interface_info *ifi)
 		 *  fds[0] == bpf socket for incoming packets
 		 *  fds[1] == routing socket for incoming RTM messages
 		 *  fds[2] == imsg socket to privileged process
-		*/
+		 */
 		fds[0].fd = ifi->bfdesc;
 		fds[1].fd = routefd;
 		fds[2].fd = unpriv_ibuf->fd;
@@ -164,56 +125,73 @@ dispatch(struct interface_info *ifi)
 		if (unpriv_ibuf->w.queued)
 			fds[2].events |= POLLOUT;
 
-		count = poll(fds, 3, to_msec);
-		if (count == -1) {
-			if (errno == EAGAIN || errno == EINTR) {
+		nfds = poll(fds, 3, to_msec);
+		if (nfds == -1) {
+			if (errno == EINTR)
 				continue;
-			} else {
-				warning("poll: %s", strerror(errno));
-				quit = INTERNALSIG;
-				continue;
-			}
-		}
-
-		if ((fds[0].revents & (POLLIN | POLLHUP)))
-			packethandler(ifi);
-		if ((fds[1].revents & (POLLIN | POLLHUP)))
-			routehandler(ifi);
-		if (fds[2].revents & POLLOUT)
-			flush_unpriv_ibuf("dispatch");
-		if ((fds[2].revents & (POLLIN | POLLHUP))) {
-			/* Pipe to [priv] closed. Assume it emitted error. */
+			log_warn("dispatch poll");
 			quit = INTERNALSIG;
+			continue;
 		}
+
+		if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+			log_warnx("bfdesc poll error");
+			quit = INTERNALSIG;
+			continue;
+		}
+		if ((fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+			log_warnx("routefd poll error");
+			quit = INTERNALSIG;
+			continue;
+		}
+		if ((fds[2].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+			log_warnx("unpriv_ibuf poll error");
+			quit = INTERNALSIG;
+			continue;
+		}
+
+		if (nfds == 0)
+			continue;
+
+		if ((fds[0].revents & POLLIN) != 0) {
+			do {
+				packethandler(ifi);
+			} while (ifi->rbuf_offset < ifi->rbuf_len);
+		}
+		if ((fds[1].revents & POLLIN) != 0)
+			routehandler(ifi, routefd);
+		if ((fds[2].revents & POLLOUT) != 0)
+			flush_unpriv_ibuf("dispatch");
+		if ((fds[2].revents & POLLIN) != 0)
+			quit = INTERNALSIG;
 	}
 
-	if (quit == SIGHUP) {
-		/* Tell [priv] process that HUP has occurred. */
-		sendhup(client->active);
-		warning("%s; restarting", strsignal(quit));
-		exit (0);
-	} else if (quit != INTERNALSIG) {
-		warning("%s; exiting", strsignal(quit));
-		exit(1);
-	}
+	if (quit != INTERNALSIG && quit != SIGHUP)
+		fatalx("%s", strsignal(quit));
 }
 
 void
 packethandler(struct interface_info *ifi)
 {
-	struct sockaddr_in from;
-	struct ether_addr hfrom;
-	struct in_addr ifrom;
-	ssize_t result;
+	struct sockaddr_in	 from;
+	struct ether_addr	 hfrom;
+	struct in_addr		 ifrom;
+	struct dhcp_packet	*packet = &ifi->recv_packet;
+	struct reject_elem	*ap;
+	struct option_data	*options;
+	char			*type, *info;
+	ssize_t			 result;
+	void			(*handler)(struct interface_info *,
+	    struct option_data *, char *);
+	int			 i, rslt;
 
 	if ((result = receive_packet(ifi, &from, &hfrom)) == -1) {
-		warning("%s receive_packet failed: %s", ifi->name,
-		    strerror(errno));
 		ifi->errors++;
-		if (ifi->errors > 20) {
-			error("%s too many receive_packet failures; exiting",
+		if (ifi->errors > 20)
+			fatalx("%s too many receive_packet failures",
 			    ifi->name);
-		}
+		else
+			log_warn("%s receive_packet failed", ifi->name);
 		return;
 	}
 	ifi->errors = 0;
@@ -223,142 +201,148 @@ packethandler(struct interface_info *ifi)
 
 	ifrom.s_addr = from.sin_addr.s_addr;
 
-	do_packet(ifi, from.sin_port, ifrom, &hfrom);
-}
-
-void
-interface_link_forceup(char *ifname)
-{
-	struct ifreq ifr;
-	int sock;
-
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-		error("Can't create socket");
-
-	memset(&ifr, 0, sizeof(ifr));
-	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
-	if (ioctl(sock, SIOCGIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCGIFFLAGS failed (%s)",
-		    strerror(errno));
-		close(sock);
-		return;
-	}
-
-	/* Force it down and up so others notice link state change. */
-	ifr.ifr_flags &= ~IFF_UP;
-	if (ioctl(sock, SIOCSIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCSIFFLAGS DOWN failed (%s)",
-		    strerror(errno));
-		close(sock);
-		return;
-	}
-
-	ifr.ifr_flags |= IFF_UP;
-	if (ioctl(sock, SIOCSIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCSIFFLAGS UP failed (%s)",
-		    strerror(errno));
-		close(sock);
-		return;
-	}
-
-	close(sock);
-}
-
-int
-interface_status(struct interface_info *ifi)
-{
-	struct ifreq ifr;
-	struct ifmediareq ifmr;
-	int sock;
-
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-		error("Can't create socket");
-
-	/* Get interface flags. */
-	memset(&ifr, 0, sizeof(ifr));
-	strlcpy(ifr.ifr_name, ifi->name, sizeof(ifr.ifr_name));
-	if (ioctl(sock, SIOCGIFFLAGS, &ifr) == -1) {
-		error("ioctl(SIOCGIFFLAGS) on %s: %s", ifi->name,
-		    strerror(errno));
-	}
-
-	if ((ifr.ifr_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
-		goto inactive;
-
-	/* Next, check carrier on the interface if possible. */
-	if (ifi->flags & IFI_NOMEDIA)
-		goto active;
-	memset(&ifmr, 0, sizeof(ifmr));
-	strlcpy(ifmr.ifm_name, ifi->name, sizeof(ifmr.ifm_name));
-	if (ioctl(sock, SIOCGIFMEDIA, (caddr_t)&ifmr) == -1) {
-		/*
-		 * EINVAL or ENOTTY simply means that the interface does not
-		 * support the SIOCGIFMEDIA ioctl. We regard it alive.
-		 */
+	if (packet->hlen != ETHER_ADDR_LEN) {
 #ifdef DEBUG
-		if (errno != EINVAL && errno != ENOTTY)
-			debug("ioctl(SIOCGIFMEDIA) on %s: %s", ifname,
-			    strerror(errno));
-#endif
-
-		ifi->flags |= IFI_NOMEDIA;
-		goto active;
+		log_debug("Discarding packet with hlen != %s (%u)",
+		    ifi->name, packet->hlen);
+#endif	/* DEBUG */
+		return;
+	} else if (memcmp(&ifi->hw_address, packet->chaddr,
+	    sizeof(ifi->hw_address))) {
+#ifdef DEBUG
+		log_debug("Discarding packet with chaddr != %s (%s)",
+		    ifi->name,
+		    ether_ntoa((struct ether_addr *)packet->chaddr));
+#endif	/* DEBUG */
+		return;
 	}
-	if (ifmr.ifm_status & IFM_AVALID) {
-		if (ifmr.ifm_status & IFM_ACTIVE)
-			goto active;
-		else
-			goto inactive;
+
+	if (ifi->xid != packet->xid) {
+#ifdef DEBUG
+		log_debug("Discarding packet with XID != %u (%u)", ifi->xid,
+		    packet->xid);
+#endif	/* DEBUG */
+		return;
 	}
 
-	/* Assume 'active' if IFM_AVALID is not set. */
+	TAILQ_FOREACH(ap, &config->reject_list, next)
+	    if (ifrom.s_addr == ap->addr.s_addr) {
+#ifdef DEBUG
+		    log_debug("Discarding packet from address on reject "
+			"list (%s)", inet_ntoa(ifrom));
+#endif	/* DEBUG */
+		    return;
+	    }
 
-active:
-	close(sock);
-	return (1);
-inactive:
-	close(sock);
-	return (0);
+	options = unpack_options(&ifi->recv_packet);
+
+	/*
+	 * RFC 6842 says if the server sends a client identifier
+	 * that doesn't match then the packet must be dropped.
+	 */
+	i = DHO_DHCP_CLIENT_IDENTIFIER;
+	if ((options[i].len != 0) &&
+	    ((options[i].len != config->send_options[i].len) ||
+	    memcmp(options[i].data, config->send_options[i].data,
+	    options[i].len) != 0)) {
+#ifdef DEBUG
+		log_debug("Discarding packet with client-identifier "
+		    "'%s'", pretty_print_option(i, &options[i], 0));
+#endif	/* DEBUG */
+		return;
+	}
+
+	type = "<unknown>";
+	handler = NULL;
+
+	i = DHO_DHCP_MESSAGE_TYPE;
+	if (options[i].data != NULL) {
+		/* Always try a DHCP packet, even if a bad option was seen. */
+		switch (options[i].data[0]) {
+		case DHCPOFFER:
+			handler = dhcpoffer;
+			type = "DHCPOFFER";
+			break;
+		case DHCPNAK:
+			handler = dhcpnak;
+			type = "DHCPNACK";
+			break;
+		case DHCPACK:
+			handler = dhcpack;
+			type = "DHCPACK";
+			break;
+		default:
+#ifdef DEBUG
+			log_debug("Discarding DHCP packet of unknown type "
+			    "(%d)", options[i].data[0]);
+#endif	/* DEBUG */
+			return;
+		}
+	} else if (packet->op == BOOTREPLY) {
+		handler = dhcpoffer;
+		type = "BOOTREPLY";
+	} else {
+#ifdef DEBUG
+		log_debug("Discarding packet which is neither DHCP nor BOOTP");
+#endif	/* DEBUG */
+		return;
+	}
+
+	rslt = asprintf(&info, "%s from %s (%s)", type, inet_ntoa(ifrom),
+	    ether_ntoa(&hfrom));
+	if (rslt == -1)
+		fatalx("no memory for info string");
+
+	if (handler != NULL)
+		(*handler)(ifi, options, info);
+
+	free(info);
+}
+
+/*
+ * flush_unpriv_ibuf stuffs queued messages into the imsg socket.
+ */
+void
+flush_unpriv_ibuf(const char *who)
+{
+	while (unpriv_ibuf->w.queued) {
+		if (msgbuf_write(&unpriv_ibuf->w) <= 0) {
+			if (errno == EAGAIN)
+				break;
+			if (quit == 0)
+				quit = INTERNALSIG;
+			if (errno != EPIPE && errno != 0)
+				log_warn("%s: msgbuf_write", who);
+			break;
+		}
+	}
 }
 
 void
-set_timeout(time_t when, void (*where)(void *), void *arg)
+set_timeout(struct interface_info *ifi, time_t secs,
+    void (*where)(struct interface_info *))
 {
-	timeout.when = when;
-	timeout.func = where;
-	timeout.arg = arg;
+	time(&ifi->timeout);
+	ifi->timeout += secs;
+	ifi->timeout_func = where;
 }
 
 void
-set_timeout_interval(time_t secs, void (*where)(void *), void *arg)
+cancel_timeout(struct interface_info *ifi)
 {
-	timeout.when = time(NULL) + secs;
-	timeout.func = where;
-	timeout.arg = arg;
+	ifi->timeout = 0;
+	ifi->timeout_func = NULL;
 }
 
+/*
+ * Inform the [priv] process a HUP was received.
+ */
 void
-cancel_timeout(void)
+sendhup(void)
 {
-	timeout.when = 0;
-	timeout.func = NULL;
-	timeout.arg = NULL;
-}
+	int rslt;
 
-int
-get_rdomain(char *name)
-{
-	int rv = 0, s;
-	struct ifreq ifr;
-
-	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-	    error("get_rdomain socket: %s", strerror(errno));
-
-	memset(&ifr, 0, sizeof(ifr));
-	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
-	if (ioctl(s, SIOCGIFRDOMAIN, (caddr_t)&ifr) != -1)
-	    rv = ifr.ifr_rdomainid;
-
-	close(s);
-	return rv;
+	rslt = imsg_compose(unpriv_ibuf, IMSG_HUP, 0, 0, -1, NULL, 0);
+	if (rslt == -1)
+		log_warn("sendhup: imsg_compose");
 }

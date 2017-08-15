@@ -1,4 +1,4 @@
-/*	$OpenBSD: via.c,v 1.21 2015/08/28 00:03:53 deraadt Exp $	*/
+/*	$OpenBSD: via.c,v 1.23 2017/05/02 11:47:49 mikeb Exp $	*/
 /*	$NetBSD: machdep.c,v 1.214 1996/11/10 03:16:17 thorpej Exp $	*/
 
 /*-
@@ -36,7 +36,7 @@
 
 #ifdef CRYPTO
 #include <crypto/cryptodev.h>
-#include <crypto/rijndael.h>
+#include <crypto/aes.h>
 #include <crypto/xform.h>
 #include <crypto/cryptosoft.h>
 #endif
@@ -194,9 +194,9 @@ viac3_crypto_newsession(u_int32_t *sidp, struct cryptoini *cri)
 			ses->ses_cw0 = cw0;
 
 			/* Build expanded keys for both directions */
-			rijndaelKeySetupEnc(ses->ses_ekey, c->cri_key,
+			AES_KeySetup_Encrypt(ses->ses_ekey, c->cri_key,
 			    c->cri_klen);
-			rijndaelKeySetupDec(ses->ses_dkey, c->cri_key,
+			AES_KeySetup_Decrypt(ses->ses_dkey, c->cri_key,
 			    c->cri_klen);
 			for (i = 0; i < 4 * (AES_MAXROUNDS + 1); i++) {
 				ses->ses_ekey[i] = ntohl(ses->ses_ekey[i]);
@@ -441,8 +441,11 @@ viac3_crypto_process(struct cryptop *crp)
 	struct viac3_session *ses;
 	struct cryptodesc *crd;
 	int sesn, err = 0;
+	int i;
 
 	if (crp == NULL || crp->crp_callback == NULL)
+		return (EINVAL);
+	if (crp->crp_ndesc < 1)
 		return (EINVAL);
 
 	sesn = VIAC3_SESSION(crp->crp_sid);
@@ -456,7 +459,8 @@ viac3_crypto_process(struct cryptop *crp)
 		goto out;
 	}
 
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
+	for (i = 0; i < crp->crp_ndesc; i++) {
+		crd = &crp->crp_desc[i];
 		switch (crd->crd_alg) {
 		case CRYPTO_AES_CBC:
 			if ((err = viac3_crypto_encdec(crp, crd, ses, sc,

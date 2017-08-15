@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.h,v 1.60 2016/04/28 08:18:10 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.h,v 1.68 2017/03/12 03:13:50 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.h,v 1.9 2004/04/30 22:57:32 dyoung Exp $	*/
 
 /*-
@@ -40,7 +40,7 @@
 #define	IEEE80211_INACT_WAIT	5		/* inactivity timer interval */
 #define	IEEE80211_INACT_MAX	(300/IEEE80211_INACT_WAIT)
 #define	IEEE80211_CACHE_SIZE	100
-#define	IEEE80211_CACHE_WAIT	3600
+#define	IEEE80211_CACHE_WAIT	30
 
 struct ieee80211_rateset {
 	u_int8_t		rs_nrates;
@@ -99,6 +99,14 @@ enum {
 	RSNA_KEYERROR
 };
 
+/* Supplicant state machine: 4-Way Handshake (not documented in standard) */
+enum {
+	RSNA_SUPP_INITIALIZE,		/* not expecting any messages */
+	RSNA_SUPP_PTKSTART,		/* awaiting handshake message 1 */
+	RSNA_SUPP_PTKNEGOTIATING,	/* got message 1 and derived PTK */
+	RNSA_SUPP_PTKDONE		/* got message 3 and authenticated AP */
+};
+
 struct ieee80211_rxinfo {
 	u_int32_t		rxi_flags;
 	u_int32_t		rxi_tstamp;
@@ -153,6 +161,8 @@ struct ieee80211_rx_ba {
 	uint16_t		ba_missedsn;
 	/* Window moves forward after this many frames have missed it. */
 #define IEEE80211_BA_MAX_WINMISS	8
+
+	uint8_t			ba_token;
 };
 
 /*
@@ -162,7 +172,7 @@ struct ieee80211_rx_ba {
  * the ieee80211com structure.
  */
 struct ieee80211_node {
-	RB_ENTRY(ieee80211_node)	ni_node;
+	RBT_ENTRY(ieee80211_node)	ni_node;
 
 	struct ieee80211com	*ni_ic;		/* back-pointer */
 
@@ -188,9 +198,10 @@ struct ieee80211_node {
 	struct ieee80211_channel *ni_chan;
 	u_int8_t		ni_erp;		/* 11g only */
 
-#ifdef notyet
 	/* DTIM and contention free period (CFP) */
+	u_int8_t		ni_dtimcount;
 	u_int8_t		ni_dtimperiod;
+#ifdef notyet
 	u_int8_t		ni_cfpperiod;	/* # of DTIMs between CFPs */
 	u_int16_t		ni_cfpduremain;	/* remaining cfp duration */
 	u_int16_t		ni_cfpmaxduration;/* max CFP duration in TU */
@@ -205,9 +216,12 @@ struct ieee80211_node {
 	/* RSN */
 	struct timeout		ni_eapol_to;
 	u_int			ni_rsn_state;
+	u_int			ni_rsn_supp_state;
 	u_int			ni_rsn_gstate;
 	u_int			ni_rsn_retries;
+	u_int			ni_supported_rsnprotos;
 	u_int			ni_rsnprotos;
+	u_int			ni_supported_rsnakms;
 	u_int			ni_rsnakms;
 	u_int			ni_rsnciphers;
 	enum ieee80211_cipher	ni_rsngroupcipher;
@@ -284,7 +298,7 @@ struct ieee80211_node {
 #define IEEE80211_NODE_SA_QUERY_FAILED	0x1000	/* last SA Query failed */
 };
 
-RB_HEAD(ieee80211_tree, ieee80211_node);
+RBT_HEAD(ieee80211_tree, ieee80211_node);
 
 static __inline void
 ieee80211_node_incref(struct ieee80211_node *ni)
@@ -360,12 +374,16 @@ extern	void ieee80211_clean_cached(struct ieee80211com *ic);
 extern	void ieee80211_clean_nodes(struct ieee80211com *, int);
 void ieee80211_setup_htcaps(struct ieee80211_node *, const uint8_t *,
     uint8_t);
+void ieee80211_clear_htcaps(struct ieee80211_node *);
 int ieee80211_setup_htop(struct ieee80211_node *, const uint8_t *,
     uint8_t);
 extern	int ieee80211_setup_rates(struct ieee80211com *,
 	    struct ieee80211_node *, const u_int8_t *, const u_int8_t *, int);
 extern  int ieee80211_iserp_sta(const struct ieee80211_node *);
-
+extern void ieee80211_count_longslotsta(void *, struct ieee80211_node *);
+extern void ieee80211_count_nonerpsta(void *, struct ieee80211_node *);
+extern void ieee80211_count_pssta(void *, struct ieee80211_node *);
+extern void ieee80211_count_rekeysta(void *, struct ieee80211_node *);
 extern	void ieee80211_node_join(struct ieee80211com *,
 		struct ieee80211_node *, int);
 extern	void ieee80211_node_leave(struct ieee80211com *,
@@ -379,6 +397,6 @@ extern	void ieee80211_set_tim(struct ieee80211com *, int, int);
 
 extern	int ieee80211_node_cmp(const struct ieee80211_node *,
 		const struct ieee80211_node *);
-RB_PROTOTYPE(ieee80211_tree, ieee80211_node, ni_node, ieee80211_node_cmp);
+RBT_PROTOTYPE(ieee80211_tree, ieee80211_node, ni_node, ieee80211_node_cmp);
 
 #endif /* _NET80211_IEEE80211_NODE_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: apm.c,v 1.17 2011/07/02 22:20:07 nicm Exp $	*/
+/*	$OpenBSD: apm.c,v 1.19 2016/12/05 15:04:15 fcambus Exp $	*/
 
 /*-
  * Copyright (c) 2001 Alexander Guy.  All rights reserved.
@@ -141,7 +141,7 @@ apmopen(dev_t dev, int flag, int mode, struct proc *p)
 		return ENXIO;
 
 	DPRINTF(("apmopen: dev %d pid %d flag %x mode %x\n",
-	    APMDEV(dev), p->p_pid, flag, mode));
+	    APMDEV(dev), p->p_p->ps_pid, flag, mode));
 
 	switch (APMDEV(dev)) {
 	case APMDEV_CTL:
@@ -179,7 +179,8 @@ apmclose(dev_t dev, int flag, int mode, struct proc *p)
 	    !(sc = apm_cd.cd_devs[APMUNIT(dev)]))
 		return ENXIO;
 
-	DPRINTF(("apmclose: pid %d flag %x mode %x\n", p->p_pid, flag, mode));
+	DPRINTF(("apmclose: pid %d flag %x mode %x\n",
+	    p->p_p->ps_pid, flag, mode));
 
 	switch (APMDEV(dev)) {
 	case APMDEV_CTL:
@@ -272,13 +273,12 @@ apmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 			power->minutes_left =
 			    ((batt.cur_charge * 3600) / (-batt.draw)) / 60;
 
-			/* XXX - Arbitrary */
-			if (power->battery_life > 60)
+			if (power->battery_life > 50)
 				power->battery_state = APM_BATT_HIGH;
-			else if (power->battery_life < 10)
-				power->battery_state = APM_BATT_CRITICAL;
-			else
+			else if (power->battery_life > 25)
 				power->battery_state = APM_BATT_LOW;
+			else
+				power->battery_state = APM_BATT_CRITICAL;
 		}
 		break;
 	case APM_IOC_STANDBY_REQ:

@@ -1,4 +1,4 @@
-/*	$OpenBSD: udl.c,v 1.84 2015/12/11 16:07:02 mpi Exp $ */
+/*	$OpenBSD: udl.c,v 1.87 2017/04/08 02:57:25 deraadt Exp $ */
 
 /*
  * Copyright (c) 2009 Marcus Glocker <mglocker@openbsd.org>
@@ -258,7 +258,7 @@ udl_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL || uaa->configno != 1)
 		return (UMATCH_NONE);
 
 	if (udl_lookup(uaa->vendor, uaa->product) != NULL)
@@ -303,12 +303,6 @@ udl_attach(struct device *parent, struct device *self, void *aux)
 		if (udl_select_chip(sc))
 			return;
 
-	/*
-	 * Set device configuration descriptor number.
-	 */
-	error = usbd_set_config_no(sc->sc_udev, 1, 0);
-	if (error != USBD_NORMAL_COMPLETION)
-		return;
 
 	/*
 	 * Create device handle to interface descriptor.
@@ -654,6 +648,8 @@ udl_alloc_screen(void *v, const struct wsscreen_descr *type,
 		    DN(sc));
 		return (ENOMEM);
 	}
+	sc->sc_cbslen = sc->sc_ri.ri_rows * sc->sc_ri.ri_cols *
+	    sizeof(*sc->sc_cbs);
 
 	sc->sc_nscreens++;
 
@@ -675,7 +671,7 @@ udl_free_screen(void *v, void *cookie)
 
 	/* free character backing store */
 	if (sc->sc_cbs != NULL)
-		free(sc->sc_cbs, M_DEVBUF, 0);
+		free(sc->sc_cbs, M_DEVBUF, sc->sc_cbslen);
 
 	sc->sc_nscreens--;
 }
@@ -1424,7 +1420,7 @@ void
 udl_free_huffman(struct udl_softc *sc)
 {
 	if (sc->sc_huffman != NULL) {
-		free(sc->sc_huffman, M_DEVBUF, 0);
+		free(sc->sc_huffman, M_DEVBUF, sc->sc_huffman_size);
 		sc->sc_huffman = NULL;
 		sc->sc_huffman_size = 0;
 		DPRINTF(1, "%s: huffman table freed\n", DN(sc));
@@ -1444,7 +1440,7 @@ udl_fbmem_alloc(struct udl_softc *sc)
 		if (sc->sc_fbmem == NULL)
 			return (-1);
 	}
-
+	sc->sc_fbmemsize = size;
 	return (0);
 }
 
@@ -1452,8 +1448,9 @@ void
 udl_fbmem_free(struct udl_softc *sc)
 {
 	if (sc->sc_fbmem != NULL) {
-		free(sc->sc_fbmem, M_DEVBUF, 0);
+		free(sc->sc_fbmem, M_DEVBUF, sc->sc_fbmemsize);
 		sc->sc_fbmem = NULL;
+		sc->sc_fbmemsize = 0;
 	}
 }
 
@@ -1523,7 +1520,7 @@ udl_cmd_free_buf(struct udl_softc *sc)
 	struct udl_cmd_buf *cb = &sc->sc_cmd_buf;
 
 	if (cb->buf != NULL) {
-		free(cb->buf, M_DEVBUF, 0);
+		free(cb->buf, M_DEVBUF, UDL_CMD_MAX_XFER_SIZE);
 		cb->buf = NULL;
 	}
 	cb->off = 0;

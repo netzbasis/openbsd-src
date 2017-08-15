@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.39 2016/09/02 13:28:36 eric Exp $	*/
+/*	$OpenBSD: control.c,v 1.42 2017/04/21 13:50:23 jca Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -331,7 +331,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 				return control_close(c, "invalid size", &imsg);
 
 			memcpy(&v, imsg.data, sizeof(v));
-			log_verbose(v);
+			log_setverbose(v);
 
 			for (i = 0; i < PROC_MAX; i++) {
 				if (privsep_process == PROC_CONTROL)

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.2 2014/07/05 12:33:54 schwarze Exp $
+# $OpenBSD: Makefile,v 1.4 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS	= invalid
 LINT_TARGETS	= invalid

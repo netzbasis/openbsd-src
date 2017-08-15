@@ -1,4 +1,4 @@
-/*	$OpenBSD: bonito.c,v 1.31 2016/03/06 19:42:27 mpi Exp $	*/
+/*	$OpenBSD: bonito.c,v 1.33 2017/05/17 11:52:25 visa Exp $	*/
 /*	$NetBSD: bonito_mainbus.c,v 1.11 2008/04/28 20:23:10 martin Exp $	*/
 /*	$NetBSD: bonito_pci.c,v 1.5 2008/04/28 20:23:28 martin Exp $	*/
 
@@ -399,6 +399,8 @@ bonito_intr_establish(int irq, int type, int level, int (*handler)(void *),
 		panic("bonito_intr_establish: illegal irq %d", irq);
 #endif
 
+	level &= ~IPL_MPSAFE;
+
 	ih = malloc(sizeof *ih, M_DEVBUF, M_NOWAIT);
 	if (ih == NULL)
 		return NULL;
@@ -714,7 +716,7 @@ bonito_intr_dispatch(uint64_t isr, int startbit, struct trapframe *frame)
 				    REGVAL(BONITO_INTISR), REGVAL(BONITO_INTEN),
 				    frame->ipl, bonito_imask[frame->ipl]);
 #ifdef DDB
-				Debugger();
+				db_enter();
 #endif
 #endif
 			}

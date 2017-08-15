@@ -1,4 +1,4 @@
-/*	$OpenBSD: filedesc.h,v 1.30 2015/05/06 08:52:17 mpi Exp $	*/
+/*	$OpenBSD: filedesc.h,v 1.34 2017/02/11 19:51:06 guenther Exp $	*/
 /*	$NetBSD: filedesc.h,v 1.14 1996/04/09 20:55:28 cgd Exp $	*/
 
 /*
@@ -105,6 +105,7 @@ struct filedesc0 {
  * Per-process open flags.
  */
 #define	UF_EXCLOSE 	0x01		/* auto-close on exec */
+#define	UF_PLEDGED 	0x02		/* open after pledge(2) */
 
 /*
  * Flags on the file descriptor table.
@@ -121,10 +122,10 @@ struct filedesc0 {
  * Kernel global variables and routines.
  */
 void	filedesc_init(void);
-int	dupfdopen(struct filedesc *, int, int, int);
+int	dupfdopen(struct proc *, int, int);
 int	fdalloc(struct proc *p, int want, int *result);
 void	fdexpand(struct proc *);
-int	falloc(struct proc *p, struct file **resultfp, int *resultfd);
+int	falloc(struct proc *_p, int _flags, struct file **_rfp, int *_rfd);
 struct	filedesc *fdinit(void);
 struct	filedesc *fdshare(struct process *);
 struct	filedesc *fdcopy(struct process *);
@@ -138,7 +139,7 @@ struct file *fd_getfile_mode(struct filedesc *, int, int);
 int	closef(struct file *, struct proc *);
 int	getsock(struct proc *, int, struct file **);
 
-#define	fdplock(fdp)	rw_enter_write(&(fdp)->fd_lock)
+#define	fdplock(fdp)	do { NET_ASSERT_UNLOCKED(); rw_enter_write(&(fdp)->fd_lock); } while (0)
 #define	fdpunlock(fdp)	rw_exit_write(&(fdp)->fd_lock)
 #define	fdpassertlocked(fdp)	rw_assert_wrlock(&(fdp)->fd_lock)
 #endif

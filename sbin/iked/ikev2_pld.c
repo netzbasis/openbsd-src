@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_pld.c,v 1.55 2015/10/15 18:40:38 mmcc Exp $	*/
+/*	$OpenBSD: ikev2_pld.c,v 1.62 2017/04/13 07:04:09 patrick Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -112,7 +112,7 @@ ikev2_pld_parse(struct iked *env, struct ike_header *hdr,
 {
 	log_debug("%s: header ispi %s rspi %s"
 	    " nextpayload %s version 0x%02x exchange %s flags 0x%02x"
-	    " msgid %d length %d response %d", __func__,
+	    " msgid %d length %u response %d", __func__,
 	    print_spi(betoh64(hdr->ike_ispi), 8),
 	    print_spi(betoh64(hdr->ike_rspi), 8),
 	    print_map(hdr->ike_nextpayload, ikev2_payload_map),
@@ -1148,8 +1148,41 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 			 */
 			if (msg->msg_sa != NULL)
 				msg->msg_sa->sa_udpencap = 1;
+			/* Send keepalive, since we are behind a NAT-gw */
+			if (type == IKEV2_N_NAT_DETECTION_DESTINATION_IP)
+				msg->msg_sa->sa_usekeepalive = 1;
 		}
 		print_hex(md, 0, sizeof(md));
+		break;
+	case IKEV2_N_AUTHENTICATION_FAILED:
+		if (!msg->msg_e) {
+			log_debug("%s: AUTHENTICATION_FAILED not encrypted",
+			    __func__);
+			return (-1);
+		}
+		/*
+		 * If we are the responder, then we only accept
+		 * AUTHENTICATION_FAILED from authenticated peers.
+		 * If we are the initiator, the peer cannot be authenticated.
+		 */
+		if (!msg->msg_sa->sa_hdr.sh_initiator) {
+			if (!sa_stateok(msg->msg_sa, IKEV2_STATE_VALID)) {
+				log_debug("%s: ignoring AUTHENTICATION_FAILED"
+				    " from unauthenticated initiator",
+				    __func__);
+				return (-1);
+			}
+		} else {
+			if (sa_stateok(msg->msg_sa, IKEV2_STATE_VALID)) {
+				log_debug("%s: ignoring AUTHENTICATION_FAILED"
+				    " from authenticated responder",
+				    __func__);
+				return (-1);
+			}
+		}
+		log_debug("%s: AUTHENTICATION_FAILED, closing SA", __func__);
+		sa_state(env, msg->msg_sa, IKEV2_STATE_CLOSED);
+		msg->msg_sa = NULL;
 		break;
 	case IKEV2_N_INVALID_KE_PAYLOAD:
 		if (sa_stateok(msg->msg_sa, IKEV2_STATE_VALID) &&
@@ -1172,13 +1205,13 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 		}
 		memcpy(&group, buf, len);
 		group = betoh16(group);
-		if ((msg->msg_policy->pol_peerdh = group_get(group))
-		    == NULL) {
-			log_debug("%s: unable to select DH group %d", __func__,
+		if (group_getid(group) == NULL) {
+			log_debug("%s: unable to select DH group %u", __func__,
 			    group);
 			return (-1);
 		}
-		log_debug("%s: responder selected DH group %d", __func__,
+		msg->msg_policy->pol_peerdh = group;
+		log_debug("%s: responder selected DH group %u", __func__,
 		    group);
 		sa_state(env, msg->msg_sa, IKEV2_STATE_CLOSED);
 		msg->msg_sa = NULL;
@@ -1258,6 +1291,27 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 			msg->msg_sa->sa_ipcomp = transform;
 			msg->msg_sa->sa_cpi_out = betoh16(cpi);
 		}
+		break;
+	case IKEV2_N_COOKIE:
+		if (msg->msg_e) {
+			log_debug("%s: N_COOKIE encrypted",
+			    __func__);
+			return (-1);
+		}
+		if (len < IKED_COOKIE_MIN || len > IKED_COOKIE_MAX) {
+			log_debug("%s: ignoring malformed cookie"
+			    " notification: %zu", __func__, len);
+			return (0);
+		}
+		log_debug("%s: received cookie, len %zu", __func__, len);
+		print_hex(buf, 0, len);
+
+		ibuf_release(msg->msg_cookie);
+		if ((msg->msg_cookie = ibuf_new(buf, len)) == NULL) {
+			log_debug("%s: failed to get peer cookie", __func__);
+			return (-1);
+		}
+		msg->msg_parent->msg_cookie = msg->msg_cookie;
 		break;
 	case IKEV2_N_SIGNATURE_HASH_ALGORITHMS:
 		if (msg->msg_e) {
@@ -1372,7 +1426,7 @@ ikev2_pld_delete(struct iked *env, struct ikev2_payload *pld,
 			    IKEV2_EXCHANGE_INFORMATIONAL, 1);
 			msg->msg_parent->msg_responded = 1;
 			ibuf_release(resp);
-			sa_state(env, sa, IKEV2_STATE_CLOSED);
+			ikev2_ikesa_recv_delete(env, sa);
 		} else {
 			/*
 			 * We're sending a delete message. Upper layer
@@ -1455,6 +1509,8 @@ ikev2_pld_delete(struct iked *env, struct ikev2_payload *pld,
 		localdel->del_nspi = htobe16(found);
 
 		for (i = 0; i < cnt; i++) {
+			if (localspi[i] == 0)	/* happens if found < cnt */
+				continue;
 			switch (sz) {
 			case 4:
 				spi32 = htobe32(localspi[i]);

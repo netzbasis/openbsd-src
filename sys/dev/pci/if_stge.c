@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_stge.c,v 1.67 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_stge.c,v 1.69 2017/01/22 10:17:38 dlg Exp $	*/
 /*	$NetBSD: if_stge.c,v 1.27 2005/05/16 21:35:32 bouyer Exp $	*/
 
 /*-
@@ -889,8 +889,7 @@ stge_rxintr(struct stge_softc *sc)
 			STGE_INIT_RXDESC(sc, i);
 			if ((status & RFD_FrameEnd) == 0)
 				sc->sc_rxdiscard = 1;
-			if (sc->sc_rxhead != NULL)
-				m_freem(sc->sc_rxhead);
+			m_freem(sc->sc_rxhead);
 			STGE_RXCHAIN_RESET(sc);
 			continue;
 		}
@@ -1031,9 +1030,6 @@ stge_stats_update(struct stge_softc *sc)
 	    (u_int) CSR_READ_2(sc, STGE_FramesLostRxErrors);
 
 	(void) CSR_READ_4(sc, STGE_OctetXmtdOk);
-
-	ifp->if_opackets +=
-	    CSR_READ_4(sc, STGE_FramesXmtdOk);
 
 	ifp->if_collisions +=
 	    CSR_READ_4(sc, STGE_LateCollisions) +

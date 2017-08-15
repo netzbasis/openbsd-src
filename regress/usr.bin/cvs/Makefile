@@ -1,15 +1,19 @@
-#	$OpenBSD: Makefile,v 1.28 2010/07/13 21:31:17 nicm Exp $
+#	$OpenBSD: Makefile,v 1.32 2017/07/07 23:55:21 bluhm Exp $
 
 # Regression tests by Niall O'Higgins <niallo@openbsd.org> and
 # Tobias Stoeckmann <tobias@openbsd.org>.
 # Based on OpenRCS regression framework.
 
-CVS?=		opencvs
+.include <bsd.own.mk>
+
+OPENCVS=	${BSDSRCDIR}/usr.bin/cvs/obj/opencvs
+CVS?=		${OPENCVS}
 CVSCMD=		${CVS} -f
 
 REGRESS_ROOT=	${.OBJDIR}/regress_cvs_root
 REGRESS_WCOPY=	${.OBJDIR}/regress_cvs_wcopy
 REGRESS_SEED=	${REGRESS_WCOPY}/seed
+REGRESS_IMPORT=	${.OBJDIR}/regress_cvs_import
 
 .if defined(REMOTE)
 MYCVSROOT?=	localhost:${REGRESS_ROOT}
@@ -19,15 +23,14 @@ TESTFILE=	$(CVS_SERVER)
 TESTFILE=	cvs
 .endif
 .else
-TESTFILE=	${CVS}
+TESTFILE=	${CVS:T}
 MYCVSROOT?=	${REGRESS_ROOT}
 .endif
 
 DIFF=		diff -u
 
 CLEANFILES=	regress_cvs_root regress_cvs_wcopy regress_cvs_stderr \
-		regress_cvs_stdout
-
+		regress_cvs_stdout regress_cvs_import
 
 # These must be done in order.
 LTESTS= cvs-initial \
@@ -73,6 +76,7 @@ LTESTS= cvs-initial \
 
 .for t in ${LTESTS}
 REGRESS_TARGETS+=test-${t}
+test-${t}: ${CVS}
 .endfor
 
 # XXX - should not print anything
@@ -136,7 +140,7 @@ test-cvs-checkout-kflag-kv-rflag-1.1:
 	@mkdir ${REGRESS_WCOPY}
 	@cd ${REGRESS_WCOPY}; \
 	    ${CVSCMD} -Q -d ${MYCVSROOT} co -r 1.1 -kkv seed > /dev/null
-	@test -f ${REGRESS_SEED}/seed1.txt;
+	@test -f ${REGRESS_SEED}/seed1.txt
 	@eval 'test `grep -c -e T1.1 -e -kkv \
 	    ${REGRESS_SEED}/CVS/Entries | wc -l` -eq 1'
 
@@ -169,7 +173,7 @@ test-cvs-checkout-rflag-HEAD:
 	@mkdir ${REGRESS_WCOPY}
 	@cd ${REGRESS_WCOPY}; \
 	    ${CVSCMD} -Q -d ${MYCVSROOT} co -rHEAD seed > /dev/null
-	@test -f ${REGRESS_SEED}/seed1.txt;
+	@test -f ${REGRESS_SEED}/seed1.txt
 	@eval 'test `grep -c THEAD ${REGRESS_SEED}/CVS/Entries | wc -l` -eq 1'
 
 test-cvs-checkout-rflag-1.1:
@@ -230,9 +234,11 @@ test-cvs-export:
 	@test -f ${REGRESS_SEED}/seed1.txt
 
 test-cvs-import-mflag:
-	@cd ${.CURDIR}/import_seed; \
-	    touch -t 200001010100 seed1.txt; \
-	    ${CVSCMD} -Q -d ${MYCVSROOT} import \
+	@rm -rf ${REGRESS_IMPORT}
+	@mkdir ${REGRESS_IMPORT}
+	@cp ${.CURDIR}/seed1.txt ${REGRESS_IMPORT}
+	@touch -t 200001010100 ${REGRESS_IMPORT}/seed1.txt
+	@cd ${REGRESS_IMPORT} && ${CVSCMD} -Q -d ${MYCVSROOT} import \
 	    -m'import seed repo' seed regress regress_import > /dev/null
 	@chmod u+w ${REGRESS_ROOT}/seed/seed1.txt,v
 	@perl ${.CURDIR}/setdate.pl ${REGRESS_ROOT}/seed/seed1.txt,v 1.1 \
@@ -263,10 +269,10 @@ test-cvs-rlog:
 	@eval 'test `${CVSCMD} -Q -d ${MYCVSROOT} rlog seed | wc -l` -eq 65'
 
 test-cvs-status:
-	@cd ${REGRESS_SEED}; eval 'test `${CVSCMD} -Q status | wc -l` -eq 18'
+	@cd ${REGRESS_SEED}; eval 'test `${CVSCMD} -Q status | wc -l` -eq 21'
 
 test-cvs-status-vflag:
-	@cd ${REGRESS_SEED}; eval 'test `${CVSCMD} -Q status -v | wc -l` -eq 30'
+	@cd ${REGRESS_SEED}; eval 'test `${CVSCMD} -Q status -v | wc -l` -eq 33'
 
 test-cvs-tag:
 	@cd ${REGRESS_SEED}; ${CVSCMD} -Q tag FIRST_TAG > /dev/null
@@ -330,7 +336,7 @@ test-cvs-update-with-local:
 	@echo "new file" > ${REGRESS_WCOPY}/a/seed/test.txt
 	@cd ${REGRESS_WCOPY}/a/seed && \
 		${CVSCMD} -Q add test.txt > /dev/null && \
-		${CVSCMD} -Q com -m 'a' > /dev/null; 
+		${CVSCMD} -Q com -m 'a' > /dev/null
 	@echo "local file" > ${REGRESS_WCOPY}/b/seed/test.txt
 	@cd ${REGRESS_WCOPY}/b/seed && \
 		${CVSCMD} -Q up 2>&1|grep -q '^C test.txt' && \
@@ -338,5 +344,10 @@ test-cvs-update-with-local:
 
 clean:
 	@rm -rf ${CLEANFILES}
+
+# opencvs is not linked to the build, so make it on demand as a workaround
+${OPENCVS}:
+	cd ${BSDSRCDIR}/usr.bin/cvs && ${MAKE} obj
+	cd ${BSDSRCDIR}/usr.bin/cvs && ${MAKE} all
 
 .include <bsd.regress.mk>

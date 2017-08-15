@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_update.c,v 1.82 2014/12/18 19:28:44 tedu Exp $ */
+/*	$OpenBSD: rde_update.c,v 1.86 2017/05/30 18:08:15 benno Exp $ */
 
 /*
  * Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -25,6 +25,7 @@
 
 #include "bgpd.h"
 #include "rde.h"
+#include "log.h"
 
 in_addr_t	up_get_nexthop(struct rde_peer *, struct rde_aspath *);
 int		up_generate_mp_reach(struct rde_peer *, struct update_attr *,
@@ -412,6 +413,7 @@ up_generate_updates(struct filter_head *rules, struct rde_peer *peer,
 		return;
 
 	if (new == NULL) {
+withdraw:
 		if (up_test_update(peer, old) != 1)
 			return;
 
@@ -427,8 +429,7 @@ up_generate_updates(struct filter_head *rules, struct rde_peer *peer,
 		case 1:
 			break;
 		case 0:
-			up_generate_updates(rules, peer, NULL, old);
-			return;
+			goto withdraw;
 		case -1:
 			return;
 		}
@@ -437,17 +438,16 @@ up_generate_updates(struct filter_head *rules, struct rde_peer *peer,
 		if (rde_filter(rules, &asp, peer, new->aspath, &addr,
 		    new->prefix->prefixlen, new->aspath->peer) == ACTION_DENY) {
 			path_put(asp);
-			up_generate_updates(rules, peer, NULL, old);
-			return;
+			goto withdraw;
 		}
+		if (asp == NULL)
+			asp = new->aspath;
 
-		/* generate update */
-		if (asp != NULL) {
-			up_generate(peer, asp, &addr, new->prefix->prefixlen);
+		up_generate(peer, asp, &addr, new->prefix->prefixlen);
+
+		/* free modified aspath */
+		if (asp != new->aspath)
 			path_put(asp);
-		} else
-			up_generate(peer, new->aspath, &addr,
-			    new->prefix->prefixlen);
 	}
 }
 
@@ -736,6 +736,8 @@ up_generate_attr(struct rde_peer *peer, struct update_attr *upa,
 	int		 flags, r, ismp = 0, neednewpath = 0;
 	u_int16_t	 len = sizeof(up_attr_buf), wlen = 0, plen;
 	u_int8_t	 l;
+	u_int16_t	 nlen = 0;
+	u_char		*ndata = NULL;
 
 	/* origin */
 	if ((r = attr_write(up_attr_buf + wlen, len, ATTR_WELL_KNOWN,
@@ -746,9 +748,11 @@ up_generate_attr(struct rde_peer *peer, struct update_attr *upa,
 	/* aspath */
 	if (!peer->conf.ebgp ||
 	    peer->conf.flags & PEERFLAG_TRANS_AS)
-		pdata = aspath_prepend(a->aspath, rde_local_as(), 0, &plen);
+		pdata = aspath_prepend(a->aspath, peer->conf.local_as, 0,
+		    &plen);
 	else
-		pdata = aspath_prepend(a->aspath, rde_local_as(), 1, &plen);
+		pdata = aspath_prepend(a->aspath, peer->conf.local_as, 1,
+		    &plen);
 
 	if (!rde_as4byte(peer))
 		pdata = aspath_deflate(pdata, &plen, &neednewpath);
@@ -847,9 +851,31 @@ up_generate_attr(struct rde_peer *peer, struct update_attr *upa,
 		case ATTR_COMMUNITIES:
 		case ATTR_ORIGINATOR_ID:
 		case ATTR_CLUSTER_LIST:
+		case ATTR_LARGE_COMMUNITIES:
 			if ((!(oa->flags & ATTR_TRANSITIVE)) &&
 			    peer->conf.ebgp) {
 				r = 0;
+				break;
+			}
+			if ((r = attr_write(up_attr_buf + wlen, len,
+			    oa->flags, oa->type, oa->data, oa->len)) == -1)
+				return (-1);
+			break;
+		case ATTR_EXT_COMMUNITIES:
+			/* handle (non-)transitive extended communities */
+			if (peer->conf.ebgp) {
+				ndata = community_ext_delete_non_trans(oa->data,
+				    oa->len, &nlen);
+
+				if (nlen > 0) {
+					if ((r = attr_write(up_attr_buf + wlen,
+					    len, oa->flags, oa->type, ndata,
+					    nlen)) == -1) {
+						free(ndata);
+						return (-1);
+					}
+				} else
+					r = 0;
 				break;
 			}
 			if ((r = attr_write(up_attr_buf + wlen, len,
@@ -881,11 +907,11 @@ up_generate_attr(struct rde_peer *peer, struct update_attr *upa,
 	if (neednewpath) {
 		if (!peer->conf.ebgp ||
 		    peer->conf.flags & PEERFLAG_TRANS_AS)
-			pdata = aspath_prepend(a->aspath, rde_local_as(), 0,
-			    &plen);
+			pdata = aspath_prepend(a->aspath, peer->conf.local_as,
+			    0, &plen);
 		else
-			pdata = aspath_prepend(a->aspath, rde_local_as(), 1,
-			    &plen);
+			pdata = aspath_prepend(a->aspath, peer->conf.local_as,
+			    1, &plen);
 		flags = ATTR_OPTIONAL|ATTR_TRANSITIVE;
 		if (!(a->flags & F_PREFIX_ANNOUNCED))
 			flags |= ATTR_PARTIAL;

@@ -1,7 +1,7 @@
-/*	$OpenBSD: term_ascii.c,v 1.39 2016/07/08 22:27:58 schwarze Exp $ */
+/*	$OpenBSD: term_ascii.c,v 1.43 2017/06/14 14:23:50 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -55,13 +55,14 @@ ascii_init(enum termenc enc, const struct manoutput *outopts)
 	char		*v;
 	struct termp	*p;
 
-	p = mandoc_calloc(1, sizeof(struct termp));
+	p = mandoc_calloc(1, sizeof(*p));
+	p->tcol = p->tcols = mandoc_calloc(1, sizeof(*p->tcol));
+	p->maxtcol = 1;
 
 	p->line = 1;
-	p->tabwidth = 5;
 	p->defrmargin = p->lastrmargin = 78;
 	p->fontq = mandoc_reallocarray(NULL,
-	     (p->fontsz = 8), sizeof(enum termfont));
+	     (p->fontsz = 8), sizeof(*p->fontq));
 	p->fontq[0] = p->fontl = TERMFONT_NONE;
 
 	p->begin = ascii_begin;
@@ -137,7 +138,7 @@ ascii_setwidth(struct termp *p, int iop, int width)
 {
 
 	width /= 24;
-	p->rmargin = p->defrmargin;
+	p->tcol->rmargin = p->defrmargin;
 	if (iop > 0)
 		p->defrmargin += width;
 	else if (iop == 0)
@@ -146,8 +147,8 @@ ascii_setwidth(struct termp *p, int iop, int width)
 		p->defrmargin -= width;
 	else
 		p->defrmargin = 0;
-	p->lastrmargin = p->rmargin;
-	p->rmargin = p->maxrmargin = p->defrmargin;
+	p->lastrmargin = p->tcol->rmargin;
+	p->tcol->rmargin = p->maxrmargin = p->defrmargin;
 }
 
 void
@@ -204,6 +205,8 @@ ascii_endline(struct termp *p)
 {
 
 	p->line++;
+	p->tcol->offset -= p->ti;
+	p->ti = 0;
 	putchar('\n');
 }
 
@@ -278,7 +281,7 @@ ascii_uc2str(int uc)
 	"<80>",	"<81>",	"<82>",	"<83>",	"<84>",	"<85>",	"<86>",	"<87>",
 	"<88>",	"<89>",	"<8A>",	"<8B>",	"<8C>",	"<8D>",	"<8E>",	"<8F>",
 	"<90>",	"<91>",	"<92>",	"<93>",	"<94>",	"<95>",	"<96>",	"<97>",
-	"<99>",	"<99>",	"<9A>",	"<9B>",	"<9C>",	"<9D>",	"<9E>",	"<9F>",
+	"<98>",	"<99>",	"<9A>",	"<9B>",	"<9C>",	"<9D>",	"<9E>",	"<9F>",
 	nbrsp,	"!",	"/\bc",	"GBP",	"o\bx",	"=\bY",	"|",	"<sec>",
 	"\"",	"(C)",	"_\ba",	"<<",	"~",	"",	"(R)",	"-",
 	"<deg>","+-",	"2",	"3",	"'",	",\bu",	"<par>",".",
@@ -357,6 +360,8 @@ locale_endline(struct termp *p)
 {
 
 	p->line++;
+	p->tcol->offset -= p->ti;
+	p->ti = 0;
 	putwchar(L'\n');
 }
 

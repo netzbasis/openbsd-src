@@ -1,4 +1,4 @@
-/* $OpenBSD: xterm-keys.c,v 1.18 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: xterm-keys.c,v 1.22 2017/05/07 21:25:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -40,16 +40,17 @@
  * We accept any but always output the latter (it comes first in the table).
  */
 
-int	xterm_keys_match(const char *, const char *, size_t, size_t *,
-	    key_code *);
-int	xterm_keys_modifiers(const char *, size_t, size_t *, key_code *);
+static int	xterm_keys_match(const char *, const char *, size_t, size_t *,
+		    key_code *);
+static int	xterm_keys_modifiers(const char *, size_t, size_t *,
+		    key_code *);
 
 struct xterm_keys_entry {
 	key_code	 key;
 	const char	*template;
 };
 
-const struct xterm_keys_entry xterm_keys_table[] = {
+static const struct xterm_keys_entry xterm_keys_table[] = {
 	{ KEYC_F1,	"\033[1;_P" },
 	{ KEYC_F1,	"\033O1;_P" },
 	{ KEYC_F1,	"\033O_P" },
@@ -114,7 +115,7 @@ const struct xterm_keys_entry xterm_keys_table[] = {
  * Match key against buffer, treating _ as a wildcard. Return -1 for no match,
  * 0 for match, 1 if the end of the buffer is reached (need more data).
  */
-int
+static int
 xterm_keys_match(const char *template, const char *buf, size_t len,
     size_t *size, key_code *modifiers)
 {
@@ -148,7 +149,7 @@ xterm_keys_match(const char *template, const char *buf, size_t len,
 }
 
 /* Find modifiers from buffer. */
-int
+static int
 xterm_keys_modifiers(const char *buf, size_t len, size_t *pos,
     key_code *modifiers)
 {
@@ -196,7 +197,7 @@ xterm_keys_find(const char *buf, size_t len, size_t *size, key_code *key)
 		if (matched == -1)
 			continue;
 		if (matched == 0)
-			*key = entry->key | modifiers;
+			*key = (entry->key|modifiers|KEYC_XTERM);
 		return (matched);
 	}
 	return (-1);
@@ -226,8 +227,16 @@ xterm_keys_lookup(key_code key)
 	if (modifiers == 1)
 		return (NULL);
 
+	/*
+	 * If this has the escape modifier, but was not originally an xterm
+	 * key, it may be a genuine escape + key. So don't pass it through as
+	 * an xterm key or programs like vi may be confused.
+	 */
+	if ((key & (KEYC_ESCAPE|KEYC_XTERM)) == KEYC_ESCAPE)
+		return (NULL);
+
 	/* Otherwise, find the key in the table. */
-	key &= ~(KEYC_SHIFT|KEYC_ESCAPE|KEYC_CTRL);
+	key &= KEYC_MASK_KEY;
 	for (i = 0; i < nitems(xterm_keys_table); i++) {
 		entry = &xterm_keys_table[i];
 		if (key == entry->key)

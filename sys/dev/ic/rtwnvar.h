@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtwnvar.h,v 1.7 2016/06/17 10:53:55 stsp Exp $	*/
+/*	$OpenBSD: rtwnvar.h,v 1.10 2017/07/08 14:26:23 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -67,6 +67,7 @@ struct rtwn_softc {
 #define RTWN_FLAG_CCK_HIPWR		0x01
 #define RTWN_FLAG_BUSY			0x02
 #define RTWN_FLAG_FORCE_RAID_11B	0x04
+#define RTWN_FLAG_EXT_HDR		0x08
 
 	uint32_t		chip;
 #define RTWN_CHIP_92C		0x00000001
@@ -80,6 +81,7 @@ struct rtwn_softc {
 #define RTWN_CHIP_USB		0x80000000
 
 	uint8_t				board_type;
+	uint8_t				crystal_cap;
 	uint8_t				regulatory;
 	uint8_t				pa_setting;
 	int				avg_pwdb;
@@ -91,18 +93,17 @@ struct rtwn_softc {
 
 	int				sc_tx_timer;
 	int				fwcur;
-	struct r92c_rom			rom;
-
-	uint8_t				r88e_rom[512];
-	uint8_t				cck_tx_pwr[6];
-	uint8_t				ht40_tx_pwr[5];
-	int8_t				bw20_tx_pwr_diff;
-	int8_t				ofdm_tx_pwr_diff;
+	union {
+		struct r92c_rom		r92c_rom;
+		struct r88e_rom		r88e_rom;
+	} u;
+#define sc_r92c_rom	u.r92c_rom
+#define sc_r88e_rom	u.r88e_rom
 
 	uint32_t			rf_chnlbw[R92C_MAX_CHAINS];
 };
 
-int		rtwn_attach(struct device *, struct rtwn_softc *, uint32_t);
+int		rtwn_attach(struct device *, struct rtwn_softc *);
 int		rtwn_detach(struct rtwn_softc *, int);
 int		rtwn_activate(struct rtwn_softc *, int);
 int8_t		rtwn_get_rssi(struct rtwn_softc *, int, void *);
@@ -110,6 +111,7 @@ void		rtwn_update_avgrssi(struct rtwn_softc *, int, int8_t);
 void		rtwn_calib(struct rtwn_softc *);
 void		rtwn_next_scan(struct rtwn_softc *);
 int		rtwn_newstate(struct ieee80211com *, enum ieee80211_state, int);
+void		rtwn_updateslot(struct ieee80211com *);
 void		rtwn_updateedca(struct ieee80211com *);
 int		rtwn_set_key(struct ieee80211com *, struct ieee80211_node *,
 		    struct ieee80211_key *);

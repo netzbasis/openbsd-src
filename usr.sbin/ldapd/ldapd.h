@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldapd.h,v 1.26 2016/05/01 00:32:37 jmatthew Exp $ */
+/*	$OpenBSD: ldapd.h,v 1.28 2017/02/24 14:28:31 gsoares Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -327,6 +327,13 @@ struct control_sock {
 	int			 cs_restricted;
 };
 
+enum ldapd_process {
+	PROC_MAIN_AUTH,
+	PROC_LDAP_SERVER
+};
+
+#define PROC_PARENT_SOCK_FILENO	 3
+
 /* ldapd.c */
 extern struct ldapd_stats	 stats;
 extern struct ldapd_config	*conf;
@@ -351,8 +358,7 @@ void			 request_dispatch(struct request *req);
 void			 request_free(struct request *req);
 
 /* ldape.c */
-pid_t			 ldape(struct passwd *pw, char *csockpath,
-				int pipe_parent2ldap[2]);
+void			 ldape(int, int, char *);
 int			 ldap_abandon(struct request *req);
 int			 ldap_unbind(struct request *req);
 int			 ldap_compare(struct request *req);
@@ -464,23 +470,12 @@ int			 ssl_cmp(struct ssl *, struct ssl *);
 SPLAY_PROTOTYPE(ssltree, ssl, ssl_nodes, ssl_cmp);
 
 
-/* log.c */
-void			 log_init(int);
-void			 log_verbose(int v);
-void			 vlog(int, const char *, va_list);
-void			 logit(int pri, const char *fmt, ...);
-void			 log_warn(const char *, ...);
-void			 log_warnx(const char *, ...);
-void			 log_info(const char *, ...);
-void			 log_debug(const char *, ...);
-__dead void		 fatal(const char *);
-__dead void		 fatalx(const char *);
+/* logmsg.c */
 const char		*print_host(struct sockaddr_storage *ss, char *buf,
 				size_t len);
 void			 hexdump(void *data, size_t len, const char *fmt, ...);
 void			 ldap_debug_elements(struct ber_element *root,
 			    int context, const char *fmt, ...);
-
 /* util.c */
 int			 bsnprintf(char *str, size_t size,
 				const char *format, ...);

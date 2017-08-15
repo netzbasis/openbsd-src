@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.183 2016/05/23 20:11:49 deraadt Exp $	*/
+/*	$OpenBSD: locore.s,v 1.186 2017/05/16 20:53:42 kettenis Exp $	*/
 /*	$NetBSD: locore.s,v 1.137 2001/08/13 06:10:10 jdolecek Exp $	*/
 
 /*
@@ -83,7 +83,7 @@
 #undef	FPPROC
 
 /* Let us use same syntax as C code */
-#define Debugger()	ta	1; nop
+#define db_enter()	ta	1; nop
 
 /* use as needed to align things on longword boundaries */
 #define	_ALIGN	.align 8
@@ -1344,21 +1344,6 @@ panic_red:
 .macro	CHECK_SP_REDZONE t1, t2
 .endm
 #endif	/* DEBUG_NOTDEF */
-
-#define TRACESIZ	0x01000
-	.globl	_C_LABEL(trap_trace)
-	.globl	_C_LABEL(trap_trace_ptr)
-	.globl	_C_LABEL(trap_trace_end)
-	.globl	_C_LABEL(trap_trace_dis)
-	.data
-_C_LABEL(trap_trace_dis):
-	.word	1, 1		! Starts disabled.  DDB turns it on.
-_C_LABEL(trap_trace_ptr):
-	.word	0, 0, 0, 0
-_C_LABEL(trap_trace):
-	.space	TRACESIZ
-_C_LABEL(trap_trace_end):
-	.space	0x20		! safety margin
 
 /*
  * v9 machines do not have a trap window.
@@ -2897,7 +2882,7 @@ sun4v_tl1_ptbl_miss:
 	be,pn	%icc, ufill_trap
 	 nop
 
-	Debugger()
+	db_enter()
 	NOTREACHED
 
 flush_others:
@@ -3289,7 +3274,7 @@ pcbspill:
 	NOTREACHED
 
 pcbspill_fail:
-	Debugger()
+	db_enter()
 	NOTREACHED
 
 
@@ -3873,7 +3858,7 @@ interrupt_vector:
 
 	jmpl	%g2, %g0
 	 nop
-	Debugger()
+	db_enter()
 	NOTREACHED
 #else
 	bgeu,pn	%xcc, 3f
@@ -5982,6 +5967,21 @@ Lcopyout_done:
 	membar	#StoreStore|#StoreLoad
 	retl			! New instr
 	 clr	%o0			! return 0
+
+ENTRY(copyin32)
+	andcc	%o0, 0x3, %g0
+	bnz,pn	%xcc, Lcopyfault
+	 nop
+	GET_CPCB(%o3)
+	set	Lcopyfault, %o4
+	membar	#Sync
+	stx	%o4, [%o3 + PCB_ONFAULT]
+	lduwa	[%o0] ASI_AIUS, %o2
+	stw	%o2, [%o1]
+	membar	#Sync
+	stx	%g0, [%o3 + PCB_ONFAULT]
+	retl
+	 clr	%o0
 
 ! Copyin or copyout fault.  Clear cpcb->pcb_onfault and return EFAULT.
 ! Note that although we were in bcopy, there is no state to clean up;

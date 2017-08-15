@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Delete.pm,v 1.146 2016/08/27 18:17:46 espie Exp $
+# $OpenBSD: Delete.pm,v 1.149 2017/04/05 11:57:58 sthen Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -100,6 +100,7 @@ sub delete_package
 				return;
 			}
 		} else {
+			$state->errsay("NOT deleting #1: use fwupdate -d", $pkgname);
 			return;
 		}
 	}
@@ -398,6 +399,33 @@ sub prepare_for_deletion
 	}
 }
 
+sub is_intact
+{
+	my ($self, $state, $realname) = @_;
+	return 1 if defined($self->{link}) or $self->{nochecksum};
+	if (!defined $self->{d}) {
+		if ($self->fullname eq $realname) {
+			$state->say("NOT deleting #1 (no checksum)", $realname);
+		} else {
+			$state->say("Not deleting #1 (no checksum for #2",
+			    $realname, $self->fullname);
+		}
+		$state->log("Couldn't delete #1 (no checksum)", $realname);
+		return 0;
+	}
+	return 1 unless $state->defines('checksum');
+	my $d = $self->compute_digest($realname, $self->{d});
+	return 1 if $d->equals($self->{d});
+	if ($self->fullname eq $realname) {
+		$state->say("NOT deleting #1 (bad checksum)", $realname);
+	} else {
+		$state->say("Not deleting #1 (bad checksum for #2)",
+		    $realname, $self->fullname);
+	}
+	$state->log("Couldn't delete #1 (bad checksum)", $realname);
+	return 0;
+}
+
 sub delete
 {
 	my ($self, $state) = @_;
@@ -422,28 +450,13 @@ sub delete
 				$state->say("Unexpected symlink: #1", $realname);
 				$self->do_not_delete($state);
 		} else {
-			if (! -f $realname) {
+			if (!-f $realname) {
 				$state->say("File #1 does not exist", $realname);
 				return;
 			}
-			unless (defined($self->{link}) or $self->{nochecksum} or $state->{quick}) {
-				if (!defined $self->{d}) {
-					$state->say("Problem: #1 does not have a checksum\n".
-					    "NOT deleting: #2",
-					    $self->fullname, $realname);
-					$state->log("Couldn't delete #1 (no checksum)", $realname);
-					return;
-				}
-				my $d = $self->compute_digest($realname,
-				    $self->{d});
-				if (!$d->equals($self->{d})) {
-					$state->say("Problem: checksum doesn't match for #1\n".
-					    "NOT deleting: #2",
-					    $self->fullname, $realname);
-					$state->log("Couldn't delete #1 (bad checksum)", $realname);
-					$self->do_not_delete($state);
-					return;
-				}
+			if (!$self->is_intact($state, $realname)) {
+				$self->do_not_delete($state);
+				return;
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.1 2012/07/09 17:52:09 schwarze Exp $
+# $OpenBSD: Makefile,v 1.3 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS = font
 

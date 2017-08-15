@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ether.h,v 1.18 2014/07/14 12:18:30 deraadt Exp $ */
+/*	$OpenBSD: ip_ether.h,v 1.22 2017/04/14 20:46:31 bluhm Exp $ */
 /*
  * The author of this code is Angelos D. Keromytis (angelos@adk.gr)
  *
@@ -30,15 +30,15 @@
  */
 
 struct etheripstat {
-	u_int32_t	etherip_hdrops;		/* packet shorter than header shows */
-	u_int32_t	etherip_qfull;		/* bridge queue full, packet dropped */
-	u_int32_t	etherip_noifdrops;	/* no interface/bridge information */
-	u_int32_t	etherip_pdrops;		/* packet dropped due to policy */
-	u_int32_t	etherip_adrops;         /* all other drops */
-	u_int32_t	etherip_ipackets;	/* total input packets */
-	u_int32_t	etherip_opackets;	/* total output packets */
-	u_int64_t	etherip_ibytes;		/* input bytes */
-	u_int64_t	etherip_obytes;		/* output bytes */
+	u_int64_t	etherips_hdrops;	/* packet shorter than header shows */
+	u_int64_t	etherips_qfull;		/* bridge queue full, packet dropped */
+	u_int64_t	etherips_noifdrops;	/* no interface/bridge information */
+	u_int64_t	etherips_pdrops;	/* packet dropped due to policy */
+	u_int64_t	etherips_adrops;	/* all other drops */
+	u_int64_t	etherips_ipackets;	/* total input packets */
+	u_int64_t	etherips_opackets;	/* total output packets */
+	u_int64_t	etherips_ibytes;	/* input bytes */
+	u_int64_t	etherips_obytes;	/* output bytes */
 };
 
 struct etherip_header {
@@ -72,10 +72,7 @@ struct etherip_header {
 struct tdb;
 
 int	etherip_output(struct mbuf *, struct tdb *, struct mbuf **, int);
-void	etherip_input(struct mbuf *, ...);
-#ifdef INET6
-int	etherip_input6(struct mbuf **, int *, int);
-#endif
+int	etherip_input(struct mbuf **, int *, int, int);
 int	etherip_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 
 extern int etherip_allow;

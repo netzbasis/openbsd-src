@@ -1,0 +1,22 @@
+/if_le.c/1.12/Sat Jun 17 00:28:18 2017//
+/lcd.c/1.9/Mon Mar 20 19:37:54 2017//
+/lunafb.c/1.24/Mon Mar 20 19:37:54 2017//
+/lunaws.c/1.14/Sat Jun 10 12:23:00 2017//
+/maskbits.h/1.2/Thu Jan  2 15:30:34 2014//
+/mb89352.c/1.22/Sun Apr 30 16:45:45 2017//
+/mb89352reg.h/1.4/Fri Oct 17 18:30:20 2008//
+/mb89352var.h/1.6/Sun Apr 30 16:45:45 2017//
+/omkbdmap.c/1.2/Sat Nov 16 18:31:44 2013//
+/omkbdmap.h/1.1/Wed May 22 11:35:02 2013//
+/omrasops.c/1.14/Mon Mar 20 19:37:54 2017//
+/omrasops.h/1.4/Mon Mar 20 19:37:54 2017//
+/omrasops1.c/1.3/Mon Mar 20 19:37:54 2017//
+/sio.c/1.6/Sun Jun  4 13:48:13 2017//
+/sioreg.h/1.1/Wed Apr 21 15:23:55 2004//
+/siotty.c/1.20/Sat Jun 10 12:23:00 2017//
+/siovar.h/1.3/Sun Jun  4 13:48:13 2017//
+/spc.c/1.9/Thu Mar 16 18:13:44 2017//
+/timekeeper.c/1.9/Sat Jun  7 11:55:35 2014//
+/timekeeper.h/1.3/Sat Aug 10 22:27:14 2013//
+/xp.c/1.2/Mon Jan  9 08:46:13 2017//
+D

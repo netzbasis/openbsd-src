@@ -1,4 +1,4 @@
-/*	$OpenBSD: irq_dispatch.S,v 1.11 2016/04/25 04:46:56 jsg Exp $	*/
+/*	$OpenBSD: irq_dispatch.S,v 1.13 2017/01/06 00:06:02 jsg Exp $	*/
 /*	$NetBSD: irq_dispatch.S,v 1.5 2003/10/30 08:57:24 scw Exp $	*/
 
 /*
@@ -86,7 +86,7 @@
  *	which can be used by different platforms.
  */
 	.text
-	.align	0
+	.align	2
 .Lcpu_info_primary:
 	.word	_C_LABEL(cpu_info_primary)
 
@@ -106,11 +106,7 @@ ASENTRY_NP(irq_entry)
 	 *	r5	address of the curcpu struct
 	 *	r6	old value of curcpu()->ci_idepth
 	 */
-#ifdef CPU_ARMv7
 	mrc	CP15_TPIDRPRW(r5)	/* Get curcpu from TPIDRPRW. */
-#else
-	ldr	r5, .Lcpu_info_primary
-#endif
 	mov	r0, sp			/* arg for dispatcher */
 	ldr	r6, [r5, #CI_IDEPTH]
 	add	r1, r6, #1
@@ -129,7 +125,7 @@ ASENTRY_NP(irq_entry)
 	movs	pc, lr			/* Exit */
 
 	.bss
-	.align	0
+	.align	2
 
 	.global _C_LABEL(astpending)
 _C_LABEL(astpending):

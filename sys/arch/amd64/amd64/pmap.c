@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.99 2016/06/07 06:23:19 dlg Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.105 2017/07/24 15:31:14 robert Exp $	*/
 /*	$NetBSD: pmap.c,v 1.3 2003/05/08 18:13:13 thorpej Exp $	*/
 
 /*
@@ -114,7 +114,6 @@
 
 #include <uvm/uvm.h>
 
-#include <machine/lock.h>
 #include <machine/cpu.h>
 #include <machine/specialreg.h>
 #ifdef MULTIPROCESSOR
@@ -288,7 +287,9 @@ int pmap_find_pte_direct(struct pmap *pm, vaddr_t va, pt_entry_t **pd, int *offs
 void pmap_free_ptp(struct pmap *, struct vm_page *,
     vaddr_t, pt_entry_t *, pd_entry_t **, struct pg_to_free *);
 void pmap_freepage(struct pmap *, struct vm_page *, int, struct pg_to_free *);
+#ifdef MULTIPROCESSOR
 static boolean_t pmap_is_active(struct pmap *, int);
+#endif
 void pmap_map_ptes(struct pmap *, pt_entry_t **, pd_entry_t ***, paddr_t *);
 struct pv_entry *pmap_remove_pv(struct vm_page *, struct pmap *, vaddr_t);
 void pmap_do_remove(struct pmap *, vaddr_t, vaddr_t, int);
@@ -336,12 +337,14 @@ pmap_is_curpmap(struct pmap *pmap)
  * pmap_is_active: is this pmap loaded into the specified processor's %cr3?
  */
 
+#ifdef MULTIPROCESSOR
 static __inline boolean_t
 pmap_is_active(struct pmap *pmap, int cpu_id)
 {
 	return (pmap == pmap_kernel() ||
 	    (pmap->pm_cpus & (1ULL << cpu_id)) != 0);
 }
+#endif
 
 static __inline u_int
 pmap_pte2flags(u_long pte)
@@ -737,20 +740,18 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	 * initialize the pmap pool.
 	 */
 
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
 	    "pmappl", NULL);
-	pool_setipl(&pmap_pmap_pool, IPL_NONE);
-	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvpl",
-	    &pool_allocator_single);
-	pool_setipl(&pmap_pv_pool, IPL_VM);
+	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, IPL_VM, 0,
+	    "pvpl", &pool_allocator_single);
 	pool_sethiwat(&pmap_pv_pool, 32 * 1024);
 
 	/*
 	 * initialize the PDE pool.
 	 */
 
-	pool_init(&pmap_pdp_pool, PAGE_SIZE, 0, 0, PR_WAITOK, "pdppl", NULL);
-	pool_setipl(&pmap_pdp_pool, IPL_NONE);
+	pool_init(&pmap_pdp_pool, PAGE_SIZE, 0, IPL_NONE, PR_WAITOK,
+	    "pdppl", NULL);
 
 	/*
 	 * ensure the TLB is sync'd with reality by flushing it...
@@ -891,7 +892,7 @@ pmap_freepage(struct pmap *pmap, struct vm_page *ptp, int level,
 	obj = &pmap->pm_obj[lidx];
 	pmap->pm_stats.resident_count--;
 	if (pmap->pm_ptphint[lidx] == ptp)
-		pmap->pm_ptphint[lidx] = RB_ROOT(&obj->memt);
+		pmap->pm_ptphint[lidx] = RBT_ROOT(uvm_objtree, &obj->memt);
 	ptp->wire_count = 0;
 	uvm_pagerealloc(ptp, NULL, 0);
 	TAILQ_INSERT_TAIL(pagelist, ptp, pageq);
@@ -1143,7 +1144,8 @@ pmap_destroy(struct pmap *pmap)
 	 */
 
 	for (i = 0; i < PTP_LEVELS - 1; i++) {
-		while ((pg = RB_ROOT(&pmap->pm_obj[i].memt)) != NULL) {
+		while ((pg = RBT_ROOT(uvm_objtree,
+		    &pmap->pm_obj[i].memt)) != NULL) {
 			KASSERT((pg->pg_flags & PG_BUSY) == 0);
 
 			pg->wire_count = 0;
@@ -2321,11 +2323,6 @@ pmap_growkernel(vaddr_t maxkvaddr)
 			       &kpm->pm_pdir[PDIR_SLOT_KERN + old],
 			       newpdes * sizeof (pd_entry_t));
 		}
-
-		/* Invalidate the PDP cache. */
-#if 0
-		pool_cache_invalidate(&pmap_pdp_cache);
-#endif
 	}
 	pmap_maxkvaddr = maxkvaddr;
 	splx(s);
@@ -2394,60 +2391,6 @@ pmap_steal_memory(vsize_t size, vaddr_t *start, vaddr_t *end)
 
 	return (va);
 }
-
-#ifdef DEBUG
-void pmap_dump(struct pmap *, vaddr_t, vaddr_t);
-
-/*
- * pmap_dump: dump all the mappings from a pmap
- *
- * => caller should not be holding any pmap locks
- */
-
-void
-pmap_dump(struct pmap *pmap, vaddr_t sva, vaddr_t eva)
-{
-	pt_entry_t *ptes, *pte;
-	pd_entry_t **pdes;
-	vaddr_t blkendva;
-	paddr_t scr3;
-
-	/*
-	 * if end is out of range truncate.
-	 * if (end == start) update to max.
-	 */
-
-	if (eva > VM_MAXUSER_ADDRESS || eva <= sva)
-		eva = VM_MAXUSER_ADDRESS;
-
-	pmap_map_ptes(pmap, &ptes, &pdes, &scr3);
-
-	/*
-	 * dumping a range of pages: we dump in PTP sized blocks (4MB)
-	 */
-
-	for (/* null */ ; sva < eva ; sva = blkendva) {
-
-		/* determine range of block */
-		blkendva = x86_round_pdr(sva+1);
-		if (blkendva > eva)
-			blkendva = eva;
-
-		/* valid block? */
-		if (!pmap_pdes_valid(sva, pdes, NULL))
-			continue;
-
-		pte = &ptes[pl1_i(sva)];
-		for (/* null */; sva < blkendva ; sva += PAGE_SIZE, pte++) {
-			if (!pmap_valid_entry(*pte))
-				continue;
-			printf("va %#lx -> pa %#llx (pte=%#llx)\n",
-			       sva, *pte, *pte & PG_FRAME);
-		}
-	}
-	pmap_unmap_ptes(pmap, scr3);
-}
-#endif
 
 void
 pmap_virtual_space(vaddr_t *vstartp, vaddr_t *vendp)
@@ -2533,7 +2476,7 @@ pmap_tlb_shootpage(struct pmap *pm, vaddr_t va, int shootself)
 
 		while (atomic_cas_ulong(&tlb_shoot_wait, 0, wait) != 0) {
 			while (tlb_shoot_wait != 0)
-				SPINLOCK_SPIN_HOOK;
+				CPU_BUSY_CYCLE();
 		}
 		tlb_shoot_addr1 = va;
 		CPU_INFO_FOREACH(cii, ci) {
@@ -2571,7 +2514,7 @@ pmap_tlb_shootrange(struct pmap *pm, vaddr_t sva, vaddr_t eva, int shootself)
 
 		while (atomic_cas_ulong(&tlb_shoot_wait, 0, wait) != 0) {
 			while (tlb_shoot_wait != 0)
-				SPINLOCK_SPIN_HOOK;
+				CPU_BUSY_CYCLE();
 		}
 		tlb_shoot_addr1 = sva;
 		tlb_shoot_addr2 = eva;
@@ -2609,7 +2552,7 @@ pmap_tlb_shoottlb(struct pmap *pm, int shootself)
 
 		while (atomic_cas_ulong(&tlb_shoot_wait, 0, wait) != 0) {
 			while (tlb_shoot_wait != 0)
-				SPINLOCK_SPIN_HOOK;
+				CPU_BUSY_CYCLE();
 		}
 
 		CPU_INFO_FOREACH(cii, ci) {
@@ -2629,7 +2572,7 @@ void
 pmap_tlb_shootwait(void)
 {
 	while (tlb_shoot_wait != 0)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 }
 
 #else

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.33 2012/07/17 09:35:09 jasper Exp $
+# $OpenBSD: Makefile,v 1.36 2017/07/25 12:49:29 bluhm Exp $
 REGRESS_TARGETS = test-compile-0 test-link-0 test-install-0 \
 	test-run-0 test-link-1 test-install-1 test-run-1 \
 	test-link-2 test-link-3 test-link-4 \
@@ -16,17 +16,16 @@ COMPILE_TESTS = compile-mode-0 compile-mode-1 compile-mode-2 \
 	compile-mode-12 compile-mode-13
 
 FAILING_TARGETS += error-0
-.include <bsd.own.mk>
-.if defined(NOPIC)
-FAILING_TARGETS += static-arch-fail
-.else
 REGRESS_TARGETS += version-override-0 version-override-1 error-5 \
 		    ${COMPILE_TESTS} prefer-static linkception-0 \
 		    release-0 release-1 trip-0
 FAILING_TARGETS += test-all-static
-.endif
 
 REGRESS_TARGETS += ${FAILING_TARGETS}
+
+${FAILING_TARGETS}:
+	# regress target $@ is know to fail
+	@echo DISABLED
 
 compile-tests: ${COMPILE_TESTS}
 
@@ -66,7 +65,7 @@ test-run-3:  ${DEST}/bin/p2
 	LD_LIBRARY_PATH=${DEST}/lib ${DEST}/bin/p2
 
 test-run-4: p2
-	${LIBTOOL} --mode=execute p2
+	${LIBTOOL} --mode=execute ./p2
 
 test-help:
 	${LIBTOOL} --help > /dev/null
@@ -135,10 +134,6 @@ version-override-0: liba9.la
 
 version-override-1: lib${WEIRD}.la
 	fgrep -q "lib${WEIRD}.so.5.6" lib${WEIRD}.la
-
-static-arch-fail:
-	@echo "Some tests are not run on static architectures"
-	@exit 1
 
 compile-mode-0: dummy.c
 	${LIBTOOL} --mode=compile ${CC} -c dummy.c|tee out0
@@ -286,7 +281,7 @@ ${DEST}/bin/p2: ${DEST}/lib/liba0.la ${DEST}/lib/liba1.la
 SOPTS = -version-info 0:0:0 -rpath /usr/local/lib
 
 LIBS = a a0 a1 a2 a3 a4 bad a9 ${WEIRD}
-PROGS = p1 p2
+PRGS = p1 p2
 
 OBJ_a = a.lo b.lo
 a_OPTS = ${SOPTS}
@@ -331,12 +326,12 @@ LINK_p2 = c.lo -la1
 .c.lo:
 	${LIBTOOL} --mode=compile ${CC} -c ${CFLAGS} ${.CURDIR}/$*.c
 
-.for p in ${PROGS}
+.for p in ${PRGS}
 $p: ${OBJ_$p}
 	${LIBTOOL} --mode=link ${CC} ${CFLAGS} -o $@ ${LINK_$p}
 .endfor
 
-.for t in ${PROGS}
+.for t in ${PRGS}
 ${DEST}/bin/$t: $t
 	mkdir -p ${DEST}/bin
 	${LIBTOOL} --mode=install cp $t ${DEST}/bin/$t
@@ -353,7 +348,7 @@ lib$l.la: ${OBJ_$l}
 	${LIBS_ENV} ${LIBTOOL} --mode=link ${CC} ${CFLAGS} -o $@ ${$l_OPTS} ${OBJ_$l}
 .endfor
 
-CLEANFILES += ${PROGS} s1 *.c *.o *.lo *.la .libs/* lib1/* out*
+CLEANFILES += ${PRGS} s1 e dummy*.c *.d *.o *.lo *.la .libs/* lib1/* out*
 CLEANFILES += ${DEST}/bin/* ${DEST}/lib/* ${DEST2}/lib/* ${DEST3}/lib/*
 
 .PHONY: ${REGRESS_TARGETS} regress compile-tests

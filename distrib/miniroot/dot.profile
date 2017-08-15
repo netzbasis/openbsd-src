@@ -1,4 +1,4 @@
-#	$OpenBSD: dot.profile,v 1.36 2016/09/09 14:52:28 rpe Exp $
+#	$OpenBSD: dot.profile,v 1.38 2017/07/08 15:45:11 florian Exp $
 #	$NetBSD: dot.profile,v 1.1 1995/12/18 22:54:43 pk Exp $
 #
 # Copyright (c) 2009 Kenneth R. Westerback
@@ -54,6 +54,10 @@ if [[ -z $DONEPROFILE ]]; then
 	# Create a fake rc that just returns 1 and throws us back.
 	echo ! : >/etc/rc
 
+	if [[ -x /sbin/slaacd ]]; then
+		/sbin/slaacd
+	fi
+
 	# Set up some sane defaults.
 	echo 'erase ^?, werase ^W, kill ^U, intr ^C, status ^T'
 	stty newcrt werase ^W intr ^C kill ^U erase ^? status ^T
@@ -94,8 +98,7 @@ __EOT
 	fi
 
 	while :; do
-		echo -n '(I)nstall, (U)pgrade, (A)utoinstall or (S)hell? '
-		read REPLY
+		read REPLY?'(I)nstall, (U)pgrade, (A)utoinstall or (S)hell? '
 
 		# Begin the automatic installation if the timeout has expired.
 		if $timeout; then

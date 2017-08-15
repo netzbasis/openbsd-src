@@ -38,8 +38,8 @@
  *	hypot(x,y) is NAN if x or y is NAN.
  *
  * Accuracy:
- * 	hypot(x,y) returns sqrt(x^2+y^2) with error less
- * 	than 1 ulps (units in the last place)
+ *	hypot(x,y) returns sqrt(x^2+y^2) with error less
+ *	than 1 ulps (units in the last place)
  */
 
 #include <math.h>
@@ -120,3 +120,4 @@ hypotl(long double x, long double y)
 	    return t1*w;
 	} else return w;
 }
+DEF_STD(hypotl);

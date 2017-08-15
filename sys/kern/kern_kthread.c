@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_kthread.c,v 1.38 2015/03/14 03:38:50 jsg Exp $	*/
+/*	$OpenBSD: kern_kthread.c,v 1.41 2017/02/12 04:55:08 guenther Exp $	*/
 /*	$NetBSD: kern_kthread.c,v 1.3 1998/12/22 21:21:36 kleink Exp $	*/
 
 /*-
@@ -66,12 +66,12 @@ kthread_create(void (*func)(void *), void *arg,
 	 * parent to wait for.
 	 */
 	error = fork1(&proc0, FORK_SHAREVM|FORK_SHAREFILES|FORK_NOZOMBIE|
-	    FORK_SYSTEM|FORK_SIGHAND, NULL, 0, func, arg, NULL, &p);
+	    FORK_SYSTEM|FORK_SIGHAND, func, arg, NULL, &p);
 	if (error)
 		return (error);
 
 	/* Name it as specified. */
-	strlcpy(p->p_comm, name, sizeof p->p_comm);
+	strlcpy(p->p_p->ps_comm, name, sizeof p->p_p->ps_comm);
 
 	/* All done! */
 	if (newpp != NULL)
@@ -94,7 +94,7 @@ kthread_exit(int ecode)
 	 */
 	if (ecode != 0)
 		printf("WARNING: thread `%s' (%d) exits with status %d\n",
-		    curproc->p_comm, curproc->p_pid, ecode);
+		    curproc->p_p->ps_comm, curproc->p_tid, ecode);
 
 	exit1(curproc, W_EXITCODE(ecode, 0), EXIT_NORMAL);
 

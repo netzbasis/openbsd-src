@@ -1,4 +1,4 @@
-/*	$OpenBSD: gencode.c,v 1.44 2015/12/22 19:51:04 mmcc Exp $	*/
+/*	$OpenBSD: gencode.c,v 1.46 2016/11/20 12:45:26 reyk Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998
@@ -780,6 +780,11 @@ init_linktype(type)
 	case DLT_PFSYNC:
 		off_linktype = -1;
 		off_nl = 4;
+		return;
+
+	case DLT_OPENFLOW:
+		off_linktype = -1;
+		off_nl = 12;
 		return;
 
 	case DLT_RAW:

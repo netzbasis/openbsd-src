@@ -1,10 +1,12 @@
-/*	$OpenBSD: s_copysignf.S,v 1.4 2011/07/09 18:00:53 martynas Exp $ */
+/*	$OpenBSD: s_copysignf.S,v 1.6 2016/12/22 16:11:26 naddy Exp $ */
 /*
  * Written by J.T. Conklin <jtc@NetBSD.org>.
  * Public domain.
  */
 
 #include <machine/asm.h>
+
+#include "abi.h"
 
 .Lneg:
 	.long 0x7fffffff
@@ -18,3 +20,4 @@ ENTRY(copysignf)
 	pand    %xmm3,%xmm0
 	por     %xmm1,%xmm0
 	ret
+END_STD(copysignf)

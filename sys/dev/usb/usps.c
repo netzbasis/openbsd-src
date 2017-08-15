@@ -1,4 +1,4 @@
-/*	$OpenBSD: usps.c,v 1.7 2014/07/12 21:24:33 mpi Exp $   */
+/*	$OpenBSD: usps.c,v 1.9 2017/04/08 02:57:25 deraadt Exp $   */
 
 /*
  * Copyright (c) 2011 Yojiro UO <yuo@nui.org>
@@ -134,7 +134,7 @@ usps_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL || uaa->configno != 1)
 		return UMATCH_NONE;
 
 	if (usps_lookup(uaa->vendor, uaa->product) == NULL)
@@ -157,15 +157,7 @@ usps_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_udev = uaa->device;
 
 #define USPS_USB_IFACE 0
-#define USPS_USB_CONFIG 1
 
-	/* set configuration */
-	if ((err = usbd_set_config_no(sc->sc_udev, USPS_USB_CONFIG, 0)) != 0){
-		printf("%s: failed to set config %d: %s\n",
-		    sc->sc_dev.dv_xname, USPS_USB_CONFIG, usbd_errstr(err));
-		return;
-	}
-		
 	/* get interface handle */
 	if ((err = usbd_device2interface_handle(sc->sc_udev, USPS_USB_IFACE,
 		&sc->sc_iface)) != 0) {
@@ -291,8 +283,8 @@ fail:
 		usbd_close_pipe(sc->sc_ipipe);
 	if (sc->sc_xfer != NULL)
 		usbd_free_xfer(sc->sc_xfer);
-	if (sc->sc_intrbuf != NULL) 
-		free(sc->sc_intrbuf, M_USBDEV, 0);
+	if (sc->sc_intrbuf != NULL)
+		free(sc->sc_intrbuf, M_USBDEV, sc->sc_isize);
 }
 
 int
@@ -308,7 +300,7 @@ usps_detach(struct device *self, int flags)
 		usbd_abort_pipe(sc->sc_ipipe);
 		usbd_close_pipe(sc->sc_ipipe);
 		if (sc->sc_intrbuf != NULL)
-			free(sc->sc_intrbuf, M_USBDEV, 0);
+			free(sc->sc_intrbuf, M_USBDEV, sc->sc_isize);
 		sc->sc_ipipe = NULL;
 	}
 	if (sc->sc_xfer != NULL)

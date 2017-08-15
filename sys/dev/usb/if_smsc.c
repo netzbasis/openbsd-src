@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_smsc.c,v 1.28 2016/07/31 12:51:49 kettenis Exp $	*/
+/*	$OpenBSD: if_smsc.c,v 1.31 2017/07/29 17:24:04 kettenis Exp $	*/
 /* $FreeBSD: src/sys/dev/usb/net/if_smsc.c,v 1.1 2012/08/15 04:03:55 gonzo Exp $ */
 /*-
  * Copyright (c) 2012
@@ -175,6 +175,48 @@ struct cfdriver smsc_cd = {
 const struct cfattach smsc_ca = {
 	sizeof(struct smsc_softc), smsc_match, smsc_attach, smsc_detach,
 };
+
+#if defined(__arm__) || defined(__arm64__)
+
+#include <dev/ofw/openfirm.h>
+
+void
+smsc_enaddr_OF(struct smsc_softc *sc)
+{
+	char *device = "/axi/usb/hub/ethernet";
+	char prop[64];
+	int node;
+
+	if (sc->sc_dev.dv_unit != 0)
+		return;
+
+	/*
+	 * Get the Raspberry Pi MAC address from FDT.  This is all
+	 * much more complicated than strictly needed since the
+	 * firmware device tree keeps changing as drivers get
+	 * upstreamed.  Sigh.
+	 * 
+	 * Ultimately this should just use the "ethernet0" alias and
+	 * the "local-mac-address" property.
+	 */
+
+	if ((node = OF_finddevice("/aliases")) == -1)
+		return;
+	if (OF_getprop(node, "ethernet0", prop, sizeof(prop)) > 0 ||
+	    OF_getprop(node, "ethernet", prop, sizeof(prop)) > 0)
+		device = prop;
+
+	if ((node = OF_finddevice(device)) == -1)
+		return;
+	if (OF_getprop(node, "local-mac-address", sc->sc_ac.ac_enaddr,
+	    sizeof(sc->sc_ac.ac_enaddr)) != sizeof(sc->sc_ac.ac_enaddr)) {
+		OF_getprop(node, "mac-address", sc->sc_ac.ac_enaddr,
+		    sizeof(sc->sc_ac.ac_enaddr));
+	}
+}
+#else
+#define smsc_enaddr_OF(x) do {} while(0)
+#endif
 
 int
 smsc_read_reg(struct smsc_softc *sc, uint32_t off, uint32_t *data)
@@ -993,6 +1035,8 @@ smsc_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_ac.ac_enaddr[1] = (uint8_t)((mac_l >> 8) & 0xff);
 		sc->sc_ac.ac_enaddr[0] = (uint8_t)((mac_l) & 0xff);
 	}
+
+	smsc_enaddr_OF(sc);
 	
 	printf("%s: address %s\n", sc->sc_dev.dv_xname,
 	    ether_sprintf(sc->sc_ac.ac_enaddr));
@@ -1262,7 +1306,6 @@ smsc_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
 		smsc_start(ifp);
 
-	ifp->if_opackets++;
 	splx(s);
 }
 

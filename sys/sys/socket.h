@@ -1,4 +1,4 @@
-/*	$OpenBSD: socket.h,v 1.90 2015/10/23 10:22:30 claudio Exp $	*/
+/*	$OpenBSD: socket.h,v 1.95 2017/05/31 08:55:10 markus Exp $	*/
 /*	$NetBSD: socket.h,v 1.14 1996/02/09 18:25:36 christos Exp $	*/
 
 /*
@@ -57,9 +57,6 @@ typedef	__sa_family_t	sa_family_t;	/* sockaddr address family type */
  * Definitions related to sockets: types, address families, options.
  */
 
-/* Maximum number of alternate routing tables */
-#define	RT_TABLEID_MAX	255
-
 /*
  * Types
  */
@@ -99,6 +96,7 @@ typedef	__sa_family_t	sa_family_t;	/* sockaddr address family type */
 #define	SO_REUSEPORT	0x0200		/* allow local address & port reuse */
 #define SO_TIMESTAMP	0x0800		/* timestamp received dgram traffic */
 #define SO_BINDANY	0x1000		/* allow bind to any address */
+#define SO_ZEROIZE	0x2000		/* zero out all mbufs sent over socket */
 
 /*
  * Additional options, not kept in so_options.
@@ -125,6 +123,15 @@ struct	linger {
 };
 
 #if __BSD_VISIBLE
+
+#ifndef _TIMEVAL_DECLARED
+#define _TIMEVAL_DECLARED
+struct timeval {
+	time_t		tv_sec;		/* seconds */
+	suseconds_t	tv_usec;	/* and microseconds */
+};
+#endif
+
 /*
  * Structure used for manipulating splice option.
  */
@@ -133,6 +140,14 @@ struct	splice {
 	off_t	sp_max;			/* if set, maximum bytes to splice */
 	struct	timeval	sp_idle;	/* idle timeout */
 };
+
+/*
+ * Maximum number of alternate routing tables
+ */
+#define	RT_TABLEID_MAX		255
+#define	RT_TABLEID_BITS		8
+#define	RT_TABLEID_MASK		0xff
+
 #endif /* __BSD_VISIBLE */
 
 /*
@@ -518,7 +533,15 @@ int	setrtable(int);
 __END_DECLS
 
 #else
+
 void	pfctlinput(int, struct sockaddr *);
+
+static inline struct sockaddr *
+sstosa(struct sockaddr_storage *ss)
+{
+	return ((struct sockaddr *)(ss));
+}
+
 #endif /* !_KERNEL */
 
 #endif /* !_SYS_SOCKET_H_ */

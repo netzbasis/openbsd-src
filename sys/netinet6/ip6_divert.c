@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip6_divert.c,v 1.41 2016/03/29 11:57:51 chl Exp $ */
+/*      $OpenBSD: ip6_divert.c,v 1.49 2017/07/27 12:04:42 mpi Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -43,7 +43,7 @@
 #include <net/pfvar.h>
 
 struct	inpcbtable	divb6table;
-struct	div6stat	div6stat;
+struct	cpumem		*div6counters;
 
 #ifndef DIVERT_SENDSPACE
 #define DIVERT_SENDSPACE	(65536 + 100)
@@ -64,7 +64,6 @@ int divb6hashsize = DIVERTHASHSIZE;
 
 static struct sockaddr_in6 ip6addr = { sizeof(ip6addr), AF_INET6 };
 
-void	divert6_detach(struct inpcb *);
 int	divert6_output(struct inpcb *, struct mbuf *, struct mbuf *,
 	    struct mbuf *);
 
@@ -72,14 +71,7 @@ void
 divert6_init(void)
 {
 	in_pcbinit(&divb6table, divb6hashsize);
-}
-
-int
-divert6_input(struct mbuf **mp, int *offp, int proto)
-{
-	m_freem(*mp);
-
-	return (0);
+	div6counters = counters_alloc(div6s_ncounters);
 }
 
 int
@@ -104,7 +96,7 @@ divert6_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 		goto fail;
 	if ((m = m_pullup(m, sizeof(struct ip6_hdr))) == NULL) {
 		/* m_pullup() has freed the mbuf, so just return. */
-		div6stat.divs_errors++;
+		div6stat_inc(div6s_errors);
 		return (ENOBUFS);
 	}
 	ip6 = mtod(m, struct ip6_hdr *);
@@ -147,6 +139,7 @@ divert6_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 
 	if (dir == PF_IN) {
 		ip6addr.sin6_addr = sin6->sin6_addr;
+		/* XXXSMP ``ifa'' is not reference counted. */
 		ifa = ifa_ifwithaddr(sin6tosa(&ip6addr),
 		    m->m_pkthdr.ph_rtableid);
 		if (ifa == NULL) {
@@ -162,17 +155,18 @@ divert6_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 		 */
 		in6_proto_cksum_out(m, NULL);
 
-		niq_enqueue(&ip6intrq, m); /* return error on q full? */
+		/* XXXSMP ``ifa'' is not reference counted. */
+		ipv6_input(ifa->ifa_ifp, m);
 	} else {
 		error = ip6_output(m, NULL, &inp->inp_route6,
 		    IP_ALLOWBROADCAST | IP_RAWOUTPUT, NULL, NULL);
 	}
 
-	div6stat.divs_opackets++;
+	div6stat_inc(div6s_opackets);
 	return (error);
 
 fail:
-	div6stat.divs_errors++;
+	div6stat_inc(div6s_errors);
 	m_freem(m);
 	return (error ? error : EINVAL);
 }
@@ -185,11 +179,11 @@ divert6_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	struct sockaddr_in6 addr;
 
 	inp = NULL;
-	div6stat.divs_ipackets++;
+	div6stat_inc(div6s_ipackets);
 
 	if (m->m_len < sizeof(struct ip6_hdr) &&
 	    (m = m_pullup(m, sizeof(struct ip6_hdr))) == NULL) {
-		div6stat.divs_errors++;
+		div6stat_inc(div6s_errors);
 		return (0);
 	}
 
@@ -229,16 +223,19 @@ divert6_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 
 	if (inp) {
 		sa = inp->inp_socket;
-		if (sbappendaddr(&sa->so_rcv, sin6tosa(&addr), m, NULL) == 0) {
-			div6stat.divs_fullsock++;
+		if (sbappendaddr(sa, &sa->so_rcv, sin6tosa(&addr), m, NULL) == 0) {
+			div6stat_inc(div6s_fullsock);
 			m_freem(m);
 			return (0);
-		} else
+		} else {
+			KERNEL_LOCK();
 			sorwakeup(inp->inp_socket);
+			KERNEL_UNLOCK();
+		}
 	}
 
 	if (sa == NULL) {
-		div6stat.divs_noport++;
+		div6stat_inc(div6s_noport);
 		m_freem(m);
 	}
 	return (0);
@@ -251,47 +248,25 @@ divert6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 {
 	struct inpcb *inp = sotoinpcb(so);
 	int error = 0;
-	int s;
+
+	NET_ASSERT_LOCKED();
 
 	if (req == PRU_CONTROL) {
 		return (in6_control(so, (u_long)m, (caddr_t)addr,
 		    (struct ifnet *)control));
 	}
-	if (inp == NULL && req != PRU_ATTACH) {
+	if (inp == NULL) {
 		error = EINVAL;
 		goto release;
 	}
 	switch (req) {
 
-	case PRU_ATTACH:
-		if (inp != NULL) {
-			error = EINVAL;
-			break;
-		}
-		if ((so->so_state & SS_PRIV) == 0) {
-			error = EACCES;
-			break;
-		}
-		s = splsoftnet();
-		error = in_pcballoc(so, &divb6table);
-		splx(s);
-		if (error)
-			break;
-
-		error = soreserve(so, divert6_sendspace, divert6_recvspace);
-		if (error)
-			break;
-		sotoinpcb(so)->inp_flags |= INP_HDRINCL;
-		break;
-
 	case PRU_DETACH:
-		divert6_detach(inp);
+		in_pcbdetach(inp);
 		break;
 
 	case PRU_BIND:
-		s = splsoftnet();
 		error = in_pcbbind(inp, addr, p);
-		splx(s);
 		break;
 
 	case PRU_SHUTDOWN:
@@ -303,7 +278,7 @@ divert6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 
 	case PRU_ABORT:
 		soisdisconnected(so);
-		divert6_detach(inp);
+		in_pcbdetach(inp);
 		break;
 
 	case PRU_SOCKADDR:
@@ -344,13 +319,45 @@ release:
 	return (error);
 }
 
-void
-divert6_detach(struct inpcb *inp)
+int
+divert6_attach(struct socket *so, int proto)
 {
-	int s = splsoftnet();
+	int error;
 
-	in_pcbdetach(inp);
-	splx(s);
+	if (so->so_pcb != NULL)
+		return EINVAL;
+
+	if ((so->so_state & SS_PRIV) == 0)
+		return EACCES;
+
+	error = in_pcballoc(so, &divb6table);
+	if (error)
+		return (error);
+
+	error = soreserve(so, divert6_sendspace, divert6_recvspace);
+	if (error)
+		return (error);
+	sotoinpcb(so)->inp_flags |= INP_HDRINCL;
+	return (0);
+}
+
+int
+divert6_sysctl_div6stat(void *oldp, size_t *oldlenp, void *newp)
+{
+	uint64_t counters[div6s_ncounters];
+	struct div6stat div6stat;
+	u_long *words = (u_long *)&div6stat;
+	int i;
+
+	CTASSERT(sizeof(div6stat) == (nitems(counters) * sizeof(u_long)));
+
+	counters_read(div6counters, counters, nitems(counters));
+
+	for (i = 0; i < nitems(counters); i++)
+		words[i] = (u_long)counters[i];
+
+	return (sysctl_rdstruct(oldp, oldlenp, newp,
+	    &div6stat, sizeof(div6stat)));
 }
 
 /*
@@ -372,10 +379,7 @@ divert6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 		return (sysctl_int(oldp, oldlenp, newp, newlen,
 		    &divert6_recvspace));
 	case DIVERT6CTL_STATS:
-		if (newp != NULL)
-			return (EPERM);
-		return (sysctl_struct(oldp, oldlenp, newp, newlen,
-		    &div6stat, sizeof(div6stat)));
+		return (divert6_sysctl_div6stat(oldp, oldlenp, newp));
 	default:
 		if (name[0] < DIVERT6CTL_MAXID)
 			return sysctl_int_arr(divert6ctl_vars, name, namelen,

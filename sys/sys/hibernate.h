@@ -1,4 +1,4 @@
-/*	$OpenBSD: hibernate.h,v 1.39 2015/02/07 01:19:40 deraadt Exp $	*/
+/*	$OpenBSD: hibernate.h,v 1.41 2017/06/22 15:56:29 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Ariane van der Steldt <ariane@stack.nl>
@@ -37,7 +37,7 @@ struct hiballoc_entry;
  * Allocator operates from an arena, that is pre-allocated by the caller.
  */
 struct hiballoc_arena {
-	RB_HEAD(hiballoc_addr, hiballoc_entry)	hib_addrs;
+	RBT_HEAD(hiballoc_addr, hiballoc_entry)	hib_addrs;
 };
 
 /*
@@ -93,6 +93,7 @@ union hibernate_info {
 		paddr_t				piglet_pa;
 		vaddr_t				piglet_va;
 		char				kernel_version[128];
+		u_int32_t			kernel_sum;
 		hibio_fn			io_func;
 		void				*io_page;
 #ifndef NO_PROPOLICE

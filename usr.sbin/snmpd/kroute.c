@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.33 2016/09/03 15:45:02 jca Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.35 2017/07/24 11:00:01 friehm Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008 Reyk Floeter <reyk@openbsd.org>
@@ -43,8 +43,6 @@
 #include <event.h>
 
 #include "snmpd.h"
-
-extern struct snmpd	*env;
 
 struct ktable		**krt;
 u_int			  krt_size;
@@ -173,8 +171,9 @@ kr_init(void)
 	    &opt, sizeof(opt)) == -1)
 		log_warn("%s: SO_USELOOPBACK", __func__);	/* not fatal */
 
-	if (env->sc_rtfilter && setsockopt(kr_state.ks_fd, PF_ROUTE,
-	    ROUTE_MSGFILTER, &env->sc_rtfilter, sizeof(env->sc_rtfilter)) == -1)
+	if (snmpd_env->sc_rtfilter && setsockopt(kr_state.ks_fd, PF_ROUTE,
+	    ROUTE_MSGFILTER, &snmpd_env->sc_rtfilter,
+	    sizeof(snmpd_env->sc_rtfilter)) == -1)
 		log_warn("%s: ROUTE_MSGFILTER", __func__);
 
 	/* grow receive buffer, don't wanna miss messages */
@@ -1071,8 +1070,8 @@ prefixlen2mask6(u_int8_t prefixlen)
 	return (&mask);
 }
 
-#define	ROUNDUP(a)	\
-    (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
+#define ROUNDUP(a) \
+	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 
 void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)

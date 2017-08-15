@@ -1,4 +1,4 @@
-/* $OpenBSD: kexgexc.c,v 1.22 2015/05/26 23:23:40 dtucker Exp $ */
+/* $OpenBSD: kexgexc.c,v 1.25 2017/05/30 14:23:52 markus Exp $ */
 /*
  * Copyright (c) 2000 Niels Provos.  All rights reserved.
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -24,7 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/param.h>
 #include <sys/types.h>
 
 #include <openssl/dh.h>
@@ -45,9 +44,10 @@
 #include "dispatch.h"
 #include "ssherr.h"
 #include "sshbuf.h"
+#include "misc.h"
 
-static int input_kex_dh_gex_group(int, u_int32_t, void *);
-static int input_kex_dh_gex_reply(int, u_int32_t, void *);
+static int input_kex_dh_gex_group(int, u_int32_t, struct ssh *);
+static int input_kex_dh_gex_reply(int, u_int32_t, struct ssh *);
 
 int
 kexgex_client(struct ssh *ssh)
@@ -62,7 +62,7 @@ kexgex_client(struct ssh *ssh)
 	kex->max = DH_GRP_MAX;
 	kex->nbits = nbits;
 	if (datafellows & SSH_BUG_DHGEX_LARGE)
-		kex->nbits = MIN(kex->nbits, 4096);
+		kex->nbits = MINIMUM(kex->nbits, 4096);
 	/* New GEX request */
 	if ((r = sshpkt_start(ssh, SSH2_MSG_KEX_DH_GEX_REQUEST)) != 0 ||
 	    (r = sshpkt_put_u32(ssh, kex->min)) != 0 ||
@@ -84,9 +84,8 @@ kexgex_client(struct ssh *ssh)
 }
 
 static int
-input_kex_dh_gex_group(int type, u_int32_t seq, void *ctxt)
+input_kex_dh_gex_group(int type, u_int32_t seq, struct ssh *ssh)
 {
-	struct ssh *ssh = ctxt;
 	struct kex *kex = ssh->kex;
 	BIGNUM *p = NULL, *g = NULL;
 	int r, bits;
@@ -138,9 +137,8 @@ out:
 }
 
 static int
-input_kex_dh_gex_reply(int type, u_int32_t seq, void *ctxt)
+input_kex_dh_gex_reply(int type, u_int32_t seq, struct ssh *ssh)
 {
-	struct ssh *ssh = ctxt;
 	struct kex *kex = ssh->kex;
 	BIGNUM *dh_server_pub = NULL, *shared_secret = NULL;
 	struct sshkey *server_host_key = NULL;
@@ -160,10 +158,6 @@ input_kex_dh_gex_reply(int type, u_int32_t seq, void *ctxt)
 	    (r = sshkey_from_blob(server_host_key_blob, sbloblen,
 	    &server_host_key)) != 0)
 		goto out;
-	if (server_host_key->type != kex->hostkey_type) {
-		r = SSH_ERR_KEY_TYPE_MISMATCH;
-		goto out;
-	}
 	if (server_host_key->type != kex->hostkey_type ||
 	    (kex->hostkey_type == KEY_ECDSA &&
 	    server_host_key->ecdsa_nid != kex->hostkey_nid)) {

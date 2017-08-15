@@ -1,6 +1,6 @@
 #ifndef VAR_H
 #define VAR_H
-/* $OpenBSD: var.h,v 1.17 2014/01/06 12:08:18 espie Exp $ */
+/* $OpenBSD: var.h,v 1.19 2016/10/23 14:54:14 espie Exp $ */
 /*
  * Copyright (c) 2001 Marc Espie.
  *
@@ -64,9 +64,9 @@ extern void Var_Deletei(const char *, const char *);
 #define PREFIX_INDEX	1
 #define ARCHIVE_INDEX	2
 #define MEMBER_INDEX	3
-#define OODATE_INDEX	4
-#define ALLSRC_INDEX	5
-#define IMPSRC_INDEX	6
+#define IMPSRC_INDEX	4
+#define OODATE_INDEX	5
+#define ALLSRC_INDEX	6
 
 #define Var(idx, gn)	((gn)->context.locals[idx])
 
@@ -161,6 +161,7 @@ extern bool	errorIsOkay;
 #define POISON_NORMAL		64
 #define POISON_EMPTY		128
 #define POISON_NOT_DEFINED	256
+#define VAR_EXEC_LATER		512
 
-extern void Var_MarkPoisoned(const char *, const char *, unsigned int);
+extern void Var_Mark(const char *, const char *, unsigned int);
 #endif

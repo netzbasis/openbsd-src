@@ -22,14 +22,15 @@ scalbf(float x, int fn)
 {
 	return scalbnf(x,fn);
 }
+DEF_NONSTD(scalbf);
 
 #else
 
 float
 scalbf(float x, float fn)
 {
-	if (isnanf(x)||isnanf(fn)) return x*fn;
-	if (!finitef(fn)) {
+	if (isnan(x)||isnan(fn)) return x*fn;
+	if (!isfinite(fn)) {
 	    if(fn>(float)0.0) return x*fn;
 	    else       return x/(-fn);
 	}
@@ -38,4 +39,5 @@ scalbf(float x, float fn)
 	if (-fn > (float)65000.0) return scalbnf(x,-65000);
 	return scalbnf(x,(int)fn);
 }
+DEF_NONSTD(scalbf);
 #endif

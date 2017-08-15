@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.8 2015/09/09 15:33:18 deraadt Exp $
+# $OpenBSD: Makefile,v 1.10 2017/07/03 22:21:47 espie Exp $
 
 PROG=		ypldap
 SRCS=		parse.y ypldap.c log.c	\
@@ -8,13 +8,15 @@ SRCS=		parse.y ypldap.c log.c	\
 
 MAN=		ypldap.8 ypldap.conf.5
 
-DPADD=		${LIBEVENT} ${LIBUTIL} ${LIBRPCSVC}
-LDADD=		-levent -lutil -lrpcsvc
+DPADD=		${LIBTLS} ${LIBSSL} ${LIBCRYPTO} ${LIBEVENT} ${LIBUTIL} \
+		${LIBRPCSVC}
+LDADD=		-ltls -lssl -lcrypto -levent -lutil -lrpcsvc
 CFLAGS+=	-I${.CURDIR}
 CFLAGS+=	-Wall
 CFLAGS+=	-Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=	-Wmissing-declarations
 CFLAGS+=	-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=	-Wsign-compare
+YFLAGS=
 
 .include <bsd.prog.mk>

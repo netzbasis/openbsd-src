@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcp.h,v 1.18 2015/10/26 16:32:33 krw Exp $	*/
+/*	$OpenBSD: dhcp.h,v 1.21 2017/07/24 16:17:35 krw Exp $	*/
 
 /* Protocol structures. */
 
@@ -57,21 +57,21 @@
 #define BOOTP_MIN_LEN		300
 
 struct dhcp_packet {
-	u_int8_t  op;		/* Message opcode/type */
-	u_int8_t  htype;	/* Hardware addr type (see net/if_types.h) */
-	u_int8_t  hlen;		/* Hardware addr length */
-	u_int8_t  hops;		/* Number of relay agent hops from client */
-	u_int32_t xid;		/* Transaction ID */
-	u_int16_t secs;		/* Seconds since client started looking */
-	u_int16_t flags;	/* Flag bits */
-	struct in_addr ciaddr;	/* Client IP address (if already in use) */
-	struct in_addr yiaddr;	/* Client IP address */
-	struct in_addr siaddr;	/* IP address of next server to talk to */
-	struct in_addr giaddr;	/* DHCP relay agent IP address */
-	unsigned char chaddr[16];	/* Client hardware address */
-	char sname[DHCP_SNAME_LEN];	/* Server name */
-	char file[DHCP_FILE_LEN];	/* Boot filename */
-	unsigned char options[DHCP_OPTION_LEN];
+	uint8_t		op;	/* Message opcode/type */
+	uint8_t		htype;	/* Hardware addr type (see net/if_types.h) */
+	uint8_t		hlen;	/* Hardware addr length */
+	uint8_t		hops;	/* Number of relay agent hops from client */
+	uint32_t	xid;	/* Transaction ID */
+	uint16_t	secs;	/* Seconds since client started looking */
+	uint16_t	flags;	/* Flag bits */
+	struct in_addr	ciaddr;	/* Client IP address (if already in use) */
+	struct in_addr	yiaddr;	/* Client IP address */
+	struct in_addr	siaddr;	/* IP address of next server to talk to */
+	struct in_addr	giaddr;	/* DHCP relay agent IP address */
+	unsigned char	chaddr[16];		/* Client hardware address */
+	char		sname[DHCP_SNAME_LEN];	/* Server name */
+	char		file[DHCP_FILE_LEN];	/* Boot filename */
+	unsigned char	options[DHCP_OPTION_LEN];
 				/* Optional parameters
 				   (actual length dependent on MTU). */
 };
@@ -87,14 +87,15 @@ struct dhcp_packet {
 #define HTYPE_ETHER		1	/* Ethernet			*/
 #define HTYPE_IPSEC_TUNNEL	31	/* IPsec Tunnel (RFC3456)	*/
 
-/* Magic cookie validating dhcp options field (and bootp vendor
-   extensions field). */
+/*
+ * Magic cookie validating dhcp options field (and bootp vendor
+ * extensions field).
+ */
 #define DHCP_OPTIONS_COOKIE		"\143\202\123\143"
 #define DHCP_OPTIONS_COOKIE_LEN		4
 #define DHCP_OPTIONS_MESSAGE_TYPE	"\065\001\000"
 
 /* DHCP Option codes: */
-
 #define DHO_PAD				0
 #define DHO_SUBNET_MASK			1
 #define DHO_TIME_OFFSET			2
@@ -182,6 +183,7 @@ struct dhcp_packet {
 #define DHO_CLASSLESS_MS_STATIC_ROUTES	249
 #define DHO_AUTOPROXY_SCRIPT		252
 #define DHO_END				255
+#define DHO_COUNT			256	/* # of DHCP options */
 
 /* DHCP message types. */
 #define DHCPDISCOVER	1

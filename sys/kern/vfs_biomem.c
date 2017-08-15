@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_biomem.c,v 1.36 2016/04/28 13:13:02 beck Exp $ */
+/*	$OpenBSD: vfs_biomem.c,v 1.38 2017/04/16 14:25:42 beck Exp $ */
 
 /*
  * Copyright (c) 2007 Artur Grabowski <art@openbsd.org>
@@ -360,8 +360,13 @@ buf_realloc_pages(struct buf *bp, struct uvm_constraint_range *where,
 		    bp->b_bufsize, UVM_PLA_NOWAIT, where);
 		if (r == 0)
 			break;
-	} while	((bufbackoff(where, 100) == 0) && (flags & UVM_PLA_WAITOK));
-	if (r != 0 && !(flags & UVM_PLA_NOWAIT))
+	} while	((bufbackoff(where, atop(bp->b_bufsize)) == 0));
+
+	/*
+	 * bufbackoff() failed, so there's no more we can do without
+	 * waiting.  If allowed do, make that attempt.
+	 */
+	if (r != 0 && (flags & UVM_PLA_WAITOK))
 		r = uvm_pagerealloc_multi(bp->b_pobj, bp->b_poffs,
 		    bp->b_bufsize, flags, where);
 

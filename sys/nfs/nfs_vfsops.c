@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_vfsops.c,v 1.110 2016/08/13 20:53:17 guenther Exp $	*/
+/*	$OpenBSD: nfs_vfsops.c,v 1.114 2017/05/17 08:59:05 mpi Exp $	*/
 /*	$NetBSD: nfs_vfsops.c,v 1.46.4.1 1996/05/25 22:40:35 fvdl Exp $	*/
 
 /*
@@ -74,6 +74,20 @@ extern u_int32_t nfs_procids[NFS_NPROCS];
 int		nfs_sysctl(int *, u_int, void *, size_t *, void *, size_t, struct proc *);
 int		nfs_checkexp(struct mount *, struct mbuf *, int *, struct ucred **);
 struct mount	*nfs_mount_diskless(struct nfs_dlmount *, char *, int);
+int	mountnfs(struct nfs_args *, struct mount *, struct mbuf *,
+	    const char *, char *);
+int	nfs_quotactl(struct mount *, int, uid_t, caddr_t, struct proc *);
+int	nfs_root(struct mount *, struct vnode **);
+int	nfs_start(struct mount *, int, struct proc *);
+int	nfs_statfs(struct mount *, struct statfs *, struct proc *);
+int	nfs_sync(struct mount *, int, struct ucred *, struct proc *);
+int	nfs_unmount(struct mount *, int, struct proc *);
+int	nfs_vget(struct mount *, ino_t, struct vnode **);
+int	nfs_vptofh(struct vnode *, struct fid *);
+int	nfs_mountroot(void);
+void	nfs_decode_args(struct nfsmount *, struct nfs_args *,
+	    struct nfs_args *);
+int	nfs_fhtovp(struct mount *, struct fid *, struct vnode **);
 
 /*
  * nfs vfs operations.
@@ -389,11 +403,8 @@ void
 nfs_decode_args(struct nfsmount *nmp, struct nfs_args *argp,
     struct nfs_args *nargp)
 {
-	int s;
 	int adjsock = 0;
 	int maxio;
-
-	s = splsoftnet();
 
 #if 0
 	/* Re-bind if rsrvd port requested and wasn't on one */
@@ -404,10 +415,8 @@ nfs_decode_args(struct nfsmount *nmp, struct nfs_args *argp,
 	adjsock |= ((nmp->nm_flag & NFSMNT_NOCONN) !=
 	    (argp->flags & NFSMNT_NOCONN));
 
-	/* Update flags atomically.  Don't change the lock bits. */
 	nmp->nm_flag =
 	    (argp->flags & ~NFSMNT_INTERNAL) | (nmp->nm_flag & NFSMNT_INTERNAL);
-	splx(s);
 
 	if ((argp->flags & NFSMNT_TIMEO) && argp->timeo > 0) {
 		nmp->nm_timeo = (argp->timeo * NFS_HZ + 5) / 10;
@@ -652,9 +661,9 @@ mountnfs(struct nfs_args *argp, struct mount *mp, struct mbuf *nam,
 	nmp->nm_nam = nam;
 	nfs_decode_args(nmp, argp, &mp->mnt_stat.mount_info.nfs_args);
 
-	RB_INIT(&nmp->nm_ntree);
+	nfs_ninit(nmp);
 	TAILQ_INIT(&nmp->nm_reqsq);
-	timeout_set(&nmp->nm_rtimeout, nfs_timer, nmp);
+	timeout_set_proc(&nmp->nm_rtimeout, nfs_timer, nmp);
 
 	/* Set up the sockets and per-host congestion */
 	nmp->nm_sotype = argp->sotype;

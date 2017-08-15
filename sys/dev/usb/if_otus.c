@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_otus.c,v 1.53 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_otus.c,v 1.59 2017/07/20 22:29:26 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -176,7 +176,7 @@ otus_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL || uaa->configno != 1)
 		return UMATCH_NONE;
 
 	return (usb_lookup(otus_devs, uaa->vendor, uaa->product) != NULL) ?
@@ -198,12 +198,6 @@ otus_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->amrr.amrr_min_success_threshold =  1;
 	sc->amrr.amrr_max_success_threshold = 10;
-
-	if (usbd_set_config_no(sc->sc_udev, 1, 0) != 0) {
-		printf("%s: could not set configuration no\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
 
 	/* Get the first interface handle. */
 	error = usbd_device2interface_handle(sc->sc_udev, 0, &sc->sc_iface);
@@ -422,12 +416,12 @@ int
 otus_load_firmware(struct otus_softc *sc, const char *name, uint32_t addr)
 {
 	usb_device_request_t req;
-	size_t size;
+	size_t fwsize, size;
 	u_char *fw, *ptr;
 	int mlen, error;
 
 	/* Read firmware image from the filesystem. */
-	if ((error = loadfirmware(name, &fw, &size)) != 0) {
+	if ((error = loadfirmware(name, &fw, &fwsize)) != 0) {
 		printf("%s: failed loadfirmware of file %s (error %d)\n",
 		    sc->sc_dev.dv_xname, name, error);
 		return error;
@@ -437,6 +431,7 @@ otus_load_firmware(struct otus_softc *sc, const char *name, uint32_t addr)
 	USETW(req.wIndex, 0);
 
 	ptr = fw;
+	size = fwsize;
 	addr >>= 8;
 	while (size > 0) {
 		mlen = MIN(size, 4096);
@@ -451,7 +446,7 @@ otus_load_firmware(struct otus_softc *sc, const char *name, uint32_t addr)
 		ptr  += mlen;
 		size -= mlen;
 	}
-	free(fw, M_DEVBUF, 0);
+	free(fw, M_DEVBUF, fwsize);
 	return error;
 }
 
@@ -487,6 +482,7 @@ otus_open_pipes(struct otus_softc *sc)
 		    sc->sc_dev.dv_xname);
 		goto fail;
 	}
+	sc->ibuflen = isize;
 	error = usbd_open_pipe_intr(sc->sc_iface, AR_EPT_INTR_RX_NO,
 	    USBD_SHORT_XFER_OK, &sc->cmd_rx_pipe, sc, sc->ibuf, isize,
 	    otus_intr, USBD_DEFAULT_INTERVAL);
@@ -563,7 +559,7 @@ otus_close_pipes(struct otus_softc *sc)
 		usbd_close_pipe(sc->cmd_rx_pipe);
 	}
 	if (sc->ibuf != NULL)
-		free(sc->ibuf, M_USBDEV, 0);
+		free(sc->ibuf, M_USBDEV, sc->ibuflen);
 	if (sc->data_tx_pipe != NULL)
 		usbd_close_pipe(sc->data_tx_pipe);
 	if (sc->cmd_tx_pipe != NULL)
@@ -1118,6 +1114,11 @@ otus_sub_rxeof(struct otus_softc *sc, uint8_t *buf, int len)
 		return;
 	}
 	mlen -= IEEE80211_CRC_LEN;	/* strip 802.11 FCS */
+	if (mlen > MCLBYTES) {
+		DPRINTF(("frame too large: %d\n", mlen));
+		ifp->if_ierrors++;
+		return;
+	}
 
 	wh = (struct ieee80211_frame *)(plcp + AR_PLCP_HDR_LEN);
 	/* Provide a 32-bit aligned protocol header to the stack. */
@@ -1263,7 +1264,6 @@ otus_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		return;
 	}
 	sc->sc_tx_timer = 0;
-	ifp->if_opackets++;
 	ifq_clr_oactive(&ifp->if_snd);
 	otus_start(ifp);
 	splx(s);
@@ -1645,7 +1645,8 @@ otus_updateslot_cb(struct otus_softc *sc, void *arg)
 {
 	uint32_t slottime;
 
-	slottime = (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ? 9 : 20;
+	slottime = (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ?
+	    IEEE80211_DUR_DS_SHSLOT: IEEE80211_DUR_DS_SLOT;
 	otus_write(sc, AR_MAC_REG_SLOT_TIME, slottime << 10);
 	(void)otus_write_barrier(sc);
 }
