@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.c,v 1.158 2017/05/16 21:42:14 bluhm Exp $	*/
+/*	$OpenBSD: inet.c,v 1.160 2017/08/12 03:21:02 benno Exp $	*/
 /*	$NetBSD: inet.c,v 1.14 1995/10/03 21:42:37 thorpej Exp $	*/
 
 /*
@@ -294,9 +294,14 @@ netdomainpr(struct kinfo_file *kf, int proto)
 	}
 
 	/* filter listening sockets out unless -a is set */
-	if (!aflag && istcp && kf->t_state <= TCPS_LISTEN)
+	if (!(aflag || lflag) && istcp && kf->t_state <= TCPS_LISTEN)
 		return;
-	else if (!aflag && isany)
+	else if (!(aflag || lflag) && isany)
+		return;
+
+	/* when -l is set, show only listening sockets */
+	if (!aflag && lflag && istcp &&
+	    kf->t_state != TCPS_LISTEN)
 		return;
 
 	if (af != kf->so_family || type != kf->so_type) {
@@ -305,6 +310,8 @@ netdomainpr(struct kinfo_file *kf, int proto)
 		printf("Active Internet connections");
 		if (aflag)
 			printf(" (including servers)");
+		else if (lflag)
+			printf(" (only servers)");
 		putchar('\n');
 		if (Aflag) {
 			addrlen = 18;
@@ -339,8 +346,8 @@ netdomainpr(struct kinfo_file *kf, int proto)
 		inetprint(&faddr, kf->inp_fport, name, 0);
 	}
 	if (istcp) {
-		if (kf->t_state < 0 || kf->t_state >= TCP_NSTATES)
-			printf(" %d", kf->t_state);
+		if (kf->t_state >= TCP_NSTATES)
+			printf(" %u", kf->t_state);
 		else
 			printf(" %s", tcpstates[kf->t_state]);
 	} else if (kf->so_type == SOCK_RAW) {

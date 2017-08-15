@@ -1,4 +1,4 @@
-/*	$OpenBSD: npppd.c,v 1.45 2017/04/18 03:28:04 yasuoka Exp $ */
+/*	$OpenBSD: npppd.c,v 1.47 2017/08/12 11:20:34 goda Exp $ */
 
 /*-
  * Copyright (c) 2005-2008,2009 Internet Initiative Japan Inc.
@@ -29,7 +29,7 @@
  * Next pppd(nppd). This file provides a npppd daemon process and operations
  * for npppd instance.
  * @author	Yasuoka Masahiko
- * $Id: npppd.c,v 1.45 2017/04/18 03:28:04 yasuoka Exp $
+ * $Id: npppd.c,v 1.47 2017/08/12 11:20:34 goda Exp $
  */
 #include "version.h"
 #include <sys/param.h>	/* ALIGNED_POINTER */
@@ -105,6 +105,10 @@ static int          rd2slist_walk (struct radish *, void *);
 static int          rd2slist (struct radish_head *, slist *);
 static slist       *npppd_get_ppp_by_user (npppd *, const char *);
 static int          npppd_get_all_users (npppd *, slist *);
+static struct ipcpstat
+                   *npppd_get_ipcp_stat(struct ipcpstat_head *, const char *);
+static void         npppd_destroy_ipcp_stats(struct ipcpstat_head *);
+static void         npppd_ipcp_stats_reload(npppd *);
 
 #ifndef	NO_ROUTE_FOR_POOLED_ADDRESS
 static struct in_addr loop;	/* initialize at npppd_init() */
@@ -239,6 +243,8 @@ npppd_init(npppd *_this, const char *config_file)
 	const char	*pidpath0;
 	FILE		*pidfp = NULL;
 	struct tunnconf	*tunn;
+	struct ipcpconf *ipcpconf;
+	struct ipcpstat *ipcpstat;
 	int		 mib[] = { CTL_NET, PF_PIPEX, PIPEXCTL_ENABLE };
 	size_t		 size;
 
@@ -286,6 +292,8 @@ npppd_init(npppd *_this, const char *config_file)
 	if (pppoed_init(&_this->pppoed) != 0)
 		return (-1);
 #endif
+	LIST_INIT(&_this->ipcpstats);
+
 	/* load configuration */
 	if ((status = npppd_reload_config(_this)) != 0)
 		return status;
@@ -311,6 +319,18 @@ npppd_init(npppd *_this, const char *config_file)
 
 	if (npppd_ifaces_load_config(_this) != 0) {
 		return -1;
+	}
+
+	TAILQ_FOREACH(ipcpconf, &_this->conf.ipcpconfs, entry) {
+		ipcpstat = malloc(sizeof(*ipcpstat));
+		if (ipcpstat == NULL) {
+			log_printf(LOG_ERR, "initializing ipcp_stats failed : %m");
+			npppd_destroy_ipcp_stats(&_this->ipcpstats);
+			return -1;
+		}
+		memset(ipcpstat, 0, sizeof(*ipcpstat));
+		strlcpy(ipcpstat->name, ipcpconf->name, sizeof(ipcpstat->name));
+		LIST_INSERT_HEAD(&_this->ipcpstats, ipcpstat, entry);
 	}
 
 	pidpath0 = DEFAULT_NPPPD_PIDFILE;
@@ -488,6 +508,8 @@ npppd_fini(npppd *_this)
 		if (_this->pool[i].initialized != 0)
 			npppd_pool_uninit(&_this->pool[i]);
 	}
+
+	npppd_destroy_ipcp_stats(&_this->ipcpstats);
 
 	signal_del(&_this->ev_sigterm);
 	signal_del(&_this->ev_sigint);
@@ -791,6 +813,68 @@ npppd_get_ppp_by_id(npppd *_this, u_int ppp_id)
 	return ppp;
 }
 
+static struct ipcpstat *
+npppd_get_ipcp_stat(struct ipcpstat_head *head , const char *ipcp_name)
+{
+	struct ipcpstat *ipcpstat = NULL;
+
+	LIST_FOREACH(ipcpstat, head, entry) {
+		if (strncmp(ipcpstat->name, ipcp_name,
+		    sizeof(ipcpstat->name)) == 0)
+			return ipcpstat;
+	}
+
+	return NULL;
+}
+
+static void
+npppd_destroy_ipcp_stats(struct ipcpstat_head *head)
+{
+	struct ipcpstat	*ipcpstat, *tipcpstat;
+	npppd_ppp	*ppp, *tppp;
+
+	LIST_FOREACH_SAFE(ipcpstat, head, entry, tipcpstat) {
+		LIST_FOREACH_SAFE(ppp, &ipcpstat->ppp, ipcpstat_entry, tppp) {
+			ppp->ipcpstat = NULL;
+			LIST_REMOVE(ppp, ipcpstat_entry);
+		}
+		free(ipcpstat);
+	}
+}
+
+static void
+npppd_ipcp_stats_reload(npppd *_this)
+{
+	struct ipcpstat		*ipcpstat, *tipcpstat;
+	struct ipcpconf		*ipcpconf;
+	struct ipcpstat_head	 destroy_list;
+
+	LIST_INIT(&destroy_list);
+	LIST_FOREACH_SAFE(ipcpstat, &_this->ipcpstats, entry, tipcpstat) {
+		LIST_REMOVE(ipcpstat, entry);
+		LIST_INSERT_HEAD(&destroy_list, ipcpstat, entry);
+	}
+
+	TAILQ_FOREACH(ipcpconf, &_this->conf.ipcpconfs, entry) {
+		ipcpstat = npppd_get_ipcp_stat(&destroy_list, ipcpconf->name);
+		if (ipcpstat != NULL) {
+			LIST_REMOVE(ipcpstat, entry);
+			LIST_INSERT_HEAD(&_this->ipcpstats, ipcpstat, entry);
+			continue;
+		}
+
+		ipcpstat = malloc(sizeof(*ipcpstat));
+		if (ipcpstat == NULL) {
+			log_printf(LOG_ERR, "initializing ipcp_stats failed : %m");
+			continue;
+		}
+		memset(ipcpstat, 0, sizeof(*ipcpstat));
+		strlcpy(ipcpstat->name, ipcpconf->name, sizeof(ipcpconf->name));
+		LIST_INSERT_HEAD(&_this->ipcpstats, ipcpstat, entry);
+	}
+	npppd_destroy_ipcp_stats(&destroy_list);
+}
+
 /**
  * Checks whether the user reaches the maximum session limit
  * (user_max_serssion).
@@ -800,25 +884,37 @@ npppd_get_ppp_by_id(npppd *_this, u_int ppp_id)
 int
 npppd_check_user_max_session(npppd *_this, npppd_ppp *ppp)
 {
-	int count;
+	int global_count, realm_count;
 	npppd_ppp *ppp1;
 	slist *uppp;
 
 	/* user_max_session == 0 means unlimit */
-	if (_this->conf.user_max_session == 0)
+	if (_this->conf.user_max_session == 0 &&
+	    npppd_auth_user_session_unlimited(ppp->realm))
 		return 1;
 
-	count = 0;
+	global_count = realm_count = 0;
 	if ((uppp = npppd_get_ppp_by_user(_this, ppp->username)) != NULL) {
 		for (slist_itr_first(uppp); slist_itr_has_next(uppp); ) {
 			ppp1 = slist_itr_next(uppp);
-			if (strcmp(ppp_iface(ppp)->ifname,
-			    ppp_iface(ppp1)->ifname) == 0)
-				count++;
+			if (ppp->realm == ppp1->realm)
+				realm_count++;
+			global_count++;
 		}
 	}
 
-	return (count < _this->conf.user_max_session)? 1 : 0;
+	if (npppd_check_auth_user_max_session(ppp->realm, realm_count)) {
+		ppp_log(ppp, LOG_WARNING,
+		    "user %s exceeds user-max-session limit per auth",
+		    ppp->username);
+		return 0;
+	} else if (_this->conf.user_max_session != 0 &&
+	    _this->conf.user_max_session <= global_count) {
+		ppp_log(ppp, LOG_WARNING,
+		    "user %s exceeds user-max-session limit", ppp->username);
+		return 0;
+	} else
+		return 1;
 }
 
 /***********************************************************************
@@ -1852,6 +1948,7 @@ npppd_reload0(npppd *_this)
 	npppd_ifaces_load_config(_this);
 	npppd_update_pool_reference(_this);
 	npppd_auth_finalizer_periodic(_this);
+	npppd_ipcp_stats_reload(_this);
 
 	for (i = 0; i < countof(_this->iface); i++) {
 		if (_this->iface[i].initialized != 0 &&
@@ -2105,6 +2202,7 @@ npppd_ppp_bind_iface(npppd *_this, npppd_ppp *ppp)
 {
 	int              i, ifidx;
 	struct confbind *bind;
+	struct ipcpstat *ipcpstat;
 
 	NPPPD_ASSERT(_this != NULL);
 	NPPPD_ASSERT(ppp != NULL);
@@ -2136,15 +2234,37 @@ npppd_ppp_bind_iface(npppd *_this, npppd_ppp *ppp)
 	if (ifidx < 0)
 		return 1;
 
+	ppp->ifidx = ifidx;
+	NPPPD_ASSERT(ppp_ipcp(ppp) != NULL);
+	ipcpstat = npppd_get_ipcp_stat(&_this->ipcpstats, ppp_ipcp(ppp)->name);
+	if (ipcpstat == NULL) {
+		ppp_log(ppp, LOG_WARNING, "Unknown IPCP %s",
+		    ppp_ipcp(ppp)->name);
+		ppp->ifidx = -1; /* unbind inteface */
+		return 1;
+	}
+	if (ppp_ipcp(ppp)->max_session > 0 &&
+	    ipcpstat->nsession >= ppp_ipcp(ppp)->max_session) {
+		ppp_log(ppp, LOG_WARNING,
+		    "Number of sessions per IPCP reaches out of the limit=%d",
+		    ppp_ipcp(ppp)->max_session);
+		ppp->ifidx = -1; /* unbind inteface */
+		return 1;
+	}
+
 	if (_this->conf.max_session > 0 &&
 	    _this->nsession >= _this->conf.max_session) {
 		ppp_log(ppp, LOG_WARNING,
 		    "Number of sessions reaches out of the limit=%d",
 		    _this->conf.max_session);
+		ppp->ifidx = -1; /* unbind inteface */
 		return 1;
 	}
-	ppp->ifidx = ifidx;
 	_this->nsession++;
+
+	LIST_INSERT_HEAD(&ipcpstat->ppp, ppp, ipcpstat_entry);
+	ppp->ipcpstat = ipcpstat;
+	ipcpstat->nsession++;
 
 	return 0;
 }
@@ -2153,8 +2273,13 @@ npppd_ppp_bind_iface(npppd *_this, npppd_ppp *ppp)
 void
 npppd_ppp_unbind_iface(npppd *_this, npppd_ppp *ppp)
 {
-	if (ppp->ifidx >= 0)
+	if (ppp->ifidx >= 0) {
 		_this->nsession--;
+		if (ppp->ipcpstat!= NULL) {
+			ppp->ipcpstat->nsession--;
+			LIST_REMOVE(ppp, ipcpstat_entry);
+		}
+	}
 	ppp->ifidx = -1;
 }
 

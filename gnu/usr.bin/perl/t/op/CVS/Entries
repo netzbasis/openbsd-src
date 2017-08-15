@@ -62,7 +62,7 @@
 /fork.t/1.14/Sun Feb  5 00:32:20 2017/-ko/
 /fresh_perl_utf8.t/1.1.1.1/Mon Mar 25 20:09:35 2013/-ko/
 /getpid.t/1.1.1.5/Mon Nov 17 20:53:17 2014/-ko/
-/getppid.t/1.2/Sun Feb  5 00:33:41 2017/-ko/
+/getppid.t/1.4/Mon Aug 14 13:49:45 2017/-ko/
 /glob.t/1.12/Sun Feb  5 00:32:20 2017/-ko/
 /gmagic.t/1.2/Sun Feb  5 00:32:20 2017/-ko/
 /goto.t/1.16/Sun Feb  5 00:32:20 2017/-ko/
@@ -176,7 +176,7 @@
 /switch.t/1.2/Sun Feb  5 00:32:20 2017/-ko/
 /symbolcache.t/1.2/Sun Feb  5 00:32:20 2017/-ko/
 /sysio.t/1.9/Mon Mar 24 15:05:33 2014/-ko/
-/taint.t/1.22/Sun Feb  5 00:32:20 2017/-ko/
+/taint.t/1.23/Mon Aug 14 13:48:48 2017/-ko/
 /threads-dirh.t/1.2/Sun Feb  5 00:32:20 2017/-ko/
 /threads.t/1.6/Sun Feb  5 00:32:20 2017/-ko/
 /threads_create.pl/1.1.1.1/Mon Sep 29 17:19:02 2008/-ko/

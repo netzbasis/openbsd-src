@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.308 2017/05/31 10:44:00 claudio Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.314 2017/08/12 16:47:50 phessler Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -328,8 +328,6 @@ struct peer_config {
 	u_int8_t		 down;
 	u_int8_t		 announce_capa;
 	u_int8_t		 reflector_client;
-	u_int8_t		 softreconfig_in;
-	u_int8_t		 softreconfig_out;
 	u_int8_t		 ttlsec;	/* TTL security hack */
 	u_int8_t		 flags;
 };
@@ -383,6 +381,7 @@ enum imsg_type {
 	IMSG_CTL_SHOW_RIB_PREFIX,
 	IMSG_CTL_SHOW_RIB_ATTR,
 	IMSG_CTL_SHOW_RIB_COMMUNITY,
+	IMSG_CTL_SHOW_RIB_EXTCOMMUNITY,
 	IMSG_CTL_SHOW_RIB_LARGECOMMUNITY,
 	IMSG_CTL_SHOW_NETWORK,
 	IMSG_CTL_SHOW_RIB_MEM,
@@ -697,6 +696,7 @@ struct ctl_show_rib_request {
 	struct bgpd_addr	prefix;
 	struct filter_as	as;
 	struct filter_community community;
+	struct filter_extcommunity extcommunity;
 	struct filter_largecommunity large_community;
 	u_int32_t		peerid;
 	pid_t			pid;
@@ -741,6 +741,8 @@ struct filter_peers {
 	u_int32_t	groupid;
 	u_int32_t	remote_as;
 	u_int16_t	ribid;
+	u_int8_t	ebgp;
+	u_int8_t	ibgp;
 };
 
 /* special community type */
@@ -750,6 +752,7 @@ struct filter_peers {
 #define	COMMUNITY_LOCAL_AS		-4
 #define	COMMUNITY_UNSET			-5
 #define	COMMUNITY_WELLKNOWN		0xffff
+#define	COMMUNITY_GRACEFUL_SHUTDOWN	0x0000  /* draft-ietf-grow-bgp-gshut */
 #define	COMMUNITY_BLACKHOLE		0x029A	/* RFC 7999 */
 #define	COMMUNITY_NO_EXPORT		0xff01
 #define	COMMUNITY_NO_ADVERTISE		0xff02
@@ -816,6 +819,8 @@ struct ext_comm_pairs {
 	{ EXT_COMMUNITY_TRANS_EVPN, 0x00, "mac-mob" },		\
 	{ EXT_COMMUNITY_TRANS_EVPN, 0x01, "esi-lab" },		\
 	{ EXT_COMMUNITY_TRANS_EVPN, 0x02, "esi-rt" },		\
+								\
+	{ 0 }							\
 }
 
 extern const struct ext_comm_pairs iana_ext_comms[];

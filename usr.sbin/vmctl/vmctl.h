@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.h,v 1.14 2017/04/06 18:07:13 reyk Exp $	*/
+/*	$OpenBSD: vmctl.h,v 1.16 2017/07/15 05:05:36 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -32,6 +32,10 @@ enum actions {
 	CMD_START,
 	CMD_STATUS,
 	CMD_STOP,
+	CMD_PAUSE,
+	CMD_UNPAUSE,
+	CMD_SEND,
+	CMD_RECEIVE,
 };
 
 struct ctl_command;
@@ -70,6 +74,7 @@ int	 parse_network(struct parse_result *, char *);
 int	 parse_size(struct parse_result *, char *, long long);
 int	 parse_disk(struct parse_result *, char *);
 int	 parse_vmid(struct parse_result *, char *);
+int	 parse_vmname(struct parse_result *, char *);
 void	 parse_free(struct parse_result *);
 int	 parse(int, char *[]);
 __dead void
@@ -82,6 +87,13 @@ int	 vm_start(uint32_t, const char *, int, int, char **, int,
 int	 vm_start_complete(struct imsg *, int *, int);
 void	 terminate_vm(uint32_t, const char *);
 int	 terminate_vm_complete(struct imsg *, int *);
+void	 pause_vm(uint32_t, const char *);
+int	 pause_vm_complete(struct imsg *, int *);
+void	 unpause_vm(uint32_t, const char *);
+int	 unpause_vm_complete(struct imsg *, int *);
+void	 send_vm(uint32_t, const char *);
+void	 vm_receive(uint32_t, const char *);
+int	 receive_vm_complete(struct imsg *, int *);
 int	 check_info_id(const char *, uint32_t);
 void	 get_info_vm(uint32_t, const char *, int);
 int	 add_info(struct imsg *, int *);

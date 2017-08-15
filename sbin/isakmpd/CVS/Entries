@@ -1,6 +1,6 @@
 /BUGS/1.15/Fri Jun  2 19:35:55 2006//
 /DESIGN-NOTES/1.25/Fri Jun  2 19:35:55 2006//
-/Makefile/1.85/Sat Sep  3 23:14:56 2016//
+/Makefile/1.88/Mon Jul 10 21:30:37 2017//
 /QUESTIONS/1.5/Wed Nov  5 12:31:21 2003//
 /README/1.20/Fri Sep  2 12:17:32 2016//
 /TO-DO/1.26/Thu Aug 28 14:43:35 2003//
@@ -12,7 +12,7 @@
 /cert.h/1.16/Fri Jan 16 06:39:58 2015//
 /conf.c/1.106/Wed Mar 16 15:41:10 2016//
 /conf.h/1.34/Wed Aug 30 16:56:56 2006//
-/connection.c/1.37/Wed Jan 22 03:09:31 2014//
+/connection.c/1.38/Sun Aug  6 13:54:04 2017//
 /connection.h/1.5/Thu Apr 15 18:39:25 2004//
 /constants.c/1.10/Fri Apr  8 22:32:09 2005//
 /constants.h/1.6/Thu Apr 15 18:39:25 2004//
@@ -51,7 +51,7 @@
 /ike_quick_mode.h/1.6/Thu Apr 15 18:39:25 2004//
 /init.c/1.41/Wed Apr 24 13:46:09 2013//
 /init.h/1.6/Thu Apr 15 18:39:25 2004//
-/ipsec.c/1.146/Thu Dec 10 17:27:00 2015//
+/ipsec.c/1.147/Tue Jul 18 06:19:07 2017//
 /ipsec.h/1.26/Fri Jun  2 18:08:56 2006//
 /ipsec_doi.h/1.8/Thu Apr 15 18:39:25 2004//
 /ipsec_fld.fld/1.5/Tue Jun  3 14:28:16 2003//
@@ -80,7 +80,7 @@
 /monitor_fdpass.c/1.17/Mon Feb 29 20:22:36 2016//
 /nat_traversal.c/1.24/Thu Aug 20 22:05:51 2015//
 /nat_traversal.h/1.4/Mon Jul 25 15:03:47 2005//
-/pf_key_v2.c/1.198/Tue Feb 28 16:46:27 2017//
+/pf_key_v2.c/1.199/Sun Aug  6 13:54:04 2017//
 /pf_key_v2.h/1.13/Mon May 29 10:17:59 2006//
 /policy.c/1.97/Fri Nov 22 04:12:47 2013//
 /policy.h/1.17/Sun Aug  5 09:43:09 2007//

@@ -1,4 +1,4 @@
-.\" $OpenBSD: clang-local.1,v 1.5 2017/03/12 01:21:32 jsg Exp $
+.\" $OpenBSD: clang-local.1,v 1.9 2017/07/29 21:01:13 kettenis Exp $
 .\"
 .\" Copyright (c) 2016 Pascal Stumpf <pascal@stumpf.co>
 .\"
@@ -15,7 +15,7 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .\"
-.Dd $Mdocdate: March 12 2017 $
+.Dd $Mdocdate: July 29 2017 $
 .Dt CLANG-LOCAL 1
 .Os
 .Sh NAME
@@ -53,6 +53,10 @@ option is turned off by default unless
 .Fl Ofast
 has been selected.
 .It
+.Nm clang
+does not store its version string in objects.
+There is no option to control this.
+.It
 The
 .Fl pg
 flag is an alias of
@@ -67,8 +71,30 @@ re-enabled with the
 .Fl Wpointer-sign
 flag.
 .It
+The warning option
+.Fl Waddress-of-packed-member
+is disabled by default.
+.It
 Color diagnostic messages are disabled by default and can be re-enabled with
 .Fl fdiagnostics-color .
+.It
+The
+.Fl fwrapv
+option to treat signed integer overflows as defined is enabled by default to
+prevent dangerous optimizations which could remove security critical overflow
+checks.
+.It
+The
+.Xr malloc 3 ,
+.Xr calloc 3 ,
+.Xr realloc 3 ,
+.Xr strdup 3 ,
+.Xr strndup 3 ,
+.Xr valloc 3
+and
+.Xr free 3
+builtins are disabled to prevent undesriable optimizations of calls to
+these functions.
 .El
 .Sh SEE ALSO
 .Xr clang 1

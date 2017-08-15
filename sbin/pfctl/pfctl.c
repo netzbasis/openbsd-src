@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.344 2017/05/30 12:13:04 henning Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.348 2017/08/11 22:30:38 benno Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -61,17 +61,17 @@ void	 usage(void);
 int	 pfctl_enable(int, int);
 int	 pfctl_disable(int, int);
 void	 pfctl_clear_queues(struct pf_qihead *);
-int	 pfctl_clear_stats(int, const char *, int);
-int	 pfctl_clear_interface_flags(int, int);
-int	 pfctl_clear_rules(int, int, char *);
-int	 pfctl_clear_src_nodes(int, int);
-int	 pfctl_clear_states(int, const char *, int);
+void	 pfctl_clear_stats(int, const char *, int);
+void	 pfctl_clear_interface_flags(int, int);
+void	 pfctl_clear_rules(int, int, char *);
+void	 pfctl_clear_src_nodes(int, int);
+void	 pfctl_clear_states(int, const char *, int);
 void	 pfctl_addrprefix(char *, struct pf_addr *);
-int	 pfctl_kill_src_nodes(int, const char *, int);
-int	 pfctl_net_kill_states(int, const char *, int, int);
-int	 pfctl_label_kill_states(int, const char *, int, int);
-int	 pfctl_id_kill_states(int, int);
-int	 pfctl_key_kill_states(int, const char *, int, int);
+void	 pfctl_kill_src_nodes(int, const char *, int);
+void	 pfctl_net_kill_states(int, const char *, int, int);
+void	 pfctl_label_kill_states(int, const char *, int, int);
+void	 pfctl_id_kill_states(int, int);
+void	 pfctl_key_kill_states(int, const char *, int, int);
 int	 pfctl_parse_host(char *, struct pf_rule_addr *);
 void	 pfctl_init_options(struct pfctl *);
 int	 pfctl_load_options(struct pfctl *);
@@ -237,7 +237,7 @@ usage(void)
 {
 	extern char *__progname;
 
-	fprintf(stderr, "usage: %s [-deghnPqrvz] ", __progname);
+	fprintf(stderr, "usage: %s [-deghNnPqrvz] ", __progname);
 	fprintf(stderr, "[-a anchor] [-D macro=value] [-F modifier]");
 	fprintf(stderr, " [-f file]\n");
 	fprintf(stderr, "\t[-i interface] [-K key] [-k key] [-L statefile]");
@@ -278,7 +278,7 @@ pfctl_disable(int dev, int opts)
 	return (0);
 }
 
-int
+void
 pfctl_clear_stats(int dev, const char *iface, int opts)
 {
 	struct pfioc_iface pi;
@@ -296,10 +296,9 @@ pfctl_clear_stats(int dev, const char *iface, int opts)
 			fprintf(stderr, " for interface %s", iface);
 		fprintf(stderr, "\n");
 	}
-	return (0);
 }
 
-int
+void
 pfctl_clear_interface_flags(int dev, int opts)
 {
 	struct pfioc_iface	pi;
@@ -313,10 +312,9 @@ pfctl_clear_interface_flags(int dev, int opts)
 		if ((opts & PF_OPT_QUIET) == 0)
 			fprintf(stderr, "pf: interface flags reset\n");
 	}
-	return (0);
 }
 
-int
+void
 pfctl_clear_rules(int dev, int opts, char *anchorname)
 {
 	struct pfr_buffer t;
@@ -329,20 +327,18 @@ pfctl_clear_rules(int dev, int opts, char *anchorname)
 		err(1, "pfctl_clear_rules");
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "rules cleared\n");
-	return (0);
 }
 
-int
+void
 pfctl_clear_src_nodes(int dev, int opts)
 {
 	if (ioctl(dev, DIOCCLRSRCNODES))
 		err(1, "DIOCCLRSRCNODES");
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "source tracking entries cleared\n");
-	return (0);
 }
 
-int
+void
 pfctl_clear_states(int dev, const char *iface, int opts)
 {
 	struct pfioc_state_kill psk;
@@ -356,7 +352,6 @@ pfctl_clear_states(int dev, const char *iface, int opts)
 		err(1, "DIOCCLRSTATES");
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "%d states cleared\n", psk.psk_killed);
-	return (0);
 }
 
 void
@@ -409,7 +404,7 @@ pfctl_addrprefix(char *addr, struct pf_addr *mask)
 	freeaddrinfo(res);
 }
 
-int
+void
 pfctl_kill_src_nodes(int dev, const char *iface, int opts)
 {
 	struct pfioc_src_node_kill psnk;
@@ -509,10 +504,9 @@ pfctl_kill_src_nodes(int dev, const char *iface, int opts)
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "killed %d src nodes from %d sources and %d "
 		    "destinations\n", killed, sources, dests);
-	return (0);
 }
 
-int
+void
 pfctl_net_kill_states(int dev, const char *iface, int opts, int rdomain)
 {
 	struct pfioc_state_kill psk;
@@ -617,10 +611,9 @@ pfctl_net_kill_states(int dev, const char *iface, int opts, int rdomain)
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "killed %d states from %d sources and %d "
 		    "destinations\n", killed, sources, dests);
-	return (0);
 }
 
-int
+void
 pfctl_label_kill_states(int dev, const char *iface, int opts, int rdomain)
 {
 	struct pfioc_state_kill psk;
@@ -645,11 +638,9 @@ pfctl_label_kill_states(int dev, const char *iface, int opts, int rdomain)
 
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "killed %d states\n", psk.psk_killed);
-
-	return (0);
 }
 
-int
+void
 pfctl_id_kill_states(int dev, int opts)
 {
 	struct pfioc_state_kill psk;
@@ -680,11 +671,9 @@ pfctl_id_kill_states(int dev, int opts)
 
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "killed %d states\n", psk.psk_killed);
-
-	return (0);
 }
 
-int
+void
 pfctl_key_kill_states(int dev, const char *iface, int opts, int rdomain)
 {
 	struct pfioc_state_kill psk;
@@ -741,8 +730,6 @@ pfctl_key_kill_states(int dev, const char *iface, int opts, int rdomain)
 
 	if ((opts & PF_OPT_QUIET) == 0)
 		fprintf(stderr, "killed %d states\n", psk.psk_killed);
-
-	return (0);
 }
 
 int
@@ -1312,8 +1299,14 @@ pfctl_find_childqs(struct pfctl_qsitem *qi)
 	TAILQ_FOREACH(p, &qi->children, entries)
 		flags |= pfctl_find_childqs(p);
 
-	if (qi->qs.flags & PFQS_DEFAULT && !TAILQ_EMPTY(&qi->children))
-		errx(1, "default queue %s is not a leaf queue", qi->qs.qname);
+	if (!TAILQ_EMPTY(&qi->children)) {
+		if (qi->qs.flags & PFQS_DEFAULT)
+			errx(1, "default queue %s is not a leaf queue",
+			    qi->qs.qname);
+		if (qi->qs.flags & PFQS_FLOWQUEUE)
+			errx(1, "flow queue %s is not a leaf queue",
+			    qi->qs.qname);
+	}
 
 	return (flags);
 }
@@ -1342,18 +1335,28 @@ int
 pfctl_load_queues(struct pfctl *pf)
 {
 	struct pfctl_qsitem	*qi, *tempqi;
+	struct pf_queue_scspec	*rtsc, *lssc, *ulsc;
 	u_int32_t		 ticket;
 
 	TAILQ_FOREACH(qi, &qspecs, entries) {
 		if (qi->matches == 0)
-			errx(1, "queue %s: parent %s not found\n", qi->qs.qname,
+			errx(1, "queue %s: parent %s not found", qi->qs.qname,
 			    qi->qs.parent);
-		if (qi->qs.realtime.m1.percent || qi->qs.realtime.m2.percent ||
-		    qi->qs.linkshare.m1.percent ||
-		    qi->qs.linkshare.m2.percent ||
-		    qi->qs.upperlimit.m1.percent ||
-		    qi->qs.upperlimit.m2.percent)
+
+		rtsc = &qi->qs.realtime;
+		lssc = &qi->qs.linkshare;
+		ulsc = &qi->qs.upperlimit;
+
+		if (rtsc->m1.percent || rtsc->m2.percent ||
+		    lssc->m1.percent || lssc->m2.percent ||
+		    ulsc->m1.percent || ulsc->m2.percent)
 			errx(1, "only absolute bandwidth specs for now");
+
+		/* Link sharing policy must be specified for child classes */
+		if (qi->qs.parent[0] != '\0' &&
+		    lssc->m1.absolute == 0 && lssc->m2.absolute == 0)
+			errx(1, "queue %s: no bandwidth was specified",
+			    qi->qs.qname);
 	}
 
 	if ((pf->opts & PF_OPT_NOACTION) == 0)
@@ -1419,7 +1422,17 @@ pfctl_check_qassignments(struct pf_ruleset *rs)
 	if (rs->anchor->path[0] == 0) {
 		TAILQ_FOREACH(qi, &rootqs, entries) {
 			flags = pfctl_find_childqs(qi);
-			if (!(qi->qs.flags & PFQS_FLOWQUEUE) &&
+			if (!(qi->qs.flags & PFQS_ROOTCLASS) &&
+			    !TAILQ_EMPTY(&qi->children)) {
+				if (qi->qs.flags & PFQS_FLOWQUEUE)
+					errx(1, "root queue %s doesn't "
+					    "support hierarchy",
+					    qi->qs.qname);
+				else
+					errx(1, "no bandwidth was specified "
+					    "for root queue %s", qi->qs.qname);
+			}
+			if ((qi->qs.flags & PFQS_ROOTCLASS) &&
 			    !(flags & PFQS_DEFAULT))
 				errx(1, "no default queue specified");
 		}
@@ -2225,7 +2238,7 @@ main(int argc, char *argv[])
 		usage();
 
 	while ((ch = getopt(argc, argv,
-	    "a:dD:eqf:F:ghi:k:K:L:no:Pp:R:rS:s:t:T:vV:x:z")) != -1) {
+	    "a:dD:eqf:F:ghi:k:K:L:Nno:Pp:R:rS:s:t:T:vV:x:z")) != -1) {
 		switch (ch) {
 		case 'a':
 			anchoropt = optarg;
@@ -2274,6 +2287,9 @@ main(int argc, char *argv[])
 			}
 			src_node_kill[src_node_killers++] = optarg;
 			mode = O_RDWR;
+			break;
+		case 'N':
+			opts |= PF_OPT_NODNS;
 			break;
 		case 'n':
 			opts |= PF_OPT_NOACTION;
@@ -2558,13 +2574,11 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if ((rulesopt != NULL) && !anchorname[0])
-		if (pfctl_clear_interface_flags(dev, opts | PF_OPT_QUIET))
-			error = 1;
-
-	if (rulesopt != NULL && !anchorname[0])
+	if (rulesopt != NULL && !anchorname[0]) {
+		pfctl_clear_interface_flags(dev, opts | PF_OPT_QUIET);
 		if (pfctl_file_fingerprints(dev, opts, PF_OSFP_FILE))
 			error = 1;
+	}
 
 	if (rulesopt != NULL) {
 		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)

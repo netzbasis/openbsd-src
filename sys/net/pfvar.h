@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.457 2017/05/30 19:40:54 henning Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.465 2017/08/14 15:58:16 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -47,6 +47,7 @@
 
 struct ip;
 struct ip6_hdr;
+struct mbuf_list;
 
 #define	PF_TCPS_PROXY_SRC	((TCP_NSTATES)+0)
 #define	PF_TCPS_PROXY_DST	((TCP_NSTATES)+1)
@@ -75,6 +76,7 @@ enum	{ PF_CHANGE_NONE, PF_CHANGE_ADD_HEAD, PF_CHANGE_ADD_TAIL,
 	  PF_CHANGE_REMOVE, PF_CHANGE_GET_TICKET };
 enum	{ PF_GET_NONE, PF_GET_CLR_CNTR };
 enum	{ PF_SK_WIRE, PF_SK_STACK, PF_SK_BOTH };
+enum	{ PF_PEER_SRC, PF_PEER_DST, PF_PEER_BOTH };
 
 /*
  * Note about PFTM_*: real indices into pf_rule.timeout[] come before
@@ -108,6 +110,14 @@ enum	{ PFTM_TCP_FIRST_PACKET, PFTM_TCP_OPENING, PFTM_TCP_ESTABLISHED,
 #define PFTM_INTERVAL_VAL		10	/* Expire interval */
 #define PFTM_SRC_NODE_VAL		0	/* Source tracking */
 #define PFTM_TS_DIFF_VAL		30	/* Allowed TS diff */
+
+/*
+ * For each connection (combination of proto,src,dst,af) the number
+ * of fragments is limited.  Over the PFTM_FRAG interval the average
+ * rate must be less than PF_FRAG_STALE fragments per second.
+ * Otherwise older fragments are considered stale and are dropped.
+ */
+#define PF_FRAG_STALE			200
 
 enum	{ PF_NOPFROUTE, PF_ROUTETO, PF_DUPTO, PF_REPLYTO };
 enum	{ PF_LIMIT_STATES, PF_LIMIT_SRC_NODES, PF_LIMIT_FRAGS,
@@ -1286,6 +1296,7 @@ struct pf_status {
 	time_t		since;
 	u_int32_t	running;
 	u_int32_t	states;
+	u_int32_t	states_halfopen;
 	u_int32_t	src_nodes;
 	u_int32_t	debug;
 	u_int32_t	hostid;
@@ -1334,6 +1345,7 @@ struct pf_queuespec {
 };
 
 #define PFQS_FLOWQUEUE			0x0001
+#define PFQS_ROOTCLASS			0x0002
 #define PFQS_DEFAULT			0x1000 /* maps to HFSC_DEFAULTCLASS */
 
 struct priq_opts {
@@ -1357,10 +1369,16 @@ struct hfsc_opts {
 };
 
 struct pfq_ops {
-	void		*(*pfq_alloc)(struct ifnet *);
-	int		 (*pfq_addqueue)(void *, struct pf_queuespec *);
-	void		 (*pfq_free)(void *);
-	int		 (*pfq_qstats)(struct pf_queuespec *, void *, int *);
+	void *		(*pfq_alloc)(struct ifnet *);
+	int		(*pfq_addqueue)(void *, struct pf_queuespec *);
+	void		(*pfq_free)(void *);
+	int		(*pfq_qstats)(struct pf_queuespec *, void *, int *);
+	/* Queue manager ops */
+	unsigned int	(*pfq_qlength)(void *);
+	struct mbuf *	(*pfq_enqueue)(void *, struct mbuf *);
+	struct mbuf *	(*pfq_deq_begin)(void *, void **, struct mbuf_list *);
+	void		(*pfq_deq_commit)(void *, struct mbuf *, void *);
+	void		(*pfq_purge)(void *, struct mbuf_list *);
 };
 
 struct pf_tagname {
@@ -1632,7 +1650,6 @@ extern int			 pf_tbladdr_setup(struct pf_ruleset *,
 extern void			 pf_tbladdr_remove(struct pf_addr_wrap *);
 extern void			 pf_tbladdr_copyout(struct pf_addr_wrap *);
 extern void			 pf_calc_skip_steps(struct pf_rulequeue *);
-extern void			 pf_purge_thread(void *);
 extern void			 pf_purge_expired_src_nodes();
 extern void			 pf_purge_expired_states(u_int32_t);
 extern void			 pf_purge_expired_rules();
@@ -1807,6 +1824,9 @@ void		 pf_tag_packet(struct mbuf *, int, int);
 int		 pf_addr_compare(struct pf_addr *, struct pf_addr *,
 		    sa_family_t);
 
+const struct pfq_ops
+		*pf_queue_manager(struct pf_queuespec *);
+
 extern struct pf_status	pf_status;
 extern struct pool	pf_frent_pl, pf_frag_pl;
 
@@ -1877,6 +1897,8 @@ int			 pf_state_key_isvalid(struct pf_state_key *);
 void			 pf_pkt_unlink_state_key(struct mbuf *);
 void			 pf_pkt_state_key_ref(struct mbuf *);
 
+u_int8_t		 pf_get_wscale(struct pf_pdesc *);
+u_int16_t		 pf_get_mss(struct pf_pdesc *);
 struct mbuf *		 pf_build_tcp(const struct pf_rule *, sa_family_t,
 			    const struct pf_addr *, const struct pf_addr *,
 			    u_int16_t, u_int16_t, u_int32_t, u_int32_t,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.211 2017/05/30 12:09:27 friehm Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.215 2017/08/10 02:26:26 bluhm Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -467,16 +467,10 @@ icmp6_input(struct mbuf **mp, int *offp, int proto, int af)
 		case ICMP6_DST_UNREACH_ADDR:
 			code = PRC_HOSTDEAD;
 			break;
-#ifdef COMPAT_RFC1885
-		case ICMP6_DST_UNREACH_NOTNEIGHBOR:
-			code = PRC_UNREACH_SRCFAIL;
-			break;
-#else
 		case ICMP6_DST_UNREACH_BEYONDSCOPE:
 			/* I mean "source address was incorrect." */
 			code = PRC_PARAMPROB;
 			break;
-#endif
 		case ICMP6_DST_UNREACH_NOPORT:
 			code = PRC_UNREACH_PORT;
 			break;
@@ -1041,15 +1035,6 @@ icmp6_mtudisc_update(struct ip6ctlparam *ip6cp, int validated)
 /*
  * Reflect the ip6 packet back to the source.
  * OFF points to the icmp6 header, counted from the top of the mbuf.
- *
- * Note: RFC 1885 required that an echo reply should be truncated if it
- * did not fit in with (return) path MTU, and KAME code supported the
- * behavior.  However, as a clarification after the RFC, this limitation
- * was removed in a revised version of the spec, RFC 2463.  We had kept the
- * old behavior, with a (non-default) ifdef block, while the new version of
- * the spec was an internet-draft status, and even after the new RFC was
- * published.  But it would rather make sense to clean the obsoleted part
- * up, and to make the code simpler at this stage.
  */
 void
 icmp6_reflect(struct mbuf *m, size_t off)
@@ -1117,14 +1102,10 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	sa6_src.sin6_family = AF_INET6;
 	sa6_src.sin6_len = sizeof(sa6_src);
 	sa6_src.sin6_addr = ip6->ip6_dst;
-	in6_recoverscope(&sa6_src, &ip6->ip6_dst);
-	in6_embedscope(&ip6->ip6_dst, &sa6_src, NULL);
 	bzero(&sa6_dst, sizeof(sa6_dst));
 	sa6_dst.sin6_family = AF_INET6;
 	sa6_dst.sin6_len = sizeof(sa6_dst);
 	sa6_dst.sin6_addr = t;
-	in6_recoverscope(&sa6_dst, &t);
-	in6_embedscope(&t, &sa6_dst, NULL);
 
 	/*
 	 * If the incoming packet was addressed directly to us (i.e. unicast),
@@ -1805,6 +1786,16 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rtableid)
 		return (NULL);
 	}
 
+	/*
+	 * No PMTU for local routes and permanent neighbors,
+	 * ARP and NDP use the same expire timer as the route.
+	 */
+	if (ISSET(rt->rt_flags, RTF_LOCAL) ||
+	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0)) {
+		rtfree(rt);
+		return (NULL);
+	}
+
 	/* If we didn't get a host route, allocate one */
 	if ((rt->rt_flags & RTF_HOST) == 0) {
 		struct rtentry *nrt;
@@ -1908,9 +1899,6 @@ icmp6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 
 	case ICMPV6CTL_STATS:
 		return icmp6_sysctl_icmp6stat(oldp, oldlenp, newp);
-	case ICMPV6CTL_ND6_DRLIST:
-	case ICMPV6CTL_ND6_PRLIST:
-		return nd6_sysctl(name[0], oldp, oldlenp, newp, newlen);
 	default:
 		if (name[0] < ICMPV6CTL_MAXID)
 			return (sysctl_int_arr(icmpv6ctl_vars, name, namelen,

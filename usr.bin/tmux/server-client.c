@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.237 2017/05/31 11:00:00 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.241 2017/07/14 08:04:23 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -371,7 +371,7 @@ server_client_detach(struct client *c, enum msgtype msgtype)
 
 	c->flags |= CLIENT_DETACHING;
 	notify_client("client-detached", c);
-	proc_send_s(c->peer, msgtype, s->name);
+	proc_send(c->peer, msgtype, -1, s->name, strlen(s->name) + 1);
 }
 
 /* Execute command to replace a client. */
@@ -816,8 +816,9 @@ server_client_handle_key(struct client *c, key_code key)
 	struct timeval		 tv;
 	struct key_table	*table, *first;
 	struct key_binding	 bd_find, *bd;
-	int			 xtimeout;
+	int			 xtimeout, flags;
 	struct cmd_find_state	 fs;
+	key_code		 key0;
 
 	/* Check the client is good to accept input. */
 	if (s == NULL || (c->flags & (CLIENT_DEAD|CLIENT_SUSPENDED)) != 0)
@@ -906,13 +907,15 @@ server_client_handle_key(struct client *c, key_code key)
 	 * The prefix always takes precedence and forces a switch to the prefix
 	 * table, unless we are already there.
 	 */
-	if ((key == (key_code)options_get_number(s->options, "prefix") ||
-	    key == (key_code)options_get_number(s->options, "prefix2")) &&
+	key0 = (key & ~KEYC_XTERM);
+	if ((key0 == (key_code)options_get_number(s->options, "prefix") ||
+	    key0 == (key_code)options_get_number(s->options, "prefix2")) &&
 	    strcmp(table->name, "prefix") != 0) {
 		server_client_set_key_table(c, "prefix");
 		server_status_client(c);
 		return;
 	}
+	flags = c->flags;
 
 retry:
 	/* Log key table. */
@@ -924,7 +927,7 @@ retry:
 		log_debug("currently repeating");
 
 	/* Try to see if there is a key binding in the current table. */
-	bd_find.key = (key & ~KEYC_XTERM);
+	bd_find.key = key0;
 	bd = RB_FIND(key_bindings, &table->key_bindings, &bd_find);
 	if (bd != NULL) {
 		/*
@@ -990,7 +993,7 @@ retry:
 	 * No match in the root table either. If this wasn't the first table
 	 * tried, don't pass the key to the pane.
 	 */
-	if (first != table) {
+	if (first != table && (~flags & CLIENT_REPEAT)) {
 		server_client_set_key_table(c, NULL);
 		server_status_client(c);
 		return;
@@ -1318,28 +1321,23 @@ server_client_check_redraw(struct client *c)
 			}
 		}
 	}
-	if (needed) {
-		left = EVBUFFER_LENGTH(tty->out);
-		if (left != 0) {
-			log_debug("%s: redraw deferred (%zu left)", c->name, left);
-			if (evtimer_initialized(&ev) && evtimer_pending(&ev, NULL))
-				return;
-			log_debug("redraw timer started");
+	if (needed && (left = EVBUFFER_LENGTH(tty->out)) != 0) {
+		log_debug("%s: redraw deferred (%zu left)", c->name, left);
+		if (!evtimer_initialized(&ev))
 			evtimer_set(&ev, server_client_redraw_timer, NULL);
+		if (!evtimer_pending(&ev, NULL)) {
+			log_debug("redraw timer started");
 			evtimer_add(&ev, &tv);
-
-			/*
-			 * We may have got here for a single pane redraw, but
-			 * force a full redraw next time in case other panes
-			 * have been updated.
-			 */
-			c->flags |= CLIENT_REDRAW;
-			return;
 		}
-		if (evtimer_initialized(&ev))
-			evtimer_del(&ev);
+
+		/*
+		 * We may have got here for a single pane redraw, but force a
+		 * full redraw next time in case other panes have been updated.
+		 */
+		c->flags |= CLIENT_REDRAW;
+		return;
+	} else if (needed)
 		log_debug("%s: redraw needed", c->name);
-	}
 
 	if (c->flags & (CLIENT_REDRAW|CLIENT_STATUS)) {
 		if (options_get_number(s->options, "set-titles"))
@@ -1718,7 +1716,7 @@ server_client_dispatch_shell(struct client *c)
 	shell = options_get_string(global_s_options, "default-shell");
 	if (*shell == '\0' || areshell(shell))
 		shell = _PATH_BSHELL;
-	proc_send_s(c->peer, MSG_SHELL, shell);
+	proc_send(c->peer, MSG_SHELL, -1, shell, strlen(shell) + 1);
 
 	proc_kill_peer(c->peer);
 }

@@ -7,7 +7,8 @@
 /genassym.cf/1.1/Mon Apr 26 22:11:38 2010//
 /intr.c/1.10/Sat Aug 29 23:59:19 2015//
 /landiskreg.h/1.4/Sun Apr 29 17:53:37 2007//
-/locore.S/1.3/Thu Jun 26 05:42:11 2008//
+/locore.S/1.4/Thu Jun  8 05:35:25 2017//
+/locore0.S/1.1/Thu Jun  8 05:35:25 2017//
 /machdep.c/1.45/Sun Apr 30 16:45:45 2017//
 /mainbus.c/1.5/Wed Apr 21 12:39:39 2010//
 /shpcic_machdep.c/1.5/Sun Apr  4 12:49:30 2010//

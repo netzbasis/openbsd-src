@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_config.c,v 1.40 2017/05/06 20:59:28 jsing Exp $ */
+/* $OpenBSD: tls_config.c,v 1.43 2017/08/10 18:18:30 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -141,7 +141,7 @@ tls_keypair_free(struct tls_keypair *keypair)
 	free(keypair->cert_mem);
 	free(keypair->key_mem);
 	free(keypair->ocsp_staple);
-	free(keypair->cert_hash);
+	free(keypair->pubkey_hash);
 
 	free(keypair);
 }
@@ -214,7 +214,7 @@ tls_config_new(void)
 	 */
 	if (tls_config_set_dheparams(config, "none") != 0)
 		goto err;
-	if (tls_config_set_ecdhecurve(config, "auto") != 0)
+	if (tls_config_set_ecdhecurves(config, "default") != 0)
 		goto err;
 	if (tls_config_set_ciphers(config, "secure") != 0)
 		goto err;
@@ -268,6 +268,8 @@ tls_config_free(struct tls_config *config)
 	free((char *)config->ca_mem);
 	free((char *)config->ca_path);
 	free((char *)config->ciphers);
+	free((char *)config->crl_mem);
+	free(config->ecdhecurves);
 
 	free(config);
 }
@@ -299,6 +301,7 @@ tls_config_clear_keys(struct tls_config *config)
 		tls_keypair_clear(kp);
 
 	tls_config_set_ca_mem(config, NULL, 0);
+	tls_config_set_crl_mem(config, NULL, 0);
 }
 
 int
@@ -579,6 +582,20 @@ tls_config_set_ciphers(struct tls_config *config, const char *ciphers)
 }
 
 int
+tls_config_set_crl_file(struct tls_config *config, const char *crl_file)
+{
+	return tls_config_load_file(&config->error, "CRL", crl_file,
+	    &config->crl_mem, &config->crl_len);
+}
+
+int
+tls_config_set_crl_mem(struct tls_config *config, const uint8_t *crl,
+    size_t len)
+{
+	return set_mem(&config->crl_mem, &config->crl_len, crl, len);
+}
+
+int
 tls_config_set_dheparams(struct tls_config *config, const char *params)
 {
 	int keylen;
@@ -600,22 +617,81 @@ tls_config_set_dheparams(struct tls_config *config, const char *params)
 }
 
 int
-tls_config_set_ecdhecurve(struct tls_config *config, const char *name)
+tls_config_set_ecdhecurve(struct tls_config *config, const char *curve)
 {
-	int nid;
-
-	if (name == NULL || strcasecmp(name, "none") == 0)
-		nid = NID_undef;
-	else if (strcasecmp(name, "auto") == 0)
-		nid = -1;
-	else if ((nid = OBJ_txt2nid(name)) == NID_undef) {
-		tls_config_set_errorx(config, "invalid ecdhe curve '%s'", name);
+	if (strchr(curve, ',') != NULL || strchr(curve, ':') != NULL) {
+		tls_config_set_errorx(config, "invalid ecdhe curve '%s'",
+		    curve);
 		return (-1);
 	}
 
-	config->ecdhecurve = nid;
+	if (curve == NULL ||
+	    strcasecmp(curve, "none") == 0 ||
+	    strcasecmp(curve, "auto") == 0)
+		curve = TLS_ECDHE_CURVES;
+		
+	return tls_config_set_ecdhecurves(config, curve);
+}
 
-	return (0);
+int
+tls_config_set_ecdhecurves(struct tls_config *config, const char *curves)
+{
+	int *curves_list = NULL, *curves_new;
+	size_t curves_num = 0;
+	char *cs = NULL;
+	char *p, *q;
+	int rv = -1;
+	int nid;
+
+	free(config->ecdhecurves);
+	config->ecdhecurves = NULL;
+	config->ecdhecurves_len = 0;
+
+	if (curves == NULL || strcasecmp(curves, "default") == 0)
+		curves = TLS_ECDHE_CURVES;
+
+	if ((cs = strdup(curves)) == NULL) {
+		tls_config_set_errorx(config, "out of memory");
+		goto err;
+	}
+
+	q = cs;
+	while ((p = strsep(&q, ",:")) != NULL) {
+		while (*p == ' ' || *p == '\t')
+			p++;
+
+		nid = OBJ_sn2nid(p);
+		if (nid == NID_undef)
+			nid = OBJ_ln2nid(p);
+		if (nid == NID_undef)
+			nid = EC_curve_nist2nid(p);
+		if (nid == NID_undef) {
+			tls_config_set_errorx(config,
+			    "invalid ecdhe curve '%s'", p);
+			goto err;
+		}
+
+		if ((curves_new = reallocarray(curves_list, curves_num + 1,
+		    sizeof(int))) == NULL) {
+			tls_config_set_errorx(config, "out of memory");
+			goto err;
+		}
+		curves_list = curves_new;
+		curves_list[curves_num] = nid;
+		curves_num++;
+	}
+
+	config->ecdhecurves = curves_list;
+	config->ecdhecurves_len = curves_num;
+	curves_list = NULL;
+
+	rv = 0;
+
+ err:
+	free(cs);
+	free(curves_list);
+
+	return (rv);
 }
 
 int

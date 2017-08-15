@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.532 2017/05/26 21:30:00 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.535 2017/08/13 11:10:30 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -103,6 +103,9 @@
 
 #define MTA_EXT_DSN		0x400
 
+
+#define P_NEWALIASES	0
+#define P_MAKEMAP	1
 
 struct userinfo {
 	char username[SMTPD_VUSERNAME_SIZE];
@@ -1147,7 +1150,7 @@ int	uncompress_file(FILE *, FILE *);
 #define PURGE_RULES		0x04
 #define PURGE_PKI		0x08
 #define PURGE_PKI_KEYS		0x10
-#define PURGE_EVERYTHING	0x0f
+#define PURGE_EVERYTHING	0xff
 void purge_config(uint8_t);
 void config_process(enum smtp_proc_type);
 void config_peer(enum smtp_proc_type);
@@ -1197,18 +1200,6 @@ int expand_to_text(struct expand *, char *, size_t);
 RB_PROTOTYPE(expandtree, expandnode, nodes, expand_cmp);
 
 
-/* filter.c */
-void filter_postfork(void);
-void filter_configure(void);
-void filter_connect(uint64_t, const struct sockaddr *,
-    const struct sockaddr *, const char *, const char *);
-void filter_mailaddr(uint64_t, int, const struct mailaddr *);
-void filter_line(uint64_t, int, const char *);
-void filter_eom(uint64_t, int, size_t);
-void filter_event(uint64_t, int);
-void filter_build_fd_chain(uint64_t, int);
-
-
 /* forward.c */
 int forwards_get(int, struct expand *);
 
@@ -1254,7 +1245,7 @@ size_t mda_expand_format(char *, size_t, const struct envelope *,
 
 
 /* makemap.c */
-int makemap(int, char **);
+int makemap(int, int, char **);
 
 
 /* mailaddr.c */

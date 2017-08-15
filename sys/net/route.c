@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.357 2017/05/27 09:51:18 claudio Exp $	*/
+/*	$OpenBSD: route.c,v 1.366 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -134,11 +134,6 @@
 #include <netmpls/mpls.h>
 #endif
 
-#ifdef IPSEC
-#include <netinet/ip_ipsp.h>
-#include <net/if_enc.h>
-#endif
-
 #ifdef BFD
 #include <net/bfd.h>
 #endif
@@ -165,11 +160,6 @@ void	rtflushclone(unsigned int, struct rtentry *);
 int	rt_ifa_purge_walker(struct rtentry *, void *, unsigned int);
 struct rtentry *rt_match(struct sockaddr *, uint32_t *, int, unsigned int);
 struct sockaddr *rt_plentosa(sa_family_t, int, struct sockaddr_in6 *);
-
-struct	ifaddr *ifa_ifwithroute(int, struct sockaddr *, struct sockaddr *,
-		    u_int);
-int	rtrequest_delete(struct rt_addrinfo *, u_int8_t, struct ifnet *,
-	    struct rtentry **, u_int);
 
 #ifdef DDB
 void	db_print_sa(struct sockaddr *);
@@ -268,7 +258,7 @@ rt_match(struct sockaddr *dst, uint32_t *src, int flags, unsigned int tableid)
 				    error, tableid);
 			} else {
 				/* Inform listeners of the new route */
-				rtm_send(rt, RTM_ADD, tableid);
+				rtm_send(rt, RTM_ADD, 0, tableid);
 				rtfree(rt0);
 			}
 			KERNEL_UNLOCK();
@@ -279,7 +269,6 @@ rt_match(struct sockaddr *dst, uint32_t *src, int flags, unsigned int tableid)
 	return (rt);
 }
 
-#ifndef SMALL_KERNEL
 /*
  * Originated from bridge_hash() in if_bridge.c
  */
@@ -361,7 +350,6 @@ rtalloc_mpath(struct sockaddr *dst, uint32_t *src, unsigned int rtableid)
 {
 	return (rt_match(dst, src, RT_RESOLVE, rtableid));
 }
-#endif /* SMALL_KERNEL */
 
 /*
  * Look in the routing table for the best matching entry for
@@ -385,7 +373,7 @@ rt_setgwroute(struct rtentry *rt, u_int rtableid)
 {
 	struct rtentry *nhrt;
 
-	KERNEL_ASSERT_LOCKED();
+	NET_ASSERT_LOCKED();
 
 	KASSERT(ISSET(rt->rt_flags, RTF_GATEWAY));
 
@@ -442,7 +430,7 @@ rt_putgwroute(struct rtentry *rt)
 {
 	struct rtentry *nhrt = rt->rt_gwroute;
 
-	KERNEL_ASSERT_LOCKED();
+	NET_ASSERT_LOCKED();
 
 	if (!ISSET(rt->rt_flags, RTF_GATEWAY) || nhrt == NULL)
 		return;
@@ -624,7 +612,9 @@ out:
 	info.rti_info[RTAX_DST] = dst;
 	info.rti_info[RTAX_GATEWAY] = gateway;
 	info.rti_info[RTAX_AUTHOR] = src;
+	KERNEL_LOCK();
 	rtm_miss(RTM_REDIRECT, &info, flags, prio, ifidx, error, rdomain);
+	KERNEL_UNLOCK();
 }
 
 /*
@@ -635,7 +625,6 @@ rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 {
 	int			error;
 	struct rt_addrinfo	info;
-	unsigned int		ifidx;
 	struct sockaddr_in6	sa_mask;
 
 	KASSERT(rt->rt_ifidx == ifp->if_index);
@@ -645,16 +634,15 @@ rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 	 * deleted.  That will allow the information being reported to
 	 * be accurate (and consistent with route_output()).
 	 */
-	bzero((caddr_t)&info, sizeof(info));
+	memset(&info, 0, sizeof(info));
 	info.rti_info[RTAX_DST] = rt_key(rt);
+	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 	if (!ISSET(rt->rt_flags, RTF_HOST))
 		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
-	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-	info.rti_flags = rt->rt_flags;
-	ifidx = rt->rt_ifidx;
 	error = rtrequest_delete(&info, rt->rt_priority, ifp, &rt, tableid);
-	rtm_miss(RTM_DELETE, &info, info.rti_flags, rt->rt_priority, ifidx,
-	    error, tableid);
+	KERNEL_LOCK();
+	rtm_send(rt, RTM_DELETE, error, tableid);
+	KERNEL_UNLOCK();
 	if (error == 0)
 		rtfree(rt);
 	return (error);
@@ -712,120 +700,6 @@ rtflushclone(unsigned int rtableid, struct rtentry *parent)
 	rtable_walk(rtableid, rt_key(parent)->sa_family, rtflushclone1, parent);
 }
 
-struct ifaddr *
-ifa_ifwithroute(int flags, struct sockaddr *dst, struct sockaddr *gateway,
-    u_int rtableid)
-{
-	struct ifaddr	*ifa;
-
-	if ((flags & RTF_GATEWAY) == 0) {
-		/*
-		 * If we are adding a route to an interface,
-		 * and the interface is a pt to pt link
-		 * we should search for the destination
-		 * as our clue to the interface.  Otherwise
-		 * we can use the local address.
-		 */
-		ifa = NULL;
-		if (flags & RTF_HOST)
-			ifa = ifa_ifwithdstaddr(dst, rtableid);
-		if (ifa == NULL)
-			ifa = ifa_ifwithaddr(gateway, rtableid);
-	} else {
-		/*
-		 * If we are adding a route to a remote net
-		 * or host, the gateway may still be on the
-		 * other end of a pt to pt link.
-		 */
-		ifa = ifa_ifwithdstaddr(gateway, rtableid);
-	}
-	if (ifa == NULL) {
-		if (gateway->sa_family == AF_LINK) {
-			struct sockaddr_dl *sdl = satosdl(gateway);
-			struct ifnet *ifp = if_get(sdl->sdl_index);
-
-			if (ifp != NULL)
-				ifa = ifaof_ifpforaddr(dst, ifp);
-			if_put(ifp);
-		} else {
-			struct rtentry *rt;
-
-			rt = rtalloc(gateway, RT_RESOLVE, rtable_l2(rtableid));
-			if (rt != NULL)
-				ifa = rt->rt_ifa;
-			rtfree(rt);
-		}
-	}
-	if (ifa == NULL)
-		return (NULL);
-	if (ifa->ifa_addr->sa_family != dst->sa_family) {
-		struct ifaddr	*oifa = ifa;
-		ifa = ifaof_ifpforaddr(dst, ifa->ifa_ifp);
-		if (ifa == NULL)
-			ifa = oifa;
-	}
-	return (ifa);
-}
-
-int
-rt_getifa(struct rt_addrinfo *info, u_int rtid)
-{
-	struct ifnet	*ifp = NULL;
-
-	/*
-	 * ifp may be specified by sockaddr_dl when protocol address
-	 * is ambiguous
-	 */
-	if (info->rti_info[RTAX_IFP] != NULL) {
-		struct sockaddr_dl *sdl;
-
-		sdl = satosdl(info->rti_info[RTAX_IFP]);
-		ifp = if_get(sdl->sdl_index);
-	}
-
-#ifdef IPSEC
-	/*
-	 * If the destination is a PF_KEY address, we'll look
-	 * for the existence of a encap interface number or address
-	 * in the options list of the gateway. By default, we'll return
-	 * enc0.
-	 */
-	if (info->rti_info[RTAX_DST] &&
-	    info->rti_info[RTAX_DST]->sa_family == PF_KEY)
-		info->rti_ifa = enc_getifa(rtid, 0);
-#endif
-
-	if (info->rti_ifa == NULL && info->rti_info[RTAX_IFA] != NULL)
-		info->rti_ifa = ifa_ifwithaddr(info->rti_info[RTAX_IFA], rtid);
-
-	if (info->rti_ifa == NULL) {
-		struct sockaddr	*sa;
-
-		if ((sa = info->rti_info[RTAX_IFA]) == NULL)
-			if ((sa = info->rti_info[RTAX_GATEWAY]) == NULL)
-				sa = info->rti_info[RTAX_DST];
-
-		if (sa != NULL && ifp != NULL)
-			info->rti_ifa = ifaof_ifpforaddr(sa, ifp);
-		else if (info->rti_info[RTAX_DST] != NULL &&
-		    info->rti_info[RTAX_GATEWAY] != NULL)
-			info->rti_ifa = ifa_ifwithroute(info->rti_flags,
-			    info->rti_info[RTAX_DST],
-			    info->rti_info[RTAX_GATEWAY],
-			    rtid);
-		else if (sa != NULL)
-			info->rti_ifa = ifa_ifwithroute(info->rti_flags,
-			    sa, sa, rtid);
-	}
-
-	if_put(ifp);
-
-	if (info->rti_ifa == NULL)
-		return (ENETUNREACH);
-
-	return (0);
-}
-
 int
 rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
     struct rtentry **ret_nrt, u_int tableid)
@@ -847,18 +721,6 @@ rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
 		rtfree(rt);
 		return (ESRCH);
 	}
-
-#ifndef SMALL_KERNEL
-	/*
-	 * If we got multipath routes, we require users to specify
-	 * a matching gateway.
-	 */
-	if ((rt->rt_flags & RTF_MPATH) &&
-	    info->rti_info[RTAX_GATEWAY] == NULL) {
-		rtfree(rt);
-		return (ESRCH);
-	}
-#endif
 
 #ifdef BFD
 	if (ISSET(rt->rt_flags, RTF_BFD))
@@ -884,16 +746,8 @@ rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
 
 	rt->rt_flags &= ~RTF_UP;
 
-	if (ifp == NULL) {
-		ifp = if_get(rt->rt_ifidx);
-		if (ifp != NULL) {
-			ifp->if_rtrequest(ifp, RTM_DELETE, rt);
-			if_put(ifp);
-		}
-	} else {
-		KASSERT(ifp->if_index == rt->rt_ifidx);
-		ifp->if_rtrequest(ifp, RTM_DELETE, rt);
-	}
+	KASSERT(ifp->if_index == rt->rt_ifidx);
+	ifp->if_rtrequest(ifp, RTM_DELETE, rt);
 
 	atomic_inc_int(&rttrash);
 
@@ -928,10 +782,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		info->rti_info[RTAX_NETMASK] = NULL;
 	switch (req) {
 	case RTM_DELETE:
-		error = rtrequest_delete(info, prio, NULL, ret_nrt, tableid);
-		if (error)
-			return (error);
-		break;
+		return (EINVAL);
 
 	case RTM_RESOLVE:
 		if (ret_nrt == NULL || (rt = *ret_nrt) == NULL)
@@ -948,8 +799,8 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		/* FALLTHROUGH */
 
 	case RTM_ADD:
-		if (info->rti_ifa == NULL && (error = rt_getifa(info, tableid)))
-			return (error);
+		if (info->rti_ifa == NULL)
+			return (EINVAL);
 		ifa = info->rti_ifa;
 		ifp = ifa->ifa_ifp;
 		if (prio == 0)
@@ -977,7 +828,6 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		rt->rt_priority = prio;	/* init routing priority */
 		LIST_INIT(&rt->rt_timer);
 
-#ifndef SMALL_KERNEL
 		/* Check the link state if the table supports it. */
 		if (rtable_mpath_capable(tableid, ndst->sa_family) &&
 		    !ISSET(rt->rt_flags, RTF_LOCAL) &&
@@ -986,7 +836,6 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 			rt->rt_flags &= ~RTF_UP;
 			rt->rt_priority |= RTP_DOWN;
 		}
-#endif
 
 		if (info->rti_info[RTAX_LABEL] != NULL) {
 			sa_rl = (struct sockaddr_rtlabel *)
@@ -1201,7 +1050,7 @@ rt_ifa_add(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 		 */
 		if (flags & RTF_LOCAL)
 			rtm_addr(rt, RTM_NEWADDR, ifa);
-		rtm_send(rt, RTM_ADD, rtableid);
+		rtm_send(rt, RTM_ADD, 0, rtableid);
 		rtfree(rt);
 	}
 	return (error);
@@ -1254,7 +1103,7 @@ rt_ifa_del(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 
 	error = rtrequest_delete(&info, prio, ifp, &rt, rtableid);
 	if (error == 0) {
-		rtm_send(rt, RTM_DELETE, rtableid);
+		rtm_send(rt, RTM_DELETE, 0, rtableid);
 		if (flags & RTF_LOCAL)
 			rtm_addr(rt, RTM_DELADDR, ifa);
 		rtfree(rt);
@@ -1409,16 +1258,17 @@ rt_ifa_purge_walker(struct rtentry *rt, void *vifa, unsigned int rtableid)
 LIST_HEAD(, rttimer_queue)	rttimer_queue_head;
 static int			rt_init_done = 0;
 
-#define RTTIMER_CALLOUT(r)	{				\
-	if (r->rtt_func != NULL) {				\
-		(*r->rtt_func)(r->rtt_rt, r);			\
-	} else {						\
-		struct rt_addrinfo info;			\
-		bzero(&info, sizeof(info));			\
-		info.rti_info[RTAX_DST] = rt_key(r->rtt_rt);	\
-		rtrequest(RTM_DELETE, &info,			\
-		    r->rtt_rt->rt_priority, NULL, r->rtt_tableid);	\
-	}							\
+#define RTTIMER_CALLOUT(r)	{					\
+	if (r->rtt_func != NULL) {					\
+		(*r->rtt_func)(r->rtt_rt, r);				\
+	} else {							\
+		struct ifnet *ifp;					\
+									\
+		ifp = if_get(r->rtt_rt->rt_ifidx);			\
+		if (ifp != NULL) 					\
+			rtdeletemsg(r->rtt_rt, ifp, r->rtt_tableid);	\
+		if_put(ifp);						\
+	}								\
 }
 
 /*
@@ -1564,11 +1414,10 @@ rt_timer_timer(void *arg)
 	struct rttimer_queue	*rtq;
 	struct rttimer		*r;
 	long			 current_time;
-	int			 s;
 
 	current_time = time_uptime;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	LIST_FOREACH(rtq, &rttimer_queue_head, rtq_link) {
 		while ((r = TAILQ_FIRST(&rtq->rtq_head)) != NULL &&
 		    (r->rtt_time + rtq->rtq_timeout) < current_time) {
@@ -1582,7 +1431,7 @@ rt_timer_timer(void *arg)
 				printf("rt_timer_timer: rtq_count reached 0\n");
 		}
 	}
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	timeout_add_sec(to, 1);
 }
@@ -1677,7 +1526,6 @@ rtlabel_unref(u_int16_t id)
 	}
 }
 
-#ifndef SMALL_KERNEL
 void
 rt_if_track(struct ifnet *ifp)
 {
@@ -1746,7 +1594,6 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 
 	return (0);
 }
-#endif
 
 struct sockaddr *
 rt_plentosa(sa_family_t af, int plen, struct sockaddr_in6 *sa_mask)
@@ -1786,11 +1633,7 @@ rt_plentosa(sa_family_t af, int plen, struct sockaddr_in6 *sa_mask)
 struct sockaddr *
 rt_plen2mask(struct rtentry *rt, struct sockaddr_in6 *sa_mask)
 {
-#ifndef ART
-	return (rt_mask(rt));
-#else
 	return (rt_plentosa(rt_key(rt)->sa_family, rt_plen(rt), sa_mask));
-#endif /* ART */
 }
 
 #ifdef DDB

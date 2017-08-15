@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1820 2017/06/02 16:04:11 kettenis Exp 
+ *	OpenBSD: pcidevs,v 1.1823 2017/07/16 13:41:58 kettenis Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -2150,6 +2150,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_ASIX, PCI_PRODUCT_ASIX_AX88140A,
 	    "AX88140A/88141",
+	},
+	{
+	    PCI_VENDOR_ASIX, PCI_PRODUCT_ASIX_AX99100,
+	    "AX99100",
 	},
 	{
 	    PCI_VENDOR_ASMEDIA, PCI_PRODUCT_ASMEDIA_ASM1061_SATA,
@@ -11280,6 +11284,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Core 6G PCIE",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_S_GT1,
+	    "HD Graphics 510",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_THERM,
 	    "Core 6G Thermal",
 	},
@@ -11316,7 +11324,7 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Core GMM",
 	},
 	{
-	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_D_GT2_1,
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_S_GT2,
 	    "HD Graphics 530",
 	},
 	{
@@ -11332,6 +11340,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "HD Graphics 530",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEONE3_1200V5_GT2,
+	    "HD Graphics P530",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_Y_GT2,
 	    "HD Graphics 515",
 	},
@@ -11340,8 +11352,16 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Core 6G Host",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_U_GT3,
+	    "Iris 540/550",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_H_GT4,
-	    "Iris Pro Graphics 580",
+	    "Iris Pro 580",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEONE3_1500V5_GT4,
+	    "Iris Pro P580",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_80960RP_ATU,
@@ -12024,6 +12044,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Braswell PCIE",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_SENSOR,
+	    "Braswell Sensor Hub",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_PM,
 	    "Braswell Power",
 	},
@@ -12386,6 +12410,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82820_AGP,
 	    "82820 AGP",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_OPTANE,
+	    "Optane",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82850_HB,

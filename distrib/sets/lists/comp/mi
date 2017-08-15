@@ -2,6 +2,9 @@
 ./usr/bin/c++
 ./usr/bin/c++filt
 ./usr/bin/cpp
+./usr/bin/ctfconv
+./usr/bin/ctfdump
+./usr/bin/ctfstrip
 ./usr/bin/flex
 ./usr/bin/flex++
 ./usr/bin/gprof
@@ -11,7 +14,6 @@
 ./usr/bin/objdump
 ./usr/bin/ranlib
 ./usr/bin/rpcgen
-./usr/bin/strip
 ./usr/bin/yacc
 ./usr/include/FlexLexer.h
 ./usr/include/a.out.h
@@ -1230,7 +1232,6 @@
 ./usr/include/sys/dirent.h
 ./usr/include/sys/disk.h
 ./usr/include/sys/disklabel.h
-./usr/include/sys/dkbad.h
 ./usr/include/sys/dkio.h
 ./usr/include/sys/domain.h
 ./usr/include/sys/endian.h
@@ -1498,6 +1499,9 @@
 ./usr/share/man/man1/ar.1
 ./usr/share/man/man1/c++filt.1
 ./usr/share/man/man1/clang-local.1
+./usr/share/man/man1/ctfconv.1
+./usr/share/man/man1/ctfdump.1
+./usr/share/man/man1/ctfstrip.1
 ./usr/share/man/man1/flex.1
 ./usr/share/man/man1/gcc-local.1
 ./usr/share/man/man1/gprof.1
@@ -1866,6 +1870,7 @@
 ./usr/share/man/man3/SSL_CTX_sess_set_cache_size.3
 ./usr/share/man/man3/SSL_CTX_sess_set_get_cb.3
 ./usr/share/man/man3/SSL_CTX_sessions.3
+./usr/share/man/man3/SSL_CTX_set1_groups.3
 ./usr/share/man/man3/SSL_CTX_set_alpn_select_cb.3
 ./usr/share/man/man3/SSL_CTX_set_cert_store.3
 ./usr/share/man/man3/SSL_CTX_set_cert_verify_callback.3
@@ -1945,6 +1950,7 @@
 ./usr/share/man/man3/SSL_set_max_send_fragment.3
 ./usr/share/man/man3/SSL_set_session.3
 ./usr/share/man/man3/SSL_set_shutdown.3
+./usr/share/man/man3/SSL_set_tmp_ecdh.3
 ./usr/share/man/man3/SSL_set_verify_result.3
 ./usr/share/man/man3/SSL_shutdown.3
 ./usr/share/man/man3/SSL_state_string.3
@@ -2685,7 +2691,6 @@
 ./usr/share/man/man3/wscanf.3
 ./usr/share/man/man3/xdr.3
 ./usr/share/man/man3/ypclnt.3
-./usr/share/man/man4/octeon/octmmc.4
 ./usr/share/man/man4/vmmci.4
 ./usr/share/man/man4/xbf.4
 ./usr/share/man/man9/RBT_INIT.9
@@ -2775,6 +2780,7 @@
 ./usr/share/man/man9/physio.9
 ./usr/share/man/man9/pmap.9
 ./usr/share/man/man9/pool.9
+./usr/share/man/man9/pool_cache_init.9
 ./usr/share/man/man9/ppsratecheck.9
 ./usr/share/man/man9/printf.9
 ./usr/share/man/man9/psignal.9

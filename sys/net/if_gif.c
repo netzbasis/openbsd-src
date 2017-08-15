@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gif.c,v 1.96 2017/05/18 10:56:45 bluhm Exp $	*/
+/*	$OpenBSD: if_gif.c,v 1.99 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$KAME: if_gif.c,v 1.43 2001/02/20 08:51:07 itojun Exp $	*/
 
 /*
@@ -106,7 +106,6 @@ int
 gif_clone_create(struct if_clone *ifc, int unit)
 {
 	struct gif_softc *sc;
-	int s;
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_NOWAIT|M_ZERO);
 	if (!sc)
@@ -130,9 +129,9 @@ gif_clone_create(struct if_clone *ifc, int unit)
 #if NBPFILTER > 0
 	bpfattach(&sc->gif_if.if_bpf, &sc->gif_if, DLT_LOOP, sizeof(u_int32_t));
 #endif
-	NET_LOCK(s);
+	NET_LOCK();
 	LIST_INSERT_HEAD(&gif_softc_list, sc, gif_list);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	return (0);
 }
@@ -141,11 +140,10 @@ int
 gif_clone_destroy(struct ifnet *ifp)
 {
 	struct gif_softc *sc = ifp->if_softc;
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	LIST_REMOVE(sc, gif_list);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	if_detach(ifp);
 
@@ -277,7 +275,7 @@ gif_encap(struct ifnet *ifp, struct mbuf **mp, sa_family_t af)
 		break;
 #endif
 	default:
-		m_freem(*mp);
+		m_freemp(mp);
 		error = EAFNOSUPPORT;
 		break;
 	}
@@ -751,7 +749,7 @@ in_gif_input(struct mbuf **mp, int *offp, int proto, int af)
 		gifp->if_ipackets++;
 		gifp->if_ibytes += m->m_pkthdr.len;
 		/* We have a configured GIF */
-		return ipip_input_gif(mp, offp, proto, af, gifp);
+		return ipip_input_if(mp, offp, proto, af, gifp);
 	}
 
 inject:
@@ -876,7 +874,7 @@ int in6_gif_input(struct mbuf **mp, int *offp, int proto, int af)
 	        m->m_pkthdr.ph_ifidx = gifp->if_index;
 		gifp->if_ipackets++;
 		gifp->if_ibytes += m->m_pkthdr.len;
-		return ipip_input_gif(mp, offp, proto, af, gifp);
+		return ipip_input_if(mp, offp, proto, af, gifp);
 	}
 
 inject:

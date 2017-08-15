@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.7 2017/05/07 11:07:48 kettenis Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.11 2017/08/07 19:34:53 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -52,6 +52,8 @@ static EFI_GUID		 imgp_guid = LOADED_IMAGE_PROTOCOL;
 static EFI_GUID		 blkio_guid = BLOCK_IO_PROTOCOL;
 static EFI_GUID		 devp_guid = DEVICE_PATH_PROTOCOL;
 
+static int efi_device_path_depth(EFI_DEVICE_PATH *dp, int);
+static int efi_device_path_ncmp(EFI_DEVICE_PATH *, EFI_DEVICE_PATH *, int);
 static void	 efi_heap_init(void);
 static void	 efi_memprobe_internal(void);
 static void	 efi_timer_init(void);
@@ -169,13 +171,13 @@ EFI_BLOCK_IO	*disk;
 void
 efi_diskprobe(void)
 {
-	int			 i, bootdev;
+	int			 i, depth = -1;
 	UINTN			 sz;
 	EFI_STATUS		 status;
 	EFI_HANDLE		*handles = NULL;
 	EFI_BLOCK_IO		*blkio;
 	EFI_BLOCK_IO_MEDIA	*media;
-	EFI_DEVICE_PATH		*dp, *bp;
+	EFI_DEVICE_PATH		*dp;
 
 	sz = 0;
 	status = EFI_CALL(BS->LocateHandle, ByProtocol, &blkio_guid, 0, &sz, 0);
@@ -187,8 +189,19 @@ efi_diskprobe(void)
 	if (handles == NULL || EFI_ERROR(status))
 		panic("BS->LocateHandle() returns %d", status);
 
+	if (efi_bootdp != NULL)
+		depth = efi_device_path_depth(efi_bootdp, MEDIA_DEVICE_PATH);
+
+	/*
+	 * U-Boot incorrectly represents devices with a single
+	 * MEDIA_DEVICE_PATH component.  In that case include that
+	 * component into the matching, otherwise we'll blindly select
+	 * the first device.
+	 */
+	if (depth == 0)
+		depth = 1;
+
 	for (i = 0; i < sz / sizeof(EFI_HANDLE); i++) {
-		bootdev = 0;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &blkio_guid,
 		    (void **)&blkio);
 		if (EFI_ERROR(status))
@@ -198,32 +211,58 @@ efi_diskprobe(void)
 		if (media->LogicalPartition || !media->MediaPresent)
 			continue;
 
-		if (efi_bootdp == NULL)
-			goto next;
+		if (efi_bootdp == NULL || depth == -1)
+			continue;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &devp_guid,
 		    (void **)&dp);
 		if (EFI_ERROR(status))
-			goto next;
-		bp = efi_bootdp;
-		while (1) {
-			if (IsDevicePathEnd(dp)) {
-				bootdev = 1;
-				break;
-			}
-			if (memcmp(dp, bp, sizeof(EFI_DEVICE_PATH)) != 0 ||
-			    memcmp(dp, bp, DevicePathNodeLength(dp)) != 0)
-				break;
-			dp = NextDevicePathNode(dp);
-			bp = NextDevicePathNode(bp);
-		}
-next:
-		if (bootdev) {
+			continue;
+		if (efi_device_path_ncmp(efi_bootdp, dp, depth) == 0) {
 			disk = blkio;
 			break;
 		}
 	}
 
 	free(handles, sz);
+}
+
+/*
+ * Determine the number of nodes up to, but not including, the first
+ * node of the specified type.
+ */
+static int
+efi_device_path_depth(EFI_DEVICE_PATH *dp, int dptype)
+{
+	int	i;
+
+	for (i = 0; !IsDevicePathEnd(dp); dp = NextDevicePathNode(dp), i++) {
+		if (DevicePathType(dp) == dptype)
+			return (i);
+	}
+
+	return (-1);
+}
+
+static int
+efi_device_path_ncmp(EFI_DEVICE_PATH *dpa, EFI_DEVICE_PATH *dpb, int deptn)
+{
+	int	 i, cmp;
+
+	for (i = 0; i < deptn; i++) {
+		if (IsDevicePathEnd(dpa) || IsDevicePathEnd(dpb))
+			return ((IsDevicePathEnd(dpa) && IsDevicePathEnd(dpb))
+			    ? 0 : (IsDevicePathEnd(dpa))? -1 : 1);
+		cmp = DevicePathNodeLength(dpa) - DevicePathNodeLength(dpb);
+		if (cmp)
+			return (cmp);
+		cmp = memcmp(dpa, dpb, DevicePathNodeLength(dpa));
+		if (cmp)
+			return (cmp);
+		dpa = NextDevicePathNode(dpa);
+		dpb = NextDevicePathNode(dpb);
+	}
+
+	return (0);
 }
 
 static EFI_GUID fdt_guid = FDT_TABLE_GUID;
@@ -356,17 +395,9 @@ _rtt(void)
 	printf("Hit any key to reboot\n");
 	efi_cons_getc(0);
 #endif
-	/*
-	 * XXX ResetSystem doesn't seem to work on U-Boot 2016.05 on
-	 * the CuBox-i.  So trigger an unimplemented instruction trap
-	 * instead.
-	 */
-#if 1
-	asm volatile(".word 0xa000f7f0\n");
-#else
 	RS->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
-#endif
-	while (1) { }
+	for (;;)
+		continue;
 }
 
 /*
@@ -595,4 +626,33 @@ efi_memprobe_find(UINTN pages, UINTN align, EFI_PHYSICAL_ADDRESS *addr)
 		}
 	}
 	return EFI_OUT_OF_RESOURCES;
+}
+
+/*
+ * Commands
+ */
+
+int Xexit_efi(void);
+int Xpoweroff_efi(void);
+
+const struct cmd_table cmd_machine[] = {
+	{ "exit",	CMDT_CMD, Xexit_efi },
+	{ "poweroff",	CMDT_CMD, Xpoweroff_efi },
+	{ NULL, 0 }
+};
+
+int
+Xexit_efi(void)
+{
+	EFI_CALL(BS->Exit, IH, 0, 0, NULL);
+	for (;;)
+		continue;
+	return (0);
+}
+
+int
+Xpoweroff_efi(void)
+{
+	EFI_CALL(RS->ResetSystem, EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+	return (0);
 }

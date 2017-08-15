@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.211 2017/06/03 04:34:41 tb Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.217 2017/07/28 02:14:56 rob Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -31,7 +31,9 @@
 #include <sys/mbuf.h>
 #include <sys/mman.h>
 #include <sys/sysctl.h>
+#include <sys/syslog.h>
 #include <sys/ktrace.h>
+#include <sys/acct.h>
 
 #include <sys/ioctl.h>
 #include <sys/termios.h>
@@ -579,8 +581,9 @@ pledge_fail(struct proc *p, int error, uint64_t code)
 			codes = pledgenames[i].name;
 			break;
 		}
-	printf("%s(%d): syscall %d \"%s\"\n", p->p_p->ps_comm, p->p_p->ps_pid,
-	    p->p_pledge_syscall, codes);
+	log(LOG_ERR, "%s(%d): syscall %d \"%s\"\n",
+	    p->p_p->ps_comm, p->p_p->ps_pid, p->p_pledge_syscall, codes);
+	p->p_p->ps_acflag |= APLEDGE;
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_PLEDGE))
 		ktrpledge(p, error, code, p->p_pledge_syscall);
@@ -891,6 +894,7 @@ pledge_sendfd(struct proc *p, struct file *fp)
 int
 pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 {
+	char	buf[80];
 	int	i;
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
@@ -1055,10 +1059,13 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 	    mib[0] == CTL_VM && mib[1] == VM_LOADAVG)
 		return (0);
 
-	printf("%s(%d): sysctl %d:", p->p_p->ps_comm, p->p_p->ps_pid, miblen);
-	for (i = 0; i < miblen; i++)
-		printf(" %d", mib[i]);
-	printf("\n");
+	snprintf(buf, sizeof(buf), "%s(%d): sysctl %d:",
+	    p->p_p->ps_comm, p->p_p->ps_pid, miblen);
+	for (i = 0; i < miblen; i++) {
+		char *p = buf + strlen(buf);
+		snprintf(p, sizeof(buf) - (p - buf), " %d", mib[i]);
+	}
+	log(LOG_ERR, "%s\n", buf);
 
 	return pledge_fail(p, EINVAL, 0);
 }
@@ -1266,11 +1273,6 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 				break;
 			return (0);
 #endif /* NPTY > 0 */
-		case TIOCSTI:		/* ksh? csh? */
-			if ((p->p_p->ps_pledge & PLEDGE_PROC) &&
-			    fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
-				return (0);
-			break;
 		case TIOCSPGRP:
 			if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0)
 				break;
@@ -1279,6 +1281,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case TIOCGPGRP:
 		case TIOCGETA:
 		case TIOCGWINSZ:	/* ENOTTY return for non-tty */
+		case TIOCSTAT:		/* csh */
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 				return (0);
 			return (ENOTTY);
@@ -1302,6 +1305,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
 		switch (com) {
 		case SIOCGIFADDR:
+		case SIOCGIFDESCR:
 		case SIOCGIFFLAGS:
 		case SIOCGIFMETRIC:
 		case SIOCGIFGMEMB:

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.29 2017/01/27 17:59:09 natano Exp $
+#	$OpenBSD: Makefile.inc,v 1.31 2017/08/12 19:41:16 jasper Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -15,6 +15,7 @@ PID!=		echo $$$$
 REALIMAGE!=	echo /var/tmp/image.${PID}
 
 STRIP?=		strip
+STRIPOPTS?=	-R .SUNW_ctf
 GZIPCMD?=	gzip
 GZIPFLAGS?=	-9fn
 INSTALLBOOT?=	/usr/mdec/installboot -v
@@ -64,7 +65,7 @@ ${FLOPPY}:	bsd.gz
 
 bsd.gz:	bsd.rd
 	objcopy -Sg -R .comment bsd.rd bsd.strip
-	${STRIP} bsd.strip
+	${STRIP} ${STRIPOPTS} bsd.strip
 	${GZIPCMD} -c ${GZIPFLAGS} bsd.strip > bsd.gz
 
 bsd.rd: bsd ${IMAGE} rdsetroot
@@ -73,7 +74,7 @@ bsd.rd: bsd ${IMAGE} rdsetroot
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Os ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
 	cp -p ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK}/obj/bsd bsd
 
 ${IMAGE}: ${CBIN}

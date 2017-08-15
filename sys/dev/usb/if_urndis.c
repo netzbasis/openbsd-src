@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urndis.c,v 1.65 2017/04/08 02:57:25 deraadt Exp $ */
+/*	$OpenBSD: if_urndis.c,v 1.67 2017/07/19 16:31:56 mikeb Exp $ */
 
 /*
  * Copyright (c) 2010 Jonathan Armani <armani@openbsd.org>
@@ -89,6 +89,8 @@ u_int32_t urndis_ctrl_handle_init(struct urndis_softc *,
 u_int32_t urndis_ctrl_handle_query(struct urndis_softc *,
     const struct rndis_comp_hdr *, void **, size_t *);
 u_int32_t urndis_ctrl_handle_reset(struct urndis_softc *,
+    const struct rndis_comp_hdr *);
+u_int32_t urndis_ctrl_handle_status(struct urndis_softc *,
     const struct rndis_comp_hdr *);
 
 u_int32_t urndis_ctrl_init(struct urndis_softc *);
@@ -233,6 +235,10 @@ urndis_ctrl_handle(struct urndis_softc *sc, struct rndis_comp_hdr *hdr,
 		case REMOTE_NDIS_KEEPALIVE_CMPLT:
 		case REMOTE_NDIS_SET_CMPLT:
 			rval = letoh32(hdr->rm_status);
+			break;
+
+		case REMOTE_NDIS_INDICATE_STATUS_MSG:
+			rval = urndis_ctrl_handle_status(sc, hdr);
 			break;
 
 		default:
@@ -402,13 +408,45 @@ urndis_ctrl_handle_reset(struct urndis_softc *sc,
 }
 
 u_int32_t
+urndis_ctrl_handle_status(struct urndis_softc *sc,
+    const struct rndis_comp_hdr *hdr)
+{
+	const struct rndis_status_msg	*msg;
+	u_int32_t			 rval;
+
+	msg = (struct rndis_status_msg *)hdr;
+
+	rval = letoh32(msg->rm_status);
+
+	DPRINTF(("%s: urndis_ctrl_handle_status: len %u status 0x%x "
+	    "stbuflen %u\n",
+	    DEVNAME(sc),
+	    letoh32(msg->rm_len),
+	    rval,
+	    letoh32(msg->rm_stbuflen)));
+
+	switch (rval) {
+		case RNDIS_STATUS_MEDIA_CONNECT:
+		case RNDIS_STATUS_MEDIA_DISCONNECT:
+		case RNDIS_STATUS_OFFLOAD_CURRENT_CONFIG:
+			rval = RNDIS_STATUS_SUCCESS;
+			break;
+
+		default:
+			printf("%s: status 0x%x\n", DEVNAME(sc), rval);
+	}
+
+	return rval;
+}
+
+u_int32_t
 urndis_ctrl_init(struct urndis_softc *sc)
 {
 	struct rndis_init_req	*msg;
 	u_int32_t		 rval;
 	struct rndis_comp_hdr	*hdr;
 
-	msg = malloc(sizeof(*msg), M_TEMP, M_WAITOK);
+	msg = malloc(sizeof(*msg), M_TEMP, M_WAITOK | M_CANFAIL);
 	if (msg == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -454,7 +492,7 @@ urndis_ctrl_halt(struct urndis_softc *sc)
 	struct rndis_halt_req	*msg;
 	u_int32_t		 rval;
 
-	msg = malloc(sizeof(*msg), M_TEMP, M_WAITOK);
+	msg = malloc(sizeof(*msg), M_TEMP, M_WAITOK | M_CANFAIL);
 	if (msg == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -488,7 +526,7 @@ urndis_ctrl_query(struct urndis_softc *sc, u_int32_t oid,
 	u_int32_t		 rval;
 	struct rndis_comp_hdr	*hdr;
 
-	msg = malloc(sizeof(*msg) + qlen, M_TEMP, M_WAITOK);
+	msg = malloc(sizeof(*msg) + qlen, M_TEMP, M_WAITOK | M_CANFAIL);
 	if (msg == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -541,7 +579,7 @@ urndis_ctrl_set(struct urndis_softc *sc, u_int32_t oid, void *buf, size_t len)
 	u_int32_t		 rval;
 	struct rndis_comp_hdr	*hdr;
 
-	msg = malloc(sizeof(*msg) + len, M_TEMP, M_WAITOK);
+	msg = malloc(sizeof(*msg) + len, M_TEMP, M_WAITOK | M_CANFAIL);
 	if (msg == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -605,7 +643,7 @@ urndis_ctrl_set_param(struct urndis_softc *sc,
 	else
 		namelen = 0;
 	tlen = sizeof(*param) + len + namelen;
-	param = malloc(tlen, M_TEMP, M_WAITOK);
+	param = malloc(tlen, M_TEMP, M_WAITOK | M_CANFAIL);
 	if (param == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -651,7 +689,7 @@ urndis_ctrl_reset(struct urndis_softc *sc)
 	u_int32_t			 rval;
 	struct rndis_comp_hdr		*hdr;
 
-	reset = malloc(sizeof(*reset), M_TEMP, M_WAITOK);
+	reset = malloc(sizeof(*reset), M_TEMP, M_WAITOK | M_CANFAIL);
 	if (reset == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;
@@ -691,7 +729,7 @@ urndis_ctrl_keepalive(struct urndis_softc *sc)
 	u_int32_t			 rval;
 	struct rndis_comp_hdr		*hdr;
 
-	keep = malloc(sizeof(*keep), M_TEMP, M_WAITOK);
+	keep = malloc(sizeof(*keep), M_TEMP, M_WAITOK | M_CANFAIL);
 	if (keep == NULL) {
 		printf("%s: out of memory\n", DEVNAME(sc));
 		return RNDIS_STATUS_FAILURE;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.h,v 1.1 2017/06/03 10:00:29 florian Exp $	*/
+/*	$OpenBSD: slaacd.h,v 1.6 2017/07/30 07:41:08 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -18,14 +18,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define	SLAACD_SOCKET		"/var/run/slaacd.sock"
+#define	SLAACD_SOCKET		"/dev/slaacd.sock"
 #define SLAACD_USER		"_slaacd"
 
 #define OPT_VERBOSE	0x00000001
 #define OPT_VERBOSE2	0x00000002
-
-#define SLAACD_MAXTEXT		256
-#define SLAACD_MAXGROUPNAME	16
 
 /* MAXDNAME from arpa/namesr.h */
 #define SLAACD_MAX_DNSSL	1025
@@ -45,28 +42,30 @@ struct imsgev {
 
 enum imsg_type {
 	IMSG_NONE,
+#ifndef	SMALL
 	IMSG_CTL_LOG_VERBOSE,
 	IMSG_CTL_SHOW_INTERFACE_INFO,
 	IMSG_CTL_SHOW_INTERFACE_INFO_RA,
 	IMSG_CTL_SHOW_INTERFACE_INFO_RA_PREFIX,
 	IMSG_CTL_SHOW_INTERFACE_INFO_RA_RDNS,
 	IMSG_CTL_SHOW_INTERFACE_INFO_RA_DNSSL,
+	IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSALS,
+	IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL,
+	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS,
+	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL,
 	IMSG_CTL_END,
+#endif	/* SMALL */
+	IMSG_CTL_SEND_SOLICITATION,
 	IMSG_SOCKET_IPC,
 	IMSG_STARTUP,
 	IMSG_UPDATE_IF,
 	IMSG_REMOVE_IF,
 	IMSG_RA,
-	IMSG_CTL_SEND_SOLICITATION,
 	IMSG_PROPOSAL,
 	IMSG_PROPOSAL_ACK,
 	IMSG_CONFIGURE_ADDRESS,
 	IMSG_DEL_ADDRESS,
-	IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSALS,
-	IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL,
 	IMSG_FAKE_ACK,
-	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS,
-	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL,
 	IMSG_CONFIGURE_DFR,
 	IMSG_WITHDRAW_DFR,
 };
@@ -79,18 +78,19 @@ enum {
 	PROC_FRONTEND
 } slaacd_process;
 
+enum rpref {
+	LOW,
+	MEDIUM,
+	HIGH,
+};
+
+#ifndef	SMALL
 struct ctl_engine_info {
 	uint32_t		if_index;
 	int			running;
 	int			autoconfprivacy;
 	struct ether_addr	hw_address;
 	struct sockaddr_in6	ll_address;
-};
-
-enum rpref {
-	LOW,
-	MEDIUM,
-	HIGH,
 };
 
 struct ctl_engine_info_ra {
@@ -151,6 +151,7 @@ struct ctl_engine_info_dfr_proposal {
 	uint32_t		 router_lifetime;
 	char			 rpref[sizeof("MEDIUM")];
 };
+#endif	/* SMALL */
 
 struct imsg_ifinfo {
 	uint32_t		if_index;

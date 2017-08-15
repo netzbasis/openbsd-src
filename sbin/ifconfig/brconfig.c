@@ -1,4 +1,4 @@
-/*	$OpenBSD: brconfig.c,v 1.14 2016/11/28 10:12:50 reyk Exp $	*/
+/*	$OpenBSD: brconfig.c,v 1.16 2017/07/31 02:32:11 jsg Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -203,7 +203,7 @@ addlocal(const char *ifsname, int d)
 	strlcpy(breq.ifbr_ifsname, ifsname, sizeof(breq.ifbr_ifsname));
 	if (ioctl(s, SIOCBRDGADDL, (caddr_t)&breq) < 0) {
 		if (errno == EEXIST)
-			errx(1, "%s: local port exists already", name);
+			return;
 		else
 			err(1, "%s: ioctl SIOCBRDGADDL %s", name, ifsname);
 	}
@@ -581,8 +581,7 @@ bridge_ifcost(const char *ifname, const char *val)
 
 	errno = 0;
 	v = strtoul(val, &endptr, 0);
-	if (val[0] == '\0' || endptr[0] != '\0' ||
-	    v < 0 || v > 0xffffffffUL ||
+	if (val[0] == '\0' || endptr[0] != '\0' || v > 0xffffffffUL ||
 	    (errno == ERANGE && v == ULONG_MAX))
 		errx(1, "invalid arg for ifcost: %s", val);
 
@@ -1077,8 +1076,12 @@ switch_portno(const char *ifname, const char *val)
 		errx(1, "invalid arg for portidx: %s", val);
 
 	breq.ifbr_portno = newportidx;
-	if (ioctl(s, SIOCSWSPORTNO, (caddr_t)&breq) < 0)
-		err(1, "%s", name);
+	if (ioctl(s, SIOCSWSPORTNO, (caddr_t)&breq) < 0) {
+		if (errno == EEXIST)
+			return;
+		else
+			err(1, "%s", name);
+	}
 }
 
 #endif

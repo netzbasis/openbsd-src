@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.178 2017/06/03 17:43:01 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.180 2017/08/02 11:10:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1633,6 +1633,7 @@ window_copy_copy_buffer(struct window_pane *wp, const char *bufname, void *buf,
 		screen_write_start(&ctx, wp, NULL);
 		screen_write_setselection(&ctx, buf, len);
 		screen_write_stop(&ctx);
+		notify_pane("pane-set-clipboard", wp);
 	}
 
 	if (paste_set(buf, len, bufname, NULL) != 0)
@@ -1690,6 +1691,7 @@ window_copy_append_selection(struct window_pane *wp, const char *bufname)
 		screen_write_start(&ctx, wp, NULL);
 		screen_write_setselection(&ctx, buf, len);
 		screen_write_stop(&ctx);
+		notify_pane("pane-set-clipboard", wp);
 	}
 
 	if (bufname == NULL || *bufname == '\0')
@@ -2405,14 +2407,17 @@ window_copy_scroll_down(struct window_pane *wp, u_int ny)
 	screen_write_stop(&ctx);
 }
 
-int
-window_copy_scroll_position(struct window_pane *wp)
+void
+window_copy_add_formats(struct window_pane *wp, struct format_tree *ft)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
 
 	if (wp->mode != &window_copy_mode)
-		return (-1);
-	return (data->oy);
+		return;
+
+	format_add(ft, "selection_present", "%d", s->sel.flag);
+	format_add(ft, "scroll_position", "%d", data->oy);
 }
 
 static void

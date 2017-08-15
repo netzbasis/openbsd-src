@@ -4,7 +4,7 @@
 /iter_donotq.h/1.2/Fri Feb 17 18:53:32 2017//
 /iter_fwd.c/1.3/Fri Feb 17 18:53:32 2017//
 /iter_fwd.h/1.2/Fri Feb 17 18:53:32 2017//
-/iter_hints.c/1.9/Fri Feb 17 18:53:32 2017//
+/iter_hints.c/1.10/Sat Aug 12 11:22:46 2017//
 /iter_hints.h/1.2/Fri Feb 17 18:53:32 2017//
 /iter_priv.c/1.1.1.4/Thu Jul 16 01:42:20 2015//
 /iter_priv.h/1.2/Fri Feb 17 18:53:32 2017//
@@ -14,6 +14,6 @@
 /iter_scrub.h/1.1.1.2/Sun Mar 16 11:38:25 2014//
 /iter_utils.c/1.7/Fri Feb 17 18:53:32 2017//
 /iter_utils.h/1.5/Wed Jun 22 20:05:40 2016//
-/iterator.c/1.12/Fri Feb 17 18:53:32 2017//
+/iterator.c/1.13/Sat Aug 12 11:22:46 2017//
 /iterator.h/1.8/Fri Feb 17 18:53:32 2017//
 D

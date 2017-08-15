@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.221 2017/05/28 10:39:15 benno Exp $	*/
+/*	$OpenBSD: relay.c,v 1.225 2017/08/09 21:29:17 claudio Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -285,7 +285,7 @@ relay_privinit(struct relay *rlay)
 
 	switch (rlay->rl_proto->type) {
 	case RELAY_PROTO_DNS:
-		relay_udp_privinit(env, rlay);
+		relay_udp_privinit(rlay);
 		break;
 	case RELAY_PROTO_TCP:
 		break;
@@ -445,7 +445,7 @@ relay_launch(void)
 
 		switch (rlay->rl_proto->type) {
 		case RELAY_PROTO_DNS:
-			relay_udp_init(rlay);
+			relay_udp_init(env, rlay);
 			break;
 		case RELAY_PROTO_TCP:
 		case RELAY_PROTO_HTTP:
@@ -2100,12 +2100,13 @@ relay_tls_ctx_create(struct relay *rlay)
 
 		if (rlay->rl_conf.tls_cacert_len) {
 			log_debug("%s: loading CA certificate", __func__);
-			if (!ssl_load_pkey(&rlay->rl_conf.tls_cakeyid,
+			if (!ssl_load_pkey(
 			    rlay->rl_tls_cacert, rlay->rl_conf.tls_cacert_len,
 			    &rlay->rl_tls_cacertx509, &rlay->rl_tls_capkey))
 				goto err;
 			/* loading certificate public key */
-			if (!ssl_load_pkey(NULL,
+			log_debug("%s: loading certificate", __func__);
+			if (!ssl_load_pkey(
 			    rlay->rl_tls_cert, rlay->rl_conf.tls_cert_len,
 			    NULL, &rlay->rl_tls_pkey))
 				goto err;
@@ -2155,11 +2156,12 @@ relay_tls_inspect_create(struct relay *rlay, struct ctl_relay_event *cre)
 		log_warnx("unable to allocate TLS config");
 		goto err;
 	}
-	if (relay_tls_ctx_create_proto(rlay->rl_proto,
-	    tls_cfg) == -1) {
-		tls_config_free(tls_cfg);
+	if (relay_tls_ctx_create_proto(rlay->rl_proto, tls_cfg) == -1) {
+		/* error already printed */
 		goto err;
 	}
+
+	tls_config_skip_private_key_check(tls_cfg);
 
 	log_debug("%s: loading intercepted certificate", __func__);
 	if ((fake_keylen = ssl_ctx_fake_private_key(cre->tlscert,
@@ -2207,6 +2209,10 @@ relay_tls_transaction(struct rsession *con, struct ctl_relay_event *cre)
 			tls_server = relay_tls_inspect_create(rlay, cre);
 		else
 			tls_server = rlay->rl_tls_ctx;
+		if (tls_server == NULL) {
+			errstr = "no TLS server context available";
+			goto err;
+		}
 
 		if (tls_accept_socket(tls_server, &cre->tls, cre->s) == -1) {
 			errstr = "could not accept the TLS connection";

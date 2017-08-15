@@ -1,6 +1,6 @@
 /_float.h/1.1/Tue Jun 26 16:12:44 2012//
 /_types.h/1.25/Sat Sep 26 16:01:00 2015//
-/asm.h/1.18/Thu Mar 28 17:41:04 2013//
+/asm.h/1.19/Fri Jun 23 09:55:10 2017//
 /atomic.h/1.10/Tue Feb  9 06:46:02 2016//
 /autoconf.h/1.23/Thu Apr 29 13:48:29 2010//
 /bus.h/1.32/Mon May  8 00:27:45 2017//
@@ -26,7 +26,7 @@
 /limits.h/1.14/Thu Apr 30 13:42:08 2015//
 /loadfile_machdep.h/1.6/Wed Mar 23 16:54:35 2011//
 /lock.h/1.9/Wed Feb 11 00:14:11 2015//
-/mplock.h/1.1/Thu Mar 25 14:26:21 2010//
+/mplock.h/1.2/Sun Jul 16 22:48:38 2017//
 /mutex.h/1.7/Thu Apr 20 13:57:29 2017//
 /nvm.h/1.2/Mon Nov 23 03:28:22 1998//
 /param.h/1.46/Sat Sep  3 14:25:27 2016//

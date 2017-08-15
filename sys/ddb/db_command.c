@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_command.c,v 1.72 2017/04/20 12:59:36 visa Exp $	*/
+/*	$OpenBSD: db_command.c,v 1.75 2017/08/14 19:57:05 uwe Exp $	*/
 /*	$NetBSD: db_command.c,v 1.20 1996/03/30 22:30:05 christos Exp $	*/
 
 /*
@@ -79,6 +79,7 @@ db_addr_t	db_next;	/* next address to be examined
 
 int	db_cmd_search(char *, struct db_command *, struct db_command **);
 void	db_cmd_list(struct db_command *);
+void	db_ctf_pprint_cmd(db_expr_t, int, db_expr_t,char *);
 void	db_map_print_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_buf_print_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_malloc_print_cmd(db_expr_t, int, db_expr_t, char *);
@@ -617,6 +618,8 @@ struct db_command db_command_table[] = {
 	{ "machine",    NULL,                   0,     		NULL},
 #endif
 	{ "print",	db_print_cmd,		0,		NULL },
+	{ "p",		db_print_cmd,		0,		NULL },
+	{ "pprint",	db_ctf_pprint_cmd,	CS_OWN,		NULL },
 	{ "examine",	db_examine_cmd,		CS_SET_DOT, 	NULL },
 	{ "x",		db_examine_cmd,		CS_SET_DOT, 	NULL },
 	{ "search",	db_search_cmd,		CS_OWN|CS_SET_DOT, NULL },

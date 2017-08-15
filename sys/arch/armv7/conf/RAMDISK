@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.78 2017/05/21 17:44:52 kettenis Exp $
+#	$OpenBSD: RAMDISK,v 1.83 2017/07/25 20:39:12 kettenis Exp $
 
 machine		armv7 arm
 
@@ -21,6 +21,7 @@ option		FFS2
 option		MSDOSFS
 option		INET6
 option		EXT2FS
+option		NFSCLIENT
 
 option		USBVERBOSE
 
@@ -98,6 +99,8 @@ ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
 #usb*		at ohci?
+sxitwi*		at fdt?			# Two-Wire Serial Interface
+iic*		at sxitwi?		# I2C bus
 
 # ARM Versatile Express
 sysreg*		at fdt?
@@ -144,9 +147,18 @@ mvxhci*		at fdt?
 usb*		at mvxhci?
 mvahci*		at fdt?
 
+# Rockchip SoCs
+rkclock*	at fdt? early 1
+rkgrf*		at fdt? early 1
+rkpinctrl*	at fdt? early 1
+rkgpio*		at fdt?
+dwdog*		at fdt?
+
+axppmic*	at iic?			# axp209 pmic
 crosec*		at iic?
 wskbd*		at crosec? mux 1
 pcfrtc*		at iic?
+pcxrtc*		at iic?
 tpspmic*	at iic?
 
 # virtio devices

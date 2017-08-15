@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.28 2017/05/04 19:41:58 reyk Exp $	*/
+/*	$OpenBSD: main.c,v 1.31 2017/07/15 05:05:36 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -56,6 +56,10 @@ int		 ctl_reset(struct parse_result *, int, char *[]);
 int		 ctl_start(struct parse_result *, int, char *[]);
 int		 ctl_status(struct parse_result *, int, char *[]);
 int		 ctl_stop(struct parse_result *, int, char *[]);
+int		 ctl_pause(struct parse_result *, int, char *[]);
+int		 ctl_unpause(struct parse_result *, int, char *[]);
+int		 ctl_send(struct parse_result *, int, char *[]);
+int		 ctl_receive(struct parse_result *, int, char *[]);
 
 struct ctl_command ctl_commands[] = {
 	{ "console",	CMD_CONSOLE,	ctl_console,	"id" },
@@ -69,6 +73,10 @@ struct ctl_command ctl_commands[] = {
 	    "\t\t[-n switch] [-i count] [-d disk]*" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
 	{ "stop",	CMD_STOP,	ctl_stop,	"id" },
+	{ "pause",	CMD_PAUSE,	ctl_pause,	"id" },
+	{ "unpause",	CMD_UNPAUSE,	ctl_unpause,	"id" },
+	{ "send",	CMD_SEND,	ctl_send,	"id",	1},
+	{ "receive",	CMD_RECEIVE,	ctl_receive,	"id" ,	1},
 	{ NULL }
 };
 
@@ -225,6 +233,19 @@ vmmaction(struct parse_result *res)
 		imsg_compose(ibuf, IMSG_CTL_RESET, 0, 0, -1,
 		    &res->mode, sizeof(res->mode));
 		break;
+	case CMD_PAUSE:
+		pause_vm(res->id, res->name);
+		break;
+	case CMD_UNPAUSE:
+		unpause_vm(res->id, res->name);
+		break;
+	case CMD_SEND:
+		send_vm(res->id, res->name);
+		done = 1;
+		break;
+	case CMD_RECEIVE:
+		vm_receive(res->id, res->name);
+		break;
 	case CMD_CREATE:
 	case NONE:
 		break;
@@ -274,6 +295,15 @@ vmmaction(struct parse_result *res)
 			case CMD_CONSOLE:
 			case CMD_STATUS:
 				done = add_info(&imsg, &ret);
+				break;
+			case CMD_PAUSE:
+				done = pause_vm_complete(&imsg, &ret);
+				break;
+			case CMD_RECEIVE:
+				done = vm_start_complete(&imsg, &ret, 0);
+				break;
+			case CMD_UNPAUSE:
+				done = unpause_vm_complete(&imsg, &ret);
 				break;
 			default:
 				done = 1;
@@ -397,6 +427,33 @@ parse_vmid(struct parse_result *res, char *word)
 	if (error == NULL) {
 		res->id = id;
 		res->name = NULL;
+	} else {
+		if (strlen(word) >= VMM_MAX_NAME_LEN) {
+			warnx("name too long");
+			return (-1);
+		}
+		res->id = 0;
+		if ((res->name = strdup(word)) == NULL)
+			errx(1, "strdup");
+	}
+
+	return (0);
+}
+
+int
+parse_vmname(struct parse_result *res, char *word)
+{
+	const char	*error;
+	uint32_t	 id;
+
+	if (word == NULL) {
+		warnx("missing vmid argument");
+		return (-1);
+	}
+	id = strtonum(word, 0, UINT32_MAX, &error);
+	if (error == NULL) {
+		warnx("invalid vm name");
+		return (-1);
 	} else {
 		if (strlen(word) >= VMM_MAX_NAME_LEN) {
 			warnx("name too long");
@@ -616,10 +673,62 @@ ctl_console(struct parse_result *res, int argc, char *argv[])
 	return (vmmaction(res));
 }
 
+int
+ctl_pause(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_unpause(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_send(struct parse_result *res, int argc, char *argv[])
+{
+	if (pledge("stdio unix sendfd", NULL) == -1)
+		err(1, "pledge");
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_receive(struct parse_result *res, int argc, char *argv[])
+{
+	if (pledge("stdio unix sendfd", NULL) == -1)
+		err(1, "pledge");
+	if (argc == 2) {
+		if (parse_vmname(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
 __dead void
 ctl_openconsole(const char *name)
 {
 	closefrom(STDERR_FILENO + 1);
-	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "9600", (char *)NULL);
+	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "115200", (char *)NULL);
 	err(1, "failed to open the console");
 }

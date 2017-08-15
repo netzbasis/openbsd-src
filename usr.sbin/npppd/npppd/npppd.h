@@ -1,4 +1,4 @@
-/*	$OpenBSD: npppd.h,v 1.17 2015/12/05 16:10:31 yasuoka Exp $ */
+/*	$OpenBSD: npppd.h,v 1.19 2017/08/12 11:20:34 goda Exp $ */
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -161,6 +161,7 @@ struct authconf {
 	bool                               strip_nt_domain;
 	bool                               strip_atmark_realm;
 	char                               users_file_path[PATH_MAX];
+	int                                user_max_session;
 	union {
 		struct {
 			struct radconf     auth;
@@ -178,6 +179,7 @@ struct ipcpconf {
 	bool                               allow_user_select;
 	struct in_addr_range              *dynamic_pool;
 	struct in_addr_range              *static_pool;
+	int                                max_session;
 };
 
 struct iface {
@@ -225,6 +227,14 @@ struct sockaddr_npppd {
 #define	SNP_POOL		1
 #define	SNP_DYN_POOL		2
 #define	SNP_PPP			3
+
+struct ipcpstat {
+	LIST_ENTRY(ipcpstat)	entry;
+	char			name[NPPPD_GENERIC_NAME_LEN];
+	int			nsession;
+	LIST_HEAD(, _npppd_ppp) ppp;
+};
+LIST_HEAD(ipcpstat_head, ipcpstat);
 
 typedef struct _npppd		npppd;
 

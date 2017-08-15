@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.84 2017/05/31 04:52:11 deraadt Exp $ */
+/* $OpenBSD: rebound.c,v 1.90 2017/08/12 00:24:13 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -72,7 +72,7 @@ struct dnspacket {
 /*
  * requests will point to cache entries until a response is received.
  * until then, the request owns the entry and must free it.
- * after it's on the list, the request must not free it.
+ * after the response is set, the request must not free it.
  */
 struct dnscache {
 	TAILQ_ENTRY(dnscache) fifo;
@@ -82,6 +82,7 @@ struct dnscache {
 	struct dnspacket *resp;
 	size_t resplen;
 	struct timespec ts;
+	struct timespec basetime;
 };
 static TAILQ_HEAD(, dnscache) cachefifo;
 static RB_HEAD(cachetree, dnscache) cachetree;
@@ -163,23 +164,23 @@ cachecmp(struct dnscache *c1, struct dnscache *c2)
 RB_GENERATE_STATIC(cachetree, dnscache, cachenode, cachecmp)
 
 static void
-lowercase(unsigned char *s)
+lowercase(unsigned char *s, size_t len)
 {
-	while (*s) {
+	while (len--) {
 		*s = tolower(*s);
 		s++;
 	}
 }
 
 static void
-randomcase(unsigned char *s)
+randomcase(unsigned char *s, size_t len)
 {
 	unsigned char bits[NAMELEN / 8], *b;
 	u_int i = 0;
 
-	arc4random_buf(bits, (strlen(s) + 7) / 8);
+	arc4random_buf(bits, (len + 7) / 8);
 	b = bits;
-	while (*s) {
+	while (len--) {
 		*s = (*b & (1 << i)) ? toupper(*s) : tolower(*s);
 		s++;
 		i++;
@@ -190,21 +191,98 @@ randomcase(unsigned char *s)
 	}
 }
 
+static void
+freecacheent(struct dnscache *ent)
+{
+	cachecount -= 1;
+	RB_REMOVE(cachetree, &cachetree, ent);
+	TAILQ_REMOVE(&cachefifo, ent, fifo);
+	free(ent->req);
+	free(ent->resp);
+	free(ent);
+}
+
+/*
+ * names end with either a nul byte, or a two byte 0xc0 pointer
+ */
+static size_t
+dnamelen(const unsigned char *p, size_t len)
+{
+	size_t n = 0;
+
+	for (n = 0; n < len; n++) {
+		if (p[n] == 0)
+			return n + 1;
+		if ((p[n] & 0xc0) == 0xc0)
+			return n + 2;
+	}
+	return len + 1;
+}
+
+static int
+adjustttl(struct dnscache *ent)
+{
+	struct dnspacket *resp = ent->resp;
+	char *p = (char *)resp;
+	u_int rlen = ent->resplen;
+	u_int used = 0;
+	uint32_t ttl, cnt, i;
+	uint16_t len;
+	time_t diff;
+
+	diff = now.tv_sec - ent->basetime.tv_sec;
+	if (diff <= 0)
+		return 0;
+
+	/* checks are redundant; checked when cacheent is created */
+	/* skip past packet header */
+	used += sizeof(struct dnspacket);
+	if (used >= rlen)
+		return -1;
+	if (ntohs(resp->qdcount) != 1)
+		return -1;
+	/* skip past query name, type, and class */
+	used += dnamelen(p + used, rlen - used);
+	used += 2;
+	used += 2;
+	cnt = ntohs(resp->ancount);
+	for (i = 0; i < cnt; i++) {
+		if (used >= rlen)
+			return -1;
+		/* skip past answer name, type, and class */
+		used += dnamelen(p + used, rlen - used);
+		used += 2;
+		used += 2;
+		if (used + 4 >= rlen)
+			return -1;
+		memcpy(&ttl, p + used, 4);
+		ttl = ntohl(ttl);
+		/* expired */
+		if (diff >= ttl)
+			return -1;
+		ttl -= diff;
+		ttl = ntohl(ttl);
+		memcpy(p + used, &ttl, 4);
+		used += 4;
+		if (used + 2 >= rlen)
+			return -1;
+		memcpy(&len, p + used, 2);
+		used += 2;
+		used += ntohs(len);
+	}
+	ent->basetime.tv_sec += diff;
+	return 0;
+}
+
 static struct dnscache *
-cachelookup(struct dnspacket *dnsreq, size_t reqlen)
+cachelookup(struct dnspacket *dnsreq, size_t reqlen, size_t namelen)
 {
 	struct dnscache *hit, key;
 	unsigned char origname[NAMELEN];
 	uint16_t origid;
-	size_t namelen;
 
-	if (ntohs(dnsreq->qdcount) != 1)
-		return NULL;
-
-	namelen = strlcpy(origname, dnsreq->qname, sizeof(origname));
-	if (namelen >= sizeof(origname))
-		return NULL;
-	lowercase(dnsreq->qname);
+	memcpy(origname, dnsreq->qname, namelen);
+	lowercase(dnsreq->qname, namelen);
 
 	origid = dnsreq->id;
 	dnsreq->id = 0;
@@ -212,10 +290,15 @@ cachelookup(struct dnspacket *dnsreq, size_t reqlen)
 	key.reqlen = reqlen;
 	key.req = dnsreq;
 	hit = RB_FIND(cachetree, &cachetree, &key);
-	if (hit)
-		cachehits += 1;
+	if (hit) {
+		if (adjustttl(hit) != 0) {
+			freecacheent(hit);
+			hit = NULL;
+		} else
+			cachehits += 1;
+	}
 
-	memcpy(dnsreq->qname, origname, namelen + 1);
+	memcpy(dnsreq->qname, origname, namelen);
 	dnsreq->id = origid;
 	return hit;
 }
@@ -243,17 +326,6 @@ freerequest(struct request *req)
 }
 
 static void
-freecacheent(struct dnscache *ent)
-{
-	cachecount -= 1;
-	RB_REMOVE(cachetree, &cachetree, ent);
-	TAILQ_REMOVE(&cachefifo, ent, fifo);
-	free(ent->req);
-	free(ent->resp);
-	free(ent);
-}
-
-static void
 servfail(int ud, uint16_t id, struct sockaddr *fromaddr, socklen_t fromlen)
 {
 	struct dnspacket pkt;
@@ -272,8 +344,9 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 	struct request *req;
 	uint8_t buf[65536];
 	struct dnspacket *dnsreq;
-	struct dnscache *hit;
+	struct dnscache *hit = NULL;
 	size_t r;
+	size_t namelen = 0;
 
 	dnsreq = (struct dnspacket *)buf;
 
@@ -283,14 +356,18 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 		return NULL;
 	if (ntohs(dnsreq->qdcount) == 1) {
 		/* some more checking */
-		if (!memchr(dnsreq->qname, '\0', r - sizeof(struct dnspacket)))
+		namelen = dnamelen(dnsreq->qname, r - sizeof(struct dnspacket));
+		if (namelen > r - sizeof(struct dnspacket))
 			return NULL;
+		if (namelen > NAMELEN)
+			return NULL;
+		hit = cachelookup(dnsreq, r, namelen);
 	}
 
 	conntotal += 1;
-	if ((hit = cachelookup(dnsreq, r))) {
+	if (hit) {
 		hit->resp->id = dnsreq->id;
-		memcpy(hit->resp->qname, dnsreq->qname, strlen(hit->resp->qname) + 1);
+		memcpy(hit->resp->qname, dnsreq->qname, namelen);
 		sendto(ud, hit->resp, hit->resplen, 0, &from.a, fromlen);
 		return NULL;
 	}
@@ -311,12 +388,9 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 	req->reqid = randomid();
 	dnsreq->id = req->reqid;
 	if (ntohs(dnsreq->qdcount) == 1) {
-		size_t namelen;
-		namelen = strlcpy(req->origname, dnsreq->qname, sizeof(req->origname));
-		if (namelen >= sizeof(req->origname))
-			goto fail;
-		randomcase(dnsreq->qname);
-		memcpy(req->newname, dnsreq->qname, namelen + 1);
+		memcpy(req->origname, dnsreq->qname, namelen);
+		randomcase(dnsreq->qname, namelen);
+		memcpy(req->newname, dnsreq->qname, namelen);
 
 		hit = calloc(1, sizeof(*hit));
 		if (hit) {
@@ -325,7 +399,7 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 				memcpy(hit->req, dnsreq, r);
 				hit->reqlen = r;
 				hit->req->id = 0;
-				lowercase(hit->req->qname);
+				lowercase(hit->req->qname, namelen);
 			} else {
 				free(hit);
 				hit = NULL;
@@ -374,7 +448,7 @@ minttl(struct dnspacket *resp, u_int rlen)
 	if (ntohs(resp->qdcount) != 1)
 		return -1;
 	/* skip past query name, type, and class */
-	used += strnlen(p + used, rlen - used);
+	used += dnamelen(p + used, rlen - used);
 	used += 2;
 	used += 2;
 	cnt = ntohs(resp->ancount);
@@ -382,7 +456,7 @@ minttl(struct dnspacket *resp, u_int rlen)
 		if (used >= rlen)
 			return -1;
 		/* skip past answer name, type, and class */
-		used += strnlen(p + used, rlen - used);
+		used += dnamelen(p + used, rlen - used);
 		used += 2;
 		used += 2;
 		if (used + 4 >= rlen)
@@ -420,26 +494,31 @@ sendreply(struct request *req)
 	resp->id = req->clientid;
 	if (ntohs(resp->qdcount) == 1) {
 		/* some more checking */
-		if (!memchr(resp->qname, '\0', r - sizeof(struct dnspacket)))
+		size_t namelen = dnamelen(resp->qname, r - sizeof(struct dnspacket));
+		if (namelen > r - sizeof(struct dnspacket))
 			return;
-		if (strcmp(resp->qname, req->newname) != 0)
+		if (namelen > NAMELEN)
 			return;
-		memcpy(resp->qname, req->origname, strlen(resp->qname) + 1);
+		if (memcmp(resp->qname, req->newname, namelen) != 0)
+			return;
+		memcpy(resp->qname, req->origname, namelen);
 	}
 	sendto(req->client, buf, r, 0, &req->from.a, req->fromlen);
 	if ((ent = req->cacheent)) {
+		/* check that the response is worth caching */
+		ttl = minttl(resp, r);
+		if (ttl == -1 || ttl == 0)
+			return;
 		/*
-		 * we do this first, because there's a potential race against
+		 * we do this next, because there's a potential race against
 		 * other requests made at the same time. if we lose, abort.
 		 * if anything else goes wrong, though, we need to reverse.
 		 */
 		if (RB_INSERT(cachetree, &cachetree, ent))
 			return;
-		ttl = minttl(resp, r);
-		if (ttl == -1)
-			ttl = 0;
 		ent->ts = now;
 		ent->ts.tv_sec += MINIMUM(ttl, 300);
+		ent->basetime = now;
 		ent->resp = malloc(r);
 		if (!ent->resp) {
 			RB_REMOVE(cachetree, &cachetree, ent);
@@ -896,7 +975,7 @@ resetport(void)
 static void __dead
 usage(void)
 {
-	fprintf(stderr, "usage: rebound [-d] [-c config]\n");
+	fprintf(stderr, "usage: rebound [-d] [-c config] [-l address]\n");
 	exit(1);
 }
 
@@ -909,6 +988,7 @@ main(int argc, char **argv)
 	int ld, ld6, ud, ud6, ch;
 	int one = 1;
 	const char *confname = "/etc/resolv.conf";
+	const char *bindname = "127.0.0.1";
 
 	tzset();
 	openlog("rebound", LOG_PID | LOG_NDELAY, LOG_DAEMON);
@@ -916,13 +996,17 @@ main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGUSR1, SIG_IGN);
 
-	while ((ch = getopt(argc, argv, "c:dW")) != -1) {
+	while ((ch = getopt(argc, argv, "c:dl:W")) != -1) {
 		switch (ch) {
 		case 'c':
 			confname = optarg;
 			break;
 		case 'd':
 			debug = 1;
+			break;
+		case 'l':
+			bindname = optarg;
+			jackport = 0;
 			break;
 		case 'W':
 			daemonized = 1;
@@ -945,8 +1029,8 @@ main(int argc, char **argv)
 	memset(&bindaddr, 0, sizeof(bindaddr));
 	bindaddr.i.sin_len = sizeof(bindaddr.i);
 	bindaddr.i.sin_family = AF_INET;
-	bindaddr.i.sin_port = htons(jackport);
-	inet_aton("127.0.0.1", &bindaddr.i.sin_addr);
+	bindaddr.i.sin_port = htons(jackport ? jackport : 53);
+	inet_aton(bindname, &bindaddr.i.sin_addr);
 
 	ud = socket(AF_INET, SOCK_DGRAM, 0);
 	if (ud == -1)
@@ -966,7 +1050,7 @@ main(int argc, char **argv)
 	memset(&bindaddr, 0, sizeof(bindaddr));
 	bindaddr.i6.sin6_len = sizeof(bindaddr.i6);
 	bindaddr.i6.sin6_family = AF_INET6;
-	bindaddr.i6.sin6_port = htons(jackport);
+	bindaddr.i6.sin6_port = htons(jackport ? jackport : 53);
 	bindaddr.i6.sin6_addr = in6addr_loopback;
 
 	ud6 = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -984,8 +1068,10 @@ main(int argc, char **argv)
 	if (listen(ld6, 10) == -1)
 		logerr("listen: %s", strerror(errno));
 
-	atexit(resetport);
-	sysctl(dnsjacking, 2, NULL, NULL, &jackport, sizeof(jackport));
+	if (jackport) {
+		atexit(resetport);
+		sysctl(dnsjacking, 2, NULL, NULL, &jackport, sizeof(jackport));
+	}
 	
 	if (debug) {
 		int conffd = openconfig(confname, -1);

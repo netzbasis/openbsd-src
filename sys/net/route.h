@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.161 2017/05/21 16:33:53 jca Exp $	*/
+/*	$OpenBSD: route.h,v 1.167 2017/08/02 08:38:28 mpi Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -93,7 +93,7 @@ struct rt_metrics {
  */
 
 struct rtentry {
-#ifndef ART
+#if !defined(_KERNEL) && !defined(ART)
 	struct	radix_node rt_nodes[2];	/* tree glue, and other values */
 #else
 	struct sockaddr	*rt_dest;	/* destination */
@@ -115,7 +115,7 @@ struct rtentry {
 	unsigned int	 rt_ifidx;	/* the answer: interface to use */
 	unsigned int	 rt_flags;	/* up/down?, host/net */
 	int		 rt_refcnt;	/* # held references */
-#ifdef ART
+#if defined(_KERNEL) || defined(ART)
 	int		 rt_plen;	/* prefix length */
 #endif
 	uint16_t	 rt_labelid;	/* route label ID */
@@ -423,7 +423,7 @@ void	 rtm_bfd(struct bfd_config *);
 void	 rt_maskedcopy(struct sockaddr *,
 	    struct sockaddr *, struct sockaddr *);
 struct sockaddr *rt_plen2mask(struct rtentry *, struct sockaddr_in6 *);
-void	 rtm_send(struct rtentry *, int, u_int);
+void	 rtm_send(struct rtentry *, int, int, unsigned int);
 void	 rtm_addr(struct rtentry *, int, struct ifaddr *);
 void	 rtm_miss(int, struct rt_addrinfo *, int, uint8_t, u_int, int, u_int);
 int	 rt_setgate(struct rtentry *, struct sockaddr *, u_int);
@@ -441,16 +441,11 @@ void			 rt_timer_timer(void *);
 
 int	 rtisvalid(struct rtentry *);
 int	 rt_hash(struct rtentry *, struct sockaddr *, uint32_t *);
-#ifdef SMALL_KERNEL
-#define	 rtalloc_mpath(dst, s, rid) rtalloc((dst), RT_RESOLVE, (rid))
-#else
 struct	 rtentry *rtalloc_mpath(struct sockaddr *, uint32_t *, u_int);
-#endif
 struct	 rtentry *rtalloc(struct sockaddr *, int, unsigned int);
 void	 rtref(struct rtentry *);
 void	 rtfree(struct rtentry *);
 
-int	 rt_getifa(struct rt_addrinfo *, u_int);
 int	 rt_ifa_add(struct ifaddr *, int, struct sockaddr *);
 int	 rt_ifa_del(struct ifaddr *, int, struct sockaddr *);
 void	 rt_ifa_purge(struct ifaddr *);
@@ -459,10 +454,10 @@ int	 rt_ifa_dellocal(struct ifaddr *);
 void	 rtredirect(struct sockaddr *, struct sockaddr *, struct sockaddr *, struct rtentry **, unsigned int);
 int	 rtrequest(int, struct rt_addrinfo *, u_int8_t, struct rtentry **,
 	     u_int);
-#ifndef SMALL_KERNEL
+int	 rtrequest_delete(struct rt_addrinfo *, u_int8_t, struct ifnet *,
+	     struct rtentry **, u_int);
 void	 rt_if_track(struct ifnet *);
 int	 rt_if_linkstate_change(struct rtentry *, void *, u_int);
-#endif
 int	 rtdeletemsg(struct rtentry *, struct ifnet *, u_int);
 #endif /* _KERNEL */
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.228 2017/03/06 08:56:39 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.231 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -111,9 +111,8 @@ arptimer(void *arg)
 {
 	struct timeout *to = (struct timeout *)arg;
 	struct llinfo_arp *la, *nla;
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	timeout_add_sec(to, arpt_prune);
 	LIST_FOREACH_SAFE(la, &arp_list, la_list, nla) {
 		struct rtentry *rt = la->la_rt;
@@ -121,7 +120,7 @@ arptimer(void *arg)
 		if (rt->rt_expire && rt->rt_expire <= time_uptime)
 			arptfree(rt); /* timer has expired; clear */
 	}
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void
@@ -650,7 +649,7 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 	/* Notify userland that an ARP resolution has been done. */
 	if (la->la_asked || changed) {
 		KERNEL_LOCK();
-		rtm_send(rt, RTM_RESOLVE, ifp->if_rdomain);
+		rtm_send(rt, RTM_RESOLVE, 0, ifp->if_rdomain);
 		KERNEL_UNLOCK();
 	}
 
@@ -730,13 +729,11 @@ arplookup(struct in_addr *inp, int create, int proxy, u_int tableid)
 	}
 
 	if (proxy && !ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
-#ifdef ART
 		while ((rt = rtable_iterate(rt)) != NULL) {
 			if (ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
 				break;
 			}
 		}
-#endif /* ART */
 	}
 
 	return (rt);

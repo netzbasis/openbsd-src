@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.48 2017/06/03 22:25:19 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.50 2017/08/12 19:41:16 jasper Exp $
 
 REV=		${OSrev}
 
@@ -26,6 +26,7 @@ CRUNCHGENOPTS?=-E
 KERNEL?=	RAMDISK
 UTILS?=		${.CURDIR}/../miniroot
 STRIP?=		strip
+STRIPOPTS?=	-R .SUNW_ctf
 
 LISTS=		${.CURDIR}/list ${ARCHDIR}/list.local
 MTREE=		${UTILS}/mtree.conf
@@ -74,13 +75,13 @@ ${FLOPPY}:	bsd.gz ${BOOT} ${BOOTXX}
 
 bsd:
 	cd ${.CURDIR}/../../sys/arch/${MACHINE}/compile/${KERNEL} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Os ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
 	cp -p ${.CURDIR}/../../sys/arch/${MACHINE}/compile/${KERNEL}/obj/bsd bsd
 
 bsd.rd:	bsd ${IMAGE} rdsetroot
 	cp bsd bsd.rd
 	${.OBJDIR}/rdsetroot bsd.rd ${IMAGE}
-	${STRIP} bsd.rd
+	${STRIP} ${STRIPOPTS} bsd.rd
 
 bsd.gz:	bsd.rd
 	${GZIPCMD} ${GZIPFLAGS} < bsd.rd > bsd.gz

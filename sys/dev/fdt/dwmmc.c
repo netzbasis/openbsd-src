@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwmmc.c,v 1.3 2017/05/21 17:44:52 kettenis Exp $	*/
+/*	$OpenBSD: dwmmc.c,v 1.6 2017/08/04 08:18:31 kettenis Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis
  *
@@ -32,9 +32,9 @@
 
 #define SDMMC_CTRL		0x0000
 #define  SDMMC_CTRL_USE_INTERNAL_DMAC	(1 << 25)
-#define  SDMMC_CTRL_DMA_RESET		(1 << 3)
-#define  SDMMC_CTRL_FIFO_RESET		(1 << 2)
-#define  SDMMC_CTRL_CONTROLLER_RESET	(1 << 3)
+#define  SDMMC_CTRL_DMA_RESET		(1 << 2)
+#define  SDMMC_CTRL_FIFO_RESET		(1 << 1)
+#define  SDMMC_CTRL_CONTROLLER_RESET	(1 << 0)
 #define  SDMMC_CTRL_ALL_RESET	(SDMMC_CTRL_CONTROLLER_RESET | \
     SDMMC_CTRL_FIFO_RESET | SDMMC_CTRL_DMA_RESET)
 #define SDMMC_PWREN		0x0004
@@ -262,10 +262,10 @@ dwmmc_attach(struct device *parent, struct device *self, void *aux)
 	printf(": %d MHz base clock\n", sc->sc_clkbase / 1000000);
 
 	HSET4(sc, SDMMC_CTRL, SDMMC_CTRL_ALL_RESET);
-	for (timeout = 10000; timeout > 0; timeout--) {
+	for (timeout = 5000; timeout > 0; timeout--) {
 		if ((HREAD4(sc, SDMMC_CTRL) & SDMMC_CTRL_ALL_RESET) == 0)
 			break;
-		delay(10);
+		delay(100);
 	}
 	if (timeout == 0)
 		printf("%s: reset failed\n", sc->sc_dev.dv_xname);
@@ -337,8 +337,6 @@ dwmmc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 {
 	struct dwmmc_softc *sc = sch;
 
-	printf("%s: ocr 0x%08x\n", sc->sc_dev.dv_xname, ocr);
-
 	if (ISSET(ocr, MMC_OCR_3_2V_3_3V|MMC_OCR_3_3V_3_4V))
 		HSET4(sc, SDMMC_PWREN, 1);
 	else
@@ -353,8 +351,6 @@ dwmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 	struct dwmmc_softc *sc = sch;
 	int div = 0, timeout;
 
-	printf("%s: freq %d timing %d\n", sc->sc_dev.dv_xname, freq, timing);
-
 	HWRITE4(sc, SDMMC_CLKENA, 0);
 	HWRITE4(sc, SDMMC_CLKSRC, 0);
 
@@ -366,7 +362,6 @@ dwmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 			if (sc->sc_clkbase / (2 * 1000 * div) <= freq)
 				break;
 	}
-	printf("%s: div %d\n", sc->sc_dev.dv_xname, div);
 	HWRITE4(sc, SDMMC_CLKDIV, div);
 
 	/* Update clock. */
@@ -409,8 +404,6 @@ dwmmc_bus_width(sdmmc_chipset_handle_t sch, int width)
 {
 	struct dwmmc_softc *sc = sch;
 	
-	printf("%s: width %d\n", sc->sc_dev.dv_xname, width);
-
 	switch (width) {
 	case 1:
 		HCLR4(sc, SDMMC_CTYPE, SDMMC_CTYPE_8BIT|SDMMC_CTYPE_4BIT);
@@ -446,7 +439,7 @@ dwmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 
 	s = splbio();
 
-	for (timeout = 1000; timeout > 0; timeout--) {
+	for (timeout = 10000; timeout > 0; timeout--) {
 		status = HREAD4(sc, SDMMC_STATUS);
 		if ((status & SDMMC_STATUS_DATA_BUSY) == 0)
 			break;
@@ -606,7 +599,7 @@ dwmmc_transfer_data(struct dwmmc_softc *sc, struct sdmmc_command *cmd)
 		datalen -= count;
 	}
 
-	for (timeout = 1000; timeout > 0; timeout--) {
+	for (timeout = 10000; timeout > 0; timeout--) {
 		status = HREAD4(sc, SDMMC_RINTSTS);
 		if (status & SDMMC_RINTSTS_DTO)
 			break;

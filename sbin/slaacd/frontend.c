@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.1 2017/06/03 10:00:29 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.6 2017/08/12 07:39:55 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -121,9 +121,11 @@ frontend(int debug, int verbose, char *sockname)
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
 
+#ifndef	SMALL
 	/* Create slaacd control socket outside chroot. */
 	if (control_init(sockname) == -1)
 		fatalx("control socket setup failed");
+#endif	/* SMALL */
 
 	if ((pw = getpwnam(SLAACD_USER)) == NULL)
 		fatal("getpwnam");
@@ -195,9 +197,11 @@ frontend(int debug, int verbose, char *sockname)
 	    iev_main->handler, iev_main);
 	event_add(&iev_main->ev, NULL);
 
+#ifndef	SMALL
 	/* Listen on control socket. */
 	TAILQ_INIT(&ctl_conns);
 	control_listen();
+#endif	/* SMALL */
 
 	event_set(&ev_route, routesock, EV_READ | EV_PERSIST, route_receive,
 	    NULL);
@@ -371,9 +375,11 @@ frontend_dispatch_main(int fd, short event, void *bula)
 		case IMSG_STARTUP:
 			frontend_startup();
 			break;
+#ifndef	SMALL
 		case IMSG_CTL_END:
 			control_imsg_relay(&imsg);
 			break;
+#endif	/* SMALL */
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
 			    imsg.hdr.type);
@@ -420,6 +426,7 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
+#ifndef	SMALL
 		case IMSG_CTL_END:
 		case IMSG_CTL_SHOW_INTERFACE_INFO:
 		case IMSG_CTL_SHOW_INTERFACE_INFO_RA:
@@ -432,6 +439,7 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 		case IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL:
 			control_imsg_relay(&imsg);
 			break;
+#endif	/* SMALL */
 		case IMSG_CTL_SEND_SOLICITATION:
 			if_index = *((uint32_t *)imsg.data);
 			send_solicitation(if_index);
@@ -501,7 +509,7 @@ update_iface(uint32_t if_index, char* if_name)
 	memcpy(&nd_opt_source_link_addr, &imsg_ifinfo.hw_address,
 	    sizeof(nd_opt_source_link_addr));
 
-	frontend_imsg_compose_engine(IMSG_UPDATE_IF, 0, 0, &imsg_ifinfo,
+	frontend_imsg_compose_main(IMSG_UPDATE_IF, 0, &imsg_ifinfo,
 	    sizeof(imsg_ifinfo));
 }
 
@@ -528,11 +536,9 @@ route_receive(int fd, short events, void *arg)
 {
 	static uint8_t			 buf[ROUTE_SOCKET_BUF_SIZE];
 
-	struct rt_msghdr		*rtm;
+	struct rt_msghdr		*rtm = (struct rt_msghdr *)buf;
 	struct sockaddr			*sa, *rti_info[RTAX_MAX];
-	size_t				 len, offset;
 	ssize_t				 n;
-	char				*next;
 
 	if ((n = read(fd, &buf, sizeof(buf))) == -1) {
 		if (errno == EAGAIN || errno == EINTR)
@@ -541,26 +547,21 @@ route_receive(int fd, short events, void *arg)
 		return;
 	}
 
-	if (n == 0) {
-		log_warnx("routing socket closed");
+	if (n == 0)
+		fatal("routing socket closed");
+
+	if (n < rtm->rtm_msglen) {
+		log_warnx("partial rtm in buffer");
 		return;
 	}
 
-	len = n;
-	for (offset = 0; offset < len; offset += rtm->rtm_msglen) {
-		next = buf + offset;
-		rtm = (struct rt_msghdr *)next;
-		if (len < offset + sizeof(u_short) ||
-		    len < offset + rtm->rtm_msglen)
-			fatalx("rtmsg_process: partial rtm in buffer");
-		if (rtm->rtm_version != RTM_VERSION)
-			continue;
+	if (rtm->rtm_version != RTM_VERSION)
+		return;
 
-		sa = (struct sockaddr *)(next + rtm->rtm_hdrlen);
-		get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+	sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
+	get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
 
-		handle_route_message(rtm, rti_info);
-	}
+	handle_route_message(rtm, rti_info);
 }
 
 void
@@ -676,8 +677,8 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 
 }
 
-#define	ROUNDUP(a)	\
-    (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
+#define ROUNDUP(a) \
+	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 
 void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
@@ -783,7 +784,7 @@ icmp6_receive(int fd, short events, void *arg)
 	}
 
 	if (*hlimp != 255) {
-		log_warn("invalid RA with hop limit of %d from %s on %s",
+		log_warnx("invalid RA with hop limit of %d from %s on %s",
 		    *hlimp, inet_ntop(AF_INET6, &icmp6ev.from.sin6_addr,
 		    ntopbuf, INET6_ADDRSTRLEN), if_indextoname(if_index,
 		    ifnamebuf));
@@ -791,7 +792,7 @@ icmp6_receive(int fd, short events, void *arg)
 	}
 
 	if ((size_t)len > sizeof(ra.packet)) {
-		log_warn("invalid RA with size %ld from %s on %s",
+		log_warnx("invalid RA with size %ld from %s on %s",
 		    len, inet_ntop(AF_INET6, &icmp6ev.from.sin6_addr,
 		    ntopbuf, INET6_ADDRSTRLEN), if_indextoname(if_index,
 		    ifnamebuf));

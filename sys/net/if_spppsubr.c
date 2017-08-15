@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.164 2017/05/30 07:50:37 mpi Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.172 2017/08/15 06:08:52 florian Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -419,11 +419,12 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 	struct timeval tv;
 	int debug = ifp->if_flags & IFF_DEBUG;
 
+	getmicrouptime(&tv);
+
 	if (ifp->if_flags & IFF_UP) {
 		/* Count received bytes, add hardware framing */
 		ifp->if_ibytes += m->m_pkthdr.len + sp->pp_framebytes;
 		/* Note time of last receive */
-		getmicrouptime(&tv);
 		sp->pp_last_receive = tv.tv_sec;
 	}
 
@@ -585,6 +586,9 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	if (dst->sa_family == AF_INET) {
 		struct ip *ip = NULL;
 
+		if (m->m_len >= sizeof(struct ip))
+			ip = mtod(m, struct ip *);
+
 		/*
 		 * When using dynamic local IP address assignment by using
 		 * 0.0.0.0 as a local address, the first TCP session will
@@ -596,12 +600,12 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 		 * - we flag TCP packets with src ip 0 as an error
 		 */
 
-		if(ip && ip->ip_src.s_addr == INADDR_ANY) {
+		if (ip && ip->ip_src.s_addr == INADDR_ANY) {
 			u_int8_t proto = ip->ip_p;
 
 			m_freem(m);
 			splx(s);
-			if(proto == IPPROTO_TCP)
+			if (proto == IPPROTO_TCP)
 				return (EADDRNOTAVAIL);
 			else
 				return (0);
@@ -654,7 +658,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 			    SPP_ARGS(ifp));
 		++ifp->if_oerrors;
 		splx(s);
-		return (ENOBUFS);
+		return (rv ? rv : ENOBUFS);
 	}
 	*mtod(m, u_int16_t *) = protocol;
 
@@ -665,6 +669,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	rv = if_enqueue(ifp, m);
 	if (rv != 0) {
 		ifp->if_oerrors++;
+		splx(s);
 		return (rv);
 	}
 
@@ -674,6 +679,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	 * according to RFC 1333.
 	 */
 	ifp->if_obytes += sp->pp_framebytes;
+	splx(s);
 
 	return (0);
 }
@@ -2632,7 +2638,7 @@ sppp_ipcp_tls(struct sppp *sp)
 		sp->ipcp.flags |= IPCP_MYADDR_DYN;
 		sp->ipcp.opts |= (1 << IPCP_OPT_ADDRESS);
 	}
-	if (hisaddr == 1) {
+	if (hisaddr >= 1 && hisaddr <= 255) {
 		/*
 		 * XXX - remove this hack!
 		 * remote has no valid address, we need to get one assigned.
@@ -4042,10 +4048,10 @@ void
 sppp_keepalive(void *dummy)
 {
 	struct sppp *sp;
-	int s, sl;
+	int s;
 	struct timeval tv;
 
-	NET_LOCK(sl);
+	NET_LOCK();
 	s = splnet();
 	getmicrouptime(&tv);
 	for (sp=spppq; sp; sp=sp->pp_next) {
@@ -4097,7 +4103,7 @@ sppp_keepalive(void *dummy)
 		}
 	}
 	splx(s);
-	NET_UNLOCK(sl);
+	NET_UNLOCK();
 	timeout_add_sec(&keepalive_ch, 10);
 }
 
@@ -4186,7 +4192,6 @@ sppp_set_ip_addrs(void *arg1)
 	struct ifaddr *ifa;
 	struct sockaddr_in *si;
 	struct sockaddr_in *dest;
-	int s;
 
 	sppp_get_ip_addrs(sp, &myaddr, &hisaddr, NULL);
 	if ((sp->ipcp.flags & IPCP_MYADDR_DYN) &&
@@ -4197,7 +4202,7 @@ sppp_set_ip_addrs(void *arg1)
 		hisaddr = sp->ipcp.req_hisaddr;
 
 
-	NET_LOCK(s);
+	NET_LOCK();
 	/*
 	 * Pick the first AF_INET address from the list,
 	 * aliases don't make any sense on a p2p link anyway.
@@ -4241,7 +4246,7 @@ sppp_set_ip_addrs(void *arg1)
 		sppp_update_gw(ifp);
 	}
 out:
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 /*
@@ -4258,9 +4263,8 @@ sppp_clear_ip_addrs(void *arg1)
 	struct sockaddr_in *si;
 	struct sockaddr_in *dest;
 	u_int32_t remote;
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 
 	if (sp->ipcp.flags & IPCP_HISADDR_DYN)
 		remote = sp->ipcp.saved_hisaddr;
@@ -4302,7 +4306,7 @@ sppp_clear_ip_addrs(void *arg1)
 		sppp_update_gw(ifp);
 	}
 out:
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 
@@ -4351,11 +4355,10 @@ sppp_update_ip6_addr(void *arg)
 	struct sppp *sp = arg;
 	struct ifnet *ifp = &sp->pp_if;
 	struct in6_aliasreq *ifra = &sp->ipv6cp.req_ifid;
-	struct in6_addr mask = in6mask128;
 	struct in6_ifaddr *ia6;
-	int s, error;
+	int error;
 
-	NET_LOCK(s);
+	NET_LOCK();
 
 	ia6 = in6ifa_ifpforlinklocal(ifp, 0);
 	if (ia6 == NULL) {
@@ -4382,7 +4385,8 @@ sppp_update_ip6_addr(void *arg)
 	 */
 
 	/* Destination address can only be set for /128. */
-	if (!in6_are_prefix_equal(&ia6->ia_prefixmask.sin6_addr, &mask, 128)) {
+	if (memcmp(&ia6->ia_prefixmask.sin6_addr, &in6mask128,
+	    sizeof(in6mask128)) != 0) {
 		ifra->ifra_dstaddr.sin6_len = 0;
 		ifra->ifra_dstaddr.sin6_family = AF_UNSPEC;
 	}
@@ -4396,7 +4400,7 @@ sppp_update_ip6_addr(void *arg)
 		    SPP_ARGS(ifp), error);
 	}
 out:
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 /*

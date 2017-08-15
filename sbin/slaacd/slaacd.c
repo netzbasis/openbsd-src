@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.c,v 1.1 2017/06/03 10:00:29 florian Exp $	*/
+/*	$OpenBSD: slaacd.c,v 1.6 2017/08/12 16:31:09 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -50,6 +50,7 @@
 #include "engine.h"
 #include "control.h"
 
+#ifndef	SMALL
 const char* imsg_type_name[] = {
 	"IMSG_NONE",
 	"IMSG_CTL_LOG_VERBOSE",
@@ -58,26 +59,26 @@ const char* imsg_type_name[] = {
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_PREFIX",
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_RDNS",
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_DNSSL",
-	"IMSG_CTL_SHOW_FRONTEND_INFO",
-	"IMSG_CTL_SHOW_MAIN_INFO",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSALS",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL",
 	"IMSG_CTL_END",
+	"IMSG_CTL_SEND_SOLICITATION",
 	"IMSG_SOCKET_IPC",
 	"IMSG_STARTUP",
 	"IMSG_UPDATE_IF",
 	"IMSG_REMOVE_IF",
 	"IMSG_RA",
-	"IMSG_CTL_SEND_SOLICITATION",
 	"IMSG_PROPOSAL",
 	"IMSG_PROPOSAL_ACK",
 	"IMSG_CONFIGURE_ADDRESS",
 	"IMSG_DEL_ADDRESS",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL",
 	"IMSG_FAKE_ACK",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL",
 	"IMSG_CONFIGURE_DFR",
 	"IMSG_WITHDRAW_DFR",
 };
+#endif	/* SMALL */
 
 __dead void	usage(void);
 __dead void	main_shutdown(void);
@@ -270,7 +271,7 @@ main(int argc, char *argv[])
 
 #if 0
 	/* XXX ioctl SIOCAIFADDR_IN6 */
-	if (pledge("rpath stdio sendfd cpath", NULL) == -1)
+BROKEN	if (pledge("rpath stdio sendfd cpath", NULL) == -1)
 		fatal("pledge");
 #endif
 
@@ -309,7 +310,9 @@ main_shutdown(void)
 	free(iev_frontend);
 	free(iev_engine);
 
+#ifndef	SMALL
 	control_cleanup(csock);
+#endif	/* SMALL */
 
 	log_info("terminating");
 	exit(0);
@@ -366,8 +369,12 @@ main_dispatch_frontend(int fd, short event, void *bula)
 	struct imsgev		*iev = bula;
 	struct imsgbuf		*ibuf;
 	struct imsg		 imsg;
+	struct imsg_ifinfo	 imsg_ifinfo;
 	ssize_t			 n;
-	int			 shut = 0, verbose;
+	int			 shut = 0;
+#ifndef	SMALL
+	int			 verbose;
+#endif	/* SMALL */
 
 	ibuf = &iev->ibuf;
 
@@ -391,10 +398,21 @@ main_dispatch_frontend(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
+#ifndef	SMALL
 		case IMSG_CTL_LOG_VERBOSE:
 			/* Already checked by frontend. */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
+			break;
+#endif	/* SMALL */
+		case IMSG_UPDATE_IF:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(imsg_ifinfo))
+				fatal("%s: IMSG_UPDATE_IF wrong length: %d",
+				    __func__, imsg.hdr.len);
+			memcpy(&imsg_ifinfo, imsg.data, sizeof(imsg_ifinfo));
+			main_imsg_compose_engine(IMSG_UPDATE_IF, 0,
+			    &imsg_ifinfo, sizeof(imsg_ifinfo));
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -655,7 +673,7 @@ configure_interface(struct imsg_configure_address *address)
 
 	if_name = if_indextoname(address->if_index, in6_addreq.ifra_name);
 	if (if_name == NULL) {
-		log_warn("%s: cannot find interface %d", __func__,
+		log_warnx("%s: cannot find interface %d", __func__,
 		    address->if_index);
 		return;
 	}

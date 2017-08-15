@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.130 2017/04/30 13:04:49 mpi Exp $	*/
+/*	$OpenBSD: trap.c,v 1.132 2017/07/20 18:22:25 bluhm Exp $	*/
 /*	$NetBSD: trap.c,v 1.95 1996/05/05 06:50:02 mycroft Exp $	*/
 
 /*-
@@ -373,7 +373,8 @@ trap(struct trapframe *frame)
 		vaddr_t va, fa;
 		struct vmspace *vm;
 		struct vm_map *map;
-		int rv;
+		int error;
+		int signal, sicode;
 
 		cr2 = rcr2();
 		KERNEL_LOCK();
@@ -406,12 +407,12 @@ trap(struct trapframe *frame)
 		if (curcpu()->ci_inatomic == 0 || map == kernel_map) {
 			onfault = p->p_addr->u_pcb.pcb_onfault;
 			p->p_addr->u_pcb.pcb_onfault = NULL;
-			rv = uvm_fault(map, va, 0, ftype);
+			error = uvm_fault(map, va, 0, ftype);
 			p->p_addr->u_pcb.pcb_onfault = onfault;
 		} else
-			rv = EFAULT;
+			error = EFAULT;
 
-		if (rv == 0) {
+		if (error == 0) {
 			if (map != kernel_map)
 				uvm_grow(p, va);
 			if (type == T_PAGEFLT) {
@@ -428,11 +429,20 @@ trap(struct trapframe *frame)
 				goto copyfault;
 			}
 			printf("uvm_fault(%p, 0x%lx, 0, %d) -> %x\n",
-			    map, va, ftype, rv);
+			    map, va, ftype, error);
 			goto we_re_toast;
 		}
+
+		signal = SIGSEGV;
+		sicode = SEGV_MAPERR;
+		if (error == EACCES)
+			sicode = SEGV_ACCERR;
+		if (error == EIO) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+		}
 		sv.sival_int = fa;
-		trapsignal(p, SIGSEGV, vftype, SEGV_MAPERR, sv);
+		trapsignal(p, signal, vftype, sicode, sv);
 		KERNEL_UNLOCK();
 		break;
 	}

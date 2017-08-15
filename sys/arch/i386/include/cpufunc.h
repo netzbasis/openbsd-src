@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.25 2017/05/27 12:21:50 tedu Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.27 2017/08/08 15:53:55 visa Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.8 1994/10/27 04:15:59 cgd Exp $	*/
 
 /*
@@ -217,6 +217,15 @@ mfence(void)
 	__asm volatile("mfence" : : : "memory");
 }
 
+static __inline u_int64_t
+rdtsc(void)
+{
+	uint64_t tsc;
+
+	__asm volatile("rdtsc" : "=A" (tsc));
+	return (tsc);
+}
+
 static __inline void
 wrmsr(u_int msr, u_int64_t newval)
 {
@@ -277,9 +286,6 @@ breakpoint(void)
 {
 	__asm volatile("int $3");
 }
-
-#define read_psl()	read_eflags()
-#define write_psl(x)	write_eflags(x)
 
 void amd64_errata(struct cpu_info *);
 

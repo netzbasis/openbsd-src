@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.c,v 1.220 2017/03/07 16:59:40 bluhm Exp $	*/
+/*	$OpenBSD: in_pcb.c,v 1.224 2017/08/11 19:53:02 bluhm Exp $	*/
 /*	$NetBSD: in_pcb.c,v 1.25 1996/02/13 23:41:53 christos Exp $	*/
 
 /*
@@ -327,12 +327,9 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 
 		if (nam) {
 			struct sockaddr_in6 *sin6;
-			sin6 = mtod(nam, struct sockaddr_in6 *);
-			if (nam->m_len != sizeof(struct sockaddr_in6))
-				return (EINVAL);
-			if (sin6->sin6_family != AF_INET6)
-				return (EAFNOSUPPORT);
 
+			if ((error = in6_nam2sin6(nam, &sin6)))
+				return (error);
 			if ((error = in6_pcbaddrisavail(inp, sin6, wild, p)))
 				return (error);
 			laddr = &sin6->sin6_addr;
@@ -346,12 +343,9 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 
 		if (nam) {
 			struct sockaddr_in *sin;
-			sin = mtod(nam, struct sockaddr_in *);
-			if (nam->m_len != sizeof(*sin))
-				return (EINVAL);
-			if (sin->sin_family != AF_INET)
-				return (EAFNOSUPPORT);
 
+			if ((error = in_nam2sin(nam, &sin)))
+				return (error);
 			if ((error = in_pcbaddrisavail(inp, sin, wild, p)))
 				return (error);
 			laddr = &sin->sin_addr;
@@ -511,7 +505,7 @@ int
 in_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 {
 	struct in_addr *ina = NULL;
-	struct sockaddr_in *sin = mtod(nam, struct sockaddr_in *);
+	struct sockaddr_in *sin;
 	int error;
 
 #ifdef INET6
@@ -521,27 +515,32 @@ in_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 		panic("IPv6 pcb passed into in_pcbconnect");
 #endif /* INET6 */
 
-	if (nam->m_len != sizeof(*sin))
-		return (EINVAL);
-	if (sin->sin_family != AF_INET)
-		return (EAFNOSUPPORT);
+	if ((error = in_nam2sin(nam, &sin)))
+		return (error);
 	if (sin->sin_port == 0)
 		return (EADDRNOTAVAIL);
-
 	error = in_pcbselsrc(&ina, sin, inp);
 	if (error)
 		return (error);
 
 	if (in_pcbhashlookup(inp->inp_table, sin->sin_addr, sin->sin_port,
-	    *ina, inp->inp_lport, inp->inp_rtableid) != 0)
+	    *ina, inp->inp_lport, inp->inp_rtableid) != NULL)
 		return (EADDRINUSE);
 
 	KASSERT(inp->inp_laddr.s_addr == INADDR_ANY || inp->inp_lport);
 
 	if (inp->inp_laddr.s_addr == INADDR_ANY) {
-		if (inp->inp_lport == 0 &&
-		    in_pcbbind(inp, NULL, curproc) == EADDRNOTAVAIL)
-			return (EADDRNOTAVAIL);
+		if (inp->inp_lport == 0) {
+			error = in_pcbbind(inp, NULL, curproc);
+			if (error)
+				return (error);
+			if (in_pcbhashlookup(inp->inp_table, sin->sin_addr,
+			    sin->sin_port, *ina, inp->inp_lport,
+			    inp->inp_rtableid) != NULL) {
+				inp->inp_lport = 0;
+				return (EADDRINUSE);
+			}
+		}
 		inp->inp_laddr = *ina;
 	}
 	inp->inp_faddr = sin->sin_addr;
@@ -716,11 +715,27 @@ in_losing(struct inpcb *inp)
 		info.rti_info[RTAX_DST] = &inp->inp_route.ro_dst;
 		info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
+
+		KERNEL_LOCK();
 		rtm_miss(RTM_LOSING, &info, rt->rt_flags, rt->rt_priority,
 		    rt->rt_ifidx, 0, inp->inp_rtableid);
-		if (rt->rt_flags & RTF_DYNAMIC)
-			(void)rtrequest(RTM_DELETE, &info, rt->rt_priority,
-			    NULL, inp->inp_rtableid);
+		KERNEL_UNLOCK();
+		if (rt->rt_flags & RTF_DYNAMIC) {
+			struct ifnet *ifp;
+
+			ifp = if_get(rt->rt_ifidx);
+			/*
+			 * If the interface is gone, all its attached
+			 * route entries have been removed from the table,
+			 * so we're dealing with a stale cache and have
+			 * nothing to do.
+			 */
+			if (ifp != NULL) {
+				rtrequest_delete(&info, rt->rt_priority, ifp,
+				    NULL, inp->inp_rtableid);
+			}
+			if_put(ifp);
+		}
 		/*
 		 * A new route can be allocated
 		 * the next time output is attempted.

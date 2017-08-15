@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_run.c,v 1.119 2017/06/02 15:09:13 kevlo Exp $	*/
+/*	$OpenBSD: if_run.c,v 1.123 2017/08/14 05:52:21 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2008-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -153,7 +153,10 @@ static const struct usb_devno run_devs[] = {
 	USB_ID(COREGA,		RT3070),
 	USB_ID(CYBERTAN,	RT2870),
 	USB_ID(DLINK,		DWA127),
+	USB_ID(DLINK,		DWA130F1),
+	USB_ID(DLINK,		DWA137A1),
 	USB_ID(DLINK,		DWA140B3),
+	USB_ID(DLINK,		DWA140D1),
 	USB_ID(DLINK,		DWA160B2),
 	USB_ID(DLINK,	 	DWA162),
 	USB_ID(DLINK,		RT2870),
@@ -2184,6 +2187,11 @@ run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen)
 		DPRINTF(("bad RXWI length %u > %u\n", len, dmalen));
 		return;
 	}
+	if (len > MCLBYTES) {
+		DPRINTF(("frame too large (length=%d)\n", len));
+		ifp->if_ierrors++;
+		return;
+	}
 	/* Rx descriptor is located at the end */
 	rxd = (struct rt2870_rxd *)(buf + dmalen);
 	flags = letoh32(rxd->flags);
@@ -3756,7 +3764,8 @@ run_updateslot_cb(struct run_softc *sc, void *arg)
 
 	run_read(sc, RT2860_BKOFF_SLOT_CFG, &tmp);
 	tmp &= ~0xff;
-	tmp |= (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ? 9 : 20;
+	tmp |= (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ?
+	    IEEE80211_DUR_DS_SHSLOT : IEEE80211_DUR_DS_SLOT;
 	run_write(sc, RT2860_BKOFF_SLOT_CFG, tmp);
 }
 

@@ -3,7 +3,7 @@
 /autoexec.c/1.17/Sat Sep 26 21:51:58 2015//
 /basic.c/1.47/Sat Oct 10 09:13:14 2015//
 /bell.c/1.4/Sun Jan  3 19:37:08 2016//
-/buffer.c/1.103/Mon Mar 13 20:32:58 2017//
+/buffer.c/1.104/Sun Aug  6 04:39:45 2017//
 /chrdef.h/1.10/Wed Mar 25 12:29:03 2015//
 /cinfo.c/1.18/Thu Mar 19 21:22:15 2015//
 /cmode.c/1.16/Sat Sep 26 21:51:58 2015//
@@ -11,7 +11,7 @@
 /def.h/1.155/Thu Apr 14 17:05:32 2016//
 /dir.c/1.30/Tue May 30 07:05:22 2017//
 /dired.c/1.83/Fri Oct  7 00:17:20 2016//
-/display.c/1.47/Fri Apr  3 22:10:29 2015//
+/display.c/1.48/Thu Jul  6 19:27:37 2017//
 /echo.c/1.66/Mon Oct 24 17:18:42 2016//
 /extend.c/1.64/Thu Sep  1 21:06:09 2016//
 /file.c/1.100/Sat Jan  2 10:39:19 2016//
@@ -33,11 +33,11 @@
 /modes.c/1.21/Tue May 30 07:05:22 2017//
 /paragraph.c/1.45/Tue Sep  6 16:25:47 2016//
 /pathnames.h/1.1/Mon Jun 18 07:14:55 2012//
-/re_search.c/1.32/Tue May 30 07:05:22 2017//
+/re_search.c/1.33/Sun Aug  6 04:39:45 2017//
 /region.c/1.37/Fri Sep  9 06:05:51 2016//
-/search.c/1.45/Tue May 30 07:05:22 2017//
+/search.c/1.46/Sun Aug  6 04:39:45 2017//
 /spawn.c/1.12/Thu Mar 19 21:22:15 2015//
-/tags.c/1.15/Tue May 30 07:05:22 2017//
+/tags.c/1.16/Sun Aug  6 04:39:45 2017//
 /tty.c/1.36/Wed Nov 18 18:44:50 2015//
 /ttyio.c/1.37/Mon Mar 23 12:31:19 2015//
 /ttykbd.c/1.18/Thu Mar 19 21:22:15 2015//

@@ -1,11 +1,10 @@
-#	$OpenBSD: Makefile,v 1.8 2017/05/07 04:18:47 jsg Exp $
+#	$OpenBSD: Makefile,v 1.10 2017/08/13 19:42:33 doug Exp $
 
 .include <bsd.own.mk>
 
 PROG=	openssl
 LDADD=	-lssl -lcrypto
 DPADD=	${LIBSSL} ${LIBCRYPTO}
-MAN1=	openssl.1
 
 CFLAGS+= -Wall
 CFLAGS+= -Wformat
@@ -16,7 +15,7 @@ CFLAGS+= -Wreturn-type
 CFLAGS+= -Wtrigraphs
 CFLAGS+= -Wuninitialized
 CFLAGS+= -Wunused
-.if ${COMPILER_VERSION:L} == "gcc4"
+.if ${COMPILER_VERSION:L} == "clang"
 CFLAGS+= -Werror
 .endif
 CFLAGS+= -DLIBRESSL_INTERNAL

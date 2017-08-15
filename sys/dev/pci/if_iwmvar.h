@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.27 2017/05/28 09:59:58 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.33 2017/08/13 15:34:54 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -279,10 +279,13 @@ struct iwm_rx_ring {
 	int			cur;
 };
 
-#define IWM_FLAG_USE_ICT	0x01
-#define IWM_FLAG_HW_INITED	0x02
-#define IWM_FLAG_RFKILL		0x04
-#define IWM_FLAG_SCANNING	0x08
+#define IWM_FLAG_USE_ICT	0x01	/* using Interrupt Cause Table */
+#define IWM_FLAG_RFKILL		0x02	/* radio kill switch is set */
+#define IWM_FLAG_SCANNING	0x04	/* scan in progress */
+#define IWM_FLAG_MAC_ACTIVE	0x08	/* MAC context added to firmware */
+#define IWM_FLAG_BINDING_ACTIVE	0x10	/* MAC->PHY binding added to firmware */
+#define IWM_FLAG_STA_ACTIVE	0x20	/* AP added to firmware station table */
+#define IWM_FLAG_TE_ACTIVE	0x40	/* time event is scheduled */
 
 struct iwm_ucode_status {
 	uint32_t uc_error_event_table;
@@ -407,6 +410,8 @@ struct iwm_softc {
 
 	int sc_fw_chunk_done;
 	int sc_init_complete;
+#define IWM_INIT_COMPLETE	0x01
+#define IWM_CALIB_COMPLETE	0x02
 
 	struct iwm_ucode_status sc_uc;
 	enum iwm_ucode_type sc_uc_current;
@@ -462,11 +467,12 @@ struct iwm_softc {
 	int sc_wantresp;
 	int sc_nic_locks;
 
-	struct taskq *sc_nswq, *sc_eswq;
-	struct task sc_eswk;
+	struct taskq *sc_nswq;
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;
+
+	uint32_t sc_time_event_uid;
 
 	/* phy contexts.  we only use the first one */
 	struct iwm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];

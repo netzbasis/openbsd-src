@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vxlan.c,v 1.60 2017/05/04 15:00:24 bluhm Exp $	*/
+/*	$OpenBSD: if_vxlan.c,v 1.62 2017/08/11 21:24:19 mpi Exp $	*/
 
 /*
  * Copyright (c) 2013 Reyk Floeter <reyk@openbsd.org>
@@ -178,11 +178,10 @@ int
 vxlan_clone_destroy(struct ifnet *ifp)
 {
 	struct vxlan_softc	*sc = ifp->if_softc;
-	int			 s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	vxlan_multicast_cleanup(ifp);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	vxlan_enable--;
 	LIST_REMOVE(sc, sc_entry);
@@ -538,6 +537,7 @@ vxlan_sockaddr_cmp(struct sockaddr *srcsa, struct sockaddr *dstsa)
 		dst4 = satosin(dstsa);
 		if (src4->sin_addr.s_addr == dst4->sin_addr.s_addr)
 			return (0);
+		break;
 #ifdef INET6
 	case AF_INET6:
 		src6 = satosin6(srcsa);
@@ -545,6 +545,7 @@ vxlan_sockaddr_cmp(struct sockaddr *srcsa, struct sockaddr *dstsa)
 		if (IN6_ARE_ADDR_EQUAL(&src6->sin6_addr, &dst6->sin6_addr) &&
 		    src6->sin6_scope_id == dst6->sin6_scope_id)
 			return (0);
+		break;
 #endif /* INET6 */
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.1 2017/06/03 10:00:29 florian Exp $	*/
+/*	$OpenBSD: engine.c,v 1.11 2017/08/05 13:02:33 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -218,8 +218,10 @@ __dead void		 engine_shutdown(void);
 void			 engine_sig_handler(int sig, short, void *);
 void			 engine_dispatch_frontend(int, short, void *);
 void			 engine_dispatch_main(int, short, void *);
+#ifndef	SMALL
 void			 send_interface_info(struct slaacd_iface *, pid_t);
 void			 engine_showinfo_ctl(struct imsg *, uint32_t);
+#endif	/* SMALL */
 struct slaacd_iface	*get_slaacd_iface_by_id(uint32_t);
 void			 remove_slaacd_iface(uint32_t);
 void			 free_ra(struct radv *);
@@ -228,6 +230,7 @@ void			 gen_addr(struct slaacd_iface *, struct radv_prefix *,
 			     struct address_proposal *, int);
 void			 gen_address_proposal(struct slaacd_iface *, struct
 			     radv *, struct radv_prefix *, int);
+void			 free_address_proposal(struct address_proposal *);
 void			 configure_address(struct address_proposal *);
 void			 in6_prefixlen2mask(struct in6_addr *, int len);
 void			 gen_dfr_proposal(struct slaacd_iface *, struct
@@ -255,6 +258,7 @@ void			 find_prefix(struct slaacd_iface *, struct
 			     radv_prefix **);
 int			 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
 uint32_t		 real_lifetime(struct timespec *, uint32_t);
+const char		 *sin6_to_str(struct sockaddr_in6 *);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
@@ -376,13 +380,15 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 	struct imsg			 imsg;
 	struct slaacd_iface		*iface;
 	struct imsg_ra			 ra;
-	struct imsg_ifinfo		 imsg_ifinfo;
 	struct imsg_proposal_ack	 proposal_ack;
 	struct address_proposal		*addr_proposal = NULL;
 	struct dfr_proposal		*dfr_proposal = NULL;
 	struct imsg_del_addr		 del_addr;
 	ssize_t				 n;
-	int				 shut = 0, verbose;
+	int				 shut = 0;
+#ifndef	SMALL
+	int				 verbose;
+#endif	/* SMALL */
 	uint32_t			 if_index;
 
 	if (event & EV_READ) {
@@ -405,6 +411,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
+#ifndef	SMALL
 		case IMSG_CTL_LOG_VERBOSE:
 			/* Already checked by frontend. */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
@@ -416,6 +423,177 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				    "length: %d", __func__, imsg.hdr.len);
 			memcpy(&if_index, imsg.data, sizeof(if_index));
 			engine_showinfo_ctl(&imsg, if_index);
+			break;
+#endif	/* SMALL */
+		case IMSG_REMOVE_IF:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(if_index))
+				fatal("%s: IMSG_REMOVE_IF wrong length: %d",
+				    __func__, imsg.hdr.len);
+			memcpy(&if_index, imsg.data, sizeof(if_index));
+			remove_slaacd_iface(if_index);
+			break;
+		case IMSG_RA:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(ra))
+				fatal("%s: IMSG_RA wrong length: %d",
+				    __func__, imsg.hdr.len);
+			memcpy(&ra, imsg.data, sizeof(ra));
+			iface = get_slaacd_iface_by_id(ra.if_index);
+			if (iface != NULL)
+				parse_ra(iface, &ra);
+			break;
+		case IMSG_CTL_SEND_SOLICITATION:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(if_index))
+				fatal("%s: IMSG_CTL_SEND_SOLICITATION wrong "
+				    "length: %d", __func__, imsg.hdr.len);
+			memcpy(&if_index, imsg.data, sizeof(if_index));
+			iface = get_slaacd_iface_by_id(if_index);
+			if (iface == NULL)
+				log_warnx("requested to send solicitation on "
+				    "non-autoconf interface: %u", if_index);
+			else
+				engine_imsg_compose_frontend(
+				    IMSG_CTL_SEND_SOLICITATION, imsg.hdr.pid,
+				    &iface->if_index, sizeof(iface->if_index));
+			break;
+		case IMSG_PROPOSAL_ACK:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(proposal_ack))
+				fatal("%s: IMSG_PROPOSAL_ACK wrong length: %d",
+				    __func__, imsg.hdr.len);
+			memcpy(&proposal_ack, imsg.data, sizeof(proposal_ack));
+			log_debug("%s: IMSG_PROPOSAL_ACK: %lld - %d", __func__,
+			    proposal_ack.id, proposal_ack.pid);
+			if (proposal_ack.pid != getpid()) {
+				log_debug("IMSG_PROPOSAL_ACK: wrong pid, "
+				    "ignoring");
+				break;
+			}
+
+			iface = get_slaacd_iface_by_id(proposal_ack.if_index);
+			if (iface == NULL) {
+				log_debug("IMSG_PROPOSAL_ACK: unknown interface"
+				    ", ignoring");
+				break;
+			}
+
+			addr_proposal = find_address_proposal_by_id(iface,
+			    proposal_ack.id);
+			if (addr_proposal == NULL) {
+				dfr_proposal = find_dfr_proposal_by_id(iface,
+				    proposal_ack.id);
+				if (dfr_proposal == NULL) {
+					log_debug("IMSG_PROPOSAL_ACK: cannot "
+					    "find proposal, ignoring");
+					break;
+				}
+			}
+			if (addr_proposal != NULL)
+				configure_address(addr_proposal);
+			else if (dfr_proposal != NULL)
+				configure_dfr(dfr_proposal);
+
+			break;
+		case IMSG_DEL_ADDRESS:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(del_addr))
+				fatal("%s: IMSG_DEL_ADDRESS wrong length: %d",
+				    __func__, imsg.hdr.len);
+			memcpy(&del_addr, imsg.data, sizeof(del_addr));
+			iface = get_slaacd_iface_by_id(del_addr.if_index);
+			if (iface == NULL) {
+				log_debug("IMSG_DEL_ADDRESS: unknown interface"
+				    ", ignoring");
+				break;
+			}
+
+			addr_proposal = find_address_proposal_by_addr(iface,
+			    &del_addr.addr);
+
+			if (addr_proposal) {
+				/* XXX should we inform netcfgd? */
+				LIST_REMOVE(addr_proposal, entries);
+				free_address_proposal(addr_proposal);
+			}
+
+			break;
+		default:
+			log_debug("%s: unexpected imsg %d", __func__,
+			    imsg.hdr.type);
+			break;
+		}
+		imsg_free(&imsg);
+	}
+	if (!shut)
+		imsg_event_add(iev);
+	else {
+		/* This pipe is dead. Remove its event handler. */
+		event_del(&iev->ev);
+		event_loopexit(NULL);
+	}
+}
+
+void
+engine_dispatch_main(int fd, short event, void *bula)
+{
+	struct imsg		 imsg;
+	struct imsgev		*iev = bula;
+	struct imsgbuf		*ibuf = &iev->ibuf;
+	struct imsg_ifinfo	 imsg_ifinfo;
+	struct slaacd_iface	*iface;
+	ssize_t			 n;
+	int			 shut = 0;
+
+	if (event & EV_READ) {
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
+			fatal("imsg_read error");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+	if (event & EV_WRITE) {
+		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
+			fatal("msgbuf_write");
+		if (n == 0)	/* Connection closed. */
+			shut = 1;
+	}
+
+	for (;;) {
+		if ((n = imsg_get(ibuf, &imsg)) == -1)
+			fatal("%s: imsg_get error", __func__);
+		if (n == 0)	/* No more messages. */
+			break;
+
+		switch (imsg.hdr.type) {
+		case IMSG_SOCKET_IPC:
+			/*
+			 * Setup pipe and event handler to the frontend
+			 * process.
+			 */
+			if (iev_frontend) {
+				log_warnx("%s: received unexpected imsg fd "
+				    "to engine", __func__);
+				break;
+			}
+			if ((fd = imsg.fd) == -1) {
+				log_warnx("%s: expected to receive imsg fd to "
+				   "engine but didn't receive any", __func__);
+				break;
+			}
+
+			iev_frontend = malloc(sizeof(struct imsgev));
+			if (iev_frontend == NULL)
+				fatal(NULL);
+
+			imsg_init(&iev_frontend->ibuf, fd);
+			iev_frontend->handler = engine_dispatch_frontend;
+			iev_frontend->events = EV_READ;
+
+			event_set(&iev_frontend->ev, iev_frontend->ibuf.fd,
+			iev_frontend->events, iev_frontend->handler,
+			    iev_frontend);
+			event_add(&iev_frontend->ev, NULL);
+
+			if (pledge("stdio", NULL) == -1)
+				fatal("pledge");
 			break;
 		case IMSG_UPDATE_IF:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
@@ -484,98 +662,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				    sizeof(struct sockaddr_in6));
 			}
 			break;
-		case IMSG_REMOVE_IF:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(if_index))
-				fatal("%s: IMSG_REMOVE_IF wrong length: %d",
-				    __func__, imsg.hdr.len);
-			memcpy(&if_index, imsg.data, sizeof(if_index));
-			remove_slaacd_iface(if_index);
-			break;
-		case IMSG_RA:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(ra))
-				fatal("%s: IMSG_RA wrong length: %d",
-				    __func__, imsg.hdr.len);
-			memcpy(&ra, imsg.data, sizeof(ra));
-			iface = get_slaacd_iface_by_id(ra.if_index);
-			if (iface != NULL)
-				parse_ra(iface, &ra);
-			break;
-		case IMSG_CTL_SEND_SOLICITATION:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(if_index))
-				fatal("%s: IMSG_CTL_SEND_SOLICITATION wrong "
-				    "length: %d", __func__, imsg.hdr.len);
-			memcpy(&if_index, imsg.data, sizeof(if_index));
-			iface = get_slaacd_iface_by_id(if_index);
-			if (iface == NULL)
-				log_warn("requested to send solicitation on "
-				    "non-autoconf interface: %u", if_index);
-			else
-				engine_imsg_compose_frontend(
-				    IMSG_CTL_SEND_SOLICITATION, imsg.hdr.pid,
-				    &iface->if_index, sizeof(iface->if_index));
-			break;
-		case IMSG_PROPOSAL_ACK:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(proposal_ack))
-				fatal("%s: IMSG_PROPOSAL_ACK wrong length: %d",
-				    __func__, imsg.hdr.len);
-			memcpy(&proposal_ack, imsg.data, sizeof(proposal_ack));
-			log_debug("%s: IMSG_PROPOSAL_ACK: %lld - %d", __func__,
-			    proposal_ack.id, proposal_ack.pid);
-			if (proposal_ack.pid != getpid()) {
-				log_debug("IMSG_PROPOSAL_ACK: wrong pid, "
-				    "ignoring");
-				break;
-			}
-
-			iface = get_slaacd_iface_by_id(proposal_ack.if_index);
-			if (iface == NULL) {
-				log_debug("IMSG_PROPOSAL_ACK: unknown interface"
-				    ", ignoring");
-				break;
-			}
-
-			addr_proposal = find_address_proposal_by_id(iface,
-			    proposal_ack.id);
-			if (addr_proposal == NULL) {
-				dfr_proposal = find_dfr_proposal_by_id(iface,
-				    proposal_ack.id);
-				if (dfr_proposal == NULL) {
-					log_debug("IMSG_PROPOSAL_ACK: cannot "
-					    "find proposal, ignoring");
-					break;
-				}
-			}
-			if (addr_proposal != NULL)
-				configure_address(addr_proposal);
-			else if (dfr_proposal != NULL)
-				configure_dfr(dfr_proposal);
-
-			break;
-		case IMSG_DEL_ADDRESS:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(del_addr))
-				fatal("%s: IMSG_DEL_ADDRESS wrong length: %d",
-				    __func__, imsg.hdr.len);
-			memcpy(&del_addr, imsg.data, sizeof(del_addr));
-			iface = get_slaacd_iface_by_id(del_addr.if_index);
-			if (iface == NULL) {
-				log_debug("IMSG_DEL_ADDRESS: unknown interface"
-				    ", ignoring");
-				break;
-			}
-
-			addr_proposal = find_address_proposal_by_addr(iface,
-			    &del_addr.addr);
-
-			if (addr_proposal) {
-				/* XXX should we inform netcfgd? */
-				LIST_REMOVE(addr_proposal, entries);
-				evtimer_del(&addr_proposal->timer);
-				free(addr_proposal);
-			}
-
-			break;
 		default:
 			log_debug("%s: unexpected imsg %d", __func__,
 			    imsg.hdr.type);
@@ -592,83 +678,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 	}
 }
 
-void
-engine_dispatch_main(int fd, short event, void *bula)
-{
-	struct imsg		 imsg;
-	struct imsgev		*iev = bula;
-	struct imsgbuf		*ibuf = &iev->ibuf;
-	ssize_t			 n;
-	int			 shut = 0;
-
-	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal("imsg_read error");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-	if (event & EV_WRITE) {
-		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
-			fatal("msgbuf_write");
-		if (n == 0)	/* Connection closed. */
-			shut = 1;
-	}
-
-	for (;;) {
-		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("%s: imsg_get error", __func__);
-		if (n == 0)	/* No more messages. */
-			break;
-
-		switch (imsg.hdr.type) {
-		case IMSG_SOCKET_IPC:
-			/*
-			 * Setup pipe and event handler to the frontend
-			 * process.
-			 */
-			if (iev_frontend) {
-				log_warnx("%s: received unexpected imsg fd "
-				    "to engine", __func__);
-				break;
-			}
-			if ((fd = imsg.fd) == -1) {
-				log_warnx("%s: expected to receive imsg fd to "
-				   "engine but didn't receive any", __func__);
-				break;
-			}
-
-			iev_frontend = malloc(sizeof(struct imsgev));
-			if (iev_frontend == NULL)
-				fatal(NULL);
-
-			imsg_init(&iev_frontend->ibuf, fd);
-			iev_frontend->handler = engine_dispatch_frontend;
-			iev_frontend->events = EV_READ;
-
-			event_set(&iev_frontend->ev, iev_frontend->ibuf.fd,
-			iev_frontend->events, iev_frontend->handler,
-			    iev_frontend);
-			event_add(&iev_frontend->ev, NULL);
-
-			if (pledge("stdio", NULL) == -1)
-				fatal("pledge");
-			break;
-		default:
-			log_debug("%s: unexpected imsg %d", __func__,
-			    imsg.hdr.type);
-			break;
-		}
-		imsg_free(&imsg);
-	}
-	if (!shut)
-		imsg_event_add(iev);
-	else {
-		/* This pipe is dead. Remove its event handler. */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
-	}
-}
-
+#ifndef	SMALL
 void
 send_interface_info(struct slaacd_iface *iface, pid_t pid)
 {
@@ -705,7 +715,7 @@ send_interface_info(struct slaacd_iface *iface, pid_t pid)
 		cei_ra.other = ra->other;
 		if (strlcpy(cei_ra.rpref, rpref_name[ra->rpref], sizeof(
 		    cei_ra.rpref)) >= sizeof(cei_ra.rpref))
-			log_warn("truncated router preference");
+			log_warnx("truncated router preference");
 		cei_ra.router_lifetime = ra->router_lifetime;
 		cei_ra.reachable_time = ra->reachable_time;
 		cei_ra.retrans_time = ra->retrans_time;
@@ -758,7 +768,7 @@ send_interface_info(struct slaacd_iface *iface, pid_t pid)
 		    proposal_state_name[addr_proposal->state],
 		    sizeof(cei_addr_proposal.state)) >=
 		    sizeof(cei_addr_proposal.state))
-			log_warn("truncated state name");
+			log_warnx("truncated state name");
 		cei_addr_proposal.next_timeout = addr_proposal->next_timeout;
 		cei_addr_proposal.timeout_count = addr_proposal->timeout_count;
 		cei_addr_proposal.when = addr_proposal->when;
@@ -788,7 +798,7 @@ send_interface_info(struct slaacd_iface *iface, pid_t pid)
 		    proposal_state_name[dfr_proposal->state],
 		    sizeof(cei_dfr_proposal.state)) >=
 		    sizeof(cei_dfr_proposal.state))
-			log_warn("truncated state name");
+			log_warnx("truncated state name");
 		cei_dfr_proposal.next_timeout = dfr_proposal->next_timeout;
 		cei_dfr_proposal.timeout_count = dfr_proposal->timeout_count;
 		cei_dfr_proposal.when = dfr_proposal->when;
@@ -801,7 +811,7 @@ send_interface_info(struct slaacd_iface *iface, pid_t pid)
 		    rpref_name[dfr_proposal->rpref],
 		    sizeof(cei_dfr_proposal.rpref)) >=
 		    sizeof(cei_dfr_proposal.rpref))
-			log_warn("truncated router preference");
+			log_warnx("truncated router preference");
 		engine_imsg_compose_frontend(
 		    IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL, pid,
 			    &cei_dfr_proposal, sizeof(cei_dfr_proposal));
@@ -830,6 +840,7 @@ engine_showinfo_ctl(struct imsg *imsg, uint32_t if_index)
 		break;
 	}
 }
+#endif	/* SMALL */
 
 struct slaacd_iface*
 get_slaacd_iface_by_id(uint32_t if_index)
@@ -846,35 +857,35 @@ get_slaacd_iface_by_id(uint32_t if_index)
 void
 remove_slaacd_iface(uint32_t if_index)
 {
-	struct slaacd_iface	*iface, *tiface;
+	struct slaacd_iface	*iface;
 	struct radv		*ra;
 	struct address_proposal	*addr_proposal;
 	struct dfr_proposal	*dfr_proposal;
 
-	LIST_FOREACH_SAFE (iface, &slaacd_interfaces, entries, tiface) {
-		if (iface->if_index == if_index) {
-			LIST_REMOVE(iface, entries);
-			while(!LIST_EMPTY(&iface->radvs)) {
-				ra = LIST_FIRST(&iface->radvs);
-				LIST_REMOVE(ra, entries);
-				free_ra(ra);
-			}
-			/* XXX inform netcfgd? */
-			while(!LIST_EMPTY(&iface->addr_proposals)) {
-				addr_proposal =
-				    LIST_FIRST(&iface->addr_proposals);
-				LIST_REMOVE(addr_proposal, entries);
-				free(addr_proposal);
-			}
-			while(!LIST_EMPTY(&iface->dfr_proposals)) {
-				dfr_proposal =
-				    LIST_FIRST(&iface->dfr_proposals);
-				free_dfr_proposal(dfr_proposal);
-			}
-			free(iface);
-			break;
-		}
+	iface = get_slaacd_iface_by_id(if_index);
+
+	if (iface == NULL)
+		return;
+
+	LIST_REMOVE(iface, entries);
+	while(!LIST_EMPTY(&iface->radvs)) {
+		ra = LIST_FIRST(&iface->radvs);
+		LIST_REMOVE(ra, entries);
+		free_ra(ra);
 	}
+	/* XXX inform netcfgd? */
+	while(!LIST_EMPTY(&iface->addr_proposals)) {
+		addr_proposal = LIST_FIRST(&iface->addr_proposals);
+		LIST_REMOVE(addr_proposal, entries);
+		free_address_proposal(addr_proposal);
+	}
+	while(!LIST_EMPTY(&iface->dfr_proposals)) {
+		dfr_proposal = LIST_FIRST(&iface->dfr_proposals);
+		LIST_REMOVE(dfr_proposal, entries);
+		free_dfr_proposal(dfr_proposal);
+	}
+	evtimer_del(&iface->timer);
+	free(iface);
 }
 
 void
@@ -919,26 +930,22 @@ parse_ra(struct slaacd_iface *iface, struct imsg_ra *ra)
 	struct radv_rdns	*rdns;
 	struct radv_dnssl	*ra_dnssl;
 	ssize_t			 len = ra->len;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 	uint8_t			*p;
 
 #if 0
 	debug_log_ra(ra);
 #endif
 
-	if (getnameinfo((struct sockaddr *)&ra->from, ra->from.sin6_len, hbuf,
-	    sizeof(hbuf), NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
-
+	hbuf = sin6_to_str(&ra->from);
 	if (!IN6_IS_ADDR_LINKLOCAL(&ra->from.sin6_addr)) {
-		log_warn("RA from non link local address %s", hbuf);
+		log_warnx("RA from non link local address %s", hbuf);
 		return;
 	}
 
 	if ((size_t)len < sizeof(struct nd_router_advert)) {
-		log_warn("received too short message (%ld) from %s", len, hbuf);
+		log_warnx("received too short message (%ld) from %s", len,
+		    hbuf);
 		return;
 	}
 
@@ -966,7 +973,7 @@ parse_ra(struct slaacd_iface *iface, struct imsg_ra *ra)
 	}
 
 	if (nd_ra->nd_ra_code != 0) {
-		log_warn("invalid ICMPv6 code (%d) from %s", nd_ra->nd_ra_code,
+		log_warnx("invalid ICMPv6 code (%d) from %s", nd_ra->nd_ra_code,
 		    hbuf);
 		goto err;
 	}
@@ -1022,7 +1029,7 @@ parse_ra(struct slaacd_iface *iface, struct imsg_ra *ra)
 		switch (nd_opt_hdr->nd_opt_type) {
 		case ND_OPT_PREFIX_INFORMATION:
 			if (nd_opt_hdr->nd_opt_len != 4) {
-				log_warn("invalid ND_OPT_PREFIX_INFORMATION: "
+				log_warnx("invalid ND_OPT_PREFIX_INFORMATION: "
 				   "len != 4");
 				goto err;
 			}
@@ -1099,7 +1106,7 @@ parse_ra(struct slaacd_iface *iface, struct imsg_ra *ra)
 			if (strlcpy(ra_dnssl->dnssl, nssl,
 			    sizeof(ra_dnssl->dnssl)) >=
 			    sizeof(ra_dnssl->dnssl)) {
-				log_warn("dnssl too long");
+				log_warnx("dnssl too long");
 				goto err;
 			}
 			free(nssl);
@@ -1227,22 +1234,20 @@ debug_log_ra(struct imsg_ra *ra)
 {
 	struct nd_router_advert	*nd_ra;
 	ssize_t			 len = ra->len;
-	char			 hbuf[NI_MAXHOST], ntopbuf[INET6_ADDRSTRLEN];
+	char			 ntopbuf[INET6_ADDRSTRLEN];
+	const char		*hbuf;
 	uint8_t			*p;
 
-	if (getnameinfo((struct sockaddr *)&ra->from, ra->from.sin6_len, hbuf,
-	    sizeof(hbuf), NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
+	hbuf = sin6_to_str(&ra->from);
 
 	if (!IN6_IS_ADDR_LINKLOCAL(&ra->from.sin6_addr)) {
-		log_warn("RA from non link local address %s", hbuf);
+		log_warnx("RA from non link local address %s", hbuf);
 		return;
 	}
 
 	if ((size_t)len < sizeof(struct nd_router_advert)) {
-		log_warn("received too short message (%ld) from %s", len, hbuf);
+		log_warnx("received too short message (%ld) from %s", len,
+		    hbuf);
 		return;
 	}
 
@@ -1261,7 +1266,7 @@ debug_log_ra(struct imsg_ra *ra)
 	}
 
 	if (nd_ra->nd_ra_code != 0) {
-		log_warn("invalid ICMPv6 code (%d) from %s", nd_ra->nd_ra_code,
+		log_warnx("invalid ICMPv6 code (%d) from %s", nd_ra->nd_ra_code,
 		    hbuf);
 		return;
 	}
@@ -1332,7 +1337,7 @@ debug_log_ra(struct imsg_ra *ra)
 			break;
 		case ND_OPT_PREFIX_INFORMATION:
 			if (nd_opt_hdr->nd_opt_len != 4) {
-				log_warn("invalid ND_OPT_PREFIX_INFORMATION: "
+				log_warnx("invalid ND_OPT_PREFIX_INFORMATION: "
 				   "len != 4");
 				return;
 			}
@@ -1358,7 +1363,7 @@ debug_log_ra(struct imsg_ra *ra)
 			break;
 		case ND_OPT_MTU:
 			if (nd_opt_hdr->nd_opt_len != 1) {
-				log_warn("invalid ND_OPT_MTU: len != 1");
+				log_warnx("invalid ND_OPT_MTU: len != 1");
 				return;
 			}
 			mtu = (struct nd_opt_mtu*) nd_opt_hdr;
@@ -1465,8 +1470,9 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 	struct radv_prefix	*prefix;
 	struct address_proposal	*addr_proposal;
 	struct dfr_proposal	*dfr_proposal, *tmp;
+	uint32_t		 remaining_lifetime;
 	int			 found, found_privacy;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 
 	if ((old_ra = find_ra(iface, &ra->from)) == NULL)
 		LIST_INSERT_HEAD(&iface->radvs, ra, entries);
@@ -1493,8 +1499,9 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 				if (real_lifetime(&dfr_proposal->uptime,
 				    dfr_proposal->router_lifetime) >=
 				    ra->router_lifetime)
-					log_warn("ignoring router advertisement"
-					    " that lowers router lifetime");
+					log_warnx("ignoring router "
+					    "advertisement that lowers router "
+					    "lifetime");
 				else {
 					dfr_proposal->when = ra->when;
 					dfr_proposal->uptime = ra->uptime;
@@ -1514,19 +1521,8 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 						configure_dfr(dfr_proposal);
 						break;
 					default:
-						if (getnameinfo((struct
-						    sockaddr *)
-						    &dfr_proposal->addr,
-						    dfr_proposal->
-						    addr.sin6_len, hbuf,
-						    sizeof(hbuf), NULL, 0,
-						    NI_NUMERICHOST |
-						    NI_NUMERICSERV)) {
-							log_warn("cannot get "
-							    "proposal IP");
-							strlcpy(hbuf, "unknown",
-							    sizeof(hbuf));
-						}
+						hbuf = sin6_to_str(
+						    &dfr_proposal->addr);
 						log_debug("%s: iface %d: %s",
 						    __func__, iface->if_index,
 						    hbuf);
@@ -1542,6 +1538,11 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 			gen_dfr_proposal(iface, ra);
 
 		LIST_FOREACH(prefix, &ra->prefixes, entries) {
+			if (!prefix->autonomous || prefix->vltime == 0 ||
+			    prefix->pltime > prefix->vltime ||
+			    prefix->prefix_len != 64 ||
+			    IN6_IS_ADDR_LINKLOCAL(&prefix->prefix))
+				continue;
 			found = 0;
 			found_privacy = 0;
 			LIST_FOREACH(addr_proposal, &iface->addr_proposals,
@@ -1582,16 +1583,20 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 
 				found = 1;
 
-				if (real_lifetime(&addr_proposal->uptime,
-				    addr_proposal->vltime) >= prefix->vltime) {
-					log_warn("ignoring router advertisement"
-					    " that lowers vltime");
-					continue;
-				}
+				remaining_lifetime =
+				    real_lifetime(&addr_proposal->uptime,
+				    addr_proposal->vltime);
 
 				addr_proposal->when = ra->when;
 				addr_proposal->uptime = ra->uptime;
-				addr_proposal->vltime = prefix->vltime;
+
+/* RFC 4862 5.5.3 two hours rule */
+#define TWO_HOURS 2 * 3600
+				if (prefix->vltime > TWO_HOURS ||
+				    prefix->vltime > remaining_lifetime)
+					addr_proposal->vltime = prefix->vltime;
+				else
+					addr_proposal->vltime = TWO_HOURS;
 				addr_proposal->pltime = prefix->pltime;
 
 				log_debug("%s, addr state: %s", __func__,
@@ -1604,16 +1609,8 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 					configure_address(addr_proposal);
 					break;
 				default:
-					if (getnameinfo((struct sockaddr *)
-					    &addr_proposal->addr,
-					    addr_proposal->addr.sin6_len, hbuf,
-					    sizeof(hbuf), NULL, 0,
-					    NI_NUMERICHOST | NI_NUMERICSERV)) {
-						log_warn("cannot get proposal "
-						    "IP");
-						strlcpy(hbuf, "unknown",
-						    sizeof(hbuf));
-					}
+					hbuf = sin6_to_str(&addr_proposal->
+					    addr);
 					log_debug("%s: iface %d: %s", __func__,
 					    iface->if_index, hbuf);
 					break;
@@ -1624,9 +1621,20 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 				/* new proposal */
 				gen_address_proposal(iface, ra, prefix, 0);
 
-			if (!found_privacy && iface->autoconfprivacy)
-				/* new privacy proposal */
-				gen_address_proposal(iface, ra, prefix, 1);
+			if (!found_privacy && iface->autoconfprivacy) {
+				if (prefix->pltime <
+				    ND6_PRIV_MAX_DESYNC_FACTOR) {
+					hbuf = sin6_to_str(&ra->from);
+					log_warnx("%s: pltime from %s is too "
+					    "small: %d < %d; not generating "
+					    "privacy address", __func__, hbuf,
+					    prefix->pltime,
+					    ND6_PRIV_MAX_DESYNC_FACTOR);
+				} else
+					/* new privacy proposal */
+					gen_address_proposal(iface, ra, prefix,
+					    1);
+			}
 		}
 	}
 }
@@ -1636,13 +1644,23 @@ configure_address(struct address_proposal *addr_proposal)
 {
 	struct imsg_configure_address	 address;
 	struct timeval			 tv;
+	uint32_t			 lifetime;
 
-	addr_proposal->next_timeout = addr_proposal->pltime -
-	    MAX_RTR_SOLICITATIONS * (RTR_SOLICITATION_INTERVAL + 1);
+	if (addr_proposal->pltime > MAX_RTR_SOLICITATIONS *
+	    (RTR_SOLICITATION_INTERVAL + 1))
+		lifetime = addr_proposal->pltime;
+	else
+		lifetime = addr_proposal->vltime;
 
-	tv.tv_sec = addr_proposal->next_timeout;
-	tv.tv_usec = arc4random_uniform(1000000);
-	evtimer_add(&addr_proposal->timer, &tv);
+	if (lifetime > MAX_RTR_SOLICITATIONS *
+	    (RTR_SOLICITATION_INTERVAL + 1)) {
+		addr_proposal->next_timeout = lifetime - MAX_RTR_SOLICITATIONS *
+		    (RTR_SOLICITATION_INTERVAL + 1);
+		tv.tv_sec = addr_proposal->next_timeout;
+		tv.tv_usec = arc4random_uniform(1000000);
+		evtimer_add(&addr_proposal->timer, &tv);
+	} else
+		addr_proposal->next_timeout = 0;
 
 	addr_proposal->state = PROPOSAL_CONFIGURED;
 
@@ -1665,7 +1683,7 @@ gen_address_proposal(struct slaacd_iface *iface, struct radv *ra, struct
 {
 	struct address_proposal	*addr_proposal;
 	struct timeval		 tv;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 
 	if ((addr_proposal = calloc(1, sizeof(*addr_proposal))) == NULL)
 		fatal("calloc");
@@ -1691,7 +1709,8 @@ gen_address_proposal(struct slaacd_iface *iface, struct radv *ra, struct
 			addr_proposal->vltime = prefix->vltime;
 
 		if (prefix->pltime > ND6_PRIV_PREFERRED_LIFETIME)
-			addr_proposal->pltime = ND6_PRIV_PREFERRED_LIFETIME;
+			addr_proposal->pltime = ND6_PRIV_PREFERRED_LIFETIME
+			    - arc4random_uniform(ND6_PRIV_MAX_DESYNC_FACTOR);
 		else
 			addr_proposal->pltime = prefix->pltime;
 	} else {
@@ -1707,14 +1726,19 @@ gen_address_proposal(struct slaacd_iface *iface, struct radv *ra, struct
 
 	LIST_INSERT_HEAD(&iface->addr_proposals, addr_proposal, entries);
 
-	if (getnameinfo((struct sockaddr *)&addr_proposal->addr,
-	    addr_proposal->addr.sin6_len, hbuf, sizeof(hbuf), NULL, 0,
-	    NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
+	hbuf = sin6_to_str(&addr_proposal->addr);
 	log_debug("%s: iface %d: %s: %lld s", __func__,
 	    iface->if_index, hbuf, tv.tv_sec);
+}
+
+void
+free_address_proposal(struct address_proposal *addr_proposal)
+{
+	if (addr_proposal == NULL)
+		return;
+
+	evtimer_del(&addr_proposal->timer);
+	free(addr_proposal);
 }
 
 void
@@ -1722,7 +1746,7 @@ gen_dfr_proposal(struct slaacd_iface *iface, struct radv *ra)
 {
 	struct dfr_proposal	*dfr_proposal;
 	struct timeval		 tv;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 
 	if ((dfr_proposal = calloc(1, sizeof(*dfr_proposal))) == NULL)
 		fatal("calloc");
@@ -1745,12 +1769,7 @@ gen_dfr_proposal(struct slaacd_iface *iface, struct radv *ra)
 
 	LIST_INSERT_HEAD(&iface->dfr_proposals, dfr_proposal, entries);
 
-	if (getnameinfo((struct sockaddr *)&dfr_proposal->addr,
-	    dfr_proposal->addr.sin6_len, hbuf, sizeof(hbuf), NULL, 0,
-	    NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
+	hbuf = sin6_to_str(&dfr_proposal->addr);
 	log_debug("%s: iface %d: %s: %lld s", __func__,
 	    iface->if_index, hbuf, tv.tv_sec);
 }
@@ -1859,16 +1878,11 @@ address_proposal_timeout(int fd, short events, void *arg)
 	struct address_proposal	*addr_proposal;
 	struct imsg_proposal	 proposal;
 	struct timeval		 tv;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 
 	addr_proposal = (struct address_proposal *)arg;
 
-	if (getnameinfo((struct sockaddr *)&addr_proposal->addr,
-	    addr_proposal->addr.sin6_len, hbuf, sizeof(hbuf), NULL, 0,
-	    NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
+	hbuf = sin6_to_str(&addr_proposal->addr);
 	log_debug("%s: iface %d: %s [%s], priv: %s", __func__,
 	    addr_proposal->if_index, hbuf,
 	    proposal_state_name[addr_proposal->state],
@@ -1905,8 +1919,7 @@ address_proposal_timeout(int fd, short events, void *arg)
 			log_debug("%s: giving up, no response to proposal",
 			    __func__);
 			LIST_REMOVE(addr_proposal, entries);
-			evtimer_del(&addr_proposal->timer);
-			free(addr_proposal);
+			free_address_proposal(addr_proposal);
 		}
 		break;
 	case PROPOSAL_CONFIGURED:
@@ -1934,7 +1947,7 @@ address_proposal_timeout(int fd, short events, void *arg)
 		    addr_proposal->vltime) == 0) {
 			evtimer_del(&addr_proposal->timer);
 			LIST_REMOVE(addr_proposal, entries);
-			free(addr_proposal);
+			free_address_proposal(addr_proposal);
 			log_debug("%s: removing address proposal", __func__);
 			break;
 		}
@@ -1963,16 +1976,11 @@ dfr_proposal_timeout(int fd, short events, void *arg)
 	struct dfr_proposal	*dfr_proposal;
 	struct imsg_proposal	 proposal;
 	struct timeval		 tv;
-	char			 hbuf[NI_MAXHOST];
+	const char		*hbuf;
 
 	dfr_proposal = (struct dfr_proposal *)arg;
 
-	if (getnameinfo((struct sockaddr *)&dfr_proposal->addr,
-	    dfr_proposal->addr.sin6_len, hbuf, sizeof(hbuf), NULL, 0,
-	    NI_NUMERICHOST | NI_NUMERICSERV)) {
-		log_warn("cannot get router IP");
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
+	hbuf = sin6_to_str(&dfr_proposal->addr);
 	log_debug("%s: iface %d: %s [%s]", __func__, dfr_proposal->if_index,
 	    hbuf, proposal_state_name[dfr_proposal->state]);
 
@@ -2174,4 +2182,19 @@ real_lifetime(struct timespec *received_uptime, uint32_t ltime)
 		remaining = 0;
 
 	return (remaining);
+}
+
+const char*
+sin6_to_str(struct sockaddr_in6 *sin6)
+{
+	static char hbuf[NI_MAXHOST];
+	int error;
+
+	error = getnameinfo((struct sockaddr *)sin6, sin6->sin6_len, hbuf,
+	    sizeof(hbuf), NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV);
+	if (error) {
+		log_warnx("%s", gai_strerror(error));
+		strlcpy(hbuf, "unknown", sizeof(hbuf));
+	}
+	return hbuf;
 }

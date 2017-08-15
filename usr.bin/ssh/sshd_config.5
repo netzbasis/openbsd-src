@@ -33,15 +33,13 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: sshd_config.5,v 1.245 2017/05/17 01:24:17 djm Exp $
-.Dd $Mdocdate: May 17 2017 $
+.\" $OpenBSD: sshd_config.5,v 1.250 2017/07/23 23:37:02 djm Exp $
+.Dd $Mdocdate: July 23 2017 $
 .Dt SSHD_CONFIG 5
 .Os
 .Sh NAME
 .Nm sshd_config
 .Nd OpenSSH SSH daemon configuration file
-.Sh SYNOPSIS
-.Nm /etc/ssh/sshd_config
 .Sh DESCRIPTION
 .Xr sshd 8
 reads configuration data from
@@ -565,6 +563,12 @@ Disables all forwarding features, including X11,
 TCP and StreamLocal.
 This option overrides all other forwarding-related options and may
 simplify restricted configurations.
+.It Cm ExposeAuthInfo
+Enables writing a file containing a list of authentication methods and
+public credentials (e.g. keys) used to authenticate the user.
+The location of the file is exposed to the user session through the
+.Ev SSH_USER_AUTH
+environment variable.
 .It Cm FingerprintHash
 Specifies the hash algorithm used when logging key fingerprints.
 Valid options are:
@@ -789,7 +793,9 @@ Accepted values are
 .Cm lowdelay ,
 .Cm throughput ,
 .Cm reliability ,
-or a numeric value.
+a numeric value, or
+.Cm none
+to use the operating system default.
 This option may take one or two arguments, separated by whitespace.
 If one argument is specified, it is used as the packet class unconditionally.
 If two values are specified, the first is automatically selected for

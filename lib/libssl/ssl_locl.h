@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.181 2017/05/07 04:22:24 beck Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.190 2017/08/12 21:47:59 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -341,15 +341,12 @@ __BEGIN_HIDDEN_DECLS
 #define SSL_USE_TLS1_2_CIPHERS(s) \
 	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_TLS1_2_CIPHERS)
 
-/* Mostly for SSLv3 */
 #define SSL_PKEY_RSA_ENC	0
 #define SSL_PKEY_RSA_SIGN	1
-#define SSL_PKEY_DSA_SIGN	2
-#define SSL_PKEY_DH_RSA		3
-#define SSL_PKEY_DH_DSA		4
-#define SSL_PKEY_ECC            5
-#define SSL_PKEY_GOST01		6
-#define SSL_PKEY_NUM		7
+#define SSL_PKEY_DH_RSA		2
+#define SSL_PKEY_ECC            3
+#define SSL_PKEY_GOST01		4
+#define SSL_PKEY_NUM		5
 
 #define SSL_MAX_EMPTY_RECORDS	32
 
@@ -578,24 +575,8 @@ typedef struct ssl_ctx_internal_st {
 	/* SRTP profiles we are willing to do from RFC 5764 */
 	STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;
 
-	/* Next protocol negotiation information */
-	/* (for experimental NPN extension). */
-
-	/* For a server, this contains a callback function by which the set of
-	 * advertised protocols can be provided. */
-	int (*next_protos_advertised_cb)(SSL *s, const unsigned char **buf,
-	    unsigned int *len, void *arg);
-	void *next_protos_advertised_cb_arg;
-	/* For a client, this contains a callback function that selects the
-	 * next protocol from the list provided by the server. */
-	int (*next_proto_select_cb)(SSL *s, unsigned char **out,
-	    unsigned char *outlen, const unsigned char *in,
-	    unsigned int inlen, void *arg);
-	void *next_proto_select_cb_arg;
-
 	/*
-	 * ALPN information
-	 * (we are in the process of transitioning from NPN to ALPN).
+	 * ALPN information.
 	 */
 
 	/*
@@ -629,16 +610,6 @@ typedef struct ssl_internal_st {
 
 	unsigned long options; /* protocol behaviour */
 	unsigned long mode; /* API behaviour */
-
-	/* Next protocol negotiation. For the client, this is the protocol that
-	 * we sent in NextProtocol and is set when handling ServerHello
-	 * extensions.
-	 *
-	 * For a server, this is the client's selected_protocol from
-	 * NextProtocol and is set when handling the NextProtocol message,
-	 * before the Finished message. */
-	unsigned char *next_proto_negotiated;
-	unsigned char next_proto_negotiated_len;
 
 	/* Client list of supported protocols in wire format. */
 	unsigned char *alpn_client_proto_list;
@@ -881,16 +852,12 @@ typedef struct ssl3_state_internal_st {
 	unsigned char previous_server_finished_len;
 	int send_connection_binding; /* TODOEKR */
 
-	/* Set if we saw the Next Protocol Negotiation extension from our peer.
-	 */
-	int next_proto_neg_seen;
+	/* Set if we saw a Renegotiation Indication extension from our peer. */
+	int renegotiate_seen;
 
 	/*
-	 * ALPN information
-	 * (we are in the process of transitioning from NPN to ALPN).
-	 */
-
-	/*
+	 * ALPN information.
+	 *
 	 * In a server these point to the selected ALPN protocol after the
 	 * ClientHello has been processed. In a client these contain the
 	 * protocol that the server selected once the ServerHello has been
@@ -990,8 +957,6 @@ typedef struct cert_st {
 	int dh_tmp_auto;
 
 	EC_KEY *ecdh_tmp;
-	EC_KEY *(*ecdh_tmp_cb)(SSL *ssl, int is_export, int keysize);
-	int ecdh_tmp_auto;
 
 	CERT_PKEY pkeys[SSL_PKEY_NUM];
 
@@ -1124,6 +1089,7 @@ DH *ssl_get_auto_dh(SSL *s);
 int ssl_cert_type(X509 *x, EVP_PKEY *pkey);
 void ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher);
 STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *s);
+int ssl_has_ecc_ciphers(SSL *s);
 int ssl_verify_alarm_type(long type);
 void ssl_load_ciphers(void);
 
@@ -1136,7 +1102,7 @@ int ssl3_get_finished(SSL *s, int state_a, int state_b);
 int ssl3_send_change_cipher_spec(SSL *s, int state_a, int state_b);
 int ssl3_do_write(SSL *s, int type);
 int ssl3_send_alert(SSL *s, int level, int desc);
-int ssl3_get_req_cert_type(SSL *s, unsigned char *p);
+int ssl3_get_req_cert_types(SSL *s, CBB *cbb);
 long ssl3_get_message(SSL *s, int st1, int stn, int mt, long max, int *ok);
 int ssl3_send_finished(SSL *s, int a, int b, const char *sender, int slen);
 int ssl3_num_ciphers(void);
@@ -1246,7 +1212,6 @@ int ssl3_get_server_key_exchange(SSL *s);
 int ssl3_get_server_certificate(SSL *s);
 int ssl3_check_cert_and_algorithm(SSL *s);
 int ssl3_check_finished(SSL *s);
-int ssl3_send_next_proto(SSL *s);
 
 /* some server-only functions */
 int ssl3_get_client_hello(SSL *s);
@@ -1258,7 +1223,6 @@ int ssl3_send_server_done(SSL *s);
 int ssl3_get_client_certificate(SSL *s);
 int ssl3_get_client_key_exchange(SSL *s);
 int ssl3_get_cert_verify(SSL *s);
-int ssl3_get_next_proto(SSL *s);
 
 int ssl23_accept(SSL *s);
 int ssl23_connect(SSL *s);
@@ -1309,6 +1273,7 @@ int tls1_export_keying_material(SSL *s, unsigned char *out, size_t olen,
 int tls1_alert_code(int code);
 int ssl_ok(SSL *s);
 
+int ssl_using_ecc_cipher(SSL *s);
 int ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s);
 
 int tls1_set_groups(uint16_t **out_group_ids, size_t *out_group_ids_len,
@@ -1344,17 +1309,10 @@ int tls12_get_sigid(const EVP_PKEY *pk);
 const EVP_MD *tls12_get_hash(unsigned char hash_alg);
 
 void ssl_clear_hash_ctx(EVP_MD_CTX **hash);
-int ssl_add_serverhello_renegotiate_ext(SSL *s, unsigned char *p,
-    int *len, int maxlen);
-int ssl_parse_serverhello_renegotiate_ext(SSL *s, const unsigned char *d,
-    int len, int *al);
-int ssl_add_clienthello_renegotiate_ext(SSL *s, unsigned char *p,
-    int *len, int maxlen);
-int ssl_parse_clienthello_renegotiate_ext(SSL *s, const unsigned char *d,
-    int len, int *al);
 long ssl_get_algorithm2(SSL *s);
-int tls1_process_sigalgs(SSL *s, const unsigned char *data, int dsize);
-int tls12_get_req_sig_algs(SSL *s, unsigned char *p);
+int tls1_process_sigalgs(SSL *s, CBS *cbs);
+void tls12_get_req_sig_algs(SSL *s, unsigned char **sigalgs,
+    size_t *sigalgs_len);
 
 int tls1_check_ec_server_key(SSL *s);
 int tls1_check_ec_tmp_key(SSL *s);
@@ -1384,6 +1342,11 @@ int SSL_state_func_code(int _state);
 #define SSLerror(s, r) SSL_error_internal(s, r, __FILE__, __LINE__)
 #define SSLerrorx(r) ERR_PUT_error(ERR_LIB_SSL,(0xfff),(r),__FILE__,__LINE__)
 void SSL_error_internal(const SSL *s, int r, char *f, int l);
+
+void tls1_get_formatlist(SSL *s, int client_formats, const uint8_t **pformats,
+    size_t *pformatslen);
+void tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
+    size_t *pcurveslen);
 
 __END_HIDDEN_DECLS
 

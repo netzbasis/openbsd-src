@@ -33,16 +33,13 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: ssh_config.5,v 1.250 2017/05/30 19:38:17 jmc Exp $
-.Dd $Mdocdate: May 30 2017 $
+.\" $OpenBSD: ssh_config.5,v 1.253 2017/07/23 23:37:02 djm Exp $
+.Dd $Mdocdate: July 23 2017 $
 .Dt SSH_CONFIG 5
 .Os
 .Sh NAME
 .Nm ssh_config
 .Nd OpenSSH SSH client configuration files
-.Sh SYNOPSIS
-.Nm ~/.ssh/config
-.Nm /etc/ssh/ssh_config
 .Sh DESCRIPTION
 .Xr ssh 1
 obtains configuration data from the following sources in
@@ -809,7 +806,7 @@ The list of available key types may also be obtained using
 .It Cm HostKeyAlias
 Specifies an alias that should be used instead of the
 real host name when looking up or saving the host key
-in the host key database files.
+in the host key database files and when validating host certificates.
 This option is useful for tunneling SSH connections
 or for multiple servers running on a single host.
 .It Cm HostName
@@ -972,7 +969,9 @@ Accepted values are
 .Cm lowdelay ,
 .Cm throughput ,
 .Cm reliability ,
-or a numeric value.
+a numeric value, or
+.Cm none
+to use the operating system default.
 This option may take one or two arguments, separated by whitespace.
 If one argument is specified, it is used as the packet class unconditionally.
 If two values are specified, the first is automatically selected for

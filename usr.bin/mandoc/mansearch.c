@@ -1,4 +1,4 @@
-/*	$OpenBSD: mansearch.c,v 1.56 2017/05/17 21:18:41 schwarze Exp $ */
+/*	$OpenBSD: mansearch.c,v 1.59 2017/08/02 13:28:35 schwarze Exp $ */
 /*
  * Copyright (c) 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -101,7 +101,8 @@ mansearch(const struct mansearch *search,
 	}
 
 	cur = maxres = 0;
-	*res = NULL;
+	if (res != NULL)
+		*res = NULL;
 
 	outkey = KEY_Nd;
 	if (search->outkey != NULL)
@@ -167,9 +168,15 @@ mansearch(const struct mansearch *search,
 			page = dbm_page_get(rp->page);
 
 			if (lstmatch(search->sec, page->sect) == 0 ||
-			    lstmatch(search->arch, page->arch) == 0)
+			    lstmatch(search->arch, page->arch) == 0 ||
+			    (search->argmode == ARG_NAME &&
+			     rp->bits <= (int32_t)(NAME_SYN & NAME_MASK)))
 				continue;
 
+			if (res == NULL) {
+				cur = 1;
+				break;
+			}
 			if (cur + 1 > maxres) {
 				maxres += 1024;
 				*res = mandoc_reallocarray(*res,
@@ -201,12 +208,13 @@ mansearch(const struct mansearch *search,
 		if (cur && search->firstmatch)
 			break;
 	}
-	qsort(*res, cur, sizeof(struct manpage), manpage_compare);
+	if (res != NULL)
+		qsort(*res, cur, sizeof(struct manpage), manpage_compare);
 	if (chdir_status && getcwd_status && chdir(buf) == -1)
 		warn("%s", buf);
 	exprfree(e);
 	*sz = cur;
-	return 1;
+	return res != NULL || cur;
 }
 
 /*
@@ -385,13 +393,29 @@ static int
 manpage_compare(const void *vp1, const void *vp2)
 {
 	const struct manpage	*mp1, *mp2;
+	const char		*cp1, *cp2;
+	size_t			 sz1, sz2;
 	int			 diff;
 
 	mp1 = vp1;
 	mp2 = vp2;
-	return (diff = mp2->bits - mp1->bits) ? diff :
-	    (diff = mp1->sec - mp2->sec) ? diff :
-	    strcasecmp(mp1->names, mp2->names);
+	if ((diff = mp2->bits - mp1->bits) ||
+	    (diff = mp1->sec - mp2->sec))
+		return diff;
+
+	/* Fall back to alphabetic ordering of names. */
+	sz1 = strcspn(mp1->names, "(");
+	sz2 = strcspn(mp2->names, "(");
+	if (sz1 < sz2)
+		sz1 = sz2;
+	if ((diff = strncasecmp(mp1->names, mp2->names, sz1)))
+		return diff;
+
+	/* For identical names and sections, prefer arch-dependent. */
+	cp1 = strchr(mp1->names + sz1, '/');
+	cp2 = strchr(mp2->names + sz2, '/');
+	return cp1 != NULL && cp2 != NULL ? strcasecmp(cp1, cp2) :
+	    cp1 != NULL ? -1 : cp2 != NULL ? 1 : 0;
 }
 
 static char *
@@ -427,14 +451,28 @@ lstlen(const char *cp, size_t sep)
 {
 	size_t	 sz;
 
-	for (sz = 0;; sz++) {
-		if (cp[0] == '\0') {
-			if (cp[1] == '\0')
-				break;
-			sz += sep - 1;
-		} else if (cp[0] < ' ')
-			sz--;
-		cp++;
+	for (sz = 0; *cp != '\0'; cp++) {
+
+		/* Skip names appearing only in the SYNOPSIS. */
+		if (*cp <= (char)(NAME_SYN & NAME_MASK)) {
+			while (*cp != '\0')
+				cp++;
+			continue;
+		}
+
+		/* Skip name class markers. */
+		if (*cp < ' ')
+			cp++;
+
+		/* Print a separator before each but the first string. */
+		if (sz)
+			sz += sep;
+
+		/* Copy one string. */
+		while (*cp != '\0') {
+			sz++;
+			cp++;
+		}
 	}
 	return sz;
 }
@@ -446,19 +484,34 @@ lstlen(const char *cp, size_t sep)
 static void
 lstcat(char *buf, size_t *i, const char *cp, const char *sep)
 {
-	const char *s;
+	const char	*s;
+	size_t		 i_start;
 
-	for (;;) {
-		if (cp[0] == '\0') {
-			if (cp[1] == '\0')
-				break;
+	for (i_start = *i; *cp != '\0'; cp++) {
+
+		/* Skip names appearing only in the SYNOPSIS. */
+		if (*cp <= (char)(NAME_SYN & NAME_MASK)) {
+			while (*cp != '\0')
+				cp++;
+			continue;
+		}
+
+		/* Skip name class markers. */
+		if (*cp < ' ')
+			cp++;
+
+		/* Print a separator before each but the first string. */
+		if (*i > i_start) {
 			s = sep;
 			while (*s != '\0')
 				buf[(*i)++] = *s++;
-		} else if (cp[0] >= ' ')
-			buf[(*i)++] = cp[0];
-		cp++;
+		}
+
+		/* Copy one string. */
+		while (*cp != '\0')
+			buf[(*i)++] = *cp++;
 	}
+
 }
 
 /*

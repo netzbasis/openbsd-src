@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.183 2017/05/26 16:05:35 bluhm Exp $ */
+/* $OpenBSD: netcat.c,v 1.187 2017/07/15 17:27:39 jsing Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -53,25 +53,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <tls.h>
+#include <unistd.h>
+
 #include "atomicio.h"
 
 #define PORT_MAX	65535
 #define UNIX_DG_TMP_SOCKET_SIZE	19
 
-#define POLL_STDIN 0
-#define POLL_NETOUT 1
-#define POLL_NETIN 2
-#define POLL_STDOUT 3
-#define BUFSIZE 16384
-#define DEFAULT_CA_FILE "/etc/ssl/cert.pem"
+#define POLL_STDIN	0
+#define POLL_NETOUT	1
+#define POLL_NETIN	2
+#define POLL_STDOUT	3
+#define BUFSIZE		16384
+#define DEFAULT_CA_FILE	"/etc/ssl/cert.pem"
 
 #define TLS_ALL	(1 << 1)
 #define TLS_NOVERIFY	(1 << 2)
 #define TLS_NONAME	(1 << 3)
 #define TLS_CCERT	(1 << 4)
 #define TLS_MUSTSTAPLE	(1 << 5)
+#define TLS_COMPAT	(1 << 6)
 
 /* Command Line Options */
 int	dflag;					/* detached, no stdin */
@@ -119,7 +121,7 @@ int minttl = -1;
 void	atelnet(int, unsigned char *, unsigned int);
 int	strtoport(char *portstr, int udp);
 void	build_ports(char *);
-void	help(void);
+void	help(void) __attribute__((noreturn));
 int	local_listen(char *, char *, struct addrinfo);
 void	readwrite(int, struct tls *);
 void	fdpass(int nfd) __attribute__((noreturn));
@@ -349,11 +351,14 @@ main(int argc, char *argv[])
 	if (family == AF_UNIX) {
 		if (pledge("stdio rpath wpath cpath tmppath unix", NULL) == -1)
 			err(1, "pledge");
-	} else if (Fflag) {
-		if (Pflag) {
-			if (pledge("stdio inet dns sendfd tty", NULL) == -1)
-				err(1, "pledge");
-		} else if (pledge("stdio inet dns sendfd", NULL) == -1)
+	} else if (Fflag && Pflag) {
+		if (pledge("stdio inet dns sendfd tty", NULL) == -1)
+			err(1, "pledge");
+	} else if (Fflag) { 
+		if (pledge("stdio inet dns sendfd", NULL) == -1)
+			err(1, "pledge");
+	} else if (Pflag && usetls) {
+		if (pledge("stdio rpath inet dns tty", NULL) == -1)
 			err(1, "pledge");
 	} else if (Pflag) {
 		if (pledge("stdio inet dns tty", NULL) == -1)
@@ -369,7 +374,7 @@ main(int argc, char *argv[])
 		host = argv[0];
 		uport = NULL;
 	} else if (argv[0] && !argv[1]) {
-		if  (!lflag)
+		if (!lflag)
 			usage(1);
 		uport = argv[0];
 		host = NULL;
@@ -397,6 +402,8 @@ main(int argc, char *argv[])
 		errx(1, "cannot use -c and -F");
 	if (TLSopt && !usetls)
 		errx(1, "you must specify -c to use TLS options");
+	if ((TLSopt & (TLS_ALL|TLS_COMPAT)) == (TLS_ALL|TLS_COMPAT))
+		errx(1, "cannot use -T tlsall and -T tlscompat");
 	if (Cflag && !usetls)
 		errx(1, "you must specify -c to use -C");
 	if (Kflag && !usetls)
@@ -478,12 +485,6 @@ main(int argc, char *argv[])
 	}
 
 	if (usetls) {
-		if (Pflag) {
-			if (pledge("stdio inet dns tty rpath", NULL) == -1)
-				err(1, "pledge");
-		} else if (pledge("stdio inet dns rpath", NULL) == -1)
-			err(1, "pledge");
-
 		if (tls_init() == -1)
 			errx(1, "unable to initialize TLS");
 		if ((tls_cfg = tls_config_new()) == NULL)
@@ -496,11 +497,12 @@ main(int argc, char *argv[])
 			errx(1, "%s", tls_config_error(tls_cfg));
 		if (oflag && tls_config_set_ocsp_staple_file(tls_cfg, oflag) == -1)
 			errx(1, "%s", tls_config_error(tls_cfg));
-		if (TLSopt & TLS_ALL) {
+		if (TLSopt & (TLS_ALL|TLS_COMPAT)) {
 			if (tls_config_set_protocols(tls_cfg,
 			    TLS_PROTOCOLS_ALL) != 0)
 				errx(1, "%s", tls_config_error(tls_cfg));
-			if (tls_config_set_ciphers(tls_cfg, "all") != 0)
+			if (tls_config_set_ciphers(tls_cfg,
+			    (TLSopt & TLS_ALL) ? "all" : "compat") != 0)
 				errx(1, "%s", tls_config_error(tls_cfg));
 		}
 		if (!lflag && (TLSopt & TLS_CCERT))
@@ -509,7 +511,7 @@ main(int argc, char *argv[])
 			tls_config_insecure_noverifyname(tls_cfg);
 		if (TLSopt & TLS_NOVERIFY) {
 			if (tls_expecthash != NULL)
-				errx(1, "-H and -T noverify may not be used"
+				errx(1, "-H and -T noverify may not be used "
 				    "together");
 			tls_config_insecure_noverifycert(tls_cfg);
 		}
@@ -625,7 +627,7 @@ main(int argc, char *argv[])
 
 		if (uflag)
 			unlink(unix_dg_tmp_socket);
-		exit(ret);
+		return ret;
 
 	} else {
 		int i = 0;
@@ -701,7 +703,7 @@ main(int argc, char *argv[])
 
 	tls_config_free(tls_cfg);
 
-	exit(ret);
+	return ret;
 }
 
 /*
@@ -717,7 +719,7 @@ unix_bind(char *path, int flags)
 	/* Create unix domain socket. */
 	if ((s = socket(AF_UNIX, flags | (uflag ? SOCK_DGRAM : SOCK_STREAM),
 	    0)) < 0)
-		return (-1);
+		return -1;
 
 	memset(&s_un, 0, sizeof(struct sockaddr_un));
 	s_un.sun_family = AF_UNIX;
@@ -726,16 +728,17 @@ unix_bind(char *path, int flags)
 	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
-		return (-1);
+		return -1;
 	}
 
 	if (bind(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		save_errno = errno;
 		close(s);
 		errno = save_errno;
-		return (-1);
+		return -1;
 	}
-	return (s);
+
+	return s;
 }
 
 int
@@ -762,7 +765,7 @@ timeout_tls(int s, struct tls *tls_ctx, int (*func)(struct tls *))
 			err(1, "poll failed");
 	}
 
-	return (ret);
+	return ret;
 }
 
 void
@@ -837,10 +840,10 @@ unix_connect(char *path)
 
 	if (uflag) {
 		if ((s = unix_bind(unix_dg_tmp_socket, SOCK_CLOEXEC)) < 0)
-			return (-1);
+			return -1;
 	} else {
 		if ((s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0)
-			return (-1);
+			return -1;
 	}
 
 	memset(&s_un, 0, sizeof(struct sockaddr_un));
@@ -850,15 +853,15 @@ unix_connect(char *path)
 	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
-		return (-1);
+		return -1;
 	}
 	if (connect(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		save_errno = errno;
 		close(s);
 		errno = save_errno;
-		return (-1);
+		return -1;
 	}
-	return (s);
+	return s;
 
 }
 
@@ -871,13 +874,13 @@ unix_listen(char *path)
 {
 	int s;
 	if ((s = unix_bind(path, 0)) < 0)
-		return (-1);
+		return -1;
 
 	if (listen(s, 5) < 0) {
 		close(s);
-		return (-1);
+		return -1;
 	}
-	return (s);
+	return s;
 }
 
 /*
@@ -936,7 +939,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 	freeaddrinfo(res0);
 
-	return (s);
+	return s;
 }
 
 int
@@ -964,7 +967,7 @@ timeout_connect(int s, const struct sockaddr *name, socklen_t namelen)
 			err(1, "poll failed");
 	}
 
-	return (ret);
+	return ret;
 }
 
 /*
@@ -1020,7 +1023,7 @@ local_listen(char *host, char *port, struct addrinfo hints)
 
 	freeaddrinfo(res0);
 
-	return (s);
+	return s;
 }
 
 /*
@@ -1447,7 +1450,7 @@ udptest(int s)
 		else
 			ret = -1;
 	}
-	return (ret);
+	return ret;
 }
 
 void
@@ -1547,11 +1550,11 @@ map_tos(char *s, int *val)
 	for (t = toskeywords; t->keyword != NULL; t++) {
 		if (strcmp(s, t->keyword) == 0) {
 			*val = t->val;
-			return (1);
+			return 1;
 		}
 	}
 
-	return (0);
+	return 0;
 }
 
 int
@@ -1566,16 +1569,17 @@ map_tls(char *s, int *val)
 		{ "noname",		TLS_NONAME },
 		{ "clientcert",		TLS_CCERT},
 		{ "muststaple",		TLS_MUSTSTAPLE},
+		{ "tlscompat",		TLS_COMPAT },
 		{ NULL,			-1 },
 	};
 
 	for (t = tlskeywords; t->keyword != NULL; t++) {
 		if (strcmp(s, t->keyword) == 0) {
 			*val |= t->val;
-			return (1);
+			return 1;
 		}
 	}
-	return (0);
+	return 0;
 }
 
 void

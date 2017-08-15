@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.652 2017/04/22 04:00:21 visa Exp $
+#	$OpenBSD: Makefile,v 1.655 2017/08/04 12:44:50 kettenis Exp $
 
 MAN=	aac.4 ac97.4 acphy.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -19,7 +19,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	cac.4 cas.4 cardbus.4 carp.4 cd.4 cdce.4 cfxga.4 \
 	ch.4 chvgpio.4 ciphy.4 ciss.4 clcs.4 clct.4 cmpci.4 \
 	com.4 cue.4 cy.4 cz.4 dc.4 dcphy.4 ddb.4 de.4 \
-	diskmap.4 divert.4 dpt.4 drm.4 dwctwo.4 dwge.4 dwiic.4 \
+	diskmap.4 divert.4 dpt.4 drm.4 dwctwo.4 dwge.4 dwiic.4 dwmmc.4 \
 	eap.4 ec.4 eephy.4 ef.4 eg.4 ehci.4 eisa.4 el.4 em.4 emc.4 gcu.4 \
 	emu.4 enc.4 endrun.4 envy.4 ep.4 epic.4 esa.4 \
 	eso.4 ess.4 et.4 etherip.4 etphy.4 ex.4 exphy.4 \
@@ -27,7 +27,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	gentbi.4 gem.4 gif.4 \
 	glenv.4 gpio.4 gpiodcf.4 gpioiic.4 gpioow.4 gpr.4 gre.4 gscsio.4 \
 	hds.4 hifn.4 hil.4 hilid.4 hilkbd.4 hilms.4 hme.4 hotplug.4 hsq.4 \
-	hvn.4 hyperv.4 \
+	hvn.4 hvs.4 hyperv.4 \
 	iatp.4 ichiic.4 ichwdt.4 icmp.4 icmp6.4 icsphy.4 ifmedia.4 \
 	iha.4 ihidev.4 iic.4 ikbd.4 ims.4 imt.4 inet.4 inet6.4 inphy.4 iophy.4 \
 	ip.4 ip6.4 ipcomp.4 ipgphy.4 ipmi.4 ips.4 ipsec.4 ipw.4 \
@@ -44,8 +44,8 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	oce.4 ohci.4 options.4 onewire.4 oosiop.4 osiop.4 otus.4 \
 	owid.4 owctr.4 owsbm.4 owtemp.4 \
 	pair.4 pcagpio.4 pcaled.4 pcdisplay.4 pchb.4 pchtemp.4 pci.4 pcib.4 \
-	pcfadc.4 pcfiic.4 pcfrtc.4 pciide.4 pckbc.4 pckbd.4 pcmcia.4 pcn.4 \
-	pcppi.4 \
+	pcfadc.4 pcfiic.4 pcfrtc.4 pcxrtc.4 pciide.4 pckbc.4 pckbd.4 \
+	pcmcia.4 pcn.4 pcppi.4 \
 	pcscp.4 pf.4 pflog.4 pflow.4 pfsync.4 pgt.4 piixpm.4 pipex.4 \
 	pms.4 ppb.4 ppp.4 pppoe.4 pppx.4 pty.4 puc.4 pvbus.4 pwdog.4 \
 	qla.4 qle.4 qlw.4 qsphy.4 radio.4 \
