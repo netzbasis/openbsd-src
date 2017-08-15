@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.5 2013/06/25 15:11:58 dcoppa Exp $
+#	$OpenBSD: Makefile,v 1.7 2017/06/19 03:06:26 dlg Exp $
 
 PROG=		procmap
 SRCS=		procmap.c

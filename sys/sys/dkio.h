@@ -1,4 +1,4 @@
-/*	$OpenBSD: dkio.h,v 1.9 2011/06/05 18:40:33 matthew Exp $	*/
+/*	$OpenBSD: dkio.h,v 1.11 2017/07/29 08:50:42 zhuk Exp $	*/
 /*	$NetBSD: dkio.h,v 1.1 1996/01/30 18:21:48 thorpej Exp $	*/
 
 /*
@@ -51,7 +51,6 @@
 #define DIOCSSTEP	_IOW('d', 107, int)	/* set step rate */
 #define DIOCSRETRIES	_IOW('d', 108, int)	/* set # of retries */
 
-#define DIOCSBAD	_IOW('d', 110, struct dkbad)	/* set kernel dkbad */
 #define DIOCEJECT	_IO('d', 112)		/* eject removable disk */
 #define DIOCLOCK	_IOW('d', 113, int)	/* lock/unlock pack */
 
@@ -82,5 +81,7 @@ struct dk_diskmap {
 };
 
 #define	DIOCMAP		_IOWR('d', 119, struct dk_diskmap)
+
+#define	DIOCCACHESYNC	_IOW('d', 120, int)	/* sync cache (force?) */
 
 #endif /* _SYS_DKIO_H_ */

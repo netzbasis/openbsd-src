@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff3prog.c,v 1.17 2015/10/09 01:37:07 deraadt Exp $	*/
+/*	$OpenBSD: diff3prog.c,v 1.19 2016/10/18 21:06:52 millert Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -301,7 +301,12 @@ merge(int m1, int m2)
 	d1 = d13;
 	d2 = d23;
 	j = 0;
-	while ((t1 = (d1 < d13 + m1)) | (t2 = (d2 < d23 + m2))) {
+	for (;;) {
+		t1 = (d1 < d13 + m1);
+		t2 = (d2 < d23 + m2);
+		if (!t1 && !t2)
+			break;
+
 		if (debug) {
 			printf("%d,%d=%d,%d %d,%d=%d,%d\n",
 			d1->old.from,d1->old.to,
@@ -543,7 +548,7 @@ edscript(int n)
 	int j,k;
 	char block[BUFSIZ];
 
-	for (n = n; n > 0; n--) {
+	for (; n > 0; n--) {
 		if (!oflag || !overlap[n])
 			prange(&de[n].old);
 		else

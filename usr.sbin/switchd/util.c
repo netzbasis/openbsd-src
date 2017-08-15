@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.1 2016/07/19 16:54:26 reyk Exp $	*/
+/*	$OpenBSD: util.c,v 1.6 2017/01/09 14:49:22 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -26,17 +26,16 @@
 #include <netinet/if_ether.h>
 #include <netinet/tcp.h>
 
+#include <unistd.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 #include <event.h>
 
 #include "switchd.h"
-
-extern int debug;
-extern int verbose;
 
 void
 socket_set_blockmode(int fd, enum blockmodes bm)
@@ -53,6 +52,25 @@ socket_set_blockmode(int fd, enum blockmodes bm)
 
 	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
 		fatal("fcntl F_SETFL");
+}
+
+int
+accept4_reserve(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
+    int flags, int reserve, volatile int *counter)
+{
+	int	 fd;
+
+	if (getdtablecount() + reserve + *counter >= getdtablesize()) {
+		errno = EMFILE;
+		return (-1);
+	}
+
+	if ((fd = accept4(sockfd, addr, addrlen, flags)) != -1) {
+		(*counter)++;
+		DPRINTF("%s: inflight incremented, now %d",__func__, *counter);
+	}
+
+	return (fd);
 }
 
 in_port_t
@@ -72,10 +90,29 @@ socket_getport(struct sockaddr_storage *ss)
 }
 
 int
+socket_setport(struct sockaddr_storage *ss, in_port_t port)
+{
+	switch (ss->ss_family) {
+	case AF_INET:
+		((struct sockaddr_in *)ss)->sin_port = ntohs(port);
+		return (0);
+	case AF_INET6:
+		((struct sockaddr_in6 *)ss)->sin6_port = ntohs(port);
+		return (0);
+	default:
+		return (-1);
+	}
+
+	/* NOTREACHED */
+	return (-1);
+}
+
+int
 sockaddr_cmp(struct sockaddr *a, struct sockaddr *b, int prefixlen)
 {
 	struct sockaddr_in	*a4, *b4;
 	struct sockaddr_in6	*a6, *b6;
+	struct sockaddr_un	*au, *bu;
 	uint32_t		 av[4], bv[4], mv[4];
 
 	if (a->sa_family == AF_UNSPEC || b->sa_family == AF_UNSPEC)
@@ -129,6 +166,10 @@ sockaddr_cmp(struct sockaddr *a, struct sockaddr *b, int prefixlen)
 		if ((av[0] & mv[0]) < (bv[0] & mv[0]))
 			return (-1);
 		break;
+	case AF_UNIX:
+		au = (struct sockaddr_un *)a;
+		bu = (struct sockaddr_un *)b;
+		return (strcmp(au->sun_path, bu->sun_path));
 	}
 
 	return (0);
@@ -206,7 +247,7 @@ print_host(struct sockaddr_storage *ss, char *buf, size_t len)
 	if (ss->ss_family == AF_UNSPEC) {
 		strlcpy(buf, "any", len);
 		return (buf);
-	} else if (ss->ss_family == AF_LOCAL) {
+	} else if (ss->ss_family == AF_UNIX) {
 		un = (struct sockaddr_un *)ss;
 		strlcpy(buf, un->sun_path, len);
 		return (buf);
@@ -269,7 +310,7 @@ print_debug(const char *emsg, ...)
 {
 	va_list	 ap;
 
-	if (debug && verbose > 2) {
+	if (log_getverbose() > 2) {
 		va_start(ap, emsg);
 		vfprintf(stderr, emsg, ap);
 		va_end(ap);
@@ -281,11 +322,31 @@ print_verbose(const char *emsg, ...)
 {
 	va_list	 ap;
 
-	if (verbose) {
+	if (log_getverbose()) {
 		va_start(ap, emsg);
 		vfprintf(stderr, emsg, ap);
 		va_end(ap);
 	}
+}
+
+void
+print_hex(uint8_t *buf, off_t offset, size_t length)
+{
+	unsigned int	 i;
+
+	if (log_getverbose() < 3 || !length)
+		return;
+
+	for (i = 0; i < length; i++) {
+		if (i && (i % 4) == 0) {
+			if ((i % 32) == 0)
+				print_debug("\n");
+			else
+				print_debug(" ");
+		}
+		print_debug("%02x", buf[offset + i]);
+	}
+	print_debug("\n");
 }
 
 int

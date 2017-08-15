@@ -1,6 +1,7 @@
-# $OpenBSD: Makefile,v 1.7 2015/02/04 18:03:28 schwarze Exp $
+# $OpenBSD: Makefile,v 1.10 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS	 = allch args break empty three_authors
+UTF8_TARGETS	 = allch break empty three_authors
 LINT_TARGETS	 = allch args empty
 
 # groff-1.22.3 defect:

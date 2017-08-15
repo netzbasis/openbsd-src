@@ -1,4 +1,4 @@
-/* $OpenBSD: servconf.h,v 1.122 2016/08/19 03:18:06 djm Exp $ */
+/* $OpenBSD: servconf.h,v 1.124 2017/06/24 06:34:38 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -125,6 +125,7 @@ typedef struct {
 	int	allow_tcp_forwarding; /* One of FORWARD_* */
 	int	allow_streamlocal_forwarding; /* One of FORWARD_* */
 	int	allow_agent_forwarding;
+	int	disable_forwarding;
 	u_int num_allow_users;
 	char   *allow_users[MAX_ALLOW_USERS];
 	u_int num_deny_users;
@@ -186,6 +187,7 @@ typedef struct {
 	char   *auth_methods[MAX_AUTH_METHODS];
 
 	int	fingerprint_hash;
+	int	expose_userauth_info;
 }       ServerOptions;
 
 /* Information about the incoming connection as used by Match */

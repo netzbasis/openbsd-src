@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysreg.c,v 1.1 2015/06/08 06:33:16 jsg Exp $	*/
+/*	$OpenBSD: sysreg.c,v 1.3 2016/10/09 01:40:43 jsg Exp $	*/
 
 /*
  * Copyright (c) 2015 Jonathan Gray <jsg@openbsd.org>
@@ -20,7 +20,13 @@
 #include <sys/systm.h> 
 #include <sys/device.h> 
 #include <machine/bus.h> 
+#include <machine/fdt.h>
+
 #include <armv7/armv7/armv7var.h>
+#include <armv7/armv7/armv7_machdep.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/fdt.h>
 
 #define SYS_ID			0x00
 #define SYS_PROCID0		0x84
@@ -47,27 +53,38 @@ struct sysreg_softc {
 
 struct sysreg_softc *sysreg_sc;
 
+int sysreg_match(struct device *, void *, void *);
 void sysreg_attach(struct device *, struct device *, void *);
-void sysreg_reset(void);
+void sysconf_function(struct sysreg_softc *, int);
+void sysconf_reboot(void);
+void sysconf_shutdown(void);
 
 struct cfattach sysreg_ca = {
-	sizeof (struct sysreg_softc), NULL, sysreg_attach
+	sizeof (struct sysreg_softc), sysreg_match, sysreg_attach
 };
 
 struct cfdriver sysreg_cd = {
 	NULL, "sysreg", DV_DULL
 };
 
-void
-sysreg_attach(struct device *parent, struct device *self, void *args)
+int
+sysreg_match(struct device *parent, void *match, void *aux)
 {
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "arm,vexpress-sysreg");
+}
+
+void
+sysreg_attach(struct device *parent, struct device *self, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
 	struct sysreg_softc *sc = (struct sysreg_softc *)self;
 	uint32_t id;
 
-	sc->sc_iot = aa->aa_iot;
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
+	sc->sc_iot = faa->fa_iot;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic(": bus_space_map failed!");
 	sysreg_sc = sc;
 	
@@ -76,6 +93,9 @@ sysreg_attach(struct device *parent, struct device *self, void *args)
 
 	id = bus_space_read_4(sc->sc_iot, sc->sc_ioh, SYS_PROCID0);
 	printf(" PROCID0 0x%x\n", id);
+
+	cpuresetfn = sysconf_reboot;
+	powerdownfn = sysconf_shutdown;
 }
 
 void

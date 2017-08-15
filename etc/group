@@ -5,12 +5,12 @@ sys:*:3:root
 tty:*:4:root
 operator:*:5:root
 bin:*:7:
-news:*:8:
 wsrc:*:9:
 users:*:10:
 auth:*:11:
 games:*:13:
 staff:*:20:root
+wobj:*:21:
 sshd:*:27:
 _portmap:*:28:
 _identd:*:29:
@@ -21,6 +21,9 @@ _fingerd:*:33:
 _sshagnt:*:34:
 _x11:*:35:
 utmp:*:45:
+_switchd:*:49:
+_traceroute:*:50:
+_ping:*:51:
 _rebound:*:52:
 _unbound:*:53:
 _dpb:*:54:
@@ -36,7 +39,6 @@ crontab:*:66:
 www:*:67:
 _isakmpd:*:68:
 network:*:69:
-proxy:*:71:
 authpf:*:72:
 _syslogd:*:73:
 _pflogd:*:74:
@@ -74,6 +76,8 @@ _vmd:*:107:
 _tftp_proxy:*:108:
 _ftp_proxy:*:109:
 _sndiop:*:110:
+_syspatch:*:112:
+_slaacd:*:115:
 dialer:*:117:
 nogroup:*:32766:
 nobody:*:32767:

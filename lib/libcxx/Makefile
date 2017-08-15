@@ -1,4 +1,13 @@
-# $OpenBSD: Makefile,v 1.1 2016/09/04 12:48:33 patrick Exp $
+# $OpenBSD: Makefile,v 1.6 2017/04/17 15:53:21 kettenis Exp $
+
+.include <bsd.own.mk>
+
+.if ${COMPILER_VERSION:L} != "clang"
+CC=		clang
+CXX=		clang++
+.endif
+
+.if ${BUILD_CLANG:L} == "yes"
 
 HDRDIR=		${.CURDIR}/include
 SRCDIR=		${.CURDIR}/src
@@ -7,8 +16,6 @@ UHDRDIR=	${.CURDIR}/../libunwind/include
 CXXINCLUDEDIR=	/usr/include/c++/v1
 
 .PATH:	${SRCDIR}
-
-CXX=eg++
 
 LIB=		c++
 
@@ -41,7 +48,7 @@ SRCS+=		algorithm.cpp\
 
 CPPFLAGS+=	-DLIBCXXABI -I${HDRDIR} \
 		-DLIBCXX_BUILDING_LIBCXXABI -I${AHDRDIR} -I${UHDRDIR}
-CXXFLAGS+=	-nostdlib
+CXXFLAGS+=	-nostdlib -nostdinc++
 .if empty(CXXFLAGS:M-std=*)
 CXXFLAGS+=	-std=c++11
 .endif
@@ -248,3 +255,8 @@ includes:
 .	endfor
 
 .include <bsd.lib.mk>
+
+.else
+NOPROG=
+.include <bsd.prog.mk>
+.endif

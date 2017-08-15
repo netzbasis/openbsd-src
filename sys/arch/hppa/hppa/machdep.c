@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.245 2016/05/21 00:56:43 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.248 2017/05/18 15:41:59 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1999-2003 Michael Shalayeff
@@ -390,9 +390,8 @@ hppa_init(paddr_t start)
 	fdcacheall();
 
 	proc0paddr->u_pcb.pcb_fpstate = &proc0fpstate;
-	pool_init(&hppa_fppl, sizeof(struct hppa_fpstate), 16, 0, 0,
+	pool_init(&hppa_fppl, sizeof(struct hppa_fpstate), 16, IPL_NONE, 0,
 	    "hppafp", NULL);
-	pool_setipl(&hppa_fppl, IPL_NONE);
 }
 
 void
@@ -957,7 +956,8 @@ haltsys:
 		    :: "r" (CMD_RESET), "r" (HPPA_LBCAST + iomod_command));
 	}
 
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 
@@ -1105,14 +1105,12 @@ copyinstr(const void *src, void *dst, size_t size, size_t *lenp)
 	    HPPA_SID_KERNEL, dst, size, lenp);
 }
 
-
 int
 copyoutstr(const void *src, void *dst, size_t size, size_t *lenp)
 {
 	return spstrcpy(HPPA_SID_KERNEL, src,
 	    curproc->p_addr->u_pcb.pcb_space, dst, size, lenp);
 }
-
 
 int
 copyin(const void *src, void *dst, size_t size)
@@ -1126,6 +1124,13 @@ copyout(const void *src, void *dst, size_t size)
 {
 	return spcopy(HPPA_SID_KERNEL, src,
 	    curproc->p_addr->u_pcb.pcb_space, dst, size);
+}
+
+int
+copyin32(const uint32_t *src, uint32_t *dst)
+{
+	return spcopy32(curproc->p_addr->u_pcb.pcb_space, src,
+	    HPPA_SID_KERNEL, dst);
 }
 
 /*

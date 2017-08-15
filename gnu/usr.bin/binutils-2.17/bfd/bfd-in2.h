@@ -246,6 +246,12 @@ bfd_format;
 /* This BFD has been created by the linker and doesn't correspond
    to any input file.  */
 #define BFD_LINKER_CREATED 0x2000
+
+/* This may be set before writing out a BFD to request that the output
+   be as deterministic as is supported by the format.  For example,
+   archive members may have their uid, gid, timestamp, and mode all set
+   to constant, 'reasonable' values.  */
+#define BFD_DETERMINISTIC 0x4000
 
 /* Symbols and relocation.  */
 
@@ -1980,6 +1986,7 @@ enum bfd_architecture
 #define bfd_mach_z80            3 /* With ixl, ixh, iyl, and iyh.  */
 #define bfd_mach_z80full        7 /* All undocumented instructions.  */
 #define bfd_mach_r800           11 /* R800: successor with multiplication.  */
+  bfd_arch_aarch64,
   bfd_arch_last
   };
 
@@ -2906,6 +2913,16 @@ pc-relative or some form of GOT-indirect relocation.  */
 
 /* 31-bit PC relative address.  */
   BFD_RELOC_ARM_PREL31,
+
+/* Low and High halfword relocations for MOVW and MOVT instructions.  */
+  BFD_RELOC_ARM_MOVW,
+  BFD_RELOC_ARM_MOVT,
+  BFD_RELOC_ARM_MOVW_PCREL,
+  BFD_RELOC_ARM_MOVT_PCREL,
+  BFD_RELOC_ARM_THUMB_MOVW,
+  BFD_RELOC_ARM_THUMB_MOVT,
+  BFD_RELOC_ARM_THUMB_MOVW_PCREL,
+  BFD_RELOC_ARM_THUMB_MOVT_PCREL,
 
 /* Relocations for setting up GOTs and PLTs for shared libraries.  */
   BFD_RELOC_ARM_JUMP_SLOT,

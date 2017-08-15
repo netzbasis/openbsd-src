@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-rename-session.c,v 1.20 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-rename-session.c,v 1.26 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "tmux.h"
 
@@ -26,7 +27,8 @@
  * Change session name.
  */
 
-enum cmd_retval	 cmd_rename_session_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_rename_session_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_rename_session_entry = {
 	.name = "rename-session",
@@ -35,26 +37,29 @@ const struct cmd_entry cmd_rename_session_entry = {
 	.args = { "t:", 1, 1 },
 	.usage = CMD_TARGET_SESSION_USAGE " new-name",
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_rename_session_exec
 };
 
-enum cmd_retval
-cmd_rename_session_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_rename_session_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args	*args = self->args;
-	struct session	*s = cmdq->state.tflag.s;
+	struct session	*s = item->target.s;
 	const char	*newname;
 
 	newname = args->argv[0];
+	if (strcmp(newname, s->name) == 0)
+		return (CMD_RETURN_NORMAL);
+
 	if (!session_check_name(newname)) {
-		cmdq_error(cmdq, "bad session name: %s", newname);
+		cmdq_error(item, "bad session name: %s", newname);
 		return (CMD_RETURN_ERROR);
 	}
 	if (session_find(newname) != NULL) {
-		cmdq_error(cmdq, "duplicate session: %s", newname);
+		cmdq_error(item, "duplicate session: %s", newname);
 		return (CMD_RETURN_ERROR);
 	}
 
@@ -64,7 +69,7 @@ cmd_rename_session_exec(struct cmd *self, struct cmd_q *cmdq)
 	RB_INSERT(sessions, &sessions, s);
 
 	server_status_session(s);
-	notify_session_renamed(s);
+	notify_session("session-renamed", s);
 
 	return (CMD_RETURN_NORMAL);
 }

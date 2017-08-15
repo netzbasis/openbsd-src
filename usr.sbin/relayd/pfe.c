@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfe.c,v 1.87 2016/09/02 16:14:09 reyk Exp $	*/
+/*	$OpenBSD: pfe.c,v 1.89 2017/05/28 10:39:15 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -18,10 +18,15 @@
 
 #include <sys/types.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/uio.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <net/pfvar.h>
 
 #include <event.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -51,7 +56,24 @@ static struct privsep_proc procs[] = {
 void
 pfe(struct privsep *ps, struct privsep_proc *p)
 {
+	int			s;
+	struct pf_status	status;
+
 	env = ps->ps_env;
+
+	if ((s = open(PF_SOCKET, O_RDWR)) == -1) {
+		fatal("%s: cannot open pf socket", __func__);
+	}
+	if (env->sc_pf == NULL) {
+		if ((env->sc_pf = calloc(1, sizeof(*(env->sc_pf)))) == NULL)
+			fatal("calloc");
+		env->sc_pf->dev = s;
+	}
+	if (ioctl(env->sc_pf->dev, DIOCGETSTATUS, &status) == -1)
+		fatal("%s: DIOCGETSTATUS", __func__);
+	if (!status.running)
+		fatalx("%s: pf is disabled", __func__);
+	log_debug("%s: filter init done", __func__);
 
 	proc_run(ps, p, procs, nitems(procs), pfe_init, NULL);
 }
@@ -108,7 +130,7 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &st);
 		memcpy(&st, imsg->data, sizeof(st));
 		if ((host = host_find(env, st.id)) == NULL)
-			fatalx("pfe_dispatch_hce: invalid host id");
+			fatalx("%s: invalid host id", __func__);
 		host->he = st.he;
 		if (host->flags & F_DISABLE)
 			break;
@@ -121,7 +143,7 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 		if (host->check_cnt != st.check_cnt) {
 			log_debug("%s: host %d => %d", __func__,
 			    host->conf.id, host->up);
-			fatalx("pfe_dispatch_hce: desynchronized");
+			fatalx("%s: desynchronized", __func__);
 		}
 
 		if (host->up == st.up)
@@ -133,7 +155,7 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 		if ((table = table_find(env, host->conf.tableid))
 		    == NULL)
-			fatalx("pfe_dispatch_hce: invalid table id");
+			fatalx("%s: invalid table id", __func__);
 
 		log_debug("%s: state %d for host %u %s", __func__,
 		    st.up, host->conf.id, host->conf.name);
@@ -203,7 +225,6 @@ pfe_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 	case IMSG_CFG_DONE:
 		config_getcfg(env, imsg);
-		init_filter(env, imsg->fd);
 		init_tables(env);
 		snmp_init(env, PROC_PARENT);
 		break;
@@ -240,8 +261,7 @@ pfe_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &cnl);
 		bcopy(imsg->data, &cnl, sizeof(cnl));
 		if (cnl.proc > env->sc_conf.prefork_relay)
-			fatalx("pfe_dispatch_relay: "
-			    "invalid relay proc");
+			fatalx("%s: invalid relay proc", __func__);
 		if (natlook(env, &cnl) != 0)
 			cnl.in = -1;
 		proc_compose_imsg(env->sc_ps, PROC_RELAY, cnl.proc,
@@ -251,10 +271,9 @@ pfe_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &crs);
 		bcopy(imsg->data, &crs, sizeof(crs));
 		if (crs.proc > env->sc_conf.prefork_relay)
-			fatalx("pfe_dispatch_relay: "
-			    "invalid relay proc");
+			fatalx("%s: invalid relay proc", __func__);
 		if ((rlay = relay_find(env, crs.id)) == NULL)
-			fatalx("pfe_dispatch_relay: invalid relay id");
+			fatalx("%s: invalid relay id", __func__);
 		bcopy(&crs, &rlay->rl_stats[crs.proc], sizeof(crs));
 		rlay->rl_stats[crs.proc].interval =
 		    env->sc_conf.statinterval.tv_sec;
@@ -502,7 +521,7 @@ disable_table(struct ctl_conn *c, struct ctl_id *id)
 		return (-1);
 	id->id = table->conf.id;
 	if (table->conf.rdrid > 0 && rdr_find(env, table->conf.rdrid) == NULL)
-		fatalx("disable_table: desynchronised");
+		fatalx("%s: desynchronised", __func__);
 
 	if (table->conf.flags & F_DISABLE)
 		return (0);
@@ -537,7 +556,7 @@ enable_table(struct ctl_conn *c, struct ctl_id *id)
 	id->id = table->conf.id;
 
 	if (table->conf.rdrid > 0 && rdr_find(env, table->conf.rdrid) == NULL)
-		fatalx("enable_table: desynchronised");
+		fatalx("%s: desynchronised", __func__);
 
 	if (!(table->conf.flags & F_DISABLE))
 		return (0);
@@ -579,7 +598,7 @@ disable_host(struct ctl_conn *c, struct ctl_id *id, struct host *host)
 
 	if (host->up == HOST_UP) {
 		if ((table = table_find(env, host->conf.tableid)) == NULL)
-			fatalx("disable_host: invalid table id");
+			fatalx("%s: invalid table id", __func__);
 		table->up--;
 		table->conf.flags |= F_CHANGED;
 	}

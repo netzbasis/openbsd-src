@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.129 2016/09/06 12:41:23 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.146 2017/08/04 11:53:03 sthen Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -30,6 +30,17 @@ our @ISA=(qw(OpenBSD::PackageRepositoryBase));
 use OpenBSD::PackageLocation;
 use OpenBSD::Paths;
 use OpenBSD::Error;
+use OpenBSD::Temp;
+
+sub make_error_file
+{
+	my ($self, $object) = @_;
+	$object->{errors} = OpenBSD::Temp->file;
+	if (!defined $object->{errors}) {
+		$self->{state}->fatal("#1 not writable",
+		    $OpenBSD::Temp::tempbase);
+	}
+}
 
 sub baseurl
 {
@@ -95,16 +106,22 @@ sub ftp() { 'OpenBSD::PackageRepository::FTP' }
 sub http() { 'OpenBSD::PackageRepository::HTTP' }
 sub https() { 'OpenBSD::PackageRepository::HTTPS' }
 sub scp() { 'OpenBSD::PackageRepository::SCP' }
-sub source() { 'OpenBSD::PackageRepository::Source' }
 sub file() { 'OpenBSD::PackageRepository::Local' }
 sub installed() { 'OpenBSD::PackageRepository::Installed' }
-sub pipe() { 'OpenBSD::PackageRepository::Local::Pipe' }
 
 sub parse
 {
 	my ($class, $r, $state) = @_;
+
+	{
+	no warnings qw(uninitialized);	# in case installpath is empty
+	$$r =~ s/^installpath(\:|$)/$state->installpath.$1/e;
+	}
+
 	my $u = $$r;
 	return undef if $u eq '';
+
+		
 
 	if ($u =~ m/^ftp\:/io) {
 		return $class->ftp->parse_fullurl($r, $state);
@@ -124,8 +141,6 @@ sub parse
 		return $class->file->parse_fullurl($r, $state);
 	} elsif ($u =~ m/^inst\:$/io) {
 		return $class->installed->parse_fullurl($r, $state);
-	} elsif ($u =~ m/^pipe\:$/io) {
-		return $class->pipe->parse_fullurl($r, $state);
 	} else {
 		if ($$r =~ m/^([a-z0-9][a-z0-9.]+\.[a-z0-9.]+)(\:|$)/ 
 		    && !-d $1) {
@@ -150,7 +165,8 @@ sub stemlist
 		require OpenBSD::PackageName;
 		my @l = $self->available;
 		if (@l == 0 && !$self->{empty_okay}) {
-			$self->{state}->errsay("#1 is empty", $self->url);
+			$self->{state}->errsay("#1: #2", $self->url,
+				$self->{no_such_dir} ? "no such dir" : "empty");
 		}
 		$self->{stemlist} = OpenBSD::PackageName::avail2stems(@l);
 	}
@@ -165,7 +181,6 @@ sub wipe_info
 
 	my $dir = $pkg->{dir};
 	if (defined $dir) {
-		require OpenBSD::Temp;
 		OpenBSD::Error->rmtree($dir);
 		OpenBSD::Temp->reclaim($dir);
 		delete $pkg->{dir};
@@ -233,6 +248,7 @@ sub open
 
 	# kill old files if too many
 	my $already = $self->make_room;
+	local $SIG{'PIPE'} = 'DEFAULT';
 	my $fh = $self->open_pipe($object);
 	if (!defined $fh) {
 		return;
@@ -273,6 +289,9 @@ sub parse_problems
 		$url = $object->url;
 	}
 	my $notyet = 1;
+	my $broken = 0;
+	my $signify_error = 0;
+	$self->{last_error} = 0;
 	while(<$fh>) {
 		next if m/^(?:200|220|221|226|229|230|227|250|331|500|150)[\s\-]/o;
 		next if m/^EPSV command not understood/o;
@@ -286,31 +305,55 @@ sub parse_problems
 		next if m/^Success?fully retrieved file/o;
 		next if m/^\d+\s+bytes\s+received\s+in/o;
 		next if m/^ftp: connect to address.*: No route to host/o;
+		if (m/^ftp: Writing -: Broken pipe/o) {
+			$broken = 1;
+			next;
+		}
+		# http error
+		if (m/^ftp: Error retrieving file: 404/o) {
+			if (!defined $object) {
+				$self->{no_such_dir} = 1;
+				next;
+			} else {
+				$self->{lasterror} = 404;
+			}
+			# ignore errors for stable packages
+			next if $self->can_be_empty;
+		}
 
 		if (defined $hint && $hint == 0) {
 			next if m/^ftp: -: short write/o;
 			next if m/^ftp: local: -: Broken pipe/o;
-			next if m/^ftp: Writing -: Broken pipe/o;
 			next if m/^421\s+/o;
 		}
-		s/.*unsigned archive.*/unsigned package/;
+		# not retrieving the file => always the same message
+		# so it's superfluous
+		next if m/^signify:/ && $self->{lasterror};
 		if ($notyet) {
-			$self->{state}->errsay("Error from #1", $url);
+			$self->{state}->errprint("#1: ", $url);
+			if (defined $object) {
+				$object->{error_reported} = 1;
+			}
 			$notyet = 0;
+		}
+		if (m/^signify:/) {
+			$signify_error = 1;
+			s/.*unsigned .*archive.*/unsigned package (signify(1) doesn't see old-style signatures)/;
 		}
 		if (m/^421\s+/o ||
 		    m/^ftp: connect: Connection timed out/o ||
 		    m/^ftp: Can't connect or login to host/o) {
 			$self->{lasterror} = 421;
 		}
-		# http error
-		if (m/^ftp: Error retrieving file: 404/o) {
-		    	$self->{lasterror} = 404;
-		}
 		if (m/^550\s+/o) {
 			$self->{lasterror} = 550;
 		}
 		$self->{state}->errprint("#1", $_);
+	}
+	if ($broken) {
+		unless ($signify_error || defined $hint && $hint == 0) { 
+			$self->{state}->errprint('#1', "ftp: Broken pipe");
+		}
 	}
 	CORE::close($fh);
 	OpenBSD::Temp->reclaim($filename);
@@ -370,6 +413,9 @@ sub uncompress
 					$result .= "\@digital-signature signify2:$1:external\n";
 				}
 			}
+		} else {
+			$fh->close;
+			return undef;
 		}
 	}
 	$object->{extra_content} = $result;
@@ -384,33 +430,33 @@ sub signify_pipe
 	exec {OpenBSD::Paths->signify}
 	    ("signify",
 	    "-zV",
-	    @_);
-    	exit(1);
+	    @_)
+	or $self->{state}->fatal("Can't run #1: #2",
+	    OpenBSD::Paths->signify, $!);
 }
 
 sub check_signed
 {
 	my ($self, $object) = @_;
-	# XXX switch not flipped
-	if ($self->{state}->defines('newsign')) {
-		$object->{is_signed} = 1;
-		return 1;
-	} else {
+	if ($object->{repository}{trusted}) {
 		return 0;
 	}
-
-	if ($self->{state}->defines('unsigned') ||
-	    $self->{state}->defines('oldsign')) {
-		return 0;
-	} else {
+	if ($self->{state}{signature_style} eq 'new') {
 		$object->{is_signed} = 1;
 		return 1;
+	} else {
+		return 0;
 	}
 }
 
 package OpenBSD::PackageRepository::Local;
 our @ISA=qw(OpenBSD::PackageRepository);
 use OpenBSD::Error;
+
+sub is_local_file
+{
+	return 1;
+}
 
 sub urlscheme
 {
@@ -437,6 +483,9 @@ sub parse_fullurl
 	if (!$ok && $o->{path} eq $class->pkg_db."/") {
 		return $class->installed->new(0, $state);
 	} else {
+		if ($o->{path} eq './') {
+			$o->can_be_empty;
+		}
 		return $class->unique($o);
 	}
 }
@@ -516,48 +565,6 @@ sub list
 	return $l;
 }
 
-package OpenBSD::PackageRepository::Local::Pipe;
-our @ISA=qw(OpenBSD::PackageRepository::Local);
-
-sub urlscheme
-{
-	return 'pipe';
-}
-
-sub relative_url
-{
-	return '';
-}
-
-sub may_exist
-{
-	return 1;
-}
-
-sub new
-{
-	my ($class, $state) = @_;
-	return bless { state => $state}, $class;
-}
-
-sub open_pipe
-{
-	my ($self, $object) = @_;
-	if ($self->check_signed($object)) {
-		$self->make_error_file($object);
-		my $pid = open(my $fh, "-|");
-		$self->did_it_fork($pid);
-		if ($pid) {
-			$object->{pid} = $pid;
-			return $self->uncompress_signed($object, $fh);
-		} else {
-			$self->signify_pipe($object);
-		}
-    	} else {
-		return $self->uncompress($object, \*STDIN);
-	}
-}
-
 package OpenBSD::PackageRepository::Distant;
 our @ISA=qw(OpenBSD::PackageRepository);
 
@@ -578,6 +585,10 @@ sub parse_url
 		$$r = $path;
 		my $o = $class->SUPER::parse_url($r, $state);
 		$o->{host} = $host;
+		if (defined $o->{release}) {
+			$o->can_be_empty;
+			$$r = $class->urlscheme."://$o->{host}$o->{release}:$$r";
+		}
 		return $o;
 	} else {
 		return undef;
@@ -590,7 +601,6 @@ sub pkg_copy
 {
 	my ($self, $in, $object) = @_;
 
-	require OpenBSD::Temp;
 	my $name = $object->{name};
 	my $dir = $object->{cache_dir};
 
@@ -645,20 +655,8 @@ sub pkg_copy
 	close($in);
 }
 
-sub make_error_file
-{
-	my ($self, $object) = @_;
-	$object->{errors} = OpenBSD::Temp->file;
-	if (!defined $object->{errors}) {
-		$self->{state}->fatal("#1 not writable",
-		    $OpenBSD::Temp::tempbase);
-	}
-}
-
 sub open_pipe
 {
-	require OpenBSD::Temp;
-
 	my ($self, $object) = @_;
 	$self->make_error_file($object);
 	my $d = $ENV{'PKG_CACHE'};
@@ -794,7 +792,7 @@ sub grab_object
 	    @extra,
 	    "-o",
 	    "-", $self->url($object->{name})
-	or $self->{state}->fatal("Can't run ".OpenBSD::Paths->ftp.": #1", $!);
+	or $self->{state}->fatal("Can't run #1: #2", OpenBSD::Paths->ftp, $!);
 }
 
 sub open_read_ftp
@@ -809,7 +807,7 @@ sub open_read_ftp
 
 		$self->drop_privileges_and_setup_env;
 		exec($cmd) 
-		or $self->{state}->fatal("Can't run $cmd: #1", $!);
+		or $self->{state}->fatal("Can't run #1: #2", $cmd, $!);
 	}
 }
 
@@ -900,12 +898,6 @@ sub list
 		}
 		$self->{list} = $self->obtain_list($error);
 		$self->parse_problems($error);
-		if ($self->{no_such_dir}) {
-			$self->{state}->errsay(
-			    "#1: Directory does not exist on #2",
-			    $self->{path}, $self->{host});
-		    	$self->{lasterror} = 404;
-		}
 	}
 	return $self->{list};
 }
@@ -920,7 +912,7 @@ sub get_http_list
 	    $error) or return;
 	while(<$fh>) {
 		chomp;
-		for my $pkg (m/\<A\s+HREF=\"(.*?\.tgz)\"\>/gio) {
+		for my $pkg (m/\<A[^>]*\s+HREF=\"(.*?\.tgz)\"/gio) {
 			$pkg = $1 if $pkg =~ m|^.*/(.*)$|;
 			# decode uri-encoding; from URI::Escape
 			$pkg =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;

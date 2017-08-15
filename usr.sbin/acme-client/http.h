@@ -1,4 +1,4 @@
-/*	$Id: http.h,v 1.2 2016/08/31 23:08:49 benno Exp $ */
+/*	$Id: http.h,v 1.5 2017/01/25 13:52:53 inoguchi Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -36,7 +36,7 @@ typedef	ssize_t (*readfp)(char *, size_t, const struct http *);
 /*
  * HTTP/S header pair.
  * There's also a cooked-up pair, "Status", with the status code.
- * Both strings are nil-terminated.
+ * Both strings are NUL-terminated.
  */
 struct	httphead {
 	const char	*key;
@@ -61,7 +61,7 @@ struct	httpget {
 	size_t		 bodypartsz; /* size of bodypart */
 };
 
-__BEGIN_DECLS
+int		 http_init(void);
 
 /* Convenience functions. */
 struct httpget	*http_get(const struct source *, size_t,
@@ -88,7 +88,5 @@ int		 http_head_status(const struct http *,
 			struct httphead *, size_t);
 struct httphead	*http_head_get(const char *,
 			struct httphead *, size_t);
-
-__END_DECLS
 
 #endif /* HTTP_H */

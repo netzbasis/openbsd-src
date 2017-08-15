@@ -1,3 +1,4 @@
+/*	$OpenBSD: test_gets.c,v 1.5 2017/07/07 23:55:21 bluhm Exp $	*/
 /*
  * Copyright (c) 2016 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -19,6 +20,7 @@
 #include <locale.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <err.h>
 
 #include "chared.c"
 
@@ -27,7 +29,6 @@
  * Rather than linking in all the various libedit modules,
  * provide dummies for those functions called in chared.c.
  * Most aren't actually called in c_gets().
- * Requires "make obj && make depend" in src/lib/libedit.
  */
 
 #define EL EditLine *el __attribute__((__unused__))

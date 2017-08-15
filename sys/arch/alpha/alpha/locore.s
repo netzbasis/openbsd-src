@@ -1,4 +1,4 @@
-/* $OpenBSD: locore.s,v 1.45 2016/05/23 20:11:48 deraadt Exp $ */
+/* $OpenBSD: locore.s,v 1.47 2017/06/05 17:49:05 deraadt Exp $ */
 /* $NetBSD: locore.s,v 1.94 2001/04/26 03:10:44 ross Exp $ */
 
 /*-
@@ -131,78 +131,6 @@ IMPORT(cpu_info_primary, CPU_INFO_SIZEOF)
 	.macro	btrue	reg, dst
 	bne	\reg, \dst
 	.endm
-
-/*
- * This is for kvm_mkdb, and should be the address of the beginning
- * of the kernel text segment (not necessarily the same as kernbase).
- */
-	EXPORT(kernel_text)
-.loc	1 __LINE__
-kernel_text:
-
-/*
- * bootstack: a temporary stack, for booting.
- *
- * Extends from 'start' down.
- */
-bootstack:
-
-/*
- * __start: Kernel start.
- *
- * Arguments:
- *	a0 is the first free page frame number (PFN) (no longer used)
- *	a1 is the page table base register (PTBR)
- *	a2 is the bootinfo magic number
- *	a3 is the pointer to the bootinfo structure
- *
- * All arguments are passed to alpha_init().
- */
-NESTED_NOPROFILE(__start,1,0,ra,0,0)
-	br	pv,Lstart1
-Lstart1: LDGP(pv)
-
-	/* Switch to the boot stack. */
-	lda	sp,bootstack
-
-	/* Load KGP with current GP. */
-	or	gp,zero,a0
-	call_pal PAL_OSF1_wrkgp		/* clobbers a0, t0, t8-t11 */
-
-	/*
-	 * Call alpha_init() to do pre-main initialization.
-	 * alpha_init() gets the arguments we were called with,
-	 * which are already in a0 (destroyed), a1, a2, a3 and a4.
-	 */
-	CALL(alpha_init)
-
-	/* Set up the virtual page table pointer. */
-	ldiq	a0, VPTBASE
-	call_pal PAL_OSF1_wrvptptr	/* clobbers a0, t0, t8-t11 */
-
-	/*
-	 * Switch to proc0's PCB.
-	 */
-	lda	a0, proc0
-	ldq	a0, P_MD_PCBPADDR(a0)		/* phys addr of PCB */
-	SWITCH_CONTEXT
-
-	/*
-	 * We've switched to a new page table base, so invalidate the TLB
-	 * and I-stream.  This happens automatically everywhere but here.
-	 */
-	ldiq	a0, -2				/* TBIA */
-	call_pal PAL_OSF1_tbi
-	call_pal PAL_imb
-
-	/*
-	 * All ready to go!  Call main()!
-	 */
-	CALL(main)
-
-	/* This should never happen. */
-	PANIC("main() returned",Lmain_returned_pmsg)
-	END(__start)
 
 /**************************************************************************/
 
@@ -1032,6 +960,32 @@ NESTED(copyout, 3, 16, ra, IM_RA|IM_S0, 0)
 	mov	zero, v0			/* return 0. */
 	RET
 	END(copyout)
+
+NESTED(copyin32, 2, 16, ra, IM_RA|IM_S0, 0)
+	LDGP(pv)
+	and	a0, 0x3, t0			/* make sure that src addr   */
+	bne	t0, copyfault			/* is properly aligned.	     */
+	ldiq	t0, VM_MAX_ADDRESS		/* make sure that src addr   */
+	cmpult	a0, t0, t1			/* is in user space.	     */
+	beq	t1, copyfault			/* if it's not, error out.   */
+	lda	sp, -16(sp)			/* set up stack frame	     */
+	stq	ra, (16-8)(sp)			/* save ra		     */
+	stq	s0, (16-16)(sp)			/* save s0		     */
+	/* Note: GET_CURPROC clobbers v0, t0, t8...t11. */
+	GET_CURPROC
+	ldq	t0, 0(v0)
+	ldq	s0, P_ADDR(t0)
+	lda	v0, copyerr			/* set up fault handler.     */
+	stq	v0, U_PCB_ONFAULT(s0)
+	ldl	t0, 0(a0)
+	stl	t0, 0(a1)
+	stq	zero, U_PCB_ONFAULT(s0)		/* kill the fault handler.   */
+	ldq	ra, (16-8)(sp)			/* restore ra.		     */
+	ldq	s0, (16-16)(sp)			/* restore s0.		     */
+	lda	sp, 16(sp)			/* kill stack frame.	     */
+	mov	zero, v0			/* return 0. */
+	RET
+	END(copyin32)
 
 LEAF(copyerr, 0)
 	LDGP(pv)

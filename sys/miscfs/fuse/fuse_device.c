@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_device.c,v 1.21 2016/08/30 16:45:54 natano Exp $ */
+/* $OpenBSD: fuse_device.c,v 1.23 2017/08/10 14:36:34 mestre Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -270,8 +270,8 @@ fuseclose(dev_t dev, int flags, int fmt, struct proc *p)
 		fd->fd_fmp->sess_init = 0;
 		if ((vfs_busy(fd->fd_fmp->mp, VB_WRITE|VB_NOWAIT)) != 0)
 			goto end;
-		if ((error = dounmount(fd->fd_fmp->mp, MNT_FORCE, curproc,
-		    NULL)) != 0)
+		error = dounmount(fd->fd_fmp->mp, MNT_FORCE, curproc);
+		if (error)
 			printf("fuse: unmount failed with error %d\n", error);
 		fd->fd_fmp = NULL;
 	}
@@ -296,6 +296,8 @@ fuseioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 	int error = 0;
 
 	fd = fuse_lookup(minor(dev));
+	if (fd == NULL)
+		return (ENXIO);
 
 	switch (cmd) {
 	case FIOCGETFBDAT:

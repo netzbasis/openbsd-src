@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.60 2016/08/16 13:03:58 visa Exp $ */
+/*	$OpenBSD: cpu.c,v 1.68 2017/05/24 13:33:00 visa Exp $ */
 
 /*
  * Copyright (c) 1997-2004 Opsycon AB (www.opsycon.se)
@@ -50,7 +50,13 @@ struct cpu_info *cpu_info_secondaries;
 struct cpuset cpus_running;
 #endif
 
+extern void cpu_idle_cycle_nop(void);
+extern void cpu_idle_cycle_rm7k(void);
+extern void cpu_idle_cycle_wait(void);
+void (*cpu_idle_cycle_func)(void) = cpu_idle_cycle_nop;
+
 vaddr_t	cache_valias_mask;
+int	cpu_has_userlocal;
 
 struct cfattach cpu_ca = {
 	sizeof(struct device), cpumatch, cpuattach
@@ -204,6 +210,9 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 		case 0x05:
 			printf("STC Loongson3%c CPU", 'A' + vers_min - 5);
 			break;
+		case 0x08:
+			printf("STC Loongson3A2000/3B2000 CPU");
+			break;
 		default:
 			printf("Unknown STC Loongson CPU type (%02x)",
 			    ch->c0prid & 0xff);
@@ -211,13 +220,22 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 		}
 		displayver = 0;
 		break;
-	case MIPS_OCTEON:
-		printf("Cavium OCTEON CPU");
+	case MIPS_CN50XX:
+		printf("CN50xx CPU");
 		fptype = MIPS_SOFT;
 		break;
-	case MIPS_OCTEON2:
-		printf("Cavium OCTEON II CPU");
+	case MIPS_CN61XX:
+		if (ci->ci_l2.size < 1024 * 1024)
+			printf("CN60xx CPU");
+		else
+			printf("CN61xx CPU");
 		fptype = MIPS_SOFT;
+		break;
+	case MIPS_CN71XX:
+		printf("CN70xx/CN71xx CPU");
+		break;
+	case MIPS_CN73XX:
+		printf("CN72xx/CN73xx CPU");
 		break;
 	default:
 		printf("Unknown CPU type (0x%x)", ch->type);
@@ -294,12 +312,21 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 		case 0x05:
 			printf("STC Loongson3%c FPU", 'A' + vers_min - 5);
 			break;
+		case 0x08:
+			printf("STC Loongson3A2000/3B2000 FPU");
+			break;
 		default:
 			printf("Unknown STC Loongson FPU type (%02x)",
 			    ch->c1prid & 0xff);
 			break;
 		}
 		displayver = 0;
+		break;
+	case MIPS_CN71XX:
+		printf("CN70xx/CN71xx FPU");
+		break;
+	case MIPS_CN73XX:
+		printf("CN72xx/CN73xx FPU");
 		break;
 	default:
 		printf("Unknown FPU type (0x%x)", fptype);
@@ -344,6 +371,25 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 		else
 			printf("%d way", ci->ci_l3.sets);
 	}
+
+	if (cpuno == 0) {
+		switch (ch->type) {
+		case MIPS_R4600:
+		case MIPS_R4700:
+		case MIPS_R5000:
+		case MIPS_RM52X0:
+		case MIPS_RM7000:
+			cpu_idle_cycle_func = cpu_idle_cycle_rm7k;
+			break;
+		case MIPS_CN50XX:
+		case MIPS_CN61XX:
+		case MIPS_CN71XX:
+		case MIPS_CN73XX:
+			cpu_idle_cycle_func = cpu_idle_cycle_wait;
+			break;
+		}
+	}
+
 	printf("\n");
 
 #ifdef DEBUG
@@ -426,6 +472,8 @@ cpu_boot_secondary_processors(void)
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 
+	mips64_ipi_init();
+
 	CPU_INFO_FOREACH(cii, ci) {
 		if ((ci->ci_flags & CPUF_PRESENT) == 0)
 			continue;
@@ -436,11 +484,6 @@ cpu_boot_secondary_processors(void)
 		sched_init_cpu(ci);
 		cpu_boot_secondary(ci);
 	}
-
-       /* This must called after xheart0 has initialized, so here is 
-	* the best place to do so.
-	*/
-       mips64_ipi_init();
 }
 
 void

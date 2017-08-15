@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.48 2016/08/21 06:36:23 jsg Exp $
+#	$OpenBSD: RAMDISK,v 1.83 2017/07/25 20:39:12 kettenis Exp $
 
 machine		armv7 arm
 
@@ -17,9 +17,11 @@ option		MINIROOTSIZE=15360
 option		RAMDISK_HOOKS
 
 option		FFS
+option		FFS2
 option		MSDOSFS
 option		INET6
 option		EXT2FS
+option		NFSCLIENT
 
 option		USBVERBOSE
 
@@ -38,12 +40,11 @@ agtimer*	at fdt?
 armliicc*	at cortex?
 
 # iMX
-imx0		at mainbus?		# iMX SoC
-imxccm*		at imx?			# clock control module
-imxiomuxc*	at imx?			# iomux controller
+imxccm*		at fdt? early 1		# clock control module
+imxiomuxc*	at fdt? early 1		# iomux controller
+imxocotp*	at fdt?			# on-chip otp controller
 imxgpc*		at fdt?			# power controller
 imxdog*		at fdt?			# watchdog timer
-imxocotp*	at imx?			# on-chip otp controller
 imxgpio*	at fdt?			# user-visible GPIO pins?
 fec*		at fdt?			# Ethernet
 imxuart*	at fdt?			# onboard uarts
@@ -61,9 +62,10 @@ omapid*		at omap?
 
 # OMAP on-chip devices
 intc*		at fdt?			# OMAP3 interrupt controller
-#edma*		at omap?		# OMAP3 dma controller
+omwugen*	at fdt?			# Wake-up generator
+#edma*		at fdt?			# OMAP3 dma controller
 prcm*		at omap?		# power/clock controller
-sitaracm*	at omap?		# sitara control module
+ompinmux*	at fdt?			# pin muxing
 omdog*		at fdt?			# watchdog timer
 omgpio*		at fdt?			# user-visible GPIO pins?
 gpio*		at omgpio?
@@ -81,14 +83,11 @@ omehci*		at fdt?			# EHCI
 usb*		at omehci?
 
 # Sunxi A1x/A20 SoC
-sunxi0		at mainbus?
-
-# Sunxi on-chip devices
 sxiintc*	at fdt?			# A1x interrupt controller
-sxipio*		at sunxi?		# GPIO pins for leds & PHYs
+sxipio*		at fdt? early 1		# GPIO pins for leds & PHYs
 gpio*		at sxipio?
-sxiccmu*	at sunxi?		# Clock Control Module/Unit
-sxitimer*	at sunxi?
+sxiccmu*	at fdt? early 1		# Clock Control Module/Unit
+sxitimer*	at fdt? early 1
 sxidog*		at fdt?			# watchdog timer
 sxirtc*		at fdt?			# Real Time Clock
 sxie*		at fdt?
@@ -100,40 +99,66 @@ ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
 #usb*		at ohci?
+sxitwi*		at fdt?			# Two-Wire Serial Interface
+iic*		at sxitwi?		# I2C bus
 
 # ARM Versatile Express
-vexpress0	at mainbus?
-sysreg*		at vexpress?
+sysreg*		at fdt?
 pluart*		at fdt?
 plrtc*		at fdt?
 virtio*		at fdt?
 
+psci*		at fdt?
+syscon*		at fdt?
+
 # Exynos
-exynos0		at mainbus?
-exdisplay*	at exynos?
-wsdisplay*	at exdisplay? console ?
-exclock*	at exynos?
-expower*	at exynos?
-exsysreg*	at exynos?
-exmct*		at exynos?
-exdog*		at exynos?
-exgpio*		at exynos?
-exiic*		at exynos?
+#exdisplay*	at exynos?
+#wsdisplay*	at exdisplay? console ?
+exclock*	at fdt? early 1
+expower*	at fdt? early 1
+exsysreg*	at fdt? early 1
+exmct*		at fdt? early 1
+exdog*		at fdt?
+exgpio*		at fdt? early 1
+exiic*		at fdt?
 iic*		at exiic?
-exehci*		at exynos?
-ehci*		at exehci?
-exesdhc*	at exynos?
-sdmmc*		at exesdhc?
+exehci*		at fdt?
+usb*		at exehci?
+exdwusb*	at fdt?
+xhci*		at fdt?
+usb*		at xhci?
+dwmmc*		at fdt?
+sdmmc*		at dwmmc?
+exrtc*		at fdt?
 exuart*		at fdt?
 
 # Raspberry Pi 2/3
 bcmintc*	at fdt?
+bcmdog*		at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
 
+# Marvell SoC
+mvacc*		at fdt? early 1
+mvagc*		at fdt?
+mvsysctrl*	at fdt?
+mvmbus*		at fdt?
+mvxhci*		at fdt?
+usb*		at mvxhci?
+mvahci*		at fdt?
+
+# Rockchip SoCs
+rkclock*	at fdt? early 1
+rkgrf*		at fdt? early 1
+rkpinctrl*	at fdt? early 1
+rkgpio*		at fdt?
+dwdog*		at fdt?
+
+axppmic*	at iic?			# axp209 pmic
 crosec*		at iic?
 wskbd*		at crosec? mux 1
 pcfrtc*		at iic?
+pcxrtc*		at iic?
 tpspmic*	at iic?
 
 # virtio devices

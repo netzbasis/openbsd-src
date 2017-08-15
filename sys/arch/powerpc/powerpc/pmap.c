@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.164 2016/06/07 06:23:19 dlg Exp $ */
+/*	$OpenBSD: pmap.c,v 1.167 2017/05/16 20:52:54 kettenis Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -1797,6 +1797,30 @@ copyout(const void *kaddr, void *udaddr, size_t len)
 }
 
 int
+copyin32(const uint32_t *udaddr, uint32_t *kaddr)
+{
+	volatile uint32_t *p;
+	u_int32_t oldsr;
+	faultbuf env;
+	void *oldh = curpcb->pcb_onfault;
+
+	if ((u_int)udaddr & 0x3)
+		return EFAULT;
+
+	p = PPC_USER_ADDR + ((u_int)udaddr & ~PPC_SEGMENT_MASK);
+	oldsr = pmap_setusr(curpcb->pcb_pm, (vaddr_t)udaddr);
+	if (setfault(&env)) {
+		pmap_popusr(oldsr);
+		curpcb->pcb_onfault = oldh;
+		return EFAULT;
+	}
+	*kaddr = *p;
+	pmap_popusr(oldsr);
+	curpcb->pcb_onfault = oldh;
+	return 0;
+}
+
+int
 copyinstr(const void *udaddr, void *kaddr, size_t len, size_t *done)
 {
 	const u_char *uaddr = udaddr;
@@ -2142,17 +2166,14 @@ pmap_real_memory(paddr_t *start, vsize_t *size)
 void
 pmap_init()
 {
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
 	    "pmap", NULL);
-	pool_setipl(&pmap_pmap_pool, IPL_NONE);
 	pool_setlowat(&pmap_pmap_pool, 2);
-	pool_init(&pmap_vp_pool, sizeof(struct pmapvp), 0, 0, 0, "vp",
-	    &pool_allocator_single);
-	pool_setipl(&pmap_vp_pool, IPL_VM);
+	pool_init(&pmap_vp_pool, sizeof(struct pmapvp), 0, IPL_VM, 0,
+	    "vp", &pool_allocator_single);
 	pool_setlowat(&pmap_vp_pool, 10);
-	pool_init(&pmap_pted_pool, sizeof(struct pte_desc), 0, 0, 0, "pted",
-	    NULL);
-	pool_setipl(&pmap_pted_pool, IPL_VM);
+	pool_init(&pmap_pted_pool, sizeof(struct pte_desc), 0, IPL_VM, 0,
+	    "pted", NULL);
 	pool_setlowat(&pmap_pted_pool, 20);
 
 	PMAP_HASH_LOCK_INIT();
@@ -2161,23 +2182,23 @@ pmap_init()
 }
 
 void
-pmap_proc_iflush(struct proc *p, vaddr_t addr, vsize_t len)
+pmap_proc_iflush(struct process *pr, vaddr_t va, vsize_t len)
 {
 	paddr_t pa;
 	vsize_t clen;
 
 	while (len > 0) {
 		/* add one to always round up to the next page */
-		clen = round_page(addr + 1) - addr;
+		clen = round_page(va + 1) - va;
 		if (clen > len)
 			clen = len;
 
-		if (pmap_extract(p->p_vmspace->vm_map.pmap, addr, &pa)) {
+		if (pmap_extract(pr->ps_vmspace->vm_map.pmap, va, &pa)) {
 			syncicache((void *)pa, clen);
 		}
 
 		len -= clen;
-		addr += clen;
+		va += clen;
 	}
 }
 

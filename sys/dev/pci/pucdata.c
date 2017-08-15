@@ -1,4 +1,4 @@
-/*	$OpenBSD: pucdata.c,v 1.104 2016/04/24 06:47:56 jsg Exp $	*/
+/*	$OpenBSD: pucdata.c,v 1.106 2017/08/04 22:39:36 uaa Exp $	*/
 /*	$NetBSD: pucdata.c,v 1.6 1999/07/03 05:55:23 cgd Exp $	*/
 
 /*
@@ -1421,6 +1421,18 @@ const struct puc_device_description puc_devs[] = {
 	    },
 	},
 
+	/* Moxa Technologies Co., Ltd. PCI I/O Card 4S RS232 */
+	{   /* "Moxa Technologies, SmartIO CP104EL/PCI" */
+	    {	PCI_VENDOR_MOXA, PCI_PRODUCT_MOXA_CP104EL,	0, 0	},
+	    {	0xffff,	0xffff,					0, 0	},
+	    {
+		{ PUC_COM_POW2(3), 0x18, 0x0000 },
+		{ PUC_COM_POW2(3), 0x18, 0x0008 },
+		{ PUC_COM_POW2(3), 0x18, 0x0010 },
+		{ PUC_COM_POW2(3), 0x18, 0x0018 },
+	    },
+	},
+
 	/* Moxa Technologies Co., Ltd. PCI I/O Card 8S RS232 */
 	{   /* "Moxa Technologies, Industio C168H" */
 	    {	PCI_VENDOR_MOXA, PCI_PRODUCT_MOXA_C168H,	0, 0	},
@@ -2186,6 +2198,13 @@ const struct puc_device_description puc_devs[] = {
 	    {
 		{ PUC_COM_POW2(0), 0x10, 0x0000 },
 		{ PUC_COM_POW2(0), 0x14, 0x0000 },
+	    }
+	},
+	{   /* "ASIX AX99100", */
+	    {	PCI_VENDOR_ASIX, PCI_PRODUCT_ASIX_AX99100,	0, 0	},
+	    {	0xffff, 0xffff,					0, 0	},
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
 	    }
 	},
 	{   /* "NetMos NM9820 UART" */

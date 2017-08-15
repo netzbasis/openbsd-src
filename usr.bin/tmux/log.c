@@ -1,4 +1,4 @@
-/* $OpenBSD: log.c,v 1.23 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: log.c,v 1.25 2017/06/04 08:25:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -62,18 +62,31 @@ log_open(const char *name)
 
 	if (log_level == 0)
 		return;
-
-	if (log_file != NULL)
-		fclose(log_file);
+	log_close();
 
 	xasprintf(&path, "tmux-%s-%ld.log", name, (long)getpid());
-	log_file = fopen(path, "w");
+	log_file = fopen(path, "a");
 	free(path);
 	if (log_file == NULL)
 		return;
 
 	setvbuf(log_file, NULL, _IOLBF, 0);
 	event_set_log_callback(log_event_cb);
+}
+
+/* Toggle logging. */
+void
+log_toggle(const char *name)
+{
+	if (log_level == 0) {
+		log_level = 1;
+		log_open(name);
+		log_debug("log opened");
+	} else {
+		log_debug("log closed");
+		log_level = 0;
+		log_close();
+	}
 }
 
 /* Close logging. */
@@ -134,6 +147,7 @@ fatal(const char *msg, ...)
 	if (asprintf(&fmt, "fatal: %s: %s", msg, strerror(errno)) == -1)
 		exit(1);
 	log_vwrite(fmt, ap);
+	va_end(ap);
 	exit(1);
 }
 
@@ -148,5 +162,6 @@ fatalx(const char *msg, ...)
 	if (asprintf(&fmt, "fatal: %s", msg) == -1)
 		exit(1);
 	log_vwrite(fmt, ap);
+	va_end(ap);
 	exit(1);
 }

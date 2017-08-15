@@ -1,7 +1,9 @@
-/*	$OpenBSD: bgpctl.c,v 1.188 2016/06/03 17:36:37 benno Exp $ */
+/*	$OpenBSD: bgpctl.c,v 1.199 2017/08/10 14:22:59 benno Exp $ */
 
 /*
  * Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2016 Job Snijders <job@instituut.net>
+ * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +20,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <net/if.h>
 #include <net/if_media.h>
@@ -36,7 +39,6 @@
 #include "bgpd.h"
 #include "session.h"
 #include "rde.h"
-#include "log.h"
 #include "parser.h"
 #include "irrfilter.h"
 #include "mrtparser.h"
@@ -82,6 +84,7 @@ void		 show_rib_brief(struct ctl_show_rib *, u_char *);
 void		 show_rib_detail(struct ctl_show_rib *, u_char *, int);
 void		 show_attr(void *, u_int16_t);
 void		 show_community(u_char *, u_int16_t);
+void		 show_large_community(u_char *, u_int16_t);
 void		 show_ext_community(u_char *, u_int16_t);
 char		*fmt_mem(int64_t);
 int		 show_rib_memory_msg(struct imsg *);
@@ -115,7 +118,7 @@ int
 main(int argc, char *argv[])
 {
 	struct sockaddr_un	 sun;
-	int			 fd, n, done, ch, nodescr = 0, verbose = 0;
+	int			 fd, n, done, ch, nodescr = 0, verbose = 0, r;
 	struct imsg		 imsg;
 	struct network_config	 net;
 	struct parse_result	*res;
@@ -124,10 +127,13 @@ main(int argc, char *argv[])
 	char			*sockname;
 	enum imsg_type		 type;
 
+	r = getrtable();
+	if (asprintf(&sockname, "%s.%d", SOCKET_NAME, r) == -1)
+		err(1, "asprintf");
+
 	if (pledge("stdio rpath wpath cpath unix inet dns", NULL) == -1)
 		err(1, "pledge");
 
-	sockname = SOCKET_NAME;
 	while ((ch = getopt(argc, argv, "ns:")) != -1) {
 		switch (ch) {
 		case 'n':
@@ -159,6 +165,7 @@ main(int argc, char *argv[])
 
 	memcpy(&neighbor.addr, &res->peeraddr, sizeof(neighbor.addr));
 	strlcpy(neighbor.descr, res->peerdesc, sizeof(neighbor.descr));
+	strlcpy(neighbor.shutcomm, res->shutcomm, sizeof(neighbor.shutcomm));
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
 		err(1, "control_init: socket");
@@ -240,21 +247,30 @@ main(int argc, char *argv[])
 		bzero(&ribreq, sizeof(ribreq));
 		type = IMSG_CTL_SHOW_RIB;
 		if (res->as.type != AS_NONE) {
-			memcpy(&ribreq.as, &res->as, sizeof(res->as));
+			ribreq.as = res->as;
 			type = IMSG_CTL_SHOW_RIB_AS;
 		}
 		if (res->addr.aid) {
-			memcpy(&ribreq.prefix, &res->addr, sizeof(res->addr));
+			ribreq.prefix = res->addr;
 			ribreq.prefixlen = res->prefixlen;
 			type = IMSG_CTL_SHOW_RIB_PREFIX;
 		}
 		if (res->community.as != COMMUNITY_UNSET &&
 		    res->community.type != COMMUNITY_UNSET) {
-			memcpy(&ribreq.community, &res->community,
-			    sizeof(res->community));
+			ribreq.community = res->community;
 			type = IMSG_CTL_SHOW_RIB_COMMUNITY;
 		}
-		memcpy(&ribreq.neighbor, &neighbor, sizeof(ribreq.neighbor));
+		if (res->extcommunity.flags == EXT_COMMUNITY_FLAG_VALID) {
+			ribreq.extcommunity = res->extcommunity;
+			type = IMSG_CTL_SHOW_RIB_EXTCOMMUNITY;
+		}
+		if (res->large_community.as != COMMUNITY_UNSET &&
+		    res->large_community.ld1 != COMMUNITY_UNSET &&
+		    res->large_community.ld2 != COMMUNITY_UNSET) {
+			ribreq.large_community = res->large_community;
+			type = IMSG_CTL_SHOW_RIB_LARGECOMMUNITY;
+		}
+		ribreq.neighbor = neighbor;
 		strlcpy(ribreq.rib, res->rib, sizeof(ribreq.rib));
 		ribreq.aid = res->aid;
 		ribreq.flags = res->flags;
@@ -266,16 +282,20 @@ main(int argc, char *argv[])
 		close(fd);
 		bzero(&ribreq, sizeof(ribreq));
 		if (res->as.type != AS_NONE)
-			memcpy(&ribreq.as, &res->as, sizeof(res->as));
+			ribreq.as = res->as;
 		if (res->addr.aid) {
-			memcpy(&ribreq.prefix, &res->addr, sizeof(res->addr));
+			ribreq.prefix = res->addr;
 			ribreq.prefixlen = res->prefixlen;
 		}
 		if (res->community.as != COMMUNITY_UNSET &&
 		    res->community.type != COMMUNITY_UNSET)
-			memcpy(&ribreq.community, &res->community,
-			    sizeof(res->community));
-		memcpy(&ribreq.neighbor, &neighbor, sizeof(ribreq.neighbor));
+			ribreq.community = res->community;
+		if (res->large_community.as != COMMUNITY_UNSET &&
+		    res->large_community.ld1 != COMMUNITY_UNSET &&
+		    res->large_community.ld2 != COMMUNITY_UNSET)
+			ribreq.large_community = res->large_community;
+		/* XXX extended communities missing? */
+		ribreq.neighbor = neighbor;
 		ribreq.aid = res->aid;
 		ribreq.flags = res->flags;
 		show_mrt.arg = &ribreq;
@@ -337,7 +357,7 @@ main(int argc, char *argv[])
 	case NETWORK_ADD:
 	case NETWORK_REMOVE:
 		bzero(&net, sizeof(net));
-		memcpy(&net.prefix, &res->addr, sizeof(res->addr));
+		net.prefix = res->addr;
 		net.prefixlen = res->prefixlen;
 		/* attribute sets are not supported */
 		if (res->action == NETWORK_ADD) {
@@ -368,16 +388,20 @@ main(int argc, char *argv[])
 	case NETWORK_MRT:
 		bzero(&ribreq, sizeof(ribreq));
 		if (res->as.type != AS_NONE)
-			memcpy(&ribreq.as, &res->as, sizeof(res->as));
+			ribreq.as = res->as;
 		if (res->addr.aid) {
-			memcpy(&ribreq.prefix, &res->addr, sizeof(res->addr));
+			ribreq.prefix = res->addr;
 			ribreq.prefixlen = res->prefixlen;
 		}
 		if (res->community.as != COMMUNITY_UNSET &&
 		    res->community.type != COMMUNITY_UNSET)
-			memcpy(&ribreq.community, &res->community,
-			    sizeof(res->community));
-		memcpy(&ribreq.neighbor, &neighbor, sizeof(ribreq.neighbor));
+			ribreq.community = res->community;
+		if (res->large_community.as != COMMUNITY_UNSET &&
+		    res->large_community.ld1 != COMMUNITY_UNSET &&
+		    res->large_community.ld2 != COMMUNITY_UNSET)
+			ribreq.large_community = res->large_community;
+		/* XXX ext communities missing? */
+		ribreq.neighbor = neighbor;
 		ribreq.aid = res->aid;
 		ribreq.flags = res->flags;
 		net_mrt.arg = &ribreq;
@@ -702,6 +726,13 @@ show_neighbor_msg(struct imsg *imsg, enum neighbor_views nv)
 		    inet_ntoa(ina));
 		printf("%s\n", print_auth_method(p->auth.method));
 		printf("  BGP state = %s", statenames[p->state]);
+		if (p->conf.down) {
+			printf(", marked down");
+			if (*(p->conf.shutcomm)) {
+				printf(" with shutdown reason \"%s\"",
+				    log_shutcomm(p->conf.shutcomm));
+			}
+		}
 		if (p->stats.last_updown != 0)
 			printf(", %s for %s",
 			    p->state == STATE_ESTABLISHED ? "up" : "down",
@@ -736,6 +767,10 @@ show_neighbor_msg(struct imsg *imsg, enum neighbor_views nv)
 			break;
 		print_neighbor_msgstats(p);
 		printf("\n");
+		if (*(p->stats.last_shutcomm)) {
+			printf("  Last received shutdown reason: \"%s\"\n",
+			    log_shutcomm(p->stats.last_shutcomm));
+		}
 		if (p->state == STATE_IDLE) {
 			static const char	*errstr;
 
@@ -1393,6 +1428,7 @@ show_attr(void *b, u_int16_t len)
 	u_int32_t	 as;
 	u_int16_t	 alen, ioff;
 	u_int8_t	 flags, type;
+	int		 i;
 
 	if (len < 3)
 		errx(1, "show_attr: too short bgp attr");
@@ -1424,6 +1460,11 @@ show_attr(void *b, u_int16_t len)
 		show_community(data, alen);
 		printf("\n");
 		break;
+	case ATTR_LARGE_COMMUNITIES:
+		printf("    Large Communities: ");
+		show_large_community(data, alen);
+		printf("\n");
+		break;
 	case ATTR_AGGREGATOR:
 		memcpy(&as, data, sizeof(as));
 		memcpy(&id, data + sizeof(as), sizeof(id));
@@ -1448,8 +1489,29 @@ show_attr(void *b, u_int16_t len)
 		show_ext_community(data, alen);
 		printf("\n");
 		break;
+	case ATTR_ATOMIC_AGGREGATE:
+		/* ignore */
+		break;
 	default:
 		/* ignore unknown attributes */
+		printf("    Unknown Attribute #%u", type);
+		if (flags) {
+			printf(" flags [");
+			if (flags & ATTR_OPTIONAL)
+				printf("O");
+			if (flags & ATTR_TRANSITIVE)
+				printf("T");
+			if (flags & ATTR_PARTIAL)
+				printf("P");
+			printf("]");
+		}
+		printf(" len %u", alen);
+		if (alen) {
+			printf(":");
+			for (i=0; i < alen; i++)
+				printf(" %02x", *(data+i) & 0xFF);
+		}
+		printf("\n");
 		break;
 	}
 }
@@ -1470,6 +1532,9 @@ show_community(u_char *data, u_int16_t len)
 		v = ntohs(v);
 		if (a == COMMUNITY_WELLKNOWN)
 			switch (v) {
+			case COMMUNITY_GRACEFUL_SHUTDOWN:
+				printf("GRACEFUL_SHUTDOWN");
+				break;
 			case COMMUNITY_NO_EXPORT:
 				printf("NO_EXPORT");
 				break;
@@ -1486,13 +1551,36 @@ show_community(u_char *data, u_int16_t len)
 				printf("BLACKHOLE");
 				break;
 			default:
-				printf("WELLKNOWN:%hu", v);
+				printf("%hu:%hu", a, v);
 				break;
 			}
 		else
 			printf("%hu:%hu", a, v);
 
 		if (i + 4 < len)
+			printf(" ");
+	}
+}
+
+void
+show_large_community(u_char *data, u_int16_t len)
+{
+	u_int32_t	a, l1, l2;
+	u_int16_t	i;
+
+	if (len % 12)
+		return;
+
+	for (i = 0; i < len; i += 12) {
+		memcpy(&a, data + i, sizeof(a));
+		memcpy(&l1, data + i + 4, sizeof(l1));
+		memcpy(&l2, data + i + 8, sizeof(l2));
+		a = ntohl(a);
+		l1 = ntohl(l1);
+		l2 = ntohl(l2);
+		printf("%u:%u:%u", a, l1, l2);
+
+		if (i + 12 < len)
 			printf(" ");
 	}
 }
@@ -1513,29 +1601,47 @@ show_ext_community(u_char *data, u_int16_t len)
 		type = data[i];
 		subtype = data[i + 1];
 
-		switch (type & EXT_COMMUNITY_VALUE) {
-		case EXT_COMMUNITY_TWO_AS:
+		printf("%s ", log_ext_subtype(type, subtype));
+
+		switch (type) {
+		case EXT_COMMUNITY_TRANS_TWO_AS:
 			memcpy(&as2, data + i + 2, sizeof(as2));
 			memcpy(&u32, data + i + 4, sizeof(u32));
-			printf("%s %s:%u", log_ext_subtype(subtype),
-			    log_as(ntohs(as2)), ntohl(u32));
+			printf("%s:%u", log_as(ntohs(as2)), ntohl(u32));
 			break;
-		case EXT_COMMUNITY_IPV4:
+		case EXT_COMMUNITY_TRANS_IPV4:
 			memcpy(&ip, data + i + 2, sizeof(ip));
 			memcpy(&u16, data + i + 6, sizeof(u16));
-			printf("%s %s:%hu", log_ext_subtype(subtype),
-			    inet_ntoa(ip), ntohs(u16));
+			printf("%s:%hu", inet_ntoa(ip), ntohs(u16));
 			break;
-		case EXT_COMMUNITY_FOUR_AS:
+		case EXT_COMMUNITY_TRANS_FOUR_AS:
 			memcpy(&as4, data + i + 2, sizeof(as4));
 			memcpy(&u16, data + i + 6, sizeof(u16));
-			printf("%s %s:%hu", log_ext_subtype(subtype),
-			    log_as(ntohl(as4)), ntohs(u16));
+			printf("%s:%hu", log_as(ntohl(as4)), ntohs(u16));
 			break;
-		case EXT_COMMUNITY_OPAQUE:
+		case EXT_COMMUNITY_TRANS_OPAQUE:
+		case EXT_COMMUNITY_TRANS_EVPN:
 			memcpy(&ext, data + i, sizeof(ext));
 			ext = betoh64(ext) & 0xffffffffffffLL;
-			printf("%s 0x%llx", log_ext_subtype(subtype), ext);
+			printf("0x%llx", ext);
+			break;
+		case EXT_COMMUNITY_NON_TRANS_OPAQUE:
+			memcpy(&ext, data + i, sizeof(ext));
+			ext = betoh64(ext) & 0xffffffffffffLL;
+			switch (ext) {
+			case EXT_COMMUNITY_OVS_VALID:
+				printf("valid ");
+				break;
+			case EXT_COMMUNITY_OVS_NOTFOUND:
+				printf("not-found ");
+				break;
+			case EXT_COMMUNITY_OVS_INVALID:
+				printf("invalid ");
+				break;
+			default:
+				printf("0x%llx ", ext);
+				break;
+			}
 			break;
 		default:
 			memcpy(&ext, data + i, sizeof(ext));
@@ -1712,7 +1818,7 @@ network_bulk(struct parse_result *res)
 					break;
 				bzero(&net, sizeof(net));
 				parse_prefix(b, strlen(b), &h, &len);
-				memcpy(&net.prefix, &h, sizeof(h));
+				net.prefix = h;
 				net.prefixlen = len;
 
 				if (res->action == NETWORK_BULK_ADD) {
@@ -1857,7 +1963,7 @@ network_mrt_dump(struct mrt_rib *mr, struct mrt_peer *mp, void *arg)
 			continue;
 
 		bzero(&net, sizeof(net));
-		memcpy(&net.prefix, &ctl.prefix, sizeof(net.prefix));
+		net.prefix = ctl.prefix;
 		net.prefixlen = ctl.prefixlen;
 		net.type = NETWORK_MRTCLONE;
 		/* XXX rtableid */
@@ -1931,41 +2037,4 @@ msg_type(u_int8_t type)
 	if (type >= sizeof(msgtypenames)/sizeof(msgtypenames[0]))
 		return "BAD";
 	return (msgtypenames[type]);
-}
-
-/* following functions are necessary for the imsg framework */
-void
-log_warnx(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	vwarnx(emsg, ap);
-	va_end(ap);
-}
-
-void
-log_warn(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	vwarn(emsg, ap);
-	va_end(ap);
-}
-
-void
-fatal(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	verr(1, emsg, ap);
-	va_end(ap);
-}
-
-void
-fatalx(const char *emsg)
-{
-	errx(1, "%s", emsg);
 }

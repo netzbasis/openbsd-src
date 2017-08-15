@@ -1,4 +1,4 @@
-/*	$OpenBSD: compile.c,v 1.40 2015/10/26 22:24:44 jca Exp $	*/
+/*	$OpenBSD: compile.c,v 1.42 2017/08/01 18:05:53 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992 Diomidis Spinellis.
@@ -264,14 +264,17 @@ nonsel:		/* Now parse the command */
 			if (*p == '\0')
 				error(COMPILE, "filename expected");
 			cmd->t = duptoeol(p, "w command", NULL);
-			if (aflag)
+			if (aflag) {
 				cmd->u.fd = -1;
+				pledge_wpath = 1;
+			}
 			else if ((cmd->u.fd = open(p,
 			    O_WRONLY|O_APPEND|O_CREAT|O_TRUNC,
 			    DEFFILEMODE)) == -1)
 				error(FATAL, "%s: %s", p, strerror(errno));
 			break;
 		case RFILE:			/* r */
+			pledge_rpath = 1;
 			p++;
 			EATSPACE();
 			cmd->t = duptoeol(p, "read command", NULL);
@@ -520,14 +523,12 @@ compile_subst(char *p, struct s_subst *s)
 			} else if (*p == '\n') {
 				error(COMPILE,
 "unescaped newline inside substitute pattern");
-				/* NOTREACHED */
 			}
 			*sp++ = *p;
 		}
 		size += sp - op;
 	} while ((p = cu_fgets(&lbuf, &bufsize)));
 	error(COMPILE, "unterminated substitute in regular expression");
-	/* NOTREACHED */
 }
 
 /*
@@ -578,7 +579,7 @@ compile_flags(char *p, struct s_subst *s)
 			p++;
 #ifdef HISTORIC_PRACTICE
 			if (*p != ' ') {
-				error(WARNING, "space missing before w wfile");
+				warning("space missing before w wfile");
 				return (p);
 			}
 #endif
@@ -596,7 +597,9 @@ compile_flags(char *p, struct s_subst *s)
 			if (q == wfile)
 				error(COMPILE, "no wfile specified");
 			s->wfile = strdup(wfile);
-			if (!aflag && (s->wfd = open(wfile,
+			if (aflag)
+				pledge_wpath = 1;
+			else if ((s->wfd = open(wfile,
 			    O_WRONLY|O_APPEND|O_CREAT|O_TRUNC,
 			    DEFFILEMODE)) == -1)
 				error(FATAL, "%s: %s", wfile, strerror(errno));
@@ -750,7 +753,7 @@ duptoeol(char *s, char *ctype, char **semi)
 		*s = '\0';
 	}
 	if (ws)
-		error(WARNING, "whitespace after %s", ctype);
+		warning("whitespace after %s", ctype);
 	len = s - start + 1;
 	if (semi)
 		*semi = s;
@@ -854,7 +857,7 @@ uselabel(void)
 		for (lh = labels[i]; lh != NULL; lh = next) {
 			next = lh->lh_next;
 			if (!lh->lh_ref)
-				error(WARNING, "unused label '%s'",
+				warning("unused label '%s'",
 				    lh->lh_cmd->t);
 			free(lh);
 		}

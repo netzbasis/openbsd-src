@@ -1,4 +1,4 @@
-/*	$OpenBSD: pony.c,v 1.16 2016/09/08 12:06:43 eric Exp $	*/
+/*	$OpenBSD: pony.c,v 1.18 2017/08/13 11:10:30 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -60,13 +60,13 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_CONF_START:
 		return;
 	case IMSG_CONF_END:
-		filter_configure();
+		smtp_configure();
 		return;
 	case IMSG_CTL_VERBOSE:
 		m_msg(&m, imsg);
 		m_get_int(&m, &v);
 		m_end(&m);
-		log_verbose(v);
+		log_trace_verbose(v);
 		return;
 	case IMSG_CTL_PROFILE:
 		m_msg(&m, imsg);
@@ -148,7 +148,6 @@ pony(void)
 	mda_postfork();
 	mta_postfork();
 	smtp_postfork();
-	filter_postfork();
 
 	/* do not purge listeners and pki, they are purged
 	 * in smtp_configure()
@@ -169,7 +168,6 @@ pony(void)
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("pony: cannot drop privileges");
-
 
 	imsg_callback = pony_imsg;
 	event_init();

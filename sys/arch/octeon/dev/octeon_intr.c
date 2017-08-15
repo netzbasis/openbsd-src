@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeon_intr.c,v 1.13 2016/07/16 10:41:53 visa Exp $	*/
+/*	$OpenBSD: octeon_intr.c,v 1.22 2017/06/18 13:58:44 visa Exp $	*/
 
 /*
  * Copyright (c) 2000-2004 Opsycon AB  (www.opsycon.se)
@@ -32,308 +32,145 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/kernel.h>
-#include <sys/conf.h>
 #include <sys/malloc.h>
-#include <sys/device.h>
-#include <sys/proc.h>
-#include <sys/atomic.h>
 
-#include <mips64/mips_cpu.h>
+#include <dev/ofw/openfirm.h>
 
 #include <machine/autoconf.h>
 #include <machine/intr.h>
-#include <machine/octeonreg.h>
 
-#include <octeon/dev/iobusvar.h>
+struct intr_handle {
+	struct intr_controller	*ih_ic;
+	void			*ih_ih;
+};
 
-extern bus_space_handle_t iobus_h;
+struct intr_controller *octeon_ic;
 
-#define OCTEON_NINTS 64
+LIST_HEAD(, intr_controller) octeon_ic_list =
+	LIST_HEAD_INITIALIZER(octeon_ic_list);
 
-void	 octeon_intr_makemasks(void);
-void	 octeon_splx(int);
-uint32_t octeon_iointr(uint32_t, struct trapframe *);
-uint32_t octeon_aux(uint32_t, struct trapframe *);
-int	 octeon_iointr_skip(struct intrhand *, uint64_t, uint64_t);
-void	 octeon_setintrmask(int);
+void
+octeon_intr_register(struct intr_controller *ic)
+{
+	struct intr_controller *tmp;
 
-struct intrhand *octeon_intrhand[OCTEON_NINTS];
+	/* Assume the first controller to register is the root. */
+	if (octeon_ic == NULL)
+		octeon_ic = ic;
 
-#define	INTPRI_CIU_0	(INTPRI_CLOCK + 1)
+	ic->ic_phandle = OF_getpropint(ic->ic_node, "phandle", 0);
+	if (ic->ic_phandle == 0)
+		return;
 
-uint64_t octeon_intem[MAXCPUS];
-uint64_t octeon_imask[MAXCPUS][NIPLS];
+	LIST_FOREACH(tmp, &octeon_ic_list, ic_list) {
+		if (tmp->ic_phandle == ic->ic_phandle) {
+			printf("%s: node %d: duplicate phandle %d\n",
+			    __func__, ic->ic_node, ic->ic_phandle);
+			return;
+		}
+	}
+
+	LIST_INSERT_HEAD(&octeon_ic_list, ic, ic_list);
+}
 
 void
 octeon_intr_init(void)
 {
-	int cpuid = cpu_number();
-	bus_space_write_8(&iobus_tag, iobus_h, CIU_IP2_EN0(cpuid), 0);
-	bus_space_write_8(&iobus_tag, iobus_h, CIU_IP3_EN0(cpuid), 0);
-	bus_space_write_8(&iobus_tag, iobus_h, CIU_IP2_EN1(cpuid), 0);
-	bus_space_write_8(&iobus_tag, iobus_h, CIU_IP3_EN1(cpuid), 0);
-
-	set_intr(INTPRI_CIU_0, CR_INT_0, octeon_iointr);
-	register_splx_handler(octeon_splx);
+	octeon_ic->ic_init();
 }
 
 /*
  * Establish an interrupt handler called from the dispatcher.
  * The interrupt function established should return zero if there was nothing
  * to serve (no int) and non-zero when an interrupt was serviced.
- *
- * Interrupts are numbered from 1 and up where 1 maps to HW int 0.
- * XXX There is no reason to keep this... except for hardcoded interrupts
- * XXX in kernel configuration files...
  */
 void *
 octeon_intr_establish(int irq, int level,
     int (*ih_fun)(void *), void *ih_arg, const char *ih_what)
 {
-	int cpuid = cpu_number();
-	struct intrhand **p, *q, *ih;
-	int flags;
-	int s;
+	return octeon_ic->ic_establish(irq, level, ih_fun, ih_arg, ih_what);
+}
 
-#ifdef DIAGNOSTIC
-	if (irq >= OCTEON_NINTS || irq < 0)
-		panic("intr_establish: illegal irq %d", irq);
-#endif
+void *
+octeon_intr_establish_fdt(int node, int level,
+    int (*ih_fun)(void *), void *ih_arg, const char *ih_what)
+{
+	return octeon_intr_establish_fdt_idx(node, 0, level, ih_fun,
+	    ih_arg, ih_what);
+}
 
-	flags = (level & IPL_MPSAFE) ? IH_MPSAFE : 0;
-	level &= ~IPL_MPSAFE;
+void *
+octeon_intr_establish_fdt_idx(int node, int idx, int level,
+    int (*ih_fun)(void *), void *ih_arg, const char *ih_what)
+{
+	struct intr_controller *ic = NULL;
+	struct intr_handle *ih;
+	void *handler;
+	int phandle;
 
-	ih = malloc(sizeof *ih, M_DEVBUF, M_NOWAIT);
+	phandle = OF_getpropint(node, "interrupt-parent", 1);
+	if (phandle < 1)
+		return NULL;
+
+	LIST_FOREACH(ic, &octeon_ic_list, ic_list) {
+		if (ic->ic_phandle == phandle)
+			break;
+	}
+	if (ic == NULL)
+		return NULL;
+
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_NOWAIT);
 	if (ih == NULL)
 		return NULL;
 
-	ih->ih_next = NULL;
-	ih->ih_fun = ih_fun;
-	ih->ih_arg = ih_arg;
-	ih->ih_level = level;
-	ih->ih_flags = flags;
-	ih->ih_irq = irq;
-	evcount_attach(&ih->ih_count, ih_what, (void *)&ih->ih_irq);
+	handler = ic->ic_establish_fdt_idx(ic->ic_cookie, node, idx, level,
+	    ih_fun, ih_arg, ih_what);
+	if (handler == NULL) {
+		free(ih, M_DEVBUF, sizeof(*ih));
+		return NULL;
+	}
 
-	s = splhigh();
-
-	/*
-	 * Figure out where to put the handler.
-	 * This is O(N^2), but we want to preserve the order, and N is
-	 * generally small.
-	 */
-	for (p = &octeon_intrhand[irq]; (q = *p) != NULL;
-	    p = (struct intrhand **)&q->ih_next)
-		;
-	*p = ih;
-
-	octeon_intem[cpuid] |= 1UL << irq;
-	octeon_intr_makemasks();
-
-	splx(s);	/* causes hw mask update */
-
-	return (ih);
+	ih->ih_ic = ic;
+	ih->ih_ih = handler;
+	return ih;
 }
 
 void
-octeon_intr_disestablish(void *ih)
+octeon_intr_disestablish(void *cookie)
 {
-	/* XXX */
-	panic("%s not implemented", __func__);
+	octeon_ic->ic_disestablish(cookie);
 }
 
 void
-octeon_splx(int newipl)
+octeon_intr_disestablish_fdt(void *cookie)
 {
-	struct cpu_info *ci = curcpu();
+	struct intr_handle *ih = cookie;
+	struct intr_controller *ic = ih->ih_ic;
 
-	/* Update masks to new ipl. Order highly important! */
-	__asm__ (".set noreorder\n");
-	ci->ci_ipl = newipl;
-	mips_sync();
-	__asm__ (".set reorder\n");
-	octeon_setintrmask(newipl);
-
-	/* If we still have softints pending trigger processing. */
-	if (ci->ci_softpending != 0 && newipl < IPL_SOFTINT)
-		setsoftintr0();
+	ic->ic_disestablish(ih->ih_ih);
+	free(ih, M_DEVBUF, sizeof(*ih));
 }
 
+#ifdef MULTIPROCESSOR
 /*
- * Recompute interrupt masks.
+ * Inter-processor interrupt control logic.
  */
-void
-octeon_intr_makemasks()
+
+int
+hw_ipi_intr_establish(int (*func)(void *), u_long cpuid)
 {
-	int cpuid = cpu_number();
-	int irq, level;
-	struct intrhand *q;
-	uint intrlevel[OCTEON_NINTS];
-
-	/* First, figure out which levels each IRQ uses. */
-	for (irq = 0; irq < OCTEON_NINTS; irq++) {
-		uint levels = 0;
-		for (q = (struct intrhand *)octeon_intrhand[irq]; q != NULL; 
-			q = q->ih_next)
-			levels |= 1 << q->ih_level;
-		intrlevel[irq] = levels;
-	}
-
-	/*
-	 * Then figure out which IRQs use each level.
-	 * Note that we make sure never to overwrite imask[IPL_HIGH], in
-	 * case an interrupt occurs during intr_disestablish() and causes
-	 * an unfortunate splx() while we are here recomputing the masks.
-	 */
-	for (level = IPL_NONE; level < NIPLS; level++) {
-		uint64_t irqs = 0;
-		for (irq = 0; irq < OCTEON_NINTS; irq++)
-			if (intrlevel[irq] & (1 << level))
-				irqs |= 1UL << irq;
-		octeon_imask[cpuid][level] = irqs;
-	}
-	/*
-	 * There are tty, network and disk drivers that use free() at interrupt
-	 * time, so vm > (tty | net | bio).
-	 *
-	 * Enforce a hierarchy that gives slow devices a better chance at not
-	 * dropping data.
-	 */
-	octeon_imask[cpuid][IPL_NET] |= octeon_imask[cpuid][IPL_BIO];
-	octeon_imask[cpuid][IPL_TTY] |= octeon_imask[cpuid][IPL_NET];
-	octeon_imask[cpuid][IPL_VM] |= octeon_imask[cpuid][IPL_TTY];
-	octeon_imask[cpuid][IPL_CLOCK] |= octeon_imask[cpuid][IPL_VM];
-	octeon_imask[cpuid][IPL_HIGH] |= octeon_imask[cpuid][IPL_CLOCK];
-	octeon_imask[cpuid][IPL_IPI] |= octeon_imask[cpuid][IPL_HIGH];
-
-	/*
-	 * These are pseudo-levels.
-	 */
-	octeon_imask[cpuid][IPL_NONE] = 0;
-}
-
-/*
- * Interrupt dispatcher.
- */
-uint32_t
-octeon_iointr(uint32_t hwpend, struct trapframe *frame)
-{
-	struct cpu_info *ci = curcpu();
-	int cpuid = cpu_number();
-	uint64_t imr, isr, mask;
-	int ipl;
-	int bit;
-	struct intrhand *ih;
-	int rc;
-	uint64_t sum0 = CIU_IP2_SUM0(cpuid);
-	uint64_t en0 = CIU_IP2_EN0(cpuid);
-
-	isr = bus_space_read_8(&iobus_tag, iobus_h, sum0);
-	imr = bus_space_read_8(&iobus_tag, iobus_h, en0);
-	bit = 63;
-
-	isr &= imr;
-	if (isr == 0)
-		return 0;	/* not for us */
-
-	/*
-	 * Mask all pending interrupts.
-	 */
-	bus_space_write_8(&iobus_tag, iobus_h, en0, imr & ~isr);
-
-	/*
-	 * If interrupts are spl-masked, mask them and wait for splx()
-	 * to reenable them when necessary.
-	 */
-	if ((mask = isr & octeon_imask[cpuid][frame->ipl]) != 0) {
-		isr &= ~mask;
-		imr &= ~mask;
-	}
-
-	/*
-	 * Now process allowed interrupts.
-	 */
-	if (isr != 0) {
-		int lvl, bitno;
-		uint64_t tmpisr;
-
-		__asm__ (".set noreorder\n");
-		ipl = ci->ci_ipl;
-		mips_sync();
-		__asm__ (".set reorder\n");
-
-		/* Service higher level interrupts first */
-		for (lvl = NIPLS - 1; lvl != IPL_NONE; lvl--) {
-			tmpisr = isr & (octeon_imask[cpuid][lvl] ^ octeon_imask[cpuid][lvl - 1]);
-			if (tmpisr == 0)
-				continue;
-			for (bitno = bit, mask = 1UL << bitno; mask != 0;
-			    bitno--, mask >>= 1) {
-				if ((tmpisr & mask) == 0)
-					continue;
-
-				rc = 0;
-				for (ih = (struct intrhand *)octeon_intrhand[bitno];
-					ih != NULL;
-				    ih = ih->ih_next) {
-#ifdef MULTIPROCESSOR
-					register_t sr;
-					int need_lock;
-#endif
-					splraise(ih->ih_level);
-#ifdef MULTIPROCESSOR
-					if (ih->ih_level < IPL_IPI) {
-						sr = getsr();
-						ENABLEIPI();
-					}
-					if (ih->ih_flags & IH_MPSAFE)
-						need_lock = 0;
-					else
-						need_lock =
-						    ih->ih_level < IPL_CLOCK;
-					if (need_lock)
-						__mp_lock(&kernel_lock);
-#endif
-					if ((*ih->ih_fun)(ih->ih_arg) != 0) {
-						rc = 1;
-						atomic_inc_long((unsigned long *)
-						    &ih->ih_count.ec_count);
-					}
-#ifdef MULTIPROCESSOR
-					if (need_lock)
-						__mp_unlock(&kernel_lock);
-					if (ih->ih_level < IPL_IPI)
-						setsr(sr);
-#endif
-					__asm__ (".set noreorder\n");
-					ci->ci_ipl = ipl;
-					mips_sync();
-					__asm__ (".set reorder\n");
-				}
-				if (rc == 0)
-					printf("spurious interrupt %d\n", bitno);
-
-				isr ^= mask;
-				if ((tmpisr ^= mask) == 0)
-					break;
-			}
-		}
-
-		/*
-		 * Reenable interrupts which have been serviced.
-		 */
-		bus_space_write_8(&iobus_tag, iobus_h, en0, imr);
-	}
-
-	return hwpend;
+	return octeon_ic->ic_ipi_establish(func, cpuid);
 }
 
 void
-octeon_setintrmask(int level)
+hw_ipi_intr_set(u_long cpuid)
 {
-	int cpuid = cpu_number();
-
-	bus_space_write_8(&iobus_tag, iobus_h, CIU_IP2_EN0(cpuid),
-		octeon_intem[cpuid] & ~octeon_imask[cpuid][level]);
+	octeon_ic->ic_ipi_set(cpuid);
 }
+
+void
+hw_ipi_intr_clear(u_long cpuid)
+{
+	octeon_ic->ic_ipi_clear(cpuid);
+}
+#endif /* MULTIPROCESSOR */

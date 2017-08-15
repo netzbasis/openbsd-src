@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.h,v 1.1 2016/06/15 19:39:34 gerhard Exp $ */
+/*	$OpenBSD: if_umb.h,v 1.4 2017/04/18 13:27:55 gerhard Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -220,6 +220,7 @@ umb_val2descr(const struct umb_valdescr *vdp, int val)
 enum umb_state {
 	UMB_S_DOWN = 0,		/* interface down */
 	UMB_S_OPEN,		/* MBIM device has been opened */
+	UMB_S_CID,		/* QMI client id allocated */
 	UMB_S_RADIO,		/* radio is on */
 	UMB_S_SIMREADY,		/* SIM is ready */
 	UMB_S_ATTACHED,		/* packet service is attached */
@@ -228,11 +229,12 @@ enum umb_state {
 };
 
 #define UMB_INTERNAL_STATE_DESCRIPTIONS {	\
-	{ UMB_S_DOWN, "down" },		\
-	{ UMB_S_OPEN, "open" },		\
+	{ UMB_S_DOWN, "down" },			\
+	{ UMB_S_OPEN, "open" },			\
+	{ UMB_S_CID, "CID allocated" },		\
 	{ UMB_S_RADIO, "radio on" },		\
 	{ UMB_S_SIMREADY, "SIM is ready" },	\
-	{ UMB_S_ATTACHED, "attached" },	\
+	{ UMB_S_ATTACHED, "attached" },		\
 	{ UMB_S_CONNECTED, "connected" },	\
 	{ UMB_S_UP, "up" },			\
 	{ 0, NULL } }
@@ -337,6 +339,15 @@ struct umb_softc {
 	int			 sc_maxpktlen;
 	int			 sc_maxsessions;
 
+	int			 sc_maxdgram;
+	int			 sc_align;
+	int			 sc_ndp_div;
+	int			 sc_ndp_remainder;
+
+#define UMBFLG_FCC_AUTH_REQUIRED	0x0001
+	uint32_t		 sc_flags;
+	int			 sc_cid;
+
 	struct usb_task		 sc_umb_task;
 	struct usb_task		 sc_get_response_task;
 	int			 sc_nresp;
@@ -353,14 +364,16 @@ struct umb_softc {
 	int			 sc_rx_ep;
 	struct usbd_xfer	*sc_rx_xfer;
 	void			*sc_rx_buf;
+	int			 sc_rx_bufsz;
 	struct usbd_pipe	*sc_rx_pipe;
 	unsigned		 sc_rx_nerr;
 
 	int			 sc_tx_ep;
 	struct usbd_xfer	*sc_tx_xfer;
 	void			*sc_tx_buf;
+	int			 sc_tx_bufsz;
 	struct usbd_pipe	*sc_tx_pipe;
-	struct mbuf		*sc_tx_m;
+	struct mbuf_list	 sc_tx_ml;
 	uint32_t		 sc_tx_seq;
 
 	uint32_t		 sc_tid;

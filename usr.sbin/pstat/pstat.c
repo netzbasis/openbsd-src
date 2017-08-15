@@ -1,4 +1,4 @@
-/*	$OpenBSD: pstat.c,v 1.108 2016/08/14 22:47:26 guenther Exp $	*/
+/*	$OpenBSD: pstat.c,v 1.113 2017/02/09 22:21:53 jca Exp $	*/
 /*	$NetBSD: pstat.c,v 1.27 1996/10/23 22:50:06 cgd Exp $	*/
 
 /*-
@@ -82,6 +82,8 @@ struct nlist vnodenl[] = {
 	{ NULL }
 };
 
+struct itty *globalitp;
+struct kinfo_file *kf;
 struct nlist *globalnl;
 
 struct e_vnode {
@@ -89,9 +91,15 @@ struct e_vnode {
 	struct vnode vnode;
 };
 
-int	usenumflag;
-int	totalflag;
 int	kflag;
+int	totalflag;
+int	usenumflag;
+int	hideroot;
+int	maxfile;
+int	need_nlist;
+int	nfile;
+int	ntty;
+int	numvnodes;
 char	*nlistf	= NULL;
 char	*memf	= NULL;
 kvm_t	*kd = NULL;
@@ -111,27 +119,29 @@ kvm_t	*kd = NULL;
 	}
 
 void	filemode(void);
+void	filemodeprep(void);
 struct mount *
 	getmnt(struct mount *);
 struct e_vnode *
-	kinfo_vnodes(int *);
+	kinfo_vnodes(void);
 void	mount_print(struct mount *);
 void	nfs_header(void);
 int	nfs_print(struct vnode *);
 void	swapmode(void);
 void	ttymode(void);
+void	ttymodeprep(void);
 void	ttyprt(struct itty *);
 void	tty2itty(struct tty *tp, struct itty *itp);
 void	ufs_header(void);
 int	ufs_print(struct vnode *);
 void	ext2fs_header(void);
 int	ext2fs_print(struct vnode *);
-void	usage(void);
+static void __dead	usage(void);
 void	vnode_header(void);
 void	vnode_print(struct vnode *, struct vnode *);
 void	vnodemode(void);
+void	vnodemodeprep(void);
 
-int	hideroot;
 
 int
 main(int argc, char *argv[])
@@ -141,7 +151,7 @@ main(int argc, char *argv[])
 	const char *dformat = NULL;
 	extern char *optarg;
 	extern int optind;
-	int i, need_nlist;
+	int i;
 
 	hideroot = getuid();
 
@@ -190,7 +200,7 @@ main(int argc, char *argv[])
 	if ((dformat == NULL && argc > 0) || (dformat && argc == 0))
 		usage();
 
-	need_nlist = vnodeflag || dformat;
+	need_nlist = dformat || vnodeflag;
 
 	if (nlistf != NULL || memf != NULL) {
 		if (fileflag || totalflag)
@@ -201,6 +211,25 @@ main(int argc, char *argv[])
 		if ((kd = kvm_openfiles(nlistf, memf, NULL,
 		    O_RDONLY | (need_nlist ? 0 : KVM_NO_FILES), buf)) == 0)
 			errx(1, "kvm_openfiles: %s", buf);
+
+	if (need_nlist)
+		if (kvm_nlist(kd, vnodenl) == -1)
+			errx(1, "kvm_nlist: %s", kvm_geterr(kd));
+
+	if (!(fileflag | vnodeflag | ttyflag | swapflag | totalflag || dformat))
+		usage();
+
+	if(!dformat) {
+		if (fileflag || totalflag)
+			filemodeprep();
+		if (vnodeflag || totalflag)
+			vnodemodeprep();
+		if (ttyflag)
+			ttymodeprep();
+	}
+
+	if (pledge("stdio rpath vminfo", NULL) == -1)
+		err(1, "pledge");
 
 	if (dformat) {
 		struct nlist *nl;
@@ -241,7 +270,7 @@ main(int argc, char *argv[])
 				mask = 0xffff;
 			else if (strcmp(mod, "hh") == 0)
 				mask = 0xff;
-			else
+			else if (strcmp(mod, "") != 0)
 				longformat = 1;
 
 		} else
@@ -279,7 +308,8 @@ main(int argc, char *argv[])
 			}
 
 			printf("at %p: ", (void *)nl[i].n_value);
-			if (nl[i].n_type == N_DATA) {
+			if ((nl[i].n_type & N_TYPE) == N_DATA ||
+			    (nl[i].n_type & N_TYPE) == N_COMM) {
 				if (stringformat) {
 					KGET1(i, &buf, sizeof(buf), argv[i]);
 					buf[sizeof(buf) - 1] = '\0';
@@ -311,15 +341,9 @@ main(int argc, char *argv[])
 		for (i = 0; i < argc; i++)
 			free(nl[i].n_name);
 		free(nl);
-		exit(error);
+		return error;
 	}
 
-	if (need_nlist)
-		if (kvm_nlist(kd, vnodenl) == -1)
-			errx(1, "kvm_nlist: %s", kvm_geterr(kd));
-
-	if (!(fileflag | vnodeflag | ttyflag | swapflag | totalflag || dformat))
-		usage();
 	if (fileflag || totalflag)
 		filemode();
 	if (vnodeflag || totalflag)
@@ -328,7 +352,7 @@ main(int argc, char *argv[])
 		ttymode();
 	if (swapflag || totalflag)
 		swapmode();
-	exit(0);
+	return 0;
 }
 
 void
@@ -337,11 +361,10 @@ vnodemode(void)
 	struct e_vnode *e_vnodebase, *endvnode, *evp;
 	struct vnode *vp;
 	struct mount *maddr, *mp = NULL;
-	int numvnodes;
 
 	globalnl = vnodenl;
 
-	e_vnodebase = kinfo_vnodes(&numvnodes);
+	e_vnodebase = kinfo_vnodes();
 	if (totalflag) {
 		(void)printf("%7d vnodes\n", numvnodes);
 		return;
@@ -395,6 +418,21 @@ vnodemode(void)
 		(void)printf("\n");
 	}
 	free(e_vnodebase);
+}
+
+void
+vnodemodeprep(void)
+{
+	int mib[2];
+	size_t num;
+
+	if (kd == NULL) {
+		mib[0] = CTL_KERN;
+		mib[1] = KERN_NUMVNODES;
+		num = sizeof(numvnodes);
+		if (sysctl(mib, 2, &numvnodes, &num, NULL, 0) < 0)
+			err(1, "sysctl(KERN_NUMVNODES) failed");
+	}
 }
 
 void
@@ -791,24 +829,16 @@ mount_print(struct mount *mp)
  * simulate what a running kernel does in kinfo_vnode
  */
 struct e_vnode *
-kinfo_vnodes(int *avnodes)
+kinfo_vnodes(void)
 {
 	struct mntlist kvm_mountlist;
 	struct mount *mp, mount;
 	struct vnode *vp, vnode;
 	char *vbuf, *evbuf, *bp;
-	int mib[2], numvnodes;
 	size_t num;
 
-	if (kd == 0) {
-		mib[0] = CTL_KERN;
-		mib[1] = KERN_NUMVNODES;
-		num = sizeof(numvnodes);
-		if (sysctl(mib, 2, &numvnodes, &num, NULL, 0) < 0)
-			err(1, "sysctl(KERN_NUMVNODES) failed");
-	} else
+	if (kd != NULL)
 		KGET(V_NUMV, numvnodes);
-	*avnodes = numvnodes;
 	if (totalflag)
 		return NULL;
 	if ((vbuf = calloc(numvnodes + 20,
@@ -836,7 +866,7 @@ kinfo_vnodes(int *avnodes)
 			num++;
 		}
 	}
-	*avnodes = num;
+	numvnodes = num;
 	return ((struct e_vnode *)vbuf);
 }
 
@@ -865,32 +895,17 @@ ttymode(void)
 {
 	struct ttylist_head tty_head;
 	struct tty *tp, tty;
-	int mib[3], ntty, i;
-	struct itty itty, *itp;
-	size_t nlen;
+	int i;
+	struct itty itty;
 
-	if (kd == 0) {
-		mib[0] = CTL_KERN;
-		mib[1] = KERN_TTYCOUNT;
-		nlen = sizeof(ntty);
-		if (sysctl(mib, 2, &ntty, &nlen, NULL, 0) < 0)
-			err(1, "sysctl(KERN_TTYCOUNT) failed");
-	} else
+	if (need_nlist)
 		KGET(TTY_NTTY, ntty);
 	(void)printf("%d terminal device%s\n", ntty, ntty == 1 ? "" : "s");
 	(void)printf("%s", hdr);
-	if (kd == 0) {
-		mib[0] = CTL_KERN;
-		mib[1] = KERN_TTY;
-		mib[2] = KERN_TTY_INFO;
-		if ((itp = reallocarray(NULL, ntty, sizeof(struct itty))) == NULL)
-			err(1, "malloc");
-		nlen = ntty * sizeof(struct itty);
-		if (sysctl(mib, 3, itp, &nlen, NULL, 0) < 0)
-			err(1, "sysctl(KERN_TTY_INFO) failed");
+	if (!need_nlist) {
 		for (i = 0; i < ntty; i++)
-			ttyprt(&itp[i]);
-		free(itp);
+			ttyprt(&globalitp[i]);
+		free(globalitp);
 	} else {
 		KGET(TTY_TTYLIST, tty_head);
 		for (tp = TAILQ_FIRST(&tty_head); tp;
@@ -899,6 +914,30 @@ ttymode(void)
 			tty2itty(&tty, &itty);
 			ttyprt(&itty);
 		}
+	}
+}
+
+void
+ttymodeprep(void)
+{
+	int mib[3];
+	size_t nlen;
+
+	if (!need_nlist) {
+		mib[0] = CTL_KERN;
+		mib[1] = KERN_TTYCOUNT;
+		nlen = sizeof(ntty);
+		if (sysctl(mib, 2, &ntty, &nlen, NULL, 0) < 0)
+			err(1, "sysctl(KERN_TTYCOUNT) failed");
+
+		mib[0] = CTL_KERN;
+		mib[1] = KERN_TTY;
+		mib[2] = KERN_TTY_INFO;
+		if ((globalitp = reallocarray(NULL, ntty, sizeof(struct itty))) == NULL)
+			err(1, "malloc");
+		nlen = ntty * sizeof(struct itty);
+		if (sysctl(mib, 3, globalitp, &nlen, NULL, 0) < 0)
+			err(1, "sysctl(KERN_TTY_INFO) failed");
 	}
 }
 
@@ -951,17 +990,8 @@ ttyprt(struct itty *tp)
 	case TTYDISC:
 		(void)printf("term\n");
 		break;
-	case TABLDISC:
-		(void)printf("tab\n");
-		break;
-	case SLIPDISC:
-		(void)printf("slip\n");
-		break;
 	case PPPDISC:
 		(void)printf("ppp\n");
-		break;
-	case STRIPDISC:
-		(void)printf("strip\n");
 		break;
 	case NMEADISC:
 		(void)printf("nmea\n");
@@ -975,40 +1005,16 @@ ttyprt(struct itty *tp)
 void
 filemode(void)
 {
-	struct kinfo_file *kf;
 	char flagbuf[16], *fbp;
 	static char *dtypes[] = { "???", "inode", "socket", "pipe", "kqueue", "???", "???" };
-	int mib[2], maxfile, nfile;
-	size_t len;
 
 	globalnl = vnodenl;
 
-	if (nlistf == NULL && memf == NULL) {
-		mib[0] = CTL_KERN;
-		mib[1] = KERN_MAXFILES;
-		len = sizeof(maxfile);
-		if (sysctl(mib, 2, &maxfile, &len, NULL, 0) < 0)
-			err(1, "sysctl(KERN_MAXFILES) failed");
-		if (totalflag) {
-			mib[0] = CTL_KERN;
-			mib[1] = KERN_NFILES;
-			len = sizeof(nfile);
-			if (sysctl(mib, 2, &nfile, &len, NULL, 0) < 0)
-				err(1, "sysctl(KERN_NFILES) failed");
-		}
-	} else {
+	if (nlistf != NULL || memf != NULL) {
 		KGET(FNL_MAXFILE, maxfile);
 		if (totalflag) {
 			KGET(FNL_NFILE, nfile);
 			(void)printf("%3d/%3d files\n", nfile, maxfile);
-			return;
-		}
-	}
-
-	if (!totalflag) {
-		kf = kvm_getfiles(kd, KERN_FILE_BYFILE, 0, sizeof *kf, &nfile);
-		if (kf == NULL) {
-			warnx("kvm_getfiles: %s", kvm_geterr(kd));
 			return;
 		}
 	}
@@ -1055,6 +1061,36 @@ filemode(void)
 		} else
 			(void)printf("  %lld\n",
 			    hideroot ? 0LL : (long long)kf->f_offset);
+	}
+}
+
+void
+filemodeprep(void)
+{
+	int mib[2];
+	size_t len;
+
+	if (nlistf == NULL && memf == NULL) {
+		mib[0] = CTL_KERN;
+		mib[1] = KERN_MAXFILES;
+		len = sizeof(maxfile);
+		if (sysctl(mib, 2, &maxfile, &len, NULL, 0) < 0)
+			err(1, "sysctl(KERN_MAXFILES) failed");
+		if (totalflag) {
+			mib[0] = CTL_KERN;
+			mib[1] = KERN_NFILES;
+			len = sizeof(nfile);
+			if (sysctl(mib, 2, &nfile, &len, NULL, 0) < 0)
+				err(1, "sysctl(KERN_NFILES) failed");
+		}
+	}
+
+	if (!totalflag) {
+		kf = kvm_getfiles(kd, KERN_FILE_BYFILE, 0, sizeof *kf, &nfile);
+		if (kf == NULL) {
+			warnx("kvm_getfiles: %s", kvm_geterr(kd));
+			return;
+		}
 	}
 }
 
@@ -1151,7 +1187,7 @@ swapmode(void)
 	}
 }
 
-void
+static void __dead
 usage(void)
 {
 	(void)fprintf(stderr, "usage: "

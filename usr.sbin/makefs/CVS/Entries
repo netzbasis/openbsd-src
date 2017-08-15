@@ -1,0 +1,16 @@
+/Makefile/1.10/Tue Oct 18 18:42:08 2016//
+/README/1.3/Sat Dec 17 16:12:15 2016//
+/cd9660.c/1.20/Thu Apr  6 19:09:45 2017//
+/cd9660.h/1.14/Sun Apr  9 09:58:53 2017//
+/ffs.c/1.31/Sat Jan 21 21:58:32 2017//
+/ffs.h/1.9/Sun Nov 13 10:22:21 2016//
+/makefs.8/1.18/Sun Nov 13 10:22:21 2016//
+/makefs.c/1.19/Sat Dec 17 16:12:15 2016//
+/makefs.h/1.12/Sat Dec 17 16:12:15 2016//
+/msdos.c/1.11/Thu Mar 23 18:16:06 2017//
+/msdos.h/1.3/Mon Oct 17 01:16:22 2016//
+/walk.c/1.9/Sat Dec 17 16:12:15 2016//
+/xmalloc.c/1.2/Sun Oct 16 20:26:56 2016//
+D/cd9660////
+D/ffs////
+D/msdos////

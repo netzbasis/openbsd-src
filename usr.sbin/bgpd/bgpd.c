@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.187 2016/09/03 16:22:17 renato Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.191 2017/08/12 16:31:09 florian Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -30,11 +30,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include "bgpd.h"
 #include "mrt.h"
 #include "session.h"
+#include "log.h"
 
 void		sighdlr(int);
 __dead void	usage(void);
@@ -46,7 +48,6 @@ int		dispatch_imsg(struct imsgbuf *, int, struct bgpd_config *);
 int		control_setup(struct bgpd_config *);
 int		imsg_send_sockets(struct imsgbuf *, struct imsgbuf *);
 
-int			 rfd = -1;
 int			 cflags;
 volatile sig_atomic_t	 mrtdump;
 volatile sig_atomic_t	 quit;
@@ -106,16 +107,17 @@ main(int argc, char *argv[])
 	char			*saved_argv0;
 	int			 debug = 0;
 	int			 rflag = 0, sflag = 0;
+	int			 rfd = -1;
 	int			 ch, timeout, status;
 	int			 pipe_m2s[2];
 	int			 pipe_m2r[2];
 
 	conffile = CONFFILE;
 	bgpd_process = PROC_MAIN;
-	log_procname = log_procnames[bgpd_process];
 
-	log_init(1);		/* log to stderr until daemonized */
-	log_verbose(1);
+	log_init(1, LOG_DAEMON);	/* log to stderr until daemonized */
+	log_procinit(log_procnames[bgpd_process]);
+	log_setverbose(1);
 
 	saved_argv0 = argv[0];
 	if (saved_argv0 == NULL)
@@ -147,7 +149,6 @@ main(int argc, char *argv[])
 			if (cmd_opts & BGPD_OPT_VERBOSE)
 				cmd_opts |= BGPD_OPT_VERBOSE2;
 			cmd_opts |= BGPD_OPT_VERBOSE;
-			log_verbose(1);
 			break;
 		case 'R':
 			rflag = 1;
@@ -189,8 +190,8 @@ main(int argc, char *argv[])
 	if (getpwnam(BGPD_USER) == NULL)
 		errx(1, "unknown user %s", BGPD_USER);
 
-	log_init(debug);
-	log_verbose(cmd_opts & BGPD_OPT_VERBOSE);
+	log_init(debug, LOG_DAEMON);
+	log_setverbose(cmd_opts & BGPD_OPT_VERBOSE);
 
 	if (!debug)
 		daemon(1, 0);
@@ -240,7 +241,7 @@ main(int argc, char *argv[])
 	 * disabled because we do ioctls on /dev/pf and SIOCSIFGATTR
 	 * this needs some redesign of bgpd to be fixed.
 	 */
-	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
+BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 	    NULL) == -1)
 		fatal("pledge");
 #endif
@@ -602,8 +603,8 @@ dispatch_imsg(struct imsgbuf *ibuf, int idx, struct bgpd_config *conf)
 			else if (imsg.hdr.len != IMSG_HEADER_SIZE +
 			    sizeof(struct bgpd_addr))
 				log_warnx("wrong imsg len");
-			else if (kr_nexthop_add(imsg.hdr.peerid, imsg.data) ==
-			    -1)
+			else if (kr_nexthop_add(imsg.hdr.peerid, imsg.data,
+			    conf) == -1)
 				rv = -1;
 			break;
 		case IMSG_NEXTHOP_REMOVE:
@@ -613,7 +614,8 @@ dispatch_imsg(struct imsgbuf *ibuf, int idx, struct bgpd_config *conf)
 			    sizeof(struct bgpd_addr))
 				log_warnx("wrong imsg len");
 			else
-				kr_nexthop_delete(imsg.hdr.peerid, imsg.data);
+				kr_nexthop_delete(imsg.hdr.peerid, imsg.data,
+				    conf);
 			break;
 		case IMSG_PFTABLE_ADD:
 			if (idx != PFD_PIPE_ROUTE)
@@ -700,7 +702,7 @@ dispatch_imsg(struct imsgbuf *ibuf, int idx, struct bgpd_config *conf)
 		case IMSG_CTL_LOG_VERBOSE:
 			/* already checked by SE */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_verbose(verbose);
+			log_setverbose(verbose);
 			break;
 		case IMSG_RECONF_DONE:
 			if (reconfpending == 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fifo_vnops.c,v 1.51 2016/06/07 06:12:37 deraadt Exp $	*/
+/*	$OpenBSD: fifo_vnops.c,v 1.58 2017/07/24 15:07:39 mpi Exp $	*/
 /*	$NetBSD: fifo_vnops.c,v 1.18 1996/03/16 23:52:42 christos Exp $	*/
 
 /*
@@ -48,7 +48,6 @@
 #include <sys/errno.h>
 #include <sys/malloc.h>
 #include <sys/poll.h>
-#include <sys/unpcb.h>
 #include <sys/unistd.h>
 
 #include <miscfs/fifofs/fifo.h>
@@ -125,7 +124,7 @@ fifo_open(void *v)
 	struct fifoinfo *fip;
 	struct proc *p = ap->a_p;
 	struct socket *rso, *wso;
-	int error;
+	int s, error;
 
 	if ((fip = vp->v_fifoinfo) == NULL) {
 		fip = malloc(sizeof(*fip), M_VNODE, M_WAITOK);
@@ -143,7 +142,14 @@ fifo_open(void *v)
 			return (error);
 		}
 		fip->fi_writesock = wso;
-		if ((error = unp_connect2(wso, rso)) != 0) {
+		/*
+		 * XXXSMP
+		 * We only lock `wso' because AF_LOCAL sockets are
+		 * still relying on the KERNEL_LOCK().
+		 */
+		s = solock(wso);
+		if ((error = soconnect2(wso, rso)) != 0) {
+			sounlock(s);
 			(void)soclose(wso);
 			(void)soclose(rso);
 			free(fip, M_VNODE, sizeof *fip);
@@ -153,11 +159,15 @@ fifo_open(void *v)
 		fip->fi_readers = fip->fi_writers = 0;
 		wso->so_state |= SS_CANTSENDMORE;
 		wso->so_snd.sb_lowat = PIPE_BUF;
+	} else {
+		rso = fip->fi_readsock;
+		wso = fip->fi_writesock;
+		s = solock(wso);
 	}
 	if (ap->a_mode & FREAD) {
 		fip->fi_readers++;
 		if (fip->fi_readers == 1) {
-			fip->fi_writesock->so_state &= ~SS_CANTSENDMORE;
+			wso->so_state &= ~SS_CANTSENDMORE;
 			if (fip->fi_writers > 0)
 				wakeup(&fip->fi_writers);
 		}
@@ -166,14 +176,16 @@ fifo_open(void *v)
 		fip->fi_writers++;
 		if ((ap->a_mode & O_NONBLOCK) && fip->fi_readers == 0) {
 			error = ENXIO;
+			sounlock(s);
 			goto bad;
 		}
 		if (fip->fi_writers == 1) {
-			fip->fi_readsock->so_state &= ~(SS_CANTRCVMORE|SS_ISDISCONNECTED);
+			rso->so_state &= ~(SS_CANTRCVMORE|SS_ISDISCONNECTED);
 			if (fip->fi_readers > 0)
 				wakeup(&fip->fi_readers);
 		}
 	}
+	sounlock(s);
 	if ((ap->a_mode & O_NONBLOCK) == 0) {
 		if ((ap->a_mode & FREAD) && fip->fi_writers == 0) {
 			VOP_UNLOCK(vp, p);
@@ -247,6 +259,7 @@ fifo_write(void *v)
 	if (ap->a_uio->uio_rw != UIO_WRITE)
 		panic("fifo_write mode");
 #endif
+	/* XXXSMP changing state w/o lock isn't safe. */
 	if (ap->a_ioflag & IO_NDELAY)
 		wso->so_state |= SS_NBIO;
 	VOP_UNLOCK(ap->a_vp, p);
@@ -350,20 +363,29 @@ fifo_close(void *v)
 	struct vop_close_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 	struct fifoinfo *fip = vp->v_fifoinfo;
-	int error1 = 0, error2 = 0;
+	int s, error1 = 0, error2 = 0;
 
 	if (fip == NULL)
 		return (0);
 
 	if (ap->a_fflag & FREAD) {
-		if (--fip->fi_readers == 0)
-			socantsendmore(fip->fi_writesock);
+		if (--fip->fi_readers == 0) {
+			struct socket *wso = fip->fi_writesock;
+
+			s = solock(wso);
+			socantsendmore(wso);
+			sounlock(s);
+		}
 	}
 	if (ap->a_fflag & FWRITE) {
 		if (--fip->fi_writers == 0) {
+			struct socket *rso = fip->fi_readsock;
+
+			s = solock(rso);
 			/* SS_ISDISCONNECTED will result in POLLHUP */
-			fip->fi_readsock->so_state |= SS_ISDISCONNECTED;
-			socantrcvmore(fip->fi_readsock);
+			rso->so_state |= SS_ISDISCONNECTED;
+			socantrcvmore(rso);
+			sounlock(s);
 		}
 	}
 	if (fip->fi_readers == 0 && fip->fi_writers == 0) {
@@ -523,14 +545,18 @@ int
 filt_fiforead(struct knote *kn, long hint)
 {
 	struct socket *so = (struct socket *)kn->kn_hook;
+	int rv;
 
 	kn->kn_data = so->so_rcv.sb_cc;
 	if (so->so_state & SS_CANTRCVMORE) {
 		kn->kn_flags |= EV_EOF;
-		return (1);
+		rv = 1;
+	} else {
+		kn->kn_flags &= ~EV_EOF;
+		rv = (kn->kn_data > 0);
 	}
-	kn->kn_flags &= ~EV_EOF;
-	return (kn->kn_data > 0);
+
+	return (rv);
 }
 
 void
@@ -547,12 +573,16 @@ int
 filt_fifowrite(struct knote *kn, long hint)
 {
 	struct socket *so = (struct socket *)kn->kn_hook;
+	int rv;
 
-	kn->kn_data = sbspace(&so->so_snd);
+	kn->kn_data = sbspace(so, &so->so_snd);
 	if (so->so_state & SS_CANTSENDMORE) {
 		kn->kn_flags |= EV_EOF;
-		return (1);
+		rv = 1;
+	} else {
+		kn->kn_flags &= ~EV_EOF;
+		rv = (kn->kn_data >= so->so_snd.sb_lowat);
 	}
-	kn->kn_flags &= ~EV_EOF;
-	return (kn->kn_data >= so->so_snd.sb_lowat);
+
+	return (rv);
 }

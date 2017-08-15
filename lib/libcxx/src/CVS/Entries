@@ -1,0 +1,30 @@
+/algorithm.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/any.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/bind.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/chrono.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/condition_variable.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/debug.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/exception.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/future.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/hash.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/ios.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/iostream.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/locale.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/memory.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/mutex.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/new.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/optional.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/random.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/regex.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/shared_mutex.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/stdexcept.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/string.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/strstream.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/system_error.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/thread.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/typeinfo.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/utility.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+/valarray.cpp/1.1.1.1/Sat Sep  3 18:39:33 2016//
+D/experimental////
+D/include////
+D/support////

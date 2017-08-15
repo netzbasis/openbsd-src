@@ -1,7 +1,6 @@
-/*	$OpenBSD: log.c,v 1.7 2016/09/02 16:22:31 benno Exp $ */
+/*	$OpenBSD: log.c,v 1.10 2017/04/06 12:20:48 gsoares Exp $ */
 
 /*
- * Copyright (c) 2009 Claudio Jeker <claudio@openbsd.org>
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -29,6 +28,7 @@
 
 int		 debug;
 int		 verbose;
+const char	*log_procname;
 
 void
 log_init(int n_debug)
@@ -86,16 +86,16 @@ log_warn(const char *emsg, ...)
 
 	/* best effort to even work in out of memory situations */
 	if (emsg == NULL)
-		logit(LOG_CRIT, "%s", strerror(errno));
+		logit(LOG_ERR, "%s", strerror(errno));
 	else {
 		va_start(ap, emsg);
 
 		if (asprintf(&nfmt, "%s: %s", emsg, strerror(errno)) == -1) {
 			/* we tried it... */
-			vlog(LOG_CRIT, emsg, ap);
-			logit(LOG_CRIT, "%s", strerror(errno));
+			vlog(LOG_ERR, emsg, ap);
+			logit(LOG_ERR, "%s", strerror(errno));
 		} else {
-			vlog(LOG_CRIT, nfmt, ap);
+			vlog(LOG_ERR, nfmt, ap);
 			free(nfmt);
 		}
 		va_end(ap);
@@ -108,7 +108,7 @@ log_warnx(const char *emsg, ...)
 	va_list	 ap;
 
 	va_start(ap, emsg);
-	vlog(LOG_CRIT, emsg, ap);
+	vlog(LOG_ERR, emsg, ap);
 	va_end(ap);
 }
 
@@ -135,15 +135,25 @@ log_debug(const char *emsg, ...)
 }
 
 void
-fatal(const char *emsg)
+fatal(const char *emsg, ...)
 {
+	char	 s[1024];
+	va_list	 ap;
+
+	va_start(ap, emsg);
+	vsnprintf(s, sizeof(s), emsg, ap);
+	va_end(ap);
+
 	if (emsg == NULL)
-		logit(LOG_CRIT, "fatal: %s", strerror(errno));
+		logit(LOG_CRIT, "fatal in %s: %s", log_procname,
+		    strerror(errno));
 	else
 		if (errno)
-			logit(LOG_CRIT, "fatal: %s: %s", emsg, strerror(errno));
+			logit(LOG_CRIT, "fatal in %s: %s: %s",
+			    log_procname, s, strerror(errno));
 		else
-			logit(LOG_CRIT, "fatal: %s", emsg);
+			logit(LOG_CRIT, "fatal in %s: %s",
+			    log_procname, s);
 
 	exit(1);
 }
@@ -152,5 +162,5 @@ void
 fatalx(const char *emsg)
 {
 	errno = 0;
-	fatal(emsg);
+	fatal("%s", emsg);
 }

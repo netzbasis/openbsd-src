@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.h,v 1.121 2015/10/25 18:49:01 claudio Exp $ */
+/*	$OpenBSD: session.h,v 1.123 2017/05/28 12:21:36 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -142,6 +142,7 @@ struct ctl_conn {
 	TAILQ_ENTRY(ctl_conn)	entry;
 	struct imsgbuf		ibuf;
 	int			restricted;
+	int			throttled;
 };
 
 TAILQ_HEAD(ctl_conns, ctl_conn)	ctl_conns;
@@ -168,6 +169,7 @@ struct peer_stats {
 	u_int32_t		 prefix_cnt;
 	u_int8_t		 last_sent_errcode;
 	u_int8_t		 last_sent_suberr;
+	char			 last_shutcomm[SHUT_COMM_LEN];
 };
 
 enum Timer {
@@ -224,6 +226,7 @@ struct peer {
 	u_int8_t		 depend_ok;
 	u_int8_t		 demoted;
 	u_int8_t		 passive;
+	u_int8_t		 throttled;
 };
 
 extern struct peer	*peers;

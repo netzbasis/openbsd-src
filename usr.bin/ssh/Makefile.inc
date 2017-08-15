@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.50 2015/07/01 23:10:47 djm Exp $
+#	$OpenBSD: Makefile.inc,v 1.55 2017/06/02 06:06:10 djm Exp $
 
 .include <bsd.own.mk>
 
@@ -6,51 +6,30 @@ CFLAGS+=	-I${.CURDIR}/..
 CFLAGS+=	-fstack-protector-all
 
 CDIAGFLAGS=	-Wall
-CDIAGFLAGS+=	-Wchar-subscripts
-CDIAGFLAGS+=	-Wcomment
 CDIAGFLAGS+=	-Wextra
-CDIAGFLAGS+=	-Wformat
 CDIAGFLAGS+=	-Wformat-security
-CDIAGFLAGS+=	-Wimplicit
-CDIAGFLAGS+=	-Winline
 CDIAGFLAGS+=	-Wmissing-declarations
 CDIAGFLAGS+=	-Wmissing-prototypes
-CDIAGFLAGS+=	-Wparentheses
 CDIAGFLAGS+=	-Wpointer-arith
-CDIAGFLAGS+=	-Wreturn-type
 CDIAGFLAGS+=	-Wshadow
-CDIAGFLAGS+=	-Wsign-compare
-CDIAGFLAGS+=	-Wstrict-aliasing
 CDIAGFLAGS+=	-Wstrict-prototypes
-CDIAGFLAGS+=	-Wswitch
-CDIAGFLAGS+=	-Wtrigraphs
-CDIAGFLAGS+=	-Wuninitialized
 CDIAGFLAGS+=	-Wunused
-.if ${COMPILER_VERSION} == "gcc4"
+CDIAGFLAGS+=	-Wno-unused-parameter # Lots of these in protocol handlers.
+.if ${COMPILER_VERSION:L} != "gcc3"
+CDIAGFLAGS+=	-Wstrict-aliasing=2
 CDIAGFLAGS+=	-Wold-style-definition
 .endif
-CDIAGFLAGS+=	-Wno-unused-parameter # Not clean for this yet
-#CDIAGFLAGS+=	-Wwrite-strings # XXX too messy; needs libc changes
-#CDIAGFLAGS+=	-Wcast-qual # XXX not clean
-#CDIAGFLAGS+=	-Wcast-align # XXX can't be clean with sockaddr casts?
 
 #CDIAGFLAGS+=	-Werror
 #DEBUG=-g
+#INSTALL_STRIP=
 
 WARNINGS=yes
 
-SSH1?=		no
 OPENSSL?=	yes
 
 .if (${OPENSSL:L} == "yes")
 CFLAGS+=	-DWITH_OPENSSL
-.else
-# SSH v.1 requires OpenSSL.
-SSH1=		no
-.endif
-
-.if (${SSH1:L} == "yes")
-CFLAGS+=	-DWITH_SSH1
 .endif
 
 CFLAGS+=	-DENABLE_PKCS11

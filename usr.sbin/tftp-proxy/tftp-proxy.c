@@ -1,4 +1,4 @@
-/* $OpenBSD: tftp-proxy.c,v 1.19 2016/09/04 14:41:16 florian Exp $
+/* $OpenBSD: tftp-proxy.c,v 1.21 2017/07/04 12:47:51 florian Exp $
  *
  * Copyright (c) 2005 DLS Internet Services
  * Copyright (c) 2004, 2005 Camiel Dobbelaar, <cd@sentia.nl>
@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <syslog.h>
 #include <string.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <event.h>
 
@@ -980,7 +981,7 @@ syslog_err(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_EMERG, fmt, ap);
+	syslog_vstrerror(errno, LOG_CRIT, fmt, ap);
 	va_end(ap);
 
 	exit(ecode);
@@ -992,7 +993,7 @@ syslog_errx(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_CRIT, fmt, ap);
 	va_end(ap);
 
 	exit(ecode);
@@ -1004,7 +1005,7 @@ syslog_warn(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_WARNING, fmt, ap);
+	syslog_vstrerror(errno, LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1014,7 +1015,7 @@ syslog_warnx(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 

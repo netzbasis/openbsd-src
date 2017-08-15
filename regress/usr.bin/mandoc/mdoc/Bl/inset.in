@@ -1,6 +1,7 @@
-.Dd October 28, 2009
+.\" $OpenBSD: inset.in,v 1.6 2017/07/16 17:53:29 schwarze Exp $
+.Dd $Mdocdate: July 16 2017 $
 .Dt BL-INSET 1
-.Os OpenBSD
+.Os
 .Sh NAME
 .Nm Bl-inset
 .Nd inset list labels
@@ -38,7 +39,7 @@ x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x
 x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x
 .El
 .\" Trailing white space in the head.
-.Bl -inset
+.Bl -inset -width 10n
 .It "a"
 b
 .It "a "

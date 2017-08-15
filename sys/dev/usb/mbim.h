@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbim.h,v 1.1 2016/06/15 19:39:34 gerhard Exp $ */
+/*	$OpenBSD: mbim.h,v 1.4 2017/04/18 13:27:55 gerhard Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -83,6 +83,11 @@
 #define MBIM_UUID_CONTEXT_VPN {				\
 		0x9b, 0x9f, 0x7b, 0xbe, 0x89, 0x52, 0x44, 0xb7,	\
 		0x83, 0xac, 0xca, 0x41, 0x31, 0x8d, 0xf7, 0xa0	\
+	}
+
+#define MBIM_UUID_QMI_MBIM {				\
+		0xd1, 0xa3, 0x0b, 0xc2, 0xf9, 0x7a, 0x6e, 0x43,	\
+		0xbf, 0x65, 0xc7, 0xe2, 0x4f, 0xb0, 0xf0, 0xd3	\
 	}
 
 #define MBIM_CTRLMSG_MINLEN		64
@@ -597,13 +602,30 @@ struct mbim_descriptor {
 } __packed;
 
 /*
+ * NCM Parameters
+ */
+#define NCM_GET_NTB_PARAMETERS	0x80
+
+struct ncm_ntb_parameters {
+	uWord	wLength;
+	uWord	bmNtbFormatsSupported;
+#define NCM_FORMAT_NTB16	0x0001
+#define NCM_FORMAT_NTB32	0x0002
+	uDWord	dwNtbInMaxSize;
+	uWord	wNdpInDivisor;
+	uWord	wNdpInPayloadRemainder;
+	uWord	wNdpInAlignment;
+	uWord	wReserved1;
+	uDWord	dwNtbOutMaxSize;
+	uWord	wNdpOutDivisor;
+	uWord	wNdpOutPayloadRemainder;
+	uWord	wNdpOutAlignment;
+	uWord	wNtbOutMaxDatagrams;
+} __packed;
+
+/*
  * NCM Encoding
  */
-#define MBIM_HDR16_LEN		\
-	(sizeof (struct ncm_header16) + sizeof (struct ncm_pointer16))
-#define MBIM_HDR32_LEN		\
-	(sizeof (struct ncm_header32) + sizeof (struct ncm_pointer32))
-
 struct ncm_header16 {
 #define NCM_HDR16_SIG		0x484d434e
 	uDWord	dwSignature;
@@ -641,7 +663,7 @@ struct ncm_pointer16 {
 	uWord	wNextNdpIndex;
 
 	/* Minimum is two datagrams, but can be more */
-	struct ncm_pointer16_dgram dgram[2];
+	struct ncm_pointer16_dgram dgram[1];
 } __packed;
 
 struct ncm_pointer32_dgram {
@@ -662,7 +684,7 @@ struct ncm_pointer32 {
 	uDWord	dwReserved12;
 
 	/* Minimum is two datagrams, but can be more */
-	struct ncm_pointer32_dgram dgram[2];
+	struct ncm_pointer32_dgram dgram[1];
 } __packed;
 
 #endif /* _KERNEL */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_ifattach.c,v 1.100 2016/06/30 08:19:03 mpi Exp $	*/
+/*	$OpenBSD: in6_ifattach.c,v 1.103 2017/07/11 12:51:05 florian Exp $	*/
 /*	$KAME: in6_ifattach.c,v 1.124 2001/07/18 08:32:51 jinmei Exp $	*/
 
 /*
@@ -294,7 +294,9 @@ in6_ifattach_linklocal(struct ifnet *ifp, struct in6_addr *ifid)
 {
 	struct in6_aliasreq ifra;
 	struct in6_ifaddr *ia6;
-	int s, error, flags;
+	int error, flags;
+
+	NET_ASSERT_LOCKED();
 
 	/*
 	 * configure link-local address.
@@ -338,9 +340,7 @@ in6_ifattach_linklocal(struct ifnet *ifp, struct in6_addr *ifid)
 	if (in6if_do_dad(ifp) && ((ifp->if_flags & IFF_POINTOPOINT) == 0))
 		ifra.ifra_flags |= IN6_IFF_TENTATIVE;
 
-	s = splsoftnet();
 	error = in6_update_ifa(ifp, &ifra, in6ifa_ifpforlinklocal(ifp, 0));
-	splx(s);
 	if (error != 0)
 		return (error);
 
@@ -359,15 +359,12 @@ in6_ifattach_linklocal(struct ifnet *ifp, struct in6_addr *ifid)
 	if ((ifp->if_flags & IFF_POINTOPOINT) == 0)
 		flags |= RTF_CLONING;
 
-	s = splsoftnet();
 	error = rt_ifa_add(&ia6->ia_ifa, flags, ia6->ia_ifa.ifa_addr);
 	if (error) {
 		in6_purgeaddr(&ia6->ia_ifa);
-		splx(s);
 		return (error);
 	}
 	dohooks(ifp->if_addrhooks, 0);
-	splx(s);
 
 	return (0);
 }
@@ -507,9 +504,6 @@ in6_ifattach(struct ifnet *ifp)
 		}
 	}
 
-	if (ifp->if_xflags & IFXF_AUTOCONF6)
-		nd6_rs_attach(ifp);
-
 	return (0);
 }
 
@@ -566,8 +560,6 @@ in6_ifdetach(struct ifnet *ifp)
 		rtfree(rt);
 	}
 
-	if (ifp->if_xflags & IFXF_AUTOCONF6) {
-		nd6_rs_detach(ifp);
+	if (ifp->if_xflags & IFXF_AUTOCONF6)
 		ifp->if_xflags &= ~IFXF_AUTOCONF6;
-	}
 }

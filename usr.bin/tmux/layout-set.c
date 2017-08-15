@@ -1,4 +1,4 @@
-/* $OpenBSD: layout-set.c,v 1.15 2016/08/03 09:07:02 nicm Exp $ */
+/* $OpenBSD: layout-set.c,v 1.18 2017/05/15 14:57:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -27,13 +27,13 @@
  * one-off and generate a layout tree.
  */
 
-void	layout_set_even_h(struct window *);
-void	layout_set_even_v(struct window *);
-void	layout_set_main_h(struct window *);
-void	layout_set_main_v(struct window *);
-void	layout_set_tiled(struct window *);
+static void	layout_set_even_h(struct window *);
+static void	layout_set_even_v(struct window *);
+static void	layout_set_main_h(struct window *);
+static void	layout_set_main_v(struct window *);
+static void	layout_set_tiled(struct window *);
 
-const struct {
+static const struct {
 	const char	*name;
 	void	      	(*arrange)(struct window *);
 } layout_sets[] = {
@@ -114,7 +114,7 @@ layout_set_previous(struct window *w)
 	return (layout);
 }
 
-void
+static void
 layout_set_even_h(struct window *w)
 {
 	struct window_pane	*wp;
@@ -165,10 +165,11 @@ layout_set_even_h(struct window *w)
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
+	notify_window("window-layout-changed", w);
 	server_redraw_window(w);
 }
 
-void
+static void
 layout_set_even_v(struct window *w)
 {
 	struct window_pane	*wp;
@@ -219,10 +220,11 @@ layout_set_even_v(struct window *w)
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
+	notify_window("window-layout-changed", w);
 	server_redraw_window(w);
 }
 
-void
+static void
 layout_set_main_h(struct window *w)
 {
 	struct window_pane	*wp;
@@ -342,10 +344,11 @@ layout_set_main_h(struct window *w)
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
+	notify_window("window-layout-changed", w);
 	server_redraw_window(w);
 }
 
-void
+static void
 layout_set_main_v(struct window *w)
 {
 	struct window_pane	*wp;
@@ -465,6 +468,7 @@ layout_set_main_v(struct window *w)
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
+	notify_window("window-layout-changed", w);
 	server_redraw_window(w);
 }
 
@@ -567,5 +571,6 @@ layout_set_tiled(struct window *w)
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
+	notify_window("window-layout-changed", w);
 	server_redraw_window(w);
 }

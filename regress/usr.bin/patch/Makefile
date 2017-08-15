@@ -1,11 +1,15 @@
-# $OpenBSD: Makefile,v 1.11 2016/09/02 07:46:18 otto Exp $
+# $OpenBSD: Makefile,v 1.13 2017/07/06 21:33:45 bluhm Exp $
 
-PATCH=patch
-PATCHOPTIONS=-sN
+PATCH?=		patch
+PATCHFLAGS=	-sN
+CLEANFILES=	*.copy *.orig *.rej t5 d19/*
 
-REGRESS_TARGETS=t1 t2 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16 t17 t18
+REGRESS_TARGETS=     t1  t2  t3  t4  t5  t6  t7  t8  t9 \
+		t10 t11 t12 t13 t14 t15 t16 t17 t18 t19
 
-# Currently t3 fails
+t3:
+	@echo ${*} currently fails
+	@echo DISABLED
 
 # .in: input file
 # .diff: patch
@@ -28,46 +32,47 @@ REGRESS_TARGETS=t1 t2 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16 t17 t18
 # t17: diff in ed format that inserts a dot-line.
 # t18: diff in ed format that fully replaces input content.
 
-all: clean ${REGRESS_TARGET}
-
 .SUFFIXES: .in
 
 .in:
 	@echo ${*}
 	@cp ${.CURDIR}/${*}.in ${*}.copy
-	@${PATCH} ${PATCHOPTIONS} ${*}.copy ${.CURDIR}/${*}.diff
+	@${PATCH} ${PATCHFLAGS} ${*}.copy ${.CURDIR}/${*}.diff
 	@cmp -s ${*}.copy ${.CURDIR}/${*}.out || \
 		(echo "XXX ${*} failed" && false)
 
 t3:
 	@echo ${*}
 	@cp ${.CURDIR}/${*}.in ${*}.copy
-	@(! ${PATCH} ${PATCHOPTIONS} ${*}.copy ${.CURDIR}/${*}.diff)
+	@(! ${PATCH} ${PATCHFLAGS} ${*}.copy ${.CURDIR}/${*}.diff)
 	@cmp -s ${*}.copy ${.CURDIR}/${*}.out || \
 		(echo "XXX ${*} failed" && false)
 t4:
 	@echo ${*}
 	@cp ${.CURDIR}/${*}.in ${*}.copy
-	@(! ${PATCH} ${PATCHOPTIONS} ${*}.copy ${.CURDIR}/${*}.diff)
+	@(! ${PATCH} ${PATCHFLAGS} ${*}.copy ${.CURDIR}/${*}.diff)
 	@cmp -s ${*}.copy ${.CURDIR}/${*}.out || \
 		(echo "XXX ${*} failed" && false)
 
 t5:
 	@echo ${*}
 	@rm -f ${*}
-	@${PATCH} ${PATCHOPTIONS} < ${.CURDIR}/${*}.diff
+	@${PATCH} ${PATCHFLAGS} < ${.CURDIR}/${*}.diff
 	@cmp -s ${*} ${.CURDIR}/${*}.out || (echo "XXX ${*} failed" && false)
 
 t13:
 	@echo ${*}
 	@cp ${.CURDIR}/${*}.in ${*}.copy
-	@(! ${PATCH} ${PATCHOPTIONS} ${*}.copy ${.CURDIR}/${*}.diff)
+	@(! ${PATCH} ${PATCHFLAGS} ${*}.copy ${.CURDIR}/${*}.diff)
 	@cmp -s ${*}.copy ${.CURDIR}/${*}.out || \
 		(echo "XXX ${*} failed" && false)
 
-# Clean all files generated
-clean:
-	rm -f *.copy *.orig *.rej t5
+t19:
+	@echo t19
+	@mkdir -p d19
+	@cp ${.CURDIR}/t19.in d19/file
+	@${PATCH} -t ${PATCHFLAGS} < ${.CURDIR}/t19.diff
+	@cmp -s ${.CURDIR}/t19.out d19/file || (echo "XXX t19 failed" && false)
 
 .PHONY: t5
 

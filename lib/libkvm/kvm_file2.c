@@ -1,4 +1,4 @@
-/*	$OpenBSD: kvm_file2.c,v 1.49 2016/05/04 01:28:42 zhuk Exp $	*/
+/*	$OpenBSD: kvm_file2.c,v 1.52 2017/01/21 05:42:04 guenther Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -273,7 +273,6 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 	struct filedesc0 filed0;
 #define filed	filed0.fd_fd
 	struct processlist allprocess;
-	struct proc proc;
 	struct process *pr, process;
 	struct ucred ucred;
 	char *filebuf = NULL;
@@ -327,17 +326,9 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 		if (process.ps_flags & (PS_SYSTEM | PS_EMBRYO | PS_EXITING))
 			continue;
 
-		if (process.ps_mainproc == NULL)
-			continue;
-		if (KREAD(kd, (u_long)process.ps_mainproc, &proc)) {
-			_kvm_err(kd, kd->program, "can't read proc at %lx",
-			    (u_long)process.ps_mainproc);
-			goto cleanup;
-		}
-
 		if (op == KERN_FILE_BYPID) {
 			/* check if this is the pid we are looking for */
-			if (arg > 0 && proc.p_pid != (pid_t)arg)
+			if (arg > 0 && process.ps_pid != (pid_t)arg)
 				continue;
 			matched = 1;
 		}
@@ -347,8 +338,6 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			    (u_long)process.ps_ucred);
 			goto cleanup;
 		}
-		process.ps_mainproc = &proc;
-		proc.p_p = &process;
 		process.ps_ucred = &ucred;
 
 		if (op == KERN_FILE_BYUID && arg >= 0 &&
@@ -393,7 +382,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			if (buflen < esize)
 				goto done;
 			if (fill_file(kd, &kf, NULL, 0, process.ps_textvp,
-			    &process, KERN_FILE_TEXT, proc.p_pid) == -1)
+			    &process, KERN_FILE_TEXT, process.ps_pid) == -1)
 				goto cleanup;
 			memcpy(where, &kf, esize);
 			where += esize;
@@ -404,7 +393,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			if (buflen < esize)
 				goto done;
 			if (fill_file(kd, &kf, NULL, 0, filed.fd_cdir,
-			    &process, KERN_FILE_CDIR, proc.p_pid) == -1)
+			    &process, KERN_FILE_CDIR, process.ps_pid) == -1)
 				goto cleanup;
 			memcpy(where, &kf, esize);
 			where += esize;
@@ -415,7 +404,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			if (buflen < esize)
 				goto done;
 			if (fill_file(kd, &kf, NULL, 0, filed.fd_rdir,
-			    &process, KERN_FILE_RDIR, proc.p_pid) == -1)
+			    &process, KERN_FILE_RDIR, process.ps_pid) == -1)
 				goto cleanup;
 			memcpy(where, &kf, esize);
 			where += esize;
@@ -426,7 +415,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			if (buflen < esize)
 				goto done;
 			if (fill_file(kd, &kf, NULL, 0, process.ps_tracevp,
-			    &process, KERN_FILE_TRACE, proc.p_pid) == -1)
+			    &process, KERN_FILE_TRACE, process.ps_pid) == -1)
 				goto cleanup;
 			memcpy(where, &kf, esize);
 			where += esize;
@@ -439,7 +428,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 		    filed.fd_freefile > filed.fd_lastfile + 1) {
 			_kvm_err(kd, kd->program,
 			    "filedesc corrupted at %lx for pid %d",
-			    (u_long)process.ps_fd, proc.p_pid);
+			    (u_long)process.ps_fd, process.ps_pid);
 			goto cleanup;
 		}
 
@@ -453,7 +442,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 				goto cleanup;
 			}
 			if (fill_file(kd, &kf, &file, (u_long)fp, NULL,
-			    &process, i, proc.p_pid) == -1)
+			    &process, i, process.ps_pid) == -1)
 				goto cleanup;
 			memcpy(where, &kf, esize);
 			where += esize;
@@ -730,8 +719,7 @@ fill_file(kvm_t *kd, struct kinfo_file *kf, struct file *fp, u_long fpaddr,
 		kf->p_uid = pr->ps_ucred->cr_uid;
 		kf->p_gid = pr->ps_ucred->cr_gid;
 		kf->p_tid = -1;
-		strlcpy(kf->p_comm, pr->ps_mainproc->p_comm,
-		    sizeof(kf->p_comm));
+		strlcpy(kf->p_comm, pr->ps_comm, sizeof(kf->p_comm));
 		if (pr->ps_fd != NULL)
 			kf->fd_ofileflags = pr->ps_fd->fd_ofileflags[fd];
 	}
@@ -798,6 +786,7 @@ ufs_filestat(kvm_t *kd, struct kinfo_file *kf, struct vnode *vp)
 	kf->va_mode = inode.i_ffs1_mode;
 	kf->va_size = inode.i_ffs1_size;
 	kf->va_rdev = inode.i_ffs1_rdev;
+	kf->va_nlink = inode.i_ffs1_nlink;
 
 	return (0);
 }
@@ -826,6 +815,7 @@ ext2fs_filestat(kvm_t *kd, struct kinfo_file *kf, struct vnode *vp)
 	kf->va_mode = inode.i_e2fs_mode;
 	kf->va_size = inode.i_e2fs_size;
 	kf->va_rdev = 0;	/* XXX */
+	kf->va_nlink = inode.i_e2fs_nlink;
 
 	return (0);
 }
@@ -851,6 +841,7 @@ msdos_filestat(kvm_t *kd, struct kinfo_file *kf, struct vnode *vp)
 	kf->va_mode = (mp.pm_mask & 0777) | _kvm_getftype(vp->v_type);
 	kf->va_size = de.de_FileSize;
 	kf->va_rdev = 0;  /* msdosfs doesn't support device files */
+	kf->va_nlink = 1;
 
 	return (0);
 }
@@ -870,6 +861,7 @@ nfs_filestat(kvm_t *kd, struct kinfo_file *kf, struct vnode *vp)
 	kf->va_size = nfsnode.n_size;
 	kf->va_rdev = nfsnode.n_vattr.va_rdev;
 	kf->va_mode = (mode_t)nfsnode.n_vattr.va_mode | _kvm_getftype(vp->v_type);
+	kf->va_nlink = nfsnode.n_vattr.va_nlink;
 
 	return (0);
 }

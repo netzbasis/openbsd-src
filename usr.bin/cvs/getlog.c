@@ -1,4 +1,4 @@
-/*	$OpenBSD: getlog.c,v 1.98 2014/12/01 21:58:46 deraadt Exp $	*/
+/*	$OpenBSD: getlog.c,v 1.101 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2005, 2006 Xavier Santolaria <xsa@openbsd.org>
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
@@ -17,6 +17,7 @@
  */
 
 #include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
@@ -134,7 +135,7 @@ cvs_getlog(int argc, char **argv)
 	cr.enterdir = NULL;
 	cr.leavedir = NULL;
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_connect_to_server();
 		cr.fileproc = cvs_client_sendfile;
 
@@ -174,15 +175,14 @@ cvs_getlog(int argc, char **argv)
 
 	cr.flags = flags;
 
-	if (cvs_cmdop == CVS_OP_LOG ||
-	    current_cvsroot->cr_method == CVS_METHOD_LOCAL) {
+	if (cvs_cmdop == CVS_OP_LOG || cvsroot_is_local()) {
 		if (argc > 0)
 			cvs_file_run(argc, argv, &cr);
 		else
 			cvs_file_run(1, &arg, &cr);
 	}
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_send_files(argv, argc);
 		cvs_client_senddir(".");
 
@@ -233,7 +233,7 @@ cvs_log_local(struct cvs_file *cf)
 	if (logrev != NULL)
 		nrev = cvs_revision_select(cf->file_rcs, logrev);
 	else if (logdate != NULL) {
-		if ((nrev = date_select(cf->file_rcs, logdate)) == -1) {
+		if ((nrev = date_select(cf->file_rcs, logdate)) == (u_int)-1) {
 			cvs_log(LP_ERR, "invalid date: %s", logdate);
 			return;
 		}
@@ -276,7 +276,7 @@ cvs_log_local(struct cvs_file *cf)
 
 			cvs_printf("\t%s: %s\n", sym->rs_name,
 			    rcsnum_tostr(rev, numb, sizeof(numb)));
-			rcsnum_free(rev);
+			free(rev);
 		}
 	}
 
@@ -393,7 +393,7 @@ log_rev_print(struct rcs_delta *rdp)
 			branch = rcsnum_revtobr(rb->rb_num);
 			rcsnum_tostr(branch, numb, sizeof(numb));
 			cvs_printf("  %s;", numb);
-			rcsnum_free(branch);
+			free(branch);
 		}
 		cvs_printf("\n");
 	}

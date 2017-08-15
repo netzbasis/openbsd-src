@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeonreg.h,v 1.5 2015/07/20 19:44:32 pirofti Exp $	*/
+/*	$OpenBSD: octeonreg.h,v 1.8 2017/07/13 05:53:57 visa Exp $	*/
 
 /*
  * Copyright (c) 2003-2004 Opsycon AB (www.opsycon.com).
@@ -31,7 +31,7 @@
 
 #define OCTEON_CF_BASE		0x1D000800ULL
 #define OCTEON_CIU_BASE		0x1070000000000ULL
-#define OCTEON_CIU_SIZE		0xC10
+#define OCTEON_CIU_SIZE		0x7000
 #define OCTEON_MIO_BOOT_BASE	0x1180000000000ULL
 #define OCTEON_UART0_BASE	0x1180000000800ULL
 #define OCTEON_UART1_BASE	0x1180000000C00ULL
@@ -164,10 +164,22 @@
 #define CIU_INT1_EN4_0          0x00000C90
 #define CIU_INT0_EN4_1          0x00000C88
 #define CIU_INT1_EN4_1          0x00000C98
+#define CIU_IP4_SUM2(x)		(0x00008c00 + 8 * (x))
+#define CIU_IP4_EN2(x)		(0x0000a400 + 8 * (x))
 
+#define FPA3_CLK_COUNT		0x12800000000f0ULL
+
+/* OCTEON II */
 #define MIO_RST_BOOT		0x1180000001600ULL
 #define MIO_RST_BOOT_PNR_MUL_SHIFT	24
 #define MIO_RST_BOOT_PNR_MUL_MASK	0x3f
+
+/* OCTEON III */
+#define RST_BOOT		0x1180006001600ULL
+#define RST_BOOT_PNR_MUL_SHIFT		24
+#define RST_BOOT_PNR_MUL_MASK		0x3f
+#define RST_SOFT_RST		0x1180006001680ULL
+
 #define OCTEON_IO_REF_CLOCK	50000000	/* 50MHz */
 
 #endif /* !_MACHINE_OCTEONREG_H_ */

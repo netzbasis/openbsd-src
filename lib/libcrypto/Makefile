@@ -1,30 +1,38 @@
-# $OpenBSD: Makefile,v 1.4 2016/09/04 17:59:26 jsing Exp $
+# $OpenBSD: Makefile,v 1.21 2017/08/13 19:42:33 doug Exp $
 
 LIB=	crypto
+LIBREBUILD=y
 
+.include <bsd.own.mk>
+.ifndef NOMAN
 SUBDIR= man
+.endif
+
 PC_FILES=libcrypto.pc
 
-CLEANFILES=${PC_FILES}
+CLEANFILES=${PC_FILES} ${VERSION_SCRIPT}
 
-SSL_SRC=	${.CURDIR}/../libssl
 LCRYPTO_SRC=	${.CURDIR}
 
-CFLAGS+= -Wall -Wundef -Werror
+CFLAGS+= -Wall -Wundef
+.if ${COMPILER_VERSION:L} == "clang"
+CFLAGS+= -Werror
+.endif
+CFLAGS+= -DLIBRESSL_INTERNAL
 
-.include <bsd.own.mk>		# for 'NOPIC' definition
 .if !defined(NOPIC)
 CFLAGS+= -DDSO_DLFCN -DHAVE_DLFCN_H -DHAVE_FUNOPEN
 .endif
 
-CFLAGS+= -DLIBRESSL_INTERNAL
-CFLAGS+= -DTERMIOS
 # Hardware engines
 CFLAGS+= -DOPENSSL_NO_HW_PADLOCK # XXX enable this?
 
-CFLAGS+= -I${SSL_SRC}
 CFLAGS+= -I${LCRYPTO_SRC}
-CFLAGS+= -I${LCRYPTO_SRC}/modes -I${LCRYPTO_SRC}/asn1 -I${LCRYPTO_SRC}/evp
+CFLAGS+= -I${LCRYPTO_SRC}/asn1 -I${LCRYPTO_SRC}/bn -I${LCRYPTO_SRC}/evp
+CFLAGS+= -I${LCRYPTO_SRC}/modes
+
+VERSION_SCRIPT=	Symbols.map
+SYMBOL_LIST=	${.CURDIR}/Symbols.list
 
 # crypto/
 SRCS+= cryptlib.c malloc-wrapper.c mem_dbg.c cversion.c ex_data.c cpt_err.c
@@ -92,6 +100,9 @@ SRCS+= comp_lib.c comp_err.c c_rle.c c_zlib.c
 SRCS+= conf_err.c conf_lib.c conf_api.c conf_def.c conf_mod.c
 SRCS+= conf_mall.c conf_sap.c
 
+# curve25519/
+SRCS+= curve25519.c curve25519-generic.c
+
 # des/
 SRCS+= cbc_cksm.c cbc_enc.c cfb64enc.c cfb_enc.c
 SRCS+= ecb3_enc.c ecb_enc.c  enc_read.c enc_writ.c
@@ -151,6 +162,7 @@ SRCS+= e_old.c pmeth_lib.c pmeth_fn.c pmeth_gn.c m_sigver.c
 SRCS+= e_aes_cbc_hmac_sha1.c e_rc4_hmac_md5.c
 SRCS+= e_chacha.c evp_aead.c e_chacha20poly1305.c
 SRCS+= e_gost2814789.c m_gost2814789.c m_gostr341194.c m_streebog.c
+SRCS+= m_md5_sha1.c
 
 # gost/
 SRCS+= gost2814789.c gost89_keywrap.c gost89_params.c gost89imit_ameth.c
@@ -158,14 +170,14 @@ SRCS+= gost89imit_pmeth.c gost_asn1.c gost_err.c gostr341001.c
 SRCS+= gostr341001_ameth.c gostr341001_key.c gostr341001_params.c
 SRCS+= gostr341001_pmeth.c gostr341194.c streebog.c
 
+# hkdf/
+SRCS+= hkdf.c
+
 # hmac/
 SRCS+= hmac.c hm_ameth.c hm_pmeth.c
 
 # idea/
 SRCS+= i_cbc.c i_cfb64.c i_ofb64.c i_ecb.c i_skey.c
-
-# krb5/
-SRCS+= krb5_asn.c
 
 # lhash/
 SRCS+= lhash.c lh_stats.c
@@ -267,6 +279,7 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 	${LCRYPTO_SRC}/cmac \
 	${LCRYPTO_SRC}/comp \
 	${LCRYPTO_SRC}/conf \
+	${LCRYPTO_SRC}/curve25519 \
 	${LCRYPTO_SRC}/des \
 	${LCRYPTO_SRC}/dh \
 	${LCRYPTO_SRC}/dsa \
@@ -278,9 +291,9 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 	${LCRYPTO_SRC}/err \
 	${LCRYPTO_SRC}/evp \
 	${LCRYPTO_SRC}/gost \
+	${LCRYPTO_SRC}/hkdf \
 	${LCRYPTO_SRC}/hmac \
 	${LCRYPTO_SRC}/idea \
-	${LCRYPTO_SRC}/krb5 \
 	${LCRYPTO_SRC}/lhash \
 	${LCRYPTO_SRC}/md4 \
 	${LCRYPTO_SRC}/md5 \
@@ -324,6 +337,7 @@ HDRS=\
 	${LCRYPTO_SRC}/conf/conf.h \
 	${LCRYPTO_SRC}/conf/conf_api.h \
 	${LCRYPTO_SRC}/crypto.h \
+	${LCRYPTO_SRC}/curve25519/curve25519.h \
 	${LCRYPTO_SRC}/des/des.h \
 	${LCRYPTO_SRC}/dh/dh.h \
 	${LCRYPTO_SRC}/dsa/dsa.h \
@@ -335,9 +349,9 @@ HDRS=\
 	${LCRYPTO_SRC}/err/err.h \
 	${LCRYPTO_SRC}/evp/evp.h \
 	${LCRYPTO_SRC}/gost/gost.h \
+	${LCRYPTO_SRC}/hkdf/hkdf.h \
 	${LCRYPTO_SRC}/hmac/hmac.h \
 	${LCRYPTO_SRC}/idea/idea.h \
-	${LCRYPTO_SRC}/krb5/krb5_asn.h \
 	${LCRYPTO_SRC}/lhash/lhash.h \
 	${LCRYPTO_SRC}/md4/md4.h \
 	${LCRYPTO_SRC}/md5/md5.h \
@@ -373,7 +387,9 @@ HDRS_GEN=\
 	${.CURDIR}/arch/${MACHINE_CPU}/opensslconf.h \
 	${.OBJDIR}/obj_mac.h
 
-includes: obj_mac.h
+prereq: obj_mac.h
+
+includes: prereq
 	@test -d ${DESTDIR}/usr/include/openssl || \
 	    mkdir ${DESTDIR}/usr/include/openssl
 	@for i in $(HDRS); do \
@@ -391,11 +407,16 @@ includes: obj_mac.h
 	    eval "$$j"; \
 	done;
 
+${VERSION_SCRIPT}: ${SYMBOL_LIST}
+	{ printf '{\n\tglobal:\n'; \
+	  sed '/^[._a-zA-Z]/s/$$/;/; s/^/		/' ${SYMBOL_LIST}; \
+	  printf '\n\tlocal:\n\t\t*;\n};\n'; } >$@.tmp && mv $@.tmp $@
+
 # generated
 CFLAGS+= -I${.OBJDIR}
 
 GENERATED=obj_mac.h obj_dat.h
-CLEANFILES=${GENERATED} obj_mac.num.tmp
+CLEANFILES+=${GENERATED} obj_mac.num.tmp
 SSL_OBJECTS=${LCRYPTO_SRC}/objects
 
 obj_mac.h: ${SSL_OBJECTS}/objects.h ${SSL_OBJECTS}/obj_mac.num ${SSL_OBJECTS}/objects.txt
@@ -418,23 +439,24 @@ SRCS+= rc4_enc.c rc4_skey.c
 SRCS+= wp_block.c
 .endif
 
-all beforedepend: ${GENERATED}
+BUILDFIRST = ${GENERATED}
 
 .include <bsd.lib.mk>
 
 
 distribution:
-	${INSTALL} ${INSTALL_COPY} -g ${BINGRP} -m 444 \
+	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m 444 \
 	   ${.CURDIR}/openssl.cnf ${DESTDIR}/etc/ssl/openssl.cnf && \
-	${INSTALL} ${INSTALL_COPY} -g ${BINGRP} -m 444 \
+	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m 444 \
 	   ${.CURDIR}/cert.pem ${DESTDIR}/etc/ssl/cert.pem && \
-	${INSTALL} ${INSTALL_COPY} -g ${BINGRP} -m 444 \
+	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m 444 \
 	   ${.CURDIR}/x509v3.cnf ${DESTDIR}/etc/ssl/x509v3.cnf
 
+all: ${PC_FILES}
 ${PC_FILES}: opensslv.h
 	/bin/sh ${.CURDIR}/generate_pkgconfig.sh -c ${.CURDIR} -o ${.OBJDIR}
 
-beforeinstall: ${PC_FILES}
+beforeinstall:
 	${INSTALL} ${INSTALL_COPY} -o root -g ${SHAREGRP} \
 	    -m ${SHAREMODE} ${.OBJDIR}/${PC_FILES} ${DESTDIR}/usr/lib/pkgconfig/
 

@@ -1,0 +1,26 @@
+/README/1.7/Sun Feb  5 00:32:19 2017/-ko/
+/TEST/1.17/Sun Feb  5 00:32:19 2017/-ko/
+/charset_tools.pl/1.1/Sun Feb  5 00:32:19 2017/-ko/
+/harness/1.15/Sun Feb  5 00:32:19 2017/-ko/
+/loc_tools.pl/1.5/Sun Feb  5 00:32:19 2017/-kb/
+/perl.supp/1.1.1.2/Mon Sep 29 17:18:58 2008/-ko/
+/test.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/thread_it.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+D/base////
+D/benchmark////
+D/bigmem////
+D/cmd////
+D/comp////
+D/io////
+D/japh////
+D/lib////
+D/mro////
+D/op////
+D/opbasic////
+D/perf////
+D/porting////
+D/re////
+D/run////
+D/test_pl////
+D/uni////
+D/win32////

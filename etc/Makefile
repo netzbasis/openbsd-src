@@ -1,4 +1,6 @@
-#	$OpenBSD: Makefile,v 1.430 2016/09/03 13:37:40 guenther Exp $
+#	$OpenBSD: Makefile,v 1.460 2017/06/22 16:02:42 deraadt Exp $
+
+.include <bsd.own.mk>
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -15,31 +17,37 @@ KERNELS = GENERIC bsd
 .for CONF K in ${KERNELS}
 .  if !target($K)
 $K:
-	cd ../sys/arch/${MACHINE}/conf && config ${CONF}
 	cd ../sys/arch/${MACHINE}/compile/${CONF} && \
-	    ${MAKE} clean && exec ${MAKE}
+		{ [[ -n "${KEEPKERNELS}" ]] || ${MAKE} cleandir; } && \
+		${MAKE} config && ${MAKE} clean && exec ${MAKE};
 .  endif
 ALL_KERNELS += $K
 .endfor
 
-kernels: bootblocks ${ALL_KERNELS}
+kernels: ${ALL_KERNELS}
 .for CONF K in ${KERNELS}
-	cp ../sys/arch/${MACHINE}/compile/${CONF}/bsd ${RELEASEDIR}/$K
+	cp ../sys/arch/${MACHINE}/compile/${CONF}/obj/bsd ${RELEASEDIR}/$K
+	chmod a+r ${RELEASEDIR}/$K
 .endfor
+	cd ${.CURDIR}/../sys/arch/${MACHINE}/compile/ && \
+		tar -chzf ${DESTDIR}/usr/share/compile.tgz -s ',/obj/,/,' \
+		GENERIC*/obj/*.o GENERIC*/obj/Makefile \
+		GENERIC*/obj/ld.script GENERIC*/obj/makegap.sh
+	chown root:wheel ${DESTDIR}/usr/share/compile.tgz
+	chmod 644 ${DESTDIR}/usr/share/compile.tgz
 
 # -rw-r--r--
 BINOWN= root
 BINGRP= wheel
-MUTABLE=changelist daily etc.${MACHINE}/disktab etc.${MACHINE}/login.conf \
-	ftpusers gettytab group ksh.kshrc locate.rc mailer.conf \
-	moduli monthly netstart networks newsyslog.conf ntpd.conf \
+MUTABLE=acme-client.conf changelist daily etc.${MACHINE}/disktab \
+	etc.${MACHINE}/login.conf ftpusers gettytab group ksh.kshrc locate.rc \
+	mailer.conf moduli monthly netstart networks newsyslog.conf ntpd.conf \
 	pf.os protocols rc rc.conf rpc services shells syslog.conf weekly
 
 # -rw-r--r--
 EXAMPLES=chio.conf dhclient.conf dhcpd.conf exports \
-	httpd.conf ifstated.conf inetd.conf \
-	man.conf mixerctl.conf mrouted.conf \
-	ntpd.conf pkg.conf printcap rbootd.conf \
+	httpd.conf ifstated.conf inetd.conf man.conf mixerctl.conf \
+	mrouted.conf ntpd.conf printcap rbootd.conf \
 	remote sensorsd.conf wsconsctl.conf
 
 # -rw-------
@@ -49,18 +57,18 @@ EXAMPLES_600=bgpd.conf doas.conf dvmrpd.conf eigrpd.conf hostapd.conf \
 	ripd.conf sasyncd.conf snmpd.conf vm.conf ypldap.conf
 
 # -r-xr-xr-x
-RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dvmrpd eigrpd ftpd \
-	ftpproxy ftpproxy6 hostapd hotplugd httpd identd ifstated \
+RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dhcrelay6 dvmrpd \
+	eigrpd ftpd ftpproxy ftpproxy6 hostapd hotplugd httpd identd ifstated \
 	iked inetd isakmpd iscsid ldapd ldattach ldomd ldpd lockd \
 	lpd mopd mountd mrouted nfsd npppd nsd ntpd ospf6d ospfd \
 	pflogd portmap radiusd rarpd rbootd rebound relayd ripd route6d \
-	rtadvd sasyncd sensorsd slowcgi smtpd sndiod snmpd spamd \
-	spamlogd sshd statd syslogd tftpd tftpproxy unbound \
-	vmd watchdogd wsmoused xdm ypbind ypldap ypserv
+	rtadvd sasyncd sensorsd slowcgi slaacd smtpd sndiod snmpd spamd \
+	spamlogd sshd statd switchd syslogd tftpd tftpproxy unbound \
+	vmd watchdogd wsmoused xenodm ypbind ypldap ypserv
 
 MISETS=	base${OSrev}.tgz comp${OSrev}.tgz man${OSrev}.tgz game${OSrev}.tgz
 
-all clean cleandir depend etc install lint:
+all clean cleandir depend etc install:
 
 install-mtree:
 	${INSTALL} -c -o root -g wheel -m 600 mtree/special \
@@ -78,22 +86,21 @@ distribution-etc-root-var distribution distrib-dirs release:
 distribution-etc-root-var: distrib-dirs
 	${INSTALL} -c -o ${BINOWN} -g ${BINGRP} -m 644 ${MUTABLE} ${DESTDIR}/etc
 	sh ttys.pty | cat etc.${MACHINE}/ttys - > ${DESTDIR}/etc/ttys && \
-	    chown ${BINOWN} ${DESTDIR}/etc/ttys && \
-	    chgrp ${BINGRP} ${DESTDIR}/etc/ttys && \
+	    chown ${BINOWN}:${BINGRP} ${DESTDIR}/etc/ttys && \
 	    chmod 644 ${DESTDIR}/etc/ttys
 	cat examples/sysctl.conf etc.${MACHINE}/sysctl.conf > \
 	    ${DESTDIR}/etc/examples/sysctl.conf && \
-	    chown ${BINOWN} ${DESTDIR}/etc/examples/sysctl.conf && \
-	    chgrp ${BINGRP} ${DESTDIR}/etc/examples/sysctl.conf && \
+	    chown ${BINOWN}:${BINGRP} ${DESTDIR}/etc/examples/sysctl.conf && \
 	    chmod 644 ${DESTDIR}/etc/examples/sysctl.conf
 	cat fbtab.head etc.${MACHINE}/fbtab fbtab.tail > ${DESTDIR}/etc/fbtab && \
-	    chown ${BINOWN} ${DESTDIR}/etc/fbtab && \
-	    chgrp ${BINGRP} ${DESTDIR}/etc/fbtab && \
+	    chown ${BINOWN}:${BINGRP} ${DESTDIR}/etc/fbtab && \
 	    chmod 644 ${DESTDIR}/etc/fbtab
 	${INSTALL} -c -o ${BINOWN} -g operator -m 664 motd ${DESTDIR}/etc
 	${INSTALL} -c -o root -g crontab -m 600 crontab ${DESTDIR}/var/cron/tabs/root
 	${INSTALL} -c -o root -g wheel -m 600 master.passwd ${DESTDIR}/etc
 	pwd_mkdb -p -d ${DESTDIR}/etc /etc/master.passwd
+	chown root:wheel ${DESTDIR}/etc/passwd ${DESTDIR}/etc/pwd.db
+	chown root:_shadow ${DESTDIR}/etc/spwd.db
 	${INSTALL} -c -o root -g wheel -m 600 pf.conf ${DESTDIR}/etc
 	${INSTALL} -c -o root -g _nsd -m 640 nsd.conf ${DESTDIR}/var/nsd/etc
 	${INSTALL} -c -o root -g wheel -m 644 unbound.conf ${DESTDIR}/var/unbound/etc
@@ -110,6 +117,8 @@ distribution-etc-root-var: distrib-dirs
 		    ${DESTDIR}/root/.Xdefaults; \
 		${INSTALL} -c -o root -g wheel -m 644 dot.cvsrc \
 		    ${DESTDIR}/root/.cvsrc; \
+		${INSTALL} -c -o root -g wheel -m 600 /dev/null \
+		    ${DESTDIR}/root/.ssh/authorized_keys; \
 		rm -f ${DESTDIR}/.cshrc ${DESTDIR}/.profile; \
 		${INSTALL} -c -o root -g wheel -m 644 dot.cshrc \
 		    ${DESTDIR}/.cshrc; \
@@ -154,7 +163,9 @@ distribution-etc-root-var: distrib-dirs
 		${INSTALL} -c -o root -g wheel -m 644 *.pub \
 		    ${DESTDIR}/etc/signify
 	ln -fs ${TZDIR}/${LOCALTIME} ${DESTDIR}/etc/localtime
+	chown -h root:wheel ${DESTDIR}/etc/localtime
 	ln -fs /usr/sbin/rmt ${DESTDIR}/etc/rmt
+	chown -h root:wheel ${DESTDIR}/etc/rmt
 	${INSTALL} -c -o root -g wheel -m 644 minfree \
 	    ${DESTDIR}/var/crash
 	${INSTALL} -c -o ${BINOWN} -g operator -m 664 /dev/null \
@@ -206,37 +217,65 @@ distribution-etc-root-var: distrib-dirs
 		${INSTALL} -c -o ${BINOWN} -g ${BINGRP} -m 555 ${RCDAEMONS} \
 		    ${DESTDIR}/etc/rc.d
 	cd ${DESTDIR}/var; ln -fs ../tmp
+	chown -h root:wheel ${DESTDIR}/var/tmp
 	touch ${DESTDIR}/var/sysmerge/etcsum
+	chown root:wheel ${DESTDIR}/var/sysmerge/etcsum
+	chmod 644 ${DESTDIR}/var/sysmerge/etcsum
 	cd ${DESTDIR}/ && \
 		sort ${.CURDIR}/../distrib/sets/lists/etc/{mi,md.${MACHINE}} | \
 		xargs sha256 -h ${DESTDIR}/var/sysmerge/etcsum || true
 	cd ${DESTDIR}/ && \
 		sort ${.CURDIR}/../distrib/sets/lists/etc/{mi,md.${MACHINE}} | \
 		pax -w -d | gzip -9 > ${DESTDIR}/var/sysmerge/etc.tgz
+	chown root:wheel ${DESTDIR}/var/sysmerge/etc.tgz
+	chmod 644 ${DESTDIR}/var/sysmerge/etc.tgz
 
 distribution:
-	exec ${SUDO} ${MAKE} distribution-etc-root-var
-	cd .. && exec ${SUDO} ${MAKE} install
+	exec ${MAKE} distribution-etc-root-var
+	cd .. && exec ${MAKE} install
 
 distrib-dirs:
 	if [ ! -d ${DESTDIR}/. ]; then \
 		${INSTALL} -d -o root -g wheel -m 755 ${DESTDIR}; \
 	fi
 	mtree -qdef mtree/4.4BSD.dist -p ${DESTDIR}/ -U
-	if [ ! -d ${DESTDIR}/usr/src ]; then \
-		${INSTALL} -d -o root -g wsrc -m 775 ${DESTDIR}/usr/src; \
-	fi
 	cd ${DESTDIR}/; ln -fhs usr/src/sys sys
+	chown -h root:wheel ${DESTDIR}/sys
 
 .ifndef RELEASEDIR
 release:
 	@echo setenv RELEASEDIR before building a release.
 	@false
 .else
+release:
+	umask ${WOBJUMASK}; exec ${MAKE} do-release
+
+do-release:
+	@if [[ `id -u` -ne 0 ]]; then \
+		echo $@ must be called by root >&2; \
+		false; \
+	fi
+	@destmp=`df -P ${DESTDIR} | awk 'END { print $$6 }'`; \
+	if ! mount | grep -q " $${destmp} .*noperm"; then \
+		echo ${DESTDIR} must be on a noperm filesystem >&2; \
+		false; \
+	fi; \
+	if [[ `stat -f '%Su %Lp' $${destmp}` != '${BUILDUSER} 700' ]]; then \
+		echo $${destmp} must have owner BUILDUSER and mode 700 >&2; \
+		false; \
+	fi
+	${MAKE} release-sets
+	${MAKE} distrib
+	su ${BUILDUSER} -c 'exec ${MAKE} sha'
+	-cd ${RELEASEDIR} && chmod g-w,a+rX *
 
 release-sets:
+	su ${BUILDUSER} -c 'exec ${MAKE} distribution'
+	su ${BUILDUSER} -c 'exec ${MAKE} kernels'
+	cp -p ${DESTDIR}/usr/share/compile.tgz /usr/share/compile.tgz
+	${MAKE} bootblocks
 	cd ${RELEASEDIR} && rm -f SHA256
-	cd ../distrib/sets && exec ${SUDO} sh maketars ${OSrev}
+	cd ../distrib/sets && exec su ${BUILDUSER} -c 'exec sh maketars ${OSrev}'
 
 sha:
 	-cd ${RELEASEDIR}; \
@@ -244,24 +283,19 @@ sha:
 	    cksum -a sha256 BUILDINFO INSTALL.`arch -ks` \
 	    ${ALL_KERNELS} ${MDEXT} ${MISETS} | sort > SHA256
 
-release: sha
-sha: distrib
-distrib: release-sets kernels
-release-sets: distribution kernels
-
 .endif
 
 .endif	# DESTDIR check
 
 distrib:
-	cd ../distrib && \
-	    ${MAKE} && exec ${SUDO} ${MAKE} install
+	umask 022; cd ../distrib && \
+	    ${MAKE} && exec ${MAKE} install
 
 .PHONY: distribution-etc-root-var distribution distrib-dirs \
 	release allarchs kernels release-sets m4 install-mtree \
-	bootblocks ${ALL_KERNELS}
+	bootblocks do-release ${ALL_KERNELS}
 
-SUBDIR+= etc.alpha etc.amd64 etc.armv7
+SUBDIR+= etc.alpha etc.amd64 etc.arm64 etc.armv7
 SUBDIR+= etc.hppa etc.i386 etc.landisk etc.loongson etc.luna88k
 SUBDIR+= etc.macppc etc.octeon
 SUBDIR+= etc.sgi etc.socppc etc.sparc64

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.h,v 1.2 2015/11/22 21:51:32 reyk Exp $	*/
+/*	$OpenBSD: pci.h,v 1.6 2017/07/06 06:19:15 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -25,11 +25,11 @@
 #define PCI_BAR_TYPE_IO		0x0
 #define PCI_BAR_TYPE_MMIO	0x1
 
-#define PCI_MAX_PIC_IRQS	5
+#define PCI_MAX_PIC_IRQS	10
 
 typedef int (*pci_cs_fn_t)(int dir, uint8_t reg, uint32_t *data);
 typedef int (*pci_iobar_fn_t)(int dir, uint16_t reg, uint32_t *data, uint8_t *,
-    void *);
+    void *, uint8_t);
 typedef int (*pci_mmiobar_fn_t)(int dir, uint32_t ofs, uint32_t *data);
 
 union pci_dev {
@@ -89,3 +89,4 @@ void pci_init(void);
 int pci_add_device(uint8_t *, uint16_t, uint16_t, uint8_t, uint8_t, uint16_t,
     uint16_t, uint8_t, pci_cs_fn_t);
 int pci_add_bar(uint8_t, uint32_t, void *, void *);
+uint8_t pci_get_dev_irq(uint8_t);

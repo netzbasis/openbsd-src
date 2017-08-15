@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.38 2016/06/21 21:35:24 benno Exp $	*/
+/*	$OpenBSD: parse.y,v 1.45 2017/07/23 13:53:54 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2004 Ryan McBride <mcbride@openbsd.org>
@@ -41,6 +41,7 @@
 #include <event.h>
 
 #include "ifstated.h"
+#include "log.h"
 
 TAILQ_HEAD(files, file)		 files = TAILQ_HEAD_INITIALIZER(files);
 static struct file {
@@ -79,7 +80,7 @@ static struct ifsd_config	*conf;
 char				*start_state;
 
 struct ifsd_action		*curaction;
-struct ifsd_state		*curstate = NULL;
+struct ifsd_state		*curstate;
 
 void			 link_states(struct ifsd_action *);
 void			 set_expression_depth(struct ifsd_expression *, int);
@@ -105,7 +106,7 @@ typedef struct {
 %}
 
 %token	STATE INITSTATE
-%token	LINK UP DOWN UNKNOWN ADDED REMOVED
+%token	LINK UP DOWN UNKNOWN
 %token	IF RUN SETSTATE EVERY INIT
 %left	AND OR
 %left	UNARY
@@ -241,12 +242,12 @@ init		: INIT {
 			if (curstate != NULL)
 				curaction = curstate->init;
 			else
-				curaction = conf->always.init;
+				curaction = conf->initstate.init;
 		} action_block {
 			if (curstate != NULL)
-				curaction = curstate->always;
+				curaction = curstate->body;
 			else
-				curaction = conf->always.always;
+				curaction = conf->initstate.body;
 		}
 		;
 
@@ -338,11 +339,11 @@ state		: STATE string {
 			init_state(state);
 			state->name = $2;
 			curstate = state;
-			curaction = state->always;
+			curaction = state->body;
 		} optnl '{' optnl stateopts_l '}' {
 			TAILQ_INSERT_TAIL(&conf->states, curstate, entries);
 			curstate = NULL;
-			curaction = conf->always.always;
+			curaction = conf->initstate.body;
 		}
 		;
 
@@ -389,14 +390,12 @@ lookup(char *s)
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
 		{ "&&",			AND},
-		{ "added",		ADDED},
 		{ "down",		DOWN},
 		{ "every",		EVERY},
 		{ "if",			IF},
 		{ "init",		INIT},
 		{ "init-state",		INITSTATE},
 		{ "link",		LINK},
-		{ "removed",		REMOVED},
 		{ "run",		RUN},
 		{ "set-state",		SETSTATE},
 		{ "state",		STATE},
@@ -420,7 +419,7 @@ lookup(char *s)
 u_char	*parsebuf;
 int	 parseindex;
 u_char	 pushback_buffer[MAXPUSHBACK];
-int	 pushback_index = 0;
+int	 pushback_index;
 
 int
 lgetc(int quotec)
@@ -745,8 +744,8 @@ parse_config(char *filename, int opts)
 
 	TAILQ_INIT(&conf->states);
 
-	init_state(&conf->always);
-	curaction = conf->always.always;
+	init_state(&conf->initstate);
+	curaction = conf->initstate.body;
 	conf->opts = opts;
 
 	yyparse();
@@ -754,7 +753,7 @@ parse_config(char *filename, int opts)
 	/* Link states */
 	TAILQ_FOREACH(state, &conf->states, entries) {
 		link_states(state->init);
-		link_states(state->always);
+		link_states(state->body);
 	}
 
 	errors = file->errors;
@@ -774,8 +773,7 @@ parse_config(char *filename, int opts)
 	}
 
 	/* Free macros and check which have not been used. */
-	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
-		next = TAILQ_NEXT(sym, entry);
+	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		if ((conf->opts & IFSD_OPT_VERBOSE2) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
@@ -834,9 +832,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -895,11 +894,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
@@ -926,10 +926,10 @@ init_state(struct ifsd_state *state)
 	state->init->type = IFSD_ACTION_CONDITION;
 	TAILQ_INIT(&state->init->act.c.actions);
 
-	if ((state->always = calloc(1, sizeof(*state->always))) == NULL)
+	if ((state->body = calloc(1, sizeof(*state->body))) == NULL)
 		err(1, "init_state: calloc");
-	state->always->type = IFSD_ACTION_CONDITION;
-	TAILQ_INIT(&state->always->act.c.actions);
+	state->body->type = IFSD_ACTION_CONDITION;
+	TAILQ_INIT(&state->body->act.c.actions);
 }
 
 struct ifsd_ifstate *
@@ -941,7 +941,7 @@ new_ifstate(u_short ifindex, int s)
 	if (curstate != NULL)
 		state = curstate;
 	else
-		state = &conf->always;
+		state = &conf->initstate;
 
 	TAILQ_FOREACH(ifstate, &state->interface_states, entries)
 		if (ifstate->ifindex == ifindex && ifstate->ifstate == s)
@@ -968,7 +968,7 @@ new_external(char *command, u_int32_t frequency)
 	if (curstate != NULL)
 		state = curstate;
 	else
-		state = &conf->always;
+		state = &conf->initstate;
 
 	TAILQ_FOREACH(external, &state->external_tests, entries)
 		if (strcmp(external->command, command) == 0 &&

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.134 2016/09/03 15:06:06 akfaew Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.141 2017/05/18 07:08:45 mpi Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -50,6 +50,7 @@
 #include <sys/pool.h>
 #include <sys/refcnt.h>
 #include <sys/atomic.h>
+#include <sys/witness.h>
 #include <ddb/db_output.h>
 
 #include <machine/spinlock.h>
@@ -169,6 +170,7 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
+	WITNESS_SAVE_DECL(lock_fl);
 
 	KASSERT((priority & ~(PRIMASK | PCATCH | PNORELOCK)) == 0);
 	KASSERT(mtx != NULL);
@@ -201,6 +203,8 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 	sleep_setup_timeout(&sls, timo);
 	sleep_setup_signal(&sls, priority);
 
+	WITNESS_SAVE(MUTEX_LOCK_OBJECT(mtx), lock_fl);
+
 	/* XXX - We need to make sure that the mutex doesn't
 	 * unblock splsched. This can be made a bit more
 	 * correct when the sched_lock is a mutex.
@@ -216,8 +220,48 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 	if ((priority & PNORELOCK) == 0) {
 		mtx_enter(mtx);
 		MUTEX_OLDIPL(mtx) = spl; /* put the ipl back */
+		WITNESS_RESTORE(MUTEX_LOCK_OBJECT(mtx), lock_fl);
 	} else
 		splx(spl);
+
+	/* Signal errors are higher priority than timeouts. */
+	if (error == 0 && error1 != 0)
+		error = error1;
+
+	return (error);
+}
+
+/*
+ * Same as tsleep, but if we have a rwlock provided, then once we've
+ * entered the sleep queue we drop the it. After sleeping we re-lock.
+ */
+int
+rwsleep(const volatile void *ident, struct rwlock *wl, int priority,
+    const char *wmesg, int timo)
+{
+	struct sleep_state sls;
+	int error, error1;
+	WITNESS_SAVE_DECL(lock_fl);
+
+	KASSERT((priority & ~(PRIMASK | PCATCH | PNORELOCK)) == 0);
+	rw_assert_wrlock(wl);
+
+	sleep_setup(&sls, ident, priority, wmesg);
+	sleep_setup_timeout(&sls, timo);
+	sleep_setup_signal(&sls, priority);
+
+	WITNESS_SAVE(&wl->rwl_lock_obj, lock_fl);
+
+	rw_exit_write(wl);
+
+	sleep_finish(&sls, 1);
+	error1 = sleep_finish_timeout(&sls);
+	error = sleep_finish_signal(&sls);
+
+	if ((priority & PNORELOCK) == 0) {
+		rw_enter_write(wl);
+		WITNESS_RESTORE(&wl->rwl_lock_obj, lock_fl);
+	}
 
 	/* Signal errors are higher priority than timeouts. */
 	if (error == 0 && error1 != 0)
@@ -234,7 +278,7 @@ sleep_setup(struct sleep_state *sls, const volatile void *ident, int prio,
 
 #ifdef DIAGNOSTIC
 	if (p->p_flag & P_CANTSLEEP)
-		panic("sleep: %s failed insomnia", p->p_comm);
+		panic("sleep: %s failed insomnia", p->p_p->ps_comm);
 	if (ident == NULL)
 		panic("tsleep: no ident");
 	if (p->p_stat != SONPROC)
@@ -406,6 +450,15 @@ wakeup_n(const volatile void *ident, int n)
 	for (p = TAILQ_FIRST(qp); p != NULL && n != 0; p = pnext) {
 		pnext = TAILQ_NEXT(p, p_runq);
 #ifdef DIAGNOSTIC
+		/*
+		 * If the rwlock passed to rwsleep() is contended, the
+		 * CPU will end up calling wakeup() between sleep_setup()
+		 * and sleep_finish().
+		 */
+		if (p == curproc) {
+			KASSERT(p->p_stat == SONPROC);
+			continue;
+		}
 		if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
 			panic("wakeup: p_stat is %d", (int)p->p_stat);
 #endif

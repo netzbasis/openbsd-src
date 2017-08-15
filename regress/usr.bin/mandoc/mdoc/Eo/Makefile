@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2015/02/11 14:14:53 schwarze Exp $
+# $OpenBSD: Makefile,v 1.7 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS	 = break empty obsolete unclosed
 LINT_TARGETS	 = break obsolete unclosed

@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_opt.c,v 1.16 2016/05/24 20:55:32 okan Exp $ */
+/* $OpenBSD: fuse_opt.c,v 1.18 2017/01/04 12:01:22 stsp Exp $ */
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  * Copyright (c) 2013 Stefan Sperling <stsp@openbsd.org>

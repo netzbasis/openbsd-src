@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-attach-session.c,v 1.61 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-attach-session.c,v 1.73 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -30,7 +30,8 @@
  * Attach existing session to the current terminal.
  */
 
-enum cmd_retval	cmd_attach_session_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_attach_session_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_attach_session_entry = {
 	.name = "attach-session",
@@ -39,51 +40,64 @@ const struct cmd_entry cmd_attach_session_entry = {
 	.args = { "c:dErt:", 0, 0 },
 	.usage = "[-dEr] [-c working-directory] " CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION_WITHPANE,
+	/* -t is special */
 
 	.flags = CMD_STARTSERVER,
 	.exec = cmd_attach_session_exec
 };
 
 enum cmd_retval
-cmd_attach_session(struct cmd_q *cmdq, int dflag, int rflag, const char *cflag,
-    int Eflag)
+cmd_attach_session(struct cmdq_item *item, const char *tflag, int dflag,
+    int rflag, const char *cflag, int Eflag)
 {
-	struct session		*s = cmdq->state.tflag.s;
-	struct client		*c = cmdq->client, *c_loop;
-	struct winlink		*wl = cmdq->state.tflag.wl;
-	struct window_pane	*wp = cmdq->state.tflag.wp;
-	const char		*update;
-	char			*cause, *cwd;
-	struct format_tree	*ft;
+	struct cmd_find_state	*current = &item->shared->current;
+	enum cmd_find_type	 type;
+	int			 flags;
+	struct client		*c = item->client, *c_loop;
+	struct session		*s;
+	struct winlink		*wl;
+	struct window_pane	*wp;
+	char			*cause;
 
 	if (RB_EMPTY(&sessions)) {
-		cmdq_error(cmdq, "no sessions");
+		cmdq_error(item, "no sessions");
 		return (CMD_RETURN_ERROR);
 	}
 
 	if (c == NULL)
 		return (CMD_RETURN_NORMAL);
 	if (server_client_check_nested(c)) {
-		cmdq_error(cmdq, "sessions should be nested with care, "
+		cmdq_error(item, "sessions should be nested with care, "
 		    "unset $TMUX to force");
 		return (CMD_RETURN_ERROR);
 	}
+
+	if (tflag != NULL && tflag[strcspn(tflag, ":.")] != '\0') {
+		type = CMD_FIND_PANE;
+		flags = 0;
+	} else {
+		type = CMD_FIND_SESSION;
+		flags = CMD_FIND_PREFER_UNATTACHED;
+	}
+	if (cmd_find_target(&item->target, item, tflag, type, flags) != 0)
+		return (CMD_RETURN_ERROR);
+	s = item->target.s;
+	wl = item->target.wl;
+	wp = item->target.wp;
 
 	if (wl != NULL) {
 		if (wp != NULL)
 			window_set_active_pane(wp->window, wp);
 		session_set_current(s, wl);
+		if (wp != NULL)
+			cmd_find_from_winlink_pane(current, wl, wp);
+		else
+			cmd_find_from_winlink(current, wl);
 	}
 
 	if (cflag != NULL) {
-		ft = format_create(cmdq, 0);
-		format_defaults(ft, c, s, wl, wp);
-		cwd = format_expand(ft, cflag);
-		format_free(ft);
-
 		free((void *)s->cwd);
-		s->cwd = cwd;
+		s->cwd = format_single(item, cflag, c, s, wl, wp);
 	}
 
 	if (c->session != NULL) {
@@ -94,28 +108,24 @@ cmd_attach_session(struct cmd_q *cmdq, int dflag, int rflag, const char *cflag,
 				server_client_detach(c_loop, MSG_DETACH);
 			}
 		}
-
-		if (!Eflag) {
-			update = options_get_string(s->options,
-			    "update-environment");
-			environ_update(update, c->environ, s->environ);
-		}
+		if (!Eflag)
+			environ_update(s->options, c->environ, s->environ);
 
 		c->session = s;
-		server_client_set_key_table(c, NULL);
+		if (~item->shared->flags & CMDQ_SHARED_REPEAT)
+			server_client_set_key_table(c, NULL);
 		status_timer_start(c);
-		notify_attached_session_changed(c);
+		notify_client("client-session-changed", c);
 		session_update_activity(s, NULL);
 		gettimeofday(&s->last_attached_time, NULL);
 		server_redraw_client(c);
 		s->curw->flags &= ~WINLINK_ALERTFLAGS;
 	} else {
 		if (server_client_open(c, &cause) != 0) {
-			cmdq_error(cmdq, "open terminal failed: %s", cause);
+			cmdq_error(item, "open terminal failed: %s", cause);
 			free(cause);
 			return (CMD_RETURN_ERROR);
 		}
-
 		if (rflag)
 			c->flags |= CLIENT_READONLY;
 
@@ -126,17 +136,13 @@ cmd_attach_session(struct cmd_q *cmdq, int dflag, int rflag, const char *cflag,
 				server_client_detach(c_loop, MSG_DETACH);
 			}
 		}
-
-		if (!Eflag) {
-			update = options_get_string(s->options,
-			    "update-environment");
-			environ_update(update, c->environ, s->environ);
-		}
+		if (!Eflag)
+			environ_update(s->options, c->environ, s->environ);
 
 		c->session = s;
 		server_client_set_key_table(c, NULL);
 		status_timer_start(c);
-		notify_attached_session_changed(c);
+		notify_client("client-session-changed", c);
 		session_update_activity(s, NULL);
 		gettimeofday(&s->last_attached_time, NULL);
 		server_redraw_client(c);
@@ -144,8 +150,8 @@ cmd_attach_session(struct cmd_q *cmdq, int dflag, int rflag, const char *cflag,
 
 		if (~c->flags & CLIENT_CONTROL)
 			proc_send(c->peer, MSG_READY, -1, NULL, 0);
-		hooks_run(c->session->hooks, c, NULL, "client-attached");
-		cmdq->client_exit = 0;
+		notify_client("client-attached", c);
+		c->flags |= CLIENT_ATTACHED;
 	}
 	recalculate_sizes();
 	alerts_check_session(s);
@@ -154,11 +160,12 @@ cmd_attach_session(struct cmd_q *cmdq, int dflag, int rflag, const char *cflag,
 	return (CMD_RETURN_NORMAL);
 }
 
-enum cmd_retval
-cmd_attach_session_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_attach_session_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args	*args = self->args;
 
-	return (cmd_attach_session(cmdq, args_has(args, 'd'),
-	    args_has(args, 'r'), args_get(args, 'c'), args_has(args, 'E')));
+	return (cmd_attach_session(item, args_get(args, 't'),
+	    args_has(args, 'd'), args_has(args, 'r'), args_get(args, 'c'),
+	    args_has(args, 'E')));
 }

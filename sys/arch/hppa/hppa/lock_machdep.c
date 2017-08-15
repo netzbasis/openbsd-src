@@ -1,4 +1,4 @@
-/*	$OpenBSD: lock_machdep.c,v 1.9 2016/03/19 11:34:22 mpi Exp $	*/
+/*	$OpenBSD: lock_machdep.c,v 1.12 2017/07/16 22:48:38 guenther Exp $	*/
 
 /*
  * Copyright (c) 2007 Artur Grabowski <art@openbsd.org>
@@ -18,10 +18,13 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/witness.h>
+#include <sys/_lock.h>
 
 #include <machine/atomic.h>
 #include <machine/intr.h>
 #include <machine/psl.h>
+#include <machine/cpu.h>
 
 #include <ddb/db_output.h>
 
@@ -53,7 +56,7 @@ __cpu_cas(struct __mp_lock *mpl, volatile unsigned long *addr,
 }
 
 void
-__mp_lock_init(struct __mp_lock *lock)
+___mp_lock_init(struct __mp_lock *lock)
 {
 	lock->mpl_lock[0] = MPL_UNLOCKED;
 	lock->mpl_lock[1] = MPL_UNLOCKED;
@@ -72,31 +75,35 @@ __mp_lock_init(struct __mp_lock *lock)
 extern int __mp_lock_spinout;
 #endif
 
-#define SPINLOCK_SPIN_HOOK	/**/
-
 static __inline void
 __mp_lock_spin(struct __mp_lock *mpl)
 {
 #ifndef MP_LOCKDEBUG
 	while (mpl->mpl_count != 0)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 #else
 	int nticks = __mp_lock_spinout;
 
 	while (mpl->mpl_count != 0 && --nticks > 0)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 
 	if (nticks == 0) {
 		db_printf("__mp_lock(%p): lock spun out", mpl);
-		Debugger();
+		db_enter();
 	}
 #endif
 }
 
 void
-__mp_lock(struct __mp_lock *mpl)
+___mp_lock(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	int s;
+
+#ifdef WITNESS
+	if (!__mp_lock_held(mpl))
+		WITNESS_CHECKORDER(&mpl->mpl_lock_obj,
+		    LOP_EXCLUSIVE | LOP_NEWORDER, file, line, NULL);
+#endif
 
 	/*
 	 * Please notice that mpl_count gets incremented twice for the
@@ -125,10 +132,12 @@ __mp_lock(struct __mp_lock *mpl)
 
 		__mp_lock_spin(mpl);
 	}
+
+	WITNESS_LOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
 }
 
 void
-__mp_unlock(struct __mp_lock *mpl)
+___mp_unlock(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	int s;
 
@@ -136,9 +145,11 @@ __mp_unlock(struct __mp_lock *mpl)
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_unlock(%p): lock not held - %p != %p\n",
 		    mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
 #endif
+
+	WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
 
 	s = hppa_intr_disable();
 	if (--mpl->mpl_count == 1) {
@@ -150,17 +161,25 @@ __mp_unlock(struct __mp_lock *mpl)
 }
 
 int
-__mp_release_all(struct __mp_lock *mpl)
+___mp_release_all(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	int rv = mpl->mpl_count - 1;
 	int s;
+#ifdef WITNESS
+	int i;
+#endif
 
 #ifdef MP_LOCKDEBUG
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_release_all(%p): lock not held - %p != %p\n",
 		    mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
+#endif
+
+#ifdef WITNESS
+	for (i = 0; i < rv; i++)
+		WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
 #endif
 
 	s = hppa_intr_disable();
@@ -173,16 +192,24 @@ __mp_release_all(struct __mp_lock *mpl)
 }
 
 int
-__mp_release_all_but_one(struct __mp_lock *mpl)
+___mp_release_all_but_one(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	int rv = mpl->mpl_count - 2;
+#ifdef WITNESS
+	int i;
+#endif
 
 #ifdef MP_LOCKDEBUG
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_release_all_but_one(%p): lock not held - "
 		    "%p != %p\n", mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
+#endif
+
+#ifdef WITNESS
+	for (i = 0; i < rv; i++)
+		WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
 #endif
 
 	mpl->mpl_count = 2;
@@ -191,10 +218,10 @@ __mp_release_all_but_one(struct __mp_lock *mpl)
 }
 
 void
-__mp_acquire_count(struct __mp_lock *mpl, int count)
+___mp_acquire_count(struct __mp_lock *mpl, int count LOCK_FL_VARS)
 {
 	while (count--)
-		__mp_lock(mpl);
+		___mp_lock(mpl LOCK_FL_ARGS);
 }
 
 int

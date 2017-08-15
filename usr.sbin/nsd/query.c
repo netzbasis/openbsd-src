@@ -411,10 +411,10 @@ static query_state_type
 answer_notify(struct nsd* nsd, struct query *query)
 {
 	int acl_num, acl_num_xfr;
-	acl_options_t *why;
+	struct acl_options *why;
 	nsd_rc_type rc;
 
-	zone_options_t* zone_opt;
+	struct zone_options* zone_opt;
 	DEBUG(DEBUG_XFRD,1, (LOG_INFO, "got notify %s processing acl",
 		dname_to_string(query->qname, NULL)));
 
@@ -580,7 +580,11 @@ find_covering_nsec(domain_type *closest_match,
 	assert(nsec_rrset);
 
 	/* loop away temporary created domains. For real ones it is &RBTREE_NULL */
+#ifdef USE_RADIX_TREE
 	while (closest_match->rnode == NULL)
+#else
+	while (closest_match->node.parent == NULL)
+#endif
 		closest_match = closest_match->parent;
 	while (closest_match) {
 		*nsec_rrset = domain_find_rrset(closest_match, zone, TYPE_NSEC);
@@ -656,8 +660,13 @@ add_additional_rrsets(struct query *query, answer_type *answer,
 			domain_type *wildcard_child = domain_wildcard_child(match);
 			domain_type *temp = (domain_type *) region_alloc(
 				query->region, sizeof(domain_type));
+#ifdef USE_RADIX_TREE
 			temp->rnode = NULL;
 			temp->dname = additional->dname;
+#else
+			memcpy(&temp->node, &additional->node, sizeof(rbnode_type));
+			temp->node.parent = NULL;
+#endif
 			temp->number = additional->number;
 			temp->parent = match;
 			temp->wildcard_child_closest_match = temp;
@@ -702,6 +711,9 @@ add_rrset(struct query   *query,
 	assert(rrset_rrclass(rrset) == CLASS_IN);
 
 	result = answer_add_rrset(answer, section, owner, rrset);
+	if(minimal_responses && section != AUTHORITY_SECTION &&
+		query->qtype != TYPE_NS)
+		return result;
 	switch (rrset_rrtype(rrset)) {
 	case TYPE_NS:
 #if defined(INET6)
@@ -727,6 +739,10 @@ add_rrset(struct query   *query,
 	case TYPE_RT:
 		add_additional_rrsets(query, answer, rrset, 1, 0,
 				      rt_additional_rr_types);
+		break;
+	case TYPE_SRV:
+		add_additional_rrsets(query, answer, rrset, 3, 0,
+				      default_additional_rr_types);
 		break;
 	default:
 		break;
@@ -764,7 +780,11 @@ query_synthesize_cname(struct query* q, struct answer* answer, const dname_type*
 			return 0;
 		newdom->is_existing = 1;
 		newdom->parent = lastparent;
+#ifdef USE_RADIX_TREE
 		newdom->dname
+#else
+		newdom->node.key
+#endif
 			= dname_partial_copy(q->region,
 			from_name, domain_dname(src)->label_count + i + 1);
 		if(dname_compare(domain_dname(newdom), q->qname) == 0) {
@@ -787,7 +807,11 @@ query_synthesize_cname(struct query* q, struct answer* answer, const dname_type*
 			return 0;
 		newdom->is_existing = 0;
 		newdom->parent = lastparent;
+#ifdef USE_RADIX_TREE
 		newdom->dname
+#else
+		newdom->node.key
+#endif
 			= dname_partial_copy(q->region,
 			to_name, domain_dname(to_closest_encloser)->label_count + i + 1);
 		DEBUG(DEBUG_QUERY,2, (LOG_INFO, "created temp domain dest %d. %s nr %d", i,
@@ -986,7 +1010,8 @@ answer_domain(struct nsd* nsd, struct query *q, answer_type *answer,
 		return;
 	}
 
-	if (q->qclass != CLASS_ANY && q->zone->ns_rrset && answer_needs_ns(q)) {
+	if (q->qclass != CLASS_ANY && q->zone->ns_rrset && answer_needs_ns(q)
+		&& !minimal_responses) {
 		add_rrset(q, answer, OPTIONAL_AUTHORITY_SECTION, q->zone->apex,
 			  q->zone->ns_rrset);
 	}
@@ -1088,8 +1113,13 @@ answer_authoritative(struct nsd   *nsd,
 
 		match = (domain_type *) region_alloc(q->region,
 						     sizeof(domain_type));
+#ifdef USE_RADIX_TREE
 		match->rnode = NULL;
 		match->dname = wildcard_child->dname;
+#else
+		memcpy(&match->node, &wildcard_child->node, sizeof(rbnode_type));
+		match->node.parent = NULL;
+#endif
 		match->parent = closest_encloser;
 		match->wildcard_child_closest_match = match;
 		match->number = domain_number;
@@ -1284,7 +1314,7 @@ answer_query(struct nsd *nsd, struct query *q)
 }
 
 void
-query_prepare_response(query_type *q, nsd_type *nsd)
+query_prepare_response(query_type *q)
 {
 	uint16_t flags;
 
@@ -1299,9 +1329,6 @@ query_prepare_response(query_type *q, nsd_type *nsd)
 	 */
 	q->reserved_space = edns_reserved_space(&q->edns);
 	q->reserved_space += tsig_reserved_space(&q->tsig);
-	if(q->edns.nsid == 1 && nsd->nsid_len > 0 &&
-		q->edns.status != EDNS_NOT_PRESENT)
-		q->reserved_space += OPT_HDR + nsd->nsid_len;
 
 	/* Update the flags.  */
 	flags = FLAGS(q->packet);
@@ -1401,7 +1428,7 @@ query_process(query_type *q, nsd_type *nsd)
 	}
 	/* See if there is an OPT RR. */
 	if (arcount > 0) {
-		if (edns_parse_record(&q->edns, q->packet))
+		if (edns_parse_record(&q->edns, q->packet, q, nsd))
 			--arcount;
 	}
 	/* See if there is a TSIG RR. */
@@ -1440,7 +1467,7 @@ query_process(query_type *q, nsd_type *nsd)
 		return query_error(q, NSD_RC_OK);
 	}
 
-	query_prepare_response(q, nsd);
+	query_prepare_response(q);
 
 	if (q->qclass != CLASS_IN && q->qclass != CLASS_ANY) {
 		if (q->qclass == CLASS_CH) {
@@ -1479,17 +1506,20 @@ query_add_optional(query_type *q, nsd_type *nsd)
 		if (q->edns.dnssec_ok)	edns->ok[7] = 0x80;
 		else			edns->ok[7] = 0x00;
 		buffer_write(q->packet, edns->ok, OPT_LEN);
-		if (nsd->nsid_len > 0 && q->edns.nsid == 1 && buffer_available(
-			q->packet, OPT_RDATA+OPT_HDR+nsd->nsid_len)) {
-			/* rdata length */
-			buffer_write(q->packet, edns->rdata_nsid, OPT_RDATA);
-			/* nsid opt header */
-			buffer_write(q->packet, edns->nsid, OPT_HDR);
-			/* nsid payload */
-			buffer_write(q->packet, nsd->nsid, nsd->nsid_len);
-		}  else {
+		if(q->edns.opt_reserved_space == 0 || !buffer_available(
+			q->packet, 2+q->edns.opt_reserved_space)) {
 			/* fill with NULLs */
 			buffer_write(q->packet, edns->rdata_none, OPT_RDATA);
+		} else {
+			/* rdata length */
+			buffer_write_u16(q->packet, q->edns.opt_reserved_space);
+			/* edns options */
+			if(q->edns.nsid) {
+				/* nsid opt header */
+				buffer_write(q->packet, edns->nsid, OPT_HDR);
+				/* nsid payload */
+				buffer_write(q->packet, nsd->nsid, nsd->nsid_len);
+			}
 		}
 		ARCOUNT_SET(q->packet, ARCOUNT(q->packet) + 1);
 		STATUP(nsd, edns);

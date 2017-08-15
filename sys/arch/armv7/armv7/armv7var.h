@@ -1,4 +1,4 @@
-/* $OpenBSD: armv7var.h,v 1.12 2016/06/04 18:09:16 jsg Exp $ */
+/* $OpenBSD: armv7var.h,v 1.15 2016/10/23 19:05:09 kettenis Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
@@ -31,7 +31,7 @@ struct armv7_board {
 	void			(*init)(void);
 };
 
-/* Needed by omap, imx, sunxi */
+/* Needed by omap, sunxi */
 struct armv7_softc {
 	struct device sc_dv;
 
@@ -75,22 +75,11 @@ int	armv7_submatch(struct device *, void *, void *);
 /* board identification - from uboot */
 #define BOARD_ID_OMAP3_BEAGLE 1546
 #define BOARD_ID_OMAP3_OVERO 1798
-#define BOARD_ID_VEXPRESS 2272
 #define BOARD_ID_OMAP4_PANDA 2791
 #define BOARD_ID_EXYNOS4_SMDKC210 2838
 #define BOARD_ID_EXYNOS4_NURI 3379
 #define BOARD_ID_AM335X_BEAGLEBONE 3589
-#define BOARD_ID_IMX6_SABRELITE 3769
 #define BOARD_ID_EXYNOS5_CHROMEBOOK 3774
-#define BOARD_ID_IMX6_SABRESD 3980
-#define BOARD_ID_SUN4I_A10 4104
-#define BOARD_ID_IMX6_NOVENA 4269
-#define BOARD_ID_IMX6_UTILITE 4273
-#define BOARD_ID_SUN7I_A20 4283
-#define BOARD_ID_IMX6_WANDBOARD 4412
-#define BOARD_ID_IMX6_HUMMINGBOARD 4773
-#define BOARD_ID_IMX6_UDOO 4800
-#define BOARD_ID_IMX6_CUBOXI 4821
 extern uint32_t board_id;
 
 #endif /* __ARMV7VAR_H__ */

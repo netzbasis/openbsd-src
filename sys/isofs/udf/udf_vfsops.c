@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.55 2016/09/07 17:30:12 natano Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.59 2017/04/20 14:13:00 visa Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -102,15 +102,12 @@ const struct vfsops udf_vfsops = {
 int
 udf_init(struct vfsconf *foo)
 {
-	pool_init(&udf_trans_pool, MAXNAMLEN * sizeof(unicode_t), 0, 0,
+	pool_init(&udf_trans_pool, MAXNAMLEN * sizeof(unicode_t), 0, IPL_NONE,
 	    PR_WAITOK, "udftrpl", NULL);
-	pool_setipl(&udf_trans_pool, IPL_NONE);
-	pool_init(&unode_pool, sizeof(struct unode), 0, 0,
+	pool_init(&unode_pool, sizeof(struct unode), 0, IPL_NONE,
 	    PR_WAITOK, "udfndpl", NULL);
-	pool_setipl(&unode_pool, IPL_NONE);
-	pool_init(&udf_ds_pool, sizeof(struct udf_dirstream), 0, 0,
+	pool_init(&udf_ds_pool, sizeof(struct udf_dirstream), 0, IPL_NONE,
 	    PR_WAITOK, "udfdspl", NULL);
-	pool_setipl(&udf_ds_pool, IPL_NONE);
 
 	return (0);
 }
@@ -433,10 +430,8 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 	return (0);
 
 bail:
-	if (ump->um_hashtbl != NULL)
-		free(ump->um_hashtbl, M_UDFMOUNT, 0);
-
 	if (ump != NULL) {
+		hashfree(ump->um_hashtbl, UDF_HASHTBLSIZE, M_UDFMOUNT);
 		free(ump, M_UDFMOUNT, 0);
 		mp->mnt_data = NULL;
 		mp->mnt_flag &= ~MNT_LOCAL;
@@ -483,9 +478,7 @@ udf_unmount(struct mount *mp, int mntflags, struct proc *p)
 	if (ump->um_stbl != NULL)
 		free(ump->um_stbl, M_UDFMOUNT, 0);
 
-	if (ump->um_hashtbl != NULL)
-		free(ump->um_hashtbl, M_UDFMOUNT, 0);
-
+	hashfree(ump->um_hashtbl, UDF_HASHTBLSIZE, M_UDFMOUNT);
 	free(ump, M_UDFMOUNT, 0);
 
 	mp->mnt_data = NULL;
@@ -645,7 +638,7 @@ udf_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	vp->v_data = up;
 	vref(ump->um_devvp);
 
-	rrw_init(&up->u_lock, "unode");
+	rrw_init_flags(&up->u_lock, "unode", RWL_DUPOK);
 
 	/*
 	 * udf_hashins() will lock the vnode for us.

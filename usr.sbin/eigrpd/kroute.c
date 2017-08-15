@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.16 2016/09/02 16:44:33 renato Exp $ */
+/*	$OpenBSD: kroute.c,v 1.18 2017/07/24 11:00:01 friehm Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -737,6 +737,7 @@ kif_update(unsigned short ifindex, int flags, struct if_data *ifd,
 	kif->k.if_type = ifd->ifi_type;
 	kif->k.baudrate = ifd->ifi_baudrate;
 	kif->k.mtu = ifd->ifi_mtu;
+	kif->k.rdomain = ifd->ifi_rdomain;
 
 	if (sdl && sdl->sdl_family == AF_LINK) {
 		if (sdl->sdl_nlen >= sizeof(kif->k.ifname))
@@ -803,8 +804,8 @@ prefixlen_classful(in_addr_t ina)
 		return (8);
 }
 
-#define	ROUNDUP(a)	\
-    (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
+#define ROUNDUP(a) \
+	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 
 static void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)

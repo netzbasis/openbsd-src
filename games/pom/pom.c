@@ -1,4 +1,4 @@
-/*	$OpenBSD: pom.c,v 1.23 2016/08/27 02:02:44 guenther Exp $	*/
+/*	$OpenBSD: pom.c,v 1.25 2016/12/01 20:08:59 fcambus Exp $	*/
 /*    $NetBSD: pom.c,v 1.6 1996/02/06 22:47:29 jtc Exp $      */
 
 /*
@@ -51,11 +51,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
-
-#ifndef M_PI
-#define	M_PI	  3.14159265358979323846
-#endif
 
 #define	EPOCH	  90
 #define	EPSILONg  279.403303	/* solar ecliptic long at EPOCH */

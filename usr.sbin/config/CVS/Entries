@@ -1,0 +1,26 @@
+/Makefile/1.17/Fri Sep 25 03:17:02 2015//
+/cmd.c/1.20/Sat Nov 23 17:38:15 2013//
+/cmd.h/1.7/Tue Jun  3 00:52:35 2003//
+/config.8/1.64/Thu May  4 15:59:39 2017//
+/config.h/1.30/Thu Jun 22 15:57:16 2017//
+/exec.h/1.4/Mon Jun  2 21:19:03 2003//
+/exec_elf.c/1.15/Sat Jun  3 23:31:37 2017//
+/files.c/1.20/Fri Jan 16 06:40:16 2015//
+/gram.y/1.24/Fri Jan 16 06:40:16 2015//
+/hash.c/1.18/Sat Jan 17 07:37:14 2015//
+/main.c/1.59/Thu Jun 22 15:57:16 2017//
+/misc.c/1.9/Sun Oct  2 22:20:49 2011//
+/misc.h/1.4/Tue Jun  3 00:52:35 2003//
+/mkheaders.c/1.22/Sun Oct 16 17:50:00 2016//
+/mkioconf.c/1.36/Thu Oct 27 14:33:30 2016//
+/mkmakefile.c/1.44/Tue Jul 18 16:43:27 2017//
+/mkswap.c/1.16/Sun Oct 16 17:50:00 2016//
+/pack.c/1.18/Fri Jan 16 06:40:16 2015//
+/scan.l/1.24/Sun Jul  9 14:04:50 2017//
+/sem.c/1.36/Mon Dec 14 05:59:56 2015//
+/sem.h/1.13/Mon Mar 24 21:35:03 2008//
+/ukc.c/1.22/Wed Oct 19 16:39:02 2016//
+/ukc.h/1.13/Mon Sep 21 14:45:14 2015//
+/ukcutil.c/1.22/Thu Oct 27 14:32:10 2016//
+/util.c/1.18/Sun Oct 16 09:35:40 2016//
+D

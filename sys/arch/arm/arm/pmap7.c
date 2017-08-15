@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap7.c,v 1.51 2016/08/31 12:24:12 jsg Exp $	*/
+/*	$OpenBSD: pmap7.c,v 1.55 2016/10/22 17:48:41 patrick Exp $	*/
 /*	$NetBSD: pmap.c,v 1.147 2004/01/18 13:03:50 scw Exp $	*/
 
 /*
@@ -446,24 +446,10 @@ pmap_tlb_flushID_SE(pmap_t pm, vaddr_t va)
 }
 
 static __inline void
-pmap_tlb_flushD_SE(pmap_t pm, vaddr_t va)
-{
-	if (pmap_is_current(pm))
-		cpu_tlb_flushD_SE(va);
-}
-
-static __inline void
 pmap_tlb_flushID(pmap_t pm)
 {
 	if (pmap_is_current(pm))
 		cpu_tlb_flushID();
-}
-
-static __inline void
-pmap_tlb_flushD(pmap_t pm)
-{
-	if (pmap_is_current(pm))
-		cpu_tlb_flushD();
 }
 
 /*
@@ -1711,6 +1697,9 @@ dab_access(trapframe_t *tf, u_int fsr, u_int far, struct proc *p)
 	paddr_t pa;
 	u_int l1idx;
 
+	if (!TRAP_USERMODE(tf) && far >= VM_MIN_KERNEL_ADDRESS)
+		pm = pmap_kernel();
+
 	l1idx = L1_IDX(va);
 
 	/*
@@ -1780,10 +1769,10 @@ pmap_collect(pmap_t pm)
  *
  */
 void
-pmap_proc_iflush(struct proc *p, vaddr_t va, vsize_t len)
+pmap_proc_iflush(struct process *pr, vaddr_t va, vsize_t len)
 {
 	/* We only need to do anything if it is the current process. */
-	if (p == curproc)
+	if (pr == curproc->p_p)
 		cpu_icache_sync_range(va, len);
 }
 
@@ -2217,11 +2206,7 @@ pmap_get_pde_pte(pmap_t pm, vaddr_t va, pd_entry_t **pdp, pt_entry_t **ptp)
 		return (TRUE);
 	}
 
-	if (pm->pm_l2 == NULL)
-		return (FALSE);
-
 	l2 = pm->pm_l2[L2_IDX(l1idx)];
-
 	if (l2 == NULL ||
 	    (ptep = l2->l2_bucket[L2_BUCKET(l1idx)].l2b_kva) == NULL) {
 		return (FALSE);
@@ -2396,30 +2381,14 @@ pmap_bootstrap(pd_entry_t *kernel_l1pt, vaddr_t vstart, vaddr_t vend)
 	/*
 	 * Initialize the pmap pool.
 	 */
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
 	    "pmappl", &pool_allocator_single);
-	pool_setipl(&pmap_pmap_pool, IPL_NONE);
-
-	/*
-	 * Initialize the pv pool.
-	 */
-	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvepl",
-	    &pmap_bootstrap_pv_allocator);
-	pool_setipl(&pmap_pv_pool, IPL_VM);
-
-	/*
-	 * Initialize the L2 dtable pool.
-	 */
-	pool_init(&pmap_l2dtable_pool, sizeof(struct l2_dtable), 0, 0, 0,
+	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, IPL_VM, 0,
+	    "pvepl", &pmap_bootstrap_pv_allocator);
+	pool_init(&pmap_l2dtable_pool, sizeof(struct l2_dtable), 0, IPL_VM, 0,
 	    "l2dtblpl", NULL);
-	pool_setipl(&pmap_l2dtable_pool, IPL_VM);
-
-	/*
-	 * Initialise the L2 descriptor table pool.
-	 */
-	pool_init(&pmap_l2ptp_pool, L2_TABLE_SIZE_REAL, L2_TABLE_SIZE_REAL, 0,
-	    0, "l2ptppl", &pool_allocator_single);
-	pool_setipl(&pmap_l2ptp_pool, IPL_VM);
+	pool_init(&pmap_l2ptp_pool, L2_TABLE_SIZE_REAL, L2_TABLE_SIZE_REAL,
+	    IPL_VM, 0, "l2ptppl", &pool_allocator_single);
 
 	cpu_dcache_wbinv_all();
 	cpu_sdcache_wbinv_all();

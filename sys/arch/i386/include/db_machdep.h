@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.25 2016/04/27 11:10:48 mpi Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.27 2017/04/30 13:04:49 mpi Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.9 1996/05/03 19:23:59 christos Exp $	*/
 
 /* 
@@ -51,6 +51,9 @@ extern db_regs_t	ddb_regs;	/* register state */
 #define	BKPT_SIZE	(1)		/* size of breakpoint inst */
 #define	BKPT_SET(inst)	(BKPT_INST)
 
+#define	SSF_INST	0x55
+#define	SSF_SIZE	(1)
+
 #define	FIXUP_PC_AFTER_BREAK(regs)	((regs)->tf_eip -= BKPT_SIZE)
 
 #define	db_clear_single_step(regs)	((regs)->tf_eflags &= ~PSL_T)
@@ -71,15 +74,6 @@ extern db_regs_t	ddb_regs;	/* register state */
 				  ((ins)&0x3800) == 0x1000))
 
 #define DB_MACHINE_COMMANDS
-
-/*
- * Constants for KGDB.
- */
-typedef	long		kgdb_reg_t;
-#define	KGDB_NUMREGS	16
-#define	KGDB_BUFLEN	512
-
-#define KGDB_ENTER	breakpoint()
 
 /* macro for checking if a thread has used floating-point */
 

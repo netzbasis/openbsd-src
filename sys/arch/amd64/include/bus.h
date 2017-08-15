@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus.h,v 1.32 2015/01/24 15:13:55 kettenis Exp $	*/
+/*	$OpenBSD: bus.h,v 1.34 2017/06/04 06:21:37 sf Exp $	*/
 /*	$NetBSD: bus.h,v 1.6 1996/11/10 03:19:25 thorpej Exp $	*/
 
 /*-
@@ -525,6 +525,7 @@ extern const struct x86_bus_space_ops x86_bus_space_mem_ops;
 #define	BUS_DMA_WRITE		0x0400	/* mapping is memory -> device only */
 #define	BUS_DMA_NOCACHE		0x0800	/* map memory uncached */
 #define	BUS_DMA_ZERO		0x1000	/* zero memory in dmamem_alloc */
+#define	BUS_DMA_64BIT		0x2000	/* device handles 64bit dva */
 
 /* Forwards needed by prototypes below. */
 struct mbuf;
@@ -647,10 +648,10 @@ struct bus_dmamap {
 	 * PRIVATE MEMBERS: not for use by machine-independent code.
 	 */
 	bus_size_t	_dm_size;	/* largest DMA transfer mappable */
+	int		_dm_flags;	/* misc. flags */
 	int		_dm_segcnt;	/* number of segs this map can map */
 	bus_size_t	_dm_maxsegsz;	/* largest possible segment */
 	bus_size_t	_dm_boundary;	/* don't cross this */
-	int		_dm_flags;	/* misc. flags */
 
 	void		*_dm_cookie;	/* cookie for bus-specific functions */
 

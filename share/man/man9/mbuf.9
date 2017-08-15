@@ -1,4 +1,4 @@
-.\"     $OpenBSD: mbuf.9,v 1.102 2016/09/04 02:26:44 lteo Exp $
+.\"     $OpenBSD: mbuf.9,v 1.109 2017/06/19 18:36:13 jmc Exp $
 .\"
 .\" Copyright (c) 2001 Jean-Jacques Bernard-Gundol <jjbg@openbsd.org>
 .\" All rights reserved.
@@ -25,11 +25,10 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: September 4 2016 $
+.Dd $Mdocdate: June 19 2017 $
 .Dt MGET 9
 .Os
 .Sh NAME
-.Nm m_copym2 ,
 .Nm m_copym ,
 .Nm m_free ,
 .Nm m_get ,
@@ -43,12 +42,13 @@
 .Nm m_pulldown ,
 .Nm m_pullup ,
 .Nm m_split ,
-.Nm m_inject ,
+.Nm m_makespace ,
 .Nm m_getptr ,
 .Nm m_adj ,
 .Nm m_copyback ,
 .Nm m_defrag ,
 .Nm m_freem ,
+.Nm m_freemp ,
 .Nm m_purge ,
 .Nm m_reclaim ,
 .Nm m_copydata ,
@@ -69,8 +69,6 @@
 .Nd kernel memory management for networking protocols
 .Sh SYNOPSIS
 .In sys/mbuf.h
-.Ft struct mbuf *
-.Fn m_copym2 "struct mbuf *m" "int off" "int len" "int wait"
 .Ft struct mbuf *
 .Fn m_copym "struct mbuf *m" "int off" "int len" "int wait"
 .Ft struct mbuf *
@@ -95,7 +93,7 @@
 .Ft struct mbuf *
 .Fn m_split "struct mbuf *m0" "int len0" "int wait"
 .Ft struct mbuf *
-.Fn m_inject "struct mbuf *m0" "int len0" "int siz" "int wait"
+.Fn m_makespace "struct mbuf *m0" "int skip" "int hlen" "int *off"
 .Ft struct mbuf *
 .Fn m_getptr "struct mbuf *m" "int loc" "int *off"
 .Ft void
@@ -106,6 +104,8 @@
 .Fn m_defrag "struct mbuf *m" "int wait"
 .Ft struct mbuf *
 .Fn m_freem "struct mbuf *m"
+.Ft struct mbuf *
+.Fn m_freemp "struct mbuf **mp"
 .Ft void
 .Fn m_purge "struct mbuf *m"
 .Ft void
@@ -115,7 +115,7 @@
 .Ft void
 .Fn m_cat "struct mbuf *m" "struct mbuf *n"
 .Ft struct mbuf *
-.Fn m_devget "char *buf" "int totlen" "int off" "struct ifnet *ifp"
+.Fn m_devget "char *buf" "int totlen" "int off"
 .Ft int
 .Fn m_apply "struct mbuf *m" "int off" "int len" \
 "int (*func)(caddr_t, caddr_t, unsigned int)" "caddr_t fstate"
@@ -157,11 +157,15 @@ struct m_hdr {
         u_int   mh_len;
         short   mh_type;
         u_short mh_flags;
+#ifndef __LP64__
+        u_int   mh_pad;
+#endif
 };
 
 struct pkthdr {
 	void			*ph_cookie;
 	SLIST_HEAD(, m_tag)	 ph_tags;
+	int64_t			 ph_timestamp;
 	int			 len;
 	u_int16_t		 ph_tagsset;
 	u_int16_t		 ph_flowid;
@@ -186,8 +190,8 @@ struct pkthdr_pf {
 
 struct mbuf_ext {
 	caddr_t ext_buf;
-	void    (*ext_free)(caddr_t, u_int, void *);
-	void    *ext_arg;
+	void	*ext_arg;
+	u_int	ext_free_fn;
 	u_int   ext_size;
 	struct mbuf *ext_nextref;
 	struct mbuf *ext_prevref;
@@ -298,9 +302,9 @@ for mbuf statistics.
 .It Dv M_ACAST
 received as IPv6 anycast.
 .It Dv M_BCAST
-packet send/received as link-level broadcast.
+packet sent/received as link-level broadcast.
 .It Dv M_MCAST
-packet send/received as link-level multicast.
+packet sent/received as link-level multicast.
 .It Dv M_CONF
 packet was encrypted (ESP-transport).
 .It Dv M_AUTH
@@ -437,12 +441,6 @@ The
 parameter can be M_WAIT or
 M_DONTWAIT.
 It does not copy clusters, it just increases their reference count.
-.It Fn m_copym2 "struct mbuf *m" "int off" "int len" "int wait"
-The same as
-.Fn m_copym
-except that it copies cluster mbufs, whereas
-.Fn m_copym
-just increases the reference count of the clusters.
 .It Fn m_free "struct mbuf *m"
 Free the mbuf pointed to by
 .Fa m .
@@ -568,18 +566,18 @@ Split an mbuf chain in two pieces, returning a pointer to
 the tail (which is made of the previous mbuf chain except the first
 .Fa len0
 bytes).
-.It Fn m_inject "struct mbuf *m0" "int len0" "int siz" "int wait"
-Inject a new mbuf chain of length
-.Fa siz
-into the mbuf chain pointed to by
-.Fa m0
-at position
-.Fa len0 .
-If there is enough space for an object of size
-.Fa siz
-in the appropriate location, no memory will be allocated.
-On failure, the function returns NULL (the mbuf is left untouched) and
-on success, a pointer to the first injected mbuf is returned.
+.It Fn m_makespace "struct mbuf *m0" "int skip" "int hlen" "int *off"
+Make space for a continuous memory region of length
+.Fa hlen
+at
+.Fa skip
+bytes into the mbuf chain.
+On success, the mbuf of the continuous memory is returned
+together with an offset
+.Fa off
+into the mbuf.
+On failure, NULL is returned and the mbuf chain may have been modified.
+The caller is assumed to always free the chain.
 .It Fn m_getptr "struct mbuf *m" "int loc" "int *off"
 Returns a pointer to the mbuf containing the data located at
 .Fa loc
@@ -642,6 +640,11 @@ is a
 pointer, no action occurs and
 .Dv NULL
 is returned.
+.It Fn m_freemp "struct mbuf **mp"
+Set the input mbuf pointer to
+.Dv NULL
+and call
+.Fn m_freem .
 .It Fn m_purge "struct mbuf *m"
 Free the list of mbufs linked by m_nextpkt that is pointed to by
 .Fa m .
@@ -669,7 +672,7 @@ Concatenate the mbuf chain pointed to by
 to the mbuf chain pointed to by
 .Fa m .
 The mbuf chains must be of the same type.
-.It Fn m_devget "char *buf" "int totlen" "int off" "struct ifnet *ifp"
+.It Fn m_devget "char *buf" "int totlen" "int off"
 Copy
 .Fa totlen
 bytes of data from device local memory pointed to by

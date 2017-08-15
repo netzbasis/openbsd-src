@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.62 2016/09/05 10:20:40 gsoares Exp $	*/
+/*	$OpenBSD: init.c,v 1.65 2017/06/16 06:46:54 natano Exp $	*/
 /*	$NetBSD: init.c,v 1.22 1996/05/15 23:29:33 jtc Exp $	*/
 
 /*-
@@ -561,12 +561,13 @@ f_single_user(void)
 			write(STDERR_FILENO, banner, sizeof banner - 1);
 			for (;;) {
 				int ok = 0;
-				clear = readpassphrase("Password:", pbuf, sizeof(pbuf), RPP_ECHO_OFF);
+				clear = readpassphrase("Password:", pbuf,
+				    sizeof(pbuf), RPP_ECHO_OFF);
 				if (clear == NULL || *clear == '\0')
 					_exit(0);
 				if (crypt_checkpass(clear, pp->pw_passwd) == 0)
 					ok = 1;
-				memset(clear, 0, strlen(clear));
+				explicit_bzero(pbuf, sizeof(pbuf));
 				if (ok)
 					break;
 				warning("single-user login failed\n");
@@ -1324,14 +1325,14 @@ f_nice_death(void)
 	static const int death_sigs[3] = { SIGHUP, SIGTERM, SIGKILL };
 	int status;
 
-#ifdef CPU_LIDSUSPEND
-	int lidsuspend_mib[] = {CTL_MACHDEP, CPU_LIDSUSPEND};
-	int dontsuspend = 0;
+#ifdef CPU_LIDACTION
+	int mib[] = {CTL_MACHDEP, CPU_LIDACTION};
+	int lidaction = 0;
 
 	if ((death_howto & RB_POWERDOWN) &&
-	    (sysctl(lidsuspend_mib, 2, NULL, NULL, &dontsuspend,
-		    sizeof(dontsuspend)) == -1) && (errno != EOPNOTSUPP))
-			warning("cannot disable lid suspend");
+	    (sysctl(mib, 2, NULL, NULL, &lidaction,
+		    sizeof(lidaction)) == -1) && (errno != EOPNOTSUPP))
+			warning("cannot disable lid action");
 #endif
 
 	for (sp = sessions; sp; sp = sp->se_next) {

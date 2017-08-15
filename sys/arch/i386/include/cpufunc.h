@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.22 2014/03/29 18:09:29 guenther Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.27 2017/08/08 15:53:55 visa Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.8 1994/10/27 04:15:59 cgd Exp $	*/
 
 /*
@@ -56,7 +56,6 @@ static __inline u_int rcr3(void);
 static __inline void lcr4(u_int);
 static __inline u_int rcr4(void);
 static __inline void tlbflush(void);
-static __inline void tlbflushg(void);
 static __inline void disable_intr(void);
 static __inline void enable_intr(void);
 static __inline u_int read_eflags(void);
@@ -150,37 +149,6 @@ tlbflush(void)
 	__asm volatile("movl %0,%%cr3" : : "r" (val));
 }
 
-static __inline void
-tlbflushg(void)
-{
-	/*
-	 * Big hammer: flush all TLB entries, including ones from PTE's
-	 * with the G bit set.  This should only be necessary if TLB
-	 * shootdown falls far behind.
-	 *
-	 * Intel Architecture Software Developer's Manual, Volume 3,
-	 *	System Programming, section 9.10, "Invalidating the
-	 * Translation Lookaside Buffers (TLBS)":
-	 * "The following operations invalidate all TLB entries, irrespective
-	 * of the setting of the G flag:
-	 * ...
-	 * "(P6 family processors only): Writing to control register CR4 to
-	 * modify the PSE, PGE, or PAE flag."
-	 *
-	 * (the alternatives not quoted above are not an option here.)
-	 *
-	 * If PGE is not in use, we reload CR3 for the benefit of
-	 * pre-P6-family processors.
-	 */
-
-	if (cpu_feature & CPUID_PGE) {
-		u_int cr4 = rcr4();
-		lcr4(cr4 & ~CR4_PGE);
-		lcr4(cr4);
-	} else
-		tlbflush();
-}
-
 #ifdef notyet
 void	setidt(int idx, /*XXX*/caddr_t func, int typ, int dpl);
 #endif
@@ -215,6 +183,22 @@ write_eflags(u_int ef)
 	__asm volatile("pushl %0; popfl" : : "r" (ef));
 }
 
+static inline u_long
+intr_disable(void)
+{
+	u_long ef;
+
+	ef = read_eflags();
+	disable_intr();
+	return (ef);
+}
+
+static inline void
+intr_restore(u_long ef)
+{
+	write_eflags(ef);
+}
+
 static __inline void
 wbinvd(void)
 {
@@ -231,6 +215,15 @@ static __inline void
 mfence(void)
 {
 	__asm volatile("mfence" : : : "memory");
+}
+
+static __inline u_int64_t
+rdtsc(void)
+{
+	uint64_t tsc;
+
+	__asm volatile("rdtsc" : "=A" (tsc));
+	return (tsc);
 }
 
 static __inline void
@@ -287,15 +280,12 @@ wrmsr_locked(u_int msr, u_int code, u_int64_t newval)
 	    : "A" (newval), "c" (msr), "D" (code));
 }
 
-/* Break into DDB/KGDB. */
+/* Break into DDB. */
 static __inline void
 breakpoint(void)
 {
 	__asm volatile("int $3");
 }
-
-#define read_psl()	read_eflags()
-#define write_psl(x)	write_eflags(x)
 
 void amd64_errata(struct cpu_info *);
 

@@ -1,6 +1,6 @@
 ./.cshrc
 ./.profile
-./etc/acme
+./etc/acme-client.conf
 ./etc/changelist
 ./etc/dumpdates
 ./etc/fbtab
@@ -39,8 +39,6 @@
 ./etc/spwd.db
 ./etc/ssh/ssh_config
 ./etc/ssh/sshd_config
-./etc/ssl/acme
-./etc/ssl/acme/private
 ./etc/ssl/cert.pem
 ./etc/ssl/ikeca.cnf
 ./etc/ssl/openssl.cnf
@@ -52,6 +50,7 @@
 ./root/.cvsrc
 ./root/.login
 ./root/.profile
+./root/.ssh/authorized_keys
 ./var/crash/minfree
 ./var/cron/at.deny
 ./var/cron/cron.deny
@@ -73,7 +72,6 @@
 ./var/nsd/etc/nsd.conf
 ./var/sysmerge/etcsum
 ./var/unbound/etc/unbound.conf
-./var/www/acme
 ./var/www/conf/bgplg.css
 ./var/www/conf/bgplg.foot
 ./var/www/conf/bgplg.head

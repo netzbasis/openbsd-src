@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.40 2015/05/22 12:52:00 jsg Exp $	*/
+/*	$OpenBSD: midi.c,v 1.43 2017/07/19 22:23:54 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Alexandre Ratchov
@@ -26,7 +26,6 @@
 #include <sys/timeout.h>
 #include <sys/vnode.h>
 #include <sys/signalvar.h>
-#include <sys/malloc.h>
 #include <sys/device.h>
 
 #include <dev/midi_if.h>
@@ -98,8 +97,6 @@ midi_iintr(void *addr, int data)
 			wakeup(&sc->rchan);
 		}
 		selwakeup(&sc->rsel);
-		if (sc->async)
-			psignal(sc->async, SIGIO);
 	}
 }
 
@@ -125,18 +122,15 @@ midiread(dev_t dev, struct uio *uio, int ioflag)
 	mtx_enter(&audio_lock);
 	while (MIDIBUF_ISEMPTY(mb)) {
 		if (ioflag & IO_NDELAY) {
-			mtx_leave(&audio_lock);
 			error = EWOULDBLOCK;
-			goto done;
+			goto done_mtx;
 		}
 		sc->rchan = 1;
 		error = msleep(&sc->rchan, &audio_lock, PWAIT | PCATCH, "mid_rd", 0);
 		if (!(sc->dev.dv_flags & DVF_ACTIVE))
 			error = EIO;
-		if (error) {
-			mtx_leave(&audio_lock);
-			goto done;
-		}
+		if (error)
+			goto done_mtx;
 	}
 
 	/* at this stage, there is at least 1 byte */
@@ -154,6 +148,8 @@ midiread(dev_t dev, struct uio *uio, int ioflag)
 		mtx_enter(&audio_lock);
 		MIDIBUF_REMOVE(mb, count);
 	}
+
+done_mtx:
 	mtx_leave(&audio_lock);
 done:
 	device_unref(&sc->dev);
@@ -208,8 +204,6 @@ midi_out_stop(struct midi_softc *sc)
 		wakeup(&sc->wchan);
 	}
 	selwakeup(&sc->wsel);
-	if (sc->async)
-		psignal(sc->async, SIGIO);
 }
 
 void
@@ -262,9 +256,8 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 	error = 0;
 	mtx_enter(&audio_lock);
 	if ((ioflag & IO_NDELAY) && MIDIBUF_ISFULL(mb) && (uio->uio_resid > 0)) {
-		mtx_leave(&audio_lock);
 		error = EWOULDBLOCK;
-		goto done;
+		goto done_mtx;
 	}
 
 	while (uio->uio_resid > 0) {
@@ -274,18 +267,15 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 				 * At this stage at least one byte is already
 				 * moved so we do not return EWOULDBLOCK
 				 */
-				mtx_leave(&audio_lock);
-				goto done;
+				goto done_mtx;
 			}
 			sc->wchan = 1;
 			error = msleep(&sc->wchan, &audio_lock,
 			    PWAIT | PCATCH, "mid_wr", 0);
 			if (!(sc->dev.dv_flags & DVF_ACTIVE))
 				error = EIO;
-			if (error) {
-				mtx_leave(&audio_lock);
-				goto done;
-			}
+			if (error)
+				goto done_mtx;
 		}
 
 		count = MIDIBUF_SIZE - MIDIBUF_END(mb);
@@ -301,6 +291,8 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 		mb->used += count;
 		midi_out_start(sc);
 	}
+
+done_mtx:
 	mtx_leave(&audio_lock);
 done:
 	device_unref(&sc->dev);
@@ -431,20 +423,9 @@ midiioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	case FIONBIO:
 		/* All handled in the upper FS layer */
 		break;
-	case FIOASYNC:
-		if (*(int *)addr) {
-			if (sc->async) {
-				error = EBUSY;
-				goto done;
-			}
-			sc->async = p;
-		} else
-			sc->async = 0;
-		break;
 	default:
 		error = ENOTTY;
 	}
-done:
 	device_unref(&sc->dev);
 	return error;
 }
@@ -467,7 +448,6 @@ midiopen(dev_t dev, int flags, int mode, struct proc *p)
 	MIDIBUF_INIT(&sc->outbuf);
 	sc->isbusy = 0;
 	sc->rchan = sc->wchan = 0;
-	sc->async = 0;
 	sc->flags = flags;
 	error = sc->hw_if->open(sc->hw_hdl, flags, midi_iintr, midi_ointr, sc);
 	if (error)

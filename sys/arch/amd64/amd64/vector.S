@@ -1,4 +1,4 @@
-/*	$OpenBSD: vector.S,v 1.47 2016/09/04 09:22:28 mpi Exp $	*/
+/*	$OpenBSD: vector.S,v 1.49 2017/06/29 17:17:28 deraadt Exp $	*/
 /*	$NetBSD: vector.S,v 1.5 2004/06/28 09:13:11 fvdl Exp $	*/
 
 /*
@@ -286,7 +286,7 @@ calltrap:
 	jne	3f
 	INTRFASTEXIT
 3:	sti
-	movabsq	$4f,%rdi
+	movabsq	$spl_lowered,%rdi
 	movl	CPUVAR(ILEVEL),%esi
 	movl	%ebx,%edx
 	xorq	%rax,%rax
@@ -296,7 +296,11 @@ calltrap:
 #endif /* DDB */
 	movl	%ebx,CPUVAR(ILEVEL)
 	jmp	2b
-4:	.asciz	"WARNING: SPL NOT LOWERED ON TRAP EXIT %x %x\n"
+
+	.section .rodata
+spl_lowered:
+	.asciz	"WARNING: SPL NOT LOWERED ON TRAP EXIT %x %x\n"
+	.text
 #endif /* DIAGNOSTIC */
 
 
@@ -778,6 +782,8 @@ INTRSTUB(ioapic_level,63,voidop,ioapic_asm_ack,voidop,ioapic_unmask,ioapic_mask)
 
 #endif
 
+	.section .rodata
+
 	.globl _C_LABEL(i8259_stubs)
 _C_LABEL(i8259_stubs):
 	.quad _C_LABEL(Xintr_legacy0), _C_LABEL(Xrecurse_legacy0)
@@ -1077,7 +1083,6 @@ _C_LABEL(ioapic_level_stubs):
 	.quad _C_LABEL(Xresume_ioapic_level63)
 #endif
 
-	.data
 /*
  * Soft interrupt handlers
  */

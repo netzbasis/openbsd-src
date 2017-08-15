@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.25 2016/03/14 23:08:05 krw Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.29 2017/07/19 14:34:10 kettenis Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /*
@@ -70,7 +70,8 @@ extern char *trap_type[];
 extern int trap_types;
 
 #ifdef MULTIPROCESSOR
-struct mutex ddb_mp_mutex = MUTEX_INITIALIZER(IPL_HIGH);
+struct mutex ddb_mp_mutex =
+    MUTEX_INITIALIZER_FLAGS(IPL_HIGH, "ddb_mp_mutex", MTX_NOWITNESS);
 volatile int ddb_state = DDB_STATE_NOT_RUNNING;
 volatile cpuid_t ddb_active_cpu;
 boolean_t	 db_switch_cpu;
@@ -111,13 +112,14 @@ db_ktrap(int type, int code, db_regs_t *regs)
 	int s;
 
 #if NWSDISPLAY > 0
-	wsdisplay_switchtoconsole();
+	wsdisplay_enter_ddb();
 #endif
 
 	switch (type) {
 	case T_BPTFLT:	/* breakpoint */
 	case T_TRCTRAP:	/* single_step */
 	case T_NMI:	/* NMI */
+	case T_NMI|T_USER:
 	case -1:	/* keyboard interrupt */
 		break;
 	default:
@@ -350,7 +352,7 @@ db_stopcpu(int cpu)
 void
 x86_ipi_db(struct cpu_info *ci)
 {
-	Debugger();
+	db_enter();
 }
 #endif /* MULTIPROCESSOR */
 
@@ -394,7 +396,7 @@ db_machine_init(void)
 }
 
 void
-Debugger(void)
+db_enter(void)
 {
 	breakpoint();
 }

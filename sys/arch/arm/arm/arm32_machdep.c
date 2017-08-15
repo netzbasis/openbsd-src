@@ -1,4 +1,4 @@
-/*	$OpenBSD: arm32_machdep.c,v 1.50 2016/09/03 15:07:06 guenther Exp $	*/
+/*	$OpenBSD: arm32_machdep.c,v 1.54 2017/08/12 13:18:48 tedu Exp $	*/
 /*	$NetBSD: arm32_machdep.c,v 1.42 2003/12/30 12:33:15 pk Exp $	*/
 
 /*
@@ -103,11 +103,7 @@ extern paddr_t msgbufphys;
 struct user *proc0paddr;
 
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 struct consdev *cn_tab;
@@ -261,7 +257,7 @@ cpu_startup()
 	 * Identify ourselves for the msgbuf (everything printed earlier will
 	 * not be buffered).
 	 */
-	printf(version);
+	printf("%s", version);
 
 	printf("real mem  = %lu (%luMB)\n", ptoa(physmem),
 	    ptoa(physmem)/1024/1024);
@@ -304,18 +300,9 @@ cpu_startup()
  */
 
 int
-cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
-	int *name;
-	u_int namelen;
-	void *oldp;
-	size_t *oldlenp;
-	void *newp;
-	size_t newlen;
-	struct proc *p;
+cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen, struct proc *p)
 {
-#if NAPM > 0
-	extern int cpu_apmwarn;
-#endif
 
 	/* all sysctl names at this level are terminal */
 	if (namelen != 1)
@@ -342,11 +329,6 @@ cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
 			    &allowaperture));
 #else
 		return (sysctl_rdint(oldp, oldlenp, newp, 0));
-#endif
-
-#if NAPM > 0
-	case CPU_APMWARN:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &cpu_apmwarn));
 #endif
 
 	default:

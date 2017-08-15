@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_denode.c,v 1.57 2016/06/19 11:54:33 natano Exp $	*/
+/*	$OpenBSD: msdosfs_denode.c,v 1.59 2017/08/14 22:43:56 sf Exp $	*/
 /*	$NetBSD: msdosfs_denode.c,v 1.23 1997/10/17 11:23:58 ws Exp $	*/
 
 /*-
@@ -233,7 +233,7 @@ retry:
 		return (error);
 	}
 	ldep = malloc(sizeof(*ldep), M_MSDOSFSNODE, M_WAITOK | M_ZERO);
-	rrw_init(&ldep->de_lock, "denode");
+	rrw_init_flags(&ldep->de_lock, "denode", RWL_DUPOK);
 	nvp->v_data = ldep;
 	ldep->de_vnode = nvp;
 	ldep->de_flag = 0;
@@ -324,7 +324,7 @@ retry:
 
 		nvp->v_type = VDIR;
 		if (ldep->de_StartCluster != MSDOSFSROOT) {
-			error = pcbmap(ldep, 0xffff, 0, &size, 0);
+			error = pcbmap(ldep, CLUST_END, 0, &size, 0);
 			if (error == E2BIG) {
 				ldep->de_FileSize = de_cn2off(pmp, size);
 				error = 0;

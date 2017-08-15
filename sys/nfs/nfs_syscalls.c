@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_syscalls.c,v 1.105 2016/08/30 07:12:49 dlg Exp $	*/
+/*	$OpenBSD: nfs_syscalls.c,v 1.110 2017/08/09 14:22:58 mpi Exp $	*/
 /*	$NetBSD: nfs_syscalls.c,v 1.19 1996/02/18 11:53:52 fvdl Exp $	*/
 
 /*
@@ -112,16 +112,24 @@ int (*nfsrv3_procs[NFS_NPROCS])(struct nfsrv_descript *,
 };
 #endif
 
-struct nfssvc_sockhead nfssvc_sockhead;
+TAILQ_HEAD(, nfssvc_sock) nfssvc_sockhead;
 struct nfsdhead nfsd_head;
 
 int nfssvc_sockhead_flag;
+#define	SLP_INIT	0x01	/* NFS data undergoing initialization */
+#define	SLP_WANTINIT	0x02	/* thread waiting on NFS initialization */
 int nfsd_head_flag;
 
 #ifdef NFSCLIENT
 struct proc *nfs_asyncdaemon[NFS_MAXASYNCDAEMON];
 int nfs_niothreads = -1;
 #endif
+
+int nfssvc_addsock(struct file *, struct mbuf *);
+int nfssvc_nfsd(struct nfsd *);
+void nfsrv_slpderef(struct nfssvc_sock *);
+void nfsrv_zapsock(struct nfssvc_sock *);
+void nfssvc_iod(void *);
 
 /*
  * NFS server pseudo system call for the nfsd's
@@ -221,7 +229,7 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 	struct nfssvc_sock *slp;
 	struct socket *so;
 	struct nfssvc_sock *tslp;
-	int error, s;
+	int s, error;
 
 	so = (struct socket *)fp->f_data;
 	tslp = NULL;
@@ -239,8 +247,10 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 		siz = NFS_MAXPACKET + sizeof (u_long);
 	else
 		siz = NFS_MAXPACKET;
+	s = solock(so);
 	error = soreserve(so, siz, siz); 
 	if (error) {
+		sounlock(s);
 		m_freem(mynam);
 		return (error);
 	}
@@ -267,23 +277,21 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 	so->so_rcv.sb_timeo = 0;
 	so->so_snd.sb_flags &= ~SB_NOINTR;
 	so->so_snd.sb_timeo = 0;
+	sounlock(s);
 	if (tslp)
 		slp = tslp;
 	else {
-		slp = malloc(sizeof(*slp), M_NFSSVC,
-		    M_WAITOK|M_ZERO);
+		slp = malloc(sizeof(*slp), M_NFSSVC, M_WAITOK|M_ZERO);
 		TAILQ_INSERT_TAIL(&nfssvc_sockhead, slp, ns_chain);
 	}
 	slp->ns_so = so;
 	slp->ns_nam = mynam;
 	fp->f_count++;
 	slp->ns_fp = fp;
-	s = splsoftnet();
 	so->so_upcallarg = (caddr_t)slp;
 	so->so_upcall = nfsrv_rcv;
 	slp->ns_flag = (SLP_VALID | SLP_NEEDQ);
 	nfsrv_wakenfsd(slp);
-	splx(s);
 	return (0);
 }
 
@@ -301,11 +309,10 @@ nfssvc_nfsd(struct nfsd *nfsd)
 	int *solockp;
 	struct nfsrv_descript *nd = NULL;
 	struct mbuf *mreq;
-	int error = 0, cacherep, s, sotype;
+	int error = 0, cacherep, sotype;
 
 	cacherep = RC_DOIT;
 
-	s = splsoftnet();
 	TAILQ_INSERT_TAIL(&nfsd_head, nfsd, nfsd_chain);
 	nfs_numnfsd++;
 
@@ -348,8 +355,6 @@ loop:
 		nfsrv_slpderef(slp);
 		goto loop;
 	}
-
-	splx(s);
 
 	so = slp->ns_so;
 	sotype = so->so_type;
@@ -426,7 +431,6 @@ loop:
 		if (error == EINTR || error == ERESTART) {
 			pool_put(&nfsrv_descript_pl, nd);
 			nfsrv_slpderef(slp);
-			s = splsoftnet();
 			goto done;
 		}
 		break;
@@ -441,7 +445,6 @@ loop:
 		nd = NULL;
 	}
 
-	s = splsoftnet();
 	if (nfsrv_dorec(slp, nfsd, &nd)) {
 		nfsd->nfsd_flag &= ~NFSD_REQINPROG;
 		nfsd->nfsd_slp = NULL;
@@ -451,7 +454,6 @@ loop:
 
 done:
 	TAILQ_REMOVE(&nfsd_head, nfsd, nfsd_chain);
-	splx(s);
 	free(nfsd, M_NFSD, sizeof(*nfsd));
 	if (--nfs_numnfsd == 0)
 		nfsrv_init(1);	/* Reinitialize everything */
@@ -547,8 +549,7 @@ nfsrv_init(int terminating)
 
 	if (!terminating) {
 		pool_init(&nfsrv_descript_pl, sizeof(struct nfsrv_descript),
-		    0, 0, PR_WAITOK, "ndscpl", NULL);
-		pool_setipl(&nfsrv_descript_pl, IPL_NONE);
+		    0, IPL_NONE, PR_WAITOK, "ndscpl", NULL);
 	}
 }
 #endif /* NFSSERVER */

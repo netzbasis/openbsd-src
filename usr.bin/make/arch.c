@@ -1,4 +1,4 @@
-/*	$OpenBSD: arch.c,v 1.86 2015/12/11 21:37:03 mmcc Exp $ */
+/*	$OpenBSD: arch.c,v 1.89 2017/07/24 12:07:46 espie Exp $ */
 /*	$NetBSD: arch.c,v 1.17 1996/11/06 17:58:59 christos Exp $	*/
 
 /*
@@ -242,6 +242,10 @@ parse_archive(Buffer expand, const char **linePtr, Lst nodeLst, SymTable *ctxt)
 		elib = lib + strlen(lib);
 	}
 
+	if (*cp == '\0') {
+		printf("Unclosed parenthesis in archive specification\n");
+		return false;
+	}
 	cp++;
 	/* iterate on members, that may be separated by spaces */
 	for (;;) {
@@ -266,7 +270,7 @@ parse_archive(Buffer expand, const char **linePtr, Lst nodeLst, SymTable *ctxt)
 		 * chances are there's something wrong (like a missing
 		 * backslash), so it's better to return failure than allow such
 		 * things to happen.  */
-		if (*cp == '\0') {
+		if (*cp == '\0' || ISSPACE(*cp)) {
 			printf("No closing parenthesis in archive specification\n");
 			return false;
 		}
@@ -320,7 +324,7 @@ parse_archive(Buffer expand, const char **linePtr, Lst nodeLst, SymTable *ctxt)
 			Lst_Init(&members);
 
 			Dir_Expandi(member, emember, defaultPath, &members);
-			while ((m = (char *)Lst_DeQueue(&members)) != NULL) {
+			while ((m = Lst_DeQueue(&members)) != NULL) {
 				Buf_Addi(expand, lib, elib);
 				Buf_AddChar(expand, '(');
 				Buf_AddString(expand, m);
@@ -407,7 +411,7 @@ read_archive(const char *archive, const char *earchive)
 
 		/*  Whole archive read ok.  */
 		if (n == 0 && feof(arch)) {
-			efree(list.fnametab);
+			free(list.fnametab);
 			fclose(arch);
 			return ar;
 		}
@@ -491,7 +495,7 @@ read_archive(const char *archive, const char *earchive)
 
 	fclose(arch);
 	ohash_delete(&ar->members);
-	efree(list.fnametab);
+	free(list.fnametab);
 	free(ar);
 	return NULL;
 }
@@ -758,7 +762,7 @@ ArchFindMember(
 #endif
 			if (length == sizeof(arHeaderPtr->ar_name) ||
 			    memberName[length] == ' ') {
-				efree(list.fnametab);
+				free(list.fnametab);
 				return arch;
 			}
 		}
@@ -782,7 +786,7 @@ ArchFindMember(
 				continue;
 			/* Got the entry.  */
 			if (strcmp(memberName, member) == 0) {
-				efree(list.fnametab);
+				free(list.fnametab);
 				return arch;
 			}
 		}
@@ -808,7 +812,7 @@ ArchFindMember(
 				printf("ArchFind: Extended format entry for %s\n", ename);
 			/* Found as extended name.	*/
 			if (strcmp(ename, member) == 0) {
-				efree(list.fnametab);
+				free(list.fnametab);
 				return arch;
 			}
 		}
@@ -822,7 +826,7 @@ ArchFindMember(
 	/* We did not find the member, or we ran into an error while reading
 	 * the archive.  */
 #ifdef SVRARCHIVES
-	efree(list.fnametab);
+	free(list.fnametab);
 #endif
 	fclose(arch);
 	return NULL;
@@ -875,7 +879,7 @@ Arch_MemMTime(GNode *gn)
 		char *nameStart;
 		char *nameEnd;
 
-		pgn = (GNode *)Lst_Datum(ln);
+		pgn = Lst_Datum(ln);
 
 		if (pgn->type & OP_ARCHV) {
 			/* If the parent is an archive specification and is

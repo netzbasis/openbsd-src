@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tl.c,v 1.69 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_tl.c,v 1.71 2017/07/13 17:44:36 naddy Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998
@@ -272,7 +272,7 @@ void tl_miibus_writereg(struct device *, int, int, int);
 void tl_miibus_statchg(struct device *);
 
 void tl_setmode(struct tl_softc *, uint64_t);
-int tl_calchash(caddr_t);
+int tl_calchash(u_int8_t *);
 void tl_iff(struct tl_softc *);
 void tl_setfilt(struct tl_softc *, caddr_t, int);
 void tl_softreset(struct tl_softc *, int);
@@ -747,7 +747,7 @@ tl_setmode(struct tl_softc *sc, uint64_t media)
  * the folded 24-bit value is split into 6-bit portions and XOR'd.
  */
 int
-tl_calchash(caddr_t addr)
+tl_calchash(u_int8_t *addr)
 {
 	int			t;
 
@@ -1326,7 +1326,6 @@ tl_stats_update(void *xsc)
 	*p++ = CSR_READ_4(sc, TL_DIO_DATA);
 	*p++ = CSR_READ_4(sc, TL_DIO_DATA);
 
-	ifp->if_opackets += tl_tx_goodframes(tl_stats);
 	ifp->if_collisions += tl_stats.tl_tx_single_collision +
 				tl_stats.tl_tx_multi_collision;
 	ifp->if_ierrors += tl_stats.tl_crc_errors + tl_stats.tl_code_errors +

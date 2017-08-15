@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sysctl.c,v 1.309 2016/09/07 17:30:12 natano Exp $	*/
+/*	$OpenBSD: kern_sysctl.c,v 1.330 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: kern_sysctl.c,v 1.17 1996/05/20 17:49:05 mrg Exp $	*/
 
 /*-
@@ -62,6 +62,7 @@
 #include <sys/namei.h>
 #include <sys/exec.h>
 #include <sys/mbuf.h>
+#include <sys/percpu.h>
 #include <sys/sensors.h>
 #include <sys/pipe.h>
 #include <sys/eventvar.h>
@@ -117,6 +118,8 @@ extern struct disklist_head disklist;
 extern fixpt_t ccpu;
 extern  long numvnodes;
 extern u_int net_livelocks;
+
+int allowkmem;
 
 extern void nmbclust_update(void);
 
@@ -259,11 +262,7 @@ char *disknames = NULL;
 size_t disknameslen;
 struct diskstats *diskstats = NULL;
 size_t diskstatslen;
-#ifdef INSECURE
-int securelevel = -1;
-#else
 int securelevel;
-#endif
 
 /*
  * kernel related system variables.
@@ -344,6 +343,12 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			return (EPERM);
 		securelevel = level;
 		return (0);
+	case KERN_ALLOWKMEM:
+		if (securelevel > 0)
+			return (sysctl_rdint(oldp, oldlenp, newp,
+			    allowkmem));
+		return (sysctl_int(oldp, oldlenp, newp, newlen,
+		    &allowkmem));
 	case KERN_HOSTNAME:
 		error = sysctl_tstring(oldp, oldlenp, newp, newlen,
 		    hostname, sizeof(hostname));
@@ -365,6 +370,7 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (sysctl_clockrate(oldp, oldlenp, newp));
 	case KERN_BOOTTIME: {
 		struct timeval bt;
+		memset(&bt, 0, sizeof bt);
 		TIMESPEC_TO_TIMEVAL(&bt, &boottime);
 		return (sysctl_rdstruct(oldp, oldlenp, newp, &bt, sizeof bt));
 	  }
@@ -386,9 +392,24 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case KERN_FILE:
 		return (sysctl_file(name + 1, namelen - 1, oldp, oldlenp, p));
 #endif
-	case KERN_MBSTAT:
-		return (sysctl_rdstruct(oldp, oldlenp, newp, &mbstat,
-		    sizeof(mbstat)));
+	case KERN_MBSTAT: {
+		extern struct cpumem *mbstat;
+		uint64_t counters[MBSTAT_COUNT];
+		struct mbstat mbs;
+		unsigned int i;
+
+		memset(&mbs, 0, sizeof(mbs));
+		counters_read(mbstat, counters, MBSTAT_COUNT);
+		for (i = 0; i < MBSTAT_TYPES; i++)
+			mbs.m_mtypes[i] = counters[i];
+
+		mbs.m_drops = counters[MBSTAT_DROPS];
+		mbs.m_wait = counters[MBSTAT_WAIT];
+		mbs.m_drain = counters[MBSTAT_DRAIN];
+
+		return (sysctl_rdstruct(oldp, oldlenp, newp,
+		    &mbs, sizeof(mbs)));
+	}
 #if defined(GPROF) || defined(DDBPROF)
 	case KERN_PROF:
 		return (sysctl_doprof(name + 1, namelen - 1, oldp, oldlenp,
@@ -410,22 +431,25 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &maxthread));
 	case KERN_NTHREADS:
 		return (sysctl_rdint(oldp, oldlenp, newp, nthreads));
-	case KERN_SOMAXCONN:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &somaxconn));
-	case KERN_SOMINCONN:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &sominconn));
-	case KERN_ARND: {
-		char buf[512];
-
-		if (*oldlenp > sizeof(buf))
-			return (EINVAL);
-		if (oldp) {
-			arc4random_buf(buf, *oldlenp);
-			if ((error = copyout(buf, oldp, *oldlenp)))
-				return (error);
-			explicit_bzero(buf, sizeof(buf));
-		}
-		return (0);
+	case KERN_SOMAXCONN: {
+		int val = somaxconn;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
+		if (error)
+			return error;
+		if (val < 0 || val > SHRT_MAX)
+			return EINVAL;
+		somaxconn = val;
+		return 0;
+	}
+	case KERN_SOMINCONN: {
+		int val = sominconn;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
+		if (error)
+			return error;
+		if (val < 0 || val > SHRT_MAX)
+			return EINVAL;
+		sominconn = val;
+		return 0;
 	}
 	case KERN_NOSUIDCOREDUMP:
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &nosuidcoredump));
@@ -615,6 +639,16 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return sysctl_int(oldp, oldlenp, newp, newlen, &global_ptrace);
 	}
 #endif
+	case KERN_DNSJACKPORT: {
+		extern uint16_t dnsjackport;
+		int port = dnsjackport;
+		if ((error = sysctl_int(oldp, oldlenp, newp, newlen, &port)))
+			return error;
+		if (port < 0 || port > USHRT_MAX)
+			return EINVAL;
+		dnsjackport = port;
+		return 0;
+	}
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -894,23 +928,24 @@ sysctl_rdquad(void *oldp, size_t *oldlenp, void *newp, int64_t val)
  */
 int
 sysctl_string(void *oldp, size_t *oldlenp, void *newp, size_t newlen, char *str,
-    int maxlen)
+    size_t maxlen)
 {
 	return sysctl__string(oldp, oldlenp, newp, newlen, str, maxlen, 0);
 }
 
 int
 sysctl_tstring(void *oldp, size_t *oldlenp, void *newp, size_t newlen,
-    char *str, int maxlen)
+    char *str, size_t maxlen)
 {
 	return sysctl__string(oldp, oldlenp, newp, newlen, str, maxlen, 1);
 }
 
 int
 sysctl__string(void *oldp, size_t *oldlenp, void *newp, size_t newlen,
-    char *str, int maxlen, int trunc)
+    char *str, size_t maxlen, int trunc)
 {
-	int len, error = 0;
+	size_t len;
+	int error = 0;
 
 	len = strlen(str) + 1;
 	if (oldp && *oldlenp < len) {
@@ -943,7 +978,8 @@ sysctl__string(void *oldp, size_t *oldlenp, void *newp, size_t newlen,
 int
 sysctl_rdstring(void *oldp, size_t *oldlenp, void *newp, const char *str)
 {
-	int len, error = 0;
+	size_t len;
+	int error = 0;
 
 	len = strlen(str) + 1;
 	if (oldp && *oldlenp < len)
@@ -962,7 +998,7 @@ sysctl_rdstring(void *oldp, size_t *oldlenp, void *newp, const char *str)
  */
 int
 sysctl_struct(void *oldp, size_t *oldlenp, void *newp, size_t newlen, void *sp,
-    int len)
+    size_t len)
 {
 	int error = 0;
 
@@ -985,7 +1021,7 @@ sysctl_struct(void *oldp, size_t *oldlenp, void *newp, size_t newlen, void *sp,
  */
 int
 sysctl_rdstruct(void *oldp, size_t *oldlenp, void *newp, const void *sp,
-    int len)
+    size_t len)
 {
 	int error = 0;
 
@@ -1074,6 +1110,7 @@ fill_file(struct kinfo_file *kf, struct file *fp, struct filedesc *fdp,
 			kf->va_size = va.va_size;
 			kf->va_rdev = va.va_rdev;
 			kf->va_fsid = va.va_fsid & 0xffffffff;
+			kf->va_nlink = va.va_nlink;
 		}
 		break;
 
@@ -1125,7 +1162,8 @@ fill_file(struct kinfo_file *kf, struct file *fp, struct filedesc *fdp,
 		case AF_INET6: {
 			struct inpcb *inpcb = so->so_pcb;
 
-			kf->inp_ppcb = PTRTOINT64(inpcb->inp_ppcb);
+			if (show_pointers)
+				kf->inp_ppcb = PTRTOINT64(inpcb->inp_ppcb);
 			kf->inp_lport = inpcb->inp_lport;
 			kf->inp_laddru[0] = inpcb->inp_laddr6.s6_addr32[0];
 			kf->inp_laddru[1] = inpcb->inp_laddr6.s6_addr32[1];
@@ -1196,8 +1234,7 @@ fill_file(struct kinfo_file *kf, struct file *fp, struct filedesc *fdp,
 		kf->p_uid = pr->ps_ucred->cr_uid;
 		kf->p_gid = pr->ps_ucred->cr_gid;
 		kf->p_tid = -1;
-		strlcpy(kf->p_comm, pr->ps_mainproc->p_comm,
-		    sizeof(kf->p_comm));
+		strlcpy(kf->p_comm, pr->ps_comm, sizeof(kf->p_comm));
 	}
 	if (fdp != NULL)
 		kf->fd_ofileflags = fdp->fd_ofileflags[fd];
@@ -1265,9 +1302,8 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 			extern struct inpcbtable rawin6pcbtable;
 #endif
 			struct inpcb *inp;
-			int s;
 
-			s = splnet();
+			NET_LOCK();
 			TAILQ_FOREACH(inp, &tcbtable.inpt_queue, inp_queue)
 				FILLSO(inp->inp_socket);
 			TAILQ_FOREACH(inp, &udbtable.inpt_queue, inp_queue)
@@ -1279,7 +1315,7 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 			    inp_queue)
 				FILLSO(inp->inp_socket);
 #endif
-			splx(s);
+			NET_UNLOCK();
 		}
 		fp = LIST_FIRST(&filehead);
 		/* don't FREF when f_count == 0 to avoid race in fdrop() */
@@ -1290,6 +1326,7 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 		FREF(fp);
 		do {
 			if (fp->f_count > 1 && /* 0, +1 for our FREF() */
+			    FILE_IS_USABLE(fp) &&
 			    (arg == 0 || fp->f_type == arg)) {
 				int af, skip = 0;
 				if (arg == DTYPE_SOCKET && fp->f_type == arg) {
@@ -1557,6 +1594,7 @@ fill_kproc(struct process *pr, struct kinfo_proc *ki, struct proc *p,
 {
 	struct session *s = pr->ps_session;
 	struct tty *tp;
+	struct vmspace *vm = pr->ps_vmspace;
 	struct timespec ut, st;
 	int isthread;
 
@@ -1565,11 +1603,10 @@ fill_kproc(struct process *pr, struct kinfo_proc *ki, struct proc *p,
 		p = pr->ps_mainproc;		/* XXX */
 
 	FILL_KPROC(ki, strlcpy, p, pr, pr->ps_ucred, pr->ps_pgrp,
-	    p, pr, s, pr->ps_vmspace, pr->ps_limit, pr->ps_sigacts, isthread,
+	    p, pr, s, vm, pr->ps_limit, pr->ps_sigacts, isthread,
 	    show_pointers);
 
 	/* stuff that's too painful to generalize into the macros */
-	ki->p_pid = pr->ps_pid;
 	if (pr->ps_pptr)
 		ki->p_ppid = pr->ps_pptr->ps_pid;
 	if (s->s_leader)
@@ -1587,8 +1624,8 @@ fill_kproc(struct process *pr, struct kinfo_proc *ki, struct proc *p,
 
 	/* fixups that can only be done in the kernel */
 	if ((pr->ps_flags & PS_ZOMBIE) == 0) {
-		if ((pr->ps_flags & PS_EMBRYO) == 0)
-			ki->p_vm_rssize = vm_resident_count(pr->ps_vmspace);
+		if ((pr->ps_flags & PS_EMBRYO) == 0 && vm != NULL)
+			ki->p_vm_rssize = vm_resident_count(vm);
 		calctsru(isthread ? &p->p_tu : &pr->ps_tu, &ut, &st, NULL);
 		ki->p_uutime_sec = ut.tv_sec;
 		ki->p_uutime_usec = ut.tv_nsec/1000;
@@ -1596,7 +1633,7 @@ fill_kproc(struct process *pr, struct kinfo_proc *ki, struct proc *p,
 		ki->p_ustime_usec = st.tv_nsec/1000;
 
 #ifdef MULTIPROCESSOR
-		if (isthread && p->p_cpu != NULL)
+		if (p->p_cpu != NULL)
 			ki->p_cpuid = CPU_INFO_UNIT(p->p_cpu);
 #endif
 	}
@@ -1967,7 +2004,7 @@ sysctl_proc_vmmap(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	}
 
 	pid = name[0];
-	if (pid == cp->p_pid) {
+	if (pid == cp->p_p->ps_pid) {
 		/* Self process mapping. */
 		findpr = cp->p_p;
 	} else if (pid > 0) {
@@ -2071,9 +2108,9 @@ sysctl_diskinit(int update, struct proc *p)
 		diskstats = NULL;
 		disknames = NULL;
 		diskstats = mallocarray(disk_count, sizeof(struct diskstats),
-		    M_SYSCTL, M_WAITOK);
+		    M_SYSCTL, M_WAITOK|M_ZERO);
 		diskstatslen = disk_count * sizeof(struct diskstats);
-		disknames = malloc(tlen, M_SYSCTL, M_WAITOK);
+		disknames = malloc(tlen, M_SYSCTL, M_WAITOK|M_ZERO);
 		disknameslen = tlen;
 		disknames[0] = '\0';
 

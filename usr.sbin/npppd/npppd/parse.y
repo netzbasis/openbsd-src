@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.17 2015/10/11 07:16:01 guenther Exp $ */
+/*	$OpenBSD: parse.y,v 1.19 2017/08/12 11:20:34 goda Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -676,6 +676,9 @@ authopt	: USERNAME_SUFFIX STRING {
 			    sizeof(curr_authconf->users_file_path));
 			free($2);
 		}
+		| USER_MAX_SESSION NUMBER {
+			curr_authconf->user_max_session = $2;
+		}
 		| AUTHENTICATION_SERVER {
 			if (curr_authconf->auth_type != NPPPD_AUTH_TYPE_RADIUS){
 				yyerror("`authentication-server' can not be "
@@ -835,6 +838,9 @@ ipcpopt		: POOL_ADDRESS STRING ipcppooltype {
 		}
 		| ALLOW_USER_SELECTED_ADDRESS yesno {
 			curr_ipcpconf->allow_user_select = $2;
+		}
+		| MAX_SESSION NUMBER {
+			curr_ipcpconf->max_session = $2;
 		}
 		;
 

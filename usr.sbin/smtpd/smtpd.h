@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.523 2016/09/04 09:33:49 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.535 2017/08/13 11:10:30 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -22,10 +22,12 @@
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
 
+#include <netinet/in.h>
+#include <event.h>
+
 #include "smtpd-defines.h"
 #include "smtpd-api.h"
 #include "ioev.h"
-#include "iobuf.h"
 
 #include "rfc2822.h"
 
@@ -101,6 +103,9 @@
 
 #define MTA_EXT_DSN		0x400
 
+
+#define P_NEWALIASES	0
+#define P_MAKEMAP	1
 
 struct userinfo {
 	char username[SMTPD_VUSERNAME_SIZE];
@@ -376,6 +381,7 @@ enum decision {
 };
 
 struct rule {
+	uint64_t			r_id;
 	TAILQ_ENTRY(rule)		r_entry;
 	enum decision			r_decision;
 	uint8_t				r_nottag;
@@ -395,7 +401,8 @@ struct rule {
 	struct table		       *r_destination;
 
 	uint8_t				r_wantauth;
-	
+	uint8_t				r_negwantauth;
+
 	enum action_type		r_action;
 	union rule_dest {
 		char			buffer[EXPAND_BUFFER];
@@ -1016,7 +1023,7 @@ struct msg {
 
 extern enum smtp_proc_type	smtpd_process;
 
-extern int verbose;
+extern int tracing;
 extern int foreground_log;
 extern int profiling;
 
@@ -1143,7 +1150,7 @@ int	uncompress_file(FILE *, FILE *);
 #define PURGE_RULES		0x04
 #define PURGE_PKI		0x08
 #define PURGE_PKI_KEYS		0x10
-#define PURGE_EVERYTHING	0x0f
+#define PURGE_EVERYTHING	0xff
 void purge_config(uint8_t);
 void config_process(enum smtp_proc_type);
 void config_peer(enum smtp_proc_type);
@@ -1193,18 +1200,6 @@ int expand_to_text(struct expand *, char *, size_t);
 RB_PROTOTYPE(expandtree, expandnode, nodes, expand_cmp);
 
 
-/* filter.c */
-void filter_postfork(void);
-void filter_configure(void);
-void filter_connect(uint64_t, const struct sockaddr *,
-    const struct sockaddr *, const char *, const char *);
-void filter_mailaddr(uint64_t, int, const struct mailaddr *);
-void filter_line(uint64_t, int, const char *);
-void filter_eom(uint64_t, int, size_t);
-void filter_event(uint64_t, int);
-void filter_build_fd_chain(uint64_t, int);
-
-
 /* forward.c */
 int forwards_get(int, struct expand *);
 
@@ -1244,8 +1239,13 @@ void mda_postprivdrop(void);
 void mda_imsg(struct mproc *, struct imsg *);
 
 
+/* mda_variables.c */
+size_t mda_expand_format(char *, size_t, const struct envelope *,
+    const struct userinfo *);
+
+
 /* makemap.c */
-int makemap(int, char **);
+int makemap(int, int, char **);
 
 
 /* mailaddr.c */
@@ -1387,6 +1387,12 @@ void smtp_filter_response(uint64_t, int, int, uint32_t, const char *);
 void smtp_filter_fd(uint64_t, int);
 
 
+/* smtpf_session.c */
+int smtpf_session(struct listener *, int, const struct sockaddr_storage *,
+    const char *);
+void smtpf_session_imsg(struct mproc *, struct imsg *);
+
+
 /* smtpd.c */
 void imsg_dispatch(struct mproc *, struct imsg *);
 const char *proc_name(enum smtp_proc_type);
@@ -1492,8 +1498,8 @@ void *xcalloc(size_t, size_t, const char *);
 char *xstrdup(const char *, const char *);
 void *xmemdup(const void *, size_t, const char *);
 char *strip(char *);
-void iobuf_xinit(struct iobuf *, size_t, size_t, const char *);
-void iobuf_xfqueue(struct iobuf *, const char *, const char *, ...);
+int io_xprint(struct io *, const char *);
+int io_xprintf(struct io *, const char *, ...);
 void log_envelope(const struct envelope *, const char *, const char *,
     const char *);
 int session_socket_error(int);

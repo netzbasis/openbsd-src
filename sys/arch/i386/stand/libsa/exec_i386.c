@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_i386.c,v 1.42 2015/09/18 13:30:56 miod Exp $	*/
+/*	$OpenBSD: exec_i386.c,v 1.44 2016/09/11 17:52:47 jsing Exp $	*/
 
 /*
  * Copyright (c) 1997-1998 Michael Shalayeff
@@ -40,7 +40,8 @@
 
 #ifdef SOFTRAID
 #include <dev/softraidvar.h>
-#include "softraid.h"
+#include <lib/libsa/softraid.h>
+#include "softraid_i386.h"
 #endif
 
 #ifdef EFIBOOT
