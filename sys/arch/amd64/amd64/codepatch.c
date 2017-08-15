@@ -1,4 +1,4 @@
-/*      $OpenBSD: codepatch.c,v 1.2 2015/04/19 06:30:20 sf Exp $    */
+/*      $OpenBSD: codepatch.c,v 1.5 2017/07/10 00:59:24 mortimer Exp $    */
 /*
  * Copyright (c) 2014-2015 Stefan Fritsch <sf@sfritsch.de>
  *
@@ -26,27 +26,15 @@
 #endif
 
 struct codepatch {
-	uint32_t offset;
+	vaddr_t addr;
 	uint16_t len;
 	uint16_t tag;
+	uint32_t _padding;
 };
+CTASSERT(sizeof(struct codepatch) % 8 == 0);
 
 extern struct codepatch codepatch_begin;
 extern struct codepatch codepatch_end;
-
-#define NOP_LEN_MAX	9
-
-static const unsigned char nops[][NOP_LEN_MAX] = {
-	{ 0x90 },
-	{ 0x66, 0x90 },
-	{ 0x0F, 0x1F, 0x00 },
-	{ 0x0F, 0x1F, 0x40, 0x00 },
-	{ 0x0F, 0x1F, 0x44, 0x00, 0x00 },
-	{ 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00 },
-	{ 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00 },
-	{ 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00 },
-	{ 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00},
-};
 
 void
 codepatch_fill_nop(void *caddr, uint16_t len)
@@ -55,11 +43,21 @@ codepatch_fill_nop(void *caddr, uint16_t len)
 	uint16_t nop_len;
 
 	while (len > 0) {
-		if (len <= NOP_LEN_MAX)
-			nop_len = len;
-		else
-			nop_len = NOP_LEN_MAX;
-		memcpy(addr, nops[nop_len-1], nop_len);
+		nop_len = len < 127 ? len : 127;
+		switch (nop_len) {
+		case 1:
+			addr[0] = 0x90;
+			break;
+		case 2:
+			addr[0] = 0x66;
+			addr[1] = 0x90;
+			break;
+		default:
+			addr[0] = 0xEB;
+			addr[1] = nop_len - 2;
+			memset(addr + 2, 0xCC, nop_len - 2);
+			break;
+		}
 		addr += nop_len;
 		len -= nop_len;
 	}
@@ -69,7 +67,8 @@ codepatch_fill_nop(void *caddr, uint16_t len)
  * Create writeable aliases of memory we need
  * to write to as kernel is mapped read-only
  */
-void *codepatch_maprw(vaddr_t *nva, vaddr_t dest)
+void *
+codepatch_maprw(vaddr_t *nva, vaddr_t dest)
 {
 	paddr_t kva = trunc_page((paddr_t)dest);
 	paddr_t po = (paddr_t)dest & PAGE_MASK;
@@ -88,7 +87,8 @@ void *codepatch_maprw(vaddr_t *nva, vaddr_t dest)
 	return (void *)(*nva + po);
 }
 
-void codepatch_unmaprw(vaddr_t nva)
+void
+codepatch_unmaprw(vaddr_t nva)
 {
 	if (nva == 0)
 		return;
@@ -102,7 +102,7 @@ codepatch_nop(uint16_t tag)
 {
 	struct codepatch *patch;
 	unsigned char *rwaddr;
-	vaddr_t addr, rwmap = 0;
+	vaddr_t rwmap = 0;
 	int i = 0;
 
 	DBGPRINT("patching tag %u", tag);
@@ -110,8 +110,7 @@ codepatch_nop(uint16_t tag)
 	for (patch = &codepatch_begin; patch < &codepatch_end; patch++) {
 		if (patch->tag != tag)
 			continue;
-		addr = KERNBASE + patch->offset;
-		rwaddr = codepatch_maprw(&rwmap, addr);
+		rwaddr = codepatch_maprw(&rwmap, patch->addr);
 		codepatch_fill_nop(rwaddr, patch->len);
 		i++;
 	}
@@ -125,7 +124,7 @@ codepatch_replace(uint16_t tag, void *code, size_t len)
 {
 	struct codepatch *patch;
 	unsigned char *rwaddr;
-	vaddr_t addr, rwmap = 0;
+	vaddr_t rwmap = 0;
 	int i = 0;
 
 	DBGPRINT("patching tag %u with %p", tag, code);
@@ -133,13 +132,12 @@ codepatch_replace(uint16_t tag, void *code, size_t len)
 	for (patch = &codepatch_begin; patch < &codepatch_end; patch++) {
 		if (patch->tag != tag)
 			continue;
-		addr = KERNBASE + patch->offset;
 
 		if (len > patch->len) {
 			panic("%s: can't replace len %u with %zu at %#lx",
-			    __func__, patch->len, len, addr);
+			    __func__, patch->len, len, patch->addr);
 		}
-		rwaddr = codepatch_maprw(&rwmap, addr);
+		rwaddr = codepatch_maprw(&rwmap, patch->addr);
 		memcpy(rwaddr, code, len);
 		codepatch_fill_nop(rwaddr + len, patch->len - len);
 		i++;
@@ -156,20 +154,19 @@ codepatch_call(uint16_t tag, void *func)
 	unsigned char *rwaddr;
 	int32_t offset;
 	int i = 0;
-	vaddr_t addr, rwmap = 0;
+	vaddr_t rwmap = 0;
 
 	DBGPRINT("patching tag %u with call %p", tag, func);
 
 	for (patch = &codepatch_begin; patch < &codepatch_end; patch++) {
 		if (patch->tag != tag)
 			continue;
-		addr = KERNBASE + patch->offset;
 		if (patch->len < 5)
 			panic("%s: can't replace len %u with call at %#lx",
-			    __func__, patch->len, addr);
+			    __func__, patch->len, patch->addr);
 
-		offset = (vaddr_t)func - (addr + 5);
-		rwaddr = codepatch_maprw(&rwmap, addr);
+		offset = (vaddr_t)func - (patch->addr + 5);
+		rwaddr = codepatch_maprw(&rwmap, patch->addr);
 		rwaddr[0] = 0xe8; /* call near */
 		memcpy(rwaddr + 1, &offset, sizeof(offset));
 		codepatch_fill_nop(rwaddr + 5, patch->len - 5);

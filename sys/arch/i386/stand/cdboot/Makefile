@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.28 2016/09/11 17:52:47 jsing Exp $
+#	$OpenBSD: Makefile,v 1.30 2017/06/01 11:18:53 naddy Exp $
 
 MAN=	cdboot.8
 
@@ -34,8 +34,8 @@ SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
 	lseek.c open.c read.c readdir.c stat.c
 SRCS+=	elf32.c elf64.c loadfile.c
 SRCS+=	cd9660.c ufs.c
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c \
-	sha1.c softraid.c
+SRCS+=	aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c hmac_sha1.c \
+	pkcs5_pbkdf2.c rijndael.c sha1.c sha2.c softraid.c
 
 .PATH:	${S}/lib/libkern/arch/i386
 SRCS+=	moddi3.c divdi3.c qdivrem.c
@@ -73,6 +73,7 @@ CFLAGS+=${SACFLAGS} -D__INTERNAL_LIBSA_CREAD
 CFLAGS+=-DOSREV=\"${OSREV}\" -DMACHINE=\"${MACHINE}\"
 CFLAGS+=-DKERNEL=\"/${OSREV}/${MACHINE}/bsd.rd\"
 CFLAGS+=-fno-pie
+AFLAGS+=${NO_INTEGR_AS}
 #AFLAGS+=-Wa,-R
 # AFLAGS+=-Wa,-a
 AFLAGS+=-fno-pie

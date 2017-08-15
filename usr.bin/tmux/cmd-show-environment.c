@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-show-environment.c,v 1.19 2016/03/03 14:15:22 nicm Exp $ */
+/* $OpenBSD: cmd-show-environment.c,v 1.23 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -27,11 +27,12 @@
  * Show environment.
  */
 
-enum cmd_retval	cmd_show_environment_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_show_environment_exec(struct cmd *,
+			    struct cmdq_item *);
 
-char	*cmd_show_environment_escape(struct environ_entry *);
-void	 cmd_show_environment_print(struct cmd *, struct cmd_q *,
-	     struct environ_entry *);
+static char	*cmd_show_environment_escape(struct environ_entry *);
+static void	 cmd_show_environment_print(struct cmd *, struct cmdq_item *,
+		     struct environ_entry *);
 
 const struct cmd_entry cmd_show_environment_entry = {
 	.name = "show-environment",
@@ -40,13 +41,13 @@ const struct cmd_entry cmd_show_environment_entry = {
 	.args = { "gst:", 0, 1 },
 	.usage = "[-gs] " CMD_TARGET_SESSION_USAGE " [name]",
 
-	.tflag = CMD_SESSION_CANFAIL,
+	.target = { 't', CMD_FIND_SESSION, CMD_FIND_CANFAIL },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_show_environment_exec
 };
 
-char *
+static char *
 cmd_show_environment_escape(struct environ_entry *envent)
 {
 	const char	*value = envent->value;
@@ -64,31 +65,31 @@ cmd_show_environment_escape(struct environ_entry *envent)
 	return (ret);
 }
 
-void
-cmd_show_environment_print(struct cmd *self, struct cmd_q *cmdq,
+static void
+cmd_show_environment_print(struct cmd *self, struct cmdq_item *item,
     struct environ_entry *envent)
 {
 	char	*escaped;
 
 	if (!args_has(self->args, 's')) {
 		if (envent->value != NULL)
-			cmdq_print(cmdq, "%s=%s", envent->name, envent->value);
+			cmdq_print(item, "%s=%s", envent->name, envent->value);
 		else
-			cmdq_print(cmdq, "-%s", envent->name);
+			cmdq_print(item, "-%s", envent->name);
 		return;
 	}
 
 	if (envent->value != NULL) {
 		escaped = cmd_show_environment_escape(envent);
-		cmdq_print(cmdq, "%s=\"%s\"; export %s;", envent->name, escaped,
+		cmdq_print(item, "%s=\"%s\"; export %s;", envent->name, escaped,
 		    envent->name);
 		free(escaped);
 	} else
-		cmdq_print(cmdq, "unset %s;", envent->name);
+		cmdq_print(item, "unset %s;", envent->name);
 }
 
-enum cmd_retval
-cmd_show_environment_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_show_environment_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
 	struct environ		*env;
@@ -96,8 +97,8 @@ cmd_show_environment_exec(struct cmd *self, struct cmd_q *cmdq)
 	const char		*target;
 
 	if ((target = args_get(args, 't')) != NULL) {
-		if (cmdq->state.tflag.s == NULL) {
-			cmdq_error(cmdq, "no such session: %s", target);
+		if (item->target.s == NULL) {
+			cmdq_error(item, "no such session: %s", target);
 			return (CMD_RETURN_ERROR);
 		}
 	}
@@ -105,30 +106,30 @@ cmd_show_environment_exec(struct cmd *self, struct cmd_q *cmdq)
 	if (args_has(self->args, 'g'))
 		env = global_environ;
 	else {
-		if (cmdq->state.tflag.s == NULL) {
+		if (item->target.s == NULL) {
 			target = args_get(args, 't');
 			if (target != NULL)
-				cmdq_error(cmdq, "no such session: %s", target);
+				cmdq_error(item, "no such session: %s", target);
 			else
-				cmdq_error(cmdq, "no current session");
+				cmdq_error(item, "no current session");
 			return (CMD_RETURN_ERROR);
 		}
-		env = cmdq->state.tflag.s->environ;
+		env = item->target.s->environ;
 	}
 
 	if (args->argc != 0) {
 		envent = environ_find(env, args->argv[0]);
 		if (envent == NULL) {
-			cmdq_error(cmdq, "unknown variable: %s", args->argv[0]);
+			cmdq_error(item, "unknown variable: %s", args->argv[0]);
 			return (CMD_RETURN_ERROR);
 		}
-		cmd_show_environment_print(self, cmdq, envent);
+		cmd_show_environment_print(self, item, envent);
 		return (CMD_RETURN_NORMAL);
 	}
 
 	envent = environ_first(env);
 	while (envent != NULL) {
-		cmd_show_environment_print(self, cmdq, envent);
+		cmd_show_environment_print(self, item, envent);
 		envent = environ_next(envent);
 	}
 	return (CMD_RETURN_NORMAL);

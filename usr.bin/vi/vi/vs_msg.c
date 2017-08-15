@@ -1,4 +1,4 @@
-/*	$OpenBSD: vs_msg.c,v 1.18 2016/05/27 09:18:12 martijn Exp $	*/
+/*	$OpenBSD: vs_msg.c,v 1.20 2017/04/18 01:45:35 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -61,7 +61,7 @@ vs_busy(SCR *sp, const char *msg, busy_t btype)
 	VI_PRIVATE *vip;
 	static const char flagc[] = "|/-\\";
 	struct timespec ts, ts_diff;
-	size_t len, notused;
+	size_t notused;
 
 	/* Ex doesn't display busy messages. */
 	if (F_ISSET(sp, SC_EX | SC_SCR_EXWROTE))
@@ -899,7 +899,6 @@ vs_msgsave(SCR *sp, mtype_t mt, char *p, size_t len)
 	return;
 
 alloc_err:
-	if (mp_n != NULL)
-		free(mp_n);
+	free(mp_n);
 	(void)fprintf(stderr, "%.*s\n", (int)len, p);
 }

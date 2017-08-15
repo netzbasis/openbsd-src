@@ -1,4 +1,4 @@
-/*	$OpenBSD: mfs_vfsops.c,v 1.52 2016/09/08 16:57:29 tedu Exp $	*/
+/*	$OpenBSD: mfs_vfsops.c,v 1.54 2017/01/10 19:48:32 bluhm Exp $	*/
 /*	$NetBSD: mfs_vfsops.c,v 1.10 1996/02/09 22:31:28 christos Exp $	*/
 
 /*
@@ -135,7 +135,7 @@ mfs_mount(struct mount *mp, const char *path, void *data,
 	mfsp->mfs_baseoff = args.base;
 	mfsp->mfs_size = args.size;
 	mfsp->mfs_vnode = devvp;
-	mfsp->mfs_pid = p->p_pid;
+	mfsp->mfs_tid = p->p_tid;
 	bufq_init(&mfsp->mfs_bufq, BUFQ_FIFO);
 	if ((error = ffs_mountfs(devvp, mp, p)) != 0) {
 		mfsp->mfs_shutdown = 1;
@@ -195,7 +195,7 @@ mfs_start(struct mount *mp, int flags, struct proc *p)
 		if (sleepreturn != 0) {
 			if (vfs_busy(mp, VB_WRITE|VB_NOWAIT) ||
 			    dounmount(mp,
-			    (CURSIG(p) == SIGKILL) ? MNT_FORCE : 0, p, NULL))
+			    (CURSIG(p) == SIGKILL) ? MNT_FORCE : 0, p))
 				CLRSIG(p, CURSIG(p));
 			sleepreturn = 0;
 			continue;

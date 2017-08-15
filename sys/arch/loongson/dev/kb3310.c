@@ -1,4 +1,4 @@
-/*	$OpenBSD: kb3310.c,v 1.20 2016/01/08 15:54:13 jcs Exp $	*/
+/*	$OpenBSD: kb3310.c,v 1.23 2017/01/23 10:54:51 fcambus Exp $	*/
 /*
  * Copyright (c) 2010 Otto Moerbeek <otto@drijf.net>
  *
@@ -56,7 +56,7 @@ struct cfdriver ykbec_cd = {
 #define IO_YKBECSIZE		0x3
 
 static const struct {
-	const char *desc;	
+	const char *desc;
 	int type;
 } ykbec_table[] = {
 #define YKBEC_FAN	0
@@ -66,18 +66,20 @@ static const struct {
 #define YKBEC_FCAP	2
 	{ "Battery full charge capacity", SENSOR_AMPHOUR },
 #define YKBEC_BCURRENT	3
-	{ "Battery current", 		SENSOR_AMPS },
+	{ "Battery current",		SENSOR_AMPS },
 #define YKBEC_BVOLT	4
 	{ "Battery voltage",		SENSOR_VOLTS_DC },
 #define YKBEC_BTEMP	5
 	{ "Battery temperature",	SENSOR_TEMP },
 #define YKBEC_CAP	6
-	{ "Battery capacity", 		SENSOR_PERCENT },
+	{ "Battery capacity",		SENSOR_PERCENT },
 #define YKBEC_CHARGING	7
 	{ "Battery charging",		SENSOR_INDICATOR },
 #define YKBEC_AC	8
-	{ "AC-Power",			SENSOR_INDICATOR }
-#define YKBEC_NSENSORS	9
+	{ "AC-Power",			SENSOR_INDICATOR },
+#define YKBEC_LID	9
+	{ "Lid open",			SENSOR_INDICATOR }
+#define YKBEC_NSENSORS	10
 };
 
 struct ykbec_softc {
@@ -180,8 +182,8 @@ ykbec_attach(struct device *parent, struct device *self, void *aux)
 	printf("\n");
 
 	for (i = 0; i < YKBEC_NSENSORS; i++) {
-		sc->sc_sensor[i].type = ykbec_table[i].type; 
-		if (ykbec_table[i].desc) 
+		sc->sc_sensor[i].type = ykbec_table[i].type;
+		if (ykbec_table[i].desc)
 			strlcpy(sc->sc_sensor[i].desc, ykbec_table[i].desc,
 			    sizeof(sc->sc_sensor[i].desc));
 		sensor_attach(&sc->sc_sensordev, &sc->sc_sensor[i]);
@@ -310,6 +312,10 @@ ykbec_read16(struct ykbec_softc *mcsc, u_int reg)
 #define	REG_FAN_ON			1
 #define REG_FAN_OFF			0
 
+#define REG_LID_STATE			0xf4bd
+#define LID_OPEN			1
+#define LID_CLOSED			0
+
 #define YKBEC_SCI_IRQ			0xa
 
 #ifdef DEBUG
@@ -324,7 +330,7 @@ ykbec_print_bat_info(struct ykbec_softc *sc)
 		printf("absent");
 		return;
 	}
-		
+
 	count = ykbec_read(sc, REG_BAT_CELL_COUNT);
 	dvolt = ykbec_read16(sc, REG_DESIGN_VOL_HIGH);
 	dcap = ykbec_read16(sc, REG_DESIGN_CAP_HIGH);
@@ -337,7 +343,7 @@ ykbec_refresh(void *arg)
 {
 	struct ykbec_softc *sc = (struct ykbec_softc *)arg;
 	u_int val, bat_charge, bat_status, charge_status, bat_state, power_flag;
-	u_int cap_pct, fullcap;
+	u_int lid_state, cap_pct, fullcap;
 	int current;
 #if NAPM > 0
 	struct apm_power_info old;
@@ -376,11 +382,14 @@ ykbec_refresh(void *arg)
 	charge_status = ykbec_read(sc, REG_CHARGE_STATUS);
 	bat_state = ykbec_read(sc, REG_BAT_STATE);
 	power_flag = ykbec_read(sc, REG_POWER_FLAG);
+	lid_state = ykbec_read(sc, REG_LID_STATE);
 
 	sc->sc_sensor[YKBEC_CHARGING].value = !!ISSET(bat_state,
 	    BAT_STATE_CHARGING);
 	sc->sc_sensor[YKBEC_AC].value = !!ISSET(power_flag,
 	    POWER_FLAG_ADAPTER_IN);
+
+	sc->sc_sensor[YKBEC_LID].value = !!ISSET(lid_state, LID_OPEN);
 
 	sc->sc_sensor[YKBEC_CAP].status = ISSET(bat_status, BAT_STATUS_BAT_LOW) ?
 		SENSOR_S_CRIT : SENSOR_S_OK;
@@ -399,8 +408,7 @@ ykbec_refresh(void *arg)
 			ykbec_apmdata.battery_state = APM_BATT_CHARGING;
 		else if (ISSET(bat_status, BAT_STATUS_BAT_LOW))
 			ykbec_apmdata.battery_state = APM_BATT_CRITICAL;
-		/* XXX arbitrary */
-		else if (cap_pct > 60)
+		else if (cap_pct > 50)
 			ykbec_apmdata.battery_state = APM_BATT_HIGH;
 		else
 			ykbec_apmdata.battery_state = APM_BATT_LOW;
@@ -422,22 +430,21 @@ ykbec_refresh(void *arg)
 		ykbec_apmdata.minutes_left = fullcap / current;
 
 	}
-	if (old.ac_state != ykbec_apmdata.ac_state) 
+	if (old.ac_state != ykbec_apmdata.ac_state)
 		apm_record_event(APM_POWER_CHANGE, "AC power",
 			ykbec_apmdata.ac_state ? "restored" : "lost");
-	if (old.battery_state != ykbec_apmdata.battery_state) 
+	if (old.battery_state != ykbec_apmdata.battery_state)
 		apm_record_event(APM_POWER_CHANGE, "battery",
 		    BATTERY_STRING(ykbec_apmdata.battery_state));
 #endif
 }
 
-
 #if NAPM > 0
 int
 ykbec_apminfo(struct apm_power_info *info)
 {
-	 bcopy(&ykbec_apmdata, info, sizeof(struct apm_power_info));
-	 return 0;
+	bcopy(&ykbec_apmdata, info, sizeof(struct apm_power_info));
+	return 0;
 }
 
 int
@@ -453,9 +460,9 @@ ykbec_suspend()
 
 	/* USB */
 	DPRINTF(("USB\n"));
-	ykbec_write(sc, REG_USB0, USB_FLAG_OFF); 
-	ykbec_write(sc, REG_USB1, USB_FLAG_OFF); 
-	ykbec_write(sc, REG_USB2, USB_FLAG_OFF); 
+	ykbec_write(sc, REG_USB0, USB_FLAG_OFF);
+	ykbec_write(sc, REG_USB1, USB_FLAG_OFF);
+	ykbec_write(sc, REG_USB2, USB_FLAG_OFF);
 
 	/* EC */
 	DPRINTF(("REG_PMUCFG\n"));
@@ -500,9 +507,9 @@ ykbec_resume()
 
 	/* USB */
 	DPRINTF(("USB\n"));
-	ykbec_write(sc, REG_USB0, USB_FLAG_ON); 
-	ykbec_write(sc, REG_USB1, USB_FLAG_ON); 
-	ykbec_write(sc, REG_USB2, USB_FLAG_ON); 
+	ykbec_write(sc, REG_USB0, USB_FLAG_ON);
+	ykbec_write(sc, REG_USB1, USB_FLAG_ON);
+	ykbec_write(sc, REG_USB2, USB_FLAG_ON);
 
 	ykbec_refresh(sc);
 

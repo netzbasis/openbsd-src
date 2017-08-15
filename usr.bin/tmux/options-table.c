@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.73 2016/05/04 21:29:47 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.91 2017/07/26 16:14:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -33,36 +33,54 @@
  */
 
 /* Choice option type lists. */
-const char *options_table_mode_keys_list[] = {
+static const char *options_table_mode_keys_list[] = {
 	"emacs", "vi", NULL
 };
-const char *options_table_clock_mode_style_list[] = {
+static const char *options_table_clock_mode_style_list[] = {
 	"12", "24", NULL
 };
-const char *options_table_status_keys_list[] = {
+static const char *options_table_status_keys_list[] = {
 	"emacs", "vi", NULL
 };
-const char *options_table_status_justify_list[] = {
+static const char *options_table_status_justify_list[] = {
 	"left", "centre", "right", NULL
 };
-const char *options_table_status_position_list[] = {
+static const char *options_table_status_position_list[] = {
 	"top", "bottom", NULL
 };
-const char *options_table_bell_action_list[] = {
+static const char *options_table_bell_action_list[] = {
 	"none", "any", "current", "other", NULL
 };
-const char *options_table_pane_status_list[] = {
+static const char *options_table_visual_bell_list[] = {
+	"off", "on", "both", NULL
+};
+static const char *options_table_pane_status_list[] = {
 	"off", "top", "bottom", NULL
 };
+static const char *options_table_set_clipboard_list[] = {
+	"off", "external", "on", NULL
+};
 
-/* Server options. */
+/* Top-level options. */
 const struct options_table_entry options_table[] = {
 	{ .name = "buffer-limit",
 	  .type = OPTIONS_TABLE_NUMBER,
 	  .scope = OPTIONS_TABLE_SERVER,
 	  .minimum = 1,
 	  .maximum = INT_MAX,
-	  .default_num = 20
+	  .default_num = 50
+	},
+
+	{ .name = "command-alias",
+	  .type = OPTIONS_TABLE_ARRAY,
+	  .scope = OPTIONS_TABLE_SERVER,
+	  .default_str = "split-pane=split-window,"
+			 "splitp=split-window,"
+			 "server-info=show-messages -JT,"
+			 "info=show-messages -JT,"
+			 "choose-window=choose-tree -w,"
+			 "choose-session=choose-tree -s",
+	  .separator = ","
 	},
 
 	{ .name = "default-terminal",
@@ -105,24 +123,34 @@ const struct options_table_entry options_table[] = {
 	  .default_num = 100
 	},
 
-	{ .name = "quiet",
-	  .type = OPTIONS_TABLE_FLAG,
-	  .scope = OPTIONS_TABLE_SERVER,
-	  .default_num = 0
-	},
-
 	{ .name = "set-clipboard",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SERVER,
+	  .choices = options_table_set_clipboard_list,
 	  .default_num = 1
 	},
 
 	{ .name = "terminal-overrides",
-	  .type = OPTIONS_TABLE_STRING,
+	  .type = OPTIONS_TABLE_ARRAY,
 	  .scope = OPTIONS_TABLE_SERVER,
 	  .default_str = "xterm*:XT:Ms=\\E]52;%p1%s;%p2%s\\007"
-	                 ":Cs=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
-			 ":Ss=\\E[%p1%d q:Se=\\E[2 q,screen*:XT"
+			 ":Cs=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
+			 ":Ss=\\E[%p1%d q:Se=\\E[2 q,screen*:XT",
+	  .separator = ","
+	},
+
+	{ .name = "user-keys",
+	  .type = OPTIONS_TABLE_ARRAY,
+	  .scope = OPTIONS_TABLE_SERVER,
+	  .default_str = "",
+	  .separator = ","
+	},
+
+	{ .name = "activity-action",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_SESSION,
+	  .choices = options_table_bell_action_list,
+	  .default_num = BELL_OTHER
 	},
 
 	{ .name = "assume-paste-time",
@@ -146,12 +174,6 @@ const struct options_table_entry options_table[] = {
 	  .scope = OPTIONS_TABLE_SESSION,
 	  .choices = options_table_bell_action_list,
 	  .default_num = BELL_ANY
-	},
-
-	{ .name = "bell-on-alert",
-	  .type = OPTIONS_TABLE_FLAG,
-	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
 	},
 
 	{ .name = "default-command",
@@ -320,12 +342,6 @@ const struct options_table_entry options_table[] = {
 	  .default_num = 500
 	},
 
-	{ .name = "set-remain-on-exit",
-	  .type = OPTIONS_TABLE_FLAG,
-	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
-	},
-
 	{ .name = "set-titles",
 	  .type = OPTIONS_TABLE_FLAG,
 	  .scope = OPTIONS_TABLE_SESSION,
@@ -336,6 +352,13 @@ const struct options_table_entry options_table[] = {
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_SESSION,
 	  .default_str = "#S:#I:#W - \"#T\" #{session_alerts}"
+	},
+
+	{ .name = "silence-action",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_SESSION,
+	  .choices = options_table_bell_action_list,
+	  .default_num = BELL_OTHER
 	},
 
 	{ .name = "status",
@@ -483,29 +506,31 @@ const struct options_table_entry options_table[] = {
 	},
 
 	{ .name = "update-environment",
-	  .type = OPTIONS_TABLE_STRING,
+	  .type = OPTIONS_TABLE_ARRAY,
 	  .scope = OPTIONS_TABLE_SESSION,
 	  .default_str = "DISPLAY SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID "
-	                 "SSH_CONNECTION WINDOWID XAUTHORITY"
-
+			 "SSH_CONNECTION WINDOWID XAUTHORITY"
 	},
 
 	{ .name = "visual-activity",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "visual-bell",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "visual-silence",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "word-separators",
@@ -542,7 +567,7 @@ const struct options_table_entry options_table[] = {
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_WINDOW,
 	  .default_str = "#{?pane_in_mode,[tmux],#{pane_current_command}}"
-	                 "#{?pane_dead,[dead],}"
+			 "#{?pane_dead,[dead],}"
 	},
 
 	{ .name = "clock-mode-colour",
@@ -700,7 +725,7 @@ const struct options_table_entry options_table[] = {
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_WINDOW,
 	  .default_str = "#{?pane_active,#[reverse],}#{pane_index}#[default] "
-	                 "\"#{pane_title}\""
+			 "\"#{pane_title}\""
 	},
 
 	{ .name = "pane-border-status",
@@ -902,104 +927,8 @@ const struct options_table_entry options_table[] = {
 	{ .name = "xterm-keys",
 	  .type = OPTIONS_TABLE_FLAG,
 	  .scope = OPTIONS_TABLE_WINDOW,
-	  .default_num = 0
+	  .default_num = 1
 	},
 
 	{ .name = NULL }
 };
-
-/* Populate an options tree from a table. */
-void
-options_table_populate_tree(enum options_table_scope scope, struct options *oo)
-{
-	const struct options_table_entry	*oe;
-
-	for (oe = options_table; oe->name != NULL; oe++) {
-		if (oe->scope == OPTIONS_TABLE_NONE)
-			fatalx("no scope for %s", oe->name);
-		if (oe->scope != scope)
-			continue;
-		switch (oe->type) {
-		case OPTIONS_TABLE_STRING:
-			options_set_string(oo, oe->name, "%s", oe->default_str);
-			break;
-		case OPTIONS_TABLE_STYLE:
-			options_set_style(oo, oe->name, oe->default_str, 0);
-			break;
-		default:
-			options_set_number(oo, oe->name, oe->default_num);
-			break;
-		}
-	}
-}
-
-/* Print an option using its type from the table. */
-const char *
-options_table_print_entry(const struct options_table_entry *oe,
-    struct options_entry *o, int no_quotes)
-{
-	static char	 out[BUFSIZ];
-	const char	*s;
-
-	*out = '\0';
-	switch (oe->type) {
-	case OPTIONS_TABLE_STRING:
-		if (no_quotes)
-			xsnprintf(out, sizeof out, "%s", o->str);
-		else
-			xsnprintf(out, sizeof out, "\"%s\"", o->str);
-		break;
-	case OPTIONS_TABLE_NUMBER:
-		xsnprintf(out, sizeof out, "%lld", o->num);
-		break;
-	case OPTIONS_TABLE_KEY:
-		xsnprintf(out, sizeof out, "%s",
-		    key_string_lookup_key(o->num));
-		break;
-	case OPTIONS_TABLE_COLOUR:
-		s = colour_tostring(o->num);
-		xsnprintf(out, sizeof out, "%s", s);
-		break;
-	case OPTIONS_TABLE_ATTRIBUTES:
-		s = attributes_tostring(o->num);
-		xsnprintf(out, sizeof out, "%s", s);
-		break;
-	case OPTIONS_TABLE_FLAG:
-		if (o->num)
-			strlcpy(out, "on", sizeof out);
-		else
-			strlcpy(out, "off", sizeof out);
-		break;
-	case OPTIONS_TABLE_CHOICE:
-		s = oe->choices[o->num];
-		xsnprintf(out, sizeof out, "%s", s);
-		break;
-	case OPTIONS_TABLE_STYLE:
-		s = style_tostring(&o->style);
-		xsnprintf(out, sizeof out, "%s", s);
-		break;
-	}
-	return (out);
-}
-
-/* Find an option. */
-int
-options_table_find(const char *optstr, const struct options_table_entry **oe)
-{
-	const struct options_table_entry	*oe_loop;
-
-	for (oe_loop = options_table; oe_loop->name != NULL; oe_loop++) {
-		if (strncmp(oe_loop->name, optstr, strlen(optstr)) != 0)
-			continue;
-
-		/* If already found, ambiguous. */
-		if (*oe != NULL)
-			return (-1);
-		*oe = oe_loop;
-
-		/* Bail now if an exact match. */
-		if (strcmp(oe_loop->name, optstr) == 0)
-			break;
-	}
-	return (0);
-}

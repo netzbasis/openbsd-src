@@ -1,4 +1,4 @@
-/* $OpenBSD: ldapclient.c,v 1.36 2016/04/10 09:59:21 jmatthew Exp $ */
+/* $OpenBSD: ldapclient.c,v 1.39 2017/05/30 09:33:31 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2008 Alexander Schrijver <aschrijver@openbsd.org>
@@ -39,6 +39,7 @@
 #include <limits.h>
 
 #include "aldap.h"
+#include "log.h"
 #include "ypldap.h"
 
 void    client_sig_handler(int, short, void *);
@@ -83,6 +84,7 @@ client_aldap_open(struct ypldap_addr_list *addr)
 
 		warn("connect to %s port %s (%s) failed", hbuf, sbuf, "tcp");
 		close(fd);
+		fd = -1;
 	}
 
 	if (fd == -1)
@@ -96,20 +98,28 @@ client_addr_init(struct idm *idm)
 {
         struct sockaddr_in      *sa_in;
         struct sockaddr_in6     *sa_in6;
-        struct ypldap_addr         *h;
+        struct ypldap_addr      *h;
+	int                     defport;
+
+	if (idm->idm_port != 0)
+		defport = idm->idm_port;
+	else if (idm->idm_flags & F_SSL)
+		defport = LDAPS_PORT;
+	else
+		defport = LDAP_PORT;
 
 	TAILQ_FOREACH(h, &idm->idm_addr, next) {
                 switch (h->ss.ss_family) {
                 case AF_INET:
                         sa_in = (struct sockaddr_in *)&h->ss;
                         if (ntohs(sa_in->sin_port) == 0)
-                                sa_in->sin_port = htons(LDAP_PORT);
+                                sa_in->sin_port = htons(defport);
                         idm->idm_state = STATE_DNS_DONE;
                         break;
                 case AF_INET6:
                         sa_in6 = (struct sockaddr_in6 *)&h->ss;
                         if (ntohs(sa_in6->sin6_port) == 0)
-                                sa_in6->sin6_port = htons(LDAP_PORT);
+                                sa_in6->sin6_port = htons(defport);
                         idm->idm_state = STATE_DNS_DONE;
                         break;
                 default:
@@ -362,7 +372,7 @@ ldapclient(int pipe_main2client[2])
 		return (pid);
 	}
 
-	bzero(&env, sizeof(env));
+	memset(&env, 0, sizeof(env));
 	TAILQ_INIT(&env.sc_idms);
 
 	if ((pw = getpwnam(YPLDAP_USER)) == NULL)
@@ -383,6 +393,7 @@ ldapclient(int pipe_main2client[2])
 #endif
 	setproctitle("ldap client");
 	ypldap_process = PROC_CLIENT;
+	log_procname = log_procnames[ypldap_process];
 
 #ifndef DEBUG
 	if (setgroups(1, &pw->pw_gid) ||
@@ -439,7 +450,7 @@ client_build_req(struct idm *idm, struct idm_req *ir, struct aldap_message *m,
 	char	**ldap_attrs;
 	int	 i, k;
 
-	bzero(ir, sizeof(*ir));
+	memset(ir, 0, sizeof(*ir));
 	for (i = min_attr; i < max_attr; i++) {
 		if (idm->idm_flags & F_FIXED_ATTR(i)) {
 			if (strlcat(ir->ir_line, idm->idm_attrs[i],
@@ -582,6 +593,39 @@ client_try_idm(struct env *env, struct idm *idm)
 	if ((al = client_aldap_open(&idm->idm_addr)) == NULL)
 		return (-1);
 
+	if (idm->idm_flags & F_STARTTLS) {
+		log_debug("requesting starttls");
+		where = "starttls";
+		if (aldap_req_starttls(al) == -1)
+			goto bad;
+
+		where = "parsing";
+		if ((m = aldap_parse(al)) == NULL)
+			goto bad;
+		where = "verifying msgid";
+		if (al->msgid != m->msgid) {
+			aldap_freemsg(m);
+			goto bad;
+		}
+		where = "starttls result";
+		if (aldap_get_resultcode(m) != LDAP_SUCCESS) {
+			aldap_freemsg(m);
+			goto bad;
+		}
+		aldap_freemsg(m);
+	}
+
+	if (idm->idm_flags & (F_STARTTLS | F_SSL)) {
+		log_debug("starting tls");
+		where = "enabling tls";
+		if (aldap_tls(al, idm->idm_tls_config, idm->idm_name) < 0) {
+			const char *err;
+			aldap_get_errno(al, &err);
+			log_debug("tls failed: %s", err);
+			goto bad;
+		}
+	}
+
 	if (idm->idm_flags & F_NEEDAUTH) {
 		where = "binding";
 		if (aldap_bind(al, idm->idm_binddn, idm->idm_bindcred) == -1)
@@ -598,7 +642,7 @@ client_try_idm(struct env *env, struct idm *idm)
 		aldap_freemsg(m);
 	}
 
-	bzero(attrs, sizeof(attrs));
+	memset(attrs, 0, sizeof(attrs));
 	for (i = 0, j = 0; i < ATTR_MAX; i++) {
 		if (idm->idm_flags & F_FIXED_ATTR(i))
 			continue;
@@ -615,7 +659,7 @@ client_try_idm(struct env *env, struct idm *idm)
 	    idm->idm_filters[FILTER_USER], 0, ATTR_MAX, IMSG_PW_ENTRY) == -1)
 		goto bad;
 
-	bzero(attrs, sizeof(attrs));
+	memset(attrs, 0, sizeof(attrs));
 	for (i = ATTR_GR_MIN, j = 0; i < ATTR_GR_MAX; i++) {
 		if (idm->idm_flags & F_FIXED_ATTR(i))
 			continue;

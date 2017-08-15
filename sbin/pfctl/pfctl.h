@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.h,v 1.53 2015/01/19 23:52:02 deraadt Exp $ */
+/*	$OpenBSD: pfctl.h,v 1.55 2017/08/11 22:30:38 benno Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -69,18 +69,18 @@ void	 pfr_buf_clear(struct pfr_buffer *);
 int	 pfr_buf_add(struct pfr_buffer *, const void *);
 void	*pfr_buf_next(struct pfr_buffer *, const void *);
 int	 pfr_buf_grow(struct pfr_buffer *, int);
-int	 pfr_buf_load(struct pfr_buffer *, char *, int);
+int	 pfr_buf_load(struct pfr_buffer *, char *, int, int);
 char	*pfr_strerror(int);
 int	 pfi_get_ifaces(const char *, struct pfi_kif *, int *);
 int	 pfi_clr_istats(const char *, int *, int);
 
 void	 pfctl_print_title(char *);
-int	 pfctl_clear_tables(const char *, int);
-int	 pfctl_show_tables(const char *, int);
+void	 pfctl_clear_tables(const char *, int);
+void	 pfctl_show_tables(const char *, int);
 int	 pfctl_command_tables(int, char *[], char *, const char *, char *,
 	    const char *, int);
 void	 warn_namespace_collision(const char *);
-int	 pfctl_show_ifaces(const char *, int);
+void	 pfctl_show_ifaces(const char *, int);
 FILE	*pfctl_fopen(const char *, const char *);
 
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptosoft.c,v 1.81 2016/09/02 09:12:49 tom Exp $	*/
+/*	$OpenBSD: cryptosoft.c,v 1.83 2017/05/02 11:44:32 mikeb Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -495,7 +495,8 @@ swcr_authenc(struct cryptop *crp)
 
 	ivlen = blksz = iskip = oskip = 0;
 
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
+	for (i = 0; i < crp->crp_ndesc; i++) {
+		crd = &crp->crp_desc[i];
 		for (sw = swcr_sessions[crp->crp_sid & 0xffffffff];
 		     sw && sw->sw_alg != crd->crd_alg;
 		     sw = sw->sw_next)
@@ -794,8 +795,8 @@ swcr_newsession(u_int32_t *sid, struct cryptoini *cri)
 		case CRYPTO_CAST_CBC:
 			txf = &enc_xform_cast5;
 			goto enccommon;
-		case CRYPTO_RIJNDAEL128_CBC:
-			txf = &enc_xform_rijndael128;
+		case CRYPTO_AES_CBC:
+			txf = &enc_xform_aes;
 			goto enccommon;
 		case CRYPTO_AES_CTR:
 			txf = &enc_xform_aes_ctr;
@@ -959,7 +960,7 @@ swcr_freesession(u_int64_t tid)
 		case CRYPTO_3DES_CBC:
 		case CRYPTO_BLF_CBC:
 		case CRYPTO_CAST_CBC:
-		case CRYPTO_RIJNDAEL128_CBC:
+		case CRYPTO_AES_CBC:
 		case CRYPTO_AES_CTR:
 		case CRYPTO_AES_XTS:
 		case CRYPTO_AES_GCM_16:
@@ -1020,12 +1021,13 @@ swcr_process(struct cryptop *crp)
 	struct swcr_data *sw;
 	u_int32_t lid;
 	int type;
+	int i;
 
 	/* Sanity check */
 	if (crp == NULL)
 		return EINVAL;
 
-	if (crp->crp_desc == NULL || crp->crp_buf == NULL) {
+	if (crp->crp_ndesc < 1 || crp->crp_buf == NULL) {
 		crp->crp_etype = EINVAL;
 		goto done;
 	}
@@ -1042,7 +1044,8 @@ swcr_process(struct cryptop *crp)
 		type = CRYPTO_BUF_IOV;
 
 	/* Go through crypto descriptors, processing as we go */
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
+	for (i = 0; i < crp->crp_ndesc; i++) {
+		crd = &crp->crp_desc[i];
 		/*
 		 * Find the crypto context.
 		 *
@@ -1141,7 +1144,7 @@ swcr_init(void)
 	algs[CRYPTO_MD5_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_SHA1_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_RIPEMD160_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
-	algs[CRYPTO_RIJNDAEL128_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
+	algs[CRYPTO_AES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_AES_CTR] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_AES_XTS] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_AES_GCM_16] = CRYPTO_ALG_FLAG_SUPPORTED;

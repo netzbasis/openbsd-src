@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.75 2016/08/25 00:00:02 dlg Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.79 2017/05/31 14:52:05 mikeb Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -119,7 +119,6 @@ int kq_timeoutmax = (4 * 1024);
 		knote_enqueue(kn);					\
 } while(0)
 
-#define	KN_HASHSIZE		64		/* XXX should be tunable */
 #define KN_HASH(val, mask)	(((val) ^ (val >> 8)) & (mask))
 
 extern struct filterops sig_filtops;
@@ -163,12 +162,10 @@ void
 kqueue_init(void)
 {
 
-	pool_init(&kqueue_pool, sizeof(struct kqueue), 0, 0, PR_WAITOK,
+	pool_init(&kqueue_pool, sizeof(struct kqueue), 0, IPL_NONE, PR_WAITOK,
 	    "kqueuepl", NULL);
-	pool_setipl(&kqueue_pool, IPL_NONE);
-	pool_init(&knote_pool, sizeof(struct knote), 0, 0, PR_WAITOK,
+	pool_init(&knote_pool, sizeof(struct knote), 0, IPL_NONE, PR_WAITOK,
 	    "knotepl", NULL);
-	pool_setipl(&knote_pool, IPL_NONE);
 }
 
 int
@@ -443,7 +440,7 @@ sys_kqueue(struct proc *p, void *v, register_t *retval)
 	int fd, error;
 
 	fdplock(fdp);
-	error = falloc(p, &fp, &fd);
+	error = falloc(p, 0, &fp, &fd);
 	fdpunlock(fdp);
 	if (error)
 		return (error);
@@ -515,7 +512,7 @@ sys_kevent(struct proc *p, void *v, register_t *retval)
 			kevp = &kq->kq_kev[i];
 			kevp->flags &= ~EV_SYSFLAGS;
 			error = kqueue_register(kq, kevp, p);
-			if (error) {
+			if (error || (kevp->flags & EV_RECEIPT)) {
 				if (SCARG(uap, nevents) != 0) {
 					kevp->flags = EV_ERROR;
 					kevp->data = error;
@@ -791,9 +788,13 @@ start:
 			kn->kn_fop->f_detach(kn);
 			knote_drop(kn, p, p->p_fd);
 			s = splhigh();
-		} else if (kn->kn_flags & EV_CLEAR) {
-			kn->kn_data = 0;
-			kn->kn_fflags = 0;
+		} else if (kn->kn_flags & (EV_CLEAR | EV_DISPATCH)) {
+			if (kn->kn_flags & EV_CLEAR) {
+				kn->kn_data = 0;
+				kn->kn_fflags = 0;
+			}
+			if (kn->kn_flags & EV_DISPATCH)
+				kn->kn_status |= KN_DISABLED;
 			kn->kn_status &= ~(KN_QUEUED | KN_ACTIVE);
 			kq->kq_count--;
 		} else {

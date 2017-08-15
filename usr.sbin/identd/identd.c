@@ -1,4 +1,4 @@
-/*	$OpenBSD: identd.c,v 1.34 2016/09/04 14:39:32 florian Exp $ */
+/*	$OpenBSD: identd.c,v 1.38 2017/07/04 01:09:42 dlg Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <signal.h>
 #include <syslog.h>
@@ -128,7 +129,6 @@ void	identd_response(int, short, void *);
 int	fetchuid(struct ident_client *);
 
 const char *gethost(struct sockaddr_storage *);
-const char *getport(struct sockaddr_storage *);
 const char *gentoken(void);
 
 struct loggers {
@@ -753,8 +753,8 @@ identd_accept(int fd, short events, void *arg)
 	event_set(&c->ev, s, EV_READ | EV_PERSIST, identd_request, c);
 	event_add(&c->ev, NULL);
 
-	event_set(&c->tmo, s, 0, identd_timeout, c);
-	event_add(&c->tmo, &timeout);
+	evtimer_set(&c->tmo, identd_timeout, c);
+	evtimer_add(&c->tmo, &timeout);
 }
 
 void
@@ -1079,7 +1079,7 @@ syslog_err(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_EMERG, fmt, ap);
+	syslog_vstrerror(errno, LOG_CRIT, fmt, ap);
 	va_end(ap);
 	exit(ecode);
 }
@@ -1090,7 +1090,7 @@ syslog_errx(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_CRIT, fmt, ap);
 	va_end(ap);
 	exit(ecode);
 }
@@ -1101,7 +1101,7 @@ syslog_warn(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_WARNING, fmt, ap);
+	syslog_vstrerror(errno, LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1111,7 +1111,7 @@ syslog_warnx(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1146,19 +1146,6 @@ gethost(struct sockaddr_storage *ss)
 
 	if (getnameinfo(sa, sa->sa_len, buf, sizeof(buf),
 	    NULL, 0, NI_NUMERICHOST) != 0)
-		return ("(unknown)");
-
-	return (buf);
-}
-
-const char *
-getport(struct sockaddr_storage *ss)
-{
-	struct sockaddr *sa = (struct sockaddr *)ss;
-	static char buf[NI_MAXSERV];
-
-	if (getnameinfo(sa, sa->sa_len, NULL, 0, buf, sizeof(buf),
-	    NI_NUMERICSERV) != 0)
 		return ("(unknown)");
 
 	return (buf);

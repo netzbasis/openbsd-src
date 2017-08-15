@@ -1,4 +1,4 @@
-/* $OpenBSD: ip_spd.c,v 1.89 2016/09/06 00:04:15 dlg Exp $ */
+/* $OpenBSD: ip_spd.c,v 1.92 2017/04/06 14:25:18 dhill Exp $ */
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
  *
@@ -38,10 +38,6 @@
 #include <netinet/ip.h>
 #include <netinet/ip_var.h>
 #include <netinet/in_pcb.h>
-
-#ifdef INET6
-#endif /* INET6 */
-
 #include <netinet/ip_ipsp.h>
 #include <net/pfkeyv2.h>
 
@@ -94,7 +90,7 @@ spd_table_add(unsigned int rtableid)
 			return (NULL);
 
 		if (spd_tables != NULL) {
-			bcopy(spd_tables, p, sizeof(*rnh) * (spd_table_max+1));
+			memcpy(p, spd_tables, sizeof(*rnh) * (spd_table_max+1));
 			free(spd_tables, M_RTABLE, 0);
 		}
 		spd_tables = p;
@@ -669,15 +665,14 @@ ipsp_acquire_sa(struct ipsec_policy *ipo, union sockaddr_union *gw,
 	if (ipsec_acquire_pool_initialized == 0) {
 		ipsec_acquire_pool_initialized = 1;
 		pool_init(&ipsec_acquire_pool, sizeof(struct ipsec_acquire),
-		    0, 0, 0, "ipsec acquire", NULL);
-		pool_setipl(&ipsec_acquire_pool, IPL_SOFTNET);
+		    0, IPL_SOFTNET, 0, "ipsec acquire", NULL);
 	}
 
 	ipa = pool_get(&ipsec_acquire_pool, PR_NOWAIT|PR_ZERO);
 	if (ipa == NULL)
 		return ENOMEM;
 
-	bcopy(gw, &ipa->ipa_addr, sizeof(union sockaddr_union));
+	ipa->ipa_addr = *gw;
 
 	timeout_set(&ipa->ipa_timeout, ipsp_delete_acquire, ipa);
 

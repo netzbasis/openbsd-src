@@ -1,4 +1,4 @@
-/* $OpenBSD: environ.c,v 1.15 2016/07/15 09:52:34 nicm Exp $ */
+/* $OpenBSD: environ.c,v 1.20 2017/05/11 07:34:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "tmux.h"
 
@@ -28,11 +29,10 @@
  */
 
 RB_HEAD(environ, environ_entry);
-int	environ_cmp(struct environ_entry *, struct environ_entry *);
-RB_PROTOTYPE(environ, environ_entry, entry, environ_cmp);
-RB_GENERATE(environ, environ_entry, entry, environ_cmp);
+static int environ_cmp(struct environ_entry *, struct environ_entry *);
+RB_GENERATE_STATIC(environ, environ_entry, entry, environ_cmp);
 
-int
+static int
 environ_cmp(struct environ_entry *envent1, struct environ_entry *envent2)
 {
 	return (strcmp(envent1->name, envent2->name));
@@ -170,25 +170,27 @@ environ_unset(struct environ *env, const char *name)
 	free(envent);
 }
 
-/*
- * Copy a space-separated list of variables from a destination into a source
- * environment.
- */
+/* Copy variables from a destination into a source * environment. */
 void
-environ_update(const char *vars, struct environ *srcenv,
-    struct environ *dstenv)
+environ_update(struct options *oo, struct environ *src, struct environ *dst)
 {
 	struct environ_entry	*envent;
-	char			*copyvars, *var, *next;
+	struct options_entry	*o;
+	u_int			 size, idx;
+	const char		*value;
 
-	copyvars = next = xstrdup(vars);
-	while ((var = strsep(&next, " ")) != NULL) {
-		if ((envent = environ_find(srcenv, var)) == NULL)
-			environ_clear(dstenv, var);
+	o = options_get(oo, "update-environment");
+	if (o == NULL || options_array_size(o, &size) == -1)
+		return;
+	for (idx = 0; idx < size; idx++) {
+		value = options_array_get(o, idx);
+		if (value == NULL)
+			continue;
+		if ((envent = environ_find(src, value)) == NULL)
+			environ_clear(dst, value);
 		else
-			environ_set(dstenv, envent->name, "%s", envent->value);
+			environ_set(dst, envent->name, "%s", envent->value);
 	}
-	free(copyvars);
 }
 
 /* Push environment into the real environment - use after fork(). */
@@ -206,9 +208,15 @@ environ_push(struct environ *env)
 
 /* Log the environment. */
 void
-environ_log(struct environ *env, const char *prefix)
+environ_log(struct environ *env, const char *fmt, ...)
 {
 	struct environ_entry	*envent;
+	va_list			 ap;
+	char			*prefix;
+
+	va_start(ap, fmt);
+	vasprintf(&prefix, fmt, ap);
+	va_end(ap);
 
 	RB_FOREACH(envent, environ, env) {
 		if (envent->value != NULL && *envent->name != '\0') {
@@ -216,4 +224,33 @@ environ_log(struct environ *env, const char *prefix)
 			    envent->value);
 		}
 	}
+
+	free(prefix);
+}
+
+/* Create initial environment for new child. */
+struct environ *
+environ_for_session(struct session *s, int no_TERM)
+{
+	struct environ	*env;
+	const char	*value;
+	int		 idx;
+
+	env = environ_create();
+	environ_copy(global_environ, env);
+	if (s != NULL)
+		environ_copy(s->environ, env);
+
+	if (!no_TERM) {
+		value = options_get_string(global_options, "default-terminal");
+		environ_set(env, "TERM", "%s", value);
+	}
+
+	if (s != NULL)
+		idx = s->id;
+	else
+		idx = -1;
+	environ_set(env, "TMUX", "%s,%ld,%d", socket_path, (long)getpid(), idx);
+
+	return (env);
 }

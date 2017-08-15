@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.32 2016/08/14 11:30:54 jsg Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.39 2017/07/25 07:53:27 kettenis Exp $	*/
 /*	$NetBSD: cpu.c,v 1.56 2004/04/14 04:01:49 bsh Exp $	*/
 
 
@@ -48,157 +48,100 @@
 #include <sys/systm.h>
 #include <sys/malloc.h>
 #include <sys/device.h>
+#include <sys/user.h>
 #include <sys/proc.h>
 #include <sys/conf.h>
 #include <sys/sched.h>
 #include <uvm/uvm_extern.h>
 #include <machine/cpu.h>
 #include <machine/intr.h>
+#include <machine/fdt.h>
 
 #include <arm/cpuconf.h>
 #include <arm/undefined.h>
 
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/fdt.h>
+
 char cpu_model[256];
 
-/* Prototypes */
+int	cpu_match(struct device *, void *, void *);
+void	cpu_attach(struct device *, struct device *, void *);
+
+struct cfattach cpu_ca = {
+	sizeof(struct device), cpu_match, cpu_attach
+};
+
+struct cfdriver cpu_cd = {
+	NULL, "cpu", DV_DULL
+};
+
 void identify_arm_cpu(struct device *dv, struct cpu_info *);
 
-/*
- * Identify the master (boot) CPU
- */
-  
-void
-cpu_attach(struct device *dv)
+int
+cpu_match(struct device *parent, void *cfdata, void *aux)
 {
-	curcpu()->ci_dev = dv;
+	struct fdt_attach_args *faa = aux;
+	char buf[32];
 
-	/* Get the CPU ID from coprocessor 15 */
+	if (OF_getprop(faa->fa_node, "device_type", buf, sizeof(buf)) > 0 &&
+	    strcmp(buf, "cpu") == 0)
+		return 1;
 
-	curcpu()->ci_arm_cpuid = cpu_id();
-	curcpu()->ci_arm_cputype = curcpu()->ci_arm_cpuid & CPU_ID_CPU_MASK;
-	curcpu()->ci_arm_cpurev =
-	    curcpu()->ci_arm_cpuid & CPU_ID_REVISION_MASK;
+	return 0;
+}
 
-	identify_arm_cpu(dv, curcpu());
+void
+cpu_attach(struct device *parent, struct device *dev, void *aux)
+{
+	struct cpu_info *ci;
+
+	if (dev->dv_unit == 0) {
+		ci = curcpu();
+		ci->ci_dev = dev;
+
+		/* Get the CPU ID from coprocessor 15 */
+		ci->ci_arm_cpuid = cpu_id();
+		ci->ci_arm_cputype =
+		    ci->ci_arm_cpuid & CPU_ID_CPU_MASK;
+		ci->ci_arm_cpurev =
+		    ci->ci_arm_cpuid & CPU_ID_REVISION_MASK;
+
+		identify_arm_cpu(dev, ci);
+	} else {
+		printf(": not configured");
+	}
 }
 
 enum cpu_class {
 	CPU_CLASS_NONE,
-	CPU_CLASS_XSCALE,
-	CPU_CLASS_ARMv7
-};
-
-static const char * const generic_steppings[16] = {
-	"rev 0",	"rev 1",	"rev 2",	"rev 3",
-	"rev 4",	"rev 5",	"rev 6",	"rev 7",
-	"rev 8",	"rev 9",	"rev 10",	"rev 11",
-	"rev 12",	"rev 13",	"rev 14",	"rev 15"
-};
-
-/* Steppings for PXA2[15]0 */
-static const char * const pxa2x0_steppings[16] = {
-	"step A-0",	"step A-1",	"step B-0",	"step B-1",
-	"step B-2",	"step C-0",	"rev 6",	"rev 7",
-	"rev 8",	"rev 9",	"rev 10",	"rev 11",
-	"rev 12",	"rev 13",	"rev 14",	"rev 15"
-};
-
-/* Steppings for PXA255/26x.
- * rev 5: PXA26x B0, rev 6: PXA255 A0
- */
-static const char * const pxa255_steppings[16] = {
-	"rev 0",	"rev 1",	"rev 2",	"step A-0",
-	"rev 4",	"step B-0",	"step A-0",	"rev 7",
-	"rev 8",	"rev 9",	"rev 10",	"rev 11",
-	"rev 12",	"rev 13",	"rev 14",	"rev 15"
-};
-
-/* Steppings for PXA270 */
-static const char * const pxa27x_steppings[16] = {
-	"step A-0",	"step A-1",	"step B-0",	"step B-1",
-	"step C-0",	"step ?",	"step ?",	"step C-5",
-	"rev 8",	"rev 9",	"rev 10",	"rev 11",
-	"rev 12",	"rev 13",	"rev 14",	"rev 15"
+	CPU_CLASS_ARMv7,
+	CPU_CLASS_ARMv8
 };
 
 struct cpuidtab {
 	u_int32_t	cpuid;
 	enum		cpu_class cpu_class;
 	const char	*cpu_name;
-	const char * const *cpu_steppings;
 };
 
 const struct cpuidtab cpuids[] = {
-	{ CPU_ID_PXA250A,	CPU_CLASS_XSCALE,	"PXA250",
-	  pxa2x0_steppings },
-	{ CPU_ID_PXA210A,	CPU_CLASS_XSCALE,	"PXA210",
-	  pxa2x0_steppings },
-	{ CPU_ID_PXA250B,	CPU_CLASS_XSCALE,	"PXA250",
-	  pxa2x0_steppings },
-	{ CPU_ID_PXA210B,	CPU_CLASS_XSCALE,	"PXA210",
-	  pxa2x0_steppings },
-	{ CPU_ID_PXA250C, 	CPU_CLASS_XSCALE,	"PXA250",
-	  pxa2x0_steppings },
-	{ CPU_ID_PXA27X,	CPU_CLASS_XSCALE,	"PXA27x",
-	  pxa27x_steppings },
-	{ CPU_ID_PXA210C, 	CPU_CLASS_XSCALE,	"PXA210",
-	  pxa2x0_steppings },
+	{ CPU_ID_CORTEX_A5,	CPU_CLASS_ARMv7,	"ARM Cortex-A5" },
+	{ CPU_ID_CORTEX_A7,	CPU_CLASS_ARMv7,	"ARM Cortex-A7" },
+	{ CPU_ID_CORTEX_A8,	CPU_CLASS_ARMv7,	"ARM Cortex-A8" },
+	{ CPU_ID_CORTEX_A9,	CPU_CLASS_ARMv7,	"ARM Cortex-A9" },
+	{ CPU_ID_CORTEX_A12,	CPU_CLASS_ARMv7,	"ARM Cortex-A12" },
+	{ CPU_ID_CORTEX_A15,	CPU_CLASS_ARMv7,	"ARM Cortex-A15" },
+	{ CPU_ID_CORTEX_A17,	CPU_CLASS_ARMv7,	"ARM Cortex-A17" },
 
-	{ CPU_ID_CORTEX_A5,	CPU_CLASS_ARMv7,	"ARM Cortex A5",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A7,	CPU_CLASS_ARMv7,	"ARM Cortex A7",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A8,	CPU_CLASS_ARMv7,	"ARM Cortex A8",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A8_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A8 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A8_R2,	CPU_CLASS_ARMv7,	"ARM Cortex A8 R2",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A8_R3,	CPU_CLASS_ARMv7,	"ARM Cortex A8 R3",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A9,	CPU_CLASS_ARMv7,	"ARM Cortex A9",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A9_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A9 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A9_R2,	CPU_CLASS_ARMv7,	"ARM Cortex A9 R2",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A9_R3,	CPU_CLASS_ARMv7,	"ARM Cortex A9 R3",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A9_R4,	CPU_CLASS_ARMv7,	"ARM Cortex A9 R4",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A15,	CPU_CLASS_ARMv7,	"ARM Cortex A15",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A15_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A15 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A15_R2,	CPU_CLASS_ARMv7,	"ARM Cortex A15 R2",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A15_R3,	CPU_CLASS_ARMv7,	"ARM Cortex A15 R3",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A15_R4,	CPU_CLASS_ARMv7,	"ARM Cortex A15 R4",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A17,	CPU_CLASS_ARMv7,	"ARM Cortex A17",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A17_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A17 R1",
-	  generic_steppings },
+	{ CPU_ID_CORTEX_A32,	CPU_CLASS_ARMv8,	"ARM Cortex-A32" },
+	{ CPU_ID_CORTEX_A35,	CPU_CLASS_ARMv8,	"ARM Cortex-A35" },
+	{ CPU_ID_CORTEX_A53,	CPU_CLASS_ARMv8,	"ARM Cortex-A53" },
+	{ CPU_ID_CORTEX_A57,	CPU_CLASS_ARMv8,	"ARM Cortex-A57" },
+	{ CPU_ID_CORTEX_A72,	CPU_CLASS_ARMv8,	"ARM Cortex-A72" },
+	{ CPU_ID_CORTEX_A73,	CPU_CLASS_ARMv8,	"ARM Cortex-A73" },
 
-	{ CPU_ID_CORTEX_A35,	CPU_CLASS_ARMv7,	"ARM Cortex A35",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A53,	CPU_CLASS_ARMv7,	"ARM Cortex A53",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A53_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A53 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A57,	CPU_CLASS_ARMv7,	"ARM Cortex A57",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A57_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A57 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A72,	CPU_CLASS_ARMv7,	"ARM Cortex A72",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A72_R1,	CPU_CLASS_ARMv7,	"ARM Cortex A72 R1",
-	  generic_steppings },
-	{ CPU_ID_CORTEX_A73,	CPU_CLASS_ARMv7,	"ARM Cortex A73",
-	  generic_steppings },
-
-	{ 0, CPU_CLASS_NONE, NULL, NULL }
+	{ 0, CPU_CLASS_NONE, NULL }
 };
 
 struct cpu_classtab {
@@ -206,11 +149,10 @@ struct cpu_classtab {
 	const char	*class_option;
 };
 
-const struct cpu_classtab cpu_classes[] = {
-	{ "unknown",	NULL },			/* CPU_CLASS_NONE */
-	{ "XScale",	"CPU_XSCALE_..." },	/* CPU_CLASS_XSCALE */
-	{ "ARMv7",	"CPU_ARMv7" }		/* CPU_CLASS_ARMv7 */
-
+const char *cpu_classes[] = {
+	"unknown",		/* CPU_CLASS_NONE */
+	"ARMv7",		/* CPU_CLASS_ARMv7 */
+	"ARMv8"			/* CPU_CLASS_ARMv8 */
 };
 
 /*
@@ -253,13 +195,13 @@ identify_arm_cpu(struct device *dv, struct cpu_info *ci)
 	}
 
 	for (i = 0; cpuids[i].cpuid != 0; i++)
-		if (cpuids[i].cpuid == (cpuid & CPU_ID_CPU_MASK)) {
+		if (cpuids[i].cpuid == (cpuid & CPU_ID_CORTEX_MASK)) {
 			cpu_class = cpuids[i].cpu_class;
 			snprintf(cpu_model, sizeof(cpu_model),
-			    "%s %s (%s core)", cpuids[i].cpu_name,
-			    cpuids[i].cpu_steppings[cpuid &
-						    CPU_ID_REVISION_MASK],
-			    cpu_classes[cpu_class].class_name);
+			    "%s r%dp%d (%s)", cpuids[i].cpu_name,
+			    (cpuid & CPU_ID_VARIANT_MASK) >> 20,
+			    cpuid & CPU_ID_REVISION_MASK,
+			    cpu_classes[cpu_class]);
 			break;
 		}
 
@@ -272,8 +214,8 @@ identify_arm_cpu(struct device *dv, struct cpu_info *ci)
 	printf("%s:", dv->dv_xname);
 
 	switch (cpu_class) {
-	case CPU_CLASS_XSCALE:
 	case CPU_CLASS_ARMv7:
+	case CPU_CLASS_ARMv8:
 		if ((ci->ci_ctrl & CPU_CONTROL_DC_ENABLE) == 0)
 			printf(" DC disabled");
 		else
@@ -321,49 +263,35 @@ identify_arm_cpu(struct device *dv, struct cpu_info *ci)
  skip_pcache:
 
 	switch (cpu_class) {
-#ifdef CPU_ARMv7
 	case CPU_CLASS_ARMv7:
-#endif
-
-#if defined(CPU_XSCALE_PXA2X0)
-	case CPU_CLASS_XSCALE:
-#endif
+	case CPU_CLASS_ARMv8:
 		break;
 	default:
-		if (cpu_classes[cpu_class].class_option != NULL)
-			printf("%s: %s does not fully support this CPU."
-			       "\n", dv->dv_xname, ostype);
-		else {
-			printf("%s: This kernel does not fully support "
-			       "this CPU.\n", dv->dv_xname);
-			printf("%s: Recompile with \"options %s\" to "
-			       "correct this.\n", dv->dv_xname,
-			       cpu_classes[cpu_class].class_option);
-		}
+		printf("%s: %s does not fully support this CPU."
+		       "\n", dv->dv_xname, ostype);
 		break;
 	}
-			       
 }
+
 #ifdef MULTIPROCESSOR
 int
-cpu_alloc_idlepcb(struct cpu_info *ci)
+cpu_alloc_idle_pcb(struct cpu_info *ci)
 {
 	vaddr_t uaddr;
 	struct pcb *pcb;
 	struct trapframe *tf;
-	int error;
 
 	/*
 	 * Generate a kernel stack and PCB (in essence, a u-area) for the
 	 * new CPU.
 	 */
-	if (uvm_uarea_alloc(&uaddr)) {
-		error = uvm_fault_wire(kernel_map, uaddr, uaddr + USPACE,
-		    VM_FAULT_WIRE, PROT_READ | PROT_WRITE);
-		if (error)
-			return error;
+	uaddr = (vaddr_t)km_alloc(USPACE, &kv_any, &kp_zero, &kd_nowait);
+	if (uaddr == 0) {
+		printf("%s: unable to allocate idle stack\n",
+		    __func__);
+		return ENOMEM;
 	}
-	ci->ci_idlepcb = pcb = (struct pcb *)uaddr;
+	ci->ci_idle_pcb = pcb = (struct pcb *)uaddr;
 
 	/*
 	 * This code is largely derived from cpu_fork(), with which it

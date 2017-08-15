@@ -1,5 +1,32 @@
-.\"	$OpenBSD: ping.8,v 1.54 2016/09/03 13:56:17 akfaew Exp $
+.\"	$OpenBSD: ping.8,v 1.59 2016/10/26 16:18:45 jmc Exp $
 .\"	$NetBSD: ping.8,v 1.10 1995/12/31 04:55:35 ghudson Exp $
+.\"
+.\" Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. Neither the name of the project nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE PROJECT OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
 .\"
 .\" Copyright (c) 1985, 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -30,15 +57,15 @@
 .\"
 .\"     @(#)ping.8	8.2 (Berkeley) 12/11/93
 .\"
-.Dd $Mdocdate: September 3 2016 $
+.Dd $Mdocdate: October 26 2016 $
 .Dt PING 8
 .Os
 .Sh NAME
-.Nm ping
+.Nm ping ,
+.Nm ping6
 .Nd send ICMP ECHO_REQUEST packets to network hosts
 .Sh SYNOPSIS
 .Nm ping
-.Bk -words
 .Op Fl DdEefHLnqRv
 .Op Fl c Ar count
 .Op Fl I Ar ifaddr
@@ -51,7 +78,18 @@
 .Op Fl V Ar rtable
 .Op Fl w Ar maxwait
 .Ar host
-.Ek
+.Nm ping6
+.Op Fl dEefHLmnqv
+.Op Fl c Ar count
+.Op Fl h Ar hoplimit
+.Op Fl I Ar sourceaddr
+.Op Fl i Ar wait
+.Op Fl l Ar preload
+.Op Fl p Ar pattern
+.Op Fl s Ar packetsize
+.Op Fl V Ar rtable
+.Op Fl w Ar maxwait
+.Ar host
 .Sh DESCRIPTION
 .Nm
 uses the ICMP protocol's mandatory
@@ -59,15 +97,13 @@ uses the ICMP protocol's mandatory
 datagram to elicit an ICMP
 .Dv ECHO_REPLY
 from a host or gateway.
-.Dv ECHO_REQUEST
-datagrams
-.Pq Dq pings
+These datagrams
+.Pq pings
 have an IP and ICMP header,
 followed by a
-.Dq struct timeval
-and then an arbitrary number of
-.Dq pad
-bytes used to fill out the packet.
+.Qq struct timeval
+and then an arbitrary number of pad bytes used to fill out the packet.
+.Pp
 The options are as follows:
 .Bl -tag -width Ds
 .It Fl c Ar count
@@ -79,6 +115,7 @@ If
 .Ar count
 is 0, send an unlimited number of packets.
 .It Fl D
+.Pq IPv4 only
 Set the
 .Dv Don't Fragment
 bit.
@@ -118,6 +155,9 @@ This can be very hard on a network and should be used with caution.
 .Ef
 .It Fl H
 Try reverse lookups for addresses.
+.It Fl h Ar hoplimit
+.Pq IPv6 only
+Set the hoplimit.
 .It Fl I Ar ifaddr
 Specify the interface address to transmit from
 on machines with multiple interfaces.
@@ -137,29 +177,30 @@ Disable the loopback, so the transmitting host doesn't see the ICMP
 requests.
 For multicast pings.
 .It Fl l Ar preload
-If
+Send
 .Ar preload
-is specified,
-.Nm
-sends that many packets as fast as possible before falling into its normal
-mode of behavior.
+packets as fast as possible before reverting to normal behavior.
 Only root may set a preload value.
+.It Fl m
+.Pq IPv6 only
+Do not fragment unicast packets to fit the minimum IPv6 MTU.
+If specified twice,
+do this for multicast packets as well.
 .It Fl n
 Numeric output only.
 No attempt will be made to look up symbolic names from addresses in the reply.
 .It Fl p Ar pattern
-You may specify up to 16
-.Dq pad
-bytes to fill out the packet you send.
+Specify up to 16 pad bytes to fill out the packet sent.
 This is useful for diagnosing data-dependent problems in a network.
 For example,
-.Dq -p ff
-will cause the sent packet to be filled with all ones.
+.Qq -p ff
+causes the sent packet to be filled with all ones.
 .It Fl q
 Quiet output.
 Nothing is displayed except the summary lines at startup time and
 when finished.
 .It Fl R
+.Pq IPv4 only
 Record route.
 Includes the
 .Dv RECORD_ROUTE
@@ -174,27 +215,29 @@ packet,
 will print the route list and then truncate it at the correct spot.
 Many hosts ignore or discard this option.
 .It Fl s Ar packetsize
-Specifies the number of data bytes to be sent.
+Specify the number of data bytes to be sent.
 The default is 56,
 which translates into 64 ICMP data bytes
 when combined with the 8 bytes of ICMP header data.
-The maximum packet size is 65467.
+The maximum packet size is 65467 for IPv4 and 65527 for IPv6.
 .It Fl T Ar toskeyword
-Change IPv4 TOS value.
+.Pq IPv4 only
+Change the TOS value.
 .Ar toskeyword
 may be one of
-.Ar critical ,
-.Ar inetcontrol ,
-.Ar lowdelay ,
-.Ar netcontrol ,
-.Ar throughput ,
-.Ar reliability ,
+.Cm critical ,
+.Cm inetcontrol ,
+.Cm lowdelay ,
+.Cm netcontrol ,
+.Cm throughput ,
+.Cm reliability ,
 or one of the DiffServ Code Points:
-.Ar ef ,
-.Ar af11 ... af43 ,
-.Ar cs0 ... cs7 ;
+.Cm ef ,
+.Cm af11 ... af43 ,
+.Cm cs0 ... cs7 ;
 or a number in either hex or decimal.
 .It Fl t Ar ttl
+.Pq IPv4 only
 Use the specified time-to-live.
 .It Fl V Ar rtable
 Set the routing table to be used for outgoing packets.
@@ -204,7 +247,7 @@ ICMP packets other than
 .Dv ECHO_REPLY
 that are received are listed.
 .It Fl w Ar maxwait
-Specifies the maximum number of seconds to wait for responses
+Specify the maximum number of seconds to wait for responses
 after the last request has been sent.
 The default is 10.
 .El
@@ -256,11 +299,12 @@ Thus the amount of data received inside of an IP packet of type ICMP
 will always be 8 bytes more than the requested data space
 (the ICMP header).
 .Pp
-If the data space is at least eight bytes large,
+If the data space is at least 24 bytes,
 .Nm
-uses the first eight bytes of this space to include a timestamp which
+uses the first sixteen bytes of this space to include a timestamp which
 it uses in the computation of round trip times.
-If less than eight bytes of pad are specified, no round trip times are
+The following 8 bytes store a message authentication code.
+If less than 24 bytes of pad are specified, no round trip times are
 given.
 .Sh DUPLICATE AND DAMAGED PACKETS
 .Nm
@@ -359,16 +403,19 @@ Others may use completely wild values.
 .Sh EXIT STATUS
 .Nm
 exits 0 if at least one reply is received,
-and \*(Gt0 if no reply is received or an error occurred.
+and >0 if no reply is received or an error occurred.
 .Sh SEE ALSO
 .Xr netstat 1 ,
-.Xr ifconfig 8 ,
-.Xr ping6 8
+.Xr ifconfig 8
 .Sh HISTORY
 The
 .Nm
 command appeared in
 .Bx 4.3 .
+The
+.Nm ping6
+command was originally a separate program
+and first appeared in the WIDE Hydrangea IPv6 protocol stack kit.
 .Sh BUGS
 Many hosts and gateways ignore the
 .Dv RECORD_ROUTE

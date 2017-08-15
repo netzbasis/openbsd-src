@@ -1,3 +1,5 @@
+/*	$OpenBSD: log.c,v 1.4 2017/07/12 06:09:59 florian Exp $ */
+
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
  *
@@ -14,9 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <err.h>
 #include <errno.h>
-#include <netdb.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,10 +27,9 @@
 
 #include "log.h"
 
-int	debug;
-
-void	logit(int, const char *, ...);
-void	vlog(int pri, const char *fmt, va_list ap);
+int		 debug;
+int		 verbose;
+const char	*log_procname;
 
 void
 log_init(int n_debug)
@@ -43,6 +42,12 @@ log_init(int n_debug)
 		openlog(__progname, LOG_PID | LOG_NDELAY, LOG_DAEMON);
 
 	tzset();
+}
+
+void
+log_verbose(int v)
+{
+	verbose = v;
 }
 
 void
@@ -80,18 +85,18 @@ log_warn(const char *emsg, ...)
 	char	*nfmt;
 	va_list	 ap;
 
+	/* best effort to even work in out of memory situations */
 	if (emsg == NULL)
-		logit(LOG_CRIT, "%s", strerror(errno));
+		logit(LOG_ERR, "%s", strerror(errno));
 	else {
 		va_start(ap, emsg);
 
-		/* best effort to even work in out of memory situations */
 		if (asprintf(&nfmt, "%s: %s", emsg, strerror(errno)) == -1) {
 			/* we tried it... */
-			vlog(LOG_CRIT, emsg, ap);
-			logit(LOG_CRIT, "%s", strerror(errno));
+			vlog(LOG_ERR, emsg, ap);
+			logit(LOG_ERR, "%s", strerror(errno));
 		} else {
-			vlog(LOG_CRIT, nfmt, ap);
+			vlog(LOG_ERR, nfmt, ap);
 			free(nfmt);
 		}
 		va_end(ap);
@@ -104,7 +109,7 @@ log_warnx(const char *emsg, ...)
 	va_list	 ap;
 
 	va_start(ap, emsg);
-	vlog(LOG_CRIT, emsg, ap);
+	vlog(LOG_ERR, emsg, ap);
 	va_end(ap);
 }
 
@@ -123,35 +128,51 @@ log_debug(const char *emsg, ...)
 {
 	va_list	 ap;
 
-	if (debug) {
+	if (verbose) {
 		va_start(ap, emsg);
 		vlog(LOG_DEBUG, emsg, ap);
 		va_end(ap);
 	}
 }
 
-void
-fatal(const char *emsg)
+static void
+vfatalc(int code, const char *emsg, va_list ap)
 {
-	extern char	*__progname;
+	static char	s[BUFSIZ];
+	const char	*sep;
 
-	if (emsg == NULL)
-		logit(LOG_CRIT, "fatal in %s: %s", __progname,
-		    strerror(errno));
+	if (emsg != NULL) {
+		(void)vsnprintf(s, sizeof(s), emsg, ap);
+		sep = ": ";
+	} else {
+		s[0] = '\0';
+		sep = "";
+	}
+	if (code)
+		logit(LOG_CRIT, "fatal in %s: %s%s%s",
+		    log_procname, s, sep, strerror(code));
 	else
-		if (errno)
-			logit(LOG_CRIT, "fatal in %s: %s: %s",
-			    __progname, emsg, strerror(errno));
-		else
-			logit(LOG_CRIT, "fatal in %s: %s",
-			    __progname, emsg);
+		logit(LOG_CRIT, "fatal in %s%s%s", log_procname, sep, s);
+}
 
+void
+fatal(const char *emsg, ...)
+{
+	va_list	ap;
+
+	va_start(ap, emsg);
+	vfatalc(errno, emsg, ap);
+	va_end(ap);
 	exit(1);
 }
 
 void
-fatalx(const char *emsg)
+fatalx(const char *emsg, ...)
 {
-	errno = 0;
-	fatal(emsg);
+	va_list	ap;
+
+	va_start(ap, emsg);
+	vfatalc(0, emsg, ap);
+	va_end(ap);
+	exit(1);
 }

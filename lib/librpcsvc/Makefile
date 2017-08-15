@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.10 2012/08/02 13:38:39 okan Exp $
+#	$OpenBSD: Makefile,v 1.12 2017/06/16 10:25:54 espie Exp $
 
 
 RPCSRCS=	bootparam_prot.x klm_prot.x mount.x nfs_prot.x \
@@ -13,6 +13,9 @@ NOMAN=
 
 all:		${HDRS}
 beforedepend:	${HDRS}
+prereq:		${HDRS}
+
+BUILDFIRST =	${HDRS}
 
 includes:	${HDRS}
 	${INSTALL} -d -o ${BINOWN} -g ${BINGRP} -m 755 \

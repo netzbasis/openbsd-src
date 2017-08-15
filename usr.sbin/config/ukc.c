@@ -1,4 +1,4 @@
-/*	$OpenBSD: ukc.c,v 1.20 2015/10/12 04:43:30 deraadt Exp $ */
+/*	$OpenBSD: ukc.c,v 1.22 2016/10/19 16:39:02 tb Exp $ */
 
 /*
  * Copyright (c) 1999-2001 Mats O Jansson.  All rights reserved.
@@ -41,8 +41,8 @@
 #include "ukc.h"
 #include "exec.h"
 
-void	init(void);
-void	usage(void);
+void		init(void);
+__dead void	usage(void);
 
 int	ukc_mod_kernel = 0;
 
@@ -57,7 +57,6 @@ check_int(int idx, const char *name)
 int
 ukc(char *file, char *outfile, int uflag, int force)
 {
-	extern char *__progname;
 	int i;
 	kvm_t *kd;
 	char errbuf[_POSIX2_LINE_MAX];
@@ -65,7 +64,7 @@ ukc(char *file, char *outfile, int uflag, int force)
 	char history[1024], kversion[1024];
 
 	if (file == NULL) {
-		fprintf(stderr, "%s: no file specified\n", __progname);
+		warnx("no file specified");
 		usage();
 	}
 
@@ -175,7 +174,7 @@ WARNING this kernel doesn't support pseudo devices.\n");
 void
 init(void)
 {
-	int i = 0, fd;
+	int i = 0;
 	struct cfdata *cd;
 	short	*ln;
 	int	*p;
@@ -209,7 +208,4 @@ init(void)
 		p = (int *)adjust((caddr_t)nl[I_PDEVSIZE].n_value);
 		maxpseudo = *p;
 	}
-
-	if ((fd = open("/dev/tty", O_RDWR)) < 0)
-		fd = 2;
 }

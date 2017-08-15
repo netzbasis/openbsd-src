@@ -50,13 +50,13 @@
 #define MALLOC_DELAYED_CHUNK_MASK	15
 #define MALLOC_INITIAL_REGIONS	512
 #define MALLOC_DEFAULT_CACHE	64
-#define	MALLOC_CHUNK_LISTS	4
+#define MALLOC_CHUNK_LISTS	4
+#define CHUNK_CHECK_LENGTH	32
 
 /*
- * When the P option is active, we move allocations between half a page
- * and a whole page towards the end, subject to alignment constraints.
- * This is the extra headroom we allow. Set to zero to be the most
- * strict.
+ * We move allocations between half a page and a whole page towards the end,
+ * subject to alignment constraints. This is the extra headroom we allow.
+ * Set to zero to be the most strict.
  */
 #define MALLOC_LEEWAY		0
 
@@ -67,8 +67,8 @@
  * when the 'J' option is enabled. Use SOME_JUNK right after alloc,
  * and SOME_FREEJUNK right before free.
  */
-#define SOME_JUNK		0xd0	/* as in "Duh" :-) */
-#define SOME_FREEJUNK		0xdf
+#define SOME_JUNK		0xdb	/* deadbeef */
+#define SOME_FREEJUNK		0xdf	/* dead, free */
 
 #define MMAP(sz)	_dl_mmap(NULL, (size_t)(sz), PROT_READ | PROT_WRITE, \
     MAP_ANON | MAP_PRIVATE, -1, (off_t) 0)
@@ -120,6 +120,7 @@ struct chunk_info {
 	u_short shift;			/* how far to shift for this size */
 	u_short free;			/* how many free chunks */
 	u_short total;			/* how many chunk */
+	u_short offset;			/* requested size table offset */
 					/* which chunks are free */
 	u_short bits[1];
 };
@@ -129,7 +130,7 @@ struct malloc_readonly {
 	int	malloc_freenow;		/* Free quickly - disable chunk rnd */
 	int	malloc_freeunmap;	/* mprotect free pages PROT_NONE? */
 	int	malloc_junk;		/* junk fill? */
-	int	malloc_move;		/* move allocations to end of page? */
+	int	chunk_canaries;		/* use canaries after chunks? */
 	size_t	malloc_guard;		/* use guard pages after allocations? */
 	u_int	malloc_cache;		/* free pages we cache */
 	u_int32_t malloc_canary;	/* Matched against ones in g_pool */
@@ -168,25 +169,13 @@ hash(void *p)
 	return sum;
 }
 
-static void
+static __dead void
 wrterror(char *msg)
 {
-	char		*q = " error: ";
-	struct iovec	iov[4];
-
-	iov[0].iov_base = g_pool->func;
-	iov[0].iov_len = _dl_strlen(g_pool->func);
-	iov[1].iov_base = q;
-	iov[1].iov_len = _dl_strlen(q);
-	iov[2].iov_base = msg;
-	iov[2].iov_len = _dl_strlen(msg);
-	iov[3].iov_base = "\n";
-	iov[3].iov_len = 1;
-	_dl_write(STDERR_FILENO, iov[0].iov_base, iov[0].iov_len);
-	_dl_write(STDERR_FILENO, iov[1].iov_base, iov[1].iov_len);
-	_dl_write(STDERR_FILENO, iov[2].iov_base, iov[2].iov_len);
-	_dl_write(STDERR_FILENO, iov[3].iov_base, iov[3].iov_len);
-	_dl_exit(7);
+	if (g_pool != NULL && g_pool->func != NULL)
+		_dl_die("%s error: %s", g_pool->func, msg);
+	else
+		_dl_die("%s", msg);
 }
 
 static void
@@ -256,6 +245,11 @@ unmap(struct dir_info *d, void *p, size_t sz)
 	for (i = 0; i < mopts.malloc_cache; i++) {
 		r = &d->free_regions[(i + offset) & (mopts.malloc_cache - 1)];
 		if (r->p == NULL) {
+			if (mopts.malloc_junk && !mopts.malloc_freeunmap) {
+				size_t amt = mopts.malloc_junk == 1 ?
+				     MALLOC_MAXCHUNK : sz;
+				_dl_memset(p, SOME_FREEJUNK, amt);
+			}
 			if (mopts.malloc_freeunmap)
 				_dl_mprotect(p, sz, PROT_NONE);
 			r->p = p;
@@ -348,7 +342,7 @@ omalloc_init(struct dir_info **dp)
 	 * Default options
 	 */
 	mopts.malloc_junk = 1;
-	mopts.malloc_move = 1;
+	mopts.chunk_canaries = 1;
 	mopts.malloc_cache = MALLOC_DEFAULT_CACHE;
 	mopts.malloc_guard = MALLOC_PAGESIZE;
 
@@ -454,6 +448,8 @@ alloc_chunk_info(struct dir_info *d, int bits)
 
 	size = howmany(count, MALLOC_BITS);
 	size = sizeof(struct chunk_info) + (size - 1) * sizeof(u_short);
+	if (mopts.chunk_canaries)
+		size += count * sizeof(u_short);
 	size = ALIGN(size);
 
 	if (LIST_EMPTY(&d->chunk_info_list[bits])) {
@@ -587,6 +583,7 @@ omalloc_make_chunks(struct dir_info *d, int bits, int listnum)
 		while (i >>= 1)
 			bp->shift++;
 		bp->total = bp->free = MALLOC_PAGESIZE >> bp->shift;
+		bp->offset = 0xdead;
 		bp->page = pp;
 
 		k = _dl_mprotect(pp, MALLOC_PAGESIZE, PROT_NONE);
@@ -599,6 +596,7 @@ omalloc_make_chunks(struct dir_info *d, int bits, int listnum)
 		bp->size = 1U << bits;
 		bp->shift = bits;
 		bp->total = bp->free = MALLOC_PAGESIZE >> bits;
+		bp->offset = howmany(bp->total, MALLOC_BITS);
 		bp->page = pp;
 	}
 
@@ -628,16 +626,19 @@ omalloc_make_chunks(struct dir_info *d, int bits, int listnum)
  * Allocate a chunk
  */
 static void *
-malloc_bytes(struct dir_info *d, size_t size)
+malloc_bytes(struct dir_info *d, size_t argsize)
 {
 	int		i, j, listnum;
-	size_t		k;
+	size_t		k, size;
 	u_short		u, *lp;
 	struct chunk_info *bp;
 
 	if (mopts.malloc_canary != (d->canary1 ^ (u_int32_t)(uintptr_t)d) ||
 	    d->canary1 != ~d->canary2)
 		wrterror("internal struct corrupt");
+
+	size = argsize;
+
 	/* Don't bother with anything less than this */
 	/* unless we have a malloc(0) requests */
 	if (size != 0 && size < MALLOC_MINSIZE)
@@ -696,15 +697,48 @@ malloc_bytes(struct dir_info *d, size_t size)
 
 	/* Adjust to the real offset of that chunk */
 	k += (lp - bp->bits) * MALLOC_BITS;
+
+	if (mopts.chunk_canaries && argsize > 0)
+		bp->bits[bp->offset + k] = argsize;
+
 	k <<= bp->shift;
+
+	if (bp->size > 0) {
+		if (mopts.malloc_junk == 2)
+			_dl_memset((char *)bp->page + k, SOME_JUNK, bp->size);
+		else if (mopts.chunk_canaries) {
+			size_t sz = bp->size - argsize;
+
+			if (sz > CHUNK_CHECK_LENGTH)
+				sz = CHUNK_CHECK_LENGTH;
+			_dl_memset((char *)bp->page + k + argsize, SOME_JUNK,
+			    sz);
+		}
+	}
 
 	if (mopts.malloc_junk == 2 && bp->size > 0)
 		_dl_memset((char *)bp->page + k, SOME_JUNK, bp->size);
 	return ((char *)bp->page + k);
 }
 
+static void
+validate_canary(struct dir_info *d, u_char *ptr, size_t sz, size_t allocated)
+{
+	size_t check_sz = allocated - sz;
+	u_char *p, *q;
+
+	if (check_sz > CHUNK_CHECK_LENGTH)
+		check_sz = CHUNK_CHECK_LENGTH;
+	p = ptr + sz;
+	q = p + check_sz;
+
+	while (p < q)
+		if (*p++ != SOME_JUNK)
+			wrterror("chunk canary corrupted");
+}
+
 static uint32_t
-find_chunknum(struct dir_info *d, struct region_info *r, void *ptr)
+find_chunknum(struct dir_info *d, struct region_info *r, void *ptr, int check)
 {
 	struct chunk_info *info;
 	uint32_t chunknum;
@@ -715,16 +749,18 @@ find_chunknum(struct dir_info *d, struct region_info *r, void *ptr)
 
 	/* Find the chunk number on the page */
 	chunknum = ((uintptr_t)ptr & MALLOC_PAGEMASK) >> info->shift;
+	if (check && info->size > 0) {
+		validate_canary(d, ptr, info->bits[info->offset + chunknum],
+		    info->size);
+	}
 
 	if ((uintptr_t)ptr & ((1U << (info->shift)) - 1)) {
 		wrterror("modified chunk-pointer");
 		return -1;
 	}
 	if (info->bits[chunknum / MALLOC_BITS] &
-	    (1U << (chunknum % MALLOC_BITS))) {
+	    (1U << (chunknum % MALLOC_BITS)))
 		wrterror("chunk is already free");
-		return -1;
-	}
 	return chunknum;
 }
 
@@ -740,8 +776,7 @@ free_bytes(struct dir_info *d, struct region_info *r, void *ptr)
 	int listnum;
 
 	info = (struct chunk_info *)r->size;
-	if ((chunknum = find_chunknum(d, r, ptr)) == -1)
-		return;
+	chunknum = find_chunknum(d, r, ptr, 0);
 
 	info->bits[chunknum / MALLOC_BITS] |= 1U << (chunknum % MALLOC_BITS);
 	info->free++;
@@ -803,9 +838,7 @@ omalloc(size_t sz, int zero_fill)
 				wrterror("mprotect");
 		}
 
-		if (mopts.malloc_move &&
-		    sz - mopts.malloc_guard < MALLOC_PAGESIZE -
-		    MALLOC_LEEWAY) {
+		if (sz - mopts.malloc_guard < MALLOC_PAGESIZE - MALLOC_LEEWAY) {
 			/* fill whole allocation */
 			if (mopts.malloc_junk == 2)
 				_dl_memset(p, SOME_JUNK, psz - mopts.malloc_guard);
@@ -823,6 +856,13 @@ omalloc(size_t sz, int zero_fill)
 				else
 					_dl_memset(p, SOME_JUNK,
 					    psz - mopts.malloc_guard);
+			} else if (mopts.chunk_canaries) {
+				size_t csz = psz - sz;
+
+				if (csz > CHUNK_CHECK_LENGTH)
+					csz = CHUNK_CHECK_LENGTH;
+				_dl_memset((char *)p + sz - mopts.malloc_guard,
+				    SOME_JUNK, csz);
 			}
 		}
 
@@ -857,8 +897,9 @@ void *
 _dl_malloc(size_t size)
 {
 	void *r = NULL;
+	lock_cb *cb;
 
-	_dl_thread_kern_stop();
+	cb = _dl_thread_kern_stop();
 	if (g_pool == NULL)
 		omalloc_init(&g_pool);
 	g_pool->func = "malloc():";
@@ -869,8 +910,28 @@ _dl_malloc(size_t size)
 	r = omalloc(size, 0);
 	g_pool->active--;
 ret:
-	_dl_thread_kern_go();
+	_dl_thread_kern_go(cb);
 	return r;
+}
+
+static void
+validate_junk(struct dir_info *pool, void *p)
+{
+	struct region_info *r;
+	size_t byte, sz;
+
+	if (p == NULL)
+		return;
+	r = find(pool, p);
+	if (r == NULL)
+		wrterror("bogus pointer in validate_junk");
+	REALSIZE(sz, r);
+	if (sz > CHUNK_CHECK_LENGTH)
+		sz = CHUNK_CHECK_LENGTH;
+	for (byte = 0; byte < sz; byte++) {
+		if (((unsigned char *)p)[byte] != SOME_FREEJUNK)
+			wrterror("use after free");
+	}
 }
 
 static void
@@ -888,6 +949,10 @@ ofree(void *p)
 		    MALLOC_LEEWAY) {
 			if (r->p != p)
 				wrterror("bogus pointer");
+			if (mopts.chunk_canaries)
+				validate_canary(g_pool, p,
+				    sz - mopts.malloc_guard,
+				    PAGEROUND(sz - mopts.malloc_guard));
 		} else {
 #if notyetbecause_of_realloc
 			/* shifted towards the end */
@@ -908,28 +973,29 @@ ofree(void *p)
 					wrterror("mprotect");
 			}
 		}
-		if (mopts.malloc_junk && !mopts.malloc_freeunmap) {
-			size_t amt = mopts.malloc_junk == 1 ? MALLOC_MAXCHUNK :
-			    PAGEROUND(sz) - mopts.malloc_guard;
-			_dl_memset(p, SOME_FREEJUNK, amt);
-		}
 		unmap(g_pool, p, PAGEROUND(sz));
 		delete(g_pool, r);
 	} else {
 		void *tmp;
 		int i;
 
-		if (mopts.malloc_junk && sz > 0)
-			_dl_memset(p, SOME_FREEJUNK, sz);
+		/* Delayed free or canaries? Extra check! */
+		if (!mopts.malloc_freenow || mopts.chunk_canaries)
+			find_chunknum(g_pool, r, p, mopts.chunk_canaries);
 		if (!mopts.malloc_freenow) {
-			if (find_chunknum(g_pool, r, p) == -1)
-				return;
+			if (mopts.malloc_junk && sz > 0)
+				_dl_memset(p, SOME_FREEJUNK, sz);
 			i = getrbyte(g_pool) & MALLOC_DELAYED_CHUNK_MASK;
 			tmp = p;
 			p = g_pool->delayed_chunks[i];
 			if (tmp == p)
 				wrterror("double free");
+			if (mopts.malloc_junk)
+				validate_junk(g_pool, p);
 			g_pool->delayed_chunks[i] = tmp;
+		} else {
+			if (mopts.malloc_junk && sz > 0)
+				_dl_memset(p, SOME_FREEJUNK, sz);
 		}
 		if (p != NULL) {
 			r = find(g_pool, p);
@@ -943,11 +1009,13 @@ ofree(void *p)
 void
 _dl_free(void *ptr)
 {
+	lock_cb *cb;
+
 	/* This is legal. */
 	if (ptr == NULL)
 		return;
 
-	_dl_thread_kern_stop();
+	cb = _dl_thread_kern_stop();
 	if (g_pool == NULL)
 		wrterror("free() called before allocation");
 	g_pool->func = "free():";
@@ -958,7 +1026,7 @@ _dl_free(void *ptr)
 	ofree(ptr);
 	g_pool->active--;
 ret:
-	_dl_thread_kern_go();
+	_dl_thread_kern_go(cb);
 }
 
 
@@ -972,8 +1040,9 @@ void *
 _dl_calloc(size_t nmemb, size_t size)
 {
 	void *r = NULL;
+	lock_cb *cb;
 
-	_dl_thread_kern_stop();
+	cb = _dl_thread_kern_stop();
 	if (g_pool == NULL)
 		omalloc_init(&g_pool);
 	g_pool->func = "calloc():";
@@ -991,7 +1060,7 @@ _dl_calloc(size_t nmemb, size_t size)
 	r = omalloc(size, 1);
 	g_pool->active--;
 ret:
-	_dl_thread_kern_go();
+	_dl_thread_kern_go(cb);
 	return r;
 }
 
@@ -1025,8 +1094,9 @@ void *
 _dl_realloc(void *ptr, size_t size)
 {
 	void *r = NULL;
+	lock_cb *cb;
 
-	_dl_thread_kern_stop();
+	cb = _dl_thread_kern_stop();
 	if (g_pool == NULL)
 		omalloc_init(&g_pool);
 	g_pool->func = "realloc():";
@@ -1037,7 +1107,7 @@ _dl_realloc(void *ptr, size_t size)
 	r = orealloc(ptr, size);
 	g_pool->active--;
 ret:
-	_dl_thread_kern_go();
+	_dl_thread_kern_go(cb);
 	return r;
 }
 

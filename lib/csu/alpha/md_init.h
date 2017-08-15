@@ -1,4 +1,4 @@
-/* $OpenBSD: md_init.h,v 1.7 2016/08/07 02:34:52 guenther Exp $ */
+/* $OpenBSD: md_init.h,v 1.9 2017/08/11 20:13:30 guenther Exp $ */
 /*-
  * Copyright (c) 2001 Ross Harvey
  * All rights reserved.
@@ -102,13 +102,8 @@
 	"_dl_exit:				\n" \
 	"	lda	$0, 1			\n" \
 	"	callsys				\n" \
-	"	ret				\n" \
-	".globl _dl_printf			\n" \
-	".type _dl_printf@function		\n" \
-	"_dl_printf:				\n" \
 	"	ret")
 
-#define	MD_START		___start
 #define	MD_START_ARGS		char **sp, void (*cleanup)(void)
 #define	MD_START_SETUP				\
 	char **argv, **envp;			\

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.40 2016/02/06 19:30:52 krw Exp $	*/
+/*	$OpenBSD: parse.c,v 1.61 2017/07/24 16:17:35 krw Exp $	*/
 
 /* Common parser code for dhcpd and dhclient. */
 
@@ -55,10 +55,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <syslog.h>
+#include <unistd.h>
+#include <vis.h>
 
 #include "dhcp.h"
 #include "dhcpd.h"
 #include "dhctoken.h"
+#include "log.h"
 
 /*
  * Skip to the semicolon ending the current statement.   If we encounter
@@ -84,8 +88,8 @@ skip_to_semi(FILE *cfile)
 	do {
 		token = peek_token(NULL, cfile);
 		if (token == '}') {
-			if (brace_count) {
-				if (!--brace_count) {
+			if (brace_count > 0) {
+				if (--brace_count == 0) {
 					token = next_token(NULL, cfile);
 					return;
 				}
@@ -93,7 +97,7 @@ skip_to_semi(FILE *cfile)
 				return;
 		} else if (token == '{') {
 			brace_count++;
-		} else if (token == ';' && !brace_count) {
+		} else if (token == ';' && brace_count == 0) {
 			token = next_token(NULL, cfile);
 			return;
 		} else if (token == '\n') {
@@ -119,53 +123,57 @@ parse_semi(FILE *cfile)
 	if (token != ';') {
 		parse_warn("expecting semicolon.");
 		skip_to_semi(cfile);
-		return (0);
+		return 0;
 	}
-	return (1);
+	return 1;
 }
 
-/*
- * string-parameter :== STRING SEMI
- */
 char *
-parse_string(FILE *cfile)
+parse_string(FILE *cfile, unsigned int *len)
 {
-	char *val, *s;
-	int token;
+	static char	 unvisbuf[1500];
+	char		*val, *s;
+	int		 i, token;
 
 	token = next_token(&val, cfile);
 	if (token != TOK_STRING) {
-		parse_warn("filename must be a string");
+		parse_warn("expecting string.");
 		if (token != ';')
 			skip_to_semi(cfile);
-		return (NULL);
+		return NULL;
 	}
-	s = strdup(val);
-	if (!s)
-		error("no memory for string %s.", val);
 
-	if (!parse_semi(cfile)) {
-		free(s);
-		return (NULL);
+	i = strnunvis(unvisbuf, val, sizeof(unvisbuf));
+	if (i == -1) {
+		parse_warn("could not unvis string");
+		return NULL;
 	}
-	return (s);
+	s = malloc(i+1);
+	if (s == NULL)
+		fatalx("no memory for string %s.", val);
+	memcpy(s, unvisbuf, i+1);	/* Copy the terminating NUL. */
+	if (len != NULL)
+		*len = i;
+
+	return s;
 }
 
-/* cidr :== ip-address "/" bit-count
+/*
+ * cidr :== ip-address "/" bit-count
  * ip-address :== NUMBER [ DOT NUMBER [ DOT NUMBER [ DOT NUMBER ] ] ]
  * bit-count :== 0..32
  */
 int
 parse_cidr(FILE *cfile, unsigned char *cidr)
 {
-	struct in_addr addr;
-	int token;
-	int len;
+	struct in_addr	 addr;
+	int		 token;
+	int		 len;
 
 	token = '.';
 	len = 0;
 	for (token = '.'; token == '.'; token = next_token(NULL, cfile)) {
-		if (!parse_decimal(cfile, cidr + 1 + len, 'B'))
+		if (parse_decimal(cfile, cidr + 1 + len, 'B') == 0)
 			break;
 		if (++len == sizeof(addr)) {
 			token = next_token(NULL, cfile);
@@ -173,33 +181,33 @@ parse_cidr(FILE *cfile, unsigned char *cidr)
 		}
 	}
 
-	if (!len) {
-		parse_warn("expecting CIDR subnet.");
+	if (len == 0) {
+		parse_warn("expecting decimal value.");
 		skip_to_semi(cfile);
-		return (0);
+		return 0;
 	} else if (token != '/') {
 		parse_warn("expecting '/'.");
 		skip_to_semi(cfile);
-		return (0);
-	} else if (!parse_decimal(cfile, cidr, 'B') || *cidr > 32) {
-		parse_warn("Expecting CIDR prefix length.");
+		return 0;
+	} else if (parse_decimal(cfile, cidr, 'B') == 0 || *cidr > 32) {
+		parse_warn("expecting decimal value <= 32.");
 		skip_to_semi(cfile);
-		return (0);
+		return 0;
 	}
 
-	return (1);
+	return 1;
 }
 
 int
 parse_ip_addr(FILE *cfile, struct in_addr *addr)
 {
-	struct in_addr buf;
-	int len, token;
+	struct in_addr	 buf;
+	int		 len, token;
 
 	token = '.';
 	len = 0;
 	for (token = '.'; token == '.'; token = next_token(NULL, cfile)) {
-		if (!parse_decimal(cfile, (unsigned char *)&buf + len, 'B'))
+		if (parse_decimal(cfile, (unsigned char *)&buf + len, 'B') == 0)
 			break;
 		if (++len == sizeof(buf))
 			break;
@@ -207,52 +215,15 @@ parse_ip_addr(FILE *cfile, struct in_addr *addr)
 
 	if (len == 4) {
 		memcpy(addr, &buf, sizeof(*addr));
-		return (1);
+		return 1;
 	} else if (token != '.') {
 		parse_warn("expecting '.'.");
 		skip_to_semi(cfile);
-		return (0);
+		return 0;
 	} else {
-		parse_warn("expecting decimal octet.");
+		parse_warn("expecting decimal value.");
 		skip_to_semi(cfile);
-		return (0);
-	}
-}
-
-/*
- * ETHERNET :== 'ethernet' NUMBER:NUMBER:NUMBER:NUMBER:NUMBER:NUMBER
- */
-void
-parse_ethernet(FILE *cfile, struct ether_addr *hardware)
-{
-	struct ether_addr buf;
-	int len, token;
-
-	token = next_token(NULL, cfile);
-	if (token != TOK_ETHERNET) {
-		parse_warn("expecting 'ethernet'.");
-		if (token != ';')
-			skip_to_semi(cfile);
-		return;
-	}
-
-	len = 0;
-	for (token = ':'; token == ':'; token = next_token(NULL, cfile)) {
-		if (!parse_hex(cfile, &buf.ether_addr_octet[len]))
-			break;
-		if (++len == sizeof(buf.ether_addr_octet))
-			break;
-	}
-
-	if (len == 6) {
-		if (parse_semi(cfile))
-		    memcpy(hardware, &buf, sizeof(*hardware));
-	} else if (token != ':') {
-		parse_warn("expecting ':'.");
-		skip_to_semi(cfile);
-	} else {
-		parse_warn("expecting hex octet.");
-		skip_to_semi(cfile);
+		return 0;
 	}
 }
 
@@ -262,9 +233,9 @@ parse_ethernet(FILE *cfile, struct ether_addr *hardware)
 void
 parse_lease_time(FILE *cfile, time_t *timep)
 {
-	u_int32_t value;
+	uint32_t	 value;
 
-	if (!parse_decimal(cfile, (char *)&value, 'L')) {
+	if (parse_decimal(cfile, (char *)&value, 'L') == 0) {
 		parse_warn("expecting unsigned 32-bit decimal value.");
 		skip_to_semi(cfile);
 		return;
@@ -276,12 +247,35 @@ parse_lease_time(FILE *cfile, time_t *timep)
 }
 
 int
+parse_boolean(FILE *cfile, unsigned char *buf)
+{
+	char	*val;
+	int	 token;
+
+	token = next_token(&val, cfile);
+	if (is_identifier(token) != 0) {
+		if (strcasecmp(val, "true") == 0 ||
+		    strcasecmp(val, "on") == 0) {
+			buf[0] = 1;
+			return 1;
+		}
+		if (strcasecmp(val, "false") == 0 ||
+		    strcasecmp(val, "off") == 0) {
+			buf[0] = 0;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+int
 parse_decimal(FILE *cfile, unsigned char *buf, char fmt)
 {
-	char *val;
-	const char *errstr;
-	int bytes, token;
-	long long numval, low, high;
+	const char	*errstr;
+	char		*val;
+	int		 bytes, token;
+	long long	 numval, low, high;
 
 	token = next_token(&val, cfile);
 
@@ -307,25 +301,25 @@ parse_decimal(FILE *cfile, unsigned char *buf, char fmt)
 		bytes = 1;
 		break;
 	default:
-		return (0);
+		return 0;
 	}
 
 	numval = strtonum(val, low, high, &errstr);
-	if (errstr)
-		return (0);
+	if (errstr != NULL)
+		return 0;
 
 	numval = htobe64(numval);
 	memcpy(buf, (char *)&numval + (sizeof(numval) - bytes), bytes);
 
-	return (1);
+	return 1;
 }
 
 int
 parse_hex(FILE *cfile, unsigned char *buf)
 {
-	char *val, *ep;
-	int token;
-	unsigned long ulval;
+	char		*val, *ep;
+	unsigned long	 ulval;
+	int		 token;
 
 	token = next_token(&val, cfile);
 
@@ -334,11 +328,11 @@ parse_hex(FILE *cfile, unsigned char *buf)
 	if ((val[0] == '\0' || *ep != '\0') ||
 	    (errno == ERANGE && ulval == ULONG_MAX) ||
 	    (ulval > UINT8_MAX))
-		return (0);
+		return 0;
 
 	buf[0] = ulval;
 
-	return (1);
+	return 1;
 }
 
 /*
@@ -352,12 +346,12 @@ parse_hex(FILE *cfile, unsigned char *buf)
 time_t
 parse_date(FILE *cfile)
 {
-	struct tm tm;
 	char timestr[26]; /* "w yyyy/mm/dd hh:mm:ss UTC" */
-	char *val, *p;
-	size_t n;
-	time_t guess;
-	int token;
+	struct tm	 tm;
+	char		*val, *p;
+	size_t		 n;
+	time_t		 guess;
+	int		 token;
 
 	memset(timestr, 0, sizeof(timestr));
 
@@ -375,7 +369,7 @@ parse_date(FILE *cfile)
 				/* XXX Will break after year 9999! */
 				parse_warn("time string too long");
 				skip_to_semi(cfile);
-				return (0);
+				return 0;
 			}
 			break;
 		case';':
@@ -383,7 +377,7 @@ parse_date(FILE *cfile)
 		default:
 			parse_warn("invalid time string");
 			skip_to_semi(cfile);
-			return (0);
+			return 0;
 		}
 	} while (token != ';');
 
@@ -392,21 +386,35 @@ parse_date(FILE *cfile)
 	memset(&tm, 0, sizeof(tm));	/* 'cuz strptime ignores tm_isdt. */
 	p = strptime(timestr, DB_TIMEFMT, &tm);
 	if (p == NULL || *p != '\0') {
-		p = strptime(timestr, OLD_DB_TIMEFMT, &tm);
-		if (p == NULL || *p != '\0') {
-			p = strptime(timestr, BAD_DB_TIMEFMT, &tm);
-			if (p == NULL || *p != '\0') {
-				parse_warn("unparseable time string");
-				return (0);
-			}
-		}
+		parse_warn("unparseable time string");
+		return 0;
 	}
 
 	guess = timegm(&tm);
 	if (guess == -1) {
 		parse_warn("time could not be represented");
-		return (0);
+		return 0;
 	}
 
-	return (guess);
+	return guess;
+}
+
+void
+parse_warn(char *msg)
+{
+	static char	 spaces[81];
+	unsigned int	 i;
+
+	log_warnx("%s line %d: %s", tlname, lexline, msg);
+	log_warnx("%s", token_line);
+	if ((unsigned int)lexchar < sizeof(spaces)) {
+		memset(spaces, 0, sizeof(spaces));
+		for (i = 0; (int)i < lexchar - 1; i++) {
+			if (token_line[i] == '\t')
+				spaces[i] = '\t';
+			else
+				spaces[i] = ' ';
+		}
+	}
+	log_warnx("%s^", spaces);
 }

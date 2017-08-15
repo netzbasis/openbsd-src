@@ -1,4 +1,4 @@
-/* $OpenBSD: session.c,v 1.285 2016/08/23 16:21:45 otto Exp $ */
+/* $OpenBSD: session.c,v 1.290 2017/06/24 06:34:38 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -85,6 +85,7 @@
 #endif
 #include "monitor_wrap.h"
 #include "sftp.h"
+#include "atomicio.h"
 
 #ifdef KRB5
 #include <kafs.h>
@@ -118,7 +119,6 @@ static int session_pty_req(Session *);
 /* import */
 extern ServerOptions options;
 extern char *__progname;
-extern int log_stderr;
 extern int debug_flag;
 extern u_int utmp_len;
 extern int startup_pipe;
@@ -142,6 +142,9 @@ login_cap_t *lc;
 
 static int is_child = 0;
 static int in_chroot = 0;
+
+/* File containing userauth info, if ExposeAuthInfo set */
+static char *auth_info_file = NULL;
 
 /* Name and directory of socket for authentication agent forwarding. */
 static char *auth_sock_name = NULL;
@@ -232,6 +235,40 @@ display_loginmsg(void)
 	}
 }
 
+static void
+prepare_auth_info_file(struct passwd *pw, struct sshbuf *info)
+{
+	int fd = -1, success = 0;
+
+	if (!options.expose_userauth_info || info == NULL)
+		return;
+
+	temporarily_use_uid(pw);
+	auth_info_file = xstrdup("/tmp/sshauth.XXXXXXXXXXXXXXX");
+	if ((fd = mkstemp(auth_info_file)) == -1) {
+		error("%s: mkstemp: %s", __func__, strerror(errno));
+		goto out;
+	}
+	if (atomicio(vwrite, fd, sshbuf_mutable_ptr(info),
+	    sshbuf_len(info)) != sshbuf_len(info)) {
+		error("%s: write: %s", __func__, strerror(errno));
+		goto out;
+	}
+	if (close(fd) != 0) {
+		error("%s: close: %s", __func__, strerror(errno));
+		goto out;
+	}
+	success = 1;
+ out:
+	if (!success) {
+		if (fd != -1)
+			close(fd);
+		free(auth_info_file);
+		auth_info_file = NULL;
+	}
+	restore_uid();
+}
+
 void
 do_authenticated(Authctxt *authctxt)
 {
@@ -239,7 +276,7 @@ do_authenticated(Authctxt *authctxt)
 
 	/* setup the channel layer */
 	/* XXX - streamlocal? */
-	if (no_port_forwarding_flag ||
+	if (no_port_forwarding_flag || options.disable_forwarding ||
 	    (options.allow_tcp_forwarding & FORWARD_LOCAL) == 0)
 		channel_disable_adm_local_opens();
 	else
@@ -247,7 +284,10 @@ do_authenticated(Authctxt *authctxt)
 
 	auth_debug_send();
 
+	prepare_auth_info_file(authctxt->pw, authctxt->session_info);
+
 	do_authenticated2(authctxt);
+
 	do_cleanup(authctxt);
 }
 
@@ -344,10 +384,6 @@ do_exec_no_pty(Session *s, const char *command)
 		return -1;
 	case 0:
 		is_child = 1;
-
-		/* Child.  Reinitialize the log since the pid has changed. */
-		log_init(__progname, options.log_level,
-		    options.log_facility, log_stderr);
 
 		/*
 		 * Create a new session and process group since the 4.4BSD
@@ -484,9 +520,6 @@ do_exec_pty(Session *s, const char *command)
 		close(fdout);
 		close(ptymaster);
 
-		/* Child.  Reinitialize the log because the pid has changed. */
-		log_init(__progname, options.log_level,
-		    options.log_facility, log_stderr);
 		/* Close the master side of the pseudo tty. */
 		close(ptyfd);
 
@@ -853,6 +886,8 @@ do_setup_env(Session *s, const char *shell)
 	free(laddr);
 	child_set_env(&env, &envsize, "SSH_CONNECTION", buf);
 
+	if (auth_info_file != NULL)
+		child_set_env(&env, &envsize, "SSH_USER_AUTH", auth_info_file);
 	if (s->ttyfd != -1)
 		child_set_env(&env, &envsize, "SSH_TTY", s->tty);
 	if (s->term)
@@ -1157,6 +1192,7 @@ do_child(Session *s, const char *command)
 
 	/* remove hostkey from the child's memory */
 	destroy_sensitive_data();
+	packet_clear_keys();
 
 	/* Force a password change */
 	if (s->authctxt->force_pwchange) {
@@ -1347,8 +1383,8 @@ session_new(void)
 			return NULL;
 		debug2("%s: allocate (allocated %d max %d)",
 		    __func__, sessions_nalloc, options.max_sessions);
-		tmp = xreallocarray(sessions, sessions_nalloc + 1,
-		    sizeof(*sessions));
+		tmp = xrecallocarray(sessions, sessions_nalloc,
+		    sessions_nalloc + 1, sizeof(*sessions));
 		if (tmp == NULL) {
 			error("%s: cannot allocate %d sessions",
 			    __func__, sessions_nalloc + 1);
@@ -1672,8 +1708,8 @@ session_env_req(Session *s)
 	for (i = 0; i < options.num_accept_env; i++) {
 		if (match_pattern(name, options.accept_env[i])) {
 			debug2("Setting env %d: %s=%s", s->num_env, name, val);
-			s->env = xreallocarray(s->env, s->num_env + 1,
-			    sizeof(*s->env));
+			s->env = xrecallocarray(s->env, s->num_env,
+			    s->num_env + 1, sizeof(*s->env));
 			s->env[s->num_env].name = name;
 			s->env[s->num_env].val = val;
 			s->num_env++;
@@ -2153,6 +2189,15 @@ do_cleanup(Authctxt *authctxt)
 
 	/* remove agent socket */
 	auth_sock_cleanup_proc(authctxt->pw);
+
+	/* remove userauth info */
+	if (auth_info_file != NULL) {
+		temporarily_use_uid(authctxt->pw);
+		unlink(auth_info_file);
+		restore_uid();
+		free(auth_info_file);
+		auth_info_file = NULL;
+	}
 
 	/*
 	 * Cleanup ptys/utmp only if privsep is disabled,

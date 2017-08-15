@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.39 2016/06/21 21:35:25 benno Exp $	*/
+/*	$OpenBSD: parse.y,v 1.44 2017/07/28 13:15:32 florian Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -98,9 +98,10 @@ static int			 nctlsocks = 0;
 struct address	*host_v4(const char *);
 struct address	*host_v6(const char *);
 int		 host_dns(const char *, struct addresslist *,
-		    int, in_port_t, struct ber_oid *, char *);
+		    int, in_port_t, struct ber_oid *, char *,
+		    struct address *);
 int		 host(const char *, struct addresslist *,
-		    int, in_port_t, struct ber_oid *, char *);
+		    int, in_port_t, struct ber_oid *, char *, char *);
 
 typedef struct {
 	union {
@@ -127,10 +128,11 @@ typedef struct {
 %token	SYSTEM CONTACT DESCR LOCATION NAME OBJECTID SERVICES RTFILTER
 %token	READONLY READWRITE OCTETSTRING INTEGER COMMUNITY TRAP RECEIVER
 %token	SECLEVEL NONE AUTH ENC USER AUTHKEY ENCKEY ERROR DISABLED
-%token	SOCKET RESTRICTED AGENTX HANDLE DEFAULT
+%token	SOCKET RESTRICTED AGENTX HANDLE DEFAULT SRCADDR
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.string>	hostcmn
+%type	<v.string>	srcaddr
 %type	<v.number>	optwrite yesno seclevel socktype
 %type	<v.data>	objtype cmd
 %type	<v.oid>		oid hostoid trapoid
@@ -196,24 +198,13 @@ yesno		:  STRING			{
 		;
 
 main		: LISTEN ON STRING		{
-			struct addresslist	 al;
-			struct address		*h;
-
-			TAILQ_INIT(&al);
-			if (host($3, &al, 1, SNMPD_PORT, NULL, NULL) <= 0) {
+			if (host($3, &conf->sc_addresses, 16, SNMPD_PORT, NULL,
+			    NULL, NULL) <= 0) {
 				yyerror("invalid ip address: %s", $3);
 				free($3);
 				YYERROR;
 			}
 			free($3);
-			h = TAILQ_FIRST(&al);
-			bcopy(&h->ss, &conf->sc_address.ss, sizeof(*h));
-			conf->sc_address.port = h->port;
-
-			while ((h = TAILQ_FIRST(&al)) != NULL) {
-				TAILQ_REMOVE(&al, h, entry);
-				free(h);
-			}
 		}
 		| READONLY COMMUNITY STRING	{
 			if (strlcpy(conf->sc_rdcommunity, $3,
@@ -282,14 +273,14 @@ main		: LISTEN ON STRING		{
 			const char *errstr;
 			user = usm_newuser($2, &errstr);
 			if (user == NULL) {
-				yyerror(errstr);
+				yyerror("%s", errstr);
 				free($2);
 				YYERROR;
 			}
 		} userspecs {
 			const char *errstr;
 			if (usm_checkuser(user, &errstr) < 0) {
-				yyerror(errstr);
+				yyerror("%s", errstr);
 				YYERROR;
 			}
 			user = NULL;
@@ -445,9 +436,13 @@ hostcmn		: /* empty */				{ $$ = NULL; }
 		| COMMUNITY STRING			{ $$ = $2; }
 		;
 
-hostdef		: STRING hostoid hostcmn		{
+srcaddr		: /* empty */				{ $$ = NULL; }
+		| SRCADDR STRING			{ $$ = $2; }
+		;
+
+hostdef		: STRING hostoid hostcmn srcaddr	{
 			if (host($1, hlist, 1,
-			    SNMPD_TRAPPORT, $2, $3) <= 0) {
+			    SNMPD_TRAPPORT, $2, $3, $4) <= 0) {
 				yyerror("invalid host: %s", $1);
 				free($1);
 				YYERROR;
@@ -636,6 +631,7 @@ lookup(char *s)
 		{ "seclevel",		SECLEVEL },
 		{ "services",		SERVICES },
 		{ "socket",		SOCKET },
+		{ "source-address",	SRCADDR },
 		{ "string",		OCTETSTRING },
 		{ "system",		SYSTEM },
 		{ "trap",		TRAP },
@@ -981,8 +977,8 @@ parse_config(const char *filename, u_int flags)
 
 	conf->sc_flags = flags;
 	conf->sc_confpath = filename;
-	conf->sc_address.ss.ss_family = AF_INET;
-	conf->sc_address.port = SNMPD_PORT;
+	TAILQ_INIT(&conf->sc_addresses);
+	TAILQ_INIT(&conf->sc_sockets);
 	conf->sc_ps.ps_csock.cs_name = SNMPD_SOCKET;
 	TAILQ_INIT(&conf->sc_ps.ps_rcsocks);
 	strlcpy(conf->sc_rdcommunity, "public", SNMPD_MAXCOMMUNITYLEN);
@@ -1003,9 +999,22 @@ parse_config(const char *filename, u_int flags)
 
 	endservent();
 
+	if (TAILQ_EMPTY(&conf->sc_addresses)) {
+		struct address		*h;
+		if ((h = calloc(1, sizeof(*h))) == NULL)
+			fatal("snmpe: %s", __func__);
+		h->ss.ss_family = AF_INET;
+		h->port = SNMPD_PORT;
+		TAILQ_INSERT_TAIL(&conf->sc_addresses, h, entry);
+		if ((h = calloc(1, sizeof(*h))) == NULL)
+			fatal("snmpe: %s", __func__);
+		h->ss.ss_family = AF_INET6;
+		h->port = SNMPD_PORT;
+		TAILQ_INSERT_TAIL(&conf->sc_addresses, h, entry);
+	}
+
 	/* Free macros and check which have not been used. */
-	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
-		next = TAILQ_NEXT(sym, entry);
+	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		if ((conf->sc_flags & SNMPD_F_VERBOSE) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
@@ -1030,9 +1039,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -1091,11 +1101,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
@@ -1151,7 +1162,7 @@ host_v6(const char *s)
 
 int
 host_dns(const char *s, struct addresslist *al, int max,
-	 in_port_t port, struct ber_oid *oid, char *cmn)
+	in_port_t port, struct ber_oid *oid, char *cmn, struct address *src)
 {
 	struct addrinfo		 hints, *res0, *res;
 	int			 error, cnt = 0;
@@ -1175,6 +1186,8 @@ host_dns(const char *s, struct addresslist *al, int max,
 	for (res = res0; res && cnt < max; res = res->ai_next) {
 		if (res->ai_family != AF_INET &&
 		    res->ai_family != AF_INET6)
+			continue;
+		if (src != NULL && src->ss.ss_family != res->ai_family)
 			continue;
 		if ((h = calloc(1, sizeof(*h))) == NULL)
 			fatal(__func__);
@@ -1203,7 +1216,9 @@ host_dns(const char *s, struct addresslist *al, int max,
 			    res->ai_addr)->sin6_addr, sizeof(struct in6_addr));
 		}
 
-		TAILQ_INSERT_HEAD(al, h, entry);
+		h->sa_srcaddr = src;
+
+		TAILQ_INSERT_TAIL(al, h, entry);
 		cnt++;
 	}
 	if (cnt == max && res) {
@@ -1220,9 +1235,19 @@ host_dns(const char *s, struct addresslist *al, int max,
 
 int
 host(const char *s, struct addresslist *al, int max,
-    in_port_t port, struct ber_oid *oid, char *cmn)
+    in_port_t port, struct ber_oid *oid, char *cmn, char *srcaddr)
 {
-	struct address	*h;
+	struct address	*h, *src = NULL;
+
+	if (srcaddr != NULL) {
+		src = host_v4(srcaddr);
+		if (src == NULL)
+			src = host_v6(srcaddr);
+		if (src == NULL) {
+			log_warnx("invalid source-address %s", srcaddr);
+			return (-1);
+		}
+	}
 
 	h = host_v4(s);
 
@@ -1234,10 +1259,15 @@ host(const char *s, struct addresslist *al, int max,
 		h->port = port;
 		h->sa_oid = oid;
 		h->sa_community = cmn;
+		if (src != NULL && h->ss.ss_family != src->ss.ss_family) {
+			log_warnx("host and source-address family mismatch");
+			return (-1);
+		}
+		h->sa_srcaddr = src;
 
-		TAILQ_INSERT_HEAD(al, h, entry);
+		TAILQ_INSERT_TAIL(al, h, entry);
 		return (1);
 	}
 
-	return (host_dns(s, al, max, port, oid, cmn));
+	return (host_dns(s, al, max, port, oid, cmn, src));
 }

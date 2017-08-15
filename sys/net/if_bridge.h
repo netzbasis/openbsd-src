@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.h,v 1.51 2016/09/03 13:46:57 reyk Exp $	*/
+/*	$OpenBSD: if_bridge.h,v 1.55 2017/01/20 05:03:48 claudio Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -398,6 +398,7 @@ struct bridge_iflist {
 	struct brl_head			bif_brlout;	/* output rules */
 	struct				ifnet *ifp;	/* member interface */
 	u_int32_t			bif_flags;	/* member flags */
+	void				*bif_dhcookie;
 };
 #define bif_state			bif_stp->bp_state
 
@@ -406,11 +407,22 @@ struct bridge_iflist {
 	    ((struct bridge_iflist *)_bp2)->bridge_sc)
 
 /*
+ * XXX ip_ipsp.h's sockaddr_union should be converted to sockaddr *
+ * passing with correct sa_len, then a good approach for cleaning this
+ * will become more clear.
+ */
+union brsockaddr_union {
+	struct sockaddr		sa;
+	struct sockaddr_in	sin;
+	struct sockaddr_in6	sin6;
+};
+
+/*
  * Bridge tunnel tagging
  */
 struct bridge_tunneltag {
-	union pfsockaddr_union		brtag_src;
-	union pfsockaddr_union		brtag_dst;
+	union brsockaddr_union		brtag_peer;
+	union brsockaddr_union		brtag_local;
 	u_int32_t			brtag_id;
 };
 
@@ -450,7 +462,6 @@ struct bridge_softc {
 extern const u_int8_t bstp_etheraddr[];
 struct llc;
 
-void	bridge_ifdetach(struct ifnet *);
 int	bridge_output(struct ifnet *, struct mbuf *, struct sockaddr *,
     struct rtentry *);
 void	bridge_update(struct ifnet *, struct ether_addr *, int);
@@ -483,7 +494,7 @@ struct ifnet *bridge_rtupdate(struct bridge_softc *,
 struct bridge_rtnode *bridge_rtlookup(struct bridge_softc *,
     struct ether_addr *);
 void	bridge_rtflush(struct bridge_softc *, int);
-void	bridge_timer(void *);
+void	bridge_rtage(void *);
 
 u_int8_t bridge_filterrule(struct brl_head *, struct ether_header *,
     struct mbuf *);

@@ -15,9 +15,9 @@ our %args = (
 	loggrep => {
 	    qr/CAfile fake-ca.crt/ => 1,
 	    qr/Logging to FORWTLS \@tls:\/\/localhost:\d+/ => '>=4',
-	    qr/syslogd: loghost .* connection error: /.
-		qr/handshake failed: error:.*/.
-		qr/RSA_padding_check_PKCS1_type_1:block type is not 01/ => 2,
+	    qr/syslogd\[\d+\]: loghost .* connection error: /.
+		qr/certificate verification failed: /.
+		qr/certificate signature failure/ => 1,
 	    get_testgrep() => 1,
 	},
 	cacrt => "fake-ca.crt",

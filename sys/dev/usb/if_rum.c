@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rum.c,v 1.119 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_rum.c,v 1.122 2017/07/03 09:21:09 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2005-2007 Damien Bergamini <damien.bergamini@free.fr>
@@ -254,7 +254,7 @@ rum_attachhook(struct device *self)
 		    sc->sc_dev.dv_xname);
 	}
 
-	free(ucode, M_DEVBUF, 0);
+	free(ucode, M_DEVBUF, size);
 }
 
 void
@@ -742,7 +742,6 @@ rum_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	data->ni = NULL;
 
 	sc->tx_queued--;
-	ifp->if_opackets++;
 
 	DPRINTFN(10, ("tx done\n"));
 
@@ -1765,7 +1764,8 @@ rum_update_slot(struct rum_softc *sc)
 	uint8_t slottime;
 	uint32_t tmp;
 
-	slottime = (ic->ic_flags & IEEE80211_F_SHSLOT) ? 9 : 20;
+	slottime = (ic->ic_flags & IEEE80211_F_SHSLOT) ?
+	    IEEE80211_DUR_DS_SHSLOT : IEEE80211_DUR_DS_SLOT;
 
 	tmp = rum_read(sc, RT2573_MAC_CSR9);
 	tmp = (tmp & ~0xff) | slottime;

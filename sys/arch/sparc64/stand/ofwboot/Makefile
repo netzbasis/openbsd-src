@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.23 2016/09/11 17:53:26 jsing Exp $
+#	$OpenBSD: Makefile,v 1.25 2016/11/06 16:04:21 tb Exp $
 #	$NetBSD: Makefile,v 1.2 2001/03/04 14:50:05 mrg Exp $
 
 CURDIR=	${.CURDIR}
@@ -31,8 +31,8 @@ SRCS+=		strlcpy.c strcmp.c strlcat.c strlen.c
 
 .if ${SOFTRAID:L} == "yes"
 .PATH:		${S}/lib/libsa
-SRCS+=		aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c \
-		rijndael.c sha1.c softraid.c
+SRCS+=		aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c \
+		hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c sha2.c softraid.c
 .endif
 
 CWARNFLAGS+=	-Wno-main
@@ -67,7 +67,8 @@ CPPFLAGS+=	-DSPARC_BOOT_UFS
 CPPFLAGS+=	-DSOFTRAID
 .endif
 
-.if !make(libdep) && !make(sadep) && !make(salibdir) && !make(obj)
+.if !make(clean) && !make(cleandir) && !make(includes) && !make(libdep) && \
+    !make(sadep) && !make(salibdir) && !make(obj)
 .BEGIN:
 	@([ -h machine ] || ln -s ${.CURDIR}/../../include machine)
 .endif

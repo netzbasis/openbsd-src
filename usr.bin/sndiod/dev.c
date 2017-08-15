@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.26 2016/05/25 05:34:23 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.28 2017/02/15 21:28:23 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -1426,7 +1426,7 @@ slot_new(struct dev *d, char *who, struct slotops *ops, void *arg, int mode)
 	struct slot *s;
 
 	/*
-	 * create a ``valid'' control name (lowcase, remove [^a-z], trucate)
+	 * create a ``valid'' control name (lowcase, remove [^a-z], truncate)
 	 */
 	for (i = 0, p = who; ; p++) {
 		if (i == SLOT_NAMEMAX - 1 || *p == '\0') {
@@ -1823,7 +1823,7 @@ slot_detach(struct slot *s)
 #endif
 	for (ps = &s->dev->slot_list; *ps != s; ps = &(*ps)->next) {
 #ifdef DEBUG
-		if (s == NULL) {
+		if (*ps == NULL) {
 			slot_log(s);
 			log_puts(": can't detach, not on list\n");
 			panic();

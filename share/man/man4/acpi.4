@@ -1,4 +1,4 @@
-.\"	$OpenBSD: acpi.4,v 1.51 2016/08/23 18:58:53 jcs Exp $
+.\"	$OpenBSD: acpi.4,v 1.53 2017/03/30 16:06:55 jcs Exp $
 .\"
 .\" Copyright (c) 2006 Alexander Yurchenko <grange@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 23 2016 $
+.Dd $Mdocdate: March 30 2017 $
 .Dt ACPI 4
 .Os
 .Sh NAME
@@ -58,6 +58,8 @@ ACPI docking station
 ACPI embedded controller
 .It Xr acpihpet 4
 ACPI high precision event timer
+.It Xr acpihve 4
+Hyper-V entropy
 .It Xr acpimadt 4
 ACPI APIC configuration
 .It Xr acpimcfg 4
@@ -66,6 +68,8 @@ ACPI PCI Express configuration space
 ACPI PCI routing table configuration
 .It Xr acpipwrres 4
 ACPI power resources
+.It Xr acpisbs 4
+ACPI Smart Battery subsystem
 .It Xr acpisony 4
 Sony ACPI control
 .It Xr acpithinkpad 4

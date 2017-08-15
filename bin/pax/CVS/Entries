@@ -1,0 +1,25 @@
+/Makefile/1.12/Tue Aug 23 06:00:28 2016//
+/ar_io.c/1.62/Sat Mar 11 12:55:47 2017//
+/ar_subs.c/1.48/Fri Aug 26 05:06:14 2016//
+/buf_subs.c/1.30/Tue Dec 20 21:29:08 2016//
+/cache.c/1.23/Fri Aug 26 04:08:18 2016//
+/cpio.1/1.35/Mon Sep  8 01:27:54 2014//
+/cpio.c/1.30/Fri Aug 26 04:11:16 2016//
+/cpio.h/1.4/Mon Jun  2 23:32:08 2003//
+/extern.h/1.57/Thu Aug 25 01:44:55 2016//
+/file_subs.c/1.53/Sat Jan 21 08:17:06 2017//
+/ftree.c/1.40/Fri Aug 26 04:17:48 2016//
+/gen_subs.c/1.32/Fri Aug 26 05:06:14 2016//
+/getoldopt.c/1.9/Tue Oct 27 23:59:22 2009//
+/options.c/1.101/Mon Dec 26 23:43:52 2016//
+/pat_rep.c/1.41/Fri Aug 26 04:19:28 2016//
+/pax.1/1.73/Fri Aug 26 04:40:27 2016//
+/pax.c/1.50/Sat Mar 11 12:55:47 2017//
+/pax.h/1.28/Tue Nov 17 19:01:34 2015//
+/sel_subs.c/1.26/Fri Aug 26 04:20:38 2016//
+/tables.c/1.51/Thu Mar 16 03:53:37 2017//
+/tar.1/1.59/Sun Sep 13 15:42:11 2015//
+/tar.c/1.63/Fri Aug 26 04:11:16 2016//
+/tar.h/1.9/Wed Jan  8 06:43:34 2014//
+/tty_subs.c/1.17/Fri Aug 26 04:22:13 2016//
+D

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipex_local.h,v 1.23 2015/11/14 14:53:13 miod Exp $	*/
+/*	$OpenBSD: pipex_local.h,v 1.29 2017/07/27 05:57:04 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -47,7 +47,7 @@
 #endif
 #define PIPEX_HASH_DIV			8
 #define PIPEX_HASH_SIZE			(PIPEX_MAX_SESSION/PIPEX_HASH_DIV)
-#define PIPEX_HASH_MASK			(PIPEX_HASH_SIZE-1)	
+#define PIPEX_HASH_MASK			(PIPEX_HASH_SIZE-1)
 #define PIPEX_CLOSE_TIMEOUT		30
 #define	PIPEX_PPPMINLEN			5
 	/* minimum PPP header length is 1 and minimum ppp payload length is 4 */
@@ -77,14 +77,14 @@ struct pipex_mppe {
 
 #ifdef PIPEX_PPPOE
 struct pipex_pppoe_session {
-	struct ifnet *over_ifp;                 /* ether interface */
+	u_int	 over_ifidx;                 /* ether interface */
 };
 #endif /* PIPEX_PPPOE */
 
 #ifdef PIPEX_PPTP
 struct pipex_pptp_session {
 	/* sequence number gap between pipex and userland */
-	int32_t	snd_gap;			/* gap of our sequence */ 
+	int32_t	snd_gap;			/* gap of our sequence */
 	int32_t rcv_gap;			/* gap of peer's sequence */
 	int32_t ul_snd_una;			/* userland send acked seq */
 
@@ -203,6 +203,7 @@ struct pipex_session {
 		char _proto_unknown[0];
 	} proto;
 	union {
+		struct sockaddr		sa;
 		struct sockaddr_in	sin4;
 		struct sockaddr_in6	sin6;
 		struct sockaddr_dl	sdl;
@@ -296,13 +297,13 @@ extern struct pipex_hash_head	pipex_id_hashtable[];
 	*(cp)++ = (u_char)(s);						\
 } while (0)
 
-#define GETSHORT(s, cp) do { 						\
+#define GETSHORT(s, cp) do {						\
 	(s) = *(cp)++ << 8;						\
 	(s) |= *(cp)++;							\
 } while (0)
 
 #define PUTSHORT(s, cp) do {						\
-	*(cp)++ = (u_char) ((s) >> 8); 					\
+	*(cp)++ = (u_char) ((s) >> 8);					\
 	*(cp)++ = (u_char) (s);						\
 } while (0)
 
@@ -335,16 +336,16 @@ extern struct pipex_hash_head	pipex_id_hashtable[];
 	}
 #define PIPEX_SEEK_NEXTHDR(ptr, len, t)					\
     ((t) (((char *)ptr) + len))
-#define SEQ32_LT(a,b)	((int)((a) - (b)) <  0)
-#define SEQ32_LE(a,b)	((int)((a) - (b)) <= 0)
-#define SEQ32_GT(a,b)	((int)((a) - (b)) >  0)
-#define SEQ32_GE(a,b)	((int)((a) - (b)) >= 0)
+#define SEQ32_LT(a,b)	((int32_t)((a) - (b)) <  0)
+#define SEQ32_LE(a,b)	((int32_t)((a) - (b)) <= 0)
+#define SEQ32_GT(a,b)	((int32_t)((a) - (b)) >  0)
+#define SEQ32_GE(a,b)	((int32_t)((a) - (b)) >= 0)
 #define SEQ32_SUB(a,b)	((int32_t)((a) - (b)))
 
-#define SEQ16_LT(a,b)	((int)((a) - (b)) <  0)
-#define SEQ16_LE(a,b)	((int)((a) - (b)) <= 0)
-#define SEQ16_GT(a,b)	((int)((a) - (b)) >  0)
-#define SEQ16_GE(a,b)	((int)((a) - (b)) >= 0)
+#define SEQ16_LT(a,b)	((int16_t)((a) - (b)) <  0)
+#define SEQ16_LE(a,b)	((int16_t)((a) - (b)) <= 0)
+#define SEQ16_GT(a,b)	((int16_t)((a) - (b)) >  0)
+#define SEQ16_GE(a,b)	((int16_t)((a) - (b)) >= 0)
 #define SEQ16_SUB(a,b)	((int16_t)((a) - (b)))
 
 #define	pipex_session_is_acfc_accepted(s)				\
@@ -392,7 +393,7 @@ Static void                  pipex_ip_input (struct mbuf *, struct pipex_session
 #ifdef INET6
 Static void                  pipex_ip6_input (struct mbuf *, struct pipex_session *);
 #endif
-Static struct mbuf           *pipex_common_input(struct pipex_session *, struct mbuf *, int, int);
+Static struct mbuf           *pipex_common_input(struct pipex_session *, struct mbuf *, int, int, int);
 
 #ifdef PIPEX_PPPOE
 Static void                  pipex_pppoe_output (struct mbuf *, struct pipex_session *);
@@ -427,7 +428,6 @@ Static void                  pipex_session_log (struct pipex_session *, int, con
 Static uint32_t              pipex_sockaddr_hash_key(struct sockaddr *);
 Static int                   pipex_sockaddr_compar_addr(struct sockaddr *, struct sockaddr *);
 Static int                   pipex_ppp_enqueue (struct mbuf *, struct pipex_session *, struct mbuf_queue *);
-Static void                  pipex_ppp_dequeue (void);
 Static void                  pipex_timer_start (void);
 Static void                  pipex_timer_stop (void);
 Static void                  pipex_timer (void *);

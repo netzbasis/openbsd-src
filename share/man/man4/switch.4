@@ -1,4 +1,4 @@
-.\"	$OpenBSD: switch.4,v 1.3 2016/09/04 19:03:34 jmc Exp $
+.\"	$OpenBSD: switch.4,v 1.7 2016/11/28 11:46:26 jmc Exp $
 .\"
 .\" Copyright (c) 2016 YASUOKA Masahiko <yasuoka@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 4 2016 $
+.Dd $Mdocdate: November 28 2016 $
 .Dt SWITCH 4
 .Os
 .Sh NAME
@@ -32,21 +32,21 @@
 The
 .Nm
 driver provides a network interface pseudo-device.
-The interface is the forwarding part of a network switch,
-and it works along with a controller which usually is
+The interface is the forwarding part of a network switch
+and it works along with a controller, usually
 .Xr switchd 8
 or
-.Xr switchctl 8 through the device
+.Xr switchctl 8 ,
+through the device
 .Pa /dev/switchN .
-As the protocol between the
+The
 .Nm
-device
-and the controller,
-OpenFlow 1.3 is supported.
+device and the controller communicate using the OpenFlow
+1.3 protocol.
 .Pp
 A
 .Nm
-interface is created using the
+interface is created using
 .Ic ifconfig switch Ns Ar N Ic create
 or by opening the character device
 .Pa /dev/switchN .
@@ -55,14 +55,19 @@ or by opening the character device
 is the OpenFlow channel of the interface
 .Pa switchN .
 It is used for exchanging OpenFlow messages.
-The device guarantees
+The device behaves like a stream, which means that a
 .Xr read 2
-returns a complete OpenFlow message - it never return a message partially.
-The program which uses the
-.Pa /dev/switchN
-must
+may return one or more OpenFlow messages depending on the number of
+bytes requested.
+It may also read the message partially (e.g.\&
+.Xr read 2
+the OpenFlow message header and then the complete message).
+The same applies to
 .Xr write 2
-per a complete OpenFlow message.
+calls, so it may send one or more OpenFlow messages with a single write
+or use more than one
+.Xr write 2
+calls to send a single message.
 .Sh IOCTLS
 A
 .Nm
@@ -73,10 +78,10 @@ calls specific to other interfaces listed in
 .Pp
 The following
 .Xr ioctl 2
-calls are used commonly by
+calls and their structures are commonly used by
 .Nm
 and
-.Xr bridge 4 .
+.Xr bridge 4 :
 .Pp
 .Bl -bullet -offset indent -compact
 .It
@@ -88,11 +93,6 @@ and
 .It
 .Dv SIOCBRDGGIFFLGS
 .El
-.Pp
-Also the parameter structures are used commonly by
-.Nm
-and
-.Xr bridge 4 .
 .Pp
 The following
 .Xr ioctl 2
@@ -123,14 +123,14 @@ Set the datapath_id in the OpenFlow protocol of the switch named in
 to the value in the
 .Va ifbrpu_datapath
 field.
-.It Dv SIOCSWGFLOWMAX Fa "struct ifbrparam"
+.It Dv SIOCSWGMAXFLOW Fa "struct ifbrparam"
 Retrieve the maximum number of flows in the OpenFlow protocol
 of the switch named in
 .Va ifbrp_name
 into the
 .Va ifbrp_maxflow
 field.
-.It Dv SIOCSWSFLOWMAX Fa "struct ifbrparam"
+.It Dv SIOCSWSMAXFLOW Fa "struct ifbrparam"
 Set the maximum number of flows in the OpenFlow protocol of the switch named in
 .Va ifbrp_name
 to the value in the

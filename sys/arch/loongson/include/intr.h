@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr.h,v 1.8 2016/03/06 19:42:27 mpi Exp $ */
+/*	$OpenBSD: intr.h,v 1.14 2017/06/11 10:01:23 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -57,12 +57,13 @@
 #define	IPL_STATCLOCK	IPL_CLOCK
 #define	IPL_SCHED	7	/* everything */
 #define	IPL_HIGH	7	/* everything */
-#define	NIPLS		8	/* Number of levels */
+#define	IPL_IPI		8	/* interprocessor interrupt */
+#define	NIPLS		9	/* Number of levels */
 
 #define IPL_MPFLOOR	IPL_TTY
 
 /* Interrupt priority 'flags'. */
-#define	IPL_MPSAFE	0	/* no "mpsafe" interrupts */
+#define	IPL_MPSAFE	0x100
 
 /* Interrupt sharing types. */
 #define	IST_NONE	0	/* none */
@@ -134,18 +135,7 @@ void	splinit(void);
 #define	splassert(X)
 #define	splsoftassert(X)
 
-/* Inlines */
-static __inline void register_splx_handler(void (*)(int));
-
-typedef void (int_f)(int);
-extern int_f *splx_hand;
-
-static __inline void
-register_splx_handler(void(*handler)(int))
-{
-	splx_hand = handler;
-}
-
+void	register_splx_handler(void (*)(int));
 int	splraise(int);
 void	splx(int);
 int	spllower(int);
@@ -163,6 +153,8 @@ struct intrhand {
 	void			*ih_arg;
 	int			 ih_level;
 	int			 ih_irq;
+	int			 ih_flags;
+#define	IH_MPSAFE		0x01
 	struct evcount		 ih_count;
 };
 
@@ -173,7 +165,8 @@ void	intr_barrier(void *);
  */
 
 /* Schedule priorities for base interrupts (CPU) */
-#define	INTPRI_CLOCK	0
+#define	INTPRI_IPI	0
+#define	INTPRI_CLOCK	1
 /* other values are system-specific */
 
 #define NLOWINT	4		/* Number of low level registrations possible */
@@ -185,6 +178,31 @@ void	set_intr(int, uint32_t, uint32_t(*)(uint32_t, struct trapframe *));
 
 uint32_t updateimask(uint32_t);
 void	dosoftint(void);
+
+#ifdef MULTIPROCESSOR
+extern uint32_t ipi_mask;
+#define ENABLEIPI() updateimask(~ipi_mask)
+#endif
+
+struct pic {
+	void	(*pic_eoi)(int);
+	void	(*pic_mask)(int);
+	void	(*pic_unmask)(int);
+};
+
+#ifdef CPU_LOONGSON3
+
+void	 loongson3_intr_init(void);
+void	*loongson3_intr_establish(int, int, int (*)(void *), void*,
+	    const char *);
+void	 loongson3_intr_disestablish(void *);
+void	*loongson3_ht_intr_establish(int, int, int (*)(void *), void*,
+	    const char *);
+void	 loongson3_ht_intr_disestablish(void *);
+
+void	 loongson3_register_ht_pic(const struct pic *);
+
+#endif /* CPU_LOONGSON3 */
 
 #endif /* _LOCORE */
 

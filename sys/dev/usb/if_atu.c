@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_atu.c,v 1.119 2016/04/13 11:03:37 mpi Exp $ */
+/*	$OpenBSD: if_atu.c,v 1.123 2017/07/21 15:55:04 stsp Exp $ */
 /*
  * Copyright (c) 2003, 2004
  *	Daan Vreeken <Danovitsch@Vitsch.net>.  All rights reserved.
@@ -857,7 +857,7 @@ atu_internal_firmware(struct device *self)
 	struct atu_softc *sc = (struct atu_softc *)self;
 	u_char	state, *ptr = NULL, *firm = NULL, status[6];
 	int block_size, block = 0, err, i;
-	size_t	bytes_left = 0;
+	size_t	firm_len, bytes_left = 0;
 	char	*name = "unknown-device";
 
 	/*
@@ -886,7 +886,7 @@ atu_internal_firmware(struct device *self)
 
 	DPRINTF(("%s: loading firmware %s...\n",
 	    sc->atu_dev.dv_xname, name));
-	err = loadfirmware(name, &firm, &bytes_left);
+	err = loadfirmware(name, &firm, &firm_len);
 	if (err != 0) {
 		printf("%s: %s loadfirmware error %d\n",
 		    sc->atu_dev.dv_xname, name, err);
@@ -894,6 +894,7 @@ atu_internal_firmware(struct device *self)
 	}
 
 	ptr = firm;
+	bytes_left = firm_len;
 	state = atu_get_dfu_state(sc);
 
 	while (block >= 0 && state > 0) {
@@ -905,7 +906,7 @@ atu_internal_firmware(struct device *self)
 			if (err) {
 				DPRINTF(("%s: dfu_getstatus failed!\n",
 				    sc->atu_dev.dv_xname));
-				free(firm, M_DEVBUF, 0);
+				free(firm, M_DEVBUF, firm_len);
 				goto fail;
 			}
 			/* success means state => DnLoadIdle */
@@ -927,7 +928,7 @@ atu_internal_firmware(struct device *self)
 			if (err) {
 				DPRINTF(("%s: dfu_dnload failed\n",
 				    sc->atu_dev.dv_xname));
-				free(firm, M_DEVBUF, 0);
+				free(firm, M_DEVBUF, firm_len);
 				goto fail;
 			}
 
@@ -946,7 +947,7 @@ atu_internal_firmware(struct device *self)
 
 		state = atu_get_dfu_state(sc);
 	}
-	free(firm, M_DEVBUF, 0);
+	free(firm, M_DEVBUF, firm_len);
 
 	if (state != DFUState_ManifestSync) {
 		DPRINTF(("%s: state != manifestsync... eek!\n",
@@ -988,7 +989,7 @@ atu_external_firmware(struct device *self)
 	struct atu_softc *sc = (struct atu_softc *)self;
 	u_char	*ptr = NULL, *firm = NULL;
 	int	block_size, block = 0, err, i;
-	size_t	bytes_left = 0;
+	size_t	firm_len, bytes_left = 0;
 	char	*name = "unknown-device";
 
 	for (i = 0; i < nitems(atu_radfirm); i++)
@@ -997,13 +998,14 @@ atu_external_firmware(struct device *self)
 
 	DPRINTF(("%s: loading external firmware %s\n",
 	    sc->atu_dev.dv_xname, name));
-	err = loadfirmware(name, &firm, &bytes_left);
+	err = loadfirmware(name, &firm, &firm_len);
 	if (err != 0) {
 		printf("%s: %s loadfirmware error %d\n",
 		    sc->atu_dev.dv_xname, name, err);
 		return;
 	}
 	ptr = firm;
+	bytes_left = firm_len;
 
 	while (bytes_left) {
 		if (bytes_left > 1024)
@@ -1018,7 +1020,7 @@ atu_external_firmware(struct device *self)
 		if (err) {
 			DPRINTF(("%s: could not load external firmware "
 			    "block\n", sc->atu_dev.dv_xname));
-			free(firm, M_DEVBUF, 0);
+			free(firm, M_DEVBUF, firm_len);
 			return;
 		}
 
@@ -1026,7 +1028,7 @@ atu_external_firmware(struct device *self)
 		block++;
 		bytes_left -= block_size;
 	}
-	free(firm, M_DEVBUF, 0);
+	free(firm, M_DEVBUF, firm_len);
 
 	err = atu_usb_request(sc, UT_WRITE_VENDOR_DEVICE, 0x0e, 0x0802,
 	    block, 0, NULL);
@@ -1102,7 +1104,7 @@ atu_match(struct device *parent, void *match, void *aux)
 	struct usb_attach_arg	*uaa = aux;
 	int			i;
 
-	if (!uaa->iface)
+	if (uaa->iface == NULL || uaa->configno != ATU_CONFIG_NO)
 		return(UMATCH_NONE);
 
 	for (i = 0; i < nitems(atu_devs); i++) {
@@ -1252,13 +1254,6 @@ atu_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->atu_unit = self->dv_unit;
 	sc->atu_udev = dev;
-
-	err = usbd_set_config_no(dev, ATU_CONFIG_NO, 1);
-	if (err) {
-		printf("%s: setting config no failed\n",
-		    sc->atu_dev.dv_xname);
-		goto fail;
-	}
 
 	err = usbd_device2interface_handle(dev, ATU_IFACE_IDX, &sc->atu_iface);
 	if (err) {
@@ -1675,14 +1670,26 @@ atu_rxeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 
 	usbd_get_xfer_status(xfer, NULL, NULL, &len, NULL);
 
-	if (len <= 1) {
+	if (len < ATU_RX_HDRLEN) {
 		DPRINTF(("%s: atu_rxeof: too short\n",
 		    sc->atu_dev.dv_xname));
+		ic->ic_stats.is_rx_tooshort++;
+		ifp->if_ierrors++;
 		goto done;
 	}
 
 	h = (struct atu_rx_hdr *)c->atu_buf;
-	len = UGETW(h->length) - 4; /* XXX magic number */
+	len = UGETW(h->length);
+	if (len < IEEE80211_MIN_LEN) {
+		ic->ic_stats.is_rx_tooshort++;
+		ifp->if_ierrors++;
+		goto done;
+	}
+	if (len > ATU_RX_BUFSZ) {
+		ifp->if_ierrors++;
+		goto done;
+	}
+	len -= IEEE80211_CRC_LEN;
 
 	m = c->atu_mbuf;
 	memcpy(mtod(m, char *), c->atu_buf + ATU_RX_HDRLEN, len);
@@ -1782,8 +1789,6 @@ atu_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 
 	if (err)
 		ifp->if_oerrors++;
-	else
-		ifp->if_opackets++;
 
 	s = splnet();
 	SLIST_INSERT_HEAD(&sc->atu_cdata.atu_tx_free, c, atu_list);

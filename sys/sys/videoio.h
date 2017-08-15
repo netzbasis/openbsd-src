@@ -1,8 +1,10 @@
-/*	$OpenBSD: videoio.h,v 1.14 2016/01/27 13:07:09 ajacoutot Exp $	*/
+/*	$OpenBSD: videoio.h,v 1.16 2017/02/17 06:48:33 feinerer Exp $	*/
 /*
  *  Video for Linux Two header file
  *
  *  Copyright (C) 1999-2012 the contributors
+ *  Copyright (C) 2012 Nokia Corporation
+ *  Contact: Sakari Ailus <sakari.ailus@iki.fi>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -47,7 +49,7 @@
  * All kernel-specific stuff were moved to media/v4l2-dev.h, so
  * no #if __KERNEL tests are allowed here
  *
- *	See http://linuxtv.org for more info
+ *	See https://linuxtv.org for more info
  *
  *	Author: Bill Dirks <bill@thedirks.org>
  *		Justin Schoeman
@@ -60,8 +62,63 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ioccom.h>
-/* Ignore #include <linux/v4l2-common.h> as it is GPL2.
- * Inline #include <linux/v4l2-controls.h>
+/* Inline #include <linux/v4l2-common.h>
+ * (v4l2-common.h was split off from videodev2.h and has the same BSD license.)
+ *
+ * Begin of v4l2-common.h
+ */
+/*
+ *
+ * Selection interface definitions
+ *
+ */
+
+/* Current cropping area */
+#define V4L2_SEL_TGT_CROP		0x0000
+/* Default cropping area */
+#define V4L2_SEL_TGT_CROP_DEFAULT	0x0001
+/* Cropping bounds */
+#define V4L2_SEL_TGT_CROP_BOUNDS	0x0002
+/* Native frame size */
+#define V4L2_SEL_TGT_NATIVE_SIZE	0x0003
+/* Current composing area */
+#define V4L2_SEL_TGT_COMPOSE		0x0100
+/* Default composing area */
+#define V4L2_SEL_TGT_COMPOSE_DEFAULT	0x0101
+/* Composing bounds */
+#define V4L2_SEL_TGT_COMPOSE_BOUNDS	0x0102
+/* Current composing area plus all padding pixels */
+#define V4L2_SEL_TGT_COMPOSE_PADDED	0x0103
+
+/* Backward compatibility target definitions --- to be removed. */
+#define V4L2_SEL_TGT_CROP_ACTIVE	V4L2_SEL_TGT_CROP
+#define V4L2_SEL_TGT_COMPOSE_ACTIVE	V4L2_SEL_TGT_COMPOSE
+#define V4L2_SUBDEV_SEL_TGT_CROP_ACTUAL	V4L2_SEL_TGT_CROP
+#define V4L2_SUBDEV_SEL_TGT_COMPOSE_ACTUAL V4L2_SEL_TGT_COMPOSE
+#define V4L2_SUBDEV_SEL_TGT_CROP_BOUNDS	V4L2_SEL_TGT_CROP_BOUNDS
+#define V4L2_SUBDEV_SEL_TGT_COMPOSE_BOUNDS V4L2_SEL_TGT_COMPOSE_BOUNDS
+
+/* Selection flags */
+#define V4L2_SEL_FLAG_GE		(1 << 0)
+#define V4L2_SEL_FLAG_LE		(1 << 1)
+#define V4L2_SEL_FLAG_KEEP_CONFIG	(1 << 2)
+
+/* Backward compatibility flag definitions --- to be removed. */
+#define V4L2_SUBDEV_SEL_FLAG_SIZE_GE	V4L2_SEL_FLAG_GE
+#define V4L2_SUBDEV_SEL_FLAG_SIZE_LE	V4L2_SEL_FLAG_LE
+#define V4L2_SUBDEV_SEL_FLAG_KEEP_CONFIG V4L2_SEL_FLAG_KEEP_CONFIG
+
+struct v4l2_edid {
+	u_int32_t pad;
+	u_int32_t start_block;
+	u_int32_t blocks;
+	u_int32_t reserved[5];
+	u_int8_t  *edid;
+};
+/*
+ * End of v4l2-common.h
+ */
+/* Inline #include <linux/v4l2-controls.h>
  * (v4l2-controls.h was split off from videodev2.h and has the same BSD license.)
  *
  * Begin of v4l2-controls.h
@@ -175,8 +232,10 @@ enum v4l2_colorfx {
  * We reserve 16 controls for this driver. */
 #define V4L2_CID_USER_S2255_BASE		(V4L2_CID_USER_BASE + 0x1030)
 
-/* The base for the si476x driver controls. See include/media/si476x.h for the list
- * of controls. Total of 16 controls is reserved for this driver */
+/*
+ * The base for the si476x driver controls. See include/media/drv-intf/si476x.h
+ * for the list of controls. Total of 16 controls is reserved for this driver
+ */
 #define V4L2_CID_USER_SI476X_BASE		(V4L2_CID_USER_BASE + 0x1040)
 
 /* The base for the TI VPE driver controls. Total of 16 controls is reserved for
@@ -405,6 +464,7 @@ enum v4l2_mpeg_video_multi_slice_mode {
 #define V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER		(V4L2_CID_MPEG_BASE+226)
 #define V4L2_CID_MPEG_VIDEO_MV_H_SEARCH_RANGE		(V4L2_CID_MPEG_BASE+227)
 #define V4L2_CID_MPEG_VIDEO_MV_V_SEARCH_RANGE		(V4L2_CID_MPEG_BASE+228)
+#define V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME		(V4L2_CID_MPEG_BASE+229)
 
 #define V4L2_CID_MPEG_VIDEO_H263_I_FRAME_QP		(V4L2_CID_MPEG_BASE+300)
 #define V4L2_CID_MPEG_VIDEO_H263_P_FRAME_QP		(V4L2_CID_MPEG_BASE+301)
@@ -906,6 +966,7 @@ enum v4l2_jpeg_chroma_subsampling {
 #define V4L2_CID_LINK_FREQ			(V4L2_CID_IMAGE_PROC_CLASS_BASE + 1)
 #define V4L2_CID_PIXEL_RATE			(V4L2_CID_IMAGE_PROC_CLASS_BASE + 2)
 #define V4L2_CID_TEST_PATTERN			(V4L2_CID_IMAGE_PROC_CLASS_BASE + 3)
+#define V4L2_CID_DEINTERLACING_MODE		(V4L2_CID_IMAGE_PROC_CLASS_BASE + 4)
 
 
 /*  DV-class control IDs defined by V4L2 */
@@ -927,8 +988,18 @@ enum v4l2_dv_rgb_range {
 	V4L2_DV_RGB_RANGE_FULL	  = 2,
 };
 
+#define V4L2_CID_DV_TX_IT_CONTENT_TYPE		(V4L2_CID_DV_CLASS_BASE + 6)
+enum v4l2_dv_it_content_type {
+	V4L2_DV_IT_CONTENT_TYPE_GRAPHICS  = 0,
+	V4L2_DV_IT_CONTENT_TYPE_PHOTO	  = 1,
+	V4L2_DV_IT_CONTENT_TYPE_CINEMA	  = 2,
+	V4L2_DV_IT_CONTENT_TYPE_GAME	  = 3,
+	V4L2_DV_IT_CONTENT_TYPE_NO_ITC	  = 4,
+};
+
 #define	V4L2_CID_DV_RX_POWER_PRESENT		(V4L2_CID_DV_CLASS_BASE + 100)
 #define V4L2_CID_DV_RX_RGB_RANGE		(V4L2_CID_DV_CLASS_BASE + 101)
+#define V4L2_CID_DV_RX_IT_CONTENT_TYPE		(V4L2_CID_DV_CLASS_BASE + 102)
 
 #define V4L2_CID_FM_RX_CLASS_BASE		(V4L2_CTRL_CLASS_FM_RX | 0x900)
 #define V4L2_CID_FM_RX_CLASS			(V4L2_CTRL_CLASS_FM_RX | 1)
@@ -985,29 +1056,6 @@ enum v4l2_detect_md_mode {
 #define __user
 #endif
 
-#ifndef __u8
-typedef u_int8_t __u8;
-#endif
-#ifndef __u16
-typedef u_int16_t __u16;
-#endif
-#ifndef __u32
-typedef u_int32_t __u32;
-#endif
-#ifndef __u64
-typedef u_int64_t __u64;
-#endif
-#ifndef __s32
-typedef int32_t __s32;
-#endif
-#ifndef __s64
-typedef int64_t __s64;
-#endif
-#ifndef __le32
-typedef __u32 __le32;
-#endif
-
-
 /*
  * Common stuff for both V4L1 and V4L2
  * Moved from videodev.h
@@ -1021,7 +1069,7 @@ typedef __u32 __le32;
 
 /*  Four-character-code (FOURCC) */
 #define v4l2_fourcc(a, b, c, d)\
-	((__u32)(a) | ((__u32)(b) << 8) | ((__u32)(c) << 16) | ((__u32)(d) << 24))
+	((u_int32_t)(a) | ((u_int32_t)(b) << 8) | ((u_int32_t)(c) << 16) | ((u_int32_t)(d) << 24))
 #define v4l2_fourcc_be(a, b, c, d)	(v4l2_fourcc(a, b, c, d) | (1 << 31))
 
 /*
@@ -1081,10 +1129,7 @@ enum v4l2_buf_type {
 	V4L2_BUF_TYPE_VBI_OUTPUT           = 5,
 	V4L2_BUF_TYPE_SLICED_VBI_CAPTURE   = 6,
 	V4L2_BUF_TYPE_SLICED_VBI_OUTPUT    = 7,
-#if 1
-	/* Experimental */
 	V4L2_BUF_TYPE_VIDEO_OUTPUT_OVERLAY = 8,
-#endif
 	V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE = 9,
 	V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE  = 10,
 	V4L2_BUF_TYPE_SDR_CAPTURE          = 11,
@@ -1238,12 +1283,10 @@ enum v4l2_ycbcr_encoding {
 	 * various colorspaces:
 	 *
 	 * V4L2_COLORSPACE_SMPTE170M, V4L2_COLORSPACE_470_SYSTEM_M,
-	 * V4L2_COLORSPACE_470_SYSTEM_BG, V4L2_COLORSPACE_ADOBERGB and
-	 * V4L2_COLORSPACE_JPEG: V4L2_YCBCR_ENC_601
+	 * V4L2_COLORSPACE_470_SYSTEM_BG, V4L2_COLORSPACE_SRGB,
+	 * V4L2_COLORSPACE_ADOBERGB and V4L2_COLORSPACE_JPEG: V4L2_YCBCR_ENC_601
 	 *
 	 * V4L2_COLORSPACE_REC709 and V4L2_COLORSPACE_DCI_P3: V4L2_YCBCR_ENC_709
-	 *
-	 * V4L2_COLORSPACE_SRGB: V4L2_YCBCR_ENC_SYCC
 	 *
 	 * V4L2_COLORSPACE_BT2020: V4L2_YCBCR_ENC_BT2020
 	 *
@@ -1263,8 +1306,14 @@ enum v4l2_ycbcr_encoding {
 	/* Rec. 709/EN 61966-2-4 Extended Gamut -- HDTV */
 	V4L2_YCBCR_ENC_XV709          = 4,
 
-	/* sYCC (Y'CbCr encoding of sRGB) */
+#ifndef __KERNEL__
+	/*
+	 * sYCC (Y'CbCr encoding of sRGB), identical to ENC_601. It was added
+	 * originally due to a misunderstanding of the sYCC standard. It should
+	 * not be used, instead use V4L2_YCBCR_ENC_601.
+	 */
 	V4L2_YCBCR_ENC_SYCC           = 5,
+#endif
 
 	/* BT.2020 Non-constant Luminance Y'CbCr */
 	V4L2_YCBCR_ENC_BT2020         = 6,
@@ -1274,6 +1323,19 @@ enum v4l2_ycbcr_encoding {
 
 	/* SMPTE 240M -- Obsolete HDTV */
 	V4L2_YCBCR_ENC_SMPTE240M      = 8,
+};
+
+/*
+ * enum v4l2_hsv_encoding values should not collide with the ones from
+ * enum v4l2_ycbcr_encoding.
+ */
+enum v4l2_hsv_encoding {
+
+	/* Hue mapped to 0 - 179 */
+	V4L2_HSV_ENC_180		= 128,
+
+	/* Hue mapped to 0-255 */
+	V4L2_HSV_ENC_256		= 129,
 };
 
 /*
@@ -1291,8 +1353,8 @@ enum v4l2_quantization {
 	/*
 	 * The default for R'G'B' quantization is always full range, except
 	 * for the BT2020 colorspace. For Y'CbCr the quantization is always
-	 * limited range, except for COLORSPACE_JPEG, SYCC, XV601 or XV709:
-	 * those are full range.
+	 * limited range, except for COLORSPACE_JPEG, SRGB, ADOBERGB,
+	 * XV601 or XV709: those are full range.
 	 */
 	V4L2_QUANTIZATION_DEFAULT     = 0,
 	V4L2_QUANTIZATION_FULL_RANGE  = 1,
@@ -1304,10 +1366,12 @@ enum v4l2_quantization {
  * This depends on whether the image is RGB or not, the colorspace and the
  * Y'CbCr encoding.
  */
-#define V4L2_MAP_QUANTIZATION_DEFAULT(is_rgb, colsp, ycbcr_enc) \
-	(((is_rgb) && (colsp) == V4L2_COLORSPACE_BT2020) ? V4L2_QUANTIZATION_LIM_RANGE : \
-	 (((is_rgb) || (ycbcr_enc) == V4L2_YCBCR_ENC_XV601 || \
-	  (ycbcr_enc) == V4L2_YCBCR_ENC_XV709 || (colsp) == V4L2_COLORSPACE_JPEG) ? \
+#define V4L2_MAP_QUANTIZATION_DEFAULT(is_rgb_or_hsv, colsp, ycbcr_enc) \
+	(((is_rgb_or_hsv) && (colsp) == V4L2_COLORSPACE_BT2020) ? \
+	 V4L2_QUANTIZATION_LIM_RANGE : \
+	 (((is_rgb_or_hsv) || (ycbcr_enc) == V4L2_YCBCR_ENC_XV601 || \
+	  (ycbcr_enc) == V4L2_YCBCR_ENC_XV709 || (colsp) == V4L2_COLORSPACE_JPEG) || \
+	  (colsp) == V4L2_COLORSPACE_ADOBERGB || (colsp) == V4L2_COLORSPACE_SRGB ? \
 	 V4L2_QUANTIZATION_FULL_RANGE : V4L2_QUANTIZATION_LIM_RANGE))
 
 enum v4l2_priority {
@@ -1319,15 +1383,15 @@ enum v4l2_priority {
 };
 
 struct v4l2_rect {
-	__s32   left;
-	__s32   top;
-	__u32   width;
-	__u32   height;
+	int32_t   left;
+	int32_t   top;
+	u_int32_t   width;
+	u_int32_t   height;
 };
 
 struct v4l2_fract {
-	__u32   numerator;
-	__u32   denominator;
+	u_int32_t   numerator;
+	u_int32_t   denominator;
 };
 
 /**
@@ -1342,13 +1406,13 @@ struct v4l2_fract {
   * @reserved:	   reserved fields for future extensions
   */
 struct v4l2_capability {
-	__u8	driver[16];
-	__u8	card[32];
-	__u8	bus_info[32];
-	__u32   version;
-	__u32	capabilities;
-	__u32	device_caps;
-	__u32	reserved[3];
+	u_int8_t	driver[16];
+	u_int8_t	card[32];
+	u_int8_t	bus_info[32];
+	u_int32_t   version;
+	u_int32_t	capabilities;
+	u_int32_t	device_caps;
+	u_int32_t	reserved[3];
 };
 
 /* Values for 'capabilities' field */
@@ -1386,24 +1450,31 @@ struct v4l2_capability {
 #define V4L2_CAP_ASYNCIO                0x02000000  /* async I/O */
 #define V4L2_CAP_STREAMING              0x04000000  /* streaming I/O ioctls */
 
+#define V4L2_CAP_TOUCH                  0x10000000  /* Is a touch device */
+
 #define V4L2_CAP_DEVICE_CAPS            0x80000000  /* sets device capabilities field */
 
 /*
  *	V I D E O   I M A G E   F O R M A T
  */
 struct v4l2_pix_format {
-	__u32         		width;
-	__u32			height;
-	__u32			pixelformat;
-	__u32			field;		/* enum v4l2_field */
-	__u32            	bytesperline;	/* for padding, zero if unused */
-	__u32          		sizeimage;
-	__u32			colorspace;	/* enum v4l2_colorspace */
-	__u32			priv;		/* private data, depends on pixelformat */
-	__u32			flags;		/* format flags (V4L2_PIX_FMT_FLAG_*) */
-	__u32			ycbcr_enc;	/* enum v4l2_ycbcr_encoding */
-	__u32			quantization;	/* enum v4l2_quantization */
-	__u32			xfer_func;	/* enum v4l2_xfer_func */
+	u_int32_t         		width;
+	u_int32_t			height;
+	u_int32_t			pixelformat;
+	u_int32_t			field;		/* enum v4l2_field */
+	u_int32_t            	bytesperline;	/* for padding, zero if unused */
+	u_int32_t          		sizeimage;
+	u_int32_t			colorspace;	/* enum v4l2_colorspace */
+	u_int32_t			priv;		/* private data, depends on pixelformat */
+	u_int32_t			flags;		/* format flags (V4L2_PIX_FMT_FLAG_*) */
+	union {
+		/* enum v4l2_ycbcr_encoding */
+		u_int32_t			ycbcr_enc;
+		/* enum v4l2_hsv_encoding */
+		u_int32_t			hsv_enc;
+	};
+	u_int32_t			quantization;	/* enum v4l2_quantization */
+	u_int32_t			xfer_func;	/* enum v4l2_xfer_func */
 };
 
 /*      Pixel format         FOURCC                          depth  Description  */
@@ -1450,22 +1521,16 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_UV8     v4l2_fourcc('U', 'V', '8', ' ') /*  8  UV 4:4 */
 
 /* Luminance+Chrominance formats */
-#define V4L2_PIX_FMT_YVU410  v4l2_fourcc('Y', 'V', 'U', '9') /*  9  YVU 4:1:0     */
-#define V4L2_PIX_FMT_YVU420  v4l2_fourcc('Y', 'V', '1', '2') /* 12  YVU 4:2:0     */
 #define V4L2_PIX_FMT_YUYV    v4l2_fourcc('Y', 'U', 'Y', 'V') /* 16  YUV 4:2:2     */
 #define V4L2_PIX_FMT_YYUV    v4l2_fourcc('Y', 'Y', 'U', 'V') /* 16  YUV 4:2:2     */
 #define V4L2_PIX_FMT_YVYU    v4l2_fourcc('Y', 'V', 'Y', 'U') /* 16 YVU 4:2:2 */
 #define V4L2_PIX_FMT_UYVY    v4l2_fourcc('U', 'Y', 'V', 'Y') /* 16  YUV 4:2:2     */
 #define V4L2_PIX_FMT_VYUY    v4l2_fourcc('V', 'Y', 'U', 'Y') /* 16  YUV 4:2:2     */
-#define V4L2_PIX_FMT_YUV422P v4l2_fourcc('4', '2', '2', 'P') /* 16  YVU422 planar */
-#define V4L2_PIX_FMT_YUV411P v4l2_fourcc('4', '1', '1', 'P') /* 16  YVU411 planar */
 #define V4L2_PIX_FMT_Y41P    v4l2_fourcc('Y', '4', '1', 'P') /* 12  YUV 4:1:1     */
 #define V4L2_PIX_FMT_YUV444  v4l2_fourcc('Y', '4', '4', '4') /* 16  xxxxyyyy uuuuvvvv */
 #define V4L2_PIX_FMT_YUV555  v4l2_fourcc('Y', 'U', 'V', 'O') /* 16  YUV-5-5-5     */
 #define V4L2_PIX_FMT_YUV565  v4l2_fourcc('Y', 'U', 'V', 'P') /* 16  YUV-5-6-5     */
 #define V4L2_PIX_FMT_YUV32   v4l2_fourcc('Y', 'U', 'V', '4') /* 32  YUV-8-8-8-8   */
-#define V4L2_PIX_FMT_YUV410  v4l2_fourcc('Y', 'U', 'V', '9') /*  9  YUV 4:1:0     */
-#define V4L2_PIX_FMT_YUV420  v4l2_fourcc('Y', 'U', '1', '2') /* 12  YUV 4:2:0     */
 #define V4L2_PIX_FMT_HI240   v4l2_fourcc('H', 'I', '2', '4') /*  8  8-bit color   */
 #define V4L2_PIX_FMT_HM12    v4l2_fourcc('H', 'M', '1', '2') /*  8  YUV 4:2:0 16x16 macroblocks */
 #define V4L2_PIX_FMT_M420    v4l2_fourcc('M', '4', '2', '0') /* 12  YUV 4:2:0 2 lines y, 1 line uv interleaved */
@@ -1486,9 +1551,21 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_NV12MT  v4l2_fourcc('T', 'M', '1', '2') /* 12  Y/CbCr 4:2:0 64x32 macroblocks */
 #define V4L2_PIX_FMT_NV12MT_16X16 v4l2_fourcc('V', 'M', '1', '2') /* 12  Y/CbCr 4:2:0 16x16 macroblocks */
 
+/* three planes - Y Cb, Cr */
+#define V4L2_PIX_FMT_YUV410  v4l2_fourcc('Y', 'U', 'V', '9') /*  9  YUV 4:1:0     */
+#define V4L2_PIX_FMT_YVU410  v4l2_fourcc('Y', 'V', 'U', '9') /*  9  YVU 4:1:0     */
+#define V4L2_PIX_FMT_YUV411P v4l2_fourcc('4', '1', '1', 'P') /* 12  YVU411 planar */
+#define V4L2_PIX_FMT_YUV420  v4l2_fourcc('Y', 'U', '1', '2') /* 12  YUV 4:2:0     */
+#define V4L2_PIX_FMT_YVU420  v4l2_fourcc('Y', 'V', '1', '2') /* 12  YVU 4:2:0     */
+#define V4L2_PIX_FMT_YUV422P v4l2_fourcc('4', '2', '2', 'P') /* 16  YVU422 planar */
+
 /* three non contiguous planes - Y, Cb, Cr */
 #define V4L2_PIX_FMT_YUV420M v4l2_fourcc('Y', 'M', '1', '2') /* 12  YUV420 planar */
 #define V4L2_PIX_FMT_YVU420M v4l2_fourcc('Y', 'M', '2', '1') /* 12  YVU420 planar */
+#define V4L2_PIX_FMT_YUV422M v4l2_fourcc('Y', 'M', '1', '6') /* 16  YUV422 planar */
+#define V4L2_PIX_FMT_YVU422M v4l2_fourcc('Y', 'M', '6', '1') /* 16  YVU422 planar */
+#define V4L2_PIX_FMT_YUV444M v4l2_fourcc('Y', 'M', '2', '4') /* 24  YUV444 planar */
+#define V4L2_PIX_FMT_YVU444M v4l2_fourcc('Y', 'M', '4', '2') /* 24  YVU444 planar */
 
 /* Bayer formats - see http://www.siliconimaging.com/RGB%20Bayer.htm */
 #define V4L2_PIX_FMT_SBGGR8  v4l2_fourcc('B', 'A', '8', '1') /*  8  BGBG.. GRGR.. */
@@ -1519,6 +1596,13 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_SGRBG12 v4l2_fourcc('B', 'A', '1', '2') /* 12  GRGR.. BGBG.. */
 #define V4L2_PIX_FMT_SRGGB12 v4l2_fourcc('R', 'G', '1', '2') /* 12  RGRG.. GBGB.. */
 #define V4L2_PIX_FMT_SBGGR16 v4l2_fourcc('B', 'Y', 'R', '2') /* 16  BGBG.. GRGR.. */
+#define V4L2_PIX_FMT_SGBRG16 v4l2_fourcc('G', 'B', '1', '6') /* 16  GBGB.. RGRG.. */
+#define V4L2_PIX_FMT_SGRBG16 v4l2_fourcc('G', 'R', '1', '6') /* 16  GRGR.. BGBG.. */
+#define V4L2_PIX_FMT_SRGGB16 v4l2_fourcc('R', 'G', '1', '6') /* 16  RGRG.. GBGB.. */
+
+/* HSV formats */
+#define V4L2_PIX_FMT_HSV24 v4l2_fourcc('H', 'S', 'V', '3')
+#define V4L2_PIX_FMT_HSV32 v4l2_fourcc('H', 'S', 'V', '4')
 
 /* compressed formats */
 #define V4L2_PIX_FMT_MJPEG    v4l2_fourcc('M', 'J', 'P', 'G') /* Motion-JPEG   */
@@ -1536,6 +1620,7 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_VC1_ANNEX_G v4l2_fourcc('V', 'C', '1', 'G') /* SMPTE 421M Annex G compliant stream */
 #define V4L2_PIX_FMT_VC1_ANNEX_L v4l2_fourcc('V', 'C', '1', 'L') /* SMPTE 421M Annex L compliant stream */
 #define V4L2_PIX_FMT_VP8      v4l2_fourcc('V', 'P', '8', '0') /* VP8 */
+#define V4L2_PIX_FMT_VP9      v4l2_fourcc('V', 'P', '9', '0') /* VP9 */
 
 /*  Vendor-specific formats   */
 #define V4L2_PIX_FMT_CPIA1    v4l2_fourcc('C', 'P', 'I', 'A') /* cpia1 YUV */
@@ -1564,6 +1649,10 @@ struct v4l2_pix_format {
 #define V4L2_PIX_FMT_JPGL	v4l2_fourcc('J', 'P', 'G', 'L') /* JPEG-Lite */
 #define V4L2_PIX_FMT_SE401      v4l2_fourcc('S', '4', '0', '1') /* se401 janggu compressed rgb */
 #define V4L2_PIX_FMT_S5C_UYVY_JPG v4l2_fourcc('S', '5', 'C', 'I') /* S5C73M3 interleaved UYVY/JPEG */
+#define V4L2_PIX_FMT_Y8I      v4l2_fourcc('Y', '8', 'I', ' ') /* Greyscale 8-bit L/R interleaved */
+#define V4L2_PIX_FMT_Y12I     v4l2_fourcc('Y', '1', '2', 'I') /* Greyscale 12-bit L/R interleaved */
+#define V4L2_PIX_FMT_Z16      v4l2_fourcc('Z', '1', '6', ' ') /* Depth data 16-bit */
+#define V4L2_PIX_FMT_MT21C    v4l2_fourcc('M', 'T', '2', '1') /* Mediatek compressed block mode  */
 
 /* SDR formats - used only for Software Defined Radio devices */
 #define V4L2_SDR_FMT_CU8          v4l2_fourcc('C', 'U', '0', '8') /* IQ u8 */
@@ -1571,6 +1660,12 @@ struct v4l2_pix_format {
 #define V4L2_SDR_FMT_CS8          v4l2_fourcc('C', 'S', '0', '8') /* complex s8 */
 #define V4L2_SDR_FMT_CS14LE       v4l2_fourcc('C', 'S', '1', '4') /* complex s14le */
 #define V4L2_SDR_FMT_RU12LE       v4l2_fourcc('R', 'U', '1', '2') /* real u12le */
+
+/* Touch formats - used for Touch devices */
+#define V4L2_TCH_FMT_DELTA_TD16	v4l2_fourcc('T', 'D', '1', '6') /* 16-bit signed deltas */
+#define V4L2_TCH_FMT_DELTA_TD08	v4l2_fourcc('T', 'D', '0', '8') /* 8-bit signed deltas */
+#define V4L2_TCH_FMT_TU16	v4l2_fourcc('T', 'U', '1', '6') /* 16-bit unsigned touch data */
+#define V4L2_TCH_FMT_TU08	v4l2_fourcc('T', 'U', '0', '8') /* 8-bit unsigned touch data */
 
 /* priv field value to indicates that subsequent fields are valid. */
 #define V4L2_PIX_FMT_PRIV_MAGIC		0xfeedcafe
@@ -1582,19 +1677,18 @@ struct v4l2_pix_format {
  *	F O R M A T   E N U M E R A T I O N
  */
 struct v4l2_fmtdesc {
-	__u32		    index;             /* Format number      */
-	__u32		    type;              /* enum v4l2_buf_type */
-	__u32               flags;
-	__u8		    description[32];   /* Description string */
-	__u32		    pixelformat;       /* Format fourcc      */
-	__u32		    reserved[4];
+	u_int32_t		    index;             /* Format number      */
+	u_int32_t		    type;              /* enum v4l2_buf_type */
+	u_int32_t               flags;
+	u_int8_t		    description[32];   /* Description string */
+	u_int32_t		    pixelformat;       /* Format fourcc      */
+	u_int32_t		    reserved[4];
 };
 
 #define V4L2_FMT_FLAG_COMPRESSED 0x0001
 #define V4L2_FMT_FLAG_EMULATED   0x0002
 
-#if 1
-	/* Experimental Frame Size and frame rate enumeration */
+	/* Frame Size and frame rate enumeration */
 /*
  *	F R A M E   S I Z E   E N U M E R A T I O N
  */
@@ -1605,30 +1699,30 @@ enum v4l2_frmsizetypes {
 };
 
 struct v4l2_frmsize_discrete {
-	__u32			width;		/* Frame width [pixel] */
-	__u32			height;		/* Frame height [pixel] */
+	u_int32_t			width;		/* Frame width [pixel] */
+	u_int32_t			height;		/* Frame height [pixel] */
 };
 
 struct v4l2_frmsize_stepwise {
-	__u32			min_width;	/* Minimum frame width [pixel] */
-	__u32			max_width;	/* Maximum frame width [pixel] */
-	__u32			step_width;	/* Frame width step size [pixel] */
-	__u32			min_height;	/* Minimum frame height [pixel] */
-	__u32			max_height;	/* Maximum frame height [pixel] */
-	__u32			step_height;	/* Frame height step size [pixel] */
+	u_int32_t			min_width;	/* Minimum frame width [pixel] */
+	u_int32_t			max_width;	/* Maximum frame width [pixel] */
+	u_int32_t			step_width;	/* Frame width step size [pixel] */
+	u_int32_t			min_height;	/* Minimum frame height [pixel] */
+	u_int32_t			max_height;	/* Maximum frame height [pixel] */
+	u_int32_t			step_height;	/* Frame height step size [pixel] */
 };
 
 struct v4l2_frmsizeenum {
-	__u32			index;		/* Frame size number */
-	__u32			pixel_format;	/* Pixel format */
-	__u32			type;		/* Frame size type the device supports. */
+	u_int32_t			index;		/* Frame size number */
+	u_int32_t			pixel_format;	/* Pixel format */
+	u_int32_t			type;		/* Frame size type the device supports. */
 
 	union {					/* Frame size */
 		struct v4l2_frmsize_discrete	discrete;
 		struct v4l2_frmsize_stepwise	stepwise;
 	};
 
-	__u32   reserved[2];			/* Reserved space for future use */
+	u_int32_t   reserved[2];			/* Reserved space for future use */
 };
 
 /*
@@ -1647,32 +1741,31 @@ struct v4l2_frmival_stepwise {
 };
 
 struct v4l2_frmivalenum {
-	__u32			index;		/* Frame format index */
-	__u32			pixel_format;	/* Pixel format */
-	__u32			width;		/* Frame width */
-	__u32			height;		/* Frame height */
-	__u32			type;		/* Frame interval type the device supports. */
+	u_int32_t			index;		/* Frame format index */
+	u_int32_t			pixel_format;	/* Pixel format */
+	u_int32_t			width;		/* Frame width */
+	u_int32_t			height;		/* Frame height */
+	u_int32_t			type;		/* Frame interval type the device supports. */
 
 	union {					/* Frame interval */
 		struct v4l2_fract		discrete;
 		struct v4l2_frmival_stepwise	stepwise;
 	};
 
-	__u32	reserved[2];			/* Reserved space for future use */
+	u_int32_t	reserved[2];			/* Reserved space for future use */
 };
-#endif
 
 /*
  *	T I M E C O D E
  */
 struct v4l2_timecode {
-	__u32	type;
-	__u32	flags;
-	__u8	frames;
-	__u8	seconds;
-	__u8	minutes;
-	__u8	hours;
-	__u8	userbits[4];
+	u_int32_t	type;
+	u_int32_t	flags;
+	u_int8_t	frames;
+	u_int8_t	seconds;
+	u_int8_t	minutes;
+	u_int8_t	hours;
+	u_int8_t	userbits[4];
 };
 
 /*  Type  */
@@ -1701,7 +1794,7 @@ struct v4l2_jpegcompression {
 	int  COM_len;           /* Length of data in JPEG COM segment */
 	char COM_data[60];      /* Data in JPEG COM segment */
 
-	__u32 jpeg_markers;     /* Which markers should go into the JPEG
+	u_int32_t jpeg_markers;     /* Which markers should go into the JPEG
 				 * output. Unless you exactly know what
 				 * you do, leave them untouched.
 				 * Including less markers will make the
@@ -1723,10 +1816,10 @@ struct v4l2_jpegcompression {
  *	M E M O R Y - M A P P I N G   B U F F E R S
  */
 struct v4l2_requestbuffers {
-	__u32			count;
-	__u32			type;		/* enum v4l2_buf_type */
-	__u32			memory;		/* enum v4l2_memory */
-	__u32			reserved[2];
+	u_int32_t			count;
+	u_int32_t			type;		/* enum v4l2_buf_type */
+	u_int32_t			memory;		/* enum v4l2_memory */
+	u_int32_t			reserved[2];
 };
 
 /**
@@ -1750,15 +1843,15 @@ struct v4l2_requestbuffers {
  * a completely separate memory node (e.g. in embedded devices).
  */
 struct v4l2_plane {
-	__u32			bytesused;
-	__u32			length;
+	u_int32_t			bytesused;
+	u_int32_t			length;
 	union {
-		__u32		mem_offset;
+		u_int32_t		mem_offset;
 		unsigned long	userptr;
-		__s32		fd;
+		int32_t		fd;
 	} m;
-	__u32			data_offset;
-	__u32			reserved[11];
+	u_int32_t			data_offset;
+	u_int32_t			reserved[11];
 };
 
 /**
@@ -1792,26 +1885,26 @@ struct v4l2_plane {
  * I/O methods.
  */
 struct v4l2_buffer {
-	__u32			index;
-	__u32			type;
-	__u32			bytesused;
-	__u32			flags;
-	__u32			field;
+	u_int32_t			index;
+	u_int32_t			type;
+	u_int32_t			bytesused;
+	u_int32_t			flags;
+	u_int32_t			field;
 	struct timeval		timestamp;
 	struct v4l2_timecode	timecode;
-	__u32			sequence;
+	u_int32_t			sequence;
 
 	/* memory location */
-	__u32			memory;
+	u_int32_t			memory;
 	union {
-		__u32           offset;
+		u_int32_t           offset;
 		unsigned long   userptr;
 		struct v4l2_plane *planes;
-		__s32		fd;
+		int32_t		fd;
 	} m;
-	__u32			length;
-	__u32			reserved2;
-	__u32			reserved;
+	u_int32_t			length;
+	u_int32_t			reserved2;
+	u_int32_t			reserved;
 };
 
 /*  Flags for 'flags' field */
@@ -1867,32 +1960,32 @@ struct v4l2_buffer {
  * content. Therefore this field should not be used for any other extensions.
  */
 struct v4l2_exportbuffer {
-	__u32		type; /* enum v4l2_buf_type */
-	__u32		index;
-	__u32		plane;
-	__u32		flags;
-	__s32		fd;
-	__u32		reserved[11];
+	u_int32_t		type; /* enum v4l2_buf_type */
+	u_int32_t		index;
+	u_int32_t		plane;
+	u_int32_t		flags;
+	int32_t		fd;
+	u_int32_t		reserved[11];
 };
 
 /*
  *	O V E R L A Y   P R E V I E W
  */
 struct v4l2_framebuffer {
-	__u32			capability;
-	__u32			flags;
+	u_int32_t			capability;
+	u_int32_t			flags;
 /* FIXME: in theory we should pass something like PCI device + memory
  * region + offset instead of some physical address */
 	void                    *base;
 	struct {
-		__u32		width;
-		__u32		height;
-		__u32		pixelformat;
-		__u32		field;		/* enum v4l2_field */
-		__u32		bytesperline;	/* for padding, zero if unused */
-		__u32		sizeimage;
-		__u32		colorspace;	/* enum v4l2_colorspace */
-		__u32		priv;		/* reserved field, set to 0 */
+		u_int32_t		width;
+		u_int32_t		height;
+		u_int32_t		pixelformat;
+		u_int32_t		field;		/* enum v4l2_field */
+		u_int32_t		bytesperline;	/* for padding, zero if unused */
+		u_int32_t		sizeimage;
+		u_int32_t		colorspace;	/* enum v4l2_colorspace */
+		u_int32_t		priv;		/* reserved field, set to 0 */
 	} fmt;
 };
 /*  Flags for the 'capability' field. Read only */
@@ -1920,24 +2013,24 @@ struct v4l2_clip {
 
 struct v4l2_window {
 	struct v4l2_rect        w;
-	__u32			field;	 /* enum v4l2_field */
-	__u32			chromakey;
+	u_int32_t			field;	 /* enum v4l2_field */
+	u_int32_t			chromakey;
 	struct v4l2_clip	__user *clips;
-	__u32			clipcount;
+	u_int32_t			clipcount;
 	void			__user *bitmap;
-	__u8                    global_alpha;
+	u_int8_t                    global_alpha;
 };
 
 /*
  *	C A P T U R E   P A R A M E T E R S
  */
 struct v4l2_captureparm {
-	__u32		   capability;	  /*  Supported modes */
-	__u32		   capturemode;	  /*  Current mode */
+	u_int32_t		   capability;	  /*  Supported modes */
+	u_int32_t		   capturemode;	  /*  Current mode */
 	struct v4l2_fract  timeperframe;  /*  Time per frame in seconds */
-	__u32		   extendedmode;  /*  Driver-specific extensions */
-	__u32              readbuffers;   /*  # of buffers for read */
-	__u32		   reserved[4];
+	u_int32_t		   extendedmode;  /*  Driver-specific extensions */
+	u_int32_t              readbuffers;   /*  # of buffers for read */
+	u_int32_t		   reserved[4];
 };
 
 /*  Flags for 'capability' and 'capturemode' fields */
@@ -1945,26 +2038,26 @@ struct v4l2_captureparm {
 #define V4L2_CAP_TIMEPERFRAME	0x1000	/*  timeperframe field is supported */
 
 struct v4l2_outputparm {
-	__u32		   capability;	 /*  Supported modes */
-	__u32		   outputmode;	 /*  Current mode */
+	u_int32_t		   capability;	 /*  Supported modes */
+	u_int32_t		   outputmode;	 /*  Current mode */
 	struct v4l2_fract  timeperframe; /*  Time per frame in seconds */
-	__u32		   extendedmode; /*  Driver-specific extensions */
-	__u32              writebuffers; /*  # of buffers for write */
-	__u32		   reserved[4];
+	u_int32_t		   extendedmode; /*  Driver-specific extensions */
+	u_int32_t              writebuffers; /*  # of buffers for write */
+	u_int32_t		   reserved[4];
 };
 
 /*
  *	I N P U T   I M A G E   C R O P P I N G
  */
 struct v4l2_cropcap {
-	__u32			type;	/* enum v4l2_buf_type */
+	u_int32_t			type;	/* enum v4l2_buf_type */
 	struct v4l2_rect        bounds;
 	struct v4l2_rect        defrect;
 	struct v4l2_fract       pixelaspect;
 };
 
 struct v4l2_crop {
-	__u32			type;	/* enum v4l2_buf_type */
+	u_int32_t			type;	/* enum v4l2_buf_type */
 	struct v4l2_rect        c;
 };
 
@@ -1982,11 +2075,11 @@ struct v4l2_crop {
  * an application and a driver.
  */
 struct v4l2_selection {
-	__u32			type;
-	__u32			target;
-	__u32                   flags;
+	u_int32_t			type;
+	u_int32_t			target;
+	u_int32_t                   flags;
 	struct v4l2_rect        r;
-	__u32                   reserved[9];
+	u_int32_t                   reserved[9];
 };
 
 
@@ -1994,7 +2087,7 @@ struct v4l2_selection {
  *      A N A L O G   V I D E O   S T A N D A R D
  */
 
-typedef __u64 v4l2_std_id;
+typedef u_int64_t v4l2_std_id;
 
 /* one bit for each */
 #define V4L2_STD_PAL_B          ((v4l2_std_id)0x00000001)
@@ -2031,7 +2124,7 @@ typedef __u64 v4l2_std_id;
 
 /* FIXME:
    Although std_id is 64 bits, there is an issue on PPC32 architecture that
-   makes switch(__u64) to break. So, there's a hack on v4l2-common.c rounding
+   makes switch(u_int64_t) to break. So, there's a hack on v4l2-common.c rounding
    this value to 32 bits.
    As, currently, the max value is for V4L2_STD_ATSC_16_VSB (30 bits wide),
    it should work fine. However, if needed to add more than two standards,
@@ -2123,12 +2216,12 @@ typedef __u64 v4l2_std_id;
 				 V4L2_STD_625_50)
 
 struct v4l2_standard {
-	__u32		     index;
+	u_int32_t		     index;
 	v4l2_std_id          id;
-	__u8		     name[24];
+	u_int8_t		     name[24];
 	struct v4l2_fract    frameperiod; /* Frames, not fields */
-	__u32		     framelines;
-	__u32		     reserved[4];
+	u_int32_t		     framelines;
+	u_int32_t		     reserved[4];
 };
 
 /*
@@ -2155,6 +2248,9 @@ struct v4l2_standard {
  *		(aka field 2) of interlaced field formats
  * @standards:	Standards the timing belongs to
  * @flags:	Flags
+ * @picture_aspect: The picture aspect ratio (hor/vert).
+ * @cea861_vic:	VIC code as per the CEA-861 standard.
+ * @hdmi_vic:	VIC code as per the HDMI standard.
  * @reserved:	Reserved fields, must be zeroed.
  *
  * A note regarding vertical interlaced timings: height refers to the total
@@ -2168,23 +2264,26 @@ struct v4l2_standard {
  * The active height of each field is height / 2.
  */
 struct v4l2_bt_timings {
-	__u32	width;
-	__u32	height;
-	__u32	interlaced;
-	__u32	polarities;
-	__u64	pixelclock;
-	__u32	hfrontporch;
-	__u32	hsync;
-	__u32	hbackporch;
-	__u32	vfrontporch;
-	__u32	vsync;
-	__u32	vbackporch;
-	__u32	il_vfrontporch;
-	__u32	il_vsync;
-	__u32	il_vbackporch;
-	__u32	standards;
-	__u32	flags;
-	__u32	reserved[14];
+	u_int32_t	width;
+	u_int32_t	height;
+	u_int32_t	interlaced;
+	u_int32_t	polarities;
+	u_int64_t	pixelclock;
+	u_int32_t	hfrontporch;
+	u_int32_t	hsync;
+	u_int32_t	hbackporch;
+	u_int32_t	vfrontporch;
+	u_int32_t	vsync;
+	u_int32_t	vbackporch;
+	u_int32_t	il_vfrontporch;
+	u_int32_t	il_vsync;
+	u_int32_t	il_vbackporch;
+	u_int32_t	standards;
+	u_int32_t	flags;
+	struct v4l2_fract picture_aspect;
+	u_int8_t	cea861_vic;
+	u_int8_t	hdmi_vic;
+	u_int8_t	reserved[46];
 } __attribute__ ((packed));
 
 /* Interlaced or progressive format */
@@ -2200,37 +2299,70 @@ struct v4l2_bt_timings {
 #define V4L2_DV_BT_STD_DMT	(1 << 1)  /* VESA Discrete Monitor Timings */
 #define V4L2_DV_BT_STD_CVT	(1 << 2)  /* VESA Coordinated Video Timings */
 #define V4L2_DV_BT_STD_GTF	(1 << 3)  /* VESA Generalized Timings Formula */
+#define V4L2_DV_BT_STD_SDI	(1 << 4)  /* SDI Timings */
 
 /* Flags */
 
-/* CVT/GTF specific: timing uses reduced blanking (CVT) or the 'Secondary
-   GTF' curve (GTF). In both cases the horizontal and/or vertical blanking
-   intervals are reduced, allowing a higher resolution over the same
-   bandwidth. This is a read-only flag. */
+/*
+ * CVT/GTF specific: timing uses reduced blanking (CVT) or the 'Secondary
+ * GTF' curve (GTF). In both cases the horizontal and/or vertical blanking
+ * intervals are reduced, allowing a higher resolution over the same
+ * bandwidth. This is a read-only flag.
+ */
 #define V4L2_DV_FL_REDUCED_BLANKING		(1 << 0)
-/* CEA-861 specific: set for CEA-861 formats with a framerate of a multiple
-   of six. These formats can be optionally played at 1 / 1.001 speed.
-   This is a read-only flag. */
+/*
+ * CEA-861 specific: set for CEA-861 formats with a framerate of a multiple
+ * of six. These formats can be optionally played at 1 / 1.001 speed.
+ * This is a read-only flag.
+ */
 #define V4L2_DV_FL_CAN_REDUCE_FPS		(1 << 1)
-/* CEA-861 specific: only valid for video transmitters, the flag is cleared
-   by receivers.
-   If the framerate of the format is a multiple of six, then the pixelclock
-   used to set up the transmitter is divided by 1.001 to make it compatible
-   with 60 Hz based standards such as NTSC and PAL-M that use a framerate of
-   29.97 Hz. Otherwise this flag is cleared. If the transmitter can't generate
-   such frequencies, then the flag will also be cleared. */
+/*
+ * CEA-861 specific: only valid for video transmitters, the flag is cleared
+ * by receivers.
+ * If the framerate of the format is a multiple of six, then the pixelclock
+ * used to set up the transmitter is divided by 1.001 to make it compatible
+ * with 60 Hz based standards such as NTSC and PAL-M that use a framerate of
+ * 29.97 Hz. Otherwise this flag is cleared. If the transmitter can't generate
+ * such frequencies, then the flag will also be cleared.
+ */
 #define V4L2_DV_FL_REDUCED_FPS			(1 << 2)
-/* Specific to interlaced formats: if set, then field 1 is really one half-line
-   longer and field 2 is really one half-line shorter, so each field has
-   exactly the same number of half-lines. Whether half-lines can be detected
-   or used depends on the hardware. */
+/*
+ * Specific to interlaced formats: if set, then field 1 is really one half-line
+ * longer and field 2 is really one half-line shorter, so each field has
+ * exactly the same number of half-lines. Whether half-lines can be detected
+ * or used depends on the hardware.
+ */
 #define V4L2_DV_FL_HALF_LINE			(1 << 3)
-/* If set, then this is a Consumer Electronics (CE) video format. Such formats
+/*
+ * If set, then this is a Consumer Electronics (CE) video format. Such formats
  * differ from other formats (commonly called IT formats) in that if RGB
  * encoding is used then by default the RGB values use limited range (i.e.
  * use the range 16-235) as opposed to 0-255. All formats defined in CEA-861
- * except for the 640x480 format are CE formats. */
+ * except for the 640x480 format are CE formats.
+ */
 #define V4L2_DV_FL_IS_CE_VIDEO			(1 << 4)
+/* Some formats like SMPTE-125M have an interlaced signal with a odd
+ * total height. For these formats, if this flag is set, the first
+ * field has the extra line. If not, it is the second field.
+ */
+#define V4L2_DV_FL_FIRST_FIELD_EXTRA_LINE	(1 << 5)
+/*
+ * If set, then the picture_aspect field is valid. Otherwise assume that the
+ * pixels are square, so the picture aspect ratio is the same as the width to
+ * height ratio.
+ */
+#define V4L2_DV_FL_HAS_PICTURE_ASPECT		(1 << 6)
+/*
+ * If set, then the cea861_vic field is valid and contains the Video
+ * Identification Code as per the CEA-861 standard.
+ */
+#define V4L2_DV_FL_HAS_CEA861_VIC		(1 << 7)
+/*
+ * If set, then the hdmi_vic field is valid and contains the Video
+ * Identification Code as per the HDMI standard (HDMI Vendor Specific
+ * InfoFrame).
+ */
+#define V4L2_DV_FL_HAS_HDMI_VIC			(1 << 8)
 
 /* A few useful defines to calculate the total blanking and frame sizes */
 #define V4L2_DV_BT_BLANKING_WIDTH(bt) \
@@ -2248,10 +2380,10 @@ struct v4l2_bt_timings {
  * @bt:	BT656/1120 timings
  */
 struct v4l2_dv_timings {
-	__u32 type;
+	u_int32_t type;
 	union {
 		struct v4l2_bt_timings	bt;
-		__u32	reserved[32];
+		u_int32_t	reserved[32];
 	};
 } __attribute__ ((packed));
 
@@ -2267,9 +2399,9 @@ struct v4l2_dv_timings {
  * @timings:	the timings for the given index
  */
 struct v4l2_enum_dv_timings {
-	__u32 index;
-	__u32 pad;
-	__u32 reserved[2];
+	u_int32_t index;
+	u_int32_t pad;
+	u_int32_t reserved[2];
 	struct v4l2_dv_timings timings;
 };
 
@@ -2285,15 +2417,15 @@ struct v4l2_enum_dv_timings {
  * @reserved:		Must be zeroed
  */
 struct v4l2_bt_timings_cap {
-	__u32	min_width;
-	__u32	max_width;
-	__u32	min_height;
-	__u32	max_height;
-	__u64	min_pixelclock;
-	__u64	max_pixelclock;
-	__u32	standards;
-	__u32	capabilities;
-	__u32	reserved[16];
+	u_int32_t	min_width;
+	u_int32_t	max_width;
+	u_int32_t	min_height;
+	u_int32_t	max_height;
+	u_int64_t	min_pixelclock;
+	u_int64_t	max_pixelclock;
+	u_int32_t	standards;
+	u_int32_t	capabilities;
+	u_int32_t	reserved[16];
 } __attribute__ ((packed));
 
 /* Supports interlaced formats */
@@ -2312,12 +2444,12 @@ struct v4l2_bt_timings_cap {
  * @bt:		the BT656/1120 timings capabilities
  */
 struct v4l2_dv_timings_cap {
-	__u32 type;
-	__u32 pad;
-	__u32 reserved[2];
+	u_int32_t type;
+	u_int32_t pad;
+	u_int32_t reserved[2];
 	union {
 		struct v4l2_bt_timings_cap bt;
-		__u32 raw_data[32];
+		u_int32_t raw_data[32];
 	};
 };
 
@@ -2326,20 +2458,21 @@ struct v4l2_dv_timings_cap {
  *	V I D E O   I N P U T S
  */
 struct v4l2_input {
-	__u32	     index;		/*  Which input */
-	__u8	     name[32];		/*  Label */
-	__u32	     type;		/*  Type of input */
-	__u32	     audioset;		/*  Associated audios (bitfield) */
-	__u32        tuner;             /*  enum v4l2_tuner_type */
+	u_int32_t	     index;		/*  Which input */
+	u_int8_t	     name[32];		/*  Label */
+	u_int32_t	     type;		/*  Type of input */
+	u_int32_t	     audioset;		/*  Associated audios (bitfield) */
+	u_int32_t        tuner;             /*  enum v4l2_tuner_type */
 	v4l2_std_id  std;
-	__u32	     status;
-	__u32	     capabilities;
-	__u32	     reserved[3];
+	u_int32_t	     status;
+	u_int32_t	     capabilities;
+	u_int32_t	     reserved[3];
 };
 
 /*  Values for the 'type' field */
 #define V4L2_INPUT_TYPE_TUNER		1
 #define V4L2_INPUT_TYPE_CAMERA		2
+#define V4L2_INPUT_TYPE_TOUCH		3
 
 /* field 'status' - general */
 #define V4L2_IN_ST_NO_POWER    0x00000001  /* Attached device is off */
@@ -2354,6 +2487,8 @@ struct v4l2_input {
 /* field 'status' - analog */
 #define V4L2_IN_ST_NO_H_LOCK   0x00000100  /* No horizontal sync lock */
 #define V4L2_IN_ST_COLOR_KILL  0x00000200  /* Color killer is active */
+#define V4L2_IN_ST_NO_V_LOCK   0x00000400  /* No vertical sync lock */
+#define V4L2_IN_ST_NO_STD_LOCK 0x00000800  /* No standard format lock */
 
 /* field 'status' - digital */
 #define V4L2_IN_ST_NO_SYNC     0x00010000  /* No synchronization lock */
@@ -2375,14 +2510,14 @@ struct v4l2_input {
  *	V I D E O   O U T P U T S
  */
 struct v4l2_output {
-	__u32	     index;		/*  Which output */
-	__u8	     name[32];		/*  Label */
-	__u32	     type;		/*  Type of output */
-	__u32	     audioset;		/*  Associated audios (bitfield) */
-	__u32	     modulator;         /*  Associated modulator */
+	u_int32_t	     index;		/*  Which output */
+	u_int8_t	     name[32];		/*  Label */
+	u_int32_t	     type;		/*  Type of output */
+	u_int32_t	     audioset;		/*  Associated audios (bitfield) */
+	u_int32_t	     modulator;         /*  Associated modulator */
 	v4l2_std_id  std;
-	__u32	     capabilities;
-	__u32	     reserved[3];
+	u_int32_t	     capabilities;
+	u_int32_t	     reserved[3];
 };
 /*  Values for the 'type' field */
 #define V4L2_OUTPUT_TYPE_MODULATOR		1
@@ -2399,37 +2534,47 @@ struct v4l2_output {
  *	C O N T R O L S
  */
 struct v4l2_control {
-	__u32		     id;
-	__s32		     value;
+	u_int32_t		     id;
+	int32_t		     value;
 };
 
 struct v4l2_ext_control {
-	__u32 id;
-	__u32 size;
-	__u32 reserved2[1];
+	u_int32_t id;
+	u_int32_t size;
+	u_int32_t reserved2[1];
 	union {
-		__s32 value;
-		__s64 value64;
+		int32_t value;
+		int64_t value64;
 		char __user *string;
-		__u8 __user *p_u8;
-		__u16 __user *p_u16;
-		__u32 __user *p_u32;
+		u_int8_t __user *p_u8;
+		u_int16_t __user *p_u16;
+		u_int32_t __user *p_u32;
 		void __user *ptr;
 	};
 } __attribute__ ((packed));
 
 struct v4l2_ext_controls {
-	__u32 ctrl_class;
-	__u32 count;
-	__u32 error_idx;
-	__u32 reserved[2];
+	union {
+#ifndef __KERNEL__
+		u_int32_t ctrl_class;
+#endif
+		u_int32_t which;
+	};
+	u_int32_t count;
+	u_int32_t error_idx;
+	u_int32_t reserved[2];
 	struct v4l2_ext_control *controls;
 };
 
 #define V4L2_CTRL_ID_MASK      	  (0x0fffffff)
+#ifndef __KERNEL__
 #define V4L2_CTRL_ID2CLASS(id)    ((id) & 0x0fff0000UL)
+#endif
+#define V4L2_CTRL_ID2WHICH(id)    ((id) & 0x0fff0000UL)
 #define V4L2_CTRL_DRIVER_PRIV(id) (((id) & 0xffff) >= 0x1000)
 #define V4L2_CTRL_MAX_DIMS	  (4)
+#define V4L2_CTRL_WHICH_CUR_VAL   0
+#define V4L2_CTRL_WHICH_DEF_VAL   0x0f000000
 
 enum v4l2_ctrl_type {
 	V4L2_CTRL_TYPE_INTEGER	     = 1,
@@ -2451,43 +2596,43 @@ enum v4l2_ctrl_type {
 
 /*  Used in the VIDIOC_QUERYCTRL ioctl for querying controls */
 struct v4l2_queryctrl {
-	__u32		     id;
-	__u32		     type;	/* enum v4l2_ctrl_type */
-	__u8		     name[32];	/* Whatever */
-	__s32		     minimum;	/* Note signedness */
-	__s32		     maximum;
-	__s32		     step;
-	__s32		     default_value;
-	__u32                flags;
-	__u32		     reserved[2];
+	u_int32_t		     id;
+	u_int32_t		     type;	/* enum v4l2_ctrl_type */
+	u_int8_t		     name[32];	/* Whatever */
+	int32_t		     minimum;	/* Note signedness */
+	int32_t		     maximum;
+	int32_t		     step;
+	int32_t		     default_value;
+	u_int32_t                flags;
+	u_int32_t		     reserved[2];
 };
 
 /*  Used in the VIDIOC_QUERY_EXT_CTRL ioctl for querying extended controls */
 struct v4l2_query_ext_ctrl {
-	__u32		     id;
-	__u32		     type;
+	u_int32_t		     id;
+	u_int32_t		     type;
 	char		     name[32];
-	__s64		     minimum;
-	__s64		     maximum;
-	__u64		     step;
-	__s64		     default_value;
-	__u32                flags;
-	__u32                elem_size;
-	__u32                elems;
-	__u32                nr_of_dims;
-	__u32                dims[V4L2_CTRL_MAX_DIMS];
-	__u32		     reserved[32];
+	int64_t		     minimum;
+	int64_t		     maximum;
+	u_int64_t		     step;
+	int64_t		     default_value;
+	u_int32_t                flags;
+	u_int32_t                elem_size;
+	u_int32_t                elems;
+	u_int32_t                nr_of_dims;
+	u_int32_t                dims[V4L2_CTRL_MAX_DIMS];
+	u_int32_t		     reserved[32];
 };
 
 /*  Used in the VIDIOC_QUERYMENU ioctl for querying menu items */
 struct v4l2_querymenu {
-	__u32		id;
-	__u32		index;
+	u_int32_t		id;
+	u_int32_t		index;
 	union {
-		__u8	name[32];	/* Whatever */
-		__s64	value;
+		u_int8_t	name[32];	/* Whatever */
+		int64_t	value;
 	};
-	__u32		reserved;
+	u_int32_t		reserved;
 } __attribute__ ((packed));
 
 /*  Control flags  */
@@ -2516,28 +2661,28 @@ struct v4l2_querymenu {
  *	T U N I N G
  */
 struct v4l2_tuner {
-	__u32                   index;
-	__u8			name[32];
-	__u32			type;	/* enum v4l2_tuner_type */
-	__u32			capability;
-	__u32			rangelow;
-	__u32			rangehigh;
-	__u32			rxsubchans;
-	__u32			audmode;
-	__s32			signal;
-	__s32			afc;
-	__u32			reserved[4];
+	u_int32_t                   index;
+	u_int8_t			name[32];
+	u_int32_t			type;	/* enum v4l2_tuner_type */
+	u_int32_t			capability;
+	u_int32_t			rangelow;
+	u_int32_t			rangehigh;
+	u_int32_t			rxsubchans;
+	u_int32_t			audmode;
+	int32_t			signal;
+	int32_t			afc;
+	u_int32_t			reserved[4];
 };
 
 struct v4l2_modulator {
-	__u32			index;
-	__u8			name[32];
-	__u32			capability;
-	__u32			rangelow;
-	__u32			rangehigh;
-	__u32			txsubchans;
-	__u32			type;	/* enum v4l2_tuner_type */
-	__u32			reserved[3];
+	u_int32_t			index;
+	u_int8_t			name[32];
+	u_int32_t			capability;
+	u_int32_t			rangelow;
+	u_int32_t			rangehigh;
+	u_int32_t			txsubchans;
+	u_int32_t			type;	/* enum v4l2_tuner_type */
+	u_int32_t			reserved[3];
 };
 
 /*  Flags for the 'capability' field */
@@ -2573,10 +2718,10 @@ struct v4l2_modulator {
 #define V4L2_TUNER_MODE_LANG1_LANG2	0x0004
 
 struct v4l2_frequency {
-	__u32	tuner;
-	__u32	type;	/* enum v4l2_tuner_type */
-	__u32	frequency;
-	__u32	reserved[8];
+	u_int32_t	tuner;
+	u_int32_t	type;	/* enum v4l2_tuner_type */
+	u_int32_t	frequency;
+	u_int32_t	reserved[8];
 };
 
 #define V4L2_BAND_MODULATION_VSB	(1 << 1)
@@ -2584,25 +2729,25 @@ struct v4l2_frequency {
 #define V4L2_BAND_MODULATION_AM		(1 << 3)
 
 struct v4l2_frequency_band {
-	__u32	tuner;
-	__u32	type;	/* enum v4l2_tuner_type */
-	__u32	index;
-	__u32	capability;
-	__u32	rangelow;
-	__u32	rangehigh;
-	__u32	modulation;
-	__u32	reserved[9];
+	u_int32_t	tuner;
+	u_int32_t	type;	/* enum v4l2_tuner_type */
+	u_int32_t	index;
+	u_int32_t	capability;
+	u_int32_t	rangelow;
+	u_int32_t	rangehigh;
+	u_int32_t	modulation;
+	u_int32_t	reserved[9];
 };
 
 struct v4l2_hw_freq_seek {
-	__u32	tuner;
-	__u32	type;	/* enum v4l2_tuner_type */
-	__u32	seek_upward;
-	__u32	wrap_around;
-	__u32	spacing;
-	__u32	rangelow;
-	__u32	rangehigh;
-	__u32	reserved[5];
+	u_int32_t	tuner;
+	u_int32_t	type;	/* enum v4l2_tuner_type */
+	u_int32_t	seek_upward;
+	u_int32_t	wrap_around;
+	u_int32_t	spacing;
+	u_int32_t	rangelow;
+	u_int32_t	rangehigh;
+	u_int32_t	reserved[5];
 };
 
 /*
@@ -2610,9 +2755,9 @@ struct v4l2_hw_freq_seek {
  */
 
 struct v4l2_rds_data {
-	__u8 	lsb;
-	__u8 	msb;
-	__u8 	block;
+	u_int8_t 	lsb;
+	u_int8_t 	msb;
+	u_int8_t 	block;
 } __attribute__ ((packed));
 
 #define V4L2_RDS_BLOCK_MSK 	 0x7
@@ -2630,11 +2775,11 @@ struct v4l2_rds_data {
  *	A U D I O
  */
 struct v4l2_audio {
-	__u32	index;
-	__u8	name[32];
-	__u32	capability;
-	__u32	mode;
-	__u32	reserved[2];
+	u_int32_t	index;
+	u_int8_t	name[32];
+	u_int32_t	capability;
+	u_int32_t	mode;
+	u_int32_t	reserved[2];
 };
 
 /*  Flags for the 'capability' field */
@@ -2645,17 +2790,15 @@ struct v4l2_audio {
 #define V4L2_AUDMODE_AVL		0x00001
 
 struct v4l2_audioout {
-	__u32	index;
-	__u8	name[32];
-	__u32	capability;
-	__u32	mode;
-	__u32	reserved[2];
+	u_int32_t	index;
+	u_int8_t	name[32];
+	u_int32_t	capability;
+	u_int32_t	mode;
+	u_int32_t	reserved[2];
 };
 
 /*
  *	M P E G   S E R V I C E S
- *
- *	NOTE: EXPERIMENTAL API
  */
 #if 1
 #define V4L2_ENC_IDX_FRAME_I    (0)
@@ -2664,18 +2807,18 @@ struct v4l2_audioout {
 #define V4L2_ENC_IDX_FRAME_MASK (0xf)
 
 struct v4l2_enc_idx_entry {
-	__u64 offset;
-	__u64 pts;
-	__u32 length;
-	__u32 flags;
-	__u32 reserved[2];
+	u_int64_t offset;
+	u_int64_t pts;
+	u_int32_t length;
+	u_int32_t flags;
+	u_int32_t reserved[2];
 };
 
 #define V4L2_ENC_IDX_ENTRIES (64)
 struct v4l2_enc_idx {
-	__u32 entries;
-	__u32 entries_cap;
-	__u32 reserved[4];
+	u_int32_t entries;
+	u_int32_t entries_cap;
+	u_int32_t reserved[4];
 	struct v4l2_enc_idx_entry entry[V4L2_ENC_IDX_ENTRIES];
 };
 
@@ -2689,11 +2832,11 @@ struct v4l2_enc_idx {
 #define V4L2_ENC_CMD_STOP_AT_GOP_END    (1 << 0)
 
 struct v4l2_encoder_cmd {
-	__u32 cmd;
-	__u32 flags;
+	u_int32_t cmd;
+	u_int32_t flags;
 	union {
 		struct {
-			__u32 data[8];
+			u_int32_t data[8];
 		} raw;
 	};
 };
@@ -2724,11 +2867,11 @@ struct v4l2_encoder_cmd {
 /* The structure must be zeroed before use by the application
    This ensures it can be extended safely in the future. */
 struct v4l2_decoder_cmd {
-	__u32 cmd;
-	__u32 flags;
+	u_int32_t cmd;
+	u_int32_t flags;
 	union {
 		struct {
-			__u64 pts;
+			u_int64_t pts;
 		} stop;
 
 		struct {
@@ -2737,12 +2880,12 @@ struct v4l2_decoder_cmd {
 			   -1 specifies backward single stepping,
 			   >1: playback at speed/1000 of the normal speed,
 			   <-1: reverse playback at (-speed/1000) of the normal speed. */
-			__s32 speed;
-			__u32 format;
+			int32_t speed;
+			u_int32_t format;
 		} start;
 
 		struct {
-			__u32 data[16];
+			u_int32_t data[16];
 		} raw;
 	};
 };
@@ -2757,14 +2900,14 @@ struct v4l2_decoder_cmd {
 
 /* Raw VBI */
 struct v4l2_vbi_format {
-	__u32	sampling_rate;		/* in 1 Hz */
-	__u32	offset;
-	__u32	samples_per_line;
-	__u32	sample_format;		/* V4L2_PIX_FMT_* */
-	__s32	start[2];
-	__u32	count[2];
-	__u32	flags;			/* V4L2_VBI_* */
-	__u32	reserved[2];		/* must be zero */
+	u_int32_t	sampling_rate;		/* in 1 Hz */
+	u_int32_t	offset;
+	u_int32_t	samples_per_line;
+	u_int32_t	sample_format;		/* V4L2_PIX_FMT_* */
+	int32_t	start[2];
+	u_int32_t	count[2];
+	u_int32_t	flags;			/* V4L2_VBI_* */
+	u_int32_t	reserved[2];		/* must be zero */
 };
 
 /*  VBI flags  */
@@ -2785,14 +2928,14 @@ struct v4l2_vbi_format {
  */
 
 struct v4l2_sliced_vbi_format {
-	__u16   service_set;
+	u_int16_t   service_set;
 	/* service_lines[0][...] specifies lines 0-23 (1-23 used) of the first field
 	   service_lines[1][...] specifies lines 0-23 (1-23 used) of the second field
 				 (equals frame lines 313-336 for 625 line video
 				  standards, 263-286 for 525 line standards) */
-	__u16   service_lines[2][24];
-	__u32   io_size;
-	__u32   reserved[2];            /* must be zero */
+	u_int16_t   service_lines[2][24];
+	u_int32_t   io_size;
+	u_int32_t   reserved[2];            /* must be zero */
 };
 
 /* Teletext World System Teletext
@@ -2809,22 +2952,22 @@ struct v4l2_sliced_vbi_format {
 #define V4L2_SLICED_VBI_625             (V4L2_SLICED_TELETEXT_B | V4L2_SLICED_VPS | V4L2_SLICED_WSS_625)
 
 struct v4l2_sliced_vbi_cap {
-	__u16   service_set;
+	u_int16_t   service_set;
 	/* service_lines[0][...] specifies lines 0-23 (1-23 used) of the first field
 	   service_lines[1][...] specifies lines 0-23 (1-23 used) of the second field
 				 (equals frame lines 313-336 for 625 line video
 				  standards, 263-286 for 525 line standards) */
-	__u16   service_lines[2][24];
-	__u32	type;		/* enum v4l2_buf_type */
-	__u32   reserved[3];    /* must be 0 */
+	u_int16_t   service_lines[2][24];
+	u_int32_t	type;		/* enum v4l2_buf_type */
+	u_int32_t   reserved[3];    /* must be 0 */
 };
 
 struct v4l2_sliced_vbi_data {
-	__u32   id;
-	__u32   field;          /* 0: first field, 1: second field */
-	__u32   line;           /* 1-23 */
-	__u32   reserved;       /* must be 0 */
-	__u8    data[48];
+	u_int32_t   id;
+	u_int32_t   field;          /* 0: first field, 1: second field */
+	u_int32_t   line;           /* 1-23 */
+	u_int32_t   reserved;       /* must be 0 */
+	u_int8_t    data[48];
 };
 
 /*
@@ -2850,12 +2993,12 @@ struct v4l2_sliced_vbi_data {
 #define V4L2_MPEG_VBI_IVTV_VPS            (7)
 
 struct v4l2_mpeg_vbi_itv0_line {
-	__u8 id;	/* One of V4L2_MPEG_VBI_IVTV_* above */
-	__u8 data[42];	/* Sliced VBI data for the line */
+	u_int8_t id;	/* One of V4L2_MPEG_VBI_IVTV_* above */
+	u_int8_t data[42];	/* Sliced VBI data for the line */
 } __attribute__ ((packed));
 
 struct v4l2_mpeg_vbi_itv0 {
-	__le32 linemask[2]; /* Bitmasks of VBI service lines present */
+	u_int32_t linemask[2]; /* Bitmasks of VBI service lines present */
 	struct v4l2_mpeg_vbi_itv0_line line[35];
 } __attribute__ ((packed));
 
@@ -2867,7 +3010,7 @@ struct v4l2_mpeg_vbi_ITV0 {
 #define V4L2_MPEG_VBI_IVTV_MAGIC1	"ITV0"
 
 struct v4l2_mpeg_vbi_fmt_ivtv {
-	__u8 magic[4];
+	u_int8_t magic[4];
 	union {
 		struct v4l2_mpeg_vbi_itv0 itv0;
 		struct v4l2_mpeg_vbi_ITV0 ITV0;
@@ -2886,9 +3029,9 @@ struct v4l2_mpeg_vbi_fmt_ivtv {
  *			adjacent lines
  */
 struct v4l2_plane_pix_format {
-	__u32		sizeimage;
-	__u32		bytesperline;
-	__u16		reserved[6];
+	u_int32_t		sizeimage;
+	u_int32_t		bytesperline;
+	u_int16_t		reserved[6];
 } __attribute__ ((packed));
 
 /**
@@ -2906,19 +3049,22 @@ struct v4l2_plane_pix_format {
  * @xfer_func:		enum v4l2_xfer_func, colorspace transfer function
  */
 struct v4l2_pix_format_mplane {
-	__u32				width;
-	__u32				height;
-	__u32				pixelformat;
-	__u32				field;
-	__u32				colorspace;
+	u_int32_t				width;
+	u_int32_t				height;
+	u_int32_t				pixelformat;
+	u_int32_t				field;
+	u_int32_t				colorspace;
 
 	struct v4l2_plane_pix_format	plane_fmt[VIDEO_MAX_PLANES];
-	__u8				num_planes;
-	__u8				flags;
-	__u8				ycbcr_enc;
-	__u8				quantization;
-	__u8				xfer_func;
-	__u8				reserved[7];
+	u_int8_t				num_planes;
+	u_int8_t				flags;
+	 union {
+		u_int8_t				ycbcr_enc;
+		u_int8_t				hsv_enc;
+	};
+	u_int8_t				quantization;
+	u_int8_t				xfer_func;
+	u_int8_t				reserved[7];
 } __attribute__ ((packed));
 
 /**
@@ -2927,9 +3073,9 @@ struct v4l2_pix_format_mplane {
  * @buffersize:		maximum size in bytes required for data
  */
 struct v4l2_sdr_format {
-	__u32				pixelformat;
-	__u32				buffersize;
-	__u8				reserved[24];
+	u_int32_t				pixelformat;
+	u_int32_t				buffersize;
+	u_int8_t				reserved[24];
 } __attribute__ ((packed));
 
 /**
@@ -2943,7 +3089,7 @@ struct v4l2_sdr_format {
  * @raw_data:	placeholder for future extensions and custom formats
  */
 struct v4l2_format {
-	__u32	 type;
+	u_int32_t	 type;
 	union {
 		struct v4l2_pix_format		pix;     /* V4L2_BUF_TYPE_VIDEO_CAPTURE */
 		struct v4l2_pix_format_mplane	pix_mp;  /* V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE */
@@ -2951,18 +3097,18 @@ struct v4l2_format {
 		struct v4l2_vbi_format		vbi;     /* V4L2_BUF_TYPE_VBI_CAPTURE */
 		struct v4l2_sliced_vbi_format	sliced;  /* V4L2_BUF_TYPE_SLICED_VBI_CAPTURE */
 		struct v4l2_sdr_format		sdr;     /* V4L2_BUF_TYPE_SDR_CAPTURE */
-		__u8	raw_data[200];                   /* user-defined */
+		u_int8_t	raw_data[200];                   /* user-defined */
 	} fmt;
 };
 
 /*	Stream type-dependent parameters
  */
 struct v4l2_streamparm {
-	__u32	 type;			/* enum v4l2_buf_type */
+	u_int32_t	 type;			/* enum v4l2_buf_type */
 	union {
 		struct v4l2_captureparm	capture;
 		struct v4l2_outputparm	output;
-		__u8	raw_data[200];  /* user-defined */
+		u_int8_t	raw_data[200];  /* user-defined */
 	} parm;
 };
 
@@ -2982,7 +3128,7 @@ struct v4l2_streamparm {
 /* Payload for V4L2_EVENT_VSYNC */
 struct v4l2_event_vsync {
 	/* Can be V4L2_FIELD_ANY, _NONE, _TOP or _BOTTOM */
-	__u8 field;
+	u_int8_t field;
 } __attribute__ ((packed));
 
 /* Payload for V4L2_EVENT_CTRL */
@@ -2991,27 +3137,27 @@ struct v4l2_event_vsync {
 #define V4L2_EVENT_CTRL_CH_RANGE		(1 << 2)
 
 struct v4l2_event_ctrl {
-	__u32 changes;
-	__u32 type;
+	u_int32_t changes;
+	u_int32_t type;
 	union {
-		__s32 value;
-		__s64 value64;
+		int32_t value;
+		int64_t value64;
 	};
-	__u32 flags;
-	__s32 minimum;
-	__s32 maximum;
-	__s32 step;
-	__s32 default_value;
+	u_int32_t flags;
+	int32_t minimum;
+	int32_t maximum;
+	int32_t step;
+	int32_t default_value;
 };
 
 struct v4l2_event_frame_sync {
-	__u32 frame_sequence;
+	u_int32_t frame_sequence;
 };
 
 #define V4L2_EVENT_SRC_CH_RESOLUTION		(1 << 0)
 
 struct v4l2_event_src_change {
-	__u32 changes;
+	u_int32_t changes;
 };
 
 #define V4L2_EVENT_MD_FL_HAVE_FRAME_SEQ	(1 << 0)
@@ -3024,36 +3170,36 @@ struct v4l2_event_src_change {
  * @region_mask:       which regions detected motion.
  */
 struct v4l2_event_motion_det {
-	__u32 flags;
-	__u32 frame_sequence;
-	__u32 region_mask;
+	u_int32_t flags;
+	u_int32_t frame_sequence;
+	u_int32_t region_mask;
 };
 
 struct v4l2_event {
-	__u32				type;
+	u_int32_t				type;
 	union {
 		struct v4l2_event_vsync		vsync;
 		struct v4l2_event_ctrl		ctrl;
 		struct v4l2_event_frame_sync	frame_sync;
 		struct v4l2_event_src_change	src_change;
 		struct v4l2_event_motion_det	motion_det;
-		__u8				data[64];
+		u_int8_t				data[64];
 	} u;
-	__u32				pending;
-	__u32				sequence;
+	u_int32_t				pending;
+	u_int32_t				sequence;
 	struct timespec			timestamp;
-	__u32				id;
-	__u32				reserved[8];
+	u_int32_t				id;
+	u_int32_t				reserved[8];
 };
 
 #define V4L2_EVENT_SUB_FL_SEND_INITIAL		(1 << 0)
 #define V4L2_EVENT_SUB_FL_ALLOW_FEEDBACK	(1 << 1)
 
 struct v4l2_event_subscription {
-	__u32				type;
-	__u32				id;
-	__u32				flags;
-	__u32				reserved[5];
+	u_int32_t				type;
+	u_int32_t				id;
+	u_int32_t				flags;
+	u_int32_t				reserved[5];
 };
 
 /*
@@ -3075,18 +3221,18 @@ struct v4l2_event_subscription {
 #define V4L2_CHIP_MATCH_AC97        3  /* Match against ancillary AC97 chip */
 
 struct v4l2_dbg_match {
-	__u32 type; /* Match type */
+	u_int32_t type; /* Match type */
 	union {     /* Match this chip, meaning determined by type */
-		__u32 addr;
+		u_int32_t addr;
 		char name[32];
 	};
 } __attribute__ ((packed));
 
 struct v4l2_dbg_register {
 	struct v4l2_dbg_match match;
-	__u32 size;	/* register size in bytes */
-	__u64 reg;
-	__u64 val;
+	u_int32_t size;	/* register size in bytes */
+	u_int64_t reg;
+	u_int64_t val;
 } __attribute__ ((packed));
 
 #define V4L2_CHIP_FL_READABLE (1 << 0)
@@ -3096,8 +3242,8 @@ struct v4l2_dbg_register {
 struct v4l2_dbg_chip_info {
 	struct v4l2_dbg_match match;
 	char name[32];
-	__u32 flags;
-	__u32 reserved[32];
+	u_int32_t flags;
+	u_int32_t reserved[32];
 } __attribute__ ((packed));
 
 /**
@@ -3110,11 +3256,11 @@ struct v4l2_dbg_chip_info {
  * @reserved:	future extensions
  */
 struct v4l2_create_buffers {
-	__u32			index;
-	__u32			count;
-	__u32			memory;
+	u_int32_t			index;
+	u_int32_t			count;
+	u_int32_t			memory;
 	struct v4l2_format	format;
-	__u32			reserved[8];
+	u_int32_t			reserved[8];
 };
 
 /*
@@ -3152,11 +3298,8 @@ struct v4l2_create_buffers {
 #define VIDIOC_QUERYMENU	_IOWR('V', 37, struct v4l2_querymenu)
 #define VIDIOC_G_INPUT		 _IOR('V', 38, int)
 #define VIDIOC_S_INPUT		_IOWR('V', 39, int)
-/* Ignore as we do not have v4l2-common.h */
-#if 0
 #define VIDIOC_G_EDID		_IOWR('V', 40, struct v4l2_edid)
 #define VIDIOC_S_EDID		_IOWR('V', 41, struct v4l2_edid)
-#endif
 #define VIDIOC_G_OUTPUT		 _IOR('V', 46, int)
 #define VIDIOC_S_OUTPUT		_IOWR('V', 47, int)
 #define VIDIOC_ENUMOUTPUT	_IOWR('V', 48, struct v4l2_output)
@@ -3175,8 +3318,8 @@ struct v4l2_create_buffers {
 #define VIDIOC_TRY_FMT      	_IOWR('V', 64, struct v4l2_format)
 #define VIDIOC_ENUMAUDIO	_IOWR('V', 65, struct v4l2_audio)
 #define VIDIOC_ENUMAUDOUT	_IOWR('V', 66, struct v4l2_audioout)
-#define VIDIOC_G_PRIORITY	 _IOR('V', 67, __u32) /* enum v4l2_priority */
-#define VIDIOC_S_PRIORITY	 _IOW('V', 68, __u32) /* enum v4l2_priority */
+#define VIDIOC_G_PRIORITY	 _IOR('V', 67, u_int32_t) /* enum v4l2_priority */
+#define VIDIOC_S_PRIORITY	 _IOW('V', 68, u_int32_t) /* enum v4l2_priority */
 #define VIDIOC_G_SLICED_VBI_CAP _IOWR('V', 69, struct v4l2_sliced_vbi_cap)
 #define VIDIOC_LOG_STATUS         _IO('V', 70)
 #define VIDIOC_G_EXT_CTRLS	_IOWR('V', 71, struct v4l2_ext_controls)
@@ -3188,46 +3331,35 @@ struct v4l2_create_buffers {
 #define VIDIOC_ENCODER_CMD      _IOWR('V', 77, struct v4l2_encoder_cmd)
 #define VIDIOC_TRY_ENCODER_CMD  _IOWR('V', 78, struct v4l2_encoder_cmd)
 
-/* Experimental, meant for debugging, testing and internal use.
-   Only implemented if CONFIG_VIDEO_ADV_DEBUG is defined.
-   You must be root to use these ioctls. Never use these in applications! */
+/*
+ * Experimental, meant for debugging, testing and internal use.
+ * Only implemented if CONFIG_VIDEO_ADV_DEBUG is defined.
+ * You must be root to use these ioctls. Never use these in applications!
+ */
 #define	VIDIOC_DBG_S_REGISTER 	 _IOW('V', 79, struct v4l2_dbg_register)
 #define	VIDIOC_DBG_G_REGISTER 	_IOWR('V', 80, struct v4l2_dbg_register)
 
 #define VIDIOC_S_HW_FREQ_SEEK	 _IOW('V', 82, struct v4l2_hw_freq_seek)
-
 #define	VIDIOC_S_DV_TIMINGS	_IOWR('V', 87, struct v4l2_dv_timings)
 #define	VIDIOC_G_DV_TIMINGS	_IOWR('V', 88, struct v4l2_dv_timings)
 #define	VIDIOC_DQEVENT		 _IOR('V', 89, struct v4l2_event)
 #define	VIDIOC_SUBSCRIBE_EVENT	 _IOW('V', 90, struct v4l2_event_subscription)
 #define	VIDIOC_UNSUBSCRIBE_EVENT _IOW('V', 91, struct v4l2_event_subscription)
-
-/* Experimental, the below two ioctls may change over the next couple of kernel
-   versions */
 #define VIDIOC_CREATE_BUFS	_IOWR('V', 92, struct v4l2_create_buffers)
 #define VIDIOC_PREPARE_BUF	_IOWR('V', 93, struct v4l2_buffer)
-
-/* Experimental selection API */
 #define VIDIOC_G_SELECTION	_IOWR('V', 94, struct v4l2_selection)
 #define VIDIOC_S_SELECTION	_IOWR('V', 95, struct v4l2_selection)
-
-/* Experimental, these two ioctls may change over the next couple of kernel
-   versions. */
 #define VIDIOC_DECODER_CMD	_IOWR('V', 96, struct v4l2_decoder_cmd)
 #define VIDIOC_TRY_DECODER_CMD	_IOWR('V', 97, struct v4l2_decoder_cmd)
-
-/* Experimental, these three ioctls may change over the next couple of kernel
-   versions. */
 #define VIDIOC_ENUM_DV_TIMINGS  _IOWR('V', 98, struct v4l2_enum_dv_timings)
 #define VIDIOC_QUERY_DV_TIMINGS  _IOR('V', 99, struct v4l2_dv_timings)
 #define VIDIOC_DV_TIMINGS_CAP   _IOWR('V', 100, struct v4l2_dv_timings_cap)
-
-/* Experimental, this ioctl may change over the next couple of kernel
-   versions. */
 #define VIDIOC_ENUM_FREQ_BANDS	_IOWR('V', 101, struct v4l2_frequency_band)
 
-/* Experimental, meant for debugging, testing and internal use.
-   Never use these in applications! */
+/*
+ * Experimental, meant for debugging, testing and internal use.
+ * Never use this in applications!
+ */
 #define VIDIOC_DBG_G_CHIP_INFO  _IOWR('V', 102, struct v4l2_dbg_chip_info)
 
 #define VIDIOC_QUERY_EXT_CTRL	_IOWR('V', 103, struct v4l2_query_ext_ctrl)
@@ -3237,4 +3369,4 @@ struct v4l2_create_buffers {
 
 #define BASE_VIDIOC_PRIVATE	192		/* 192-255 are private */
 
-#endif				/* _SYS_VIDEOIO_H */
+#endif /* _SYS_VIDEOIO_H */

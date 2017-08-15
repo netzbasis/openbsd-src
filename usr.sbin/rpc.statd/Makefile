@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.1 2008/06/15 04:43:28 sturm Exp $
+#	$OpenBSD: Makefile,v 1.3 2017/07/10 21:30:37 espie Exp $
 
 PROG=	rpc.statd
 SRCS=	procs.c sm_inter_svc.c statd.c
@@ -14,11 +14,13 @@ CLEANFILES=	sm_inter_svc.c sm_inter.h
 RPCSRC=	${DESTDIR}/usr/include/rpcsvc/sm_inter.x
 RPCGEN=	rpcgen -L -C
 
-sm_inter_svc.c: ${RPCSRC} sm_inter.h
+sm_inter_svc.c: ${RPCSRC}
 	${RPCGEN} -m -o ${.TARGET} ${RPCSRC}
 
 sm_inter.h: ${RPCSRC}
 	${RPCGEN} -h -o ${.TARGET} ${RPCSRC}
+
+BUILDFIRST =	sm_inter.h
 
 test: ${.CURDIR}/test.c
 	cc -o test ${.CURDIR}/test.c -lrpcsvc

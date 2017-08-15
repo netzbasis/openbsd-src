@@ -1,4 +1,4 @@
-/* $OpenBSD: dsdt.c,v 1.224 2016/09/02 13:59:51 pirofti Exp $ */
+/* $OpenBSD: dsdt.c,v 1.234 2017/05/28 15:36:45 anton Exp $ */
 /*
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
  *
@@ -20,6 +20,7 @@
 #include <sys/kernel.h>
 #include <sys/device.h>
 #include <sys/malloc.h>
+#include <sys/time.h>
 
 #include <machine/bus.h>
 
@@ -45,9 +46,6 @@
 #define AML_INTSTRLEN		16
 #define AML_NAMESEG_LEN		4
 
-struct acpi_q		*acpi_maptable(struct acpi_softc *sc, paddr_t,
-			    const char *, const char *,
-			    const char *, int);
 struct aml_scope	*aml_load(struct acpi_softc *, struct aml_scope *,
 			    struct aml_value *, struct aml_value *);
 
@@ -104,6 +102,8 @@ void			_aml_die(const char *fn, int line, const char *fmt, ...);
 
 void aml_notify_task(void *, int);
 void acpi_poll_notify_task(void *, int);
+
+extern char		*hw_vendor;
 
 /*
  * @@@: Global variables
@@ -247,6 +247,7 @@ struct aml_opcode aml_table[] = {
 	{ AMLOP_LOADTABLE,	"LoadTable",	"tttttt" },
 	{ AMLOP_STALL,		"Stall",	"i",	},
 	{ AMLOP_SLEEP,		"Sleep",	"i",	},
+	{ AMLOP_TIMER,		"Timer",	"",	},
 	{ AMLOP_LOAD,		"Load",		"nS",	},
 	{ AMLOP_UNLOAD,		"Unload",	"t" },
 	{ AMLOP_STORE,		"Store",	"tS",	},
@@ -405,7 +406,8 @@ acpi_walkmem(int sig, const char *lbl)
 {
 	struct acpi_memblock *sptr;
 
-	printf("--- walkmem:%s %x --- %x bytes alloced\n", lbl, sig, acpi_nalloc);
+	printf("--- walkmem:%s %x --- %lx bytes alloced\n", lbl, sig,
+	    acpi_nalloc);
 	LIST_FOREACH(sptr, &acpi_memhead, link) {
 		if (sptr->sig < sig)
 			break;
@@ -585,7 +587,7 @@ aml_notify_dev(const char *pnpid, int notify_value)
 		return;
 
 	SLIST_FOREACH(pdata, &aml_notify_list, link)
-		if (pdata->pnpid && !strcmp(pdata->pnpid, pnpid))
+		if (strcmp(pdata->pnpid, pnpid) == 0)
 			pdata->cbproc(pdata->node, notify_value, pdata->cbarg);
 }
 
@@ -1258,7 +1260,7 @@ aml_find_node(struct aml_node *node, const char *name,
 
 	SIMPLEQ_FOREACH(child, &node->son, sib) {
 		nn = child->name;
-		if ((nn = child->name) != NULL) {
+		if (nn != NULL) {
 			if (*nn == AMLOP_ROOTCHAR) nn++;
 			while (*nn == AMLOP_PARENTPREFIX) nn++;
 			if (strcmp(name, nn) == 0) {
@@ -1503,6 +1505,21 @@ aml_callosi(struct aml_scope *scope, struct aml_value *val)
 	struct aml_value *fa;
 
 	fa = aml_getstack(scope, AMLOP_ARG0);
+
+	if (hw_vendor != NULL &&
+	    (strcmp(hw_vendor, "Apple Inc.") == 0 ||
+	    strcmp(hw_vendor, "Apple Computer, Inc.") == 0)) {
+		if (strcmp(fa->v_string, "Darwin") == 0) {
+			dnprintf(10,"osi: returning 1 for %s on %s hardware\n",
+			    fa->v_string, hw_vendor);
+			result = 1;
+		} else
+			dnprintf(10,"osi: on %s hardware, but ignoring %s\n",
+			    hw_vendor, fa->v_string);
+
+		return aml_allocvalue(AML_OBJTYPE_INTEGER, result, NULL);
+	}
+
 	for (idx=0; !result && aml_valid_osi[idx] != NULL; idx++) {
 		dnprintf(10,"osi: %s,%s\n", fa->v_string, aml_valid_osi[idx]);
 		result = !strcmp(fa->v_string, aml_valid_osi[idx]);
@@ -1621,14 +1638,14 @@ aml_mapresource(union acpi_resource *crs)
 
 int
 aml_parse_resource(struct aml_value *res,
-    int (*crs_enum)(union acpi_resource *, void *), void *arg)
+    int (*crs_enum)(int, union acpi_resource *, void *), void *arg)
 {
-	int off, rlen;
+	int off, rlen, crsidx;
 	union acpi_resource *crs;
 
 	if (res->type != AML_OBJTYPE_BUFFER || res->length < 5)
 		return (-1);
-	for (off = 0; off < res->length; off += rlen) {
+	for (off = 0, crsidx = 0; off < res->length; off += rlen, crsidx++) {
 		crs = (union acpi_resource *)(res->v_buffer+off);
 
 		rlen = AML_CRSLEN(crs);
@@ -1639,7 +1656,7 @@ aml_parse_resource(struct aml_value *res,
 #ifdef ACPI_DEBUG
 		aml_print_resource(crs, NULL);
 #endif
-		crs_enum(crs, arg);
+		crs_enum(crsidx, crs, arg);
 	}
 
 	return (0);
@@ -1746,7 +1763,7 @@ int		aml_compare(struct aml_value *, struct aml_value *, int);
 struct aml_value *aml_concat(struct aml_value *, struct aml_value *);
 struct aml_value *aml_concatres(struct aml_value *, struct aml_value *);
 struct aml_value *aml_mid(struct aml_value *, int, int);
-int		aml_ccrlen(union acpi_resource *, void *);
+int		aml_ccrlen(int, union acpi_resource *, void *);
 
 void		aml_store(struct aml_scope *, struct aml_value *, int64_t,
     struct aml_value *);
@@ -2140,7 +2157,7 @@ aml_concat(struct aml_value *a1, struct aml_value *a2)
 
 /* Calculate length of Resource Template */
 int
-aml_ccrlen(union acpi_resource *rs, void *arg)
+aml_ccrlen(int crsidx, union acpi_resource *rs, void *arg)
 {
 	int *plen = arg;
 
@@ -2472,7 +2489,8 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
 			    val, mode, fld->v_field.flags);
 			break;
 		default:
-			aml_die("Unsupported RegionSpace");
+			aml_die("Unsupported RegionSpace 0x%x",
+			    ref1->v_opregion.iospace);
 			break;
 		}
 	} else if (mode == ACPI_IOREAD) {
@@ -3436,6 +3454,7 @@ aml_parse(struct aml_scope *scope, int ret_type, const char *stype)
 	uint8_t *start, *end;
 	const char *ch;
 	int64_t ival;
+	struct timespec ts;
 
 	my_ret = NULL;
 	if (scope == NULL || scope->pos >= scope->end) {
@@ -4036,7 +4055,8 @@ aml_parse(struct aml_scope *scope, int ret_type, const char *stype)
 		break;
 	case AMLOP_TIMER:
 		/* Timer: => i */
-		ival = 0xDEADBEEF;
+		nanouptime(&ts);
+		ival = ts.tv_sec * 10000000 + ts.tv_nsec / 100;
 		break;
 	case AMLOP_FATAL:
 		/* Fatal: bdi */

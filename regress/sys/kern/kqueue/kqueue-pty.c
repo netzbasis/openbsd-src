@@ -1,17 +1,20 @@
-/*	$OpenBSD: kqueue-pty.c,v 1.6 2015/08/13 10:11:38 uebayasi Exp $	*/
+/*	$OpenBSD: kqueue-pty.c,v 1.8 2016/09/21 15:26:54 bluhm Exp $	*/
 
 /*	Written by Michael Shalayeff, 2003, Public Domain	*/
 
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/event.h>
+
+#include <err.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
+#include <termios.h>
 #include <unistd.h>
 #include <util.h>
-#include <termios.h>
-#include <fcntl.h>
-#include <err.h>
-#include <string.h>
+
+#include "main.h"
 
 static int
 pty_check(int kq, struct kevent *ev, int n, int rm, int rs, int wm, int ws)
@@ -24,38 +27,46 @@ pty_check(int kq, struct kevent *ev, int n, int rm, int rs, int wm, int ws)
 	if ((n = kevent(kq, NULL, 0, ev, n, &ts)) < 0)
 		err(1, "slave: kevent");
 
-	if (n == 0)
-		return (1);
+	ASSX(n != 0);
 
 	for (i = 0; i < n; i++, ev++) {
 		if (ev->filter == EVFILT_READ) {
-			if (rm < 0 && ev->ident == -rm)
-				return (1);
-			if (rs < 0 && ev->ident == -rs)
-				return (1);
+			ASSX(ev->ident != -rm);
+			ASSX(ev->ident != -rs);
+			if (ev->ident == rm)
+				rm = 0;
+			if (ev->ident == rs)
+				rs = 0;
 		} else if (ev->filter == EVFILT_WRITE) {
-			if (wm < 0 && ev->ident == -wm)
-				return (1);
-			if (ws < 0 && ev->ident == -ws)
-				return (1);
+			ASSX(ev->ident != -wm);
+			ASSX(ev->ident != -ws);
+			if (ev->ident == wm)
+				wm = 0;
+			if (ev->ident == ws)
+				ws = 0;
 		} else
 			errx(1, "unknown event");
 	}
+	ASSX(rm <= 0);
+	ASSX(rs <= 0);
+	ASSX(wm <= 0);
+	ASSX(ws <= 0);
 
 	return (0);
 }
-
-int do_pty(void);
 
 int
 do_pty(void)
 {
 	struct kevent ev[4];
 	struct termios tt;
-	int kq, massa, slave;
+	int fd, kq, massa, slave;
 	char buf[1024];
 
-	tcgetattr(STDIN_FILENO, &tt);
+	ASS((fd = open("/dev/console", O_RDONLY, &tt)) > 0,
+	    warn("open /dev/console"));
+	ASS(tcgetattr(fd, &tt) == 0,
+	    warn("tcgetattr"));
 	cfmakeraw(&tt);
 	tt.c_lflag &= ~ECHO;
 	if (openpty(&massa, &slave, NULL, &tt, NULL) < 0)
@@ -75,35 +86,32 @@ do_pty(void)
 	if (kevent(kq, ev, 4, NULL, 0, NULL) < 0)
 		err(1, "slave: kevent add");
 
-	memset(buf, 0, sizeof buf);
+	memset(buf, 0, sizeof(buf));
+
+	ASSX(pty_check(kq, ev, 4, -massa, -slave, massa, slave) == 0);
 
 	if (write(massa, " ", 1) != 1)
 		err(1, "massa: write");
 
-	if (pty_check(kq, ev, 4, -massa, slave, massa, slave))
-		return (1);
+	ASSX(pty_check(kq, ev, 4, -massa, slave, massa, slave) == 0);
 
 	read(slave, buf, sizeof(buf));
 
-	if (pty_check(kq, ev, 4, -massa, -slave, massa, slave))
-		return (1);
+	ASSX(pty_check(kq, ev, 4, -massa, -slave, massa, slave) == 0);
 
 	while (write(massa, buf, sizeof(buf)) > 0)
 		continue;
 
-	if (pty_check(kq, ev, 4, -massa, slave, -massa, slave))
-		return (1);
+	ASSX(pty_check(kq, ev, 4, -massa, slave, -massa, slave) == 0);
 
 	read(slave, buf, 1);
 
-	if (pty_check(kq, ev, 4, -massa, slave, massa, slave))
-		return (1);
+	ASSX(pty_check(kq, ev, 4, -massa, slave, massa, slave) == 0);
 
 	while (read(slave, buf, sizeof(buf)) > 0)
 		continue;
 
-	if (pty_check(kq, ev, 4, -massa, -slave, massa, slave))
-		return (1);
+	ASSX(pty_check(kq, ev, 4, -massa, -slave, massa, slave) == 0);
 
 	return (0);
 }

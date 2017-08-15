@@ -1,4 +1,4 @@
-/*	$OpenBSD: lock_machdep.c,v 1.10 2016/03/19 11:34:22 mpi Exp $	*/
+/*	$OpenBSD: lock_machdep.c,v 1.16 2017/05/29 14:19:49 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 Artur Grabowski <art@openbsd.org>
@@ -19,19 +19,21 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
+#include <sys/witness.h>
+#include <sys/_lock.h>
 
-#include <machine/atomic.h>
-#include <machine/lock.h>
+#include <machine/cpu.h>
 #include <machine/cpufunc.h>
 
 #include <ddb/db_output.h>
 
 void
-__mp_lock_init(struct __mp_lock *mpl)
+___mp_lock_init(struct __mp_lock *mpl)
 {
 	memset(mpl->mpl_cpus, 0, sizeof(mpl->mpl_cpus));
 	mpl->mpl_users = 0;
-	mpl->mpl_ticket = 0;
+	mpl->mpl_ticket = 1;
 }
 
 #if defined(MP_LOCKDEBUG)
@@ -48,90 +50,106 @@ __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 {
 #ifndef MP_LOCKDEBUG
 	while (mpl->mpl_ticket != me)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 #else
 	int nticks = __mp_lock_spinout;
 
-	while (mpl->mpl_ticket != me && --nticks > 0)
-		SPINLOCK_SPIN_HOOK;
+	while (mpl->mpl_ticket != me) {
+		CPU_BUSY_CYCLE();
 
-	if (nticks == 0) {
-		db_printf("__mp_lock(%p): lock spun out", mpl);
-		Debugger();
+		if (--nticks <= 0) {
+			db_printf("__mp_lock(%p): lock spun out", mpl);
+			db_enter();
+			nticks = __mp_lock_spinout;
+		}
 	}
 #endif
 }
 
-static inline u_int
-fetch_and_add(u_int *var, u_int value)
-{
-	asm volatile("lock; xaddl %%eax, %2;"
-	    : "=a" (value)
-	    : "a" (value), "m" (*var)
-	    : "memory");
-
-	return (value);
-}
-
 void
-__mp_lock(struct __mp_lock *mpl)
+___mp_lock(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
-	long rf = read_rflags();
+	unsigned long s;
+#ifdef WITNESS
+	int lock_held;
 
-	disable_intr();
+	lock_held = __mp_lock_held(mpl);
+	if (!lock_held)
+		WITNESS_CHECKORDER(&mpl->mpl_lock_obj,
+		    LOP_EXCLUSIVE | LOP_NEWORDER, file, line, NULL);
+#endif
+
+	s = intr_disable();
 	if (cpu->mplc_depth++ == 0)
-		cpu->mplc_ticket = fetch_and_add(&mpl->mpl_users, 1);
-	write_rflags(rf);
+		cpu->mplc_ticket = atomic_inc_int_nv(&mpl->mpl_users);
+	intr_restore(s);
 
 	__mp_lock_spin(mpl, cpu->mplc_ticket);
+
+	WITNESS_LOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
 }
 
 void
-__mp_unlock(struct __mp_lock *mpl)
+___mp_unlock(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
-	long rf = read_rflags();
+	unsigned long s;
 
 #ifdef MP_LOCKDEBUG
 	if (!__mp_lock_held(mpl)) {
 		db_printf("__mp_unlock(%p): not held lock\n", mpl);
-		Debugger();
+		db_enter();
 	}
 #endif
 
-	disable_intr();	
+	WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
+
+	s = intr_disable();
 	if (--cpu->mplc_depth == 0)
 		mpl->mpl_ticket++;
-	write_rflags(rf);
+	intr_restore(s);
 }
 
 int
-__mp_release_all(struct __mp_lock *mpl)
+___mp_release_all(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
-	long rf = read_rflags();
+	unsigned long s;
 	int rv;
+#ifdef WITNESS
+	int i;
+#endif
 
-	disable_intr();
+	s = intr_disable();
  	rv = cpu->mplc_depth;
+#ifdef WITNESS
+	for (i = 0; i < rv; i++)
+		WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
+#endif
 	cpu->mplc_depth = 0;
 	mpl->mpl_ticket++;
-	write_rflags(rf);
+	intr_restore(s);
 
 	return (rv);
 }
 
 int
-__mp_release_all_but_one(struct __mp_lock *mpl)
+___mp_release_all_but_one(struct __mp_lock *mpl LOCK_FL_VARS)
 {
 	struct __mp_lock_cpu *cpu = &mpl->mpl_cpus[cpu_number()];
 	int rv = cpu->mplc_depth - 1;
+#ifdef WITNESS
+	int i;
+
+	for (i = 0; i < rv; i++)
+		WITNESS_UNLOCK(&mpl->mpl_lock_obj, LOP_EXCLUSIVE, file, line);
+#endif
 
 #ifdef MP_LOCKDEBUG
 	if (!__mp_lock_held(mpl)) {
 		db_printf("__mp_release_all_but_one(%p): not held lock\n", mpl);
-		Debugger();
+		db_enter();
 	}
 #endif
 
@@ -141,10 +159,10 @@ __mp_release_all_but_one(struct __mp_lock *mpl)
 }
 
 void
-__mp_acquire_count(struct __mp_lock *mpl, int count)
+___mp_acquire_count(struct __mp_lock *mpl, int count LOCK_FL_VARS)
 {
 	while (count--)
-		__mp_lock(mpl);
+		___mp_lock(mpl LOCK_FL_ARGS);
 }
 
 int

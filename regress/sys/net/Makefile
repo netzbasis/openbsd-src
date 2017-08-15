@@ -1,5 +1,7 @@
-#	$OpenBSD: Makefile,v 1.8 2016/08/24 22:31:41 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.12 2017/01/20 04:56:17 claudio Exp $
 
-SUBDIR +=	pf_divert pf_forward pf_fragment pf_print rdomains
+SUBDIR +=	etherip
+SUBDIR +=	pf_divert pf_forward pf_fragment pf_print pf_state pf_table
+SUBDIR +=	rdomains rtable vxlan
 
 .include <bsd.subdir.mk>

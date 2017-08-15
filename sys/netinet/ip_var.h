@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_var.h,v 1.62 2016/04/15 11:18:40 mpi Exp $	*/
+/*	$OpenBSD: ip_var.h,v 1.80 2017/07/14 16:50:41 tedu Exp $	*/
 /*	$NetBSD: ip_var.h,v 1.16 1996/02/13 23:43:20 christos Exp $	*/
 
 /*
@@ -96,6 +96,53 @@ struct ipoption {
 
 #ifdef _KERNEL
 
+#include <sys/percpu.h>
+
+enum ipstat_counters {
+	ips_total,		/* total packets received */
+	ips_badsum,		/* checksum bad */
+	ips_tooshort,		/* packet too short */
+	ips_toosmall,		/* not enough data */
+	ips_badhlen,		/* ip header length < data size */
+	ips_badlen,		/* ip length < ip header length */
+	ips_fragments,		/* fragments received */
+	ips_fragdropped,	/* frags dropped (dups, out of space) */
+	ips_fragtimeout,	/* fragments timed out */
+	ips_forward,		/* packets forwarded */
+	ips_cantforward,	/* packets rcvd for unreachable dest */
+	ips_redirectsent,	/* packets forwarded on same net */
+	ips_noproto,		/* unknown or unsupported protocol */
+	ips_delivered,		/* datagrams delivered to upper level*/
+	ips_localout,		/* total ip packets generated here */
+	ips_odropped,		/* lost packets due to nobufs, etc. */
+	ips_reassembled,	/* total packets reassembled ok */
+	ips_fragmented,		/* datagrams successfully fragmented */
+	ips_ofragments,		/* output fragments created */
+	ips_cantfrag,		/* don't fragment flag was set, etc. */
+	ips_badoptions,		/* error in option processing */
+	ips_noroute,		/* packets discarded due to no route */
+	ips_badvers,		/* ip version != 4 */
+	ips_rawout,		/* total raw ip packets generated */
+	ips_badfrags,		/* malformed fragments (bad length) */
+	ips_rcvmemdrop,		/* frags dropped for lack of memory */
+	ips_toolong,		/* ip length > max ip packet size */
+	ips_nogif,		/* no match gif found */
+	ips_badaddr,		/* invalid address on header */
+	ips_inswcsum,		/* software checksummed on input */
+	ips_outswcsum,		/* software checksummed on output */
+	ips_notmember,		/* multicasts for unregistered groups */
+
+	ips_ncounters
+};
+
+extern struct cpumem *ipcounters;
+
+static inline void
+ipstat_inc(enum ipstat_counters c)
+{
+	counters_inc(ipcounters, c);
+}
+
 /*
  * Structure attached to inpcb.ip_moptions and
  * passed to ip_output when IP multicast options are in use.
@@ -146,9 +193,6 @@ struct ipq {
 extern struct ipstat ipstat;
 extern LIST_HEAD(ipqhead, ipq)	ipq;	/* ip reass. queue */
 extern int ip_defttl;			/* default IP ttl */
-#ifdef MROUTING
-extern struct socket *ip_mrouter;	/* multicast routing daemon */
-#endif
 
 #define IPMTUDISCTIMEOUT (10 * 60)	/* as per RFC 1191 */
 
@@ -172,13 +216,13 @@ extern struct pool ipqent_pool;
 struct route;
 struct inpcb;
 
-int	 ip_ctloutput(int, struct socket *, int, int, struct mbuf **);
+int	 ip_ctloutput(int, struct socket *, int, int, struct mbuf *);
 void	 ip_drain(void);
 void	 ip_flush(void);
 int	 ip_fragment(struct mbuf *, struct ifnet *, u_long);
 void	 ip_freef(struct ipq *);
 void	 ip_freemoptions(struct ip_moptions *);
-int	 ip_getmoptions(int, struct ip_moptions *, struct mbuf **);
+int	 ip_getmoptions(int, struct ip_moptions *, struct mbuf *);
 void	 ip_init(void);
 struct mbuf*
 	 ip_insertoptions(struct mbuf *, struct mbuf *, int *);
@@ -201,13 +245,21 @@ int	 ip_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 void	 ip_savecontrol(struct inpcb *, struct mbuf **, struct ip *,
 	    struct mbuf *);
 void	 ipintr(void);
-void	 ipv4_input(struct mbuf *);
-int	 rip_ctloutput(int, struct socket *, int, int, struct mbuf **);
+int	 ip_input_if(struct mbuf **, int *, int, int, struct ifnet *);
+int	 ip_deliver(struct mbuf **, int *, int, int);
+void	 ip_forward(struct mbuf *, struct ifnet *, struct rtentry *, int);
+int	 rip_ctloutput(int, struct socket *, int, int, struct mbuf *);
 void	 rip_init(void);
-void	 rip_input(struct mbuf *, ...);
-int	 rip_output(struct mbuf *, ...);
+int	 rip_input(struct mbuf **, int *, int, int);
+int	 rip_output(struct mbuf *, struct socket *, struct sockaddr *,
+	    struct mbuf *);
 int	 rip_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
+int	 rip_attach(struct socket *, int);
+
+#ifdef MROUTING
+extern struct socket *ip_mrouter[];	/* multicast routing daemon */
+#endif
 
 #endif /* _KERNEL */
 #endif /* _NETINET_IP_VAR_H_ */

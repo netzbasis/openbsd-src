@@ -77,6 +77,7 @@ _thread_sys_fstatat
 _thread_sys_fstatfs
 _thread_sys_fsync
 _thread_sys_ftruncate
+_thread_sys_futex
 _thread_sys_futimens
 _thread_sys_futimes
 _thread_sys_getdents
@@ -272,6 +273,7 @@ fstatat
 fstatfs
 fsync
 ftruncate
+futex
 futimens
 futimes
 getdents
@@ -501,6 +503,23 @@ __signbitf
 __signbitl
 _ctype_
 _longjmp
+_rb_check
+_rb_find
+_rb_insert
+_rb_left
+_rb_max
+_rb_min
+_rb_next
+_rb_nfind
+_rb_parent
+_rb_poison
+_rb_prev
+_rb_remove
+_rb_right
+_rb_root
+_rb_set_left
+_rb_set_parent
+_rb_set_right
 _setjmp
 _sys_errlist
 _sys_nerr
@@ -1418,6 +1437,7 @@ ecvt
 exit
 fcvt
 free
+freezero
 gcvt
 getenv
 getopt
@@ -1470,6 +1490,7 @@ qsort
 radixsort
 realloc
 reallocarray
+recallocarray
 realpath
 remque
 setenv

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_proc.c,v 1.69 2016/09/02 18:11:28 tedu Exp $	*/
+/*	$OpenBSD: kern_proc.c,v 1.76 2017/02/04 07:42:52 guenther Exp $	*/
 /*	$NetBSD: kern_proc.c,v 1.14 1996/02/09 18:59:41 christos Exp $	*/
 
 /*
@@ -56,6 +56,8 @@ u_long uihash;		/* size of hash table - 1 */
 /*
  * Other process lists
  */
+struct tidhashhead *tidhashtbl;
+u_long tidhash;
 struct pidhashhead *pidhashtbl;
 u_long pidhash;
 struct pgrphashhead *pgrphashtbl;
@@ -87,30 +89,25 @@ procinit(void)
 	LIST_INIT(&allproc);
 
 
-	pidhashtbl = hashinit(maxthread / 4, M_PROC, M_NOWAIT, &pidhash);
+	tidhashtbl = hashinit(maxthread / 4, M_PROC, M_NOWAIT, &tidhash);
+	pidhashtbl = hashinit(maxprocess / 4, M_PROC, M_NOWAIT, &pidhash);
 	pgrphashtbl = hashinit(maxprocess / 4, M_PROC, M_NOWAIT, &pgrphash);
 	uihashtbl = hashinit(maxprocess / 16, M_PROC, M_NOWAIT, &uihash);
-	if (!pidhashtbl || !pgrphashtbl || !uihashtbl)
+	if (!tidhashtbl || !pidhashtbl || !pgrphashtbl || !uihashtbl)
 		panic("procinit: malloc");
 
-	pool_init(&proc_pool, sizeof(struct proc), 0, 0, PR_WAITOK,
-	    "procpl", NULL);
-	pool_setipl(&proc_pool, IPL_NONE);
-	pool_init(&process_pool, sizeof(struct process), 0, 0, PR_WAITOK,
-	    "processpl", NULL);
-	pool_setipl(&process_pool, IPL_NONE);
-	pool_init(&rusage_pool, sizeof(struct rusage), 0, 0, PR_WAITOK,
-	    "zombiepl", NULL);
-	pool_setipl(&rusage_pool, IPL_NONE);
-	pool_init(&ucred_pool, sizeof(struct ucred), 0, 0, PR_WAITOK,
-	    "ucredpl", NULL);
-	pool_setipl(&ucred_pool, IPL_NONE);
-	pool_init(&pgrp_pool, sizeof(struct pgrp), 0, 0, PR_WAITOK,
-	    "pgrppl", NULL);
-	pool_setipl(&pgrp_pool, IPL_NONE);
-	pool_init(&session_pool, sizeof(struct session), 0, 0, PR_WAITOK,
-	    "sessionpl", NULL);
-	pool_setipl(&session_pool, IPL_NONE);
+	pool_init(&proc_pool, sizeof(struct proc), 0, IPL_NONE,
+	    PR_WAITOK, "procpl", NULL);
+	pool_init(&process_pool, sizeof(struct process), 0, IPL_NONE,
+	    PR_WAITOK, "processpl", NULL);
+	pool_init(&rusage_pool, sizeof(struct rusage), 0, IPL_NONE,
+	    PR_WAITOK, "zombiepl", NULL);
+	pool_init(&ucred_pool, sizeof(struct ucred), 0, IPL_NONE,
+	    PR_WAITOK, "ucredpl", NULL);
+	pool_init(&pgrp_pool, sizeof(struct pgrp), 0, IPL_NONE,
+	    PR_WAITOK, "pgrppl", NULL);
+	pool_init(&session_pool, sizeof(struct session), 0, IPL_NONE,
+	    PR_WAITOK, "sessionpl", NULL);
 }
 
 struct uidinfo *
@@ -172,12 +169,12 @@ inferior(struct process *pr, struct process *parent)
  * Locate a proc (thread) by number
  */
 struct proc *
-pfind(pid_t pid)
+tfind(pid_t tid)
 {
 	struct proc *p;
 
-	LIST_FOREACH(p, PIDHASH(pid), p_hash)
-		if (p->p_pid == pid)
+	LIST_FOREACH(p, TIDHASH(tid), p_hash)
+		if (p->p_tid == tid)
 			return (p);
 	return (NULL);
 }
@@ -188,11 +185,11 @@ pfind(pid_t pid)
 struct process *
 prfind(pid_t pid)
 {
-	struct proc *p;
+	struct process *pr;
 
-	LIST_FOREACH(p, PIDHASH(pid), p_hash)
-		if (p->p_pid == pid)
-			return (p->p_flag & P_THREAD ? NULL : p->p_p);
+	LIST_FOREACH(pr, PIDHASH(pid), ps_hash)
+		if (pr->ps_pid == pid)
+			return (pr);
 	return (NULL);
 }
 
@@ -219,7 +216,7 @@ zombiefind(pid_t pid)
 	struct process *pr;
 
 	LIST_FOREACH(pr, &zombprocess, ps_list)
-		if (pr->ps_mainproc->p_pid == pid)
+		if (pr->ps_pid == pid)
 			return (pr);
 	return (NULL);
 }
@@ -424,7 +421,7 @@ proc_printit(struct proc *p, const char *modif,
 	else
 		pst = pstat[(int)p->p_stat - 1];
 
-	(*pr)("PROC (%s) pid=%d stat=%s\n", p->p_comm, p->p_pid, pst);
+	(*pr)("PROC (%s) pid=%d stat=%s\n", p->p_p->ps_comm, p->p_tid, pst);
 	(*pr)("    flags process=%b proc=%b\n",
 	    p->p_p->ps_flags, PS_BITS, p->p_flag, P_BITS);
 	(*pr)("    pri=%u, usrpri=%u, nice=%d\n",
@@ -460,7 +457,7 @@ db_show_all_procs(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 		db_printf("usage: show all procs [/a] [/n] [/w]\n");
 		db_printf("\t/a == show process address info\n");
 		db_printf("\t/n == show normal process info [default]\n");
-		db_printf("\t/w == show process wait/emul info\n");
+		db_printf("\t/w == show process pgrp/wait info\n");
 		db_printf("\t/o == show normal info for non-idle SONPROC\n");
 		return;
 	}
@@ -470,20 +467,20 @@ db_show_all_procs(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 	switch (*mode) {
 
 	case 'a':
-		db_printf("   TID  %-10s  %18s  %18s  %18s\n",
+		db_printf("    TID  %-9s  %18s  %18s  %18s\n",
 		    "COMMAND", "STRUCT PROC *", "UAREA *", "VMSPACE/VM_MAP");
 		break;
 	case 'n':
-		db_printf("   TID  %5s  %5s  %5s  S  %10s  %-12s  %-16s\n",
-		    "PPID", "PGRP", "UID", "FLAGS", "WAIT", "COMMAND");
+		db_printf("   PID  %6s  %5s  %5s  S  %10s  %-12s  %-15s\n",
+		    "TID", "PPID", "UID", "FLAGS", "WAIT", "COMMAND");
 		break;
 	case 'w':
-		db_printf("   TID  %-16s  %-8s  %18s  %s\n",
-		    "COMMAND", "EMUL", "WAIT-CHANNEL", "WAIT-MSG");
+		db_printf("    TID  %-15s  %-5s  %18s  %s\n",
+		    "COMMAND", "PGRP", "WAIT-CHANNEL", "WAIT-MSG");
 		break;
 	case 'o':
 		skipzomb = 1;
-		db_printf("   TID  %5s  %5s  %10s %10s  %3s  %-31s\n",
+		db_printf("    TID  %5s  %5s  %10s %10s  %3s  %-30s\n",
 		    "PID", "UID", "PRFLAGS", "PFLAGS", "CPU", "COMMAND");
 		break;
 	}
@@ -500,31 +497,38 @@ db_show_all_procs(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 					    ci_schedstate.spc_idleproc == p)
 						continue;
 				}
-				db_printf("%c%5d  ", p == curproc ? '*' : ' ',
-					p->p_pid);
+
+				if (*mode == 'n') {
+					db_printf("%c%5d  ", (p == curproc ?
+					    '*' : ' '), pr->ps_pid);
+				} else {
+					db_printf("%c%6d  ", (p == curproc ?
+					    '*' : ' '), p->p_tid);
+				}
 
 				switch (*mode) {
 
 				case 'a':
-					db_printf("%-10.10s  %18p  %18p  %18p\n",
-					    p->p_comm, p, p->p_addr, p->p_vmspace);
+					db_printf("%-9.9s  %18p  %18p  %18p\n",
+					    pr->ps_comm, p, p->p_addr, p->p_vmspace);
 					break;
 
 				case 'n':
-					db_printf("%5d  %5d  %5d  %d  %#10x  "
-					    "%-12.12s  %-16s\n",
-					    ppr ? ppr->ps_pid : -1,
-					    pr->ps_pgrp ? pr->ps_pgrp->pg_id : -1,
+					db_printf("%6d  %5d  %5d  %d  %#10x  "
+					    "%-12.12s  %-15s\n",
+					    p->p_tid, ppr ? ppr->ps_pid : -1,
 					    pr->ps_ucred->cr_ruid, p->p_stat,
 					    p->p_flag | pr->ps_flags,
 					    (p->p_wchan && p->p_wmesg) ?
-						p->p_wmesg : "", p->p_comm);
+						p->p_wmesg : "", pr->ps_comm);
 					break;
 
 				case 'w':
-					db_printf("%-16s  %-8s  %18p  %s\n", p->p_comm,
-					    pr->ps_emul->e_name, p->p_wchan,
-					    (p->p_wchan && p->p_wmesg) ? 
+					db_printf("%-15s  %-5d  %18p  %s\n",
+					    pr->ps_comm, (pr->ps_pgrp ?
+						pr->ps_pgrp->pg_id : -1),
+					    p->p_wchan,
+					    (p->p_wchan && p->p_wmesg) ?
 						p->p_wmesg : "");
 					break;
 
@@ -534,7 +538,7 @@ db_show_all_procs(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 					    pr->ps_pid, pr->ps_ucred->cr_ruid,
 					    pr->ps_flags, p->p_flag,
 					    CPU_INFO_UNIT(p->p_cpu),
-					    p->p_comm);
+					    pr->ps_comm);
 					break;
 
 				}

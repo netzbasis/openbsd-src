@@ -1,4 +1,4 @@
-/*	$OpenBSD: event.h,v 1.22 2016/08/13 17:05:02 tedu Exp $	*/
+/*	$OpenBSD: event.h,v 1.26 2017/06/26 09:32:32 mpi Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -41,7 +41,8 @@
 
 #define EVFILT_SYSCOUNT		7
 
-#define EV_SET(kevp, a, b, c, d, e, f) do {	\
+#define EV_SET(kevp_, a, b, c, d, e, f) do {	\
+	struct kevent *kevp = (kevp_);		\
 	(kevp)->ident = (a);			\
 	(kevp)->filter = (b);			\
 	(kevp)->flags = (c);			\
@@ -68,6 +69,8 @@ struct kevent {
 /* flags */
 #define EV_ONESHOT	0x0010		/* only report one occurrence */
 #define EV_CLEAR	0x0020		/* clear event state after reporting */
+#define EV_RECEIPT	0x0040          /* force EV_ERROR on success, data=0 */
+#define EV_DISPATCH	0x0080          /* disable event after reporting */
 
 #define EV_SYSFLAGS	0xF000		/* reserved by system */
 #define EV_FLAG1	0x2000		/* filter-specific flag */
@@ -75,6 +78,13 @@ struct kevent {
 /* returned values */
 #define EV_EOF		0x8000		/* EOF detected */
 #define EV_ERROR	0x4000		/* error, data contains errno */
+
+/*
+ * hint flag for in-kernel use - must not equal any existing note
+ */
+#ifdef _KERNEL
+#define NOTE_SUBMIT	0x01000000		/* initial knote submission */
+#endif
 
 /*
  * data/hint flags for EVFILT_{READ|WRITE}, shared with userspace
@@ -118,10 +128,13 @@ SLIST_HEAD(klist, knote);
 
 #ifdef _KERNEL
 
-#define KNOTE(list, hint)	do { \
+#define KNOTE(list_, hint)	do { \
+					struct klist *list = (list_); \
 					if ((list) != NULL) \
 						knote((list), (hint)); \
 				} while (0)
+
+#define	KN_HASHSIZE		64		/* XXX should be tunable */
 
 /*
  * Flag indicating hint is a signal.  Used by EVFILT_SIGNAL, and also

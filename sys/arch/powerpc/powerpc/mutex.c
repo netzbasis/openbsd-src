@@ -1,4 +1,4 @@
-/*	$OpenBSD: mutex.c,v 1.3 2016/03/19 11:34:22 mpi Exp $	*/
+/*	$OpenBSD: mutex.c,v 1.6 2017/05/29 14:19:50 mpi Exp $	*/
 
 /*
  * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>
@@ -31,7 +31,7 @@
 #include <sys/atomic.h>
 
 #include <machine/intr.h>
-#include <machine/lock.h>
+#include <machine/cpu.h>
 
 #include <ddb/db_output.h>
 
@@ -54,26 +54,26 @@ extern int __mp_lock_spinout;
 #endif
 
 void
-mtx_enter(struct mutex *mtx)
+__mtx_enter(struct mutex *mtx)
 {
 #if defined(MP_LOCKDEBUG)
 	int nticks = __mp_lock_spinout;
 #endif
 
-	while (mtx_enter_try(mtx) == 0) {
-		SPINLOCK_SPIN_HOOK;
+	while (__mtx_enter_try(mtx) == 0) {
+		CPU_BUSY_CYCLE();
 
 #if defined(MP_LOCKDEBUG)
 		if (--nticks == 0) {
 			db_printf("%s: %p lock spun out", __func__, mtx);
-			Debugger();
+			db_enter();
 		}
 #endif
 	}
 }
 
 int
-mtx_enter_try(struct mutex *mtx)
+__mtx_enter_try(struct mutex *mtx)
 {
 	struct cpu_info *owner, *ci = curcpu();
 	int s;
@@ -103,7 +103,7 @@ mtx_enter_try(struct mutex *mtx)
 }
 #else
 void
-mtx_enter(struct mutex *mtx)
+__mtx_enter(struct mutex *mtx)
 {
 	struct cpu_info *ci = curcpu();
 
@@ -122,15 +122,15 @@ mtx_enter(struct mutex *mtx)
 }
 
 int
-mtx_enter_try(struct mutex *mtx)
+__mtx_enter_try(struct mutex *mtx)
 {
-	mtx_enter(mtx);
+	__mtx_enter(mtx);
 	return (1);
 }
 #endif
 
 void
-mtx_leave(struct mutex *mtx)
+__mtx_leave(struct mutex *mtx)
 {
 	int s;
 

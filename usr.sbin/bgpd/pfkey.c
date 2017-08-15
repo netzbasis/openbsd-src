@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.45 2015/09/13 10:22:16 florian Exp $ */
+/*	$OpenBSD: pfkey.c,v 1.49 2017/04/18 02:29:56 deraadt Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -31,6 +31,7 @@
 
 #include "bgpd.h"
 #include "session.h"
+#include "log.h"
 
 #define	PFKEY2_CHUNK sizeof(u_int64_t)
 #define	ROUNDUP(x) (((x) + (PFKEY2_CHUNK - 1)) & ~(PFKEY2_CHUNK - 1))
@@ -146,7 +147,7 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 		sa.sadb_sa_exttype = SADB_EXT_SA;
 		sa.sadb_sa_len = sizeof(sa) / 8;
 		sa.sadb_sa_replay = 0;
-		sa.sadb_sa_spi = spi;
+		sa.sadb_sa_spi = htonl(spi);
 		sa.sadb_sa_state = SADB_SASTATE_MATURE;
 		break;
 	case SADB_X_ADDFLOW:
@@ -433,7 +434,7 @@ pfkey_read(int sd, struct sadb_msg *h)
 }
 
 int
-pfkey_reply(int sd, u_int32_t *spip)
+pfkey_reply(int sd, u_int32_t *spi)
 {
 	struct sadb_msg hdr, *msg;
 	struct sadb_ext *ext;
@@ -464,15 +465,13 @@ pfkey_reply(int sd, u_int32_t *spip)
 	len = hdr.sadb_msg_len * PFKEY2_CHUNK;
 	if (read(sd, data, len) != len) {
 		log_warn("pfkey read");
-		explicit_bzero(data, len);
-		free(data);
+		freezero(data, len);
 		return (-1);
 	}
 
 	if (hdr.sadb_msg_type == SADB_GETSPI) {
-		if (spip == NULL) {
-			explicit_bzero(data, len);
-			free(data);
+		if (spi == NULL) {
+			freezero(data, len);
 			return (0);
 		}
 
@@ -484,13 +483,12 @@ pfkey_reply(int sd, u_int32_t *spip)
 		    ext->sadb_ext_len * PFKEY2_CHUNK)) {
 			if (ext->sadb_ext_type == SADB_EXT_SA) {
 				sa = (struct sadb_sa *) ext;
-				*spip = sa->sadb_sa_spi;
+				*spi = ntohl(sa->sadb_sa_spi);
 				break;
 			}
 		}
 	}
-	explicit_bzero(data, len);
-	free(data);
+	freezero(data, len);
 	return (0);
 }
 

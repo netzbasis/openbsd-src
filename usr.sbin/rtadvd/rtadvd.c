@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtadvd.c,v 1.78 2016/09/03 16:57:29 jca Exp $	*/
+/*	$OpenBSD: rtadvd.c,v 1.90 2017/08/13 07:52:17 florian Exp $	*/
 /*	$KAME: rtadvd.c,v 1.66 2002/05/29 14:18:36 itojun Exp $	*/
 
 /*
@@ -55,6 +55,8 @@
 #include <string.h>
 #include <pwd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <paths.h>
 
 #include "rtadvd.h"
 #include "advcap.h"
@@ -71,10 +73,13 @@ static size_t sndcmsgbuflen;
 struct msghdr sndmhdr;
 struct iovec rcviov[2];
 struct iovec sndiov[2];
+static char *rtsockbuf;
+static size_t rtsockbuflen;
 struct sockaddr_in6 from;
 struct sockaddr_in6 sin6_allnodes = {sizeof(sin6_allnodes), AF_INET6};
 int sock;
 int rtsock = -1;
+int ioctl_sock;
 int dflag = 0, sflag = 0;
 
 u_char *conffile = NULL;
@@ -137,8 +142,9 @@ static int prefix_check(struct nd_opt_prefix_info *, struct rainfo *,
 static int nd6_options(struct nd_opt_hdr *, int,
     union nd_opts *, u_int32_t);
 static void free_ndopts(union nd_opts *);
-static void ra_output(struct rainfo *);
+static void ra_output(struct rainfo *, struct sockaddr_in6 *);
 static struct rainfo *if_indextorainfo(int);
+static int rdaemon(int);
 
 static void dump_cb(int, short, void *);
 static void die_cb(int, short, void *);
@@ -151,12 +157,14 @@ main(int argc, char *argv[])
 {
 	struct passwd *pw;
 	int ch;
+	int devnull = -1;
 	struct event ev_sock;
 	struct event ev_rtsock;
 	struct event ev_sigterm;
 	struct event ev_sigusr1;
 	struct rainfo *rai;
 
+	log_procname = getprogname();
 	log_init(1);		/* log to stderr until daemonized */
 
 	closefrom(3);
@@ -182,6 +190,13 @@ main(int argc, char *argv[])
 	if (argc == 0)
 		usage();
 
+	if (!dflag) {
+		devnull = open(_PATH_DEVNULL, O_RDWR, 0);
+		if (devnull == -1)
+			fatal("open(\"" _PATH_DEVNULL "\")");
+	} else
+		log_verbose(1);
+
 	SLIST_INIT(&ralist);
 
 	/* get iflist block from kernel */
@@ -190,17 +205,14 @@ main(int argc, char *argv[])
 	if (conffile == NULL)
 		log_init(dflag);
 
+	if ((ioctl_sock = socket(AF_INET6, SOCK_DGRAM, 0)) < 0)
+		fatal("socket");
+
 	while (argc--)
 		getconfig(*argv++);
 
 	if (inet_pton(AF_INET6, ALLNODES, &sin6_allnodes.sin6_addr) != 1)
 		fatal("inet_pton failed");
-
-	if (conffile != NULL)
-		log_init(dflag);
-
-	if (!dflag)
-		daemon(1, 0);
 
 	sock_open();
 
@@ -217,6 +229,14 @@ main(int argc, char *argv[])
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("cannot drop privileges");
+
+	if (!dflag) {
+		if (rdaemon(devnull) == -1)
+			fatal("rdaemon");
+	}
+
+	if (conffile != NULL)
+		log_init(dflag);
 
 	if (pledge("stdio inet route", NULL) == -1)
 		err(1, "pledge");
@@ -277,7 +297,7 @@ die_cb(int sig, short event, void *arg)
 	}
 	for (i = 0; i < retrans; i++) {
 		SLIST_FOREACH(ra, &ralist, entry)
-			ra_output(ra);
+			ra_output(ra, &sin6_allnodes);
 		sleep(MIN_DELAY_BETWEEN_RAS);
 	}
 	exit(0);
@@ -287,167 +307,147 @@ die_cb(int sig, short event, void *arg)
 static void
 rtsock_cb(int fd, short event, void *arg)
 {
-	int n, type, ifindex = 0, plen;
-	size_t len;
-	char msg[2048], *next, *lim;
+	int n, type, ifindex = 0, oldifflags, plen;
+	char *next;
 	u_char ifname[IF_NAMESIZE];
 	struct prefix *prefix;
 	struct rainfo *rai;
 	struct in6_addr *addr;
 	char addrbuf[INET6_ADDRSTRLEN];
 
-	n = read(rtsock, msg, sizeof(msg));
+	n = read(rtsock, rtsockbuf, rtsockbuflen);
 	log_debug("received a routing message "
-	    "(type = %d, len = %d)", rtmsg_type(msg), n);
-	if (n > rtmsg_len(msg)) {
-		/*
-		 * This usually won't happen for messages received on
-		 * a routing socket.
-		 */
-		log_debug("received data length is larger than "
-		    "1st routing message len. multiple messages? "
-		    "read %d bytes, but 1st msg len = %d",
-		    n, rtmsg_len(msg));
-#if 0
-		/* adjust length */
-		n = rtmsg_len(msg);
-#endif
+	    "(type = %d, len = %d)", rtmsg_type(rtsockbuf), n);
+
+	next = rtsockbuf;
+	if (validate_msg(next) == -1)
+		return;
+
+	type = rtmsg_type(next);
+	switch (type) {
+	case RTM_ADD:
+	case RTM_DELETE:
+		ifindex = get_rtm_ifindex(next);
+		break;
+	case RTM_NEWADDR:
+	case RTM_DELADDR:
+		ifindex = get_ifam_ifindex(next);
+		break;
+	case RTM_IFINFO:
+		ifindex = get_ifm_ifindex(next);
+		break;
+	default:
+		/* should not reach here */
+		log_debug("unknown rtmsg %d on %s",
+		    type, if_indextoname(ifindex, ifname));
+		return;
 	}
 
-	lim = msg + n;
-	for (next = msg; next < lim; next += len) {
-		int oldifflags;
+	if ((rai = if_indextorainfo(ifindex)) == NULL) {
+		log_debug("route changed on "
+		    "non advertising interface(%s)",
+		    if_indextoname(ifindex, ifname));
+		return;
+	}
+	oldifflags = iflist[ifindex]->ifm_flags;
 
-		next = get_next_msg(next, lim, &len);
+	switch (type) {
+	case RTM_ADD:
+		/* init ifflags because it may have changed */
+		iflist[ifindex]->ifm_flags =
+			if_getflags(ifindex, iflist[ifindex]->ifm_flags);
 
-		if (len == 0)
+		if (sflag)
+			break;	/* we aren't interested in prefixes  */
+
+		addr = get_addr(next);
+		plen = get_prefixlen(next);
+		/* sanity check for plen */
+		/* as RFC2373, prefixlen is at least 4 */
+		if (plen < 4 || plen > 127) {
+			log_info("new interface route's"
+			    " plen %d is invalid for a prefix", plen);
 			break;
-		type = rtmsg_type(next);
-		switch (type) {
-		case RTM_ADD:
-		case RTM_DELETE:
-			ifindex = get_rtm_ifindex(next);
-			break;
-		case RTM_NEWADDR:
-		case RTM_DELADDR:
-			ifindex = get_ifam_ifindex(next);
-			break;
-		case RTM_IFINFO:
-			ifindex = get_ifm_ifindex(next);
-			break;
-		default:
-			/* should not reach here */
-			log_debug("unknown rtmsg %d on %s",
-			    type, if_indextoname(ifindex, ifname));
-			continue;
 		}
-
-		if ((rai = if_indextorainfo(ifindex)) == NULL) {
-			log_debug("route changed on "
-			    "non advertising interface(%s)",
-			    if_indextoname(ifindex, ifname));
-			continue;
+		prefix = find_prefix(rai, addr, plen);
+		if (prefix) {
+			log_debug("new prefix(%s/%d) "
+			    "added on %s, "
+			    "but it was already in list",
+			    inet_ntop(AF_INET6, addr,
+				addrbuf, INET6_ADDRSTRLEN),
+			    plen, rai->ifname);
+			break;
 		}
-		oldifflags = iflist[ifindex]->ifm_flags;
+		make_prefix(rai, ifindex, addr, plen);
+		break;
+	case RTM_DELETE:
+		/* init ifflags because it may have changed */
+		iflist[ifindex]->ifm_flags =
+			if_getflags(ifindex, iflist[ifindex]->ifm_flags);
 
-		switch (type) {
-		case RTM_ADD:
-			/* init ifflags because it may have changed */
-			iflist[ifindex]->ifm_flags =
-			    if_getflags(ifindex, iflist[ifindex]->ifm_flags);
-
-			if (sflag)
-				break;	/* we aren't interested in prefixes  */
-
-			addr = get_addr(msg);
-			plen = get_prefixlen(msg);
-			/* sanity check for plen */
-			/* as RFC2373, prefixlen is at least 4 */
-			if (plen < 4 || plen > 127) {
-				log_info("new interface route's"
-				    " plen %d is invalid for a prefix", plen);
-				break;
-			}
-			prefix = find_prefix(rai, addr, plen);
-			if (prefix) {
-				log_debug("new prefix(%s/%d) "
-				    "added on %s, "
-				    "but it was already in list",
-				    inet_ntop(AF_INET6, addr,
-				        addrbuf, INET6_ADDRSTRLEN),
-				    plen, rai->ifname);
-				break;
-			}
-			make_prefix(rai, ifindex, addr, plen);
+		if (sflag)
 			break;
-		case RTM_DELETE:
-			/* init ifflags because it may have changed */
-			iflist[ifindex]->ifm_flags =
-			    if_getflags(ifindex, iflist[ifindex]->ifm_flags);
 
-			if (sflag)
-				break;
-
-			addr = get_addr(msg);
-			plen = get_prefixlen(msg);
-			/* sanity check for plen */
-			/* as RFC2373, prefixlen is at least 4 */
-			if (plen < 4 || plen > 127) {
-				log_info("deleted interface route's "
-				    "plen %d is invalid for a prefix", plen);
-				break;
-			}
-			prefix = find_prefix(rai, addr, plen);
-			if (prefix == NULL) {
-				log_debug("prefix(%s/%d) was "
-				    "deleted on %s, "
-				    "but it was not in list",
-				    inet_ntop(AF_INET6, addr,
-				        addrbuf, INET6_ADDRSTRLEN),
-				    plen, rai->ifname);
-				break;
-			}
-			delete_prefix(rai, prefix);
+		addr = get_addr(next);
+		plen = get_prefixlen(next);
+		/* sanity check for plen */
+		/* as RFC2373, prefixlen is at least 4 */
+		if (plen < 4 || plen > 127) {
+			log_info("deleted interface route's "
+			    "plen %d is invalid for a prefix", plen);
 			break;
-		case RTM_NEWADDR:
-		case RTM_DELADDR:
-			/* init ifflags because it may have changed */
-			iflist[ifindex]->ifm_flags =
-			    if_getflags(ifindex, iflist[ifindex]->ifm_flags);
-			break;
-		case RTM_IFINFO:
-			iflist[ifindex]->ifm_flags = get_ifm_flags(next);
-			break;
-		default:
-			/* should not reach here */
-			log_debug("unknown rtmsg %d on %s",
-			    type, if_indextoname(ifindex, ifname));
-			return;
 		}
-
-		/* check if an interface flag is changed */
-		if ((oldifflags & IFF_UP) != 0 &&	/* UP to DOWN */
-		    (iflist[ifindex]->ifm_flags & IFF_UP) == 0) {
-			log_info("interface %s becomes down. stop timer.",
-			    rai->ifname);
-			evtimer_del(&rai->timer.ev);
-		} else if ((oldifflags & IFF_UP) == 0 && /* DOWN to UP */
-			 (iflist[ifindex]->ifm_flags & IFF_UP) != 0) {
-			log_info("interface %s becomes up. restart timer.",
-			    rai->ifname);
-
-			rai->initcounter = 0; /* reset the counter */
-			rai->waiting = 0; /* XXX */
-			ra_timer_update(rai);
-			evtimer_add(&rai->timer.ev, &rai->timer.tm);
+		prefix = find_prefix(rai, addr, plen);
+		if (prefix == NULL) {
+			log_debug("prefix(%s/%d) was "
+			    "deleted on %s, "
+			    "but it was not in list",
+			    inet_ntop(AF_INET6, addr,
+				addrbuf, INET6_ADDRSTRLEN),
+			    plen, rai->ifname);
+			break;
 		}
+		delete_prefix(rai, prefix);
+		break;
+	case RTM_NEWADDR:
+	case RTM_DELADDR:
+		/* init ifflags because it may have changed */
+		iflist[ifindex]->ifm_flags =
+			if_getflags(ifindex, iflist[ifindex]->ifm_flags);
+		break;
+	case RTM_IFINFO:
+		iflist[ifindex]->ifm_flags = get_ifm_flags(next);
+		break;
+	default:
+		/* should not reach here */
+		log_debug("unknown rtmsg %d on %s",
+		    type, if_indextoname(ifindex, ifname));
+		return;
+	}
+
+	/* check if an interface flag is changed */
+	if ((oldifflags & IFF_UP) != 0 &&	/* UP to DOWN */
+	    (iflist[ifindex]->ifm_flags & IFF_UP) == 0) {
+		log_info("interface %s becomes down. stop timer.",
+		    rai->ifname);
+		evtimer_del(&rai->timer.ev);
+	} else if ((oldifflags & IFF_UP) == 0 && /* DOWN to UP */
+	    (iflist[ifindex]->ifm_flags & IFF_UP) != 0) {
+		log_info("interface %s becomes up. restart timer.",
+		    rai->ifname);
+
+		rai->initcounter = 0; /* reset the counter */
+		rai->waiting = 0; /* XXX */
+		ra_timer_update(rai);
+		evtimer_add(&rai->timer.ev, &rai->timer.tm);
 	}
 }
 
 void
 sock_cb(int fd, short event, void *arg)
 {
-	int i;
+	ssize_t len;
 	int *hlimp = NULL;
 	struct icmp6_hdr *icp;
 	int ifindex = 0;
@@ -462,7 +462,7 @@ sock_cb(int fd, short event, void *arg)
 	 * receive options.
 	 */
 	rcvmhdr.msg_controllen = rcvcmsgbuflen;
-	if ((i = recvmsg(sock, &rcvmhdr, 0)) < 0)
+	if ((len = recvmsg(sock, &rcvmhdr, 0)) < 0)
 		return;
 
 	/* extract optional information via Advanced API */
@@ -500,8 +500,8 @@ sock_cb(int fd, short event, void *arg)
 		return;
 	}
 
-	if (i < sizeof(struct icmp6_hdr)) {
-		log_warnx("packet size(%d) is too short", i);
+	if (len < sizeof(struct icmp6_hdr)) {
+		log_warnx("packet size(%zd) is too short", len);
 		return;
 	}
 
@@ -532,15 +532,14 @@ sock_cb(int fd, short event, void *arg)
 			    if_indextoname(pi->ipi6_ifindex, ifnamebuf));
 			return;
 		}
-		if (i < sizeof(struct nd_router_solicit)) {
-			log_info("RS from %s on %s does not have enough "
-			    "length (len = %d)",
+		if (len < sizeof(struct nd_router_solicit)) {
+			log_info("RS from %s on %s too short (len = %zd)",
 			    inet_ntop(AF_INET6, &from.sin6_addr, ntopbuf,
 			    INET6_ADDRSTRLEN),
-			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), i);
+			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), len);
 			return;
 		}
-		rs_input(i, (struct nd_router_solicit *)icp, pi, &from);
+		rs_input(len, (struct nd_router_solicit *)icp, pi, &from);
 		break;
 	case ND_ROUTER_ADVERT:
 		/*
@@ -565,15 +564,14 @@ sock_cb(int fd, short event, void *arg)
 			    if_indextoname(pi->ipi6_ifindex, ifnamebuf));
 			return;
 		}
-		if (i < sizeof(struct nd_router_advert)) {
-			log_info("RA from %s on %s does not have enough "
-			    "length (len = %d)",
+		if (len < sizeof(struct nd_router_advert)) {
+			log_info("RA from %s on %s too short (len = %zd)",
 			    inet_ntop(AF_INET6, &from.sin6_addr, ntopbuf,
 			    INET6_ADDRSTRLEN),
-			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), i);
+			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), len);
 			return;
 		}
-		ra_input(i, (struct nd_router_advert *)icp, pi, &from);
+		ra_input(len, (struct nd_router_advert *)icp, pi, &from);
 		break;
 	default:
 		/*
@@ -637,11 +635,13 @@ rs_input(int len, struct nd_router_solicit *rs,
 
 	ra->rsinput++;		/* increment statistics */
 
-	/*
-	 * Decide whether to send RA according to the rate-limit
-	 * consideration.
-	 */
-	{
+	if (ndopts.nd_opts_src_lladdr)
+		ra_output(ra, from);
+	else {
+		/*
+		 * Decide whether to send RA according to the rate-limit
+		 * consideration.
+		 */
 		long delay;	/* must not be greater than 1000000 */
 		struct timeval interval, now, min_delay, tm_tmp, next,
 		    computed;
@@ -838,11 +838,6 @@ prefix_check(struct nd_opt_prefix_info *pinfo,
 	u_char ntopbuf[INET6_ADDRSTRLEN], prefixbuf[INET6_ADDRSTRLEN];
 	struct timeval now;
 
-#if 0				/* impossible */
-	if (pinfo->nd_opt_pi_type != ND_OPT_PREFIX_INFORMATION)
-		return(0);
-#endif
-
 	/*
 	 * log if the advertised prefix has link-local scope(sanity check?)
 	 */
@@ -1024,6 +1019,8 @@ nd6_options(struct nd_opt_hdr *hdr, int limit,
 
 		switch (hdr->nd_opt_type) {
 		case ND_OPT_SOURCE_LINKADDR:
+			ndopts->nd_opt_array[hdr->nd_opt_type] = hdr;
+			break;
 		case ND_OPT_TARGET_LINKADDR:
 		case ND_OPT_REDIRECTED_HEADER:
 		case ND_OPT_ROUTE_INFO:
@@ -1134,10 +1131,8 @@ sock_open(void)
 	SLIST_FOREACH(ra, &ralist, entry) {
 		mreq.ipv6mr_interface = ra->ifindex;
 		if (setsockopt(sock, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq,
-		    sizeof(mreq)) < 0) {
-			log_warn("IPV6_JOIN_GROUP(link) on %s", ra->ifname);
-			exit(1);
-		}
+		    sizeof(mreq)) < 0)
+			fatal("IPV6_JOIN_GROUP(link) on %s", ra->ifname);
 	}
 
 	/* initialize msghdr for receiving packets */
@@ -1177,6 +1172,11 @@ rtsock_open(void)
 	if (setsockopt(rtsock, PF_ROUTE, ROUTE_MSGFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)
 		fatal("setsockopt(ROUTE_MSGFILTER)");
+
+	rtsockbuflen = 2048;
+	rtsockbuf = malloc(rtsockbuflen);
+	if (rtsockbuf == NULL)
+		fatal(NULL);
 }
 
 static struct rainfo *
@@ -1193,11 +1193,11 @@ if_indextorainfo(int index)
 }
 
 static void
-ra_output(struct rainfo *rainfo)
+ra_output(struct rainfo *rainfo, struct sockaddr_in6 *to)
 {
 	struct cmsghdr *cm;
 	struct in6_pktinfo *pi;
-	size_t len;
+	ssize_t len;
 
 	if ((iflist[rainfo->ifindex]->ifm_flags & IFF_UP) == 0) {
 		log_debug("%s is not up, skip sending RA", rainfo->ifname);
@@ -1206,7 +1206,7 @@ ra_output(struct rainfo *rainfo)
 
 	make_packet(rainfo);	/* XXX: inefficient */
 
-	sndmhdr.msg_name = &sin6_allnodes;
+	sndmhdr.msg_name = to;
 	sndmhdr.msg_iov[0].iov_base = rainfo->ra_data;
 	sndmhdr.msg_iov[0].iov_len = rainfo->ra_datalen;
 
@@ -1234,20 +1234,23 @@ ra_output(struct rainfo *rainfo)
 	    rainfo->ifname, rainfo->waiting);
 
 	len = sendmsg(sock, &sndmhdr, 0);
-
-	if (len < 0)
+	if (len < 0) {
 		log_warn("sendmsg on %s", rainfo->ifname);
+		return;
+	}
 
-	/* update counter */
-	if (rainfo->initcounter < MAX_INITIAL_RTR_ADVERTISEMENTS)
-		rainfo->initcounter++;
 	rainfo->raoutput++;
 
-	/* update timestamp */
-	gettimeofday(&rainfo->lastsent, NULL);
+	if (memcmp(to, &sin6_allnodes, sizeof(sin6_allnodes)) == 0) {
+		/* update counter */
+		if (rainfo->initcounter < MAX_INITIAL_RTR_ADVERTISEMENTS)
+			rainfo->initcounter++;
+		/* update timestamp */
+		gettimeofday(&rainfo->lastsent, NULL);
 
-	/* reset waiting counter */
-	rainfo->waiting = 0;
+		/* reset waiting counter */
+		rainfo->waiting = 0;
+	}
 }
 
 /* process RA timer */
@@ -1258,7 +1261,7 @@ timer_cb(int fd, short event, void *data)
 
 	log_debug("RA timer on %s is expired", rai->ifname);
 
-	ra_output(rai);
+	ra_output(rai, &sin6_allnodes);
 
 	ra_timer_update(rai);
 	evtimer_add(&rai->timer.ev, &rai->timer.tm);
@@ -1296,4 +1299,35 @@ ra_timer_update(struct rainfo *rai)
 
 	log_debug("RA timer on %s set to %lld.%lds", rai->ifname,
 	    (long long)tm->tv_sec, tm->tv_usec);
+}
+
+int
+rdaemon(int devnull)
+{
+	if (devnull == -1) {
+		errno = EBADF;
+		return (-1);
+	}
+	if (fcntl(devnull, F_GETFL) == -1)
+		return (-1);
+
+	switch (fork()) {
+	case -1:
+		return (-1);
+	case 0:
+		break;
+	default:
+		_exit(0);
+	}
+
+	if (setsid() == -1)
+		return (-1);
+
+	(void)dup2(devnull, STDIN_FILENO);
+	(void)dup2(devnull, STDOUT_FILENO);
+	(void)dup2(devnull, STDERR_FILENO);
+	if (devnull > 2)
+		(void)close(devnull);
+
+	return (0);
 }

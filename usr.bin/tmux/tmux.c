@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.170 2016/05/27 17:05:42 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.184 2017/07/12 09:21:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -23,7 +23,6 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <paths.h>
@@ -32,6 +31,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <util.h>
 
 #include "tmux.h"
 
@@ -43,11 +43,16 @@ struct hooks	*global_hooks;
 
 struct timeval	 start_time;
 const char	*socket_path;
+int		 ptm_fd = -1;
+const char	*shell_command;
 
-__dead void	 usage(void);
-static char	*make_label(const char *);
+static __dead void	 usage(void);
+static char		*make_label(const char *);
 
-__dead void
+static const char	*getshell(void);
+static int		 checkshell(const char *);
+
+static __dead void
 usage(void)
 {
 	fprintf(stderr,
@@ -57,7 +62,7 @@ usage(void)
 	exit(1);
 }
 
-const char *
+static const char *
 getshell(void)
 {
 	struct passwd	*pw;
@@ -74,10 +79,10 @@ getshell(void)
 	return (_PATH_BSHELL);
 }
 
-int
+static int
 checkshell(const char *shell)
 {
-	if (shell == NULL || *shell == '\0' || *shell != '/')
+	if (shell == NULL || *shell != '/')
 		return (0);
 	if (areshell(shell))
 		return (0);
@@ -108,18 +113,17 @@ make_label(const char *label)
 {
 	char		*base, resolved[PATH_MAX], *path, *s;
 	struct stat	 sb;
-	u_int		 uid;
+	uid_t		 uid;
 	int		 saved_errno;
 
 	if (label == NULL)
 		label = "default";
-
 	uid = getuid();
 
 	if ((s = getenv("TMUX_TMPDIR")) != NULL && *s != '\0')
-		xasprintf(&base, "%s/tmux-%u", s, uid);
+		xasprintf(&base, "%s/tmux-%ld", s, (long)uid);
 	else
-		xasprintf(&base, "%s/tmux-%u", _PATH_TMP, uid);
+		xasprintf(&base, "%s/tmux-%ld", _PATH_TMP, (long)uid);
 
 	if (mkdir(base, S_IRWXU) != 0 && errno != EEXIST)
 		goto fail;
@@ -138,6 +142,8 @@ make_label(const char *label)
 	if (realpath(base, resolved) == NULL)
 		strlcpy(resolved, base, sizeof resolved);
 	xasprintf(&path, "%s/%s", resolved, label);
+
+	free(base);
 	return (path);
 
 fail:
@@ -185,11 +191,14 @@ find_home(void)
 int
 main(int argc, char **argv)
 {
-	char		*path, *label, **var, tmp[PATH_MAX], *shellcmd = NULL;
-	const char	*s;
-	int		 opt, flags, keys;
+	char					*path, *label, **var;
+	char					 tmp[PATH_MAX];
+	const char				*s, *shell;
+	int					 opt, flags, keys;
+	const struct options_table_entry	*oe;
 
-	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) {
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL &&
+	    setlocale(LC_CTYPE, "C.UTF-8") == NULL) {
 		if (setlocale(LC_CTYPE, "") == NULL)
 			errx(1, "invalid LC_ALL, LC_CTYPE or LANG");
 		s = nl_langinfo(CODESET);
@@ -212,8 +221,7 @@ main(int argc, char **argv)
 			flags |= CLIENT_256COLOURS;
 			break;
 		case 'c':
-			free(shellcmd);
-			shellcmd = xstrdup(optarg);
+			shell_command = optarg;
 			break;
 		case 'C':
 			if (flags & CLIENT_CONTROL)
@@ -250,9 +258,11 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (shellcmd != NULL && argc != 0)
+	if (shell_command != NULL && argc != 0)
 		usage();
 
+	if ((ptm_fd = getptmfd()) == -1)
+		err(1, "getptmfd");
 	if (pledge("stdio rpath wpath cpath flock fattr unix getpw sendfd "
 	    "recvfd proc exec tty ps", NULL) != 0)
 		err(1, "pledge");
@@ -288,14 +298,23 @@ main(int argc, char **argv)
 		environ_set(global_environ, "PWD", "%s", tmp);
 
 	global_options = options_create(NULL);
-	options_table_populate_tree(OPTIONS_TABLE_SERVER, global_options);
-
 	global_s_options = options_create(NULL);
-	options_table_populate_tree(OPTIONS_TABLE_SESSION, global_s_options);
-	options_set_string(global_s_options, "default-shell", "%s", getshell());
-
 	global_w_options = options_create(NULL);
-	options_table_populate_tree(OPTIONS_TABLE_WINDOW, global_w_options);
+	for (oe = options_table; oe->name != NULL; oe++) {
+		if (oe->scope == OPTIONS_TABLE_SERVER)
+			options_default(global_options, oe);
+		if (oe->scope == OPTIONS_TABLE_SESSION)
+			options_default(global_s_options, oe);
+		if (oe->scope == OPTIONS_TABLE_WINDOW)
+			options_default(global_w_options, oe);
+	}
+
+	/*
+	 * The default shell comes from SHELL or from the user's passwd entry
+	 * if available.
+	 */
+	shell = getshell();
+	options_set_string(global_s_options, "default-shell", 0, "%s", shell);
 
 	/* Override keys to vi if VISUAL or EDITOR are set. */
 	if ((s = getenv("VISUAL")) != NULL || (s = getenv("EDITOR")) != NULL) {
@@ -318,7 +337,7 @@ main(int argc, char **argv)
 		s = getenv("TMUX");
 		if (s != NULL && *s != '\0' && *s != ',') {
 			path = xstrdup(s);
-			path[strcspn (path, ",")] = '\0';
+			path[strcspn(path, ",")] = '\0';
 		}
 	}
 	if (path == NULL && (path = make_label(label)) == NULL) {
@@ -329,5 +348,5 @@ main(int argc, char **argv)
 	free(label);
 
 	/* Pass control to the client. */
-	exit(client_main(event_init(), argc, argv, flags, shellcmd));
+	exit(client_main(event_init(), argc, argv, flags));
 }

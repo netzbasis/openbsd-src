@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip6_divert.h,v 1.5 2014/07/10 03:17:59 lteo Exp $ */
+/*      $OpenBSD: ip6_divert.h,v 1.8 2017/04/14 20:46:31 bluhm Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -50,15 +50,34 @@ struct div6stat {
 }
 
 #ifdef _KERNEL
+
+#include <sys/percpu.h>
+
+enum div6stat_counters {
+	div6s_ipackets,
+	div6s_noport,
+	div6s_fullsock,
+	div6s_opackets,
+	div6s_errors,
+	div6s_ncounters,
+};
+
+extern struct cpumem *div6counters;
+
+static inline void
+div6stat_inc(enum div6stat_counters c)
+{
+	counters_inc(div6counters, c);
+}
+
 extern struct	inpcbtable	divb6table;
-extern struct	div6stat		div6stat;
 
 void	 divert6_init(void);
-int	 divert6_input(struct mbuf **, int *, int);
 int	 divert6_packet(struct mbuf *, int, u_int16_t);
 int	 divert6_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int	 divert6_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
+int	 divert6_attach(struct socket *, int);
 #endif /* _KERNEL */
 
 #endif /* _IP6_DIVERT_H_ */

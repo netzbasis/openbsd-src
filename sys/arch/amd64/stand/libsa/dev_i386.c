@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev_i386.c,v 1.18 2016/09/11 17:51:21 jsing Exp $	*/
+/*	$OpenBSD: dev_i386.c,v 1.20 2017/05/31 08:40:32 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 1996-1999 Michael Shalayeff

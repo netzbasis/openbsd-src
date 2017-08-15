@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_command.c,v 1.71 2016/04/19 12:23:25 mpi Exp $	*/
+/*	$OpenBSD: db_command.c,v 1.75 2017/08/14 19:57:05 uwe Exp $	*/
 /*	$NetBSD: db_command.c,v 1.20 1996/03/30 22:30:05 christos Exp $	*/
 
 /*
@@ -79,6 +79,7 @@ db_addr_t	db_next;	/* next address to be examined
 
 int	db_cmd_search(char *, struct db_command *, struct db_command **);
 void	db_cmd_list(struct db_command *);
+void	db_ctf_pprint_cmd(db_expr_t, int, db_expr_t,char *);
 void	db_map_print_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_buf_print_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_malloc_print_cmd(db_expr_t, int, db_expr_t, char *);
@@ -112,6 +113,9 @@ void	db_struct_offset_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_struct_layout_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_show_regs(db_expr_t, boolean_t, db_expr_t, char *);
 void	db_write_cmd(db_expr_t, boolean_t, db_expr_t, char *);
+void	db_witness_display(db_expr_t, int, db_expr_t, char *);
+void	db_witness_list(db_expr_t, int, db_expr_t, char *);
+void	db_witness_list_all(db_expr_t, int, db_expr_t, char *);
 
 
 /*
@@ -553,6 +557,9 @@ struct db_command db_show_all_cmds[] = {
 	{ "nfsreqs",	db_show_all_nfsreqs,	0, NULL },
 	{ "nfsnodes",	db_show_all_nfsnodes,	0, NULL },
 #endif
+#ifdef WITNESS
+	{ "locks",	db_witness_list_all,	0, NULL },
+#endif
 	{ NULL, 	NULL, 			0, NULL }
 };
 
@@ -562,6 +569,9 @@ struct db_command db_show_cmds[] = {
 	{ "breaks",	db_listbreak_cmd, 	0,	NULL },
 	{ "buf",	db_buf_print_cmd,	0,	NULL },
 	{ "extents",	db_extent_print_cmd,	0,	NULL },
+#ifdef WITNESS
+	{ "locks",	db_witness_list,	0,	NULL },
+#endif
 	{ "malloc",	db_malloc_print_cmd,	0,	NULL },
 	{ "map",	db_map_print_cmd,	0,	NULL },
 	{ "mbuf",	db_mbuf_print_cmd,	0,	NULL },
@@ -586,6 +596,9 @@ struct db_command db_show_cmds[] = {
 	{ "uvmexp",	db_uvmexp_print_cmd,	0,	NULL },
 	{ "vnode",	db_vnode_print_cmd,	0,	NULL },
 	{ "watches",	db_listwatch_cmd, 	0,	NULL },
+#ifdef WITNESS
+	{ "witness",	db_witness_display,	0,	NULL },
+#endif
 	{ NULL,		NULL,			0,	NULL }
 };
 
@@ -605,6 +618,8 @@ struct db_command db_command_table[] = {
 	{ "machine",    NULL,                   0,     		NULL},
 #endif
 	{ "print",	db_print_cmd,		0,		NULL },
+	{ "p",		db_print_cmd,		0,		NULL },
+	{ "pprint",	db_ctf_pprint_cmd,	CS_OWN,		NULL },
 	{ "examine",	db_examine_cmd,		CS_SET_DOT, 	NULL },
 	{ "x",		db_examine_cmd,		CS_SET_DOT, 	NULL },
 	{ "search",	db_search_cmd,		CS_OWN|CS_SET_DOT, NULL },

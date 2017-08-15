@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_subr.c,v 1.154 2016/09/06 00:04:15 dlg Exp $	*/
+/*	$OpenBSD: tcp_subr.c,v 1.165 2017/06/26 09:32:32 mpi Exp $	*/
 /*	$NetBSD: tcp_subr.c,v 1.22 1996/02/13 23:44:00 christos Exp $	*/
 
 /*
@@ -90,7 +90,6 @@
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
-#include <netinet/tcpip.h>
 
 #ifdef INET6
 #include <netinet6/ip6protosw.h>
@@ -131,7 +130,7 @@ struct pool tcpqe_pool;
 struct pool sackhl_pool;
 #endif
 
-struct tcpstat tcpstat;		/* tcp statistics */
+struct cpumem *tcpcounters;		/* tcp statistics */
 tcp_seq  tcp_iss;
 
 /*
@@ -141,18 +140,18 @@ void
 tcp_init(void)
 {
 	tcp_iss = 1;		/* wrong */
-	pool_init(&tcpcb_pool, sizeof(struct tcpcb), 0, 0, 0, "tcpcb", NULL);
-	pool_setipl(&tcpcb_pool, IPL_SOFTNET);
-	pool_init(&tcpqe_pool, sizeof(struct tcpqent), 0, 0, 0, "tcpqe", NULL);
-	pool_setipl(&tcpcb_pool, IPL_SOFTNET);
+	pool_init(&tcpcb_pool, sizeof(struct tcpcb), 0, IPL_SOFTNET, 0,
+	    "tcpcb", NULL);
+	pool_init(&tcpqe_pool, sizeof(struct tcpqent), 0, IPL_SOFTNET, 0,
+	    "tcpqe", NULL);
 	pool_sethardlimit(&tcpqe_pool, tcp_reass_limit, NULL, 0);
 #ifdef TCP_SACK
-	pool_init(&sackhl_pool, sizeof(struct sackhole), 0, 0, 0, "sackhl",
-	    NULL);
-	pool_setipl(&sackhl_pool, IPL_SOFTNET);
+	pool_init(&sackhl_pool, sizeof(struct sackhole), 0, IPL_SOFTNET, 0,
+	    "sackhl", NULL);
 	pool_sethardlimit(&sackhl_pool, tcp_sackhole_limit, NULL, 0);
 #endif /* TCP_SACK */
 	in_pcbinit(&tcbtable, TCB_INITIAL_HASH_SIZE);
+	tcpcounters = counters_alloc(tcps_ncounters);
 
 #ifdef INET6
 	/*
@@ -187,8 +186,7 @@ tcp_init(void)
  * into just an IP overlay pointer, with casting as appropriate for v6. rja
  */
 struct mbuf *
-tcp_template(tp)
-	struct tcpcb *tp;
+tcp_template(struct tcpcb *tp)
 {
 	struct inpcb *inp = tp->t_inpcb;
 	struct mbuf *m;
@@ -307,7 +305,8 @@ tcp_respond(struct tcpcb *tp, caddr_t template, struct tcphdr *th0,
 	int af;		/* af on wire */
 
 	if (tp) {
-		win = sbspace(&tp->t_inpcb->inp_socket->so_rcv);
+		struct socket *so = tp->t_inpcb->inp_socket;
+		win = sbspace(so, &so->so_rcv);
 		/*
 		 * If this is called with an unconnected
 		 * socket/tp/pcb (tp->pf is 0), we lose.
@@ -489,18 +488,16 @@ tcp_newtcpcb(struct inpcb *inp)
  * then send a RST to peer.
  */
 struct tcpcb *
-tcp_drop(tp, errno)
-	struct tcpcb *tp;
-	int errno;
+tcp_drop(struct tcpcb *tp, int errno)
 {
 	struct socket *so = tp->t_inpcb->inp_socket;
 
 	if (TCPS_HAVERCVDSYN(tp->t_state)) {
 		tp->t_state = TCPS_CLOSED;
 		(void) tcp_output(tp);
-		tcpstat.tcps_drops++;
+		tcpstat_inc(tcps_drops);
 	} else
-		tcpstat.tcps_conndrops++;
+		tcpstat_inc(tcps_conndrops);
 	if (errno == ETIMEDOUT && tp->t_softerror)
 		errno = tp->t_softerror;
 	so->so_error = errno;
@@ -538,8 +535,7 @@ tcp_close(struct tcpcb *tp)
 		p = q;
 	}
 #endif
-	if (tp->t_template)
-		(void) m_free(tp->t_template);
+	m_free(tp->t_template);
 
 	tp->t_flags |= TF_DEAD;
 	timeout_add(&tp->t_reap_to, 0);
@@ -554,12 +550,9 @@ void
 tcp_reaper(void *arg)
 {
 	struct tcpcb *tp = arg;
-	int s;
 
-	s = splsoftnet();
 	pool_put(&tcpcb_pool, tp);
-	splx(s);
-	tcpstat.tcps_closed++;
+	tcpstat_inc(tcps_closed);
 }
 
 int
@@ -596,9 +589,7 @@ tcp_rscale(struct tcpcb *tp, u_long hiwat)
  * (for now, won't do anything until can select for soft error).
  */
 void
-tcp_notify(inp, error)
-	struct inpcb *inp;
-	int error;
+tcp_notify(struct inpcb *inp, int error)
 {
 	struct tcpcb *tp = intotcpcb(inp);
 	struct socket *so = inp->inp_socket;
@@ -644,6 +635,7 @@ tcp6_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *d)
 		u_int32_t th_seq;
 	} *thp;
 
+	CTASSERT(sizeof(*thp) <= sizeof(th));
 	if (sa->sa_family != AF_INET6 ||
 	    sa->sa_len != sizeof(struct sockaddr_in6) ||
 	    IN6_IS_ADDR_UNSPECIFIED(&sa6->sin6_addr) ||
@@ -691,10 +683,6 @@ tcp6_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *d)
 			return;
 
 		bzero(&th, sizeof(th));
-#ifdef DIAGNOSTIC
-		if (sizeof(*thp) > sizeof(th))
-			panic("assumption failed in tcp6_ctlinput");
-#endif
 		m_copydata(m, off, sizeof(*thp), (caddr_t)&th);
 
 		/*
@@ -703,8 +691,7 @@ tcp6_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *d)
 		 * payload.
 		 */
 		inp = in6_pcbhashlookup(&tcbtable, &sa6->sin6_addr,
-		    th.th_dport, (struct in6_addr *)&sa6_src->sin6_addr,
-		    th.th_sport, rdomain);
+		    th.th_dport, &sa6_src->sin6_addr, th.th_sport, rdomain);
 		if (cmd == PRC_MSGSIZE) {
 			/*
 			 * Depending on the value of "valid" and routing table
@@ -735,7 +722,7 @@ tcp6_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *d)
 }
 #endif
 
-void *
+void
 tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 {
 	struct ip *ip = v;
@@ -749,20 +736,20 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 	int errno;
 
 	if (sa->sa_family != AF_INET)
-		return NULL;
+		return;
 	faddr = satosin(sa)->sin_addr;
 	if (faddr.s_addr == INADDR_ANY)
-		return NULL;
+		return;
 
 	if ((unsigned)cmd >= PRC_NCMDS)
-		return NULL;
+		return;
 	errno = inetctlerrmap[cmd];
 	if (cmd == PRC_QUENCH)
 		/* 
 		 * Don't honor ICMP Source Quench messages meant for
 		 * TCP connections.
 		 */
-		return NULL;
+		return;
 	else if (PRC_IS_REDIRECT(cmd))
 		notify = in_rtchange, ip = 0;
 	else if (cmd == PRC_MSGSIZE && ip_mtudisc && ip) {
@@ -789,7 +776,7 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 			 */
 			mtu = (u_int)ntohs(icp->icmp_nextmtu);
 			if (mtu >= tp->t_pmtud_mtu_sent)
-				return NULL;
+				return;
 			if (mtu >= tcp_hdrsz(tp) + tp->t_pmtud_mss_acked) {
 				/* 
 				 * Calculate new MTU, and create corresponding
@@ -807,18 +794,18 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 				 */
 				if (tp->t_flags & TF_PMTUD_PEND) {
 					if (SEQ_LT(tp->t_pmtud_th_seq, seq))
-						return NULL;
+						return;
 				} else
 					tp->t_flags |= TF_PMTUD_PEND;
 				tp->t_pmtud_th_seq = seq;
 				tp->t_pmtud_nextmtu = icp->icmp_nextmtu;
 				tp->t_pmtud_ip_len = icp->icmp_ip.ip_len;
 				tp->t_pmtud_ip_hl = icp->icmp_ip.ip_hl;
-				return NULL;
+				return;
 			}
 		} else {
 			/* ignore if we don't have a matching connection */
-			return NULL;
+			return;
 		}
 		notify = tcp_mtudisc, ip = 0;
 	} else if (cmd == PRC_MTUINC)
@@ -826,7 +813,7 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 	else if (cmd == PRC_HOSTDEAD)
 		ip = 0;
 	else if (errno == 0)
-		return NULL;
+		return;
 
 	if (ip) {
 		th = (struct tcphdr *)((caddr_t)ip + (ip->ip_hl << 2));
@@ -854,8 +841,6 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 		}
 	} else
 		in_pcbnotifyall(&tcbtable, sa, rdomain, errno, notify);
-
-	return NULL;
 }
 
 
@@ -864,9 +849,7 @@ tcp_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
  * Path MTU Discovery handlers.
  */
 void
-tcp6_mtudisc_callback(sin6, rdomain)
-	struct sockaddr_in6 *sin6;
-	u_int rdomain;
+tcp6_mtudisc_callback(struct sockaddr_in6 *sin6, u_int rdomain)
 {
 	(void) in6_pcbnotify(&tcbtable, sin6, 0,
 	    &sa6_any, 0, rdomain, PRC_MSGSIZE, NULL, tcp_mtudisc);
@@ -879,9 +862,7 @@ tcp6_mtudisc_callback(sin6, rdomain)
  * that all packets will be received.
  */
 void
-tcp_mtudisc(inp, errno)
-	struct inpcb *inp;
-	int errno;
+tcp_mtudisc(struct inpcb *inp, int errno)
 {
 	struct tcpcb *tp = intotcpcb(inp);
 	struct rtentry *rt = in_pcbrtentry(inp);
@@ -899,7 +880,7 @@ tcp_mtudisc(inp, errno)
 					return;
 			}
 			if (orig_maxseg != tp->t_maxseg ||
-			    (rt->rt_rmx.rmx_locks & RTV_MTU))
+			    (rt->rt_locks & RTV_MTU))
 				change = 1;
 		}
 		tcp_mss(tp, -1);
@@ -914,9 +895,7 @@ tcp_mtudisc(inp, errno)
 }
 
 void
-tcp_mtudisc_increase(inp, errno)
-	struct inpcb *inp;
-	int errno;
+tcp_mtudisc_increase(struct inpcb *inp, int errno)
 {
 	struct tcpcb *tp = intotcpcb(inp);
 	struct rtentry *rt = in_pcbrtentry(inp);
@@ -986,10 +965,8 @@ tcp_signature_tdb_attach(void)
 }
 
 int
-tcp_signature_tdb_init(tdbp, xsp, ii)
-	struct tdb *tdbp;
-	struct xformsw *xsp;
-	struct ipsecinit *ii;
+tcp_signature_tdb_init(struct tdb *tdbp, struct xformsw *xsp,
+    struct ipsecinit *ii)
 {
 	if ((ii->ii_authkeylen < 1) || (ii->ii_authkeylen > 80))
 		return (EINVAL);
@@ -1004,8 +981,7 @@ tcp_signature_tdb_init(tdbp, xsp, ii)
 }
 
 int
-tcp_signature_tdb_zeroize(tdbp)
-	struct tdb *tdbp;
+tcp_signature_tdb_zeroize(struct tdb *tdbp)
 {
 	if (tdbp->tdb_amxkey) {
 		explicit_bzero(tdbp->tdb_amxkey, tdbp->tdb_amxkeylen);
@@ -1017,29 +993,20 @@ tcp_signature_tdb_zeroize(tdbp)
 }
 
 int
-tcp_signature_tdb_input(m, tdbp, skip, protoff)
-	struct mbuf *m;
-	struct tdb *tdbp;
-	int skip, protoff;
+tcp_signature_tdb_input(struct mbuf *m, struct tdb *tdbp, int skip, int protoff)
 {
 	return (0);
 }
 
 int
-tcp_signature_tdb_output(m, tdbp, mp, skip, protoff)
-	struct mbuf *m;
-	struct tdb *tdbp;
-	struct mbuf **mp;
-	int skip, protoff;
+tcp_signature_tdb_output(struct mbuf *m, struct tdb *tdbp, struct mbuf **mp,
+    int skip, int protoff)
 {
 	return (EINVAL);
 }
 
 int
-tcp_signature_apply(fstate, data, len)
-	caddr_t fstate;
-	caddr_t data;
-	unsigned int len;
+tcp_signature_apply(caddr_t fstate, caddr_t data, unsigned int len)
 {
 	MD5Update((MD5_CTX *)fstate, (char *)data, len);
 	return 0;

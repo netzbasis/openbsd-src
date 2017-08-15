@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.77 2016/04/13 11:03:37 mpi Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.80 2017/03/26 15:31:15 deraadt Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -180,7 +180,7 @@ upgt_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL || uaa->configno != UPGT_CONFIG_NO)
 		return (UMATCH_NONE);
 
 	if (usb_lookup(upgt_devs_1, uaa->vendor, uaa->product) != NULL)
@@ -210,13 +210,6 @@ upgt_attach(struct device *parent, struct device *self, void *aux)
 	/* check device type */
 	if (upgt_device_type(sc, uaa->vendor, uaa->product) != 0)
 		return;
-
-	/* set configuration number */
-	if (usbd_set_config_no(sc->sc_udev, UPGT_CONFIG_NO, 0) != 0) {
-		printf("%s: could not set configuration no!\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
 
 	/* get the first interface handle */
 	error = usbd_device2interface_handle(sc->sc_udev, UPGT_IFACE_INDEX,
@@ -619,7 +612,7 @@ void
 upgt_fw_free(struct upgt_softc *sc)
 {
 	if (sc->sc_fw != NULL) {
-		free(sc->sc_fw, M_DEVBUF, 0);
+		free(sc->sc_fw, M_DEVBUF, sc->sc_fw_size);
 		sc->sc_fw = NULL;
 		DPRINTF(1, "%s: firmware freed\n", sc->sc_dev.dv_xname);
 	}
@@ -1611,7 +1604,6 @@ upgt_tx_done(struct upgt_softc *sc, uint8_t *data)
 			data_tx->addr = 0;
 
 			sc->tx_queued--;
-			ifp->if_opackets++;
 
 			DPRINTF(2, "%s: TX done: ", sc->sc_dev.dv_xname);
 			DPRINTF(2, "memaddr=0x%08x, status=0x%04x, rssi=%d, ",

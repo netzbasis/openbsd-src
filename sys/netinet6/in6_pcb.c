@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_pcb.c,v 1.96 2016/08/04 20:46:24 vgross Exp $	*/
+/*	$OpenBSD: in6_pcb.c,v 1.100 2017/08/11 19:53:02 bluhm Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -244,26 +244,17 @@ int
 in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 {
 	struct in6_addr *in6a = NULL;
-	struct sockaddr_in6 *sin6 = mtod(nam, struct sockaddr_in6 *);
-	int error = 0;
+	struct sockaddr_in6 *sin6;
+	int error;
 	struct sockaddr_in6 tmp;
 
-	(void)&in6a;				/* XXX fool gcc */
-
-	if (nam->m_len != sizeof(*sin6))
-		return (EINVAL);
-	if (sin6->sin6_family != AF_INET6)
-		return (EAFNOSUPPORT);
+	if ((error = in6_nam2sin6(nam, &sin6)))
+		return (error);
 	if (sin6->sin6_port == 0)
 		return (EADDRNOTAVAIL);
-
 	/* reject IPv4 mapped address, we have no support for it */
 	if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr))
-		return EADDRNOTAVAIL;
-
-	/* sanity check for mapped address case */
-	if (IN6_IS_ADDR_V4MAPPED(&inp->inp_laddr6))
-		return EINVAL;
+		return (EADDRNOTAVAIL);
 
 	/* protect *sin6 from overwrites */
 	tmp = *sin6;
@@ -289,16 +280,24 @@ in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 
 	if (in6_pcbhashlookup(inp->inp_table, &sin6->sin6_addr, sin6->sin6_port,
 	    IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6) ? in6a : &inp->inp_laddr6,
-	    inp->inp_lport, inp->inp_rtableid)) {
+	    inp->inp_lport, inp->inp_rtableid) != NULL) {
 		return (EADDRINUSE);
 	}
 
 	KASSERT(IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6) || inp->inp_lport);
 
 	if (IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6)) {
-		if (inp->inp_lport == 0 &&
-		    in_pcbbind(inp, NULL, curproc) == EADDRNOTAVAIL)
-			return (EADDRNOTAVAIL);
+		if (inp->inp_lport == 0) {
+			error = in_pcbbind(inp, NULL, curproc);
+			if (error)
+				return (error);
+			if (in6_pcbhashlookup(inp->inp_table, &sin6->sin6_addr,
+			    sin6->sin6_port, in6a, inp->inp_lport,
+			    inp->inp_rtableid) != NULL) {
+				inp->inp_lport = 0;
+				return (EADDRINUSE);
+			}
+		}
 		inp->inp_laddr6 = *in6a;
 	}
 	inp->inp_faddr6 = sin6->sin6_addr;
@@ -333,6 +332,8 @@ in6_pcbnotify(struct inpcbtable *head, struct sockaddr_in6 *dst,
 	struct sockaddr_in6 sa6_src;
 	int errno, nmatch = 0;
 	u_int32_t flowinfo;
+
+	NET_ASSERT_LOCKED();
 
 	if ((unsigned)cmd >= PRC_NCMDS)
 		return (0);

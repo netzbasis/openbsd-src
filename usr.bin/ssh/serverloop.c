@@ -1,4 +1,4 @@
-/* $OpenBSD: serverloop.c,v 1.186 2016/09/12 01:22:38 deraadt Exp $ */
+/* $OpenBSD: serverloop.c,v 1.195 2017/08/11 04:16:35 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -198,6 +198,7 @@ wait_until_can_do_something(int connection_in, int connection_out,
 	int ret;
 	time_t minwait_secs = 0;
 	int client_alive_scheduled = 0;
+	static time_t last_client_time;
 
 	/* Allocate and update select() masks for channel descriptors. */
 	channel_prepare_select(readsetp, writesetp, maxfdp, nallocp,
@@ -262,8 +263,19 @@ wait_until_can_do_something(int connection_in, int connection_out,
 		memset(*writesetp, 0, *nallocp);
 		if (errno != EINTR)
 			error("select: %.100s", strerror(errno));
-	} else if (ret == 0 && client_alive_scheduled)
-		client_alive_check();
+	} else if (client_alive_scheduled) {
+		time_t now = monotime();
+
+		if (ret == 0) { /* timeout */
+			client_alive_check();
+		} else if (FD_ISSET(connection_in, *readsetp)) {
+			last_client_time = now;
+		} else if (last_client_time != 0 && last_client_time +
+		    options.client_alive_interval <= now) {
+			client_alive_check();
+			last_client_time = now;
+		}
+	}
 
 	notify_done(*readsetp);
 }
@@ -316,7 +328,7 @@ process_output(fd_set *writeset, int connection_out)
 static void
 process_buffered_input_packets(void)
 {
-	dispatch_run(DISPATCH_NONBLOCK, NULL, active_state);
+	ssh_dispatch_run_fatal(active_state, DISPATCH_NONBLOCK, NULL);
 }
 
 static void
@@ -410,7 +422,7 @@ server_loop2(Authctxt *authctxt)
 }
 
 static int
-server_input_keep_alive(int type, u_int32_t seq, void *ctxt)
+server_input_keep_alive(int type, u_int32_t seq, struct ssh *ssh)
 {
 	debug("Got %d/%u for keepalive", type, seq);
 	/*
@@ -423,7 +435,7 @@ server_input_keep_alive(int type, u_int32_t seq, void *ctxt)
 }
 
 static Channel *
-server_request_direct_tcpip(void)
+server_request_direct_tcpip(int *reason, const char **errmsg)
 {
 	Channel *c = NULL;
 	char *target, *originator;
@@ -440,13 +452,15 @@ server_request_direct_tcpip(void)
 
 	/* XXX fine grained permissions */
 	if ((options.allow_tcp_forwarding & FORWARD_LOCAL) != 0 &&
-	    !no_port_forwarding_flag) {
+	    !no_port_forwarding_flag && !options.disable_forwarding) {
 		c = channel_connect_to_port(target, target_port,
-		    "direct-tcpip", "direct-tcpip");
+		    "direct-tcpip", "direct-tcpip", reason, errmsg);
 	} else {
 		logit("refused local port forward: "
 		    "originator %s port %d, target %s port %d",
 		    originator, originator_port, target, target_port);
+		if (reason != NULL)
+			*reason = SSH2_OPEN_ADMINISTRATIVELY_PROHIBITED;
 	}
 
 	free(originator);
@@ -461,6 +475,10 @@ server_request_direct_streamlocal(void)
 	Channel *c = NULL;
 	char *target, *originator;
 	u_short originator_port;
+	struct passwd *pw = the_authctxt->pw;
+
+	if (pw == NULL || !the_authctxt->valid)
+		fatal("server_input_global_request: no/invalid user");
 
 	target = packet_get_string(NULL);
 	originator = packet_get_string(NULL);
@@ -472,7 +490,8 @@ server_request_direct_streamlocal(void)
 
 	/* XXX fine grained permissions */
 	if ((options.allow_streamlocal_forwarding & FORWARD_LOCAL) != 0 &&
-	    !no_port_forwarding_flag) {
+	    !no_port_forwarding_flag && !options.disable_forwarding &&
+	    (pw->pw_uid == 0 || use_privsep)) {
 		c = channel_connect_to_path(target,
 		    "direct-streamlocal@openssh.com", "direct-streamlocal");
 	} else {
@@ -560,11 +579,12 @@ server_request_session(void)
 }
 
 static int
-server_input_channel_open(int type, u_int32_t seq, void *ctxt)
+server_input_channel_open(int type, u_int32_t seq, struct ssh *ssh)
 {
 	Channel *c = NULL;
 	char *ctype;
-	int rchan;
+	const char *errmsg = NULL;
+	int rchan, reason = SSH2_OPEN_CONNECT_FAILED;
 	u_int rmaxpack, rwindow, len;
 
 	ctype = packet_get_string(&len);
@@ -578,7 +598,7 @@ server_input_channel_open(int type, u_int32_t seq, void *ctxt)
 	if (strcmp(ctype, "session") == 0) {
 		c = server_request_session();
 	} else if (strcmp(ctype, "direct-tcpip") == 0) {
-		c = server_request_direct_tcpip();
+		c = server_request_direct_tcpip(&reason, &errmsg);
 	} else if (strcmp(ctype, "direct-streamlocal@openssh.com") == 0) {
 		c = server_request_direct_streamlocal();
 	} else if (strcmp(ctype, "tun@openssh.com") == 0) {
@@ -601,9 +621,9 @@ server_input_channel_open(int type, u_int32_t seq, void *ctxt)
 		debug("server_input_channel_open: failure %s", ctype);
 		packet_start(SSH2_MSG_CHANNEL_OPEN_FAILURE);
 		packet_put_int(rchan);
-		packet_put_int(SSH2_OPEN_ADMINISTRATIVELY_PROHIBITED);
+		packet_put_int(reason);
 		if (!(datafellows & SSH_BUG_OPENFAILURE)) {
-			packet_put_cstring("open failed");
+			packet_put_cstring(errmsg ? errmsg : "open failed");
 			packet_put_cstring("");
 		}
 		packet_send();
@@ -683,12 +703,16 @@ server_input_hostkeys_prove(struct sshbuf **respp)
 }
 
 static int
-server_input_global_request(int type, u_int32_t seq, void *ctxt)
+server_input_global_request(int type, u_int32_t seq, struct ssh *ssh)
 {
 	char *rtype;
 	int want_reply;
 	int r, success = 0, allocated_listen_port = 0;
 	struct sshbuf *resp = NULL;
+	struct passwd *pw = the_authctxt->pw;
+
+	if (pw == NULL || !the_authctxt->valid)
+		fatal("server_input_global_request: no/invalid user");
 
 	rtype = packet_get_string(NULL);
 	want_reply = packet_get_char();
@@ -696,12 +720,8 @@ server_input_global_request(int type, u_int32_t seq, void *ctxt)
 
 	/* -R style forwarding */
 	if (strcmp(rtype, "tcpip-forward") == 0) {
-		struct passwd *pw;
 		struct Forward fwd;
 
-		pw = the_authctxt->pw;
-		if (pw == NULL || !the_authctxt->valid)
-			fatal("server_input_global_request: no/invalid user");
 		memset(&fwd, 0, sizeof(fwd));
 		fwd.listen_host = packet_get_string(NULL);
 		fwd.listen_port = (u_short)packet_get_int();
@@ -710,10 +730,10 @@ server_input_global_request(int type, u_int32_t seq, void *ctxt)
 
 		/* check permissions */
 		if ((options.allow_tcp_forwarding & FORWARD_REMOTE) == 0 ||
-		    no_port_forwarding_flag ||
+		    no_port_forwarding_flag || options.disable_forwarding ||
 		    (!want_reply && fwd.listen_port == 0) ||
-		    (fwd.listen_port != 0 && fwd.listen_port < IPPORT_RESERVED &&
-		    pw->pw_uid != 0)) {
+		    (fwd.listen_port != 0 &&
+		     !bind_permitted(fwd.listen_port, pw->pw_uid))) {
 			success = 0;
 			packet_send_debug("Server has disabled port forwarding.");
 		} else {
@@ -748,9 +768,11 @@ server_input_global_request(int type, u_int32_t seq, void *ctxt)
 
 		/* check permissions */
 		if ((options.allow_streamlocal_forwarding & FORWARD_REMOTE) == 0
-		    || no_port_forwarding_flag) {
+		    || no_port_forwarding_flag || options.disable_forwarding ||
+		    (pw->pw_uid != 0 && !use_privsep)) {
 			success = 0;
-			packet_send_debug("Server has disabled port forwarding.");
+			packet_send_debug("Server has disabled "
+			    "streamlocal forwarding.");
 		} else {
 			/* Start listening on the socket */
 			success = channel_setup_remote_fwd_listener(
@@ -788,7 +810,7 @@ server_input_global_request(int type, u_int32_t seq, void *ctxt)
 }
 
 static int
-server_input_channel_req(int type, u_int32_t seq, void *ctxt)
+server_input_channel_req(int type, u_int32_t seq, struct ssh *ssh)
 {
 	Channel *c;
 	int id, reply, success = 0;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.226 2016/09/03 08:47:24 tedu Exp $	*/
+/*	$OpenBSD: proc.h,v 1.239 2017/04/28 13:50:55 mpi Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -48,9 +48,9 @@
 #include <sys/event.h>			/* For struct klist */
 #include <sys/mutex.h>			/* For struct mutex */
 #include <sys/resource.h>		/* For struct rusage */
-#include <machine/atomic.h>
 
 #ifdef _KERNEL
+#include <sys/atomic.h>
 #define __need_process
 #endif
 
@@ -115,10 +115,6 @@ struct	emul {
 	char	*e_esigret;		/* sigaction RET position */
 	int	e_flags;		/* Flags, see below */
 	struct uvm_object *e_sigobject;	/* shared sigcode object */
-					/* Per-process hooks */
-	void	(*e_proc_exec)(struct proc *, struct exec_package *);
-	void	(*e_proc_fork)(struct proc *p, struct proc *parent);
-	void	(*e_proc_exit)(struct proc *);
 };
 /* Flags for e_flags */
 #define	EMUL_ENABLED	0x0001		/* Allow exec to continue */
@@ -126,7 +122,7 @@ struct	emul {
 
 /*
  * time usage: accumulated times in ticks
- * One a second, each thread's immediate counts (p_[usi]ticks) are
+ * Once a second, each thread's immediate counts (p_[usi]ticks) are
  * accumulated into these.
  */
 struct tusage {
@@ -151,12 +147,9 @@ struct tusage {
 #ifdef __need_process
 struct process {
 	/*
-	 * ps_mainproc is the main thread in the process.
-	 * Ultimately, we shouldn't need that, threads should be able to exit
-	 * at will. Unfortunately until the pid is moved into struct process
-	 * we'll have to remember the main threads and abuse its pid as the
-	 * the pid of the process. This is gross, but considering the horrible
-	 * pid semantics we have right now, it's unavoidable.
+	 * ps_mainproc is the original thread in the process.
+	 * It's only still special for the handling of p_xstat and
+	 * some signal and ptrace behaviors that need to be fixed.
 	 */
 	struct	proc *ps_mainproc;
 	struct	ucred *ps_ucred;	/* Process owner's identity. */
@@ -168,11 +161,13 @@ struct process {
 	struct	process *ps_pptr; 	/* Pointer to parent process. */
 	LIST_ENTRY(process) ps_sibling;	/* List of sibling processes. */
 	LIST_HEAD(, process) ps_children;/* Pointer to list of children. */
+	LIST_ENTRY(process) ps_hash;    /* Hash chain. */
 
 	struct	sigacts *ps_sigacts;	/* Signal actions, state */
 	struct	vnode *ps_textvp;	/* Vnode of executable. */
 	struct	filedesc *ps_fd;	/* Ptr to open files structure */
 	struct	vmspace *ps_vmspace;	/* Address space */
+	pid_t	ps_pid;			/* Process identifier. */
 
 /* The following fields are all zeroed upon creation in process_new. */
 #define	ps_startzero	ps_klist
@@ -205,6 +200,9 @@ struct process {
 	struct	plimit *ps_limit;	/* Process limits. */
 	struct	pgrp *ps_pgrp;		/* Pointer to process group. */
 	struct	emul *ps_emul;		/* Emulation information */
+
+	char	ps_comm[MAXCOMLEN+1];
+
 	vaddr_t	ps_strings;		/* User pointers to argv/env */
 	vaddr_t	ps_stackgap;		/* User pointer to the "stackgap" */
 	vaddr_t	ps_sigcode;		/* User pointer to the signal code */
@@ -236,7 +234,6 @@ struct process {
 	struct	timeout ps_realit_to;	/* real-time itimer trampoline. */
 };
 
-#define	ps_pid		ps_mainproc->p_pid
 #define	ps_session	ps_pgrp->pg_session
 #define	ps_pgid		ps_pgrp->pg_id
 
@@ -276,12 +273,17 @@ struct process {
      "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED")
 
 
+struct lock_list_entry;
+
 struct proc {
 	TAILQ_ENTRY(proc) p_runq;
 	LIST_ENTRY(proc) p_list;	/* List of all threads. */
 
 	struct	process *p_p;		/* The process of this thread. */
-	TAILQ_ENTRY(proc) p_thr_link;/* Threads in a process linkage. */
+	TAILQ_ENTRY(proc) p_thr_link;	/* Threads in a process linkage. */
+
+	TAILQ_ENTRY(proc) p_fut_link;	/* Threads in a futex linkage. */
+	struct	futex	*p_futex;	/* Current sleeping futex. */
 
 	/* substructures: */
 	struct	filedesc *p_fd;		/* copy of p_p->ps_fd */
@@ -294,7 +296,7 @@ struct proc {
 	char	p_pad1[1];
 	u_char	p_descfd;		/* if not 255, fdesc permits this fd */
 
-	pid_t	p_pid;			/* Process identifier. */
+	pid_t	p_tid;			/* Thread identifier. */
 	LIST_ENTRY(proc) p_hash;	/* Hash chain. */
 
 /* The following fields are all zeroed upon creation in fork. */
@@ -320,8 +322,6 @@ struct proc {
 	struct	tusage p_tu;		/* accumulated times. */
 	struct	timespec p_rtime;	/* Real time. */
 
-	void	*p_emuldata;		/* Per-process emulation data, or */
-					/* NULL. Malloc type M_EMULDATA */
 	int	 p_siglist;		/* Signals arrived but not delivered. */
 
 /* End area that is zeroed on creation. */
@@ -333,15 +333,7 @@ struct proc {
 
 	u_char	p_priority;	/* Process priority. */
 	u_char	p_usrpri;	/* User-priority based on p_estcpu and ps_nice. */
-	char	p_comm[MAXCOMLEN+1];
-
 	int	p_pledge_syscall;	/* Cache of current syscall */
-
-#ifndef	__HAVE_MD_TCB
-	void	*p_tcb;		/* user-space thread-control-block address */
-# define TCB_SET(p, addr)	((p)->p_tcb = (addr))
-# define TCB_GET(p)		((p)->p_tcb)
-#endif
 
 	struct	ucred *p_ucred;		/* cached credentials */
 	struct	sigaltstack p_sigstk;	/* sp & on stack state variable */
@@ -361,6 +353,8 @@ struct proc {
 	int	p_sicode;	/* For core dump/debugger XXX */
 
 	u_short	p_xstat;	/* Exit status for wait; also stop signal. */
+
+	struct	lock_list_entry *p_sleeplocks;
 };
 
 /* Status values. */
@@ -403,7 +397,7 @@ struct proc {
      "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" "\027XX" \
      "\030CONTINUED" "\033THREAD" "\034SUSPSIG" "\035SOFTDEP" "\037CPUPEG")
 
-#define	THREAD_PID_OFFSET	1000000
+#define	THREAD_PID_OFFSET	100000
 
 #ifdef _KERNEL
 
@@ -420,8 +414,15 @@ struct uidinfo *uid_find(uid_t);
  * We use process IDs <= PID_MAX; PID_MAX + 1 must also fit in a pid_t,
  * as it is used to represent "no process group".
  * We set PID_MAX to 99999 to keep it in 5 columns in ps
+ * When exposed to userspace, thread IDs have THREAD_PID_OFFSET
+ * added to keep them from overlapping the PID range.  For them,
+ * we use a * a (0 .. 2^n] range for cheapness, picking 'n' such
+ * that 2^n + THREAD_PID_OFFSET and THREAD_PID_OFFSET have
+ * the same number of columns when printed.
  */
-#define	PID_MAX		99999
+#define	PID_MAX			99999
+#define	TID_MASK		0x7ffff
+
 #define	NO_PID		(PID_MAX+1)
 
 #define SESS_LEADER(pr)	((pr)->ps_session->s_leader == (pr))
@@ -444,17 +445,19 @@ struct uidinfo *uid_find(uid_t);
 #define FORK_SYSTEM	0x00000020
 #define FORK_NOZOMBIE	0x00000040
 #define FORK_SHAREVM	0x00000080
-#define FORK_TFORK	0x00000100
 #define FORK_SIGHAND	0x00000200
 #define FORK_PTRACE	0x00000400
-#define FORK_THREAD	0x00000800
 
 #define EXIT_NORMAL		0x00000001
 #define EXIT_THREAD		0x00000002
 #define EXIT_THREAD_NOCHECK	0x00000003
 
+#define	TIDHASH(tid)	(&tidhashtbl[(tid) & tidhash])
+extern LIST_HEAD(tidhashhead, proc) *tidhashtbl;
+extern u_long tidhash;
+
 #define	PIDHASH(pid)	(&pidhashtbl[(pid) & pidhash])
-extern LIST_HEAD(pidhashhead, proc) *pidhashtbl;
+extern LIST_HEAD(pidhashhead, process) *pidhashtbl;
 extern u_long pidhash;
 
 #define	PGRPHASH(pgid)	(&pgrphashtbl[(pgid) & pgrphash])
@@ -484,13 +487,11 @@ extern struct pool ucred_pool;		/* memory pool for ucreds */
 extern struct pool session_pool;	/* memory pool for sessions */
 extern struct pool pgrp_pool;		/* memory pool for pgrps */
 
-int	ispidtaken(pid_t);
-pid_t	allocpid(void);
 void	freepid(pid_t);
 
 struct process *prfind(pid_t);	/* Find process by id. */
 struct process *zombiefind(pid_t); /* Find zombie process by id. */
-struct proc *pfind(pid_t);	/* Find thread by id. */
+struct proc *tfind(pid_t);	/* Find thread by id. */
 struct pgrp *pgfind(pid_t);	/* Find process group by id. */
 void	proc_printit(struct proc *p, const char *modif,
     int (*pr)(const char *, ...));
@@ -500,7 +501,7 @@ int	enterpgrp(struct process *, pid_t, struct pgrp *, struct session *);
 void	fixjobc(struct process *, struct pgrp *, int);
 int	inferior(struct process *, struct process *);
 void	leavepgrp(struct process *);
-void	preempt(struct proc *);
+void	preempt(void);
 void	pgdelete(struct pgrp *);
 void	procinit(void);
 void	resetpriority(struct proc *);
@@ -512,10 +513,14 @@ void	exit1(struct proc *, int, int);
 void	exit2(struct proc *);
 int	dowait4(struct proc *, pid_t, int *, int, struct rusage *,
 	    register_t *);
+void	cpu_fork(struct proc *_curp, struct proc *_child, void *_stack,
+	    void *_tcb, void (*_func)(void *), void *_arg);
 void	cpu_exit(struct proc *);
 void	process_initialize(struct process *, struct proc *);
-int	fork1(struct proc *, int, void *, pid_t *, void (*)(void *),
-	    void *, register_t *, struct proc **);
+int	fork1(struct proc *_curp, int _flags, void (*_func)(void *),
+	    void *_arg, register_t *_retval, struct proc **_newprocp);
+int	thread_fork(struct proc *_curp, void *_stack, void *_tcb,
+	    pid_t *_tidptr, register_t *_retval);
 int	groupmember(gid_t, struct ucred *);
 void	dorefreshcreds(struct process *, struct proc *);
 void	dosigsuspend(struct proc *, sigset_t);

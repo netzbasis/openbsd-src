@@ -1,3 +1,4 @@
+/* $OpenBSD: mc146818.c,v 1.15 2017/07/09 00:51:40 pd Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -25,28 +26,39 @@
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
+#include "vmd.h"
 #include "mc146818.h"
 #include "proc.h"
+#include "virtio.h"
 #include "vmm.h"
+#include "atomicio.h"
 
 #define MC_DIVIDER_MASK 0xe0
 #define MC_RATE_MASK 0xf
 
 #define NVRAM_CENTURY 0x32
+#define NVRAM_MEMSIZE_LO 0x34
+#define NVRAM_MEMSIZE_HI 0x35
+#define NVRAM_HIMEMSIZE_LO 0x5B
+#define NVRAM_HIMEMSIZE_MID 0x5C
+#define NVRAM_HIMEMSIZE_HI 0x5D
+#define NVRAM_SMP_COUNT 0x5F
+
+#define NVRAM_SIZE 0x60
 
 #define TOBCD(x)	(((x) / 10 * 16) + ((x) % 10))
 
 struct mc146818 {
 	time_t now;
 	uint8_t idx;
-	uint8_t regs[MC_NREGS + MC_NVRAM_SIZE];
+	uint8_t regs[NVRAM_SIZE];
 	uint32_t vm_id;
 	struct event sec;
 	struct timeval sec_tv;
 	struct event per;
 	struct timeval per_tv;
-	uint8_t irq_blocked;
 };
 
 struct mc146818 rtc;
@@ -88,8 +100,16 @@ rtc_updateregs(void)
 static void
 rtc_fire1(int fd, short type, void *arg)
 {
-	rtc.now++;
+	time_t old = rtc.now;
+
+	time(&rtc.now);
+
 	rtc_updateregs();
+	if (rtc.now - old > 5) {
+		log_debug("%s: RTC clock drift (%llds), requesting guest "
+		    "resync", __func__, (rtc.now - old));
+		vmmci_ctl(VMMCI_SYNCRTC);
+	}
 	evtimer_add(&rtc.sec, &rtc.sec_tv);
 }
 
@@ -108,11 +128,7 @@ rtc_fireper(int fd, short type, void *arg)
 {
 	rtc.regs[MC_REGC] |= MC_REGC_PF;
 
-	if (!rtc.irq_blocked)
-		vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 8);
-
-	/* Next irq is blocked until read of REGC */
-	rtc.irq_blocked = 1;
+	vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 8);
 
 	evtimer_add(&rtc.per, &rtc.per_tv);
 }
@@ -124,24 +140,40 @@ rtc_fireper(int fd, short type, void *arg)
  *
  * Parameters:
  *  vm_id: VM ID to which this RTC belongs
+ *  memlo: size of memory in bytes between 16MB .. 4GB
+ *  memhi: size of memory in bytes after 4GB
  */
 void
-mc146818_init(uint32_t vm_id)
+mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 {
 	memset(&rtc, 0, sizeof(rtc));
-	time(&rtc.now);	
+	time(&rtc.now);
 
-	rtc.regs[MC_REGB] = MC_REGB_24HR | MC_REGB_BINARY;
+	rtc.regs[MC_REGB] = MC_REGB_24HR;
+
+	memlo /= 65536;
+	memhi /= 65536;
+
+	rtc.regs[NVRAM_MEMSIZE_HI] = (memlo >> 8) & 0xFF;
+	rtc.regs[NVRAM_MEMSIZE_LO] = memlo & 0xFF;
+	rtc.regs[NVRAM_HIMEMSIZE_HI] = (memhi >> 16) & 0xFF;
+	rtc.regs[NVRAM_HIMEMSIZE_MID] = (memhi >> 8) & 0xFF;
+	rtc.regs[NVRAM_HIMEMSIZE_LO] = memhi & 0xFF;
+
+	rtc.regs[NVRAM_SMP_COUNT] = 0;
+
 	rtc_updateregs();
 	rtc.vm_id = vm_id;
 
 	timerclear(&rtc.sec_tv);
 	rtc.sec_tv.tv_sec = 1;
 
+	timerclear(&rtc.per_tv);
+
 	evtimer_set(&rtc.sec, rtc_fire1, NULL);
 	evtimer_add(&rtc.sec, &rtc.sec_tv);
 
-	evtimer_set(&rtc.per, rtc_fireper, (void *)(uint64_t)rtc.vm_id);
+	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 }
 
 /*
@@ -229,22 +261,22 @@ vcpu_exit_mc146818(struct vm_run_params *vrp)
 	union vm_exit *vei = vrp->vrp_exit;
 	uint16_t port = vei->vei.vei_port;
 	uint8_t dir = vei->vei.vei_dir;
-	uint32_t data = vei->vei.vei_data;
+	uint32_t data = 0;
+
+	get_input_data(vei, &data);
 
 	if (port == IO_RTC) {
+		/* Discard NMI bit */
+		if (data & 0x80)
+			data &= ~0x80;
+
 		if (dir == 0) {
-			if (data <= (MC_NREGS + MC_NVRAM_SIZE))
+			if (data < (NVRAM_SIZE))
 				rtc.idx = data;
-			else {
-				log_warnx("%s: mc146818 bogus register 0x%x",
-				    __func__, data);
+			else
 				rtc.idx = MC_REGD;
-			}
-		} else {
-			log_warnx("%s: mc146818 illegal read from port 0x%x",
-			    __func__, port);
-			vei->vei.vei_data = 0xFF;
-		}
+		} else
+			set_return_data(vei, rtc.idx);
 	} else if (port == IO_RTC + 1) {
 		if (dir == 0) {
 			switch (rtc.idx) {
@@ -267,17 +299,14 @@ vcpu_exit_mc146818(struct vm_run_params *vrp)
 				log_warnx("%s: mc146818 illegal reg %x\n",
 				    __func__, rtc.idx);
 			}
-			rtc.idx = MC_REGD;
 		} else {
-			data = rtc.regs[rtc.idx]; 
-			vei->vei.vei_data = data;
+			data = rtc.regs[rtc.idx];
+			set_return_data(vei, data);
 
 			if (rtc.idx == MC_REGC) {
 				/* Reset IRQ state */
-				rtc.irq_blocked = 0;
 				rtc.regs[MC_REGC] &= ~MC_REGC_PF;
 			}
-			rtc.idx = MC_REGD;
 		}
 	} else {
 		log_warnx("%s: mc146818 unknown port 0x%x",
@@ -285,4 +314,46 @@ vcpu_exit_mc146818(struct vm_run_params *vrp)
 	}
 
 	return 0xFF;
+}
+
+int
+mc146818_dump(int fd)
+{
+	log_debug("%s: sending RTC", __func__);
+	if (atomicio(vwrite, fd, &rtc, sizeof(rtc)) != sizeof(rtc)) {
+		log_warnx("%s: error writing RTC to fd", __func__);
+		return (-1);
+	}
+	return (0);
+}
+
+int
+mc146818_restore(int fd, uint32_t vm_id)
+{
+	log_debug("%s: restoring RTC", __func__);
+	if (atomicio(read, fd, &rtc, sizeof(rtc)) != sizeof(rtc)) {
+		log_warnx("%s: error reading RTC from fd", __func__);
+		return (-1);
+	}
+	rtc.vm_id = vm_id;
+
+	memset(&rtc.sec, 0, sizeof(struct event));
+	memset(&rtc.per, 0, sizeof(struct event));
+	evtimer_set(&rtc.sec, rtc_fire1, NULL);
+	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
+	return (0);
+}
+
+void
+mc146818_stop()
+{
+	evtimer_del(&rtc.per);
+	evtimer_del(&rtc.sec);
+}
+
+void
+mc146818_start()
+{
+	evtimer_add(&rtc.per, &rtc.per_tv);
+	evtimer_add(&rtc.sec, &rtc.sec_tv);
 }

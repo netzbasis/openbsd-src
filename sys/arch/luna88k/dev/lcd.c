@@ -1,4 +1,4 @@
-/* $OpenBSD: lcd.c,v 1.7 2015/02/10 22:42:35 miod Exp $ */
+/* $OpenBSD: lcd.c,v 1.9 2017/03/20 19:37:54 miod Exp $ */
 /* $NetBSD: lcd.c,v 1.2 2000/01/07 05:13:08 nisimura Exp $ */
 
 /*-
@@ -37,6 +37,7 @@
 #include <sys/fcntl.h>
 
 #include <machine/autoconf.h>
+#include <machine/board.h>
 #include <machine/conf.h>
 #include <machine/lcd.h>
 
@@ -82,7 +83,7 @@ struct lcd_softc {
 	int sc_opened;
 };
 
-struct cfattach lcd_ca = {
+const struct cfattach lcd_ca = {
 	sizeof(struct lcd_softc), lcd_match, lcd_attach
 };
 
@@ -163,21 +164,17 @@ int
 lcdwrite(dev_t dev, struct uio *uio, int flag)
 {
 	int error;
-	size_t len;
-	size_t i, n;
+	size_t len, i;
 	char buf[LCD_MAXBUFLEN];
 
-	len = n = uio->uio_resid;
+	len = uio->uio_resid;
 
 	if (len > LCD_MAXBUFLEN)
 		return EIO;
 
-	while (n > 0) {
-		error = uiomove(buf, n, uio);
-		if (error)
-			return EIO;
-		n = uio->uio_resid;
-	}
+	error = uiomove(buf, len, uio);
+	if (error)
+		return EIO;
 
 	for (i = 0; i < len; i++) {
 		lcdput((int)buf[i]);
@@ -270,7 +267,7 @@ lcdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 void
 lcdbusywait()
 {
-	struct pio *p1 = (struct pio *)0x4D000000;
+	struct pio *p1 = (struct pio *)OBIO_PIO1_BASE;
 	int msb, s;
 
 	s = splhigh();
@@ -291,7 +288,7 @@ lcdbusywait()
 void
 lcdput(int cc)
 {
-	struct pio *p1 = (struct pio *)0x4D000000;
+	struct pio *p1 = (struct pio *)OBIO_PIO1_BASE;
 	int s;
 
 	lcdbusywait();
@@ -308,7 +305,7 @@ lcdput(int cc)
 void
 lcdctrl(int cc)
 {
-	struct pio *p1 = (struct pio *)0x4D000000;
+	struct pio *p1 = (struct pio *)OBIO_PIO1_BASE;
 	int s;
 
 	lcdbusywait();

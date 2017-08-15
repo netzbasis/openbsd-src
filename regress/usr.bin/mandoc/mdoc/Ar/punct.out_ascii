@@ -9,4 +9,8 @@ DDEESSCCRRIIPPTTIIOONN
      _f_i_l_e _._._.; _z colon _f_i_l_e _._._.: _z quest _f_i_l_e _._._.? _z excl _f_i_l_e _._._.! _z paren
      _f_i_l_e _._._.) _z bracket _f_i_l_e _._._.] _z bar | _m op paren (_a op bracket [_a
 
-OpenBSD                         August 21, 2014                        OpenBSD
+     quoted punctuation: _a (_b | _c) _d, bboolldd.
+
+     missing blank: _a_r_g_.
+
+OpenBSD                          July 4, 2017                          OpenBSD

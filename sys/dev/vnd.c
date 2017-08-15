@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnd.c,v 1.158 2016/03/19 12:04:15 natano Exp $	*/
+/*	$OpenBSD: vnd.c,v 1.165 2017/07/19 14:54:29 deraadt Exp $	*/
 /*	$NetBSD: vnd.c,v 1.26 1996/03/30 23:06:11 christos Exp $	*/
 
 /*
@@ -219,7 +219,8 @@ vndgetdisklabel(dev_t dev, struct vnd_softc *sc, struct disklabel *lp,
 	lp->d_nsectors = sc->sc_nsectors;
 	lp->d_ntracks = sc->sc_ntracks;
 	lp->d_secpercyl = lp->d_ntracks * lp->d_nsectors;
-	lp->d_ncylinders = sc->sc_size / lp->d_secpercyl;
+	if (lp->d_secpercyl)
+		lp->d_ncylinders = sc->sc_size / lp->d_secpercyl;
 
 	strncpy(lp->d_typename, "vnd device", sizeof(lp->d_typename));
 	lp->d_type = DTYPE_VND;
@@ -305,12 +306,12 @@ vndstrategy(struct buf *bp)
 		bp->b_bcount = ((origbcount + secsize - 1) & ~(secsize - 1));
 #ifdef DIAGNOSTIC
 		if (bp->b_bcount != origbcount) {
-			struct proc *pr = curproc;
+			struct process *curpr = curproc->p_p;
 			printf("%s: sloppy %s from proc %d (%s): "
 			    "blkno %lld bcount %ld\n", sc->sc_dev.dv_xname,
 			    (bp->b_flags & B_READ) ? "read" : "write",
-			    pr->p_pid, pr->p_comm, (long long)bp->b_blkno,
-			    origbcount);
+			    curpr->ps_pid, curpr->ps_comm,
+			    (long long)bp->b_blkno, origbcount);
 		}
 #endif
 	}
@@ -419,6 +420,7 @@ vndioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 
 		/* Geometry eventually has to fit into label fields */
 		if (vio->vnd_secsize > UINT_MAX ||
+		    vio->vnd_secsize == 0 ||
 		    vio->vnd_ntracks > UINT_MAX ||
 		    vio->vnd_nsectors > UINT_MAX)
 			return (EINVAL);

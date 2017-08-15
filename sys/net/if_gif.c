@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gif.c,v 1.85 2016/04/13 11:41:15 mpi Exp $	*/
+/*	$OpenBSD: if_gif.c,v 1.99 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$KAME: if_gif.c,v 1.43 2001/02/20 08:51:07 itojun Exp $	*/
 
 /*
@@ -47,6 +47,7 @@
 #include <netinet/ip.h>
 #include <netinet/ip_ether.h>
 #include <netinet/ip_var.h>
+#include <netinet/ip_ipip.h>
 #include <netinet/ip_ipsp.h>
 
 #ifdef INET6
@@ -62,8 +63,7 @@
 #include <net/bpf.h>
 #endif
 
-#include "bridge.h"
-#if NBRIDGE > 0 || defined(MPLS)
+#ifdef MPLS
 #include <netinet/ip_ether.h>
 #endif
 
@@ -106,7 +106,6 @@ int
 gif_clone_create(struct if_clone *ifc, int unit)
 {
 	struct gif_softc *sc;
-	int s;
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_NOWAIT|M_ZERO);
 	if (!sc)
@@ -116,6 +115,7 @@ gif_clone_create(struct if_clone *ifc, int unit)
 	     "%s%d", ifc->ifc_name, unit);
 	sc->gif_if.if_mtu    = GIF_MTU;
 	sc->gif_if.if_flags  = IFF_POINTOPOINT | IFF_MULTICAST;
+	sc->gif_if.if_xflags = IFXF_CLONED;
 	sc->gif_if.if_ioctl  = gif_ioctl;
 	sc->gif_if.if_start  = gif_start;
 	sc->gif_if.if_output = gif_output;
@@ -129,9 +129,9 @@ gif_clone_create(struct if_clone *ifc, int unit)
 #if NBPFILTER > 0
 	bpfattach(&sc->gif_if.if_bpf, &sc->gif_if, DLT_LOOP, sizeof(u_int32_t));
 #endif
-	s = splnet();
+	NET_LOCK();
 	LIST_INSERT_HEAD(&gif_softc_list, sc, gif_list);
-	splx(s);
+	NET_UNLOCK();
 
 	return (0);
 }
@@ -140,11 +140,10 @@ int
 gif_clone_destroy(struct ifnet *ifp)
 {
 	struct gif_softc *sc = ifp->if_softc;
-	int s;
 
-	s = splnet();
+	NET_LOCK();
 	LIST_REMOVE(sc, gif_list);
-	splx(s);
+	NET_UNLOCK();
 
 	if_detach(ifp);
 
@@ -227,7 +226,6 @@ gif_start(struct ifnet *ifp)
 			m->m_pkthdr.len += offset;
 		}
 #endif
-		ifp->if_opackets++;
 
 		/* XXX we should cache the outgoing route */
 
@@ -277,7 +275,7 @@ gif_encap(struct ifnet *ifp, struct mbuf **mp, sa_family_t af)
 		break;
 #endif
 	default:
-		m_freem(*mp);
+		m_freemp(mp);
 		error = EAFNOSUPPORT;
 		break;
 	}
@@ -324,7 +322,6 @@ gif_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	int error = 0, size;
 	struct sockaddr *dst, *src;
 	struct sockaddr *sa;
-	int s;
 	struct gif_softc *sc2;
 
 	switch (cmd) {
@@ -359,10 +356,8 @@ gif_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 #endif
 		case SIOCSLIFPHYADDR:
-			src = (struct sockaddr *)
-				&(((struct if_laddrreq *)data)->addr);
-			dst = (struct sockaddr *)
-				&(((struct if_laddrreq *)data)->dstaddr);
+			src = sstosa(&(((struct if_laddrreq *)data)->addr));
+			dst = sstosa(&(((struct if_laddrreq *)data)->dstaddr));
 			break;
 		default:
 			return (EINVAL);
@@ -469,10 +464,8 @@ gif_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		bcopy((caddr_t)dst, (caddr_t)sa, dst->sa_len);
 		sc->gif_pdst = sa;
 
-		s = splnet();
 		ifp->if_flags |= IFF_RUNNING;
 		if_up(ifp);		/* send up RTM_IFINFO */
-		splx(s);
 
 		error = 0;
 		break;
@@ -558,8 +551,7 @@ gif_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 		/* copy src */
 		src = sc->gif_psrc;
-		dst = (struct sockaddr *)
-			&(((struct if_laddrreq *)data)->addr);
+		dst = sstosa(&(((struct if_laddrreq *)data)->addr));
 		size = sizeof(((struct if_laddrreq *)data)->addr);
 		if (src->sa_len > size)
 			return (EINVAL);
@@ -567,8 +559,7 @@ gif_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 		/* copy dst */
 		src = sc->gif_pdst;
-		dst = (struct sockaddr *)
-			&(((struct if_laddrreq *)data)->dstaddr);
+		dst = sstosa(&(((struct if_laddrreq *)data)->dstaddr));
 		size = sizeof(((struct if_laddrreq *)data)->dstaddr);
 		if (src->sa_len > size)
 			return (EINVAL);
@@ -681,10 +672,6 @@ in_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 	case AF_INET6:
 		break;
 #endif
-#if NBRIDGE > 0
-	case AF_LINK:
-		break;
-#endif
 #if MPLS
 	case AF_MPLS:
 		break;
@@ -700,11 +687,6 @@ in_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 
 	/* encapsulate into IPv4 packet */
 	*m0 = NULL;
-#if NBRIDGE > 0
-	if (family == AF_LINK)
-		error = etherip_output(m, &tdb, m0, IPPROTO_ETHERIP);
-	else
-#endif /* NBRIDGE */
 #ifdef MPLS
 	if (family == AF_MPLS)
 		error = etherip_output(m, &tdb, m0, IPPROTO_MPLS);
@@ -725,18 +707,13 @@ in_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 	return 0;
 }
 
-void
-in_gif_input(struct mbuf *m, ...)
+int
+in_gif_input(struct mbuf **mp, int *offp, int proto, int af)
 {
-	int off;
+	struct mbuf *m = *mp;
 	struct gif_softc *sc;
 	struct ifnet *gifp = NULL;
 	struct ip *ip;
-	va_list ap;
-
-	va_start(ap, m);
-	off = va_arg(ap, int);
-	va_end(ap);
 
 	/* IP-in-IP header is caused by tunnel mode, so skip gif lookup */
 	if (m->m_flags & M_TUNNEL) {
@@ -772,13 +749,12 @@ in_gif_input(struct mbuf *m, ...)
 		gifp->if_ipackets++;
 		gifp->if_ibytes += m->m_pkthdr.len;
 		/* We have a configured GIF */
-		ipip_input(m, off, gifp, ip->ip_p);
-		return;
+		return ipip_input_if(mp, offp, proto, af, gifp);
 	}
 
 inject:
-	ip4_input(m, off); /* No GIF interface was configured */
-	return;
+	/* No GIF interface was configured */
+	return ipip_input(mp, offp, proto, af);
 }
 
 #ifdef INET6
@@ -806,9 +782,11 @@ in6_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 	tdb.tdb_src.sin6.sin6_family = AF_INET6;
 	tdb.tdb_src.sin6.sin6_len = sizeof(struct sockaddr_in6);
 	tdb.tdb_src.sin6.sin6_addr = sin6_src->sin6_addr;
+	tdb.tdb_src.sin6.sin6_scope_id = sin6_src->sin6_scope_id;
 	tdb.tdb_dst.sin6.sin6_family = AF_INET6;
 	tdb.tdb_dst.sin6.sin6_len = sizeof(struct sockaddr_in6);
 	tdb.tdb_dst.sin6.sin6_addr = sin6_dst->sin6_addr;
+	tdb.tdb_src.sin6.sin6_scope_id = sin6_dst->sin6_scope_id;
 	tdb.tdb_xform = &xfs;
 	xfs.xf_type = -1;	/* not XF_IP4 */
 
@@ -817,10 +795,6 @@ in6_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 		break;
 #ifdef INET6
 	case AF_INET6:
-		break;
-#endif
-#if NBRIDGE > 0
-	case AF_LINK:
 		break;
 #endif
 #ifdef MPLS
@@ -838,11 +812,6 @@ in6_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 
 	/* encapsulate into IPv6 packet */
 	*m0 = NULL;
-#if NBRIDGE > 0
-	if (family == AF_LINK)
-		error = etherip_output(m, &tdb, m0, IPPROTO_ETHERIP);
-	else
-#endif /* NBRIDGE */
 #if MPLS
 	if (family == AF_MPLS)
 		error = etherip_output(m, &tdb, m0, IPPROTO_MPLS);
@@ -862,20 +831,23 @@ in6_gif_output(struct ifnet *ifp, int family, struct mbuf **m0)
 	return 0;
 }
 
-int in6_gif_input(struct mbuf **mp, int *offp, int proto)
+int in6_gif_input(struct mbuf **mp, int *offp, int proto, int af)
 {
 	struct mbuf *m = *mp;
 	struct gif_softc *sc;
 	struct ifnet *gifp = NULL;
 	struct ip6_hdr *ip6;
+	struct sockaddr_in6 src, dst;
+	struct sockaddr_in6 *psrc, *pdst;
 
 	/* XXX What if we run transport-mode IPsec to protect gif tunnel ? */
 	if (m->m_flags & (M_AUTH | M_CONF))
 	        goto inject;
 
 	ip6 = mtod(m, struct ip6_hdr *);
+	in6_recoverscope(&src, &ip6->ip6_src);
+	in6_recoverscope(&dst, &ip6->ip6_dst);
 
-#define satoin6(sa)	(satosin6(sa)->sin6_addr)
 	LIST_FOREACH(sc, &gif_softc_list, gif_list) {
 		if (sc->gif_psrc == NULL || sc->gif_pdst == NULL ||
 		    sc->gif_psrc->sa_family != AF_INET6 ||
@@ -886,8 +858,13 @@ int in6_gif_input(struct mbuf **mp, int *offp, int proto)
 		if ((sc->gif_if.if_flags & IFF_UP) == 0)
 			continue;
 
-		if (IN6_ARE_ADDR_EQUAL(&satoin6(sc->gif_psrc), &ip6->ip6_dst) &&
-		    IN6_ARE_ADDR_EQUAL(&satoin6(sc->gif_pdst), &ip6->ip6_src)) {
+		psrc = satosin6(sc->gif_psrc);
+		pdst = satosin6(sc->gif_pdst);
+
+		if (IN6_ARE_ADDR_EQUAL(&psrc->sin6_addr, &dst.sin6_addr) &&
+		    psrc->sin6_scope_id == dst.sin6_scope_id &&
+		    IN6_ARE_ADDR_EQUAL(&pdst->sin6_addr, &src.sin6_addr) &&
+		    pdst->sin6_scope_id == src.sin6_scope_id) {
 			gifp = &sc->gif_if;
 			break;
 		}
@@ -897,13 +874,11 @@ int in6_gif_input(struct mbuf **mp, int *offp, int proto)
 	        m->m_pkthdr.ph_ifidx = gifp->if_index;
 		gifp->if_ipackets++;
 		gifp->if_ibytes += m->m_pkthdr.len;
-		ipip_input(m, *offp, gifp, proto);
-		return IPPROTO_DONE;
+		return ipip_input_if(mp, offp, proto, af, gifp);
 	}
 
 inject:
 	/* No GIF tunnel configured */
-	ip4_input6(&m, offp, proto);
-	return IPPROTO_DONE;
+	return ipip_input(mp, offp, proto, af);
 }
 #endif /* INET6 */

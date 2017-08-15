@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.125 2015/08/23 14:22:56 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.134 2017/07/05 10:22:32 espie Exp $
 
 #
 # For more information on building in tricky environments, please see
@@ -50,7 +50,9 @@ regression-tests:
 	@cd ${.CURDIR}/regress && ${MAKE} depend && exec ${MAKE} regress
 
 includes:
-	cd ${.CURDIR}/include && ${MAKE} prereq && exec ${SUDO} ${MAKE} includes
+	cd ${.CURDIR}/include && \
+		su ${BUILDUSER} -c 'exec ${MAKE} prereq' && \
+		exec ${MAKE} includes
 
 beforeinstall:
 	cd ${.CURDIR}/etc && exec ${MAKE} DESTDIR=${DESTDIR} distrib-dirs
@@ -69,18 +71,29 @@ build:
 	@false
 .else
 build:
+	umask ${WOBJUMASK}; exec ${MAKE} do-build
+
+do-build:
 .ifdef GLOBAL_AUTOCONF_CACHE
-	cp /dev/null ${GLOBAL_AUTOCONF_CACHE}
+	${INSTALL} -c -o ${BUILDUSER} -g ${WOBJGROUP} -m 664 /dev/null \
+	    ${GLOBAL_AUTOCONF_CACHE}
 .endif
-	cd ${.CURDIR}/share/mk && exec ${SUDO} ${MAKE} install
-	cd ${.CURDIR}/include && ${MAKE} prereq && exec ${SUDO} ${MAKE} includes
-	${SUDO} ${MAKE} cleandir
-	cd ${.CURDIR}/lib && ${MAKE} depend && ${MAKE} && \
-	    NOMAN=1 exec ${SUDO} ${MAKE} install
-	cd ${.CURDIR}/gnu/lib && ${MAKE} depend && ${MAKE} && \
-	    NOMAN=1 exec ${SUDO} ${MAKE} install
-	${MAKE} depend && ${MAKE} && exec ${SUDO} ${MAKE} install
-	${SUDO} /bin/sh ${.CURDIR}/distrib/sets/makeetcset ${.CURDIR} ${MAKE}
+	@if [[ `id -u` -ne 0 ]]; then \
+		echo $@ must be called by root >&2; \
+		false; \
+	fi
+	cd ${.CURDIR}/share/mk && exec ${MAKE} install
+	exec ${MAKE} cleandir
+	exec ${MAKE} includes
+	cd ${.CURDIR}/lib && \
+	    su ${BUILDUSER} -c 'exec ${MAKE}' && \
+	    NOMAN=1 exec ${MAKE} install
+	cd ${.CURDIR}/gnu/lib && \
+	    su ${BUILDUSER} -c 'exec ${MAKE}' && \
+	    NOMAN=1 exec ${MAKE} install
+	su ${BUILDUSER} -c 'exec ${MAKE}' && \
+	    exec ${MAKE} install
+	/bin/sh ${.CURDIR}/distrib/sets/makeetcset ${.CURDIR} ${MAKE}
 .endif
 
 CROSS_TARGETS=cross-env cross-dirs cross-obj cross-includes cross-binutils \
@@ -96,6 +109,6 @@ ${CROSS_TARGETS}:
 
 .PHONY: ${CROSS_TARGETS} \
 	build regression-tests includes beforeinstall afterinstall \
-	all depend
+	all depend do-build
 
 .include <bsd.subdir.mk>

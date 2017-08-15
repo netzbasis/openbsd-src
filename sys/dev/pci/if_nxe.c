@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nxe.c,v 1.73 2016/04/13 10:34:32 mpi Exp $ */
+/*	$OpenBSD: if_nxe.c,v 1.75 2017/04/08 02:57:25 deraadt Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -1389,7 +1389,6 @@ nxe_start(struct ifnet *ifp)
 		bus_dmamap_sync(sc->sc_dmat, dmap, 0, dmap->dm_mapsize,
 		    BUS_DMASYNC_PREWRITE);
 
-		ifp->if_opackets++;
 	} while (nr->nr_ready >= NXE_TXD_DESCS);
 
 	nxe_ring_sync(sc, nr, BUS_DMASYNC_PREWRITE);
@@ -1950,7 +1949,7 @@ nxe_pkt_free(struct nxe_softc *sc, struct nxe_pkt_list *npl)
 		bus_dmamap_destroy(sc->sc_dmat, pkt->pkt_dmap);
 
 	free(npl->npl_pkts, M_DEVBUF, 0);
-	free(npl, M_DEVBUF, 0);
+	free(npl, M_DEVBUF, sizeof *npl);
 }
 
 struct nxe_pkt *
@@ -2015,7 +2014,7 @@ free:
 destroy:
 	bus_dmamap_destroy(sc->sc_dmat, ndm->ndm_map);
 ndmfree:
-	free(ndm, M_DEVBUF, 0);
+	free(ndm, M_DEVBUF, sizeof *ndm);
 
 	return (NULL);
 }
@@ -2026,7 +2025,7 @@ nxe_dmamem_free(struct nxe_softc *sc, struct nxe_dmamem *ndm)
 	bus_dmamem_unmap(sc->sc_dmat, ndm->ndm_kva, ndm->ndm_size);
 	bus_dmamem_free(sc->sc_dmat, &ndm->ndm_seg, 1);
 	bus_dmamap_destroy(sc->sc_dmat, ndm->ndm_map);
-	free(ndm, M_DEVBUF, 0);
+	free(ndm, M_DEVBUF, sizeof *ndm);
 }
 
 u_int32_t

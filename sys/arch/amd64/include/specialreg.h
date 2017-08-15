@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.48 2016/09/10 17:15:44 mlarkin Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.61 2017/08/12 19:53:37 mlarkin Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.1 2003/04/26 18:39:48 fvdl Exp $	*/
 /*	$NetBSD: x86/specialreg.h,v 1.2 2003/04/25 21:54:30 fvdl Exp $	*/
 
@@ -252,6 +252,7 @@
 #define	CPUID_MMXX	0x00400000	/* AMD MMX Extensions */
 #define	CPUID_FFXSR	0x02000000	/* fast FP/MMX save/restore */
 #define	CPUID_PAGE1GB	0x04000000	/* 1-GByte pages */
+#define CPUID_RDTSCP	0x08000000	/* RDTSCP / IA32_TSC_AUX available */
 #define	CPUID_LONG	0x20000000	/* long mode */
 #define	CPUID_3DNOW2	0x40000000	/* 3DNow! Instruction Extension */
 #define	CPUID_3DNOW	0x80000000	/* 3DNow! Instructions */
@@ -326,19 +327,6 @@
 #define MSR_PERFCTR0		0x0c1
 #define MSR_PERFCTR1		0x0c2
 #define MSR_FSB_FREQ		0x0cd	/* Core Duo/Solo only */   
-/*
- * for Core i Series and newer Xeons, see
- * http://www.intel.com/content/dam/www/public/us/en/
- * documents/white-papers/cpu-monitoring-dts-peci-paper.pdf
- */
-#define MSR_TEMPERATURE_TARGET	0x1a2	/* Core i Series, Newer Xeons */
-#define MSR_TEMPERATURE_TARGET_TJMAX(msr) (((msr) >> 16) & 0xff)
-/*
- * not documented anywhere, see intelcore_update_sensor()
- * only available Core Duo and Core Solo Processors
- */
-#define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
-#define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_MTRRcap		0x0fe
 #define MTRRcap_FIXED		0x100	/* bit 8 - fixed MTRRs supported */
 #define MTRRcap_WC		0x400	/* bit 10 - WC type supported */
@@ -366,6 +354,45 @@
 #define MSR_THERM_STATUS_VALID_BIT	0x80000000
 #define	MSR_THERM_STATUS_TEMP(msr)	((msr >> 16) & 0x7f)
 #define MSR_THERM2_CTL		0x19d	/* Pentium M */
+#define MSR_MISC_ENABLE		0x1a0
+/*
+ * MSR_MISC_ENABLE (0x1a0)
+ *
+ * Enable Fast Strings: enables fast REP MOVS/REP STORS (R/W)
+ * Enable TCC: Enable automatic thermal control circuit (R/W)
+ * Performance monitoring available: 1 if enabled (R/O)
+ * Branch trace storage unavailable: 1 if unsupported (R/O)
+ * Processor event based sampling unavailable: 1 if unsupported (R/O)
+ * Enhanced Intel SpeedStep technology enable: 1 to enable (R/W)
+ * Enable monitor FSM: 1 to enable MONITOR/MWAIT (R/W)
+ * Limit CPUID maxval: 1 to limit CPUID leaf nodes to 0x2 and lower (R/W)
+ * Enable xTPR message disable: 1 to disable xTPR messages
+ * XD bit disable: 1 to disable NX capability (bit 34, or bit 2 of %edx/%rdx)
+ */
+#define MISC_ENABLE_FAST_STRINGS		(1 << 0)
+#define MISC_ENABLE_TCC				(1 << 3)
+#define MISC_ENABLE_PERF_MON_AVAILABLE		(1 << 7)
+#define MISC_ENABLE_BTS_UNAVAILABLE		(1 << 11)
+#define MISC_ENABLE_PEBS_UNAVAILABLE		(1 << 12)
+#define MISC_ENABLE_EIST_ENABLED		(1 << 16)
+#define MISC_ENABLE_ENABLE_MONITOR_FSM		(1 << 18)
+#define MISC_ENABLE_LIMIT_CPUID_MAXVAL		(1 << 22)
+#define MISC_ENABLE_xTPR_MESSAGE_DISABLE	(1 << 23)
+#define MISC_ENABLE_XD_BIT_DISABLE		(1 << 2)
+
+/*
+ * for Core i Series and newer Xeons, see
+ * http://www.intel.com/content/dam/www/public/us/en/
+ * documents/white-papers/cpu-monitoring-dts-peci-paper.pdf
+ */
+#define MSR_TEMPERATURE_TARGET	0x1a2	/* Core i Series, Newer Xeons */
+#define MSR_TEMPERATURE_TARGET_TJMAX(msr) (((msr) >> 16) & 0xff)
+/*
+ * not documented anywhere, see intelcore_update_sensor()
+ * only available Core Duo and Core Solo Processors
+ */
+#define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
+#define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_DEBUGCTLMSR		0x1d9
 #define MSR_LASTBRANCHFROMIP	0x1db
 #define MSR_LASTBRANCHTOIP	0x1dc
@@ -837,6 +864,12 @@
 #define	C3_CRYPT_CWLO_KEY192		0x0000040c	/* 192bit, 12 rds */
 #define	C3_CRYPT_CWLO_KEY256		0x0000080e	/* 256bit, 15 rds */
 
+/* Intel Silicon Debug */
+#define IA32_DEBUG_INTERFACE		0xc80
+#define IA32_DEBUG_INTERFACE_ENABLE	0x00000001
+#define IA32_DEBUG_INTERFACE_LOCK	0x40000000
+#define IA32_DEBUG_INTERFACE_MASK	0x80000000
+
 /*
  * VMX
  */
@@ -861,6 +894,7 @@
 #define IA32_VMX_TRUE_PROCBASED_CTLS	0x48E
 #define IA32_VMX_TRUE_EXIT_CTLS		0x48F
 #define IA32_VMX_TRUE_ENTRY_CTLS	0x490
+#define IA32_VMX_VMFUNC			0x491
 
 #define IA32_EPT_VPID_CAP_PAGE_WALK_4	(1ULL << 6)
 #define IA32_EPT_VPID_CAP_WB		(1ULL << 14)
@@ -952,8 +986,16 @@
 #define IA32_VMX_LOAD_IA32_BNDCFGS_ON_ENTRY		(1ULL << 16)
 #define IA32_VMX_CONCEAL_VM_ENTRIES_FROM_PT		(1ULL << 17)
 
-/* VMX : VMCS Fields */
+/*
+ * VMX : VMCS Fields
+ */
+
+/* 16-bit control fields */
 #define VMCS_GUEST_VPID			0x0000
+#define VMCS_POSTED_INT_NOTIF_VECTOR	0x0002
+#define VMCS_EPTP_INDEX			0x0004
+
+/* 16-bit guest state fields */
 #define VMCS_GUEST_IA32_ES_SEL		0x0800
 #define VMCS_GUEST_IA32_CS_SEL		0x0802
 #define VMCS_GUEST_IA32_SS_SEL		0x0804
@@ -962,6 +1004,10 @@
 #define VMCS_GUEST_IA32_GS_SEL		0x080A
 #define VMCS_GUEST_IA32_LDTR_SEL	0x080C
 #define VMCS_GUEST_IA32_TR_SEL		0x080E
+#define VMCS_GUEST_INTERRUPT_STATUS	0x0810
+#define VMCS_GUEST_PML_INDEX		0x0812
+
+/* 16-bit host state fields */
 #define VMCS_HOST_IA32_ES_SEL		0x0C00
 #define VMCS_HOST_IA32_CS_SEL		0x0C02
 #define VMCS_HOST_IA32_SS_SEL		0x0C04
@@ -969,30 +1015,85 @@
 #define VMCS_HOST_IA32_FS_SEL		0x0C08
 #define VMCS_HOST_IA32_GS_SEL		0x0C0A
 #define VMCS_HOST_IA32_TR_SEL		0x0C0C
+
+/* 64-bit control fields */
+#define VMCS_IO_BITMAP_A		0x2000
+#define VMCS_IO_BITMAP_B		0x2002
 #define VMCS_MSR_BITMAP_ADDRESS		0x2004
 #define VMCS_EXIT_STORE_MSR_ADDRESS	0x2006
 #define VMCS_EXIT_LOAD_MSR_ADDRESS	0x2008
 #define VMCS_ENTRY_LOAD_MSR_ADDRESS	0x200A
+#define VMCS_EXECUTIVE_VMCS_POINTER	0x200C
+#define VMCS_PML_ADDRESS		0x200E
+#define VMCS_TSC_OFFSET			0x2010
+#define VMCS_VIRTUAL_APIC_ADDRESS	0x2012
 #define VMCS_APIC_ACCESS_ADDRESS	0x2014
+#define VMCS_POSTED_INTERRUPT_DESC	0x2016
+#define VMCS_VM_FUNCTION_CONTROLS	0x2018
 #define VMCS_GUEST_IA32_EPTP		0x201A
+#define VMCS_EOI_EXIT_BITMAP_0		0x201C
+#define VMCS_EOI_EXIT_BITMAP_1		0x201E
+#define VMCS_EOI_EXIT_BITMAP_2		0x2020
+#define VMCS_EOI_EXIT_BITMAP_3		0x2022
+#define VMCS_EPTP_LIST_ADDRESS		0x2024
+#define VMCS_VMREAD_BITMAP_ADDRESS	0x2026
+#define VMCS_VMWRITE_BITMAP_ADDRESS	0x2028
+#define VMCS_VIRTUALIZATION_EXC_ADDRESS	0x202A
+#define VMCS_XSS_EXITING_BITMAP		0x202C
+#define VMCS_ENCLS_EXITING_BITMAP	0x202E
+#define VMCS_TSC_MULTIPLIER		0x2032
+
+/* 64-bit RO data field */
 #define VMCS_GUEST_PHYSICAL_ADDRESS	0x2400
+
+/* 64-bit guest state fields */
 #define VMCS_LINK_POINTER		0x2800
+#define VMCS_GUEST_IA32_DEBUGCTL	0x2802
 #define VMCS_GUEST_IA32_PAT		0x2804
+#define VMCS_GUEST_IA32_EFER		0x2806
+#define VMCS_GUEST_IA32_PERF_GBL_CTRL	0x2808
+#define VMCS_GUEST_PDPTE0		0x280A
+#define VMCS_GUEST_PDPTE1		0x280C
+#define VMCS_GUEST_PDPTE2		0x280E
+#define VMCS_GUEST_PDPTE3		0x2810
+#define VMCS_GUEST_IA32_BNDCFGS		0x2812
+
+/* 64-bit host state fields */
 #define VMCS_HOST_IA32_PAT		0x2C00
 #define VMCS_HOST_IA32_EFER		0x2C02
+#define VMCS_HOST_IA32_PERF_GBL_CTRL	0x2C04
+
+/* 32-bit control fields */
 #define VMCS_PINBASED_CTLS		0x4000
 #define VMCS_PROCBASED_CTLS		0x4002
+#define VMCS_EXCEPTION_BITMAP		0x4004
+#define VMCS_PF_ERROR_CODE_MASK		0x4006
+#define VMCS_PF_ERROR_CODE_MATCH	0x4008
+#define VMCS_CR3_TARGET_COUNT		0x400A
 #define VMCS_EXIT_CTLS			0x400C
 #define VMCS_EXIT_MSR_STORE_COUNT	0x400E
 #define VMCS_EXIT_MSR_LOAD_COUNT	0x4010
 #define VMCS_ENTRY_CTLS			0x4012
 #define VMCS_ENTRY_MSR_LOAD_COUNT	0x4014
 #define VMCS_ENTRY_INTERRUPTION_INFO	0x4016
+#define VMCS_ENTRY_EXCEPTION_ERROR_CODE	0x4018
+#define VMCS_ENTRY_INSTRUCTION_LENGTH	0x401A
+#define VMCS_TPR_THRESHOLD		0x401C
 #define VMCS_PROCBASED2_CTLS		0x401E
+#define VMCS_PLE_GAP			0x4020
+#define VMCS_PLE_WINDOW			0x4022
+
+/* 32-bit RO data fields */
 #define VMCS_INSTRUCTION_ERROR		0x4400
 #define VMCS_EXIT_REASON		0x4402
 #define VMCS_EXIT_INTERRUPTION_INFO	0x4404
+#define VMCS_EXIT_INTERRUPTION_ERR_CODE	0x4406
+#define VMCS_IDT_VECTORING_INFO		0x4408
+#define VMCS_IDT_VECTORING_ERROR_CODE	0x440A
 #define VMCS_INSTRUCTION_LENGTH		0x440C
+#define VMCS_EXIT_INSTRUCTION_INFO	0x440E
+
+/* 32-bit guest state fields */
 #define VMCS_GUEST_IA32_ES_LIMIT	0x4800
 #define VMCS_GUEST_IA32_CS_LIMIT	0x4802
 #define VMCS_GUEST_IA32_SS_LIMIT	0x4804
@@ -1011,7 +1112,34 @@
 #define VMCS_GUEST_IA32_GS_AR		0x481E
 #define VMCS_GUEST_IA32_LDTR_AR		0x4820
 #define VMCS_GUEST_IA32_TR_AR		0x4822
+#define VMCS_GUEST_INTERRUPTIBILITY_ST	0x4824
+#define VMCS_GUEST_ACTIVITY_STATE	0x4826
+#define VMCS_GUEST_SMBASE		0x4828
+#define VMCS_GUEST_IA32_SYSENTER_CS	0x482A
+#define VMCS_VMX_PREEMPTION_TIMER_VAL	0x482E
+
+/* 32-bit host state field */
+#define VMCS_HOST_IA32_SYSENTER_CS	0x4C00
+
+/* Natural-width control fields */
+#define VMCS_CR0_MASK			0x6000
+#define VMCS_CR4_MASK			0x6002
+#define VMCS_CR0_READ_SHADOW		0x6004
+#define VMCS_CR4_READ_SHADOW		0x6006
+#define VMCS_CR3_TARGET_0		0x6008
+#define VMCS_CR3_TARGET_1		0x600A
+#define VMCS_CR3_TARGET_2		0x600C
+#define VMCS_CR3_TARGET_3		0x600E
+
+/* Natural-width RO fields */
 #define VMCS_GUEST_EXIT_QUALIFICATION	0x6400
+#define VMCS_IO_RCX			0x6402
+#define VMCS_IO_RSI			0x6404
+#define VMCS_IO_RDI			0x6406
+#define VMCS_IO_RIP			0x6408
+#define VMCS_GUEST_LINEAR_ADDRESS	0x640A
+
+/* Natural-width guest state fields */
 #define VMCS_GUEST_IA32_CR0		0x6800
 #define VMCS_GUEST_IA32_CR3		0x6802
 #define VMCS_GUEST_IA32_CR4		0x6804
@@ -1025,16 +1153,25 @@
 #define VMCS_GUEST_IA32_TR_BASE		0x6814
 #define VMCS_GUEST_IA32_GDTR_BASE	0x6816
 #define VMCS_GUEST_IA32_IDTR_BASE	0x6818
+#define VMCS_GUEST_IA32_DR7		0x681A
 #define VMCS_GUEST_IA32_RSP		0x681C
 #define VMCS_GUEST_IA32_RIP		0x681E
 #define VMCS_GUEST_IA32_RFLAGS		0x6820
+#define VMCS_GUEST_PENDING_DBG_EXC	0x6822
+#define VMCS_GUEST_IA32_SYSENTER_ESP	0x6824
+#define VMCS_GUEST_IA32_SYSENTER_EIP	0x6826
+
+/* Natural-width host state fields */
 #define VMCS_HOST_IA32_CR0		0x6C00          
 #define VMCS_HOST_IA32_CR3		0x6C02
 #define VMCS_HOST_IA32_CR4		0x6C04
 #define VMCS_HOST_IA32_FS_BASE		0x6C06
+#define VMCS_HOST_IA32_GS_BASE		0x6C08
 #define VMCS_HOST_IA32_TR_BASE		0x6C0A
 #define VMCS_HOST_IA32_GDTR_BASE	0x6C0C
 #define VMCS_HOST_IA32_IDTR_BASE	0x6C0E
+#define VMCS_HOST_IA32_SYSENTER_ESP	0x6C10
+#define VMCS_HOST_IA32_SYSENTER_EIP	0x6C12
 #define VMCS_HOST_IA32_RSP		0x6C14
 #define VMCS_HOST_IA32_RIP		0x6C16
 
@@ -1055,14 +1192,173 @@
 #define IA32_VMX_EPT_FAULT_WAS_EXECABLE (1ULL << 5)
 
 #define IA32_VMX_MSR_LIST_SIZE_MASK	(7ULL << 25)
+#define IA32_VMX_CR3_TGT_SIZE_MASK	(0x1FFULL << 16)
 
 /*
  * SVM
  */
 #define MSR_AMD_VM_CR			0xc0010114
+#define MSR_AMD_VM_HSAVE_PA		0xc0010117
 #define CPUID_AMD_SVM_CAP		0x8000000A
-#define AMD_SVMDIS			0x10
 #define AMD_SVM_NESTED_PAGING_CAP	(1 << 0)
+#define AMD_SVM_VMCB_CLEAN_CAP		(1 << 5)
+#define AMD_SVM_FLUSH_BY_ASID_CAP	(1 << 6)
+#define AMD_SVMDIS			0x10
+
+#define SVM_TLB_CONTROL_FLUSH_NONE	0
+#define SVM_TLB_CONTROL_FLUSH_ALL	1
+#define SVM_TLB_CONTROL_FLUSH_ASID	3
+#define SVM_TLB_CONTROL_FLUSH_ASID_GLB	7
+
+#define SVM_CLEANBITS_I			(1 << 0)
+#define SVM_CLEANBITS_IOPM		(1 << 1)
+#define SVM_CLEANBITS_ASID		(1 << 2)
+#define SVM_CLEANBITS_TPR		(1 << 3)
+#define SVM_CLEANBITS_NP		(1 << 4)
+#define SVM_CLEANBITS_CR		(1 << 5)
+#define SVM_CLEANBITS_DR		(1 << 6)
+#define SVM_CLEANBITS_DT		(1 << 7)
+#define SVM_CLEANBITS_SEG		(1 << 8)
+#define SVM_CLEANBITS_CR2		(1 << 9)
+#define SVM_CLEANBITS_LBR		(1 << 10)
+#define SVM_CLEANBITS_AVIC		(1 << 11)
+
+#define SVM_CLEANBITS_ALL \
+	(SVM_CLEANBITS_I | SVM_CLEANBITS_IOPM | SVM_CLEANBITS_ASID | \
+	 SVM_CLEANBITS_TPR | SVM_CLEANBITS_NP | SVM_CLEANBITS_CR | \
+	 SVM_CLEANBITS_DR | SVM_CLEANBITS_DT | SVM_CLEANBITS_SEG | \
+	 SVM_CLEANBITS_CR2 | SVM_CLEANBITS_LBR | SVM_CLEANBITS_AVIC )
+
+/*
+ * SVM : VMCB intercepts
+ */
+#define SVM_INTERCEPT_CR0_READ		(1UL << 0)
+#define SVM_INTERCEPT_CR1_READ		(1UL << 1)
+#define SVM_INTERCEPT_CR2_READ		(1UL << 2)
+#define SVM_INTERCEPT_CR3_READ		(1UL << 2)
+#define SVM_INTERCEPT_CR4_READ		(1UL << 4)
+#define SVM_INTERCEPT_CR5_READ		(1UL << 5)
+#define SVM_INTERCEPT_CR6_READ		(1UL << 6)
+#define SVM_INTERCEPT_CR7_READ		(1UL << 7)
+#define SVM_INTERCEPT_CR8_READ		(1UL << 8)
+#define SVM_INTERCEPT_CR9_READ		(1UL << 9)
+#define SVM_INTERCEPT_CR10_READ		(1UL << 10)
+#define SVM_INTERCEPT_CR11_READ		(1UL << 11)
+#define SVM_INTERCEPT_CR12_READ		(1UL << 12)
+#define SVM_INTERCEPT_CR13_READ		(1UL << 13)
+#define SVM_INTERCEPT_CR14_READ		(1UL << 14)
+#define SVM_INTERCEPT_CR15_READ		(1UL << 15)
+#define SVM_INTERCEPT_CR0_WRITE		(1UL << 16)
+#define SVM_INTERCEPT_CR1_WRITE		(1UL << 17)
+#define SVM_INTERCEPT_CR2_WRITE		(1UL << 18)
+#define SVM_INTERCEPT_CR3_WRITE		(1UL << 19)
+#define SVM_INTERCEPT_CR4_WRITE		(1UL << 20)
+#define SVM_INTERCEPT_CR5_WRITE		(1UL << 21)
+#define SVM_INTERCEPT_CR6_WRITE		(1UL << 22)
+#define SVM_INTERCEPT_CR7_WRITE		(1UL << 23)
+#define SVM_INTERCEPT_CR8_WRITE		(1UL << 24)
+#define SVM_INTERCEPT_CR9_WRITE		(1UL << 25)
+#define SVM_INTERCEPT_CR10_WRITE	(1UL << 26)
+#define SVM_INTERCEPT_CR11_WRITE	(1UL << 27)
+#define SVM_INTERCEPT_CR12_WRITE	(1UL << 28)
+#define SVM_INTERCEPT_CR13_WRITE	(1UL << 29)
+#define SVM_INTERCEPT_CR14_WRITE	(1UL << 30)
+#define SVM_INTERCEPT_CR15_WRITE	(1UL << 31)
+#define SVM_INTERCEPT_DR0_READ		(1UL << 0)
+#define SVM_INTERCEPT_DR1_READ		(1UL << 1)
+#define SVM_INTERCEPT_DR2_READ		(1UL << 2)
+#define SVM_INTERCEPT_DR3_READ		(1UL << 2)
+#define SVM_INTERCEPT_DR4_READ		(1UL << 4)
+#define SVM_INTERCEPT_DR5_READ		(1UL << 5)
+#define SVM_INTERCEPT_DR6_READ		(1UL << 6)
+#define SVM_INTERCEPT_DR7_READ		(1UL << 7)
+#define SVM_INTERCEPT_DR8_READ		(1UL << 8)
+#define SVM_INTERCEPT_DR9_READ		(1UL << 9)
+#define SVM_INTERCEPT_DR10_READ		(1UL << 10)
+#define SVM_INTERCEPT_DR11_READ		(1UL << 11)
+#define SVM_INTERCEPT_DR12_READ		(1UL << 12)
+#define SVM_INTERCEPT_DR13_READ		(1UL << 13)
+#define SVM_INTERCEPT_DR14_READ		(1UL << 14)
+#define SVM_INTERCEPT_DR15_READ		(1UL << 15)
+#define SVM_INTERCEPT_DR0_WRITE		(1UL << 16)
+#define SVM_INTERCEPT_DR1_WRITE		(1UL << 17)
+#define SVM_INTERCEPT_DR2_WRITE		(1UL << 18)
+#define SVM_INTERCEPT_DR3_WRITE		(1UL << 19)
+#define SVM_INTERCEPT_DR4_WRITE		(1UL << 20)
+#define SVM_INTERCEPT_DR5_WRITE		(1UL << 21)
+#define SVM_INTERCEPT_DR6_WRITE		(1UL << 22)
+#define SVM_INTERCEPT_DR7_WRITE		(1UL << 23)
+#define SVM_INTERCEPT_DR8_WRITE		(1UL << 24)
+#define SVM_INTERCEPT_DR9_WRITE		(1UL << 25)
+#define SVM_INTERCEPT_DR10_WRITE	(1UL << 26)
+#define SVM_INTERCEPT_DR11_WRITE	(1UL << 27)
+#define SVM_INTERCEPT_DR12_WRITE	(1UL << 28)
+#define SVM_INTERCEPT_DR13_WRITE	(1UL << 29)
+#define SVM_INTERCEPT_DR14_WRITE	(1UL << 30)
+#define SVM_INTERCEPT_DR15_WRITE	(1UL << 31)
+#define SVM_INTERCEPT_INTR		(1UL << 0)
+#define SVM_INTERCEPT_NMI		(1UL << 1)
+#define SVM_INTERCEPT_SMI		(1UL << 2)
+#define SVM_INTERCEPT_INIT		(1UL << 3)
+#define SVM_INTERCEPT_VINTR		(1UL << 4)
+#define SVM_INTERCEPT_CR0_SEL_WRITE	(1UL << 5)
+#define SVM_INTERCEPT_IDTR_READ		(1UL << 6)
+#define SVM_INTERCEPT_GDTR_READ		(1UL << 7)
+#define SVM_INTERCEPT_LDTR_READ		(1UL << 8)
+#define SVM_INTERCEPT_TR_READ		(1UL << 9)
+#define SVM_INTERCEPT_IDTR_WRITE	(1UL << 10)
+#define SVM_INTERCEPT_GDTR_WRITE	(1UL << 11)
+#define SVM_INTERCEPT_LDTR_WRITE	(1UL << 12)
+#define SVM_INTERCEPT_TR_WRITE		(1UL << 13)
+#define SVM_INTERCEPT_RDTSC		(1UL << 14)
+#define SVM_INTERCEPT_RDPMC		(1UL << 15)
+#define SVM_INTERCEPT_PUSHF		(1UL << 16)
+#define SVM_INTERCEPT_POPF		(1UL << 17)
+#define SVM_INTERCEPT_CPUID		(1UL << 18)
+#define SVM_INTERCEPT_RSM		(1UL << 19)
+#define SVM_INTERCEPT_IRET		(1UL << 20)
+#define SVM_INTERCEPT_INTN		(1UL << 21)
+#define SVM_INTERCEPT_INVD		(1UL << 22)
+#define SVM_INTERCEPT_PAUSE		(1UL << 23)
+#define SVM_INTERCEPT_HLT		(1UL << 24)
+#define SVM_INTERCEPT_INVLPG		(1UL << 25)
+#define SVM_INTERCEPT_INVLPGA		(1UL << 26)
+#define SVM_INTERCEPT_INOUT		(1UL << 27)
+#define SVM_INTERCEPT_MSR		(1UL << 28)
+#define SVM_INTERCEPT_TASK_SWITCH	(1UL << 29)
+#define SVM_INTERCEPT_FERR_FREEZE	(1UL << 30)
+#define SVM_INTERCEPT_SHUTDOWN		(1UL << 31)
+#define SVM_INTERCEPT_VMRUN		(1UL << 0)
+#define SVM_INTERCEPT_VMMCALL		(1UL << 1)
+#define SVM_INTERCEPT_VMLOAD		(1UL << 2)
+#define SVM_INTERCEPT_VMSAVE		(1UL << 3)
+#define SVM_INTERCEPT_STGI		(1UL << 4)
+#define SVM_INTERCEPT_CLGI		(1UL << 5)
+#define SVM_INTERCEPT_SKINIT		(1UL << 6)
+#define SVM_INTERCEPT_RDTSCP		(1UL << 7)
+#define SVM_INTERCEPT_ICEBP		(1UL << 8)
+#define SVM_INTERCEPT_WBINVD		(1UL << 9)
+#define SVM_INTERCEPT_MONITOR		(1UL << 10)
+#define SVM_INTERCEPT_MWAIT_UNCOND	(1UL << 11)
+#define SVM_INTERCEPT_MWAIT_COND	(1UL << 12)
+#define SVM_INTERCEPT_XSETBV		(1UL << 13)
+#define SVM_INTERCEPT_EFER_WRITE	(1UL << 15)
+#define SVM_INTERCEPT_CR0_WRITE_POST	(1UL << 16)
+#define SVM_INTERCEPT_CR1_WRITE_POST	(1UL << 17)
+#define SVM_INTERCEPT_CR2_WRITE_POST	(1UL << 18)
+#define SVM_INTERCEPT_CR3_WRITE_POST	(1UL << 19)
+#define SVM_INTERCEPT_CR4_WRITE_POST	(1UL << 20)
+#define SVM_INTERCEPT_CR5_WRITE_POST	(1UL << 21)
+#define SVM_INTERCEPT_CR6_WRITE_POST	(1UL << 22)
+#define SVM_INTERCEPT_CR7_WRITE_POST	(1UL << 23)
+#define SVM_INTERCEPT_CR8_WRITE_POST	(1UL << 24)
+#define SVM_INTERCEPT_CR9_WRITE_POST	(1UL << 25)
+#define SVM_INTERCEPT_CR10_WRITE_POST	(1UL << 26)
+#define SVM_INTERCEPT_CR11_WRITE_POST	(1UL << 27)
+#define SVM_INTERCEPT_CR12_WRITE_POST	(1UL << 28)
+#define SVM_INTERCEPT_CR13_WRITE_POST	(1UL << 29)
+#define SVM_INTERCEPT_CR14_WRITE_POST	(1UL << 30)
+#define SVM_INTERCEPT_CR15_WRITE_POST	(1UL << 31)
 
 /*
  * PAT

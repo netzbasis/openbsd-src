@@ -1,4 +1,4 @@
-/*	$OpenBSD: frame.h,v 1.10 2016/04/25 08:00:43 patrick Exp $	*/
+/*	$OpenBSD: frame.h,v 1.12 2017/01/06 00:06:02 jsg Exp $	*/
 /*	$NetBSD: frame.h,v 1.9 2003/12/01 08:48:33 scw Exp $	*/
 
 /*
@@ -82,6 +82,9 @@ typedef struct trapframe {
 #define tf_r13 tf_usr_sp
 #define tf_r14 tf_usr_lr
 #define tf_r15 tf_pc
+
+/* Determine if a fault came from user mode */
+#define	TRAP_USERMODE(tf)	((tf->tf_spsr & PSR_MODE) == PSR_USR32_MODE)
 
 /*
  * Signal frame.  Pushed onto user stack before calling sigcode.
@@ -210,11 +213,6 @@ struct frame {
  * way to take care of both issues and to make sure that the kernel
  * and userland do not leave any outstanding reserves active.
  */
-#if defined(CPU_ARMv7)
-#define CLREX clrex
-#else
-#define CLREX
-#endif
 
 /*
  * PUSHFRAME - macro to push a trap frame on the stack in the current mode
@@ -222,7 +220,7 @@ struct frame {
  */
 
 #define PUSHFRAME							   \
-	CLREX;								   \
+	clrex;								   \
 	sub	sp, sp, #4;		/* Align the stack */		   \
 	str	lr, [sp, #-4]!;		/* Push the return address */	   \
 	sub	sp, sp, #(4*17);	/* Adjust the stack pointer */	   \
@@ -237,7 +235,7 @@ struct frame {
  */
 
 #define PULLFRAME							   \
-	CLREX;								   \
+	clrex;								   \
 	ldr	r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
 	msr	spsr_fsxc, r0;						   \
 	ldmia	sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
@@ -255,7 +253,7 @@ struct frame {
  */
 
 #define PUSHFRAMEINSVC							   \
-	CLREX;								   \
+	clrex;								   \
 	stmdb	sp, {r0-r3};		/* Save 4 registers */		   \
 	mov	r0, lr;			/* Save xxx32 r14 */		   \
 	mov	r1, sp;			/* Save xxx32 sp */		   \
@@ -286,7 +284,7 @@ struct frame {
  */
 
 #define PULLFRAMEFROMSVCANDEXIT						   \
-	CLREX;								   \
+	clrex;								   \
 	ldr	r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
 	msr	spsr_fsxc, r0;		/* restore SPSR */		   \
 	ldmia	sp, {r0-r14}^;		/* Restore registers (usr mode) */ \

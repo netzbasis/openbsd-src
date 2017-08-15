@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.29 2016/09/11 17:51:21 jsing Exp $
+#	$OpenBSD: Makefile,v 1.31 2017/05/30 22:32:10 naddy Exp $
 
 MAN=	pxeboot.8
 
@@ -31,8 +31,8 @@ SRCS+=	alloc.c exit.c getchar.c getfile.c getln.c globals.c putchar.c \
 	strcmp.c strlen.c strncmp.c memcmp.c memcpy.c memset.c printf.c \
 	snprintf.c strerror.c strncpy.c strtol.c strtoll.c ctime.c strlcpy.c \
 	strlcat.c
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c \
-	sha1.c softraid.c
+SRCS+=	aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c hmac_sha1.c \
+	pkcs5_pbkdf2.c rijndael.c sha1.c sha2.c softraid.c
 
 SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fstat.c ioctl.c lseek.c \
 	read.c stat.c write.c cread.c readdir.c cons.c loadfile.c \
@@ -70,6 +70,7 @@ CPPFLAGS+=-DSLOW -DSMALL -DNOBYFOUR -DNO_GZIP -DDYNAMIC_CRC_TABLE
 CPPFLAGS+=-DHEAP_LIMIT=${HEAP_LIMIT} -I${S}/stand/boot #-DCOMPAT_UFS
 CFLAGS+=-m32
 CFLAGS+=$(SACFLAGS) -D__INTERNAL_LIBSA_CREAD -fno-pie
+AFLAGS+=${NO_INTEGR_AS}
 # AFLAGS+=-Wa,-a
 AFLAGS+=-m32 # -Wa,-R
 AFLAGS+=-fno-pie

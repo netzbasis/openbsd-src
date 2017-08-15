@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.81 2015/05/05 02:13:46 guenther Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.83 2017/07/16 22:47:37 guenther Exp $	*/
 
 /*
  * Copyright (c) 1999-2004 Michael Shalayeff
@@ -49,12 +49,12 @@
 extern struct pool hppa_fppl;
 
 void
-cpu_fork(struct proc *p1, struct proc *p2, void *stack, size_t stacksize,
+cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
     void (*func)(void *), void *arg)
 {
 	struct pcb *pcbp;
 	struct trapframe *tf;
-	register_t sp, osp;
+	register_t sp;
 
 #ifdef DIAGNOSTIC
 	if (round_page(sizeof(struct user)) > NBPG)
@@ -102,20 +102,22 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, size_t stacksize,
 	    (curcpu()->ci_psw & PSL_O);
 
 	/*
-	 * If specified, give the child a different stack.
+	 * If specified, give the child a different stack and/or TCB
 	 */
 	if (stack != NULL)
 		setstack(tf, (u_long)stack, 0);	/* XXX ignore error? */
+	if (tcb != NULL)
+		tf->tf_cr27 = (u_long)tcb;
 
 	/*
 	 * Build stack frames for the cpu_switchto & co.
 	 */
-	osp = sp + HPPA_FRAME_SIZE;
-	*(register_t*)(osp - HPPA_FRAME_SIZE) = 0;
-	*(register_t*)(osp + HPPA_FRAME_CRP) = (register_t)&switch_trampoline;
-	*(register_t*)(osp) = (osp - HPPA_FRAME_SIZE);
+	sp += HPPA_FRAME_SIZE;
+	*(register_t*)(sp - HPPA_FRAME_SIZE) = 0;
+	*(register_t*)(sp + HPPA_FRAME_CRP) = (register_t)&switch_trampoline;
+	*(register_t*)(sp) = (sp - HPPA_FRAME_SIZE);
 
-	sp = osp + HPPA_FRAME_SIZE + 20*4; /* frame + callee-saved registers */
+	sp += HPPA_FRAME_SIZE + 16*4; /* frame + callee-saved registers */
 	*HPPA_FRAME_CARG(0, sp) = (register_t)arg;
 	*HPPA_FRAME_CARG(1, sp) = KERNMODE(func);
 	pcbp->pcb_ksp = sp;

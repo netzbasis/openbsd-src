@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pair.c,v 1.7 2016/04/13 11:41:15 mpi Exp $	*/
+/*	$OpenBSD: if_pair.c,v 1.10 2017/01/23 11:37:29 mpi Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -120,9 +120,10 @@ pair_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_softc = sc;
 	ifp->if_ioctl = pairioctl;
 	ifp->if_start = pairstart;
+	ifp->if_xflags = IFXF_CLONED;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 
-	ifp->if_hardmtu = 0xffff;
+	ifp->if_hardmtu = ETHER_MAX_HARDMTU_LEN;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 
 	ifmedia_init(&sc->sc_media, 0, pair_media_change,
@@ -180,7 +181,6 @@ pairstart(struct ifnet *ifp)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif /* NBPFILTER > 0 */
 
-		ifp->if_opackets++;
 		if (pairedifp != NULL) {
 			if (m->m_flags & M_PKTHDR)
 				m_resethdr(m);

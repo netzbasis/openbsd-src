@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifq.h,v 1.5 2016/01/20 17:27:16 mikeb Exp $ */
+/*	$OpenBSD: ifq.h,v 1.13 2017/05/03 20:55:29 mikeb Exp $ */
 
 /*
  * Copyright (c) 2015 David Gwynne <dlg@openbsd.org>
@@ -25,14 +25,33 @@ struct ifq_ops;
 
 struct ifqueue {
 	struct ifnet		*ifq_if;
+	union {
+		void			*_ifq_softc;
+		/*
+		 * a rings sndq is found by looking up an array of pointers.
+		 * by default we only have one sndq and the default drivers
+		 * dont use ifq_softc, so we can borrow it for the map until
+		 * we need to allocate a proper map.
+		 */
+		struct ifqueue		*_ifq_ifqs[1];
+	} _ifq_ptr;
+#define ifq_softc		 _ifq_ptr._ifq_softc
+#define ifq_ifqs		 _ifq_ptr._ifq_ifqs
 
 	/* mbuf handling */
 	struct mutex		 ifq_mtx;
-	uint64_t		 ifq_drops;
 	const struct ifq_ops	*ifq_ops;
 	void			*ifq_q;
+	struct mbuf_list	 ifq_free;
 	unsigned int		 ifq_len;
 	unsigned int		 ifq_oactive;
+
+	/* statistics */
+	uint64_t		 ifq_packets;
+	uint64_t		 ifq_bytes;
+	uint64_t		 ifq_qdrops;
+	uint64_t		 ifq_errors;
+	uint64_t		 ifq_mcasts;
 
 	/* work serialisation */
 	struct mutex		 ifq_task_mtx;
@@ -43,7 +62,9 @@ struct ifqueue {
 	struct task		 ifq_start;
 	struct task		 ifq_restart;
 
+	/* properties */
 	unsigned int		 ifq_maxlen;
+	unsigned int		 ifq_idx;
 };
 
 #ifdef _KERNEL
@@ -60,6 +81,11 @@ struct ifqueue {
  * transmission. It does this by queueing the packet on an ifqueue and
  * notifying the driver to start transmission of the queued packets.
  *
+ * A network device may have multiple contexts for the transmission
+ * of packets, ie, independent transmit rings. An network device
+ * represented by a struct ifnet may have multiple ifqueue structures,
+ * each of which represents an independent context.
+ *
  * struct ifqueue also provides the point where conditioning of
  * traffic (ie, priq and hfsc) is implemented, and provides some
  * infrastructure to assist in the implementation of network drivers.
@@ -75,9 +101,9 @@ struct ifqueue {
  * == Network Stack API
  *
  * The network stack is responsible for initialising and destroying
- * the ifqueue structure, changing the traffic conditioner on an
- * interface queue, enqueuing packets for transmission, and notifying
- * the driver to start transmission.
+ * the ifqueue structures, changing the traffic conditioner on an
+ * interface, enqueuing packets for transmission, and notifying
+ * the driver to start transmission of a particular ifqueue.
  *
  * === ifq_init()
  *
@@ -97,25 +123,25 @@ struct ifqueue {
  * the ifqueue. All the pending mbufs are removed from the previous
  * conditioner and requeued on the new.
  *
- * === ifq_enqueue() and ifq_enqueue_try()
+ * === ifq_idx()
  *
- * ifq_enqueue() and ifq_enqueue_try() attempt to fit an mbuf onto the
- * ifqueue. If the current traffic conditioner rejects the packet it
- * wont be queued and will be counted as a drop. ifq_enqueue() will
- * free the mbuf on the callers behalf if the packet is rejected.
- * ifq_enqueue_try() does not free the mbuf, allowing the caller to
- * reuse it.
+ * ifq_idx() selects a specific ifqueue from the current ifnet
+ * structure for use in the transmission of the mbuf.
+ *
+ * === ifq_enqueue()
+ *
+ * ifq_enqueue() attempts to fit an mbuf onto the ifqueue. The
+ * current traffic conditioner may drop a packet to make space on the
+ * queue.
  *
  * === ifq_start()
  *
- * Once a packet has been successfully queued with ifq_enqueue() or
- * ifq_enqueue_try(), the network card is notified with a call to
- * if_start(). If an interface is marked with IFXF_MPSAFE in its
- * if_xflags field, if_start() calls ifq_start() to dispatch the
- * interfaces start routine. Calls to ifq_start() run in the ifqueue
- * serialisation context, guaranteeing that only one instance of
- * ifp->if_start() will be running in the system at any point in time.
- *
+ * Once a packet has been successfully queued with ifq_enqueue(),
+ * the network card is notified with a call to ifq_start().
+ * Calls to ifq_start() run in the ifqueue serialisation context,
+ * guaranteeing that only one instance of ifp->if_qstart() will be
+ * running on behalf of a specific ifqueue in the system at any point
+ * in time.
  *
  * == Traffic conditioners API
  *
@@ -144,6 +170,16 @@ struct ifqueue {
  *
  * The queue lock acquired with ifq_q_enter() is released with
  * ifq_q_leave().
+ *
+ * === ifq_mfreem() and ifq_mfreeml()
+ *
+ * A goal of the API is to avoid freeing an mbuf while mutexs are
+ * held. Because the ifq API manages the lock on behalf of the backend
+ * ifqops, the backend should not directly free mbufs. If a conditioner
+ * backend needs to drop a packet during the handling of ifqop_deq_begin,
+ * it may free it by calling ifq_mfreem(). This accounts for the drop,
+ * and schedules the free of the mbuf outside the hold of ifq_mtx.
+ * ifq_mfreeml() takes an mbuf list as an argument instead.
  *
  *
  * == Network Driver API
@@ -194,17 +230,29 @@ struct ifqueue {
  *
  * == Attach
  *
- * A driver advertises it's ability to run its start routine by setting
- * the IFXF_MPSAFE flag in ifp->if_xflags before calling if_attach():
+ * A driver advertises it's ability to run its start routine without
+ * the kernel lock by setting the IFXF_MPSAFE flag in ifp->if_xflags
+ * before calling if_attach(). Advertising an MPSAFE start routine
+ * also implies that the driver understands that a network card can
+ * have multiple rings or transmit queues, and therefore provides
+ * if_qstart function (which takes an ifqueue pointer) instead of an
+ * if_start function (which takes an ifnet pointer).
  *
- * 	ifp->if_xflags = IFXF_MPSAFE;
- * 	ifp->if_start = drv_start;
- * 	if_attach(ifp);
+ *	void	drv_start(struct ifqueue *);
  *
- * The network stack will then wrap its calls to ifp->if_start with
- * ifq_start() to guarantee there is only one instance of that function
- * running in the system and to serialise it with other work the driver
- * may provide.
+ *	void
+ *	drv_attach()
+ *	{
+ *	...
+ *		ifp->if_xflags = IFXF_MPSAFE;
+ *		ifp->if_qstart = drv_start;
+ *		if_attach(ifp);
+ *	}
+ *
+ * The network stack will then call ifp->if_qstart via ifq_start()
+ * to guarantee there is only one instance of that function running
+ * in the system and to serialise it with other work the driver may
+ * provide.
  *
  * == Initialise
  *
@@ -226,56 +274,55 @@ struct ifqueue {
  * Drivers for hardware should use the following pattern to transmit
  * packets:
  *
- * 	void
- * 	drv_start(struct ifnet *ifp)
- * 	{
- * 		struct drv_softc *sc = ifp->if_softc;
- * 		struct mbuf *m;
- * 		int kick = 0;
+ *	void
+ *	drv_start(struct ifqueue *ifq)
+ *	{
+ *		struct ifnet *ifp = ifq->ifq_if;
+ *		struct drv_softc *sc = ifp->if_softc;
+ *		struct mbuf *m;
+ *		int kick = 0;
  *
- * 		if (NO_LINK) {
- * 			ifq_purge(&ifp->if_snd);
- * 			return;
- * 		}
+ *		if (NO_LINK) {
+ *			ifq_purge(ifq);
+ *			return;
+ *		}
  *
- * 		for (;;) {
- * 			if (NO_SPACE) {
- * 				ifq_set_oactive(&ifp->if_snd);
- * 				break;
- * 			}
+ *		for (;;) {
+ *			if (NO_SPACE) {
+ *				ifq_set_oactive(ifq);
+ *				break;
+ *			}
  *
- * 			m = ifq_dequeue(&ifp->if_snd);
- * 			if (m == NULL)
- * 				break;
+ *			m = ifq_dequeue(ifq);
+ *			if (m == NULL)
+ *				break;
  *
- * 			if (drv_encap(sc, m) != 0) { // map and fill ring
- * 				m_freem(m);
- * 				continue;
- * 			}
+ *			if (drv_encap(sc, m) != 0) { // map and fill ring
+ *				m_freem(m);
+ *				continue;
+ *			}
  *
- * 			bpf_mtap();
- * 		}
+ *			bpf_mtap();
+ *		}
  *
- *  		drv_kick(sc); // notify hw of new descriptors on the ring
- * 	 }
+ *		drv_kick(sc); // notify hw of new descriptors on the ring
+ *	 }
  *
  * == Transmission completion
  *
  * The following pattern should be used for transmit queue interrupt
  * processing:
  *
- * 	void
- * 	drv_txeof(struct drv_softc *sc)
- * 	{
- * 		struct ifnet *ifp = &sc->sc_if;
+ *	void
+ *	drv_txeof(struct ifqueue *ifq)
+ *	{
+ *		while (COMPLETED_PKTS) {
+ *			// unmap packets, m_freem() the mbufs.
+ *		}
  *
- * 		while (COMPLETED_PKTS) {
- * 			// unmap packets, m_freem() the mbufs.
- * 		}
- *
- * 		if (ifq_is_oactive(&ifp->if_snd))
- * 			ifq_restart(&ifp->if_snd);
- * 	}
+ *		if (ifq_is_oactive(ifq))
+ *			ifq_restart(ifq);
+ *	}
  *
  * == Stop
  *
@@ -283,48 +330,60 @@ struct ifqueue {
  * should clear IFF_RUNNING in ifp->if_flags, and guarantee the start
  * routine is not running before freeing any resources it uses:
  *
- * 	void
- * 	drv_down(struct drv_softc *sc)
- * 	{
- * 		struct ifnet *ifp = &sc->sc_if;
+ *	void
+ *	drv_down(struct drv_softc *sc)
+ *	{
+ *		struct ifnet *ifp = &sc->sc_if;
+ *		struct ifqueue *ifq;
+ *		int i;
  *
- * 		CLR(ifp->if_flags, IFF_RUNNING);
- * 		DISABLE_INTERRUPTS();
+ *		CLR(ifp->if_flags, IFF_RUNNING);
+ *		DISABLE_INTERRUPTS();
  *
- * 		ifq_barrier(&ifp->if_snd);
- * 		intr_barrier(sc->sc_ih);
+ *		for (i = 0; i < sc->sc_num_queues; i++) {
+ * 			ifq = ifp->if_ifqs[i];
+ *			ifq_barrier(ifq);
+ *		}
  *
- * 		FREE_RESOURCES();
+ *		intr_barrier(sc->sc_ih);
  *
- * 		ifq_clr_oactive();
- * 	}
+ *		FREE_RESOURCES();
+ *
+ *		for (i = 0; i < sc->sc_num_queues; i++) {
+ * 			ifq = ifp->if_ifqs[i];
+ *			ifq_clr_oactive(ifq);
+ *		}
+ *	}
  *
  */
 
 struct ifq_ops {
-	void			*(*ifqop_alloc)(void *);
-	void			 (*ifqop_free)(void *);
-	int			 (*ifqop_enq)(struct ifqueue *, struct mbuf *);
-	struct mbuf 		*(*ifqop_deq_begin)(struct ifqueue *, void **);
+	unsigned int		 (*ifqop_idx)(unsigned int,
+				    const struct mbuf *);
+	struct mbuf		*(*ifqop_enq)(struct ifqueue *, struct mbuf *);
+	struct mbuf		*(*ifqop_deq_begin)(struct ifqueue *, void **);
 	void			 (*ifqop_deq_commit)(struct ifqueue *,
 				    struct mbuf *, void *);
-	void	 		 (*ifqop_purge)(struct ifqueue *,
+	void			 (*ifqop_purge)(struct ifqueue *,
 				    struct mbuf_list *);
+	void			*(*ifqop_alloc)(unsigned int, void *);
+	void			 (*ifqop_free)(unsigned int, void *);
 };
 
 /*
  * Interface send queues.
  */
 
-void		 ifq_init(struct ifqueue *, struct ifnet *);
+void		 ifq_init(struct ifqueue *, struct ifnet *, unsigned int);
 void		 ifq_attach(struct ifqueue *, const struct ifq_ops *, void *);
 void		 ifq_destroy(struct ifqueue *);
-int		 ifq_enqueue_try(struct ifqueue *, struct mbuf *);
 int		 ifq_enqueue(struct ifqueue *, struct mbuf *);
 struct mbuf	*ifq_deq_begin(struct ifqueue *);
 void		 ifq_deq_commit(struct ifqueue *, struct mbuf *);
 void		 ifq_deq_rollback(struct ifqueue *, struct mbuf *);
 struct mbuf	*ifq_dequeue(struct ifqueue *);
+void		 ifq_mfreem(struct ifqueue *, struct mbuf *);
+void		 ifq_mfreeml(struct ifqueue *, struct mbuf_list *);
 unsigned int	 ifq_purge(struct ifqueue *);
 void		*ifq_q_enter(struct ifqueue *, const struct ifq_ops *);
 void		 ifq_q_leave(struct ifqueue *, void *);
@@ -364,6 +423,12 @@ static inline void
 ifq_restart(struct ifqueue *ifq)
 {
 	ifq_serialize(ifq, &ifq->ifq_restart);
+}
+
+static inline unsigned int
+ifq_idx(struct ifqueue *ifq, unsigned int nifqs, const struct mbuf *m)
+{
+	return ((*ifq->ifq_ops->ifqop_idx)(nifqs, m));
 }
 
 #define IFQ_ASSERT_SERIALIZED(_ifq)	KASSERT(ifq_is_serialized(_ifq))

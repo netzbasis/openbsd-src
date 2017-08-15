@@ -1,10 +1,10 @@
-/*	$OpenBSD: s_copysign.S,v 1.2 2005/08/02 11:17:31 espie Exp $ */
+/*	$OpenBSD: s_copysign.S,v 1.4 2016/12/22 16:11:26 naddy Exp $ */
 /*
  * Written by J.T. Conklin <jtc@netbsd.org>.
  * Public domain.
  */
 
-#include <machine/asm.h>
+#include "DEFS.h"
 
 ENTRY(copysign)
 	movl	16(%esp),%edx
@@ -15,3 +15,4 @@ ENTRY(copysign)
 	movl	%eax,8(%esp)
 	fldl	4(%esp)
 	ret
+END_STD(copysign)

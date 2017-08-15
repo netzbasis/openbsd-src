@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_cache.c,v 1.50 2016/08/25 00:01:13 dlg Exp $	*/
+/*	$OpenBSD: vfs_cache.c,v 1.53 2017/02/09 19:02:34 bluhm Exp $	*/
 /*	$NetBSD: vfs_cache.c,v 1.13 1996/02/04 02:18:09 christos Exp $	*/
 
 /*
@@ -73,8 +73,8 @@ struct pool nch_pool;
 void cache_zap(struct namecache *);
 u_long nextvnodeid;
 
-static int
-namecache_compare(struct namecache *n1, struct namecache *n2)
+static inline int
+namecache_compare(const struct namecache *n1, const struct namecache *n2)
 {
 	if (n1->nc_nlen == n2->nc_nlen)
 		return (memcmp(n1->nc_name, n2->nc_name, n1->nc_nlen));
@@ -82,7 +82,14 @@ namecache_compare(struct namecache *n1, struct namecache *n2)
 		return (n1->nc_nlen - n2->nc_nlen);
 }
 
-RB_GENERATE(namecache_rb_cache, namecache, n_rbcache, namecache_compare);
+RBT_PROTOTYPE(namecache_rb_cache, namecache, n_rbcache, namecache_compare);
+RBT_GENERATE(namecache_rb_cache, namecache, n_rbcache, namecache_compare);
+
+void
+cache_tree_init(struct namecache_rb_cache *tree)
+{
+	RBT_INIT(namecache_rb_cache, tree);
+}
 
 /*
  * blow away a namecache entry
@@ -100,8 +107,8 @@ cache_zap(struct namecache *ncp)
 		numneg--;
 	}
 	if (ncp->nc_dvp) {
-		RB_REMOVE(namecache_rb_cache, &ncp->nc_dvp->v_nc_tree, ncp);
-		if (RB_EMPTY(&ncp->nc_dvp->v_nc_tree))
+		RBT_REMOVE(namecache_rb_cache, &ncp->nc_dvp->v_nc_tree, ncp);
+		if (RBT_EMPTY(namecache_rb_cache, &ncp->nc_dvp->v_nc_tree))
 			dvp = ncp->nc_dvp;
 	}
 	if (ncp->nc_vp && (ncp->nc_vpid == ncp->nc_vp->v_id)) {
@@ -128,7 +135,7 @@ cache_zap(struct namecache *ncp)
  * the information on the entry being sought, such as its length
  * and its name. If the lookup succeeds, vpp is set to point to the vnode
  * and an error of 0 is returned. If the lookup determines the name does
- * not exist (negative caching) an error of ENOENT is returned. If the 
+ * not exist (negative caching) an error of ENOENT is returned. If the
  * lookup fails, an error of -1 is returned.
  */
 int
@@ -157,7 +164,7 @@ cache_lookup(struct vnode *dvp, struct vnode **vpp,
 	/* lookup in directory vnode's redblack tree */
 	n.nc_nlen = cnp->cn_namelen;
 	memcpy(n.nc_name, cnp->cn_nameptr, n.nc_nlen);
-	ncp = RB_FIND(namecache_rb_cache, &dvp->v_nc_tree, &n);
+	ncp = RBT_FIND(namecache_rb_cache, &dvp->v_nc_tree, &n);
 
 	if (ncp == NULL) {
 		nchstats.ncs_miss++;
@@ -368,16 +375,16 @@ cache_enter(struct vnode *dvp, struct vnode *vp, struct componentname *cnp)
 	ncp->nc_dvpid = dvp->v_id;
 	ncp->nc_nlen = cnp->cn_namelen;
 	memcpy(ncp->nc_name, cnp->cn_nameptr, ncp->nc_nlen);
-	if (RB_EMPTY(&dvp->v_nc_tree)) {
+	if (RBT_EMPTY(namecache_rb_cache, &dvp->v_nc_tree)) {
 		vhold(dvp);
 	}
-	if ((lncp = RB_INSERT(namecache_rb_cache, &dvp->v_nc_tree, ncp))
+	if ((lncp = RBT_INSERT(namecache_rb_cache, &dvp->v_nc_tree, ncp))
 	    != NULL) {
 		/* someone has raced us and added a different entry
 		 * for the same vnode (different ncp) - we don't need
 		 * this entry, so free it and we are done.
 		 */
-	  	pool_put(&nch_pool, ncp);
+		pool_put(&nch_pool, ncp);
 		/* we know now dvp->v_nc_tree is not empty, no need
 		 * to vdrop here
 		 */
@@ -417,9 +424,8 @@ nchinit(void)
 {
 	TAILQ_INIT(&nclruhead);
 	TAILQ_INIT(&nclruneghead);
-	pool_init(&nch_pool, sizeof(struct namecache), 0, 0, PR_WAITOK,
+	pool_init(&nch_pool, sizeof(struct namecache), 0, IPL_NONE, PR_WAITOK,
 	    "nchpl", NULL);
-	pool_setipl(&nch_pool, IPL_NONE);
 }
 
 /*
@@ -436,7 +442,7 @@ cache_purge(struct vnode *vp)
 
 	while ((ncp = TAILQ_FIRST(&vp->v_cache_dst)))
 		cache_zap(ncp);
-	while ((ncp = RB_ROOT(&vp->v_nc_tree)))
+	while ((ncp = RBT_ROOT(namecache_rb_cache, &vp->v_nc_tree)))
 		cache_zap(ncp);
 
 	/* XXX this blows goats */
@@ -455,20 +461,16 @@ cache_purgevfs(struct mount *mp)
 	struct namecache *ncp, *nxtcp;
 
 	/* whack the regular entries */
-	for (ncp = TAILQ_FIRST(&nclruhead); ncp != NULL; ncp = nxtcp) {
-		nxtcp = TAILQ_NEXT(ncp, nc_lru);
-		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp) {
+	TAILQ_FOREACH_SAFE(ncp, &nclruhead, nc_lru, nxtcp) {
+		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp)
 			continue;
-		}
 		/* free the resources we had */
 		cache_zap(ncp);
 	}
 	/* whack the negative entries */
-	for (ncp = TAILQ_FIRST(&nclruneghead); ncp != NULL; ncp = nxtcp) {
-		nxtcp = TAILQ_NEXT(ncp, nc_neg);
-		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp) {
+	TAILQ_FOREACH_SAFE(ncp, &nclruneghead, nc_neg, nxtcp) {
+		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp)
 			continue;
-		}
 		/* free the resources we had */
 		cache_zap(ncp);
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rt2860.c,v 1.91 2016/08/17 11:50:52 stsp Exp $	*/
+/*	$OpenBSD: rt2860.c,v 1.94 2017/07/03 09:21:09 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -1172,8 +1172,6 @@ rt2860_tx_intr(struct rt2860_softc *sc, int qid)
 
 			SLIST_INSERT_HEAD(&sc->data_pool, data, next);
 			ring->data[ring->next] = NULL;
-
-			ifp->if_opackets++;
 		}
 		ring->queued--;
 		ring->next = (ring->next + 1) % RT2860_TX_RING_COUNT;
@@ -2853,7 +2851,8 @@ rt2860_updateslot(struct ieee80211com *ic)
 
 	tmp = RAL_READ(sc, RT2860_BKOFF_SLOT_CFG);
 	tmp &= ~0xff;
-	tmp |= (ic->ic_flags & IEEE80211_F_SHSLOT) ? 9 : 20;
+	tmp |= (ic->ic_flags & IEEE80211_F_SHSLOT) ?
+	    IEEE80211_DUR_DS_SHSLOT : IEEE80211_DUR_DS_SLOT;
 	RAL_WRITE(sc, RT2860_BKOFF_SLOT_CFG, tmp);
 }
 
@@ -3108,6 +3107,7 @@ rt2860_get_rf(uint16_t rev)
 	case RT3070_RF_3052:	return "RT3052";
 	case RT3070_RF_3320:	return "RT3320";
 	case RT3070_RF_3053:	return "RT3053";
+	case RT5390_RF_5360:	return "RT5360";
 	case RT5390_RF_5390:	return "RT5390";
 	case RT5390_RF_5392:	return "RT5392";
 	default:		return "unknown";

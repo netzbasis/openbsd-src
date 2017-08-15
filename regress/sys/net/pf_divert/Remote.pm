@@ -1,4 +1,4 @@
-#	$OpenBSD: Remote.pm,v 1.6 2016/05/03 19:13:04 bluhm Exp $
+#	$OpenBSD: Remote.pm,v 1.8 2017/08/15 04:11:20 bluhm Exp $
 
 # Copyright (c) 2010-2014 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -28,6 +28,7 @@ sub new {
 	my %args = @_;
 	$args{logfile} ||= "remote.log";
 	$args{up} ||= "Started";
+	$args{down} ||= "Shutdown";
 	$args{func} = sub { Carp::confess "$class func may not be called" };
 	$args{remotessh}
 	    or croak "$class remote ssh host not given";
@@ -64,14 +65,24 @@ sub up {
 
 sub child {
 	my $self = shift;
+	my @remoteopts;
+
+	if ($self->{opts}) {
+		my %opts = %{$self->{opts}};
+		foreach my $k (sort keys %opts) {
+			push @remoteopts, "-$k";
+			my $v = $opts{$k};
+			push @remoteopts, $v if $k =~ /[A-Z]/ or $v ne 1;
+		}
+	}
 
 	print STDERR $self->{up}, "\n";
-	my @opts = $ENV{SSH_OPTIONS} ? split(' ', $ENV{SSH_OPTIONS}) : ();
+	my @sshopts = $ENV{SSH_OPTIONS} ? split(' ', $ENV{SSH_OPTIONS}) : ();
 	my @sudo = $ENV{SUDO} ? ($ENV{SUDO}, "SUDO=$ENV{SUDO}") : ();
 	my $dir = dirname($0);
 	$dir = getcwd() if ! $dir || $dir eq ".";
-	my @cmd = ("ssh", "-n", @opts, $self->{remotessh}, @sudo, "perl",
-	    "-I", $dir, "$dir/".basename($0), $self->{af},
+	my @cmd = ("ssh", "-n", @sshopts, $self->{remotessh}, @sudo, "perl",
+	    "-I", $dir, "$dir/".basename($0), @remoteopts, $self->{af},
 	    $self->{bindaddr}, $self->{connectaddr}, $self->{connectport},
 	    ($self->{bindport} ? $self->{bindport} : ()),
 	    ($self->{testfile} ? "$dir/".basename($self->{testfile}) : ()));

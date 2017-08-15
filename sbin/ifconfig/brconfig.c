@@ -1,4 +1,4 @@
-/*	$OpenBSD: brconfig.c,v 1.11 2016/09/03 17:13:48 chl Exp $	*/
+/*	$OpenBSD: brconfig.c,v 1.16 2017/07/31 02:32:11 jsg Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -203,7 +203,7 @@ addlocal(const char *ifsname, int d)
 	strlcpy(breq.ifbr_ifsname, ifsname, sizeof(breq.ifbr_ifsname));
 	if (ioctl(s, SIOCBRDGADDL, (caddr_t)&breq) < 0) {
 		if (errno == EEXIST)
-			errx(1, "%s: local port exists already", name);
+			return;
 		else
 			err(1, "%s: ioctl SIOCBRDGADDL %s", name, ifsname);
 	}
@@ -581,8 +581,7 @@ bridge_ifcost(const char *ifname, const char *val)
 
 	errno = 0;
 	v = strtoul(val, &endptr, 0);
-	if (val[0] == '\0' || endptr[0] != '\0' ||
-	    v < 0 || v > 0xffffffffUL ||
+	if (val[0] == '\0' || endptr[0] != '\0' || v > 0xffffffffUL ||
 	    (errno == ERANGE && v == ULONG_MAX))
 		errx(1, "invalid arg for ifcost: %s", val);
 
@@ -1008,19 +1007,19 @@ switch_cfg(char *delim)
 	if (ioctl(s, SIOCSWGDPID, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%sdatapath-id 0x%016llx\n", delim, bp.ifbrp_datapath);
+	printf("%sdatapath %#016llx", delim, bp.ifbrp_datapath);
 
 	strlcpy(bp.ifbrp_name, name, sizeof(bp.ifbrp_name));
-	if (ioctl(s, SIOCSWGFLOWMAX, (caddr_t)&bp) < 0)
+	if (ioctl(s, SIOCSWGMAXFLOW, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%smax flows per table %d\n", delim, bp.ifbrp_maxflow);
+	printf(" maxflow %d", bp.ifbrp_maxflow);
 
 	strlcpy(bp.ifbrp_name, name, sizeof(bp.ifbrp_name));
 	if (ioctl(s, SIOCSWGMAXGROUP, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%smax groups %d\n", delim, bp.ifbrp_maxgroup);
+	printf(" maxgroup %d\n", bp.ifbrp_maxgroup);
 }
 
 void
@@ -1051,7 +1050,7 @@ switch_datapathid(const char *arg, int d)
 	char *endptr;
 
 	errno = 0;
-	newdpid = strtoll(arg, &endptr, 0);
+	newdpid = strtoull(arg, &endptr, 0);
 	if (arg[0] == '\0' || endptr[0] != '\0' || errno == ERANGE)
 		errx(1, "invalid arg for datapath-id: %s", arg);
 
@@ -1077,8 +1076,12 @@ switch_portno(const char *ifname, const char *val)
 		errx(1, "invalid arg for portidx: %s", val);
 
 	breq.ifbr_portno = newportidx;
-	if (ioctl(s, SIOCSWSPORTNO, (caddr_t)&breq) < 0)
-		err(1, "%s", name);
+	if (ioctl(s, SIOCSWSPORTNO, (caddr_t)&breq) < 0) {
+		if (errno == EEXIST)
+			return;
+		else
+			err(1, "%s", name);
+	}
 }
 
 #endif

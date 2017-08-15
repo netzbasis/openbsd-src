@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgSign.pm,v 1.9 2016/09/06 10:41:51 espie Exp $
+# $OpenBSD: PkgSign.pm,v 1.16 2017/03/01 10:35:24 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -29,6 +29,7 @@ sub handle_options
 {
 	my $state = shift;
 
+	$state->{extra_stats} = 0;
 	$state->{opt} = {
 	    'o' =>
 		    sub {
@@ -42,9 +43,15 @@ sub handle_options
 		    sub { 
 			    push(@{$state->{signature_params}}, shift);
 		    },
+	    'V' =>
+		    sub {
+			    $state->{extra_stats}++;
+		    },
 	};
-	$state->SUPER::handle_options('Cij:o:S:s:',
-	    '[-Cv] [-D name[=value]] -s x509|signify [-s cert] -s priv',
+	$state->{signature_style} = 'unsigned';
+
+	$state->SUPER::handle_options('Cij:o:S:s:V',
+	    '[-CvV] [-D name[=value]] -s signify2 -s priv',
 	    '[-o dir] [-S source] [pkg-name...]');
 	if (defined $state->{signature_params}) {
 		$state->{signer} = OpenBSD::Signer->factory($state);
@@ -58,28 +65,7 @@ sub handle_options
 		File::Path::make_path($state->{output_dir})
 		    or $state->usage("can't create dir");
 	}
-}
-
-package OpenBSD::PackingElement;
-sub copy_over
-{
-}
-
-package OpenBSD::PackingElement::SpecialFile;
-sub copy_over
-{
-	my ($self, $state, $wrarc, $rdarc) = @_;
-	$wrarc->destdir($rdarc->info);
-	my $e = $wrarc->prepare($self->{name});
-	$e->write;
-}
-
-package OpenBSD::PackingElement::FileBase;
-sub copy_over
-{
-	my ($self, $state, $wrarc, $rdarc) = @_;
-	my $e = $rdarc->next;
-	$e->copy($wrarc);
+	$state->{wantntogo} = $state->{extra_stats};
 }
 
 package OpenBSD::PkgSign;
@@ -91,51 +77,15 @@ sub sign_existing_package
 {
 	my ($self, $state, $pkg) = @_;
 	my $output = $state->{output_dir};
-	my $dir = $pkg->info;
-	my $plist = OpenBSD::PackingList->fromfile($dir.CONTENTS);
-	my $dest = $output.'/'.$plist->pkgname.".tgz";
-	# In incremental mode, don't bother signing known packages
+	my $dest = $output.'/'.$pkg->name.".tgz";
 	if ($state->opt('i')) {
 		if (-f $dest) {
-			$pkg->wipe_info;
 			return;
 	    	}
 	}
-	$plist->set_infodir($dir);
-	$state->add_signature($plist);
-	$plist->save;
 	my (undef, $tmp) = OpenBSD::Temp::permanent_file($output, "pkg");
-	my $wrarc = $state->create_archive($tmp, ".");
+	$state->{signer}->sign($pkg, $state, $tmp);
 
-	my $fh;
-	my $url = $pkg->url;
-	my $buffer;
-
-	if (defined $pkg->{length} and 
-	    $url =~ s/^file:// and open($fh, "<", $url) and
-	    $fh->seek($pkg->{length}, 0) and $fh->read($buffer, 2)
-	    and $buffer eq "\x1f\x8b" and $fh->seek($pkg->{length}, 0)) {
-	    	#$state->say("FAST #1", $plist->pkgname);
-		$wrarc->destdir($pkg->info);
-		my $e = $wrarc->prepare('+CONTENTS');
-		$e->write;
-		close($wrarc->{fh});
-		delete $wrarc->{fh};
-
-		open(my $fh2, ">>", $tmp) or 
-		    $state->fatal("Can't append to #1", $tmp);
-		require File::Copy;
-		File::Copy::copy($fh, $fh2) or 
-		    $state->fatal("Error in copy #1", $!);
-		close($fh2);
-	} else {
-	    	#$state->say("SLOW #1", $plist->pkgname);
-		$plist->copy_over($state, $wrarc, $pkg);
-		$wrarc->close;
-	}
-	close($fh) if defined $fh;
-
-	$pkg->wipe_info;
 	chmod((0666 & ~umask), $tmp);
 	rename($tmp, $dest) or
 	    $state->fatal("Can't create final signed package: #1", $!);
@@ -144,7 +94,7 @@ sub sign_existing_package
 		    chdir($output);
 		    open(STDOUT, '>>', 'SHA256');
 		    },
-		    OpenBSD::Paths->sha256, '-b', $plist->pkgname.".tgz");
+		    OpenBSD::Paths->sha256, '-b', $pkg->name.".tgz");
     	}
 }
 
@@ -154,8 +104,13 @@ sub sign_list
 	$state->{total} = scalar @$l;
 	$maxjobs //= 1;
 	my $code = sub {
-		my $pkg = $repo->find(shift);
-		$self->sign_existing_package($state, $pkg);
+		my $name = shift;
+		my $pkg = $repo->find($name);
+		if (!defined $pkg) {
+			$state->errsay("#1 not found", $name);
+		} else {
+			$self->sign_existing_package($state, $pkg);
+		}
 	    };
 	my $display = $state->verbose ?
 	    sub {
@@ -223,6 +178,9 @@ sub sign_existing_repository
 	my ($self, $state, $source) = @_;
 	require OpenBSD::PackageRepository;
 	my $repo = OpenBSD::PackageRepository->new($source, $state);
+	if ($state->{signer}->want_local && !$repo->is_local_file) {
+		$state->fatal("Signing distant source is not supported");
+	}
 	my @list = sort @{$repo->list};
 	if (@list == 0) {
 		$state->errsay('Source repository "#1" is empty', $source);
@@ -236,7 +194,6 @@ sub parse_and_run
 	my ($self, $cmd) = @_;
 	my $state = OpenBSD::PkgSign::State->new($cmd);
 	$state->handle_options;
-	$state->{wantntogo} = $state->config->istrue("ntogo");
 	if (!defined $state->{source} && @ARGV == 0) {
 		$state->usage("Nothing to sign");
 	}
