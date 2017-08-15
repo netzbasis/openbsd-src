@@ -1,4 +1,4 @@
-/*	$OpenBSD: wc.c,v 1.20 2015/12/08 01:00:45 schwarze Exp $	*/
+/*	$OpenBSD: wc.c,v 1.21 2016/09/16 09:25:23 fcambus Exp $	*/
 
 /*
  * Copyright (c) 1980, 1987, 1991, 1993
@@ -34,7 +34,6 @@
 #include <sys/file.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <locale.h>
 #include <ctype.h>
 #include <err.h>
@@ -45,12 +44,12 @@
 
 int64_t	tlinect, twordct, tcharct;
 int	doline, doword, dochar, humanchar, multibyte;
-int 	rval;
+int	rval;
 extern char *__progname;
 
-void	print_counts(int64_t, int64_t, int64_t, char *);
-void	format_and_print(long long);
-void	cnt(char *);
+static void print_counts(int64_t, int64_t, int64_t, char *);
+static void format_and_print(int64_t);
+static void cnt(char *);
 
 int
 main(int argc, char *argv[])
@@ -81,10 +80,10 @@ main(int argc, char *argv[])
 			humanchar = 1;
 			break;
 		default:
-			(void)fprintf(stderr,
+			fprintf(stderr,
 			    "usage: %s [-c | -m] [-hlw] [file ...]\n",
 			    __progname);
-			exit(1);
+			return 1;
 		}
 	argv += optind;
 	argc -= optind;
@@ -98,7 +97,7 @@ main(int argc, char *argv[])
 		doline = doword = dochar = 1;
 
 	if (!*argv) {
-		cnt((char *)NULL);
+		cnt(NULL);
 	} else {
 		int dototal = (argc > 1);
 
@@ -110,14 +109,14 @@ main(int argc, char *argv[])
 			print_counts(tlinect, twordct, tcharct, "total");
 	}
 
-	exit(rval);
+	return rval;
 }
 
-void
+static void
 cnt(char *file)
 {
 	static char *buf;
-	static ssize_t bufsz;
+	static size_t bufsz;
 
 	FILE *stream;
 	char *C;
@@ -212,7 +211,7 @@ cnt(char *file)
 					++charct;
 					len = mbtowc(&wc, C, MB_CUR_MAX);
 					if (len == -1) {
-						(void)mbtowc(NULL, NULL,
+						mbtowc(NULL, NULL,
 						    MB_CUR_MAX);
 						len = 1;
 						wc = L' ';
@@ -262,31 +261,31 @@ cnt(char *file)
 	}
 }
 
-void 
-format_and_print(long long v)
+static void
+format_and_print(int64_t v)
 {
 	if (humanchar) {
 		char result[FMT_SCALED_STRSIZE];
 
-		(void)fmt_scaled(v, result);
-		(void)printf("%7s", result);
+		fmt_scaled((long long)v, result);
+		printf("%7s", result);
 	} else {
-		(void)printf(" %7lld", v);
+		printf(" %7lld", v);
 	}
 }
 
-void
+static void
 print_counts(int64_t lines, int64_t words, int64_t chars, char *name)
 {
 	if (doline)
-		format_and_print((long long)lines);
+		format_and_print(lines);
 	if (doword)
-		format_and_print((long long)words);
+		format_and_print(words);
 	if (dochar)
-		format_and_print((long long)chars);
+		format_and_print(chars);
 
 	if (name)
-		(void)printf(" %s\n", name);
+		printf(" %s\n", name);
 	else
-		(void)printf("\n");
+		printf("\n");
 }

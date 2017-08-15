@@ -1,14 +1,14 @@
-#	$OpenBSD: Makefile.inc,v 1.1 2015/11/04 09:45:52 mpi Exp $
+#	$OpenBSD: Makefile.inc,v 1.3 2017/07/27 13:34:30 mpi Exp $
 
 TOPDIR=		${.CURDIR}/..
 
-.ifdef ART
+.ifdef RADIX
+SRCS+=		radix.c
+.else
 SRCS+=		art.c
 CFLAGS+=	-DART
-.else
-SRCS+=		radix.c
 .endif
 
-CPPFLAGS+=	-I${TOPDIR} -Wall -DSMALL_KERNEL
+CPPFLAGS+=	-I${TOPDIR} -Wall
 
 .PATH:		${TOPDIR} ${TOPDIR}/../../../../sys/net

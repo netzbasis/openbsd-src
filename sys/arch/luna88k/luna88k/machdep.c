@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.120 2016/07/16 08:53:37 tom Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.125 2017/05/29 14:19:50 mpi Exp $	*/
 /*
  * Copyright (c) 1998, 1999, 2000, 2001 Steve Murphree, Jr.
  * Copyright (c) 1996 Nivas Madhur
@@ -84,7 +84,6 @@
 #include <machine/cmmu.h>
 #include <machine/cpu.h>
 #include <machine/kcore.h>
-#include <machine/lock.h>
 #include <machine/reg.h>
 #include <machine/trap.h>
 #include <machine/m88100.h>
@@ -119,6 +118,7 @@ void	luna88k_bootstrap(void);
 #ifdef MULTIPROCESSOR
 void	luna88k_ipi_handler(struct trapframe *);
 #endif
+struct cpu_info *luna88k_set_cpu_number(cpuid_t);
 void	luna88k_vector_init(uint32_t *, uint32_t *);
 char	*nvram_by_symbol(char *);
 void	powerdown(void);
@@ -131,29 +131,6 @@ vaddr_t size_memory(void);
 extern int	clockintr(void *);		/* in clock.c */
 extern void	get_autoboot_device(void);	/* in autoconf.c */
 
-/*
- * *int_mask_reg[CPU]
- * Points to the hardware interrupt status register for each CPU.
- *
- * When write:
- * Bits 31 to 26 are used to enable ('1') or disable ('0') each
- * interrupt level.  Bit 31 is for level 6, bit 26 is for level 1.
- * 
- * When read:
- * Bits 31 to 29 shows the highest level of current (or most recent?)
- * interrupt in 3 bits binary value (0 to 7).
- * Bits 23 to 18 shows the current mask, which is the most recent
- * written value in bits 31 to 26 as described above.
- */
-volatile u_int32_t *int_mask_reg[] = {
-	(u_int32_t *)INT_ST_MASK0,
-	(u_int32_t *)INT_ST_MASK1,
-	(u_int32_t *)INT_ST_MASK2,
-	(u_int32_t *)INT_ST_MASK3
-};
-
-u_int luna88k_curspl[] = { IPL_HIGH, IPL_HIGH, IPL_HIGH, IPL_HIGH };
-
 u_int32_t int_set_val[INT_LEVEL] = {
 	INT_SET_LV0,
 	INT_SET_LV1,
@@ -163,17 +140,6 @@ u_int32_t int_set_val[INT_LEVEL] = {
 	INT_SET_LV5,
 	INT_SET_LV6,
 	INT_SET_LV7
-};
-
-/*
- * *swi_reg[CPU]
- * Points to the software interrupt register for each CPU.
- */
-volatile u_int32_t *swi_reg[] = {
-	(u_int32_t *)SOFT_INT0,
-	(u_int32_t *)SOFT_INT1,
-	(u_int32_t *)SOFT_INT2,
-	(u_int32_t *)SOFT_INT3
 };
 
 /*
@@ -281,7 +247,7 @@ consinit()
 	db_machine_init();
 	ddb_init();
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 }
 
@@ -494,10 +460,11 @@ haltsys:
 		printf("halted\n\n");
 	} else {
 		/* Reset all cpus, which causes reboot */
-		*((volatile unsigned *)0x6d000010) = 0;
+		*((volatile uint32_t *)RESET_CPU_ALL) = 0;
 	}
 
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 
@@ -690,6 +657,54 @@ cpu_setup_secondary_processors()
 #endif
 }
 
+struct cpu_info *
+luna88k_set_cpu_number(cpuid_t number)
+{
+	struct cpu_info *ci;
+
+	/* clock register for each CPU. */
+	static const uint32_t clock_ack[] = {
+		OBIO_CLOCK0,
+		OBIO_CLOCK1,
+		OBIO_CLOCK2,
+		OBIO_CLOCK3
+	};
+
+	/* hardware interrupt mask and status register for each CPU.
+	 *
+	 * When written to:
+	 * Bits 31 to 26 are used to enable ('1') or disable ('0') each
+	 * interrupt level.  Bit 31 is for level 6, bit 26 is for level 1.
+	 * 
+	 * When read:
+	 * Bits 31 to 29 shows the highest level of current (or most recent?)
+	 * interrupt in 3 bits binary value (0 to 7).
+	 * Bits 23 to 18 shows the current mask, which is the most recent
+	 * written value in bits 31 to 26 as described above.
+	 */
+	static const uint32_t intr_mask[] = {
+		INT_ST_MASK0,
+		INT_ST_MASK1,
+		INT_ST_MASK2,
+		INT_ST_MASK3
+	};
+
+	/* software interrupt register for each CPU. */
+	static const uint32_t swi_reg[] = {
+		SOFT_INT0,
+		SOFT_INT1,
+		SOFT_INT2,
+		SOFT_INT3
+	};
+
+	ci = set_cpu_number(number);
+	ci->ci_curspl = IPL_HIGH;
+	ci->ci_swireg = swi_reg[number];
+	ci->ci_intr_mask = intr_mask[number];
+	ci->ci_clock_ack = clock_ack[number];
+	return ci;
+}
+
 #ifdef MULTIPROCESSOR
 /*
  * Release cpu_boot_mutex to let secondary processors start running
@@ -722,8 +737,7 @@ secondary_pre_main()
 	/*
 	 * Now initialize your cpu_info structure.
 	 */
-	set_cpu_number(cmmu_cpu_number());
-	ci = curcpu();
+	ci = luna88k_set_cpu_number(cmmu_cpu_number());
 	ci->ci_curproc = &proc0;
 	m88100_smp_setup(ci);
 
@@ -742,7 +756,9 @@ secondary_pre_main()
 		printf("cpu%d: unable to get startup stack\n", ci->ci_cpuid);
 		hatch_pending_count--;
 		__cpu_simple_unlock(&cpu_hatch_mutex);
-		for (;;) ;
+		for (;;)
+			continue;
+		/* NOTREACHED */
 	}
 
 	return ci->ci_curpcb;
@@ -800,17 +816,12 @@ secondary_main()
 void 
 luna88k_ext_int(struct trapframe *eframe)
 {
-#ifdef MULTIPROCESSOR
 	struct cpu_info *ci = curcpu();
-	u_int cpu = ci->ci_cpuid;
-#else
-	u_int cpu = cpu_number();
-#endif
-	u_int32_t cur_isr;
+	uint32_t cur_isr;
 	u_int level, cur_int_level, old_spl;
 	int unmasked = 0;
 
-	cur_isr = *int_mask_reg[cpu];
+	cur_isr = *(volatile uint32_t *)ci->ci_intr_mask;
 	old_spl = eframe->tf_mask;
 
 	cur_int_level = cur_isr >> 29;
@@ -838,7 +849,7 @@ luna88k_ext_int(struct trapframe *eframe)
 	while (cur_int_level == IPL_SOFTINT) {
 		luna88k_ipi_handler(eframe);
 
-		cur_isr = *int_mask_reg[cpu];
+		cur_isr = *(volatile uint32_t *)ci->ci_intr_mask;
 		cur_int_level = cur_isr >> 29;
 	}
 	if (cur_int_level == 0)
@@ -869,11 +880,11 @@ luna88k_ext_int(struct trapframe *eframe)
 			break;
 		default:
 			printf("%s: cpu%d level %d interrupt.\n",
-				__func__, cpu, cur_int_level);
+				__func__, ci->ci_cpuid, cur_int_level);
 			break;
 		}
 
-		cur_isr = *int_mask_reg[cpu];
+		cur_isr = *(volatile uint32_t *)ci->ci_intr_mask;
 		cur_int_level = cur_isr >> 29;
 	} while (cur_int_level != 0);
 
@@ -913,14 +924,8 @@ sys_sysarch(p, v, retval)
  */
 
 int
-cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
-	int *name;
-	u_int namelen;
-	void *oldp;
-	size_t *oldlenp;
-	void *newp;
-	size_t newlen;
-	struct proc *p;
+cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen, struct proc *p)
 {
 	dev_t consdev;
 
@@ -981,14 +986,16 @@ luna88k_bootstrap()
 	cmmu = &cmmu8820x;
 
 	/* clear and disable all interrupts */
-	*int_mask_reg[0] = *int_mask_reg[1] =
-	*int_mask_reg[2] = *int_mask_reg[3] = 0;
+	*(volatile uint32_t *)INT_ST_MASK0 =
+	*(volatile uint32_t *)INT_ST_MASK1 =
+	*(volatile uint32_t *)INT_ST_MASK2 =
+	*(volatile uint32_t *)INT_ST_MASK3 = 0;
 
 	/* clear software interrupts; just read registers */
-	*(volatile uint32_t *)swi_reg[0];
-	*(volatile uint32_t *)swi_reg[1];
-	*(volatile uint32_t *)swi_reg[2];
-	*(volatile uint32_t *)swi_reg[3];
+	*(volatile uint32_t *)SOFT_INT0;
+	*(volatile uint32_t *)SOFT_INT1;
+	*(volatile uint32_t *)SOFT_INT2;
+	*(volatile uint32_t *)SOFT_INT3;
 
 	uvmexp.pagesize = PAGE_SIZE;
 	uvm_setpagesize();
@@ -999,7 +1006,7 @@ luna88k_bootstrap()
 
 	setup_board_config();
 	master_cpu = cmmu_init();
-	set_cpu_number(master_cpu);
+	(void)luna88k_set_cpu_number(master_cpu);
 #ifdef MULTIPROCESSOR
 	m88100_smp_setup(curcpu());
 #endif
@@ -1210,12 +1217,7 @@ void
 setlevel(u_int level)
 {
 	u_int32_t set_value;
-#ifdef MULTIPROCESSOR
 	struct cpu_info *ci = curcpu();
-	int cpu = ci->ci_cpuid;
-#else
-	int cpu = cpu_number();
-#endif
 
 	set_value = int_set_val[level];
 
@@ -1224,8 +1226,8 @@ setlevel(u_int level)
 		set_value &= INT_SLAVE_MASK;
 #endif
 
-	luna88k_curspl[cpu] = level;
-	*int_mask_reg[cpu] = set_value;
+	ci->ci_curspl = level;
+	*(volatile uint32_t *)ci->ci_intr_mask = set_value;
 	/*
 	 * We do not flush the pipeline here, because we are invoked
 	 * with interrupts disabled, and the caller will synchronize
@@ -1236,50 +1238,42 @@ setlevel(u_int level)
 int
 getipl(void)
 {
-	return (int)luna88k_curspl[cpu_number()];
+	return (int)curcpu()->ci_curspl;
 }
 
 int
 setipl(int level)
 {
-	u_int curspl, psr;
-#ifdef MULTIPROCESSOR
+	int curspl;
+	uint32_t psr;
 	struct cpu_info *ci = curcpu();
-	int cpu = ci->ci_cpuid;
-#else
-	int cpu = cpu_number();
-#endif
 
 	psr = get_psr();
 	set_psr(psr | PSR_IND);
 
-	curspl = luna88k_curspl[cpu];
+	curspl = (int)ci->ci_curspl;
 	setlevel((u_int)level);
 
 	set_psr(psr);
-	return (int)curspl;
+	return curspl;
 }
 
 int
 splraise(int level)
 {
-	u_int curspl, psr;
-#ifdef MULTIPROCESSOR
+	int curspl;
+	uint32_t psr;
 	struct cpu_info *ci = curcpu();
-	int cpu = ci->ci_cpuid;
-#else
-	int cpu = cpu_number();
-#endif
 
 	psr = get_psr();
 	set_psr(psr | PSR_IND);
 
-	curspl = luna88k_curspl[cpu];
+	curspl = (int)ci->ci_curspl;
 	if (curspl < (u_int)level)
 		setlevel((u_int)level);
 
 	set_psr(psr);
-	return (int)curspl;
+	return curspl;
 }
 
 #ifdef MULTIPROCESSOR
@@ -1292,7 +1286,7 @@ m88k_send_ipi(int ipi, cpuid_t cpu)
 		return;
 
 	atomic_setbits_int(&ci->ci_ipi, ipi);
-	*swi_reg[cpu] = 0xffffffff;
+	*(volatile uint32_t *)ci->ci_swireg = ~0;
 }
 
 /*
@@ -1307,11 +1301,10 @@ void
 luna88k_ipi_handler(struct trapframe *eframe)
 {
 	struct cpu_info *ci = curcpu();
-	int cpu = ci->ci_cpuid;
 	int ipi = ci->ci_ipi & (CI_IPI_DDB | CI_IPI_NOTIFY);
 
 	/* just read; reset software interrupt */
-	*swi_reg[cpu];
+	*(volatile uint32_t *)ci->ci_swireg;
 	atomic_clearbits_int(&ci->ci_ipi, ipi);
 
 	if (ipi & CI_IPI_DDB) {
@@ -1329,7 +1322,7 @@ luna88k_ipi_handler(struct trapframe *eframe)
 		 * If ddb is hoping to us, it's our turn to enter ddb now.
 		 */
 		if (ci->ci_cpuid == ddb_mp_nextcpu)
-			Debugger();
+			db_enter();
 #endif
 	}
 	if (ipi & CI_IPI_NOTIFY) {

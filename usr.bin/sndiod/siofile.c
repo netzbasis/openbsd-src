@@ -1,4 +1,4 @@
-/*	$OpenBSD: siofile.c,v 1.12 2016/05/25 10:24:24 ratchov Exp $	*/
+/*	$OpenBSD: siofile.c,v 1.14 2017/07/20 10:23:45 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -136,7 +136,7 @@ dev_sio_open(struct dev *d)
 
 #ifdef DEBUG
 	/*
-	 * We support any parameters combination exposed by the kernel,
+	 * We support any parameter combination exposed by the kernel,
 	 * and we have no other choice than trusting the kernel for
 	 * returning correct parameters. But let's check parameters
 	 * early and nicely report kernel bugs rather than crashing
@@ -153,7 +153,7 @@ dev_sio_open(struct dev *d)
 	if (par.bps > SIO_BPS(BITS_MAX)) {
 		log_puts(d->path);
 		log_puts(": ");
-		log_putu(par.bits);
+		log_putu(par.bps);
 		log_puts(": unsupported sample size\n");
 		goto bad_close;
 	}

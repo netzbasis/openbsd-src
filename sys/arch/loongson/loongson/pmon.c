@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmon.c,v 1.5 2014/03/29 23:59:49 miod Exp $	*/
+/*	$OpenBSD: pmon.c,v 1.8 2017/05/21 14:22:36 visa Exp $	*/
 
 /*
  * Copyright (c) 2009, 2012 Miodrag Vallat.
@@ -80,16 +80,15 @@ pmon_init(int32_t argc, int32_t argv, int32_t envp, int32_t callvec,
 		 * only safely check the first two fields of the `smbios'
 		 * struct:
 		 * - the version number must be small
-		 * - the `vga bios' pointer must be aligned to an 1MB boundary,
-		 *   and below 4GB.
+		 * - the `vga bios' pointer must point to the kseg0 segment.
 		 *
 		 * Of course, I can reasonably expect these assumptions to
 		 * be broken in future systems.  Where would be the fun if
 		 * not?
 		 */
 		if (env->efi.bios.version < 0x2000 &&
-		    (env->efi.bios.vga_bios & 0xfffff) == 0 &&
-		    (env->efi.bios.vga_bios >> 32) == 0) {
+		    env->efi.bios.vga_bios >= CKSEG0_BASE &&
+		    env->efi.bios.vga_bios < CKSEG0_BASE + CKSEG_SIZE) {
 			pmon_envtype = PMON_ENVTYPE_EFI;
 		} else {
 			pmon_envtype = PMON_ENVTYPE_ENVP;
@@ -175,7 +174,8 @@ pmon_getenv(const char *var)
 	return NULL;
 }
 
-const struct pmon_env_reset *pmon_get_env_reset()
+const struct pmon_env_reset *
+pmon_get_env_reset(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 
@@ -185,7 +185,19 @@ const struct pmon_env_reset *pmon_get_env_reset()
 	return &env->reset;
 }
 
-const struct pmon_env_mem *pmon_get_env_mem()
+const struct pmon_env_smbios *
+pmon_get_env_smbios(void)
+{
+	struct pmon_env *env = (struct pmon_env *)pmon_envp;
+
+	if (pmon_envtype != PMON_ENVTYPE_EFI)
+		return NULL;
+
+	return &env->efi.bios;
+}
+
+const struct pmon_env_mem *
+pmon_get_env_mem(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -197,7 +209,8 @@ const struct pmon_env_mem *pmon_get_env_mem()
 	    (va + env->efi.bios.ptrs.offs_mem);
 }
 
-const struct pmon_env_cpu *pmon_get_env_cpu()
+const struct pmon_env_cpu *
+pmon_get_env_cpu(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -209,7 +222,8 @@ const struct pmon_env_cpu *pmon_get_env_cpu()
 	    (va + env->efi.bios.ptrs.offs_cpu);
 }
 
-const struct pmon_env_sys *pmon_get_env_sys()
+const struct pmon_env_sys *
+pmon_get_env_sys(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -221,7 +235,8 @@ const struct pmon_env_sys *pmon_get_env_sys()
 	    (va + env->efi.bios.ptrs.offs_sys);
 }
 
-const struct pmon_env_irq *pmon_get_env_irq()
+const struct pmon_env_irq *
+pmon_get_env_irq(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -233,7 +248,8 @@ const struct pmon_env_irq *pmon_get_env_irq()
 	    (va + env->efi.bios.ptrs.offs_irq);
 }
 
-const struct pmon_env_iface *pmon_get_env_iface()
+const struct pmon_env_iface *
+pmon_get_env_iface(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -245,7 +261,8 @@ const struct pmon_env_iface *pmon_get_env_iface()
 	    (va + env->efi.bios.ptrs.offs_iface);
 }
 
-const struct pmon_env_special *pmon_get_env_special()
+const struct pmon_env_special *
+pmon_get_env_special(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;
@@ -257,7 +274,8 @@ const struct pmon_env_special *pmon_get_env_special()
 	    (va + env->efi.bios.ptrs.offs_special);
 }
 
-const struct pmon_env_device *pmon_get_env_device()
+const struct pmon_env_device *
+pmon_get_env_device(void)
 {
 	struct pmon_env *env = (struct pmon_env *)pmon_envp;
 	uint64_t va = (uint64_t)&env->efi.bios.ptrs;

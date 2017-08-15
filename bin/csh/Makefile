@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.14 2015/10/26 21:57:42 naddy Exp $
+#	$OpenBSD: Makefile,v 1.16 2017/07/10 21:30:37 espie Exp $
 #
 # C Shell with process control; VM/UNIX VAX Makefile
 # Bill Joy UC Berkeley; Jim Kulp IIASA, Austria
@@ -28,6 +28,6 @@ const.h: const.c
 	    sed -e 's/Char \([a-zA-Z0-9_]*\)\(.*\)/extern Char \1[];/' | \
 	    sort >> $@
 
-.depend alloc.o: const.h error.h 
+BUILDFIRST = const.h error.h
 
 .include <bsd.prog.mk>

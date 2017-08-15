@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_client.c,v 1.36 2016/09/04 13:20:56 jsing Exp $ */
+/* $OpenBSD: tls_client.c,v 1.43 2017/08/10 18:18:30 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -195,10 +195,21 @@ tls_connect_common(struct tls *ctx, const char *servername)
 		}
 	}
 
-	if (ctx->config->verify_cert &&
-	    (tls_configure_ssl_verify(ctx, ctx->ssl_ctx,
-	     SSL_VERIFY_PEER) == -1))
+	if (tls_configure_ssl_verify(ctx, ctx->ssl_ctx, SSL_VERIFY_PEER) == -1)
 		goto err;
+
+	if (ctx->config->ecdhecurves != NULL) {
+		if (SSL_CTX_set1_groups(ctx->ssl_ctx, ctx->config->ecdhecurves,
+		    ctx->config->ecdhecurves_len) != 1) {
+			tls_set_errorx(ctx, "failed to set ecdhe curves");
+			goto err;
+		}
+	}
+
+	if (SSL_CTX_set_tlsext_status_cb(ctx->ssl_ctx, tls_ocsp_verify_cb) != 1) {
+		tls_set_errorx(ctx, "ssl OCSP verification setup failure");
+		goto err;
+	}
 
 	if ((ctx->ssl_conn = SSL_new(ctx->ssl_ctx)) == NULL) {
 		tls_set_errorx(ctx, "ssl connection failure");
@@ -207,6 +218,11 @@ tls_connect_common(struct tls *ctx, const char *servername)
 
 	if (SSL_set_app_data(ctx->ssl_conn, ctx) != 1) {
 		tls_set_errorx(ctx, "ssl application data failure");
+		goto err;
+	}
+
+	if (SSL_set_tlsext_status_type(ctx->ssl_conn, TLSEXT_STATUSTYPE_ocsp) != 1) {
+		tls_set_errorx(ctx, "ssl OCSP extension setup failure");
 		goto err;
 	}
 
@@ -222,6 +238,8 @@ tls_connect_common(struct tls *ctx, const char *servername)
 			goto err;
 		}
 	}
+
+	ctx->state |= TLS_CONNECTED;
 	rv = 0;
 
  err:
@@ -268,10 +286,8 @@ tls_connect_cbs(struct tls *ctx, tls_read_cb read_cb,
 	if (tls_connect_common(ctx, servername) != 0)
 		goto err;
 
-	if (tls_set_cbs(ctx, read_cb, write_cb, cb_arg) != 0) {
-		tls_set_errorx(ctx, "callback registration failure");
+	if (tls_set_cbs(ctx, read_cb, write_cb, cb_arg) != 0)
 		goto err;
-	}
 
 	rv = 0;
 
@@ -283,13 +299,20 @@ int
 tls_handshake_client(struct tls *ctx)
 {
 	X509 *cert = NULL;
-	int ssl_ret;
+	int match, ssl_ret;
 	int rv = -1;
 
 	if ((ctx->flags & TLS_CLIENT) == 0) {
 		tls_set_errorx(ctx, "not a client context");
 		goto err;
 	}
+
+	if ((ctx->state & TLS_CONNECTED) == 0) {
+		tls_set_errorx(ctx, "context not connected");
+		goto err;
+	}
+
+	ctx->state |= TLS_SSL_NEEDS_SHUTDOWN;
 
 	ERR_clear_error();
 	if ((ssl_ret = SSL_connect(ctx->ssl_conn)) != 1) {
@@ -303,11 +326,11 @@ tls_handshake_client(struct tls *ctx)
 			tls_set_errorx(ctx, "no server certificate");
 			goto err;
 		}
-		if ((rv = tls_check_name(ctx, cert,
-		    ctx->servername)) != 0) {
-			if (rv != -2)
-				tls_set_errorx(ctx, "name `%s' not present in"
-				    " server certificate", ctx->servername);
+		if (tls_check_name(ctx, cert, ctx->servername, &match) == -1)
+			goto err;
+		if (!match) {
+			tls_set_errorx(ctx, "name `%s' not present in"
+			    " server certificate", ctx->servername);
 			goto err;
 		}
 	}

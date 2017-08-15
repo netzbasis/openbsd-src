@@ -1,4 +1,4 @@
-.\"	$OpenBSD: acpidump.8,v 1.15 2014/03/13 21:14:08 brynet Exp $
+.\"	$OpenBSD: acpidump.8,v 1.18 2017/06/01 12:26:14 schwarze Exp $
 .\"
 .\" Copyright (c) 1999 Doug Rabson <dfr@FreeBSD.org>
 .\" Copyright (c) 2000 Mitsuru IWASAKI <iwasaki@FreeBSD.org>
@@ -29,7 +29,7 @@
 .\"
 .\" $FreeBSD: src/usr.sbin/acpi/acpidump/acpidump.8,v 1.9 2001/09/05 19:21:25 dd Exp $
 .\"
-.Dd $Mdocdate: March 13 2014 $
+.Dd $Mdocdate: June 1 2017 $
 .Dt ACPIDUMP 8
 .Os
 .Sh NAME
@@ -37,21 +37,25 @@
 .Nd dump ACPI tables
 .Sh SYNOPSIS
 .Nm
-.Fl o Ar prefix_for_output
+.Fl o Ar prefix
 .Sh DESCRIPTION
 The
 .Nm
 command stores ACPI tables from physical memory into files specified by
-.Ar prefix_for_output .
-The files generated will
-be of the form <prefix>.<sig>.<id>.
+.Ar prefix .
+If
+.Ar prefix
+specifies a directory, the generated files will be of the form
+<prefix>/<sig>.<id>.
+Otherwise, they will be named <prefix>.<sig>.<id>.
 .Dq sig
 is the signature of the ACPI Table;
 .Dq id
 is unique for each table.
 .Pp
-Additionally a file called <prefix>.headers will be created that contains
-additional human readable information pertaining to this specific dump.
+Additionally a file called <prefix>/headers or <prefix>.headers will
+be created that contains additional human readable information
+pertaining to this specific dump.
 .Pp
 The ACPICA disassembler is available through the
 .Ox
@@ -60,9 +64,21 @@ ports tree or package system:
 # pkg_add acpica
 $ iasl -d <prefix>.<sig>.<id>
 .Ed
+.Pp
+.Nm
+requires the ability to open
+.Pa /dev/kmem
+which may be restricted based upon the value of the
+.Ar kern.allowkmem
+.Xr sysctl 8 .
+.Pp
+.Nm
+is run at startup and stores the results in
+.Pa /var/db/acpi .
 .Sh FILES
 .Bl -tag -width /dev/mem
 .It Pa /dev/mem
+.It Pa /var/db/acpi
 .El
 .Sh SEE ALSO
 .Xr pkg_add 1 ,

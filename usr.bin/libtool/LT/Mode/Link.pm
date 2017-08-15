@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Link.pm,v 1.32 2016/08/02 16:09:55 jca Exp $
+# $OpenBSD: Link.pm,v 1.36 2017/07/23 09:48:53 zhuk Exp $
 #
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -138,6 +138,7 @@ sub run
 	    'no-fast-install',
 	    'no-install',
 	    'no-undefined',
+	    '-no-undefined',
 	    'o:!@',
 	    'objectlist:',
 	    'precious-files-regex:',
@@ -149,13 +150,17 @@ sub run
 	    'R:@',
 	    'shrext:',
 	    'static',
+	    'static-libtool-libs',
 	    'thread-safe', # XXX and --thread-safe ?
 	    'version-info:',
-	    'version-number:');
+	    'version-number:',
+	    'weak',
+	    );
 
 	# XXX options ignored: bindir, dlopen, dlpreopen, no-fast-install,
-	# 	no-install, no-undefined, precious-files-regex,
-	# 	shrext, thread-safe, prefer-pic, prefer-non-pic
+	#	no-install, no-undefined, precious-files-regex,
+	#	shrext, thread-safe, prefer-pic, prefer-non-pic,
+	#	static-libtool-libs
 
 	my @RPopts = $gp->rpath;	 # -rpath options
 	my @Ropts = $gp->R;		 # -R options on the command line
@@ -821,6 +826,21 @@ sub common1
 	my $staticlibs = [];
 	my $args = $parser->parse_linkargs2($gp, $orderedlibs, $staticlibs, $dirs,
 	    $libs);
+
+	my $tiedlibs = tied(@$orderedlibs);
+	my $ie = $tiedlibs->indexof("estdc++");
+	my $is = $tiedlibs->indexof("stdc++");
+	if (defined($ie) and defined($is)) {
+		tsay {"stripping stdc++ from orderedlibs due to having estdc++ already; ie=$ie, is=$is"};
+		# check what library comes later
+		if ($ie < $is) {
+			splice(@$orderedlibs, $ie, 1);
+			splice(@$orderedlibs, $is, 1, "estdc++");
+			$ie = $is;
+		} else {
+			splice(@$orderedlibs, $is, 1);
+		}
+	}
 	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
 	tsay {"orderedlibs = @$orderedlibs"};
 	return ($staticlibs, $orderedlibs, $args);

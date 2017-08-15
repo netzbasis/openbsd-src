@@ -1,4 +1,4 @@
-/* $OpenBSD: vm_machdep.c,v 1.44 2016/05/15 23:37:42 guenther Exp $ */
+/* $OpenBSD: vm_machdep.c,v 1.46 2017/02/12 04:55:08 guenther Exp $ */
 /* $NetBSD: vm_machdep.c,v 1.55 2000/03/29 03:49:48 simonb Exp $ */
 
 /*
@@ -71,24 +71,19 @@ cpu_exit(p)
  * Copy and update the pcb and trap frame, making the child ready to run.
  * 
  * Rig the child's kernel stack so that it will start out in
- * switch_trampoline() and call child_return() with p2 as an
- * argument. This causes the newly-created child process to go
- * directly to user level with an apparent return value of 0 from
- * fork(), while the parent process returns normally.
+ * proc_trampoline() and call 'func' with 'arg' as an argument.
+ * For normal processes this is child_return(), which causes the
+ * child to go directly to user level with an apparent return value
+ * of 0 from fork(), while the parent process returns normally.
+ * For kernel threads this will be a function that never return.
  *
- * p1 is the process being forked;
- *
- * If an alternate user-level stack is requested (with non-zero values
- * in both the stack and stacksize args), set up the user stack pointer
- * accordingly.
+ * An alternate user-level stack or TCB can be requested by passing
+ * a non-NULL value; these are poked into the PCB so they're in
+ * effect at the initial return to userspace.
  */
 void
-cpu_fork(p1, p2, stack, stacksize, func, arg)
-	struct proc *p1, *p2;
-	void *stack;
-	size_t stacksize;
-	void (*func)(void *);
-	void *arg;
+cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
+    void (*func)(void *), void *arg)
 {
 	struct user *up = p2->p_addr;
 
@@ -115,15 +110,17 @@ cpu_fork(p1, p2, stack, stacksize, func, arg)
 
 	/*
 	 * Copy pcb and stack from proc p1 to p2.
-	 * If specified, give the child a different stack.
+	 * If specified, give the child a different stack and/or TCB.
 	 * We do this as cheaply as possible, copying only the active
 	 * part of the stack.  The stack and pcb need to agree;
 	 */
 	up->u_pcb = p1->p_addr->u_pcb;
 	if (stack != NULL)
-		up->u_pcb.pcb_hw.apcb_usp = (u_long)stack + stacksize;
+		up->u_pcb.pcb_hw.apcb_usp = (u_long)stack;
 	else
 		up->u_pcb.pcb_hw.apcb_usp = alpha_pal_rdusp();
+	if (tcb != NULL)
+		up->u_pcb.pcb_hw.apcb_unique = (unsigned long)tcb;
 
 	/*
 	 * Arrange for a non-local goto when the new process
@@ -143,47 +140,35 @@ cpu_fork(p1, p2, stack, stacksize, func, arg)
 	/*
 	 * create the child's kernel stack, from scratch.
 	 */
-	{
-		struct trapframe *p2tf;
+	/*
+	 * Pick a stack pointer, leaving room for a trapframe;
+	 * copy trapframe from parent so return to user mode
+	 * will be to right address, with correct registers.
+	 */
+	p2->p_md.md_tf = (struct trapframe *)((char *)p2->p_addr + USPACE) - 1;
+	bcopy(p1->p_md.md_tf, p2->p_md.md_tf, sizeof(struct trapframe));
 
-		/*
-		 * Pick a stack pointer, leaving room for a trapframe;
-		 * copy trapframe from parent so return to user mode
-		 * will be to right address, with correct registers.
-		 */
-		p2tf = p2->p_md.md_tf = (struct trapframe *)
-		    ((char *)p2->p_addr + USPACE - sizeof(struct trapframe));
-		bcopy(p1->p_md.md_tf, p2->p_md.md_tf, sizeof(struct trapframe));
-
-		/*
-		 * Set up return-value registers as fork() libc stub expects.
-		 */
-		p2tf->tf_regs[FRAME_V0] = p1->p_pid;	/* parent's pid */
-		p2tf->tf_regs[FRAME_A3] = 0;		/* no error */
-		p2tf->tf_regs[FRAME_A4] = 1;		/* is child */
-
-		/*
-		 * Arrange for continuation at child_return(), which
-		 * will return to exception_return().  Note that the child
-		 * process doesn't stay in the kernel for long!
-		 */
-		up->u_pcb.pcb_hw.apcb_ksp = (u_int64_t)p2tf;	
-		up->u_pcb.pcb_context[0] = (u_int64_t)func;
-		up->u_pcb.pcb_context[1] =
-		    (u_int64_t)exception_return;	/* s1: ra */
-		up->u_pcb.pcb_context[2] = (u_int64_t)arg;
-		up->u_pcb.pcb_context[7] =
-		    (u_int64_t)switch_trampoline;	/* ra: assembly magic */
+	/*
+	 * Arrange for continuation at child_return(), which
+	 * will return to exception_return().  Note that the child
+	 * process doesn't stay in the kernel for long!
+	 */
+	up->u_pcb.pcb_hw.apcb_ksp = (u_int64_t)p2->p_md.md_tf;
+	up->u_pcb.pcb_context[0] = (u_int64_t)func;
+	up->u_pcb.pcb_context[1] =
+	    (u_int64_t)exception_return;	/* s1: ra */
+	up->u_pcb.pcb_context[2] = (u_int64_t)arg;
+	up->u_pcb.pcb_context[7] =
+	    (u_int64_t)switch_trampoline;	/* ra: assembly magic */
 #ifdef MULTIPROCESSOR
-		/*
-		 * MULTIPROCESSOR kernels will reuse the IPL of the parent
-		 * process, and will lower to IPL_NONE in proc_trampoline_mp().
-		 */
-		up->u_pcb.pcb_context[8] = IPL_SCHED;	/* ps: IPL */
+	/*
+	 * MULTIPROCESSOR kernels will reuse the IPL of the parent
+	 * process, and will lower to IPL_NONE in proc_trampoline_mp().
+	 */
+	up->u_pcb.pcb_context[8] = IPL_SCHED;	/* ps: IPL */
 #else
-		up->u_pcb.pcb_context[8] = IPL_NONE;	/* ps: IPL */
+	up->u_pcb.pcb_context[8] = IPL_NONE;	/* ps: IPL */
 #endif
-	}
 }
 
 /*

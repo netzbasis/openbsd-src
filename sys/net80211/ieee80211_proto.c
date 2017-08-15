@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.68 2016/07/20 15:40:27 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.79 2017/08/04 16:25:10 stsp Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -76,6 +76,7 @@ const char * const ieee80211_phymode_name[] = {
 	"11n",		/* IEEE80211_MODE_11N */
 };
 
+void ieee80211_set_beacon_miss_threshold(struct ieee80211com *);
 int ieee80211_newstate(struct ieee80211com *, enum ieee80211_state, int);
 
 void
@@ -309,26 +310,24 @@ void
 ieee80211_reset_erp(struct ieee80211com *ic)
 {
 	ic->ic_flags &= ~IEEE80211_F_USEPROT;
-	ic->ic_nonerpsta = 0;
-	ic->ic_longslotsta = 0;
 
-	/*
-	 * Enable short slot time iff:
-	 * - we're operating in 802.11a or
-	 * - we're operating in 802.11g and we're not in IBSS mode and
-	 *   the device supports short slot time
-	 */
 	ieee80211_set_shortslottime(ic,
-	    ic->ic_curmode == IEEE80211_MODE_11A
+	    ic->ic_curmode == IEEE80211_MODE_11A ||
+	    (ic->ic_curmode == IEEE80211_MODE_11N &&
+	    IEEE80211_IS_CHAN_5GHZ(ic->ic_ibss_chan))
 #ifndef IEEE80211_STA_ONLY
 	    ||
-	    (ic->ic_curmode == IEEE80211_MODE_11G &&
+	    ((ic->ic_curmode == IEEE80211_MODE_11G ||
+	    (ic->ic_curmode == IEEE80211_MODE_11N &&
+	    IEEE80211_IS_CHAN_2GHZ(ic->ic_ibss_chan))) &&
 	     ic->ic_opmode == IEEE80211_M_HOSTAP &&
 	     (ic->ic_caps & IEEE80211_C_SHSLOT))
 #endif
 	);
 
 	if (ic->ic_curmode == IEEE80211_MODE_11A ||
+	    (ic->ic_curmode == IEEE80211_MODE_11N &&
+	    IEEE80211_IS_CHAN_5GHZ(ic->ic_ibss_chan)) ||
 	    (ic->ic_caps & IEEE80211_C_SHPREAMBLE))
 		ic->ic_flags |= IEEE80211_F_SHPREAMBLE;
 	else
@@ -358,8 +357,8 @@ ieee80211_set_shortslottime(struct ieee80211com *ic, int on)
 int
 ieee80211_keyrun(struct ieee80211com *ic, u_int8_t *macaddr)
 {
+	struct ieee80211_node *ni = ic->ic_bss;
 #ifndef IEEE80211_STA_ONLY
-	struct ieee80211_node *ni;
 	struct ieee80211_pmk *pmk;
 #endif
 
@@ -368,6 +367,7 @@ ieee80211_keyrun(struct ieee80211com *ic, u_int8_t *macaddr)
 	    !(ic->ic_flags & IEEE80211_F_RSNON))
 		return ENETDOWN;
 
+	ni->ni_rsn_supp_state = RSNA_SUPP_PTKSTART;
 #ifndef IEEE80211_STA_ONLY
 	if (ic->ic_opmode == IEEE80211_M_STA)
 #endif
@@ -421,8 +421,6 @@ ieee80211_node_gtk_rekey(void *arg, struct ieee80211_node *ni)
 	ni->ni_flags |= IEEE80211_NODE_REKEY;
 	if (ieee80211_send_group_msg1(ic, ni) != 0)
 		ni->ni_flags &= ~IEEE80211_NODE_REKEY;
-	else
-		ic->ic_rsn_keydonesta++;
 }
 
 /*
@@ -457,7 +455,6 @@ ieee80211_setkeys(struct ieee80211com *ic)
 		arc4random_buf(k->k_key, k->k_len);
 	}
 
-	ic->ic_rsn_keydonesta = 0;
 	ieee80211_iterate_nodes(ic, ieee80211_node_gtk_rekey, ic);
 }
 
@@ -555,8 +552,12 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if ((ic->ic_flags & IEEE80211_F_HTON) == 0)
 		return;
 
-	/* Check if the peer supports HT. MCS 0-7 are mandatory. */
-	if (ni->ni_rxmcs[0] != 0xff) {
+	/* 
+	 * Check if the peer supports HT.
+	 * Require at least one of the mandatory MCS.
+	 * MCS 0-7 are mandatory but some APs have particular MCS disabled.
+	 */
+	if ((ni->ni_rxmcs[0] & 0xff) == 0) {
 		ic->ic_stats.is_ht_nego_no_mandatory_mcs++;
 		return;
 	}
@@ -707,7 +708,8 @@ ieee80211_delba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 			for (i = 0; i < IEEE80211_BA_MAX_WINSZ; i++)
 				m_freem(ba->ba_buf[i].m);
 			/* free reordering buffer */
-			free(ba->ba_buf, M_DEVBUF, 0);
+			free(ba->ba_buf, M_DEVBUF,
+			    IEEE80211_BA_MAX_WINSZ * sizeof(*ba->ba_buf));
 			ba->ba_buf = NULL;
 		}
 	}
@@ -732,6 +734,10 @@ ieee80211_auth_open(struct ieee80211com *ic, const struct ieee80211_frame *wh,
 		}
 		ieee80211_new_state(ic, IEEE80211_S_AUTH,
 		    wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK);
+
+		/* In IBSS mode no (re)association frames are sent. */
+		if (ic->ic_flags & IEEE80211_F_RSNON)
+			ni->ni_rsn_supp_state = RSNA_SUPP_PTKSTART;
 		break;
 
 	case IEEE80211_M_AHDEMO:
@@ -807,6 +813,27 @@ ieee80211_auth_open(struct ieee80211com *ic, const struct ieee80211_frame *wh,
 	}
 }
 
+void
+ieee80211_set_beacon_miss_threshold(struct ieee80211com *ic)
+{
+	struct ifnet *ifp = &ic->ic_if;
+
+	/* 
+	 * Scale the missed beacon counter threshold to the AP's actual
+	 * beacon interval. Give the AP at least 700 ms to time out and
+	 * round up to ensure that at least one beacon may be missed.
+	 */
+	int btimeout = MIN(7 * ic->ic_bss->ni_intval, 700);
+	btimeout = MAX(btimeout, 2 * ic->ic_bss->ni_intval);
+	if (ic->ic_bss->ni_intval > 0) /* don't crash if interval is bogus */
+		ic->ic_bmissthres = btimeout / ic->ic_bss->ni_intval;
+
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: missed beacon threshold set to %d beacons, "
+		    "beacon interval is %u TU\n", ifp->if_xname,
+		    ic->ic_bmissthres, ic->ic_bss->ni_intval);
+}
+
 int
 ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
     int mgt)
@@ -820,12 +847,12 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 #endif
 
 	ostate = ic->ic_state;
-	DPRINTF(("%s -> %s\n", ieee80211_state_name[ostate],
-	    ieee80211_state_name[nstate]));
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: %s -> %s\n", ifp->if_xname,
+		    ieee80211_state_name[ostate], ieee80211_state_name[nstate]);
 	ic->ic_state = nstate;			/* state transition */
 	ni = ic->ic_bss;			/* NB: no reference held */
-	if (ostate == IEEE80211_S_RUN)
-		ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
 	switch (nstate) {
 	case IEEE80211_S_INIT:
 		/*
@@ -847,7 +874,7 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 #ifndef IEEE80211_STA_ONLY
 			case IEEE80211_M_HOSTAP:
 				s = splnet();
-				RB_FOREACH(ni, ieee80211_tree, &ic->ic_tree) {
+				RBT_FOREACH(ni, ieee80211_tree, &ic->ic_tree) {
 					if (ni->ni_state != IEEE80211_STA_ASSOC)
 						continue;
 					IEEE80211_SEND_MGMT(ic, ni,
@@ -873,7 +900,7 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 #ifndef IEEE80211_STA_ONLY
 			case IEEE80211_M_HOSTAP:
 				s = splnet();
-				RB_FOREACH(ni, ieee80211_tree, &ic->ic_tree) {
+				RBT_FOREACH(ni, ieee80211_tree, &ic->ic_tree) {
 					IEEE80211_SEND_MGMT(ic, ni,
 					    IEEE80211_FC0_SUBTYPE_DEAUTH,
 					    IEEE80211_REASON_AUTH_LEAVE);
@@ -898,6 +925,7 @@ justcleanup:
 			ieee80211_free_allnodes(ic);
 			break;
 		}
+		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
 		break;
 	case IEEE80211_S_SCAN:
 		ic->ic_flags &= ~IEEE80211_F_SIBSS;
@@ -908,6 +936,7 @@ justcleanup:
 			ieee80211_chan2mode(ic, ni->ni_chan)];
 		ni->ni_associd = 0;
 		ni->ni_rstamp = 0;
+		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
 		switch (ostate) {
 		case IEEE80211_S_INIT:
 #ifndef IEEE80211_STA_ONLY
@@ -950,9 +979,13 @@ justcleanup:
 		}
 		break;
 	case IEEE80211_S_AUTH:
+		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
 		switch (ostate) {
 		case IEEE80211_S_INIT:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_SCAN:
 			IEEE80211_SEND_MGMT(ic, ni,
@@ -992,7 +1025,10 @@ justcleanup:
 		case IEEE80211_S_INIT:
 		case IEEE80211_S_SCAN:
 		case IEEE80211_S_ASSOC:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_AUTH:
 			IEEE80211_SEND_MGMT(ic, ni,
@@ -1009,7 +1045,10 @@ justcleanup:
 		case IEEE80211_S_INIT:
 		case IEEE80211_S_AUTH:
 		case IEEE80211_S_RUN:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_SCAN:		/* adhoc/hostap mode */
 		case IEEE80211_S_ASSOC:		/* infra mode */
@@ -1051,6 +1090,7 @@ justcleanup:
 				ieee80211_set_link_state(ic, LINK_STATE_UP);
 			}
 			ic->ic_mgt_timer = 0;
+			ieee80211_set_beacon_miss_threshold(ic);
 			if_start(ifp);
 			break;
 		}

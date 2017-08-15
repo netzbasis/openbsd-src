@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.280 2016/09/05 07:22:29 dlg Exp $
+#	$OpenBSD: Makefile,v 1.287 2017/06/19 23:44:11 dlg Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -9,8 +9,9 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	audio.9 autoconf.9 \
 	bemtoh32.9 bio_register.9 boot.9 bpf_mtap.9 buffercache.9 bufq_init.9 \
 	bus_dma.9 bus_space.9 \
-	copy.9 config_attach.9 config_defer.9 crypto.9 delay.9 \
-	disk.9 disklabel.9 dma_alloc.9 dohooks.9 \
+	copy.9 config_attach.9 config_defer.9 counters_alloc.9 cpumem_get.9 \
+	crypto.9 \
+	delay.9 disk.9 disklabel.9 dma_alloc.9 dohooks.9 \
 	dostartuphooks.9 \
 	evcount.9 extent.9 fb_setup.9 file.9 fork1.9 \
 	getdevvp.9 getnewvnode.9 hashinit.9 \
@@ -24,17 +25,19 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	malloc.9 membar_sync.9 mbuf.9 mbuf_tags.9 md5.9 mi_switch.9 \
 	microtime.9 ml_init.9 mq_init.9 mutex.9 \
 	namei.9 \
-	panic.9 pci_conf_read.9 pci_intr_map.9 pfind.9 physio.9 pmap.9 \
-	pool.9 ppsratecheck.9 printf.9 psignal.9 \
+	panic.9 pci_conf_read.9 pci_intr_map.9 physio.9 pmap.9 \
+	pool.9 pool_cache_init.9 ppsratecheck.9 printf.9 psignal.9 \
 	RBT_INIT.9 \
 	radio.9 arc4random.9 rasops.9 ratecheck.9 refcnt_init.9 resettodr.9 \
 	rssadapt.9 route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
-	rtlabel_id2name.9 rtrequest.9 rwlock.9 SipHash24.9 sensor_attach.9 \
+	rtlabel_id2name.9 rtrequest.9 rwlock.9 SRPL_EMPTY_LOCKED.9 SipHash24.9 \
+	sensor_attach.9 \
 	spl.9 srp_enter.9 srpl_rc_init.9 startuphook_establish.9 \
 	socreate.9 sosplice.9 style.9 syscall.9 sysctl_int.9 \
-	task_add.9 tc_init.9 time_second.9 timeout.9 tsleep.9 tvtohz.9 \
-	uiomove.9 uvm.9 usbd_close_pipe.9 usbd_open_pipe.9 usbd_ref_wait.9 \
-	usbd_transfer.9 vfs.9 vfs_busy.9 \
+	task_add.9 tc_init.9 tfind.9 thread_fork.9 \
+	time_second.9 timeout.9 tsleep.9 tvtohz.9 \
+	uiomove.9 uvm.9 usb_add_task.9 usbd_close_pipe.9 usbd_open_pipe.9 \
+	usbd_ref_wait.9 usbd_transfer.9 vfs.9 vfs_busy.9 \
 	vfs_cache.9 vaccess.9 vclean.9 vcount.9 vdevgone.9 vfinddev.9 vflush.9 \
 	vflushbuf.9 vget.9 vgone.9 vhold.9 vinvalbuf.9 vnode.9 vnsubr.9 \
 	VOP_LOOKUP.9 vput.9 vrecycle.9 vref.9 vrele.9 \

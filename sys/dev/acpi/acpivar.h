@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpivar.h,v 1.83 2016/07/28 21:57:56 kettenis Exp $	*/
+/*	$OpenBSD: acpivar.h,v 1.87 2017/04/08 01:20:10 deraadt Exp $	*/
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  *
@@ -191,6 +191,13 @@ struct acpi_bat {
 
 SLIST_HEAD(acpi_bat_head, acpi_bat);
 
+struct acpi_sbs {
+	struct acpisbs_softc	*asbs_softc;
+	SLIST_ENTRY(acpi_sbs)	asbs_link;
+};
+
+SLIST_HEAD(acpi_sbs_head, acpi_sbs);
+
 struct acpi_softc {
 	struct device		sc_dev;
 
@@ -250,6 +257,8 @@ struct acpi_softc {
 
 	struct acpi_ac_head	sc_ac;
 	struct acpi_bat_head	sc_bat;
+	struct acpi_sbs_head	sc_sbs;
+	int			sc_havesbs;
 
 	struct timeout		sc_dev_timeout;
 
@@ -299,6 +308,11 @@ void	 acpi_attach_machdep(struct acpi_softc *);
 int	 acpi_interrupt(void *);
 void	 acpi_powerdown(void);
 void	 acpi_reset(void);
+
+
+#define ACPI_SLEEP_SUSPEND	0x01
+#define ACPI_SLEEP_HIBERNATE	0x02
+
 int	 acpi_sleep_state(struct acpi_softc *, int);
 void	 acpi_sleep_clocks(struct acpi_softc *, int);
 int	 acpi_sleep_cpu(struct acpi_softc *, int);
@@ -359,6 +373,9 @@ void	acpi_pciroots_attach(struct device *, void *, cfprint_t);
 
 void	*acpi_intr_establish(int, int, int, int (*)(void *), void *,
 	    const char *);
+
+struct acpi_q *acpi_maptable(struct acpi_softc *sc, paddr_t,
+	    const char *, const char *, const char *, int);
 
 #endif
 

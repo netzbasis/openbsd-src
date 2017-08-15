@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pvbus.4,v 1.7 2016/01/28 10:42:23 jmc Exp $
+.\"	$OpenBSD: pvbus.4,v 1.14 2017/06/14 12:42:09 jmc Exp $
 .\"
 .\" Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
 .\" Copyright (c) 2006 Jason McIntyre <jmc@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 28 2016 $
+.Dd $Mdocdate: June 14 2017 $
 .Dt PVBUS 4
 .Os
 .Sh NAME
@@ -62,8 +62,19 @@ VMware Tools driver and
 .Dq guestinfo
 information store
 .El
+.Ss Hyper-V paravirtual devices
+.Bl -tag -width 13n -offset ind -compact
+.It Xr hvn 4
+Hyper-V virtual networking interface
+.It Xr hvs 4
+Hyper-V virtual disk
+.It Xr hyperv 4
+Hyper-V guest nexus device
+.El
 .Ss Xen paravirtual devices
 .Bl -tag -width 13n -offset ind -compact
+.It Xr xbf 4
+Xen Blkfront virtual disk
 .It Xr xen 4
 Xen domU nexus device and XenStore information store
 .It Xr xnf 4
@@ -118,7 +129,7 @@ and return it in
 Return the type of the attached hypervisor interface as a string in
 .Fa pvr_key ;
 see
-.Sx Supported Hypervisors .
+.Sx Supported hypervisors .
 .It Dv PVBUSIOC_KVWRITE
 Write the new value
 .Fa pvr_value

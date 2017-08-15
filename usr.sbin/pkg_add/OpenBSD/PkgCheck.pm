@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCheck.pm,v 1.62 2016/08/26 18:19:21 espie Exp $
+# $OpenBSD: PkgCheck.pm,v 1.64 2017/03/14 23:30:36 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -139,7 +139,7 @@ sub thorough_check
 		$state->log("no checksum for #1", $name);
 		return;
 	}
-	my $d = $self->compute_digest($name, ref($self->{d}));
+	my $d = $self->compute_digest($name, $self->{d});
 	if (!$d->equals($self->{d})) {
 		$state->log("checksum for #1 does not match", $name);
 	}
@@ -299,7 +299,7 @@ sub log
 sub safe
 {
 	my ($self, $string) = @_;
-	$string =~ s/[^\w\d\s\+\-\.\>\<\=\/\;\:\,\(\)\[\]]/?/g;
+	$string =~ s/[^\w\d\s\+\-\.\>\<\=\/\;\:\,\(\)\[\]\'\$\@\"]/?/g;
 	return $string;
 }
 
@@ -648,6 +648,9 @@ sub sanity_check
 		};
 		if ($@ || !defined $plist) {
 			$state->errsay("#1: bad packing-list", $state->safe($name));
+			if ($@) {
+				$state->errsay("#1", $state->safe($@));
+			}
 			$self->may_remove($state, $name);
 			return;
 		}

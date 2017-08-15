@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnode.h,v 1.135 2016/05/23 09:31:28 natano Exp $	*/
+/*	$OpenBSD: vnode.h,v 1.140 2017/08/13 22:02:22 beck Exp $	*/
 /*	$NetBSD: vnode.h,v 1.38 1996/02/29 20:59:05 cgd Exp $	*/
 
 /*
@@ -80,8 +80,10 @@ enum vtagtype	{
  */
 LIST_HEAD(buflists, buf);
 
-RB_HEAD(buf_rb_bufs, buf);
-RB_HEAD(namecache_rb_cache, namecache);
+RBT_HEAD(buf_rb_bufs, buf);
+
+struct namecache;
+RBT_HEAD(namecache_rb_cache, namecache);
 
 struct uvm_vnode;
 struct vnode {
@@ -207,6 +209,7 @@ struct vattr {
 #define	VNOVAL	(-1)
 
 #ifdef _KERNEL
+RBT_PROTOTYPE(buf_rb_bufs, buf, b_rbbufs, rb_buf_compare);
 /*
  * Convert between vnode types and inode formats (since POSIX.1
  * defines mode word of stat structure in terms of inode formats).
@@ -291,7 +294,7 @@ struct vops {
 
 extern struct vops dead_vops;
 extern struct vops spec_vops;
- 
+
 struct vop_generic_args {
 	void		*a_garbage;
 	/* Other data probably follows; */
@@ -315,7 +318,7 @@ struct vop_create_args {
 	struct componentname *a_cnp;
 	struct vattr *a_vap;
 };
-int VOP_CREATE(struct vnode *, struct vnode **, struct componentname *, 
+int VOP_CREATE(struct vnode *, struct vnode **, struct componentname *,
     struct vattr *);
 
 struct vop_mknod_args {
@@ -324,7 +327,7 @@ struct vop_mknod_args {
 	struct componentname *a_cnp;
 	struct vattr *a_vap;
 };
-int VOP_MKNOD(struct vnode *, struct vnode **, struct componentname *, 
+int VOP_MKNOD(struct vnode *, struct vnode **, struct componentname *,
     struct vattr *);
 
 struct vop_open_args {
@@ -391,7 +394,7 @@ struct vop_ioctl_args {
 	struct ucred *a_cred;
 	struct proc *a_p;
 };
-int VOP_IOCTL(struct vnode *, u_long, void *, int, struct ucred *, 
+int VOP_IOCTL(struct vnode *, u_long, void *, int, struct ucred *,
     struct proc *);
 
 struct vop_poll_args {
@@ -444,7 +447,7 @@ struct vop_rename_args {
 	struct vnode *a_tvp;
 	struct componentname *a_tcnp;
 };
-int VOP_RENAME(struct vnode *, struct vnode *, struct componentname *, 
+int VOP_RENAME(struct vnode *, struct vnode *, struct componentname *,
     struct vnode *, struct vnode *, struct componentname *);
 
 struct vop_mkdir_args {
@@ -453,7 +456,7 @@ struct vop_mkdir_args {
 	struct componentname *a_cnp;
 	struct vattr *a_vap;
 };
-int VOP_MKDIR(struct vnode *, struct vnode **, struct componentname *, 
+int VOP_MKDIR(struct vnode *, struct vnode **, struct componentname *,
     struct vattr *);
 
 struct vop_rmdir_args {
@@ -470,7 +473,7 @@ struct vop_symlink_args {
 	struct vattr *a_vap;
 	char *a_target;
 };
-int VOP_SYMLINK(struct vnode *, struct vnode **, struct componentname *, 
+int VOP_SYMLINK(struct vnode *, struct vnode **, struct componentname *,
     struct vattr *, char *);
 
 struct vop_readdir_args {

@@ -22,9 +22,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: style.9,v 1.66 2016/08/24 16:14:24 renato Exp $
+.\"	$OpenBSD: style.9,v 1.71 2017/07/10 21:39:38 tedu Exp $
 .\"
-.Dd $Mdocdate: August 24 2016 $
+.Dd $Mdocdate: July 10 2017 $
 .Dt STYLE 9
 .Os
 .Sh NAME
@@ -86,10 +86,7 @@ Then there's a blank line, followed by the
 files.
 The
 .Pa /usr/include
-files should be sorted!
-.Bd -literal -offset indent
-#include <stdio.h>
-.Ed
+files, for the most part, should be sorted.
 .Pp
 Global pathnames are defined in
 .Pa /usr/include/paths.h .
@@ -297,7 +294,7 @@ used for control statements with zero or only a single statement unless that
 statement is more than a single line, in which case they are permitted.
 .Bd -literal -offset indent
 for (p = buf; *p != '\e0'; ++p)
-	;	/* nothing */
+	continue;
 for (;;)
 	stmt;
 for (;;) {
@@ -312,8 +309,6 @@ for (;;) {
 .Ed
 .Pp
 Parts of a for loop may be left empty.
-Don't put declarations inside blocks unless the routine is
-unusually complicated.
 .Bd -literal -offset indent
 for (; cnt < 15; cnt++) {
 	stmt1;
@@ -568,7 +563,6 @@ vaf(const char *fmt, ...)
 static void
 usage(void)
 {
-	extern char *__progname;	/* from crt0.o */
 .Ed
 .Pp
 Usage statements should take the same form as the synopsis in manual pages.
@@ -594,10 +588,10 @@ Uppercase letters take precedence over lowercase.
 .Ed
 .Pp
 The
-.Li __progname
-string may be used instead of hard-coding the program name.
+.Xr getprogname 3
+function may be used instead of hard-coding the program name.
 .Bd -literal -offset indent
-(void)fprintf(stderr, "usage: %s [-ab]\en", __progname);
+fprintf(stderr, "usage: %s [-ab]\en", getprogname());
 exit(1);
 .Ed
 .Pp

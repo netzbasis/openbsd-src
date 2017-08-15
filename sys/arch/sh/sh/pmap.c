@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.25 2016/06/07 06:23:19 dlg Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.28 2016/10/19 08:28:20 guenther Exp $	*/
 /*	$NetBSD: pmap.c,v 1.55 2006/08/07 23:19:36 tsutsui Exp $	*/
 
 /*-
@@ -203,12 +203,10 @@ void
 pmap_init(void)
 {
 	/* Initialize pmap module */
-	pool_init(&__pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	pool_init(&__pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
 	    "pmappl", &pool_allocator_single);
-	pool_setipl(&__pmap_pmap_pool, IPL_NONE);
-	pool_init(&__pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvpl",
-	    &pmap_pv_page_allocator);
-	pool_setipl(&__pmap_pv_pool, IPL_VM);
+	pool_init(&__pmap_pv_pool, sizeof(struct pv_entry), 0, IPL_VM, 0,
+	    "pvpl", &pmap_pv_page_allocator);
 	pool_setlowat(&__pmap_pv_pool, 16);
 }
 
@@ -758,7 +756,7 @@ pmap_unwire(pmap_t pmap, vaddr_t va)
 }
 
 void
-pmap_proc_iflush(struct proc *p, vaddr_t va, size_t len)
+pmap_proc_iflush(struct process *pr, vaddr_t va, vsize_t len)
 {
 	if (!SH_HAS_UNIFIED_CACHE)
 		sh_icache_sync_range_index(va, len);
@@ -1069,7 +1067,6 @@ int
 __pmap_asid_alloc(void)
 {
 	struct process *pr;
-	struct proc *p;
 	int i, j, k, n, map, asid;
 
 	/* Search free ASID */
@@ -1094,14 +1091,9 @@ __pmap_asid_alloc(void)
 	 * too many processes.
 	 */
 	LIST_FOREACH(pr, &allprocess, ps_list) {
-		/* find a thread that still has the process vmspace attached */
-		TAILQ_FOREACH(p, &pr->ps_threads, p_thr_link)
-			if (p->p_vmspace != NULL)
-				break;
-		if (p == NULL)
-			continue;
-		if ((asid = p->p_vmspace->vm_map.pmap->pm_asid) > 0) {
-			pmap_t pmap = p->p_vmspace->vm_map.pmap;
+		pmap_t pmap = pr->ps_vmspace->vm_map.pmap;
+
+		if ((asid = pmap->pm_asid) > 0) {
 			pmap->pm_asid = -1;
 			__pmap_asid.hint = asid;
 			/* Invalidate all old ASID entry */

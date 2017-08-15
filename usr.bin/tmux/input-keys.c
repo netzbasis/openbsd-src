@@ -1,4 +1,4 @@
-/* $OpenBSD: input-keys.c,v 1.55 2016/03/02 15:33:36 nicm Exp $ */
+/* $OpenBSD: input-keys.c,v 1.62 2017/06/28 11:36:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -31,7 +31,7 @@
  * direction with output).
  */
 
-void	 input_key_mouse(struct window_pane *, struct mouse_event *);
+static void	 input_key_mouse(struct window_pane *, struct mouse_event *);
 
 struct input_key_ent {
 	key_code	 key;
@@ -42,9 +42,13 @@ struct input_key_ent {
 #define INPUTKEY_CURSOR 0x2	/* cursor key */
 };
 
-const struct input_key_ent input_keys[] = {
+static const struct input_key_ent input_keys[] = {
 	/* Backspace key. */
 	{ KEYC_BSPACE,		"\177",		0 },
+
+	/* Paste keys. */
+	{ KEYC_PASTE_START,	"\033[200~",	0 },
+	{ KEYC_PASTE_END,	"\033[201~",	0 },
 
 	/* Function keys. */
 	{ KEYC_F1,		"\033OP",	0 },
@@ -173,7 +177,7 @@ input_key(struct window_pane *wp, key_code key, struct mouse_event *m)
 	 * If this is a normal 7-bit key, just send it, with a leading escape
 	 * if necessary. If it is a UTF-8 key, split it and send it.
 	 */
-	justkey = (key & ~KEYC_ESCAPE);
+	justkey = (key & ~(KEYC_XTERM|KEYC_ESCAPE));
 	if (justkey <= 0x7f) {
 		if (key & KEYC_ESCAPE)
 			bufferevent_write(wp->event, "\033", 1);
@@ -201,6 +205,7 @@ input_key(struct window_pane *wp, key_code key, struct mouse_event *m)
 			return;
 		}
 	}
+	key &= ~KEYC_XTERM;
 
 	/* Otherwise look the key up in the table. */
 	for (i = 0; i < nitems(input_keys); i++) {
@@ -232,23 +237,45 @@ input_key(struct window_pane *wp, key_code key, struct mouse_event *m)
 }
 
 /* Translate mouse and output. */
-void
+static void
 input_key_mouse(struct window_pane *wp, struct mouse_event *m)
 {
-	char	buf[40];
-	size_t	len;
-	u_int	x, y;
+	struct screen	*s = wp->screen;
+	int		 mode = s->mode;
+	char		 buf[40];
+	size_t		 len;
+	u_int		 x, y;
 
-	if ((wp->screen->mode & ALL_MOUSE_MODES) == 0)
+	if ((mode & ALL_MOUSE_MODES) == 0)
 		return;
 	if (!window_pane_visible(wp))
 		return;
 	if (cmd_mouse_at(wp, m, &x, &y, 0) != 0)
 		return;
 
-	/* If this pane is not in button mode, discard motion events. */
-	if (!(wp->screen->mode & MODE_MOUSE_BUTTON) && (m->b & MOUSE_MASK_DRAG))
-		return;
+	/* If this pane is not in button or all mode, discard motion events. */
+	if (MOUSE_DRAG(m->b) &&
+	    (mode & (MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)) == 0)
+	    return;
+
+	/*
+	 * If this event is a release event and not in all mode, discard it.
+	 * In SGR mode we can tell absolutely because a release is normally
+	 * shown by the last character. Without SGR, we check if the last
+	 * buttons was also a release.
+	 */
+	if (m->sgr_type != ' ') {
+		if (MOUSE_DRAG(m->sgr_b) &&
+		    MOUSE_BUTTONS(m->sgr_b) == 3 &&
+		    (~mode & MODE_MOUSE_ALL))
+			return;
+	} else {
+		if (MOUSE_DRAG(m->b) &&
+		    MOUSE_BUTTONS(m->b) == 3 &&
+		    MOUSE_BUTTONS(m->lb) == 3 &&
+		    (~mode & MODE_MOUSE_ALL))
+			return;
+	}
 
 	/*
 	 * Use the SGR (1006) extension only if the application requested it
@@ -259,10 +286,10 @@ input_key_mouse(struct window_pane *wp, struct mouse_event *m)
 	 * UTF-8 (1005) extension if the application requested, or to the
 	 * legacy format.
 	 */
-	if (m->sgr_type != ' ' && (wp->screen->mode & MODE_MOUSE_SGR)) {
+	if (m->sgr_type != ' ' && (s->mode & MODE_MOUSE_SGR)) {
 		len = xsnprintf(buf, sizeof buf, "\033[<%u;%u;%u%c",
 		    m->sgr_b, x + 1, y + 1, m->sgr_type);
-	} else if (wp->screen->mode & MODE_MOUSE_UTF8) {
+	} else if (s->mode & MODE_MOUSE_UTF8) {
 		if (m->b > 0x7ff - 32 || x > 0x7ff - 33 || y > 0x7ff - 33)
 			return;
 		len = xsnprintf(buf, sizeof buf, "\033[M");

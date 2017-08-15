@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vte.c,v 1.18 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_vte.c,v 1.20 2017/07/19 07:02:52 claudio Exp $	*/
 /*-
  * Copyright (c) 2010, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -838,7 +838,6 @@ vte_stats_update(struct vte_softc *sc)
 	stat->rx_pause_frames += (value & 0xFF);
 
 	/* Update ifp counters. */
-	ifp->if_opackets = stat->tx_frames;
 	ifp->if_collisions = stat->tx_late_colls;
 	ifp->if_oerrors = stat->tx_late_colls + stat->tx_underruns;
 	ifp->if_ierrors = stat->rx_crcerrs + stat->rx_runts +
@@ -1354,6 +1353,7 @@ vte_init_tx_ring(struct vte_softc *sc)
 		MCLGET(sc->vte_cdata.vte_txmbufs[i], M_DONTWAIT);
 		if (!(sc->vte_cdata.vte_txmbufs[i]->m_flags & M_EXT)) {
 			m_freem(sc->vte_cdata.vte_txmbufs[i]);
+			sc->vte_cdata.vte_txmbufs[i] = NULL;
 			return (ENOBUFS);
 		}
 		sc->vte_cdata.vte_txmbufs[i]->m_pkthdr.len = MCLBYTES;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: umsm.c,v 1.106 2016/06/01 13:20:01 chris Exp $	*/
+/*	$OpenBSD: umsm.c,v 1.109 2017/04/08 02:57:25 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2008 Yojiro UO <yuo@nui.org>
@@ -211,9 +211,10 @@ static const struct umsm_type umsm_devs[] = {
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GT3GQUAD }, 0},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GT3GQUADPLUS }, 0},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GSICON72 }, DEV_UMASS1},
-	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GTHSDPA225 }, DEV_UMASS2},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GTHSUPA380E }, 0},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_GTMAX36 }, 0},
+	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_ICON225 }, DEV_UMASS2},
+	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_ICON505 }, DEV_UMASS1},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_SCORPION }, 0},
 	{{ USB_VENDOR_OPTION, USB_PRODUCT_OPTION_VODAFONEMC3G }, 0},
 
@@ -250,6 +251,7 @@ static const struct umsm_type umsm_devs[] = {
 	{{ USB_VENDOR_SIERRA, USB_PRODUCT_SIERRA_MC8355}, 0},
 	{{ USB_VENDOR_SIERRA, USB_PRODUCT_SIERRA_AIRCARD_340U}, 0},
 	{{ USB_VENDOR_SIERRA, USB_PRODUCT_SIERRA_AIRCARD_770S}, 0},
+	{{ USB_VENDOR_SIERRA, USB_PRODUCT_SIERRA_MC7455}, 0},
 
 	{{ USB_VENDOR_TCTMOBILE, USB_PRODUCT_TCTMOBILE_UMASS }, DEV_UMASS3},
 	{{ USB_VENDOR_TCTMOBILE, USB_PRODUCT_TCTMOBILE_UMASS_2 }, DEV_UMASS3},
@@ -434,7 +436,7 @@ umsm_detach(struct device *self, int flags)
 	if (sc->sc_intr_pipe != NULL) {
 		usbd_abort_pipe(sc->sc_intr_pipe);
 		usbd_close_pipe(sc->sc_intr_pipe);
-		free(sc->sc_intr_buf, M_USBDEV, 0);
+		free(sc->sc_intr_buf, M_USBDEV, sc->sc_isize);
 		sc->sc_intr_pipe = NULL;
 	}
 
@@ -494,7 +496,7 @@ umsm_close(void *addr, int portno)
 			printf("%s: close interrupt pipe failed: %s\n",
 			    sc->sc_dev.dv_xname,
 			    usbd_errstr(err));
-		free(sc->sc_intr_buf, M_USBDEV, 0);
+		free(sc->sc_intr_buf, M_USBDEV, sc->sc_isize);
 		sc->sc_intr_pipe = NULL;
 	}
 }

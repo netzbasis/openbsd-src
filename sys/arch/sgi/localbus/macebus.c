@@ -1,4 +1,4 @@
-/*	$OpenBSD: macebus.c,v 1.64 2016/03/06 19:42:27 mpi Exp $ */
+/*	$OpenBSD: macebus.c,v 1.66 2017/05/11 15:47:45 visa Exp $ */
 
 /*
  * Copyright (c) 2000-2004 Opsycon AB  (www.opsycon.se)
@@ -99,8 +99,7 @@ void	*mace_space_vaddr(bus_space_tag_t, bus_space_handle_t);
 void	 mace_space_barrier(bus_space_tag_t, bus_space_handle_t, bus_size_t,
 	    bus_size_t, int);
 
-bus_addr_t macebus_pa_to_device(paddr_t);
-paddr_t	 macebus_device_to_pa(bus_addr_t);
+bus_addr_t macebus_pa_to_device(paddr_t, int);
 
 struct cfattach macebus_ca = {
 	sizeof(struct device), macebusmatch, macebusattach
@@ -158,7 +157,6 @@ struct machine_bus_dma_tag mace_bus_dma_tag = {
 	_dmamem_unmap,
 	_dmamem_mmap,
 	macebus_pa_to_device,
-	macebus_device_to_pa,
 	CRIME_MEMORY_MASK
 };
 
@@ -457,20 +455,9 @@ mace_space_barrier(bus_space_tag_t t, bus_space_handle_t h, bus_size_t offs,
  */
 
 bus_addr_t
-macebus_pa_to_device(paddr_t pa)
+macebus_pa_to_device(paddr_t pa, int flags)
 {
 	return (pa | CRIME_MEMORY_OFFSET);
-}
-
-paddr_t
-macebus_device_to_pa(bus_addr_t addr)
-{
-	paddr_t pa = (paddr_t)addr & CRIME_MEMORY_MASK;
-
-	if (pa >= 256 * 1024 * 1024)
-		pa |= CRIME_MEMORY_OFFSET;
-
-	return (pa);
 }
 
 /*
@@ -493,6 +480,8 @@ macebus_intr_establish(int irq, uint32_t mace_irqmask, int type, int level,
 	struct crime_intrhand **p, *q, *ih;
 	int s;
 
+	level &= ~IPL_MPSAFE;
+
 #ifdef DIAGNOSTIC
 	if (irq >= CRIME_NINTS || irq < 0)
 		panic("intr_establish: illegal irq %d", irq);
@@ -507,6 +496,7 @@ macebus_intr_establish(int irq, uint32_t mace_irqmask, int type, int level,
 	ih->ih.ih_arg = ih_arg;
 	ih->ih.ih_level = level;
 	ih->ih.ih_irq = irq;
+	ih->ih.ih_flags = 0;
 	ih->mace_irqmask = mace_irqmask;
 	evcount_attach(&ih->ih.ih_count, ih_what, &ih->ih.ih_irq);
 

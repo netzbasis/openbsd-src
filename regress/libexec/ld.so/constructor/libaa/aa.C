@@ -1,15 +1,14 @@
 /*
  * Public Domain 2003 Dale Rahn
  *
- * $OpenBSD: aa.C,v 1.1 2003/02/01 19:56:17 drahn Exp $
+ * $OpenBSD: aa.C,v 1.4 2017/08/07 16:33:52 bluhm Exp $
  */
 
-#include "iostream.h"
 #include "aa.h"
-int a;
+volatile int a;
 
 
-AA::AA(char *arg)
+AA::AA(const char *arg)
 {
 	a = 1;
 }

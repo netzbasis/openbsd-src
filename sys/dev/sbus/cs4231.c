@@ -1,4 +1,4 @@
-/*	$OpenBSD: cs4231.c,v 1.35 2015/05/11 06:52:35 ratchov Exp $	*/
+/*	$OpenBSD: cs4231.c,v 1.38 2017/01/04 07:33:14 ratchov Exp $	*/
 
 /*
  * Copyright (c) 1999 Jason L. Wright (jason@thought.net)
@@ -134,14 +134,12 @@ u_int8_t	cs4231_read(struct cs4231_softc *, u_int8_t);
 /* Audio interface */
 int	cs4231_open(void *, int);
 void	cs4231_close(void *);
-int	cs4231_query_encoding(void *, struct audio_encoding *);
 int	cs4231_set_params(void *, int, int, struct audio_params *,
     struct audio_params *);
 int	cs4231_round_blocksize(void *, int);
 int	cs4231_commit_settings(void *);
 int	cs4231_halt_output(void *);
 int	cs4231_halt_input(void *);
-int	cs4231_getdev(void *, struct audio_device *);
 int	cs4231_set_port(void *, mixer_ctrl_t *);
 int	cs4231_get_port(void *, mixer_ctrl_t *);
 int	cs4231_query_devinfo(void *, mixer_devinfo_t *);
@@ -156,8 +154,6 @@ int	cs4231_trigger_input(void *, void *, void *, int,
 struct audio_hw_if cs4231_sa_hw_if = {
 	cs4231_open,
 	cs4231_close,
-	0,
-	cs4231_query_encoding,
 	cs4231_set_params,
 	cs4231_round_blocksize,
 	cs4231_commit_settings,
@@ -168,7 +164,6 @@ struct audio_hw_if cs4231_sa_hw_if = {
 	cs4231_halt_output,
 	cs4231_halt_input,
 	0,
-	cs4231_getdev,
 	0,
 	cs4231_set_port,
 	cs4231_get_port,
@@ -176,11 +171,9 @@ struct audio_hw_if cs4231_sa_hw_if = {
 	cs4231_alloc,
 	cs4231_free,
 	0,
-	0,
 	cs4231_get_props,
 	cs4231_trigger_output,
-	cs4231_trigger_input,
-	0
+	cs4231_trigger_input
 };
 
 struct cfattach audiocs_ca = {
@@ -189,12 +182,6 @@ struct cfattach audiocs_ca = {
 
 struct cfdriver audiocs_cd = {
 	NULL, "audiocs", DV_DULL
-};
-
-struct audio_device cs4231_device = {
-	"SUNW,CS4231",
-	"b",
-	"onboard1",
 };
 
 int
@@ -484,69 +471,6 @@ cs4231_close(void *vsc)
 }
 
 int
-cs4231_query_encoding(void *vsc, struct audio_encoding *fp)
-{
-	int err = 0;
-
-	switch (fp->index) {
-	case 0:
-		strlcpy(fp->name, AudioEmulaw, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 1:
-		strlcpy(fp->name, AudioEalaw, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ALAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 2:
-		strlcpy(fp->name, AudioEslinear_le, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR_LE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 3:
-		strlcpy(fp->name, AudioEulinear, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 4:
-		strlcpy(fp->name, AudioEslinear_be, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 5:
-		strlcpy(fp->name, AudioEslinear, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR;
-		fp->precision = 8;
-		fp->flags = AUDIO_ENCODINGFLAG_EMULATED;
-		break;
-	case 6:
-		strlcpy(fp->name, AudioEulinear_le, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR_LE;
-		fp->precision = 16;
-		fp->flags = AUDIO_ENCODINGFLAG_EMULATED;
-		break;
-	case 7:
-		strlcpy(fp->name, AudioEulinear_be, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR_BE;
-		fp->precision = 16;
-		fp->flags = AUDIO_ENCODINGFLAG_EMULATED;
-		break;
-	default:
-		err = EINVAL;
-	}
-	fp->bps = AUDIO_BPS(fp->precision);
-	fp->msb = 1;
-
-	return (err);
-}
-
-int
 cs4231_set_params(void *vsc, int setmode, int usemode,
     struct audio_params *p, struct audio_params *r)
 {
@@ -570,11 +494,6 @@ cs4231_set_params(void *vsc, int setmode, int usemode,
 		else
 			return (EINVAL);
 		break;
-	case AUDIO_ENCODING_ULINEAR:
-		if (p->precision != 8)
-			return (EINVAL);
-		bits = FMT_PCM8 >> 5;
-		break;
 	case AUDIO_ENCODING_SLINEAR_BE:
 		if (p->precision == 16)
 			bits = FMT_TWOS_COMP_BE >> 5;
@@ -582,11 +501,6 @@ cs4231_set_params(void *vsc, int setmode, int usemode,
 			return (EINVAL);
 		break;
 	case AUDIO_ENCODING_ULINEAR_LE:
-		if (p->precision == 8)
-			bits = FMT_PCM8 >> 5;
-		else
-			return (EINVAL);
-		break;
 	case AUDIO_ENCODING_ULINEAR_BE:
 		if (p->precision == 8)
 			bits = FMT_PCM8 >> 5;
@@ -714,13 +628,6 @@ cs4231_halt_input(void *vsc)
 	    cs4231_read(sc, SP_INTERFACE_CONFIG) & (~CAPTURE_ENABLE));
 	sc->sc_capture.cs_locked = 0;
 	mtx_leave(&audio_lock);
-	return (0);
-}
-
-int
-cs4231_getdev(void *vsc, struct audio_device *retp)
-{
-	*retp = cs4231_device;
 	return (0);
 }
 

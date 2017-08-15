@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.61 2016/08/14 23:18:03 guenther Exp $
+#	$OpenBSD: Makefile.inc,v 1.63 2017/03/24 16:15:31 otto Exp $
 
 # stdlib sources
 .PATH: ${LIBCSRCDIR}/arch/${MACHINE_CPU}/stdlib ${LIBCSRCDIR}/stdlib

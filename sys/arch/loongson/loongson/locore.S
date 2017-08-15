@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.5 2013/06/05 01:28:04 pirofti Exp $ */
+/*	$OpenBSD: locore.S,v 1.8 2017/06/08 11:44:00 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -39,10 +39,9 @@
 
 	.set	noreorder		# Noreorder is default style!
 
-	.globl	start
-	.globl	kernel_text
-kernel_text = start
-start:
+	.globl	locore_start
+	.ent	locore_start, 0
+locore_start:
 	mfc0    v0, COP_0_STATUS_REG
 	li	v1, ~SR_INT_ENAB
 	and	v0, v1
@@ -74,6 +73,7 @@ start:
 	PTR_L	sp, 0(sp)
 	jr	ra
 	nop
+	.end	locore_start
 
 #ifdef HIBERNATE
 
@@ -93,3 +93,37 @@ LEAF(hibernate_resume_machdep, 0)					/* { */
 END(hibernate_resume_machdep)					/* } */
 
 #endif /* HIBERNATE */
+
+#ifdef MULTIPROCESSOR
+
+LEAF(hw_cpu_spinup_trampoline, 0)
+	/* Disable interrupts. */
+	mfc0    v0, COP_0_STATUS_REG
+	li	v1, ~SR_INT_ENAB
+	and	v0, v1
+	mtc0    v0, COP_0_STATUS_REG
+
+	/* Clear any pending soft interrupts. */
+	mtc0	zero, COP_0_CAUSE_REG
+
+	LA	t0, cpu_spinup_a0
+	ld	a0, 0(t0)
+	LA	t0, cpu_spinup_sp
+	ld	sp, 0(t0)
+	jal	hw_cpu_hatch
+	 LA	gp, _gp
+END(hw_cpu_spinup_trampoline)
+
+LEAF(hw_getcurcpu, 0)
+	GET_CPU_INFO(v0, v1)
+	jr	ra
+	nop
+END(hw_getcurcpu)
+
+LEAF(hw_setcurcpu, 0)
+	dmtc0	a0, COP_0_ERROR_PC
+	jr	ra
+	nop
+END(hw_setcurcpu)
+
+#endif /* MULTIPROCESSOR */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: netisr.h,v 1.47 2016/09/01 10:06:33 goda Exp $	*/
+/*	$OpenBSD: netisr.h,v 1.49 2017/05/28 12:51:34 yasuoka Exp $	*/
 /*	$NetBSD: netisr.h,v 1.12 1995/08/12 23:59:24 mycroft Exp $	*/
 
 /*
@@ -36,15 +36,6 @@
 #define _NET_NETISR_H_
 
 /*
- * The networking code runs off software interrupts.
- *
- * You can switch into the network by doing splsoftnet() and return by splx().
- * The software interrupt level for the network is higher than the software
- * level for the clock (so you can enter the network in routines called
- * at timeout time).
- */
-
-/*
  * Each ``pup-level-1'' input queue has a bit in a ``netisr'' status
  * word which is used to de-multiplex a single software
  * interrupt used for scheduling the network code to calls
@@ -57,6 +48,7 @@
 #define	NETISR_IPV6	24		/* same as AF_INET6 */
 #define	NETISR_ISDN	26		/* same as AF_E164 */
 #define	NETISR_PPP	28		/* for PPP processing */
+#define	NETISR_PIPEX	27		/* for pipex processing */
 #define	NETISR_BRIDGE	29		/* for bridge processing */
 #define	NETISR_PPPOE	30		/* for pppoe processing */
 #define	NETISR_SWITCH	31		/* for switch dataplane */
@@ -78,6 +70,7 @@ void	bridgeintr(void);
 void	pppoeintr(void);
 void	switchintr(void);
 void	pfsyncintr(void);
+void	pipexintr(void);
 
 #define	schednetisr(anisr)						\
 do {									\

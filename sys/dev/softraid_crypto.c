@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid_crypto.c,v 1.131 2016/09/08 17:39:08 jsing Exp $ */
+/* $OpenBSD: softraid_crypto.c,v 1.137 2017/06/12 16:39:51 jsing Exp $ */
 /*
  * Copyright (c) 2007 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Hans-Joerg Hoexer <hshoexer@openbsd.org>
@@ -64,7 +64,6 @@ struct sr_crypto_wu {
 	struct uio			 cr_uio;
 	struct iovec			 cr_iov;
 	struct cryptop	 		*cr_crp;
-	struct cryptodesc		*cr_descs;
 	void				*cr_dmabuf;
 };
 
@@ -88,11 +87,11 @@ int		sr_crypto_ioctl(struct sr_discipline *,
 		    struct bioc_discipline *);
 int		sr_crypto_meta_opt_handler(struct sr_discipline *,
 		    struct sr_meta_opt_hdr *);
-int		sr_crypto_write(struct cryptop *);
+void		sr_crypto_write(struct cryptop *);
 int		sr_crypto_rw(struct sr_workunit *);
 int		sr_crypto_dev_rw(struct sr_workunit *, struct sr_crypto_wu *);
 void		sr_crypto_done(struct sr_workunit *);
-int		sr_crypto_read(struct cryptop *);
+void		sr_crypto_read(struct cryptop *);
 void		sr_crypto_calculate_check_hmac_sha1(u_int8_t *, int,
 		   u_int8_t *, int, u_char *);
 void		sr_crypto_hotplug(struct sr_discipline *, struct disk *, int);
@@ -138,7 +137,13 @@ sr_crypto_create(struct sr_discipline *sd, struct bioc_createraid *bc,
 		sr_error(sd->sd_sc, "%s requires exactly one chunk",
 		    sd->sd_name);
 		goto done;
-        }
+	}
+
+	if (coerced_size > SR_CRYPTO_MAXSIZE) {
+		sr_error(sd->sd_sc, "%s exceeds maximum size (%lli > %llu)",
+		    sd->sd_name, coerced_size, SR_CRYPTO_MAXSIZE);
+		goto done;
+	}
 
 	/* Create crypto optional metadata. */
 	omi = malloc(sizeof(struct sr_meta_opt_item), M_DEVBUF,
@@ -270,15 +275,11 @@ sr_crypto_prepare(struct sr_workunit *wu, int encrypt)
 
 	/*
 	 * We preallocated enough crypto descs for up to MAXPHYS of I/O.
-	 * Since there may be less than that we need to tweak the linked list
+	 * Since there may be less than that we need to tweak the amount
 	 * of crypto desc structures to be just long enough for our needs.
 	 */
-	crd = crwu->cr_descs;
-	for (i = 0; i < ((MAXPHYS >> DEV_BSHIFT) - n); i++) {
-		crd = crd->crd_next;
-		KASSERT(crd);
-	}
-	crwu->cr_crp->crp_desc = crd;
+	KASSERT(crwu->cr_crp->crp_ndescalloc >= n);
+	crwu->cr_crp->crp_ndesc = n;
 	flags = (encrypt ? CRD_F_ENCRYPT : 0) |
 	    CRD_F_IV_PRESENT | CRD_F_IV_EXPLICIT;
 
@@ -297,8 +298,8 @@ sr_crypto_prepare(struct sr_workunit *wu, int encrypt)
 	crwu->cr_crp->crp_alloctype = M_DEVBUF;
 	crwu->cr_crp->crp_flags = CRYPTO_F_IOV | CRYPTO_F_NOQUEUE;
 	crwu->cr_crp->crp_buf = &crwu->cr_uio;
-	for (i = 0, crd = crwu->cr_crp->crp_desc; crd;
-	    i++, blkno++, crd = crd->crd_next) {
+	for (i = 0; i < crwu->cr_crp->crp_ndesc; i++, blkno++) {
+		crd = &crwu->cr_crp->crp_desc[i];
 		crd->crd_skip = i << DEV_BSHIFT;
 		crd->crd_len = DEV_BSIZE;
 		crd->crd_inject = 0;
@@ -893,6 +894,19 @@ done:
 	return key_disk;
 }
 
+static void
+sr_crypto_free_sessions(struct sr_discipline *sd)
+{
+	u_int			i;
+
+	for (i = 0; i < SR_CRYPTO_MAXKEYS; i++) {
+		if (sd->mds.mdd_crypto.scr_sid[i] != (u_int64_t)-1) {
+			crypto_freesession(sd->mds.mdd_crypto.scr_sid[i]);
+			sd->mds.mdd_crypto.scr_sid[i] = (u_int64_t)-1;
+		}
+	}
+}
+
 int
 sr_crypto_alloc_resources(struct sr_discipline *sd)
 {
@@ -946,7 +960,6 @@ sr_crypto_alloc_resources(struct sr_discipline *sd)
 		crwu->cr_crp = crypto_getreq(MAXPHYS >> DEV_BSHIFT);
 		if (crwu->cr_crp == NULL)
 			return (ENOMEM);
-		crwu->cr_descs = crwu->cr_crp->crp_desc;
 	}
 
 	memset(&cri, 0, sizeof(cri));
@@ -954,20 +967,15 @@ sr_crypto_alloc_resources(struct sr_discipline *sd)
 	cri.cri_klen = sd->mds.mdd_crypto.scr_klen;
 
 	/* Allocate a session for every 2^SR_CRYPTO_KEY_BLKSHIFT blocks. */
-	num_keys = sd->sd_meta->ssdi.ssd_size >> SR_CRYPTO_KEY_BLKSHIFT;
-	if (num_keys >= SR_CRYPTO_MAXKEYS)
+	num_keys = ((sd->sd_meta->ssdi.ssd_size - 1) >>
+	    SR_CRYPTO_KEY_BLKSHIFT) + 1;
+	if (num_keys > SR_CRYPTO_MAXKEYS)
 		return (EFBIG);
-	for (i = 0; i <= num_keys; i++) {
+	for (i = 0; i < num_keys; i++) {
 		cri.cri_key = sd->mds.mdd_crypto.scr_key[i];
 		if (crypto_newsession(&sd->mds.mdd_crypto.scr_sid[i],
 		    &cri, 0) != 0) {
-			for (i = 0;
-			     sd->mds.mdd_crypto.scr_sid[i] != (u_int64_t)-1;
-			     i++) {
-				crypto_freesession(
-				    sd->mds.mdd_crypto.scr_sid[i]);
-				sd->mds.mdd_crypto.scr_sid[i] = (u_int64_t)-1;
-			}
+			sr_crypto_free_sessions(sd);
 			return (EINVAL);
 		}
 	}
@@ -982,7 +990,6 @@ sr_crypto_free_resources(struct sr_discipline *sd)
 {
 	struct sr_workunit	*wu;
 	struct sr_crypto_wu	*crwu;
-	u_int			i;
 
 	DNPRINTF(SR_D_DIS, "%s: sr_crypto_free_resources\n",
 	    DEVNAME(sd->sd_sc));
@@ -996,19 +1003,14 @@ sr_crypto_free_resources(struct sr_discipline *sd)
 
 	sr_hotplug_unregister(sd, sr_crypto_hotplug);
 
-	for (i = 0; sd->mds.mdd_crypto.scr_sid[i] != (u_int64_t)-1; i++) {
-		crypto_freesession(sd->mds.mdd_crypto.scr_sid[i]);
-		sd->mds.mdd_crypto.scr_sid[i] = (u_int64_t)-1;
-	}
+	sr_crypto_free_sessions(sd);
 
 	TAILQ_FOREACH(wu, &sd->sd_wu, swu_next) {
 		crwu = (struct sr_crypto_wu *)wu;
 		if (crwu->cr_dmabuf)
 			dma_free(crwu->cr_dmabuf, MAXPHYS);
-		if (crwu->cr_crp) {
-			crwu->cr_crp->crp_desc = crwu->cr_descs;
+		if (crwu->cr_crp)
 			crypto_freereq(crwu->cr_crp);
-		}
 	}
 
 	sr_wu_free(sd);
@@ -1117,7 +1119,7 @@ sr_crypto_rw(struct sr_workunit *wu)
 	return (rv);
 }
 
-int
+void
 sr_crypto_write(struct cryptop *crp)
 {
 	struct sr_crypto_wu	*crwu = crp->crp_opaque;
@@ -1135,7 +1137,7 @@ sr_crypto_write(struct cryptop *crp)
 		splx(s);
 	}
 
-	return (sr_crypto_dev_rw(wu, crwu));
+	sr_crypto_dev_rw(wu, crwu);
 }
 
 int
@@ -1195,7 +1197,7 @@ sr_crypto_done(struct sr_workunit *wu)
 	splx(s);
 }
 
-int
+void
 sr_crypto_read(struct cryptop *crp)
 {
 	struct sr_crypto_wu	*crwu = crp->crp_opaque;
@@ -1211,8 +1213,6 @@ sr_crypto_read(struct cryptop *crp)
 	s = splbio();
 	sr_scsi_done(wu->swu_dis, wu->swu_xs);
 	splx(s);
-
-	return (0);
 }
 
 void

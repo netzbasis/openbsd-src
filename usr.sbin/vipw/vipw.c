@@ -1,4 +1,4 @@
-/*	$OpenBSD: vipw.c,v 1.18 2015/10/16 22:54:15 deraadt Exp $	 */
+/*	$OpenBSD: vipw.c,v 1.21 2017/07/12 23:10:28 jca Exp $	 */
 
 /*
  * Copyright (c) 1987, 1993, 1994
@@ -33,16 +33,15 @@
 #include <sys/stat.h>
 
 #include <err.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <util.h>
 
-void	copyfile(int, int, struct stat *);
-void	usage(void);
+void		copyfile(int, int, struct stat *);
+__dead void	usage(void);
 
 int
 main(int argc, char *argv[])
@@ -89,7 +88,8 @@ main(int argc, char *argv[])
 			break;
 		pw_prompt();
 	}
-	exit(0);
+
+	return 0;
 }
 
 void
@@ -113,7 +113,7 @@ copyfile(int from, int to, struct stat *sb)
 	(void)futimens(to, ts);
 }
 
-void
+__dead void
 usage(void)
 {
 	extern char *__progname;

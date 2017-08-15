@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.49 2016/09/04 12:26:43 bcook Exp $ */
+/* $OpenBSD: tls.c,v 1.69 2017/08/09 21:27:24 claudio Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -26,6 +26,8 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <openssl/safestack.h>
+#include <openssl/ssl.h>
 #include <openssl/x509.h>
 
 #include <tls.h>
@@ -50,6 +52,8 @@ tls_init(void)
 	if ((tls_config_default = tls_config_new()) == NULL)
 		return (-1);
 
+	tls_config_default->refcount++;
+
 	tls_initialised = 1;
 
 	return (0);
@@ -61,15 +65,25 @@ tls_error(struct tls *ctx)
 	return ctx->error.msg;
 }
 
+void
+tls_error_clear(struct tls_error *error)
+{
+	free(error->msg);
+	error->msg = NULL;
+	error->num = 0;
+	error->tls = 0;
+}
+
 static int
 tls_error_vset(struct tls_error *error, int errnum, const char *fmt, va_list ap)
 {
 	char *errmsg = NULL;
 	int rv = -1;
 
-	free(error->msg);
-	error->msg = NULL;
+	tls_error_clear(error);
+
 	error->num = errnum;
+	error->tls = 1;
 
 	if (vasprintf(&errmsg, fmt, ap) == -1) {
 		errmsg = NULL;
@@ -177,6 +191,23 @@ tls_set_errorx(struct tls *ctx, const char *fmt, ...)
 	return (rv);
 }
 
+int
+tls_set_ssl_errorx(struct tls *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	int rv;
+
+	/* Only set an error if a more specific one does not already exist. */
+	if (ctx->error.tls != 0)
+		return (0);
+
+	va_start(ap, fmt);
+	rv = tls_error_vset(&ctx->error, -1, fmt, ap);
+	va_end(ap);
+
+	return (rv);
+}
+
 struct tls_sni_ctx *
 tls_sni_ctx_new(void)
 {
@@ -203,9 +234,8 @@ tls_new(void)
 	if ((ctx = calloc(1, sizeof(*ctx))) == NULL)
 		return (NULL);
 
-	ctx->config = tls_config_default;
-
 	tls_reset(ctx);
+	tls_configure(ctx, tls_config_default);
 
 	return (ctx);
 }
@@ -216,6 +246,9 @@ tls_configure(struct tls *ctx, struct tls_config *config)
 	if (config == NULL)
 		config = tls_config_default;
 
+	config->refcount++;
+
+	tls_config_free(ctx->config);
 	ctx->config = config;
 
 	if ((ctx->flags & TLS_SERVER) != 0)
@@ -225,11 +258,74 @@ tls_configure(struct tls *ctx, struct tls_config *config)
 }
 
 int
+tls_cert_hash(X509 *cert, char **hash)
+{
+	char d[EVP_MAX_MD_SIZE], *dhex = NULL;
+	int dlen, rv = -1;
+
+	*hash = NULL;
+	if (X509_digest(cert, EVP_sha256(), d, &dlen) != 1)
+		goto err;
+
+	if (tls_hex_string(d, dlen, &dhex, NULL) != 0)
+		goto err;
+
+	if (asprintf(hash, "SHA256:%s", dhex) == -1) {
+		*hash = NULL;
+		goto err;
+	}
+
+	rv = 0;
+ err:
+	free(dhex);
+
+	return (rv);
+}
+
+static int
+tls_keypair_pubkey_hash(struct tls_keypair *keypair, char **hash)
+{
+	BIO *membio = NULL;
+	X509 *cert = NULL;
+	char d[EVP_MAX_MD_SIZE], *dhex = NULL;
+	int dlen, rv = -1;
+
+	*hash = NULL;
+
+	if ((membio = BIO_new_mem_buf(keypair->cert_mem,
+	    keypair->cert_len)) == NULL)
+		goto err;
+	if ((cert = PEM_read_bio_X509_AUX(membio, NULL, tls_password_cb,
+	    NULL)) == NULL)
+		goto err;
+
+	if (X509_pubkey_digest(cert, EVP_sha256(), d, &dlen) != 1)
+		goto err;
+
+	if (tls_hex_string(d, dlen, &dhex, NULL) != 0)
+		goto err;
+
+	if (asprintf(hash, "SHA256:%s", dhex) == -1) {
+		*hash = NULL;
+		goto err;
+	}
+
+	rv = 0;
+
+ err:
+	free(dhex);
+	X509_free(cert);
+	BIO_free(membio);
+
+	return (rv);
+}
+
+
+int
 tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
     struct tls_keypair *keypair, int required)
 {
 	EVP_PKEY *pkey = NULL;
-	X509 *cert = NULL;
 	BIO *bio = NULL;
 
 	if (!required &&
@@ -248,8 +344,10 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 			tls_set_errorx(ctx, "failed to load certificate");
 			goto err;
 		}
-		cert = NULL;
+		if (tls_keypair_pubkey_hash(keypair, &keypair->pubkey_hash) == -1)
+			goto err;
 	}
+
 	if (keypair->key_mem != NULL) {
 		if (keypair->key_len > INT_MAX) {
 			tls_set_errorx(ctx, "key too long");
@@ -261,11 +359,21 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 			tls_set_errorx(ctx, "failed to create buffer");
 			goto err;
 		}
-		if ((pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL,
+		if ((pkey = PEM_read_bio_PrivateKey(bio, NULL, tls_password_cb,
 		    NULL)) == NULL) {
 			tls_set_errorx(ctx, "failed to read private key");
 			goto err;
 		}
+
+		if (keypair->pubkey_hash != NULL) {
+			RSA *rsa;
+			/* XXX only RSA for now for relayd privsep */
+			if ((rsa = EVP_PKEY_get1_RSA(pkey)) != NULL) {
+				RSA_set_ex_data(rsa, 0, keypair->pubkey_hash);
+				RSA_free(rsa);
+			}
+		}
+
 		if (SSL_CTX_use_PrivateKey(ssl_ctx, pkey) != 1) {
 			tls_set_errorx(ctx, "failed to load private key");
 			goto err;
@@ -276,7 +384,8 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 		pkey = NULL;
 	}
 
-	if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
+	if (!ctx->config->skip_private_key_check &&
+	    SSL_CTX_check_private_key(ssl_ctx) != 1) {
 		tls_set_errorx(ctx, "private/public key mismatch");
 		goto err;
 	}
@@ -285,7 +394,6 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 
  err:
 	EVP_PKEY_free(pkey);
-	X509_free(cert);
 	BIO_free(bio);
 
 	return (1);
@@ -332,10 +440,38 @@ tls_configure_ssl(struct tls *ctx, SSL_CTX *ssl_ctx)
 		    X509_V_FLAG_NO_CHECK_TIME);
 	}
 
+	/* Disable any form of session caching by default */
+	SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_OFF);
+	SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TICKET);
+
 	return (0);
 
  err:
 	return (-1);
+}
+
+static int
+tls_ssl_cert_verify_cb(X509_STORE_CTX *x509_ctx, void *arg)
+{
+	struct tls *ctx = arg;
+	int x509_err;
+
+	if (ctx->config->verify_cert == 0)
+		return (1);
+
+	if ((X509_verify_cert(x509_ctx)) < 0) {
+		tls_set_errorx(ctx, "X509 verify cert failed");
+		return (0);
+	}
+
+	x509_err = X509_STORE_CTX_get_error(x509_ctx);
+	if (x509_err == X509_V_OK)
+		return (1);
+
+	tls_set_errorx(ctx, "certificate verification failed: %s",
+	    X509_verify_cert_error_string(x509_err));
+
+	return (0);
 }
 
 int
@@ -343,9 +479,24 @@ tls_configure_ssl_verify(struct tls *ctx, SSL_CTX *ssl_ctx, int verify)
 {
 	size_t ca_len = ctx->config->ca_len;
 	char *ca_mem = ctx->config->ca_mem;
+	char *crl_mem = ctx->config->crl_mem;
+	size_t crl_len = ctx->config->crl_len;
 	char *ca_free = NULL;
+	STACK_OF(X509_INFO) *xis = NULL;
+	X509_STORE *store;
+	X509_INFO *xi;
+	BIO *bio = NULL;
+	int rv = -1;
+	int i;
 
 	SSL_CTX_set_verify(ssl_ctx, verify, NULL);
+	SSL_CTX_set_cert_verify_callback(ssl_ctx, tls_ssl_cert_verify_cb, ctx);
+
+	if (ctx->config->verify_depth >= 0)
+		SSL_CTX_set_verify_depth(ssl_ctx, ctx->config->verify_depth);
+
+	if (ctx->config->verify_cert == 0)
+		goto done;
 
 	/* If no CA has been specified, attempt to load the default. */
 	if (ctx->config->ca_mem == NULL && ctx->config->ca_path == NULL) {
@@ -369,17 +520,45 @@ tls_configure_ssl_verify(struct tls *ctx, SSL_CTX *ssl_ctx, int verify)
 		tls_set_errorx(ctx, "ssl verify locations failure");
 		goto err;
 	}
-	if (ctx->config->verify_depth >= 0)
-		SSL_CTX_set_verify_depth(ssl_ctx, ctx->config->verify_depth);
 
-	free(ca_free);
+	if (crl_mem != NULL) {
+		if (crl_len > INT_MAX) {
+			tls_set_errorx(ctx, "crl too long");
+			goto err;
+		}
+		if ((bio = BIO_new_mem_buf(crl_mem, crl_len)) == NULL) {
+			tls_set_errorx(ctx, "failed to create buffer");
+			goto err;
+		}
+		if ((xis = PEM_X509_INFO_read_bio(bio, NULL, tls_password_cb,
+		    NULL)) == NULL) {
+			tls_set_errorx(ctx, "failed to parse crl");
+			goto err;
+		}
+		store = SSL_CTX_get_cert_store(ssl_ctx);
+		for (i = 0; i < sk_X509_INFO_num(xis); i++) {
+			xi = sk_X509_INFO_value(xis, i);
+			if (xi->crl == NULL)
+				continue;
+			if (!X509_STORE_add_crl(store, xi->crl)) {
+				tls_set_error(ctx, "failed to add crl");
+				goto err;
+			}
+			xi->crl = NULL;
+		}
+		X509_VERIFY_PARAM_set_flags(store->param,
+		    X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+	}
 
-	return (0);
+ done:
+	rv = 0;
 
  err:
+	sk_X509_INFO_pop_free(xis, X509_INFO_free);
+	BIO_free(bio);
 	free(ca_free);
 
-	return (-1);
+	return (rv);
 }
 
 void
@@ -398,6 +577,9 @@ tls_reset(struct tls *ctx)
 {
 	struct tls_sni_ctx *sni, *nsni;
 
+	tls_config_free(ctx->config);
+	ctx->config = NULL;
+
 	SSL_CTX_free(ctx->ssl_ctx);
 	SSL_free(ctx->ssl_conn);
 	X509_free(ctx->ssl_peer_cert);
@@ -405,6 +587,8 @@ tls_reset(struct tls *ctx)
 	ctx->ssl_conn = NULL;
 	ctx->ssl_ctx = NULL;
 	ctx->ssl_peer_cert = NULL;
+	/* X509 objects in chain are freed with the SSL */
+	ctx->ssl_peer_chain = NULL;
 
 	ctx->socket = -1;
 	ctx->state = 0;
@@ -418,6 +602,9 @@ tls_reset(struct tls *ctx)
 
 	tls_conninfo_free(ctx->conninfo);
 	ctx->conninfo = NULL;
+
+	tls_ocsp_free(ctx->ocsp);
+	ctx->ocsp = NULL;
 
 	for (sni = ctx->sni_ctx; sni != NULL; sni = nsni) {
 		nsni = sni->next;
@@ -461,21 +648,21 @@ tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret, const char *prefix)
 		} else if (ssl_ret == -1) {
 			errstr = strerror(errno);
 		}
-		tls_set_errorx(ctx, "%s failed: %s", prefix, errstr);
+		tls_set_ssl_errorx(ctx, "%s failed: %s", prefix, errstr);
 		return (-1);
 
 	case SSL_ERROR_SSL:
 		if ((err = ERR_peek_error()) != 0) {
 			errstr = ERR_error_string(err, NULL);
 		}
-		tls_set_errorx(ctx, "%s failed: %s", prefix, errstr);
+		tls_set_ssl_errorx(ctx, "%s failed: %s", prefix, errstr);
 		return (-1);
 
 	case SSL_ERROR_WANT_CONNECT:
 	case SSL_ERROR_WANT_ACCEPT:
 	case SSL_ERROR_WANT_X509_LOOKUP:
 	default:
-		tls_set_errorx(ctx, "%s failed (%i)", prefix, ssl_err);
+		tls_set_ssl_errorx(ctx, "%s failed (%i)", prefix, ssl_err);
 		return (-1);
 	}
 }
@@ -485,8 +672,15 @@ tls_handshake(struct tls *ctx)
 {
 	int rv = -1;
 
+	tls_error_clear(&ctx->error);
+
 	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
 		tls_set_errorx(ctx, "invalid operation for context");
+		goto out;
+	}
+
+	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) != 0) {
+		tls_set_errorx(ctx, "handshake already completed");
 		goto out;
 	}
 
@@ -496,9 +690,12 @@ tls_handshake(struct tls *ctx)
 		rv = tls_handshake_server(ctx);
 
 	if (rv == 0) {
-		ctx->ssl_peer_cert =  SSL_get_peer_certificate(ctx->ssl_conn);
+		ctx->ssl_peer_cert = SSL_get_peer_certificate(ctx->ssl_conn);
+		ctx->ssl_peer_chain = SSL_get_peer_cert_chain(ctx->ssl_conn);
 		if (tls_conninfo_populate(ctx) == -1)
-		    rv = -1;
+			rv = -1;
+		if (ctx->ocsp == NULL)
+			ctx->ocsp = tls_ocsp_setup_from_peer(ctx);
 	}
  out:
 	/* Prevent callers from performing incorrect error handling */
@@ -511,6 +708,8 @@ tls_read(struct tls *ctx, void *buf, size_t buflen)
 {
 	ssize_t rv = -1;
 	int ssl_ret;
+
+	tls_error_clear(&ctx->error);
 
 	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) == 0) {
 		if ((rv = tls_handshake(ctx)) != 0)
@@ -541,6 +740,8 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen)
 	ssize_t rv = -1;
 	int ssl_ret;
 
+	tls_error_clear(&ctx->error);
+
 	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) == 0) {
 		if ((rv = tls_handshake(ctx)) != 0)
 			goto out;
@@ -556,7 +757,7 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen)
 		rv = (ssize_t)ssl_ret;
 		goto out;
 	}
-	rv =  (ssize_t)tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "write");
+	rv = (ssize_t)tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "write");
 
  out:
 	/* Prevent callers from performing incorrect error handling */
@@ -570,13 +771,15 @@ tls_close(struct tls *ctx)
 	int ssl_ret;
 	int rv = 0;
 
+	tls_error_clear(&ctx->error);
+
 	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
 		tls_set_errorx(ctx, "invalid operation for context");
 		rv = -1;
 		goto out;
 	}
 
-	if (ctx->ssl_conn != NULL) {
+	if (ctx->state & TLS_SSL_NEEDS_SHUTDOWN) {
 		ERR_clear_error();
 		ssl_ret = SSL_shutdown(ctx->ssl_conn);
 		if (ssl_ret < 0) {
@@ -585,6 +788,7 @@ tls_close(struct tls *ctx)
 			if (rv == TLS_WANT_POLLIN || rv == TLS_WANT_POLLOUT)
 				goto out;
 		}
+		ctx->state &= ~TLS_SSL_NEEDS_SHUTDOWN;
 	}
 
 	if (ctx->socket != -1) {

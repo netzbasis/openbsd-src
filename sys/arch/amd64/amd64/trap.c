@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.50 2016/08/20 19:22:05 stefan Exp $	*/
+/*	$OpenBSD: trap.c,v 1.56 2017/07/20 18:22:25 bluhm Exp $	*/
 /*	$NetBSD: trap.c,v 1.2 2003/05/04 23:51:56 fvdl Exp $	*/
 
 /*-
@@ -93,10 +93,6 @@
 
 #include "isa.h"
 
-#ifdef KGDB
-#include <sys/kgdb.h>
-#endif
-
 void trap(struct trapframe *);
 void ast(struct trapframe *);
 void syscall(struct trapframe *);
@@ -164,9 +160,9 @@ trap(struct trapframe *frame)
 		       "cr2 %llx cpl %x\n",
 		    type, frame->tf_err, frame->tf_rip, frame->tf_cs,
 		    frame->tf_rflags, rcr2(), curcpu()->ci_ilevel);
-		printf("curproc %p\n", curproc);
-		if (curproc)
-			printf("pid %d\n", p->p_pid);
+		printf("curproc %p\n", (void *)p);
+		if (p != NULL)
+			printf("pid %d\n", p->p_p->ps_pid);
 	}
 #endif
 
@@ -180,20 +176,6 @@ trap(struct trapframe *frame)
 
 	default:
 	we_re_toast:
-#ifdef KGDB
-		if (kgdb_trap(type, frame))
-			return;
-		else {
-			/*
-			 * If this is a breakpoint, don't panic
-			 * if we're not connected.
-			 */
-			if (type == T_BPTFLT) {
-				printf("kgdb: ignored %s\n", trap_type[type]);
-				return;
-			}
-		}
-#endif
 #ifdef DDB
 		if (db_ktrap(type, 0, frame))
 			return;
@@ -242,10 +224,10 @@ copyfault:
 	case T_TSSFLT|T_USER:
 	case T_SEGNPFLT|T_USER:
 	case T_STKFLT|T_USER:
-	case T_NMI|T_USER:
 #ifdef TRAP_SIGDEBUG
-		printf("pid %d (%s): BUS at rip %llx addr %llx\n",
-		    p->p_pid, p->p_comm, frame->tf_rip, rcr2());
+		printf("pid %d (%s): %s at rip %llx addr %llx\n",
+		    p->p_p->ps_pid, p->p_p->ps_comm, "BUS",
+		    frame->tf_rip, rcr2());
 		frame_dump(frame);
 #endif
 		sv.sival_ptr = (void *)frame->tf_rip;
@@ -268,8 +250,9 @@ copyfault:
 		goto out;
 	case T_FPOPFLT|T_USER:		/* coprocessor operand fault */
 #ifdef TRAP_SIGDEBUG
-		printf("pid %d (%s): ILL at rip %llx addr %llx\n",
-		    p->p_pid, p->p_comm, frame->tf_rip, rcr2());
+		printf("pid %d (%s): %s at rip %llx addr %llx\n",
+		    p->p_p->ps_pid, p->p_p->ps_comm, "ILL",
+		    frame->tf_rip, rcr2());
 		frame_dump(frame);
 #endif
 		sv.sival_ptr = (void *)frame->tf_rip;
@@ -323,6 +306,7 @@ copyfault:
 		struct vm_map *map;
 		vm_prot_t ftype;
 		extern struct vm_map *kernel_map;
+		int signal, sicode;
 
 		cr2 = rcr2();
 		KERNEL_LOCK();
@@ -379,9 +363,6 @@ faultcommon:
 			KERNEL_UNLOCK();
 			goto out;
 		}
-		if (error == EACCES) {
-			error = EFAULT;
-		}
 
 		if (type == T_PAGEFLT) {
 			if (pcb->pcb_onfault != 0) {
@@ -392,21 +373,30 @@ faultcommon:
 			    map, fa, ftype, error);
 			goto we_re_toast;
 		}
+
+		signal = SIGSEGV;
+		sicode = SEGV_MAPERR;
 		if (error == ENOMEM) {
-			printf("UVM: pid %d (%s), uid %d killed: out of swap\n",
-			       p->p_pid, p->p_comm,
-			       p->p_ucred ?  (int)p->p_ucred->cr_uid : -1);
-			sv.sival_ptr = (void *)fa;
-			trapsignal(p, SIGKILL, T_PAGEFLT, SEGV_MAPERR, sv);
+			printf("UVM: pid %d (%s), uid %d killed:"
+			    " out of swap\n", p->p_p->ps_pid, p->p_p->ps_comm,
+			    p->p_ucred ? (int)p->p_ucred->cr_uid : -1);
+			signal = SIGKILL;
 		} else {
 #ifdef TRAP_SIGDEBUG
-			printf("pid %d (%s): SEGV at rip %llx addr %lx\n",
-			    p->p_pid, p->p_comm, frame->tf_rip, fa);
+			printf("pid %d (%s): %s at rip %llx addr %llx\n",
+			    p->p_p->ps_pid, p->p_p->ps_comm, "SEGV",
+			    frame->tf_rip, rcr2());
 			frame_dump(frame);
 #endif
-			sv.sival_ptr = (void *)fa;
-			trapsignal(p, SIGSEGV, T_PAGEFLT, SEGV_MAPERR, sv);
 		}
+		if (error == EACCES)
+			sicode = SEGV_ACCERR;
+		if (error == EIO) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+		}
+		sv.sival_ptr = (void *)fa;
+		trapsignal(p, signal, T_PAGEFLT, sicode, sv);
 		KERNEL_UNLOCK();
 		break;
 	}
@@ -422,21 +412,15 @@ faultcommon:
 		KERNEL_UNLOCK();
 		break;
 
-#if	NISA > 0
+#if NISA > 0
 	case T_NMI:
-#if defined(KGDB) || defined(DDB)
+	case T_NMI|T_USER:
+#ifdef DDB
 		/* NMI can be hooked up to a pushbutton for debugging */
 		printf ("NMI ... going to debugger\n");
-#ifdef KGDB
-
-		if (kgdb_trap(type, frame))
-			return;
-#endif
-#ifdef DDB
 		if (db_ktrap(type, 0, frame))
 			return;
 #endif
-#endif /* KGDB || DDB */
 		/* machine/parity/power fail/"kitchen sink" faults */
 
 		if (x86_nmi() != 0)

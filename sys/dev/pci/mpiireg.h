@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpiireg.h,v 1.9 2014/03/27 12:19:55 dlg Exp $	*/
+/*	$OpenBSD: mpiireg.h,v 1.12 2017/01/16 18:09:35 mikeb Exp $	*/
 /*
  * Copyright (c) 2010 Mike Belopuhov
  * Copyright (c) 2009 James Giannoules
@@ -127,6 +127,26 @@ struct mpii_sge {
 	u_int32_t		sg_addr_lo;
 	u_int32_t		sg_addr_hi;
 } __packed __aligned(4);
+
+/*
+ * SAS3 (IEEE) Scatter Gather Lists
+ */
+
+#define MPII_IEEE_SGE_ADDR_MASK		(0x03)
+#define MPII_IEEE_SGE_ADDR_SYSTEM	(0x00)
+#define MPII_IEEE_SGE_ADDR_IOCDDR	(0x01)
+#define MPII_IEEE_SGE_ADDR_IOCPLB	(0x02)
+#define MPII_IEEE_SGE_ADDR_IOCPLBNTA	(0x03)
+#define MPII_IEEE_SGE_END_OF_LIST	(0x40)
+#define MPII_IEEE_SGE_CHAIN_ELEMENT	(0x80)
+
+struct mpii_ieee_sge {
+	u_int64_t		sg_addr;
+	u_int32_t		sg_len;
+	u_int16_t		_reserved;
+	u_int8_t		sg_next_chain_offset;
+	u_int8_t		sg_flags;
+} __packed __aligned(8);
 
 struct mpii_fw_tce {
 	u_int8_t		reserved1;
@@ -763,25 +783,23 @@ struct mpii_msg_scsi_io_error {
 	u_int16_t		reserved3;
 
 	u_int8_t		scsi_status;
-	/* XXX JPG validate this */
-#if notyet
-#define MPII_SCSIIO_ERR_STATUS_SUCCESS
-#define MPII_SCSIIO_ERR_STATUS_CHECK_COND
-#define MPII_SCSIIO_ERR_STATUS_BUSY
-#define MPII_SCSIIO_ERR_STATUS_INTERMEDIATE
-#define MPII_SCSIIO_ERR_STATUS_INTERMEDIATE_CONDMET
-#define MPII_SCSIIO_ERR_STATUS_RESERVATION_CONFLICT
-#define MPII_SCSIIO_ERR_STATUS_CMD_TERM
-#define MPII_SCSIIO_ERR_STATUS_TASK_SET_FULL
-#define MPII_SCSIIO_ERR_STATUS_ACA_ACTIVE
-#endif
+#define MPII_SCSIIO_STATUS_GOOD				(0x00)
+#define MPII_SCSIIO_STATUS_CHECK_COND			(0x02)
+#define MPII_SCSIIO_STATUS_COND_MET			(0x04)
+#define MPII_SCSIIO_STATUS_BUSY				(0x08)
+#define MPII_SCSIIO_STATUS_INTERMEDIATE			(0x10)
+#define MPII_SCSIIO_STATUS_INTERMEDIATE_CONDMET		(0x14)
+#define MPII_SCSIIO_STATUS_RESERVATION_CONFLICT		(0x18)
+#define MPII_SCSIIO_STATUS_CMD_TERM			(0x22)
+#define MPII_SCSIIO_STATUS_TASK_SET_FULL		(0x28)
+#define MPII_SCSIIO_STATUS_ACA_ACTIVE			(0x30)
+#define MPII_SCSIIO_STATUS_TASK_ABORTED			(0x40)
 	u_int8_t		scsi_state;
-#define MPII_SCSIIO_ERR_STATE_AUTOSENSE_VALID		(1<<0)
-#define MPII_SCSIIO_ERR_STATE_AUTOSENSE_FAILED		(1<<1)
-#define MPII_SCSIIO_ERR_STATE_NO_SCSI_STATUS		(1<<2)
-#define MPII_SCSIIO_ERR_STATE_TERMINATED		(1<<3)
-#define MPII_SCSIIO_ERR_STATE_RESPONSE_INFO_VALID	(1<<4)
-#define MPII_SCSIIO_ERR_STATE_QUEUE_TAG_REJECTED	(0xffff)
+#define MPII_SCSIIO_STATE_AUTOSENSE_VALID		(1<<0)
+#define MPII_SCSIIO_STATE_AUTOSENSE_FAILED		(1<<1)
+#define MPII_SCSIIO_STATE_NO_SCSI_STATUS		(1<<2)
+#define MPII_SCSIIO_STATE_TERMINATED			(1<<3)
+#define MPII_SCSIIO_STATE_RESPONSE_INFO_VALID		(1<<4)
 	u_int16_t		ioc_status;
 
 	u_int32_t		ioc_loginfo;
@@ -1038,6 +1056,13 @@ struct mpii_ecfg_hdr {
 #define MPII_CONFIG_REQ_PAGE_TYPE_DRIVER_MAPPING	(0x17)
 	u_int8_t		reserved2;
 } __packed __aligned(4);
+
+/* config page address formats */
+#define MPII_PGAD_SAS_DEVICE_FORM_MASK			(0xf0000000)
+#define MPII_PGAD_SAS_DEVICE_FORM_GET_NEXT_HANDLE	(0x00000000)
+#define MPII_PGAD_SAS_DEVICE_FORM_HANDLE		(0x20000000)
+
+#define MPII_PGAD_SAS_DEVICE_HANDLE_MASK		(0x0000ffff)
 
 struct mpii_msg_config_request {
 	u_int8_t		action;

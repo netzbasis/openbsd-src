@@ -1,13 +1,14 @@
-.Dd November 17, 2014
+.\" $OpenBSD: punct.in,v 1.4 2017/07/04 14:53:25 schwarze Exp $
+.Dd $Mdocdate: July 4 2017 $
 .Dt EM-PUNCT 1
-.Os OpenBSD
+.Os
 .Sh NAME
 .Nm Em-punct
 .Nd punctuation following an emphasis macro
 .Sh DESCRIPTION
 Leading punctuation:
 .Em ( b
-.Em [ b
+.Em "[" b
 .Em | b
 .Em . b
 .Em , b
@@ -16,7 +17,7 @@ Leading punctuation:
 .Em ? b
 .Em ! b
 .Em ) b
-.Em ] b
+.Em "]" b
 .Pp
 Trailing punctuation:
 .Em a (
@@ -28,17 +29,17 @@ Trailing punctuation:
 .Em a :
 .Em a ?
 .Em a !
-.Em a )
+.Em a ")"
 .Em a ]
 .Pp
 Middle punctuation:
 .Em a ( b
 .Em a [ b
-.Em a | b
+.Em a "|" b
 .Em a . b
 .Em a , b
 .Em a ; b
-.Em a : b
+.Em a ":" b
 .Em a ? b
 .Em a ! b
 .Em a ) b
@@ -78,5 +79,9 @@ Multiple punctuation:
 .Em [ ( arg ) ] .
 .Pp
 Quoted:
-.Em "a . b Nm"
+.Em "a . b Nm" "Sy" bold
 .Em ". b Nm"
+.Em "."
+.Pp
+Missing blank:
+.Em a.

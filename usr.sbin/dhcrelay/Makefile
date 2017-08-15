@@ -1,11 +1,15 @@
-# $OpenBSD: Makefile,v 1.2 2004/04/12 21:30:30 henning Exp $
+# $OpenBSD: Makefile,v 1.4 2017/04/05 14:43:14 reyk Exp $
 
 .include <bsd.own.mk>
 
-SRCS=	dhcrelay.c dispatch.c errwarn.c bpf.c packet.c
+SRCS=	dhcrelay.c dispatch.c log.c bpf.c packet.c
 PROG=	dhcrelay
 MAN=	dhcrelay.8
 
 CFLAGS+=-Wall
+CFLAGS+=-Wstrict-prototypes -Wmissing-prototypes
+CFLAGS+=-Wmissing-declarations
+CFLAGS+=-Wshadow -Wpointer-arith -Wcast-qual
+CFLAGS+=-Wsign-compare
 
 .include <bsd.prog.mk>

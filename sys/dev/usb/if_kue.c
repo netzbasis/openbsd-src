@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_kue.c,v 1.85 2016/04/13 11:03:37 mpi Exp $ */
+/*	$OpenBSD: if_kue.c,v 1.88 2017/04/08 02:57:25 deraadt Exp $ */
 /*	$NetBSD: if_kue.c,v 1.50 2002/07/16 22:00:31 augustss Exp $	*/
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -270,7 +270,7 @@ kue_load_fw(struct kue_softc *sc)
 	if (err) {
 		printf("%s: failed to load code segment: %s\n",
 		    sc->kue_dev.dv_xname, usbd_errstr(err));
-		free(buf, M_DEVBUF, 0);
+		free(buf, M_DEVBUF, buflen);
 		return (EIO);
 	}
 
@@ -282,7 +282,7 @@ kue_load_fw(struct kue_softc *sc)
 	if (err) {
 		printf("%s: failed to load fixup segment: %s\n",
 		    sc->kue_dev.dv_xname, usbd_errstr(err));
-		free(buf, M_DEVBUF, 0);
+		free(buf, M_DEVBUF, buflen);
 		return (EIO);
 	}
 
@@ -295,10 +295,10 @@ kue_load_fw(struct kue_softc *sc)
 	if (err) {
 		printf("%s: failed to load trigger segment: %s\n",
 		    sc->kue_dev.dv_xname, usbd_errstr(err));
-		free(buf, M_DEVBUF, 0);
+		free(buf, M_DEVBUF, buflen);
 		return (EIO);
 	}
-	free(buf, M_DEVBUF, 0);
+	free(buf, M_DEVBUF, buflen);
 
 	usbd_delay_ms(sc->kue_udev, 10);
 
@@ -469,6 +469,7 @@ kue_attachhook(struct device *self)
 		    sc->kue_dev.dv_xname);
 		return;
 	}
+	sc->kue_mcfilterslen = KUE_MCFILTCNT(sc);
 
 	s = splnet();
 
@@ -541,7 +542,7 @@ kue_detach(struct device *self, int flags)
 	s = splusb();		/* XXX why? */
 
 	if (sc->kue_mcfilters != NULL) {
-		free(sc->kue_mcfilters, M_USBDEV, 0);
+		free(sc->kue_mcfilters, M_USBDEV, sc->kue_mcfilterslen);
 		sc->kue_mcfilters = NULL;
 	}
 
@@ -783,8 +784,6 @@ kue_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		splx(s);
 		return;
 	}
-
-	ifp->if_opackets++;
 
 	m_freem(c->kue_mbuf);
 	c->kue_mbuf = NULL;

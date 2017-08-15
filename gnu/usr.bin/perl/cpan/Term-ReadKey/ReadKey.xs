@@ -18,7 +18,7 @@
 
  Maintained by Jonathan Stowe <jns@gellyfish.com>
 
- $Id: ReadKey.xs,v 1.2 2016/07/03 01:07:58 afresh1 Exp $
+ $Id: ReadKey.xs,v 2.22 2005/01/11 21:15:17 jonathan Exp $
 
  Version 2.21, Sun Jul 28 12:57:56 BST 2002
     Fix to improve the chances of automated testing succeeding

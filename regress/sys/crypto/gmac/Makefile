@@ -1,9 +1,9 @@
-#	$OpenBSD: Makefile,v 1.2 2014/01/18 05:54:52 martynas Exp $
+#	$OpenBSD: Makefile,v 1.4 2017/06/22 18:07:31 bluhm Exp $
 
 DIR=${.CURDIR}/../../../../sys
 
 PROG=	gmac_test
-SRCS+=	rijndael.c gmac.c gmac_test.c
+SRCS+=	aes.c gmac.c gmac_test.c
 CDIAGFLAGS=	-Wall
 CDIAGFLAGS+=	-Werror
 CDIAGFLAGS+=	-Wpointer-arith
@@ -14,13 +14,8 @@ CDIAGFLAGS+=	-Wunused
 CDIAGFLAGS+=	-Wsign-compare
 #CDIAGFLAGS+=	-Wshadow
 
-REGRESS_TARGETS=	run-regress-${PROG}
-
 CFLAGS+=	-I${DIR}
 
 .PATH:	${DIR}/crypto
-
-run-regress-${PROG}: ${PROG}
-	./${PROG}
 
 .include <bsd.regress.mk>

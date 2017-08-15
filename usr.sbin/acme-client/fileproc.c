@@ -1,4 +1,4 @@
-/*	$Id: fileproc.c,v 1.4 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: fileproc.c,v 1.14 2017/01/24 13:32:55 jsing Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -22,15 +22,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "extern.h"
 
 static int
 serialise(const char *tmp, const char *real,
-	const char *v, size_t vsz,
-	const char *v2, size_t v2sz)
+    const char *v, size_t vsz, const char *v2, size_t v2sz)
 {
 	int	 fd;
 
@@ -40,41 +38,39 @@ serialise(const char *tmp, const char *real,
 	 */
 
 	fd = open(tmp, O_WRONLY|O_CREAT|O_TRUNC, 0444);
-	if (-1 == fd) {
+	if (fd == -1) {
 		warn("%s", tmp);
-		return (0);
+		return 0;
 	} else if ((ssize_t)vsz != write(fd, v, vsz)) {
 		warnx("%s", tmp);
 		close(fd);
-		return (0);
-	} else if (NULL != v2 && (ssize_t)v2sz != write(fd, v2, v2sz)) {
+		return 0;
+	} else if (v2 != NULL && write(fd, v2, v2sz) != (ssize_t)v2sz) {
 		warnx("%s", tmp);
 		close(fd);
-		return (0);
-	} else if (-1 == close(fd)) {
+		return 0;
+	} else if (close(fd) == -1) {
 		warn("%s", tmp);
-		return (0);
-	} else if (-1 == rename(tmp, real)) {
+		return 0;
+	} else if (rename(tmp, real) == -1) {
 		warn("%s", real);
-		return (0);
+		return 0;
 	}
 
-	return (1);
+	return 1;
 }
 
 int
-fileproc(int certsock, int backup, const char *certdir)
+fileproc(int certsock, const char *certdir, const char *certfile, const char
+    *chainfile, const char *fullchainfile)
 {
-	char		*csr, *ch;
+	char		*csr = NULL, *ch = NULL;
+	char		*certfile_bak = NULL, *chainfile_bak = NULL;
+	char		*fullchainfile_bak = NULL;
 	size_t		 chsz, csz;
-	int		 rc;
+	int		 rc = 0;
 	long		 lval;
 	enum fileop	 op;
-	time_t		 t;
-	char		 file[PATH_MAX];
-
-	csr = ch = NULL;
-	rc = 0;
 
 	/* File-system and sandbox jailing. */
 
@@ -99,9 +95,9 @@ fileproc(int certsock, int backup, const char *certdir)
 	/* Read our operation. */
 
 	op = FILE__MAX;
-	if (0 == (lval = readop(certsock, COMM_CHAIN_OP)))
+	if ((lval = readop(certsock, COMM_CHAIN_OP)) == 0)
 		op = FILE_STOP;
-	else if (FILE_CREATE == lval || FILE_REMOVE == lval)
+	else if (lval == FILE_CREATE || lval == FILE_REMOVE)
 		op = lval;
 
 	if (FILE_STOP == op) {
@@ -113,68 +109,36 @@ fileproc(int certsock, int backup, const char *certdir)
 	}
 
 	/*
-	 * If we're backing up, then copy all files (found) by linking
-	 * them to the file followed by the epoch in seconds.
-	 * If we're going to remove, the unlink(2) will cause the
-	 * original to go away.
-	 * If we're going to update, the rename(2) will replace the
-	 * certificate, leaving the backup as the only one.
-	 */
-
-	if (backup) {
-		t = time(NULL);
-		snprintf(file, sizeof(file),
-			"cert-%llu.pem", (unsigned long long)t);
-		if (-1 == link(CERT_PEM, file) && ENOENT != errno) {
-			warnx("%s/%s", certdir, CERT_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, CERT_PEM, file);
-
-		snprintf(file, sizeof(file),
-			"chain-%llu.pem", (unsigned long long)t);
-		if (-1 == link(CHAIN_PEM, file) && ENOENT != errno) {
-			warnx("%s/%s", certdir, CHAIN_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, CHAIN_PEM, file);
-
-		snprintf(file, sizeof(file),
-			"fullchain-%llu.pem", (unsigned long long)t);
-		if (-1 == link(FCHAIN_PEM, file) && ENOENT != errno) {
-			warnx("%s/%s", certdir, FCHAIN_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, FCHAIN_PEM, file);
-	}
-
-	/*
 	 * If revoking certificates, just unlink the files.
 	 * We return the special error code of 2 to indicate that the
 	 * certificates were removed.
 	 */
 
 	if (FILE_REMOVE == op) {
-		if (-1 == unlink(CERT_PEM) && ENOENT != errno) {
-			warn("%s/%s", certdir, CERT_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: unlinked", certdir, CERT_PEM);
+		if (certfile) {
+			if (unlink(certfile) == -1 && errno != ENOENT) {
+				warn("%s/%s", certdir, certfile);
+				goto out;
+			} else
+				dodbg("%s/%s: unlinked", certdir, certfile);
+		}
 
-		if (-1 == unlink(CHAIN_PEM) && ENOENT != errno) {
-			warn("%s/%s", certdir, CHAIN_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: unlinked", certdir, CHAIN_PEM);
+		if (chainfile) {
+			if (unlink(chainfile) == -1 && errno != ENOENT) {
+				warn("%s/%s", certdir, chainfile);
+				goto out;
+			} else
+				dodbg("%s/%s: unlinked", certdir, chainfile);
+		}
 
-		if (-1 == unlink(FCHAIN_PEM) && ENOENT != errno) {
-			warn("%s/%s", certdir, FCHAIN_PEM);
-			goto out;
-		} else
-			dodbg("%s/%s: unlinked", certdir, FCHAIN_PEM);
+		if (fullchainfile) {
+			if (unlink(fullchainfile) == -1 && errno != ENOENT) {
+				warn("%s/%s", certdir, fullchainfile);
+				goto out;
+			} else
+				dodbg("%s/%s: unlinked", certdir,
+				    fullchainfile);
+		}
 
 		rc = 2;
 		goto out;
@@ -182,17 +146,38 @@ fileproc(int certsock, int backup, const char *certdir)
 
 	/*
 	 * Start by downloading the chain PEM as a buffer.
-	 * This is not nil-terminated, but we're just going to guess
+	 * This is not NUL-terminated, but we're just going to guess
 	 * that it's well-formed and not actually touch the data.
 	 * Once downloaded, dump it into CHAIN_BAK.
 	 */
 
-	if (NULL == (ch = readbuf(certsock, COMM_CHAIN, &chsz)))
-		goto out;
-	if ( ! serialise(CHAIN_BAK, CHAIN_PEM, ch, chsz, NULL, 0))
+	if (certfile)
+		if (asprintf(&certfile_bak, "%s~", certfile) == -1) {
+			warn("asprintf");
+			goto out;
+		}
+
+	if (chainfile)
+		if (asprintf(&chainfile_bak, "%s~", chainfile) == -1) {
+			warn("asprintf");
+			goto out;
+		}
+
+	if (fullchainfile)
+		if (asprintf(&fullchainfile_bak, "%s~", fullchainfile) == -1) {
+			warn("asprintf");
+			goto out;
+		}
+
+	if ((ch = readbuf(certsock, COMM_CHAIN, &chsz)) == NULL)
 		goto out;
 
-	dodbg("%s/%s: created", certdir, CHAIN_PEM);
+	if (chainfile) {
+		if (!serialise(chainfile_bak, chainfile, ch, chsz, NULL, 0))
+			goto out;
+
+		dodbg("%s/%s: created", certdir, chainfile);
+	}
 
 	/*
 	 * Next, wait until we receive the DER encoded (signed)
@@ -201,12 +186,15 @@ fileproc(int certsock, int backup, const char *certdir)
 	 * just keep downloading.
 	 */
 
-	if (NULL == (csr = readbuf(certsock, COMM_CSR, &csz)))
-		goto out;
-	if ( ! serialise(CERT_BAK, CERT_PEM, csr, csz, NULL, 0))
+	if ((csr = readbuf(certsock, COMM_CSR, &csz)) == NULL)
 		goto out;
 
-	dodbg("%s/%s: created", certdir, CERT_PEM);
+	if (certfile) {
+		if (!serialise(certfile_bak, certfile, csr, csz, NULL, 0))
+			goto out;
+
+		dodbg("%s/%s: created", certdir, certfile);
+	}
 
 	/*
 	 * Finally, create the full-chain file.
@@ -214,16 +202,21 @@ fileproc(int certsock, int backup, const char *certdir)
 	 * We return the special error code 2 to indicate that the
 	 * on-file certificates were changed.
 	 */
+	if (fullchainfile) {
+		if (!serialise(fullchainfile_bak, fullchainfile, csr, csz, ch,
+		    chsz))
+			goto out;
 
-	if ( ! serialise(FCHAIN_BAK, FCHAIN_PEM, csr, csz, ch, chsz))
-		goto out;
-
-	dodbg("%s/%s: created", certdir, FCHAIN_PEM);
+		dodbg("%s/%s: created", certdir, fullchainfile);
+	}
 
 	rc = 2;
 out:
 	close(certsock);
 	free(csr);
 	free(ch);
-	return (rc);
+	free(certfile_bak);
+	free(chainfile_bak);
+	free(fullchainfile_bak);
+	return rc;
 }

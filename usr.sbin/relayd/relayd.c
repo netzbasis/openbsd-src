@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.c,v 1.160 2016/09/03 14:09:04 reyk Exp $	*/
+/*	$OpenBSD: relayd.c,v 1.169 2017/05/31 04:14:34 jsg Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -43,7 +43,7 @@
 #include <sha1.h>
 #include <md5.h>
 
-#include <openssl/ssl.h>
+#include <tls.h>
 
 #include "relayd.h"
 
@@ -203,7 +203,7 @@ main(int argc, char *argv[])
 	ps->ps_csock.cs_name = RELAYD_SOCKET;
 
 	log_init(debug, LOG_DAEMON);
-	log_verbose(verbose);
+	log_setverbose(verbose);
 
 	if (env->sc_conf.opts & RELAYD_OPT_NOACTION)
 		ps->ps_noaction = 1;
@@ -213,11 +213,6 @@ main(int argc, char *argv[])
 	ps->ps_instance = proc_instance;
 	if (title != NULL)
 		ps->ps_title[proc_id] = title;
-
-	if (proc_id == PROC_PARENT) {
-		/* XXX the parent opens too many fds in proc_open() */
-		socket_rlimit(-1);
-	}
 
 	/* only the parent returns */
 	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
@@ -245,6 +240,7 @@ main(int argc, char *argv[])
 
 	proc_connect(ps);
 
+	relay_http(NULL);
 	if (load_config(env->sc_conffile, env) == -1) {
 		proc_kill(env->sc_ps);
 		exit(1);
@@ -283,7 +279,7 @@ parent_configure(struct relayd *env)
 	struct protocol		*proto;
 	struct relay		*rlay;
 	int			 id;
-	int			 s, ret = -1;
+	int			 ret = -1;
 
 	TAILQ_FOREACH(tb, env->sc_tables, entry)
 		config_settable(env, tb);
@@ -312,24 +308,12 @@ parent_configure(struct relayd *env)
 	for (id = 0; id < PROC_MAX; id++) {
 		if (id == privsep_process)
 			continue;
-
-		if ((env->sc_conf.flags & F_NEEDPF) && id == PROC_PFE) {
-			/* Send pf socket to the pf engine */
-			if ((s = open(PF_SOCKET, O_RDWR)) == -1) {
-				log_debug("%s: cannot open pf socket",
-				    __func__);
-				goto done;
-			}
-		} else
-			s = -1;
-
 		proc_compose_imsg(env->sc_ps, id, -1, IMSG_CFG_DONE, -1,
-		    s, &env->sc_conf, sizeof(env->sc_conf));
+		    -1, &env->sc_conf, sizeof(env->sc_conf));
 	}
 
 	ret = 0;
 
- done:
 	config_purge(env, CONFIG_ALL & ~CONFIG_RELAYS);
 	return (ret);
 }
@@ -409,7 +393,8 @@ parent_shutdown(struct relayd *env)
 int
 parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct relayd		*env = p->p_env;
+	struct privsep		*ps = p->p_ps;
+	struct relayd		*env = ps->ps_env;
 	struct ctl_demote	 demote;
 	struct ctl_netroute	 crt;
 	u_int			 v;
@@ -456,8 +441,8 @@ parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct relayd		*env = p->p_env;
-	struct privsep		*ps = env->sc_ps;
+	struct privsep		*ps = p->p_ps;
+	struct relayd		*env = ps->ps_env;
 	struct ctl_script	 scr;
 
 	switch (imsg->hdr.type) {
@@ -480,8 +465,8 @@ parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct relayd		*env = p->p_env;
-	struct privsep		*ps = env->sc_ps;
+	struct privsep		*ps = p->p_ps;
+	struct relayd		*env = ps->ps_env;
 	struct ctl_bindany	 bnd;
 	int			 s;
 
@@ -490,15 +475,14 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &bnd);
 		bcopy(imsg->data, &bnd, sizeof(bnd));
 		if (bnd.bnd_proc > env->sc_conf.prefork_relay)
-			fatalx("pfe_dispatch_relay: "
-			    "invalid relay proc");
+			fatalx("%s: invalid relay proc", __func__);
 		switch (bnd.bnd_proto) {
 		case IPPROTO_TCP:
 		case IPPROTO_UDP:
 			break;
 		default:
-			fatalx("pfe_dispatch_relay: requested socket "
-			    "for invalid protocol");
+			fatalx("%s: requested socket "
+			    "for invalid protocol", __func__);
 			/* NOTREACHED */
 		}
 		s = bindany(&bnd);
@@ -518,7 +502,8 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 parent_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct relayd		*env = p->p_env;
+	struct privsep		*ps = p->p_ps;
+	struct relayd		*env = ps->ps_env;
 
 	switch (imsg->hdr.type) {
 	case IMSG_CFG_DONE:
@@ -544,12 +529,11 @@ purge_table(struct relayd *env, struct tablelist *head, struct table *table)
 			close(host->cte.s);
 		}
 		ibuf_free(host->cte.buf);
-		SSL_free(host->cte.ssl);
+		tls_free(host->cte.tls);
 		free(host);
 	}
 	free(table->sendbuf);
-	if (table->conf.flags & F_TLS)
-		SSL_CTX_free(table->ssl_ctx);
+	tls_config_free(table->tls_cfg);
 
 	if (head != NULL)
 		TAILQ_REMOVE(head, table, entry);
@@ -557,17 +541,11 @@ purge_table(struct relayd *env, struct tablelist *head, struct table *table)
 }
 
 void
-purge_key(char **ptr, off_t len)
+purge_key(char **key, off_t len)
 {
-	char	*key = *ptr;
+	freezero(*key, len);
 
-	if (key == NULL || len == 0)
-		return;
-
-	explicit_bzero(key, len);
-	free(key);
-
-	*ptr = NULL;
+	*key = NULL;
 }
 
 void
@@ -598,10 +576,6 @@ purge_relay(struct relayd *env, struct relay *rlay)
 	purge_key(&rlay->rl_tls_ca, rlay->rl_conf.tls_ca_len);
 	purge_key(&rlay->rl_tls_cakey, rlay->rl_conf.tls_cakey_len);
 
-	if (rlay->rl_tls_x509 != NULL) {
-		X509_free(rlay->rl_tls_x509);
-		rlay->rl_tls_x509 = NULL;
-	}
 	if (rlay->rl_tls_pkey != NULL) {
 		EVP_PKEY_free(rlay->rl_tls_pkey);
 		rlay->rl_tls_pkey = NULL;
@@ -615,7 +589,9 @@ purge_relay(struct relayd *env, struct relay *rlay)
 		rlay->rl_tls_capkey = NULL;
 	}
 
-	SSL_CTX_free(rlay->rl_ssl_ctx);
+	tls_free(rlay->rl_tls_ctx);
+	tls_config_free(rlay->rl_tls_cfg);
+	tls_config_free(rlay->rl_tls_client_cfg);
 
 	while ((rlt = TAILQ_FIRST(&rlay->rl_tables))) {
 		TAILQ_REMOVE(&rlay->rl_tables, rlt, rlt_entry);
@@ -1186,18 +1162,18 @@ relay_findbyaddr(struct relayd *env, struct relay_config *rc)
 }
 
 EVP_PKEY *
-pkey_find(struct relayd *env, objid_t id)
+pkey_find(struct relayd *env, char * hash)
 {
 	struct ca_pkey	*pkey;
 
 	TAILQ_FOREACH(pkey, env->sc_pkeys, pkey_entry)
-		if (pkey->pkey_id == id)
+		if (strcmp(hash, pkey->pkey_hash) == 0)
 			return (pkey->pkey);
 	return (NULL);
 }
 
 struct ca_pkey *
-pkey_add(struct relayd *env, EVP_PKEY *pkey, objid_t id)
+pkey_add(struct relayd *env, EVP_PKEY *pkey, char *hash)
 {
 	struct ca_pkey	*ca_pkey;
 
@@ -1208,7 +1184,11 @@ pkey_add(struct relayd *env, EVP_PKEY *pkey, objid_t id)
 		return (NULL);
 
 	ca_pkey->pkey = pkey;
-	ca_pkey->pkey_id = id;
+	if (strlcpy(ca_pkey->pkey_hash, hash, sizeof(ca_pkey->pkey_hash)) >=
+	    sizeof(ca_pkey->pkey_hash)) {
+		free(ca_pkey);
+		return (NULL);
+	}
 
 	TAILQ_INSERT_TAIL(env->sc_pkeys, ca_pkey, pkey_entry);
 
@@ -1498,7 +1478,7 @@ socket_rlimit(int maxfd)
 	struct rlimit	 rl;
 
 	if (getrlimit(RLIMIT_NOFILE, &rl) == -1)
-		fatal("socket_rlimit: failed to get resource limit");
+		fatal("%s: failed to get resource limit", __func__);
 	log_debug("%s: max open files %llu", __func__, rl.rlim_max);
 
 	/*
@@ -1510,7 +1490,7 @@ socket_rlimit(int maxfd)
 	else
 		rl.rlim_cur = MAXIMUM(rl.rlim_max, (rlim_t)maxfd);
 	if (setrlimit(RLIMIT_NOFILE, &rl) == -1)
-		fatal("socket_rlimit: failed to set resource limit");
+		fatal("%s: failed to set resource limit", __func__);
 }
 
 char *
@@ -1658,20 +1638,18 @@ parent_tls_ticket_rekey(int fd, short events, void *arg)
 	static struct event	 rekeyev;
 	struct relayd		*env = arg;
 	struct timeval		 tv;
-	struct tls_ticket	 key;
+	struct relay_ticket_key	 key;
 
-	log_debug("relayd_tls_ticket_rekey: rekeying tickets");
+	log_debug("%s: rekeying tickets", __func__);
 
-	arc4random_buf(key.tt_key_name, sizeof(key.tt_key_name));
-	arc4random_buf(key.tt_hmac_key, sizeof(key.tt_hmac_key));
-	arc4random_buf(key.tt_aes_key, sizeof(key.tt_aes_key));
-	key.tt_backup = 0;
+	key.tt_keyrev = arc4random();
+	arc4random_buf(key.tt_key, sizeof(key.tt_key));
 
 	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_TLSTICKET_REKEY,
 	    -1, -1, &key, sizeof(key));
 
 	evtimer_set(&rekeyev, parent_tls_ticket_rekey, env);
 	timerclear(&tv);
-	tv.tv_sec = TLS_TICKET_REKEY_TIME;
+	tv.tv_sec = TLS_SESSION_LIFETIME / 4;
 	evtimer_add(&rekeyev, &tv);
 }

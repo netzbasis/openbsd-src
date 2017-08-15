@@ -1,4 +1,4 @@
-/*	$OpenBSD: commit.c,v 1.154 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: commit.c,v 1.158 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  * Copyright (c) 2006 Xavier Santolaria <xsa@openbsd.org>
@@ -51,7 +51,7 @@ char	*loginfo = NULL;
 static int	conflicts_found;
 
 struct cvs_cmd cvs_cmd_commit = {
-	CVS_OP_COMMIT, CVS_USE_WDIR | CVS_LOCK_REPO, "commit",
+	CVS_OP_COMMIT, CVS_USE_WDIR, "commit",
 	{ "ci", "com" },
 	"Check files into the repository",
 	"[-flR] [-F logfile | -m msg] [-r rev] ...",
@@ -135,7 +135,7 @@ cvs_commit(int argc, char **argv)
 	if (RB_EMPTY(&files_affected))
 		return (0);
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		if (logmsg == NULL) {
 			logmsg = cvs_logmsg_create(NULL, &files_added,
 			    &files_removed, &files_modified);
@@ -308,7 +308,7 @@ cvs_commit_check_files(struct cvs_file *cf)
 
 	cvs_log(LP_TRACE, "cvs_commit_check_files(%s)", cf->file_path);
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL)
+	if (cvsroot_is_remote())
 		cvs_remote_classify_file(cf);
 	else
 		cvs_file_classify(cf, cvs_directory_tag);
@@ -355,7 +355,7 @@ cvs_commit_check_files(struct cvs_file *cf)
 		return;
 	}
 
-	if (current_cvsroot->cr_method == CVS_METHOD_LOCAL) {
+	if (cvsroot_is_local()) {
 		tag = cvs_directory_tag;
 		if (cf->file_ent != NULL)
 			tag = cf->file_ent->ce_tag;
@@ -363,56 +363,18 @@ cvs_commit_check_files(struct cvs_file *cf)
 		if (tag != NULL && cf->file_rcs != NULL) {
 			brev = rcs_sym_getrev(cf->file_rcs, tag);
 			if (brev != NULL) {
-				if (RCSNUM_ISBRANCH(brev))
-					goto next;
-				rcsnum_free(brev);
-			}
-
-			brev = rcs_translate_tag(tag, cf->file_rcs);
-
-			if (brev == NULL) {
-				if (cf->file_status == FILE_ADDED)
-					goto next;
-				fatal("failed to resolve tag: %s",
-				    cf->file_ent->ce_tag);
-			}
-
-			if ((branch = rcsnum_revtobr(brev)) == NULL) {
-				cvs_log(LP_ERR, "sticky tag %s is not "
-				    "a branch for file %s", tag,
-				    cf->file_path);
-				conflicts_found++;
-				rcsnum_free(brev);
-				return;
-			}
-
-			if (!RCSNUM_ISBRANCHREV(brev)) {
-				cvs_log(LP_ERR, "sticky tag %s is not "
-				    "a branch for file %s", tag,
-				    cf->file_path);
-				conflicts_found++;
-				rcsnum_free(branch);
-				rcsnum_free(brev);
-				return;
-			}
-
-			if (!RCSNUM_ISBRANCH(branch)) {
-				cvs_log(LP_ERR, "sticky tag %s is not "
-				    "a branch for file %s", tag,
-				    cf->file_path);
-				conflicts_found++;
-				rcsnum_free(branch);
-				rcsnum_free(brev);
-				return;
+				if (!RCSNUM_ISBRANCH(brev)) {
+					cvs_log(LP_ERR, "sticky tag %s is not "
+					    "a branch for file %s", tag,
+					    cf->file_path);
+					conflicts_found++;
+				}
 			}
 		}
 	}
 
-next:
-	if (branch != NULL)
-		rcsnum_free(branch);
-	if (brev != NULL)
-		rcsnum_free(brev);
+	free(branch);
+	free(brev);
 
 	if (cf->file_status != FILE_ADDED &&
 	    cf->file_status != FILE_REMOVED &&
@@ -488,7 +450,7 @@ cvs_commit_local(struct cvs_file *cf)
 	d = NULL;
 
 	if (cf->file_rcs != NULL && cf->file_rcs->rf_branch != NULL) {
-		rcsnum_free(cf->file_rcs->rf_branch);
+		free(cf->file_rcs->rf_branch);
 		cf->file_rcs->rf_branch = NULL;
 	}
 
@@ -500,8 +462,8 @@ cvs_commit_local(struct cvs_file *cf)
 			    cf->file_path);
 
 		if (tag != NULL) {
-			rcsnum_free(crev);
-			rcsnum_free(rrev);
+			free(crev);
+			free(rrev);
 			brev = rcs_sym_getrev(cf->file_rcs, tag);
 			crev = rcs_translate_tag(tag, cf->file_rcs);
 			if (brev == NULL || crev == NULL) {
@@ -525,8 +487,8 @@ cvs_commit_local(struct cvs_file *cf)
 				fatal("this isnt suppose to happen, honestly");
 			}
 
-			rcsnum_free(brev);
-			rcsnum_free(rrev);
+			free(brev);
+			free(rrev);
 			rrev = rcsnum_branch_root(nrev);
 
 			/* branch stuff was checked in cvs_commit_check_files */
@@ -538,8 +500,7 @@ cvs_commit_local(struct cvs_file *cf)
 		strlcpy(rbuf, "Non-existent", sizeof(rbuf));
 	}
 
-	if (rrev != NULL)
-		rcsnum_free(rrev);
+	free(rrev);
 	isnew = 0;
 	if (cf->file_status == FILE_ADDED) {
 		isnew = 1;
@@ -715,8 +676,7 @@ cvs_commit_local(struct cvs_file *cf)
 		break;
 	}
 
-	if (crev != NULL)
-		rcsnum_free(crev);
+	free(crev);
 
 	if (histtype != -1)
 		cvs_history_add(histtype, cf, NULL);

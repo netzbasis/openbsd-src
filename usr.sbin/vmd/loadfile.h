@@ -1,5 +1,5 @@
 /*	$NetBSD: loadfile.h,v 1.1 1999/04/28 09:08:50 christos Exp $	 */
-/*	$OpenBSD: loadfile.h,v 1.5 2016/09/01 16:04:47 stefan Exp $	 */
+/*	$OpenBSD: loadfile.h,v 1.9 2017/06/07 14:41:53 mlarkin Exp $	 */
 
 /*-
  * Copyright (c) 1998 The NetBSD Foundation, Inc.
@@ -63,7 +63,7 @@
 #define	COUNT_RANDOM	0x4000
 #define COUNT_ALL	0x7f00
 
-#define LOWMEM_KB 636
+#define LOWMEM_KB 640
 
 #define BOOTARGS_PAGE 0x2000
 #define STACK_PAGE 0xF000
@@ -73,7 +73,9 @@
 #define PML2_PAGE 0x13000
 #define NPTE_PG (PAGE_SIZE / sizeof(pt_entry_t))
 
-int loadelf_main(int, struct vm_create_params *,
-    struct vcpu_reg_state *);
+int loadfile_elf(FILE *, struct vm_create_params *,
+    struct vcpu_reg_state *, uint32_t, uint32_t);
+
+size_t mread(FILE *, paddr_t, size_t);
 
 #include <machine/loadfile_machdep.h>

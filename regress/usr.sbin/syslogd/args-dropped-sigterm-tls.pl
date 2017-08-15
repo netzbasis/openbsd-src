@@ -33,14 +33,15 @@ our %args = (
     },
     server => {
 	listen => { domain => AF_UNSPEC, proto => "tls", addr => "localhost" },
+	rcvbuf => 2**12,
 	redo => 0,
 	func => sub {
 	    my $self = shift;
 	    ${$self->{syslogd}}->loggrep(get_thirdlog(), 20)
 		or die ref($self), " syslogd did not receive third log";
 	    ${$self->{syslogd}}->kill_syslogd('TERM');
-	    ${$self->{syslogd}}->loggrep("syslogd: exiting", 5)
-		or die ref($self), " no 'syslogd: exiting' between logs";
+	    ${$self->{syslogd}}->loggrep("syslogd: exited", 5)
+		or die ref($self), " no 'syslogd: exited' between logs";
 	    # syslogd has shut down, read from kernel socket buffer
 	    read_log($self);
 	},
@@ -49,8 +50,8 @@ our %args = (
 	    get_secondlog() => 1,
 	    get_thirdlog() => 0,
 	    get_testgrep() => 0,
-	    qr/syslogd: start/ => 1,
-	    get_charlog() => '>=10',
+	    qr/syslogd\[\d+\]: start/ => 1,
+	    get_charlog() => '~88',
 	},
     },
     file => {
@@ -59,9 +60,10 @@ our %args = (
 	    get_secondlog() => 1,
 	    get_thirdlog() => 1,
 	    get_testgrep() => 0,
-	    qr/syslogd: start/ => 1,
+	    qr/syslogd\[\d+\]: start/ => 1,
 	    get_charlog() => 300,
-	    qr/syslogd: dropped 2[0-9][0-9] messages to remote loghost/ => 1,
+	    qr/syslogd\[\d+\]: dropped 2[0-3][0-9] messages to remote loghost/
+		=> 1,
 	},
     },
     pipe => { nocheck => 1 },

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.103 2016/08/01 10:32:39 schwarze Exp $
+#	$OpenBSD: Makefile,v 1.111 2017/07/01 09:47:23 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -6,15 +6,18 @@ CFLAGS  += -W -Wall -Wstrict-prototypes -Wno-unused-parameter
 DPADD += ${LIBUTIL}
 LDADD	+= -lutil -lz
 
-SRCS=	mandoc.c mandoc_aux.c mandoc_ohash.c preconv.c read.c \
-	roff.c tbl.c tbl_opts.c tbl_layout.c tbl_data.c eqn.c
-SRCS+=	mdoc_macro.c mdoc.c mdoc_hash.c \
+SRCS=	mandoc_aux.c mandoc_ohash.c mandoc.c mandoc_xr.c \
+	chars.c preconv.c read.c \
+	roff.c roff_validate.c tbl.c tbl_opts.c tbl_layout.c tbl_data.c eqn.c
+SRCS+=	mdoc_macro.c mdoc.c \
 	mdoc_argv.c mdoc_state.c mdoc_validate.c att.c msec.c st.c
-SRCS+=	man_macro.c man.c man_hash.c man_validate.c
-SRCS+=	main.c mdoc_term.c tag.c chars.c term.c tree.c man_term.c eqn_term.c
+SRCS+=	man_macro.c man.c man_validate.c
+SRCS+=	main.c out.c tag.c tree.c
+SRCS+=	term.c term_tab.c term_ascii.c term_ps.c
+SRCS+=	roff_term.c mdoc_term.c man_term.c eqn_term.c tbl_term.c
 SRCS+=	mdoc_man.c
-SRCS+=	html.c mdoc_html.c man_html.c out.c eqn_html.c
-SRCS+=	term_ps.c term_ascii.c tbl_term.c tbl_html.c
+SRCS+=	html.c roff_html.c mdoc_html.c man_html.c eqn_html.c tbl_html.c
+SRCS+=	mdoc_markdown.c
 SRCS+=	dbm_map.c dbm.c dba_write.c dba_array.c dba.c dba_read.c
 SRCS+=	manpath.c mandocdb.c mansearch.c
 
@@ -41,14 +44,16 @@ CLEANFILES += man.cgi cgi.o
 # To install, run:	sudo make installcgi
 # After that, read:	man man.cgi.8
 
-LIBMDOC_OBJS =	mdoc_argv.o mdoc_hash.o mdoc_macro.o mdoc_state.o \
+LIBMDOC_OBJS =	mdoc_argv.o mdoc_macro.o mdoc_state.o \
 		mdoc_validate.o mdoc.o att.o st.o
-LIBMAN_OBJS =	man.o man_hash.o man_macro.o man_validate.o
-LIBROFF_OBJS =	roff.o eqn.o tbl.o tbl_data.o tbl_layout.o tbl_opts.o
+LIBMAN_OBJS =	man.o man_macro.o man_validate.o
+LIBROFF_OBJS =	roff.o roff_validate.o eqn.o \
+		tbl.o tbl_data.o tbl_layout.o tbl_opts.o
 LIBMANDOC_OBJS = ${LIBMDOC_OBJS} ${LIBMAN_OBJS} ${LIBROFF_OBJS} \
-		mandoc.o mandoc_aux.o mandoc_ohash.o \
+		mandoc.o mandoc_aux.o mandoc_ohash.o mandoc_xr.o \
 		chars.o msec.o preconv.o read.o
-HTML_OBJS =	html.o mdoc_html.o man_html.o tbl_html.o eqn_html.o out.o
+HTML_OBJS =	html.o roff_html.o mdoc_html.o man_html.o \
+		tbl_html.o eqn_html.o out.o
 CGI_OBJS =	${LIBMANDOC_OBJS} ${HTML_OBJS} \
 		dbm_map.o dbm.o mansearch.o cgi.o
 
@@ -63,5 +68,7 @@ installcgi: man.cgi
 	${INSTALL} ${INSTALL_COPY} -S ${INSTALL_STRIP} \
 	    -o ${BINOWN} -g ${BINGRP} -m ${BINMODE} \
 	    man.cgi ${DESTDIR}/var/www/cgi-bin/man.cgi
+	${INSTALL} ${INSTALL_COPY} -o root -g wheel -m 644 \
+	    ${.CURDIR}/mandoc.css ${DESTDIR}/var/www/htdocs/
 
 .include <bsd.prog.mk>

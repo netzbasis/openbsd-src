@@ -1,4 +1,4 @@
-/*	$OpenBSD: socketvar.h,v 1.65 2016/09/04 11:10:19 bluhm Exp $	*/
+/*	$OpenBSD: socketvar.h,v 1.74 2017/07/12 10:56:47 mpi Exp $	*/
 /*	$NetBSD: socketvar.h,v 1.18 1996/02/09 18:25:38 christos Exp $	*/
 
 /*-
@@ -36,7 +36,6 @@
 #include <sys/queue.h>
 #include <sys/task.h>
 #include <sys/timeout.h>
-#include <sys/rwlock.h>
 
 #ifndef	_SOCKLEN_T_DEFINED_
 #define	_SOCKLEN_T_DEFINED_
@@ -111,12 +110,13 @@ struct socket {
 		struct mbuf *sb_lastrecord;/* first mbuf of last record in
 					      socket buffer */
 		struct	selinfo sb_sel;	/* process selecting read/write */
-		struct	rwlock sb_lock;	/* exclusive access from process */
 		int	sb_flagsintr;	/* flags, changed during interrupt */
 		short	sb_flags;	/* flags, see below */
 		u_short	sb_timeo;	/* timeout for read/write */
 	} so_rcv, so_snd;
 #define	SB_MAX		(2*1024*1024)	/* default for max chars in sockbuf */
+#define	SB_LOCK		0x01		/* lock on data queue */
+#define	SB_WANT		0x02		/* someone is waiting to lock */
 #define	SB_WAIT		0x04		/* someone is waiting for data/space */
 #define	SB_SEL		0x08		/* someone is selecting */
 #define	SB_ASYNC	0x10		/* ASYNC I/O, need signals */
@@ -151,6 +151,11 @@ struct socket {
 #define	SS_DNS			0x4000	/* created using SOCK_DNS socket(2) */
 
 #ifdef _KERNEL
+
+#include <lib/libkern/libkern.h>
+
+void	soassertlocked(struct socket *);
+
 /*
  * Macros for sockets and socket buffering.
  */
@@ -161,8 +166,15 @@ struct socket {
 /*
  * Do we need to notify the other side when I/O is possible?
  */
-#define	sb_notify(sb)	((((sb)->sb_flags | (sb)->sb_flagsintr) & \
-    (SB_WAIT|SB_SEL|SB_ASYNC|SB_SPLICE|SB_KNOTE)) != 0)
+static inline int
+sb_notify(struct socket *so, struct sockbuf *sb)
+{
+	int flags = (sb->sb_flags | sb->sb_flagsintr);
+
+	KASSERT(sb == &so->so_rcv || sb == &so->so_snd);
+	soassertlocked(so);
+	return ((flags & (SB_WAIT|SB_SEL|SB_ASYNC|SB_SPLICE|SB_KNOTE)) != 0);
+}
 
 /*
  * How much space is there in a socket buffer (so->so_snd or so->so_rcv)?
@@ -170,8 +182,16 @@ struct socket {
  * still be negative (cc > hiwat or mbcnt > mbmax).  Should detect
  * overflow and return 0.
  */
-#define	sbspace(sb) \
-    lmin((sb)->sb_hiwat - (sb)->sb_cc, (sb)->sb_mbmax - (sb)->sb_mbcnt)
+static inline long
+sbspace(struct socket *so, struct sockbuf *sb)
+{
+	KASSERT(sb == &so->so_rcv || sb == &so->so_snd);
+#if 0
+	/* XXXSMP kqueue_scan() calling filt_sowrite() cannot sleep. */
+	soassertlocked(so);
+#endif
+	return lmin(sb->sb_hiwat - sb->sb_cc, sb->sb_mbmax - sb->sb_mbcnt);
+}
 
 /* do we have to send all at once on a socket? */
 #define	sosendallatonce(so) \
@@ -182,15 +202,19 @@ struct socket {
     ((so)->so_state & SS_ISSENDING)
 
 /* can we read something from so? */
-#define	soreadable(so)	\
-    (!isspliced(so) && \
-    ((so)->so_rcv.sb_cc >= (so)->so_rcv.sb_lowat || \
-    ((so)->so_state & SS_CANTRCVMORE) || \
-    (so)->so_qlen || (so)->so_error))
+static inline int
+soreadable(struct socket *so)
+{
+	soassertlocked(so);
+	if (isspliced(so))
+		return 0;
+	return (so->so_state & SS_CANTRCVMORE) || so->so_qlen || so->so_error ||
+	    so->so_rcv.sb_cc >= so->so_rcv.sb_lowat;
+}
 
 /* can we write something to so? */
 #define	sowriteable(so) \
-    ((sbspace(&(so)->so_snd) >= (so)->so_snd.sb_lowat && \
+    ((sbspace((so), &(so)->so_snd) >= (so)->so_snd.sb_lowat && \
 	(((so)->so_state & SS_ISCONNECTED) || \
 	  ((so)->so_proto->pr_flags & PR_CONNREQUIRED)==0)) || \
     ((so)->so_state & SS_CANTSENDMORE) || (so)->so_error)
@@ -220,10 +244,10 @@ struct socket {
  * Unless SB_NOINTR is set on sockbuf, sleep is interruptible.
  * Returns error without lock if sleep is interrupted.
  */
-int sblock(struct sockbuf *sb, int wf);
+int sblock(struct socket *, struct sockbuf *, int);
 
 /* release lock on sockbuf sb */
-void sbunlock(struct sockbuf *sb);
+void sbunlock(struct sockbuf *);
 
 #define	SB_EMPTY_FIXUP(sb) do {						\
 	if ((sb)->sb_mb == NULL) {					\
@@ -256,27 +280,25 @@ int	soo_poll(struct file *fp, int events, struct proc *p);
 int	soo_kqfilter(struct file *fp, struct knote *kn);
 int 	soo_close(struct file *fp, struct proc *p);
 int	soo_stat(struct file *, struct stat *, struct proc *);
-int	uipc_usrreq(struct socket *, int , struct mbuf *,
-			 struct mbuf *, struct mbuf *, struct proc *);
-void	sbappend(struct sockbuf *sb, struct mbuf *m);
-void	sbappendstream(struct sockbuf *sb, struct mbuf *m);
-int	sbappendaddr(struct sockbuf *sb, struct sockaddr *asa,
-	    struct mbuf *m0, struct mbuf *control);
-int	sbappendcontrol(struct sockbuf *sb, struct mbuf *m0,
-	    struct mbuf *control);
-void	sbappendrecord(struct sockbuf *sb, struct mbuf *m0);
+void	sbappend(struct socket *, struct sockbuf *, struct mbuf *);
+void	sbappendstream(struct socket *, struct sockbuf *, struct mbuf *);
+int	sbappendaddr(struct socket *, struct sockbuf *, struct sockaddr *,
+	    struct mbuf *, struct mbuf *);
+int	sbappendcontrol(struct socket *, struct sockbuf *, struct mbuf *,
+	    struct mbuf *);
+void	sbappendrecord(struct socket *, struct sockbuf *, struct mbuf *);
 void	sbcompress(struct sockbuf *sb, struct mbuf *m, struct mbuf *n);
 struct mbuf *
 	sbcreatecontrol(caddr_t p, int size, int type, int level);
-void	sbdrop(struct sockbuf *sb, int len);
+void	sbdrop(struct socket *, struct sockbuf *, int);
 void	sbdroprecord(struct sockbuf *sb);
-void	sbflush(struct sockbuf *sb);
+void	sbflush(struct socket *, struct sockbuf *);
 void	sbinsertoob(struct sockbuf *sb, struct mbuf *m0);
-void	sbrelease(struct sockbuf *sb);
+void	sbrelease(struct socket *, struct sockbuf *);
 int	sbcheckreserve(u_long cnt, u_long defcnt);
 int	sbchecklowmem(void);
-int	sbreserve(struct sockbuf *sb, u_long cc);
-int	sbwait(struct sockbuf *sb);
+int	sbreserve(struct socket *, struct sockbuf *, u_long);
+int	sbwait(struct socket *, struct sockbuf *sb);
 int	sb_lock(struct sockbuf *sb);
 void	soinit(void);
 int	soabort(struct socket *so);
@@ -315,6 +337,10 @@ void	sowakeup(struct socket *so, struct sockbuf *sb);
 void	sorwakeup(struct socket *);
 void	sowwakeup(struct socket *);
 int	sockargs(struct mbuf **, const void *, size_t, int);
+
+int	sosleep(struct socket *, void *, int, const char *, int);
+int	solock(struct socket *);
+void	sounlock(int);
 
 int	sendit(struct proc *, int, struct msghdr *, int, register_t *);
 int	recvit(struct proc *, int, struct msghdr *, caddr_t,

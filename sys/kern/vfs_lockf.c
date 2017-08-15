@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_lockf.c,v 1.22 2016/08/25 00:01:13 dlg Exp $	*/
+/*	$OpenBSD: vfs_lockf.c,v 1.24 2016/11/07 00:26:33 guenther Exp $	*/
 /*	$NetBSD: vfs_lockf.c,v 1.7 1996/02/04 02:18:21 christos Exp $	*/
 
 /*
@@ -75,9 +75,8 @@ int	lockf_debug = DEBUG_SETLOCK|DEBUG_CLEARLOCK|DEBUG_WAKELOCK;
 void
 lf_init(void)
 {
-	pool_init(&lockfpool, sizeof(struct lockf), 0, 0, PR_WAITOK,
+	pool_init(&lockfpool, sizeof(struct lockf), 0, IPL_NONE, PR_WAITOK,
 	    "lockfpl", NULL);
-	pool_setipl(&lockfpool, IPL_NONE);
 }
 
 struct lockf *lf_alloc(uid_t, int);
@@ -694,7 +693,7 @@ lf_print(char *tag, struct lockf *lock)
 	
 	printf("%s: lock %p for ", tag, lock);
 	if (lock->lf_flags & F_POSIX)
-		printf("proc %d", ((struct proc *)(lock->lf_id))->p_pid);
+		printf("thread %d", ((struct proc *)(lock->lf_id))->p_tid);
 	else
 		printf("id %p", lock->lf_id);
 	printf(" %s, start %llx, end %llx",
@@ -720,7 +719,7 @@ lf_printlist(char *tag, struct lockf *lock)
 	for (lf = *lock->lf_head; lf; lf = lf->lf_next) {
 		printf("\tlock %p for ", lf);
 		if (lf->lf_flags & F_POSIX)
-			printf("proc %d", ((struct proc*)(lf->lf_id))->p_pid);
+			printf("thread %d", ((struct proc*)(lf->lf_id))->p_tid);
 		else
 			printf("id %p", lf->lf_id);
 		printf(" %s, start %llx, end %llx",

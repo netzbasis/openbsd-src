@@ -1,4 +1,4 @@
-/*	$OpenBSD: glxsb.c,v 1.30 2015/09/08 08:33:26 deraadt Exp $	*/
+/*	$OpenBSD: glxsb.c,v 1.32 2017/05/02 11:47:49 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2006 Tom Cosgrove <tom@openbsd.org>
@@ -40,7 +40,7 @@
 
 #ifdef CRYPTO
 #include <crypto/cryptodev.h>
-#include <crypto/rijndael.h>
+#include <crypto/aes.h>
 #include <crypto/xform.h>
 #include <crypto/cryptosoft.h>
 #endif
@@ -406,7 +406,7 @@ glxsb_crypto_newsession(uint32_t *sidp, struct cryptoini *cri)
 					return (ENOMEM);
 				}
 				ses->ses_swd_enc = swd;
-				txf = &enc_xform_rijndael128;
+				txf = &enc_xform_aes;
 				if (txf->ctxsize > 0) {
 					swd->sw_kschedule =
 					    malloc(txf->ctxsize,
@@ -778,7 +778,7 @@ glxsb_crypto_process(struct cryptop *crp)
 	struct glxsb_session *ses;
 	struct cryptodesc *crd;
 	int sesn,err = 0;
-	int s;
+	int s, i;
 
 	s = splnet();
 
@@ -786,8 +786,7 @@ glxsb_crypto_process(struct cryptop *crp)
 		err = EINVAL;
 		goto out;
 	}
-	crd = crp->crp_desc;
-	if (crd == NULL) {
+	if (crp->crp_ndesc < 1) {
 		err = EINVAL;
 		goto out;
 	}
@@ -803,7 +802,8 @@ glxsb_crypto_process(struct cryptop *crp)
 		goto out;
 	}
 
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
+	for (i = 0; i < crp->crp_ndesc; i++) {
+		crd = &crp->crp_desc[i];
 		switch (crd->crd_alg) {
 		case CRYPTO_AES_CBC:
 			if (ses->ses_swd_enc) {

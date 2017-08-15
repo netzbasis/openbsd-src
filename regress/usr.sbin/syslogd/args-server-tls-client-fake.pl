@@ -16,23 +16,22 @@ our %args = (
 	loggrep => {
 	    qr/ClientCertfile client.crt/ => 1,
 	    qr/ClientKeyfile client.key/ => 1,
-	    qr/syslogd: loghost .* connection error: /.
-		qr/handshake failed: error:.*/.
-		qr/SSL3_READ_BYTES:tlsv1 alert decrypt error/ => 2,
+	    qr/syslogd\[\d+\]: loghost .* connection error: /.
+		qr/handshake failed: error:.*:SSL routines:/.
+		qr/CONNECT_CR_FINISHED:tlsv1 alert decrypt error/ => 1,
 	    get_testgrep() => 1,
 	},
     },
     server => {
 	listen => { domain => AF_UNSPEC, proto => "tls", addr => "localhost" },
-	sslverify => 1,
-	cacrt => "fake-ca.crt",
+	sslca => "fake-ca.crt",
 	up => qr/IO::Socket::SSL socket accept failed/,
 	down => qr/SSL accept attempt failed error/,
 	exit => 255,
 	loggrep => {
 	    qr/Server IO::Socket::SSL socket accept failed: /.
-		qr/,SSL accept attempt failed error:.*/.
-		qr/SSL3_GET_CLIENT_CERTIFICATE:no certificate returned/ => 1.
+		qr/,SSL accept attempt failed error:.*:SSL routines:/.
+		qr/ACCEPT_SR_CERT:no certificate returned/ => 1.
 	},
     },
 );

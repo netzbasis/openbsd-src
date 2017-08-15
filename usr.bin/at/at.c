@@ -1,4 +1,4 @@
-/*	$OpenBSD: at.c,v 1.77 2015/11/16 16:43:06 millert Exp $	*/
+/*	$OpenBSD: at.c,v 1.81 2017/06/15 19:37:10 tb Exp $	*/
 
 /*
  *  at.c : Put file into atrun queue
@@ -41,7 +41,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <locale.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -198,8 +197,6 @@ writefile(const char *cwd, time_t runtimer, char queue)
 	mode_t cmask;
 	extern char **environ;
 
-	(void)setlocale(LC_TIME, "");
-
 	/*
 	 * Install the signal handler for SIGINT; terminate after removing the
 	 * spool file if necessary
@@ -219,9 +216,6 @@ writefile(const char *cwd, time_t runtimer, char queue)
 	cmask = umask(S_IRUSR | S_IWUSR | S_IXUSR);
 	if ((fd = newjob(runtimer, queue)) == -1)
 		fatal("unable to create atjob file");
-
-	if (fchown(fd, -1, user_gid) != 0)
-		fatal("fchown");
 
 	/*
 	 * We've successfully created the file; let's set the flag so it
@@ -259,7 +253,7 @@ writefile(const char *cwd, time_t runtimer, char queue)
 	}
 
 	(void)fprintf(fp, "#!/bin/sh\n# atrun uid=%lu gid=%lu\n# mail %*s %d\n",
-	    (unsigned long)user_uid, (unsigned long)user_gid,
+	    (unsigned long)user_uid, (unsigned long)spool_gid,
 	    MAX_UNAME, mailname, send_mail);
 
 	/* Write out the umask at the time of invocation */
@@ -560,7 +554,8 @@ list_jobs(int argc, char **argv, int count_only, int csort)
 		job->queue = queue;
 		if (numjobs == maxjobs) {
 			size_t newjobs = maxjobs * 2;
-			newatjobs = reallocarray(atjobs, newjobs, sizeof(job));
+			newatjobs = recallocarray(atjobs, maxjobs,
+			    newjobs, sizeof(job));
 			if (newatjobs == NULL)
 				fatal(NULL);
 			atjobs = newatjobs;
@@ -996,9 +991,26 @@ main(int argc, char **argv)
 			if (setegid(spool_gid) != 0)
 				fatal("setegid(spool_gid)");
 		}
+
+		if (pledge("stdio rpath wpath cpath fattr getpw unix", NULL)
+		    == -1)
+			fatal("pledge");
 		break;
+
+	case ATQ:
+	case CAT:
+		if (pledge("stdio rpath getpw", NULL) == -1)
+			fatal("pledge");
+		break;
+
+	case ATRM:
+		if (pledge("stdio rpath cpath getpw unix", NULL) == -1)
+			fatal("pledge");
+		break;
+
 	default:
-		;
+		fatalx("internal error");
+		break;
 	}
 
 	if ((pw = getpwuid(user_uid)) == NULL)
@@ -1025,7 +1037,7 @@ main(int argc, char **argv)
 	case CAT:
 		if ((aflag && argc) || (!aflag && !argc))
 			usage();
-		exit(process_jobs(argc, argv, program));
+		return process_jobs(argc, argv, program);
 		break;
 
 	case AT:
@@ -1034,7 +1046,7 @@ main(int argc, char **argv)
 			if (argc == 0)
 				usage();
 			else if ((timer = parsetime(argc, argv)) == -1)
-				exit(EXIT_FAILURE);
+				return EXIT_FAILURE;
 		}
 		writefile(cwd, timer, queue);
 		break;
@@ -1048,7 +1060,7 @@ main(int argc, char **argv)
 		if (argc == 0)
 			timer = time(NULL);
 		else if ((timer = parsetime(argc, argv)) == -1)
-			exit(EXIT_FAILURE);
+			return EXIT_FAILURE;
 
 		writefile(cwd, timer, queue);
 		break;
@@ -1057,5 +1069,5 @@ main(int argc, char **argv)
 		fatalx("internal error");
 		break;
 	}
-	exit(EXIT_SUCCESS);
+	return EXIT_SUCCESS;
 }

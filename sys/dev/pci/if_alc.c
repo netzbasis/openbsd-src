@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_alc.c,v 1.39 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_alc.c,v 1.41 2017/01/22 10:17:38 dlg Exp $	*/
 /*-
  * Copyright (c) 2009, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -1625,9 +1625,6 @@ alc_stats_update(struct alc_softc *sc)
 	stat->tx_bcast_bytes += smb->tx_bcast_bytes;
 	stat->tx_mcast_bytes += smb->tx_mcast_bytes;
 
-	/* Update counters in ifnet. */
-	ifp->if_opackets += smb->tx_frames;
-
 	ifp->if_collisions += smb->tx_single_colls +
 	    smb->tx_multi_colls * 2 + smb->tx_late_colls +
 	    smb->tx_excess_colls * HDPX_CFG_RETRY_DEFAULT;
@@ -1912,8 +1909,7 @@ alc_rxeof(struct alc_softc *sc, struct rx_rdesc *rrd)
 		if (alc_newbuf(sc, rxd) != 0) {
 			ifp->if_iqdrops++;
 			/* Reuse Rx buffers. */
-			if (sc->alc_cdata.alc_rxhead != NULL)
-				m_freem(sc->alc_cdata.alc_rxhead);
+			m_freem(sc->alc_cdata.alc_rxhead);
 			break;
 		}
 
@@ -2377,8 +2373,7 @@ alc_stop(struct alc_softc *sc)
 	CSR_WRITE_4(sc, ALC_INTR_STATUS, 0xFFFFFFFF);
 
 	/* Reclaim Rx buffers that have been processed. */
-	if (sc->alc_cdata.alc_rxhead != NULL)
-		m_freem(sc->alc_cdata.alc_rxhead);
+	m_freem(sc->alc_cdata.alc_rxhead);
 	ALC_RXCHAIN_RESET(sc);
 	/*
 	 * Free Tx/Rx mbufs still in the queues.

@@ -2,35 +2,48 @@
 # check wether path mtu to dst is as expected
 
 import os
+import threading
 from addr import *
 from scapy.all import *
 
 # usage: ping6_mtu src dst size icmp6-size
 
+# work around the broken sniffing of packages with bad checksum
+#a=srp1(eth, iface=SRC_IF, timeout=2)
+class Sniff1(threading.Thread):
+	filter = None
+	captured = None
+	packet = None
+	def run(self):
+		self.captured = sniff(iface=SRC_IF, filter=self.filter,
+		    count=1, timeout=3)
+		if self.captured:
+			self.packet = self.captured[0]
+
 srcaddr=sys.argv[1]
 dstaddr=sys.argv[2]
 size=int(sys.argv[3])
 expect=int(sys.argv[4])
-pid=os.getpid() & 0xffff
-hdr=IPv6(src=srcaddr, dst=dstaddr)/ICMPv6EchoRequest(id=pid)
+eid=os.getpid() & 0xffff
+hdr=IPv6(src=srcaddr, dst=dstaddr)/ICMPv6EchoRequest(id=eid)
 payload="a" * (size - len(str(hdr)))
 ip=hdr/payload
 iplen=IPv6(str(ip)).plen
 eth=Ether(src=SRC_MAC, dst=PF_MAC)/ip
 
-# work around the broken sniffing of packages with bad checksum
-#a=srp1(eth, iface=SRC_IF, timeout=2)
-if os.fork() == 0:
-	time.sleep(1)
-	sendp(eth, iface=SRC_IF)
-	os._exit(0)
-ans=sniff(iface=SRC_IF, timeout=3, filter=
-    "ip6 and dst "+srcaddr+" and icmp6")
-if len(ans) == 0:
+sniffer = Sniff1();
+# pcap cannot access icmp6, check for packet too big, avoid neighbor discovery
+sniffer.filter = "ip6 and dst %s and icmp6 and ip6[40] = 2 and ip6[41] = 0" \
+    % srcaddr
+sniffer.start()
+time.sleep(1)
+sendp(eth, iface=SRC_IF)
+sniffer.join(timeout=5)
+a = sniffer.packet
+
+if a is None:
 	print "no packet sniffed"
 	exit(2)
-a=ans[0]
-
 if a and a.type == ETH_P_IPV6 and \
     ipv6nh[a.payload.nh] == 'ICMPv6' and \
     icmp6types[a.payload.payload.type] == 'Packet too big':

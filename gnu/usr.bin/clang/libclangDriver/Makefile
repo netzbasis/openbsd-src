@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.1 2016/09/05 10:56:50 pascal Exp $
+# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:36 espie Exp $
 
 LIB=	clangDriver
 NOPIC=
@@ -10,6 +10,7 @@ CPPFLAGS+=	${CLANG_INCLUDES}
 SRCS=	Action.cpp \
 	Compilation.cpp \
 	CrossWindowsToolChain.cpp \
+	Distro.cpp \
 	Driver.cpp \
 	DriverOptions.cpp \
 	Job.cpp \
@@ -26,10 +27,7 @@ SRCS=	Action.cpp \
 
 .PATH:	${.CURDIR}/../../../llvm/tools/clang/lib/Driver
 
-depend:
-	# Nothing here so far ...
-
 install:
-	# Nothing here so far ...
+	@# Nothing here so far ...
 
 .include <bsd.lib.mk>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_start.S,v 1.9 2016/08/26 11:59:04 kettenis Exp $	*/
+/*	$OpenBSD: armv7_start.S,v 1.14 2017/06/14 13:12:49 patrick Exp $	*/
 /*	$NetBSD: lubbock_start.S,v 1.1 2003/06/18 10:51:15 bsh Exp $ */
 
 /*
@@ -38,159 +38,17 @@
 #undef	DOMAIN_CLIENT	/* XXX */
 #include "assym.h"
 
-#define ELR	.long	0xe12ef30e		@ msr	ELR_hyp, lr
-#define ERET	.long	0xe160006e		@ eret
-
-/*
- * CPWAIT -- Canonical method to wait for CP15 update.
- * NOTE: Clobbers the specified temp reg.
- * copied from arm/arm/cpufunc_asm_xscale.S
- * XXX: better be in a common header file.
- */
-#define	CPWAIT_BRANCH							 \
-	sub	pc, pc, #4
-
-#define	CPWAIT(tmp)							 \
-	mrc	CP15_TTBR0(tmp)		/* arbitrary read of CP15 */	;\
-	mov	tmp, tmp		/* wait for it to complete */	;\
-	CPWAIT_BRANCH			/* branch to next insn */
-	
-/*
- * Kernel start routine for OMAP
- * this code is excuted at the very first after the kernel is loaded
- * by U-Boot.
- *
- * This code makes a number of assumptions.
- * 1) it is running in RAM.
- * 2) it is run at a fairly well known offset from the beginning of
- *    a ram section.
- * 3) the memory region around the kernel will be at least about 32MB
- * 4) memory just below the kernel can be used by the kernel
- * 5) memory at the start of the ram section may not be useable
- *    it may contain bootloader/u-boot
- * 6) the fdt/kernel parameters in arg r0-r2 may point outside the
- *    32MB of ram (it likely should be copied very early)
- *
- */
-	.text
-
-	.global	_C_LABEL(bootstrap_start)
-_C_LABEL(bootstrap_start):
-	/* Save U-Boot arguments */
-	mov	r6, r0
-	mov	r7, r1
-	mov	r8, r2
-
-	/*
-	 *  Kernel is loaded in SDRAM (0xX0200000..), and is expected to run
-	 *  in VA 0xc0200000..
-	 *
-	 * which base memory address the kernel is located is unknown
-	 * however the kernel should be located at 0x00300000 offset
-	 * from that ram area. copy the PC into a register and strip
-	 * the low bits
-	 */
-
-	/*
-	 * If we are running in HYP mode, try to get to SVC safely.
-	 * Ensure IRQ, FIQ and Aborts are disabled in HYP mode before
-	 * going to SVC.  If we are there already, just go ahead.
-	 */
-	mrs	r0, cpsr
-	and	r0, r0, #(PSR_MODE)
-	teq	r0, #(PSR_HYP32_MODE)
-	bne	1f			/* If we are not in HYP, we're done */
-	mrs	r0, cpsr
-	bic	r0, r0, #(PSR_MODE)
-	orr	r0, r0, #(PSR_SVC32_MODE)
-	orr	r0, r0, #(PSR_I | PSR_F | PSR_A)
-	msr	spsr_fsxc, r0
-	adr	lr, 1f
-	ELR
-	ERET				/* Use the HYP LR to get into SVC */
-1:
-
-	/*
-	 * Now that we are in SVC, build up pagetables and start up.
-	 */
-	mov r9, pc
-	and r9, r9, #0xf0000000	// Leave the memory base in r9
-
-	/* create the bootstrap MMU table at offset 0x00200000 */
-	orr	r0, r9, #0x00200000
-	adr	r4, mmu_init_table
-
-	mov	r2, r9, lsr #18
-	ldr	r3, [r4, #8]
-	bic	r3, r3, #0xf0000000
-	orr	r3, r3, r9
-	str	r2, [r4, #4]
-	str	r3, [r4, #8]
-	str	r3, [r4, #0x14] // ram address for 0xc0000000
-	add	r3, r3, #0x01000000
-	str	r3, [r4, #0x20] // ram address for 0x00000000 (vectors)
-
-	/*
-	 * the first entry has two fields that need to be updated for
-	 * specific ram configuration of this board.
-	 */
-	b	3f
-
-2:
-	str	r3, [r0, r2]
-	add	r2, r2, #4
-	add	r3, r3, #(L1_S_SIZE)
-	adds	r1, r1, #-1
-	bhi	2b
-3:	
-	ldmia	r4!, {r1,r2,r3}   /* # of sections, PA|attr, VA */
-	cmp	r1, #0
-	bne	2b	
-
-	mcr	CP15_TTBR0(r0)		/* Set TTB */
-	mcr	CP15_TLBIALL(r0)	/* Flush TLB */
-
-	/* Set the Domain Access register.  Very important! */
-	mov     r0, #DOMAIN_CLIENT	/* We only use domain 0 */
-	mcr	CP15_DACR(r0)	
-
-	/* Enable MMU */
-	mrc	CP15_SCTLR(r0)	
-	orr	r0, r0, #CPU_CONTROL_MMU_ENABLE
-	mcr	CP15_SCTLR(r0)	
-	CPWAIT(r0)
-
-	/* Restore U-Boot arguments */
-	mov	r0, r9
-	mov	r1, r7
-	mov	r2, r8
-
-	/* Jump to kernel code in TRUE VA */
-	adr	r6, Lstart
-	ldr	pc, [r6]
-
-Lstart:
-	.word	start
-
-#define MMU_INIT(va,pa,n_sec,attr) \
-	.word	n_sec					    ; \
-	.word	4*((va)>>L1_S_SHIFT)			    ; \
-	.word	(pa)|(attr)				    ;
-
-mmu_init_table:
-	/* map SDRAM VA==PA, WT cacheable */
-	MMU_INIT(0x00000000, 0x00000000, 64,
-		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
-mmu_init_table2:	
-	/* map VA 0xc0000000..0xc3ffffff to PA 0xa0000000..0xa3ffffff */
-	MMU_INIT(0xc0000000, 0x00000000, 64,
-		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
-	MMU_INIT(0x00000000, 0x00000000, 1,
-		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
-
-	.word 0	/* end of table */
+#define HVC	.word	0xe1400070		@ hvc
 
 	.text
+
+ENTRY(smc_call)
+	smc	#0
+	bx	lr
+
+ENTRY(hvc_call)
+	HVC
+	bx	lr
 
 /*-
  * Copyright (c) 2011
@@ -244,15 +102,6 @@ ENTRY(omap4_smc_call)
 	stmfd   sp!, {r2-r12, lr}
 	mov     r12, r0
 	mov     r0, r1
-#if 0
-	dsb
-#else
-	.word	0xf57ff040
-#endif
-#if 0
-	smc     #0	/* XXX or #1 ??? */
-#else
-	.word	0xe1600070
-#endif
+	dsb	sy
+	smc     #0
 	ldmfd   sp!, {r2-r12, pc}
-

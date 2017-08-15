@@ -1,4 +1,4 @@
-/*	$OpenBSD: uticom.c,v 1.30 2016/05/24 05:35:01 mpi Exp $	*/
+/*	$OpenBSD: uticom.c,v 1.32 2017/04/08 02:57:25 deraadt Exp $	*/
 /*
  * Copyright (c) 2005 Dmitry Komissaroff <dxi@mail.ru>.
  *
@@ -460,7 +460,7 @@ uticom_detach(struct device *self, int flags)
 	if (sc->sc_intr_pipe != NULL) {
 		usbd_abort_pipe(sc->sc_intr_pipe);
 		usbd_close_pipe(sc->sc_intr_pipe);
-		free(sc->sc_intr_buf, M_USBDEV, 0);
+		free(sc->sc_intr_buf, M_USBDEV, sc->sc_isize);
 		sc->sc_intr_pipe = NULL;
 	}
 
@@ -760,7 +760,7 @@ uticom_close(void *addr, int portno)
 		if (err)
 			printf("%s: close interrupt pipe failed: %s\n",
 			    sc->sc_dev.dv_xname, usbd_errstr(err));
-		free(sc->sc_intr_buf, M_USBDEV, 0);
+		free(sc->sc_intr_buf, M_USBDEV, sc->sc_isize);
 		sc->sc_intr_pipe = NULL;
 	}
 }
@@ -863,7 +863,7 @@ uticom_download_fw(struct uticom_softc *sc, int pipeno,
 	if (!buffer) {
 		printf("%s: uticom_download_fw: out of memory\n",
 		    sc->sc_dev.dv_xname);
-		free(firmware, M_DEVBUF, 0);
+		free(firmware, M_DEVBUF, firmware_size);
 		return ENOMEM;
 	}
 
@@ -913,12 +913,12 @@ uticom_download_fw(struct uticom_softc *sc, int pipeno,
 		    sc->sc_dev.dv_xname, usbd_errstr(err));
 
 finish:
-	free(firmware, M_DEVBUF, 0);
+	free(firmware, M_DEVBUF, firmware_size);
 	usbd_free_buffer(oxfer);
 	usbd_free_xfer(oxfer);
 	oxfer = NULL;
 	usbd_abort_pipe(pipe);
 	usbd_close_pipe(pipe);
-	free(buffer, M_USBDEV, 0);
+	free(buffer, M_USBDEV, buffer_size);
 	return err;
 }

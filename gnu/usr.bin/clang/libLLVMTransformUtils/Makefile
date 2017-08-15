@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.1 2016/09/05 10:56:50 pascal Exp $
+# $OpenBSD: Makefile,v 1.4 2017/07/09 15:28:35 espie Exp $
 
 LIB=	LLVMTransformUtils
 NOPIC=
@@ -20,25 +20,35 @@ SRCS=	ASanStackFrameLayout.cpp \
 	CodeExtractor.cpp \
 	CtorUtils.cpp \
 	DemoteRegToStack.cpp \
+	EscapeEnumerator.cpp \
+	Evaluator.cpp \
 	FlattenCFG.cpp \
+	FunctionComparator.cpp \
+	FunctionImportUtils.cpp \
 	GlobalStatus.cpp \
+	ImportedFunctionsInliningStatistics.cpp \
 	InlineFunction.cpp \
 	InstructionNamer.cpp \
 	IntegerDivision.cpp \
 	LCSSA.cpp \
+	LibCallsShrinkWrap.cpp \
 	Local.cpp \
 	LoopSimplify.cpp \
 	LoopUnroll.cpp \
+	LoopUnrollPeel.cpp \
 	LoopUnrollRuntime.cpp \
 	LoopUtils.cpp \
 	LoopVersioning.cpp \
 	LowerInvoke.cpp \
 	LowerSwitch.cpp \
 	Mem2Reg.cpp \
+	MemorySSA.cpp \
 	MetaRenamer.cpp \
 	ModuleUtils.cpp \
+	NameAnonGlobals.cpp \
 	PromoteMemoryToRegister.cpp \
 	SSAUpdater.cpp \
+	SanitizerStats.cpp \
 	SimplifyCFG.cpp \
 	SimplifyIndVar.cpp \
 	SimplifyInstructions.cpp \
@@ -51,10 +61,7 @@ SRCS=	ASanStackFrameLayout.cpp \
 
 .PATH:	${.CURDIR}/../../../llvm/lib/Transforms/Utils
 
-depend:
-	# Nothing here so far ...
-
 install:
-	# Nothing here so far ...
+	@# Nothing here so far ...
 
 .include <bsd.lib.mk>

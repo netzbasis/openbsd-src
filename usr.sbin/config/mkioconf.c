@@ -1,4 +1,4 @@
-/*	$OpenBSD: mkioconf.c,v 1.34 2015/09/11 07:13:58 miod Exp $	*/
+/*	$OpenBSD: mkioconf.c,v 1.36 2016/10/27 14:33:30 tb Exp $	*/
 /*	$NetBSD: mkioconf.c,v 1.41 1996/11/11 14:18:49 mycroft Exp $	*/
 
 /*
@@ -41,6 +41,7 @@
  *	from: @(#)mkioconf.c	8.1 (Berkeley) 6/6/93
  */
 
+#include <err.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,8 +78,7 @@ mkioconf(void)
 
 	qsort(packed, npacked, sizeof *packed, cforder);
 	if ((fp = fopen("ioconf.c", "w")) == NULL) {
-		(void)fprintf(stderr, "config: cannot write ioconf.c: %s\n",
-		    strerror(errno));
+		warn("cannot write ioconf.c");
 		return (1);
 	}
 	v = emithdr(fp);
@@ -86,9 +86,7 @@ mkioconf(void)
 	    emitlocnames(fp) || emitpv(fp) || emitcfdata(fp) ||
 	    emitroots(fp) || emitpseudo(fp)) {
 		if (v >= 0)
-			(void)fprintf(stderr,
-			    "config: error writing ioconf.c: %s\n",
-			    strerror(errno));
+			warn("error writing ioconf.c");
 		(void)fclose(fp);
 		/* (void)unlink("ioconf.c"); */
 		return (1);
@@ -127,8 +125,7 @@ emithdr(FILE *ofp)
 			if (fwrite(buf, 1, n, ofp) != n)
 				return (1);
 		if (ferror(ifp)) {
-			(void)fprintf(stderr, "config: error reading %s: %s\n",
-			    ifn, strerror(errno));
+			warn("error reading %s", ifn);
 			(void)fclose(ifp);
 			return (-1);
 		}
@@ -236,7 +233,6 @@ emitlocnames(FILE *fp)
 	int added, start;
 	int v, j, x;
 
-#if 1
 	addlocnami(-1);
 	for (p = packed; (i = *p) != NULL; p++) {
 		/*printf("child %s\n", i->i_name);*/
@@ -249,7 +245,6 @@ emitlocnames(FILE *fp)
 
 			/* add all the names */
 			a = i->i_atattr;
-			nv = a->a_locs;
 			added = 0;
 			for (nv = a->a_locs, v = 0; nv != NULL;
 			    nv = nv->nv_next, v++) {
@@ -271,23 +266,6 @@ emitlocnames(FILE *fp)
 	for (p = packed; (i = *p) != NULL; p++)
 		if (i->i_pvlen)
 			i->i_locnami = i->i_parents[0]->i_plocnami;
-#else
-	addlocnami(-1);
-	for (p = packed; (i = *p) != NULL; p++) {
-
-		i->i_locnami = nlocnami;
-
-		/* add all the names */
-		a = i->i_atattr;
-		nv = a->a_locs;
-		for (nv = a->a_locs, v = 0; nv != NULL; nv = nv->nv_next, v++)
-			addlocnami(addlocname(nv->nv_name));
-
-		/* terminate list of names */
-		addlocnami(-1);
-
-	}
-#endif
 	if (fprintf(fp, "\nchar *locnames[] = {\n") < 0)
 		return (1);
 	for (j = 0; j < nlocnames; j++)
@@ -362,7 +340,6 @@ struct cfdata cfdata[] = {\n\
 		if (v == 0 && fputs("root", fp) < 0)
 			return (1);
 		a = i->i_atattr;
-		nv = a->a_locs;
 		for (nv = a->a_locs, v = 0; nv != NULL; nv = nv->nv_next, v++)
 			if (fprintf(fp, " %s %s",
 			    nv->nv_name, i->i_locs[v]) < 0)
@@ -425,9 +402,7 @@ emitroots(FILE *fp)
 			continue;
 		if (i->i_unit != 0 &&
 		    (i->i_unit != STAR || i->i_base->d_umax != 0))
-			(void)fprintf(stderr,
-			    "config: warning: `%s at root' is not unit 0\n",
-			    i->i_name);
+			warnx("warning: `%s at root' is not unit 0", i->i_name);
 		if (fprintf(fp, "\t%2d /* %s */,\n",
 		    i->i_cfindex, i->i_name) < 0)
 			return (1);

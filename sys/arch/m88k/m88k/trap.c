@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.104 2016/06/13 23:51:59 dlg Exp $	*/
+/*	$OpenBSD: trap.c,v 1.106 2017/02/15 21:18:52 miod Exp $	*/
 /*
  * Copyright (c) 2004, Miodrag Vallat.
  * Copyright (c) 1998 Steve Murphree, Jr.
@@ -1146,7 +1146,9 @@ m88100_syscall(register_t code, struct trapframe *tf)
 	struct sysent *callp;
 	struct proc *p = curproc;
 	int error;
-	register_t args[8], rval[2], *ap;
+	register_t args[8] __aligned(8);
+	register_t rval[2] __aligned(8);
+	register_t *ap;
 
 	uvmexp.syscalls++;
 
@@ -1267,7 +1269,9 @@ m88110_syscall(register_t code, struct trapframe *tf)
 	struct sysent *callp;
 	struct proc *p = curproc;
 	int error;
-	register_t args[8], rval[2], *ap;
+	register_t args[8] __aligned(8);
+	register_t rval[2] __aligned(8);
+	register_t *ap;
 
 	uvmexp.syscalls++;
 
@@ -1447,7 +1451,7 @@ ss_get_value(struct proc *p, vaddr_t addr, u_int *value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_READ_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_READ_I));
 }
 
 int
@@ -1465,7 +1469,7 @@ ss_put_value(struct proc *p, vaddr_t addr, u_int value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_WRITE_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_WRITE_I));
 }
 
 /*

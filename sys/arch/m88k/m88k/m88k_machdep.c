@@ -1,4 +1,4 @@
-/*	$OpenBSD: m88k_machdep.c,v 1.64 2015/02/11 07:05:39 dlg Exp $	*/
+/*	$OpenBSD: m88k_machdep.c,v 1.68 2017/05/29 14:19:50 mpi Exp $	*/
 /*
  * Copyright (c) 1998, 1999, 2000, 2001 Steve Murphree, Jr.
  * Copyright (c) 1996 Nivas Madhur
@@ -60,7 +60,6 @@
 #include <machine/asm.h>
 #include <machine/asm_macro.h>
 #include <machine/atomic.h>
-#include <machine/lock.h>
 #include <machine/cmmu.h>
 #include <machine/cpu.h>
 #include <machine/reg.h>
@@ -191,8 +190,11 @@ setregs(p, pack, stack, retval)
 		 * won't be returning through the regular path, and
 		 * need to explicitely set up nip and fip (note that
 		 * 88110 do not need such a test).
+		 * Note that this isn't 100% correct, as it mishandles
+		 * a real execve() from userspace by process 1.  However
+		 * our init will never do that, so it's okay.
 		 */
-		if (p->p_pid == 1) {
+		if (p->p_p->ps_pid == 1) {
 			tf->tf_snip = tf->tf_sfip;
 			tf->tf_sfip += 4;
 		}
@@ -293,7 +295,7 @@ regdump(struct trapframe *f)
 /*
  * Set up the cpu_info pointer and the cpu number for the current processor.
  */
-void
+struct cpu_info *
 set_cpu_number(cpuid_t number)
 {
 	struct cpu_info *ci;
@@ -307,6 +309,7 @@ set_cpu_number(cpuid_t number)
 
 	__asm__ volatile ("stcr %0, %%cr17" :: "r" (ci));
 	flush_pipeline();
+	return ci;
 }
 
 /*
@@ -572,7 +575,8 @@ cpu_emergency_disable()
 	set_psr(get_psr() | PSR_IND);
 	splhigh();
 
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 

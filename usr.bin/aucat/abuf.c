@@ -1,4 +1,4 @@
-/*	$OpenBSD: abuf.c,v 1.28 2016/01/10 11:06:44 ratchov Exp $	*/
+/*	$OpenBSD: abuf.c,v 1.30 2017/01/03 07:33:22 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -22,9 +22,7 @@
  * as follows: the write starts filling at offset (start + used), once the data
  * is ready, the writer adds to used the count of bytes available.
  */
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "abuf.h"
 #include "utils.h"
@@ -62,7 +60,7 @@ abuf_done(struct abuf *buf)
 		}
 	}
 #endif
-	free(buf->data);
+	xfree(buf->data);
 	buf->data = (void *)0xdeadbeef;
 }
 

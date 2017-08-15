@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.1 2016/09/05 10:56:49 pascal Exp $
+# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:35 espie Exp $
 
 LIB=	LLVMCore
 NOPIC=
@@ -41,12 +41,14 @@ SRCS=	AsmWriter.cpp \
 	Mangler.cpp \
 	Metadata.cpp \
 	Module.cpp \
+	ModuleSummaryIndex.cpp \
 	Operator.cpp \
+	OptBisect.cpp \
 	Pass.cpp \
 	PassManager.cpp \
 	PassRegistry.cpp \
+	ProfileSummary.cpp \
 	Statepoint.cpp \
-	FunctionInfo.cpp \
 	Type.cpp \
 	TypeFinder.cpp \
 	Use.cpp \
@@ -66,10 +68,7 @@ AttributesCompatFunc.inc: AttributesCompatFunc.td
 		-I${LLVM_SRCS}/include \
 		-o ${.TARGET} ${.ALLSRC}
 
-depend:
-	# Nothing here so far ...
-
 install:
-	# Nothing here so far ...
+	@# Nothing here so far ...
 
 .include <bsd.lib.mk>

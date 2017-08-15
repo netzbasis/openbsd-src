@@ -1,4 +1,4 @@
-/*	$OpenBSD: protosw.h,v 1.18 2013/04/24 10:17:08 mpi Exp $	*/
+/*	$OpenBSD: protosw.h,v 1.25 2017/04/14 20:46:31 bluhm Exp $	*/
 /*	$NetBSD: protosw.h,v 1.10 1996/04/09 20:55:32 cgd Exp $	*/
 
 /*-
@@ -69,18 +69,21 @@ struct protosw {
 
 /* protocol-protocol hooks */
 					/* input to protocol (from below) */
-	void	(*pr_input)(struct mbuf *, ...);
+	int	(*pr_input)(struct mbuf **, int *, int, int);
 					/* output to protocol (from above) */
-	int	(*pr_output)(struct mbuf *, ...);
+	int	(*pr_output)(struct mbuf *, struct socket *, struct sockaddr *,
+		    struct mbuf *);
 					/* control input (from below) */
-	void	*(*pr_ctlinput)(int, struct sockaddr *, u_int, void *);
+	void	(*pr_ctlinput)(int, struct sockaddr *, u_int, void *);
 					/* control output (from above) */
-	int	(*pr_ctloutput)(int, struct socket *, int, int, struct mbuf **);
+	int	(*pr_ctloutput)(int, struct socket *, int, int, struct mbuf *);
 
 /* user-protocol hook */
 					/* user request: see list below */
 	int	(*pr_usrreq)(struct socket *, int, struct mbuf *,
 		    struct mbuf *, struct mbuf *, struct proc *);
+
+	int	(*pr_attach)(struct socket *, int);
 
 /* utility hooks */
 	void	(*pr_init)(void);	/* initialization hook */
@@ -120,7 +123,6 @@ struct protosw {
  * A non-zero return from usrreq gives an
  * UNIX error number which should be passed to higher level software.
  */
-#define	PRU_ATTACH		0	/* attach protocol to up */
 #define	PRU_DETACH		1	/* detach protocol from up */
 #define	PRU_BIND		2	/* bind socket to address */
 #define	PRU_LISTEN		3	/* listen for connection */
@@ -148,7 +150,7 @@ struct protosw {
 
 #ifdef PRUREQUESTS
 char *prurequests[] = {
-	"ATTACH",	"DETACH",	"BIND",		"LISTEN",
+	"",		"DETACH",	"BIND",		"LISTEN",
 	"CONNECT",	"ACCEPT",	"DISCONNECT",	"SHUTDOWN",
 	"RCVD",		"SEND",		"ABORT",	"CONTROL",
 	"SENSE",	"RCVOOB",	"SENDOOB",	"SOCKADDR",

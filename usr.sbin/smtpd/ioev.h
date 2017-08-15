@@ -1,4 +1,4 @@
-/*	$OpenBSD: ioev.h,v 1.6 2016/03/25 15:06:58 krw Exp $	*/
+/*	$OpenBSD: ioev.h,v 1.16 2016/11/30 17:43:32 eric Exp $	*/
 /*
  * Copyright (c) 2012 Eric Faurot <eric@openbsd.org>
  *
@@ -15,12 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <event.h>
-
 enum {
 	IO_CONNECTED = 0, 	/* connection successful	*/
 	IO_TLSREADY,		/* TLS started successfully	*/
-	IO_TLSVERIFIED,		/* XXX - needs more work	*/
 	IO_TLSERROR,		/* XXX - needs more work	*/
 	IO_DATAIN,		/* new data in input buffer	*/
 	IO_LOWAT,		/* output queue running low	*/
@@ -29,36 +26,20 @@ enum {
 	IO_ERROR,		/* details?			*/
 };
 
-#define IO_READ			0x01
-#define IO_WRITE		0x02
-#define IO_RW			(IO_READ | IO_WRITE)
-#define IO_PAUSE_IN		0x04
-#define IO_PAUSE_OUT		0x08
-#define IO_RESET		0x10  /* internal */
-#define IO_HELD			0x20  /* internal */
+#define IO_IN		0x01
+#define IO_OUT		0x02
 
-struct iobuf;
-struct io {
-	int		 sock;
-	void		*arg;
-	void		(*cb)(struct io*, int);
-	struct iobuf	*iobuf;
-	size_t		 lowat;
-	int		 timeout;
-	int		 flags;
-	int		 state;
-	struct event	 ev;
-	void		*ssl;
-	const char	*error; /* only valid immediately on callback */
-};
+struct io;
 
 void io_set_nonblocking(int);
 void io_set_nolinger(int);
 
-void io_init(struct io*, int, void*, void(*)(struct io*, int), struct iobuf*);
-void io_clear(struct io*);
+struct io *io_new(void);
+void io_free(struct io *);
 void io_set_read(struct io *);
 void io_set_write(struct io *);
+void io_set_fd(struct io *, int);
+void io_set_callback(struct io *io, void(*)(struct io *, int, void *), void *);
 void io_set_timeout(struct io *, int);
 void io_set_lowat(struct io *, size_t);
 void io_pause(struct io *, int);
@@ -68,3 +49,21 @@ int io_connect(struct io *, const struct sockaddr *, const struct sockaddr *);
 int io_start_tls(struct io *, void *);
 const char* io_strio(struct io *);
 const char* io_strevent(int);
+const char* io_error(struct io *);
+void* io_ssl(struct io *);
+int io_fileno(struct io *);
+int io_paused(struct io *, int);
+
+/* Buffered output functions */
+int io_write(struct io *, const void *, size_t);
+int io_writev(struct io *, const struct iovec *, int);
+int io_print(struct io *, const char *);
+int io_printf(struct io *, const char *, ...);
+int io_vprintf(struct io *, const char *, va_list);
+size_t io_queued(struct io *);
+
+/* Buffered input functions */
+void* io_data(struct io *);
+size_t io_datalen(struct io *);
+char* io_getline(struct io *, size_t *);
+void io_drop(struct io *, size_t);

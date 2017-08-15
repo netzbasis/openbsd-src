@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.11 2016/07/01 09:34:39 patrick Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.18 2017/08/07 19:34:53 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -46,6 +46,8 @@ static EFI_GUID		 imgp_guid = LOADED_IMAGE_PROTOCOL;
 static EFI_GUID		 blkio_guid = BLOCK_IO_PROTOCOL;
 static EFI_GUID		 devp_guid = DEVICE_PATH_PROTOCOL;
 
+static int efi_device_path_depth(EFI_DEVICE_PATH *dp, int);
+static int efi_device_path_ncmp(EFI_DEVICE_PATH *, EFI_DEVICE_PATH *, int);
 static void efi_timer_init(void);
 static void efi_timer_cleanup(void);
 
@@ -163,13 +165,13 @@ EFI_BLOCK_IO	*disk;
 void
 efi_diskprobe(void)
 {
-	int			 i, bootdev;
+	int			 i, depth = -1;
 	UINTN			 sz;
 	EFI_STATUS		 status;
 	EFI_HANDLE		*handles = NULL;
 	EFI_BLOCK_IO		*blkio;
 	EFI_BLOCK_IO_MEDIA	*media;
-	EFI_DEVICE_PATH		*dp, *bp;
+	EFI_DEVICE_PATH		*dp;
 
 	sz = 0;
 	status = EFI_CALL(BS->LocateHandle, ByProtocol, &blkio_guid, 0, &sz, 0);
@@ -181,8 +183,19 @@ efi_diskprobe(void)
 	if (handles == NULL || EFI_ERROR(status))
 		panic("BS->LocateHandle() returns %d", status);
 
+	if (efi_bootdp != NULL)
+		depth = efi_device_path_depth(efi_bootdp, MEDIA_DEVICE_PATH);
+
+	/*
+	 * U-Boot incorrectly represents devices with a single
+	 * MEDIA_DEVICE_PATH component.  In that case include that
+	 * component into the matching, otherwise we'll blindly select
+	 * the first device.
+	 */
+	if (depth == 0)
+		depth = 1;
+
 	for (i = 0; i < sz / sizeof(EFI_HANDLE); i++) {
-		bootdev = 0;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &blkio_guid,
 		    (void **)&blkio);
 		if (EFI_ERROR(status))
@@ -192,26 +205,13 @@ efi_diskprobe(void)
 		if (media->LogicalPartition || !media->MediaPresent)
 			continue;
 
-		if (efi_bootdp == NULL)
-			goto next;
+		if (efi_bootdp == NULL || depth == -1)
+			continue;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &devp_guid,
 		    (void **)&dp);
 		if (EFI_ERROR(status))
-			goto next;
-		bp = efi_bootdp;
-		while (1) {
-			if (IsDevicePathEnd(dp)) {
-				bootdev = 1;
-				break;
-			}
-			if (memcmp(dp, bp, sizeof(EFI_DEVICE_PATH)) != 0 ||
-			    memcmp(dp, bp, DevicePathNodeLength(dp)) != 0)
-				break;
-			dp = NextDevicePathNode(dp);
-			bp = NextDevicePathNode(bp);
-		}
-next:
-		if (bootdev) {
+			continue;
+		if (efi_device_path_ncmp(efi_bootdp, dp, depth) == 0) {
 			disk = blkio;
 			break;
 		}
@@ -220,34 +220,59 @@ next:
 	free(handles, sz);
 }
 
+/*
+ * Determine the number of nodes up to, but not including, the first
+ * node of the specified type.
+ */
+static int
+efi_device_path_depth(EFI_DEVICE_PATH *dp, int dptype)
+{
+	int	i;
+
+	for (i = 0; !IsDevicePathEnd(dp); dp = NextDevicePathNode(dp), i++) {
+		if (DevicePathType(dp) == dptype)
+			return (i);
+	}
+
+	return (-1);
+}
+
+static int
+efi_device_path_ncmp(EFI_DEVICE_PATH *dpa, EFI_DEVICE_PATH *dpb, int deptn)
+{
+	int	 i, cmp;
+
+	for (i = 0; i < deptn; i++) {
+		if (IsDevicePathEnd(dpa) || IsDevicePathEnd(dpb))
+			return ((IsDevicePathEnd(dpa) && IsDevicePathEnd(dpb))
+			    ? 0 : (IsDevicePathEnd(dpa))? -1 : 1);
+		cmp = DevicePathNodeLength(dpa) - DevicePathNodeLength(dpb);
+		if (cmp)
+			return (cmp);
+		cmp = memcmp(dpa, dpb, DevicePathNodeLength(dpa));
+		if (cmp)
+			return (cmp);
+		dpa = NextDevicePathNode(dpa);
+		dpb = NextDevicePathNode(dpb);
+	}
+
+	return (0);
+}
+
 struct board_id {
 	const char *name;
 	uint32_t board_id;
 };
 
 struct board_id board_id_table[] = {
-	{ "allwinner,sun4i-a10",		4104 },
-	{ "allwinner,sun7i-a20",		4283 },
 	{ "arm,vexpress",			2272 },
-	{ "boundary,imx6q-nitrogen6_max",	3769 },
-	{ "boundary,imx6q-nitrogen6x",		3769 },
-	{ "compulab,cm-fx6",			4273 },
-	{ "fsl,imx6q-sabrelite",		3769 },
-	{ "fsl,imx6q-sabresd",			3980 },
 	{ "google,snow",			3774 },
 	{ "google,spring",			3774 },
-	{ "kosagi,imx6q-novena",		4269 },
 	{ "samsung,universal_c210",		2838 },
-	{ "solidrun,cubox-i/dl",		4821 },
-	{ "solidrun,cubox-i/q",			4821 },
-	{ "solidrun,hummingboard/dl",		4773 },
-	{ "solidrun,hummingboard/q",		4773 },
 	{ "ti,am335x-bone",			3589 },
 	{ "ti,omap3-beagle",			1546 },
 	{ "ti,omap3-beagle-xm",			1546 },
 	{ "ti,omap4-panda",			2791 },
-	{ "udoo,imx6q-udoo",			4800 },
-	{ "wand,imx6q-wandboard",		4412 },
 };
 
 static EFI_GUID fdt_guid = FDT_TABLE_GUID;
@@ -349,7 +374,7 @@ _rtt(void)
 	efi_cons_getc(0);
 #endif
 	/*
-	 * XXX ResetSystem doesn't seem to work on U-Boot 2016.05 on
+	 * XXX ResetSystem doesn't seem to work on U-Boot 2017.03 on
 	 * the CuBox-i.  So trigger an unimplemented instruction trap
 	 * instead.
 	 */
@@ -358,7 +383,8 @@ _rtt(void)
 #else
 	RS->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
 #endif
-	while (1) { }
+	for (;;)
+		continue;
 }
 
 /*
@@ -383,7 +409,7 @@ efi_timer_init(void)
 {
 	EFI_STATUS status;
 
-	status = BS->CreateEvent(EVT_TIMER, TPL_CALLBACK,
+	status = BS->CreateEvent(EVT_TIMER | EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
 	    efi_timer, NULL, &timer);
 	if (status == EFI_SUCCESS)
 		status = BS->SetTimer(timer, TimerPeriodic, 10000000);
@@ -515,4 +541,33 @@ devopen(struct open_file *f, const char *fname, char **file)
 	f->f_dev = dp;
 
 	return (*dp->dv_open)(f, unit, part);
+}
+
+/*
+ * Commands
+ */
+
+int Xexit_efi(void);
+int Xpoweroff_efi(void);
+
+const struct cmd_table cmd_machine[] = {
+	{ "exit",	CMDT_CMD, Xexit_efi },
+	{ "poweroff",	CMDT_CMD, Xpoweroff_efi },
+	{ NULL, 0 }
+};
+
+int
+Xexit_efi(void)
+{
+	EFI_CALL(BS->Exit, IH, 0, 0, NULL);
+	for (;;)
+		continue;
+	return (0);
+}
+
+int
+Xpoweroff_efi(void)
+{
+	EFI_CALL(RS->ResetSystem, EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+	return (0);
 }

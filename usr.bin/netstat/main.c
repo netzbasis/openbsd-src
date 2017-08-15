@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.110 2016/07/20 19:57:54 bluhm Exp $	*/
+/*	$OpenBSD: main.c,v 1.112 2017/08/12 03:21:02 benno Exp $	*/
 /*	$NetBSD: main.c,v 1.9 1996/05/07 02:55:02 thorpej Exp $	*/
 
 /*
@@ -84,7 +84,6 @@ struct protox {
 	{ carp_stats,	"carp", 0 },
 	{ pfsync_stats,	"pfsync", 0 },
 	{ div_stats,	"divert", IPPROTO_DIVERT },
-	{ pim_stats,	"pim", 0 },
 	{ pflow_stats,	"pflow", 0 },
 	{ NULL,		NULL, 0 }
 };
@@ -93,7 +92,6 @@ struct protox ip6protox[] = {
 	{ ip6_stats,	"ip6", IPPROTO_IPV6 },
 	{ div6_stats,	"divert6", IPPROTO_DIVERT },
 	{ icmp6_stats,	"icmp6", 0 },
-	{ pim6_stats,	"pim6", 0 },
 	{ rip6_stats,	"rip6", 0 },
 	{ NULL,		NULL, 0 }
 };
@@ -130,7 +128,7 @@ main(int argc, char *argv[])
 	tableid = getrtable();
 
 	while ((ch = getopt(argc, argv,
-	    "AaBbc:dFf:ghI:ilM:mN:np:P:qrsT:tuvW:w:")) != -1)
+	    "AaBbc:dFf:ghI:iLlM:mN:np:P:qrsT:tuvW:w:")) != -1)
 		switch (ch) {
 		case 'A':
 			Aflag = 1;
@@ -442,7 +440,7 @@ static void
 usage(void)
 {
 	(void)fprintf(stderr,
-	    "usage: %s [-AaBn] [-f address_family] [-M core] [-N system]\n"
+	    "usage: %s [-AaBln] [-f address_family] [-M core] [-N system]\n"
 	    "       %s [-bdFgilmnqrstu] [-f address_family] [-M core] [-N system]\n"
 	    "               [-T tableid]\n"
 	    "       %s [-bdhn] [-c count] [-I interface] [-M core] [-N system] [-w wait]\n"

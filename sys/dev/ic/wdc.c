@@ -1,4 +1,4 @@
-/*	$OpenBSD: wdc.c,v 1.130 2015/08/28 00:03:53 deraadt Exp $	*/
+/*	$OpenBSD: wdc.c,v 1.132 2017/07/12 13:40:59 mikeb Exp $	*/
 /*	$NetBSD: wdc.c,v 1.68 1999/06/23 19:00:17 bouyer Exp $	*/
 /*
  * Copyright (c) 1998, 2001 Manuel Bouyer.  All rights reserved.
@@ -646,6 +646,9 @@ wdcprobe(struct channel_softc *chp)
 	if (ret_value == 0)
 		return 0;
 
+	if (chp->wdc->quirks & WDC_QUIRK_NOATAPI)
+		goto noatapi;
+
 	/*
 	 * Use signatures to find potential ATAPI drives
 	 */
@@ -676,6 +679,10 @@ wdcprobe(struct channel_softc *chp)
 			chp->ch_drive[drive].drive_flags |= DRIVE_ATAPI;
 	}
 
+noatapi:
+	if (chp->wdc->quirks & WDC_QUIRK_NOATA)
+		goto noata;
+
 	/*
 	 * Detect ATA drives by poking around the registers
 	 */
@@ -698,6 +705,8 @@ wdcprobe(struct channel_softc *chp)
 		wdc_enable_intr(chp);
 	}
 
+noata:
+
 #ifdef WDCDEBUG
 	wdcdebug_mask = savedmask;
 #endif
@@ -713,9 +722,8 @@ wdc_alloc_queue(void)
 	/* Initialize global data. */
 	if (inited == 0) {
 		/* Initialize the wdc_xfer pool. */
-		pool_init(&wdc_xfer_pool, sizeof(struct wdc_xfer), 0,
-		    0, 0, "wdcxfer", NULL);
-		pool_setipl(&wdc_xfer_pool, IPL_BIO);
+		pool_init(&wdc_xfer_pool, sizeof(struct wdc_xfer), 0, IPL_BIO,
+		    0, "wdcxfer", NULL);
 		scsi_iopool_init(&wdc_xfer_iopool, NULL,
 		    wdc_xfer_get, wdc_xfer_put);
 		inited = 1;

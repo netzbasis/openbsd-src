@@ -1,4 +1,4 @@
-/*	$OpenBSD: npppd_auth.c,v 1.18 2016/03/08 02:05:00 yasuoka Exp $ */
+/*	$OpenBSD: npppd_auth.c,v 1.20 2017/08/11 16:41:47 goda Exp $ */
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -26,7 +26,7 @@
  * SUCH DAMAGE.
  */
 /**@file authentication realm */
-/* $Id: npppd_auth.c,v 1.18 2016/03/08 02:05:00 yasuoka Exp $ */
+/* $Id: npppd_auth.c,v 1.20 2017/08/11 16:41:47 goda Exp $ */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -75,8 +75,6 @@ npppd_auth_create(int auth_type, const char *name, void *_npppd)
 	case NPPPD_AUTH_TYPE_LOCAL:
 		if ((base = calloc(1, sizeof(npppd_auth_local))) != NULL) {
 			base->type = NPPPD_AUTH_TYPE_LOCAL;
-			base->strip_nt_domain = 1;
-			base->strip_atmark_realm = 0;
 			strlcpy(base->name, name, sizeof(base->name));
 			base->npppd = _npppd;
 
@@ -89,7 +87,6 @@ npppd_auth_create(int auth_type, const char *name, void *_npppd)
 		if ((base = calloc(1, sizeof(npppd_auth_radius))) != NULL) {
 			npppd_auth_radius *_this = (npppd_auth_radius *)base;
 			base->type = NPPPD_AUTH_TYPE_RADIUS;
-			base->strip_nt_domain = 0;
 			strlcpy(base->name, name, sizeof(base->name));
 			base->npppd = _npppd;
 			if ((_this->rad_auth_setting =
@@ -196,6 +193,7 @@ npppd_auth_reload(npppd_auth_base *base)
 	base->strip_atmark_realm = auth->strip_atmark_realm;
 	base->has_users_file = 0;
 	base->radius_ready = 0;
+	base->user_max_session = auth->user_max_session;
 
 	if (strlen(auth->users_file_path) > 0) {
 		strlcpy(base->users_file_path, auth->users_file_path,
@@ -462,6 +460,22 @@ npppd_auth_username_for_auth(npppd_auth_base *base, const char *username,
 	}
 
 	return username_buffer;
+}
+
+int
+npppd_auth_user_session_unlimited(npppd_auth_base *_this)
+{
+	return (_this->user_max_session == 0) ? 1 : 0;
+}
+
+int
+npppd_check_auth_user_max_session(npppd_auth_base *_this, int count)
+{
+	if (!npppd_auth_user_session_unlimited(_this) &&
+	    _this->user_max_session <= count)
+		return 1;
+	else
+		return 0;
 }
 
 /***********************************************************************

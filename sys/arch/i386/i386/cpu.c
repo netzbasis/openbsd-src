@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.79 2016/07/28 21:57:56 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.85 2017/06/22 06:21:12 jmatthew Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -66,6 +66,8 @@
 
 #include "lapic.h"
 #include "ioapic.h"
+#include "vmm.h"
+#include "pvbus.h"
 
 #include <sys/param.h>
 #include <sys/timeout.h>
@@ -103,6 +105,10 @@
 #include <machine/i82093var.h>
 #endif
 
+#if NPVBUS > 0
+#include <dev/pv/pvvar.h>
+#endif
+
 #include <dev/ic/mc146818reg.h>
 #include <i386/isa/nvram.h>
 #include <dev/isa/isareg.h>
@@ -113,6 +119,9 @@ int     cpu_activate(struct device *, int);
 void	patinit(struct cpu_info *ci);
 void	cpu_idle_mwait_cycle(void);
 void	cpu_init_mwait(struct device *);
+#if NVMM > 0
+void	cpu_init_vmm(struct cpu_info *ci);
+#endif /* NVMM > 0 */
 
 u_int cpu_mwait_size, cpu_mwait_states;
 
@@ -166,7 +175,6 @@ struct cfdriver cpu_cd = {
 	NULL, "cpu", DV_DULL /* XXX DV_CPU */
 };
 
-#ifndef SMALL_KERNEL
 void	replacesmap(void);
 
 extern int _stac;
@@ -191,7 +199,6 @@ replacesmap(void)
 
 	splx(s);
 }
-#endif /* !SMALL_KERNEL */
 
 int
 cpu_match(struct device *parent, void *match, void *aux)
@@ -345,6 +352,10 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		    ci->ci_dev.dv_xname, pcb, pcb->pcb_esp);
 	}
 #endif
+
+#if NVMM > 0
+	cpu_init_vmm(ci);
+#endif /* NVMM > 0 */
 }
 
 /*
@@ -377,12 +388,10 @@ cpu_init(struct cpu_info *ci)
 
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
 		cr4 |= CR4_SMEP;
-#ifndef SMALL_KERNEL
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
 	if (ci->ci_feature_sefflags_ecx & SEFF0ECX_UMIP)
 		cr4 |= CR4_UMIP;
-#endif
 
 	/*
 	 * If we have FXSAVE/FXRESTOR, use them.
@@ -402,9 +411,51 @@ cpu_init(struct cpu_info *ci)
 
 #ifdef MULTIPROCESSOR
 	ci->ci_flags |= CPUF_RUNNING;
-	tlbflushg();
+	/*
+	 * Big hammer: flush all TLB entries, including ones from PTE's
+	 * with the G bit set.  This should only be necessary if TLB
+	 * shootdown falls far behind.
+	 *
+	 * Intel Architecture Software Developer's Manual, Volume 3,
+	 *	System Programming, section 9.10, "Invalidating the
+	 * Translation Lookaside Buffers (TLBS)":
+	 * "The following operations invalidate all TLB entries, irrespective
+	 * of the setting of the G flag:
+	 * ...
+	 * "(P6 family processors only): Writing to control register CR4 to
+	 * modify the PSE, PGE, or PAE flag."
+	 *
+	 * (the alternatives not quoted above are not an option here.)
+	 *
+	 * If PGE is not in use, we reload CR3 for the benefit of
+	 * pre-P6-family processors.
+	 */
+
+	if (cpu_feature & CPUID_PGE) {
+		cr4 = rcr4();
+		lcr4(cr4 & ~CR4_PGE);
+		lcr4(cr4);
+	} else
+		tlbflush();
 #endif
 }
+
+void
+cpu_init_vmm(struct cpu_info *ci)
+{
+	/*
+	 * Allocate a per-cpu VMXON region
+	 */
+	if (ci->ci_vmm_flags & CI_VMM_VMX) {
+		ci->ci_vmxon_region_pa = 0;
+		ci->ci_vmxon_region = (struct vmxon_region *)malloc(PAGE_SIZE,
+		    M_DEVBUF, M_WAITOK|M_ZERO);
+	if (!pmap_extract(pmap_kernel(), (vaddr_t)ci->ci_vmxon_region,
+	    (paddr_t *)&ci->ci_vmxon_region_pa))
+		panic("Can't locate VMXON region in phys mem\n");
+	}
+}
+
 
 void
 patinit(struct cpu_info *ci)
@@ -415,13 +466,6 @@ patinit(struct cpu_info *ci)
 	if ((ci->ci_feature_flags & CPUID_PAT) == 0)
 		return;
 
-#define PATENTRY(n, type)	((u_int64_t)type << ((n) * 8))
-#define	PAT_UC		0x0UL
-#define	PAT_WC		0x1UL
-#define	PAT_WT		0x4UL
-#define	PAT_WP		0x5UL
-#define	PAT_WB		0x6UL
-#define	PAT_UCMINUS	0x7UL
 	/* 
 	 * Set up PAT bits.
 	 * The default pat table is the following:
@@ -557,7 +601,7 @@ cpu_boot_secondary(struct cpu_info *ci)
 	if (!(ci->ci_flags & CPUF_RUNNING)) {
 		printf("%s failed to become ready\n", ci->ci_dev.dv_xname);
 #ifdef DDB
-		Debugger();
+		db_enter();
 #endif
 	}
 
@@ -585,7 +629,11 @@ cpu_hatch(void *v)
 
 	npxinit(ci);
 
+	ci->ci_curpmap = pmap_kernel();
 	cpu_init(ci);
+#if NPVBUS > 0
+	pvbus_init_cpu();
+#endif
 
 	/* Re-initialise memory range handling on AP */
 	if (mem_range_softc.mr_op != NULL)
