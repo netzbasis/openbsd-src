@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.10 2016/08/14 08:23:52 visa Exp $ */
+/*	$OpenBSD: locore.S,v 1.16 2017/06/08 12:11:46 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -38,12 +38,15 @@
 
 #include "assym.h"
 
+#define RNG_CONTROL_ADDR	0x9001180040000000
+#define RNG_CONTROL_ENABLE	0x3
+#define RNG_ENTROPY_ADDR	0x9001400000000000
+
 	.set	noreorder		# Noreorder is default style!
 	.set	mips64r2
-	.globl	start
-	.globl	kernel_text
-kernel_text = start
-start:
+	.globl	locore_start
+	.ent	locore_start, 0
+locore_start:
 /* initialize ebase */
 	dla	t0, 0xffffffff80000000
 	mtc0	t0, COP_0_EBASE
@@ -75,11 +78,12 @@ start:
 	nop
 #if defined(MULTIPROCESSOR)
 	rdhwr   t2, $0
-1:	ll	t0, cpu_spinup_mask
+	LA	t1, cpu_spinup_mask
+1:	ll	t0, 0(t1)
 	bne	t2, t0, 1b
 	nop
 	move	t0, zero
-	sc	t0, cpu_spinup_mask
+	sc	t0, 0(t1)
 	beqz	t0, 1b
 	nop
 	j	hw_cpu_spinup_trampoline
@@ -91,6 +95,33 @@ start:
 	nop
 #endif
 2:
+	/*
+	 * Augment the randomdata section using entropy from the RNG.
+	 */
+
+	/* Enable the RNG. */
+	dli	t0, RNG_CONTROL_ADDR
+	ld	t1, (t0)
+	ori	t1, RNG_CONTROL_ENABLE
+	sd	t1, (t0)
+
+	LA	t0, __kernel_randomdata
+	LA	t1, __kernel_randomdata_end
+	dli	t2, RNG_ENTROPY_ADDR
+1:
+	/* Delay to let entropy accumulate. */
+	li	v0, 0x1000
+2:
+	bne	v0, zero, 2b
+	subu	v0, v0, 1
+	/* Mix entropy. */
+	ld	v0, (t0)			# load from randomdata
+	ld	v1, (t2)			# load entropy
+	xor	v0, v0, v1			# mix entropy
+	daddu	t0, t0, 8			# advance ptr
+	blt	t0, t1, 1b
+	sd	v0, -8(t0)			# store to randomdata
+
 	/*
 	 * Initialize stack and call machine startup.
 	 */
@@ -114,23 +145,7 @@ start:
 	PTR_L	sp, 0(sp)
 	jr	ra
 	nop
-
-LEAF(get_cvmctl, 0)
-	.set push
-	.set mips64r2
-	dmfc0	v0, $9, 7
-	jr	ra
-	nop
-END(get_cvmctl)
-
-LEAF(get_cvmmemctl, 0)
-	.set push
-	.set mips64r2
-	dmfc0	v0, $11, 7
-	jr	ra
-	nop
-END(get_cvmmemctl)
-
+	.end	locore_start
 
 #if defined(MULTIPROCESSOR)
 LEAF(hw_cpu_spinup_trampoline, 0)

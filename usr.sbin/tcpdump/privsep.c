@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.43 2016/07/25 02:35:26 deraadt Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.45 2017/06/14 20:48:54 akfaew Exp $	*/
 
 /*
  * Copyright (c) 2003 Can Erkin Acar
@@ -101,8 +101,7 @@ struct ftab {
 	int count;
 };
 
-static struct ftab file_table[] = {{"/etc/appletalk.names", 1, 0},
-				   {PF_OSFP_FILE, 1, 0}};
+static struct ftab file_table[] = {{PF_OSFP_FILE, 1, 0}};
 
 #define NUM_FILETAB (sizeof(file_table) / sizeof(struct ftab))
 
@@ -272,7 +271,7 @@ priv_init(int argc, char **argv)
 			test_state(cmd, STATE_RUN);
 			impl_init_done(socks[0], &bpfd);
 
-			if (pledge("stdio rpath inet unix ioctl dns recvfd", NULL) == -1)
+			if (pledge("stdio rpath inet unix dns recvfd bpf", NULL) == -1)
 				err(1, "pledge");
 
 			break;

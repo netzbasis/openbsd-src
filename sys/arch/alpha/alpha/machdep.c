@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.174 2016/05/21 00:56:41 deraadt Exp $ */
+/* $OpenBSD: machdep.c,v 1.181 2017/05/29 14:19:49 mpi Exp $ */
 /* $NetBSD: machdep.c,v 1.210 2000/06/01 17:12:38 thorpej Exp $ */
 
 /*-
@@ -105,9 +105,6 @@
 #ifndef NO_IEEE
 #include <machine/ieeefp.h>
 #endif
-#ifdef MULTIPROCESSOR
-#include <machine/lock.h>
-#endif
 
 #include <dev/pci/pcivar.h>
 
@@ -150,11 +147,7 @@ struct vm_map *phys_map = NULL;
 int   safepri = 0;
 
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 int	totalphysmem;		/* total amount of physical memory in system */
@@ -688,9 +681,6 @@ nobootinfo:
 	 * Look at arguments passed to us and compute boothowto.
 	 */
 
-#ifdef KADB
-	boothowto |= RB_KDB;
-#endif
 	for (p = bootinfo.boot_flags; p && *p != '\0'; p++) {
 		/*
 		 * Note that we'd really like to differentiate case here,
@@ -769,11 +759,7 @@ nobootinfo:
 	ddb_init();
 
 	if (boothowto & RB_KDB)
-		Debugger();
-#endif
-#ifdef KGDB
-	if (boothowto & RB_KDB)
-		kgdb_connect(0);
+		db_enter();
 #endif
 	/*
 	 * Figure out our clock frequency, from RPB fields.
@@ -1051,7 +1037,8 @@ haltsys:
 	printf("%s\n\n",
 	    (howto & RB_HALT) != 0 ? "halted." : "rebooting...");
 	prom_halt((howto & RB_HALT) != 0);
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 
@@ -1556,14 +1543,8 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
  * machine dependent system variables.
  */
 int
-cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
-	int *name;
-	u_int namelen;
-	void *oldp;
-	size_t *oldlenp;
-	void *newp;
-	size_t newlen;
-	struct proc *p;
+cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen, struct proc *p)
 {
 	dev_t consdev;
 #if NIOASIC > 0
@@ -1777,7 +1758,7 @@ fpusave_proc(struct proc *p, int save)
 		alpha_pal_swpipl(s);
 
 		while (p->p_addr->u_pcb.pcb_fpcpu != NULL)
-			SPINLOCK_SPIN_HOOK;
+			CPU_BUSY_CYCLE();
 #else
 		KASSERT(ci->ci_fpcurproc == p);
 		fpusave_cpu(ci, save);

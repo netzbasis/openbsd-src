@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_switch.c,v 1.5 2016/09/04 17:11:09 goda Exp $	*/
+/*	$OpenBSD: if_switch.c,v 1.20 2017/05/31 05:59:09 mpi Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -54,44 +54,27 @@
 #include <net/bpf.h>
 #endif
 
-#ifdef SWITCH_DEBUG
-#define DPRINTF(...)	printf(__VA_ARGS__)
-#else
-#define DPRINTF(x...)
-#endif
-
 #include <net/ofp.h>
 #include <net/if_bridge.h>
 #include <net/if_switch.h>
 
-struct switch_softc
-	*switch_lookup(int);
 int	 switch_clone_create(struct if_clone *, int);
 int	 switch_clone_destroy(struct ifnet *);
-void	 switchintr(void);
 void	 switch_process(struct ifnet *, struct mbuf *);
 int	 switch_port_set_local(struct switch_softc *, struct switch_port *);
 int	 switch_port_unset_local(struct switch_softc *, struct switch_port *);
 int	 switch_ioctl(struct ifnet *, unsigned long, caddr_t);
 int	 switch_port_add(struct switch_softc *, struct ifbreq *);
+void	 switch_port_detach(void *);
 int	 switch_port_del(struct switch_softc *, struct ifbreq *);
 int	 switch_port_list(struct switch_softc *, struct ifbifconf *);
-int	 switch_output(struct ifnet *, struct mbuf *, struct sockaddr *,
-	    struct rtentry *);
-void	 switch_start(struct ifnet *);
 int	 switch_input(struct ifnet *, struct mbuf *, void *);
-int	 switch_stop(struct ifnet *, int);
 struct mbuf
 	*switch_port_ingress(struct switch_softc *, struct ifnet *,
-	    struct mbuf *);
-void	 switch_forward_flooder(struct switch_softc *,
-	    struct switch_flow_classify *, struct mbuf *);
-void	 switch_port_egress(struct switch_softc *, struct switch_fwdp_queue *,
 	    struct mbuf *);
 int	 switch_ifenqueue(struct switch_softc *, struct ifnet *,
 	    struct mbuf *, int);
 void	 switch_port_ifb_start(struct ifnet *);
-void	 switch_swfcl_free(struct switch_flow_classify *);
 
 struct mbuf
 	*switch_flow_classifier_udp(struct mbuf *, int *,
@@ -123,9 +106,6 @@ struct mbuf
 struct mbuf
 	*switch_flow_classifier_tunnel(struct mbuf *, int *,
 	    struct switch_flow_classify *);
-struct mbuf
-	*switch_flow_classifier(struct mbuf *, uint32_t,
-	    struct switch_flow_classify *);
 void	 switch_flow_classifier_dump(struct switch_softc *,
 	    struct switch_flow_classify *);
 void	 switchattach(int);
@@ -147,7 +127,6 @@ switchattach(int n)
 	swofp_attach();
 	LIST_INIT(&switch_list);
 	if_clone_attach(&switch_cloner);
-	DPRINTF("switch attached\n");
 }
 
 struct switch_softc *
@@ -177,8 +156,8 @@ switch_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_softc = sc;
 	ifp->if_mtu = ETHERMTU;
 	ifp->if_ioctl = switch_ioctl;
-	ifp->if_output = switch_output;
-	ifp->if_start = switch_start;
+	ifp->if_output = NULL;
+	ifp->if_start = NULL;
 	ifp->if_type = IFT_BRIDGE;
 	ifp->if_addrlen = 0;
 	ifp->if_hdrlen = ETHER_HDR_LEN;
@@ -191,8 +170,6 @@ switch_clone_create(struct if_clone *ifc, int unit)
 		return (ENOMEM);
 	}
 
-	swofp_create(sc);
-
 	if_attach(ifp);
 	if_alloc_sadl(ifp);
 
@@ -200,9 +177,9 @@ switch_clone_create(struct if_clone *ifc, int unit)
 	bpfattach(&ifp->if_bpf, ifp, DLT_EN10MB, ETHER_HDR_LEN);
 #endif
 
-	LIST_INSERT_HEAD(&switch_list, sc, sc_switch_next);
+	swofp_create(sc);
 
-	log(LOG_INFO, "%s: switch created\n", ifp->if_xname);
+	LIST_INSERT_HEAD(&switch_list, sc, sc_switch_next);
 
 	return (0);
 }
@@ -216,14 +193,8 @@ switch_clone_destroy(struct ifnet *ifp)
 
 	TAILQ_FOREACH_SAFE(swpo, &sc->sc_swpo_list, swpo_list_next, tp) {
 		if ((ifs = if_get(swpo->swpo_ifindex)) != NULL) {
-			if (swpo->swpo_flags & IFBIF_LOCAL)
-				switch_port_unset_local(sc, swpo);
-			ifs->if_switchport = NULL;
-			ifpromisc(ifs, 0);
-			if_ih_remove(ifs, switch_input, NULL);
+			switch_port_detach(ifs);
 			if_put(ifs);
-			TAILQ_REMOVE(&sc->sc_swpo_list, swpo, swpo_list_next);
-			free(swpo, M_DEVBUF, sizeof(*swpo));
 		} else
 			log(LOG_ERR, "failed to cleanup on ifindex(%d)\n",
 			    swpo->swpo_ifindex);
@@ -417,9 +388,8 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 	struct bstp_port	*bp;
 	struct ifnet		*ifs;
 	struct switch_port	*swpo;
-	int			 s, error = 0;
+	int			 error = 0;
 
-	s = splnet();
 	switch (cmd) {
 	case SIOCBRDGADD:
 		if ((error = suser(curproc, 0)) != 0)
@@ -500,7 +470,7 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		break;
 	case SIOCSWGDPID:
 	case SIOCSWSDPID:
-	case SIOCSWGFLOWMAX:
+	case SIOCSWGMAXFLOW:
 	case SIOCSWGMAXGROUP:
 	case SIOCSWSPORTNO:
 		error = swofp_ioctl(ifp, cmd, data);
@@ -510,7 +480,6 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		break;
 	}
 
-	splx(s);
 	return (error);
 }
 
@@ -576,6 +545,8 @@ switch_port_add(struct switch_softc *sc, struct ifbreq *req)
 	ifs->if_switchport = (caddr_t)swpo;
 	if_ih_insert(ifs, switch_input, NULL);
 	swpo->swpo_port_no = swofp_assign_portno(sc, ifs->if_index);
+	swpo->swpo_dhcookie = hook_establish(ifs->if_detachhooks, 0,
+	    switch_port_detach, ifs);
 
 	nanouptime(&swpo->swpo_appended);
 
@@ -629,6 +600,26 @@ done:
 	return (error);
 }
 
+void
+switch_port_detach(void *arg)
+{
+	struct ifnet		*ifp = (struct ifnet *)arg;
+	struct switch_softc	*sc;
+	struct switch_port	*swpo;
+
+	swpo = (struct switch_port *)ifp->if_switchport;
+	sc = swpo->swpo_switch;
+	if (swpo->swpo_flags & IFBIF_LOCAL)
+		switch_port_unset_local(sc, swpo);
+
+	ifp->if_switchport = NULL;
+	hook_disestablish(ifp->if_detachhooks, swpo->swpo_dhcookie);
+	ifpromisc(ifp, 0);
+	if_ih_remove(ifp, switch_input, NULL);
+	TAILQ_REMOVE(&sc->sc_swpo_list, swpo, swpo_list_next);
+	free(swpo, M_DEVBUF, sizeof(*swpo));
+}
+
 int
 switch_port_del(struct switch_softc *sc, struct ifbreq *req)
 {
@@ -645,33 +636,13 @@ switch_port_del(struct switch_softc *sc, struct ifbreq *req)
 	}
 
 	if (swpo) {
-		if (swpo->swpo_flags & IFBIF_LOCAL)
-			switch_port_unset_local(sc, swpo);
-		ifs->if_switchport = NULL;
-		ifpromisc(ifs, 0);
-		if_ih_remove(ifs, switch_input, NULL);
-		TAILQ_REMOVE(&sc->sc_swpo_list, swpo, swpo_list_next);
-		free(swpo, M_DEVBUF, sizeof(*swpo));
+		switch_port_detach(ifs);
 		if_put(ifs);
 		error = 0;
 	} else
 		error = ENOENT;
 
 	return (error);
-}
-
-int
-switch_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
-    struct rtentry *rt)
-{
-	DPRINTF("%s: %s called\n", ifp->if_xname, __func__);
-	return (0);
-}
-
-void
-switch_start(struct ifnet *ifp)
-{
-	DPRINTF("%s: %s called\n", ifp->if_xname, __func__);
 }
 
 int
@@ -715,25 +686,6 @@ switch_port_ingress(struct switch_softc *sc, struct ifnet *src_if,
 #endif /* NPF */
 
 	return (m);
-}
-
-void
-switch_forward_flooder(struct switch_softc *sc,
-    struct switch_flow_classify *swfcl, struct mbuf *m)
-{
-	struct switch_port		 *swpo;
-	struct switch_fwdp_queue	 fwdp_q;
-	uint32_t			 src_port_no;
-
-	src_port_no = swfcl->swfcl_in_port;
-	TAILQ_INIT(&fwdp_q);
-	TAILQ_FOREACH(swpo, &sc->sc_swpo_list, swpo_list_next) {
-		if (swpo->swpo_port_no == src_port_no)
-			continue;
-		TAILQ_INSERT_HEAD(&fwdp_q, swpo, swpo_fwdp_next);
-	}
-
-	switch_port_egress(sc, &fwdp_q, m);
 }
 
 void
@@ -1068,6 +1020,7 @@ switch_flow_classifier_icmpv4(struct mbuf *m, int *offset,
 	return (m);
 }
 
+#ifdef INET6
 struct mbuf *
 switch_flow_classifier_nd6(struct mbuf *m, int *offset,
     struct switch_flow_classify *swfcl)
@@ -1183,6 +1136,7 @@ switch_flow_classifier_icmpv6(struct mbuf *m, int *offset,
 
 	return (m);
 }
+#endif /* INET6 */
 
 struct mbuf *
 switch_flow_classifier_ipv4(struct mbuf *m, int *offset,
@@ -1225,6 +1179,7 @@ switch_flow_classifier_ipv4(struct mbuf *m, int *offset,
 	return (m);
 }
 
+#ifdef INET6
 struct mbuf *
 switch_flow_classifier_ipv6(struct mbuf *m, int *offset,
     struct switch_flow_classify *swfcl)
@@ -1264,6 +1219,7 @@ switch_flow_classifier_ipv6(struct mbuf *m, int *offset,
 
 	return (m);
 }
+#endif /* INET6 */
 
 struct mbuf *
 switch_flow_classifier_arp(struct mbuf *m, int *offset,
@@ -1366,8 +1322,10 @@ switch_flow_classifier_ether(struct mbuf *m, int *offset,
 		return switch_flow_classifier_arp(m, offset, swfcl);
 	case ETHERTYPE_IP:
 		return switch_flow_classifier_ipv4(m, offset, swfcl);
+#ifdef INET6
 	case ETHERTYPE_IPV6:
 		return switch_flow_classifier_ipv6(m, offset, swfcl);
+#endif /* INET6 */
 	case ETHERTYPE_MPLS:
 		/* unsupported yet */
 		break;
@@ -1385,8 +1343,8 @@ switch_flow_classifier_tunnel(struct mbuf *m, int *offset,
 	if ((brtag = bridge_tunnel(m)) == NULL)
 		goto out;
 
-	if ((brtag->brtag_dst.sa.sa_family != AF_INET) &&
-	    (brtag->brtag_dst.sa.sa_family != AF_INET6))
+	if ((brtag->brtag_peer.sa.sa_family != AF_INET) &&
+	    (brtag->brtag_peer.sa.sa_family != AF_INET6))
 		goto out;
 
 	swfcl->swfcl_tunnel = pool_get(&swfcl_pool, PR_NOWAIT|PR_ZERO);
@@ -1395,18 +1353,18 @@ switch_flow_classifier_tunnel(struct mbuf *m, int *offset,
 		return (NULL);
 	}
 
-	swfcl->swfcl_tunnel->tun_af = brtag->brtag_dst.sa.sa_family;
+	swfcl->swfcl_tunnel->tun_af = brtag->brtag_peer.sa.sa_family;
 	swfcl->swfcl_tunnel->tun_key = htobe64(brtag->brtag_id);
 	if (swfcl->swfcl_tunnel->tun_af == AF_INET) {
 		swfcl->swfcl_tunnel->tun_ipv4_src =
-		    brtag->brtag_src.sin.sin_addr;
+		    brtag->brtag_local.sin.sin_addr;
 		swfcl->swfcl_tunnel->tun_ipv4_dst =
-		    brtag->brtag_dst.sin.sin_addr;
+		    brtag->brtag_peer.sin.sin_addr;
 	} else {
 		swfcl->swfcl_tunnel->tun_ipv6_src =
-		    brtag->brtag_src.sin6.sin6_addr;
+		    brtag->brtag_local.sin6.sin6_addr;
 		swfcl->swfcl_tunnel->tun_ipv6_dst =
-		    brtag->brtag_dst.sin6.sin6_addr;
+		    brtag->brtag_peer.sin6.sin6_addr;
 	}
 	bridge_tunneluntag(m);
  out:
@@ -1540,4 +1498,52 @@ switch_flow_classifier_dump(struct switch_softc *sc,
 	}
 
 	addlog("\n");
+}
+
+int
+switch_mtap(caddr_t arg, struct mbuf *m, int dir, uint64_t datapath_id)
+{
+	struct dlt_openflow_hdr	 of;
+
+	of.of_datapath_id = htobe64(datapath_id);
+	of.of_direction = htonl(dir == BPF_DIRECTION_IN ?
+	    DLT_OPENFLOW_TO_SWITCH : DLT_OPENFLOW_TO_CONTROLLER);
+
+	return (bpf_mtap_hdr(arg, (caddr_t)&of, sizeof(of), m, dir, NULL));
+}
+
+int
+ofp_split_mbuf(struct mbuf *m, struct mbuf **mtail)
+{
+	struct ofp_header	*oh;
+	uint16_t		 ohlen;
+
+	*mtail = NULL;
+
+ again:
+	/* We need more data. */
+	if (m->m_pkthdr.len < sizeof(*oh))
+		return (-1);
+
+	oh = mtod(m, struct ofp_header *);
+	ohlen = ntohs(oh->oh_length);
+
+	/* We got an invalid packet header, skip it. */
+	if (ohlen < sizeof(*oh)) {
+		m_adj(m, sizeof(*oh));
+		goto again;
+	}
+
+	/* Nothing to split. */
+	if (m->m_pkthdr.len == ohlen)
+		return (0);
+	else if (m->m_pkthdr.len < ohlen)
+		return (-1);
+
+	*mtail = m_split(m, ohlen, M_NOWAIT);
+	/* No memory, try again later. */
+	if (*mtail == NULL)
+		return (-1);
+
+	return (0);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_domain.c,v 1.45 2016/03/03 00:34:10 dlg Exp $	*/
+/*	$OpenBSD: uipc_domain.c,v 1.52 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: uipc_domain.c,v 1.14 1996/02/09 19:00:44 christos Exp $	*/
 
 /*
@@ -56,7 +56,7 @@ struct domain *domains[] = {
 #ifdef MPLS
 	&mplsdomain,
 #endif
-#if defined (KEY) || defined (IPSEC) || defined (TCP_SIGNATURE)
+#if defined (IPSEC) || defined (TCP_SIGNATURE)
 	&pfkeydomain,
 #endif
 #ifdef INET6
@@ -99,8 +99,8 @@ domaininit(void)
 		max_linkhdr = 64;
 
 	max_hdr = max_linkhdr + max_protohdr;
-	timeout_set(&pffast_timeout, pffasttimo, &pffast_timeout);
-	timeout_set(&pfslow_timeout, pfslowtimo, &pfslow_timeout);
+	timeout_set_proc(&pffast_timeout, pffasttimo, &pffast_timeout);
+	timeout_set_proc(&pfslow_timeout, pfslowtimo, &pfslow_timeout);
 	timeout_add(&pffast_timeout, 1);
 	timeout_add(&pfslow_timeout, 1);
 }
@@ -165,7 +165,7 @@ net_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 {
 	struct domain *dp;
 	struct protosw *pr;
-	int family, protocol;
+	int error, family, protocol;
 
 	/*
 	 * All sysctl names at this level are nonterminal.
@@ -193,24 +193,26 @@ net_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (pipex_sysctl(name + 1, namelen - 1, oldp, oldlenp,
 		    newp, newlen));
 #endif
+#ifdef MPLS
+	if (family == PF_MPLS)
+		return (mpls_sysctl(name + 1, namelen - 1, oldp, oldlenp,
+		    newp, newlen));
+#endif
 	dp = pffinddomain(family);
 	if (dp == NULL)
 		return (ENOPROTOOPT);
-#ifdef MPLS
-	/* XXX WARNING: big fat ugly hack */
-	/* stupid net.mpls is special as it does not have a protocol */
-	if (family == PF_MPLS)
-		return (dp->dom_protosw[0].pr_sysctl(name + 1, namelen - 1,
-		    oldp, oldlenp, newp, newlen));
-#endif
 
 	if (namelen < 3)
 		return (EISDIR);		/* overloaded */
 	protocol = name[1];
 	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
-		if (pr->pr_protocol == protocol && pr->pr_sysctl)
-			return ((*pr->pr_sysctl)(name + 2, namelen - 2,
-			    oldp, oldlenp, newp, newlen));
+		if (pr->pr_protocol == protocol && pr->pr_sysctl) {
+			NET_LOCK();
+			error = (*pr->pr_sysctl)(name + 2, namelen - 2,
+			    oldp, oldlenp, newp, newlen);
+			NET_UNLOCK();
+			return (error);
+		}
 	return (ENOPROTOOPT);
 }
 
@@ -220,6 +222,8 @@ pfctlinput(int cmd, struct sockaddr *sa)
 	struct domain *dp;
 	struct protosw *pr;
 	int i;
+
+	NET_ASSERT_LOCKED();
 
 	for (i = 0; (dp = domains[i]) != NULL; i++) {
 		for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
@@ -236,11 +240,13 @@ pfslowtimo(void *arg)
 	struct protosw *pr;
 	int i;
 
+	NET_LOCK();
 	for (i = 0; (dp = domains[i]) != NULL; i++) {
 		for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
 			if (pr->pr_slowtimo)
 				(*pr->pr_slowtimo)();
 	}
+	NET_UNLOCK();
 	timeout_add_msec(to, 500);
 }
 
@@ -252,10 +258,12 @@ pffasttimo(void *arg)
 	struct protosw *pr;
 	int i;
 
+	NET_LOCK();
 	for (i = 0; (dp = domains[i]) != NULL; i++) {
 		for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
 			if (pr->pr_fasttimo)
 				(*pr->pr_fasttimo)();
 	}
+	NET_UNLOCK();
 	timeout_add_msec(to, 200);
 }

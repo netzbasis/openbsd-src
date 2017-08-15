@@ -1,4 +1,4 @@
-.\"	$OpenBSD: gprof.1,v 1.22 2011/12/23 17:00:47 jmc Exp $
+.\"	$OpenBSD: gprof.1,v 1.24 2016/10/06 07:17:06 jmc Exp $
 .\"	$NetBSD: gprof.1,v 1.6 1995/11/21 22:24:55 jtc Exp $
 .\"
 .\" Copyright (c) 1983, 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)gprof.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: December 23 2011 $
+.Dd $Mdocdate: October 6 2016 $
 .Dt GPROF 1
 .Os
 .Sh NAME
@@ -38,7 +38,6 @@
 .Nd display call graph profile data
 .Sh SYNOPSIS
 .Nm gprof
-.Bk -words
 .Op Fl abcsz
 .Op Fl C Ar count
 .Op Fl E Ar name
@@ -47,7 +46,6 @@
 .Op Fl f Ar name
 .Op Fl k Ar from-name to-name
 .Op Ar a.out Op Ar gmon.out ...
-.Ek
 .Sh DESCRIPTION
 .Nm
 produces an execution profile of C, Pascal, or Fortran77 programs.
@@ -58,10 +56,7 @@ default) which is created by programs
 that are compiled with the
 .Fl pg
 option of
-.Xr cc 1 ,
-.Xr pc ,
-and
-.Xr f77 .
+.Xr cc 1 .
 The
 .Fl pg
 option also links in versions of the library routines
@@ -94,9 +89,7 @@ Cycles are also shown, with an entry for the cycle as a whole and
 a listing of the members of the cycle and their contributions to the
 time and call counts of the cycle.
 .Pp
-Second, a flat profile is given,
-similar to that provided by
-.Xr prof .
+Second, a flat profile is given.
 This listing gives the total execution times, the call counts,
 the time in milliseconds the call spent in the routine itself, and
 the time in milliseconds the call spent in the routine itself including
@@ -131,21 +124,20 @@ with call counts of 0.
 .It Fl E Ar name
 Suppresses the printing of the graph profile entry for routine
 .Ar name
-(and its descendants) as
-.Fl e ,
-above, and also excludes the time spent in
+and its descendants,
+excluding the time spent in
 .Ar name
-(and its descendants) from the total and percentage time computations.
-(For example,
+and its descendants from the total and percentage time computations.
+For example,
 .Fl E
 .Ar mcount
 .Fl E
 .Ar mcleanup
-is the default.)
+is the default.
 .It Fl e Ar name
 Suppresses the printing of the graph profile entry for routine
 .Ar name
-and all its descendants
+and its descendants
 (unless they have other ancestors that aren't suppressed).
 More than one
 .Fl e
@@ -158,9 +150,8 @@ option.
 .It Fl F Ar name
 Prints the graph profile entry of only the routine
 .Ar name
-and its descendants (as
-.Fl f ,
-above) and also uses only the times of the printed routines
+and its descendants,
+using only the times of the printed routines
 in total time and percentage computations.
 More than one
 .Fl F

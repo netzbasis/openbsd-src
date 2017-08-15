@@ -1,4 +1,4 @@
-/*	$OpenBSD: ukbd.c,v 1.76 2016/01/12 19:16:21 jcs Exp $	*/
+/*	$OpenBSD: ukbd.c,v 1.78 2017/05/12 09:16:55 mpi Exp $	*/
 /*      $NetBSD: ukbd.c,v 1.85 2003/03/11 16:44:00 augustss Exp $        */
 
 /*
@@ -57,10 +57,13 @@
 #include <sys/device.h>
 #include <sys/ioctl.h>
 
+#include <machine/bus.h>
+
 #include <dev/usb/usb.h>
 #include <dev/usb/usbhid.h>
 
 #include <dev/usb/usbdi.h>
+#include <dev/usb/usbdivar.h> /* needs_reattach() */
 #include <dev/usb/usbdi_util.h>
 #include <dev/usb/usbdevs.h>
 #include <dev/usb/usb_quirks.h>
@@ -127,26 +130,32 @@ struct ukbd_softc {
 #define sc_ledsize		sc_hdev.sc_osize
 
 	struct hidkbd		sc_kbd;
-
 	int			sc_spl;
-
 	struct hid_location	sc_apple_fn;
-
 	void			(*sc_munge)(void *, uint8_t *, u_int);
+
+#ifdef DDB
+	struct timeout		sc_ddb;	/* for entering DDB */
+#endif
 };
 
 void	ukbd_cngetc(void *, u_int *, int *);
 void	ukbd_cnpollc(void *, int);
 void	ukbd_cnbell(void *, u_int, u_int, u_int);
+void	ukbd_debugger(void *);
 
 const struct wskbd_consops ukbd_consops = {
 	ukbd_cngetc,
 	ukbd_cnpollc,
 	ukbd_cnbell,
+#ifdef DDB
+	ukbd_debugger,
+#endif
 };
 
 void	ukbd_intr(struct uhidev *addr, void *ibuf, u_int len);
 
+void	ukbd_db_enter(void *);
 int	ukbd_enable(void *, int);
 void	ukbd_set_leds(void *, int);
 int	ukbd_ioctl(void *, u_long, caddr_t, int, struct proc *);
@@ -319,6 +328,10 @@ ukbd_attach(struct device *parent, struct device *self, void *aux)
 	ukbd_set_leds(sc, 0);
 
 	hidkbd_attach_wskbd(kbd, layout, &ukbd_accessops);
+
+#ifdef DDB
+	timeout_set(&sc->sc_ddb, ukbd_db_enter, sc);
+#endif
 }
 
 int
@@ -445,15 +458,54 @@ ukbd_cnbell(void *v, u_int pitch, u_int period, u_int volume)
 	hidkbd_bell(pitch, period, volume, 1);
 }
 
+#ifdef DDB
+void
+ukbd_debugger(void *v)
+{
+	struct ukbd_softc *sc = v;
+
+	/*
+	 * For the console keyboard we can't deliver CTL-ALT-ESC
+	 * from the interrupt routine.  Doing so would start
+	 * polling from inside the interrupt routine and that
+	 * loses bigtime.
+	 */
+	timeout_add(&sc->sc_ddb, 1);
+}
+
+void
+ukbd_db_enter(void *xsc)
+{
+	db_enter();
+}
+#endif
+
 int
 ukbd_cnattach(void)
 {
+	struct ukbd_softc *sc;
+	int i;
+
 	/*
 	 * XXX USB requires too many parts of the kernel to be running
 	 * XXX in order to work, so we can't do much for the console
 	 * XXX keyboard until autconfiguration has run its course.
 	 */
 	hidkbd_is_console = 1;
+
+	if (!cold) {
+		/*
+		 * When switching console dynamically force all USB keyboards
+		 * to re-attach and possibly became the 'console' keyboard.
+		 */
+		for (i = 0; i < ukbd_cd.cd_ndevs; i++) {
+			if ((sc = ukbd_cd.cd_devs[i]) != NULL) {
+				usb_needs_reattach(sc->sc_hdev.sc_udev);
+				break;
+			}
+		}
+	}
+
 	return (0);
 }
 

@@ -157,10 +157,8 @@ sub ::file_end
 	}
     }
     if (grep {/\b${nmdecor}OPENSSL_ia32cap_P\b/i} @out) {
-	my $tmp=".comm\t${nmdecor}OPENSSL_ia32cap_P,8";
-	if ($::macosx)	{ push (@out,"$tmp,2\n"); }
-	elsif ($::elf)	{ push (@out,"$tmp,4\n"); }
-	else		{ push (@out,"$tmp\n"); }
+	push (@out, ".extern\t${nmdecor}OPENSSL_ia32cap_P\n");
+	push (@out, ".hidden\t${nmdecor}OPENSSL_ia32cap_P\n");
     }
     push(@out,$initseg) if ($initseg);
 }
@@ -223,9 +221,6 @@ sub ::initseg
 PIC_PROLOGUE
 	call	PIC_PLT($f)
 PIC_EPILOGUE
-	jmp	.Linitalign
-.align	$align
-.Linitalign:
 ___
     } elsif ($::android)
     {	$initseg.=<<___;

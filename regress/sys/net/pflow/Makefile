@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2014/03/29 11:49:41 florian Exp $
+# $OpenBSD: Makefile,v 1.7 2017/03/03 21:34:14 bluhm Exp $
 #
 #  template_v10
 #  ----------------
@@ -31,20 +31,37 @@ REGRESS_TARGETS=template_v10 flow_10_4 flow_10_6 ifconfig
 PROG=   gen_traffic
 LDADD=  -levent
 
+.if ! (make(clean) || make(cleandir) || make(obj))
+PF_ENABLED !!=	pfctl -si | grep '^Status: Enabled ' || true
+.endif
+.if empty(PF_ENABLED)
+regress:
+	@echo Enable pf on localhost to run pflow test.
+	@echo SKIPPED
+.endif
+
+PERL_REQUIRE !!= perl -e 'eval { require Net::Flow } or print $@'
+.if ! empty(PERL_REQUIRE)
+regress:
+	@echo "${PERL_REQUIRE}"
+	@echo Install the p5-Net-Flow package to run pflow test.
+	@echo SKIPPED
+.endif
+
 template_v10:
-	perl -I ${.CURDIR} ${.CURDIR}/template.pl 10 \
-	    | cmp -s ${.CURDIR}/template.v10 /dev/stdin
+	perl ${.CURDIR}/template.pl 10 \
+	    | diff -up ${.CURDIR}/template.v10 /dev/stdin
 
 flow_10_4: gen_traffic
-	perl -I ${.CURDIR} ${.CURDIR}/flow.pl 10 4 \
-	    | cmp -s ${.CURDIR}/flow.10_4 /dev/stdin
+	perl ${.CURDIR}/flow.pl 10 4 \
+	    | diff -up ${.CURDIR}/flow.10_4 /dev/stdin
 flow_10_6: gen_traffic
-	perl -I ${.CURDIR} ${.CURDIR}/flow.pl 10 6 \
-	    | cmp -s ${.CURDIR}/flow.10_6 /dev/stdin
+	perl ${.CURDIR}/flow.pl 10 6 \
+	    | diff -up ${.CURDIR}/flow.10_6 /dev/stdin
 
 ifconfig:
 	sh ${.CURDIR}/ifconfig.sh 2>&1 \
-	    | cmp -s ${.CURDIR}/ifconfig.ok /dev/stdin
+	    | diff -up ${.CURDIR}/ifconfig.ok /dev/stdin
 
 .PHONY: ${REGRESS_TARGETS}
 

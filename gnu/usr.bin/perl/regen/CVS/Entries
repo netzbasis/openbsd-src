@@ -1,0 +1,25 @@
+/charset_translations.pl/1.1/Sun Feb  5 00:32:19 2017/-ko/
+/ebcdic.pl/1.1/Sun Feb  5 00:32:19 2017/-ko/
+/embed.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/embed_lib.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/feature.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/genpacksizetables.pl/1.2/Sun Feb  5 00:32:19 2017/-kb/
+/keywords.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/lib_cleanup.pl/1.6/Mon Aug 14 13:49:45 2017/-kb/
+/mg_vtable.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/miniperlmain.pl/1.1.1.1/Mon Nov 17 20:53:19 2014/-kb/
+/mk_PL_charclass.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/mk_invlists.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/op_private/1.1/Sun Feb  5 00:32:19 2017/-ko/
+/opcode.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/opcodes/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/overload.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/reentr.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/regcharclass.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/regcharclass_multi_char_folds.pl/1.2/Sun Feb  5 00:32:19 2017/-kb/
+/regcomp.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/regen_lib.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+/uconfig_h.pl/1.1.1.1/Mon Mar 25 20:09:38 2013/-ko/
+/unicode_constants.pl/1.2/Sun Feb  5 00:32:19 2017/-kb/
+/warnings.pl/1.2/Sun Feb  5 00:32:19 2017/-ko/
+D

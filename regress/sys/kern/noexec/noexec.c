@@ -1,4 +1,4 @@
-/*	$OpenBSD: noexec.c,v 1.15 2014/04/18 14:38:21 guenther Exp $	*/
+/*	$OpenBSD: noexec.c,v 1.17 2017/07/18 23:00:31 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2002,2003 Michael Shalayeff
@@ -120,6 +120,10 @@ getaddr(void *a)
 {
 	void *ret;
 
+	/*
+	 * Compile with -fno-inline to get reasonable result when comparing
+	 * local variable address with caller's stack.
+	 */
 	if ((void *)&ret < a)
 		ret = (void *)((u_long)&ret - 4 * page_size);
 	else
@@ -135,6 +139,8 @@ noexec_mmap(void *p, size_t size)
 	memcpy(p + page_size * 2, p, page_size);
 	fdcache(p + page_size * 1, TESTSZ);
 	fdcache(p + page_size * 2, TESTSZ);
+	if (mprotect(p, size + 2 * page_size, PROT_READ|PROT_EXEC) != 0)
+		err(1, "mprotect");
 
 	/* here we must fail on segv since we said it gets executable */
 	fail = 1;
@@ -242,7 +248,7 @@ main(int argc, char *argv[])
 				(void) strlcat(label, "-mmap", sizeof(label));
 			} else {
 				if ((ptr = mmap(p, size + 2 * page_size,
-				    PROT_READ|PROT_WRITE|PROT_EXEC,
+				    PROT_READ|PROT_WRITE,
 				    MAP_ANON, -1, 0)) == MAP_FAILED)
 					err(1, "mmap");
 				func = &noexec_mmap;

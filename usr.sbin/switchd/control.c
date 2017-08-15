@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.3 2016/08/08 16:49:17 rzalamena Exp $	*/
+/*	$OpenBSD: control.c,v 1.8 2017/01/17 22:10:56 krw Exp $	*/
 
 /*
  * Copyright (c) 2010-2016 Reyk Floeter <reyk@openbsd.org>
@@ -58,10 +58,10 @@ static struct privsep_proc procs[] = {
 	{ "ofcconn",	PROC_OFCCONN,	NULL }
 };
 
-pid_t
+void
 control(struct privsep *ps, struct privsep_proc *p)
 {
-	return (proc_run(ps, p, procs, nitems(procs), control_run, NULL));
+	proc_run(ps, p, procs, nitems(procs), control_run, NULL);
 }
 
 void
@@ -69,11 +69,12 @@ control_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 {
 	/*
 	 * pledge in the control process:
- 	 * stdio - for malloc and basic I/O including events.
+	 * stdio - for malloc and basic I/O including events.
 	 * cpath - for managing the control socket.
 	 * unix - for the control socket.
+	 * recvfd - for the proc fd exchange.
 	 */
-	if (pledge("stdio cpath unix", NULL) == -1)
+	if (pledge("stdio cpath unix recvfd", NULL) == -1)
 		fatal("pledge");
 }
 
@@ -261,9 +262,10 @@ control_connbyfd(int fd)
 {
 	struct ctl_conn	*c;
 
-	for (c = TAILQ_FIRST(&ctl_conns); c != NULL && c->iev.ibuf.fd != fd;
-	    c = TAILQ_NEXT(c, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(c, &ctl_conns, entry) {
+		if (c->iev.ibuf.fd == fd)
+			break;
+	}
 
 	return (c);
 }
@@ -339,8 +341,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			proc_compose(&env->sc_ps, PROC_OFP,
 			    imsg.hdr.type, &fd, sizeof(fd));
 			break;
-		case IMSG_CTL_DEVICE_CONNECT:
-		case IMSG_CTL_DEVICE_DISCONNECT:
+		case IMSG_CTL_CONNECT:
+		case IMSG_CTL_DISCONNECT:
 			proc_compose(&env->sc_ps, PROC_PARENT,
 			    imsg.hdr.type, imsg.data, IMSG_DATA_SIZE(&imsg));
 			break;
@@ -359,7 +361,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			IMSG_SIZE_CHECK(&imsg, &v);
 
 			memcpy(&v, imsg.data, sizeof(v));
-			log_verbose(v);
+			log_setverbose(v);
 
 			proc_forward_imsg(&env->sc_ps, &imsg, PROC_PARENT, -1);
 			proc_forward_imsg(&env->sc_ps, &imsg, PROC_OFP, -1);

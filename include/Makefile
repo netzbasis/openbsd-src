@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.212 2016/05/07 21:58:24 tedu Exp $
+#	$OpenBSD: Makefile,v 1.219 2017/04/17 15:53:21 kettenis Exp $
 #	$NetBSD: Makefile,v 1.59 1996/05/15 21:36:43 jtc Exp $
 
 #	@(#)Makefile	5.45.1.1 (Berkeley) 5/6/91
@@ -18,7 +18,7 @@ FILES=	a.out.h ar.h asr.h assert.h bitstring.h blf.h bsd_auth.h \
 	nlist.h nl_types.h paths.h poll.h pwd.h ranlib.h readpassphrase.h \
 	regex.h resolv.h rmd160.h search.h setjmp.h sha1.h sha2.h signal.h \
 	siphash.h sndio.h spawn.h stdbool.h stddef.h stdio.h stdlib.h \
-	string.h strings.h struct.h sysexits.h tar.h tgmath.h tib.h time.h \
+	string.h strings.h sysexits.h tar.h tgmath.h tib.h time.h \
 	ttyent.h unistd.h utime.h utmp.h uuid.h vis.h wchar.h wctype.h
 
 MFILES=	frame.h
@@ -29,26 +29,29 @@ LDIRS=	crypto ddb dev isofs miscfs msdosfs net netinet netinet6 \
 	netmpls net80211 nfs ntfs scsi sys ufs uvm
 
 # Places that need a prerequisite target met before includes
-PRDIRS=
+PRDIRS=	../lib/libcrypto ../lib/librpcsvc
 
 # Directories with an includes target
-RDIRS=	../lib/libcrypto ../lib/libcurses ../lib/libedit \
+RDIRS=	../lib/libcurses ../lib/libedit \
 	../lib/libevent ../lib/libexpat ../lib/libform \
 	../lib/libfuse ../lib/libkeynote ../lib/libmenu \
-	../lib/libossaudio ../lib/libpanel \
-	../lib/libpcap ../lib/libradius ../lib/librpcsvc ../lib/librthread \
-	../lib/libskey ../lib/libsqlite3 ../lib/libssl  ../lib/libtls \
+	../lib/libossaudio ../lib/libpanel ../lib/libpcap \
+	../lib/libradius ../lib/librthread \
+	../lib/libskey ../lib/libssl  ../lib/libtls \
 	../lib/libusbhid ../lib/libutil ../lib/libz \
 	../usr.bin/lex ../gnu/lib/libreadline \
 	../sys/arch/${MACHINE}
 
-.if ${COMPILER_VERSION:L} == "gcc3"
+.if ${BUILD_GCC3:L} == "yes"
 RDIRS+= ../gnu/usr.bin/gcc ../gnu/lib/libobjc
 PRDIRS+= ../gnu/lib/libstdc++
-.else
+.endif
+.if ${BUILD_GCC4:L} == "yes"
 RDIRS+= ../gnu/usr.bin/cc/libobjc
-PRDIRS+= ../gnu/lib/libstdc++-v3
-RDIRS+= ../gnu/usr.bin/cc/include
+PRDIRS+= ../gnu/lib/libstdc++-v3 ../gnu/usr.bin/cc/include
+.endif
+.if ${BUILD_CLANG:L} == "yes"
+RDIRS+= ../lib/libcxxabi ../lib/libcxx
 .endif
 
 # prereq implies includes
@@ -82,7 +85,6 @@ includes:
 			${INSTALL} ${INSTALL_COPY} -m 444 $$j ${DESTDIR}/usr/include/$$i/$$j; \
 		done; \
 	done
-	@ln -sfh openssl ${DESTDIR}/usr/include/ssl
 	@echo installing ${LFILES}
 	@for i in ${LFILES}; do \
 		rm -f ${DESTDIR}/usr/include/$$i && \
@@ -93,15 +95,15 @@ includes:
 		rm -f ${DESTDIR}/usr/include/$$i && \
 		ln -s machine/$$i ${DESTDIR}/usr/include/$$i; \
 	done
-	chown -R ${BINOWN}:${BINGRP} ${DESTDIR}/usr/include
-	find ${DESTDIR}/usr/include -type f -print0 | \
-		xargs -0r chmod a=r
-	find ${DESTDIR}/usr/include -type d -print0 | \
-		xargs -0r chmod u=rwx,go=rx
 	@for i in ${RDIRS}; do \
 		echo installing in ${.CURDIR}/$$i; \
 		cd ${.CURDIR}/$$i && ${RUN_MAKE}; \
 	done
+	chown -RP ${BINOWN}:${BINGRP} ${DESTDIR}/usr/include
+	find ${DESTDIR}/usr/include -type f -print0 | \
+		xargs -0r chmod a=r
+	find ${DESTDIR}/usr/include \( -type d -o -type l \) -print0 | \
+		xargs -0r chmod -h u=rwx,go=rx
 
 copies:
 	@echo copies: ${LDIRS}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: annotate.c,v 1.65 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: annotate.c,v 1.69 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2007 Tobias Stoeckmann <tobias@openbsd.org>
  * Copyright (c) 2006 Xavier Santolaria <xsa@openbsd.org>
@@ -104,7 +104,7 @@ cvs_annotate(int argc, char **argv)
 	cr.enterdir = NULL;
 	cr.leavedir = NULL;
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_connect_to_server();
 		cr.fileproc = cvs_client_sendfile;
 
@@ -130,15 +130,14 @@ cvs_annotate(int argc, char **argv)
 
 	cr.flags = flags;
 
-	if (cvs_cmdop == CVS_OP_ANNOTATE ||
-	    current_cvsroot->cr_method == CVS_METHOD_LOCAL) {
+	if (cvs_cmdop == CVS_OP_ANNOTATE || cvsroot_is_local()) {
 		if (argc > 0)
 			cvs_file_run(argc, argv, &cr);
 		else
 			cvs_file_run(1, &arg, &cr);
 	}
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_send_files(argv, argc);
 		cvs_client_senddir(".");
 
@@ -155,7 +154,8 @@ void
 cvs_annotate_local(struct cvs_file *cf)
 {
 	int i;
-	char date[10], rnum[13], *p;
+	u_char *p;
+	char date[10], rnum[13];
 	RCSNUM *bnum, *rev;
 	struct rcs_line *line;
 	struct rcs_line **alines;
@@ -178,7 +178,7 @@ cvs_annotate_local(struct cvs_file *cf)
 			rev = rcsnum_parse(cvs_specified_tag);
 			if (rev == NULL)
 				fatal("no such tag %s", cvs_specified_tag);
-                        rcsnum_free(rev);
+			free(rev);
 			rev = rcsnum_alloc();
 			rcsnum_cpy(cf->file_rcs->rf_head, rev, 0);
 		}
@@ -205,9 +205,9 @@ cvs_annotate_local(struct cvs_file *cf)
 		 */
 		if (bnum != rev) {
 			rcs_annotate_getlines(cf->file_rcs, rev, &alines);
-			rcsnum_free(bnum);
+			free(bnum);
 		}
-		rcsnum_free(rev);
+		free(rev);
 	} else {
 		rcs_rev_getlines(cf->file_rcs, (cvs_specified_date != -1 ||
 		    cvs_directory_date != -1) ? cf->file_rcsrev :

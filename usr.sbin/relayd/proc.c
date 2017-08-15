@@ -1,7 +1,7 @@
-/*	$OpenBSD: proc.c,v 1.32 2016/09/03 14:44:21 reyk Exp $	*/
+/*	$OpenBSD: proc.c,v 1.39 2017/05/28 10:39:15 benno Exp $	*/
 
 /*
- * Copyright (c) 2010 - 2014 Reyk Floeter <reyk@openbsd.org>
+ * Copyright (c) 2010 - 2016 Reyk Floeter <reyk@openbsd.org>
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -36,8 +37,6 @@
 
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int,
 	    int, char **);
-void	 proc_connectpeer(struct privsep *, enum privsep_procid, int,
-	    struct privsep_pipes *);
 void	 proc_setup(struct privsep *, struct privsep_proc *, unsigned int);
 void	 proc_open(struct privsep *, int, int);
 void	 proc_accept(struct privsep *, int, enum privsep_procid,
@@ -115,7 +114,7 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 		p = &procs[proc];
 
 		/* Update args with process title. */
-		nargv[proc_i] = (char *) p->p_title;
+		nargv[proc_i] = (char *)(uintptr_t)p->p_title;
 
 		/* Fire children processes. */
 		for (i = 0; i < ps->ps_instances[p->p_id]; i++) {
@@ -130,8 +129,17 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 				fatal("%s: fork", __func__);
 				break;
 			case 0:
+				/* First create a new session */
+				if (setsid() == -1)
+					fatal("setsid");
+
 				/* Prepare parent socket. */
-				dup2(fd, PROC_PARENT_SOCK_FILENO);
+				if (fd != PROC_PARENT_SOCK_FILENO) {
+					if (dup2(fd, PROC_PARENT_SOCK_FILENO)
+					    == -1)
+						fatal("dup2");
+				} else if (fcntl(fd, F_SETFD, 0) == -1)
+					fatal("fcntl");
 
 				execvp(argv[0], nargv);
 				fatal("%s: execvp", __func__);
@@ -147,72 +155,38 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 }
 
 void
-proc_connectpeer(struct privsep *ps, enum privsep_procid id, int inst,
-    struct privsep_pipes *pp)
-{
-	unsigned int		 i, j;
-	struct privsep_fd	 pf;
-
-	for (i = 0; i < PROC_MAX; i++) {
-		/* Parent is already connected with everyone. */
-		if (i == PROC_PARENT)
-			continue;
-
-		for (j = 0; j < ps->ps_instances[i]; j++) {
-			/* Don't send socket to child itself. */
-			if (i == (unsigned int)id &&
-			    j == (unsigned int)inst)
-				continue;
-			if (pp->pp_pipes[i][j] == -1)
-				continue;
-
-			pf.pf_procid = i;
-			pf.pf_instance = j;
-			proc_compose_imsg(ps, id, inst, IMSG_CTL_PROCFD,
-			    -1, pp->pp_pipes[i][j], &pf, sizeof(pf));
-			pp->pp_pipes[i][j] = -1;
-		}
-	}
-}
-
-/* Inter-connect all process except with ourself. */
-void
 proc_connect(struct privsep *ps)
 {
-	unsigned int		 src, i, j;
-	struct privsep_pipes	*pp;
 	struct imsgev		*iev;
+	unsigned int		 src, dst, inst;
 
-	/* Listen on appropriate pipes. */
-	src = privsep_process;
-	pp = &ps->ps_pipes[src][ps->ps_instance];
+	/* Don't distribute any sockets if we are not really going to run. */
+	if (ps->ps_noaction)
+		return;
 
-	for (i = 0; i < PROC_MAX; i++) {
-		/* Don't listen to ourself. */
-		if (i == src)
+	for (dst = 0; dst < PROC_MAX; dst++) {
+		/* We don't communicate with ourselves. */
+		if (dst == PROC_PARENT)
 			continue;
 
-		for (j = 0; j < ps->ps_instances[i]; j++) {
-			if (pp->pp_pipes[i][j] == -1)
-				continue;
-
-			iev = &ps->ps_ievs[i][j];
-			imsg_init(&iev->ibuf, pp->pp_pipes[i][j]);
+		for (inst = 0; inst < ps->ps_instances[dst]; inst++) {
+			iev = &ps->ps_ievs[dst][inst];
+			imsg_init(&iev->ibuf, ps->ps_pp->pp_pipes[dst][inst]);
 			event_set(&iev->ev, iev->ibuf.fd, iev->events,
 			    iev->handler, iev->data);
 			event_add(&iev->ev, NULL);
 		}
 	}
 
-	/* Exchange pipes between process. */
-	for (i = 0; i < PROC_MAX; i++) {
-		/* Parent is already connected with everyone. */
-		if (i == PROC_PARENT)
-			continue;
+	/* Distribute the socketpair()s for everyone. */
+	for (src = 0; src < PROC_MAX; src++)
+		for (dst = src; dst < PROC_MAX; dst++) {
+			/* Parent already distributed its fds. */
+			if (src == PROC_PARENT || dst == PROC_PARENT)
+				continue;
 
-		for (j = 0; j < ps->ps_instances[i]; j++)
-			proc_connectpeer(ps, i, j, &ps->ps_pipes[i][j]);
-	}
+			proc_open(ps, src, dst);
+		}
 }
 
 void
@@ -220,17 +194,41 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
     int argc, char **argv, enum privsep_procid proc_id)
 {
 	struct privsep_proc	*p = NULL;
+	struct privsep_pipes	*pa, *pb;
 	unsigned int		 proc;
-	unsigned int		 src, dst;
+	unsigned int		 dst;
+	int			 fds[2];
+
+	/* Don't initiate anything if we are not really going to run. */
+	if (ps->ps_noaction)
+		return;
 
 	if (proc_id == PROC_PARENT) {
 		privsep_process = PROC_PARENT;
 		proc_setup(ps, procs, nproc);
 
-		/* Open socketpair()s for everyone. */
-		for (src = 0; src < PROC_MAX; src++)
-			for (dst = 0; dst < PROC_MAX; dst++)
-				proc_open(ps, src, dst);
+		/*
+		 * Create the children sockets so we can use them
+		 * to distribute the rest of the socketpair()s using
+		 * proc_connect() later.
+		 */
+		for (dst = 0; dst < PROC_MAX; dst++) {
+			/* Don't create socket for ourselves. */
+			if (dst == PROC_PARENT)
+				continue;
+
+			for (proc = 0; proc < ps->ps_instances[dst]; proc++) {
+				pa = &ps->ps_pipes[PROC_PARENT][0];
+				pb = &ps->ps_pipes[dst][proc];
+				if (socketpair(AF_UNIX,
+				    SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+				    PF_UNSPEC, fds) == -1)
+					fatal("%s: socketpair", __func__);
+
+				pa->pp_pipes[dst][proc] = fds[0];
+				pb->pp_pipes[PROC_PARENT][0] = fds[1];
+			}
+		}
 
 		/* Engage! */
 		proc_exec(ps, procs, nproc, argc, argv);
@@ -300,7 +298,6 @@ proc_setup(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc)
 
 	for (src = 0; src < nproc; src++) {
 		procs[src].p_ps = ps;
-		procs[src].p_env = ps->ps_env;
 		if (procs[src].p_cb == NULL)
 			procs[src].p_cb = proc_dispatch_null;
 
@@ -308,7 +305,7 @@ proc_setup(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc)
 		ps->ps_title[id] = procs[src].p_title;
 		if ((ps->ps_ievs[id] = calloc(ps->ps_instances[id],
 		    sizeof(struct imsgev))) == NULL)
-			fatal(__func__);
+			fatal("%s: calloc", __func__);
 
 		/* With this set up, we are ready to call imsg_init(). */
 		for (i = 0; i < ps->ps_instances[id]; i++) {
@@ -400,9 +397,11 @@ void
 proc_open(struct privsep *ps, int src, int dst)
 {
 	struct privsep_pipes	*pa, *pb;
+	struct privsep_fd	 pf;
 	int			 fds[2];
 	unsigned int		 i, j;
 
+	/* Exchange pipes between process. */
 	for (i = 0; i < ps->ps_instances[src]; i++) {
 		for (j = 0; j < ps->ps_instances[dst]; j++) {
 			/* Don't create sockets for ourself. */
@@ -411,16 +410,33 @@ proc_open(struct privsep *ps, int src, int dst)
 
 			pa = &ps->ps_pipes[src][i];
 			pb = &ps->ps_pipes[dst][j];
-			if (pb->pp_pipes[dst][j] != -1)
-				continue;
-
 			if (socketpair(AF_UNIX,
 			    SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
 			    PF_UNSPEC, fds) == -1)
-				fatal(__func__);
+				fatal("%s: socketpair", __func__);
 
 			pa->pp_pipes[dst][j] = fds[0];
 			pb->pp_pipes[src][i] = fds[1];
+
+			pf.pf_procid = src;
+			pf.pf_instance = i;
+			if (proc_compose_imsg(ps, dst, j, IMSG_CTL_PROCFD,
+			    -1, pb->pp_pipes[src][i], &pf, sizeof(pf)) == -1)
+				fatal("%s: proc_compose_imsg", __func__);
+
+			pf.pf_procid = dst;
+			pf.pf_instance = j;
+			if (proc_compose_imsg(ps, src, i, IMSG_CTL_PROCFD,
+			    -1, pa->pp_pipes[dst][j], &pf, sizeof(pf)) == -1)
+				fatal("%s: proc_compose_imsg", __func__);
+
+			/*
+			 * We have to flush to send the descriptors and close
+			 * them to avoid the fd ramp on startup.
+			 */
+			if (proc_flush_imsg(ps, src, i) == -1 ||
+			    proc_flush_imsg(ps, dst, j) == -1)
+				fatal("%s: imsg_flush", __func__);
 		}
 	}
 }
@@ -489,7 +505,7 @@ proc_sig_handler(int sig, short event, void *arg)
 		/* ignore */
 		break;
 	default:
-		fatalx("proc_sig_handler: unexpected signal");
+		fatalx("%s: unexpected signal", __func__);
 		/* NOTREACHED */
 	}
 }
@@ -499,12 +515,9 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
     struct privsep_proc *procs, unsigned int nproc,
     void (*run)(struct privsep *, struct privsep_proc *, void *), void *arg)
 {
-	struct passwd		*pw = ps->ps_pw;
+	struct passwd		*pw;
 	const char		*root;
 	struct control_sock	*rcs;
-
-	if (ps->ps_noaction)
-		exit(0);
 
 	log_procinit(p->p_title);
 
@@ -513,11 +526,17 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 
 	if (p->p_id == PROC_CONTROL && ps->ps_instance == 0) {
 		if (control_init(ps, &ps->ps_csock) == -1)
-			fatalx(__func__);
+			fatalx("%s: control_init", __func__);
 		TAILQ_FOREACH(rcs, &ps->ps_rcsocks, cs_entry)
 			if (control_init(ps, rcs) == -1)
-				fatalx(__func__);
+				fatalx("%s: control_init", __func__);
 	}
+
+	/* Use non-standard user */
+	if (p->p_pw != NULL)
+		pw = p->p_pw;
+	else
+		pw = ps->ps_pw;
 
 	/* Change root directory */
 	if (p->p_chroot != NULL)
@@ -526,9 +545,9 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 		root = pw->pw_dir;
 
 	if (chroot(root) == -1)
-		fatal("proc_run: chroot");
+		fatal("%s: chroot", __func__);
 	if (chdir("/") == -1)
-		fatal("proc_run: chdir(\"/\")");
+		fatal("%s: chdir(\"/\")", __func__);
 
 	privsep_process = p->p_id;
 
@@ -537,7 +556,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-		fatal("proc_run: cannot drop privileges");
+		fatal("%s: cannot drop privileges", __func__);
 
 	event_init();
 
@@ -560,10 +579,10 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	if (p->p_id == PROC_CONTROL && ps->ps_instance == 0) {
 		TAILQ_INIT(&ctl_conns);
 		if (control_listen(&ps->ps_csock) == -1)
-			fatalx(__func__);
+			fatalx("%s: control_listen", __func__);
 		TAILQ_FOREACH(rcs, &ps->ps_rcsocks, cs_entry)
 			if (control_listen(rcs) == -1)
-				fatalx(__func__);
+				fatalx("%s: control_listen", __func__);
 	}
 
 	DPRINTF("%s: %s %d/%d, pid %d", __func__, p->p_title,
@@ -595,7 +614,7 @@ proc_dispatch(int fd, short event, void *arg)
 
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
-			fatal(__func__);
+			fatal("%s: imsg_read", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
 			event_del(&iev->ev);
@@ -605,13 +624,19 @@ proc_dispatch(int fd, short event, void *arg)
 	}
 
 	if (event & EV_WRITE) {
-		if (msgbuf_write(&ibuf->w) <= 0 && errno != EAGAIN)
-			fatal(__func__);
+		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
+			fatal("%s: msgbuf_write", __func__);
+		if (n == 0) {
+			/* this pipe is dead, so remove the event handler */
+			event_del(&iev->ev);
+			event_loopexit(NULL);
+			return;
+		}
 	}
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal(__func__);
+			fatal("%s: imsg_get", __func__);
 		if (n == 0)
 			break;
 
@@ -637,7 +662,7 @@ proc_dispatch(int fd, short event, void *arg)
 		case IMSG_CTL_VERBOSE:
 			IMSG_SIZE_CHECK(&imsg, &verbose);
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_verbose(verbose);
+			log_setverbose(verbose);
 			break;
 		case IMSG_CTL_PROCFD:
 			IMSG_SIZE_CHECK(&imsg, &pf);
@@ -646,12 +671,11 @@ proc_dispatch(int fd, short event, void *arg)
 			    pf.pf_instance);
 			break;
 		default:
-			log_warnx("%s: %s %d got invalid imsg %d peerid %d "
+			fatalx("%s: %s %d got invalid imsg %d peerid %d "
 			    "from %s %d",
 			    __func__, title, ps->ps_instance + 1,
 			    imsg.hdr.type, imsg.hdr.peerid,
 			    p->p_title, imsg.hdr.pid);
-			fatalx(__func__);
 		}
 		imsg_free(&imsg);
 	}
@@ -793,4 +817,26 @@ proc_iev(struct privsep *ps, enum privsep_procid id, int n)
 
 	proc_range(ps, id, &n, &m);
 	return (&ps->ps_ievs[id][n]);
+}
+
+/* This function should only be called with care as it breaks async I/O */
+int
+proc_flush_imsg(struct privsep *ps, enum privsep_procid id, int n)
+{
+	struct imsgbuf	*ibuf;
+	int		 m, ret = 0;
+
+	proc_range(ps, id, &n, &m);
+	for (; n < m; n++) {
+		if ((ibuf = proc_ibuf(ps, id, n)) == NULL)
+			return (-1);
+		do {
+			ret = imsg_flush(ibuf);
+		} while (ret == -1 && errno == EAGAIN);
+		if (ret == -1)
+			break;
+		imsg_event_add(&ps->ps_ievs[id][n]);
+	}
+
+	return (ret);
 }

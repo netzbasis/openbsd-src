@@ -20,7 +20,7 @@ our %args = (
     syslogd => {
 	ktrace => {
 	    qr/syslogd  PSIG  SIGHUP caught handler/ => 1,
-	    qr/syslogd  RET   execve 0/ => 1,
+	    qr/syslogd  RET   execve 0/ => 2,
 	},
 	loggrep => {
 	    qr/config file changed: dying/ => 0,
@@ -53,6 +53,13 @@ our %args = (
 		my $pattern = (get_between2loggrep())[0];
 		check_pattern($name, $file, $pattern, \&filegrep);
 	}
+    },
+    file => {
+	loggrep => {
+	    qr/syslogd\[\d+\]: start/ => 0,
+	    qr/syslogd\[\d+\]: restart/ => 1,
+	    qr/syslogd\[\d+\]: exiting/ => 1,
+	},
     },
 );
 

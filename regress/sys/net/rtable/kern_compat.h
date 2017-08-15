@@ -1,4 +1,4 @@
-/* 	$OpenBSD: kern_compat.h,v 1.4 2016/06/07 07:57:59 mpi Exp $ */
+/* 	$OpenBSD: kern_compat.h,v 1.7 2017/07/27 13:34:30 mpi Exp $ */
 
 #ifndef _KERN_COMPAT_H_
 #define _KERN_COMPAT_H_
@@ -8,6 +8,7 @@
 #include <sys/queue.h>
 #include <sys/mutex.h>
 #include <sys/task.h>
+#include <sys/select.h>
 #include <arpa/inet.h>
 
 #include <assert.h>
@@ -56,13 +57,26 @@ struct pool {
 #define rtref(_rt)		((_rt)->rt_refcnt++)
 #define rtfree(_rt)		(assert(--(_rt)->rt_refcnt >= 0))
 
-#define mtx_enter(_mtx)		/* nothing */
-#define mtx_leave(_mtx)		/* nothing */
+#define __mtx_enter(_mtx)	/* nothing */
+#define __mtx_leave(_mtx)	/* nothing */
 
 #define task_add(_tq, _t)	((_t)->t_func((_t)->t_arg))
 
 extern struct domain *domains[];
 
 #define IPL_SOFTNET	0
+
+#define rw_init(rwl, name)
+#define rw_enter_write(rwl)
+#define rw_exit_write(rwl)
+#define rw_assert_wrlock(rwl)
+
+#define SET(t, f)	((t) |= (f))
+#define CLR(t, f)	((t) &= ~(f))
+#define ISSET(t, f)	((t) & (f))
+
+struct rtentry;
+
+int	 rt_hash(struct rtentry *, struct sockaddr *, uint32_t *);
 
 #endif /* _KERN_COMPAT_H_ */

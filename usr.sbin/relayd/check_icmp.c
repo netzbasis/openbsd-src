@@ -1,4 +1,4 @@
-/*	$OpenBSD: check_icmp.c,v 1.44 2016/09/02 14:45:51 reyk Exp $	*/
+/*	$OpenBSD: check_icmp.c,v 1.47 2017/07/12 22:57:40 jca Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -53,10 +53,10 @@ icmp_setup(struct relayd *env, struct ctl_icmp_event *cie, int af)
 	if (af == AF_INET6)
 		proto = IPPROTO_ICMPV6;
 	if ((cie->s = socket(af, SOCK_RAW | SOCK_NONBLOCK, proto)) < 0)
-		fatal("icmp_setup: socket");
+		fatal("%s: socket", __func__);
 	val = ICMP_RCVBUF_SIZE;
 	if (setsockopt(cie->s, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)) == -1)
-		fatal("icmp_setup: setsockopt");
+		fatal("%s: setsockopt", __func__);
 	cie->env = env;
 	cie->af = af;
 }
@@ -220,18 +220,46 @@ send_icmp(int s, short event, void *arg)
 				    sizeof(packet));
 			}
 
-			if ((ttl = host->conf.ttl) > 0)
-				(void)setsockopt(s, IPPROTO_IP, IP_TTL,
-				    &host->conf.ttl, sizeof(int));
-			else {
-				/* Revert to default TTL */
-				len = sizeof(ttl);
-				if (getsockopt(s, IPPROTO_IP, IP_IPDEFTTL,
-				    &ttl, &len) == 0)
-					(void)setsockopt(s, IPPROTO_IP, IP_TTL,
-					    &ttl, len);
-				else
-				    log_warn("%s: getsockopt",__func__);
+			ttl = host->conf.ttl;
+			switch(cie->af) {
+			case AF_INET:
+				if (ttl > 0) {
+					if (setsockopt(s, IPPROTO_IP, IP_TTL,
+					    &ttl, sizeof(ttl)) == -1)
+						log_warn("%s: setsockopt",
+						    __func__);
+				} else {
+					/* Revert to default TTL */
+					len = sizeof(ttl);
+					if (getsockopt(s, IPPROTO_IP,
+					    IP_IPDEFTTL, &ttl, &len) == 0) {
+						if (setsockopt(s, IPPROTO_IP,
+						    IP_TTL, &ttl, len) == -1)
+							log_warn(
+							    "%s: setsockopt",
+							    __func__);
+					} else
+						log_warn("%s: getsockopt",
+						    __func__);
+				}
+				break;
+			case AF_INET6:
+				if (ttl > 0) {
+					if (setsockopt(s, IPPROTO_IPV6,
+					    IPV6_UNICAST_HOPS, &ttl,
+					    sizeof(ttl)) == -1)
+						log_warn("%s: setsockopt",
+						    __func__);
+				} else {
+					/* Revert to default hop limit */
+					ttl = -1;
+					if (setsockopt(s, IPPROTO_IPV6,
+					    IPV6_UNICAST_HOPS, &ttl,
+					    sizeof(ttl)) == -1)
+						log_warn("%s: setsockopt",
+						    __func__);
+				}
+				break;
 			}
 
 			r = sendto(s, packet, sizeof(packet), 0, to, slen);

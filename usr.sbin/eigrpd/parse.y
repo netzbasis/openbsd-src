@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.19 2016/09/02 16:44:33 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.22 2017/02/22 14:24:50 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -102,6 +102,7 @@ static int		 symset(const char *, const char *, int);
 static char		*symget(const char *);
 static struct eigrp	*conf_get_instance(uint16_t);
 static struct eigrp_iface *conf_get_if(struct kif *);
+int			 conf_check_rdomain(unsigned int);
 static void		 clear_config(struct eigrpd_conf *xconf);
 static uint32_t	 get_rtr_id(void);
 static int		 get_prefix(const char *, union eigrpd_addr *, uint8_t *);
@@ -988,8 +989,7 @@ parse_config(char *filename)
 	popfile();
 
 	/* Free macros and check which have not been used. */
-	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
-		next = TAILQ_NEXT(sym, entry);
+	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		if ((global.cmd_opts & EIGRPD_OPT_VERBOSE2) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
@@ -1000,6 +1000,9 @@ parse_config(char *filename)
 			free(sym);
 		}
 	}
+
+	/* check that all interfaces belong to the configured rdomain */
+	errors += conf_check_rdomain(conf->rdomain);
 
 	if (errors) {
 		clear_config(conf);
@@ -1017,9 +1020,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -1078,11 +1082,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
@@ -1141,6 +1146,23 @@ conf_get_if(struct kif *kif)
 	e = eigrp_if_new(conf, eigrp, kif);
 
 	return (e);
+}
+
+int
+conf_check_rdomain(unsigned int rdomain)
+{
+	struct iface	*iface;
+	int		 errs = 0;
+
+	TAILQ_FOREACH(iface, &conf->iface_list, entry) {
+		if (iface->rdomain != rdomain) {
+			logit(LOG_CRIT, "interface %s not in rdomain %u",
+			    iface->name, rdomain);
+			errs++;
+		}
+	}
+
+	return (errs);
 }
 
 static void

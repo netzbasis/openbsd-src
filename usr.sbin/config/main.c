@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.50 2015/10/16 13:37:44 millert Exp $	*/
+/*	$OpenBSD: main.c,v 1.59 2017/06/22 15:57:16 deraadt Exp $	*/
 /*	$NetBSD: main.c,v 1.22 1997/02/02 21:12:33 thorpej Exp $	*/
 
 /*
@@ -58,9 +58,6 @@
 int	firstfile(const char *);
 int	yyparse(void);
 
-extern char *optarg;
-extern int optind;
-
 static struct hashtab *mkopttab;
 static struct nvlist **nextopt;
 static struct nvlist **nextdefopt;
@@ -76,11 +73,9 @@ static int hasparent(struct devi *);
 static int cfcrosscheck(struct config *, const char *, struct nvlist *);
 static void optiondelta(void);
 
-int	madedir = 0;
-
 int	verbose;
 
-void
+__dead void
 usage(void)
 {
 	extern char *__progname;
@@ -102,16 +97,15 @@ int
 main(int argc, char *argv[])
 {
 	char *p;
-	const char *last_component;
 	char *outfile = NULL;
 	int ch, eflag, uflag, fflag;
 	char dirbuffer[PATH_MAX];
 
-	if (pledge("stdio rpath wpath cpath flock", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath flock proc exec", NULL) == -1)
 		err(1, "pledge");
 
 	pflag = eflag = uflag = fflag = 0;
-	while ((ch = getopt(argc, argv, "egpfb:s:o:u")) != -1) {
+	while ((ch = getopt(argc, argv, "epfb:s:o:u")) != -1) {
 		switch (ch) {
 
 		case 'o':
@@ -129,18 +123,6 @@ main(int argc, char *argv[])
 			if (!isatty(STDIN_FILENO))
 				verbose = 1;
 			break;
-
-		case 'g':
-			/*
-			 * In addition to DEBUG, you probably wanted to
-			 * set "options KGDB" and maybe others.  We could
-			 * do that for you, but you really should just
-			 * put them in the config file.
-			 */
-			(void)fputs(
-			    "-g is obsolete (use makeoptions DEBUG=\"-g\")\n",
-			    stderr);
-			usage();
 
 		case 'p':
 			/*
@@ -174,7 +156,6 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 	if (argc > 1 || (eflag && argv[0] == NULL))
-
 		usage();
 	if (bflag) {
 		startdir = getcwd(dirbuffer, sizeof dirbuffer);
@@ -186,19 +167,15 @@ main(int argc, char *argv[])
 
 	if (eflag) {
 #ifdef MAKE_BOOTSTRAP
-		fprintf(stderr, "config: UKC not available in this binary\n");
-		exit(1);
+		errx(1, "UKC not available in this binary");
 #else
 		return (ukc(argv[0], outfile, uflag, fflag));
 #endif
 	}
 
 	conffile = (argc == 1) ? argv[0] : "CONFIG";
-	if (firstfile(conffile)) {
-		(void)fprintf(stderr, "config: cannot read %s: %s\n",
-		    conffile, strerror(errno));
-		exit(2);
-	}
+	if (firstfile(conffile))
+		err(2, "cannot read %s", conffile);
 
 	/*
 	 * Init variables.
@@ -226,15 +203,13 @@ main(int argc, char *argv[])
 	last_component = strrchr(conffile, '/');
 	last_component = (last_component) ? last_component + 1 : conffile;
 	if (pflag) {
-		int len = strlen(last_component) + 17;
-		p = emalloc(len);
-		(void)snprintf(p, len, "../compile/%s.PROF", last_component);
+		if (asprintf(&p, "../compile/%s.PROF", last_component) == -1)
+			err(1, NULL);
 		(void)addmkoption(intern("PROF"), "-pg");
 		(void)addoption(intern("GPROF"), NULL);
 	} else {
-		int len = strlen(last_component) + 12;
-		p = emalloc(len);
-		(void)snprintf(p, len, "../compile/%s", last_component);
+		if (asprintf(&p, "../compile/%s", last_component) == -1)
+			err(1, NULL);
 	}
 	defbuilddir = (argc == 0) ? "." : p;
 
@@ -265,8 +240,7 @@ main(int argc, char *argv[])
 			    defmaxusers);
 			maxusers = defmaxusers;
 		} else {
-			(void)fprintf(stderr,
-			    "config: need \"maxusers\" line\n");
+			warnx("need \"maxusers\" line");
 			errors++;
 		}
 	}
@@ -288,7 +262,7 @@ main(int argc, char *argv[])
 	    mkioconf())
 		stop();
 	optiondelta();
-	exit(0);
+	return (0);
 }
 
 static int
@@ -297,11 +271,11 @@ mksymlink(const char *value, const char *path)
 	int ret = 0;
 
 	if (remove(path) && errno != ENOENT) {
-		warn("config: remove(%s)", path);
+		warn("remove(%s)", path);
 		ret = 1;
 	}
 	if (symlink(value, path)) {
-		warn("config: symlink(%s -> %s)", path, value);
+		warn("symlink(%s -> %s)", path, value);
 		ret = 1;
 	}
 	return (ret);
@@ -643,8 +617,7 @@ badstar(void)
 		continue;
 	foundstar:
 		if (ht_lookup(needcnttab, d->d_name)) {
-			(void)fprintf(stderr,
-		    "config: %s's cannot be *'d until its driver is fixed\n",
+			warnx("%s's cannot be *'d until its driver is fixed",
 			    d->d_name);
 			errs++;
 			continue;
@@ -666,6 +639,7 @@ void
 setupdirs(void)
 {
 	struct stat st;
+	FILE *fp;
 
 	/* srcdir must be specified if builddir is not specified or if
 	 * no configuration filename was specified. */
@@ -680,27 +654,37 @@ setupdirs(void)
 		builddir = defbuilddir;
 
 	if (stat(builddir, &st) != 0) {
-		if (mkdir(builddir, 0777)) {
-			(void)fprintf(stderr, "config: cannot create %s: %s\n",
-			    builddir, strerror(errno));
-			exit(2);
-		}
-		madedir = 1;
-	} else if (!S_ISDIR(st.st_mode)) {
-		(void)fprintf(stderr, "config: %s is not a directory\n",
-		    builddir);
-		exit(2);
+		if (mkdir(builddir, 0777))
+			err(2, "cannot create %s", builddir);
+	} else if (!S_ISDIR(st.st_mode))
+		errc(2, ENOTDIR, "%s", builddir);
+	if (chdir(builddir) != 0)
+		errx(2, "cannot change to %s", builddir);
+	if (stat(srcdir, &st) != 0 || !S_ISDIR(st.st_mode))
+		errc(2, ENOTDIR, "%s", srcdir);
+
+	if (bflag) {
+		if (pledge("stdio rpath wpath cpath flock", NULL) == -1)
+			err(1, "pledge");
+		return;
 	}
-	if (chdir(builddir) != 0) {
-		(void)fprintf(stderr, "config: cannot change to %s\n",
-		    builddir);
+
+	if (stat("obj", &st) == 0)
+		goto reconfig;
+
+	fp = fopen("Makefile", "w");
+	if (!fp)
+		errx(2, "cannot create Makefile");
+	if (fprintf(fp, ".include \"../Makefile.inc\"\n") < 0 ||
+	    fclose(fp) == EOF)
+		errx(2, "cannot write Makefile");
+
+reconfig:
+	if (system("make obj") != 0)
 		exit(2);
-	}
-	if (stat(srcdir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-		(void)fprintf(stderr, "config: %s is not a directory\n",
-		    srcdir);
+	if (system("make config") != 0)
 		exit(2);
-	}
+	exit(0);
 }
 
 struct opt {
@@ -762,7 +746,7 @@ optiondelta(void)
 		}
 		fclose(fp);
 		fp = NULL;
-	} else
+	} else if (access("options", F_OK) == 0)
 		ret = 1;
 
 	/* replace with the new list of options */
@@ -778,7 +762,7 @@ optiondelta(void)
 		fclose(fp);
 	}
 	free(newopts);
-	if (ret == 0 || madedir == 1)
+	if (ret == 0)
 		return;
 	(void)printf("Kernel options have changed -- you must run \"make clean\"\n");
 }

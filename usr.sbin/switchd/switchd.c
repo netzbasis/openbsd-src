@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.c,v 1.7 2016/08/08 16:52:15 rzalamena Exp $	*/
+/*	$OpenBSD: switchd.c,v 1.15 2017/01/09 14:49:22 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -19,8 +19,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <sys/un.h>
 #include <sys/queue.h>
-#include <sys/wait.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -46,23 +46,24 @@ int	 parent_dispatch_ofp(int, struct privsep_proc *, struct imsg *);
 int	 parent_dispatch_control(int, struct privsep_proc *, struct imsg *);
 int	 parent_configure(struct switchd *);
 int	 parent_reload(struct switchd *);
-void	 parent_device_connect(struct privsep *, struct switch_device *);
-int	 switch_device_cmp(struct switch_device *, struct switch_device *);
+void	 parent_connect(struct privsep *, struct switch_client *);
+void	 parent_connected(int, short, void *);
+void	 parent_disconnect(struct privsep *, struct switch_client *);
 
 __dead void	usage(void);
 
 static struct privsep_proc procs[] = {
-	{ "ofp",	PROC_OFP, NULL, ofp },
-	{ "control",	PROC_CONTROL, parent_dispatch_control, control },
-	{ "ofcconn",	PROC_OFCCONN, NULL, ofcconn }
+	{ "ofp",	PROC_OFP,	NULL, ofp },
+	{ "control",	PROC_CONTROL,	parent_dispatch_control, control },
+	{ "ofcconn",	PROC_OFCCONN,	NULL, ofcconn }
 };
 
 __dead void
 usage(void)
 {
 	extern const char	*__progname;
-	fprintf(stderr, "usage: %s [-dnv] [-D macro=value] [-f file] "
-	    "[-c mac-cache-size] [-t cache-timeout]\n",
+	fprintf(stderr, "usage: %s [-dnv] [-c cachesize]  [-D macro=value] "
+	    "[-f file] [-t timeout]\n",
 	    __progname);
 	exit(1);
 }
@@ -80,10 +81,13 @@ main(int argc, char *argv[])
 	unsigned int		 cache = SWITCHD_CACHE_MAX;
 	unsigned int		 timeout = SWITCHD_CACHE_TIMEOUT;
 	const char		*conffile = SWITCHD_CONFIG;
+	const char		*errp, *title = NULL;
+	enum privsep_procid	 proc_id = PROC_PARENT;
+	int			 argc0 = argc, proc_instance = 0;
 
 	log_init(1, LOG_DAEMON);
 
-	while ((c = getopt(argc, argv, "c:dD:f:hnt:v")) != -1) {
+	while ((c = getopt(argc, argv, "c:dD:f:hI:nP:t:v")) != -1) {
 		switch (c) {
 		case 'c':
 			cache = strtonum(optarg, 1, UINT32_MAX, &errstr);
@@ -103,8 +107,20 @@ main(int argc, char *argv[])
 		case 'f':
 			conffile = optarg;
 			break;
+		case 'I':
+			proc_instance = strtonum(optarg, 0,
+			    PROC_MAX_INSTANCES, &errp);
+			if (errp)
+				fatalx("invalid process instance");
+			break;
 		case 'n':
 			opts |= SWITCHD_OPT_NOACTION;
+			break;
+		case 'P':
+			title = optarg;
+			proc_id = proc_getid(procs, nitems(procs), title);
+			if (proc_id == PROC_MAX)
+				fatalx("invalid process name");
 			break;
 		case 't':
 			timeout = strtonum(optarg, 0, UINT32_MAX, &errstr);
@@ -138,7 +154,7 @@ main(int argc, char *argv[])
 	ps = &sc->sc_ps;
 	ps->ps_env = sc;
 	TAILQ_INIT(&ps->ps_rcsocks);
-	TAILQ_INIT(&sc->sc_conns);
+	TAILQ_INIT(&sc->sc_clients);
 
 	if (parse_config(sc->sc_conffile, sc) == -1) {
 		proc_kill(&sc->sc_ps);
@@ -158,17 +174,21 @@ main(int argc, char *argv[])
 	if ((ps->ps_pw =  getpwnam(SWITCHD_USER)) == NULL)
 		fatalx("unknown user " SWITCHD_USER);
 
+	log_init(debug, LOG_DAEMON);
+	log_setverbose(verbose);
+
 	/* Configure the control socket */
 	ps->ps_csock.cs_name = SWITCHD_SOCKET;
+	ps->ps_instance = proc_instance;
+	if (title)
+		ps->ps_title[proc_id] = title;
 
-	log_init(debug, LOG_DAEMON);
-	log_verbose(verbose);
+	/* Only the parent returns. */
+	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
 
 	if (!debug && daemon(0, 0) == -1)
 		fatal("failed to daemonize");
 
-	ps->ps_ninstances = 1;
-	proc_init(ps, procs, nitems(procs));
 	log_procinit("parent");
 
 	/*
@@ -180,26 +200,24 @@ main(int argc, char *argv[])
 	 * dns - for resolving host in the configuration files.
 	 * sendfd - send sockets to child processes on reload.
 	 */
-	if (pledge("stdio rpath wpath inet dns proc sendfd", NULL) == -1)
+	if (pledge("stdio rpath wpath inet dns sendfd", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
 
 	signal_set(&ps->ps_evsigint, SIGINT, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, parent_sig_handler, ps);
-	signal_set(&ps->ps_evsigchld, SIGCHLD, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsighup, SIGHUP, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, parent_sig_handler, ps);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
-	signal_add(&ps->ps_evsigchld, NULL);
 	signal_add(&ps->ps_evsighup, NULL);
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
 
-	proc_listen(ps, procs, nitems(procs));
+	proc_connect(ps);
 
 	if (parent_configure(sc) == -1)
 		fatalx("configuration failed");
@@ -273,20 +291,50 @@ switchd_listen(struct sockaddr *sock)
 int
 switchd_tap(void)
 {
-	int	 fd;
-	if ((fd = open("/dev/tap0", O_WRONLY)) == -1)
-		return (-1);
-	return (fd);
+	char	 path[PATH_MAX];
+	int	 i, fd;
+
+	for (i = 0; i < SWITCHD_MAX_TAP; i++) {
+		snprintf(path, PATH_MAX, "/dev/tap%d", i);
+		fd = open(path, O_RDWR | O_NONBLOCK);
+		if (fd != -1)
+			return (fd);
+	}
+
+	return (-1);
 }
 
+struct switch_connection *
+switchd_connbyid(struct switchd *sc, unsigned int id, unsigned int instance)
+{
+	struct switch_connection	*con;
+
+	TAILQ_FOREACH(con, &sc->sc_conns, con_entry) {
+		if (con->con_id == id && con->con_instance == instance)
+			return (con);
+	}
+
+	return (NULL);
+}
+
+struct switch_connection *
+switchd_connbyaddr(struct switchd *sc, struct sockaddr *sa)
+{
+	struct switch_connection	*con;
+
+	TAILQ_FOREACH(con, &sc->sc_conns, con_entry) {
+		if (sockaddr_cmp((struct sockaddr *)
+		    &con->con_peer, sa, -1) == 0)
+			return (con);
+	}
+
+	return (NULL);
+}
 
 void
 parent_sig_handler(int sig, short event, void *arg)
 {
 	struct privsep	*ps = arg;
-	int		 die = 0, status, fail, id;
-	pid_t		 pid;
-	char		*cause;
 
 	switch (sig) {
 	case SIGHUP:
@@ -306,43 +354,7 @@ parent_sig_handler(int sig, short event, void *arg)
 		break;
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		do {
-			pid = waitpid(-1, &status, WNOHANG);
-			if (pid <= 0)
-				continue;
-
-			fail = 0;
-			if (WIFSIGNALED(status)) {
-				fail = 1;
-				asprintf(&cause, "terminated; signal %d",
-				    WTERMSIG(status));
-			} else if (WIFEXITED(status)) {
-				if (WEXITSTATUS(status) != 0) {
-					fail = 1;
-					asprintf(&cause, "exited abnormally");
-				} else
-					asprintf(&cause, "exited okay");
-			} else
-				fatalx("unexpected cause of SIGCHLD");
-
-			die = 1;
-
-			for (id = 0; id < PROC_MAX; id++)
-				if (pid == ps->ps_pid[id]) {
-					if (fail)
-						log_warnx("lost child: %s %s",
-						    ps->ps_title[id], cause);
-					break;
-				}
-
-			free(cause);
-		} while (pid > 0 || (pid == -1 && errno == EINTR));
-
-		if (die)
-			parent_shutdown(ps->ps_env);
+		parent_shutdown(ps->ps_env);
 		break;
 	default:
 		fatalx("unexpected signal");
@@ -352,10 +364,16 @@ parent_sig_handler(int sig, short event, void *arg)
 int
 parent_configure(struct switchd *sc)
 {
-	struct switch_device	*c;
+	struct switch_client	*swc, *swcn;
+	int			 fd;
 
-	TAILQ_FOREACH(c, &sc->sc_conns, sdv_next) {
-		parent_device_connect(&sc->sc_ps, c);
+	if ((fd = switchd_tap()) == -1)
+		fatal("%s: tap", __func__);
+	proc_compose_imsg(&sc->sc_ps, PROC_OFP, -1,
+	    IMSG_TAPFD, -1, fd, NULL, 0);
+
+	TAILQ_FOREACH_SAFE(swc, &sc->sc_clients, swc_next, swcn) {
+		parent_connect(&sc->sc_ps, swc);
 	}
 
 	return (0);
@@ -365,42 +383,39 @@ int
 parent_reload(struct switchd *sc)
 {
 	struct switchd			 newconf;
-	struct switch_device		*sdv, *osdv, *sdvn;
-	enum privsep_procid		 procid;
+	struct switch_client		*swc, *oswc, *swcn;
 
 	memset(&newconf, 0, sizeof(newconf));
+	TAILQ_INIT(&newconf.sc_clients);
 	TAILQ_INIT(&newconf.sc_conns);
 
 	if (parse_config(sc->sc_conffile, &newconf) != -1) {
-		TAILQ_FOREACH_SAFE(sdv, &sc->sc_conns, sdv_next, sdvn) {
-			TAILQ_FOREACH(osdv, &newconf.sc_conns, sdv_next) {
-				if (switch_device_cmp(osdv, sdv) == 0) {
-					TAILQ_REMOVE(&newconf.sc_conns,
-					    osdv, sdv_next);
+		TAILQ_FOREACH_SAFE(swc, &sc->sc_clients, swc_next, swcn) {
+			TAILQ_FOREACH(oswc, &newconf.sc_clients, swc_next) {
+				if (sockaddr_cmp((struct sockaddr *)
+				    &oswc->swc_addr.swa_addr,
+				    (struct sockaddr *)
+				    &swc->swc_addr.swa_addr, -1) == 0) {
+					TAILQ_REMOVE(&newconf.sc_clients,
+					    oswc, swc_next);
 					break;
 				}
 			}
-			if (osdv == NULL) {
+			if (oswc == NULL) {
 				/* Removed */
-				TAILQ_REMOVE(&sc->sc_conns, sdv, sdv_next);
-				procid = (sdv->sdv_swc.swc_type ==
-				    SWITCH_CONN_LOCAL)
-				    ? PROC_OFP : PROC_OFCCONN;
-				proc_compose_imsg(&sc->sc_ps, procid, -1,
-				    IMSG_CTL_DEVICE_DISCONNECT,
-				    -1, -1, sdv, sizeof(*sdv));
+				parent_disconnect(&sc->sc_ps, swc);
 			} else {
 				/* Keep the existing one */
-				TAILQ_REMOVE(&newconf.sc_conns, osdv, sdv_next);
-				free(osdv);
+				TAILQ_REMOVE(&newconf.sc_clients,
+				    oswc, swc_next);
+				free(oswc);
 			}
 		}
-		TAILQ_FOREACH(sdv, &newconf.sc_conns, sdv_next) {
-			procid =
-			    (sdv->sdv_swc.swc_type == SWITCH_CONN_LOCAL)
-			    ? PROC_OFP : PROC_OFCCONN;
-			TAILQ_INSERT_TAIL(&sc->sc_conns, sdv, sdv_next);
-			parent_device_connect(&sc->sc_ps, sdv);
+		TAILQ_FOREACH_SAFE(swc, &newconf.sc_clients, swc_next, swcn) {
+			TAILQ_REMOVE(&newconf.sc_clients, swc, swc_next);
+			TAILQ_INSERT_TAIL(&sc->sc_clients, swc, swc_next);
+
+			parent_connect(&sc->sc_ps, swc);
 		}
 	}
 
@@ -410,26 +425,41 @@ parent_reload(struct switchd *sc)
 int
 parent_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
+	struct switch_client	*swc, *oswc;
+	struct privsep		*ps = p->p_ps;
+	struct switchd		*sc = ps->ps_env;
+
 	switch (imsg->hdr.type) {
-	case IMSG_CTL_DEVICE_CONNECT:
-	case IMSG_CTL_DEVICE_DISCONNECT:
-		if (IMSG_DATA_SIZE(imsg) <
-		    sizeof(struct switch_device)) {
-			log_warnx("%s: IMSG_CTL_DEVICE_CONNECT: "
-			    "message size is wrong", __func__);
+	case IMSG_CTL_CONNECT:
+	case IMSG_CTL_DISCONNECT:
+		IMSG_SIZE_CHECK(imsg, swc);
+
+		/* Need to allocate it in case it is reused */
+		if ((swc = calloc(1, sizeof(*swc))) == NULL) {
+			log_warnx("%s: calloc", __func__);
 			return (0);
 		}
-		if (imsg->hdr.type == IMSG_CTL_DEVICE_CONNECT)
-			parent_device_connect(p->p_ps, imsg->data);
-		else {
-			/*
-			 * Since we don't know which the device was attached
-			 * to, we send the message to the both.
-			 */
-			proc_compose(p->p_ps, PROC_OFP,
-			    imsg->hdr.type, imsg->data, IMSG_DATA_SIZE(imsg));
-			proc_compose(p->p_ps, PROC_OFCCONN,
-			    imsg->hdr.type, imsg->data, IMSG_DATA_SIZE(imsg));
+		memcpy(swc, imsg->data, sizeof(*swc));
+		memset(&swc->swc_ev, 0, sizeof(swc->swc_ev));
+
+		if (imsg->hdr.type == IMSG_CTL_CONNECT) {
+			TAILQ_INSERT_TAIL(&sc->sc_clients, swc, swc_next);
+			parent_connect(p->p_ps, swc);
+		} else {
+			TAILQ_FOREACH(oswc, &sc->sc_clients, swc_next) {
+				if (sockaddr_cmp((struct sockaddr *)
+				    &oswc->swc_addr.swa_addr,
+				    (struct sockaddr *)
+				    &swc->swc_addr.swa_addr, -1) == 0) {
+					parent_disconnect(ps, oswc);
+					break;
+				}
+			}
+			if (oswc == NULL)
+				log_warnx("client %s is not connected",
+				    print_host(&swc->swc_addr.swa_addr,
+				    NULL, 0));
+			free(swc);
 		}
 		return (0);
 	default:
@@ -451,52 +481,131 @@ parent_shutdown(struct switchd *sc)
 }
 
 void
-parent_device_connect(struct privsep *ps, struct switch_device *sdv)
+parent_connect(struct privsep *ps, struct switch_client *swc)
 {
-	int	 fd;
+	struct switchd		*sc = ps->ps_env;
+	struct sockaddr_storage	*ss;
+	struct sockaddr_un	*un;
+	struct sockaddr_in	*sin4;
+	struct sockaddr_in6	*sin6;
+	int			 fd = -1;
+	struct timeval		 tv;
 
-	/* restrict the opening path to /dev/switch* */
-	if (strncmp(sdv->sdv_device, "/dev/switch", 11) != 0) {
-		log_warnx("%s: device path is wrong: %s", __func__,
-		    sdv->sdv_device);
-		goto on_error;
+	ss = &swc->swc_addr.swa_addr;
+
+	if (ss->ss_len == 0) {
+		log_warnx("%s: invalid address", __func__);
+		goto fail;
+	}
+	swc->swc_arg = ps;
+	memset(&swc->swc_ev, 0, sizeof(swc->swc_ev));
+
+	switch (ss->ss_family) {
+	case AF_LOCAL:
+		un = (struct sockaddr_un *)ss;
+
+		/* restrict the opening path to /dev/switch* */
+		if (strncmp(un->sun_path, "/dev/switch",
+		    strlen("/dev/switch")) != 0) {
+			log_warnx("%s: device path is wrong: %s", __func__,
+			    un->sun_path);
+			goto fail;
+		}
+
+		if ((fd = open(un->sun_path, O_RDWR | O_NONBLOCK)) == -1) {
+			log_warn("%s: failed to open %s",
+			    __func__, un->sun_path);
+			goto fail;
+		}
+		break;
+	case AF_INET:
+	case AF_INET6:
+		if (ss->ss_family == AF_INET) {
+			sin4 = (struct sockaddr_in *)ss;
+			if (sin4->sin_port == 0)
+				sin4->sin_port = htons(SWITCHD_CTLR_PORT);
+		} else if (ss->ss_family == AF_INET6) {
+			sin6 = (struct sockaddr_in6 *)ss;
+			if (sin6->sin6_port == 0)
+				sin6->sin6_port = htons(SWITCHD_CTLR_PORT);
+		}
+
+		if ((fd = switchd_socket((struct sockaddr *)ss, 0)) == -1) {
+			log_debug("%s: failed to get socket for %s", __func__,
+			    print_host(ss, NULL, 0));
+			goto fail;
+		}
+
+ retry:
+		if (connect(fd, (struct sockaddr *)ss, ss->ss_len) == -1) {
+			if (errno == EINTR)
+				goto retry;
+			if (errno == EINPROGRESS) {
+				tv.tv_sec = SWITCHD_CONNECT_TIMEOUT;
+				tv.tv_usec = 0;
+				event_set(&swc->swc_ev, fd, EV_WRITE|EV_TIMEOUT,
+				    parent_connected, swc);
+				event_add(&swc->swc_ev, &tv);
+				return;
+			}
+
+			log_warn("%s: failed to connect to %s, fd %d", __func__,
+			    print_host(ss, NULL, 0), fd);
+			goto fail;
+		}
+
+		break;
 	}
 
-	if ((fd = open(sdv->sdv_device, O_RDWR | O_NONBLOCK)) == -1) {
-		log_warn("%s: open(%s) failed", __func__, sdv->sdv_device);
-		goto on_error;
+	parent_connected(fd, 0, swc);
+	return;
+
+ fail:
+	TAILQ_REMOVE(&sc->sc_clients, swc, swc_next);
+	free(swc);
+}
+
+void
+parent_connected(int fd, short event, void *arg)
+{
+	struct switch_client	*swc = arg;
+	struct privsep		*ps = swc->swc_arg;
+	struct switchd		*sc = ps->ps_env;
+
+	if (event & EV_TIMEOUT) {
+		log_debug("%s: failed to connect to %s", __func__,
+		    print_host(&swc->swc_addr.swa_addr, NULL, 0));
+		TAILQ_REMOVE(&sc->sc_clients, swc, swc_next);
+		free(swc);
+		return;
 	}
 
-	switch (sdv->sdv_swc.swc_type) {
+	switch (swc->swc_target.swa_type) {
 	case SWITCH_CONN_LOCAL:
-		proc_compose_imsg(ps, PROC_OFP, -1, IMSG_CTL_DEVICE_CONNECT,
-		    -1, fd, sdv, sizeof(*sdv));
+		proc_compose_imsg(ps, PROC_OFP, -1, IMSG_CTL_CONNECT,
+		    -1, fd, swc, sizeof(*swc));
 		break;
 	case SWITCH_CONN_TLS:
 	case SWITCH_CONN_TCP:
-		proc_compose_imsg(ps, PROC_OFCCONN, -1, IMSG_CTL_DEVICE_CONNECT,
-		    -1, fd, sdv, sizeof(struct switch_device));
+		proc_compose_imsg(ps, PROC_OFCCONN, -1, IMSG_CTL_CONNECT,
+		    -1, fd, swc, sizeof(*swc));
 		break;
 	default:
 		fatalx("not implemented");
 	}
-on_error:
-	return;
 }
 
-int
-switch_device_cmp(struct switch_device *a,
-    struct switch_device *b)
+void
+parent_disconnect(struct privsep *ps, struct switch_client *swc)
 {
-	struct switch_controller	*ca = &a->sdv_swc;
-	struct switch_controller	*cb = &b->sdv_swc;
-	int				 c;
+	struct switchd		*sc = ps->ps_env;
+	enum privsep_procid	 target;
 
-	if ((c = strcmp(a->sdv_device, b->sdv_device)) != 0)
-		return (c);
-	if ((c = cb->swc_type - ca->swc_type) != 0)
-		return (c);
+	TAILQ_REMOVE(&sc->sc_clients, swc, swc_next);
 
-	return (sockaddr_cmp((struct sockaddr *)&ca->swc_addr,
-	    (struct sockaddr *)&cb->swc_addr, -1));
+	target = swc->swc_target.swa_type == SWITCH_CONN_LOCAL ?
+	    PROC_OFP : PROC_OFCCONN;
+	proc_compose(ps, target, IMSG_CTL_DISCONNECT, swc, sizeof(*swc));
+
+	free(swc);
 }

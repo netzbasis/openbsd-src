@@ -26,8 +26,8 @@ our %args = (
     syslogd => {
 	options => ["-S", "127.0.0.1:6514"],
 	loggrep => {
-	    qr/syslogd: tls logger .* accepted/ => 1,
-	    qr/syslogd: tls logger .* connection error/ => 1,
+	    qr/syslogd\[\d+\]: tls logger .* accepted/ => 1,
+	    qr/syslogd\[\d+\]: tls logger .* connection error/ => 1,
 	},
     },
     server => {
@@ -40,9 +40,9 @@ our %args = (
     },
     file => {
 	loggrep => {
-	    qr/syslogd: tls logger .* connection error: /.
-		qr/handshake failed: error:.*/.
-		qr/SSL routines:SSL23_GET_CLIENT_HELLO:unknown protocol/ => 1,
+	    qr/syslogd\[\d+\]: tls logger .* connection error: /.
+		qr/handshake failed: error:.*:SSL routines:/.
+		qr/ACCEPT_SR_CLNT_HELLO:unknown protocol/ => 1,
 	},
     },
     pipe => { nocheck => 1 },

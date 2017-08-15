@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.155 2016/07/11 13:06:31 bluhm Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.172 2017/08/15 06:08:52 florian Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -19,8 +19,8 @@
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE FREEBSD PROJECT ``AS IS'' AND ANY 
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+ * THIS SOFTWARE IS PROVIDED BY THE FREEBSD PROJECT ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE FREEBSD PROJECT OR CONTRIBUTORS BE
  * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
@@ -28,7 +28,7 @@
  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE   
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * From: Version 2.6, Tue May 12 17:10:39 MSD 1998
@@ -58,8 +58,6 @@
 #include <netinet/in.h>
 #include <netinet/in_var.h>
 #include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netinet/if_ether.h>
 
 #ifdef INET6
 #include <netinet6/in6_ifattach.h>
@@ -70,8 +68,8 @@
 # define UNTIMEOUT(fun, arg, handle)	\
 	timeout_del(&(handle))
 
-#define LOOPALIVECNT     		3	/* loopback detection tries */
-#define MAXALIVECNT    			3	/* max. missed alive packets */
+#define LOOPALIVECNT			3	/* loopback detection tries */
+#define MAXALIVECNT			3	/* max. missed alive packets */
 #define	NORECV_TIME			15	/* before we get worried */
 
 /*
@@ -400,7 +398,7 @@ static const struct cp *cps[IDX_COUNT] = {
 };
 
 
-/*
+/*
  * Exported functions, comprising our interface to the lower layer.
  */
 
@@ -417,16 +415,16 @@ void
 sppp_input(struct ifnet *ifp, struct mbuf *m)
 {
 	struct ppp_header ht;
-	struct niqueue *inq = NULL;
 	struct sppp *sp = (struct sppp *)ifp;
 	struct timeval tv;
 	int debug = ifp->if_flags & IFF_DEBUG;
+
+	getmicrouptime(&tv);
 
 	if (ifp->if_flags & IFF_UP) {
 		/* Count received bytes, add hardware framing */
 		ifp->if_ibytes += m->m_pkthdr.len + sp->pp_framebytes;
 		/* Note time of last receive */
-		getmicrouptime(&tv);
 		sp->pp_last_receive = tv.tv_sec;
 	}
 
@@ -438,7 +436,6 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 			    SPP_ARGS(ifp), m->m_pkthdr.len);
 	  drop:
 		m_freem (m);
-	  dropped:
 		++ifp->if_ierrors;
 		++ifp->if_iqdrops;
 		return;
@@ -503,8 +500,11 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 			return;
 		case PPP_IP:
 			if (sp->state[IDX_IPCP] == STATE_OPENED) {
-				inq = &ipintrq;
 				sp->pp_last_activity = tv.tv_sec;
+				if (ifp->if_flags & IFF_UP) {
+					ipv4_input(ifp, m);
+					return;
+				}
 			}
 			break;
 #ifdef INET6
@@ -515,8 +515,11 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 			return;
 		case PPP_IPV6:
 			if (sp->state[IDX_IPV6CP] == STATE_OPENED) {
-				inq = &ip6intrq;
 				sp->pp_last_activity = tv.tv_sec;
+				if (ifp->if_flags & IFF_UP) {
+					ipv6_input(ifp, m);
+					return;
+				}
 			}
 			break;
 #endif
@@ -533,16 +536,7 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 		goto drop;
 	}
 
-	if (! (ifp->if_flags & IFF_UP) || ! inq)
-		goto drop;
-
-	if (niq_enqueue(inq, m) != 0) {
-		/* Queue overflow. */
-		if (debug)
-			log(LOG_DEBUG, SPP_FMT "protocol queue overflow\n",
-				SPP_ARGS(ifp));
-		goto dropped;
-	}
+	goto drop;
 }
 
 /*
@@ -592,6 +586,9 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	if (dst->sa_family == AF_INET) {
 		struct ip *ip = NULL;
 
+		if (m->m_len >= sizeof(struct ip))
+			ip = mtod(m, struct ip *);
+
 		/*
 		 * When using dynamic local IP address assignment by using
 		 * 0.0.0.0 as a local address, the first TCP session will
@@ -603,12 +600,12 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 		 * - we flag TCP packets with src ip 0 as an error
 		 */
 
-		if(ip && ip->ip_src.s_addr == INADDR_ANY) {
+		if (ip && ip->ip_src.s_addr == INADDR_ANY) {
 			u_int8_t proto = ip->ip_p;
 
 			m_freem(m);
 			splx(s);
-			if(proto == IPPROTO_TCP)
+			if (proto == IPPROTO_TCP)
 				return (EADDRNOTAVAIL);
 			else
 				return (0);
@@ -661,7 +658,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 			    SPP_ARGS(ifp));
 		++ifp->if_oerrors;
 		splx(s);
-		return (ENOBUFS);
+		return (rv ? rv : ENOBUFS);
 	}
 	*mtod(m, u_int16_t *) = protocol;
 
@@ -672,6 +669,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	rv = if_enqueue(ifp, m);
 	if (rv != 0) {
 		ifp->if_oerrors++;
+		splx(s);
 		return (rv);
 	}
 
@@ -681,6 +679,7 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	 * according to RFC 1333.
 	 */
 	ifp->if_obytes += sp->pp_framebytes;
+	splx(s);
 
 	return (0);
 }
@@ -693,7 +692,7 @@ sppp_attach(struct ifnet *ifp)
 
 	/* Initialize keepalive handler. */
 	if (! spppq) {
-		timeout_set(&keepalive_ch, sppp_keepalive, NULL);
+		timeout_set_proc(&keepalive_ch, sppp_keepalive, NULL);
 		timeout_add_sec(&keepalive_ch, 10);
 	}
 
@@ -824,7 +823,6 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 	s = splnet();
 	rv = 0;
 	switch (cmd) {
-	case SIOCAIFADDR:
 	case SIOCSIFDSTADDR:
 		break;
 
@@ -891,7 +889,7 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 	return rv;
 }
 
-/*
+/*
  * PPP protocol implementation.
  */
 
@@ -1325,7 +1323,7 @@ sppp_cp_input(const struct cp *cp, struct sppp *sp, struct mbuf *m)
 		if (debug)
 			addlog(SPP_FMT "lcp got echo rep\n",
 			       SPP_ARGS(ifp));
-		    
+
 		nmagic = (u_long)p[0] << 24 |
 		    (u_long)p[1] << 16 | p[2] << 8 | p[3];
 
@@ -1540,7 +1538,7 @@ sppp_to_event(const struct cp *cp, struct sppp *sp)
 		case STATE_STOPPING:
 			sppp_cp_send(sp, cp->proto, TERM_REQ, ++sp->pp_seq,
 				     0, 0);
-  			sppp_increasing_timeout (cp, sp);
+			sppp_increasing_timeout (cp, sp);
 			break;
 		case STATE_REQ_SENT:
 		case STATE_ACK_RCVD:
@@ -1549,7 +1547,7 @@ sppp_to_event(const struct cp *cp, struct sppp *sp)
 			(cp->scr)(sp);
 			break;
 		case STATE_ACK_SENT:
-  			sppp_increasing_timeout (cp, sp);
+			sppp_increasing_timeout (cp, sp);
 			(cp->scr)(sp);
 			break;
 		}
@@ -1591,7 +1589,7 @@ sppp_cp_change_state(const struct cp *cp, struct sppp *sp, int newstate)
 		break;
 	}
 }
-/*
+/*
  *--------------------------------------------------------------------------*
  *                                                                          *
  *                         The LCP implementation.                          *
@@ -2252,7 +2250,7 @@ sppp_lcp_check_and_close(struct sppp *sp)
 
 	lcp.Close(sp);
 }
-/*
+/*
  *--------------------------------------------------------------------------*
  *                                                                          *
  *                        The IPCP implementation.                          *
@@ -2640,7 +2638,7 @@ sppp_ipcp_tls(struct sppp *sp)
 		sp->ipcp.flags |= IPCP_MYADDR_DYN;
 		sp->ipcp.opts |= (1 << IPCP_OPT_ADDRESS);
 	}
-	if (hisaddr == 1) {
+	if (hisaddr >= 1 && hisaddr <= 255) {
 		/*
 		 * XXX - remove this hack!
 		 * remote has no valid address, we need to get one assigned.
@@ -3101,7 +3099,7 @@ sppp_ipv6cp_scr(struct sppp *sp)
 	if (sp->ipv6cp.opts & (1 << IPV6CP_OPT_COMPRESSION)) {
 		opt[i++] = IPV6CP_OPT_COMPRESSION;
 		opt[i++] = 4;
-p		opt[i++] = 0;   /* TBD */
+		opt[i++] = 0;   /* TBD */
 		opt[i++] = 0;   /* TBD */
 		/* variable length data may follow */
 	}
@@ -3658,7 +3656,7 @@ sppp_chap_scr(struct sppp *sp)
 		       sp->myauth.name,
 		       0);
 }
-/*
+/*
  *--------------------------------------------------------------------------*
  *                                                                          *
  *                        The PAP implementation.                           *
@@ -3963,7 +3961,7 @@ sppp_pap_scr(struct sppp *sp)
 		       (size_t)pwdlen, sp->myauth.secret,
 		       0);
 }
-/*
+/*
  * Random miscellaneous functions.
  */
 
@@ -4053,6 +4051,7 @@ sppp_keepalive(void *dummy)
 	int s;
 	struct timeval tv;
 
+	NET_LOCK();
 	s = splnet();
 	getmicrouptime(&tv);
 	for (sp=spppq; sp; sp=sp->pp_next) {
@@ -4104,6 +4103,7 @@ sppp_keepalive(void *dummy)
 		}
 	}
 	splx(s);
+	NET_UNLOCK();
 	timeout_add_sec(&keepalive_ch, 10);
 }
 
@@ -4192,8 +4192,7 @@ sppp_set_ip_addrs(void *arg1)
 	struct ifaddr *ifa;
 	struct sockaddr_in *si;
 	struct sockaddr_in *dest;
-	int s;
-	
+
 	sppp_get_ip_addrs(sp, &myaddr, &hisaddr, NULL);
 	if ((sp->ipcp.flags & IPCP_MYADDR_DYN) &&
 	    (sp->ipcp.flags & IPCP_MYADDR_SEEN))
@@ -4202,8 +4201,8 @@ sppp_set_ip_addrs(void *arg1)
 	    (sp->ipcp.flags & IPCP_HISADDR_SEEN))
 		hisaddr = sp->ipcp.req_hisaddr;
 
-	s = splsoftnet();
 
+	NET_LOCK();
 	/*
 	 * Pick the first AF_INET address from the list,
 	 * aliases don't make any sense on a p2p link anyway.
@@ -4242,12 +4241,12 @@ sppp_set_ip_addrs(void *arg1)
 		if (debug && error) {
 			log(LOG_DEBUG, SPP_FMT "sppp_set_ip_addrs: in_ifinit "
 			" failed, error=%d\n", SPP_ARGS(ifp), error);
-			splx(s);
-			return;
+			goto out;
 		}
 		sppp_update_gw(ifp);
 	}
-	splx(s);
+out:
+	NET_UNLOCK();
 }
 
 /*
@@ -4264,9 +4263,8 @@ sppp_clear_ip_addrs(void *arg1)
 	struct sockaddr_in *si;
 	struct sockaddr_in *dest;
 	u_int32_t remote;
-	int s;
 
-	s = splsoftnet();
+	NET_LOCK();
 
 	if (sp->ipcp.flags & IPCP_HISADDR_DYN)
 		remote = sp->ipcp.saved_hisaddr;
@@ -4303,12 +4301,12 @@ sppp_clear_ip_addrs(void *arg1)
 		if (debug && error) {
 			log(LOG_DEBUG, SPP_FMT "sppp_clear_ip_addrs: in_ifinit "
 			" failed, error=%d\n", SPP_ARGS(ifp), error);
-			splx(s);
-			return;
+			goto out;
 		}
 		sppp_update_gw(ifp);
 	}
-	splx(s);
+out:
+	NET_UNLOCK();
 }
 
 
@@ -4357,20 +4355,18 @@ sppp_update_ip6_addr(void *arg)
 	struct sppp *sp = arg;
 	struct ifnet *ifp = &sp->pp_if;
 	struct in6_aliasreq *ifra = &sp->ipv6cp.req_ifid;
-	struct in6_addr mask = in6mask128;
 	struct in6_ifaddr *ia6;
-	int s, error;
+	int error;
 
-	s = splnet();
+	NET_LOCK();
 
 	ia6 = in6ifa_ifpforlinklocal(ifp, 0);
 	if (ia6 == NULL) {
 		/* IPv6 disabled? */
-		splx(s);
-		return;
+		goto out;
 	}
 
-	/* 
+	/*
 	 * Changing the link-local address requires purging all
 	 * existing addresses and routes for the interface first.
 	 */
@@ -4381,16 +4377,16 @@ sppp_update_ip6_addr(void *arg)
 			log(LOG_ERR, SPP_FMT
 			    "could not update IPv6 address (error %d)\n",
 			    SPP_ARGS(ifp), error);
-		splx(s);
-		return;
+		goto out;
 	}
 
-	/* 
+	/*
 	 * Code below changes address parameters only, not the address itself.
 	 */
 
 	/* Destination address can only be set for /128. */
-	if (!in6_are_prefix_equal(&ia6->ia_prefixmask.sin6_addr, &mask, 128)) {
+	if (memcmp(&ia6->ia_prefixmask.sin6_addr, &in6mask128,
+	    sizeof(in6mask128)) != 0) {
 		ifra->ifra_dstaddr.sin6_len = 0;
 		ifra->ifra_dstaddr.sin6_family = AF_UNSPEC;
 	}
@@ -4403,7 +4399,8 @@ sppp_update_ip6_addr(void *arg)
 		    "could not update IPv6 address (error %d)\n",
 		    SPP_ARGS(ifp), error);
 	}
-	splx(s);
+out:
+	NET_UNLOCK();
 }
 
 /*
@@ -4429,7 +4426,7 @@ sppp_set_ip6_addr(struct sppp *sp, const struct in6_addr *src,
 	} else
 		ifra->ifra_dstaddr.sin6_family = AF_UNSPEC;
 
-	/* 
+	/*
 	 * Don't change the existing prefixlen.
 	 * It is common to use a /64 for IPv6 over point-to-point links
 	 * to allow e.g. neighbour discovery and autoconf to work.
@@ -4535,7 +4532,7 @@ sppp_set_params(struct sppp *sp, struct ifreq *ifr)
 		struct spppreq *spr;
 
 		spr = malloc(sizeof(*spr), M_DEVBUF, M_WAITOK);
-		
+
 		if (copyin((caddr_t)ifr->ifr_data, spr, sizeof(*spr)) != 0) {
 			free(spr, M_DEVBUF, 0);
 			return EFAULT;
@@ -4835,7 +4832,7 @@ void
 sppp_set_phase(struct sppp *sp)
 {
 	STDDCL;
-	int lstate, s;
+	int lstate;
 
 	if (debug)
 		log(LOG_INFO, SPP_FMT "phase %s\n", SPP_ARGS(ifp),
@@ -4849,8 +4846,6 @@ sppp_set_phase(struct sppp *sp)
 
 	if (ifp->if_link_state != lstate) {
 		ifp->if_link_state = lstate;
-		s = splsoftnet();
 		if_link_state_change(ifp);
-		splx(s);
 	}
 }

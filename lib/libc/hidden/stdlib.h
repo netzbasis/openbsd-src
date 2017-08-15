@@ -1,4 +1,4 @@
-/*	$OpenBSD: stdlib.h,v 1.8 2016/08/14 23:18:03 guenther Exp $	*/
+/*	$OpenBSD: stdlib.h,v 1.11 2017/05/20 12:48:56 millert Exp $	*/
 /*	$NetBSD: stdlib.h,v 1.25 1995/12/27 21:19:08 jtc Exp $	*/
 
 /*-
@@ -84,6 +84,7 @@ PROTO_NORMAL(erand48);
 PROTO_NORMAL(exit);
 PROTO_DEPRECATED(fcvt);
 /*PROTO_NORMAL(free);			not yet, breaks emacs */
+PROTO_NORMAL(freezero);
 PROTO_DEPRECATED(gcvt);
 PROTO_DEPRECATED(getbsize);
 PROTO_NORMAL(getenv);
@@ -91,7 +92,7 @@ PROTO_DEPRECATED(getloadavg);
 PROTO_DEPRECATED(getprogname);
 PROTO_DEPRECATED(getsubopt);
 PROTO_DEPRECATED(grantpt);
-PROTO_DEPRECATED(heapsort);
+PROTO_NORMAL(heapsort);
 PROTO_DEPRECATED(initstate);
 PROTO_DEPRECATED(jrand48);
 PROTO_DEPRECATED(l64a);
@@ -128,6 +129,7 @@ PROTO_NORMAL(rand_r);
 PROTO_DEPRECATED(random);
 /*PROTO_NORMAL(realloc);		not yet, breaks emacs */
 PROTO_NORMAL(reallocarray);
+PROTO_NORMAL(recallocarray);
 PROTO_DEPRECATED(realpath);
 PROTO_DEPRECATED(seed48);
 PROTO_NORMAL(seed48_deterministic);

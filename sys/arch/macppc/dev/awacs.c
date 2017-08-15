@@ -1,4 +1,4 @@
-/*	$OpenBSD: awacs.c,v 1.32 2015/09/08 08:29:35 deraadt Exp $	*/
+/*	$OpenBSD: awacs.c,v 1.34 2016/09/19 06:46:43 ratchov Exp $	*/
 /*	$NetBSD: awacs.c,v 1.4 2001/02/26 21:07:51 wiz Exp $	*/
 
 /*-
@@ -95,7 +95,6 @@ int awacs_rx_intr(void *);
 
 int awacs_open(void *, int);
 void awacs_close(void *);
-int awacs_query_encoding(void *, struct audio_encoding *);
 int awacs_set_params(void *, int, int, struct audio_params *,
 			 struct audio_params *);
 int awacs_round_blocksize(void *, int);
@@ -105,12 +104,10 @@ int awacs_trigger_input(void *, void *, void *, int, void (*)(void *),
 			    void *, struct audio_params *);
 int awacs_halt_output(void *);
 int awacs_halt_input(void *);
-int awacs_getdev(void *, struct audio_device *);
 int awacs_set_port(void *, mixer_ctrl_t *);
 int awacs_get_port(void *, mixer_ctrl_t *);
 int awacs_query_devinfo(void *, mixer_devinfo_t *);
 size_t awacs_round_buffersize(void *, int, size_t);
-paddr_t awacs_mappage(void *, void *, off_t, int);
 int awacs_get_props(void *);
 void *awacs_allocm(void *, int, size_t, int, int);
 
@@ -132,8 +129,6 @@ struct cfdriver awacs_cd = {
 struct audio_hw_if awacs_hw_if = {
 	awacs_open,
 	awacs_close,
-	NULL,			/* drain */
-	awacs_query_encoding,
 	awacs_set_params,
 	awacs_round_blocksize,
 	NULL,			/* commit_setting */
@@ -144,7 +139,6 @@ struct audio_hw_if awacs_hw_if = {
 	awacs_halt_output,
 	awacs_halt_input,
 	NULL,			/* speaker_ctl */
-	awacs_getdev,
 	NULL,			/* getfd */
 	awacs_set_port,
 	awacs_get_port,
@@ -152,17 +146,9 @@ struct audio_hw_if awacs_hw_if = {
 	awacs_allocm,		/* allocm */
 	NULL,			/* freem */
 	awacs_round_buffersize,	/* round_buffersize */
-	awacs_mappage,
 	awacs_get_props,
 	awacs_trigger_output,
-	awacs_trigger_input,
-	NULL
-};
-
-struct audio_device awacs_device = {
-	"AWACS",
-	"",
-	"awacs"
+	awacs_trigger_input
 };
 
 /* register offset */
@@ -497,25 +483,6 @@ awacs_close(void *h)
 }
 
 int
-awacs_query_encoding(void *h, struct audio_encoding *ae)
-{
-	switch (ae->index) {
-	case 0:
-		strlcpy(ae->name, AudioEslinear_be, sizeof ae->name);
-		ae->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		ae->precision = 16;
-		ae->flags = 0;
-		break;
-	default:
-		return (EINVAL);
-	}
-	ae->bps = AUDIO_BPS(ae->precision);
-	ae->msb = 1;
-
-	return (0);
-}
-
-int
 awacs_set_params(void *h, int setmode, int usemode, struct audio_params *play,
     struct audio_params *rec)
 {
@@ -596,13 +563,6 @@ awacs_halt_input(void *h)
 	dbdma_stop(sc->sc_idma);
 	dbdma_reset(sc->sc_idma);
 	mtx_leave(&audio_lock);
-	return 0;
-}
-
-int
-awacs_getdev(void *h, struct audio_device *retp)
-{
-	*retp = awacs_device;
 	return 0;
 }
 
@@ -908,14 +868,6 @@ awacs_allocm(void *h, int dir, size_t size, int type, int flags)
 	sc->sc_dmas = p;
 
 	return p->addr;
-}
-
-paddr_t
-awacs_mappage(void *h, void *mem, off_t off, int prot)
-{
-	if (off < 0)
-		return -1;
-	return -1;	/* XXX */
 }
 
 int

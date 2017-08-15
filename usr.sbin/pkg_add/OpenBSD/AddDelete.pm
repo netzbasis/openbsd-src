@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: AddDelete.pm,v 1.74 2016/06/15 15:40:13 espie Exp $
+# $OpenBSD: AddDelete.pm,v 1.78 2017/07/01 12:23:22 espie Exp $
 #
 # Copyright (c) 2007-2010 Marc Espie <espie@openbsd.org>
 #
@@ -103,9 +103,32 @@ sub parse_and_run
 
 	my $state = $self->new_state($cmd);
 	$state->handle_options;
+
+	require POSIX;
+
+
+	my $termios = POSIX::Termios->new;
+	my $lflag;
+
+	if (defined $termios->getattr) {
+		$lflag = $termios->getlflag;
+	}
+
+	if (defined $lflag) {
+		my $NOKERNINFO = 0x02000000; # not defined in POSIX
+		$termios->setlflag($lflag | $NOKERNINFO);
+		$termios->setattr;
+		
+	}
+
 	local $SIG{'INFO'} = sub { $state->status->print($state); };
 
 	$self->framework($state);
+
+	if (defined $lflag) {
+		$termios->setlflag($lflag);
+		$termios->setattr;
+	}
 	return $state->{bad} != 0;
 }
 
@@ -161,15 +184,13 @@ sub handle_options
 {
 	my ($state, $opt_string, @usage) = @_;
 
-	# backward compatibility
-	$state->{opt}{F} = sub {
-		for my $o (split /\,/o, shift) {
-			$state->{subst}->add($o, 1);
-		}
+	$state->{extra_stats} = 0;
+	$state->{opt}{V} = sub {
+		$state->{extra_stats}++;
 	};
 	$state->{no_exports} = 1;
 	$state->add_interactive_options;
-	$state->SUPER::handle_options($opt_string.'aciInqsB:F:', @usage);
+	$state->SUPER::handle_options($opt_string.'aciInqsVB:', @usage);
 
 	if ($state->opt('s')) {
 		$state->{not} = 1;
@@ -187,17 +208,21 @@ sub handle_options
 	    "$state->{localbase}/sbin");
 
 	$state->{size_only} = $state->opt('s');
-	$state->{quick} = $state->opt('q') || $state->config->istrue("nochecksum");
+	$state->{quick} = $state->opt('q');
 	$state->{extra} = $state->opt('c');
 	$state->{automatic} = $state->opt('a') // 0;
 	$ENV{'PKG_DELETE_EXTRA'} = $state->{extra} ? "Yes" : "No";
 	if ($state->{not}) {
 		$state->{loglevel} = 0;
 	}
-	$state->{loglevel} //= $state->config->value("loglevel") // 1;
+	$state->{loglevel} //= 1;
 	if ($state->{loglevel}) {
 		require Sys::Syslog;
 		Sys::Syslog::openlog($state->{cmd}, "nofatal");
+	}
+	$state->{wantntogo} = $state->{extra_stats};
+	if (defined $ENV{PKG_CHECKSUM}) {
+		$state->{subst}->add('checksum', 1);
 	}
 }
 
@@ -210,7 +235,6 @@ sub init
 	$self->{recorder} = OpenBSD::SharedItemsRecorder->new;
 	$self->{v} = 0;
 	$self->SUPER::init(@_);
-	$self->{wantntogo} = $self->config->istrue("ntogo");
 	$self->{export_level}++;
 }
 

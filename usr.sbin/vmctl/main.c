@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.17 2016/05/10 11:00:54 mlarkin Exp $	*/
+/*	$OpenBSD: main.c,v 1.31 2017/07/15 05:05:36 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -50,19 +50,33 @@ int		 vmm_action(struct parse_result *);
 int		 ctl_console(struct parse_result *, int, char *[]);
 int		 ctl_create(struct parse_result *, int, char *[]);
 int		 ctl_load(struct parse_result *, int, char *[]);
+int		 ctl_log(struct parse_result *, int, char *[]);
+int		 ctl_reload(struct parse_result *, int, char *[]);
+int		 ctl_reset(struct parse_result *, int, char *[]);
 int		 ctl_start(struct parse_result *, int, char *[]);
 int		 ctl_status(struct parse_result *, int, char *[]);
 int		 ctl_stop(struct parse_result *, int, char *[]);
+int		 ctl_pause(struct parse_result *, int, char *[]);
+int		 ctl_unpause(struct parse_result *, int, char *[]);
+int		 ctl_send(struct parse_result *, int, char *[]);
+int		 ctl_receive(struct parse_result *, int, char *[]);
 
 struct ctl_command ctl_commands[] = {
 	{ "console",	CMD_CONSOLE,	ctl_console,	"id" },
 	{ "create",	CMD_CREATE,	ctl_create,	"\"path\" -s size", 1 },
-	{ "load",	CMD_LOAD,	ctl_load,	"[path]" },
-	{ "reload",	CMD_RELOAD,	ctl_load,	"[path]" },
+	{ "load",	CMD_LOAD,	ctl_load,	"\"path\"" },
+	{ "log",	CMD_LOG,	ctl_log,	"(verbose|brief)" },
+	{ "reload",	CMD_RELOAD,	ctl_reload,	"" },
+	{ "reset",	CMD_RESET,	ctl_reset,	"[all|vms|switches]" },
 	{ "start",	CMD_START,	ctl_start,	"\"name\""
-	    " [-c] -k kernel -m size [-i count] [-d disk]*" },
+	    " [-Lc] [-b image] [-m size]\n"
+	    "\t\t[-n switch] [-i count] [-d disk]*" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
 	{ "stop",	CMD_STOP,	ctl_stop,	"id" },
+	{ "pause",	CMD_PAUSE,	ctl_pause,	"id" },
+	{ "unpause",	CMD_UNPAUSE,	ctl_unpause,	"id" },
+	{ "send",	CMD_SEND,	ctl_send,	"id",	1},
+	{ "receive",	CMD_RECEIVE,	ctl_receive,	"id" ,	1},
 	{ NULL }
 };
 
@@ -145,7 +159,7 @@ parse(int argc, char *argv[])
 
 	if (!ctl->has_pledge) {
 		/* pledge(2) default if command doesn't have its own pledge */
-		if (pledge("stdio rpath exec unix", NULL) == -1)
+		if (pledge("stdio rpath exec unix getpw", NULL) == -1)
 			err(1, "pledge");
 	}
 	if (ctl->main(&res, argc, argv) != 0)
@@ -188,8 +202,8 @@ vmmaction(struct parse_result *res)
 
 	switch (res->action) {
 	case CMD_START:
-		ret = start_vm(res->name, res->size, res->nifs,
-		    res->ndisks, res->disks, res->path);
+		ret = vm_start(res->id, res->name, res->size, res->nifs,
+		    res->nets, res->ndisks, res->disks, res->path);
 		if (ret) {
 			errno = ret;
 			err(1, "start VM operation failed");
@@ -204,15 +218,33 @@ vmmaction(struct parse_result *res)
 	case CMD_CONSOLE:
 		get_info_vm(res->id, res->name, 1);
 		break;
-	case CMD_RELOAD:
-		imsg_compose(ibuf, IMSG_VMDOP_RELOAD, 0, 0, -1,
-		    res->path, res->path == NULL ? 0 : strlen(res->path) + 1);
-		done = 1;
-		break;
 	case CMD_LOAD:
 		imsg_compose(ibuf, IMSG_VMDOP_LOAD, 0, 0, -1,
-		    res->path, res->path == NULL ? 0 : strlen(res->path) + 1);
+		    res->path, strlen(res->path) + 1);
+		break;
+	case CMD_LOG:
+		imsg_compose(ibuf, IMSG_CTL_VERBOSE, 0, 0, -1,
+		    &res->verbose, sizeof(res->verbose));
+		break;
+	case CMD_RELOAD:
+		imsg_compose(ibuf, IMSG_VMDOP_RELOAD, 0, 0, -1, NULL, 0);
+		break;
+	case CMD_RESET:
+		imsg_compose(ibuf, IMSG_CTL_RESET, 0, 0, -1,
+		    &res->mode, sizeof(res->mode));
+		break;
+	case CMD_PAUSE:
+		pause_vm(res->id, res->name);
+		break;
+	case CMD_UNPAUSE:
+		unpause_vm(res->id, res->name);
+		break;
+	case CMD_SEND:
+		send_vm(res->id, res->name);
 		done = 1;
+		break;
+	case CMD_RECEIVE:
+		vm_receive(res->id, res->name);
 		break;
 	case CMD_CREATE:
 	case NONE:
@@ -239,21 +271,22 @@ vmmaction(struct parse_result *res)
 				break;
 
 			if (imsg.hdr.type == IMSG_CTL_FAIL) {
-				if (IMSG_DATA_SIZE(&imsg) == sizeof(ret)) {
+				if (IMSG_DATA_SIZE(&imsg) == sizeof(ret))
+					memcpy(&ret, imsg.data, sizeof(ret));
+				else
+					ret = 0;
+				if (ret != 0) {
 					memcpy(&ret, imsg.data, sizeof(ret));
 					errno = ret;
-					warn("command failed");
-				} else {
-					warnx("command failed");
-				}
-				done = 1;
-				break;
+					err(1, "command failed");
+				} else
+					errx(1, "command failed");
 			}
 
 			ret = 0;
 			switch (action) {
 			case CMD_START:
-				done = start_vm_complete(&imsg, &ret,
+				done = vm_start_complete(&imsg, &ret,
 				    tty_autoconnect);
 				break;
 			case CMD_STOP:
@@ -262,6 +295,15 @@ vmmaction(struct parse_result *res)
 			case CMD_CONSOLE:
 			case CMD_STATUS:
 				done = add_info(&imsg, &ret);
+				break;
+			case CMD_PAUSE:
+				done = pause_vm_complete(&imsg, &ret);
+				break;
+			case CMD_RECEIVE:
+				done = vm_start_complete(&imsg, &ret, 0);
+				break;
+			case CMD_UNPAUSE:
+				done = unpause_vm_complete(&imsg, &ret);
 				break;
 			default:
 				done = 1;
@@ -301,6 +343,29 @@ parse_ifs(struct parse_result *res, char *word, int val)
 		}
 	}
 	res->nifs = val;
+
+	return (0);
+}
+
+int
+parse_network(struct parse_result *res, char *word)
+{
+	char		**nets;
+	char		*s;
+
+	if ((nets = reallocarray(res->nets, res->nnets + 1,
+	    sizeof(char *))) == NULL) {
+		warn("reallocarray");
+		return (-1);
+	}
+	if ((s = strdup(word)) == NULL) {
+		warn("strdup");
+		return (-1);
+	}
+	nets[res->nnets] = s;
+	res->nets = nets;
+	res->nnets++;
+
 	return (0);
 }
 
@@ -376,6 +441,33 @@ parse_vmid(struct parse_result *res, char *word)
 }
 
 int
+parse_vmname(struct parse_result *res, char *word)
+{
+	const char	*error;
+	uint32_t	 id;
+
+	if (word == NULL) {
+		warnx("missing vmid argument");
+		return (-1);
+	}
+	id = strtonum(word, 0, UINT32_MAX, &error);
+	if (error == NULL) {
+		warnx("invalid vm name");
+		return (-1);
+	} else {
+		if (strlen(word) >= VMM_MAX_NAME_LEN) {
+			warnx("name too long");
+			return (-1);
+		}
+		res->id = 0;
+		if ((res->name = strdup(word)) == NULL)
+			errx(1, "strdup");
+	}
+
+	return (0);
+}
+
+int
 ctl_create(struct parse_result *res, int argc, char *argv[])
 {
 	int		 ch, ret;
@@ -431,16 +523,57 @@ ctl_status(struct parse_result *res, int argc, char *argv[])
 int
 ctl_load(struct parse_result *res, int argc, char *argv[])
 {
-	char	*config_file = NULL;
-
-	if (argc == 2)
-		config_file = argv[1];
-	else if (argc > 2)
+	if (argc != 2)
 		ctl_usage(res->ctl);
 
-	if (config_file != NULL &&
-	    (res->path = strdup(config_file)) == NULL)
+	if ((res->path = strdup(argv[1])) == NULL)
 		err(1, "strdup");
+
+	return (vmmaction(res));
+}
+
+int
+ctl_log(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc != 2)
+		ctl_usage(res->ctl);
+
+	if (strncasecmp("brief", argv[1], strlen(argv[1])) == 0)
+		res->verbose = 0;
+	else if (strncasecmp("verbose", argv[1], strlen(argv[1])) == 0)
+		res->verbose = 2;
+	else
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_reload(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc != 1)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_reset(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (strcasecmp("all", argv[1]) == 0)
+			res->mode = CONFIG_ALL;
+		else if (strcasecmp("vms", argv[1]) == 0)
+			res->mode = CONFIG_VMS;
+		else if (strcasecmp("switches", argv[1]) == 0)
+			res->mode = CONFIG_SWITCHES;
+		else
+			ctl_usage(res->ctl);
+	} else if (argc > 2)
+		ctl_usage(res->ctl);
+
+	if (res->mode == 0)
+		res->mode = CONFIG_ALL;
 
 	return (vmmaction(res));
 }
@@ -448,35 +581,44 @@ ctl_load(struct parse_result *res, int argc, char *argv[])
 int
 ctl_start(struct parse_result *res, int argc, char *argv[])
 {
-	int		 ch;
+	int		 ch, i;
 	char		 path[PATH_MAX];
 
 	if (argc < 2)
 		ctl_usage(res->ctl);
 
-	if ((res->name = strdup(argv[1])) == NULL)
-		errx(1, "strdup");
+	if (parse_vmid(res, argv[1]) == -1)
+		errx(1, "invalid id: %s", argv[1]);
+
 	argc--;
 	argv++;
 
-	while ((ch = getopt(argc, argv, "ck:m:d:i:")) != -1) {
+	while ((ch = getopt(argc, argv, "b:cLm:n:d:i:")) != -1) {
 		switch (ch) {
+		case 'b':
+			if (res->path)
+				errx(1, "boot image specified multiple times");
+			if (realpath(optarg, path) == NULL)
+				err(1, "invalid boot image path");
+			if ((res->path = strdup(path)) == NULL)
+				errx(1, "strdup");
+			break;
 		case 'c':
 			tty_autoconnect = 1;
 			break;
-		case 'k':
-			if (res->path)
-				errx(1, "kernel specified multiple times");
-			if (realpath(optarg, path) == NULL)
-				err(1, "invalid kernel path");
-			if ((res->path = strdup(path)) == NULL)
-				errx(1, "strdup");
+		case 'L':
+			if (parse_network(res, ".") != 0)
+				errx(1, "invalid network: %s", optarg);
 			break;
 		case 'm':
 			if (res->size)
 				errx(1, "memory specified multiple times");
 			if (parse_size(res, optarg, 0) != 0)
 				errx(1, "invalid memory size: %s", optarg);
+			break;
+		case 'n':
+			if (parse_network(res, optarg) != 0)
+				errx(1, "invalid network: %s", optarg);
 			break;
 		case 'd':
 			if (realpath(optarg, path) == NULL)
@@ -495,6 +637,14 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 			/* NOTREACHED */
 		}
 	}
+
+	for (i = res->nnets; i < res->nifs; i++) {
+		/* Add interface that is not attached to a switch */
+		if (parse_network(res, "") == -1)
+			return (-1);
+	}
+	if (res->nnets > res->nifs)
+		res->nifs = res->nnets;
 
 	return (vmmaction(res));
 }
@@ -523,10 +673,62 @@ ctl_console(struct parse_result *res, int argc, char *argv[])
 	return (vmmaction(res));
 }
 
+int
+ctl_pause(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_unpause(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_send(struct parse_result *res, int argc, char *argv[])
+{
+	if (pledge("stdio unix sendfd", NULL) == -1)
+		err(1, "pledge");
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+int
+ctl_receive(struct parse_result *res, int argc, char *argv[])
+{
+	if (pledge("stdio unix sendfd", NULL) == -1)
+		err(1, "pledge");
+	if (argc == 2) {
+		if (parse_vmname(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
 __dead void
 ctl_openconsole(const char *name)
 {
 	closefrom(STDERR_FILENO + 1);
-	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "9600", (char *)NULL);
+	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "115200", (char *)NULL);
 	err(1, "failed to open the console");
 }

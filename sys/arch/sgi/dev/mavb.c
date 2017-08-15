@@ -1,4 +1,4 @@
-/*	$OpenBSD: mavb.c,v 1.18 2015/05/11 06:46:21 ratchov Exp $	*/
+/*	$OpenBSD: mavb.c,v 1.20 2016/09/19 06:46:43 ratchov Exp $	*/
 
 /*
  * Copyright (c) 2005 Mark Kettenis
@@ -160,13 +160,11 @@ struct cfdriver mavb_cd = {
 
 int mavb_open(void *, int);
 void mavb_close(void *);
-int mavb_query_encoding(void *, struct audio_encoding *);
 int mavb_set_params(void *, int, int, struct audio_params *,
 		    struct audio_params *);
 int mavb_round_blocksize(void *hdl, int bs);
 int mavb_halt_output(void *);
 int mavb_halt_input(void *);
-int mavb_getdev(void *, struct audio_device *);
 int mavb_set_port(void *, struct mixer_ctrl *);
 int mavb_get_port(void *, struct mixer_ctrl *);
 int mavb_query_devinfo(void *, struct mixer_devinfo *);
@@ -175,13 +173,10 @@ int mavb_trigger_output(void *, void *, void *, int, void (*)(void *),
 			void *, struct audio_params *);
 int mavb_trigger_input(void *, void *, void *, int, void (*)(void *),
 		       void *, struct audio_params *);
-void mavb_get_default_params(void *, int, struct audio_params *);
 
 struct audio_hw_if mavb_sa_hw_if = {
 	mavb_open,
 	mavb_close,
-	0,
-	mavb_query_encoding,
 	mavb_set_params,
 	mavb_round_blocksize,
 	0,
@@ -192,7 +187,6 @@ struct audio_hw_if mavb_sa_hw_if = {
 	mavb_halt_output,
 	mavb_halt_input,
 	0,
-	mavb_getdev,
 	0,
 	mavb_set_port,
 	mavb_get_port,
@@ -200,17 +194,9 @@ struct audio_hw_if mavb_sa_hw_if = {
 	0,
 	0,
 	0,
-	0,
 	mavb_get_props,
 	mavb_trigger_output,
-	mavb_trigger_input,
-	mavb_get_default_params
-};
-
-struct audio_device mavb_device = {
-	"A3",
-	"",
-	"mavb"
+	mavb_trigger_input
 };
 
 int
@@ -222,36 +208,6 @@ mavb_open(void *hdl, int flags)
 void
 mavb_close(void *hdl)
 {
-}
-
-int
-mavb_query_encoding(void *hdl, struct audio_encoding *ae)
-{
-	switch (ae->index) {
-	case 0:
-		/* 24-bit Signed Linear PCM LSB-aligned.  */
-		strlcpy(ae->name, AudioEslinear_be, sizeof ae->name);
-		ae->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		ae->precision = 24;
-		ae->flags = 0;
-		break;
-	default:
-		return (EINVAL);
-	}
-	ae->bps = AUDIO_BPS(ae->precision);
-	ae->msb = 0;
-	return (0);
-}
-
-void
-mavb_get_default_params(void *hdl, int mode, struct audio_params *p)
-{
-	p->sample_rate = 48000;
-	p->encoding = AUDIO_ENCODING_SLINEAR_BE;
-	p->precision = 24;
-	p->bps = 4;
-	p->msb = 0;
-	p->channels = 2;
 }
 
 static int
@@ -423,13 +379,6 @@ mavb_halt_input(void *hdl)
 	mtx_enter(&audio_lock);
 	bus_space_write_8(sc->sc_st, sc->sc_sh, MAVB_CHANNEL1_CONTROL, 0);
 	mtx_leave(&audio_lock);
-	return (0);
-}
-
-int
-mavb_getdev(void *hdl, struct audio_device *ret)
-{
-	*ret = mavb_device;
 	return (0);
 }
 

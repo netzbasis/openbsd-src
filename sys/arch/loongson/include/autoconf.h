@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.h,v 1.11 2014/03/29 23:59:49 miod Exp $ */
+/*	$OpenBSD: autoconf.h,v 1.17 2017/05/21 13:00:53 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2003 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -36,6 +36,7 @@
 #include <machine/bus.h>
 
 struct bonito_config;
+struct htb_config;
 struct mips_isa_chipset;
 
 /*
@@ -63,6 +64,7 @@ struct platform {
 	char				*product;
 
 	const struct bonito_config	*bonito_config;
+	const struct htb_config		*htb_config;
 	struct mips_isa_chipset		*isa_chipset;
 	const struct legacy_io_range	*legacy_io_ranges;
 
@@ -74,10 +76,31 @@ struct platform {
 	void				(*reset)(void);
 	int				(*suspend)(void);
 	int				(*resume)(void);
+
+#ifdef MULTIPROCESSOR
+	void				(*config_secondary_cpus)(
+					    struct device *, cfprint_t);
+	void				(*boot_secondary_cpu)(
+					    struct cpu_info *);
+	int				(*ipi_establish)(int (*)(void *),
+					    cpuid_t);
+	void				(*ipi_set)(cpuid_t);
+	void				(*ipi_clear)(cpuid_t);
+#endif /* MULTIPROCESSOR */
 };
 
+#define LOONGSON_MAXCPUS	16
+
 extern const struct platform *sys_platform;
+extern void *loongson_videobios;
+extern uint loongson_cpumask;
 extern uint loongson_ver;
+extern int nnodes;
+
+#ifdef MULTIPROCESSOR
+extern uint64_t cpu_spinup_a0;
+extern uint64_t cpu_spinup_sp;
+#endif
 
 struct mainbus_attach_args {
 	const char	*maa_name;
@@ -89,6 +112,12 @@ extern enum devclass bootdev_class;
 
 extern bus_space_tag_t early_mem_t;
 extern bus_space_tag_t early_io_t;
+
+#define	REGVAL8(x)	*((volatile uint8_t *)PHYS_TO_XKPHYS((x), CCA_NC))
+#define	REGVAL32(x)	*((volatile uint32_t *)PHYS_TO_XKPHYS((x), CCA_NC))
+#define	REGVAL64(x)	*((volatile uint64_t *)PHYS_TO_XKPHYS((x), CCA_NC))
+
+#define	REGVAL(x)	REGVAL32(x)
 
 #include <mips64/autoconf.h>
 

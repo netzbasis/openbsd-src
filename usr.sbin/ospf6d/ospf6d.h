@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6d.h,v 1.30 2016/09/02 14:06:35 benno Exp $ */
+/*	$OpenBSD: ospf6d.h,v 1.34 2017/08/12 16:27:50 benno Exp $ */
 
 /*
  * Copyright (c) 2004, 2007 Esben Norby <norby@openbsd.org>
@@ -30,6 +30,7 @@
 
 #include <imsg.h>
 #include "ospf6.h"
+#include "log.h"
 
 #define CONF_FILE		"/etc/ospf6d.conf"
 #define	OSPF6D_SOCKET		"/var/run/ospf6d.sock"
@@ -51,7 +52,6 @@
 
 #define	F_OSPFD_INSERTED	0x0001
 #define	F_KERNEL		0x0002
-#define	F_BGPD_INSERTED		0x0004
 #define	F_CONNECTED		0x0008
 #define	F_DOWN			0x0010
 #define	F_STATIC		0x0020
@@ -101,7 +101,6 @@ enum imsg_type {
 	IMSG_CTL_LOG_VERBOSE,
 	IMSG_KROUTE_CHANGE,
 	IMSG_KROUTE_DELETE,
-	IMSG_KROUTE_GET,
 	IMSG_IFINFO,
 	IMSG_IFADD,
 	IMSG_IFDELETE,
@@ -390,16 +389,13 @@ struct kroute {
 	struct in6_addr	prefix;
 	struct in6_addr	nexthop;
 	u_int32_t	ext_tag;
+	u_int32_t	metric;
 	unsigned int	scope;		/* scope of nexthop */
 	u_int16_t	flags;
 	u_int16_t	rtlabel;
 	u_short		ifindex;
 	u_int8_t	prefixlen;
-};
-
-struct rroute {
-	struct kroute	kr;
-	u_int32_t	metric;
+	u_int8_t	priority;
 };
 
 /* name2id */
@@ -536,7 +532,7 @@ u_int16_t	 iso_cksum(void *, u_int16_t, u_int16_t);
 
 /* kroute.c */
 int		 kr_init(int);
-int		 kr_change(struct kroute *);
+int		 kr_change(struct kroute *, int);
 int		 kr_delete(struct kroute *);
 void		 kr_shutdown(void);
 void		 kr_fib_couple(void);

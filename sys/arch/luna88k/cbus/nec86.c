@@ -1,4 +1,4 @@
-/*	$OpenBSD: nec86.c,v 1.1 2014/12/28 13:03:18 aoyama Exp $	*/
+/*	$OpenBSD: nec86.c,v 1.3 2016/09/19 06:46:43 ratchov Exp $	*/
 /*	$NecBSD: nec86.c,v 1.11 1999/07/23 11:04:39 honda Exp $	*/
 /*	$NetBSD$	*/
 
@@ -63,12 +63,6 @@
 #define NEC_SCR_MASK		0x0f
 #define NEC_SCR_EXT_ENABLE	0x01
 
-struct audio_device nec86_device = {
-	.name		= "PC-9801-86",
-	.version	= "",
-	.config		= "nec86"
-};
-
 /*
  * Define our interface to the higher level audio driver.
  */
@@ -76,8 +70,6 @@ struct audio_device nec86_device = {
 struct audio_hw_if nec86_hw_if = {
 	.open		= nec86hw_open,
 	.close		= nec86hw_close,
-	.drain		= NULL,
-	.query_encoding	= nec86hw_query_encoding,
 	.set_params	= nec86hw_set_params,
 	.round_blocksize	= nec86hw_round_blocksize,
 	.commit_settings	= nec86hw_commit_settings,
@@ -88,7 +80,6 @@ struct audio_hw_if nec86_hw_if = {
 	.halt_output	= nec86hw_halt_pdma,
 	.halt_input	= nec86hw_halt_pdma,
 	.speaker_ctl	= nec86hw_speaker_ctl,
-	.getdev		= nec86getdev,
 	.setfd		= nec86hw_setfd,
 	.set_port	= nec86hw_mixer_set_port,
 	.get_port	= nec86hw_mixer_get_port,
@@ -96,11 +87,9 @@ struct audio_hw_if nec86_hw_if = {
 	.allocm		= NULL,
 	.freem		= NULL,
 	.round_buffersize	= NULL,
-	.mappage	=  NULL,
 	.get_props	= nec86_get_props,
 	.trigger_output	= NULL,
-	.trigger_input	= NULL,
-	.get_default_params	= NULL
+	.trigger_input	= NULL
 };
 
 /*
@@ -251,15 +240,4 @@ nec86_attachsubr(struct nec86_softc *sc)
 		audio_attach_mi(&nec86_hw_if, ysc, &ysc->sc_dev);
 		sc->sc_attached = 1;
 	}
-}
-
-/*
- * Various routines to interface to higher level audio driver.
- */
-int
-nec86getdev(void *addr, struct audio_device *retp)
-{
-	*retp = nec86_device;
-
-	return 0;
 }

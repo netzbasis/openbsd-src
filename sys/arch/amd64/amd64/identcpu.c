@@ -1,4 +1,4 @@
-/*	$OpenBSD: identcpu.c,v 1.74 2016/09/03 12:12:43 mlarkin Exp $	*/
+/*	$OpenBSD: identcpu.c,v 1.87 2017/06/20 05:34:41 mlarkin Exp $	*/
 /*	$NetBSD: identcpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/sysctl.h>
+#include <sys/timetc.h>
 
 #include "vmm.h"
 
@@ -55,6 +56,12 @@ void	cpu_check_vmm_cap(struct cpu_info *);
 /* sysctl wants this. */
 char cpu_model[48];
 int cpuspeed;
+
+u_int tsc_get_timecount(struct timecounter *tc);
+
+struct timecounter tsc_timecounter = {
+	tsc_get_timecount, NULL, ~0u, 0, "tsc", -1000, NULL
+};
 
 int amd64_has_xcrypt;
 #ifdef CRYPTO
@@ -108,6 +115,7 @@ const struct {
 	{ CPUID_MMXX,		"MMXX" },
 	{ CPUID_FFXSR,		"FFXSR" },
 	{ CPUID_PAGE1GB,	"PAGE1GB" },
+	{ CPUID_RDTSCP,		"RDTSCP" },
 	{ CPUID_LONG,		"LONG" },
 	{ CPUID_3DNOW2,		"3DNOW2" },
 	{ CPUID_3DNOW,		"3DNOW" }
@@ -385,6 +393,7 @@ cpu_tsc_freq_ctr(struct cpu_info *ci)
 	u_int64_t count, last_count, msr;
 
 	if ((ci->ci_flags & CPUF_CONST_TSC) == 0 ||
+	    (ci->ci_flags & CPUF_INVAR_TSC) ||
 	    (cpu_perf_eax & CPUIDEAX_VERID) <= 1 ||
 	    CPUIDEDX_NUM_FC(cpu_perf_edx) <= 1)
 		return (0);
@@ -420,6 +429,40 @@ u_int64_t
 cpu_tsc_freq(struct cpu_info *ci)
 {
 	u_int64_t last_count, count;
+	uint32_t eax, ebx, khz, dummy;
+
+	if (!strcmp(cpu_vendor, "GenuineIntel") &&
+	    cpuid_level >= 0x15) {
+		eax = ebx = khz = dummy = 0;
+		CPUID(0x15, eax, ebx, khz, dummy);
+		khz /= 1000;
+		if (khz == 0) {
+			switch (ci->ci_model) {
+			case 0x4e: /* Skylake mobile */
+			case 0x5e: /* Skylake desktop */
+			case 0x8e: /* Kabylake mobile */
+			case 0x9e: /* Kabylake desktop */
+				khz = 24000; /* 24.0 Mhz */
+				break;
+			case 0x55: /* Skylake X */
+				khz = 25000; /* 25.0 Mhz */
+				break;
+			case 0x5c: /* Atom Goldmont */
+				khz = 19200; /* 19.2 Mhz */
+				break;
+			}
+		}
+		if (ebx == 0 || eax == 0)
+			count = 0;
+		else if ((count = khz * ebx / eax) != 0) {
+			/*
+			 * Using the CPUID-derived frequency increases
+			 * the quality of the TSC time counter.
+			 */
+			tsc_timecounter.tc_quality = 2000;
+			return (count * 1000);
+		}
+	}
 
 	count = cpu_tsc_freq_ctr(ci);
 	if (count != 0)
@@ -430,6 +473,12 @@ cpu_tsc_freq(struct cpu_info *ci)
 	count = rdtsc();
 
 	return ((count - last_count) * 10);
+}
+
+u_int
+tsc_get_timecount(struct timecounter *tc)
+{
+	return rdtsc();
 }
 
 void
@@ -513,6 +562,10 @@ identifycpu(struct cpu_info *ci)
 				ci->ci_flags |= CPUF_CONST_TSC;
 			}
 		}
+
+		/* Check if it's an invariant TSC */
+		if (cpu_apmi_edx & CPUIDEDX_ITSC)
+			ci->ci_flags |= CPUF_INVAR_TSC;
 	}
 
 	ci->ci_tsc_freq = cpu_tsc_freq(ci);
@@ -580,8 +633,27 @@ identifycpu(struct cpu_info *ci)
 
 	x86_print_cacheinfo(ci);
 
-#ifndef SMALL_KERNEL
+	/*
+	 * Attempt to disable Silicon Debug and lock the configuration
+	 * if it's enabled and unlocked.
+	 */
+	if (!strcmp(cpu_vendor, "GenuineIntel") &&
+	    (cpu_ecxfeature & CPUIDECX_SDBG)) {
+		uint64_t msr;
+
+		msr = rdmsr(IA32_DEBUG_INTERFACE);
+		if ((msr & IA32_DEBUG_INTERFACE_ENABLE) &&
+		    (msr & IA32_DEBUG_INTERFACE_LOCK) == 0) {
+			msr &= IA32_DEBUG_INTERFACE_MASK;
+			msr |= IA32_DEBUG_INTERFACE_LOCK;
+			wrmsr(IA32_DEBUG_INTERFACE, msr);
+		} else if (msr & IA32_DEBUG_INTERFACE_ENABLE)
+			printf("%s: cannot disable silicon debug\n",
+			    ci->ci_dev->dv_xname);
+	}
+
 	if (ci->ci_flags & CPUF_PRIMARY) {
+#ifndef SMALL_KERNEL
 		if (!strcmp(cpu_vendor, "AuthenticAMD") &&
 		    ci->ci_pnfeatset >= 0x80000007) {
 			CPUID(0x80000007, dummy, dummy, dummy, val);
@@ -596,13 +668,6 @@ identifycpu(struct cpu_info *ci)
 
 		if (cpu_ecxfeature & CPUIDECX_EST)
 			setperf_setup = est_init;
-
-#ifdef CRYPTO
-		if (cpu_ecxfeature & CPUIDECX_PCLMUL)
-			amd64_has_pclmul = 1;
-
-		if (cpu_ecxfeature & CPUIDECX_AES)
-			amd64_has_aesni = 1;
 #endif
 
 		if (cpu_ecxfeature & CPUIDECX_RDRAND)
@@ -614,6 +679,7 @@ identifycpu(struct cpu_info *ci)
 		if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 			replacesmap();
 	}
+#ifndef SMALL_KERNEL
 	if (!strncmp(mycpu_model, "Intel", 5)) {
 		u_int32_t cflushsz;
 
@@ -630,7 +696,16 @@ identifycpu(struct cpu_info *ci)
 		sensor_attach(&ci->ci_sensordev, &ci->ci_sensor);
 		sensordev_install(&ci->ci_sensordev);
 	}
+#endif
 
+#ifdef CRYPTO
+	if (ci->ci_flags & CPUF_PRIMARY) {
+		if (cpu_ecxfeature & CPUIDECX_PCLMUL)
+			amd64_has_pclmul = 1;
+
+		if (cpu_ecxfeature & CPUIDECX_AES)
+			amd64_has_aesni = 1;
+	}
 #endif
 
 	if (!strcmp(cpu_vendor, "AuthenticAMD"))
@@ -646,6 +721,15 @@ identifycpu(struct cpu_info *ci)
 		sensor_attach(&ci->ci_sensordev, &ci->ci_sensor);
 		sensordev_install(&ci->ci_sensordev);
 #endif
+	}
+
+	if ((ci->ci_flags & CPUF_PRIMARY) &&
+	    (ci->ci_flags & CPUF_CONST_TSC) &&
+	    (ci->ci_flags & CPUF_INVAR_TSC)) {
+		printf("%s: TSC frequency %llu Hz\n",
+		    ci->ci_dev->dv_xname, ci->ci_tsc_freq);
+		tsc_timecounter.tc_frequency = ci->ci_tsc_freq;
+		tc_init(&tsc_timecounter);
 	}
 
 	cpu_topology(ci);
@@ -786,7 +870,7 @@ void
 cpu_check_vmm_cap(struct cpu_info *ci)
 {
 	uint64_t msr;
-	uint32_t cap, dummy;
+	uint32_t cap, dummy, edx;
 
 	/*
 	 * Check for workable VMX
@@ -799,11 +883,14 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 		else {
 			if (msr & IA32_FEATURE_CONTROL_VMX_EN)
 				ci->ci_vmm_flags |= CI_VMM_VMX;
+			else
+				ci->ci_vmm_flags |= CI_VMM_DIS;
 		}
 	}
 
 	/*
-	 * Check for EPT (Intel Nested Paging)
+	 * Check for EPT (Intel Nested Paging) and other secondary
+	 * controls
 	 */
 	if (ci->ci_vmm_flags & CI_VMM_VMX) {
 		/* Secondary controls available? */
@@ -814,6 +901,11 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 			/* EPT available? */
 			if (msr & (IA32_VMX_ENABLE_EPT) << 32)
 				ci->ci_vmm_flags |= CI_VMM_EPT;
+			/* VM Functions available? */
+			if (msr & (IA32_VMX_ENABLE_VM_FUNCTIONS) << 32) {
+				ci->ci_vmm_cap.vcc_vmx.vmx_vm_func =
+				    rdmsr(IA32_VMX_VMFUNC);	
+			}
 		}
 	}
 
@@ -842,6 +934,10 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 		msr = rdmsr(IA32_VMX_MISC);
 		ci->ci_vmm_cap.vcc_vmx.vmx_msr_table_size =
 			(uint32_t)(msr & IA32_VMX_MSR_LIST_SIZE_MASK) >> 25;
+
+		/* CR3 target count size */
+		ci->ci_vmm_cap.vcc_vmx.vmx_cr3_tgt_count =
+			(uint32_t)(msr & IA32_VMX_CR3_TGT_SIZE_MASK) >> 16;
 	}
 
 	/*
@@ -852,6 +948,18 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 
 		if (!(msr & AMD_SVMDIS))
 			ci->ci_vmm_flags |= CI_VMM_SVM;
+
+		CPUID(CPUID_AMD_SVM_CAP, dummy,
+		    ci->ci_vmm_cap.vcc_svm.svm_max_asid, dummy, edx);
+
+		if (ci->ci_vmm_cap.vcc_svm.svm_max_asid > 0xFFF)
+			ci->ci_vmm_cap.vcc_svm.svm_max_asid = 0xFFF;
+
+		if (edx & AMD_SVM_FLUSH_BY_ASID_CAP)
+			ci->ci_vmm_cap.vcc_svm.svm_flush_by_asid = 1;
+
+		if (edx & AMD_SVM_VMCB_CLEAN_CAP)
+			ci->ci_vmm_cap.vcc_svm.svm_vmcb_clean = 1;
 	}
 
 	/*

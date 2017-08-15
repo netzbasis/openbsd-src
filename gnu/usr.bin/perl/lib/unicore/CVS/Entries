@@ -1,0 +1,48 @@
+/ArabicShaping.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/BidiBrackets.txt/1.2/Sun Feb  5 00:32:15 2017/-kb/
+/BidiMirroring.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/Blocks.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/CJKRadicals.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/CaseFolding.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/CombiningClass.pl/1.8/Sun Feb  5 00:34:33 2017/-ko/
+/CompositionExclusions.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/DAge.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/DCoreProperties.txt/1.2/Sun Feb  5 00:32:15 2017/-ko/
+/DNormalizationProps.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/Decomposition.pl/1.8/Sun Feb  5 00:34:33 2017/-ko/
+/EastAsianWidth.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/EmojiSources.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/HangulSyllableType.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/Heavy.pl/1.5/Sun Feb  5 00:34:33 2017//
+/Index.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/IndicPositionalCategory.txt/1.1/Sun Feb  5 00:32:16 2017/-ko/
+/IndicSyllabicCategory.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/Jamo.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/LineBreak.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/Makefile/1.1.1.4/Mon Mar 25 20:09:03 2013/-ko/
+/Name.pl/1.8/Sun Feb  5 00:34:33 2017/-ko/
+/Name.pm/1.4/Sun Feb  5 00:34:33 2017//
+/NameAliases.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/NamedSequences.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/NamedSqProv.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/NamesList.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/NormalizationCorrections.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/PropList.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/PropValueAliases.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/PropertyAliases.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/README.perl/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/ReadMe.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/ScriptExtensions.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/Scripts.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/SpecialCasing.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/StandardizedVariants.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/TestProp.pl/1.6/Sun Feb  5 00:34:33 2017//
+/UCD.pl/1.4/Sun Feb  5 00:34:34 2017//
+/UnicodeData.txt/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/mktables/1.2/Sun Feb  5 00:32:16 2017/-ko/
+/mktables.lst/1.8/Sun Feb  5 00:34:34 2017//
+/version/1.2/Sun Feb  5 00:32:16 2017/-ko/
+D/To////
+D/auxiliary////
+D/extracted////
+D/lib////

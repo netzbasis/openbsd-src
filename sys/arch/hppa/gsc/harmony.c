@@ -1,4 +1,4 @@
-/*	$OpenBSD: harmony.c,v 1.31 2015/09/08 07:14:04 deraadt Exp $	*/
+/*	$OpenBSD: harmony.c,v 1.33 2016/09/19 06:46:43 ratchov Exp $	*/
 
 /*
  * Copyright (c) 2003 Jason L. Wright (jason@thought.net)
@@ -56,14 +56,12 @@
 
 int     harmony_open(void *, int);
 void    harmony_close(void *);
-int     harmony_query_encoding(void *, struct audio_encoding *);
 int     harmony_set_params(void *, int, int, struct audio_params *,
     struct audio_params *);
 int     harmony_round_blocksize(void *, int);
 int     harmony_commit_settings(void *);
 int     harmony_halt_output(void *);
 int     harmony_halt_input(void *);
-int     harmony_getdev(void *, struct audio_device *);
 int     harmony_set_port(void *, mixer_ctrl_t *);
 int     harmony_get_port(void *, mixer_ctrl_t *);
 int     harmony_query_devinfo(void *addr, mixer_devinfo_t *);
@@ -79,8 +77,6 @@ int     harmony_trigger_input(void *, void *, void *, int,
 struct audio_hw_if harmony_sa_hw_if = {
 	harmony_open,
 	harmony_close,
-	NULL,
-	harmony_query_encoding,
 	harmony_set_params,
 	harmony_round_blocksize,
 	harmony_commit_settings,
@@ -91,7 +87,6 @@ struct audio_hw_if harmony_sa_hw_if = {
 	harmony_halt_output,
 	harmony_halt_input,
 	NULL,
-	harmony_getdev,
 	NULL,
 	harmony_set_port,
 	harmony_get_port,
@@ -99,11 +94,9 @@ struct audio_hw_if harmony_sa_hw_if = {
 	harmony_allocm,
 	harmony_freem,
 	harmony_round_buffersize,
-	NULL,
 	harmony_get_props,
 	harmony_trigger_output,
-	harmony_trigger_input,
-	NULL
+	harmony_trigger_input
 };
 
 int harmony_match(struct device *, void *, void *);
@@ -257,13 +250,6 @@ harmony_attach(parent, self, aux)
 	if ((rev & CS4215_REV_VER) >= CS4215_REV_VER_E)
 		sc->sc_hasulinear8 = 1;
 
-	strlcpy(sc->sc_audev.name, ga->ga_name, sizeof(sc->sc_audev.name));
-	snprintf(sc->sc_audev.version, sizeof sc->sc_audev.version,
-	    "%u.%u;%u", ga->ga_type.iodc_sv_rev,
-	    ga->ga_type.iodc_model, ga->ga_type.iodc_revision);
-	strlcpy(sc->sc_audev.config, sc->sc_dv.dv_xname,
-	    sizeof(sc->sc_audev.config));
-
 	audio_attach_mi(&harmony_sa_hw_if, sc, &sc->sc_dv);
 
 	timeout_set(&sc->sc_acc_tmo, harmony_acc_tmo, sc);
@@ -399,48 +385,6 @@ harmony_close(void *vsc)
 	harmony_halt_output(sc);
 	harmony_intr_disable(sc);
 	sc->sc_open = 0;
-}
-
-int
-harmony_query_encoding(void *vsc, struct audio_encoding *fp)
-{
-	struct harmony_softc *sc = vsc;
-	int err = 0;
-
-	switch (fp->index) {
-	case 0:
-		strlcpy(fp->name, AudioEmulaw, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 1:
-		strlcpy(fp->name, AudioEalaw, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ALAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 2:
-		strlcpy(fp->name, AudioEslinear_be, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 3:
-		if (sc->sc_hasulinear8) {
-			strlcpy(fp->name, AudioEulinear, sizeof fp->name);
-			fp->encoding = AUDIO_ENCODING_ULINEAR;
-			fp->precision = 8;
-			fp->flags = 0;
-			break;
-		}
-		/*FALLTHROUGH*/
-	default:
-		err = EINVAL;
-	}
-	fp->bps = AUDIO_BPS(fp->precision);
-	fp->msb = 1;
-	return (err);
 }
 
 int
@@ -594,16 +538,6 @@ harmony_halt_input(void *vsc)
 
 	/* XXX: disable interrupts */
 	sc->sc_capturing = 0;
-	return (0);
-}
-
-int
-harmony_getdev(void *vsc, struct audio_device *retp)
-{
-	struct harmony_softc *sc = vsc;
-
-	*retp = sc->sc_audev;
-
 	return (0);
 }
 

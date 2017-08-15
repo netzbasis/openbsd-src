@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp.h,v 1.1 2016/09/01 10:06:33 goda Exp $	*/
+/*	$OpenBSD: ofp.h,v 1.13 2016/12/02 17:10:20 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -84,18 +84,18 @@ struct ofp_header {
 struct ofp_hello_element_header {
 	uint16_t	he_type;
 	uint16_t	he_length;
-};
+} __packed;
 
-#define OPF_HELLO_T_VERSION_BITMAP	1	/* Supported version bitmap */
+#define OFP_HELLO_T_VERSION_BITMAP	1	/* Supported version bitmap */
 
 struct ofp_hello_element_versionbitmap {
 	uint16_t	hev_type;
 	uint16_t	hev_length;
-};
+} __packed;
 
 /* Ports */
 #define OFP_PORT_MAX		0xffffff00	/* Maximum number of physical ports */
-#define	OFP_PORT_INPUT		0xfffffff8 	/* Send back to input port */
+#define	OFP_PORT_INPUT		0xfffffff8	/* Send back to input port */
 #define OFP_PORT_FLOWTABLE	0xfffffff9	/* Perform actions in flow table */
 #define OFP_PORT_NORMAL		0xfffffffa	/* Let switch decide */
 #define OFP_PORT_FLOOD		0xfffffffb	/* All non-block ports except input */
@@ -132,7 +132,7 @@ struct ofp_switch_port {
 	uint32_t	swp_peer;		/* Advertised by peer */
 	uint32_t	swp_cur_speed;		/* Current port speed in Kbps*/
 	uint32_t	swp_max_speed;		/* Support port max speed in Kbps*/
-};
+} __packed;
 
 /* Physical port configuration */
 #define OFP_PORTCONFIG_PORT_DOWN	0x1	/* Port is down */
@@ -175,13 +175,13 @@ struct ofp_switch_features {
 	uint8_t			swf_pad[2];	/* Align to 64 bits */
 	uint32_t		swf_capabilities; /* Capability flags */
 	uint32_t		swf_actions;	/* Supported action flags */
-};
+} __packed;
 
 /* Switch capabilities */
 #define OFP_SWCAP_FLOW_STATS		0x1	/* Flow statistics */
-#define OFP_SWCAP_TABLE_STATS  		0x2	/* Table statistics */
-#define OFP_SWCAP_PORT_STATS   		0x4	/* Port statistics */
-#define OFP_SWCAP_GROUP_STATS 		0x8	/* Group statistics */
+#define OFP_SWCAP_TABLE_STATS		0x2	/* Table statistics */
+#define OFP_SWCAP_PORT_STATS		0x4	/* Port statistics */
+#define OFP_SWCAP_GROUP_STATS		0x8	/* Group statistics */
 #define OFP_SWCAP_IP_REASM		0x20	/* Can reassemble IP frags */
 #define OFP_SWCAP_QUEUE_STATS		0x40	/* Queue statistics */
 #define OFP_SWCAP_ARP_MATCH_IP		0x80	/* Match IP addresses in ARP pkts */
@@ -217,7 +217,7 @@ struct ofp_packet_in {
 struct ofp_instruction {
 	uint16_t	i_type;
 	uint16_t	i_len;
-};
+} __packed;
 
 /* Instruction types */
 #define OFP_INSTRUCTION_T_GOTO_TABLE	1	/* Goto-Table */
@@ -235,7 +235,7 @@ struct ofp_instruction_write_metadata {
 	uint8_t		iwm_pad[4];
 	uint64_t	iwm_metadata;
 	uint64_t	iwm_metadata_mask;
-};
+} __packed;
 
 /* Goto-Table instruction */
 struct ofp_instruction_goto_table {
@@ -243,46 +243,46 @@ struct ofp_instruction_goto_table {
 	uint16_t	igt_len;
 	uint8_t		igt_table_id;
 	uint8_t		igt_pad[3];
-};
+} __packed;
 
 /* Apply-Actions instruction */
 struct ofp_instruction_actions {
 	uint16_t	ia_type;
 	uint16_t	ia_len;
-	uint8_t		pad[4];
-};
+	uint8_t		ia_pad[4];
+} __packed;
 
 /* Meter instruction */
 struct ofp_instruction_meter {
 	uint16_t	im_type;
 	uint16_t	im_len;
 	uint32_t	im_meter_id;
-};
+} __packed;
 
 /* Experimenter instruction */
 struct ofp_instruction_experimenter {
 	uint16_t	ie_type;
 	uint16_t	ie_len;
 	uint32_t	ie_experimenter;
-};
+} __packed;
 
 /* Actions */
 #define OFP_ACTION_OUTPUT		0	/* Output to switch port */
-#define OFP_ACTION_COPY_TTL_OUT		11	/* ? */
-#define OFP_ACTION_COPY_TTL_IN		12	/* ? */
-#define OFP_ACTION_SET_MPLS_TTL		15	/* ? */
-#define OFP_ACTION_DEC_MPLS_TTL		16	/* ? */
-#define OFP_ACTION_PUSH_VLAN		17	/* ? */
-#define OFP_ACTION_POP_VLAN		18	/* ? */
-#define OFP_ACTION_PUSH_MPLS		19	/* ? */
-#define OFP_ACTION_POP_MPLS		20	/* ? */
-#define OFP_ACTION_SET_QUEUE		21	/* ? */
-#define OFP_ACTION_GROUP		22	/* ? */
-#define OFP_ACTION_SET_NW_TTL		23	/* ? */
-#define OFP_ACTION_DEC_NW_TTL		24	/* ? */
-#define OFP_ACTION_SET_FIELD		25	/* ? */
-#define OFP_ACTION_PUSH_PBB		26	/* ? */
-#define OFP_ACTION_POP_PBB		27	/* ? */
+#define OFP_ACTION_COPY_TTL_OUT		11	/* Copy TTL outwards */
+#define OFP_ACTION_COPY_TTL_IN		12	/* Copy TTL inwards */
+#define OFP_ACTION_SET_MPLS_TTL		15	/* MPLS TTL */
+#define OFP_ACTION_DEC_MPLS_TTL		16	/* Decrement MPLS TTL */
+#define OFP_ACTION_PUSH_VLAN		17	/* Push a new VLAN tag */
+#define OFP_ACTION_POP_VLAN		18	/* Pop the outer VLAN tag */
+#define OFP_ACTION_PUSH_MPLS		19	/* Push a new MPLS tag */
+#define OFP_ACTION_POP_MPLS		20	/* Pop the outer MPLS tag */
+#define OFP_ACTION_SET_QUEUE		21	/* Set queue id when outputing to a port */
+#define OFP_ACTION_GROUP		22	/* Apply group */
+#define OFP_ACTION_SET_NW_TTL		23	/* Set IP TTL */
+#define OFP_ACTION_DEC_NW_TTL		24	/* Decrement IP TTL */
+#define OFP_ACTION_SET_FIELD		25	/* Set a header field using OXM TLV format */
+#define OFP_ACTION_PUSH_PBB		26	/* Push a new PBB service tag (I-TAG) */
+#define OFP_ACTION_POP_PBB		27	/* Pop the outer PBB service tag (I-TAG) */
 #define OFP_ACTION_EXPERIMENTER		0xffff	/* Vendor-specific action */
 
 /* Action Header */
@@ -292,9 +292,6 @@ struct ofp_action_header {
 	uint32_t	ah_pad;
 } __packed;
 
-#define OFP_CONTROLLER_MAXLEN_MAX	0xffe5
-#define OFP_CONTROLLER_MAXLEN_NO_BUFFER	0xffff
-
 /* Output Action */
 struct ofp_action_output {
 	uint16_t	ao_type;
@@ -303,6 +300,10 @@ struct ofp_action_output {
 	uint16_t	ao_max_len;
 	uint8_t		ao_pad[6];
 } __packed;
+
+/* Buffer configuration */
+#define OFP_CONTROLLER_MAXLEN_MAX	0xffe5	/* maximum buffer length */
+#define OFP_CONTROLLER_MAXLEN_NO_BUFFER	0xffff	/* don't do any buffering */
 
 struct ofp_action_mpls_ttl {
 	uint16_t	amt_type;
@@ -314,15 +315,15 @@ struct ofp_action_mpls_ttl {
 struct ofp_action_push {
 	uint16_t	ap_type;
 	uint16_t	ap_len;
-	uint16_t 	ap_ethertype;
-	uint8_t		pad[2];
+	uint16_t	ap_ethertype;
+	uint8_t		ap_pad[2];
 } __packed;
 
 struct ofp_action_pop_mpls {
 	uint16_t	apm_type;
 	uint16_t	apm_len;
 	uint16_t	apm_ethertype;
-	uint8_t		pad[2];
+	uint8_t		apm_pad[2];
 } __packed;
 
 struct ofp_action_group {
@@ -344,6 +345,12 @@ struct ofp_action_set_field {
 	uint8_t		asf_field[4];
 } __packed;
 
+struct ofp_action_set_queue {
+	uint16_t	asq_type;
+	uint16_t	asq_len;
+	uint32_t	asq_queue_id;
+} __packed;
+
 /* Packet-Out Message */
 struct ofp_packet_out {
 	struct ofp_header	pout_oh;	/* OpenFlow header */
@@ -355,55 +362,58 @@ struct ofp_packet_out {
 	/* Followed by optional packet data if buffer_id == 0xffffffff */
 } __packed;
 
+/* Special buffer id */
+#define OFP_PKTOUT_NO_BUFFER		0xffffffff	/* No buffer id */
+
 /* Flow match fields for basic class */
-#define OFP_XM_T_IN_PORT		0	/* ? */
-#define OFP_XM_T_IN_PHY_PORT		1	/* ? */
-#define OFP_XM_T_META			2	/* ? */
-#define OFP_XM_T_ETH_DST		3	/* ? */
-#define OFP_XM_T_ETH_SRC		4	/* ? */
-#define OFP_XM_T_ETH_TYPE		5	/* ? */
-#define OFP_XM_T_VLAN_VID		6	/* ? */
-#define OFP_XM_T_VLAN_PCP		7	/* ? */
-#define OFP_XM_T_IP_DSCP		8	/* ? */
-#define OFP_XM_T_IP_ECN			9	/* ? */
-#define OFP_XM_T_IP_PROTO		10	/* ? */
-#define OFP_XM_T_IPV4_SRC		11	/* ? */
-#define OFP_XM_T_IPV4_DST		12	/* ? */
-#define OFP_XM_T_TCP_SRC		13	/* ? */
-#define OFP_XM_T_TCP_DST		14	/* ? */
-#define OFP_XM_T_UDP_SRC		15	/* ? */
-#define OFP_XM_T_UDP_DST		16	/* ? */
-#define OFP_XM_T_SCTP_SRC		17	/* ? */
-#define OFP_XM_T_SCTP_DST		18	/* ? */
-#define OFP_XM_T_ICMPV4_TYPE		19	/* ? */
-#define OFP_XM_T_ICMPV4_CODE		20	/* ? */
-#define OFP_XM_T_ARP_OP			21	/* ? */
-#define OFP_XM_T_ARP_SPA		22	/* ? */
-#define OFP_XM_T_ARP_TPA		23	/* ? */
-#define OFP_XM_T_ARP_SHA		24	/* ? */
-#define OFP_XM_T_ARP_THA		25	/* ? */
-#define OFP_XM_T_IPV6_SRC		26	/* ? */
-#define OFP_XM_T_IPV6_DST		27	/* ? */
-#define OFP_XM_T_IPV6_FLABEL		28	/* ? */
-#define OFP_XM_T_ICMPV6_TYPE		29	/* ? */
-#define OFP_XM_T_ICMPV6_CODE		30	/* ? */
-#define OFP_XM_T_IPV6_ND_TARGET		31	/* ? */
-#define OFP_XM_T_IPV6_ND_SLL		32	/* ? */
-#define OFP_XM_T_IPV6_ND_TLL		33	/* ? */
-#define OFP_XM_T_MPLS_LABEL		34	/* ? */
-#define OFP_XM_T_MPLS_TC		35	/* ? */
-#define OFP_XM_T_MPLS_BOS		36	/* ? */
-#define OFP_XM_T_PBB_ISID		37	/* ? */
-#define OFP_XM_T_TUNNEL_ID		38	/* ? */
-#define OFP_XM_T_IPV6_EXTHDR		39	/* ? */
-#define OFP_XM_T_MAX			40	/* ? */
+#define OFP_XM_T_IN_PORT		0	/* Switch input port */
+#define OFP_XM_T_IN_PHY_PORT		1	/* Switch physical input port */
+#define OFP_XM_T_META			2	/* Metadata passed between tables */
+#define OFP_XM_T_ETH_DST		3	/* Ethernet destination address */
+#define OFP_XM_T_ETH_SRC		4	/* Ethernet source address */
+#define OFP_XM_T_ETH_TYPE		5	/* Ethernet frame type */
+#define OFP_XM_T_VLAN_VID		6	/* VLAN id */
+#define OFP_XM_T_VLAN_PCP		7	/* VLAN priority */
+#define OFP_XM_T_IP_DSCP		8	/* IP DSCP (6 bits in ToS field) */
+#define OFP_XM_T_IP_ECN			9	/* IP ECN (2 bits in ToS field) */
+#define OFP_XM_T_IP_PROTO		10	/* IP protocol */
+#define OFP_XM_T_IPV4_SRC		11	/* IPv4 source address */
+#define OFP_XM_T_IPV4_DST		12	/* IPv4 destination address */
+#define OFP_XM_T_TCP_SRC		13	/* TCP source port */
+#define OFP_XM_T_TCP_DST		14	/* TCP destination port */
+#define OFP_XM_T_UDP_SRC		15	/* UDP source port */
+#define OFP_XM_T_UDP_DST		16	/* UDP destination port */
+#define OFP_XM_T_SCTP_SRC		17	/* SCTP source port */
+#define OFP_XM_T_SCTP_DST		18	/* SCTP destination port */
+#define OFP_XM_T_ICMPV4_TYPE		19	/* ICMP type */
+#define OFP_XM_T_ICMPV4_CODE		20	/* ICMP code */
+#define OFP_XM_T_ARP_OP			21	/* ARP opcode */
+#define OFP_XM_T_ARP_SPA		22	/* ARP source IPv4 address */
+#define OFP_XM_T_ARP_TPA		23	/* ARP target IPv4 address */
+#define OFP_XM_T_ARP_SHA		24	/* ARP source hardware address */
+#define OFP_XM_T_ARP_THA		25	/* ARP target hardware address */
+#define OFP_XM_T_IPV6_SRC		26	/* IPv6 source address */
+#define OFP_XM_T_IPV6_DST		27	/* IPv6 destination address */
+#define OFP_XM_T_IPV6_FLABEL		28	/* IPv6 Flow Label */
+#define OFP_XM_T_ICMPV6_TYPE		29	/* ICMPv6 type */
+#define OFP_XM_T_ICMPV6_CODE		30	/* ICMPv6 code */
+#define OFP_XM_T_IPV6_ND_TARGET		31	/* Target address for ND */
+#define OFP_XM_T_IPV6_ND_SLL		32	/* Source link-layer for ND */
+#define OFP_XM_T_IPV6_ND_TLL		33	/* Target link-layer for ND */
+#define OFP_XM_T_MPLS_LABEL		34	/* MPLS label */
+#define OFP_XM_T_MPLS_TC		35	/* MPLS TC */
+#define OFP_XM_T_MPLS_BOS		36	/* MPLS BoS bit */
+#define OFP_XM_T_PBB_ISID		37	/* PBB I-SID */
+#define OFP_XM_T_TUNNEL_ID		38	/* Logical Port Metadata */
+#define OFP_XM_T_IPV6_EXTHDR		39	/* IPv6 Extension Header pseudo-field */
+#define OFP_XM_T_MAX			40
 
 /* Flow match fields for nxm1 class */
-#define OFP_XM_NXMT_TUNNEL_ID		38	/* ? */
-#define OFP_XM_NXMT_TUNNEL_IPV4_SRC	31	/* ? */
-#define OFP_XM_NXMT_TUNNEL_IPV4_DST	32	/* ? */
-#define OFP_XM_NXMT_TUNNEL_IPV6_SRC	109	/* ? */
-#define OFP_XM_NXMT_TUNNEL_IPV6_DST	110	/* ? */
+#define OFP_XM_NXMT_TUNNEL_ID		38	/* Tunnel Logical Port Metadata */
+#define OFP_XM_NXMT_TUNNEL_IPV4_SRC	31	/* Tunnel IPv4 source address */
+#define OFP_XM_NXMT_TUNNEL_IPV4_DST	32	/* Tunnel IPv4 destination address */
+#define OFP_XM_NXMT_TUNNEL_IPV6_SRC	109	/* Tunnel IPv6 source address */
+#define OFP_XM_NXMT_TUNNEL_IPV6_DST	110	/* Tunnel IPv6 destination address */
 
 /* OXM class */
 #define OFP_OXM_C_NXM_0			0x0000	/* NXM 0 */
@@ -415,11 +425,23 @@ struct ofp_packet_out {
 #define OFP_XM_VID_PRESENT		0x1000	/* VLAN ID present */
 #define OFP_XM_VID_NONE			0x0000	/* No VLAN ID */
 
+/* IPv6 Extension header pseudo-field flags */
+#define OFP_XM_IPV6_EXTHDR_NONEXT	0x0001 /* "No next header" encountered */
+#define OFP_XM_IPV6_EXTHDR_ESP		0x0002 /* Encrypted Sec Payload header present */
+#define OFP_XM_IPV6_EXTHDR_AUTH		0x0004 /* Authentication header present. */
+#define OFP_XM_IPV6_EXTHDR_DEST		0x0008 /* 1 or 2 dest headers present. */
+#define OFP_XM_IPV6_EXTHDR_FRAG		0x0010 /* Fragment header present. */
+#define OFP_XM_IPV6_EXTHDR_ROUTER	0x0020 /* Router header present. */
+#define OFP_XM_IPV6_EXTHDR_HOP		0x0040 /* Hop-by-hop header present. */
+#define OFP_XM_IPV6_EXTHDR_UNREP	0x0080 /* Unexpected repeats encountered. */
+#define OFP_XM_IPV6_EXTHDR_UNSEQ	0x0100 /* Unexpected sequencing encountered. */
+
 struct ofp_ox_match {
 	uint16_t	oxm_class;
 	uint8_t		oxm_fh;
 	uint8_t		oxm_length;
-};
+	uint8_t		oxm_value[0];
+} __packed;
 
 #define OFP_OXM_GET_FIELD(o)	(((o)->oxm_fh) >> 1)
 #define OFP_OXM_GET_HASMASK(o)	(((o)->oxm_fh) & 0x1)
@@ -434,11 +456,11 @@ struct ofp_ox_match {
 #define OFP_FLOWCMD_DELETE_STRICT	4	/* Delete flow w/o wildcard */
 
 /* Flow modification flags */
-#define OFP_FLOWFLAG_SEND_FLOW_REMOVED	0x01	/* Send flow removed message */
-#define OFP_FLOWFLAG_CHECK_OVERLAP	0x02	/* Check flow overlap first */
-#define OFP_FLOWFLAG_RESET_COUNTS	0x04	/* Reset flow packet and byte counters */
-#define OFP_FLOWFLAG_NO_PACKET_COUNTS	0x08	/* Don't keep track of packet count */
-#define OFP_FLOWFLAG_NO_BYTE_COUNTS	0x10	/* Don't keep track of byte count */
+#define OFP_FLOWFLAG_SEND_FLOW_REMOVED	0x0001	/* Send flow removed message */
+#define OFP_FLOWFLAG_CHECK_OVERLAP	0x0002	/* Check flow overlap first */
+#define OFP_FLOWFLAG_RESET_COUNTS	0x0004	/* Reset flow packet and byte counters */
+#define OFP_FLOWFLAG_NO_PACKET_COUNTS	0x0008	/* Don't keep track of packet count */
+#define OFP_FLOWFLAG_NO_BYTE_COUNTS	0x0010	/* Don't keep track of byte count */
 
 /* Flow modification message */
 struct ofp_flow_mod {
@@ -518,7 +540,7 @@ struct ofp_error {
 #define OFP_ERRREQ_EXPERIMENTER		3	/* Experimenter id not supported */
 #define OFP_ERRREQ_EXP_TYPE		4	/* Experimenter type not supported  */
 #define OFP_ERRREQ_EPERM		5	/* Permission error */
-#define OFP_ERRREQ_LEN			6	/* Wrong request length for type */
+#define OFP_ERRREQ_BAD_LEN		6	/* Wrong request length for type */
 #define OFP_ERRREQ_BUFFER_EMPTY		7	/* Specified buffer has already been used */
 #define OFP_ERRREQ_BUFFER_UNKNOWN	8	/* Specified buffer does not exist */
 #define OFP_ERRREQ_TABLE_ID		9	/* Specified table-id invalid or does not exit */
@@ -537,8 +559,8 @@ struct ofp_error {
 #define OFP_ERRACTION_EPERM		6	/* Permission error */
 #define OFP_ERRACTION_TOO_MANY		7	/* Can't handle this many actions */
 #define OFP_ERRACTION_BAD_QUEUE		8	/* Problem validating output queue */
-#define OFP_ERRACTION_BAD_OUT_GROPU	9	/* Invalid group id in forward action */
-#define OFP_ERRACTION_MATCH_INCONSIST	10	/* Action can't apply or Set-Field failed */
+#define OFP_ERRACTION_BAD_OUT_GROUP	9	/* Invalid group id in forward action */
+#define OFP_ERRACTION_MATCH_INCONSISTENT 10	/* Action can't apply or Set-Field failed */
 #define OFP_ERRACTION_UNSUPPORTED_ORDER	11	/* Action order is unsupported for Apply-Actions */
 #define OFP_ERRACTION_TAG		12	/* Actions uses an unsupported tag/encap */
 #define OFP_ERRACTION_SET_TYPE		13	/* Unsupported type in SET_FIELD action */
@@ -572,7 +594,7 @@ struct ofp_error {
 
 /* FLOW MOD error codes */
 #define OFP_ERRFLOWMOD_UNKNOWN		0	/* Unknown */
-#define OFP_ERRFLOWMOD_ALL_TABLES_FULL	1	/* Not added, full tables */
+#define OFP_ERRFLOWMOD_TABLE_FULL	1	/* Table is full */
 #define OFP_ERRFLOWMOD_TABLE_ID		2	/* Invalid table id */
 #define OFP_ERRFLOWMOD_OVERLAP		3	/* Overlapping flow */
 #define OFP_ERRFLOWMOD_EPERM		4	/* Permissions error */
@@ -603,14 +625,15 @@ struct ofp_error {
 #define OFP_GROUPCMD_DELETE		2	/* Delete group */
 
 /* Group types */
-#define OFP_GROUP_T_ALL			0
-#define OFP_GROUP_T_SELECT		1
-#define OFP_GROUP_T_INDIRECT		2
-#define OFP_GROUP_T_FAST_FAILOVER	3
+#define OFP_GROUP_T_ALL			0	/* All (multicast/broadcast) group */
+#define OFP_GROUP_T_SELECT		1	/* Select group */
+#define OFP_GROUP_T_INDIRECT		2	/* Indirect group */
+#define OFP_GROUP_T_FAST_FAILOVER	3	/* Fast failover group */
 
-#define OFP_GROUP_MAX		0xffffff00
-#define OFP_GROUP_ALL		0xfffffffc
-#define OFP_GROUP_ANY		0xffffffff
+/* Special group identifiers */
+#define OFP_GROUP_ID_MAX	0xffffff00	/* Last usable group number */
+#define OFP_GROUP_ID_ALL	0xfffffffc	/* Represents all groups for delete command */
+#define OFP_GROUP_ID_ANY	0xffffffff	/* Special wildcard: no group specified */
 
 struct ofp_bucket {
 	uint16_t		b_len;
@@ -637,25 +660,25 @@ struct ofp_multipart {
 	uint8_t			mp_pad[4];
 } __packed;
 
-#define OFP_MP_FLAG_REQ_MORE		1
-#define OFP_MP_FLAG_REPLY_MORE		1
+#define OFP_MP_FLAG_REQ_MORE		1	/* More requests to follow */
+#define OFP_MP_FLAG_REPLY_MORE		1	/* More replies to follow */
 
 /* Multipart types */
-#define OFP_MP_T_DESC			0
-#define OFP_MP_T_FLOW			1
-#define OFP_MP_T_AGGREGATE		2
-#define OFP_MP_T_TABLE			3
-#define OFP_MP_T_PORT_STATS		4
-#define OFP_MP_T_QUEUE			5
-#define OFP_MP_T_GROUP			6
-#define OFP_MP_T_GROUP_DESC		7
-#define OFP_MP_T_GROUP_FEATURES		8
-#define OFP_MP_T_METER			9
-#define OFP_MP_T_METER_CONFIG		10
-#define OFP_MP_T_METER_FEATURES		11
-#define OFP_MP_T_TABLE_FEATURES		12
-#define OFP_MP_T_PORT_DESC		13
-#define OFP_MP_T_EXPERIMENTER		0xffff
+#define OFP_MP_T_DESC			0	/* Description of the switch */
+#define OFP_MP_T_FLOW			1	/* Individual flow statistics */
+#define OFP_MP_T_AGGREGATE		2	/* Aggregate flow statistics */
+#define OFP_MP_T_TABLE			3	/* Flow table statistics */
+#define OFP_MP_T_PORT_STATS		4	/* Port statistics */
+#define OFP_MP_T_QUEUE			5	/* Queue statistics for a port */
+#define OFP_MP_T_GROUP			6	/* Group counter statistics */
+#define OFP_MP_T_GROUP_DESC		7	/* Group description */
+#define OFP_MP_T_GROUP_FEATURES		8	/* Group features */
+#define OFP_MP_T_METER			9	/* Meter statistics */
+#define OFP_MP_T_METER_CONFIG		10	/* Meter configuration */
+#define OFP_MP_T_METER_FEATURES		11	/* Meter features */
+#define OFP_MP_T_TABLE_FEATURES		12	/* Table features */
+#define OFP_MP_T_PORT_DESC		13	/* Port description */
+#define OFP_MP_T_EXPERIMENTER		0xffff	/* Experimenter extension */
 
 #define OFP_DESC_STR_LEN		256
 #define OFP_SERIAL_NUM_LEN		32
@@ -717,8 +740,9 @@ struct ofp_aggregate_stats {
 	uint8_t		as_pad[4];
 } __packed;
 
-#define OFP_TABLE_ID_MAX				0xfe
-#define OFP_TABLE_ID_ALL				0xff
+/* Special table id */
+#define OFP_TABLE_ID_MAX			0xfe	/* Last usable table */
+#define OFP_TABLE_ID_ALL			0xff	/* Wildcard table */
 
 struct ofp_table_stats {
 	uint8_t		ts_table_id;
@@ -729,22 +753,22 @@ struct ofp_table_stats {
 } __packed;
 
 /* Table features */
-#define OFP_TABLE_FEATPROP_INSTRUCTION		0
-#define OFP_TABLE_FEATPROP_INSTRUCTION_MISS	1
-#define OFP_TABLE_FEATPROP_NEXT_TABLES		2
-#define OFP_TABLE_FEATPROP_NEXT_TABLES_MISS	3
-#define OFP_TABLE_FEATPROP_WRITE_ACTIONS	4
-#define OFP_TABLE_FEATPROP_WRITE_ACTIONS_MISS	5
-#define OFP_TABLE_FEATPROP_APPLY_ACTIONS	6
-#define OFP_TABLE_FEATPROP_APPLY_ACTIONS_MISS	7
-#define OFP_TABLE_FEATPROP_MATCH		8
-#define OFP_TABLE_FEATPROP_WILDCARDS		10
-#define OFP_TABLE_FEATPROP_WRITE_SETFIELD	12
-#define OFP_TABLE_FEATPROP_WRITE_SETFIELD_MISS	13
-#define OFP_TABLE_FEATPROP_APPLY_SETFIELD	14
-#define OFP_TABLE_FEATPROP_APPLY_SETFIELD_MISS	15
-#define OFP_TABLE_FEATPROP_EXPERIMENTER		0xfffe
-#define OFP_TABLE_FEATPROP_EXPERIMENTER_MISS	0xffff
+#define OFP_TABLE_FEATPROP_INSTRUCTION		0	/* Instruction property */
+#define OFP_TABLE_FEATPROP_INSTRUCTION_MISS	1	/* Instruction for table-miss  */
+#define OFP_TABLE_FEATPROP_NEXT_TABLES		2	/* Next table property */
+#define OFP_TABLE_FEATPROP_NEXT_TABLES_MISS	3	/* Next table for table-miss */
+#define OFP_TABLE_FEATPROP_WRITE_ACTIONS	4	/* Write actions property */
+#define OFP_TABLE_FEATPROP_WRITE_ACTIONS_MISS	5	/* Write actions for table-miss */
+#define OFP_TABLE_FEATPROP_APPLY_ACTIONS	6	/* Apply actions property */
+#define OFP_TABLE_FEATPROP_APPLY_ACTIONS_MISS	7	/* Apply actions for table-miss */
+#define OFP_TABLE_FEATPROP_MATCH		8	/* Match property */
+#define OFP_TABLE_FEATPROP_WILDCARDS		10	/* Wildcards property */
+#define OFP_TABLE_FEATPROP_WRITE_SETFIELD	12	/* Write set-field property */
+#define OFP_TABLE_FEATPROP_WRITE_SETFIELD_MISS	13	/* Write set-field for table-miss */
+#define OFP_TABLE_FEATPROP_APPLY_SETFIELD	14	/* Apply set-field property */
+#define OFP_TABLE_FEATPROP_APPLY_SETFIELD_MISS	15	/* Apply set-field for table-miss */
+#define OFP_TABLE_FEATPROP_EXPERIMENTER		0xfffe	/* Experimenter property */
+#define OFP_TABLE_FEATPROP_EXPERIMENTER_MISS	0xffff	/* Experimenter for table-miss */
 
 #define OFP_TABLE_MAX_NAME_LEN			32
 
@@ -849,4 +873,25 @@ struct ofp_group_desc {
 	struct ofp_bucket	gd_buckets[0];
 } __packed;
 
-#endif /* _NET_OPF_H_ */
+/*
+ * Implementation-specific definitions that are not part of the spec
+ */
+
+/* OpenFlow finite state machine */
+enum ofp_state {
+	OFP_STATE_CLOSED,
+	OFP_STATE_HELLO_WAIT,
+	OFP_STATE_FEATURE_WAIT,
+	OFP_STATE_ESTABLISHED
+};
+
+/* Used by the bpf for DLT_OPENFLOW */
+struct dlt_openflow_hdr {
+	uint32_t	of_direction;
+	uint64_t	of_datapath_id;
+} __packed;
+
+#define DLT_OPENFLOW_TO_SWITCH		1
+#define DLT_OPENFLOW_TO_CONTROLLER	2
+
+#endif /* _NET_OFP_H_ */

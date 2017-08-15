@@ -132,6 +132,9 @@ server:
 	# round robin rotation of records in the answer.
 	# round-robin: no
 
+	# minimal-responses only emits extra data for referrals.
+	# minimal-responses: no
+
 	# check mtime of all zone files on start and sighup
 	# zonefiles-check: yes
 	
@@ -204,8 +207,8 @@ remote-control:
 # key:
 	# The key name is sent to the other party, it must be the same
 	#name: "keyname"
-	# algorithm hmac-md5, or hmac-sha1, or hmac-sha256 (if compiled in)
-	#algorithm: hmac-sha256
+	# algorithm hmac-md5, or sha1, sha256, sha224, sha384, sha512
+	#algorithm: sha256
 	# secret material, must be the same as the other party uses.
 	# base64 encoded random number.
 	# e.g. from dd if=/dev/random of=/dev/stdout count=1 bs=32 | base64
@@ -263,6 +266,9 @@ remote-control:
 	#min-refresh-time: 0
 	#max-retry-time: 1209600
 	#min-retry-time: 0
+	# Slave server tries zone transfer to all masters and picks highest
+	# zone version available, for when masters have different versions.
+	#multi-master-check: no
 
 	# limit the zone transfer size (in bytes), stops very large transfers
 	# 0 is no limits enforced.

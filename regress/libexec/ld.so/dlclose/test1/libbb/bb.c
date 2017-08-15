@@ -1,4 +1,4 @@
-/*	$OpenBSD: bb.c,v 1.2 2005/09/30 14:57:35 kurt Exp $	*/
+/*	$OpenBSD: bb.c,v 1.3 2017/08/02 21:04:50 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2005 Kurt Miller <kurt@openbsd.org>
@@ -20,19 +20,10 @@
 #include <dlfcn.h>
 #include <stdio.h>
 
+extern void bbLazyFun();
+extern int duplicateFun();
+
 int bbSymbol;
-
-void
-bbLazyFun()
-{
-
-}
-
-int
-duplicateFun()
-{
-	return (1);
-}
 
 int
 bbTest1()

@@ -1,9 +1,9 @@
-/*	$OpenBSD: ppp_tty.c,v 1.43 2016/01/25 18:47:00 stefan Exp $	*/
+/*	$OpenBSD: ppp_tty.c,v 1.46 2017/01/24 10:08:30 krw Exp $	*/
 /*	$NetBSD: ppp_tty.c,v 1.12 1997/03/24 21:23:10 christos Exp $	*/
 
 /*
  * ppp_tty.c - Point-to-Point Protocol (PPP) driver for asynchronous
- * 	       tty devices.
+ *	       tty devices.
  *
  * Copyright (c) 1984-2000 Carnegie Mellon University. All rights reserved.
  *
@@ -173,8 +173,8 @@ pppopen(dev_t dev, struct tty *tp, struct proc *p)
     if (ppp_pkts.pr_size == 0) {
 	extern struct kmem_pa_mode kp_dma_contig;
 
-	pool_init(&ppp_pkts, sizeof(struct ppp_pkt), 0, 0, 0, "ppppkts", NULL);
-	pool_setipl(&ppp_pkts, IPL_TTY); /* IPL_SOFTTTY */
+	pool_init(&ppp_pkts, sizeof(struct ppp_pkt), 0,
+	  IPL_TTY, 0, "ppppkts", NULL); /* IPL_SOFTTTY */
 	pool_set_constraints(&ppp_pkts, &kp_dma_contig);
     }
     rw_exit_write(&ppp_pkt_init);
@@ -483,7 +483,7 @@ pppfcs(u_int16_t fcs, u_char *cp, int len)
 
 /*
  * This gets called from pppoutput when a new packet is
- * put on a queue, at splsoftnet.
+ * put on a queue.
  */
 void
 pppasyncstart(struct ppp_softc *sc)
@@ -666,7 +666,7 @@ pppasyncstart(struct ppp_softc *sc)
 
 /*
  * This gets called when a received packet is placed on
- * the inq, at splsoftnet.
+ * the inq.
  */
 void
 pppasyncctlp(struct ppp_softc *sc)
@@ -685,7 +685,7 @@ pppasyncctlp(struct ppp_softc *sc)
 /*
  * Start output on async tty interface.  If the transmit queue
  * has drained sufficiently, arrange for pppasyncstart to be
- * called later at splsoftnet.
+ * called later.
  */
 int
 pppstart_internal(struct tty *tp, int force)

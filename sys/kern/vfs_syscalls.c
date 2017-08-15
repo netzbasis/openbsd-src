@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.265 2016/09/10 16:53:30 natano Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.272 2017/04/15 13:56:43 bluhm Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -88,6 +88,7 @@ int domkdirat(struct proc *, int, const char *, mode_t);
 int doutimensat(struct proc *, int, const char *, struct timespec [2], int);
 int dovutimens(struct proc *, struct vnode *, struct timespec [2]);
 int dofutimens(struct proc *, int, struct timespec [2]);
+int dounmount_leaf(struct mount *, int, struct proc *);
 
 /*
  * Virtual File System System Calls
@@ -204,7 +205,22 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
 	mp->mnt_vnodecovered = vp;
 	mp->mnt_stat.f_owner = p->p_ucred->cr_uid;
+
 update:
+	/* Ensure that the parent mountpoint does not get unmounted. */
+	error = vfs_busy(vp->v_mount, VB_READ|VB_NOWAIT);
+	if (error) {
+		if (mp->mnt_flag & MNT_UPDATE) {
+			mp->mnt_flag = mntflag;
+			vfs_unbusy(mp);
+		} else {
+			vfs_unbusy(mp);
+			free(mp, M_MOUNT, sizeof(*mp));
+		}
+		vput(vp);
+		return (error);
+	}
+
 	/*
 	 * Set the mount level flags.
 	 */
@@ -226,6 +242,7 @@ update:
 		mp->mnt_stat.f_ctime = time_second;
 	}
 	if (mp->mnt_flag & MNT_UPDATE) {
+		vfs_unbusy(vp->v_mount);
 		vput(vp);
 		if (mp->mnt_flag & MNT_WANTRDWR)
 			mp->mnt_flag &= ~MNT_RDONLY;
@@ -257,9 +274,10 @@ update:
 		vfsp->vfc_refcount++;
 		TAILQ_INSERT_TAIL(&mountlist, mp, mnt_list);
 		checkdirs(vp);
+		vfs_unbusy(vp->v_mount);
 		VOP_UNLOCK(vp, p);
- 		if ((mp->mnt_flag & MNT_RDONLY) == 0)
- 			error = vfs_allocate_syncvnode(mp);
+		if ((mp->mnt_flag & MNT_RDONLY) == 0)
+			error = vfs_allocate_syncvnode(mp);
 		vfs_unbusy(mp);
 		(void) VFS_STATFS(mp, &mp->mnt_stat, p);
 		if ((error = VFS_START(mp, 0, p)) != 0)
@@ -268,6 +286,7 @@ update:
 		mp->mnt_vnodecovered->v_mountedhere = NULL;
 		vfs_unbusy(mp);
 		free(mp, M_MOUNT, sizeof(*mp));
+		vfs_unbusy(vp->v_mount);
 		vput(vp);
 	}
 	return (error);
@@ -280,22 +299,22 @@ update:
  * track of how many were replaced.  That's the number of references
  * the old vnode had that we've replaced, so finish by vrele()'ing
  * it that many times.  This puts off any possible sleeping until
- * we've finished walking the allproc list.
+ * we've finished walking the allprocess list.
  */
 void
 checkdirs(struct vnode *olddp)
 {
 	struct filedesc *fdp;
 	struct vnode *newdp;
-	struct proc *p;
+	struct process *pr;
 	u_int  free_count = 0;
 
 	if (olddp->v_usecount == 1)
 		return;
 	if (VFS_ROOT(olddp->v_mountedhere, &newdp))
 		panic("mount: lost mount");
-	LIST_FOREACH(p, &allproc, p_list) {
-		fdp = p->p_fd;
+	LIST_FOREACH(pr, &allprocess, ps_list) {
+		fdp = pr->ps_fd;
 		if (fdp->fd_cdir == olddp) {
 			free_count++;
 			vref(newdp);
@@ -365,34 +384,98 @@ sys_unmount(struct proc *p, void *v, register_t *retval)
 	if (vfs_busy(mp, VB_WRITE|VB_WAIT))
 		return (EBUSY);
 
-	return (dounmount(mp, SCARG(uap, flags) & MNT_FORCE, p, vp));
+	return (dounmount(mp, SCARG(uap, flags) & MNT_FORCE, p));
 }
 
 /*
  * Do the actual file system unmount.
  */
 int
-dounmount(struct mount *mp, int flags, struct proc *p, struct vnode *olddp)
+dounmount(struct mount *mp, int flags, struct proc *p)
+{
+	SLIST_HEAD(, mount) mplist;
+	struct mount *nmp;
+	int error;
+
+	SLIST_INIT(&mplist);
+	SLIST_INSERT_HEAD(&mplist, mp, mnt_dounmount);
+
+	/*
+	 * Collect nested mount points. This takes advantage of the mount list
+	 * being ordered - nested mount points come after their parent.
+	 */
+	while ((mp = TAILQ_NEXT(mp, mnt_list)) != NULL) {
+		SLIST_FOREACH(nmp, &mplist, mnt_dounmount) {
+			if (mp->mnt_vnodecovered == NULLVP ||
+			    mp->mnt_vnodecovered->v_mount != nmp)
+				continue;
+
+			if ((flags & MNT_FORCE) == 0) {
+				error = EBUSY;
+				goto err;
+			}
+			error = vfs_busy(mp, VB_WRITE|VB_WAIT);
+			if (error) {
+				if ((flags & MNT_DOOMED)) {
+					/*
+					 * If the mount point was busy due to 
+					 * being unmounted, it has been removed
+					 * from the mount list already.
+					 * Restart the iteration from the last 
+					 * collected busy entry.
+					 */
+					mp = SLIST_FIRST(&mplist);
+					break;
+				}
+				goto err;
+			}
+			SLIST_INSERT_HEAD(&mplist, mp, mnt_dounmount);
+			break;
+		}
+	}
+
+	/* 
+	 * Nested mount points cannot appear during this loop as mounting
+	 * requires a read lock for the parent mount point.
+	 */
+	while ((mp = SLIST_FIRST(&mplist)) != NULL) {
+		SLIST_REMOVE(&mplist, mp, mount, mnt_dounmount);
+		error = dounmount_leaf(mp, flags, p);
+		if (error)
+			goto err;
+	}
+	return (0);
+
+err:
+	while ((mp = SLIST_FIRST(&mplist)) != NULL) {
+		SLIST_REMOVE(&mplist, mp, mount, mnt_dounmount);
+		vfs_unbusy(mp);
+	}
+	return (error);
+}
+
+int
+dounmount_leaf(struct mount *mp, int flags, struct proc *p)
 {
 	struct vnode *coveredvp;
 	int error;
 	int hadsyncer = 0;
 
- 	mp->mnt_flag &=~ MNT_ASYNC;
- 	cache_purgevfs(mp);	/* remove cache entries for this file sys */
- 	if (mp->mnt_syncer != NULL) {
+	mp->mnt_flag &=~ MNT_ASYNC;
+	cache_purgevfs(mp);	/* remove cache entries for this file sys */
+	if (mp->mnt_syncer != NULL) {
 		hadsyncer = 1;
- 		vgone(mp->mnt_syncer);
+		vgone(mp->mnt_syncer);
 		mp->mnt_syncer = NULL;
 	}
 	if (((mp->mnt_flag & MNT_RDONLY) ||
 	    (error = VFS_SYNC(mp, MNT_WAIT, p->p_ucred, p)) == 0) ||
- 	    (flags & MNT_FORCE))
- 		error = VFS_UNMOUNT(mp, flags, p);
+	    (flags & MNT_FORCE))
+		error = VFS_UNMOUNT(mp, flags, p);
 
- 	if (error && !(flags & MNT_DOOMED)) {
- 		if ((mp->mnt_flag & MNT_RDONLY) == 0 && hadsyncer)
- 			(void) vfs_allocate_syncvnode(mp);
+	if (error && !(flags & MNT_DOOMED)) {
+		if ((mp->mnt_flag & MNT_RDONLY) == 0 && hadsyncer)
+			(void) vfs_allocate_syncvnode(mp);
 		vfs_unbusy(mp);
 		return (error);
 	}
@@ -400,8 +483,8 @@ dounmount(struct mount *mp, int flags, struct proc *p, struct vnode *olddp)
 	TAILQ_REMOVE(&mountlist, mp, mnt_list);
 	if ((coveredvp = mp->mnt_vnodecovered) != NULLVP) {
 		coveredvp->v_mountedhere = NULL;
- 		vrele(coveredvp);
- 	}
+		vrele(coveredvp);
+	}
 
 	mp->mnt_vfc->vfc_refcount--;
 
@@ -425,10 +508,10 @@ struct ctldebug debug0 = { "syncprt", &syncprt };
 int
 sys_sync(struct proc *p, void *v, register_t *retval)
 {
-	struct mount *mp, *nmp;
+	struct mount *mp;
 	int asyncflag;
 
-	TAILQ_FOREACH_REVERSE_SAFE(mp, &mountlist, mntlist, mnt_list, nmp) {
+	TAILQ_FOREACH_REVERSE(mp, &mountlist, mntlist, mnt_list) {
 		if (vfs_busy(mp, VB_READ|VB_NOWAIT))
 			continue;
 		if ((mp->mnt_flag & MNT_RDONLY) == 0) {
@@ -570,7 +653,7 @@ sys_getfsstat(struct proc *p, void *v, register_t *retval)
 		syscallarg(size_t) bufsize;
 		syscallarg(int) flags;
 	} */ *uap = v;
-	struct mount *mp, *nmp;
+	struct mount *mp;
 	struct statfs *sp;
 	struct statfs *sfsp;
 	size_t count, maxcount;
@@ -580,7 +663,7 @@ sys_getfsstat(struct proc *p, void *v, register_t *retval)
 	sfsp = SCARG(uap, buf);
 	count = 0;
 
-	TAILQ_FOREACH_SAFE(mp, &mountlist, mnt_list, nmp) {
+	TAILQ_FOREACH(mp, &mountlist, mnt_list) {
 		if (vfs_busy(mp, VB_READ|VB_NOWAIT))
 			continue;
 		if (sfsp && count < maxcount) {
@@ -593,7 +676,7 @@ sys_getfsstat(struct proc *p, void *v, register_t *retval)
 			    flags == 0) &&
 			    (error = VFS_STATFS(mp, sp, p))) {
 				vfs_unbusy(mp);
- 				continue;
+				continue;
 			}
 
 			sp->f_flags = mp->mnt_flag & MNT_VISFLAGMASK;
@@ -802,7 +885,8 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 
 	fdplock(fdp);
 
-	if ((error = falloc(p, &fp, &indx)) != 0)
+	if ((error = falloc(p, (oflags & O_CLOEXEC) ? UF_EXCLOSE : 0, &fp,
+	    &indx)) != 0)
 		goto out;
 	flags = FFLAGS(oflags);
 	if (flags & FREAD)
@@ -811,9 +895,6 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 		ni_pledge |= PLEDGE_WPATH;
 	if (oflags & O_CREAT)
 		ni_pledge |= PLEDGE_CPATH;
-
-	if (flags & O_CLOEXEC)
-		fdp->fd_ofileflags[indx] |= UF_EXCLOSE;
 
 	cmode = ((mode &~ fdp->fd_cmask) & ALLPERMS) &~ S_ISTXT;
 	if ((p->p_p->ps_flags & PS_PLEDGE))
@@ -829,7 +910,7 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 		if (error == ENODEV &&
 		    p->p_dupfd >= 0 &&			/* XXX from fdopen */
 		    (error =
-			dupfdopen(fdp, indx, p->p_dupfd, flags)) == 0) {
+			dupfdopen(p, indx, flags)) == 0) {
 			closef(fp, p);
 			*retval = indx;
 			goto out;
@@ -970,12 +1051,11 @@ sys_fhopen(struct proc *p, void *v, register_t *retval)
 		return (EINVAL);
 
 	fdplock(fdp);
-	if ((error = falloc(p, &fp, &indx)) != 0) {
+	if ((error = falloc(p, (flags & O_CLOEXEC) ? UF_EXCLOSE : 0, &fp,
+	    &indx)) != 0) {
 		fp = NULL;
 		goto bad;
 	}
-	if (flags & O_CLOEXEC)
-		fdp->fd_ofileflags[indx] |= UF_EXCLOSE;
 
 	if ((error = copyin(SCARG(uap, fhp), &fh, sizeof(fhandle_t))) != 0)
 		goto bad;
@@ -2966,4 +3046,3 @@ sys_pwritev(struct proc *p, void *v, register_t *retval)
 	return (dofilewritev(p, fd, fp, SCARG(uap, iovp), SCARG(uap, iovcnt),
 	    1, &offset, retval));
 }
-

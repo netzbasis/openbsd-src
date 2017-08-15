@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.10 2016/04/25 04:46:56 jsg Exp $	*/
+/*	$OpenBSD: locore.S,v 1.13 2017/01/06 00:06:02 jsg Exp $	*/
 /*	$NetBSD: locore.S,v 1.14 2003/04/20 16:21:40 thorpej Exp $	*/
 
 /*
@@ -49,19 +49,18 @@
  */
 
 	.text
-	.align	0
+	.align	2
 
 ENTRY_NP(kernel_text)
 
 ASENTRY_NP(start)
 	mov	r5, r1
 	mov	r6, r2
+	mov	r7, r3
 	adr	r1, .Lstart
 	ldmia	r1, {r1, r2, r8, sp}	/* Set initial stack and */
 
-#ifdef CPU_ARMv7
 	mcr	CP15_TPIDRPRW(r8)	/* put curcpu into the TPIDRPRW */
-#endif
 
 	sub	r2, r2, r1		/* get zero init data */
 	mov	r3, #0
@@ -74,6 +73,7 @@ ASENTRY_NP(start)
 	mov	fp, #0x00000000		/* trace back starts here */
 	mov	r1, r5
 	mov	r2, r6
+	mov	r3, r7
 	bl	_C_LABEL(initarm)	/* Off we go */
 
 	/* init arm will return the new stack pointer. */
@@ -98,14 +98,14 @@ ASENTRY_NP(start)
 
 .Lmainreturned:
 	.asciz	"main() returned"
-	.align	0
+	.align	2
 
 	.bss
 svcstk:
 	.space	INIT_ARM_STACK_SIZE
 
 	.text
-	.align	0
+	.align	2
 
 #ifndef OFW
 	/* OFW based systems will use OF_boot() */

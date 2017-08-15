@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff3.c,v 1.59 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: diff3.c,v 1.62 2016/10/18 21:06:52 millert Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -295,7 +295,8 @@ diff3_internal(int argc, char **argv, const char *fmark, const char *rmark)
 	free(overlap);
 	free(de);
 
-	de = d13 = d23 = overlap = NULL;
+	de = d13 = d23 = NULL;
+	overlap = NULL;
 
 	increase();
 
@@ -542,7 +543,12 @@ merge(size_t m1, size_t m2)
 	d1 = d13;
 	d2 = d23;
 	j = 0;
-	while ((t1 = (d1 < d13 + m1)) | (t2 = (d2 < d23 + m2))) {
+	for (;;) {
+		t1 = (d1 < d13 + m1);
+		t2 = (d2 < d23 + m2);
+		if (!t1 && !t2)
+			break;
+
 		if (debug) {
 			printf("%d,%d=%d,%d %d,%d=%d,%d\n",
 			d1->old.from, d1->old.to,
@@ -785,7 +791,7 @@ edscript(int n)
 	int j, k;
 	char block[BUFSIZ+1];
 
-	for (n = n; n > 0; n--) {
+	for (; n > 0; n--) {
 		if (!oflag || !overlap[n])
 			prange(&de[n].old);
 		else
@@ -793,7 +799,7 @@ edscript(int n)
 		(void)fseek(fp[2], (long)de[n].new.from, SEEK_SET);
 		for (k = de[n].new.to-de[n].new.from; k > 0; k-= j) {
 			j = k > BUFSIZ ? BUFSIZ : k;
-			if (fread(block, 1, j, fp[2]) != j)
+			if (fread(block, 1, j, fp[2]) != (size_t)j)
 				return (-1);
 			block[j] = '\0';
 			diff_output("%s", block);

@@ -1,3 +1,4 @@
+/* $OpenBSD: i8259.c,v 1.14 2017/05/08 09:08:40 reyk Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -22,8 +23,11 @@
 
 #include <machine/vmmvar.h>
 
+#include <unistd.h>
 #include "proc.h"
 #include "i8259.h"
+#include "vmm.h"
+#include "atomicio.h"
 
 struct i8259 {
 	uint8_t irr;
@@ -47,6 +51,28 @@ struct i8259 {
 
 /* Master and slave PICs */
 struct i8259 pics[2];
+
+/*
+ * i8259_pic_name
+ *
+ * Converts a pic ID (MASTER, SLAVE} to a string, suitable for printing in
+ * debug or log messages.
+ *
+ * Parameters:
+ *  picid: PIC ID
+ *
+ * Return value:
+ *  string representation of the PIC ID supplied
+ */
+static const char *
+i8259_pic_name(uint8_t picid)
+{
+	switch (picid) {
+	case MASTER: return "master";
+	case SLAVE: return "slave";
+	default: return "unknown";
+	}
+}
 
 /*
  * i8259_init
@@ -83,7 +109,7 @@ i8259_is_pending(void)
 		pending = 1;
 
 	return pending;
-}	
+}
 
 /*
  * i8259_ack
@@ -103,8 +129,10 @@ i8259_ack(void)
 
 	ret = 0xFFFF;
 
-	if (pics[MASTER].asserted == 0 && pics[SLAVE].asserted == 0)
+	if (pics[MASTER].asserted == 0 && pics[SLAVE].asserted == 0) {
+		log_warnx("%s: i8259 ack without assert?", __func__);
 		return (ret);
+	}
 
 	high_prio_m = pics[MASTER].lowest_pri + 1;
 	if (high_prio_m > 7)
@@ -125,13 +153,7 @@ i8259_ack(void)
 			if (pics[MASTER].irr == 0)
 				pics[MASTER].asserted = 0;
 
-			ret = i;
-
-			/* XXX - intr still needs |= 0xFF00 ?? */
-			if (pics[MASTER].irr || pics[SLAVE].irr)
-				ret |= 0xFF00;
-
-			return ret;
+			return i + pics[MASTER].vec;
 		}
 
 		i++;
@@ -158,10 +180,7 @@ i8259_ack(void)
 					pics[MASTER].asserted = 0;
 			}
 
-			ret = i + 8;
-			/* XXX - intr still needs |= 0xFF00 ?? */
-			if ((pics[MASTER].irr & ~0x4) || (pics[SLAVE].irr))
-				ret |= 0xFF00;
+			ret = i + pics[SLAVE].vec;
 
 			return ret;
 		}
@@ -172,6 +191,7 @@ i8259_ack(void)
 			i = 0;
 	} while (i != high_prio_s);
 
+	log_warnx("%s: ack without pending irq?", __func__);
 	return (0xFFFF);
 }
 
@@ -203,7 +223,7 @@ i8259_assert_irq(uint8_t irq)
 		pics[MASTER].irr |= (1 << 2);
 		pics[MASTER].asserted = 1;
 	}
-}	
+}
 
 /*
  * i8259_deassert_irq
@@ -246,47 +266,49 @@ i8259_write_datareg(uint8_t n, uint8_t data)
 	if (pic->init_mode == 1) {
 		if (pic->cur_icw == 2) {
 			/* Set vector */
+			log_debug("%s: %s pic, reset IRQ vector to 0x%x",
+			    __func__, i8259_pic_name(n), data);
 			pic->vec = data;
 		} else if (pic->cur_icw == 3) {
 			/* Set IRQ interconnects */
 			if (n == SLAVE && (data & 0xf8)) {
-				log_warn("%s: pic %d invalid icw2 0x%x",
-				    __func__, n, data);
+				log_warnx("%s: %s pic invalid icw2 0x%x",
+				    __func__, i8259_pic_name(n), data);
 				return;
 			}
 			pic->irq_conn = data;
 		} else if (pic->cur_icw == 4) {
 			if (!(data & ICW4_UP)) {
-				log_warn("%s: pic %d init error: x86 bit "
-				    "clear", __func__, n);
+				log_warnx("%s: %s pic init error: x86 bit "
+				    "clear", __func__, i8259_pic_name(n));
 				return;
 			}
-	
+
 			if (data & ICW4_AEOI) {
-				log_warn("%s: pic %d: aeoi mode set",
-				    __func__, n);
+				log_warnx("%s: %s pic: aeoi mode set",
+				    __func__, i8259_pic_name(n));
 				pic->auto_eoi = 1;
 				return;
 			}
-	
+
 			if (data & ICW4_MS) {
-				log_warn("%s: pic %d init error: M/S mode",
-				    __func__, n);
+				log_warnx("%s: %s pic init error: M/S mode",
+				    __func__, i8259_pic_name(n));
 				return;
 			}
-	
+
 			if (data & ICW4_BUF) {
-				log_warn("%s: pic %d init error: buf mode",
-				    __func__, n);
+				log_warnx("%s: %s pic init error: buf mode",
+				    __func__, i8259_pic_name(n));
 				return;
 			}
-	
+
 			if (data & 0xe0) {
-				log_warn("%s: pic %d init error: invalid icw4 "
-				    " 0x%x", __func__, n, data);
+				log_warnx("%s: %s pic init error: invalid icw4 "
+				    " 0x%x", __func__, i8259_pic_name(n), data);
 				return;
 			}
-		}	
+		}
 
 		pic->cur_icw++;
 		if (pic->cur_icw == 5) {
@@ -309,14 +331,11 @@ i8259_write_datareg(uint8_t n, uint8_t data)
 static void
 i8259_specific_eoi(uint8_t n, uint8_t data)
 {
-	uint8_t oldisr;
-
 	if (!(pics[n].isr & (1 << (data & 0x7)))) {
-		log_warn("%s: pic %d specific eoi irq %d while not in"
-		    " service", __func__, n, (data & 0x7));
+		log_warnx("%s: %s pic specific eoi irq %d while not in"
+		    " service", __func__, i8259_pic_name(n), (data & 0x7));
 	}
 
-	oldisr = pics[n].isr;
 	pics[n].isr &= ~(1 << (data & 0x7));
 }
 
@@ -329,7 +348,15 @@ i8259_specific_eoi(uint8_t n, uint8_t data)
 static void
 i8259_nonspecific_eoi(uint8_t n, uint8_t data)
 {
-	log_warn("%s: pic %d nonspecific eoi not supported", __func__, n);
+	int i = 0;
+
+	while (i < 8) {
+		if ((pics[n].isr & (1 << (i & 0x7)))) {
+			i8259_specific_eoi(n, i);
+			return;
+		}
+		i++;
+	}
 }
 
 /*
@@ -356,7 +383,7 @@ i8259_rotate_priority(uint8_t n)
  * Parameters:
  *  n: PIC whose command register should be written to
  *  data: data to write
- */ 
+ */
 static void
 i8259_write_cmdreg(uint8_t n, uint8_t data)
 {
@@ -365,32 +392,32 @@ i8259_write_cmdreg(uint8_t n, uint8_t data)
 	if (data & ICW1_INIT) {
 		/* Validate init params */
 		if (!(data & ICW1_ICW4)) {
-			log_warn("%s: pic %d init error: no ICW4 request",
-			    __func__, n);
+			log_warnx("%s: %s pic init error: no ICW4 request",
+			    __func__, i8259_pic_name(n));
 			return;
 		}
 
 		if (data & (ICW1_IVA1 | ICW1_IVA2 | ICW1_IVA3)) {
-			log_warn("%s: pic %d init error: IVA specified",
-			    __func__, n);
+			log_warnx("%s: %s pic init error: IVA specified",
+			    __func__, i8259_pic_name(n));
 			return;
 		}
 
 		if (data & ICW1_SNGL) {
-			log_warn("%s: pic %d init error: single pic mode",
-			    __func__, n);
+			log_warnx("%s: %s pic init error: single pic mode",
+			    __func__, i8259_pic_name(n));
 			return;
 		}
 
 		if (data & ICW1_ADI) {
-			log_warn("%s: pic %d init error: address interval",
-			    __func__, n);
+			log_warnx("%s: %s pic init error: address interval",
+			    __func__, i8259_pic_name(n));
 			return;
 		}
 
 		if (data & ICW1_LTIM) {
-			log_warn("%s: pic %d init error: level trigger mode",
-			    __func__, n);
+			log_warnx("%s: %s pic init error: level trigger mode",
+			    __func__, i8259_pic_name(n));
 			return;
 		}
 
@@ -538,8 +565,10 @@ static void
 i8259_io_write(union vm_exit *vei)
 {
 	uint16_t port = vei->vei.vei_port;
-	uint8_t data = vei->vei.vei_data;
+	uint32_t data;
 	uint8_t n = 0;
+
+	get_input_data(vei, &data);
 
 	switch (port) {
 	case IO_ICU1:
@@ -558,7 +587,6 @@ i8259_io_write(union vm_exit *vei)
 		i8259_write_datareg(n, data);
 	else
 		i8259_write_cmdreg(n, data);
-	
 }
 
 /*
@@ -616,8 +644,30 @@ vcpu_exit_i8259(struct vm_run_params *vrp)
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
 		i8259_io_write(vei);
 	} else {
-		vei->vei.vei_data = i8259_io_read(vei);
+		set_return_data(vei, i8259_io_read(vei));
 	}
 
 	return (0xFF);
+}
+
+int
+i8259_dump(int fd)
+{
+	log_debug("%s: sending PIC", __func__);
+	if (atomicio(vwrite, fd, &pics, sizeof(pics)) != sizeof(pics)) {
+		log_warnx("%s: error writing PIC to fd", __func__);
+		return (-1);
+	}
+	return (0);
+}
+
+int
+i8259_restore(int fd)
+{
+	log_debug("%s: restoring PIC", __func__);
+	if (atomicio(read, fd, &pics, sizeof(pics)) != sizeof(pics)) {
+		log_warnx("%s: error reading PIC from fd", __func__);
+		return (-1);
+	}
+	return (0);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: pftop.c,v 1.34 2016/04/13 05:25:45 jasper Exp $	 */
+/* $OpenBSD: pftop.c,v 1.40 2017/07/19 12:58:31 mikeb Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -140,7 +140,7 @@ field_def fields[] = {
 	{"LOG", 1, 3, 2, FLD_ALIGN_LEFT, -1, 0, 0, 0},
 	{"QUICK", 1, 1, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
 	{"KS", 1, 1, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
-	{"IF", 4, 6, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
+	{"IF", 4, 7, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
 	{"INFO", 40, 80, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
 	{"MAX", 3, 5, 2, FLD_ALIGN_RIGHT, -1, 0, 0},
 	{"RATE", 5, 8, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
@@ -148,9 +148,8 @@ field_def fields[] = {
 	{"PEAK", 5, 8, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
 	{"ANCHOR", 6, 16, 1, FLD_ALIGN_LEFT, -1, 0, 0},
 	{"QUEUE", 15, 30, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
-	{"BW", 4, 5, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
+	{"BW/FL", 4, 5, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
 	{"SCH", 3, 4, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0},
-	{"PRIO", 1, 4, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
 	{"DROP_P", 6, 8, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
 	{"DROP_B", 6, 8, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
 	{"QLEN", 4, 4, 1, FLD_ALIGN_RIGHT, -1, 0, 0, 0},
@@ -194,14 +193,13 @@ field_def fields[] = {
 #define FLD_QUEUE   FIELD_ADDR(fields,25)
 #define FLD_BANDW   FIELD_ADDR(fields,26)
 #define FLD_SCHED   FIELD_ADDR(fields,27)
-#define FLD_PRIO    FIELD_ADDR(fields,28)
-#define FLD_DROPP   FIELD_ADDR(fields,29)
-#define FLD_DROPB   FIELD_ADDR(fields,30)
-#define FLD_QLEN    FIELD_ADDR(fields,31)
-#define FLD_BORR    FIELD_ADDR(fields,32)
-#define FLD_SUSP    FIELD_ADDR(fields,33)
-#define FLD_PKTSPS  FIELD_ADDR(fields,34)
-#define FLD_BYTESPS FIELD_ADDR(fields,35)
+#define FLD_DROPP   FIELD_ADDR(fields,28)
+#define FLD_DROPB   FIELD_ADDR(fields,29)
+#define FLD_QLEN    FIELD_ADDR(fields,30)
+#define FLD_BORR    FIELD_ADDR(fields,31)
+#define FLD_SUSP    FIELD_ADDR(fields,32)
+#define FLD_PKTSPS  FIELD_ADDR(fields,33)
+#define FLD_BYTESPS FIELD_ADDR(fields,34)
 
 /* Define views */
 field_def *view0[] = {
@@ -247,7 +245,7 @@ field_def *view7[] = {
 };
 
 field_def *view8[] = {
-	FLD_QUEUE, FLD_BANDW, FLD_SCHED, FLD_PRIO, FLD_PKTS, FLD_BYTES,
+	FLD_QUEUE, FLD_BANDW, FLD_SCHED, FLD_PKTS, FLD_BYTES,
 	FLD_DROPP, FLD_DROPB, FLD_QLEN, FLD_BORR, FLD_SUSP, FLD_PKTSPS,
 	FLD_BYTESPS, NULL
 };
@@ -1544,22 +1542,17 @@ pfctl_update_qstats(void)
 			error("DIOCGETQSTATS: %s", strerror(errno));
 			return (-1);
 		}
-		if (pqs.queue.qname[0] != '_') {
-			if (pqs.queue.parent[0] && pqs.queue.parent[0] == '_')
-				pqs.queue.parent[0] = '\0';
-			qstats.valid = 1;
-			gettimeofday(&qstats.timestamp, NULL);
-			if ((node = pfctl_find_queue_node(pqs.queue.qname,
-			    pqs.queue.ifname)) != NULL) {
-				memcpy(&node->qstats_last, &node->qstats,
-				    sizeof(struct queue_stats));
-				memcpy(&node->qstats, &qstats,
-				    sizeof(struct queue_stats));
-			} else {
-				pfctl_insert_queue_node(pqs.queue, qstats);
-			}
-		} else
-			num_queues--;
+		qstats.valid = 1;
+		gettimeofday(&qstats.timestamp, NULL);
+		if ((node = pfctl_find_queue_node(pqs.queue.qname,
+		    pqs.queue.ifname)) != NULL) {
+			memcpy(&node->qstats_last, &node->qstats,
+			    sizeof(struct queue_stats));
+			memcpy(&node->qstats, &qstats,
+			    sizeof(struct queue_stats));
+		} else {
+			pfctl_insert_queue_node(pqs.queue, qstats);
+		}
 	}
 	return (0);
 }
@@ -1615,7 +1608,7 @@ calc_pps(u_int64_t new_pkts, u_int64_t last_pkts, double interval)
 void
 print_queue_node(struct pfctl_queue_node *node)
 {
-	u_int	rate;
+	u_int	rate, rtmp;
 	int 	i;
 	double	interval, pps, bps;
 	static const char unit[] = " KMG";
@@ -1631,10 +1624,25 @@ print_queue_node(struct pfctl_queue_node *node)
 	// XXX: missing min, max, burst
 	tb_start();
 	rate = node->qs.linkshare.m2.absolute;
-	for (i = 0; rate >= 1000 && i <= 3; i++)
-		rate /= 1000;
-	tbprintf("%u%c", rate, unit[i]);
+	for (i = 0; rate > 9999 && i <= 3; i++) {
+		rtmp = rate / 1000;
+		if (rtmp <= 9999)
+			rtmp += (rate % 1000) / 500;
+		rate = rtmp;
+	}
+	if (rate == 0 && (node->qs.flags & PFQS_FLOWQUEUE)) {
+		/*
+		 * XXX We're abusing the fact that 'flows' in
+		 * the fqcodel_stats structure is at the same
+		 * spot as the 'period' in hfsc_class_stats.
+		 */
+		tbprintf("%u", node->qstats.data.period);
+	} else
+		tbprintf("%u%c", rate, unit[i]);
 	print_fld_tb(FLD_BANDW);
+
+	print_fld_str(FLD_SCHED, node->qs.flags & PFQS_FLOWQUEUE ?
+	    "flow" : "fifo");
 
 	if (node->qstats.valid && node->qstats_last.valid)
 		interval = calc_interval(&node->qstats.timestamp,

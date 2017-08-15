@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.53 2015/10/26 18:09:32 jasper Exp $
+#	$OpenBSD: Makefile,v 1.56 2017/08/15 01:22:05 jasper Exp $
 
 REGRESS_TARGETS=cmp-vers1-1 \
 		cmp-vers1-2 \
@@ -85,9 +85,12 @@ REGRESS_TARGETS=cmp-vers1-1 \
 		variables-2 \
 		variables-3 \
 		variables-4 \
-		variables-5
+		variables-5 \
+		filter-system-dirs-1 \
+		filter-system-dirs-2 \
+		filter-system-dirs-3
 
-PKG_CONFIG?=	pkg-config
+PKG_CONFIG?=	/usr/bin/pkg-config
 PCONFIG =	PKG_CONFIG_PATH=${.CURDIR}/pcdir/ ${PKG_CONFIG}
 VPCONFIG =	${PCONFIG} --errors-to-stdout --print-errors > ${GOT}
 WANT=		${.OBJDIR}/$@.want
@@ -97,20 +100,20 @@ GOT=		${.OBJDIR}/$@.got
 corrupt1:
 	# Test for missing variables/fields
 	@echo "Package '$@' has no Version: field" > ${WANT}
-	@if ${VPCONFIG} --exists $@; then false; fi
+	@! ${VPCONFIG} --exists $@
 	@diff -u ${WANT} ${GOT}
 
 corrupt2:
 	# Test for missing variables/fields
 	@echo "Package '$@' has no Name: field" > ${WANT}
-	@if ${VPCONFIG} --exists $@; then false; fi
+	@! ${VPCONFIG} --exists $@
 	@diff -u ${WANT} ${GOT}
 
 corrupt3:
 	# Test for empty file
 	@echo "Package file '${.CURDIR}/pcdir//$@.pc' appears to be empty" > ${WANT}
 	@echo "Package '$@' has no Name: field" >> ${WANT}
-	@if ${VPCONFIG} --libs $@; then false; fi
+	@! ${VPCONFIG} --libs $@
 	@diff -u ${WANT} ${GOT}
 
 # Tests for various printing features
@@ -135,7 +138,7 @@ print-req-priv:
 # Tests for version comparison
 cmp-vers1-1:
 	# Test regular versions (a <= b)
-	@if ${PCONFIG} --exists "vers1 <= 0.0.2"; then false; fi
+	@! ${PCONFIG} --exists "vers1 <= 0.0.2"
 
 cmp-vers1-2:
 	# Test regular versions (a <= b)
@@ -159,7 +162,7 @@ cmp-vers2-3:
 
 cmp-vers2-4:
 	# Test regular versions (a >= b)
-	@if ${PCONFIG} --exists "vers2 > 0.2.0.0"; then false; fi
+	@! ${PCONFIG} --exists "vers2 > 0.2.0.0"
 
 cmp-vers2-5:
 	# Test regular versions (a != b)
@@ -167,7 +170,7 @@ cmp-vers2-5:
 
 cmp-vers2-6:
 	# Test regular versions (a != b)
-	@if ${PCONFIG} --exists "vers2 != 0.2.0"; then false; fi
+	@! ${PCONFIG} --exists "vers2 != 0.2.0"
 
 cmp-vers2-7:
 	# Test regular versions (a >= b a != c)
@@ -179,15 +182,15 @@ cmp-vers2-8:
 
 cmp-vers2-9:
 	# Test regular versions (a >= b a != c)
-	@if ${PCONFIG} --exists "vers2 >= 0.1.0 vers2 != 0.2.0"; then false; fi
+	@! ${PCONFIG} --exists "vers2 >= 0.1.0 vers2 != 0.2.0"
 
 cmp-vers2-10:
 	# Test regular versions (a >= b a < c)
-	@if ${PCONFIG} --exists "vers2 >= 0.2.0 vers2 < 0.1.0"; then false; fi
+	@! ${PCONFIG} --exists "vers2 >= 0.2.0 vers2 < 0.1.0"
 
 cmp-vers2-11:
 	# Test regular versions (a >= b a < c)
-	@if ${PCONFIG} --exists "vers2 >= 0.2.0 vers2 < 0.2.0"; then false; fi
+	@! ${PCONFIG} --exists "vers2 >= 0.2.0 vers2 < 0.2.0"
 
 cmp-vers2-12:
 	# Test regular versions (a >= b a < c)
@@ -293,8 +296,6 @@ cmp-vers5-7:
 	@${VPCONFIG} "rc > 0.1.0beta2"
 	@diff -u ${WANT} ${GOT}
 
-# These tests also fail with fd.o pkg-config, so keep them for later
-# to decide how our pkg-config should behave.
 cmp-vers5-8:
 	# Test suffixed versions (' ' > alpha)
 	@touch ${WANT}
@@ -322,7 +323,7 @@ cmp-vers6-1:
 cmp-vers6-2:
 	# Test suffixed versions in Requires.private
 	@echo "Requested 'alpha >= 0.1.0alpha3' but version of alpha suffix test is 0.1.0alpha2" > ${WANT}
-	@if ${VPCONFIG} --libs --static requires-test2; then false; fi
+	@! ${VPCONFIG} --libs --static requires-test2
 	@diff -u ${WANT} ${GOT}
 
 cmp-vers7-1:
@@ -361,7 +362,7 @@ builddir:
 
 logfile:
 	# Test PKG_CONFIG_LOG
-	@echo "[/usr/bin/pkg-config] [--exists] [sysroot >= 0.0.0]" > ${WANT}
+	@echo "[${PKG_CONFIG}] [--exists] [sysroot >= 0.0.0]" > ${WANT}
 	@rm -f ${GOT}
 	@PKG_CONFIG_LOG=${GOT} ${PCONFIG} --exists "sysroot >= 0.0.0"
 	@diff -u ${WANT} ${GOT}
@@ -387,7 +388,7 @@ static-cflags1:
 
 static-cflags2:
 	# Test grabbing Cflags (with Requires.private)
-	@echo "-I/usr/local/include/foo -I/usr/local/include" > ${WANT}
+	@echo "-I/usr/local/include -I/usr/local/include/foo" > ${WANT}
 	@${VPCONFIG} --cflags --static static2
 	@diff -u ${WANT} ${GOT}
 
@@ -399,19 +400,19 @@ static-libs1:
 
 static-libs2:
 	# Test grabbing Libs.private from Requires in order
-	@echo "-L/usr/local/lib -lc -lm -ll -lutil -lz" > ${WANT}
+	@echo "-L/usr/local/lib -lutil -lz -lc -lm -ll" > ${WANT}
 	@${VPCONFIG} --libs --static static2
 	@diff -u ${WANT} ${GOT}
 
 static-libs3:
 	# Test grabbing Libs.private from Requires.private in order
-	@echo "-L/tmp/lib -L/tmp/lib/foo -L/usr/local/lib -lbaz\ quux -lc -lm -ll -lutil -lz" > ${WANT}
+	@echo "-L/usr/local/lib -L/tmp/lib -L/tmp/lib/foo -lutil -lz -lc -lm -ll -lbaz\ quux" > ${WANT}
 	@${VPCONFIG} --libs --static static3
 	@diff -u ${WANT} ${GOT}
 
 static-libs4:
 	# Test Requires.private
-	@echo "-L/public-dep/lib -L/private-dep/lib -L/requires-test/lib -lpublic-dep -lprivate-dep -lrequires-test" > ${WANT}
+	@echo "-L/requires-test/lib -L/private-dep/lib -L/public-dep/lib -lrequires-test -lprivate-dep -lpublic-dep" > ${WANT}
 	@${VPCONFIG} --libs --static requires-test
 	@diff -u ${WANT} ${GOT}
 
@@ -421,18 +422,17 @@ static-order:
 	@${VPCONFIG} --static --libs static-order1
 	@diff -u ${WANT} ${GOT}
 
-# This fails as we read and check Requires as well as Requires.private where
-# only Requires needs to be checked here as we ask for Libs and not Cflags.
 missing-req-1:
 	# Test for missing packages in Requires (libs)
 	@echo "Package nonexisting was not found in the pkg-config search path" > ${WANT}
-	@if ${VPCONFIG} --libs missing-req ; then false; fi
+	@! ${VPCONFIG} --libs missing-req
 	@diff -u ${WANT} ${GOT}
 
 missing-req-2:
 	# Test for missing packages in Requires (cflags)
-	@echo "Package nonexisting was not found in the pkg-config search path" > ${WANT}
-	@if ${VPCONFIG} --cflags missing-req; then false; fi
+	@echo "Package nonexisting2 was not found in the pkg-config search path" > ${WANT}
+	@echo "Package nonexisting was not found in the pkg-config search path" >> ${WANT}
+	@! ${VPCONFIG} --cflags missing-req
 	@diff -u ${WANT} ${GOT}
 
 missing-req-3:
@@ -444,7 +444,7 @@ missing-req-3:
 missing-req-4:
 	# Test for missing Requires.private with --exists
 	@echo "Package nonexisting was not found in the pkg-config search path" > ${WANT}
-	@if ${VPCONFIG} --exists missing-req2 ; then false; fi
+	@! ${VPCONFIG} --exists missing-req2
 	@diff -u ${WANT} ${GOT}
 
 whitespace-cflags:
@@ -468,7 +468,7 @@ whitespace-linebreak:
 whitespace-name:
 	# Test whitespace in Name
 	@echo "Requested 'whitespace > 0.2.0' but version of Whitespace test is 0.0.0" > ${WANT}
-	@if ${VPCONFIG} "whitespace > 0.2.0"; then false; fi
+	@! ${VPCONFIG} "whitespace > 0.2.0"
 	@diff -u ${WANT} ${GOT}
 
 whitespace-property-1:
@@ -503,7 +503,7 @@ min-version-1:
 
 min-version-2:
 	# Test --atleast-version (doesn't match)
-	@if ${PCONFIG} --atleast-version=0.1.1 vers1 ; then false; fi
+	@! ${PCONFIG} --atleast-version=0.1.1 vers1
 
 exact-version-1:
 	# Test --exact-version (matches)
@@ -511,7 +511,7 @@ exact-version-1:
 
 exact-version-2:
 	# Test --exact-version (doesn't match)
-	@if ${PCONFIG} --exact-version=0.1.1 vers1 ; then false; fi
+	@! ${PCONFIG} --exact-version=0.1.1 vers1
 
 max-version-1:
 	# Test --max-version (matches)
@@ -519,7 +519,7 @@ max-version-1:
 
 max-version-2:
 	# Test --max-version (doesn't match)
-	@if ${PCONFIG} --max-version=0.0.9 vers1 ; then false; fi
+	@! ${PCONFIG} --max-version=0.0.9 vers1
 
 find-config-1:
 	# Test a regular module name being resolved
@@ -589,6 +589,24 @@ variables-5:
 	# Test --variable
 	@echo ' -lfoo-1' > ${WANT}
 	@${VPCONFIG} --libs variables
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-1:
+	# Test removing -I/usr/include as a system directory
+	@echo '-DFILTER' > ${WANT}
+	@${VPCONFIG} --cflags filter
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-2:
+	# Test removing -L/usr/lib as a system directory
+	@echo ' -lfilter' > ${WANT}
+	@${VPCONFIG} --libs filter
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-3:
+	# Test removing -L/usr/lib as a system directory (static)
+	@echo ' -lfilter -lprivate-filter' > ${WANT}
+	@${VPCONFIG} --static --libs filter
 	@diff -u ${WANT} ${GOT}
 
 clean:

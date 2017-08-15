@@ -1,4 +1,4 @@
-/* $OpenBSD: simplebus.c,v 1.8 2016/07/27 11:45:02 patrick Exp $ */
+/* $OpenBSD: simplebus.c,v 1.13 2017/04/27 22:41:46 kettenis Exp $ */
 /*
  * Copyright (c) 2016 Patrick Wildt <patrick@blueri.se>
  *
@@ -25,30 +25,16 @@
 #include <dev/ofw/fdt.h>
 
 #include <arm/fdt.h>
+#include <arm/simplebus/simplebusvar.h>
 
 int simplebus_match(struct device *, void *, void *);
 void simplebus_attach(struct device *, struct device *, void *);
 
 void simplebus_attach_node(struct device *, int);
-int simplebus_bs_map(void *, bus_addr_t, bus_size_t, int, bus_space_handle_t *);
-
-struct simplebus_softc {
-	struct device		 sc_dev;
-	int			 sc_node;
-	bus_space_tag_t		 sc_iot;
-	bus_dma_tag_t		 sc_dmat;
-	int			 sc_acells;
-	int			 sc_scells;
-	int			 sc_pacells;
-	int			 sc_pscells;
-	struct bus_space	 sc_bus;
-	int			*sc_ranges;
-	int			 sc_rangeslen;
-};
+int simplebus_bs_map(void *, uint64_t, bus_size_t, int, bus_space_handle_t *);
 
 struct cfattach simplebus_ca = {
-	sizeof(struct simplebus_softc), simplebus_match, simplebus_attach, NULL,
-	config_activate_children
+	sizeof(struct simplebus_softc), simplebus_match, simplebus_attach
 };
 
 struct cfdriver simplebus_cd = {
@@ -109,12 +95,24 @@ simplebus_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* Scan the whole tree. */
-	for (node = OF_child(sc->sc_node);
-	    node != 0;
-	    node = OF_peer(node))
-	{
+	sc->sc_early = 1;
+	for (node = OF_child(sc->sc_node); node; node = OF_peer(node))
 		simplebus_attach_node(self, node);
-	}
+
+	sc->sc_early = 0;
+	for (node = OF_child(sc->sc_node); node; node = OF_peer(node))
+		simplebus_attach_node(self, node);
+}
+
+int
+simplebus_submatch(struct device *self, void *match, void *aux)
+{
+	struct simplebus_softc	*sc = (struct simplebus_softc *)self;
+	struct cfdata *cf = match;
+
+	if (cf->cf_loc[0] == sc->sc_early)
+		return (*cf->cf_attach->ca_match)(self, match, aux);
+	return 0;
 }
 
 /*
@@ -125,16 +123,16 @@ simplebus_attach_node(struct device *self, int node)
 {
 	struct simplebus_softc	*sc = (struct simplebus_softc *)self;
 	struct fdt_attach_args	 fa;
-	char			 buffer[128];
+	char			 buf[32];
 	int			 i, len, line;
 	uint32_t		*cell, *reg;
 
-	if (!OF_getprop(node, "compatible", buffer, sizeof(buffer)))
+	if (OF_getproplen(node, "compatible") <= 0)
 		return;
 
-	if (OF_getprop(node, "status", buffer, sizeof(buffer)))
-		if (!strcmp(buffer, "disabled"))
-			return;
+	if (OF_getprop(node, "status", buf, sizeof(buf)) > 0 &&
+	    strcmp(buf, "disabled") == 0)
+		return;
 
 	memset(&fa, 0, sizeof(fa));
 	fa.fa_name = "";
@@ -182,9 +180,7 @@ simplebus_attach_node(struct device *self, int node)
 		OF_getpropintarray(node, "interrupts", fa.fa_intr, len);
 	}
 
-	/* TODO: attach the device's clocks first? */
-
-	config_found(self, &fa, NULL);
+	config_found_sm(self, &fa, NULL, simplebus_submatch);
 
 	free(fa.fa_reg, M_DEVBUF, fa.fa_nreg * sizeof(struct fdt_reg));
 	free(fa.fa_intr, M_DEVBUF, fa.fa_nintr * sizeof(uint32_t));
@@ -194,7 +190,7 @@ simplebus_attach_node(struct device *self, int node)
  * Translate memory address if needed.
  */
 int
-simplebus_bs_map(void *t, bus_addr_t bpa, bus_size_t size,
+simplebus_bs_map(void *t, uint64_t bpa, bus_size_t size,
     int flag, bus_space_handle_t *bshp)
 {
 	struct simplebus_softc *sc = (struct simplebus_softc *)t;

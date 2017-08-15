@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_oce.c,v 1.96 2016/08/24 10:38:34 dlg Exp $	*/
+/*	$OpenBSD: if_oce.c,v 1.99 2017/01/22 10:17:38 dlg Exp $	*/
 
 /*
  * Copyright (c) 2012 Mike Belopuhov
@@ -586,9 +586,8 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 			printf(": unable to allocate descriptor pool\n");
 			goto fail_2;
 		}
-		pool_init(oce_pkt_pool, sizeof(struct oce_pkt), 0, 0, 0,
-		    "ocepkts", NULL);
-		pool_setipl(oce_pkt_pool, IPL_NET);
+		pool_init(oce_pkt_pool, sizeof(struct oce_pkt), 0, IPL_NET,
+		    0, "ocepkts", NULL);
 	}
 
 	/* We allocate a single interrupt resource */
@@ -1205,7 +1204,6 @@ oce_start(struct ifnet *ifp)
 int
 oce_encap(struct oce_softc *sc, struct mbuf **mpp, int wqidx)
 {
-	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct mbuf *m = *mpp;
 	struct oce_wq *wq = sc->sc_wq[wqidx];
 	struct oce_pkt *pkt = NULL;
@@ -1308,8 +1306,6 @@ oce_encap(struct oce_softc *sc, struct mbuf **mpp, int wqidx)
 	}
 
 	oce_pkt_put(&wq->pkt_list, pkt);
-
-	ifp->if_opackets++;
 
 	oce_dma_sync(&wq->ring->dma, BUS_DMASYNC_POSTREAD |
 	    BUS_DMASYNC_POSTWRITE);
@@ -3451,13 +3447,13 @@ oce_new_cq(struct oce_softc *sc, struct oce_cq *cq)
 int
 oce_init_stats(struct oce_softc *sc)
 {
-	union {
+	union cmd {
 		struct mbx_get_nic_stats_v0	_be2;
 		struct mbx_get_nic_stats	_be3;
 		struct mbx_get_pport_stats	_xe201;
-	} cmd;
+	};
 
-	sc->sc_statcmd = malloc(sizeof(cmd), M_DEVBUF, M_ZERO | M_NOWAIT);
+	sc->sc_statcmd = malloc(sizeof(union cmd), M_DEVBUF, M_ZERO | M_NOWAIT);
 	if (sc->sc_statcmd == NULL) {
 		printf("%s: failed to allocate statistics command block\n",
 		    sc->sc_dev.dv_xname);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.6 2015/12/03 13:08:44 reyk Exp $	*/
+/*	$OpenBSD: proc.h,v 1.12 2017/03/27 00:28:04 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>
@@ -34,6 +34,7 @@ enum {
 	IMSG_CTL_END,
 	IMSG_CTL_NOTIFY,
 	IMSG_CTL_RESET,
+	IMSG_CTL_PROCFD,
 	IMSG_PROC_MAX
 };
 
@@ -47,9 +48,9 @@ struct imsgev {
 	short			 events;
 };
 
-#define IMSG_SIZE_CHECK(imsg, p) do {				\
-	if (IMSG_DATA_SIZE(imsg) < sizeof(*p))			\
-		fatalx("bad length imsg received");		\
+#define IMSG_SIZE_CHECK(imsg, p) do {					\
+	if (IMSG_DATA_SIZE(imsg) < sizeof(*p))				\
+		fatalx("bad length imsg received (%s)",	#p);		\
 } while (0)
 #define IMSG_DATA_SIZE(imsg)	((imsg)->hdr.len - IMSG_HEADER_SIZE)
 
@@ -88,11 +89,13 @@ enum privsep_procid {
 	PROC_PARENT	= 0,
 	PROC_CONTROL,
 	PROC_VMM,
+	PROC_PRIV,
 	PROC_MAX,
 } privsep_process;
 
 #define CONFIG_RELOAD		0x00
 #define CONFIG_VMS		0x01
+#define CONFIG_SWITCHES		0x02
 #define CONFIG_ALL		0xff
 
 struct privsep_pipes {
@@ -105,7 +108,6 @@ struct privsep {
 
 	struct imsgev			*ps_ievs[PROC_MAX];
 	const char			*ps_title[PROC_MAX];
-	pid_t				 ps_pid[PROC_MAX];
 	uint8_t				 ps_what[PROC_MAX];
 
 	struct passwd			*ps_pw;
@@ -115,7 +117,6 @@ struct privsep {
 	struct control_socks		 ps_rcsocks;
 
 	unsigned int			 ps_instances[PROC_MAX];
-	unsigned int			 ps_ninstances;
 	unsigned int			 ps_instance;
 
 	/* Event and signal handlers */
@@ -134,21 +135,35 @@ struct privsep_proc {
 	enum privsep_procid	 p_id;
 	int			(*p_cb)(int, struct privsep_proc *,
 				    struct imsg *);
-	pid_t			(*p_init)(struct privsep *,
+	void			(*p_init)(struct privsep *,
 				    struct privsep_proc *);
-	const char		*p_chroot;
-	struct privsep		*p_ps;
-	void			*p_env;
 	void			(*p_shutdown)(void);
-	unsigned int		 p_instance;
+	const char		*p_chroot;
+	struct passwd		*p_pw;
+	struct privsep		*p_ps;
 };
 
+struct privsep_fd {
+	enum privsep_procid		 pf_procid;
+	unsigned int			 pf_instance;
+};
+
+#if DEBUG
+#define DPRINTF		log_debug
+#else
+#define DPRINTF(x...)	do {} while(0)
+#endif
+
+#define PROC_PARENT_SOCK_FILENO	3
+#define PROC_MAX_INSTANCES	32
+
 /* proc.c */
-void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int);
+void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int,
+	    int, char **, enum privsep_procid);
 void	 proc_kill(struct privsep *);
-void	 proc_listen(struct privsep *, struct privsep_proc *, size_t);
+void	 proc_connect(struct privsep *ps);
 void	 proc_dispatch(int, short event, void *);
-pid_t	 proc_run(struct privsep *, struct privsep_proc *,
+void	 proc_run(struct privsep *, struct privsep_proc *,
 	    struct privsep_proc *, unsigned int,
 	    void (*)(struct privsep *, struct privsep_proc *, void *), void *);
 void	 imsg_event_add(struct imsgev *);
@@ -170,9 +185,12 @@ struct imsgbuf *
 	 proc_ibuf(struct privsep *, enum privsep_procid, int);
 struct imsgev *
 	 proc_iev(struct privsep *, enum privsep_procid, int);
+enum privsep_procid
+	 proc_getid(struct privsep_proc *, unsigned int, const char *);
+int	 proc_flush_imsg(struct privsep *, enum privsep_procid, int);
 
 /* control.c */
-pid_t	 control(struct privsep *, struct privsep_proc *);
+void	 control(struct privsep *, struct privsep_proc *);
 int	 control_init(struct privsep *, struct control_sock *);
 int	 control_listen(struct control_sock *);
 void	 control_cleanup(struct control_sock *);
@@ -180,7 +198,8 @@ void	 control_cleanup(struct control_sock *);
 /* log.c */
 void	log_init(int, int);
 void	log_procinit(const char *);
-void	log_verbose(int);
+void	log_setverbose(int);
+int	log_getverbose(void);
 void	log_warn(const char *, ...)
 	    __attribute__((__format__ (printf, 1, 2)));
 void	log_warnx(const char *, ...)

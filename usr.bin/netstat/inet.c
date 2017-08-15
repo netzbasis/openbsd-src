@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.c,v 1.151 2016/09/02 09:39:32 vgross Exp $	*/
+/*	$OpenBSD: inet.c,v 1.160 2017/08/12 03:21:02 benno Exp $	*/
 /*	$NetBSD: inet.c,v 1.14 1995/10/03 21:42:37 thorpej Exp $	*/
 
 /*
@@ -49,7 +49,6 @@
 #include <netinet/icmp_var.h>
 #include <netinet/igmp_var.h>
 #include <netinet/ip_var.h>
-#include <netinet/pim_var.h>
 #include <netinet/tcp.h>
 #include <netinet/tcp_seq.h>
 #define TCPSTATES
@@ -99,6 +98,7 @@ void	protosw_dump(u_long, u_long);
 void	domain_dump(u_long, u_long, short);
 void	inpcb_dump(u_long, short, int);
 void	tcpcb_dump(u_long);
+int	kf_comp(const void *, const void *);
 
 int type_map[] = { -1, 2, 3, 1, 4, 5 };
 
@@ -170,12 +170,18 @@ protopr(kvm_t *kvmd, u_long pcbaddr, u_int tableid, int proto)
 				 * pointer (inp_ppcb) so check both.
 				 */
 				if (pcbaddr == kf[i].so_pcb) {
-					inpcb_dump(pcbaddr, kf[i].so_protocol,
+					inpcb_dump(kf[i].so_pcb,
+					    kf[i].so_protocol,
 					    kf[i].so_family);
 					return;
 				} else if (pcbaddr == kf[i].inp_ppcb &&
 				    kf[i].so_protocol == IPPROTO_TCP) {
-					tcpcb_dump(pcbaddr);
+					if (vflag)
+						inpcb_dump(kf[i].so_pcb,
+						    kf[i].so_protocol,
+						    kf[i].so_family);
+					else
+						tcpcb_dump(kf[i].inp_ppcb);
 					return;
 				}
 				break;
@@ -288,9 +294,14 @@ netdomainpr(struct kinfo_file *kf, int proto)
 	}
 
 	/* filter listening sockets out unless -a is set */
-	if (!aflag && istcp && kf->t_state <= TCPS_LISTEN)
+	if (!(aflag || lflag) && istcp && kf->t_state <= TCPS_LISTEN)
 		return;
-	else if (!aflag && isany)
+	else if (!(aflag || lflag) && isany)
+		return;
+
+	/* when -l is set, show only listening sockets */
+	if (!aflag && lflag && istcp &&
+	    kf->t_state != TCPS_LISTEN)
 		return;
 
 	if (af != kf->so_family || type != kf->so_type) {
@@ -299,6 +310,8 @@ netdomainpr(struct kinfo_file *kf, int proto)
 		printf("Active Internet connections");
 		if (aflag)
 			printf(" (including servers)");
+		else if (lflag)
+			printf(" (only servers)");
 		putchar('\n');
 		if (Aflag) {
 			addrlen = 18;
@@ -315,7 +328,8 @@ netdomainpr(struct kinfo_file *kf, int proto)
 	}
 
 	if (Aflag)
-		printf("%#*llx%s ", FAKE_PTR(kf->so_pcb));
+		printf("%#*llx%s ", FAKE_PTR(kf->so_protocol == IPPROTO_TCP ?
+		    kf->inp_ppcb : kf->so_pcb));
 
 	printf("%-7.7s %6llu %6llu ",
 	    isip6 ? name6: name, kf->so_rcv_cc, kf->so_snd_cc);
@@ -332,8 +346,8 @@ netdomainpr(struct kinfo_file *kf, int proto)
 		inetprint(&faddr, kf->inp_fport, name, 0);
 	}
 	if (istcp) {
-		if (kf->t_state < 0 || kf->t_state >= TCP_NSTATES)
-			printf(" %d", kf->t_state);
+		if (kf->t_state >= TCP_NSTATES)
+			printf(" %u", kf->t_state);
 		else
 			printf(" %s", tcpstates[kf->t_state]);
 	} else if (kf->so_type == SOCK_RAW) {
@@ -770,44 +784,6 @@ igmp_stats(char *name)
 #undef py
 }
 
-/*
- * Dump PIM statistics structure.
- */
-void
-pim_stats(char *name)
-{
-	struct pimstat pimstat;
-	int mib[] = { CTL_NET, PF_INET, IPPROTO_PIM, PIMCTL_STATS };
-	size_t len = sizeof(pimstat);
-
-	if (sysctl(mib, sizeof(mib) / sizeof(mib[0]),
-	    &pimstat, &len, NULL, 0) == -1) {
-		if (errno != ENOPROTOOPT)
-			warn("%s", name);
-		return;
-	}
-
-	printf("%s:\n", name);
-#define	p(f, m) if (pimstat.f || sflag <= 1) \
-	printf(m, pimstat.f, plural(pimstat.f))
-#define	py(f, m) if (pimstat.f || sflag <= 1) \
-	printf(m, pimstat.f, pimstat.f != 1 ? "ies" : "y")
-
-	p(pims_rcv_total_msgs, "\t%llu message%s received\n");
-	p(pims_rcv_total_bytes, "\t%llu byte%s received\n");
-	p(pims_rcv_tooshort, "\t%llu message%s received with too few bytes\n");
-	p(pims_rcv_badsum, "\t%llu message%s received with bad checksum\n");
-	p(pims_rcv_badversion, "\t%llu message%s received with bad version\n");
-	p(pims_rcv_registers_msgs, "\t%llu data register message%s received\n");
-	p(pims_rcv_registers_bytes, "\t%llu data register byte%s received\n");
-	p(pims_rcv_registers_wrongiif, "\t%llu data register message%s received on wrong iif\n");
-	p(pims_rcv_badregisters, "\t%llu bad register%s received\n");
-	p(pims_snd_registers_msgs, "\t%llu data register message%s sent\n");
-	p(pims_snd_registers_bytes, "\t%llu data register byte%s sent\n");
-#undef p
-#undef py
-}
-
 struct rpcnams {
 	struct rpcnams *next;
 	in_port_t port;
@@ -992,6 +968,7 @@ ah_stats(char *name)
 	p(ahs_invalid, "\t%u packet%s attempted to use an invalid TDB\n");
 	p(ahs_toobig, "\t%u packet%s got larger than max IP packet size\n");
 	p(ahs_crypto, "\t%u packet%s that failed crypto processing\n");
+	p(ahs_outfail, "\t%u output packet%s could not be sent\n");
 	p(ahs_ibytes, "\t%llu input byte%s\n");
 	p(ahs_obytes, "\t%llu output byte%s\n");
 
@@ -1020,15 +997,15 @@ etherip_stats(char *name)
 #define p(f, m) if (etheripstat.f || sflag <= 1) \
 	printf(m, etheripstat.f, plural(etheripstat.f))
 
-	p(etherip_hdrops, "\t%u packet%s shorter than header shows\n");
-	p(etherip_qfull, "\t%u packet%s were dropped due to full output queue\n");
-	p(etherip_noifdrops, "\t%u packet%s were dropped because of no interface/bridge information\n");
-	p(etherip_pdrops, "\t%u packet%s dropped due to policy\n");
-	p(etherip_adrops, "\t%u packet%s dropped for other reasons\n");
-	p(etherip_ipackets, "\t%u input ethernet-in-IP packet%s\n");
-	p(etherip_opackets, "\t%u output ethernet-in-IP packet%s\n");
-	p(etherip_ibytes, "\t%llu input byte%s\n");
-	p(etherip_obytes, "\t%llu output byte%s\n");
+	p(etherips_hdrops, "\t%llu packet%s shorter than header shows\n");
+	p(etherips_qfull, "\t%llu packet%s were dropped due to full output queue\n");
+	p(etherips_noifdrops, "\t%llu packet%s were dropped because of no interface/bridge information\n");
+	p(etherips_pdrops, "\t%llu packet%s dropped due to policy\n");
+	p(etherips_adrops, "\t%llu packet%s dropped for other reasons\n");
+	p(etherips_ipackets, "\t%llu input ethernet-in-IP packet%s\n");
+	p(etherips_opackets, "\t%llu output ethernet-in-IP packet%s\n");
+	p(etherips_ibytes, "\t%llu input byte%s\n");
+	p(etherips_obytes, "\t%llu output byte%s\n");
 #undef p
 }
 
@@ -1070,6 +1047,7 @@ esp_stats(char *name)
 	p(esps_invalid, "\t%u packet%s attempted to use an invalid TDB\n");
 	p(esps_toobig, "\t%u packet%s got larger than max IP packet size\n");
 	p(esps_crypto, "\t%u packet%s that failed crypto processing\n");
+	p(esps_outfail, "\t%u output packet%s could not be sent\n");
 	p(esps_udpencin, "\t%u input UDP encapsulated ESP packet%s\n");
 	p(esps_udpencout, "\t%u output UDP encapsulated ESP packet%s\n");
 	p(esps_udpinval, "\t%u UDP packet%s for non-encapsulating TDB received\n");
@@ -1101,16 +1079,16 @@ ipip_stats(char *name)
 #define p(f, m) if (ipipstat.f || sflag <= 1) \
 	printf(m, ipipstat.f, plural(ipipstat.f))
 
-	p(ipips_ipackets, "\t%u total input packet%s\n");
-	p(ipips_opackets, "\t%u total output packet%s\n");
-	p(ipips_hdrops, "\t%u packet%s shorter than header shows\n");
-	p(ipips_pdrops, "\t%u packet%s dropped due to policy\n");
-	p(ipips_spoof, "\t%u packet%s with possibly spoofed local addresses\n");
-	p(ipips_qfull, "\t%u packet%s were dropped due to full output queue\n");
+	p(ipips_ipackets, "\t%llu total input packet%s\n");
+	p(ipips_opackets, "\t%llu total output packet%s\n");
+	p(ipips_hdrops, "\t%llu packet%s shorter than header shows\n");
+	p(ipips_pdrops, "\t%llu packet%s dropped due to policy\n");
+	p(ipips_spoof, "\t%llu packet%s with possibly spoofed local addresses\n");
+	p(ipips_qfull, "\t%llu packet%s were dropped due to full output queue\n");
 	p(ipips_ibytes, "\t%llu input byte%s\n");
 	p(ipips_obytes, "\t%llu output byte%s\n");
-	p(ipips_family, "\t%u protocol family mismatche%s\n");
-	p(ipips_unspec, "\t%u attempt%s to use tunnel with unspecified endpoint(s)\n");
+	p(ipips_family, "\t%llu protocol family mismatche%s\n");
+	p(ipips_unspec, "\t%llu attempt%s to use tunnel with unspecified endpoint(s)\n");
 #undef p
 }
 
@@ -1264,6 +1242,7 @@ ipcomp_stats(char *name)
 	p(ipcomps_invalid, "\t%u packet%s attempted to use an invalid TDB\n");
 	p(ipcomps_toobig, "\t%u packet%s got larger than max IP packet size\n");
 	p(ipcomps_crypto, "\t%u packet%s that failed (de)compression processing\n");
+	p(ipcomps_outfail, "\t%u output packet%s could not be sent\n");
 	p(ipcomps_minlen, "\t%u packet%s less than minimum compression length\n");
 	p(ipcomps_ibytes, "\t%llu input byte%s\n");
 	p(ipcomps_obytes, "\t%llu output byte%s\n");
@@ -1419,7 +1398,7 @@ void
 inpcb_dump(u_long off, short protocol, int af)
 {
 	struct inpcb inp;
-	char faddr[256], laddr[256];
+	char faddr[256], laddr[256], raddr[256];
 
 	if (off == 0)
 		return;
@@ -1432,10 +1411,14 @@ inpcb_dump(u_long off, short protocol, int af)
 	case AF_INET:
 		inet_ntop(af, &inp.inp_faddr, faddr, sizeof(faddr));
 		inet_ntop(af, &inp.inp_laddr, laddr, sizeof(laddr));
+		inet_ntop(af, &((struct sockaddr_in *)
+		    (&inp.inp_route.ro_dst))->sin_addr, raddr, sizeof(raddr));
 		break;
 	case AF_INET6:
 		inet_ntop(af, &inp.inp_faddr6, faddr, sizeof(faddr));
 		inet_ntop(af, &inp.inp_laddr6, laddr, sizeof(laddr));
+		inet_ntop(af, &inp.inp_route6.ro_dst.sin6_addr,
+		    raddr, sizeof(raddr));
 		break;
 	default:
 		faddr[0] = laddr[0] = '\0';
@@ -1452,6 +1435,8 @@ inpcb_dump(u_long off, short protocol, int af)
 	p("%u", inp_lport, "\n ");
 	pp("%p", inp_socket, ", ");
 	pp("%p", inp_ppcb, "\n ");
+	pp("%p", inp_route.ro_rt, ", ");
+	printf("ro_dst %s\n ", raddr);
 	p("%#.8x", inp_flags, "\n ");
 	p("%d", inp_hops, "\n ");
 	p("%u", inp_seclevel[0], ", ");

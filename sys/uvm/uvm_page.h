@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_page.h,v 1.61 2016/03/09 16:45:43 deraadt Exp $	*/
+/*	$OpenBSD: uvm_page.h,v 1.63 2016/11/07 00:26:33 guenther Exp $	*/
 /*	$NetBSD: uvm_page.h,v 1.19 2000/12/28 08:24:55 chs Exp $	*/
 
 /* 
@@ -94,7 +94,7 @@ TAILQ_HEAD(pglist, vm_page);
 struct vm_page {
 	TAILQ_ENTRY(vm_page)	pageq;		/* queue info for FIFO
 						 * queue or free list (P) */
-	RB_ENTRY(vm_page)	objt;		/* object tree */
+	RBT_ENTRY(vm_page)	objt;		/* object tree */
 
 	struct vm_anon		*uanon;		/* anon (P) */
 	struct uvm_object	*uobject;	/* object (P) */
@@ -112,7 +112,7 @@ struct vm_page {
 
 #if defined(UVM_PAGE_TRKOWN)
 	/* debugging fields to track page ownership */
-	pid_t			owner;		/* proc that set PG_BUSY */
+	pid_t			owner;		/* thread that set PG_BUSY */
 	char			*owner_tag;	/* why it was set busy */
 #endif
 };

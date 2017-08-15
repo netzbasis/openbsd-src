@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.118 2016/08/16 13:03:58 visa Exp $	*/
+/*	$OpenBSD: trap.c,v 1.127 2017/07/22 18:33:51 visa Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -68,6 +68,7 @@
 #include <machine/frame.h>
 #include <machine/mips_opcode.h>
 #include <machine/regnum.h>
+#include <machine/tcb.h>
 #include <machine/trap.h>
 
 #ifdef DDB
@@ -266,12 +267,11 @@ void
 itsa(struct trapframe *trapframe, struct cpu_info *ci, struct proc *p,
     int type)
 {
-	int i;
 	unsigned ucode = 0;
 	vm_prot_t ftype;
 	extern vaddr_t onfault_table[];
 	int onfault;
-	int typ = 0;
+	int signal, sicode;
 	union sigval sv;
 	struct pcb *pcb;
 
@@ -419,12 +419,9 @@ fault_common_no_miss:
 		 * the current limit and we need to reflect that as an access
 		 * error.
 		 */
-		if ((caddr_t)va >= vm->vm_maxsaddr) {
-			if (rv == 0)
-				uvm_grow(p, va);
-			else if (rv == EACCES)
-				rv = EFAULT;
-		}
+		if (rv == 0 && (caddr_t)va >= vm->vm_maxsaddr)
+			uvm_grow(p, va);
+
 		KERNEL_UNLOCK();
 		if (rv == 0)
 			return;
@@ -438,22 +435,28 @@ fault_common_no_miss:
 		}
 
 		ucode = ftype;
-		i = SIGSEGV;
-		typ = SEGV_MAPERR;
+		signal = SIGSEGV;
+		sicode = SEGV_MAPERR;
+		if (rv == EACCES)
+			sicode = SEGV_ACCERR;
+		if (rv == EIO) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+		}
 		break;
 	    }
 
 	case T_ADDR_ERR_LD+T_USER:	/* misaligned or kseg access */
 	case T_ADDR_ERR_ST+T_USER:	/* misaligned or kseg access */
 		ucode = 0;		/* XXX should be PROT_something */
-		i = SIGBUS;
-		typ = BUS_ADRALN;
+		signal = SIGBUS;
+		sicode = BUS_ADRALN;
 		break;
 	case T_BUS_ERR_IFETCH+T_USER:	/* BERR asserted to cpu */
 	case T_BUS_ERR_LD_ST+T_USER:	/* BERR asserted to cpu */
 		ucode = 0;		/* XXX should be PROT_something */
-		i = SIGBUS;
-		typ = BUS_OBJERR;
+		signal = SIGBUS;
+		sicode = BUS_OBJERR;
 		break;
 
 	case T_SYSCALL+T_USER:
@@ -462,7 +465,7 @@ fault_common_no_miss:
 		struct sysent *callp;
 		unsigned int code;
 		register_t tpc;
-		int numsys, error;
+		int error, numarg, numsys;
 		struct args {
 			register_t i[8];
 		} args;
@@ -494,16 +497,16 @@ fault_common_no_miss:
 				callp += p->p_p->ps_emul->e_nosys; /* (illegal) */
 			else
 				callp += code;
-			i = callp->sy_argsize / sizeof(register_t);
+			numarg = callp->sy_argsize / sizeof(register_t);
 			args.i[0] = locr0->a1;
 			args.i[1] = locr0->a2;
 			args.i[2] = locr0->a3;
-			if (i > 3) {
+			if (numarg > 3) {
 				args.i[3] = locr0->a4;
 				args.i[4] = locr0->a5;
 				args.i[5] = locr0->a6;
 				args.i[6] = locr0->a7;
-				if (i > 7)
+				if (numarg > 7)
 					if ((error = copyin((void *)locr0->sp,
 					    &args.i[7], sizeof(register_t))))
 						goto bad;
@@ -515,12 +518,12 @@ fault_common_no_miss:
 			else
 				callp += code;
 
-			i = callp->sy_narg;
+			numarg = callp->sy_narg;
 			args.i[0] = locr0->a0;
 			args.i[1] = locr0->a1;
 			args.i[2] = locr0->a2;
 			args.i[3] = locr0->a3;
-			if (i > 4) {
+			if (numarg > 4) {
 				args.i[4] = locr0->a4;
 				args.i[5] = locr0->a5;
 				args.i[6] = locr0->a6;
@@ -589,8 +592,8 @@ fault_common_no_miss:
 
 		switch ((instr & BREAK_VAL_MASK) >> BREAK_VAL_SHIFT) {
 		case 6:	/* gcc range error */
-			i = SIGFPE;
-			typ = FPE_FLTSUB;
+			signal = SIGFPE;
+			sicode = FPE_FLTSUB;
 			/* skip instruction */
 			if (trapframe->cause & CR_BR_DELAY)
 				locr0->pc = MipsEmulateBranch(locr0,
@@ -599,8 +602,8 @@ fault_common_no_miss:
 				locr0->pc += 4;
 			break;
 		case 7:	/* gcc3 divide by zero */
-			i = SIGFPE;
-			typ = FPE_INTDIV;
+			signal = SIGFPE;
+			sicode = FPE_INTDIV;
 			/* skip instruction */
 			if (trapframe->cause & CR_BR_DELAY)
 				locr0->pc = MipsEmulateBranch(locr0,
@@ -614,7 +617,7 @@ fault_common_no_miss:
 #ifdef DEBUG
 				printf("trap: %s (%d): breakpoint at %p "
 				    "(insn %08x)\n",
-				    p->p_comm, p->p_pid,
+				    p->p_p->ps_comm, p->p_p->ps_pid,
 				    (void *)p->p_md.md_ss_addr,
 				    p->p_md.md_ss_instr);
 #endif
@@ -623,11 +626,11 @@ fault_common_no_miss:
 				KERNEL_LOCK();
 				process_sstep(p, 0);
 				KERNEL_UNLOCK();
-				typ = TRAP_BRKPT;
+				sicode = TRAP_BRKPT;
 			} else {
-				typ = TRAP_TRACE;
+				sicode = TRAP_TRACE;
 			}
-			i = SIGTRAP;
+			signal = SIGTRAP;
 			break;
 #endif
 #ifdef FPUEMUL
@@ -659,8 +662,8 @@ fault_common_no_miss:
 			/* FALLTHROUGH */
 #endif
 		default:
-			typ = TRAP_TRACE;
-			i = SIGTRAP;
+			signal = SIGTRAP;
+			sicode = TRAP_TRACE;
 			break;
 		}
 		break;
@@ -675,8 +678,8 @@ fault_common_no_miss:
 		if (trapframe->cause & CR_BR_DELAY)
 			va += 4;
 		printf("watch exception @ %p\n", va);
-		i = SIGTRAP;
-		typ = TRAP_BRKPT;
+		signal = SIGTRAP;
+		sicode = TRAP_BRKPT;
 		break;
 	    }
 
@@ -705,19 +708,54 @@ fault_common_no_miss:
 		 */
 		if ((instr & 0xfc00003f) == 0x00000034 /* teq */ &&
 		    (instr & 0x001fffc0) == ((ZERO << 16) | (7 << 6))) {
-			i = SIGFPE;
-			typ = FPE_INTDIV;
+			signal = SIGFPE;
+			sicode = FPE_INTDIV;
 		} else {
-			i = SIGEMT;	/* Stuff it with something for now */
-			typ = 0;
+			signal = SIGEMT; /* Stuff it with something for now */
+			sicode = 0;
 		}
 		break;
 	    }
 
 	case T_RES_INST+T_USER:
-		i = SIGILL;
-		typ = ILL_ILLOPC;
+	    {
+		register_t *regs = (register_t *)trapframe;
+		caddr_t va;
+		InstFmt inst;
+
+		/* Compute the instruction's address. */
+		va = (caddr_t)trapframe->pc;
+		if (trapframe->cause & CR_BR_DELAY)
+			va += 4;
+
+		/* Get the faulting instruction. */
+		if (copyin32((void *)va, &inst.word) != 0) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+			break;
+		}
+		
+		/* Emulate "RDHWR rt, UserLocal". */
+		if (inst.RType.op == OP_SPECIAL3 &&
+		    inst.RType.rs == 0 &&
+		    inst.RType.rd == 29 &&
+		    inst.RType.shamt == 0 &&
+		    inst.RType.func == OP_RDHWR) {
+			regs[inst.RType.rt] = (register_t)TCB_GET(p);
+
+			/* Figure out where to continue. */
+			if (trapframe->cause & CR_BR_DELAY)
+				trapframe->pc = MipsEmulateBranch(trapframe,
+				    trapframe->pc, 0, 0);
+			else
+				trapframe->pc += 4;
+			return;
+		}
+
+		signal = SIGILL;
+		sicode = ILL_ILLOPC;
 		break;
+	    }
 
 	case T_COP_UNUSABLE+T_USER:
 		/*
@@ -726,8 +764,8 @@ fault_common_no_miss:
 		 * unusable coprocessor number.
 		 */
 		if ((trapframe->cause & CR_COP_ERR) != CR_COP1_ERR) {
-			i = SIGILL;	/* only FPU instructions allowed */
-			typ = ILL_ILLOPC;
+			signal = SIGILL; /* only FPU instructions allowed */
+			sicode = ILL_ILLOPC;
 			break;
 		}
 #ifdef FPUEMUL
@@ -747,8 +785,8 @@ fault_common_no_miss:
 		return;
 
 	case T_OVFLOW+T_USER:
-		i = SIGFPE;
-		typ = FPE_FLTOVF;
+		signal = SIGFPE;
+		sicode = FPE_FLTOVF;
 		break;
 
 	case T_ADDR_ERR_LD:	/* misaligned access */
@@ -819,7 +857,7 @@ fault_common_no_miss:
 	p->p_md.md_regs->badvaddr = trapframe->badvaddr;
 	sv.sival_ptr = (void *)trapframe->badvaddr;
 	KERNEL_LOCK();
-	trapsignal(p, i, ucode, typ, sv);
+	trapsignal(p, signal, ucode, sicode, sv);
 	KERNEL_UNLOCK();
 }
 
@@ -1031,8 +1069,8 @@ ptrace_read_insn(struct proc *p, vaddr_t va, uint32_t *insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_READ_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_READ_I);
 }
 
 int
@@ -1049,8 +1087,8 @@ ptrace_write_insn(struct proc *p, vaddr_t va, uint32_t insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_WRITE_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_WRITE_I);
 }
 
 /*
@@ -1075,7 +1113,7 @@ process_sstep(struct proc *p, int sstep)
 			if (rc != 0)
 				printf("WARNING: %s (%d): can't restore "
 				    "instruction at %p: %08x\n",
-				    p->p_comm, p->p_pid,
+				    p->p_p->ps_comm, p->p_p->ps_pid,
 				    (void *)p->p_md.md_ss_addr,
 				    p->p_md.md_ss_instr);
 #endif
@@ -1101,7 +1139,8 @@ process_sstep(struct proc *p, int sstep)
 	if (p->p_md.md_ss_addr != 0) {
 		printf("WARNING: %s (%d): breakpoint request "
 		    "at %p, already set at %p\n",
-		    p->p_comm, p->p_pid, (void *)va, (void *)p->p_md.md_ss_addr);
+		    p->p_p->ps_comm, p->p_p->ps_pid, (void *)va,
+		    (void *)p->p_md.md_ss_addr);
 		return EFAULT;
 	}
 #endif
@@ -1120,7 +1159,7 @@ process_sstep(struct proc *p, int sstep)
 
 #ifdef DEBUG
 	printf("%s (%d): breakpoint set at %p: %08x (pc %p %08x)\n",
-		p->p_comm, p->p_pid, (void *)p->p_md.md_ss_addr,
+		p->p_p->ps_comm, p->p_p->ps_pid, (void *)p->p_md.md_ss_addr,
 		p->p_md.md_ss_instr, (void *)locr0->pc, curinstr);
 #endif
 	return 0;
@@ -1169,7 +1208,7 @@ stacktrace_subr(struct trapframe *regs, int count,
 	extern char k_general[];
 #ifdef DDB
 	db_expr_t diff;
-	db_sym_t sym;
+	Elf_Sym *sym;
 	char *symname;
 #endif
 
@@ -1371,7 +1410,7 @@ end:
 		}
 	} else {
 		if (curproc)
-			(*pr)("User-level: pid %d\n", curproc->p_pid);
+			(*pr)("User-level: pid %d\n", curproc->p_p->ps_pid);
 		else
 			(*pr)("User-level: curproc NULL\n");
 	}
@@ -1533,7 +1572,7 @@ fpe_branch_emulate(struct proc *p, struct trapframe *tf, uint32_t insn,
 	p->p_md.md_fpslotva = (vaddr_t)tf->pc + 4;
 	p->p_md.md_flags |= MDP_FPUSED;
 	tf->pc = p->p_md.md_fppgva;
-	pmap_proc_iflush(p, tf->pc, 2 * 4);
+	pmap_proc_iflush(p->p_p, tf->pc, 2 * 4);
 
 	return 0;
 

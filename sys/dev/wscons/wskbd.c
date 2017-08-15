@@ -1,4 +1,4 @@
-/* $OpenBSD: wskbd.c,v 1.83 2015/12/12 12:30:18 jung Exp $ */
+/* $OpenBSD: wskbd.c,v 1.87 2017/05/12 09:16:55 mpi Exp $ */
 /* $NetBSD: wskbd.c,v 1.80 2005/05/04 01:52:16 augustss Exp $ */
 
 /*
@@ -211,6 +211,7 @@ void	update_modifier(struct wskbd_internal *, u_int, int, int);
 int	internal_command(struct wskbd_softc *, u_int *, keysym_t, keysym_t);
 int	wskbd_translate(struct wskbd_internal *, u_int, int);
 int	wskbd_enable(struct wskbd_softc *, int);
+void	wskbd_debugger(struct wskbd_softc *);
 #if NWSDISPLAY > 0
 void	change_displayparam(struct wskbd_softc *, int, int, int);
 #endif
@@ -517,7 +518,7 @@ wskbd_cnattach(const struct wskbd_consops *consops, void *conscookie,
 	wskbd_console_initted = 1;
 }
 
-void    
+void
 wskbd_cndetach(void)
 {
 	KASSERT(wskbd_console_initted);
@@ -532,6 +533,7 @@ wskbd_cndetach(void)
 	wsdisplay_unset_cons_kbd();
 #endif
 
+	wskbd_console_device = NULL;
 	wskbd_console_initted = 0;
 }
 
@@ -608,7 +610,7 @@ wskbd_detach(struct device  *self, int flags)
 
 	if (sc->sc_isconsole) {
 		KASSERT(wskbd_console_device == sc);
-		wskbd_console_device = NULL;
+		wskbd_cndetach();
 	}
 
 	evar = sc->sc_base.me_evp;
@@ -1001,9 +1003,11 @@ wskbd_displayioctl(struct device *dev, u_long cmd, caddr_t data, int flag,
 	struct wskbd_bell_data *ubdp, *kbdp;
 	struct wskbd_keyrepeat_data *ukdp, *kkdp;
 	struct wskbd_map_data *umdp;
+	struct wskbd_encoding_data *uedp;
 	kbd_t enc;
 	void *buf;
 	int len, error;
+	int count, i;
 
 	switch (cmd) {
 	case WSKBDIO_BELL:
@@ -1158,6 +1162,20 @@ getkeyrepeat:
 		if (sc->sc_base.me_parent != NULL)
 			wsmux_set_layout(sc->sc_base.me_parent, enc);
 #endif
+		return (0);
+
+	case WSKBDIO_GETENCODINGS:
+		uedp = (struct wskbd_encoding_data *)data;
+		for (count = 0; sc->id->t_keymap.keydesc[count].name; count++)
+			;
+		if (uedp->nencodings > count)
+			uedp->nencodings = count;
+		for (i = 0; i < uedp->nencodings; i++) {
+			error = copyout(&sc->id->t_keymap.keydesc[i].name,
+			    &uedp->encodings[i], sizeof(kbd_t));
+			if (error)
+				return (error);
+		}
 		return (0);
 
 	case WSKBDIO_GETBACKLIGHT:
@@ -1349,7 +1367,6 @@ wskbd_cngetc(dev_t dev)
 void
 wskbd_cnpollc(dev_t dev, int poll)
 {
-
 	if (!wskbd_console_initted)
 		return;
 
@@ -1487,8 +1504,7 @@ internal_command(struct wskbd_softc *sc, u_int *type, keysym_t ksym,
 
 #ifdef DDB
 	if (ksym == KS_Cmd_Debugger) {
-		if (sc->sc_isconsole && db_console)
-			Debugger();
+		wskbd_debugger(sc);
 		/* discard this key (ddb discarded command modifiers) */
 		*type = WSCONS_EVENT_KEY_UP;
 		return (1);
@@ -1525,8 +1541,7 @@ internal_command(struct wskbd_softc *sc, u_int *type, keysym_t ksym,
 		switch (kbd_reset) {
 #ifdef DDB
 		case 2:
-			if (sc->sc_isconsole && db_console)
-				Debugger();
+			wskbd_debugger(sc);
 			/* discard this key (ddb discarded command modifiers) */
 			*type = WSCONS_EVENT_KEY_UP;
 			break;
@@ -1805,4 +1820,18 @@ wskbd_translate(struct wskbd_internal *id, u_int type, int value)
 
 	id->t_symbols[0] = res;
 	return (1);
+}
+
+void
+wskbd_debugger(struct wskbd_softc *sc)
+{
+#ifdef DDB
+	if (sc->sc_isconsole && db_console) {
+		if (sc->id->t_consops->debugger != NULL) {
+			(*sc->id->t_consops->debugger)
+				(sc->id->t_consaccesscookie);
+		} else
+			db_enter();
+	}
+#endif
 }

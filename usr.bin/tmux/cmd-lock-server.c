@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-lock-server.c,v 1.22 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-lock-server.c,v 1.26 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,7 +24,7 @@
  * Lock commands.
  */
 
-enum cmd_retval	 cmd_lock_server_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_lock_server_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_lock_server_entry = {
 	.name = "lock-server",
@@ -33,7 +33,7 @@ const struct cmd_entry cmd_lock_server_entry = {
 	.args = { "", 0, 0 },
 	.usage = "",
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_lock_server_exec
 };
 
@@ -44,9 +44,9 @@ const struct cmd_entry cmd_lock_session_entry = {
 	.args = { "t:", 0, 0 },
 	.usage = CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_lock_server_exec
 };
 
@@ -57,22 +57,25 @@ const struct cmd_entry cmd_lock_client_entry = {
 	.args = { "t:", 0, 0 },
 	.usage = CMD_TARGET_CLIENT_USAGE,
 
-	.tflag = CMD_CLIENT,
-
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_lock_server_exec
 };
 
-enum cmd_retval
-cmd_lock_server_exec(struct cmd *self, __unused struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_lock_server_exec(struct cmd *self, struct cmdq_item *item)
 {
+	struct args	*args = self->args;
+	struct client	*c;
+
 	if (self->entry == &cmd_lock_server_entry)
 		server_lock();
 	else if (self->entry == &cmd_lock_session_entry)
-		server_lock_session(cmdq->state.tflag.s);
-	else
-		server_lock_client(cmdq->state.c);
-
+		server_lock_session(item->target.s);
+	else {
+		if ((c = cmd_find_client(item, args_get(args, 't'), 0)) == NULL)
+			return (CMD_RETURN_ERROR);
+		server_lock_client(c);
+	}
 	recalculate_sizes();
 
 	return (CMD_RETURN_NORMAL);

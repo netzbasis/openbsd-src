@@ -1,0 +1,16 @@
+/e_remainder.c/1.8/Mon Sep 12 19:47:01 2016//
+/e_remainderf.c/1.6/Mon Sep 12 19:47:01 2016//
+/e_sqrt.c/1.12/Mon Sep 12 19:47:01 2016//
+/e_sqrtf.c/1.6/Mon Sep 12 19:47:01 2016//
+/fenv.c/1.5/Mon Sep 12 19:47:01 2016//
+/s_ceil.c/1.10/Mon Sep 12 19:47:01 2016//
+/s_ceilf.c/1.8/Mon Sep 12 19:47:01 2016//
+/s_floor.c/1.12/Mon Sep 12 19:47:01 2016//
+/s_floorf.c/1.10/Mon Sep 12 19:47:01 2016//
+/s_rint.c/1.12/Mon Sep 12 19:47:01 2016//
+/s_rintf.c/1.6/Mon Sep 12 19:47:02 2016//
+/s_round.c/1.8/Mon Sep 12 19:47:02 2016//
+/s_roundf.c/1.5/Tue Jan 20 04:41:01 2015//
+/s_trunc.c/1.8/Mon Sep 12 19:47:02 2016//
+/s_truncf.c/1.5/Tue Jan 20 04:41:01 2015//
+D

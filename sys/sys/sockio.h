@@ -1,4 +1,4 @@
-/*	$OpenBSD: sockio.h,v 1.68 2016/09/02 10:01:36 goda Exp $	*/
+/*	$OpenBSD: sockio.h,v 1.70 2017/06/27 22:18:24 tedu Exp $	*/
 /*	$NetBSD: sockio.h,v 1.5 1995/08/23 00:40:47 thorpej Exp $	*/
 
 /*-
@@ -123,15 +123,13 @@
 #define SIOCBRDGSPROTO	 _IOW('i', 90, struct ifbrparam)/* set protocol */
 #define SIOCBRDGS
 
-/* Following ioctls for switch(4) has compatibility to bridge(4) */
-#define	SIOCSWSFLOWMAX	SIOCBRDGSCACHE		/* set max flow per table */
-#define	SIOCSWGFLOWMAX	SIOCBRDGGCACHE		/* get max flow per table */
-
 #define	SIOCSWGDPID	_IOWR('i', 91, struct ifbrparam)/* set datapath id */
-#define	SIOCSWSDPID	 _IOW('i', 91, struct ifbrparam)/* get datapath id */
-#define	SIOCSWGMAXGROUP	_IOWR('i', 92, struct ifbrparam)/* get max groups */
-#define	SIOCSWSMAXGROUP	 _IOW('i', 92, struct ifbrparam)/* set max groups */
-#define	SIOCSWSPORTNO	_IOWR('i', 93, struct ifbreq)	/* set port number */
+#define	SIOCSWSDPID	 _IOW('i', 92, struct ifbrparam)/* get datapath id */
+#define	SIOCSWGMAXGROUP	_IOWR('i', 93, struct ifbrparam)/* get max groups */
+#define	SIOCSWSMAXGROUP	 _IOW('i', 94, struct ifbrparam)/* set max groups */
+#define	SIOCSWSPORTNO	_IOWR('i', 95, struct ifbreq)	/* set port number */
+#define	SIOCSWGMAXFLOW	_IOWR('i', 96, struct ifbrparam)/* get max flow per table */
+#define	SIOCSWSMAXFLOW	 _IOW('i', 97, struct ifbrparam)/* set max flow per table */
 
 #define	SIOCSIFMTU	 _IOW('i', 127, struct ifreq)	/* set ifnet mtu */
 #define	SIOCGIFMTU	_IOWR('i', 126, struct ifreq)	/* get ifnet mtu */
@@ -154,9 +152,6 @@
 
 #define	SIOCSIFRTLABEL	 _IOW('i', 130, struct ifreq)	/* set ifnet rtlabel */
 #define	SIOCGIFRTLABEL	_IOWR('i', 131, struct ifreq)	/* set ifnet rtlabel */
-
-#define	SIOCSIFTIMESLOT	 _IOW('i', 133, struct ifreq)	/* set ifnet timeslot */
-#define	SIOCGIFTIMESLOT	_IOWR('i', 134, struct ifreq)	/* get ifnet timeslot */
 
 #define	SIOCSETVLAN	 _IOW('i', 143, struct ifreq)	/* set vlan parent if */
 #define	SIOCGETVLAN	_IOWR('i', 144, struct ifreq)	/* get vlan parent if */

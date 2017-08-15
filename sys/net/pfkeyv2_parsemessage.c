@@ -1,12 +1,12 @@
-/*	$OpenBSD: pfkeyv2_parsemessage.c,v 1.49 2015/04/14 12:22:15 mikeb Exp $	*/
+/*	$OpenBSD: pfkeyv2_parsemessage.c,v 1.53 2017/07/14 16:50:41 tedu Exp $	*/
 
 /*
  *	@(#)COPYRIGHT	1.1 (NRL) 17 January 1995
- * 
+ *
  * NRL grants permission for redistribution and use in source and binary
  * forms, with or without modification, of the software and documentation
  * created at NRL provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
@@ -14,14 +14,14 @@
  *    documentation and/or other materials provided with the distribution.
  * 3. All advertising materials mentioning features or use of this software
  *    must display the following acknowledgements:
- * 	This product includes software developed by the University of
- * 	California, Berkeley and its contributors.
- * 	This product includes software developed at the Information
- * 	Technology Division, US Naval Research Laboratory.
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
+ *	This product includes software developed at the Information
+ *	Technology Division, US Naval Research Laboratory.
  * 4. Neither the name of the NRL nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THE SOFTWARE PROVIDED BY NRL IS PROVIDED BY NRL AND CONTRIBUTORS ``AS
  * IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
  * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
@@ -33,7 +33,7 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * 
+ *
  * The views and conclusions contained in the software and documentation
  * are those of the authors and should not be interpreted as representing
  * official policies, either expressed or implied, of the US Naval
@@ -76,7 +76,6 @@
 #include <sys/mbuf.h>
 #include <sys/proc.h>
 #include <netinet/ip_ipsp.h>
-#include <netinet/ip_var.h>
 #include <net/pfkeyv2.h>
 
 #if NPF > 0
@@ -96,6 +95,7 @@
 #define BITMAP_LIFETIME_SOFT           (1LL << SADB_EXT_LIFETIME_SOFT)
 #define BITMAP_ADDRESS_SRC             (1LL << SADB_EXT_ADDRESS_SRC)
 #define BITMAP_ADDRESS_DST             (1LL << SADB_EXT_ADDRESS_DST)
+#define BITMAP_ADDRESS_PROXY           (1LL << SADB_EXT_ADDRESS_PROXY)
 #define BITMAP_KEY_AUTH                (1LL << SADB_EXT_KEY_AUTH)
 #define BITMAP_KEY_ENCRYPT             (1LL << SADB_EXT_KEY_ENCRYPT)
 #define BITMAP_IDENTITY_SRC            (1LL << SADB_EXT_IDENTITY_SRC)
@@ -125,6 +125,7 @@
 #define BITMAP_X_LIFETIME_LASTUSE      (1LL << SADB_X_EXT_LIFETIME_LASTUSE)
 #define BITMAP_X_TAG                   (1LL << SADB_X_EXT_TAG)
 #define BITMAP_X_TAP                   (1LL << SADB_X_EXT_TAP)
+#define BITMAP_X_SATYPE2               (1LL << SADB_X_EXT_SATYPE2)
 
 uint64_t sadb_exts_allowed_in[SADB_MAX+1] =
 {
@@ -133,7 +134,7 @@ uint64_t sadb_exts_allowed_in[SADB_MAX+1] =
 	/* GETSPI */
 	BITMAP_ADDRESS_SRC | BITMAP_ADDRESS_DST | BITMAP_SPIRANGE,
 	/* UPDATE */
-	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_KEY | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_TAG | BITMAP_X_TAP,
+	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_ADDRESS_PROXY | BITMAP_KEY | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_TAG | BITMAP_X_TAP,
 	/* ADD */
 	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_KEY | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_LIFETIME_LASTUSE | BITMAP_X_TAG | BITMAP_X_TAP,
 	/* DELETE */
@@ -157,7 +158,7 @@ uint64_t sadb_exts_allowed_in[SADB_MAX+1] =
 	/* X_DELFLOW */
 	BITMAP_X_FLOW,
 	/* X_GRPSPIS */
-	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_PROTOCOL,
+	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_SATYPE2,
 	/* X_ASKPOLICY */
 	BITMAP_X_POLICY,
 };
@@ -193,7 +194,7 @@ uint64_t sadb_exts_required_in[SADB_MAX+1] =
 	/* X_DELFLOW */
 	BITMAP_X_SRC_MASK | BITMAP_X_DST_MASK | BITMAP_X_SRC_FLOW | BITMAP_X_DST_FLOW | BITMAP_X_FLOW_TYPE,
 	/* X_GRPSPIS */
-	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_PROTOCOL,
+	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_SATYPE2,
 	/* X_ASKPOLICY */
 	BITMAP_X_POLICY,
 };
@@ -205,7 +206,7 @@ uint64_t sadb_exts_allowed_out[SADB_MAX+1] =
 	/* GETSPI */
 	BITMAP_SA | BITMAP_ADDRESS_SRC | BITMAP_ADDRESS_DST,
 	/* UPDATE */
-	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_TAG | BITMAP_X_TAP,
+	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_ADDRESS_PROXY | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_TAG | BITMAP_X_TAP,
 	/* ADD */
 	BITMAP_SA | BITMAP_LIFETIME | BITMAP_ADDRESS | BITMAP_IDENTITY | BITMAP_X_FLOW | BITMAP_X_UDPENCAP | BITMAP_X_TAG | BITMAP_X_TAP,
 	/* DELETE */
@@ -229,7 +230,7 @@ uint64_t sadb_exts_allowed_out[SADB_MAX+1] =
 	/* X_DELFLOW */
 	BITMAP_X_SRC_MASK | BITMAP_X_DST_MASK | BITMAP_X_PROTOCOL | BITMAP_X_SRC_FLOW | BITMAP_X_DST_FLOW | BITMAP_X_FLOW_TYPE,
 	/* X_GRPSPIS */
-	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_PROTOCOL,
+	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_SATYPE2,
 	/* X_ASKPOLICY */
 	BITMAP_X_SRC_FLOW | BITMAP_X_DST_FLOW | BITMAP_X_SRC_MASK | BITMAP_X_DST_MASK | BITMAP_X_FLOW_TYPE | BITMAP_X_POLICY,
 };
@@ -265,7 +266,7 @@ uint64_t sadb_exts_required_out[SADB_MAX+1] =
 	/* X_DELFLOW */
 	BITMAP_X_SRC_MASK | BITMAP_X_DST_MASK | BITMAP_X_SRC_FLOW | BITMAP_X_DST_FLOW | BITMAP_X_FLOW_TYPE,
 	/* X_GRPSPIS */
-	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_PROTOCOL,
+	BITMAP_SA | BITMAP_X_SA2 | BITMAP_X_DST2 | BITMAP_ADDRESS_DST | BITMAP_X_SATYPE2,
 	/* X_REPPOLICY */
 	BITMAP_X_SRC_FLOW | BITMAP_X_DST_FLOW | BITMAP_X_SRC_MASK | BITMAP_X_DST_MASK | BITMAP_X_FLOW_TYPE,
 };
@@ -434,9 +435,10 @@ pfkeyv2_parsemessage(void *p, int len, void **headers)
 		break;
 		case SADB_X_EXT_PROTOCOL:
 		case SADB_X_EXT_FLOW_TYPE:
+		case SADB_X_EXT_SATYPE2:
 			if (i != sizeof(struct sadb_protocol)) {
-				DPRINTF(("pfkeyv2_parsemessage: bad "
-				    "PROTOCOL/FLOW header length in extension "
+				DPRINTF(("pfkeyv2_parsemessage: bad PROTOCOL/"
+				    "FLOW/SATYPE2 header length in extension "
 				    "header %d\n", sadb_ext->sadb_ext_type));
 				return (EINVAL);
 			}
@@ -461,6 +463,7 @@ pfkeyv2_parsemessage(void *p, int len, void **headers)
 			break;
 		case SADB_EXT_ADDRESS_SRC:
 		case SADB_EXT_ADDRESS_DST:
+		case SADB_EXT_ADDRESS_PROXY:
 		case SADB_X_EXT_SRC_MASK:
 		case SADB_X_EXT_DST_MASK:
 		case SADB_X_EXT_SRC_FLOW:

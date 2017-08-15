@@ -1,0 +1,17 @@
+/CMakeLists.txt/1.1.1.2/Tue Jan 24 08:33:23 2017//
+/InstCombineAddSub.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineAndOrXor.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineCalls.cpp/1.1.1.3/Tue Jan 24 08:33:24 2017//
+/InstCombineCasts.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineCompares.cpp/1.1.1.4/Tue Mar 14 08:08:05 2017//
+/InstCombineInternal.h/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineLoadStoreAlloca.cpp/1.1.1.4/Tue Mar 14 08:08:05 2017//
+/InstCombineMulDivRem.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombinePHI.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineSelect.cpp/1.1.1.3/Tue Jan 24 08:33:24 2017//
+/InstCombineShifts.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineSimplifyDemanded.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstCombineVectorOps.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/InstructionCombining.cpp/1.1.1.3/Tue Jan 24 08:33:23 2017//
+/LLVMBuild.txt/1.1.1.1/Sat Sep  3 22:47:00 2016//
+D

@@ -54,6 +54,7 @@
 #include "util/net_help.h"
 #include "util/module.h"
 #include "util/regional.h"
+#include "util/config_file.h"
 #include "sldns/wire2str.h"
 #include "sldns/parseutil.h"
 
@@ -219,7 +220,7 @@ val_find_signer(enum val_classification subtype, struct query_info* qinf,
 {
 	size_t i;
 	
-	if(subtype == VAL_CLASS_POSITIVE || subtype == VAL_CLASS_ANY) {
+	if(subtype == VAL_CLASS_POSITIVE) {
 		/* check for the answer rrset */
 		for(i=skip; i<rep->an_numrrsets; i++) {
 			if(query_dname_compare(qinf->qname, 
@@ -271,6 +272,29 @@ val_find_signer(enum val_classification subtype, struct query_info* qinf,
 					signer_name, signer_len, &matchcount);
 			}
 		}
+	} else if(subtype == VAL_CLASS_ANY) {
+		/* check for one of the answer rrset that has signatures,
+		 * or potentially a DNAME is in use with a different qname */
+		for(i=skip; i<rep->an_numrrsets; i++) {
+			if(query_dname_compare(qinf->qname, 
+				rep->rrsets[i]->rk.dname) == 0) {
+				val_find_rrset_signer(rep->rrsets[i], 
+					signer_name, signer_len);
+				if(*signer_name)
+					return;
+			}
+		}
+		/* no answer RRSIGs with qname, try a DNAME */
+		if(skip < rep->an_numrrsets &&
+			ntohs(rep->rrsets[skip]->rk.type) ==
+			LDNS_RR_TYPE_DNAME) {
+			val_find_rrset_signer(rep->rrsets[skip], 
+				signer_name, signer_len);
+			if(*signer_name)
+				return;
+		}
+		*signer_name = NULL;
+		*signer_len = 0;
 	} else if(subtype == VAL_CLASS_REFERRAL) {
 		/* find keys for the item at skip */
 		if(skip < rep->rrset_count) {
@@ -472,16 +496,21 @@ val_verify_DNSKEY_with_DS(struct module_env* env, struct val_env* ve,
 		return sec_status_bogus;
 	}
 
-	digest_algo = val_favorite_ds_algo(ds_rrset);
-	if(sigalg)
+	if(sigalg) {
+		/* harden against algo downgrade is enabled */
+		digest_algo = val_favorite_ds_algo(ds_rrset);
 		algo_needs_init_ds(&needs, ds_rrset, digest_algo, sigalg);
+	} else {
+		/* accept any key algo, any digest algo */
+		digest_algo = -1;
+	}
 	num = rrset_get_count(ds_rrset);
 	for(i=0; i<num; i++) {
 		/* Check to see if we can understand this DS. 
 		 * And check it is the strongest digest */
 		if(!ds_digest_algo_is_supported(ds_rrset, i) ||
 			!ds_key_algo_is_supported(ds_rrset, i) ||
-			ds_get_digest_algo(ds_rrset, i) != digest_algo) {
+			(sigalg && (ds_get_digest_algo(ds_rrset, i) != digest_algo))) {
 			continue;
 		}
 
@@ -886,7 +915,7 @@ void val_reply_remove_auth(struct reply_info* rep, size_t index)
 }
 
 void
-val_check_nonsecure(struct val_env* ve, struct reply_info* rep) 
+val_check_nonsecure(struct module_env* env, struct reply_info* rep) 
 {
 	size_t i;
 	/* authority */
@@ -927,7 +956,7 @@ val_check_nonsecure(struct val_env* ve, struct reply_info* rep)
 		}
 	}
 	/* additional */
-	if(!ve->clean_additional)
+	if(!env->cfg->val_clean_additional)
 		return;
 	for(i=rep->an_numrrsets+rep->ns_numrrsets; i<rep->rrset_count; i++) {
 		if(((struct packed_rrset_data*)rep->rrsets[i]->entry.data)
@@ -1115,6 +1144,7 @@ val_find_DS(struct module_env* env, uint8_t* nm, size_t nmlen, uint16_t c,
 	qinfo.qname_len = nmlen;
 	qinfo.qtype = LDNS_RR_TYPE_DS;
 	qinfo.qclass = c;
+	qinfo.local_alias = NULL;
 	/* do not add SOA to reply message, it is going to be used internal */
 	msg = val_neg_getmsg(env->neg_cache, &qinfo, region, env->rrset_cache,
 		env->scratch_buffer, *env->now, 0, topname);

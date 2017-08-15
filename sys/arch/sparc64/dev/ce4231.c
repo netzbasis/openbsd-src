@@ -1,4 +1,4 @@
-/*	$OpenBSD: ce4231.c,v 1.33 2015/05/11 06:52:35 ratchov Exp $	*/
+/*	$OpenBSD: ce4231.c,v 1.35 2016/09/19 06:46:43 ratchov Exp $	*/
 
 /*
  * Copyright (c) 1999 Jason L. Wright (jason@thought.net)
@@ -133,14 +133,12 @@ u_int8_t	ce4231_read(struct ce4231_softc *, u_int8_t);
 /* Audio interface */
 int	ce4231_open(void *, int);
 void	ce4231_close(void *);
-int	ce4231_query_encoding(void *, struct audio_encoding *);
 int	ce4231_set_params(void *, int, int, struct audio_params *,
     struct audio_params *);
 int	ce4231_round_blocksize(void *, int);
 int	ce4231_commit_settings(void *);
 int	ce4231_halt_output(void *);
 int	ce4231_halt_input(void *);
-int	ce4231_getdev(void *, struct audio_device *);
 int	ce4231_set_port(void *, mixer_ctrl_t *);
 int	ce4231_get_port(void *, mixer_ctrl_t *);
 int	ce4231_query_devinfo(void *addr, mixer_devinfo_t *);
@@ -155,8 +153,6 @@ int	ce4231_trigger_input(void *, void *, void *, int,
 struct audio_hw_if ce4231_sa_hw_if = {
 	ce4231_open,
 	ce4231_close,
-	0,
-	ce4231_query_encoding,
 	ce4231_set_params,
 	ce4231_round_blocksize,
 	ce4231_commit_settings,
@@ -167,7 +163,6 @@ struct audio_hw_if ce4231_sa_hw_if = {
 	ce4231_halt_output,
 	ce4231_halt_input,
 	0,
-	ce4231_getdev,
 	0,
 	ce4231_set_port,
 	ce4231_get_port,
@@ -175,11 +170,9 @@ struct audio_hw_if ce4231_sa_hw_if = {
 	ce4231_alloc,
 	ce4231_free,
 	0,
-	0,
 	ce4231_get_props,
 	ce4231_trigger_output,
-	ce4231_trigger_input,
-	0
+	ce4231_trigger_input
 };
 
 struct cfattach audioce_ca = {
@@ -188,12 +181,6 @@ struct cfattach audioce_ca = {
 
 struct cfdriver audioce_cd = {
 	NULL, "audioce", DV_DULL
-};
-
-struct audio_device ce4231_device = {
-	"SUNW,CS4231",
-	"b",
-	"onboard1",
 };
 
 int
@@ -469,52 +456,6 @@ ce4231_close(addr)
 }
 
 int
-ce4231_query_encoding(addr, fp)
-	void *addr;
-	struct audio_encoding *fp;
-{
-	int err = 0;
-
-	switch (fp->index) {
-	case 0:
-		strlcpy(fp->name, AudioEmulaw, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_ULAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 1:
-		strlcpy(fp->name, AudioEalaw, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_ALAW;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 2:
-		strlcpy(fp->name, AudioEslinear_le, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_SLINEAR_LE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 3:
-		strlcpy(fp->name, AudioEulinear, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_ULINEAR;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 4:
-		strlcpy(fp->name, AudioEslinear_be, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	default:
-		err = EINVAL;
-	}
-	fp->bps = AUDIO_BPS(fp->precision);
-	fp->msb = 1;
-	return (err);
-}
-
-int
 ce4231_set_params(addr, setmode, usemode, p, r)
 	void *addr;
 	int setmode, usemode;
@@ -669,15 +610,6 @@ ce4231_halt_input(addr)
 	    C_READ(sc, EBDMA_DCSR) & ~EBDCSR_DMAEN);
 	ce4231_write(sc, SP_INTERFACE_CONFIG,
 	    ce4231_read(sc, SP_INTERFACE_CONFIG) & (~CAPTURE_ENABLE));
-	return (0);
-}
-
-int
-ce4231_getdev(addr, retp)
-	void *addr;
-	struct audio_device *retp;
-{
-	*retp = ce4231_device;
 	return (0);
 }
 

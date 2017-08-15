@@ -1,0 +1,12 @@
+/01base.t/1.2/Sun Feb  5 00:32:07 2017/-kb/
+/02derived.t/1.2/Sun Feb  5 00:32:07 2017/-kb/
+/03require.t/1.2/Sun Feb  5 00:32:07 2017/-kb/
+/04strict_lax.t/1.1.1.1/Mon Nov 17 20:53:02 2014/-kb/
+/05sigdie.t/1.2/Sun Feb  5 00:32:08 2017/-kb/
+/06noop.t/1.2/Sun Feb  5 00:32:08 2017/-kb/
+/07locale.t/1.2/Sun Feb  5 00:32:08 2017/-kb/
+/08_corelist.t/1.2/Sun Feb  5 00:32:08 2017/-kb/
+/09_list_util.t/1.2/Sun Feb  5 00:32:08 2017/-kb/
+/10_lyon.t/1.1/Sun Feb  5 00:32:08 2017/-ko/
+/coretests.pm/1.2/Sun Feb  5 00:32:08 2017/-kb/
+D

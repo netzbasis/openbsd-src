@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb.c,v 1.111 2016/05/18 18:28:58 patrick Exp $	*/
+/*	$OpenBSD: usb.c,v 1.114 2017/07/29 18:26:14 ians Exp $	*/
 /*	$NetBSD: usb.c,v 1.77 2003/01/01 00:10:26 thorpej Exp $	*/
 
 /*
@@ -610,10 +610,10 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case USB_REQUEST:
 	{
 		struct usb_ctl_request *ur = (void *)data;
-		size_t len = UGETW(ur->ucr_request.wLength);
+		size_t len = UGETW(ur->ucr_request.wLength), mlen;
 		struct iovec iov;
 		struct uio uio;
-		void *ptr = 0;
+		void *ptr = NULL;
 		int addr = ur->ucr_addr;
 		usbd_status err;
 		int error = 0;
@@ -649,7 +649,10 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 				ur->ucr_request.bmRequestType & UT_READ ?
 				UIO_READ : UIO_WRITE;
 			uio.uio_procp = p;
-			ptr = malloc(len, M_TEMP, M_WAITOK);
+			if ((ptr = malloc(len, M_TEMP, M_NOWAIT)) == NULL) {
+				error = ENOMEM;
+				goto ret;
+			}
 			if (uio.uio_rw == UIO_WRITE) {
 				error = uiomove(ptr, len, &uio);
 				if (error)
@@ -664,18 +667,18 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 			goto ret;
 		}
 		/* Only if USBD_SHORT_XFER_OK is set. */
-		if (len > ur->ucr_actlen)
-			len = ur->ucr_actlen;
-		if (len != 0) {
+		mlen = len;
+		if (mlen > ur->ucr_actlen)
+			mlen = ur->ucr_actlen;
+		if (mlen != 0) {
 			if (uio.uio_rw == UIO_READ) {
-				error = uiomove(ptr, len, &uio);
+				error = uiomove(ptr, mlen, &uio);
 				if (error)
 					goto ret;
 			}
 		}
 	ret:
-		if (ptr)
-			free(ptr, M_TEMP, 0);
+		free(ptr, M_TEMP, len);
 		return (error);
 	}
 

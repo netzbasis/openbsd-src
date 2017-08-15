@@ -1,4 +1,4 @@
-.\" $OpenBSD: iked.conf.5,v 1.44 2015/12/09 21:41:49 naddy Exp $
+.\" $OpenBSD: iked.conf.5,v 1.50 2017/06/01 15:23:43 sthen Exp $
 .\"
 .\" Copyright (c) 2010 - 2014 Reyk Floeter <reyk@openbsd.org>
 .\" Copyright (c) 2004 Mathieu Sauve-Frankel  All rights reserved.
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 9 2015 $
+.Dd $Mdocdate: June 1 2017 $
 .Dt IKED.CONF 5
 .Os
 .Sh NAME
@@ -246,10 +246,13 @@ is specified, negotiation will be started at once.
 If omitted,
 .Ar passive
 mode will be used.
-.It Ic ipcomp
-Enable optional support for
+.It Op Ar ipcomp
+The keyword
+.Ar ipcomp
+specifies that
 .Xr ipcomp 4 ,
-the IP Payload Compression protocol.
+the IP Payload Compression protocol, is negotiated in addition to encapsulation.
+The optional compression is applied before packets are encapsulated.
 .It Op Ar encap
 .Ar encap
 specifies the encapsulation protocol to be used.
@@ -443,6 +446,10 @@ parameter defines the IKE SA expiration timeout by the
 SA was created.
 A zero value disables active IKE SA rekeying.
 This is the default.
+.Pp
+The accepted format of the
+.Ar time
+specification is described below.
 .It Ic lifetime Ar time Op Ic bytes Ar bytes
 The optional
 .Ic lifetime
@@ -468,11 +475,16 @@ and
 for kilo-, mega- and gigabytes accordingly.
 .Pp
 Please note that rekeying must happen at least several times a day as
-IPsec security heavily depends on the frequent key renewals.
+IPsec security heavily depends on frequent key renewals.
 .It Op Ar ikeauth
-Specify the mode to mutually authenticate the peers.
-Non-psk modes will require to set up certificates and RSA public keys;
-see
+Specify a method to be used to authenticate the remote peer.
+.Xr iked 8
+will automatically determine a method based on public keys or certificates
+configured for the peer.
+.Ar ikeauth
+can be used to override this behaviour.
+Non-psk modes will require setting up certificates and RSA or ECDSA public
+keys; see
 .Xr iked 8
 for more information.
 .Pp
@@ -484,14 +496,24 @@ The only supported EAP
 is currently
 .Ar MSCHAP-V2 .
 The responder will use RSA public key authentication.
+.It Ic ecdsa256
+Use ECDSA with a 256-bit elliptic curve key and SHA2-256 for authentication.
+.It Ic ecdsa384
+Use ECDSA with a 384-bit elliptic curve key and SHA2-384 for authentication.
+.It Ic ecdsa521
+Use ECDSA with a 521-bit elliptic curve key and SHA2-512 for authentication.
 .It Ic psk Ar string
 Use a pre-shared key
 .Ar string
 or hex value (starting with 0x) for authentication.
+.It Ic rfc7427
+Only use RFC 7427 signatures for authentication.
+RFC 7427 signatures currently only support SHA2-256 as the hash.
 .It Ic rsa
-Use RSA public key authentication.
-This is the default mode if no option is specified.
+Use RSA public key authentication with SHA1 as the hash.
 .El
+.Pp
+The default is to allow any signature authentication.
 .It Ic config Ar option address
 Send one or more optional configuration payloads (CP) to the peer.
 The configuration
@@ -550,6 +572,8 @@ from ASN1_DN IDs, for example
 .Ar ASN1_ID//C=DE/../CN=10.1.1.1/..
 will be expanded to
 .Ar 10.1.1.1 .
+.It Ar $eapid
+For a connection using EAP, the identity (username) used by the remote peer.
 .It Ar $domain
 Extract the domain from IDs of type FQDN, UFQDN or ASN1_DN.
 .It Ar $name
@@ -811,9 +835,6 @@ keyword:
 .It Li ecp256 Ta grp19 Ta 256 Ta "ECP"
 .It Li ecp384 Ta grp20 Ta 384 Ta "ECP"
 .It Li ecp521 Ta grp21 Ta 521 Ta "ECP"
-.It Li modp1024-160 Ta grp22 Ta 2048 Ta "MODP, 160 bit Prime Order Subgroup"
-.It Li modp2048-224 Ta grp23 Ta 2048 Ta "MODP, 224 bit Prime Order Subgroup"
-.It Li modp2048-256 Ta grp24 Ta 2048 Ta "MODP, 256 bit Prime Order Subgroup"
 .It Li ecp192 Ta grp25 Ta 192 Ta "ECP"
 .It Li ecp224 Ta grp26 Ta 224 Ta "ECP"
 .It Li brainpool224 Ta grp27 Ta 224 Ta "ECP, brainpoolP224r1"

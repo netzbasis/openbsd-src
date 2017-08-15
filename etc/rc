@@ -1,4 +1,4 @@
-#	$OpenBSD: rc,v 1.486 2016/07/10 09:08:18 rpe Exp $
+#	$OpenBSD: rc,v 1.513 2017/07/18 19:31:20 zhuk Exp $
 
 # System startup script run by init on autoboot or after single-user.
 # Output and error are redirected to console by init, and the console is the
@@ -8,7 +8,6 @@
 set +o sh
 
 # Subroutines (have to come first).
-
 
 # Strip in- and whole-line comments from a file.
 # Strip leading and trailing whitespace if IFS is set.
@@ -31,7 +30,7 @@ update_limit() {
 	local _cap=$2 _val	# login.conf capability and its value
 	local _suffix
 
-	for _suffix in {,-cur,-max}; do
+	for _suffix in {,-max,-cur}; do
 		_val=$(getcap -f /etc/login.conf -s ${_cap}${_suffix} daemon 2>/dev/null)
 		[[ -n $_val ]] || continue
 		[[ $_val == infinity ]] && _val=unlimited
@@ -81,13 +80,12 @@ wsconsctl_conf() {
 	done
 }
 
+# Push the old seed into the kernel, create a future seed  and create a seed
+# file for the boot-loader.
 random_seed() {
-	# push the old seed into the kernel
 	dd if=/var/db/host.random of=/dev/random bs=65536 count=1 status=none
 	chmod 600 /var/db/host.random
-	# ... and create a future seed
 	dd if=/dev/random of=/var/db/host.random bs=65536 count=1 status=none
-	# and create a seed file for the boot-loader
 	dd if=/dev/random of=/etc/random.seed bs=512 count=1 status=none
 	chmod 600 /etc/random.seed
 }
@@ -160,23 +158,17 @@ make_keys() {
 
 # Re-link libraries, placing the objects in a random order.
 reorder_libs() {
-	local _l _liba _libas _tmpdir _remount=false _error=false
-	local _dkdev=$(df /usr/lib | sed '1d;s/ .*//')
-	local _mp=$(mount | grep "^$_dkdev")
+	local _dkdev _liba _libas _mp _tmpdir _remount=false _error=false
+
+	[[ $library_aslr == NO ]] && return
+
+	_dkdev=$(df /usr/lib | sed '1d;s/ .*//')
+	_mp=$(mount | grep "^$_dkdev")
 
 	# Skip if /usr/lib is on a nfs mounted filesystem.
 	[[ $_mp == *' type nfs '* ]] && return
 
 	echo -n 'reordering libraries:'
-
-	# Only choose the latest version of the libraries.
-	for _liba in /usr/lib/libc.so.*.a; do
-		_liba=$(ls ${_liba%%.[0-9]*}*.a | sort -V | tail -1)
-		for _l in $_libas; do
-			[[ $_l == $_liba ]] && continue 2
-		done
-		_libas="$_libas $_liba"
-	done
 
 	# Remount read-write, if /usr/lib is on a read-only ffs filesystem.
 	if [[ $_mp == *' type ffs '*'read-only'* ]]; then
@@ -188,6 +180,12 @@ reorder_libs() {
 		fi
 	fi
 
+	# Only choose the latest version of the libraries.
+	for _liba in /usr/lib/lib{c,crypto}; do
+		_libas="$_libas $(ls $_liba.so.+([0-9.]).a | sort -rV | head -1)"
+	done
+	_libas=${_libas# }
+
 	for _liba in $_libas; do
 		_tmpdir=$(mktemp -dq /tmp/_librebuild.XXXXXXXXXXXX) && (
 			set -o errexit
@@ -198,6 +196,8 @@ reorder_libs() {
 			cc -shared -o $_lib $(ls *.so | sort -R) $(cat .ldadd)
 			[[ -s $_lib ]] && file $_lib | fgrep -q 'shared object'
 			LD_BIND_NOW=1 LD_LIBRARY_PATH=$_tmpdir awk 'BEGIN {exit 0}'
+			LD_BIND_NOW=1 LD_LIBRARY_PATH=$_tmpdir openssl \
+			    x509 -in /etc/ssl/cert.pem -out /dev/null
 			install -F -S -o root -g bin -m 0444 $_lib /usr/lib/$_lib
 		) || { _error=true; break; }
 	done
@@ -216,11 +216,53 @@ reorder_libs() {
 	fi
 }
 
+# Re-link the kernel, placing the objects in a random order.
+# Replace current with relinked kernel and inform root about it.
+reorder_kernel() (
+	local _dkdev=$(df /usr/share | sed '1d;s/ .*//')
+
+	# Skip if /usr/share is on a nfs mounted filesystem.
+	[[ $(mount | grep "^$_dkdev") == *" type nfs "* ]] && return
+
+	_compile=/usr/share/compile
+	_kernel=$(sysctl -n kern.osversion)
+	_kernel=${_kernel%#*}
+	_log=$_compile/$_kernel/relink.log
+	_sha256=/var/db/kernel.SHA256
+
+	mkdir -m 700 -p $_compile/$_kernel
+	exec 1>$_log
+	exec 2>&1
+
+	trap 'trap - EXIT; logger -st /etc/rc \
+		"kernel relinking failed; see $_log" >>/dev/console 2>&1' ERR
+	trap 'logger -t /etc/rc "kernel relinking done"' EXIT
+	set -e
+
+	if [[ -f $_compile.tgz ]]; then
+		rm -rf $_compile/$_kernel/*
+		exec 1>$_log
+		tar -C $_compile -xzf $_compile.tgz $_kernel
+		rm -f $_compile.tgz
+	fi
+
+	sha256 -C $_sha256 /bsd
+
+	cd $_compile/$_kernel
+	make newbsd
+	make newinstall
+
+	echo "\nKernel has been relinked and is active on next reboot.\n"
+	cat $_sha256
+)
+
 # Run rc.* script and email output to root.
 # Usage: run_upgrade_script firsttime|sysmerge
 run_upgrade_script() {
 	local _suffix=$1
+
 	[[ -n $_suffix ]] || return 1
+
 	if [[ -f /etc/rc.$_suffix ]]; then
 		mv /etc/rc.$_suffix /etc/rc.$_suffix.run
 		. /etc/rc.$_suffix.run 2>&1 | tee /dev/tty |
@@ -275,12 +317,14 @@ if [[ -s /etc/defaultdomain ]]; then
 	domainname "$(stripcom /etc/defaultdomain)"
 fi
 
-# Need to get local functions from rc.subr.
+# Get local functions from rc.subr to load rc.conf into scope.
 FUNCS_ONLY=1 . /etc/rc.d/rc.subr
-
-# Load rc.conf into scope.
 _rc_parse_conf
 
+# If executed with the 'shutdown' parameter by the halt, reboot or shutdown:
+# - update seed files
+# - execute the rc.d scripts specified by $pkg_scripts in reverse order
+# - bring carp interfaces down gracefully
 if [[ $1 == shutdown ]]; then
 	if echo 2>/dev/null >>/var/db/host.random || \
 	    echo 2>/dev/null >>/etc/random.seed; then
@@ -307,7 +351,6 @@ if [[ $1 == shutdown ]]; then
 		[[ -f /etc/rc.shutdown ]] && sh /etc/rc.shutdown
 	fi
 
-	# Bring carp interfaces down gracefully.
 	ifconfig | while read _if _junk; do
 		[[ $_if == carp+([0-9]): ]] && ifconfig ${_if%:} down
 	done
@@ -318,6 +361,7 @@ fi
 # Add swap block-devices.
 swapctl -A -t blk
 
+# Run filesystem check unless a /fastboot file exists.
 if [[ -e /fastboot ]]; then
 	echo "Fast boot: skipping disk checks."
 elif [[ $1 == autoboot ]]; then
@@ -325,14 +369,24 @@ elif [[ $1 == autoboot ]]; then
 	do_fsck
 fi
 
+# From now on, allow user to interrupt (^C) the boot process.
 trap "echo 'Boot interrupted.'; exit 1" 3
 
+# Unmount all filesystems except root.
 umount -a >/dev/null 2>&1
-mount -a -t nonfs,vnd
-mount -uw /		# root on nfs requires this, others aren't hurt.
-rm -f /fastboot		# XXX (root now writeable)
 
-# Set flags on ttys.  (Do early, in case they use tty for SLIP in netstart.)
+# Mount all filesystems except those of type NFS and VND.
+mount -a -t nonfs,vnd
+
+# Re-mount the root filesystem read/writeable. (root on nfs requires this,
+# others aren't hurt.)
+mount -uw /
+chmod og-rwx /bsd
+ln -fh /bsd /bsd.booted
+
+rm -f /fastboot
+
+# Set flags on ttys.
 echo 'setting tty flags'
 ttyflags -a
 
@@ -345,38 +399,47 @@ wsconsctl_conf
 
 # Set initial temporary pf rule set.
 if [[ $pf != NO ]]; then
-	RULES="block all"
-	RULES="$RULES\npass on lo0"
-	RULES="$RULES\npass in proto tcp from any to any port ssh keep state"
-	RULES="$RULES\npass out proto { tcp, udp } from any to any port domain keep state"
-	RULES="$RULES\npass out inet proto icmp all icmp-type echoreq keep state"
-	RULES="$RULES\npass out inet proto udp from any port bootpc to any port bootps"
-	RULES="$RULES\npass in inet proto udp from any port bootps to any port bootpc"
+	RULES="
+	block all
+	pass on lo0
+	pass in proto tcp from any to any port ssh keep state
+	pass out proto { tcp, udp } from any to any port domain keep state
+	pass out inet proto icmp all icmp-type echoreq keep state
+	pass out inet proto udp from any port bootpc to any port bootps
+	pass in inet proto udp from any port bootps to any port bootpc"
+
 	if ifconfig lo0 inet6 >/dev/null 2>&1; then
-		RULES="$RULES\npass out inet6 proto icmp6 all icmp6-type neighbrsol"
-		RULES="$RULES\npass in inet6 proto icmp6 all icmp6-type neighbradv"
-		RULES="$RULES\npass out inet6 proto icmp6 all icmp6-type routersol"
-		RULES="$RULES\npass in inet6 proto icmp6 all icmp6-type routeradv"
-		RULES="$RULES\npass out inet6 proto udp from any port dhcpv6-client to any port dhcpv6-server"
-		RULES="$RULES\npass in inet6 proto udp from any port dhcpv6-server to any port dhcpv6-client"
+		RULES="$RULES
+		pass out inet6 proto icmp6 all icmp6-type neighbrsol
+		pass in inet6 proto icmp6 all icmp6-type neighbradv
+		pass out inet6 proto icmp6 all icmp6-type routersol
+		pass in inet6 proto icmp6 all icmp6-type routeradv
+		pass out inet6 proto udp from any port dhcpv6-client to any port dhcpv6-server
+		pass in inet6 proto udp from any port dhcpv6-server to any port dhcpv6-client"
 	fi
-	RULES="$RULES\npass in proto carp keep state (no-sync)"
-	RULES="$RULES\npass out proto carp !received-on any keep state (no-sync)"
-	if [[ $(sysctl vfs.mounts.nfs 2>/dev/null) == *[1-9]* ]]; then
+
+	RULES="$RULES
+	pass in proto carp keep state (no-sync)
+	pass out proto carp !received-on any keep state (no-sync)"
+
+	if (($(sysctl -n vfs.mounts.nfs 2>/dev/null) > 0)); then
 		# Don't kill NFS.
-		RULES="set reassemble yes no-df\n$RULES"
-		RULES="$RULES\npass in proto { tcp, udp } from any port { sunrpc, nfsd } to any"
-		RULES="$RULES\npass out proto { tcp, udp } from any to any port { sunrpc, nfsd } !received-on any"
+		RULES="set reassemble yes no-df
+		$RULES
+		pass in proto { tcp, udp } from any port { sunrpc, nfsd } to any
+		pass out proto { tcp, udp } from any to any port { sunrpc, nfsd } !received-on any"
 	fi
+
 	print -- "$RULES" | pfctl -f -
 	pfctl -e
 fi
 
-# Fill net.inet.(tcp|udp).baddynamic lists from /etc/services.
 fill_baddynamic udp
 fill_baddynamic tcp
 
 sysctl_conf
+
+start_daemon slaacd >/dev/null 2>&1
 
 echo 'starting network'
 
@@ -384,15 +447,10 @@ echo 'starting network'
 # Prevents carp from preempting until the system is booted.
 ifconfig -g carp carpdemote 128
 
-# Recover resolv.conf in case dhclient died hard.
-if [[ -f /etc/resolv.conf.save ]]; then
-	mv -f /etc/resolv.conf.save /etc/resolv.conf
-	touch /etc/resolv.conf
-fi
-
 sh /etc/netstart
 
-dmesg >/dev/random	# Any write triggers a rekey.
+# Any write triggers a rekey.
+dmesg >/dev/random
 
 # Load pf rules and bring up pfsync interface.
 if [[ $pf != NO ]]; then
@@ -412,11 +470,12 @@ random_seed
 reorder_libs
 
 # Clean up left-over files.
-rm -f /etc/nologin /var/spool/lock/LCK.* /var/spool/uucp/STST/*
+rm -f /etc/nologin /var/spool/lock/LCK.*
 (cd /var/run && { rm -rf -- *; install -c -m 664 -g utmp /dev/null utmp; })
 (cd /var/authpf && rm -rf -- *)
 
-dmesg >/var/run/dmesg.boot	# Save a copy of the boot messages.
+# Save a copy of the boot messages.
+dmesg >/var/run/dmesg.boot
 
 make_keys
 
@@ -451,6 +510,11 @@ if [[ -d /var/crash ]]; then
 	savecore $savecore_flags /var/crash
 fi
 
+# Store ACPI tables in /var/db/acpi to be used by sendbug(1).
+if [[ -x /usr/sbin/acpidump ]]; then
+	acpidump -o /var/db/acpi/
+fi
+
 if [[ $check_quotas == YES ]]; then
 	echo -n 'checking quotas:'
 	quotacheck -a
@@ -466,7 +530,7 @@ dev_mkdb
 chmod 666 /dev/tty[pqrstuvwxyzPQRST]*
 chown root:wheel /dev/tty[pqrstuvwxyzPQRST]*
 
-# Check the password temp/lock file.
+# Check for the password temp/lock file.
 if [[ -f /etc/ptmp ]]; then
 	logger -s -p auth.err \
 	    'password file may be incorrect -- /etc/ptmp exists'
@@ -497,8 +561,7 @@ if [[ ! -f /etc/motd ]]; then
 fi
 if T=$(mktemp /tmp/_motd.XXXXXXXXXX); then
 	sysctl -n kern.version | sed 1q >$T
-	echo "" >>$T
-	sed '1,/^$/d' </etc/motd >>$T
+	sed -n '/^$/,$p' </etc/motd >>$T
 	cmp -s $T /etc/motd || cp $T /etc/motd
 	rm -f $T
 fi
@@ -522,7 +585,7 @@ echo 'preserving editor files.'; /usr/libexec/vi.recover
 run_upgrade_script sysmerge
 
 echo -n 'starting network daemons:'
-start_daemon ldomd vmd sshd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
+start_daemon ldomd sshd switchd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
 start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd
 
 if ifconfig lo0 inet6 >/dev/null 2>&1; then
@@ -533,7 +596,7 @@ fi
 
 start_daemon hostapd lpd smtpd slowcgi httpd ftpd
 start_daemon ftpproxy ftpproxy6 tftpd tftpproxy identd inetd rarpd bootparamd
-start_daemon rbootd mopd spamd spamlogd sndiod
+start_daemon rbootd mopd vmd spamd spamlogd sndiod
 echo '.'
 
 # If rc.firsttime exists, run it just once, and make sure it is deleted.
@@ -554,13 +617,16 @@ fi
 
 [[ -f /etc/rc.local ]] && sh /etc/rc.local
 
-ifconfig -g carp -carpdemote 128	# Disable carp interlock.
+# Disable carp interlock.
+ifconfig -g carp -carpdemote 128
 
 mixerctl_conf
 
 echo -n 'starting local daemons:'
-start_daemon apmd sensorsd hotplugd watchdogd cron wsmoused xdm
+start_daemon apmd sensorsd hotplugd watchdogd cron wsmoused xenodm
 echo '.'
+
+reorder_kernel &
 
 date
 exit 0

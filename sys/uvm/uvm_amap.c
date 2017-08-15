@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_amap.c,v 1.76 2016/07/27 14:48:56 tedu Exp $	*/
+/*	$OpenBSD: uvm_amap.c,v 1.79 2017/01/31 17:08:51 dhill Exp $	*/
 /*	$NetBSD: uvm_amap.c,v 1.27 2000/11/25 06:27:59 chs Exp $	*/
 
 /*
@@ -235,9 +235,8 @@ amap_init(void)
 	size_t size;
 
 	/* Initialize the vm_amap pool. */
-	pool_init(&uvm_amap_pool, sizeof(struct vm_amap), 0, 0, PR_WAITOK,
-	    "amappl", NULL);
-	pool_setipl(&uvm_amap_pool, IPL_NONE);
+	pool_init(&uvm_amap_pool, sizeof(struct vm_amap),
+	    0, IPL_NONE, PR_WAITOK, "amappl", NULL);
 	pool_sethiwat(&uvm_amap_pool, 4096);
 
 	/* initialize small amap pools */
@@ -246,16 +245,13 @@ amap_init(void)
 		    sizeof(amap_small_pool_names[0]), "amappl%d", i + 1);
 		size = offsetof(struct vm_amap, am_small.ac_anon) +
 		    (i + 1) * sizeof(struct vm_anon *);
-		pool_init(&uvm_small_amap_pool[i], size, 0, 0, 0,
-		    amap_small_pool_names[i], NULL);
-		pool_setipl(&uvm_small_amap_pool[i], IPL_NONE);
+		pool_init(&uvm_small_amap_pool[i], size, 0,
+		    IPL_NONE, 0, amap_small_pool_names[i], NULL);
 	}
 
-	pool_init(&uvm_amap_chunk_pool,
-	    sizeof(struct vm_amap_chunk) +
-	    UVM_AMAP_CHUNK * sizeof(struct vm_anon *), 0, 0, 0,
-	    "amapchunkpl", NULL);
-	pool_setipl(&uvm_amap_chunk_pool, IPL_NONE);
+	pool_init(&uvm_amap_chunk_pool, sizeof(struct vm_amap_chunk) +
+	    UVM_AMAP_CHUNK * sizeof(struct vm_anon *),
+	    0, IPL_NONE, 0, "amapchunkpl", NULL);
 	pool_sethiwat(&uvm_amap_chunk_pool, 4096);
 }
 
@@ -268,7 +264,7 @@ amap_alloc1(int slots, int waitf, int lazyalloc)
 {
 	struct vm_amap *amap;
 	struct vm_amap_chunk *chunk, *tmp;
-	int chunks, chunkperbucket = 1, hashshift = 0;
+	int chunks, log_chunks, chunkperbucket = 1, hashshift = 0;
 	int buckets, i, n;
 	int pwaitf = (waitf & M_WAITOK) ? PR_WAITOK : PR_NOWAIT;
 
@@ -305,8 +301,11 @@ amap_alloc1(int slots, int waitf, int lazyalloc)
 		 * for the hash buckets of all amaps to exceed the maximal
 		 * amount of KVA memory reserved for amaps.
 		 */
+		for (log_chunks = 1; (chunks >> log_chunks) > 0; log_chunks++)
+			continue;
+
 		chunkperbucket = 1 << hashshift;
-		while ((1 << chunkperbucket) * 2 <= chunks) {
+		while (chunkperbucket + 1 < log_chunks) {
 			hashshift++;
 			chunkperbucket = 1 << hashshift;
 		}
@@ -369,7 +368,7 @@ amap_alloc1(int slots, int waitf, int lazyalloc)
 	return(amap);
 
 fail1:
-	free(amap->am_buckets, M_UVMAMAP, 0);
+	free(amap->am_buckets, M_UVMAMAP, buckets * sizeof(*amap->am_buckets));
 	TAILQ_FOREACH_SAFE(chunk, &amap->am_chunks, ac_list, tmp)
 		pool_put(&uvm_amap_chunk_pool, chunk);
 	pool_put(&uvm_amap_pool, amap);
@@ -415,7 +414,7 @@ amap_free(struct vm_amap *amap)
 
 #ifdef UVM_AMAP_PPREF
 	if (amap->am_ppref && amap->am_ppref != PPREF_NONE)
-		free(amap->am_ppref, M_UVMAMAP, 0);
+		free(amap->am_ppref, M_UVMAMAP, amap->am_nslot * sizeof(int));
 #endif
 
 	if (UVM_AMAP_SMALL(amap))

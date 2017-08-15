@@ -1,4 +1,4 @@
-/*	$OpenBSD: unistd.h,v 1.102 2016/09/09 18:12:37 millert Exp $ */
+/*	$OpenBSD: unistd.h,v 1.104 2017/03/09 10:13:03 fcambus Exp $ */
 /*	$NetBSD: unistd.h,v 1.26.4.1 1996/05/28 02:31:51 mrg Exp $	*/
 
 /*-
@@ -508,11 +508,6 @@ int	 revoke(const char *);
 int	 rresvport(int *);
 int	 rresvport_af(int *, int);
 int	 ruserok(const char *, int, const char *, const char *);
-#ifndef _SELECT_DEFINED_
-#define _SELECT_DEFINED_
-struct timeval;
-int	 select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
-#endif
 int	 setdomainname(const char *, size_t);
 int	 setgroups(int, const gid_t *);
 int	 sethostid(long);
@@ -527,7 +522,7 @@ int	 strtofflags(char **, u_int32_t *, u_int32_t *);
 int	 swapctl(int cmd, const void *arg, int misc);
 int	 syscall(int, ...);
 int	 getentropy(void *, size_t);
-int	 pledge(const char *, const char **paths);
+int	 pledge(const char *, const char **);
 pid_t	 __tfork_thread(const struct __tfork *, size_t, void (*)(void *),
 	    void *);
 #endif /* __BSD_VISIBLE */
