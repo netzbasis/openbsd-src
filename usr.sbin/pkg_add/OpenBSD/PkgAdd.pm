@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgAdd.pm,v 1.89 2016/08/27 18:17:46 espie Exp $
+# $OpenBSD: PkgAdd.pm,v 1.96 2017/03/25 18:58:59 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -89,9 +89,16 @@ sub tie_files
 	if (defined $sha->{$self->{d}->key}) {
 		my $tied = $sha->{$self->{d}->key};
 		# don't tie if there's a problem with the file
-		return unless -f $tied->realname($state);
+		my $realname = $tied->realname($state);
+		return unless -f $realname;
 		# and do a sanity check that this file wasn't altered
 		return unless (stat _)[7] == $self->{size};
+		if ($state->defines('checksum')) {
+			my $d = $self->compute_digest($realname, $self->{d});
+			# XXX we don't have to display anything here
+			# because delete will take care of that
+			return unless $d->equals($self->{d});
+		}
 		$self->{tieto} = $tied;
 		$tied->{tied} = 1;
 		$state->say("Tieing #1 to #2", $self->stringize,
@@ -106,7 +113,7 @@ sub handle_options
 {
 	my $state = shift;
 	$state->SUPER::handle_options('ruUzl:A:P:',
-	    '[-acinqrsUuvxz] [-A arch] [-B pkg-destdir] [-D name[=value]]',
+	    '[-acinqrsUuVvxz] [-A arch] [-B pkg-destdir] [-D name[=value]]',
 	    '[-L localbase] [-l file] [-P type] pkg-name ...');
 
 	$state->{arch} = $state->opt('A');
@@ -304,14 +311,6 @@ sub display_timestamp
 	my ($pkgname, $plist, $state) = @_;
 
 	return unless $plist->is_signed;
-	if ($state->defines('nosig')) {
-		$state->errsay("NOT CHECKING DIGITAL SIGNATURE FOR #1",
-		    $pkgname);
-		return;
-	}
-	if (!$plist->check_signature($state)) {
-		$state->fatal("#1 is corrupted", $pkgname);
-	}
 	$state->display_timestamp($pkgname,
 	    $plist->get('digital-signature')->iso8601);
 }
@@ -684,43 +683,6 @@ sub iterate
 	}
 }
 
-sub check_digital_signature
-{
-	my ($set, $state) = @_;
-	for my $handle ($set->newer) {
-		$state->set_name_from_handle($handle, '+');
-		my $plist = $handle->plist;
-		my $pkgname = $plist->pkgname;
-		if ($plist->is_signed) {
-			if ($state->defines('nosig')) {
-				$state->errsay("NOT CHECKING DIGITAL SIGNATURE FOR #1",
-				    $pkgname);
-			} else {
-				if (!$plist->check_signature($state)) {
-					$state->fatal("#1 is corrupted",
-					    $pkgname);
-				}
-				$plist->{check_digest} = 1;
-				$state->{packages_with_sig}++;
-			}
-		} else {
-			$state->{packages_without_sig}{$pkgname} = 1;
-			return if $state->defines('unsigned');
-			my $okay = 0;
-			my $url;
-			if (defined $handle->location) {
-				$url = $handle->location->url;
-			} else {
-				$url = $pkgname;
-			}
-			$okay = $state->confirm("UNSIGNED PACKAGE $url: install anyway", 0);
-			if (!$okay) {
-				$state->fatal("Unsigned package #1", $url);
-			}
-		}
-	}
-}
-
 sub delete_old_packages
 {
 	my ($set, $state) = @_;
@@ -769,8 +731,6 @@ sub really_add
 	my ($set, $state) = @_;
 
 	my $errors = 0;
-
-	check_digital_signature($set, $state);
 
 	if ($state->{not}) {
 		$state->status->what("Pretending to add");
@@ -902,7 +862,8 @@ sub newer_has_errors
 		if ($handle->has_error) {
 			$state->set_name_from_handle($handle);
 			$state->log("Can't install #1: #2",
-			    $handle->pkgname, $handle->error_message);
+			    $handle->pkgname, $handle->error_message)
+			    unless $handle->has_reported_error;
 			$state->{bad}++;
 			$set->cleanup($handle->has_error);
 			$state->tracker->cant($set);
@@ -1180,17 +1141,6 @@ sub finish_display
 	OpenBSD::Add::manpages_index($state);
 
 	# and display delayed thingies.
-	my $warn = 1;
-	if ($state->defines("unsigned")) {
-		$warn = 0;
-	}
-	if ($state->{packages_with_sig}) {
-		$warn = 1;
-	}
-	if ($warn && $state->{packages_without_sig}) {
-		$state->say("UNSIGNED PACKAGES: #1",
-		    join(', ', keys %{$state->{packages_without_sig}}));
-	}
 	if (defined $state->{updatedepends} && %{$state->{updatedepends}}) {
 		$state->say("Forced updates, bogus dependencies for ",
 		    join(' ', sort(keys %{$state->{updatedepends}})),

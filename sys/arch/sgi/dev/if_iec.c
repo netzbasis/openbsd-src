@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iec.c,v 1.21 2016/04/13 11:34:00 mpi Exp $	*/
+/*	$OpenBSD: if_iec.c,v 1.26 2017/07/19 12:23:16 claudio Exp $	*/
 
 /*
  * Copyright (c) 2009 Miodrag Vallat.
@@ -755,16 +755,11 @@ iec_start(struct ifnet *ifp)
 	DPRINTF(IEC_DEBUG_START, ("iec_start: opending = %d, firstdirty = %d\n",
 	    opending, firstdirty));
 
-	for (;;) {
+	while (sc->sc_txpending < IEC_NTXDESC - 1) {
 		/* Grab a packet off the queue. */
-		m0 = ifq_deq_begin(&ifp->if_snd);
+		m0 = ifq_dequeue(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
-
-		if (sc->sc_txpending == IEC_NTXDESC) {
-			ifq_deq_rollback(&ifp->if_snd, m0);
-			break;
-		}
 
 		/*
 		 * Get the next available transmit descriptor.
@@ -778,7 +773,6 @@ iec_start(struct ifnet *ifp)
 		DPRINTF(IEC_DEBUG_START,
 		    ("iec_start: len = %d, nexttx = %d\n", len, nexttx));
 
-		ifq_deq_commit(&ifp->if_snd, m0);
 		if (len <= IEC_TXD_BUFSIZE) {
 			/*
 			 * If the packet is small enough,
@@ -951,7 +945,7 @@ iec_start(struct ifnet *ifp)
 		sc->sc_txlast = nexttx;
 	}
 
-	if (sc->sc_txpending == IEC_NTXDESC) {
+	if (sc->sc_txpending >= IEC_NTXDESC - 1) {
 		/* No more slots; notify upper layer. */
 		ifq_set_oactive(&ifp->if_snd);
 	}
@@ -1160,8 +1154,8 @@ iec_get(struct iec_softc *sc, uint8_t *data, size_t datalen)
 			if ((m->m_flags & M_EXT) == 0) {
 				printf("%s: unable to allocate RX cluster\n",
 				    sc->sc_dev.dv_xname);
-				if (head != NULL)
-					m_freem(head);
+				m_freem(head);
+				m_freem(m);
 				return NULL;
 			}
 			len = MCLBYTES;
@@ -1355,7 +1349,6 @@ iec_txintr(struct iec_softc *sc, uint32_t stat)
 		} else {
 			ifp->if_collisions += IOC3_ENET_TCDC_COLLISION_MASK &
 			    bus_space_read_4(st, sh, IOC3_ENET_TCDC);
-			ifp->if_opackets++;
 		}
 	}
 

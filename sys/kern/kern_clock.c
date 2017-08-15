@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_clock.c,v 1.91 2016/09/04 09:22:29 mpi Exp $	*/
+/*	$OpenBSD: kern_clock.c,v 1.93 2017/07/22 14:33:45 kettenis Exp $	*/
 /*	$NetBSD: kern_clock.c,v 1.34 1996/06/09 04:51:03 briggs Exp $	*/
 
 /*-
@@ -103,6 +103,8 @@ int	psratio;			/* ratio: prof / stat */
 
 void	*softclock_si;
 
+volatile unsigned long jiffies;		/* XXX Linux API for drm(4) */
+
 /*
  * Initialize clock frequencies and start both clocks running.
  */
@@ -116,6 +118,7 @@ initclocks(void)
 		panic("initclocks: unable to register softclock intr");
 
 	ticks = INT_MAX - (15 * 60 * hz);
+	jiffies = ULONG_MAX - (10 * 60 * hz);
 
 	/*
 	 * Set divisors to 1 (normal case) and let the machine-specific
@@ -194,6 +197,7 @@ hardclock(struct clockframe *frame)
 
 	tc_ticktock();
 	ticks++;
+	jiffies++;
 
 	/*
 	 * Update real-time timeout queue.
@@ -424,6 +428,7 @@ sysctl_clockrate(char *where, size_t *sizep, void *newp)
 	/*
 	 * Construct clockinfo structure.
 	 */
+	memset(&clkinfo, 0, sizeof clkinfo);
 	clkinfo.tick = tick;
 	clkinfo.tickadj = tickadj;
 	clkinfo.hz = hz;

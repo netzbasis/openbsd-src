@@ -1,4 +1,4 @@
-/*	$OpenBSD: spamd.c,v 1.144 2016/09/06 11:06:40 henning Exp $	*/
+/*	$OpenBSD: spamd.c,v 1.151 2017/04/06 15:30:12 beck Exp $	*/
 
 /*
  * Copyright (c) 2015 Henning Brauer <henning@openbsd.org>
@@ -455,7 +455,8 @@ spamd_tls_init()
 	if ((tlsctx = tls_server()) == NULL)
 		errx(1, "failed to get tls server");
 
-	tls_config_set_protocols(tlscfg, TLS_PROTOCOLS_ALL);
+	if (tls_config_set_protocols(tlscfg, TLS_PROTOCOLS_ALL) != 0)
+		errx(1, "failed to set tls protocols");
 
 	/* might need user-specified ciphers, tls_config_set_ciphers */
 	if (tls_config_set_ciphers(tlscfg, "all") != 0)
@@ -1099,6 +1100,8 @@ handler(struct con *cp)
 		if (n == 0)
 			closecon(cp);
 		else if (n == -1) {
+			if (errno == EAGAIN)
+				return;
 			if (debug > 0)
 				warn("read");
 			closecon(cp);
@@ -1152,6 +1155,8 @@ handlew(struct con *cp, int one)
 				closecon(cp);
 				goto handled;
 			} else if (n == -1) {
+				if (errno == EAGAIN)
+					return;
 				if (debug > 0 && errno != EPIPE)
 					warn("write");
 				closecon(cp);
@@ -1178,6 +1183,8 @@ handlew(struct con *cp, int one)
 		if (n == 0)
 			closecon(cp);
 		else if (n == -1) {
+			if (errno == EAGAIN)
+				return;
 			if (debug > 0 && errno != EPIPE)
 				warn("write");
 			closecon(cp);
@@ -1235,6 +1242,10 @@ main(int argc, char *argv[])
 	const char *errstr;
 	char *sync_iface = NULL;
 	char *sync_baddr = NULL;
+	struct addrinfo hints, *res;
+	char *addr;
+	char portstr[6];
+	int error;
 
 	tzset();
 	openlog_r("spamd", LOG_PID | LOG_NDELAY, LOG_DAEMON, &sdata);
@@ -1276,7 +1287,7 @@ main(int argc, char *argv[])
 		case 'c':
 			maxcon = strtonum(optarg, 1, maxfiles, &errstr);
 			if (errstr) {
-				fprintf(stderr, "-c %s: %sn", optarg, errstr);
+				fprintf(stderr, "-c %s: %s\n", optarg, errstr);
 				usage();
 			}
 			break;
@@ -1306,7 +1317,7 @@ main(int argc, char *argv[])
 			greyexp *= (60 * 60);
 			break;
 		case 'h':
-			bzero(&hostname, sizeof(hostname));
+			memset(hostname, 0, sizeof(hostname));
 			if (strlcpy(hostname, optarg, sizeof(hostname)) >=
 			    sizeof(hostname))
 				errx(1, "-h arg too long");
@@ -1425,18 +1436,20 @@ main(int argc, char *argv[])
 	    sizeof(one)) == -1)
 		return (-1);
 
-	memset(&sin, 0, sizeof sin);
-	sin.sin_len = sizeof(sin);
-	if (bind_address) {
-		if (inet_pton(AF_INET, bind_address, &sin.sin_addr) != 1)
-			err(1, "inet_pton");
-	} else
-		sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(port);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	addr = bind_address;
+	snprintf(portstr, sizeof(portstr), "%hu", port);
 
-	if (bind(smtplisten, (struct sockaddr *)&sin, sizeof sin) == -1)
+	if ((error = getaddrinfo(addr, portstr, &hints, &res)) != 0) {
+		errx(1, "getaddrinfo: %s", gai_strerror(error));
+	}
+
+	if (bind(smtplisten, res->ai_addr, res->ai_addrlen) == -1) {
+		freeaddrinfo(res);
 		err(1, "bind");
+	}
+	freeaddrinfo(res);
 
 	memset(&lin, 0, sizeof sin);
 	lin.sin_len = sizeof(sin);
@@ -1658,7 +1671,8 @@ jail:
 			int s2;
 
 			sinlen = sizeof(sin);
-			s2 = accept(smtplisten, (struct sockaddr *)&sin, &sinlen);
+			s2 = accept4(smtplisten, (struct sockaddr *)&sin, &sinlen,
+			    SOCK_NONBLOCK);
 			if (s2 == -1) {
 				switch (errno) {
 				case EINTR:

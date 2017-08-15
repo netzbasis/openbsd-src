@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2_core.c,v 1.6 2015/06/28 11:48:18 jmatthew Exp $	*/
+/*	$OpenBSD: dwc2_core.c,v 1.8 2017/06/29 17:36:16 deraadt Exp $	*/
 /*	$NetBSD: dwc2_core.c,v 1.6 2014/04/03 06:34:58 skrll Exp $	*/
 
 /*
@@ -42,11 +42,6 @@
  * DWC_otg hardware. These services are used by both the Host Controller
  * Driver and the Peripheral Controller Driver.
  */
-
-#if 0
-#include <sys/cdefs.h>
-__KERNEL_RCSID(0, "$NetBSD: dwc2_core.c,v 1.6 2014/04/03 06:34:58 skrll Exp $");
-#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -1701,10 +1696,10 @@ u32 dwc2_calc_frame_interval(struct dwc2_hsotg *hsotg)
 
 	if ((hprt0 & HPRT0_SPD_MASK) >> HPRT0_SPD_SHIFT == HPRT0_SPD_HIGH_SPEED)
 		/* High speed case */
-		return 125 * clock;
+		return 125 * clock - 1;
 	else
 		/* FS/LS case */
-		return 1000 * clock;
+		return 1000 * clock - 1;
 }
 
 /**

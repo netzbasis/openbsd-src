@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.21 2016/09/02 21:30:34 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.23 2017/07/07 23:15:27 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -6,9 +6,11 @@
 # py-libdnet          python interface to libdnet
 # scapy               powerful interactive packet manipulation in python
 
+.if ! (make(clean) || make(cleandir) || make(obj))
 # Check whether all required python packages are installed.  If some
 # are missing print a warning and skip the tests, but do not fail.
 PYTHON_IMPORT != python2.7 -c 'from scapy.all import *' 2>&1 || true
+.endif
 .if ! empty(PYTHON_IMPORT)
 regress:
 	@echo '${PYTHON_IMPORT}'
@@ -87,8 +89,6 @@ regress:
 	rm -f stamp-pfctl
 .endif
 .endif
-
-depend: addr.py
 
 # Create python include file containing the addresses.
 addr.py: Makefile

@@ -1,4 +1,4 @@
-/*	$OpenBSD: radix.h,v 1.28 2015/11/04 09:50:21 mpi Exp $	*/
+/*	$OpenBSD: radix.h,v 1.30 2017/06/19 09:42:45 mpi Exp $	*/
 /*	$NetBSD: radix.h,v 1.8 1996/02/13 22:00:37 christos Exp $	*/
 
 /*
@@ -93,20 +93,15 @@ struct radix_node_head {
 	int	rnh_addrsize;		/* permit, but not require fixed keys */
 	int	rnh_pktsize;		/* permit, but not require fixed keys */
 	struct	radix_node rnh_nodes[3];/* empty tree for common case */
-	int	rnh_multipath;		/* multipath? */
 	u_int	rnh_rtableid;
 };
 
 void	rn_init(unsigned int);
 int	rn_inithead(void **, int);
-int	rn_inithead0(struct radix_node_head *, int);
-int	rn_refines(void *, void *);
-void	rn_link_dupedkey(struct radix_node *, struct radix_node *, int);
 
 int	rn_walktree(struct radix_node_head *,
 	    int (*)(struct radix_node *, void *, u_int), void *);
 
-struct radix_node	*rn_addmask(void *, int, int);
 struct radix_node	*rn_addroute(void *, void *, struct radix_node_head *,
 			    struct radix_node [2], u_int8_t);
 struct radix_node	*rn_delete(void *, void *, struct radix_node_head *,

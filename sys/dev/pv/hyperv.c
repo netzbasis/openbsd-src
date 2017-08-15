@@ -79,8 +79,7 @@ struct hv_softc *hv_sc;
 
 int 	hv_match(struct device *, void *, void *);
 void	hv_attach(struct device *, struct device *, void *);
-void	hv_deferred(void *);
-void	hv_fake_version(struct hv_softc *);
+void	hv_set_version(struct hv_softc *);
 u_int	hv_gettime(struct timecounter *);
 int	hv_init_hypercall(struct hv_softc *);
 uint64_t hv_hypercall(struct hv_softc *, uint64_t, void *, void *);
@@ -89,6 +88,8 @@ int	hv_init_synic(struct hv_softc *);
 int	hv_cmd(struct hv_softc *, void *, size_t, void *, size_t, int);
 int	hv_start(struct hv_softc *, struct hv_msg *);
 int	hv_reply(struct hv_softc *, struct hv_msg *);
+void	hv_wait(struct hv_softc *, int (*done)(struct hv_softc *,
+	    struct hv_msg *), struct hv_msg *, void *, const char *);
 uint16_t hv_intr_signal(struct hv_softc *, void *);
 void	hv_intr(void);
 void	hv_event_intr(struct hv_softc *);
@@ -96,22 +97,18 @@ void	hv_message_intr(struct hv_softc *);
 int	hv_vmbus_connect(struct hv_softc *);
 void	hv_channel_response(struct hv_softc *, struct vmbus_chanmsg_hdr *);
 void	hv_channel_offer(struct hv_softc *, struct vmbus_chanmsg_hdr *);
+void	hv_channel_rescind(struct hv_softc *, struct vmbus_chanmsg_hdr *);
 void	hv_channel_delivered(struct hv_softc *, struct vmbus_chanmsg_hdr *);
 int	hv_channel_scan(struct hv_softc *);
 void	hv_process_offer(struct hv_softc *, struct hv_offer *);
 struct hv_channel *
 	hv_channel_lookup(struct hv_softc *, uint32_t);
-int	hv_channel_ring_create(struct hv_channel *, uint32_t, uint32_t);
+int	hv_channel_ring_create(struct hv_channel *, uint32_t);
 void	hv_channel_ring_destroy(struct hv_channel *);
-void	hv_attach_internal(struct hv_softc *);
-void	hv_heartbeat(void *);
-void	hv_kvp_init(struct hv_channel *);
-void	hv_kvp(void *);
-int	hv_kvop(void *, int, char *, char *, size_t);
-void	hv_shutdown_init(struct hv_channel *);
-void	hv_shutdown(void *);
-void	hv_timesync_init(struct hv_channel *);
-void	hv_timesync(void *);
+void	hv_channel_pause(struct hv_channel *);
+uint	hv_channel_unpause(struct hv_channel *);
+uint	hv_channel_ready(struct hv_channel *);
+extern void hv_attach_icdevs(struct hv_softc *);
 int	hv_attach_devices(struct hv_softc *);
 
 struct {
@@ -122,7 +119,7 @@ struct {
 } hv_msg_dispatch[] = {
 	{ 0,					0, NULL },
 	{ VMBUS_CHANMSG_CHOFFER,		0, hv_channel_offer },
-	{ VMBUS_CHANMSG_CHRESCIND,		0, NULL },
+	{ VMBUS_CHANMSG_CHRESCIND,		0, hv_channel_rescind },
 	{ VMBUS_CHANMSG_CHREQUEST,		VMBUS_CHANMSG_CHOFFER,
 	  NULL },
 	{ VMBUS_CHANMSG_CHOFFER_DONE,		0,
@@ -157,13 +154,121 @@ const struct cfattach hyperv_ca = {
 	sizeof(struct hv_softc), hv_match, hv_attach
 };
 
+const struct hv_guid hv_guid_network = {
+	{ 0x63, 0x51, 0x61, 0xf8, 0x3e, 0xdf, 0xc5, 0x46,
+	  0x91, 0x3f, 0xf2, 0xd2, 0xf9, 0x65, 0xed, 0x0e }
+};
+
+const struct hv_guid hv_guid_ide = {
+	{ 0x32, 0x26, 0x41, 0x32, 0xcb, 0x86, 0xa2, 0x44,
+	  0x9b, 0x5c, 0x50, 0xd1, 0x41, 0x73, 0x54, 0xf5 }
+};
+
+const struct hv_guid hv_guid_scsi = {
+	{ 0xd9, 0x63, 0x61, 0xba, 0xa1, 0x04, 0x29, 0x4d,
+	  0xb6, 0x05, 0x72, 0xe2, 0xff, 0xb1, 0xdc, 0x7f }
+};
+
+const struct hv_guid hv_guid_shutdown = {
+	{ 0x31, 0x60, 0x0b, 0x0e, 0x13, 0x52, 0x34, 0x49,
+	  0x81, 0x8b, 0x38, 0xd9, 0x0c, 0xed, 0x39, 0xdb }
+};
+
+const struct hv_guid hv_guid_timesync = {
+	{ 0x30, 0xe6, 0x27, 0x95, 0xae, 0xd0, 0x7b, 0x49,
+	  0xad, 0xce, 0xe8, 0x0a, 0xb0, 0x17, 0x5c, 0xaf }
+};
+
+const struct hv_guid hv_guid_heartbeat = {
+	{ 0x39, 0x4f, 0x16, 0x57, 0x15, 0x91, 0x78, 0x4e,
+	  0xab, 0x55, 0x38, 0x2f, 0x3b, 0xd5, 0x42, 0x2d }
+};
+
+const struct hv_guid hv_guid_kvp = {
+	{ 0xe7, 0xf4, 0xa0, 0xa9, 0x45, 0x5a, 0x96, 0x4d,
+	  0xb8, 0x27, 0x8a, 0x84, 0x1e, 0x8c, 0x03, 0xe6 }
+};
+
+#ifdef HYPERV_DEBUG
+const struct hv_guid hv_guid_vss = {
+	{ 0x29, 0x2e, 0xfa, 0x35, 0x23, 0xea, 0x36, 0x42,
+	  0x96, 0xae, 0x3a, 0x6e, 0xba, 0xcb, 0xa4, 0x40 }
+};
+
+const struct hv_guid hv_guid_dynmem = {
+	{ 0xdc, 0x74, 0x50, 0x52, 0x85, 0x89, 0xe2, 0x46,
+	  0x80, 0x57, 0xa3, 0x07, 0xdc, 0x18, 0xa5, 0x02 }
+};
+
+const struct hv_guid hv_guid_mouse = {
+	{ 0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c,
+	  0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a }
+};
+
+const struct hv_guid hv_guid_kbd = {
+	{ 0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 0x48,
+	  0xbd, 0x65, 0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84 }
+};
+
+const struct hv_guid hv_guid_video = {
+	{ 0x02, 0x78, 0x0a, 0xda, 0x77, 0xe3, 0xac, 0x4a,
+	  0x8e, 0x77, 0x05, 0x58, 0xeb, 0x10, 0x73, 0xf8 }
+};
+
+const struct hv_guid hv_guid_fc = {
+	{ 0x4a, 0xcc, 0x9b, 0x2f, 0x69, 0x00, 0xf3, 0x4a,
+	  0xb7, 0x6b, 0x6f, 0xd0, 0xbe, 0x52, 0x8c, 0xda }
+};
+
+const struct hv_guid hv_guid_fcopy = {
+	{ 0xe3, 0x4b, 0xd1, 0x34, 0xe4, 0xde, 0xc8, 0x41,
+	  0x9a, 0xe7, 0x6b, 0x17, 0x49, 0x77, 0xc1, 0x92 }
+};
+
+const struct hv_guid hv_guid_pcie = {
+	{ 0x1d, 0xf6, 0xc4, 0x44, 0x44, 0x44, 0x00, 0x44,
+	  0x9d, 0x52, 0x80, 0x2e, 0x27, 0xed, 0xe1, 0x9f }
+};
+
+const struct hv_guid hv_guid_netdir = {
+	{ 0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b,
+	  0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 }
+};
+
+const struct hv_guid hv_guid_rdesktop = {
+	{ 0xf4, 0xac, 0x6a, 0x27, 0x15, 0xac, 0x6c, 0x42,
+	  0x98, 0xdd, 0x75, 0x21, 0xad, 0x3f, 0x01, 0xfe }
+};
+
+/* Automatic Virtual Machine Activation (AVMA) Services */
+const struct hv_guid hv_guid_avma1 = {
+	{ 0x55, 0xb2, 0x87, 0x44, 0x8c, 0xb8, 0x3f, 0x40,
+	  0xbb, 0x51, 0xd1, 0xf6, 0x9c, 0xf1, 0x7f, 0x87 }
+};
+
+const struct hv_guid hv_guid_avma2 = {
+	{ 0xf4, 0xba, 0x75, 0x33, 0x15, 0x9e, 0x30, 0x4b,
+	  0xb7, 0x65, 0x67, 0xac, 0xb1, 0x0d, 0x60, 0x7b }
+};
+
+const struct hv_guid hv_guid_avma3 = {
+	{ 0xa0, 0x1f, 0x22, 0x99, 0xad, 0x24, 0xe2, 0x11,
+	  0xbe, 0x98, 0x00, 0x1a, 0xa0, 0x1b, 0xbf, 0x6e }
+};
+
+const struct hv_guid hv_guid_avma4 = {
+	{ 0x16, 0x57, 0xe6, 0xf8, 0xb3, 0x3c, 0x06, 0x4a,
+	  0x9a, 0x60, 0x18, 0x89, 0xc5, 0xcc, 0xca, 0xb5 }
+};
+#endif	/* HYPERV_DEBUG */
+
 int
 hv_match(struct device *parent, void *match, void *aux)
 {
 	struct pv_attach_args *pva = aux;
 	struct pvbus_hv *hv = &pva->pva_hv[PVBUS_HYPERV];
 
-	if (hv->hv_base == 0)
+	if ((hv->hv_major == 0 && hv->hv_minor == 0) || hv->hv_base == 0)
 		return (0);
 
 	return (1);
@@ -179,11 +284,18 @@ hv_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_pvbus = hv;
 	sc->sc_dmat = pva->pva_dmat;
 
-	printf("\n");
+	if (!(hv->hv_features & CPUID_HV_MSR_HYPERCALL) ||
+	    !(hv->hv_features & CPUID_HV_MSR_SYNIC)) {
+		printf(": not functional\n");
+		return;
+	}
 
-	hv_fake_version(sc);
+	DPRINTF("\n");
 
-	tc_init(&hv_timecounter);
+	hv_set_version(sc);
+
+	if (hv->hv_features & CPUID_HV_MSR_TIME_REFCNT)
+		tc_init(&hv_timecounter);
 
 	if (hv_init_hypercall(sc))
 		return;
@@ -194,34 +306,33 @@ hv_attach(struct device *parent, struct device *self, void *aux)
 	if (hv_init_interrupts(sc))
 		return;
 
-	startuphook_establish(hv_deferred, sc);
-}
-
-void
-hv_deferred(void *arg)
-{
-	struct hv_softc *sc = arg;
-
 	if (hv_vmbus_connect(sc))
 		return;
+
+	DPRINTF("%s", sc->sc_dev.dv_xname);
+	printf(": protocol %d.%d, features %#x\n",
+	    VMBUS_VERSION_MAJOR(sc->sc_proto),
+	    VMBUS_VERSION_MINOR(sc->sc_proto),
+	    hv->hv_features);
 
 	if (hv_channel_scan(sc))
 		return;
 
-	hv_attach_internal(sc);
+	/* Attach heartbeat, KVP and other "internal" services */
+	hv_attach_icdevs(sc);
 
-	if (hv_attach_devices(sc))
-		return;
+	/* Attach devices with external drivers */
+	hv_attach_devices(sc);
 }
 
 void
-hv_fake_version(struct hv_softc *sc)
+hv_set_version(struct hv_softc *sc)
 {
 	uint64_t ver;
 
-	/* FreeBSD 10 apparently */
-	ver = 0x8200ULL << 48;
-	ver |= 10 << 16;
+	/* OpenBSD build date */
+	ver = MSR_HV_GUESTID_OSTYPE_OPENBSD;
+	ver |= (uint64_t)OpenBSD << MSR_HV_GUESTID_VERSION_SHIFT;
 	wrmsr(MSR_HV_GUEST_OS_ID, ver);
 }
 
@@ -466,47 +577,54 @@ hv_start(struct hv_softc *sc, struct hv_msg *msg)
 	return (0);
 }
 
-int
-hv_reply(struct hv_softc *sc, struct hv_msg *msg)
+static int
+hv_reply_done(struct hv_softc *sc, struct hv_msg *msg)
 {
-	const char *wchan = "hvreply";
-	struct hv_msg *m, *tmp;
-	int i, s;
+	struct hv_msg *m;
 
-	if (msg->msg_flags & MSGF_NOQUEUE)
-		return (0);
-
-	for (i = 0; i < 1000; i++) {
-		mtx_enter(&sc->sc_rsplck);
-		TAILQ_FOREACH_SAFE(m, &sc->sc_rsps, msg_entry, tmp) {
-			if (m == msg) {
-				TAILQ_REMOVE(&sc->sc_rsps, m, msg_entry);
-				break;
-			}
-		}
-		mtx_leave(&sc->sc_rsplck);
-		if (m != NULL)
-			return (0);
-		if (msg->msg_flags & MSGF_NOSLEEP) {
-			delay(100000);
-			s = splnet();
-			hv_intr();
-			splx(s);
-		} else {
-			s = tsleep(&msg, PRIBIO | PCATCH, wchan, 1);
-			if (s != EWOULDBLOCK)
-				return (EINTR);
-		}
-	}
 	mtx_enter(&sc->sc_rsplck);
-	TAILQ_FOREACH_SAFE(m, &sc->sc_reqs, msg_entry, tmp) {
+	TAILQ_FOREACH(m, &sc->sc_rsps, msg_entry) {
 		if (m == msg) {
-			TAILQ_REMOVE(&sc->sc_reqs, m, msg_entry);
-			break;
+			mtx_leave(&sc->sc_rsplck);
+			return (1);
 		}
 	}
 	mtx_leave(&sc->sc_rsplck);
-	return (ETIMEDOUT);
+	return (0);
+}
+
+int
+hv_reply(struct hv_softc *sc, struct hv_msg *msg)
+{
+	if (msg->msg_flags & MSGF_NOQUEUE)
+		return (0);
+
+	hv_wait(sc, hv_reply_done, msg, msg, "hvreply");
+
+	mtx_enter(&sc->sc_rsplck);
+	TAILQ_REMOVE(&sc->sc_rsps, msg, msg_entry);
+	mtx_leave(&sc->sc_rsplck);
+
+	return (0);
+}
+
+void
+hv_wait(struct hv_softc *sc, int (*cond)(struct hv_softc *, struct hv_msg *),
+    struct hv_msg *msg, void *wchan, const char *wmsg)
+{
+	int s;
+
+	KASSERT(cold ? msg->msg_flags & MSGF_NOSLEEP : 1);
+
+	while (!cond(sc, msg)) {
+		if (msg->msg_flags & MSGF_NOSLEEP) {
+			delay(1000);
+			s = splnet();
+			hv_intr();
+			splx(s);
+		} else
+			tsleep(wchan, PRIBIO, wmsg ? wmsg : "hvwait", 1);
+	}
 }
 
 uint16_t
@@ -582,8 +700,7 @@ hv_event_intr(struct hv_softc *sc)
 				continue;
 			}
 			ch->ch_evcnt.ec_count++;
-			if (ch->ch_handler)
-				ch->ch_handler(ch->ch_ctx);
+			hv_channel_schedule(ch);
 		}
 	}
 }
@@ -616,7 +733,7 @@ hv_message_intr(struct hv_softc *sc)
 			    sc->sc_dev.dv_xname, hdr->chm_type);
  skip:
 		msg->msg_type = VMBUS_MSGTYPE_NONE;
-		membar_sync();
+		virtio_membar_sync();
 		if (msg->msg_flags & VMBUS_MSGFLAG_PENDING)
 			wrmsr(MSR_HV_EOM, 0);
 	}
@@ -625,13 +742,13 @@ hv_message_intr(struct hv_softc *sc)
 void
 hv_channel_response(struct hv_softc *sc, struct vmbus_chanmsg_hdr *rsphdr)
 {
-	struct hv_msg *msg, *tmp;
+	struct hv_msg *msg;
 	struct vmbus_chanmsg_hdr *reqhdr;
 	int req;
 
 	req = hv_msg_dispatch[rsphdr->chm_type].hmd_request;
 	mtx_enter(&sc->sc_reqlck);
-	TAILQ_FOREACH_SAFE(msg, &sc->sc_reqs, msg_entry, tmp) {
+	TAILQ_FOREACH(msg, &sc->sc_reqs, msg_entry) {
 		reqhdr = (struct vmbus_chanmsg_hdr *)&msg->msg_req.hc_data;
 		if (reqhdr->chm_type == req) {
 			TAILQ_REMOVE(&sc->sc_reqs, msg, msg_entry);
@@ -668,10 +785,20 @@ hv_channel_offer(struct hv_softc *sc, struct vmbus_chanmsg_hdr *hdr)
 }
 
 void
+hv_channel_rescind(struct hv_softc *sc, struct vmbus_chanmsg_hdr *hdr)
+{
+	const struct vmbus_chanmsg_chrescind *cmd;
+
+	cmd = (const struct vmbus_chanmsg_chrescind *)hdr;
+	printf("%s: revoking channel %u\n", sc->sc_dev.dv_xname,
+	    cmd->chm_chanid);
+}
+
+void
 hv_channel_delivered(struct hv_softc *sc, struct vmbus_chanmsg_hdr *hdr)
 {
 	atomic_setbits_int(&sc->sc_flags, HSF_OFFERS_DELIVERED);
-	wakeup(hdr);
+	wakeup(&sc->sc_offers);
 }
 
 int
@@ -700,7 +827,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 	sc->sc_revents = (u_long *)((caddr_t)sc->sc_events + (PAGE_SIZE >> 1));
 
 	sc->sc_monitor[0] = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (sc->sc_monitor == NULL) {
+	if (sc->sc_monitor[0] == NULL) {
 		printf(": failed to allocate monitor page 1\n");
 		goto errout;
 	}
@@ -710,7 +837,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 	}
 
 	sc->sc_monitor[1] = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (sc->sc_monitor == NULL) {
+	if (sc->sc_monitor[1] == NULL) {
 		printf(": failed to allocate monitor page 2\n");
 		goto errout;
 	}
@@ -739,8 +866,6 @@ hv_vmbus_connect(struct hv_softc *sc)
 			sc->sc_flags |= HSF_CONNECTED;
 			sc->sc_proto = versions[i];
 			sc->sc_handle = VMBUS_GPADL_START;
-			DPRINTF("%s: protocol version %#x\n",
-			    sc->sc_dev.dv_xname, versions[i]);
 			break;
 		}
 	}
@@ -770,113 +895,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 	return (-1);
 }
 
-const struct hv_guid hv_guid_network = {
-	{ 0x63, 0x51, 0x61, 0xf8, 0x3e, 0xdf, 0xc5, 0x46,
-	  0x91, 0x3f, 0xf2, 0xd2, 0xf9, 0x65, 0xed, 0x0e }
-};
-
-const struct hv_guid hv_guid_ide = {
-	{ 0x32, 0x26, 0x41, 0x32, 0xcb, 0x86, 0xa2, 0x44,
-	  0x9b, 0x5c, 0x50, 0xd1, 0x41, 0x73, 0x54, 0xf5 }
-};
-
-const struct hv_guid hv_guid_scsi = {
-	{ 0xd9, 0x63, 0x61, 0xba, 0xa1, 0x04, 0x29, 0x4d,
-	  0xb6, 0x05, 0x72, 0xe2, 0xff, 0xb1, 0xdc, 0x7f }
-};
-
-const struct hv_guid hv_guid_shutdown = {
-	{ 0x31, 0x60, 0x0b, 0x0e, 0x13, 0x52, 0x34, 0x49,
-	  0x81, 0x8b, 0x38, 0xd9, 0x0c, 0xed, 0x39, 0xdb }
-};
-
-const struct hv_guid hv_guid_timesync = {
-	{ 0x30, 0xe6, 0x27, 0x95, 0xae, 0xd0, 0x7b, 0x49,
-	  0xad, 0xce, 0xe8, 0x0a, 0xb0, 0x17, 0x5c, 0xaf }
-};
-
-const struct hv_guid hv_guid_heartbeat = {
-	{ 0x39, 0x4f, 0x16, 0x57, 0x15, 0x91, 0x78, 0x4e,
-	  0xab, 0x55, 0x38, 0x2f, 0x3b, 0xd5, 0x42, 0x2d }
-};
-
-const struct hv_guid hv_guid_kvp = {
-	{ 0xe7, 0xf4, 0xa0, 0xa9, 0x45, 0x5a, 0x96, 0x4d,
-	  0xb8, 0x27, 0x8a, 0x84, 0x1e, 0x8c, 0x03, 0xe6 }
-};
-
 #ifdef HYPERV_DEBUG
-const struct hv_guid hv_guid_vss = {
-	{ 0x29, 0x2e, 0xfa, 0x35, 0x23, 0xea, 0x36, 0x42,
-	  0x96, 0xae, 0x3a, 0x6e, 0xba, 0xcb, 0xa4, 0x40 }
-};
-
-const struct hv_guid hv_guid_dynmem = {
-	{ 0xdc, 0x74, 0x50, 0x52, 0x85, 0x89, 0xe2, 0x46,
-	  0x80, 0x57, 0xa3, 0x07, 0xdc, 0x18, 0xa5, 0x02 }
-};
-
-const struct hv_guid hv_guid_mouse = {
-	{ 0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c,
-	  0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a }
-};
-
-const struct hv_guid hv_guid_kbd = {
-	{ 0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 0x48,
-	  0xbd, 0x65, 0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84 }
-};
-
-const struct hv_guid hv_guid_video = {
-	{ 0x02, 0x78, 0x0a, 0xda, 0x77, 0xe3, 0xac, 0x4a,
-	  0x8e, 0x77, 0x05, 0x58, 0xeb, 0x10, 0x73, 0xf8 }
-};
-
-const struct hv_guid hv_guid_fc = {
-	{ 0x4a, 0xcc, 0x9b, 0x2f, 0x69, 0x00, 0xf3, 0x4a,
-	  0xb7, 0x6b, 0x6f, 0xd0, 0xbe, 0x52, 0x8c, 0xda }
-};
-
-const struct hv_guid hv_guid_fcopy = {
-	{ 0xe3, 0x4b, 0xd1, 0x34, 0xe4, 0xde, 0xc8, 0x41,
-	  0x9a, 0xe7, 0x6b, 0x17, 0x49, 0x77, 0xc1, 0x92 }
-};
-
-const struct hv_guid hv_guid_pcie = {
-	{ 0x1d, 0xf6, 0xc4, 0x44, 0x44, 0x44, 0x00, 0x44,
-	  0x9d, 0x52, 0x80, 0x2e, 0x27, 0xed, 0xe1, 0x9f }
-};
-
-const struct hv_guid hv_guid_netdir = {
-	{ 0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b,
-	  0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 }
-};
-
-const struct hv_guid hv_guid_rdesktop = {
-	{ 0xf4, 0xac, 0x6a, 0x27, 0x15, 0xac, 0x6c, 0x42,
-	  0x98, 0xdd, 0x75, 0x21, 0xad, 0x3f, 0x01, 0xfe }
-};
-
-/* Automatic Virtual Machine Activation (AVMA) Services */
-const struct hv_guid hv_guid_avma1 = {
-	{ 0x55, 0xb2, 0x87, 0x44, 0x8c, 0xb8, 0x3f, 0x40,
-	  0xbb, 0x51, 0xd1, 0xf6, 0x9c, 0xf1, 0x7f, 0x87 }
-};
-
-const struct hv_guid hv_guid_avma2 = {
-	{ 0xf4, 0xba, 0x75, 0x33, 0x15, 0x9e, 0x30, 0x4b,
-	  0xb7, 0x65, 0x67, 0xac, 0xb1, 0x0d, 0x60, 0x7b }
-};
-
-const struct hv_guid hv_guid_avma3 = {
-	{ 0xa0, 0x1f, 0x22, 0x99, 0xad, 0x24, 0xe2, 0x11,
-	  0xbe, 0x98, 0x00, 0x1a, 0xa0, 0x1b, 0xbf, 0x6e }
-};
-
-const struct hv_guid hv_guid_avma4 = {
-	{ 0x16, 0x57, 0xe6, 0xf8, 0xb3, 0x3c, 0x06, 0x4a,
-	  0x9a, 0x60, 0x18, 0x89, 0xc5, 0xcc, 0xca, 0xb5 }
-};
-
 static inline char *
 guidprint(struct hv_guid *a)
 {
@@ -947,11 +966,17 @@ hv_guid_sprint(struct hv_guid *guid, char *str, size_t size)
 #endif
 }
 
+static int
+hv_channel_scan_done(struct hv_softc *sc, struct hv_msg *msg __unused)
+{
+	return (sc->sc_flags & HSF_OFFERS_DELIVERED);
+}
+
 int
 hv_channel_scan(struct hv_softc *sc)
 {
 	struct vmbus_chanmsg_hdr hdr;
-	struct vmbus_chanmsg_choffer rsp, *offer;
+	struct vmbus_chanmsg_choffer rsp;
 	struct hv_offer *co;
 
 	SIMPLEQ_INIT(&sc->sc_offers);
@@ -960,13 +985,14 @@ hv_channel_scan(struct hv_softc *sc)
 	memset(&hdr, 0, sizeof(hdr));
 	hdr.chm_type = VMBUS_CHANMSG_CHREQUEST;
 
-	if (hv_cmd(sc, &hdr, sizeof(hdr), &rsp, sizeof(rsp), HCF_NOREPLY)) {
+	if (hv_cmd(sc, &hdr, sizeof(hdr), &rsp, sizeof(rsp),
+	    HCF_NOSLEEP | HCF_NOREPLY)) {
 		DPRINTF("%s: CHREQUEST failed\n", sc->sc_dev.dv_xname);
 		return (-1);
 	}
 
-	while ((sc->sc_flags & HSF_OFFERS_DELIVERED) == 0)
-		tsleep(offer, PRIBIO, "hvoffers", 1);
+	hv_wait(sc, hv_channel_scan_done, (struct hv_msg *)&hdr,
+	    &sc->sc_offers, "hvscan");
 
 	TAILQ_INIT(&sc->sc_channels);
 	mtx_init(&sc->sc_channelck, IPL_NET);
@@ -1078,38 +1104,34 @@ hv_channel_lookup(struct hv_softc *sc, uint32_t relid)
 }
 
 int
-hv_channel_ring_create(struct hv_channel *ch, uint32_t sndbuflen,
-    uint32_t rcvbuflen)
+hv_channel_ring_create(struct hv_channel *ch, uint32_t buflen)
 {
 	struct hv_softc *sc = ch->ch_sc;
 
-	sndbuflen = roundup(sndbuflen, PAGE_SIZE);
-	rcvbuflen = roundup(rcvbuflen, PAGE_SIZE);
-	ch->ch_ring = km_alloc(sndbuflen + rcvbuflen, &kv_any, &kp_zero,
-	    cold ? &kd_nowait : &kd_waitok);
+	buflen = roundup(buflen, PAGE_SIZE) + sizeof(struct vmbus_bufring);
+	ch->ch_ring = km_alloc(2 * buflen, &kv_any, &kp_zero, cold ?
+	    &kd_nowait : &kd_waitok);
 	if (ch->ch_ring == NULL) {
 		printf("%s: failed to allocate channel ring\n",
 		    sc->sc_dev.dv_xname);
 		return (-1);
 	}
-	ch->ch_ring_size = sndbuflen + rcvbuflen;
-	ch->ch_ring_npg = ch->ch_ring_size >> PAGE_SHIFT;
+	ch->ch_ring_size = 2 * buflen;
 
 	memset(&ch->ch_wrd, 0, sizeof(ch->ch_wrd));
 	ch->ch_wrd.rd_ring = (struct vmbus_bufring *)ch->ch_ring;
-	ch->ch_wrd.rd_size = sndbuflen;
-	ch->ch_wrd.rd_data_size = sndbuflen - sizeof(struct vmbus_bufring);
+	ch->ch_wrd.rd_size = buflen;
+	ch->ch_wrd.rd_dsize = buflen - sizeof(struct vmbus_bufring);
 	mtx_init(&ch->ch_wrd.rd_lock, IPL_NET);
 
 	memset(&ch->ch_rrd, 0, sizeof(ch->ch_rrd));
 	ch->ch_rrd.rd_ring = (struct vmbus_bufring *)((uint8_t *)ch->ch_ring +
-	    sndbuflen);
-	ch->ch_rrd.rd_size = rcvbuflen;
-	ch->ch_rrd.rd_data_size = rcvbuflen - sizeof(struct vmbus_bufring);
+	    buflen);
+	ch->ch_rrd.rd_size = buflen;
+	ch->ch_rrd.rd_dsize = buflen - sizeof(struct vmbus_bufring);
 	mtx_init(&ch->ch_rrd.rd_lock, IPL_NET);
 
-	if (hv_handle_alloc(ch, ch->ch_ring, sndbuflen + rcvbuflen,
-	    &ch->ch_ring_gpadl)) {
+	if (hv_handle_alloc(ch, ch->ch_ring, 2 * buflen, &ch->ch_ring_gpadl)) {
 		printf("%s: failed to obtain a PA handle for the ring\n",
 		    sc->sc_dev.dv_xname);
 		hv_channel_ring_destroy(ch);
@@ -1122,8 +1144,7 @@ hv_channel_ring_create(struct hv_channel *ch, uint32_t sndbuflen,
 void
 hv_channel_ring_destroy(struct hv_channel *ch)
 {
-	km_free(ch->ch_ring, ch->ch_wrd.rd_size + ch->ch_rrd.rd_size,
-	    &kv_any, &kp_zero);
+	km_free(ch->ch_ring, ch->ch_ring_size, &kv_any, &kp_zero);
 	ch->ch_ring = NULL;
 	hv_handle_free(ch, ch->ch_ring_gpadl);
 
@@ -1132,8 +1153,8 @@ hv_channel_ring_destroy(struct hv_channel *ch)
 }
 
 int
-hv_channel_open(struct hv_channel *ch, void *udata, size_t udatalen,
-    void (*handler)(void *), void *arg)
+hv_channel_open(struct hv_channel *ch, size_t buflen, void *udata,
+    size_t udatalen, void (*handler)(void *), void *arg)
 {
 	struct hv_softc *sc = ch->ch_sc;
 	struct vmbus_chanmsg_chopen cmd;
@@ -1141,8 +1162,9 @@ hv_channel_open(struct hv_channel *ch, void *udata, size_t udatalen,
 	int rv;
 
 	if (ch->ch_ring == NULL &&
-	    hv_channel_ring_create(ch, PAGE_SIZE * 4, PAGE_SIZE * 4)) {
-		DPRINTF(": failed to create channel ring\n");
+	    hv_channel_ring_create(ch, buflen)) {
+		DPRINTF("%s: failed to create channel ring\n",
+		    sc->sc_dev.dv_xname);
 		return (-1);
 	}
 
@@ -1164,7 +1186,8 @@ hv_channel_open(struct hv_channel *ch, void *udata, size_t udatalen,
 
 	ch->ch_state = HV_CHANSTATE_OPENED;
 
-	rv = hv_cmd(sc, &cmd, sizeof(cmd), &rsp, sizeof(rsp), 0);
+	rv = hv_cmd(sc, &cmd, sizeof(cmd), &rsp, sizeof(rsp),
+	    cold ? HCF_NOSLEEP : HCF_SLEEPOK);
 	if (rv) {
 		hv_channel_ring_destroy(ch);
 		DPRINTF("%s: CHOPEN failed with %d\n",
@@ -1215,33 +1238,69 @@ hv_channel_setevent(struct hv_softc *sc, struct hv_channel *ch)
 		hv_intr_signal(sc, &ch->ch_monprm);
 }
 
+void
+hv_channel_intr(void *arg)
+{
+	struct hv_channel *ch = arg;
+
+	if (hv_channel_ready(ch))
+		ch->ch_handler(ch->ch_ctx);
+
+	if (hv_channel_unpause(ch) == 0)
+		return;
+
+	hv_channel_pause(ch);
+	hv_channel_schedule(ch);
+}
+
+int
+hv_channel_setdeferred(struct hv_channel *ch, const char *name)
+{
+	ch->ch_taskq = taskq_create(name, 1, IPL_NET, TASKQ_MPSAFE);
+	if (ch->ch_taskq == NULL)
+		return (-1);
+	task_set(&ch->ch_task, hv_channel_intr, ch);
+	return (0);
+}
+
+void
+hv_channel_schedule(struct hv_channel *ch)
+{
+	if (ch->ch_handler) {
+		if (!cold && (ch->ch_flags & CHF_BATCHED)) {
+			hv_channel_pause(ch);
+			task_add(ch->ch_taskq, &ch->ch_task);
+		} else
+			ch->ch_handler(ch->ch_ctx);
+	}
+}
+
 static inline void
 hv_ring_put(struct hv_ring_data *wrd, uint8_t *data, uint32_t datalen)
 {
-	int left = MIN(datalen, wrd->rd_data_size - wrd->rd_prod);
+	int left = MIN(datalen, wrd->rd_dsize - wrd->rd_prod);
 
 	memcpy(&wrd->rd_ring->br_data[wrd->rd_prod], data, left);
 	memcpy(&wrd->rd_ring->br_data[0], data + left, datalen - left);
 	wrd->rd_prod += datalen;
-	wrd->rd_prod %= wrd->rd_data_size;
+	if (wrd->rd_prod >= wrd->rd_dsize)
+		wrd->rd_prod -= wrd->rd_dsize;
 }
 
 static inline void
 hv_ring_get(struct hv_ring_data *rrd, uint8_t *data, uint32_t datalen,
     int peek)
 {
-	int left = MIN(datalen, rrd->rd_data_size - rrd->rd_cons);
+	int left = MIN(datalen, rrd->rd_dsize - rrd->rd_cons);
 
 	memcpy(data, &rrd->rd_ring->br_data[rrd->rd_cons], left);
 	memcpy(data + left, &rrd->rd_ring->br_data[0], datalen - left);
 	if (!peek) {
 		rrd->rd_cons += datalen;
-		rrd->rd_cons %= rrd->rd_data_size;
+		if (rrd->rd_cons >= rrd->rd_dsize)
+			rrd->rd_cons -= rrd->rd_dsize;
 	}
 }
-
-#define	HV_BYTES_AVAIL_TO_WRITE(r, w, z)			\
-	((w) >= (r)) ? ((z) - ((w) - (r))) : ((r) - (w))
 
 static inline void
 hv_ring_avail(struct hv_ring_data *rd, uint32_t *towrite, uint32_t *toread)
@@ -1250,8 +1309,11 @@ hv_ring_avail(struct hv_ring_data *rd, uint32_t *towrite, uint32_t *toread)
 	uint32_t widx = rd->rd_ring->br_windex;
 	uint32_t r, w;
 
-	w =  HV_BYTES_AVAIL_TO_WRITE(ridx, widx, rd->rd_data_size);
-	r = rd->rd_data_size - w;
+	if (widx >= ridx)
+		w = rd->rd_dsize - (widx - ridx);
+	else
+		w = ridx - widx;
+	r = rd->rd_dsize - w;
 	if (towrite)
 		*towrite = w;
 	if (toread)
@@ -1269,28 +1331,25 @@ hv_ring_write(struct hv_ring_data *wrd, struct iovec *iov, int iov_cnt,
 	for (i = 0; i < iov_cnt; i++)
 		datalen += iov[i].iov_len;
 
-	KASSERT(datalen <= wrd->rd_data_size);
+	KASSERT(datalen <= wrd->rd_dsize);
 
 	hv_ring_avail(wrd, &avail, NULL);
-	if (avail < datalen) {
-		printf("%s: avail %u datalen %u\n", __func__, avail, datalen);
+	if (avail <= datalen) {
+		DPRINTF("%s: avail %u datalen %u\n", __func__, avail, datalen);
 		return (EAGAIN);
 	}
-
-	mtx_enter(&wrd->rd_lock);
 
 	oprod = wrd->rd_prod;
 
 	for (i = 0; i < iov_cnt; i++)
 		hv_ring_put(wrd, iov[i].iov_base, iov[i].iov_len);
 
-	indices = (uint64_t)wrd->rd_prod << 32;
+	indices = (uint64_t)oprod << 32;
 	hv_ring_put(wrd, (uint8_t *)&indices, sizeof(indices));
 
-	membar_sync();
+	virtio_membar_sync();
 	wrd->rd_ring->br_windex = wrd->rd_prod;
-
-	mtx_leave(&wrd->rd_lock);
+	virtio_membar_sync();
 
 	/* Signal when the ring transitions from being empty to non-empty */
 	if (wrd->rd_ring->br_imask == 0 &&
@@ -1331,7 +1390,9 @@ hv_channel_send(struct hv_channel *ch, void *data, uint32_t datalen,
 	iov[2].iov_base = &zeropad;
 	iov[2].iov_len = pktlen_aligned - pktlen;
 
+	mtx_enter(&ch->ch_wrd.rd_lock);
 	rv = hv_ring_write(&ch->ch_wrd, iov, 3, &needsig);
+	mtx_leave(&ch->ch_wrd.rd_lock);
 	if (rv == 0 && needsig)
 		hv_channel_setevent(sc, ch);
 
@@ -1359,6 +1420,7 @@ hv_channel_send_sgl(struct hv_channel *ch, struct vmbus_gpa *sgl,
 	VMBUS_CHANPKT_SETLEN(cp.cp_hdr.cph_tlen, pktlen_aligned);
 	cp.cp_hdr.cph_tid = rid;
 	cp.cp_gpa_cnt = nsge;
+	cp.cp_rsvd = 0;
 
 	iov[0].iov_base = &cp;
 	iov[0].iov_len = sizeof(cp);
@@ -1372,7 +1434,53 @@ hv_channel_send_sgl(struct hv_channel *ch, struct vmbus_gpa *sgl,
 	iov[3].iov_base = &zeropad;
 	iov[3].iov_len = pktlen_aligned - pktlen;
 
+	mtx_enter(&ch->ch_wrd.rd_lock);
 	rv = hv_ring_write(&ch->ch_wrd, iov, 4, &needsig);
+	mtx_leave(&ch->ch_wrd.rd_lock);
+	if (rv == 0 && needsig)
+		hv_channel_setevent(sc, ch);
+
+	return (rv);
+}
+
+int
+hv_channel_send_prpl(struct hv_channel *ch, struct vmbus_gpa_range *prpl,
+    uint32_t nprp, void *data, uint32_t datalen, uint64_t rid)
+{
+	struct hv_softc *sc = ch->ch_sc;
+	struct vmbus_chanpkt_prplist cp;
+	struct iovec iov[4];
+	uint32_t buflen, pktlen, pktlen_aligned;
+	uint64_t zeropad = 0;
+	int rv, needsig = 0;
+
+	buflen = sizeof(struct vmbus_gpa_range) * (nprp + 1);
+	pktlen = sizeof(cp) + datalen + buflen;
+	pktlen_aligned = roundup(pktlen, sizeof(uint64_t));
+
+	cp.cp_hdr.cph_type = VMBUS_CHANPKT_TYPE_GPA;
+	cp.cp_hdr.cph_flags = VMBUS_CHANPKT_FLAG_RC;
+	VMBUS_CHANPKT_SETLEN(cp.cp_hdr.cph_hlen, sizeof(cp) + buflen);
+	VMBUS_CHANPKT_SETLEN(cp.cp_hdr.cph_tlen, pktlen_aligned);
+	cp.cp_hdr.cph_tid = rid;
+	cp.cp_range_cnt = 1;
+	cp.cp_rsvd = 0;
+
+	iov[0].iov_base = &cp;
+	iov[0].iov_len = sizeof(cp);
+
+	iov[1].iov_base = prpl;
+	iov[1].iov_len = buflen;
+
+	iov[2].iov_base = data;
+	iov[2].iov_len = datalen;
+
+	iov[3].iov_base = &zeropad;
+	iov[3].iov_len = pktlen_aligned - pktlen;
+
+	mtx_enter(&ch->ch_wrd.rd_lock);
+	rv = hv_ring_write(&ch->ch_wrd, iov, 4, &needsig);
+	mtx_leave(&ch->ch_wrd.rd_lock);
 	if (rv == 0 && needsig)
 		hv_channel_setevent(sc, ch);
 
@@ -1384,15 +1492,13 @@ hv_ring_peek(struct hv_ring_data *rrd, void *data, uint32_t datalen)
 {
 	uint32_t avail;
 
-	KASSERT(datalen <= rrd->rd_data_size);
+	KASSERT(datalen <= rrd->rd_dsize);
 
 	hv_ring_avail(rrd, NULL, &avail);
 	if (avail < datalen)
 		return (EAGAIN);
 
-	mtx_enter(&rrd->rd_lock);
 	hv_ring_get(rrd, (uint8_t *)data, datalen, 1);
-	mtx_leave(&rrd->rd_lock);
 	return (0);
 }
 
@@ -1403,28 +1509,25 @@ hv_ring_read(struct hv_ring_data *rrd, void *data, uint32_t datalen,
 	uint64_t indices;
 	uint32_t avail;
 
-	KASSERT(datalen <= rrd->rd_data_size);
+	KASSERT(datalen <= rrd->rd_dsize);
 
 	hv_ring_avail(rrd, NULL, &avail);
 	if (avail < datalen) {
-		printf("%s: avail %u datalen %u\n", __func__, avail, datalen);
+		DPRINTF("%s: avail %u datalen %u\n", __func__, avail, datalen);
 		return (EAGAIN);
 	}
 
-	mtx_enter(&rrd->rd_lock);
-
 	if (offset) {
 		rrd->rd_cons += offset;
-		rrd->rd_cons %= rrd->rd_data_size;
+		if (rrd->rd_cons >= rrd->rd_dsize)
+			rrd->rd_cons -= rrd->rd_dsize;
 	}
 
 	hv_ring_get(rrd, (uint8_t *)data, datalen, 0);
 	hv_ring_get(rrd, (uint8_t *)&indices, sizeof(indices), 0);
 
-	membar_sync();
+	virtio_membar_sync();
 	rrd->rd_ring->br_rindex = rrd->rd_cons;
-
-	mtx_leave(&rrd->rd_lock);
 
 	return (0);
 }
@@ -1439,12 +1542,17 @@ hv_channel_recv(struct hv_channel *ch, void *data, uint32_t datalen,
 
 	*rlen = 0;
 
-	if ((rv = hv_ring_peek(&ch->ch_rrd, &cph, sizeof(cph))) != 0)
+	mtx_enter(&ch->ch_rrd.rd_lock);
+
+	if ((rv = hv_ring_peek(&ch->ch_rrd, &cph, sizeof(cph))) != 0) {
+		mtx_leave(&ch->ch_rrd.rd_lock);
 		return (rv);
+	}
 
 	offset = raw ? 0 : VMBUS_CHANPKT_GETLEN(cph.cph_hlen);
 	pktlen = VMBUS_CHANPKT_GETLEN(cph.cph_tlen) - offset;
 	if (pktlen > datalen) {
+		mtx_leave(&ch->ch_rrd.rd_lock);
 		printf("%s: pktlen %u datalen %u\n", __func__, pktlen, datalen);
 		return (EINVAL);
 	}
@@ -1455,8 +1563,61 @@ hv_channel_recv(struct hv_channel *ch, void *data, uint32_t datalen,
 		*rid = cph.cph_tid;
 	}
 
+	mtx_leave(&ch->ch_rrd.rd_lock);
+
 	return (rv);
 }
+
+static inline void
+hv_ring_mask(struct hv_ring_data *rd)
+{
+	virtio_membar_sync();
+	rd->rd_ring->br_imask = 1;
+	virtio_membar_sync();
+}
+
+static inline void
+hv_ring_unmask(struct hv_ring_data *rd)
+{
+	virtio_membar_sync();
+	rd->rd_ring->br_imask = 0;
+	virtio_membar_sync();
+}
+
+void
+hv_channel_pause(struct hv_channel *ch)
+{
+	hv_ring_mask(&ch->ch_rrd);
+}
+
+uint
+hv_channel_unpause(struct hv_channel *ch)
+{
+	uint32_t avail;
+
+	hv_ring_unmask(&ch->ch_rrd);
+	hv_ring_avail(&ch->ch_rrd, NULL, &avail);
+
+	return (avail);
+}
+
+uint
+hv_channel_ready(struct hv_channel *ch)
+{
+	uint32_t avail;
+
+	hv_ring_avail(&ch->ch_rrd, NULL, &avail);
+
+	return (avail);
+}
+
+/* How many PFNs can be referenced by the header */
+#define HV_NPFNHDR	((VMBUS_MSG_DSIZE_MAX -	\
+	  sizeof(struct vmbus_chanmsg_gpadl_conn)) / sizeof(uint64_t))
+
+/* How many PFNs can be referenced by the body */
+#define HV_NPFNBODY	((VMBUS_MSG_DSIZE_MAX -	\
+	  sizeof(struct vmbus_chanmsg_gpadl_subconn)) / sizeof(uint64_t))
 
 int
 hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
@@ -1469,7 +1630,7 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 	struct hv_msg *msg;
 	int i, j, last, left, rv;
 	int bodylen = 0, ncmds = 0, pfn = 0;
-	int waitok = cold ? M_NOWAIT : M_WAITOK;
+	int waitflag = cold ? M_NOWAIT : M_WAITOK;
 	uint64_t *frames;
 	paddr_t pa;
 	caddr_t body;
@@ -1480,12 +1641,12 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 
 	KASSERT((buflen & (PAGE_SIZE - 1)) == 0);
 
-	if ((msg = malloc(sizeof(*msg), M_DEVBUF, M_ZERO | waitok)) == NULL)
+	if ((msg = malloc(sizeof(*msg), M_DEVBUF, M_ZERO | waitflag)) == NULL)
 		return (ENOMEM);
 
 	/* Prepare array of frame addresses */
 	if ((frames = mallocarray(total, sizeof(*frames), M_DEVBUF, M_ZERO |
-	    waitok)) == NULL) {
+	    waitflag)) == NULL) {
 		free(msg, M_DEVBUF, sizeof(*msg));
 		return (ENOMEM);
 	}
@@ -1500,11 +1661,11 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 	}
 
 	msg->msg_req.hc_dsize = sizeof(struct vmbus_chanmsg_gpadl_conn) +
-	    /* sizeof(struct vmbus_gpa_range) */ + inhdr * sizeof(uint64_t);
+	    inhdr * sizeof(uint64_t);
 	hdr = (struct vmbus_chanmsg_gpadl_conn *)msg->msg_req.hc_data;
 	msg->msg_rsp = &rsp;
 	msg->msg_rsplen = sizeof(rsp);
-	if (!waitok)
+	if (waitflag == M_NOWAIT)
 		msg->msg_flags = MSGF_NOSLEEP;
 
 	left = total - inhdr;
@@ -1513,7 +1674,7 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 	if (left > 0) {
 		ncmds = MAX(1, left / HV_NPFNBODY + left % HV_NPFNBODY);
 		bodylen = ncmds * VMBUS_MSG_DSIZE_MAX;
-		body = malloc(bodylen, M_DEVBUF, M_ZERO | waitok);
+		body = malloc(bodylen, M_DEVBUF, M_ZERO | waitflag);
 		if (body == NULL) {
 			free(msg, M_DEVBUF, sizeof(*msg));
 			free(frames, M_DEVBUF, atop(buflen) * sizeof(*frames));
@@ -1563,7 +1724,7 @@ hv_handle_alloc(struct hv_channel *ch, void *buffer, uint32_t buflen,
 			cmdlen += last * sizeof(uint64_t);
 		else
 			cmdlen += HV_NPFNBODY * sizeof(uint64_t);
-		rv = hv_cmd(sc, cmd, cmdlen, NULL, 0, waitok | HCF_NOREPLY);
+		rv = hv_cmd(sc, cmd, cmdlen, NULL, 0, waitflag | HCF_NOREPLY);
 		if (rv != 0) {
 			DPRINTF("%s: GPADL_SUBCONN (iteration %d/%d) failed "
 			    "with %d\n", sc->sc_dev.dv_xname, i, ncmds, rv);
@@ -1601,277 +1762,11 @@ hv_handle_free(struct hv_channel *ch, uint32_t handle)
 	cmd.chm_chanid = ch->ch_id;
 	cmd.chm_gpadl = handle;
 
-	rv = hv_cmd(sc, &cmd, sizeof(cmd), &rsp, sizeof(rsp), 0);
+	rv = hv_cmd(sc, &cmd, sizeof(cmd), &rsp, sizeof(rsp), cold ?
+	    HCF_NOSLEEP : 0);
 	if (rv)
 		DPRINTF("%s: GPADL_DISCONN failed with %d\n",
 		    sc->sc_dev.dv_xname, rv);
-}
-
-const struct {
-	const char		 *id_name;
-	const struct hv_guid	 *id_type;
-	void			(*id_init)(struct hv_channel *);
-	void			(*id_handler)(void *);
-} hv_internal_devs[] = {
-	{ "heartbeat",	&hv_guid_heartbeat, NULL,		hv_heartbeat },
-	{ "kvp",	&hv_guid_kvp,	    hv_kvp_init,	hv_kvp },
-	{ "shutdown",	&hv_guid_shutdown,  hv_shutdown_init,	hv_shutdown },
-	{ "timesync",	&hv_guid_timesync,  hv_timesync_init,	hv_timesync }
-};
-
-void
-hv_attach_internal(struct hv_softc *sc)
-{
-	struct hv_channel *ch;
-	int i;
-
-	TAILQ_FOREACH(ch, &sc->sc_channels, ch_entry) {
-		if (ch->ch_state != HV_CHANSTATE_OFFERED)
-			continue;
-		if (ch->ch_flags & CHF_MONITOR)
-			continue;
-		for (i = 0; i < nitems(hv_internal_devs); i++) {
-			if (memcmp(hv_internal_devs[i].id_type, &ch->ch_type,
-			    sizeof(ch->ch_type)) != 0)
-				continue;
-			/*
-			 * These services are not performance critical and
-			 * do not need batched reading. Furthermore, some
-			 * services such as KVP can only handle one message
-			 * from the host at a time.
-			 */
-			ch->ch_flags &= ~CHF_BATCHED;
-
-			if (hv_internal_devs[i].id_init)
-				hv_internal_devs[i].id_init(ch);
-
-			ch->ch_buf = km_alloc(PAGE_SIZE, &kv_any, &kp_zero,
-			    (cold ? &kd_nowait : &kd_waitok));
-			if (ch->ch_buf == NULL) {
-				hv_channel_ring_destroy(ch);
-				printf("%s: failed to allocate channel data "
-				    "buffer for \"%s\"", sc->sc_dev.dv_xname,
-				    hv_internal_devs[i].id_name);
-				continue;
-			}
-			ch->ch_buflen = PAGE_SIZE;
-
-			if (hv_channel_open(ch, NULL, 0,
-			    hv_internal_devs[i].id_handler, ch)) {
-				km_free(ch->ch_buf, PAGE_SIZE, &kv_any,
-				    &kp_zero);
-				ch->ch_buf = NULL;
-				ch->ch_buflen = 0;
-				printf("%s: failed to open channel for \"%s\"\n",
-				    sc->sc_dev.dv_xname,
-				    hv_internal_devs[i].id_name);
-			}
-			evcount_attach(&ch->ch_evcnt,
-			    hv_internal_devs[i].id_name, &sc->sc_idtvec);
-			break;
-		}
-	}
-}
-
-int
-hv_service_common(struct hv_channel *ch, uint32_t *rlen, uint64_t *rid,
-    struct hv_icmsg_hdr **hdr)
-{
-	struct hv_icmsg_negotiate *msg;
-	int rv;
-
-	rv = hv_channel_recv(ch, ch->ch_buf, ch->ch_buflen, rlen, rid, 0);
-	if (rv || *rlen == 0)
-		return (rv);
-	*hdr = (struct hv_icmsg_hdr *)&ch->ch_buf[sizeof(struct hv_pipe_hdr)];
-	if ((*hdr)->icmsgtype == HV_ICMSGTYPE_NEGOTIATE) {
-		msg = (struct hv_icmsg_negotiate *)(*hdr + 1);
-		if (msg->icframe_vercnt >= 2 &&
-		    msg->icversion_data[1].major == 3) {
-			msg->icversion_data[0].major = 3;
-			msg->icversion_data[0].minor = 0;
-			msg->icversion_data[1].major = 3;
-			msg->icversion_data[1].minor = 0;
-		} else {
-			msg->icversion_data[0].major = 1;
-			msg->icversion_data[0].minor = 0;
-			msg->icversion_data[1].major = 1;
-			msg->icversion_data[1].minor = 0;
-		}
-		msg->icframe_vercnt = 1;
-		msg->icmsg_vercnt = 1;
-		(*hdr)->icmsgsize = 0x10;
-	}
-	return (0);
-}
-
-void
-hv_heartbeat(void *arg)
-{
-	struct hv_channel *ch = arg;
-	struct hv_softc *sc = ch->ch_sc;
-	struct hv_icmsg_hdr *hdr;
-	struct hv_heartbeat_msg *msg;
-	uint64_t rid;
-	uint32_t rlen;
-	int rv;
-
-	rv = hv_service_common(ch, &rlen, &rid, &hdr);
-	if (rv || rlen == 0) {
-		if (rv != EAGAIN)
-			printf("heartbeat: rv=%d rlen=%u\n", rv, rlen);
-		return;
-	}
-	if (hdr->icmsgtype == HV_ICMSGTYPE_HEARTBEAT) {
-		msg = (struct hv_heartbeat_msg *)(hdr + 1);
-		msg->seq_num += 1;
-	} else if (hdr->icmsgtype != HV_ICMSGTYPE_NEGOTIATE) {
-		printf("%s: unhandled heartbeat message type %u\n",
-		    sc->sc_dev.dv_xname, hdr->icmsgtype);
-	}
-	hdr->icflags = HV_ICMSGHDRFLAG_TRANSACTION | HV_ICMSGHDRFLAG_RESPONSE;
-	hv_channel_send(ch, ch->ch_buf, rlen, rid, VMBUS_CHANPKT_TYPE_INBAND, 0);
-}
-
-void
-hv_kvp_init(struct hv_channel *ch)
-{
-	struct hv_softc *sc = ch->ch_sc;
-
-	sc->sc_pvbus->hv_kvop = hv_kvop;
-	sc->sc_pvbus->hv_arg = sc;
-}
-
-void
-hv_kvp(void *arg)
-{
-}
-
-int
-hv_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
-{
-	switch (op) {
-	case PVBUS_KVWRITE:
-	case PVBUS_KVREAD:
-	default:
-		return (EOPNOTSUPP);
-	}
-}
-
-static void
-hv_shutdown_task(void *arg)
-{
-	extern int allowpowerdown;
-
-	if (allowpowerdown == 0)
-		return;
-
-	suspend_randomness();
-
-	log(LOG_KERN | LOG_NOTICE, "Shutting down in response to "
-	    "request from Hyper-V host\n");
-	prsignal(initprocess, SIGUSR2);
-}
-
-void
-hv_shutdown_init(struct hv_channel *ch)
-{
-	struct hv_softc *sc = ch->ch_sc;
-
-	task_set(&sc->sc_sdtask, hv_shutdown_task, sc);
-}
-
-void
-hv_shutdown(void *arg)
-{
-	struct hv_channel *ch = arg;
-	struct hv_softc *sc = ch->ch_sc;
-	struct hv_icmsg_hdr *hdr;
-	struct hv_shutdown_msg *msg;
-	uint64_t rid;
-	uint32_t rlen;
-	int rv, shutdown = 0;
-
-	rv = hv_service_common(ch, &rlen, &rid, &hdr);
-	if (rv || rlen == 0) {
-		if (rv != EAGAIN)
-			printf("shutdown: rv=%d rlen=%u\n", rv, rlen);
-		return;
-	}
-	if (hdr->icmsgtype == HV_ICMSGTYPE_SHUTDOWN) {
-		msg = (struct hv_shutdown_msg *)(hdr + 1);
-		if (msg->flags == 0 || msg->flags == 1) {
-			shutdown = 1;
-			hdr->status = HV_ICMSG_STATUS_OK;
-		} else
-			hdr->status = HV_ICMSG_STATUS_FAIL;
-	} else if (hdr->icmsgtype != HV_ICMSGTYPE_NEGOTIATE) {
-		printf("%s: unhandled shutdown message type %u\n",
-		    sc->sc_dev.dv_xname, hdr->icmsgtype);
-	}
-
-	hdr->icflags = HV_ICMSGHDRFLAG_TRANSACTION | HV_ICMSGHDRFLAG_RESPONSE;
-	hv_channel_send(ch, ch->ch_buf, rlen, rid, VMBUS_CHANPKT_TYPE_INBAND, 0);
-
-	if (shutdown)
-		task_add(systq, &sc->sc_sdtask);
-}
-
-void
-hv_timesync_init(struct hv_channel *ch)
-{
-	struct hv_softc *sc = ch->ch_sc;
-
-	strlcpy(sc->sc_sensordev.xname, sc->sc_dev.dv_xname,
-	    sizeof(sc->sc_sensordev.xname));
-
-	sc->sc_sensor.type = SENSOR_TIMEDELTA;
-	sc->sc_sensor.status = SENSOR_S_UNKNOWN;
-
-	sensor_attach(&sc->sc_sensordev, &sc->sc_sensor);
-	sensordev_install(&sc->sc_sensordev);
-}
-
-void
-hv_timesync(void *arg)
-{
-	struct hv_channel *ch = arg;
-	struct hv_softc *sc = ch->ch_sc;
-	struct hv_icmsg_hdr *hdr;
-	struct hv_timesync_msg *msg;
-	struct timespec guest, host, diff;
-	uint64_t tns;
-	uint64_t rid;
-	uint32_t rlen;
-	int rv;
-
-	rv = hv_service_common(ch, &rlen, &rid, &hdr);
-	if (rv || rlen == 0) {
-		if (rv != EAGAIN)
-			printf("timesync: rv=%d rlen=%u\n", rv, rlen);
-		return;
-	}
-	if (hdr->icmsgtype == HV_ICMSGTYPE_TIMESYNC) {
-		msg = (struct hv_timesync_msg *)(hdr + 1);
-		if (msg->flags == HV_TIMESYNC_SYNC ||
-		    msg->flags == HV_TIMESYNC_SAMPLE) {
-			microtime(&sc->sc_sensor.tv);
-			nanotime(&guest);
-			tns = (msg->parent_time - 116444736000000000LL) * 100;
-			host.tv_sec = tns / 1000000000LL;
-			host.tv_nsec = tns % 1000000000LL;
-			timespecsub(&guest, &host, &diff);
-			sc->sc_sensor.value = (int64_t)diff.tv_sec *
-			    1000000000LL + diff.tv_nsec;
-			sc->sc_sensor.status = SENSOR_S_OK;
-		}
-	} else if (hdr->icmsgtype != HV_ICMSGTYPE_NEGOTIATE) {
-		printf("%s: unhandled timesync message type %u\n",
-		    sc->sc_dev.dv_xname, hdr->icmsgtype);
-	}
-
-	hdr->icflags = HV_ICMSGHDRFLAG_TRANSACTION | HV_ICMSGHDRFLAG_RESPONSE;
-	hv_channel_send(ch, ch->ch_buf, rlen, rid, VMBUS_CHANPKT_TYPE_INBAND, 0);
 }
 
 static int
@@ -1917,4 +1812,12 @@ hv_attach_devices(struct hv_softc *sc)
 		config_found((struct device *)sc, &dv->dv_aa, hv_attach_print);
 	}
 	return (0);
+}
+
+void
+hv_evcount_attach(struct hv_channel *ch, const char *name)
+{
+	struct hv_softc *sc = ch->ch_sc;
+
+	evcount_attach(&ch->ch_evcnt, name, &sc->sc_idtvec);
 }

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.69 2016/07/04 18:01:44 guenther Exp $
+#	$OpenBSD: Makefile,v 1.72 2017/07/10 21:30:37 espie Exp $
 
 # Uncomment this to enable tracing in libcurses
 #CURSESTRACE=-DTRACE
@@ -87,7 +87,7 @@ MAN=	curs_addch.3 curs_addchstr.3 curs_addstr.3 curs_attr.3 \
 	curs_get_wstr.3 curs_in_wch.3 curs_in_wchstr.3 curs_ins_wch.3 \
 	curs_ins_wstr.3 curs_inwstr.3 \
 	default_colors.3 define_key.3 \
-	key_defined.3 keybound.3 keyok.3 \
+	key_defined.3 keybound.3 keyok.3 legacy_coding.3 \
 	curses.3 \
 	resizeterm.3 \
 	term.5 term.7 termcap.3 terminfo.3 terminfo.5 \
@@ -98,9 +98,7 @@ GENERATED= init_keytry.h codes.c comp_captab.c expanded.c fallback.c \
 CLEANFILES+= ${GENERATED} term.5 terminfo.5 curses.3 \
 	curs_addch.3 curs_attr.3 curs_getch.3 curs_inch.3 curs_mouse.3
 
-all: ${GENERATED}
-
-beforedepend: ${GENERATED}
+BUILDFIRST = ${GENERATED}
 
 includes:
 	@cmp -s ${DESTDIR}/usr/include/ncurses.h ${.CURDIR}/curses.h || \
@@ -168,9 +166,6 @@ afterinstall:
 	done
 
 .include <bsd.lib.mk>
-
-init_keytry.o init_keytry.so init_keytry.po init_keytry.ln: init_keytry.h
-lib_options.o lib_options.so lib_options.po lib_options.ln: init_keytry.h
 
 # must be at the end because bsd.lib.mk clears it
 .SUFFIXES: .3 .3tbl .5 .5tbl

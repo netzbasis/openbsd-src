@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_aobj.c,v 1.81 2016/06/17 10:48:25 dlg Exp $	*/
+/*	$OpenBSD: uvm_aobj.c,v 1.85 2017/01/31 17:08:51 dhill Exp $	*/
 /*	$NetBSD: uvm_aobj.c,v 1.39 2001/02/18 21:19:08 chs Exp $	*/
 
 /*
@@ -388,7 +388,8 @@ uao_free(struct uvm_aobj *aobj)
 				pool_put(&uao_swhash_elt_pool, elt);
 			}
 		}
-		free(aobj->u_swhash, M_UVMAOBJ, 0);
+
+		hashfree(aobj->u_swhash, UAO_SWHASH_BUCKETS(aobj->u_pages), M_UVMAOBJ);
 	} else {
 		int i;
 
@@ -402,7 +403,7 @@ uao_free(struct uvm_aobj *aobj)
 				uvmexp.swpgonly--;
 			}
 		}
-		free(aobj->u_swslots, M_UVMAOBJ, 0);
+		free(aobj->u_swslots, M_UVMAOBJ, aobj->u_pages * sizeof(int));
 	}
 
 	/* finally free the aobj itself */
@@ -470,7 +471,7 @@ uao_shrink_hash(struct uvm_object *uobj, int pages)
 		}
 	}
 
-	free(aobj->u_swhash, M_UVMAOBJ, 0);
+	hashfree(aobj->u_swhash, UAO_SWHASH_BUCKETS(aobj->u_pages), M_UVMAOBJ);
 
 	aobj->u_swhash = new_swhash;
 	aobj->u_pages = pages;
@@ -507,7 +508,7 @@ uao_shrink_convert(struct uvm_object *uobj, int pages)
 		}
 	}
 
-	free(aobj->u_swhash, M_UVMAOBJ, 0);
+	hashfree(aobj->u_swhash, UAO_SWHASH_BUCKETS(aobj->u_pages), M_UVMAOBJ);
 
 	aobj->u_swslots = new_swslots;
 	aobj->u_pages = pages;
@@ -531,7 +532,7 @@ uao_shrink_array(struct uvm_object *uobj, int pages)
 	for (i = 0; i < pages; i++)
 		new_swslots[i] = aobj->u_swslots[i];
 
-	free(aobj->u_swslots, M_UVMAOBJ, 0);
+	free(aobj->u_swslots, M_UVMAOBJ, aobj->u_pages * sizeof(int));
 
 	aobj->u_swslots = new_swslots;
 	aobj->u_pages = pages;
@@ -584,7 +585,7 @@ uao_grow_array(struct uvm_object *uobj, int pages)
 	for (i = 0; i < aobj->u_pages; i++)
 		new_swslots[i] = aobj->u_swslots[i];
 
-	free(aobj->u_swslots, M_UVMAOBJ, 0);
+	free(aobj->u_swslots, M_UVMAOBJ, aobj->u_pages * sizeof(int));
 
 	aobj->u_swslots = new_swslots;
 	aobj->u_pages = pages;
@@ -627,7 +628,7 @@ uao_grow_hash(struct uvm_object *uobj, int pages)
 		}
 	}
 
-	free(aobj->u_swhash, M_UVMAOBJ, 0);
+	hashfree(aobj->u_swhash, UAO_SWHASH_BUCKETS(aobj->u_pages), M_UVMAOBJ);
 
 	aobj->u_swhash = new_swhash;
 	aobj->u_pages = pages;
@@ -663,7 +664,7 @@ uao_grow_convert(struct uvm_object *uobj, int pages)
 		}
 	}
 
-	free(old_swslots, M_UVMAOBJ, 0);
+	free(old_swslots, M_UVMAOBJ, aobj->u_pages * sizeof(int));
 	aobj->u_pages = pages;
 
 	return 0;
@@ -797,13 +798,10 @@ uao_init(void)
 	 * NOTE: Pages for this pool must not come from a pageable
 	 * kernel map!
 	 */
-	pool_init(&uao_swhash_elt_pool, sizeof(struct uao_swhash_elt),
-	    0, 0, PR_WAITOK, "uaoeltpl", NULL);
-	pool_setipl(&uao_swhash_elt_pool, IPL_NONE);
-
-	pool_init(&uvm_aobj_pool, sizeof(struct uvm_aobj), 0, 0, PR_WAITOK,
-	    "aobjpl", NULL);
-	pool_setipl(&uvm_aobj_pool, IPL_NONE);
+	pool_init(&uao_swhash_elt_pool, sizeof(struct uao_swhash_elt), 0,
+	    IPL_NONE, PR_WAITOK, "uaoeltpl", NULL);
+	pool_init(&uvm_aobj_pool, sizeof(struct uvm_aobj), 0,
+	    IPL_NONE, PR_WAITOK, "aobjpl", NULL);
 }
 
 /*
@@ -872,7 +870,7 @@ uao_detach_locked(struct uvm_object *uobj)
 	 * Release swap resources then free the page.
  	 */
 	uvm_lock_pageq();
-	while((pg = RB_ROOT(&uobj->memt)) != NULL) {
+	while((pg = RBT_ROOT(uvm_objtree, &uobj->memt)) != NULL) {
 		if (pg->pg_flags & PG_BUSY) {
 			atomic_setbits_int(&pg->pg_flags, PG_WANTED);
 			uvm_unlock_pageq();

@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr_private.h,v 1.39 2016/08/20 19:08:57 jca Exp $	*/
+/*	$OpenBSD: asr_private.h,v 1.46 2017/02/27 11:38:08 jca Exp $	*/
 /*
  * Copyright (c) 2012 Eric Faurot <eric@openbsd.org>
  *
@@ -23,7 +23,9 @@
 #define TC_MASK		(0x1 <<  9)
 #define RD_MASK		(0x1 <<  8)
 #define RA_MASK		(0x1 <<  7)
-#define Z_MASK		(0x7 <<  4)
+#define Z_MASK		(0x1 <<  6)
+#define AD_MASK		(0x1 <<  5)
+#define CD_MASK		(0x1 <<  4)
 #define RCODE_MASK	(0xf)
 
 #define OPCODE(v)	((v) & OPCODE_MASK)
@@ -34,14 +36,14 @@ struct asr_pack {
 	char		*buf;
 	size_t		 len;
 	size_t		 offset;
-	const char	*err;
+	int		 err;
 };
 
 struct asr_unpack {
 	const char	*buf;
 	size_t		 len;
 	size_t		 offset;
-	const char	*err;
+	int		 err;
 };
 
 struct asr_dns_header {
@@ -165,11 +167,13 @@ struct asr_query {
 	int		(*as_run)(struct asr_query *, struct asr_result *);
 	struct asr_ctx	*as_ctx;
 	int		 as_type;
+	int		 as_flags;
 	int		 as_state;
 
 	/* cond */
 	int		 as_timeout;
 	int		 as_fd;
+	struct asr_query *as_subq;
 
 	/* loop indices in ctx */
 	int		 as_dom_step;
@@ -182,7 +186,6 @@ struct asr_query {
 
 	union {
 		struct {
-			int		 flags;
 			uint16_t	 reqid;
 			int		 class;
 			int		 type;
@@ -205,11 +208,9 @@ struct asr_query {
 		} dns;
 
 		struct {
-			int		 flags;
 			int		 class;
 			int		 type;
 			char		*name;
-			struct asr_query	*subq;
 			int		 saved_h_errno;
 		} search;
 
@@ -218,13 +219,11 @@ struct asr_query {
 			int		 class;
 			int		 type;
 			char		*name;
-			struct asr_query	*subq;
 		} rrset;
 
 		struct {
 			char		*name;
 			int		 family;
-			struct asr_query	*subq;
 			char		 addr[16];
 			int		 addrlen;
 			int		 subq_h_errno;
@@ -233,7 +232,6 @@ struct asr_query {
 		struct {
 			char		*name;
 			int		 family;
-			struct asr_query	*subq;
 			in_addr_t	 addr;
 		} netnamadr;
 
@@ -252,8 +250,6 @@ struct asr_query {
 			char		*fqdn;
 			struct addrinfo	*aifirst;
 			struct addrinfo	*ailast;
-			struct asr_query	*subq;
-			int		 flags;
 		} ai;
 
 		struct {
@@ -267,7 +263,6 @@ struct asr_query {
 				struct sockaddr_in6	sain6;
 			}		 sa;
 			int		 flags;
-			struct asr_query	*subq;
 		} ni;
 #define MAXTOKEN 10
 	} as;
@@ -294,6 +289,7 @@ enum asr_state {
 	ASR_STATE_HALT,
 };
 
+#define MAXPACKETSZ	4096
 
 __BEGIN_HIDDEN_DECLS
 
@@ -301,6 +297,7 @@ __BEGIN_HIDDEN_DECLS
 void _asr_pack_init(struct asr_pack *, char *, size_t);
 int _asr_pack_header(struct asr_pack *, const struct asr_dns_header *);
 int _asr_pack_query(struct asr_pack *, uint16_t, uint16_t, const char *);
+int _asr_pack_edns0(struct asr_pack *, uint16_t, int);
 void _asr_unpack_init(struct asr_unpack *, const char *, size_t);
 int _asr_unpack_header(struct asr_unpack *, struct asr_dns_header *);
 int _asr_unpack_query(struct asr_unpack *, struct asr_dns_query *);
@@ -310,7 +307,6 @@ ssize_t _asr_dname_from_fqdn(const char *, char *, size_t);
 ssize_t _asr_addr_as_fqdn(const char *, int, char *, size_t);
 
 /* asr.c */
-static void *_asr_resolver(void);
 void _asr_resolver_done(void *);
 struct asr_ctx *_asr_use_resolver(void *);
 struct asr_ctx *_asr_no_resolver(void);

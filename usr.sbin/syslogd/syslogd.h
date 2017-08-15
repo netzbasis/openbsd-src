@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.h,v 1.23 2015/10/23 16:28:52 bluhm Exp $ */
+/*	$OpenBSD: syslogd.h,v 1.31 2017/08/08 14:23:23 bluhm Exp $ */
 
 /*
  * Copyright (c) 2003 Anil Madhavapeddy <anil@recoil.org>
@@ -20,8 +20,11 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include <stdarg.h>
+
 /* Privilege separation */
-int   priv_init(char *, int, int, int, char **);
+void  priv_init(int, int, int, char **);
+__dead void priv_exec(char *, int, int, int, char **);
 int   priv_open_tty(const char *);
 int   priv_open_log(const char *);
 FILE *priv_open_utmp(void);
@@ -34,25 +37,21 @@ int   priv_getnameinfo(struct sockaddr *, socklen_t, char *, size_t);
 /* Terminal message */
 #define TTYMSGTIME	1		/* timeout used by ttymsg */
 #define TTYMAXDELAY	256		/* max events in ttymsg */
-char *ttymsg(struct iovec *, int, char *);
+void ttymsg(struct iovec *, int, char *);
 
 /* File descriptor send/recv */
 void send_fd(int, int);
 int  receive_fd(int);
 
 /* The list of domain sockets */
-#define MAXUNIX	21
 extern int nunix;
-extern char *path_unix[MAXUNIX];
+extern char **path_unix;
 extern char *path_ctlsock;
-extern int fd_ctlsock, fd_ctlconn, fd_klog, fd_sendsys;
-extern int fd_udp, fd_udp6, fd_bind, fd_listen, fd_tls, fd_unix[MAXUNIX];
 
-#define MAXLINE		8192		/* maximum line length */
 #define ERRBUFSIZE	256
-void logdebug(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
+void vlogmsg(int pri, const char *, const char *, va_list);
+__dead void die(int);
 extern int Debug;
-extern int Startup;
 
 struct ringbuf {
 	char *buf;

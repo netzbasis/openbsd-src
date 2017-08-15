@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.103 2016/09/04 09:22:28 mpi Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.114 2017/08/11 20:19:14 tedu Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -69,12 +69,17 @@ struct vmx {
 	uint64_t	vmx_cr4_fixed1;
 	uint32_t	vmx_vmxon_revision;
 	uint32_t	vmx_msr_table_size;
+	uint32_t	vmx_cr3_tgt_count;
+	uint64_t	vmx_vm_func;
 };
 
 /*
  * SVM for AMD CPUs
  */
 struct svm {
+	uint32_t	svm_max_asid;
+	uint8_t		svm_flush_by_asid;
+	uint8_t		svm_vmcb_clean;
 };
 
 union vmm_cpu_cap {
@@ -181,6 +186,7 @@ struct cpu_info {
 #define	CI_VMM_SVM	(1 << 1)
 #define	CI_VMM_RVI	(1 << 2)
 #define	CI_VMM_EPT	(1 << 3)
+#define	CI_VMM_DIS	(1 << 4)
 	union		vmm_cpu_cap ci_vmm_cap;
 	paddr_t		ci_vmxon_region_pa;
 	struct vmxon_region *ci_vmxon_region;
@@ -197,6 +203,7 @@ struct cpu_info {
 #define CPUF_CONST_TSC	0x0040		/* CPU has constant TSC */
 #define CPUF_USERSEGS_BIT	7	/* CPU has curproc's segments */
 #define CPUF_USERSEGS	(1<<CPUF_USERSEGS_BIT)		/* and FS.base */
+#define CPUF_INVAR_TSC	0x0100		/* CPU has invariant TSC */
 
 #define CPUF_PRESENT	0x1000		/* CPU is present */
 #define CPUF_RUNNING	0x2000		/* CPU is running */
@@ -416,12 +423,11 @@ void mp_setperf_init(void);
 #define CPU_CPUVENDOR		6	/* cpuid vendor string */
 #define CPU_CPUID		7	/* cpuid */
 #define CPU_CPUFEATURE		8	/* cpuid features */
-#define CPU_APMWARN		9	/* APM battery warning percentage */
 #define CPU_KBDRESET		10	/* keyboard reset under pcvt */
-#define CPU_APMHALT		11	/* halt -p hack */
 #define CPU_XCRYPT		12	/* supports VIA xcrypt in userland */
-#define CPU_LIDSUSPEND		13	/* lid close causes a suspend */
-#define CPU_MAXID		14	/* number of valid machdep ids */
+#define CPU_LIDACTION		14	/* action caused by lid close */
+#define CPU_FORCEUKBD		15	/* Force ukbd(4) as console keyboard */
+#define CPU_MAXID		16	/* number of valid machdep ids */
 
 #define	CTL_MACHDEP_NAMES { \
 	{ 0, 0 }, \
@@ -433,11 +439,13 @@ void mp_setperf_init(void);
 	{ "cpuvendor", CTLTYPE_STRING }, \
 	{ "cpuid", CTLTYPE_INT }, \
 	{ "cpufeature", CTLTYPE_INT }, \
-	{ "apmwarn", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "kbdreset", CTLTYPE_INT }, \
-	{ "apmhalt", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "xcrypt", CTLTYPE_INT }, \
-	{ "lidsuspend", CTLTYPE_INT }, \
+	{ 0, 0 }, \
+	{ "lidaction", CTLTYPE_INT }, \
+	{ "forceukbd", CTLTYPE_INT }, \
 }
 
 /*

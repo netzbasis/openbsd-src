@@ -1,4 +1,4 @@
-/*	$OpenBSD: dir.c,v 1.28 2015/03/19 21:22:15 bcallah Exp $	*/
+/*	$OpenBSD: dir.c,v 1.30 2017/05/30 07:05:22 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -27,11 +27,9 @@ void
 dirinit(void)
 {
 	mgcwd[0] = '\0';
-	if (getcwd(mgcwd, sizeof(mgcwd)) == NULL) {
+	if (getcwd(mgcwd, sizeof(mgcwd)) == NULL)
 		ewprintf("Can't get current directory!");
-		chdir("/");
-	}
-	if (!(mgcwd[0] == '/' && mgcwd [1] == '\0'))
+	if (mgcwd[0] != '\0' && !(mgcwd[0] == '/' && mgcwd[1] == '\0'))
 		(void)strlcat(mgcwd, "/", sizeof(mgcwd));
 }
 
@@ -56,11 +54,15 @@ changedir(int f, int n)
 		ewprintf("Can't change dir to %s", bufc);
 		return (FALSE);
 	}
-	if ((bufp = getcwd(mgcwd, sizeof(mgcwd))) == NULL)
-		panic("Can't get current directory!");
+	if ((bufp = getcwd(mgcwd, sizeof(mgcwd))) == NULL) {
+		if (bufc[0] == '/')
+			(void)strlcpy(mgcwd, bufc, sizeof(mgcwd));
+		else
+			(void)strlcat(mgcwd, bufc, sizeof(mgcwd));
+	}
 	if (mgcwd[strlen(mgcwd) - 1] != '/')
 		(void)strlcat(mgcwd, "/", sizeof(mgcwd));
-	ewprintf("Current directory is now %s", bufp);
+	ewprintf("Current directory is now %s", mgcwd);
 	return (TRUE);
 }
 
@@ -115,7 +117,7 @@ do_makedir(char *path)
 {
 	struct stat	 sb;
 	int		 finished, ishere;
-	mode_t		 dir_mode, mode, oumask;
+	mode_t		 dir_mode, f_mode, oumask;
 	char		*slash;
 
 	if ((path = adjustname(path, TRUE)) == NULL)
@@ -129,8 +131,8 @@ do_makedir(char *path)
 	slash = path;
 
 	oumask = umask(0);
-	mode = 0777 & ~oumask;
-	dir_mode = mode | S_IWUSR | S_IXUSR;
+	f_mode = 0777 & ~oumask;
+	dir_mode = f_mode | S_IWUSR | S_IXUSR;
 
 	for (;;) {
 		slash += strspn(slash, "/");
@@ -150,8 +152,8 @@ do_makedir(char *path)
 			continue;
 		}
 
-		if (mkdir(path, finished ? mode : dir_mode) == 0) {
-			if (mode > 0777 && chmod(path, mode) < 0) {
+		if (mkdir(path, finished ? f_mode : dir_mode) == 0) {
+			if (f_mode > 0777 && chmod(path, f_mode) < 0) {
 				umask(oumask);
 				return (ABORT);
 			}

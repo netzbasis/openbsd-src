@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpctl.8,v 1.69 2016/05/25 14:15:59 jmc Exp $
+.\" $OpenBSD: bgpctl.8,v 1.77 2017/05/29 21:27:36 jmc Exp $
 .\"
 .\" Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 25 2016 $
+.Dd $Mdocdate: May 29 2017 $
 .Dt BGPCTL 8
 .Os
 .Sh NAME
@@ -44,10 +44,20 @@ Show neighbors' IP addresses instead of their description.
 .It Fl s Ar socket
 Use
 .Ar socket
-instead of the default
-.Pa /var/run/bgpd.sock
 to communicate with
-.Xr bgpd 8 .
+.Xr bgpd 8
+instead of the default
+.Pa /var/run/bgpd.sock.<rdomain>
+where
+.Ar <rdomain>
+is the routing domain
+.Nm
+is running in.
+To administer
+.Xr bgpd 8
+in a different routing domain, run
+.Nm
+in said routing domain.
 .El
 .Pp
 The commands are as follows:
@@ -95,8 +105,16 @@ Fetch only IPv6 prefixes from the registry.
 Disable verbose debug logging.
 .It Cm log verbose
 Enable verbose debug logging.
-.It Cm neighbor Ar peer Cm clear
+.It Cm neighbor Ar peer Cm clear Op Ar reason
 Stop and restart the BGP session to the specified neighbor.
+If a
+.Ar reason
+is provided, the
+.Ar reason
+is sent as Administrative Shutdown Communication to the neighbor.
+The
+.Ar reason
+cannot exceed 128 octets.
 .Ar peer
 may be the neighbor's address or description.
 .It Cm neighbor Ar peer Cm destroy
@@ -104,8 +122,16 @@ Destroy a previously cloned peer.
 The peer must be down before calling this function.
 .Ar peer
 may be the neighbor's address or description.
-.It Cm neighbor Ar peer Cm down
+.It Cm neighbor Ar peer Cm down Op Ar reason
 Take the BGP session to the specified neighbor down.
+If a
+.Ar reason
+is provided, the
+.Ar reason
+is sent as Administrative Shutdown Communication to the neighbor.
+The
+.Ar reason
+cannot exceed 128 octets.
 .Ar peer
 may be the neighbor's address or description.
 .It Cm neighbor Ar peer Cm refresh
@@ -300,6 +326,9 @@ anywhere in the AS path.
 .It Cm community Ar community
 Show all entries with community
 .Ar community .
+.It Cm large-community Ar large-community
+Show all entries with large-community
+.Ar large-community .
 .It Cm empty-as
 Show all entries that are internal routes with no AS's in the AS path.
 .It Cm memory
@@ -330,7 +359,7 @@ Additionally, the following
 .Ar options
 are defined:
 .Pp
-.Bl -tag -width "detail" -compact
+.Bl -tag -width "selected" -compact
 .It Cm best
 Alias for
 .Ic selected .

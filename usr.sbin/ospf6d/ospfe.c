@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfe.c,v 1.49 2016/09/03 10:25:36 renato Exp $ */
+/*	$OpenBSD: ospfe.c,v 1.51 2017/08/12 16:27:50 benno Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -119,8 +119,14 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 		fatal("chdir(\"/\")");
 
 	setproctitle("ospf engine");
+	/*
+	 * XXX needed with fork+exec
+	 * log_init(debug, LOG_DAEMON);
+	 * log_setverbose(verbose);
+	 */
+
 	ospfd_process = PROC_OSPF_ENGINE;
-	log_procname = log_procnames[ospfd_process];
+	log_procinit(log_procnames[ospfd_process]);
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
@@ -260,7 +266,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 	struct imsg		 imsg;
 	struct imsgev		*iev = bula;
 	struct imsgbuf		*ibuf = &iev->ibuf;
-	int			 n, stub_changed, shut = 0;
+	int			 n, stub_changed, shut = 0, isvalid, wasvalid;
 	unsigned int		 ifindex;
 
 	if (event & EV_READ) {
@@ -293,11 +299,19 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 			if (iface == NULL)
 				fatalx("interface lost in ospfe");
 
+			wasvalid = (iface->flags & IFF_UP) &&
+			    LINK_STATE_IS_UP(iface->linkstate);
+
 			if_update(iface, ifp->mtu, ifp->flags, ifp->if_type,
 			    ifp->linkstate, ifp->baudrate);
 
-			if ((iface->flags & IFF_UP) &&
-			    LINK_STATE_IS_UP(iface->linkstate)) {
+			isvalid = (iface->flags & IFF_UP) &&
+			    LINK_STATE_IS_UP(iface->linkstate);
+
+			if (wasvalid == isvalid)
+				break;
+
+			if (isvalid) {
 				if_fsm(iface, IF_EVT_UP);
 				log_warnx("interface %s up", iface->name);
 			} else {

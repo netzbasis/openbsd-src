@@ -1,4 +1,4 @@
-/*	$OpenBSD: tee.c,v 1.10 2015/10/09 01:37:09 deraadt Exp $	*/
+/*	$OpenBSD: tee.c,v 1.12 2017/07/11 13:14:59 bluhm Exp $	*/
 /*	$NetBSD: tee.c,v 1.5 1994/12/09 01:43:39 jtc Exp $	*/
 
 /*
@@ -32,22 +32,23 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <signal.h>
+#include <sys/queue.h>
+
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <unistd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <locale.h>
-#include <err.h>
+#include <unistd.h>
 
 struct list {
-	struct list *next;
+	SLIST_ENTRY(list) next;
 	int fd;
 	char *name;
 };
-struct list *head;
+SLIST_HEAD(, list) head;
 
 static void
 add(int fd, char *name)
@@ -58,8 +59,7 @@ add(int fd, char *name)
 		err(1, NULL);
 	p->fd = fd;
 	p->name = name;
-	p->next = head;
-	head = p;
+	SLIST_INSERT_HEAD(&head, p, next);
 }
 
 int
@@ -72,10 +72,10 @@ main(int argc, char *argv[])
 	int append, ch, exitval;
 	char buf[8192];
 
-	setlocale(LC_ALL, "");
-
 	if (pledge("stdio wpath cpath", NULL) == -1)
 		err(1, "pledge");
+
+	SLIST_INIT(&head);
 
 	append = 0;
 	while ((ch = getopt(argc, argv, "ai")) != -1) {
@@ -86,10 +86,9 @@ main(int argc, char *argv[])
 		case 'i':
 			(void)signal(SIGINT, SIG_IGN);
 			break;
-		case '?':
 		default:
 			(void)fprintf(stderr, "usage: tee [-ai] [file ...]\n");
-			exit(1);
+			return 1;
 		}
 	}
 	argv += optind;
@@ -112,7 +111,7 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 
 	while ((rval = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
-		for (p = head; p; p = p->next) {
+		SLIST_FOREACH(p, &head, next) {
 			n = rval;
 			bp = buf;
 			do {
@@ -130,12 +129,12 @@ main(int argc, char *argv[])
 		exitval = 1;
 	}
 
-	for (p = head; p; p = p->next) {
+	SLIST_FOREACH(p, &head, next) {
 		if (close(p->fd) == -1) {
 			warn("%s", p->name);
 			exitval = 1;
 		}
 	}
 
-	exit(exitval);
+	return exitval;
 }

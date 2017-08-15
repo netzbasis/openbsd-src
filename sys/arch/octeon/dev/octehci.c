@@ -1,4 +1,4 @@
-/*	$OpenBSD: octehci.c,v 1.1 2016/03/18 05:38:10 jmatthew Exp $ */
+/*	$OpenBSD: octehci.c,v 1.3 2017/07/25 11:01:28 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2015 Jonathan Matthew  <jmatthew@openbsd.org>
@@ -57,11 +57,7 @@ int
 octehci_match(struct device *parent, void *match, void *aux)
 {
 	struct octuctl_attach_args *aa = aux;
-
-	if (strcmp(aa->aa_name, "ehci") != 0)
-		return (0);
-
-	return (1);
+	return (OF_is_compatible(aa->aa_node, "cavium,octeon-6335-ehci"));
 }
 
 void
@@ -77,7 +73,7 @@ octehci_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ehci.sc_bus.pipe_size = sizeof(struct usbd_pipe);
 	sc->sc_ehci.sc_bus.dmatag = aa->aa_dmat;
 
-	rc = bus_space_map(sc->sc_ehci.iot, UCTL_EHCI_BASE, UCTL_EHCI_SIZE,
+	rc = bus_space_map(sc->sc_ehci.iot, aa->aa_reg.addr, aa->aa_reg.size,
 	    0, &sc->sc_ehci.ioh);
 	KASSERT(rc == 0);
 
@@ -97,8 +93,8 @@ octehci_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ehci.sc_id_vendor = 0;
 	strlcpy(sc->sc_ehci.sc_vendor, "Octeon", sizeof(sc->sc_ehci.sc_vendor));
 
-	sc->sc_ih = octeon_intr_establish(CIU_INT_USB, IPL_USB, ehci_intr,
-	    (void *)&sc->sc_ehci, sc->sc_ehci.sc_bus.bdev.dv_xname);
+	sc->sc_ih = octeon_intr_establish(CIU_INT_USB, IPL_USB | IPL_MPSAFE,
+	    ehci_intr, (void *)&sc->sc_ehci, sc->sc_ehci.sc_bus.bdev.dv_xname);
 	KASSERT(sc->sc_ih != NULL);
 
 	rc = ehci_init(&sc->sc_ehci);
@@ -106,7 +102,7 @@ octehci_attach(struct device *parent, struct device *self, void *aux)
 		printf(": init failed, error=%d\n", rc);
 		octeon_intr_disestablish(sc->sc_ih);
 		bus_space_unmap(sc->sc_ehci.iot, sc->sc_ehci.ioh,
-		    UCTL_EHCI_SIZE);
+		    aa->aa_reg.size);
 		splx(s);
 		return;
 	}

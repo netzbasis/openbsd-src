@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_run.c,v 1.116 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_run.c,v 1.123 2017/08/14 05:52:21 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2008-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -153,7 +153,10 @@ static const struct usb_devno run_devs[] = {
 	USB_ID(COREGA,		RT3070),
 	USB_ID(CYBERTAN,	RT2870),
 	USB_ID(DLINK,		DWA127),
+	USB_ID(DLINK,		DWA130F1),
+	USB_ID(DLINK,		DWA137A1),
 	USB_ID(DLINK,		DWA140B3),
+	USB_ID(DLINK,		DWA140D1),
 	USB_ID(DLINK,		DWA160B2),
 	USB_ID(DLINK,	 	DWA162),
 	USB_ID(DLINK,		RT2870),
@@ -842,14 +845,13 @@ run_load_microcode(struct run_softc *sc)
 	if (size != 4096) {
 		printf("%s: invalid firmware size (should be 4KB)\n",
 		    sc->sc_dev.dv_xname);
-		free(ucode, M_DEVBUF, 0);
+		free(ucode, M_DEVBUF, size);
 		return EINVAL;
 	}
 
-	run_read(sc, RT2860_ASIC_VER_ID, &tmp);
 	/* write microcode image */
 	run_write_region_1(sc, RT2870_FW_BASE, ucode, size);
-	free(ucode, M_DEVBUF, 0);
+	free(ucode, M_DEVBUF, size);
 	run_write(sc, RT2860_H2M_MAILBOX_CID, 0xffffffff);
 	run_write(sc, RT2860_H2M_MAILBOX_STATUS, 0xffffffff);
 
@@ -2185,6 +2187,11 @@ run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen)
 		DPRINTF(("bad RXWI length %u > %u\n", len, dmalen));
 		return;
 	}
+	if (len > MCLBYTES) {
+		DPRINTF(("frame too large (length=%d)\n", len));
+		ifp->if_ierrors++;
+		return;
+	}
 	/* Rx descriptor is located at the end */
 	rxd = (struct rt2870_rxd *)(buf + dmalen);
 	flags = letoh32(rxd->flags);
@@ -2374,7 +2381,6 @@ run_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	}
 
 	sc->sc_tx_timer = 0;
-	ifp->if_opackets++;
 	ifq_clr_oactive(&ifp->if_snd);
 	run_start(ifp);
 	splx(s);
@@ -3758,7 +3764,8 @@ run_updateslot_cb(struct run_softc *sc, void *arg)
 
 	run_read(sc, RT2860_BKOFF_SLOT_CFG, &tmp);
 	tmp &= ~0xff;
-	tmp |= (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ? 9 : 20;
+	tmp |= (sc->sc_ic.ic_flags & IEEE80211_F_SHSLOT) ?
+	    IEEE80211_DUR_DS_SHSLOT : IEEE80211_DUR_DS_SLOT;
 	run_write(sc, RT2860_BKOFF_SLOT_CFG, tmp);
 }
 

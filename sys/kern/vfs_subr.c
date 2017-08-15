@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.250 2016/08/25 00:01:13 dlg Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.260 2017/07/31 16:47:03 florian Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -122,11 +122,11 @@ void printlockedvnodes(void);
 struct pool vnode_pool;
 struct pool uvm_vnode_pool;
 
-static int rb_buf_compare(struct buf *b1, struct buf *b2);
-RB_GENERATE(buf_rb_bufs, buf, b_rbbufs, rb_buf_compare);
+static inline int rb_buf_compare(const struct buf *b1, const struct buf *b2);
+RBT_GENERATE(buf_rb_bufs, buf, b_rbbufs, rb_buf_compare);
 
-static int
-rb_buf_compare(struct buf *b1, struct buf *b2)
+static inline int
+rb_buf_compare(const struct buf *b1, const struct buf *b2)
 {
 	if (b1->b_lblkno < b2->b_lblkno)
 		return(-1);
@@ -143,12 +143,10 @@ vntblinit(void)
 {
 	/* buffer cache may need a vnode for each buffer */
 	maxvnodes = 2 * initialvnodes;
-	pool_init(&vnode_pool, sizeof(struct vnode), 0, 0, PR_WAITOK,
-	    "vnodes", NULL);
-	pool_setipl(&vnode_pool, IPL_NONE);
-	pool_init(&uvm_vnode_pool, sizeof(struct uvm_vnode), 0, 0, PR_WAITOK,
-	    "uvmvnodes", NULL);
-	pool_setipl(&uvm_vnode_pool, IPL_NONE);
+	pool_init(&vnode_pool, sizeof(struct vnode), 0, IPL_NONE,
+	    PR_WAITOK, "vnodes", NULL);
+	pool_init(&uvm_vnode_pool, sizeof(struct uvm_vnode), 0, IPL_NONE,
+	    PR_WAITOK, "uvmvnodes", NULL);
 	TAILQ_INIT(&vnode_hold_list);
 	TAILQ_INIT(&vnode_free_list);
 	TAILQ_INIT(&mountlist);
@@ -157,7 +155,9 @@ vntblinit(void)
 	 */
 	vn_initialize_syncerd();
 
+#ifdef NFSSERVER
 	rn_init(sizeof(struct sockaddr_in));
+#endif /* NFSSERVER */
 }
 
 /*
@@ -174,7 +174,7 @@ vfs_busy(struct mount *mp, int flags)
 
 	/* new mountpoints need their lock initialised */
 	if (mp->mnt_lock.rwl_name == NULL)
-		rw_init(&mp->mnt_lock, "vfslock");
+		rw_init_flags(&mp->mnt_lock, "vfslock", RWL_IS_VNODE);
 
 	if (flags & VB_WRITE)
 		rwflags |= RW_WRITE;
@@ -377,13 +377,12 @@ getnewvnode(enum vtagtype tag, struct mount *mp, struct vops *vops,
 		vp = pool_get(&vnode_pool, PR_WAITOK | PR_ZERO);
 		vp->v_uvm = pool_get(&uvm_vnode_pool, PR_WAITOK | PR_ZERO);
 		vp->v_uvm->u_vnode = vp;
-		RB_INIT(&vp->v_bufs_tree);
-		RB_INIT(&vp->v_nc_tree);
+		RBT_INIT(buf_rb_bufs, &vp->v_bufs_tree);
+		cache_tree_init(&vp->v_nc_tree);
 		TAILQ_INIT(&vp->v_cache_dst);
 		numvnodes++;
 	} else {
-		for (vp = TAILQ_FIRST(listhd); vp != NULLVP;
-		    vp = TAILQ_NEXT(vp, v_freelist)) {
+		TAILQ_FOREACH(vp, listhd, v_freelist) {
 			if (VOP_ISLOCKED(vp) == 0)
 				break;
 		}
@@ -838,10 +837,9 @@ vfs_mount_foreach_vnode(struct mount *mp,
 	int error = 0;
 
 loop:
-	for (vp = LIST_FIRST(&mp->mnt_vnodelist); vp != NULL; vp = nvp) {
+	LIST_FOREACH_SAFE(vp , &mp->mnt_vnodelist, v_mntvnodes, nvp) {
 		if (vp->v_mount != mp)
 			goto loop;
-		nvp = LIST_NEXT(vp, v_mntvnodes);
 
 		error = func(vp, arg);
 
@@ -1255,12 +1253,12 @@ vprint(char *label, struct vnode *vp)
 void
 printlockedvnodes(void)
 {
-	struct mount *mp, *nmp;
+	struct mount *mp;
 	struct vnode *vp;
 
 	printf("Locked vnodes\n");
 
-	TAILQ_FOREACH_SAFE(mp, &mountlist, mnt_list, nmp) {
+	TAILQ_FOREACH(mp, &mountlist, mnt_list) {
 		if (vfs_busy(mp, VB_READ|VB_NOWAIT))
 			continue;
 		LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes) {
@@ -1315,7 +1313,7 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			return (EOPNOTSUPP);
 
 		/* Make a copy, clear out kernel pointers */
-		tmpvfsp = malloc(sizeof(*tmpvfsp), M_TEMP, M_WAITOK);
+		tmpvfsp = malloc(sizeof(*tmpvfsp), M_TEMP, M_WAITOK|M_ZERO);
 		memcpy(tmpvfsp, vfsp, sizeof(*tmpvfsp));
 		tmpvfsp->vfc_vfsops = NULL;
 		tmpvfsp->vfc_next = NULL;
@@ -1358,9 +1356,10 @@ vfs_mountedon(struct vnode *vp)
 	return (error);
 }
 
+#ifdef NFSSERVER
 /*
  * Build hash lists of net addresses and hang them off the mount point.
- * Called by ufs_mount() to set up the lists of export addresses.
+ * Called by vfs_export() to set up the lists of export addresses.
  */
 int
 vfs_hang_addrlist(struct mount *mp, struct netexport *nep,
@@ -1458,10 +1457,12 @@ vfs_free_addrlist(struct netexport *nep)
 		nep->ne_rtable_inet = NULL;
 	}
 }
+#endif /* NFSSERVER */
 
 int
 vfs_export(struct mount *mp, struct netexport *nep, struct export_args *argp)
 {
+#ifdef NFSSERVER
 	int error;
 
 	if (argp->ex_flags & MNT_DELEXPORT) {
@@ -1474,11 +1475,15 @@ vfs_export(struct mount *mp, struct netexport *nep, struct export_args *argp)
 		mp->mnt_flag |= MNT_EXPORTED;
 	}
 	return (0);
+#else
+	return (ENOTSUP);
+#endif /* NFSSERVER */
 }
 
 struct netcred *
 vfs_export_lookup(struct mount *mp, struct netexport *nep, struct mbuf *nam)
 {
+#ifdef NFSSERVER
 	struct netcred *np;
 	struct radix_node_head *rnh;
 	struct sockaddr *saddr;
@@ -1508,6 +1513,9 @@ vfs_export_lookup(struct mount *mp, struct netexport *nep, struct mbuf *nam)
 			np = &nep->ne_defexported;
 	}
 	return (np);
+#else
+	return (NULL);
+#endif /* NFSSERVER */
 }
 
 /*
@@ -1578,9 +1586,10 @@ vfs_unmountall(void)
  retry:
 	allerror = 0;
 	TAILQ_FOREACH_REVERSE_SAFE(mp, &mountlist, mntlist, mnt_list, nmp) {
-		if ((vfs_busy(mp, VB_WRITE|VB_NOWAIT)) != 0)
+		if (vfs_busy(mp, VB_WRITE|VB_NOWAIT))
 			continue;
-		if ((error = dounmount(mp, MNT_FORCE, curproc, NULL)) != 0) {
+		/* XXX Here is a race, the next pointer is not locked. */
+		if ((error = dounmount(mp, MNT_FORCE, curproc)) != 0) {
 			printf("unmount of %s failed with error %d\n",
 			    mp->mnt_stat.f_mntonname, error);
 			allerror = 1;
@@ -1875,8 +1884,7 @@ vflushbuf(struct vnode *vp, int sync)
 
 loop:
 	s = splbio();
-	for (bp = LIST_FIRST(&vp->v_dirtyblkhd); bp != NULL; bp = nbp) {
-		nbp = LIST_NEXT(bp, b_vnbufs);
+	LIST_FOREACH_SAFE(bp, &vp->v_dirtyblkhd, b_vnbufs, nbp) {
 		if ((bp->b_flags & B_BUSY))
 			continue;
 		if ((bp->b_flags & B_DELWRI) == 0)
@@ -2164,8 +2172,9 @@ vfs_vnode_print(void *v, int full,
 	struct vnode *vp = v;
 
 	(*pr)("tag %s(%d) type %s(%d) mount %p typedata %p\n",
-	      vp->v_tag >= nitems(vtags)? "<unk>":vtags[vp->v_tag], vp->v_tag,
-	      vp->v_type >= nitems(vtypes)? "<unk>":vtypes[vp->v_type],
+	      (u_int)vp->v_tag >= nitems(vtags)? "<unk>":vtags[vp->v_tag],
+	      vp->v_tag,
+	      (u_int)vp->v_type >= nitems(vtypes)? "<unk>":vtypes[vp->v_type],
 	      vp->v_type, vp->v_mount, vp->v_mountedhere);
 
 	(*pr)("data %p usecount %d writecount %d holdcnt %d numoutput %d\n",

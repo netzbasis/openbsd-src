@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.bsd-wrapper,v 1.42 2014/07/11 23:23:28 jsg Exp $
+#	$OpenBSD: Makefile.bsd-wrapper,v 1.46 2017/06/12 18:49:34 espie Exp $
 
 INFODIR=	infodir=/usr/share/info
 INFOPATH=	DEFAULT_INFOPATH=/usr/local/info:/usr/share/info:.
@@ -34,13 +34,17 @@ config: .FORCE
 .endif
 	PATH="/bin:/usr/bin:/sbin:/usr/sbin" \
 	${XCFLAGS} \
-	INSTALL_PROGRAM="${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP}" \
+	INSTALL_PROGRAM="${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE}" \
+	INSTALL_SCRIPT="${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE}" \
+	INSTALL_DATA="${INSTALL} ${INSTALL_COPY} -o ${DOCOWN} -g ${DOCGRP}  -m ${NONBINMODE}" \
 		/bin/sh ${.CURDIR}/configure --infodir=/usr/share/info --prefix=/usr --disable-nls ${CF}
 
 config.status:
 	PATH="/bin:/usr/bin:/sbin:/usr/sbin" \
 	${XCFLAGS} \
-	INSTALL_PROGRAM="${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP}" \
+	INSTALL_PROGRAM="${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP} -o ${BINOWN} -g ${BINGRP}  -m ${BINMODE}" \
+	INSTALL_SCRIPT="${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE}" \
+	INSTALL_DATA="${INSTALL} ${INSTALL_COPY} -o ${DOCOWN} -g ${DOCGRP} -m ${NONBINMODE}" \
 		/bin/sh ${.CURDIR}/configure --infodir=/usr/share/info --prefix=/usr --disable-nls ${CF}
 
 BEFOREMAN=config.status
@@ -51,9 +55,12 @@ maninstall:
 .endif
 
 install:	maninstall
+	${INSTALL} -d -o ${BINOWN} -g ${BINGRP} ${DESTDIR}/usr/share/texinfo
 	${FSFMAKE} mandir= INSTALL_MAN= DESTDIR=${DESTDIR} install
 	sh ${.CURDIR}/util/gen-dir-node ${DESTDIR}/usr/share/info > \
 	    ${DESTDIR}/usr/share/info/dir
+	chown ${MANOWN}:${MANGRP} ${DESTDIR}/usr/share/info/dir
+	chmod ${MANMODE} ${DESTDIR}/usr/share/info/dir
 
 clean cleandir:
 	rm -f ${CLEANFILES}
@@ -61,9 +68,6 @@ clean cleandir:
 		$(FSFMAKE) distclean; fi
 
 depend:
-	# Nothing here so far...
-
-lint:
 	# Nothing here so far...
 
 tags:

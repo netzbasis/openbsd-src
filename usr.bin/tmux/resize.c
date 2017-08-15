@@ -1,4 +1,4 @@
-/* $OpenBSD: resize.c,v 1.19 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: resize.c,v 1.23 2017/05/10 16:48:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -60,6 +60,9 @@ recalculate_sizes(void)
 		TAILQ_FOREACH(c, &clients, entry) {
 			if (c->flags & CLIENT_SUSPENDED)
 				continue;
+			if ((c->flags & (CLIENT_CONTROL|CLIENT_SIZECHANGED)) ==
+			    CLIENT_CONTROL)
+				continue;
 			if (c->session == s) {
 				if (c->tty.sx < ssx)
 					ssx = c->tty.sx;
@@ -84,11 +87,13 @@ recalculate_sizes(void)
 		if (s->sx == ssx && s->sy == ssy)
 			continue;
 
-		log_debug("session size %u,%u (was %u,%u)", ssx, ssy, s->sx,
-		    s->sy);
+		log_debug("session $%u size %u,%u (was %u,%u)", s->id, ssx, ssy,
+		    s->sx, s->sy);
 
 		s->sx = ssx;
 		s->sy = ssy;
+
+		status_update_saved(s);
 	}
 
 	RB_FOREACH(w, windows, &windows) {
@@ -128,8 +133,8 @@ recalculate_sizes(void)
 
 		if (w->sx == ssx && w->sy == ssy)
 			continue;
-		log_debug("window size %u,%u (was %u,%u)", ssx, ssy, w->sx,
-		    w->sy);
+		log_debug("window @%u size %u,%u (was %u,%u)", w->id, ssx, ssy,
+		    w->sx, w->sy);
 
 		w->flags &= ~(WINDOW_FORCEWIDTH|WINDOW_FORCEHEIGHT);
 		w->flags |= forced;
@@ -156,6 +161,6 @@ recalculate_sizes(void)
 		}
 
 		server_redraw_window(w);
-		notify_window_layout_changed(w);
+		notify_window("window-layout-changed", w);
 	}
 }

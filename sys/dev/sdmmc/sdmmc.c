@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc.c,v 1.44 2016/05/05 11:01:08 kettenis Exp $	*/
+/*	$OpenBSD: sdmmc.c,v 1.47 2017/04/06 07:07:28 jsg Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -508,7 +508,7 @@ sdmmc_function_alloc(struct sdmmc_softc *sc)
 void
 sdmmc_function_free(struct sdmmc_function *sf)
 {
-	free(sf, M_DEVBUF, 0);
+	free(sf, M_DEVBUF, sizeof *sf);
 }
 
 /*
@@ -803,7 +803,7 @@ sdmmc_ioctl(struct device *self, u_long request, caddr_t addr)
 
 exec_done:
 		if (ucmd->c_data)
-			free(data, M_TEMP, 0);
+			free(data, M_TEMP, ucmd->c_datalen);
 		break;
 
 	default:
@@ -824,7 +824,7 @@ sdmmc_dump_command(struct sdmmc_softc *sc, struct sdmmc_command *cmd)
 	DPRINTF(1,("%s: cmd %u arg=%#x data=%p dlen=%d flags=%#x "
 	    "proc=\"%s\" (error %d)\n", DEVNAME(sc), cmd->c_opcode,
 	    cmd->c_arg, cmd->c_data, cmd->c_datalen, cmd->c_flags,
-	    curproc ? curproc->p_comm : "", cmd->c_error));
+	    curproc ? curproc->p_p->ps_comm : "", cmd->c_error));
 
 	if (cmd->c_error || sdmmcdebug < 1)
 		return;

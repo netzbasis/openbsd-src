@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.432 2016/09/04 10:22:05 tedu Exp $
+#	$OpenBSD: GENERIC,v 1.444 2017/06/14 22:35:43 mikeb Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -19,9 +19,6 @@ option		USER_PCICONF	# user-space PCI configuration
 option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
 
-#option		KGDB		# Remote debugger support; exclusive of DDB
-#option		"KGDB_DEVNAME=\"com\"",KGDBADDR=0x2f8,KGDBRATE=9600
-
 option		NTFS		# NTFS support
 option		HIBERNATE	# Hibernate support
 
@@ -37,7 +34,7 @@ isa0	at pcib?
 isa0	at amdpcib?
 isa0	at tcpcib?
 pci*	at mainbus0
-#vmm0	at mainbus0
+vmm0	at mainbus0
 pvbus0	at mainbus0
 
 acpi0		at bios0
@@ -50,6 +47,7 @@ acpicpu*	at acpi?
 acpidock*	at acpi?
 acpiec*		at acpi?
 acpiprt*	at acpi?
+acpisbs*	at acpi?
 acpitz*		at acpi?
 acpimadt0	at acpi?
 acpimcfg*	at acpi?
@@ -67,6 +65,7 @@ sdhc*		at acpi?
 acpicbkbd*	at acpi?
 acpials*	at acpi?
 tpm*		at acpi?
+acpihve*	at acpi?
 
 mpbios0		at bios0
 
@@ -76,9 +75,11 @@ vmt0	at pvbus?		# VMware Tools
 
 xen0	at pvbus?		# Xen HVM domU
 xnf*	at xen?			# Xen Netfront
+xbf*	at xen?			# Xen Blkfront
 
-#hyperv0	at pvbus?		# Hyper-V guest
-#hvn*	at hyperv?		# Hyper-V netvsc
+hyperv0	at pvbus?		# Hyper-V guest
+hvn*	at hyperv?		# Hyper-V NetVSC
+hvs*	at hyperv?		# Hyper-V StorVSC
 
 option		PCIVERBOSE
 option		USBVERBOSE
@@ -248,6 +249,8 @@ ums*	at uhidev?		# USB mouse
 wsmouse* at ums? mux 0
 uts*	at uhub?		# USB touchscreen
 wsmouse* at uts? mux 0
+uwacom*	at uhidev?		# USB Wacom tablet
+wsmouse* at uwacom? mux 0
 ukbd*	at uhidev?		# USB keyboard
 wskbd*	at ukbd? mux 1
 ucycom*	at uhidev?			# Cypress serial
@@ -650,4 +653,5 @@ vio*		at virtio?	# Virtio network device
 viomb*		at virtio?	# Virtio memory ballooning device
 viornd*		at virtio?	# Virtio entropy device
 vioscsi*	at virtio?	# Virtio SCSI device
-#viocon*		at virtio?	# Virtio console device
+#viocon*	at virtio?	# Virtio console device
+vmmci*		at virtio?	# VMM control interface

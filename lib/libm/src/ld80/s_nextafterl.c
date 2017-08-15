@@ -33,8 +33,8 @@ nextafterl(long double x, long double y)
 	ix = esx&0x7fff;		/* |x| */
 	iy = esy&0x7fff;		/* |y| */
 
-	if (((ix==0x7fff)&&((hx&0x7fffffff|lx)!=0)) ||   /* x is nan */
-	    ((iy==0x7fff)&&((hy&0x7fffffff|ly)!=0)))     /* y is nan */
+	if (((ix==0x7fff)&&(((hx&0x7fffffff)|lx)!=0)) ||   /* x is nan */
+	    ((iy==0x7fff)&&(((hy&0x7fffffff)|ly)!=0)))     /* y is nan */
 	   return x+y;
 	if(x==y) return y;		/* x=y, return y */
 	if((ix|hx|lx)==0) {			/* x == 0 */
@@ -87,5 +87,5 @@ nextafterl(long double x, long double y)
 	SET_LDOUBLE_WORDS(x,esx,hx,lx);
 	return x;
 }
-
-__strong_alias(nexttowardl, nextafterl);
+DEF_STD(nextafterl);
+MAKE_UNUSED_CLONE(nexttowardl, nextafterl);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmapae.c,v 1.49 2016/03/07 05:32:47 naddy Exp $	*/
+/*	$OpenBSD: pmapae.c,v 1.52 2016/10/21 06:20:58 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2006-2008 Michael Shalayeff
@@ -811,7 +811,7 @@ pmap_drop_ptp_pae(struct pmap *pm, vaddr_t va, struct vm_page *ptp,
 	pm->pm_stats.resident_count--;
 	/* update hint */
 	if (pm->pm_ptphint == ptp)
-		pm->pm_ptphint = RB_ROOT(&pm->pm_obj.memt);
+		pm->pm_ptphint = RBT_ROOT(uvm_objtree, &pm->pm_obj.memt);
 	ptp->wire_count = 0;
 	/* Postpone free to after shootdown. */
 	uvm_pagerealloc(ptp, NULL, 0);
@@ -1916,53 +1916,64 @@ pmap_flush_page_pae(paddr_t pa)
 	pmap_update_pg(va);
 }
 
-#ifdef DEBUG
-void		 pmap_dump_pae(struct pmap *, vaddr_t, vaddr_t);
-/*
- * pmap_dump: dump all the mappings from a pmap
- *
- * => caller should not be holding any pmap locks
- */
-
-void
-pmap_dump_pae(struct pmap *pmap, vaddr_t sva, vaddr_t eva)
+int
+pmap_convert(struct pmap *pmap, int mode)
 {
-	pt_entry_t *ptes, *pte;
-	vaddr_t blkendva;
+	int ret;
+	pt_entry_t *pte;
+	paddr_t pml4_pa, pdpt_pa;
 
-	/*
-	 * if end is out of range truncate.
-	 * if (end == start) update to max.
-	 */
+	pmap->pm_type = mode;
 
-	if (eva > VM_MAXUSER_ADDRESS || eva <= sva)
-		eva = VM_MAXUSER_ADDRESS;
-
-	ptes = pmap_map_ptes_pae(pmap);	/* locks pmap */
-
-	/*
-	 * dumping a range of pages: we dump in PTP sized blocks (4MB)
-	 */
-
-	for (/* null */ ; sva < eva ; sva = blkendva) {
-
-		/* determine range of block */
-		blkendva = i386_round_pdr(sva+1);
-		if (blkendva > eva)
-			blkendva = eva;
-
-		/* valid block? */
-		if (!pmap_valid_entry(PDE(pmap, pdei(sva))))
-			continue;
-
-		pte = &ptes[atop(sva)];
-		for (/* null */; sva < blkendva ; sva += NBPG, pte++) {
-			if (!pmap_valid_entry(*pte))
-				continue;
-			printf("va %#lx -> pa %#llx (pte=%#llx)\n",
-			       sva, *pte, *pte & PG_FRAME);
+	ret = 0;
+	if (mode == PMAP_TYPE_EPT) {
+		pmap->pm_npt_pml4 = (vaddr_t)km_alloc(PAGE_SIZE, &kv_any,
+		    &kp_zero, &kd_nowait);
+		if (!pmap->pm_npt_pml4) {
+			ret = ENOMEM;
+			goto error;
 		}
+
+		pmap->pm_npt_pdpt = (vaddr_t)km_alloc(PAGE_SIZE, &kv_any,
+		    &kp_zero, &kd_nowait);
+		if (!pmap->pm_npt_pdpt) {
+			ret = ENOMEM;
+			goto error;
+		}
+
+		if (!pmap_extract(pmap_kernel(), pmap->pm_npt_pml4,
+		    &pml4_pa)) {
+			ret = ENOMEM;
+			goto error;
+		}
+		pmap->pm_npt_pa = pml4_pa;
+
+		if (!pmap_extract(pmap_kernel(), pmap->pm_npt_pdpt,
+		    &pdpt_pa)) {
+			ret = ENOMEM;
+			goto error;
+		}
+
+		pte = (pt_entry_t *)pmap->pm_npt_pml4;
+		pte[0] = (pdpt_pa & PG_FRAME) | EPT_R | EPT_W | EPT_X;
+		pte = (pt_entry_t *)pmap->pm_npt_pdpt;
+		pte[0] = (pmap->pm_pdidx[0] & PG_FRAME) |
+		    EPT_R | EPT_W | EPT_X;
+		pte[1] = (pmap->pm_pdidx[1] & PG_FRAME) |
+		    EPT_R | EPT_W | EPT_X;
+		pte[2] = (pmap->pm_pdidx[2] & PG_FRAME) |
+		    EPT_R | EPT_W | EPT_X;
+		pte[3] = (pmap->pm_pdidx[3] & PG_FRAME) |
+		    EPT_R | EPT_W | EPT_X;
 	}
-	pmap_unmap_ptes_pae(pmap);
+
+	return (ret);
+
+error:
+	if (pmap->pm_npt_pml4)
+		km_free((void *)pmap->pm_npt_pml4, PAGE_SIZE, &kv_any, &kp_zero);
+	if (pmap->pm_npt_pdpt)
+		km_free((void *)pmap->pm_npt_pdpt, PAGE_SIZE, &kv_any, &kp_zero);
+
+	return (ret);
 }
-#endif

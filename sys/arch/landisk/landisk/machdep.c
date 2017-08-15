@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.43 2016/03/05 17:16:33 tobiasu Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.45 2017/04/30 16:45:45 mpi Exp $	*/
 /*	$NetBSD: machdep.c,v 1.1 2006/09/01 21:26:18 uwe Exp $	*/
 
 /*-
@@ -177,7 +177,7 @@ landisk_startup(int howto, char *_esym)
 	db_machine_init();
 	ddb_init();
 	if (boothowto & RB_KDB) {
-		Debugger();
+		db_enter();
 	}
 #endif
 
@@ -186,8 +186,9 @@ landisk_startup(int howto, char *_esym)
 		"jmp	@%0\n\t"
 		" mov	%1, sp"
 		:: "r" (main), "r" (proc0.p_md.md_pcb->pcb_sf.sf_r7_bank));
+	for (;;)
+		continue;
 	/* NOTREACHED */
-	for (;;) ;
 }
 
 __dead void
@@ -240,10 +241,9 @@ haltsys:
 	printf("rebooting...\n");
 	machine_reset();
 
-	/* NOTREACHED */
-	for (;;) {
+	for (;;)
 		continue;
-	}
+	/* NOTREACHED */
 }
 
 void

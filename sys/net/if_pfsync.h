@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.h,v 1.48 2015/01/24 00:29:06 deraadt Exp $	*/
+/*	$OpenBSD: if_pfsync.h,v 1.53 2017/04/14 20:46:31 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2001 Michael Shalayeff
@@ -210,10 +210,9 @@ struct pfsync_bus {
 /*
  * TDB
  */
-
 struct pfsync_tdb {
 	u_int32_t			spi;
-	union pfsockaddr_union		dst;
+	union sockaddr_union		dst;
 	u_int64_t			rpl;
 	u_int64_t			cur_bytes;
 	u_int8_t			sproto;
@@ -274,6 +273,36 @@ struct pfsyncreq {
 
 #ifdef _KERNEL
 
+#include <sys/percpu.h>
+
+enum pfsync_counters {
+	pfsyncs_ipackets,
+	pfsyncs_ipackets6,
+	pfsyncs_badif,
+	pfsyncs_badttl,
+	pfsyncs_hdrops,
+	pfsyncs_badver,
+	pfsyncs_badact,
+	pfsyncs_badlen,
+	pfsyncs_badauth,
+	pfsyncs_stale,
+	pfsyncs_badval,
+	pfsyncs_badstate,
+	pfsyncs_opackets,
+	pfsyncs_opackets6,
+	pfsyncs_onomem,
+	pfsyncs_oerrors,
+	pfsyncs_ncounters,
+};
+
+extern struct cpumem *pfsynccounters;
+
+static inline void
+pfsyncstat_inc(enum pfsync_counters c)
+{
+	counters_inc(pfsynccounters, c);
+}
+
 /*
  * this shows where a pf state is with respect to the syncing.
  */
@@ -287,7 +316,7 @@ struct pfsyncreq {
 #define PFSYNC_S_DEFER	0xfe
 #define PFSYNC_S_NONE	0xff
 
-void			pfsync_input(struct mbuf *, ...);
+int			pfsync_input(struct mbuf **, int *, int, int);
 int			pfsync_sysctl(int *, u_int,  void *, size_t *,
 			    void *, size_t);
 

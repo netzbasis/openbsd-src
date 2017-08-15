@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.22 2016/03/16 15:00:35 mestre Exp $	*/
+/*	$OpenBSD: log.c,v 1.24 2017/01/20 00:50:16 krw Exp $	*/
 /*	$NetBSD: log.c,v 1.3 1995/03/21 15:04:21 cgd Exp $	*/
 
 /*-
@@ -50,6 +50,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "extern.h"
@@ -122,7 +123,7 @@ open_score_file(void)
 	if (score_fd < 0)
 		err(1, "open");
 	/*
-	 * This is done to take advantage of stdio, while still 
+	 * This is done to take advantage of stdio, while still
 	 * allowing a O_CREAT during the open(2) of the log file.
 	 */
 	score_fp = fdopen(score_fd, "r+");
@@ -149,9 +150,9 @@ log_score(int list_em)
 	    sizeof(score[0].game)-1);
 	for (;;) {
 		good = fscanf(score_fp, scanstr,
-			score[num_scores].name, 
+			score[num_scores].name,
 			score[num_scores].game,
-			&score[num_scores].planes, 
+			&score[num_scores].planes,
 			&score[num_scores].time,
 			&score[num_scores].real_time);
 		if (good != 5 || ++num_scores >= NUM_SCORES)

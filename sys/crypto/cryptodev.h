@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptodev.h,v 1.68 2016/04/18 21:05:55 kettenis Exp $	*/
+/*	$OpenBSD: cryptodev.h,v 1.71 2017/08/10 18:57:20 tedu Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -52,7 +52,6 @@
 #ifndef _CRYPTO_CRYPTO_H_
 #define _CRYPTO_CRYPTO_H_
 
-#include <sys/ioccom.h>
 #include <sys/task.h>
 
 /* Some initial values */
@@ -147,8 +146,6 @@ struct cryptodesc {
 #define crd_rnd		CRD_INI.cri_rnd
 #define crd_alg		CRD_INI.cri_alg
 #define crd_klen	CRD_INI.cri_klen
-
-	struct cryptodesc *crd_next;
 };
 
 /* Structure describing complete operation */
@@ -179,9 +176,13 @@ struct cryptop {
 
 	void 		*crp_buf;	/* Data to be processed */
 	void 		*crp_opaque;	/* Opaque pointer, passed along */
-	struct cryptodesc *crp_desc;	/* Linked list of processing descriptors */
 
-	int (*crp_callback)(struct cryptop *); /* Callback function */
+	struct cryptodesc *crp_desc;	/* List of processing descriptors */
+	struct cryptodesc crp_sdesc[2];	/* Static array for small ops */
+	int		 crp_ndesc;	/* Amount of descriptors to use */
+	int		 crp_ndescalloc;/* Amount of descriptors allocated */
+
+	void (*crp_callback)(struct cryptop *); /* Callback function */
 
 	caddr_t		crp_mac;
 };
@@ -215,40 +216,7 @@ struct cryptocap {
 	int		(*cc_freesession) (u_int64_t);
 };
 
-/*
- * ioctl parameter to request creation of a session.
- */
-struct session_op {
-	u_int32_t	cipher;		/* ie. CRYPTO_AES_CBC */
-	u_int32_t	mac;		/* ie. CRYPTO_MD5_HMAC */
 
-	u_int32_t	keylen;		/* cipher key */
-	caddr_t		key;
-	int		mackeylen;	/* mac key */
-	caddr_t		mackey;
-
-	u_int32_t	ses;		/* returns: session # */
-};
-
-/*
- * ioctl parameter to request a crypt/decrypt operation against a session.
- */
-struct crypt_op {
-	u_int32_t	ses;
-	u_int16_t	op;		/* ie. COP_ENCRYPT */
-#define COP_ENCRYPT	1
-#define COP_DECRYPT	2
-	u_int16_t	flags;		/* always 0 */
-
-	u_int		len;
-	caddr_t		src, dst;	/* become iov[] inside kernel */
-	caddr_t		mac;		/* must be big enough for chosen MAC */
-	caddr_t		iv;
-};
-
-#define CRYPTO_MAX_MAC_LEN	20
-
-#ifdef _KERNEL
 int	crypto_newsession(u_int64_t *, struct cryptoini *, int);
 int	crypto_freesession(u_int64_t);
 int	crypto_dispatch(struct cryptop *);
@@ -268,5 +236,4 @@ int	cuio_apply(struct uio *, int, int,
 
 struct	cryptop *crypto_getreq(int);
 void	crypto_freereq(struct cryptop *);
-#endif /* _KERNEL */
 #endif /* _CRYPTO_CRYPTO_H_ */

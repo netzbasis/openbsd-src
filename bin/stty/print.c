@@ -1,4 +1,4 @@
-/*	$OpenBSD: print.c,v 1.14 2016/03/23 14:52:42 mmcc Exp $	*/
+/*	$OpenBSD: print.c,v 1.16 2017/04/28 22:16:43 millert Exp $	*/
 /*	$NetBSD: print.c,v 1.11 1996/05/07 18:20:10 jtc Exp $	*/
 
 /*-
@@ -41,7 +41,7 @@
 #include "extern.h"
 
 static void  binit(char *);
-static void  bput(char *);
+static void  bput(const char *, unsigned int);
 static char *ccval(const struct cchar *, int);
 
 void
@@ -58,17 +58,8 @@ print(struct termios *tp, struct winsize *wp, int ldisc, enum FMT fmt)
 	/* Line discipline. */
 	if (ldisc != TTYDISC) {
 		switch(ldisc) {
-		case TABLDISC:
-			cnt += printf("tablet disc; ");
-			break;
-		case SLIPDISC:
-			cnt += printf("slip disc; ");
-			break;
 		case PPPDISC:
 			cnt += printf("ppp disc; ");
-			break;
-		case STRIPDISC:
-			cnt += printf("strip disc; ");
 			break;
 		case NMEADISC:
 			cnt += printf("nmea disc; ");
@@ -95,7 +86,7 @@ print(struct termios *tp, struct winsize *wp, int ldisc, enum FMT fmt)
 #define	on(f)	((tmp&f) != 0)
 #define put(n, f, d) \
 	if (fmt >= BSD || on(f) != d) \
-		bput(n + on(f));
+		bput(n, on(f));
 
 	/* "local" flags */
 	tmp = tp->c_lflag;
@@ -155,19 +146,19 @@ print(struct termios *tp, struct winsize *wp, int ldisc, enum FMT fmt)
 	put("-cread", CREAD, 1);
 	switch(tmp&CSIZE) {
 	case CS5:
-		bput("cs5");
+		bput("cs5", 0);
 		break;
 	case CS6:
-		bput("cs6");
+		bput("cs6", 0);
 		break;
 	case CS7:
-		bput("cs7");
+		bput("cs7", 0);
 		break;
 	case CS8:
-		bput("cs8");
+		bput("cs8", 0);
 		break;
 	}
-	bput("-parenb" + on(PARENB));
+	bput("-parenb", on(PARENB));
 	put("-parodd", PARODD, 0);
 	put("-hupcl", HUPCL, 1);
 	put("-clocal", CLOCAL, 0);
@@ -182,7 +173,7 @@ print(struct termios *tp, struct winsize *wp, int ldisc, enum FMT fmt)
 		for (p = cchars1; p->name; ++p) {
 			(void)snprintf(buf1, sizeof(buf1), "%s = %s;",
 			    p->name, ccval(p, cc[p->sub]));
-			bput(buf1);
+			bput(buf1, 0);
 		}
 		binit(NULL);
 	} else {
@@ -223,8 +214,9 @@ binit(char *lb)
 }
 
 static void
-bput(char *s)
+bput(const char *s, unsigned int off)
 {
+	s += off;
 
 	if (col == 0) {
 		col = printf("%s: %s", label, s);

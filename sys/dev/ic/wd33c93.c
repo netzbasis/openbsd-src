@@ -1,4 +1,4 @@
-/*	$OpenBSD: wd33c93.c,v 1.7 2014/07/12 18:48:17 tedu Exp $	*/
+/*	$OpenBSD: wd33c93.c,v 1.10 2017/04/30 16:45:46 mpi Exp $	*/
 /*	$NetBSD: wd33c93.c,v 1.24 2010/11/13 13:52:02 uebayasi Exp $	*/
 
 /*
@@ -229,9 +229,8 @@ wd33c93_init(struct wd33c93_softc *sc)
 
 	if (!wd33c93_pool_initialized) {
 		/* All instances share the same pool */
-		pool_init(&wd33c93_pool, sizeof(struct wd33c93_acb), 0, 0, 0,
-		    "wd33c93_acb", NULL);
-		pool_setipl(&wd33c93_pool, IPL_BIO);
+		pool_init(&wd33c93_pool, sizeof(struct wd33c93_acb), 0,
+		    IPL_BIO, 0, "wd33c93_acb", NULL);
 		scsi_iopool_init(&wd33c93_iopool, NULL,
 		    wd33c93_io_get, wd33c93_io_put);
 		++wd33c93_pool_initialized;
@@ -879,7 +878,7 @@ wd33c93_wait(struct wd33c93_softc *sc, u_char until, int timeo, int line)
 			printf("wd33c93_wait: TIMEO @%d with asr=0x%x csr=0x%x\n",
 			    line, val, csr);
 #ifdef DDB
-			Debugger();
+			db_enter();
 #endif
 #endif
 			return(val); /* Maybe I should abort */
@@ -2140,12 +2139,12 @@ wd33c93_nextstate(struct wd33c93_softc *sc, struct wd33c93_acb *acb, u_char csr,
 
 	default:
 	abort:
-		/* Something unexpected happend -- deal with it. */
+		/* Something unexpected happened -- deal with it. */
 		printf("%s: next: aborting asr 0x%02x csr 0x%02x\n",
 		    sc->sc_dev.dv_xname, asr, csr);
 
 #ifdef DDB
-		Debugger();
+		db_enter();
 #endif
 
 		SET_SBIC_control(sc, SBIC_CTL_EDI | SBIC_CTL_IDI);

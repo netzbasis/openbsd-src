@@ -1,4 +1,4 @@
-/*	$OpenBSD: aesni.c,v 1.38 2016/04/18 21:15:18 kettenis Exp $	*/
+/*	$OpenBSD: aesni.c,v 1.41 2017/05/02 11:47:49 mikeb Exp $	*/
 /*-
  * Copyright (c) 2003 Jason Wright
  * Copyright (c) 2003, 2004 Theo de Raadt
@@ -28,7 +28,7 @@
 #include <sys/mbuf.h>
 
 #include <crypto/cryptodev.h>
-#include <crypto/rijndael.h>
+#include <crypto/aes.h>
 #include <crypto/gmac.h>
 #include <crypto/xform.h>
 #include <crypto/cryptosoft.h>
@@ -164,9 +164,8 @@ aesni_setup(void)
 		return;
 	}
 
-	pool_init(&aesnipl, sizeof(struct aesni_session), 16, 0, 0,
+	pool_init(&aesnipl, sizeof(struct aesni_session), 16, IPL_VM, 0,
 	    "aesni", NULL);
-	pool_setipl(&aesnipl, IPL_VM);
 	pool_setlowat(&aesnipl, 2);
 
 	mtx_init(&aesni_sc->sc_mtx, IPL_VM);
@@ -617,8 +616,11 @@ aesni_process(struct cryptop *crp)
 	struct aesni_session *ses;
 	struct cryptodesc *crd, *crda, *crde;
 	int err = 0;
+	int i;
 
 	if (crp == NULL || crp->crp_callback == NULL)
+		return (EINVAL);
+	if (crp->crp_ndesc < 1)
 		return (EINVAL);
 
 	mtx_enter(&aesni_sc->sc_mtx);
@@ -634,7 +636,8 @@ aesni_process(struct cryptop *crp)
 	}
 
 	crda = crde = NULL;
-	for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
+	for (i = 0; i < crp->crp_ndesc; i++) {
+		crd = &crp->crp_desc[i];
 		switch (crd->crd_alg) {
 		case CRYPTO_AES_CBC:
 		case CRYPTO_AES_CTR:

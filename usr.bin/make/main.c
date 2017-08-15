@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.119 2016/01/04 10:59:23 tb Exp $ */
+/*	$OpenBSD: main.c,v 1.122 2017/04/20 03:04:11 dlg Exp $ */
 /*	$NetBSD: main.c,v 1.34 1997/03/24 20:56:36 gwr Exp $	*/
 
 /*
@@ -105,7 +105,7 @@ static char *figure_out_MACHINE_CPU(void);
 
 static char *chdir_verify_path(const char *, struct dirs *);
 static char *figure_out_CURDIR(void);
-static void setup_CURDIR_OBJDIR(struct dirs *, const char *);
+static void setup_CURDIR_OBJDIR(struct dirs *);
 
 static void setup_VPATH(void);
 
@@ -190,7 +190,7 @@ MainParseArgs(int argc, char **argv)
 #define OPTFLAGS "BC:D:I:SV:d:ef:ij:km:npqrst"
 #define OPTLETTERS "BSiknpqrst"
 
-	if (pledge("stdio rpath wpath cpath proc exec", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath fattr proc exec", NULL) == -1)
 		err(2, "pledge");
 
 	optind = 1;	/* since we're called more than once */
@@ -310,14 +310,14 @@ MainParseArgs(int argc, char **argv)
 			Lst_AtEnd(&makefiles, optarg);
 			break;
 		case 'j': {
-		   char *endptr;
+			const char *errstr;
 
 			forceJobs = true;
-			maxJobs = strtol(optarg, &endptr, 0);
-			if (endptr == optarg) {
+			maxJobs = strtonum(optarg, 1, INT_MAX, &errstr);
+			if (errstr != NULL) {
 				fprintf(stderr,
-					"make: illegal argument to -j option -- %s -- not a number\n",
-					optarg);
+				    "make: illegal argument to -j option"
+				    " -- %s -- %s\n", optarg, errstr);
 				usage();
 			}
 			record_option(c, optarg);
@@ -544,7 +544,7 @@ chdir_verify_path(const char *path, struct dirs *d)
 }
 
 static void
-setup_CURDIR_OBJDIR(struct dirs *d, const char *machine)
+setup_CURDIR_OBJDIR(struct dirs *d)
 {
 	char *path;
 
@@ -656,7 +656,7 @@ main(int argc, char **argv)
 	bool read_depend = true;/* false if we don't want to read .depend */
 
 	MainParseChdir(argc, argv);
-	setup_CURDIR_OBJDIR(&d, machine);
+	setup_CURDIR_OBJDIR(&d);
 
 	esetenv("PWD", d.object);
 	unsetenv("CDPATH");
@@ -736,7 +736,7 @@ main(int argc, char **argv)
 		LstNode ln;
 
 		for (ln = Lst_First(create); ln != NULL; ln = Lst_Adv(ln)) {
-			char *name = (char *)Lst_Datum(ln);
+			char *name = Lst_Datum(ln);
 
 			if (strcmp(name, "depend") == 0)
 				read_depend = false;
@@ -782,7 +782,7 @@ main(int argc, char **argv)
 
 		for (ln = Lst_First(&varstoprint); ln != NULL;
 		    ln = Lst_Adv(ln)) {
-			char *value = Var_Value((char *)Lst_Datum(ln));
+			char *value = Var_Value(Lst_Datum(ln));
 
 			printf("%s\n", value ? value : "");
 		}

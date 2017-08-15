@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.h,v 1.28 2015/01/16 06:40:16 deraadt Exp $	*/
+/*	$OpenBSD: config.h,v 1.30 2017/06/22 15:57:16 deraadt Exp $	*/
 /*	$NetBSD: config.h,v 1.30 1997/02/02 21:12:30 thorpej Exp $	*/
 
 /*
@@ -266,6 +266,7 @@ struct objects {
 struct hashtab;
 
 const char *conffile;		/* source file, e.g., "GENERIC.sparc" */
+const char *last_component;
 const char *machine;		/* machine type, e.g., "sparc" or "sun3" */
 const char *machinearch;	/* machine arch, e.g., "sparc" or "m68k" */
 const char *srcdir;		/* path to source directory (rel. to build) */
@@ -368,9 +369,12 @@ void	*emalloc(size_t);
 void	*ereallocarray(void *, size_t, size_t);
 void	*ecalloc(size_t, size_t);
 char	*sourcepath(const char *);
-void	error(const char *, ...);			/* immediate errs */
-void	xerror(const char *, int, const char *, ...);	/* delayed errs */
-__dead void panic(const char *, ...);
+void	error(const char *, ...)			/* immediate errs */
+		__attribute__((__format__ (printf, 1, 2)));
+void	xerror(const char *, int, const char *, ...)	/* delayed errs */
+		__attribute__((__format__ (printf, 3, 4)));
+__dead void panic(const char *, ...)
+		__attribute__((__format__ (printf, 1, 2)));
 struct nvlist *newnv(const char *, const char *, void *, int, struct nvlist *);
 void	nvfree(struct nvlist *);
 void	nvfreel(struct nvlist *);

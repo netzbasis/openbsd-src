@@ -1,4 +1,4 @@
-/*	$OpenBSD: mutex.S,v 1.9 2013/07/10 21:31:11 kettenis Exp $	*/
+/*	$OpenBSD: mutex.S,v 1.12 2017/06/29 17:17:28 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>
@@ -45,7 +45,7 @@ ENTRY(__mtx_init)
 
 #define SOFF	8
 
-ENTRY(mtx_enter)
+ENTRY(__mtx_enter)
 	pushl	%ebp
 	movl	%esp, %ebp	
 1:	movl	SOFF(%ebp), %ecx
@@ -77,6 +77,7 @@ ENTRY(mtx_enter)
 	movl	%ebp, %esp
 	movl	SOFF(%ebp), %ecx		# %ecx clobbered
 4:
+	pause
 #ifdef DIAGNOSTIC
 	movl	CPUVAR(SELF), %edx
 	cmpl	MTX_OWNER(%ecx), %edx
@@ -87,12 +88,16 @@ ENTRY(mtx_enter)
 	jz	1b
 	jmp	4b
 #ifdef DIAGNOSTIC
-5:	pushl	$6f
+5:	pushl	$mtx_lockingself
 	call	_C_LABEL(panic)
-6:	.asciz	"mtx_enter: locking against myself"
+
+	.section .rodata
+mtx_lockingself:
+	.asciz	"mtx_enter: locking against myself"
+	.text
 #endif
 
-ENTRY(mtx_enter_try)
+ENTRY(__mtx_enter_try)
 	pushl	%ebp
 	movl	%esp, %ebp	
 1:	movl	SOFF(%ebp), %ecx
@@ -134,13 +139,17 @@ ENTRY(mtx_enter_try)
 	ret
 
 #ifdef DIAGNOSTIC
-4:	pushl	$5f
+4:	pushl	$mtx_lockingtry
 	call	_C_LABEL(panic)
-5:	.asciz	"mtx_enter_try: locking against myself"
+
+	.section .rodata
+mtx_lockingtry:
+	.asciz	"mtx_enter_try: locking against myself"
+	.text
 #endif
 
-	
-ENTRY(mtx_leave)
+
+ENTRY(__mtx_leave)
 	pushl	%ebp
 	movl	%esp, %ebp
 	movl	SOFF(%ebp), %ecx
@@ -160,7 +169,11 @@ ENTRY(mtx_leave)
 	ret
 
 #ifdef DIAGNOSTIC
-1:	pushl	$2f
+1:	pushl	$mtx_leave_held
 	call	_C_LABEL(panic)
-2:	.asciz	"mtx_leave: lock not held"
+
+	.section .rodata
+mtx_leave_held:
+	.asciz	"mtx_leave: lock not held"
+	.text
 #endif

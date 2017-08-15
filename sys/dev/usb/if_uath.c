@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_uath.c,v 1.77 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_uath.c,v 1.81 2017/07/28 10:50:56 bluhm Exp $	*/
 
 /*-
  * Copyright (c) 2006
@@ -191,7 +191,7 @@ uath_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL || uaa->configno != UATH_CONFIG_NO)
 		return UMATCH_NONE;
 
 	return (uath_lookup(uaa->vendor, uaa->product) != NULL) ?
@@ -213,7 +213,7 @@ uath_attachhook(struct device *self)
 	}
 
 	error = uath_loadfirmware(sc, fw, size);
-	free(fw, M_DEVBUF, 0);
+	free(fw, M_DEVBUF, size);
 
 	if (error == 0) {
 		/*
@@ -244,12 +244,6 @@ uath_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_port = uaa->port;
 
 	sc->sc_flags = uath_lookup(uaa->vendor, uaa->product)->flags;
-
-	if (usbd_set_config_no(sc->sc_udev, UATH_CONFIG_NO, 0) != 0) {
-		printf("%s: could not set configuration no\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
 
 	/* get the first interface handle */
 	error = usbd_device2interface_handle(sc->sc_udev, UATH_IFACE_INDEX,
@@ -593,7 +587,7 @@ uath_alloc_rx_data_list(struct uath_softc *sc)
 			error = ENOMEM;
 			goto fail;
 		}
-		MCLGET(data->m, M_DONTWAIT);
+		MCLGETI(data->m, M_DONTWAIT, NULL, sc->rxbufsz);
 		if (!(data->m->m_flags & M_EXT)) {
 			printf("%s: could not allocate rx mbuf cluster\n",
 			    sc->sc_dev.dv_xname);
@@ -1207,7 +1201,7 @@ uath_data_rxeof(struct usbd_xfer *xfer, void *priv,
 		ifp->if_ierrors++;
 		goto skip;
 	}
-	MCLGET(mnew, M_DONTWAIT);
+	MCLGETI(mnew, M_DONTWAIT, NULL, sc->rxbufsz);
 	if (!(mnew->m_flags & M_EXT)) {
 		printf("%s: could not allocate rx mbuf cluster\n",
 		    sc->sc_dev.dv_xname);
@@ -1340,7 +1334,6 @@ uath_data_txeof(struct usbd_xfer *xfer, void *priv,
 	data->ni = NULL;
 
 	sc->tx_queued--;
-	ifp->if_opackets++;
 
 	sc->sc_tx_timer = 0;
 	ifq_clr_oactive(&ifp->if_snd);

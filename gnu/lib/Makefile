@@ -1,16 +1,16 @@
-#	$OpenBSD: Makefile,v 1.19 2016/09/01 15:53:21 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.22 2017/08/10 16:06:59 mortimer Exp $
 
 .include <bsd.own.mk>
 
 SUBDIR+=libiberty libreadline
 .if make(obj)
-SUBDIR+=libobjc libstdc++ libstdc++-v3 libsupc++-v3 ../usr.bin/cc/libobjc
+SUBDIR+=libstdc++ libstdc++-v3 libsupc++-v3
 .else
-.  if ${COMPILER_VERSION:L} == "gcc3"
-SUBDIR+=libobjc libstdc++
-.  else
-# XXX make sure we build libobjc & libstdc++-v3 from gcc4
-SUBDIR+=../usr.bin/cc/libobjc
+.  if ${BUILD_GCC3:L} == "yes"
+SUBDIR+=libstdc++
+.  endif
+.  if ${BUILD_GCC4:L} == "yes"
+# XXX make sure we build libstdc++-v3 from gcc4
 SUBDIR+=libstdc++-v3 libsupc++-v3
 .  endif
 .endif

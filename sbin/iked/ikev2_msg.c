@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_msg.c,v 1.46 2016/09/04 10:26:02 vgross Exp $	*/
+/*	$OpenBSD: ikev2_msg.c,v 1.52 2017/04/26 10:42:38 henning Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -183,6 +183,14 @@ ikev2_msg_cleanup(struct iked *env, struct iked_message *msg)
 		ibuf_release(msg->msg_auth.id_buf);
 		ibuf_release(msg->msg_id.id_buf);
 		ibuf_release(msg->msg_cert.id_buf);
+		ibuf_release(msg->msg_cookie);
+
+		msg->msg_nonce = NULL;
+		msg->msg_ke = NULL;
+		msg->msg_auth.id_buf = NULL;
+		msg->msg_id.id_buf = NULL;
+		msg->msg_cert.id_buf = NULL;
+		msg->msg_cookie = NULL;
 
 		config_free_proposals(&msg->msg_proposals, 0);
 	}
@@ -208,6 +216,8 @@ ikev2_msg_valid_ike_sa(struct iked *env, struct ike_header *oldhdr,
 #endif
 
 	if (msg->msg_sa != NULL && msg->msg_policy != NULL) {
+		if (msg->msg_sa->sa_state == IKEV2_STATE_CLOSED)
+			return (-1);
 		/*
 		 * Only permit informational requests from initiator
 		 * on closing SAs (for DELETE).
@@ -316,12 +326,19 @@ ikev2_msg_send(struct iked *env, struct iked_message *msg)
 			log_debug("%s: failed to set NAT-T", __func__);
 			return (-1);
 		}
-		msg->msg_offset += sizeof(natt);
 	}
 
 	if (sendtofrom(msg->msg_fd, ibuf_data(buf), ibuf_size(buf), 0,
 	    (struct sockaddr *)&msg->msg_peer, msg->msg_peerlen,
 	    (struct sockaddr *)&msg->msg_local, msg->msg_locallen) == -1) {
+		if (errno == EADDRNOTAVAIL) {
+			sa_state(env, msg->msg_sa, IKEV2_STATE_CLOSING);
+			timer_del(env, &msg->msg_sa->sa_timer);
+			timer_set(env, &msg->msg_sa->sa_timer,
+			    ikev2_ike_sa_timeout, msg->msg_sa);
+			timer_add(env, &msg->msg_sa->sa_timer,
+			    IKED_IKE_SA_DELETE_TIMEOUT);
+		}
 		log_warn("%s: sendtofrom", __func__);
 		return (-1);
 	}
@@ -808,7 +825,7 @@ ikev2_msg_authsign(struct iked *env, struct iked_sa *sa,
     struct iked_auth *auth, struct ibuf *authmsg)
 {
 	uint8_t				*key, *psk = NULL;
-	ssize_t				 keylen;
+	ssize_t				 keylen, siglen;
 	struct iked_hash		*prf = sa->sa_prf;
 	struct iked_id			*id;
 	struct iked_dsa			*dsa = NULL;
@@ -866,9 +883,16 @@ ikev2_msg_authsign(struct iked *env, struct iked_sa *sa,
 		goto done;
 	}
 
-	if ((ret = dsa_sign_final(dsa,
-	    ibuf_data(buf), ibuf_size(buf))) == -1) {
+	if ((siglen = dsa_sign_final(dsa,
+	    ibuf_data(buf), ibuf_size(buf))) < 0) {
 		log_debug("%s: failed to create auth signature", __func__);
+		ibuf_release(buf);
+		goto done;
+	}
+
+	if (ibuf_setsize(buf, siglen) < 0) {
+		log_debug("%s: failed to set auth signature size to %zd",
+		    __func__, siglen);
 		ibuf_release(buf);
 		goto done;
 	}

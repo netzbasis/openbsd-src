@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.54 2016/06/18 15:25:28 reyk Exp $	*/
+/*	$OpenBSD: asr.c,v 1.57 2017/02/27 10:44:46 jca Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -236,11 +236,15 @@ void
 _asr_async_free(struct asr_query *as)
 {
 	DPRINT("asr: asr_async_free(%p)\n", as);
+
+	if (as->as_subq)
+		_asr_async_free(as->as_subq);
+
 	switch (as->as_type) {
 	case ASR_SEND:
 		if (as->as_fd != -1)
 			close(as->as_fd);
-		if (as->as.dns.obuf && !(as->as.dns.flags & ASYNC_EXTOBUF))
+		if (as->as.dns.obuf && !(as->as_flags & ASYNC_EXTOBUF))
 			free(as->as.dns.obuf);
 		if (as->as.dns.ibuf)
 			free(as->as.dns.ibuf);
@@ -249,38 +253,28 @@ _asr_async_free(struct asr_query *as)
 		break;
 
 	case ASR_SEARCH:
-		if (as->as.search.subq)
-			_asr_async_free(as->as.search.subq);
 		if (as->as.search.name)
 			free(as->as.search.name);
 		break;
 
 	case ASR_GETRRSETBYNAME:
-		if (as->as.rrset.subq)
-			_asr_async_free(as->as.rrset.subq);
 		if (as->as.rrset.name)
 			free(as->as.rrset.name);
 		break;
 
 	case ASR_GETHOSTBYNAME:
 	case ASR_GETHOSTBYADDR:
-		if (as->as.hostnamadr.subq)
-			_asr_async_free(as->as.hostnamadr.subq);
 		if (as->as.hostnamadr.name)
 			free(as->as.hostnamadr.name);
 		break;
 
 	case ASR_GETNETBYNAME:
 	case ASR_GETNETBYADDR:
-		if (as->as.netnamadr.subq)
-			_asr_async_free(as->as.netnamadr.subq);
 		if (as->as.netnamadr.name)
 			free(as->as.netnamadr.name);
 		break;
 
 	case ASR_GETADDRINFO:
-		if (as->as.ai.subq)
-			_asr_async_free(as->as.ai.subq);
 		if (as->as.ai.aifirst)
 			freeaddrinfo(as->as.ai.aifirst);
 		if (as->as.ai.hostname)
@@ -292,8 +286,6 @@ _asr_async_free(struct asr_query *as)
 		break;
 
 	case ASR_GETNAMEINFO:
-		if (as->as.ni.subq)
-			_asr_async_free(as->as.ni.subq);
 		break;
 	}
 
@@ -603,6 +595,8 @@ pass0(char **tok, int n, struct asr_ctx *ac)
 		for (i = 1; i < n; i++) {
 			if (!strcmp(tok[i], "tcp"))
 				ac->ac_options |= RES_USEVC;
+			else if (!strcmp(tok[i], "edns0"))
+				ac->ac_options |= RES_USE_EDNS0;
 			else if ((!strncmp(tok[i], "ndots:", 6))) {
 				e = NULL;
 				d = strtonum(tok[i] + 6, 1, 16, &e);

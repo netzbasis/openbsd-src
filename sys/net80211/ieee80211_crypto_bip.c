@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_crypto_bip.c,v 1.7 2015/11/24 13:45:06 mpi Exp $	*/
+/*	$OpenBSD: ieee80211_crypto_bip.c,v 1.9 2017/05/02 17:07:06 mikeb Exp $	*/
 
 /*-
  * Copyright (c) 2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -40,7 +40,7 @@
 #include <net80211/ieee80211_crypto.h>
 #include <net80211/ieee80211_priv.h>
 
-#include <crypto/rijndael.h>
+#include <crypto/aes.h>
 #include <crypto/cmac.h>
 
 /* BIP software crypto context */
@@ -68,8 +68,10 @@ ieee80211_bip_set_key(struct ieee80211com *ic, struct ieee80211_key *k)
 void
 ieee80211_bip_delete_key(struct ieee80211com *ic, struct ieee80211_key *k)
 {
-	if (k->k_priv != NULL)
-		free(k->k_priv, M_DEVBUF, 0);
+	if (k->k_priv != NULL) {
+		explicit_bzero(k->k_priv, sizeof(struct ieee80211_bip_ctx));
+		free(k->k_priv, M_DEVBUF, sizeof(struct ieee80211_bip_ctx));
+	}
 	k->k_priv = NULL;
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme_pci.c,v 1.3 2016/04/14 11:18:32 dlg Exp $ */
+/*	$OpenBSD: nvme_pci.c,v 1.6 2017/07/03 23:27:53 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -70,8 +70,16 @@ nvme_pci_match(struct device *parent, void *match, void *aux)
 	    PCI_INTERFACE(pa->pa_class) == NVME_PCI_INTERFACE)
 		return (1);
 
+	if (PCI_VENDOR(pa->pa_id) == PCI_VENDOR_APPLE &&
+	    PCI_PRODUCT(pa->pa_id) == PCI_PRODUCT_APPLE_NVME)
+	    	return (1);
+
 	return (0);
 }
+
+static const struct pci_matchid nvme_msi_blacklist[] = {
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_OPTANE },
+};
 
 void
 nvme_pci_attach(struct device *parent, struct device *self, void *aux)
@@ -81,9 +89,13 @@ nvme_pci_attach(struct device *parent, struct device *self, void *aux)
 	struct pci_attach_args *pa = aux;
 	pcireg_t maptype;
 	pci_intr_handle_t ih;
+	int msi = 1;
 
 	psc->psc_pc = pa->pa_pc;
 	sc->sc_dmat = pa->pa_dmat;
+
+	if (pci_matchbyid(pa, nvme_msi_blacklist, nitems(nvme_msi_blacklist)))
+		CLR(pa->pa_flags, PCI_FLAGS_MSI_ENABLED);
 
 	maptype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, NVME_PCI_BAR);
 	if (pci_mapreg_map(pa, NVME_PCI_BAR, maptype, 0,
@@ -92,13 +104,16 @@ nvme_pci_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	if (pci_intr_map_msi(pa, &ih) != 0 && pci_intr_map(pa, &ih) != 0) {
-		printf(": unable to map interrupt\n");
-		goto unmap;
+	if (pci_intr_map_msi(pa, &ih) != 0) {
+		if (pci_intr_map(pa, &ih) != 0) {
+			printf(": unable to map interrupt\n");
+			goto unmap;
+		}
+		msi = 0;
 	}
 
 	sc->sc_ih = pci_intr_establish(pa->pa_pc, ih, IPL_BIO,
-	    nvme_intr, sc, DEVNAME(sc));
+	    msi ? nvme_intr : nvme_intr_intx, sc, DEVNAME(sc));
 	if (sc->sc_ih == NULL) {
 		printf(": unable to establish interrupt\n");
 		goto unmap;

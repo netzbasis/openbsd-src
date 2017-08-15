@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.151 2016/08/31 07:22:43 ratchov Exp $	*/
+/*	$OpenBSD: audio.c,v 1.165 2017/06/26 07:02:16 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -50,9 +50,8 @@
 #define DEVNAME(sc)		((sc)->dev.dv_xname)
 #define AUDIO_UNIT(n)		(minor(n) & 0x0f)
 #define AUDIO_DEV(n)		(minor(n) & 0xf0)
-#define AUDIO_DEV_SOUND		0	/* minor of /dev/sound0 */
+#define AUDIO_DEV_AUDIO		0	/* minor of /dev/audio0 */
 #define AUDIO_DEV_MIXER		0x10	/* minor of /dev/mixer0 */
-#define AUDIO_DEV_AUDIO		0x80	/* minor of /dev/audio0 */
 #define AUDIO_DEV_AUDIOCTL	0xc0	/* minor of /dev/audioctl */
 #define AUDIO_BUFSZ		65536	/* buffer size in bytes */
 
@@ -80,7 +79,10 @@ struct wskbd_vol
 	int step;			/* increment/decrement step */
 	int nch;			/* channels in the value control */
 	int val_pending;		/* pending change of val */
-	int mute_pending;		/* pending mute toggles */
+	int mute_pending;		/* pending change of mute */
+#define WSKBD_MUTE_TOGGLE	1
+#define WSKBD_MUTE_DISABLE	2
+#define WSKBD_MUTE_ENABLE	3
 };
 #endif
 
@@ -216,7 +218,7 @@ audio_buf_rgetblk(struct audio_buf *buf, size_t *rsize)
 }
 
 /*
- * discard "count" bytes at the start postion.
+ * discard "count" bytes at the start position.
  */
 void
 audio_buf_rdiscard(struct audio_buf *buf, size_t count)
@@ -359,7 +361,7 @@ audio_pintr(void *addr)
 		return;
 	}
 	if (sc->quiesce) {
-		DPRINTF("%s: quesced, skipping play intr\n", DEVNAME(sc));
+		DPRINTF("%s: quiesced, skipping play intr\n", DEVNAME(sc));
 		return;
 	}
 
@@ -430,7 +432,7 @@ audio_rintr(void *addr)
 		return;
 	}
 	if (sc->quiesce) {
-		DPRINTF("%s: quesced, skipping rec intr\n", DEVNAME(sc));
+		DPRINTF("%s: quiesced, skipping rec intr\n", DEVNAME(sc));
 		return;
 	}
 
@@ -496,16 +498,7 @@ audio_start_do(struct audio_softc *sc)
 	unsigned char *ptr;
 	size_t count;
 
-	DPRINTFN(1, "%s: start play: "
-	    "start = %zu, used = %zu, "
-	    "len = %zu, blksz = %zu\n",
-	    DEVNAME(sc), sc->play.start, sc->play.used,
-	    sc->play.len, sc->play.blksz);
-	DPRINTFN(1, "%s: start rec: "
-	    "start = %zu, used = %zu, "
-	    "len = %zu, blksz = %zu\n",
-	    DEVNAME(sc), sc->rec.start, sc->rec.used,
-	    sc->rec.len, sc->rec.blksz);
+	DPRINTF("%s: starting\n", DEVNAME(sc));
 
 	error = 0;
 	sc->offs = 0;
@@ -565,6 +558,7 @@ audio_stop_do(struct audio_softc *sc)
 		sc->ops->halt_output(sc->arg);
 	if (sc->mode & AUMODE_RECORD)
 		sc->ops->halt_input(sc->arg);
+	DPRINTF("%s: stopped\n", DEVNAME(sc));
 	return 0;
 }
 
@@ -590,6 +584,18 @@ audio_stop(struct audio_softc *sc)
 }
 
 int
+audio_canstart(struct audio_softc *sc)
+{
+	if (sc->active || sc->pause)
+		return 0;
+	if ((sc->mode & AUMODE_RECORD) && sc->rec.used != 0)
+		return 0;
+	if ((sc->mode & AUMODE_PLAY) && sc->play.used != sc->play.len)
+		return 0;
+	return 1;
+}
+
+int
 audio_setpar(struct audio_softc *sc)
 {
 	struct audio_params p, r;
@@ -603,37 +609,18 @@ audio_setpar(struct audio_softc *sc)
 	    sc->rate, sc->pchan, sc->rchan, sc->round, sc->nblks);
 
 	/*
-	 * AUDIO_ENCODING_SLINEAR and AUDIO_ENCODING_ULINEAR are not
-	 * used anymore, promote them to the _LE and _BE equivalents
-	 */
-	if (sc->sw_enc == AUDIO_ENCODING_SLINEAR) {
-#if BYTE_ORDER == LITTLE_ENDIAN
-		sc->sw_enc = AUDIO_ENCODING_SLINEAR_LE;
-#else
-		sc->sw_enc = AUDIO_ENCODING_SLINEAR_BE;
-#endif
-	}
-	if (sc->sw_enc == AUDIO_ENCODING_ULINEAR) {
-#if BYTE_ORDER == LITTLE_ENDIAN
-		sc->sw_enc = AUDIO_ENCODING_ULINEAR_LE;
-#else
-		sc->sw_enc = AUDIO_ENCODING_ULINEAR_BE;
-#endif
-	}
-
-	/*
 	 * check if requested parameters are in the allowed ranges
 	 */
 	if (sc->mode & AUMODE_PLAY) {
 		if (sc->pchan < 1)
 			sc->pchan = 1;
-		if (sc->pchan > 64)
+		else if (sc->pchan > 64)
 			sc->pchan = 64;
 	}
 	if (sc->mode & AUMODE_RECORD) {
 		if (sc->rchan < 1)
 			sc->rchan = 1;
-		if (sc->rchan > 64)
+		else if (sc->rchan > 64)
 			sc->rchan = 64;
 	}
 	switch (sc->sw_enc) {
@@ -649,15 +636,15 @@ audio_setpar(struct audio_softc *sc)
 	}
 	if (sc->bits < 8)
 		sc->bits = 8;
-	if (sc->bits > 32)
+	else if (sc->bits > 32)
 		sc->bits = 32;
 	if (sc->bps < 1)
 		sc->bps = 1;
-	if (sc->bps > 4)
+	else if (sc->bps > 4)
 		sc->bps = 4;
 	if (sc->rate < 4000)
 		sc->rate = 4000;
-	if (sc->rate > 192000)
+	else if (sc->rate > 192000)
 		sc->rate = 192000;
 
 	/*
@@ -736,14 +723,13 @@ audio_setpar(struct audio_softc *sc)
 		if (sc->bits == 8) {
 			sc->conv_enc = slinear8_to_mulaw;
 			sc->conv_dec = mulaw_to_slinear8;
-			break;
 		} else if (sc->bits == 24) {
 			sc->conv_enc = slinear24_to_mulaw24;
 			sc->conv_dec = mulaw24_to_slinear24;
-			break;
+		} else {
+			sc->sw_enc = sc->hw_enc;
+			sc->conv_dec = sc->conv_enc = NULL;
 		}
-		sc->sw_enc = sc->hw_enc;
-		sc->conv_dec = sc->conv_enc = NULL;
 		break;
 	default:
 		printf("%s: setpar: enc = %d, bits = %d: emulation skipped\n",
@@ -785,7 +771,7 @@ audio_setpar(struct audio_softc *sc)
 	    DEVNAME(sc), mult);
 
 	/*
-	 * get minumum and maximum frames per block
+	 * get minimum and maximum frames per block
 	 */
 	if (sc->ops->round_blocksize)
 		blk_max = sc->ops->round_blocksize(sc->arg, AUDIO_BUFSZ);
@@ -822,7 +808,7 @@ audio_setpar(struct audio_softc *sc)
 	sc->round -= sc->round % mult;
 	if (sc->round > max)
 		sc->round = max;
-	if (sc->round < min)
+	else if (sc->round < min)
 		sc->round = min;
 	sc->round = sc->round;
 
@@ -834,7 +820,7 @@ audio_setpar(struct audio_softc *sc)
 		max = sc->play.datalen / sc->play.blksz;
 		if (sc->nblks > max)
 			sc->nblks = max;
-		if (sc->nblks < 2)
+		else if (sc->nblks < 2)
 			sc->nblks = 2;
 		sc->play.len = sc->nblks * sc->play.blksz;
 		sc->nblks = sc->nblks;
@@ -1018,13 +1004,11 @@ audio_attach(struct device *parent, struct device *self, void *aux)
 	if (ops == 0 ||
 	    ops->open == 0 ||
 	    ops->close == 0 ||
-	    ops->query_encoding == 0 ||
 	    ops->set_params == 0 ||
 	    (ops->start_output == 0 && ops->trigger_output == 0) ||
 	    (ops->start_input == 0 && ops->trigger_input == 0) ||
 	    ops->halt_output == 0 ||
 	    ops->halt_input == 0 ||
-	    ops->getdev == 0 ||
 	    ops->set_port == 0 ||
 	    ops->get_port == 0 ||
 	    ops->query_devinfo == 0 ||
@@ -1098,7 +1082,7 @@ audio_activate(struct device *self, int act)
 		 */
 		if (sc->mode != 0 && sc->active)
 			audio_stop_do(sc);
-		DPRINTF("%s: quesce: active = %d\n", DEVNAME(sc), sc->active);
+		DPRINTF("%s: quiesce: active = %d\n", DEVNAME(sc), sc->active);
 		break;
 	case DVACT_WAKEUP:
 		DPRINTF("%s: wakeup: active = %d\n", DEVNAME(sc), sc->active);
@@ -1113,7 +1097,7 @@ audio_activate(struct device *self, int act)
 		sc->quiesce = 0;
 		wakeup(&sc->quiesce);
 
-		if(sc->mode != 0) {
+		if (sc->mode != 0) {
 			if (audio_setpar(sc) != 0)
 				break;
 			if (sc->mode & AUMODE_PLAY) {
@@ -1151,7 +1135,6 @@ audio_detach(struct device *self, int flags)
 	 * close uses device_lookup, it returns EXIO and does nothing
 	 */
 	mn = self->dv_unit;
-	vdevgone(maj, mn | AUDIO_DEV_SOUND, mn | AUDIO_DEV_SOUND, VCHR);
 	vdevgone(maj, mn | AUDIO_DEV_AUDIO, mn | AUDIO_DEV_AUDIO, VCHR);
 	vdevgone(maj, mn | AUDIO_DEV_AUDIOCTL, mn | AUDIO_DEV_AUDIOCTL, VCHR);
 	vdevgone(maj, mn | AUDIO_DEV_MIXER, mn | AUDIO_DEV_MIXER, VCHR);
@@ -1376,7 +1359,7 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 
 	/* start automatically if audio_ioc_start() was never called */
 	mtx_enter(&audio_lock);
-	if (!sc->active && !sc->pause && sc->rec.used == 0) {
+	if (audio_canstart(sc)) {
 		mtx_leave(&audio_lock);
 		error = audio_start(sc);
 		if (error)
@@ -1396,13 +1379,9 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		    &audio_lock, PWAIT | PCATCH, "au_rd", 0);
 		if (!(sc->dev.dv_flags & DVF_ACTIVE))
 			error = EIO;
-#ifdef AUDIO_DEBUG
 		if (error) {
 			DPRINTF("%s: read woke up error = %d\n",
 			    DEVNAME(sc), error);
-		}
-#endif
-		if (error) {
 			mtx_leave(&audio_lock);
 			return error;
 		}
@@ -1413,6 +1392,7 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		ptr = audio_buf_rgetblk(&sc->rec, &count);
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
+		audio_buf_rdiscard(&sc->rec, count);
 		mtx_leave(&audio_lock);
 		DPRINTFN(1, "%s: read: start = %zu, count = %zu\n",
 		    DEVNAME(sc), ptr - sc->rec.data, count);
@@ -1422,7 +1402,6 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		if (error)
 			return error;
 		mtx_enter(&audio_lock);
-		audio_buf_rdiscard(&sc->rec, count);
 	}
 	mtx_leave(&audio_lock);
 	return 0;
@@ -1443,7 +1422,7 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 
 	/*
 	 * if IO_NDELAY flag is set then check if there is enough room
-	 * in the buffer to store at least one byte. If not then dont
+	 * in the buffer to store at least one byte. If not then don't
 	 * start the write process.
 	 */
 	mtx_enter(&audio_lock);
@@ -1473,19 +1452,16 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 			    &audio_lock, PWAIT | PCATCH, "au_wr", 0);
 			if (!(sc->dev.dv_flags & DVF_ACTIVE))
 				error = EIO;
-#ifdef AUDIO_DEBUG
 			if (error) {
 				DPRINTF("%s: write woke up error = %d\n",
 				    DEVNAME(sc), error);
-			}
-#endif
-			if (error) {
 				mtx_leave(&audio_lock);
 				return error;
 			}
 		}
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
+		audio_buf_wcommit(&sc->play, count);
 		mtx_leave(&audio_lock);
 		error = uiomove(ptr, count, uio);
 		if (error)
@@ -1495,18 +1471,14 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 			DPRINTFN(1, "audio_write: converted count = %zu\n",
 			    count);
 		}
-		mtx_enter(&audio_lock);
-		audio_buf_wcommit(&sc->play, count);
 
 		/* start automatically if audio_ioc_start() was never called */
-		if (!sc->active && !sc->pause &&
-		    sc->play.used == sc->play.len) {
-			mtx_leave(&audio_lock);
+		if (audio_canstart(sc)) {
 			error = audio_start(sc);
 			if (error)
 				return error;
-			mtx_enter(&audio_lock);
 		}
+		mtx_enter(&audio_lock);
 	}
 	mtx_leave(&audio_lock);
 	return 0;
@@ -1633,7 +1605,6 @@ audioopen(dev_t dev, int flags, int mode, struct proc *p)
 		error = ENXIO;
 	else {
 		switch (AUDIO_DEV(dev)) {
-		case AUDIO_DEV_SOUND:
 		case AUDIO_DEV_AUDIO:
 			error = audio_open(sc, flags);
 			break;
@@ -1659,7 +1630,6 @@ audioclose(dev_t dev, int flags, int ifmt, struct proc *p)
 	if (sc == NULL)
 		return ENXIO;
 	switch (AUDIO_DEV(dev)) {
-	case AUDIO_DEV_SOUND:
 	case AUDIO_DEV_AUDIO:
 		error = audio_close(sc);
 		break;
@@ -1684,7 +1654,6 @@ audioread(dev_t dev, struct uio *uio, int ioflag)
 	if (sc == NULL)
 		return ENXIO;
 	switch (AUDIO_DEV(dev)) {
-	case AUDIO_DEV_SOUND:
 	case AUDIO_DEV_AUDIO:
 		error = audio_read(sc, uio, ioflag);
 		break;
@@ -1709,7 +1678,6 @@ audiowrite(dev_t dev, struct uio *uio, int ioflag)
 	if (sc == NULL)
 		return ENXIO;
 	switch (AUDIO_DEV(dev)) {
-	case AUDIO_DEV_SOUND:
 	case AUDIO_DEV_AUDIO:
 		error = audio_write(sc, uio, ioflag);
 		break;
@@ -1734,7 +1702,6 @@ audioioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	if (sc == NULL)
 		return ENXIO;
 	switch (AUDIO_DEV(dev)) {
-	case AUDIO_DEV_SOUND:
 	case AUDIO_DEV_AUDIO:
 		error = audio_ioctl(sc, cmd, addr);
 		break;
@@ -1769,16 +1736,14 @@ audiopoll(dev_t dev, int events, struct proc *p)
 	if (sc == NULL)
 		return POLLERR;
 	switch (AUDIO_DEV(dev)) {
-	case AUDIO_DEV_SOUND:
 	case AUDIO_DEV_AUDIO:
 		revents = audio_poll(sc, events, p);
 		break;
 	case AUDIO_DEV_AUDIOCTL:
 	case AUDIO_DEV_MIXER:
-		revents = 0;
-		break;
 	default:
 		revents = 0;
+		break;
 	}
 	device_unref(&sc->dev);
 	return revents;
@@ -1788,45 +1753,57 @@ audiopoll(dev_t dev, int events, struct proc *p)
 int
 wskbd_initmute(struct audio_softc *sc, struct mixer_devinfo *vol)
 {
-	struct mixer_devinfo mi;
+	struct mixer_devinfo *mi;
+	int index = -1;
 
-	mi.index = vol->next;
-	for (mi.index = vol->next; mi.index != -1; mi.index = mi.next) {
-		if (sc->ops->query_devinfo(sc->arg, &mi) != 0)
+	mi = malloc(sizeof(struct mixer_devinfo), M_TEMP, M_WAITOK);
+
+	for (mi->index = vol->next; mi->index != -1; mi->index = mi->next) {
+		if (sc->ops->query_devinfo(sc->arg, mi) != 0)
 			break;
-		if (strcmp(mi.label.name, AudioNmute) == 0)
-			return mi.index;
+		if (strcmp(mi->label.name, AudioNmute) == 0) {
+			index = mi->index;
+			break;
+		}
 	}
-	return -1;
+
+	free(mi, M_TEMP, sizeof(struct mixer_devinfo));
+	return index;
 }
 
 int
 wskbd_initvol(struct audio_softc *sc, struct wskbd_vol *vol, char *cn, char *dn)
 {
-	struct mixer_devinfo dev, cls;
+	struct mixer_devinfo *dev, *cls;
 
-	for (dev.index = 0; ; dev.index++) {
-		if (sc->ops->query_devinfo(sc->arg, &dev) != 0)
+	vol->val = vol->mute = -1;
+	dev = malloc(sizeof(struct mixer_devinfo), M_TEMP, M_WAITOK);
+	cls = malloc(sizeof(struct mixer_devinfo), M_TEMP, M_WAITOK);
+
+	for (dev->index = 0; ; dev->index++) {
+		if (sc->ops->query_devinfo(sc->arg, dev) != 0)
 			break;
-		if (dev.type != AUDIO_MIXER_VALUE)
+		if (dev->type != AUDIO_MIXER_VALUE)
 			continue;
-		cls.index = dev.mixer_class;
-		if (sc->ops->query_devinfo(sc->arg, &cls) != 0)
+		cls->index = dev->mixer_class;
+		if (sc->ops->query_devinfo(sc->arg, cls) != 0)
 			continue;
-		if (strcmp(cls.label.name, cn) == 0 &&
-		    strcmp(dev.label.name, dn) == 0) {
-			vol->val = dev.index;
-			vol->nch = dev.un.v.num_channels;
-			vol->step = dev.un.v.delta > 8 ? dev.un.v.delta : 8;
-			vol->mute = wskbd_initmute(sc, &dev);
+		if (strcmp(cls->label.name, cn) == 0 &&
+		    strcmp(dev->label.name, dn) == 0) {
+			vol->val = dev->index;
+			vol->nch = dev->un.v.num_channels;
+			vol->step = dev->un.v.delta > 8 ? dev->un.v.delta : 8;
+			vol->mute = wskbd_initmute(sc, dev);
 			vol->val_pending = vol->mute_pending = 0;
-			DPRINTF("%s: wskbd using %s.%s%s\n",
-			    DEVNAME(sc), cn, dn, vol->mute >= 0 ? ", mute control" : "");
-			return 1;
+			DPRINTF("%s: wskbd using %s.%s%s\n", DEVNAME(sc),
+			    cn, dn, vol->mute >= 0 ? ", mute control" : "");
+			break;
 		}
 	}
-	vol->val = vol->mute = -1;
-	return 0;
+
+	free(cls, M_TEMP, sizeof(struct mixer_devinfo));
+	free(dev, M_TEMP, sizeof(struct mixer_devinfo));
+	return (vol->val != -1);
 }
 
 void
@@ -1887,7 +1864,17 @@ wskbd_mixer_update(struct audio_softc *sc, struct wskbd_vol *vol)
 			DPRINTF("%s: get mute err = %d\n", DEVNAME(sc), error);
 			return;
 		}
-		ctrl.un.ord = ctrl.un.ord ^ mute_pending;
+		switch (mute_pending) {
+		case WSKBD_MUTE_TOGGLE:
+			ctrl.un.ord = !ctrl.un.ord;
+			break;
+		case WSKBD_MUTE_DISABLE:
+			ctrl.un.ord = 0;
+			break;
+		case WSKBD_MUTE_ENABLE:
+			ctrl.un.ord = 1;
+			break;
+		}
 		DPRINTFN(1, "%s: wskbd mute setting to %d\n",
 		    DEVNAME(sc), ctrl.un.ord);
 		error = sc->ops->set_port(sc->arg, &ctrl);
@@ -1909,7 +1896,7 @@ wskbd_mixer_update(struct audio_softc *sc, struct wskbd_vol *vol)
 			gain = ctrl.un.value.level[i] + vol->step * val_pending;
 			if (gain > AUDIO_MAX_GAIN)
 				gain = AUDIO_MAX_GAIN;
-			if (gain < AUDIO_MIN_GAIN)
+			else if (gain < AUDIO_MIN_GAIN)
 				gain = AUDIO_MIN_GAIN;
 			ctrl.un.value.level[i] = gain;
 			DPRINTFN(1, "%s: wskbd level %d set to %d\n",
@@ -1938,6 +1925,25 @@ wskbd_mixer_cb(void *addr)
 }
 
 int
+wskbd_set_mixermute(long mute, long out)
+{
+	struct audio_softc *sc;
+	struct wskbd_vol *vol;
+
+	sc = (struct audio_softc *)device_lookup(&audio_cd, 0);
+	if (sc == NULL)
+		return ENODEV;
+	vol = out ? &sc->spkr : &sc->mic;
+	vol->mute_pending = mute ? WSKBD_MUTE_ENABLE : WSKBD_MUTE_DISABLE;
+	if (!sc->wskbd_taskset) {
+		task_set(&sc->wskbd_task, wskbd_mixer_cb, sc);
+		task_add(systq, &sc->wskbd_task);
+		sc->wskbd_taskset = 1;
+	}
+	return 0;
+}
+
+int
 wskbd_set_mixervolume(long dir, long out)
 {
 	struct audio_softc *sc;
@@ -1948,7 +1954,7 @@ wskbd_set_mixervolume(long dir, long out)
 		return ENODEV;
 	vol = out ? &sc->spkr : &sc->mic;
 	if (dir == 0)
-		vol->mute_pending ^= 1;
+		vol->mute_pending ^= WSKBD_MUTE_TOGGLE;
 	else
 		vol->val_pending += dir;
 	if (!sc->wskbd_taskset) {

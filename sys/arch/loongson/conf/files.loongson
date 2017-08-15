@@ -1,4 +1,4 @@
-#	$OpenBSD: files.loongson,v 1.22 2016/01/12 17:17:33 deraadt Exp $
+#	$OpenBSD: files.loongson,v 1.25 2017/06/08 11:44:00 visa Exp $
 
 # Standard stanzas config(8) can't run without
 maxpartitions 16
@@ -19,9 +19,11 @@ file	arch/loongson/loongson/conf.c
 file	arch/loongson/loongson/disksubr.c		disk
 file	arch/loongson/loongson/gdium_machdep.c		cpu_loongson2
 file	arch/loongson/loongson/generic2e_machdep.c	cpu_loongson2
+file	arch/loongson/loongson/generic3a_machdep.c	cpu_loongson3
 file	arch/loongson/loongson/isa_machdep.c		isa
-file	arch/loongson/loongson/lemote3a_machdep.c	cpu_loongson3
+file	arch/loongson/loongson/locore.S
 file	arch/loongson/loongson/loongson2_machdep.c
+file	arch/loongson/loongson/loongson3_intr.c		cpu_loongson3
 file	arch/loongson/loongson/loongson3_machdep.c	cpu_loongson3
 file	arch/loongson/loongson/machdep.c
 file	arch/loongson/loongson/hibernate_machdep.c	hibernate
@@ -61,6 +63,10 @@ attach	clock at mainbus
 device	bonito {}: pcibus
 attach	bonito at mainbus
 file	arch/loongson/dev/bonito.c			bonito
+
+device	htb {}: pcibus
+attach	htb at mainbus
+file	arch/loongson/dev/htb.c				htb
 
 # AMD Geode CS5536 companion chip
 file	arch/loongson/dev/glx.c				bonito & pci
@@ -128,3 +134,12 @@ file	arch/loongson/dev/apm.c				apm	needs-flag
 device	glxclk
 attach	glxclk at glxpcib
 file	arch/loongson/dev/glxclk.c			glxclk
+
+define	leiobus {}
+
+device	leioc: leiobus
+attach	leioc at mainbus
+file	arch/loongson/dev/leioc.c			leioc
+
+attach	com at leiobus with com_leioc
+file	arch/loongson/dev/com_leioc.c			com_leioc

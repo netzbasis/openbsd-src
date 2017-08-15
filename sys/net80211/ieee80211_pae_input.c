@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_pae_input.c,v 1.25 2015/07/15 22:16:42 deraadt Exp $	*/
+/*	$OpenBSD: ieee80211_pae_input.c,v 1.29 2017/07/22 16:48:21 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007,2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -78,7 +78,7 @@ ieee80211_eapol_key_input(struct ieee80211com *ic, struct mbuf *m,
 	struct ether_header *eh;
 	struct ieee80211_eapol_key *key;
 	u_int16_t info, desc;
-	int totlen;
+	int totlen, bodylen, paylen;
 
 	ifp->if_ibytes += m->m_pkthdr.len;
 
@@ -109,12 +109,14 @@ ieee80211_eapol_key_input(struct ieee80211com *ic, struct mbuf *m,
 		goto done;
 
 	/* check packet body length */
-	if (m->m_pkthdr.len < 4 + BE_READ_2(key->len))
+	bodylen = BE_READ_2(key->len);
+	totlen = 4 + bodylen;
+	if (m->m_pkthdr.len < totlen || totlen > MCLBYTES)
 		goto done;
 
 	/* check key data length */
-	totlen = sizeof(*key) + BE_READ_2(key->paylen);
-	if (m->m_pkthdr.len < totlen || totlen > MCLBYTES)
+	paylen = BE_READ_2(key->paylen);
+	if (paylen > totlen - sizeof(*key))
 		goto done;
 
 	info = BE_READ_2(key->info);
@@ -193,6 +195,15 @@ ieee80211_recv_4way_msg1(struct ieee80211com *ic,
 	    ic->ic_opmode != IEEE80211_M_IBSS)
 		return;
 #endif
+	/* 
+	 * Message 1 is always expected while RSN is active since some
+	 * APs will rekey the PTK by sending Msg1/4 after some time.
+	 */
+	if (ni->ni_rsn_supp_state == RSNA_SUPP_INITIALIZE) {
+		DPRINTF(("unexpected in state: %d\n", ni->ni_rsn_supp_state));
+		return;
+	}
+	/* enforce monotonicity of key request replay counter */
 	if (ni->ni_replaycnt_ok &&
 	    BE_READ_8(key->replaycnt) <= ni->ni_replaycnt) {
 		ic->ic_stats.is_rx_eapol_replay++;
@@ -343,6 +354,13 @@ ieee80211_recv_4way_msg3(struct ieee80211com *ic,
 	    ic->ic_opmode != IEEE80211_M_IBSS)
 		return;
 #endif
+	/* discard if we're not expecting this message */
+	if (ni->ni_rsn_supp_state != RSNA_SUPP_PTKNEGOTIATING &&
+	    ni->ni_rsn_supp_state != RNSA_SUPP_PTKDONE) {
+		DPRINTF(("unexpected in state: %d\n", ni->ni_rsn_supp_state));
+		return;
+	}
+	/* enforce monotonicity of key request replay counter */
 	if (ni->ni_replaycnt_ok &&
 	    BE_READ_8(key->replaycnt) <= ni->ni_replaycnt) {
 		ic->ic_stats.is_rx_eapol_replay++;
@@ -737,6 +755,12 @@ ieee80211_recv_rsn_group_msg1(struct ieee80211com *ic,
 	    ic->ic_opmode != IEEE80211_M_IBSS)
 		return;
 #endif
+	/* discard if we're not expecting this message */
+	if (ni->ni_rsn_supp_state != RNSA_SUPP_PTKDONE) {
+		DPRINTF(("unexpected in state: %d\n", ni->ni_rsn_supp_state));
+		return;
+	}
+	/* enforce monotonicity of key request replay counter */
 	if (BE_READ_8(key->replaycnt) <= ni->ni_replaycnt) {
 		ic->ic_stats.is_rx_eapol_replay++;
 		return;
@@ -883,6 +907,12 @@ ieee80211_recv_wpa_group_msg1(struct ieee80211com *ic,
 	    ic->ic_opmode != IEEE80211_M_IBSS)
 		return;
 #endif
+	/* discard if we're not expecting this message */
+	if (ni->ni_rsn_supp_state != RNSA_SUPP_PTKDONE) {
+		DPRINTF(("unexpected in state: %d\n", ni->ni_rsn_supp_state));
+		return;
+	}
+	/* enforce monotonicity of key request replay counter */
 	if (BE_READ_8(key->replaycnt) <= ni->ni_replaycnt) {
 		ic->ic_stats.is_rx_eapol_replay++;
 		return;
@@ -975,6 +1005,7 @@ ieee80211_recv_group_msg2(struct ieee80211com *ic,
 		     ni->ni_rsn_gstate));
 		return;
 	}
+	/* enforce monotonicity of key request replay counter */
 	if (BE_READ_8(key->replaycnt) != ni->ni_replaycnt) {
 		ic->ic_stats.is_rx_eapol_replay++;
 		return;
@@ -989,10 +1020,14 @@ ieee80211_recv_group_msg2(struct ieee80211com *ic,
 	timeout_del(&ni->ni_eapol_to);
 	ni->ni_rsn_gstate = RSNA_REKEYESTABLISHED;
 
-	if ((ni->ni_flags & IEEE80211_NODE_REKEY) &&
-	    --ic->ic_rsn_keydonesta == 0)
-		ieee80211_setkeysdone(ic);
-	ni->ni_flags &= ~IEEE80211_NODE_REKEY;
+	if (ni->ni_flags & IEEE80211_NODE_REKEY) {
+		int rekeysta = 0;
+		ni->ni_flags &= ~IEEE80211_NODE_REKEY;
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_rekeysta, &rekeysta);
+		if (rekeysta == 0)
+			ieee80211_setkeysdone(ic);
+	}
 	ni->ni_flags |= IEEE80211_NODE_TXRXPROT;
 
 	ni->ni_rsn_gstate = RSNA_IDLE;
@@ -1019,6 +1054,11 @@ ieee80211_recv_eapol_key_req(struct ieee80211com *ic,
 	    ic->ic_opmode != IEEE80211_M_IBSS)
 		return;
 
+	/* discard if we're not expecting this message */
+	if (ni->ni_rsn_state != RSNA_PTKINITDONE) {
+		DPRINTF(("unexpected in state: %d\n", ni->ni_rsn_state));
+		return;
+	}
 	/* enforce monotonicity of key request replay counter */
 	if (ni->ni_reqreplaycnt_ok &&
 	    BE_READ_8(key->replaycnt) <= ni->ni_reqreplaycnt) {

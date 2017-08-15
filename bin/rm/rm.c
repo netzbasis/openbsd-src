@@ -1,4 +1,4 @@
-/*	$OpenBSD: rm.c,v 1.39 2016/06/28 18:00:59 tedu Exp $	*/
+/*	$OpenBSD: rm.c,v 1.42 2017/06/27 21:49:47 tedu Exp $	*/
 /*	$NetBSD: rm.c,v 1.19 1995/09/07 06:48:50 jtc Exp $	*/
 
 /*-
@@ -34,7 +34,6 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 
-#include <locale.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -51,7 +50,7 @@
 
 extern char *__progname;
 
-int dflag, eval, fflag, iflag, Pflag, stdin_ok;
+int dflag, eval, fflag, iflag, Pflag, vflag, stdin_ok;
 
 int	check(char *, char *, struct stat *);
 void	checkdot(char **);
@@ -73,10 +72,8 @@ main(int argc, char *argv[])
 {
 	int ch, rflag;
 
-	setlocale(LC_ALL, "");
-
 	Pflag = rflag = 0;
-	while ((ch = getopt(argc, argv, "dfiPRr")) != -1)
+	while ((ch = getopt(argc, argv, "dfiPRrv")) != -1)
 		switch(ch) {
 		case 'd':
 			dflag = 1;
@@ -95,6 +92,9 @@ main(int argc, char *argv[])
 		case 'R':
 		case 'r':			/* Compatibility. */
 			rflag = 1;
+			break;
+		case 'v':
+			vflag = 1;
 			break;
 		default:
 			usage();
@@ -124,7 +124,7 @@ main(int argc, char *argv[])
 			rm_file(argv);
 	}
 
-	exit(eval);
+	return (eval);
 }
 
 void
@@ -204,8 +204,11 @@ rm_tree(char **argv)
 		case FTS_DP:
 		case FTS_DNR:
 			if (!rmdir(p->fts_accpath) ||
-			    (fflag && errno == ENOENT))
+			    (fflag && errno == ENOENT)) {
+				if (vflag)
+					fprintf(stdout, "%s\n", p->fts_path);
 				continue;
+			}
 			break;
 
 		case FTS_F:
@@ -216,8 +219,11 @@ rm_tree(char **argv)
 			/* FALLTHROUGH */
 		default:
 			if (!unlink(p->fts_accpath) ||
-			    (fflag && errno == ENOENT))
+			    (fflag && errno == ENOENT)) {
+				if (vflag)
+					fprintf(stdout, "%s\n", p->fts_path);
 				continue;
+			}
 		}
 		warn("%s", p->fts_path);
 		eval = 1;
@@ -265,7 +271,8 @@ rm_file(char **argv)
 		if (rval && (!fflag || errno != ENOENT)) {
 			warn("%s", f);
 			eval = 1;
-		}
+		} else if (vflag)
+			(void)fprintf(stdout, "%s\n", f);
 	}
 }
 
@@ -389,7 +396,7 @@ check(char *path, char *name, struct stat *sp)
  * Since POSIX.2 defines basename as the final portion of a path after
  * trailing slashes have been removed, we'll remove them here.
  */
-#define ISDOT(a)	((a)[0] == '.' && (!(a)[1] || ((a)[1] == '.' && !(a)[2])))
+#define ISDOT(a) ((a)[0] == '.' && (!(a)[1] || ((a)[1] == '.' && !(a)[2])))
 void
 checkdot(char **argv)
 {
@@ -433,6 +440,6 @@ skip:
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: %s [-dfiPRr] file ...\n", __progname);
+	(void)fprintf(stderr, "usage: %s [-dfiPRrv] file ...\n", __progname);
 	exit(1);
 }

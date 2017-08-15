@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.c,v 1.43 2016/08/31 13:33:52 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.c,v 1.53 2017/07/19 22:04:46 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.c,v 1.15 2004/05/06 02:58:16 dyoung Exp $	*/
 
 /*-
@@ -55,12 +55,18 @@ void	 ieee80211_node2req(struct ieee80211com *,
 	    const struct ieee80211_node *, struct ieee80211_nodereq *);
 void	 ieee80211_req2node(struct ieee80211com *,
 	    const struct ieee80211_nodereq *, struct ieee80211_node *);
+void	 ieee80211_disable_wep(struct ieee80211com *); 
+void	 ieee80211_disable_rsn(struct ieee80211com *); 
 
 void
 ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
     struct ieee80211_nodereq *nr)
 {
 	uint8_t rssi;
+
+	memset(nr, 0, sizeof(*nr));
+
+	strlcpy(nr->nr_ifname, ic->ic_if.if_xname, sizeof(nr->nr_ifname));
 
 	/* Node address and name information */
 	IEEE80211_ADDR_COPY(nr->nr_macaddr, ni->ni_macaddr);
@@ -71,6 +77,8 @@ ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
 	/* Channel and rates */
 	nr->nr_channel = ieee80211_chan2ieee(ic, ni->ni_chan);
 	nr->nr_chan_flags = ni->ni_chan->ic_flags;
+	if (ic->ic_curmode != IEEE80211_MODE_11N)
+		nr->nr_chan_flags &= ~IEEE80211_CHAN_HT;
 	nr->nr_nrates = ni->ni_rates.rs_nrates;
 	bcopy(ni->ni_rates.rs_rates, nr->nr_rates, IEEE80211_RATE_MAXSIZE);
 
@@ -105,13 +113,18 @@ ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
 	/* RSN */
 	nr->nr_rsnciphers = ni->ni_rsnciphers;
 	nr->nr_rsnakms = 0;
-	if (ni->ni_rsnakms & IEEE80211_AKM_8021X)
+	nr->nr_rsnprotos = 0;
+	if (ni->ni_supported_rsnprotos & IEEE80211_PROTO_RSN)
+		nr->nr_rsnprotos |= IEEE80211_WPA_PROTO_WPA2;
+	if (ni->ni_supported_rsnprotos & IEEE80211_PROTO_WPA)
+		nr->nr_rsnprotos |= IEEE80211_WPA_PROTO_WPA1;
+	if (ni->ni_supported_rsnakms & IEEE80211_AKM_8021X)
 		nr->nr_rsnakms |= IEEE80211_WPA_AKM_8021X;
-	if (ni->ni_rsnakms & IEEE80211_AKM_PSK)
+	if (ni->ni_supported_rsnakms & IEEE80211_AKM_PSK)
 		nr->nr_rsnakms |= IEEE80211_WPA_AKM_PSK;
-	if (ni->ni_rsnakms & IEEE80211_AKM_SHA256_8021X)
+	if (ni->ni_supported_rsnakms & IEEE80211_AKM_SHA256_8021X)
 		nr->nr_rsnakms |= IEEE80211_WPA_AKM_SHA256_8021X;
-	if (ni->ni_rsnakms & IEEE80211_AKM_SHA256_PSK)
+	if (ni->ni_supported_rsnakms & IEEE80211_AKM_SHA256_PSK)
 		nr->nr_rsnakms |= IEEE80211_WPA_AKM_SHA256_PSK;
 
 	/* Node flags */
@@ -157,6 +170,32 @@ ieee80211_req2node(struct ieee80211com *ic, const struct ieee80211_nodereq *nr,
 	ni->ni_inact = nr->nr_inact;
 	ni->ni_txrate = nr->nr_txrate;
 	ni->ni_state = nr->nr_state;
+}
+
+void
+ieee80211_disable_wep(struct ieee80211com *ic)
+{
+	struct ieee80211_key *k;
+	int i;
+	
+	for (i = 0; i < IEEE80211_WEP_NKID; i++) {
+		k = &ic->ic_nw_keys[i];
+		if (k->k_cipher != IEEE80211_CIPHER_NONE)
+			(*ic->ic_delete_key)(ic, NULL, k);
+		explicit_bzero(k, sizeof(*k));
+	}
+	ic->ic_flags &= ~IEEE80211_F_WEPON;
+}
+
+void
+ieee80211_disable_rsn(struct ieee80211com *ic)
+{
+	ic->ic_flags &= ~(IEEE80211_F_PSK | IEEE80211_F_RSNON);
+	explicit_bzero(ic->ic_psk, sizeof(ic->ic_psk));
+	ic->ic_rsnprotos = 0;
+	ic->ic_rsnakms = 0;
+	ic->ic_rsngroupcipher = 0;
+	ic->ic_rsnciphers = 0;
 }
 
 static int
@@ -205,6 +244,8 @@ ieee80211_ioctl_setnwkeys(struct ieee80211com *ic,
 
 	ic->ic_def_txkey = nwkey->i_defkid - 1;
 	ic->ic_flags |= IEEE80211_F_WEPON;
+	if (ic->ic_flags & IEEE80211_F_RSNON)
+		ieee80211_disable_rsn(ic);
 
 	return ENETRESET;
 }
@@ -254,6 +295,10 @@ ieee80211_ioctl_setwpaparms(struct ieee80211com *ic,
 		if (!(ic->ic_flags & IEEE80211_F_RSNON))
 			return 0;
 		ic->ic_flags &= ~IEEE80211_F_RSNON;
+		ic->ic_rsnprotos = 0;
+		ic->ic_rsnakms = 0;
+		ic->ic_rsngroupcipher = 0;
+		ic->ic_rsnciphers = 0;
 		return ENETRESET;
 	}
 
@@ -262,8 +307,8 @@ ieee80211_ioctl_setwpaparms(struct ieee80211com *ic,
 		ic->ic_rsnprotos |= IEEE80211_PROTO_WPA;
 	if (wpa->i_protos & IEEE80211_WPA_PROTO_WPA2)
 		ic->ic_rsnprotos |= IEEE80211_PROTO_RSN;
-	if (ic->ic_rsnprotos == 0)	/* set to default (WPA+RSN) */
-		ic->ic_rsnprotos = IEEE80211_PROTO_WPA | IEEE80211_PROTO_RSN;
+	if (ic->ic_rsnprotos == 0)	/* set to default (RSN) */
+		ic->ic_rsnprotos = IEEE80211_PROTO_RSN;
 
 	ic->ic_rsnakms = 0;
 	if (wpa->i_akms & IEEE80211_WPA_AKM_PSK)
@@ -299,9 +344,11 @@ ieee80211_ioctl_setwpaparms(struct ieee80211com *ic,
 		ic->ic_rsnciphers |= IEEE80211_CIPHER_CCMP;
 	if (wpa->i_ciphers & IEEE80211_WPA_CIPHER_USEGROUP)
 		ic->ic_rsnciphers = IEEE80211_CIPHER_USEGROUP;
-	if (ic->ic_rsnciphers == 0)	/* set to default (TKIP+CCMP) */
-		ic->ic_rsnciphers = IEEE80211_CIPHER_TKIP |
-		    IEEE80211_CIPHER_CCMP;
+	if (ic->ic_rsnciphers == 0) { /* set to default (CCMP, TKIP if WPA1) */
+		ic->ic_rsnciphers = IEEE80211_CIPHER_CCMP;
+		if (ic->ic_rsnprotos & IEEE80211_PROTO_WPA)
+			ic->ic_rsnciphers |= IEEE80211_CIPHER_TKIP;
+	}
 
 	ic->ic_flags |= IEEE80211_F_RSNON;
 
@@ -451,6 +498,8 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		if (psk->i_enabled) {
 			ic->ic_flags |= IEEE80211_F_PSK;
 			memcpy(ic->ic_psk, psk->i_psk, sizeof(ic->ic_psk));
+			if (ic->ic_flags & IEEE80211_F_WEPON)
+				ieee80211_disable_wep(ic);
 		} else {
 			ic->ic_flags &= ~IEEE80211_F_PSK;
 			memset(ic->ic_psk, 0, sizeof(ic->ic_psk));
@@ -483,6 +532,8 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		kr = (struct ieee80211_keyrun *)data;
 		error = ieee80211_keyrun(ic, kr->i_macaddr);
+		if (error == 0 && (ic->ic_flags & IEEE80211_F_WEPON))
+			ieee80211_disable_wep(ic);
 		break;
 	case SIOCS80211POWER:
 		if ((error = suser(curproc, 0)) != 0)
@@ -754,7 +805,7 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	case SIOCG80211ALLNODES:
 		na = (struct ieee80211_nodereq_all *)data;
 		na->na_nodes = i = 0;
-		ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+		ni = RBT_MIN(ieee80211_tree, &ic->ic_tree);
 		while (ni && na->na_size >=
 		    i + sizeof(struct ieee80211_nodereq)) {
 			ieee80211_node2req(ic, ni, &nrbuf);
@@ -764,7 +815,7 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 				break;
 			i += sizeof(struct ieee80211_nodereq);
 			na->na_nodes++;
-			ni = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+			ni = RBT_NEXT(ieee80211_tree, ni);
 		}
 		break;
 	case SIOCG80211FLAGS:

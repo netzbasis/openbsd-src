@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile.inc,v 1.20 2015/02/03 19:37:25 schwarze Exp $
+# $OpenBSD: Makefile.inc,v 1.24 2017/07/04 14:53:23 schwarze Exp $
 
 .include "Makefile.sub"
 
@@ -11,6 +11,7 @@ MANDOC ?= mandoc
 
 SKIP_ASCII ?=
 SKIP_TMAN ?=
+SKIP_MARKDOWN ?=
 
 _ASCIIFILES =
 _ASCIIDIFFS =
@@ -24,6 +25,10 @@ _ASCIIDIFFS += ${t}.diff_ascii
 _MANFILES += ${t}.in_man ${t}.mandoc_man
 _MANDIFFS += ${t}.diff_man
 .    endif
+.  endif
+.  if empty(SKIP_MARKDOWN:MALL) && empty(SKIP_MARKDOWN:M${t})
+_MARKDOWNFILES += ${t}.mandoc_markdown
+_MARKDOWNDIFFS += ${t}.diff_markdown
 .  endif
 .endfor
 
@@ -53,6 +58,8 @@ utf8: utf8-clean ${_UTF8DIFFS}
 
 html: html-clean ${_HTMLDIFFS}
 
+markdown: markdown-clean ${_MARKDOWNDIFFS}
+
 tman: tman-clean ${_MANDIFFS}
 
 lint: lint-clean ${_LINTDIFFS}
@@ -61,20 +68,21 @@ htmlval: ${_HTMLVALS}
 
 # --- suffix rules ---
 
-.SUFFIXES:	.diff_ascii .diff_html .diff_lint .diff_man .diff_utf8 \
+.SUFFIXES:	.diff_ascii .diff_html .diff_lint \
+		.diff_man .diff_markdown .diff_utf8 \
 		.in .in_man \
 		.mandoc_ascii .mandoc_html .mandoc_lint \
-		.mandoc_man .mandoc_utf8 \
+		.mandoc_man .mandoc_markdown .mandoc_utf8 \
 		.out_ascii .out_lint .out_utf8
 
 .in.mandoc_ascii:
-	@${MANDOC} ${MOPTS} -Tascii ${.IMPSRC} > ${.TARGET}
+	@${MANDOC} ${MOPTS} -Ios=OpenBSD -Tascii ${.IMPSRC} > ${.TARGET}
 
 .mandoc_ascii.diff_ascii:
 	@${DIFF} ${.CURDIR}/${.IMPSRC:S/mandoc_ascii$/out_ascii/} ${.IMPSRC}
 
 .in.mandoc_utf8:
-	@${MANDOC} ${MOPTS} -Tutf8 ${.IMPSRC} > ${.TARGET}
+	@${MANDOC} ${MOPTS} -Ios=OpenBSD -Tutf8 ${.IMPSRC} > ${.TARGET}
 
 .mandoc_utf8.diff_utf8:
 	@${DIFF} ${.CURDIR}/${.IMPSRC:S/mandoc_utf8$/out_utf8/} ${.IMPSRC}
@@ -86,14 +94,21 @@ htmlval: ${_HTMLVALS}
 .mandoc_html.diff_html:
 	@${DIFF} ${.CURDIR}/${.IMPSRC:S/mandoc_html$/out_html/} ${.IMPSRC}
 
+.in.mandoc_markdown:
+	@${MANDOC} ${MOPTS} -Ios=OpenBSD -Tmarkdown ${.IMPSRC} > ${.TARGET}
+
+.mandoc_markdown.diff_markdown:
+	@${DIFF} ${.CURDIR}/${.IMPSRC:S/mandoc_markdown$/out_markdown/} \
+		${.IMPSRC}
+
 .in.in_man:
-	@${MANDOC} ${MOPTS} -Tman ${.IMPSRC} > ${.TARGET}
+	@${MANDOC} ${MOPTS} -Ios=OpenBSD -Tman ${.IMPSRC} > ${.TARGET}
 
 .in_man.mandoc_man:
 	@${MANDOC} -man -Tascii -Omdoc ${.IMPSRC} > ${.TARGET}
 
 .in.mandoc_lint:
-	@-${MANDOC} ${MOPTS} -Tlint ${.IMPSRC} 2>&1 | \
+	@-${MANDOC} ${MOPTS} -Ios=OpenBSD -Tlint -Wall ${.IMPSRC} 2>&1 | \
 		sed -E 's/^mandoc: \/[^:]+\//mandoc: /' > ${.TARGET}
 
 .mandoc_lint.diff_lint:
@@ -125,6 +140,12 @@ ${t}: ${t}.diff_utf8
 ${t}: ${t}.diff_html
 .endfor
 
+.for t in ${REGRESS_TARGETS}
+.  if empty(SKIP_MARKDOWN:MALL) && empty(SKIP_MARKDOWN:M${t})
+${t}: ${t}.diff_markdown
+.  endif
+.endfor
+
 .for t in ${LINT_TARGETS}
 ${t}: ${t}.diff_lint
 .endfor
@@ -148,6 +169,11 @@ html-clean:
 	@rm -f ${_HTMLFILES}
 .endif
 
+markdown-clean:
+.if !empty(_MARKDOWNFILES)
+	@rm -f ${_MARKDOWNFILES}
+.endif
+
 tman-clean:
 .if !empty(_MANFILES)
 	@rm -f ${_MANFILES}
@@ -158,8 +184,8 @@ lint-clean:
 	@rm -f ${_LINTFILES}
 .endif
 
-.PHONY: ${_ASCIIDIFFS} ${_UTF8DIFFS} ${_HTMLDIFFS} ${_MANDIFFS} \
-	${_LINTDIFFS} ${_HTMLVALS}
+.PHONY: ${_ASCIIDIFFS} ${_UTF8DIFFS} ${_HTMLDIFFS} ${_MARKDOWNDIFFS} \
+	${_MANDIFFS} ${_LINTDIFFS} ${_HTMLVALS}
 
 
 # ----------------------------------------------------------------------
@@ -183,6 +209,7 @@ SKIP_GROFF_UTF8  += ${SKIP_GROFF}
 
 _OUTFILES =
 _HTMLOUTFILES =
+_MARKDOWNOUTFILES =
 _LINTOUTFILES =
 .for t in ${REGRESS_TARGETS}
 .  if empty(SKIP_GROFF_ASCII:M${t}) && \
@@ -201,6 +228,12 @@ _OUTFILES += ${t}.out_utf8
 _HTMLOUTFILES += ${t}.out_html
 .endfor
 
+.for t in ${REGRESS_TARGETS}
+.  if empty(SKIP_MARKDOWN:MALL) && empty(SKIP_MARKDOWN:M${t})
+_MARKDOWNOUTFILES += ${t}.out_markdown
+.  endif
+.endfor
+
 .for t in ${LINT_TARGETS}
 _LINTOUTFILES += ${t}.out_lint
 .endfor
@@ -210,6 +243,8 @@ _LINTOUTFILES += ${t}.out_lint
 groff: obj-check ${_OUTFILES}
 
 html-out: obj-check ${_HTMLOUTFILES}
+
+markdown-out: obj-check ${_MARKDOWNOUTFILES}
 
 lint-out: obj-check ${_LINTOUTFILES}
 
@@ -245,9 +280,17 @@ ${t}.out_html: ${t}.in
 		sed -n '/^BEGINTEST/,/^ENDTEST/p' > ${.TARGET}
 .endfor
 
+.for t in ${REGRESS_TARGETS}
+.  if empty(SKIP_MARKDOWN:MALL) && empty(SKIP_MARKDOWN:M${t})
+${t}.out_markdown: ${t}.in
+	${MANDOC} ${MOPTS} -Ios=OpenBSD -Tmarkdown ${.ALLSRC} > ${.TARGET}
+.  endif
+.endfor
+
 .for t in ${LINT_TARGETS}
 ${t}.out_lint: ${t}.in
-	-${MANDOC} ${MOPTS} -Tlint ${.ALLSRC} > ${.TARGET} 2>&1
+	-${MANDOC} ${MOPTS} -Ios=OpenBSD -Tlint -Wall ${.ALLSRC} \
+		> ${.TARGET} 2>&1
 .endfor
 
 # --- phony targets ---
@@ -260,6 +303,11 @@ groff-clean: obj-check
 html-out-clean: obj-check
 .if !empty(_HTMLOUTFILES)
 	rm -f ${_HTMLOUTFILES}
+.endif
+
+markdown-out-clean: obj-check
+.if !empty(_MARKDOWNOUTFILES)
+	rm -f ${_MARKDOWNOUTFILES}
 .endif
 
 lint-out-clean: obj-check

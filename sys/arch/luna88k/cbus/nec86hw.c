@@ -1,4 +1,4 @@
-/*	$OpenBSD: nec86hw.c,v 1.3 2015/06/25 06:43:45 ratchov Exp $	*/
+/*	$OpenBSD: nec86hw.c,v 1.5 2017/03/11 12:15:35 ratchov Exp $	*/
 /*	$NecBSD: nec86hw.c,v 1.13 1998/03/14 07:04:54 kmatsuda Exp $	*/
 /*	$NetBSD$	*/
 
@@ -214,7 +214,6 @@ nec86hw_set_params(void *addr, int mode, int usemode, struct audio_params *p,
 {
 	register struct nec86hw_softc *sc = (struct nec86hw_softc *) addr;
 	int rate_type = NEC86HW_RATE_TYPE(sc->sc_cfgflags);
-	u_int prec, enc;
 
 	if ((p->channels != 1) && (p->channels != 2))
 		return EINVAL;
@@ -226,43 +225,14 @@ nec86hw_set_params(void *addr, int mode, int usemode, struct audio_params *p,
 		p->encoding = AUDIO_ENCODING_SLINEAR_LE;
 	}
 	sc->channels = p->channels;
-	sc->precision = prec;
-	sc->encoding = enc;
+	sc->precision = p->precision;
+	sc->encoding = p->encoding;
 	sc->hw_orate_bits = nec86hw_rate_bits(sc, p->sample_rate);
 	sc->sc_orate = p->sample_rate = sc->hw_orate =
 	    nec86hw_rate_table[rate_type][sc->hw_orate_bits];
 	sc->hw_irate_bits = nec86hw_rate_bits(sc, r->sample_rate);
 	sc->sc_irate = r->sample_rate = sc->hw_irate =
 	    nec86hw_rate_table[rate_type][sc->hw_irate_bits];
-	return 0;
-}
-
-int
-nec86hw_query_encoding(void *addr, struct audio_encoding *fp)
-{
-
-	switch (fp->index) {
-	case 0:
-		strlcpy(fp->name, AudioEulinear, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_ULINEAR;
-		fp->precision = 8;
-		fp->bps = 1;
-		fp->msb = 1;
-		fp->flags = 0;
-		break;
-	case 1:
-		strlcpy(fp->name, AudioEslinear_le, sizeof(fp->name));
-		fp->encoding = AUDIO_ENCODING_SLINEAR_LE;
-		fp->precision = 16;
-		fp->bps = 2;
-		fp->msb = 1;	/* is this OK? */
-		fp->flags = 0;
-		break;
-	default:
-		return EINVAL;
-		/*NOTREACHED*/
-	}
-
 	return 0;
 }
 

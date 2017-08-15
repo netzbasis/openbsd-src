@@ -1,4 +1,4 @@
-/*	$OpenBSD: cread.c,v 1.13 2009/01/18 21:46:50 miod Exp $	*/
+/*	$OpenBSD: cread.c,v 1.15 2016/09/18 15:14:52 jsing Exp $	*/
 /*	$NetBSD: cread.c,v 1.2 1997/02/04 18:38:20 thorpej Exp $	*/
 
 /*
@@ -47,11 +47,7 @@
 
 #define zmemcpy	memcpy
 
-#ifdef SAVE_MEMORY
-#define Z_BUFSIZE 1024
-#else
 #define Z_BUFSIZE 4096
-#endif
 
 static int gz_magic[2] = {0x1f, 0x8b}; /* gzip magic header */
 
@@ -210,11 +206,7 @@ open(const char *fname, int mode)
 		goto errout;
 	bzero(s, sizeof(struct sd));
 
-#ifdef SAVE_MEMORY
-	if (inflateInit2(&(s->stream), -11) != Z_OK)
-#else
 	if (inflateInit2(&(s->stream), -15) != Z_OK)
-#endif
 		goto errout;
 
 	s->stream.next_in  = s->inbuf = (unsigned char *)alloc(Z_BUFSIZE);
@@ -424,15 +416,18 @@ lseek(int fd, off_t offset, int where)
 			while(toskip > 0) {
 #define DUMMYBUFSIZE 256
 				char dummybuf[DUMMYBUFSIZE];
-				off_t len = toskip;
+				size_t len = toskip;
+				ssize_t n;
 
 				if (len > DUMMYBUFSIZE)
 					len = DUMMYBUFSIZE;
-				if (read(fd, dummybuf, len) != len) {
-					errno = EOFFSET;
+				n = read(fd, dummybuf, len);
+				if (n <= 0) {
+					if (n == 0)
+						errno = EINVAL;
 					return((off_t)-1);
 				}
-				toskip -= len;
+				toskip -= n;
 			}
 		}
 #ifdef DEBUG

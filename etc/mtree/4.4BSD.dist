@@ -1,4 +1,4 @@
-#	$OpenBSD: 4.4BSD.dist,v 1.289 2016/09/07 18:31:00 jmc Exp $
+#	$OpenBSD: 4.4BSD.dist,v 1.298 2017/04/26 14:53:11 sthen Exp $
 
 /set type=dir uname=root gname=wheel mode=0755
 
@@ -105,10 +105,6 @@ etc
         ..
         lib
         ..
-        acme
-            private		uname=root mode=0700
-            ..
-        ..
     ..
 ..
 
@@ -118,6 +114,8 @@ home
 mnt
 ..
 root				mode=0700
+    .ssh			uname=root mode=0700
+    ..
 ..
 sbin
 ..
@@ -134,12 +132,6 @@ usr
     # ./usr/include
     include			gname=bin uname=root mode=0755
         arpa			gname=bin uname=root mode=0755
-        ..
-        g++			gname=bin uname=root mode=0755
-            std			gname=bin uname=root mode=0755
-            ..
-        ..
-        objc			gname=bin uname=root mode=0755
         ..
         openssl			gname=bin uname=root mode=0755
         ..
@@ -166,8 +158,6 @@ usr
     # ./usr/libdata
     libdata
         perl5
-            site_perl
-            ..
         ..
     ..
 
@@ -416,8 +406,6 @@ usr
     # ./usr/mdec
     mdec
     ..
-    obj				gname=wsrc mode=0775
-    ..
     sbin
     ..
 
@@ -535,6 +523,8 @@ usr
                 ..
                 amd64
                 ..
+                arm64
+                ..
                 armv7
                 ..
                 hppa
@@ -592,10 +582,6 @@ usr
             ..
         ..
    ..
-
-   # ./usr/xobj
-   xobj				gname=wsrc mode=0775
-   ..
 ..
 
 # ./var
@@ -623,6 +609,8 @@ var
 
     # ./var/db
     db
+        acpi
+	..
         ldap			mode=0700
         ..
         ns
@@ -695,7 +683,7 @@ var
         ..
 
         # ./var/spool/lock
-        lock			uname=uucp gname=dialer mode=1775
+        lock			uname=root gname=dialer mode=1775
         ..
         output
             lpd			gname=daemon mode=0775
@@ -718,11 +706,6 @@ var
             ..
         ..
 
-        # ./var/spool/uucp
-        uucp			uname=uucp gname=daemon
-        ..
-        uucppublic		uname=uucp gname=daemon mode=0755
-        ..
     ..
 
     # ./var/unbound

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.169 2016/06/07 06:23:19 dlg Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.173 2017/04/30 16:45:45 mpi Exp $	*/
 
 /*
  * Copyright (c) 1998-2004 Michael Shalayeff
@@ -269,8 +269,10 @@ pmap_pde_release(struct pmap *pmap, vaddr_t va, struct vm_page *ptp)
 		
 		pmap_pde_set(pmap, va, 0);
 		pmap->pm_stats.resident_count--;
-		if (pmap->pm_ptphint == ptp)
-			pmap->pm_ptphint = RB_ROOT(&pmap->pm_obj.memt);
+		if (pmap->pm_ptphint == ptp) {
+			pmap->pm_ptphint = RBT_ROOT(uvm_objtree,
+			    &pmap->pm_obj.memt);
+		}
 		ptp->wire_count = 0;
 #ifdef DIAGNOSTIC
 		if (ptp->pg_flags & PG_BUSY)
@@ -631,12 +633,10 @@ pmap_init(void)
 {
 	DPRINTF(PDB_FOLLOW|PDB_INIT, ("pmap_init()\n"));
 
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
 	    "pmappl", NULL);
-	pool_setipl(&pmap_pmap_pool, IPL_NONE);
-	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pmappv",
-	    NULL);
-	pool_setipl(&pmap_pv_pool, IPL_VM);
+	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, IPL_VM, 0,
+	    "pmappv", NULL);
 	pool_setlowat(&pmap_pv_pool, pmap_pvlowat);
 	pool_sethiwat(&pmap_pv_pool, pmap_pvlowat * 32);
 
@@ -712,7 +712,7 @@ pmap_destroy(struct pmap *pmap)
 	if (refs > 0)
 		return;
 
-	KASSERT(RB_EMPTY(&pmap->pm_obj.memt));
+	KASSERT(RBT_EMPTY(uvm_objtree, &pmap->pm_obj.memt));
 
 	pmap_sdir_set(pmap->pm_space, 0);
 
@@ -1194,7 +1194,7 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 
 		if (pmap_initialized && (pg = PHYS_TO_VM_PAGE(PTE_PAGE(pte)))) {
 			if (pmap_check_alias(pg, va, pte))
-				Debugger();
+				db_enter();
 		}
 	}
 #endif
@@ -1250,9 +1250,9 @@ pmap_kremove(vaddr_t va, vsize_t size)
 }
 
 void
-pmap_proc_iflush(struct proc *p, vaddr_t va, vsize_t len)
+pmap_proc_iflush(struct process *pr, vaddr_t va, vsize_t len)
 {
-	pmap_t pmap = vm_map_pmap(&p->p_vmspace->vm_map);
+	pmap_t pmap = vm_map_pmap(&pr->ps_vmspace->vm_map);
 
 	fdcache(pmap->pm_space, va, len);
 	sync_caches();

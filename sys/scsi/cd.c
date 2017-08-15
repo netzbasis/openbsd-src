@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd.c,v 1.218 2016/03/12 15:16:04 krw Exp $	*/
+/*	$OpenBSD: cd.c,v 1.220 2017/05/29 07:47:13 krw Exp $	*/
 /*	$NetBSD: cd.c,v 1.100 1997/04/02 02:29:30 mycroft Exp $	*/
 
 /*
@@ -620,16 +620,6 @@ cd_buf_done(struct scsi_xfer *xs)
 		bp->b_resid = xs->resid;
 		break;
 
-	case XS_NO_CCB:
-		/* The adapter is busy, requeue the buf and try it later. */
-		disk_unbusy(&sc->sc_dk, bp->b_bcount - xs->resid,
-		    bp->b_flags & B_READ);
-		bufq_requeue(&sc->sc_bufq, bp);
-		scsi_xs_put(xs);
-		SET(sc->sc_flags, CDF_WAITING);
-		timeout_add(&sc->sc_timeout, 1);
-		return;
-
 	case XS_SENSE:
 	case XS_SHORTSENSE:
 #ifdef SCSIDEBUG
@@ -667,7 +657,7 @@ retry:
 		break;
 	}
 
-	disk_unbusy(&sc->sc_dk, bp->b_bcount - xs->resid,
+	disk_unbusy(&sc->sc_dk, bp->b_bcount - xs->resid, bp->b_blkno,
 	    bp->b_flags & B_READ);
 
 	s = splbio();

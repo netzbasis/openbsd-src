@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_athn_usb.c,v 1.42 2015/12/11 16:07:02 mpi Exp $	*/
+/*	$OpenBSD: if_athn_usb.c,v 1.47 2017/04/08 02:57:25 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 2011 Damien Bergamini <damien.bergamini@free.fr>
@@ -48,6 +48,7 @@
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_amrr.h>
+#include <net80211/ieee80211_mira.h>
 #include <net80211/ieee80211_radiotap.h>
 
 #include <dev/ic/athnreg.h>
@@ -390,6 +391,7 @@ athn_usb_open_pipes(struct athn_usb_softc *usc)
 		    usc->usb_dev.dv_xname);
 		goto fail;
 	}
+	usc->ibuflen = isize;
 	error = usbd_open_pipe_intr(usc->sc_iface, AR_PIPE_RX_INTR,
 	    USBD_SHORT_XFER_OK, &usc->rx_intr_pipe, usc, usc->ibuf, isize,
 	    athn_usb_intr, USBD_DEFAULT_INTERVAL);
@@ -432,7 +434,7 @@ athn_usb_close_pipes(struct athn_usb_softc *usc)
 		usc->rx_intr_pipe = NULL;
 	}
 	if (usc->ibuf != NULL) {
-		free(usc->ibuf, M_USBDEV, 0);
+		free(usc->ibuf, M_USBDEV, usc->ibuflen);
 		usc->ibuf = NULL;
 	}
 }
@@ -620,7 +622,7 @@ athn_usb_load_firmware(struct athn_usb_softc *usc)
 	usb_device_request_t req;
 	const char *name;
 	u_char *fw, *ptr;
-	size_t size;
+	size_t fwsize, size;
 	uint32_t addr;
 	int s, mlen, error;
 
@@ -634,7 +636,7 @@ athn_usb_load_firmware(struct athn_usb_softc *usc)
 	} else
 		name = "athn-ar9271";
 	/* Read firmware image from the filesystem. */
-	if ((error = loadfirmware(name, &fw, &size)) != 0) {
+	if ((error = loadfirmware(name, &fw, &fwsize)) != 0) {
 		printf("%s: failed loadfirmware of file %s (error %d)\n",
 		    usc->usb_dev.dv_xname, name, error);
 		return (error);
@@ -645,6 +647,7 @@ athn_usb_load_firmware(struct athn_usb_softc *usc)
 	req.bmRequestType = UT_WRITE_VENDOR_DEVICE;
 	req.bRequest = AR_FW_DOWNLOAD;
 	USETW(req.wIndex, 0);
+	size = fwsize;
 	while (size > 0) {
 		mlen = MIN(size, 4096);
 
@@ -652,14 +655,14 @@ athn_usb_load_firmware(struct athn_usb_softc *usc)
 		USETW(req.wLength, mlen);
 		error = usbd_do_request(usc->sc_udev, &req, ptr);
 		if (error != 0) {
-			free(fw, M_DEVBUF, 0);
+			free(fw, M_DEVBUF, fwsize);
 			return (error);
 		}
 		addr += mlen >> 8;
 		ptr  += mlen;
 		size -= mlen;
 	}
-	free(fw, M_DEVBUF, 0);
+	free(fw, M_DEVBUF, fwsize);
 
 	/* Start firmware. */
 	if (usc->flags & ATHN_USB_FLAG_AR7010)
@@ -1023,9 +1026,7 @@ athn_usb_newstate_cb(struct athn_usb_softc *usc, void *arg)
 	struct ieee80211com *ic = &sc->sc_ic;
 	enum ieee80211_state ostate;
 	uint32_t reg, imask;
-#ifndef IEEE80211_STA_ONLY
 	uint8_t sta_index;
-#endif
 	int s, error;
 
 	timeout_del(&sc->calib_to);
@@ -1035,14 +1036,10 @@ athn_usb_newstate_cb(struct athn_usb_softc *usc, void *arg)
 	DPRINTF(("newstate %d -> %d\n", ostate, cmd->state));
 
 	if (ostate == IEEE80211_S_RUN) {
-#ifndef IEEE80211_STA_ONLY
-		if (ic->ic_opmode == IEEE80211_M_HOSTAP) {
-			/* XXX really needed? */
-			sta_index = ((struct athn_node *)ic->ic_bss)->sta_index;
-			(void)athn_usb_wmi_xcmd(usc, AR_WMI_CMD_NODE_REMOVE,
-			    &sta_index, sizeof(sta_index), NULL);
-		}
-#endif
+		sta_index = ((struct athn_node *)ic->ic_bss)->sta_index;
+		(void)athn_usb_wmi_xcmd(usc, AR_WMI_CMD_NODE_REMOVE,
+		    &sta_index, sizeof(sta_index), NULL);
+		usc->nnodes--;
 		reg = AR_READ(sc, AR_RX_FILTER);
 		reg = (reg & ~AR_RX_FILTER_MYBEACON) |
 		    AR_RX_FILTER_BEACON;
@@ -1072,13 +1069,8 @@ athn_usb_newstate_cb(struct athn_usb_softc *usc, void *arg)
 		if (ic->ic_opmode == IEEE80211_M_MONITOR)
 			break;
 
-#ifndef IEEE80211_STA_ONLY
-		if (ic->ic_opmode == IEEE80211_M_HOSTAP) {
-			/* Create node entry for our BSS */
-			/* XXX really needed? breaks station mode on down/up */
-			error = athn_usb_create_node(usc, ic->ic_bss);
-		}
-#endif
+		/* Create node entry for our BSS */
+		error = athn_usb_create_node(usc, ic->ic_bss);
 
 		athn_set_bss(sc, ic->ic_bss);
 		athn_usb_wmi_cmd(usc, AR_WMI_CMD_DISABLE_INTR);
@@ -1132,7 +1124,7 @@ athn_usb_newassoc_cb(struct athn_usb_softc *usc, void *arg)
 
 	s = splnet();
 	/* NB: Node may have left before we got scheduled. */
-	if (ni->ni_associd != 0)
+	if (ni->ni_associd != 0 && ni->ni_state == IEEE80211_STA_ASSOC)
 		(void)athn_usb_create_node(usc, ni);
 	ieee80211_release_node(ic, ni);
 	splx(s);
@@ -1224,7 +1216,7 @@ athn_usb_create_node(struct athn_usb_softc *usc, struct ieee80211_node *ni)
 	struct athn_node *an = (struct athn_node *)ni;
 	struct ar_htc_target_sta sta;
 	struct ar_htc_target_rate rate;
-	int error;
+	int error, i, j;
 
 	/* Firmware cannot handle more than 8 STAs. */
 	if (usc->nnodes > AR_USB_MAX_STA)
@@ -1257,8 +1249,19 @@ athn_usb_create_node(struct athn_usb_softc *usc, struct ieee80211_node *ni)
 	    ni->ni_rates.rs_nrates);
 	if (ni->ni_flags & IEEE80211_NODE_HT) {
 		rate.capflags |= htobe32(AR_RC_HT_FLAG);
+		/* Setup HT rates. */
+		for (i = 0, j = 0; i < IEEE80211_HT_NUM_MCS; i++) {
+			if (!isset(ni->ni_rxmcs, i))
+				continue;
+			if (j >= AR_HTC_RATE_MAX)
+				break;
+			rate.ht_rates.rs_rates[j++] = i;
+		}
+		rate.ht_rates.rs_nrates = j;
+
+		if (ni->ni_rxmcs[1]) /* dual-stream MIMO rates */
+			rate.capflags |= htobe32(AR_RC_DS_FLAG);
 #ifdef notyet
-		/* XXX setup HT rates */
 		if (ni->ni_htcaps & IEEE80211_HTCAP_CBW20_40)
 			rate.capflags |= htobe32(AR_RC_40_FLAG);
 		if (ni->ni_htcaps & IEEE80211_HTCAP_SGI40)
@@ -1917,7 +1920,6 @@ athn_usb_txeof(struct usbd_xfer *xfer, void *priv,
 		return;
 	}
 	sc->sc_tx_timer = 0;
-	ifp->if_opackets++;
 
 	/* We just released a Tx buffer, notify Tx. */
 	if (ifq_is_oactive(&ifp->if_snd)) {
@@ -2397,8 +2399,7 @@ athn_usb_stop(struct ifnet *ifp)
 	splx(s);
 
 	/* Flush Rx stream. */
-	if (usc->rx_stream.m != NULL)
-		m_freem(usc->rx_stream.m);
+	m_freem(usc->rx_stream.m);
 	usc->rx_stream.m = NULL;
 	usc->rx_stream.left = 0;
 }

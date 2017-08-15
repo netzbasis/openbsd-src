@@ -1,6 +1,6 @@
-# $OpenBSD: Makefile,v 1.1 2015/01/28 21:10:28 schwarze Exp $
+# $OpenBSD: Makefile,v 1.3 2017/06/26 20:11:23 schwarze Exp $
 
-REGRESS_TARGETS	 = invalid
-LINT_TARGETS	 = invalid
+REGRESS_TARGETS	 = font infinite invalid quoted
+LINT_TARGETS	 = infinite invalid
 
 .include <bsd.regress.mk>

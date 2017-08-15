@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxitimer.c,v 1.6 2016/07/18 19:22:45 kettenis Exp $	*/
+/*	$OpenBSD: sxitimer.c,v 1.10 2017/01/21 08:26:49 patrick Exp $	*/
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2013 Raphael Graf <r@undefined.ch>
@@ -30,11 +30,15 @@
 #include <arm/cpufunc.h>
 
 #include <machine/bus.h>
+#include <machine/fdt.h>
 #include <machine/intr.h>
 
 #include <armv7/armv7/armv7var.h>
-#include <armv7/sunxi/sunxireg.h>
+#include <dev/fdt/sunxireg.h>
 /* #include <armv7/sunxi/sxipiovar.h> */
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/fdt.h>
 
 #define	TIMER_IER 		0x00
 #define	TIMER_ISR 		0x04
@@ -52,13 +56,9 @@
 #define	CNT64_CLR_EN		(1 << 0) /* clear enable */
 #define	CNT64_RL_EN		(1 << 1) /* read latch enable */
 
-#define	LOSC_CTRL		0x100
-#define	OSC32K_SRC_SEL		(1 << 0)
-
 #define	TIMER_ENABLE		(1 << 0)
 #define	TIMER_RELOAD		(1 << 1)
 #define	TIMER_CLK_SRC_MASK	(3 << 2)
-#define	TIMER_LSOSC		(0 << 2)
 #define	TIMER_OSC24M		(1 << 2)
 #define	TIMER_PLL6_6		(2 << 2)
 #define	TIMER_PRESC_1		(0 << 4)
@@ -78,6 +78,7 @@
 
 #define TIMER_SYNC		3
 
+int	sxitimer_match(struct device *, void *, void *);
 void	sxitimer_attach(struct device *, struct device *, void *);
 int	sxitimer_tickintr(void *);
 int	sxitimer_statintr(void *);
@@ -120,29 +121,41 @@ struct sxitimer_softc {
 	struct device		sc_dev;
 };
 
-struct cfattach	sxitimer_ca = {
-	sizeof (struct sxitimer_softc), NULL, sxitimer_attach
+struct cfattach sxitimer_ca = {
+	sizeof (struct sxitimer_softc), sxitimer_match, sxitimer_attach
 };
 
 struct cfdriver sxitimer_cd = {
 	NULL, "sxitimer", DV_DULL
 };
 
-void
-sxitimer_attach(struct device *parent, struct device *self, void *args)
+int
+sxitimer_match(struct device *parent, void *match, void *aux)
 {
-	struct armv7_attach_args *aa = args;
-	uint32_t freq, ival, now, cr;
-	int unit = self->dv_unit;
+	struct fdt_attach_args *faa = aux;
+	int node;
 
-	if (unit != 0)
-		goto skip_init;
+	node = OF_finddevice("/");
+	if (!OF_is_compatible(node, "allwinner,sun4i-a10") &&
+	    !OF_is_compatible(node, "allwinner,sun5i-a10s") &&
+	    !OF_is_compatible(node, "allwinner,sun5i-a13"))
+		return 0;
 
-	sxitimer_iot = aa->aa_iot;
+	return OF_is_compatible(faa->fa_node, "allwinner,sun4i-a10-timer");
+}
 
-	if (bus_space_map(sxitimer_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sxitimer_ioh))
-		panic("sxitimer_attach: bus_space_map failed!");
+void
+sxitimer_attach(struct device *parent, struct device *self, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+	uint32_t freq, ival, now;
+
+	KASSERT(faa->fa_nreg > 0);
+
+	sxitimer_iot = faa->fa_iot;
+	if (bus_space_map(sxitimer_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sxitimer_ioh))
+		panic("%s: bus_space_map failed!", __func__);
 
 	/* clear counter, loop until ready */
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh, CNT64_CTRL,
@@ -151,59 +164,61 @@ sxitimer_attach(struct device *parent, struct device *self, void *args)
 	    & CNT64_CLR_EN)
 		continue;
 
-	/* setup timers */
-	cr = bus_space_read_4(sxitimer_iot, sxitimer_ioh, LOSC_CTRL);
-	cr |= OSC32K_SRC_SEL; /* ext 32.768KHz OSC src */
-	bus_space_write_4(sxitimer_iot, sxitimer_ioh, LOSC_CTRL, cr);
-
-skip_init:
 	/* timers are down-counters, from interval to 0 */
 	now = 0xffffffff; /* known big value */
-	freq = sxitimer_freq[unit];
+	freq = sxitimer_freq[TICKTIMER];
 
 	/* stop timer, and set clk src */
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
-	    TIMER_CTRL(unit),
-	    freq == 24000000 ? TIMER_OSC24M : TIMER_LSOSC);
+	    TIMER_CTRL(TICKTIMER), TIMER_OSC24M);
 
-	switch (unit) { /* XXX more XXXXTIMER magic for less lines? */
-	case TICKTIMER:
-		ival = sxitimer_tick_tpi = freq / hz;
-		sxitimer_tick_nextevt = now - ival;
+	ival = sxitimer_tick_tpi = freq / hz;
+	sxitimer_tick_nextevt = now - ival;
 
-		sxitimer_ticks_err_cnt = freq % hz;
-		sxitimer_ticks_err_sum = 0;
-
-		printf(": ticktimer %dhz @ %dKHz", hz, freq / 1000);
-		break;
-	case STATTIMER:
-		/* 100/1000 or 128/1024 ? */
-		stathz = 128;
-		profhz = 1024;
-		sxitimer_setstatclockrate(stathz);
-
-		ival = sxitimer_stat_tpi = freq / stathz;
-		sxitimer_stat_nextevt = now - ival;
-
-		printf(": stattimer %dhz @ %dKHz", stathz, freq / 1000);
-		break;
-	case CNTRTIMER:
-		ival = now;
-
-		sxitimer_timecounter.tc_frequency = freq;
-		tc_init(&sxitimer_timecounter);
-		arm_clock_register(sxitimer_cpu_initclocks, sxitimer_delay,
-		    sxitimer_setstatclockrate, NULL);
-
-		printf(": cntrtimer @ %dKHz", freq / 1000);
-		break;
-	default:
-		panic("sxitimer_attach: unit = %d", unit);
-		break;
-	}
+	sxitimer_ticks_err_cnt = freq % hz;
+	sxitimer_ticks_err_sum = 0;
 
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
-	    TIMER_INTV(unit), ival);
+	    TIMER_INTV(TICKTIMER), ival);
+
+	/* timers are down-counters, from interval to 0 */
+	now = 0xffffffff; /* known big value */
+	freq = sxitimer_freq[STATTIMER];
+
+	/* stop timer, and set clk src */
+	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_CTRL(STATTIMER), TIMER_OSC24M);
+
+	/* 100/1000 or 128/1024 ? */
+	stathz = 128;
+	profhz = 1024;
+	sxitimer_setstatclockrate(stathz);
+
+	ival = sxitimer_stat_tpi = freq / stathz;
+	sxitimer_stat_nextevt = now - ival;
+
+	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_INTV(STATTIMER), ival);
+
+	/* timers are down-counters, from interval to 0 */
+	now = 0xffffffff; /* known big value */
+	freq = sxitimer_freq[CNTRTIMER];
+
+	/* stop timer, and set clk src */
+	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_CTRL(CNTRTIMER), TIMER_OSC24M);
+
+	ival = now;
+
+	sxitimer_timecounter.tc_frequency = freq;
+	tc_init(&sxitimer_timecounter);
+	arm_clock_register(sxitimer_cpu_initclocks, sxitimer_delay,
+	    sxitimer_setstatclockrate, NULL);
+
+	printf(": cntrtimer @ %dKHz", freq / 1000);
+
+	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_INTV(CNTRTIMER), ival);
 
 	printf("\n");
 }
@@ -217,7 +232,7 @@ skip_init:
 void
 sxitimer_cpu_initclocks(void)
 {
-	uint32_t isr, ier;
+	uint32_t isr, ier, ctrl;
 
 	/* establish interrupts */
 	arm_intr_establish(sxitimer_irq[TICKTIMER], IPL_CLOCK,
@@ -236,17 +251,23 @@ sxitimer_cpu_initclocks(void)
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh, TIMER_IER, ier);
 
 	/* enable timers */
+	ctrl = bus_space_read_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_CTRL(CNTRTIMER));
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
 	    TIMER_CTRL(CNTRTIMER),
-	    TIMER_ENABLE | TIMER_RELOAD | TIMER_CONTINOUS);
+	    ctrl | TIMER_ENABLE | TIMER_RELOAD | TIMER_CONTINOUS);
 
+	ctrl = bus_space_read_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_CTRL(STATTIMER));
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
 	    TIMER_CTRL(STATTIMER),
-	    TIMER_ENABLE | TIMER_RELOAD | TIMER_SINGLESHOT);
+	    ctrl | TIMER_ENABLE | TIMER_RELOAD | TIMER_SINGLESHOT);
 
+	ctrl = bus_space_read_4(sxitimer_iot, sxitimer_ioh,
+	    TIMER_CTRL(TICKTIMER));
 	bus_space_write_4(sxitimer_iot, sxitimer_ioh,
 	    TIMER_CTRL(TICKTIMER),
-	    TIMER_ENABLE | TIMER_RELOAD | TIMER_SINGLESHOT);
+	    ctrl | TIMER_ENABLE | TIMER_RELOAD | TIMER_SINGLESHOT);
 }
 
 /* 

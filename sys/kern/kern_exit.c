@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exit.c,v 1.157 2016/04/25 20:00:33 tedu Exp $	*/
+/*	$OpenBSD: kern_exit.c,v 1.160 2017/04/20 12:59:36 visa Exp $	*/
 /*	$NetBSD: kern_exit.c,v 1.39 1996/04/22 01:38:25 christos Exp $	*/
 
 /*
@@ -64,6 +64,7 @@
 #ifdef SYSVSEM
 #include <sys/sem.h>
 #endif
+#include <sys/witness.h>
 
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
@@ -242,12 +243,6 @@ exit1(struct proc *p, int rv, int flags)
 
 	p->p_fd = NULL;		/* zap the thread's copy */
 
-	/*
-	 * If emulation has thread exit hook, call it now.
-	 */
-	if (pr->ps_emul->e_proc_exit)
-		(*pr->ps_emul->e_proc_exit)(p);
-
         /*
 	 * Remove proc from pidhash chain and allproc so looking
 	 * it up won't work.  We will put the proc on the
@@ -265,6 +260,7 @@ exit1(struct proc *p, int rv, int flags)
 	LIST_REMOVE(p, p_list);
 
 	if ((p->p_flag & P_THREAD) == 0) {
+		LIST_REMOVE(pr, ps_hash);
 		LIST_REMOVE(pr, ps_list);
 
 		if ((pr->ps_flags & PS_NOZOMBIE) == 0)
@@ -275,7 +271,7 @@ exit1(struct proc *p, int rv, int flags)
 			 * the lists scanned by ispidtaken(), so block
 			 * fast reuse of the pid now.
 			 */
-			freepid(p->p_pid);
+			freepid(pr->ps_pid);
 		}
 
 		/*
@@ -434,6 +430,8 @@ reaper(void)
 		LIST_REMOVE(p, p_hash);
 		mtx_leave(&deadproc_mutex);
 
+		WITNESS_THREAD_EXIT(p);
+
 		KERNEL_LOCK();
 
 		/*
@@ -515,16 +513,17 @@ dowait4(struct proc *q, pid_t pid, int *statusp, int options,
 loop:
 	nfound = 0;
 	LIST_FOREACH(pr, &q->p_p->ps_children, ps_sibling) {
-		p = pr->ps_mainproc;
 		if ((pr->ps_flags & PS_NOZOMBIE) ||
 		    (pid != WAIT_ANY &&
-		    p->p_pid != pid &&
+		    pr->ps_pid != pid &&
 		    pr->ps_pgid != -pid))
 			continue;
 
+		p = pr->ps_mainproc;
+
 		nfound++;
 		if (pr->ps_flags & PS_ZOMBIE) {
-			retval[0] = p->p_pid;
+			retval[0] = pr->ps_pid;
 
 			if (statusp != NULL)
 				*statusp = p->p_xstat;	/* convert to int */
@@ -540,7 +539,7 @@ loop:
 			single_thread_wait(pr);
 
 			atomic_setbits_int(&pr->ps_flags, PS_WAITED);
-			retval[0] = p->p_pid;
+			retval[0] = pr->ps_pid;
 
 			if (statusp != NULL)
 				*statusp = W_STOPCODE(pr->ps_single->p_xstat);
@@ -554,7 +553,7 @@ loop:
 		    (pr->ps_flags & PS_TRACED ||
 		    options & WUNTRACED)) {
 			atomic_setbits_int(&pr->ps_flags, PS_WAITED);
-			retval[0] = p->p_pid;
+			retval[0] = pr->ps_pid;
 
 			if (statusp != NULL)
 				*statusp = W_STOPCODE(p->p_xstat);
@@ -564,7 +563,7 @@ loop:
 		}
 		if ((options & WCONTINUED) && (p->p_flag & P_CONTINUED)) {
 			atomic_clearbits_int(&p->p_flag, P_CONTINUED);
-			retval[0] = p->p_pid;
+			retval[0] = pr->ps_pid;
 
 			if (statusp != NULL)
 				*statusp = _WCONTINUED;
@@ -607,7 +606,7 @@ proc_finish_wait(struct proc *waiter, struct proc *p)
 		rup = &waiter->p_p->ps_cru;
 		ruadd(rup, pr->ps_ru);
 		LIST_REMOVE(pr, ps_list);	/* off zombprocess */
-		freepid(p->p_pid);
+		freepid(pr->ps_pid);
 		process_zap(pr);
 	}
 }

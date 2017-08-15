@@ -1,4 +1,4 @@
-/* $OpenBSD: cpu.h,v 1.6 2016/01/05 05:27:54 visa Exp $ */
+/* $OpenBSD: cpu.h,v 1.8 2017/07/30 16:05:24 visa Exp $ */
 /*-
  * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -42,6 +42,19 @@
  */
 
 #ifdef	_KERNEL
+
+#if defined(MULTIPROCESSOR) && !defined(_LOCORE)
+#define MAXCPUS 4
+struct cpu_info;
+struct cpu_info *hw_getcurcpu(void);
+void hw_setcurcpu(struct cpu_info *);
+void hw_cpu_boot_secondary(struct cpu_info *);
+void hw_cpu_hatch(struct cpu_info *);
+void hw_cpu_spinup_trampoline(struct cpu_info *);
+int hw_ipi_intr_establish(int (*)(void *), u_long);
+void hw_ipi_intr_set(u_long);
+void hw_ipi_intr_clear(u_long);
+#endif	/* MULTIPROCESSOR && !_LOCORE */
 
 #if defined(CPU_LOONGSON2) && !defined(CPU_LOONGSON3)
 #define	Mips_SyncCache(ci)			\

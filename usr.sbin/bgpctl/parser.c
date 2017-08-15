@@ -1,7 +1,9 @@
-/*	$OpenBSD: parser.c,v 1.73 2015/10/11 19:53:57 sthen Exp $ */
+/*	$OpenBSD: parser.c,v 1.80 2017/08/10 14:12:34 benno Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2016 Job Snijders <job@instituut.net>
+ * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,7 +45,11 @@ enum token_type {
 	PREFIX,
 	PEERDESC,
 	RIBNAME,
+	SHUTDOWN_COMMUNICATION,
 	COMMUNITY,
+	EXTCOMMUNITY,
+	EXTCOM_SUBTYPE,
+	LARGE_COMMUNITY,
 	LOCALPREF,
 	MED,
 	NEXTHOP,
@@ -90,11 +96,17 @@ static const struct token t_show_mrt_as[];
 static const struct token t_show_prefix[];
 static const struct token t_show_ip[];
 static const struct token t_show_community[];
+static const struct token t_show_extcommunity[];
+static const struct token t_show_ext_subtype[];
+static const struct token t_show_largecommunity[];
 static const struct token t_network[];
 static const struct token t_network_show[];
 static const struct token t_prefix[];
 static const struct token t_set[];
 static const struct token t_community[];
+static const struct token t_extcommunity[];
+static const struct token t_ext_subtype[];
+static const struct token t_largecommunity[];
 static const struct token t_localpref[];
 static const struct token t_med[];
 static const struct token t_nexthop[];
@@ -160,6 +172,8 @@ static const struct token t_show_rib[] = {
 	{ ASTYPE,	"peer-as",	AS_PEER,	t_show_rib_as},
 	{ ASTYPE,	"empty-as",	AS_EMPTY,	t_show_rib},
 	{ KEYWORD,	"community",	NONE,		t_show_community},
+	{ KEYWORD,	"ext-community", NONE,		t_show_extcommunity},
+	{ KEYWORD,	"large-community", NONE,	t_show_largecommunity},
 	{ FLAG,		"best",		F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"selected",	F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"detail",	F_CTL_DETAIL,	t_show_rib},
@@ -239,10 +253,16 @@ static const struct token t_neighbor[] = {
 	{ ENDTOKEN,	"",		NONE,		NULL}
 };
 
+static const struct token t_nei_mod_shutc[] = {
+	{ NOTOKEN,	"",		NONE,		NULL},
+	{ SHUTDOWN_COMMUNICATION, "",	NONE,		NULL},
+	{ ENDTOKEN,	"",		NONE,		NULL}
+};
+
 static const struct token t_neighbor_modifiers[] = {
 	{ KEYWORD,	"up",		NEIGHBOR_UP,		NULL},
-	{ KEYWORD,	"down",		NEIGHBOR_DOWN,		NULL},
-	{ KEYWORD,	"clear",	NEIGHBOR_CLEAR,		NULL},
+	{ KEYWORD,	"down",		NEIGHBOR_DOWN,		t_nei_mod_shutc},
+	{ KEYWORD,	"clear",	NEIGHBOR_CLEAR,		t_nei_mod_shutc},
 	{ KEYWORD,	"refresh",	NEIGHBOR_RREFRESH,	NULL},
 	{ KEYWORD,	"destroy",	NEIGHBOR_DESTROY,	NULL},
 	{ ENDTOKEN,	"",		NONE,			NULL}
@@ -275,6 +295,34 @@ static const struct token t_show_community[] = {
 	{ ENDTOKEN,	"",		NONE,		NULL}
 };
 
+static const struct token t_show_extcommunity[] = {
+	{ EXTCOM_SUBTYPE,	"bdc",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"defgw",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"esi-lab",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"esi-rt",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"l2vid",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"mac-mob",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"odi",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ort",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ori",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ovs",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"rt",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"soo",		NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"srcas",	NONE,	t_show_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"vrfri",	NONE,	t_show_ext_subtype},
+	{ ENDTOKEN,	"",	NONE,	NULL}
+};
+
+static const struct token t_show_ext_subtype[] = {
+	{ EXTCOMMUNITY,	"",	NONE,	t_show_rib},
+	{ ENDTOKEN,	"",	NONE,	NULL}
+};
+
+static const struct token t_show_largecommunity[] = {
+	{ LARGE_COMMUNITY,	"",	NONE,		t_show_rib},
+	{ ENDTOKEN,	"",		NONE,		NULL}
+};
+
 static const struct token t_network[] = {
 	{ KEYWORD,	"add",		NETWORK_ADD,	t_prefix},
 	{ KEYWORD,	"delete",	NETWORK_REMOVE,	t_prefix},
@@ -299,6 +347,8 @@ static const struct token t_network_show[] = {
 static const struct token t_set[] = {
 	{ NOTOKEN,	"",			NONE,	NULL},
 	{ KEYWORD,	"community",		NONE,	t_community},
+	{ KEYWORD,	"ext-community",	NONE,	t_extcommunity},
+	{ KEYWORD,	"large-community",	NONE,	t_largecommunity},
 	{ KEYWORD,	"localpref",		NONE,	t_localpref},
 	{ KEYWORD,	"med",			NONE,	t_med},
 	{ KEYWORD,	"metric",		NONE,	t_med},
@@ -314,6 +364,34 @@ static const struct token t_set[] = {
 
 static const struct token t_community[] = {
 	{ COMMUNITY,	"",			NONE,	t_set},
+	{ ENDTOKEN,	"",			NONE,	NULL}
+};
+
+static const struct token t_extcommunity[] = {
+	{ EXTCOM_SUBTYPE,	"bdc",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"defgw",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"esi-lab",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"esi-rt",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"l2vid",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"mac-mob",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"odi",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ort",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ori",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"ovs",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"rt",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"soo",		NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"srcas",	NONE,	t_ext_subtype},
+	{ EXTCOM_SUBTYPE,	"vrfri",	NONE,	t_ext_subtype},
+	{ ENDTOKEN,	"",	NONE,	NULL}
+};
+
+static const struct token t_ext_subtype[] = {
+	{ EXTCOMMUNITY,	"",	NONE,	t_set},
+	{ ENDTOKEN,	"",	NONE,	NULL}
+};
+
+static const struct token t_largecommunity[] = {
+	{ LARGE_COMMUNITY,	"",		NONE,	t_set},
 	{ ENDTOKEN,	"",			NONE,	NULL}
 };
 
@@ -391,6 +469,12 @@ int			 parse_number(const char *, struct parse_result *,
 			     enum token_type);
 int			 getcommunity(const char *);
 int			 parse_community(const char *, struct parse_result *);
+int			 parsesubtype(const char *, u_int8_t *, u_int8_t *);
+int			 parseextvalue(const char *, u_int32_t *);
+u_int			 parseextcommunity(const char *, struct parse_result *);
+u_int			 getlargecommunity(const char *);
+int			 parse_largecommunity(const char *,
+			     struct parse_result *);
 int			 parse_nexthop(const char *, struct parse_result *);
 int			 bgpctl_getopt(int *, char **[], int);
 
@@ -403,6 +487,9 @@ parse(int argc, char *argv[])
 	bzero(&res, sizeof(res));
 	res.community.as = COMMUNITY_UNSET;
 	res.community.type = COMMUNITY_UNSET;
+	res.large_community.as = COMMUNITY_UNSET;
+	res.large_community.ld1 = COMMUNITY_UNSET;
+	res.large_community.ld2 = COMMUNITY_UNSET;
 	TAILQ_INIT(&res.set);
 	if ((res.irr_outdir = getcwd(NULL, 0)) == NULL) {
 		fprintf(stderr, "getcwd failed: %s\n", strerror(errno));
@@ -549,9 +636,44 @@ match_token(int *argc, char **argv[], const struct token table[])
 				t = &table[i];
 			}
 			break;
+		case SHUTDOWN_COMMUNICATION:
+			if (!match && word != NULL && wordlen > 0) {
+				if (strlcpy(res.shutcomm, word,
+				    sizeof(res.shutcomm)) >=
+				    sizeof(res.shutcomm))
+					errx(1, "shutdown reason too long");
+				match++;
+				t = &table[i];
+			}
+			break;
 		case COMMUNITY:
 			if (word != NULL && wordlen > 0 &&
 			    parse_community(word, &res)) {
+				match++;
+				t = &table[i];
+			}
+			break;
+		case EXTCOM_SUBTYPE:
+			if (word != NULL && strncmp(word, table[i].keyword,
+			    wordlen) == 0) {
+				if (parsesubtype(word, &res.extcommunity.type,
+				    &res.extcommunity.subtype) == 0)
+					errx(1, "Bad ext-community unknown "
+					    "type");
+				match++;
+				t = &table[i];
+			}
+			break;
+		case EXTCOMMUNITY:
+			if (word != NULL && wordlen > 0 &&
+			    parseextcommunity(word, &res)) {
+				match++;
+				t = &table[i];
+			}
+			break;
+		case LARGE_COMMUNITY:
+			if (word != NULL && wordlen > 0 &&
+			    parse_largecommunity(word, &res)) {
 				match++;
 				t = &table[i];
 			}
@@ -647,6 +769,7 @@ show_valid_args(const struct token table[])
 		case KEYWORD:
 		case FLAG:
 		case ASTYPE:
+		case EXTCOM_SUBTYPE:
 			fprintf(stderr, "  %s\n", table[i].keyword);
 			break;
 		case ADDRESS:
@@ -665,8 +788,17 @@ show_valid_args(const struct token table[])
 		case RIBNAME:
 			fprintf(stderr, "  <rib name>\n");
 			break;
+		case SHUTDOWN_COMMUNICATION:
+			fprintf(stderr, "  <shutdown reason>\n");
+			break;
 		case COMMUNITY:
 			fprintf(stderr, "  <community>\n");
+			break;
+		case EXTCOMMUNITY:
+			fprintf(stderr, "  <extended-community>\n");
+			break;
+		case LARGE_COMMUNITY:
+			fprintf(stderr, "  <large-community>\n");
 			break;
 		case LOCALPREF:
 		case MED:
@@ -898,7 +1030,11 @@ parse_community(const char *word, struct parse_result *r)
 	int			 as, type;
 
 	/* Well-known communities */
-	if (strcasecmp(word, "NO_EXPORT") == 0) {
+	if (strcasecmp(word, "GRACEFUL_SHUTDOWN") == 0) {
+		as = COMMUNITY_WELLKNOWN;
+		type = COMMUNITY_GRACEFUL_SHUTDOWN;
+		goto done;
+	} else if (strcasecmp(word, "NO_EXPORT") == 0) {
 		as = COMMUNITY_WELLKNOWN;
 		type = COMMUNITY_NO_EXPORT;
 		goto done;
@@ -936,16 +1072,13 @@ done:
 	}
 	if (as == COMMUNITY_WELLKNOWN)
 		switch (type) {
+		case COMMUNITY_GRACEFUL_SHUTDOWN:
 		case COMMUNITY_NO_EXPORT:
 		case COMMUNITY_NO_ADVERTISE:
 		case COMMUNITY_NO_EXPSUBCONFED:
 		case COMMUNITY_BLACKHOLE:
 			/* valid */
 			break;
-		default:
-			/* unknown */
-			fprintf(stderr, "Unknown well-known community\n");
-			return (0);
 		}
 
 	if ((fs = calloc(1, sizeof(struct filter_set))) == NULL)
@@ -956,6 +1089,240 @@ done:
 
 	r->community.as = as;
 	r->community.type = type;
+
+	TAILQ_INSERT_TAIL(&r->set, fs, entry);
+	return (1);
+}
+
+int
+parsesubtype(const char *name, u_int8_t *type, u_int8_t *subtype)
+{
+	const struct ext_comm_pairs *cp;
+	int found = 0;
+
+	for (cp = iana_ext_comms; cp->subname != NULL; cp++) {
+		if (strcmp(name, cp->subname) == 0) {
+			if (found == 0) {
+				*type = cp->type;
+				*subtype = cp->subtype;
+			}
+			found++;
+		}
+	}
+	if (found > 1)
+		*type = -1;
+	return (found);
+}
+
+int
+parseextvalue(const char *s, u_int32_t *v)
+{
+	const char	*errstr;
+	char		*p;
+	struct in_addr	 ip;
+	u_int32_t	 uvalh = 0, uval;
+
+	if ((p = strchr(s, '.')) == NULL) {
+		/* AS_PLAIN number (4 or 2 byte) */
+		uval = strtonum(s, 0, UINT_MAX, &errstr);
+		if (errstr) {
+			fprintf(stderr, "Bad ext-community: %s is %s\n", s,
+			    errstr);
+			return (-1);
+		}
+		*v = uval;
+		if (uval <= USHRT_MAX)
+			return (EXT_COMMUNITY_TRANS_TWO_AS);
+		else
+			return (EXT_COMMUNITY_TRANS_FOUR_AS);
+	} else if (strchr(p + 1, '.') == NULL) {
+		/* AS_DOT number (4-byte) */
+		*p++ = '\0';
+		uvalh = strtonum(s, 0, USHRT_MAX, &errstr);
+		if (errstr) {
+			fprintf(stderr, "Bad ext-community: %s is %s\n", s,
+			    errstr);
+			return (-1);
+		}
+		uval = strtonum(p, 0, USHRT_MAX, &errstr);
+		if (errstr) {
+			fprintf(stderr, "Bad ext-community: %s is %s\n", p,
+			    errstr);
+			return (-1);
+		}
+		*v = uval | (uvalh << 16);
+		return (EXT_COMMUNITY_TRANS_FOUR_AS);
+	} else {
+		/* more than one dot -> IP address */
+		if (inet_aton(s, &ip) == 0) {
+			fprintf(stderr, "Bad ext-community: %s not parseable\n",
+			    s);
+			return (-1);
+		}
+		*v = ip.s_addr;
+		return (EXT_COMMUNITY_TRANS_IPV4);
+	}
+	return (-1);
+}
+
+u_int
+parseextcommunity(const char *word, struct parse_result *r)
+{
+	struct filter_set		*fs;
+	const struct ext_comm_pairs	*cp;
+	const char			*errstr;
+	u_int64_t			 ullval;
+	u_int32_t			 uval;
+	char				*p, *ep;
+	int				 type;
+
+	type = r->extcommunity.type;
+
+	switch (type) {
+	case 0xff:
+		if ((p = strchr(word, ':')) == NULL) {
+			fprintf(stderr, "Bad ext-community: %s\n", word);
+			return (0);
+		}
+		*p++ = '\0';
+		if ((type = parseextvalue(word, &uval)) == -1)
+			return (0);
+		switch (type) {
+		case EXT_COMMUNITY_TRANS_TWO_AS:
+			ullval = strtonum(p, 0, UINT_MAX, &errstr);
+			break;
+		case EXT_COMMUNITY_TRANS_IPV4:
+		case EXT_COMMUNITY_TRANS_FOUR_AS:
+			ullval = strtonum(p, 0, USHRT_MAX, &errstr);
+			break;
+		default:
+			fprintf(stderr, "parseextcommunity: unexpected "
+			    "result\n");
+			return (0);
+		}
+		if (errstr) {
+			fprintf(stderr, "Bad ext-community: %s is %s\n", p,
+			    errstr);
+			return (0);
+		}
+		switch (type) {
+		case EXT_COMMUNITY_TRANS_TWO_AS:
+			r->extcommunity.data.ext_as.as = uval;
+			r->extcommunity.data.ext_as.val = ullval;
+			break;
+		case EXT_COMMUNITY_TRANS_IPV4:
+			r->extcommunity.data.ext_ip.addr.s_addr = uval;
+			r->extcommunity.data.ext_ip.val = ullval;
+			break;
+		case EXT_COMMUNITY_TRANS_FOUR_AS:
+			r->extcommunity.data.ext_as4.as4 = uval;
+			r->extcommunity.data.ext_as4.val = ullval;
+			break;
+		}
+		break;
+	case EXT_COMMUNITY_TRANS_OPAQUE:
+	case EXT_COMMUNITY_TRANS_EVPN:
+		errno = 0;
+		ullval = strtoull(word, &ep, 0);
+		if (word[0] == '\0' || *ep != '\0') {
+			fprintf(stderr, "Bad ext-community: bad value\n");
+			return (0);
+		}
+		if (errno == ERANGE && ullval > EXT_COMMUNITY_OPAQUE_MAX) {
+			fprintf(stderr, "Bad ext-community: too big\n");
+			return (0);
+		}
+		r->extcommunity.data.ext_opaq = ullval;
+		break;
+	case EXT_COMMUNITY_NON_TRANS_OPAQUE:
+		if (strcmp(word, "valid") == 0)
+			r->extcommunity.data.ext_opaq = EXT_COMMUNITY_OVS_VALID;
+		else if (strcmp(word, "invalid") == 0)
+			r->extcommunity.data.ext_opaq =
+			    EXT_COMMUNITY_OVS_INVALID;
+		else if (strcmp(word, "not-found") == 0)
+			r->extcommunity.data.ext_opaq =
+			    EXT_COMMUNITY_OVS_NOTFOUND;
+		else {
+			fprintf(stderr, "Bad ext-community value: %s\n", word);
+			return (0);
+		}
+		break;
+	}
+	r->extcommunity.type = type;
+
+	/* verify type/subtype combo */
+	for (cp = iana_ext_comms; cp->subname != NULL; cp++) {
+		if (cp->type == r->extcommunity.type &&
+		    cp->subtype == r->extcommunity.subtype) {
+			r->extcommunity.flags |= EXT_COMMUNITY_FLAG_VALID;
+			if ((fs = calloc(1, sizeof(struct filter_set))) == NULL)
+				err(1, NULL);
+
+			fs->type = ACTION_SET_EXT_COMMUNITY;
+			memcpy(&fs->action.ext_community, &r->extcommunity,
+			    sizeof(struct filter_extcommunity));
+
+			TAILQ_INSERT_TAIL(&r->set, fs, entry);
+			return (1);
+		}
+	}
+
+	fprintf(stderr, "Bad ext-community: bad format for type\n");
+	return (0);
+}
+
+u_int
+getlargecommunity(const char *s)
+{
+	const char	*errstr;
+	u_int32_t	 uval;
+
+	if (strcmp(s, "*") == 0)
+		return (COMMUNITY_ANY);
+
+	uval = strtonum(s, 0, UINT_MAX, &errstr);
+	if (errstr)
+		errx(1, "Large Community is %s: %s", errstr, s);
+
+	return (uval);
+}
+
+int
+parse_largecommunity(const char *word, struct parse_result *r)
+{
+	struct filter_set *fs;
+	char		*p, *po = strdup(word);
+	char		*array[3] = { NULL, NULL, NULL };
+	char		*val;
+	int64_t		 as, ld1, ld2;
+	int		 i = 0;
+
+	p = po;
+	while ((p != NULL) && (i < 3)) {
+		val = strsep(&p, ":");
+		array[i++] = val;
+	}
+
+	if ((p != NULL) || !(array[0] && array[1] && array[2]))
+		errx(1, "Invalid Large-Community syntax");
+
+	as   = getlargecommunity(array[0]);
+	ld1  = getlargecommunity(array[1]);
+	ld2  = getlargecommunity(array[2]);
+
+	free(po);
+
+	if ((fs = calloc(1, sizeof(struct filter_set))) == NULL)
+		err(1, NULL);
+	fs->type = ACTION_SET_LARGE_COMMUNITY;
+	fs->action.large_community.as = as;
+	fs->action.large_community.ld1 = ld1;
+	fs->action.large_community.ld2 = ld2;
+
+	r->large_community.as = as;
+	r->large_community.ld1 = ld1;
+	r->large_community.ld2 = ld2;
 
 	TAILQ_INSERT_TAIL(&r->set, fs, entry);
 	return (1);

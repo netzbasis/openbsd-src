@@ -1,4 +1,4 @@
-/*	$Id: dnsproc.c,v 1.4 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: dnsproc.c,v 1.9 2017/01/24 13:32:55 jsing Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -71,33 +71,33 @@ host_dns(const char *s, struct addr *vec)
 	    error == EAI_NODATA ||
 #endif
 	    error == EAI_NONAME)
-		return(0);
+		return 0;
 
 	if (error) {
 		warnx("%s: parse error: %s",
-			s, gai_strerror(error));
-		return(-1);
+		    s, gai_strerror(error));
+		return -1;
 	}
 
 	for (vecsz = 0, res = res0;
-	     NULL != res && vecsz < MAX_SERVERS_DNS;
-	     res = res->ai_next) {
+	    res != NULL && vecsz < MAX_SERVERS_DNS;
+	    res = res->ai_next) {
 		if (res->ai_family != AF_INET &&
 		    res->ai_family != AF_INET6)
 			continue;
 
 		sa = res->ai_addr;
 
-		if (AF_INET == res->ai_family) {
+		if (res->ai_family == AF_INET) {
 			vec[vecsz].family = 4;
 			inet_ntop(AF_INET,
-				&(((struct sockaddr_in *)sa)->sin_addr),
+			    &(((struct sockaddr_in *)sa)->sin_addr),
 				vec[vecsz].ip, INET6_ADDRSTRLEN);
 		} else {
 			vec[vecsz].family = 6;
 			inet_ntop(AF_INET6,
-				&(((struct sockaddr_in6 *)sa)->sin6_addr),
-				vec[vecsz].ip, INET6_ADDRSTRLEN);
+			    &(((struct sockaddr_in6 *)sa)->sin6_addr),
+			    vec[vecsz].ip, INET6_ADDRSTRLEN);
 		}
 
 		dodbg("%s: DNS: %s", s, vec[vecsz].ip);
@@ -106,23 +106,19 @@ host_dns(const char *s, struct addr *vec)
 	}
 
 	freeaddrinfo(res0);
-	return(vecsz);
+	return vecsz;
 }
 
 int
 dnsproc(int nfd)
 {
-	int		 rc, cc;
-	char		*look, *last;
+	char		*look = NULL, *last = NULL;
 	struct addr	 v[MAX_SERVERS_DNS];
+	int		 rc = 0, cc;
 	long		 lval;
+	ssize_t		 vsz = 0;
 	size_t		 i;
-	ssize_t		 vsz;
 	enum dnsop	 op;
-
-	rc = 0;
-	look = last = NULL;
-	vsz = 0;
 
 	if (pledge("stdio dns", NULL) == -1) {
 		warn("pledge");
@@ -137,18 +133,18 @@ dnsproc(int nfd)
 
 	for (;;) {
 		op = DNS__MAX;
-		if (0 == (lval = readop(nfd, COMM_DNS)))
+		if ((lval = readop(nfd, COMM_DNS)) == 0)
 			op = DNS_STOP;
-		else if (DNS_LOOKUP == lval)
+		else if (lval == DNS_LOOKUP)
 			op = lval;
 
-		if (DNS__MAX == op) {
+		if (op == DNS__MAX) {
 			warnx("unknown operation from netproc");
 			goto out;
-		} else if (DNS_STOP == op)
+		} else if (op == DNS_STOP)
 			break;
 
-		if (NULL == (look = readstr(nfd, COMM_DNSQ)))
+		if ((look = readstr(nfd, COMM_DNSQ)) == NULL)
 			goto out;
 
 		/*
@@ -156,7 +152,7 @@ dnsproc(int nfd)
 		 * If not, request it from host_dns().
 		 */
 
-		if (NULL == last || strcmp(look, last)) {
+		if (last == NULL || strcmp(look, last)) {
 			if ((vsz = host_dns(look, v)) < 0)
 				goto out;
 
@@ -169,7 +165,7 @@ dnsproc(int nfd)
 			look = NULL;
 		}
 
-		if (0 == (cc = writeop(nfd, COMM_DNSLEN, vsz)))
+		if ((cc = writeop(nfd, COMM_DNSLEN, vsz)) == 0)
 			break;
 		else if (cc < 0)
 			goto out;
@@ -186,5 +182,5 @@ out:
 	close(nfd);
 	free(look);
 	free(last);
-	return(rc);
+	return rc;
 }

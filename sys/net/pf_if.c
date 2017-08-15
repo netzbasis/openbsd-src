@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_if.c,v 1.83 2016/09/02 10:19:49 dlg Exp $ */
+/*	$OpenBSD: pf_if.c,v 1.91 2017/05/30 20:00:48 deraadt Exp $ */
 
 /*
  * Copyright 2005 Henning Brauer <henning@openbsd.org>
@@ -88,9 +88,8 @@ pfi_initialize(void)
 	if (pfi_all != NULL)	/* already initialized */
 		return;
 
-	pool_init(&pfi_addr_pl, sizeof(struct pfi_dynaddr), 0, 0, 0,
+	pool_init(&pfi_addr_pl, sizeof(struct pfi_dynaddr), 0, IPL_SOFTNET, 0,
 	    "pfiaddrpl", NULL);
-	pool_setipl(&pfi_addr_pl, IPL_SOFTNET);
 	pfi_buffer_max = 64;
 	pfi_buffer = mallocarray(pfi_buffer_max, sizeof(*pfi_buffer),
 	    PFI_MTYPE, M_WAITOK);
@@ -197,7 +196,7 @@ pfi_kif_unref(struct pfi_kif *kif, enum pfi_kif_refs what)
 		return;
 
 	RB_REMOVE(pfi_ifhead, &pfi_ifs, kif);
-	free(kif, PFI_MTYPE, 0);
+	free(kif, PFI_MTYPE, sizeof(*kif));
 }
 
 int
@@ -215,7 +214,7 @@ pfi_kif_match(struct pfi_kif *rule_kif, struct pfi_kif *packet_kif)
 
 	if (rule_kif->pfik_flags & PFI_IFLAG_ANY && packet_kif->pfik_ifp &&
 	    !(packet_kif->pfik_ifp->if_flags & IFF_LOOPBACK))
-		return (1); 
+		return (1);
 
 	return (0);
 }
@@ -224,10 +223,8 @@ void
 pfi_attach_ifnet(struct ifnet *ifp)
 {
 	struct pfi_kif		*kif;
-	int			 s;
 
 	pfi_initialize();
-	s = splsoftnet();
 	pfi_update++;
 	if ((kif = pfi_kif_get(ifp->if_xname)) == NULL)
 		panic("pfi_kif_get failed");
@@ -241,20 +238,16 @@ pfi_attach_ifnet(struct ifnet *ifp)
 		    ifp->if_xname);
 
 	pfi_kif_update(kif);
-
-	splx(s);
 }
 
 void
 pfi_detach_ifnet(struct ifnet *ifp)
 {
-	int			 s;
 	struct pfi_kif		*kif;
 
 	if ((kif = (struct pfi_kif *)ifp->if_pf_kif) == NULL)
 		return;
 
-	s = splsoftnet();
 	pfi_update++;
 	hook_disestablish(ifp->if_addrhooks, kif->pfik_ah_cookie);
 	pfi_kif_update(kif);
@@ -262,60 +255,47 @@ pfi_detach_ifnet(struct ifnet *ifp)
 	kif->pfik_ifp = NULL;
 	ifp->if_pf_kif = NULL;
 	pfi_kif_unref(kif, PFI_KIF_REF_NONE);
-
-	splx(s);
 }
 
 void
 pfi_attach_ifgroup(struct ifg_group *ifg)
 {
 	struct pfi_kif	*kif;
-	int		 s;
 
 	pfi_initialize();
-	s = splsoftnet();
 	pfi_update++;
 	if ((kif = pfi_kif_get(ifg->ifg_group)) == NULL)
 		panic("pfi_kif_get failed");
 
 	kif->pfik_group = ifg;
 	ifg->ifg_pf_kif = (caddr_t)kif;
-
-	splx(s);
 }
 
 void
 pfi_detach_ifgroup(struct ifg_group *ifg)
 {
-	int		 s;
 	struct pfi_kif	*kif;
 
 	if ((kif = (struct pfi_kif *)ifg->ifg_pf_kif) == NULL)
 		return;
 
-	s = splsoftnet();
 	pfi_update++;
 
 	kif->pfik_group = NULL;
 	ifg->ifg_pf_kif = NULL;
 	pfi_kif_unref(kif, PFI_KIF_REF_NONE);
-	splx(s);
 }
 
 void
 pfi_group_change(const char *group)
 {
 	struct pfi_kif		*kif;
-	int			 s;
 
-	s = splsoftnet();
 	pfi_update++;
 	if ((kif = pfi_kif_get(group)) == NULL)
 		panic("pfi_kif_get failed");
 
 	pfi_kif_update(kif);
-
-	splx(s);
 }
 
 int
@@ -357,7 +337,7 @@ pfi_dynaddr_setup(struct pf_addr_wrap *aw, sa_family_t af)
 	struct pfi_dynaddr	*dyn;
 	char			 tblname[PF_TABLE_NAME_SIZE];
 	struct pf_ruleset	*ruleset = NULL;
-	int			 s, rv = 0;
+	int			 rv = 0;
 
 	if (aw->type != PF_ADDR_DYNIFTL)
 		return (0);
@@ -365,7 +345,6 @@ pfi_dynaddr_setup(struct pf_addr_wrap *aw, sa_family_t af)
 	    == NULL)
 		return (1);
 
-	s = splsoftnet();
 	if (!strcmp(aw->v.ifname, "self"))
 		dyn->pfid_kif = pfi_kif_get(IFG_ALL);
 	else
@@ -408,7 +387,6 @@ pfi_dynaddr_setup(struct pf_addr_wrap *aw, sa_family_t af)
 	TAILQ_INSERT_TAIL(&dyn->pfid_kif->pfik_dynaddrs, dyn, entry);
 	aw->p.dyn = dyn;
 	pfi_kif_update(dyn->pfid_kif);
-	splx(s);
 	return (0);
 
 _bad:
@@ -419,7 +397,6 @@ _bad:
 	if (dyn->pfid_kif != NULL)
 		pfi_kif_unref(dyn->pfid_kif, PFI_KIF_REF_RULE);
 	pool_put(&pfi_addr_pl, dyn);
-	splx(s);
 	return (rv);
 }
 
@@ -563,7 +540,7 @@ pfi_address_add(struct sockaddr *sa, sa_family_t af, u_int8_t net)
 		}
 		memcpy(p, pfi_buffer, pfi_buffer_max * sizeof(*pfi_buffer));
 		/* no need to zero buffer */
-		free(pfi_buffer, PFI_MTYPE, 0);
+		free(pfi_buffer, PFI_MTYPE, pfi_buffer_max * sizeof(*pfi_buffer));
 		pfi_buffer = p;
 		pfi_buffer_max = new_max;
 	}
@@ -590,13 +567,10 @@ pfi_address_add(struct sockaddr *sa, sa_family_t af, u_int8_t net)
 void
 pfi_dynaddr_remove(struct pf_addr_wrap *aw)
 {
-	int	s;
-
 	if (aw->type != PF_ADDR_DYNIFTL || aw->p.dyn == NULL ||
 	    aw->p.dyn->pfid_kif == NULL || aw->p.dyn->pfid_kt == NULL)
 		return;
 
-	s = splsoftnet();
 	TAILQ_REMOVE(&aw->p.dyn->pfid_kif->pfik_dynaddrs, aw->p.dyn, entry);
 	pfi_kif_unref(aw->p.dyn->pfid_kif, PFI_KIF_REF_RULE);
 	aw->p.dyn->pfid_kif = NULL;
@@ -604,7 +578,6 @@ pfi_dynaddr_remove(struct pf_addr_wrap *aw)
 	aw->p.dyn->pfid_kt = NULL;
 	pool_put(&pfi_addr_pl, aw->p.dyn);
 	aw->p.dyn = NULL;
-	splx(s);
 }
 
 void
@@ -619,13 +592,12 @@ pfi_dynaddr_copyout(struct pf_addr_wrap *aw)
 void
 pfi_kifaddr_update(void *v)
 {
-	int			 s;
 	struct pfi_kif		*kif = (struct pfi_kif *)v;
 
-	s = splsoftnet();
+	NET_ASSERT_LOCKED();
+
 	pfi_update++;
 	pfi_kif_update(kif);
-	splx(s);
 }
 
 int
@@ -641,23 +613,20 @@ pfi_update_status(const char *name, struct pf_status *pfs)
 	struct pfi_kif_cmp	 key;
 	struct ifg_member	 p_member, *ifgm;
 	TAILQ_HEAD(, ifg_member) ifg_members;
-	int			 i, j, k, s;
+	int			 i, j, k;
 
-	s = splsoftnet();
 	if (*name == '\0' && pfs == NULL) {
 		RB_FOREACH(p, pfi_ifhead, &pfi_ifs) {
 			bzero(p->pfik_packets, sizeof(p->pfik_packets));
 			bzero(p->pfik_bytes, sizeof(p->pfik_bytes));
 			p->pfik_tzero = time_second;
 		}
-		splx(s);
 		return;
 	}
 
 	strlcpy(key.pfik_name, name, sizeof(key.pfik_name));
 	p = RB_FIND(pfi_ifhead, &pfi_ifs, (struct pfi_kif *)&key);
 	if (p == NULL) {
-		splx(s);
 		return;
 	}
 	if (p->pfik_group != NULL) {
@@ -695,16 +664,14 @@ pfi_update_status(const char *name, struct pf_status *pfs)
 						p->pfik_bytes[i][j][k];
 				}
 	}
-	splx(s);
 }
 
 int
 pfi_get_ifaces(const char *name, struct pfi_kif *buf, int *size)
 {
 	struct pfi_kif	*p, *nextp;
-	int		 s, n = 0;
+	int		 n = 0;
 
-	s = splsoftnet();
 	for (p = RB_MIN(pfi_ifhead, &pfi_ifs); p; p = nextp) {
 		nextp = RB_NEXT(pfi_ifhead, &pfi_ifs, p);
 		if (pfi_skip_if(name, p))
@@ -715,14 +682,12 @@ pfi_get_ifaces(const char *name, struct pfi_kif *buf, int *size)
 			pfi_kif_ref(p, PFI_KIF_REF_RULE);
 			if (copyout(p, buf++, sizeof(*buf))) {
 				pfi_kif_unref(p, PFI_KIF_REF_RULE);
-				splx(s);
 				return (EFAULT);
 			}
 			nextp = RB_NEXT(pfi_ifhead, &pfi_ifs, p);
 			pfi_kif_unref(p, PFI_KIF_REF_RULE);
 		}
 	}
-	splx(s);
 	*size = n;
 	return (0);
 }
@@ -753,15 +718,12 @@ int
 pfi_set_flags(const char *name, int flags)
 {
 	struct pfi_kif	*p;
-	int		 s;
 
-	s = splsoftnet();
 	RB_FOREACH(p, pfi_ifhead, &pfi_ifs) {
 		if (pfi_skip_if(name, p))
 			continue;
 		p->pfik_flags_new = p->pfik_flags | flags;
 	}
-	splx(s);
 	return (0);
 }
 
@@ -769,15 +731,12 @@ int
 pfi_clear_flags(const char *name, int flags)
 {
 	struct pfi_kif	*p;
-	int		 s;
 
-	s = splsoftnet();
 	RB_FOREACH(p, pfi_ifhead, &pfi_ifs) {
 		if (pfi_skip_if(name, p))
 			continue;
 		p->pfik_flags_new = p->pfik_flags & ~flags;
 	}
-	splx(s);
 	return (0);
 }
 
@@ -785,12 +744,9 @@ void
 pfi_xcommit(void)
 {
 	struct pfi_kif	*p;
-	int		 s;
 
-	s = splsoftnet();
 	RB_FOREACH(p, pfi_ifhead, &pfi_ifs)
 		p->pfik_flags = p->pfik_flags_new;
-	splx(s);
 }
 
 /* from pf_print_state.c */

@@ -1,4 +1,5 @@
-.TH IP-LITERAL 1 "January 4, 2011" OpenBSD
+.\" $OpenBSD: literal.in,v 1.6 2017/07/04 14:53:23 schwarze Exp $
+.TH IP-LITERAL 1 "January 4, 2011"
 .SH NAME
 IP-literal \- indented paragraphs in literal context
 .SH DESCRIPTION
@@ -6,8 +7,27 @@ regular
 text
 .IP tag 10n
 indented
+regular
 text
 .PP
+new
+regular
+paragraph
+.nf
+literal
+text
+.IP tag 10n
+indented
+literal
+text
+.PP
+new
+literal
+paragraph
+.fi
+regular
+text
+.SS literal into indented paragraph
 regular
 text
 .nf
@@ -15,10 +35,31 @@ literal
 text
 .IP tag 10n
 indented
-text
-.PP
 literal
 text
+.fi
+indented
+regular
+text
+.PP
+new
+regular
+paragraph
+.SS literal out of indented paragraph
+regular
+text
+.IP tag 10n
+indented
+regular
+text
+.nf
+indented
+literal
+text
+.PP
+new
+literal
+paragraph
 .fi
 regular
 text

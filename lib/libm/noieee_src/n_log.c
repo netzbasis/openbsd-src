@@ -1,4 +1,4 @@
-/*	$OpenBSD: n_log.c,v 1.8 2009/10/27 23:59:29 deraadt Exp $	*/
+/*	$OpenBSD: n_log.c,v 1.10 2016/09/12 19:47:02 guenther Exp $	*/
 /*
  * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -375,7 +375,7 @@ log(double x)
 			return (infnan(-ERANGE));
 		else
 			return (infnan(EDOM));
-	else if (!finite(x))
+	else if (!isfinite(x))
 		if (_IEEE)		/* x = NaN, Inf */
 			return (x+x);
 		else
@@ -429,6 +429,7 @@ log(double x)
 	u2 += logF_tail[N]*m;
 	return (u1 + u2);
 }
+DEF_STD(log);
 
 /*
  * Extra precision variant, returning struct {double a, b;};

@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeon_iobus.c,v 1.16 2016/06/22 13:09:35 visa Exp $ */
+/*	$OpenBSD: octeon_iobus.c,v 1.22 2017/07/25 11:01:28 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2000-2004 Opsycon AB  (www.opsycon.se)
@@ -40,7 +40,11 @@
 #include <sys/proc.h>
 #include <sys/atomic.h>
 
+#include <dev/ofw/fdt.h>
+#include <dev/ofw/openfirm.h>
+
 #include <machine/autoconf.h>
+#include <machine/fdt.h>
 #include <machine/intr.h>
 #include <machine/octeonvar.h>
 #include <machine/octeonreg.h>
@@ -49,7 +53,6 @@
 #include <octeon/dev/iobusvar.h>
 #include <octeon/dev/cn30xxgmxreg.h>
 #include <octeon/dev/octhcireg.h>	/* USBN_BASE */
-#include <octeon/dev/octuctlreg.h>
 
 int	iobusmatch(struct device *, void *, void *);
 void	iobusattach(struct device *, struct device *, void *);
@@ -118,8 +121,6 @@ bus_space_t iobus_tag = {
 	._space_vaddr =		generic_space_vaddr
 };
 
-bus_space_handle_t iobus_h;
-
 struct machine_bus_dma_tag iobus_bus_dma_tag = {
 	NULL,			/* _cookie */
 	_dmamap_create,
@@ -151,7 +152,6 @@ static const struct octeon_iobus_addrs iobus_addrs[] = {
 	{ "octrng",	OCTEON_RNG_BASE },
 	{ "dwctwo",	USBN_BASE       },
 	{ "amdcf",	OCTEON_AMDCF_BASE},
-	{ "octuctl",	UCTL_BASE	},
 };
 
 /* There can only be one. */
@@ -204,24 +204,14 @@ void
 iobusattach(struct device *parent, struct device *self, void *aux)
 {
 	struct iobus_attach_args aa;
+	struct fdt_attach_args fa;
 	struct octeon_config oc;
 	struct device *sc = self;
-	int chipid, i, ngmx;
-
-	/*
-	 * Map and setup CIU control registers.
-	 */
-	if (bus_space_map(&iobus_tag, OCTEON_CIU_BASE, OCTEON_CIU_SIZE, 0,
-		&iobus_h)) {
-		printf(": can't map CIU control registers\n");
-		return;
-	}
+	int chipid, i, ngmx, soc;
 
 	iobus_found = 1;
 
 	printf("\n");
-
-	octeon_intr_init();
 
 	/* XXX */
 	oc.mc_iobus_bust = &iobus_tag;
@@ -234,6 +224,16 @@ iobusattach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * Attach all subdevices as described in the config file.
 	 */
+
+	if ((soc = OF_finddevice("/soc")) != -1) {
+		memset(&fa, 0, sizeof(fa));
+		fa.fa_name = "";
+		fa.fa_node = soc;
+		fa.fa_iot = &iobus_tag;
+		fa.fa_dmat = &iobus_bus_dma_tag;
+		config_found(self, &fa, NULL);
+	}
+
 	config_search(iobussearch, self, sc);
 
 	chipid = octeon_get_chipid();
@@ -245,6 +245,9 @@ iobusattach(struct device *parent, struct device *self, void *aux)
 		break;
 	case OCTEON_MODEL_FAMILY_CN61XX:
 		ngmx = 2;
+		break;
+	case OCTEON_MODEL_FAMILY_CN73XX:
+		ngmx = 0;
 		break;
 	}
 	for (i = 0; i < ngmx; i++) {

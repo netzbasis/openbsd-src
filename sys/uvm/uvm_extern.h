@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_extern.h,v 1.139 2016/06/05 08:35:57 stefan Exp $	*/
+/*	$OpenBSD: uvm_extern.h,v 1.142 2017/04/30 13:04:49 mpi Exp $	*/
 /*	$NetBSD: uvm_extern.h,v 1.57 2001/03/09 01:02:12 chs Exp $	*/
 
 /*
@@ -240,20 +240,6 @@ extern struct uvm_constraint_range *uvm_md_constraints[];
 extern struct pool *uvm_aiobuf_pool;
 
 /*
- * used to keep state while iterating over the map for a core dump.
- */
-struct uvm_coredump_state {
-	void *cookie;		/* opaque for the caller */
-	vaddr_t start;		/* start of region */
-	vaddr_t realend;	/* real end of region */
-	vaddr_t end;		/* virtual end of region */
-	vm_prot_t prot;		/* protection of region */
-	int flags;		/* flags; see below */
-};
-
-#define	UVM_COREDUMP_STACK	0x01	/* region is user stack */
-
-/*
  * the various kernel maps, owned by MD code
  */
 extern struct vm_map *exec_map;
@@ -272,8 +258,6 @@ extern vaddr_t vm_min_kernel_address;
 
 void			vmapbuf(struct buf *, vsize_t);
 void			vunmapbuf(struct buf *, vsize_t);
-void			cpu_fork(struct proc *, struct proc *, void *,
-			    size_t, void (*)(void *), void *);
 struct uvm_object	*uao_create(vsize_t, int);
 void			uao_detach(struct uvm_object *);
 void			uao_detach_locked(struct uvm_object *);
@@ -281,9 +265,6 @@ void			uao_reference(struct uvm_object *);
 void			uao_reference_locked(struct uvm_object *);
 int			uvm_fault(vm_map_t, vaddr_t, vm_fault_t, vm_prot_t);
 
-#if defined(KGDB)
-void			uvm_chgkprot(caddr_t, size_t, int);
-#endif
 vaddr_t			uvm_uarea_alloc(void);
 void			uvm_uarea_free(struct proc *);
 void			uvm_exit(struct process *);
@@ -458,9 +439,13 @@ int			uvm_pglistalloc(psize_t, paddr_t, paddr_t,
 void			uvm_pglistfree(struct pglist *);
 void			uvm_pmr_use_inc(paddr_t, paddr_t);
 void			uvm_swap_init(void);
-int			uvm_coredump_walkmap(struct proc *,
-			    void *, int (*)(struct proc *, void *,
-			    struct uvm_coredump_state *), void *);
+typedef int		uvm_coredump_setup_cb(int _nsegment, void *_cookie);
+typedef int		uvm_coredump_walk_cb(vaddr_t _start, vaddr_t _realend,
+			    vaddr_t _end, vm_prot_t _prot, int _nsegment,
+			    void *_cookie);
+int			uvm_coredump_walkmap(struct proc *_p,
+			    uvm_coredump_setup_cb *_setup,
+			    uvm_coredump_walk_cb *_walk, void *_cookie);
 void			uvm_grow(struct proc *, vaddr_t);
 void			uvm_deallocate(vm_map_t, vaddr_t, vsize_t);
 struct uvm_object	*uvn_attach(struct vnode *, vm_prot_t);

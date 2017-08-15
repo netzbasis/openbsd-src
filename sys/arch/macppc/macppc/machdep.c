@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.176 2016/05/21 00:56:43 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.181 2017/06/13 01:42:12 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -115,11 +115,7 @@ void * startsym, *endsym;
 #endif
 
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 void dumpsys(void);
@@ -315,7 +311,7 @@ initppc(startkernel, endkernel, args)
 
 #ifdef DDB
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 
 	/*
@@ -324,8 +320,8 @@ initppc(startkernel, endkernel, args)
 	ofwconprobe();
 	consinit();
 
-        pool_init(&ppc_vecpl, sizeof(struct vreg), 16, 0, 0, "ppcvec", NULL);
-	pool_setipl(&ppc_vecpl, IPL_NONE);
+        pool_init(&ppc_vecpl, sizeof(struct vreg), 16, IPL_NONE, 0, "ppcvec",
+	    NULL);
 
 }
 
@@ -335,16 +331,17 @@ install_extint(void (*handler)(void))
 	void extint(void);
 	void extsize(void);
 	extern u_long extint_call;
-	u_long offset = (u_long)handler - (u_long)&extint_call;
+	long offset = (u_long)handler - (u_long)&extint_call;
 	int omsr, msr;
 
-#ifdef	DIAGNOSTIC
-	if (offset > 0x1ffffff)
+#ifdef DIAGNOSTIC
+	if (offset > 0x1ffffff || offset < -0x1ffffff)
 		panic("install_extint: too far away");
 #endif
 	omsr = ppc_mfmsr();
 	msr = omsr & ~PSL_EE;
 	ppc_mtmsr(msr);
+	offset &= 0x3ffffff;
 	extint_call = (extint_call & 0xfc000003) | offset;
 	bcopy(&extint, (void *)EXC_EXI, (size_t)&extsize);
 	syncicache((void *)&extint_call, sizeof extint_call);
@@ -788,7 +785,8 @@ haltsys:
 	OF_interpret("reset-all", 0);
 	OF_exit();
 	printf("boot failed, spinning\n");
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 

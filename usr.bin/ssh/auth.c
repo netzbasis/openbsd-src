@@ -1,4 +1,4 @@
-/* $OpenBSD: auth.c,v 1.116 2016/08/13 17:47:41 markus Exp $ */
+/* $OpenBSD: auth.c,v 1.122 2017/06/24 06:34:38 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -86,6 +86,7 @@ allowed_user(struct passwd * pw)
 	struct ssh *ssh = active_state; /* XXX */
 	struct stat st;
 	const char *hostname = NULL, *ipaddr = NULL;
+	int r;
 	u_int i;
 
 	/* Shouldn't be called if pw is NULL, but better safe than sorry... */
@@ -125,21 +126,31 @@ allowed_user(struct passwd * pw)
 
 	/* Return false if user is listed in DenyUsers */
 	if (options.num_deny_users > 0) {
-		for (i = 0; i < options.num_deny_users; i++)
-			if (match_user(pw->pw_name, hostname, ipaddr,
-			    options.deny_users[i])) {
+		for (i = 0; i < options.num_deny_users; i++) {
+			r = match_user(pw->pw_name, hostname, ipaddr,
+			    options.deny_users[i]);
+			if (r < 0) {
+				fatal("Invalid DenyUsers pattern \"%.100s\"",
+				    options.deny_users[i]);
+			} else if (r != 0) {
 				logit("User %.100s from %.100s not allowed "
 				    "because listed in DenyUsers",
 				    pw->pw_name, hostname);
 				return 0;
 			}
+		}
 	}
 	/* Return false if AllowUsers isn't empty and user isn't listed there */
 	if (options.num_allow_users > 0) {
-		for (i = 0; i < options.num_allow_users; i++)
-			if (match_user(pw->pw_name, hostname, ipaddr,
-			    options.allow_users[i]))
+		for (i = 0; i < options.num_allow_users; i++) {
+			r = match_user(pw->pw_name, hostname, ipaddr,
+			    options.allow_users[i]);
+			if (r < 0) {
+				fatal("Invalid AllowUsers pattern \"%.100s\"",
+				    options.allow_users[i]);
+			} else if (r == 1)
 				break;
+		}
 		/* i < options.num_allow_users iff we break for loop */
 		if (i >= options.num_allow_users) {
 			logit("User %.100s from %.100s not allowed because "
@@ -184,21 +195,41 @@ allowed_user(struct passwd * pw)
 	return 1;
 }
 
-void
-auth_info(Authctxt *authctxt, const char *fmt, ...)
+/*
+ * Formats any key left in authctxt->auth_method_key for inclusion in
+ * auth_log()'s message. Also includes authxtct->auth_method_info if present.
+ */
+static char *
+format_method_key(Authctxt *authctxt)
 {
-	va_list ap;
-        int i;
+	const struct sshkey *key = authctxt->auth_method_key;
+	const char *methinfo = authctxt->auth_method_info;
+	char *fp, *ret = NULL;
 
-	free(authctxt->info);
-	authctxt->info = NULL;
+	if (key == NULL)
+		return NULL;
 
-	va_start(ap, fmt);
-	i = vasprintf(&authctxt->info, fmt, ap);
-	va_end(ap);
-
-	if (i < 0 || authctxt->info == NULL)
-		fatal("vasprintf failed");
+	if (key_is_cert(key)) {
+		fp = sshkey_fingerprint(key->cert->signature_key,
+		    options.fingerprint_hash, SSH_FP_DEFAULT);
+		xasprintf(&ret, "%s ID %s (serial %llu) CA %s %s%s%s",
+		    sshkey_type(key), key->cert->key_id,
+		    (unsigned long long)key->cert->serial,
+		    sshkey_type(key->cert->signature_key),
+		    fp == NULL ? "(null)" : fp,
+		    methinfo == NULL ? "" : ", ",
+		    methinfo == NULL ? "" : methinfo);
+		free(fp);
+	} else {
+		fp = sshkey_fingerprint(key, options.fingerprint_hash,
+		    SSH_FP_DEFAULT);
+		xasprintf(&ret, "%s %s%s%s", sshkey_type(key),
+		    fp == NULL ? "(null)" : fp,
+		    methinfo == NULL ? "" : ", ",
+		    methinfo == NULL ? "" : methinfo);
+		free(fp);
+	}
+	return ret;
 }
 
 void
@@ -207,7 +238,8 @@ auth_log(Authctxt *authctxt, int authenticated, int partial,
 {
 	struct ssh *ssh = active_state; /* XXX */
 	void (*authlog) (const char *fmt,...) = verbose;
-	char *authmsg;
+	const char *authmsg;
+	char *extra = NULL;
 
 	if (use_privsep && !mm_is_monitor() && !authctxt->postponed)
 		return;
@@ -226,6 +258,11 @@ auth_log(Authctxt *authctxt, int authenticated, int partial,
 	else
 		authmsg = authenticated ? "Accepted" : "Failed";
 
+	if ((extra = format_method_key(authctxt)) == NULL) {
+		if (authctxt->auth_method_info != NULL)
+			extra = xstrdup(authctxt->auth_method_info);
+	}
+
 	authlog("%s %s%s%s for %s%.100s from %.200s port %d ssh2%s%s",
 	    authmsg,
 	    method,
@@ -234,10 +271,10 @@ auth_log(Authctxt *authctxt, int authenticated, int partial,
 	    authctxt->user,
 	    ssh_remote_ipaddr(ssh),
 	    ssh_remote_port(ssh),
-	    authctxt->info != NULL ? ": " : "",
-	    authctxt->info != NULL ? authctxt->info : "");
-	free(authctxt->info);
-	authctxt->info = NULL;
+	    extra != NULL ? ": " : "",
+	    extra != NULL ? extra : "");
+
+	free(extra);
 }
 
 void
@@ -325,7 +362,7 @@ authorized_principals_file(struct passwd *pw)
 
 /* return ok if key exists in sysfile or userfile */
 HostStatus
-check_key_in_hostfiles(struct passwd *pw, Key *key, const char *host,
+check_key_in_hostfiles(struct passwd *pw, struct sshkey *key, const char *host,
     const char *sysfile, const char *userfile)
 {
 	char *user_hostfile;
@@ -528,6 +565,7 @@ getpwnamallow(const char *user)
 
 	ci->user = user;
 	parse_server_match_config(&options, ci);
+	log_change_level(options.log_level);
 
 	pw = getpwnam(user);
 	if (pw == NULL) {
@@ -555,7 +593,7 @@ getpwnamallow(const char *user)
 
 /* Returns 1 if key is revoked by revoked_keys_file, 0 otherwise */
 int
-auth_key_is_revoked(Key *key)
+auth_key_is_revoked(struct sshkey *key)
 {
 	char *fp = NULL;
 	int r;

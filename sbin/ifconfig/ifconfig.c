@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.330 2016/09/03 13:46:57 reyk Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.346 2017/08/01 19:01:08 benno Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -153,6 +153,8 @@ int	shownet80211chans;
 int	shownet80211nodes;
 int	showclasses;
 
+struct ifencap;
+
 void	notealias(const char *, int);
 void	setifaddr(const char *, int);
 void	setifrtlabel(const char *, int);
@@ -186,10 +188,11 @@ void	settunnelinst(const char *, int);
 void	settunnelttl(const char *, int);
 void	setvnetid(const char *, int);
 void	delvnetid(const char *, int);
-void	getvnetid(void);
+void	getvnetid(struct ifencap *);
 void	setifparent(const char *, int);
 void	delifparent(const char *, int);
-void	getifparent(void);
+void	getifparent(struct ifencap *);
+void	getencap(void);
 void	setia6flags(const char *, int);
 void	setia6pltime(const char *, int);
 void	setia6vltime(const char *, int);
@@ -205,8 +208,6 @@ void	clone_create(const char *, int);
 void	clone_destroy(const char *, int);
 void	unsetmediaopt(const char *, int);
 void	setmediainst(const char *, int);
-void	settimeslot(const char *, int);
-void	timeslot_status(void);
 void	setmpelabel(const char *, int);
 void	process_mpw_commands(void);
 void	setmpwencap(const char *, int);
@@ -218,9 +219,7 @@ void	setvlandev(const char *, int);
 void	unsetvlandev(const char *, int);
 void	mpe_status(void);
 void	mpw_status(void);
-void	vlan_status(void);
 void	setrdomain(const char *, int);
-int	main(int, char *[]);
 int	prefix(void *val, int);
 void	getifgroups(void);
 void	setifgroup(const char *, int);
@@ -366,6 +365,10 @@ const struct	cmd {
 	{ "scan",	NEXTARG0,	0,		setifscan },
 	{ "broadcast",	NEXTARG,	0,		setifbroadaddr },
 	{ "prefixlen",  NEXTARG,	0,		setifprefixlen},
+	{ "vnetid",	NEXTARG,	0,		setvnetid },
+	{ "-vnetid",	0,		0,		delvnetid },
+	{ "parent",	NEXTARG,	0,		setifparent },
+	{ "-parent",	1,		0,		delifparent },
 	{ "vlan",	NEXTARG,	0,		setvlantag },
 	{ "vlandev",	NEXTARG,	0,		setvlandev },
 	{ "-vlandev",	1,		0,		unsetvlandev },
@@ -427,16 +430,11 @@ const struct	cmd {
 	{ "deletetunnel",  0,		0,		deletetunnel } ,
 	{ "tunneldomain", NEXTARG,	0,		settunnelinst } ,
 	{ "tunnelttl",	NEXTARG,	0,		settunnelttl } ,
-	{ "vnetid",	NEXTARG,	0,		setvnetid },
-	{ "-vnetid",	0,		0,		delvnetid },
-	{ "parent",	NEXTARG,	0,		setifparent },
-	{ "-parent",	1,		0,		delifparent },
 	{ "pppoedev",	NEXTARG,	0,		setpppoe_dev },
 	{ "pppoesvc",	NEXTARG,	0,		setpppoe_svc },
 	{ "-pppoesvc",	1,		0,		setpppoe_svc },
 	{ "pppoeac",	NEXTARG,	0,		setpppoe_ac },
 	{ "-pppoeac",	1,		0,		setpppoe_ac },
-	{ "timeslot",	NEXTARG,	0,		settimeslot },
 	{ "authproto",	NEXTARG,	0,		setspppproto },
 	{ "authname",	NEXTARG,	0,		setspppname },
 	{ "authkey",	NEXTARG,	0,		setspppkey },
@@ -517,7 +515,7 @@ const struct	cmd {
 	{ "-roaming",	0,		0,		umb_roaming },
 	{ "patch",	NEXTARG,	0,		setpair },
 	{ "-patch",	1,		0,		unsetpair },
-	{ "datapathid",	NEXTARG,	0,		switch_datapathid },
+	{ "datapath",	NEXTARG,	0,		switch_datapathid },
 	{ "portno",	NEXTARG2,	0,		NULL, switch_portno },
 	{ "addlocal",	NEXTARG,	0,		addlocal },
 #else /* SMALL */
@@ -566,7 +564,7 @@ void	printif(char *, int);
 void	printb_status(unsigned short, unsigned char *);
 const char *get_linkstate(int, int);
 void	status(int, struct sockaddr_dl *, int);
-void	usage(int);
+__dead void	usage(void);
 const char *get_string(const char *, const char *, u_int8_t *, int *);
 void	print_string(const u_int8_t *, int);
 char	*sec2str(time_t);
@@ -639,7 +637,7 @@ main(int argc, char *argv[])
 	if (argc < 2) {
 		aflag = 1;
 		printif(NULL, 0);
-		exit(0);
+		return (0);
 	}
 	argc--, argv++;
 	if (*argv[0] == '-') {
@@ -664,14 +662,14 @@ main(int argc, char *argv[])
 				nomore = 1;
 				break;
 			default:
-				usage(1);
+				usage();
 				break;
 			}
 		}
 		if (nomore == 0) {
 			argc--, argv++;
 			if (argc < 1)
-				usage(1);
+				usage();
 			if (strlcpy(name, *argv, sizeof(name)) >= IFNAMSIZ)
 				errx(1, "interface name '%s' too long", *argv);
 		}
@@ -691,16 +689,16 @@ main(int argc, char *argv[])
 	}
 	if (Cflag) {
 		if (argc > 0 || aflag)
-			usage(1);
+			usage();
 		list_cloners();
-		exit(0);
+		return (0);
 	}
 	if (gflag) {
 		if (argc == 0)
 			printgroupattribs(name);
 		else
 			setgroupattribs(name, argc, argv);
-		exit(0);
+		return (0);
 	}
 	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
@@ -716,7 +714,7 @@ main(int argc, char *argv[])
 		clone_create(argv[0], 0);
 		argc--, argv++;
 		if (argc == 0)
-			exit(0);
+			return (0);
 	}
 	if (aflag == 0) {
 		create = (argc > 0) && strcmp(argv[0], "destroy") != 0;
@@ -790,7 +788,7 @@ nextarg:
 
 	if (argc == 0 && actions == 0) {
 		printif(ifr.ifr_name, aflag ? ifaliases : 1);
-		exit(0);
+		return (0);
 	}
 
 	/* Process any media commands that may have been issued. */
@@ -805,9 +803,13 @@ nextarg:
 		/*
 		 * Aggregatable address architecture defines all prefixes
 		 * are 64. So, it is convenient to set prefixlen to 64 if
-		 * it is not specified.
+		 * it is not specified. If we are setting a destination
+		 * address on a point-to-point interface, 128 is required.
 		 */
-		setifprefixlen("64", 0);
+		if (setipdst && (flags & IFF_POINTOPOINT))
+			setifprefixlen("128", 0);
+		else
+			setifprefixlen("64", 0);
 		/* in6_getprefix("64", MASK) if MASK is available here... */
 	}
 
@@ -825,7 +827,7 @@ nextarg:
 		if (ioctl(s, rafp->af_aifaddr, rafp->af_addreq) < 0)
 			err(1, "SIOCAIFADDR");
 	}
-	exit(0);
+	return (0);
 }
 
 void
@@ -972,7 +974,7 @@ setgroupattribs(char *groupname, int argc, char *argv[])
 	if (!strcmp(p, "carpdemote"))
 		ifgr.ifgr_attrib.ifg_carp_demoted = neg;
 	else
-		usage(1);
+		usage();
 
 	if (ioctl(s, SIOCSIFGATTR, (caddr_t)&ifgr) == -1)
 		err(1, "SIOCSIFGATTR");
@@ -1243,6 +1245,7 @@ void
 setifdstaddr(const char *addr, int param)
 {
 	setaddr++;
+	setipdst++;
 	afp->af_getaddr(addr, DSTADDR);
 }
 
@@ -1638,7 +1641,7 @@ setifnwkey(const char *val, int d)
 	nwkey.i_defkid = 1;
 	if (d == -1) {
 		/* disable WEP encryption */
-		nwkey.i_wepon = 0;
+		nwkey.i_wepon = IEEE80211_NWKEY_OPEN;
 		i = 0;
 	} else if (strcasecmp("persist", val) == 0) {
 		/* use all values from persistent memory */
@@ -1724,8 +1727,7 @@ setifwpa(const char *val, int d)
 
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
-	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
-		err(1, "SIOCG80211WPAPARMS");
+	/* Don't read current values. The kernel will set defaults. */
 	wpa.i_enabled = d;
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
@@ -1758,6 +1760,9 @@ setifwpaprotos(const char *val, int d)
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCG80211WPAPARMS");
 	wpa.i_protos = rval;
+	/* Let the kernel set up the appropriate default ciphers. */
+	wpa.i_ciphers = 0;
+	wpa.i_groupcipher = 0;
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1890,7 +1895,7 @@ setifwpakey(const char *val, int d)
 			if (val == NULL || passlen != sizeof(psk.i_psk))
 				errx(1, "wpakey: invalid pre-shared key");
 		} else {
-			/* Parse a WPA passphrase */ 
+			/* Parse a WPA passphrase */
 			if (passlen < 8 || passlen > 63)
 				errx(1, "wpakey: passphrase must be between "
 				    "8 and 63 characters");
@@ -1927,7 +1932,7 @@ setifchan(const char *val, int d)
 
 	if (val == NULL) {
 		if (shownet80211chans || shownet80211nodes)
-			usage(1);
+			usage();
 		shownet80211chans = 1;
 		return;
 	}
@@ -1952,7 +1957,7 @@ void
 setifscan(const char *val, int d)
 {
 	if (shownet80211chans || shownet80211nodes)
-		usage(1);
+		usage();
 	shownet80211nodes = 1;
 }
 
@@ -2119,7 +2124,7 @@ ieee80211_status(void)
 		}
 	}
 
-	if (inwkey == 0 && nwkey.i_wepon > 0) {
+	if (inwkey == 0 && nwkey.i_wepon > IEEE80211_NWKEY_OPEN) {
 		fputs(" nwkey ", stdout);
 		/* try to retrieve WEP keys */
 		for (i = 0; i < IEEE80211_WEP_NKID; i++) {
@@ -2374,11 +2379,12 @@ ieee80211_printnode(struct ieee80211_nodereq *nr)
 	if (nr->nr_capinfo) {
 		printb_status(nr->nr_capinfo, IEEE80211_CAPINFO_BITS);
 		if (nr->nr_capinfo & IEEE80211_CAPINFO_PRIVACY) {
-			if (nr->nr_rsnciphers & IEEE80211_WPA_CIPHER_CCMP)
-				fputs(",wpa2", stdout);
-			else if (nr->nr_rsnciphers & IEEE80211_WPA_CIPHER_TKIP)
-				fputs(",wpa1", stdout);
-			else
+			if (nr->nr_rsnprotos) {
+				if (nr->nr_rsnprotos & IEEE80211_WPA_PROTO_WPA2)
+					fputs(",wpa2", stdout);
+				if (nr->nr_rsnprotos & IEEE80211_WPA_PROTO_WPA1)
+					fputs(",wpa1", stdout);
+			} else
 				fputs(",wep", stdout);
 
 			if (nr->nr_rsnakms & IEEE80211_WPA_AKM_8021X ||
@@ -2454,7 +2460,7 @@ setmedia(const char *val, int d)
 
 	if (val == NULL) {
 		if (showmediaflag)
-			usage(1);
+			usage();
 		showmediaflag = 1;
 		return;
 	}
@@ -2607,110 +2613,6 @@ setmediainst(const char *val, int d)
 
 	/* Media will be set after other processing is complete. */
 }
-
-/*
- * Note: 
- * bits:       0   1   2   3   4   5   ....   24   25   ...   30   31
- * T1 mode:   N/A ch1 ch2 ch3 ch4 ch5        ch24  N/A        N/A  N/A
- * E1 mode:   ts0 ts1 ts2 ts3 ts4 ts5        ts24  ts25       ts30 ts31
- */
-#ifndef SMALL
-/* ARGSUSED */
-void
-settimeslot(const char *val, int d)
-{
-#define SINGLE_CHANNEL	0x1
-#define RANGE_CHANNEL	0x2
-#define ALL_CHANNELS	0xFFFFFFFF
-	unsigned long	ts_map = 0;
-	char		*ptr = (char *)val;
-	int		ts_flag = 0;
-	int		ts = 0, ts_start = 0;
-
-	if (strcmp(val,"all") == 0) {
-		ts_map = ALL_CHANNELS;
-	} else {
-		while (*ptr != '\0') {
-			if (isdigit((unsigned char)*ptr)) {
-				ts = strtoul(ptr, &ptr, 10);
-				ts_flag |= SINGLE_CHANNEL;
-			} else {
-				if (*ptr == '-') {
-					ts_flag |= RANGE_CHANNEL;
-					ts_start = ts;
-				} else {
-					ts_map |= get_ts_map(ts_flag,
-					    ts_start, ts);
-					ts_flag = 0;
-				}
-				ptr++;
-			}
-		}
-		if (ts_flag)
-			ts_map |= get_ts_map(ts_flag, ts_start, ts);
-
-	}
-	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
-	ifr.ifr_data = (caddr_t)&ts_map;
-
-	if (ioctl(s, SIOCSIFTIMESLOT, (caddr_t)&ifr) < 0)
-		err(1, "SIOCSIFTIMESLOT");
-}
-
-unsigned long
-get_ts_map(int ts_flag, int ts_start, int ts_stop)
-{
-	int		i = 0;
-	unsigned long	map = 0, mask = 0;
-
-	if ((ts_flag & (SINGLE_CHANNEL | RANGE_CHANNEL)) == 0)
-		return 0;
-	if (ts_flag & RANGE_CHANNEL) { /* Range of channels */
-		for (i = ts_start; i <= ts_stop; i++) {
-			mask = 1 << i;
-			map |=mask;
-		}
-	} else { /* Single channel */
-		mask = 1 << ts_stop;
-		map |= mask;
-	}
-	return map;
-}
-
-void
-timeslot_status(void)
-{
-	char		*sep = " ";
-	unsigned long	 ts_map = 0;
-	int		 i, start = -1;
-
-	ifr.ifr_data = (caddr_t)&ts_map;
-
-	if (ioctl(s, SIOCGIFTIMESLOT, (caddr_t)&ifr) == -1)
-		return;
-
-	printf("\ttimeslot:");
-	for (i = 0; i < sizeof(ts_map) * 8; i++) {
-		if (start == -1 && ts_map & (1 << i))
-			start = i;
-		else if (start != -1 && !(ts_map & (1 << i))) {
-			if (start == i - 1)
-				printf("%s%d", sep, start);
-			else
-				printf("%s%d-%d", sep, start, i-1);
-			sep = ",";
-			start = -1;
-		}
-	}
-	if (start != -1) {
-		if (start == i - 1)
-			printf("%s%d", sep, start);
-		else
-			printf("%s%d-%d", sep, start, i-1);
-	}
-	printf("\n");
-}
-#endif
 
 
 const struct ifmedia_description ifm_type_descriptions[] =
@@ -2874,8 +2776,6 @@ phys_status(int force)
 	(void) strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
 	if (ioctl(s, SIOCGLIFPHYADDR, (caddr_t)&req) < 0)
 		return;
-	if (req.addr.ss_family == AF_INET6)
-		in6_fillscopeid((struct sockaddr_in6 *)&req.addr);
 	if (getnameinfo((struct sockaddr *)&req.addr, req.addr.ss_len,
 	    psrcaddr, sizeof(psrcaddr), 0, 0, niflag) != 0)
 		strlcpy(psrcaddr, "<error>", sizeof(psrcaddr));
@@ -2884,10 +2784,8 @@ phys_status(int force)
 
 	if (req.dstaddr.ss_family == AF_INET)
 		dstport = ((struct sockaddr_in *)&req.dstaddr)->sin_port;
-	else if (req.dstaddr.ss_family == AF_INET6) {
-		in6_fillscopeid((struct sockaddr_in6 *)&req.dstaddr);
+	else if (req.dstaddr.ss_family == AF_INET6)
 		dstport = ((struct sockaddr_in6 *)&req.dstaddr)->sin6_port;
-	}
 	if (getnameinfo((struct sockaddr *)&req.dstaddr, req.dstaddr.ss_len,
 	    pdstaddr, sizeof(pdstaddr), 0, 0, niflag) != 0)
 		strlcpy(pdstaddr, "<error>", sizeof(pdstaddr));
@@ -3000,14 +2898,11 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	    if_indextoname(ifrdesc.ifr_index, ifname) != NULL)
 		printf("\tpatch: %s\n", ifname);
 #endif
-	vlan_status();
-	getvnetid();
-	getifparent();
+	getencap();
 #ifndef SMALL
 	carp_status();
 	pfsync_status();
 	pppoe_status();
-	timeslot_status();
 	sppp_status();
 	mpe_status();
 	mpw_status();
@@ -3097,7 +2992,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 			for (i = 0, printed_type = 0; i < ifmr.ifm_count; i++) {
 				if (IFM_TYPE(media_list[i]) == type) {
 
-					/* 
+					/*
 					 * Don't advertise media with fixed
 					 * data rates for wireless interfaces.
 					 * Normal people don't need these.
@@ -3619,6 +3514,22 @@ setmpwcontrolword(const char *value, int d)
 }
 #endif /* SMALL */
 
+struct ifencap {
+	unsigned int	 ife_flags;
+#define IFE_VNETID_MASK		0xf
+#define IFE_VNETID_NOPE		0x0
+#define IFE_VNETID_NONE		0x1
+#define IFE_VNETID_ANY		0x2
+#define IFE_VNETID_SET		0x3
+	int64_t		 ife_vnetid;
+
+#define IFE_PARENT_MASK		0xf0
+#define IFE_PARENT_NOPE		0x00
+#define IFE_PARENT_NONE		0x10
+#define IFE_PARENT_SET		0x20
+	char		ife_parent[IFNAMSIZ];
+};
+
 void
 setvnetid(const char *id, int param)
 {
@@ -3649,7 +3560,7 @@ delvnetid(const char *ignored, int alsoignored)
 }
 
 void
-getvnetid(void)
+getvnetid(struct ifencap *ife)
 {
 	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
 	    sizeof(ifr.ifr_name))
@@ -3659,17 +3570,17 @@ getvnetid(void)
 		if (errno != EADDRNOTAVAIL)
 			return;
 
-		printf("\tvnetid: none\n");
-
+		ife->ife_flags |= IFE_VNETID_NONE;
 		return;
 	}
 
 	if (ifr.ifr_vnetid < 0) {
-		printf("\tvnetid: any\n");
+		ife->ife_flags |= IFE_VNETID_ANY;
 		return;
 	}
 
-	printf("\tvnetid: %lld\n", ifr.ifr_vnetid);
+	ife->ife_flags |= IFE_VNETID_SET;
+	ife->ife_vnetid = ifr.ifr_vnetid;
 }
 
 void
@@ -3698,10 +3609,9 @@ delifparent(const char *ignored, int alsoignored)
 }
 
 void
-getifparent(void)
+getifparent(struct ifencap *ife)
 {
 	struct if_parent ifp;
-	const char *parent = "none";
 
 	memset(&ifp, 0, sizeof(ifp));
 	if (strlcpy(ifp.ifp_name, name, sizeof(ifp.ifp_name)) >=
@@ -3711,31 +3621,54 @@ getifparent(void)
 	if (ioctl(s, SIOCGIFPARENT, (caddr_t)&ifp) == -1) {
 		if (errno != EADDRNOTAVAIL)
 			return;
-	} else
-		parent = ifp.ifp_parent;
 
-	printf("\tparent: %s\n", parent);
+		ife->ife_flags |= IFE_PARENT_NONE;
+	} else {
+		memcpy(ife->ife_parent, ifp.ifp_parent,
+		    sizeof(ife->ife_parent));
+		ife->ife_flags |= IFE_PARENT_SET;
+	}
+}
+
+void
+getencap(void)
+{
+	struct ifencap ife = { .ife_flags = 0 };
+
+	getvnetid(&ife);
+	getifparent(&ife);
+
+	if (ife.ife_flags == 0)
+		return;
+
+	printf("\tencap:");
+
+	switch (ife.ife_flags & IFE_VNETID_MASK) {
+	case IFE_VNETID_NONE:
+		printf(" vnetid none");
+		break;
+	case IFE_VNETID_ANY:
+		printf(" vnetid any");
+		break;
+	case IFE_VNETID_SET:
+		printf(" vnetid %lld", ife.ife_vnetid);
+		break;
+	}
+
+	switch (ife.ife_flags & IFE_PARENT_MASK) {
+	case IFE_PARENT_NONE:
+		printf(" parent none");
+		break;
+	case IFE_PARENT_SET:
+		printf(" parent %s", ife.ife_parent);
+		break;
+	}
+
+	printf("\n");
 }
 
 static int __tag = 0;
 static int __have_tag = 0;
-
-void
-vlan_status(void)
-{
-	struct vlanreq vreq;
-
-	bzero((char *)&vreq, sizeof(struct vlanreq));
-	ifr.ifr_data = (caddr_t)&vreq;
-
-	if (ioctl(s, SIOCGETVLAN, (caddr_t)&ifr) == -1)
-		return;
-
-	if (vreq.vlr_tag || (vreq.vlr_parent[0] != '\0'))
-		printf("\tvlan: %d parent interface: %s\n",
-		    vreq.vlr_tag, vreq.vlr_parent[0] == '\0' ?
-		    "<none>" : vreq.vlr_parent);
-}
 
 /* ARGSUSED */
 void
@@ -4447,7 +4380,7 @@ pflow_status(void)
 	case AF_INET:
 		sin = (struct sockaddr_in*)&preq.flowdst;
 		printf("receiver: %s:", sin->sin_addr.s_addr != INADDR_ANY ?
-		    buf : "INVALID");	
+		    buf : "INVALID");
 		if (sin->sin_port == 0)
 			printf("%s ", "INVALID");
 		else
@@ -4457,7 +4390,7 @@ pflow_status(void)
 		sin6 = (struct sockaddr_in6*) &preq.flowdst;
 		printf("receiver: [%s]:",
 		    !IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) ? buf :
-		    "INVALID");	
+		    "INVALID");
 		if (sin6->sin6_port == 0)
 			printf("%s ", "INVALID");
 		else
@@ -4512,6 +4445,7 @@ pflow_addr(const char *val, struct sockaddr_storage *ss) {
 	bzero(&hints, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM; /*dummy*/
+	hints.ai_flags = AI_NUMERICHOST;
 
 	if ((error = getaddrinfo(ip, port, &hints, &res0)) != 0)
 		errx(1, "error in parsing address string: %s",
@@ -5154,7 +5088,7 @@ umb_status(void)
 		printf("\t");
 		n = 0;
 		if (pn[0])
-			printf("%sphone# +%s", n++ ? " " : "", pn);
+			printf("%sphone# %s", n++ ? " " : "", pn);
 		if (apn[0])
 			printf("%sAPN %s", n++ ? " " : "", apn);
 		printf("\n");
@@ -5278,7 +5212,7 @@ umb_setclass(const char *val, int d)
 
 	if (val == NULL) {
 		if (showclasses)
-			usage(1);
+			usage();
 		showclasses = 1;
 		return;
 	}
@@ -5318,13 +5252,12 @@ utf16_to_char(uint16_t *in, int inlen, char *out, size_t outlen)
 		c = inlen > 0 ? letoh16(*in) : 0;
 		if (c == 0 || --outlen == 0) {
 			/* always NUL terminate result */
-done:
 			*out = '\0';
 			break;
 		}
 		*out++ = isascii(c) ? (char)c : '?';
 		in++;
-		inlen -= sizeof (*in);
+		inlen--;
 	}
 }
 
@@ -5572,15 +5505,15 @@ prefix(void *val, int size)
 	return (plen);
 }
 
-/* Print usage, exit(value) if value is non-zero. */
-void
-usage(int value)
+/* Print usage and exit  */
+__dead void
+usage(void)
 {
 	fprintf(stderr,
 	    "usage: ifconfig [-AaC] [interface] [address_family] "
 	    "[address [dest_address]]\n"
 	    "\t\t[parameters]\n");
-	exit(value);
+	exit(1);
 }
 
 void
@@ -5633,7 +5566,7 @@ printifhwfeatures(const char *unused, int show)
 
 	if (!show) {
 		if (showcapsflag)
-			usage(1);
+			usage();
 		showcapsflag = 1;
 		return;
 	}

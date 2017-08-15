@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.15 2016/05/10 11:00:54 mlarkin Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.37 2017/08/14 21:41:49 jasper Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -25,6 +25,7 @@
 
 #include <machine/vmmvar.h>
 
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -34,9 +35,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <util.h>
+#include <pwd.h>
+#include <grp.h>
 
 #include "vmd.h"
 #include "vmctl.h"
+#include "atomicio.h"
 
 extern char *__progname;
 uint32_t info_id;
@@ -44,14 +49,16 @@ char info_name[VMM_MAX_NAME_LEN];
 int info_console;
 
 /*
- * start_vm
+ * vm_start
  *
  * Request vmd to start the VM defined by the supplied parameters
  *
  * Parameters:
+ *  start_id: optional ID of the VM
  *  name: optional name of the VM
  *  memsize: memory size (MB) of the VM to create
  *  nnics: number of vionet network interfaces to create
+ *  nics: switch names of the network interfaces to create
  *  ndisks: number of disk images
  *  disks: disk image file names
  *  kernel: kernel image to load
@@ -61,30 +68,48 @@ int info_console;
  *  ENOMEM if a memory allocation failure occurred.
  */
 int
-start_vm(const char *name, int memsize, int nnics, int ndisks, char **disks,
-    char *kernel)
+vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
+    char **nics, int ndisks, char **disks, char *kernel)
 {
+	struct vmop_create_params *vmc;
 	struct vm_create_params *vcp;
+	unsigned int flags = 0;
 	int i;
+	const char *s;
 
-	if (memsize < 1)
-		errx(1, "specified memory size too small");
-	if (kernel == NULL)
-		errx(1, "no kernel specified");
-	if (ndisks > VMM_MAX_DISKS_PER_VM)
-		errx(1, "too many disks");
-	else if (ndisks == 0)
-		warnx("starting without disks");
-	if (nnics == -1)
-		nnics = 0;
-	if (nnics == 0)
-		warnx("starting without network interfaces");
+	if (memsize)
+		flags |= VMOP_CREATE_MEMORY;
+	if (nnics)
+		flags |= VMOP_CREATE_NETWORK;
+	if (ndisks)
+		flags |= VMOP_CREATE_DISK;
+	if (kernel)
+		flags |= VMOP_CREATE_KERNEL;
+	if (flags != 0) {
+		if (memsize < 1)
+			memsize = VM_DEFAULT_MEMORY;
+		if (ndisks > VMM_MAX_DISKS_PER_VM)
+			errx(1, "too many disks");
+		else if (ndisks == 0)
+			warnx("starting without disks");
+		if (kernel == NULL && ndisks == 0)
+			errx(1, "no kernel or disk specified");
+		if (nnics == -1)
+			nnics = 0;
+		if (nnics > VMM_MAX_NICS_PER_VM)
+			errx(1, "too many network interfaces");
+		if (nnics == 0)
+			warnx("starting without network interfaces");
+	}
 
-	vcp = malloc(sizeof(struct vm_create_params));
-	if (vcp == NULL)
+	vmc = calloc(1, sizeof(struct vmop_create_params));
+	if (vmc == NULL)
 		return (ENOMEM);
 
-	bzero(vcp, sizeof(struct vm_create_params));
+	vmc->vmc_flags = flags;
+
+	/* vcp includes configuration that is shared with the kernel */
+	vcp = &vmc->vmc_params;
 
 	/*
 	 * XXX: vmd(8) fills in the actual memory ranges. vmctl(8)
@@ -95,24 +120,51 @@ start_vm(const char *name, int memsize, int nnics, int ndisks, char **disks,
 
 	vcp->vcp_ncpus = 1;
 	vcp->vcp_ndisks = ndisks;
+	vcp->vcp_nnics = nnics;
+	vcp->vcp_id = start_id;
 
 	for (i = 0 ; i < ndisks; i++)
 		strlcpy(vcp->vcp_disks[i], disks[i], VMM_MAX_PATH_DISK);
+	for (i = 0 ; i < nnics; i++) {
+		vmc->vmc_ifflags[i] = VMIFF_UP;
 
-	if (name != NULL)
+		if (strcmp(".", nics[i]) == 0) {
+			/* Add a "local" interface */
+			strlcpy(vmc->vmc_ifswitch[i], "", IF_NAMESIZE);
+			vmc->vmc_ifflags[i] |= VMIFF_LOCAL;
+		} else {
+			/* Add an interface to a switch */
+			strlcpy(vmc->vmc_ifswitch[i], nics[i], IF_NAMESIZE);
+		}
+	}
+	if (name != NULL) {
+		/* Allow VMs names with alphanumeric characters, dot, hyphen
+		 * and underscore. But disallow dot, hyphen and underscore at
+		 * the start.
+		 */
+		if (*name == '-' || *name == '.' || *name == '_')
+			errx(1, "Invalid VM name");
+
+		for (s = name; *s != '\0'; ++s) {
+			if (!(isalnum(*s) || *s == '.' || *s == '-' ||
+			      *s == '_'))
+				errx(1, "Invalid VM name");
+		}
+
 		strlcpy(vcp->vcp_name, name, VMM_MAX_NAME_LEN);
-	strlcpy(vcp->vcp_kernel, kernel, VMM_MAX_KERNEL_PATH);
-	vcp->vcp_nnics = nnics;
+	}
+	if (kernel != NULL)
+		strlcpy(vcp->vcp_kernel, kernel, VMM_MAX_KERNEL_PATH);
 
 	imsg_compose(ibuf, IMSG_VMDOP_START_VM_REQUEST, 0, 0, -1,
-	    vcp, sizeof(struct vm_create_params));
+	    vmc, sizeof(struct vmop_create_params));
 
 	free(vcp);
 	return (0);
 }
 
 /*
- * start_vm_complete
+ * vm_start_complete
  *
  * Callback function invoked when we are expecting an
  * IMSG_VMDOP_START_VMM_RESPONSE message indicating the completion of
@@ -125,15 +177,15 @@ start_vm(const char *name, int memsize, int nnics, int ndisks, char **disks,
  *
  * Return:
  *  Always 1 to indicate we have processed the return message (even if it
- *  was an incorrect/failure message) 
+ *  was an incorrect/failure message)
  *
  *  The function also sets 'ret' to the error code as follows:
  *   0     : Message successfully processed
  *   EINVAL: Invalid or unexpected response from vmd
- *   EIO   : start_vm command failed
+ *   EIO   : vm_start command failed
  */
 int
-start_vm_complete(struct imsg *imsg, int *ret, int autoconnect)
+vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 {
 	struct vmop_result *vmr;
 	int res;
@@ -143,14 +195,159 @@ start_vm_complete(struct imsg *imsg, int *ret, int autoconnect)
 		res = vmr->vmr_result;
 		if (res) {
 			errno = res;
-			warn("start vm command failed");
-			*ret = EIO;
+			if (res == ENOENT) {
+				warnx("could not find specified disk image(s)");
+				*ret = ENOENT;
+			} else {
+				warn("start vm command failed");
+				*ret = EIO;
+			}
 		} else if (autoconnect) {
 			/* does not return */
 			ctl_openconsole(vmr->vmr_ttyname);
 		} else {
 			warnx("started vm %d successfully, tty %s",
 			    vmr->vmr_id, vmr->vmr_ttyname);
+			*ret = 0;
+		}
+	} else {
+		warnx("unexpected response received from vmd");
+		*ret = EINVAL;
+	}
+
+	return (1);
+}
+
+void
+send_vm(uint32_t id, const char *name)
+{
+	struct vmop_id vid;
+	int fds[2], readn, writen;
+	char buf[PAGE_SIZE];
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = id;
+	if (name != NULL)
+		strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fds) == -1) {
+		warnx("%s: socketpair creation failed", __func__);
+	} else {
+		imsg_compose(ibuf, IMSG_VMDOP_SEND_VM_REQUEST, 0, 0, fds[0],
+				&vid, sizeof(vid));
+		imsg_flush(ibuf);
+		while (1) {
+			readn = atomicio(read, fds[1], buf, sizeof(buf));
+			if (!readn)
+				break;
+			writen = atomicio(vwrite, STDOUT_FILENO, buf,
+					readn);
+			if (writen != readn)
+				break;
+		}
+		if (vid.vid_id)
+			warnx("sent vm %d successfully", vid.vid_id);
+		else
+			warnx("sent vm %s successfully", vid.vid_name);
+	}
+}
+
+void
+vm_receive(uint32_t id, const char *name)
+{
+	struct vmop_id vid;
+	int fds[2], readn, writen;
+	char buf[PAGE_SIZE];
+
+	memset(&vid, 0, sizeof(vid));
+	if (name != NULL)
+		strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fds) == -1) {
+		warnx("%s: socketpair creation failed", __func__);
+	} else {
+		imsg_compose(ibuf, IMSG_VMDOP_RECEIVE_VM_REQUEST, 0, 0, fds[0],
+		    &vid, sizeof(vid));
+		imsg_flush(ibuf);
+		while (1) {
+			readn = atomicio(read, STDIN_FILENO, buf, sizeof(buf));
+			if (!readn) {
+				close(fds[1]);
+				break;
+			}
+			writen = atomicio(vwrite, fds[1], buf, readn);
+			if (writen != readn)
+				break;
+		}
+	}
+}
+
+void
+pause_vm(uint32_t pause_id, const char *name)
+{
+	struct vmop_id vid;
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = pause_id;
+	if (name != NULL)
+		(void)strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+
+	imsg_compose(ibuf, IMSG_VMDOP_PAUSE_VM, 0, 0, -1,
+	    &vid, sizeof(vid));
+}
+
+int
+pause_vm_complete(struct imsg *imsg, int *ret)
+{
+	struct vmop_result *vmr;
+	int res;
+
+	if (imsg->hdr.type == IMSG_VMDOP_PAUSE_VM_RESPONSE) {
+		vmr = (struct vmop_result *)imsg->data;
+		res = vmr->vmr_result;
+		if (res) {
+			errno = res;
+			warn("pause vm command failed");
+			*ret = EIO;
+		} else {
+			warnx("paused vm %d successfully", vmr->vmr_id);
+			*ret = 0;
+		}
+	} else {
+		warnx("unexpected response received from vmd");
+		*ret = EINVAL;
+	}
+
+	return (1);
+}
+
+void
+unpause_vm(uint32_t pause_id, const char *name)
+{
+	struct vmop_id vid;
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = pause_id;
+	if (name != NULL)
+		(void)strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+
+	imsg_compose(ibuf, IMSG_VMDOP_UNPAUSE_VM, 0, 0, -1,
+	    &vid, sizeof(vid));
+}
+
+int
+unpause_vm_complete(struct imsg *imsg, int *ret)
+{
+	struct vmop_result *vmr;
+	int res;
+
+	if (imsg->hdr.type == IMSG_VMDOP_UNPAUSE_VM_RESPONSE) {
+		vmr = (struct vmop_result *)imsg->data;
+		res = vmr->vmr_result;
+		if (res) {
+			errno = res;
+			warn("unpause vm command failed");
+			*ret = EIO;
+		} else {
+			warnx("unpaused vm %d successfully", vmr->vmr_id);
 			*ret = 0;
 		}
 	} else {
@@ -197,7 +394,7 @@ terminate_vm(uint32_t terminate_id, const char *name)
  *
  * Return:
  *  Always 1 to indicate we have processed the return message (even if it
- *  was an incorrect/failure message) 
+ *  was an incorrect/failure message)
  *
  *  The function also sets 'ret' to the error code as follows:
  *   0     : Message successfully processed
@@ -215,7 +412,10 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
 		res = vmr->vmr_result;
 		if (res) {
 			errno = res;
-			warn("terminate vm command failed");
+			if (res == ENOENT)
+				warnx("vm not found");
+			else
+				warn("terminate vm command failed");
 			*ret = EIO;
 		} else {
 			warnx("terminated vm %d successfully", vmr->vmr_id);
@@ -236,7 +436,7 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
  *
  * Parameters:
  *  id: optional ID of a VM to list
- *  name: optional name of a VM to list 
+ *  name: optional name of a VM to list
  *  console: if true, open the console of the selected VM (by name or ID)
  *
  * Request a list of running VMs from vmd
@@ -343,19 +543,70 @@ void
 print_vm_info(struct vmop_info_result *list, size_t ct)
 {
 	struct vm_info_result *vir;
+	struct vmop_info_result *vmi;
 	size_t i, j;
-	char *vcpu_state;
+	char *vcpu_state, *tty;
+	char curmem[FMT_SCALED_STRSIZE];
+	char maxmem[FMT_SCALED_STRSIZE];
+	char user[16], group[16];
+	struct passwd *pw;
+	struct group *gr;
 
-	printf("%5s %5s %5s %9s %9s %*s %s\n", "ID", "PID", "VCPUS", "MAXMEM",
-	    "CURMEM", VM_TTYNAME_MAX, "TTY", "NAME");
+	printf("%5s %5s %5s %7s %7s %7s %12s %s\n", "ID", "PID", "VCPUS",
+	    "MAXMEM", "CURMEM", "TTY", "OWNER", "NAME");
+
 	for (i = 0; i < ct; i++) {
-		vir = &list[i].vir_info;
+		vmi = &list[i];
+		vir = &vmi->vir_info;
 		if (check_info_id(vir->vir_name, vir->vir_id)) {
-			printf("%5u %5u %5zd %7zdMB %7zdMB %*s %s\n",
-			    vir->vir_id, vir->vir_creator_pid,
-			    vir->vir_ncpus, vir->vir_memory_size,
-			    vir->vir_used_size / 1024 / 1024 , VM_TTYNAME_MAX,
-			    list[i].vir_ttyname, vir->vir_name);
+			/* get user name */
+			if ((pw = getpwuid(vmi->vir_uid)) == NULL)
+				(void)snprintf(user, sizeof(user),
+				    "%d", vmi->vir_uid);
+			else
+				(void)strlcpy(user, pw->pw_name,
+				    sizeof(user));
+			/* get group name */
+			if (vmi->vir_gid != -1) {
+				if (vmi->vir_uid == 0)
+					*user = '\0';
+				if ((gr = getgrgid(vmi->vir_gid)) == NULL)
+					(void)snprintf(group, sizeof(group),
+					    ":%lld", vmi->vir_gid);
+				else
+					(void)snprintf(group, sizeof(group),
+					    ":%s", gr->gr_name);
+				(void)strlcat(user, group, sizeof(user));
+			}
+
+			(void)strlcpy(curmem, "-", sizeof(curmem));
+			(void)strlcpy(maxmem, "-", sizeof(maxmem));
+
+			(void)fmt_scaled(vir->vir_memory_size * 1024 * 1024,
+			    maxmem);
+
+			if (vir->vir_creator_pid != 0 && vir->vir_id != 0) {
+				if (*vmi->vir_ttyname == '\0')
+					tty = "-";
+				/* get tty - skip /dev/ path */
+				else if ((tty = strrchr(vmi->vir_ttyname,
+				    '/')) == NULL || ++tty == '\0')
+					tty = list[i].vir_ttyname;
+
+				(void)fmt_scaled(vir->vir_used_size, curmem);
+
+				/* running vm */
+				printf("%5u %5u %5zd %7s %7s %7s %12s %s\n",
+				    vir->vir_id, vir->vir_creator_pid,
+				    vir->vir_ncpus, maxmem, curmem,
+				    tty, user, vir->vir_name);
+			} else {
+				/* disabled vm */
+				printf("%5u %5s %5zd %7s %7s %7s %12s %s\n",
+				    vir->vir_id, "-",
+				    vir->vir_ncpus, maxmem, curmem,
+				    "-", user, vir->vir_name);
+			}
 		}
 		if (check_info_id(vir->vir_name, vir->vir_id) > 0) {
 			for (j = 0; j < vir->vir_ncpus; j++) {
@@ -392,8 +643,9 @@ vm_console(struct vmop_info_result *list, size_t ct)
 
 	for (i = 0; i < ct; i++) {
 		vir = &list[i];
-		if (check_info_id(vir->vir_info.vir_name,
-		    vir->vir_info.vir_id) > 0) {
+		if ((check_info_id(vir->vir_info.vir_name,
+		    vir->vir_info.vir_id) > 0) &&
+			(vir->vir_ttyname[0] != '\0')) {
 			/* does not return */
 			ctl_openconsole(vir->vir_ttyname);
 		}

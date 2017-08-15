@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_usrreq.c,v 1.24 2016/09/05 16:07:01 claudio Exp $	*/
+/*	$OpenBSD: raw_usrreq.c,v 1.32 2017/07/03 19:23:47 claudio Exp $	*/
 /*	$NetBSD: raw_usrreq.c,v 1.11 1996/02/13 22:00:43 christos Exp $	*/
 
 /*
@@ -45,91 +45,6 @@
 #include <net/raw_cb.h>
 
 #include <sys/stdarg.h>
-/*
- * Initialize raw connection block q.
- */
-void
-raw_init(void)
-{
-
-	LIST_INIT(&rawcb);
-}
-
-
-/*
- * Raw protocol input routine.  Find the socket
- * associated with the packet(s) and move them over.  If
- * nothing exists for this packet, drop it.
- */
-/*
- * Raw protocol interface.
- */
-void
-raw_input(struct mbuf *m0, ...)
-{
-	struct rawcb *rp;
-	struct mbuf *m = m0;
-	int sockets = 0;
-	struct socket *last;
-	va_list ap;
-	struct sockproto *proto;
-	struct sockaddr *src, *dst;
-	
-	va_start(ap, m0);
-	proto = va_arg(ap, struct sockproto *);
-	src = va_arg(ap, struct sockaddr *);
-	dst = va_arg(ap, struct sockaddr *);
-	va_end(ap);
-
-	last = 0;
-	LIST_FOREACH(rp, &rawcb, rcb_list) {
-		if (rp->rcb_socket->so_state & SS_CANTRCVMORE)
-			continue;
-		if (rp->rcb_proto.sp_family != proto->sp_family)
-			continue;
-		if (rp->rcb_proto.sp_protocol  &&
-		    rp->rcb_proto.sp_protocol != proto->sp_protocol)
-			continue;
-		/*
-		 * We assume the lower level routines have
-		 * placed the address in a canonical format
-		 * suitable for a structure comparison.
-		 *
-		 * Note that if the lengths are not the same
-		 * the comparison will fail at the first byte.
-		 */
-#define	equal(a1, a2) \
-  (bcmp((caddr_t)(a1), (caddr_t)(a2), a1->sa_len) == 0)
-		if (rp->rcb_laddr && !equal(rp->rcb_laddr, dst))
-			continue;
-		if (rp->rcb_faddr && !equal(rp->rcb_faddr, src))
-			continue;
-		if (last) {
-			struct mbuf *n;
-			if ((n = m_copym(m, 0, M_COPYALL, M_NOWAIT)) != NULL) {
-				if (sbappendaddr(&last->so_rcv, src,
-				    n, (struct mbuf *)NULL) == 0)
-					/* should notify about lost packet */
-					m_freem(n);
-				else {
-					sorwakeup(last);
-					sockets++;
-				}
-			}
-		}
-		last = rp->rcb_socket;
-	}
-	if (last) {
-		if (sbappendaddr(&last->so_rcv, src,
-		    m, (struct mbuf *)NULL) == 0)
-			m_freem(m);
-		else {
-			sorwakeup(last);
-			sockets++;
-		}
-	} else
-		m_freem(m);
-}
 
 int
 raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
@@ -137,43 +52,26 @@ raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 {
 	struct rawcb *rp = sotorawcb(so);
 	int error = 0;
-	int len, s;
+	int len;
+
+	soassertlocked(so);
 
 	if (req == PRU_CONTROL)
 		return (EOPNOTSUPP);
 	if (control && control->m_len) {
-		error = EOPNOTSUPP;
-		goto release;
+		m_freem(m);
+		return (EOPNOTSUPP);
 	}
-	if (rp == 0) {
-		error = EINVAL;
-		goto release;
+	if (rp == NULL) {
+		m_freem(m);
+		return (EINVAL);
 	}
-	s = splsoftnet();
 	switch (req) {
-
-	/*
-	 * Allocate a raw control block and fill in the
-	 * necessary info to allow packets to be routed to
-	 * the appropriate raw interface routine.
-	 */
-	case PRU_ATTACH:
-		if ((so->so_state & SS_PRIV) == 0) {
-			error = EACCES;
-			break;
-		}
-		error = raw_attach(so, (int)(long)nam);
-		break;
-
 	/*
 	 * Destroy state just before socket deallocation.
 	 * Flush data or not depending on the options.
 	 */
 	case PRU_DETACH:
-		if (rp == 0) {
-			error = ENOTCONN;
-			break;
-		}
 		raw_detach(rp);
 		break;
 
@@ -214,7 +112,7 @@ raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			error = ENOTCONN;
 			break;
 		}
-		error = (*so->so_proto->pr_output)(m, so);
+		error = (*so->so_proto->pr_output)(m, so, NULL, NULL);
 		m = NULL;
 		if (nam)
 			rp->rcb_faddr = 0;
@@ -230,7 +128,6 @@ raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		/*
 		 * stat: don't bother with a blocksize.
 		 */
-		splx(s);
 		return (0);
 
 	/*
@@ -238,7 +135,6 @@ raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	 */
 	case PRU_RCVOOB:
 	case PRU_RCVD:
-		splx(s);
 		return (EOPNOTSUPP);
 
 	case PRU_LISTEN:
@@ -270,8 +166,6 @@ raw_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	default:
 		panic("raw_usrreq");
 	}
-	splx(s);
-release:
 	m_freem(m);
 	return (error);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: gusvar.h,v 1.8 2015/06/25 20:05:11 ratchov Exp $	*/
+/*	$OpenBSD: gusvar.h,v 1.10 2016/09/19 06:46:44 ratchov Exp $	*/
 /*	$NetBSD: gus.c,v 1.51 1998/01/25 23:48:06 mycroft Exp $	*/
 
 /*-
@@ -329,7 +329,6 @@ int	gusmax_dma_input(void *, void *, int, void (*)(void *), void *);
 int	gusmax_halt_out_dma(void *);
 int	gusmax_halt_in_dma(void *);
 int	gusmax_speaker_ctl(void *, int);
-int	gus_getdev(void *, struct audio_device *);
 
 void	gus_deinterleave(struct gus_softc *, void *, int);
 
@@ -369,11 +368,9 @@ int	gusmax_mixer_set_port(void *, mixer_ctrl_t *);
 int	gusmax_mixer_get_port(void *, mixer_ctrl_t *);
 int	gus_mixer_query_devinfo(void *, mixer_devinfo_t *);
 int	gusmax_mixer_query_devinfo(void *, mixer_devinfo_t *);
-int	gus_query_encoding(void *, struct audio_encoding *);
 void   *gus_malloc(void *, int, size_t, int, int);
 void	gus_free(void *, void *, int);
 size_t	gus_round(void *, int, size_t);
-paddr_t	gus_mappage(void *, void *, off_t, int);
 int	gus_get_props(void *);
 int	gusmax_get_props(void *);
 
@@ -410,7 +407,6 @@ extern const int gus_addrs;
 #define splgus splaudio
 
 extern struct audio_hw_if gus_hw_if;
-extern struct audio_device gus_device;
 
 #define FLIP_REV	5		/* This rev has flipped mixer chans */
 

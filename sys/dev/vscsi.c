@@ -1,4 +1,4 @@
-/*	$OpenBSD: vscsi.c,v 1.39 2015/08/27 18:54:02 deraadt Exp $ */
+/*	$OpenBSD: vscsi.c,v 1.41 2017/02/12 17:12:37 chl Exp $ */
 
 /*
  * Copyright (c) 2008 David Gwynne <dlg@openbsd.org>
@@ -269,9 +269,8 @@ vscsiopen(dev_t dev, int flags, int mode, struct proc *p)
 		return (rv);
 	}
 
-	pool_init(&sc->sc_ccb_pool, sizeof(struct vscsi_ccb), 0, 0, 0,
+	pool_init(&sc->sc_ccb_pool, sizeof(struct vscsi_ccb), 0, IPL_BIO, 0,
 	    "vscsiccb", NULL);
-	pool_setipl(&sc->sc_ccb_pool, IPL_BIO);
 
 	/* we need to guarantee some ccbs will be available for the iopool */
 	rv = pool_prime(&sc->sc_ccb_pool, 8);
@@ -430,7 +429,6 @@ vscsi_t2i(struct vscsi_softc *sc, struct vscsi_ioc_t2i *t2i)
 {
 	struct vscsi_ccb		*ccb;
 	struct scsi_xfer		*xs;
-	struct scsi_link		*link;
 	int				rv = 0;
 
 	TAILQ_FOREACH(ccb, &sc->sc_ccb_t2i, ccb_entry) {
@@ -443,7 +441,6 @@ vscsi_t2i(struct vscsi_softc *sc, struct vscsi_ioc_t2i *t2i)
 	TAILQ_REMOVE(&sc->sc_ccb_t2i, ccb, ccb_entry);
 
 	xs = ccb->ccb_xs;
-	link = xs->sc_link;
 
 	xs->resid = xs->datalen - ccb->ccb_datalen;
 	xs->status = SCSI_OK;

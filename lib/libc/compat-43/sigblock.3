@@ -25,9 +25,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: sigblock.3,v 1.17 2014/04/07 17:57:56 schwarze Exp $
+.\"	$OpenBSD: sigblock.3,v 1.20 2017/08/01 15:38:02 schwarze Exp $
 .\"
-.Dd $Mdocdate: April 7 2014 $
+.Dd $Mdocdate: August 1 2017 $
 .Dt SIGBLOCK 3
 .Os
 .Sh NAME
@@ -42,7 +42,7 @@
 .Fn sigmask "int signum"
 .Sh DESCRIPTION
 .Bf -symbolic
-This interface is made obsolete by:
+This interface is made obsolete by
 .Ef
 .Xr sigprocmask 2 .
 .Pp
@@ -107,8 +107,8 @@ sigprocmask(SIG_BLOCK, NULL, &set);
 .Xr kill 2 ,
 .Xr sigaction 2 ,
 .Xr sigprocmask 2 ,
-.Xr sigsetmask 3 ,
-.Xr sigsetops 3
+.Xr sigaddset 3 ,
+.Xr sigsetmask 3
 .Sh HISTORY
 A
 .Fn sigblock

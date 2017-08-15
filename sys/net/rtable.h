@@ -1,7 +1,7 @@
-/*	$OpenBSD: rtable.h,v 1.16 2016/09/07 09:36:49 mpi Exp $ */
+/*	$OpenBSD: rtable.h,v 1.20 2017/08/02 08:38:28 mpi Exp $ */
 
 /*
- * Copyright (c) 2014-2015 Martin Pieuchot
+ * Copyright (c) 2014-2016 Martin Pieuchot
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,22 +19,19 @@
 #ifndef	_NET_RTABLE_H_
 #define	_NET_RTABLE_H_
 
-#ifndef ART
+#if !defined(_KERNEL) && !defined(ART)
 
 /*
  * Traditional BSD routing table implementation based on a radix tree.
  */
 #include <net/radix.h>
-#ifndef SMALL_KERNEL
-#include <net/radix_mpath.h>
-#endif
 
 #define	rt_key(rt)	(((struct sockaddr *)(rt)->rt_nodes[0].rn_key))
 #define	rt_mask(rt)	(((struct sockaddr *)(rt)->rt_nodes[0].rn_mask))
 #define	rt_plen(rt)	(rtable_satoplen(rt_key(rt)->sa_family, rt_mask(rt)))
 #define	RT_ROOT(rt)	((rt)->rt_nodes[0].rn_flags & RNF_ROOT)
 
-#else /* ART */
+#else /* defined(_KERNEL) || defined(ART) */
 
 /*
  * Newer routing table implementation based on ART (Allotment Routing
@@ -46,7 +43,7 @@
 #define	rt_plen(rt)	((rt)->rt_plen)
 #define	RT_ROOT(rt)	(0)
 
-#endif /* ART */
+#endif /* defined(_KERNEL) || defined(ART) */
 
 int		 rtable_satoplen(sa_family_t, struct sockaddr *);
 
@@ -54,7 +51,8 @@ void		 rtable_init(void);
 int		 rtable_exists(unsigned int);
 int		 rtable_add(unsigned int);
 unsigned int	 rtable_l2(unsigned int);
-void		 rtable_l2set(unsigned int, unsigned int);
+unsigned int	 rtable_loindex(unsigned int);
+void		 rtable_l2set(unsigned int, unsigned int, unsigned int);
 
 struct rtentry	*rtable_lookup(unsigned int, struct sockaddr *,
 		     struct sockaddr *, struct sockaddr *, uint8_t);

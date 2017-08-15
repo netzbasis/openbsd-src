@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp6_output.c,v 1.51 2016/08/04 20:46:24 vgross Exp $	*/
+/*	$OpenBSD: udp6_output.c,v 1.55 2017/08/11 19:53:02 bluhm Exp $	*/
 /*	$KAME: udp6_output.c,v 1.21 2001/02/07 11:51:54 itojun Exp $	*/
 
 /*
@@ -117,25 +117,18 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 		optp = in6p->inp_outputopts6;
 
 	if (addr6) {
-		struct sockaddr_in6 *sin6 = mtod(addr6, struct sockaddr_in6 *);
+		struct sockaddr_in6 *sin6;
 
-		if (addr6->m_len != sizeof(*sin6)) {
-			error = EINVAL;
+		if ((error = in6_nam2sin6(addr6, &sin6)))
 			goto release;
-		}
-		if (sin6->sin6_family != AF_INET6) {
-			error = EAFNOSUPPORT;
-			goto release;
-		}
 		if (sin6->sin6_port == 0) {
 			error = EADDRNOTAVAIL;
 			goto release;
 		}
 		if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr)) {
-			error = EINVAL;
+			error = EADDRNOTAVAIL;
 			goto release;
 		}
-
 		if (!IN6_IS_ADDR_UNSPECIFIED(&in6p->inp_faddr6)) {
 			error = EISCONN;
 			goto release;
@@ -159,9 +152,7 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 			goto release;
 
 		if (in6p->inp_lport == 0){
-			int s = splsoftnet();
 			error = in_pcbbind(in6p, NULL, p);
-			splx(s);
 			if (error)
 				goto release;
 		}
@@ -229,7 +220,7 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 	if (in6p->inp_flags & IN6P_MINMTU)
 		flags |= IPV6_MINMTU;
 
-	udpstat.udps_opackets++;
+	udpstat_inc(udps_opackets);
 
 	/* force routing table */
 	m->m_pkthdr.ph_rtableid = in6p->inp_rtableid;
