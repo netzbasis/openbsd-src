@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_nbr.c,v 1.116 2017/05/16 12:24:04 mpi Exp $	*/
+/*	$OpenBSD: nd6_nbr.c,v 1.121 2017/08/11 21:24:20 mpi Exp $	*/
 /*	$KAME: nd6_nbr.c,v 1.61 2001/02/10 16:06:14 jinmei Exp $	*/
 
 /*
@@ -445,7 +445,8 @@ nd6_ns_output(struct ifnet *ifp, struct in6_addr *daddr6,
 		 * We use the source address for the prompting packet
 		 * (saddr6), if:
 		 * - saddr6 is given from the caller (by giving "ln"), and
-		 * - saddr6 belongs to the outgoing interface.
+		 * - saddr6 belongs to the outgoing interface and
+		 * - if taddr is link local saddr6 must be link local as well
 		 * Otherwise, we perform the source address selection as usual.
 		 */
 		struct ip6_hdr *hip6;		/* hold ip6 */
@@ -453,9 +454,12 @@ nd6_ns_output(struct ifnet *ifp, struct in6_addr *daddr6,
 
 		if (ln && ln->ln_hold) {
 			hip6 = mtod(ln->ln_hold, struct ip6_hdr *);
-			if (sizeof(*hip6) <= ln->ln_hold->m_len)
+			if (sizeof(*hip6) <= ln->ln_hold->m_len) {
 				saddr6 = &hip6->ip6_src;
-			else
+				if (saddr6 && IN6_IS_ADDR_LINKLOCAL(taddr6) &&
+				    !IN6_IS_ADDR_LINKLOCAL(saddr6))
+					saddr6 = NULL;
+			} else
 				saddr6 = NULL;
 		} else
 			saddr6 = NULL;
@@ -715,6 +719,10 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 		if (is_solicited) {
 			ln->ln_state = ND6_LLINFO_REACHABLE;
 			ln->ln_byhint = 0;
+			/* Notify userland that a new ND entry is reachable. */
+			KERNEL_LOCK();
+			rtm_send(rt, RTM_RESOLVE, 0, ifp->if_rdomain);
+			KERNEL_UNLOCK();
 			if (!ND6_LLINFO_PERMANENT(ln)) {
 				nd6_llinfo_settimer(ln,
 				    ND_IFINFO(ifp)->reachable);
@@ -729,7 +737,6 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			 * non-reachable to probably reachable, and might
 			 * affect the status of associated prefixes..
 			 */
-			pfxlist_onlink_check();
 			if ((rt->rt_flags & RTF_LLINFO) == 0)
 				goto freeit;	/* ln is gone */
 		}
@@ -819,29 +826,9 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 		}
 
 		if (ln->ln_router && !is_router) {
-			/*
-			 * The peer dropped the router flag.
-			 * Remove the sender from the Default Router List and
-			 * update the Destination Cache entries.
-			 */
-			struct nd_defrouter *dr;
-			struct in6_addr *in6;
-
-			in6 = &satosin6(rt_key(rt))->sin6_addr;
-
-			/*
-			 * Lock to protect the default router list.
-			 * XXX: this might be unnecessary, since this function
-			 * is only called under the network software interrupt
-			 * context.  However, we keep it just for safety.
-			 */
-			dr = defrouter_lookup(in6, rt->rt_ifidx);
-			if (dr)
-				defrtrlist_del(dr);
-			else if (!ip6_forwarding) {
+			if (!ip6_forwarding) {
 				/*
-				 * Even if the neighbor is not in the default
-				 * router list, the neighbor may be used
+				 * The neighbor may be used
 				 * as a next hop for some destinations
 				 * (e.g. redirect case). So we must
 				 * call rt6_flush explicitly.
@@ -1186,9 +1173,8 @@ nd6_dad_timer(void *xifa)
 	struct in6_ifaddr *ia6 = ifatoia6(ifa);
 	struct dadq *dp;
 	char addr[INET6_ADDRSTRLEN];
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 
 	/* Sanity check */
 	if (ia6 == NULL) {
@@ -1279,7 +1265,7 @@ nd6_dad_timer(void *xifa)
 	}
 
 done:
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void

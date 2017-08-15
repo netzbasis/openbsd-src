@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_rwlock.c,v 1.28 2017/04/20 13:33:00 visa Exp $	*/
+/*	$OpenBSD: kern_rwlock.c,v 1.30 2017/08/12 23:27:44 guenther Exp $	*/
 
 /*
  * Copyright (c) 2002, 2003 Artur Grabowski <art@openbsd.org>
@@ -236,6 +236,10 @@ retry:
 		unsigned long set = o | op->wait_set;
 		int do_sleep;
 
+		/* Avoid deadlocks after panic */
+		if (panicstr)
+			return (0);
+
 		rw_enter_diag(rwl, flags);
 
 		if (flags & RW_NOSLEEP)
@@ -335,6 +339,17 @@ rw_assert_rdlock(struct rwlock *rwl)
 {
 	if (!RWLOCK_OWNER(rwl) || (rwl->rwl_owner & RWLOCK_WRLOCK))
 		panic("%s: lock not shared", rwl->rwl_name);
+}
+
+void
+rw_assert_anylock(struct rwlock *rwl)
+{
+	switch (rw_status(rwl)) {
+	case RW_WRITE_OTHER:
+		panic("%s: lock held by different process", rwl->rwl_name);
+	case 0:
+		panic("%s: lock not held", rwl->rwl_name);
+	}
 }
 
 void

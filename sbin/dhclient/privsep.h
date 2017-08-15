@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.h,v 1.35 2017/04/11 13:59:27 krw Exp $ */
+/*	$OpenBSD: privsep.h,v 1.55 2017/08/13 17:57:32 krw Exp $ */
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -20,62 +20,43 @@ enum imsg_code {
 	IMSG_NONE,
 	IMSG_HUP,
 	IMSG_DELETE_ADDRESS,
-	IMSG_ADD_ADDRESS,
+	IMSG_SET_ADDRESS,
 	IMSG_FLUSH_ROUTES,
 	IMSG_ADD_ROUTE,
-	IMSG_SET_INTERFACE_MTU,
+	IMSG_SET_MTU,
+	IMSG_SET_RESOLV_CONF,
 	IMSG_WRITE_RESOLV_CONF
-};
-
-struct imsg_hup {
-	struct	in_addr addr;
 };
 
 struct imsg_delete_address {
 	struct	in_addr addr;
 };
 
-struct imsg_add_address {
+struct imsg_set_address {
 	struct	in_addr	addr;
 	struct	in_addr mask;
-};
-
-struct imsg_flush_routes {
-	int	zapzombies;
 };
 
 struct imsg_add_route {
 	struct in_addr	dest;
 	struct in_addr	netmask;
 	struct in_addr	gateway;
-	struct in_addr	ifa;
-	int		addrs;
 	int		flags;
 };
 
-struct imsg_set_interface_mtu {
+struct imsg_set_mtu {
 	int	mtu;
 };
 
-void	dispatch_imsg(struct interface_info *, struct imsgbuf *);
+void	dispatch_imsg(char *, int, int, int, struct imsgbuf *);
+int	default_route_index(int, int);
 
-void	add_direct_route(struct in_addr, struct in_addr, struct in_addr);
-void	add_default_route(struct in_addr, struct in_addr);
-void	add_static_routes(struct option_data *, struct in_addr);
-void	add_classless_static_routes(struct option_data *, struct in_addr);
-void	priv_add_route(struct interface_info *, struct imsg_add_route *);
-void	priv_flush_routes(struct interface_info *, struct imsg_flush_routes *);
+void	priv_add_route(char *, int, int, struct imsg_add_route *);
+void	priv_flush_routes(int, int, int);
 
-char	*resolv_conf_contents(struct interface_info *ifi, struct option_data *,
-	    struct option_data *, struct option_data *);
-void	write_resolv_conf(u_int8_t *, size_t);
-void	priv_write_resolv_conf(struct interface_info *, struct imsg *);
+void	priv_write_resolv_conf(char *);
 
-void	priv_delete_address(struct interface_info *,
-	    struct imsg_delete_address *);
-void	priv_add_address(struct interface_info *, struct imsg_add_address *);
+void	priv_delete_address(char *, int, struct imsg_delete_address *);
+void	priv_set_address(char *, int, struct imsg_set_address *);
 
-void	priv_set_interface_mtu(struct interface_info *,
-	    struct imsg_set_interface_mtu *);
-
-void	priv_cleanup(struct interface_info *, struct imsg_hup *);
+void	priv_set_mtu(char *, int, struct imsg_set_mtu *);

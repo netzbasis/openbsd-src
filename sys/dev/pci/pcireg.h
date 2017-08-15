@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcireg.h,v 1.53 2017/03/25 07:33:46 mlarkin Exp $	*/
+/*	$OpenBSD: pcireg.h,v 1.55 2017/08/09 21:42:44 mlarkin Exp $	*/
 /*	$NetBSD: pcireg.h,v 1.26 2000/05/10 16:58:42 thorpej Exp $	*/
 
 /*
@@ -338,6 +338,7 @@ typedef u_int8_t pci_revision_t;
 #define PCI_CARDBUSCIS	0x28
 #define PCI_SUBVEND_0	0x2c
 #define PCI_SUBDEV_0	0x2e
+#define PCI_EXROMADDR_0	0x30
 #define PCI_INTLINE	0x3c
 #define PCI_INTPIN	0x3d
 #define PCI_MINGNT	0x3e
@@ -369,6 +370,7 @@ typedef u_int8_t pci_revision_t;
 
 #define PCI_SUBVEND_1	0x34
 #define PCI_SUBDEV_1	0x36
+#define PCI_EXROMADDR_1	0x38
 
 /* config registers for header type 2 devices */
 
@@ -574,6 +576,7 @@ typedef u_int8_t pci_revision_t;
 #define PCI_PCIE_LCSR_ASPM_L0S	0x00000001
 #define PCI_PCIE_LCSR_ASPM_L1	0x00000002
 #define PCI_PCIE_LCSR_ES	0x00000080
+#define PCI_PCIE_LCSR_ECPM	0x00000100
 #define PCI_PCIE_SLCAP		0x14
 #define PCI_PCIE_SLCAP_ABP	0x00000001
 #define PCI_PCIE_SLCAP_PCP	0x00000002

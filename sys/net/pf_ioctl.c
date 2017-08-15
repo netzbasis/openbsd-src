@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.314 2017/06/01 14:38:28 patrick Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.322 2017/08/11 21:24:19 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -84,6 +84,8 @@
 #include <net/if_pfsync.h>
 #endif /* NPFSYNC > 0 */
 
+struct pool		 pf_tag_pl;
+
 void			 pfattach(int);
 void			 pf_thread_create(void *);
 int			 pfopen(dev_t, int, int, struct proc *);
@@ -129,6 +131,10 @@ struct {
 TAILQ_HEAD(pf_tags, pf_tagname)	pf_tags = TAILQ_HEAD_INITIALIZER(pf_tags),
 				pf_qids = TAILQ_HEAD_INITIALIZER(pf_qids);
 
+#ifdef WITH_PF_LOCK
+struct rwlock		 pf_lock = RWLOCK_INITIALIZER("pf_lock");
+#endif /* WITH_PF_LOCK */
+
 #if (PF_QNAME_SIZE != PF_TAG_NAME_SIZE)
 #error PF_QNAME_SIZE must be equal to PF_TAG_NAME_SIZE
 #endif
@@ -161,6 +167,8 @@ pfattach(int num)
 	    IPL_SOFTNET, 0, "pfruleitem", NULL);
 	pool_init(&pf_queue_pl, sizeof(struct pf_queuespec), 0,
 	    IPL_SOFTNET, 0, "pfqueue", NULL);
+	pool_init(&pf_tag_pl, sizeof(struct pf_tagname), 0,
+	    IPL_SOFTNET, 0, "pftag", NULL);
 	hfsc_initialize();
 	pfr_initialize();
 	pfi_initialize();
@@ -223,16 +231,6 @@ pfattach(int num)
 
 	/* XXX do our best to avoid a conflict */
 	pf_status.hostid = arc4random();
-
-	/* require process context to purge states, so perform in a thread */
-	kthread_create_deferred(pf_thread_create, NULL);
-}
-
-void
-pf_thread_create(void *v)
-{
-	if (kthread_create(pf_purge_thread, NULL, NULL, "pfpurge"))
-		panic("pfpurge thread");
 }
 
 int
@@ -344,16 +342,17 @@ tagname2tag(struct pf_tags *head, char *tagname, int create)
 	 */
 
 	/* new entry */
-	if (!TAILQ_EMPTY(head))
-		for (p = TAILQ_FIRST(head); p != NULL &&
-		    p->tag == new_tagid; p = TAILQ_NEXT(p, entries))
-			new_tagid = p->tag + 1;
+	TAILQ_FOREACH(p, head, entries) {
+		if (p->tag != new_tagid)
+			break;
+		new_tagid = p->tag + 1;
+	}
 
 	if (new_tagid > TAGID_MAX)
 		return (0);
 
 	/* allocate and fill new struct pf_tagname */
-	tag = malloc(sizeof(*tag), M_RTABLE, M_NOWAIT|M_ZERO);
+	tag = pool_get(&pf_tag_pl, PR_NOWAIT | PR_ZERO);
 	if (tag == NULL)
 		return (0);
 	strlcpy(tag->name, tagname, sizeof(tag->name));
@@ -388,12 +387,11 @@ tag_unref(struct pf_tags *head, u_int16_t tag)
 	if (tag == 0)
 		return;
 
-	for (p = TAILQ_FIRST(head); p != NULL; p = next) {
-		next = TAILQ_NEXT(p, entries);
+	TAILQ_FOREACH_SAFE(p, head, entries, next) {
 		if (tag == p->tag) {
 			if (--p->ref == 0) {
 				TAILQ_REMOVE(head, p, entries);
-				free(p, M_RTABLE, sizeof(*p));
+				pool_put(&pf_tag_pl, p);
 			}
 			break;
 		}
@@ -598,12 +596,12 @@ pf_create_queues(void)
 		qif = malloc(sizeof(*qif), M_TEMP, M_WAITOK);
 		qif->ifp = ifp;
 
-		if (q->flags & PFQS_FLOWQUEUE) {
-			qif->ifqops = ifq_fqcodel_ops;
-			qif->pfqops = pfq_fqcodel_ops;
-		} else {
+		if (q->flags & PFQS_ROOTCLASS) {
 			qif->ifqops = ifq_hfsc_ops;
 			qif->pfqops = pfq_hfsc_ops;
+		} else {
+			qif->ifqops = ifq_fqcodel_ops;
+			qif->pfqops = pfq_fqcodel_ops;
 		}
 
 		qif->disc = qif->pfqops->pfq_alloc(ifp);
@@ -688,6 +686,14 @@ pf_commit_queues(void)
         pf_free_queues(pf_queues_inactive);
 
 	return (0);
+}
+
+const struct pfq_ops *
+pf_queue_manager(struct pf_queuespec *q)
+{
+	if (q->flags & PFQS_FLOWQUEUE)
+		return pfq_fqcodel_ops;
+	return (/* pfq_default_ops */ NULL);
 }
 
 #define PF_MD5_UPD(st, elm)						\
@@ -899,7 +905,6 @@ pf_addr_copyout(struct pf_addr_wrap *addr)
 int
 pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 {
-	int			 s;
 	int			 error = 0;
 
 	/* XXX keep in sync with switch() below */
@@ -997,7 +1002,8 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			return (EACCES);
 		}
 
-	NET_LOCK(s);
+	NET_LOCK();
+	PF_LOCK();
 	switch (cmd) {
 
 	case DIOCSTART:
@@ -1010,6 +1016,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				pf_status.stateid = time_second;
 				pf_status.stateid = pf_status.stateid << 32;
 			}
+			timeout_add(&pf_purge_to, 1 * hz);
 			pf_create_queues();
 			DPFPRINTF(LOG_NOTICE, "pf: started");
 		}
@@ -1087,7 +1094,9 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			break;
 		}
 		bcopy(qs, &pq->queue, sizeof(pq->queue));
-		if (qs->flags & PFQS_FLOWQUEUE)
+		/* It's a root flow queue but is not an HFSC root class */
+		if ((qs->flags & PFQS_FLOWQUEUE) && qs->parent_qid == 0 &&
+		    !(qs->flags & PFQS_ROOTCLASS))
 			error = pfq_fqcodel_ops->pfq_qstats(qs, pq->buf,
 			    &nbytes);
 		else
@@ -2085,6 +2094,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				error = EFAULT;
 				goto fail;
 			}
+			if (strnlen(ioe->anchor, sizeof(ioe->anchor)) ==
+			    sizeof(ioe->anchor)) {
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = ENAMETOOLONG;
+				goto fail;
+			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
 				bzero(table, sizeof(*table));
@@ -2137,6 +2153,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				error = EFAULT;
 				goto fail;
 			}
+			if (strnlen(ioe->anchor, sizeof(ioe->anchor)) ==
+			    sizeof(ioe->anchor)) {
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = ENAMETOOLONG;
+				goto fail;
+			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
 				bzero(table, sizeof(*table));
@@ -2183,6 +2206,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				free(table, M_TEMP, sizeof(*table));
 				free(ioe, M_TEMP, sizeof(*ioe));
 				error = EFAULT;
+				goto fail;
+			}
+			if (strnlen(ioe->anchor, sizeof(ioe->anchor)) ==
+			    sizeof(ioe->anchor)) {
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = ENAMETOOLONG;
 				goto fail;
 			}
 			switch (ioe->type) {
@@ -2232,6 +2262,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				error = EFAULT;
 				goto fail;
 			}
+			if (strnlen(ioe->anchor, sizeof(ioe->anchor)) ==
+			    sizeof(ioe->anchor)) {
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = ENAMETOOLONG;
+				goto fail;
+			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
 				bzero(table, sizeof(*table));
@@ -2273,7 +2310,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			    pf_default_rule_new.timeout[i];
 			if (pf_default_rule.timeout[i] == PFTM_INTERVAL &&
 			    pf_default_rule.timeout[i] < old)
-				wakeup(pf_purge_thread);
+				task_add(softnettq, &pf_purge_task);
 		}
 		pfi_xcommit();
 		pf_trans_set_commit();
@@ -2437,7 +2474,8 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		break;
 	}
 fail:
-	NET_UNLOCK(s);
+	PF_UNLOCK();
+	NET_UNLOCK();
 	return (error);
 }
 

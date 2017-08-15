@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.31 2016/12/30 22:32:25 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.33 2017/08/12 19:41:16 jasper Exp $
 
 CBIN=		instbin
 ARCHDIR=	${.CURDIR}/..
@@ -25,6 +25,7 @@ BOOT?=		${DESTDIR}/usr/mdec/boot
 CDBOOT?=	${DESTDIR}/usr/mdec/cdboot
 
 STRIP?=		strip
+STRIPOPTS?=	-R .SUNW_ctf
 GZIPCMD?=	gzip
 GZIPFLAGS?=	-9n
 
@@ -56,7 +57,7 @@ obsd:
 bsd.rd:	obsd ${IMAGE} rdsetroot
 	cp obsd bsd.rd
 	${.OBJDIR}/rdsetroot bsd.rd ${IMAGE}
-	@${STRIP} bsd.rd
+	${STRIP} ${STRIPOPTS} bsd.rd
 
 bsd:	bsd.rd
 	(cat bsd.rd ; dd if=/dev/zero count=1) | ${GZIPCMD} ${GZIPFLAGS} > bsd
@@ -99,6 +100,7 @@ clean cleandir:
 .ifdef RELEASEDIR
 beforeinstall:
 	cp bsd.rd ${LIF} ${CDROM} ${RELEASEDIR}
+	chmod a+r ${RELEASEDIR}/bsd.rd
 .endif
 
 .include <bsd.obj.mk>

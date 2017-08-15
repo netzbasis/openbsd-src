@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.30 2017/04/19 15:38:32 reyk Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.37 2017/08/14 21:41:49 jasper Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -25,6 +25,7 @@
 
 #include <machine/vmmvar.h>
 
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -40,6 +41,7 @@
 
 #include "vmd.h"
 #include "vmctl.h"
+#include "atomicio.h"
 
 extern char *__progname;
 uint32_t info_id;
@@ -73,6 +75,7 @@ vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
 	struct vm_create_params *vcp;
 	unsigned int flags = 0;
 	int i;
+	const char *s;
 
 	if (memsize)
 		flags |= VMOP_CREATE_MEMORY;
@@ -130,12 +133,26 @@ vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
 			strlcpy(vmc->vmc_ifswitch[i], "", IF_NAMESIZE);
 			vmc->vmc_ifflags[i] |= VMIFF_LOCAL;
 		} else {
-			/* Add a interface to a switch */
+			/* Add an interface to a switch */
 			strlcpy(vmc->vmc_ifswitch[i], nics[i], IF_NAMESIZE);
 		}
 	}
-	if (name != NULL)
+	if (name != NULL) {
+		/* Allow VMs names with alphanumeric characters, dot, hyphen
+		 * and underscore. But disallow dot, hyphen and underscore at
+		 * the start.
+		 */
+		if (*name == '-' || *name == '.' || *name == '_')
+			errx(1, "Invalid VM name");
+
+		for (s = name; *s != '\0'; ++s) {
+			if (!(isalnum(*s) || *s == '.' || *s == '-' ||
+			      *s == '_'))
+				errx(1, "Invalid VM name");
+		}
+
 		strlcpy(vcp->vcp_name, name, VMM_MAX_NAME_LEN);
+	}
 	if (kernel != NULL)
 		strlcpy(vcp->vcp_kernel, kernel, VMM_MAX_KERNEL_PATH);
 
@@ -160,7 +177,7 @@ vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
  *
  * Return:
  *  Always 1 to indicate we have processed the return message (even if it
- *  was an incorrect/failure message) 
+ *  was an incorrect/failure message)
  *
  *  The function also sets 'ret' to the error code as follows:
  *   0     : Message successfully processed
@@ -178,14 +195,159 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 		res = vmr->vmr_result;
 		if (res) {
 			errno = res;
-			warn("start vm command failed");
-			*ret = EIO;
+			if (res == ENOENT) {
+				warnx("could not find specified disk image(s)");
+				*ret = ENOENT;
+			} else {
+				warn("start vm command failed");
+				*ret = EIO;
+			}
 		} else if (autoconnect) {
 			/* does not return */
 			ctl_openconsole(vmr->vmr_ttyname);
 		} else {
 			warnx("started vm %d successfully, tty %s",
 			    vmr->vmr_id, vmr->vmr_ttyname);
+			*ret = 0;
+		}
+	} else {
+		warnx("unexpected response received from vmd");
+		*ret = EINVAL;
+	}
+
+	return (1);
+}
+
+void
+send_vm(uint32_t id, const char *name)
+{
+	struct vmop_id vid;
+	int fds[2], readn, writen;
+	char buf[PAGE_SIZE];
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = id;
+	if (name != NULL)
+		strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fds) == -1) {
+		warnx("%s: socketpair creation failed", __func__);
+	} else {
+		imsg_compose(ibuf, IMSG_VMDOP_SEND_VM_REQUEST, 0, 0, fds[0],
+				&vid, sizeof(vid));
+		imsg_flush(ibuf);
+		while (1) {
+			readn = atomicio(read, fds[1], buf, sizeof(buf));
+			if (!readn)
+				break;
+			writen = atomicio(vwrite, STDOUT_FILENO, buf,
+					readn);
+			if (writen != readn)
+				break;
+		}
+		if (vid.vid_id)
+			warnx("sent vm %d successfully", vid.vid_id);
+		else
+			warnx("sent vm %s successfully", vid.vid_name);
+	}
+}
+
+void
+vm_receive(uint32_t id, const char *name)
+{
+	struct vmop_id vid;
+	int fds[2], readn, writen;
+	char buf[PAGE_SIZE];
+
+	memset(&vid, 0, sizeof(vid));
+	if (name != NULL)
+		strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fds) == -1) {
+		warnx("%s: socketpair creation failed", __func__);
+	} else {
+		imsg_compose(ibuf, IMSG_VMDOP_RECEIVE_VM_REQUEST, 0, 0, fds[0],
+		    &vid, sizeof(vid));
+		imsg_flush(ibuf);
+		while (1) {
+			readn = atomicio(read, STDIN_FILENO, buf, sizeof(buf));
+			if (!readn) {
+				close(fds[1]);
+				break;
+			}
+			writen = atomicio(vwrite, fds[1], buf, readn);
+			if (writen != readn)
+				break;
+		}
+	}
+}
+
+void
+pause_vm(uint32_t pause_id, const char *name)
+{
+	struct vmop_id vid;
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = pause_id;
+	if (name != NULL)
+		(void)strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+
+	imsg_compose(ibuf, IMSG_VMDOP_PAUSE_VM, 0, 0, -1,
+	    &vid, sizeof(vid));
+}
+
+int
+pause_vm_complete(struct imsg *imsg, int *ret)
+{
+	struct vmop_result *vmr;
+	int res;
+
+	if (imsg->hdr.type == IMSG_VMDOP_PAUSE_VM_RESPONSE) {
+		vmr = (struct vmop_result *)imsg->data;
+		res = vmr->vmr_result;
+		if (res) {
+			errno = res;
+			warn("pause vm command failed");
+			*ret = EIO;
+		} else {
+			warnx("paused vm %d successfully", vmr->vmr_id);
+			*ret = 0;
+		}
+	} else {
+		warnx("unexpected response received from vmd");
+		*ret = EINVAL;
+	}
+
+	return (1);
+}
+
+void
+unpause_vm(uint32_t pause_id, const char *name)
+{
+	struct vmop_id vid;
+
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = pause_id;
+	if (name != NULL)
+		(void)strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
+
+	imsg_compose(ibuf, IMSG_VMDOP_UNPAUSE_VM, 0, 0, -1,
+	    &vid, sizeof(vid));
+}
+
+int
+unpause_vm_complete(struct imsg *imsg, int *ret)
+{
+	struct vmop_result *vmr;
+	int res;
+
+	if (imsg->hdr.type == IMSG_VMDOP_UNPAUSE_VM_RESPONSE) {
+		vmr = (struct vmop_result *)imsg->data;
+		res = vmr->vmr_result;
+		if (res) {
+			errno = res;
+			warn("unpause vm command failed");
+			*ret = EIO;
+		} else {
+			warnx("unpaused vm %d successfully", vmr->vmr_id);
 			*ret = 0;
 		}
 	} else {
@@ -232,7 +394,7 @@ terminate_vm(uint32_t terminate_id, const char *name)
  *
  * Return:
  *  Always 1 to indicate we have processed the return message (even if it
- *  was an incorrect/failure message) 
+ *  was an incorrect/failure message)
  *
  *  The function also sets 'ret' to the error code as follows:
  *   0     : Message successfully processed
@@ -250,7 +412,10 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
 		res = vmr->vmr_result;
 		if (res) {
 			errno = res;
-			warn("terminate vm command failed");
+			if (res == ENOENT)
+				warnx("vm not found");
+			else
+				warn("terminate vm command failed");
 			*ret = EIO;
 		} else {
 			warnx("terminated vm %d successfully", vmr->vmr_id);
@@ -271,7 +436,7 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
  *
  * Parameters:
  *  id: optional ID of a VM to list
- *  name: optional name of a VM to list 
+ *  name: optional name of a VM to list
  *  console: if true, open the console of the selected VM (by name or ID)
  *
  * Request a list of running VMs from vmd
@@ -478,8 +643,9 @@ vm_console(struct vmop_info_result *list, size_t ct)
 
 	for (i = 0; i < ct; i++) {
 		vir = &list[i];
-		if (check_info_id(vir->vir_info.vir_name,
-		    vir->vir_info.vir_id) > 0) {
+		if ((check_info_id(vir->vir_info.vir_name,
+		    vir->vir_info.vir_id) > 0) &&
+			(vir->vir_ttyname[0] != '\0')) {
 			/* does not return */
 			ctl_openconsole(vir->vir_ttyname);
 		}

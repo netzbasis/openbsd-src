@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.56 2017/05/30 17:49:47 mlarkin Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.61 2017/08/12 19:53:37 mlarkin Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.1 2003/04/26 18:39:48 fvdl Exp $	*/
 /*	$NetBSD: x86/specialreg.h,v 1.2 2003/04/25 21:54:30 fvdl Exp $	*/
 
@@ -327,19 +327,6 @@
 #define MSR_PERFCTR0		0x0c1
 #define MSR_PERFCTR1		0x0c2
 #define MSR_FSB_FREQ		0x0cd	/* Core Duo/Solo only */   
-/*
- * for Core i Series and newer Xeons, see
- * http://www.intel.com/content/dam/www/public/us/en/
- * documents/white-papers/cpu-monitoring-dts-peci-paper.pdf
- */
-#define MSR_TEMPERATURE_TARGET	0x1a2	/* Core i Series, Newer Xeons */
-#define MSR_TEMPERATURE_TARGET_TJMAX(msr) (((msr) >> 16) & 0xff)
-/*
- * not documented anywhere, see intelcore_update_sensor()
- * only available Core Duo and Core Solo Processors
- */
-#define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
-#define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_MTRRcap		0x0fe
 #define MTRRcap_FIXED		0x100	/* bit 8 - fixed MTRRs supported */
 #define MTRRcap_WC		0x400	/* bit 10 - WC type supported */
@@ -367,6 +354,45 @@
 #define MSR_THERM_STATUS_VALID_BIT	0x80000000
 #define	MSR_THERM_STATUS_TEMP(msr)	((msr >> 16) & 0x7f)
 #define MSR_THERM2_CTL		0x19d	/* Pentium M */
+#define MSR_MISC_ENABLE		0x1a0
+/*
+ * MSR_MISC_ENABLE (0x1a0)
+ *
+ * Enable Fast Strings: enables fast REP MOVS/REP STORS (R/W)
+ * Enable TCC: Enable automatic thermal control circuit (R/W)
+ * Performance monitoring available: 1 if enabled (R/O)
+ * Branch trace storage unavailable: 1 if unsupported (R/O)
+ * Processor event based sampling unavailable: 1 if unsupported (R/O)
+ * Enhanced Intel SpeedStep technology enable: 1 to enable (R/W)
+ * Enable monitor FSM: 1 to enable MONITOR/MWAIT (R/W)
+ * Limit CPUID maxval: 1 to limit CPUID leaf nodes to 0x2 and lower (R/W)
+ * Enable xTPR message disable: 1 to disable xTPR messages
+ * XD bit disable: 1 to disable NX capability (bit 34, or bit 2 of %edx/%rdx)
+ */
+#define MISC_ENABLE_FAST_STRINGS		(1 << 0)
+#define MISC_ENABLE_TCC				(1 << 3)
+#define MISC_ENABLE_PERF_MON_AVAILABLE		(1 << 7)
+#define MISC_ENABLE_BTS_UNAVAILABLE		(1 << 11)
+#define MISC_ENABLE_PEBS_UNAVAILABLE		(1 << 12)
+#define MISC_ENABLE_EIST_ENABLED		(1 << 16)
+#define MISC_ENABLE_ENABLE_MONITOR_FSM		(1 << 18)
+#define MISC_ENABLE_LIMIT_CPUID_MAXVAL		(1 << 22)
+#define MISC_ENABLE_xTPR_MESSAGE_DISABLE	(1 << 23)
+#define MISC_ENABLE_XD_BIT_DISABLE		(1 << 2)
+
+/*
+ * for Core i Series and newer Xeons, see
+ * http://www.intel.com/content/dam/www/public/us/en/
+ * documents/white-papers/cpu-monitoring-dts-peci-paper.pdf
+ */
+#define MSR_TEMPERATURE_TARGET	0x1a2	/* Core i Series, Newer Xeons */
+#define MSR_TEMPERATURE_TARGET_TJMAX(msr) (((msr) >> 16) & 0xff)
+/*
+ * not documented anywhere, see intelcore_update_sensor()
+ * only available Core Duo and Core Solo Processors
+ */
+#define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
+#define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_DEBUGCTLMSR		0x1d9
 #define MSR_LASTBRANCHFROMIP	0x1db
 #define MSR_LASTBRANCHTOIP	0x1dc
@@ -1174,8 +1200,34 @@
 #define MSR_AMD_VM_CR			0xc0010114
 #define MSR_AMD_VM_HSAVE_PA		0xc0010117
 #define CPUID_AMD_SVM_CAP		0x8000000A
-#define AMD_SVMDIS			0x10
 #define AMD_SVM_NESTED_PAGING_CAP	(1 << 0)
+#define AMD_SVM_VMCB_CLEAN_CAP		(1 << 5)
+#define AMD_SVM_FLUSH_BY_ASID_CAP	(1 << 6)
+#define AMD_SVMDIS			0x10
+
+#define SVM_TLB_CONTROL_FLUSH_NONE	0
+#define SVM_TLB_CONTROL_FLUSH_ALL	1
+#define SVM_TLB_CONTROL_FLUSH_ASID	3
+#define SVM_TLB_CONTROL_FLUSH_ASID_GLB	7
+
+#define SVM_CLEANBITS_I			(1 << 0)
+#define SVM_CLEANBITS_IOPM		(1 << 1)
+#define SVM_CLEANBITS_ASID		(1 << 2)
+#define SVM_CLEANBITS_TPR		(1 << 3)
+#define SVM_CLEANBITS_NP		(1 << 4)
+#define SVM_CLEANBITS_CR		(1 << 5)
+#define SVM_CLEANBITS_DR		(1 << 6)
+#define SVM_CLEANBITS_DT		(1 << 7)
+#define SVM_CLEANBITS_SEG		(1 << 8)
+#define SVM_CLEANBITS_CR2		(1 << 9)
+#define SVM_CLEANBITS_LBR		(1 << 10)
+#define SVM_CLEANBITS_AVIC		(1 << 11)
+
+#define SVM_CLEANBITS_ALL \
+	(SVM_CLEANBITS_I | SVM_CLEANBITS_IOPM | SVM_CLEANBITS_ASID | \
+	 SVM_CLEANBITS_TPR | SVM_CLEANBITS_NP | SVM_CLEANBITS_CR | \
+	 SVM_CLEANBITS_DR | SVM_CLEANBITS_DT | SVM_CLEANBITS_SEG | \
+	 SVM_CLEANBITS_CR2 | SVM_CLEANBITS_LBR | SVM_CLEANBITS_AVIC )
 
 /*
  * SVM : VMCB intercepts

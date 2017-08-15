@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.111 2017/04/14 01:02:28 mlarkin Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.114 2017/08/11 20:19:14 tedu Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -78,6 +78,8 @@ struct vmx {
  */
 struct svm {
 	uint32_t	svm_max_asid;
+	uint8_t		svm_flush_by_asid;
+	uint8_t		svm_vmcb_clean;
 };
 
 union vmm_cpu_cap {
@@ -421,11 +423,8 @@ void mp_setperf_init(void);
 #define CPU_CPUVENDOR		6	/* cpuid vendor string */
 #define CPU_CPUID		7	/* cpuid */
 #define CPU_CPUFEATURE		8	/* cpuid features */
-#define CPU_APMWARN		9	/* APM battery warning percentage */
 #define CPU_KBDRESET		10	/* keyboard reset under pcvt */
-#define CPU_APMHALT		11	/* halt -p hack */
 #define CPU_XCRYPT		12	/* supports VIA xcrypt in userland */
-#define CPU_LIDSUSPEND		13	/* lid close causes a suspend */
 #define CPU_LIDACTION		14	/* action caused by lid close */
 #define CPU_FORCEUKBD		15	/* Force ukbd(4) as console keyboard */
 #define CPU_MAXID		16	/* number of valid machdep ids */
@@ -440,11 +439,11 @@ void mp_setperf_init(void);
 	{ "cpuvendor", CTLTYPE_STRING }, \
 	{ "cpuid", CTLTYPE_INT }, \
 	{ "cpufeature", CTLTYPE_INT }, \
-	{ "apmwarn", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "kbdreset", CTLTYPE_INT }, \
-	{ "apmhalt", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "xcrypt", CTLTYPE_INT }, \
-	{ "lidsuspend", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "lidaction", CTLTYPE_INT }, \
 	{ "forceukbd", CTLTYPE_INT }, \
 }

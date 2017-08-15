@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.47 2016/10/14 18:44:20 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.50 2017/08/12 19:41:16 jasper Exp $
 
 REV=		${OSrev}
 
@@ -26,6 +26,7 @@ CRUNCHGENOPTS?=-E
 KERNEL?=	RAMDISK
 UTILS?=		${.CURDIR}/../miniroot
 STRIP?=		strip
+STRIPOPTS?=	-R .SUNW_ctf
 
 LISTS=		${.CURDIR}/list ${ARCHDIR}/list.local
 MTREE=		${UTILS}/mtree.conf
@@ -74,13 +75,13 @@ ${FLOPPY}:	bsd.gz ${BOOT} ${BOOTXX}
 
 bsd:
 	cd ${.CURDIR}/../../sys/arch/${MACHINE}/compile/${KERNEL} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Os ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
 	cp -p ${.CURDIR}/../../sys/arch/${MACHINE}/compile/${KERNEL}/obj/bsd bsd
 
 bsd.rd:	bsd ${IMAGE} rdsetroot
 	cp bsd bsd.rd
 	${.OBJDIR}/rdsetroot bsd.rd ${IMAGE}
-	${STRIP} bsd.rd
+	${STRIP} ${STRIPOPTS} bsd.rd
 
 bsd.gz:	bsd.rd
 	${GZIPCMD} ${GZIPFLAGS} < bsd.rd > bsd.gz
@@ -128,6 +129,7 @@ clean cleandir:
 .ifdef RELEASEDIR
 beforeinstall:
 	cp bsd.rd ${RELEASEDIR}
+	chmod a+r ${RELEASEDIR}/bsd.rd
 .ifdef MAKEFLOPPY
 	cp ${FLOPPY} ${RELEASEDIR}
 .endif	# MAKEFLOPPY

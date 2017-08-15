@@ -1,4 +1,4 @@
-/*	$OpenBSD: r92creg.h,v 1.9 2017/05/19 18:15:15 stsp Exp $	*/
+/*	$OpenBSD: r92creg.h,v 1.12 2017/07/08 14:26:23 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -304,6 +304,16 @@
 #define R92C_SYS_CLKR_SYS_EN		0x00001000
 #define R92C_SYS_CLKR_RING_EN		0x00002000
 
+/* Bits for R92C_RSV_CTRL. */
+#define R92C_RSV_CTRL_WLOCK_ALL		0x01
+#define R92C_RSV_CTRL_WLOCK_00		0x02
+#define R92C_RSV_CTRL_WLOCK_04		0x04
+#define R92C_RSV_CTRL_WLOCK_08		0x08
+#define R92C_RSV_CTRL_WLOCK_40		0x10
+#define R92C_RSV_CTRL_R_DIS_PRST_0	0x20
+#define R92C_RSV_CTRL_R_DIS_PRST_1	0x40
+#define R92C_RSV_CTRL_LOCK_ALL_EN	0x80
+
 /* Bits for R92C_RF_CTRL. */
 #define R92C_RF_CTRL_EN		0x01
 #define R92C_RF_CTRL_RSTB	0x02
@@ -348,6 +358,7 @@
 #define R92C_MCUFWDL_RAM_DL_SEL		0x00000080 /* 1: RAM, 0: ROM */
 #define R92C_MCUFWDL_PAGE_M		0x00070000
 #define R92C_MCUFWDL_PAGE_S		16
+#define R92C_MCUFWDL_ROM_DLEN		0x00080000
 #define R92C_MCUFWDL_CPRST		0x00800000
 
 /* Bits for R88E_HIMR. */
@@ -527,6 +538,12 @@
 #define R92C_BCN_CTRL_TXBCN_RPT		0x04
 #define R92C_BCN_CTRL_EN_BCN		0x08
 #define R92C_BCN_CTRL_DIS_TSF_UDT0	0x10
+
+/* Bits for R92C_DRVERLYINT. */
+#define R92C_DRVERLYINT_INIT_TIME	0x05
+
+/* Bits for R92C_BCNDMATIM. */
+#define R92C_BCNDMATIM_INIT_TIME	0x02
 
 /* Bits for R92C_APSD_CTRL. */
 #define R92C_APSD_CTRL_OFF		0x40
@@ -1015,7 +1032,7 @@ struct r92c_rom {
 	uint16_t	reserved3;
 	uint8_t		usb_phy;
 	uint8_t		reserved4[3];
-	uint8_t		macaddr[6];
+	uint8_t		macaddr[IEEE80211_ADDR_LEN];
 	uint8_t		string[61];	/* "Realtek" */
 	uint8_t		subcustomer_id;
 	uint8_t		cck_tx_pwr[R92C_MAX_CHAINS][3];
@@ -1025,7 +1042,7 @@ struct r92c_rom {
 	uint8_t		ofdm_tx_pwr_diff[3];
 	uint8_t		ht40_max_pwr[3];
 	uint8_t		ht20_max_pwr[3];
-	uint8_t		xtal_calib;
+	uint8_t		channel_plan;
 	uint8_t		tssi[R92C_MAX_CHAINS];
 	uint8_t		thermal_meter;
 	uint8_t		rf_opt1;
@@ -1042,9 +1059,49 @@ struct r92c_rom {
 	uint8_t		rf_opt2;
 	uint8_t		rf_opt3;
 	uint8_t		rf_opt4;
-	uint8_t		channel_plan;
+	uint8_t		reserved5;
 	uint8_t		version;
 	uint8_t		curstomer_id;
+} __packed;
+
+struct r88e_tx_pwr {
+	uint8_t		cck_tx_pwr[6];
+	uint8_t		ht40_tx_pwr[5];
+	uint8_t		ht20_ofdm_tx_pwr_diff;
+#define R88E_ROM_TXPWR_HT20_DIFF_M	0xf0
+#define R88E_ROM_TXPWR_HT20_DIFF_S	4
+#define R88E_ROM_TXPWR_OFDM_DIFF_M	0x0f
+#define R88E_ROM_TXPWR_OFDM_DIFF_S	0
+
+} __packed;
+
+/*
+ * RTL8188EU ROM image.
+ */
+struct r88e_rom {
+	uint8_t			reserved1[16];
+	struct r88e_tx_pwr	txpwr;
+	uint8_t			reserved2[156];
+	uint8_t			channel_plan;
+	uint8_t			xtal;
+	uint8_t			thermal_meter;
+	uint8_t			reserved3[6];
+	uint8_t			rf_board_opt;
+	uint8_t			rf_feature_opt;
+	uint8_t			rf_bt_opt;
+	uint8_t			version;
+	uint8_t			customer_id;
+	uint8_t			reserved4[3];
+	uint8_t			rf_ant_opt;
+	uint8_t			reserved5[6];
+	uint16_t		vid;
+	uint16_t		pid;
+	uint8_t			usb_opt;
+	uint8_t			reserved6[2];
+	uint8_t			macaddr[IEEE80211_ADDR_LEN];
+	uint8_t			reserved7[2];
+	uint8_t			string[33];	/* "Realtek" */
+	uint8_t			reserved8[256];
 } __packed;
 
 /* Rx PHY descriptor. */
@@ -2272,10 +2329,6 @@ struct r92c_txpwr {
 	uint8_t	pwr[3][28];
 };
 
-struct r88e_txpwr {
-	uint8_t	pwr[6][28];
-};
-
 /*
  * Per RF chain/group/rate Tx gain values.
  */
@@ -2337,47 +2390,6 @@ static const struct r92c_txpwr rtl8188ru_txagc[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
 	},
 	{	/* Group 2. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	}
-	} }
-};
-
-static const struct r88e_txpwr rtl8188eu_txagc[] = {
-	{ {	/* Chain 0. */
-	{	/* Group 0. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	},
-	{	/* Group 1. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	},
-	{	/* Group 2. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	},
-	{	/* Group 3. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	},
-	{	/* Group 4. */
-	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00	/* MCS8~15. */
-	},
-	{	/* Group 5. */
 	0x00, 0x00, 0x00, 0x00,				/* CCK1~11. */
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* OFDM6~54. */
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,	/* MCS0~7. */

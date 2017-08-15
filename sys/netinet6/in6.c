@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.206 2017/05/29 20:28:57 florian Exp $	*/
+/*	$OpenBSD: in6.c,v 1.211 2017/08/15 06:08:52 florian Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -161,6 +161,24 @@ in6_mask2len(struct in6_addr *mask, u_char *lim0)
 	}
 
 	return x * 8 + y;
+}
+
+int
+in6_nam2sin6(const struct mbuf *nam, struct sockaddr_in6 **sin6)
+{
+	struct sockaddr *sa = mtod(nam, struct sockaddr *);
+
+	if (nam->m_len < offsetof(struct sockaddr, sa_data))
+		return EINVAL;
+	if (sa->sa_family != AF_INET6)
+		return EAFNOSUPPORT;
+	if (sa->sa_len != nam->m_len)
+		return EINVAL;
+	if (sa->sa_len != sizeof(struct sockaddr_in6))
+		return EINVAL;
+	*sin6 = satosin6(sa);
+
+	return 0;
 }
 
 int
@@ -686,6 +704,8 @@ in6_update_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra,
 	 */
 	ia6->ia6_flags = ifra->ifra_flags;
 
+	nd6_expire_timer_update(ia6);
+
 	/*
 	 * We are done if we have simply modified an existing address.
 	 */
@@ -902,18 +922,10 @@ in6_unlink_ifa(struct in6_ifaddr *ia6, struct ifnet *ifp)
 	NET_ASSERT_LOCKED();
 
 	/* Release the reference to the base prefix. */
-	if (ia6->ia6_ndpr == NULL) {
-		plen = in6_mask2len(&ia6->ia_prefixmask.sin6_addr, NULL);
-		if ((ifp->if_flags & IFF_LOOPBACK) == 0 && plen != 128) {
-			rt_ifa_del(ifa, RTF_CLONING | RTF_CONNECTED,
-			    ifa->ifa_addr);
-		}
-	} else {
-		KASSERT(ia6->ia6_flags & IN6_IFF_AUTOCONF);
-		ia6->ia6_flags &= ~IN6_IFF_AUTOCONF;
-		if (--ia6->ia6_ndpr->ndpr_refcnt == 0)
-			prelist_remove(ia6->ia6_ndpr);
-		ia6->ia6_ndpr = NULL;
+	plen = in6_mask2len(&ia6->ia_prefixmask.sin6_addr, NULL);
+	if ((ifp->if_flags & IFF_LOOPBACK) == 0 && plen != 128) {
+		rt_ifa_del(ifa, RTF_CLONING | RTF_CONNECTED,
+		    ifa->ifa_addr);
 	}
 
 	rt_ifa_purge(ifa);
@@ -1358,14 +1370,13 @@ in6_joingroup(struct ifnet *ifp, struct in6_addr *addr, int *errorp)
 	return imm;
 }
 
-int
+void
 in6_leavegroup(struct in6_multi_mship *imm)
 {
 
 	if (imm->i6mm_maddr)
 		in6_delmulti(imm->i6mm_maddr);
 	free(imm,  M_IPMADDR, sizeof(*imm));
-	return 0;
 }
 
 /*
@@ -1506,32 +1517,6 @@ in6_matchlen(struct in6_addr *src, struct in6_addr *dst)
 		} else
 			match += 8;
 	return match;
-}
-
-int
-in6_are_prefix_equal(struct in6_addr *p1, struct in6_addr *p2, int len)
-{
-	int bytelen, bitlen;
-
-	/* sanity check */
-	if (0 > len || len > 128) {
-		log(LOG_ERR, "in6_are_prefix_equal: invalid prefix length(%d)\n",
-		    len);
-		return (0);
-	}
-
-	bytelen = len / 8;
-	bitlen = len % 8;
-
-	if (bcmp(&p1->s6_addr, &p2->s6_addr, bytelen))
-		return (0);
-	/* len == 128 is ok because bitlen == 0 then */
-	if (bitlen != 0 &&
-	    p1->s6_addr[bytelen] >> (8 - bitlen) !=
-	    p2->s6_addr[bytelen] >> (8 - bitlen))
-		return (0);
-
-	return (1);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.70 2017/05/30 12:42:31 friehm Exp $ */
+/*	$OpenBSD: rde.c,v 1.72 2017/08/12 16:27:50 benno Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -142,8 +142,14 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 		fatal("chdir(\"/\")");
 
 	setproctitle("route decision engine");
+	/*
+	 * XXX needed with fork+exec
+	 * log_init(debug, LOG_DAEMON);
+	 * log_setverbose(verbose);
+	 */
+
 	ospfd_process = PROC_RDE_ENGINE;
-	log_procname = log_procnames[ospfd_process];
+	log_procinit(log_procnames[ospfd_process]);
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
@@ -600,7 +606,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 		case IMSG_CTL_LOG_VERBOSE:
 			/* already checked by ospfe */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_verbose(verbose);
+			log_setverbose(verbose);
 			break;
 		default:
 			log_debug("rde_dispatch_imsg: unexpected imsg %d",
@@ -633,7 +639,6 @@ rde_dispatch_parent(int fd, short event, void *bula)
 	struct imsgbuf		*ibuf = &iev->ibuf;
 	struct lsa		*lsa;
 	struct vertex		*v;
-	struct rt_node		*rn;
 	ssize_t			 n;
 	int			 shut = 0, wasvalid;
 	unsigned int		 ifindex;
@@ -694,22 +699,6 @@ rde_dispatch_parent(int fd, short event, void *bula)
 				else
 					free(lsa);
 			}
-			break;
-		case IMSG_KROUTE_GET:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(kr)) {
-				log_warnx("rde_dispatch_parent: "
-				    "wrong imsg len");
-				break;
-			}
-			memcpy(&kr, imsg.data, sizeof(kr));
-
-			if ((rn = rt_find(&kr.prefix, kr.prefixlen,
-			    DT_NET)) != NULL)
-				rde_send_change_kroute(rn);
-			else
-				/* should not happen */
-				imsg_compose_event(iev_main, IMSG_KROUTE_DELETE,
-				    0, 0, -1, &kr, sizeof(kr));
 			break;
 		case IMSG_IFINFO:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +

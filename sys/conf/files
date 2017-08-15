@@ -1,4 +1,4 @@
-#	$OpenBSD: files,v 1.647 2017/05/29 12:58:37 jmatthew Exp $
+#	$OpenBSD: files,v 1.651 2017/08/11 20:50:15 mpi Exp $
 #	$NetBSD: files,v 1.87 1996/05/19 17:17:50 jonathan Exp $
 
 #	@(#)files.newconf	7.5 (Berkeley) 5/10/93
@@ -572,7 +572,8 @@ file	net/pf_table.c			pf
 file	net/pf_osfp.c			pf
 file	net/pf_if.c			pf
 file	net/pf_lb.c			pf
-file	net/hfsc.c			ifnet
+file	net/hfsc.c			pf
+file	net/fq_codel.c			pf
 
 pseudo-device pflog: ifnet
 file	net/if_pflog.c			pflog	needs-flag
@@ -597,7 +598,7 @@ file 	net/if_pppoe.c			pppoe	needs-flag
 file ddb/db_access.c			ddb
 file ddb/db_break.c			ddb
 file ddb/db_command.c			ddb
-file ddb/db_ctf.c			ddb & ddbctf
+file ddb/db_ctf.c			ddb
 file ddb/db_dwarf.c			ddb
 file ddb/db_elf.c			ddb
 file ddb/db_examine.c			ddb
@@ -760,10 +761,9 @@ file tmpfs/tmpfs_vfsops.c		tmpfs
 file tmpfs/tmpfs_vnops.c		tmpfs
 file tmpfs/tmpfs_specops.c		tmpfs
 file tmpfs/tmpfs_fifoops.c		tmpfs & fifo
-file net/art.c				art
+file net/art.c
 file net/bpf.c				bpfilter		needs-count
 file net/bpf_filter.c			bpfilter
-file net/fq_codel.c			pf
 file net/if.c
 file net/ifq.c
 file net/if_ethersubr.c			ether			needs-flag
@@ -784,7 +784,7 @@ file net/if_switch.c			switch			needs-count
 file net/switchctl.c			switch
 file net/switchofp.c			switch
 file net/pipex.c			pipex
-file net/radix.c
+file net/radix.c			pf | ipsec | pipex | nfsserver
 file net/raw_cb.c
 file net/raw_usrreq.c
 file net/rtable.c

@@ -1,10 +1,11 @@
-/Makefile/1.40/Fri Oct  7 17:30:10 2016//
+/Makefile/1.42/Wed Jun 28 15:09:41 2017//
 D/basename////
 D/bc////
 D/calendar////
 D/cap_mkdb////
 D/colrm////
 D/column////
+D/ctfdump////
 D/cut////
 D/cvs////
 D/dc////
@@ -19,11 +20,12 @@ D/ftp////
 D/grep////
 D/gzip////
 D/jot////
+D/lastcomm////
 D/libtool////
 D/m4////
+D/mail////
 D/make////
 D/mandoc////
-D/mdoclint////
 D/openssl////
 D/patch////
 D/pkg-config////

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6ctl.c,v 1.44 2016/12/22 23:03:55 jca Exp $ */
+/*	$OpenBSD: ospf6ctl.c,v 1.46 2017/08/12 22:09:54 benno Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -584,6 +584,9 @@ show_database_head(struct in_addr aid, char *ifname, u_int16_t type)
 	} else if (LSA_IS_SCOPE_LLOCAL(ntohs(type))) {
 		if (asprintf(&header, "%s (Area %s Interface %s)", format,
 		    inet_ntoa(aid), ifname) == -1)
+			err(1, NULL);
+	} else {
+		if (asprintf(&header, "%s", format) == -1)
 			err(1, NULL);
 	}
 
@@ -1256,7 +1259,8 @@ void
 show_fib_head(void)
 {
 	printf("flags: * = valid, O = OSPF, C = Connected, S = Static\n");
-	printf("%-6s %-20s %-17s\n", "Flags", "Destination", "Nexthop");
+	printf("%-6s %-4s %-20s %-17s\n",
+	    "Flags", "Prio", "Destination", "Nexthop");
 }
 
 int
@@ -1286,6 +1290,7 @@ show_fib_msg(struct imsg *imsg)
 			printf(" ");
 
 		printf("     ");
+		printf("%4d ", k->priority);
 		if (asprintf(&p, "%s/%u", log_in6addr(&k->prefix),
 		    k->prefixlen) == -1)
 			err(1, NULL);

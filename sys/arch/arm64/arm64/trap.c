@@ -1,4 +1,4 @@
-/* $OpenBSD: trap.c,v 1.7 2017/04/29 17:10:43 kettenis Exp $ */
+/* $OpenBSD: trap.c,v 1.10 2017/08/14 21:53:34 kettenis Exp $ */
 /*-
  * Copyright (c) 2014 Andrew Turner
  * All rights reserved.
@@ -136,7 +136,7 @@ data_abort(struct trapframe *frame, uint64_t esr, int lower, int exe)
 	vaddr_t va;
 	union sigval sv;
 	uint64_t far;
-	int error = 0, sig;
+	int error = 0, sig, code;
 
 	pcb = curcpu()->ci_curpcb;
 	p = curcpu()->ci_curproc;
@@ -191,13 +191,22 @@ data_abort(struct trapframe *frame, uint64_t esr, int lower, int exe)
 
 	if (error != 0) {
 		if (lower) {
-			if (error == ENOMEM)
+			if (error == ENOMEM) {
 				sig = SIGKILL;
-			else
+				code = 0;
+			} else if (error == EIO) {
+				sig = SIGBUS;
+				code = BUS_OBJERR;
+			} else if (error == EACCES) {
 				sig = SIGSEGV;
+				code = SEGV_ACCERR;
+			} else {
+				sig = SIGSEGV;
+				code = SEGV_MAPERR;
+			}
 			sv.sival_ptr = (u_int64_t *)far;
 
-			trapsignal(p, sig, 0, SEGV_ACCERR, sv);
+			trapsignal(p, sig, 0, code, sv);
 		} else {
 			if (curcpu()->ci_idepth == 0 &&
 			    pcb->pcb_onfault != 0) {
@@ -262,7 +271,7 @@ do_el1h_sync(struct trapframe *frame)
 		db_trapper(frame->tf_elr, 0/*XXX*/, frame, exception);
 		}
 #endif
-		panic("Unknown kernel exception %x esr_el1 %lx lr %lxpc %lx\n",
+		panic("Unknown kernel exception %x esr_el1 %llx lr %lxpc %lx\n",
 		    exception,
 		    esr, frame->tf_lr, frame->tf_elr);
 	}
@@ -282,6 +291,11 @@ do_el0_sync(struct trapframe *frame)
 	refreshcreds(p);
 
 	switch(exception) {
+	case EXCP_UNKNOWN:
+		vfp_save();
+		sv.sival_ptr = (void *)frame->tf_elr;
+		trapsignal(p, SIGILL, 0, ILL_ILLOPC, sv);
+		break;
 	case EXCP_FP_SIMD:
 	case EXCP_TRAP_FP:
 		vfp_fault(frame->tf_elr, 0, frame, exception);
@@ -309,7 +323,7 @@ do_el0_sync(struct trapframe *frame)
 		// USERLAND MUST NOT PANIC MACHINE
 		{
 			// only here to debug !?!?
-			printf("exception %x esr_el1 %lx\n", exception, esr);
+			printf("exception %x esr_el1 %llx\n", exception, esr);
 			dumpregs(frame);
 		}
 		sigexit(p, SIGILL);

@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgInfo.pm,v 1.44 2017/01/25 14:10:46 espie Exp $
+# $OpenBSD: PkgInfo.pm,v 1.46 2017/08/04 23:35:40 abieber Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -468,7 +468,7 @@ sub print_info
 					OpenBSD::x509::print_certificate_info($plist);
 				} elsif ($sig->{key} eq 'signify' ||
 				    $sig->{key} eq 'signify2') {
-					$state->say("reportedly signed by #1", 
+					$state->say("reportedly signed by #1",
 					    $plist->get('signer')->name);
 				}
 			} else {
@@ -601,8 +601,15 @@ sub parse_and_run
 		my $r = $state->repo->match_locations($partial);
 
 		for my $p (sort map {$_->name} @$r) {
-			$state->say(
-			    is_installed($p) ? "#1 (installed)" : "#1", $p);
+			if ($state->hasanyopt('cdfMqs')) {
+				$self->find_pkg($state, $p,
+			    	    sub {
+					$self->print_info($state, @_);
+			    	    });
+			} else {
+				$state->say(
+			    	    is_installed($p) ? "#1 (installed)" : "#1", $p);
+			}
 		}
 
 		return 0;

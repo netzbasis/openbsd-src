@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.75 2017/05/30 10:50:33 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.79 2017/08/04 16:25:10 stsp Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -76,6 +76,7 @@ const char * const ieee80211_phymode_name[] = {
 	"11n",		/* IEEE80211_MODE_11N */
 };
 
+void ieee80211_set_beacon_miss_threshold(struct ieee80211com *);
 int ieee80211_newstate(struct ieee80211com *, enum ieee80211_state, int);
 
 void
@@ -707,7 +708,8 @@ ieee80211_delba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 			for (i = 0; i < IEEE80211_BA_MAX_WINSZ; i++)
 				m_freem(ba->ba_buf[i].m);
 			/* free reordering buffer */
-			free(ba->ba_buf, M_DEVBUF, 0);
+			free(ba->ba_buf, M_DEVBUF,
+			    IEEE80211_BA_MAX_WINSZ * sizeof(*ba->ba_buf));
 			ba->ba_buf = NULL;
 		}
 	}
@@ -811,6 +813,27 @@ ieee80211_auth_open(struct ieee80211com *ic, const struct ieee80211_frame *wh,
 	}
 }
 
+void
+ieee80211_set_beacon_miss_threshold(struct ieee80211com *ic)
+{
+	struct ifnet *ifp = &ic->ic_if;
+
+	/* 
+	 * Scale the missed beacon counter threshold to the AP's actual
+	 * beacon interval. Give the AP at least 700 ms to time out and
+	 * round up to ensure that at least one beacon may be missed.
+	 */
+	int btimeout = MIN(7 * ic->ic_bss->ni_intval, 700);
+	btimeout = MAX(btimeout, 2 * ic->ic_bss->ni_intval);
+	if (ic->ic_bss->ni_intval > 0) /* don't crash if interval is bogus */
+		ic->ic_bmissthres = btimeout / ic->ic_bss->ni_intval;
+
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: missed beacon threshold set to %d beacons, "
+		    "beacon interval is %u TU\n", ifp->if_xname,
+		    ic->ic_bmissthres, ic->ic_bss->ni_intval);
+}
+
 int
 ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
     int mgt)
@@ -824,8 +847,9 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 #endif
 
 	ostate = ic->ic_state;
-	DPRINTF(("%s -> %s\n", ieee80211_state_name[ostate],
-	    ieee80211_state_name[nstate]));
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: %s -> %s\n", ifp->if_xname,
+		    ieee80211_state_name[ostate], ieee80211_state_name[nstate]);
 	ic->ic_state = nstate;			/* state transition */
 	ni = ic->ic_bss;			/* NB: no reference held */
 	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
@@ -958,7 +982,10 @@ justcleanup:
 		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
 		switch (ostate) {
 		case IEEE80211_S_INIT:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_SCAN:
 			IEEE80211_SEND_MGMT(ic, ni,
@@ -998,7 +1025,10 @@ justcleanup:
 		case IEEE80211_S_INIT:
 		case IEEE80211_S_SCAN:
 		case IEEE80211_S_ASSOC:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_AUTH:
 			IEEE80211_SEND_MGMT(ic, ni,
@@ -1015,7 +1045,10 @@ justcleanup:
 		case IEEE80211_S_INIT:
 		case IEEE80211_S_AUTH:
 		case IEEE80211_S_RUN:
-			DPRINTF(("invalid transition\n"));
+			if (ifp->if_flags & IFF_DEBUG)
+				printf("%s: invalid transition %s -> %s",
+				    ifp->if_xname, ieee80211_state_name[ostate],
+				    ieee80211_state_name[nstate]);
 			break;
 		case IEEE80211_S_SCAN:		/* adhoc/hostap mode */
 		case IEEE80211_S_ASSOC:		/* infra mode */
@@ -1057,6 +1090,7 @@ justcleanup:
 				ieee80211_set_link_state(ic, LINK_STATE_UP);
 			}
 			ic->ic_mgt_timer = 0;
+			ieee80211_set_beacon_miss_threshold(ic);
 			if_start(ifp);
 			break;
 		}

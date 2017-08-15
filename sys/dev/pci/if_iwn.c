@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwn.c,v 1.189 2017/05/31 16:12:39 stsp Exp $	*/
+/*	$OpenBSD: if_iwn.c,v 1.191 2017/08/13 15:04:47 tb Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -2504,7 +2504,7 @@ iwn_notif_intr(struct iwn_softc *sc)
 		{
 			struct iwn_beacon_missed *miss =
 			    (struct iwn_beacon_missed *)(desc + 1);
-			uint32_t missed = letoh32(miss->consecutive);
+			uint32_t missed;
 
 			if ((ic->ic_opmode != IEEE80211_M_STA) ||
 			    (ic->ic_state != IEEE80211_S_RUN))
@@ -2512,6 +2512,7 @@ iwn_notif_intr(struct iwn_softc *sc)
 
 			bus_dmamap_sync(sc->sc_dmat, data->map, sizeof (*desc),
 			    sizeof (*miss), BUS_DMASYNC_POSTREAD);
+			missed = letoh32(miss->consecutive);
 
 			/*
 			 * If more than 5 consecutive beacons are missed,
@@ -2526,7 +2527,7 @@ iwn_notif_intr(struct iwn_softc *sc)
 			 * state machine will drop us into scanning after timing
 			 * out waiting for a probe response.
 			 */
-			if (missed > ic->ic_bmissthres)
+			if (missed > ic->ic_bmissthres && !ic->ic_mgt_timer)
 				IEEE80211_SEND_MGMT(ic, ic->ic_bss,
 				    IEEE80211_FC0_SUBTYPE_PROBE_REQ, 0);
 			break;
@@ -6509,6 +6510,8 @@ iwn_stop(struct ifnet *ifp, int disable)
 	ifq_clr_oactive(&ifp->if_snd);
 
 	/* In case we were scanning, release the scan "lock". */
+	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
+		wakeup(&ic->ic_scan_lock);
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);

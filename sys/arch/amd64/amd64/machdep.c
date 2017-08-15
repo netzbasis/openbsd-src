@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.229 2017/05/18 09:20:06 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.231 2017/07/12 06:26:32 natano Exp $	*/
 /*	$NetBSD: machdep.c,v 1.3 2003/05/07 22:58:18 fvdl Exp $	*/
 
 /*-
@@ -476,7 +476,6 @@ cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 #endif
 	case CPU_XCRYPT:
 		return (sysctl_rdint(oldp, oldlenp, newp, amd64_has_xcrypt));
-	case CPU_LIDSUSPEND:
 	case CPU_LIDACTION:
 		val = lid_action;
 		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
@@ -1631,15 +1630,6 @@ cpu_reset(void)
 	 */
 	memset((caddr_t)idt, 0, NIDT * sizeof(idt[0]));
 	__asm volatile("divl %0,%1" : : "q" (0), "a" (0)); 
-
-#if 0
-	/*
-	 * Try to cause a triple fault and watchdog reset by unmapping the
-	 * entire address space and doing a TLB flush.
-	 */
-	memset((caddr_t)PTD, 0, PAGE_SIZE);
-	tlbflush(); 
-#endif
 
 	for (;;)
 		continue;

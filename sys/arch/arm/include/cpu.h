@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.46 2017/04/27 22:41:46 kettenis Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.48 2017/08/12 13:18:48 tedu Exp $	*/
 /*	$NetBSD: cpu.h,v 1.34 2003/06/23 11:01:08 martin Exp $	*/
 
 /*
@@ -60,12 +60,12 @@
 #define	CPU_CONSDEV		4	/* struct: dev_t of our console */
 #define	CPU_POWERSAVE		5	/* int: use CPU powersave mode */
 #define	CPU_ALLOWAPERTURE	6	/* int: allow mmap of /dev/xf86 */
-#define CPU_APMWARN		7	/* APM battery warning percentage */
+		/*		7	   formerly int: apmwarn */
 		/*		8	   formerly int: keyboard reset */
 		/*		9	   formerly int: CPU_ZTSRAWMODE */
 		/*		10	   formerly struct: CPU_ZTSSCALE */
 #define	CPU_MAXSPEED		11	/* int: number of valid machdep ids */
-#define CPU_LIDSUSPEND		12	/* int: closing lid causes suspend */
+		/*		12	   formerly int: CPU_LIDSUSPEND */
 #define CPU_LIDACTION		13	/* action caused by lid close */
 #define	CPU_MAXID		14	/* number of valid machdep ids */
 
@@ -77,12 +77,12 @@
 	{ "console_device", CTLTYPE_STRUCT }, \
 	{ "powersave", CTLTYPE_INT }, \
 	{ "allowaperture", CTLTYPE_INT }, \
-	{ "apmwarn", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ "maxspeed", CTLTYPE_INT }, \
-	{ "lidsuspend", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "lidaction", CTLTYPE_INT }, \
 }
 

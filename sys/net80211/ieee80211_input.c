@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.192 2017/05/02 11:03:48 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.195 2017/08/04 17:31:05 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -125,14 +125,6 @@ void	ieee80211_recv_bar(struct ieee80211com *, struct mbuf *,
 	    struct ieee80211_node *);
 void	ieee80211_bar_tid(struct ieee80211com *, struct ieee80211_node *,
 	    u_int8_t, u_int16_t);
-void	ieee80211_input_print(struct ieee80211com *,  struct ifnet *,
-	    struct ieee80211_frame *, struct ieee80211_rxinfo *);
-void	ieee80211_input_print_task(void *);
-
-struct ieee80211printmsg {
-	struct task	task;
-	char		text[512];
-};
 
 /*
  * Retrieve the length in bytes of an 802.11 header.
@@ -152,65 +144,6 @@ ieee80211_get_hdrlen(const struct ieee80211_frame *wh)
 	if (ieee80211_has_htc(wh))
 		size += sizeof(u_int32_t);	/* i_ht */
 	return size;
-}
-
-/* 
- * Work queue task that prints a received frame.  Avoids printf() from
- * interrupt context at IPL_NET making slow machines unusable when many
- * frames are received and the interface is put in debug mode.
- */
-void
-ieee80211_input_print_task(void *arg1)
-{
-	struct ieee80211printmsg *msg = arg1;
-
-	printf("%s", msg->text);
-	free(msg, M_DEVBUF, 0);
-}
-
-void
-ieee80211_input_print(struct ieee80211com *ic,  struct ifnet *ifp,
-    struct ieee80211_frame *wh, struct ieee80211_rxinfo *rxi)
-{
-	int doprint;
-	struct ieee80211printmsg *msg;
-	u_int8_t subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
-
-	/* avoid printing too many frames */
-	doprint = 0;
-	switch (subtype) {
-	case IEEE80211_FC0_SUBTYPE_BEACON:
-		if (ic->ic_state == IEEE80211_S_SCAN)
-			doprint = 1;
-		break;
-#ifndef IEEE80211_STA_ONLY
-	case IEEE80211_FC0_SUBTYPE_PROBE_REQ:
-		if (ic->ic_opmode == IEEE80211_M_IBSS)
-			doprint = 1;
-		break;
-#endif
-	default:
-		doprint = 1;
-		break;
-	}
-#ifdef IEEE80211_DEBUG
-	doprint += (ieee80211_debug > 1);
-#endif
-	if (!doprint)
-		return;
-
-	msg = malloc(sizeof(*msg), M_DEVBUF, M_NOWAIT);
-	if (msg == NULL)
-		return;
-
-	snprintf(msg->text, sizeof(msg->text),
-	    "%s: received %s from %s rssi %d mode %s\n", ifp->if_xname,
-	    ieee80211_mgt_subtype_name[subtype >> IEEE80211_FC0_SUBTYPE_SHIFT],
-	    ether_sprintf(wh->i_addr2), rxi->rxi_rssi,
-	    ieee80211_phymode_name[ic->ic_curmode]);
-
-	task_set(&msg->task, ieee80211_input_print_task, msg);
-	task_add(systq, &msg->task);
 }
 
 /*
@@ -543,8 +476,6 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 			goto out;
 		}
 
-		if (ifp->if_flags & IFF_DEBUG)
-			ieee80211_input_print(ic, ifp, wh, rxi);
 #if NBPFILTER > 0
 		if (bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_IN) != 0) {
 			/*
@@ -1362,14 +1293,17 @@ ieee80211_parse_wpa(struct ieee80211com *ic, const u_int8_t *frm,
 int
 ieee80211_save_ie(const u_int8_t *frm, u_int8_t **ie)
 {
-	if (*ie == NULL || (*ie)[1] != frm[1]) {
+	int olen = *ie ? 2 + (*ie)[1] : 0;
+	int len = 2 + frm[1];
+
+	if (*ie == NULL || olen != len) {
 		if (*ie != NULL)
-			free(*ie, M_DEVBUF, 0);
-		*ie = malloc(2 + frm[1], M_DEVBUF, M_NOWAIT);
+			free(*ie, M_DEVBUF, olen);
+		*ie = malloc(len, M_DEVBUF, M_NOWAIT);
 		if (*ie == NULL)
 			return ENOMEM;
 	}
-	memcpy(*ie, frm, 2 + frm[1]);
+	memcpy(*ie, frm, len);
 	return 0;
 }
 
@@ -2632,7 +2566,8 @@ ieee80211_addba_req_refuse(struct ieee80211com *ic, struct ieee80211_node *ni,
 {
 	struct ieee80211_rx_ba *ba = &ni->ni_rx_ba[tid];
 
-	free(ba->ba_buf, M_DEVBUF, 0);
+	free(ba->ba_buf, M_DEVBUF,
+	    IEEE80211_BA_MAX_WINSZ * sizeof(*ba->ba_buf));
 	ba->ba_buf = NULL;
 
 	/* MLME-ADDBA.response */
@@ -2765,7 +2700,8 @@ ieee80211_recv_delba(struct ieee80211com *ic, struct mbuf *m,
 			for (i = 0; i < IEEE80211_BA_MAX_WINSZ; i++)
 				m_freem(ba->ba_buf[i].m);
 			/* free reordering buffer */
-			free(ba->ba_buf, M_DEVBUF, 0);
+			free(ba->ba_buf, M_DEVBUF,
+			    IEEE80211_BA_MAX_WINSZ * sizeof(*ba->ba_buf));
 			ba->ba_buf = NULL;
 		}
 	} else {

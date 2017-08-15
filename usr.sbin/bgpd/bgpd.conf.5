@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.conf.5,v 1.160 2017/05/31 10:49:10 claudio Exp $
+.\" $OpenBSD: bgpd.conf.5,v 1.163 2017/08/12 17:39:51 job Exp $
 .\"
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 31 2017 $
+.Dd $Mdocdate: August 12 2017 $
 .Dt BGPD.CONF 5
 .Os
 .Sh NAME
@@ -973,25 +973,6 @@ and
 These sets are rewritten into filter rules and can be viewed with
 .Dq bgpd -nv .
 .Pp
-.It Xo
-.Ic softreconfig
-.Pq Ic in Ns | Ns Ic out
-.Pq Ic yes Ns | Ns Ic no
-.Xc
-Turn soft reconfiguration on or off for the specified direction.
-If soft reconfiguration is turned on, filter changes will be applied on
-configuration reloads.
-If turned off, a BGP session needs to be cleared to apply the filter changes.
-Enabling
-.Ic softreconfig in
-will raise the memory requirements of
-.Xr bgpd 8
-because the unmodified
-.Em AS path attributes
-need to be stored as well.
-The default is
-.Ic yes .
-.Pp
 .It Ic tcp md5sig password Ar secret
 .It Ic tcp md5sig key Ar secret
 Enable TCP MD5 signatures per RFC 2385.
@@ -1173,6 +1154,7 @@ to do wildcard matching.
 Alternatively, well-known communities may be given by name instead and
 include
 .Ic BLACKHOLE ,
+.Ic GRACEFUL_SHUTDOWN ,
 .Ic NO_EXPORT ,
 .Ic NO_ADVERTISE ,
 .Ic NO_EXPORT_SUBCONFED ,
@@ -1266,6 +1248,14 @@ is one of the following:
 .Bl -tag -width "group descr" -compact
 .It Ic any
 Any neighbor will be matched.
+.It Ic ibgp
+All
+.Em IBGP
+neighbors will be matched.
+.It Ic ebgp
+All
+.Em EBGP
+neighbors will be matched.
 .It Ar address
 Neighbors with this address will be matched.
 .It Ic group Ar descr
@@ -1444,6 +1434,7 @@ is an AS number and
 is a locally-significant number between zero and
 .Li 65535 .
 Alternately, well-known communities may be specified by name:
+.Ic GRACEFUL_SHUTDOWN ,
 .Ic NO_EXPORT ,
 .Ic NO_ADVERTISE ,
 .Ic NO_EXPORT_SUBCONFED ,

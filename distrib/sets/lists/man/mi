@@ -1244,6 +1244,7 @@
 ./usr/share/man/man4/dwctwo.4
 ./usr/share/man/man4/dwge.4
 ./usr/share/man/man4/dwiic.4
+./usr/share/man/man4/dwmmc.4
 ./usr/share/man/man4/eap.4
 ./usr/share/man/man4/ec.4
 ./usr/share/man/man4/eephy.4
@@ -1321,6 +1322,7 @@
 ./usr/share/man/man4/hppa/wax.4
 ./usr/share/man/man4/hsq.4
 ./usr/share/man/man4/hvn.4
+./usr/share/man/man4/hvs.4
 ./usr/share/man/man4/hyperv.4
 ./usr/share/man/man4/i386/amdmsr.4
 ./usr/share/man/man4/i386/amdpcib.4
@@ -1527,9 +1529,15 @@
 ./usr/share/man/man4/oce.4
 ./usr/share/man/man4/octeon/amdcf.4
 ./usr/share/man/man4/octeon/cnmac.4
+./usr/share/man/man4/octeon/octcib.4
+./usr/share/man/man4/octeon/octcit.4
+./usr/share/man/man4/octeon/octciu.4
+./usr/share/man/man4/octeon/octmmc.4
 ./usr/share/man/man4/octeon/octrng.4
 ./usr/share/man/man4/octeon/octrtc.4
+./usr/share/man/man4/octeon/octsctl.4
 ./usr/share/man/man4/octeon/octuctl.4
+./usr/share/man/man4/octeon/octxctl.4
 ./usr/share/man/man4/ohci.4
 ./usr/share/man/man4/onewire.4
 ./usr/share/man/man4/oosiop.4
@@ -1558,6 +1566,7 @@
 ./usr/share/man/man4/pcn.4
 ./usr/share/man/man4/pcppi.4
 ./usr/share/man/man4/pcscp.4
+./usr/share/man/man4/pcxrtc.4
 ./usr/share/man/man4/pf.4
 ./usr/share/man/man4/pflog.4
 ./usr/share/man/man4/pflow.4

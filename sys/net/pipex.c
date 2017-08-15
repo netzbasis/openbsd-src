@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipex.c,v 1.101 2017/05/30 07:50:37 mpi Exp $	*/
+/*	$OpenBSD: pipex.c,v 1.105 2017/08/11 21:24:19 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -129,9 +129,9 @@ pipex_init(void)
 	rn_init(sizeof(struct sockaddr_in6));
 
 	pool_init(&pipex_session_pool, sizeof(struct pipex_session), 0,
-	    IPL_NONE, PR_WAITOK, "ppxss", NULL);
+	    IPL_SOFTNET, PR_WAITOK, "ppxss", NULL);
 	pool_init(&mppe_key_pool, PIPEX_MPPE_KEYLEN * PIPEX_MPPE_NOLDKEY, 0,
-	    IPL_NONE, PR_WAITOK, "mppekey", NULL);
+	    IPL_SOFTNET, PR_WAITOK, "mppekey", NULL);
 
 	LIST_INIT(&pipex_session_list);
 	LIST_INIT(&pipex_close_wait_list);
@@ -153,12 +153,12 @@ pipex_iface_init(struct pipex_iface_context *pipex_iface, struct ifnet *ifp)
 	if (pipex_rd_head4 == NULL) {
 		if (!rn_inithead((void **)&pipex_rd_head4,
 		    offsetof(struct sockaddr_in, sin_addr)))
-			panic("rn_inithead0() failed on pipex_init()");
+			panic("rn_inithead() failed on pipex_init()");
 	}
 	if (pipex_rd_head6 == NULL) {
 		if (!rn_inithead((void **)&pipex_rd_head6,
 		    offsetof(struct sockaddr_in6, sin6_addr)))
-			panic("rn_inithead0() failed on pipex_init()");
+			panic("rn_inithead() failed on pipex_init()");
 	}
 
 	/* virtual pipex_session entry for multicast */
@@ -203,9 +203,9 @@ pipex_iface_fini(struct pipex_iface_context *pipex_iface)
 int
 pipex_ioctl(struct pipex_iface_context *pipex_iface, u_long cmd, caddr_t data)
 {
-	int s, pipexmode, ret = 0;
+	int pipexmode, ret = 0;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	switch (cmd) {
 	case PIPEXSMODE:
 		pipexmode = *(int *)data;
@@ -248,7 +248,7 @@ pipex_ioctl(struct pipex_iface_context *pipex_iface, u_long cmd, caddr_t data)
 		ret = ENOTTY;
 		break;
 	}
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	return (ret);
 }
@@ -749,13 +749,12 @@ pipex_timer_stop(void)
 Static void
 pipex_timer(void *ignored_arg)
 {
-	int s;
 	struct pipex_session *session;
 	struct pipex_session *session_next;
 
 	timeout_add_sec(&pipex_timer_ch, pipex_prune);
 
-	NET_LOCK(s);
+	NET_LOCK();
 	/* walk through */
 	for (session = LIST_FIRST(&pipex_session_list); session;
 	    session = session_next) {
@@ -800,7 +799,7 @@ pipex_timer(void *ignored_arg)
 		}
 	}
 
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 /***********************************************************************
@@ -2311,10 +2310,13 @@ pipex_mppe_reduce_key(struct pipex_mppe *mppe)
 {
 	switch (mppe->keylenbits) {
 	case 40:
+		mppe->session_key[0] = 0xd1;
 		mppe->session_key[1] = 0x26;
 		mppe->session_key[2] = 0x9e;
+		break;
 	case 56:
 		mppe->session_key[0] = 0xd1;
+		break;
 	}
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: clparse.c,v 1.110 2017/04/08 20:16:04 krw Exp $	*/
+/*	$OpenBSD: clparse.c,v 1.125 2017/08/14 22:12:59 krw Exp $	*/
 
 /* Parser for dhclient config and lease files. */
 
@@ -60,16 +60,50 @@
 #include "dhctoken.h"
 #include "log.h"
 
-void parse_client_statement(FILE *, struct interface_info *);
-int parse_X(FILE *, u_int8_t *, int);
-int parse_option_list(FILE *, u_int8_t *, size_t);
-void parse_interface_declaration(FILE *, struct interface_info *);
-void parse_client_lease_statement(FILE *, unsigned int,
-    struct interface_info *);
-void parse_client_lease_declaration(FILE *, struct client_lease *,
-    struct interface_info *);
+void parse_client_statement(FILE *, char *);
+int parse_X(FILE *, uint8_t *, int);
+int parse_option_list(FILE *, uint8_t *, size_t);
+void parse_interface_declaration(FILE *, char *);
+struct client_lease *parse_client_lease_statement(FILE *, char *);
+void parse_client_lease_declaration(FILE *, struct client_lease *, char *);
 int parse_option_decl(FILE *, struct option_data *);
 void parse_reject_statement(FILE *);
+void add_lease(struct client_lease_tq *, struct client_lease *);
+
+void
+add_lease(struct client_lease_tq *tq, struct client_lease *lease)
+{
+	struct client_lease	*lp, *nlp;
+
+	if (lease == NULL)
+		return;
+
+	/*
+	 * The new lease will supersede a lease with the same ssid
+	 * AND the same Client Identifier AND the same
+	 * IP address.
+	 */
+	TAILQ_FOREACH_SAFE(lp, tq, next, nlp) {
+		if (lp->ssid_len != lease->ssid_len)
+			continue;
+		if (memcmp(lp->ssid, lease->ssid, lp->ssid_len) != 0)
+			continue;
+		if ((lease->options[DHO_DHCP_CLIENT_IDENTIFIER].len != 0) &&
+		    ((lp->options[DHO_DHCP_CLIENT_IDENTIFIER].len !=
+		    lease->options[DHO_DHCP_CLIENT_IDENTIFIER].len) ||
+		    memcmp(lp->options[DHO_DHCP_CLIENT_IDENTIFIER].data,
+		    lease->options[DHO_DHCP_CLIENT_IDENTIFIER].data,
+		    lp->options[DHO_DHCP_CLIENT_IDENTIFIER].len)))
+			continue;
+		if (lp->address.s_addr != lease->address.s_addr)
+			continue;
+
+		TAILQ_REMOVE(tq, lp, next);
+		free_client_lease(lp);
+	}
+
+	TAILQ_INSERT_TAIL(tq, lease, next);
+}
 
 /*
  * client-conf-file :== client-declarations EOF
@@ -78,12 +112,15 @@ void parse_reject_statement(FILE *);
  *			 | client-declarations client-declaration
  */
 void
-read_client_conf(struct interface_info *ifi)
+read_client_conf(char *name)
 {
 	FILE *cfile;
 	int token;
 
 	new_parse(path_dhclient_conf);
+
+	TAILQ_INIT(&config->static_leases);
+	TAILQ_INIT(&config->reject_list);
 
 	/* Set some defaults. */
 	config->link_timeout = 10;	/* secs before going daemon w/o link */
@@ -94,7 +131,6 @@ read_client_conf(struct interface_info *ifi)
 	config->backoff_cutoff = 10;	/* max secs between packet retries */
 	config->initial_interval = 1;	/* secs before 1st retry */
 
-	config->bootp_policy = ACCEPT;
 	config->requested_options
 	    [config->requested_option_count++] = DHO_SUBNET_MASK;
 	config->requested_options
@@ -124,7 +160,7 @@ read_client_conf(struct interface_info *ifi)
 			token = peek_token(NULL, cfile);
 			if (token == EOF)
 				break;
-			parse_client_statement(cfile, ifi);
+			parse_client_statement(cfile, name);
 		} while (1);
 		fclose(cfile);
 	}
@@ -136,17 +172,18 @@ read_client_conf(struct interface_info *ifi)
  *		     | client-lease-statements LEASE client-lease-statement
  */
 void
-read_client_leases(struct interface_info *ifi)
+read_client_leases(char *name, struct client_lease_tq *tq)
 {
 	FILE	*cfile;
 	int	 token;
 
-	new_parse(path_dhclient_db);
+	TAILQ_INIT(tq);
 
-	/* Open the lease file.   If we can't open it, just return -
-	   we can safely trust the server to remember our state. */
 	if ((cfile = fopen(path_dhclient_db, "r")) == NULL)
 		return;
+
+	new_parse(path_dhclient_db);
+
 	do {
 		token = next_token(NULL, cfile);
 		if (token == EOF)
@@ -155,7 +192,7 @@ read_client_leases(struct interface_info *ifi)
 			log_warnx("Corrupt lease file - possible data loss!");
 			break;
 		}
-		parse_client_lease_statement(cfile, 0, ifi);
+		add_lease(tq, parse_client_lease_statement(cfile, name));
 	} while (1);
 	fclose(cfile);
 }
@@ -167,8 +204,6 @@ read_client_leases(struct interface_info *ifi)
  *	TOK_SUPERSEDE option-decl |
  *	TOK_APPEND option-decl |
  *	TOK_PREPEND option-decl |
- *	TOK_MEDIA string-list |
- *	hardware-declaration |
  *	TOK_REQUEST option-list |
  *	TOK_REQUIRE option-list |
  *	TOK_IGNORE option-list |
@@ -180,15 +215,14 @@ read_client_leases(struct interface_info *ifi)
  *	TOK_INITIAL_INTERVAL number |
  *	interface-declaration |
  *	TOK_LEASE client-lease-statement |
- *	TOK_ALIAS client-lease-statement |
  *	TOK_REJECT reject-statement
  */
 void
-parse_client_statement(FILE *cfile, struct interface_info *ifi)
+parse_client_statement(FILE *cfile, char *name)
 {
-	u_int8_t optlist[256];
-	char *string;
-	int code, count, token;
+	uint8_t		 optlist[DHO_COUNT];
+	char		*string;
+	int		 code, count, token;
 
 	token = next_token(NULL, cfile);
 
@@ -215,9 +249,6 @@ parse_client_statement(FILE *cfile, struct interface_info *ifi)
 		code = parse_option_decl(cfile, &config->defaults[0]);
 		if (code != -1)
 			config->default_actions[code] = ACTION_PREPEND;
-		break;
-	case TOK_HARDWARE:
-		parse_ethernet(cfile, &ifi->hw_address);
 		break;
 	case TOK_REQUEST:
 		count = parse_option_list(cfile, optlist, sizeof(optlist));
@@ -265,15 +296,11 @@ parse_client_statement(FILE *cfile, struct interface_info *ifi)
 		parse_lease_time(cfile, &config->initial_interval);
 		break;
 	case TOK_INTERFACE:
-		parse_interface_declaration(cfile, ifi);
+		parse_interface_declaration(cfile, name);
 		break;
 	case TOK_LEASE:
-		parse_client_lease_statement(cfile, 1, ifi);
-		break;
-	case TOK_ALIAS:
-	case TOK_MEDIA:
-		/* Deprecated and ignored. */
-		skip_to_semi(cfile);
+		add_lease(&config->static_leases,
+		    parse_client_lease_statement(cfile, name));
 		break;
 	case TOK_REJECT:
 		parse_reject_statement(cfile);
@@ -291,11 +318,11 @@ parse_client_statement(FILE *cfile, struct interface_info *ifi)
 		parse_semi(cfile);
 		break;
 	case TOK_FIXED_ADDR:
-		if (parse_ip_addr(cfile, &config->address))
+		if (parse_ip_addr(cfile, &config->address) != 0)
 			parse_semi(cfile);
 		break;
 	case TOK_NEXT_SERVER:
-		if (parse_ip_addr(cfile, &config->next_server))
+		if (parse_ip_addr(cfile, &config->next_server) != 0)
 			parse_semi(cfile);
 		break;
 	default:
@@ -307,7 +334,7 @@ parse_client_statement(FILE *cfile, struct interface_info *ifi)
 }
 
 int
-parse_X(FILE *cfile, u_int8_t *buf, int max)
+parse_X(FILE *cfile, uint8_t *buf, int max)
 {
 	int	 token;
 	char	*val;
@@ -318,21 +345,21 @@ parse_X(FILE *cfile, u_int8_t *buf, int max)
 		len = 0;
 		for (token = ':'; token == ':';
 		     token = next_token(NULL, cfile)) {
-			if (!parse_hex(cfile, &buf[len]))
+			if (parse_hex(cfile, &buf[len]) == 0)
 				break;
 			if (++len == max)
 				break;
 			if (peek_token(NULL, cfile) == ';')
-				return (len);
+				return len;
 		}
 		if (token != ':') {
 			parse_warn("expecting ':'.");
 			skip_to_semi(cfile);
-			return (-1);
+			return -1;
 		} else {
 			parse_warn("expecting hex value.");
 			skip_to_semi(cfile);
-			return (-1);
+			return -1;
 		}
 	} else if (token == TOK_STRING) {
 		token = next_token(&val, cfile);
@@ -340,7 +367,7 @@ parse_X(FILE *cfile, u_int8_t *buf, int max)
 		if (len + 1 > max) {
 			parse_warn("string constant too long.");
 			skip_to_semi(cfile);
-			return (-1);
+			return -1;
 		}
 		memcpy(buf, val, len + 1);
 	} else {
@@ -348,9 +375,9 @@ parse_X(FILE *cfile, u_int8_t *buf, int max)
 		parse_warn("expecting string or hex data.");
 		if (token != ';')
 			skip_to_semi(cfile);
-		return (-1);
+		return -1;
 	}
-	return (len);
+	return len;
 }
 
 /*
@@ -358,7 +385,7 @@ parse_X(FILE *cfile, u_int8_t *buf, int max)
  *		   option_list COMMA option_name
  */
 int
-parse_option_list(FILE *cfile, u_int8_t *list, size_t sz)
+parse_option_list(FILE *cfile, uint8_t *list, size_t sz)
 {
 	unsigned int	 ix, j;
 	int		 i;
@@ -371,9 +398,9 @@ parse_option_list(FILE *cfile, u_int8_t *list, size_t sz)
 		token = next_token(&val, cfile);
 		if (token == ';' && ix == 0) {
 			/* Empty list. */
-			return (0);
+			return 0;
 		}
-		if (!is_identifier(token)) {
+		if (is_identifier(token) == 0) {
 			parse_warn("expecting option name.");
 			goto syntaxerror;
 		}
@@ -382,10 +409,8 @@ parse_option_list(FILE *cfile, u_int8_t *list, size_t sz)
 		 * lists.  They are not really options and it makes no sense
 		 * to request, require or ignore them.
 		 */
-		for (i = 1; i < DHO_END; i++)
-			if (!strcasecmp(dhcp_options[i].name, val))
-				break;
 
+		i = name_to_code(val);
 		if (i == DHO_END) {
 			parse_warn("expecting option name.");
 			goto syntaxerror;
@@ -404,13 +429,13 @@ parse_option_list(FILE *cfile, u_int8_t *list, size_t sz)
 			token = next_token(NULL, cfile);
 	} while (token == ',');
 
-	if (parse_semi(cfile))
-		return (ix);
+	if (parse_semi(cfile) != 0)
+		return ix;
 
 syntaxerror:
 	if (token != ';')
 		skip_to_semi(cfile);
-	return (-1);
+	return -1;
 }
 
 /*
@@ -418,10 +443,10 @@ syntaxerror:
  *	INTERFACE string LBRACE client-declarations RBRACE
  */
 void
-parse_interface_declaration(FILE *cfile, struct interface_info *ifi)
+parse_interface_declaration(FILE *cfile, char *name)
 {
-	char *val;
-	int token;
+	char	*val;
+	int	 token;
 
 	token = next_token(&val, cfile);
 	if (token != TOK_STRING) {
@@ -431,7 +456,7 @@ parse_interface_declaration(FILE *cfile, struct interface_info *ifi)
 		return;
 	}
 
-	if (strcmp(ifi->name, val) != 0) {
+	if (strcmp(name, val) != 0) {
 		skip_to_semi(cfile);
 		return;
 	}
@@ -452,7 +477,7 @@ parse_interface_declaration(FILE *cfile, struct interface_info *ifi)
 		}
 		if (token == '}')
 			break;
-		parse_client_statement(cfile, ifi);
+		parse_client_statement(cfile, name);
 	} while (1);
 	token = next_token(&val, cfile);
 }
@@ -466,12 +491,10 @@ parse_interface_declaration(FILE *cfile, struct interface_info *ifi)
  *		client-lease-declaration |
  *		client-lease-declarations client-lease-declaration
  */
-void
-parse_client_lease_statement(FILE *cfile, unsigned int is_static,
-    struct interface_info *ifi)
+struct client_lease *
+parse_client_lease_statement(FILE *cfile, char *name)
 {
-	struct client_state	*client = ifi->client;
-	struct client_lease	*lease, *lp, *pl;
+	struct client_lease	*lease;
 	int			 token;
 
 	token = next_token(NULL, cfile);
@@ -479,11 +502,11 @@ parse_client_lease_statement(FILE *cfile, unsigned int is_static,
 		parse_warn("expecting '{'.");
 		if (token != ';')
 			skip_to_semi(cfile);
-		return;
+		return NULL;
 	}
 
-	lease = calloc(1, sizeof(struct client_lease));
-	if (!lease)
+	lease = calloc(1, sizeof(*lease));
+	if (lease == NULL)
 		fatalx("no memory for lease.");
 
 	do {
@@ -491,51 +514,15 @@ parse_client_lease_statement(FILE *cfile, unsigned int is_static,
 		if (token == EOF) {
 			parse_warn("unterminated lease declaration.");
 			free_client_lease(lease);
-			return;
+			return NULL;
 		}
 		if (token == '}')
 			break;
-		parse_client_lease_declaration(cfile, lease, ifi);
+		parse_client_lease_declaration(cfile, lease, name);
 	} while (1);
 	token = next_token(NULL, cfile);
 
-	/*
-	 * The new lease will supersede a lease which is of the same type
-	 * AND the same ssid AND the same Client Identifier AND the same
-	 * IP address.
-	 */
-	TAILQ_FOREACH_SAFE(lp, &client->leases, next, pl) {
-		if (lp->is_static != is_static)
-			continue;
-		if (lp->ssid_len != lease->ssid_len)
-			continue;
-		if (memcmp(lp->ssid, lease->ssid, lp->ssid_len) != 0)
-			continue;
-		if ((lease->options[DHO_DHCP_CLIENT_IDENTIFIER].len != 0) &&
-		    ((lp->options[DHO_DHCP_CLIENT_IDENTIFIER].len !=
-		    lease->options[DHO_DHCP_CLIENT_IDENTIFIER].len) ||
-		    memcmp(lp->options[DHO_DHCP_CLIENT_IDENTIFIER].data,
-		    lease->options[DHO_DHCP_CLIENT_IDENTIFIER].data,
-		    lp->options[DHO_DHCP_CLIENT_IDENTIFIER].len)))
-			continue;
-		if (lp->address.s_addr != lease->address.s_addr)
-			continue;
-
-		TAILQ_REMOVE(&client->leases, lp, next);
-		lp->is_static = 0;	/* Else it won't be freed. */
-		free_client_lease(lp);
-	}
-
-	/*
-	 * If the lease is marked as static before now it will leak on parse
-	 * errors because free_client_lease() ignores attempts to free static
-	 * leases.
-	 */
-	lease->is_static = is_static;
-	if (is_static)
-		TAILQ_INSERT_TAIL(&client->leases, lease, next);
-	else
-		TAILQ_INSERT_HEAD(&client->leases, lease,  next);
+	return lease;
 }
 
 /*
@@ -552,17 +539,17 @@ parse_client_lease_statement(FILE *cfile, unsigned int is_static,
  */
 void
 parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
-    struct interface_info *ifi)
+    char *name)
 {
-	char *val;
-	unsigned int len;
-	int token;
+	char		*val;
+	unsigned int	 len;
+	int		 token;
 
 	token = next_token(&val, cfile);
 
 	switch (token) {
 	case TOK_BOOTP:
-		lease->is_bootp = 1;
+		/* 'bootp' is just a comment. See BOOTP_LEASE(). */
 		break;
 	case TOK_INTERFACE:
 		token = next_token(&val, cfile);
@@ -572,7 +559,7 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
 				skip_to_semi(cfile);
 			return;
 		}
-		if (strcmp(ifi->name, val) != 0) {
+		if (strcmp(name, val) != 0) {
 			if (lease->is_static == 0)
 				parse_warn("wrong interface name.");
 			skip_to_semi(cfile);
@@ -580,16 +567,13 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
 		}
 		break;
 	case TOK_FIXED_ADDR:
-		if (!parse_ip_addr(cfile, &lease->address))
+		if (parse_ip_addr(cfile, &lease->address) == 0)
 			return;
 		break;
 	case TOK_NEXT_SERVER:
-		if (!parse_ip_addr(cfile, &lease->next_server))
+		if (parse_ip_addr(cfile, &lease->next_server) == 0)
 			return;
 		break;
-	case TOK_MEDIUM:
-		skip_to_semi(cfile);
-		return;
 	case TOK_FILENAME:
 		lease->filename = parse_string(cfile, NULL);
 		break;
@@ -632,39 +616,35 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 {
 	char		*val;
 	int		 token;
-	u_int8_t	 buf[4];
-	u_int8_t	 cidr[5];
-	u_int8_t	 hunkbuf[1024];
+	uint8_t		 buf[4];
+	uint8_t		 cidr[5];
+	uint8_t		 hunkbuf[1024];
 	unsigned int	 hunkix = 0;
 	char		*fmt;
 	struct in_addr	 ip_addr;
-	u_int8_t	*dp;
+	uint8_t		*dp;
 	int		 len, code;
 	int		 nul_term = 0;
 
 	token = next_token(&val, cfile);
-	if (!is_identifier(token)) {
+	if (is_identifier(token) == 0) {
 		parse_warn("expecting identifier.");
 		if (token != ';')
 			skip_to_semi(cfile);
-		return (-1);
+		return -1;
 	}
 
 	/* Look up the actual option info. */
-	fmt = NULL;
-	for (code = 0; code < 256; code++)
-		if (strcmp(dhcp_options[code].name, val) == 0)
-			break;
-
-	if (code > 255) {
+	code = name_to_code(val);
+	if (code == DHO_END) {
 		parse_warn("unknown option name.");
 		skip_to_semi(cfile);
-		return (-1);
+		return -1;
 	}
 
 	/* Parse the option data. */
 	do {
-		for (fmt = dhcp_options[code].format; *fmt; fmt++) {
+		for (fmt = code_to_format(code); *fmt; fmt++) {
 			if (*fmt == 'A')
 				break;
 			switch (*fmt) {
@@ -672,112 +652,102 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 				len = parse_X(cfile, &hunkbuf[hunkix],
 				    sizeof(hunkbuf) - hunkix);
 				if (len == -1)
-					return (-1);
+					return -1;
 				hunkix += len;
+				dp = NULL;
 				break;
 			case 't': /* Text string. */
 				val = parse_string(cfile, &len);
 				if (val == NULL)
-					return (-1);
+					return -1;
 				if (hunkix + len + 1 > sizeof(hunkbuf)) {
 					parse_warn("option data buffer "
 					    "overflow");
 					skip_to_semi(cfile);
-					return (-1);
+					return -1;
 				}
 				memcpy(&hunkbuf[hunkix], val, len + 1);
 				nul_term = 1;
 				hunkix += len;
 				free(val);
+				dp = NULL;
 				break;
 			case 'I': /* IP address. */
-				if (!parse_ip_addr(cfile, &ip_addr))
-					return (-1);
+				if (parse_ip_addr(cfile, &ip_addr) == 0)
+					return -1;
 				len = sizeof(ip_addr);
-				dp = (u_int8_t *)&ip_addr;
-alloc:
-				if (hunkix + len > sizeof(hunkbuf)) {
-					parse_warn("option data buffer "
-					    "overflow");
-					skip_to_semi(cfile);
-					return (-1);
-				}
-				memcpy(&hunkbuf[hunkix], dp, len);
-				hunkix += len;
+				dp = (uint8_t *)&ip_addr;
 				break;
 			case 'l':	/* Signed 32-bit integer. */
-				if (!parse_decimal(cfile, buf, *fmt)) {
+				if (parse_decimal(cfile, buf, 'l') == 0) {
 					parse_warn("expecting signed 32-bit "
 					    "integer.");
 					skip_to_semi(cfile);
-					return (-1);
+					return -1;
 				}
 				len = 4;
 				dp = buf;
-				goto alloc;
+				break;
 			case 'L':	/* Unsigned 32-bit integer. */
-				if (!parse_decimal(cfile, buf, *fmt)) {
+				if (parse_decimal(cfile, buf, 'L') == 0) {
 					parse_warn("expecting unsigned 32-bit "
 					    "integer.");
 					skip_to_semi(cfile);
-					return (-1);
+					return -1;
 				}
 				len = 4;
 				dp = buf;
-				goto alloc;
+				break;
 			case 'S':	/* Unsigned 16-bit integer. */
-				if (!parse_decimal(cfile, buf, *fmt)) {
+				if (parse_decimal(cfile, buf, 'S') == 0) {
 					parse_warn("expecting unsigned 16-bit "
 					    "integer.");
 					skip_to_semi(cfile);
-					return (-1);
+					return -1;
 				}
 				len = 2;
 				dp = buf;
-				goto alloc;
+				break;
 			case 'B':	/* Unsigned 8-bit integer. */
-				if (!parse_decimal(cfile, buf, *fmt)) {
+				if (parse_decimal(cfile, buf, 'B') == 0) {
 					parse_warn("expecting unsigned 8-bit "
 					    "integer.");
 					skip_to_semi(cfile);
-					return (-1);
+					return -1;
 				}
 				len = 1;
 				dp = buf;
-				goto alloc;
+				break;
 			case 'f': /* Boolean flag. */
-				token = next_token(&val, cfile);
-				if (!is_identifier(token)) {
-					parse_warn("expecting identifier.");
-bad_flag:
-					if (token != ';')
-						skip_to_semi(cfile);
-					return (-1);
-				}
-				if (!strcasecmp(val, "true") ||
-				    !strcasecmp(val, "on"))
-					buf[0] = 1;
-				else if (!strcasecmp(val, "false") ||
-				    !strcasecmp(val, "off"))
-					buf[0] = 0;
-				else {
+				if (parse_boolean(cfile, buf) == 0) {
 					parse_warn("expecting boolean.");
-					goto bad_flag;
+					skip_to_semi(cfile);
+					return -1;
 				}
 				len = 1;
 				dp = buf;
-				goto alloc;
+				break;
 			case 'C':
-				if (!parse_cidr(cfile, cidr))
-					return (-1);
+				if (parse_cidr(cfile, cidr) == 0)
+					return -1;
 				len = 1 + (cidr[0] + 7) / 8;
 				dp = cidr;
-				goto alloc;
+				break;
 			default:
 				log_warnx("Bad format %c in "
 				    "parse_option_param.", *fmt);
 				skip_to_semi(cfile);
-				return (-1);
+				return -1;
+			}
+			if (dp != NULL && len > 0) {
+				if (hunkix + len > sizeof(hunkbuf)) {
+					parse_warn("option data buffer "
+					    "overflow");
+					skip_to_semi(cfile);
+					return -1;
+				}
+				memcpy(&hunkbuf[hunkix], dp, len);
+				hunkix += len;
 			}
 		}
 		token = peek_token(NULL, cfile);
@@ -785,30 +755,30 @@ bad_flag:
 			token = next_token(NULL, cfile);
 	} while (*fmt == 'A' && token == ',');
 
-	if (!parse_semi(cfile))
-		return (-1);
+	if (parse_semi(cfile) == 0)
+		return -1;
 
 	options[code].data = malloc(hunkix + nul_term);
-	if (!options[code].data)
+	if (options[code].data == NULL)
 		fatalx("out of memory allocating option data.");
 	memcpy(options[code].data, hunkbuf, hunkix + nul_term);
 	options[code].len = hunkix;
-	return (code);
+	return code;
 }
 
 void
 parse_reject_statement(FILE *cfile)
 {
-	struct reject_elem *elem;
-	struct in_addr addr;
-	int token;
+	struct in_addr		 addr;
+	struct reject_elem	*elem;
+	int			 token;
 
 	do {
-		if (!parse_ip_addr(cfile, &addr))
+		if (parse_ip_addr(cfile, &addr) == 0)
 			return;
 
-		elem = malloc(sizeof(struct reject_elem));
-		if (!elem)
+		elem = malloc(sizeof(*elem));
+		if (elem == NULL)
 			fatalx("no memory for reject address!");
 
 		elem->addr = addr;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeonvar.h,v 1.33 2016/12/17 13:13:57 visa Exp $	*/
+/*	$OpenBSD: octeonvar.h,v 1.37 2017/07/31 14:53:56 visa Exp $	*/
 /*	$NetBSD: maltavar.h,v 1.3 2002/03/18 10:10:16 simonb Exp $	*/
 
 /*-
@@ -181,14 +181,13 @@ struct octeon_fau_map {
 #define	BOARD_TYPE_CN3010_EVB_HS5	11
 #define	BOARD_TYPE_UBIQUITI_E100	20002
 #define	BOARD_TYPE_UBIQUITI_E200	20003
+#define	BOARD_TYPE_UBIQUITI_E1000	20010
 #define	BOARD_TYPE_RHINOLABS_SHASTA	20012
 #define	BOARD_TYPE_DSR_500		20015
+#define	BOARD_TYPE_UBIQUITI_E300	20300
 
 #if defined(_KERNEL) || defined(_STANDALONE)
 #define OCTEON_ARGV_MAX 64
-
-/* Maximum number of cores on <= CN52XX */
-#define OCTEON_MAXCPUS	4
 
 struct boot_desc {
 	uint32_t	desc_ver;

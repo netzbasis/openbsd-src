@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.12 2015/10/26 10:12:46 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.14 2017/07/10 21:30:37 espie Exp $
 
 PROG=	ypserv
 MAN=	ypserv.acl.5 securenet.5 ypserv.8
@@ -19,9 +19,9 @@ CFLAGS+=-DDAEMON -DOPTDB -I${.CURDIR}/../common -I.
 #CFLAGS=-DDAEMON -I${.CURDIR}/../common  -DDEBUG -g
 
 all:	ypserv
-beforedepend:	${HDRS}
 ypv1.c: ypv1.h
 
+BUILDFIRST =	${HDRS}
 
 ypv1.c: ypv1.x
 	rpcgen -C -c ${.CURDIR}/ypv1.x -o ypv1.c

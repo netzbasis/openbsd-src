@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.h,v 1.18 2017/05/30 13:13:47 mlarkin Exp $	*/
+/*	$OpenBSD: virtio.h,v 1.20 2017/08/12 20:24:57 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>

@@ -1,4 +1,4 @@
-/* $OpenBSD: xhci.c,v 1.72 2017/03/10 11:18:48 mpi Exp $ */
+/* $OpenBSD: xhci.c,v 1.74 2017/07/30 19:24:18 kettenis Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -225,7 +225,7 @@ usbd_dma_contig_alloc(struct usbd_bus *bus, struct usbd_dma_info *dma,
 	error = bus_dmamap_create(dma->tag, size, 1, size, boundary,
 	    BUS_DMA_NOWAIT, &dma->map);
 	if (error != 0)
-		return (error);;
+		return (error);
 
 	error = bus_dmamem_alloc(dma->tag, size, alignment, boundary, &dma->seg,
 	    1, &dma->nsegs, BUS_DMA_NOWAIT | BUS_DMA_ZERO);
@@ -2492,7 +2492,7 @@ xhci_device_ctrl_start(struct usbd_xfer *xfer)
 			flags |= XHCI_TRB_TRT_OUT;
 	}
 
-	trb0->trb_paddr = (uint64_t)*((uint64_t *)&xfer->request);
+	memcpy(&trb0->trb_paddr, &xfer->request, sizeof(trb0->trb_paddr));
 	trb0->trb_status = htole32(XHCI_TRB_INTR(0) | XHCI_TRB_LEN(8));
 	trb0->trb_flags = htole32(flags);
 

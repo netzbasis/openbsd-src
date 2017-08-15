@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.309 2017/05/31 20:01:51 claudio Exp $ */
+/*	$OpenBSD: parse.y,v 1.314 2017/08/12 16:47:50 phessler Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -188,9 +188,10 @@ typedef struct {
 %token	RDOMAIN RD EXPORTTRGT IMPORTTRGT
 %token	RDE RIB EVALUATE IGNORE COMPARE
 %token	GROUP NEIGHBOR NETWORK
+%token	EBGP IBGP
 %token	LOCALAS REMOTEAS DESCR LOCALADDR MULTIHOP PASSIVE MAXPREFIX RESTART
 %token	ANNOUNCE CAPABILITIES REFRESH AS4BYTE CONNECTRETRY
-%token	DEMOTE ENFORCE NEIGHBORAS REFLECTOR DEPEND DOWN SOFTRECONFIG
+%token	DEMOTE ENFORCE NEIGHBORAS REFLECTOR DEPEND DOWN
 %token	DUMP IN OUT SOCKET RESTRICTED
 %token	LOG ROUTECOLL TRANSPARENT
 %token	TCP MD5SIG PASSWORD KEY TTLSECURITY
@@ -1421,12 +1422,6 @@ peeropts	: REMOTEAS as4number	{
 				YYERROR;
 			}
 		}
-		| SOFTRECONFIG inout yesno {
-			if ($2)
-				curpeer->conf.softreconfig_in = $3;
-			else
-				curpeer->conf.softreconfig_out = $3;
-		}
 		| TRANSPARENT yesno	{
 			if ($2 == 1)
 				curpeer->conf.flags |= PEERFLAG_TRANS_AS;
@@ -1642,6 +1637,18 @@ filter_peer	: ANY		{
 				YYERROR;
 			}
 			free($2);
+		}
+		| EBGP {
+			if (($$ = calloc(1, sizeof(struct filter_peers_l))) ==
+			    NULL)
+				fatal(NULL);
+			$$->p.ebgp = 1;
+		}
+		| IBGP {
+			if (($$ = calloc(1, sizeof(struct filter_peers_l))) ==
+			    NULL)
+				fatal(NULL);
+			$$->p.ibgp = 1;
 		}
 		;
 
@@ -1988,7 +1995,7 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			}
 			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
-			if ($2 > 0) {
+			if ($2 >= 0) {
 				$$->type = ACTION_SET_LOCALPREF;
 				$$->action.metric = $2;
 			} else {
@@ -2372,6 +2379,7 @@ lookup(char *s)
 		{ "descr",		DESCR},
 		{ "down",		DOWN},
 		{ "dump",		DUMP},
+		{ "ebgp",		EBGP},
 		{ "enforce",		ENFORCE},
 		{ "esp",		ESP},
 		{ "evaluate",		EVALUATE},
@@ -2382,6 +2390,7 @@ lookup(char *s)
 		{ "from",		FROM},
 		{ "group",		GROUP},
 		{ "holdtime",		HOLDTIME},
+		{ "ibgp",		IBGP},
 		{ "ignore",		IGNORE},
 		{ "ike",		IKE},
 		{ "import-target",	IMPORTTRGT},
@@ -2442,7 +2451,6 @@ lookup(char *s)
 		{ "self",		SELF},
 		{ "set",		SET},
 		{ "socket",		SOCKET },
-		{ "softreconfig",	SOFTRECONFIG},
 		{ "source-as",		SOURCEAS},
 		{ "spi",		SPI},
 		{ "static",		STATIC},
@@ -2989,7 +2997,11 @@ parsecommunity(struct filter_community *c, char *s)
 	int i, as;
 
 	/* Well-known communities */
-	if (strcasecmp(s, "NO_EXPORT") == 0) {
+	if (strcasecmp(s, "GRACEFUL_SHUTDOWN") == 0) {
+		c->as = COMMUNITY_WELLKNOWN;
+		c->type = COMMUNITY_GRACEFUL_SHUTDOWN;
+		return (0);
+	} else if (strcasecmp(s, "NO_EXPORT") == 0) {
 		c->as = COMMUNITY_WELLKNOWN;
 		c->type = COMMUNITY_NO_EXPORT;
 		return (0);
@@ -3019,10 +3031,6 @@ parsecommunity(struct filter_community *c, char *s)
 
 	if ((i = getcommunity(s)) == COMMUNITY_ERROR)
 		return (-1);
-	if (i == COMMUNITY_WELLKNOWN) {
-		yyerror("Bad community AS number");
-		return (-1);
-	}
 	as = i;
 
 	if ((i = getcommunity(p)) == COMMUNITY_ERROR)
@@ -3273,8 +3281,6 @@ alloc_peer(void)
 	p->conf.capabilities.as4byte = 1;
 	p->conf.local_as = conf->as;
 	p->conf.local_short_as = conf->short_as;
-	p->conf.softreconfig_in = 1;
-	p->conf.softreconfig_out = 1;
 
 	return (p);
 }

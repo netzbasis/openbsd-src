@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.3 2016/11/24 16:32:33 natano Exp $
+#	$OpenBSD: Makefile.inc,v 1.6 2017/08/13 15:41:30 jasper Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -42,7 +42,7 @@ ${FS}:	bsd.gz
 	mount ${VND_DEV} ${MOUNT_POINT}
 	cp ${BOOT} ${.OBJDIR}/boot
 	strip ${.OBJDIR}/boot
-	strip -R .comment ${.OBJDIR}/boot
+	strip -R .comment -R .SUNW_ctf ${.OBJDIR}/boot
 	installboot -v -r ${MOUNT_POINT} ${VND_CRDEV} \
 	    ${DESTDIR}/usr/mdec/biosboot ${.OBJDIR}/boot
 	dd if=bsd.gz of=${MOUNT_POINT}/bsd bs=512
@@ -65,7 +65,7 @@ MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
 bsd.gz: bsd.rd
 	cp bsd.rd bsd.strip
 	strip bsd.strip
-	strip -R .comment bsd.strip
+	strip -R .comment -R .SUNW_ctf bsd.strip
 	gzip -c9n bsd.strip > bsd.gz
 
 bsd.rd:	mr.fs bsd rdsetroot
@@ -75,7 +75,7 @@ bsd.rd:	mr.fs bsd rdsetroot
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/amd64/compile/${RAMDISK} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Os ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
 	cp -p ${.CURDIR}/../../../sys/arch/amd64/compile/${RAMDISK}/obj/bsd bsd
 
 mr.fs: instbin
@@ -97,6 +97,7 @@ rdsetroot:	${TOP}/../common/elfrdsetroot.c
 install:
 .ifndef NOBSDRD
 	cp bsd.rd ${RELEASEDIR}/bsd.rd
+	chmod a+r ${RELEASEDIR}/bsd.rd
 .endif
 .ifndef NOFS
 	cp ${FS} ${RELEASEDIR}/${FS}
@@ -109,7 +110,7 @@ instbin.mk instbin.cache instbin.c: instbin.conf
 
 instbin: instbin.mk instbin.cache instbin.c
 	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
-	strip -R .comment instbin
+	strip -R .comment -R .SUNW_ctf instbin
 
 instbin.conf: ${LISTS}
 	awk -f ${UTILS}/makeconf.awk CBIN=instbin ${LISTS} > instbin.conf

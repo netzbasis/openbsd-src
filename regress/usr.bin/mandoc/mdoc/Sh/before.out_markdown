@@ -1,10 +1,8 @@
 SH-BEFORE(1) - General Commands Manual
 
-Can
-mandoc(1)
-on
-OpenBSD
-handle this?
+Plain text and
+*a macro*
+before the first section header.
 
 # NAME
 
@@ -14,4 +12,4 @@ handle this?
 
 some text
 
-OpenBSD - July 7, 2014
+OpenBSD - July 28, 2017

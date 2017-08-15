@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.18 2017/05/29 09:44:01 deraadt Exp $
+# $OpenBSD: Makefile,v 1.21 2017/08/13 19:42:33 doug Exp $
 
 LIB=	crypto
 LIBREBUILD=y
@@ -15,7 +15,7 @@ CLEANFILES=${PC_FILES} ${VERSION_SCRIPT}
 LCRYPTO_SRC=	${.CURDIR}
 
 CFLAGS+= -Wall -Wundef
-.if ${COMPILER_VERSION:L} == "gcc4"
+.if ${COMPILER_VERSION:L} == "clang"
 CFLAGS+= -Werror
 .endif
 CFLAGS+= -DLIBRESSL_INTERNAL
@@ -439,7 +439,7 @@ SRCS+= rc4_enc.c rc4_skey.c
 SRCS+= wp_block.c
 .endif
 
-all beforedepend: ${GENERATED}
+BUILDFIRST = ${GENERATED}
 
 .include <bsd.lib.mk>
 

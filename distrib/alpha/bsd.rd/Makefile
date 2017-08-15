@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.23 2017/01/27 17:59:09 natano Exp $
+#	$OpenBSD: Makefile,v 1.26 2017/08/12 19:41:16 jasper Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -6,6 +6,7 @@ TOP=		${.CURDIR}/..
 IMAGE=		ramdisk${REV}.fs
 
 STRIP?=		strip
+STRIPOPTS?=	-R .SUNW_ctf
 GZIPCMD?=	gzip
 GZIPFLAGS?=	-9fn
 
@@ -22,7 +23,7 @@ MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=8192
 
 bsd.rd:	bsd.rd_unz
 	objcopy -Sg -R .comment bsd.rd_unz bsd.strip
-	${STRIP} bsd.strip
+	${STRIP} ${STRIPOPTS} bsd.strip
 	${GZIPCMD} -c ${GZIPFLAGS} bsd.strip > bsd.rd
 
 bsd.rd_unz: bsd ${IMAGE} rdsetroot
@@ -31,7 +32,7 @@ bsd.rd_unz: bsd ${IMAGE} rdsetroot
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Os ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
 	cp -p ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK}/obj/bsd bsd
 
 ${IMAGE}: ${CBIN}
@@ -52,4 +53,5 @@ rdsetroot: ${TOP}/../common/elfrdsetroot.c
 .ifdef RELEASEDIR
 beforeinstall:
 	cp bsd.rd ${RELEASEDIR}
+	chmod a+r ${RELEASEDIR}/bsd.rd
 .endif

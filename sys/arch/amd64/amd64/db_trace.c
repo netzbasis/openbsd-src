@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.31 2017/05/30 15:39:04 mpi Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.34 2017/08/14 16:32:37 mpi Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /*
@@ -83,23 +83,14 @@ int db_numargs(struct callframe *, Elf_Sym *);
 void db_nextframe(struct callframe **, db_addr_t *, long *, int,
     int (*) (const char *, ...));
 
-/*
- * Lookup the function signature in the CTF section, or just
- * return 0 like before when unable to do so. In case of no CTF:
- * Figure out how many arguments were passed into the frame at "fp".
- * We can probably figure out how many arguments where passed above
- * the first 6 (which are in registers), but since we can't
- * reliably determine the values currently, just return 0.
- */
 int
 db_numargs(struct callframe *fp, Elf_Sym *sym)
 {
-#ifdef DDBCTF
 	int args;
 
 	if ((args = db_ctf_func_numargs(sym)) != -1)
 		return args;
-#endif /* DDBCTF */
+
 	return 6;
 }
 
@@ -277,7 +268,7 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 				if (--narg != 0)
 					(*pr)(",");
 			}
-			
+
 			arg0 = &frame->f_arg0;
 		}
 
@@ -308,7 +299,8 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 			 * back to just above lastframe so we can find the
 			 * trapframe as with syscalls and traps.
 			 */
-			frame = (struct callframe *)&lastframe->f_retaddr;
+			frame = (struct callframe *)db_get_value(
+			    (db_addr_t)&lastframe->f_retaddr, sizeof(long), 0);
 			arg0 = &frame->f_arg0;
 		}
 
@@ -394,8 +386,9 @@ db_save_stack_trace(struct db_stack_trace *st)
 				if (lastframe == NULL)
 					break;
 
-				frame =
-				    (struct callframe *)&lastframe->f_retaddr;
+				frame = (struct callframe *)db_get_value(
+				    (db_addr_t)&lastframe->f_retaddr,
+				    sizeof(long), 0);
 			}
 			lastframe = frame;
 

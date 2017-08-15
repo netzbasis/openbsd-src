@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpe.c,v 1.47 2017/04/21 13:50:23 jca Exp $	*/
+/*	$OpenBSD: snmpe.c,v 1.50 2017/08/12 16:31:09 florian Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -105,6 +105,15 @@ snmpe_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 		    snmpe_recvmsg, env);
 		event_add(&so->s_ev, NULL);
 	}
+
+#if 0
+	/*
+	 * XXX Refactoring required to move illegal ioctls and sysctls.
+	 * XXX See mps_* and if_mib in mib.c, etc.
+	 */
+BROKEN	if (pledge("stdio inet route recvfd vminfo", NULL) == -1)
+		fatal("pledge");
+#endif
 }
 
 void
@@ -439,7 +448,8 @@ snmpe_parsevarbinds(struct snmp_message *msg)
 				case SNMP_C_GETBULKREQ:
 					ret = mps_getbulkreq(msg, &msg->sm_c,
 					    &msg->sm_end, &o,
-					    msg->sm_maxrepetitions);
+					    (msg->sm_i <= msg->sm_nonrepeaters)
+					    ? 1 : msg->sm_maxrepetitions);
 					if (ret == 0 || ret == 1)
 						break;
 					msg->sm_error = SNMP_ERROR_NOSUCHNAME;
@@ -467,6 +477,8 @@ snmpe_parsevarbinds(struct snmp_message *msg)
 	}
 
 	msg->sm_errstr = "none";
+	msg->sm_error = 0;
+	msg->sm_errorindex = 0;
 
 	return (ret);
  varfail:

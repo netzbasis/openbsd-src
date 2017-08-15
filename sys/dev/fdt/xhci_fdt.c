@@ -1,4 +1,4 @@
-/*	$OpenBSD: xhci_fdt.c,v 1.2 2017/03/12 11:46:22 kettenis Exp $	*/
+/*	$OpenBSD: xhci_fdt.c,v 1.6 2017/08/12 16:57:07 kettenis Exp $	*/
 /*
  * Copyright (c) 2017 Mark kettenis <kettenis@openbsd.org>
  *
@@ -49,6 +49,7 @@ struct cfattach xhci_fdt_ca = {
 	sizeof(struct xhci_fdt_softc), xhci_fdt_match, xhci_fdt_attach
 };
 
+void	xhci_dwc3_init(struct xhci_fdt_softc *);
 void	xhci_init_phys(struct xhci_fdt_softc *);
 
 int
@@ -56,7 +57,9 @@ xhci_fdt_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "snps,dwc3");
+	return OF_is_compatible(faa->fa_node, "generic-xhci") ||
+	    OF_is_compatible(faa->fa_node, "cavium,octeon-7130-xhci") ||
+	    OF_is_compatible(faa->fa_node, "snps,dwc3");
 }
 
 void
@@ -91,8 +94,16 @@ xhci_fdt_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
+	/* 
+	 * Synopsys Designware USB3 controller needs some extra
+	 * attention because of the additional OTG functionality.
+	 */
+	if (OF_is_compatible(sc->sc_node, "snps,dwc3"))
+		xhci_dwc3_init(sc);
+
 	xhci_init_phys(sc);
 
+	strlcpy(sc->sc.sc_vendor, "Generic", sizeof(sc->sc.sc_vendor));
 	if ((error = xhci_init(&sc->sc)) != 0) {
 		printf("%s: init failed, error=%d\n",
 		    sc->sc.sc_bus.bdev.dv_xname, error);
@@ -112,6 +123,56 @@ disestablish_ret:
 unmap:
 	bus_space_unmap(sc->sc.iot, sc->sc.ioh, sc->sc.sc_size);
 }
+
+
+/*
+ * Synopsys Designware USB3 controller.
+ */
+
+#define USB3_GCTL		0xc110
+#define  USB3_GCTL_PRTCAPDIR_MASK	(0x3 << 12)
+#define  USB3_GCTL_PRTCAPDIR_HOST	(0x1 << 12)
+#define  USB3_GCTL_PRTCAPDIR_DEVICE	(0x2 << 12)
+#define USB3_GUSB2PHYCFG0	0xc200
+#define  USB3_GUSB2PHYCFG0_U2_FREECLK_EXISTS	(1 << 30)
+#define  USB3_GUSB2PHYCFG0_USBTRDTIM(n)	((n) << 10)
+#define  USB3_GUSB2PHYCFG0_SUSPENDUSB20	(1 << 6)
+#define  USB3_GUSB2PHYCFG0_PHYIF	(1 << 3)
+
+void
+xhci_dwc3_init(struct xhci_fdt_softc *sc)
+{
+	char phy_type[16] = { 0 };
+	int node = sc->sc_node;
+	uint32_t reg;
+
+	/* We don't support device mode, so alway force host mode. */
+	reg = bus_space_read_4(sc->sc.iot, sc->sc.ioh, USB3_GCTL);
+	reg &= ~USB3_GCTL_PRTCAPDIR_MASK;
+	reg |= USB3_GCTL_PRTCAPDIR_HOST;
+	bus_space_write_4(sc->sc.iot, sc->sc.ioh, USB3_GCTL, reg);
+
+	/* Configure USB2 PHY type and quirks. */
+	OF_getprop(node, "phy_type", phy_type, sizeof(phy_type));
+	reg = bus_space_read_4(sc->sc.iot, sc->sc.ioh, USB3_GUSB2PHYCFG0);
+	reg &= ~USB3_GUSB2PHYCFG0_USBTRDTIM(0xf);
+	if (strcmp(phy_type, "utmi_wide") == 0) {
+		reg |= USB3_GUSB2PHYCFG0_PHYIF;
+		reg |= USB3_GUSB2PHYCFG0_USBTRDTIM(0x5);
+	} else {
+		reg &= ~USB3_GUSB2PHYCFG0_PHYIF;
+		reg |= USB3_GUSB2PHYCFG0_USBTRDTIM(0x9);
+	}
+	if (OF_getproplen(node, "snps,dis-u2-freeclk-exists-quirk") == 0)
+		reg &= ~USB3_GUSB2PHYCFG0_U2_FREECLK_EXISTS;
+	if (OF_getproplen(node, "snps,dis_u2_susphy_quirk") == 0)
+		reg &= ~USB3_GUSB2PHYCFG0_SUSPENDUSB20;
+	bus_space_write_4(sc->sc.iot, sc->sc.ioh, USB3_GUSB2PHYCFG0, reg);
+}
+
+/*
+ * PHY initialization.
+ */
 
 struct xhci_phy {
 	const char *compat;

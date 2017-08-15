@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_var.h,v 1.66 2017/03/06 08:59:07 mpi Exp $	*/
+/*	$OpenBSD: in6_var.h,v 1.69 2017/08/15 06:08:52 florian Exp $	*/
 /*	$KAME: in6_var.h,v 1.55 2001/02/16 12:49:45 itojun Exp $	*/
 
 /*
@@ -111,9 +111,6 @@ struct	in6_ifaddr {
 				 * currently used for temporary addresses only.
 				 */
 	time_t	ia6_updatetime;
-
-	/* back pointer to the prefix (for autoconf) */
-	struct nd_prefix *ia6_ndpr;
 
 	/* multicast addresses joined from the kernel */
 	LIST_HEAD(, in6_multi_mship) ia6_memberships;
@@ -385,7 +382,7 @@ struct	in6_multi *in6_addmulti(struct in6_addr *, struct ifnet *, int *);
 void	in6_delmulti(struct in6_multi *);
 int	in6_hasmulti(struct in6_addr *, struct ifnet *);
 struct in6_multi_mship *in6_joingroup(struct ifnet *, struct in6_addr *, int *);
-int	in6_leavegroup(struct in6_multi_mship *);
+void	in6_leavegroup(struct in6_multi_mship *);
 int	in6_control(struct socket *, u_long, caddr_t, struct ifnet *);
 int	in6_ioctl(u_long, caddr_t, struct ifnet *, int);
 int	in6_update_ifa(struct ifnet *, struct in6_aliasreq *,
@@ -398,7 +395,6 @@ struct in6_ifaddr *in6ifa_ifpforlinklocal(struct ifnet *, int);
 struct in6_ifaddr *in6ifa_ifpwithaddr(struct ifnet *, struct in6_addr *);
 int	in6_addr2scopeid(unsigned int, struct in6_addr *);
 int	in6_matchlen(struct in6_addr *, struct in6_addr *);
-int	in6_are_prefix_equal(struct in6_addr *, struct in6_addr *, int);
 void	in6_prefixlen2mask(struct in6_addr *, int);
 void	in6_purgeprefix(struct ifnet *);
 #endif /* _KERNEL */

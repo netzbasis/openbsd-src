@@ -4,11 +4,12 @@
 /cpu.c/1.82/Thu Jun  4 18:01:44 2015//
 /disksubr.c/1.82/Tue Feb 28 10:49:37 2017//
 /genassym.cf/1.25/Fri Aug 14 06:14:19 2015//
-/locore.S/1.55/Mon May 23 20:11:49 2016//
-/machdep.c/1.180/Sun Apr 30 16:45:45 2017//
+/locore.S/1.56/Tue Jun 13 01:44:29 2017//
+/locore0.S/1.1/Tue Jun 13 01:44:29 2017//
+/machdep.c/1.181/Tue Jun 13 01:42:12 2017//
 /mainbus.c/1.25/Sun Sep  6 16:46:53 2015//
 /mem.c/1.24/Sun Sep 25 15:23:37 2016//
-/ofw_machdep.c/1.55/Tue Jul 21 05:58:34 2015//
+/ofw_machdep.c/1.56/Sat Jul 22 18:33:38 2017//
 /ofw_machdep.h/1.9/Tue Apr  7 14:36:34 2015//
 /ofwreal.S/1.4/Sun Nov 15 17:11:29 2015//
 /opendev.c/1.9/Thu Mar  9 23:06:19 2006//

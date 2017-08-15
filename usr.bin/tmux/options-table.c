@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.88 2017/05/30 21:44:59 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.91 2017/07/26 16:14:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -51,8 +51,14 @@ static const char *options_table_status_position_list[] = {
 static const char *options_table_bell_action_list[] = {
 	"none", "any", "current", "other", NULL
 };
+static const char *options_table_visual_bell_list[] = {
+	"off", "on", "both", NULL
+};
 static const char *options_table_pane_status_list[] = {
 	"off", "top", "bottom", NULL
+};
+static const char *options_table_set_clipboard_list[] = {
+	"off", "external", "on", NULL
 };
 
 /* Top-level options. */
@@ -118,8 +124,9 @@ const struct options_table_entry options_table[] = {
 	},
 
 	{ .name = "set-clipboard",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SERVER,
+	  .choices = options_table_set_clipboard_list,
 	  .default_num = 1
 	},
 
@@ -130,6 +137,20 @@ const struct options_table_entry options_table[] = {
 			 ":Cs=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
 			 ":Ss=\\E[%p1%d q:Se=\\E[2 q,screen*:XT",
 	  .separator = ","
+	},
+
+	{ .name = "user-keys",
+	  .type = OPTIONS_TABLE_ARRAY,
+	  .scope = OPTIONS_TABLE_SERVER,
+	  .default_str = "",
+	  .separator = ","
+	},
+
+	{ .name = "activity-action",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_SESSION,
+	  .choices = options_table_bell_action_list,
+	  .default_num = BELL_OTHER
 	},
 
 	{ .name = "assume-paste-time",
@@ -153,12 +174,6 @@ const struct options_table_entry options_table[] = {
 	  .scope = OPTIONS_TABLE_SESSION,
 	  .choices = options_table_bell_action_list,
 	  .default_num = BELL_ANY
-	},
-
-	{ .name = "bell-on-alert",
-	  .type = OPTIONS_TABLE_FLAG,
-	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
 	},
 
 	{ .name = "default-command",
@@ -339,6 +354,13 @@ const struct options_table_entry options_table[] = {
 	  .default_str = "#S:#I:#W - \"#T\" #{session_alerts}"
 	},
 
+	{ .name = "silence-action",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_SESSION,
+	  .choices = options_table_bell_action_list,
+	  .default_num = BELL_OTHER
+	},
+
 	{ .name = "status",
 	  .type = OPTIONS_TABLE_FLAG,
 	  .scope = OPTIONS_TABLE_SESSION,
@@ -491,21 +513,24 @@ const struct options_table_entry options_table[] = {
 	},
 
 	{ .name = "visual-activity",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "visual-bell",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "visual-silence",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .default_num = 0
+	  .choices = options_table_visual_bell_list,
+	  .default_num = VISUAL_OFF
 	},
 
 	{ .name = "word-separators",

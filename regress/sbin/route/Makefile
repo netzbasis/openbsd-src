@@ -1,10 +1,10 @@
-# $OpenBSD: Makefile,v 1.15 2017/05/30 11:57:59 bluhm Exp $
+# $OpenBSD: Makefile,v 1.19 2017/08/10 13:08:39 mpi Exp $
 
 RDOMAIN?=	5
 
 .MAIN: all
 
-.ifmake !obj && !clean && !cleandir && !depend && !regress
+.ifmake !obj && !clean && !cleandir && !regress
 .if (${.TARGET} != all && ! make(all)) || (${.TARGET} == all)
 
 .SILENT: .BEGIN .END
@@ -85,7 +85,7 @@ rttest${n}:
 	${RCMD} add -mpath -priority 16 10.8.1/24 192.0.2.2
 	${RCMD} add -mpath -priority 17 10.8.1/24 192.0.2.2
 	${RCMD} add -mpath -priority 18 10.8.1/24 192.0.2.2
-	${RCMD} add -mpath -priority 17 10.8.1/24 192.0.2.2 && exit 1 || exit 0
+	! ${RCMD} add -mpath -priority 17 10.8.1/24 192.0.2.2
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
@@ -96,7 +96,7 @@ rttest${n}:
 	${RCMD} add -priority 16 10.8.1/24 192.0.2.1
 	${RCMD} add -priority 17 10.8.1/24 192.0.2.2
 	${RCMD} add -priority 18 10.8.1/24 192.0.2.3
-	${RCMD} add -priority 17 10.8.1/24 192.0.2.2 && exit 1 || exit 0
+	! ${RCMD} add -priority 17 10.8.1/24 192.0.2.2
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
@@ -119,7 +119,9 @@ rttest${n}:
 	${RCMD} add -priority 17 10.8.1/24 192.0.2.2
 	${RCMD} add -priority 18 10.8.1/24 192.0.2.3
 	${SUDO} ifconfig lo10002 down
-	${RCMD} add -priority 17 10.8.1/24 192.0.2.2 && exit 1 || exit 0
+	! ${RCMD} add -priority 17 10.8.1/24 192.0.2.2
+	@# Work around a race that mess up the route reference counts
+	@sleep .1
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
@@ -172,7 +174,7 @@ RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
 	${RCMD} add -mpath 10.8.1/24 192.0.2.3
 	${RCMD} add -mpath 10.8.1/24 192.0.2.4
-	${RCMD} change -mpath 10.8.1/24 192.0.2.1 && exit 1 || exit 0
+	! ${RCMD} change -mpath 10.8.1/24 192.0.2.1
 
 # Changing MTU should not change the ifa
 n=	14
@@ -276,7 +278,7 @@ RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
 	${RCMD} add -mpath 10.8.1/24 192.0.2.3
 	${RCMD} add -mpath 10.8.1/24 192.0.2.4
-	${RCMD} change -mpath -mtu 1000 10.8.1/24 && exit 1 || exit 0
+	! ${RCMD} change -mpath -mtu 1000 10.8.1/24
 
 # Can change and lock the MTU of an mpath route that exists
 # (route can't just lock so this is mostly the same as rttest22)
@@ -295,7 +297,7 @@ RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
 	${RCMD} add -mpath 10.8.1/24 192.0.2.3
 	${RCMD} add -mpath 10.8.1/24 192.0.2.4
-	${RCMD} change -mpath -mtu 1000 10.8.1/24 192.0.2.1 && exit 1 || exit 0
+	! ${RCMD} change -mpath -mtu 1000 10.8.1/24 192.0.2.1
 
 # Can change the MTU of an non-mpath route without gateway
 n=	26
@@ -319,7 +321,13 @@ rttest${n}:
 n=	28
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
-	${RCMD} delete 192.0.2.1 192.0.2.1 && exit 1 || exit 0
+	! ${RCMD} delete 192.0.2.1 192.0.2.1
+
+# Can't change/set expire on a RTF_LOCAL route
+n=	29
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	! ${RCMD} change -expire 30 192.0.2.1 192.0.2.2
 
 REGRESS_TARGETS=netmask ${RTTEST_TARGETS}
 REGRESS_ROOT_TARGETS=${REGRESS_TARGETS}

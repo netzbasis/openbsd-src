@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.503 2017/05/31 05:59:09 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.511 2017/08/12 20:27:28 mpi Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -511,25 +511,21 @@ if_attachdomain(struct ifnet *ifp)
 void
 if_attachhead(struct ifnet *ifp)
 {
-	int s;
-
 	if_attach_common(ifp);
-	NET_LOCK(s);
+	NET_LOCK();
 	TAILQ_INSERT_HEAD(&ifnet, ifp, if_list);
 	if_attachsetup(ifp);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void
 if_attach(struct ifnet *ifp)
 {
-	int s;
-
 	if_attach_common(ifp);
-	NET_LOCK(s);
+	NET_LOCK();
 	TAILQ_INSERT_TAIL(&ifnet, ifp, if_list);
 	if_attachsetup(ifp);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void
@@ -750,6 +746,7 @@ if_input_local(struct ifnet *ifp, struct mbuf *m, sa_family_t af)
 	}
 #endif
 	m_resethdr(m);
+	m->m_flags |= M_LOOP;
 	m->m_pkthdr.ph_ifidx = ifp->if_index;
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 
@@ -874,7 +871,7 @@ if_input_process(void *xifidx)
 	struct ifnet *ifp;
 	struct ifih *ifih;
 	struct srp_ref sr;
-	int s, s2;
+	int s;
 #ifdef IPSEC
 	int locked = 0;
 #endif /* IPSEC */
@@ -915,7 +912,7 @@ if_input_process(void *xifidx)
 	 * to PF globals, pipex globals, unicast and multicast addresses
 	 * lists.
 	 */
-	NET_LOCK(s2);
+	NET_LOCK();
 	s = splnet();
 	while ((m = ml_dequeue(&ml)) != NULL) {
 		/*
@@ -932,7 +929,7 @@ if_input_process(void *xifidx)
 			m_freem(m);
 	}
 	splx(s);
-	NET_UNLOCK(s2);
+	NET_UNLOCK();
 
 #ifdef IPSEC
 	if (locked)
@@ -946,17 +943,16 @@ void
 if_netisr(void *unused)
 {
 	int n, t = 0;
-	int s;
 
 	KERNEL_LOCK();
-	NET_LOCK(s);
+	NET_LOCK();
 
 	while ((n = netisr) != 0) {
 		/* Like sched_pause() but with a rwlock dance. */
 		if (curcpu()->ci_schedstate.spc_schedflags & SPCF_SHOULDYIELD) {
-			NET_UNLOCK(s);
+			NET_UNLOCK();
 			yield();
-			NET_LOCK(s);
+			NET_LOCK();
 		}
 
 		atomic_clearbits_int(&netisr, n);
@@ -999,16 +995,14 @@ if_netisr(void *unused)
 		pfsyncintr();
 #endif
 
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 	KERNEL_UNLOCK();
 }
 
 void
 if_deactivate(struct ifnet *ifp)
 {
-	int s;
-
-	NET_LOCK(s);
+	NET_LOCK();
 	/*
 	 * Call detach hooks from head to tail.  To make sure detach
 	 * hooks are executed in the reverse order they were added, all
@@ -1021,7 +1015,7 @@ if_deactivate(struct ifnet *ifp)
 	if (ifp->if_carp && ifp->if_type != IFT_CARP)
 		carp_ifdetach(ifp);
 #endif
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 /*
@@ -1034,7 +1028,7 @@ if_detach(struct ifnet *ifp)
 	struct ifaddr *ifa;
 	struct ifg_list *ifg;
 	struct domain *dp;
-	int i, s, s2;
+	int i, s;
 
 	/* Undo pseudo-driver changes. */
 	if_deactivate(ifp);
@@ -1044,8 +1038,8 @@ if_detach(struct ifnet *ifp)
 	/* Other CPUs must not have a reference before we start destroying. */
 	if_idxmap_remove(ifp);
 
-	NET_LOCK(s);
-	s2 = splnet();
+	NET_LOCK();
+	s = splnet();
 	ifp->if_qstart = if_detached_qstart;
 	ifp->if_ioctl = if_detached_ioctl;
 	ifp->if_watchdog = NULL;
@@ -1056,10 +1050,10 @@ if_detach(struct ifnet *ifp)
 
 	/* Remove the watchdog timeout & task */
 	timeout_del(ifp->if_slowtimo);
-	task_del(systq, ifp->if_watchdogtask);
+	task_del(softnettq, ifp->if_watchdogtask);
 
 	/* Remove the link state task */
-	task_del(systq, ifp->if_linkstatetask);
+	task_del(softnettq, ifp->if_linkstatetask);
 
 #if NBPFILTER > 0
 	bpfdetach(ifp);
@@ -1117,8 +1111,8 @@ if_detach(struct ifnet *ifp)
 
 	/* Announce that the interface is gone. */
 	rtm_ifannounce(ifp, IFAN_DEPARTURE);
-	splx(s2);
-	NET_UNLOCK(s);
+	splx(s);
+	NET_UNLOCK();
 
 	for (i = 0; i < ifp->if_nifqs; i++)
 		ifq_destroy(ifp->if_ifqs[i]);
@@ -1182,9 +1176,9 @@ if_clone_create(const char *name, int rdomain)
 		return (EEXIST);
 
 	/* XXXSMP breaks atomicity */
-	rw_exit_write(&netlock);
+	NET_UNLOCK();
 	ret = (*ifc->ifc_create)(ifc, unit);
-	rw_enter_write(&netlock);
+	NET_LOCK();
 
 	if (ret != 0 || (ifp = ifunit(name)) == NULL)
 		return (ret);
@@ -1227,9 +1221,9 @@ if_clone_destroy(const char *name)
 	}
 
 	/* XXXSMP breaks atomicity */
-	rw_exit_write(&netlock);
+	NET_UNLOCK();
 	ret = (*ifc->ifc_destroy)(ifp);
-	rw_enter_write(&netlock);
+	NET_LOCK();
 
 	return (ret);
 }
@@ -1522,9 +1516,8 @@ if_downall(void)
 {
 	struct ifreq ifrq;	/* XXX only partly built */
 	struct ifnet *ifp;
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if ((ifp->if_flags & IFF_UP) == 0)
 			continue;
@@ -1535,7 +1528,7 @@ if_downall(void)
 			    (caddr_t)&ifrq);
 		}
 	}
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 /*
@@ -1584,16 +1577,17 @@ if_linkstate_task(void *xifidx)
 {
 	unsigned int ifidx = (unsigned long)xifidx;
 	struct ifnet *ifp;
-	int s;
 
-	NET_LOCK(s);
+	KERNEL_LOCK();
+	NET_LOCK();
 
 	ifp = if_get(ifidx);
 	if (ifp != NULL)
 		if_linkstate(ifp);
 	if_put(ifp);
 
-	NET_UNLOCK(s);
+	NET_UNLOCK();
+	KERNEL_UNLOCK();
 }
 
 void
@@ -1602,9 +1596,7 @@ if_linkstate(struct ifnet *ifp)
 	NET_ASSERT_LOCKED();
 
 	rtm_ifchg(ifp);
-#ifndef SMALL_KERNEL
 	rt_if_track(ifp);
-#endif
 	dohooks(ifp->if_linkstatehooks, 0);
 }
 
@@ -1614,7 +1606,7 @@ if_linkstate(struct ifnet *ifp)
 void
 if_link_state_change(struct ifnet *ifp)
 {
-	task_add(systq, ifp->if_linkstatetask);
+	task_add(softnettq, ifp->if_linkstatetask);
 }
 
 /*
@@ -1630,7 +1622,7 @@ if_slowtimo(void *arg)
 
 	if (ifp->if_watchdog) {
 		if (ifp->if_timer > 0 && --ifp->if_timer == 0)
-			task_add(systq, ifp->if_watchdogtask);
+			task_add(softnettq, ifp->if_watchdogtask);
 		timeout_add(ifp->if_slowtimo, hz / IFNET_SLOWHZ);
 	}
 	splx(s);
@@ -1647,10 +1639,12 @@ if_watchdog_task(void *xifidx)
 	if (ifp == NULL)
 		return;
 
+	KERNEL_LOCK();
 	s = splnet();
 	if (ifp->if_watchdog)
 		(*ifp->if_watchdog)(ifp);
 	splx(s);
+	KERNEL_UNLOCK();
 
 	if_put(ifp);
 }
@@ -1825,7 +1819,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	struct if_afreq *ifar;
 	char ifdescrbuf[IFDESCRSIZE];
 	char ifrtlabelbuf[RTLABEL_LEN];
-	int s, error = 0;
+	int s, error = 0, oif_xflags;
 	size_t bytesdone;
 	short oif_flags;
 	const char *label;
@@ -1862,23 +1856,28 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		ifar = (struct if_afreq *)data;
 		if ((ifp = ifunit(ifar->ifar_name)) == NULL)
 			return (ENXIO);
+		oif_flags = ifp->if_flags;
+		oif_xflags = ifp->if_xflags;
 		switch (ifar->ifar_af) {
 		case AF_INET:
 			/* attach is a noop for AF_INET */
 			if (cmd == SIOCIFAFDETACH)
 				in_ifdetach(ifp);
-			return (0);
+			break;
 #ifdef INET6
 		case AF_INET6:
 			if (cmd == SIOCIFAFATTACH)
 				error = in6_ifattach(ifp);
 			else
 				in6_ifdetach(ifp);
-			return (error);
+			break;
 #endif /* INET6 */
 		default:
 			return (EAFNOSUPPORT);
 		}
+		if (oif_flags != ifp->if_flags || oif_xflags != ifp->if_xflags)
+			rtm_ifchg(ifp);
+		return (error);
 	}
 
 	ifp = ifunit(ifr->ifr_name);
@@ -1950,16 +1949,6 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 			error = in6_ifattach(ifp);
 			if (error != 0)
 				return (error);
-		}
-
-		if ((ifr->ifr_flags & IFXF_AUTOCONF6) &&
-		    !(ifp->if_xflags & IFXF_AUTOCONF6)) {
-			nd6_rs_attach(ifp);
-		}
-
-		if ((ifp->if_xflags & IFXF_AUTOCONF6) &&
-		    !(ifr->ifr_flags & IFXF_AUTOCONF6)) {
-			nd6_rs_detach(ifp);
 		}
 #endif	/* INET6 */
 
@@ -2185,8 +2174,6 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		break;
 
 	default:
-		if (so->so_proto == 0)
-			return (EOPNOTSUPP);
 		error = ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL,
 			(struct mbuf *) cmd, (struct mbuf *) data,
 			(struct mbuf *) ifp, p));

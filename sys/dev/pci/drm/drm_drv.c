@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.151 2016/12/01 01:37:17 jsg Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.154 2017/07/19 22:05:58 kettenis Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -57,6 +57,7 @@
 #include "drmP.h"
 #include "drm.h"
 #include "drm_sarea.h"
+#include "drm_internal.h"
 
 #ifdef DRMDEBUG
 int drm_debug_flag = 1;
@@ -302,7 +303,7 @@ int drm_noop(struct drm_device *dev, void *data,
  * drm_attach_args.
  */
 struct device *
-drm_attach_pci(struct drm_driver_info *driver, struct pci_attach_args *pa,
+drm_attach_pci(struct drm_driver *driver, struct pci_attach_args *pa,
     int is_agp, int console, struct device *dev)
 {
 	struct drm_attach_args arg;
@@ -321,6 +322,9 @@ drm_attach_pci(struct drm_driver_info *driver, struct pci_attach_args *pa,
 	arg.pci_subvendor = PCI_VENDOR(subsys);
 	arg.pci_subdevice = PCI_PRODUCT(subsys);
 
+	arg.pci_revision = PCI_REVISION(pa->pa_class);
+
+	arg.pa = pa;
 	arg.pc = pa->pa_pc;
 	arg.tag = pa->pa_tag;
 	arg.bridgetag = pa->pa_bridgetag;
@@ -399,6 +403,8 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 	int bus, slot, func;
 	int ret;
 
+	dev->dev = self;
+
 	dev->dev_private = parent;
 	dev->driver = da->driver;
 
@@ -411,9 +417,11 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 	dev->pci_device = dev->pdev->device = da->pci_device;
 	dev->pdev->subsystem_vendor = da->pci_subvendor;
 	dev->pdev->subsystem_device = da->pci_subdevice;
+	dev->pdev->revision = da->pci_revision;
 
 	pci_decompose_tag(da->pc, da->tag, &bus, &slot, &func);
 	dev->pdev->bus = &dev->pdev->_bus;
+	dev->pdev->bus->pc = da->pc;
 	dev->pdev->bus->number = bus;
 	dev->pdev->devfn = PCI_DEVFN(slot, func);
 
@@ -442,7 +450,7 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 		}
 	}
 
-	if (dev->driver->driver_features & DRIVER_GEM) {
+	if (dev->driver->gem_size > 0) {
 		KASSERT(dev->driver->gem_size >= sizeof(struct drm_gem_object));
 		/* XXX unique name */
 		pool_init(&dev->objpl, dev->driver->gem_size, 0, IPL_NONE, 0,
@@ -551,7 +559,9 @@ drm_find_description(int vendor, int device, const struct drm_pcidev *idlist)
 	
 	for (i = 0; idlist[i].vendor != 0; i++) {
 		if ((idlist[i].vendor == vendor) &&
-		    (idlist[i].device == device))
+		    (idlist[i].device == device) &&
+		    (idlist[i].subvendor == PCI_ANY_ID) &&
+		    (idlist[i].subdevice == PCI_ANY_ID))
 			return &idlist[i];
 	}
 	return NULL;
@@ -750,7 +760,7 @@ drmclose(dev_t kdev, int flags, int fmt, struct proc *p)
 	mtx_leave(&dev->event_lock);
 
 	if (dev->driver->driver_features & DRIVER_MODESET)
-		drm_fb_release(dev, file_priv);
+		drm_fb_release(file_priv);
 
 	if (dev->driver->driver_features & DRIVER_GEM)
 		drm_gem_release(dev, file_priv);
@@ -916,7 +926,7 @@ drmread(dev_t kdev, struct uio *uio, int ioflag)
 			mtx_leave(&dev->event_lock);
 			return (EAGAIN);
 		}
-		error = msleep(&file_priv->event_list, &dev->event_lock,
+		error = msleep(&file_priv->event_wait, &dev->event_lock,
 		    PWAIT | PCATCH, "drmread", 0);
 	}
 	if (error) {
@@ -1226,6 +1236,34 @@ drm_dmamem_free(bus_dma_tag_t dmat, struct drm_dmamem *mem)
 	bus_dmamem_free(dmat, mem->segs, mem->nsegs);
 	bus_dmamap_destroy(dmat, mem->map);
 	free(mem, M_DRM, 0);
+}
+
+struct drm_dma_handle *
+drm_pci_alloc(struct drm_device *dev, size_t size, size_t align)
+{
+	struct drm_dma_handle *dmah;
+
+	dmah = malloc(sizeof(*dmah), M_DRM, M_WAITOK);
+	dmah->mem = drm_dmamem_alloc(dev->dmat, size, align, 1, size,
+	    BUS_DMA_NOCACHE, 0);
+	if (dmah->mem == NULL) {
+		free(dmah, M_DRM, sizeof(*dmah));
+		return NULL;
+	}
+	dmah->busaddr = dmah->mem->segs[0].ds_addr;
+	dmah->size = dmah->mem->size;
+	dmah->vaddr = dmah->mem->kva;
+	return (dmah);
+}
+
+void
+drm_pci_free(struct drm_device *dev, struct drm_dma_handle *dmah)
+{
+	if (dmah == NULL)
+		return;
+
+	drm_dmamem_free(dev->dmat, dmah->mem);
+	free(dmah, M_DRM, sizeof(*dmah));
 }
 
 /**

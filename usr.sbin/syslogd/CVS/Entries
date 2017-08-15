@@ -1,5 +1,5 @@
 /Makefile/1.8/Thu Mar 16 23:55:19 2017//
-/evbuffer_tls.c/1.10/Fri Mar  3 20:26:23 2017//
+/evbuffer_tls.c/1.11/Tue Jul  4 15:52:26 2017//
 /evbuffer_tls.h/1.5/Fri Oct  9 16:58:25 2015//
 /log.c/1.4/Fri Apr 28 14:52:13 2017//
 /log.h/1.3/Fri Apr 28 14:52:13 2017//
@@ -7,8 +7,8 @@
 /privsep_fdpass.c/1.11/Thu Jul  9 20:16:04 2015//
 /ringbuf.c/1.10/Sun Oct 16 22:12:50 2016//
 /syslog.conf.5/1.34/Wed Jul  6 19:29:13 2016//
-/syslogd.8/1.55/Tue Apr 25 17:45:50 2017//
-/syslogd.c/1.244/Fri Apr 28 14:52:13 2017//
-/syslogd.h/1.30/Wed Apr  5 22:15:35 2017//
-/ttymsg.c/1.15/Wed Apr  5 21:55:31 2017//
+/syslogd.8/1.56/Wed Jul  5 09:40:16 2017//
+/syslogd.c/1.245/Tue Aug  8 14:23:23 2017//
+/syslogd.h/1.31/Tue Aug  8 14:23:23 2017//
+/ttymsg.c/1.16/Tue Aug  8 14:23:23 2017//
 D

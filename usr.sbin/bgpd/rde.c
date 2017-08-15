@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.368 2017/05/29 13:10:40 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.371 2017/08/11 16:02:53 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -213,11 +213,11 @@ rde_main(int debug, int verbose)
 	signal(SIGALRM, SIG_IGN);
 	signal(SIGUSR1, SIG_IGN);
 
-	/* initialize the RIB structures */
 	if ((ibuf_main = malloc(sizeof(struct imsgbuf))) == NULL)
 		fatal(NULL);
 	imsg_init(ibuf_main, 3);
 
+	/* initialize the RIB structures */
 	pt_init();
 	path_init(pathhashsize);
 	aspath_init(pathhashsize);
@@ -571,6 +571,7 @@ badnet:
 		case IMSG_CTL_SHOW_RIB:
 		case IMSG_CTL_SHOW_RIB_AS:
 		case IMSG_CTL_SHOW_RIB_COMMUNITY:
+		case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 		case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		case IMSG_CTL_SHOW_RIB_PREFIX:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(req)) {
@@ -1168,7 +1169,8 @@ rde_update_dispatch(struct imsg *imsg)
 		if (peer->conf.max_prefix &&
 		    peer->prefix_cnt > peer->conf.max_prefix) {
 			log_peer_warnx(&peer->conf, "prefix limit reached"
-			    " (>%u/%u)", peer->prefix_cnt, peer->conf.max_prefix);
+			    " (>%u/%u)", peer->prefix_cnt,
+			    peer->conf.max_prefix);
 			rde_update_err(peer, ERR_CEASE, ERR_CEASE_MAX_PREFIX,
 			    NULL, 0);
 			goto done;
@@ -1324,13 +1326,12 @@ rde_update_update(struct rde_peer *peer, struct rde_aspath *asp,
 {
 	struct rde_aspath	*fasp;
 	enum filter_actions	 action;
-	int			 r = 0, f = 0;
 	u_int16_t		 i;
 
 	peer->prefix_rcvd_update++;
 	/* add original path to the Adj-RIB-In */
-	if (peer->conf.softreconfig_in)
-		r += path_update(&ribs[0].rib, peer, asp, prefix, prefixlen);
+	path_update(&ribs[0].rib, peer, asp, prefix, prefixlen);
+	peer->prefix_cnt++;
 
 	for (i = 1; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
@@ -1345,49 +1346,40 @@ rde_update_update(struct rde_peer *peer, struct rde_aspath *asp,
 		if (action == ACTION_ALLOW) {
 			rde_update_log("update", i, peer,
 			    &fasp->nexthop->exit_nexthop, prefix, prefixlen);
-			r += path_update(&ribs[i].rib, peer, fasp, prefix,
+			path_update(&ribs[i].rib, peer, fasp, prefix,
 			    prefixlen);
 		} else if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen,
 		    0)) {
 			rde_update_log("filtered withdraw", i, peer,
 			    NULL, prefix, prefixlen);
-			f++;
 		}
 
 		/* free modified aspath */
 		if (fasp != asp)
 			path_put(fasp);
 	}
-
-	if (r)
-		peer->prefix_cnt++;
-	else if (f)
-		peer->prefix_cnt--;
 }
 
 void
 rde_update_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix,
     u_int8_t prefixlen)
 {
-	int r = 0;
 	u_int16_t i;
 
-	peer->prefix_rcvd_withdraw++;
-
-	for (i = rib_size - 1; ; i--) {
+	for (i = 1; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
 			break;
 		if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen, 0)) {
 			rde_update_log("withdraw", i, peer, NULL, prefix,
 			    prefixlen);
-			r++;
 		}
-		if (i == 0)
-			break;
 	}
 
-	if (r)
+	/* remove original path form the Adj-RIB-In */
+	if (prefix_remove(&ribs[0].rib, peer, prefix, prefixlen, 0))
 		peer->prefix_cnt--;
+
+	peer->prefix_rcvd_withdraw++;
 }
 
 /*
@@ -2308,6 +2300,9 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 		    !community_match(p->aspath, req->community.as,
 		    req->community.type))
 			return;
+		if (req->type == IMSG_CTL_SHOW_RIB_EXTCOMMUNITY &&
+		    !community_ext_match(p->aspath, &req->extcommunity, 0))
+			return;
 		if (req->type == IMSG_CTL_SHOW_RIB_LARGECOMMUNITY &&
 		    !community_large_match(p->aspath, req->large_community.as,
 		    req->large_community.ld1, req->large_community.ld2))
@@ -2394,6 +2389,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 	case IMSG_CTL_SHOW_RIB:
 	case IMSG_CTL_SHOW_RIB_AS:
 	case IMSG_CTL_SHOW_RIB_COMMUNITY:
+	case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 	case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		ctx->ribctx.ctx_upcall = rde_dump_upcall;
 		break;
@@ -2934,8 +2930,7 @@ rde_reload_done(void)
 			peer->reconf_rib = 1;
 			continue;
 		}
-		if (peer->conf.softreconfig_out &&
-		    !rde_filter_equal(out_rules, out_rules_tmp, peer)) {
+		if (!rde_filter_equal(out_rules, out_rules_tmp, peer)) {
 			peer->reconf_out = 1;
 		}
 	}
@@ -3652,7 +3647,7 @@ network_delete(struct network_config *nc, int flagstatic)
 		}
 	}
 
-	for (i = rib_size - 1; i > 0; i--) {
+	for (i = 1; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
 			break;
 		prefix_remove(&ribs[i].rib, peerself, &nc->prefix,

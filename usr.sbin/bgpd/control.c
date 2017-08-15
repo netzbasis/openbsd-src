@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.88 2017/05/28 12:21:36 claudio Exp $ */
+/*	$OpenBSD: control.c,v 1.90 2017/08/11 16:02:53 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -252,6 +252,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			case IMSG_CTL_SHOW_RIB_PREFIX:
 			case IMSG_CTL_SHOW_RIB_MEM:
 			case IMSG_CTL_SHOW_RIB_COMMUNITY:
+			case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 			case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 			case IMSG_CTL_SHOW_NETWORK:
 			case IMSG_CTL_SHOW_TERSE:
@@ -456,15 +457,6 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 					control_result(c, CTL_RES_NOSUCHPEER);
 					break;
 				}
-				if ((ribreq->flags & F_CTL_ADJ_IN) && p &&
-				    !p->conf.softreconfig_in) {
-					/*
-					 * without softreconfig_in we do not
-					 * have an Adj-RIB-In table
-					 */
-					control_result(c, CTL_RES_NOCAP);
-					break;
-				}
 				if ((imsg.hdr.type == IMSG_CTL_SHOW_RIB_PREFIX)
 				    && (ribreq->prefix.aid == AID_UNSPEC)) {
 					/* malformed request, must specify af */
@@ -480,6 +472,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			break;
 		case IMSG_CTL_SHOW_RIB_MEM:
 		case IMSG_CTL_SHOW_RIB_COMMUNITY:
+		case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 		case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		case IMSG_CTL_SHOW_NETWORK:
 			c->ibuf.pid = imsg.hdr.pid;

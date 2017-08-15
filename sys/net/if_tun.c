@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.176 2017/05/30 16:16:47 deraadt Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.178 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -309,12 +309,12 @@ tunopen(dev_t dev, int flag, int mode, struct proc *p)
 
 	if ((tp = tun_lookup(minor(dev))) == NULL) {	/* create on demand */
 		char	xname[IFNAMSIZ];
-		int	s, error;
+		int	error;
 
 		snprintf(xname, sizeof(xname), "%s%d", "tun", minor(dev));
-		NET_LOCK(s);
+		NET_LOCK();
 		error = if_clone_create(xname, rdomain);
-		NET_UNLOCK(s);
+		NET_UNLOCK();
 		if (error != 0)
 			return (error);
 
@@ -334,12 +334,12 @@ tapopen(dev_t dev, int flag, int mode, struct proc *p)
 
 	if ((tp = tap_lookup(minor(dev))) == NULL) {	/* create on demand */
 		char	xname[IFNAMSIZ];
-		int	s, error;
+		int	error;
 
 		snprintf(xname, sizeof(xname), "%s%d", "tap", minor(dev));
-		NET_LOCK(s);
+		NET_LOCK();
 		error = if_clone_create(xname, rdomain);
-		NET_UNLOCK(s);
+		NET_UNLOCK();
 		if (error != 0)
 			return (error);
 
@@ -399,7 +399,7 @@ tapclose(dev_t dev, int flag, int mode, struct proc *p)
 int
 tun_dev_close(struct tun_softc *tp, int flag, int mode, struct proc *p)
 {
-	int			 s, error = 0;
+	int			 error = 0;
 	struct ifnet		*ifp;
 
 	ifp = &tp->tun_if;
@@ -415,9 +415,9 @@ tun_dev_close(struct tun_softc *tp, int flag, int mode, struct proc *p)
 	TUNDEBUG(("%s: closed\n", ifp->if_xname));
 
 	if (!(tp->tun_flags & TUN_STAYUP)) {
-		NET_LOCK(s);
+		NET_LOCK();
 		error = if_clone_destroy(ifp->if_xname);
-		NET_UNLOCK(s);
+		NET_UNLOCK();
 	} else {
 		tp->tun_pgid = 0;
 		selwakeup(&tp->tun_rsel);
@@ -930,6 +930,8 @@ tun_dev_write(struct tun_softc *tp, struct uio *uio, int ioflag)
 	ifp->if_ipackets++;
 	ifp->if_ibytes += top->m_pkthdr.len;
 
+	NET_LOCK();
+
 	switch (ntohl(*th)) {
 	case AF_INET:
 		ipv4_input(ifp, top);
@@ -941,8 +943,11 @@ tun_dev_write(struct tun_softc *tp, struct uio *uio, int ioflag)
 #endif
 	default:
 		m_freem(top);
-		return (EAFNOSUPPORT);
+		error = EAFNOSUPPORT;
+		break;
 	}
+
+	NET_UNLOCK();
 
 	return (error);
 }

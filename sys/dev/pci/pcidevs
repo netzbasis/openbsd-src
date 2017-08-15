@@ -1,4 +1,4 @@
-$OpenBSD: pcidevs,v 1.1819 2017/05/31 03:37:54 jsg Exp $
+$OpenBSD: pcidevs,v 1.1824 2017/08/04 22:37:42 uaa Exp $
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
 
 /*
@@ -966,6 +966,7 @@ product ARECA ARC1880		0x1880	ARC-1880
 
 /* ASIX Electronics products */
 product ASIX AX88140A		0x1400	AX88140A/88141
+product ASIX AX99100		0x9100	AX99100
 
 /* ASMedia products */
 product ASMEDIA ASM1061_SATA	0x0611	ASM1061 SATA
@@ -3441,21 +3442,26 @@ product INTEL CORE5G_D_GT3_2	0x162d	HD Graphics
 product INTEL CORE5G_M_GT3_4	0x162e	HD Graphics
 product INTEL CORE6G_H_HB_D	0x1900	Core 6G Host
 product INTEL CORE6G_H_PCIE_X16	0x1901	Core 6G PCIE
+product INTEL CORE6G_S_GT1	0x1902	HD Graphics 510
 product INTEL CORE6G_THERM	0x1903	Core 6G Thermal
 product INTEL CORE6G_U_HB	0x1904	Core 6G Host
 product INTEL CORE6G_H_PCIE_X8	0x1905	Core 6G PCIE
+product INTEL CORE6G_U_GT1	0x1906	HD Graphics 510
 product INTEL CORE6G_H_PCIE_X4	0x1909	Core 6G PCIE
 product INTEL CORE6G_Y_HB	0x190c	Core 6G Host
 product INTEL CORE6G_S_HB_DUAL	0x190f	Core 6G Host
 product INTEL CORE6G_H_HB_Q	0x1910	Core 6G Host
 product INTEL CORE_GMM_1	0x1911	Core GMM
-product INTEL CORE6G_D_GT2_1	0x1912	HD Graphics 530
+product INTEL CORE6G_S_GT2	0x1912	HD Graphics 530
 product INTEL CORE6G_U_GT2	0x1916	HD Graphics 520
 product INTEL XEONE3_1200V5_HB	0x1918	Xeon E3-1200 v5 Host
 product INTEL CORE6G_H_GT2	0x191b	HD Graphics 530
+product INTEL XEONE3_1200V5_GT2	0x191d	HD Graphics P530
 product INTEL CORE6G_Y_GT2	0x191e	HD Graphics 515
 product INTEL CORE6G_HB		0x191f	Core 6G Host
-product INTEL CORE6G_H_GT4	0x193b	Iris Pro Graphics 580
+product INTEL CORE6G_U_GT3	0x1926	Iris 540/550
+product INTEL CORE6G_H_GT4	0x193b	Iris Pro 580
+product INTEL XEONE3_1500V5_GT4	0x193d	Iris Pro P580
 product INTEL 80960RP_ATU	0x1960	80960RP ATU
 product INTEL 82840_HB		0x1a21	82840 Host
 product INTEL 82840_AGP		0x1a23	82840 AGP
@@ -3626,6 +3632,7 @@ product INTEL BSW_PCIE_1	0x22c8	Braswell PCIE
 product INTEL BSW_PCIE_2	0x22ca	Braswell PCIE
 product INTEL BSW_PCIE_3	0x22cc	Braswell PCIE
 product INTEL BSW_PCIE_4	0x22ce	Braswell PCIE
+product INTEL BSW_SENSOR	0x22d8	Braswell Sensor Hub
 product INTEL BSW_PM		0x22dc	Braswell Power
 product INTEL DH8900_LPC	0x2310	DH8900 LPC
 product INTEL DH8900_AHCI	0x2323	DH8900 AHCI
@@ -3717,6 +3724,7 @@ product INTEL WL_3168_1		0x24fb	Dual Band Wireless-AC 3168
 product INTEL WL_8265_1		0x24fd	Dual Band Wireless-AC 8265
 product INTEL 82820_HB		0x2501	82820 Host
 product INTEL 82820_AGP		0x250f	82820 AGP
+product INTEL OPTANE		0x2522	Optane
 product INTEL 82850_HB		0x2530	82850 Host
 product INTEL 82860_HB		0x2531	82860 Host
 product INTEL 82850_AGP		0x2532	82850/82860 AGP

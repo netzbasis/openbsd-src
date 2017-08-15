@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_carp.c,v 1.312 2017/05/30 12:09:27 friehm Exp $	*/
+/*	$OpenBSD: ip_carp.c,v 1.315 2017/08/11 21:24:19 mpi Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff. All rights reserved.
@@ -421,7 +421,7 @@ carp_proto_input(struct mbuf **mp, int *offp, int proto, int af)
 
 	ifp = if_get((*mp)->m_pkthdr.ph_ifidx);
 	if (ifp == NULL) {
-		m_freem(*mp);
+		m_freemp(mp);
 		return IPPROTO_DONE;
 	}
 
@@ -517,7 +517,7 @@ carp6_proto_input(struct mbuf **mp, int *offp, int proto, int af)
 
 	ifp = if_get((*mp)->m_pkthdr.ph_ifidx);
 	if (ifp == NULL) {
-		m_freem(*mp);
+		m_freemp(mp);
 		return IPPROTO_DONE;
 	}
 
@@ -870,11 +870,10 @@ int
 carp_clone_destroy(struct ifnet *ifp)
 {
 	struct carp_softc *sc = ifp->if_softc;
-	int s;
 
-	NET_LOCK(s);
+	NET_LOCK();
 	carpdetach(sc);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 
 	ether_ifdetach(ifp);
 	if_detach(ifp);
@@ -1036,11 +1035,9 @@ carp_vhe_send_ad_all(struct carp_softc *sc)
 void
 carp_timer_ad(void *v)
 {
-	int s;
-
-	NET_LOCK(s);
+	NET_LOCK();
 	carp_send_ad(v);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void
@@ -1548,11 +1545,9 @@ done:
 void
 carp_timer_down(void *v)
 {
-	int s;
-
-	NET_LOCK(s);
+	NET_LOCK();
 	carp_master_down(v);
-	NET_UNLOCK(s);
+	NET_UNLOCK();
 }
 
 void
@@ -2338,7 +2333,7 @@ carp_start(struct ifnet *ifp)
 			uint8_t *esrc;
 
 			eh = mtod(m, struct ether_header *);
-			esrc = ((struct arpcom*)ifp->if_carpdev)->ac_enaddr;;
+			esrc = ((struct arpcom*)ifp->if_carpdev)->ac_enaddr;
 			memcpy(eh->ether_shost, esrc, sizeof(eh->ether_shost));
 		}
 

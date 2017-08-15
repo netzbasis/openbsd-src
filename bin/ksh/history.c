@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.59 2017/05/29 13:09:17 tb Exp $	*/
+/*	$OpenBSD: history.c,v 1.64 2017/08/11 19:37:58 tb Exp $	*/
 
 /*
  * command history
@@ -593,10 +593,12 @@ history_lock(int operation)
 void
 histsave(int lno, const char *cmd, int dowrite)
 {
-	struct stat	sb;
-	char		**hp, *c, *cp, *encoded;
+	char		*c, *cp;
 
 	if (dowrite && histfh) {
+#ifndef SMALL
+		struct stat	sb;
+
 		history_lock(LOCK_EX);
 		if (fstat(fileno(histfh), &sb) != -1) {
 			if (timespeccmp(&sb.st_mtim, &last_sb.st_mtim, ==))
@@ -608,22 +610,26 @@ histsave(int lno, const char *cmd, int dowrite)
 				history_load(hist_source);
 			}
 		}
+#endif
 	}
 
 	c = str_save(cmd, APERM);
 	if ((cp = strrchr(c, '\n')) != NULL)
 		*cp = '\0';
 
-	hp = histptr;
-	if (++hp >= history + histsize) { /* remove oldest command */
+	if (histptr < history + histsize - 1)
+		histptr++;
+	else { /* remove oldest command */
 		afree(*history, APERM);
-		for (hp = history; hp < history + histsize - 1; hp++)
-			hp[0] = hp[1];
+		memmove(history, history + 1,
+		    (histsize - 1) * sizeof(*history));
 	}
-	*hp = c;
-	histptr = hp;
+	*histptr = c;
 
 	if (dowrite && histfh) {
+#ifndef SMALL
+		char *encoded;
+
 		/* append to file */
 		if (fseeko(histfh, 0, SEEK_END) == 0 &&
 		    stravis(&encoded, c, VIS_SAFE | VIS_NL) != -1) {
@@ -635,14 +641,16 @@ histsave(int lno, const char *cmd, int dowrite)
 			free(encoded);
 		}
 		history_lock(LOCK_UN);
+#endif
 	}
 }
 
 static FILE *
 history_open(void)
 {
+	FILE		*f = NULL;
+#ifndef SMALL
 	struct stat	sb;
-	FILE		*f;
 	int		fd, fddup;
 
 	if ((fd = open(hname, O_RDWR | O_CREAT | O_EXLOCK, 0600)) == -1)
@@ -659,7 +667,7 @@ history_open(void)
 		close(fddup);
 	else
 		last_sb = sb;
-
+#endif
 	return f;
 }
 
@@ -701,9 +709,14 @@ history_load(Source *s)
 	return 0;
 }
 
+#define HMAGIC1 0xab
+#define HMAGIC2 0xcd
+
 void
 hist_init(Source *s)
 {
+	int oldmagic1, oldmagic2;
+
 	if (Flag(FTALKING) == 0)
 		return;
 
@@ -718,6 +731,22 @@ hist_init(Source *s)
 	histfh = history_open();
 	if (histfh == NULL)
 		return;
+
+	oldmagic1 = fgetc(histfh);
+	oldmagic2 = fgetc(histfh);
+
+	if (oldmagic1 == EOF || oldmagic2 == EOF) {
+		if (!feof(histfh) && ferror(histfh)) {
+			history_close();
+			return;
+		}
+	} else if (oldmagic1 == HMAGIC1 && oldmagic2 == HMAGIC2) {
+		bi_errorf("ignoring old style history file");
+		history_close();
+		return;
+	}
+
+	rewind(histfh);
 
 	history_load(s);
 

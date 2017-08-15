@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.82 2017/05/14 12:26:59 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.89 2017/07/15 17:57:46 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -85,6 +85,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"math",	HTML_NLALL | HTML_INDENT},
 	{"mrow",	0},
 	{"mi",		0},
+	{"mn",		0},
 	{"mo",		0},
 	{"msup",	0},
 	{"msub",	0},
@@ -343,16 +344,18 @@ static int
 print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 {
 	char		 numbuf[16];
-	size_t		 sz;
-	int		 c, len, nospace;
+	struct tag	*t;
 	const char	*seq;
+	size_t		 sz;
+	int		 c, len, breakline, nospace;
 	enum mandoc_esc	 esc;
-	static const char rejs[9] = { '\\', '<', '>', '&', '"',
+	static const char rejs[10] = { ' ', '\\', '<', '>', '&', '"',
 		ASCII_NBRSP, ASCII_HYPH, ASCII_BREAK, '\0' };
 
 	if (pend == NULL)
 		pend = strchr(p, '\0');
 
+	breakline = 0;
 	nospace = 0;
 
 	while (p < pend) {
@@ -363,13 +366,27 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 		}
 
 		for (sz = strcspn(p, rejs); sz-- && p < pend; p++)
-			if (*p == ' ')
-				print_endword(h);
-			else
-				print_byte(h, *p);
+			print_byte(h, *p);
+
+		if (breakline &&
+		    (p >= pend || *p == ' ' || *p == ASCII_NBRSP)) {
+			t = print_otag(h, TAG_DIV, "");
+			print_text(h, "\\~");
+			print_tagq(h, t);
+			breakline = 0;
+			while (p < pend && (*p == ' ' || *p == ASCII_NBRSP))
+				p++;
+			continue;
+		}
 
 		if (p >= pend)
 			break;
+
+		if (*p == ' ') {
+			print_endword(h);
+			p++;
+			continue;
+		}
 
 		if (print_escape(h, *p++))
 			continue;
@@ -415,6 +432,9 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			if (c <= 0)
 				continue;
 			break;
+		case ESCAPE_BREAK:
+			breakline = 1;
+			continue;
 		case ESCAPE_NOSPACE:
 			if ('\0' == *p)
 				nospace = 1;
@@ -431,7 +451,7 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 		    (c > 0x7E && c < 0xA0))
 			c = 0xFFFD;
 		if (c > 0x7E) {
-			(void)snprintf(numbuf, sizeof(numbuf), "&#%d;", c);
+			(void)snprintf(numbuf, sizeof(numbuf), "&#x%.4X;", c);
 			print_word(h, numbuf);
 		} else if (print_escape(h, c) == 0)
 			print_byte(h, c);
@@ -494,7 +514,7 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		print_indent(h);
 	else if ((h->flags & HTML_NOSPACE) == 0) {
 		if (h->flags & HTML_KEEP)
-			print_word(h, "&#160;");
+			print_word(h, "&#x00A0;");
 		else {
 			if (h->flags & HTML_PREKEEP)
 				h->flags |= HTML_KEEP;
@@ -601,25 +621,29 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		case 'u':
 			su = va_arg(ap, struct roffsu *);
 			break;
-		case 'v':
-			i = va_arg(ap, int);
-			su = &mysu;
-			SCALE_VS_INIT(su, i);
-			break;
 		case 'w':
-			if ((arg2 = va_arg(ap, char *)) == NULL)
-				break;
-			su = &mysu;
-			a2width(arg2, su);
+			if ((arg2 = va_arg(ap, char *)) != NULL) {
+				su = &mysu;
+				a2width(arg2, su);
+			}
+			if (*fmt == '*') {
+				if (su != NULL && su->unit == SCALE_EN &&
+				    su->scale > 5.9 && su->scale < 6.1)
+					su = NULL;
+				fmt++;
+			}
 			if (*fmt == '+') {
-				/* Increase to make even bold text fit. */
-				su->scale *= 1.2;
-				/* Add padding. */
-				su->scale += 3.0;
+				if (su != NULL) {
+					/* Make even bold text fit. */
+					su->scale *= 1.2;
+					/* Add padding. */
+					su->scale += 3.0;
+				}
 				fmt++;
 			}
 			if (*fmt == '-') {
-				su->scale *= -1.0;
+				if (su != NULL)
+					su->scale *= -1.0;
 				fmt++;
 			}
 			break;
@@ -630,9 +654,6 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		/* Second letter: style name. */
 
 		switch (*fmt++) {
-		case 'b':
-			attr = "margin-bottom";
-			break;
 		case 'h':
 			attr = "height";
 			break;
@@ -641,9 +662,6 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 			break;
 		case 'l':
 			attr = "margin-left";
-			break;
-		case 't':
-			attr = "margin-top";
 			break;
 		case 'w':
 			attr = "width";
@@ -757,7 +775,7 @@ print_text(struct html *h, const char *word)
 				h->flags |= HTML_KEEP;
 			print_endword(h);
 		} else
-			print_word(h, "&#160;");
+			print_word(h, "&#x00A0;");
 	}
 
 	assert(NULL == h->metaf);
@@ -948,7 +966,10 @@ print_word(struct html *h, const char *cp)
 static void
 a2width(const char *p, struct roffsu *su)
 {
-	if (a2roffsu(p, su, SCALE_MAX) < 2) {
+	const char	*end;
+
+	end = a2roffsu(p, su, SCALE_MAX);
+	if (end == NULL || *end != '\0') {
 		su->unit = SCALE_EN;
 		su->scale = html_strlen(p);
 	} else if (su->scale < 0.0)

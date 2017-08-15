@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.117 2017/05/24 13:33:00 visa Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.120 2017/07/30 16:05:24 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -238,7 +238,6 @@ extern void (*cpu_idle_cycle_func)(void);
 #define cpu_idle_cycle()		(*cpu_idle_cycle_func)()
 
 #ifdef MULTIPROCESSOR
-#define MAXCPUS				4
 #define getcurcpu()			hw_getcurcpu()
 #define setcurcpu(ci)			hw_setcurcpu(ci)
 extern struct cpu_info *get_cpu_info(int);
@@ -364,7 +363,7 @@ void	cp0_calibrate(struct cpu_info *);
  */
 #define	CPU_ALLOWAPERTURE	1	/* allow mmap of /dev/xf86 */
 		/*		2	   formerly: keyboard reset */
-#define	CPU_LIDSUSPEND		3	/* lid close causes a suspend */
+		/*		3	   formerly: CPU_LIDSUSPEND */
 #define CPU_LIDACTION		4	/* action caused by lid close */
 #define	CPU_MAXID		5	/* number of valid machdep ids */
 
@@ -372,7 +371,7 @@ void	cp0_calibrate(struct cpu_info *);
 	{ 0, 0 },				\
 	{ "allowaperture", CTLTYPE_INT },	\
 	{ 0, 0 },				\
-	{ "lidsuspend", CTLTYPE_INT },		\
+	{ 0, 0 },				\
 	{ "lidaction", CTLTYPE_INT },		\
 }
 
@@ -490,6 +489,7 @@ register_t cp0_get_config(void);
 uint32_t cp0_get_config_1(void);
 uint32_t cp0_get_config_2(void);
 uint32_t cp0_get_config_3(void);
+uint32_t cp0_get_config_4(void);
 uint32_t cp0_get_pagegrain(void);
 register_t cp0_get_prid(void);
 void	cp0_reset_cause(register_t);

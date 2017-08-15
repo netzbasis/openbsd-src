@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.socppc,v 1.50 2016/11/29 09:08:34 mpi Exp $
+#	$OpenBSD: Makefile.socppc,v 1.56 2017/08/12 20:26:11 mpi Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -11,7 +11,7 @@
 .include <bsd.own.mk>
 
 SIZE?=	size
-STRIP?=	strip
+STRIP?=	ctfstrip
 
 # source tree is located via $S relative to the compilation directory
 .ifndef S
@@ -72,12 +72,13 @@ SYSTEM_OBJ=	${SYSTEM_HEAD} ${OBJS}
 SYSTEM_DEP=	Makefile ${SYSTEM_OBJ}
 SYSTEM_LD_HEAD=	@rm -f $@
 SYSTEM_LD=	@echo ${LD} ${LINKFLAGS} -o $@ '$${SYSTEM_HEAD} vers.o $${OBJS}'; \
+		umask 007; \
 		${LD} ${LINKFLAGS} -o $@ ${SYSTEM_HEAD} vers.o ${OBJS}
-SYSTEM_LD_TAIL=	@${SIZE} $@; chmod 755 $@
+SYSTEM_LD_TAIL=	@${SIZE} $@
 
 .if ${DEBUG} == "-g"
 STRIPFLAGS=	-S
-SYSTEM_LD_TAIL+=; \
+SYSTEM_LD_TAIL+=; umask 007; \
 		echo mv $@ $@.gdb; rm -f $@.gdb; mv $@ $@.gdb; \
 		echo ${STRIP} ${STRIPFLAGS} -o $@ $@.gdb; \
 		${STRIP} ${STRIPFLAGS} -o $@ $@.gdb
@@ -112,7 +113,7 @@ mcount.o: $S/lib/libkern/mcount.c Makefile
 ioconf.o: ioconf.c
 	${NORMAL_C}
 
-vers.o: ${SYSTEM_DEP} ${SYSTEM_SWAP_DEP}
+vers.o: ${SYSTEM_DEP:Ngap.o}
 	sh $S/conf/newvers.sh
 	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c vers.c
 
@@ -139,7 +140,7 @@ install: install-kernel-${MACHINE_NAME}
 .if !target(install-kernel-${MACHINE_NAME}})
 install-kernel-${MACHINE_NAME}:
 	cmp -s bsd /bsd || ln -f /bsd /obsd
-	cp bsd /nbsd
+	umask 077; cp bsd /nbsd
 	mv /nbsd /bsd
 .endif
 
@@ -148,7 +149,7 @@ install-kernel-${MACHINE_NAME}:
  ${SYSTEM_OBJ}: ${DB_STRUCTINFO}
 .endif
 .ifnmake clean
-. for o in ${SYSTEM_OBJ} assym.h ${DB_STRUCTINFO}
+. for o in ${SYSTEM_OBJ:Ngap.o} assym.h ${DB_STRUCTINFO}
 .  if exists(${o:R}.d)
 .   include "${o:R}.d"
 .  elif exists($o)

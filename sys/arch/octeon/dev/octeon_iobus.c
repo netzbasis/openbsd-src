@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeon_iobus.c,v 1.19 2017/04/24 14:10:19 visa Exp $ */
+/*	$OpenBSD: octeon_iobus.c,v 1.22 2017/07/25 11:01:28 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2000-2004 Opsycon AB  (www.opsycon.se)
@@ -53,7 +53,6 @@
 #include <octeon/dev/iobusvar.h>
 #include <octeon/dev/cn30xxgmxreg.h>
 #include <octeon/dev/octhcireg.h>	/* USBN_BASE */
-#include <octeon/dev/octuctlreg.h>
 
 int	iobusmatch(struct device *, void *, void *);
 void	iobusattach(struct device *, struct device *, void *);
@@ -122,8 +121,6 @@ bus_space_t iobus_tag = {
 	._space_vaddr =		generic_space_vaddr
 };
 
-bus_space_handle_t iobus_h;
-
 struct machine_bus_dma_tag iobus_bus_dma_tag = {
 	NULL,			/* _cookie */
 	_dmamap_create,
@@ -155,7 +152,6 @@ static const struct octeon_iobus_addrs iobus_addrs[] = {
 	{ "octrng",	OCTEON_RNG_BASE },
 	{ "dwctwo",	USBN_BASE       },
 	{ "amdcf",	OCTEON_AMDCF_BASE},
-	{ "octuctl",	UCTL_BASE	},
 };
 
 /* There can only be one. */
@@ -213,20 +209,9 @@ iobusattach(struct device *parent, struct device *self, void *aux)
 	struct device *sc = self;
 	int chipid, i, ngmx, soc;
 
-	/*
-	 * Map and setup CIU control registers.
-	 */
-	if (bus_space_map(&iobus_tag, OCTEON_CIU_BASE, OCTEON_CIU_SIZE, 0,
-		&iobus_h)) {
-		printf(": can't map CIU control registers\n");
-		return;
-	}
-
 	iobus_found = 1;
 
 	printf("\n");
-
-	octeon_intr_init();
 
 	/* XXX */
 	oc.mc_iobus_bust = &iobus_tag;

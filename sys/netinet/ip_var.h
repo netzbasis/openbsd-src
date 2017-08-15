@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_var.h,v 1.78 2017/05/31 05:59:09 mpi Exp $	*/
+/*	$OpenBSD: ip_var.h,v 1.80 2017/07/14 16:50:41 tedu Exp $	*/
 /*	$NetBSD: ip_var.h,v 1.16 1996/02/13 23:43:20 christos Exp $	*/
 
 /*
@@ -193,9 +193,6 @@ struct ipq {
 extern struct ipstat ipstat;
 extern LIST_HEAD(ipqhead, ipq)	ipq;	/* ip reass. queue */
 extern int ip_defttl;			/* default IP ttl */
-#ifdef MROUTING
-extern struct socket *ip_mrouter[];	/* multicast routing daemon */
-#endif
 
 #define IPMTUDISCTIMEOUT (10 * 60)	/* as per RFC 1191 */
 
@@ -248,7 +245,8 @@ int	 ip_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 void	 ip_savecontrol(struct inpcb *, struct mbuf **, struct ip *,
 	    struct mbuf *);
 void	 ipintr(void);
-void	 ip_deliver(struct mbuf **, int *, int, int);
+int	 ip_input_if(struct mbuf **, int *, int, int, struct ifnet *);
+int	 ip_deliver(struct mbuf **, int *, int, int);
 void	 ip_forward(struct mbuf *, struct ifnet *, struct rtentry *, int);
 int	 rip_ctloutput(int, struct socket *, int, int, struct mbuf *);
 void	 rip_init(void);
@@ -258,6 +256,10 @@ int	 rip_output(struct mbuf *, struct socket *, struct sockaddr *,
 int	 rip_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
 int	 rip_attach(struct socket *, int);
+
+#ifdef MROUTING
+extern struct socket *ip_mrouter[];	/* multicast routing daemon */
+#endif
 
 #endif /* _KERNEL */
 #endif /* _NETINET_IP_VAR_H_ */

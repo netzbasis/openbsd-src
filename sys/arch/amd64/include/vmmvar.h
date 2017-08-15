@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmvar.h,v 1.41 2017/05/30 20:31:24 mlarkin Exp $	*/
+/*	$OpenBSD: vmmvar.h,v 1.46 2017/08/14 18:29:41 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -24,16 +24,16 @@
 #define VMM_HV_SIGNATURE 	"OpenBSDVMM58"
 
 #define VMM_MAX_MEM_RANGES	16
-#define VMM_MAX_DISKS_PER_VM	2
+#define VMM_MAX_DISKS_PER_VM	4
 #define VMM_MAX_PATH_DISK	128
 #define VMM_MAX_NAME_LEN	32
 #define VMM_MAX_KERNEL_PATH	128
 #define VMM_MAX_VCPUS_PER_VM	64
-#define VMM_MAX_VM_MEM_SIZE	(512 * 1024)
+#define VMM_MAX_VM_MEM_SIZE	32768
 #define VMM_MAX_NICS_PER_VM	4
 
-#define VMM_PCI_MMIO_BAR_BASE	0xF0000000
-#define VMM_PCI_MMIO_BAR_END	0xFFFFFFFF
+#define VMM_PCI_MMIO_BAR_BASE	0xF0000000ULL
+#define VMM_PCI_MMIO_BAR_END	0xFFFFFFFFULL
 #define VMM_PCI_MMIO_BAR_SIZE	0x00010000
 #define VMM_PCI_IO_BAR_BASE	0x1000
 #define VMM_PCI_IO_BAR_END	0xFFFF
@@ -278,6 +278,31 @@
 #define SVM_VMEXIT_INVALID			-1
 
 /*
+ * Exception injection vectors (these correspond to the CPU exception types
+ * defined in the SDM.)
+ */
+#define VMM_EX_DE	0	/* Divide Error #DE */
+#define VMM_EX_DB	1	/* Debug Exception #DB */
+#define VMM_EX_NMI	2	/* NMI */
+#define VMM_EX_BP	3	/* Breakpoint #BP */
+#define VMM_EX_OF	4	/* Overflow #OF */
+#define VMM_EX_BR	5	/* Bound range exceeded #BR */
+#define VMM_EX_UD	6	/* Undefined opcode #UD */
+#define VMM_EX_NM	7	/* Device not available #NM */
+#define VMM_EX_DF	8	/* Double fault #DF */
+#define VMM_EX_CP	9	/* Coprocessor segment overrun (unused) */
+#define VMM_EX_TS	10	/* Invalid TSS #TS */
+#define VMM_EX_NP	11	/* Segment not present #NP */
+#define VMM_EX_SS	12	/* Stack segment fault #SS */
+#define VMM_EX_GP	13	/* General protection #GP */
+#define VMM_EX_PF	14	/* Page fault #PF */
+#define VMM_EX_MF	16	/* x87 FPU floating point error #MF */
+#define VMM_EX_AC	17	/* Alignment check #AC */
+#define VMM_EX_MC	18	/* Machine check #MC */
+#define VMM_EX_XM	19	/* SIMD floating point exception #XM */
+#define VMM_EX_VE	20	/* Virtualization exception #VE */
+
+/*
  * VCPU state values. Note that there is a conversion function in vmm.c
  * (vcpu_state_decode) that converts these to human readable strings,
  * so this enum and vcpu_state_decode should be kept in sync.
@@ -368,7 +393,8 @@ struct vcpu_segment_info {
 #define VCPU_REGS_CSTAR  	3
 #define VCPU_REGS_SFMASK 	4
 #define VCPU_REGS_KGSBASE	5
-#define VCPU_REGS_NMSRS	(VCPU_REGS_KGSBASE + 1)
+#define VCPU_REGS_MISC_ENABLE	6
+#define VCPU_REGS_NMSRS	(VCPU_REGS_MISC_ENABLE + 1)
 
 struct vcpu_reg_state {
 	uint64_t			vrs_gprs[VCPU_REGS_NGPRS];
@@ -485,7 +511,7 @@ struct vm_rwregs_params {
 #define VMX_FAIL_LAUNCH_INVALID_VMCS 2
 #define VMX_FAIL_LAUNCH_VALID_VMCS 3
 
-#define VMX_NUM_MSR_STORE 6
+#define VMX_NUM_MSR_STORE 7
 
 /* MSR bitmap manipulation macros */
 #define VMX_MSRIDX(m) ((m) / 8)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.81 2017/03/19 16:55:31 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.90 2017/08/10 20:13:57 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015, 2016, 2017 Mike Belopuhov
@@ -71,6 +71,7 @@ int	xen_getfeatures(struct xen_softc *);
 int	xen_init_info_page(struct xen_softc *);
 int	xen_init_cbvec(struct xen_softc *);
 int	xen_init_interrupts(struct xen_softc *);
+void	xen_intr_dispatch(void *);
 int	xen_init_grant_tables(struct xen_softc *);
 struct xen_gntent *
 	xen_grant_table_grow(struct xen_softc *);
@@ -151,6 +152,7 @@ xen_attach(struct device *parent, struct device *self, void *aux)
 	struct xen_softc *sc = (struct xen_softc *)self;
 
 	sc->sc_base = hv->hv_base;
+	sc->sc_dmat = pva->pva_dmat;
 
 	if (xen_init_hypercall(sc))
 		return;
@@ -303,6 +305,7 @@ xen_hypercall(struct xen_softc *sc, int op, int argc, ...)
 	va_start(ap, argc);
 	for (i = 0; i < argc; i++)
 		argv[i] = (ulong)va_arg(ap, ulong);
+	va_end(ap);
 	return (xen_hypercallv(sc, op, argc, argv));
 }
 
@@ -634,6 +637,26 @@ xen_intsrc_remove(struct xen_softc *sc, evtchn_port_t port)
 	return (xi);
 }
 
+static inline void
+xen_intr_mask_acquired(struct xen_softc *sc, struct xen_intsrc *xi)
+{
+	xi->xi_masked = 1;
+	set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
+}
+
+static inline int
+xen_intr_unmask_release(struct xen_softc *sc, struct xen_intsrc *xi)
+{
+	struct evtchn_unmask eu;
+
+	xi->xi_masked = 0;
+	if (!test_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]))
+		return (0);
+	eu.port = xi->xi_port;
+	xen_intsrc_release(sc, xi);
+	return (xen_evtchn_hypercall(sc, EVTCHNOP_unmask, &eu, sizeof(eu)));
+}
+
 void
 xen_intr_ack(void)
 {
@@ -678,8 +701,8 @@ xen_intr(void)
 				continue;
 			}
 			xi->xi_evcnt.ec_count++;
+			xen_intr_mask_acquired(sc, xi);
 			task_add(xi->xi_taskq, &xi->xi_task);
-			xen_intsrc_release(sc, xi);
 		}
 	}
 }
@@ -690,10 +713,8 @@ xen_intr_schedule(xen_intr_handle_t xih)
 	struct xen_softc *sc = xen_sc;
 	struct xen_intsrc *xi;
 
-	if ((xi = xen_intsrc_acquire(sc, (evtchn_port_t)xih)) != NULL) {
+	if ((xi = xen_intsrc_acquire(sc, (evtchn_port_t)xih)) != NULL)
 		task_add(xi->xi_taskq, &xi->xi_task);
-		xen_intsrc_release(sc, xi);
-	}
 }
 
 static void
@@ -780,6 +801,9 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 
 	xi->xi_port = (evtchn_port_t)*xih;
 
+	xi->xi_handler = handler;
+	xi->xi_ctx = arg;
+
 	xi->xi_taskq = taskq_create(name, 1, IPL_NET, TASKQ_MPSAFE);
 	if (!xi->xi_taskq) {
 		printf("%s: failed to create interrupt task for %s\n",
@@ -787,7 +811,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 		free(xi, M_DEVBUF, sizeof(*xi));
 		return (-1);
 	}
-	task_set(&xi->xi_task, handler, arg);
+	task_set(&xi->xi_task, xen_intr_dispatch, xi);
 
 	if (port == 0) {
 		/* We're being asked to allocate a new event port */
@@ -886,6 +910,18 @@ xen_intr_disestablish(xen_intr_handle_t xih)
 }
 
 void
+xen_intr_dispatch(void *arg)
+{
+	struct xen_softc *sc = xen_sc;
+	struct xen_intsrc *xi = arg;
+
+	if (xi->xi_handler)
+		xi->xi_handler(xi->xi_ctx);
+
+	xen_intr_unmask_release(sc, xi);
+}
+
+void
 xen_intr_enable(void)
 {
 	struct xen_softc *sc = xen_sc;
@@ -917,8 +953,7 @@ xen_intr_mask(xen_intr_handle_t xih)
 	struct xen_intsrc *xi;
 
 	if ((xi = xen_intsrc_acquire(sc, port)) != NULL) {
-		xi->xi_masked = 1;
-		set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
+		xen_intr_mask_acquired(sc, xi);
 		xen_intsrc_release(sc, xi);
 	}
 }
@@ -929,17 +964,10 @@ xen_intr_unmask(xen_intr_handle_t xih)
 	struct xen_softc *sc = xen_sc;
 	evtchn_port_t port = (evtchn_port_t)xih;
 	struct xen_intsrc *xi;
-	struct evtchn_unmask eu;
 
-	if ((xi = xen_intsrc_acquire(sc, port)) != NULL) {
-		xi->xi_masked = 0;
-		if (!test_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]))
-			return (0);
-		eu.port = xi->xi_port;
-		xen_intsrc_release(sc, xi);
-		return (xen_evtchn_hypercall(sc, EVTCHNOP_unmask, &eu,
-		    sizeof(eu)));
-	}
+	if ((xi = xen_intsrc_acquire(sc, port)) != NULL)
+		return (xen_intr_unmask_release(sc, xi));
+
 	return (0);
 }
 
@@ -988,6 +1016,7 @@ xen_grant_table_grow(struct xen_softc *sc)
 {
 	struct xen_add_to_physmap xatp;
 	struct xen_gntent *ge;
+	void *va;
 	paddr_t pa;
 
 	if (sc->sc_gntcnt == sc->sc_gntmax) {
@@ -996,21 +1025,21 @@ xen_grant_table_grow(struct xen_softc *sc)
 		return (NULL);
 	}
 
+	va = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
+	if (va == NULL)
+		return (NULL);
+	if (!pmap_extract(pmap_kernel(), (vaddr_t)va, &pa)) {
+		printf("%s: grant table page PA extraction failed\n",
+		    sc->sc_dev.dv_xname);
+		km_free(va, PAGE_SIZE, &kv_any, &kp_zero);
+		return (NULL);
+	}
+
 	mtx_enter(&sc->sc_gntlck);
 
 	ge = &sc->sc_gnt[sc->sc_gntcnt];
-	ge->ge_table = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (ge->ge_table == NULL) {
-		mtx_leave(&sc->sc_gntlck);
-		return (NULL);
-	}
-	if (!pmap_extract(pmap_kernel(), (vaddr_t)ge->ge_table, &pa)) {
-		printf("%s: grant table page PA extraction failed\n",
-		    sc->sc_dev.dv_xname);
-		km_free(ge->ge_table, PAGE_SIZE, &kv_any, &kp_zero);
-		mtx_leave(&sc->sc_gntlck);
-		return (NULL);
-	}
+	ge->ge_table = va;
+
 	xatp.domid = DOMID_SELF;
 	xatp.idx = sc->sc_gntcnt;
 	xatp.space = XENMAPSPACE_grant_table;
@@ -1151,6 +1180,11 @@ xen_grant_table_enter(struct xen_softc *sc, grant_ref_t ref, paddr_t pa,
 	}
 #endif
 	ref -= ge->ge_start;
+	if (ge->ge_table[ref].flags != GTF_invalid) {
+		panic("reference %u is still in use, flags %#x frame %#x",
+		    ref + ge->ge_start, ge->ge_table[ref].flags,
+		    ge->ge_table[ref].frame);
+	}
 	ge->ge_table[ref].frame = atop(pa);
 	ge->ge_table[ref].domid = domain;
 	virtio_membar_sync();
@@ -1185,11 +1219,12 @@ xen_grant_table_remove(struct xen_softc *sc, grant_ref_t ref)
 	    (ge->ge_table[ref].domid << 16);
 	loop = 0;
 	while (atomic_cas_uint(ptr, flags, GTF_invalid) != flags) {
-		if (loop++ > 100000000) {
-			printf("%s: grant table reference %u is held "
-			    "by domain %d\n", sc->sc_dev.dv_xname, ref +
-			    ge->ge_start, ge->ge_table[ref].domid);
-			return;
+		if (loop++ > 10) {
+			panic("%s: grant table reference %u is held "
+			    "by domain %d: frame %#x flags %#x\n",
+			    sc->sc_dev.dv_xname, ref + ge->ge_start,
+			    ge->ge_table[ref].domid, ge->ge_table[ref].frame,
+			    ge->ge_table[ref].flags);
 		}
 #if (defined(__amd64__) || defined(__i386__))
 		__asm volatile("pause": : : "memory");
@@ -1210,15 +1245,15 @@ xen_bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegments,
 		return (EINVAL);
 
 	/* Allocate a dma map structure */
-	error = _bus_dmamap_create(t, size, nsegments, maxsegsz, boundary,
-	    flags, dmamp);
+	error = bus_dmamap_create(sc->sc_dmat, size, nsegments, maxsegsz,
+	    boundary, flags, dmamp);
 	if (error)
 		return (error);
 	/* Allocate an array of grant table pa<->ref maps */
 	gm = mallocarray(nsegments, sizeof(struct xen_gntmap), M_DEVBUF,
 	    M_ZERO | ((flags & BUS_DMA_NOWAIT) ? M_NOWAIT : M_WAITOK));
 	if (gm == NULL) {
-		_bus_dmamap_destroy(t, *dmamp);
+		bus_dmamap_destroy(sc->sc_dmat, *dmamp);
 		*dmamp = NULL;
 		return (ENOMEM);
 	}
@@ -1249,7 +1284,7 @@ xen_bus_dmamap_destroy(bus_dma_tag_t t, bus_dmamap_t map)
 		xen_grant_table_free(sc, gm[i].gm_ref);
 	}
 	free(gm, M_DEVBUF, map->_dm_segcnt * sizeof(struct xen_gntmap));
-	_bus_dmamap_destroy(t, map);
+	bus_dmamap_destroy(sc->sc_dmat, map);
 }
 
 int
@@ -1262,7 +1297,7 @@ xen_bus_dmamap_load(bus_dma_tag_t t, bus_dmamap_t map, void *buf,
 
 	domain = flags >> 16;
 	flags &= 0xffff;
-	error = _bus_dmamap_load(t, map, buf, buflen, p, flags);
+	error = bus_dmamap_load(sc->sc_dmat, map, buf, buflen, p, flags);
 	if (error)
 		return (error);
 	for (i = 0; i < map->dm_nsegs; i++) {
@@ -1284,7 +1319,7 @@ xen_bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map, struct mbuf *m0,
 
 	domain = flags >> 16;
 	flags &= 0xffff;
-	error = _bus_dmamap_load_mbuf(t, map, m0, flags);
+	error = bus_dmamap_load_mbuf(sc->sc_dmat, map, m0, flags);
 	if (error)
 		return (error);
 	for (i = 0; i < map->dm_nsegs; i++) {
@@ -1310,7 +1345,7 @@ xen_bus_dmamap_unload(bus_dma_tag_t t, bus_dmamap_t map)
 		map->dm_segs[i].ds_addr = gm[i].gm_paddr;
 		gm[i].gm_paddr = 0;
 	}
-	_bus_dmamap_unload(t, map);
+	bus_dmamap_unload(sc->sc_dmat, map);
 }
 
 void

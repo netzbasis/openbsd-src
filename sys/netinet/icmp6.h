@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.h,v 1.44 2017/04/14 20:46:31 bluhm Exp $	*/
+/*	$OpenBSD: icmp6.h,v 1.47 2017/08/08 18:15:58 florian Exp $	*/
 /*	$KAME: icmp6.h,v 1.84 2003/04/23 10:26:51 itojun Exp $	*/
 
 /*
@@ -127,7 +127,6 @@ struct icmp6_hdr {
 
 #define ICMP6_DST_UNREACH_NOROUTE	0	/* no route to destination */
 #define ICMP6_DST_UNREACH_ADMIN	 	1	/* administratively prohibited */
-#define ICMP6_DST_UNREACH_NOTNEIGHBOR	2	/* not a neighbor(obsolete) */
 #define ICMP6_DST_UNREACH_BEYONDSCOPE	2	/* beyond scope of source address */
 #define ICMP6_DST_UNREACH_ADDR		3	/* address unreachable */
 #define ICMP6_DST_UNREACH_NOPORT	4	/* port unreachable */
@@ -503,7 +502,6 @@ struct icmp6stat {
 #define ICMPV6CTL_STATS		1
 #define ICMPV6CTL_REDIRACCEPT	2	/* accept/process redirects */
 #define ICMPV6CTL_REDIRTIMEOUT	3	/* redirect cache time */
-#define ICMPV6CTL_ND6_PRUNE	6
 #define ICMPV6CTL_ND6_DELAY	8
 #define ICMPV6CTL_ND6_UMAXTRIES	9
 #define ICMPV6CTL_ND6_MMAXTRIES		10
@@ -513,9 +511,7 @@ struct icmp6stat {
 #define ICMPV6CTL_MTUDISC_HIWAT	16
 #define ICMPV6CTL_MTUDISC_LOWAT	17
 #define ICMPV6CTL_ND6_DEBUG	18
-#define ICMPV6CTL_ND6_DRLIST	19
-#define ICMPV6CTL_ND6_PRLIST	20
-#define ICMPV6CTL_MAXID		21
+#define ICMPV6CTL_MAXID		19
 
 #define ICMPV6CTL_NAMES { \
 	{ 0, 0 }, \
@@ -524,7 +520,7 @@ struct icmp6stat {
 	{ "redirtimeout", CTLTYPE_INT }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
-	{ "nd6_prune", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ "nd6_delay", CTLTYPE_INT }, \
 	{ "nd6_umaxtries", CTLTYPE_INT }, \
@@ -537,8 +533,6 @@ struct icmp6stat {
 	{ "mtudisc_hiwat", CTLTYPE_INT }, \
 	{ "mtudisc_lowat", CTLTYPE_INT }, \
 	{ "nd6_debug", CTLTYPE_INT }, \
-	{ 0, 0 }, \
-	{ 0, 0 }, \
 }
 
 #define ICMPV6CTL_VARS { \
@@ -548,7 +542,7 @@ struct icmp6stat {
 	&icmp6_redirtimeout, \
 	NULL, \
 	NULL, \
-	&nd6_prune, \
+	NULL, \
 	NULL, \
 	&nd6_delay, \
 	&nd6_umaxtries, \
@@ -561,8 +555,6 @@ struct icmp6stat {
 	&icmp6_mtudisc_hiwat, \
 	&icmp6_mtudisc_lowat, \
 	&nd6_debug, \
-	NULL, \
-	NULL, \
 }
 
 #define RTF_PROBEMTU	RTF_PROTO1

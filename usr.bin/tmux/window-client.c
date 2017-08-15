@@ -1,4 +1,4 @@
-/* $OpenBSD: window-client.c,v 1.2 2017/05/31 15:27:57 nicm Exp $ */
+/* $OpenBSD: window-client.c,v 1.8 2017/08/09 11:43:45 nicm Exp $ */
 
 /*
  * Copyright (c) 2017 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -36,6 +36,10 @@ static void		 window_client_key(struct window_pane *,
 
 #define WINDOW_CLIENT_DEFAULT_COMMAND "detach-client -t '%%'"
 
+#define WINDOW_CLIENT_DEFAULT_FORMAT \
+	"session #{session_name} " \
+	"(#{client_width}x#{client_height}, #{t:client_activity})"
+
 const struct window_mode window_client_mode = {
 	.name = "client-mode",
 
@@ -47,13 +51,15 @@ const struct window_mode window_client_mode = {
 
 enum window_client_sort_type {
 	WINDOW_CLIENT_BY_NAME,
+	WINDOW_CLIENT_BY_SIZE,
 	WINDOW_CLIENT_BY_CREATION_TIME,
 	WINDOW_CLIENT_BY_ACTIVITY_TIME,
 };
 static const char *window_client_sort_list[] = {
 	"name",
-	"creation time",
-	"activity time"
+	"size",
+	"creation",
+	"activity"
 };
 
 struct window_client_itemdata {
@@ -62,6 +68,7 @@ struct window_client_itemdata {
 
 struct window_client_modedata {
 	struct mode_tree_data		 *data;
+	char				 *format;
 	char				 *command;
 
 	struct window_client_itemdata	**item_list;
@@ -96,6 +103,23 @@ window_client_cmp_name(const void *a0, const void *b0)
 }
 
 static int
+window_client_cmp_size(const void *a0, const void *b0)
+{
+	const struct window_client_itemdata *const *a = a0;
+	const struct window_client_itemdata *const *b = b0;
+
+	if ((*a)->c->tty.sx < (*b)->c->tty.sx)
+		return (-1);
+	if ((*a)->c->tty.sx > (*b)->c->tty.sx)
+		return (1);
+	if ((*a)->c->tty.sy < (*b)->c->tty.sy)
+		return (-1);
+	if ((*a)->c->tty.sy > (*b)->c->tty.sy)
+		return (1);
+	return (strcmp((*a)->c->name, (*b)->c->name));
+}
+
+static int
 window_client_cmp_creation_time(const void *a0, const void *b0)
 {
 	const struct window_client_itemdata *const *a = a0;
@@ -105,7 +129,7 @@ window_client_cmp_creation_time(const void *a0, const void *b0)
 		return (-1);
 	if (timercmp(&(*a)->c->creation_time, &(*b)->c->creation_time, <))
 		return (1);
-	return (0);
+	return (strcmp((*a)->c->name, (*b)->c->name));
 }
 
 static int
@@ -118,18 +142,18 @@ window_client_cmp_activity_time(const void *a0, const void *b0)
 		return (-1);
 	if (timercmp(&(*a)->c->activity_time, &(*b)->c->activity_time, <))
 		return (1);
-	return (0);
+	return (strcmp((*a)->c->name, (*b)->c->name));
 }
 
 static void
-window_client_build(void *modedata, u_int sort_type, __unused uint64_t *tag)
+window_client_build(void *modedata, u_int sort_type, __unused uint64_t *tag,
+    const char *filter)
 {
 	struct window_client_modedata	*data = modedata;
 	struct window_client_itemdata	*item;
 	u_int				 i;
 	struct client			*c;
-	char				*tim;
-	char				*text;
+	char				*text, *cp;
 
 	for (i = 0; i < data->item_size; i++)
 		window_client_free_item(data->item_list[i]);
@@ -152,6 +176,10 @@ window_client_build(void *modedata, u_int sort_type, __unused uint64_t *tag)
 		qsort(data->item_list, data->item_size, sizeof *data->item_list,
 		    window_client_cmp_name);
 		break;
+	case WINDOW_CLIENT_BY_SIZE:
+		qsort(data->item_list, data->item_size, sizeof *data->item_list,
+		    window_client_cmp_size);
+		break;
 	case WINDOW_CLIENT_BY_CREATION_TIME:
 		qsort(data->item_list, data->item_size, sizeof *data->item_list,
 		    window_client_cmp_creation_time);
@@ -166,10 +194,16 @@ window_client_build(void *modedata, u_int sort_type, __unused uint64_t *tag)
 		item = data->item_list[i];
 		c = item->c;
 
-		tim = ctime(&c->activity_time.tv_sec);
-		*strchr(tim, '\n') = '\0';
+		if (filter != NULL) {
+			cp = format_single(NULL, filter, c, NULL, NULL, NULL);
+			if (!format_true(cp)) {
+				free(cp);
+				continue;
+			}
+			free(cp);
+		}
 
-		xasprintf(&text, "session %s (%s)", c->session->name, tim);
+		text = format_single(NULL, data->format, c, NULL, NULL, NULL);
 		mode_tree_add(data->data, NULL, item, (uint64_t)c, c->name,
 		    text, -1);
 		free(text);
@@ -197,7 +231,7 @@ window_client_draw(__unused void *modedata, void *itemdata, u_int sx, u_int sy)
 	screen_write_preview(&ctx, &wp->base, sx, sy - 3);
 
 	screen_write_cursormove(&ctx, 0, sy - 2);
-	screen_write_line(&ctx, sx, 0, 0);
+	screen_write_hline(&ctx, sx, 0, 0);
 
 	screen_write_cursormove(&ctx, 0, sy - 1);
 	if (c->old_status != NULL)
@@ -218,13 +252,17 @@ window_client_init(struct window_pane *wp, __unused struct cmd_find_state *fs,
 
 	wp->modedata = data = xcalloc(1, sizeof *data);
 
+	if (args == NULL || !args_has(args, 'F'))
+		data->format = xstrdup(WINDOW_CLIENT_DEFAULT_FORMAT);
+	else
+		data->format = xstrdup(args_get(args, 'F'));
 	if (args == NULL || args->argc == 0)
 		data->command = xstrdup(WINDOW_CLIENT_DEFAULT_COMMAND);
 	else
 		data->command = xstrdup(args->argv[0]);
 
-	data->data = mode_tree_start(wp, window_client_build,
-	    window_client_draw, data, window_client_sort_list,
+	data->data = mode_tree_start(wp, args, window_client_build,
+	    window_client_draw, NULL, data, window_client_sort_list,
 	    nitems(window_client_sort_list), &s);
 
 	mode_tree_build(data->data);
@@ -248,7 +286,9 @@ window_client_free(struct window_pane *wp)
 		window_client_free_item(data->item_list[i]);
 	free(data->item_list);
 
+	free(data->format);
 	free(data->command);
+
 	free(data);
 }
 
@@ -301,7 +341,7 @@ window_client_key(struct window_pane *wp, struct client *c,
 	 * Enter = detach client
 	 */
 
-	finished = mode_tree_key(data->data, &key, m);
+	finished = mode_tree_key(data->data, c, &key, m);
 	switch (key) {
 	case 'd':
 	case 'x':

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_var.h,v 1.75 2017/05/31 05:59:09 mpi Exp $	*/
+/*	$OpenBSD: ip6_var.h,v 1.78 2017/07/13 17:17:27 florian Exp $	*/
 /*	$KAME: ip6_var.h,v 1.33 2000/06/11 14:59:20 jinmei Exp $	*/
 
 /*
@@ -279,8 +279,6 @@ extern int	ip6_sendredirect;	/* send ICMPv6 redirect? */
 extern int	ip6_use_deprecated;	/* allow deprecated addr as source */
 extern int	ip6_mcast_pmtu;		/* path MTU discovery for multicast */
 extern int	ip6_neighborgcthresh; /* Threshold # of NDP entries for GC */
-extern int	ip6_maxifprefixes; /* Max acceptable prefixes via RA per IF */
-extern int	ip6_maxifdefrouters; /* Max acceptable def routers via RA */
 extern int	ip6_maxdynroutes; /* Max # of routes created via redirect */
 
 extern struct socket *ip6_mrouter[RT_TABLEID_MAX]; /* multicast routing daemon */
@@ -303,7 +301,7 @@ int	icmp6_ctloutput(int, struct socket *, int, int, struct mbuf *);
 
 void	ip6_init(void);
 void	ip6intr(void);
-void	ip6_deliver(struct mbuf **, int *, int, int);
+int	ip6_input_if(struct mbuf **, int *, int, int, struct ifnet *);
 void	ip6_freepcbopts(struct ip6_pktopts *);
 void	ip6_freemoptions(struct ip6_moptions *);
 int	ip6_unknown_opt(u_int8_t *, struct mbuf *, int);

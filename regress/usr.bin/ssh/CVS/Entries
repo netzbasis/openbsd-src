@@ -1,4 +1,4 @@
-/Makefile/1.94/Fri Dec 16 03:51:19 2016//
+/Makefile/1.95/Sat Jun 24 06:35:24 2017//
 /addrmatch.sh/1.4/Sun May 13 01:42:32 2012//
 /agent-getpeereid.sh/1.8/Fri Jan  6 02:51:16 2017//
 /agent-pkcs11.sh/1.3/Sun Apr 30 23:34:55 2017//
@@ -6,6 +6,7 @@
 /agent-timeout.sh/1.3/Tue Mar  3 22:35:19 2015//
 /agent.sh/1.12/Sun Apr 30 23:34:55 2017//
 /allow-deny-users.sh/1.3/Mon Dec 19 22:35:23 2016//
+/authinfo.sh/1.1/Sat Jun 24 06:35:24 2017//
 /banner.sh/1.3/Sun Apr 30 23:34:55 2017//
 /broken-pipe.sh/1.6/Sun Apr 30 23:34:55 2017//
 /brokenkeys.sh/1.2/Sun Apr 30 23:34:55 2017//
@@ -44,7 +45,7 @@
 /krl.sh/1.6/Fri Jan 30 01:11:39 2015//
 /limit-keytype.sh/1.4/Thu Oct 29 08:05:17 2015//
 /localcommand.sh/1.4/Sun Apr 30 23:34:55 2017//
-/login-timeout.sh/1.8/Fri Dec 16 01:06:27 2016//
+/login-timeout.sh/1.9/Mon Aug  7 00:53:51 2017//
 /modpipe.c/1.6/Thu Nov 21 03:16:47 2013//
 /moduli.in/1.1/Mon Sep 12 02:25:46 2016//
 /multiplex.sh/1.28/Sun Apr 30 23:34:55 2017//
@@ -52,13 +53,13 @@
 /portnum.sh/1.2/Fri May 17 10:34:30 2013//
 /principals-command.sh/1.4/Sun Apr 30 23:34:55 2017//
 /proto-mismatch.sh/1.5/Sun Apr 30 23:34:55 2017//
-/proto-version.sh/1.6/Sun Apr 30 23:34:55 2017//
+/proto-version.sh/1.7/Wed Jun  7 01:48:15 2017//
 /proxy-connect.sh/1.10/Sun Apr 30 23:34:55 2017//
 /putty-ciphers.sh/1.6/Mon May  8 01:52:49 2017//
 /putty-kex.sh/1.4/Fri Nov 25 03:02:01 2016//
 /putty-transfer.sh/1.5/Sun Apr 30 23:34:55 2017//
 /reconfigure.sh/1.6/Sun Apr 30 23:34:55 2017//
-/reexec.sh/1.11/Sun Apr 30 23:34:55 2017//
+/reexec.sh/1.12/Mon Aug  7 03:52:55 2017//
 /rekey.sh/1.17/Fri Jan 29 05:18:15 2016//
 /rsa_openssh.prv/1.1/Thu Jan 17 13:21:28 2002//
 /rsa_openssh.pub/1.1/Thu Jan 17 13:21:28 2002//
@@ -84,7 +85,7 @@
 /t11.ok/1.1/Mon Dec 22 02:15:52 2014//
 /t4.ok/1.2/Mon Dec 22 02:15:52 2014//
 /t5.ok/1.1/Thu Jan 17 13:21:28 2002//
-/test-exec.sh/1.60/Sun Apr 30 23:34:55 2017//
+/test-exec.sh/1.61/Fri Jul 28 10:32:08 2017//
 /transfer.sh/1.4/Sun Apr 30 23:34:55 2017//
 /try-ciphers.sh/1.26/Sun Apr 30 23:34:55 2017//
 /yes-head.sh/1.6/Sun Apr 30 23:34:55 2017//
