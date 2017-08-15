@@ -1,4 +1,4 @@
-/*	$OpenBSD: hidkbd.c,v 1.1 2016/01/08 15:54:13 jcs Exp $	*/
+/*	$OpenBSD: hidkbd.c,v 1.5 2017/05/30 07:40:24 mpi Exp $	*/
 /*      $NetBSD: ukbd.c,v 1.85 2003/03/11 16:44:00 augustss Exp $        */
 
 /*
@@ -128,10 +128,10 @@ hidkbdtracedump(void)
 	for (i = 0; i < HIDKBDTRACESIZE; i++) {
 		struct hidkbdtraceinfo *p =
 		    &hidkbdtracedata[(i+hidkbdtraceindex)%HIDKBDTRACESIZE];
-		printf("%lld.%06ld: mod=0x%02x key0=0x%02x key1=0x%02x "
+		printf("%lld.%06ld: key0=0x%02x key1=0x%02x "
 		       "key2=0x%02x key3=0x%02x\n",
 		       (long long)p->tv.tv_sec, p->tv.tv_usec,
-		       p->ud.modifiers, p->ud.keycode[0], p->ud.keycode[1],
+		       p->ud.keycode[0], p->ud.keycode[1],
 		       p->ud.keycode[2], p->ud.keycode[3]);
 	}
 }
@@ -215,17 +215,6 @@ hidkbd_detach(struct hidkbd *kbd, int flags)
 	DPRINTF(("hidkbd_detach: sc=%p flags=%d\n", kbd->sc_device, flags));
 
 	if (kbd->sc_console_keyboard) {
-#if 0
-		/*
-		 * XXX Should probably disconnect our consops,
-		 * XXX and either notify some other keyboard that
-		 * XXX it can now be the console, or if there aren't
-		 * XXX any more USB keyboards, set hidkbd_is_console
-		 * XXX back to 1 so that the next USB keyboard attached
-		 * XXX to the system will get it.
-		 */
-		panic("hidkbd_detach: console keyboard");
-#else
 		/*
 		 * Disconnect our consops and set hidkbd_is_console
 		 * back to 1 so that the next USB keyboard attached
@@ -235,9 +224,7 @@ hidkbd_detach(struct hidkbd *kbd, int flags)
 		 */
 		printf("%s: was console keyboard\n",
 		       kbd->sc_device->dv_xname);
-		wskbd_cndetach();
 		hidkbd_is_console = 1;
-#endif
 	}
 	/* No need to do reference counting of hidkbd, wskbd has all the goo */
 	if (kbd->sc_wskbddev != NULL)
@@ -282,19 +269,6 @@ hidkbd_input(struct hidkbd *kbd, uint8_t *data, u_int len)
 		 */
 		kbd->sc_data = *ud;
 		timeout_add_msec(&kbd->sc_delay, 20);
-#ifdef DDB
-	} else if (kbd->sc_console_keyboard && !kbd->sc_polling) {
-		/*
-		 * For the console keyboard we can't deliver CTL-ALT-ESC
-		 * from the interrupt routine.  Doing so would start
-		 * polling from inside the interrupt routine and that
-		 * loses bigtime.
-		 */
-		/* if (!timeout_pending(&kbd->sc_delay)) */ {
-			kbd->sc_data = *ud;
-			timeout_add(&kbd->sc_delay, 1);
-		}
-#endif
 	} else {
 		hidkbd_decode(kbd, ud);
 	}
@@ -333,10 +307,10 @@ hidkbd_decode(struct hidkbd *kbd, struct hidkbd_data *ud)
 	if (hidkbddebug > 5) {
 		struct timeval tv;
 		microtime(&tv);
-		DPRINTF((" at %lld.%06ld  mod=0x%02x key0=0x%02x key1=0x%02x "
+		DPRINTF((" at %lld.%06ld key0=0x%02x key1=0x%02x "
 			 "key2=0x%02x key3=0x%02x\n",
 			 (long long)tv.tv_sec, tv.tv_usec,
-			 ud->modifiers, ud->keycode[0], ud->keycode[1],
+			 ud->keycode[0], ud->keycode[1],
 			 ud->keycode[2], ud->keycode[3]));
 	}
 #endif
@@ -520,7 +494,7 @@ hidkbd_cngetc(struct hidkbd *kbd, u_int *type, int *data)
 
 	c = kbd->sc_pollchars[0];
 	kbd->sc_npollchar--;
-	memcpy(kbd->sc_pollchars, kbd->sc_pollchars+1,
+	memmove(kbd->sc_pollchars, kbd->sc_pollchars+1,
 	       kbd->sc_npollchar * sizeof(u_int16_t));
 	*type = c & RELEASE ? WSCONS_EVENT_KEY_UP : WSCONS_EVENT_KEY_DOWN;
 	*data = c & CODEMASK;

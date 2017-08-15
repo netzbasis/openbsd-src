@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.26 2016/07/05 12:53:40 visa Exp $
+#	$OpenBSD: RAMDISK,v 1.37 2017/08/01 16:18:11 visa Exp $
 
 machine		octeon mips64
 maxusers	4
@@ -37,9 +37,9 @@ clock0		at mainbus0
 iobus0		at mainbus0
 octcf0		at iobus0
 amdcf0		at iobus0
-uartbus0	at mainbus0
-com0		at uartbus0
-com1		at uartbus0
+
+simplebus*	at fdt?
+simplebus*	at iobus?
 
 octrtc0		at mainbus0
 
@@ -48,20 +48,35 @@ pci*		at pcibus?
 ppb*		at pci?
 pci*		at ppb?
 
+cn30xxsmi*	at fdt?		# MDIO controller
+com*		at fdt?
+octcib*		at fdt?		# Interrupt controller
+octcit*		at fdt?		# Interrupt controller v3
+octciu*		at fdt?		# Interrupt controller v1
+octmmc*		at fdt?		# MMC host controller
+sdmmc*		at octmmc?	# SD/MMC bus
+
 cn30xxgmx*	at iobus? irq 48
 cnmac*		at cn30xxgmx?
 
 pciide*		at pci? flags 0x0000
 wd*		at pciide? flags 0x0000
 
+# AHCI controllers
+octsctl*	at fdt?
+ahci*		at octsctl?
+
 dwctwo0		at iobus0 irq 56
-octuctl0	at iobus0 irq 56
+octuctl*	at fdt?
+octxctl*	at fdt?
 ehci0		at octuctl?
 ohci0		at octuctl?
+xhci*		at octxctl?
 
 usb*		at dwctwo?
 usb*		at ehci?
 usb*		at ohci?
+usb*		at xhci?
 
 uhub*		at usb?
 uhub*		at uhub?
@@ -100,6 +115,7 @@ rgephy*		at mii?
 ukphy*		at mii?
 atphy*		at mii?
 brswphy*	at mii?
+brgphy*		at mii?
 
 pseudo-device	openprom
 pseudo-device	loop 1

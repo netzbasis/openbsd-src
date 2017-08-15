@@ -1,4 +1,4 @@
-/*	$OpenBSD: archdep.h,v 1.10 2015/12/06 23:36:12 guenther Exp $ */
+/*	$OpenBSD: archdep.h,v 1.13 2017/08/13 14:57:19 visa Exp $ */
 
 /*
  * Copyright (c) 1998-2002 Opsycon AB, Sweden.
@@ -29,14 +29,12 @@
 #ifndef _MIPS_ARCHDEP_H_
 #define _MIPS_ARCHDEP_H_
 
-#include <link.h>
-
+#include <elf_abi.h>
+#include <machine/reloc.h>
 #include "syscall.h"
-#include "resolve.h"
 #include "util.h"
 
 #define	RELOC_TAG	DT_REL
-#define	DL_MALLOC_ALIGN	8	/* Arch constraint or otherwise */
 #define	MACHID	EM_MIPS		/* ELF e_machine ID value checked */
 
 
@@ -89,7 +87,5 @@ do {									\
 		sp++;							\
 	}								\
 } while (0)
-
-#define GOT_PERMS PROT_READ
 
 #endif /* _MIPS_ARCHDEP_H_ */

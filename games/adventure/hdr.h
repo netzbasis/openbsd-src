@@ -1,4 +1,4 @@
-/*	$OpenBSD: hdr.h,v 1.15 2016/03/08 10:48:39 mestre Exp $	*/
+/*	$OpenBSD: hdr.h,v 1.17 2017/05/19 08:22:53 tb Exp $	*/
 /*	$NetBSD: hdr.h,v 1.2 1995/03/21 12:05:02 cgd Exp $	*/
 
 /*-
@@ -85,9 +85,6 @@ struct hashtab	{		/* hash table for vocabulary	*/
 } voc[HTSIZE];
 
 struct text {
-#ifdef OLDSTUFF
-	int seekadr;		/* DATFILE must be < 2**16	*/
-#endif /* OLDSTUFF */
 	char *seekadr;		/* Msg start in virtual disk	*/
 	int txtlen;		/* length of msg starting here	*/
 };
@@ -159,4 +156,4 @@ int	turns, lmwarn, iwest, knfloc, detail,   /* various flags & counters */
 int	demo, limit;
 
 /* We need to get a little tricky to avoid strings */
-#define DECR(a,b,c,d,e) decr(*#a+'+',*#b+'-',*#c+'#',*#d+'&',*#e+'%')
+#define DECR(a,b,c,d,e) decr(*#a-'+',*#b-'-',*#c-'#',*#d-'&',*#e-'%')

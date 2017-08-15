@@ -1,6 +1,6 @@
 define(MACHINE,luna88k)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.30 2016/09/04 15:38:59 naddy Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.32 2016/12/31 00:50:01 aoyama Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -25,12 +25,15 @@ _mkdev(lcd, {-lcd-},
 {-	M lcd c major_lcd_c 0 644 -})dnl
 __devitem(sio, ttya, On-board serial console port)dnl
 _mkdev(sio, {-ttya-},
-{-	M ttya c major_sio_c 0 660 dialer uucp
-	M cuaa c major_sio_c 128 660 dialer uucp -})dnl
+{-	M ttya c major_sio_c 0 660 dialer root
+	M cuaa c major_sio_c 128 660 dialer root -})dnl
 __devitem(pcex, pcex*, PC-9801 extension board slot, pcexmem)dnl
 _mkdev(pcex, {-pcex-},
 {-	M pcexmem c major_pcex_c 0 660
 	M pcexio c major_pcex_c 1 660 -})dnl
+__devitem(xp, xp, HD647180 I/O processor)dnl
+_mkdev(xp, {-xp-},
+{-	M xp c major_xp_c 0 600 -})dnl
 dnl
 dnl *** MAKEDEV itself
 dnl
@@ -56,6 +59,7 @@ twrget(all, sio, tty, a)dnl
 twrget(all, lcd, lcd)dnl
 twrget(all, au, audio, 0)dnl
 twrget(all, pcex, pcex)dnl
+twrget(all, xp, xp)dnl
 _DEV(all)
 dnl
 dnl ramdisk)
@@ -110,6 +114,7 @@ _DEV(tap, 56)
 _DEV(uk, 41)
 _DEV(vscsi, 53)
 _DEV(switch, 57)
+_DEV(xp, 11)
 dnl
 divert(__mddivert)dnl
 dnl

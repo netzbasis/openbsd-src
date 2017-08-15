@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdhc.c,v 1.52 2016/05/15 22:21:55 kettenis Exp $	*/
+/*	$OpenBSD: sdhc.c,v 1.55 2017/05/05 15:10:07 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -25,6 +25,7 @@
 #include <sys/device.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
+#include <sys/proc.h>
 #include <sys/systm.h>
 
 #include <dev/sdmmc/sdhcreg.h>
@@ -317,6 +318,9 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 			saa.caps |= SMC_CAPS_MMC_DDR52;
 	}
 
+	if (ISSET(sc->sc_flags, SDHC_F_NODDR50))
+		saa.caps &= ~SMC_CAPS_MMC_DDR52;
+
 	hp->sdmmc = config_found(&sc->sc_dev, &saa, NULL);
 	if (hp->sdmmc == NULL) {
 		error = 0;
@@ -326,7 +330,7 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 	return 0;
 
 err:
-	free(hp, M_DEVBUF, 0);
+	free(hp, M_DEVBUF, sizeof *hp);
 	sc->sc_host[sc->sc_nhosts - 1] = NULL;
 	sc->sc_nhosts--;
 	return (error);
@@ -684,6 +688,9 @@ sdhc_signal_voltage(sdmmc_chipset_handle_t sch, int signal_voltage)
 {
 	struct sdhc_host *hp = sch;
 
+	if (hp->sc->sc_signal_voltage)
+		return hp->sc->sc_signal_voltage(hp->sc, signal_voltage);
+
 	if (SDHC_SPEC_VERSION(hp->version) < SDHC_SPEC_V3)
 		return EINVAL;
 
@@ -800,7 +807,7 @@ sdhc_start_command(struct sdhc_host *hp, struct sdmmc_command *cmd)
 	DPRINTF(1,("%s: start cmd %u arg=%#x data=%#x dlen=%d flags=%#x "
 	    "proc=\"%s\"\n", DEVNAME(hp->sc), cmd->c_opcode, cmd->c_arg,
 	    cmd->c_data, cmd->c_datalen, cmd->c_flags, curproc ?
-	    curproc->p_comm : ""));
+	    curproc->p_p->ps_comm : ""));
 
 	/*
 	 * The maximum block length for commands should be the minimum

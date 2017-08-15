@@ -1,16 +1,19 @@
 /*
  * Public Domain 2003 Dale Rahn
  *
- * $OpenBSD: ab.C,v 1.2 2003/02/18 13:14:42 jmc Exp $
+ * $OpenBSD: ab.C,v 1.5 2017/08/07 16:33:52 bluhm Exp $
  */
 
-#include "iostream.h"
+#include <cstdlib>
+#include <iostream>
 #include "aa.h"
 #include "ab.h"
 
+using namespace std;
+
 extern int a;
 
-BB::BB(char *str)
+BB::BB(const char *str)
 {
 	if (a == 0) {
 		cout << "A not initialized in B constructors " << a << "\n";

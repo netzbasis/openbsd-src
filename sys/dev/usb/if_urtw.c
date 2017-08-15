@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urtw.c,v 1.62 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_urtw.c,v 1.65 2017/07/03 09:21:09 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2009 Martynas Venckus <martynas@openbsd.org>
@@ -25,7 +25,6 @@
 #include <sys/kernel.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
-#include <sys/malloc.h>
 #include <sys/timeout.h>
 #include <sys/conf.h>
 #include <sys/device.h>
@@ -2525,7 +2524,6 @@ urtw_txeof_low(struct usbd_xfer *xfer, void *priv,
 	data->ni = NULL;
 
 	sc->sc_txtimer = 0;
-	ifp->if_opackets++;
 
 	sc->sc_tx_low_queued--;
 	ifq_clr_oactive(&ifp->if_snd);
@@ -2564,7 +2562,6 @@ urtw_txeof_normal(struct usbd_xfer *xfer, void *priv,
 	data->ni = NULL;
 
 	sc->sc_txtimer = 0;
-	ifp->if_opackets++;
 
 	sc->sc_tx_normal_queued--;
 	ifq_clr_oactive(&ifp->if_snd);
@@ -2959,9 +2956,9 @@ urtw_8225_rf_set_chan(struct urtw_rf *rf, int chan)
 
 	if (sc->sc_state == IEEE80211_S_ASSOC &&
 	    ic->ic_flags & IEEE80211_F_SHSLOT)
-		urtw_write8_m(sc, URTW_SLOT, 0x9);
+		urtw_write8_m(sc, URTW_SLOT, IEEE80211_DUR_DS_SHSLOT);
 	else
-		urtw_write8_m(sc, URTW_SLOT, 0x14);
+		urtw_write8_m(sc, URTW_SLOT, IEEE80211_DUR_DS_SLOT);
 
 	if (IEEE80211_IS_CHAN_G(c)) {
 		urtw_write8_m(sc, URTW_DIFS, 0x14);
@@ -3389,9 +3386,9 @@ urtw_8225v2_rf_set_chan(struct urtw_rf *rf, int chan)
 
 	if(sc->sc_state == IEEE80211_S_ASSOC &&
 	    ic->ic_flags & IEEE80211_F_SHSLOT)
-		urtw_write8_m(sc, URTW_SLOT, 0x9);
+		urtw_write8_m(sc, URTW_SLOT, IEEE80211_DUR_DS_SHSLOT);
 	else
-		urtw_write8_m(sc, URTW_SLOT, 0x14);
+		urtw_write8_m(sc, URTW_SLOT, IEEE80211_DUR_DS_SLOT);
 
 	if (IEEE80211_IS_CHAN_G(c)) {
 		urtw_write8_m(sc, URTW_DIFS, 0x14);

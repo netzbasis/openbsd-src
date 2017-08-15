@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.38 2016/05/27 09:18:11 martijn Exp $	*/
+/*	$OpenBSD: main.c,v 1.40 2017/07/03 07:01:14 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -52,7 +52,7 @@ editor(GS *gp, int argc, char *argv[])
 	SCR *sp;
 	size_t len;
 	u_int flags;
-	int ch, flagchk, lflag, secure, startup, readonly, rval, silent;
+	int ch, flagchk, secure, startup, readonly, rval, silent;
 	char *tag_f, *wsizearg, path[256];
 
 	static const char *optstr[3] = {
@@ -114,7 +114,7 @@ editor(GS *gp, int argc, char *argv[])
 	/* Parse the arguments. */
 	flagchk = '\0';
 	tag_f = wsizearg = NULL;
-	lflag = secure = silent = 0;
+	secure = silent = 0;
 	startup = 1;
 
 	/* Set the file snapshot flag. */
@@ -162,9 +162,6 @@ editor(GS *gp, int argc, char *argv[])
 			break;
 		case 'F':		/* No snapshot. */
 			F_CLR(gp, G_SNAPSHOT);
-			break;
-		case 'l':		/* Set lisp, showmatch options. */
-			lflag = 1;
 			break;
 		case 'R':		/* Readonly. */
 			readonly = 1;
@@ -260,11 +257,7 @@ editor(GS *gp, int argc, char *argv[])
 		goto err;
 
 	{ int oargs[5], *oargp = oargs;
-	if (lflag) {			/* Command-line options. */
-		*oargp++ = O_LISP;
-		*oargp++ = O_SHOWMATCH;
-	}
-	if (readonly)
+	if (readonly)			/* Command-line options. */
 		*oargp++ = O_READONLY;
 	if (secure)
 		*oargp++ = O_SECURE;
@@ -470,17 +463,14 @@ v_end(GS *gp)
 		/* Free FREF's. */
 		while ((frp = TAILQ_FIRST(&gp->frefq))) {
 			TAILQ_REMOVE(&gp->frefq, frp, q);
-			if (frp->name != NULL)
-				free(frp->name);
-			if (frp->tname != NULL)
-				free(frp->tname);
+			free(frp->name);
+			free(frp->tname);
 			free(frp);
 		}
 	}
 
 	/* Free key input queue. */
-	if (gp->i_event != NULL)
-		free(gp->i_event);
+	free(gp->i_event);
 
 	/* Free cut buffers. */
 	cut_close(gp);
@@ -514,8 +504,7 @@ v_end(GS *gp)
 
 #if defined(DEBUG) || defined(PURIFY)
 	/* Free any temporary space. */
-	if (gp->tmp_bp != NULL)
-		free(gp->tmp_bp);
+	free(gp->tmp_bp);
 
 #if defined(DEBUG)
 	/* Close debugging file descriptor. */

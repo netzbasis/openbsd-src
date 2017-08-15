@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-display-message.c,v 1.36 2016/08/25 09:33:14 nicm Exp $ */
+/* $OpenBSD: cmd-display-message.c,v 1.42 2017/05/01 12:20:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -32,7 +32,8 @@
 	"#{window_name}, current pane #{pane_index} "	\
 	"- (%H:%M %d-%b-%y)"
 
-enum cmd_retval	 cmd_display_message_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_display_message_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_display_message_entry = {
 	.name = "display-message",
@@ -42,29 +43,29 @@ const struct cmd_entry cmd_display_message_entry = {
 	.usage = "[-p] [-c target-client] [-F format] "
 		 CMD_TARGET_PANE_USAGE " [message]",
 
-	.cflag = CMD_CLIENT_CANFAIL,
-	.tflag = CMD_PANE,
+	.target = { 't', CMD_FIND_PANE, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_display_message_exec
 };
 
-enum cmd_retval
-cmd_display_message_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_display_message_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
-	struct client		*c = cmdq->state.c;
-	struct session		*s = cmdq->state.tflag.s;
-	struct winlink		*wl = cmdq->state.tflag.wl;
-	struct window_pane	*wp = cmdq->state.tflag.wp;
+	struct client		*c;
+	struct session		*s = item->target.s;
+	struct winlink		*wl = item->target.wl;
+	struct window_pane	*wp = item->target.wp;
 	const char		*template;
 	char			*msg;
 	struct format_tree	*ft;
 
 	if (args_has(args, 'F') && args->argc != 0) {
-		cmdq_error(cmdq, "only one of -F or argument must be given");
+		cmdq_error(item, "only one of -F or argument must be given");
 		return (CMD_RETURN_ERROR);
 	}
+	c = cmd_find_client(item, args_get(args, 'c'), 1);
 
 	template = args_get(args, 'F');
 	if (args->argc != 0)
@@ -72,12 +73,12 @@ cmd_display_message_exec(struct cmd *self, struct cmd_q *cmdq)
 	if (template == NULL)
 		template = DISPLAY_MESSAGE_TEMPLATE;
 
-	ft = format_create(cmdq, 0);
+	ft = format_create(item->client, item, FORMAT_NONE, 0);
 	format_defaults(ft, c, s, wl, wp);
 
 	msg = format_expand_time(ft, template, time(NULL));
 	if (args_has(self->args, 'p'))
-		cmdq_print(cmdq, "%s", msg);
+		cmdq_print(item, "%s", msg);
 	else if (c != NULL)
 		status_message_set(c, "%s", msg);
 	free(msg);

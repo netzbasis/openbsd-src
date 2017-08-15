@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.139 2016/02/27 13:08:06 mpi Exp $	*/
+/*	$OpenBSD: trap.c,v 1.142 2017/07/22 15:20:11 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1998-2004 Michael Shalayeff
@@ -513,23 +513,27 @@ datacc:
 		 * the current limit and we need to reflect that as an access
 		 * error.
 		 */
-		if (space != HPPA_SID_KERNEL &&
-		    va < (vaddr_t)vm->vm_minsaddr) {
-			if (ret == 0)
-				uvm_grow(p, va);
-			else if (ret == EACCES)
-				ret = EFAULT;
-		}
+		if (ret == 0 && space != HPPA_SID_KERNEL &&
+		    va < (vaddr_t)vm->vm_minsaddr)
+			uvm_grow(p, va);
 
 		KERNEL_UNLOCK();
 
 		if (ret != 0) {
 			if (type & T_USER) {
+				int signal, sicode;
+
+				signal = SIGSEGV;
+				sicode = SEGV_MAPERR;
+				if (ret == EACCES)
+					sicode = SEGV_ACCERR;
+				if (ret == EIO) {
+					signal = SIGBUS;
+					sicode = BUS_OBJERR;
+				}
 				sv.sival_int = va;
 				KERNEL_LOCK();
-				trapsignal(p, SIGSEGV, vftype,
-				    ret == EACCES? SEGV_ACCERR : SEGV_MAPERR,
-				    sv);
+				trapsignal(p, signal, vftype, sicode, sv);
 				KERNEL_UNLOCK();
 			} else {
 				if (p && p->p_addr->u_pcb.pcb_onfault) {
@@ -690,7 +694,7 @@ ss_get_value(struct proc *p, vaddr_t addr, u_int *value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_READ_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_READ_I));
 }
 
 int
@@ -708,7 +712,7 @@ ss_put_value(struct proc *p, vaddr_t addr, u_int value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_WRITE_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_WRITE_I));
 }
 
 void
@@ -913,7 +917,7 @@ syscall(struct trapframe *frame)
 		printf("WARNING: SPL (0x%x) NOT LOWERED ON "
 		    "syscall(0x%x, 0x%lx, 0x%lx, 0x%lx...) EXIT, PID %d\n",
 		    curcpu()->ci_cpl, code, args[0], args[1], args[2],
-		    p->p_pid);
+		    p->p_p->ps_pid);
 		curcpu()->ci_cpl = oldcpl;
 	}
 #endif

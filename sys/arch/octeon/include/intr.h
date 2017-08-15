@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr.h,v 1.7 2016/03/06 19:42:27 mpi Exp $ */
+/*	$OpenBSD: intr.h,v 1.14 2017/07/28 14:51:46 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -112,11 +112,6 @@ void	*softintr_establish(int, void (*)(void *), void *);
 void	 softintr_init(void);
 void	 softintr_schedule(void *);
 
-/* XXX For legacy software interrupts. */
-extern struct soft_intrhand *softnet_intrhand;
-
-#define	setsoftnet()	softintr_schedule(softnet_intrhand)
-
 #define	splsoft()	splraise(IPL_SOFTINT)
 #define splbio()	splraise(IPL_BIO)
 #define splnet()	splraise(IPL_NET)
@@ -139,18 +134,7 @@ void	splinit(void);
 #define	splassert(X)
 #define	splsoftassert(X)
 
-/* Inlines */
-static __inline void register_splx_handler(void (*)(int));
-
-typedef void (int_f)(int);
-extern int_f *splx_hand;
-
-static __inline void
-register_splx_handler(void(*handler)(int))
-{
-	splx_hand = handler;
-}
-
+void	register_splx_handler(void (*)(int));
 int	splraise(int);
 void	splx(int);
 int	spllower(int);
@@ -195,15 +179,45 @@ void	set_intr(int, uint32_t, uint32_t(*)(uint32_t, struct trapframe *));
 uint32_t updateimask(uint32_t);
 void	dosoftint(void);
 
+struct intr_controller {
+	void	  *ic_cookie;
+	void	 (*ic_init)(void);
+	void	*(*ic_establish)(int, int, int (*)(void *), void *,
+		    const char *);
+	void	*(*ic_establish_fdt_idx)(void *, int, int, int,
+		    int (*)(void *), void *, const char *);
+	void	 (*ic_disestablish)(void *);
+
+#ifdef MULTIPROCESSOR
+	int	 (*ic_ipi_establish)(int (*)(void *), cpuid_t);
+	void	 (*ic_ipi_set)(cpuid_t);
+	void	 (*ic_ipi_clear)(cpuid_t);
+#endif /* MULTIPROCESSOR */
+
+	int	   ic_node;
+	int	   ic_phandle;
+	LIST_ENTRY(intr_controller) ic_list;
+};
+
 #ifdef MULTIPROCESSOR
 #define ENABLEIPI() updateimask(~CR_INT_1) /* enable IPI interrupt level */
 #endif
-void	octeon_intr_init(void);
-void	octeon_setintrmask(int);
+
 void   *octeon_intr_establish(int, int, int (*)(void *),
 	    void *, const char *);
 void	octeon_intr_disestablish(void *);
 void	octeon_intr_init(void);
+void	octeon_intr_register(struct intr_controller *);
+
+void	*octeon_intr_establish_fdt(int, int, int (*)(void *),
+	    void *, const char *);
+void	*octeon_intr_establish_fdt_idx(int, int, int, int (*)(void *),
+	    void *, const char *);
+void	 octeon_intr_disestablish_fdt(void *);
+
+/* XXX Needed by 'MI' code in sys/dev/fdt. */
+#define arm_intr_establish_fdt		octeon_intr_establish_fdt
+#define arm_intr_disestablish_fdt	octeon_intr_disestablish_fdt
 
 #endif /* _LOCORE */
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_socket.c,v 1.21 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: sys_socket.c,v 1.33 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: sys_socket.c,v 1.13 1995/08/12 23:59:09 mycroft Exp $	*/
 
 /*
@@ -73,17 +73,21 @@ int
 soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 {
 	struct socket *so = (struct socket *)fp->f_data;
+	int s, error = 0;
 
 	switch (cmd) {
 
 	case FIONBIO:
+		s = solock(so);
 		if (*(int *)data)
 			so->so_state |= SS_NBIO;
 		else
 			so->so_state &= ~SS_NBIO;
-		return (0);
+		sounlock(s);
+		break;
 
 	case FIOASYNC:
+		s = solock(so);
 		if (*(int *)data) {
 			so->so_state |= SS_ASYNC;
 			so->so_rcv.sb_flags |= SB_ASYNC;
@@ -93,37 +97,49 @@ soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 			so->so_rcv.sb_flags &= ~SB_ASYNC;
 			so->so_snd.sb_flags &= ~SB_ASYNC;
 		}
-		return (0);
+		sounlock(s);
+		break;
 
 	case FIONREAD:
 		*(int *)data = so->so_rcv.sb_datacc;
-		return (0);
+		break;
 
 	case SIOCSPGRP:
 		so->so_pgid = *(int *)data;
 		so->so_siguid = p->p_ucred->cr_ruid;
 		so->so_sigeuid = p->p_ucred->cr_uid;
-		return (0);
+		break;
 
 	case SIOCGPGRP:
 		*(int *)data = so->so_pgid;
-		return (0);
+		break;
 
 	case SIOCATMARK:
 		*(int *)data = (so->so_state&SS_RCVATMARK) != 0;
-		return (0);
+		break;
+
+	default:
+		/*
+		 * Interface/routing/protocol specific ioctls:
+		 * interface and routing ioctls should have a
+		 * different entry since a socket's unnecessary
+		 */
+		if (IOCGROUP(cmd) == 'i') {
+			NET_LOCK();
+			error = ifioctl(so, cmd, data, p);
+			NET_UNLOCK();
+			return (error);
+		}
+		if (IOCGROUP(cmd) == 'r')
+			return (EOPNOTSUPP);
+		s = solock(so);
+		error = ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL,
+		    (struct mbuf *)cmd, (struct mbuf *)data, NULL, p));
+		sounlock(s);
+		break;
 	}
-	/*
-	 * Interface/routing/protocol specific ioctls:
-	 * interface and routing ioctls should have a
-	 * different entry since a socket's unnecessary
-	 */
-	if (IOCGROUP(cmd) == 'i')
-		return (ifioctl(so, cmd, data, p));
-	if (IOCGROUP(cmd) == 'r')
-		return (rtioctl(cmd, data, p));
-	return ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL, 
-	    (struct mbuf *)cmd, (struct mbuf *)data, (struct mbuf *)NULL, p));
+
+	return (error);
 }
 
 int
@@ -131,8 +147,9 @@ soo_poll(struct file *fp, int events, struct proc *p)
 {
 	struct socket *so = fp->f_data;
 	int revents = 0;
-	int s = splsoftnet();
+	int s;
 
+	s = solock(so);
 	if (events & (POLLIN | POLLRDNORM)) {
 		if (soreadable(so))
 			revents |= events & (POLLIN | POLLRDNORM);
@@ -158,7 +175,7 @@ soo_poll(struct file *fp, int events, struct proc *p)
 			so->so_snd.sb_flagsintr |= SB_SEL;
 		}
 	}
-	splx(s);
+	sounlock(s);
 	return (revents);
 }
 
@@ -166,11 +183,12 @@ int
 soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 {
 	struct socket *so = fp->f_data;
+	int s;
 
 	memset(ub, 0, sizeof (*ub));
 	ub->st_mode = S_IFSOCK;
-	if ((so->so_state & SS_CANTRCVMORE) == 0 ||
-	    so->so_rcv.sb_cc != 0)
+	s = solock(so);
+	if ((so->so_state & SS_CANTRCVMORE) == 0 || so->so_rcv.sb_cc != 0)
 		ub->st_mode |= S_IRUSR | S_IRGRP | S_IROTH;
 	if ((so->so_state & SS_CANTSENDMORE) == 0)
 		ub->st_mode |= S_IWUSR | S_IWGRP | S_IWOTH;
@@ -178,6 +196,7 @@ soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 	ub->st_gid = so->so_egid;
 	(void) ((*so->so_proto->pr_usrreq)(so, PRU_SENSE,
 	    (struct mbuf *)ub, NULL, NULL, p));
+	sounlock(s);
 	return (0);
 }
 

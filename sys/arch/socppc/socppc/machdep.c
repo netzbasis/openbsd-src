@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.69 2016/05/23 18:14:47 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.72 2017/04/30 16:45:45 mpi Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -108,11 +108,7 @@ extern struct bd_info **fwargsave;
 extern struct fdt_head *fwfdtsave;
 
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 void dumpsys(void);
@@ -359,7 +355,7 @@ initppc(u_int startkernel, u_int endkernel, char *args)
 
 #ifdef DDB
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 
 	if (boothowto & RB_CONFIG) {
@@ -688,7 +684,9 @@ haltsys:
 		}
 
 		printf("halted\n\n");
-		for (;;);
+		for (;;)
+			continue;
+		/* NOTREACHED */
 	}
 	printf("rebooting\n\n");
 
@@ -703,7 +701,8 @@ haltsys:
 	}
 
 	printf("boot failed, spinning\n");
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mkmakefile.c,v 1.41 2015/01/16 06:40:16 deraadt Exp $	*/
+/*	$OpenBSD: mkmakefile.c,v 1.44 2017/07/18 16:43:27 tb Exp $	*/
 /*	$NetBSD: mkmakefile.c,v 1.34 1997/02/02 21:12:36 thorpej Exp $	*/
 
 /*
@@ -80,14 +80,12 @@ mkmakefile(void)
 	    machine, machine);
 	ifname = sourcepath(buf);
 	if ((ifp = fopen(ifname, "r")) == NULL) {
-		(void)fprintf(stderr, "config: cannot read %s: %s\n",
-		    ifname, strerror(errno));
+		warn("cannot read %s", ifname);
 		free(ifname);
 		return (1);
 	}
 	if ((ofp = fopen("Makefile", "w")) == NULL) {
-		(void)fprintf(stderr, "config: cannot write Makefile: %s\n",
-		    strerror(errno));
+		warn("cannot write Makefile");
 		free(ifname);
 		(void)fclose(ifp);
 		return (1);
@@ -125,9 +123,7 @@ mkmakefile(void)
 			goto wrerror;
 	}
 	if (ferror(ifp)) {
-		(void)fprintf(stderr,
-		    "config: error reading %s (at line %d): %s\n",
-		    ifname, lineno, strerror(errno));
+		warn("error reading %s (at line %d)", ifname, lineno);
 		goto bad;
 	}
 	if (fclose(ofp)) {
@@ -138,8 +134,7 @@ mkmakefile(void)
 	free(ifname);
 	return (0);
 wrerror:
-	(void)fprintf(stderr, "config: error writing Makefile: %s\n",
-	    strerror(errno));
+	warn("error writing Makefile");
 bad:
 	if (ofp != NULL)
 		(void)fclose(ofp);
@@ -434,7 +429,7 @@ emitrules(FILE *fp)
 	    ".SUFFIXES:\n"
 	    ".SUFFIXES: .s .S .c .o\n\n"
 
-	    ".PHONY: depend all install clean tags\n\n"
+	    ".PHONY: depend all install clean tags newbsd update-link\n\n"
 
 	    ".c.o:\n"
 	    "\t${NORMAL_C}\n\n"
@@ -513,6 +508,28 @@ emitload(FILE *fp)
 				return (1);
 		}
 		if (fputs("\t${NORMAL_C}\n\n", fp) < 0)
+			return (1);
+
+		if (fprintf(fp, "new%s:\n", nm) < 0)
+			return (1);
+		if (fprintf(fp,
+		    "\t${MAKE_GAP}\n"
+		    "\t${SYSTEM_LD_HEAD}\n"
+		    "\t${SYSTEM_LD} swap%s.o\n"
+		    "\t${SYSTEM_LD_TAIL}\n"
+		    "\tmv -f new%s %s\n\n",
+		    swname, nm, nm) < 0)
+			return (1);
+
+		if (fprintf(fp, "update-link:\n") < 0)
+			return (1);
+		if (fprintf(fp,
+		    "\tmkdir -p -m 700 /usr/share/compile\n"
+		    "\trm -rf /usr/share/compile/%s /usr/share/compile.tgz\n"
+		    "\tmkdir /usr/share/compile/%s\n"
+		    "\ttar -chf - Makefile makegap.sh ld.script *.o | \\\n"
+		    "\t    tar -C /usr/share/compile/%s -xf -\n\n",
+		    last_component, last_component, last_component) < 0)
 			return (1);
 	}
 	return (0);

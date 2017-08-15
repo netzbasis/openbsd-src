@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vic.c,v 1.96 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_vic.c,v 1.98 2017/07/12 14:25:36 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2006 Reyk Floeter <reyk@openbsd.org>
@@ -1051,13 +1051,8 @@ vic_start(struct ifnet *ifp)
 			break;
 		}
 
-		m = ifq_deq_begin(&ifp->if_snd);
-		if (m == NULL)
-			break;
-
 		idx = sc->sc_data->vd_tx_nextidx;
 		if (idx >= sc->sc_data->vd_tx_length) {
-			ifq_deq_rollback(&ifp->if_snd, m);
 			printf("%s: tx idx is corrupt\n", DEVNAME(sc));
 			ifp->if_oerrors++;
 			break;
@@ -1067,23 +1062,20 @@ vic_start(struct ifnet *ifp)
 		txb = &sc->sc_txbuf[idx];
 
 		if (txb->txb_m != NULL) {
-			ifq_deq_rollback(&ifp->if_snd, m);
 			printf("%s: tx ring is corrupt\n", DEVNAME(sc));
 			sc->sc_data->vd_tx_stopped = 1;
 			ifp->if_oerrors++;
 			break;
 		}
 
-		/*
-		 * we're committed to sending it now. if we cant map it into
-		 * dma memory then we drop it.
-		 */
-		ifq_deq_commit(&ifp->if_snd, m);
+		m = ifq_dequeue(&ifp->if_snd);
+		if (m == NULL)
+			break;
+
 		if (vic_load_txb(sc, txb, m) != 0) {
 			m_freem(m);
 			ifp->if_oerrors++;
-			/* continue? */
-			break;
+			continue;
 		}
 
 #if NBPFILTER > 0
@@ -1109,7 +1101,6 @@ vic_start(struct ifnet *ifp)
 		bus_dmamap_sync(sc->sc_dmat, dmap, 0, dmap->dm_mapsize,
 		    BUS_DMASYNC_PREWRITE);
 
-		ifp->if_opackets++;
 		sc->sc_txpending++;
 
 		VIC_INC(sc->sc_data->vd_tx_nextidx, sc->sc_data->vd_tx_length);

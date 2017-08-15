@@ -1,4 +1,4 @@
-/*	$OpenBSD: biosdev.c,v 1.92 2015/10/01 20:28:12 krw Exp $	*/
+/*	$OpenBSD: biosdev.c,v 1.96 2017/07/21 01:21:42 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -43,7 +43,8 @@
 
 #ifdef SOFTRAID
 #include <dev/softraidvar.h>
-#include "softraid.h"
+#include <lib/libsa/softraid.h>
+#include "softraid_i386.h"
 #endif
 
 static const char *biosdisk_err(u_int);
@@ -270,11 +271,10 @@ biosd_io(int rw, bios_diskinfo_t *bd, u_int off, int nsect, void *buf)
 	if (((((u_int32_t)buf) & ~0xffff) !=
 	    (((u_int32_t)buf + bbsize) & ~0xffff)) ||
 	    (((u_int32_t)buf) >= 0x100000)) {
-		/*
-		 * XXX we believe that all the io is buffered
-		 * by fs routines, so no big reads anyway
-		 */
-		bb = bb1 = alloc(bbsize);
+		bb = bb1 = alloc(bbsize * 2);
+		if ((((u_int32_t)bb) & ~0xffff) !=
+		    (((u_int32_t)bb + bbsize - 1) & ~0xffff))
+			bb = (void *)(((u_int32_t)bb + bbsize - 1) & ~0xffff);
 		if (rw != F_READ)
 			bcopy(buf, bb, bbsize);
 	} else
@@ -328,7 +328,7 @@ biosd_io(int rw, bios_diskinfo_t *bd, u_int off, int nsect, void *buf)
 
 	if (bb != buf && rw == F_READ)
 		bcopy(bb, buf, bbsize);
-	free(bb1, bbsize);
+	free(bb1, bbsize * 2);
 
 #ifdef BIOS_DEBUG
 	if (debug) {
@@ -536,6 +536,7 @@ biosopen(struct open_file *f, ...)
 		if (bv->sbv_diskinfo == NULL) {
 			dip = alloc(sizeof(struct diskinfo));
 			bzero(dip, sizeof(*dip));
+			dip->strategy = biosstrategy;
 			bv->sbv_diskinfo = dip;
 			dip->sr_vol = bv;
 			dip->bios_info.flags |= BDI_BADLABEL;
@@ -549,6 +550,7 @@ biosopen(struct open_file *f, ...)
 			if (sr_getdisklabel(bv, &dip->disklabel))
 				return ERDLAB;
 			dip->bios_info.flags &= ~BDI_BADLABEL;
+			check_hibernate(dip);
 		}
 
 		bv->sbv_part = part + 'a';

@@ -1,4 +1,4 @@
-/*	$OpenBSD: athnreg.h,v 1.18 2012/06/10 21:23:36 kettenis Exp $	*/
+/*	$OpenBSD: athnreg.h,v 1.20 2017/05/19 11:42:48 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -253,7 +253,7 @@
 
 
 /* Bits for AR_CR. */
-#define AR_CR_RXE	0x00000004
+#define AR_CR_RXE	(AR_SREV_9380_20_OR_LATER(sc) ? 0x000c : 0x0004)
 #define AR_CR_RXD	0x00000020
 #define AR_CR_SWI	0x00000040
 
@@ -1472,11 +1472,11 @@
  */
 /* Mask and Shift (getter). */
 #define MS(val, field)							\
-	(((val) & field##_M) >> field##_S)
+	(((uint32_t)(val) & field##_M) >> field##_S)
 
 /* Shift and Mask (setter). */
 #define SM(field, val)							\
-	(((val) << field##_S) & field##_M)
+	(((uint32_t)(val) << field##_S) & field##_M)
 
 /* Rewrite. */
 #define RW(var, field, val)						\

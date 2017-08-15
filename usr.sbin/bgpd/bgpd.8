@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.8,v 1.48 2013/08/14 06:32:36 jmc Exp $
+.\" $OpenBSD: bgpd.8,v 1.57 2017/07/26 09:05:46 job Exp $
 .\"
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 14 2013 $
+.Dd $Mdocdate: July 26 2017 $
 .Dt BGPD 8
 .Os
 .Sh NAME
@@ -347,15 +347,32 @@ control socket
 .Re
 .Pp
 .Rs
-.%D April 2009
-.%R draft-ietf-idr-optional-transitive-00
-.%T Error Handling for Optional Transitive BGP Attributes
+.%A E. Chen
+.%A J. Scudder
+.%A P. Mohapatra
+.%A K. Patel
+.%D August 2015
+.%R RFC 7606
+.%T Revised Error Handling for BGP UPDATE Messages
 .Re
 .Pp
 .Rs
-.%D August 2011
-.%R draft-ietf-grow-mrt-17
-.%T MRT routing information export format
+.%A W. Kumari
+.%A R. Bush
+.%A H. Schiller
+.%A K. Patel
+.%D August 2015
+.%R RFC 7607
+.%T Codification of AS 0 Processing
+.Re
+.Pp
+.Rs
+.%A L. Blunk
+.%A M. Karir
+.%A C. Labovitz
+.%D October 2011
+.%R RFC 6396
+.%T Multi-Threaded Routing Toolkit (MRT) Routing Information Export Format
 .Re
 .Pp
 .Rs
@@ -365,6 +382,37 @@ control socket
 .%D May 2012
 .%R RFC 6608
 .%T Subcodes for BGP Finite State Machine Error
+.Re
+.Pp
+.Rs
+.%A J. Heitz
+.%A J. Snijders
+.%A K. Patel
+.%A I. Bagdonas
+.%A N. Hilliard
+.%D February 2017
+.%R RFC 8092
+.%T BGP Large Communities Attribute
+.Re
+.Pp
+.Rs
+.%A P. Mohapatra
+.%A K. Patel
+.%A J. Scudder
+.%A D. Ward
+.%A R. Bush
+.%D March 2017
+.%R RFC 8097
+.%T BGP Prefix Origin Validation State Extended Community
+.Re
+.Pp
+.Rs
+.%A J. Snijders
+.%A J. Heitz
+.%A J. Scudder
+.%D July 2017
+.%R RFC 8203
+.%T BGP Administrative Shutdown Communication
 .Re
 .Sh HISTORY
 The

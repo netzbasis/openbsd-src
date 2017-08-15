@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_proto.c,v 1.9 2016/09/05 15:12:29 claudio Exp $	*/
+/*	$OpenBSD: uipc_proto.c,v 1.14 2017/03/13 20:18:21 claudio Exp $	*/
 /*	$NetBSD: uipc_proto.c,v 1.8 1996/02/13 21:10:47 christos Exp $	*/
 
 /*-
@@ -37,9 +37,9 @@
 #include <sys/protosw.h>
 #include <sys/domain.h>
 #include <sys/mbuf.h>
-#include <sys/unpcb.h> 
+#include <sys/unpcb.h>
 #include <sys/socketvar.h>
-                        
+
 #include <net/raw_cb.h>
 
 /*
@@ -49,28 +49,37 @@
 extern	struct domain unixdomain;		/* or at least forward */
 
 struct protosw unixsw[] = {
-{ SOCK_STREAM,	&unixdomain,	PF_LOCAL,	PR_CONNREQUIRED|PR_WANTRCVD|PR_RIGHTS,
-  0,		0,		0,		0,
-  uipc_usrreq,
-  0,		0,		0,		0,
+{
+  .pr_type	= SOCK_STREAM,
+  .pr_domain	= &unixdomain,
+  .pr_protocol	= PF_LOCAL,
+  .pr_flags	= PR_CONNREQUIRED|PR_WANTRCVD|PR_RIGHTS,
+  .pr_usrreq	= uipc_usrreq,
+  .pr_attach	= uipc_attach,
 },
-{ SOCK_SEQPACKET,&unixdomain,	PF_LOCAL,	PR_ATOMIC|PR_CONNREQUIRED|PR_WANTRCVD|PR_RIGHTS,
-  0,		0,		0,		0,
-  uipc_usrreq,
-  0,		0,		0,		0,
+{
+  .pr_type	= SOCK_SEQPACKET,
+  .pr_domain	= &unixdomain,
+  .pr_protocol	= PF_LOCAL,
+  .pr_flags	= PR_ATOMIC|PR_CONNREQUIRED|PR_WANTRCVD|PR_RIGHTS,
+  .pr_usrreq	= uipc_usrreq,
+  .pr_attach	= uipc_attach,
 },
-{ SOCK_DGRAM,	&unixdomain,	PF_LOCAL,	PR_ATOMIC|PR_ADDR|PR_RIGHTS,
-  0,		0,		0,		0,
-  uipc_usrreq,
-  0,		0,		0,		0,
-},
-{ 0,		0,		0,		0,
-  raw_input,	0,		0,		0,
-  raw_usrreq,
-  raw_init,	0,		0,		0,
+{
+  .pr_type	= SOCK_DGRAM,
+  .pr_domain	= &unixdomain,
+  .pr_protocol	= PF_LOCAL,
+  .pr_flags	= PR_ATOMIC|PR_ADDR|PR_RIGHTS,
+  .pr_usrreq	= uipc_usrreq,
+  .pr_attach	= uipc_attach,
 }
 };
 
-struct domain unixdomain =
-    { AF_LOCAL, "unix", 0, unp_externalize, unp_dispose,
-      unixsw, &unixsw[nitems(unixsw)] };
+struct domain unixdomain = {
+  .dom_family = AF_LOCAL,
+  .dom_name = "unix",
+  .dom_externalize = unp_externalize,
+  .dom_dispose = unp_dispose,
+  .dom_protosw = unixsw,
+  .dom_protoswNPROTOSW = &unixsw[nitems(unixsw)]
+};

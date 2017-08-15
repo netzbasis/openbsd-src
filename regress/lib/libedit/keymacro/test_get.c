@@ -1,3 +1,4 @@
+/*	$OpenBSD: test_get.c,v 1.5 2017/07/07 23:55:21 bluhm Exp $	*/
 /*
  * Copyright (c) 2016 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -23,7 +24,6 @@
  * Rather than linking in all the various libedit modules,
  * provide dummies for those functions called in keymacro.c.
  * Most aren't actually called in keymacro_get().
- * Requires "make obj && make depend" in src/lib/libedit.
  */
 
 #define EL EditLine *el __attribute__((__unused__))

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_wpi.c,v 1.135 2016/09/05 08:18:40 tedu Exp $	*/
+/*	$OpenBSD: if_wpi.c,v 1.140 2017/04/08 02:57:25 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 2006-2008
@@ -494,6 +494,8 @@ wpi_prph_write_region_4(struct wpi_softc *sc, uint32_t addr,
 		wpi_prph_write(sc, addr, *data);
 }
 
+#ifdef WPI_DEBUG
+
 static __inline uint32_t
 wpi_mem_read(struct wpi_softc *sc, uint32_t addr)
 {
@@ -517,6 +519,8 @@ wpi_mem_read_region_4(struct wpi_softc *sc, uint32_t addr, uint32_t *data,
 	for (; count > 0; count--, addr += 4)
 		*data++ = wpi_mem_read(sc, addr);
 }
+
+#endif
 
 int
 wpi_read_prom_data(struct wpi_softc *sc, uint32_t addr, void *data, int count)
@@ -1357,8 +1361,6 @@ wpi_tx_done(struct wpi_softc *sc, struct wpi_rx_desc *desc)
 
 	if ((letoh32(stat->status) & 0xff) != 1)
 		ifp->if_oerrors++;
-	else
-		ifp->if_opackets++;
 
 	/* Unmap and free mbuf. */
 	bus_dmamap_sync(sc->sc_dmat, data->map, 0, data->map->dm_mapsize,
@@ -1474,7 +1476,6 @@ wpi_notif_intr(struct wpi_softc *sc)
 				printf("%s: Radio transmitter is off\n",
 				    sc->sc_dev.dv_xname);
 				/* Turn the interface down. */
-				ifp->if_flags &= ~IFF_UP;
 				wpi_stop(ifp, 1);
 				return;	/* No further processing. */
 			}
@@ -1526,6 +1527,7 @@ wpi_notif_intr(struct wpi_softc *sc)
 	WPI_WRITE(sc, WPI_FH_RX_WPTR, hw & ~7);
 }
 
+#ifdef WPI_DEBUG
 /*
  * Dump the error log of the firmware when a firmware panic occurs.  Although
  * we can't debug the firmware because it is neither open source nor free, it
@@ -1593,6 +1595,7 @@ wpi_fatal_intr(struct wpi_softc *sc)
 	printf("  802.11 state %d\n", sc->sc_ic.ic_state);
 #undef N
 }
+#endif
 
 int
 wpi_intr(void *arg)
@@ -1622,7 +1625,9 @@ wpi_intr(void *arg)
 	if (r1 & (WPI_INT_SW_ERR | WPI_INT_HW_ERR)) {
 		printf("%s: fatal firmware error\n", sc->sc_dev.dv_xname);
 		/* Dump firmware error log and stop. */
+#ifdef WPI_DEBUG
 		wpi_fatal_intr(sc);
+#endif
 		wpi_stop(ifp, 1);
 		task_add(systq, &sc->init_task);
 		return 1;
@@ -1948,7 +1953,6 @@ wpi_watchdog(struct ifnet *ifp)
 	if (sc->sc_tx_timer > 0) {
 		if (--sc->sc_tx_timer == 0) {
 			printf("%s: device timeout\n", sc->sc_dev.dv_xname);
-			ifp->if_flags &= ~IFF_UP;
 			wpi_stop(ifp, 1);
 			ifp->if_oerrors++;
 			return;
@@ -2953,19 +2957,18 @@ wpi_read_firmware(struct wpi_softc *sc)
 {
 	struct wpi_fw_info *fw = &sc->fw;
 	const struct wpi_firmware_hdr *hdr;
-	size_t size;
 	int error;
 
 	/* Read firmware image from filesystem. */
-	if ((error = loadfirmware("wpi-3945abg", &fw->data, &size)) != 0) {
+	if ((error = loadfirmware("wpi-3945abg", &fw->data, &fw->datalen)) != 0) {
 		printf("%s: error, %d, could not read firmware %s\n",
 		    sc->sc_dev.dv_xname, error, "wpi-3945abg");
 		return error;
 	}
-	if (size < sizeof (*hdr)) {
+	if (fw->datalen < sizeof (*hdr)) {
 		printf("%s: truncated firmware header: %zu bytes\n",
-		    sc->sc_dev.dv_xname, size);
-		free(fw->data, M_DEVBUF, size);
+		    sc->sc_dev.dv_xname, fw->datalen);
+		free(fw->data, M_DEVBUF, fw->datalen);
 		return EINVAL;
 	}
 	/* Extract firmware header information. */
@@ -2985,16 +2988,16 @@ wpi_read_firmware(struct wpi_softc *sc)
 	    fw->boot.textsz > WPI_FW_BOOT_TEXT_MAXSZ ||
 	    (fw->boot.textsz & 3) != 0) {
 		printf("%s: invalid firmware header\n", sc->sc_dev.dv_xname);
-		free(fw->data, M_DEVBUF, size);
+		free(fw->data, M_DEVBUF, fw->datalen);
 		return EINVAL;
 	}
 
 	/* Check that all firmware sections fit. */
-	if (size < sizeof (*hdr) + fw->main.textsz + fw->main.datasz +
+	if (fw->datalen < sizeof (*hdr) + fw->main.textsz + fw->main.datasz +
 	    fw->init.textsz + fw->init.datasz + fw->boot.textsz) {
 		printf("%s: firmware file too short: %zu bytes\n",
-		    sc->sc_dev.dv_xname, size);
-		free(fw->data, M_DEVBUF, size);
+		    sc->sc_dev.dv_xname, fw->datalen);
+		free(fw->data, M_DEVBUF, fw->datalen);
 		return EINVAL;
 	}
 
@@ -3286,7 +3289,7 @@ wpi_init(struct ifnet *ifp)
 
 	/* Initialize hardware and upload firmware. */
 	error = wpi_hw_init(sc);
-	free(sc->fw.data, M_DEVBUF, 0);
+	free(sc->fw.data, M_DEVBUF, sc->fw.datalen);
 	if (error != 0) {
 		printf("%s: could not initialize hardware\n",
 		    sc->sc_dev.dv_xname);

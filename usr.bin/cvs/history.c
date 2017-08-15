@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.43 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: history.c,v 1.45 2017/07/20 13:39:11 okan Exp $	*/
 /*
  * Copyright (c) 2007 Joris Vink <joris@openbsd.org>
  *
@@ -23,6 +23,7 @@
 #include <pwd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "cvs.h"
@@ -157,7 +158,7 @@ cvs_history_add(int type, struct cvs_file *cf, const char *argument)
 		if ((hrev = rcs_head_get(cf->file_rcs)) == NULL)
 			fatal("cvs_history_add: rcs_head_get failed");
 		rcsnum_tostr(hrev, revbuf, sizeof(revbuf));
-		rcsnum_free(hrev);
+		free(hrev);
 		break;
 	}
 

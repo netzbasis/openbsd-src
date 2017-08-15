@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm_support.S,v 1.4 2016/05/16 01:51:23 deraadt Exp $	*/
+/*	$OpenBSD: vmm_support.S,v 1.9 2017/05/30 17:49:47 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -17,6 +17,7 @@
 
 #include "assym.h"
 #include <machine/asm.h>
+#include <machine/psl.h>
 #include <machine/specialreg.h>
 
 /*
@@ -38,6 +39,7 @@
 	.global _C_LABEL(invept)
 	.global _C_LABEL(vmx_enter_guest)
 	.global _C_LABEL(vmm_dispatch_intr)
+	.global _C_LABEL(svm_enter_guest)
 
 	.text
 	.code64
@@ -46,11 +48,11 @@ _C_LABEL(vmm_dispatch_intr):
 	movq	%rsp, %r11	/* r11 = temporary register */
 	andq    $0xFFFFFFFFFFFFFFF0, %rsp
 	movw	%ss, %ax
-	pushq   %ax
+	pushq   %rax
 	pushq	%r11
 	pushfq
 	movw	%cs, %ax
-	pushq   %ax
+	pushq   %rax
 	cli
 	callq	*%rdi
 	ret
@@ -153,6 +155,9 @@ skip_init:
 	 */
 
 	pushfq
+	popq	%rax
+	andq	$(~PSL_I), %rax
+	pushq	%rax
 
 	/*
 	 * Save (possibly) lazy-switched selectors
@@ -353,6 +358,193 @@ restore_host:
 	 * first. This is to accommodate possibly lazy-switched
 	 * selectors from above
 	 */
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_KERNELGSBASE, %rcx
+	wrmsr
+
+	popw	%gs
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_GSBASE, %rcx
+	wrmsr	
+
+	popw	%fs
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_FSBASE, %rcx
+	wrmsr
+
+	popw	%ax
+	movw	%ax, %ss
+	popw	%ax
+	movw	%ax, %ds
+	popw	%ax
+	movw	%ax, %es
+
+	popfq
+
+	movq	%rdi, %rax
+	ret	
+	
+_C_LABEL(svm_enter_guest):
+	clgi
+	movq	%rdi, %r8
+	pushfq
+
+	pushq	%rdx	/* gdt pointer */
+
+	/*
+	 * Save (possibly) lazy-switched selectors
+	 */
+	strw	%ax
+	pushw	%ax
+	movw	%es, %ax
+	pushw	%ax
+	movw	%ds, %ax
+	pushw	%ax
+	movw	%ss, %ax
+	pushw	%ax
+
+	movq	$MSR_FSBASE, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+	pushw	%fs
+	movq	$MSR_GSBASE, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+	pushw	%gs
+	movq	$MSR_KERNELGSBASE, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+
+	/*
+	 * Save various MSRs
+	 */
+	movq	$MSR_STAR, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+
+	movq	$MSR_LSTAR, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+
+	/* XXX - unused? */
+	movq	$MSR_CSTAR, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+
+	movq	$MSR_SFMASK, %rcx
+	rdmsr
+	pushq	%rax
+	pushq	%rdx
+
+	/* Preserve callee-preserved registers as per AMD64 ABI */
+	pushq	%r15
+	pushq	%r14
+	pushq	%r13
+	pushq	%r12
+	pushq	%rbp
+	pushq	%rbx
+	pushq	%rsi		/* Guest Regs Pointer */
+
+	/* Restore guest registers */
+	movq	%r8, %rax	/* rax = vmcb pa */
+	movq	0x78(%rsi), %r8
+	movq	%r8, %cr2
+	movq	0x70(%rsi), %r15
+	movq	0x68(%rsi), %r14
+	movq	0x60(%rsi), %r13
+	movq	0x58(%rsi), %r12
+	movq	0x50(%rsi), %r11
+	movq	0x48(%rsi), %r10
+	movq	0x40(%rsi), %r9
+	movq	0x38(%rsi), %r8
+	movq	0x30(%rsi), %rbp
+	movq	0x28(%rsi), %rdi
+	movq	0x20(%rsi), %rdx
+	movq	0x18(%rsi), %rcx
+	movq	0x10(%rsi), %rbx
+	/* %rax at 0x08(%rsi) is not needed in SVM */
+	movq	0x00(%rsi), %rsi
+
+	vmload	%rax
+	vmrun	%rax
+	vmsave	%rax
+
+	/* Preserve guest registers not saved in VMCB */
+	pushq	%rsi
+	pushq	%rdi
+	movq	0x10(%rsp), %rdi
+	movq	0x8(%rsp), %rsi
+	movq	%rsi, (%rdi)
+	popq	%rdi
+	popq	%rsi	/* discard */
+
+	popq	%rsi
+	/* %rax at 0x08(%rsi) is not needed in SVM */
+	movq	%rbx, 0x10(%rsi)
+	movq	%rcx, 0x18(%rsi)
+	movq	%rdx, 0x20(%rsi)
+	movq	%rdi, 0x28(%rsi)
+	movq	%rbp, 0x30(%rsi)
+	movq	%r8, 0x38(%rsi)
+	movq	%r9, 0x40(%rsi)
+	movq	%r10, 0x48(%rsi)
+	movq	%r11, 0x50(%rsi)
+	movq	%r12, 0x58(%rsi)
+	movq	%r13, 0x60(%rsi)
+	movq	%r14, 0x68(%rsi)
+	movq	%r15, 0x70(%rsi)
+	movq	%cr2, %rax
+	movq	%rax, 0x78(%rsi)
+
+	/* %rdi = 0 means we took an exit */
+	xorq	%rdi, %rdi
+
+restore_host_svm:
+	popq	%rbx
+	popq	%rbp
+	popq	%r12
+	popq	%r13
+	popq	%r14
+	popq	%r15
+	
+	/*
+	 * Restore saved MSRs
+	 */
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_SFMASK, %rcx
+	wrmsr
+
+	/* XXX - unused? */
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_CSTAR, %rcx
+	wrmsr
+	
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_LSTAR, %rcx
+	wrmsr
+
+	popq	%rdx
+	popq	%rax
+	movq	$MSR_STAR, %rcx
+	wrmsr
+
+	/*
+	 * popw %gs will reset gsbase to 0, so preserve it
+	 * first. This is to accommodate possibly lazy-switched
+	 * selectors from above
+	 */
 	cli
 	popq	%rdx
 	popq	%rax
@@ -370,7 +562,6 @@ restore_host:
 	popq	%rax
 	movq	$MSR_FSBASE, %rcx
 	wrmsr
-	sti
 
 	popw	%ax
 	movw	%ax, %ss
@@ -379,8 +570,21 @@ restore_host:
 	popw	%ax
 	movw	%ax, %es
 
+	xorq	%rax, %rax
+	popw	%ax		/* ax = saved TR */
+
+	popq	%rdx
+	addq	$0x2, %rdx
+	movq	(%rdx), %rdx
+
+	/* rdx = GDTR base addr */
+	andb	$0xF9, 5(%rdx, %rax)
+	
+	ltrw	%ax
+
 	popfq
 
 	movq	%rdi, %rax
+	stgi
+
 	ret	
-	

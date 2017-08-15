@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.58 2016/08/14 08:49:37 visa Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.64 2017/05/02 13:26:49 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -50,9 +50,6 @@
 #include <sys/syslog.h>
 #include <sys/endian.h>
 #include <sys/atomic.h>
-#ifdef MBUF_TIMESTAMP
-#include <sys/time.h>
-#endif
 
 #include <net/if.h>
 #include <net/if_media.h>
@@ -141,7 +138,7 @@ int	octeon_eth_ioctl(struct ifnet *, u_long, caddr_t);
 void	octeon_eth_watchdog(struct ifnet *);
 int	octeon_eth_init(struct ifnet *);
 int	octeon_eth_stop(struct ifnet *, int);
-void	octeon_eth_start(struct ifnet *);
+void	octeon_eth_start(struct ifqueue *);
 
 int	octeon_eth_send_cmd(struct octeon_eth_softc *, uint64_t, uint64_t);
 uint64_t octeon_eth_send_makecmd_w1(int, paddr_t);
@@ -257,6 +254,7 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_port_type = ga->ga_port_type;
 	sc->sc_gmx = ga->ga_gmx;
 	sc->sc_gmx_port = ga->ga_gmx_port;
+	sc->sc_smi = ga->ga_smi;
 	sc->sc_phy_addr = ga->ga_phy_addr;
 
 	sc->sc_init_flag = 0;
@@ -290,7 +288,6 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	octeon_eth_pip_init(sc);
 	octeon_eth_ipd_init(sc);
 	octeon_eth_pko_init(sc);
-	octeon_eth_smi_init(sc);
 
 	sc->sc_gmx_port->sc_ipd = sc->sc_ipd;
 	sc->sc_gmx_port->sc_port_mii = &sc->sc_mii;
@@ -306,7 +303,7 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = octeon_eth_ioctl;
-	ifp->if_start = octeon_eth_start;
+	ifp->if_qstart = octeon_eth_start;
 	ifp->if_watchdog = octeon_eth_watchdog;
 	ifp->if_hardmtu = OCTEON_ETH_MAX_MTU;
 	IFQ_SET_MAXLEN(&ifp->if_snd, max(GATHER_QUEUE_SIZE, IFQ_MAXLEN));
@@ -329,7 +326,7 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	if (octeon_eth_pow_recv_ih == NULL)
 		octeon_eth_pow_recv_ih = cn30xxpow_intr_establish(
 		    OCTEON_POW_GROUP_PIP, IPL_NET | IPL_MPSAFE,
-		    octeon_eth_recv_intr, NULL, NULL, sc->sc_dev.dv_xname);
+		    octeon_eth_recv_intr, NULL, NULL, cnmac_cd.cd_name);
 }
 
 /* ---- submodules */
@@ -373,17 +370,6 @@ octeon_eth_pko_init(struct octeon_eth_softc *sc)
 	pko_aa.aa_cmd_buf_pool = OCTEON_POOL_NO_CMD;
 	pko_aa.aa_cmd_buf_size = OCTEON_POOL_NWORDS_CMD;
 	cn30xxpko_init(&pko_aa, &sc->sc_pko);
-}
-
-void
-octeon_eth_smi_init(struct octeon_eth_softc *sc)
-{
-	struct cn30xxsmi_attach_args smi_aa;
-
-	smi_aa.aa_port = sc->sc_port;
-	smi_aa.aa_regt = sc->sc_regt;
-	cn30xxsmi_init(&smi_aa, &sc->sc_smi);
-	cn30xxsmi_set_clock(sc->sc_smi, 0x1464ULL); /* XXX */
 }
 
 /* ---- XXX */
@@ -629,7 +615,7 @@ octeon_eth_buf_free_work(struct octeon_eth_softc *sc, uint64_t *work)
 	    PIP_WQE_WORD2_IP_BUFS_SHIFT;
 	word3 = work[3];
 	while (nbufs-- > 0) {
-		addr = word3 & PIP_WQE_WORD3_ADDR, CCA_CACHED;
+		addr = word3 & PIP_WQE_WORD3_ADDR;
 		back = (word3 & PIP_WQE_WORD3_BACK) >>
 		    PIP_WQE_WORD3_BACK_SHIFT;
 		pktbuf = (addr & ~(CACHE_LINE_SIZE - 1)) -
@@ -706,8 +692,6 @@ octeon_eth_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			cn30xxgmx_set_filter(sc->sc_gmx_port);
 		error = 0;
 	}
-
-	if_start(ifp);
 
 	splx(s);
 	return (error);
@@ -926,13 +910,14 @@ done:
 }
 
 void
-octeon_eth_start(struct ifnet *ifp)
+octeon_eth_start(struct ifqueue *ifq)
 {
+	struct ifnet *ifp = ifq->ifq_if;
 	struct octeon_eth_softc *sc = ifp->if_softc;
 	struct mbuf *m;
 
 	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port))) {
-		ifq_purge(&ifp->if_snd);
+		ifq_purge(ifq);
 		return;
 	}
 
@@ -951,12 +936,12 @@ octeon_eth_start(struct ifnet *ifp)
 		 * and bail out.
 		 */
 		if (octeon_eth_send_queue_is_full(sc)) {
-			ifq_set_oactive(&ifp->if_snd);
+			ifq_set_oactive(ifq);
 			timeout_add(&sc->sc_tick_free_ch, 1);
 			return;
 		}
 
-		m = ifq_dequeue(&ifp->if_snd);
+		m = ifq_dequeue(ifq);
 		if (m == NULL)
 			return;
 
@@ -1025,6 +1010,7 @@ octeon_eth_init(struct ifnet *ifp)
 	}
 	octeon_eth_mediachange(ifp);
 
+	cn30xxgmx_set_mac_addr(sc->sc_gmx_port, sc->sc_arpcom.ac_enaddr);
 	cn30xxgmx_set_filter(sc->sc_gmx_port);
 
 	timeout_add_sec(&sc->sc_tick_misc_ch, 1);
@@ -1322,6 +1308,7 @@ octeon_eth_free_task(void *arg)
 {
 	struct octeon_eth_softc *sc = arg;
 	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
+	struct ifqueue *ifq = &ifp->if_snd;
 	int resched = 1;
 	int timeout;
 
@@ -1331,13 +1318,14 @@ octeon_eth_free_task(void *arg)
 		octeon_eth_send_queue_flush(sc);
 	}
 
-	if (ifq_is_oactive(&ifp->if_snd)) {
-		ifq_clr_oactive(&ifp->if_snd);
-		octeon_eth_start(ifp);
+	if (ifq_is_oactive(ifq)) {
+		ifq_clr_oactive(ifq);
+		octeon_eth_start(ifq);
 
-		if (ifq_is_oactive(&ifp->if_snd))
+		if (ifq_is_oactive(ifq)) {
 			/* The start routine did rescheduling already. */
 			resched = 0;
+		}
 	}
 
 	if (resched) {

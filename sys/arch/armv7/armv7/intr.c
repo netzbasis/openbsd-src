@@ -1,4 +1,4 @@
-/* $OpenBSD: intr.c,v 1.9 2016/08/06 17:25:15 patrick Exp $ */
+/* $OpenBSD: intr.c,v 1.11 2017/03/09 15:36:52 kettenis Exp $ */
 /*
  * Copyright (c) 2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -371,6 +371,16 @@ arm_intr_parent_disestablish_fdt(void *cookie)
 	free(ih, M_DEVBUF, sizeof(*ih));
 }
 
+void
+arm_intr_route(void *cookie, int enable, struct cpu_info *ci)
+{
+	struct arm_intr_handle *ih = cookie;
+	struct interrupt_controller *ic = ih->ih_ic;
+
+	if (ic->ic_route)
+		ic->ic_route(ih->ih_ih, enable, ci);
+}
+
 int
 arm_dflt_splraise(int newcpl)
 {
@@ -592,6 +602,9 @@ void
 arm_clock_register(void (*initclock)(void), void (*delay)(u_int),
     void (*statclock)(int), void(*mpstartclock)(void))
 {
+	if (arm_clock_func.initclocks)
+		return;
+
 	arm_clock_func.initclocks = initclock;
 	arm_clock_func.delay = delay;
 	arm_clock_func.setstatclockrate = statclock;

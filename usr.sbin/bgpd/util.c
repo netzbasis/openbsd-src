@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.21 2016/06/03 17:36:37 benno Exp $ */
+/*	$OpenBSD: util.c,v 1.25 2017/05/31 10:44:00 claudio Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -24,9 +24,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <vis.h>
 
 #include "bgpd.h"
 #include "rde.h"
+#include "log.h"
 
 const char	*aspath_delim(u_int8_t, int);
 
@@ -110,17 +112,17 @@ log_rd(u_int64_t rd)
 
 	rd = betoh64(rd);
 	switch (rd >> 48) {
-	case EXT_COMMUNITY_TWO_AS:
+	case EXT_COMMUNITY_TRANS_TWO_AS:
 		u32 = rd & 0xffffffff;
 		u16 = (rd >> 32) & 0xffff;
 		snprintf(buf, sizeof(buf), "rd %hu:%u", u16, u32);
 		break;
-	case EXT_COMMUNITY_FOUR_AS:
+	case EXT_COMMUNITY_TRANS_FOUR_AS:
 		u32 = (rd >> 16) & 0xffffffff;
 		u16 = rd & 0xffff;
 		snprintf(buf, sizeof(buf), "rd %s:%hu", log_as(u32), u16);
 		break;
-	case EXT_COMMUNITY_IPV4:
+	case EXT_COMMUNITY_TRANS_IPV4:
 		u32 = (rd >> 16) & 0xffffffff;
 		u16 = rd & 0xffff;
 		addr.s_addr = htonl(u32);
@@ -132,30 +134,31 @@ log_rd(u_int64_t rd)
 	return (buf);
 }
 
+const struct ext_comm_pairs iana_ext_comms[] = IANA_EXT_COMMUNITIES;
+
 /* NOTE: this function does not check if the type/subtype combo is
  * actually valid. */
 const char *
-log_ext_subtype(u_int8_t subtype)
+log_ext_subtype(u_int8_t type, u_int8_t subtype)
 {
 	static char etype[6];
+	const struct ext_comm_pairs *cp;
 
-	switch (subtype) {
-	case EXT_COMMUNITY_ROUTE_TGT:
-		return ("rt");	/* route target */
-	case EXT_COMMUNITY_ROUTE_ORIG:
-		return ("soo");	/* source of origin */
-	case EXT_COMMUNITY_OSPF_DOM_ID:
-		return ("odi");	/* ospf domain id */
-	case EXT_COMMUNITY_OSPF_RTR_TYPE:
-		return ("ort");	/* ospf route type */
-	case EXT_COMMUNITY_OSPF_RTR_ID:
-		return ("ori");	/* ospf router id */
-	case EXT_COMMUNITY_BGP_COLLECT:
-		return ("bdc");	/* bgp data collection */
-	default:
-		snprintf(etype, sizeof(etype), "[%u]", subtype);
-		return (etype);
+	for (cp = iana_ext_comms; cp->subname != NULL; cp++) {
+		if (type == cp->type && subtype == cp->subtype)
+			return (cp->subname);
 	}
+	snprintf(etype, sizeof(etype), "[%u]", subtype);
+	return (etype);
+}
+
+const char *
+log_shutcomm(const char *communication) {
+	static char buf[(SHUT_COMM_LEN - 1) * 4 + 1];
+
+	strnvis(buf, communication, sizeof(buf), VIS_NL | VIS_OCTAL);
+
+	return buf;
 }
 
 const char *
@@ -395,6 +398,10 @@ aspath_extract(const void *seg, int pos)
 	return (ntohl(as));
 }
 
+/*
+ * This function will have undefined behaviour if the passed in prefixlen is
+ * to large for the respective bgpd_addr address family.
+ */
 int
 prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
     int prefixlen)
@@ -411,7 +418,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		if (prefixlen == 0)
 			return (0);
 		if (prefixlen > 32)
-			fatalx("prefix_cmp: bad IPv4 prefixlen");
+			return (-1);
 		mask = htonl(prefixlen2mask(prefixlen));
 		aa = ntohl(a->v4.s_addr & mask);
 		ba = ntohl(b->v4.s_addr & mask);
@@ -422,7 +429,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		if (prefixlen == 0)
 			return (0);
 		if (prefixlen > 128)
-			fatalx("prefix_cmp: bad IPv6 prefixlen");
+			return (-1);
 		for (i = 0; i < prefixlen / 8; i++)
 			if (a->v6.s6_addr[i] != b->v6.s6_addr[i])
 				return (a->v6.s6_addr[i] - b->v6.s6_addr[i]);
@@ -437,7 +444,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		return (0);
 	case AID_VPN_IPv4:
 		if (prefixlen > 32)
-			fatalx("prefix_cmp: bad IPv4 VPN prefixlen");
+			return (-1);
 		if (betoh64(a->vpn4.rd) > betoh64(b->vpn4.rd))
 			return (1);
 		if (betoh64(a->vpn4.rd) < betoh64(b->vpn4.rd))
@@ -453,8 +460,6 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 			return (-1);
 		return (memcmp(a->vpn4.labelstack, b->vpn4.labelstack,
 		    a->vpn4.labellen));
-	default:
-		fatalx("prefix_cmp: unknown af");
 	}
 	return (-1);
 }

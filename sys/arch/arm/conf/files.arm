@@ -1,4 +1,4 @@
-#	$OpenBSD: files.arm,v 1.40 2016/08/14 11:30:54 jsg Exp $
+#	$OpenBSD: files.arm,v 1.46 2017/04/30 13:04:49 mpi Exp $
 #	$NetBSD: files.arm,v 1.76 2003/11/05 12:53:15 scw Exp $
 
 # generic networking files
@@ -6,19 +6,19 @@ file	arch/arm/arm/in_cksum_arm.S
 
 # DDB
 file	arch/arm/arm/db_disasm.c		ddb
-file	arch/arm/arm/db_interface.c		(ddb|kgdb)
+file	arch/arm/arm/db_interface.c		ddb
 file	arch/arm/arm/db_trace.c			ddb
 file	arch/arm/arm/db_machdep.c		ddb
-file	arch/arm/arm/kgdb_machdep.c		kgdb
 file	arch/arm/arm/disassem.c			ddb
 
 # FIQ support
 file	arch/arm/arm/fiq.c			fiq
 file	arch/arm/arm/fiq_subr.S			fiq
 
-define	fdt {}
+define	fdt {[early = 0]}
 
 # mainbus files
+define	mainbus {}
 device	mainbus: fdt
 attach	mainbus at root
 file	arch/arm/mainbus/mainbus.c		mainbus
@@ -33,9 +33,7 @@ file	dev/ofw/fdt.c
 include "arch/arm/cortex/files.cortex"
 
 device	cpu {}
-attach	cpu at fdt with cpu_mainbus
-file	arch/arm/mainbus/cpu_mainbus.c		cpu_mainbus
-
+attach	cpu at mainbus
 
 # bus_space(9)
 define	bus_space_generic
@@ -48,9 +46,7 @@ file	arch/arm/arm/bcopyinout.S
 file	arch/arm/arm/copystr.S
 file	arch/arm/arm/cpufunc.c
 file	arch/arm/arm/cpufunc_asm.S
-file	arch/arm/arm/cpufunc_asm_armv4.S	cpu_xscale_pxa2x0
 file	arch/arm/arm/cpufunc_asm_armv7.S	cpu_armv7
-file	arch/arm/arm/cpufunc_asm_xscale.S	cpu_xscale_pxa2x0
 file	arch/arm/arm/process_machdep.c
 file	arch/arm/arm/sig_machdep.c
 file	arch/arm/arm/sigcode.S
@@ -62,12 +58,10 @@ file	arch/arm/arm/vectors.S
 file	arch/arm/arm/arm32_machdep.c
 file	arch/arm/arm/bus_dma.c
 file	arch/arm/arm/cpu.c
-file	arch/arm/arm/cpuswitch.S		!cpu_armv7
 file	arch/arm/arm/cpuswitch7.S		cpu_armv7
 file	arch/arm/arm/exception.S
 file	arch/arm/arm/fault.c
 file	arch/arm/arm/mem.c
-file	arch/arm/arm/pmap.c			!cpu_armv7
 file	arch/arm/arm/pmap7.c			cpu_armv7
 file	arch/arm/arm/setstack.S
 file	arch/arm/arm/stubs.c
@@ -88,6 +82,8 @@ file	arch/arm/arm/bcopy_page.S
 
 # machine-dependent libkern components
 file	lib/libkern/arch/arm/divsi3.S
+file	lib/libkern/arch/arm/__aeabi_ldivmod.S
+file	lib/libkern/arch/arm/__aeabi_uldivmod.S
 
 # quad support is necessary for 32 bit architectures
 file	lib/libkern/adddi3.c

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty.c,v 1.132 2016/07/10 00:39:31 millert Exp $	*/
+/*	$OpenBSD: tty.c,v 1.134 2017/06/29 04:10:07 deraadt Exp $	*/
 /*	$NetBSD: tty.c,v 1.68.4.2 1996/06/06 16:04:52 thorpej Exp $	*/
 
 /*-
@@ -733,7 +733,6 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case  TIOCSETAW:
 	case  TIOCSPGRP:
 	case  TIOCSTAT:
-	case  TIOCSTI:
 	case  TIOCSWINSZ:
 		while (isbackground(pr, tp) &&
 		    (pr->ps_flags & PS_PPWAIT) == 0 &&
@@ -962,11 +961,7 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 		splx(s);
 		break;
 	case TIOCSTI:			/* simulate terminal input */
-		if (p->p_ucred->cr_uid && (flag & FREAD) == 0)
-			return (EPERM);
-		if (p->p_ucred->cr_uid && !isctty(pr, tp))
-			return (EACCES);
-		(*linesw[tp->t_line].l_rint)(*(u_char *)data, tp);
+		return (EIO);
 		break;
 	case TIOCSTOP:			/* stop output, like ^S */
 		s = spltty();
@@ -2255,7 +2250,7 @@ update_pick:
 
 		ttyprintf(tp,
 		    " cmd: %s %d [%s] %lld.%02ldu %lld.%02lds %d%% %ldk\n",
-		    pick->p_comm, pickpr->ps_pid, state,
+		    pickpr->ps_comm, pickpr->ps_pid, state,
 		    (long long)utime.tv_sec, utime.tv_nsec / 10000000,
 		    (long long)stime.tv_sec, stime.tv_nsec / 10000000,
 		    calc_pctcpu / 100, rss);

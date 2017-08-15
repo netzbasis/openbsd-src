@@ -1,4 +1,4 @@
-/*	$OpenBSD: mib.c,v 1.80 2015/11/17 12:30:23 gerhard Exp $	*/
+/*	$OpenBSD: mib.c,v 1.84 2017/06/01 14:38:28 patrick Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Knight <joel@openbsd.org>
@@ -41,6 +41,7 @@
 #include <net/if.h>
 #include <net/if_types.h>
 #include <net/pfvar.h>
+#include <netinet/ip_ipsp.h>
 #include <net/if_pfsync.h>
 
 #include <stdlib.h>
@@ -57,8 +58,6 @@
 
 #include "snmpd.h"
 #include "mib.h"
-
-extern struct snmpd	*env;
 
 /*
  * Defined in SNMPv2-MIB.txt (RFC 3418)
@@ -255,7 +254,7 @@ mib_sysor(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 int
 mib_getsnmp(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
-	struct snmp_stats	*stats = &env->sc_stats;
+	struct snmp_stats	*stats = &snmpd_env->sc_stats;
 	long long		 i;
 	struct statsmap {
 		u_int8_t	 m_id;
@@ -316,7 +315,7 @@ mib_getsnmp(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 int
 mib_setsnmp(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
-	struct snmp_stats	*stats = &env->sc_stats;
+	struct snmp_stats	*stats = &snmpd_env->sc_stats;
 	long long		 i;
 
 	if (ber_get_integer(*elm, &i) == -1)
@@ -354,11 +353,11 @@ mib_engine(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
 	switch (oid->o_oid[OIDIDX_snmpEngine]) {
 	case 1:
-		*elm = ber_add_nstring(*elm, env->sc_engineid,
-		    env->sc_engineid_len);
+		*elm = ber_add_nstring(*elm, snmpd_env->sc_engineid,
+		    snmpd_env->sc_engineid_len);
 		break;
 	case 2:
-		*elm = ber_add_integer(*elm, env->sc_engine_boots);
+		*elm = ber_add_integer(*elm, snmpd_env->sc_engine_boots);
 		break;
 	case 3:
 		*elm = ber_add_integer(*elm, snmpd_engine_time());
@@ -375,7 +374,7 @@ mib_engine(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 int
 mib_usmstats(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
-	struct snmp_stats	*stats = &env->sc_stats;
+	struct snmp_stats	*stats = &snmpd_env->sc_stats;
 	long long		 i;
 	struct statsmap {
 		u_int8_t	 m_id;
@@ -697,7 +696,7 @@ mib_hrdevice(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 
 	/* Get and verify the current row index */
 	idx = o->bo_id[OIDIDX_hrDeviceEntry];
-	if (idx > (u_int)env->sc_ncpu)
+	if (idx > (u_int)snmpd_env->sc_ncpu)
 		return (1);
 
 	/* Tables need to prepend the OID on their own */
@@ -748,7 +747,7 @@ mib_hrprocessor(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 
 	/* Get and verify the current row index */
 	idx = o->bo_id[OIDIDX_hrDeviceEntry];
-	if (idx > (u_int)env->sc_ncpu)
+	if (idx > (u_int)snmpd_env->sc_ncpu)
 		return (1);
 	else if (idx < 1)
 		idx = 1;
@@ -766,9 +765,9 @@ mib_hrprocessor(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 		 * The percentage of time that the system was not
 		 * idle during the last minute.
 		 */
-		if (env->sc_cpustates == NULL)
+		if (snmpd_env->sc_cpustates == NULL)
 			return (-1);
-		cptime2 = env->sc_cpustates + (CPUSTATES * (idx - 1));
+		cptime2 = snmpd_env->sc_cpustates + (CPUSTATES * (idx - 1));
 		val = 100 -
 		    (cptime2[CP_IDLE] > 1000 ? 1000 : (cptime2[CP_IDLE] / 10));
 		ber = ber_add_integer(ber, val);
@@ -1651,7 +1650,8 @@ int
 mib_pfinfo(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
 	struct pf_status	 s;
-	time_t			 runtime;
+	time_t			 runtime = 0;
+	struct timespec		 uptime;
 	char			 str[11];
 
 	if (pf_get_stats(&s))
@@ -1662,10 +1662,8 @@ mib_pfinfo(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 		*elm = ber_add_integer(*elm, s.running);
 		break;
 	case 2:
-		if (s.since > 0)
-			runtime = time(NULL) - s.since;
-		else
-			runtime = 0;
+		if (!clock_gettime(CLOCK_UPTIME, &uptime))
+			runtime = uptime.tv_sec - s.since;
 		runtime *= 100;
 		*elm = ber_add_integer(*elm, runtime);
 		ber_set_header(*elm, BER_CLASS_APPLICATION, SNMP_T_TIMETICKS);
@@ -2663,7 +2661,7 @@ mib_sensorvalue(struct sensor *s)
 		break;
 	case SENSOR_PERCENT:
 	case SENSOR_HUMIDITY:
-		ret = asprintf(&v, "%.2f%%", s->value / 1000.0);
+		ret = asprintf(&v, "%.2f", s->value / 1000.0);
 		break;
 	case SENSOR_DISTANCE:
 	case SENSOR_PRESSURE:

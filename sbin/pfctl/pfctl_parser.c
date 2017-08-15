@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl_parser.c,v 1.308 2016/09/03 17:11:40 sashan Exp $ */
+/*	$OpenBSD: pfctl_parser.c,v 1.316 2017/08/14 15:53:04 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -41,7 +41,6 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/icmp6.h>
 #include <net/pfvar.h>
-#include <net/hfsc.h>
 #include <arpa/inet.h>
 
 #include <ctype.h>
@@ -77,7 +76,7 @@ struct node_host	*ifa_grouplookup(const char *, int);
 struct node_host	*host_if(const char *, int);
 struct node_host	*host_v4(const char *, int);
 struct node_host	*host_v6(const char *, int);
-struct node_host	*host_dns(const char *, int, int);
+struct node_host	*host_dns(const char *, int, int, int);
 
 const char *tcpflags = "FSRPAUEW";
 
@@ -174,7 +173,6 @@ static const struct icmpcodeent icmp_code[] = {
 static const struct icmpcodeent icmp6_code[] = {
 	{ "admin-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_ADMIN },
 	{ "noroute-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOROUTE },
-	{ "notnbr-unr",	ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOTNEIGHBOR },
 	{ "beyond-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_BEYONDSCOPE },
 	{ "addr-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_ADDR },
 	{ "port-unr", ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOPORT },
@@ -520,15 +518,17 @@ void
 print_status(struct pf_status *s, int opts)
 {
 	char			statline[80], *running, *debug;
-	time_t			runtime;
+	time_t			runtime = 0;
+	struct timespec		uptime;
 	int			i;
 	char			buf[PF_MD5_DIGEST_LENGTH * 2 + 1];
 	static const char	hex[] = "0123456789abcdef";
 
-	runtime = time(NULL) - s->since;
+	if (!clock_gettime(CLOCK_UPTIME, &uptime))
+		runtime = uptime.tv_sec - s->since;
 	running = s->running ? "Enabled" : "Disabled";
 
-	if (s->since) {
+	if (runtime) {
 		unsigned int	sec, min, hrs;
 		time_t		day = runtime;
 
@@ -586,6 +586,7 @@ print_status(struct pf_status *s, int opts)
 	}
 	printf("%-27s %14s %16s\n", "State Table", "Total", "Rate");
 	printf("  %-25s %14u %14s\n", "current entries", s->states, "");
+	printf("  %-25s %14u %14s\n", "half-open tcp", s->states_halfopen, "");
 	for (i = 0; i < FCNT_MAX; i++) {
 		printf("  %-25s %14llu ", pf_fcounters[i],
 			    (unsigned long long)s->fcounters[i]);
@@ -1177,7 +1178,7 @@ print_bwspec(const char *prefix, struct pf_queue_bwspec *bw)
 		printf("%s%u%%", prefix, bw->percent);
 	else if (bw->absolute) {
 		rate = bw->absolute;
-		for (i = 0; rate >= 1000 && i <= 3; i++)
+		for (i = 0; rate >= 1000 && i <= 3 && (rate % 1000 == 0); i++)
 			rate /= 1000;
 		printf("%s%u%c", prefix, rate, unit[i]);
 	}
@@ -1197,18 +1198,28 @@ print_scspec(const char *prefix, struct pf_queue_scspec *sc)
 void
 print_queuespec(struct pf_queuespec *q)
 {
-	/* hide the _root_ifname queues */
-	if (q->qname[0] == '_')
-		return;
 	printf("queue %s", q->qname);
-	if (q->parent[0] && q->parent[0] != '_')
+	if (q->parent[0])
 		printf(" parent %s", q->parent);
 	else if (q->ifname[0])
 		printf(" on %s", q->ifname);
-	print_scspec(" bandwidth ", &q->linkshare);
-	print_scspec(", min ", &q->realtime);
-	print_scspec(", max ", &q->upperlimit);
-	if (q->flags & HFSC_DEFAULTCLASS)
+	if (q->flags & PFQS_FLOWQUEUE) {
+		printf(" flows %u", q->flowqueue.flows);
+		if (q->flowqueue.quantum > 0)
+			printf(" quantum %u", q->flowqueue.quantum);
+		if (q->flowqueue.interval > 0)
+			printf(" interval %ums",
+			    q->flowqueue.interval / 1000000);
+		if (q->flowqueue.target > 0)
+			printf(" target %ums",
+			    q->flowqueue.target / 1000000);
+	}
+	if (q->linkshare.m1.absolute || q->linkshare.m2.absolute) {
+		print_scspec(" bandwidth ", &q->linkshare);
+		print_scspec(", min ", &q->realtime);
+		print_scspec(", max ", &q->upperlimit);
+	}
+	if (q->flags & PFQS_DEFAULT)
 		printf(" default");
 	if (q->qlimit)
 		printf(" qlimit %u", q->qlimit);
@@ -1518,6 +1529,8 @@ ifa_lookup(const char *ifa_name, int flags)
 		if ((flags & PFI_AFLAG_BROADCAST) &&
 		    !(p->ifa_flags & IFF_BROADCAST))
 			continue;
+		if ((flags & PFI_AFLAG_BROADCAST) && p->bcast.v4.s_addr == 0)
+			continue;
 		if ((flags & PFI_AFLAG_PEER) &&
 		    !(p->ifa_flags & IFF_POINTOPOINT))
 			continue;
@@ -1597,7 +1610,7 @@ ifa_skip_if(const char *filter, struct node_host *p)
 }
 
 struct node_host *
-host(const char *s)
+host(const char *s, int opts)
 {
 	struct node_host	*h = NULL, *n;
 	int			 mask = -1, v4mask = 32, v6mask = 128, cont = 1;
@@ -1641,7 +1654,8 @@ host(const char *s)
 		cont = 0;
 
 	/* dns lookup */
-	if (cont && (h = host_dns(ps, v4mask, v6mask)) != NULL)
+	if (cont && (h = host_dns(ps, v4mask, v6mask,
+	    (opts & PF_OPT_NODNS))) != NULL)
 		cont = 0;
 
 	if (if_name && if_name[0])
@@ -1767,7 +1781,7 @@ host_v6(const char *s, int mask)
 }
 
 struct node_host *
-host_dns(const char *s, int v4mask, int v6mask)
+host_dns(const char *s, int v4mask, int v6mask, int numeric)
 {
 	struct addrinfo		 hints, *res0, *res;
 	struct node_host	*n, *h = NULL;
@@ -1784,6 +1798,8 @@ host_dns(const char *s, int v4mask, int v6mask)
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM; /* DUMMY */
+	if (numeric)
+		hints.ai_flags = AI_NUMERICHOST;
 	error = getaddrinfo(ps, NULL, &hints, &res0);
 	if (error) {
 		free(ps);
@@ -1847,7 +1863,7 @@ host_dns(const char *s, int v4mask, int v6mask)
  *	if set to 1, only simple addresses are accepted (no netblock, no "!").
  */
 int
-append_addr(struct pfr_buffer *b, char *s, int test)
+append_addr(struct pfr_buffer *b, char *s, int test, int opts)
 {
 	static int 		 previous = 0;
 	static int		 expect = 0;
@@ -1887,7 +1903,7 @@ append_addr(struct pfr_buffer *b, char *s, int test)
 
 	for (r = s; *r == '!'; r++)
 		not = !not;
-	if ((n = host(r)) == NULL) {
+	if ((n = host(r, opts)) == NULL) {
 		errno = 0;
 		return (-1);
 	}

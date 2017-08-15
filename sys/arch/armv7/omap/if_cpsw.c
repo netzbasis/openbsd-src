@@ -1,4 +1,4 @@
-/* $OpenBSD: if_cpsw.c,v 1.40 2016/08/12 03:22:41 jsg Exp $ */
+/* $OpenBSD: if_cpsw.c,v 1.43 2017/04/30 16:45:45 mpi Exp $ */
 /*	$NetBSD: if_cpsw.c,v 1.3 2013/04/17 14:36:34 bouyer Exp $	*/
 
 /*
@@ -444,7 +444,7 @@ cpsw_attach(struct device *parent, struct device *self, void *aux)
 	    CPSW_SS_IDVER_RTL(idver), ether_sprintf(ac->ac_enaddr));
 
 	ifp->if_softc = sc;
-	ifp->if_capabilities = 0;
+	ifp->if_capabilities = IFCAP_VLAN_MTU;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_start = cpsw_start;
 	ifp->if_ioctl = cpsw_ioctl;
@@ -1175,7 +1175,7 @@ cpsw_txintr(void *arg)
 		cpsw_get_txdesc(sc, sc->sc_txhead, &bd);
 
 		if (bd.buflen == 0) {
-			/* Debugger(); */
+			/* db_enter(); */
 		}
 
 		if ((bd.flags & CPDMA_BD_SOP) == 0)
@@ -1199,8 +1199,6 @@ cpsw_txintr(void *arg)
 
 		m_freem(rdp->tx_mb[sc->sc_txhead]);
 		rdp->tx_mb[sc->sc_txhead] = NULL;
-
-		ifp->if_opackets++;
 
 		handled = true;
 
@@ -1270,7 +1268,7 @@ cpsw_miscintr(void *arg)
 		stat = bus_space_read_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_CP(0));
 		printf("CPSW_CPDMA_RX0_CP %x\n", stat);
 
-		/* Debugger(); */
+		/* db_enter(); */
 
 		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_DMA_INTMASK_CLEAR, dmastat);
 		dmastat = bus_space_read_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_DMA_INTSTAT_MASKED);

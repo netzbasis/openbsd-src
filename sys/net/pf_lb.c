@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_lb.c,v 1.55 2016/07/19 12:51:19 henning Exp $ */
+/*	$OpenBSD: pf_lb.c,v 1.61 2017/07/12 14:07:55 bluhm Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -61,18 +61,24 @@
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/in_pcb.h>
 #include <netinet/ip_var.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/icmp_var.h>
 #include <netinet/tcp.h>
 #include <netinet/tcp_seq.h>
-#include <netinet/udp.h>
-#include <netinet/ip_icmp.h>
 #include <netinet/tcp_timer.h>
+#include <netinet/udp.h>
 #include <netinet/udp_var.h>
-#include <netinet/icmp_var.h>
 #include <netinet/if_ether.h>
-#include <netinet/in_pcb.h>
+
+#ifdef INET6
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
+#endif /* INET6 */
 
 #include <net/pfvar.h>
+#include <net/pfvar_priv.h>
 
 #if NPFLOG > 0
 #include <net/if_pflog.h>
@@ -85,11 +91,6 @@
 #if NPFSYNC > 0
 #include <net/if_pfsync.h>
 #endif /* NPFSYNC > 0 */
-
-#ifdef INET6
-#include <netinet/ip6.h>
-#include <netinet/icmp6.h>
-#endif /* INET6 */
 
 u_int64_t		 pf_hash(struct pf_addr *, struct pf_addr *,
 			    struct pf_poolhashkey *, sa_family_t);
@@ -210,7 +211,7 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 				return (0);
 			}
 		} else {
-			u_int16_t tmp;
+			u_int32_t tmp;
 
 			if (low > high) {
 				tmp = low;
@@ -220,7 +221,7 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 			/* low < high */
 			cut = arc4random_uniform(1 + high - low) + low;
 			/* low <= cut <= high */
-			for (tmp = cut; tmp <= high; ++(tmp)) {
+			for (tmp = cut; tmp <= high && tmp <= 0xffff; ++tmp) {
 				key.port[sidx] = htons(tmp);
 				if (pf_find_state_all(&key, dir, NULL) ==
 				    NULL && !in_baddynamic(tmp, pd->proto)) {
@@ -228,7 +229,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 					return (0);
 				}
 			}
-			for (tmp = cut - 1; tmp >= low; --(tmp)) {
+			tmp = cut;
+			for (tmp -= 1; tmp >= low && tmp <= 0xffff; --tmp) {
 				key.port[sidx] = htons(tmp);
 				if (pf_find_state_all(&key, dir, NULL) ==
 				    NULL && !in_baddynamic(tmp, pd->proto)) {
@@ -618,9 +620,9 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 			return (1);
 	}
 
-	if (pf_status.debug >= LOG_NOTICE &&
+	if (pf_status.debug >= LOG_INFO &&
 	    (rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_NONE) {
-		log(LOG_NOTICE, "pf: pf_map_addr: selected address ");
+		log(LOG_INFO, "pf: pf_map_addr: selected address ");
 		pf_print_host(naddr, 0, af);
 		if ((rpool->opts & PF_POOL_TYPEMASK) ==
 		    PF_POOL_LEASTSTATES)
@@ -706,8 +708,8 @@ pf_get_transaddr_af(struct pf_rule *r, struct pf_pdesc *pd,
 	u_int16_t	nport;
 	int		prefixlen = 96;
 
-	if (pf_status.debug >= LOG_NOTICE) {
-		log(LOG_NOTICE, "pf: af-to %s %s, ",
+	if (pf_status.debug >= LOG_INFO) {
+		log(LOG_INFO, "pf: af-to %s %s, ",
 		    pd->naf == AF_INET ? "inet" : "inet6",
 		    r->rdr.addr.type == PF_ADDR_NONE ? "nat" : "rdr");
 		pf_print_host(&pd->nsaddr, pd->nsport, pd->af);
@@ -814,8 +816,8 @@ pf_get_transaddr_af(struct pf_rule *r, struct pf_pdesc *pd,
 	PF_ACPY(&pd->nsaddr, &nsaddr, pd->naf);
 	PF_ACPY(&pd->ndaddr, &ndaddr, pd->naf);
 
-	if (pf_status.debug >= LOG_NOTICE) {
-		log(LOG_NOTICE, "pf: af-to %s %s done, prefixlen %d, ",
+	if (pf_status.debug >= LOG_INFO) {
+		log(LOG_INFO, "pf: af-to %s %s done, prefixlen %d, ",
 		    pd->naf == AF_INET ? "inet" : "inet6",
 		    r->rdr.addr.type == PF_ADDR_NONE ? "nat" : "rdr",
 		    prefixlen);
@@ -845,7 +847,7 @@ pf_postprocess_addr(struct pf_state *cur)
 
 	/* decrease counter */
 
-	sks = cur ? cur->key[PF_SK_STACK] : NULL;
+	sks = cur->key[PF_SK_STACK];
 
 	/* check for outgoing or ingoing balancing */
 	if (nr->rt == PF_ROUTETO)
@@ -903,8 +905,8 @@ pf_postprocess_addr(struct pf_state *cur)
 		}
 	}
 	if (slbcount > -1) {
-		if (pf_status.debug >= LOG_NOTICE) {
-			log(LOG_NOTICE, "pf: %s: selected address ", __func__);
+		if (pf_status.debug >= LOG_INFO) {
+			log(LOG_INFO, "pf: %s: selected address ", __func__);
 			pf_print_host(&lookup_addr, sks->port[0],
 			    sks->af);
 			addlog(" decreased state count to %u\n",

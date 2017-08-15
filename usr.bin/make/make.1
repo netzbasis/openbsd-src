@@ -1,4 +1,4 @@
-.\"	$OpenBSD: make.1,v 1.120 2015/03/13 19:58:41 jmc Exp $
+.\"	$OpenBSD: make.1,v 1.126 2017/07/30 21:17:05 anton Exp $
 .\"	$NetBSD: make.1,v 1.18 1997/03/10 21:19:53 christos Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	from: @(#)make.1	8.4 (Berkeley) 3/19/94
 .\"
-.Dd $Mdocdate: March 13 2015 $
+.Dd $Mdocdate: July 30 2017 $
 .Dt MAKE 1
 .Os
 .Sh NAME
@@ -111,7 +111,7 @@ Print a dump of the target rules and variables on stdout.
 Do not build anything.
 .It Fl q
 Do not execute any commands, but exit with status 0 if the specified targets
-are up-to-date, and 1 otherwise.
+are up to date, and 1 otherwise.
 .It Fl r
 Do not use the built-in rules specified in the system makefile,
 .Pa <sys.mk> .
@@ -128,7 +128,7 @@ Equivalent to specifying
 before each command line in the makefile.
 .It Fl t
 Rather than re-building a target as specified in the makefile, create it
-or update its modification time to make it appear up-to-date, a bit like
+or update its modification time to make it appear up to date, a bit like
 .Xr touch 1 .
 .It Ar NAME Ns = Ns Ar value
 Set the value of the variable
@@ -209,7 +209,7 @@ is defined,
 will wait between 0 and ${RANDOM_DELAY} seconds before starting a command.
 A given random seed can be forced by setting
 .Va RANDOM_SEED ,
-but this does not guarantee reproductibility.
+but this does not guarantee reproducibility.
 .It Ar q
 .Sq quick death
 option: after a fatal error, instead of waiting for other jobs to die,
@@ -286,10 +286,10 @@ It is an error to use different dependency operators for the same target.
 The operators are as follows:
 .Bl -tag -width flag
 .It Ic \&:
-A target is considered out-of-date if any of its prerequisites has
+A target is considered out of date if any of its prerequisites has
 been modified more recently than the target (that is, its modification time
 is less than that of any of its prerequisites).
-Thus, targets with no prerequisites are always out-of-date.
+Thus, targets with no prerequisites are always out of date.
 .Pp
 .Nm
 will then execute the list of shell commands associated with that target.
@@ -305,7 +305,7 @@ is interrupted.
 first examines all prerequisites and re-creates them as necessary.
 .Pp
 It will then always execute the list of shell commands associated with
-that target (as if the target always was out-of-date).
+that target (as if the target always was out of date).
 .Pp
 Like
 .Ic \&: ,
@@ -315,7 +315,7 @@ and the target is still removed if
 is interrupted.
 .It Ic \&::
 Each dependency line for a target is considered independently.
-A target is considered out-of-date for this target rule if any of its
+A target is considered out of date for this target rule if any of its
 prerequisites in this dependency has been modified more recently than
 the target.
 .Pp
@@ -335,7 +335,7 @@ The
 .Ic \&::
 operator is a fairly standard extension,
 popularized by
-.Xr imake .
+.Sy imake .
 The
 .Ic !\&
 operator is a
@@ -511,8 +511,7 @@ They are also called
 in various texts.
 For portability, only periods, underscores, digits and letters should be
 used for variable names.
-The five operators that can be used to assign values to variables are as
-follows:
+The following operators can be used to assign values to variables:
 .Bl -tag -width Ds
 .It Ic \&=
 Assign the value to the variable.
@@ -530,11 +529,24 @@ extension
 .Pc .
 Normally, expansion is not done until the variable is referenced.
 .It Ic \&!=
-Expand the value and pass it to the shell for execution and assign
-the result to the variable.
-Any newlines in the result are replaced with spaces
+Perform variable expansion and pass the result to the shell for
+execution on the spot, assigning the result to the variable.
+Any newlines in the result are also replaced with spaces
 .Po
 .Bx
+extension
+.Pc .
+.It Ic \&!!=
+Perform variable expansion on the spot and pass the result to the shell
+for execution only when the value is needed, assigning the result to
+the variable.
+.Pp
+This is almost identical to
+.Ic \&!=
+except that a shell is only run when the variable value is needed.
+Any newlines in the result are also replaced with spaces
+.Po
+.Ox
 extension
 .Pc .
 .El
@@ -557,6 +569,13 @@ and put its output into
 if
 .Va A
 is not yet defined.
+.Pp
+Combinations that do not make sense, such as
+.Bd -literal -offset indent
+A +!!= cmd
+.Ed
+.Pp
+will not work.
 .Pp
 Variables are expanded by surrounding the variable name with either
 curly braces
@@ -598,7 +617,7 @@ The name of the archive member (only valid for library rules).
 .It Va \&!
 The name of the archive file (only valid for library rules).
 .It Va \&?
-The list of prerequisites for this target that were deemed out-of-date.
+The list of prerequisites for this target that were deemed out of date.
 .It Va \&<
 The name of the prerequisite from which this target is to be built, if a valid
 inference rule (suffix rule) is in scope.
@@ -1303,7 +1322,7 @@ as if they were all preceded by a dash
 A phony target is a target that does not correspond to any object in the
 file system (more like a placeholder for a list of commands).
 .Pp
-Phony targets are always out-of-date at the start of a run, but
+Phony targets are always out of date at the start of a run, but
 .Nm
 still keeps track of when they are built (that is, when the associated
 command list finishes running).
@@ -1323,7 +1342,7 @@ recognizes standard special targets:
 .It Ic .DEFAULT
 If there is a
 .Ic .DEFAULT
-target rule, with commands but no prequisites, and
+target rule, with commands but no prerequisites, and
 .Nm
 can't figure out another way to build a target, it will use that
 list of commands, setting
@@ -1376,7 +1395,7 @@ Command lines attached to this target are executed if
 .Nm
 is interrupted by a SIGINT.
 .It Ic .MADE
-Mark its prerequisites as being up-to-date.
+Mark its prerequisites as being up to date.
 .It Ic .MAKE
 Mark its prerequisites as
 .Dq Always build .
@@ -1513,7 +1532,7 @@ utility exits with one of the following values:
 .It 0
 Normal behavior.
 .It 1
-The target was not up-to date.
+The target was not up to date.
 .It >1
 An error occurred.
 .El

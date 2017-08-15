@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.60 2015/10/14 13:50:22 espie Exp $
+#	$OpenBSD: Makefile,v 1.62 2017/07/19 10:19:25 espie Exp $
 
 PROG=	make
 CFLAGS+= -I${.OBJDIR} -I${.CURDIR}
@@ -27,9 +27,8 @@ CLEANFILES+=generate generate.o regress.o check
 
 CLEANFILES+= varhashconsts.h condhashconsts.h nodehashconsts.h
 
-beforedepend: varhashconsts.h condhashconsts.h nodehashconsts.h
 # may need tweaking if you add variable synonyms or change the hash function
-MAGICVARSLOTS=77
+MAGICVARSLOTS=82
 MAGICCONDSLOTS=65
 
 varhashconsts.h: generate
@@ -52,7 +51,6 @@ check: ${CHECKOBJS} ${DPADD}
 regress: check
 	${.OBJDIR}/check
 
-# kludge for people who forget to make depend
 var.o: varhashconsts.h
 cond.o: condhashconsts.h
 targ.o parse.o: nodehashconsts.h

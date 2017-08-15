@@ -1,4 +1,4 @@
-/*	$OpenBSD */
+/*	$OpenBSD: subr_tree.c,v 1.9 2017/06/08 03:30:52 dlg Exp $ */
 
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
@@ -41,29 +41,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
 #include <sys/tree.h>
 
-static inline void *
+static inline struct rb_entry *
 rb_n2e(const struct rb_type *t, void *node)
 {
-	caddr_t addr = (caddr_t)node;
+	unsigned long addr = (unsigned long)node;
 
-	return ((void *)(addr + t->t_offset));
+	return ((struct rb_entry *)(addr + t->t_offset));
 }
 
 static inline void *
 rb_e2n(const struct rb_type *t, struct rb_entry *rbe)
 {
-	caddr_t addr = (caddr_t)rbe;
+	unsigned long addr = (unsigned long)rbe;
 
 	return ((void *)(addr - t->t_offset));
 }
 
-#define RBE_LEFT(_rbe)		(_rbe)->rbe_left
-#define RBE_RIGHT(_rbe)		(_rbe)->rbe_right
-#define RBE_PARENT(_rbe)	(_rbe)->rbe_parent
-#define RBE_COLOR(_rbe)		(_rbe)->rbe_color
+#define RBE_LEFT(_rbe)		(_rbe)->rbt_left
+#define RBE_RIGHT(_rbe)		(_rbe)->rbt_right
+#define RBE_PARENT(_rbe)	(_rbe)->rbt_parent
+#define RBE_COLOR(_rbe)		(_rbe)->rbt_color
 
 #define RBH_ROOT(_rbt)		(_rbt)->rbt_root
 
@@ -112,7 +111,7 @@ rbe_rotate_left(const struct rb_type *t, struct rb_tree *rbt,
 	if (parent != NULL) {
 		if (rbe == RBE_LEFT(parent))
 			RBE_LEFT(parent) = tmp;
-                else
+		else
 			RBE_RIGHT(parent) = tmp;
 	} else
 		RBH_ROOT(rbt) = tmp;
@@ -146,7 +145,7 @@ rbe_rotate_right(const struct rb_type *t, struct rb_tree *rbt,
 	if (parent != NULL) {
 		if (rbe == RBE_LEFT(parent))
 			RBE_LEFT(parent) = tmp;
-                else
+		else
 			RBE_RIGHT(parent) = tmp;
 	} else
 		RBH_ROOT(rbt) = tmp;
@@ -444,7 +443,7 @@ _rb_find(const struct rb_type *t, struct rb_tree *rbt, const void *key)
 {
 	struct rb_entry *tmp = RBH_ROOT(rbt);
 	void *node;
-        int comp;
+	int comp;
 
 	while (tmp != NULL) {
 		node = rb_e2n(t, tmp);
@@ -460,18 +459,18 @@ _rb_find(const struct rb_type *t, struct rb_tree *rbt, const void *key)
 	return (NULL);
 }
 
-/* Finds the first node greater than or equal to the search key */      \
+/* Finds the first node greater than or equal to the search key */
 void *
 _rb_nfind(const struct rb_type *t, struct rb_tree *rbt, const void *key)
 {
-        struct rb_entry *tmp = RBH_ROOT(rbt);
+	struct rb_entry *tmp = RBH_ROOT(rbt);
 	void *node;
 	void *res = NULL;
 	int comp;
 
-        while (tmp != NULL) {
+	while (tmp != NULL) {
 		node = rb_e2n(t, tmp);
-                comp = (*t->t_compare)(key, node);
+		comp = (*t->t_compare)(key, node);
 		if (comp < 0) {
 			res = node;
 			tmp = RBE_LEFT(tmp);
@@ -592,3 +591,48 @@ _rb_parent(const struct rb_type *t, void *node)
 	return (rbe == NULL ? NULL : rb_e2n(t, rbe));
 }
 
+void
+_rb_set_left(const struct rb_type *t, void *node, void *left)
+{
+	struct rb_entry *rbe = rb_n2e(t, node);
+	struct rb_entry *rbl = (left == NULL) ? NULL : rb_n2e(t, left);
+
+	RBE_LEFT(rbe) = rbl;
+}
+
+void
+_rb_set_right(const struct rb_type *t, void *node, void *right)
+{
+	struct rb_entry *rbe = rb_n2e(t, node);
+	struct rb_entry *rbr = (right == NULL) ? NULL : rb_n2e(t, right);
+
+	RBE_RIGHT(rbe) = rbr;
+}
+
+void
+_rb_set_parent(const struct rb_type *t, void *node, void *parent)
+{
+	struct rb_entry *rbe = rb_n2e(t, node);
+	struct rb_entry *rbp = (parent == NULL) ? NULL : rb_n2e(t, parent);
+
+	RBE_PARENT(rbe) = rbp;
+}
+
+void
+_rb_poison(const struct rb_type *t, void *node, unsigned long poison)
+{
+	struct rb_entry *rbe = rb_n2e(t, node);
+
+	RBE_PARENT(rbe) = RBE_LEFT(rbe) = RBE_RIGHT(rbe) =
+	    (struct rb_entry *)poison;
+}
+
+int
+_rb_check(const struct rb_type *t, void *node, unsigned long poison)
+{
+	struct rb_entry *rbe = rb_n2e(t, node);
+
+	return ((unsigned long)RBE_PARENT(rbe) == poison &&
+	    (unsigned long)RBE_LEFT(rbe) == poison &&
+	    (unsigned long)RBE_RIGHT(rbe) == poison);
+}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ar9003.c,v 1.39 2016/01/05 18:41:15 stsp Exp $	*/
+/*	$OpenBSD: ar9003.c,v 1.46 2017/05/19 11:42:48 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -51,6 +51,7 @@
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_amrr.h>
+#include <net80211/ieee80211_mira.h>
 #include <net80211/ieee80211_radiotap.h>
 
 #include <dev/ic/athnreg.h>
@@ -785,8 +786,7 @@ ar9003_rx_free(struct athn_softc *sc, int qid)
 
 		if (bf->bf_map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, bf->bf_map);
-		if (bf->bf_m != NULL)
-			m_freem(bf->bf_m);
+		m_freem(bf->bf_m);
 	}
 	free(rxq->bf, M_DEVBUF, 0);
 }
@@ -934,7 +934,7 @@ ar9003_rx_process(struct athn_softc *sc, int qid)
 	    BUS_DMASYNC_POSTREAD);
 
 	ds = mtod(bf->bf_m, struct ar_rx_status *);
-	if (!(ds->ds_status1 & AR_RXS1_DONE))
+	if (!(ds->ds_status11 & AR_RXS11_DONE))
 		return (EBUSY);
 
 	/* Check that it is a valid Rx status descriptor. */
@@ -1098,7 +1098,6 @@ ar9003_tx_process(struct athn_softc *sc)
 		return (0);
 	}
 	SIMPLEQ_REMOVE_HEAD(&txq->head, bf_list);
-	ifp->if_opackets++;
 
 	sc->sc_tx_timer = 0;
 
@@ -1346,7 +1345,7 @@ ar9003_intr(struct athn_softc *sc)
 #endif
 		if (intr & (AR_ISR_RXMINTR | AR_ISR_RXINTM))
 			ar9003_rx_intr(sc, ATHN_QID_LP);
-		if (intr & (AR_ISR_LP_RXOK | AR_ISR_RXERR))
+		if (intr & (AR_ISR_LP_RXOK | AR_ISR_RXERR | AR_ISR_RXEOL))
 			ar9003_rx_intr(sc, ATHN_QID_LP);
 		if (intr & AR_ISR_HP_RXOK)
 			ar9003_rx_intr(sc, ATHN_QID_HP);
@@ -1376,7 +1375,6 @@ ar9003_intr(struct athn_softc *sc)
 			printf("%s: radio switch turned off\n",
 			    sc->sc_dev.dv_xname);
 			/* Turn the interface down. */
-			ifp->if_flags &= ~IFF_UP;
 			athn_stop(ifp, 1);
 			return (1);
 		}
@@ -1601,7 +1599,9 @@ ar9003_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	ds->ds_ctl17 = SM(AR_TXC17_ENCR_TYPE, encrtype);
 
 	/* Check if frame must be protected using RTS/CTS or CTS-to-self. */
-	if (!IEEE80211_IS_MULTICAST(wh->i_addr1)) {
+	if (!IEEE80211_IS_MULTICAST(wh->i_addr1) &&
+	    (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
+	    IEEE80211_FC0_TYPE_DATA) {
 		/* NB: Group frames are sent using CCK in 802.11b/g. */
 		if (totlen > ic->ic_rtsthreshold) {
 			ds->ds_ctl11 |= AR_TXC11_RTS_ENABLE;
@@ -1613,8 +1613,12 @@ ar9003_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 				ds->ds_ctl11 |= AR_TXC11_CTS_ENABLE;
 		}
 	}
+	/* 
+	 * Disable multi-rate retries when protection is used.
+	 * The RTS/CTS frame's duration field is fixed and won't be
+	 * updated by hardware when the data rate changes.
+	 */
 	if (ds->ds_ctl11 & (AR_TXC11_RTS_ENABLE | AR_TXC11_CTS_ENABLE)) {
-		/* Disable multi-rate retries when protection is used. */
 		ridx[1] = ridx[2] = ridx[3] = ridx[0];
 	}
 	/* Setup multi-rate retries. */

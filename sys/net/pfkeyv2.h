@@ -1,11 +1,11 @@
-/* $OpenBSD: pfkeyv2.h,v 1.72 2015/12/09 21:41:50 naddy Exp $ */
+/* $OpenBSD: pfkeyv2.h,v 1.77 2017/05/29 14:28:01 claudio Exp $ */
 /*
  *	@(#)COPYRIGHT	1.1 (NRL) January 1998
- * 
+ *
  * NRL grants permission for redistribution and use in source and binary
  * forms, with or without modification, of the software and documentation
  * created at NRL provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
@@ -13,14 +13,14 @@
  *    documentation and/or other materials provided with the distribution.
  * 3. All advertising materials mentioning features or use of this software
  *    must display the following acknowledgements:
- * 	This product includes software developed by the University of
- * 	California, Berkeley and its contributors.
- * 	This product includes software developed at the Information
- * 	Technology Division, US Naval Research Laboratory.
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
+ *	This product includes software developed at the Information
+ *	Technology Division, US Naval Research Laboratory.
  * 4. Neither the name of the NRL nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THE SOFTWARE PROVIDED BY NRL IS PROVIDED BY NRL AND CONTRIBUTORS ``AS
  * IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
  * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
@@ -32,7 +32,7 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * 
+ *
  * The views and conclusions contained in the software and documentation
  * are those of the authors and should not be interpreted as representing
  * official policies, either expressed or implied, of the US Naval
@@ -261,7 +261,8 @@ struct sadb_x_tap {
 #define SADB_X_EXT_LIFETIME_LASTUSE   32
 #define SADB_X_EXT_TAG                33
 #define SADB_X_EXT_TAP                34
-#define SADB_EXT_MAX                  34
+#define SADB_X_EXT_SATYPE2            35
+#define SADB_EXT_MAX                  35
 
 /* Fix pfkeyv2.c struct pfkeyv2_socket if SATYPE_MAX > 31 */
 #define SADB_SATYPE_UNSPEC		 0
@@ -366,43 +367,13 @@ struct mbuf;
 #define EXTLEN(x) (((struct sadb_ext *)(x))->sadb_ext_len * sizeof(uint64_t))
 #define PADUP(x) (((x) + sizeof(uint64_t) - 1) & ~(sizeof(uint64_t) - 1))
 
-struct pfkey_version {
-	int protocol;
-	int (*create)(struct socket *socket);
-	int (*release)(struct socket *socket);
-	int (*send)(struct socket *socket, void *message, int len);
-	int (*sysctl)(int *, u_int, void *, size_t *, void *, size_t);
-};
-
-struct pfkeyv2_socket {
-	struct pfkeyv2_socket *next;
-	struct socket *socket;
-	int flags;
-	uint32_t pid;
-	uint32_t registration;    /* Increase size if SATYPE_MAX > 31 */
-	uint rdomain;
-};
-
-struct dump_state {
-	struct sadb_msg *sadb_msg;
-	struct socket *socket;
-};
-
-int pfkeyv2_init(void);
-int pfkeyv2_cleanup(void);
 int pfkeyv2_parsemessage(void *, int, void **);
 int pfkeyv2_expire(struct tdb *, u_int16_t);
 int pfkeyv2_acquire(struct ipsec_policy *, union sockaddr_union *,
     union sockaddr_union *, u_int32_t *, struct sockaddr_encap *);
 
-int pfkey_register(struct pfkey_version *version);
-int pfkey_unregister(struct pfkey_version *version);
-int pfkey_sendup(struct socket *socket, struct mbuf *packet, int more);
-
-int pfkeyv2_create(struct socket *);
 int pfkeyv2_get(struct tdb *, void **, void **, int *);
 int pfkeyv2_policy(struct ipsec_acquire *, void **, void **);
-int pfkeyv2_release(struct socket *);
 int pfkeyv2_send(struct socket *, void *, int);
 int pfkeyv2_sendmessage(void **, int, struct socket *, u_int8_t, int, u_int);
 int pfkeyv2_dump_policy(struct ipsec_policy *, void **, void **, int *);
@@ -427,6 +398,7 @@ void export_key(void **, struct tdb *, int);
 void export_udpencap(void **, struct tdb *);
 void export_tag(void **, struct tdb *);
 void export_tap(void **, struct tdb *);
+void export_satype(void **, struct tdb *);
 
 void import_address(struct sockaddr *, struct sadb_address *);
 void import_identities(struct ipsec_ids **, int, struct sadb_ident *,

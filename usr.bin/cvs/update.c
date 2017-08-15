@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.171 2015/11/05 09:48:21 nicm Exp $	*/
+/*	$OpenBSD: update.c,v 1.176 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -142,7 +142,7 @@ cvs_update(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (current_cvsroot->cr_method == CVS_METHOD_LOCAL) {
+	if (cvsroot_is_local()) {
 		cr.enterdir = cvs_update_enterdir;
 		cr.leavedir = prune_dirs ? cvs_update_leavedir : NULL;
 		cr.fileproc = cvs_update_local;
@@ -180,7 +180,7 @@ cvs_update(int argc, char **argv)
 	else
 		cvs_file_run(1, &arg, &cr);
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_send_files(argv, argc);
 		cvs_client_senddir(".");
 		cvs_client_send_request("update");
@@ -259,13 +259,11 @@ cvs_update_leavedir(struct cvs_file *cf)
 	if (fstat(cf->fd, &st) == -1)
 		fatal("cvs_update_leavedir: %s", strerror(errno));
 
-	bufsize = st.st_size;
-	if (bufsize < st.st_blksize)
-		bufsize = st.st_blksize;
-
-	if (st.st_size > SIZE_MAX)
+	if ((uintmax_t)st.st_size > SIZE_MAX)
 		fatal("cvs_update_leavedir: %s: file size too big",
 		    cf->file_name);
+
+	bufsize = (st.st_size > st.st_blksize) ? st.st_size : st.st_blksize;
 
 	isempty = 1;
 	buf = xmalloc(bufsize);
@@ -339,8 +337,6 @@ cvs_update_local(struct cvs_file *cf)
 	flags = 0;
 	if (cvs_specified_tag != NULL)
 		tag = cvs_specified_tag;
-	else if (cf->file_ent != NULL && cf->file_ent->ce_tag != NULL)
-		tag = cf->file_ent->ce_tag;
 	else
 		tag = cvs_directory_tag;
 
@@ -480,10 +476,8 @@ cvs_update_local(struct cvs_file *cf)
 		if (cvs_cmdop != CVS_OP_UPDATE)
 			break;
 
-		if (reset_tag != 1 && reset_option != 1)
-			break;
-
-		if (cf->file_ent != NULL && cf->file_ent->ce_tag == NULL)
+		if (reset_tag != 1 && reset_option != 1 &&
+		    cvs_specified_tag == NULL && cvs_specified_date == -1)
 			break;
 
 		if (cf->file_rcs->rf_dead != 1 &&
@@ -712,11 +706,8 @@ update_join_file(struct cvs_file *cf)
 		update_clear_conflict(cf);
 
 out:
-	if (rev1 != NULL)
-		rcsnum_free(rev1);
-	if (rev2 != NULL)
-		rcsnum_free(rev2);
-
+	free(rev1);
+	free(rev2);
 	free(jrev1);
 	free(jrev2);
 }

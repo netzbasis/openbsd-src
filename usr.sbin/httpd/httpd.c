@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.c,v 1.61 2016/09/02 11:25:14 reyk Exp $	*/
+/*	$OpenBSD: httpd.c,v 1.67 2017/05/28 10:37:26 benno Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -57,6 +57,8 @@ int		 parent_dispatch_server(int, struct privsep_proc *,
 		    struct imsg *);
 int		 parent_dispatch_logger(int, struct privsep_proc *,
 		    struct imsg *);
+void		 parent_tls_ticket_rekey_start(struct server *);
+void		 parent_tls_ticket_rekey(int, short, void *);
 
 struct httpd			*httpd_env;
 
@@ -191,7 +193,7 @@ main(int argc, char *argv[])
 	ps->ps_csock.cs_name = NULL;
 
 	log_init(debug, LOG_DAEMON);
-	log_verbose(verbose);
+	log_setverbose(verbose);
 
 	if (env->sc_opts & HTTPD_OPT_NOACTION)
 		ps->ps_noaction = 1;
@@ -222,8 +224,7 @@ main(int argc, char *argv[])
 	if (ps->ps_noaction == 0)
 		log_info("startup");
 
-	if (pledge("stdio rpath wpath cpath inet dns ioctl sendfd",
-	    NULL) == -1)
+	if (pledge("stdio rpath wpath cpath inet dns sendfd", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -252,6 +253,9 @@ main(int argc, char *argv[])
 		proc_kill(env->sc_ps);
 		exit(0);
 	}
+
+	/* initialize the TLS session id to a random key for all procs */
+	arc4random_buf(env->sc_tls_sid, sizeof(env->sc_tls_sid));
 
 	if (parent_configure(env) == -1)
 		fatalx("configuration failed");
@@ -288,6 +292,10 @@ parent_configure(struct httpd *env)
 	TAILQ_FOREACH(srv, env->sc_servers, srv_entry) {
 		if (srv->srv_conf.flags & SRVFLAG_LOCATION)
 			continue;
+		/* start the rekey of the tls ticket keys */
+		if (srv->srv_conf.flags & SRVFLAG_TLS &&
+		    srv->srv_conf.tls_ticket_lifetime)
+			parent_tls_ticket_rekey_start(srv);
 		if (config_setserver(env, srv) == -1)
 			fatal("send server");
 	}
@@ -307,13 +315,14 @@ parent_configure(struct httpd *env)
 			continue;
 		cf.cf_opts = env->sc_opts;
 		cf.cf_flags = env->sc_flags;
+		memcpy(cf.cf_tls_sid, env->sc_tls_sid, sizeof(cf.cf_tls_sid));
 
 		proc_compose(env->sc_ps, id, IMSG_CFG_DONE, &cf, sizeof(cf));
 	}
 
 	ret = 0;
 
-	config_purge(env, CONFIG_ALL);
+	config_purge(env, CONFIG_ALL & ~CONFIG_SERVERS);
 	return (ret);
 }
 
@@ -398,7 +407,8 @@ parent_shutdown(struct httpd *env)
 int
 parent_dispatch_server(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct httpd		*env = p->p_env;
+	struct privsep		*ps = p->p_ps;
+	struct httpd		*env = ps->ps_env;
 
 	switch (imsg->hdr.type) {
 	case IMSG_CFG_DONE:
@@ -414,7 +424,8 @@ parent_dispatch_server(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 parent_dispatch_logger(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct httpd		*env = p->p_env;
+	struct privsep		*ps = p->p_ps;
+	struct httpd		*env = ps->ps_env;
 	unsigned int		 v;
 	char			*str = NULL;
 
@@ -448,6 +459,38 @@ parent_dispatch_logger(int fd, struct privsep_proc *p, struct imsg *imsg)
 	}
 
 	return (0);
+}
+
+void
+parent_tls_ticket_rekey_start(struct server *srv)
+{
+	struct timeval		 tv;
+
+	server_generate_ticket_key(&srv->srv_conf);
+
+	evtimer_set(&srv->srv_evt, parent_tls_ticket_rekey, srv);
+	timerclear(&tv);
+	tv.tv_sec = srv->srv_conf.tls_ticket_lifetime / 4;
+	evtimer_add(&srv->srv_evt, &tv);
+}
+
+void
+parent_tls_ticket_rekey(int fd, short events, void *arg)
+{
+	struct server		*srv = arg;
+	struct timeval		 tv;
+
+	server_generate_ticket_key(&srv->srv_conf);
+	proc_compose_imsg(httpd_env->sc_ps, PROC_SERVER, -1,
+	    IMSG_TLSTICKET_REKEY, -1, -1, &srv->srv_conf.tls_ticket_key,
+	    sizeof(srv->srv_conf.tls_ticket_key));
+	explicit_bzero(&srv->srv_conf.tls_ticket_key,
+	    sizeof(srv->srv_conf.tls_ticket_key));
+
+	evtimer_set(&srv->srv_evt, parent_tls_ticket_rekey, srv);
+	timerclear(&tv);
+	tv.tv_sec = srv->srv_conf.tls_ticket_lifetime / 4;
+	evtimer_add(&srv->srv_evt, &tv);
 }
 
 /*
@@ -748,7 +791,7 @@ socket_rlimit(int maxfd)
 	struct rlimit	 rl;
 
 	if (getrlimit(RLIMIT_NOFILE, &rl) == -1)
-		fatal("socket_rlimit: failed to get resource limit");
+		fatal("%s: failed to get resource limit", __func__);
 	log_debug("%s: max open files %llu", __func__, rl.rlim_max);
 
 	/*
@@ -760,7 +803,7 @@ socket_rlimit(int maxfd)
 	else
 		rl.rlim_cur = MAXIMUM(rl.rlim_max, (rlim_t)maxfd);
 	if (setrlimit(RLIMIT_NOFILE, &rl) == -1)
-		fatal("socket_rlimit: failed to set resource limit");
+		fatal("%s: failed to set resource limit", __func__);
 }
 
 char *

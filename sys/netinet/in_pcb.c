@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.c,v 1.214 2016/09/06 00:04:15 dlg Exp $	*/
+/*	$OpenBSD: in_pcb.c,v 1.224 2017/08/11 19:53:02 bluhm Exp $	*/
 /*	$NetBSD: in_pcb.c,v 1.25 1996/02/13 23:41:53 christos Exp $	*/
 
 /*
@@ -249,15 +249,13 @@ int
 in_pcballoc(struct socket *so, struct inpcbtable *table)
 {
 	struct inpcb *inp;
-	int s;
 	struct inpcbhead *head;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 	if (inpcb_pool_initialized == 0) {
-		pool_init(&inpcb_pool, sizeof(struct inpcb), 0, 0, 0,
-		    "inpcbpl", NULL);
-		pool_setipl(&inpcb_pool, IPL_SOFTNET);
+		pool_init(&inpcb_pool, sizeof(struct inpcb), 0,
+		    IPL_SOFTNET, 0, "inpcbpl", NULL);
 		inpcb_pool_initialized = 1;
 	}
 	inp = pool_get(&inpcb_pool, PR_NOWAIT|PR_ZERO);
@@ -270,17 +268,23 @@ in_pcballoc(struct socket *so, struct inpcbtable *table)
 	inp->inp_seclevel[SL_ESP_NETWORK] = IPSEC_ESP_NETWORK_LEVEL_DEFAULT;
 	inp->inp_seclevel[SL_IPCOMP] = IPSEC_IPCOMP_LEVEL_DEFAULT;
 	inp->inp_rtableid = curproc->p_p->ps_rtableid;
-	s = splnet();
 	if (table->inpt_hash != 0 &&
 	    table->inpt_count++ > INPCBHASH_LOADFACTOR(table->inpt_hash))
 		(void)in_pcbresize(table, (table->inpt_hash + 1) * 2);
 	TAILQ_INSERT_HEAD(&table->inpt_queue, inp, inp_queue);
 	head = INPCBLHASH(table, inp->inp_lport, inp->inp_rtableid);
 	LIST_INSERT_HEAD(head, inp, inp_lhash);
-	head = INPCBHASH(table, &inp->inp_faddr, inp->inp_fport,
-	    &inp->inp_laddr, inp->inp_lport, rtable_l2(inp->inp_rtableid));
+#ifdef INET6
+	if (sotopf(so) == PF_INET6)
+		head = IN6PCBHASH(table, &inp->inp_faddr6, inp->inp_fport,
+		    &inp->inp_laddr6, inp->inp_lport,
+		    rtable_l2(inp->inp_rtableid));
+	else
+#endif /* INET6 */
+		head = INPCBHASH(table, &inp->inp_faddr, inp->inp_fport,
+		    &inp->inp_laddr, inp->inp_lport,
+		    rtable_l2(inp->inp_rtableid));
 	LIST_INSERT_HEAD(head, inp, inp_hash);
-	splx(s);
 	so->so_pcb = inp;
 	inp->inp_hops = -1;
 
@@ -317,20 +321,15 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 	switch (sotopf(so)) {
 #ifdef INET6
 	case PF_INET6:
-		if (TAILQ_EMPTY(&in6_ifaddr))
-			return (EADDRNOTAVAIL);
 		if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6))
 			return (EINVAL);
 		wild |= INPLOOKUP_IPV6;
 
 		if (nam) {
 			struct sockaddr_in6 *sin6;
-			sin6 = mtod(nam, struct sockaddr_in6 *);
-			if (nam->m_len != sizeof(struct sockaddr_in6))
-				return (EINVAL);
-			if (sin6->sin6_family != AF_INET6)
-				return (EAFNOSUPPORT);
 
+			if ((error = in6_nam2sin6(nam, &sin6)))
+				return (error);
 			if ((error = in6_pcbaddrisavail(inp, sin6, wild, p)))
 				return (error);
 			laddr = &sin6->sin6_addr;
@@ -344,12 +343,9 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 
 		if (nam) {
 			struct sockaddr_in *sin;
-			sin = mtod(nam, struct sockaddr_in *);
-			if (nam->m_len != sizeof(*sin))
-				return (EINVAL);
-			if (sin->sin_family != AF_INET)
-				return (EAFNOSUPPORT);
 
+			if ((error = in_nam2sin(nam, &sin)))
+				return (error);
 			if ((error = in_pcbaddrisavail(inp, sin, wild, p)))
 				return (error);
 			laddr = &sin->sin_addr;
@@ -509,7 +505,7 @@ int
 in_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 {
 	struct in_addr *ina = NULL;
-	struct sockaddr_in *sin = mtod(nam, struct sockaddr_in *);
+	struct sockaddr_in *sin;
 	int error;
 
 #ifdef INET6
@@ -519,27 +515,32 @@ in_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 		panic("IPv6 pcb passed into in_pcbconnect");
 #endif /* INET6 */
 
-	if (nam->m_len != sizeof(*sin))
-		return (EINVAL);
-	if (sin->sin_family != AF_INET)
-		return (EAFNOSUPPORT);
+	if ((error = in_nam2sin(nam, &sin)))
+		return (error);
 	if (sin->sin_port == 0)
 		return (EADDRNOTAVAIL);
-
 	error = in_pcbselsrc(&ina, sin, inp);
 	if (error)
 		return (error);
 
 	if (in_pcbhashlookup(inp->inp_table, sin->sin_addr, sin->sin_port,
-	    *ina, inp->inp_lport, inp->inp_rtableid) != 0)
+	    *ina, inp->inp_lport, inp->inp_rtableid) != NULL)
 		return (EADDRINUSE);
 
 	KASSERT(inp->inp_laddr.s_addr == INADDR_ANY || inp->inp_lport);
 
 	if (inp->inp_laddr.s_addr == INADDR_ANY) {
-		if (inp->inp_lport == 0 &&
-		    in_pcbbind(inp, NULL, curproc) == EADDRNOTAVAIL)
-			return (EADDRNOTAVAIL);
+		if (inp->inp_lport == 0) {
+			error = in_pcbbind(inp, NULL, curproc);
+			if (error)
+				return (error);
+			if (in_pcbhashlookup(inp->inp_table, sin->sin_addr,
+			    sin->sin_port, *ina, inp->inp_lport,
+			    inp->inp_rtableid) != NULL) {
+				inp->inp_lport = 0;
+				return (EADDRINUSE);
+			}
+		}
 		inp->inp_laddr = *ina;
 	}
 	inp->inp_faddr = sin->sin_addr;
@@ -580,9 +581,8 @@ void
 in_pcbdetach(struct inpcb *inp)
 {
 	struct socket *so = inp->inp_socket;
-	int s;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 	so->so_pcb = 0;
 	sofree(so);
@@ -605,12 +605,10 @@ in_pcbdetach(struct inpcb *inp)
 		pf_inp_unlink(inp);
 	}
 #endif
-	s = splnet();
 	LIST_REMOVE(inp, inp_lhash);
 	LIST_REMOVE(inp, inp_hash);
 	TAILQ_REMOVE(&inp->inp_table->inpt_queue, inp, inp_queue);
 	inp->inp_table->inpt_count--;
-	splx(s);
 	pool_put(&inpcb_pool, inp);
 }
 
@@ -656,8 +654,6 @@ in_setpeeraddr(struct inpcb *inp, struct mbuf *nam)
  * cmds that are uninteresting (e.g., no error in the map).
  * Call the protocol specific routine (if any) to report
  * any errors for each matching socket.
- *
- * Must be called at splsoftnet.
  */
 void
 in_pcbnotifyall(struct inpcbtable *table, struct sockaddr *dst, u_int rdomain,
@@ -666,7 +662,7 @@ in_pcbnotifyall(struct inpcbtable *table, struct sockaddr *dst, u_int rdomain,
 	struct inpcb *inp, *ninp;
 	struct in_addr faddr;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 #ifdef INET6
 	/*
@@ -719,11 +715,27 @@ in_losing(struct inpcb *inp)
 		info.rti_info[RTAX_DST] = &inp->inp_route.ro_dst;
 		info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
-		rt_missmsg(RTM_LOSING, &info, rt->rt_flags, rt->rt_priority,
+
+		KERNEL_LOCK();
+		rtm_miss(RTM_LOSING, &info, rt->rt_flags, rt->rt_priority,
 		    rt->rt_ifidx, 0, inp->inp_rtableid);
-		if (rt->rt_flags & RTF_DYNAMIC)
-			(void)rtrequest(RTM_DELETE, &info, rt->rt_priority,
-			    NULL, inp->inp_rtableid);
+		KERNEL_UNLOCK();
+		if (rt->rt_flags & RTF_DYNAMIC) {
+			struct ifnet *ifp;
+
+			ifp = if_get(rt->rt_ifidx);
+			/*
+			 * If the interface is gone, all its attached
+			 * route entries have been removed from the table,
+			 * so we're dealing with a stale cache and have
+			 * nothing to do.
+			 */
+			if (ifp != NULL) {
+				rtrequest_delete(&info, rt->rt_priority, ifp,
+				    NULL, inp->inp_rtableid);
+			}
+			if_put(ifp);
+		}
 		/*
 		 * A new route can be allocated
 		 * the next time output is attempted.
@@ -961,10 +973,10 @@ void
 in_pcbrehash(struct inpcb *inp)
 {
 	struct inpcbtable *table = inp->inp_table;
-	int s;
 	struct inpcbhead *head;
 
-	s = splnet();
+	NET_ASSERT_LOCKED();
+
 	LIST_REMOVE(inp, inp_lhash);
 	head = INPCBLHASH(table, inp->inp_lport, inp->inp_rtableid);
 	LIST_INSERT_HEAD(head, inp, inp_lhash);
@@ -980,7 +992,6 @@ in_pcbrehash(struct inpcb *inp)
 		    &inp->inp_laddr, inp->inp_lport,
 		    rtable_l2(inp->inp_rtableid));
 	LIST_INSERT_HEAD(head, inp, inp_hash);
-	splx(s);
 }
 
 int

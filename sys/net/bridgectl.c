@@ -1,4 +1,4 @@
-/*	$OpenBSD: bridgectl.c,v 1.3 2016/09/03 13:46:57 reyk Exp $	*/
+/*	$OpenBSD: bridgectl.c,v 1.6 2017/05/04 15:00:24 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -52,7 +52,6 @@
 
 
 int	bridge_rtfind(struct bridge_softc *, struct ifbaconf *);
-void	bridge_rtage(struct bridge_softc *);
 int	bridge_rtdaddr(struct bridge_softc *, struct ether_addr *);
 u_int32_t bridge_hash(struct bridge_softc *, struct ether_addr *);
 
@@ -304,25 +303,17 @@ bridge_hash(struct bridge_softc *sc, struct ether_addr *addr)
 	    BRIDGE_RTABLE_MASK;
 }
 
-void
-bridge_timer(void *vsc)
-{
-	struct bridge_softc *sc = vsc;
-	int s;
-
-	s = splsoftnet();
-	bridge_rtage(sc);
-	splx(s);
-}
-
 /*
  * Perform an aging cycle
  */
 void
-bridge_rtage(struct bridge_softc *sc)
+bridge_rtage(void *vsc)
 {
+	struct bridge_softc *sc = vsc;
 	struct bridge_rtnode *n, *p;
 	int i;
+
+	KERNEL_ASSERT_LOCKED();
 
 	for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 		n = LIST_FIRST(&sc->sc_rts[i]);
@@ -487,8 +478,8 @@ bridge_rtfind(struct bridge_softc *sc, struct ifbaconf *baconf)
 				    sizeof(bareq.ifba_ifsname));
 				bcopy(&n->brt_addr, &bareq.ifba_dst,
 				    sizeof(bareq.ifba_dst));
-				bridge_copyaddr(&n->brt_tunnel.brtag_src.sa,
-				    (struct sockaddr *)&bareq.ifba_dstsa);
+				bridge_copyaddr(&n->brt_tunnel.brtag_peer.sa,
+				    sstosa(&bareq.ifba_dstsa));
 				bareq.ifba_age = n->brt_age;
 				bareq.ifba_flags = n->brt_flags;
 				error = copyout((caddr_t)&bareq,

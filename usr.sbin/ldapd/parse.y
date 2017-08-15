@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.19 2016/07/13 16:35:47 jsing Exp $ */
+/*	$OpenBSD: parse.y,v 1.24 2017/04/06 12:22:32 gsoares Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martinh@openbsd.org>
@@ -45,6 +45,7 @@
 #include <unistd.h>
 
 #include "ldapd.h"
+#include "log.h"
 
 TAILQ_HEAD(files, file)		 files = TAILQ_HEAD_INITIALIZER(files);
 static struct file {
@@ -814,8 +815,7 @@ parse_config(char *filename)
 	popfile();
 
 	/* Free macros and check which have not been used. */
-	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
-		next = TAILQ_NEXT(sym, entry);
+	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		log_debug("warning: macro \"%s\" not used", sym->nam);
 		if (!sym->persist) {
 			free(sym->nam);
@@ -833,9 +833,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -894,11 +895,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
@@ -931,7 +933,7 @@ host_v4(const char *s, in_port_t port)
 	struct sockaddr_in	*sain;
 	struct listener		*h;
 
-	bzero(&ina, sizeof(ina));
+	memset(&ina, 0, sizeof(ina));
 	if (inet_pton(AF_INET, s, &ina) != 1)
 		return (NULL);
 
@@ -953,7 +955,7 @@ host_v6(const char *s, in_port_t port)
 	struct sockaddr_in6	*sin6;
 	struct listener		*h;
 
-	bzero(&ina6, sizeof(ina6));
+	memset(&ina6, 0, sizeof(ina6));
 	if (inet_pton(AF_INET6, s, &ina6) != 1)
 		return (NULL);
 
@@ -978,7 +980,7 @@ host_dns(const char *s, const char *cert,
 	struct sockaddr_in6	*sin6;
 	struct listener		*h;
 
-	bzero(&hints, sizeof(hints));
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM; /* DUMMY */
 	error = getaddrinfo(s, NULL, &hints, &res0);
@@ -1213,7 +1215,11 @@ load_certfile(struct ldapd_config *env, const char *name, u_int8_t flags)
 	if (s->config == NULL)
 		goto err;
 
-	tls_config_set_protocols(s->config, TLS_PROTOCOLS_ALL);
+	if (tls_config_set_protocols(s->config, TLS_PROTOCOLS_ALL) != 0) {
+		log_warn("load_certfile: failed to set tls protocols: %s",
+		    tls_config_error(s->config));
+		goto err;
+	}
 	if (tls_config_set_ciphers(s->config, "all")) {
 		log_warn("load_certfile: failed to set tls ciphers: %s",
 		    tls_config_error(s->config));

@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: State.pm,v 1.37 2016/06/24 11:42:30 espie Exp $
+# $OpenBSD: State.pm,v 1.46 2017/05/29 12:28:54 espie Exp $
 #
 # Copyright (c) 2007-2014 Marc Espie <espie@openbsd.org>
 #
@@ -19,86 +19,17 @@
 use strict;
 use warnings;
 
-package OpenBSD::Configuration;
-sub new
-{
-	my ($class, $state) = @_;
-	my $self = bless {}, $class;
-	require OpenBSD::Paths;
-	$self->read_file(OpenBSD::Paths->pkgconf, $state);
-	return $self;
-}
-
-sub read_file
-{
-	my ($self, $filename, $state) = @_;
-	open(my $fh, '<', $filename) or return;
-	while (<$fh>) {
-		chomp;
-		next if m/^\s*\#/;
-		next if m/^\s*$/;
-		my ($cmd, $k, $v, $add);
-		my $h = $self;
-		if (($cmd, $k, $add, $v) = m/^\s*(.*?)\.(.*?)\s*(\+?)\=\s*(.*)\s*$/) {
-			next unless $cmd eq $state->{cmd};
-			my $h = $self->{cmd} = {};
-		} elsif (($k, $add, $v) = m/^\s*(.*?)\s*(\+?)\=\s*(.*)\s*$/) {
-		} else {
-			# bad line: should we say so ?
-			$state->errsay("Bad line in #1: #2 (#3)",
-			    $filename, $_, $.);
-			next;
-		}
-		# remove caps
-		$k =~ tr/A-Z/a-z/;
-		if ($add eq '') {
-			$h->{$k} = [$v];
-		} else {
-			push(@{$h->{$k}}, $v);
-		}
-	}
-}
-
-sub ref
-{
-	my ($self, $k) = @_;
-	if (defined $self->{cmd}{$k}) {
-		return $self->{cmd}{$k};
-	} else {
-		return $self->{$k};
-	}
-}
-
-sub value
-{
-	my ($self, $k) = @_;
-	my $r = $self->ref($k);
-	if (!defined $r) {
-		return $r;
-	}
-	if (wantarray) {
-		return @$r;
-	} else {
-		return $r->[0];
-	}
-}
-
-sub istrue
-{
-	my ($self, $k) = @_;
-	my $v = $self->value($k);
-	if (defined $v && $v =~ /^yes$/i) {
-		return 1;
-	} else {
-		return 0;
-	}
-}
-
 package OpenBSD::PackageRepositoryFactory;
 sub new
 {
 	my ($class, $state) = @_;
 	bless {state => $state}, $class;
+}
+
+sub locator
+{
+	my $self = shift;
+	return $self->{state}->locator;
 }
 
 sub installed
@@ -112,17 +43,15 @@ sub installed
 sub path_parse
 {
 	my ($self, $pkgname) = @_;
-	require OpenBSD::PackageLocator;
 
-	return OpenBSD::PackageLocator->path_parse($pkgname, $self->{state});
+	return $self->locator->path_parse($pkgname, $self->{state});
 }
 
 sub find
 {
 	my ($self, $pkg) = @_;
-	require OpenBSD::PackageLocator;
 
-	return OpenBSD::PackageLocator->find($pkg, $self->{state});
+	return $self->locator->find($pkg, $self->{state});
 }
 
 sub reinitialize
@@ -132,17 +61,15 @@ sub reinitialize
 sub match_locations
 {
 	my $self = shift;
-	require OpenBSD::PackageLocator;
 
-	return OpenBSD::PackageLocator->match_locations(@_, $self->{state});
+	return $self->locator->match_locations(@_, $self->{state});
 }
 
 sub grabPlist
 {
 	my ($self, $url, $code) = @_;
-	require OpenBSD::PackageLocator;
 
-	return OpenBSD::PackageLocator->grabPlist($url, $code, $self->{state});
+	return $self->locator->grabPlist($url, $code, $self->{state});
 }
 
 sub path
@@ -162,6 +89,12 @@ use OpenBSD::Error;
 require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT = ();
+
+sub locator
+{
+	require OpenBSD::PackageLocator;
+	return "OpenBSD::PackageLocator";
+}
 
 sub new
 {
@@ -190,9 +123,17 @@ sub sync_display
 {
 }
 
-OpenBSD::Auto::cache(config,
+OpenBSD::Auto::cache(installpath,
 	sub {
-		return OpenBSD::Configuration->new(shift);
+		my $self = shift;
+		require OpenBSD::Paths;
+		open(my $fh, '<', OpenBSD::Paths->installurl) or return undef;
+		while (<$fh>) {
+			chomp;
+			next if m/^\s*\#/;
+			next if m/^\s*$/;
+			return "$_/%c/packages/%a/";
+		}
 	});
 
 sub usage_is
@@ -345,6 +286,15 @@ sub handle_options
 		OpenBSD::Getopt::getopts($opt_string.'hvD:', $state->{opt});
 	});
 	$state->{v} = $state->opt('v');
+
+	if ($state->defines('unsigned')) {
+		$state->{signature_style} //= 'unsigned';
+	} elsif ($state->defines('oldsign')) {
+		$state->fatal('old style signature no longer supported');
+	} else {
+		$state->{signature_style} //= 'new';
+	}
+
 	return if $state->{no_exports};
 	# XXX
 	no strict "refs";

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2_coreintr.c,v 1.8 2015/06/28 11:48:18 jmatthew Exp $	*/
+/*	$OpenBSD: dwc2_coreintr.c,v 1.10 2017/06/29 17:36:16 deraadt Exp $	*/
 /*	$NetBSD: dwc2_coreintr.c,v 1.8 2014/04/04 05:40:57 skrll Exp $	*/
 
 /*
@@ -40,11 +40,6 @@
 /*
  * This file contains the common interrupt handlers
  */
-
-#if 0
-#include <sys/cdefs.h>
-__KERNEL_RCSID(0, "$NetBSD: dwc2_coreintr.c,v 1.8 2014/04/04 05:40:57 skrll Exp $");
-#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -490,7 +485,7 @@ irqreturn_t dwc2_handle_common_intr(void *dev)
 		goto out;
 	}
 
-	KASSERT(mtx_owned(&hsotg->lock));
+	MUTEX_ASSERT_LOCKED(&hsotg->lock);
 
 	gintsts = dwc2_read_common_intr(hsotg);
 	if (gintsts & ~GINTSTS_PRTINT)

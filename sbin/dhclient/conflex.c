@@ -1,4 +1,4 @@
-/*	$OpenBSD: conflex.c,v 1.34 2016/08/16 21:57:51 krw Exp $	*/
+/*	$OpenBSD: conflex.c,v 1.43 2017/07/14 16:21:03 krw Exp $	*/
 
 /* Lexical scanner for dhclient config file. */
 
@@ -55,11 +55,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <vis.h>
 
 #include "dhcp.h"
 #include "dhcpd.h"
 #include "dhctoken.h"
+#include "log.h"
 
 int lexline;
 int lexchar;
@@ -78,7 +78,6 @@ static int token;
 static int ugflag;
 static char *tval;
 static char tokbuf[1500];
-static char visbuf[1500];
 
 static int get_char(FILE *);
 static int get_token(FILE *);
@@ -108,15 +107,13 @@ new_parse(char *name)
 	prev_line = line2;
 	token_line = cur_line;
 	tlname = name;
-
-	warnings_occurred = 0;
 }
 
 static int
 get_char(FILE *cfile)
 {
 	int c = getc(cfile);
-	if (!ugflag) {
+	if (ugflag == 0) {
 		if (c == '\n') {
 			if (cur_line == line1) {
 				cur_line = line2;
@@ -129,7 +126,7 @@ get_char(FILE *cfile)
 			lpos = 1;
 			cur_line[0] = 0;
 		} else if (c != EOF) {
-			if (lpos < sizeof(line1)) {
+			if ((unsigned int)lpos < sizeof(line1)) {
 				cur_line[lpos - 1] = c;
 				cur_line[lpos] = 0;
 			}
@@ -137,14 +134,14 @@ get_char(FILE *cfile)
 		}
 	} else
 		ugflag = 0;
-	return (c);
+	return c;
 }
 
 static int
 get_token(FILE *cfile)
 {
-	int		c, ttok;
 	static char	tb[2];
+	int		c, ttok;
 	int		l, p, u;
 
 	u = ugflag;
@@ -156,7 +153,7 @@ get_token(FILE *cfile)
 
 		c = get_char(cfile);
 
-		if (isascii(c) && isspace(c))
+		if (isascii(c) != 0 && isspace(c) != 0)
 			continue;
 		if (c == '#') {
 			skip_to_eol(cfile);
@@ -167,7 +164,7 @@ get_token(FILE *cfile)
 		if (c == '"') {
 			ttok = read_string(cfile);
 			break;
-		} else if (c == '-' || (isascii(c) && isalnum(c))) {
+		} else if (c == '-' || (isascii(c) != 0 && isalnum(c) != 0)) {
 			ttok = read_num_or_name(c, cfile);
 			break;
 		} else {
@@ -178,7 +175,7 @@ get_token(FILE *cfile)
 			break;
 		}
 	} while (1);
-	return (ttok);
+	return ttok;
 }
 
 int
@@ -186,7 +183,7 @@ next_token(char **rval, FILE *cfile)
 {
 	int	rv;
 
-	if (token) {
+	if (token != 0) {
 		if (lexline != tline)
 			token_line = cur_line;
 		lexchar = tlpos;
@@ -197,18 +194,18 @@ next_token(char **rval, FILE *cfile)
 		rv = get_token(cfile);
 		token_line = cur_line;
 	}
-	if (rval)
+	if (rval != 0)
 		*rval = tval;
 
-	return (rv);
+	return rv;
 }
 
 int
 peek_token(char **rval, FILE *cfile)
 {
-	int	x;
+	int	 x;
 
-	if (!token) {
+	if (token == 0) {
 		tlpos = lexchar;
 		tline = lexline;
 		token = get_token(cfile);
@@ -221,16 +218,16 @@ peek_token(char **rval, FILE *cfile)
 		lexline = tline;
 		tline = x;
 	}
-	if (rval)
+	if (rval != 0)
 		*rval = tval;
 
-	return (token);
+	return token;
 }
 
 static void
 skip_to_eol(FILE *cfile)
 {
-	int	c;
+	int	 c;
 
 	do {
 		c = get_char(cfile);
@@ -244,57 +241,57 @@ skip_to_eol(FILE *cfile)
 static int
 read_string(FILE *cfile)
 {
-	int i, c, bs;
+	int	 i, c, bs;
 
 	/*
-	 * Read in characters until an un-escaped '"' is encountered. And
-	 * then unvis the data that was read.
+	 * Read in characters until an un-escaped '"' is encountered.
 	 */
 	bs = i = 0;
-	memset(visbuf, 0, sizeof(visbuf));
 	while ((c = get_char(cfile)) != EOF) {
 		if (c == '"' && bs == 0)
 			break;
 
-		visbuf[i++] = c;
-		if (bs)
+		tokbuf[i++] = c;
+		if (bs != 0)
 			bs = 0;
 		else if (c == '\\')
 			bs = 1;
 
-		if (i == sizeof(visbuf) - 1)
+		if (i == sizeof(tokbuf) - 1)
 			break;
 	}
 	if (bs == 1)
-		visbuf[--i] = '\0';
-	i = strnunvis(tokbuf, visbuf, sizeof(tokbuf));
+		i--;
 
 	if (c == EOF)
 		parse_warn("eof in string constant");
-	else if (i == -1 || i >= sizeof(tokbuf))
+	else if (c != '"')
 		parse_warn("string constant too long");
 
+	tokbuf[i] = '\0';
 	tval = tokbuf;
 
-	return (TOK_STRING);
+	return TOK_STRING;
 }
 
 static int
 read_num_or_name(int c, FILE *cfile)
 {
-	int i, rv, xdigits;
+	unsigned int	 i, xdigits;
+	int		 rv;
 
-	xdigits = isxdigit(c) ? 1 : 0;
+	xdigits = (isxdigit(c) != 0) ? 1 : 0;
 
 	tokbuf[0] = c;
 	for (i = 1; i < sizeof(tokbuf); i++) {
 		c = get_char(cfile);
-		if (!isascii(c) || (c != '-' && c != '_' && !isalnum(c))) {
+		if (isascii(c) == 0 || (c != '-' && c != '_' &&
+		    isalnum(c) == 0)) {
 			ungetc(c, cfile);
 			ugflag = 1;
 			break;
 		}
-		if (isxdigit(c))
+		if (isxdigit(c) != 0)
 			xdigits++;
 		tokbuf[i] = c;
 	}
@@ -302,7 +299,7 @@ read_num_or_name(int c, FILE *cfile)
 		parse_warn("token larger than internal buffer");
 		i--;
 		c = tokbuf[i];
-		if (isxdigit(c))
+		if (isxdigit(c) != 0)
 			xdigits--;
 	}
 	tokbuf[i] = 0;
@@ -318,31 +315,26 @@ read_num_or_name(int c, FILE *cfile)
 	if (rv == TOK_NUMBER_OR_NAME && xdigits != i)
 		rv = TOK_NAME;
 
-	return (rv);
+	return rv;
 }
 
 static const struct keywords {
 	const char	*k_name;
-	int		k_val;
+	int		 k_val;
 } keywords[] = {
-	{ "alias",				TOK_ALIAS },
 	{ "append",				TOK_APPEND },
 	{ "backoff-cutoff",			TOK_BACKOFF_CUTOFF },
 	{ "bootp",				TOK_BOOTP },
 	{ "default",				TOK_DEFAULT },
 	{ "deny",				TOK_DENY },
-	{ "ethernet",				TOK_ETHERNET },
 	{ "expire",				TOK_EXPIRE },
 	{ "filename",				TOK_FILENAME },
 	{ "fixed-address",			TOK_FIXED_ADDR },
-	{ "hardware",				TOK_HARDWARE },
 	{ "ignore",				TOK_IGNORE },
 	{ "initial-interval",			TOK_INITIAL_INTERVAL },
 	{ "interface",				TOK_INTERFACE },
 	{ "lease",				TOK_LEASE },
 	{ "link-timeout",			TOK_LINK_TIMEOUT },
-	{ "media",				TOK_MEDIA },
-	{ "medium",				TOK_MEDIUM },
 	{ "next-server",			TOK_NEXT_SERVER },
 	{ "option",				TOK_OPTION },
 	{ "prepend",				TOK_PREPEND },
@@ -366,17 +358,17 @@ int	kw_cmp(const void *k, const void *e);
 int
 kw_cmp(const void *k, const void *e)
 {
-	return (strcasecmp(k, ((const struct keywords *)e)->k_name));
+	return strcasecmp(k, ((const struct keywords *)e)->k_name);
 }
 
 static int
 intern(char *atom, int dfv)
 {
-	const struct keywords *p;
+	const struct keywords	*p;
 
 	p = bsearch(atom, keywords, sizeof(keywords)/sizeof(keywords[0]),
 	    sizeof(keywords[0]), kw_cmp);
-	if (p)
-		return (p->k_val);
-	return (dfv);
+	if (p != NULL)
+		return p->k_val;
+	return dfv;
 }

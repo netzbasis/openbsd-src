@@ -1,4 +1,4 @@
-/* $OpenBSD: acpials.c,v 1.1 2016/07/30 16:25:04 jcs Exp $ */
+/* $OpenBSD: acpials.c,v 1.3 2017/03/13 14:44:37 jcs Exp $ */
 /*
  * Ambient Light Sensor device driver
  * ACPI 5.0 spec section 9.2
@@ -59,7 +59,7 @@ int	acpials_notify(struct aml_node *, int, void *);
 void	acpials_addtask(void *);
 void	acpials_update(void *, int);
 
-struct cfattach acpials_ca = {
+const struct cfattach acpials_ca = {
 	sizeof(struct acpials_softc),
 	acpials_match,
 	acpials_attach,
@@ -71,13 +71,23 @@ struct cfdriver acpials_cd = {
 
 const char *acpials_hids[] = {
 	"ACPI0008",
+	NULL
 };
+
+extern char *hw_vendor;
 
 int
 acpials_match(struct device *parent, void *match, void *aux)
 {
 	struct acpi_attach_args *aa = aux;
 	struct cfdata *cf = match;
+
+	/*
+	 * Apple hardware will most likely have asmc(4) which also provides an
+	 * illuminance sensor.
+	 */
+	if (hw_vendor != NULL && strncmp(hw_vendor, "Apple", 5) == 0)
+		return 0;
 
 	return (acpi_matchhids(aa, acpials_hids, cf->cf_driver->cd_name));
 }

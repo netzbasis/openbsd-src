@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgDelete.pm,v 1.35 2015/10/07 17:52:38 jmc Exp $
+# $OpenBSD: PkgDelete.pm,v 1.38 2017/03/13 11:36:23 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -101,7 +101,7 @@ sub handle_options
 {
 	my $state = shift;
 	$state->SUPER::handle_options('X',
-	    '[-acimnqsvXx] [-B pkg-destdir] [-D name[=value]] [pkg-name ...]');
+	    '[-acimnqsVvXx] [-B pkg-destdir] [-D name[=value]] [pkg-name ...]');
 
 	my $base = $state->opt('B') // $ENV{'PKG_DESTDIR'} // '';
 	if ($base ne '') {
@@ -356,6 +356,13 @@ sub process_set
 	if ($state->{do_automatic}) {
 		for my $pkg  ($set->older) {
 			$pkg->complete_old;
+			if (!defined $pkg->plist) {
+				$state->say("Corrupt set #1, run pkg_check",
+				    $set->print);
+				$set->cleanup(OpenBSD::Handle::CANT_DELETE);
+				$state->tracker->cant($set);
+				return ();
+			}
 			if ($pkg->plist->has('manual-installation')) {
 				$state->say("Won't delete manually installed #1",
 				    $set->print) if $state->verbose;

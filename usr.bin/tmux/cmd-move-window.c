@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-move-window.c,v 1.25 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-move-window.c,v 1.29 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -26,7 +26,7 @@
  * Move a window.
  */
 
-enum cmd_retval	 cmd_move_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_move_window_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_move_window_entry = {
 	.name = "move-window",
@@ -35,8 +35,8 @@ const struct cmd_entry cmd_move_window_entry = {
 	.args = { "adkrs:t:", 0, 0 },
 	.usage = "[-dkr] " CMD_SRCDST_WINDOW_USAGE,
 
-	.sflag = CMD_WINDOW,
-	.tflag = CMD_MOVEW_R,
+	.source = { 's', CMD_FIND_WINDOW, 0 },
+	/* -t is special */
 
 	.flags = 0,
 	.exec = cmd_move_window_exec
@@ -49,32 +49,42 @@ const struct cmd_entry cmd_link_window_entry = {
 	.args = { "adks:t:", 0, 0 },
 	.usage = "[-dk] " CMD_SRCDST_WINDOW_USAGE,
 
-	.sflag = CMD_WINDOW,
-	.tflag = CMD_WINDOW_INDEX,
+	.source = { 's', CMD_FIND_WINDOW, 0 },
+	/* -t is special */
 
 	.flags = 0,
 	.exec = cmd_move_window_exec
 };
 
-enum cmd_retval
-cmd_move_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_move_window_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args	*args = self->args;
-	struct session	*src = cmdq->state.sflag.s;
-	struct session	*dst = cmdq->state.tflag.s;
-	struct winlink	*wl = cmdq->state.sflag.wl;
+	const char	*tflag = args_get(args, 't');
+	struct session	*src;
+	struct session	*dst;
+	struct winlink	*wl;
 	char		*cause;
-	int		 idx = cmdq->state.tflag.idx, kflag, dflag, sflag;
-
-	kflag = args_has(self->args, 'k');
-	dflag = args_has(self->args, 'd');
+	int		 idx, kflag, dflag, sflag;
 
 	if (args_has(args, 'r')) {
-		session_renumber_windows(dst);
+		if (cmd_find_target(&item->target, item, tflag,
+		    CMD_FIND_SESSION, CMD_FIND_QUIET) != 0)
+			return (CMD_RETURN_ERROR);
+
+		session_renumber_windows(item->target.s);
 		recalculate_sizes();
+		server_status_session(item->target.s);
 
 		return (CMD_RETURN_NORMAL);
 	}
+	if (cmd_find_target(&item->target, item, tflag, CMD_FIND_WINDOW,
+	    CMD_FIND_WINDOW_INDEX) != 0)
+		return (CMD_RETURN_ERROR);
+	src = item->source.s;
+	dst = item->target.s;
+	wl = item->source.wl;
+	idx = item->target.idx;
 
 	kflag = args_has(self->args, 'k');
 	dflag = args_has(self->args, 'd');
@@ -87,7 +97,7 @@ cmd_move_window_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if (server_link_window(src, wl, dst, idx, kflag, !dflag,
 	    &cause) != 0) {
-		cmdq_error(cmdq, "can't link window: %s", cause);
+		cmdq_error(item, "can't link window: %s", cause);
 		free(cause);
 		return (CMD_RETURN_ERROR);
 	}

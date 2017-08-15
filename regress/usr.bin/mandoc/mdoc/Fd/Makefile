@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2015/02/06 03:31:11 schwarze Exp $
+# $OpenBSD: Makefile,v 1.6 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS	 = break empty eos font
 LINT_TARGETS	 = empty

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fts.c,v 1.55 2016/06/28 17:21:48 millert Exp $	*/
+/*	$OpenBSD: fts.c,v 1.58 2017/03/17 15:14:40 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993, 1994
@@ -74,7 +74,7 @@ fts_open(char * const *argv, int options,
 	FTS *sp;
 	FTSENT *p, *root;
 	int nitems;
-	FTSENT *parent, *tmp;
+	FTSENT *parent, *prev;
 
 	/* Options check. */
 	if (options & ~FTS_OPTIONMASK) {
@@ -111,7 +111,7 @@ fts_open(char * const *argv, int options,
 	parent->fts_level = FTS_ROOTPARENTLEVEL;
 
 	/* Allocate/initialize root(s). */
-	for (root = NULL, nitems = 0; *argv; ++argv, ++nitems) {
+	for (root = prev = NULL, nitems = 0; *argv; ++argv, ++nitems) {
 		if ((p = fts_alloc(sp, *argv, strlen(*argv))) == NULL)
 			goto mem3;
 		p->fts_level = FTS_ROOTLEVEL;
@@ -133,11 +133,10 @@ fts_open(char * const *argv, int options,
 		} else {
 			p->fts_link = NULL;
 			if (root == NULL)
-				tmp = root = p;
-			else {
-				tmp->fts_link = p;
-				tmp = p;
-			}
+				root = p;
+			else
+				prev->fts_link = p;
+			prev = p;
 		}
 	}
 	if (compar && nitems > 1)
@@ -654,7 +653,7 @@ fts_build(FTS *sp, int type)
 		if (!ISSET(FTS_SEEDOT) && ISDOT(dp->d_name))
 			continue;
 
-		if (!(p = fts_alloc(sp, dp->d_name, (size_t)dp->d_namlen)))
+		if (!(p = fts_alloc(sp, dp->d_name, dp->d_namlen)))
 			goto mem1;
 		if (dp->d_namlen >= maxlen) {	/* include space for NUL */
 			oldaddr = sp->fts_path;
@@ -882,19 +881,19 @@ fts_sort(FTS *sp, FTSENT *head, int nitems)
 	if (nitems > sp->fts_nitems) {
 		struct _ftsent **a;
 
-		sp->fts_nitems = nitems + 40;
 		if ((a = reallocarray(sp->fts_array,
-		    sp->fts_nitems, sizeof(FTSENT *))) == NULL) {
+		    nitems + 40, sizeof(FTSENT *))) == NULL) {
 			free(sp->fts_array);
 			sp->fts_array = NULL;
 			sp->fts_nitems = 0;
 			return (head);
 		}
+		sp->fts_nitems = nitems + 40;
 		sp->fts_array = a;
 	}
 	for (ap = sp->fts_array, p = head; p; p = p->fts_link)
 		*ap++ = p;
-	qsort((void *)sp->fts_array, nitems, sizeof(FTSENT *), sp->fts_compar);
+	qsort(sp->fts_array, nitems, sizeof(FTSENT *), sp->fts_compar);
 	for (head = *(ap = sp->fts_array); --nitems; ++ap)
 		ap[0]->fts_link = ap[1];
 	ap[0]->fts_link = NULL;
@@ -964,13 +963,14 @@ fts_palloc(FTS *sp, size_t more)
 		errno = ENAMETOOLONG;
 		return (1);
 	}
-	sp->fts_pathlen += more;
-	p = realloc(sp->fts_path, sp->fts_pathlen);
+	p = recallocarray(sp->fts_path, sp->fts_pathlen,
+	    sp->fts_pathlen + more, 1);
 	if (p == NULL) {
 		free(sp->fts_path);
 		sp->fts_path = NULL;
 		return (1);
 	}
+	sp->fts_pathlen += more;
 	sp->fts_path = p;
 	return (0);
 }

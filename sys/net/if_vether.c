@@ -1,4 +1,4 @@
-/* $OpenBSD: if_vether.c,v 1.27 2016/04/13 11:41:15 mpi Exp $ */
+/* $OpenBSD: if_vether.c,v 1.29 2017/01/22 10:17:39 dlg Exp $ */
 
 /*
  * Copyright (c) 2009 Theo de Raadt
@@ -89,6 +89,7 @@ vether_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_start = vetherstart;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 
+	ifp->if_hardmtu = ETHER_MAX_HARDMTU_LEN;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 
 	ifmedia_init(&sc->sc_media, 0, vether_media_change,
@@ -132,7 +133,6 @@ vetherstart(struct ifnet *ifp)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif /* NBPFILTER > 0 */
 
-		ifp->if_opackets++;
 		m_freem(m);
 	}
 }

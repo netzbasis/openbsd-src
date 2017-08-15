@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_server.c,v 1.27 2016/09/04 13:20:56 jsing Exp $ */
+/* $OpenBSD: tls_server.c,v 1.41 2017/08/10 18:18:30 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -49,6 +49,9 @@ tls_server_conn(struct tls *ctx)
 
 	conn_ctx->flags |= TLS_SERVER_CONN;
 
+	ctx->config->refcount++;
+	conn_ctx->config = ctx->config;
+
 	return (conn_ctx);
 }
 
@@ -74,11 +77,13 @@ tls_servername_cb(SSL *ssl, int *al, void *arg)
 	union tls_addr addrbuf;
 	struct tls *conn_ctx;
 	const char *name;
+	int match;
 
 	if ((conn_ctx = SSL_get_app_data(ssl)) == NULL)
 		goto err;
 
-	if ((name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL) {
+	if ((name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) ==
+	    NULL) {
 		/*
 		 * The servername callback gets called even when there is no
 		 * TLS servername extension provided by the client. Sigh!
@@ -86,10 +91,16 @@ tls_servername_cb(SSL *ssl, int *al, void *arg)
 		return (SSL_TLSEXT_ERR_NOACK);
 	}
 
-	/* Per RFC 6066 section 3: ensure that name is not an IP literal. */
+	/*
+	 * Per RFC 6066 section 3: ensure that name is not an IP literal.
+	 *
+	 * While we should treat this as an error, a number of clients
+	 * (Python, Ruby and Safari) are not RFC compliant. To avoid handshake
+	 * failures, pretend that we did not receive the extension.
+	 */
 	if (inet_pton(AF_INET, name, &addrbuf) == 1 ||
             inet_pton(AF_INET6, name, &addrbuf) == 1)
-		goto err;
+		return (SSL_TLSEXT_ERR_NOACK);
 
 	free((char *)conn_ctx->servername);
 	if ((conn_ctx->servername = strdup(name)) == NULL)
@@ -97,7 +108,10 @@ tls_servername_cb(SSL *ssl, int *al, void *arg)
 
 	/* Find appropriate SSL context for requested servername. */
 	for (sni_ctx = ctx->sni_ctx; sni_ctx != NULL; sni_ctx = sni_ctx->next) {
-		if (tls_check_name(ctx, sni_ctx->ssl_cert, name) == 0) {
+		if (tls_check_name(ctx, sni_ctx->ssl_cert, name,
+		    &match) == -1)
+			goto err;
+		if (match) {
 			SSL_set_SSL_CTX(conn_ctx->ssl_conn, sni_ctx->ssl_ctx);
 			return (SSL_TLSEXT_ERR_OK);
 		}
@@ -115,6 +129,77 @@ tls_servername_cb(SSL *ssl, int *al, void *arg)
 	return (SSL_TLSEXT_ERR_ALERT_FATAL);
 }
 
+static struct tls_ticket_key *
+tls_server_ticket_key(struct tls_config *config, unsigned char *keyname)
+{
+	struct tls_ticket_key *key = NULL;
+	time_t now;
+	int i;
+
+	now = time(NULL);
+	if (config->ticket_autorekey == 1) {
+		if (now - 3 * (config->session_lifetime / 4) >
+		    config->ticket_keys[0].time) {
+			if (tls_config_ticket_autorekey(config) == -1)
+				return (NULL);
+		}
+	}
+	for (i = 0; i < TLS_NUM_TICKETS; i++) {
+		struct tls_ticket_key *tk = &config->ticket_keys[i];
+		if (now - config->session_lifetime > tk->time)
+			continue;
+		if (keyname == NULL || timingsafe_memcmp(keyname,
+		    tk->key_name, sizeof(tk->key_name)) == 0) {
+			key = tk;
+			break;
+		}
+	}
+	return (key);
+}
+
+static int
+tls_server_ticket_cb(SSL *ssl, unsigned char *keyname, unsigned char *iv,
+    EVP_CIPHER_CTX *ctx, HMAC_CTX *hctx, int mode)
+{
+	struct tls_ticket_key *key;
+	struct tls *tls_ctx;
+
+	if ((tls_ctx = SSL_get_app_data(ssl)) == NULL)
+		return (-1);
+
+	if (mode == 1) {
+		/* create new session */
+		key = tls_server_ticket_key(tls_ctx->config, NULL);
+		if (key == NULL) {
+			tls_set_errorx(tls_ctx, "no valid ticket key found");
+			return (-1);
+		}
+
+		memcpy(keyname, key->key_name, sizeof(key->key_name));
+		arc4random_buf(iv, EVP_MAX_IV_LENGTH);
+		EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
+		    key->aes_key, iv);
+		HMAC_Init_ex(hctx, key->hmac_key, sizeof(key->hmac_key),
+		    EVP_sha256(), NULL);
+		return (0);
+	} else {
+		/* get key by name */
+		key = tls_server_ticket_key(tls_ctx->config, keyname);
+		if (key == NULL)
+			return (0);
+
+		EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
+		    key->aes_key, iv);
+		HMAC_Init_ex(hctx, key->hmac_key, sizeof(key->hmac_key),
+		    EVP_sha256(), NULL);
+
+		/* time to renew the ticket? is it the primary key? */
+		if (key != &tls_ctx->config->ticket_keys[0])
+			return (2);
+		return (1);
+	}
+}
+
 static int
 tls_keypair_load_cert(struct tls_keypair *keypair, struct tls_error *error,
     X509 **cert)
@@ -122,6 +207,7 @@ tls_keypair_load_cert(struct tls_keypair *keypair, struct tls_error *error,
 	char *errstr = "unknown";
 	BIO *cert_bio = NULL;
 	int ssl_err;
+	int rv = -1;
 
 	X509_free(*cert);
 	*cert = NULL;
@@ -135,36 +221,34 @@ tls_keypair_load_cert(struct tls_keypair *keypair, struct tls_error *error,
 		tls_error_set(error, "failed to create certificate bio");
 		goto err;
 	}
-	if ((*cert = PEM_read_bio_X509(cert_bio, NULL, NULL, NULL)) == NULL) {
+	if ((*cert = PEM_read_bio_X509(cert_bio, NULL, tls_password_cb,
+	    NULL)) == NULL) {
 		if ((ssl_err = ERR_peek_error()) != 0)
 		    errstr = ERR_error_string(ssl_err, NULL);
 		tls_error_set(error, "failed to load certificate: %s", errstr);
 		goto err;
 	}
 
-	BIO_free(cert_bio);
-
-	return (0);
+	rv = 0;
 
  err:
 	BIO_free(cert_bio);
 
-	return (-1);
+	return (rv);
 }
 
 static int
 tls_configure_server_ssl(struct tls *ctx, SSL_CTX **ssl_ctx,
     struct tls_keypair *keypair)
 {
-	unsigned char sid[SSL_MAX_SSL_SESSION_ID_LENGTH];
-	EC_KEY *ecdh_key;
-
 	SSL_CTX_free(*ssl_ctx);
 
 	if ((*ssl_ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
 		tls_set_errorx(ctx, "ssl context failure");
 		goto err;
 	}
+
+	SSL_CTX_set_options(*ssl_ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 
 	if (SSL_CTX_set_tlsext_servername_callback(*ssl_ctx,
 	    tls_servername_cb) != 1) {
@@ -197,30 +281,37 @@ tls_configure_server_ssl(struct tls *ctx, SSL_CTX **ssl_ctx,
 	else if (ctx->config->dheparams == 1024)
 		SSL_CTX_set_dh_auto(*ssl_ctx, 2);
 
-	if (ctx->config->ecdhecurve == -1) {
+	if (ctx->config->ecdhecurves != NULL) {
 		SSL_CTX_set_ecdh_auto(*ssl_ctx, 1);
-	} else if (ctx->config->ecdhecurve != NID_undef) {
-		if ((ecdh_key = EC_KEY_new_by_curve_name(
-		    ctx->config->ecdhecurve)) == NULL) {
-			tls_set_errorx(ctx, "failed to set ECDHE curve");
+		if (SSL_CTX_set1_groups(*ssl_ctx, ctx->config->ecdhecurves,
+		    ctx->config->ecdhecurves_len) != 1) {
+			tls_set_errorx(ctx, "failed to set ecdhe curves");
 			goto err;
 		}
-		SSL_CTX_set_options(*ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
-		SSL_CTX_set_tmp_ecdh(*ssl_ctx, ecdh_key);
-		EC_KEY_free(ecdh_key);
 	}
 
 	if (ctx->config->ciphers_server == 1)
 		SSL_CTX_set_options(*ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
-	/*
-	 * Set session ID context to a random value.  We don't support
-	 * persistent caching of sessions so it is OK to set a temporary
-	 * session ID context that is valid during run time.
-	 */
-	arc4random_buf(sid, sizeof(sid));
-	if (SSL_CTX_set_session_id_context(*ssl_ctx, sid,
-	    sizeof(sid)) != 1) {
+	if (SSL_CTX_set_tlsext_status_cb(*ssl_ctx, tls_ocsp_stapling_cb) != 1) {
+		tls_set_errorx(ctx, "failed to add OCSP stapling callback");
+		goto err;
+	}
+
+	if (ctx->config->session_lifetime > 0) {
+		/* set the session lifetime and enable tickets */
+		SSL_CTX_set_timeout(*ssl_ctx, ctx->config->session_lifetime);
+		SSL_CTX_clear_options(*ssl_ctx, SSL_OP_NO_TICKET);
+		if (!SSL_CTX_set_tlsext_ticket_key_cb(*ssl_ctx,
+		    tls_server_ticket_cb)) {
+			tls_set_error(ctx,
+			    "failed to set the TLS ticket callback");
+			goto err;
+		}
+	}
+
+	if (SSL_CTX_set_session_id_context(*ssl_ctx, ctx->config->session_id,
+	    sizeof(ctx->config->session_id)) != 1) {
 		tls_set_error(ctx, "failed to set session id context");
 		goto err;
 	}
@@ -313,9 +404,9 @@ tls_accept_common(struct tls *ctx)
 }
 
 int
-tls_accept_socket(struct tls *ctx, struct tls **cctx, int socket)
+tls_accept_socket(struct tls *ctx, struct tls **cctx, int s)
 {
-	return (tls_accept_fds(ctx, cctx, socket, socket));
+	return (tls_accept_fds(ctx, cctx, s, s));
 }
 
 int
@@ -351,10 +442,8 @@ tls_accept_cbs(struct tls *ctx, struct tls **cctx,
 	if ((conn_ctx = tls_accept_common(ctx)) == NULL)
 		goto err;
 
-	if (tls_set_cbs(ctx, read_cb, write_cb, cb_arg) != 0) {
-		tls_set_errorx(ctx, "callback registration failure");
+	if (tls_set_cbs(conn_ctx, read_cb, write_cb, cb_arg) != 0)
 		goto err;
-	}
 
 	*cctx = conn_ctx;
 
@@ -376,6 +465,8 @@ tls_handshake_server(struct tls *ctx)
 		tls_set_errorx(ctx, "not a server connection context");
 		goto err;
 	}
+
+	ctx->state |= TLS_SSL_NEEDS_SHUTDOWN;
 
 	ERR_clear_error();
 	if ((ssl_ret = SSL_accept(ctx->ssl_conn)) != 1) {

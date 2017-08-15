@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.146 2016/07/04 18:01:44 guenther Exp $
+#	$OpenBSD: Makefile.inc,v 1.152 2017/08/13 19:34:12 tedu Exp $
 #	$NetBSD: Makefile.inc,v 1.35 1995/10/16 23:49:07 jtc Exp $
 #	@(#)Makefile.inc	8.1 (Berkeley) 6/17/93
 
@@ -47,7 +47,7 @@ ASM=	__semctl.o __syscall.o __thrsigdivert.o \
 	dup.o dup2.o dup3.o \
 	execve.o \
 	faccessat.o fchdir.o fchflags.o fchmod.o fchmodat.o fchown.o \
-	fchownat.o fhopen.o fhstat.o fhstatfs.o \
+	fchownat.o fhopen.o fhstat.o fhstatfs.o fktrace.o \
 	flock.o fpathconf.o fstat.o fstatat.o fstatfs.o \
 	futimens.o futimes.o \
 	getentropy.o getdents.o getfh.o getfsstat.o \
@@ -87,6 +87,7 @@ DASM=	${ASM:.o=.do}
 # syscalls that CANNOT FAIL.  They can return whatever value they want,
 # they just never want to set errno.
 ASM_NOERR=__get_tcb.o __set_tcb.o __threxit.o __thrsleep.o __thrwakeup.o \
+	futex.o \
 	getdtablecount.o getegid.o geteuid.o getgid.o getlogin_r.o \
 	getpgrp.o getpid.o getppid.o getrtable.o getthrid.o getuid.o \
 	issetugid.o \
@@ -115,69 +116,68 @@ DHIDDEN=${HIDDEN:.o=.do}
 
 OBJS+=	${ASM} ${ASM_NOERR} ${PSEUDO} ${PSEUDO_NOERR} ${HIDDEN}
 
-SYS_DEP =  ${LIBCSRCDIR}/arch/${MACHINE_CPU}/SYS.h /usr/include/sys/syscall.h
-
 # XXX only difference is -x removes FILE symbols?
 TRIM=${LD} -x -r ${.TARGET}.o -o ${.TARGET} && rm -f ${.TARGET}.o
 TRIM.debug=${LD} -X -r ${.TARGET}.o -o ${.TARGET} && rm -f ${.TARGET}.o
 
 
+GEN_PREFIX=\t.file "${@:R}.S"\n\#include "SYS.h"
 # Pick one of these to set what ASM is generated...
 GENERATE.rsyscall=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nRSYSCALL(${.PREFIX})\n'
+	printf '${GEN_PREFIX}\nRSYSCALL(${.PREFIX})\n'
 GENERATE.rsyscall_noerr=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX})\n'
+	printf '${GEN_PREFIX}\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX})\n'
 GENERATE.pseudo=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nPSEUDO(${.PREFIX},${.PREFIX:S/^_//})\n'
+	printf '${GEN_PREFIX}\nPSEUDO(${.PREFIX},${.PREFIX:S/^_//})\n'
 GENERATE.pseudo_noerr=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX:S/^_//})\n'
+	printf '${GEN_PREFIX}\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX:S/^_//})\n'
 GENERATE.rsyscall_hidden=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nRSYSCALL_HIDDEN(${.PREFIX:S/^_//})\n'
+	printf '${GEN_PREFIX}\nRSYSCALL_HIDDEN(${.PREFIX:S/^_//})\n'
 
 # ...and one of these to control how it's compiled
-FINISH=	${COMPILE.S} ${CFLAGS:M-[ID]*} ${AINC} -x assembler-with-cpp -
+FINISH=	${COMPILE.S} ${CFLAGS:M-[ID]*} ${CFLAGS:M-pipe} ${AINC} -P -x assembler-with-cpp - ${DFLAGS} -MF ${.TARGET:R}.d
 FINISH.po=${FINISH} -o ${.TARGET}.o -DPROF		&& ${TRIM.debug}
 FINISH.so=${FINISH} -o ${.TARGET}   ${PICFLAG}
 FINISH.do=${FINISH} -o ${.TARGET}.o ${DIST_CFLAGS}	&& ${TRIM}
 FINISH.o =${FINISH} -o ${.TARGET}.o			&& ${TRIM}
 
 # Use those to generate the desired syscall stubs
-${PASM}: ${SYS_DEP} ; @${GENERATE.rsyscall} | ${FINISH.po}
-${SASM}: ${SYS_DEP} ; @${GENERATE.rsyscall} | ${FINISH.so}
-${DASM}: ${SYS_DEP} ; @${GENERATE.rsyscall} | ${FINISH.do}
-${ASM}:  ${SYS_DEP} ; @${GENERATE.rsyscall} | ${FINISH.o}
+${PASM}: ; @${GENERATE.rsyscall} | ${FINISH.po}
+${SASM}: ; @${GENERATE.rsyscall} | ${FINISH.so}
+${DASM}: ; @${GENERATE.rsyscall} | ${FINISH.do}
+${ASM}:  ; @${GENERATE.rsyscall} | ${FINISH.o}
 
-${PASM_NOERR}: ${SYS_DEP} ; @${GENERATE.rsyscall_noerr} | ${FINISH.po}
-${SASM_NOERR}: ${SYS_DEP} ; @${GENERATE.rsyscall_noerr} | ${FINISH.so}
-${DASM_NOERR}: ${SYS_DEP} ; @${GENERATE.rsyscall_noerr} | ${FINISH.do}
-${ASM_NOERR}:  ${SYS_DEP} ; @${GENERATE.rsyscall_noerr} | ${FINISH.o}
+${PASM_NOERR}: ; @${GENERATE.rsyscall_noerr} | ${FINISH.po}
+${SASM_NOERR}: ; @${GENERATE.rsyscall_noerr} | ${FINISH.so}
+${DASM_NOERR}: ; @${GENERATE.rsyscall_noerr} | ${FINISH.do}
+${ASM_NOERR}:  ; @${GENERATE.rsyscall_noerr} | ${FINISH.o}
 
-${PPSEUDO}: ${SYS_DEP} ; @${GENERATE.pseudo} | ${FINISH.po}
-${SPSEUDO}: ${SYS_DEP} ; @${GENERATE.pseudo} | ${FINISH.so}
-${DPSEUDO}: ${SYS_DEP} ; @${GENERATE.pseudo} | ${FINISH.do}
-${PSEUDO}:  ${SYS_DEP} ; @${GENERATE.pseudo} | ${FINISH.o}
+${PPSEUDO}: ; @${GENERATE.pseudo} | ${FINISH.po}
+${SPSEUDO}: ; @${GENERATE.pseudo} | ${FINISH.so}
+${DPSEUDO}: ; @${GENERATE.pseudo} | ${FINISH.do}
+${PSEUDO}:  ; @${GENERATE.pseudo} | ${FINISH.o}
 
-${PPSEUDO_NOERR}: ${SYS_DEP} ; @${GENERATE.pseudo_noerr} | ${FINISH.po}
-${SPSEUDO_NOERR}: ${SYS_DEP} ; @${GENERATE.pseudo_noerr} | ${FINISH.so}
-${DPSEUDO_NOERR}: ${SYS_DEP} ; @${GENERATE.pseudo_noerr} | ${FINISH.do}
-${PSEUDO_NOERR}:  ${SYS_DEP} ; @${GENERATE.pseudo_noerr} | ${FINISH.o}
+${PPSEUDO_NOERR}: ; @${GENERATE.pseudo_noerr} | ${FINISH.po}
+${SPSEUDO_NOERR}: ; @${GENERATE.pseudo_noerr} | ${FINISH.so}
+${DPSEUDO_NOERR}: ; @${GENERATE.pseudo_noerr} | ${FINISH.do}
+${PSEUDO_NOERR}:  ; @${GENERATE.pseudo_noerr} | ${FINISH.o}
 
-${PHIDDEN}: ${SYS_DEP} ; @${GENERATE.rsyscall_hidden} | ${FINISH.po}
-${SHIDDEN}: ${SYS_DEP} ; @${GENERATE.rsyscall_hidden} | ${FINISH.so}
-${DHIDDEN}: ${SYS_DEP} ; @${GENERATE.rsyscall_hidden} | ${FINISH.do}
-${HIDDEN}:  ${SYS_DEP} ; @${GENERATE.rsyscall_hidden} | ${FINISH.o}
+${PHIDDEN}: ; @${GENERATE.rsyscall_hidden} | ${FINISH.po}
+${SHIDDEN}: ; @${GENERATE.rsyscall_hidden} | ${FINISH.so}
+${DHIDDEN}: ; @${GENERATE.rsyscall_hidden} | ${FINISH.do}
+${HIDDEN}:  ; @${GENERATE.rsyscall_hidden} | ${FINISH.o}
 
 
 MAN+=	__get_tcb.2 __thrsigdivert.2 __thrsleep.2 _exit.2 accept.2 \
 	access.2 acct.2 adjfreq.2 adjtime.2 bind.2 brk.2 chdir.2 \
 	chflags.2 chmod.2 chown.2 chroot.2 clock_gettime.2 close.2 \
 	closefrom.2 connect.2 dup.2 execve.2 fcntl.2 fhopen.2 flock.2 \
-	fork.2 fsync.2 getentropy.2 getdents.2 getdtablecount.2 \
+	fork.2 fsync.2 futex.2 getentropy.2 getdents.2 getdtablecount.2 \
 	getfh.2 getfsstat.2 getgid.2 getgroups.2 getitimer.2 getlogin.2 \
 	getpeername.2 getpgrp.2 getpid.2 getpriority.2 getrlimit.2 \
 	getrtable.2 getrusage.2 getsid.2 getsockname.2 getsockopt.2 \

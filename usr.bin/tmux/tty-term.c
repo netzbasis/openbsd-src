@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-term.c,v 1.45 2016/01/29 11:13:56 nicm Exp $ */
+/* $OpenBSD: tty-term.c,v 1.56 2017/06/16 11:50:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -27,8 +27,8 @@
 
 #include "tmux.h"
 
-void	 tty_term_override(struct tty_term *, const char *);
-char	*tty_term_strip(const char *);
+static void	 tty_term_override(struct tty_term *, const char *);
+static char	*tty_term_strip(const char *);
 
 struct tty_terms tty_terms = LIST_HEAD_INITIALIZER(tty_terms);
 
@@ -53,7 +53,7 @@ struct tty_term_code_entry {
 	const char	       *name;
 };
 
-const struct tty_term_code_entry tty_term_codes[] = {
+static const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_ACSC] = { TTYCODE_STRING, "acsc" },
 	[TTYC_AX] = { TTYCODE_FLAG, "AX" },
 	[TTYC_BCE] = { TTYCODE_FLAG, "bce" },
@@ -84,6 +84,7 @@ const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_DL1] = { TTYCODE_STRING, "dl1" },
 	[TTYC_E3] = { TTYCODE_STRING, "E3" },
 	[TTYC_ECH] = { TTYCODE_STRING, "ech" },
+	[TTYC_ED] = { TTYCODE_STRING, "ed" },
 	[TTYC_EL] = { TTYCODE_STRING, "el" },
 	[TTYC_EL1] = { TTYCODE_STRING, "el1" },
 	[TTYC_ENACS] = { TTYCODE_STRING, "enacs" },
@@ -94,10 +95,8 @@ const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_ICH1] = { TTYCODE_STRING, "ich1" },
 	[TTYC_IL] = { TTYCODE_STRING, "il" },
 	[TTYC_IL1] = { TTYCODE_STRING, "il1" },
+	[TTYC_INDN] = { TTYCODE_STRING, "indn" },
 	[TTYC_INVIS] = { TTYCODE_STRING, "invis" },
-	[TTYC_IS1] = { TTYCODE_STRING, "is1" },
-	[TTYC_IS2] = { TTYCODE_STRING, "is2" },
-	[TTYC_IS3] = { TTYCODE_STRING, "is3" },
 	[TTYC_KCBT] = { TTYCODE_STRING, "kcbt" },
 	[TTYC_KCUB1] = { TTYCODE_STRING, "kcub1" },
 	[TTYC_KCUD1] = { TTYCODE_STRING, "kcud1" },
@@ -243,6 +242,8 @@ const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_SE] = { TTYCODE_STRING, "Se" },
 	[TTYC_SETAB] = { TTYCODE_STRING, "setab" },
 	[TTYC_SETAF] = { TTYCODE_STRING, "setaf" },
+	[TTYC_SETRGBB] = { TTYCODE_STRING, "setrgbb" },
+	[TTYC_SETRGBF] = { TTYCODE_STRING, "setrgbf" },
 	[TTYC_SGR0] = { TTYCODE_STRING, "sgr0" },
 	[TTYC_SITM] = { TTYCODE_STRING, "sitm" },
 	[TTYC_SMACS] = { TTYCODE_STRING, "smacs" },
@@ -250,10 +251,12 @@ const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_SMKX] = { TTYCODE_STRING, "smkx" },
 	[TTYC_SMSO] = { TTYCODE_STRING, "smso" },
 	[TTYC_SMUL] = { TTYCODE_STRING, "smul" },
+	[TTYC_SMXX] =  { TTYCODE_STRING, "smxx" },
 	[TTYC_SS] = { TTYCODE_STRING, "Ss" },
 	[TTYC_TC] = { TTYCODE_FLAG, "Tc" },
 	[TTYC_TSL] = { TTYCODE_STRING, "tsl" },
 	[TTYC_VPA] = { TTYCODE_STRING, "vpa" },
+	[TTYC_U8] = { TTYCODE_NUMBER, "U8" },
 	[TTYC_XENL] = { TTYCODE_FLAG, "xenl" },
 	[TTYC_XT] = { TTYCODE_FLAG, "XT" },
 };
@@ -264,7 +267,7 @@ tty_term_ncodes(void)
 	return (nitems(tty_term_codes));
 }
 
-char *
+static char *
 tty_term_strip(const char *s)
 {
 	const char     *ptr;
@@ -293,87 +296,83 @@ tty_term_strip(const char *s)
 	return (xstrdup(buf));
 }
 
-void
-tty_term_override(struct tty_term *term, const char *overrides)
+static void
+tty_term_override(struct tty_term *term, const char *override)
 {
 	const struct tty_term_code_entry	*ent;
 	struct tty_code				*code;
-	char					*termnext, *termstr;
-	char					*entnext, *entstr;
-	char					*s, *ptr, *val;
+	char					*next, *s, *copy, *cp, *value;
 	const char				*errstr;
 	u_int					 i;
-	int					 n, removeflag;
+	int					 n, remove;
 
-	s = xstrdup(overrides);
+	copy = next = xstrdup(override);
 
-	termnext = s;
-	while ((termstr = strsep(&termnext, ",")) != NULL) {
-		entnext = termstr;
-
-		entstr = strsep(&entnext, ":");
-		if (entstr == NULL || entnext == NULL)
-			continue;
-		if (fnmatch(entstr, term->name, 0) != 0)
-			continue;
-		while ((entstr = strsep(&entnext, ":")) != NULL) {
-			if (*entstr == '\0')
-				continue;
-
-			val = NULL;
-			removeflag = 0;
-			if ((ptr = strchr(entstr, '=')) != NULL) {
-				*ptr++ = '\0';
-				val = xstrdup(ptr);
-				if (strunvis(val, ptr) == -1) {
-					free(val);
-					val = xstrdup(ptr);
-				}
-			} else if (entstr[strlen(entstr) - 1] == '@') {
-				entstr[strlen(entstr) - 1] = '\0';
-				removeflag = 1;
-			} else
-				val = xstrdup("");
-
-			log_debug("%s override: %s %s",
-			    term->name, entstr, removeflag ? "@" : val);
-			for (i = 0; i < tty_term_ncodes(); i++) {
-				ent = &tty_term_codes[i];
-				if (strcmp(entstr, ent->name) != 0)
-					continue;
-				code = &term->codes[i];
-
-				if (removeflag) {
-					code->type = TTYCODE_NONE;
-					continue;
-				}
-				switch (ent->type) {
-				case TTYCODE_NONE:
-					break;
-				case TTYCODE_STRING:
-					if (code->type == TTYCODE_STRING)
-						free(code->value.string);
-					code->value.string = xstrdup(val);
-					code->type = ent->type;
-					break;
-				case TTYCODE_NUMBER:
-					n = strtonum(val, 0, INT_MAX, &errstr);
-					if (errstr != NULL)
-						break;
-					code->value.number = n;
-					code->type = ent->type;
-					break;
-				case TTYCODE_FLAG:
-					code->value.flag = 1;
-					code->type = ent->type;
-					break;
-				}
-			}
-
-			free(val);
-		}
+	s = strsep(&next, ":");
+	if (s == NULL || next == NULL || fnmatch(s, term->name, 0) != 0) {
+		free(copy);
+		return;
 	}
 
+	while ((s = strsep(&next, ":")) != NULL) {
+		if (*s == '\0')
+			continue;
+		value = NULL;
+
+		remove = 0;
+		if ((cp = strchr(s, '=')) != NULL) {
+			*cp++ = '\0';
+			value = xstrdup(cp);
+			if (strunvis(value, cp) == -1) {
+				free(value);
+				value = xstrdup(cp);
+			}
+		} else if (s[strlen(s) - 1] == '@') {
+			s[strlen(s) - 1] = '\0';
+			remove = 1;
+		} else
+			value = xstrdup("");
+
+		if (remove)
+			log_debug("%s override: %s@", term->name, s);
+		else
+			log_debug("%s override: %s=%s", term->name, s, value);
+
+		for (i = 0; i < tty_term_ncodes(); i++) {
+			ent = &tty_term_codes[i];
+			if (strcmp(s, ent->name) != 0)
+				continue;
+			code = &term->codes[i];
+
+			if (remove) {
+				code->type = TTYCODE_NONE;
+				continue;
+			}
+			switch (ent->type) {
+			case TTYCODE_NONE:
+				break;
+			case TTYCODE_STRING:
+				if (code->type == TTYCODE_STRING)
+					free(code->value.string);
+				code->value.string = xstrdup(value);
+				code->type = ent->type;
+				break;
+			case TTYCODE_NUMBER:
+				n = strtonum(value, 0, INT_MAX, &errstr);
+				if (errstr != NULL)
+					break;
+				code->value.number = n;
+				code->type = ent->type;
+				break;
+			case TTYCODE_FLAG:
+				code->value.flag = 1;
+				code->type = ent->type;
+				break;
+			}
+		}
+
+		free(value);
+	}
 	free(s);
 }
 
@@ -383,10 +382,10 @@ tty_term_find(char *name, int fd, char **cause)
 	struct tty_term				*term;
 	const struct tty_term_code_entry	*ent;
 	struct tty_code				*code;
-	u_int					 i;
+	struct options_entry			*o;
+	u_int					 size, i;
 	int		 			 n, error;
-	char					*s;
-	const char				*acs;
+	const char				*s, *acs;
 
 	LIST_FOREACH(term, &tty_terms, entry) {
 		if (strcmp(term->name, name) == 0) {
@@ -394,13 +393,13 @@ tty_term_find(char *name, int fd, char **cause)
 			return (term);
 		}
 	}
-
 	log_debug("new term: %s", name);
+
 	term = xmalloc(sizeof *term);
 	term->name = xstrdup(name);
 	term->references = 1;
 	term->flags = 0;
-	term->codes = xcalloc (tty_term_ncodes(), sizeof *term->codes);
+	term->codes = xcalloc(tty_term_ncodes(), sizeof *term->codes);
 	LIST_INSERT_HEAD(&tty_terms, term, entry);
 
 	/* Set up curses terminal. */
@@ -458,8 +457,14 @@ tty_term_find(char *name, int fd, char **cause)
 	}
 
 	/* Apply terminal overrides. */
-	s = options_get_string(global_options, "terminal-overrides");
-	tty_term_override(term, s);
+	o = options_get_only(global_options, "terminal-overrides");
+	if (options_array_size(o, &size) != -1) {
+		for (i = 0; i < size; i++) {
+			s = options_array_get(o, i);
+			if (s != NULL)
+				tty_term_override(term, s);
+		}
+	}
 
 	/* Delete curses data. */
 	del_curterm(cur_term);
@@ -518,6 +523,22 @@ tty_term_find(char *name, int fd, char **cause)
 		code->type = TTYCODE_STRING;
 	}
 
+	/* On terminals with RGB colour (TC), fill in setrgbf and setrgbb. */
+	if (tty_term_flag(term, TTYC_TC) &&
+	    !tty_term_has(term, TTYC_SETRGBF) &&
+	    !tty_term_has(term, TTYC_SETRGBB)) {
+		code = &term->codes[TTYC_SETRGBF];
+		code->value.string = xstrdup("\033[38;2;%p1%d;%p2%d;%p3%dm");
+		code->type = TTYCODE_STRING;
+		code = &term->codes[TTYC_SETRGBB];
+		code->value.string = xstrdup("\033[48;2;%p1%d;%p2%d;%p3%dm");
+		code->type = TTYCODE_STRING;
+	}
+
+	/* Log it. */
+	for (i = 0; i < tty_term_ncodes(); i++)
+		log_debug("%s%s", name, tty_term_describe(term, i));
+
 	return (term);
 
 error:
@@ -571,6 +592,12 @@ const char *
 tty_term_string2(struct tty_term *term, enum tty_code_code code, int a, int b)
 {
 	return (tparm((char *) tty_term_string(term, code), a, b));
+}
+
+const char *
+tty_term_string3(struct tty_term *term, enum tty_code_code code, int a, int b, int c)
+{
+	return (tparm((char *) tty_term_string(term, code), a, b, c));
 }
 
 const char *

@@ -16,8 +16,8 @@ DDEESSCCRRIIPPTTIIOONN
 
      Remove all but second: val2
 
-     macro seperated from argument by an escape sequence: ``argument''
+     macro seperated from argument by an escape sequence: "argument"
 
      final text
 
-OpenBSD                          June 29, 2014                         OpenBSD
+OpenBSD                          July 4, 2017                          OpenBSD

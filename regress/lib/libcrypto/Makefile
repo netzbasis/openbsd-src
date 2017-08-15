@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.23 2016/07/04 23:43:30 beck Exp $
+#	$OpenBSD: Makefile,v 1.28 2017/05/06 20:42:57 beck Exp $
 
 SUBDIR= \
 	aead \
@@ -11,6 +11,7 @@ SUBDIR= \
 	cast \
 	chacha \
 	cts128 \
+	curve25519 \
 	des \
 	dh \
 	dsa \
@@ -22,20 +23,20 @@ SUBDIR= \
 	exp \
 	gcm128 \
 	gost \
+	hkdf \
 	hmac \
 	idea \
 	ige \
 	md4 \
 	md5 \
-	ocsp \
 	pbkdf2 \
 	pkcs7 \
 	poly1305 \
-	pqueue \
 	rand \
 	rc2 \
 	rc4 \
 	rmd \
+	rsa \
 	sha1 \
 	sha2 \
 	sha256 \

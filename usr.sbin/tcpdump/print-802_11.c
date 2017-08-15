@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-802_11.c,v 1.33 2016/09/02 17:11:46 stsp Exp $	*/
+/*	$OpenBSD: print-802_11.c,v 1.39 2017/03/04 17:51:20 stsp Exp $	*/
 
 /*
  * Copyright (c) 2005 Reyk Floeter <reyk@openbsd.org>
@@ -485,7 +485,7 @@ ieee80211_print_htop(u_int8_t *data, u_int len)
 	u_int8_t primary_chan;
 	u_int8_t htopinfo[5];
 	u_int8_t basic_mcs[16];
-	int sco, prot, i;
+	int sco, htprot, i;
 
 	if (len < sizeof(primary_chan) + sizeof(htopinfo) + sizeof(basic_mcs)) {
 		ieee80211_print_element(data, len);
@@ -535,14 +535,25 @@ ieee80211_print_htop(u_int8_t *data, u_int len)
 	htopinfo[1] = data[2];
 
 	/* protection requirements for HT transmissions */
-	prot = ((htopinfo[1] & IEEE80211_HTOP1_PROT_MASK)
+	htprot = ((htopinfo[1] & IEEE80211_HTOP1_PROT_MASK)
 	    >> IEEE80211_HTOP1_PROT_SHIFT);
-	if (prot == 1)
-		printf(",protect non-member");
-	else if (prot == 2)
-		printf(",protect 20MHz");
-	else if (prot == 3)
-		printf(",protect non-HT");
+	switch (htprot) {
+	case IEEE80211_HTPROT_NONE:
+		printf(",htprot none");
+		break;
+	case IEEE80211_HTPROT_NONMEMBER:
+		printf(",htprot non-member");
+		break;
+	case IEEE80211_HTPROT_20MHZ:
+		printf(",htprot 20MHz");
+		break;
+	case IEEE80211_HTPROT_NONHT_MIXED:
+		printf(",htprot non-HT-mixed");
+		break;
+	default:
+		printf(",htprot %d", htprot);
+		break;
+	}
 
 	/* non-greenfield STA present */
 	if (htopinfo[1] & IEEE80211_HTOP1_NONGF_STA)
@@ -679,8 +690,10 @@ ieee80211_print_elements(uint8_t *frm)
 			if (!vflag)
 				break;
 			for (i = len; i > 0; i--, data++)
-				printf(" %uM",
-				    (data[0] & IEEE80211_RATE_VAL) / 2);
+				printf(" %uM%s",
+				    (data[0] & IEEE80211_RATE_VAL) / 2,
+				    (data[0] & IEEE80211_RATE_BASIC
+				    ? "*" : ""));
 			break;
 		case IEEE80211_ELEMID_FHPARMS:
 			ELEM_CHECK(5);
@@ -894,7 +907,7 @@ ieee80211_frame(struct ieee80211_frame *wh, u_int len)
 		case IEEE80211_FC0_SUBTYPE_BAR:
 		case IEEE80211_FC0_SUBTYPE_BA:
 			TCHECK2(*t, 2); /* Duration */
-			printf(", duration %dms", (t[0] | t[1] << 8));
+			printf(", duration %dus", (t[0] | t[1] << 8));
 			t += 2;
 			TCHECK2(*t, 6); /* RA */
 			printf(", ra %s", etheraddr_string(t));
@@ -925,7 +938,7 @@ ieee80211_frame(struct ieee80211_frame *wh, u_int len)
 		case IEEE80211_FC0_SUBTYPE_CTS:
 		case IEEE80211_FC0_SUBTYPE_ACK:
 			TCHECK2(*t, 2); /* Duration */
-			printf(", duration %dms", (t[0] | t[1] << 8));
+			printf(", duration %dus", (t[0] | t[1] << 8));
 			t += 2;
 			TCHECK2(*t, 6); /* RA */
 			printf(", ra %s", etheraddr_string(t));
@@ -1075,8 +1088,13 @@ ieee802_11_radio_if_print(u_char *user, const struct pcap_pkthdr *h,
 
 	if (RADIOTAP(RATE)) {
 		TCHECK2(*t, 1);
-		if (vflag)
-			printf(", %uMbit/s", (*(u_int8_t*)t) / 2);
+		if (vflag) {
+			uint8_t rate = *(u_int8_t*)t;
+			if (rate & 0x80)
+				printf(", MCS %u", rate & 0x7f);
+			else
+				printf(", %uMbit/s", rate / 2);
+		}
 		t += 1;
 	}
 
@@ -1094,7 +1112,9 @@ ieee802_11_radio_if_print(u_char *user, const struct pcap_pkthdr *h,
 
 		printf(", chan %u", ieee80211_any2ieee(freq, flags));
 
-		if (flags & IEEE80211_CHAN_DYN &&
+		if (flags & IEEE80211_CHAN_HT)
+			printf(", 11n");
+		else if (flags & IEEE80211_CHAN_DYN &&
 		    flags & IEEE80211_CHAN_2GHZ)
 			printf(", 11g");
 		else if (flags & IEEE80211_CHAN_CCK &&

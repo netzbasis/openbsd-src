@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_disk.c,v 1.228 2016/09/02 09:44:27 tom Exp $	*/
+/*	$OpenBSD: subr_disk.c,v 1.232 2017/08/07 11:50:58 kettenis Exp $	*/
 /*	$NetBSD: subr_disk.c,v 1.17 1996/03/16 23:17:08 christos Exp $	*/
 
 /*
@@ -1046,7 +1046,7 @@ disk_init(void)
 int
 disk_construct(struct disk *diskp)
 {
-	rw_init(&diskp->dk_lock, "dklk");
+	rw_init_flags(&diskp->dk_lock, "dklk", RWL_IS_VNODE);
 	mtx_init(&diskp->dk_mtx, IPL_BIO);
 
 	diskp->dk_flags |= DKF_CONSTRUCTED;
@@ -1245,7 +1245,7 @@ disk_busy(struct disk *diskp)
  * time, and reset the timestamp.
  */
 void
-disk_unbusy(struct disk *diskp, long bcount, int read)
+disk_unbusy(struct disk *diskp, long bcount, daddr_t blkno, int read)
 {
 	struct timeval dv_time, diff_time;
 
@@ -1273,7 +1273,8 @@ disk_unbusy(struct disk *diskp, long bcount, int read)
 
 	mtx_leave(&diskp->dk_mtx);
 
-	add_disk_randomness(bcount ^ diff_time.tv_usec);
+	add_disk_randomness(bcount ^ diff_time.tv_usec ^
+	    (blkno >> 32) ^ (blkno & 0xffffffff));
 }
 
 int
@@ -1863,7 +1864,7 @@ duid_format(u_char *duid)
 	static char duid_str[17];
 
 	snprintf(duid_str, sizeof(duid_str),
-	    "%02hx%02hx%02hx%02hx%02hx%02hx%02hx%02hx",
+	    "%02x%02x%02x%02x%02x%02x%02x%02x",
 	    duid[0], duid[1], duid[2], duid[3],
 	    duid[4], duid[5], duid[6], duid[7]);
 

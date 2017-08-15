@@ -1,4 +1,4 @@
-.\" $OpenBSD: doas.conf.5,v 1.30 2016/09/02 18:12:30 tedu Exp $
+.\" $OpenBSD: doas.conf.5,v 1.33 2017/07/13 19:16:33 jmc Exp $
 .\"
 .\"Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
 .\"
@@ -13,14 +13,12 @@
 .\"WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 .\"ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\"OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-.Dd $Mdocdate: September 2 2016 $
+.Dd $Mdocdate: July 13 2017 $
 .Dt DOAS.CONF 5
 .Os
 .Sh NAME
 .Nm doas.conf
 .Nd doas configuration file
-.Sh SYNOPSIS
-.Nm /etc/doas.conf
 .Sh DESCRIPTION
 The
 .Xr doas 1
@@ -35,7 +33,7 @@ The rules have the following format:
 .Op Ar options
 .Ar identity
 .Op Ic as Ar target
-.Op Ic cmd Ar command Op Ic args ...
+.Op Ic cmd Ar command Op Ic args No ...
 .Ed
 .Pp
 Rules consist of the following parts:
@@ -90,7 +88,7 @@ Be advised that it is best to specify absolute paths.
 If a relative path is specified, only a restricted
 .Ev PATH
 will be searched.
-.It Ic args ...
+.It Ic args Op Ar argument ...
 Arguments to command.
 The command arguments provided by the user need to match those specified.
 The keyword
@@ -120,9 +118,15 @@ as a result, comments may not be extended over multiple lines.
 If quotes or backslashes are used in a word,
 it is not considered a keyword.
 .El
+.Sh FILES
+.Bl -tag -width "/etc/doas.conf"
+.It Pa /etc/doas.conf
+Doas configuration file.
+.El
 .Sh EXAMPLES
-The following example permits users in group wsrc to build ports;
-wheel to execute commands as any user while keeping the environment
+The following example permits user aja to install packages
+from a preferred mirror;
+group wheel to execute commands as any user while keeping the environment
 variables
 .Ev PS1
 and
@@ -133,14 +137,7 @@ unsetting
 permits tedu to run procmap as root without a password;
 and additionally permits root to run unrestricted commands as itself.
 .Bd -literal -offset indent
-# Non-exhaustive list of variables needed to
-# build release(8) and ports(7)
-permit nopass setenv { \e
-        FTPMODE PKG_CACHE PKG_PATH SM_PATH SSH_AUTH_SOCK \e
-        DESTDIR DISTDIR FETCH_CMD FLAVOR GROUP MAKE MAKECONF \e
-        MULTI_PACKAGES NOMAN OKAY_FILES OWNER PKG_DBDIR \e
-        PKG_DESTDIR PKG_TMPDIR PORTSDIR RELEASEDIR SHARED_ONLY \e
-        SUBPACKAGE WRKOBJDIR SUDO_PORT_V1 } :wsrc
+permit persist setenv { PKG_CACHE PKG_PATH } aja cmd pkg_add
 permit setenv { -ENV PS1=$DOAS_PS1 SSH_AUTH_SOCK } :wheel
 permit nopass tedu as root cmd /usr/sbin/procmap
 permit nopass keepenv root as root

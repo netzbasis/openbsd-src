@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6d.c,v 1.32 2016/09/03 10:25:36 renato Exp $ */
+/*	$OpenBSD: ospf6d.c,v 1.34 2017/08/12 16:27:50 benno Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/sysctl.h>
+#include <syslog.h>
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -116,11 +117,11 @@ main(int argc, char *argv[])
 
 	conffile = CONF_FILE;
 	ospfd_process = PROC_MAIN;
-	log_procname = log_procnames[ospfd_process];
 	sockname = OSPF6D_SOCKET;
 
-	log_init(1);	/* log to stderr until daemonized */
-	log_verbose(1);
+	log_init(1, LOG_DAEMON);	/* log to stderr until daemonized */
+	log_procinit(log_procnames[ospfd_process]);
+	log_setverbose(1);
 
 	while ((ch = getopt(argc, argv, "cdD:f:s:nv")) != -1) {
 		switch (ch) {
@@ -148,7 +149,7 @@ main(int argc, char *argv[])
 			if (opts & OSPFD_OPT_VERBOSE)
 				opts |= OSPFD_OPT_VERBOSE2;
 			opts |= OSPFD_OPT_VERBOSE;
-			log_verbose(1);
+			log_setverbose(1);
 			break;
 		default:
 			usage();
@@ -199,8 +200,8 @@ main(int argc, char *argv[])
 	if (getpwnam(OSPF6D_USER) == NULL)
 		errx(1, "unknown user %s", OSPF6D_USER);
 
-	log_init(debug);
-	log_verbose(ospfd_conf->opts & OSPFD_OPT_VERBOSE);
+	log_init(debug, LOG_DAEMON);
+	log_setverbose(ospfd_conf->opts & OSPFD_OPT_VERBOSE);
 
 	if (!debug)
 		daemon(1, 0);
@@ -363,7 +364,7 @@ main_dispatch_ospfe(int fd, short event, void *bula)
 		case IMSG_CTL_LOG_VERBOSE:
 			/* already checked by ospfe */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_verbose(verbose);
+			log_setverbose(verbose);
 			break;
 		default:
 			log_debug("main_dispatch_ospfe: error handling imsg %d",
@@ -389,7 +390,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	struct imsgbuf	*ibuf = &iev->ibuf;
 	struct imsg	 imsg;
 	ssize_t		 n;
-	int		 shut = 0;
+	int		 count, shut = 0;
 
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
@@ -413,7 +414,9 @@ main_dispatch_rde(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_KROUTE_CHANGE:
-			if (kr_change(imsg.data))
+			count = (imsg.hdr.len - IMSG_HEADER_SIZE) /
+			    sizeof(struct kroute);
+			if (kr_change(imsg.data, count))
 				log_warn("main_dispatch_rde: error changing "
 				    "route");
 			break;

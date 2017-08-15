@@ -1,4 +1,4 @@
-/*	$OpenBSD: utils.c,v 1.3 2016/01/10 11:06:44 ratchov Exp $	*/
+/*	$OpenBSD: utils.c,v 1.5 2017/01/03 07:25:16 ratchov Exp $	*/
 /*
  * Copyright (c) 2003-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -96,7 +96,7 @@ log_putx(unsigned long num)
 }
 
 /*
- * store a unsigned decimal in the log
+ * store an unsigned decimal in the log
  */
 void
 log_putu(unsigned long num)
@@ -140,7 +140,7 @@ panic(void)
 }
 
 /*
- * allocate a (small) abount of memory, and abort if it fails
+ * allocate a (small) amount of memory, and abort if it fails
  */
 void *
 xmalloc(size_t size)
@@ -155,6 +155,21 @@ xmalloc(size_t size)
 		panic();
 	}
 	return p;
+}
+
+/*
+ * free memory allocated with xmalloc()
+ */
+void
+xfree(void *p)
+{
+#ifdef DEBUG
+	if (p == NULL) {
+		log_puts("xfree with NULL arg\n");
+		panic();
+	}
+#endif
+	free(p);
 }
 
 /*

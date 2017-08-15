@@ -1,4 +1,4 @@
-/*	$Id: keyproc.c,v 1.4 2016/09/01 00:35:22 florian Exp $ */
+/*	$Id: keyproc.c,v 1.9 2017/03/26 18:41:02 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -53,12 +53,12 @@ add_ext(STACK_OF(X509_EXTENSION) *sk, int nid, const char *value)
 	 * This leaks memory, but bounded to the number of SANs.
 	 */
 
-	if (NULL == (cp = strdup(value))) {
+	if ((cp = strdup(value)) == NULL) {
 		warn("strdup");
 		return (0);
 	}
 	ex = X509V3_EXT_conf_nid(NULL, NULL, nid, cp);
-	if (NULL == ex) {
+	if (ex == NULL) {
 		warnx("X509V3_EXT_conf_nid");
 		free(cp);
 		return (0);
@@ -75,26 +75,19 @@ add_ext(STACK_OF(X509_EXTENSION) *sk, int nid, const char *value)
  */
 int
 keyproc(int netsock, const char *keyfile,
-	const char **alts, size_t altsz, int newkey)
+    const char **alts, size_t altsz, int newkey)
 {
-	char		*der64, *der, *dercp, *sans, *san;
+	char		*der64 = NULL, *der = NULL, *dercp;
+	char		*sans = NULL, *san = NULL;
 	FILE		*f;
 	size_t		 i, sansz;
 	void		*pp;
-	EVP_PKEY	*pkey;
-	X509_REQ	*x;
-	X509_NAME	*name;
-	unsigned char	 rbuf[64];
-	int		 len, rc, cc, nid;
+	EVP_PKEY	*pkey = NULL;
+	X509_REQ	*x = NULL;
+	X509_NAME	*name = NULL;
+	int		 len, rc = 0, cc, nid;
 	mode_t		 prev;
-	STACK_OF(X509_EXTENSION) *exts;
-
-	x = NULL;
-	pkey = NULL;
-	name = NULL;
-	der = der64 = sans = san = NULL;
-	rc = 0;
-	exts = NULL;
+	STACK_OF(X509_EXTENSION) *exts = NULL;
 
 	/*
 	 * First, open our private key file read-only or write-only if
@@ -106,7 +99,7 @@ keyproc(int netsock, const char *keyfile,
 	f = fopen(keyfile, newkey ? "wx" : "r");
 	umask(prev);
 
-	if (NULL == f) {
+	if (f == NULL) {
 		warn("%s", keyfile);
 		goto out;
 	}
@@ -120,24 +113,12 @@ keyproc(int netsock, const char *keyfile,
 		goto out;
 	}
 
-	/*
-	 * Seed our PRNG with data from arc4random().
-	 * Do this until we're told it's ok and use increments of 64
-	 * bytes (arbitrarily).
-	 * TODO: is this sufficient as a RAND source?
-	 */
-
-	while (0 == RAND_status()) {
-		arc4random_buf(rbuf, sizeof(rbuf));
-		RAND_seed(rbuf, sizeof(rbuf));
-	}
-
 	if (newkey) {
-		if (NULL == (pkey = rsa_key_create(f, keyfile)))
+		if ((pkey = rsa_key_create(f, keyfile)) == NULL)
 			goto out;
 		dodbg("%s: generated RSA domain key", keyfile);
 	} else {
-		if (NULL == (pkey = rsa_key_load(f, keyfile)))
+		if ((pkey = rsa_key_load(f, keyfile)) == NULL)
 			goto out;
 		doddbg("%s: loaded RSA domain key", keyfile);
 	}
@@ -150,24 +131,24 @@ keyproc(int netsock, const char *keyfile,
 	 * Then set it as the X509 requester's key.
 	 */
 
-	if (NULL == (x = X509_REQ_new())) {
+	if ((x = X509_REQ_new()) == NULL) {
 		warnx("X509_new");
 		goto out;
-	} else if ( ! X509_REQ_set_pubkey(x, pkey)) {
+	} else if (!X509_REQ_set_pubkey(x, pkey)) {
 		warnx("X509_set_pubkey");
 		goto out;
 	}
 
 	/* Now specify the common name that we'll request. */
 
-	if (NULL == (name = X509_NAME_new())) {
+	if ((name = X509_NAME_new()) == NULL) {
 		warnx("X509_NAME_new");
 		goto out;
-	} else if ( ! X509_NAME_add_entry_by_txt(name, "CN",
+	} else if (!X509_NAME_add_entry_by_txt(name, "CN",
 		MBSTRING_ASC, (u_char *)alts[0], -1, -1, 0)) {
 		warnx("X509_NAME_add_entry_by_txt: CN=%s", alts[0]);
 		goto out;
-	} else if ( ! X509_REQ_set_subject_name(x, name)) {
+	} else if (!X509_REQ_set_subject_name(x, name)) {
 		warnx("X509_req_set_issuer_name");
 		goto out;
 	}
@@ -182,12 +163,12 @@ keyproc(int netsock, const char *keyfile,
 
 	if (altsz > 1) {
 		nid = NID_subject_alt_name;
-		if (NULL == (exts = sk_X509_EXTENSION_new_null())) {
+		if ((exts = sk_X509_EXTENSION_new_null()) == NULL) {
 			warnx("sk_X509_EXTENSION_new_null");
 			goto out;
 		}
 		/* Initialise to empty string. */
-		if (NULL == (sans = strdup(""))) {
+		if ((sans = strdup("")) == NULL) {
 			warn("strdup");
 			goto out;
 		}
@@ -201,14 +182,14 @@ keyproc(int netsock, const char *keyfile,
 
 		for (i = 1; i < altsz; i++) {
 			cc = asprintf(&san, "%sDNS:%s",
-				i > 1 ? "," : "", alts[i]);
-			if (-1 == cc) {
+			    i > 1 ? "," : "", alts[i]);
+			if (cc == -1) {
 				warn("asprintf");
 				goto out;
 			}
-			pp = realloc(sans, sansz + strlen(san));
-			if (NULL == pp) {
-				warn("realloc");
+			pp = recallocarray(sans, sansz, sansz + strlen(san), 1);
+			if (pp == NULL) {
+				warn("recallocarray");
 				goto out;
 			}
 			sans = pp;
@@ -218,20 +199,19 @@ keyproc(int netsock, const char *keyfile,
 			san = NULL;
 		}
 
-		if ( ! add_ext(exts, nid, sans)) {
+		if (!add_ext(exts, nid, sans)) {
 			warnx("add_ext");
 			goto out;
-		} else if ( ! X509_REQ_add_extensions(x, exts)) {
+		} else if (!X509_REQ_add_extensions(x, exts)) {
 			warnx("X509_REQ_add_extensions");
 			goto out;
 		}
-		sk_X509_EXTENSION_pop_free
-			(exts, X509_EXTENSION_free);
+		sk_X509_EXTENSION_pop_free(exts, X509_EXTENSION_free);
 	}
 
 	/* Sign the X509 request using SHA256. */
 
-	if ( ! X509_REQ_sign(x, pkey, EVP_sha256())) {
+	if (!X509_REQ_sign(x, pkey, EVP_sha256())) {
 		warnx("X509_sign");
 		goto out;
 	}
@@ -241,13 +221,13 @@ keyproc(int netsock, const char *keyfile,
 	if ((len = i2d_X509_REQ(x, NULL)) < 0) {
 		warnx("i2d_X509");
 		goto out;
-	} else if (NULL == (der = dercp = malloc(len))) {
+	} else if ((der = dercp = malloc(len)) == NULL) {
 		warn("malloc");
 		goto out;
 	} else if (len != i2d_X509_REQ(x, (u_char **)&dercp)) {
 		warnx("i2d_X509");
 		goto out;
-	} else if (NULL == (der64 = base64buf_url(der, len))) {
+	} else if ((der64 = base64buf_url(der, len)) == NULL) {
 		warnx("base64buf_url");
 		goto out;
 	}
@@ -266,17 +246,17 @@ keyproc(int netsock, const char *keyfile,
 	rc = 1;
 out:
 	close(netsock);
-	if (NULL != f)
+	if (f != NULL)
 		fclose(f);
 	free(der);
 	free(der64);
 	free(sans);
 	free(san);
-	if (NULL != x)
+	if (x != NULL)
 		X509_REQ_free(x);
-	if (NULL != name)
+	if (name != NULL)
 		X509_NAME_free(name);
-	if (NULL != pkey)
+	if (pkey != NULL)
 		EVP_PKEY_free(pkey);
 	ERR_print_errors_fp(stderr);
 	ERR_free_strings();

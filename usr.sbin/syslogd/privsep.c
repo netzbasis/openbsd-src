@@ -1,7 +1,8 @@
-/*	$OpenBSD: privsep.c,v 1.61 2016/06/28 18:22:50 jca Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.67 2017/04/05 11:31:45 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2003 Anil Madhavapeddy <anil@recoil.org>
+ * Copyright (c) 2016 Alexander Bluhm <bluhm@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,6 +35,7 @@
 #include <unistd.h>
 #include <utmp.h>
 
+#include "log.h"
 #include "syslogd.h"
 
 /*
@@ -66,14 +68,11 @@ enum cmd_types {
 	PRIV_CONFIG_MODIFIED,	/* check if config file has been modified */
 	PRIV_GETADDRINFO,	/* resolve host/service names */
 	PRIV_GETNAMEINFO,	/* resolve numeric address into hostname */
-	PRIV_DONE_CONFIG_PARSE	/* signal that the initial config parse is done */
+	PRIV_DONE_CONFIG_PARSE	/* signal that initial config parse is done */
 };
 
 static int priv_fd = -1;
 static volatile pid_t child_pid = -1;
-static char config_file[PATH_MAX];
-static struct stat cf_info;
-static int allow_getnameinfo = 0;
 static volatile sig_atomic_t cur_state = STATE_INIT;
 
 /* Queue for the allowed logfiles */
@@ -94,25 +93,12 @@ static void must_read(int, void *, size_t);
 static void must_write(int, void *, size_t);
 static int  may_read(int, void *, size_t);
 
-int
-priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
+void
+priv_init(int lockfd, int nullfd, int argc, char *argv[])
 {
-	int i, fd, socks[2], cmd, addr_len, result, restart;
-	size_t path_len, protoname_len, hostname_len, servname_len;
-	char path[PATH_MAX], protoname[5];
-	char hostname[NI_MAXHOST], servname[NI_MAXSERV];
-	struct sockaddr_storage addr;
-	struct stat cf_stat;
+	int i, socks[2];
 	struct passwd *pw;
-	struct addrinfo hints, *res0;
-	struct sigaction sa;
-
-	memset(&sa, 0, sizeof(sa));
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	sa.sa_handler = SIG_DFL;
-	for (i = 1; i < _NSIG; i++)
-		sigaction(i, &sa, NULL);
+	char *execpath, childnum[11], **privargv;
 
 	/* Create sockets */
 	if (socketpair(AF_LOCAL, SOCK_STREAM, PF_UNSPEC, socks) == -1)
@@ -129,9 +115,9 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 	if (!child_pid) {
 		/* Child - drop privileges and return */
 		if (chroot(pw->pw_dir) != 0)
-			err(1, "unable to chroot");
+			err(1, "chroot %s", pw->pw_dir);
 		if (chdir("/") != 0)
-			err(1, "unable to chdir");
+			err(1, "chdir %s", pw->pw_dir);
 
 		if (setgroups(1, &pw->pw_gid) == -1)
 			err(1, "setgroups() failed");
@@ -141,12 +127,16 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			err(1, "setresuid() failed");
 		close(socks[0]);
 		priv_fd = socks[1];
-		return 0;
+		return;
 	}
+	close(socks[1]);
 
-	if (pledge("stdio rpath wpath cpath dns getpw sendfd id proc exec",
-	    NULL) == -1)
-		err(1, "pledge priv");
+	if (strchr(argv[0], '/') == NULL)
+		execpath = argv[0];
+	else if ((execpath = realpath(argv[0], NULL)) == NULL)
+		err(1, "realpath %s", argv[0]);
+	if (chdir("/") != 0)
+		err(1, "chdir /");
 
 	if (!Debug) {
 		close(lockfd);
@@ -157,7 +147,57 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 	if (nullfd > 2)
 		close(nullfd);
 
-	/* Father */
+	if (dup3(socks[0], 3, 0) == -1)
+		err(1, "dup3 priv sock failed");
+	if (closefrom(4) == -1)
+		err(1, "closefrom 4 failed");
+
+	snprintf(childnum, sizeof(childnum), "%d", child_pid);
+	if ((privargv = reallocarray(NULL, argc + 3, sizeof(char *))) == NULL)
+		err(1, "alloc priv argv failed");
+	privargv[0] = execpath;
+	for (i = 1; i < argc; i++)
+		privargv[i] = argv[i];
+	privargv[i++] = "-P";
+	privargv[i++] = childnum;
+	privargv[i++] = NULL;
+	execvp(privargv[0], privargv);
+	err(1, "exec priv '%s' failed", privargv[0]);
+}
+
+__dead void
+priv_exec(char *conf, int numeric, int child, int argc, char *argv[])
+{
+	int i, fd, sock, cmd, addr_len, result, restart;
+	size_t path_len, protoname_len, hostname_len, servname_len;
+	char path[PATH_MAX], protoname[5];
+	char hostname[NI_MAXHOST], servname[NI_MAXSERV];
+	struct sockaddr_storage addr;
+	struct stat cf_info, cf_stat;
+	struct addrinfo hints, *res0;
+	struct sigaction sa;
+	sigset_t sigmask;
+
+	if (pledge("stdio rpath wpath cpath dns getpw sendfd id proc exec",
+	    NULL) == -1)
+		err(1, "pledge priv");
+
+	if (argc <= 2 || strcmp("-P", argv[argc - 2]) != 0)
+		errx(1, "exec without priv");
+	argv[argc -= 2] = NULL;
+
+	sock = 3;
+	closefrom(4);
+
+	child_pid = child;
+
+	memset(&sa, 0, sizeof(sa));
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	sa.sa_handler = SIG_DFL;
+	for (i = 1; i < _NSIG; i++)
+		sigaction(i, &sa, NULL);
+
 	/* Pass TERM/HUP/INT/QUIT through to child, and accept CHLD */
 	sa.sa_handler = sig_pass_to_chld;
 	sigaction(SIGTERM, &sa, NULL);
@@ -169,63 +209,34 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 	sigaction(SIGCHLD, &sa, NULL);
 
 	setproctitle("[priv]");
-	close(socks[1]);
+	log_debug("[priv]: fork+exec done");
 
-	/* Close descriptors that only the unpriv child needs */
-	if (fd_ctlconn != -1)
-		close(fd_ctlconn);
-	if (fd_ctlsock != -1)
-		close(fd_ctlsock);
-	if (fd_klog != -1)
-		close(fd_klog);
-	if (fd_sendsys != -1)
-		close(fd_sendsys);
-	if (fd_udp != -1)
-		close(fd_udp);
-	if (fd_udp6 != -1)
-		close(fd_udp6);
-	if (fd_bind != -1)
-		close(fd_bind);
-	if (fd_listen != -1)
-		close(fd_listen);
-	if (fd_tls != -1)
-		close(fd_tls);
-	for (i = 0; i < nunix; i++)
-		if (fd_unix[i] != -1)
-			close(fd_unix[i]);
+	sigemptyset(&sigmask);
+	if (sigprocmask(SIG_SETMASK, &sigmask, NULL) == -1)
+		err(1, "sigprocmask priv");
 
-	/* Save the config file specified by the child process */
-	if (strlcpy(config_file, conf, sizeof config_file) >= sizeof(config_file))
-		errx(1, "config_file truncation");
-
-	if (stat(config_file, &cf_info) < 0)
+	if (stat(conf, &cf_info) < 0)
 		err(1, "stat config file failed");
-
-	/* Save whether or not the child can have access to getnameinfo(3) */
-	if (numeric > 0)
-		allow_getnameinfo = 0;
-	else
-		allow_getnameinfo = 1;
 
 	TAILQ_INIT(&lognames);
 	increase_state(STATE_CONFIG);
 	restart = 0;
 
 	while (cur_state < STATE_QUIT) {
-		if (may_read(socks[0], &cmd, sizeof(int)))
+		if (may_read(sock, &cmd, sizeof(int)))
 			break;
 		switch (cmd) {
 		case PRIV_OPEN_TTY:
-			logdebug("[priv]: msg PRIV_OPEN_TTY received\n");
+			log_debug("[priv]: msg PRIV_OPEN_TTY received");
 			/* Expecting: length, path */
-			must_read(socks[0], &path_len, sizeof(size_t));
+			must_read(sock, &path_len, sizeof(size_t));
 			if (path_len == 0 || path_len > sizeof(path))
 				_exit(1);
-			must_read(socks[0], &path, path_len);
+			must_read(sock, &path, path_len);
 			path[path_len - 1] = '\0';
 			check_tty_name(path, sizeof(path));
 			fd = open(path, O_WRONLY|O_NONBLOCK, 0);
-			send_fd(socks[0], fd);
+			send_fd(sock, fd);
 			if (fd < 0)
 				warnx("priv_open_tty failed");
 			else
@@ -234,13 +245,13 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 
 		case PRIV_OPEN_LOG:
 		case PRIV_OPEN_PIPE:
-			logdebug("[priv]: msg PRIV_OPEN_%s received\n",
+			log_debug("[priv]: msg PRIV_OPEN_%s received",
 			    cmd == PRIV_OPEN_PIPE ? "PIPE" : "LOG");
 			/* Expecting: length, path */
-			must_read(socks[0], &path_len, sizeof(size_t));
+			must_read(sock, &path_len, sizeof(size_t));
 			if (path_len == 0 || path_len > sizeof(path))
 				_exit(1);
-			must_read(socks[0], &path, path_len);
+			must_read(sock, &path, path_len);
 			path[path_len - 1] = '\0';
 			check_log_name(path, sizeof(path));
 
@@ -251,7 +262,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			else
 				errx(1, "invalid cmd");
 
-			send_fd(socks[0], fd);
+			send_fd(sock, fd);
 			if (fd < 0)
 				warnx("priv_open_log failed");
 			else
@@ -259,9 +270,9 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_OPEN_UTMP:
-			logdebug("[priv]: msg PRIV_OPEN_UTMP received\n");
+			log_debug("[priv]: msg PRIV_OPEN_UTMP received");
 			fd = open(_PATH_UTMP, O_RDONLY|O_NONBLOCK, 0);
-			send_fd(socks[0], fd);
+			send_fd(sock, fd);
 			if (fd < 0)
 				warnx("priv_open_utmp failed");
 			else
@@ -269,10 +280,10 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_OPEN_CONFIG:
-			logdebug("[priv]: msg PRIV_OPEN_CONFIG received\n");
-			stat(config_file, &cf_info);
-			fd = open(config_file, O_RDONLY|O_NONBLOCK, 0);
-			send_fd(socks[0], fd);
+			log_debug("[priv]: msg PRIV_OPEN_CONFIG received");
+			stat(conf, &cf_info);
+			fd = open(conf, O_RDONLY|O_NONBLOCK, 0);
+			send_fd(sock, fd);
 			if (fd < 0)
 				warnx("priv_open_config failed");
 			else
@@ -280,48 +291,48 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_CONFIG_MODIFIED:
-			logdebug("[priv]: msg PRIV_CONFIG_MODIFIED received\n");
-			if (stat(config_file, &cf_stat) < 0 ||
+			log_debug("[priv]: msg PRIV_CONFIG_MODIFIED received");
+			if (stat(conf, &cf_stat) < 0 ||
 			    timespeccmp(&cf_info.st_mtimespec,
 			    &cf_stat.st_mtimespec, <) ||
 			    cf_info.st_size != cf_stat.st_size) {
-				logdebug("config file modified: restarting\n");
+				log_debug("config file modified: restarting");
 				restart = result = 1;
-				must_write(socks[0], &result, sizeof(int));
+				must_write(sock, &result, sizeof(int));
 			} else {
 				result = 0;
-				must_write(socks[0], &result, sizeof(int));
+				must_write(sock, &result, sizeof(int));
 			}
 			break;
 
 		case PRIV_DONE_CONFIG_PARSE:
-			logdebug("[priv]: msg PRIV_DONE_CONFIG_PARSE "
-			    "received\n");
+			log_debug("[priv]: msg PRIV_DONE_CONFIG_PARSE "
+			    "received");
 			increase_state(STATE_RUNNING);
 			break;
 
 		case PRIV_GETADDRINFO:
-			logdebug("[priv]: msg PRIV_GETADDRINFO received\n");
+			log_debug("[priv]: msg PRIV_GETADDRINFO received");
 			/* Expecting: len, proto, len, host, len, serv */
-			must_read(socks[0], &protoname_len, sizeof(size_t));
+			must_read(sock, &protoname_len, sizeof(size_t));
 			if (protoname_len == 0 ||
 			    protoname_len > sizeof(protoname))
 				_exit(1);
-			must_read(socks[0], &protoname, protoname_len);
+			must_read(sock, &protoname, protoname_len);
 			protoname[protoname_len - 1] = '\0';
 
-			must_read(socks[0], &hostname_len, sizeof(size_t));
+			must_read(sock, &hostname_len, sizeof(size_t));
 			if (hostname_len == 0 ||
 			    hostname_len > sizeof(hostname))
 				_exit(1);
-			must_read(socks[0], &hostname, hostname_len);
+			must_read(sock, &hostname, hostname_len);
 			hostname[hostname_len - 1] = '\0';
 
-			must_read(socks[0], &servname_len, sizeof(size_t));
+			must_read(sock, &servname_len, sizeof(size_t));
 			if (servname_len == 0 ||
 			    servname_len > sizeof(servname))
 				_exit(1);
-			must_read(socks[0], &servname, servname_len);
+			must_read(sock, &servname, servname_len);
 			servname[servname_len - 1] = '\0';
 
 			memset(&hints, 0, sizeof(hints));
@@ -356,34 +367,34 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			i = getaddrinfo(hostname, servname, &hints, &res0);
 			if (i != 0 || res0 == NULL) {
 				addr_len = 0;
-				must_write(socks[0], &addr_len, sizeof(int));
+				must_write(sock, &addr_len, sizeof(int));
 			} else {
 				/* Just send the first address */
 				i = res0->ai_addrlen;
-				must_write(socks[0], &i, sizeof(int));
-				must_write(socks[0], res0->ai_addr, i);
+				must_write(sock, &i, sizeof(int));
+				must_write(sock, res0->ai_addr, i);
 				freeaddrinfo(res0);
 			}
 			break;
 
 		case PRIV_GETNAMEINFO:
-			logdebug("[priv]: msg PRIV_GETNAMEINFO received\n");
-			if (!allow_getnameinfo)
+			log_debug("[priv]: msg PRIV_GETNAMEINFO received");
+			if (numeric)
 				errx(1, "rejected attempt to getnameinfo");
 			/* Expecting: length, sockaddr */
-			must_read(socks[0], &addr_len, sizeof(int));
+			must_read(sock, &addr_len, sizeof(int));
 			if (addr_len <= 0 || (size_t)addr_len > sizeof(addr))
 				_exit(1);
-			must_read(socks[0], &addr, addr_len);
+			must_read(sock, &addr, addr_len);
 			if (getnameinfo((struct sockaddr *)&addr, addr_len,
 			    hostname, sizeof(hostname), NULL, 0,
 			    NI_NOFQDN|NI_NAMEREQD|NI_DGRAM) != 0) {
 				addr_len = 0;
-				must_write(socks[0], &addr_len, sizeof(int));
+				must_write(sock, &addr_len, sizeof(int));
 			} else {
 				addr_len = strlen(hostname) + 1;
-				must_write(socks[0], &addr_len, sizeof(int));
-				must_write(socks[0], hostname, addr_len);
+				must_write(sock, &addr_len, sizeof(int));
+				must_write(sock, hostname, addr_len);
 			}
 			break;
 		default:
@@ -392,23 +403,27 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 		}
 	}
 
-	close(socks[0]);
+	close(sock);
 
 	/* Unlink any domain sockets that have been opened */
 	for (i = 0; i < nunix; i++)
-		if (fd_unix[i] != -1)
-			(void)unlink(path_unix[i]);
-	if (path_ctlsock != NULL && fd_ctlsock != -1)
+		(void)unlink(path_unix[i]);
+	if (path_ctlsock != NULL)
 		(void)unlink(path_ctlsock);
 
 	if (restart) {
-		int r;
+		int status;
 
-		wait(&r);
+		waitpid(child_pid, &status, 0);
+		sigemptyset(&sigmask);
+		sigaddset(&sigmask, SIGHUP);
+		if (sigprocmask(SIG_SETMASK, &sigmask, NULL) == -1)
+			err(1, "sigprocmask exec");
 		execvp(argv[0], argv);
+		err(1, "exec restart '%s' failed", argv[0]);
 	}
 	unlink(_PATH_LOGPID);
-	_exit(0);
+	exit(0);
 }
 
 static int

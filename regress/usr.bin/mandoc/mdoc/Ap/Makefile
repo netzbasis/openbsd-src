@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.2 2012/11/16 18:40:39 schwarze Exp $
+# $OpenBSD: Makefile,v 1.4 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS = middle eos
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_txp.c,v 1.124 2016/04/13 10:34:32 mpi Exp $	*/
+/*	$OpenBSD: if_txp.c,v 1.126 2017/07/12 14:36:57 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2001
@@ -818,7 +818,6 @@ txp_tx_reclaim(struct txp_softc *sc, struct txp_tx_ring *r,
 				m_freem(m);
 				txd->tx_addrlo = 0;
 				txd->tx_addrhi = 0;
-				ifp->if_opackets++;
 			}
 		}
 		ifq_clr_oactive(&ifp->if_snd);
@@ -886,8 +885,8 @@ txp_alloc_rings(struct txp_softc *sc)
 	sc->sc_txhir.r_off = &sc->sc_hostvar->hv_tx_hi_desc_read_idx;
 	for (i = 0; i < TX_ENTRIES; i++) {
 		if (bus_dmamap_create(sc->sc_dmat, TXP_MAX_PKTLEN,
-		    TX_ENTRIES - 4, TXP_MAX_SEGLEN, 0,
-		    BUS_DMA_NOWAIT, &sc->sc_txd[i].sd_map) != 0) {
+		    TXP_MAXTXSEGS, MCLBYTES, 0, BUS_DMA_NOWAIT,
+		    &sc->sc_txd[i].sd_map) != 0) {
 			for (j = 0; j < i; j++) {
 				bus_dmamap_destroy(sc->sc_dmat,
 				    sc->sc_txd[j].sd_map);
@@ -1247,7 +1246,6 @@ txp_tick(void *vsc)
 	    ext[2].ext_1;
 	ifp->if_collisions += ext[0].ext_2 + ext[0].ext_3 + ext[1].ext_2 +
 	    ext[1].ext_3;
-	ifp->if_opackets += rsp->rsp_par2;
 
 out:
 	if (rsp != NULL)
@@ -1265,7 +1263,7 @@ txp_start(struct ifnet *ifp)
 	struct txp_tx_desc *txd;
 	int txdidx;
 	struct txp_frag_desc *fxd;
-	struct mbuf *m, *mnew;
+	struct mbuf *m;
 	struct txp_swdesc *sd;
 	u_int32_t firstprod, firstcnt, prod, cnt, i;
 
@@ -1276,10 +1274,12 @@ txp_start(struct ifnet *ifp)
 	cnt = r->r_cnt;
 
 	while (1) {
-		m = ifq_deq_begin(&ifp->if_snd);
+		if (cnt >= TX_ENTRIES - TXP_MAXTXSEGS - 4)
+			goto oactive;
+
+		m = ifq_dequeue(&ifp->if_snd);
 		if (m == NULL)
 			break;
-		mnew = NULL;
 
 		firstprod = prod;
 		firstcnt = cnt;
@@ -1287,30 +1287,19 @@ txp_start(struct ifnet *ifp)
 		sd = sc->sc_txd + prod;
 		sd->sd_mbuf = m;
 
-		if (bus_dmamap_load_mbuf(sc->sc_dmat, sd->sd_map, m,
+		switch (bus_dmamap_load_mbuf(sc->sc_dmat, sd->sd_map, m,
 		    BUS_DMA_NOWAIT)) {
-			MGETHDR(mnew, M_DONTWAIT, MT_DATA);
-			if (mnew == NULL)
-				goto oactive1;
-			if (m->m_pkthdr.len > MHLEN) {
-				MCLGET(mnew, M_DONTWAIT);
-				if ((mnew->m_flags & M_EXT) == 0) {
-					m_freem(mnew);
-					goto oactive1;
-				}
-			}
-			m_copydata(m, 0, m->m_pkthdr.len, mtod(mnew, caddr_t));
-			mnew->m_pkthdr.len = mnew->m_len = m->m_pkthdr.len;
-			ifq_deq_commit(&ifp->if_snd, m);
+		case 0:
+			break;
+		case EFBIG:
+			if (m_defrag(m, M_DONTWAIT) == 0 &&
+			    bus_dmamap_load_mbuf(sc->sc_dmat, sd->sd_map, m,
+			    BUS_DMA_NOWAIT) == 0)
+				break;
+		default:
 			m_freem(m);
-			m = mnew;
-			if (bus_dmamap_load_mbuf(sc->sc_dmat, sd->sd_map, m,
-			    BUS_DMA_NOWAIT))
-				goto oactive1;
+			continue;
 		}
-
-		if ((TX_ENTRIES - cnt) < 4)
-			goto oactive;
 
 		txd = r->r_desc + prod;
 		txdidx = prod;
@@ -1324,9 +1313,6 @@ txp_start(struct ifnet *ifp)
 
 		if (++prod == TX_ENTRIES)
 			prod = 0;
-
-		if (++cnt >= (TX_ENTRIES - 4))
-			goto oactive;
 
 #if NVLAN > 0
 		if (m->m_flags & M_VLANTAG) {
@@ -1351,13 +1337,6 @@ txp_start(struct ifnet *ifp)
 
 		fxd = (struct txp_frag_desc *)(r->r_desc + prod);
 		for (i = 0; i < sd->sd_map->dm_nsegs; i++) {
-			if (++cnt >= (TX_ENTRIES - 4)) {
-				bus_dmamap_sync(sc->sc_dmat, sd->sd_map,
-				    0, sd->sd_map->dm_mapsize,
-				    BUS_DMASYNC_POSTWRITE);
-				goto oactive;
-			}
-
 			fxd->frag_flags = FRAG_FLAGS_TYPE_FRAG |
 			    FRAG_FLAGS_VALID;
 			fxd->frag_rsvd1 = 0;
@@ -1382,13 +1361,6 @@ txp_start(struct ifnet *ifp)
 				fxd++;
 
 		}
-
-		/*
-		 * if mnew isn't NULL, we already dequeued and copied
-		 * the packet.
-		 */
-		if (mnew == NULL)
-			ifq_deq_commit(&ifp->if_snd, m);
 
 		ifp->if_timer = 5;
 
@@ -1428,9 +1400,6 @@ txp_start(struct ifnet *ifp)
 	return;
 
 oactive:
-	bus_dmamap_unload(sc->sc_dmat, sd->sd_map);
-oactive1:
-	ifq_deq_rollback(&ifp->if_snd, m);
 	ifq_set_oactive(&ifp->if_snd);
 	r->r_prod = firstprod;
 	r->r_cnt = firstcnt;

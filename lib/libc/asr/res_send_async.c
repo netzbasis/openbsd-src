@@ -1,4 +1,4 @@
-/*	$OpenBSD: res_send_async.c,v 1.29 2015/10/23 00:52:09 deraadt Exp $	*/
+/*	$OpenBSD: res_send_async.c,v 1.36 2017/03/15 15:54:41 deraadt Exp $	*/
 /*
  * Copyright (c) 2012 Eric Faurot <eric@openbsd.org>
  *
@@ -67,7 +67,7 @@ res_send_async(const unsigned char *buf, int buflen, void *asr)
 	}
 	as->as_run = res_send_async_run;
 
-	as->as.dns.flags |= ASYNC_EXTOBUF;
+	as->as_flags |= ASYNC_EXTOBUF;
 	as->as.dns.obuf = (unsigned char *)buf;
 	as->as.dns.obuflen = buflen;
 	as->as.dns.obufsize = buflen;
@@ -346,7 +346,7 @@ setup_query(struct asr_query *as, const char *name, const char *dom,
 	char			fqdn[MAXDNAME];
 	char			dname[MAXDNAME];
 
-	if (as->as.dns.flags & ASYNC_EXTOBUF) {
+	if (as->as_flags & ASYNC_EXTOBUF) {
 		errno = EINVAL;
 		DPRINT("attempting to write in user packet");
 		return (-1);
@@ -377,10 +377,15 @@ setup_query(struct asr_query *as, const char *name, const char *dom,
 	if (as->as_ctx->ac_options & RES_RECURSE)
 		h.flags |= RD_MASK;
 	h.qdcount = 1;
+	if (as->as_ctx->ac_options & (RES_USE_EDNS0 | RES_USE_DNSSEC))
+		h.arcount = 1;
 
 	_asr_pack_init(&p, as->as.dns.obuf, as->as.dns.obufsize);
 	_asr_pack_header(&p, &h);
 	_asr_pack_query(&p, type, class, dname);
+	if (as->as_ctx->ac_options & (RES_USE_EDNS0 | RES_USE_DNSSEC))
+		_asr_pack_edns0(&p, MAXPACKETSZ,
+		    as->as_ctx->ac_options & RES_USE_DNSSEC);
 	if (p.err) {
 		DPRINT("error packing query");
 		errno = EINVAL;
@@ -449,7 +454,7 @@ udp_recv(struct asr_query *as)
 	ssize_t		 n;
 	int		 save_errno;
 
-	if (ensure_ibuf(as, PACKETSZ) == -1) {
+	if (ensure_ibuf(as, MAXPACKETSZ) == -1) {
 		save_errno = errno;
 		close(as->as_fd);
 		errno = save_errno;
@@ -640,18 +645,10 @@ ensure_ibuf(struct asr_query *as, size_t n)
 {
 	char	*t;
 
-	if (as->as.dns.ibuf == NULL) {
-		as->as.dns.ibuf = malloc(n);
-		if (as->as.dns.ibuf == NULL)
-			return (-1); /* errno set */
-		as->as.dns.ibufsize = n;
-		return (0);
-	}
-
 	if (as->as.dns.ibufsize >= n)
 		return (0);
 
-	t = realloc(as->as.dns.ibuf, n);
+	t = recallocarray(as->as.dns.ibuf, as->as.dns.ibufsize, n, 1);
 	if (t == NULL)
 		return (-1); /* errno set */
 	as->as.dns.ibuf = t;
@@ -711,7 +708,8 @@ validate_packet(struct asr_query *as)
 	}
 
 	/* Check for truncation */
-	if (h.flags & TC_MASK) {
+	if (h.flags & TC_MASK && !(as->as_ctx->ac_options & RES_IGNTC)) {
+		DPRINT("truncated\n");
 		errno = EOVERFLOW;
 		return (-1);
 	}
@@ -720,8 +718,18 @@ validate_packet(struct asr_query *as)
 	for (r = h.ancount + h.nscount + h.arcount; r; r--)
 		_asr_unpack_rr(&p, &rr);
 
-	if (p.err || (p.offset != as->as.dns.ibuflen))
-		goto inval;
+	/* Report any error found when unpacking the RRs. */
+	if (p.err) {
+		DPRINT("unpack: %s\n", strerror(p.err));
+		errno = p.err;
+		return (-1);
+	}
+
+	if (p.offset != as->as.dns.ibuflen) {
+		DPRINT("trailing garbage\n");
+		errno = EMSGSIZE;
+		return (-1);
+	}
 
 	return (0);
 

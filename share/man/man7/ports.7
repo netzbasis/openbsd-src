@@ -23,10 +23,10 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: ports.7,v 1.110 2016/09/02 12:17:33 tb Exp $
+.\" $OpenBSD: ports.7,v 1.114 2017/08/11 17:43:06 schwarze Exp $
 .\" $FreeBSD: ports.7,v 1.7 1998/06/23 04:38:50 hoek Exp $
 .\"
-.Dd $Mdocdate: September 2 2016 $
+.Dd $Mdocdate: August 11 2017 $
 .Dt PORTS 7
 .Os
 .Sh NAME
@@ -42,7 +42,7 @@ applications.
 For normal usage refer to
 .Xr packages 7 ,
 as most ports produce binary packages which are available from
-the official CD-ROM, or on a neighborly FTP mirror.
+the official HTTP mirrors.
 .Pp
 Each port contains any patches necessary to make the original
 application source code compile and run on
@@ -53,22 +53,16 @@ in the port directory!
 The
 .Pa Makefile
 automatically fetches the
-application source code, either from a local disk or via ftp, unpacks it
+application source code, either from a local disk or via HTTP, unpacks it
 on the local system, applies the patches, and compiles it.
 If all goes well, simply type
 .Ic doas make install
 to install the application.
 .Pp
 For more information about using ports, see
-The
-.Ox
-Ports System
-.Pq Lk https://www.openbsd.org/faq/faq15.html#Ports .
+.Lk https://www.openbsd.org/faq/faq15.html#Ports "The OpenBSD Ports System" .
 For information about creating new ports, see
-the
-.Ox
-Porter's Handbook
-.Pq Lk https://www.openbsd.org/faq/ports/ .
+.Lk https://www.openbsd.org/faq/ports/ "The OpenBSD Porter's Handbook" .
 .Pp
 For a detailed description of the build process, see
 .Xr bsd.port.mk 5 .
@@ -296,6 +290,8 @@ This is the same as calling the
 target.
 .It Cm fake
 Pretend to install the port under a subdirectory of the work directory.
+.It Cm generate-readmes
+Create READMEs and rc scripts under the fake subdirectory.
 .It Cm package
 Create a binary package from the fake installation.
 The package is a .tgz file that can be used to
@@ -704,6 +700,12 @@ The default ports directory.
 Ports master Makefile.
 .It Pa /usr/ports/INDEX
 Ports index.
+.It Pa /usr/ports/pobj
+Build directories.
+A number of insecurely coded ports require a dedicated file system with the
+.Cm wxallowed
+.Xr mount 8
+option.
 .It Pa /usr/ports/infrastructure/mk/bsd.port.mk
 The ports main engine.
 .It Pa /usr/ports/infrastructure/templates/network.conf.template

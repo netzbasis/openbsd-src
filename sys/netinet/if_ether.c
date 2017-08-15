@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.223 2016/09/07 09:36:49 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.231 2017/08/11 21:24:19 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -110,10 +110,9 @@ void
 arptimer(void *arg)
 {
 	struct timeout *to = (struct timeout *)arg;
-	int s;
 	struct llinfo_arp *la, *nla;
 
-	s = splsoftnet();
+	NET_LOCK();
 	timeout_add_sec(to, arpt_prune);
 	LIST_FOREACH_SAFE(la, &arp_list, la_list, nla) {
 		struct rtentry *rt = la->la_rt;
@@ -121,7 +120,7 @@ arptimer(void *arg)
 		if (rt->rt_expire && rt->rt_expire <= time_uptime)
 			arptfree(rt); /* timer has expired; clear */
 	}
-	splx(s);
+	NET_UNLOCK();
 }
 
 void
@@ -135,11 +134,10 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		static struct timeout arptimer_to;
 
 		arpinit_done = 1;
-		pool_init(&arp_pool, sizeof(struct llinfo_arp), 0, 0, 0, "arp",
-		    NULL);
-		pool_setipl(&arp_pool, IPL_SOFTNET);
+		pool_init(&arp_pool, sizeof(struct llinfo_arp), 0,
+		    IPL_SOFTNET, 0, "arp", NULL);
 
-		timeout_set(&arptimer_to, arptimer, &arptimer_to);
+		timeout_set_proc(&arptimer_to, arptimer, &arptimer_to);
 		timeout_add_sec(&arptimer_to, 1);
 	}
 
@@ -651,7 +649,7 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 	/* Notify userland that an ARP resolution has been done. */
 	if (la->la_asked || changed) {
 		KERNEL_LOCK();
-		rt_sendmsg(rt, RTM_RESOLVE, ifp->if_rdomain);
+		rtm_send(rt, RTM_RESOLVE, 0, ifp->if_rdomain);
 		KERNEL_UNLOCK();
 	}
 
@@ -731,15 +729,11 @@ arplookup(struct in_addr *inp, int create, int proxy, u_int tableid)
 	}
 
 	if (proxy && !ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
-#ifdef ART
-		KERNEL_LOCK();
 		while ((rt = rtable_iterate(rt)) != NULL) {
 			if (ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
 				break;
 			}
 		}
-		KERNEL_UNLOCK();
-#endif /* ART */
 	}
 
 	return (rt);

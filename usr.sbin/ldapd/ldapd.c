@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldapd.c,v 1.20 2016/05/01 00:32:37 jmatthew Exp $ */
+/*	$OpenBSD: ldapd.c,v 1.23 2017/03/01 00:50:12 gsoares Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -38,6 +38,7 @@
 #include <unistd.h>
 
 #include "ldapd.h"
+#include "log.h"
 
 void		 usage(void);
 void		 ldapd_sig_handler(int fd, short why, void *data);
@@ -48,6 +49,8 @@ static void	 ldapd_auth_request(struct imsgev *iev, struct imsg *imsg);
 static void	 ldapd_open_request(struct imsgev *iev, struct imsg *imsg);
 static void	 ldapd_log_verbose(struct imsg *imsg);
 static void	 ldapd_cleanup(char *);
+static pid_t	 start_child(enum ldapd_process, char *, int, int, int,
+		    char *, char *);
 
 struct ldapd_stats	 stats;
 pid_t			 ldape_pid;
@@ -107,12 +110,12 @@ int
 main(int argc, char *argv[])
 {
 	int			 c;
-	int			 debug = 0, verbose = 0;
-	int			 configtest = 0, skip_chroot = 0;
+	int			 debug = 0, verbose = 0, eflag = 0;
+	int			 configtest = 0;
 	int			 pipe_parent2ldap[2];
 	char			*conffile = CONFFILE;
 	char			*csockpath = LDAPD_SOCKET;
-	struct passwd		*pw = NULL;
+	char			*saved_argv0;
 	struct imsgev		*iev_ldape;
 	struct event		 ev_sigint;
 	struct event		 ev_sigterm;
@@ -122,7 +125,12 @@ main(int argc, char *argv[])
 
 	log_init(1);		/* log to stderr until daemonized */
 
-	while ((c = getopt(argc, argv, "dhvD:f:nr:s:")) != -1) {
+	saved_argv0 = argv[0];
+	if (saved_argv0 == NULL)
+		saved_argv0 = "ldapd";
+
+	while ((c = getopt(argc, argv, "dhvD:f:nr:s:E")) != -1) {
+
 		switch (c) {
 		case 'd':
 			debug = 1;
@@ -151,6 +159,9 @@ main(int argc, char *argv[])
 		case 'v':
 			verbose++;
 			break;
+		case 'E':
+			eflag = 1;
+			break;
 		default:
 			usage();
 			/* NOTREACHED */
@@ -160,6 +171,14 @@ main(int argc, char *argv[])
 	argc -= optind;
 	if (argc > 0)
 		usage();
+
+	/* check for root privileges  */
+	if (geteuid())
+		errx(1, "need root privileges");
+
+	/* check for ldapd user */
+	if (getpwnam(LDAPD_USER) == NULL)
+		errx(1, "unknown user %s", LDAPD_USER);
 
 	log_verbose(verbose);
 	stats.started_at = time(0);
@@ -173,19 +192,13 @@ main(int argc, char *argv[])
 		exit(0);
 	}
 
-	if (geteuid()) {
-		if (!debug)
-			errx(1, "need root privileges");
-		skip_chroot = 1;
-	}
+	if (eflag)
+		ldape(debug, verbose, csockpath);
 
 	if (stat(datadir, &sb) == -1)
 		err(1, "%s", datadir);
 	if (!S_ISDIR(sb.st_mode))
 		errx(1, "%s is not a directory", datadir);
-
-	if (!skip_chroot && (pw = getpwnam(LDAPD_USER)) == NULL)
-		err(1, "%s", LDAPD_USER);
 
 	if (!debug) {
 		if (daemon(1, 0) == -1)
@@ -195,11 +208,12 @@ main(int argc, char *argv[])
 	log_init(debug);
 	log_info("startup");
 
-	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, PF_UNSPEC,
-	    pipe_parent2ldap) != 0)
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+	    PF_UNSPEC, pipe_parent2ldap) != 0)
 		fatal("socketpair");
-
-	ldape_pid = ldape(pw, csockpath, pipe_parent2ldap);
+	
+	ldape_pid = start_child(PROC_LDAP_SERVER, saved_argv0,
+	    pipe_parent2ldap[1], debug, verbose, csockpath, conffile);
 
 	setproctitle("auth");
 	event_init();
@@ -213,8 +227,6 @@ main(int argc, char *argv[])
 	signal_add(&ev_sigchld, NULL);
 	signal_add(&ev_sighup, NULL);
 	signal(SIGPIPE, SIG_IGN);
-
-	close(pipe_parent2ldap[1]);
 
 	if ((iev_ldape = calloc(1, sizeof(struct imsgev))) == NULL)
 		fatal("calloc");
@@ -396,3 +408,50 @@ ldapd_open_request(struct imsgev *iev, struct imsg *imsg)
 	    sizeof(*oreq));
 }
 
+static pid_t
+start_child(enum ldapd_process p, char *argv0, int fd, int debug,
+    int verbose, char *csockpath, char *conffile)
+{
+	char		*argv[9];
+	int		 argc = 0;
+	pid_t		 pid;
+
+	switch (pid = fork()) {
+	case -1:
+		fatal("cannot fork");
+	case 0:
+		break;
+	default:
+		close(fd);
+		return (pid);
+	}
+
+	if (dup2(fd, PROC_PARENT_SOCK_FILENO) == -1)
+		fatal("cannot setup imsg fd");
+
+	argv[argc++] = argv0;
+	switch (p) {
+	case PROC_MAIN_AUTH:
+		fatalx("Can not start main process");
+	case PROC_LDAP_SERVER:
+		argv[argc++] = "-E";
+		break;
+	}
+	if (debug)
+		argv[argc++] = "-d";
+	if (verbose)
+		argv[argc++] = "-v";
+	if (csockpath) {
+		argv[argc++] = "-s";
+		argv[argc++] = csockpath;
+	}
+	if (conffile) {
+		argv[argc++] = "-f";
+		argv[argc++] = conffile;
+	}
+	
+	argv[argc++] = NULL;
+
+	execvp(argv0, argv);
+	fatal("execvp");
+}

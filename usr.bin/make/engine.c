@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.50 2015/01/23 13:18:40 espie Exp $ */
+/*	$OpenBSD: engine.c,v 1.54 2017/07/24 12:08:15 espie Exp $ */
 /*
  * Copyright (c) 2012 Marc Espie.
  *
@@ -300,6 +300,10 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 
 	assert(cgn->type & (OP_USE|OP_TRANSFORM));
 
+	if (pgn == NULL)
+		Fatal("Trying to apply .USE to '%s' without a parent",
+		    cgn->name);
+
 	if ((cgn->type & OP_USE) || Lst_IsEmpty(&pgn->commands)) {
 		/* .USE or transformation and target has no commands
 		 * -- append the child's commands to the parent.  */
@@ -308,7 +312,7 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 
 	for (ln = Lst_First(&cgn->children); ln != NULL;
 	    ln = Lst_Adv(ln)) {
-		gn = (GNode *)Lst_Datum(ln);
+		gn = Lst_Datum(ln);
 
 		if (Lst_AddNew(&pgn->children, gn)) {
 			Lst_AtEnd(&gn->parents, pgn);
@@ -351,7 +355,7 @@ Make_DoAllVar(GNode *gn)
 	Var(ALLSRC_INDEX, gn) = "";
 
 	for (ln = Lst_First(&gn->children); ln != NULL; ln = Lst_Adv(ln)) {
-		child = (GNode *)Lst_Datum(ln);
+		child = Lst_Datum(ln);
 		if ((child->type & (OP_EXEC|OP_USE|OP_INVISIBLE)) != 0)
 			continue;
 		if (OP_NOP(child->type) ||
@@ -730,7 +734,7 @@ setup_engine(void)
 }
 
 static bool
-do_run_command(Job *job)
+do_run_command(Job *job, const char *pre)
 {
 	bool silent;	/* Don't print command */
 	bool doExecute;	/* Execute the command */
@@ -748,7 +752,9 @@ do_run_command(Job *job)
 	/* How can we execute a null command ? we warn the user that the
 	 * command expanded to nothing (is this the right thing to do?).  */
 	if (*cmd == '\0') {
-		Error("%s expands to empty string", cmd);
+		Parse_Error(PARSE_WARNING, 
+		    "'%s' expands to '' while building %s", 
+		    pre, job->node->name);
 		return false;
 	}
 
@@ -779,6 +785,10 @@ do_run_command(Job *job)
 		return false;
 	/* always flush for other stuff */
 	fflush(stdout);
+
+	/* Optimization: bypass comments entirely */
+	if (*cmd == '#')
+		return false;
 
 	/* Fork and execute the single command. If the fork fails, we abort.  */
 	switch (cpid = fork()) {
@@ -825,7 +835,7 @@ job_run_next(Job *job)
 		job->next_cmd = Lst_Adv(job->next_cmd);
 		if (fatal_errors)
 			Punt(NULL);
-		started = do_run_command(job);
+		started = do_run_command(job, command->string);
 		if (started)
 			return false;
 		else
