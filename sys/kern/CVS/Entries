@@ -9,7 +9,7 @@
 /init_main.c/1.271/Mon Aug 14 19:50:31 2017//
 /init_sysent.c/1.189/Sat Aug 12 00:04:06 2017//
 /kern_acct.c/1.33/Sat Jan 21 05:42:03 2017//
-/kern_bufq.c/1.31/Fri Aug 28 00:03:53 2015//
+/kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.93/Sat Jul 22 14:33:45 2017//
 /kern_descrip.c/1.141/Thu Jul 20 16:47:21 2017//
 /kern_event.c/1.79/Wed May 31 14:52:05 2017//
