@@ -5,7 +5,7 @@
 /amdmsr.c/1.9/Tue Apr 20 22:05:41 2010//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//
 /apicvec.s/1.33/Thu Jul  6 06:17:05 2017//
-/apm.c/1.116/Sat Oct  8 05:49:08 2016//
+/apm.c/1.117/Thu Aug 17 19:44:27 2017//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.103/Tue Jun 20 21:05:46 2017//
 /bios.c/1.116/Sat Jul 15 17:20:56 2017//
@@ -41,7 +41,7 @@
 /locore.s/1.178/Thu Jul  6 06:17:05 2017//
 /locore0.S/1.2/Thu Jun 29 06:15:30 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
-/machdep.c/1.604/Wed Jul 12 06:26:32 2017//
+/machdep.c/1.605/Thu Aug 17 19:44:27 2017//
 /mainbus.c/1.57/Sat Mar 25 22:24:01 2017//
 /mem.c/1.52/Thu Apr 20 14:13:00 2017//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
