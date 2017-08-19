@@ -2,8 +2,8 @@
 /ieee80211.h/1.60/Sun Jul  2 14:48:19 2017//
 /ieee80211_amrr.c/1.11/Tue Jan  5 18:41:16 2016//
 /ieee80211_amrr.h/1.4/Sat Jun 16 13:17:05 2007//
-/ieee80211_crypto.c/1.70/Tue May  2 17:07:06 2017//
-/ieee80211_crypto.h/1.24/Sat Dec 17 18:35:54 2016//
+/ieee80211_crypto.c/1.71/Fri Aug 18 17:30:12 2017//
+/ieee80211_crypto.h/1.25/Fri Aug 18 17:30:12 2017//
 /ieee80211_crypto_bip.c/1.9/Tue May  2 17:07:06 2017//
 /ieee80211_crypto_ccmp.c/1.20/Tue May  2 17:07:06 2017//
 /ieee80211_crypto_tkip.c/1.29/Sat Jun  3 11:58:10 2017//
@@ -19,7 +19,7 @@
 /ieee80211_pae_input.c/1.30/Thu Aug 17 06:01:05 2017//
 /ieee80211_pae_output.c/1.29/Wed Mar  1 19:28:48 2017//
 /ieee80211_priv.h/1.5/Mon Jan 26 19:09:41 2009//
-/ieee80211_proto.c/1.79/Fri Aug  4 16:25:10 2017//
+/ieee80211_proto.c/1.80/Fri Aug 18 17:30:12 2017//
 /ieee80211_proto.h/1.42/Wed Sep 21 12:21:27 2016//
 /ieee80211_radiotap.h/1.14/Sat Oct  8 14:42:36 2016//
 /ieee80211_regdomain.c/1.10/Tue Nov 24 13:45:06 2015//
