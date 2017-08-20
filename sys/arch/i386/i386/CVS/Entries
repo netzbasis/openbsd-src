@@ -38,7 +38,7 @@
 /kvm86call.S/1.7/Sat Apr 25 21:31:24 2015//
 /lapic.c/1.41/Mon Jul 24 15:17:31 2017//
 /lock_machdep.c/1.25/Mon May 29 14:19:49 2017//
-/locore.s/1.178/Thu Jul  6 06:17:05 2017//
+/locore.s/1.179/Sun Aug 20 04:15:43 2017//
 /locore0.S/1.2/Thu Jun 29 06:15:30 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.605/Thu Aug 17 19:44:27 2017//
