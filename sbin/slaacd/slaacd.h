@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.h,v 1.6 2017/07/30 07:41:08 florian Exp $	*/
+/*	$OpenBSD: slaacd.h,v 1.8 2017/08/21 14:44:26 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -128,7 +128,7 @@ struct ctl_engine_info_ra_dnssl {
 struct ctl_engine_info_address_proposal {
 	int64_t			 id;
 	char			 state[sizeof("PROPOSAL_NEARLY_EXPIRED")];
-	int			 next_timeout;
+	time_t			 next_timeout;
 	int			 timeout_count;
 	struct timespec		 when;
 	struct timespec		 uptime;
@@ -143,7 +143,7 @@ struct ctl_engine_info_address_proposal {
 struct ctl_engine_info_dfr_proposal {
 	int64_t			 id;
 	char			 state[sizeof("PROPOSAL_NEARLY_EXPIRED")];
-	int			 next_timeout;
+	time_t			 next_timeout;
 	int			 timeout_count;
 	struct timespec		 when;
 	struct timespec		 uptime;
@@ -182,8 +182,13 @@ struct imsg_ra {
 extern uint32_t	 cmd_opts;
 
 /* slaacd.c */
-int	main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
-int	main_imsg_compose_engine(int, pid_t, void *, uint16_t);
-void	imsg_event_add(struct imsgev *);
-int	imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
-	    int, void *, uint16_t);
+int		main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
+int		main_imsg_compose_engine(int, pid_t, void *, uint16_t);
+void		imsg_event_add(struct imsgev *);
+int		imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
+		    int, void *, uint16_t);
+#ifndef	SMALL
+const char	*sin6_to_str(struct sockaddr_in6 *);
+#else
+#define	sin6_to_str(x...)	""
+#endif	/* SMALL */
