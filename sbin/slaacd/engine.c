@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.11 2017/08/05 13:02:33 florian Exp $	*/
+/*	$OpenBSD: engine.c,v 1.13 2017/08/21 14:44:26 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -67,7 +67,6 @@
 #include <errno.h>
 #include <event.h>
 #include <imsg.h>
-#include <netdb.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stddef.h>
@@ -167,7 +166,7 @@ struct address_proposal {
 	struct event			 timer;
 	int64_t				 id;
 	enum proposal_state		 state;
-	int				 next_timeout;
+	time_t				 next_timeout;
 	int				 timeout_count;
 	struct timespec			 when;
 	struct timespec			 uptime;
@@ -187,7 +186,7 @@ struct dfr_proposal {
 	struct event			 timer;
 	int64_t				 id;
 	enum proposal_state		 state;
-	int				 next_timeout;
+	time_t				 next_timeout;
 	int				 timeout_count;
 	struct timespec			 when;
 	struct timespec			 uptime;
@@ -258,7 +257,6 @@ void			 find_prefix(struct slaacd_iface *, struct
 			     radv_prefix **);
 int			 engine_imsg_compose_main(int, pid_t, void *, uint16_t);
 uint32_t		 real_lifetime(struct timespec *, uint32_t);
-const char		 *sin6_to_str(struct sockaddr_in6 *);
 
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_main;
@@ -1497,7 +1495,7 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 			    0) {
 				found = 1;
 				if (real_lifetime(&dfr_proposal->uptime,
-				    dfr_proposal->router_lifetime) >=
+				    dfr_proposal->router_lifetime) >
 				    ra->router_lifetime)
 					log_warnx("ignoring router "
 					    "advertisement that lowers router "
@@ -1644,7 +1642,7 @@ configure_address(struct address_proposal *addr_proposal)
 {
 	struct imsg_configure_address	 address;
 	struct timeval			 tv;
-	uint32_t			 lifetime;
+	time_t				 lifetime;
 
 	if (addr_proposal->pltime > MAX_RTR_SOLICITATIONS *
 	    (RTR_SOLICITATION_INTERVAL + 1))
@@ -1659,6 +1657,8 @@ configure_address(struct address_proposal *addr_proposal)
 		tv.tv_sec = addr_proposal->next_timeout;
 		tv.tv_usec = arc4random_uniform(1000000);
 		evtimer_add(&addr_proposal->timer, &tv);
+		log_debug("%s: %d, scheduling new timeout in %llds.%06ld",
+		    __func__, addr_proposal->if_index, tv.tv_sec, tv.tv_usec);
 	} else
 		addr_proposal->next_timeout = 0;
 
@@ -1781,12 +1781,17 @@ configure_dfr(struct dfr_proposal *dfr_proposal)
 	struct timeval			 tv;
 	enum proposal_state		 prev_state;
 
-	dfr_proposal->next_timeout = dfr_proposal->router_lifetime -
-	    MAX_RTR_SOLICITATIONS * (RTR_SOLICITATION_INTERVAL + 1);
-
-	tv.tv_sec = dfr_proposal->next_timeout;
-	tv.tv_usec = arc4random_uniform(1000000);
-	evtimer_add(&dfr_proposal->timer, &tv);
+	if (dfr_proposal->router_lifetime > MAX_RTR_SOLICITATIONS *
+	    (RTR_SOLICITATION_INTERVAL + 1)) {
+		dfr_proposal->next_timeout = dfr_proposal->router_lifetime -
+		    MAX_RTR_SOLICITATIONS * (RTR_SOLICITATION_INTERVAL + 1);
+		tv.tv_sec = dfr_proposal->next_timeout;
+		tv.tv_usec = arc4random_uniform(1000000);
+		evtimer_add(&dfr_proposal->timer, &tv);
+		log_debug("%s: %d, scheduling new timeout in %llds.%06ld",
+		    __func__, dfr_proposal->if_index, tv.tv_sec, tv.tv_usec);
+	} else
+		dfr_proposal->next_timeout = 0;
 
 	prev_state = dfr_proposal->state;
 
@@ -2182,19 +2187,4 @@ real_lifetime(struct timespec *received_uptime, uint32_t ltime)
 		remaining = 0;
 
 	return (remaining);
-}
-
-const char*
-sin6_to_str(struct sockaddr_in6 *sin6)
-{
-	static char hbuf[NI_MAXHOST];
-	int error;
-
-	error = getnameinfo((struct sockaddr *)sin6, sin6->sin6_len, hbuf,
-	    sizeof(hbuf), NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV);
-	if (error) {
-		log_warnx("%s", gai_strerror(error));
-		strlcpy(hbuf, "unknown", sizeof(hbuf));
-	}
-	return hbuf;
 }
