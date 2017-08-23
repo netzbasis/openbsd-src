@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.39 2017/07/25 07:53:27 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.41 2017/08/20 04:22:57 jsg Exp $	*/
 /*	$NetBSD: cpu.c,v 1.56 2004/04/14 04:01:49 bsh Exp $	*/
 
 
@@ -137,9 +137,11 @@ const struct cpuidtab cpuids[] = {
 	{ CPU_ID_CORTEX_A32,	CPU_CLASS_ARMv8,	"ARM Cortex-A32" },
 	{ CPU_ID_CORTEX_A35,	CPU_CLASS_ARMv8,	"ARM Cortex-A35" },
 	{ CPU_ID_CORTEX_A53,	CPU_CLASS_ARMv8,	"ARM Cortex-A53" },
+	{ CPU_ID_CORTEX_A55,	CPU_CLASS_ARMv8,	"ARM Cortex-A55" },
 	{ CPU_ID_CORTEX_A57,	CPU_CLASS_ARMv8,	"ARM Cortex-A57" },
 	{ CPU_ID_CORTEX_A72,	CPU_CLASS_ARMv8,	"ARM Cortex-A72" },
 	{ CPU_ID_CORTEX_A73,	CPU_CLASS_ARMv8,	"ARM Cortex-A73" },
+	{ CPU_ID_CORTEX_A75,	CPU_CLASS_ARMv8,	"ARM Cortex-A75" },
 
 	{ 0, CPU_CLASS_NONE, NULL }
 };
@@ -304,15 +306,6 @@ cpu_alloc_idle_pcb(struct cpu_info *ci)
 	/* Set up the undefined stack for the process. */
 	pcb->pcb_un.un_32.pcb32_und_sp = uaddr + USPACE_UNDEF_STACK_TOP;
 	pcb->pcb_un.un_32.pcb32_sp = uaddr + USPACE_SVC_STACK_TOP;
-
-#ifdef STACKCHECKS
-	/* Fill the undefined stack with a known pattern */
-	memset(((u_char *)uaddr) + USPACE_UNDEF_STACK_BOTTOM, 0xdd,
-	    (USPACE_UNDEF_STACK_TOP - USPACE_UNDEF_STACK_BOTTOM));
-	/* Fill the kernel stack with a known pattern */
-	memset(((u_char *)uaddr) + USPACE_SVC_STACK_BOTTOM, 0xdd,
-	    (USPACE_SVC_STACK_TOP - USPACE_SVC_STACK_BOTTOM));
-#endif	/* STACKCHECKS */
 
 	pcb->pcb_tf = tf =
 	    (struct trapframe *)pcb->pcb_un.un_32.pcb32_sp - 1;

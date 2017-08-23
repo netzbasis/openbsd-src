@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.c,v 1.6 2017/08/12 16:31:09 florian Exp $	*/
+/*	$OpenBSD: slaacd.c,v 1.9 2017/08/21 14:44:26 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <event.h>
 #include <imsg.h>
+#include <netdb.h>
 #include <pwd.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -709,8 +710,9 @@ void
 configure_gateway(struct imsg_configure_dfr *dfr, uint8_t rtm_type)
 {
 	struct rt_msghdr		 rtm;
+	struct sockaddr_rtlabel		 rl;
 	struct sockaddr_in6		 dst, gw, mask;
-	struct iovec			 iov[8];
+	struct iovec			 iov[10];
 	long				 pad = 0;
 	int				 iovcnt = 0, padlen;
 
@@ -723,7 +725,7 @@ configure_gateway(struct imsg_configure_dfr *dfr, uint8_t rtm_type)
 	rtm.rtm_index = dfr->if_index;
 	rtm.rtm_seq = ++rtm_seq;
 	rtm.rtm_priority = RTP_DEFAULT;
-	rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK;
+	rtm.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK | RTA_LABEL;
 	rtm.rtm_flags = RTF_UP | RTF_GATEWAY | RTF_STATIC;
 
 	iov[iovcnt].iov_base = &rtm;
@@ -758,11 +760,25 @@ configure_gateway(struct imsg_configure_dfr *dfr, uint8_t rtm_type)
 
 	memset(&mask, 0, sizeof(mask));
 	mask.sin6_family = AF_INET6;
-	mask.sin6_len = 0;//sizeof(struct sockaddr_in6);
+	mask.sin6_len = sizeof(struct sockaddr_in6);
 	iov[iovcnt].iov_base = &mask;
 	iov[iovcnt++].iov_len = sizeof(mask);
 	rtm.rtm_msglen += sizeof(mask);
 	padlen = ROUNDUP(sizeof(mask)) - sizeof(mask);
+	if (padlen > 0) {
+		iov[iovcnt].iov_base = &pad;
+		iov[iovcnt++].iov_len = padlen;
+		rtm.rtm_msglen += padlen;
+	}
+
+	memset(&rl, 0, sizeof(rl));
+	rl.sr_len = sizeof(rl);
+	rl.sr_family = AF_UNSPEC;
+	(void)snprintf(rl.sr_label, sizeof(rl.sr_label), "%s", "slaacd");
+	iov[iovcnt].iov_base = &rl;
+	iov[iovcnt++].iov_len = sizeof(rl);
+	rtm.rtm_msglen += sizeof(rl);
+	padlen = ROUNDUP(sizeof(rl)) - sizeof(rl);
 	if (padlen > 0) {
 		iov[iovcnt].iov_base = &pad;
 		iov[iovcnt++].iov_len = padlen;
@@ -784,3 +800,20 @@ delete_gateway(struct imsg_configure_dfr *dfr)
 {
 	configure_gateway(dfr, RTM_DELETE);
 }
+
+#ifndef	SMALL
+const char*
+sin6_to_str(struct sockaddr_in6 *sin6)
+{
+	static char hbuf[NI_MAXHOST];
+	int error;
+
+	error = getnameinfo((struct sockaddr *)sin6, sin6->sin6_len, hbuf,
+	    sizeof(hbuf), NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV);
+	if (error) {
+		log_warnx("%s", gai_strerror(error));
+		strlcpy(hbuf, "unknown", sizeof(hbuf));
+	}
+	return hbuf;
+}
+#endif	/* SMALL */

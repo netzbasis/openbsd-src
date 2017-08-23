@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.syspatch.mk,v 1.15 2017/07/11 18:16:48 robert Exp $
+#	$OpenBSD: bsd.syspatch.mk,v 1.17 2017/08/21 08:46:33 ajacoutot Exp $
 #
 # Copyright (c) 2016-2017 Robert Nagy <robert@openbsd.org>
 #
@@ -160,16 +160,18 @@ ${_BUILD_COOKIE}: ${_PATCH_COOKIE} ${_FAKE_COOKIE}
 		fi; exit 1; \
 	fi;
 	@if [ ${_kern} = "GENERIC" ]; then \
-		su ${BUILDUSER} -c '${INSTALL} ${INSTALL_COPY} -o ${SHAREOWN} -g ${LOCALEGRP} \
-		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/obj/bsd \
-		${FAKE}/bsd' || \
-		{ echo "***>   failed to install ${_kern}"; \
+		su ${BUILDUSER} -c 'umask ${WOBJUMASK} && \
+		cd ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/GENERIC/obj && \
+		cp -p *.o Makefile ld.script makegap.sh \
+		${FAKE}/usr/share/compile/GENERIC/' || \
+		{ echo "***>   failed to install ${_kern} object files"; \
 		exit 1; }; \
 	elif [ ${_kern} = "GENERIC.MP" ]; then \
-		su ${BUILDUSER} -c '${INSTALL} ${INSTALL_COPY} -o ${SHAREOWN} -g ${LOCALEGRP} \
-		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/obj/bsd \
-		${FAKE}/bsd.mp' || \
-		{ echo "***>   failed to install ${_kern}"; \
+		su ${BUILDUSER} -c 'umask ${WOBJUMASK} && \
+		cd ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/GENERIC.MP/obj && \
+		cp -p *.o Makefile ld.script makegap.sh \
+		${FAKE}/usr/share/compile/GENERIC.MP/' || \
+		{ echo "***>   failed to install ${_kern} object files"; \
 		exit 1; }; \
 	fi; exit 0
 .  endfor
@@ -194,9 +196,6 @@ ${ERRATA}/.plist: ${_BUILD_COOKIE}
 	'${.CURDIR}/diff.sh ${EPREV_PATH} ${FAKE} \
 		done > ${.TARGET}' || \
 		{ echo "***>   unable to create list of files";	\
-		exit 1; };
-	@su ${BUILDUSER} -c 'echo ${SYSPATCH_DIR}/${ERRATA}.patch.sig >> ${.OBJDIR}/${ERRATA}/.plist' || \
-		{ echo "***>   unable to add syspatch to list of files"; \
 		exit 1; };
 	@su ${BUILDUSER} -c 'sed -i "s,^${FAKEROOT}/syspatch/${OSrev}-[^/]*/,,g" ${.TARGET}' 
 
