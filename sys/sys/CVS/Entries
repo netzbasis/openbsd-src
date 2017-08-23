@@ -61,7 +61,7 @@
 /mtio.h/1.9/Fri Jun  1 18:44:48 2007//
 /mutex.h/1.10/Sat Aug 12 16:28:01 2017//
 /namei.h/1.33/Fri Sep 16 03:21:16 2016//
-/param.h/1.124/Sat Mar  4 16:52:47 2017//
+/param.h/1.125/Sun Aug 20 16:56:43 2017//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.7/Thu Feb 23 00:15:12 2017//
 /pipe.h/1.15/Mon Mar 25 17:21:35 2013//
@@ -89,7 +89,7 @@
 /signal.h/1.26/Mon Apr 29 17:06:20 2013//
 /signalvar.h/1.28/Tue May  5 02:13:46 2015//
 /socket.h/1.95/Wed May 31 08:55:10 2017//
-/socketvar.h/1.74/Wed Jul 12 10:56:47 2017//
+/socketvar.h/1.75/Tue Aug 22 09:13:36 2017//
 /sockio.h/1.70/Tue Jun 27 22:18:24 2017//
 /specdev.h/1.37/Tue Apr  5 19:26:15 2016//
 /srp.h/1.13/Sun Nov 20 11:40:58 2016//
