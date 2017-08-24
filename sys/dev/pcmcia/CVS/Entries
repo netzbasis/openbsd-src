@@ -20,7 +20,7 @@
 /if_xereg.h/1.4/Wed Oct 22 09:58:46 2003//
 /pcmcia.c/1.47/Mon Jun  6 07:09:44 2016//
 /pcmcia_cis.c/1.20/Sat Jul 12 18:48:52 2014//
-/pcmcia_cis_quirks.c/1.12/Sat Mar 14 03:38:49 2015//
+/pcmcia_cis_quirks.c/1.13/Thu Aug 24 04:06:05 2017//
 /pcmciachip.h/1.8/Wed Nov 23 11:39:37 2005//
 /pcmciadevs/1.133/Tue May 26 19:37:22 2009//
 /pcmciadevs.h/1.136/Tue May 26 19:37:35 2009//

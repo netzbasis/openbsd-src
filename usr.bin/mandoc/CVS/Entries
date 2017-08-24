@@ -3,7 +3,7 @@
 /att.c/1.12/Sat Jun 24 14:38:27 2017//
 /cgi.c/1.94/Sat Jun 24 14:38:27 2017//
 /cgi.h.example/1.6/Sat Mar 18 16:48:07 2017//
-/chars.c/1.41/Wed Jun 14 20:56:42 2017//
+/chars.c/1.43/Wed Aug 23 13:01:22 2017//
 /dba.c/1.7/Thu Feb  9 18:26:17 2017//
 /dba.h/1.2/Wed Aug 17 20:46:06 2016//
 /dba_array.c/1.1/Mon Aug  1 10:32:39 2016//
@@ -17,7 +17,7 @@
 /dbm_map.h/1.1/Mon Aug  1 10:32:39 2016//
 /eqn.c/1.41/Sat Jul 15 15:06:31 2017//
 /eqn_html.c/1.13/Fri Jul 14 13:32:27 2017//
-/eqn_term.c/1.9/Sat Jul  8 14:51:01 2017//
+/eqn_term.c/1.13/Wed Aug 23 21:56:04 2017//
 /html.c/1.89/Sat Jul 15 17:57:46 2017//
 /html.h/1.49/Sat Jul  8 14:51:01 2017//
 /libman.h/1.56/Sat Apr 29 12:43:55 2017//
@@ -86,7 +86,7 @@
 /tbl_term.c/1.45/Mon Jul 31 16:14:04 2017//
 /term.c/1.134/Fri Jul 28 14:24:17 2017//
 /term.h/1.74/Sat Jul  8 14:51:01 2017//
-/term_ascii.c/1.43/Wed Jun 14 14:23:50 2017//
+/term_ascii.c/1.44/Wed Aug 23 10:50:11 2017//
 /term_ps.c/1.49/Wed Jun  7 17:38:08 2017//
 /term_tab.c/1.4/Sat Jun 17 14:55:02 2017//
 /tree.c/1.44/Sat Jul  8 14:51:01 2017//

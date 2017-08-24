@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.c,v 1.9 2017/08/21 14:44:26 florian Exp $	*/
+/*	$OpenBSD: slaacd.c,v 1.11 2017/08/23 15:49:08 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -65,6 +65,7 @@ const char* imsg_type_name[] = {
 	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS",
 	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL",
 	"IMSG_CTL_END",
+	"IMSG_UPDATE_ADDRESS",
 	"IMSG_CTL_SEND_SOLICITATION",
 	"IMSG_SOCKET_IPC",
 	"IMSG_STARTUP",
@@ -103,8 +104,6 @@ struct imsgev		*iev_engine;
 
 pid_t	 frontend_pid;
 pid_t	 engine_pid;
-
-uint32_t cmd_opts;
 
 int	 routesock, ioctl_sock;
 
@@ -148,6 +147,7 @@ main(int argc, char *argv[])
 	struct event	 ev_sigint, ev_sigterm, ev_sighup;
 	int		 ch;
 	int		 debug = 0, engine_flag = 0, frontend_flag = 0;
+	int		 verbose = 0;
 	char		*saved_argv0;
 	int		 pipe_main2frontend[2];
 	int		 pipe_main2engine[2];
@@ -176,9 +176,7 @@ main(int argc, char *argv[])
 			csock = optarg;
 			break;
 		case 'v':
-			if (cmd_opts & OPT_VERBOSE)
-				cmd_opts |= OPT_VERBOSE2;
-			cmd_opts |= OPT_VERBOSE;
+			verbose++;
 			break;
 		default:
 			usage();
@@ -191,9 +189,9 @@ main(int argc, char *argv[])
 		usage();
 
 	if (engine_flag)
-		engine(debug, cmd_opts & OPT_VERBOSE);
+		engine(debug, verbose);
 	else if (frontend_flag)
-		frontend(debug, cmd_opts & OPT_VERBOSE, csock);
+		frontend(debug, verbose, csock);
 
 	/* Check for root privileges. */
 	if (geteuid())
@@ -204,7 +202,7 @@ main(int argc, char *argv[])
 		errx(1, "unknown user %s", SLAACD_USER);
 
 	log_init(debug, LOG_DAEMON);
-	log_setverbose(cmd_opts & OPT_VERBOSE);
+	log_setverbose(verbose);
 
 	if (!debug)
 		daemon(1, 0);
@@ -220,9 +218,9 @@ main(int argc, char *argv[])
 
 	/* Start children. */
 	engine_pid = start_child(PROC_ENGINE, saved_argv0, pipe_main2engine[1],
-	    debug, cmd_opts & OPT_VERBOSE, NULL);
+	    debug, verbose, NULL);
 	frontend_pid = start_child(PROC_FRONTEND, saved_argv0,
-	    pipe_main2frontend[1], debug, cmd_opts & OPT_VERBOSE, csock);
+	    pipe_main2frontend[1], debug, verbose, csock);
 
 	slaacd_process = PROC_MAIN;
 
@@ -322,7 +320,7 @@ main_shutdown(void)
 static pid_t
 start_child(int p, char *argv0, int fd, int debug, int verbose, char *sockname)
 {
-	char	*argv[7];
+	char	*argv[8];
 	int	 argc = 0;
 	pid_t	 pid;
 
@@ -354,6 +352,8 @@ start_child(int p, char *argv0, int fd, int debug, int verbose, char *sockname)
 		argv[argc++] = "-d";
 	if (verbose)
 		argv[argc++] = "-v";
+	if (verbose > 1)
+		argv[argc++] = "-v";
 	if (sockname) {
 		argv[argc++] = "-s";
 		argv[argc++] = sockname;
@@ -374,6 +374,7 @@ main_dispatch_frontend(int fd, short event, void *bula)
 	ssize_t			 n;
 	int			 shut = 0;
 #ifndef	SMALL
+	struct imsg_addrinfo	 imsg_addrinfo;
 	int			 verbose;
 #endif	/* SMALL */
 
@@ -404,6 +405,16 @@ main_dispatch_frontend(int fd, short event, void *bula)
 			/* Already checked by frontend. */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
+			break;
+		case IMSG_UPDATE_ADDRESS:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(imsg_addrinfo))
+				fatal("%s: IMSG_UPDATE_ADDRESS wrong length: "
+				    "%d", __func__, imsg.hdr.len);
+			memcpy(&imsg_addrinfo, imsg.data,
+			    sizeof(imsg_addrinfo));
+			main_imsg_compose_engine(IMSG_UPDATE_ADDRESS, 0,
+			    &imsg_addrinfo, sizeof(imsg_addrinfo));
 			break;
 #endif	/* SMALL */
 		case IMSG_UPDATE_IF:
