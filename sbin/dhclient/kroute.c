@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.139 2017/08/18 15:06:11 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.142 2017/08/26 18:52:56 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -50,7 +50,7 @@
 #define ROUNDUP(a) \
 	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 
-void	populate_rti_info(struct sockaddr **, struct rt_msghdr *);
+void	get_rtaddrs(int, struct sockaddr *, struct sockaddr **);
 void	add_route(struct in_addr, struct in_addr, struct in_addr, int);
 void	flush_routes(void);
 int	delete_addresses(char *, struct in_addr, struct in_addr);
@@ -285,7 +285,7 @@ priv_add_route(char *name, int rdomain, int routefd,
 	struct iovec		 iov[5];
 	struct rt_msghdr	 rtm;
 	struct sockaddr_in	 dest, gateway, mask;
-	int			 i, index, iovcnt = 0;
+	int			 index, iovcnt = 0;
 
 	index = if_nametoindex(name);
 	if (index == 0)
@@ -337,19 +337,15 @@ priv_add_route(char *name, int rdomain, int routefd,
 	iov[iovcnt].iov_base = &mask;
 	iov[iovcnt++].iov_len = sizeof(mask);
 
-	/* Check for EEXIST since other dhclient may not be done. */
-	for (i = 0; i < 5; i++) {
-		if (writev(routefd, iov, iovcnt) != -1)
-			break;
-		if (i == 4) {
+	if (writev(routefd, iov, iovcnt) == -1) {
+		if (errno != EEXIST || log_getverbose() != 0) {
 			strlcpy(destbuf, inet_ntoa(imsg->dest),
 			    sizeof(destbuf));
 			strlcpy(maskbuf, inet_ntoa(imsg->netmask),
 			    sizeof(maskbuf));
 			log_warn("failed to add route (%s/%s via %s)",
 			    destbuf, maskbuf, inet_ntoa(imsg->gateway));
-		} else if (errno == EEXIST || errno == ENETUNREACH)
-			sleep(1);
+		}
 	}
 }
 
@@ -743,19 +739,16 @@ done:
 }
 
 /*
- * populate_rti_info populates the rti_info with pointers to the
+ * get_rtaddrs populates the rti_info with pointers to the
  * sockaddr's contained in a rtm message.
  */
 void
-populate_rti_info(struct sockaddr **rti_info, struct rt_msghdr *rtm)
+get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 {
-	struct sockaddr	*sa;
-	int		 i;
-
-	sa = (struct sockaddr *)((char *)(rtm) + rtm->rtm_hdrlen);
+	int	i;
 
 	for (i = 0; i < RTAX_MAX; i++) {
-		if (rtm->rtm_addrs & (1 << i)) {
+		if (addrs & (1 << i)) {
 			rti_info[i] = sa;
 			sa = (struct sockaddr *)((char *)(sa) +
 			    ROUNDUP(sa->sa_len));

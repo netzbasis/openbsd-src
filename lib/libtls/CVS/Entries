@@ -6,7 +6,7 @@
 /tls_bio_cb.c/1.19/Thu Jan 12 16:18:39 2017//
 /tls_client.c/1.43/Thu Aug 10 18:18:30 2017//
 /tls_config.c/1.43/Thu Aug 10 18:18:30 2017//
-/tls_conninfo.c/1.15/Wed Apr  5 03:19:22 2017//
+/tls_conninfo.c/1.16/Sun Aug 27 01:39:26 2017//
 /tls_internal.h/1.64/Thu Aug 10 18:18:30 2017//
 /tls_ocsp.c/1.12/Tue May 16 05:52:52 2017//
 /tls_peer.c/1.8/Mon Apr 10 17:11:13 2017//

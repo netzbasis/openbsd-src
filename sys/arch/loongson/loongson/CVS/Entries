@@ -14,7 +14,7 @@
 /loongson2_machdep.c/1.16/Wed Sep 28 14:03:19 2016//
 /loongson3_intr.c/1.5/Sun Feb 19 09:53:37 2017//
 /loongson3_machdep.c/1.1/Sat Aug 15 22:31:38 2015//
-/machdep.c/1.79/Wed Jul 12 06:26:33 2017//
+/machdep.c/1.80/Sat Aug 26 13:53:46 2017//
 /pciide_machdep.c/1.2/Sat May  8 21:59:56 2010//
 /pmon.c/1.8/Sun May 21 14:22:36 2017//
 /pmon32.S/1.4/Thu Feb 18 18:53:33 2010//

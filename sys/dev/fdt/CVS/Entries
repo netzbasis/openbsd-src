@@ -15,7 +15,7 @@
 /mvpinctrl.c/1.1/Fri Aug 25 20:00:35 2017//
 /plrtc.c/1.1/Wed Jan 25 10:14:40 2017//
 /psci.c/1.2/Mon Feb 27 08:39:25 2017//
-/rkclock.c/1.12/Fri Aug 25 10:29:54 2017//
+/rkclock.c/1.14/Sat Aug 26 16:24:27 2017//
 /rkclock_clocks.h/1.10/Fri Aug 25 10:29:54 2017//
 /rkdwusb.c/1.1/Fri Aug 11 22:06:20 2017//
 /rkgpio.c/1.1/Sat May  6 18:25:43 2017//
