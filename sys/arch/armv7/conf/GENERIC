@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.91 2017/08/25 20:09:34 patrick Exp $
+#	$OpenBSD: GENERIC,v 1.93 2017/08/27 21:27:14 patrick Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -111,6 +111,9 @@ pluart*		at fdt?
 plrtc*		at fdt?
 virtio*		at fdt?
 
+sdhc*		at fdt?
+sdmmc*		at sdhc?
+
 psci*		at fdt?
 syscon*		at fdt?
 
@@ -156,6 +159,8 @@ mvpinctrl*	at fdt?
 mvmdio*		at fdt?
 mvneta*		at fdt?
 mvmpic*		at fdt?
+mvpxa*		at fdt?
+sdmmc*		at mvpxa?
 
 # Rockchip SoCs
 rkclock*	at fdt? early 1

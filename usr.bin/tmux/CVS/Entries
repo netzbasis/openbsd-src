@@ -84,7 +84,7 @@
 /layout-set.c/1.18/Mon May 15 14:57:29 2017//
 /layout.c/1.32/Sat Mar 11 15:16:35 2017//
 /log.c/1.25/Sun Jun  4 08:25:57 2017//
-/mode-tree.c/1.9/Wed Aug 23 09:39:11 2017//
+/mode-tree.c/1.10/Sun Aug 27 09:08:36 2017//
 /names.c/1.41/Fri Jul 21 12:58:02 2017//
 /notify.c/1.24/Thu May  4 07:16:43 2017//
 /options-table.c/1.93/Thu Aug 17 08:37:38 2017//
@@ -104,10 +104,10 @@
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
 /tmux.1/1.576/Wed Aug 23 09:39:11 2017//
 /tmux.c/1.184/Wed Jul 12 09:21:25 2017//
-/tmux.h/1.800/Wed Aug 16 12:12:54 2017//
+/tmux.h/1.801/Sun Aug 27 08:33:55 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
-/tty-keys.c/1.99/Fri Jun 23 15:36:52 2017//
-/tty-term.c/1.56/Fri Jun 16 11:50:06 2017//
+/tty-keys.c/1.100/Sun Aug 27 08:33:55 2017//
+/tty-term.c/1.57/Sun Aug 27 08:33:55 2017//
 /tty.c/1.295/Thu Aug 24 08:48:37 2017//
 /utf8.c/1.39/Sun Jun  4 09:02:57 2017//
 /window-buffer.c/1.9/Wed Aug  9 11:43:45 2017//
