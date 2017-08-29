@@ -16,7 +16,7 @@
 /cmd-display-message.c/1.42/Mon May  1 12:20:55 2017//
 /cmd-display-panes.c/1.20/Wed Aug 16 12:12:54 2017//
 /cmd-find-window.c/1.44/Wed May 31 16:44:33 2017//
-/cmd-find.c/1.55/Fri Jul  7 07:13:14 2017//
+/cmd-find.c/1.56/Mon Aug 28 12:36:38 2017//
 /cmd-if-shell.c/1.56/Tue Apr 25 11:49:35 2017//
 /cmd-join-pane.c/1.32/Sat Apr 22 10:22:39 2017//
 /cmd-kill-pane.c/1.25/Sat Apr 22 10:22:39 2017//
@@ -92,7 +92,7 @@
 /paste.c/1.39/Tue Jan 24 13:28:33 2017//
 /proc.c/1.15/Fri Jul 14 18:49:07 2017//
 /procname.c/1.16/Mon Oct 10 21:29:23 2016//
-/resize.c/1.23/Wed May 10 16:48:36 2017//
+/resize.c/1.24/Mon Aug 28 12:36:38 2017//
 /screen-redraw.c/1.46/Mon May  1 12:20:55 2017//
 /screen-write.c/1.130/Wed Aug  9 11:43:45 2017//
 /screen.c/1.47/Sun Jun  4 09:02:36 2017//
@@ -104,7 +104,7 @@
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
 /tmux.1/1.576/Wed Aug 23 09:39:11 2017//
 /tmux.c/1.184/Wed Jul 12 09:21:25 2017//
-/tmux.h/1.801/Sun Aug 27 08:33:55 2017//
+/tmux.h/1.802/Mon Aug 28 12:36:38 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.100/Sun Aug 27 08:33:55 2017//
 /tty-term.c/1.57/Sun Aug 27 08:33:55 2017//
@@ -115,7 +115,7 @@
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
 /window-copy.c/1.181/Wed Aug 23 09:18:22 2017//
 /window-tree.c/1.16/Wed Aug  9 13:44:36 2017//
-/window.c/1.204/Fri Jul 14 18:49:07 2017//
+/window.c/1.205/Mon Aug 28 12:36:38 2017//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
 /xmalloc.h/1.2/Thu Nov 17 10:06:08 2016//
 /xterm-keys.c/1.22/Sun May  7 21:25:59 2017//

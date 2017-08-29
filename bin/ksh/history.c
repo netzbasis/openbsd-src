@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.66 2017/08/27 17:10:32 jca Exp $	*/
+/*	$OpenBSD: history.c,v 1.68 2017/08/28 19:41:55 jca Exp $	*/
 
 /*
  * command history
@@ -439,10 +439,8 @@ histreset(void)
 {
 	char **hp;
 
-	for (hp = history; hp <= histptr; hp++) {
+	for (hp = history; hp <= histptr; hp++)
 		afree(*hp, APERM);
-		*hp = NULL;
-	}
 
 	histptr = history - 1;
 	hist_source->line = 0;
@@ -530,10 +528,8 @@ sethistsize(int n)
 			char **hp;
 
 			offset = n - 1;
-			for (hp = history; hp < histptr - offset; hp++) {
+			for (hp = history; hp < histptr - offset; hp++)
 				afree(*hp, APERM);
-				*hp = NULL;
-			}
 			memmove(history, histptr - offset, n * sizeof(char *));
 		}
 
@@ -771,8 +767,7 @@ hist_init(Source *s)
 static void
 history_write(void)
 {
-	char		*cmd, *encoded;
-	int		i;
+	char		**hp, *encoded;
 
 	/* see if file has grown over 25% */
 	if (line_co < histsize + (histsize / 4))
@@ -784,12 +779,8 @@ history_write(void)
 		bi_errorf("failed to rewrite history file - %s",
 		    strerror(errno));
 	}
-	for (i = 0; i < histsize; i++) {
-		cmd = history[i];
-		if (cmd == NULL)
-			break;
-
-		if (stravis(&encoded, cmd, VIS_SAFE | VIS_NL) != -1) {
+	for (hp = history; hp <= histptr; hp++) {
+		if (stravis(&encoded, *hp, VIS_SAFE | VIS_NL) != -1) {
 			if (fprintf(histfh, "%s\n", encoded) == -1) {
 				free(encoded);
 				return;

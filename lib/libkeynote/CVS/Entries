@@ -11,7 +11,7 @@
 /keynote-main.c/1.10/Fri Jun 25 05:06:49 2004//
 /keynote-sign.c/1.18/Thu Nov 19 07:00:58 2015//
 /keynote-sigver.c/1.16/Thu Nov 19 02:35:24 2015//
-/keynote-ver.l/1.19/Wed Dec 23 23:55:30 2015//
+/keynote-ver.l/1.20/Mon Aug 28 17:07:19 2017//
 /keynote-ver.y/1.10/Tue Jun 29 11:35:56 2004//
 /keynote-verify.c/1.17/Thu Nov 19 05:20:19 2015//
 /keynote.1/1.37/Fri Nov 20 16:31:05 2015//
@@ -19,7 +19,7 @@
 /keynote.4/1.36/Sat Jun 10 14:31:59 2017//
 /keynote.5/1.25/Fri Nov 20 16:31:05 2015//
 /keynote.h/1.16/Thu Jun 24 21:34:33 2004//
-/keynote.l/1.23/Thu Nov 19 19:48:27 2015//
+/keynote.l/1.24/Mon Aug 28 17:07:19 2017//
 /keynote.y/1.18/Thu Apr 27 15:35:36 2017//
 /parse_assertion.c/1.16/Mon Dec 14 03:25:59 2015//
 /sample-app.c/1.7/Tue Jun 29 11:35:56 2004//
