@@ -5,10 +5,10 @@
 /dir.c/1.23/Fri Jan 16 16:18:07 2015//
 /dir.h/1.4/Mon Jan 23 11:04:19 2017//
 /dl_dirname.c/1.2/Fri Jan 16 16:18:07 2015//
-/dl_printf.c/1.20/Tue Jan 24 23:37:10 2017//
+/dl_printf.c/1.21/Tue Aug 29 15:25:51 2017//
 /dl_realpath.c/1.5/Sun Aug 27 21:59:49 2017//
 /dl_uname.c/1.2/Fri Jan 16 16:18:07 2015//
-/dlfcn.c/1.97/Mon May  8 02:34:01 2017//
+/dlfcn.c/1.98/Tue Aug 29 15:25:51 2017//
 /ld.so.1/1.22/Mon Jul  4 21:15:06 2016//
 /library.c/1.81/Wed Feb  8 04:34:29 2017//
 /library_mquery.c/1.57/Tue Jan 24 07:48:36 2017//
@@ -26,7 +26,7 @@
 /tib.c/1.5/Sun Aug 27 21:59:49 2017//
 /trace.c/1.4/Tue Jan 24 07:48:37 2017//
 /util.c/1.44/Tue Jan 24 07:48:37 2017//
-/util.h/1.30/Tue Jan 24 07:48:37 2017//
+/util.h/1.31/Tue Aug 29 15:25:51 2017//
 D/aarch64////
 D/alpha////
 D/amd64////
