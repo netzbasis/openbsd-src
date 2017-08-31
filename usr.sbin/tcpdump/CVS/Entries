@@ -43,9 +43,9 @@
 /pfctl_osfp.c/1.13/Sun May 28 10:06:12 2017//
 /print-802_11.c/1.39/Sat Mar  4 17:51:20 2017//
 /print-arp.c/1.15/Wed Nov 18 15:36:20 2015//
-/print-atalk.c/1.32/Wed Jun 14 20:48:54 2017//
+/print-atalk.c/1.33/Wed Aug 30 09:23:00 2017//
 /print-atm.c/1.12/Fri Jan 16 06:40:21 2015//
-/print-bgp.c/1.24/Wed Jul 26 08:18:28 2017//
+/print-bgp.c/1.25/Wed Aug 30 09:23:00 2017//
 /print-bootp.c/1.22/Tue Dec 22 21:01:07 2015//
 /print-carp.c/1.7/Sun Nov 15 20:35:36 2015//
 /print-cdp.c/1.6/Tue Mar 29 04:07:50 2016//
@@ -110,7 +110,7 @@
 /print-udpencap.c/1.5/Tue Oct 27 23:59:57 2009//
 /print-vqp.c/1.7/Thu Aug 24 05:11:43 2006//
 /print-vrrp.c/1.4/Mon Nov 16 00:16:39 2015//
-/print-wb.c/1.9/Mon Nov 16 00:16:39 2015//
+/print-wb.c/1.10/Wed Aug 30 09:23:00 2017//
 /privsep.c/1.45/Wed Jun 14 20:48:54 2017//
 /privsep.h/1.9/Wed Jun 14 20:48:54 2017//
 /privsep_fdpass.c/1.8/Wed Apr  4 17:24:50 2012//

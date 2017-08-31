@@ -1,5 +1,5 @@
 /acpi_machdep.c/1.62/Mon Mar 27 18:32:53 2017//
-/acpi_wakecode.S/1.29/Wed Jun 28 08:51:36 2017//
+/acpi_wakecode.S/1.30/Wed Aug 30 23:40:22 2017//
 /acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
 /amd64errata.c/1.7/Mon Jul 24 15:17:31 2017//
 /amdmsr.c/1.9/Tue Apr 20 22:05:41 2010//

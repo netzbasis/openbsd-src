@@ -1,4 +1,4 @@
-/*	$OpenBSD: emacs.c,v 1.71 2017/08/29 23:04:50 jca Exp $	*/
+/*	$OpenBSD: emacs.c,v 1.73 2017/08/30 17:02:53 jca Exp $	*/
 
 /*
  *  Emacs-like command line editing and history
@@ -1452,10 +1452,6 @@ x_init_emacs(void)
 	ainit(AEDIT);
 	x_nextcmd = -1;
 
-	/* XXX unused */
-	Flag(FEMACSUSEMETA) = 1;
-
-	/* new keybinding stuff */
 	TAILQ_INIT(&kblist);
 
 	/* man page order */
