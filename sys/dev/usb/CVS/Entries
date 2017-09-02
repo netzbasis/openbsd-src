@@ -130,7 +130,7 @@
 /uplcom.c/1.69/Sat Apr  8 02:57:25 2017//
 /urng.c/1.4/Wed Aug 30 22:12:19 2017//
 /usb.c/1.114/Sat Jul 29 18:26:14 2017//
-/usb.h/1.58/Wed Mar 29 00:18:51 2017//
+/usb.h/1.59/Fri Sep  1 16:38:14 2017//
 /usb_mem.c/1.29/Sat Apr  8 02:57:25 2017//
 /usb_mem.h/1.15/Wed Nov 30 10:19:18 2016//
 /usb_quirks.c/1.74/Fri Nov 27 10:59:32 2015//
@@ -164,7 +164,7 @@
 /uvisor.c/1.51/Fri Sep  2 09:14:59 2016//
 /uvscom.c/1.35/Sat Apr  8 02:57:25 2017//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
-/xhci.c/1.74/Sun Jul 30 19:24:18 2017//
+/xhci.c/1.75/Fri Sep  1 16:01:27 2017//
 /xhcireg.h/1.11/Sun Jan 18 20:35:11 2015//
 /xhcivar.h/1.8/Sun Jan 18 20:35:11 2015//
 D/dwc2////
