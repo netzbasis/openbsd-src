@@ -48,7 +48,7 @@
 /cmd-run-shell.c/1.51/Wed Aug 30 10:33:57 2017//
 /cmd-save-buffer.c/1.43/Sat Apr 22 06:13:30 2017//
 /cmd-select-layout.c/1.33/Sat Apr 22 10:22:39 2017//
-/cmd-select-pane.c/1.40/Wed Aug 30 10:33:57 2017//
+/cmd-select-pane.c/1.41/Sat Sep  2 17:51:54 2017//
 /cmd-select-window.c/1.22/Wed Aug 30 10:33:57 2017//
 /cmd-send-keys.c/1.42/Wed Jun 28 11:36:39 2017//
 /cmd-set-buffer.c/1.28/Sun Oct 16 19:04:05 2016//
@@ -102,7 +102,7 @@
 /session.c/1.77/Sun Jul  9 22:33:09 2017//
 /status.c/1.168/Mon May 29 20:42:53 2017//
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
-/tmux.1/1.576/Wed Aug 23 09:39:11 2017//
+/tmux.1/1.577/Sat Sep  2 17:51:54 2017//
 /tmux.c/1.184/Wed Jul 12 09:21:25 2017//
 /tmux.h/1.804/Wed Aug 30 18:13:47 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
