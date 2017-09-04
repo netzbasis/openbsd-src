@@ -137,8 +137,8 @@
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
 /progressmeter.c/1.45/Thu Jun 30 05:17:05 2016//
 /progressmeter.h/1.3/Wed Jan 14 13:54:13 2015//
-/readconf.c/1.277/Tue May 30 18:58:37 2017//
-/readconf.h/1.122/Tue May 30 18:58:37 2017//
+/readconf.c/1.278/Sun Sep  3 23:33:13 2017//
+/readconf.h/1.123/Sun Sep  3 23:33:13 2017//
 /readpass.c/1.51/Fri Dec 11 00:20:04 2015//
 /rijndael.c/1.20/Mon Mar 16 11:09:52 2015//
 /rijndael.h/1.14/Tue Apr 29 15:42:07 2014//
@@ -194,13 +194,13 @@
 /ssh_api.c/1.8/Sun Apr 30 23:13:25 2017//
 /ssh_api.h/1.1/Mon Jan 19 20:30:23 2015//
 /ssh_config/1.33/Sun May  7 23:12:57 2017//
-/ssh_config.5/1.253/Sun Jul 23 23:37:02 2017//
+/ssh_config.5/1.254/Sun Sep  3 23:33:13 2017//
 /sshbuf-getput-basic.c/1.7/Thu Jun  1 04:51:58 2017//
 /sshbuf-getput-crypto.c/1.5/Tue Jan 12 23:42:54 2016//
 /sshbuf-misc.c/1.6/Mon May  2 08:49:03 2016//
 /sshbuf.c/1.11/Thu Jun  1 06:58:25 2017//
 /sshbuf.h/1.8/Fri Nov 25 23:22:04 2016//
-/sshconnect.c/1.284/Fri Sep  1 05:53:56 2017//
+/sshconnect.c/1.285/Sun Sep  3 23:33:13 2017//
 /sshconnect.h/1.30/Tue May 30 08:52:19 2017//
 /sshconnect2.c/1.266/Sun Aug 27 00:38:41 2017//
 /sshd.8/1.291/Sat Jun 24 06:28:50 2017//

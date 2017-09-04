@@ -177,7 +177,7 @@
 /if_re_pci.c/1.51/Mon Jun 12 03:00:26 2017//
 /if_rl_pci.c/1.33/Tue Nov 24 17:11:39 2015//
 /if_rtw_pci.c/1.20/Tue Nov 24 17:11:39 2015//
-/if_rtwn.c/1.29/Fri Jun 16 14:57:51 2017//
+/if_rtwn.c/1.30/Sun Sep  3 16:20:46 2017//
 /if_se.c/1.20/Sun Jan 22 10:17:38 2017//
 /if_sereg.h/1.4/Sun Sep  5 12:42:54 2010//
 /if_sf_pci.c/1.14/Tue Nov 24 17:11:39 2015//

@@ -20,8 +20,8 @@
 /ess_isapnp.c/1.7/Fri Nov 15 16:46:27 2013//
 /essreg.h/1.3/Mon Jan 29 06:27:59 2001//
 /essvar.h/1.5/Thu Mar 14 03:16:05 2002//
-/fd.c/1.104/Thu May  4 22:47:27 2017//
-/fdc.c/1.20/Sat Mar 14 03:38:47 2015//
+/fd.c/1.105/Sun Sep  3 20:03:58 2017//
+/fdc.c/1.21/Sun Sep  3 20:03:58 2017//
 /fdlink.h/1.9/Tue Apr 10 17:47:55 2007//
 /fdreg.h/1.12/Sun Aug 13 03:36:24 2006//
 /files.isa/1.123/Sun Sep  4 10:35:39 2016//
