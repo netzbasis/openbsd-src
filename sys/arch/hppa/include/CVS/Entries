@@ -45,7 +45,7 @@
 /setjmp.h/1.1/Fri Aug 28 19:56:05 1998//
 /signal.h/1.12/Tue May 10 18:39:44 2016//
 /som.h/1.4/Wed Apr  7 18:24:20 2004//
-/spinlock.h/1.4/Sat Jun  1 20:47:40 2013//
+/spinlock.h/1.5/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.11/Tue Mar 11 19:45:27 2014//
 /tcb.h/1.2/Tue Nov  8 15:39:50 2011//
 /trap.h/1.12/Thu May 26 04:34:52 2005//

@@ -45,7 +45,7 @@
 /setjmp.h/1.1/Sat Dec 17 23:38:33 2016//
 /signal.h/1.2/Sun Mar 12 17:57:12 2017//
 /softintr.h/1.1/Sat Dec 17 23:38:33 2016//
-/spinlock.h/1.1/Sat Dec 17 23:38:33 2016//
+/spinlock.h/1.2/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.1/Sat Dec 17 23:38:33 2016//
 /swi.h/1.1/Sat Dec 17 23:38:33 2016//
 /sysarch.h/1.1/Sat Dec 17 23:38:33 2016//
