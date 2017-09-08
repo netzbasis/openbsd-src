@@ -27,7 +27,7 @@
 /auth2-kbdint.c/1.8/Tue May 30 14:29:59 2017//
 /auth2-none.c/1.20/Tue May 30 14:29:59 2017//
 /auth2-passwd.c/1.14/Tue May 30 14:29:59 2017//
-/auth2-pubkey.c/1.70/Fri Aug 18 05:48:04 2017//
+/auth2-pubkey.c/1.71/Thu Sep  7 23:48:09 2017//
 /auth2.c/1.143/Sat Jun 24 06:34:38 2017//
 /authfd.c/1.105/Sat Jul  1 13:50:45 2017//
 /authfd.h/1.41/Wed Jun 28 01:09:22 2017//
