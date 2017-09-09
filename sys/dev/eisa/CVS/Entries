@@ -1,8 +1,8 @@
 /Makefile/1.1/Thu Apr 18 23:47:08 1996//
 /ahc_eisa.c/1.21/Sat May 12 21:54:39 2012//
-/cac_eisa.c/1.4/Tue Jun  2 11:38:21 2009//
+/cac_eisa.c/1.5/Fri Sep  8 05:36:52 2017//
 /devlist2h.awk/1.4/Sat Mar 29 00:17:44 2003//
-/dpt_eisa.c/1.4/Tue May 13 02:24:08 2008//
+/dpt_eisa.c/1.5/Fri Sep  8 05:36:52 2017//
 /eisa.c/1.13/Sun Mar 29 21:53:52 2009//
 /eisadevs/1.20/Wed May  5 05:33:56 2004//
 /eisadevs.h/1.21/Wed May  5 05:34:12 2004//
@@ -11,5 +11,5 @@
 /eisavar.h/1.14/Wed Mar 28 20:44:23 2012//
 /files.eisa/1.13/Sun Sep  4 10:35:39 2016//
 /if_ep_eisa.c/1.26/Tue Nov 24 17:11:39 2015//
-/uha_eisa.c/1.13/Sun Sep 14 14:17:24 2014//
+/uha_eisa.c/1.14/Fri Sep  8 05:36:52 2017//
 D
