@@ -6,7 +6,7 @@
 /cfsetospeed.c/1.5/Fri Aug  5 13:03:00 2005//
 /cfsetspeed.c/1.5/Fri Aug  5 13:03:00 2005//
 /tcdrain.c/1.6/Sat May  7 19:05:22 2016//
-/tcflow.c/1.5/Fri Aug  5 13:03:00 2005//
+/tcflow.c/1.6/Sun Sep 10 18:20:00 2017//
 /tcflush.c/1.6/Fri Sep 11 11:25:04 2015//
 /tcgetattr.c/1.6/Sun Sep 13 11:51:36 2015//
 /tcgetpgrp.3/1.10/Thu Dec 12 22:44:22 2013//
@@ -14,7 +14,7 @@
 /tcgetsid.3/1.1/Tue Dec 17 16:31:36 2013//
 /tcgetsid.c/1.3/Tue Dec 17 22:12:07 2013//
 /tcsendbreak.3/1.9/Wed Jun  5 03:39:23 2013//
-/tcsendbreak.c/1.9/Sun Nov  1 03:45:29 2015//
+/tcsendbreak.c/1.10/Sun Sep 10 18:20:00 2017//
 /tcsetattr.3/1.17/Tue Jan 21 03:15:45 2014//
 /tcsetattr.c/1.6/Sun Sep 13 11:51:36 2015//
 /tcsetpgrp.3/1.14/Tue Mar  7 19:08:07 2017//
