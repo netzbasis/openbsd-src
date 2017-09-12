@@ -1,5 +1,5 @@
 /Makefile/1.89/Wed Jul 12 09:24:17 2017//
-/alerts.c/1.26/Wed Aug 23 09:16:39 2017//
+/alerts.c/1.27/Mon Sep 11 20:11:45 2017//
 /arguments.c/1.20/Wed Aug 23 09:14:21 2017//
 /attributes.c/1.7/Wed Mar 22 07:16:54 2017//
 /cfg.c/1.60/Tue May 30 21:44:59 2017//
@@ -73,7 +73,7 @@
 /environ.c/1.20/Thu May 11 07:34:54 2017//
 /format.c/1.146/Wed Aug  9 11:43:45 2017//
 /grid-view.c/1.30/Wed Aug 30 18:13:47 2017//
-/grid.c/1.76/Sun Sep 10 14:36:12 2017//
+/grid.c/1.77/Mon Sep 11 06:40:46 2017//
 /hooks.c/1.9/Sun Oct 16 19:36:37 2016//
 /input-keys.c/1.62/Wed Jun 28 11:36:39 2017//
 /input.c/1.128/Sun Sep 10 08:01:23 2017//
@@ -102,7 +102,7 @@
 /session.c/1.77/Sun Jul  9 22:33:09 2017//
 /status.c/1.168/Mon May 29 20:42:53 2017//
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
-/tmux.1/1.578/Mon Sep  4 09:18:51 2017//
+/tmux.1/1.579/Mon Sep 11 06:53:06 2017//
 /tmux.c/1.184/Wed Jul 12 09:21:25 2017//
 /tmux.h/1.804/Wed Aug 30 18:13:47 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//

@@ -27,13 +27,13 @@
 /ufs.c/1.5/Tue Aug 29 21:10:20 2017//
 /virtio.c/1.53/Fri Sep  8 04:48:55 2017//
 /virtio.h/1.20/Sat Aug 12 20:24:57 2017//
-/vm.c/1.24/Sun Aug 20 21:15:32 2017//
+/vm.c/1.25/Mon Sep 11 23:32:34 2017//
 /vm.conf.5/1.22/Thu Aug 31 06:11:45 2017//
 /vmboot.c/1.4/Tue Aug 29 21:10:20 2017//
 /vmboot.h/1.2/Sat Nov 26 20:03:42 2016//
 /vmd.8/1.8/Wed Jul 19 01:26:20 2017//
 /vmd.c/1.69/Fri Sep  8 06:24:31 2017//
-/vmd.h/1.62/Fri Sep  8 07:08:49 2017//
+/vmd.h/1.64/Mon Sep 11 23:32:34 2017//
 /vmm.c/1.75/Fri Sep  8 07:08:49 2017//
 /vmm.h/1.5/Wed Jun  7 14:53:28 2017//
 D
