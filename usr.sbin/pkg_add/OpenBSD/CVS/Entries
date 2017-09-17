@@ -12,7 +12,7 @@
 /Handle.pm/1.42/Tue Mar  7 16:21:28 2017//
 /IdCache.pm/1.10/Fri Dec 24 09:04:14 2010//
 /Interactive.pm/1.21/Fri Jun 24 14:20:49 2016//
-/LibSpec.pm/1.17/Fri Feb 10 02:10:22 2017//
+/LibSpec.pm/1.18/Sat Sep 16 12:04:13 2017//
 /Log.pm/1.9/Sun Jul 27 22:17:33 2014//
 /Mtree.pm/1.13/Tue Mar 18 18:53:29 2014//
 /OldLibs.pm/1.12/Tue Feb  4 18:11:36 2014//
@@ -22,8 +22,8 @@
 /PackageName.pm/1.52/Tue Mar 18 18:53:29 2014//
 /PackageRepository.pm/1.146/Fri Aug  4 11:53:03 2017//
 /PackageRepositoryList.pm/1.31/Mon May 29 12:28:54 2017//
-/PackingElement.pm/1.246/Mon May 15 15:14:11 2017//
-/PackingList.pm/1.142/Tue Oct  4 14:24:45 2016//
+/PackingElement.pm/1.247/Sat Sep 16 11:36:25 2017//
+/PackingList.pm/1.143/Sat Sep 16 11:36:25 2017//
 /Paths.pm/1.35/Wed Mar  1 17:52:00 2017//
 /PkgAdd.pm/1.96/Sat Mar 25 18:58:59 2017//
 /PkgCfl.pm/1.39/Sat Feb  1 10:53:17 2014//
@@ -38,7 +38,7 @@
 /RequiredBy.pm/1.27/Thu Aug 13 16:34:11 2015//
 /Search.pm/1.29/Tue Jun 14 15:41:31 2016//
 /SharedItems.pm/1.32/Thu Nov 20 14:10:18 2014//
-/SharedLibs.pm/1.58/Fri Feb 10 02:10:22 2017//
+/SharedLibs.pm/1.59/Sat Sep 16 12:04:13 2017//
 /Signature.pm/1.18/Thu Mar 26 22:07:58 2015//
 /Signer.pm/1.10/Mon Oct  3 13:17:30 2016//
 /State.pm/1.46/Mon May 29 12:28:54 2017//
