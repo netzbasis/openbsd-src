@@ -5,7 +5,7 @@
 /ac97.c/1.83/Tue Aug 22 10:41:59 2017//
 /ac97.h/1.26/Wed Sep 14 06:12:19 2016//
 /acx.c/1.120/Sun Jan 22 10:17:37 2017//
-/acx100.c/1.26/Tue Nov 24 13:45:06 2015//
+/acx100.c/1.27/Fri Sep 22 13:44:00 2017//
 /acx111.c/1.23/Tue Nov 24 13:45:06 2015//
 /acxreg.h/1.12/Sun Jun  1 10:08:35 2008//
 /acxvar.h/1.19/Mon Jul 21 04:12:21 2008//
@@ -90,7 +90,7 @@
 /athnreg.h/1.20/Fri May 19 11:42:48 2017//
 /athnvar.h/1.37/Thu Jan 12 16:32:28 2017//
 /athvar.h/1.32/Wed Apr 27 16:06:13 2011//
-/atw.c/1.95/Sun Jan 22 10:17:37 2017//
+/atw.c/1.96/Fri Sep 22 13:44:00 2017//
 /atwreg.h/1.7/Sun Aug 16 18:03:48 2009//
 /atwvar.h/1.26/Fri Dec  6 21:03:02 2013//
 /atxxreg.h/1.1/Tue Apr 15 20:23:54 2008//
@@ -264,7 +264,7 @@
 /qlw.c/1.31/Tue Jan 24 02:28:17 2017//
 /qlwreg.h/1.7/Sat Mar 15 21:49:47 2014//
 /qlwvar.h/1.10/Sat Mar 15 13:08:52 2014//
-/r92creg.h/1.15/Sun Sep  3 16:20:09 2017//
+/r92creg.h/1.16/Fri Sep 22 13:41:56 2017//
 /ramdac.h/1.7/Thu Jun 26 05:42:16 2008//
 /re.c/1.202/Mon Jun 19 09:36:27 2017//
 /revar.h/1.7/Tue Jul 27 20:53:39 2010//
@@ -287,8 +287,8 @@
 /rtsx.c/1.19/Thu Sep  7 17:00:28 2017//
 /rtsxreg.h/1.4/Wed Sep  6 13:07:38 2017//
 /rtsxvar.h/1.5/Wed Sep  6 13:07:38 2017//
-/rtw.c/1.99/Fri Sep  8 05:36:52 2017//
-/rtwn.c/1.33/Wed Aug 23 09:25:17 2017//
+/rtw.c/1.100/Fri Sep 22 13:44:00 2017//
+/rtwn.c/1.34/Fri Sep 22 13:41:56 2017//
 /rtwnvar.h/1.10/Sat Jul  8 14:26:23 2017//
 /rtwreg.h/1.14/Sun Aug 16 18:21:57 2009//
 /rtwvar.h/1.31/Wed Nov  4 12:11:59 2015//
