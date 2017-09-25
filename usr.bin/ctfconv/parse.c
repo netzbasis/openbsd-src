@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.5 2017/08/29 21:10:20 deraadt Exp $ */
+/*	$OpenBSD: parse.c,v 1.7 2017/09/24 09:14:25 jsg Exp $ */
 
 /*
  * Copyright (c) 2016-2017 Martin Pieuchot
@@ -606,6 +606,8 @@ cu_parse(struct dwcu *dcu, struct itype_queue *cutq, struct ioff_tree *cuot)
 			break;
 		case DW_TAG_base_type:
 			it = parse_base(die, psz);
+			if (it == NULL)
+				continue;
 			break;
 		case DW_TAG_const_type:
 			it = parse_refers(die, psz, CTF_K_CONST);
@@ -1298,13 +1300,17 @@ dav2str(struct dwaval *dav)
 {
 	const char *str = NULL;
 	extern const char *dstrbuf;
+	extern size_t dstrlen;
 
 	switch (dav->dav_dat->dat_form) {
 	case DW_FORM_string:
 		str = dav->dav_str;
 		break;
 	case DW_FORM_strp:
-		str = dstrbuf + dav->dav_u32;
+		if (dav->dav_u32 >= dstrlen)
+			str = NULL;
+		else
+			str = dstrbuf + dav->dav_u32;
 		break;
 	default:
 		break;
