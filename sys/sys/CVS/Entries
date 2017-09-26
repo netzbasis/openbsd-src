@@ -98,9 +98,9 @@
 /stdarg.h/1.8/Wed Mar  2 18:31:58 2011//
 /stdint.h/1.10/Thu Apr 30 18:19:25 2015//
 /swap.h/1.7/Mon Sep 30 12:02:30 2013//
-/syscall.h/1.187/Sat Aug 12 00:04:06 2017//
+/syscall.h/1.188/Mon Sep 25 23:00:33 2017//
 /syscall_mi.h/1.18/Thu Apr 20 15:21:51 2017//
-/syscallargs.h/1.190/Sat Aug 12 00:04:06 2017//
+/syscallargs.h/1.191/Mon Sep 25 23:00:33 2017//
 /sysctl.h/1.174/Wed Jun 14 03:00:40 2017//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//

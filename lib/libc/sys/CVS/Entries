@@ -113,7 +113,7 @@
 /semget.2/1.19/Sat Nov 15 22:19:53 2014//
 /semop.2/1.19/Sun Nov  1 21:26:48 2015//
 /send.2/1.31/Tue Sep  9 06:32:37 2014//
-/sendsyslog.2/1.9/Tue Jul 18 22:22:19 2017//
+/sendsyslog.2/1.10/Mon Sep 25 23:00:33 2017//
 /setgroups.2/1.13/Thu Sep 10 17:55:21 2015//
 /setpgid.2/1.17/Sun Dec 14 07:42:50 2014//
 /setregid.2/1.11/Thu Feb  5 02:33:09 2015//
