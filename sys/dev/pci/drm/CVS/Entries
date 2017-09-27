@@ -1,4 +1,4 @@
-/drm.h/1.24/Sat Jul  8 19:36:58 2017//
+/drm.h/1.25/Tue Sep 26 06:43:15 2017//
 /drmP.h/1.215/Sat Jul 22 14:33:45 2017//
 /drm_agpsupport.c/1.26/Thu Mar 13 13:35:21 2014//
 /drm_atomic.c/1.2/Sun Sep  3 13:33:49 2017//
@@ -44,7 +44,7 @@
 /drm_mipi_dsi.h/1.2/Sun Jul  2 20:58:55 2017//
 /drm_mm.c/1.8/Sat Jul  1 16:14:10 2017//
 /drm_mm.h/1.5/Sat Jul  1 16:14:10 2017//
-/drm_mode.h/1.8/Sat Jul  1 16:14:10 2017//
+/drm_mode.h/1.9/Tue Sep 26 06:43:15 2017//
 /drm_modes.c/1.8/Sat Jul  1 16:14:10 2017//
 /drm_modes.h/1.1/Sat Jul  1 16:14:10 2017//
 /drm_modeset_lock.c/1.1/Sat Jul  1 16:14:10 2017//
