@@ -1,8 +1,7 @@
-/BBVectorize.cpp/1.1.1.3/Tue Jan 24 08:33:24 2017//
-/CMakeLists.txt/1.1.1.3/Tue Jan 24 08:33:24 2017//
+/CMakeLists.txt/1.1.1.4/Wed Oct  4 20:27:59 2017//
 /LLVMBuild.txt/1.1.1.1/Sat Sep  3 22:47:00 2016//
-/LoadStoreVectorizer.cpp/1.1.1.2/Tue Jan 24 08:33:24 2017/-ko/
-/LoopVectorize.cpp/1.1.1.4/Tue Mar 14 08:08:05 2017//
-/SLPVectorizer.cpp/1.1.1.4/Tue Mar 14 08:08:05 2017//
-/Vectorize.cpp/1.1.1.2/Sat Jan 14 19:56:02 2017//
+/LoadStoreVectorizer.cpp/1.1.1.3/Wed Oct  4 20:27:59 2017/-ko/
+/LoopVectorize.cpp/1.1.1.5/Wed Oct  4 20:27:59 2017//
+/SLPVectorizer.cpp/1.1.1.5/Wed Oct  4 20:27:59 2017//
+/Vectorize.cpp/1.1.1.3/Wed Oct  4 20:27:59 2017//
 D

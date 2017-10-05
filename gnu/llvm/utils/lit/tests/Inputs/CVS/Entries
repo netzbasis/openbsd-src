@@ -4,6 +4,7 @@ D/exec-discovery-in-tree////
 D/googletest-format////
 D/googletest-timeout////
 D/googletest-upstream-format////
+D/max-failures////
 D/progress-bar////
 D/shtest-format////
 D/shtest-output-printing////

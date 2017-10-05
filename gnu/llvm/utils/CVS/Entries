@@ -5,7 +5,9 @@
 /GetSourceVersion/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /LLVMBuild.txt/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /UpdateCMakeLists.pl/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/abtest.py/1.1.1.1/Wed Oct  4 20:27:51 2017/-ko/
 /bisect/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/bisect-skip-count/1.1.1.1/Wed Oct  4 20:27:51 2017/-ko/
 /check-each-file/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /clang-parse-diagnostics-file/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /codegen-diff/1.1.1.1/Sat Sep  3 22:46:59 2016//
@@ -23,13 +25,13 @@
 /llvmdo/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvmgrep/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /makellvm/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/prepare-code-coverage-artifact.py/1.1.1.2/Tue Jan 24 08:33:13 2017/-ko/
+/prepare-code-coverage-artifact.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
 /schedcover.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /shuffle_fuzz.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /sort_includes.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /test_debuginfo.pl/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/update_llc_test_checks.py/1.1.1.3/Tue Jan 24 08:33:13 2017//
-/update_test_checks.py/1.1.1.2/Tue Jan 24 08:33:13 2017/-ko/
+/update_llc_test_checks.py/1.1.1.4/Wed Oct  4 20:27:51 2017//
+/update_test_checks.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
 /wciia.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 D/FileCheck////
 D/KillTheDoctor////
@@ -38,10 +40,10 @@ D/Misc////
 D/PerfectShuffle////
 D/TableGen////
 D/Target////
-D/abtest////
 D/bugpoint////
 D/count////
 D/crosstool////
+D/docker////
 D/emacs////
 D/fpcmp////
 D/gdb-scripts////
@@ -54,7 +56,6 @@ D/lit////
 D/llvm-build////
 D/llvm-lit////
 D/not////
-D/opt-viewer////
 D/release////
 D/sanitizers////
 D/testgen////
@@ -62,4 +63,5 @@ D/textmate////
 D/unittest////
 D/valgrind////
 D/vim////
+D/vscode////
 D/yaml-bench////
