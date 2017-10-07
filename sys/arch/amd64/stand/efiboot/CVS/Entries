@@ -2,7 +2,7 @@
 /Makefile.common/1.11/Mon Jun 19 22:50:50 2017//
 /Makefile.inc/1.1/Wed Sep  2 01:52:25 2015//
 /conf.c/1.11/Fri Sep  8 05:36:51 2017//
-/efiboot.c/1.23/Mon Aug  7 19:34:53 2017//
+/efiboot.c/1.24/Fri Oct  6 04:52:22 2017//
 /efiboot.h/1.2/Wed May 31 08:40:32 2017//
 /eficall.S/1.1/Wed Sep  2 01:52:25 2015//
 /eficall.h/1.2/Fri Dec 30 08:26:09 2016//

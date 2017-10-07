@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip_divert.c,v 1.52 2017/09/06 11:43:04 bluhm Exp $ */
+/*      $OpenBSD: ip_divert.c,v 1.54 2017/10/06 22:08:30 bluhm Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -187,15 +187,8 @@ divert_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	}
 
 	TAILQ_FOREACH(inp, &divbtable.inpt_queue, inp_queue) {
-		if (inp->inp_lport != divert_port)
-			continue;
-		if (inp->inp_divertfl == 0)
+		if (inp->inp_lport == divert_port)
 			break;
-		if (dir == PF_IN && !(inp->inp_divertfl & IPPROTO_DIVERT_RESP))
-			return (-1);
-		if (dir == PF_OUT && !(inp->inp_divertfl & IPPROTO_DIVERT_INIT))
-			return (-1);
-		break;
 	}
 
 	memset(&addr, 0, sizeof(addr));

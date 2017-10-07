@@ -10,7 +10,7 @@
 /in6_proto.c/1.95/Thu Jul 13 17:17:27 2017//
 /in6_src.c/1.81/Fri Dec  2 11:16:04 2016//
 /in6_var.h/1.69/Tue Aug 15 06:08:52 2017//
-/ip6_divert.c/1.51/Wed Sep  6 11:43:04 2017//
+/ip6_divert.c/1.53/Fri Oct  6 22:08:30 2017//
 /ip6_divert.h/1.8/Fri Apr 14 20:46:31 2017//
 /ip6_forward.c/1.95/Fri Jun 30 11:29:15 2017//
 /ip6_id.c/1.13/Fri Sep  8 05:36:53 2017//
@@ -27,7 +27,7 @@
 /nd6.h/1.72/Wed Aug  9 14:36:00 2017//
 /nd6_nbr.c/1.121/Fri Aug 11 21:24:20 2017//
 /nd6_rtr.c/1.164/Wed Aug  9 06:21:04 2017//
-/raw_ip6.c/1.119/Tue Sep  5 07:59:11 2017//
+/raw_ip6.c/1.120/Fri Oct  6 21:14:55 2017//
 /raw_ip6.h/1.4/Thu Feb  9 15:23:35 2017//
 /route6.c/1.21/Fri Apr 14 20:46:31 2017//
 /udp6_output.c/1.55/Fri Aug 11 19:53:02 2017//
