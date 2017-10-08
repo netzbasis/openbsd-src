@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.130 2017/04/28 13:53:05 mpi Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.132 2017/10/07 19:46:22 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -246,19 +246,19 @@ main(int argc, char *argv[])
 			continue;
 		switch (ktr_header.ktr_type) {
 		case KTR_SYSCALL:
-			ktrsyscall((struct ktr_syscall *)m, ktrlen);
+			ktrsyscall(m, ktrlen);
 			break;
 		case KTR_SYSRET:
-			ktrsysret((struct ktr_sysret *)m, ktrlen);
+			ktrsysret(m, ktrlen);
 			break;
 		case KTR_NAMEI:
 			ktrnamei(m, ktrlen);
 			break;
 		case KTR_GENIO:
-			ktrgenio((struct ktr_genio *)m, ktrlen);
+			ktrgenio(m, ktrlen);
 			break;
 		case KTR_PSIG:
-			ktrpsig((struct ktr_psig *)m);
+			ktrpsig(m);
 			break;
 		case KTR_STRUCT:
 			ktrstruct(m, ktrlen);
@@ -271,7 +271,7 @@ main(int argc, char *argv[])
 			ktrexec(m, ktrlen);
 			break;
 		case KTR_PLEDGE:
-			ktrpledge((struct ktr_pledge *)m, ktrlen);
+			ktrpledge(m, ktrlen);
 			break;
 		default:
 			printf("\n");
@@ -698,6 +698,7 @@ static const formatter scargs[][8] = {
     [SYS_fstatat]	= { Atfd, Ppath, Pptr, Atflagsname },
     [SYS_profil]	= { Pptr, Pbigsize, Pbigsize, Pdecuint },
     [SYS_ktrace]	= { Ppath, Ktraceopname, Ktracefacname, Ppgid },
+    [SYS_fktrace]	= { Pfd, Ktraceopname, Ktracefacname, Ppgid },
     [SYS_sigaction]	= { Signame, Pptr, Pptr },
     [SYS_sigprocmask]	= { Sigprocmaskhowname, Sigset },
     [SYS_getlogin_r]	= { Pptr, Psize },
