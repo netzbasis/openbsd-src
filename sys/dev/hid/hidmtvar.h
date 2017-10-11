@@ -1,4 +1,4 @@
-/* $OpenBSD: hidmtvar.h,v 1.2 2017/10/08 10:13:42 bru Exp $ */
+/* $OpenBSD: hidmtvar.h,v 1.5 2017/10/10 20:31:50 jcs Exp $ */
 /*
  * Copyright (c) 2016 joshua stein <jcs@openbsd.org>
  *
@@ -15,10 +15,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-struct hidmt_input {
+struct hidmt_data {
 	int32_t			usage;
 	struct hid_location	loc;
-	SIMPLEQ_ENTRY(hidmt_input) entry;
+	SIMPLEQ_ENTRY(hidmt_data) entry;
 };
 
 struct hidmt_contact {
@@ -49,7 +49,7 @@ struct hidmt {
 	int		sc_rep_config;
 	int		sc_rep_cap;
 
-	SIMPLEQ_HEAD(, hidmt_input) sc_inputs;
+	SIMPLEQ_HEAD(, hidmt_data) sc_inputs;
 
 	struct device	*sc_wsmousedev;
 
@@ -61,10 +61,11 @@ struct hidmt {
 	int		sc_resx, sc_resy;
 
 	struct hidmt_contact sc_contacts[HIDMT_MAX_CONTACTS];
+	int		sc_cur_contactcount;
 	int		sc_button;
 };
 
-int	hidmt_set_input_mode(struct hidmt *, int);
+int	hidmt_set_input_mode(struct hidmt *, uint16_t);
 #define HIDMT_INPUT_MODE_MT	0x3
 
 void	hidmt_attach(struct hidmt *, const struct wsmouse_accessops *);
