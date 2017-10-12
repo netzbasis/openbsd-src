@@ -1,0 +1,22 @@
+/Makefile/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-boot-name-too-long.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-boot-name-too-long.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-disk-path-too-long.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-disk-path-too-long.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-kernel-keyword.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-kernel-keyword.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-few-ram.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-few-ram.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-many-disks.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-many-disks.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-many-ifs.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-too-many-ifs.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-vm-name-too-long.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-vm-name-too-long.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-boot-keyword.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-boot-keyword.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-memory-just-enough.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-memory-just-enough.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-memory-round.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-pass-memory-round.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+D

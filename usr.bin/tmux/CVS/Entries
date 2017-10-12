@@ -84,7 +84,7 @@
 /layout-set.c/1.18/Mon May 15 14:57:29 2017//
 /layout.c/1.32/Sat Mar 11 15:16:35 2017//
 /log.c/1.25/Sun Jun  4 08:25:57 2017//
-/mode-tree.c/1.11/Fri Sep  8 16:28:41 2017//
+/mode-tree.c/1.13/Wed Oct 11 11:26:58 2017//
 /names.c/1.41/Fri Jul 21 12:58:02 2017//
 /notify.c/1.25/Wed Aug 30 10:33:57 2017//
 /options-table.c/1.93/Thu Aug 17 08:37:38 2017//
@@ -114,7 +114,7 @@
 /window-client.c/1.8/Wed Aug  9 11:43:45 2017//
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
 /window-copy.c/1.184/Wed Sep 13 07:31:07 2017//
-/window-tree.c/1.17/Wed Aug 30 10:33:57 2017//
+/window-tree.c/1.19/Wed Oct 11 12:57:49 2017//
 /window.c/1.205/Mon Aug 28 12:36:38 2017//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
 /xmalloc.h/1.2/Thu Nov 17 10:06:08 2016//

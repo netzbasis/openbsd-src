@@ -3,7 +3,7 @@
 /ehci.c/1.200/Mon May 15 10:52:08 2017//
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
-/files.usb/1.133/Tue Aug 29 03:35:11 2017//
+/files.usb/1.134/Wed Oct 11 17:19:50 2017//
 /if_athn_usb.c/1.47/Sat Apr  8 02:57:25 2017//
 /if_athn_usb.h/1.8/Sat Apr  8 02:57:25 2017//
 /if_atu.c/1.123/Fri Jul 21 15:55:04 2017//
@@ -14,6 +14,7 @@
 /if_axen.c/1.24/Sun Jan 22 10:17:39 2017//
 /if_axenreg.h/1.6/Wed Sep 14 12:41:09 2016//
 /if_axereg.h/1.26/Fri Jun 12 15:47:31 2015//
+/if_bwfm_usb.c/1.1/Wed Oct 11 17:19:50 2017//
 /if_cdce.c/1.74/Fri Apr 21 09:42:53 2017//
 /if_cdcereg.h/1.7/Wed Oct 12 21:51:11 2016//
 /if_cue.c/1.77/Sun Jan 22 10:17:39 2017//
@@ -137,9 +138,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.134/Sat Apr  8 02:57:25 2017//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.677/Sat Aug 26 12:45:16 2017//
-/usbdevs.h/1.689/Sat Aug 26 12:46:30 2017//
-/usbdevs_data.h/1.683/Sat Aug 26 12:46:30 2017//
+/usbdevs/1.678/Wed Oct 11 17:19:50 2017//
+/usbdevs.h/1.690/Wed Oct 11 17:20:36 2017//
+/usbdevs_data.h/1.684/Wed Oct 11 17:20:36 2017//
 /usbdi.c/1.96/Thu Sep 21 07:44:06 2017//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//
