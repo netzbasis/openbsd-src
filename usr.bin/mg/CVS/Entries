@@ -7,7 +7,7 @@
 /chrdef.h/1.10/Wed Mar 25 12:29:03 2015//
 /cinfo.c/1.18/Thu Mar 19 21:22:15 2015//
 /cmode.c/1.16/Sat Sep 26 21:51:58 2015//
-/cscope.c/1.16/Tue Jan 19 14:51:00 2016//
+/cscope.c/1.17/Thu Oct 12 14:12:00 2017//
 /def.h/1.155/Thu Apr 14 17:05:32 2016//
 /dir.c/1.30/Tue May 30 07:05:22 2017//
 /dired.c/1.83/Fri Oct  7 00:17:20 2016//
@@ -18,7 +18,7 @@
 /fileio.c/1.104/Tue May 30 07:05:22 2017//
 /funmap.c/1.53/Thu Apr 14 17:05:32 2016//
 /funmap.h/1.7/Tue Jun 10 00:19:31 2008//
-/grep.c/1.44/Thu Mar 19 21:48:05 2015//
+/grep.c/1.45/Thu Oct 12 14:12:00 2017//
 /help.c/1.35/Thu Mar 19 21:22:15 2015//
 /kbd.c/1.30/Sat Sep 26 21:51:58 2015//
 /kbd.h/1.19/Thu Mar 19 21:48:05 2015//

@@ -32,7 +32,7 @@
 /atk0110.c/1.14/Sat Feb 25 20:09:20 2017//
 /bytgpio.c/1.12/Tue Oct 25 06:48:58 2016//
 /chvgpio.c/1.6/Tue Oct 25 06:48:58 2016//
-/dsdt.c/1.234/Sun May 28 15:36:45 2017//
+/dsdt.c/1.235/Thu Oct 12 07:24:46 2017//
 /dsdt.h/1.73/Tue Oct 25 06:48:58 2016//
 /dwiic.c/1.24/Thu Aug 17 20:41:16 2017//
 /efi.h/1.1/Thu May 25 21:21:18 2017//

@@ -7,7 +7,7 @@
 /sdhcvar.h/1.10/Fri May  5 15:10:07 2017//
 /sdmmc.c/1.47/Thu Apr  6 07:07:28 2017//
 /sdmmc_cis.c/1.7/Sat Apr 23 14:15:59 2016//
-/sdmmc_io.c/1.29/Mon Aug 28 23:45:10 2017//
+/sdmmc_io.c/1.30/Thu Oct 12 11:54:37 2017//
 /sdmmc_ioreg.h/1.6/Sat Apr 23 14:15:59 2016//
 /sdmmc_mem.c/1.30/Thu Apr  6 03:15:29 2017//
 /sdmmc_scsi.c/1.40/Thu Apr  6 17:00:53 2017//

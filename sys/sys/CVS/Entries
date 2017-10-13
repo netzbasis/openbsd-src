@@ -27,7 +27,7 @@
 /event.h/1.26/Mon Jun 26 09:32:32 2017//
 /eventvar.h/1.4/Wed Oct 11 08:01:10 2017//
 /exec.h/1.36/Wed Feb  8 21:04:44 2017//
-/exec_elf.h/1.75/Tue Sep  5 06:35:19 2017//
+/exec_elf.h/1.76/Thu Oct 12 09:03:15 2017//
 /exec_script.h/1.5/Fri Sep 19 05:41:29 2008//
 /extent.h/1.14/Sat Feb  8 20:29:01 2014//
 /fcntl.h/1.21/Sun May 17 01:22:01 2015//
@@ -101,7 +101,7 @@
 /syscall.h/1.188/Mon Sep 25 23:00:33 2017//
 /syscall_mi.h/1.18/Thu Apr 20 15:21:51 2017//
 /syscallargs.h/1.191/Mon Sep 25 23:00:33 2017//
-/sysctl.h/1.174/Wed Jun 14 03:00:40 2017//
+/sysctl.h/1.175/Thu Oct 12 09:14:16 2017//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
 /systm.h/1.133/Fri Aug 11 21:24:20 2017//
