@@ -1,4 +1,4 @@
-/*	$OpenBSD: clparse.c,v 1.137 2017/10/12 14:55:49 krw Exp $	*/
+/*	$OpenBSD: clparse.c,v 1.139 2017/10/14 01:15:36 krw Exp $	*/
 
 /* Parser for dhclient config and lease files. */
 
@@ -62,11 +62,11 @@
 
 void parse_client_statement(FILE *, char *);
 int parse_X(FILE *, uint8_t *, int);
-int parse_option_list(FILE *, uint8_t *, size_t);
+int parse_option_list(FILE *, int *, uint8_t *);
 void parse_interface_declaration(FILE *, char *);
 struct client_lease *parse_client_lease_statement(FILE *, char *);
 void parse_client_lease_declaration(FILE *, struct client_lease *, char *);
-int parse_option_decl(FILE *, struct option_data *);
+int parse_option_decl(FILE *, int *, struct option_data *);
 void parse_reject_statement(FILE *);
 void add_lease(struct client_lease_tq *, struct client_lease *);
 
@@ -220,59 +220,54 @@ read_client_leases(char *name, struct client_lease_tq *tq)
 void
 parse_client_statement(FILE *cfile, char *name)
 {
-	uint8_t		 optlist[DHO_COUNT];
 	char		*val;
-	int		 code, count, token;
+	int		 i, token;
 
 	token = next_token(NULL, cfile);
 
 	switch (token) {
 	case TOK_SEND:
-		parse_option_decl(cfile, &config->send_options[0]);
+		if (parse_option_decl(cfile, &i, config->send_options) == 1)
+			parse_semi(cfile);
 		break;
 	case TOK_DEFAULT:
-		code = parse_option_decl(cfile, &config->defaults[0]);
-		if (code != -1)
-			config->default_actions[code] = ACTION_DEFAULT;
+		if (parse_option_decl(cfile, &i, config->defaults) == 1) {
+			config->default_actions[i] = ACTION_DEFAULT;
+			parse_semi(cfile);
+		}
 		break;
 	case TOK_SUPERSEDE:
-		code = parse_option_decl(cfile, &config->defaults[0]);
-		if (code != -1)
-			config->default_actions[code] = ACTION_SUPERSEDE;
+		if (parse_option_decl(cfile, &i, config->defaults) == 1) {
+			config->default_actions[i] = ACTION_SUPERSEDE;
+			parse_semi(cfile);
+		}
 		break;
 	case TOK_APPEND:
-		code = parse_option_decl(cfile, &config->defaults[0]);
-		if (code != -1)
-			config->default_actions[code] = ACTION_APPEND;
+		if (parse_option_decl(cfile, &i, config->defaults) == 1) {
+			config->default_actions[i] = ACTION_APPEND;
+			parse_semi(cfile);
+		}
 		break;
 	case TOK_PREPEND:
-		code = parse_option_decl(cfile, &config->defaults[0]);
-		if (code != -1)
-			config->default_actions[code] = ACTION_PREPEND;
+		if (parse_option_decl(cfile, &i, config->defaults) == 1) {
+			config->default_actions[i] = ACTION_PREPEND;
+			parse_semi(cfile);
+		}
 		break;
 	case TOK_REQUEST:
-		count = parse_option_list(cfile, optlist, sizeof(optlist));
-		if (count != -1) {
-			config->requested_option_count = count;
-			memcpy(config->requested_options, optlist,
-			    sizeof(config->requested_options));
-		}
-		break;
+		if (parse_option_list(cfile, &config->requested_option_count,
+		    config->requested_options) == 1)
+			parse_semi(cfile);
+			break;
 	case TOK_REQUIRE:
-		count = parse_option_list(cfile, optlist, sizeof(optlist));
-		if (count != -1) {
-			config->required_option_count = count;
-			memcpy(config->required_options, optlist,
-			    sizeof(config->required_options));
-		}
+		if (parse_option_list(cfile, &config->required_option_count,
+		    config->required_options) == 1)
+			parse_semi(cfile);
 		break;
 	case TOK_IGNORE:
-		count = parse_option_list(cfile, optlist, sizeof(optlist));
-		if (count != -1) {
-			config->ignored_option_count = count;
-			memcpy(config->ignored_options, optlist,
-			    sizeof(config->ignored_options));
-		}
+		if (parse_option_list(cfile, &config->ignored_option_count,
+		    config->ignored_options) == 1)
+			parse_semi(cfile);
 		break;
 	case TOK_LINK_TIMEOUT:
 		if (parse_lease_time(cfile, &config->link_timeout) == 1)
@@ -394,57 +389,50 @@ parse_X(FILE *cfile, uint8_t *buf, int max)
  *		   option_list COMMA option_name
  */
 int
-parse_option_list(FILE *cfile, uint8_t *list, size_t sz)
+parse_option_list(FILE *cfile, int *count, uint8_t *optlist)
 {
+	uint8_t		 list[DHO_COUNT];
 	unsigned int	 ix, j;
 	int		 i;
 	int		 token;
 	char		*val;
 
-	memset(list, DHO_PAD, sz);
+	/* Empty list of option names is allowed, to re-init optlist. */
+	if (peek_token(NULL, cfile) == ';') {
+		memset(optlist, DHO_PAD, sizeof(list));
+		*count = 0;
+		return 1;
+	}
+
+	memset(list, DHO_PAD, sizeof(list));
 	ix = 0;
 	do {
+		/* Next token must be an option name. */
 		token = next_token(&val, cfile);
-		if (token == ';' && ix == 0) {
-			/* Empty list. */
-			return 0;
-		}
-		if (is_identifier(token) == 0) {
-			parse_warn("expecting option name.");
-			goto syntaxerror;
-		}
-		/*
-		 * 0 (DHO_PAD) and 255 (DHO_END) are not valid in option
-		 * lists.  They are not really options and it makes no sense
-		 * to request, require or ignore them.
-		 */
-
 		i = name_to_code(val);
-		if (i == DHO_END) {
-			parse_warn("expecting option name.");
-			goto syntaxerror;
-		}
-		if (ix == sz) {
-			parse_warn("too many options.");
-			goto syntaxerror;
-		}
+		if (i == DHO_END)
+			break;
+
 		/* Avoid storing duplicate options in the list. */
 		for (j = 0; j < ix && list[j] != i; j++)
 			;
 		if (j == ix)
 			list[ix++] = i;
-		token = peek_token(NULL, cfile);
-		if (token == ',')
-			token = next_token(NULL, cfile);
+
+		if (peek_token(NULL, cfile) == ';') {
+			memcpy(optlist, list, sizeof(list));
+			*count = ix;
+			return 1;
+		}
+		token = next_token(NULL, cfile);
 	} while (token == ',');
 
-	if (parse_semi(cfile) != 0)
-		return ix;
+	parse_warn("expecting comma delimited list of option names.");
 
-syntaxerror:
 	if (token != ';')
 		skip_to_semi(cfile);
-	return -1;
+
+	return 0;
 }
 
 /*
@@ -552,7 +540,7 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
 {
 	char		*val;
 	unsigned int	 len;
-	int		 rslt, token;
+	int		 i, rslt, token;
 
 	token = next_token(&val, cfile);
 
@@ -619,8 +607,9 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
 			return;
 		break;
 	case TOK_OPTION:
-		parse_option_decl(cfile, lease->options);
-		return;
+		if (parse_option_decl(cfile, &i, lease->options) == 0)
+			return;
+		break;
 	default:
 		parse_warn("expecting lease declaration.");
 		if (token != ';')
@@ -632,39 +621,35 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
 }
 
 int
-parse_option_decl(FILE *cfile, struct option_data *options)
+parse_option_decl(FILE *cfile, int *code, struct option_data *options)
 {
-	char		*val;
-	int		 token;
-	uint8_t		 buf[4];
-	uint8_t		 cidr[5];
-	uint8_t		 hunkbuf[1024];
-	unsigned int	 hunkix = 0;
-	char		*fmt;
-	struct in_addr	 ip_addr;
-	uint8_t		*dp;
-	int		 len, code;
-	int		 nul_term = 0;
+	uint8_t			 hunkbuf[1024], cidr[5], buf[4];
+	struct in_addr		 ip_addr;
+	uint8_t			*dp;
+	char			*fmt, *val;
+	unsigned int		 hunkix = 0;
+	int			 i, len, token;
+	int			 nul_term = 0;
 
 	token = next_token(&val, cfile);
 	if (is_identifier(token) == 0) {
 		parse_warn("expecting identifier.");
 		if (token != ';')
 			skip_to_semi(cfile);
-		return -1;
+		return 0;
 	}
 
 	/* Look up the actual option info. */
-	code = name_to_code(val);
-	if (code == DHO_END) {
+	i = name_to_code(val);
+	if (i == DHO_END) {
 		parse_warn("unknown option name.");
 		skip_to_semi(cfile);
-		return -1;
+		return 0;
 	}
 
 	/* Parse the option data. */
 	do {
-		for (fmt = code_to_format(code); *fmt; fmt++) {
+		for (fmt = code_to_format(i); *fmt != '\0'; fmt++) {
 			if (*fmt == 'A')
 				break;
 			switch (*fmt) {
@@ -672,7 +657,7 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 				len = parse_X(cfile, &hunkbuf[hunkix],
 				    sizeof(hunkbuf) - hunkix);
 				if (len == -1)
-					return -1;
+					return 0;
 				hunkix += len;
 				dp = NULL;
 				break;
@@ -684,7 +669,7 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 					parse_warn("option data buffer "
 					    "overflow");
 					skip_to_semi(cfile);
-					return -1;
+					return 0;
 				}
 				memcpy(&hunkbuf[hunkix], val, len + 1);
 				free(val);
@@ -694,43 +679,43 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 				break;
 			case 'I': /* IP address. */
 				if (parse_ip_addr(cfile, &ip_addr) == 0)
-					return -1;
+					return 0;
 				len = sizeof(ip_addr);
 				dp = (uint8_t *)&ip_addr;
 				break;
 			case 'l':	/* Signed 32-bit integer. */
 				if (parse_decimal(cfile, buf, 'l') == 0)
-					return -1;
+					return 0;
 				len = 4;
 				dp = buf;
 				break;
 			case 'L':	/* Unsigned 32-bit integer. */
 				if (parse_decimal(cfile, buf, 'L') == 0)
-					return -1;
+					return 0;
 				len = 4;
 				dp = buf;
 				break;
 			case 'S':	/* Unsigned 16-bit integer. */
 				if (parse_decimal(cfile, buf, 'S') == 0)
-					return -1;
+					return 0;
 				len = 2;
 				dp = buf;
 				break;
 			case 'B':	/* Unsigned 8-bit integer. */
 				if (parse_decimal(cfile, buf, 'B') == 0)
-					return -1;
+					return 0;
 				len = 1;
 				dp = buf;
 				break;
 			case 'f': /* Boolean flag. */
 				if (parse_boolean(cfile, buf) == 0)
-					return -1;
+					return 0;
 				len = 1;
 				dp = buf;
 				break;
 			case 'C':
 				if (parse_cidr(cfile, cidr) == 0)
-					return -1;
+					return 0;
 				len = 1 + (cidr[0] + 7) / 8;
 				dp = cidr;
 				break;
@@ -738,14 +723,14 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 				log_warnx("%s: bad format %c in "
 				    "parse_option_param", log_procname, *fmt);
 				skip_to_semi(cfile);
-				return -1;
+				return 0;
 			}
 			if (dp != NULL && len > 0) {
 				if (hunkix + len > sizeof(hunkbuf)) {
 					parse_warn("option data buffer "
 					    "overflow");
 					skip_to_semi(cfile);
-					return -1;
+					return 0;
 				}
 				memcpy(&hunkbuf[hunkix], dp, len);
 				hunkix += len;
@@ -756,15 +741,16 @@ parse_option_decl(FILE *cfile, struct option_data *options)
 			token = next_token(NULL, cfile);
 	} while (*fmt == 'A' && token == ',');
 
-	if (parse_semi(cfile) == 0)
-		return -1;
-
-	options[code].data = malloc(hunkix + nul_term);
-	if (options[code].data == NULL)
+	free(options[i].data);
+	options[i].data = malloc(hunkix + nul_term);
+	if (options[i].data == NULL)
 		fatal("option data");
-	memcpy(options[code].data, hunkbuf, hunkix + nul_term);
-	options[code].len = hunkix;
-	return code;
+	memcpy(options[i].data, hunkbuf, hunkix + nul_term);
+	options[i].len = hunkix;
+
+	*code = i;
+
+	return 1;
 }
 
 void
