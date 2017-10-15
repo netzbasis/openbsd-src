@@ -1,13 +1,13 @@
 /Makefile/1.20/Sat Jul  8 20:38:31 2017//
 /bpf.c/1.69/Wed Sep 20 18:28:14 2017//
-/clparse.c/1.139/Sat Oct 14 01:15:36 2017//
+/clparse.c/1.141/Sat Oct 14 15:40:40 2017//
 /conflex.c/1.44/Thu Oct  5 14:19:16 2017//
 /dhclient.8/1.33/Fri Sep 22 14:04:13 2017//
 /dhclient.c/1.514/Thu Sep 28 21:25:49 2017//
 /dhclient.conf.5/1.35/Mon Jul 31 18:56:21 2017//
 /dhclient.leases.5/1.9/Tue Jul 16 09:45:28 2013//
 /dhcp.h/1.21/Mon Jul 24 16:17:35 2017//
-/dhcpd.h/1.231/Thu Oct 12 13:10:13 2017//
+/dhcpd.h/1.232/Sat Oct 14 15:31:46 2017//
 /dhctoken.h/1.13/Thu Oct  5 14:19:16 2017//
 /dispatch.c/1.146/Wed Sep 20 22:05:10 2017//
 /kroute.c/1.153/Wed Sep 20 19:21:00 2017//
@@ -15,7 +15,7 @@
 /log.h/1.1/Sun Feb 12 13:15:50 2017//
 /options.c/1.109/Wed Oct 11 00:09:32 2017//
 /packet.c/1.41/Sun Sep 17 21:20:23 2017//
-/parse.c/1.72/Thu Oct 12 13:10:13 2017//
+/parse.c/1.73/Sat Oct 14 15:31:46 2017//
 /privsep.c/1.71/Wed Sep 20 19:21:00 2017//
 /privsep.h/1.56/Thu Aug 31 17:01:48 2017//
 D
