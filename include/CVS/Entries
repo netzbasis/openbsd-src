@@ -1,4 +1,4 @@
-/Makefile/1.220/Fri Oct  6 19:58:37 2017//
+/Makefile/1.221/Sun Oct 15 23:40:33 2017//
 /a.out.h/1.3/Mon Jun  2 19:34:12 2003//
 /ar.h/1.3/Mon Jun  2 19:34:12 2003//
 /asr.h/1.1/Wed Mar 26 18:13:15 2014//
@@ -49,13 +49,17 @@
 /nlist.h/1.4/Mon Jun  2 19:34:12 2003//
 /paths.h/1.25/Thu Mar 13 15:24:41 2014//
 /poll.h/1.3/Wed Oct 29 16:41:13 2003//
+/pthread.h/1.1/Sun Oct 15 23:40:33 2017//
+/pthread_np.h/1.1/Sun Oct 15 23:40:33 2017//
 /pwd.h/1.25/Thu Mar  9 10:13:03 2017//
 /ranlib.h/1.3/Mon Jun  2 19:34:12 2003//
 /readpassphrase.h/1.5/Tue Jun 17 21:56:23 2003//
 /regex.h/1.7/Wed Dec  5 23:19:57 2012//
 /resolv.h/1.21/Mon Sep 12 19:35:31 2016//
 /rmd160.h/1.17/Wed Dec  5 23:19:57 2012//
+/sched.h/1.1/Sun Oct 15 23:40:33 2017//
 /search.h/1.10/Fri Jul 18 04:16:09 2014//
+/semaphore.h/1.1/Sun Oct 15 23:40:33 2017//
 /setjmp.h/1.7/Mon May 23 00:18:56 2016//
 /sha1.h/1.24/Wed Dec  5 23:19:57 2012//
 /sha2.h/1.10/Sat Sep  3 17:00:29 2016//
