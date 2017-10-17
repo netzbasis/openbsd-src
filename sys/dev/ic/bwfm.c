@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfm.c,v 1.2 2017/10/15 15:21:24 patrick Exp $ */
+/* $OpenBSD: bwfm.c,v 1.5 2017/10/16 22:27:16 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -151,6 +151,8 @@ bwfm_attach(struct bwfm_softc *sc)
 		printf("%s: no supplicant in firmware, bailing\n", DEVNAME(sc));
 		return;
 	}
+
+	ic->ic_caps = IEEE80211_C_RSN;	/* WPA/RSN */
 
 	ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -320,10 +322,22 @@ bwfm_init(struct ifnet *ifp)
 	bwfm_fwvar_var_set_int(sc, "ndoe", 0);
 	bwfm_fwvar_var_set_int(sc, "toe", 0);
 
-	bwfm_fwvar_var_set_int(sc, "mfp", 0); /* NONE */
+	/*
+	 * Use the firmware supplicant to handle the WPA handshake.
+	 * As long as we're still figuring things out this is ok, but
+	 * it would be better to handle the handshake in our stack.
+	 */
 	bwfm_fwvar_var_set_int(sc, "sup_wpa", 1);
+
+	/*
+	 * OPEN: Open or WPA/WPA2 on newer Chips/Firmware.
+	 * SHARED KEY: WEP.
+	 * AUTO: Automatic, probably for older Chips/Firmware.
+	 */
 	if (ic->ic_flags & IEEE80211_F_PSK) {
 		struct bwfm_wsec_pmk pmk;
+		uint32_t wsec = 0;
+		uint32_t wpa = 0;
 		int i;
 
 		pmk.key_len = htole16(sizeof(ic->ic_psk) << 1);
@@ -334,17 +348,37 @@ bwfm_init(struct ifnet *ifp)
 		bwfm_fwvar_cmd_set_data(sc, BWFM_C_SET_WSEC_PMK, &pmk,
 		    sizeof(pmk));
 
-		bwfm_fwvar_var_set_int(sc, "wpa_auth", 0x80|0x40); /* WPA2|UNSPEC */
-		//bwfm_fwvar_var_set_int(sc, "wpa_auth", 0x4|0x2); /* WPA|UNSPEC */
-		bwfm_fwvar_var_set_int(sc, "wsec", 0x4|0x2); /* AES|TKIP */
-		//bwfm_fwvar_var_set_int(sc, "auth", 0); /* OPEN */
-		//bwfm_fwvar_var_set_int(sc, "auth", 1); /* SHARED KEY */
-		bwfm_fwvar_var_set_int(sc, "auth", 2); /* AUTO */
+		if (ic->ic_rsnprotos & IEEE80211_PROTO_WPA) {
+			if (ic->ic_rsnakms & IEEE80211_AKM_PSK)
+				wpa |= BWFM_WPA_AUTH_WPA_PSK;
+			if (ic->ic_rsnakms & IEEE80211_AKM_8021X)
+				wpa |= BWFM_WPA_AUTH_WPA_UNSPECIFIED;
+		}
+		if (ic->ic_rsnprotos & IEEE80211_PROTO_RSN) {
+			if (ic->ic_rsnakms & IEEE80211_AKM_PSK)
+				wpa |= BWFM_WPA_AUTH_WPA2_PSK;
+			if (ic->ic_rsnakms & IEEE80211_AKM_SHA256_PSK)
+				wpa |= BWFM_WPA_AUTH_WPA2_PSK_SHA256;
+			if (ic->ic_rsnakms & IEEE80211_AKM_8021X)
+				wpa |= BWFM_WPA_AUTH_WPA2_UNSPECIFIED;
+			if (ic->ic_rsnakms & IEEE80211_AKM_SHA256_8021X)
+				wpa |= BWFM_WPA_AUTH_WPA2_1X_SHA256;
+		}
+		if (ic->ic_rsnciphers & IEEE80211_WPA_CIPHER_TKIP ||
+		    ic->ic_rsngroupcipher & IEEE80211_WPA_CIPHER_TKIP)
+			wsec |= BWFM_WSEC_TKIP;
+		if (ic->ic_rsnciphers & IEEE80211_WPA_CIPHER_CCMP ||
+		    ic->ic_rsngroupcipher & IEEE80211_WPA_CIPHER_CCMP)
+			wsec |= BWFM_WSEC_AES;
+
+		bwfm_fwvar_var_set_int(sc, "wpa_auth", wpa);
+		bwfm_fwvar_var_set_int(sc, "wsec", wsec);
 	} else {
-		bwfm_fwvar_var_set_int(sc, "wpa_auth", 0); /* WPA DISABLED */
-		bwfm_fwvar_var_set_int(sc, "wsec", 0); /* NO CIPHERS */
-		bwfm_fwvar_var_set_int(sc, "auth", 0); /* OPEN */
+		bwfm_fwvar_var_set_int(sc, "wpa_auth", BWFM_WPA_AUTH_DISABLED);
+		bwfm_fwvar_var_set_int(sc, "wsec", BWFM_WSEC_NONE);
 	}
+	bwfm_fwvar_var_set_int(sc, "auth", BWFM_AUTH_OPEN);
+	bwfm_fwvar_var_set_int(sc, "mfp", BWFM_MFP_NONE);
 
 	if (ic->ic_des_esslen && ic->ic_des_esslen < BWFM_MAX_SSID_LEN) {
 		params = malloc(sizeof(*params), M_TEMP, M_WAITOK | M_ZERO);
@@ -563,6 +597,7 @@ bwfm_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 	case SIOCS80211WPAPARMS:
 	case SIOCG80211WPAPARMS:
+		error = ieee80211_ioctl(ifp, cmd, data);
 		break;
 	case SIOCS80211WPAPSK:
 		if ((error = suser(curproc, 0)) != 0)
