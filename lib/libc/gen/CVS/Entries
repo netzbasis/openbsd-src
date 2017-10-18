@@ -83,7 +83,7 @@
 /getprogname.c/1.4/Sun Mar 13 18:34:20 2016//
 /getpwent.3/1.31/Sun Aug 14 14:57:16 2016//
 /getpwent.c/1.61/Sat May  7 21:52:29 2016//
-/getpwnam.3/1.11/Sun Aug 14 14:57:16 2016//
+/getpwnam.3/1.12/Tue Oct 17 22:47:58 2017//
 /getttyent.3/1.12/Wed Jun  5 03:39:22 2013//
 /getttyent.c/1.15/Sun Sep 13 11:47:54 2015//
 /getusershell.3/1.14/Wed Jun  5 03:39:22 2013//
@@ -132,7 +132,7 @@
 /pause.c/1.6/Mon Aug  8 08:05:34 2005//
 /popen.3/1.20/Fri Feb  5 18:09:20 2016//
 /popen.c/1.21/Mon Aug 31 02:53:57 2015//
-/posix_spawn.3/1.8/Thu Feb  5 02:33:09 2015//
+/posix_spawn.3/1.9/Tue Oct 17 22:47:58 2017//
 /posix_spawn.c/1.9/Sun Mar 13 18:34:20 2016//
 /posix_spawn_file_actions_addopen.3/1.8/Sun Nov 30 02:41:43 2014//
 /posix_spawn_file_actions_init.3/1.8/Sun Nov 30 02:41:43 2014//

@@ -1,4 +1,4 @@
-/Makefile/1.221/Sun Oct 15 23:40:33 2017//
+/Makefile/1.222/Tue Oct 17 09:34:52 2017//
 /a.out.h/1.3/Mon Jun  2 19:34:12 2003//
 /ar.h/1.3/Mon Jun  2 19:34:12 2003//
 /asr.h/1.1/Wed Mar 26 18:13:15 2014//
@@ -14,6 +14,7 @@
 /dirent.h/1.34/Fri Sep  9 18:12:37 2016//
 /disktab.h/1.3/Mon Jun  2 19:34:12 2003//
 /dlfcn.h/1.13/Sun Mar 24 01:37:21 2013//
+/elf.h/1.1/Tue Oct 17 09:34:52 2017//
 /elf_abi.h/1.4/Wed May 22 07:46:22 1996//
 /err.h/1.13/Mon Aug 31 02:53:56 2015//
 /errno.h/1.3/Thu Aug 10 13:34:46 2017//

@@ -18,7 +18,7 @@
 /kern_fork.c/1.200/Wed Sep 27 06:45:00 2017//
 /kern_kthread.c/1.41/Sun Feb 12 04:55:08 2017//
 /kern_ktrace.c/1.92/Sat Aug 12 00:03:10 2017//
-/kern_lock.c/1.50/Mon Oct  9 08:16:13 2017//
+/kern_lock.c/1.51/Tue Oct 17 14:25:35 2017//
 /kern_malloc.c/1.130/Mon Jul 10 23:49:10 2017//
 /kern_malloc_debug.c/1.35/Mon Jul 10 23:49:10 2017//
 /kern_mutex.c/1.1/Thu Apr 20 13:57:30 2017//
@@ -50,7 +50,7 @@
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
 /subr_extent.c/1.58/Thu Sep 15 02:00:16 2016//
 /subr_hibernate.c/1.123/Thu Aug 17 06:50:41 2017//
-/subr_log.c/1.53/Mon Sep 25 23:00:33 2017//
+/subr_log.c/1.54/Tue Oct 17 08:29:43 2017//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
 /subr_pool.c/1.220/Sun Aug 13 20:26:33 2017//
