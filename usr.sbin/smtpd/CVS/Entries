@@ -69,7 +69,7 @@
 /scheduler_ramqueue.c/1.43/Mon Jan  9 09:53:23 2017//
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
 /smtp.c/1.156/Mon May 22 13:43:15 2017//
-/smtp_session.c/1.312/Fri Sep  8 16:51:22 2017//
+/smtp_session.c/1.313/Thu Oct 19 19:50:32 2017//
 /smtpctl.8/1.59/Tue May 23 06:55:05 2017//
 /smtpctl.c/1.154/Thu Jul 27 18:48:30 2017//
 /smtpd-api.h/1.32/Fri Sep  8 16:51:22 2017//
