@@ -24,7 +24,7 @@
 /ipifuncs.c/1.16/Thu May 25 03:19:39 2017//
 /lock_machdep.c/1.17/Mon May 29 14:19:50 2017//
 /locore.s/1.186/Tue May 16 20:53:42 2017//
-/machdep.c/1.184/Thu May 25 03:19:39 2017//
+/machdep.c/1.185/Mon Oct 23 18:38:33 2017//
 /mdesc.c/1.7/Sun Nov 30 22:26:15 2014//
 /mem.c/1.18/Sun Sep 25 15:23:37 2016//
 /mutex.S/1.9/Thu Apr 20 13:57:30 2017//
