@@ -1,7 +1,7 @@
 /dest6.c/1.17/Fri Apr 14 20:46:31 2017//
 /frag6.c/1.74/Tue May 16 12:24:02 2017//
 /icmp6.c/1.219/Wed Oct 18 17:01:14 2017//
-/in6.c/1.213/Fri Oct 20 09:38:17 2017//
+/in6.c/1.215/Tue Oct 24 09:30:15 2017//
 /in6.h/1.99/Fri Sep  1 16:48:27 2017//
 /in6_cksum.c/1.17/Mon Jun  8 22:19:28 2015//
 /in6_ifattach.c/1.104/Fri Sep  1 16:48:27 2017//
@@ -9,7 +9,7 @@
 /in6_pcb.c/1.100/Fri Aug 11 19:53:02 2017//
 /in6_proto.c/1.95/Thu Jul 13 17:17:27 2017//
 /in6_src.c/1.81/Fri Dec  2 11:16:04 2016//
-/in6_var.h/1.69/Tue Aug 15 06:08:52 2017//
+/in6_var.h/1.70/Tue Oct 24 09:36:13 2017//
 /ip6_divert.c/1.54/Mon Oct  9 08:35:38 2017//
 /ip6_divert.h/1.8/Fri Apr 14 20:46:31 2017//
 /ip6_forward.c/1.95/Fri Jun 30 11:29:15 2017//
