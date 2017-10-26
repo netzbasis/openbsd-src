@@ -22,10 +22,10 @@
 /if_dl.h/1.12/Thu May  4 15:00:24 2017//
 /if_enc.c/1.70/Mon Oct 16 08:22:25 2017//
 /if_enc.h/1.12/Mon Dec  8 10:46:14 2014//
-/if_etherip.c/1.20/Mon Oct  9 08:35:38 2017//
+/if_etherip.c/1.21/Wed Oct 25 09:24:09 2017//
 /if_etherip.h/1.6/Fri Apr 14 20:46:31 2017//
 /if_ethersubr.c/1.246/Wed May 31 05:59:09 2017//
-/if_gif.c/1.100/Mon Oct 16 13:40:58 2017//
+/if_gif.c/1.101/Wed Oct 25 09:24:09 2017//
 /if_gif.h/1.17/Fri Apr 14 20:46:31 2017//
 /if_gre.c/1.88/Fri Oct 20 09:35:09 2017//
 /if_gre.h/1.14/Tue Jan 24 10:08:30 2017//
@@ -61,7 +61,7 @@
 /if_vether.c/1.29/Sun Jan 22 10:17:39 2017//
 /if_vlan.c/1.174/Thu Jun 22 11:34:51 2017//
 /if_vlan_var.h/1.37/Tue Jan 24 10:08:30 2017//
-/if_vxlan.c/1.62/Fri Aug 11 21:24:19 2017//
+/if_vxlan.c/1.63/Wed Oct 25 09:24:09 2017//
 /if_vxlan.h/1.11/Sat Sep  3 13:46:57 2016//
 /ifq.c/1.12/Fri Jun  2 00:07:12 2017//
 /ifq.h/1.13/Wed May  3 20:55:29 2017//

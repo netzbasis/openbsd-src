@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.581 2017/10/08 16:45:01 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.584 2017/10/25 15:20:10 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 8 2017 $
+.Dd $Mdocdate: October 25 2017 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -3019,7 +3019,7 @@ and poor for interactive programs such as shells.
 .Xc
 Allow programs to change the window name using a terminal escape
 sequence (\eek...\ee\e\e).
-The default is on.
+The default is off.
 .Pp
 .It Xo Ic alternate-screen
 .Op Ic on | off
@@ -3347,7 +3347,12 @@ layout after every
 set-hook after-split-window "selectl even-vertical"
 .Ed
 .Pp
-In addition, the following hooks are available:
+All the notifications listed in the
+.Sx CONTROL MODE
+section are hooks (without any arguments), except
+.Ic %exit .
+The following additional hooks are available:
+.Pp
 .Bl -tag -width "XXXXXXXXXXXXXXXXXXXXXX"
 .It alert-activity
 Run when a window has activity.
@@ -4098,7 +4103,7 @@ a list.
 The following keys may be used in buffer mode:
 .Bl -column "Key" "Function" -offset indent
 .It Sy "Key" Ta Sy "Function"
-.It Li "Enter" Ta "Choose selected buffer"
+.It Li "Enter" Ta "Paste selected buffer"
 .It Li "Up" Ta "Select previous buffer"
 .It Li "Down" Ta "Select next buffer"
 .It Li "C-s" Ta "Search by name or content"
@@ -4106,6 +4111,8 @@ The following keys may be used in buffer mode:
 .It Li "t" Ta "Toggle if buffer is tagged"
 .It Li "T" Ta "Tag no buffers"
 .It Li "C-t" Ta "Tag all buffers"
+.It Li "p" Ta "Paste selected buffer"
+.It Li "P" Ta "Paste tagged buffers"
 .It Li "d" Ta "Delete selected buffer"
 .It Li "D" Ta "Delete tagged buffers"
 .It Li "f" Ta "Enter a format to filter items"

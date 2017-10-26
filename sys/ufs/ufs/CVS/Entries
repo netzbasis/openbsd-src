@@ -1,10 +1,10 @@
 /dinode.h/1.18/Thu May 30 19:19:09 2013//
 /dir.h/1.11/Sat Jan 31 21:21:45 2009//
-/dirhash.h/1.5/Sun Apr 25 14:43:07 2010//
+/dirhash.h/1.6/Thu Oct 26 02:38:54 2017//
 /inode.h/1.50/Sun Jun 19 11:54:34 2016//
 /quota.h/1.12/Wed Jul  3 04:58:40 2013//
 /ufs_bmap.c/1.35/Sat Mar 14 03:38:53 2015//
-/ufs_dirhash.c/1.39/Wed Apr 19 17:26:45 2017//
+/ufs_dirhash.c/1.40/Thu Oct 26 02:38:54 2017//
 /ufs_extern.h/1.36/Wed Aug 10 08:04:57 2016//
 /ufs_ihash.c/1.23/Sun Jun 19 11:54:34 2016//
 /ufs_inode.c/1.42/Sat Mar 19 12:04:16 2016//
