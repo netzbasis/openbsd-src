@@ -10,7 +10,7 @@
 /gprio.h/1.4/Mon Jun  2 19:39:13 2003//
 /if_an_pcmcia.c/1.26/Tue Nov 24 17:11:40 2015//
 /if_ep_pcmcia.c/1.48/Wed Nov 25 11:20:38 2015//
-/if_malo.c/1.92/Sun Jan 22 10:17:39 2017//
+/if_malo.c/1.93/Thu Oct 26 15:00:28 2017//
 /if_maloreg.h/1.15/Mon Oct  8 22:08:12 2007//
 /if_malovar.h/1.30/Fri Dec  6 21:03:04 2013//
 /if_ne_pcmcia.c/1.99/Tue Nov 24 13:33:18 2015//

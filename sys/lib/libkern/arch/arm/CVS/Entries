@@ -2,7 +2,7 @@
 /__aeabi_uldivmod.S/1.1/Sat Sep 24 12:32:30 2016//
 /bcopy.S/1.4/Sat Jun 15 19:16:53 2013//
 /bzero.S/1.3/Thu Jun 26 05:42:20 2008//
-/divsi3.S/1.4/Thu Sep 22 19:43:25 2016//
+/divsi3.S/1.5/Thu Oct 26 15:23:59 2017//
 /htonl.S/1.3/Tue Dec 30 08:12:52 2014//
 /htons.S/1.3/Tue Dec 30 08:12:52 2014//
 /memcpy.S/1.6/Mon Jun  8 14:22:05 2015//
