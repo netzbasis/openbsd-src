@@ -1,4 +1,4 @@
-/*	$OpenBSD: ctfdump.c,v 1.11 2017/10/16 12:58:57 mpi Exp $ */
+/*	$OpenBSD: ctfdump.c,v 1.14 2017/10/27 09:35:22 mpi Exp $ */
 
 /*
  * Copyright (c) 2016 Martin Pieuchot <mpi@openbsd.org>
@@ -18,10 +18,10 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/exec_elf.h>
 #include <sys/mman.h>
 #include <sys/ctf.h>
 
+#include <elf.h>
 #include <err.h>
 #include <fcntl.h>
 #include <locale.h>
@@ -52,8 +52,8 @@ int		 isctf(const char *, size_t);
 __dead void	 usage(void);
 
 int		 ctf_dump(const char *, size_t, uint8_t);
-uint32_t	 ctf_dump_type(struct ctf_header *, const char *, off_t,
-		     uint32_t, uint32_t);
+void		 ctf_dump_type(struct ctf_header *, const char *, off_t,
+		     uint32_t, uint32_t *, uint32_t);
 const char	*ctf_kind2name(uint16_t);
 const char	*ctf_enc2name(uint16_t);
 const char	*ctf_fpenc2name(uint16_t);
@@ -349,12 +349,16 @@ ctf_dump(const char *p, size_t size, uint8_t flags)
 
 	if (flags & DUMP_FUNCTION) {
 		uint16_t		*fsp, kind, vlen;
+		uint16_t		*fstart, *fend;
 		size_t			 idx = 0, i = -1;
 		const char		*s;
 		int			 l;
 
-		fsp = (uint16_t *)(data + cth->cth_funcoff);
-		while (fsp < (uint16_t *)(data + cth->cth_typeoff)) {
+		fstart = (uint16_t *)(data + cth->cth_funcoff);
+		fend = (uint16_t *)(data + cth->cth_typeoff);
+
+		fsp = fstart;
+		while (fsp < fend) {
 			kind = CTF_INFO_KIND(*fsp);
 			vlen = CTF_INFO_VLEN(*fsp);
 			s = elf_idx2sym(&idx, STT_FUNC);
@@ -368,7 +372,7 @@ ctf_dump(const char *p, size_t size, uint8_t flags)
 			if (s != NULL)
 				printf("(%s)", s);
 			printf(" returns: %u args: (", *fsp++);
-			while (vlen-- > 0)
+			while (vlen-- > 0 && fsp < fend)
 				printf("%u%s", *fsp++, (vlen > 0) ? ", " : "");
 			printf(")\n");
 		}
@@ -377,9 +381,10 @@ ctf_dump(const char *p, size_t size, uint8_t flags)
 
 	if (flags & DUMP_TYPE) {
 		uint32_t		 idx = 1, offset = cth->cth_typeoff;
+		uint32_t		 stroff = cth->cth_stroff;
 
-		while (offset < cth->cth_stroff) {
-			offset += ctf_dump_type(cth, data, dlen, offset, idx++);
+		while (offset < stroff) {
+			ctf_dump_type(cth, data, dlen, stroff, &offset, idx++);
 		}
 		printf("\n");
 	}
@@ -408,11 +413,11 @@ ctf_dump(const char *p, size_t size, uint8_t flags)
 	return 0;
 }
 
-uint32_t
+void
 ctf_dump_type(struct ctf_header *cth, const char *data, off_t dlen,
-    uint32_t offset, uint32_t idx)
+    uint32_t stroff, uint32_t *offset, uint32_t idx)
 {
-	const char		*p = data + offset;
+	const char		*p = data + *offset;
 	const struct ctf_type	*ctt = (struct ctf_type *)p;
 	const struct ctf_array	*cta;
 	uint16_t		*argp, i, kind, vlen, root;
@@ -483,6 +488,9 @@ ctf_dump_type(struct ctf_header *cth, const char *data, off_t dlen,
 			for (i = 0; i < vlen; i++) {
 				struct ctf_member	*ctm;
 
+				if (toff > (stroff - sizeof(*ctm)))
+					break;
+
 				ctm = (struct ctf_member *)(p + toff);
 				toff += sizeof(struct ctf_member);
 
@@ -494,6 +502,9 @@ ctf_dump_type(struct ctf_header *cth, const char *data, off_t dlen,
 		} else {
 			for (i = 0; i < vlen; i++) {
 				struct ctf_lmember	*ctlm;
+
+				if (toff > (stroff - sizeof(*ctlm)))
+					break;
 
 				ctlm = (struct ctf_lmember *)(p + toff);
 				toff += sizeof(struct ctf_lmember);
@@ -509,6 +520,9 @@ ctf_dump_type(struct ctf_header *cth, const char *data, off_t dlen,
 		printf("\n");
 		for (i = 0; i < vlen; i++) {
 			struct ctf_enum	*cte;
+
+			if (toff > (stroff - sizeof(*cte)))
+				break;
 
 			cte = (struct ctf_enum *)(p + toff);
 			toff += sizeof(struct ctf_enum);
@@ -526,12 +540,12 @@ ctf_dump_type(struct ctf_header *cth, const char *data, off_t dlen,
 		printf(" refers to %u", ctt->ctt_type);
 		break;
 	default:
-		errx(1, "incorrect type %u at offset %u", kind, offset);
+		errx(1, "incorrect type %u at offset %u", kind, *offset);
 	}
 
 	printf("\n");
 
-	return toff;
+	*offset += toff;
 }
 
 const char *

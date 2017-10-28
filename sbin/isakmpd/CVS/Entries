@@ -10,7 +10,7 @@
 /attribute.h/1.6/Fri May 14 08:42:56 2004//
 /cert.c/1.33/Thu Mar 21 04:30:14 2013//
 /cert.h/1.16/Fri Jan 16 06:39:58 2015//
-/conf.c/1.106/Wed Mar 16 15:41:10 2016//
+/conf.c/1.107/Fri Oct 27 08:29:32 2017//
 /conf.h/1.34/Wed Aug 30 16:56:56 2006//
 /connection.c/1.38/Sun Aug  6 13:54:04 2017//
 /connection.h/1.5/Thu Apr 15 18:39:25 2004//
@@ -51,11 +51,11 @@
 /ike_quick_mode.h/1.6/Thu Apr 15 18:39:25 2004//
 /init.c/1.41/Wed Apr 24 13:46:09 2013//
 /init.h/1.6/Thu Apr 15 18:39:25 2004//
-/ipsec.c/1.147/Tue Jul 18 06:19:07 2017//
+/ipsec.c/1.148/Fri Oct 27 08:29:32 2017//
 /ipsec.h/1.26/Fri Jun  2 18:08:56 2006//
 /ipsec_doi.h/1.8/Thu Apr 15 18:39:25 2004//
 /ipsec_fld.fld/1.5/Tue Jun  3 14:28:16 2003//
-/ipsec_num.cst/1.19/Sat Jun 30 14:51:31 2012//
+/ipsec_num.cst/1.20/Fri Oct 27 08:29:32 2017//
 /isakmp.h/1.7/Sun Jun 20 15:24:05 2004//
 /isakmp_cfg.c/1.39/Thu Jan 23 01:04:28 2014//
 /isakmp_cfg.h/1.5/Sun May 23 18:17:56 2004//
@@ -65,7 +65,7 @@
 /isakmp_num.cst/1.13/Sat Jun 25 23:03:38 2005//
 /isakmpd.8/1.118/Sat Mar  5 08:38:36 2016//
 /isakmpd.c/1.104/Sat Apr  2 14:37:42 2016//
-/isakmpd.conf.5/1.133/Sun Jan  1 01:08:11 2017//
+/isakmpd.conf.5/1.134/Fri Oct 27 08:29:32 2017//
 /isakmpd.policy.5/1.48/Mon Jan 11 09:52:03 2016//
 /key.c/1.26/Fri Feb  3 08:23:46 2017//
 /key.h/1.8/Tue Nov 15 22:10:49 2005//
