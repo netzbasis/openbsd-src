@@ -6,12 +6,8 @@
  * static, or renamed it to have a leading underbar.
  */
 
-/* symbols that no one should be using currently */
-__data_start
-__bss_start
-_edata
+/* brk/sbrk need this so it can be overriden by the executable's value */
 _end
-__end
 
 /* sys */
 __get_tcb
@@ -1664,6 +1660,8 @@ _spinlock
 _spinlocktry
 _spinunlock
 _thread_atfork
+_thread_cleanup_pop
+_thread_cleanup_push
 _thread_dofork
 _thread_set_callbacks
 pthread_atfork

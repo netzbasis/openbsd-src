@@ -1,4 +1,4 @@
-/*	$OpenBSD: ctfdump.c,v 1.14 2017/10/27 09:35:22 mpi Exp $ */
+/*	$OpenBSD: ctfdump.c,v 1.17 2017/10/28 09:30:27 mpi Exp $ */
 
 /*
  * Copyright (c) 2016 Martin Pieuchot <mpi@openbsd.org>
@@ -175,6 +175,9 @@ elf_idx2sym(size_t *idx, uint8_t type)
 	const Elf_Sym	*st;
 	size_t		 i;
 
+	if (strtab == NULL)
+		return NULL;
+
 	for (i = *idx + 1; i < nsymb; i++) {
 		st = &symtab[i];
 
@@ -250,7 +253,7 @@ isctf(const char *p, size_t filesize)
 	if (cth->cth_magic != CTF_MAGIC || cth->cth_version != CTF_VERSION)
 		return 0;
 
-	dlen = cth->cth_stroff + cth->cth_strlen;
+	dlen = (off_t)cth->cth_stroff + cth->cth_strlen;
 	if (dlen > (off_t)filesize && !(cth->cth_flags & CTF_F_COMPRESS)) {
 		warnx("bogus file size");
 		return 0;
@@ -283,9 +286,10 @@ int
 ctf_dump(const char *p, size_t size, uint8_t flags)
 {
 	struct ctf_header	*cth = (struct ctf_header *)p;
-	off_t 			 dlen = cth->cth_stroff + cth->cth_strlen;
+	off_t 			 dlen;
 	char			*data;
 
+	dlen = (off_t)cth->cth_stroff + cth->cth_strlen;
 	if (cth->cth_flags & CTF_F_COMPRESS) {
 		data = decompress(p + sizeof(*cth), size - sizeof(*cth), dlen);
 		if (data == NULL)
@@ -296,18 +300,18 @@ ctf_dump(const char *p, size_t size, uint8_t flags)
 
 	if (flags & DUMP_HEADER) {
 		printf("  cth_magic    = 0x%04x\n", cth->cth_magic);
-		printf("  cth_version  = %d\n", cth->cth_version);
+		printf("  cth_version  = %u\n", cth->cth_version);
 		printf("  cth_flags    = 0x%02x\n", cth->cth_flags);
 		printf("  cth_parlabel = %s\n",
 		    ctf_off2name(cth, data, dlen, cth->cth_parlabel));
 		printf("  cth_parname  = %s\n",
 		    ctf_off2name(cth, data, dlen, cth->cth_parname));
-		printf("  cth_lbloff   = %d\n", cth->cth_lbloff);
-		printf("  cth_objtoff  = %d\n", cth->cth_objtoff);
-		printf("  cth_funcoff  = %d\n", cth->cth_funcoff);
-		printf("  cth_typeoff  = %d\n", cth->cth_typeoff);
-		printf("  cth_stroff   = %d\n", cth->cth_stroff);
-		printf("  cth_strlen   = %d\n", cth->cth_strlen);
+		printf("  cth_lbloff   = %u\n", cth->cth_lbloff);
+		printf("  cth_objtoff  = %u\n", cth->cth_objtoff);
+		printf("  cth_funcoff  = %u\n", cth->cth_funcoff);
+		printf("  cth_typeoff  = %u\n", cth->cth_typeoff);
+		printf("  cth_stroff   = %u\n", cth->cth_stroff);
+		printf("  cth_strlen   = %u\n", cth->cth_strlen);
 		printf("\n");
 	}
 
