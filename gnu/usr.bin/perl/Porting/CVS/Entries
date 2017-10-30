@@ -1,7 +1,7 @@
 /GitUtils.pm/1.1.1.2/Mon Nov 17 20:53:16 2014/-ko/
 /Glossary/1.15/Sun Feb  5 00:31:54 2017/-ko/
 /Maintainers/1.1.1.1/Wed Dec  3 02:44:29 2003/-ko/
-/Maintainers.pl/1.13/Mon Aug 14 13:49:43 2017/-ko/
+/Maintainers.pl/1.15/Sun Oct 29 22:38:45 2017/-ko/
 /Maintainers.pm/1.1.1.8/Mon Nov 17 20:53:16 2014/-ko/
 /README.pod/1.2/Sun Feb  5 00:31:54 2017/-kb/
 /README.y2038/1.1.1.2/Mon Mar 25 20:09:31 2013/-ko/
@@ -22,9 +22,9 @@
 /checkcfgvar.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /checkpodencoding.pl/1.1.1.3/Mon Nov 17 20:53:16 2014/-ko/
 /cherrymaint/1.1.1.2/Mon Nov 17 20:53:16 2014/-ko/
-/cmpVERSION.pl/1.3/Sun Feb  5 00:31:54 2017/-ko/
-/config.sh/1.7/Mon Aug 14 13:48:45 2017/-ko/
-/config_H/1.19/Mon Aug 14 13:48:45 2017/-ko/
+/cmpVERSION.pl/1.4/Sun Oct 29 22:37:17 2017/-ko/
+/config.sh/1.8/Sun Oct 29 22:37:17 2017/-ko/
+/config_H/1.20/Sun Oct 29 22:37:17 2017/-ko/
 /config_h.pl/1.1.1.4/Mon Nov 17 20:53:16 2014/-ko/
 /core-cpan-diff/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /corecpan.pl/1.1.1.6/Mon Mar 25 20:09:29 2013/-ko/
@@ -32,7 +32,7 @@
 /corelist-perldelta.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /corelist.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /deparse-skips.txt/1.1/Sun Feb  5 00:31:54 2017/-ko/
-/epigraphs.pod/1.4/Mon Aug 14 13:48:46 2017/-ko/
+/epigraphs.pod/1.5/Sun Oct 29 22:37:17 2017/-ko/
 /exec-bit.txt/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /exercise_makedef.pl/1.1.1.1/Mon Mar 25 20:09:29 2013/-ko/
 /expand-macro.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
@@ -52,12 +52,12 @@
 /manisort/1.1.1.2/Mon Mar 24 14:59:09 2014/-ko/
 /new-perldelta.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /newtests-perldelta.pl/1.1.1.1/Fri Sep 24 14:49:21 2010/-ko/
-/perldelta_template.pod/1.4/Mon Aug 14 13:48:46 2017/-ko/
+/perldelta_template.pod/1.5/Sun Oct 29 22:37:17 2017/-ko/
 /perlhist_calculate.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /pod_lib.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /pod_rules.pl/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /podtidy/1.1.1.2/Mon Mar 25 20:09:30 2013/-ko/
-/pumpkin.pod/1.21/Mon Aug 14 13:49:43 2017/-ko/
+/pumpkin.pod/1.23/Sun Oct 29 22:38:45 2017/-ko/
 /release_announcement_template.txt/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /release_managers_guide.pod/1.4/Mon Aug 14 13:48:46 2017/-ko/
 /release_schedule.pod/1.2/Sun Feb  5 00:31:54 2017/-ko/
@@ -66,6 +66,6 @@
 /sync-with-cpan/1.2/Sun Feb  5 00:31:54 2017/-ko/
 /timecheck.c/1.1.1.1/Mon Oct 12 18:10:45 2009/-ko/
 /timecheck2.c/1.1.1.1/Mon Oct 12 18:10:45 2009/-ko/
-/todo.pod/1.4/Mon Aug 14 13:48:46 2017/-ko/
+/todo.pod/1.5/Sun Oct 29 22:37:17 2017/-ko/
 /valgrindpp.pl/1.1.1.2/Mon Mar 25 20:09:31 2013/-ko/
 D

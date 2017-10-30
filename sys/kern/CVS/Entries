@@ -80,7 +80,7 @@
 /tty_pty.c/1.80/Tue Jul  4 17:29:51 2017//
 /tty_subr.c/1.33/Mon Mar 14 23:08:06 2016//
 /tty_tty.c/1.20/Tue Sep  6 08:13:23 2016//
-/uipc_domain.c/1.53/Mon Oct  9 08:35:38 2017//
+/uipc_domain.c/1.54/Sun Oct 29 14:56:36 2017//
 /uipc_mbuf.c/1.250/Thu Oct 12 09:14:16 2017//
 /uipc_mbuf2.c/1.42/Fri Nov 13 10:12:39 2015//
 /uipc_proto.c/1.14/Mon Mar 13 20:18:21 2017//
