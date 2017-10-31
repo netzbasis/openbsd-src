@@ -35,7 +35,7 @@
 /kern_subr.c/1.49/Tue Feb 14 10:31:15 2017//
 /kern_synch.c/1.141/Thu May 18 07:08:45 2017//
 /kern_sysctl.c/1.330/Fri Aug 11 21:24:19 2017//
-/kern_task.c/1.19/Tue Feb 14 10:31:15 2017//
+/kern_task.c/1.20/Mon Oct 30 14:01:42 2017//
 /kern_tc.c/1.31/Tue Mar  7 20:22:37 2017//
 /kern_time.c/1.99/Tue Jan 24 00:58:55 2017//
 /kern_timeout.c/1.50/Mon Oct  3 11:54:29 2016//

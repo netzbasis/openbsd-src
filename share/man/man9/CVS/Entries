@@ -78,7 +78,7 @@
 /microtime.9/1.16/Sun Apr  3 06:43:59 2016//
 /ml_init.9/1.13/Fri Apr 15 05:05:21 2016//
 /mq_init.9/1.8/Fri Apr 15 05:05:21 2016//
-/mutex.9/1.23/Sun Jun 19 11:54:33 2016//
+/mutex.9/1.24/Mon Oct 30 13:33:36 2017//
 /namei.9/1.18/Mon Nov 23 17:53:57 2015//
 /panic.9/1.9/Sun Jul 13 23:03:03 2014//
 /pci_conf_read.9/1.12/Sun Feb 15 22:26:45 2015//
@@ -103,7 +103,7 @@
 /rtalloc.9/1.11/Wed Dec  2 14:13:14 2015//
 /rtlabel_id2name.9/1.4/Wed Oct 15 11:58:13 2014//
 /rtrequest.9/1.2/Fri Oct 30 09:57:39 2015//
-/rwlock.9/1.19/Sat Aug 12 23:27:44 2017//
+/rwlock.9/1.20/Mon Oct 30 13:33:36 2017//
 /sensor_attach.9/1.13/Mon Sep 14 15:14:55 2015//
 /socreate.9/1.9/Fri Sep  1 15:52:03 2017//
 /sosplice.9/1.8/Mon Jun 13 21:24:43 2016//

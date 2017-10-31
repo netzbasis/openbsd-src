@@ -42,7 +42,7 @@
 /keygen-moduli.sh/1.2/Wed Sep 14 00:45:31 2016//
 /keys-command.sh/1.4/Mon Sep 26 21:34:38 2016//
 /keyscan.sh/1.6/Sun Apr 30 23:34:55 2017//
-/keytype.sh/1.5/Mon Mar 20 22:08:06 2017//
+/keytype.sh/1.6/Mon Oct 30 22:01:52 2017//
 /krl.sh/1.6/Fri Jan 30 01:11:39 2015//
 /limit-keytype.sh/1.4/Thu Oct 29 08:05:17 2015//
 /localcommand.sh/1.4/Sun Apr 30 23:34:55 2017//
@@ -75,7 +75,7 @@
 /sftp-glob.sh/1.4/Thu Aug 13 01:11:55 2009//
 /sftp-perm.sh/1.2/Thu Oct 17 22:00:18 2013//
 /sftp-uri.sh/1.1/Tue Oct 24 19:33:32 2017//
-/sftp.sh/1.5/Fri May 17 10:28:11 2013//
+/sftp.sh/1.6/Mon Oct 30 21:59:43 2017//
 /ssh-com-client.sh/1.7/Fri May 17 04:29:14 2013//
 /ssh-com-keygen.sh/1.4/Tue Feb 24 17:06:52 2004//
 /ssh-com-sftp.sh/1.7/Fri May 17 04:29:14 2013//
