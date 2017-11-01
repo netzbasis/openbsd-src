@@ -7,7 +7,7 @@
 /Dependencies.pm/1.157/Thu Nov  5 13:26:39 2015//
 /Error.pm/1.32/Tue Apr 18 15:12:00 2017//
 /ForwardDependencies.pm/1.13/Sat Apr 28 15:24:52 2012//
-/FwUpdate.pm/1.23/Sat Oct 14 09:00:17 2017//
+/FwUpdate.pm/1.24/Wed Nov  1 18:18:10 2017//
 /Getopt.pm/1.12/Tue Apr 10 16:57:12 2012//
 /Handle.pm/1.42/Tue Mar  7 16:21:28 2017//
 /IdCache.pm/1.10/Fri Dec 24 09:04:14 2010//
@@ -20,12 +20,12 @@
 /PackageLocation.pm/1.51/Tue Mar  7 14:15:09 2017//
 /PackageLocator.pm/1.110/Mon May 29 12:28:54 2017//
 /PackageName.pm/1.52/Tue Mar 18 18:53:29 2014//
-/PackageRepository.pm/1.147/Mon Oct  9 15:35:06 2017//
+/PackageRepository.pm/1.148/Wed Nov  1 18:18:10 2017//
 /PackageRepositoryList.pm/1.31/Mon May 29 12:28:54 2017//
 /PackingElement.pm/1.247/Sat Sep 16 11:36:25 2017//
 /PackingList.pm/1.143/Sat Sep 16 11:36:25 2017//
 /Paths.pm/1.35/Wed Mar  1 17:52:00 2017//
-/PkgAdd.pm/1.96/Sat Mar 25 18:58:59 2017//
+/PkgAdd.pm/1.97/Wed Nov  1 18:18:10 2017//
 /PkgCfl.pm/1.39/Sat Feb  1 10:53:17 2014//
 /PkgCheck.pm/1.64/Tue Mar 14 23:30:36 2017//
 /PkgCreate.pm/1.126/Tue Oct 10 10:20:58 2017//
@@ -41,7 +41,7 @@
 /SharedLibs.pm/1.59/Sat Sep 16 12:04:13 2017//
 /Signature.pm/1.19/Mon Sep 18 13:01:10 2017//
 /Signer.pm/1.10/Mon Oct  3 13:17:30 2016//
-/State.pm/1.46/Mon May 29 12:28:54 2017//
+/State.pm/1.47/Wed Nov  1 18:18:10 2017//
 /Subst.pm/1.17/Tue Jun 21 10:40:37 2016//
 /Temp.pm/1.27/Wed Mar  4 13:55:32 2015//
 /Tracker.pm/1.28/Thu Aug 13 16:34:11 2015//
