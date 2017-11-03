@@ -83,11 +83,11 @@
 /uipc_domain.c/1.54/Sun Oct 29 14:56:36 2017//
 /uipc_mbuf.c/1.250/Thu Oct 12 09:14:16 2017//
 /uipc_mbuf2.c/1.42/Fri Nov 13 10:12:39 2015//
-/uipc_proto.c/1.14/Mon Mar 13 20:18:21 2017//
-/uipc_socket.c/1.205/Fri Sep 15 19:29:28 2017//
+/uipc_proto.c/1.15/Thu Nov  2 14:01:18 2017//
+/uipc_socket.c/1.206/Thu Nov  2 14:01:18 2017//
 /uipc_socket2.c/1.86/Fri Aug 11 21:24:19 2017//
 /uipc_syscalls.c/1.160/Fri Sep  1 15:05:31 2017//
-/uipc_usrreq.c/1.119/Fri Aug 11 19:53:02 2017//
+/uipc_usrreq.c/1.120/Thu Nov  2 14:01:18 2017//
 /vfs_bio.c/1.185/Sun Aug 27 01:59:30 2017//
 /vfs_biomem.c/1.38/Sun Apr 16 14:25:42 2017//
 /vfs_cache.c/1.53/Thu Feb  9 19:02:34 2017//
