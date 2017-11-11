@@ -14,7 +14,7 @@
 /scsi_all.h/1.55/Sun Jun  7 19:13:27 2015//
 /scsi_base.c/1.227/Fri Sep  8 05:36:53 2017//
 /scsi_changer.h/1.6/Sun Jun  7 19:13:27 2015//
-/scsi_debug.h/1.12/Sat Mar 12 15:16:04 2016//
+/scsi_debug.h/1.13/Sat Nov 11 02:35:16 2017//
 /scsi_disk.h/1.35/Sun Jun  7 19:13:27 2015//
 /scsi_ioctl.c/1.53/Fri Sep  8 05:36:53 2017//
 /scsi_message.h/1.9/Sun Nov  1 23:06:03 2009//

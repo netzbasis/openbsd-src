@@ -37,10 +37,10 @@
 /man_term.c/1.162/Mon Jul 31 15:18:59 2017//
 /man_validate.c/1.104/Wed Jul 26 10:33:02 2017//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
-/mandoc.1/1.143/Thu Sep  7 14:22:58 2017//
+/mandoc.1/1.144/Fri Nov 10 22:48:05 2017//
 /mandoc.c/1.71/Mon Jul  3 13:40:00 2017//
 /mandoc.css/1.9/Sun Jul 16 18:44:15 2017//
-/mandoc.h/1.187/Sat Jul  8 14:51:01 2017//
+/mandoc.h/1.188/Fri Nov 10 22:48:05 2017//
 /mandoc_aux.c/1.8/Mon Jun 12 18:55:42 2017//
 /mandoc_aux.h/1.9/Mon Jun 12 18:55:42 2017//
 /mandoc_ohash.c/1.2/Mon Oct 19 18:58:20 2015//
@@ -67,7 +67,7 @@
 /out.h/1.22/Tue Jun 27 18:23:29 2017//
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
-/read.c/1.164/Thu Jul 20 14:36:32 2017//
+/read.c/1.165/Fri Nov 10 22:48:05 2017//
 /roff.c/1.196/Fri Jul 14 17:16:13 2017//
 /roff.h/1.40/Sat Jul  8 14:51:01 2017//
 /roff_html.c/1.11/Sat Jun 24 14:38:28 2017//
@@ -87,7 +87,7 @@
 /term.c/1.134/Fri Jul 28 14:24:17 2017//
 /term.h/1.74/Sat Jul  8 14:51:01 2017//
 /term_ascii.c/1.44/Wed Aug 23 10:50:11 2017//
-/term_ps.c/1.54/Wed Nov  1 10:14:53 2017//
+/term_ps.c/1.55/Fri Nov 10 14:16:28 2017//
 /term_tab.c/1.4/Sat Jun 17 14:55:02 2017//
 /tree.c/1.44/Sat Jul  8 14:51:01 2017//
 D
