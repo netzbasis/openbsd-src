@@ -1,4 +1,4 @@
-/Makefile/1.44/Sat Jul  8 15:42:47 2017//
+/Makefile/1.45/Sun Nov 19 12:11:54 2017//
 /Makefile.inc/1.7/Tue Jul 25 13:32:14 2017//
 D/arch////
 D/bioctl////
@@ -24,6 +24,7 @@ D/fsck_msdos////
 D/ftp////
 D/ftp-ssl////
 D/grep////
+D/growfs////
 D/gzip////
 D/hostname////
 D/ifconfig////

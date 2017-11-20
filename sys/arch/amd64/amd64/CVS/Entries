@@ -35,7 +35,6 @@
 /ipifuncs.c/1.28/Mon Nov 23 22:57:12 2015//
 /k1x-pstate.c/1.9/Fri Sep  8 05:36:51 2017//
 /lapic.c/1.49/Sat Oct 14 04:44:43 2017//
-/lock_machdep.c/1.16/Mon May 29 14:19:49 2017//
 /locore.S/1.91/Tue Oct 10 07:04:05 2017//
 /locore0.S/1.5/Sat Oct 14 21:42:17 2017//
 /machdep.c/1.235/Fri Oct 27 06:48:13 2017//
