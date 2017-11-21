@@ -74,7 +74,7 @@
 /X86RegisterBanks.td/1.1.1.1/Wed Oct  4 20:28:03 2017/-ko/
 /X86RegisterInfo.cpp/1.1.1.4/Wed Oct  4 20:28:03 2017//
 /X86RegisterInfo.h/1.1.1.3/Wed Oct  4 20:28:02 2017//
-/X86RegisterInfo.td/1.1.1.4/Wed Oct  4 20:28:02 2017//
+/X86RegisterInfo.td/1.2/Tue Nov 21 03:01:58 2017//
 /X86SchedHaswell.td/1.1.1.2/Wed Oct  4 20:28:02 2017//
 /X86SchedSandyBridge.td/1.1.1.2/Wed Oct  4 20:28:03 2017//
 /X86Schedule.td/1.1.1.3/Wed Oct  4 20:28:02 2017//
