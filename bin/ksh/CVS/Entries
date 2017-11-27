@@ -13,7 +13,7 @@
 /config.h/1.16/Tue Aug  1 14:30:05 2017//
 /edit.c/1.57/Thu Sep  8 12:12:40 2016//
 /edit.h/1.11/Tue Jan 26 17:39:31 2016//
-/emacs.c/1.74/Wed Nov 22 12:17:34 2017//
+/emacs.c/1.75/Sun Nov 26 20:34:15 2017//
 /eval.c/1.54/Sun Aug 27 00:29:04 2017//
 /exec.c/1.68/Sun Dec 11 17:49:19 2016//
 /expand.h/1.12/Sun Nov  8 17:52:43 2015//
@@ -42,5 +42,5 @@
 /tty.h/1.6/Fri Sep 25 11:58:14 2015//
 /var.c/1.59/Wed Aug 30 17:08:45 2017//
 /version.c/1.12/Wed Jul 14 13:37:24 1999//
-/vi.c/1.49/Sat Sep  2 18:53:53 2017//
+/vi.c/1.50/Mon Nov 27 04:23:50 2017//
 D
