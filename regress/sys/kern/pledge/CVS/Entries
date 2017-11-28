@@ -1,6 +1,7 @@
 /Makefile/1.7/Wed Apr 12 13:14:08 2017//
 D/generic////
 D/ioctl////
+D/pledgepath////
 D/sendrecvfd////
 D/sigabrt////
 D/sockopt////

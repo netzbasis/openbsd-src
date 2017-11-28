@@ -10,7 +10,7 @@
 /bridgestp.c/1.65/Tue May 16 12:24:01 2017//
 /bsd-comp.c/1.15/Fri Sep  8 05:36:53 2017//
 /ethertypes.h/1.11/Tue Jan 24 10:08:30 2017//
-/fq_codel.c/1.10/Mon Jul 24 01:23:46 2017//
+/fq_codel.c/1.11/Mon Nov 27 16:53:04 2017//
 /fq_codel.h/1.3/Fri May 12 19:15:22 2017//
 /hfsc.c/1.46/Thu Aug 17 18:22:43 2017//
 /hfsc.h/1.13/Tue May  2 12:27:37 2017//
@@ -79,7 +79,7 @@
 /pfkeyv2.h/1.79/Mon Nov 20 10:56:51 2017//
 /pfkeyv2_convert.c/1.62/Fri Sep  8 05:36:53 2017//
 /pfkeyv2_parsemessage.c/1.53/Fri Jul 14 16:50:41 2017//
-/pfvar.h/1.467/Mon Nov 13 11:30:11 2017//
+/pfvar.h/1.468/Mon Nov 27 23:21:50 2017//
 /pfvar_priv.h/1.4/Sun Aug  6 13:16:11 2017//
 /pipex.c/1.106/Mon Nov 20 10:35:24 2017//
 /pipex.h/1.21/Tue Jan 24 10:08:30 2017//
