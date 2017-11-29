@@ -3,8 +3,8 @@
 /bzero.S/1.6/Sat Nov 14 21:53:03 2015//
 /ffs.S/1.4/Sat Nov 14 21:53:03 2015//
 /memchr.S/1.6/Sat Nov 14 21:53:03 2015//
-/memmove.S/1.6/Sat Nov 14 21:53:03 2015//
-/memset.S/1.6/Sat Nov 14 21:53:03 2015//
+/memmove.S/1.7/Wed Nov 29 05:13:57 2017//
+/memset.S/1.7/Wed Nov 29 05:13:57 2017//
 /strchr.S/1.8/Sat Nov 14 21:53:03 2015//
 /strcmp.S/1.7/Sat Nov 14 21:53:03 2015//
 /strlen.S/1.7/Fri Dec 11 00:05:46 2015//

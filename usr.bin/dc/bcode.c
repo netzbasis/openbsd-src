@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcode.c,v 1.52 2017/11/27 21:32:33 tom Exp $	*/
+/*	$OpenBSD: bcode.c,v 1.55 2017/11/28 17:43:45 otto Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -102,11 +102,8 @@ static void		equal_numbers(void);
 static void		less_numbers(void);
 static void		lesseq_numbers(void);
 static void		equal(void);
-static void		not_equal(void);
 static void		less(void);
-static void		not_less(void);
 static void		greater(void);
-static void		not_greater(void);
 static void		not_compare(void);
 static bool		compare_numbers(enum bcode_compare, struct number *,
 			    struct number *);
@@ -1204,7 +1201,7 @@ bexp(void)
 		negate(p);
 		rscale = bmachine.scale;
 	} else {
-		/* Posix bc says min(a.scale * b, max(a.scale, scale) */
+		/* Posix bc says min(a.scale * b, max(a.scale, scale)) */
 		u_long	b;
 		u_int	m;
 
@@ -1411,12 +1408,6 @@ lesseq_numbers(void)
 }
 
 static void
-not_equal(void)
-{
-	compare(BCODE_NOT_EQUAL);
-}
-
-static void
 less(void)
 {
 	compare(BCODE_LESS);
@@ -1427,37 +1418,25 @@ not_compare(void)
 {
 	switch (readch()) {
 	case '<':
-		not_less();
+		compare(BCODE_NOT_LESS);
 		break;
 	case '>':
-		not_greater();
+		compare(BCODE_NOT_GREATER);
 		break;
 	case '=':
-		not_equal();
+		compare(BCODE_NOT_EQUAL);
 		break;
 	default:
 		unreadch();
-		(void)fprintf(stderr, "! command is deprecated\n");
+		warnx("! command is deprecated");
 		break;
 	}
-}
-
-static void
-not_less(void)
-{
-	compare(BCODE_NOT_LESS);
 }
 
 static void
 greater(void)
 {
 	compare(BCODE_GREATER);
-}
-
-static void
-not_greater(void)
-{
-	compare(BCODE_NOT_GREATER);
 }
 
 static bool
@@ -1610,11 +1589,8 @@ skipN(void)
 static void
 skip_until_mark(void)
 {
-	int ch;
-
 	for (;;) {
-		ch = readch();
-		switch (ch) {
+		switch (readch()) {
 		case 'M':
 			return;
 		case EOF:
@@ -1639,7 +1615,7 @@ skip_until_mark(void)
 			free(read_string(&bmachine.readstack[bmachine.readsp]));
 			break;
 		case '!':
-			switch (ch = readch()) {
+			switch (readch()) {
 				case '<':
 				case '>':
 				case '=':

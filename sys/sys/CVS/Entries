@@ -46,7 +46,7 @@
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
 /kernel.h/1.17/Mon Jul 20 23:47:20 2015//
 /kthread.h/1.6/Mon Nov 18 20:21:51 2013//
-/ktrace.h/1.35/Sun Aug 13 18:51:06 2017//
+/ktrace.h/1.36/Tue Nov 28 16:05:13 2017//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.9/Sun Mar 24 17:45:25 2013//
@@ -98,9 +98,9 @@
 /stdarg.h/1.8/Wed Mar  2 18:31:58 2011//
 /stdint.h/1.10/Thu Apr 30 18:19:25 2015//
 /swap.h/1.7/Mon Sep 30 12:02:30 2013//
-/syscall.h/1.188/Mon Sep 25 23:00:33 2017//
+/syscall.h/1.189/Tue Nov 28 06:05:15 2017//
 /syscall_mi.h/1.18/Thu Apr 20 15:21:51 2017//
-/syscallargs.h/1.191/Mon Sep 25 23:00:33 2017//
+/syscallargs.h/1.192/Tue Nov 28 06:05:15 2017//
 /sysctl.h/1.175/Thu Oct 12 09:14:16 2017//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//

@@ -12,7 +12,7 @@
 /i915_dma.c/1.26/Sat Sep 30 07:36:56 2017//
 /i915_drv.c/1.108/Sat Sep 30 07:36:56 2017//
 /i915_drv.h/1.78/Sat Sep 30 07:36:56 2017//
-/i915_gem.c/1.110/Sat Sep 30 07:36:56 2017//
+/i915_gem.c/1.111/Tue Nov 28 13:38:11 2017//
 /i915_gem_batch_pool.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_batch_pool.h/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_context.c/1.15/Sat Jul  1 16:14:10 2017//
@@ -88,5 +88,5 @@
 /intel_sideband.c/1.2/Sat Jul  1 16:14:10 2017//
 /intel_sprite.c/1.9/Mon Nov 27 16:20:42 2017//
 /intel_tv.c/1.11/Sat Jul  1 16:14:10 2017//
-/intel_uncore.c/1.5/Sun Sep  3 13:38:58 2017//
+/intel_uncore.c/1.6/Tue Nov 28 16:29:56 2017//
 D
