@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.160 2017/12/01 19:49:31 patrick Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.162 2017/12/03 21:02:44 patrick Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -2023,6 +2023,7 @@ ikev2_add_proposals(struct iked *env, struct iked_sa *sa, struct ibuf *buf,
 		} else
 			nxforms = prop->prop_nxforms;
 
+		sap->sap_more = IKEV1_PAYLOAD_PROPOSAL;
 		sap->sap_proposalnr = prop->prop_id;
 		sap->sap_protoid = prop->prop_protoid;
 		sap->sap_spisize = prop->prop_localspi.spi_size;
@@ -2066,6 +2067,8 @@ ikev2_add_proposals(struct iked *env, struct iked_sa *sa, struct ibuf *buf,
 		sap->sap_length = htobe16(saplength);
 		length += saplength;
 	}
+	if (sap != NULL)
+		sap->sap_more = IKEV1_PAYLOAD_NONE;
 
 	log_debug("%s: length %zd", __func__, length);
 
@@ -4079,9 +4082,22 @@ ikev2_match_proposals(struct iked_proposal *local, struct iked_proposal *peer,
 	struct iked_transform	*tpeer, *tlocal;
 	unsigned int		 i, j, type, score, requiredh = 0;
 	uint8_t			 protoid = peer->prop_protoid;
+	uint8_t			 peerxfs[IKEV2_XFORMTYPE_MAX];
+
+	bzero(peerxfs, sizeof(peerxfs));
 
 	for (i = 0; i < peer->prop_nxforms; i++) {
 		tpeer = peer->prop_xforms + i;
+		if (tpeer->xform_type > IKEV2_XFORMTYPE_MAX)
+			continue;
+
+		/*
+		 * Record all transform types from the peer's proposal,
+		 * because if we want this proposal we have to select
+		 * a transform for each proposed transform type.
+		 */
+		peerxfs[tpeer->xform_type] = 1;
+
 		for (j = 0; j < local->prop_nxforms; j++) {
 			tlocal = local->prop_xforms + j;
 
@@ -4098,8 +4114,6 @@ ikev2_match_proposals(struct iked_proposal *local, struct iked_proposal *peer,
 			if (tpeer->xform_type != tlocal->xform_type ||
 			    tpeer->xform_id != tlocal->xform_id ||
 			    tpeer->xform_length != tlocal->xform_length)
-				continue;
-			if (tpeer->xform_type > IKEV2_XFORMTYPE_MAX)
 				continue;
 			type = tpeer->xform_type;
 
@@ -4134,6 +4148,9 @@ ikev2_match_proposals(struct iked_proposal *local, struct iked_proposal *peer,
 		} else if (protoid == IKEV2_SAPROTO_ESP && xforms[i] == NULL &&
 		    (i == IKEV2_XFORMTYPE_ENCR || i == IKEV2_XFORMTYPE_ESN ||
 		    (requiredh && i == IKEV2_XFORMTYPE_DH))) {
+			score = 0;
+			break;
+		} else if (peerxfs[i] && xforms[i] == NULL) {
 			score = 0;
 			break;
 		} else if (xforms[i] == NULL)
