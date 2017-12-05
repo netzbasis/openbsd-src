@@ -32,7 +32,7 @@
 /intr.c/1.50/Sat Oct 14 04:44:43 2017//
 /ioapic.c/1.28/Sat Oct 14 04:44:43 2017//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
-/ipifuncs.c/1.28/Mon Nov 23 22:57:12 2015//
+/ipifuncs.c/1.29/Mon Dec  4 09:38:20 2017//
 /k1x-pstate.c/1.9/Fri Sep  8 05:36:51 2017//
 /lapic.c/1.49/Sat Oct 14 04:44:43 2017//
 /locore.S/1.91/Tue Oct 10 07:04:05 2017//

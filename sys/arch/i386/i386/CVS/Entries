@@ -31,7 +31,7 @@
 /i686_mem.c/1.18/Tue Apr 26 15:27:32 2016//
 /in_cksum.s/1.9/Thu Jun 29 17:17:28 2017//
 /ioapic.c/1.40/Tue Aug 29 15:19:57 2017//
-/ipifuncs.c/1.29/Fri Oct 21 16:57:53 2016//
+/ipifuncs.c/1.30/Mon Dec  4 21:12:41 2017//
 /k1x-pstate.c/1.9/Fri Sep  8 05:36:51 2017//
 /k6_mem.c/1.12/Tue Sep  8 04:28:34 2015//
 /kvm86.c/1.11/Mon Mar  7 05:32:46 2016//
