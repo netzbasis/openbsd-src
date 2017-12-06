@@ -758,6 +758,7 @@ struct acpi_ivrs {
 #define ACPI_DEV_IOXA	"ACPI0009"	/* IO x APIC Device */
 #define ACPI_DEV_IOA	"ACPI000A"	/* IO APIC Device */
 #define ACPI_DEV_IOSA	"ACPI000B"	/* IO SAPIC Device */
+#define ACPI_DEV_GBTN	"ACPI0011"	/* Generic Buttons Device */
 #define ACPI_DEV_THZ	"THERMALZONE"	/* Thermal Zone */
 #define ACPI_DEV_FFB	"FIXEDBUTTON"	/* Fixed Feature Button */
 
