@@ -90,7 +90,6 @@ acpigbtn_attach(struct device *parent, struct device *self, void *aux)
 	if ((st & (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) !=
 	    (STA_PRESENT | STA_ENABLED | STA_DEV_OK))
 		return;
-	}
 
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev, acpigbtn_notify,
 	    sc, ACPIDEV_NOPOLL);
