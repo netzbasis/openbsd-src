@@ -78,20 +78,18 @@ acpigbtn_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct acpigbtn_softc	*sc = (struct acpigbtn_softc *)self;
 	struct acpi_attach_args *aa = aux;
+	int64_t			st;
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
 	sc->sc_devnode = aa->aaa_node;
 
 	printf(": %s\n", sc->sc_devnode->name);
 
-	/*
-	int64_t			st;
 	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "_STA", 0, NULL, &st))
 		st = STA_PRESENT | STA_ENABLED | STA_DEV_OK;
 	if ((st & (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) !=
 	    (STA_PRESENT | STA_ENABLED | STA_DEV_OK))
 		return;
-	*/
 	}
 
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev, acpigbtn_notify,
@@ -112,7 +110,9 @@ acpigbtn_notify(struct aml_node *node, int notify_type, void *arg)
 int
 acpigbtn_activate(struct device *self, int act)
 {
+	/*
 	struct acpigbtn_softc	*sc = (struct acpigbtn_softc *)self;
+	*/
 
 	switch (act) {
 	case DVACT_SUSPEND:
