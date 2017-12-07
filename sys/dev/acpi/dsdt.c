@@ -550,7 +550,7 @@ aml_register_notify(struct aml_node *node, const char *pnpid,
 	struct aml_notify_data	*pdata;
 	extern int acpi_poll_enabled;
 
-	dnprintf(10, "aml_register_notify: %s %s %p\n",
+	printf("aml_register_notify: %s %s %p\n",
 	    node->name, pnpid ? pnpid : "", proc);
 
 	pdata = acpi_os_malloc(sizeof(struct aml_notify_data));

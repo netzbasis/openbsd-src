@@ -82,17 +82,19 @@ acpigbtn_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
 	sc->sc_devnode = aa->aaa_node;
+	sc->sc_count = 0;
 
 	printf(": %s\n", sc->sc_devnode->name);
 
 	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "_STA", 0, NULL, &st))
 		st = STA_PRESENT | STA_ENABLED | STA_DEV_OK;
+	printf("evalinteger done\n");
 	if ((st & (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) !=
 	    (STA_PRESENT | STA_ENABLED | STA_DEV_OK))
 		return;
-
+	printf("trying to register\n");
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev, acpigbtn_notify,
-	    sc, ACPIDEV_NOPOLL);
+	    sc, ACPIDEV_POLL);
 }
 
 int
@@ -100,8 +102,10 @@ acpigbtn_notify(struct aml_node *node, int notify_type, void *arg)
 {
 	struct acpigbtn_softc	*sc = arg;
 
-	printf("acpigbtn_notify: %.2x %s\n", notify_type,
-	    sc->sc_devnode->name);
+	sc->sc_count++;
+
+	printf("acpigbtn_notify: %.2x %s %x\n", notify_type,
+	    sc->sc_devnode->name, sc->sc_count);
 
 	return (0);
 }
