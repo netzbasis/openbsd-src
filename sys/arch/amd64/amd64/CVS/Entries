@@ -49,7 +49,7 @@
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
 /pmap.c/1.106/Sat Oct 14 04:44:43 2017//
-/powernow-k8.c/1.26/Fri Sep  8 05:36:51 2017//
+/powernow-k8.c/1.27/Sat Dec  9 16:39:54 2017//
 /process_machdep.c/1.15/Sat Oct 14 04:44:43 2017//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//

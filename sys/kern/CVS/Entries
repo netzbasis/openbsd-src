@@ -22,7 +22,7 @@
 /kern_malloc.c/1.131/Tue Nov 14 06:46:43 2017//
 /kern_mutex.c/1.1/Thu Apr 20 13:57:30 2017//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.224/Fri Nov 17 23:08:10 2017//
+/kern_pledge.c/1.225/Sat Dec  9 06:50:32 2017//
 /kern_proc.c/1.78/Mon Dec  4 09:51:03 2017//
 /kern_prot.c/1.71/Wed Sep 27 06:45:00 2017//
 /kern_resource.c/1.57/Thu Sep 15 02:00:16 2016//
