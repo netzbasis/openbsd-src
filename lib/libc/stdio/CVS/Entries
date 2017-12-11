@@ -119,7 +119,7 @@
 /vfprintf.c/1.78/Tue Nov 21 17:48:19 2017//
 /vfscanf.c/1.34/Sun Oct 30 05:07:06 2016//
 /vfwprintf.c/1.19/Thu Nov 16 08:16:03 2017//
-/vfwscanf.c/1.6/Sun Oct 30 05:07:06 2016//
+/vfwscanf.c/1.7/Fri Dec  8 01:03:51 2017//
 /vprintf.c/1.9/Mon Aug 31 02:53:57 2015//
 /vscanf.c/1.9/Mon Aug 31 02:53:57 2015//
 /vsnprintf.c/1.16/Mon Aug 31 02:53:57 2015//

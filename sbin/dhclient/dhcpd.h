@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.238 2017/12/03 20:53:28 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.241 2017/12/09 15:48:04 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -64,7 +64,6 @@ struct client_lease {
 	char			*filename;
 	char			 ssid[32];
 	uint8_t			 ssid_len;
-	unsigned int		 is_static;
 	struct option_data	 options[DHO_COUNT];
 };
 #define BOOTP_LEASE(l)	((l)->options[DHO_DHCP_MESSAGE_TYPE].len == 0)
@@ -89,7 +88,8 @@ struct client_config {
 		ACTION_DEFAULT,
 		ACTION_SUPERSEDE,
 		ACTION_PREPEND,
-		ACTION_APPEND
+		ACTION_APPEND,
+		ACTION_IGNORE
 	} default_actions[DHO_COUNT];
 
 	struct in_addr		 address;
@@ -97,10 +97,8 @@ struct client_config {
 	struct option_data	 send_options[DHO_COUNT];
 	uint8_t			 required_options[DHO_COUNT];
 	uint8_t			 requested_options[DHO_COUNT];
-	uint8_t			 ignored_options[DHO_COUNT];
 	int			 requested_option_count;
 	int			 required_option_count;
-	int			 ignored_option_count;
 	time_t			 timeout;
 	time_t			 initial_interval;
 	time_t			 link_timeout;
@@ -112,7 +110,6 @@ struct client_config {
 	char			*resolv_tail;
 	char			*filename;
 	char			*server_name;
-	struct client_lease_tq	 static_leases;
 };
 
 

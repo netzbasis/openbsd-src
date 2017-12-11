@@ -15,10 +15,10 @@
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.11/Sat Sep 16 02:03:40 2017//
 /cpu.c/1.108/Sat Oct 14 04:44:43 2017//
-/db_disasm.c/1.17/Sun Mar  5 01:02:48 2017//
+/db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.29/Wed Jul 19 14:34:10 2017//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
-/db_trace.c/1.36/Fri Nov  3 11:29:46 2017//
+/db_trace.c/1.37/Fri Dec  8 08:54:03 2017//
 /disksubr.c/1.78/Tue Feb 28 10:49:37 2017//
 /dkcsum.c/1.21/Sun Sep 14 14:17:23 2014//
 /efifb.c/1.12/Sat Oct 28 01:48:03 2017//
@@ -37,7 +37,7 @@
 /lapic.c/1.49/Sat Oct 14 04:44:43 2017//
 /locore.S/1.91/Tue Oct 10 07:04:05 2017//
 /locore0.S/1.5/Sat Oct 14 21:42:17 2017//
-/machdep.c/1.235/Fri Oct 27 06:48:13 2017//
+/machdep.c/1.236/Mon Dec 11 05:27:40 2017//
 /mainbus.c/1.40/Sat Oct 14 04:44:43 2017//
 /mem.c/1.32/Sat Oct 14 04:44:43 2017//
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//
@@ -49,7 +49,7 @@
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
 /pmap.c/1.106/Sat Oct 14 04:44:43 2017//
-/powernow-k8.c/1.26/Fri Sep  8 05:36:51 2017//
+/powernow-k8.c/1.27/Sat Dec  9 16:39:54 2017//
 /process_machdep.c/1.15/Sat Oct 14 04:44:43 2017//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
@@ -60,7 +60,7 @@
 /vector.S/1.51/Wed Oct  4 02:10:33 2017//
 /via.c/1.25/Tue Nov 14 13:09:22 2017//
 /vm_machdep.c/1.41/Sat Oct 14 04:44:43 2017//
-/vmm.c/1.179/Wed Nov 29 02:56:21 2017//
+/vmm.c/1.180/Thu Dec  7 01:54:39 2017//
 /vmm_support.S/1.9/Tue May 30 17:49:47 2017//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D
