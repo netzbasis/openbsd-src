@@ -9,7 +9,7 @@
 /cache.h/1.6/Sun Mar 30 12:30:01 2008//
 /clock.c/1.59/Sun Apr 30 16:45:45 2017//
 /conf.c/1.80/Sun Sep  4 11:59:50 2016//
-/cpu.c/1.68/Fri Dec  8 19:05:33 2017//
+/cpu.c/1.69/Mon Dec 11 00:15:50 2017//
 /db_disasm.c/1.6/Thu Jan 15 17:22:28 2004//
 /db_interface.c/1.49/Sun Dec  3 10:55:50 2017//
 /db_trace.c/1.14/Fri Nov  3 11:29:47 2017//
@@ -23,7 +23,7 @@
 /intreg.h/1.3/Mon Jun  2 23:27:56 2003//
 /ipifuncs.c/1.17/Sun Dec  3 10:55:50 2017//
 /locore.s/1.186/Tue May 16 20:53:42 2017//
-/machdep.c/1.185/Mon Oct 23 18:38:33 2017//
+/machdep.c/1.186/Mon Dec 11 05:27:40 2017//
 /mdesc.c/1.7/Sun Nov 30 22:26:15 2014//
 /mem.c/1.18/Sun Sep 25 15:23:37 2016//
 /mutex.S/1.9/Thu Apr 20 13:57:30 2017//

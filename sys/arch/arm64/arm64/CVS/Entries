@@ -19,7 +19,7 @@
 /intr.c/1.8/Fri Sep  8 05:36:51 2017//
 /locore.S/1.19/Tue Aug  8 21:52:41 2017//
 /locore0.S/1.2/Sun Aug  6 20:05:24 2017//
-/machdep.c/1.22/Fri Sep  8 05:36:51 2017//
+/machdep.c/1.23/Mon Dec 11 05:27:40 2017//
 /mem.c/1.2/Mon Jan 23 12:29:50 2017//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.38/Sun Aug 27 19:33:02 2017//
