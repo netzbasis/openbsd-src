@@ -94,7 +94,7 @@ acpigbtn_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	printf("trying to register\n");
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev, acpigbtn_notify,
-	    sc, ACPIDEV_POLL);
+	    sc, ACPIDEV_NOPOLL);
 }
 
 int
