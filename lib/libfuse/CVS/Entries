@@ -6,7 +6,7 @@
 /fuse.h/1.13/Fri Nov 17 15:45:17 2017//
 /fuse_main.3/1.2/Wed May 18 17:36:24 2016//
 /fuse_ops.c/1.28/Thu Nov 30 11:29:03 2017//
-/fuse_opt.c/1.19/Thu Nov 16 12:56:58 2017//
+/fuse_opt.c/1.22/Mon Dec 11 12:38:54 2017//
 /fuse_opt.h/1.4/Tue May 20 13:22:06 2014//
 /fuse_private.h/1.15/Sun Nov 26 15:17:17 2017//
 /fuse_subr.c/1.11/Wed Sep  7 17:53:35 2016//
