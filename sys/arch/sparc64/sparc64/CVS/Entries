@@ -25,7 +25,7 @@
 /locore.s/1.186/Tue May 16 20:53:42 2017//
 /machdep.c/1.186/Mon Dec 11 05:27:40 2017//
 /mdesc.c/1.7/Sun Nov 30 22:26:15 2014//
-/mem.c/1.18/Sun Sep 25 15:23:37 2016//
+/mem.c/1.19/Thu Dec 14 03:30:43 2017//
 /mutex.S/1.9/Thu Apr 20 13:57:30 2017//
 /ofw_machdep.c/1.33/Mon Mar  7 13:21:51 2016//
 /openfirm.c/1.21/Thu Aug 10 19:39:38 2017//
