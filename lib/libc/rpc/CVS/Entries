@@ -11,8 +11,8 @@
 /clnt_perror.c/1.24/Sun Sep 13 15:36:56 2015//
 /clnt_raw.c/1.20/Sun Nov  1 03:45:29 2015//
 /clnt_simple.c/1.18/Thu Aug 20 21:49:29 2015//
-/clnt_tcp.c/1.29/Sun Nov  1 03:45:29 2015//
-/clnt_udp.c/1.32/Sun Nov  1 03:45:29 2015//
+/clnt_tcp.c/1.31/Thu Dec 14 18:56:22 2017//
+/clnt_udp.c/1.34/Thu Dec 14 18:56:22 2017//
 /get_myaddress.c/1.15/Sun Sep 13 15:36:56 2015//
 /getrpcent.3/1.13/Wed Jun  5 03:39:23 2013//
 /getrpcent.c/1.21/Sun Sep 13 15:36:56 2015//
@@ -34,7 +34,7 @@
 /svc_raw.c/1.12/Sun Nov  1 03:45:29 2015//
 /svc_run.c/1.25/Tue Sep  1 17:31:39 2015//
 /svc_simple.c/1.13/Tue Sep  1 19:54:01 2015//
-/svc_tcp.c/1.37/Sun Nov  1 03:45:29 2015//
+/svc_tcp.c/1.39/Thu Dec 14 18:56:22 2017//
 /svc_udp.c/1.25/Sun Nov  1 03:45:29 2015//
 /xdr.3/1.27/Sat Jun 10 13:24:03 2017//
 /xdr.c/1.16/Sat Jan 21 08:29:13 2017//

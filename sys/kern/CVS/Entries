@@ -27,7 +27,7 @@
 /kern_prot.c/1.71/Wed Sep 27 06:45:00 2017//
 /kern_resource.c/1.57/Thu Sep 15 02:00:16 2016//
 /kern_rwlock.c/1.32/Tue Oct 24 08:53:15 2017//
-/kern_sched.c/1.46/Tue Nov 28 16:22:27 2017//
+/kern_sched.c/1.47/Thu Dec 14 23:21:04 2017//
 /kern_sensors.c/1.38/Sun Apr  9 15:47:18 2017//
 /kern_sig.c/1.213/Mon Nov 27 01:20:12 2017//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
@@ -95,7 +95,7 @@
 /vfs_init.c/1.39/Mon Dec 11 05:27:40 2017//
 /vfs_lockf.c/1.24/Mon Nov  7 00:26:33 2016//
 /vfs_lookup.c/1.65/Tue Aug 29 02:51:27 2017//
-/vfs_subr.c/1.263/Mon Dec 11 14:11:22 2017//
+/vfs_subr.c/1.265/Thu Dec 14 20:23:15 2017//
 /vfs_sync.c/1.56/Tue Feb 14 10:31:15 2017//
 /vfs_syscalls.c/1.273/Mon Dec 11 05:27:40 2017//
 /vfs_vnops.c/1.88/Sun Aug 13 22:08:44 2017//

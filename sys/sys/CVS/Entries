@@ -78,7 +78,7 @@
 /resource.h/1.14/Fri Oct 25 04:42:48 2013//
 /resourcevar.h/1.18/Fri Jan 24 04:26:51 2014//
 /rwlock.h/1.22/Sat Aug 12 23:27:44 2017//
-/sched.h/1.43/Mon Dec  4 09:51:03 2017//
+/sched.h/1.44/Thu Dec 14 23:21:04 2017//
 /scsiio.h/1.10/Wed Sep  5 17:17:47 2012//
 /select.h/1.17/Mon Sep 12 19:41:20 2016//
 /selinfo.h/1.5/Tue Jul 18 19:20:26 2017//
@@ -128,7 +128,7 @@
 /varargs.h/1.2/Sat Jan  3 14:55:34 2004//
 /videoio.h/1.16/Fri Feb 17 06:48:33 2017//
 /vmmeter.h/1.15/Wed Jul 27 14:44:59 2016//
-/vnode.h/1.141/Mon Dec 11 05:27:40 2017//
+/vnode.h/1.142/Thu Dec 14 20:20:38 2017//
 /wait.h/1.17/Fri Jun 13 22:40:31 2014//
 /witness.h/1.1/Thu Apr 20 12:59:36 2017//
 D
