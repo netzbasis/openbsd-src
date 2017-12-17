@@ -1,6 +1,6 @@
-/*	$OpenBSD: ofw_regulator.h,v 1.4 2017/12/16 21:12:03 kettenis Exp $	*/
+/*	$OpenBSD: rsbvar.h,v 1.2 2017/12/16 21:09:38 kettenis Exp $	*/
 /*
- * Copyright (c) 2016 Mark Kettenis
+ * Copyright (c) 2017 Mark kettenis <kettenis@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,26 +15,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _DEV_OFW_REGULATOR_H_
-#define _DEV_OFW_REGULATOR_H_
-
-struct regulator_device {
-	int	rd_node;
-	void	*rd_cookie;
-	uint32_t (*rd_get_voltage)(void *);
-	int	(*rd_set_voltage)(void *, uint32_t);
-
-	uint32_t rd_min, rd_max;
-
-	LIST_ENTRY(regulator_device) rd_list;
-	uint32_t rd_phandle;
+struct rsb_attach_args {
+	void		*ra_cookie;
+	uint16_t	ra_da;
+	uint8_t		ra_rta;
+	char		*ra_name;
+	int		ra_node;
 };
 
-void	regulator_register(struct regulator_device *);
+int	rsb_print(void *, const char *);
 
-int	regulator_enable(uint32_t);
-int	regulator_disable(uint32_t);
-uint32_t regulator_get_voltage(uint32_t);
-int	regulator_set_voltage(uint32_t, uint32_t);
-
-#endif /* _DEV_OFW_REGULATOR_H_ */
+uint8_t	rsb_read_1(void *, uint8_t, uint8_t);
+uint16_t rsb_read_2(void *, uint8_t, uint8_t);
+void	rsb_write_1(void *, uint8_t, uint8_t, uint8_t);
+void	rsb_write_2(void *, uint8_t, uint8_t, uint16_t);

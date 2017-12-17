@@ -1,6 +1,6 @@
-/*	$OpenBSD: ofw_regulator.h,v 1.4 2017/12/16 21:12:03 kettenis Exp $	*/
+/*	$OpenBSD: thread_atexit.c,v 1.1 2017/12/16 20:06:56 guenther Exp $ */
 /*
- * Copyright (c) 2016 Mark Kettenis
+ * Copyright (c) 2017 Mark Kettenis <kettenis@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,26 +15,35 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _DEV_OFW_REGULATOR_H_
-#define _DEV_OFW_REGULATOR_H_
+#include <dlfcn.h>
+#include <elf.h>
+#pragma weak _DYNAMIC
+#include <stdlib.h>
+#include <tib.h>
 
-struct regulator_device {
-	int	rd_node;
-	void	*rd_cookie;
-	uint32_t (*rd_get_voltage)(void *);
-	int	(*rd_set_voltage)(void *, uint32_t);
+#include "atexit.h"
 
-	uint32_t rd_min, rd_max;
+typeof(dlctl) dlctl asm("_dlctl") __attribute__((weak));
 
-	LIST_ENTRY(regulator_device) rd_list;
-	uint32_t rd_phandle;
-};
+__weak_alias(__cxa_thread_atexit, __cxa_thread_atexit_impl);
 
-void	regulator_register(struct regulator_device *);
+int
+__cxa_thread_atexit_impl(void (*func)(void *), void *arg, void *dso)
+{
+	struct thread_atexit_fn *fnp;
+	struct tib *tib = TIB_GET();
 
-int	regulator_enable(uint32_t);
-int	regulator_disable(uint32_t);
-uint32_t regulator_get_voltage(uint32_t);
-int	regulator_set_voltage(uint32_t, uint32_t);
+	fnp = calloc(1, sizeof(struct thread_atexit_fn));
+	if (fnp == NULL)
+		return -1;
 
-#endif /* _DEV_OFW_REGULATOR_H_ */
+	if (_DYNAMIC)
+		dlctl(NULL, DL_REFERENCE, dso);
+
+	fnp->func = func;
+	fnp->arg = arg;
+	fnp->next = tib->tib_atexit;
+	tib->tib_atexit = fnp;
+
+	return 0;
+}
