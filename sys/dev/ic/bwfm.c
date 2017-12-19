@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfm.c,v 1.19 2017/12/18 00:08:28 patrick Exp $ */
+/* $OpenBSD: bwfm.c,v 1.22 2017/12/18 18:40:50 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -963,7 +963,57 @@ bwfm_chip_cm3_set_passive(struct bwfm_softc *sc)
 void
 bwfm_chip_socram_ramsize(struct bwfm_softc *sc, struct bwfm_core *core)
 {
-	panic("%s: socram ramsize not supported", DEVNAME(sc));
+	uint32_t coreinfo, nb, lss, banksize, bankinfo;
+	uint32_t ramsize = 0, srsize = 0;
+	int i;
+
+	if (!sc->sc_chip.ch_core_isup(sc, core))
+		sc->sc_chip.ch_core_reset(sc, core, 0, 0, 0);
+
+	coreinfo = sc->sc_buscore_ops->bc_read(sc,
+	    core->co_base + BWFM_SOCRAM_COREINFO);
+	nb = (coreinfo & BWFM_SOCRAM_COREINFO_SRNB_MASK)
+	    >> BWFM_SOCRAM_COREINFO_SRNB_SHIFT;
+
+	if (core->co_rev <= 7 || core->co_rev == 12) {
+		banksize = coreinfo & BWFM_SOCRAM_COREINFO_SRBSZ_MASK;
+		lss = (coreinfo & BWFM_SOCRAM_COREINFO_LSS_MASK)
+		    >> BWFM_SOCRAM_COREINFO_LSS_SHIFT;
+		if (lss != 0)
+			nb--;
+		ramsize = nb * (1 << (banksize + BWFM_SOCRAM_COREINFO_SRBSZ_BASE));
+		if (lss != 0)
+			ramsize += (1 << ((lss - 1) + BWFM_SOCRAM_COREINFO_SRBSZ_BASE));
+	} else {
+		for (i = 0; i < nb; i++) {
+			sc->sc_buscore_ops->bc_write(sc,
+			    core->co_base + BWFM_SOCRAM_BANKIDX,
+			    (BWFM_SOCRAM_BANKIDX_MEMTYPE_RAM <<
+			    BWFM_SOCRAM_BANKIDX_MEMTYPE_SHIFT) | i);
+			bankinfo = sc->sc_buscore_ops->bc_read(sc,
+			    core->co_base + BWFM_SOCRAM_BANKINFO);
+			banksize = ((bankinfo & BWFM_SOCRAM_BANKINFO_SZMASK) + 1)
+			    * BWFM_SOCRAM_BANKINFO_SZBASE;
+			ramsize += banksize;
+			if (bankinfo & BWFM_SOCRAM_BANKINFO_RETNTRAM_MASK)
+				srsize += banksize;
+		}
+	}
+
+	switch (sc->sc_chip.ch_chip) {
+	case BRCM_CC_4334_CHIP_ID:
+		if (sc->sc_chip.ch_chiprev < 2)
+			srsize = 32 * 1024;
+		break;
+	case BRCM_CC_43430_CHIP_ID:
+		srsize = 64 * 1024;
+		break;
+	default:
+		break;
+	}
+
+	sc->sc_chip.ch_ramsize = ramsize;
+	sc->sc_chip.ch_srsize = srsize;
 }
 
 void
@@ -975,7 +1025,7 @@ bwfm_chip_sysmem_ramsize(struct bwfm_softc *sc, struct bwfm_core *core)
 void
 bwfm_chip_tcm_ramsize(struct bwfm_softc *sc, struct bwfm_core *core)
 {
-	uint32_t cap, nab, nbb, totb, bxinfo, memsize = 0;
+	uint32_t cap, nab, nbb, totb, bxinfo, ramsize = 0;
 	int i;
 
 	cap = sc->sc_buscore_ops->bc_read(sc, core->co_base + BWFM_ARMCR4_CAP);
@@ -988,11 +1038,11 @@ bwfm_chip_tcm_ramsize(struct bwfm_softc *sc, struct bwfm_core *core)
 		    core->co_base + BWFM_ARMCR4_BANKIDX, i);
 		bxinfo = sc->sc_buscore_ops->bc_read(sc,
 		    core->co_base + BWFM_ARMCR4_BANKINFO);
-		memsize += ((bxinfo & BWFM_ARMCR4_BANKINFO_BSZ_MASK) + 1) *
+		ramsize += ((bxinfo & BWFM_ARMCR4_BANKINFO_BSZ_MASK) + 1) *
 		    BWFM_ARMCR4_BANKINFO_BSZ_MULT;
 	}
 
-	sc->sc_chip.ch_ramsize = memsize;
+	sc->sc_chip.ch_ramsize = ramsize;
 }
 
 void
@@ -1285,7 +1335,8 @@ bwfm_connect(struct bwfm_softc *sc)
 		params = malloc(sizeof(*params), M_TEMP, M_WAITOK | M_ZERO);
 		memcpy(params->ssid.ssid, ic->ic_des_essid, ic->ic_des_esslen);
 		params->ssid.len = htole32(ic->ic_des_esslen);
-		memset(params->assoc.bssid, 0xff, sizeof(params->assoc.bssid));
+		memcpy(params->assoc.bssid, ic->ic_bss->ni_bssid,
+		    sizeof(params->assoc.bssid));
 		params->scan.scan_type = -1;
 		params->scan.nprobes = htole32(-1);
 		params->scan.active_time = htole32(-1);
@@ -1294,9 +1345,11 @@ bwfm_connect(struct bwfm_softc *sc)
 		if (bwfm_fwvar_var_set_data(sc, "join", params, sizeof(*params))) {
 			struct bwfm_join_params join;
 			memset(&join, 0, sizeof(join));
-			memcpy(join.ssid.ssid, ic->ic_des_essid, ic->ic_des_esslen);
+			memcpy(join.ssid.ssid, ic->ic_des_essid,
+			    ic->ic_des_esslen);
 			join.ssid.len = htole32(ic->ic_des_esslen);
-			memset(join.assoc.bssid, 0xff, sizeof(join.assoc.bssid));
+			memcpy(join.assoc.bssid, ic->ic_bss->ni_bssid,
+			    sizeof(join.assoc.bssid));
 			bwfm_fwvar_cmd_set_data(sc, BWFM_C_SET_SSID, &join,
 			    sizeof(join));
 		}
@@ -1311,12 +1364,6 @@ bwfm_scan(struct bwfm_softc *sc)
 	uint32_t nssid = 0, nchannel = 0;
 	size_t params_size;
 
-#if 0
-	/* Active scan is used for scanning for an SSID */
-	bwfm_fwvar_cmd_set_int(sc, BWFM_C_SET_PASSIVE_SCAN, 0);
-#endif
-	bwfm_fwvar_cmd_set_int(sc, BWFM_C_SET_PASSIVE_SCAN, 1);
-
 	params_size = sizeof(*params);
 	params_size += sizeof(uint32_t) * ((nchannel + 1) / 2);
 	params_size += sizeof(struct bwfm_ssid) * nssid;
@@ -1325,6 +1372,7 @@ bwfm_scan(struct bwfm_softc *sc)
 	memset(params->scan_params.bssid, 0xff,
 	    sizeof(params->scan_params.bssid));
 	params->scan_params.bss_type = 2;
+	params->scan_params.scan_type = BWFM_SCANTYPE_PASSIVE;
 	params->scan_params.nprobes = htole32(-1);
 	params->scan_params.active_time = htole32(-1);
 	params->scan_params.passive_time = htole32(-1);

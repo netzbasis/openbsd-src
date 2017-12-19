@@ -27,7 +27,7 @@
 /auth2-kbdint.c/1.8/Tue May 30 14:29:59 2017//
 /auth2-none.c/1.20/Tue May 30 14:29:59 2017//
 /auth2-passwd.c/1.14/Tue May 30 14:29:59 2017//
-/auth2-pubkey.c/1.72/Mon Dec 18 02:25:15 2017//
+/auth2-pubkey.c/1.73/Tue Dec 19 00:24:34 2017//
 /auth2.c/1.143/Sat Jun 24 06:34:38 2017//
 /authfd.c/1.105/Sat Jul  1 13:50:45 2017//
 /authfd.h/1.41/Wed Jun 28 01:09:22 2017//
@@ -53,7 +53,7 @@
 /cipher.c/1.108/Fri Nov  3 02:22:41 2017//
 /cipher.h/1.52/Sun May  7 23:12:57 2017//
 /cleanup.c/1.5/Thu Aug  3 03:34:42 2006//
-/clientloop.c/1.308/Mon Dec 18 02:25:15 2017//
+/clientloop.c/1.309/Mon Dec 18 23:16:23 2017//
 /clientloop.h/1.35/Mon Oct 23 05:08:00 2017//
 /compat.c/1.104/Tue Jul 25 09:22:25 2017//
 /compat.h/1.49/Sun Apr 30 23:13:25 2017//
@@ -128,7 +128,7 @@
 /nchan2.ms/1.4/Thu May 15 23:52:24 2008//
 /opacket.c/1.7/Fri Oct 20 01:56:39 2017//
 /opacket.h/1.12/Fri Oct 20 01:56:39 2017//
-/packet.c/1.268/Sun Dec 10 05:55:29 2017//
+/packet.c/1.269/Mon Dec 18 23:13:42 2017//
 /packet.h/1.84/Sun Dec 10 05:55:29 2017//
 /pathnames.h/1.27/Fri May  5 10:42:49 2017//
 /pkcs11.h/1.3/Tue Nov 26 19:15:09 2013//
@@ -146,10 +146,10 @@
 /sc25519.c/1.3/Mon Dec  9 11:03:45 2013//
 /sc25519.h/1.3/Mon Dec  9 11:03:45 2013//
 /scp.1/1.76/Wed Oct 25 06:19:46 2017//
-/scp.c/1.193/Sat Oct 21 23:06:24 2017//
+/scp.c/1.194/Mon Dec 18 17:28:54 2017//
 /servconf.c/1.322/Tue Dec  5 23:59:47 2017//
 /servconf.h/1.130/Wed Oct 25 00:19:47 2017//
-/serverloop.c/1.201/Mon Dec 18 02:25:15 2017//
+/serverloop.c/1.202/Mon Dec 18 23:16:24 2017//
 /serverloop.h/1.8/Tue Sep 12 06:32:07 2017//
 /session.c/1.293/Mon Oct 23 05:08:00 2017//
 /session.h/1.35/Tue Sep 12 06:32:07 2017//
@@ -184,7 +184,7 @@
 /ssh-pkcs11-helper.c/1.13/Tue May 30 08:52:19 2017//
 /ssh-pkcs11.c/1.25/Wed May 31 09:15:42 2017//
 /ssh-pkcs11.h/1.4/Thu Jan 15 09:40:00 2015//
-/ssh-rsa.c/1.63/Mon Dec 18 02:25:15 2017//
+/ssh-rsa.c/1.64/Mon Dec 18 23:14:34 2017//
 /ssh-sandbox.h/1.1/Thu Jun 23 09:34:13 2011//
 /ssh.1/1.389/Fri Nov  3 02:29:17 2017//
 /ssh.c/1.469/Wed Nov  1 00:04:15 2017//
