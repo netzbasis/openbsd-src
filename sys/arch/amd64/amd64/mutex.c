@@ -1,4 +1,4 @@
-/*	$OpenBSD: mutex.c,v 1.8 2017/12/20 11:22:29 mpi Exp $	*/
+/*	$OpenBSD: mutex.c,v 1.1 2017/12/20 11:08:44 mpi Exp $	*/
 
 /*
  * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>

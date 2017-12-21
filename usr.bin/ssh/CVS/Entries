@@ -27,7 +27,7 @@
 /auth2-kbdint.c/1.8/Tue May 30 14:29:59 2017//
 /auth2-none.c/1.20/Tue May 30 14:29:59 2017//
 /auth2-passwd.c/1.14/Tue May 30 14:29:59 2017//
-/auth2-pubkey.c/1.73/Tue Dec 19 00:24:34 2017//
+/auth2-pubkey.c/1.74/Thu Dec 21 00:00:28 2017//
 /auth2.c/1.143/Sat Jun 24 06:34:38 2017//
 /authfd.c/1.105/Sat Jul  1 13:50:45 2017//
 /authfd.h/1.41/Wed Jun 28 01:09:22 2017//
@@ -113,11 +113,11 @@
 /misc.c/1.122/Fri Dec  8 02:14:33 2017//
 /misc.h/1.69/Tue Dec  5 23:59:47 2017//
 /moduli.c/1.32/Fri Dec  8 03:45:52 2017//
-/monitor.c/1.176/Mon Dec 18 02:25:15 2017//
+/monitor.c/1.177/Thu Dec 21 00:00:28 2017//
 /monitor.h/1.20/Wed Sep 28 16:33:07 2016//
 /monitor_fdpass.c/1.21/Mon Feb 29 20:22:36 2016//
 /monitor_fdpass.h/1.4/Tue Sep  4 03:21:03 2007//
-/monitor_wrap.c/1.96/Mon Dec 18 02:25:15 2017//
+/monitor_wrap.c/1.97/Thu Dec 21 00:00:28 2017//
 /monitor_wrap.h/1.36/Mon Dec 18 02:25:15 2017//
 /msg.c/1.16/Thu Jan 15 09:40:00 2015//
 /msg.h/1.5/Thu Jan 15 09:40:00 2015//

@@ -37,7 +37,7 @@
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//
 /mem.c/1.33/Thu Dec 14 03:30:43 2017//
 /multiproc.s/1.5/Sun Jan 26 17:40:09 2014//
-/mutex.c/1.19/Mon Sep 11 09:52:15 2017//
+/mutex.c/1.20/Wed Dec 20 11:22:29 2017//
 /pal.s/1.7/Sun Jan 13 20:59:52 2008//
 /pmap.c/1.84/Thu Sep 15 02:00:16 2016//
 /process_machdep.c/1.13/Wed Oct 19 08:23:37 2016//
