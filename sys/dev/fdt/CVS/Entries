@@ -33,8 +33,8 @@
 /sxiccmu.c/1.11/Fri Dec 15 09:15:36 2017//
 /sxiccmu_clocks.h/1.10/Tue Dec 12 22:31:44 2017//
 /sximmc.c/1.3/Sun Aug 13 00:13:07 2017//
-/sxipio.c/1.5/Mon Nov 13 09:24:59 2017//
-/sxipio_pins.h/1.1/Sat Jan 21 08:26:49 2017//
+/sxipio.c/1.6/Sat Dec 23 12:28:45 2017//
+/sxipio_pins.h/1.2/Sat Dec 23 12:55:26 2017//
 /sxipiovar.h/1.1/Sat Jan 21 08:26:49 2017//
 /sxirsb.c/1.2/Sat Dec 16 21:09:38 2017//
 /sxirtc.c/1.2/Mon Mar 27 14:03:19 2017//

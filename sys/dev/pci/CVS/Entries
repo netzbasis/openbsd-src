@@ -258,9 +258,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1829/Sat Dec 23 01:33:51 2017//
-/pcidevs.h/1.1823/Sat Dec 23 01:34:35 2017//
-/pcidevs_data.h/1.1817/Sat Dec 23 01:34:35 2017//
+/pcidevs/1.1830/Sat Dec 23 18:34:54 2017//
+/pcidevs.h/1.1824/Sat Dec 23 18:35:41 2017//
+/pcidevs_data.h/1.1818/Sat Dec 23 18:35:41 2017//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

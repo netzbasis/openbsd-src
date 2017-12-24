@@ -6,7 +6,7 @@
 /dir.h/1.4/Mon Jan 23 11:04:19 2017//
 /dl_dirname.c/1.2/Fri Jan 16 16:18:07 2015//
 /dl_printf.c/1.21/Tue Aug 29 15:25:51 2017//
-/dl_realpath.c/1.5/Sun Aug 27 21:59:49 2017//
+/dl_realpath.c/1.6/Sun Dec 24 01:50:50 2017//
 /dl_uname.c/1.2/Fri Jan 16 16:18:07 2015//
 /dlfcn.c/1.100/Fri Dec  8 05:25:20 2017//
 /ld.so.1/1.22/Mon Jul  4 21:15:06 2016//
