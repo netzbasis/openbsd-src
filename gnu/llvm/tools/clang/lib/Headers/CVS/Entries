@@ -18,7 +18,7 @@
 /avx512cdintrin.h/1.1.1.2/Sat Jan 14 19:55:50 2017//
 /avx512dqintrin.h/1.1.1.4/Wed Oct  4 20:27:46 2017//
 /avx512erintrin.h/1.1.1.2/Sat Jan 14 19:55:50 2017//
-/avx512fintrin.h/1.1.1.4/Wed Oct  4 20:27:46 2017//
+/avx512fintrin.h/1.1.1.5/Sun Dec 24 23:15:35 2017//
 /avx512ifmaintrin.h/1.1.1.1/Sat Jan 14 19:55:50 2017/-ko/
 /avx512ifmavlintrin.h/1.1.1.1/Sat Jan 14 19:55:50 2017/-ko/
 /avx512pfintrin.h/1.1.1.1/Sat Jan 14 19:55:50 2017/-ko/

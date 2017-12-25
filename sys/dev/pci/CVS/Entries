@@ -74,7 +74,7 @@
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.6/Tue Sep 21 20:11:44 2010//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//
-/files.pci/1.332/Tue Nov 28 23:54:04 2017//
+/files.pci/1.333/Sun Dec 24 19:50:56 2017//
 /fms.c/1.30/Tue Dec 20 15:31:00 2016//
 /fmsradio.c/1.6/Thu Jun  6 16:29:37 2002//
 /fmsreg.h/1.3/Thu Jun 26 05:42:17 2008//
@@ -111,6 +111,8 @@
 /if_bgereg.h/1.130/Sun Nov 29 20:19:35 2015//
 /if_bnx.c/1.124/Tue Jan 24 03:57:35 2017//
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
+/if_bwfm_pci.c/1.1/Sun Dec 24 19:50:56 2017//
+/if_bwfm_pci.h/1.1/Sun Dec 24 19:50:56 2017//
 /if_bwi_pci.c/1.16/Tue Nov 24 17:11:39 2015//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//
 /if_casreg.h/1.10/Sat May 31 22:49:03 2008//
