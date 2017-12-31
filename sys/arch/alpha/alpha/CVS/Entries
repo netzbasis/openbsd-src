@@ -31,7 +31,7 @@
 /lock_machdep.c/1.7/Mon Dec  4 09:51:03 2017//
 /locore.s/1.47/Mon Jun  5 17:49:05 2017//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
-/machdep.c/1.182/Mon Dec 11 05:27:40 2017//
+/machdep.c/1.183/Sat Dec 30 20:46:59 2017//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//
 /mcclock.c/1.5/Thu Mar 14 01:26:26 2002//
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//
@@ -43,7 +43,7 @@
 /process_machdep.c/1.13/Wed Oct 19 08:23:37 2016//
 /prom.c/1.16/Thu Dec 18 10:50:02 2014//
 /prom_disp.s/1.7/Sun Jan 13 20:59:52 2008//
-/promcons.c/1.17/Fri Sep  8 05:36:51 2017//
+/promcons.c/1.18/Sat Dec 30 20:46:59 2017//
 /sys_machdep.c/1.7/Thu Jun 26 05:42:08 2008//
 /trap.c/1.83/Sat Jan 21 05:42:03 2017//
 /vm_machdep.c/1.47/Thu Aug 17 20:50:51 2017//

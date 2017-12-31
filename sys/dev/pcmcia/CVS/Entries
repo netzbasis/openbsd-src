@@ -2,11 +2,11 @@
 /aic_pcmcia.c/1.17/Sat Mar 14 03:38:49 2015//
 /cfxga.c/1.29/Sat Dec 13 21:05:33 2014//
 /cfxgareg.h/1.5/Tue Nov 28 12:01:27 2006//
-/com_pcmcia.c/1.56/Fri Sep  8 05:36:52 2017//
+/com_pcmcia.c/1.57/Sat Dec 30 20:46:59 2017//
 /devlist2h.awk/1.4/Tue Feb  1 16:54:41 2000//
 /esp_pcmcia.c/1.11/Sat Jan 18 22:33:59 2014//
 /files.pcmcia/1.46/Sat Sep  3 16:18:21 2016//
-/gpr.c/1.17/Mon Mar 14 23:08:06 2016//
+/gpr.c/1.18/Sat Dec 30 23:08:29 2017//
 /gprio.h/1.4/Mon Jun  2 19:39:13 2003//
 /if_an_pcmcia.c/1.26/Tue Nov 24 17:11:40 2015//
 /if_ep_pcmcia.c/1.48/Wed Nov 25 11:20:38 2015//
@@ -26,5 +26,5 @@
 /pcmciadevs.h/1.136/Tue May 26 19:37:35 2009//
 /pcmciareg.h/1.7/Sat Sep  4 12:59:27 2010//
 /pcmciavar.h/1.21/Sat Sep  4 12:59:27 2010//
-/wdc_pcmcia.c/1.31/Sun Sep 14 14:17:25 2014//
+/wdc_pcmcia.c/1.32/Sat Dec 30 20:46:59 2017//
 D

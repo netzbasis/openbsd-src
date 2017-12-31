@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxiccmu.c,v 1.14 2017/12/28 18:11:13 kettenis Exp $	*/
+/*	$OpenBSD: sxiccmu.c,v 1.16 2017/12/30 16:30:37 kettenis Exp $	*/
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2013 Artturi Alm
@@ -79,7 +79,7 @@ struct cfdriver sxiccmu_cd = {
 	NULL, "sxiccmu", DV_DULL
 };
 
-void sxiccmu_attach_clock(struct sxiccmu_softc *, int);
+void sxiccmu_attach_clock(struct sxiccmu_softc *, int, int);
 
 uint32_t sxiccmu_ccu_get_frequency(void *, uint32_t *);
 int	sxiccmu_ccu_set_frequency(void *, uint32_t *, uint32_t);
@@ -97,6 +97,8 @@ int	sxiccmu_a80_set_frequency(struct sxiccmu_softc *, uint32_t, uint32_t);
 uint32_t sxiccmu_h3_get_frequency(struct sxiccmu_softc *, uint32_t);
 int	sxiccmu_h3_set_frequency(struct sxiccmu_softc *, uint32_t, uint32_t);
 uint32_t sxiccmu_h3_r_get_frequency(struct sxiccmu_softc *, uint32_t);
+uint32_t sxiccmu_r40_get_frequency(struct sxiccmu_softc *, uint32_t);
+int	sxiccmu_r40_set_frequency(struct sxiccmu_softc *, uint32_t, uint32_t);
 uint32_t sxiccmu_nop_get_frequency(struct sxiccmu_softc *, uint32_t);
 int	sxiccmu_nop_set_frequency(struct sxiccmu_softc *, uint32_t, uint32_t);
 
@@ -124,9 +126,11 @@ sxiccmu_match(struct device *parent, void *match, void *aux)
 	return (OF_is_compatible(node, "allwinner,sun4i-a10-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun7i-a20-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun8i-a23-ccu") ||
+	    OF_is_compatible(node, "allwinner,sun8i-a23-prcm") ||
 	    OF_is_compatible(node, "allwinner,sun8i-a33-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun8i-h3-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun8i-h3-r-ccu") ||
+	    OF_is_compatible(node, "allwinner,sun8i-r40-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun9i-a80-ccu") ||
 	    OF_is_compatible(node, "allwinner,sun9i-a80-usb-clks") ||
 	    OF_is_compatible(node, "allwinner,sun9i-a80-mmc-config-clk") ||
@@ -184,6 +188,14 @@ sxiccmu_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_nresets = nitems(sun8i_h3_r_resets);
 		sc->sc_get_frequency = sxiccmu_h3_r_get_frequency;
 		sc->sc_set_frequency = sxiccmu_nop_set_frequency;
+	} else if (OF_is_compatible(node, "allwinner,sun8i-r40-ccu")) {
+		KASSERT(faa->fa_nreg > 0);
+		sc->sc_gates = sun8i_r40_gates;
+		sc->sc_ngates = nitems(sun8i_r40_gates);
+		sc->sc_resets = sun8i_r40_resets;
+		sc->sc_nresets = nitems(sun8i_r40_resets);
+		sc->sc_get_frequency = sxiccmu_r40_get_frequency;
+		sc->sc_set_frequency = sxiccmu_r40_set_frequency;
 	} else if (OF_is_compatible(node, "allwinner,sun9i-a80-ccu")) {
 		KASSERT(faa->fa_nreg > 0);
 		sc->sc_gates = sun9i_a80_gates;
@@ -218,7 +230,7 @@ sxiccmu_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_set_frequency = sxiccmu_a64_set_frequency;
 	} else {
 		for (node = OF_child(node); node; node = OF_peer(node))
-			sxiccmu_attach_clock(sc, node);
+			sxiccmu_attach_clock(sc, node, faa->fa_nreg);
 	}
 
 	if (sc->sc_gates) {
@@ -259,6 +271,7 @@ struct sxiccmu_device {
 	int	(*set_frequency)(void *, uint32_t *, uint32_t);
 	void	(*enable)(void *, uint32_t *, int);
 	void	(*reset)(void *, uint32_t *, int);
+	bus_size_t offset;
 };
 
 uint32_t sxiccmu_gen_get_frequency(void *, uint32_t *);
@@ -356,7 +369,8 @@ struct sxiccmu_device sxiccmu_devices[] = {
 	},
 	{
 		.compat = "allwinner,sun6i-a31-clock-reset",
-		.reset = sxiccmu_reset
+		.reset = sxiccmu_reset,
+		.offset = 0x00b0
 	},
 	{
 		.compat = "allwinner,sun7i-a20-ahb-gates-clk",
@@ -379,7 +393,8 @@ struct sxiccmu_device sxiccmu_devices[] = {
 	},
 	{
 		.compat = "allwinner,sun8i-a23-apb0-clk",
-		.get_frequency = sxiccmu_apbs_get_frequency
+		.get_frequency = sxiccmu_apbs_get_frequency,
+		.offset = 0x000c
 	},
 	{
 		.compat = "allwinner,sun8i-a23-ahb1-gates-clk",
@@ -389,7 +404,8 @@ struct sxiccmu_device sxiccmu_devices[] = {
 	{
 		.compat = "allwinner,sun8i-a23-apb0-gates-clk",
 		.get_frequency = sxiccmu_gen_get_frequency,
-		.enable = sxiccmu_gate_enable
+		.enable = sxiccmu_gate_enable,
+		.offset = 0x0028
 	},
 	{
 		.compat = "allwinner,sun8i-a23-apb1-gates-clk",
@@ -470,11 +486,11 @@ struct sxiccmu_device sxiccmu_devices[] = {
 };
 
 void
-sxiccmu_attach_clock(struct sxiccmu_softc *sc, int node)
+sxiccmu_attach_clock(struct sxiccmu_softc *sc, int node, int nreg)
 {
 	struct sxiccmu_clock *clock;
 	uint32_t reg[2];
-	int i;
+	int i, error = ENODEV;
 
 	for (i = 0; i < nitems(sxiccmu_devices); i++)
 		if (OF_is_compatible(node, sxiccmu_devices[i].compat))
@@ -485,14 +501,18 @@ sxiccmu_attach_clock(struct sxiccmu_softc *sc, int node)
 	clock = malloc(sizeof(*clock), M_DEVBUF, M_WAITOK);
 	clock->sc_node = node;
 
+	clock->sc_iot = sc->sc_iot;
 	if (OF_getpropintarray(node, "reg", reg, sizeof(reg)) == sizeof(reg)) {
-		clock->sc_iot = sc->sc_iot;
-		if (bus_space_map(clock->sc_iot, reg[0], reg[1], 0,
-		    &clock->sc_ioh)) {
-			printf("%s: can't map registers", sc->sc_dev.dv_xname);
-			free(clock, M_DEVBUF, sizeof(*clock));
-			return;
-		}
+		error = bus_space_map(clock->sc_iot, reg[0], reg[1], 0,
+		    &clock->sc_ioh);
+	} else if (nreg > 0) {
+		error = bus_space_subregion(clock->sc_iot, sc->sc_ioh,
+		    sxiccmu_devices[i].offset, 4, &clock->sc_ioh);
+	}
+	if (error) {
+		printf("%s: can't map registers", sc->sc_dev.dv_xname);
+		free(clock, M_DEVBUF, sizeof(*clock));
+		return;
 	}
 
 	clock->sc_cd.cd_node = node;
@@ -1108,6 +1128,24 @@ sxiccmu_h3_r_get_frequency(struct sxiccmu_softc *sc, uint32_t idx)
 }
 
 uint32_t
+sxiccmu_r40_get_frequency(struct sxiccmu_softc *sc, uint32_t idx)
+{
+	switch (idx) {
+	case R40_CLK_PLL_PERIPH0:
+		/* Not hardcoded, but recommended. */
+		return 600000000;
+	case R40_CLK_PLL_PERIPH0_2X:
+		return sxiccmu_r40_get_frequency(sc, A64_CLK_PLL_PERIPH0) * 2;
+	case R40_CLK_APB2:
+		/* XXX Controlled by a MUX. */
+		return 24000000;
+	}
+
+	printf("%s: 0x%08x\n", __func__, idx);
+	return 0;
+}
+
+uint32_t
 sxiccmu_nop_get_frequency(struct sxiccmu_softc *sc, uint32_t idx)
 {
 	printf("%s: 0x%08x\n", __func__, idx);
@@ -1226,6 +1264,29 @@ sxiccmu_h3_set_frequency(struct sxiccmu_softc *sc, uint32_t idx, uint32_t freq)
 		bus_space_subregion(sc->sc_iot, sc->sc_ioh,
 		    sc->sc_gates[idx].reg, 4, &clock.sc_ioh);
 		parent = H3_CLK_PLL_PERIPH0;
+		parent_freq = sxiccmu_ccu_get_frequency(sc, &parent);
+		return sxiccmu_mmc_do_set_frequency(&clock, freq, parent_freq);
+	}
+
+	printf("%s: 0x%08x\n", __func__, idx);
+	return -1;
+}
+
+int
+sxiccmu_r40_set_frequency(struct sxiccmu_softc *sc, uint32_t idx, uint32_t freq)
+{
+	struct sxiccmu_clock clock;
+	uint32_t parent, parent_freq;
+
+	switch (idx) {
+	case R40_CLK_MMC0:
+	case R40_CLK_MMC1:
+	case R40_CLK_MMC2:
+	case R40_CLK_MMC3:
+		clock.sc_iot = sc->sc_iot;
+		bus_space_subregion(sc->sc_iot, sc->sc_ioh,
+		    sc->sc_gates[idx].reg, 4, &clock.sc_ioh);
+		parent = R40_CLK_PLL_PERIPH0_2X;
 		parent_freq = sxiccmu_ccu_get_frequency(sc, &parent);
 		return sxiccmu_mmc_do_set_frequency(&clock, freq, parent_freq);
 	}

@@ -1,5 +1,5 @@
-/ata.c/1.35/Mon Aug 17 15:36:29 2015//
-/ata_wdc.c/1.50/Mon Aug 17 15:36:29 2015//
+/ata.c/1.36/Sat Dec 30 20:46:59 2017//
+/ata_wdc.c/1.51/Sat Dec 30 20:46:59 2017//
 /atareg.h/1.14/Fri Jul 23 07:47:13 2010//
 /atascsi.c/1.129/Wed Aug 23 05:13:01 2017//
 /atascsi.h/1.52/Wed May 31 05:54:06 2017//
@@ -7,6 +7,6 @@
 /files.ata/1.3/Mon Feb 19 11:44:24 2007//
 /pmreg.h/1.1/Thu Jan 13 03:41:02 2011//
 /satareg.h/1.2/Thu Jun 26 05:42:14 2008//
-/wd.c/1.124/Thu Dec 14 06:21:04 2017//
+/wd.c/1.125/Sat Dec 30 23:08:29 2017//
 /wdvar.h/1.21/Wed Jul  9 12:56:28 2014//
 D

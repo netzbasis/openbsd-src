@@ -40,7 +40,7 @@
 /locore.s/1.181/Wed Dec 20 11:08:44 2017//
 /locore0.S/1.3/Sun Dec 10 21:44:07 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
-/machdep.c/1.607/Mon Dec 11 05:27:40 2017//
+/machdep.c/1.608/Sat Dec 30 20:46:59 2017//
 /mainbus.c/1.57/Sat Mar 25 22:24:01 2017//
 /mem.c/1.53/Thu Dec 14 03:30:43 2017//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
@@ -61,11 +61,11 @@
 /process_machdep.c/1.28/Wed May  8 15:36:30 2013//
 /rbus_machdep.c/1.27/Wed Sep 22 02:28:37 2010//
 /softintr.c/1.7/Tue Sep  1 06:01:26 2015//
-/sys_machdep.c/1.37/Thu Mar 24 04:56:08 2016//
+/sys_machdep.c/1.38/Sat Dec 30 20:46:59 2017//
 /trap.c/1.136/Wed Oct  4 17:41:01 2017//
 /vector.s/1.21/Tue May 30 12:41:55 2017//
 /via.c/1.40/Fri Dec 29 13:24:11 2017//
-/vm86.c/1.23/Sat Oct  8 05:49:08 2016//
+/vm86.c/1.24/Sat Dec 30 20:46:59 2017//
 /vm_machdep.c/1.67/Fri Aug 18 16:53:02 2017//
 /vmm.c/1.34/Tue Nov 28 15:06:08 2017//
 /vmm_support.S/1.3/Thu Jul  6 04:32:30 2017//

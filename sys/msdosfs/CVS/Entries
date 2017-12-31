@@ -5,9 +5,9 @@
 /fat.h/1.12/Mon Aug 14 22:45:12 2017//
 /msdosfs_conv.c/1.19/Fri Oct 23 10:45:31 2015//
 /msdosfs_denode.c/1.59/Mon Aug 14 22:43:56 2017//
-/msdosfs_fat.c/1.30/Mon Aug 14 22:43:56 2017//
+/msdosfs_fat.c/1.31/Sat Dec 30 20:47:00 2017//
 /msdosfs_lookup.c/1.30/Sat Mar 19 12:04:16 2016//
-/msdosfs_vfsops.c/1.85/Mon Dec 11 05:27:40 2017//
+/msdosfs_vfsops.c/1.86/Sat Dec 30 23:08:29 2017//
 /msdosfs_vnops.c/1.116/Mon Aug 14 22:43:56 2017//
 /msdosfsmount.h/1.21/Sat May 21 18:11:36 2016//
 D
