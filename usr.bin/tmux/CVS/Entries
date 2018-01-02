@@ -3,7 +3,7 @@
 /arguments.c/1.20/Wed Aug 23 09:14:21 2017//
 /attributes.c/1.7/Wed Mar 22 07:16:54 2017//
 /cfg.c/1.61/Fri Oct  6 18:02:30 2017//
-/client.c/1.125/Tue Dec 19 15:00:39 2017//
+/client.c/1.126/Mon Jan  1 11:19:08 2018//
 /cmd-attach-session.c/1.74/Wed Aug 30 10:33:57 2017//
 /cmd-bind-key.c/1.32/Tue Jan 24 21:50:22 2017//
 /cmd-break-pane.c/1.46/Wed Aug 30 10:33:57 2017//
@@ -100,10 +100,10 @@
 /server-fn.c/1.112/Thu Oct 12 11:32:27 2017//
 /server.c/1.178/Tue Dec 19 15:00:39 2017//
 /session.c/1.78/Thu Nov  2 18:27:35 2017//
-/status.c/1.173/Wed Dec 27 13:55:42 2017//
+/status.c/1.174/Mon Jan  1 11:03:54 2018//
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
 /tmux.1/1.590/Fri Dec 22 10:16:36 2017//
-/tmux.c/1.184/Wed Jul 12 09:21:25 2017//
+/tmux.c/1.185/Mon Jan  1 11:19:08 2018//
 /tmux.h/1.815/Tue Dec 19 15:00:39 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.102/Mon Oct  9 11:35:35 2017//

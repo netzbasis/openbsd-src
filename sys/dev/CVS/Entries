@@ -11,7 +11,7 @@
 /flash.c/1.32/Thu May  4 22:47:27 2017//
 /flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
 /hotplug.c/1.16/Tue Jun  7 01:31:54 2016//
-/ipmi.c/1.99/Fri Sep  8 05:36:52 2017//
+/ipmi.c/1.100/Mon Jan  1 16:16:23 2018//
 /ipmi.h/1.1/Fri Feb  5 06:29:01 2016//
 /ipmivar.h/1.28/Fri Feb  5 06:29:01 2016//
 /ksyms.c/1.31/Mon Jan 11 17:29:43 2016//
