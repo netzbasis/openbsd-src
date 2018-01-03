@@ -8,6 +8,6 @@
 /msdosfs_fat.c/1.31/Sat Dec 30 20:47:00 2017//
 /msdosfs_lookup.c/1.30/Sat Mar 19 12:04:16 2016//
 /msdosfs_vfsops.c/1.86/Sat Dec 30 23:08:29 2017//
-/msdosfs_vnops.c/1.116/Mon Aug 14 22:43:56 2017//
+/msdosfs_vnops.c/1.117/Tue Jan  2 06:38:45 2018//
 /msdosfsmount.h/1.21/Sat May 21 18:11:36 2016//
 D

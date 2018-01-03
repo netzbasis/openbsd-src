@@ -6,7 +6,7 @@
 /cninit.c/1.15/Sat Dec 30 20:46:59 2017//
 /cons.c/1.27/Sat Dec 30 20:46:59 2017//
 /cons.h/1.18/Tue May 17 23:43:47 2016//
-/diskmap.c/1.16/Fri Sep  8 05:36:52 2017//
+/diskmap.c/1.17/Tue Jan  2 06:38:45 2018//
 /firmload.c/1.14/Tue Dec 29 04:46:28 2015//
 /flash.c/1.32/Thu May  4 22:47:27 2017//
 /flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
