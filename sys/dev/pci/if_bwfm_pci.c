@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bwfm_pci.c,v 1.3 2018/01/01 22:41:56 patrick Exp $	*/
+/*	$OpenBSD: if_bwfm_pci.c,v 1.5 2018/01/03 21:01:16 patrick Exp $	*/
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2017 Patrick Wildt <patrick@blueri.se>
@@ -752,7 +752,7 @@ free:
 destroy:
 	bus_dmamap_destroy(sc->sc_dmat, bdm->bdm_map);
 bdmfree:
-	free(bdm, M_DEVBUF, 0);
+	free(bdm, M_DEVBUF, sizeof(*bdm));
 
 	return (NULL);
 }
@@ -763,7 +763,7 @@ bwfm_pci_dmamem_free(struct bwfm_pci_softc *sc, struct bwfm_pci_dmamem *bdm)
 	bus_dmamem_unmap(sc->sc_dmat, bdm->bdm_kva, bdm->bdm_size);
 	bus_dmamem_free(sc->sc_dmat, &bdm->bdm_seg, 1);
 	bus_dmamap_destroy(sc->sc_dmat, bdm->bdm_map);
-	free(bdm, M_DEVBUF, 0);
+	free(bdm, M_DEVBUF, sizeof(*bdm));
 }
 
 /*
@@ -1165,8 +1165,8 @@ bwfm_pci_msg_rx(struct bwfm_pci_softc *sc, void *buf)
 		if (m == NULL)
 			break;
 		m_adj(m, sc->sc_rx_dataoffset);
-		bwfm_rx(&sc->sc_sc, mtod(m, char *), letoh16(event->event_data_len));
-		m_freem(m);
+		m->m_len = m->m_pkthdr.len = letoh16(event->event_data_len);
+		bwfm_rx(&sc->sc_sc, m);
 		if_rxr_put(&sc->sc_event_ring, 1);
 		bwfm_pci_fill_rx_rings(sc);
 		break;
@@ -1180,8 +1180,8 @@ bwfm_pci_msg_rx(struct bwfm_pci_softc *sc, void *buf)
 			m_adj(m, letoh16(rx->data_offset));
 		else if (sc->sc_rx_dataoffset)
 			m_adj(m, sc->sc_rx_dataoffset);
-		bwfm_rx(&sc->sc_sc, mtod(m, char *), letoh16(rx->data_len));
-		m_freem(m);
+		m->m_len = m->m_pkthdr.len = letoh16(rx->data_len);
+		bwfm_rx(&sc->sc_sc, m);
 		if_rxr_put(&sc->sc_rxbuf_ring, 1);
 		bwfm_pci_fill_rx_rings(sc);
 		break;
