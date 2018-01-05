@@ -17,8 +17,8 @@
 /dfp-bit.h/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /divmod.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /elfos.h/1.2/Mon May 18 18:38:49 2015//
-/floatunsidf.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
-/floatunsisf.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
+/floatunsidf.c/1.2/Thu Jan  4 19:46:31 2018//
+/floatunsisf.c/1.2/Thu Jan  4 19:46:31 2018//
 /floatunsitf.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /floatunsixf.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /fp-bit.c/1.1.1.1/Thu Oct 15 17:11:29 2009//
