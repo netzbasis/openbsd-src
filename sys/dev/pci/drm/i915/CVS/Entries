@@ -45,7 +45,7 @@
 /intel_csr.c/1.2/Sat Sep 30 07:36:56 2017//
 /intel_ddi.c/1.17/Sat Sep 30 07:36:56 2017//
 /intel_display.c/1.62/Sat Sep 30 07:36:56 2017//
-/intel_dp.c/1.29/Sat Sep 30 07:36:56 2017//
+/intel_dp.c/1.30/Fri Jan  5 09:52:34 2018//
 /intel_dp_mst.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_drv.h/1.11/Sat Jul  1 16:14:10 2017//
 /intel_dsi.c/1.2/Sun Jul  2 20:58:55 2017//

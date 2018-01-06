@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfm.c,v 1.25 2018/01/04 23:34:06 patrick Exp $ */
+/* $OpenBSD: bwfm.c,v 1.27 2018/01/05 23:13:04 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -346,6 +346,8 @@ bwfm_init(struct ifnet *ifp)
 	evmask[BWFM_E_LINK / 8] |= 1 << (BWFM_E_LINK % 8);
 	evmask[BWFM_E_AUTH / 8] |= 1 << (BWFM_E_AUTH % 8);
 	evmask[BWFM_E_ASSOC / 8] |= 1 << (BWFM_E_ASSOC % 8);
+	evmask[BWFM_E_DEAUTH / 8] |= 1 << (BWFM_E_DEAUTH % 8);
+	evmask[BWFM_E_DISASSOC / 8] |= 1 << (BWFM_E_DISASSOC % 8);
 	evmask[BWFM_E_SET_SSID / 8] |= 1 << (BWFM_E_SET_SSID % 8);
 	evmask[BWFM_E_ESCAN_RESULT / 8] |= 1 << (BWFM_E_ESCAN_RESULT % 8);
 	if (bwfm_fwvar_var_set_data(sc, "event_msgs", evmask, sizeof(evmask))) {
@@ -1410,8 +1412,17 @@ bwfm_rx(struct bwfm_softc *sc, struct mbuf *m)
 	if (m->m_len >= sizeof(e->ehdr) &&
 	    ntohs(e->ehdr.ether_type) == BWFM_ETHERTYPE_LINK_CTL &&
 	    memcmp(BWFM_BRCM_OUI, e->hdr.oui, sizeof(e->hdr.oui)) == 0 &&
-	    ntohs(e->hdr.usr_subtype) == BWFM_BRCM_SUBTYPE_EVENT)
+	    ntohs(e->hdr.usr_subtype) == BWFM_BRCM_SUBTYPE_EVENT) {
 		bwfm_rx_event(sc, mtod(m, char *), m->m_len);
+		m_freem(m);
+		return;
+	}
+
+	/* Drop network packets if we are not in RUN state. */
+	if (ic->ic_state != IEEE80211_S_RUN) {
+		m_freem(m);
+		return;
+	}
 
 	if ((ic->ic_flags & IEEE80211_F_RSNON) &&
 	    m->m_len >= sizeof(e->ehdr) &&
@@ -1472,16 +1483,22 @@ bwfm_rx_event(struct bwfm_softc *sc, char *buf, size_t len)
 			ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 		break;
 	case BWFM_E_AUTH:
-		if (ntohl(e->msg.status) == BWFM_E_STATUS_SUCCESS)
+		if (ntohl(e->msg.status) == BWFM_E_STATUS_SUCCESS &&
+		    ic->ic_state == IEEE80211_S_AUTH)
 			ieee80211_new_state(ic, IEEE80211_S_ASSOC, -1);
 		else
 			ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 		break;
 	case BWFM_E_ASSOC:
-		if (ntohl(e->msg.status) == BWFM_E_STATUS_SUCCESS)
+		if (ntohl(e->msg.status) == BWFM_E_STATUS_SUCCESS &&
+		    ic->ic_state == IEEE80211_S_ASSOC)
 			ieee80211_new_state(ic, IEEE80211_S_RUN, -1);
 		else
 			ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
+		break;
+	case BWFM_E_DEAUTH:
+	case BWFM_E_DISASSOC:
+		ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 		break;
 	case BWFM_E_LINK:
 		if (ntohl(e->msg.status) == BWFM_E_STATUS_SUCCESS &&
