@@ -35,8 +35,8 @@
 /ipifuncs.c/1.29/Mon Dec  4 09:38:20 2017//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
 /lapic.c/1.49/Sat Oct 14 04:44:43 2017//
-/locore.S/1.92/Sat Jan  6 22:03:12 2018//
-/locore0.S/1.5/Sat Oct 14 21:42:17 2017//
+/locore.S/1.93/Sun Jan  7 19:56:19 2018//
+/locore0.S/1.6/Sun Jan  7 19:56:19 2018//
 /machdep.c/1.237/Sat Jan  6 22:03:12 2018//
 /mainbus.c/1.40/Sat Oct 14 04:44:43 2017//
 /mem.c/1.33/Thu Dec 14 03:30:43 2017//
@@ -49,13 +49,13 @@
 /mutex.c/1.1/Wed Dec 20 11:08:44 2017//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
-/pmap.c/1.107/Sun Jan  7 05:35:10 2018//
+/pmap.c/1.108/Sun Jan  7 19:56:19 2018//
 /powernow-k8.c/1.27/Sat Dec  9 16:39:54 2017//
 /process_machdep.c/1.15/Sat Oct 14 04:44:43 2017//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
 /spl.S/1.11/Fri May 20 14:37:53 2016//
-/sys_machdep.c/1.18/Sat Oct 14 04:44:43 2017//
+/sys_machdep.c/1.19/Sun Jan  7 18:54:44 2018//
 /trap.c/1.63/Fri Jan  5 11:10:25 2018//
 /tsc.c/1.6/Thu Oct 19 22:09:49 2017//
 /vector.S/1.51/Wed Oct  4 02:10:33 2017//

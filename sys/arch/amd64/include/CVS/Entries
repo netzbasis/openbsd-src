@@ -51,11 +51,11 @@
 /pctr.h/1.5/Sat Mar 29 18:09:28 2014//
 /pic.h/1.7/Tue Dec 16 21:20:23 2014//
 /pio.h/1.5/Sat Apr 25 21:31:24 2015//
-/pmap.h/1.62/Mon Feb  8 18:23:04 2016//
+/pmap.h/1.63/Sun Jan  7 21:43:25 2018//
 /proc.h/1.9/Thu Apr 13 03:52:25 2017//
 /profile.h/1.4/Wed Aug 22 17:19:35 2012//
 /psl.h/1.4/Wed Mar 23 16:54:34 2011//
-/pte.h/1.13/Mon Nov  9 00:49:33 2015//
+/pte.h/1.14/Sun Jan  7 19:56:19 2018//
 /ptrace.h/1.1/Wed Jan 28 01:39:39 2004//
 /rbus_machdep.h/1.7/Wed Mar 23 16:54:34 2011//
 /reg.h/1.6/Wed Mar 23 16:54:34 2011//
@@ -67,7 +67,7 @@
 /specialreg.h/1.63/Sun Jan  7 01:08:20 2018//
 /spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.9/Tue Mar 11 19:45:27 2014//
-/sysarch.h/1.13/Sun May  5 19:25:57 2013//
+/sysarch.h/1.14/Sun Jan  7 18:54:44 2018//
 /tcb.h/1.6/Fri Oct 13 05:14:02 2017//
 /trap.h/1.3/Sun Jun 28 01:16:29 2015//
 /tss.h/1.4/Wed Mar 23 16:54:34 2011//
