@@ -1,8 +1,8 @@
 /CONTRIBUTORS/1.10/Mon Feb  6 16:47:07 2006//
 /LEGAL/1.2/Thu Jul 17 20:59:43 2003//
 /Makefile/1.38/Sat Jan  6 16:28:58 2018//
-/NOTES/1.14/Fri Jan 29 11:50:40 2016//
-/PROJECTS/1.8/Mon Sep 14 09:42:33 2015//
+/NOTES/1.15/Mon Jan  8 13:39:06 2018//
+/PROJECTS/1.9/Mon Jan  8 12:08:17 2018//
 /README/1.16/Thu May 11 20:17:17 2017//
 /alloc.c/1.18/Thu Nov  2 06:55:35 2017//
 /c_ksh.c/1.56/Sat Jan  6 16:28:58 2018//
@@ -13,14 +13,14 @@
 /config.h/1.17/Fri Jan  5 15:44:31 2018//
 /edit.c/1.61/Sat Jan  6 16:28:58 2018//
 /edit.h/1.11/Tue Jan 26 17:39:31 2016//
-/emacs.c/1.81/Sun Jan  7 19:18:56 2018//
+/emacs.c/1.82/Mon Jan  8 13:01:31 2018//
 /eval.c/1.57/Sat Jan  6 16:28:58 2018//
 /exec.c/1.70/Wed Dec 27 13:02:57 2017//
 /expand.h/1.15/Sat Jan  6 16:28:58 2018//
 /expr.c/1.32/Wed Dec 30 09:07:00 2015//
 /history.c/1.78/Sat Jan  6 16:28:58 2018//
 /io.c/1.35/Sun Mar 20 00:01:21 2016//
-/jobs.c/1.57/Fri Jan  5 15:44:31 2018//
+/jobs.c/1.58/Mon Jan  8 22:22:28 2018//
 /ksh.1/1.197/Tue Dec 12 11:34:38 2017//
 /lex.c/1.77/Sat Jan  6 16:28:58 2018//
 /lex.h/1.20/Sat Jan  6 16:28:58 2018//

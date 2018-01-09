@@ -1,6 +1,6 @@
 /LICENCE/1.20/Sun Apr 30 23:26:16 2017//
 /Makefile/1.16/Sun Dec 10 19:37:57 2017//
-/Makefile.inc/1.56/Sun Dec 10 19:37:57 2017//
+/Makefile.inc/1.57/Mon Jan  8 15:37:21 2018//
 /OVERVIEW/1.12/Wed Jul  8 19:01:15 2015//
 /PROTOCOL/1.31/Fri May 26 01:40:07 2017//
 /PROTOCOL.agent/1.12/Fri May 19 21:07:17 2017//
@@ -19,8 +19,8 @@
 /auth-options.h/1.23/Wed May 31 10:54:00 2017//
 /auth-passwd.c/1.45/Thu Jul 21 01:39:35 2016//
 /auth-rhosts.c/1.48/Sat Aug 13 17:47:41 2016//
-/auth.c/1.124/Tue Sep 12 06:32:07 2017//
-/auth.h/1.93/Fri Aug 18 05:36:45 2017//
+/auth.c/1.125/Mon Jan  8 15:21:49 2018//
+/auth.h/1.94/Mon Jan  8 15:21:49 2018//
 /auth2-chall.c/1.48/Tue May 30 14:29:59 2017//
 /auth2-gss.c/1.26/Sat Jun 24 06:34:38 2017//
 /auth2-hostbased.c/1.32/Mon Dec 18 02:25:15 2017//
@@ -110,14 +110,14 @@
 /mac.h/1.10/Fri Jul  8 03:44:42 2016//
 /match.c/1.37/Fri Mar 10 04:24:55 2017//
 /match.h/1.17/Fri Feb  3 23:01:19 2017//
-/misc.c/1.122/Fri Dec  8 02:14:33 2017//
-/misc.h/1.69/Tue Dec  5 23:59:47 2017//
+/misc.c/1.123/Mon Jan  8 15:21:49 2018//
+/misc.h/1.70/Mon Jan  8 15:21:49 2018//
 /moduli.c/1.32/Fri Dec  8 03:45:52 2017//
 /monitor.c/1.177/Thu Dec 21 00:00:28 2017//
 /monitor.h/1.20/Wed Sep 28 16:33:07 2016//
 /monitor_fdpass.c/1.21/Mon Feb 29 20:22:36 2016//
 /monitor_fdpass.h/1.4/Tue Sep  4 03:21:03 2007//
-/monitor_wrap.c/1.97/Thu Dec 21 00:00:28 2017//
+/monitor_wrap.c/1.98/Mon Jan  8 15:14:44 2018//
 /monitor_wrap.h/1.36/Mon Dec 18 02:25:15 2017//
 /msg.c/1.16/Thu Jan 15 09:40:00 2015//
 /msg.h/1.5/Thu Jan 15 09:40:00 2015//
@@ -181,7 +181,7 @@
 /ssh-keysign.c/1.52/Mon Feb 15 09:47:49 2016//
 /ssh-pkcs11-client.c/1.7/Tue May 30 08:52:19 2017//
 /ssh-pkcs11-helper.8/1.4/Tue Jul 16 00:07:52 2013//
-/ssh-pkcs11-helper.c/1.13/Tue May 30 08:52:19 2017//
+/ssh-pkcs11-helper.c/1.14/Mon Jan  8 15:18:46 2018//
 /ssh-pkcs11.c/1.25/Wed May 31 09:15:42 2017//
 /ssh-pkcs11.h/1.4/Thu Jan 15 09:40:00 2015//
 /ssh-rsa.c/1.64/Mon Dec 18 23:14:34 2017//

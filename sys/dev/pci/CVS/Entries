@@ -57,7 +57,7 @@
 /czreg.h/1.2/Sun Nov 16 20:30:06 2003//
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
 /dpt_pci.c/1.9/Fri Dec 19 22:44:58 2014//
-/dwiic_pci.c/1.1/Thu Nov 16 18:12:27 2017//
+/dwiic_pci.c/1.2/Mon Jan  8 08:14:00 2018//
 /eap.c/1.53/Mon Sep 19 06:46:44 2016//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.30/Wed Jul 20 09:48:06 2016//
@@ -111,7 +111,7 @@
 /if_bgereg.h/1.130/Sun Nov 29 20:19:35 2015//
 /if_bnx.c/1.124/Tue Jan 24 03:57:35 2017//
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
-/if_bwfm_pci.c/1.8/Mon Jan  8 00:46:15 2018//
+/if_bwfm_pci.c/1.11/Mon Jan  8 17:57:48 2018//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.16/Tue Nov 24 17:11:39 2015//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//

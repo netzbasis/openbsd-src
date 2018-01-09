@@ -22,7 +22,7 @@
 /kern_malloc.c/1.132/Tue Jan  2 06:07:21 2018//
 /kern_mutex.c/1.1/Thu Apr 20 13:57:30 2017//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.226/Tue Dec 12 01:12:34 2017//
+/kern_pledge.c/1.227/Mon Jan  8 11:54:28 2018//
 /kern_proc.c/1.79/Sat Dec 30 20:47:00 2017//
 /kern_prot.c/1.71/Wed Sep 27 06:45:00 2017//
 /kern_resource.c/1.57/Thu Sep 15 02:00:16 2016//
@@ -59,7 +59,7 @@
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
 /subr_witness.c/1.5/Tue Nov 14 14:43:39 2017//
 /subr_xxx.c/1.15/Sat Dec  5 10:11:53 2015//
-/sys_futex.c/1.5/Tue Dec 19 16:41:43 2017//
+/sys_futex.c/1.6/Mon Jan  8 22:33:13 2018//
 /sys_generic.c/1.116/Tue Jan  2 06:38:45 2018//
 /sys_pipe.c/1.77/Tue Jan  2 06:38:45 2018//
 /sys_process.c/1.78/Sat Oct 14 10:17:08 2017//
@@ -76,7 +76,7 @@
 /tty_endrun.c/1.7/Mon Dec 21 21:49:02 2015//
 /tty_msts.c/1.20/Mon Dec 21 21:49:02 2015//
 /tty_nmea.c/1.45/Mon Dec 21 21:49:02 2015//
-/tty_pty.c/1.81/Tue Jan  2 06:38:45 2018//
+/tty_pty.c/1.82/Mon Jan  8 11:52:14 2018//
 /tty_subr.c/1.33/Mon Mar 14 23:08:06 2016//
 /tty_tty.c/1.21/Sat Dec 30 23:08:29 2017//
 /uipc_domain.c/1.55/Thu Nov 23 13:45:46 2017//
