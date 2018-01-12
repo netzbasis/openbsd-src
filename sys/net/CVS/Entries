@@ -25,7 +25,7 @@
 /if_etherip.c/1.29/Tue Jan  9 15:24:24 2018//
 /if_etherip.h/1.10/Mon Nov 20 14:21:28 2017//
 /if_ethersubr.c/1.250/Wed Jan 10 00:14:38 2018//
-/if_gif.c/1.107/Tue Jan  9 15:24:24 2018//
+/if_gif.c/1.108/Fri Jan 12 02:25:27 2018//
 /if_gif.h/1.17/Fri Apr 14 20:46:31 2017//
 /if_gre.c/1.89/Tue Jan  9 15:24:24 2018//
 /if_gre.h/1.14/Tue Jan 24 10:08:30 2017//
@@ -77,7 +77,7 @@
 /pf_table.c/1.127/Wed Aug 16 14:19:57 2017//
 /pfkeyv2.c/1.175/Mon Nov 20 10:56:51 2017//
 /pfkeyv2.h/1.79/Mon Nov 20 10:56:51 2017//
-/pfkeyv2_convert.c/1.62/Fri Sep  8 05:36:53 2017//
+/pfkeyv2_convert.c/1.63/Thu Jan 11 16:02:31 2018//
 /pfkeyv2_parsemessage.c/1.53/Fri Jul 14 16:50:41 2017//
 /pfvar.h/1.470/Fri Dec 29 17:05:25 2017//
 /pfvar_priv.h/1.4/Sun Aug  6 13:16:11 2017//

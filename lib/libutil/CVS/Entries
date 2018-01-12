@@ -9,9 +9,9 @@
 /fmt_scaled.c/1.16/Thu Mar 16 02:40:46 2017//
 /fparseln.3/1.10/Mon Sep 14 15:14:55 2015//
 /fparseln.c/1.7/Wed Dec  5 23:20:06 2012//
-/getmaxpartitions.3/1.6/Wed Jun  5 03:40:26 2013//
+/getmaxpartitions.3/1.7/Fri Jan 12 04:36:44 2018//
 /getmaxpartitions.c/1.9/Sat Aug 27 03:54:20 2016//
-/getrawpartition.3/1.8/Thu Sep 10 15:16:43 2015//
+/getrawpartition.3/1.9/Fri Jan 12 04:36:44 2018//
 /getrawpartition.c/1.9/Sat Aug 27 03:54:20 2016//
 /imsg-buffer.c/1.11/Thu Dec 14 09:27:44 2017//
 /imsg.c/1.16/Thu Dec 14 09:27:44 2017//

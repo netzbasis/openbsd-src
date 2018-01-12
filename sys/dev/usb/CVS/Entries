@@ -118,7 +118,7 @@
 /umidivar.h/1.16/Sun Nov 10 10:22:39 2013//
 /umodem.c/1.63/Sat Dec 30 20:47:00 2017//
 /ums.c/1.43/Tue Jan 12 19:16:21 2016//
-/umsm.c/1.109/Sat Apr  8 02:57:25 2017//
+/umsm.c/1.110/Thu Jan 11 09:26:36 2018//
 /uoak.h/1.3/Mon Apr 15 09:23:02 2013//
 /uoak_subr.c/1.8/Mon Jan  9 14:44:28 2017//
 /uoaklux.c/1.13/Sat Apr  8 02:57:25 2017//
@@ -138,9 +138,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.134/Sat Apr  8 02:57:25 2017//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.679/Thu Dec 14 09:22:16 2017//
-/usbdevs.h/1.691/Thu Dec 14 09:25:31 2017//
-/usbdevs_data.h/1.685/Thu Dec 14 09:25:31 2017//
+/usbdevs/1.680/Thu Jan 11 09:26:36 2018//
+/usbdevs.h/1.692/Thu Jan 11 09:27:20 2018//
+/usbdevs_data.h/1.686/Thu Jan 11 09:27:20 2018//
 /usbdi.c/1.96/Thu Sep 21 07:44:06 2017//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//

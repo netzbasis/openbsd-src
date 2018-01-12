@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.79/Sat Oct 14 04:44:43 2017//
+/acpi_machdep.c/1.80/Thu Jan 11 22:31:09 2018//
 /acpi_wakecode.S/1.41/Wed Aug 30 23:40:22 2017//
 /aes_intel.S/1.9/Tue Mar 26 15:47:01 2013//
 /aesni.c/1.42/Fri Sep  8 05:36:51 2017//
@@ -14,7 +14,7 @@
 /conf.c/1.60/Sun Sep  4 10:51:23 2016//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.11/Sat Sep 16 02:03:40 2017//
-/cpu.c/1.108/Sat Oct 14 04:44:43 2017//
+/cpu.c/1.109/Thu Jan 11 22:31:09 2018//
 /db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.29/Wed Jul 19 14:34:10 2017//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
@@ -58,6 +58,7 @@
 /sys_machdep.c/1.19/Sun Jan  7 18:54:44 2018//
 /trap.c/1.63/Fri Jan  5 11:10:25 2018//
 /tsc.c/1.6/Thu Oct 19 22:09:49 2017//
+/ucode.c/1.1/Thu Jan 11 22:31:09 2018//
 /vector.S/1.51/Wed Oct  4 02:10:33 2017//
 /via.c/1.26/Sun Dec 24 16:19:27 2017//
 /vm_machdep.c/1.41/Sat Oct 14 04:44:43 2017//
