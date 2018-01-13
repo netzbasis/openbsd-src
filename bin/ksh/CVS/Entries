@@ -1,7 +1,7 @@
 /CONTRIBUTORS/1.10/Mon Feb  6 16:47:07 2006//
 /LEGAL/1.2/Thu Jul 17 20:59:43 2003//
 /Makefile/1.38/Sat Jan  6 16:28:58 2018//
-/NOTES/1.15/Mon Jan  8 13:39:06 2018//
+/NOTES/1.16/Fri Jan 12 14:20:57 2018//
 /PROJECTS/1.9/Mon Jan  8 12:08:17 2018//
 /README/1.16/Thu May 11 20:17:17 2017//
 /alloc.c/1.18/Thu Nov  2 06:55:35 2017//
@@ -42,5 +42,5 @@
 /tty.h/1.6/Fri Sep 25 11:58:14 2015//
 /var.c/1.63/Sat Jan  6 16:28:58 2018//
 /version.c/1.12/Wed Jul 14 13:37:24 1999//
-/vi.c/1.53/Sat Jan  6 16:28:58 2018//
+/vi.c/1.54/Sat Jan 13 02:06:54 2018//
 D

@@ -81,7 +81,7 @@
 /gss-genr.c/1.24/Mon Sep 12 01:22:38 2016//
 /gss-serv-krb5.c/1.8/Sat Jul 20 01:55:13 2013//
 /gss-serv.c/1.30/Sat Jun 24 06:34:38 2017//
-/hash.c/1.4/Thu Dec 14 21:07:39 2017//
+/hash.c/1.5/Sat Jan 13 00:24:09 2018//
 /hmac.c/1.12/Tue Mar 24 20:03:44 2015//
 /hmac.h/1.9/Tue Jun 24 01:13:21 2014//
 /hostfile.c/1.71/Wed May 31 09:15:42 2017//

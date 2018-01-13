@@ -14,7 +14,7 @@
 /conf.c/1.60/Sun Sep  4 10:51:23 2016//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.11/Sat Sep 16 02:03:40 2017//
-/cpu.c/1.109/Thu Jan 11 22:31:09 2018//
+/cpu.c/1.110/Fri Jan 12 20:14:20 2018//
 /db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.29/Wed Jul 19 14:34:10 2017//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
@@ -28,7 +28,7 @@
 /genassym.cf/1.31/Mon May 18 19:59:27 2015//
 /hibernate_machdep.c/1.39/Mon May 29 12:58:37 2017//
 /i8259.c/1.10/Sat Oct 14 04:44:43 2017//
-/identcpu.c/1.91/Sun Jan  7 01:08:20 2018//
+/identcpu.c/1.92/Fri Jan 12 08:21:30 2018//
 /intr.c/1.50/Sat Oct 14 04:44:43 2017//
 /ioapic.c/1.28/Sat Oct 14 04:44:43 2017//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
@@ -58,7 +58,7 @@
 /sys_machdep.c/1.19/Sun Jan  7 18:54:44 2018//
 /trap.c/1.63/Fri Jan  5 11:10:25 2018//
 /tsc.c/1.6/Thu Oct 19 22:09:49 2017//
-/ucode.c/1.1/Thu Jan 11 22:31:09 2018//
+/ucode.c/1.2/Fri Jan 12 10:33:07 2018//
 /vector.S/1.51/Wed Oct  4 02:10:33 2017//
 /via.c/1.26/Sun Dec 24 16:19:27 2017//
 /vm_machdep.c/1.41/Sat Oct 14 04:44:43 2017//

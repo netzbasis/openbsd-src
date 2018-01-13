@@ -8,7 +8,7 @@
 /bus.h/1.3/Mon May  8 00:27:45 2017//
 /cdefs.h/1.1/Sat Dec 17 23:38:33 2016//
 /conf.h/1.2/Mon Jan 23 12:34:06 2017//
-/cpu.h/1.3/Fri Jan  5 17:42:35 2018//
+/cpu.h/1.4/Fri Jan 12 22:20:28 2018//
 /cpufunc.h/1.3/Wed Jan 10 23:27:18 2018//
 /db_machdep.h/1.1/Sat Dec 17 23:38:33 2016//
 /disklabel.h/1.1/Sat Dec 17 23:38:33 2016//
@@ -30,12 +30,12 @@
 /machdep.h/1.1/Sat Dec 17 23:38:33 2016//
 /machine_reg.h/1.2/Sun Apr 30 13:04:49 2017//
 /mplock.h/1.3/Fri Jan  5 17:42:35 2018//
-/mutex.h/1.2/Thu Apr 20 13:57:29 2017//
+/mutex.h/1.3/Fri Jan 12 09:19:33 2018//
 /openpromio.h/1.1/Mon Jan 23 12:34:06 2017//
 /param.h/1.3/Fri Jan  5 17:42:35 2018//
 /pcb.h/1.3/Fri Mar 24 19:48:01 2017//
 /pci_machdep.h/1.1/Sun Feb  5 13:18:16 2017//
-/pmap.h/1.8/Thu Jan  4 14:30:08 2018//
+/pmap.h/1.9/Fri Jan 12 14:52:55 2018//
 /proc.h/1.2/Thu Apr 13 03:52:25 2017//
 /profile.h/1.1/Sat Dec 17 23:38:33 2016//
 /pte.h/1.5/Thu Apr 13 23:29:02 2017//
