@@ -140,7 +140,7 @@
 /if_iwi.c/1.137/Thu Oct 26 15:00:28 2017//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.222/Sun Dec 10 20:34:41 2017//
+/if_iwm.c/1.223/Sun Jan 14 11:51:34 2018//
 /if_iwmreg.h/1.27/Wed May  3 14:53:12 2017//
 /if_iwmvar.h/1.37/Fri Dec  8 21:16:01 2017//
 /if_iwn.c/1.198/Tue Jan  9 10:00:12 2018//
