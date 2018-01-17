@@ -27,8 +27,8 @@
 /task.c/1.1/Fri Sep 15 02:39:33 2017//
 /task.h/1.1/Fri Sep 15 02:39:33 2017//
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
-/vioscsi.c/1.2/Mon Jan 15 04:26:58 2018//
-/vioscsi.h/1.1/Wed Jan  3 05:39:56 2018//
+/vioscsi.c/1.3/Tue Jan 16 06:10:45 2018//
+/vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
 /virtio.c/1.55/Wed Jan  3 05:39:56 2018//
 /virtio.h/1.23/Mon Jan 15 04:26:58 2018//
 /vm.c/1.31/Wed Jan  3 05:39:56 2018//
