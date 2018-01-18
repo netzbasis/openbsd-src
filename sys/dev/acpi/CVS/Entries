@@ -8,9 +8,9 @@
 /acpicpu.c/1.81/Thu Nov 30 00:21:42 2017//
 /acpidebug.c/1.30/Sat Mar 14 03:38:46 2015//
 /acpidebug.h/1.4/Tue Oct 24 19:01:48 2006//
-/acpidev.h/1.42/Wed Sep  6 13:01:48 2017//
+/acpidev.h/1.43/Wed Jan 17 07:40:29 2018//
 /acpidock.c/1.44/Sat Mar 14 03:38:46 2015//
-/acpiec.c/1.56/Sat Mar 11 21:46:32 2017//
+/acpiec.c/1.57/Wed Jan 17 07:40:29 2018//
 /acpihpet.c/1.22/Fri Oct  6 13:33:53 2017//
 /acpihve.c/1.1/Tue Jan 10 08:54:14 2017//
 /acpimadt.c/1.36/Sat Sep 17 20:20:25 2016//
