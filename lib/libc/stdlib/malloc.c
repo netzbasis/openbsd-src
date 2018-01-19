@@ -1,4 +1,4 @@
-/*	$OpenBSD: malloc.c,v 1.239 2018/01/08 12:20:23 otto Exp $	*/
+/*	$OpenBSD: malloc.c,v 1.241 2018/01/18 20:06:16 otto Exp $	*/
 /*
  * Copyright (c) 2008, 2010, 2011, 2016 Otto Moerbeek <otto@drijf.net>
  * Copyright (c) 2012 Matthew Dempsky <matthew@openbsd.org>
@@ -172,7 +172,6 @@ struct chunk_info {
 	u_short free;			/* how many free chunks */
 	u_short total;			/* how many chunks */
 	u_short offset;			/* requested size table offset */
-	u_short rotor;			/* randomization rotor */
 	u_short bits[1];		/* which chunks are free */
 };
 
@@ -931,7 +930,7 @@ malloc_bytes(struct dir_info *d, size_t size, void *f)
 	u_int i, r;
 	int j, listnum;
 	size_t k;
-	u_short	u, b, *lp;
+	u_short	*lp;
 	struct chunk_info *bp;
 	void *p;
 
@@ -941,7 +940,7 @@ malloc_bytes(struct dir_info *d, size_t size, void *f)
 
 	j = find_chunksize(size);
 
-	r = getrbyte(d);
+	r = ((u_int)getrbyte(d) << 8) | getrbyte(d);
 	listnum = r % MALLOC_CHUNK_LISTS;
 	/* If it's empty, make a page more of that size chunks */
 	if ((bp = LIST_FIRST(&d->chunk_dir[j][listnum])) == NULL) {
@@ -953,22 +952,17 @@ malloc_bytes(struct dir_info *d, size_t size, void *f)
 	if (bp->canary != (u_short)d->canary1)
 		wrterror(d, "chunk info corrupted");
 
-	if (bp->free > 1)
-		bp->rotor += r;
-	i = bp->rotor++ & (bp->total - 1);
+	i = (r / MALLOC_CHUNK_LISTS) & (bp->total - 1);
 
 	/* start somewhere in a short */
 	lp = &bp->bits[i / MALLOC_BITS];
 	if (*lp) {
-		b = *lp;
-		k = i % MALLOC_BITS;
-		u = 1 << k;
-		while (k < MALLOC_BITS) {
-			if (b & u)
-				goto found;
-			k++;
-			u <<= 1;
-		} 
+		j = i % MALLOC_BITS;
+		k = ffs(*lp >> j);
+		if (k != 0) {
+			k += j - 1;
+			goto found;
+		}
 	}
 	/* no bit halfway, go to next full short */
 	i /= MALLOC_BITS;
@@ -977,15 +971,8 @@ malloc_bytes(struct dir_info *d, size_t size, void *f)
 			i = 0;
 		lp = &bp->bits[i];
 		if (*lp) {
-			b = *lp;
-			k = 0;
-			u = 1;
-			for (;;) {
-				if (b & u)
-					goto found;
-				k++;
-				u <<= 1;
-			}
+			k = ffs(*lp) - 1;
+			break;
 		}
 	}
 found:
@@ -996,7 +983,7 @@ found:
 	}
 #endif
 
-	*lp ^= u;
+	*lp ^= 1 << k;
 
 	/* If there are no more free, remove from free-list */
 	if (--bp->free == 0)

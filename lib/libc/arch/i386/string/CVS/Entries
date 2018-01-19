@@ -1,7 +1,7 @@
 /Makefile.inc/1.9/Thu Dec 11 20:41:08 2014//
 /bcmp.S/1.5/Wed Nov 29 05:13:57 2017//
 /bzero.S/1.6/Wed Nov 29 05:13:57 2017//
-/ffs.S/1.6/Wed Nov 29 05:13:57 2017//
+/ffs.S/1.7/Thu Jan 18 08:23:44 2018//
 /memchr.S/1.6/Wed Nov 29 05:13:57 2017//
 /memcmp.S/1.6/Wed Nov 29 05:13:57 2017//
 /memmove.S/1.7/Wed Nov 29 05:13:57 2017//
