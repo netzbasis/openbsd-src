@@ -1,4 +1,4 @@
-/*	$OpenBSD: efipxe.c,v 1.2 2018/01/21 21:37:01 patrick Exp $	*/
+/*	$OpenBSD: efipxe.c,v 1.1 2018/01/21 21:35:34 patrick Exp $	*/
 /*
  * Copyright (c) 2017 Patrick Wildt <patrick@blueri.se>
  *
@@ -17,22 +17,19 @@
 
 #include <sys/param.h>
 #include <sys/disklabel.h>
-#include <machine/biosvar.h>
 
 #include <libsa.h>
 #include <lib/libsa/tftp.h>
-
-#include "disk.h"
 
 #include <efi.h>
 #include <efiapi.h>
 #include "eficall.h"
 #include "efiboot.h"
+#include "disk.h"
 
 extern EFI_BOOT_SERVICES	*BS;
 extern EFI_DEVICE_PATH		*efi_bootdp;
 
-extern char			*bootmac;
 static UINT8			 boothw[16];
 static EFI_IP_ADDRESS		 bootip, servip;
 static EFI_GUID			 devp_guid = DEVICE_PATH_PROTOCOL;
@@ -98,7 +95,6 @@ efi_pxeprobe(void)
 			memcpy(&bootip, dhcp->BootpYiAddr, sizeof(bootip));
 			memcpy(&servip, dhcp->BootpSiAddr, sizeof(servip));
 			memcpy(boothw, dhcp->BootpHwAddr, sizeof(boothw));
-			bootmac = boothw;
 			PXE = pxe;
 			break;
 		}
@@ -259,26 +255,21 @@ tftp_readdir(struct open_file *f, char *name)
 int
 tftpopen(struct open_file *f, ...)
 {
-	char **fname, *p;
+	u_int unit, part;
 	va_list ap;
 
 	va_start(ap, f);
-	fname = va_arg(ap, char **);
+	unit = va_arg(ap, u_int);
+	part = va_arg(ap, u_int);
 	va_end(ap);
 
 	/* No PXE set -> no PXE available */
 	if (PXE == NULL)
 		return 1;
 
-	/* Parse tftp:bsd into "tftp" and "bsd" */
-	for (p = *fname; *p != ':' && *p != '\0'; p++)
-		;
-	if (*p != ':')
-		return 1;
-	if (strncmp(*fname, "tftp", p - *fname) != 0)
+	if (unit != 0)
 		return 1;
 
-	*fname = p + 1;
 	return 0;
 }
 

@@ -2,7 +2,7 @@
 /_memcpy.S/1.7/Sun Oct 29 02:21:33 2017//
 /bcopy.S/1.6/Sun Oct 29 02:21:33 2017//
 /bzero.S/1.6/Sat Dec 16 09:25:43 2017//
-/ffs.S/1.8/Fri Jan 19 11:10:43 2018//
+/ffs.S/1.9/Sun Jan 21 21:56:02 2018//
 /memcmp.S/1.6/Sat Aug  6 19:16:09 2016//
 /memcpy.S/1.8/Wed Nov 29 05:13:57 2017//
 /memmove.S/1.7/Wed Nov 29 05:13:57 2017//
