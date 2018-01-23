@@ -3,7 +3,7 @@
 /conf.c/1.28/Sun Sep  4 10:51:24 2016//
 /cpu.c/1.9/Tue Mar 31 15:51:05 2015//
 /disksubr.c/1.21/Tue Feb 28 10:49:37 2017//
-/genassym.cf/1.5/Sat Aug 22 16:54:55 2015//
+/genassym.cf/1.6/Mon Jan 22 10:04:46 2018//
 /locore.S/1.22/Mon May 23 20:11:49 2016//
 /machdep.c/1.73/Mon Dec 11 05:27:40 2017//
 /mainbus.c/1.6/Sat Jan 24 20:59:42 2015//

@@ -22,7 +22,7 @@
 /if_dl.h/1.12/Thu May  4 15:00:24 2017//
 /if_enc.c/1.70/Mon Oct 16 08:22:25 2017//
 /if_enc.h/1.12/Mon Dec  8 10:46:14 2014//
-/if_etherip.c/1.29/Tue Jan  9 15:24:24 2018//
+/if_etherip.c/1.30/Mon Jan 22 09:06:22 2018//
 /if_etherip.h/1.10/Mon Nov 20 14:21:28 2017//
 /if_ethersubr.c/1.250/Wed Jan 10 00:14:38 2018//
 /if_gif.c/1.108/Fri Jan 12 02:25:27 2018//
@@ -61,7 +61,7 @@
 /if_vether.c/1.30/Tue Jan  9 15:24:24 2018//
 /if_vlan.c/1.175/Tue Jan  9 15:24:24 2018//
 /if_vlan_var.h/1.37/Tue Jan 24 10:08:30 2017//
-/if_vxlan.c/1.65/Tue Jan  9 15:24:24 2018//
+/if_vxlan.c/1.66/Mon Jan 22 09:05:06 2018//
 /if_vxlan.h/1.11/Sat Sep  3 13:46:57 2016//
 /ifq.c/1.21/Thu Jan  4 11:02:57 2018//
 /ifq.h/1.20/Thu Jan  4 11:02:57 2018//
