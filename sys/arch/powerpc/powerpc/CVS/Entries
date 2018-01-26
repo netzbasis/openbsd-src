@@ -7,7 +7,6 @@
 /in_cksum.c/1.10/Tue Jul 22 10:35:35 2014//
 /intr.c/1.9/Sun Sep 13 14:06:40 2015//
 /lock_machdep.c/1.7/Mon Dec  4 09:51:03 2017//
-/mutex.c/1.8/Wed Dec 20 11:22:29 2017//
 /pmap.c/1.167/Tue May 16 20:52:54 2017//
 /process_machdep.c/1.13/Sun Sep  9 20:49:18 2007//
 /setjmp.S/1.9/Wed May 21 19:42:07 2008//

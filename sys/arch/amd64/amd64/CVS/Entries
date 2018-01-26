@@ -46,7 +46,6 @@
 /mptramp.S/1.15/Thu Jun 29 08:14:36 2017//
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /mutex.S/1.13/Thu Jun 29 17:17:28 2017//
-/mutex.c/1.1/Wed Dec 20 11:08:44 2017//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
 /pmap.c/1.108/Sun Jan  7 19:56:19 2018//
