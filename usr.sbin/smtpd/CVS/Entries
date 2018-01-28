@@ -6,7 +6,7 @@
 /compress_backend.c/1.9/Tue Jan 20 17:37:54 2015//
 /compress_gzip.c/1.10/Mon Dec 28 22:08:30 2015//
 /config.c/1.38/Wed May 17 14:00:06 2017//
-/control.c/1.120/Mon Nov 27 08:35:59 2017//
+/control.c/1.121/Sat Jan 27 08:32:03 2018//
 /crypto.c/1.6/Sat Sep  3 14:42:08 2016//
 /delivery.c/1.6/Tue Jan 20 17:37:54 2015//
 /delivery_filename.c/1.14/Mon Dec 28 19:47:57 2015//
@@ -75,7 +75,7 @@
 /smtpd-api.h/1.32/Fri Sep  8 16:51:22 2017//
 /smtpd-defines.h/1.7/Wed Aug 31 10:18:08 2016//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
-/smtpd.c/1.291/Tue Nov 21 12:20:34 2017//
+/smtpd.c/1.292/Sat Jan 27 08:32:03 2018//
 /smtpd.conf.5/1.174/Tue Jul 11 06:08:40 2017//
 /smtpd.h/1.537/Tue Jan  2 19:11:06 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
