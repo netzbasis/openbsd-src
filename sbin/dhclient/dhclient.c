@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.545 2018/01/25 15:43:51 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.547 2018/01/28 23:12:36 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -154,6 +154,7 @@ void send_discover(struct interface_info *);
 void send_request(struct interface_info *);
 void send_decline(struct interface_info *);
 
+void process_offer(struct interface_info *, struct option_data *);
 void bind_lease(struct interface_info *);
 
 void make_discover(struct interface_info *, struct client_lease *);
@@ -342,7 +343,7 @@ routehandler(struct interface_info *ifi, int routefd)
 				ifi->flags |= IFI_IN_CHARGE;
 				goto done;
 			} else if ((ifi->flags & IFI_IN_CHARGE) != 0)
-				fatal("yielding responsibility");
+				fatalx("yielding responsibility");
 		}
 		break;
 	case RTM_DESYNC:
@@ -353,7 +354,7 @@ routehandler(struct interface_info *ifi, int routefd)
 		if (ifm->ifm_index != ifi->index)
 			break;
 		if ((rtm->rtm_flags & RTF_UP) == 0)
-			fatal("down");
+			fatalx("down");
 
 		if ((ifi->flags & IFI_VALID_LLADDR) != 0) {
 			memcpy(&hw, &ifi->hw_address, sizeof(hw));
@@ -390,7 +391,7 @@ routehandler(struct interface_info *ifi, int routefd)
 		ifan = (struct if_announcemsghdr *)rtm;
 		if (ifan->ifan_what == IFAN_DEPARTURE &&
 		    ifan->ifan_index == ifi->index)
-			fatal("departed");
+			fatalx("departed");
 		break;
 	case RTM_NEWADDR:
 	case RTM_DELADDR:
@@ -831,19 +832,40 @@ state_selecting(struct interface_info *ifi)
 }
 
 void
-dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
+dhcpoffer(struct interface_info *ifi, struct option_data *options,
+	  const char *src)
+{
+	if (ifi->state != S_SELECTING) {
+		DPRINTF("%s: unexpected DHCPOFFER from %s - state #%d",
+		    log_procname, src, ifi->state);
+		return;
+	}
+
+	log_info("%s: DHCPOFFER from %s", log_procname, src);
+	process_offer(ifi, options);
+}
+
+void
+bootreply(struct interface_info *ifi, struct option_data *options,
+    const char *src)
+{
+	if (ifi->state != S_SELECTING) {
+		DPRINTF("%s: unexpected BOOTREPLY from %s - state #%d",
+		    log_procname, src, ifi->state);
+		return;
+	}
+
+	log_info("%s: BOOTREPLY from %s", log_procname, src);
+	process_offer(ifi, options);
+}
+
+void
+process_offer(struct interface_info *ifi, struct option_data *options)
 {
 	struct client_lease	*lease;
 	time_t			 cur_time, stop_selecting;
 
-	if (ifi->state != S_SELECTING) {
-		DPRINTF("%s: unexpected %s - state #%d", log_procname, info,
-		    ifi->state);
-		return;
-	}
-
 	time(&cur_time);
-	log_info("%s: %s", log_procname, info);
 
 	lease = packet_to_lease(ifi, options);
 	if (lease != NULL) {
@@ -873,7 +895,8 @@ dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 }
 
 void
-dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
+dhcpack(struct interface_info *ifi, struct option_data *options,
+    const char *src)
 {
 	struct client_lease	*lease;
 
@@ -881,12 +904,12 @@ dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 	    ifi->state != S_REQUESTING &&
 	    ifi->state != S_RENEWING &&
 	    ifi->state != S_REBINDING) {
-		DPRINTF("%s: unexpected %s - state #%d", log_procname, info,
-		    ifi->state);
+		DPRINTF("%s: unexpected DHCPACK from %s - state #%d",
+		    log_procname, src, ifi->state);
 		return;
 	}
 
-	log_info("%s: %s", log_procname, info);
+	log_info("%s: DHCPACK from %s", log_procname, src);
 
 	lease = packet_to_lease(ifi, options);
 	if (lease == NULL) {
@@ -906,24 +929,24 @@ dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 }
 
 void
-dhcpnak(struct interface_info *ifi, struct option_data *options, char *info)
+dhcpnak(struct interface_info *ifi, const char *src)
 {
 	if (ifi->state != S_REBOOTING &&
 	    ifi->state != S_REQUESTING &&
 	    ifi->state != S_RENEWING &&
 	    ifi->state != S_REBINDING) {
-		DPRINTF("%s: unexpected %s - state #%d", log_procname, info,
-		    ifi->state);
+		DPRINTF("%s: unexpected DHCPNAK from %s - state #%d",
+		    log_procname, src, ifi->state);
 		return;
 	}
 
 	if (ifi->active == NULL) {
-		DPRINTF("%s: unexpected %s - no active lease", log_procname,
-		    info);
+		DPRINTF("%s: unexpected DHCPNAK from %s - no active lease",
+		    log_procname, src);
 		return;
 	}
 
-	log_info("%s: %s", log_procname, info);
+	log_info("%s: DHCPNAK from %s", log_procname, src);
 	delete_address(ifi->active->address);
 
 	/* XXX Do we really want to remove a NAK'd lease from the database? */

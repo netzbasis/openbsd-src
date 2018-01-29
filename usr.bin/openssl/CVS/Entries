@@ -31,7 +31,7 @@
 /pkcs8.c/1.10/Fri Jan 20 08:57:12 2017//
 /pkey.c/1.9/Fri Jan 20 08:57:12 2017//
 /pkeyparam.c/1.10/Fri Jan 20 08:57:12 2017//
-/pkeyutl.c/1.11/Fri Jan 20 08:57:12 2017//
+/pkeyutl.c/1.12/Sun Jan 28 09:21:34 2018//
 /prime.c/1.10/Sat Oct 17 15:00:11 2015//
 /progs.h/1.8/Mon Sep  5 10:45:19 2016//
 /rand.c/1.11/Fri Jan 20 08:57:12 2017//
@@ -41,7 +41,7 @@
 /s_apps.h/1.4/Fri Dec 30 17:25:48 2016//
 /s_cb.c/1.9/Mon Jan 15 11:02:07 2018//
 /s_client.c/1.33/Sat Aug 12 21:04:33 2017//
-/s_server.c/1.27/Sat Aug 12 21:04:33 2017//
+/s_server.c/1.28/Sun Jan 28 09:21:34 2018//
 /s_socket.c/1.8/Thu Sep 10 02:23:29 2015//
 /s_time.c/1.20/Sun Jan  7 08:43:26 2018//
 /sess_id.c/1.8/Fri Jan 20 08:57:12 2017//
