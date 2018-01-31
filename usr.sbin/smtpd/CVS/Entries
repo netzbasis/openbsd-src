@@ -70,8 +70,8 @@
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
 /smtp.c/1.157/Tue Nov 21 12:20:34 2017//
 /smtp_session.c/1.315/Sat Nov 18 08:23:14 2017//
-/smtpctl.8/1.61/Sat Jan  6 09:16:37 2018//
-/smtpctl.c/1.156/Fri Jan 26 08:00:54 2018//
+/smtpctl.8/1.62/Tue Jan 30 20:48:35 2018//
+/smtpctl.c/1.157/Tue Jan 30 12:44:55 2018//
 /smtpd-api.h/1.32/Fri Sep  8 16:51:22 2017//
 /smtpd-defines.h/1.7/Wed Aug 31 10:18:08 2016//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
@@ -96,7 +96,7 @@
 /tree.c/1.5/Tue Jan 20 17:37:54 2015//
 /unpack_dns.c/1.1/Sat Jan  6 07:57:53 2018//
 /unpack_dns.h/1.1/Sat Jan  6 07:57:53 2018//
-/util.c/1.132/Mon Jan  9 14:49:22 2017//
+/util.c/1.133/Tue Jan 30 12:44:55 2018//
 /waitq.c/1.5/Tue Jan 20 17:37:54 2015//
 D/mail////
 D/smtpctl////

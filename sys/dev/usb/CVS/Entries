@@ -34,7 +34,7 @@
 /if_rum.c/1.123/Thu Oct 26 15:00:28 2017//
 /if_rumreg.h/1.16/Fri Jun 12 15:47:31 2015//
 /if_rumvar.h/1.9/Mon Apr 15 09:23:01 2013//
-/if_run.c/1.124/Thu Oct 26 15:00:28 2017//
+/if_run.c/1.125/Tue Jan 30 20:56:38 2018//
 /if_runvar.h/1.10/Sat May 24 10:10:17 2014//
 /if_smsc.c/1.31/Sat Jul 29 17:24:04 2017//
 /if_smscreg.h/1.5/Thu Jun 18 09:28:54 2015//
@@ -138,9 +138,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.134/Sat Apr  8 02:57:25 2017//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.680/Thu Jan 11 09:26:36 2018//
-/usbdevs.h/1.692/Thu Jan 11 09:27:20 2018//
-/usbdevs_data.h/1.686/Thu Jan 11 09:27:20 2018//
+/usbdevs/1.681/Tue Jan 30 20:56:38 2018//
+/usbdevs.h/1.693/Tue Jan 30 20:58:13 2018//
+/usbdevs_data.h/1.687/Tue Jan 30 20:58:13 2018//
 /usbdi.c/1.96/Thu Sep 21 07:44:06 2017//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//
