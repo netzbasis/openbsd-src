@@ -29,7 +29,7 @@
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
 /vioscsi.c/1.4/Fri Jan 19 14:23:52 2018//
 /vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
-/virtio.c/1.55/Wed Jan  3 05:39:56 2018//
+/virtio.c/1.56/Thu Feb  1 18:33:27 2018//
 /virtio.h/1.23/Mon Jan 15 04:26:58 2018//
 /vm.c/1.31/Wed Jan  3 05:39:56 2018//
 /vm.conf.5/1.27/Wed Jan  3 05:39:56 2018//
