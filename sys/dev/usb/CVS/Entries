@@ -130,7 +130,7 @@
 /upd.c/1.26/Sat Apr  8 02:57:25 2017//
 /uplcom.c/1.70/Sat Dec 30 20:47:00 2017//
 /urng.c/1.7/Tue Sep 12 19:14:35 2017//
-/usb.c/1.114/Sat Jul 29 18:26:14 2017//
+/usb.c/1.115/Sat Feb  3 13:37:37 2018//
 /usb.h/1.59/Fri Sep  1 16:38:14 2017//
 /usb_mem.c/1.29/Sat Apr  8 02:57:25 2017//
 /usb_mem.h/1.15/Wed Nov 30 10:19:18 2016//
@@ -141,12 +141,13 @@
 /usbdevs/1.681/Tue Jan 30 20:56:38 2018//
 /usbdevs.h/1.693/Tue Jan 30 20:58:13 2018//
 /usbdevs_data.h/1.687/Tue Jan 30 20:58:13 2018//
-/usbdi.c/1.96/Thu Sep 21 07:44:06 2017//
+/usbdi.c/1.97/Sat Feb  3 13:37:37 2018//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//
 /usbdi_util.h/1.29/Mon Dec  8 22:00:11 2014//
-/usbdivar.h/1.72/Sat Apr  8 02:57:25 2017//
+/usbdivar.h/1.73/Sat Feb  3 13:37:37 2018//
 /usbhid.h/1.21/Sat Jan  9 04:10:36 2016//
+/usbpcap.h/1.1/Sat Feb  3 13:37:37 2018//
 /uscom.c/1.5/Fri Sep  2 09:14:59 2016//
 /uslcom.c/1.40/Sat May 20 10:13:42 2017//
 /uslhcom.c/1.6/Sat Apr  8 02:57:25 2017//
