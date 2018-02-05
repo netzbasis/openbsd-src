@@ -8,7 +8,7 @@
 /dl_printf.c/1.21/Tue Aug 29 15:25:51 2017//
 /dl_realpath.c/1.6/Sun Dec 24 01:50:50 2017//
 /dl_uname.c/1.2/Fri Jan 16 16:18:07 2015//
-/dlfcn.c/1.100/Fri Dec  8 05:25:20 2017//
+/dlfcn.c/1.101/Sun Feb  4 20:41:58 2018//
 /ld.so.1/1.22/Mon Jul  4 21:15:06 2016//
 /library.c/1.82/Fri Dec  8 05:25:20 2017//
 /library_mquery.c/1.58/Fri Dec  8 05:25:20 2017//

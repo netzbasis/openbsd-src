@@ -5,12 +5,12 @@
 /tls.h/1.51/Thu Aug 10 18:18:30 2017//
 /tls_bio_cb.c/1.19/Thu Jan 12 16:18:39 2017//
 /tls_client.c/1.43/Thu Aug 10 18:18:30 2017//
-/tls_config.c/1.45/Sat Dec  9 16:46:08 2017//
+/tls_config.c/1.46/Mon Feb  5 00:52:24 2018//
 /tls_conninfo.c/1.16/Sun Aug 27 01:39:26 2017//
 /tls_internal.h/1.65/Wed Sep 20 17:05:17 2017//
-/tls_ocsp.c/1.16/Wed Sep 20 17:05:17 2017//
+/tls_ocsp.c/1.18/Mon Feb  5 01:47:03 2018//
 /tls_peer.c/1.8/Mon Apr 10 17:11:13 2017//
 /tls_server.c/1.42/Wed Sep 20 17:05:17 2017//
-/tls_util.c/1.9/Thu Jun 22 18:03:57 2017//
-/tls_verify.c/1.19/Mon Apr 10 17:11:13 2017//
+/tls_util.c/1.10/Mon Feb  5 00:52:24 2018//
+/tls_verify.c/1.20/Mon Feb  5 00:52:24 2018//
 D/man////
