@@ -1,7 +1,7 @@
 /b_dump.c/1.21/Thu Apr 23 06:11:19 2015//
 /b_posix.c/1.1/Wed Dec  3 22:14:38 2014//
 /b_print.c/1.25/Thu Jun 12 15:49:28 2014//
-/b_sock.c/1.67/Sun Apr 30 17:54:11 2017//
+/b_sock.c/1.69/Wed Feb  7 00:52:05 2018//
 /bf_buff.c/1.24/Sun Jan 29 17:49:22 2017//
 /bf_lbuf.c/1.14/Sun Jan 29 17:49:22 2017//
 /bf_nbio.c/1.19/Sat Feb  7 13:19:15 2015//
