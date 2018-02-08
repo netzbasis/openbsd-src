@@ -7,7 +7,7 @@
 /apicvec.s/1.33/Thu Jul  6 06:17:05 2017//
 /apm.c/1.117/Thu Aug 17 19:44:27 2017//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
-/autoconf.c/1.104/Sat Jan 27 22:55:23 2018//
+/autoconf.c/1.105/Wed Feb  7 18:42:38 2018//
 /bios.c/1.116/Sat Jul 15 17:20:56 2017//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
@@ -44,7 +44,7 @@
 /mainbus.c/1.57/Sat Mar 25 22:24:01 2017//
 /mem.c/1.53/Thu Dec 14 03:30:43 2017//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
-/mpbios.c/1.40/Thu Jul 28 21:57:56 2016//
+/mpbios.c/1.41/Wed Feb  7 06:19:54 2018//
 /mpbios_intr_fixup.c/1.6/Mon Aug 10 12:12:42 2015//
 /mptramp.s/1.22/Thu Jun 29 07:51:59 2017//
 /mtrr.c/1.13/Thu Dec 19 21:30:02 2013//

@@ -1,8 +1,8 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.329 2018/02/06 23:44:48 henning Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.331 2018/02/08 02:25:44 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
- * Copyright (c) 2002 - 2013 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2002 - 2018 Henning Brauer <henning@openbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -943,6 +943,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		case DIOCIGETIFACES:
 		case DIOCSETIFFLAG:
 		case DIOCCLRIFFLAG:
+		case DIOCGETSYNFLWATS:
 			break;
 		case DIOCRCLRTABLES:
 		case DIOCRADDTABLES:
@@ -978,6 +979,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		case DIOCOSFPGET:
 		case DIOCGETSRCNODES:
 		case DIOCIGETIFACES:
+		case DIOCGETSYNFLWATS:
 			break;
 		case DIOCRCLRTABLES:
 		case DIOCRADDTABLES:
@@ -2649,14 +2651,27 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 	case DIOCSETSYNFLWATS: {
 		struct pfioc_synflwats *io = (struct pfioc_synflwats *)addr;
 
+		PF_LOCK();
 		error = pf_syncookies_setwats(io->hiwat, io->lowat);
+		PF_UNLOCK();
+		break;
+	}
+
+	case DIOCGETSYNFLWATS: {
+		struct pfioc_synflwats *io = (struct pfioc_synflwats *)addr;
+
+		PF_LOCK();
+		error = pf_syncookies_getwats(io);
+		PF_UNLOCK();
 		break;
 	}
 
 	case DIOCSETSYNCOOKIES: {
 		u_int8_t	*mode = (u_int8_t *)addr;
 
+		PF_LOCK();
 		error = pf_syncookies_setmode(*mode);
+		PF_UNLOCK();
 		break;
 	}
 

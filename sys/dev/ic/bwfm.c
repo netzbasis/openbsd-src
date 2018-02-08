@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfm.c,v 1.36 2018/02/06 02:23:04 patrick Exp $ */
+/* $OpenBSD: bwfm.c,v 1.39 2018/02/08 05:00:38 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -89,6 +89,7 @@ int	 bwfm_proto_bcdc_query_dcmd(struct bwfm_softc *, int,
 	     int, char *, size_t *);
 int	 bwfm_proto_bcdc_set_dcmd(struct bwfm_softc *, int,
 	     int, char *, size_t);
+void	 bwfm_proto_bcdc_rx(struct bwfm_softc *, struct mbuf *);
 
 int	 bwfm_fwvar_cmd_get_data(struct bwfm_softc *, int, void *, size_t);
 int	 bwfm_fwvar_cmd_set_data(struct bwfm_softc *, int, void *, size_t);
@@ -153,6 +154,7 @@ uint8_t bwfm_5ghz_channels[] = {
 struct bwfm_proto_ops bwfm_proto_bcdc_ops = {
 	.proto_query_dcmd = bwfm_proto_bcdc_query_dcmd,
 	.proto_set_dcmd = bwfm_proto_bcdc_set_dcmd,
+	.proto_rx = bwfm_proto_bcdc_rx,
 };
 
 struct cfdriver bwfm_cd = {
@@ -291,7 +293,6 @@ bwfm_start(struct ifnet *ifp)
 {
 	struct bwfm_softc *sc = ifp->if_softc;
 	struct mbuf *m;
-	int error;
 
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
@@ -302,30 +303,26 @@ bwfm_start(struct ifnet *ifp)
 
 	/* TODO: return if no link? */
 
-	m = ifq_deq_begin(&ifp->if_snd);
-	while (m != NULL) {
-		error = sc->sc_bus_ops->bs_txdata(sc, m);
-		if (error == ENOBUFS) {
-			ifq_deq_rollback(&ifp->if_snd, m);
+	for (;;) {
+		if (sc->sc_bus_ops->bs_txcheck(sc)) {
 			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
-		if (error == EFBIG) {
-			ifq_deq_commit(&ifp->if_snd, m);
-			m_freem(m); /* give up: drop it */
+
+		m = ifq_dequeue(&ifp->if_snd);
+		if (m == NULL)
+			break;
+
+		if (sc->sc_bus_ops->bs_txdata(sc, m) != 0) {
 			ifp->if_oerrors++;
+			m_freem(m);
 			continue;
 		}
-
-		/* Now we are committed to transmit the packet. */
-		ifq_deq_commit(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
-
-		m = ifq_deq_begin(&ifp->if_snd);
 	}
 }
 
@@ -1025,6 +1022,49 @@ bwfm_chip_cm3_set_passive(struct bwfm_softc *sc)
 	}
 }
 
+int
+bwfm_chip_sr_capable(struct bwfm_softc *sc)
+{
+	struct bwfm_core *core;
+	uint32_t reg;
+
+	if (sc->sc_chip.ch_pmurev < 17)
+		return 0;
+
+	core = bwfm_chip_get_core(sc, BWFM_AGENT_CORE_CHIPCOMMON);
+	switch (sc->sc_chip.ch_chip) {
+	case BRCM_CC_4354_CHIP_ID:
+	case BRCM_CC_4356_CHIP_ID:
+		sc->sc_buscore_ops->bc_write(sc, core->co_base +
+		    BWFM_CHIP_REG_CHIPCONTROL_ADDR, 3);
+		reg = sc->sc_buscore_ops->bc_read(sc, core->co_base +
+		    BWFM_CHIP_REG_CHIPCONTROL_DATA);
+		return (reg & (1 << 2)) != 0;
+	case BRCM_CC_43241_CHIP_ID:
+	case BRCM_CC_4335_CHIP_ID:
+	case BRCM_CC_4339_CHIP_ID:
+		sc->sc_buscore_ops->bc_write(sc, core->co_base +
+		    BWFM_CHIP_REG_CHIPCONTROL_ADDR, 3);
+		reg = sc->sc_buscore_ops->bc_read(sc, core->co_base +
+		    BWFM_CHIP_REG_CHIPCONTROL_DATA);
+		return reg != 0;
+	case BRCM_CC_43430_CHIP_ID:
+		reg = sc->sc_buscore_ops->bc_read(sc, core->co_base +
+		    BWFM_CHIP_REG_SR_CONTROL1);
+		return reg != 0;
+	default:
+		reg = sc->sc_buscore_ops->bc_read(sc, core->co_base +
+		    BWFM_CHIP_REG_PMUCAPABILITIES_EXT);
+		if ((reg & BWFM_CHIP_REG_PMUCAPABILITIES_SR_SUPP) == 0)
+			return 0;
+
+		reg = sc->sc_buscore_ops->bc_read(sc, core->co_base +
+		    BWFM_CHIP_REG_RETENTION_CTL);
+		return (reg & (BWFM_CHIP_REG_RETENTION_CTL_MACPHY_DIS |
+			       BWFM_CHIP_REG_RETENTION_CTL_LOGIC_DIS)) == 0;
+	}
+}
+
 /* RAM size helpers */
 void
 bwfm_chip_socram_ramsize(struct bwfm_softc *sc, struct bwfm_core *core)
@@ -1286,6 +1326,24 @@ bwfm_proto_bcdc_set_dcmd(struct bwfm_softc *sc, int ifidx,
 err:
 	free(dcmd, M_TEMP, sizeof(*dcmd));
 	return ret;
+}
+
+void
+bwfm_proto_bcdc_rx(struct bwfm_softc *sc, struct mbuf *m)
+{
+	struct bwfm_proto_bcdc_hdr *hdr;
+
+	hdr = mtod(m, struct bwfm_proto_bcdc_hdr *);
+	if (m->m_len < sizeof(*hdr)) {
+		m_freem(m);
+		return;
+	}
+	if (m->m_len < sizeof(*hdr) + (hdr->data_offset << 2)) {
+		m_freem(m);
+		return;
+	}
+	m_adj(m, sizeof(*hdr) + (hdr->data_offset << 2));
+	bwfm_rx(sc, m);
 }
 
 /* FW Variable code */

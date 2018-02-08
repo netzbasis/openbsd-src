@@ -111,7 +111,7 @@
 /if_bgereg.h/1.130/Sun Nov 29 20:19:35 2015//
 /if_bnx.c/1.124/Tue Jan 24 03:57:35 2017//
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
-/if_bwfm_pci.c/1.16/Thu Jan 11 16:09:19 2018//
+/if_bwfm_pci.c/1.18/Thu Feb  8 05:00:38 2018//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.16/Tue Nov 24 17:11:39 2015//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//

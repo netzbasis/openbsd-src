@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mobileip.4,v 1.1 2018/02/07 01:09:57 dlg Exp $
+.\"	$OpenBSD: mobileip.4,v 1.3 2018/02/07 08:45:17 dlg Exp $
 .\"
 .\" Copyright (c) 2018 David Gwynne <dlg@openbsd.org>
 .\"
@@ -16,6 +16,7 @@
 .\"
 .Dd $Mdocdate: February 7 2018 $
 .Dt MOBILEIP 4
+.Os
 .Sh NAME
 .Nm mobileip
 .Nd MobileIP encapsulating network device
@@ -30,8 +31,8 @@ the Mobile IP (RFC 2004) encapsulation protocol
 .Nm
 datagrams (IP protocol number 55)
 are encapsulated into IP using a small encapsulation header.
-This protocol according to the RFC only supports encapsulating IPv4,
-and is intended for use with Mobile IP.
+This protocol, in line with the RFC, only supports encapsulating
+IPv4.
 .Pp
 A
 .Nm
@@ -121,8 +122,7 @@ and the tunneldomain argument:
 .Xr netstart 8
 .Sh STANDARDS
 .Rs
-.Re
-The C. Perkins
+.%A C. Perkins
 .%D October 1996
 .%R RFC 2004
 .%T Minimal Encapsulation within IP

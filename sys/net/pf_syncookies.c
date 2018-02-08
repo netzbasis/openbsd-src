@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_syncookies.c,v 1.2 2018/02/07 01:50:48 dlg Exp $ */
+/*	$OpenBSD: pf_syncookies.c,v 1.4 2018/02/08 02:25:44 henning Exp $ */
 
 /* Copyright (c) 2016,2017 Henning Brauer <henning@openbsd.org>
  * Copyright (c) 2016 Alexandr Nedvedicky <sashan@openbsd.org>
@@ -166,6 +166,14 @@ pf_syncookies_setwats(u_int32_t hiwat, u_int32_t lowat)
 }
 
 int
+pf_syncookies_getwats(struct pfioc_synflwats *wats)
+{
+	wats->hiwat = pf_syncookie_status.hiwat;
+	wats->lowat = pf_syncookie_status.lowat;
+	return (0);
+}
+
+int
 pf_synflood_check(struct pf_pdesc *pd)
 {
 	KASSERT (pd->proto == IPPROTO_TCP);
@@ -182,6 +190,7 @@ pf_synflood_check(struct pf_pdesc *pd)
 		pf_status.syncookies_active = 1;
 		DPFPRINTF(LOG_WARNING,
 		    "synflood detected, enabling syncookies");
+		pf_status.lcounters[LCNT_SYNFLOODS]++;
 	}
 
 	return (pf_status.syncookies_active);
@@ -199,6 +208,7 @@ pf_syncookie_send(struct pf_pdesc *pd)
 	    iss, ntohl(pd->hdr.tcp.th_seq) + 1, TH_SYN|TH_ACK, 0, mss,
 	    0, 1, 0, pd->rdomain);
 	pf_status.syncookies_inflight[pf_syncookie_status.oddeven]++;
+	pf_status.lcounters[LCNT_SYNCOOKIES_SENT]++;
 }
 
 uint8_t
@@ -218,6 +228,7 @@ pf_syncookie_validate(struct pf_pdesc *pd)
 		return (0);
 
 	pf_status.syncookies_inflight[cookie.flags.oddeven]--;
+	pf_status.lcounters[LCNT_SYNCOOKIES_VALID]++;
 	return (1);
 }
 

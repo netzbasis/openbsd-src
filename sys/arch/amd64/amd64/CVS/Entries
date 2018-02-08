@@ -5,7 +5,7 @@
 /amd64_mem.c/1.13/Tue Apr 26 15:27:32 2016//
 /amd64errata.c/1.9/Fri Sep  8 05:36:51 2017//
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
-/autoconf.c/1.50/Sat Oct 14 04:44:43 2017//
+/autoconf.c/1.51/Wed Feb  7 18:42:38 2018//
 /bios.c/1.35/Sat Oct 14 04:44:43 2017//
 /bus_dma.c/1.50/Sat Oct 14 04:44:43 2017//
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
@@ -41,7 +41,7 @@
 /mainbus.c/1.40/Sat Oct 14 04:44:43 2017//
 /mem.c/1.33/Thu Dec 14 03:30:43 2017//
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//
-/mpbios.c/1.28/Sat Oct 14 04:44:43 2017//
+/mpbios.c/1.29/Wed Feb  7 06:19:54 2018//
 /mpbios_intr_fixup.c/1.7/Mon Aug 10 12:12:58 2015//
 /mptramp.S/1.15/Thu Jun 29 08:14:36 2017//
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
