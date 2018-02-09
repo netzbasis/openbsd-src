@@ -147,7 +147,7 @@
 /sc25519.h/1.3/Mon Dec  9 11:03:45 2013//
 /scp.1/1.76/Wed Oct 25 06:19:46 2017//
 /scp.c/1.194/Mon Dec 18 17:28:54 2017//
-/servconf.c/1.322/Tue Dec  5 23:59:47 2017//
+/servconf.c/1.323/Fri Feb  9 02:37:36 2018//
 /servconf.h/1.130/Wed Oct 25 00:19:47 2017//
 /serverloop.c/1.203/Tue Jan 23 05:27:21 2018//
 /serverloop.h/1.8/Tue Sep 12 06:32:07 2017//

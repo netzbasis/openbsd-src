@@ -51,7 +51,7 @@
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.9/Sun Mar 24 17:45:25 2013//
 /malloc.h/1.116/Mon Nov 27 09:23:44 2017//
-/mbuf.h/1.233/Tue Feb  6 23:44:48 2018//
+/mbuf.h/1.234/Fri Feb  9 02:26:33 2018//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.29/Wed Jun  1 04:53:54 2016//
 /mount.h/1.134/Fri Jan  5 05:54:36 2018//
@@ -90,7 +90,7 @@
 /signalvar.h/1.28/Tue May  5 02:13:46 2015//
 /socket.h/1.95/Wed May 31 08:55:10 2017//
 /socketvar.h/1.82/Tue Jan  9 15:14:23 2018//
-/sockio.h/1.72/Tue Oct 24 09:36:13 2017//
+/sockio.h/1.73/Thu Feb  8 13:15:32 2018//
 /specdev.h/1.37/Tue Apr  5 19:26:15 2016//
 /srp.h/1.13/Sun Nov 20 11:40:58 2016//
 /stat.h/1.28/Sat Apr  4 18:06:08 2015//
@@ -104,7 +104,7 @@
 /sysctl.h/1.175/Thu Oct 12 09:14:16 2017//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
-/systm.h/1.137/Fri Jan  5 11:10:25 2018//
+/systm.h/1.138/Thu Feb  8 09:27:44 2018//
 /task.h/1.12/Mon Nov 13 23:52:49 2017//
 /termios.h/1.13/Tue Sep 20 21:10:22 2016//
 /time.h/1.37/Mon Dec 11 23:31:16 2017//

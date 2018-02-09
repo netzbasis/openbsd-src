@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.195 2017/11/26 17:06:46 mikeb Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.198 2018/02/09 03:01:24 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -652,6 +652,41 @@ arc4random_buf(void *buf, size_t n)
 }
 
 /*
+ * Allocate a new ChaCha20 context for the caller to use.
+ */
+struct arc4random_ctx *
+arc4random_ctx_new()
+{
+	char keybuf[KEYSZ + IVSZ];
+
+	chacha_ctx *ctx = malloc(sizeof(chacha_ctx), M_TEMP, M_WAITOK);
+	arc4random_buf(keybuf, KEYSZ + IVSZ);
+	chacha_keysetup(ctx, keybuf, KEYSZ * 8);
+	chacha_ivsetup(ctx, keybuf + KEYSZ, NULL);
+	explicit_bzero(keybuf, sizeof(keybuf));
+	return (struct arc4random_ctx *)ctx;
+}
+
+/*
+ * Free a ChaCha20 context created by arc4random_ctx_new()
+ */
+void
+arc4random_ctx_free(struct arc4random_ctx *ctx)
+{
+	explicit_bzero(ctx, sizeof(chacha_ctx));
+	free(ctx, M_TEMP, sizeof(chacha_ctx));
+}
+
+/*
+ * Use a given ChaCha20 context to fill a buffer
+ */
+void
+arc4random_ctx_buf(struct arc4random_ctx *ctx, void *buf, size_t n)
+{
+	chacha_encrypt_bytes((chacha_ctx *)ctx, buf, buf, n);
+}
+
+/*
  * Calculate a uniformly distributed random number less than upper_bound
  * avoiding "modulo bias".
  *
@@ -712,6 +747,8 @@ arc4_reinit(void *v)
 void
 random_start(void)
 {
+	extern char etext[];
+
 #if !defined(NO_PROPOLICE)
 	extern long __guard_local;
 
@@ -726,6 +763,8 @@ random_start(void)
 	if (msgbufp->msg_magic == MSG_MAGIC)
 		add_entropy_words((u_int32_t *)msgbufp->msg_bufc,
 		    msgbufp->msg_bufs / sizeof(u_int32_t));
+	add_entropy_words((u_int32_t *)etext - 32*1024,
+	    8192/sizeof(u_int32_t));
 
 	dequeue_randomness(NULL);
 	arc4_init(NULL);
