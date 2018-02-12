@@ -8,7 +8,7 @@
 /ex_at.c/1.14/Fri May 27 09:18:12 2016//
 /ex_bang.c/1.11/Tue Apr 18 01:45:35 2017//
 /ex_cd.c/1.15/Fri May 27 09:18:12 2016//
-/ex_cmd.c/1.10/Thu Nov 19 07:53:31 2015//
+/ex_cmd.c/1.11/Mon Feb 12 01:10:46 2018//
 /ex_delete.c/1.7/Wed Nov 12 04:28:41 2014//
 /ex_display.c/1.13/Fri May 27 09:18:12 2016//
 /ex_edit.c/1.6/Wed Nov 12 04:28:41 2014//
@@ -39,7 +39,7 @@
 /ex_tag.c/1.25/Tue Apr 18 01:45:35 2017//
 /ex_txt.c/1.16/Fri May 27 09:18:12 2016//
 /ex_undo.c/1.6/Wed Nov 12 04:28:41 2014//
-/ex_usage.c/1.8/Wed Nov 12 04:28:41 2014//
+/ex_usage.c/1.9/Mon Feb 12 01:10:46 2018//
 /ex_util.c/1.9/Wed Jan  6 22:28:52 2016//
 /ex_version.c/1.10/Wed Nov 12 04:28:41 2014//
 /ex_visual.c/1.10/Wed Jan  6 22:28:52 2016//
