@@ -1,4 +1,4 @@
-/* $OpenBSD: x509.h,v 1.26 2016/12/27 16:05:57 jsing Exp $ */
+/* $OpenBSD: x509.h,v 1.28 2018/02/14 16:57:25 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -888,6 +888,8 @@ void *X509_get_ex_data(X509 *r, int idx);
 int		i2d_X509_AUX(X509 *a,unsigned char **pp);
 X509 *		d2i_X509_AUX(X509 **a,const unsigned char **pp,long length);
 
+int X509_get_signature_nid(const X509 *x);
+
 int X509_alias_set1(X509 *x, unsigned char *name, int len);
 int X509_keyid_set1(X509 *x, unsigned char *id, int len);
 unsigned char * X509_alias_get0(X509 *x, int *len);
@@ -967,6 +969,10 @@ int 		X509_set_subject_name(X509 *x, X509_NAME *name);
 X509_NAME *	X509_get_subject_name(X509 *a);
 int 		X509_set_notBefore(X509 *x, const ASN1_TIME *tm);
 int 		X509_set_notAfter(X509 *x, const ASN1_TIME *tm);
+const ASN1_TIME *X509_get0_notBefore(const X509 *x);
+ASN1_TIME *X509_getm_notBefore(const X509 *x);
+const ASN1_TIME *X509_get0_notAfter(const X509 *x);
+ASN1_TIME *X509_getm_notAfter(const X509 *x);
 int 		X509_set_pubkey(X509 *x, EVP_PKEY *pkey);
 EVP_PKEY *	X509_get_pubkey(X509 *x);
 ASN1_BIT_STRING * X509_get0_pubkey_bitstr(const X509 *x);

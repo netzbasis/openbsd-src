@@ -1,7 +1,7 @@
 /ACCESS_DESCRIPTION_new.3/1.3/Wed Dec 28 18:31:33 2016//
 /ASN1_OBJECT_new.3/1.8/Wed Jan  4 05:14:51 2017//
 /ASN1_STRING_TABLE_add.3/1.2/Sun Aug 20 18:06:42 2017//
-/ASN1_STRING_length.3/1.7/Mon Feb 12 15:45:12 2018//
+/ASN1_STRING_length.3/1.8/Thu Feb 15 00:15:29 2018//
 /ASN1_STRING_new.3/1.10/Sat Jan  7 23:15:37 2017//
 /ASN1_STRING_print_ex.3/1.9/Mon Feb 12 16:04:50 2018//
 /ASN1_TIME_set.3/1.3/Sun Aug 20 17:16:40 2017//
@@ -118,7 +118,7 @@
 /EVP_PKEY_get_default_digest_nid.3/1.3/Wed Feb 14 02:15:46 2018//
 /EVP_PKEY_keygen.3/1.6/Tue Aug  1 14:57:03 2017//
 /EVP_PKEY_meth_get0_info.3/1.1/Sun Aug 20 19:21:20 2017//
-/EVP_PKEY_new.3/1.4/Wed Feb 14 02:15:46 2018//
+/EVP_PKEY_new.3/1.5/Wed Feb 14 23:49:52 2018//
 /EVP_PKEY_print_private.3/1.5/Wed Feb 14 02:15:46 2018//
 /EVP_PKEY_set1_RSA.3/1.5/Sun Dec 11 12:21:48 2016//
 /EVP_PKEY_sign.3/1.5/Fri Jan  6 02:43:14 2017//
@@ -131,7 +131,7 @@
 /GENERAL_NAME_new.3/1.2/Sun Dec 25 22:15:10 2016//
 /HMAC.3/1.7/Tue Aug  1 14:57:03 2017//
 /MD5.3/1.4/Sun Nov 27 16:20:15 2016//
-/Makefile/1.125/Wed Feb 14 02:15:46 2018//
+/Makefile/1.126/Wed Feb 14 18:50:47 2018//
 /NAME_CONSTRAINTS_new.3/1.2/Sun Dec 25 22:15:10 2016//
 /OBJ_nid2obj.3/1.5/Wed Jan  4 05:14:51 2017//
 /OCSP_CRLID_new.3/1.3/Sun Dec 25 22:15:10 2016//
@@ -231,6 +231,7 @@
 /X509_digest.3/1.1/Sat Mar 25 22:21:21 2017//
 /X509_get_pubkey.3/1.1/Mon Dec  5 18:24:08 2016//
 /X509_get_serialNumber.3/1.1/Mon Dec  5 18:24:08 2016//
+/X509_get_signature_nid.3/1.1/Wed Feb 14 18:50:47 2018//
 /X509_get_subject_name.3/1.2/Wed Dec 14 16:20:28 2016//
 /X509_get_version.3/1.1/Mon Dec  5 18:24:08 2016//
 /X509_new.3/1.10/Sun Dec 25 22:15:10 2016//
