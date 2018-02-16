@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.126 2018/02/14 18:50:47 schwarze Exp $
+# $OpenBSD: Makefile,v 1.129 2018/02/15 14:52:16 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -114,6 +114,7 @@ MAN=	\
 	EVP_EncryptInit.3 \
 	EVP_OpenInit.3 \
 	EVP_PKEY_asn1_new.3 \
+	EVP_PKEY_asn1_get_count.3 \
 	EVP_PKEY_CTX_ctrl.3 \
 	EVP_PKEY_CTX_new.3 \
 	EVP_PKEY_cmp.3 \
@@ -123,6 +124,7 @@ MAN=	\
 	EVP_PKEY_get_default_digest_nid.3 \
 	EVP_PKEY_keygen.3 \
 	EVP_PKEY_meth_get0_info.3 \
+	EVP_PKEY_meth_new.3 \
 	EVP_PKEY_new.3 \
 	EVP_PKEY_print_private.3 \
 	EVP_PKEY_set1_RSA.3 \
@@ -238,6 +240,7 @@ MAN=	\
 	X509_get_signature_nid.3 \
 	X509_get_subject_name.3 \
 	X509_get_version.3 \
+	X509_get0_notBefore.3 \
 	X509_new.3 \
 	X509_sign.3 \
 	X509_verify_cert.3 \
