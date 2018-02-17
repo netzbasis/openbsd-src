@@ -59,7 +59,7 @@
 /queue_proc.c/1.6/Sat Dec  5 13:14:21 2015//
 /queue_ram.c/1.7/Tue Jan 20 17:37:54 2015//
 /rfc2822.c/1.10/Sat Feb  4 19:25:24 2017//
-/rfc2822.h/1.4/Thu Nov  5 08:55:09 2015//
+/rfc2822.h/1.5/Fri Feb 16 20:57:30 2018//
 /ruleset.c/1.34/Mon Feb 13 12:23:47 2017//
 /runq.c/1.2/Tue Jan 20 17:37:54 2015//
 /scheduler.c/1.56/Mon Jan  9 14:49:22 2017//
@@ -69,7 +69,7 @@
 /scheduler_ramqueue.c/1.43/Mon Jan  9 09:53:23 2017//
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
 /smtp.c/1.157/Tue Nov 21 12:20:34 2017//
-/smtp_session.c/1.316/Fri Feb  9 09:29:03 2018//
+/smtp_session.c/1.317/Fri Feb 16 20:57:30 2018//
 /smtpctl.8/1.62/Tue Jan 30 20:48:35 2018//
 /smtpctl.c/1.157/Tue Jan 30 12:44:55 2018//
 /smtpd-api.h/1.32/Fri Sep  8 16:51:22 2017//
