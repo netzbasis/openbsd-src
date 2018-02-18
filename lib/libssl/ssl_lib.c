@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.174 2018/02/14 17:08:44 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.176 2018/02/17 15:19:43 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -758,7 +758,8 @@ SSL_CTX_get_verify_depth(const SSL_CTX *ctx)
 	return (X509_VERIFY_PARAM_get_depth(ctx->param));
 }
 
-int (*SSL_CTX_get_verify_callback(const SSL_CTX *ctx))(int, X509_STORE_CTX *)
+int
+(*SSL_CTX_get_verify_callback(const SSL_CTX *ctx))(int, X509_STORE_CTX *)
 {
 	return (ctx->internal->default_verify_callback);
 }
@@ -2645,6 +2646,38 @@ SSL_get_current_expansion(SSL *s)
 	return (NULL);
 }
 
+size_t
+SSL_get_client_random(const SSL *s, unsigned char *out, size_t max_out)
+{
+	size_t len = sizeof(s->s3->client_random);
+
+	if (out == NULL)
+		return len;
+
+	if (len > max_out)
+		len = max_out;
+
+	memcpy(out, s->s3->client_random, len);
+
+	return len;
+}
+
+size_t
+SSL_get_server_random(const SSL *s, unsigned char *out, size_t max_out)
+{
+	size_t len = sizeof(s->s3->server_random);
+
+	if (out == NULL)
+		return len;
+
+	if (len > max_out)
+		len = max_out;
+
+	memcpy(out, s->s3->server_random, len);
+
+	return len;
+}
+
 int
 ssl_init_wbio_buffer(SSL *s, int push)
 {
@@ -2875,6 +2908,15 @@ SSL_CTX_set_cert_store(SSL_CTX *ctx, X509_STORE *store)
 {
 	X509_STORE_free(ctx->cert_store);
 	ctx->cert_store = store;
+}
+
+X509 *
+SSL_CTX_get0_certificate(const SSL_CTX *ctx)
+{
+	if (ctx->internal->cert == NULL)
+		return NULL;
+
+	return ctx->internal->cert->key->x509;
 }
 
 int

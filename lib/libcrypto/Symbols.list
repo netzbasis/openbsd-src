@@ -286,6 +286,14 @@ BIO_gethostbyname
 BIO_gets
 BIO_indent
 BIO_int_ctrl
+BIO_meth_free
+BIO_meth_new
+BIO_meth_set_create
+BIO_meth_set_ctrl
+BIO_meth_set_destroy
+BIO_meth_set_puts
+BIO_meth_set_read
+BIO_meth_set_write
 BIO_method_name
 BIO_method_type
 BIO_new
@@ -736,6 +744,8 @@ DH_free
 DH_generate_key
 DH_generate_parameters
 DH_generate_parameters_ex
+DH_get0_key
+DH_get0_pqg
 DH_get_default_method
 DH_get_ex_data
 DH_get_ex_new_index
@@ -776,6 +786,8 @@ DSA_free
 DSA_generate_key
 DSA_generate_parameters
 DSA_generate_parameters_ex
+DSA_get0_key
+DSA_get0_pqg
 DSA_get_default_method
 DSA_get_ex_data
 DSA_get_ex_new_index
@@ -1204,6 +1216,7 @@ EVP_CIPHER_CTX_key_length
 EVP_CIPHER_CTX_new
 EVP_CIPHER_CTX_nid
 EVP_CIPHER_CTX_rand_key
+EVP_CIPHER_CTX_reset
 EVP_CIPHER_CTX_set_app_data
 EVP_CIPHER_CTX_set_flags
 EVP_CIPHER_CTX_set_key_length
@@ -1262,8 +1275,11 @@ EVP_MD_CTX_copy_ex
 EVP_MD_CTX_create
 EVP_MD_CTX_ctrl
 EVP_MD_CTX_destroy
+EVP_MD_CTX_free
 EVP_MD_CTX_init
 EVP_MD_CTX_md
+EVP_MD_CTX_new
+EVP_MD_CTX_reset
 EVP_MD_CTX_set_flags
 EVP_MD_CTX_test_flags
 EVP_MD_block_size
@@ -1337,6 +1353,9 @@ EVP_PKEY_encrypt_init
 EVP_PKEY_encrypt_old
 EVP_PKEY_free
 EVP_PKEY_get0
+EVP_PKEY_get0_DH
+EVP_PKEY_get0_DSA
+EVP_PKEY_get0_RSA
 EVP_PKEY_get0_asn1
 EVP_PKEY_get1_DH
 EVP_PKEY_get1_DSA
@@ -1589,7 +1608,11 @@ HKDF_extract
 HMAC
 HMAC_CTX_cleanup
 HMAC_CTX_copy
+HMAC_CTX_free
+HMAC_CTX_get_md
 HMAC_CTX_init
+HMAC_CTX_new
+HMAC_CTX_reset
 HMAC_CTX_set_flags
 HMAC_Final
 HMAC_Init
@@ -2185,6 +2208,7 @@ RSA_flags
 RSA_free
 RSA_generate_key
 RSA_generate_key_ex
+RSA_get0_key
 RSA_get_default_method
 RSA_get_ex_data
 RSA_get_ex_new_index
@@ -2209,6 +2233,7 @@ RSA_private_decrypt
 RSA_private_encrypt
 RSA_public_decrypt
 RSA_public_encrypt
+RSA_set0_key
 RSA_set_default_method
 RSA_set_ex_data
 RSA_set_method
@@ -2861,9 +2886,11 @@ X509_email_free
 X509_find_by_issuer_and_serial
 X509_find_by_subject
 X509_free
+X509_get0_extensions
 X509_get0_notAfter
 X509_get0_notBefore
 X509_get0_pubkey_bitstr
+X509_get0_signature
 X509_get1_email
 X509_get1_ocsp
 X509_get_default_cert_area

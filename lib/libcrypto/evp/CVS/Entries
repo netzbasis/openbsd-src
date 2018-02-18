@@ -2,7 +2,7 @@
 /bio_enc.c/1.20/Tue May  2 03:59:44 2017//
 /bio_md.c/1.14/Fri Jul 11 08:44:48 2014//
 /c_all.c/1.21/Wed Mar  1 13:53:58 2017//
-/digest.c/1.28/Tue May  2 03:59:44 2017//
+/digest.c/1.29/Sat Feb 17 14:55:31 2018//
 /e_aes.c/1.34/Tue May  2 03:59:44 2017//
 /e_aes_cbc_hmac_sha1.c/1.14/Sat Nov  5 10:47:57 2016//
 /e_bf.c/1.8/Fri Jul 11 08:44:48 2014//
@@ -21,9 +21,9 @@
 /e_rc4_hmac_md5.c/1.8/Tue Jan 31 13:17:21 2017//
 /e_xcbc_d.c/1.12/Fri Jul 11 08:44:48 2014//
 /encode.c/1.24/Wed May  4 15:05:13 2016//
-/evp.h/1.54/Wed Feb 14 16:40:42 2018//
+/evp.h/1.57/Sat Feb 17 16:54:08 2018//
 /evp_aead.c/1.6/Sun Jan 29 17:49:23 2017//
-/evp_enc.c/1.37/Tue Nov 28 06:55:49 2017//
+/evp_enc.c/1.38/Sat Feb 17 16:54:08 2018//
 /evp_err.c/1.22/Sun Jan 29 17:49:23 2017//
 /evp_key.c/1.24/Sun Jan 29 17:49:23 2017//
 /evp_lib.c/1.15/Sun Jan 29 17:49:23 2017//
@@ -49,7 +49,7 @@
 /p5_crpt2.c/1.23/Sun Jan 29 17:49:23 2017//
 /p_dec.c/1.11/Sun Jan 29 17:49:23 2017//
 /p_enc.c/1.11/Sun Jan 29 17:49:23 2017//
-/p_lib.c/1.18/Wed Feb 14 16:40:42 2018//
+/p_lib.c/1.19/Sat Feb 17 13:47:36 2018//
 /p_open.c/1.19/Tue May  2 03:59:44 2017//
 /p_seal.c/1.14/Wed Oct 22 13:02:04 2014//
 /p_sign.c/1.14/Sun Jan 29 17:49:23 2017//

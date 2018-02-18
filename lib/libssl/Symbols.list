@@ -56,6 +56,7 @@ SSL_CTX_check_private_key
 SSL_CTX_ctrl
 SSL_CTX_flush_sessions
 SSL_CTX_free
+SSL_CTX_get0_certificate
 SSL_CTX_get0_param
 SSL_CTX_get_cert_store
 SSL_CTX_get_client_CA_list
@@ -133,6 +134,7 @@ SSL_SESSION_get_compress_id
 SSL_SESSION_get_ex_data
 SSL_SESSION_get_ex_new_index
 SSL_SESSION_get_id
+SSL_SESSION_get_master_key
 SSL_SESSION_get_time
 SSL_SESSION_get_timeout
 SSL_SESSION_new
@@ -171,6 +173,7 @@ SSL_get_certificate
 SSL_get_cipher_list
 SSL_get_ciphers
 SSL_get_client_CA_list
+SSL_get_client_random
 SSL_get_current_cipher
 SSL_get_current_compression
 SSL_get_current_expansion
@@ -191,6 +194,7 @@ SSL_get_rbio
 SSL_get_read_ahead
 SSL_get_rfd
 SSL_get_selected_srtp_profile
+SSL_get_server_random
 SSL_get_servername
 SSL_get_servername_type
 SSL_get_session
