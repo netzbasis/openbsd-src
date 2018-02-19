@@ -1,4 +1,4 @@
-/* $OpenBSD: bio.h,v 1.31 2018/02/17 13:57:14 tb Exp $ */
+/* $OpenBSD: bio.h,v 1.33 2018/02/18 12:59:06 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -334,6 +334,7 @@ int BIO_meth_set_write(BIO_METHOD *biom,
     int (*write)(BIO *, const char *, int));
 int BIO_meth_set_read(BIO_METHOD *biom, int (*read)(BIO *, char *, int));
 int BIO_meth_set_puts(BIO_METHOD *biom, int (*puts)(BIO *, const char *));
+int BIO_meth_set_gets(BIO_METHOD *biom, int (*gets)(BIO *, char *, int));
 int BIO_meth_set_ctrl(BIO_METHOD *biom,
     int long (*ctrl)(BIO *, int, long, void *));
 int BIO_meth_set_create(BIO_METHOD *biom, int (*create)(BIO *));
@@ -586,6 +587,9 @@ BIO *BIO_new_fp(FILE *stream, int close_flag);
 BIO *	BIO_new(BIO_METHOD *type);
 int	BIO_set(BIO *a, BIO_METHOD *type);
 int	BIO_free(BIO *a);
+void 	*BIO_get_data(BIO *a);
+void 	BIO_set_data(BIO *a, void *ptr);
+void 	BIO_set_init(BIO *a, int init);
 void	BIO_vfree(BIO *a);
 int	BIO_read(BIO *b, void *data, int len)
 		__attribute__((__bounded__(__buffer__,2,3)));
