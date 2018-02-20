@@ -22,7 +22,7 @@
 /uvm_map.c/1.233/Thu Nov 30 00:36:10 2017//
 /uvm_map.h/1.59/Fri Sep 16 03:39:25 2016//
 /uvm_meter.c/1.37/Tue May  9 09:36:04 2017//
-/uvm_mmap.c/1.146/Sun Feb 11 04:09:48 2018//
+/uvm_mmap.c/1.147/Mon Feb 19 08:59:53 2018//
 /uvm_object.c/1.14/Fri Sep 16 02:35:42 2016//
 /uvm_object.h/1.22/Fri Sep 16 02:35:42 2016//
 /uvm_page.c/1.146/Mon Nov  7 00:26:33 2016//
@@ -35,7 +35,7 @@
 /uvm_pmemrange.c/1.53/Fri Sep 16 02:52:24 2016//
 /uvm_pmemrange.h/1.14/Fri Sep 16 02:47:09 2016//
 /uvm_stat.c/1.29/Sun May  8 11:52:32 2016//
-/uvm_swap.c/1.142/Sat Dec 30 23:08:29 2017//
+/uvm_swap.c/1.143/Mon Feb 19 08:59:53 2018//
 /uvm_swap.h/1.16/Tue Nov  5 06:02:45 2013//
 /uvm_swap_encrypt.c/1.22/Wed May  6 04:00:10 2015//
 /uvm_swap_encrypt.h/1.10/Wed May  6 04:00:10 2015//

@@ -39,7 +39,7 @@
 /locore0.S/1.6/Sun Jan  7 19:56:19 2018//
 /machdep.c/1.238/Tue Feb  6 01:09:17 2018//
 /mainbus.c/1.40/Sat Oct 14 04:44:43 2017//
-/mem.c/1.33/Thu Dec 14 03:30:43 2017//
+/mem.c/1.34/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//
 /mpbios.c/1.29/Wed Feb  7 06:19:54 2018//
 /mpbios_intr_fixup.c/1.7/Mon Aug 10 12:12:58 2015//
@@ -53,7 +53,7 @@
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
 /spl.S/1.11/Fri May 20 14:37:53 2016//
-/sys_machdep.c/1.19/Sun Jan  7 18:54:44 2018//
+/sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
 /trap.c/1.63/Fri Jan  5 11:10:25 2018//
 /tsc.c/1.6/Thu Oct 19 22:09:49 2017//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//

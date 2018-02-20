@@ -44,7 +44,7 @@
 /if_udav.c/1.79/Sun Jan 22 10:17:39 2017//
 /if_udavreg.h/1.15/Fri Jun 19 20:39:34 2015//
 /if_ugl.c/1.21/Sun Jan 22 10:17:39 2017//
-/if_umb.c/1.17/Mon Oct 23 15:23:13 2017//
+/if_umb.c/1.18/Mon Feb 19 08:59:52 2018//
 /if_umb.h/1.4/Tue Apr 18 13:27:55 2017//
 /if_upgt.c/1.81/Thu Oct 26 15:00:28 2017//
 /if_upgtvar.h/1.17/Mon Apr 15 09:23:01 2013//
@@ -75,7 +75,7 @@
 /uberry.c/1.24/Sun Nov  6 12:58:01 2016//
 /ubsa.c/1.65/Sat Apr  8 02:57:25 2017//
 /uchcom.c/1.27/Sat Apr  8 02:57:25 2017//
-/ucom.c/1.66/Sat Dec 30 23:08:29 2017//
+/ucom.c/1.67/Mon Feb 19 08:59:52 2018//
 /ucomvar.h/1.18/Mon Apr 15 09:23:02 2013//
 /ucycom.c/1.37/Sat Dec 30 20:46:59 2017//
 /udcf.c/1.62/Sat Dec 30 20:46:59 2017//
@@ -130,7 +130,7 @@
 /upd.c/1.26/Sat Apr  8 02:57:25 2017//
 /uplcom.c/1.70/Sat Dec 30 20:47:00 2017//
 /urng.c/1.7/Tue Sep 12 19:14:35 2017//
-/usb.c/1.115/Sat Feb  3 13:37:37 2018//
+/usb.c/1.117/Mon Feb 19 09:20:45 2018//
 /usb.h/1.59/Fri Sep  1 16:38:14 2017//
 /usb_mem.c/1.29/Sat Apr  8 02:57:25 2017//
 /usb_mem.h/1.15/Wed Nov 30 10:19:18 2016//

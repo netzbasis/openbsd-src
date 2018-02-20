@@ -2,7 +2,7 @@
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
 /acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
 /amd64errata.c/1.8/Fri Sep  8 05:36:51 2017//
-/amdmsr.c/1.9/Tue Apr 20 22:05:41 2010//
+/amdmsr.c/1.10/Mon Feb 19 08:59:52 2018//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//
 /apicvec.s/1.33/Thu Jul  6 06:17:05 2017//
 /apm.c/1.117/Thu Aug 17 19:44:27 2017//
@@ -42,7 +42,7 @@
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.610/Sat Feb 10 09:46:58 2018//
 /mainbus.c/1.57/Sat Mar 25 22:24:01 2017//
-/mem.c/1.53/Thu Dec 14 03:30:43 2017//
+/mem.c/1.54/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
 /mpbios.c/1.41/Wed Feb  7 06:19:54 2018//
 /mpbios_intr_fixup.c/1.6/Mon Aug 10 12:12:42 2015//
@@ -59,7 +59,7 @@
 /process_machdep.c/1.28/Wed May  8 15:36:30 2013//
 /rbus_machdep.c/1.27/Wed Sep 22 02:28:37 2010//
 /softintr.c/1.7/Tue Sep  1 06:01:26 2015//
-/sys_machdep.c/1.38/Sat Dec 30 20:46:59 2017//
+/sys_machdep.c/1.39/Mon Feb 19 08:59:52 2018//
 /trap.c/1.136/Wed Oct  4 17:41:01 2017//
 /vector.s/1.21/Tue May 30 12:41:55 2017//
 /via.c/1.40/Fri Dec 29 13:24:11 2017//

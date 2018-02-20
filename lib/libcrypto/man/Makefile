@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.131 2018/02/17 23:24:38 schwarze Exp $
+# $OpenBSD: Makefile,v 1.133 2018/02/19 14:08:52 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -25,6 +25,7 @@ MAN=	\
 	BIO_f_md.3 \
 	BIO_f_null.3 \
 	BIO_find_type.3 \
+	BIO_get_data.3 \
 	BIO_get_ex_new_index.3 \
 	BIO_meth_new.3 \
 	BIO_new.3 \
@@ -241,10 +242,10 @@ MAN=	\
 	X509_digest.3 \
 	X509_get_pubkey.3 \
 	X509_get_serialNumber.3 \
-	X509_get_signature_nid.3 \
 	X509_get_subject_name.3 \
 	X509_get_version.3 \
 	X509_get0_notBefore.3 \
+	X509_get0_signature.3 \
 	X509_new.3 \
 	X509_sign.3 \
 	X509_verify_cert.3 \
