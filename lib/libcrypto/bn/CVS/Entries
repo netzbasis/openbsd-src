@@ -1,8 +1,8 @@
-/bn.h/1.36/Wed Jan 25 06:15:44 2017//
+/bn.h/1.38/Tue Feb 20 17:13:14 2018//
 /bn_add.c/1.11/Sun Jan 29 17:49:22 2017//
 /bn_asm.c/1.15/Tue May  2 03:59:44 2017//
 /bn_blind.c/1.17/Sun Jan 29 17:49:22 2017//
-/bn_const.c/1.4/Thu Jun 12 15:49:28 2014//
+/bn_const.c/1.5/Tue Feb 20 17:02:30 2018//
 /bn_ctx.c/1.15/Sun Jan 29 17:49:22 2017//
 /bn_depr.c/1.7/Sat Oct 18 17:20:40 2014//
 /bn_div.c/1.25/Sun Jan 29 17:49:22 2017//
@@ -13,7 +13,7 @@
 /bn_gf2m.c/1.23/Sun Jan 29 17:49:22 2017//
 /bn_kron.c/1.6/Mon Feb  9 15:49:22 2015//
 /bn_lcl.h/1.27/Wed Jan 25 06:15:44 2017//
-/bn_lib.c/1.38/Tue May  2 03:59:44 2017//
+/bn_lib.c/1.39/Tue Feb 20 17:13:14 2018//
 /bn_mod.c/1.12/Sun Jan 29 17:49:22 2017//
 /bn_mont.c/1.26/Sat Jan 21 11:00:46 2017//
 /bn_mpi.c/1.8/Sun Jan 29 17:49:22 2017//

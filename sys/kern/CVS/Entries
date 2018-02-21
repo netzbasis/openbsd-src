@@ -22,8 +22,8 @@
 /kern_malloc.c/1.133/Thu Jan 18 18:08:51 2018//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
 /kern_pledge.c/1.228/Tue Jan  9 15:14:23 2018//
-/kern_proc.c/1.80/Sat Feb 10 10:32:51 2018//
-/kern_prot.c/1.72/Mon Feb 19 08:59:52 2018//
+/kern_proc.c/1.81/Tue Feb 20 12:38:58 2018//
+/kern_prot.c/1.73/Tue Feb 20 12:38:58 2018//
 /kern_resource.c/1.58/Mon Feb 19 08:59:52 2018//
 /kern_rwlock.c/1.33/Mon Dec 18 10:05:43 2017//
 /kern_sched.c/1.47/Thu Dec 14 23:21:04 2017//
@@ -56,7 +56,7 @@
 /subr_prof.c/1.30/Sun Sep  4 09:22:29 2016//
 /subr_tree.c/1.9/Thu Jun  8 03:30:52 2017//
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
-/subr_witness.c/1.5/Tue Nov 14 14:43:39 2017//
+/subr_witness.c/1.6/Tue Feb 20 14:46:22 2018//
 /subr_xxx.c/1.15/Sat Dec  5 10:11:53 2015//
 /sys_futex.c/1.6/Mon Jan  8 22:33:13 2018//
 /sys_generic.c/1.116/Tue Jan  2 06:38:45 2018//

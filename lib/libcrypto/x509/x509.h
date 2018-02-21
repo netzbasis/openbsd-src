@@ -1,4 +1,4 @@
-/* $OpenBSD: x509.h,v 1.29 2018/02/17 15:50:42 jsing Exp $ */
+/* $OpenBSD: x509.h,v 1.32 2018/02/20 17:09:20 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -606,6 +606,14 @@ extern "C" {
 #define		X509_CRL_get_issuer(x) ((x)->crl->issuer)
 #define		X509_CRL_get_REVOKED(x) ((x)->crl->revoked)
 
+const ASN1_TIME *X509_CRL_get0_lastUpdate(const X509_CRL *crl);
+const ASN1_TIME *X509_CRL_get0_nextUpdate(const X509_CRL *crl);
+void X509_CRL_get0_signature(const X509_CRL *crl, const ASN1_BIT_STRING **psig,
+    const X509_ALGOR **palg);
+
+void X509_REQ_get0_signature(const X509_REQ *req, const ASN1_BIT_STRING **psig,
+    const X509_ALGOR **palg);
+
 void X509_CRL_set_default_method(const X509_CRL_METHOD *meth);
 X509_CRL_METHOD *X509_CRL_METHOD_new(
 	int (*crl_init)(X509_CRL *crl),
@@ -750,6 +758,7 @@ void X509_ALGOR_set_md(X509_ALGOR *alg, const EVP_MD *md);
 int X509_ALGOR_cmp(const X509_ALGOR *a, const X509_ALGOR *b);
 
 X509_NAME *X509_NAME_dup(X509_NAME *xn);
+int X509_NAME_get0_der(X509_NAME *nm, const unsigned char **pder, size_t *pderlen);
 X509_NAME_ENTRY *X509_NAME_ENTRY_dup(X509_NAME_ENTRY *ne);
 
 int		X509_cmp_time(const ASN1_TIME *s, time_t *t);
