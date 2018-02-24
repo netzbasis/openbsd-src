@@ -22,7 +22,7 @@
 /BIO_find_type.3/1.6/Tue Dec  6 14:45:08 2016//
 /BIO_get_data.3/1.1/Mon Feb 19 14:08:52 2018//
 /BIO_get_ex_new_index.3/1.4/Mon Feb 12 16:33:07 2018//
-/BIO_meth_new.3/1.2/Mon Feb 19 14:22:15 2018//
+/BIO_meth_new.3/1.3/Fri Feb 23 19:12:09 2018//
 /BIO_new.3/1.9/Sat Feb 17 23:24:38 2018//
 /BIO_printf.3/1.1/Sat Mar 25 17:15:59 2017//
 /BIO_push.3/1.5/Tue Dec  6 12:54:19 2016//
@@ -45,7 +45,7 @@
 /BN_bn2bin.3/1.6/Wed Jan 25 16:12:45 2017//
 /BN_cmp.3/1.4/Sat Dec 10 21:13:25 2016//
 /BN_copy.3/1.6/Mon Jan 30 01:29:31 2017//
-/BN_generate_prime.3/1.6/Sat Jan  7 05:06:22 2017//
+/BN_generate_prime.3/1.7/Fri Feb 23 12:16:08 2018//
 /BN_get0_nist_prime_521.3/1.4/Sun Dec 11 10:00:30 2016//
 /BN_mod_inverse.3/1.6/Mon Jan 30 01:29:31 2017//
 /BN_mod_mul_montgomery.3/1.7/Mon Jan 30 07:51:27 2017//
@@ -67,7 +67,7 @@
 /DES_set_key.3/1.8/Tue Feb 13 20:54:10 2018//
 /DH_generate_key.3/1.7/Sat Feb 17 16:59:48 2018//
 /DH_generate_parameters.3/1.8/Sat Feb 17 16:59:48 2018//
-/DH_get0_pqg.3/1.2/Mon Feb 19 11:55:49 2018//
+/DH_get0_pqg.3/1.3/Fri Feb 23 14:50:21 2018//
 /DH_get_ex_new_index.3/1.4/Sat Dec 10 22:22:59 2016//
 /DH_new.3/1.5/Sat Feb 17 16:59:48 2018//
 /DH_set_method.3/1.5/Sat Dec 10 22:22:59 2016//
