@@ -9,7 +9,7 @@
 /conf.c/1.50/Mon Jan 23 08:37:08 2017//
 /copystr.S/1.8/Fri Jan  6 00:06:02 2017//
 /cpu.c/1.46/Fri Feb 23 19:08:56 2018//
-/cpufunc.c/1.52/Fri Sep  8 05:36:51 2017//
+/cpufunc.c/1.53/Sun Feb 25 01:45:01 2018//
 /cpufunc_asm.S/1.5/Wed Sep 21 11:33:05 2016//
 /cpufunc_asm_armv7.S/1.15/Mon Jan 15 14:11:16 2018//
 /cpuswitch7.S/1.13/Sat Sep 24 21:02:31 2016//
