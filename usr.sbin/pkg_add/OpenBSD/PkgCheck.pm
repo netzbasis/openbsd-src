@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCheck.pm,v 1.64 2017/03/14 23:30:36 espie Exp $
+# $OpenBSD: PkgCheck.pm,v 1.67 2018/02/25 14:47:21 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -561,32 +561,34 @@ sub remove
 	for my $i (@OpenBSD::PackageInfo::info) {
 		if (-e $dir.$i) {
 			if ($state->verbose) {
-				$state->say("unlink(#1)", $dir.$i);
+				$state->say("unlink(#1)", 
+				    $state->safe($dir.$i));
 			}
 			unless ($state->{not}) {
 				unlink($dir.$i) or
 				    $state->errsay("#1: Couldn't delete #2: #3",
-				    	$name, $dir.$i, $!);
+				    	$state->safe($name), 
+					$state->safe($dir.$i), $!);
 			}
 		}
 	}
 	if (-f $dir) {
 		if ($state->verbose) {
-			$state->say("unlink(#1)", $dir);
+			$state->say("unlink(#1)", $state->safe($dir));
 		}
 		unless ($state->{not}) {
 			unlink($dir) or
 			    $state->errsay("#1: Couldn't delete #2: #3",
-				$name, $dir, $!);
+				$state->safe($name), $state->safe($dir), $!);
 		}
 	} elsif (-d $dir) {
 		if ($state->verbose) {
-			$state->say("rmdir(#1)", $dir);
+			$state->say("rmdir(#1)", $state->safe($dir));
 		}
 		unless ($state->{not}) {
 			rmdir($dir) or
 			    $state->errsay("#1: Couldn't delete #2: #3",
-			    	$name, $dir, $!);
+			    	$state->safe($name), $state->safe($dir), $!);
 		}
 	}
 }
@@ -596,10 +598,60 @@ sub may_remove
 	my ($self, $state, $name) = @_;
 	if ($state->{force}) {
 		$self->remove($state, $name);
-	} elsif ($state->confirm("Remove wrong package $name")) {
+	} elsif ($state->confirm("Remove wrong package ".$state->safe($name))) {
 			$self->remove($state, $name);
 	}
 	$state->{bogus}{$name} = 1;
+}
+
+sub may_unlink
+{
+	my ($self, $state, $path) = @_;
+	if (!$state->{force} && 
+	    !$state->confirm("Remove non-file".$state->safe($path))) {
+		return;
+	}
+	if ($state->verbose) {
+		$state->say("remove #1", $state->safe($path));
+	}
+	return if $state->{not};
+	rmdir($path) or 
+	    $state->errsay("Couldn't delete #1: #2", $state->safe($path), $!);
+}
+
+sub may_fix_ownership
+{
+	my ($self, $state, $path) = @_;
+	if (!$state->{force} && 
+	    !$state->confirm("Give ".$state->safe($path)." to root:wheel")) {
+		return;
+	}
+	if ($state->verbose) {
+		$state->say("chown root:wheel #1", $state->safe($path));
+	}
+	return if $state->{not};
+	chown 0, 0, $path or
+	    $state->errsay("Couldn't fix ownership for #1: #1",
+	    	$state->safe($path), $!);
+}
+
+sub may_fix_perms
+{
+	my ($self, $state, $path, $perm, $readable) = @_;
+
+	if (!$state->{force} && 
+	    !$state->confirm("Make ".$state->safe($path).
+	    ($readable ? " not world/group-writable" : " world readable"))) {
+		return;
+	}
+	if ($state->verbose) {
+		$state->say("chmod #1 #2", sprintf("%04o", $perm), 
+		    $state->safe($path));
+	}
+	return if $state->{not};
+	chmod $perm, $path or
+	    $state->errsay("Couldn't fix perms for #1: #2", 
+	    	$state->safe($path), $!);
 }
 
 sub for_all_packages
@@ -617,9 +669,77 @@ sub for_all_packages
 	    });
 }
 
+sub check_dir_permissions
+{
+	my ($self, $state, $dir) = @_;
+	my ($perm, $uid, $gid) = (stat $dir)[2, 4, 5];
+	$perm &= 0777;
+
+	if (($perm & 0555) != 0555) {
+		$state->errsay("Directory #1 is not world-readable",
+		    $state->safe($dir));
+		$perm |= 0555;
+		$self->may_fix_perms($state, $dir, $perm, 0);
+	}
+	if ($uid != 0 || $gid != 0) {
+		$state->errsay("Directory #1 does not belong to root:wheel",
+		    $state->safe($dir));
+	    	$self->may_fix_ownership($state, $dir);
+	}
+	if (($perm & 0022) != 0) {
+		$state->errsay("Directory #1 is world/group writable",
+		    $state->safe($dir));
+		$perm &= 0755;
+		$self->may_fix_perms($state, $dir, $perm, 1);
+	}
+}
+
+sub check_permissions
+{
+	my ($self, $state, $dir) = @_;
+
+	$self->check_dir_permissions($state, $dir);
+	for my $name (@OpenBSD::PackageInfo::info) {
+		my $file = $dir.$name;
+		next unless -e $file;
+		my ($perm, $uid, $gid) = (stat $file)[2, 4, 5];
+		if (!-f $file) {
+			$state->errsay("#1 should be a file", 
+			    $state->safe($file));
+			$self->may_unlink($state, $file);
+			next;
+		}
+		$perm &= 0777;
+		if (($perm & 0444) != 0444) {
+			$state->errsay("File #1 is not world-readable",
+			    $state->safe($file));
+			$perm |= 0444;
+			$self->may_fix_perms($state, $file, $perm, 0);
+		}
+		if ($uid != 0 || $gid != 0) {
+			$state->errsay("File #1 does not belong to root:wheel",
+			    $state->safe($file));
+			$self->may_fix_ownership($state, $file);
+		}
+		if (($perm & 0022) != 0) {
+			$state->errsay("File #1 is world/group writable",
+			    $state->safe($file));
+			$perm &= 0755;
+			$self->may_fix_perms($state, $file, $perm, 1);
+		}
+	}
+}
+
+
 sub sanity_check
 {
 	my ($self, $state, $l) = @_;
+
+	# let's find /var/db/pkg or its equivalent
+	my $base = installed_info("");
+	$base =~ s,/*$,,;
+	$self->check_dir_permissions($state, $base);
+
 	$self->for_all_packages($state, $l, "Packing-list sanity", sub {
 		my $name = shift;
 		my $info = installed_info($name);
@@ -635,6 +755,7 @@ sub sanity_check
 			}
 			return;
 		}
+		$self->check_permissions($state, $info);
 		my $contents = $info.OpenBSD::PackageInfo::CONTENTS;
 		unless (-f $contents) {
 			$state->errsay("#1: missing #2",
