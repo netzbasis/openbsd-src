@@ -244,7 +244,7 @@
 /X509_get_serialNumber.3/1.1/Mon Dec  5 18:24:08 2016//
 /X509_get_subject_name.3/1.2/Wed Dec 14 16:20:28 2016//
 /X509_get_version.3/1.1/Mon Dec  5 18:24:08 2016//
-/X509_new.3/1.10/Sun Dec 25 22:15:10 2016//
+/X509_new.3/1.11/Mon Feb 26 15:38:39 2018//
 /X509_sign.3/1.1/Mon Dec  5 18:24:08 2016//
 /X509_verify_cert.3/1.5/Tue Jan  3 06:29:04 2017//
 /X509v3_get_ext_by_NID.3/1.5/Sat Feb 24 21:39:29 2018//
