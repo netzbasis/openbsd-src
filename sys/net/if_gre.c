@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gre.c,v 1.115 2018/02/27 04:36:18 dlg Exp $ */
+/*	$OpenBSD: if_gre.c,v 1.119 2018/02/27 22:36:38 dlg Exp $ */
 /*	$NetBSD: if_gre.c,v 1.9 1999/10/25 19:18:11 drochner Exp $ */
 
 /*
@@ -141,6 +141,8 @@ struct gre_h_wccp {
 
 #define GRE_WCCP 0x883e
 
+#define GRE_HDRLEN (sizeof(struct ip) + sizeof(struct gre_header))
+
 /*
  * GRE tunnel metadata
  */
@@ -254,6 +256,7 @@ static int	gre_clone_destroy(struct ifnet *);
 struct if_clone gre_cloner =
     IF_CLONE_INITIALIZER("gre", gre_clone_create, gre_clone_destroy);
 
+/* protected by NET_LOCK */
 struct gre_list gre_list = TAILQ_HEAD_INITIALIZER(gre_list);
 
 static int	gre_output(struct ifnet *, struct mbuf *, struct sockaddr *,
@@ -304,9 +307,12 @@ static int	mgre_output(struct ifnet *, struct mbuf *, struct sockaddr *,
 static void	mgre_start(struct ifnet *);
 static int	mgre_ioctl(struct ifnet *, u_long, caddr_t);
 
+static int	mgre_set_tunnel(struct mgre_softc *, struct if_laddrreq *);
+static int	mgre_get_tunnel(struct mgre_softc *, struct if_laddrreq *);
 static int	mgre_up(struct mgre_softc *);
 static int	mgre_down(struct mgre_softc *);
 
+/* protected by NET_LOCK */
 struct mgre_tree mgre_tree = RBT_INITIALIZER();
 
 /*
@@ -348,7 +354,8 @@ static int	egre_down(struct egre_softc *);
 static int	egre_input(const struct gre_tunnel *, struct mbuf *, int);
 struct if_clone egre_cloner =
     IF_CLONE_INITIALIZER("egre", egre_clone_create, egre_clone_destroy);
-
+ 
+/* protected by NET_LOCK */
 struct egre_tree egre_tree = RBT_INITIALIZER();
 
 /*
@@ -442,9 +449,11 @@ static void	nvgre_age(void *);
 struct if_clone nvgre_cloner =
     IF_CLONE_INITIALIZER("nvgre", nvgre_clone_create, nvgre_clone_destroy);
 
+struct pool nvgre_pool;
+
+/* protected by NET_LOCK */
 struct nvgre_ucast_tree nvgre_ucast_tree = RBT_INITIALIZER();
 struct nvgre_mcast_tree nvgre_mcast_tree = RBT_INITIALIZER();
-struct pool nvgre_pool;
 
 /*
  * It is not easy to calculate the right value for a GRE MTU.
@@ -487,7 +496,7 @@ gre_clone_create(struct if_clone *ifc, int unit)
 	ifp = &sc->sc_if;
 	ifp->if_softc = sc;
 	ifp->if_type = IFT_TUNNEL;
-	ifp->if_hdrlen = 24; /* IP + GRE */
+	ifp->if_hdrlen = GRE_HDRLEN;
 	ifp->if_mtu = GREMTU;
 	ifp->if_flags = IFF_POINTOPOINT|IFF_MULTICAST;
 	ifp->if_xflags = IFXF_CLONED;
@@ -550,7 +559,7 @@ mgre_clone_create(struct if_clone *ifc, int unit)
 
 	ifp->if_softc = sc;
 	ifp->if_type = IFT_L3IPVLAN;
-	ifp->if_hdrlen = 24; /* IP + GRE */
+	ifp->if_hdrlen = GRE_HDRLEN;
 	ifp->if_mtu = GREMTU;
 	ifp->if_flags = 0; /* it's not p2p, and can't mcast or bcast */
 	ifp->if_xflags = IFXF_CLONED;
@@ -784,6 +793,7 @@ mgre_find(const struct gre_tunnel *key)
 {
 	struct mgre_softc *sc;
 
+	NET_ASSERT_LOCKED();
 	sc = RBT_FIND(mgre_tree, &mgre_tree, (const struct mgre_softc *)key);
 	if (sc != NULL)
 		return (&sc->sc_if);
@@ -1005,6 +1015,7 @@ egre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen)
 	struct egre_softc *sc;
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 
+	NET_ASSERT_LOCKED();
 	sc = RBT_FIND(egre_tree, &egre_tree, (const struct egre_softc *)key);
 	if (sc == NULL)
 		return (-1);
@@ -1220,6 +1231,7 @@ nvgre_mcast_find(const struct gre_tunnel *key, unsigned int if0idx)
 	 * find by hand.
 	 */
 
+	NET_ASSERT_LOCKED();
 	sc = RBT_ROOT(nvgre_mcast_tree, &nvgre_mcast_tree);
 	while (sc != NULL) {
 		rv = nvgre_cmp_mcast(key, &key->t_src, if0idx,
@@ -1238,6 +1250,7 @@ nvgre_mcast_find(const struct gre_tunnel *key, unsigned int if0idx)
 static inline struct nvgre_softc *
 nvgre_ucast_find(const struct gre_tunnel *key)
 {
+	NET_ASSERT_LOCKED();
 	return (RBT_FIND(nvgre_ucast_tree, &nvgre_ucast_tree,
 	    (struct nvgre_softc *)key));
 }
@@ -2026,7 +2039,16 @@ mgre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 
 	case SIOCSLIFPHYADDR:
-		/* XXX */
+		if (ISSET(ifp->if_flags, IFF_RUNNING)) {
+			error = EBUSY;
+			break;
+		}
+		error = mgre_set_tunnel(sc, (struct if_laddrreq *)data);
+		break;
+	case SIOCGLIFPHYADDR:
+		error = mgre_get_tunnel(sc, (struct if_laddrreq *)data);
+		break;
+
 	case SIOCSVNETID:
 	case SIOCDVNETID:
 	case SIOCDIFPHYADDR:
@@ -2043,6 +2065,104 @@ mgre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
  	}
 
 	return (error);
+}
+
+static int
+mgre_set_tunnel(struct mgre_softc *sc, struct if_laddrreq *req)
+{
+	struct gre_tunnel *tunnel = &sc->sc_tunnel;
+	struct sockaddr *addr = (struct sockaddr *)&req->addr;
+	struct sockaddr *dstaddr = (struct sockaddr *)&req->dstaddr;
+	struct sockaddr_in *addr4;
+#ifdef INET6
+	struct sockaddr_in6 *addr6;
+	int error;
+#endif
+
+	if (dstaddr->sa_family != AF_UNSPEC)
+		return (EINVAL);
+
+	/* validate */
+	switch (addr->sa_family) {
+	case AF_INET:
+		if (addr->sa_len != sizeof(*addr4))
+			return (EINVAL);
+
+		addr4 = (struct sockaddr_in *)addr;
+		if (in_nullhost(addr4->sin_addr) ||
+		    IN_MULTICAST(addr4->sin_addr.s_addr))
+			return (EINVAL);
+
+		tunnel->t_src4 = addr4->sin_addr;
+		tunnel->t_dst4.s_addr = INADDR_ANY;
+
+		break;
+#ifdef INET6
+	case AF_INET6:
+		if (addr->sa_len != sizeof(*addr6))
+			return (EINVAL);
+
+		addr6 = (struct sockaddr_in6 *)addr;
+		if (IN6_IS_ADDR_UNSPECIFIED(&addr6->sin6_addr) ||
+		    IN6_IS_ADDR_MULTICAST(&addr6->sin6_addr))
+			return (EINVAL);
+
+		error = in6_embedscope(&tunnel->t_src6, addr6, NULL);
+		if (error != 0)
+			return (error);
+
+		memset(&tunnel->t_dst6, 0, sizeof(tunnel->t_dst6));
+
+		break;
+#endif
+	default:
+		return (EAFNOSUPPORT);
+	}
+
+	/* commit */
+	tunnel->t_af = addr->sa_family;
+
+	return (0);
+}
+
+static int
+mgre_get_tunnel(struct mgre_softc *sc, struct if_laddrreq *req)
+{
+	struct gre_tunnel *tunnel = &sc->sc_tunnel;
+	struct sockaddr *dstaddr = (struct sockaddr *)&req->dstaddr;
+	struct sockaddr_in *sin;
+#ifdef INET6
+	struct sockaddr_in6 *sin6;
+#endif
+
+	switch (tunnel->t_af) {
+	case AF_UNSPEC:
+		return (EADDRNOTAVAIL);
+	case AF_INET:
+		sin = (struct sockaddr_in *)&req->addr;
+		memset(sin, 0, sizeof(*sin));
+		sin->sin_family = AF_INET;
+		sin->sin_len = sizeof(*sin);
+		sin->sin_addr = tunnel->t_src4;
+		break;
+
+#ifdef INET6
+	case AF_INET6:
+		sin6 = (struct sockaddr_in6 *)&req->addr;
+		memset(sin6, 0, sizeof(*sin6));
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_len = sizeof(*sin6);
+		in6_recoverscope(sin6, &tunnel->t_src6);
+		break;
+#endif
+	default:
+		unhandled_af(tunnel->t_af);
+	}
+
+	dstaddr->sa_len = 2;
+	dstaddr->sa_family = AF_UNSPEC;
+
+	return (0);
 }
 
 static int
@@ -2365,8 +2485,13 @@ gre_keepalive_send(void *arg)
 		return;
 
 	/* this is really conservative */
+#ifdef INET6
 	linkhdr = max_linkhdr + MAX(sizeof(struct ip), sizeof(struct ip6_hdr)) +
 	    sizeof(struct gre_header) + sizeof(struct gre_h_key);
+#else
+	linkhdr = max_linkhdr + sizeof(struct ip) +
+	    sizeof(struct gre_header) + sizeof(struct gre_h_key);
+#endif
 	len = linkhdr + sizeof(*gk);
 
 	MGETHDR(m, M_DONTWAIT, MT_DATA);
@@ -2726,7 +2851,7 @@ mgre_down(struct mgre_softc *sc)
 	NET_ASSERT_LOCKED();
 
 	CLR(sc->sc_if.if_flags, IFF_RUNNING);
-	sc->sc_if.if_hdrlen = 24; /* symmetry */
+	sc->sc_if.if_hdrlen = GRE_HDRLEN; /* symmetry */
 
 	RBT_REMOVE(mgre_tree, &mgre_tree, sc);
 
