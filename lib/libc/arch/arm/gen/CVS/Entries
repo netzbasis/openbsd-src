@@ -6,6 +6,12 @@
 /divsi3.S/1.4/Tue Dec 26 15:11:17 2017//
 /fabs.c/1.10/Wed Nov 13 15:21:48 2013//
 /flt_rounds.c/1.5/Tue Oct 27 05:54:49 2015//
+/fpgetmask.c/1.1/Wed Feb 28 11:16:54 2018//
+/fpgetround.c/1.1/Wed Feb 28 11:16:54 2018//
+/fpgetsticky.c/1.1/Wed Feb 28 11:16:54 2018//
+/fpsetmask.c/1.1/Wed Feb 28 11:16:54 2018//
+/fpsetround.c/1.1/Wed Feb 28 11:16:54 2018//
+/fpsetsticky.c/1.1/Wed Feb 28 11:16:54 2018//
 /infinity.c/1.4/Mon Jul 21 01:51:10 2014//
 /nan.c/1.2/Mon Jul 21 01:51:10 2014//
 /setjmp.S/1.6/Sun Aug  7 02:02:57 2016//
