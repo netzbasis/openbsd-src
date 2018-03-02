@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.314 2018/02/27 14:58:05 krw Exp $	*/
+/*	$OpenBSD: editor.c,v 1.318 2018/03/01 20:11:41 millert Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -620,15 +620,14 @@ again:
 				secs = ap->maxsz;
 #ifdef SUN_CYLCHECK
 cylinderalign:
-			secs = ((secs + cylsecs - 1) / cylsecs) * cylsecs;
-#endif
-			totsecs -= secs;
-#ifdef SUN_CYLCHECK
-			while (totsecs < 0) {
-				secs -= cylsecs;
-				totsecs += cylsecs;
+			if (lp->d_flags & D_VENDOR) {
+				secs = ((secs + cylsecs - 1) / cylsecs) *
+				    cylsecs;
+				while (secs > totsecs)
+					secs -= cylsecs;
 			}
 #endif
+			totsecs -= secs;
 		}
 
 		/* Find largest chunk of free space. */
@@ -727,10 +726,13 @@ editor_resize(struct disklabel *lp, char *p)
 	}
 	secs = getuint64(lp, "[+|-]new size (with unit)",
 	    "new size or amount to grow (+) or shrink (-) partition including unit",
-	    sz, editor_countfree(lp), 0, DO_CONVERSIONS);
+	    sz, sz + editor_countfree(lp), 0, DO_CONVERSIONS);
 
-	if (secs <= 0) {
+	if (secs == ULLONG_MAX - 1) {
 		fputs("Command aborted\n", stderr);
+		return;
+	} else if (secs == ULLONG_MAX) {
+		fputs("Invalid entry\n", stderr);
 		return;
 	}
 
@@ -1210,24 +1212,40 @@ getuint64(struct disklabel *lp, char *prompt, char *helpstring,
 			endptr = p;
 			errno = 0;
 			d = strtod(p, &endptr);
-			if (errno == ERANGE)
+			if (errno == ERANGE || d < 0)
 				rval = ULLONG_MAX;	/* too big/small */
 			else if (*endptr != '\0') {
 				errno = EINVAL;		/* non-numbers in str */
 				rval = ULLONG_MAX;
 			} else {
-				/* XXX - should check for overflow */
 				if (mult > 0)
-					rval = d * mult * percent;
+					d = d * mult * percent;
 				else
-					/* Negative mult means divide (fancy) */
-					rval = d / (-mult) * percent;
+					d = d / (-mult) * percent;
 
-				/* Apply the operator */
-				if (operator == '+')
-					rval += oval;
-				else if (operator == '-')
-					rval = oval - rval;
+				if (d < ULLONG_MAX - 1) {
+					rval = d;
+				} else {
+					errno = ERANGE;
+					rval = ULLONG_MAX;
+				}
+
+				/* Range check then apply [+-] operator */
+				if (operator == '+') {
+					if (ULLONG_MAX - 2 - oval >= rval)
+						rval += oval;
+					else {
+						errno = EINVAL;
+						rval = ULLONG_MAX;
+					}
+				} else if (operator == '-') {
+					if (oval >= rval)
+						rval = oval - rval;
+					else {
+						errno = EINVAL;
+						rval = ULLONG_MAX;
+					}
+				}
 			}
 		}
 	}
@@ -2032,9 +2050,12 @@ get_fsize(struct disklabel *lp, int partno)
 int
 get_bsize(struct disklabel *lp, int partno)
 {
-	u_int64_t adj, ui, bsize, frag, fsize, orig_offset, orig_size;
+	u_int64_t ui, frag, fsize;
 	struct partition *pp = &lp->d_partitions[partno];
+#ifndef SUN_CYLCHECK
+	u_int64_t adj, bsize, orig_offset, orig_size;
 	char *p;
+#endif
 
 	if (pp->p_fstype != FS_BSDFFS)
 		return (0);
