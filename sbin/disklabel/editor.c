@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.318 2018/03/01 20:11:41 millert Exp $	*/
+/*	$OpenBSD: editor.c,v 1.320 2018/03/02 12:49:59 krw Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -567,7 +567,8 @@ again:
 	/* bump max swap based on phys mem, little physmem gets 2x swap */
 	if (index == 0 && alloc_table == alloc_table_default) {
 		if (physmem / DEV_BSIZE < MEG(256))
-			alloc[1].minsz = alloc[1].maxsz = 2 * (physmem / DEV_BSIZE);
+			alloc[1].minsz = alloc[1].maxsz = 2 * (physmem /
+			    DEV_BSIZE);
 		else
 			alloc[1].maxsz += (physmem / DEV_BSIZE);
 		/* bump max /var to make room for 2 crash dumps */
@@ -664,13 +665,13 @@ cylinderalign:
 		/* Everything seems ok so configure the partition. */
 		DL_SETPSIZE(pp, secs);
 		DL_SETPOFFSET(pp, chunkstart);
-		pp->p_cpg = 1;
 		if (ap->mp[0] != '/')
 			pp->p_fstype = FS_SWAP;
 		else {
 			pp->p_fstype = FS_BSDFFS;
 			get_fsize(lp, partno);
 			get_bsize(lp, partno);
+			get_cpg(lp, partno);
 			free(*partmp);
 			if ((*partmp = strdup(ap->mp)) == NULL)
 				errx(4, "out of memory");
@@ -725,8 +726,8 @@ editor_resize(struct disklabel *lp, char *p)
 		return;
 	}
 	secs = getuint64(lp, "[+|-]new size (with unit)",
-	    "new size or amount to grow (+) or shrink (-) partition including unit",
-	    sz, sz + editor_countfree(lp), 0, DO_CONVERSIONS);
+	    "new size or amount to grow (+) or shrink (-) partition including "
+	    "unit", sz, sz + editor_countfree(lp), 0, DO_CONVERSIONS);
 
 	if (secs == ULLONG_MAX - 1) {
 		fputs("Command aborted\n", stderr);
@@ -751,6 +752,7 @@ editor_resize(struct disklabel *lp, char *p)
 	DL_SETPSIZE(pp, secs);
 	get_fsize(&label, partno);
 	get_bsize(&label, partno);
+	get_cpg(&label, partno);
 
 	/*
 	 * Pack partitions above the resized partition, leaving unused
@@ -778,6 +780,7 @@ editor_resize(struct disklabel *lp, char *p)
 				    i + 'a');
 				get_fsize(&label, i);
 				get_bsize(&label, i);
+				get_cpg(&label, i);
 			}
 		} else {
 			fputs("No room left for all partitions\n", stderr);
@@ -878,7 +881,6 @@ editor_add(struct disklabel *lp, char *p)
 	DL_SETPSIZE(pp, new_size);
 	DL_SETPOFFSET(pp, new_offset);
 	pp->p_fstype = partno == 1 ? FS_SWAP : FS_BSDFFS;
-	pp->p_cpg = 1;
 
 	if (get_offset(lp, partno) == 0 &&
 	    get_size(lp, partno) == 0 &&
@@ -1973,7 +1975,13 @@ get_cpg(struct disklabel *lp, int partno)
 	u_int64_t ui;
 	struct partition *pp = &lp->d_partitions[partno];
 
-	if (!expert || pp->p_fstype != FS_BSDFFS)
+	if (pp->p_fstype != FS_BSDFFS)
+		return (0);
+
+	if (pp->p_cpg == 0)
+		pp->p_cpg = 1;
+
+	if (!expert)
 		return (0);
 
 	for (;;) {
