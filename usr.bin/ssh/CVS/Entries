@@ -175,7 +175,7 @@
 /ssh-gss.h/1.12/Sat Jun 24 06:34:38 2017//
 /ssh-keygen.1/1.146/Thu Jan 25 03:34:43 2018//
 /ssh-keygen.c/1.313/Fri Feb 23 15:58:38 2018//
-/ssh-keyscan.1/1.43/Fri Mar  2 21:40:15 2018//
+/ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.119/Fri Mar  2 21:40:15 2018//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
 /ssh-keysign.c/1.54/Fri Feb 23 15:58:38 2018//
