@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.75 2018/02/10 04:57:35 jsing Exp $ */
+/* $OpenBSD: tls.c,v 1.77 2018/03/07 19:07:13 deraadt Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
