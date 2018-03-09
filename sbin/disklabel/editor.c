@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.321 2018/03/04 19:56:10 krw Exp $	*/
+/*	$OpenBSD: editor.c,v 1.327 2018/03/08 22:05:17 krw Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -524,20 +524,24 @@ editor_allocspace(struct disklabel *lp_org)
 	struct space_allocation *ap;
 	struct partition *pp;
 	struct diskchunk *chunks;
-	u_int64_t chunkstart, chunksize, cylsecs, secs, totsecs, xtrasecs;
+	u_int64_t chunkstart, chunkstop, chunksize;
+	u_int64_t cylsecs, secs, xtrasecs;
 	char **partmp;
-	int i, j, lastalloc, index = 0, partno;
+	int i, j, lastalloc, index, partno, freeparts;
 	extern int64_t physmem;
 
 	/* How big is the OpenBSD portion of the disk?  */
 	find_bounds(lp_org);
 
 	overlap = 0;
+	freeparts = 0;
 	for (i = 0;  i < MAXPARTITIONS; i++) {
 		u_int64_t psz, pstart, pend;
 
 		pp = &lp_org->d_partitions[i];
 		psz = DL_GETPSIZE(pp);
+		if (psz == 0)
+			freeparts++;
 		pstart = DL_GETPOFFSET(pp);
 		pend = pstart + psz;
 		if (i != RAW_PART && psz != 0 &&
@@ -549,7 +553,13 @@ editor_allocspace(struct disklabel *lp_org)
 	}
 
 	cylsecs = lp_org->d_secpercyl;
+	alloc = NULL;
+	index = -1;
 again:
+	free(alloc);
+	index++;
+	if (index >= alloc_table_nitems)
+		return 1;
 	lp = &label;
 	for (i=0; i<MAXPARTITIONS; i++) {
 		free(mountpoints[i]);
@@ -558,6 +568,8 @@ again:
 	memcpy(lp, lp_org, sizeof(struct disklabel));
 	lp->d_npartitions = MAXPARTITIONS;
 	lastalloc = alloc_table[index].sz;
+	if (lastalloc > freeparts)
+		goto again;
 	alloc = reallocarray(NULL, lastalloc, sizeof(struct space_allocation));
 	if (alloc == NULL)
 		errx(4, "out of memory");
@@ -575,15 +587,17 @@ again:
 		alloc[3].maxsz += 2 * (physmem / DEV_BSIZE);
 	}
 
-	xtrasecs = totsecs = editor_countfree(lp);
+	xtrasecs = editor_countfree(lp);
 
 	for (i = 0; i < lastalloc; i++) {
 		alloc[i].minsz = DL_BLKTOSEC(lp, alloc[i].minsz);
 		alloc[i].maxsz = DL_BLKTOSEC(lp, alloc[i].maxsz);
-		if (xtrasecs > alloc[i].minsz)
+		if (xtrasecs >= alloc[i].minsz)
 			xtrasecs -= alloc[i].minsz;
-		else
-			xtrasecs = 0;
+		else {
+			/* It did not work out, try next strategy */
+			goto again;
+		}
 	}
 
 	for (i = 0; i < lastalloc; i++) {
@@ -593,73 +607,60 @@ again:
 				break;
 		if (j == MAXPARTITIONS) {
 			/* It did not work out, try next strategy */
-			free(alloc);
-			if (++index < alloc_table_nitems)
-				goto again;
-			else
-				return 1;
+			goto again;
 		}
 		partno = j;
 		pp = &lp->d_partitions[j];
 		partmp = &mountpoints[j];
 		ap = &alloc[i];
 
+		/* Find largest chunk of free space. */
+		chunks = free_chunks(lp);
+		chunksize = 0;
+		for (j = 0; chunks[j].start != 0 || chunks[j].stop != 0; j++) {
+			if ((chunks[j].stop - chunks[j].start) > chunksize) {
+				chunkstart = chunks[j].start;
+				chunkstop = chunks[j].stop;
+#ifdef SUN_CYLCHECK
+				if (lp->d_flags & D_VENDOR) {
+					/* Align to cylinder boundaries. */
+					chunkstart = ((chunkstart + cylsecs - 1)
+					    / cylsecs) * cylsecs;
+					chunkstop = (chunkstop / cylsecs) *
+					    cylsecs;
+				}
+#endif
+				chunksize = chunkstop - chunkstart;
+			}
+		}
+
 		/* Figure out the size of the partition. */
 		if (i == lastalloc - 1) {
-			if (totsecs > ap->maxsz)
+			if (chunksize > ap->maxsz)
 				secs = ap->maxsz;
 			else
-				secs = totsecs;
-#ifdef SUN_CYLCHECK
-			goto cylinderalign;
-#endif
+				secs = chunksize;
 		} else {
 			secs = ap->minsz;
 			if (xtrasecs > 0)
 				secs += (xtrasecs / 100) * ap->rate;
 			if (secs > ap->maxsz)
 				secs = ap->maxsz;
-#ifdef SUN_CYLCHECK
-cylinderalign:
-			if (lp->d_flags & D_VENDOR) {
-				secs = ((secs + cylsecs - 1) / cylsecs) *
-				    cylsecs;
-				while (secs > totsecs)
-					secs -= cylsecs;
-			}
-#endif
-			totsecs -= secs;
 		}
-
-		/* Find largest chunk of free space. */
-		chunks = free_chunks(lp);
-		chunkstart = 0;
-		chunksize = 0;
-		for (j = 0; chunks[j].start != 0 || chunks[j].stop != 0; j++)
-			if ((chunks[j].stop - chunks[j].start) > chunksize) {
-				chunkstart = chunks[j].start;
-				chunksize = chunks[j].stop - chunks[j].start;
-			}
 #ifdef SUN_CYLCHECK
 		if (lp->d_flags & D_VENDOR) {
-			/* Align chunk to cylinder boundaries. */
-			chunksize -= chunksize % cylsecs;
-			chunkstart = ((chunkstart + cylsecs - 1) / cylsecs) *
-			    cylsecs;
+			secs = ((secs + cylsecs - 1) / cylsecs) * cylsecs;
+			while (secs > chunksize)
+				secs -= cylsecs;
 		}
 #endif
+
 		/* See if partition can fit into chunk. */
-		if (secs > chunksize) {
-			totsecs += secs - chunksize;
+		if (secs > chunksize)
 			secs = chunksize;
-		}
 		if (secs < ap->minsz) {
 			/* It did not work out, try next strategy */
-			free(alloc);
-			if (++index < alloc_table_nitems)
-				goto again;
-			else
-				return 1;
+			goto again;
 		}
 
 		/* Everything seems ok so configure the partition. */
