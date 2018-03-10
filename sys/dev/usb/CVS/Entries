@@ -138,9 +138,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.134/Sat Apr  8 02:57:25 2017//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.681/Tue Jan 30 20:56:38 2018//
-/usbdevs.h/1.693/Tue Jan 30 20:58:13 2018//
-/usbdevs_data.h/1.687/Tue Jan 30 20:58:13 2018//
+/usbdevs/1.682/Fri Mar  9 08:32:35 2018//
+/usbdevs.h/1.694/Fri Mar  9 08:33:48 2018//
+/usbdevs_data.h/1.688/Fri Mar  9 08:33:48 2018//
 /usbdi.c/1.97/Sat Feb  3 13:37:37 2018//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//

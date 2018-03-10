@@ -18,7 +18,7 @@
 /intr.c/1.10/Wed Jan 31 10:52:12 2018//
 /locore.S/1.22/Sun Jan 28 13:17:45 2018//
 /locore0.S/1.4/Sun Jan 21 22:30:41 2018//
-/machdep.c/1.29/Tue Feb  6 20:35:21 2018//
+/machdep.c/1.30/Fri Mar  9 16:14:47 2018//
 /mem.c/1.5/Mon Feb 19 08:59:52 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.49/Tue Feb 20 23:45:24 2018//
