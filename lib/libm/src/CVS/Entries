@@ -55,6 +55,8 @@
 /k_rem_pio2.c/1.5/Tue Oct 27 23:59:29 2009//
 /k_rem_pio2f.c/1.3/Tue Oct 27 23:59:29 2009//
 /k_sin.c/1.3/Tue Oct 27 23:59:30 2009//
+/k_sincos.h/1.1/Sat Mar 10 20:52:58 2018//
+/k_sincosf.h/1.1/Sat Mar 10 20:52:58 2018//
 /k_sinf.c/1.3/Tue Oct 27 23:59:30 2009//
 /k_tan.c/1.4/Tue Oct 27 23:59:30 2009//
 /k_tanf.c/1.3/Tue Oct 27 23:59:30 2009//
@@ -205,6 +207,9 @@
 /s_significand.c/1.4/Tue Oct 27 23:59:30 2009//
 /s_significandf.c/1.4/Tue Oct 27 23:59:30 2009//
 /s_sin.c/1.11/Mon Sep 12 19:47:02 2016//
+/s_sincos.c/1.1/Sat Mar 10 20:52:58 2018//
+/s_sincosf.c/1.1/Sat Mar 10 20:52:58 2018//
+/s_sincosl.c/1.1/Sat Mar 10 20:52:58 2018//
 /s_sinf.c/1.4/Mon Sep 12 19:47:02 2016//
 /s_sinl.c/1.2/Mon Sep 12 19:47:02 2016//
 /s_tan.c/1.11/Mon Sep 12 19:47:02 2016//
