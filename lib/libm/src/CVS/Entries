@@ -193,7 +193,7 @@
 /s_nexttowardf.c/1.2/Tue Nov 12 21:07:15 2013//
 /s_remquo.c/1.7/Mon Sep 12 19:47:02 2016//
 /s_remquof.c/1.2/Wed Dec  5 23:20:04 2012//
-/s_rint.c/1.13/Mon Sep 12 19:47:02 2016//
+/s_rint.c/1.14/Mon Mar 12 04:27:48 2018//
 /s_rintf.c/1.6/Mon Sep 12 19:47:02 2016//
 /s_rintl.c/1.2/Mon Sep 12 19:47:02 2016//
 /s_round.c/1.7/Mon Sep 12 19:47:02 2016//
@@ -207,7 +207,7 @@
 /s_significand.c/1.4/Tue Oct 27 23:59:30 2009//
 /s_significandf.c/1.4/Tue Oct 27 23:59:30 2009//
 /s_sin.c/1.11/Mon Sep 12 19:47:02 2016//
-/s_sincos.c/1.1/Sat Mar 10 20:52:58 2018//
+/s_sincos.c/1.2/Mon Mar 12 04:22:56 2018//
 /s_sincosf.c/1.1/Sat Mar 10 20:52:58 2018//
 /s_sincosl.c/1.1/Sat Mar 10 20:52:58 2018//
 /s_sinf.c/1.4/Mon Sep 12 19:47:02 2016//
