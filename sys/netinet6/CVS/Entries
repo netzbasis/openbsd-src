@@ -4,7 +4,7 @@
 /in6.c/1.219/Thu Nov 23 13:32:25 2017//
 /in6.h/1.101/Sat Feb 10 05:52:08 2018//
 /in6_cksum.c/1.17/Mon Jun  8 22:19:28 2015//
-/in6_ifattach.c/1.105/Sat Feb 10 05:52:08 2018//
+/in6_ifattach.c/1.106/Tue Mar 13 13:58:03 2018//
 /in6_ifattach.h/1.8/Sat Feb 10 05:52:08 2018//
 /in6_pcb.c/1.100/Fri Aug 11 19:53:02 2017//
 /in6_proto.c/1.102/Sat Feb 10 08:12:01 2018//

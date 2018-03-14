@@ -15,7 +15,7 @@
 /atomicio.h/1.11/Wed Sep 22 22:58:51 2010//
 /auth-bsdauth.c/1.14/Tue Oct 20 23:24:25 2015//
 /auth-krb5.c/1.22/Wed May  4 14:22:33 2016//
-/auth-options.c/1.77/Mon Mar 12 00:52:01 2018//
+/auth-options.c/1.78/Wed Mar 14 05:35:40 2018//
 /auth-options.h/1.26/Mon Mar 12 00:52:01 2018//
 /auth-passwd.c/1.46/Sat Mar  3 03:15:51 2018//
 /auth-rhosts.c/1.48/Sat Aug 13 17:47:41 2016//
@@ -203,7 +203,7 @@
 /sshconnect.c/1.297/Fri Feb 23 15:58:38 2018//
 /sshconnect.h/1.32/Sat Feb 10 09:25:35 2018//
 /sshconnect2.c/1.269/Sat Mar  3 03:01:50 2018//
-/sshd.8/1.297/Mon Mar 12 00:52:01 2018//
+/sshd.8/1.298/Wed Mar 14 05:35:40 2018//
 /sshd.c/1.506/Sat Mar  3 03:15:51 2018//
 /sshd_config/1.102/Fri Feb 16 02:32:40 2018//
 /sshd_config.5/1.263/Fri Feb 16 02:40:45 2018//
