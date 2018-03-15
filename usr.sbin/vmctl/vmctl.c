@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.46 2018/02/26 06:36:53 ccardenas Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.48 2018/03/14 07:29:34 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -207,7 +207,7 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 				*ret = ENOENT;
 				break;
 			case VMD_DISK_MISSING:
-				warnx("could not find specified disk image(s)");
+				warnx("could not open specified disk image(s)");
 				*ret = ENOENT;
 				break;
 			case VMD_DISK_INVALID:
@@ -220,8 +220,8 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 				*ret = ENOENT;
 				break;
 			case VMD_CDROM_INVALID:
-				warnx("specified iso image is "
-				    "not a regular file");
+				warnx("specified iso image is not a regular "
+				    "file");
 				*ret = ENOENT;
 				break;
 			default:
