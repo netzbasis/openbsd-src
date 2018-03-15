@@ -1,4 +1,4 @@
-/*	$OpenBSD: ctfconv.c,v 1.7 2017/08/12 19:00:08 jasper Exp $ */
+/*	$OpenBSD: ctfconv.c,v 1.16 2017/11/06 14:59:27 mpi Exp $ */
 
 /*
  * Copyright (c) 2016-2017 Martin Pieuchot
@@ -16,16 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/exec_elf.h>
 #include <sys/mman.h>
 #include <sys/queue.h>
 #include <sys/tree.h>
 #include <sys/ctf.h>
 
 #include <assert.h>
+#include <elf.h>
 #include <err.h>
 #include <fcntl.h>
 #include <locale.h>
@@ -52,6 +51,7 @@ int		 convert(const char *);
 int		 generate(const char *, const char *, int);
 int		 elf_convert(char *, size_t);
 void		 elf_sort(void);
+struct itype	*find_symb(struct itype *, size_t);
 void		 dump_type(struct itype *);
 void		 dump_func(struct itype *, int *);
 void		 dump_obj(struct itype *, int *);
@@ -59,9 +59,9 @@ void		 dump_obj(struct itype *, int *);
 /* elf.c */
 int		 iself(const char *, size_t);
 int		 elf_getshstab(const char *, size_t, const char **, size_t *);
-ssize_t		 elf_getsymtab(const char *, const char *, size_t,
-		     const Elf_Sym **, size_t *);
-ssize_t		 elf_getsection(char *, const char *, const char *,
+ssize_t		 elf_getsymtab(const char *, size_t, const char *, size_t,
+		     const Elf_Sym **, size_t *, const char **, size_t *);
+ssize_t		 elf_getsection(char *, size_t, const char *, const char *,
 		     size_t, const char **, size_t *);
 
 /* parse.c */
@@ -181,10 +181,12 @@ convert(const char *path)
 	}
 	if (fstat(fd, &st) == -1) {
 		warn("fstat %s", path);
+		close(fd);
 		return 1;
 	}
 	if ((uintmax_t)st.st_size > SIZE_MAX) {
 		warnx("file too big to fit memory");
+		close(fd);
 		return 1;
 	}
 
@@ -219,30 +221,26 @@ elf_convert(char *p, size_t filesize)
 	if (elf_getshstab(p, filesize, &shstab, &shstabsz))
 		return 1;
 
-	/* Find symbol table location and number of symbols. */
-	if (elf_getsymtab(p, shstab, shstabsz, &symtab, &nsymb) == -1)
+	/* Find symbol table and associated string table. */
+	if (elf_getsymtab(p, filesize, shstab, shstabsz, &symtab, &nsymb,
+	    &strtab, &strtabsz) == -1)
 		warnx("symbol table not found");
 
-	/* Find string table location and size. */
-	if (elf_getsection(p, ELF_STRTAB, shstab, shstabsz, &strtab,
-	    &strtabsz) == -1)
-		warnx("string table not found");
-
 	/* Find abbreviation location and size. */
-	if (elf_getsection(p, DEBUG_ABBREV, shstab, shstabsz, &abbuf,
+	if (elf_getsection(p, filesize, DEBUG_ABBREV, shstab, shstabsz, &abbuf,
 	    &ablen) == -1) {
 		warnx("%s section not found", DEBUG_ABBREV);
 		return 1;
 	}
 
-	if (elf_getsection(p, DEBUG_INFO, shstab, shstabsz, &infobuf,
+	if (elf_getsection(p, filesize, DEBUG_INFO, shstab, shstabsz, &infobuf,
 	    &infolen) == -1) {
 		warnx("%s section not found", DEBUG_INFO);
 		return 1;
 	}
 
 	/* Find string table location and size. */
-	if (elf_getsection(p, DEBUG_STR, shstab, shstabsz, &dstrbuf,
+	if (elf_getsection(p, filesize, DEBUG_STR, shstab, shstabsz, &dstrbuf,
 	    &dstrlen) == -1)
 		warnx("%s section not found", DEBUG_STR);
 
@@ -254,6 +252,37 @@ elf_convert(char *p, size_t filesize)
 	return 0;
 }
 
+struct itype *
+find_symb(struct itype *tmp, size_t stroff)
+{
+	struct itype		*it;
+	char 			*sname, *p;
+
+	if (strtab == NULL || stroff >= strtabsz)
+		return NULL;
+
+	/*
+	 * Skip local suffix
+	 *
+	 * FIXME: only skip local copies.
+	 */
+	sname = xstrdup(strtab + stroff);
+	if ((p = strtok(sname, ".")) == NULL) {
+		free(sname);
+		return NULL;
+	}
+
+	strlcpy(tmp->it_name, p, ITNAME_MAX);
+	free(sname);
+	it = RB_FIND(isymb_tree, &isymbt, tmp);
+
+	/* Restore original name */
+	if (it == NULL)
+		strlcpy(tmp->it_name, (strtab + stroff), ITNAME_MAX);
+
+	return it;
+}
+
 void
 elf_sort(void)
 {
@@ -263,7 +292,6 @@ elf_sort(void)
 	memset(&tmp, 0, sizeof(tmp));
 	for (i = 0; i < nsymb; i++) {
 		const Elf_Sym	*st = &symtab[i];
-		char 		*sname;
 
 		if (st->st_shndx == SHN_UNDEF || st->st_shndx == SHN_COMMON)
 			continue;
@@ -279,17 +307,7 @@ elf_sort(void)
 			continue;
 		}
 
-		/*
-		 * Skip local suffix
-		 *
-		 * FIXME: only skip local copies.
-		 */
-		sname = xstrdup(strtab + st->st_name);
-		strlcpy(tmp.it_name, strtok(sname, "."), ITNAME_MAX);
-		it = RB_FIND(isymb_tree, &isymbt, &tmp);
-		strlcpy(tmp.it_name, (strtab + st->st_name), ITNAME_MAX);
-		free(sname);
-
+		it = find_symb(&tmp, st->st_name);
 		if (it == NULL) {
 			/* Insert 'unknown' entry to match symbol order. */
 			it = it_dup(&tmp);
@@ -394,14 +412,18 @@ dump_type(struct itype *it)
 		    (it->it_type == CTF_K_STRUCT) ? "STRUCT" : "UNION",
 		    type_name(it), it->it_size);
 		TAILQ_FOREACH(im, &it->it_members, im_next) {
-			printf("\t%s type=%u off=%zd\n",
+			printf("\t%s type=%u off=%zu\n",
 			    (im_name(im) == NULL) ? "unknown" : im_name(im),
 			    im->im_refp ? im->im_refp->it_idx : 0, im->im_off);
 		}
 		printf("\n");
 		break;
 	case CTF_K_ENUM:
-		printf("  [%u] ENUM %s\n\n", it->it_idx, type_name(it));
+		printf("  [%u] ENUM %s\n", it->it_idx, type_name(it));
+		TAILQ_FOREACH(im, &it->it_members, im_next) {
+			printf("\t%s = %zu\n", im_name(im), im->im_ref);
+		}
+		printf("\n");
 		break;
 	case CTF_K_FUNCTION:
 		printf("  [%u] FUNCTION (%s) returns: %u args: (",

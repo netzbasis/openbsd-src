@@ -1,4 +1,4 @@
-/* $OpenBSD: exchange.c,v 1.138 2016/03/10 07:32:16 yasuoka Exp $	 */
+/* $OpenBSD: exchange.c,v 1.142 2018/01/15 09:54:48 mpi Exp $	 */
 /* $EOM: exchange.c,v 1.143 2000/12/04 00:02:25 angelos Exp $	 */
 
 /*
@@ -529,6 +529,7 @@ exchange_enter(struct exchange *exchange)
 	}
 	bucket &= bucket_mask;
 	LIST_INSERT_HEAD(&exchange_tab[bucket], exchange, link);
+	exchange->linked = 1;
 }
 
 /*
@@ -544,12 +545,12 @@ exchange_lookup(u_int8_t *msg, int phase2)
 	int             i;
 
 	/*
-         * We use the cookies to get bits to use as an index into exchange_tab,
+	 * We use the cookies to get bits to use as an index into exchange_tab,
 	 * as at least one (our cookie) is a good hash, xoring all the bits,
 	 * 16 at a time, and then masking, should do.  Doing it this way means
 	 * we can validate cookies very fast thus delimiting the effects of
 	 * "Denial of service"-attacks using packet flooding.
-         */
+	 */
 	for (i = 0; i < ISAKMP_HDR_COOKIES_LEN; i += 2) {
 		cp = msg + ISAKMP_HDR_COOKIES_OFF + i;
 		/* Doing it this way avoids alignment problems.  */
@@ -586,13 +587,13 @@ static struct exchange *
 exchange_create(int phase, int initiator, int doi, int type)
 {
 	struct exchange *exchange;
-	struct timeval	 expiration;
+	struct timespec	 expiration;
 	int	delta;
 
 	/*
-         * We want the exchange zeroed for exchange_free to be able to find
-         * out what fields have been filled-in.
-         */
+	 * We want the exchange zeroed for exchange_free to be able to find
+	 * out what fields have been filled-in.
+	 */
 	exchange = calloc(1, sizeof *exchange);
 	if (!exchange) {
 		log_error("exchange_create: calloc (1, %lu) failed",
@@ -622,7 +623,7 @@ exchange_create(int phase, int initiator, int doi, int type)
 			return 0;
 		}
 	}
-	gettimeofday(&expiration, 0);
+	clock_gettime(CLOCK_MONOTONIC, &expiration);
 	delta = conf_get_num("General", "Exchange-max-time",
 	    EXCHANGE_MAX_TIME);
 	expiration.tv_sec += delta;
@@ -703,7 +704,7 @@ exchange_establish_transaction(struct exchange *exchange, void *arg, int fail)
 }
 
 /* Establish a phase 1 exchange.  */
-void
+int
 exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
     char *name, void *args, void (*finalize)(struct exchange *, void *, int),
     void *arg, int stayalive)
@@ -738,7 +739,7 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 			else {
 				log_print("exchange_establish_p1: "
 				    "DOI \"%s\" unsupported", str);
-				return;
+				return -1;
 			}
 
 			/* What exchange type do we want?  */
@@ -747,20 +748,19 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 				log_print("exchange_establish_p1: "
 				    "no \"EXCHANGE_TYPE\" tag in [%s] section",
 				    tag);
-				return;
+				return -1;
 			}
 			type = constant_value(isakmp_exch_cst, str);
 			if (!type) {
 				log_print("exchange_establish_p1: "
 				    "unknown exchange type %s", str);
-				return;
+				return -1;
 			}
 		}
 	}
 	exchange = exchange_create(1, 1, doi, type);
 	if (!exchange) {
-		/* XXX Do something here?  */
-		return;
+		return -1;
 	}
 	if (name) {
 		exchange->name = strdup(name);
@@ -768,7 +768,7 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 			log_error("exchange_establish_p1: "
 			    "strdup (\"%s\") failed", name);
 			exchange_free(exchange);
-			return;
+			return -1;
 		}
 	}
 	exchange->policy = name ? conf_get_str(name, "Configuration") : 0;
@@ -787,7 +787,7 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 					    "calloc (1, %lu) failed",
 					    (unsigned long)sizeof(*node));
 					exchange_free(exchange);
-					return;
+					return -1;
 				}
 				/*
 				 * Insert this finalization inbetween
@@ -813,7 +813,7 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 	if (!msg) {
 		log_print("exchange_establish_p1: message_alloc () failed");
 		exchange_free(exchange);
-		return;
+		return 0; /* exchange_free() runs finalize */
 	}
 	msg->exchange = exchange;
 
@@ -828,10 +828,9 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 		sa_create(exchange, 0);
 		msg->isakmp_sa = TAILQ_FIRST(&exchange->sa_list);
 		if (!msg->isakmp_sa) {
-			/* XXX Do something more here?  */
 			message_free(msg);
 			exchange_free(exchange);
-			return;
+			return 0; /* exchange_free() runs finalize */
 		}
 		sa_reference(msg->isakmp_sa);
 
@@ -841,10 +840,11 @@ exchange_establish_p1(struct transport *t, u_int8_t type, u_int32_t doi,
 	msg->extra = args;
 
 	exchange_run(msg);
+	return 0;
 }
 
 /* Establish a phase 2 exchange.  XXX With just one SA for now.  */
-void
+int
 exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
     void *args, void (*finalize)(struct exchange *, void *, int), void *arg)
 {
@@ -864,7 +864,7 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 		if (!tag) {
 			log_print("exchange_establish_p2: "
 			    "no configuration for peer \"%s\"", name);
-			return;
+			return -1;
 		}
 		seq = (u_int32_t)conf_get_num(name, "Acquire-ID", 0);
 
@@ -877,7 +877,7 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 		else {
 			log_print("exchange_establish_p2: "
 			    "DOI \"%s\" unsupported", str);
-			return;
+			return -1;
 		}
 
 		/* What exchange type do we want?  */
@@ -887,21 +887,20 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 				log_print("exchange_establish_p2: "
 				    "no \"EXCHANGE_TYPE\" tag in [%s] section",
 				    tag);
-				return;
+				return -1;
 			}
 			/* XXX IKE dependent.  */
 			type = constant_value(ike_exch_cst, str);
 			if (!type) {
 				log_print("exchange_establish_p2: unknown "
 				    "exchange type %s", str);
-				return;
+				return -1;
 			}
 		}
 	}
 	exchange = exchange_create(2, 1, doi, type);
 	if (!exchange) {
-		/* XXX Do something here?  */
-		return;
+		return -1;
 	}
 	if (name) {
 		exchange->name = strdup(name);
@@ -909,7 +908,7 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 			log_error("exchange_establish_p2: "
 			    "strdup (\"%s\") failed", name);
 			exchange_free(exchange);
-			return;
+			return -1;
 		}
 	}
 	exchange->policy = name ? conf_get_str(name, "Configuration") : 0;
@@ -927,16 +926,16 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 	exchange_dump("exchange_establish_p2", exchange);
 
 	/*
-         * Do not create SA's for informational exchanges.
-         * XXX How to handle new group mode?
-         */
+	 * Do not create SA's for informational exchanges.
+	 * XXX How to handle new group mode?
+	 */
 	if (exchange->type != ISAKMP_EXCH_INFO &&
 	    exchange->type != ISAKMP_EXCH_TRANSACTION) {
 		/* XXX Number of SAs should come from the args structure.  */
 		for (i = 0; i < 1; i++)
 			if (sa_create(exchange, isakmp_sa->transport)) {
 				exchange_free(exchange);
-				return;
+				return 0; /* exchange_free() runs finalize */
 			}
 	}
 	msg = message_alloc(isakmp_sa->transport, 0, ISAKMP_HDR_SZ);
@@ -949,6 +948,8 @@ exchange_establish_p2(struct sa *isakmp_sa, u_int8_t type, char *name,
 	msg->exchange = exchange;
 
 	exchange_run(msg);
+
+	return 0;
 }
 
 /* Out of an incoming phase 1 message, setup an exchange.  */
@@ -969,7 +970,7 @@ exchange_setup_p1(struct message *msg, u_int32_t doi)
 	/*
 	 * Unless this is an informational exchange, look up our policy for
 	 * this peer.
-         */
+	 */
 	type = GET_ISAKMP_HDR_EXCH_TYPE(msg->iov[0].iov_base);
 	if (type != ISAKMP_EXCH_INFO) {
 		/*
@@ -1200,9 +1201,11 @@ exchange_free_aux(void *v_exch)
 	free(exchange->id_i);
 	free(exchange->id_r);
 	free(exchange->keystate);
-	if (exchange->doi && exchange->doi->free_exchange_data)
-		exchange->doi->free_exchange_data(exchange->data);
-	free(exchange->data);
+	if (exchange->data) {
+		if (exchange->doi && exchange->doi->free_exchange_data)
+			exchange->doi->free_exchange_data(exchange->data);
+		free(exchange->data);
+	}
 	free(exchange->name);
 	if (exchange->recv_cert) {
 		handler = cert_get(exchange->recv_certtype);
@@ -1223,7 +1226,10 @@ exchange_free_aux(void *v_exch)
 		kn_close(exchange->policy_id);
 
 	exchange_free_aca_list(exchange);
-	LIST_REMOVE(exchange, link);
+	if (exchange->linked) {
+		LIST_REMOVE(exchange, link);
+		exchange->linked = 0;
+	}
 
 	/* Tell potential finalize routine we never got there.  */
 	if (exchange->finalize)
@@ -1260,6 +1266,7 @@ exchange_upgrade_p1(struct message *msg)
 	struct exchange *exchange = msg->exchange;
 
 	LIST_REMOVE(exchange, link);
+	exchange->linked = 0;
 	GET_ISAKMP_HDR_RCOOKIE(msg->iov[0].iov_base, exchange->cookies +
 	    ISAKMP_HDR_ICOOKIE_LEN);
 	exchange_enter(exchange);
@@ -1329,12 +1336,12 @@ exchange_finalize(struct message *msg)
 		}
 	}
 	/*
-         * Walk over all the SAs and noting them as ready.  If we set the
-         * COMMIT bit, tell the peer each SA is connected.
-         *
-         * XXX The decision should really be based on if a SA was installed
-         * successfully.
-         */
+	 * Walk over all the SAs and noting them as ready.  If we set the
+	 * COMMIT bit, tell the peer each SA is connected.
+	 *
+	 * XXX The decision should really be based on if a SA was installed
+	 * successfully.
+	 */
 	for (sa = TAILQ_FIRST(&exchange->sa_list); sa;
 	    sa = TAILQ_NEXT(sa, next)) {
 		/* Move over the name to the SA.  */
@@ -1389,7 +1396,7 @@ exchange_finalize(struct message *msg)
 	 * ISAKMP SA structure for future initialization of phase 2 exchanges'
 	 * keystates.  Also save the Phase 1 ID and authentication
 	 * information.
-         */
+	 */
 	if (exchange->phase == 1 && msg->isakmp_sa) {
 		msg->isakmp_sa->keystate = exchange->keystate;
 		exchange->keystate = 0;
@@ -1451,11 +1458,11 @@ exchange_finalize(struct message *msg)
 	exchange->finalize = 0;
 
 	/*
-         * There is no reason to keep the SAs connected to us anymore, in fact
-         * it can hurt us if we have short lifetimes on the SAs and we try
-         * to call exchange_report, where the SA list will be walked and
-         * references to freed SAs can occur.
-         */
+	 * There is no reason to keep the SAs connected to us anymore, in fact
+	 * it can hurt us if we have short lifetimes on the SAs and we try
+	 * to call exchange_report, where the SA list will be walked and
+	 * references to freed SAs can occur.
+	 */
 	while (TAILQ_FIRST(&exchange->sa_list)) {
 		sa = TAILQ_FIRST(&exchange->sa_list);
 
@@ -1663,12 +1670,12 @@ exchange_add_certs(struct message *msg)
 	id_len = exchange->initiator ? exchange->id_r_len : exchange->id_i_len;
 
 	/*
-         * Without IDs we cannot handle this yet. Keep the aca_list around for
-         * a later step/retry to see if we got the ID by then.
-         * Note: A 'return -1' breaks X509-auth interop in the responder case
-         *       with some IPsec clients that send CERTREQs early (such as
+	 * Without IDs we cannot handle this yet. Keep the aca_list around for
+	 * a later step/retry to see if we got the ID by then.
+	 * Note: A 'return -1' breaks X509-auth interop in the responder case
+	 *       with some IPsec clients that send CERTREQs early (such as
 	 *       the SSH Sentinel).
-         */
+	 */
 	if (!id)
 		return 0;
 
@@ -1746,13 +1753,15 @@ exchange_establish(char *name, void (*finalize)(struct exchange *, void *,
 		LOG_DBG((LOG_EXCHANGE, 40, "exchange_establish:"
 		    " returning in passive mode for exchange %s phase %d",
 		    name, phase));
+		if (finalize)
+			finalize(0, arg, 1);
 		return;
 	}
 
 	/*
 	 * First of all, never try to establish anything if another exchange
 	 * of the same kind is running.
-         */
+	 */
 	exchange = exchange_lookup_by_name(name, phase);
 	if (exchange) {
 		LOG_DBG((LOG_EXCHANGE, 40,
@@ -1772,10 +1781,13 @@ exchange_establish(char *name, void (*finalize)(struct exchange *, void *,
 		if (!transport) {
 			log_print("exchange_establish: transport \"%s\" for "
 			    "peer \"%s\" could not be created", trpt, name);
+			if (finalize)
+				finalize(0, arg, 1);
 			return;
 		}
-		exchange_establish_p1(transport, 0, 0, name, 0, finalize, arg,
-		    stayalive);
+		if (exchange_establish_p1(transport, 0, 0, name, 0, finalize,
+		    arg, stayalive) < 0 && finalize)
+			finalize(0, arg, 1);
 		break;
 
 	case 2:
@@ -1783,20 +1795,27 @@ exchange_establish(char *name, void (*finalize)(struct exchange *, void *,
 		if (!peer) {
 			log_print("exchange_establish: No ISAKMP-peer given "
 			    "for \"%s\"", name);
+			if (finalize)
+				finalize(0, arg, 1);
 			return;
 		}
 		isakmp_sa = sa_lookup_by_name(peer, 1);
 		if (!isakmp_sa) {
+			/* freed by exchange_establish_finalize() */
 			name = strdup(name);
 			if (!name) {
 				log_error("exchange_establish: "
 				    "strdup (\"%s\") failed", name);
+				if (finalize)
+					finalize(0, arg, 1);
 				return;
 			}
 			if (conf_get_num(peer, "Phase", 0) != 1) {
 				log_print("exchange_establish: "
 				    "[%s]:ISAKMP-peer's (%s) phase is not 1",
 				    name, peer);
+				if (finalize)
+					finalize(0, arg, 1);
 				free(name);
 				return;
 			}
@@ -1823,12 +1842,13 @@ exchange_establish(char *name, void (*finalize)(struct exchange *, void *,
 				/* Indicate failure */
 				if (finalize)
 					finalize(0, arg, 1);
-				free(name);
 			}
 			return;
-		} else
-			exchange_establish_p2(isakmp_sa, 0, name, 0, finalize,
-			    arg);
+		} else {
+			if (exchange_establish_p2(isakmp_sa, 0, name, 0,
+			    finalize, arg) < 0 && finalize)
+				finalize(0, arg, 1);
+		}
 		break;
 
 	default:

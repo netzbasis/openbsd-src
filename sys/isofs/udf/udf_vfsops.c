@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.59 2017/04/20 14:13:00 visa Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.62 2018/02/10 05:24:23 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -46,7 +46,6 @@
  * media is closed.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/uio.h>
@@ -123,7 +122,7 @@ udf_mount(struct mount *mp, const char *path, void *data,
     struct nameidata *ndp,  struct proc *p)
 {
 	struct vnode *devvp;	/* vnode of the mount device */
-	struct udf_args args;
+	struct udf_args *args = data;
 	char fspec[MNAMELEN];
 	int error;
 
@@ -141,14 +140,15 @@ udf_mount(struct mount *mp, const char *path, void *data,
 	if (mp->mnt_flag & MNT_ROOTFS)
 		return (EOPNOTSUPP);
 
-	error = copyin(data, &args, sizeof(struct udf_args));
-	if (error)
-		return (error);
+	/*
+	 * If updating, check whether changing from read-only to
+	 * read/write; if there is no device name, that's all we do.
+	 */
+	if (mp->mnt_flag & MNT_UPDATE) {
+		return (0);
+	}
 
-	if (args.fspec == NULL)
-		return (EINVAL);
-
-	error = copyinstr(args.fspec, fspec, sizeof(fspec), NULL);
+	error = copyinstr(args->fspec, fspec, sizeof(fspec), NULL);
 	if (error)
 		return (error);
 
@@ -167,7 +167,7 @@ udf_mount(struct mount *mp, const char *path, void *data,
 		return (ENXIO);
 	}
 
-	if ((error = udf_mountfs(devvp, mp, args.lastblock, p))) {
+	if ((error = udf_mountfs(devvp, mp, args->lastblock, p))) {
 		vrele(devvp);
 		return (error);
 	}
@@ -537,7 +537,7 @@ udf_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 }
 
 int
-udf_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
+udf_sync(struct mount *mp, int waitfor, int stall, struct ucred *cred, struct proc *p)
 {
 	return (0);
 }

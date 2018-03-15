@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.197 2017/04/20 12:59:36 visa Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.202 2017/12/30 20:47:00 guenther Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -49,7 +49,6 @@
 #include <sys/signalvar.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
-#include <sys/file.h>
 #include <sys/acct.h>
 #include <sys/ktrace.h>
 #include <sys/sched.h>
@@ -128,6 +127,10 @@ sys___tfork(struct proc *p, void *v, register_t *retval)
 	if (KTRPOINT(p, KTR_STRUCT))
 		ktrstruct(p, "tfork", &param, sizeof(param));
 #endif
+#ifdef TCB_INVALID
+	if (TCB_INVALID(param.tf_tcb))
+		return EINVAL;
+#endif /* TCB_INVALID */
 
 	return thread_fork(p, param.tf_stack, param.tf_tcb, param.tf_tid,
 	    retval);
@@ -233,7 +236,7 @@ process_new(struct proc *p, struct process *parent, int flags)
 		vref(pr->ps_textvp);
 
 	pr->ps_flags = parent->ps_flags &
-	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_WXNEEDED);
+	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_EXECPLEDGE | PS_WXNEEDED);
 	if (parent->ps_session->s_ttyvp != NULL)
 		pr->ps_flags |= parent->ps_flags & PS_CONTROLT;
 
@@ -253,9 +256,6 @@ process_new(struct proc *p, struct process *parent, int flags)
 		pr->ps_vmspace = uvmspace_share(parent);
 	else
 		pr->ps_vmspace = uvmspace_fork(parent);
-
-	if (pr->ps_pledgepaths)
-		pr->ps_pledgepaths->wl_ref++;
 
 	if (parent->ps_flags & PS_PROFIL)
 		startprofclock(pr);

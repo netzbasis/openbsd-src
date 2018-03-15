@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.248 2017/05/27 16:41:10 bluhm Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.255 2018/03/13 01:34:06 dlg Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -84,6 +84,7 @@
 #include <sys/protosw.h>
 #include <sys/pool.h>
 #include <sys/percpu.h>
+#include <sys/sysctl.h>
 
 #include <sys/socket.h>
 #include <sys/socketvar.h>
@@ -148,9 +149,6 @@ struct pool_allocator m_pool_allocator = {
 
 static void (*mextfree_fns[4])(caddr_t, u_int, void *);
 static u_int num_extfree_fns;
-
-const char *mclpool_warnmsg =
-    "WARNING: mclpools limit reached; increase kern.maxclusters";
 
 /*
  * Initialize the mbuf allocator.
@@ -306,7 +304,7 @@ m_resethdr(struct mbuf *m)
 	m_tag_delete_chain(m);
 
 #if NPF > 0
-	pf_pkt_unlink_state_key(m);
+	pf_mbuf_unlink_state_key(m);
 #endif	/* NPF > 0 */
 
 	/* like m_inithdr(), but keep any associated data and mbufs */
@@ -406,7 +404,7 @@ m_free(struct mbuf *m)
 	if (m->m_flags & M_PKTHDR) {
 		m_tag_delete_chain(m);
 #if NPF > 0
-		pf_pkt_unlink_state_key(m);
+		pf_mbuf_unlink_state_key(m);
 #endif	/* NPF > 0 */
 	}
 	if (m->m_flags & M_EXT)
@@ -804,20 +802,22 @@ m_adj(struct mbuf *mp, int req_len)
 	struct mbuf *m;
 	int count;
 
-	if ((m = mp) == NULL)
+	if (mp == NULL)
 		return;
 	if (len >= 0) {
 		/*
 		 * Trim from head.
 		 */
+		m = mp;
 		while (m != NULL && len > 0) {
 			if (m->m_len <= len) {
 				len -= m->m_len;
+				m->m_data += m->m_len;
 				m->m_len = 0;
 				m = m->m_next;
 			} else {
-				m->m_len -= len;
 				m->m_data += len;
+				m->m_len -= len;
 				len = 0;
 			}
 		}
@@ -833,6 +833,7 @@ m_adj(struct mbuf *mp, int req_len)
 		 */
 		len = -len;
 		count = 0;
+		m = mp;
 		for (;;) {
 			count += m->m_len;
 			if (m->m_next == NULL)
@@ -853,15 +854,16 @@ m_adj(struct mbuf *mp, int req_len)
 		 * Find the mbuf with last data, adjust its length,
 		 * and toss data from remaining mbufs on chain.
 		 */
+		if (mp->m_flags & M_PKTHDR)
+			mp->m_pkthdr.len = count;
 		m = mp;
-		if (m->m_flags & M_PKTHDR)
-			m->m_pkthdr.len = count;
-		for (; m; m = m->m_next) {
+		for (;;) {
 			if (m->m_len >= count) {
 				m->m_len = count;
 				break;
 			}
 			count -= m->m_len;
+			m = m->m_next;
 		}
 		while ((m = m->m_next) != NULL)
 			m->m_len = 0;
@@ -886,7 +888,11 @@ m_pullup(struct mbuf *n, int len)
 	if (len <= n->m_len)
 		return (n);
 
-	adj = (unsigned long)n->m_data & ALIGNBYTES;
+	m = n;
+	while (m->m_len == 0)
+		m = m->m_next;
+	adj = (unsigned long)m->m_data & ALIGNBYTES;
+
 	head = (caddr_t)ALIGN(mtod(n, caddr_t) - M_LEADINGSPACE(n)) + adj;
 	tail = mtod(n, caddr_t) + n->m_len + M_TRAILINGSPACE(n);
 
@@ -1321,7 +1327,8 @@ m_dup_pkthdr(struct mbuf *to, struct mbuf *from, int wait)
 	to->m_pkthdr = from->m_pkthdr;
 
 #if NPF > 0
-	pf_pkt_state_key_ref(to);
+	to->m_pkthdr.pf.statekey = NULL;
+	pf_mbuf_link_state_key(to, from->m_pkthdr.pf.statekey);
 #endif	/* NPF > 0 */
 
 	SLIST_INIT(&to->m_pkthdr.ph_tags);
@@ -1645,4 +1652,35 @@ mq_purge(struct mbuf_queue *mq)
 	mq_delist(mq, &ml);
 
 	return (ml_purge(&ml));
+}
+
+int
+sysctl_mq(int *name, u_int namelen, void *oldp, size_t *oldlenp,
+    void *newp, size_t newlen, struct mbuf_queue *mq)
+{
+	unsigned int maxlen;
+	int error;
+
+	/* All sysctl names at this level are terminal. */
+	if (namelen != 1)
+		return (ENOTDIR);
+
+	switch (name[0]) {
+	case IFQCTL_LEN:
+		return (sysctl_rdint(oldp, oldlenp, newp, mq_len(mq)));
+	case IFQCTL_MAXLEN:
+		maxlen = mq->mq_maxlen;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &maxlen);
+		if (!error && maxlen != mq->mq_maxlen) {
+			mtx_enter(&mq->mq_mtx);
+			mq->mq_maxlen = maxlen;
+			mtx_leave(&mq->mq_mtx);
+		}
+		return (error);
+	case IFQCTL_DROPS:
+		return (sysctl_rdint(oldp, oldlenp, newp, mq_drops(mq)));
+	default:
+		return (EOPNOTSUPP);
+	}
+	/* NOTREACHED */
 }

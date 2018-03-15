@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.106 2017/06/17 03:45:36 visa Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.108 2018/01/06 06:30:11 visa Exp $	*/
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -502,37 +502,13 @@ pmap_t
 pmap_create()
 {
 	pmap_t pmap;
-	int i;
-
-extern struct vmspace vmspace0;
-extern struct user *proc0paddr;
 
 	DPRINTF(PDB_FOLLOW|PDB_CREATE, ("pmap_create()\n"));
 
 	pmap = pool_get(&pmap_pmap_pool, PR_WAITOK | PR_ZERO);
-
-	mtx_init(&pmap->pm_mtx, IPL_VM);
-	pmap->pm_count = 1;
-
 	pmap->pm_segtab = pool_get(&pmap_pg_pool, PR_WAITOK | PR_ZERO);
-
-	if (pmap == vmspace0.vm_map.pmap) {
-		/*
-		 * The initial process has already been allocated a TLBPID
-		 * in mips_init().
-		 */
-		for (i = 0; i < ncpusfound; i++) {
-			pmap->pm_asid[i].pma_asid = MIN_USER_ASID;
-			pmap->pm_asid[i].pma_asidgen =
-				pmap_asid_info[i].pma_asidgen;
-		}
-		proc0paddr->u_pcb.pcb_segtab = pmap->pm_segtab;
-	} else {
-		for (i = 0; i < ncpusfound; i++) {
-			pmap->pm_asid[i].pma_asid = 0;
-			pmap->pm_asid[i].pma_asidgen = 0;
-		}
-	}
+	pmap->pm_count = 1;
+	mtx_init(&pmap->pm_mtx, IPL_VM);
 
 	return (pmap);
 }
@@ -1419,14 +1395,12 @@ pmap_extract(pmap_t pmap, vaddr_t va, paddr_t *pap)
 		}
 	} else {
 		pte = pmap_pte_lookup(pmap, va);
-		if (pte == NULL) {
-			rv = FALSE;
-			goto out;
-		}
-		if (*pte & PG_V)
+		if (pte != NULL && (*pte & PG_V) != 0)
 			pa = pfn_to_pad(*pte) | (va & PAGE_MASK);
+		else
+			rv = FALSE;
 	}
-out:
+
 	if (rv != FALSE)
 		*pap = pa;
 

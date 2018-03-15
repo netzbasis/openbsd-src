@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Signature.pm,v 1.18 2015/03/26 22:07:58 kili Exp $
+# $OpenBSD: Signature.pm,v 1.20 2018/02/06 15:17:26 espie Exp $
 #
 # Copyright (c) 2010 Marc Espie <espie@openbsd.org>
 #
@@ -18,48 +18,91 @@
 use strict;
 use warnings;
 
-package OpenBSD::PackageName::Name;
-sub long_string
-{
-	my $self = shift;
-	return '@'.$self->to_string;
-}
+package OpenBSD::PackingElement;
+sub signature {}
 
-sub always
+package OpenBSD::PackingElement::VersionElement;
+sub signature
 {
-	return 0;
-}
-package OpenBSD::LibObject;
-sub long_string
-{
-	my $self = shift;
-	return $self->to_string;
+	my ($self, $hash) = @_;
+	$hash->{$self->signature_key} = $self;
 }
 
 sub always
 {
 	return 1;
 }
-
-package OpenBSD::PackingElement;
-sub signature {}
-
 package OpenBSD::PackingElement::Dependency;
-sub signature
+sub signature_key
 {
-	my ($self, $hash) = @_;
-	$hash->{$self->{pkgpath}} = OpenBSD::PackageName->from_string($self->{def});
+	my $self = shift;
+	return $self->{pkgpath};
+}
+
+sub sigspec
+{
+	my $self = shift;
+	return OpenBSD::PackageName->from_string($self->{def});
+}
+
+sub long_string
+{
+	my $self = shift;
+	return '@'.$self->sigspec->to_string;
+}
+
+sub compare
+{
+	my ($a, $b) = @_;
+	return $a->sigspec->compare($b->sigspec);
+}
+
+sub always
+{
+	return 0;
 }
 
 package OpenBSD::PackingElement::Wantlib;
-sub signature
+sub signature_key
 {
-	my ($self, $hash) = @_;
-
+	my $self = shift;
 	my $spec = $self->spec;
 	if ($spec->is_valid) {
-		$hash->{$spec->key} = $spec;
+		return $spec->key;
+	} else {
+		return "???";
 	}
+}
+
+sub compare
+{
+	my ($a, $b) = @_;
+	return $a->spec->compare($b->spec);
+}
+
+sub long_string
+{
+	my $self = shift;
+	return $self->spec->to_string;
+}
+
+
+package OpenBSD::PackingElement::Version;
+sub signature_key
+{
+	return 'VERSION';
+}
+
+sub long_string
+{
+	my $self = shift;
+	return $self->{name};
+}
+
+sub compare
+{
+	my ($a, $b) = @_;
+	return $a->{name} <=> $b->{name};
 }
 
 package OpenBSD::Signature;
@@ -69,6 +112,8 @@ sub from_plist
 
 	my $k = {};
 	$plist->visit('signature', $k);
+
+	$k->{VERSION} //= OpenBSD::PackingElement::Version->new(0);
 
 	if ($plist->has('always-update')) {
 		return $class->always->new($plist->pkgname, $k, $plist);

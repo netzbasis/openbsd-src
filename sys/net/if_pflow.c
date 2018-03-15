@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pflow.c,v 1.83 2017/08/12 20:27:28 mpi Exp $	*/
+/*	$OpenBSD: if_pflow.c,v 1.87 2018/02/19 08:59:52 mpi Exp $	*/
 
 /*
  * Copyright (c) 2011 Florian Obser <florian@narrans.de>
@@ -19,9 +19,8 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/malloc.h>
 #include <sys/param.h>
+#include <sys/malloc.h>
 #include <sys/systm.h>
 #include <sys/mbuf.h>
 #include <sys/socket.h>
@@ -146,12 +145,8 @@ pflow_clone_create(struct if_clone *ifc, int unit)
 	struct ifnet		*ifp;
 	struct pflow_softc	*pflowif;
 
-	if ((pflowif = malloc(sizeof(*pflowif),
-	    M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
-		return (ENOMEM);
-
+	pflowif = malloc(sizeof(*pflowif), M_DEVBUF, M_WAITOK|M_ZERO);
 	MGET(pflowif->send_nam, M_WAIT, MT_SONAME);
-
 	pflowif->sc_version = PFLOW_PROTO_DEFAULT;
 
 	/* ipfix template init */
@@ -287,7 +282,7 @@ pflow_clone_destroy(struct ifnet *ifp)
 	if (timeout_initialized(&sc->sc_tmo_tmpl))
 		timeout_del(&sc->sc_tmo_tmpl);
 	pflow_flush(sc);
-	task_del(softnettq, &sc->sc_outputtask);
+	task_del(net_tq(ifp->if_index), &sc->sc_outputtask);
 	mq_purge(&sc->sc_outputqueue);
 	m_freem(sc->send_nam);
 	if (sc->so != NULL) {
@@ -520,7 +515,7 @@ pflowioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 
 	case SIOCSETPFLOW:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		if ((error = copyin(ifr->ifr_data, &pflowr,
 		    sizeof(pflowr))))
@@ -1088,7 +1083,7 @@ pflow_sendout_v5(struct pflow_softc *sc)
 	h->time_sec = htonl(tv.tv_sec);			/* XXX 2038 */
 	h->time_nanosec = htonl(tv.tv_nsec);
 	if (mq_enqueue(&sc->sc_outputqueue, m) == 0)
-		task_add(softnettq, &sc->sc_outputtask);
+		task_add(net_tq(ifp->if_index), &sc->sc_outputtask);
 	return (0);
 }
 
@@ -1150,7 +1145,7 @@ pflow_sendout_ipfix(struct pflow_softc *sc, sa_family_t af)
 	sc->sc_sequence += count;
 	h10->observation_dom = htonl(PFLOW_ENGINE_TYPE);
 	if (mq_enqueue(&sc->sc_outputqueue, m) == 0)
-		task_add(softnettq, &sc->sc_outputtask);
+		task_add(net_tq(ifp->if_index), &sc->sc_outputtask);
 	return (0);
 }
 
@@ -1192,7 +1187,7 @@ pflow_sendout_ipfix_tmpl(struct pflow_softc *sc)
 
 	timeout_add_sec(&sc->sc_tmo_tmpl, PFLOW_TMPL_TIMEOUT);
 	if (mq_enqueue(&sc->sc_outputqueue, m) == 0)
-		task_add(softnettq, &sc->sc_outputtask);
+		task_add(net_tq(ifp->if_index), &sc->sc_outputtask);
 	return (0);
 }
 

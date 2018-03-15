@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_var.h,v 1.80 2017/07/14 16:50:41 tedu Exp $	*/
+/*	$OpenBSD: ip_var.h,v 1.85 2017/11/15 11:48:59 mpi Exp $	*/
 /*	$NetBSD: ip_var.h,v 1.16 1996/02/13 23:43:20 christos Exp $	*/
 
 /*
@@ -191,7 +191,6 @@ struct ipq {
 #define	IP_MTUDISC		0x0800		/* pmtu discovery, set DF */
 
 extern struct ipstat ipstat;
-extern LIST_HEAD(ipqhead, ipq)	ipq;	/* ip reass. queue */
 extern int ip_defttl;			/* default IP ttl */
 
 #define IPMTUDISCTIMEOUT (10 * 60)	/* as per RFC 1191 */
@@ -203,7 +202,6 @@ extern int ipport_firstauto;		/* min port for port allocation */
 extern int ipport_lastauto;		/* max port for port allocation */
 extern int ipport_hifirstauto;		/* min dynamic/private port number */
 extern int ipport_hilastauto;		/* max dynamic/private port number */
-extern int encdebug;			/* enable message reporting */
 extern int ipforwarding;		/* enable IP forwarding */
 #ifdef MROUTING
 extern int ipmforwarding;		/* enable multicast forwarding */
@@ -217,7 +215,6 @@ struct route;
 struct inpcb;
 
 int	 ip_ctloutput(int, struct socket *, int, int, struct mbuf *);
-void	 ip_drain(void);
 void	 ip_flush(void);
 int	 ip_fragment(struct mbuf *, struct ifnet *, u_long);
 void	 ip_freef(struct ipq *);
@@ -230,13 +227,11 @@ int	 ip_mforward(struct mbuf *, struct ifnet *);
 int	 ip_optcopy(struct ip *, struct ip *);
 int	 ip_output(struct mbuf *, struct mbuf *, struct route *, int,
 	    struct ip_moptions *, struct inpcb *, u_int32_t);
-int	 ip_pcbopts(struct mbuf **, struct mbuf *);
 struct mbuf *
 	 ip_reass(struct ipqent *, struct ipq *);
 u_int16_t
 	 ip_randomid(void);
 void	 ip_send(struct mbuf *);
-int	 ip_setmoptions(int, struct ip_moptions **, struct mbuf *, u_int);
 void	 ip_slowtimo(void);
 struct mbuf *
 	 ip_srcroute(struct mbuf *);
@@ -256,7 +251,7 @@ int	 rip_output(struct mbuf *, struct socket *, struct sockaddr *,
 int	 rip_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
 int	 rip_attach(struct socket *, int);
-
+int	 rip_detach(struct socket *);
 #ifdef MROUTING
 extern struct socket *ip_mrouter[];	/* multicast routing daemon */
 #endif

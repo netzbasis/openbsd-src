@@ -1,4 +1,4 @@
-/Makefile/1.5/Wed Jan 25 07:29:30 2017//
+/Makefile/1.6/Wed Oct  4 20:57:09 2017//
 /Makefile.arch/1.4/Wed Jan 25 19:24:33 2017//
 /Makefile.inc/1.5/Mon Apr 17 15:53:21 2017//
 D/clang////
@@ -20,6 +20,7 @@ D/libLLVMARMInfo////
 D/libLLVMAnalysis////
 D/libLLVMAsmParser////
 D/libLLVMAsmPrinter////
+D/libLLVMBinaryFormat////
 D/libLLVMBitReader////
 D/libLLVMBitWriter////
 D/libLLVMCodeGen////

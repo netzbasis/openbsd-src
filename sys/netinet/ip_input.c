@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_input.c,v 1.319 2017/08/22 15:02:34 mpi Exp $	*/
+/*	$OpenBSD: ip_input.c,v 1.336 2017/12/29 17:05:25 bluhm Exp $	*/
 /*	$NetBSD: ip_input.c,v 1.30 1996/03/16 23:53:58 christos Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 #include <sys/systm.h>
 #include <sys/mbuf.h>
 #include <sys/domain.h>
+#include <sys/mutex.h>
 #include <sys/protosw.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
@@ -83,24 +84,6 @@
 #include <netinet/ip_carp.h>
 #endif
 
-struct ipqhead ipq;
-
-int encdebug = 0;
-int ipsec_keep_invalid = IPSEC_DEFAULT_EMBRYONIC_SA_TIMEOUT;
-int ipsec_require_pfs = IPSEC_DEFAULT_PFS;
-int ipsec_soft_allocations = IPSEC_DEFAULT_SOFT_ALLOCATIONS;
-int ipsec_exp_allocations = IPSEC_DEFAULT_EXP_ALLOCATIONS;
-int ipsec_soft_bytes = IPSEC_DEFAULT_SOFT_BYTES;
-int ipsec_exp_bytes = IPSEC_DEFAULT_EXP_BYTES;
-int ipsec_soft_timeout = IPSEC_DEFAULT_SOFT_TIMEOUT;
-int ipsec_exp_timeout = IPSEC_DEFAULT_EXP_TIMEOUT;
-int ipsec_soft_first_use = IPSEC_DEFAULT_SOFT_FIRST_USE;
-int ipsec_exp_first_use = IPSEC_DEFAULT_EXP_FIRST_USE;
-int ipsec_expire_acquire = IPSEC_DEFAULT_EXPIRE_ACQUIRE;
-char ipsec_def_enc[20];
-char ipsec_def_auth[20];
-char ipsec_def_comp[20];
-
 /* values controllable via sysctl */
 int	ipforwarding = 0;
 int	ipmforwarding = 0;
@@ -113,6 +96,12 @@ u_int	ip_mtudisc_timeout = IPMTUDISCTIMEOUT;
 int	ip_directedbcast = 0;
 
 struct rttimer_queue *ip_mtudisc_timeout_q = NULL;
+
+/* Protects `ipq' and `ip_frags'. */
+struct mutex	ipq_mutex = MUTEX_INITIALIZER(IPL_SOFTNET);
+
+/* IP reassembly queue */
+LIST_HEAD(, ipq) ipq;
 
 /* Keep track of memory used for reassembly */
 int	ip_maxqueue = 300;
@@ -162,7 +151,7 @@ void save_rte(struct mbuf *, u_char *, struct in_addr);
 void
 ip_init(void)
 {
-	struct protosw *pr;
+	const struct protosw *pr;
 	int i;
 	const u_int16_t defbaddynamicports_tcp[] = DEFBADDYNAMICPORTS_TCP;
 	const u_int16_t defbaddynamicports_udp[] = DEFBADDYNAMICPORTS_UDP;
@@ -206,11 +195,11 @@ ip_init(void)
 	for (i = 0; defrootonlyports_udp[i] != 0; i++)
 		DP_SET(rootonlyports.udp, defrootonlyports_udp[i]);
 
-	strlcpy(ipsec_def_enc, IPSEC_DEFAULT_DEF_ENC, sizeof(ipsec_def_enc));
-	strlcpy(ipsec_def_auth, IPSEC_DEFAULT_DEF_AUTH, sizeof(ipsec_def_auth));
-	strlcpy(ipsec_def_comp, IPSEC_DEFAULT_DEF_COMP, sizeof(ipsec_def_comp));
-
 	mq_init(&ipsend_mq, 64, IPL_SOFTNET);
+
+#ifdef IPSEC
+	ipsec_init();
+#endif
 }
 
 /*
@@ -477,8 +466,6 @@ ip_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
 	if (ipsec_in_use) {
 		int rv;
 
-		KERNEL_ASSERT_LOCKED();
-
 		rv = ipsec_forward_check(m, hlen, AF_INET);
 		if (rv != 0) {
 			ipstat_inc(ips_cantforward);
@@ -516,8 +503,6 @@ ip_local(struct mbuf **mp, int *offp, int nxt, int af)
 	struct ipqent *ipqe;
 	int mff, hlen;
 
-	KERNEL_ASSERT_LOCKED();
-
 	hlen = ip->ip_hl << 2;
 
 	/*
@@ -531,23 +516,24 @@ ip_local(struct mbuf **mp, int *offp, int nxt, int af)
 		if (m->m_flags & M_EXT) {		/* XXX */
 			if ((m = *mp = m_pullup(m, hlen)) == NULL) {
 				ipstat_inc(ips_toosmall);
-				goto bad;
+				return IPPROTO_DONE;
 			}
 			ip = mtod(m, struct ip *);
 		}
+
+		mtx_enter(&ipq_mutex);
 
 		/*
 		 * Look for queue of fragments
 		 * of this datagram.
 		 */
-		LIST_FOREACH(fp, &ipq, ipq_q)
+		LIST_FOREACH(fp, &ipq, ipq_q) {
 			if (ip->ip_id == fp->ipq_id &&
 			    ip->ip_src.s_addr == fp->ipq_src.s_addr &&
 			    ip->ip_dst.s_addr == fp->ipq_dst.s_addr &&
 			    ip->ip_p == fp->ipq_p)
-				goto found;
-		fp = 0;
-found:
+				break;
+		}
 
 		/*
 		 * Adjust ip_len to not reflect header,
@@ -601,6 +587,8 @@ found:
 		} else
 			if (fp)
 				ip_freef(fp);
+
+		mtx_leave(&ipq_mutex);
 	}
 
 	*offp = hlen;
@@ -610,6 +598,7 @@ found:
 		nxt = ip_deliver(mp, offp, nxt, AF_INET);
 	return nxt;
  bad:
+	mtx_leave(&ipq_mutex);
 	m_freemp(mp);
 	return IPPROTO_DONE;
 }
@@ -624,13 +613,11 @@ found:
 int
 ip_deliver(struct mbuf **mp, int *offp, int nxt, int af)
 {
-	struct protosw *psw;
+	const struct protosw *psw;
 	int naf = af;
 #ifdef INET6
 	int nest = 0;
 #endif /* INET6 */
-
-	KERNEL_ASSERT_LOCKED();
 
 	/* pf might have modified stuff, might have to chksum */
 	switch (af) {
@@ -822,6 +809,8 @@ ip_reass(struct ipqent *ipqe, struct ipq *fp)
 	int i, next;
 	u_int8_t ecn, ecn0;
 
+	MUTEX_ASSERT_LOCKED(&ipq_mutex);
+
 	/*
 	 * Presence of header sizes in mbufs
 	 * would confuse code below.
@@ -998,12 +987,13 @@ dropfrag:
 void
 ip_freef(struct ipq *fp)
 {
-	struct ipqent *q, *p;
+	struct ipqent *q;
 
-	for (q = LIST_FIRST(&fp->ipq_fragq); q != NULL; q = p) {
-		p = LIST_NEXT(q, ipqe_q);
-		m_freem(q->ipqe_m);
+	MUTEX_ASSERT_LOCKED(&ipq_mutex);
+
+	while ((q = LIST_FIRST(&fp->ipq_fragq)) != NULL) {
 		LIST_REMOVE(q, ipqe_q);
+		m_freem(q->ipqe_m);
 		pool_put(&ipqent_pool, q);
 		ip_frags--;
 	}
@@ -1014,34 +1004,20 @@ ip_freef(struct ipq *fp)
 /*
  * IP timer processing;
  * if a timer expires on a reassembly queue, discard it.
- * clear the forwarding cache, there might be a better route.
  */
 void
 ip_slowtimo(void)
 {
 	struct ipq *fp, *nfp;
 
-	NET_ASSERT_LOCKED();
-
-	for (fp = LIST_FIRST(&ipq); fp != NULL; fp = nfp) {
-		nfp = LIST_NEXT(fp, ipq_q);
+	mtx_enter(&ipq_mutex);
+	LIST_FOREACH_SAFE(fp, &ipq, ipq_q, nfp) {
 		if (--fp->ipq_ttl == 0) {
 			ipstat_inc(ips_fragtimeout);
 			ip_freef(fp);
 		}
 	}
-}
-
-/*
- * Drain off all datagram fragments.
- */
-void
-ip_drain(void)
-{
-	while (!LIST_EMPTY(&ipq)) {
-		ipstat_inc(ips_fragdropped);
-		ip_freef(LIST_FIRST(&ipq));
-	}
+	mtx_leave(&ipq_mutex);
 }
 
 /*
@@ -1052,7 +1028,8 @@ ip_flush(void)
 {
 	int max = 50;
 
-	/* ipq already locked */
+	MUTEX_ASSERT_LOCKED(&ipq_mutex);
+
 	while (!LIST_EMPTY(&ipq) && ip_frags > ip_maxqueue * 3 / 4 && --max) {
 		ipstat_inc(ips_fragdropped);
 		ip_freef(LIST_FIRST(&ipq));
@@ -1407,7 +1384,7 @@ ip_stripoptions(struct mbuf *m)
 	ip->ip_len = htons(ntohs(ip->ip_len) - olen);
 }
 
-int inetctlerrmap[PRC_NCMDS] = {
+const int inetctlerrmap[PRC_NCMDS] = {
 	0,		0,		0,		0,
 	0,		EMSGSIZE,	EHOSTDOWN,	EHOSTUNREACH,
 	EHOSTUNREACH,	EHOSTUNREACH,	ECONNREFUSED,	ECONNREFUSED,
@@ -1482,7 +1459,7 @@ ip_forward(struct mbuf *m, struct ifnet *ifp, struct rtentry *rt, int srcrt)
 		m_copydata(m, 0, len, mfake.m_pktdat);
 		mfake.m_pkthdr.len = mfake.m_len = len;
 #if NPF > 0
-		pf_pkt_unlink_state_key(&mfake);
+		pf_pkt_addr_changed(&mfake);
 #endif	/* NPF > 0 */
 		fake = 1;
 	}
@@ -1606,26 +1583,24 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	extern struct mrtstat mrtstat;
 #endif
 
-	NET_ASSERT_LOCKED();
-
 	/* Almost all sysctl names at this level are terminal. */
 	if (namelen != 1 && name[0] != IPCTL_IFQUEUE)
 		return (ENOTDIR);
 
 	switch (name[0]) {
-#ifdef notyet
-	case IPCTL_DEFMTU:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &ip_mtu));
-#endif
 	case IPCTL_SOURCEROUTE:
 		/*
 		 * Don't allow this to change in a secure environment.
 		 */
 		if (newp && securelevel > 0)
 			return (EPERM);
-		return (sysctl_int(oldp, oldlenp, newp, newlen,
-		    &ip_dosourceroute));
+		NET_LOCK();
+		error = sysctl_int(oldp, oldlenp, newp, newlen,
+		    &ip_dosourceroute);
+		NET_UNLOCK();
+		return (error);
 	case IPCTL_MTUDISC:
+		NET_LOCK();
 		error = sysctl_int(oldp, oldlenp, newp, newlen,
 		    &ip_mtudisc);
 		if (ip_mtudisc != 0 && ip_mtudisc_timeout_q == NULL) {
@@ -1635,25 +1610,36 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			rt_timer_queue_destroy(ip_mtudisc_timeout_q);
 			ip_mtudisc_timeout_q = NULL;
 		}
+		NET_UNLOCK();
 		return error;
 	case IPCTL_MTUDISCTIMEOUT:
+		NET_LOCK();
 		error = sysctl_int(oldp, oldlenp, newp, newlen,
 		   &ip_mtudisc_timeout);
 		if (ip_mtudisc_timeout_q != NULL)
 			rt_timer_queue_change(ip_mtudisc_timeout_q,
 					      ip_mtudisc_timeout);
+		NET_UNLOCK();
 		return (error);
+#ifdef IPSEC
+	case IPCTL_ENCDEBUG:
+	case IPCTL_IPSEC_EXPIRE_ACQUIRE:
+	case IPCTL_IPSEC_EMBRYONIC_SA_TIMEOUT:
+	case IPCTL_IPSEC_REQUIRE_PFS:
+	case IPCTL_IPSEC_SOFT_ALLOCATIONS:
+	case IPCTL_IPSEC_ALLOCATIONS:
+	case IPCTL_IPSEC_SOFT_BYTES:
+	case IPCTL_IPSEC_BYTES:
+	case IPCTL_IPSEC_TIMEOUT:
+	case IPCTL_IPSEC_SOFT_TIMEOUT:
+	case IPCTL_IPSEC_SOFT_FIRSTUSE:
+	case IPCTL_IPSEC_FIRSTUSE:
 	case IPCTL_IPSEC_ENC_ALGORITHM:
-		return (sysctl_tstring(oldp, oldlenp, newp, newlen,
-				       ipsec_def_enc, sizeof(ipsec_def_enc)));
 	case IPCTL_IPSEC_AUTH_ALGORITHM:
-		return (sysctl_tstring(oldp, oldlenp, newp, newlen,
-				       ipsec_def_auth,
-				       sizeof(ipsec_def_auth)));
 	case IPCTL_IPSEC_IPCOMP_ALGORITHM:
-		return (sysctl_tstring(oldp, oldlenp, newp, newlen,
-				       ipsec_def_comp,
-				       sizeof(ipsec_def_comp)));
+		return (ipsec_sysctl(name, namelen, oldp, oldlenp, newp,
+		    newlen));
+#endif
 	case IPCTL_IFQUEUE:
 		return (sysctl_niq(name + 1, namelen - 1,
 		    oldp, oldlenp, newp, newlen, &ipintrq));
@@ -1668,11 +1654,17 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case IPCTL_MRTMFC:
 		if (newp)
 			return (EPERM);
-		return mrt_sysctl_mfc(oldp, oldlenp);
+		NET_LOCK();
+		error = mrt_sysctl_mfc(oldp, oldlenp);
+		NET_UNLOCK();
+		return (error);
 	case IPCTL_MRTVIF:
 		if (newp)
 			return (EPERM);
-		return mrt_sysctl_vif(oldp, oldlenp);
+		NET_LOCK();
+		error = mrt_sysctl_vif(oldp, oldlenp);
+		NET_UNLOCK();
+		return (error);
 #else
 	case IPCTL_MRTPROTO:
 	case IPCTL_MRTSTATS:
@@ -1681,9 +1673,13 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (EOPNOTSUPP);
 #endif
 	default:
-		if (name[0] < IPCTL_MAXID)
-			return (sysctl_int_arr(ipctl_vars, name, namelen,
-			    oldp, oldlenp, newp, newlen));
+		if (name[0] < IPCTL_MAXID) {
+			NET_LOCK();
+			error = sysctl_int_arr(ipctl_vars, name, namelen,
+			    oldp, oldlenp, newp, newlen);
+			NET_UNLOCK();
+			return (error);
+		}
 		return (EOPNOTSUPP);
 	}
 	/* NOTREACHED */
@@ -1773,12 +1769,15 @@ ip_savecontrol(struct inpcb *inp, struct mbuf **mp, struct ip *ip,
 	}
 	if (inp->inp_flags & INP_RECVRTABLE) {
 		u_int rtableid = inp->inp_rtableid;
-#if NPF > 0
-		struct pf_divert *divert;
 
-		if (m && m->m_pkthdr.pf.flags & PF_TAG_DIVERTED &&
-		    (divert = pf_find_divert(m)) != NULL)
+#if NPF > 0
+		if (m && m->m_pkthdr.pf.flags & PF_TAG_DIVERTED) {
+			struct pf_divert *divert;
+
+			divert = pf_find_divert(m);
+			KASSERT(divert != NULL);
 			rtableid = divert->rdomain;
+		}
 #endif
 
 		*mp = sbcreatecontrol((caddr_t) &rtableid,
@@ -1794,45 +1793,21 @@ ip_send_dispatch(void *xmq)
 	struct mbuf_queue *mq = xmq;
 	struct mbuf *m;
 	struct mbuf_list ml;
-#ifdef IPSEC
-	int locked = 0;
-#endif /* IPSEC */
 
 	mq_delist(mq, &ml);
 	if (ml_empty(&ml))
 		return;
 
-	NET_LOCK();
-
-#ifdef IPSEC
-	/*
-	 * IPsec is not ready to run without KERNEL_LOCK().  So all
-	 * the traffic on your machine is punished if you have IPsec
-	 * enabled.
-	 */
-	extern int ipsec_in_use;
-	if (ipsec_in_use) {
-		NET_UNLOCK();
-		KERNEL_LOCK();
-		NET_LOCK();
-		locked = 1;
-	}
-#endif /* IPSEC */
-
+	NET_RLOCK();
 	while ((m = ml_dequeue(&ml)) != NULL) {
 		ip_output(m, NULL, NULL, 0, NULL, NULL, 0);
 	}
-	NET_UNLOCK();
-
-#ifdef IPSEC
-	if (locked)
-		KERNEL_UNLOCK();
-#endif /* IPSEC */
+	NET_RUNLOCK();
 }
 
 void
 ip_send(struct mbuf *m)
 {
 	mq_enqueue(&ipsend_mq, m);
-	task_add(softnettq, &ipsend_task);
+	task_add(net_tq(0), &ipsend_task);
 }

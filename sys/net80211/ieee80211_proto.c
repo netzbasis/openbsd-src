@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.80 2017/08/18 17:30:12 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.83 2018/02/06 22:14:52 phessler Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -557,7 +557,7 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 	 * Require at least one of the mandatory MCS.
 	 * MCS 0-7 are mandatory but some APs have particular MCS disabled.
 	 */
-	if ((ni->ni_rxmcs[0] & 0xff) == 0) {
+	if (!ieee80211_node_supports_ht(ni)) {
 		ic->ic_stats.is_ht_nego_no_mandatory_mcs++;
 		return;
 	}
@@ -715,6 +715,24 @@ ieee80211_delba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 	}
 }
 
+#ifndef IEEE80211_STA_ONLY
+void
+ieee80211_auth_open_confirm(struct ieee80211com *ic,
+    struct ieee80211_node *ni, uint16_t seq)
+{
+	struct ifnet *ifp = &ic->ic_if;
+
+	IEEE80211_SEND_MGMT(ic, ni, IEEE80211_FC0_SUBTYPE_AUTH, seq + 1);
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: station %s %s authenticated (open)\n",
+		    ifp->if_xname,
+		    ether_sprintf((u_int8_t *)ni->ni_macaddr),
+		    ni->ni_state != IEEE80211_STA_CACHE ?
+		    "newly" : "already");
+	ieee80211_node_newstate(ni, IEEE80211_STA_AUTH);
+}
+#endif
+
 void
 ieee80211_auth_open(struct ieee80211com *ic, const struct ieee80211_frame *wh,
     struct ieee80211_node *ni, struct ieee80211_rxinfo *rxi, u_int16_t seq,
@@ -765,15 +783,16 @@ ieee80211_auth_open(struct ieee80211com *ic, const struct ieee80211_frame *wh,
 			ni->ni_rstamp = rxi->rxi_tstamp;
 			ni->ni_chan = ic->ic_bss->ni_chan;
 		}
-		IEEE80211_SEND_MGMT(ic, ni,
-			IEEE80211_FC0_SUBTYPE_AUTH, seq + 1);
-		if (ifp->if_flags & IFF_DEBUG)
-			printf("%s: station %s %s authenticated (open)\n",
-			    ifp->if_xname,
-			    ether_sprintf((u_int8_t *)ni->ni_macaddr),
-			    ni->ni_state != IEEE80211_STA_CACHE ?
-			    "newly" : "already");
-		ieee80211_node_newstate(ni, IEEE80211_STA_AUTH);
+
+		/* 
+		 * Drivers may want to set up state before confirming.
+		 * In which case this returns EBUSY and the driver will
+		 * later call ieee80211_auth_open_confirm() by itself.
+		 */
+		if (ic->ic_newauth && ic->ic_newauth(ic, ni,
+		    ni->ni_state != IEEE80211_STA_CACHE, seq) != 0)
+			break;
+		ieee80211_auth_open_confirm(ic, ni, seq);
 		break;
 #endif	/* IEEE80211_STA_ONLY */
 
@@ -853,6 +872,7 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 	ic->ic_state = nstate;			/* state transition */
 	ni = ic->ic_bss;			/* NB: no reference held */
 	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+	ic->ic_xflags &= ~IEEE80211_F_TX_MGMT_ONLY;
 	switch (nstate) {
 	case IEEE80211_S_INIT:
 		/*
@@ -919,6 +939,8 @@ justcleanup:
 			if (ic->ic_opmode == IEEE80211_M_HOSTAP)
 				timeout_del(&ic->ic_rsn_timeout);
 #endif
+			timeout_del(&ic->ic_bgscan_timeout);
+			ic->ic_bgscan_fail = 0;
 			ic->ic_mgt_timer = 0;
 			mq_purge(&ic->ic_mgtq);
 			mq_purge(&ic->ic_pwrsaveq);
@@ -968,6 +990,8 @@ justcleanup:
 				    " rescanning\n", ifp->if_xname,
 				    ether_sprintf(ic->ic_bss->ni_bssid));
 			}
+			timeout_del(&ic->ic_bgscan_timeout);
+			ic->ic_bgscan_fail = 0;
 			ieee80211_free_allnodes(ic);
 			/* FALLTHROUGH */
 		case IEEE80211_S_AUTH:
@@ -1008,6 +1032,8 @@ justcleanup:
 			}
 			break;
 		case IEEE80211_S_RUN:
+			timeout_del(&ic->ic_bgscan_timeout);
+			ic->ic_bgscan_fail = 0;
 			switch (mgt) {
 			case IEEE80211_FC0_SUBTYPE_AUTH:
 				IEEE80211_SEND_MGMT(ic, ni,

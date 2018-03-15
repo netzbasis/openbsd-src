@@ -308,6 +308,9 @@ restart_child_servers(struct nsd *nsd, region_type* region, netio_type* netio,
 				/* the child need not be able to access the
 				 * nsd.db file */
 				namedb_close_udb(nsd->db);
+#ifdef MEMCLEAN /* OS collects memory pages */
+				region_destroy(region);
+#endif
 
 				if (pledge("stdio rpath inet", NULL) == -1) {
 					log_msg(LOG_ERR, "pledge");
@@ -567,7 +570,7 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 {
 	struct addrinfo* addr;
 	size_t i;
-#if defined(SO_REUSEPORT) || defined(SO_REUSEADDR) || (defined(INET6) && (defined(IPV6_V6ONLY) || defined(IPV6_USE_MIN_MTU) || defined(IPV6_MTU) || defined(IP_TRANSPARENT)) || defined(IP_FREEBIND))
+#if defined(SO_REUSEPORT) || defined(SO_REUSEADDR) || (defined(INET6) && (defined(IPV6_V6ONLY) || defined(IPV6_USE_MIN_MTU) || defined(IPV6_MTU) || defined(IP_TRANSPARENT)) || defined(IP_FREEBIND) || defined(SO_BINDANY))
 	int on = 1;
 #endif
 
@@ -757,6 +760,12 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 					strerror(errno));
 			}
 #endif /* IP_TRANSPARENT */
+#ifdef SO_BINDANY
+			if (setsockopt(nsd->udp[i].s, SOL_SOCKET, SO_BINDANY, &on, sizeof(on)) < 0) {
+				log_msg(LOG_ERR, "setsockopt(...,SO_BINDANY, ...) failed for udp: %s",
+					strerror(errno));
+			}
+#endif /* SO_BINDANY */
 		}
 
 		if (bind(nsd->udp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
@@ -887,6 +896,12 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 					strerror(errno));
 			}
 #endif /* IP_TRANSPARENT */
+#ifdef SO_BINDANY
+			if (setsockopt(nsd->tcp[i].s, SOL_SOCKET, SO_BINDANY, &on, sizeof(on)) < 0) {
+				log_msg(LOG_ERR, "setsockopt(...,SO_BINDANY, ...) failed for tcp: %s",
+					strerror(errno));
+			}
+#endif /* SO_BINDANY */
 		}
 
 		if (bind(nsd->tcp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
@@ -1067,7 +1082,14 @@ server_shutdown(struct nsd *nsd)
 	daemon_remote_delete(nsd->rc); /* ssl-delete secret keys */
 #endif
 
-#if 0 /* OS collects memory pages */
+#ifdef MEMCLEAN /* OS collects memory pages */
+#ifdef RATELIMIT
+	rrl_mmap_deinit_keep_mmap();
+#endif
+	udb_base_free_keep_mmap(nsd->task[0]);
+	udb_base_free_keep_mmap(nsd->task[1]);
+	namedb_close_udb(nsd->db); /* keeps mmap */
+	namedb_close(nsd->db);
 	nsd_options_destroy(nsd->options);
 	region_destroy(nsd->region);
 #endif
@@ -1835,7 +1857,7 @@ server_main(struct nsd *nsd)
 			/* only quit children after xfrd has acked */
 			send_children_quit(nsd);
 
-#if 0 /* OS collects memory pages */
+#ifdef MEMCLEAN /* OS collects memory pages */
 			region_destroy(server_region);
 #endif
 			server_shutdown(nsd);
@@ -1914,7 +1936,7 @@ server_main(struct nsd *nsd)
 		(void)kill(nsd->pid, SIGTERM);
 	}
 
-#if 0 /* OS collects memory pages */
+#ifdef MEMCLEAN /* OS collects memory pages */
 	region_destroy(server_region);
 #endif
 	/* write the nsd.db to disk, wait for it to complete */
@@ -1984,6 +2006,8 @@ server_child(struct nsd *nsd)
 		log_msg(LOG_ERR, "nsd server could not create event base");
 		exit(1);
 	}
+	nsd->event_base = event_base;
+	nsd->server_region = server_region;
 
 #ifdef RATELIMIT
 	rrl_init(nsd->this_child->child_num);
@@ -2150,7 +2174,10 @@ server_child(struct nsd *nsd)
 	bind8_stats(nsd);
 #endif /* BIND8_STATS */
 
-#if 0 /* OS collects memory pages */
+#ifdef MEMCLEAN /* OS collects memory pages */
+#ifdef RATELIMIT
+	rrl_deinit(nsd->this_child->child_num);
+#endif
 	event_base_free(event_base);
 	region_destroy(server_region);
 #endif

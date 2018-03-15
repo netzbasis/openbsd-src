@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.72 2017/08/15 15:10:35 pd Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.80 2018/02/05 05:01:08 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -55,7 +55,6 @@
 
 void vmm_sighdlr(int, short, void *);
 int vmm_start_vm(struct imsg *, uint32_t *);
-int vmm_receive_vm(struct vmd_vm * , int);
 int vmm_dispatch_parent(int, struct privsep_proc *, struct imsg *);
 void vmm_run(struct privsep *, struct privsep_proc *, void *);
 void vmm_dispatch_vm(int, short, void *);
@@ -121,6 +120,13 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		}
 		break;
+	case IMSG_VMDOP_START_VM_CDROM:
+		res = config_getcdrom(ps, imsg);
+		if (res == -1) {
+			res = errno;
+			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
+		break;
 	case IMSG_VMDOP_START_VM_DISK:
 		res = config_getdisk(ps, imsg);
 		if (res == -1) {
@@ -146,32 +152,47 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &vtp);
 		memcpy(&vtp, imsg->data, sizeof(vtp));
 		id = vtp.vtp_vm_id;
+		log_debug("%s: recv'ed TERMINATE_VM for %d", __func__, id);
 
 		if (id == 0) {
 			res = ENOENT;
-		} else if ((vm = vm_getbyvmid(id)) != NULL &&
-		    vm->vm_shutdown == 0) {
-			log_debug("%s: sending shutdown request to vm %d",
-			    __func__, id);
+		} else if ((vm = vm_getbyvmid(id)) != NULL) {
+			if (vm->vm_shutdown == 0) {
+				log_debug("%s: sending shutdown req to vm %d",
+				    __func__, id);
 
-			/*
-			 * Request reboot but mark the VM as shutting down.
-			 * This way we can terminate the VM after the triple
-			 * fault instead of reboot and avoid being stuck in
-			 * the ACPI-less powerdown ("press any key to reboot")
-			 * of the VM.
-			 */
-			vm->vm_shutdown = 1;
-			if (imsg_compose_event(&vm->vm_iev,
-			    IMSG_VMDOP_VM_REBOOT, 0, 0, -1, NULL, 0) == -1)
-				res = errno;
-			else
-				res = 0;
+				/*
+				 * Request reboot but mark the VM as shutting
+				 * down. This way we can terminate the VM after
+				 * the triple fault instead of reboot and 
+				 * avoid being stuck in the ACPI-less powerdown
+				 * ("press any key to reboot") of the VM.
+				 */
+				vm->vm_shutdown = 1;
+				if (imsg_compose_event(&vm->vm_iev,
+				    IMSG_VMDOP_VM_REBOOT,
+				    0, 0, -1, NULL, 0) == -1)
+					res = errno;
+				else
+					res = 0;
+			} else {
+				/*
+				 * VM is currently being shutdown.
+				 * Check to see if the VM process is still
+				 * active.  If not, return VMD_VM_STOP_INVALID.
+				 */
+				vtp.vtp_vm_id = vm_vmid2id(vm->vm_vmid, vm);
+				if (vtp.vtp_vm_id == 0) {
+					log_debug("%s: no vm running anymore",
+					    __func__);
+					res = VMD_VM_STOP_INVALID;
+				}
+			}
 		} else {
-			/* Terminate VMs that are unknown or shutting down */
-			vtp.vtp_vm_id = vm_vmid2id(vm->vm_vmid, vm);
-			res = terminate_vm(&vtp);
-			vm_remove(vm);
+			/* vm doesn't exist, cannot stop vm */
+			log_debug("%s: cannot stop vm that is not running",
+			    __func__);
+			res = VMD_VM_STOP_INVALID;
 		}
 		cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 		break;
@@ -278,8 +299,11 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_START_VM_RESPONSE:
 		if (res != 0) {
 			/* Remove local reference if it exists */
-			if ((vm = vm_getbyvmid(imsg->hdr.peerid)) != NULL)
+			if ((vm = vm_getbyvmid(imsg->hdr.peerid)) != NULL) {
+				log_debug("%s: removing vm, START_VM_RESPONSE",
+				    __func__);
 				vm_remove(vm);
+			}
 		}
 		if (id == 0)
 			id = imsg->hdr.peerid;
@@ -314,6 +338,7 @@ vmm_sighdlr(int sig, short event, void *arg)
 	struct vmd_vm *vm;
 	struct vm_terminate_params vtp;
 
+	log_debug("%s: handling signal %d", __func__, sig);
 	switch (sig) {
 	case SIGCHLD:
 		do {
@@ -341,6 +366,8 @@ vmm_sighdlr(int sig, short event, void *arg)
 
 				vmid = vm->vm_params.vmc_params.vcp_id;
 				vtp.vtp_vm_id = vmid;
+				log_debug("%s: attempting to terminate vm %d",
+				    __func__, vm->vm_vmid);
 				if (terminate_vm(&vtp) == 0) {
 					memset(&vmr, 0, sizeof(vmr));
 					vmr.vmr_result = ret;
@@ -355,6 +382,7 @@ vmm_sighdlr(int sig, short event, void *arg)
 					log_warnx("could not terminate VM %u",
 					    vm->vm_vmid);
 
+				log_debug("%s: calling vm_remove", __func__);
 				vm_remove(vm);
 			} else
 				fatalx("unexpected cause of SIGCHLD");
@@ -381,6 +409,7 @@ vmm_shutdown(void)
 
 		/* XXX suspend or request graceful shutdown */
 		(void)terminate_vm(&vtp);
+		log_debug("%s: calling vm_remove", __func__);
 		vm_remove(vm);
 	}
 }
@@ -465,15 +494,16 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 		case IMSG_VMDOP_SEND_VM_RESPONSE:
 			IMSG_SIZE_CHECK(&imsg, &vmr);
 			memcpy(&vmr, imsg.data, sizeof(vmr));
-			if(!vmr.vmr_result)
+			if (!vmr.vmr_result) {
+				log_debug("%s: calling vm_remove", __func__);
 				vm_remove(vm);
+			}
 		case IMSG_VMDOP_PAUSE_VM_RESPONSE:
 		case IMSG_VMDOP_UNPAUSE_VM_RESPONSE:
 			for (i = 0; i < sizeof(procs); i++) {
 				if (procs[i].p_id == PROC_PARENT) {
 					proc_forward_imsg(procs[i].p_ps,
-							&imsg, PROC_PARENT,
-							-1);
+					    &imsg, PROC_PARENT, -1);
 					break;
 				}
 			}
@@ -496,7 +526,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
  * supplied vm_terminate_params structure (vtp->vtp_vm_id)
  *
  * Parameters
- *  vtp: vm_create_params struct containing the ID of the VM to terminate
+ *  vtp: vm_terminate_params struct containing the ID of the VM to terminate
  *
  * Return values:
  *  0: success
@@ -506,6 +536,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 int
 terminate_vm(struct vm_terminate_params *vtp)
 {
+	log_debug("%s: terminating vmid %d", __func__, vtp->vtp_vm_id);
 	if (ioctl(env->vmd_fd, VMM_IOC_TERM, vtp) < 0)
 		return (errno);
 
@@ -610,6 +641,9 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 		close(vm->vm_kernel);
 		vm->vm_kernel = -1;
 
+		close(vm->vm_cdrom);
+		vm->vm_cdrom = -1;
+
 		close(vm->vm_tty);
 		vm->vm_tty = -1;
 
@@ -639,6 +673,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 	return (0);
 
  err:
+	log_debug("%s: calling vm_remove", __func__);
 	vm_remove(vm);
 
 	return (ret);

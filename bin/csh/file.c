@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.33 2017/07/26 19:20:51 anton Exp $	*/
+/*	$OpenBSD: file.c,v 1.37 2017/11/16 19:22:33 anton Exp $	*/
 /*	$NetBSD: file.c,v 1.11 1996/11/08 19:34:37 christos Exp $	*/
 
 /*-
@@ -673,8 +673,7 @@ again:				/* search for matches */
 	return (numitems);
     }
     else {			/* LIST */
-	qsort(items, numitems, sizeof(*items),
-		(int (*)(const void *, const void *)) sortscmp);
+	qsort(items, numitems, sizeof(*items), sortscmp);
 	print_by_column(looking_for_lognames ? NULL : tilded_dir,
 			items, numitems);
 	if (items != NULL)
@@ -777,10 +776,15 @@ tenex(Char *inputline, int inputline_size)
 	cl.fdout = SHOUT;
 	cl.buf = buf;
 	cl.size = sizeof(buf);
+	if (inputline_size < cl.size)
+		cl.size = inputline_size;
 	if (tio->c_lflag & ALTWERASE)
 		cl.flags |= CL_ALTWERASE;
-	cl.flags |= CL_PROMPT;
-	cl_flush(&cl);	/* print prompt */
+	if (needprompt) {
+		needprompt = 0;
+		cl.flags |= CL_PROMPT;
+		cl_flush(&cl);
+	}
 
 	for (;;) {
 		if ((c = cl_getc(&cl)) == 0)
@@ -799,7 +803,14 @@ tenex(Char *inputline, int inputline_size)
 
 	for (i = 0; i < cl.len; i++)
 		inputline[i] = cl.buf[i];
-	inputline[i] = '\0';
+	/*
+	 * NUL-terminating the buffer implies that it contains a complete
+	 * command ready to be executed. Therefore, don't terminate if the
+	 * buffer is full since more characters must be read in order to form a
+	 * complete command.
+	 */
+	if (i < cl.size)
+		inputline[i] = '\0';
 
 	return cl.len;
 }

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.76 2017/06/19 03:06:26 dlg Exp $
+#	$OpenBSD: Makefile.inc,v 1.78 2018/01/12 04:36:12 deraadt Exp $
 
 # gen sources
 .PATH: ${LIBCSRCDIR}/arch/${MACHINE_CPU}/gen ${LIBCSRCDIR}/gen
@@ -6,7 +6,7 @@
 SRCS+=  alarm.c assert.c auth_subr.c authenticate.c \
         basename.c clock.c clock_getcpuclockid.c \
         closedir.c confstr.c ctermid.c ctype_.c \
-        daemon.c devname.c dirfd.c dirname.c disklabel.c elf_hash.c err.c \
+        daemon.c devname.c dirfd.c dirname.c disklabel.c err.c \
         errc.c errx.c errlist.c errno.c exec.c \
         fdatasync.c fnmatch.c fpclassify.c frexp.c \
         fstab.c ftok.c fts.c ftw.c getbsize.c getcap.c getcwd.c \
@@ -52,6 +52,6 @@ MAN+=	__tfork_thread.3 alarm.3 auth_subr.3 authenticate.3 basename.3 clock.3 \
 	psignal.3 pw_dup.3 pwcache.3 raise.3 readpassphrase.3 \
 	scandir.3 setjmp.3 setmode.3 setproctitle.3 shm_open.3 \
 	siginterrupt.3 signal.3 \
-	sigaddset.3 sleep.3 statvfs.3 sysconf.3 sysctl.3 strtofflags.3 \
+	sigaddset.3 sleep.3 statvfs.3 sysconf.3 strtofflags.3 \
 	syslog.3 time.3 times.3 toascii.3 tolower.3 toupper.3 \
 	ttyname.3 ualarm.3 uname.3 unvis.3 usleep.3 utime.3 valloc.3 vis.3

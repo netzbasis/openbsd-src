@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.c,v 1.63 2017/08/10 16:38:37 bluhm Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.65 2017/09/08 05:36:53 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -20,12 +20,11 @@
  * Support for Bi-directional Forwarding Detection (RFC 5880 / 5881)
  */
 
-#include <sys/errno.h>
 #include <sys/param.h>
+#include <sys/errno.h>
 
 #include <sys/task.h>
 #include <sys/pool.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/stdint.h>
@@ -454,6 +453,7 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 	ip = mtod(mopt, int *);
 	*ip = MAXTTL;
 	error = sosetopt(so, IPPROTO_IP, IP_MINTTL, mopt);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -528,6 +528,7 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	ip = mtod(mopt, int *);
 	*ip = IP_PORTRANGE_HIGH;
 	error = sosetopt(so, IPPROTO_IP, IP_PORTRANGE, mopt);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -539,6 +540,7 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	ip = mtod(mopt, int *);
 	*ip = MAXTTL;
 	error = sosetopt(so, IPPROTO_IP, IP_TTL, mopt);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -550,6 +552,7 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	ip = mtod(mopt, int *);
 	*ip = IPTOS_PREC_INTERNETCONTROL;
 	error = sosetopt(so, IPPROTO_IP, IP_TOS, mopt);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);

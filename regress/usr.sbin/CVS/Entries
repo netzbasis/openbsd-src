@@ -1,6 +1,7 @@
-/Makefile/1.15/Sat Aug 12 04:53:25 2017//
+/Makefile/1.17/Wed Oct 11 12:07:23 2017//
 D/acme-client////
 D/arp////
+D/bgpd////
 D/httpd////
 D/ifstated////
 D/ldapd////
@@ -11,3 +12,4 @@ D/relayd////
 D/snmpd////
 D/switchd////
 D/syslogd////
+D/vmd////

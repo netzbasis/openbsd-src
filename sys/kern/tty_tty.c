@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_tty.c,v 1.20 2016/09/06 08:13:23 tedu Exp $	*/
+/*	$OpenBSD: tty_tty.c,v 1.22 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: tty_tty.c,v 1.13 1996/03/30 22:24:46 christos Exp $	*/
 
 /*-
@@ -42,7 +42,7 @@
 #include <sys/tty.h>
 #include <sys/vnode.h>
 #include <sys/lock.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 
 
 #define cttyvp(p) \
@@ -113,7 +113,7 @@ cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	}
 	switch (cmd) {
 	case TIOCSETVERAUTH:
-		if ((error = suser(p, 0)))
+		if ((error = suser(p)))
 			return error;
 		secs = *(int *)addr;
 		if (secs < 1 || secs > 3600)

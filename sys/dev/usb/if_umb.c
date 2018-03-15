@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.c,v 1.15 2017/08/11 21:24:19 mpi Exp $ */
+/*	$OpenBSD: if_umb.c,v 1.18 2018/02/19 08:59:52 mpi Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -698,7 +698,7 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		    sizeof (sc->sc_info));
 		break;
 	case SIOCSUMBPARAM:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			break;
 		if ((error = copyin(ifr->ifr_data, &mp, sizeof (mp))) != 0)
 			break;
@@ -733,12 +733,6 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 		ifp->if_mtu = ifr->ifr_mtu;
-		break;
-	case SIOCGIFMTU:
-		ifr->ifr_mtu = ifp->if_mtu;
-		break;
-	case SIOCGIFHARDMTU:
-		ifr->ifr_hardmtu = ifp->if_hardmtu;
 		break;
 	case SIOCSIFADDR:
 	case SIOCAIFADDR:
@@ -902,7 +896,7 @@ umb_watchdog(struct ifnet *ifp)
 
 	ifp->if_oerrors++;
 	printf("%s: watchdog timeout\n", DEVNAM(sc));
-	/* XXX FIXME: re-initialize device */
+	usbd_abort_pipe(sc->sc_tx_pipe);
 	return;
 }
 
@@ -1851,10 +1845,9 @@ umb_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 			if (status == USBD_STALLED)
 				usbd_clear_endpoint_stall_async(sc->sc_tx_pipe);
 		}
-	} else {
-		if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
-			umb_start(ifp);
 	}
+	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+		umb_start(ifp);
 
 	splx(s);
 }

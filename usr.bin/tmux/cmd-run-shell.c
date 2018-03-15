@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-run-shell.c,v 1.50 2017/05/30 21:44:59 nicm Exp $ */
+/* $OpenBSD: cmd-run-shell.c,v 1.52 2018/03/08 08:09:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -68,7 +68,7 @@ cmd_run_shell_print(struct job *job, const char *msg)
 			cmdq_print(cdata->item, "%s", msg);
 			return;
 		}
-		if (cmd_find_from_nothing(&fs) != 0)
+		if (cmd_find_from_nothing(&fs, 0) != 0)
 			return;
 		wp = fs.wp;
 		if (wp == NULL)
@@ -111,7 +111,7 @@ cmd_run_shell_exec(struct cmd *self, struct cmdq_item *item)
 		cdata->item = item;
 
 	job_run(cdata->cmd, s, cwd, NULL, cmd_run_shell_callback,
-	    cmd_run_shell_free, cdata);
+	    cmd_run_shell_free, cdata, 0);
 
 	if (args_has(args, 'b'))
 		return (CMD_RETURN_NORMAL);

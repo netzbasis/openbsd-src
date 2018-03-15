@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.105 2017/07/24 15:31:14 robert Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.111 2018/03/13 07:37:58 guenther Exp $	*/
 /*	$NetBSD: pmap.c,v 1.3 2003/05/08 18:13:13 thorpej Exp $	*/
 
 /*
@@ -105,26 +105,28 @@
 #include <sys/systm.h>
 #include <sys/atomic.h>
 #include <sys/proc.h>
-#include <sys/malloc.h>
 #include <sys/pool.h>
 #include <sys/user.h>
-#include <sys/kernel.h>
 #include <sys/mutex.h>
-#include <sys/sched.h>
 
 #include <uvm/uvm.h>
 
 #include <machine/cpu.h>
-#include <machine/specialreg.h>
 #ifdef MULTIPROCESSOR
 #include <machine/i82489reg.h>
 #include <machine/i82489var.h>
 #endif
 
-
-#include <machine/isa_machdep.h>
-
 #include "acpi.h"
+
+/* #define PMAP_DEBUG */
+
+#ifdef PMAP_DEBUG
+#define DPRINTF(x...)   do { printf(x); } while(0)
+#else
+#define DPRINTF(x...)
+#endif /* PMAP_DEBUG */
+
 
 /*
  * general info:
@@ -202,12 +204,13 @@
  *	If we fail, we simply let pmap_enter() tell UVM about it.
  */
 
-vaddr_t ptp_masks[] = PTP_MASK_INITIALIZER;
-int ptp_shifts[] = PTP_SHIFT_INITIALIZER;
 long nkptp[] = NKPTP_INITIALIZER;
-long nkptpmax[] = NKPTPMAX_INITIALIZER;
-long nbpd[] = NBPD_INITIALIZER;
-pd_entry_t *normal_pdes[] = PDES_INITIALIZER;
+
+const vaddr_t ptp_masks[] = PTP_MASK_INITIALIZER;
+const int ptp_shifts[] = PTP_SHIFT_INITIALIZER;
+const long nkptpmax[] = NKPTPMAX_INITIALIZER;
+const long nbpd[] = NBPD_INITIALIZER;
+pd_entry_t *const normal_pdes[] = PDES_INITIALIZER;
 
 #define pmap_pte_set(p, n)		atomic_swap_64(p, n)
 #define pmap_pte_clearbits(p, b)	x86_atomic_clearbits_u64(p, b)
@@ -262,6 +265,7 @@ TAILQ_HEAD(pg_to_free, vm_page);
 
 struct pool pmap_pdp_pool;
 void pmap_pdp_ctor(pd_entry_t *);
+void pmap_pdp_ctor_intel(pd_entry_t *);
 
 extern vaddr_t msgbuf_vaddr;
 extern paddr_t msgbuf_paddr;
@@ -275,22 +279,24 @@ extern vaddr_t lo32_paddr;
 vaddr_t virtual_avail;
 extern int end;
 
+extern uint32_t cpu_meltdown;
+
 /*
  * local prototypes
  */
 
 void pmap_enter_pv(struct vm_page *, struct pv_entry *, struct pmap *,
     vaddr_t, struct vm_page *);
-struct vm_page *pmap_get_ptp(struct pmap *, vaddr_t, pd_entry_t **);
+struct vm_page *pmap_get_ptp(struct pmap *, vaddr_t);
 struct vm_page *pmap_find_ptp(struct pmap *, vaddr_t, paddr_t, int);
 int pmap_find_pte_direct(struct pmap *pm, vaddr_t va, pt_entry_t **pd, int *offs);
 void pmap_free_ptp(struct pmap *, struct vm_page *,
-    vaddr_t, pt_entry_t *, pd_entry_t **, struct pg_to_free *);
+    vaddr_t, struct pg_to_free *);
 void pmap_freepage(struct pmap *, struct vm_page *, int, struct pg_to_free *);
 #ifdef MULTIPROCESSOR
 static boolean_t pmap_is_active(struct pmap *, int);
 #endif
-void pmap_map_ptes(struct pmap *, pt_entry_t **, pd_entry_t ***, paddr_t *);
+paddr_t pmap_map_ptes(struct pmap *);
 struct pv_entry *pmap_remove_pv(struct vm_page *, struct pmap *, vaddr_t);
 void pmap_do_remove(struct pmap *, vaddr_t, vaddr_t, int);
 boolean_t pmap_remove_pte(struct pmap *, struct vm_page *, pt_entry_t *,
@@ -302,8 +308,8 @@ void pmap_remove_ptes(struct pmap *, struct vm_page *, vaddr_t,
 
 void pmap_unmap_ptes(struct pmap *, paddr_t);
 boolean_t pmap_get_physpage(vaddr_t, int, paddr_t *);
-boolean_t pmap_pdes_valid(vaddr_t, pd_entry_t **, pd_entry_t *);
-void pmap_alloc_level(pd_entry_t **, vaddr_t, int, long *);
+boolean_t pmap_pdes_valid(vaddr_t, pd_entry_t *);
+void pmap_alloc_level(vaddr_t, int, long *);
 
 void pmap_sync_flags_pte(struct vm_page *, u_long);
 
@@ -315,7 +321,6 @@ void pmap_tlb_shootwait(void);
 #else
 #define	pmap_tlb_shootwait()
 #endif
-
 
 /*
  * p m a p   i n l i n e   h e l p e r   f u n c t i o n s
@@ -330,7 +335,8 @@ static __inline boolean_t
 pmap_is_curpmap(struct pmap *pmap)
 {
 	return((pmap == pmap_kernel()) ||
-	       (pmap->pm_pdirpa == (paddr_t) rcr3()));
+	       (pmap->pm_pdirpa == (paddr_t) rcr3()) ||
+	       (pmap->pm_pdirpa_intel == (paddr_t) rcr3()));
 }
 
 /*
@@ -365,17 +371,15 @@ pmap_sync_flags_pte(struct vm_page *pg, u_long pte)
  * pmap_map_ptes: map a pmap's PTEs into KVM
  */
 
-void
-pmap_map_ptes(struct pmap *pmap, pt_entry_t **ptepp, pd_entry_t ***pdeppp, paddr_t *save_cr3)
+paddr_t
+pmap_map_ptes(struct pmap *pmap)
 {
 	paddr_t cr3 = rcr3();
 
 	/* the kernel's pmap is always accessible */
 	if (pmap == pmap_kernel() || pmap->pm_pdirpa == cr3) {
-		*save_cr3 = 0;
+		cr3 = 0;
 	} else {
-		*save_cr3 = cr3;
-
 		/*
 		 * Not sure if we need this, but better be safe.
 		 * We don't have the current pmap in order to unset its
@@ -390,8 +394,7 @@ pmap_map_ptes(struct pmap *pmap, pt_entry_t **ptepp, pd_entry_t ***pdeppp, paddr
 	if (pmap != pmap_kernel())
 		mtx_enter(&pmap->pm_mtx);
 
-	*ptepp = PTE_BASE;
-	*pdeppp = normal_pdes;
+	return cr3;
 }
 
 void
@@ -491,7 +494,6 @@ pmap_find_pte_direct(struct pmap *pm, vaddr_t va, pt_entry_t **pd, int *offs)
 	return (0);
 }
 
-
 /*
  * p m a p   k e n t e r   f u n c t i o n s
  *
@@ -520,7 +522,7 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 
 	/* special 1:1 mappings in the first 2MB must not be global */
 	if (va >= (vaddr_t)NBPD_L2)
-		npte |= PG_G;
+		npte |= pg_g_kern;
 
 	if (!(prot & PROT_EXEC))
 		npte |= pg_nx;
@@ -593,12 +595,12 @@ pmap_kremove(vaddr_t sva, vsize_t len)
 paddr_t
 pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 {
-	vaddr_t kva, kva_end, kva_start = VM_MIN_KERNEL_ADDRESS;
+	vaddr_t kva_start = VM_MIN_KERNEL_ADDRESS;
 	struct pmap *kpm;
 	int i;
-	unsigned long p1i;
 	long ndmpdp;
 	paddr_t dmpd, dmpdp;
+	vaddr_t kva, kva_end;
 
 	/*
 	 * define the boundaries of the managed kernel virtual address
@@ -627,10 +629,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	 *
 	 * the kernel pmap's pm_obj is not used for much.   however, in
 	 * user pmaps the pm_obj contains the list of active PTPs.
-	 * the pm_obj currently does not have a pager.   it might be possible
-	 * to add a pager that would allow a process to read-only mmap its
-	 * own page tables (fast user level vtophys?).   this may or may not
-	 * be useful.
+	 * the pm_obj currently does not have a pager.
 	 */
 
 	kpm = pmap_kernel();
@@ -643,20 +642,24 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	kpm->pm_pdirpa = proc0.p_addr->u_pcb.pcb_cr3;
 	kpm->pm_stats.wired_count = kpm->pm_stats.resident_count =
 		atop(kva_start - VM_MIN_KERNEL_ADDRESS);
-
-	kpm->pm_type = PMAP_TYPE_NORMAL;
-
 	/*
 	 * the above is just a rough estimate and not critical to the proper
 	 * operation of the system.
 	 */
 
+	kpm->pm_type = PMAP_TYPE_NORMAL;
+
 	curpcb->pcb_pmap = kpm;	/* proc0's pcb */
 
 	/*
-	 * enable global TLB entries.
+	 * Add PG_G attribute to already mapped kernel pages. pg_g_kern
+	 * is calculated in locore0.S and may be set to:
+	 *
+	 * 0 if this CPU does not safely support global pages in the kernel
+	 *  (Intel/Meltdown)
+	 * PG_G if this CPU does safely support global pages in the kernel
+	 *  (AMD)
 	 */
-	/* add PG_G attribute to already mapped kernel pages */
 #if KERNBASE == VM_MIN_KERNEL_ADDRESS
 	for (kva = VM_MIN_KERNEL_ADDRESS ; kva < virtual_avail ;
 #else
@@ -664,9 +667,9 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	for (kva = KERNBASE; kva < kva_end ;
 #endif
 	     kva += PAGE_SIZE) {
-		p1i = pl1_i(kva);
+		unsigned long p1i = pl1_i(kva);
 		if (pmap_valid_entry(PTE_BASE[p1i]))
-			PTE_BASE[p1i] |= PG_G;
+			PTE_BASE[p1i] |= pg_g_kern;
 	}
 
 	/*
@@ -691,7 +694,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 		va = PMAP_DIRECT_MAP(pdp);
 
 		*((pd_entry_t *)va) = ((paddr_t)i << L2_SHIFT);
-		*((pd_entry_t *)va) |= PG_RW | PG_V | PG_PS | PG_G | PG_U |
+		*((pd_entry_t *)va) |= PG_RW | PG_V | PG_PS | pg_g_kern | PG_U |
 		    PG_M | pg_nx;
 	}
 
@@ -737,7 +740,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	LIST_INIT(&pmaps);
 
 	/*
-	 * initialize the pmap pool.
+	 * initialize the pmap pools.
 	 */
 
 	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, IPL_NONE, 0,
@@ -752,6 +755,9 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 
 	pool_init(&pmap_pdp_pool, PAGE_SIZE, 0, IPL_NONE, PR_WAITOK,
 	    "pdppl", NULL);
+
+	kpm->pm_pdir_intel = 0;
+	kpm->pm_pdirpa_intel = 0;
 
 	/*
 	 * ensure the TLB is sync'd with reality by flushing it...
@@ -900,29 +906,30 @@ pmap_freepage(struct pmap *pmap, struct vm_page *ptp, int level,
 
 void
 pmap_free_ptp(struct pmap *pmap, struct vm_page *ptp, vaddr_t va,
-    pt_entry_t *ptes, pd_entry_t **pdes, struct pg_to_free *pagelist)
+    struct pg_to_free *pagelist)
 {
 	unsigned long index;
 	int level;
 	vaddr_t invaladdr;
-	pd_entry_t opde;
+	pd_entry_t opde, *mdpml4es;
 
 	level = 1;
 	do {
 		pmap_freepage(pmap, ptp, level, pagelist);
 		index = pl_i(va, level + 1);
-		opde = pmap_pte_set(&pdes[level - 1][index], 0);
-		invaladdr = level == 1 ? (vaddr_t)ptes :
-		    (vaddr_t)pdes[level - 2];
-		pmap_tlb_shootpage(curpcb->pcb_pmap,
-		    invaladdr + index * PAGE_SIZE,
-		    pmap_is_curpmap(curpcb->pcb_pmap));
-#if defined(MULTIPROCESSOR)
+		opde = pmap_pte_set(&normal_pdes[level - 1][index], 0);
+		if (level == 3 && pmap->pm_pdir_intel) {
+			/* Zap special meltdown PML4e */
+			mdpml4es = pmap->pm_pdir_intel;
+			opde = pmap_pte_set(&mdpml4es[index], 0);
+			DPRINTF("%s: cleared meltdown PML4e @ index %lu "
+			    "(va range start 0x%llx)\n", __func__, index,
+			    (uint64_t)(index << L4_SHIFT));
+		}
 		invaladdr = level == 1 ? (vaddr_t)PTE_BASE :
 		    (vaddr_t)normal_pdes[level - 2];
 		pmap_tlb_shootpage(pmap, invaladdr + index * PAGE_SIZE,
 		    pmap_is_curpmap(curpcb->pcb_pmap));
-#endif
 		if (level < PTP_LEVELS - 1) {
 			ptp = pmap_find_ptp(pmap, va, (paddr_t)-1, level + 1);
 			ptp->wire_count--;
@@ -940,12 +947,12 @@ pmap_free_ptp(struct pmap *pmap, struct vm_page *ptp, vaddr_t va,
 
 
 struct vm_page *
-pmap_get_ptp(struct pmap *pmap, vaddr_t va, pd_entry_t **pdes)
+pmap_get_ptp(struct pmap *pmap, vaddr_t va)
 {
 	struct vm_page *ptp, *pptp;
 	int i;
 	unsigned long index;
-	pd_entry_t *pva;
+	pd_entry_t *pva, *pva_intel;
 	paddr_t ppa, pa;
 	struct uvm_object *obj;
 
@@ -964,7 +971,7 @@ pmap_get_ptp(struct pmap *pmap, vaddr_t va, pd_entry_t **pdes)
 		ppa = pa;
 
 		index = pl_i(va, i);
-		pva = pdes[i - 2];
+		pva = normal_pdes[i - 2];
 
 		if (pmap_valid_entry(pva[index])) {
 			ppa = pva[index] & PG_FRAME;
@@ -984,6 +991,20 @@ pmap_get_ptp(struct pmap *pmap, vaddr_t va, pd_entry_t **pdes)
 		pmap->pm_ptphint[i - 2] = ptp;
 		pa = VM_PAGE_TO_PHYS(ptp);
 		pva[index] = (pd_entry_t) (pa | PG_u | PG_RW | PG_V);
+
+		/*
+		 * Meltdown Special case - if we are adding a new PML4e for
+		 * usermode addresses, just copy the PML4e to the U-K page
+		 * table.
+		 */
+		if (pmap->pm_pdir_intel && i == 4 && va < VM_MAXUSER_ADDRESS) {
+			pva_intel = pmap->pm_pdir_intel;
+			pva_intel[index] = pva[index];
+			DPRINTF("%s: copying usermode PML4e (content=0x%llx) "
+			    "from 0x%llx -> 0x%llx\n", __func__, pva[index],
+			    (uint64_t)&pva[index], (uint64_t)&pva_intel[index]);
+		}
+
 		pmap->pm_stats.resident_count++;
 		/*
 		 * If we're not in the top level, increase the
@@ -1059,6 +1080,15 @@ pmap_pdp_ctor(pd_entry_t *pdir)
 #endif
 }
 
+void
+pmap_pdp_ctor_intel(pd_entry_t *pdir)
+{
+	struct pmap *kpm = pmap_kernel();
+
+	/* Copy PML4es from pmap_kernel's U-K view */
+	memcpy(pdir, kpm->pm_pdir_intel, PAGE_SIZE);
+}
+
 /*
  * pmap_create: create a pmap
  *
@@ -1098,6 +1128,22 @@ pmap_create(void)
 	pmap_pdp_ctor(pmap->pm_pdir);
 
 	pmap->pm_pdirpa = pmap->pm_pdir[PDIR_SLOT_PTE] & PG_FRAME;
+
+	/*
+	 * Intel CPUs need a special page table to be used during usermode
+	 * execution, one that lacks all kernel mappings.
+	 */
+	if (cpu_meltdown) {
+		pmap->pm_pdir_intel = pool_get(&pmap_pdp_pool, PR_WAITOK);
+		pmap_pdp_ctor_intel(pmap->pm_pdir_intel);
+		if (!pmap_extract(pmap_kernel(), (vaddr_t)pmap->pm_pdir_intel,
+		    &pmap->pm_pdirpa_intel))
+			panic("%s: unknown PA mapping for meltdown PML4\n",
+			    __func__);
+	} else {
+		pmap->pm_pdir_intel = 0;
+		pmap->pm_pdirpa_intel = 0;
+	}
 
 	LIST_INSERT_HEAD(&pmaps, pmap, pm_list);
 	return (pmap);
@@ -1155,6 +1201,9 @@ pmap_destroy(struct pmap *pmap)
 
 	/* XXX: need to flush it out of other processor's space? */
 	pool_put(&pmap_pdp_pool, pmap->pm_pdir);
+
+	if (pmap->pm_pdir_intel)
+		pool_put(&pmap_pdp_pool, pmap->pm_pdir_intel);
 
 	pool_put(&pmap_pmap_pool, pmap);
 }
@@ -1218,7 +1267,7 @@ pmap_deactivate(struct proc *p)
  */
 
 boolean_t
-pmap_pdes_valid(vaddr_t va, pd_entry_t **pdes, pd_entry_t *lastpde)
+pmap_pdes_valid(vaddr_t va, pd_entry_t *lastpde)
 {
 	int i;
 	unsigned long index;
@@ -1226,7 +1275,7 @@ pmap_pdes_valid(vaddr_t va, pd_entry_t **pdes, pd_entry_t *lastpde)
 
 	for (i = PTP_LEVELS; i > 1; i--) {
 		index = pl_i(va, i);
-		pde = pdes[i - 2][index];
+		pde = normal_pdes[i - 2][index];
 		if (!pmap_valid_entry(pde))
 			return FALSE;
 	}
@@ -1480,8 +1529,7 @@ pmap_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva)
 void
 pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 {
-	pt_entry_t *ptes;
-	pd_entry_t **pdes, pde;
+	pd_entry_t pde;
 	boolean_t result;
 	paddr_t ptppa;
 	vaddr_t blkendva;
@@ -1495,7 +1543,7 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 
 	TAILQ_INIT(&empty_ptps);
 
-	pmap_map_ptes(pmap, &ptes, &pdes, &scr3);
+	scr3 = pmap_map_ptes(pmap);
 	shootself = (scr3 == 0);
 
 	/*
@@ -1503,7 +1551,7 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 	 */
 
 	if (sva + PAGE_SIZE == eva) {
-		if (pmap_pdes_valid(sva, pdes, &pde)) {
+		if (pmap_pdes_valid(sva, &pde)) {
 
 			/* PA of the PTP */
 			ptppa = pde & PG_FRAME;
@@ -1524,7 +1572,7 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 
 			/* do it! */
 			result = pmap_remove_pte(pmap, ptp,
-			    &ptes[pl1_i(sva)], sva, flags, &free_pvs);
+			    &PTE_BASE[pl1_i(sva)], sva, flags, &free_pvs);
 
 			/*
 			 * if mapping removed and the PTP is no longer
@@ -1532,8 +1580,7 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 			 */
 
 			if (result && ptp && ptp->wire_count <= 1)
-				pmap_free_ptp(pmap, ptp, sva, ptes, pdes,
-				    &empty_ptps);
+				pmap_free_ptp(pmap, ptp, sva, &empty_ptps);
 			pmap_tlb_shootpage(pmap, sva, shootself);
 			pmap_unmap_ptes(pmap, scr3);
 			pmap_tlb_shootwait();
@@ -1571,7 +1618,7 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 			/* XXXCDC: ugly hack to avoid freeing PDP here */
 			continue;
 
-		if (!pmap_pdes_valid(va, pdes, &pde))
+		if (!pmap_pdes_valid(va, &pde))
 			continue;
 
 		/* PA of the PTP */
@@ -1588,12 +1635,12 @@ pmap_do_remove(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 				panic("%s: unmanaged PTP detected", __func__);
 #endif
 		}
-		pmap_remove_ptes(pmap, ptp, (vaddr_t)&ptes[pl1_i(va)],
+		pmap_remove_ptes(pmap, ptp, (vaddr_t)&PTE_BASE[pl1_i(va)],
 		    va, blkendva, flags, &free_pvs);
 
 		/* if PTP is no longer being used, free it! */
 		if (ptp && ptp->wire_count <= 1) {
-			pmap_free_ptp(pmap, ptp, va, ptes, pdes, &empty_ptps);
+			pmap_free_ptp(pmap, ptp, va, &empty_ptps);
 		}
 	}
 
@@ -1628,8 +1675,7 @@ pmap_page_remove(struct vm_page *pg)
 {
 	struct pv_entry *pve;
 	struct pmap *pm;
-	pt_entry_t *ptes, opte;
-	pd_entry_t **pdes;
+	pt_entry_t opte;
 #ifdef DIAGNOSTIC
 	pd_entry_t pde;
 #endif
@@ -1647,7 +1693,7 @@ pmap_page_remove(struct vm_page *pg)
 		mtx_leave(&pg->mdpage.pv_mtx);
 
 		/* XXX use direct map? */
-		pmap_map_ptes(pm, &ptes, &pdes, &scr3);	/* locks pmap */
+		scr3 = pmap_map_ptes(pm);	/* locks pmap */
 		shootself = (scr3 == 0);
 
 		/*
@@ -1673,7 +1719,7 @@ pmap_page_remove(struct vm_page *pg)
 		mtx_leave(&pg->mdpage.pv_mtx);
 
 #ifdef DIAGNOSTIC
-		if (pve->pv_ptp && pmap_pdes_valid(pve->pv_va, pdes, &pde) &&
+		if (pve->pv_ptp && pmap_pdes_valid(pve->pv_va, &pde) &&
 		   (pde & PG_FRAME) != VM_PAGE_TO_PHYS(pve->pv_ptp)) {
 			printf("%s: pg=%p: va=%lx, pv_ptp=%p\n", __func__,
 			       pg, pve->pv_va, pve->pv_ptp);
@@ -1687,7 +1733,7 @@ pmap_page_remove(struct vm_page *pg)
 #endif
 
 		/* atomically save the old PTE and zap it */
-		opte = pmap_pte_set(&ptes[pl1_i(pve->pv_va)], 0);
+		opte = pmap_pte_set(&PTE_BASE[pl1_i(pve->pv_va)], 0);
 
 		if (opte & PG_W)
 			pve->pv_pmap->pm_stats.wired_count--;
@@ -1702,7 +1748,7 @@ pmap_page_remove(struct vm_page *pg)
 			pve->pv_ptp->wire_count--;
 			if (pve->pv_ptp->wire_count <= 1) {
 				pmap_free_ptp(pve->pv_pmap, pve->pv_ptp,
-				    pve->pv_va, ptes, pdes, &empty_ptps);
+				    pve->pv_va, &empty_ptps);
 			}
 		}
 		pmap_unmap_ptes(pve->pv_pmap, scr3);	/* unlocks pmap */
@@ -1829,14 +1875,13 @@ pmap_clear_attrs(struct vm_page *pg, unsigned long clearbits)
 void
 pmap_write_protect(struct pmap *pmap, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 {
-	pt_entry_t nx, *ptes, *spte, *epte;
-	pd_entry_t **pdes;
+	pt_entry_t nx, *spte, *epte;
 	vaddr_t blockend;
 	int shootall = 0, shootself;
 	vaddr_t va;
 	paddr_t scr3;
 
-	pmap_map_ptes(pmap, &ptes, &pdes, &scr3);
+	scr3 = pmap_map_ptes(pmap);
 	shootself = (scr3 == 0);
 
 	/* should be ok, but just in case ... */
@@ -1869,7 +1914,7 @@ pmap_write_protect(struct pmap *pmap, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 			continue;
 
 		/* empty block? */
-		if (!pmap_pdes_valid(va, pdes, NULL))
+		if (!pmap_pdes_valid(va, NULL))
 			continue;
 
 #ifdef DIAGNOSTIC
@@ -1877,8 +1922,8 @@ pmap_write_protect(struct pmap *pmap, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 			panic("%s: PTE space", __func__);
 #endif
 
-		spte = &ptes[pl1_i(va)];
-		epte = &ptes[pl1_i(blockend)];
+		spte = &PTE_BASE[pl1_i(va)];
+		epte = &PTE_BASE[pl1_i(blockend)];
 
 		for (/*null */; spte < epte ; spte++) {
 			if (!pmap_valid_entry(*spte))
@@ -1970,6 +2015,132 @@ pmap_collect(struct pmap *pmap)
  * defined as macro in pmap.h
  */
 
+void
+pmap_enter_special(vaddr_t va, paddr_t pa, vm_prot_t prot)
+{
+	uint64_t l4idx, l3idx, l2idx, l1idx;
+	pd_entry_t *pd, *ptp;
+	paddr_t npa;
+	struct pmap *pmap = pmap_kernel();
+	pt_entry_t *ptes;
+	int level, offs;
+
+	/* If CPU is secure, no need to do anything */
+	if (!cpu_meltdown)
+		return;
+
+	/* Must be kernel VA */
+	if (va < VM_MIN_KERNEL_ADDRESS)
+		panic("%s: invalid special mapping va 0x%lx requested",
+		    __func__, va);
+
+	if (!pmap->pm_pdir_intel)
+		pmap->pm_pdir_intel = pool_get(&pmap_pdp_pool,
+		    PR_WAITOK | PR_ZERO);
+	
+	l4idx = (va & L4_MASK) >> L4_SHIFT; /* PML4E idx */
+	l3idx = (va & L3_MASK) >> L3_SHIFT; /* PDPTE idx */
+	l2idx = (va & L2_MASK) >> L2_SHIFT; /* PDE idx */
+	l1idx = (va & L1_MASK) >> L1_SHIFT; /* PTE idx */
+
+	DPRINTF("%s: va=0x%llx pa=0x%llx l4idx=%lld l3idx=%lld "
+	    "l2idx=%lld l1idx=%lld\n", __func__, (uint64_t)va,
+	    (uint64_t)pa, l4idx, l3idx, l2idx, l1idx);
+
+	/* Start at PML4 / top level */
+	pd = pmap->pm_pdir_intel;
+
+	if (!pd)
+		panic("%s: PML4 not initialized for pmap @ %p\n", __func__,
+		    pmap);
+
+	/* npa = physaddr of PDPT */
+	npa = pd[l4idx] & PMAP_PA_MASK;
+
+	/* Valid PML4e for the 512GB region containing va? */
+	if (!npa) {
+		/* No valid PML4E - allocate PDPT page and set PML4E */
+
+		ptp = pool_get(&pmap_pdp_pool, PR_WAITOK | PR_ZERO);
+
+		if (!pmap_extract(pmap, (vaddr_t)ptp, &npa))
+			panic("%s: can't locate PDPT page\n", __func__);
+
+		pd[l4idx] = (npa | PG_u | PG_RW | PG_V);
+
+		DPRINTF("%s: allocated new PDPT page at phys 0x%llx, "
+		    "setting PML4e[%lld] = 0x%llx\n", __func__,
+		    (uint64_t)npa, l4idx, pd[l4idx]);
+	}
+
+	pd = (pd_entry_t *)PMAP_DIRECT_MAP(npa);
+	if (!pd)
+		panic("%s: can't locate PDPT @ pa=0x%llx\n", __func__,
+		    (uint64_t)npa);
+
+	/* npa = physaddr of PD page */
+	npa = pd[l3idx] & PMAP_PA_MASK;
+
+	/* Valid PDPTe for the 1GB region containing va? */
+	if (!npa) {
+		/* No valid PDPTe - allocate PD page and set PDPTe */
+
+		ptp = pool_get(&pmap_pdp_pool, PR_WAITOK | PR_ZERO);
+
+		if (!pmap_extract(pmap, (vaddr_t)ptp, &npa))
+			panic("%s: can't locate PD page\n", __func__);
+
+		pd[l3idx] = (npa | PG_u | PG_RW | PG_V);
+
+		DPRINTF("%s: allocated new PD page at phys 0x%llx, "
+		    "setting PDPTe[%lld] = 0x%llx\n", __func__,
+		    (uint64_t)npa, l3idx, pd[l3idx]);
+	}
+
+	pd = (pd_entry_t *)PMAP_DIRECT_MAP(npa);
+	if (!pd)
+		panic("%s: can't locate PD page @ pa=0x%llx\n", __func__,
+		    (uint64_t)npa);
+
+	/* npa = physaddr of PT page */
+	npa = pd[l2idx] & PMAP_PA_MASK;
+
+	/* Valid PDE for the 2MB region containing va? */
+	if (!npa) {
+		/* No valid PDE - allocate PT page and set PDE */
+
+		ptp = pool_get(&pmap_pdp_pool, PR_WAITOK | PR_ZERO);
+
+		if (!pmap_extract(pmap, (vaddr_t)ptp, &npa))
+			panic("%s: can't locate PT page\n", __func__);
+
+		pd[l2idx] = (npa | PG_u | PG_RW | PG_V);
+
+		DPRINTF("%s: allocated new PT page at phys 0x%llx, "
+		    "setting PDE[%lld] = 0x%llx\n", __func__,
+		    (uint64_t)npa, l2idx, pd[l2idx]);
+	}
+
+	pd = (pd_entry_t *)PMAP_DIRECT_MAP(npa);
+	if (!pd)
+		panic("%s: can't locate PT page @ pa=0x%llx\n", __func__,
+		    (uint64_t)npa);
+
+	DPRINTF("%s: setting PTE, PT page @ phys 0x%llx virt 0x%llx prot "
+	    "0x%llx was 0x%llx\n", __func__, (uint64_t)npa, (uint64_t)pd,
+	    (uint64_t)prot, (uint64_t)pd[l1idx]);
+
+	pd[l1idx] = pa | protection_codes[prot] | PG_V | PG_G | PG_W;
+	DPRINTF("%s: setting PTE[%lld] = 0x%llx\n", __func__, l1idx, pd[l1idx]);
+
+	/* now set the PG_G flag on the corresponding U+K entry */
+	level = pmap_find_pte_direct(pmap, va, &ptes, &offs);
+	if (__predict_true(level == 0 && pmap_valid_entry(ptes[offs])))
+		ptes[offs] |= PG_G;
+	else
+		DPRINTF("%s: no U+K mapping for special mapping?\n", __func__);
+}
+
 /*
  * pmap_enter: enter a mapping into a pmap
  *
@@ -1979,8 +2150,7 @@ pmap_collect(struct pmap *pmap)
 int
 pmap_enter(struct pmap *pmap, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 {
-	pt_entry_t *ptes, opte, npte;
-	pd_entry_t **pdes;
+	pt_entry_t opte, npte;
 	struct vm_page *ptp, *pg = NULL;
 	struct pv_entry *pve, *opve = NULL;
 	int ptpdelta, wireddelta, resdelta;
@@ -2017,12 +2187,12 @@ pmap_enter(struct pmap *pmap, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	 * map in ptes and get a pointer to our PTP (unless we are the kernel)
 	 */
 
-	pmap_map_ptes(pmap, &ptes, &pdes, &scr3);
+	scr3 = pmap_map_ptes(pmap);
 	shootself = (scr3 == 0);
 	if (pmap == pmap_kernel()) {
 		ptp = NULL;
 	} else {
-		ptp = pmap_get_ptp(pmap, va, pdes);
+		ptp = pmap_get_ptp(pmap, va);
 		if (ptp == NULL) {
 			if (flags & PMAP_CANFAIL) {
 				pmap_unmap_ptes(pmap, scr3);
@@ -2032,7 +2202,7 @@ pmap_enter(struct pmap *pmap, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 			panic("%s: get ptp failed", __func__);
 		}
 	}
-	opte = ptes[pl1_i(va)];		/* old PTE */
+	opte = PTE_BASE[pl1_i(va)];		/* old PTE */
 
 	/*
 	 * is there currently a valid mapping at our VA?
@@ -2166,9 +2336,9 @@ enter_now:
 	else if (va < VM_MAX_ADDRESS)
 		npte |= (PG_u | PG_RW);	/* XXXCDC: no longer needed? */
 	if (pmap == pmap_kernel())
-		npte |= PG_G;
+		npte |= pg_g_kern;
 
-	ptes[pl1_i(va)] = npte;		/* zap! */
+	PTE_BASE[pl1_i(va)] = npte;		/* zap! */
 
 	/*
 	 * If we changed anything other than modified/used bits,
@@ -2236,7 +2406,7 @@ pmap_get_physpage(vaddr_t va, int level, paddr_t *paddrp)
  * Used by pmap_growkernel.
  */
 void
-pmap_alloc_level(pd_entry_t **pdes, vaddr_t kva, int lvl, long *needed_ptps)
+pmap_alloc_level(vaddr_t kva, int lvl, long *needed_ptps)
 {
 	unsigned long i;
 	vaddr_t va;
@@ -2249,7 +2419,7 @@ pmap_alloc_level(pd_entry_t **pdes, vaddr_t kva, int lvl, long *needed_ptps)
 		if (level == PTP_LEVELS)
 			pdep = pmap_kernel()->pm_pdir;
 		else
-			pdep = pdes[level - 2];
+			pdep = normal_pdes[level - 2];
 		va = kva;
 		index = pl_i(kva, level);
 		endindex = index + needed_ptps[level - 1];
@@ -2309,8 +2479,7 @@ pmap_growkernel(vaddr_t maxkvaddr)
 
 
 	s = splhigh();	/* to be safe */
-	pmap_alloc_level(normal_pdes, pmap_maxkvaddr, PTP_LEVELS,
-	    needed_kptp);
+	pmap_alloc_level(pmap_maxkvaddr, PTP_LEVELS, needed_kptp);
 
 	/*
 	 * If the number of top level entries changed, update all
@@ -2450,10 +2619,10 @@ pmap_convert(struct pmap *pmap, int mode)
  * release the lock if we get an interrupt in a bad moment.
  */
 
-volatile long tlb_shoot_wait;
+volatile long tlb_shoot_wait __attribute__((section(".kudata")));
 
-volatile vaddr_t tlb_shoot_addr1;
-volatile vaddr_t tlb_shoot_addr2;
+volatile vaddr_t tlb_shoot_addr1 __attribute__((section(".kudata")));
+volatile vaddr_t tlb_shoot_addr2 __attribute__((section(".kudata")));
 
 void
 pmap_tlb_shootpage(struct pmap *pm, vaddr_t va, int shootself)
@@ -2541,7 +2710,8 @@ pmap_tlb_shoottlb(struct pmap *pm, int shootself)
 	u_int64_t mask = 0;
 
 	CPU_INFO_FOREACH(cii, ci) {
-		if (ci == self || !pmap_is_active(pm, ci->ci_cpuid) || !(ci->ci_flags & CPUF_RUNNING))
+		if (ci == self || !pmap_is_active(pm, ci->ci_cpuid) ||
+		    !(ci->ci_flags & CPUF_RUNNING))
 			continue;
 		mask |= (1ULL << ci->ci_cpuid);
 		wait++;

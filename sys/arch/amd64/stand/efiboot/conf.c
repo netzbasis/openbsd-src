@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.10 2017/07/31 14:04:52 kettenis Exp $	*/
+/*	$OpenBSD: conf.c,v 1.14 2018/02/06 01:09:17 patrick Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -27,18 +27,19 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 #include <sys/disklabel.h>
 #include <libsa.h>
 #include <lib/libsa/ufs.h>
+#include <lib/libsa/tftp.h>
 #include <lib/libsa/cd9660.h>
 #include <dev/cons.h>
 
 #include "disk.h"
 #include "efiboot.h"
 #include "efidev.h"
+#include "efipxe.h"
 
-const char version[] = "3.35";
+const char version[] = "3.38";
 
 #ifdef EFI_DEBUG
 int	debug = 0;
@@ -51,7 +52,7 @@ void (*i386_probe1[])(void) = {
 	cninit, efi_memprobe
 };
 void (*i386_probe2[])(void) = {
-	efi_diskprobe, diskprobe
+	efi_pxeprobe, efi_diskprobe, diskprobe
 };
 
 struct i386_boot_probes probe_list[] = {
@@ -62,6 +63,8 @@ int nibprobes = nitems(probe_list);
 
 
 struct fs_ops file_system[] = {
+	{ tftp_open,   tftp_close,   tftp_read,   tftp_write,   tftp_seek,
+	  tftp_stat,   tftp_readdir   },
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
 	  ufs_stat,    ufs_readdir    },
 	{ cd9660_open, cd9660_close, cd9660_read, cd9660_write, cd9660_seek,
@@ -76,10 +79,8 @@ struct fs_ops file_system[] = {
 int nfsys = nitems(file_system);
 
 struct devsw	devsw[] = {
-	{ "EFI", efistrategy, efiopen, eficlose, efiioctl },
-#if 0
 	{ "TFTP", tftpstrategy, tftpopen, tftpclose, tftpioctl },
-#endif
+	{ "EFI", efistrategy, efiopen, eficlose, efiioctl },
 };
 int ndevs = nitems(devsw);
 

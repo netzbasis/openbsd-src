@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcap.c,v 1.20 2016/11/16 13:47:27 reyk Exp $	*/
+/*	$OpenBSD: pcap.c,v 1.22 2018/02/06 02:55:48 dlg Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996, 1997, 1998
@@ -313,6 +313,7 @@ DLT_CHOICE(DLT_IEEE802, "IEEE 802 Networks"),
 DLT_CHOICE(DLT_ARCNET, "ARCNET"),
 DLT_CHOICE(DLT_SLIP, "Serial Line IP"),
 DLT_CHOICE(DLT_PPP, "Point-to-point Protocol"),
+DLT_CHOICE(DLT_PPP_SERIAL, "PPP over serial"),
 DLT_CHOICE(DLT_FDDI, "FDDI"),
 DLT_CHOICE(DLT_ATM_RFC1483, "LLC/SNAP encapsulated atm"),
 DLT_CHOICE(DLT_LOOP, "loopback type (af header)"),
@@ -326,6 +327,7 @@ DLT_CHOICE(DLT_IEEE802_11, "IEEE 802.11 wireless"),
 DLT_CHOICE(DLT_PFLOG, "Packet filter logging, by pcap people"),
 DLT_CHOICE(DLT_IEEE802_11_RADIO, "IEEE 802.11 plus WLAN header"),
 DLT_CHOICE(DLT_OPENFLOW, "OpenFlow"),
+DLT_CHOICE(DLT_USBPCAP, "USB"),
 #undef DLT_CHOICE
 	{ NULL, NULL, -1}
 };

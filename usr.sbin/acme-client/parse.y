@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.17 2017/03/23 12:59:32 florian Exp $ */
+/*	$OpenBSD: parse.y,v 1.19 2017/11/27 01:58:52 florian Exp $ */
 
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -189,14 +189,8 @@ authorityopts_l	: authorityopts_l authorityoptsl nl
 		;
 
 authorityoptsl	: AGREEMENT URL STRING {
-			char *s;
-			if (auth->agreement != NULL) {
-				yyerror("duplicate agreement");
-				YYERROR;
-			}
-			if ((s = strdup($3)) == NULL)
-				err(EXIT_FAILURE, "strdup");
-			auth->agreement = s;
+			warnx("\"agreement url\" is deprecated.");
+			/* XXX remove after 6.3 */
 		}
 		| API URL STRING {
 			char *s;
@@ -225,8 +219,8 @@ domain		: DOMAIN STRING {
 			if ((s = strdup($2)) == NULL)
 				err(EXIT_FAILURE, "strdup");
 			if (!domain_valid(s)) {
-				free(s);
 				yyerror("%s: bad domain syntax", s);
+				free(s);
 				YYERROR;
 			}
 			if ((domain = conf_new_domain(conf, s)) == NULL) {
@@ -336,6 +330,7 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 				err(EXIT_FAILURE, "strdup");
 			if (authority_find(conf, s) == NULL) {
 				yyerror("use: unknown authority");
+				free(s);
 				YYERROR;
 			}
 			domain->auth = s;
@@ -964,8 +959,6 @@ print_config(struct acme_conf *xconf)
 
 	TAILQ_FOREACH(a, &xconf->authority_list, entry) {
 		printf("authority %s {\n", a->name);
-		if (a->agreement != NULL)
-			printf("\tagreement url \"%s\"\n", a->agreement);
 		if (a->api != NULL)
 			printf("\tapi url \"%s\"\n", a->api);
 		if (a->account != NULL)

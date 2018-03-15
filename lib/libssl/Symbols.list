@@ -56,7 +56,10 @@ SSL_CTX_check_private_key
 SSL_CTX_ctrl
 SSL_CTX_flush_sessions
 SSL_CTX_free
+SSL_CTX_get0_certificate
+SSL_CTX_get0_param
 SSL_CTX_get_cert_store
+SSL_CTX_get_ciphers
 SSL_CTX_get_client_CA_list
 SSL_CTX_get_client_cert_cb
 SSL_CTX_get_ex_data
@@ -97,8 +100,8 @@ SSL_CTX_set_default_verify_paths
 SSL_CTX_set_ex_data
 SSL_CTX_set_generate_session_id
 SSL_CTX_set_info_callback
-SSL_CTX_set_min_proto_version
 SSL_CTX_set_max_proto_version
+SSL_CTX_set_min_proto_version
 SSL_CTX_set_msg_callback
 SSL_CTX_set_next_proto_select_cb
 SSL_CTX_set_next_protos_advertised_cb
@@ -114,6 +117,7 @@ SSL_CTX_set_tmp_rsa_callback
 SSL_CTX_set_trust
 SSL_CTX_set_verify
 SSL_CTX_set_verify_depth
+SSL_CTX_up_ref
 SSL_CTX_use_PrivateKey
 SSL_CTX_use_PrivateKey_ASN1
 SSL_CTX_use_PrivateKey_file
@@ -131,6 +135,8 @@ SSL_SESSION_get_compress_id
 SSL_SESSION_get_ex_data
 SSL_SESSION_get_ex_new_index
 SSL_SESSION_get_id
+SSL_SESSION_get_master_key
+SSL_SESSION_get_protocol_version
 SSL_SESSION_get_time
 SSL_SESSION_get_timeout
 SSL_SESSION_new
@@ -140,6 +146,7 @@ SSL_SESSION_set1_id_context
 SSL_SESSION_set_ex_data
 SSL_SESSION_set_time
 SSL_SESSION_set_timeout
+SSL_SESSION_up_ref
 SSL_accept
 SSL_add_client_CA
 SSL_add_dir_cert_subjects_to_stack
@@ -162,12 +169,14 @@ SSL_export_keying_material
 SSL_free
 SSL_get0_alpn_selected
 SSL_get0_next_proto_negotiated
+SSL_get0_param
 SSL_get1_session
 SSL_get_SSL_CTX
 SSL_get_certificate
 SSL_get_cipher_list
 SSL_get_ciphers
 SSL_get_client_CA_list
+SSL_get_client_random
 SSL_get_current_cipher
 SSL_get_current_compression
 SSL_get_current_expansion
@@ -188,6 +197,7 @@ SSL_get_rbio
 SSL_get_read_ahead
 SSL_get_rfd
 SSL_get_selected_srtp_profile
+SSL_get_server_random
 SSL_get_servername
 SSL_get_servername_type
 SSL_get_session
@@ -203,6 +213,7 @@ SSL_get_version
 SSL_get_wbio
 SSL_get_wfd
 SSL_has_matching_session_id
+SSL_is_server
 SSL_library_init
 SSL_load_client_CA_file
 SSL_load_error_strings
@@ -231,8 +242,8 @@ SSL_set_ex_data
 SSL_set_fd
 SSL_set_generate_session_id
 SSL_set_info_callback
-SSL_set_min_proto_version
 SSL_set_max_proto_version
+SSL_set_min_proto_version
 SSL_set_msg_callback
 SSL_set_purpose
 SSL_set_quiet_shutdown
@@ -259,6 +270,7 @@ SSL_shutdown
 SSL_state
 SSL_state_string
 SSL_state_string_long
+SSL_up_ref
 SSL_use_PrivateKey
 SSL_use_PrivateKey_ASN1
 SSL_use_PrivateKey_file

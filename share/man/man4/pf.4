@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pf.4,v 1.87 2017/05/30 19:38:47 henning Exp $
+.\"	$OpenBSD: pf.4,v 1.89 2017/10/12 14:39:24 jmc Exp $
 .\"
 .\" Copyright (C) 2001, Kjell Wooding.  All rights reserved.
 .\"
@@ -26,7 +26,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: May 30 2017 $
+.Dd $Mdocdate: October 12 2017 $
 .Dt PF 4
 .Os
 .Sh NAME
@@ -94,8 +94,8 @@ struct pfioc_rule {
 	u_int32_t	action;
 	u_int32_t	ticket;
 	u_int32_t	nr;
-	char		anchor[MAXPATHLEN];
-	char		anchor_call[MAXPATHLEN];
+	char		anchor[PATH_MAX];
+	char		anchor_call[PATH_MAX];
 	struct pf_rule	rule;
 };
 .Ed
@@ -186,7 +186,7 @@ for the queue specified by
 .Bd -literal
 struct pfioc_ruleset {
 	u_int32_t	 nr;
-	char		 path[MAXPATHLEN];
+	char		 path[PATH_MAX];
 	char		 name[PF_ANCHOR_NAME_SIZE];
 };
 .Ed
@@ -272,12 +272,13 @@ struct pf_status {
 	time_t		since;
 	u_int32_t	running;
 	u_int32_t	states;
+	u_int32_t	states_halfopen;
 	u_int32_t	src_nodes;
 	u_int32_t	debug;
 	u_int32_t	hostid;
 	u_int32_t	reass;			/* reassembly */
 	char		ifname[IFNAMSIZ];
-	u_int8_t	pf_chksum[MD5_DIGEST_LENGTH];
+	u_int8_t	pf_chksum[PF_MD5_DIGEST_LENGTH];
 };
 .Ed
 .It Dv DIOCCLRSTATUS
@@ -462,7 +463,7 @@ On exit,
 contains the number of tables effectively created.
 .Bd -literal
 struct pfr_table {
-	char		pfrt_anchor[MAXPATHLEN];
+	char		pfrt_anchor[PATH_MAX];
 	char		pfrt_name[PF_TABLE_NAME_SIZE];
 	u_int32_t	pfrt_flags;
 	u_int8_t	pfrt_fback;
@@ -746,7 +747,7 @@ struct pfioc_trans {
 	int		 esize;	/* size of each element in bytes */
 	struct pfioc_trans_e {
 		int		type;
-		char		anchor[MAXPATHLEN];
+		char		anchor[PATH_MAX];
 		u_int32_t	ticket;
 	}		*array;
 };
@@ -1007,14 +1008,16 @@ command to show the hard limit of a memory pool used by the packet filter:
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/fcntl.h>
+
 #include <netinet/in.h>
 #include <net/if.h>
 #include <net/pfvar.h>
+
+#include <err.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <err.h>
 
 static const struct {
 	const char	*name;
@@ -1031,10 +1034,9 @@ static const struct {
 void
 usage(void)
 {
-	extern char *__progname;
 	int i;
 
-	fprintf(stderr, "usage: %s [", __progname);
+	fprintf(stderr, "usage: %s [", getprogname());
 	for (i = 0; pf_limits[i].name; i++)
 		fprintf(stderr, "%s%s", (i > 0 ? "|" : ""), pf_limits[i].name);
 	fprintf(stderr, "]\en");
@@ -1052,7 +1054,7 @@ main(int argc, char *argv[])
 		usage();
 
 	for (i = 0; pf_limits[i].name; i++)
-		if (!strcmp(argv[1], pf_limits[i].name)) {
+		if (strcmp(argv[1], pf_limits[i].name) == 0) {
 			pool_index = pf_limits[i].index;
 			break;
 		}
@@ -1066,10 +1068,10 @@ main(int argc, char *argv[])
 	if (dev == -1)
 		err(1, "open(\e"/dev/pf\e") failed");
 
-	bzero(&pl, sizeof(struct pfioc_limit));
+	memset(&pl, 0, sizeof(struct pfioc_limit));
 	pl.index = pool_index;
 
-	if (ioctl(dev, DIOCGETLIMIT, &pl))
+	if (ioctl(dev, DIOCGETLIMIT, &pl) == -1)
 		err(1, "DIOCGETLIMIT");
 
 	printf("The %s memory pool has ", pf_limits[i].name);
@@ -1078,7 +1080,7 @@ main(int argc, char *argv[])
 	else
 		printf("a hard limit of %u entries.\en", pl.limit);
 
-	return (0);
+	return 0;
 }
 .Ed
 .Sh SEE ALSO

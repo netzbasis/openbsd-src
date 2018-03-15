@@ -1,4 +1,4 @@
-# $OpenBSD: files.arm64,v 1.15 2017/06/04 14:10:42 patrick Exp $
+# $OpenBSD: files.arm64,v 1.19 2018/02/15 00:03:06 jsg Exp $
 
 maxpartitions	16
 maxusers	2 8 64
@@ -29,9 +29,9 @@ file	arch/arm64/arm64/intr.c
 file	arch/arm64/arm64/softintr.c
 file	arch/arm64/arm64/vfp.c
 file	arch/arm64/arm64/exception.S
+file	arch/arm64/arm64/trampoline.S
 file	arch/arm64/arm64/trap.c
 file	arch/arm64/arm64/ast.c
-file	arch/arm64/arm64/arm64_mutex.c
 
 file	arch/arm64/arm64/cpufunc_asm.S
 file	arch/arm64/arm64/support.S
@@ -44,7 +44,7 @@ file	arch/arm64/arm64/db_interface.c		ddb
 file	arch/arm64/arm64/db_trace.c		ddb
 
 pseudo-device	openprom
-file	arch/arm/arm/openprom.c			openprom needs-flag
+file	arch/arm64/arm64/openprom.c		openprom needs-flag
 
 define	fdt {[early = 0]}
 
@@ -57,6 +57,10 @@ file	arch/arm64/dev/mainbus.c		mainbus
 device	simplebus: fdt
 attach	simplebus at fdt
 file	arch/arm64/dev/simplebus.c		simplebus
+
+device	efi
+attach	efi at fdt
+file	arch/arm64/dev/efi.c			efi
 
 # FDT support
 file	dev/ofw/fdt.c

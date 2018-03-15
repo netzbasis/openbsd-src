@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_softdep.c,v 1.135 2016/11/07 00:26:33 guenther Exp $	*/
+/*	$OpenBSD: ffs_softdep.c,v 1.138 2018/02/10 05:24:23 deraadt Exp $	*/
 
 /*
  * Copyright 1998, 2000 Marshall Kirk McKusick. All Rights Reserved.
@@ -903,6 +903,14 @@ softdep_flushfiles(struct mount *oldmnt, int flags, struct proc *p)
 		    count == 0)
 			break;
 	}
+	/*
+	 * If the reboot process sleeps during the loop, the update
+	 * process may call softdep_process_worklist() and create
+	 * new dirty vnodes at the mount point.  Call ffs_flushfiles()
+	 * again after the loop has flushed all soft dependencies.
+	 */
+	if (error == 0)
+		error = ffs_flushfiles(oldmnt, flags, p);
 	/*
 	 * If we are unmounting then it is an error to fail. If we
 	 * are simply trying to downgrade to read-only, then filesystem
@@ -4842,6 +4850,7 @@ loop:
 			 * rather than panic, just flush it.
 			 */
 			nbp = WK_MKDIR(wk)->md_buf;
+			KASSERT(bp != nbp);
 			gotit = getdirtybuf(nbp, waitfor);
 			if (gotit == 0)
 				break;
@@ -4866,6 +4875,8 @@ loop:
 			 * rather than panic, just flush it.
 			 */
 			nbp = WK_BMSAFEMAP(wk)->sm_buf;
+			if (bp == nbp)
+				break;
 			gotit = getdirtybuf(nbp, waitfor);
 			if (gotit == 0)
 				break;
@@ -4934,7 +4945,7 @@ loop:
 	 */
 	if (vn_isdisk(vp, NULL) &&
 	    vp->v_specmountpoint && !VOP_ISLOCKED(vp) &&
-	    (error = VFS_SYNC(vp->v_specmountpoint, MNT_WAIT, ap->a_cred,
+	    (error = VFS_SYNC(vp->v_specmountpoint, MNT_WAIT, 0, ap->a_cred,
 	     ap->a_p)) != 0)
 		return (error);
 	return (0);

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.armv7,v 1.34 2017/08/12 20:26:11 mpi Exp $
+#	$OpenBSD: Makefile.armv7,v 1.40 2018/02/10 06:52:47 patrick Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -25,9 +25,15 @@ INCLUDES=	-nostdinc -I$S -I. -I$S/arch
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -D__${_mach}__ -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
+		-Wno-address-of-packed-member -Wno-constant-conversion \
 		-Wframe-larger-than=2047
 
-CMACHFLAGS=	-msoft-float -march=armv6 -Wa,-march=armv7a
+CMACHFLAGS=	-msoft-float
+.if ${COMPILER_VERSION:Mgcc4}
+CMACHFLAGS+=	-march=armv6 -Wa,-march=armv7a
+.else
+CMACHFLAGS+=	-march=armv7a
+.endif
 CMACHFLAGS+=	-ffreestanding ${NOPIE_FLAGS}
 SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
@@ -36,18 +42,15 @@ CMACHFLAGS+=	-fno-stack-protector
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
 .endif
+.if ${COMPILER_VERSION:Mclang}
+NO_INTEGR_AS=	-no-integrated-as
+.endif
 
 DEBUG?=		-g
 COPTS?=		-O2
 CFLAGS=		${DEBUG} ${CWARNFLAGS} ${CMACHFLAGS} ${COPTS} ${PIPE}
 AFLAGS=		-D_LOCORE -x assembler-with-cpp ${CWARNFLAGS} ${CMACHFLAGS}
 LINKFLAGS=	-T ld.script --warn-common -nopie
-
-.if ${IDENT:M-DDDB_STRUCT}
-DB_STRUCTINFO=	db_structinfo.h
-.else
-DB_STRUCTINFO=
-.endif
 
 HOSTCC?=	${CC}
 HOSTED_CPPFLAGS=${CPPFLAGS:S/^-nostdinc$//}
@@ -99,7 +102,7 @@ LINKFLAGS+=	-S
 assym.h: $S/kern/genassym.sh Makefile \
 	 ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf
 	cat ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf | \
-	    sh $S/kern/genassym.sh ${CC} ${CFLAGS} ${CPPFLAGS} -MF assym.P > assym.h.tmp
+	    sh $S/kern/genassym.sh ${CC} ${NO_INTEGR_AS} ${CFLAGS} ${CPPFLAGS} -MF assym.P > assym.h.tmp
 	sed '1s/.*/assym.h: \\/' assym.P > assym.d
 	sort -u assym.h.tmp > assym.h
 
@@ -116,8 +119,8 @@ mcount.o: $S/lib/libkern/mcount.c Makefile
 ioconf.o: ioconf.c
 	${NORMAL_C}
 
-ld.script: ${_archdir}/conf/ldscript.head ${_archdir}/conf/ldscript.tail
-	cat ${_archdir}/conf/ldscript.head ${_archdir}/conf/ldscript.tail | \
+ld.script: ${_archdir}/conf/kern.ldscript
+	cat ${_archdir}/conf/kern.ldscript | \
 	    sed -e 's/@KERNEL_BASE_PHYS@/0/' \
 	    -e 's/@KERNEL_BASE_VIRT@/${KERNEL_BASE_VIRT}/' \
 	    -e 's/(KERNEL_BASE_phys)/(KERNEL_BASE_virt)/' > ld.script
@@ -139,7 +142,7 @@ vers.o: ${SYSTEM_DEP:Ngap.o}
 	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c vers.c
 
 clean:
-	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* ${DB_STRUCTINFO} \
+	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* \
 	    gap.link ld.script lorder makegap.sh param.c
 
 cleandir: clean
@@ -147,29 +150,23 @@ cleandir: clean
 
 depend obj:
 
-db_structinfo.h: $S/ddb/db_structinfo.c $S/ddb/parse_structinfo.pl
-	${CC} ${CFLAGS} ${CPPFLAGS} -MT $@ -gstabs -c $S/ddb/db_structinfo.c
-	objdump -g db_structinfo.o | perl $S/ddb/parse_structinfo.pl > $@
-	rm -f db_structinfo.o
-
 locore0.o: ${_machdir}/${_mach}/locore0.S assym.h
 in_cksum_arm.o fiq_subr.o bcopyinout.o copystr.o sigcode.o: assym.h
 vectors.o cpuswitch7.o exception.o bcopy_page.o irq_dispatch.o: assym.h
 ${_mach}_start.o locore.o: assym.h
 
+hardlink-obsd:
+	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
+
 newinstall:
-	cmp -s bsd /bsd || ln -f /bsd /obsd
 	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
 	    sha256 -h /var/db/kernel.SHA256 /bsd
 
-install: update-link newinstall
+install: update-link hardlink-obsd newinstall
 
 # pull in the dependency information
-.if !empty(DB_STRUCTINFO) && !exists(${DB_STRUCTINFO})
- ${SYSTEM_OBJ}: ${DB_STRUCTINFO}
-.endif
 .ifnmake clean
-. for o in ${SYSTEM_OBJ:Ngap.o} assym.h ${DB_STRUCTINFO}
+. for o in ${SYSTEM_OBJ:Ngap.o} assym.h
 .  if exists(${o:R}.d)
 .   include "${o:R}.d"
 .  elif exists($o)
@@ -177,7 +174,6 @@ install: update-link newinstall
 .  endif
 . endfor
 .endif
-
 
 # until we get native booting working, put this in the tree.
 KERNADDR_OMAP=0x80300000

@@ -19,10 +19,10 @@
 /uvm_io.c/1.26/Sat Jan  9 11:34:27 2016//
 /uvm_km.c/1.130/Thu May 11 06:55:47 2017//
 /uvm_km.h/1.15/Thu May 11 00:42:05 2017//
-/uvm_map.c/1.232/Sat Aug 12 16:30:10 2017//
+/uvm_map.c/1.233/Thu Nov 30 00:36:10 2017//
 /uvm_map.h/1.59/Fri Sep 16 03:39:25 2016//
 /uvm_meter.c/1.37/Tue May  9 09:36:04 2017//
-/uvm_mmap.c/1.142/Sat Jan 21 05:42:03 2017//
+/uvm_mmap.c/1.147/Mon Feb 19 08:59:53 2018//
 /uvm_object.c/1.14/Fri Sep 16 02:35:42 2016//
 /uvm_object.h/1.22/Fri Sep 16 02:35:42 2016//
 /uvm_page.c/1.146/Mon Nov  7 00:26:33 2016//
@@ -30,18 +30,18 @@
 /uvm_pager.c/1.71/Wed Dec 17 19:42:15 2014//
 /uvm_pager.h/1.29/Fri Jul 11 16:35:40 2014//
 /uvm_param.h/1.18/Sat Feb  7 08:21:24 2015//
-/uvm_pdaemon.c/1.78/Tue Feb 14 10:31:15 2017//
+/uvm_pdaemon.c/1.79/Thu Jan 18 18:08:51 2018//
 /uvm_pmap.h/1.27/Wed Oct 19 08:28:19 2016//
 /uvm_pmemrange.c/1.53/Fri Sep 16 02:52:24 2016//
 /uvm_pmemrange.h/1.14/Fri Sep 16 02:47:09 2016//
 /uvm_stat.c/1.29/Sun May  8 11:52:32 2016//
-/uvm_swap.c/1.141/Sun Apr  9 18:14:39 2017//
+/uvm_swap.c/1.143/Mon Feb 19 08:59:53 2018//
 /uvm_swap.h/1.16/Tue Nov  5 06:02:45 2013//
 /uvm_swap_encrypt.c/1.22/Wed May  6 04:00:10 2015//
 /uvm_swap_encrypt.h/1.10/Wed May  6 04:00:10 2015//
 /uvm_unix.c/1.64/Thu Mar  9 20:27:41 2017//
 /uvm_user.c/1.14/Sun Sep 14 14:17:27 2014//
-/uvm_vnode.c/1.98/Sat Aug 12 20:27:28 2017//
+/uvm_vnode.c/1.99/Thu Mar  8 22:04:18 2018//
 /uvm_vnode.h/1.14/Tue Dec 16 18:30:04 2014//
 /uvmexp.h/1.2/Sun May  8 11:52:32 2016//
 D

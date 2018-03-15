@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd.c,v 1.220 2017/05/29 07:47:13 krw Exp $	*/
+/*	$OpenBSD: cd.c,v 1.222 2017/12/30 23:08:29 guenther Exp $	*/
 /*	$NetBSD: cd.c,v 1.100 1997/04/02 02:29:30 mycroft Exp $	*/
 
 /*
@@ -47,11 +47,10 @@
  * Ported to run under 386BSD by Julian Elischer (julian@tfs.com) Sept 1992
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/timeout.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/mtio.h>

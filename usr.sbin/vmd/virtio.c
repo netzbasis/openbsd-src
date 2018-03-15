@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.52 2017/08/20 05:16:58 mlarkin Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.56 2018/02/01 18:33:27 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -24,6 +24,7 @@
 #include <dev/pci/pcidevs.h>
 #include <dev/pv/virtioreg.h>
 #include <dev/pv/vioblkreg.h>
+#include <dev/pv/vioscsireg.h>
 
 #include <net/if.h>
 #include <netinet/in.h>
@@ -41,6 +42,7 @@
 #include "vmd.h"
 #include "vmm.h"
 #include "virtio.h"
+#include "vioscsi.h"
 #include "loadfile.h"
 #include "atomicio.h"
 
@@ -49,6 +51,7 @@ extern char *__progname;
 struct viornd_dev viornd;
 struct vioblk_dev *vioblk;
 struct vionet_dev *vionet;
+struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
 
 int nr_vionet;
@@ -61,14 +64,6 @@ int nr_vioblk;
 #define VMMCI_F_TIMESYNC	(1<<0)
 #define VMMCI_F_ACK		(1<<1)
 #define VMMCI_F_SYNCRTC		(1<<2)
-
-struct ioinfo {
-	uint8_t *buf;
-	ssize_t len;
-	off_t offset;
-	int fd;
-	int error;
-};
 
 const char *
 vioblk_cmd_name(uint32_t type)
@@ -178,6 +173,7 @@ viornd_notifyq(void)
 	uint32_t vr_sz;
 	size_t sz;
 	int ret;
+	uint16_t aidx, uidx;
 	char *buf, *rnd_data;
 	struct vring_desc *desc;
 	struct vring_avail *avail;
@@ -210,27 +206,30 @@ viornd_notifyq(void)
 	used = (struct vring_used *)(buf +
 	    viornd.vq[viornd.cfg.queue_notify].vq_usedoffset);
 
-	sz = desc[avail->ring[avail->idx]].len;
+	aidx = avail->idx & VIORND_QUEUE_MASK;
+	uidx = used->idx & VIORND_QUEUE_MASK;
+
+	sz = desc[avail->ring[aidx]].len;
 	if (sz > MAXPHYS)
 		fatal("viornd descriptor size too large (%zu)", sz);
 
 	rnd_data = malloc(sz);
 
 	if (rnd_data != NULL) {
-		arc4random_buf(rnd_data, desc[avail->ring[avail->idx]].len);
-		if (write_mem(desc[avail->ring[avail->idx]].addr,
-		    rnd_data, desc[avail->ring[avail->idx]].len)) {
+		arc4random_buf(rnd_data, desc[avail->ring[aidx]].len);
+		if (write_mem(desc[avail->ring[aidx]].addr,
+		    rnd_data, desc[avail->ring[aidx]].len)) {
 			log_warnx("viornd: can't write random data @ "
 			    "0x%llx",
-			    desc[avail->ring[avail->idx]].addr);
+			    desc[avail->ring[aidx]].addr);
 		} else {
 			/* ret == 1 -> interrupt needed */
 			/* XXX check VIRTIO_F_NO_INTR */
 			ret = 1;
 			viornd.cfg.isr_status = 1;
-			used->ring[used->idx].id = avail->ring[avail->idx];
-			used->ring[used->idx].len =
-			    desc[avail->ring[avail->idx]].len;
+			used->ring[uidx].id = avail->ring[aidx] &
+			    VIORND_QUEUE_MASK;
+			used->ring[uidx].len = desc[avail->ring[aidx]].len;
 			used->idx++;
 
 			if (write_mem(q_gpa, buf, vr_sz)) {
@@ -1662,7 +1661,8 @@ vmmci_io(int dir, uint16_t reg, uint32_t *data, uint8_t *intr,
 }
 
 void
-virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
+virtio_init(struct vmd_vm *vm, int child_cdrom, int *child_disks,
+    int *child_taps)
 {
 	struct vmop_create_params *vmc = &vm->vm_params;
 	struct vm_create_params *vcp = &vmc->vmc_params;
@@ -1695,6 +1695,7 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 	viornd.vq[0].vq_usedoffset = VIRTQUEUE_ALIGN(
 	    sizeof(struct vring_desc) * VIORND_QUEUE_SIZE
 	    + sizeof(uint16_t) * (2 + VIORND_QUEUE_SIZE));
+	viornd.pci_id = id;
 
 	if (vcp->vcp_ndisks > 0) {
 		nr_vioblk = vcp->vcp_ndisks;
@@ -1737,6 +1738,7 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 			vioblk[i].sz = sz / 512;
 			vioblk[i].cfg.device_feature = VIRTIO_BLK_F_SIZE_MAX;
 			vioblk[i].max_xfer = 1048576;
+			vioblk[i].pci_id = id;
 		}
 	}
 
@@ -1814,6 +1816,7 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 			vionet[i].local =
 			    vmc->vmc_ifflags[i] & VMIFF_LOCAL ? 1 : 0;
 			vionet[i].idx = i;
+			vionet[i].pci_id = id;
 
 			log_debug("%s: vm \"%s\" vio%u lladdr %s%s%s",
 			    __func__, vcp->vcp_name, i,
@@ -1821,6 +1824,51 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 			    vionet[i].lockedmac ? ", locked" : "",
 			    vionet[i].local ? ", local" : "");
 		}
+	}
+
+	/* vioscsi cdrom */
+	if (strlen(vcp->vcp_cdrom)) {
+		vioscsi = calloc(1, sizeof(struct vioscsi_dev));
+		if (vioscsi == NULL) {
+			log_warn("%s: calloc failure allocating vioscsi",
+			    __progname);
+			return;
+		}
+
+		if (pci_add_device(&id, PCI_VENDOR_QUMRANET,
+		    PCI_PRODUCT_QUMRANET_VIO_SCSI,
+		    PCI_CLASS_MASS_STORAGE,
+		    PCI_SUBCLASS_MASS_STORAGE_SCSI,
+		    PCI_VENDOR_OPENBSD,
+		    PCI_PRODUCT_VIRTIO_SCSI, 1, NULL)) {
+			log_warnx("%s: can't add PCI vioscsi device",
+			    __progname);
+			return;
+		}
+
+		if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, vioscsi_io, vioscsi)) {
+			log_warnx("%s: can't add bar for vioscsi device",
+			    __progname);
+			return;
+		}
+
+		for ( i = 0; i < VIRTIO_MAX_QUEUES; i++) {
+			vioscsi->vq[i].qs = VIOSCSI_QUEUE_SIZE;
+			vioscsi->vq[i].vq_availoffset =
+			    sizeof(struct vring_desc) * VIOSCSI_QUEUE_SIZE;
+			vioscsi->vq[i].vq_usedoffset = VIRTQUEUE_ALIGN(
+			    sizeof(struct vring_desc) * VIOSCSI_QUEUE_SIZE
+			    + sizeof(uint16_t) * (2 + VIOSCSI_QUEUE_SIZE));
+			vioscsi->vq[i].last_avail = 0;
+		}
+		sz = lseek(child_cdrom, 0, SEEK_END);
+		vioscsi->fd = child_cdrom;
+		vioscsi->locked = 0;
+		vioscsi->lba = 0;
+		vioscsi->sz = sz;
+		vioscsi->n_blocks = sz >> 11; /* num of 2048 blocks in file */
+		vioscsi->max_xfer = VIOSCSI_BLOCK_SIZE_CDROM;
+		vioscsi->pci_id = id;
 	}
 
 	/* virtio control device */
@@ -1846,6 +1894,7 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 	    VMMCI_F_SYNCRTC;
 	vmmci.vm_id = vcp->vcp_id;
 	vmmci.irq = pci_get_dev_irq(id);
+	vmmci.pci_id = id;
 
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
 }
@@ -1853,27 +1902,14 @@ virtio_init(struct vmd_vm *vm, int *child_disks, int *child_taps)
 int
 vmmci_restore(int fd, uint32_t vm_id)
 {
-	uint8_t id;
-
 	log_debug("%s: receiving vmmci", __func__);
 	if (atomicio(read, fd, &vmmci, sizeof(vmmci)) != sizeof(vmmci)) {
 		log_warnx("%s: error reading vmmci from fd", __func__);
 		return (-1);
 	}
 
-	if (pci_add_device(&id, PCI_VENDOR_OPENBSD,
-	    PCI_PRODUCT_OPENBSD_CONTROL,
-	    PCI_CLASS_COMMUNICATIONS,
-	    PCI_SUBCLASS_COMMUNICATIONS_MISC,
-	    PCI_VENDOR_OPENBSD,
-	    PCI_PRODUCT_VIRTIO_VMMCI, 1, NULL)) {
-		log_warnx("%s: can't add PCI vmm control device",
-		    __progname);
-		return (-1);
-	}
-
-	if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, vmmci_io, NULL)) {
-		log_warnx("%s: can't add bar for vmm control device",
+	if (pci_set_bar_fn(vmmci.pci_id, 0, vmmci_io, NULL)) {
+		log_warnx("%s: can't set bar fn for vmm control device",
 		    __progname);
 		return (-1);
 	}
@@ -1886,25 +1922,13 @@ vmmci_restore(int fd, uint32_t vm_id)
 int
 viornd_restore(int fd)
 {
-	uint8_t id;
-
 	log_debug("%s: receiving viornd", __func__);
 	if (atomicio(read, fd, &viornd, sizeof(viornd)) != sizeof(viornd)) {
 		log_warnx("%s: error reading viornd from fd", __func__);
 		return (-1);
 	}
-	if (pci_add_device(&id, PCI_VENDOR_QUMRANET,
-	    PCI_PRODUCT_QUMRANET_VIO_RNG, PCI_CLASS_SYSTEM,
-	    PCI_SUBCLASS_SYSTEM_MISC,
-	    PCI_VENDOR_OPENBSD,
-	    PCI_PRODUCT_VIRTIO_ENTROPY, 1, NULL)) {
-		log_warnx("%s: can't add PCI virtio rng device",
-		    __progname);
-		return (-1);
-	}
-
-	if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, virtio_rnd_io, NULL)) {
-		log_warnx("%s: can't add bar for virtio rng device",
+	if (pci_set_bar_fn(viornd.pci_id, 0, virtio_rnd_io, NULL)) {
+		log_warnx("%s: can't set bar fn for virtio rng device",
 		    __progname);
 		return (-1);
 	}
@@ -1916,7 +1940,7 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 {
 	struct vmop_create_params *vmc = &vm->vm_params;
 	struct vm_create_params *vcp = &vmc->vmc_params;
-	uint8_t i, id;
+	uint8_t i;
 	int ret;
 
 	nr_vionet = vcp->vcp_nnics;
@@ -1938,19 +1962,9 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 
 		/* Virtio network */
 		for (i = 0; i < vcp->vcp_nnics; i++) {
-			if (pci_add_device(&id, PCI_VENDOR_QUMRANET,
-			    PCI_PRODUCT_QUMRANET_VIO_NET, PCI_CLASS_SYSTEM,
-			    PCI_SUBCLASS_SYSTEM_MISC,
-			    PCI_VENDOR_OPENBSD,
-			    PCI_PRODUCT_VIRTIO_NETWORK, 1, NULL)) {
-				log_warnx("%s: can't add PCI virtio net device",
-				    __progname);
-				return (-1);
-			}
-
-			if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, virtio_net_io,
+			if (pci_set_bar_fn(vionet[i].pci_id, 0, virtio_net_io,
 			    &vionet[i])) {
-				log_warnx("%s: can't add bar for virtio net "
+				log_warnx("%s: can't set bar fn for virtio net "
 				    "device", __progname);
 				return (-1);
 			}
@@ -1985,7 +1999,7 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 int
 vioblk_restore(int fd, struct vm_create_params *vcp, int *child_disks)
 {
-	uint8_t i, id;
+	uint8_t i;
 	off_t sz;
 
 	nr_vioblk = vcp->vcp_ndisks;
@@ -2005,19 +2019,9 @@ vioblk_restore(int fd, struct vm_create_params *vcp, int *child_disks)
 		if ((sz = lseek(child_disks[i], 0, SEEK_END)) == -1)
 			continue;
 
-		if (pci_add_device(&id, PCI_VENDOR_QUMRANET,
-		    PCI_PRODUCT_QUMRANET_VIO_BLOCK,
-		    PCI_CLASS_MASS_STORAGE,
-		    PCI_SUBCLASS_MASS_STORAGE_SCSI,
-		    PCI_VENDOR_OPENBSD,
-		    PCI_PRODUCT_VIRTIO_BLOCK, 1, NULL)) {
-			log_warnx("%s: can't add PCI virtio block "
-			    "device", __progname);
-			return (-1);
-		}
-		if (pci_add_bar(id, PCI_MAPREG_TYPE_IO, virtio_blk_io,
+		if (pci_set_bar_fn(vioblk[i].pci_id, 0, virtio_blk_io,
 		    &vioblk[i])) {
-			log_warnx("%s: can't add bar for virtio block "
+			log_warnx("%s: can't set bar fn for virtio block "
 			    "device", __progname);
 			return (-1);
 		}
@@ -2027,7 +2031,43 @@ vioblk_restore(int fd, struct vm_create_params *vcp, int *child_disks)
 }
 
 int
-virtio_restore(int fd, struct vmd_vm *vm, int *child_disks, int *child_taps)
+vioscsi_restore(int fd, struct vm_create_params *vcp, int child_cdrom)
+{
+	off_t sz;
+
+	if (!strlen(vcp->vcp_cdrom))
+		return (0);
+
+	vioscsi = calloc(1, sizeof(struct vioscsi_dev));
+	if (vioscsi == NULL) {
+		log_warn("%s: calloc failure allocating vioscsi", __progname);
+		return (-1);
+	}
+
+	log_debug("%s: receiving vioscsi", __func__);
+
+	if (atomicio(read, fd, vioscsi, sizeof(struct vioscsi_dev)) !=
+	    sizeof(struct vioscsi_dev)) {
+		log_warnx("%s: error reading vioscsi from fd", __func__);
+		return (-1);
+	}
+
+	sz = lseek(child_cdrom, 0, SEEK_END);
+
+	if (pci_set_bar_fn(vioscsi->pci_id, 0, vioscsi_io, vioscsi)) {
+		log_warnx("%s: can't set bar fn for vmm control device",
+		    __progname);
+		return (-1);
+	}
+
+	vioscsi->fd = child_cdrom;
+
+	return (0);
+}
+
+int
+virtio_restore(int fd, struct vmd_vm *vm, int child_cdrom, int *child_disks,
+    int *child_taps)
 {
 	struct vmop_create_params *vmc = &vm->vm_params;
 	struct vm_create_params *vcp = &vmc->vmc_params;
@@ -2037,6 +2077,9 @@ virtio_restore(int fd, struct vmd_vm *vm, int *child_disks, int *child_taps)
 		return ret;
 
 	if ((ret = vioblk_restore(fd, vcp, child_disks)) == -1)
+		return ret;
+
+	if ((ret = vioscsi_restore(fd, vcp, child_cdrom)) == -1)
 		return ret;
 
 	if ((ret = vionet_restore(fd, vm, child_taps)) == -1)
@@ -2097,6 +2140,21 @@ vioblk_dump(int fd)
 }
 
 int
+vioscsi_dump(int fd)
+{
+	if (vioscsi == NULL)
+		return (0);
+
+	log_debug("%s: sending vioscsi", __func__);
+	if (atomicio(vwrite, fd, vioscsi, sizeof(struct vioscsi_dev)) !=
+	    sizeof(struct vioscsi_dev)) {
+		log_warnx("%s: error writing vioscsi to fd", __func__);
+		return (-1);
+	}
+	return (0);
+}
+
+int
 virtio_dump(int fd)
 {
 	int ret;
@@ -2105,6 +2163,9 @@ virtio_dump(int fd)
 		return ret;
 
 	if ((ret = vioblk_dump(fd)) == -1)
+		return ret;
+
+	if ((ret = vioscsi_dump(fd)) == -1)
 		return ret;
 
 	if ((ret = vionet_dump(fd)) == -1)

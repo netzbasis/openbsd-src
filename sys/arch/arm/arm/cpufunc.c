@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.c,v 1.51 2017/04/24 18:15:16 kettenis Exp $	*/
+/*	$OpenBSD: cpufunc.c,v 1.53 2018/02/25 01:45:01 guenther Exp $	*/
 /*	$NetBSD: cpufunc.c,v 1.65 2003/11/05 12:53:15 scw Exp $	*/
 
 /*
@@ -46,7 +46,6 @@
  * Created      : 30/01/97
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 
@@ -419,7 +418,7 @@ armv7_setup()
 	cpu_idcache_wbinv_all();
 
 	/*
-	 * Set the auxilliary control register first, as the SMP bit
+	 * Set the auxiliary control register first, as the SMP bit
 	 * needs to be set to 1 before the caches and the MMU are
 	 * enabled.
 	 */

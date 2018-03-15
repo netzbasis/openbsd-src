@@ -1,7 +1,8 @@
-#	$OpenBSD: Makefile,v 1.15 2017/08/12 04:53:25 rob Exp $
+#	$OpenBSD: Makefile,v 1.17 2017/10/11 12:07:23 bluhm Exp $
 
 SUBDIR += acme-client
 SUBDIR += arp
+SUBDIR += bgpd
 SUBDIR += httpd
 SUBDIR += ifstated
 SUBDIR += ldapd
@@ -11,6 +12,10 @@ SUBDIR += relayd
 SUBDIR += snmpd
 SUBDIR += switchd
 SUBDIR += syslogd
+
+.if ${MACHINE} == "amd64" || ${MACHINE} == "i386"
+SUBDIR += vmd
+.endif
 
 .if defined(REGRESS_FULL) || make(clean) || make(cleandir) || make(obj)
 SUBDIR += pkg_add

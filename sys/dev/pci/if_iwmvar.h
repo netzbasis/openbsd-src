@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.33 2017/08/13 15:34:54 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.37 2017/12/08 21:16:01 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -208,10 +208,10 @@ struct iwm_nvm_data {
 /* max bufs per tfd the driver will use */
 #define IWM_MAX_CMD_TBS_PER_TFD 2
 
-struct iwm_rx_packet;
 struct iwm_host_cmd {
 	const void *data[IWM_MAX_CMD_TBS_PER_TFD];
 	struct iwm_rx_packet *resp_pkt;
+	size_t resp_pkt_len;
 	unsigned long _rx_page_addr;
 	uint32_t _rx_page_order;
 	int handler_status;
@@ -286,6 +286,9 @@ struct iwm_rx_ring {
 #define IWM_FLAG_BINDING_ACTIVE	0x10	/* MAC->PHY binding added to firmware */
 #define IWM_FLAG_STA_ACTIVE	0x20	/* AP added to firmware station table */
 #define IWM_FLAG_TE_ACTIVE	0x40	/* time event is scheduled */
+#define IWM_FLAG_HW_ERR		0x80	/* hardware error occurred */
+#define IWM_FLAG_SHUTDOWN	0x100	/* shutting down; new tasks forbidden */
+#define IWM_FLAG_BGSCAN		0x200	/* background scan in progress */
 
 struct iwm_ucode_status {
 	uint32_t uc_error_event_table;
@@ -295,9 +298,6 @@ struct iwm_ucode_status {
 	int uc_ok;
 	int uc_intr;
 };
-
-/* sc_wantresp */
-#define IWM_CMD_RESP_IDLE	-1
 
 #define IWM_CMD_RESP_MAX PAGE_SIZE
 
@@ -310,7 +310,7 @@ struct iwm_ucode_status {
 
 enum IWM_CMD_MODE {
 	IWM_CMD_ASYNC		= (1 << 0),
-	IWM_CMD_WANT_SKB	= (1 << 1),
+	IWM_CMD_WANT_RESP	= (1 << 1),
 	IWM_CMD_SEND_IN_RFKILL	= (1 << 2),
 };
 enum iwm_hcmd_dataflag {
@@ -357,7 +357,8 @@ struct iwm_softc {
 	struct timeout sc_calib_to;
 	struct timeout sc_led_blink_to;
 
-	struct task		init_task;
+	struct task		init_task; /* NB: not reference-counted */
+	struct refcnt		task_refs;
 	struct task		newstate_task;
 	struct task		setrates_task;
 	enum ieee80211_state	ns_nstate;
@@ -463,8 +464,8 @@ struct iwm_softc {
 	int sc_staid;
 	int sc_nodecolor;
 
-	uint8_t sc_cmd_resp[IWM_CMD_RESP_MAX];
-	int sc_wantresp;
+	uint8_t *sc_cmd_resp_pkt[IWM_TX_RING_COUNT];
+	size_t sc_cmd_resp_len[IWM_TX_RING_COUNT];
 	int sc_nic_locks;
 
 	struct taskq *sc_nswq;

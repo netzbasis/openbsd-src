@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.535 2017/08/13 11:10:30 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.538 2018/03/14 22:25:21 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -46,15 +46,13 @@
 
 #define MAX_HOPS_COUNT		 100
 #define	DEFAULT_MAX_BODY_SIZE	(35*1024*1024)
-#define	MAX_FILTER_NAME		 32
-#define	MAX_FILTER_ARGS		 255
 
 #define	EXPAND_BUFFER		 1024
 
 #define SMTPD_QUEUE_EXPIRY	 (4 * 24 * 60 * 60)
 #define SMTPD_SOCKET		 "/var/run/smtpd.sock"
 #define	SMTPD_NAME		 "OpenSMTPD"
-#define	SMTPD_VERSION		 "6.0.0"
+#define	SMTPD_VERSION		 "6.0.4"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -325,7 +323,6 @@ enum smtp_proc_type {
 	PROC_PONY,
 	PROC_CA,
 
-	PROC_FILTER,
 	PROC_CLIENT,
 };
 
@@ -635,11 +632,6 @@ struct smtpd {
 
 	struct dict			       *sc_limits_dict;
 
-	struct dict				sc_filters;
-	uint32_t				filtermask;
-
-	char					sc_enqueue_filter[PATH_MAX];
-
 	char				       *sc_tls_ciphers;
 
 	char				       *sc_subaddressing_delim;
@@ -683,16 +675,6 @@ struct deliver {
 	short			mode;
 
 	struct userinfo		userinfo;
-};
-
-#define MAX_FILTER_PER_CHAIN	16
-struct filter_conf {
-	int		 chain;
-	int		 done;
-	int		 argc;
-	char		*name;
-	char		*argv[MAX_FILTER_ARGS + 1];
-	char		*path;
 };
 
 struct mta_host {
@@ -1383,8 +1365,6 @@ void smtp_collect(void);
 int smtp_session(struct listener *, int, const struct sockaddr_storage *,
     const char *);
 void smtp_session_imsg(struct mproc *, struct imsg *);
-void smtp_filter_response(uint64_t, int, int, uint32_t, const char *);
-void smtp_filter_fd(uint64_t, int);
 
 
 /* smtpf_session.c */

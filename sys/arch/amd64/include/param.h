@@ -1,4 +1,4 @@
-/*	$OpenBSD: param.h,v 1.23 2016/09/03 14:25:27 bluhm Exp $	*/
+/*	$OpenBSD: param.h,v 1.25 2018/03/04 16:44:02 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -68,14 +68,14 @@
 #define	PGSHIFT		PAGE_SHIFT		/* LOG2(PAGE_SIZE) */
 #define	PGOFSET		PAGE_MASK		/* byte offset into page */
 
-#define	UPAGES		5			/* pages of u-area */
+#define	UPAGES		6			/* pages of u-area */
 #define	USPACE		(UPAGES * PAGE_SIZE)	/* total size of u-area */
 #define	USPACE_ALIGN	0			/* u-area alignment 0-none */
 
 #define	NMBCLUSTERS	(256 * 1024)		/* max cluster allocation */
 
 #ifndef	MSGBUFSIZE
-#define	MSGBUFSIZE	(16 * PAGE_SIZE)	/* default message buffer size */
+#define	MSGBUFSIZE	(24 * PAGE_SIZE)	/* default message buffer size */
 #endif
 
 /*

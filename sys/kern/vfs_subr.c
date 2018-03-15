@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.260 2017/07/31 16:47:03 florian Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.267 2018/03/07 18:30:23 bluhm Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -72,7 +72,7 @@
 
 #include "softraid.h"
 
-void sr_shutdown(void);
+void sr_quiesce(void);
 
 enum vtype iftovt_tab[16] = {
 	VNON, VFIFO, VCHR, VNON, VDIR, VNON, VBLK, VNON,
@@ -114,6 +114,8 @@ void vputonfreelist(struct vnode *);
 
 int vflush_vnode(struct vnode *, void *);
 int maxvnodes;
+
+void vfs_unmountall(void);
 
 #ifdef DEBUG
 void printlockedvnodes(void);
@@ -857,7 +859,8 @@ struct vflush_args {
 };
 
 int
-vflush_vnode(struct vnode *vp, void *arg) {
+vflush_vnode(struct vnode *vp, void *arg)
+{
 	struct vflush_args *va = arg;
 	struct proc *p = curproc;
 
@@ -902,6 +905,16 @@ vflush_vnode(struct vnode *vp, void *arg) {
 		}
 		return (0);
 	}
+
+	/*
+	 * If set, this is allowed to ignore vnodes which don't
+	 * have changes pending to disk.
+	 * XXX Might be nice to check per-fs "inode" flags, but
+	 * generally the filesystem is sync'd already, right?
+	 */
+	if ((va->flags & IGNORECLEAN) &&
+	    LIST_EMPTY(&vp->v_dirtyblkhd))
+		return (0);
 
 #ifdef DEBUG
 	if (busyprt)
@@ -1572,6 +1585,48 @@ vaccess(enum vtype type, mode_t file_mode, uid_t uid, gid_t gid,
 	return (file_mode & mask) == mask ? 0 : EACCES;
 }
 
+struct rwlock vfs_stall_lock = RWLOCK_INITIALIZER("vfs_stall");
+
+int
+vfs_stall(struct proc *p, int stall)
+{
+	struct mount *mp, *nmp;
+	int allerror = 0, error;
+
+	if (stall)
+		rw_enter_write(&vfs_stall_lock);
+
+	TAILQ_FOREACH_REVERSE_SAFE(mp, &mountlist, mntlist, mnt_list, nmp) {
+		if (stall) {
+			error = vfs_busy(mp, VB_WRITE|VB_WAIT);
+			if (error) {
+				printf("%s: busy\n", mp->mnt_stat.f_mntonname);
+				allerror = error;
+				continue;
+			}
+			uvm_vnp_sync(mp);
+			error = VFS_SYNC(mp, MNT_WAIT, stall, p->p_ucred, p);
+			if (error) {
+				printf("%s: failed to sync\n", mp->mnt_stat.f_mntonname);
+				vfs_unbusy(mp);
+				allerror = error;
+				continue;
+			}
+			mp->mnt_flag |= MNT_STALLED;
+		} else {
+			if (mp->mnt_flag & MNT_STALLED) {
+				vfs_unbusy(mp);
+				mp->mnt_flag &= ~MNT_STALLED;
+			}
+		}
+	}
+
+	if (!stall)
+		rw_exit_write(&vfs_stall_lock);
+
+	return (allerror);
+}
+
 /*
  * Unmount all file systems.
  * We traverse the list in reverse order under the assumption that doing so
@@ -1610,51 +1665,42 @@ vfs_unmountall(void)
  * Sync and unmount file systems before shutting down.
  */
 void
-vfs_shutdown(void)
+vfs_shutdown(struct proc *p)
 {
 #ifdef ACCOUNTING
 	acct_shutdown();
 #endif
 
-	/* XXX Should suspend scheduling. */
-	(void) spl0();
-
 	printf("syncing disks... ");
 
 	if (panicstr == 0) {
 		/* Sync before unmount, in case we hang on something. */
-		sys_sync(&proc0, NULL, NULL);
-
-		/* Unmount file systems. */
+		sys_sync(p, NULL, NULL);
 		vfs_unmountall();
 	}
 
-	if (vfs_syncwait(1))
+#if NSOFTRAID > 0
+	sr_quiesce();
+#endif
+
+	if (vfs_syncwait(p, 1))
 		printf("giving up\n");
 	else
 		printf("done\n");
-
-#if NSOFTRAID > 0
-	sr_shutdown();
-#endif
 }
 
 /*
  * perform sync() operation and wait for buffers to flush.
- * assumptions: called w/ scheduler disabled and physical io enabled
- * for now called at spl0() XXX
  */
 int
-vfs_syncwait(int verbose)
+vfs_syncwait(struct proc *p, int verbose)
 {
 	struct buf *bp;
 	int iter, nbusy, dcount, s;
-	struct proc *p;
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
 
-	p = curproc? curproc : &proc0;
 	sys_sync(p, NULL, NULL);
 
 	/* Wait for sync to finish. */
@@ -1688,7 +1734,7 @@ vfs_syncwait(int verbose)
 		if (verbose)
 			printf("%d ", nbusy);
 #ifdef MULTIPROCESSOR
-		if (__mp_lock_held(&kernel_lock))
+		if (_kernel_lock_held())
 			hold_count = __mp_release_all(&kernel_lock);
 		else
 			hold_count = 0;
@@ -2206,7 +2252,7 @@ vfs_mount_print(struct mount *mp, int full,
 {
 	struct vfsconf *vfc = mp->mnt_vfc;
 	struct vnode *vp;
-	int cnt = 0;
+	int cnt;
 
 	(*pr)("flags %b\nvnodecovered %p syncer %p data %p\n",
 	    mp->mnt_flag, MNT_BITS,
@@ -2239,27 +2285,33 @@ vfs_mount_print(struct mount *mp, int full,
 
 	(*pr)("locked vnodes:");
 	/* XXX would take mountlist lock, except ddb has no context */
-	LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes)
+	cnt = 0;
+	LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes) {
 		if (VOP_ISLOCKED(vp)) {
-			if (!LIST_NEXT(vp, v_mntvnodes))
-				(*pr)(" %p", vp);
-			else if (!(cnt++ % (72 / (sizeof(void *) * 2 + 4))))
-				(*pr)("\n\t%p", vp);
+			if (cnt == 0)
+				(*pr)("\n  %p", vp);
+			else if ((cnt % (72 / (sizeof(void *) * 2 + 4))) == 0)
+				(*pr)(",\n  %p", vp);
 			else
 				(*pr)(", %p", vp);
+			cnt++;
 		}
+	}
 	(*pr)("\n");
 
 	if (full) {
-		(*pr)("all vnodes:\n\t");
+		(*pr)("all vnodes:");
 		/* XXX would take mountlist lock, except ddb has no context */
-		LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes)
-			if (!LIST_NEXT(vp, v_mntvnodes))
-				(*pr)(" %p", vp);
-			else if (!(cnt++ % (72 / (sizeof(void *) * 2 + 4))))
-				(*pr)(" %p,\n\t", vp);
+		cnt = 0;
+		LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes) {
+			if (cnt == 0)
+				(*pr)("\n  %p", vp);
+			else if ((cnt % (72 / (sizeof(void *) * 2 + 4))) == 0)
+				(*pr)(",\n  %p", vp);
 			else
-				(*pr)(" %p,", vp);
+				(*pr)(", %p", vp);
+			cnt++;
+		}
 		(*pr)("\n");
 	}
 }

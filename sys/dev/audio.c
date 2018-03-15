@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.165 2017/06/26 07:02:16 ratchov Exp $	*/
+/*	$OpenBSD: audio.c,v 1.167 2018/01/10 09:03:26 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -810,7 +810,6 @@ audio_setpar(struct audio_softc *sc)
 		sc->round = max;
 	else if (sc->round < min)
 		sc->round = min;
-	sc->round = sc->round;
 
 	/*
 	 * set buffer size (number of blocks)
@@ -1358,14 +1357,13 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		tsleep(&sc->quiesce, 0, "au_qrd", 0);
 
 	/* start automatically if audio_ioc_start() was never called */
-	mtx_enter(&audio_lock);
 	if (audio_canstart(sc)) {
-		mtx_leave(&audio_lock);
 		error = audio_start(sc);
 		if (error)
 			return error;
-		mtx_enter(&audio_lock);
 	}
+
+	mtx_enter(&audio_lock);
 
 	/* if there is no data then sleep */
 	while (sc->rec.used == 0) {

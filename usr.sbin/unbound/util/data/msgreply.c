@@ -840,7 +840,9 @@ log_reply_info(enum verbosity_value v, struct query_info *qinf,
 	{
 		log_info("%s - - - %s - - - ", clientip_buf, rcode_buf);
 	} else {
-		dname_str(qinf->qname, qname_buf);
+		if(qinf->qname)
+			dname_str(qinf->qname, qname_buf);
+		else	snprintf(qname_buf, sizeof(qname_buf), "null");
 		pktlen = sldns_buffer_limit(rmsg);
 		sldns_wire2str_type_buf(qinf->qtype, type_buf, sizeof(type_buf));
 		sldns_wire2str_class_buf(qinf->qclass, class_buf, sizeof(class_buf));
@@ -892,6 +894,25 @@ reply_all_rrsets_secure(struct reply_info* rep)
 		return 0;
 	}
 	return 1;
+}
+
+struct reply_info*
+parse_reply_in_temp_region(sldns_buffer* pkt, struct regional* region,
+	struct query_info* qi)
+{
+	struct reply_info* rep;
+	struct msg_parse* msg;
+	if(!(msg = regional_alloc(region, sizeof(*msg)))) {
+		return NULL;
+	}
+	memset(msg, 0, sizeof(*msg));
+	sldns_buffer_set_position(pkt, 0);
+	if(parse_packet(pkt, msg, region) != 0)
+		return 0;
+	if(!parse_create_msg(pkt, msg, NULL, qi, &rep, region)) {
+		return 0;
+	}
+	return rep;
 }
 
 int edns_opt_append(struct edns_data* edns, struct regional* region,
@@ -990,6 +1011,9 @@ static int inplace_cb_reply_call_generic(
 {
 	struct inplace_cb* cb;
 	struct edns_option* opt_list_out = NULL;
+#if defined(EXPORT_ALL_SYMBOLS)
+	(void)type; /* param not used when fptr_ok disabled */
+#endif
 	if(qstate)
 		opt_list_out = qstate->edns_opts_front_out;
 	for(cb=callback_list; cb; cb=cb->next) {

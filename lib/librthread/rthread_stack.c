@@ -1,4 +1,4 @@
-/* $OpenBSD: rthread_stack.c,v 1.16 2016/09/04 10:13:35 akfaew Exp $ */
+/* $OpenBSD: rthread_stack.c,v 1.19 2018/02/11 04:12:22 deraadt Exp $ */
 
 /* PUBLIC DOMAIN: No Rights Reserved. Marco S Hyman <marc@snafu.org> */
 
@@ -33,7 +33,7 @@ _rthread_alloc_stack(pthread_t thread)
 	/* if the request uses the defaults, try to reuse one */
 	if (thread->attr.stack_addr == NULL &&
 	    thread->attr.stack_size == RTHREAD_STACK_SIZE_DEF &&
-	    thread->attr.guard_size == _rthread_attr_default.guard_size) {
+	    thread->attr.guard_size == _thread_pagesize) {
 		_spinlock(&def_stacks_lock);
 		stack = SLIST_FIRST(&def_stacks);
 		if (stack != NULL) {
@@ -65,7 +65,7 @@ _rthread_alloc_stack(pthread_t thread)
 #ifdef MACHINE_STACK_GROWS_UP
 		stack->sp = base + rnd;
 #else
-		stack->sp = base + thread->attr.stack_size - rnd;
+		stack->sp = base + thread->attr.stack_size - (_STACKALIGNBYTES+1) - rnd;
 #endif
 		/*
 		 * This impossible guardsize marks this stack as
@@ -92,7 +92,7 @@ _rthread_alloc_stack(pthread_t thread)
 
 	/* actually allocate the real stack */
 	base = mmap(NULL, size, PROT_READ | PROT_WRITE,
-	    MAP_PRIVATE | MAP_ANON, -1, 0);
+	    MAP_PRIVATE | MAP_ANON | MAP_STACK, -1, 0);
 	if (base == MAP_FAILED) {
 		free(stack);
 		return (NULL);
@@ -103,7 +103,7 @@ _rthread_alloc_stack(pthread_t thread)
 	stack->sp = base + rnd;
 #else
 	guard = base;
-	stack->sp = base + size - rnd;
+	stack->sp = base + size - (_STACKALIGNBYTES+1) - rnd;
 #endif
 
 	/* memory protect the guard region */
@@ -123,7 +123,7 @@ void
 _rthread_free_stack(struct stack *stack)
 {
 	if (stack->len == RTHREAD_STACK_SIZE_DEF + stack->guardsize &&
-	    stack->guardsize == _rthread_attr_default.guard_size) {
+	    stack->guardsize == _thread_pagesize) {
 		_spinlock(&def_stacks_lock);
 		SLIST_INSERT_HEAD(&def_stacks, stack, link);
 		_spinunlock(&def_stacks_lock);

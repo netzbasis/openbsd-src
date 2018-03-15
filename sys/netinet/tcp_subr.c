@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_subr.c,v 1.165 2017/06/26 09:32:32 mpi Exp $	*/
+/*	$OpenBSD: tcp_subr.c,v 1.168 2018/01/23 21:41:17 bluhm Exp $	*/
 /*	$NetBSD: tcp_subr.c,v 1.22 1996/02/13 23:44:00 christos Exp $	*/
 
 /*
@@ -104,9 +104,7 @@ int	tcp_rttdflt = TCPTV_SRTTDFLT / PR_SLOWHZ;
 
 /* values controllable via sysctl */
 int	tcp_do_rfc1323 = 1;
-#ifdef TCP_SACK
 int	tcp_do_sack = 1;	/* RFC 2018 selective ACKs */
-#endif
 int	tcp_ack_on_push = 0;	/* set to enable immediate ACK-on-PUSH */
 #ifdef TCP_ECN
 int	tcp_do_ecn = 0;		/* RFC3168 ECN enabled/disabled? */
@@ -120,17 +118,16 @@ u_int32_t	tcp_now = 1;
 #endif
 
 int tcp_reass_limit = NMBCLUSTERS / 8; /* hardlimit for tcpqe_pool */
-#ifdef TCP_SACK
 int tcp_sackhole_limit = 32*1024; /* hardlimit for sackhl_pool */
-#endif
 
 struct pool tcpcb_pool;
 struct pool tcpqe_pool;
-#ifdef TCP_SACK
 struct pool sackhl_pool;
-#endif
 
 struct cpumem *tcpcounters;		/* tcp statistics */
+
+u_char   tcp_secret[16];
+SHA2_CTX tcp_secret_ctx;
 tcp_seq  tcp_iss;
 
 /*
@@ -145,13 +142,15 @@ tcp_init(void)
 	pool_init(&tcpqe_pool, sizeof(struct tcpqent), 0, IPL_SOFTNET, 0,
 	    "tcpqe", NULL);
 	pool_sethardlimit(&tcpqe_pool, tcp_reass_limit, NULL, 0);
-#ifdef TCP_SACK
 	pool_init(&sackhl_pool, sizeof(struct sackhole), 0, IPL_SOFTNET, 0,
 	    "sackhl", NULL);
 	pool_sethardlimit(&sackhl_pool, tcp_sackhole_limit, NULL, 0);
-#endif /* TCP_SACK */
 	in_pcbinit(&tcbtable, TCB_INITIAL_HASH_SIZE);
 	tcpcounters = counters_alloc(tcps_ncounters);
+
+	arc4random_buf(tcp_secret, sizeof(tcp_secret));
+	SHA512Init(&tcp_secret_ctx);
+	SHA512Update(&tcp_secret_ctx, tcp_secret, sizeof(tcp_secret));
 
 #ifdef INET6
 	/*
@@ -437,11 +436,8 @@ tcp_newtcpcb(struct inpcb *inp)
 	TCP_INIT_DELACK(tp);
 	for (i = 0; i < TCPT_NTIMERS; i++)
 		TCP_TIMER_INIT(tp, i);
-	timeout_set(&tp->t_reap_to, tcp_reaper, tp);
 
-#ifdef TCP_SACK
 	tp->sack_enable = tcp_do_sack;
-#endif
 	tp->t_flags = tcp_do_rfc1323 ? (TF_REQ_SCALE|TF_REQ_TSTMP) : 0;
 	tp->t_inpcb = inp;
 	/*
@@ -515,9 +511,7 @@ tcp_close(struct tcpcb *tp)
 {
 	struct inpcb *inp = tp->t_inpcb;
 	struct socket *so = inp->inp_socket;
-#ifdef TCP_SACK
 	struct sackhole *p, *q;
-#endif
 
 	/* free the reassembly queue, if any */
 	tcp_freeq(tp);
@@ -526,7 +520,6 @@ tcp_close(struct tcpcb *tp)
 	TCP_CLEAR_DELACK(tp);
 	syn_cache_cleanup(tp);
 
-#ifdef TCP_SACK
 	/* Free SACK holes. */
 	q = p = tp->snd_holes;
 	while (p != 0) {
@@ -534,25 +527,16 @@ tcp_close(struct tcpcb *tp)
 		pool_put(&sackhl_pool, p);
 		p = q;
 	}
-#endif
+
 	m_free(tp->t_template);
 
 	tp->t_flags |= TF_DEAD;
-	timeout_add(&tp->t_reap_to, 0);
+	TCP_TIMER_ARM(tp, TCPT_REAPER, 0);
 
-	inp->inp_ppcb = 0;
+	inp->inp_ppcb = NULL;
 	soisdisconnected(so);
 	in_pcbdetach(inp);
 	return (NULL);
-}
-
-void
-tcp_reaper(void *arg)
-{
-	struct tcpcb *tp = arg;
-
-	pool_put(&tcpcb_pool, tp);
-	tcpstat_inc(tcps_closed);
 }
 
 int
@@ -916,9 +900,6 @@ tcp_mtudisc_increase(struct inpcb *inp, int errno)
  * Generate new ISNs with a method based on RFC1948
  */
 #define TCP_ISS_CONN_INC 4096
-int tcp_secret_init;
-u_char tcp_secret[16];
-SHA2_CTX tcp_secret_ctx;
 
 void
 tcp_set_iss_tsm(struct tcpcb *tp)
@@ -930,12 +911,6 @@ tcp_set_iss_tsm(struct tcpcb *tp)
 	} digest;
 	u_int rdomain = rtable_l2(tp->t_inpcb->inp_rtableid);
 
-	if (tcp_secret_init == 0) {
-		arc4random_buf(tcp_secret, sizeof(tcp_secret));
-		SHA512Init(&tcp_secret_ctx);
-		SHA512Update(&tcp_secret_ctx, tcp_secret, sizeof(tcp_secret));
-		tcp_secret_init = 1;
-	}
 	ctx = tcp_secret_ctx;
 	SHA512Update(&ctx, &rdomain, sizeof(rdomain));
 	SHA512Update(&ctx, &tp->t_inpcb->inp_lport, sizeof(u_short));

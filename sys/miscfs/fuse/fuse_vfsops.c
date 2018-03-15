@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vfsops.c,v 1.29 2017/04/20 14:13:00 visa Exp $ */
+/* $OpenBSD: fuse_vfsops.c,v 1.32 2018/02/10 05:24:23 deraadt Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -40,7 +40,7 @@ int	fusefs_unmount(struct mount *, int, struct proc *);
 int	fusefs_root(struct mount *, struct vnode **);
 int	fusefs_quotactl(struct mount *, int, uid_t, caddr_t, struct proc *);
 int	fusefs_statfs(struct mount *, struct statfs *, struct proc *);
-int	fusefs_sync(struct mount *, int, struct ucred *, struct proc *);
+int	fusefs_sync(struct mount *, int, int, struct ucred *, struct proc *);
 int	fusefs_vget(struct mount *, ino_t, struct vnode **);
 int	fusefs_fhtovp(struct mount *, struct fid *, struct vnode **);
 int	fusefs_vptofh(struct vnode *, struct fid *);
@@ -74,34 +74,35 @@ fusefs_mount(struct mount *mp, const char *path, void *data,
 {
 	struct fusefs_mnt *fmp;
 	struct fusebuf *fbuf;
-	struct fusefs_args args;
+	struct fusefs_args *args = data;
 	struct vnode *vp;
 	struct file *fp;
-	int error;
+	int error = 0;
 
 	if (mp->mnt_flag & MNT_UPDATE)
 		return (EOPNOTSUPP);
 
-	error = copyin(data, &args, sizeof(struct fusefs_args));
-	if (error)
-		return (error);
-
-	if ((fp = fd_getfile(p->p_fd, args.fd)) == NULL)
+	if ((fp = fd_getfile(p->p_fd, args->fd)) == NULL)
 		return (EBADF);
+	FREF(fp);
 
-	if (fp->f_type != DTYPE_VNODE)
-		return (EINVAL);
+	if (fp->f_type != DTYPE_VNODE) {
+		error = EINVAL;
+		goto bad;
+	}
 
 	vp = fp->f_data;
-	if (vp->v_type != VCHR)
-		return (EBADF);
+	if (vp->v_type != VCHR) {
+		error = EBADF;
+		goto bad;
+	}
 
 	fmp = malloc(sizeof(*fmp), M_FUSEFS, M_WAITOK | M_ZERO);
 	fmp->mp = mp;
 	fmp->sess_init = 0;
 	fmp->dev = vp->v_rdev;
-	if (args.max_read > 0)
-		fmp->max_read = MIN(args.max_read, FUSEBUFMAXSIZE);
+	if (args->max_read > 0)
+		fmp->max_read = MIN(args->max_read, FUSEBUFMAXSIZE);
 	else
 		fmp->max_read = FUSEBUFMAXSIZE;
 
@@ -122,7 +123,9 @@ fusefs_mount(struct mount *mp, const char *path, void *data,
 	/* cannot tsleep on mount */
 	fuse_device_queue_fbuf(fmp->dev, fbuf);
 
-	return (0);
+bad:
+	FRELE(fp, p);
+	return (error);
 }
 
 int
@@ -236,7 +239,7 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 }
 
 int
-fusefs_sync(struct mount *mp, int waitfor, struct ucred *cred,
+fusefs_sync(struct mount *mp, int waitfor, int stall, struct ucred *cred,
     struct proc *p)
 {
 	return (0);

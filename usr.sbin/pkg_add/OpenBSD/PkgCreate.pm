@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCreate.pm,v 1.123 2016/10/03 13:17:30 espie Exp $
+# $OpenBSD: PkgCreate.pm,v 1.132 2018/02/27 22:46:53 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -82,6 +82,7 @@ sub handle_options
 {
 	my $state = shift;
 
+	$state->{system_version} = 0;
 	$state->{opt} = {
 	    'f' =>
 		    sub {
@@ -95,16 +96,27 @@ sub handle_options
 			    my $d = shift;
 			    $state->{dependencies}{$d} = 1;
 		    },
+	    'V' => sub {
+			    my $d = shift;
+			    if ($d !~ m/^\d+$/) {
+			    	$state->usage("-V option requires a number");
+			    }
+			    $state->{system_version} += $d;
+		    },
+	    'w' => sub {
+			    my $w = shift;
+			    $state->{libset}{$w} = 1;
+		    },
 	    'W' => sub {
 			    my $w = shift;
 			    $state->{wantlib}{$w} = 1;
 		    },
 	};
 	$state->{no_exports} = 1;
-	$state->SUPER::handle_options('p:f:d:M:U:A:B:P:W:qQ',
-	    '[-nQqvx] [-A arches] [-B pkg-destdir] [-D name[=value]]',
+	$state->SUPER::handle_options('p:f:d:M:U:A:B:P:V:w:W:qQS',
+	    '[-nQqvSx] [-A arches] [-B pkg-destdir] [-D name[=value]]',
 	    '[-L localbase] [-M displayfile] [-P pkg-dependency]',
-	    '[-U undisplayfile] [-W wantedlib]',
+	    '[-U undisplayfile] [-V n] [-W wantedlib] [-w libset]',
 	    '[-d desc -D COMMENT=value -f packinglist -p prefix]',
 	    'pkg-name');
 
@@ -114,7 +126,8 @@ sub handle_options
 	} 
 
 	$state->{base} = $base;
-
+	$state->{silent} = defined $state->opt('n') && defined $state->opt('n')
+	    || defined $state->opt('S');
 }
 
 package OpenBSD::PkgCreate;
@@ -694,6 +707,9 @@ sub is_forbidden() { 1 }
 package OpenBSD::PackingElement::LocalBase;
 sub is_forbidden() { 1 }
 
+package OpenBSD::PackingElement::Version;
+sub is_forbidden() { 1 }
+
 package OpenBSD::PackingElement::Fragment;
 our @ISA=qw(OpenBSD::PackingElement);
 
@@ -798,7 +814,7 @@ sub solve_wantlibs
 	my $okay = 1;
 	my $lib_finder = OpenBSD::lookup::library->new($solver);
 	my $h = $solver->{set}->{new}[0];
-	for my $lib (@{$h->{plist}->{wantlib}}) {
+	for my $lib (@{$h->{plist}{wantlib}}) {
 		$solver->{localbase} = $h->{plist}->localbase;
 		next if $lib_finder->lookup($solver,
 		    $solver->{to_register}->{$h}, $state,
@@ -878,6 +894,9 @@ sub ask_tree
 		delete $ENV{SUBPACKAGE};
 		$ENV{SUBDIR} = $dep->{pkgpath};
 		$ENV{ECHO_MSG} = ':';
+		# XXX we're already running as ${BUILD_USER}
+		# so we can't do this again
+		push(@action, 'PORTS_PRIVSEP=No');
 		exec $make ('make', @action);
 	}
 	my $plist = OpenBSD::PackingList->read($fh,
@@ -1037,7 +1056,7 @@ sub handle_fragment
 	my $newname = $old->deduce_name($frag, $not);
 	if (defined $newname) {
 		$state->set_status("switching to $newname")
-		    if !defined $state->opt('q');
+		    unless $state->{silent};
 		return $old->new($newname);
 	}
 	return undef;
@@ -1062,7 +1081,8 @@ sub read_fragments
 		my ($stack, $cont) = @_;
 		while(my $file = pop @$stack) {
 			while (my $l = $file->readline) {
-				$state->progress->working(2048) unless $state->opt('q');
+				$state->progress->working(2048) 
+				    unless $state->{silent};
 				if ($l =~m/^(\@comment\s+\$(?:Open)BSD\$)$/o) {
 					$l = '@comment $'.'OpenBSD: '.basename($file->name).',v$';
 				}
@@ -1075,7 +1095,7 @@ sub read_fragments
 				}
 				my $s = $subst->do($l);
 				if ($fast) {
-					next unless $s =~ m/^\@(?:cwd|lib|depend|wantlib)\b/o || $s =~ m/lib.*\.a$/o;
+					next unless $s =~ m/^\@(?:cwd|lib|libset|depend|wantlib)\b/o || $s =~ m/lib.*\.a$/o;
 				}
 	# XXX some things, like @comment no checksum, don't produce an object
 				my $o = &$cont($s);
@@ -1109,9 +1129,9 @@ sub add_description
 	if (!defined $opt_d) {
 		$state->usage("Description required");
 	}
-	return if $state->opt('q');
+	return if defined $state->opt('q');
 
-	open(my $fh, '>', $o->fullname) or die "Can't write to DESC: $!";
+	open(my $fh, '+>', $o->fullname) or die "Can't write to DESC: $!";
 	if (defined $comment) {
 		print $fh $subst->do($comment), "\n";
 	}
@@ -1130,6 +1150,20 @@ sub add_description
 		if (!$subst->empty('HOMEPAGE')) {
 			print $fh "\n", $subst->do('WWW: ${HOMEPAGE}'), "\n";
 		}
+	}
+	seek($fh, 0, 0) or die "Can't rewind DESC: $!";
+    	my $errors = 0;
+	while (<$fh>) {
+		chomp;
+		if ($state->safe($_) ne $_) {
+			$state->errsay(
+			    "DESC contains weird characters: #1 on line #2", 
+			    $_, $.);
+		$errors++;
+		}
+	}
+	if ($errors) {
+		$state->fatal("Can't continue");
 	}
 	close($fh);
 }
@@ -1175,6 +1209,9 @@ sub add_elements
 	for my $w (sort keys %{$state->{wantlib}}) {
 		OpenBSD::PackingElement::Wantlib->add($plist, $w);
 	}
+	for my $w (sort keys %{$state->{libset}}) {
+		OpenBSD::PackingElement::Libset->add($plist, $w);
+	}
 
 	if (defined $state->opt('A')) {
 		OpenBSD::PackingElement::Arch->add($plist, $state->opt('A'));
@@ -1184,6 +1221,10 @@ sub add_elements
 		OpenBSD::PackingElement::LocalBase->add($plist, $state->opt('L'));
 	}
 	$self->add_extra_info($plist, $state);
+	if ($state->{system_version}) {
+		OpenBSD::PackingElement::Version->add($plist, 
+		    $state->{system_version});
+    	}
 }
 
 sub cant_read_fragment
@@ -1225,19 +1266,18 @@ sub create_plist
 		$pkgname = $1;
 		$pkgname =~ s/\.tgz$//o;
 	}
-	$state->say("Creating package #1", $pkgname)
-	    if !(defined $state->opt('q')) && $state->opt('v');
-	if (!$state->opt('q')) {
-		$plist->set_infodir(OpenBSD::Temp->dir);
-	}
-
-	unless (defined $state->opt('q') && defined $state->opt('n')) {
+	$plist->set_pkgname($pkgname);
+	unless ($state->{silent}) {
+		$state->say("Creating package #1", $pkgname)
+		    if defined $state->opt('v');
 		$state->set_status("reading plist");
 	}
-	$self->read_all_fragments($state, $plist);
-	$plist->set_pkgname($pkgname);
-
+	$plist->set_infodir(OpenBSD::Temp->dir);
+	if (!defined $state->opt('S')) {
+		$self->read_all_fragments($state, $plist);
+	}
 	$self->add_elements($plist, $state);
+
 	return $plist;
 }
 
@@ -1457,6 +1497,10 @@ sub parse_and_run
 	}
 
 
+	if (defined $state->opt('S')) {
+		print $plist->signature->string, "\n";
+		exit 0;
+	}
 	$plist->discover_directories($state);
 	my $ordered;
 	unless (defined $state->opt('q') && defined $state->opt('n')) {

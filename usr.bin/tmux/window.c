@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.204 2017/07/14 18:49:07 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.207 2017/11/09 23:02:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -634,6 +634,8 @@ window_add_pane(struct window *w, struct window_pane *other, int before,
 void
 window_lost_pane(struct window *w, struct window_pane *wp)
 {
+	log_debug("%s: @%u pane %%%u", __func__, w->id, wp->id);
+
 	if (wp == marked_pane.wp)
 		server_clear_marked();
 
@@ -906,6 +908,7 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
 		free((void *)wp->cwd);
 		wp->cwd = xstrdup(cwd);
 	}
+	wp->flags &= ~(PANE_STATUSREADY|PANE_STATUSDRAWN);
 
 	cmd = cmd_stringify_argv(wp->argc, wp->argv);
 	log_debug("spawn: %s -- %s", wp->shell, cmd);
@@ -932,10 +935,13 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
 		proc_clear_signals(server_proc, 1);
 		sigprocmask(SIG_SETMASK, &oldset, NULL);
 
-		if (chdir(wp->cwd) != 0) {
-			if ((home = find_home()) == NULL || chdir(home) != 0)
-				chdir("/");
-		}
+		cwd = NULL;
+		if (chdir(wp->cwd) == 0)
+			cwd = wp->cwd;
+		else if ((home = find_home()) != NULL && chdir(home) == 0)
+			cwd = home;
+		else
+			chdir("/");
 
 		if (tcgetattr(STDIN_FILENO, &tio2) != 0)
 			fatal("tcgetattr failed");
@@ -950,6 +956,8 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
 
 		if (path != NULL)
 			environ_set(env, "PATH", "%s", path);
+		if (cwd != NULL)
+			environ_set(env, "PWD", "%s", cwd);
 		environ_set(env, "TMUX_PANE", "%%%u", wp->id);
 		environ_push(env);
 
@@ -1279,23 +1287,18 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 }
 
 int
-window_pane_outside(struct window_pane *wp)
+window_pane_visible(struct window_pane *wp)
 {
 	struct window	*w = wp->window;
 
-	if (wp->xoff >= w->sx || wp->yoff >= w->sy)
-		return (1);
-	if (wp->xoff + wp->sx > w->sx || wp->yoff + wp->sy > w->sy)
-		return (1);
-	return (0);
-}
-
-int
-window_pane_visible(struct window_pane *wp)
-{
 	if (wp->layout_cell == NULL)
 		return (0);
-	return (!window_pane_outside(wp));
+
+	if (wp->xoff >= w->sx || wp->yoff >= w->sy)
+		return (0);
+	if (wp->xoff + wp->sx > w->sx || wp->yoff + wp->sy > w->sy)
+		return (0);
+	return (1);
 }
 
 u_int

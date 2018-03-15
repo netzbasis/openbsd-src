@@ -1,4 +1,4 @@
-/* $OpenBSD: if_pppoe.c,v 1.64 2017/08/11 21:24:19 mpi Exp $ */
+/* $OpenBSD: if_pppoe.c,v 1.67 2018/02/19 08:59:52 mpi Exp $ */
 /* $NetBSD: if_pppoe.c,v 1.51 2003/11/28 08:56:48 keihan Exp $ */
 
 /*
@@ -36,7 +36,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
-#include <sys/types.h>
 #include <sys/timeout.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
@@ -197,10 +196,7 @@ pppoe_clone_create(struct if_clone *ifc, int unit)
 	struct pppoe_softc *sc, *tmpsc;
 	u_int32_t unique;
 
-        sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK|M_CANFAIL|M_ZERO);
-        if (sc == NULL)
-                return (ENOMEM);
-
+	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK|M_ZERO);
 	snprintf(sc->sc_sppp.pp_if.if_xname,
 		 sizeof(sc->sc_sppp.pp_if.if_xname),
 		 "pppoe%d", unit);
@@ -800,7 +796,7 @@ pppoe_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		struct pppoediscparms *parms = (struct pppoediscparms *)data;
 		int len;
 
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		if (parms->eth_ifname[0] != '\0') {
 			struct ifnet	*eth_if;

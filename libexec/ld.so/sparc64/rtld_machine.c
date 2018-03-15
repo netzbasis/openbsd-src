@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.59 2017/01/24 07:48:37 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.61 2017/10/10 04:49:10 guenther Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -421,7 +421,7 @@ _dl_reloc_plt(Elf_Word *where1, Elf_Word *where2, Elf_Word *pltaddr,
 	 * be used by other threads even while it's being updated.
 	 * This is made slightly more complicated by kbind, for which
 	 * we need to pass them to the kernel in the order they get
-	 * written.  To that end, we store the word to overwrite the 
+	 * written.  To that end, we store the word to overwrite the
 	 * ba,a,pt at *where1, and the words to overwrite the nops at
 	 * where2[0], where2[1], ...
 	 *
@@ -512,7 +512,7 @@ _dl_reloc_plt(Elf_Word *where1, Elf_Word *where2, Elf_Word *pltaddr,
 		return (2);
 	} else if (value < (1L<<42)) {
 		/*
-		 * Target 42bits or smaller. 
+		 * Target 42bits or smaller.
 		 * We can generate this pattern:
 		 *
 		 * The resulting code in the jump slot is:
@@ -841,10 +841,6 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	if (object->traced)
 		lazy = 1;
 
-	/* temporarily make the PLT writable */
-	_dl_protect_segment(object, 0, "__plt_start", "__plt_end",
-	    PROT_READ|PROT_WRITE);
-
 	if (!lazy) {
 		fails = _dl_md_reloc_all_plt(object);
 	} else {
@@ -856,10 +852,6 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 
 	/* mprotect the GOT */
 	_dl_protect_segment(object, 0, "__got_start", "__got_end", PROT_READ);
-
-	/* mprotect the PLT */
-	_dl_protect_segment(object, 0, "__plt_start", "__plt_end",
-	    PROT_READ|PROT_EXEC);
 
 	return (fails);
 }

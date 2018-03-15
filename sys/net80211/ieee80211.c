@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211.c,v 1.62 2017/06/20 13:51:46 stsp Exp $	*/
+/*	$OpenBSD: ieee80211.c,v 1.65 2017/12/12 15:52:49 stsp Exp $	*/
 /*	$NetBSD: ieee80211.c,v 1.19 2004/06/06 05:45:29 dyoung Exp $	*/
 
 /*-
@@ -70,6 +70,32 @@ struct ieee80211com_head ieee80211com_head =
 
 void ieee80211_setbasicrates(struct ieee80211com *);
 int ieee80211_findrate(struct ieee80211com *, enum ieee80211_phymode, int);
+
+void
+ieee80211_begin_bgscan(struct ifnet *ifp)
+{
+	struct ieee80211com *ic = (void *)ifp;
+
+	if ((ic->ic_flags & IEEE80211_F_BGSCAN) ||
+	    ic->ic_state != IEEE80211_S_RUN)
+		return;
+
+	if (ic->ic_bgscan_start != NULL && ic->ic_bgscan_start(ic) == 0) {
+		ic->ic_flags |= IEEE80211_F_BGSCAN;
+		if (ifp->if_flags & IFF_DEBUG)
+			printf("%s: begin background scan\n", ifp->if_xname);
+
+		/* Driver calls ieee80211_end_scan() when done. */
+	}
+}
+
+void
+ieee80211_bgscan_timeout(void *arg)
+{
+	struct ifnet *ifp = arg;
+
+	ieee80211_begin_bgscan(ifp);
+}
 
 void
 ieee80211_channel_init(struct ifnet *ifp)
@@ -158,6 +184,8 @@ ieee80211_ifattach(struct ifnet *ifp)
 	ifp->if_priority = IF_WIRELESS_DEFAULT_PRIORITY;
 
 	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+
+	timeout_set(&ic->ic_bgscan_timeout, ieee80211_bgscan_timeout, ifp);
 }
 
 void
@@ -210,14 +238,8 @@ ieee80211_chan2ieee(struct ieee80211com *ic, const struct ieee80211_channel *c)
 		return c - ic->ic_channels;
 	else if (c == IEEE80211_CHAN_ANYC)
 		return IEEE80211_CHAN_ANY;
-	else if (c != NULL) {
-		printf("%s: invalid channel freq %u flags %x\n",
-			ifp->if_xname, c->ic_freq, c->ic_flags);
-		return 0;		/* XXX */
-	} else {
-		printf("%s: invalid channel (NULL)\n", ifp->if_xname);
-		return 0;		/* XXX */
-	}
+
+	panic("%s: bogus channel pointer", ifp->if_xname);
 }
 
 /*
@@ -877,7 +899,9 @@ ieee80211_next_mode(struct ifnet *ifp)
 		if (ic->ic_curmode == IEEE80211_MODE_11N)
 			continue;
 
-		if (ic->ic_curmode >= IEEE80211_MODE_MAX) {
+		/* Always scan in AUTO mode if the driver scans all bands. */
+		if (ic->ic_curmode >= IEEE80211_MODE_MAX ||
+		    (ic->ic_caps & IEEE80211_C_SCANALLBAND)) {
 			ic->ic_curmode = IEEE80211_MODE_AUTO;
 			break;
 		}

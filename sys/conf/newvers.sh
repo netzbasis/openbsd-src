@@ -1,6 +1,6 @@
 #!/bin/sh -
 #
-#	$OpenBSD: newvers.sh,v 1.154 2017/08/20 16:56:43 deraadt Exp $
+#	$OpenBSD: newvers.sh,v 1.161 2018/03/14 16:52:09 deraadt Exp $
 #	$NetBSD: newvers.sh,v 1.17.2.1 1995/10/12 05:17:11 jtc Exp $
 #
 # Copyright (c) 1984, 1986, 1990, 1993
@@ -32,6 +32,8 @@
 #
 #	@(#)newvers.sh	8.1 (Berkeley) 4/20/94
 
+umask 007
+
 if [ ! -r version -o ! -s version ]
 then
 	echo 0 > version
@@ -55,6 +57,9 @@ id=`basename "${d}"`
 #	usr.bin/signify/signify.1
 #		change the version in the EXAMPLES section
 #
+# When adding -beta, create a new www/<version>.html so devs can
+# start adding to it. When removing -beta, roll errata pages.
+#
 # -current and -beta tagging:
 #	For release, select STATUS ""
 #	Right after release unlock, select STATUS "-current"
@@ -63,13 +68,13 @@ id=`basename "${d}"`
 #	and disable POOL_DEBUG in sys/conf/GENERIC
 
 ost="OpenBSD"
-osr="6.2"
+osr="6.3"
 
 cat >vers.c <<eof
-#define STATUS "-beta"			/* just before a release */
-#if 0
-#define STATUS "-current"		/* just after a release */
 #define STATUS ""			/* release */
+#if 0
+#define STATUS "-beta"			/* just before a release */
+#define STATUS "-current"		/* just after a release */
 #endif
 
 const char ostype[] = "${ost}";

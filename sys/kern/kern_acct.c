@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_acct.c,v 1.33 2017/01/21 05:42:03 guenther Exp $	*/
+/*	$OpenBSD: kern_acct.c,v 1.35 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: kern_acct.c,v 1.42 1996/02/04 02:15:12 christos Exp $	*/
 
 /*-
@@ -43,7 +43,7 @@
 #include <sys/proc.h>
 #include <sys/mount.h>
 #include <sys/vnode.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/syslog.h>
 #include <sys/kernel.h>
 #include <sys/namei.h>
@@ -104,7 +104,7 @@ sys_acct(struct proc *p, void *v, register_t *retval)
 	int error;
 
 	/* Make sure that the caller is root. */
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 
 	/*

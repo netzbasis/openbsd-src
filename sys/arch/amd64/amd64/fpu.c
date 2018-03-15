@@ -1,4 +1,4 @@
-/*	$OpenBSD: fpu.c,v 1.35 2017/05/29 14:19:49 mpi Exp $	*/
+/*	$OpenBSD: fpu.c,v 1.39 2017/10/25 22:29:41 mikeb Exp $	*/
 /*	$NetBSD: fpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*-
@@ -34,17 +34,12 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/proc.h>
 #include <sys/user.h>
-#include <sys/ioctl.h>
-#include <sys/device.h>
 #include <sys/signalvar.h>
 
 #include <uvm/uvm_extern.h>
 
-#include <machine/bus.h>
 #include <machine/cpu.h>
 #include <machine/intr.h>
 #include <machine/cpufunc.h>
@@ -53,7 +48,8 @@
 #include <machine/specialreg.h>
 #include <machine/fpu.h>
 
-#include <dev/isa/isavar.h>
+int	xrstor_user(struct savefpu *_addr, uint64_t _mask);
+void	trap(struct trapframe *);
 
 /*
  * We do lazy initialization and switching using the TS bit in cr0 and the
@@ -78,7 +74,7 @@
  */
 uint64_t	xsave_mask;
 
-void fpudna(struct cpu_info *);
+void fpudna(struct cpu_info *, struct trapframe *);
 static int x86fpflags_to_siginfo(u_int32_t);
 
 /*
@@ -192,7 +188,7 @@ x86fpflags_to_siginfo(u_int32_t flags)
  * saved state.
  */
 void
-fpudna(struct cpu_info *ci)
+fpudna(struct cpu_info *ci, struct trapframe *frame)
 {
 	struct savefpu *sfp;
 	struct proc *p;
@@ -253,7 +249,12 @@ fpudna(struct cpu_info *ci)
 		p->p_md.md_flags |= MDP_USEDFPU;
 	} else {
 		if (xsave_mask) {
-			xrstor(sfp, xsave_mask);
+			if (xrstor_user(sfp, xsave_mask)) {
+				fpusave_proc(p, 0);	/* faulted */
+				frame->tf_trapno = T_PROTFLT;
+				trap(frame);
+				return;
+			}
 		} else {
 			static double	zero = 0.0;
 
@@ -346,7 +347,7 @@ void
 fpu_kernel_enter(void)
 {
 	struct cpu_info	*ci = curcpu();
-	uint32_t	 cw;
+	struct savefpu	*sfp;
 	int		 s;
 
 	/*
@@ -375,10 +376,11 @@ fpu_kernel_enter(void)
 
 	/* Initialize the FPU */
 	fninit();
-	cw = __INITIAL_NPXCW__;
-	fldcw(&cw);
-	cw = __INITIAL_MXCSR__;
-	ldmxcsr(&cw);
+	sfp = &proc0.p_addr->u_pcb.pcb_savefpu;
+	memset(&sfp->fp_fxsave, 0, sizeof(sfp->fp_fxsave));
+	sfp->fp_fxsave.fx_fcw = __INITIAL_NPXCW__;
+	sfp->fp_fxsave.fx_mxcsr = __INITIAL_MXCSR__;
+	fxrstor(&sfp->fp_fxsave);
 }
 
 void

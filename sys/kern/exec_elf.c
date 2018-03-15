@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_elf.c,v 1.140 2017/03/20 00:05:21 kettenis Exp $	*/
+/*	$OpenBSD: exec_elf.c,v 1.142 2017/12/30 23:08:29 guenther Exp $	*/
 
 /*
  * Copyright (c) 1996 Per Fogelstrom
@@ -79,7 +79,7 @@
 #include <sys/syslog.h>
 #include <sys/exec.h>
 #include <sys/exec_elf.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/ptrace.h>
 #include <sys/syscall.h>
 #include <sys/signalvar.h>
@@ -318,7 +318,7 @@ elf_load_file(struct proc *p, char *path, struct exec_package *epp,
 	struct nameidata nd;
 	Elf_Ehdr eh;
 	Elf_Phdr *ph = NULL;
-	u_long phsize;
+	u_long phsize = 0;
 	Elf_Addr addr;
 	struct vnode *vp;
 	Elf_Phdr *base_ph = NULL;

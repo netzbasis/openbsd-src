@@ -66,7 +66,7 @@
 /arm-linux-tdep.c/1.1.1.2/Mon Dec 27 13:06:33 2004//
 /arm-tdep.c/1.4/Mon Dec 27 14:00:32 2004//
 /arm-tdep.h/1.1.1.1/Fri May 21 19:08:57 2004//
-/armnbsd-nat.c/1.2/Sat Nov 26 14:28:57 2005//
+/armnbsd-nat.c/1.3/Tue Jan 23 12:38:14 2018//
 /armnbsd-tdep.c/1.3/Mon Dec 27 14:00:33 2004//
 /auxv.c/1.3/Tue Sep 16 20:17:48 2008//
 /auxv.h/1.1.1.1/Fri May 21 19:08:57 2004//

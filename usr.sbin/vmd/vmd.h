@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.60 2017/08/20 21:15:32 pd Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.67 2018/01/03 05:39:56 ccardenas Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -35,6 +35,10 @@
 #ifndef VMD_H
 #define VMD_H
 
+#define SET(_v, _m)		((_v) |= (_m))
+#define CLR(_v, _m)		((_v) &= ~(_m))
+#define ISSET(_v, _m)		((_v) & (_m))
+
 #define VMD_USER		"_vmd"
 #define VMD_CONF		"/etc/vm.conf"
 #define SOCKET_NAME		"/var/run/vmd.sock"
@@ -53,6 +57,10 @@
 /* vmd -> vmctl error codes */
 #define VMD_BIOS_MISSING	1001
 #define VMD_DISK_MISSING	1002
+#define VMD_DISK_INVALID	1003
+#define VMD_VM_STOP_INVALID	1004
+#define VMD_CDROM_MISSING	1005
+#define VMD_CDROM_INVALID	1006
 
 /* 100.64.0.0/10 from rfc6598 (IPv4 Prefix for Shared Address Space) */
 #define VMD_DHCP_PREFIX		"100.64.0.0/10"
@@ -65,6 +73,7 @@
 
 enum imsg_type {
 	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,
+	IMSG_VMDOP_START_VM_CDROM,
 	IMSG_VMDOP_START_VM_DISK,
 	IMSG_VMDOP_START_VM_IF,
 	IMSG_VMDOP_START_VM_END,
@@ -88,7 +97,7 @@ enum imsg_type {
 	IMSG_VMDOP_RELOAD,
 	IMSG_VMDOP_PRIV_IFDESCR,
 	IMSG_VMDOP_PRIV_IFADD,
-	IMSG_VMDOP_PRIV_IFCREATE,
+	IMSG_VMDOP_PRIV_IFEXISTS,
 	IMSG_VMDOP_PRIV_IFUP,
 	IMSG_VMDOP_PRIV_IFDOWN,
 	IMSG_VMDOP_PRIV_IFGROUP,
@@ -133,6 +142,7 @@ struct vmop_create_params {
 #define VMOP_CREATE_MEMORY	0x02
 #define VMOP_CREATE_NETWORK	0x04
 #define VMOP_CREATE_DISK	0x08
+#define VMOP_CREATE_CDROM	0x10
 
 	/* userland-only part of the create params */
 	unsigned int		 vmc_ifflags[VMM_MAX_NICS_PER_VM];
@@ -185,7 +195,6 @@ struct vmd_if {
 	unsigned int		 vif_flags;
 	TAILQ_ENTRY(vmd_if)	 vif_entry;
 };
-TAILQ_HEAD(viflist, vmd_if);
 
 struct vmd_switch {
 	uint32_t		 sw_id;
@@ -194,7 +203,6 @@ struct vmd_switch {
 	char			*sw_group;
 	unsigned int		 sw_rdomain;
 	unsigned int		 sw_flags;
-	struct viflist		 sw_ifs;
 	int			 sw_running;
 	TAILQ_ENTRY(vmd_switch)	 sw_entry;
 };
@@ -205,6 +213,7 @@ struct vmd_vm {
 	pid_t			 vm_pid;
 	uint32_t		 vm_vmid;
 	int			 vm_kernel;
+	int			 vm_cdrom;
 	int			 vm_disks[VMM_MAX_DISKS_PER_VM];
 	struct vmd_if		 vm_ifs[VMM_MAX_NICS_PER_VM];
 	char			*vm_ttyname;
@@ -320,10 +329,14 @@ int	 vm_priv_brconfig(struct privsep *, struct vmd_switch *);
 uint32_t vm_priv_addr(struct address *, uint32_t, int, int);
 
 /* vmm.c */
+struct iovec;
+
 void	 vmm(struct privsep *, struct privsep_proc *);
 void	 vmm_shutdown(void);
+void	*vaddr_mem(paddr_t, size_t);
 int	 write_mem(paddr_t, const void *buf, size_t);
 int	 read_mem(paddr_t, void *buf, size_t);
+int	 iovec_mem(paddr_t, size_t, struct iovec *, int);
 int	 opentap(char *);
 int	 fd_hasdata(int);
 void	 mutex_lock(pthread_mutex_t *);
@@ -346,6 +359,7 @@ int	 config_setvm(struct privsep *, struct vmd_vm *, uint32_t, uid_t);
 int	 config_getvm(struct privsep *, struct imsg *);
 int	 config_getdisk(struct privsep *, struct imsg *);
 int	 config_getif(struct privsep *, struct imsg *);
+int	 config_getcdrom(struct privsep *, struct imsg *);
 
 /* vmboot.c */
 FILE	*vmboot_open(int, int, struct vmboot_params *);

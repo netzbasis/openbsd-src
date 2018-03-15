@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.34 2017/08/14 16:32:37 mpi Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.38 2018/02/10 10:25:44 mpi Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /*
@@ -79,20 +79,8 @@ struct db_variable * db_eregs = db_regs + nitems(db_regs);
 #define	INTERRUPT	3
 #define	AST		4
 
-int db_numargs(struct callframe *, Elf_Sym *);
 void db_nextframe(struct callframe **, db_addr_t *, long *, int,
     int (*) (const char *, ...));
-
-int
-db_numargs(struct callframe *fp, Elf_Sym *sym)
-{
-	int args;
-
-	if ((args = db_ctf_func_numargs(sym)) != -1)
-		return args;
-
-	return 6;
-}
 
 /*
  * Figure out the next frame up in the call stack.
@@ -181,9 +169,11 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 	struct callframe *frame, *lastframe;
 	unsigned long	*argp, *arg0;
 	db_addr_t	callpc;
+	unsigned int	cr4save = CR4_SMEP|CR4_SMAP;
 	int		is_trap = 0;
 	boolean_t	kernel_only = TRUE;
 	boolean_t	trace_proc = FALSE;
+	struct proc	*p;
 
 	{
 		char *cp = modif;
@@ -197,22 +187,30 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		}
 	}
 
+	if (trace_proc) {
+		p = tfind((pid_t)addr);
+		if (p == NULL) {
+			(*pr) ("not found\n");
+			return;
+		}
+	}
+
+	cr4save = rcr4();
+	if (cr4save & CR4_SMAP)
+		lcr4(cr4save & ~CR4_SMAP);
+
 	if (!have_addr) {
 		frame = (struct callframe *)ddb_regs.tf_rbp;
 		callpc = (db_addr_t)ddb_regs.tf_rip;
-	} else {
-		if (trace_proc) {
-			struct proc *p = tfind((pid_t)addr);
-			if (p == NULL) {
-				(*pr) ("not found\n");
-				return;
-			}
-			frame = (struct callframe *)p->p_addr->u_pcb.pcb_rbp;
-		} else {
-			frame = (struct callframe *)addr;
-		}
+	} else if (trace_proc) {
+		frame = (struct callframe *)p->p_addr->u_pcb.pcb_rbp;
 		callpc = (db_addr_t)
-			 db_get_value((db_addr_t)&frame->f_retaddr, 8, FALSE);
+		    db_get_value((db_addr_t)&frame->f_retaddr, 8, FALSE);
+		frame = (struct callframe *)frame->f_frame;
+	} else {
+		frame = (struct callframe *)addr;
+		callpc = (db_addr_t)
+		    db_get_value((db_addr_t)&frame->f_retaddr, 8, FALSE);
 		frame = (struct callframe *)frame->f_frame;
 	}
 
@@ -224,8 +222,13 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		db_expr_t	offset;
 		Elf_Sym *	sym;
 
-		sym = db_search_symbol(callpc, DB_STGY_ANY, &offset);
-		db_symbol_values(sym, &name, NULL);
+		if (INKERNEL(frame)) {
+			sym = db_search_symbol(callpc, DB_STGY_ANY, &offset);
+			db_symbol_values(sym, &name, NULL);
+		} else {
+			sym = NULL;
+			name = NULL;
+		}
 
 		if (lastframe == 0 && sym == NULL) {
 			/* Symbol not found, peek at code */
@@ -243,14 +246,19 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 			narg = 0;
 		else {
 			is_trap = NONE;
-			narg = db_numargs(frame, sym);
+			narg = db_ctf_func_numargs(sym);
+			if (narg < 0 || narg > 6)
+				narg = 6;
 		}
 
-		(*pr)("%s(", name);
+		if (name == NULL)
+			(*pr)("%lx(", callpc);
+		else
+			(*pr)("%s(", name);
 
 		if (lastframe == 0 && offset == 0 && !have_addr) {
 			/* We have a breakpoint before the frame is set up */
-			for (i = 0; i < min(6, narg); i++) {
+			for (i = 0; i < narg; i++) {
 				(*pr)("%lx", *db_reg_args[i]);
 				if (--narg != 0)
 					(*pr)(",");
@@ -261,7 +269,7 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 			    &((struct callframe *)(ddb_regs.tf_rsp-8))->f_arg0;
 		} else {
 			argp = (unsigned long *)frame;
-			for (i = min(6, narg); i > 0; i--) {
+			for (i = narg; i > 0; i--) {
 				argp--;
 				(*pr)("%lx", db_get_value((db_addr_t)argp,
 				    sizeof(*argp), FALSE));
@@ -292,15 +300,14 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 			continue;
 		}
 
-		if (is_trap == INTERRUPT) {
+		if (is_trap == INTERRUPT && lastframe != NULL) {
 			/*
 			 * Interrupt routines don't update %rbp, so it still
 			 * points to the frame that was interrupted.  Pull
 			 * back to just above lastframe so we can find the
 			 * trapframe as with syscalls and traps.
 			 */
-			frame = (struct callframe *)db_get_value(
-			    (db_addr_t)&lastframe->f_retaddr, sizeof(long), 0);
+			frame = (struct callframe *)&lastframe->f_retaddr;
 			arg0 = &frame->f_arg0;
 		}
 
@@ -339,6 +346,9 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		db_printsym(callpc, DB_STGY_XTRN, pr);
 		(*pr)(":\n");
 	}
+
+	if (cr4save & CR4_SMAP)
+		lcr4(cr4save);
 }
 
 void
@@ -386,9 +396,8 @@ db_save_stack_trace(struct db_stack_trace *st)
 				if (lastframe == NULL)
 					break;
 
-				frame = (struct callframe *)db_get_value(
-				    (db_addr_t)&lastframe->f_retaddr,
-				    sizeof(long), 0);
+				frame =
+				    (struct callframe *)&lastframe->f_retaddr;
 			}
 			lastframe = frame;
 

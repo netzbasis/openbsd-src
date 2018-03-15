@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.h,v 1.98 2017/08/11 19:53:02 bluhm Exp $	*/
+/*	$OpenBSD: in6.h,v 1.101 2018/02/10 05:52:08 florian Exp $	*/
 /*	$KAME: in6.h,v 1.83 2001/03/29 02:55:07 jinmei Exp $	*/
 
 /*
@@ -404,7 +404,7 @@ typedef	__socklen_t	socklen_t;	/* length type for network syscalls */
 #endif /* __BSD_VISIBLE */
 
 #ifdef _KERNEL
-extern	u_char inet6ctlerrmap[];
+extern	const u_char inet6ctlerrmap[];
 extern	struct in6_addr zeroin6_addr;
 
 struct mbuf;
@@ -418,7 +418,6 @@ void	in6_proto_cksum_out(struct mbuf *, struct ifnet *);
 int	in6_localaddr(struct in6_addr *);
 int	in6_addrscope(struct in6_addr *);
 struct	in6_ifaddr *in6_ifawithscope(struct ifnet *, struct in6_addr *, u_int);
-void 	in6_get_rand_ifid(struct ifnet *, struct in6_addr *);
 int	in6_mask2len(struct in6_addr *, u_char *);
 int	in6_nam2sin6(const struct mbuf *, struct sockaddr_in6 **);
 
@@ -591,7 +590,8 @@ ifatoia6(struct ifaddr *ifa)
 #define IPV6CTL_IFQUEUE		51
 #define IPV6CTL_MRTMIF		52
 #define IPV6CTL_MRTMFC		53
-#define IPV6CTL_MAXID		54
+#define IPV6CTL_SOIIKEY		54
+#define IPV6CTL_MAXID		55
 
 /* New entries should be added here from current IPV6CTL_MAXID value. */
 /* to define items, should talk with KAME guys first, for *BSD compatibility */
@@ -651,6 +651,7 @@ ifatoia6(struct ifaddr *ifa)
 	{ "ifq", CTLTYPE_NODE }, \
 	{ "mrtmif", CTLTYPE_STRUCT }, \
 	{ "mrtmfc", CTLTYPE_STRUCT }, \
+	{ "soiikey", CTLTYPE_STRING }, /* binary string */ \
 }
 
 #define IPV6CTL_VARS { \

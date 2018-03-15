@@ -115,7 +115,11 @@
 ./usr/include/dev/eisa/eisareg.h
 ./usr/include/dev/eisa/eisavar.h
 ./usr/include/dev/fdt
+./usr/include/dev/fdt/if_mvnetareg.h
+./usr/include/dev/fdt/mvmdiovar.h
+./usr/include/dev/fdt/pscivar.h
 ./usr/include/dev/fdt/rkclock_clocks.h
+./usr/include/dev/fdt/rsbvar.h
 ./usr/include/dev/fdt/sunxireg.h
 ./usr/include/dev/fdt/sxiccmu_clocks.h
 ./usr/include/dev/fdt/sxipio_pins.h
@@ -207,6 +211,8 @@
 ./usr/include/dev/ic/bt485reg.h
 ./usr/include/dev/ic/bt485var.h
 ./usr/include/dev/ic/bt8xx.h
+./usr/include/dev/ic/bwfmreg.h
+./usr/include/dev/ic/bwfmvar.h
 ./usr/include/dev/ic/bwireg.h
 ./usr/include/dev/ic/bwivar.h
 ./usr/include/dev/ic/cacreg.h
@@ -233,6 +239,8 @@
 ./usr/include/dev/ic/ds1687reg.h
 ./usr/include/dev/ic/dwc_gmac_reg.h
 ./usr/include/dev/ic/dwc_gmac_var.h
+./usr/include/dev/ic/dwiicreg.h
+./usr/include/dev/ic/dwiicvar.h
 ./usr/include/dev/ic/elink3reg.h
 ./usr/include/dev/ic/elink3var.h
 ./usr/include/dev/ic/espreg.h
@@ -524,6 +532,7 @@
 ./usr/include/dev/pci/if_bcereg.h
 ./usr/include/dev/pci/if_bgereg.h
 ./usr/include/dev/pci/if_bnxreg.h
+./usr/include/dev/pci/if_bwfm_pci.h
 ./usr/include/dev/pci/if_casreg.h
 ./usr/include/dev/pci/if_casvar.h
 ./usr/include/dev/pci/if_devar.h
@@ -543,6 +552,7 @@
 ./usr/include/dev/pci/if_ix.h
 ./usr/include/dev/pci/if_ixgb.h
 ./usr/include/dev/pci/if_ixgb_osdep.h
+./usr/include/dev/pci/if_ixlreg.h
 ./usr/include/dev/pci/if_jmereg.h
 ./usr/include/dev/pci/if_jmevar.h
 ./usr/include/dev/pci/if_lgereg.h
@@ -681,6 +691,7 @@
 ./usr/include/dev/sbus/xboxvar.h
 ./usr/include/dev/sbus/zxreg.h
 ./usr/include/dev/sdmmc
+./usr/include/dev/sdmmc/if_bwfm_sdio.h
 ./usr/include/dev/sdmmc/sdhcreg.h
 ./usr/include/dev/sdmmc/sdhcvar.h
 ./usr/include/dev/sdmmc/sdmmc_ioreg.h
@@ -707,6 +718,7 @@
 ./usr/include/dev/tc/tcdsvar.h
 ./usr/include/dev/tc/tcreg.h
 ./usr/include/dev/tc/tcvar.h
+./usr/include/dev/tc/zs_ioasicvar.h
 ./usr/include/dev/usb
 ./usr/include/dev/usb/dwc2
 ./usr/include/dev/usb/dwc2/dwc2.h
@@ -778,6 +790,7 @@
 ./usr/include/dev/usb/usbdi_util.h
 ./usr/include/dev/usb/usbdivar.h
 ./usr/include/dev/usb/usbhid.h
+./usr/include/dev/usb/usbpcap.h
 ./usr/include/dev/usb/uslhcomreg.h
 ./usr/include/dev/usb/utvfu.h
 ./usr/include/dev/usb/uvideo.h
@@ -823,6 +836,7 @@
 ./usr/include/dirent.h
 ./usr/include/disktab.h
 ./usr/include/dlfcn.h
+./usr/include/elf.h
 ./usr/include/elf_abi.h
 ./usr/include/endian.h
 ./usr/include/err.h
@@ -910,6 +924,7 @@
 ./usr/include/net/if_gre.h
 ./usr/include/net/if_llc.h
 ./usr/include/net/if_media.h
+./usr/include/net/if_mobileip.h
 ./usr/include/net/if_pflog.h
 ./usr/include/net/if_pflow.h
 ./usr/include/net/if_pfsync.h
@@ -939,7 +954,6 @@
 ./usr/include/net/route.h
 ./usr/include/net/rtable.h
 ./usr/include/net/slcompress.h
-./usr/include/net/slip.h
 ./usr/include/net/trunklacp.h
 ./usr/include/net80211
 ./usr/include/net80211/ieee80211.h
@@ -1525,7 +1539,6 @@
 ./usr/share/man/man2/adjfreq.2
 ./usr/share/man/man2/adjtime.2
 ./usr/share/man/man2/alpha/inb.2
-./usr/share/man/man2/amd64/amd64_get_fsbase.2
 ./usr/share/man/man2/amd64/amd64_iopl.2
 ./usr/share/man/man2/armv7/arm_drain_writebuf.2
 ./usr/share/man/man2/armv7/arm_sync_icache.2
@@ -1652,6 +1665,7 @@
 ./usr/share/man/man2/sync.2
 ./usr/share/man/man2/sysarch.2
 ./usr/share/man/man2/syscall.2
+./usr/share/man/man2/sysctl.2
 ./usr/share/man/man2/thrkill.2
 ./usr/share/man/man2/truncate.2
 ./usr/share/man/man2/umask.2
@@ -1684,7 +1698,9 @@
 ./usr/share/man/man3/BIO_f_null.3
 ./usr/share/man/man3/BIO_f_ssl.3
 ./usr/share/man/man3/BIO_find_type.3
+./usr/share/man/man3/BIO_get_data.3
 ./usr/share/man/man3/BIO_get_ex_new_index.3
+./usr/share/man/man3/BIO_meth_new.3
 ./usr/share/man/man3/BIO_new.3
 ./usr/share/man/man3/BIO_printf.3
 ./usr/share/man/man3/BIO_push.3
@@ -1730,6 +1746,7 @@
 ./usr/share/man/man3/DES_set_key.3
 ./usr/share/man/man3/DH_generate_key.3
 ./usr/share/man/man3/DH_generate_parameters.3
+./usr/share/man/man3/DH_get0_pqg.3
 ./usr/share/man/man3/DH_get_ex_new_index.3
 ./usr/share/man/man3/DH_new.3
 ./usr/share/man/man3/DH_set_method.3
@@ -1740,6 +1757,7 @@
 ./usr/share/man/man3/DSA_dup_DH.3
 ./usr/share/man/man3/DSA_generate_key.3
 ./usr/share/man/man3/DSA_generate_parameters.3
+./usr/share/man/man3/DSA_get0_pqg.3
 ./usr/share/man/man3/DSA_get_ex_new_index.3
 ./usr/share/man/man3/DSA_new.3
 ./usr/share/man/man3/DSA_set_method.3
@@ -1776,6 +1794,8 @@
 ./usr/share/man/man3/EVP_OpenInit.3
 ./usr/share/man/man3/EVP_PKEY_CTX_ctrl.3
 ./usr/share/man/man3/EVP_PKEY_CTX_new.3
+./usr/share/man/man3/EVP_PKEY_asn1_get_count.3
+./usr/share/man/man3/EVP_PKEY_asn1_new.3
 ./usr/share/man/man3/EVP_PKEY_cmp.3
 ./usr/share/man/man3/EVP_PKEY_decrypt.3
 ./usr/share/man/man3/EVP_PKEY_derive.3
@@ -1783,6 +1803,7 @@
 ./usr/share/man/man3/EVP_PKEY_get_default_digest_nid.3
 ./usr/share/man/man3/EVP_PKEY_keygen.3
 ./usr/share/man/man3/EVP_PKEY_meth_get0_info.3
+./usr/share/man/man3/EVP_PKEY_meth_new.3
 ./usr/share/man/man3/EVP_PKEY_new.3
 ./usr/share/man/man3/EVP_PKEY_print_private.3
 ./usr/share/man/man3/EVP_PKEY_set1_RSA.3
@@ -1811,6 +1832,7 @@
 ./usr/share/man/man3/OPENSSL_config.3
 ./usr/share/man/man3/OPENSSL_load_builtin_modules.3
 ./usr/share/man/man3/OPENSSL_malloc.3
+./usr/share/man/man3/OPENSSL_sk_new.3
 ./usr/share/man/man3/OpenSSL_add_all_algorithms.3
 ./usr/share/man/man3/PEM_bytes_read_bio.3
 ./usr/share/man/man3/PEM_read.3
@@ -1843,6 +1865,7 @@
 ./usr/share/man/man3/RSA_blinding_on.3
 ./usr/share/man/man3/RSA_check_key.3
 ./usr/share/man/man3/RSA_generate_key.3
+./usr/share/man/man3/RSA_get0_key.3
 ./usr/share/man/man3/RSA_get_ex_new_index.3
 ./usr/share/man/man3/RSA_new.3
 ./usr/share/man/man3/RSA_padding_add_PKCS1_type_1.3
@@ -1863,6 +1886,7 @@
 ./usr/share/man/man3/SSL_CTX_ctrl.3
 ./usr/share/man/man3/SSL_CTX_flush_sessions.3
 ./usr/share/man/man3/SSL_CTX_free.3
+./usr/share/man/man3/SSL_CTX_get0_certificate.3
 ./usr/share/man/man3/SSL_CTX_get_ex_new_index.3
 ./usr/share/man/man3/SSL_CTX_get_verify_mode.3
 ./usr/share/man/man3/SSL_CTX_load_verify_locations.3
@@ -1895,6 +1919,7 @@
 ./usr/share/man/man3/SSL_CTX_set_tlsext_servername_callback.3
 ./usr/share/man/man3/SSL_CTX_set_tlsext_status_cb.3
 ./usr/share/man/man3/SSL_CTX_set_tlsext_ticket_key_cb.3
+./usr/share/man/man3/SSL_CTX_set_tlsext_use_srtp.3
 ./usr/share/man/man3/SSL_CTX_set_tmp_dh_callback.3
 ./usr/share/man/man3/SSL_CTX_set_tmp_rsa_callback.3
 ./usr/share/man/man3/SSL_CTX_set_verify.3
@@ -1904,6 +1929,7 @@
 ./usr/share/man/man3/SSL_SESSION_get_compress_id.3
 ./usr/share/man/man3/SSL_SESSION_get_ex_new_index.3
 ./usr/share/man/man3/SSL_SESSION_get_id.3
+./usr/share/man/man3/SSL_SESSION_get_protocol_version.3
 ./usr/share/man/man3/SSL_SESSION_get_time.3
 ./usr/share/man/man3/SSL_SESSION_new.3
 ./usr/share/man/man3/SSL_SESSION_print.3
@@ -1922,6 +1948,7 @@
 ./usr/share/man/man3/SSL_get_certificate.3
 ./usr/share/man/man3/SSL_get_ciphers.3
 ./usr/share/man/man3/SSL_get_client_CA_list.3
+./usr/share/man/man3/SSL_get_client_random.3
 ./usr/share/man/man3/SSL_get_current_cipher.3
 ./usr/share/man/man3/SSL_get_default_timeout.3
 ./usr/share/man/man3/SSL_get_error.3
@@ -1959,6 +1986,7 @@
 ./usr/share/man/man3/SSL_state_string.3
 ./usr/share/man/man3/SSL_want.3
 ./usr/share/man/man3/SSL_write.3
+./usr/share/man/man3/STACK_OF.3
 ./usr/share/man/man3/SXNET_new.3
 ./usr/share/man/man3/SipHash24.3
 ./usr/share/man/man3/TS_REQ_new.3
@@ -1980,6 +2008,7 @@
 ./usr/share/man/man3/X509_NAME_get_index_by_NID.3
 ./usr/share/man/man3/X509_NAME_new.3
 ./usr/share/man/man3/X509_NAME_print_ex.3
+./usr/share/man/man3/X509_OBJECT_get0_X509.3
 ./usr/share/man/man3/X509_PUBKEY_new.3
 ./usr/share/man/man3/X509_REQ_new.3
 ./usr/share/man/man3/X509_REVOKED_new.3
@@ -1989,6 +2018,7 @@
 ./usr/share/man/man3/X509_STORE_CTX_new.3
 ./usr/share/man/man3/X509_STORE_CTX_set_verify_cb.3
 ./usr/share/man/man3/X509_STORE_load_locations.3
+./usr/share/man/man3/X509_STORE_new.3
 ./usr/share/man/man3/X509_STORE_set1_param.3
 ./usr/share/man/man3/X509_STORE_set_verify_cb_func.3
 ./usr/share/man/man3/X509_VERIFY_PARAM_set_flags.3
@@ -1998,6 +2028,8 @@
 ./usr/share/man/man3/X509_check_private_key.3
 ./usr/share/man/man3/X509_cmp_time.3
 ./usr/share/man/man3/X509_digest.3
+./usr/share/man/man3/X509_get0_notBefore.3
+./usr/share/man/man3/X509_get0_signature.3
 ./usr/share/man/man3/X509_get_pubkey.3
 ./usr/share/man/man3/X509_get_serialNumber.3
 ./usr/share/man/man3/X509_get_subject_name.3
@@ -2414,10 +2446,13 @@
 ./usr/share/man/man3/moncontrol.3
 ./usr/share/man/man3/nan.3
 ./usr/share/man/man3/ndbm.3
+./usr/share/man/man3/newlocale.3
 ./usr/share/man/man3/nextafter.3
 ./usr/share/man/man3/nice.3
 ./usr/share/man/man3/nl_langinfo.3
 ./usr/share/man/man3/nlist.3
+./usr/share/man/man3/octeon/cacheflush.3
+./usr/share/man/man3/octeon/get_fpc_csr.3
 ./usr/share/man/man3/offsetof.3
 ./usr/share/man/man3/ohash_init.3
 ./usr/share/man/man3/ohash_interval.3
@@ -2566,6 +2601,7 @@
 ./usr/share/man/man3/sigvec.3
 ./usr/share/man/man3/sigwait.3
 ./usr/share/man/man3/sin.3
+./usr/share/man/man3/sincos.3
 ./usr/share/man/man3/sinh.3
 ./usr/share/man/man3/sio_open.3
 ./usr/share/man/man3/skey.3
@@ -2608,7 +2644,6 @@
 ./usr/share/man/man3/strxfrm.3
 ./usr/share/man/man3/swab.3
 ./usr/share/man/man3/sysconf.3
-./usr/share/man/man3/sysctl.3
 ./usr/share/man/man3/sysexits.3
 ./usr/share/man/man3/syslog.3
 ./usr/share/man/man3/system.3
@@ -2654,6 +2689,7 @@
 ./usr/share/man/man3/ungetwc.3
 ./usr/share/man/man3/unvis.3
 ./usr/share/man/man3/usbhid.3
+./usr/share/man/man3/uselocale.3
 ./usr/share/man/man3/usleep.3
 ./usr/share/man/man3/utime.3
 ./usr/share/man/man3/uucplock.3
@@ -2665,6 +2701,7 @@
 ./usr/share/man/man3/wcscat.3
 ./usr/share/man/man3/wcschr.3
 ./usr/share/man/man3/wcscmp.3
+./usr/share/man/man3/wcscoll.3
 ./usr/share/man/man3/wcscpy.3
 ./usr/share/man/man3/wcscspn.3
 ./usr/share/man/man3/wcsdup.3
@@ -2681,6 +2718,7 @@
 ./usr/share/man/man3/wcstol.3
 ./usr/share/man/man3/wcstombs.3
 ./usr/share/man/man3/wcswidth.3
+./usr/share/man/man3/wcsxfrm.3
 ./usr/share/man/man3/wctob.3
 ./usr/share/man/man3/wctomb.3
 ./usr/share/man/man3/wctrans.3
@@ -2721,6 +2759,7 @@
 ./usr/share/man/man9/bufq_init.9
 ./usr/share/man/man9/bus_dma.9
 ./usr/share/man/man9/bus_space.9
+./usr/share/man/man9/cond_init.9
 ./usr/share/man/man9/config_attach.9
 ./usr/share/man/man9/config_defer.9
 ./usr/share/man/man9/copy.9

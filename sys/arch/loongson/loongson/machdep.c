@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.79 2017/07/12 06:26:33 natano Exp $ */
+/*	$OpenBSD: machdep.c,v 1.82 2017/12/30 20:46:59 guenther Exp $ */
 
 /*
  * Copyright (c) 2009, 2010, 2014 Miodrag Vallat.
@@ -47,7 +47,6 @@
 #include <sys/buf.h>
 #include <sys/reboot.h>
 #include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/msgbuf.h>
 #include <sys/tty.h>
 #include <sys/user.h>
@@ -763,7 +762,8 @@ mips_init(uint64_t argc, uint64_t argv, uint64_t envp, uint64_t cv,
 #ifdef CPU_LOONGSON3
 	case 0x3a:
 		bootcpu_hwinfo.tlbsize =
-		    1 + ((cp0_get_config_1() >> 25) & 0x3f);
+		    1 + ((cp0_get_config_1() & CONFIG1_MMUSize1) >>
+		    CONFIG1_MMUSize1_SHIFT);
 		Loongson3_ConfigCache(curcpu());
 		Loongson3_SyncCache(curcpu());
 		break;
@@ -1060,7 +1060,7 @@ boot(int howto)
 	boothowto = howto;
 	if ((howto & RB_NOSYNC) == 0 && waittime < 0) {
 		waittime = 0;
-		vfs_shutdown();
+		vfs_shutdown(curproc);
 
 		if ((howto & RB_TIMEBAD) == 0) {
 			resettodr();

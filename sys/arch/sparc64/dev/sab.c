@@ -1,4 +1,4 @@
-/*	$OpenBSD: sab.c,v 1.32 2017/04/30 16:45:45 mpi Exp $	*/
+/*	$OpenBSD: sab.c,v 1.35 2018/02/19 08:59:52 mpi Exp $	*/
 
 /*
  * Copyright (c) 2001 Jason L. Wright (jason@thought.net)
@@ -35,12 +35,11 @@
  * SAB82532 Dual UART driver
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/device.h>
 #include <sys/conf.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
@@ -720,7 +719,7 @@ sabttyopen(dev, flags, mode, p)
 		else
 			tp->t_state &= ~TS_CARR_ON;
 	} else if ((tp->t_state & TS_XCLUDE) &&
-	    (!suser(p, 0))) {
+	    (!suser(p))) {
 		return (EBUSY);
 	} else {
 		s = spltty();
@@ -886,7 +885,7 @@ sabttyioctl(dev, cmd, data, flags, p)
 		*((int *)data) = sc->sc_openflags;
 		break;
 	case TIOCSFLAGS:
-		if (suser(p, 0))
+		if (suser(p))
 			error = EPERM;
 		else
 			sc->sc_openflags = *((int *)data) &

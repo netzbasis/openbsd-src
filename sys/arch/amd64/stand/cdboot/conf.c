@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.32 2016/09/18 16:36:09 jsing Exp $	*/
+/*	$OpenBSD: conf.c,v 1.34 2018/02/06 01:09:17 patrick Exp $	*/
 
 /*
  * Copyright (c) 2004 Tom Cosgrove
@@ -28,7 +28,6 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <libsa.h>
 #include <lib/libsa/ufs.h>
@@ -42,7 +41,7 @@
 #include <biosdev.h>
 #include <dev/cons.h>
 
-const char version[] = "3.28";
+const char version[] = "3.29";
 int	debug = 1;
 
 

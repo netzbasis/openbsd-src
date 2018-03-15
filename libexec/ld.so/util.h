@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.h,v 1.30 2017/01/24 07:48:37 guenther Exp $	*/
+/*	$OpenBSD: util.h,v 1.32 2017/12/01 23:30:05 guenther Exp $	*/
 
 /*
  * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -41,12 +41,13 @@ void *_dl_calloc(size_t nmemb, const size_t size);
 void *_dl_realloc(void *, size_t size);
 void *_dl_reallocarray(void *, size_t nmemb, size_t size);
 void _dl_free(void *);
+void *_dl_aligned_alloc(size_t _alignment, size_t _size);
 char *_dl_strdup(const char *);
 size_t _dl_strlen(const char *);
 size_t _dl_strlcat(char *dst, const char *src, size_t siz);
 void _dl_printf(const char *fmt, ...);
 void _dl_vprintf(const char *fmt, va_list ap);
-void _dl_fdprintf(int, const char *fmt, ...);
+void _dl_dprintf(int, const char *fmt, ...);
 void _dl_show_objects(void);
 void _dl_arc4randombuf(void *, size_t);
 u_int32_t _dl_arc4random(void);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.215 2017/08/10 02:26:26 bluhm Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.221 2017/12/14 14:26:50 bluhm Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -431,6 +431,11 @@ icmp6_input(struct mbuf **mp, int *offp, int proto, int af)
 		case ICMP6_PACKET_TOO_BIG:
 		case ICMP6_TIME_EXCEEDED:
 		case ICMP6_PARAM_PROB:
+			/*
+			 * Do not use the divert-to property of the TCP or UDP
+			 * rule when doing the PCB lookup for the raw socket.
+			 */
+			m->m_pkthdr.pf.flags &=~ PF_TAG_DIVERTED;
 			break;
 		default:
 			goto raw;
@@ -637,32 +642,23 @@ icmp6_input(struct mbuf **mp, int *offp, int proto, int af)
 		break;
 
 	case ND_ROUTER_SOLICIT:
-		if (code != 0)
-			goto badcode;
-		if (icmp6len < sizeof(struct nd_router_solicit))
-			goto badlen;
-		if ((n = m_copym(m, 0, M_COPYALL, M_DONTWAIT)) == NULL) {
-			/* give up local */
-			nd6_rs_input(m, off, icmp6len);
-			m = NULL;
-			goto freeit;
-		}
-		nd6_rs_input(n, off, icmp6len);
-		/* m stays. */
-		break;
-
 	case ND_ROUTER_ADVERT:
 		if (code != 0)
 			goto badcode;
-		if (icmp6len < sizeof(struct nd_router_advert))
+		if ((icmp6->icmp6_type == ND_ROUTER_SOLICIT && icmp6len <
+		    sizeof(struct nd_router_solicit)) ||
+		    (icmp6->icmp6_type == ND_ROUTER_ADVERT && icmp6len <
+		    sizeof(struct nd_router_advert)))
 			goto badlen;
+
 		if ((n = m_copym(m, 0, M_COPYALL, M_DONTWAIT)) == NULL) {
 			/* give up local */
-			nd6_ra_input(m, off, icmp6len);
+			nd6_rtr_cache(m, off, icmp6len,
+			    icmp6->icmp6_type);
 			m = NULL;
 			goto freeit;
 		}
-		nd6_ra_input(n, off, icmp6len);
+		nd6_rtr_cache(n, off, icmp6len, icmp6->icmp6_type);
 		/* m stays. */
 		break;
 
@@ -1044,6 +1040,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	struct icmp6_hdr *icmp6;
 	struct in6_addr t, *src = NULL;
 	struct sockaddr_in6 sa6_src, sa6_dst;
+	u_int rtableid;
 
 	CTASSERT(sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) <= MHLEN);
 
@@ -1055,6 +1052,12 @@ icmp6_reflect(struct mbuf *m, size_t off)
 		    __FILE__, __LINE__));
 		goto bad;
 	}
+
+	if (m->m_pkthdr.ph_loopcnt++ >= M_MAXLOOP)
+		goto bad;
+	rtableid = m->m_pkthdr.ph_rtableid;
+	m_resethdr(m);
+	m->m_pkthdr.ph_rtableid = rtableid;
 
 	/*
 	 * If there are extra headers between IPv6 and ICMPv6, strip
@@ -1114,7 +1117,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	 * but is possible (for example) when we encounter an error while
 	 * forwarding procedure destined to a duplicated address of ours.
 	 */
-	rt = rtalloc(sin6tosa(&sa6_dst), 0, m->m_pkthdr.ph_rtableid);
+	rt = rtalloc(sin6tosa(&sa6_dst), 0, rtableid);
 	if (rtisvalid(rt) && ISSET(rt->rt_flags, RTF_LOCAL) &&
 	    !ISSET(ifatoia6(rt->rt_ifa)->ia6_flags,
 	    IN6_IFF_ANYCAST|IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED)) {
@@ -1129,8 +1132,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 		 * that we do not own.  Select a source address based on the
 		 * source address of the erroneous packet.
 		 */
-		rt = rtalloc(sin6tosa(&sa6_src), RT_RESOLVE,
-		    m->m_pkthdr.ph_rtableid);
+		rt = rtalloc(sin6tosa(&sa6_src), RT_RESOLVE, rtableid);
 		if (!rtisvalid(rt)) {
 			char addr[INET6_ADDRSTRLEN];
 
@@ -1162,15 +1164,6 @@ icmp6_reflect(struct mbuf *m, size_t off)
 
 	m->m_flags &= ~(M_BCAST|M_MCAST);
 
-	/*
-	 * To avoid a "too big" situation at an intermediate router
-	 * and the path MTU discovery process, specify the IPV6_MINMTU flag.
-	 * Note that only echo and node information replies are affected,
-	 * since the length of ICMP6 errors is limited to the minimum MTU.
-	 */
-#if NPF > 0
-	pf_pkt_addr_changed(m);
-#endif
 	ip6_send(m);
 	return;
 
@@ -1687,11 +1680,8 @@ icmp6_ctloutput(int op, struct socket *so, int level, int optname,
 	int error = 0;
 	struct inpcb *in6p = sotoinpcb(so);
 
-	if (level != IPPROTO_ICMPV6) {
-		if (op == PRCO_SETOPT)
-			(void)m_free(m);
+	if (level != IPPROTO_ICMPV6)
 		return EINVAL;
-	}
 
 	switch (op) {
 	case PRCO_SETOPT:
@@ -1719,7 +1709,6 @@ icmp6_ctloutput(int op, struct socket *so, int level, int optname,
 			error = ENOPROTOOPT;
 			break;
 		}
-		m_freem(m);
 		break;
 
 	case PRCO_GETOPT:
@@ -1891,6 +1880,8 @@ int
 icmp6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen)
 {
+	int error;
+
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
 		return ENOTDIR;
@@ -1900,9 +1891,13 @@ icmp6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	case ICMPV6CTL_STATS:
 		return icmp6_sysctl_icmp6stat(oldp, oldlenp, newp);
 	default:
-		if (name[0] < ICMPV6CTL_MAXID)
-			return (sysctl_int_arr(icmpv6ctl_vars, name, namelen,
-			    oldp, oldlenp, newp, newlen));
+		if (name[0] < ICMPV6CTL_MAXID) {
+			NET_LOCK();
+			error = sysctl_int_arr(icmpv6ctl_vars, name, namelen,
+			    oldp, oldlenp, newp, newlen);
+			NET_UNLOCK();
+			return (error);
+		}
 		return ENOPROTOOPT;
 	}
 	/* NOTREACHED */

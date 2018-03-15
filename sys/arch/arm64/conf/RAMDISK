@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.32 2017/08/11 22:07:09 kettenis Exp $
+# $OpenBSD: RAMDISK,v 1.44 2018/02/24 13:46:57 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -47,6 +47,7 @@ config		bsd	root on rd0a swap on rd0b
 # The main bus device
 mainbus0	at root
 cpu0		at mainbus?
+efi0		at mainbus?
 simplebus*	at fdt?
 
 scsibus*	at scsi?
@@ -56,8 +57,8 @@ cd*		at scsibus?
 ch*		at scsibus?
 uk*		at scsibus?
 
-ampintc*	at fdt?
-ampintcmsi*	at fdt?
+ampintc*	at fdt? early 1
+ampintcmsi*	at fdt? early 1
 agintc*		at fdt?
 agtimer*	at fdt?
 ahci*		at fdt?
@@ -75,7 +76,8 @@ com*		at fdt?
 # Virt on-chip devices
 pluart*		at fdt?		# onboard uarts
 plrtc*		at fdt?
-psci*		at fdt?
+psci*		at fdt? early 1
+syscon*		at fdt? early 1
 
 virtio*		at fdt?
 virtio*		at pci?
@@ -85,10 +87,14 @@ viomb*		at virtio?
 viornd*		at virtio?
 vioscsi*	at virtio?
 
+simplefb*	at fdt?
+wsdisplay*	at simplefb?
+
 # Raspberry Pi 3
 bcmaux*		at fdt?
 bcmintc*	at fdt?
 bcmdog*		at fdt?
+bcmrng*		at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
 
@@ -97,6 +103,10 @@ rkclock*	at fdt? early 1
 rkgrf*		at fdt? early 1
 rkpinctrl*	at fdt? early 1
 rkgpio*		at fdt?
+rkiic*		at fdt?
+iic*		at rkiic?
+rkpcie*		at fdt?
+pci*		at rkpcie?
 rkdwusb*	at fdt?
 dwmmc*		at fdt?
 sdmmc*		at dwmmc?
@@ -105,9 +115,13 @@ sdmmc*		at dwmmc?
 sxipio*		at fdt? early 1	# GPIO pins for leds & PHYs
 gpio*		at sxipio?
 sxiccmu*	at fdt? early 1	# Clock Control Module/Unit
+sxirsb*		at fdt? early 1	# Reduced Serial Bus
 sxirtc*		at fdt?		# Real Time Clock
 sximmc*		at fdt?		# SD/MMC card controller
 sdmmc*		at sximmc?	# SD/MMC bus
+sxitwi*		at fdt?		# I2C controller
+iic*		at sxitwi?	# I2C bus
+dwxe*		at fdt?
 
 # PCI
 ppb*		at pci?			# PCI-PCI bridges
@@ -186,6 +200,9 @@ cd*		at scsibus?
 st*		at scsibus?
 ch*		at scsibus?
 uk*		at scsibus?
+
+# I2C devices
+rkpmic*		at iic?			# RK808 PMIC
 
 pseudo-device	loop 1
 pseudo-device	bpfilter 1

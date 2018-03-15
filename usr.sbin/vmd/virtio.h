@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.h,v 1.20 2017/08/12 20:24:57 mlarkin Exp $	*/
+/*	$OpenBSD: virtio.h,v 1.23 2018/01/15 04:26:58 ccardenas Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -28,6 +28,9 @@
 #define VIOBLK_QUEUE_SIZE	128
 #define VIOBLK_QUEUE_MASK	(VIOBLK_QUEUE_SIZE - 1)
 
+#define VIOSCSI_QUEUE_SIZE	128
+#define VIOSCSI_QUEUE_MASK	(VIOSCSI_QUEUE_SIZE - 1)
+
 #define VIONET_QUEUE_SIZE	128
 #define VIONET_QUEUE_MASK	(VIONET_QUEUE_SIZE - 1)
 
@@ -35,8 +38,13 @@
 #define VMMCI_TIMEOUT		3
 #define VMMCI_SHUTDOWN_TIMEOUT	30
 
-/* All the devices we support have either 1 or 2 queues */
-#define VIRTIO_MAX_QUEUES	2
+/* All the devices we support have either 1, 2 or 3 queues */
+/* viornd - 1 queue
+ * vioblk - 1 queue
+ * vionet - 2 queues
+ * vioscsi - 3 queues
+ */
+#define VIRTIO_MAX_QUEUES	3
 
 /*
  * This struct stores notifications from a virtio driver. There is
@@ -91,10 +99,46 @@ struct virtio_vq_info {
 	uint16_t notified_avail;
 };
 
+/*
+ * Each virtio driver has a notifyq method where one or more messages
+ * are ready to be processed on a given virtq.  As such, various
+ * pieces of information are needed to provide ring accounting while
+ * processing a given message such as virtq indexes, vring pointers, and
+ * vring descriptors.
+ */
+struct virtio_vq_acct {
+
+	/* index of previous avail vring message */
+	uint16_t idx;
+
+	/* index of current message containing the request */
+	uint16_t req_idx;
+
+	/* index of current message containing the response */
+	uint16_t resp_idx;
+
+	/* vring descriptor pointer */
+	struct vring_desc *desc;
+
+	/* vring descriptor pointer for request header and data */
+	struct vring_desc *req_desc;
+
+	/* vring descriptor pointer for response header and data */
+	struct vring_desc *resp_desc;
+
+	/* pointer to the available vring */
+	struct vring_avail *avail;
+
+	/* pointer to the used vring */
+	struct vring_used *used;
+};
+
 struct viornd_dev {
 	struct virtio_io_cfg cfg;
 
 	struct virtio_vq_info vq[VIRTIO_MAX_QUEUES];
+
+	uint8_t pci_id;
 };
 
 struct vioblk_dev {
@@ -105,6 +149,33 @@ struct vioblk_dev {
 	int fd;
 	uint64_t sz;
 	uint32_t max_xfer;
+
+	uint8_t pci_id;
+};
+
+/* vioscsi will use at least 3 queues - 5.6.2 Virtqueues
+ * Current implementation will use 3
+ * 0 - control
+ * 1 - event
+ * 2 - requests
+ */
+struct vioscsi_dev {
+	struct virtio_io_cfg cfg;
+
+	struct virtio_vq_info vq[VIRTIO_MAX_QUEUES];
+
+	/* is the device locked */
+	int locked;
+	int fd;
+	/* size of iso file in bytes */
+	uint64_t sz;
+	/* last block address read */
+	uint64_t lba;
+	/* number of blocks represented in iso */
+	uint64_t n_blocks;
+	uint32_t max_xfer;
+
+	uint8_t pci_id;
 };
 
 struct vionet_dev {
@@ -125,6 +196,8 @@ struct vionet_dev {
 	int idx;
 	int lockedmac;
 	int local;
+
+	uint8_t pci_id;
 };
 
 struct virtio_net_hdr {
@@ -157,12 +230,22 @@ struct vmmci_dev {
 	enum vmmci_cmd cmd;
 	uint32_t vm_id;
 	int irq;
+
+	uint8_t pci_id;
+};
+
+struct ioinfo {
+	uint8_t *buf;
+	ssize_t len;
+	off_t offset;
+	int fd;
+	int error;
 };
 
 /* virtio.c */
-void virtio_init(struct vmd_vm *, int *, int *);
+void virtio_init(struct vmd_vm *, int, int *, int *);
 int virtio_dump(int);
-int virtio_restore(int, struct vmd_vm *, int *, int *);
+int virtio_restore(int, struct vmd_vm *, int, int *, int *);
 uint32_t vring_size(uint32_t);
 
 int virtio_rnd_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
@@ -197,6 +280,14 @@ void vmmci_ack(unsigned int);
 void vmmci_timeout(int, short, void *);
 
 const char *vioblk_cmd_name(uint32_t);
+int vioscsi_dump(int);
+int vioscsi_restore(int, struct vm_create_params *, int);
 
 /* dhcp.c */
 ssize_t dhcp_request(struct vionet_dev *, char *, size_t, char **);
+
+/* vioscsi.c */
+int vioscsi_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
+void vioscsi_update_qs(struct vioscsi_dev *);
+void vioscsi_update_qa(struct vioscsi_dev *);
+int vioscsi_notifyq(struct vioscsi_dev *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.63 2017/07/24 16:17:35 krw Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.69 2017/09/20 18:28:14 krw Exp $	*/
 
 /* BPF socket interface code, originally contributed by Archie Cobbs. */
 
@@ -72,12 +72,12 @@ get_bpf_sock(char *name)
 	int		sock;
 
 	if ((sock = open("/dev/bpf", O_RDWR | O_CLOEXEC)) == -1)
-		fatal("Can't open bpf");
+		fatal("open(/dev/bpf)");
 
 	/* Set the BPF device to point at this interface. */
 	strlcpy(ifr.ifr_name, name, IFNAMSIZ);
 	if (ioctl(sock, BIOCSETIF, &ifr) == -1)
-		fatal("Can't attach interface %s to /dev/bpf", name);
+		fatal("BIOCSETIF");
 
 	return sock;
 }
@@ -91,7 +91,7 @@ get_udp_sock(int rdomain)
 	 * Use raw socket for unicast send.
 	 */
 	if ((sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP)) == -1)
-		fatal("socket(SOCK_RAW)");
+		fatal("socket(AF_INET, SOCK_RAW)");
 	if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &on,
 	    sizeof(on)) == -1)
 		fatal("setsockopt(IP_HDRINCL)");
@@ -186,12 +186,12 @@ configure_bpf_sock(int bfdesc)
 
 	/* Make sure the BPF version is in range. */
 	if (ioctl(bfdesc, BIOCVERSION, &v) == -1)
-		fatal("Can't get BPF version");
+		fatal("BIOCVERSION");
 
 	if (v.bv_major != BPF_MAJOR_VERSION ||
 	    v.bv_minor < BPF_MINOR_VERSION)
-		fatalx("Kernel BPF version out of range - recompile "
-		    "dhclient!");
+		fatalx("kernel BPF version out of range - recompile "
+		    "dhclient");
 
 	/*
 	 * Set immediate mode so that reads return as soon as a packet
@@ -199,14 +199,14 @@ configure_bpf_sock(int bfdesc)
 	 * with packets.
 	 */
 	if (ioctl(bfdesc, BIOCIMMEDIATE, &flag) == -1)
-		fatal("Can't set immediate mode on bpf device");
+		fatal("BIOCIMMEDIATE");
 
 	if (ioctl(bfdesc, BIOCSFILDROP, &flag) == -1)
-		fatal("Can't set filter-drop mode on bpf device");
+		fatal("BIOCSFILDROP");
 
 	/* Get the required BPF buffer length from the kernel. */
 	if (ioctl(bfdesc, BIOCGBLEN, &sz) == -1)
-		fatal("Can't get bpf buffer length");
+		fatal("BIOCGBLEN");
 
 	/* Set up the bpf filter program structure. */
 	p.bf_len = dhcp_bpf_filter_len;
@@ -220,7 +220,7 @@ configure_bpf_sock(int bfdesc)
 	dhcp_bpf_filter[8].k = LOCAL_PORT;
 
 	if (ioctl(bfdesc, BIOCSETF, &p) == -1)
-		fatal("Can't install packet filter program");
+		fatal("BIOCSETF");
 
 	/* Set up the bpf write filter program structure. */
 	p.bf_len = dhcp_bpf_wfilter_len;
@@ -230,16 +230,17 @@ configure_bpf_sock(int bfdesc)
 		dhcp_bpf_wfilter[7].k = htons(IP_MF|IP_OFFMASK);
 
 	if (ioctl(bfdesc, BIOCSETWF, &p) == -1)
-		fatal("Can't install write filter program");
+		fatal("BIOCSETWF");
 
 	if (ioctl(bfdesc, BIOCLOCK, NULL) == -1)
-		fatal("Cannot lock bpf");
+		fatal("BIOCLOCK");
 
 	return sz;
 }
 
 ssize_t
-send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
+send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to,
+    const char *desc)
 {
 	struct iovec		 iov[4];
 	struct sockaddr_in	 dest;
@@ -249,7 +250,8 @@ send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 	struct msghdr		 msg;
 	struct dhcp_packet	*packet = &ifi->sent_packet;
 	ssize_t			 result;
-	int			 iovcnt = 0, len = ifi->sent_packet_length;
+	unsigned int		 iovcnt = 0, i, total;
+	int			 len = ifi->sent_packet_length;
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sin_family = AF_INET;
@@ -296,8 +298,19 @@ send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 	iov[iovcnt].iov_len = len;
 	iovcnt++;
 
+	total = 0;
+	for (i = 0; i < iovcnt; i++)
+		total += iov[i].iov_len;
+
 	if (to.s_addr == INADDR_BROADCAST) {
 		result = writev(ifi->bfdesc, iov, iovcnt);
+		if (result == -1)
+			log_warn("%s: writev(%s)", log_procname, desc);
+		else if (result < total) {
+			result = -1;
+			log_warnx("%s, writev(%s): %zd of %u bytes",
+			    log_procname, desc, result, total);
+		}
 	} else {
 		memset(&msg, 0, sizeof(msg));
 		msg.msg_name = (struct sockaddr *)&dest;
@@ -305,11 +318,16 @@ send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 		msg.msg_iov = iov;
 		msg.msg_iovlen = iovcnt;
 		result = sendmsg(ifi->ufdesc, &msg, 0);
+		if (result == -1)
+			log_warn("%s: sendmsg(%s)", log_procname, desc);
+		else if (result < total) {
+			result = -1;
+			log_warnx("%s, sendmsg(%s): %zd of %u bytes",
+			    log_procname, desc, result, total);
+		}
 	}
 
-	if (result == -1)
-		log_warn("send_packet");
-	return result ;
+	return result;
 }
 
 ssize_t
@@ -318,7 +336,8 @@ receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
 {
 	struct bpf_hdr		 hdr;
 	struct dhcp_packet	*packet = &ifi->recv_packet;
-	int			 length = 0, offset = 0;
+	ssize_t			 length = 0;
+	int			 offset = 0;
 
 	/*
 	 * All this complexity is because BPF doesn't guarantee that
@@ -334,8 +353,11 @@ receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
 		/* If the buffer is empty, fill it. */
 		if (ifi->rbuf_offset >= ifi->rbuf_len) {
 			length = read(ifi->bfdesc, ifi->rbuf, ifi->rbuf_max);
-			if (length <= 0)
-				return  length ;
+			if (length == -1) {
+				log_warn("%s: read(bfdesc)", log_procname);
+				return length;
+			} else if (length == 0)
+				return length;
 			ifi->rbuf_offset = 0;
 			ifi->rbuf_len = length;
 		}
@@ -424,7 +446,7 @@ receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
 		memcpy(packet, ifi->rbuf + ifi->rbuf_offset, hdr.bh_caplen);
 		ifi->rbuf_offset = BPF_WORDALIGN(ifi->rbuf_offset +
 		    hdr.bh_caplen);
-		return  hdr.bh_caplen ;
+		return hdr.bh_caplen;
 	} while (length == 0);
 	return  0 ;
 }

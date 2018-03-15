@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.106 2017/06/22 06:21:12 jmatthew Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.113 2018/03/13 05:10:40 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -81,7 +81,7 @@
 #include <uvm/uvm_extern.h>
 
 #include <machine/codepatch.h>
-#include <machine/cpu.h>
+#include <machine/cpu_full.h>
 #include <machine/cpufunc.h>
 #include <machine/cpuvar.h>
 #include <machine/pmap.h>
@@ -95,7 +95,6 @@
 #include <machine/vmmvar.h>
 
 #if NLAPIC > 0
-#include <machine/apicvar.h>
 #include <machine/i82489reg.h>
 #include <machine/i82489var.h>
 #endif
@@ -116,6 +115,14 @@
 #include <sys/hibernate.h>
 #include <machine/hibernate.h>
 #endif /* HIBERNATE */
+
+/* #define CPU_DEBUG */
+
+#ifdef CPU_DEBUG
+#define DPRINTF(x...)	do { printf(x); } while(0)
+#else
+#define DPRINTF(x...)
+#endif /* CPU_DEBUG */
 
 int     cpu_match(struct device *, void *, void *);
 void    cpu_attach(struct device *, struct device *, void *);
@@ -173,7 +180,7 @@ struct cfdriver cpu_cd = {
  * CPU, on uniprocessors).  The CPU info list is initialized to
  * point at it.
  */
-struct cpu_info cpu_info_primary = { 0, &cpu_info_primary };
+struct cpu_info_full cpu_info_full_primary = { .cif_cpu = { .ci_self = &cpu_info_primary } };
 
 struct cpu_info *cpu_info_list = &cpu_info_primary;
 
@@ -339,8 +346,15 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	 * structure, otherwise use the primary's.
 	 */
 	if (caa->cpu_role == CPU_ROLE_AP) {
-		ci = malloc(sizeof(*ci), M_DEVBUF, M_WAITOK|M_ZERO);
+		struct cpu_info_full *cif;
+		
+		cif = km_alloc(sizeof *cif, &kv_any, &kp_zero, &kd_waitok);
+		ci = &cif->cif_cpu;
 #if defined(MULTIPROCESSOR)
+		ci->ci_tss = &cif->cif_tss;
+		ci->ci_gdt = (void *)(ci->ci_tss + 1);
+		memcpy(ci->ci_gdt, cpu_info_primary.ci_gdt, GDT_SIZE);
+		cpu_enter_pages(cif);
 		if (cpu_info[cpunum] != NULL)
 			panic("cpu at apic id %d already attached?", cpunum);
 		cpu_info[cpunum] = ci;
@@ -407,6 +421,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		printf("(uniprocessor)\n");
 		ci->ci_flags |= CPUF_PRESENT | CPUF_SP | CPUF_PRIMARY;
 		cpu_intr_init(ci);
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -419,6 +436,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		printf("apid %d (boot processor)\n", caa->cpu_apicid);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_BSP | CPUF_PRIMARY;
 		cpu_intr_init(ci);
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -446,7 +466,6 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 
 #if defined(MULTIPROCESSOR)
 		cpu_intr_init(ci);
-		gdt_alloc_cpu(ci);
 		sched_init_cpu(ci);
 		cpu_start_secondary(ci);
 		ncpus++;
@@ -501,8 +520,6 @@ cpu_init(struct cpu_info *ci)
 		cr4 |= CR4_SMEP;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
-	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_FSGSBASE)
-		cr4 |= CR4_FSGSBASE;
 	if (ci->ci_feature_sefflags_ecx & SEFF0ECX_UMIP)
 		cr4 |= CR4_UMIP;
 	if (cpu_ecxfeature & CPUIDECX_XSAVE)
@@ -693,6 +710,7 @@ cpu_hatch(void *v)
 
 	lapic_enable();
 	lapic_startclock();
+	cpu_ucode_apply(ci);
 
 	if ((ci->ci_flags & CPUF_IDENTIFIED) == 0) {
 		/*
@@ -850,7 +868,7 @@ cpu_init_msrs(struct cpu_info *ci)
 	    ((uint64_t)GSEL(GUCODE32_SEL, SEL_UPL) << 48));
 	wrmsr(MSR_LSTAR, (uint64_t)Xsyscall);
 	wrmsr(MSR_CSTAR, (uint64_t)Xsyscall32);
-	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D);
+	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D|PSL_AC);
 
 	wrmsr(MSR_FSBASE, 0);
 	wrmsr(MSR_GSBASE, (u_int64_t)ci);
@@ -931,4 +949,63 @@ cpu_activate(struct device *self, int act)
 	}
 
 	return (0);
+}
+
+/*
+ * cpu_enter_pages
+ *
+ * Requests mapping of various special pages required in the Intel Meltdown
+ * case (to be entered into the U-K page table):
+ *
+ *  1 tss+gdt page for each CPU
+ *  1 trampoline stack page for each CPU
+ *
+ * The cpu_info_full struct for each CPU straddles these pages. The offset into
+ * 'cif' is calculated below, for each page. For more information, consult
+ * the definition of struct cpu_info_full in cpu_full.h
+ *
+ * On CPUs unaffected by Meltdown, this function still configures 'cif' but
+ * the calls to pmap_enter_special become no-ops.
+ *
+ * Parameters:
+ *  cif : the cpu_info_full structure describing a CPU whose pages are to be
+ *    entered into the special meltdown U-K page table.
+ */ 
+void
+cpu_enter_pages(struct cpu_info_full *cif)
+{
+	vaddr_t va;
+	paddr_t pa;
+
+	/* The TSS+GDT need to be readable */
+	va = (vaddr_t)cif;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ);
+	DPRINTF("%s: entered tss+gdt page at va 0x%llx pa 0x%llx\n", __func__,
+	   (uint64_t)va, (uint64_t)pa);
+
+	/* The trampoline stack page needs to be read/write */
+	va = (vaddr_t)&cif->cif_tramp_stack;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ | PROT_WRITE);
+	DPRINTF("%s: entered t.stack page at va 0x%llx pa 0x%llx\n", __func__,
+	   (uint64_t)va, (uint64_t)pa);
+
+	cif->cif_tss.tss_rsp0 = va + sizeof(cif->cif_tramp_stack) - 16;
+	DPRINTF("%s: cif_tss.tss_rsp0 = 0x%llx\n" ,__func__,
+	    (uint64_t)cif->cif_tss.tss_rsp0);
+	cif->cif_cpu.ci_intr_rsp = cif->cif_tss.tss_rsp0 -
+	    sizeof(struct iretq_frame);
+
+#define	SETUP_IST_SPECIAL_STACK(ist, cif, member) do {			\
+	(cif)->cif_tss.tss_ist[(ist)] = (vaddr_t)&(cif)->member +	\
+	    sizeof((cif)->member) - 16;					\
+	(cif)->member[nitems((cif)->member) - 2] = (int64_t)&(cif)->cif_cpu; \
+} while (0)
+
+	SETUP_IST_SPECIAL_STACK(0, cif, cif_dblflt_stack);
+	SETUP_IST_SPECIAL_STACK(1, cif, cif_nmi_stack);
+
+	/* an empty iomap, by setting its offset to the TSS limit */
+	cif->cif_tss.tss_iobase = sizeof(cif->cif_tss);
 }

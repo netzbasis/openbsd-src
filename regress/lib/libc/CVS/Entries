@@ -1,4 +1,4 @@
-/Makefile/1.50/Thu Jul 27 17:56:35 2017//
+/Makefile/1.51/Sun Oct 15 12:15:30 2017//
 D/_setjmp////
 D/alloca////
 D/arc4random-fork////
@@ -23,6 +23,7 @@ D/glob////
 D/hsearch////
 D/ieeefp////
 D/ifnameindex////
+D/ldexp////
 D/locale////
 D/longjmp////
 D/malloc////

@@ -1,6 +1,8 @@
-/Makefile/1.7/Wed Apr 12 13:14:08 2017//
+/Makefile/1.8/Sat Dec 16 11:01:34 2017//
+D/execpromise////
 D/generic////
 D/ioctl////
+D/pledgepath////
 D/sendrecvfd////
 D/sigabrt////
 D/sockopt////

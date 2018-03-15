@@ -1,4 +1,4 @@
-/* $OpenBSD: gcm128.c,v 1.18 2017/08/14 05:29:32 bcook Exp $ */
+/* $OpenBSD: gcm128.c,v 1.22 2018/01/24 23:03:37 kettenis Exp $ */
 /* ====================================================================
  * Copyright (c) 2010 The OpenSSL Project.  All rights reserved.
  *
@@ -224,7 +224,7 @@ static void gcm_gmult_8bit(u64 Xi[2], const u128 Htable[256])
 		rem  = (size_t)Z.lo&0xff;
 		Z.lo = (Z.hi<<56)|(Z.lo>>8);
 		Z.hi = (Z.hi>>8);
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 		Z.hi ^= rem_8bit[rem];
 #else
 		Z.hi ^= (u64)rem_8bit[rem]<<32;
@@ -347,7 +347,7 @@ static void gcm_gmult_4bit(u64 Xi[2], const u128 Htable[16])
 		rem  = (size_t)Z.lo&0xf;
 		Z.lo = (Z.hi<<60)|(Z.lo>>4);
 		Z.hi = (Z.hi>>4);
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 		Z.hi ^= rem_4bit[rem];
 #else
 		Z.hi ^= (u64)rem_4bit[rem]<<32;
@@ -364,7 +364,7 @@ static void gcm_gmult_4bit(u64 Xi[2], const u128 Htable[16])
 		rem  = (size_t)Z.lo&0xf;
 		Z.lo = (Z.hi<<60)|(Z.lo>>4);
 		Z.hi = (Z.hi>>4);
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 		Z.hi ^= rem_4bit[rem];
 #else
 		Z.hi ^= (u64)rem_4bit[rem]<<32;
@@ -421,7 +421,7 @@ static void gcm_ghash_4bit(u64 Xi[2],const u128 Htable[16],
 		rem  = (size_t)Z.lo&0xf;
 		Z.lo = (Z.hi<<60)|(Z.lo>>4);
 		Z.hi = (Z.hi>>4);
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 		Z.hi ^= rem_4bit[rem];
 #else
 		Z.hi ^= (u64)rem_4bit[rem]<<32;
@@ -439,7 +439,7 @@ static void gcm_ghash_4bit(u64 Xi[2],const u128 Htable[16],
 		rem  = (size_t)Z.lo&0xf;
 		Z.lo = (Z.hi<<60)|(Z.lo>>4);
 		Z.hi = (Z.hi>>4);
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 		Z.hi ^= rem_4bit[rem];
 #else
 		Z.hi ^= (u64)rem_4bit[rem]<<32;
@@ -588,7 +588,7 @@ static void gcm_gmult_1bit(u64 Xi[2],const u64 H[2])
 
 	for (j=0; j<16/sizeof(long); ++j) {
 #if BYTE_ORDER == LITTLE_ENDIAN
-#ifdef _LP64
+#if SIZE_MAX == 0xffffffffffffffff
 #ifdef BSWAP8
 			X = (long)(BSWAP8(xi[j]));
 #else
@@ -661,7 +661,7 @@ void gcm_ghash_4bit_x86(u64 Xi[2],const u128 Htable[16],const u8 *inp,size_t len
 #  endif
 # elif defined(__arm__) || defined(__arm)
 #  include "arm_arch.h"
-#  if __ARM_ARCH__>=7
+#  if __ARM_ARCH__>=7 && !defined(__STRICT_ALIGNMENT)
 #   define GHASH_ASM_ARM
 #   define GCM_FUNCREF_4BIT
 void gcm_gmult_neon(u64 Xi[2],const u128 Htable[16]);
@@ -1184,7 +1184,7 @@ int CRYPTO_gcm128_decrypt(GCM128_CONTEXT *ctx,
 
 			(*block)(ctx->Yi.c,ctx->EKi.c,key);
 			++ctr;
-#ifdef BYTE_ORDER == LITTLE_ENDIAN
+#if BYTE_ORDER == LITTLE_ENDIAN
 #ifdef BSWAP4
 			ctx->Yi.d[3] = BSWAP4(ctr);
 #else
@@ -1515,13 +1515,15 @@ int CRYPTO_gcm128_finish(GCM128_CONTEXT *ctx,const unsigned char *tag,
 	alen = BSWAP8(alen);
 	clen = BSWAP8(clen);
 #else
-	u8 *p = ctx->len.c;
+	{
+		u8 *p = ctx->len.c;
 
-	ctx->len.u[0] = alen;
-	ctx->len.u[1] = clen;
+		ctx->len.u[0] = alen;
+		ctx->len.u[1] = clen;
 
-	alen = (u64)GETU32(p)  <<32|GETU32(p+4);
-	clen = (u64)GETU32(p+8)<<32|GETU32(p+12);
+		alen = (u64)GETU32(p)  <<32|GETU32(p+4);
+		clen = (u64)GETU32(p+8)<<32|GETU32(p+12);
+	}
 #endif
 #endif
 

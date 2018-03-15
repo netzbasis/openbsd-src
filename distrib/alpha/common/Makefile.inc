@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.32 2017/08/17 05:24:09 jasper Exp $
+#	$OpenBSD: Makefile.inc,v 1.35 2017/09/18 20:13:52 jasper Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -14,9 +14,7 @@ VND_CRDEV=	/dev/r${VND}c
 PID!=		echo $$$$
 REALIMAGE!=	echo /var/tmp/image.${PID}
 
-STRIP?=		strip
-STRIPOPTS?=	-R .SUNW_ctf
-GZIPCMD?=	gzip
+STRIPOPTS?=	-R .SUNW_ctf -R .shstrtab
 GZIPFLAGS?=	-9fn
 INSTALLBOOT?=	/usr/mdec/installboot -v
 
@@ -64,14 +62,13 @@ ${FLOPPY}:	bsd.gz
 	fi
 
 bsd.gz:	bsd.rd
-	objcopy -Sg -R .comment bsd.rd bsd.strip
-	${STRIP} ${STRIPOPTS} bsd.strip
-	${GZIPCMD} -c ${GZIPFLAGS} bsd.strip > bsd.gz
+	objcopy -Sg -R .comment -R .SUNW_ctf -R .shstrtab -R .shstrtab bsd.rd bsd.strip
+	strip bsd.strip
+	gzip -c ${GZIPFLAGS} bsd.strip > bsd.gz
 
 bsd.rd: bsd ${IMAGE} rdsetroot
 	cp bsd bsd.rd
 	${.OBJDIR}/rdsetroot bsd.rd ${IMAGE}
-	strip -R .SUNW_ctf bsd.rd
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK} && \

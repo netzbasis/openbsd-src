@@ -1,6 +1,6 @@
 /Gamma.c/1.1/Thu Apr  9 01:24:43 2009//
 /INV.c/1.1/Thu Apr  9 01:24:43 2009//
-/Makefile/1.1/Thu Apr  9 01:24:43 2009//
+/Makefile/1.2/Sat Mar 10 20:52:58 2018//
 /Pix.c/1.1/Thu Apr  9 01:24:43 2009//
 /acos.c/1.1/Thu Apr  9 01:24:43 2009//
 /acosh.c/1.1/Thu Apr  9 01:24:43 2009//
@@ -13,8 +13,8 @@
 /erf.c/1.1/Thu Apr  9 01:24:43 2009//
 /erfc.c/1.1/Thu Apr  9 01:24:43 2009//
 /exp.c/1.1/Thu Apr  9 01:24:43 2009//
-/fpaccuracy.c/1.1/Thu Apr  9 01:24:43 2009//
-/fpaccuracy.h/1.1/Thu Apr  9 01:24:43 2009//
+/fpaccuracy.c/1.2/Sat Mar 10 20:52:58 2018//
+/fpaccuracy.h/1.2/Sat Mar 10 20:52:58 2018//
 /header.h/1.1/Thu Apr  9 01:24:43 2009//
 /j0.c/1.1/Thu Apr  9 01:24:43 2009//
 /j1.c/1.1/Thu Apr  9 01:24:43 2009//
@@ -24,6 +24,8 @@
 /pow2_x.c/1.1/Thu Apr  9 01:24:43 2009//
 /powx_275.c/1.1/Thu Apr  9 01:24:43 2009//
 /sin.c/1.1/Thu Apr  9 01:24:43 2009//
+/sincos.c/1.1/Sat Mar 10 20:52:58 2018//
+/sincos2.c/1.1/Sat Mar 10 20:52:58 2018//
 /sinh.c/1.1/Thu Apr  9 01:24:43 2009//
 /sqrt.c/1.1/Thu Apr  9 01:24:43 2009//
 /tan.c/1.1/Thu Apr  9 01:24:43 2009//

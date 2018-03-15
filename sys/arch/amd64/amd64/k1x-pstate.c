@@ -1,4 +1,4 @@
-/*	$OpenBSD: k1x-pstate.c,v 1.8 2015/03/14 03:38:46 jsg Exp $ */
+/*	$OpenBSD: k1x-pstate.c,v 1.10 2017/12/27 17:41:54 fcambus Exp $ */
 /*
  * Copyright (c) 2011 Bryan Steele <brynet@gmail.com>
  *
@@ -24,7 +24,6 @@
  */
 /* AMD K10/K11 pstate driver */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -198,5 +197,5 @@ k1x_init(struct cpu_info *ci)
 		setperf_prio = 1;
 		return;
 	}
-	free(cstate, M_DEVBUF, 0);
+	free(cstate, M_DEVBUF, sizeof(*cstate));
 }

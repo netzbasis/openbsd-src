@@ -1,13 +1,11 @@
-#	$OpenBSD: Makefile,v 1.27 2017/08/17 05:24:09 jasper Exp $
+#	$OpenBSD: Makefile,v 1.30 2017/09/18 20:13:52 jasper Exp $
 
 TOP=		${.CURDIR}/..
 
 .include "${TOP}/Makefile.inc"
 IMAGE=		ramdisk${REV}.fs
 
-STRIP?=		strip
-STRIPOPTS?=	-R .SUNW_ctf
-GZIPCMD?=	gzip
+STRIPOPTS?=	-R .SUNW_ctf -R .shstrtab
 GZIPFLAGS?=	-9fn
 
 RAMDISK=	RAMDISKBIG
@@ -23,13 +21,13 @@ MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=8192
 
 bsd.rd:	bsd.rd_unz
 	objcopy -Sg -R .comment bsd.rd_unz bsd.strip
-	${STRIP} ${STRIPOPTS} bsd.strip
-	${GZIPCMD} -c ${GZIPFLAGS} bsd.strip > bsd.rd
+	strip ${STRIPOPTS} bsd.strip
+	gzip -c ${GZIPFLAGS} bsd.strip > bsd.rd
 
 bsd.rd_unz: bsd ${IMAGE} rdsetroot
 	cp bsd bsd.rd_unz
 	${.OBJDIR}/rdsetroot bsd.rd_unz ${IMAGE}
-	strip -R .SUNW_ctf bsd.rd_unz
+	strip -R .SUNW_ctf -R .shstrtab bsd.rd_unz
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/alpha/compile/${RAMDISK} && \

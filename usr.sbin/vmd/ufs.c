@@ -1,4 +1,4 @@
-/*	$OpenBSD: ufs.c,v 1.4 2016/11/25 17:03:59 reyk Exp $	*/
+/*	$OpenBSD: ufs.c,v 1.6 2017/10/07 19:48:30 guenther Exp $	*/
 /*	$NetBSD: ufs.c,v 1.16 1996/09/30 16:01:22 ws Exp $	*/
 
 /*-
@@ -63,12 +63,14 @@
  *	Stand-alone file reading package.
  */
 
-#include <sys/param.h>
+#include <sys/param.h>	/* DEV_BSIZE MAXBSIZE */
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <ufs/ffs/fs.h>
 #include <ufs/ufs/dinode.h>
 #include <ufs/ufs/dir.h>
+
+#include <limits.h>
 
 #include "vmboot.h"
 
@@ -281,7 +283,7 @@ buf_read_file(struct open_file *f, char **buf_p, size_t *size_p)
 			fp->f_buf = alloc(fs->fs_bsize);
 
 		if (disk_block == 0) {
-			bzero(fp->f_buf, block_size);
+			memset(fp->f_buf, 0, block_size);
 			fp->f_buf_size = block_size;
 		} else {
 			twiddle();
@@ -364,7 +366,7 @@ search_directory(char *name, struct open_file *f, ufsino_t *inumber_p)
 int
 ufs_open(char *path, struct open_file *f)
 {
-	char namebuf[MAXPATHLEN+1], *cp, *ncp, *buf = NULL;
+	char namebuf[PATH_MAX+1], *cp, *ncp, *buf = NULL;
 	ufsino_t inumber, parent_inumber;
 	int rc, c, nlinks = 0;
 	struct file *fp;
@@ -373,7 +375,7 @@ ufs_open(char *path, struct open_file *f)
 
 	/* allocate file system specific data structure */
 	fp = alloc(sizeof(struct file));
-	bzero(fp, sizeof(struct file));
+	memset(fp, 0, sizeof(struct file));
 	f->f_fsdata = (void *)fp;
 
 	/* allocate space and read super block */
@@ -475,8 +477,8 @@ ufs_open(char *path, struct open_file *f)
 
 			len = strlen(cp);
 
-			if (link_len + len > MAXPATHLEN ||
-			    ++nlinks > MAXSYMLINKS) {
+			if (link_len + len > PATH_MAX ||
+			    ++nlinks > SYMLOOP_MAX) {
 				rc = ENOENT;
 				goto out;
 			}

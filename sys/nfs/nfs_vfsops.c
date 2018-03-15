@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_vfsops.c,v 1.114 2017/05/17 08:59:05 mpi Exp $	*/
+/*	$OpenBSD: nfs_vfsops.c,v 1.116 2018/02/10 05:24:23 deraadt Exp $	*/
 /*	$NetBSD: nfs_vfsops.c,v 1.46.4.1 1996/05/25 22:40:35 fvdl Exp $	*/
 
 /*
@@ -80,7 +80,7 @@ int	nfs_quotactl(struct mount *, int, uid_t, caddr_t, struct proc *);
 int	nfs_root(struct mount *, struct vnode **);
 int	nfs_start(struct mount *, int, struct proc *);
 int	nfs_statfs(struct mount *, struct statfs *, struct proc *);
-int	nfs_sync(struct mount *, int, struct ucred *, struct proc *);
+int	nfs_sync(struct mount *, int, int, struct ucred *, struct proc *);
 int	nfs_unmount(struct mount *, int, struct proc *);
 int	nfs_vget(struct mount *, ino_t, struct vnode **);
 int	nfs_vptofh(struct vnode *, struct fid *);
@@ -554,27 +554,14 @@ nfs_mount(struct mount *mp, const char *path, void *data,
     struct nameidata *ndp, struct proc *p)
 {
 	int error;
-	struct nfs_args args;
+	struct nfs_args *args = data;
 	struct mbuf *nam;
 	char hst[MNAMELEN];
 	size_t len;
 	u_char nfh[NFSX_V3FHMAX];
 
-	error = copyin(data, &args, sizeof(args.version));
-	if (error)
-		return (error);
-	if (args.version == 3) {
-		error = copyin(data, &args, sizeof(struct nfs_args3));
-		args.flags &= ~(NFSMNT_INTERNAL|NFSMNT_NOAC);
-	} else if (args.version == NFS_ARGSVERSION) {
-		error = copyin(data, &args, sizeof(struct nfs_args));
-		args.flags &= ~NFSMNT_NOAC; /* XXX - compatibility */
-	} else
-		return (EPROGMISMATCH);
-	if (error)
-		return (error);
-
-	if ((args.flags & (NFSMNT_NFSV3|NFSMNT_RDIRPLUS)) == NFSMNT_RDIRPLUS)
+	if (args &&
+	    (args->flags & (NFSMNT_NFSV3|NFSMNT_RDIRPLUS)) == NFSMNT_RDIRPLUS)
 		return (EINVAL);
 
 	if (nfs_niothreads < 0) {
@@ -591,26 +578,28 @@ nfs_mount(struct mount *mp, const char *path, void *data,
 		 * When doing an update, we can't change from or to
 		 * v3.
 		 */
-		args.flags = (args.flags & ~(NFSMNT_NFSV3)) |
-		    (nmp->nm_flag & (NFSMNT_NFSV3));
-		nfs_decode_args(nmp, &args, &mp->mnt_stat.mount_info.nfs_args);
+		if (args) {
+			args->flags = (args->flags & ~(NFSMNT_NFSV3)) |
+			    (nmp->nm_flag & (NFSMNT_NFSV3));
+			nfs_decode_args(nmp, args, &mp->mnt_stat.mount_info.nfs_args);
+		}
 		return (0);
 	}
-	if (args.fhsize < 0 || args.fhsize > NFSX_V3FHMAX)
+	if (args->fhsize < 0 || args->fhsize > NFSX_V3FHMAX)
 		return (EINVAL);
-	error = copyin(args.fh, nfh, args.fhsize);
+	error = copyin(args->fh, nfh, args->fhsize);
 	if (error)
 		return (error);
-	error = copyinstr(args.hostname, hst, MNAMELEN-1, &len);
+	error = copyinstr(args->hostname, hst, MNAMELEN-1, &len);
 	if (error)
 		return (error);
 	memset(&hst[len], 0, MNAMELEN - len);
 	/* sockargs() call must be after above copyin() calls */
-	error = sockargs(&nam, args.addr, args.addrlen, MT_SONAME);
+	error = sockargs(&nam, args->addr, args->addrlen, MT_SONAME);
 	if (error)
 		return (error);
-	args.fh = nfh;
-	error = mountnfs(&args, mp, nam, path, hst);
+	args->fh = nfh;
+	error = mountnfs(args, mp, nam, path, hst);
 	return (error);
 }
 
@@ -740,7 +729,7 @@ nfs_root(struct mount *mp, struct vnode **vpp)
  * Flush out the buffer cache
  */
 int
-nfs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
+nfs_sync(struct mount *mp, int waitfor, int stall, struct ucred *cred, struct proc *p)
 {
 	struct vnode *vp;
 	int error, allerror = 0;

@@ -139,6 +139,7 @@ def _Fp80 : FpI_<(outs RFP80:$dst), (ins RFP80:$src1, RFP80:$src2), TwoArgFP,
 // These instructions cannot address 80-bit memory.
 multiclass FPBinary<SDNode OpNode, Format fp, string asmstring,
                     bit Forward = 1> {
+let mayLoad = 1, hasSideEffects = 1 in {
 // ST(0) = ST(0) + [mem]
 def _Fp32m  : FpIf32<(outs RFP32:$dst),
                      (ins RFP32:$src1, f32mem:$src2), OneArgFPRW,
@@ -175,10 +176,8 @@ def _Fp80m64: FpI_<(outs RFP80:$dst),
                         (OpNode RFP80:$src1, (f80 (extloadf64 addr:$src2)))),
                        (set RFP80:$dst,
                         (OpNode (f80 (extloadf64 addr:$src2)), RFP80:$src1)))]>;
-let mayLoad = 1 in
 def _F32m  : FPI<0xD8, fp, (outs), (ins f32mem:$src),
                  !strconcat("f", asmstring, "{s}\t$src")>;
-let mayLoad = 1 in
 def _F64m  : FPI<0xDC, fp, (outs), (ins f64mem:$src),
                  !strconcat("f", asmstring, "{l}\t$src")>;
 // ST(0) = ST(0) + [memint]
@@ -224,12 +223,11 @@ def _FpI32m80 : FpI_<(outs RFP80:$dst), (ins RFP80:$src1, i32mem:$src2),
                            (OpNode RFP80:$src1, (X86fild addr:$src2, i32))),
                           (set RFP80:$dst,
                            (OpNode (X86fild addr:$src2, i32), RFP80:$src1)))]>;
-let mayLoad = 1 in
 def _FI16m  : FPI<0xDE, fp, (outs), (ins i16mem:$src),
                   !strconcat("fi", asmstring, "{s}\t$src")>;
-let mayLoad = 1 in
 def _FI32m  : FPI<0xDA, fp, (outs), (ins i32mem:$src),
                   !strconcat("fi", asmstring, "{l}\t$src")>;
+} // mayLoad = 1, hasSideEffects = 1
 }
 
 let Defs = [FPSW] in {
@@ -631,6 +629,9 @@ let Defs = [FPSW] in
 def FNINIT : I<0xDB, MRM_E3, (outs), (ins), "fninit", [], IIC_FNINIT>;
 def FFREE : FPI<0xDD, MRM0r, (outs), (ins RST:$reg),
                 "ffree\t$reg", IIC_FFREE>;
+def FFREEP : FPI<0xDF, MRM0r, (outs), (ins RST:$reg),
+                "ffreep\t$reg", IIC_FFREE>;
+
 // Clear exceptions
 
 let Defs = [FPSW] in
@@ -665,15 +666,16 @@ def FCOMPP : I<0xDE, MRM_D9, (outs), (ins), "fcompp", [], IIC_FCOMPP>;
 
 let Predicates = [HasFXSR] in {
   def FXSAVE : I<0xAE, MRM0m, (outs), (ins opaque512mem:$dst),
-                 "fxsave\t$dst", [(int_x86_fxsave addr:$dst)], IIC_FXSAVE>, TB;
+               "fxsave\t$dst", [(int_x86_fxsave addr:$dst)], IIC_FXSAVE>, TB;
   def FXSAVE64 : RI<0xAE, MRM0m, (outs), (ins opaque512mem:$dst),
-                    "fxsave64\t$dst", [(int_x86_fxsave64 addr:$dst)],
-                    IIC_FXSAVE>, TB, Requires<[In64BitMode]>;
+                 "fxsave64\t$dst", [(int_x86_fxsave64 addr:$dst)],
+                 IIC_FXSAVE>, TB, Requires<[In64BitMode]>;
   def FXRSTOR : I<0xAE, MRM1m, (outs), (ins opaque512mem:$src),
-                "fxrstor\t$src", [(int_x86_fxrstor addr:$src)], IIC_FXRSTOR>, TB;
+                "fxrstor\t$src", [(int_x86_fxrstor addr:$src)], IIC_FXRSTOR>, 
+                TB;
   def FXRSTOR64 : RI<0xAE, MRM1m, (outs), (ins opaque512mem:$src),
-                     "fxrstor64\t$src", [(int_x86_fxrstor64 addr:$src)],
-                     IIC_FXRSTOR>, TB, Requires<[In64BitMode]>;
+                  "fxrstor64\t$src", [(int_x86_fxrstor64 addr:$src)],
+                  IIC_FXRSTOR>, TB, Requires<[In64BitMode]>;
 } // Predicates = [FeatureFXSR]
 } // SchedRW
 

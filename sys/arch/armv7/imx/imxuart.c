@@ -1,4 +1,4 @@
-/* $OpenBSD: imxuart.c,v 1.14 2017/04/30 13:04:49 mpi Exp $ */
+/* $OpenBSD: imxuart.c,v 1.18 2018/02/19 08:59:52 mpi Exp $ */
 /*
  * Copyright (c) 2005 Dale Rahn <drahn@motorola.com>
  *
@@ -39,7 +39,6 @@
 #endif
 
 #include <arm/armv7/armv7var.h>
-#include <armv7/armv7/armv7_machdep.h>
 #include <armv7/imx/imxuartreg.h>
 #include <armv7/imx/imxuartvar.h>
 
@@ -92,7 +91,6 @@ struct imxuart_softc {
 int	 imxuart_match(struct device *, void *, void *);
 void	 imxuart_attach(struct device *, struct device *, void *);
 
-void imxuartcnprobe(struct consdev *cp);
 void imxuartcnprobe(struct consdev *cp);
 void imxuartcninit(struct consdev *cp);
 int imxuartcnattach(bus_space_tag_t iot, bus_addr_t iobase, int rate,
@@ -550,7 +548,7 @@ imxuartopen(dev_t dev, int flag, int mode, struct proc *p)
 
 		/* formula: clk / (rfdiv * 1600) */
 		bus_space_write_2(iot, ioh, IMXUART_UBMR,
-		    (clock_get_frequency(sc->sc_node, "per") * 1000) / 1600);
+		    clock_get_frequency(sc->sc_node, "per") / 1600);
 
 		SET(sc->sc_ucr1, IMXUART_CR1_EN|IMXUART_CR1_RRDYEN);
 		SET(sc->sc_ucr2, IMXUART_CR2_TXEN|IMXUART_CR2_RXEN);
@@ -744,7 +742,7 @@ imxuartioctl( dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		break;
 
 	case TIOCSFLAGS:
-		error = suser(p, 0);
+		error = suser(p);
 		if (error != 0)
 			return(EPERM);
 

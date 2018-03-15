@@ -1,4 +1,4 @@
-/*	$OpenBSD: r92creg.h,v 1.13 2017/08/16 01:26:46 kevlo Exp $	*/
+/*	$OpenBSD: r92creg.h,v 1.16 2017/09/22 13:41:56 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -75,6 +75,7 @@
 #define R92C_SYS_CFG			0x0f0
 /* MAC General Configuration. */
 #define R92C_CR				0x100
+#define R92C_MSR			0x102
 #define R92C_PBP			0x104
 #define R92C_TRXDMA_CTRL		0x10c
 #define R92C_TRXFF_BNDY			0x114
@@ -223,6 +224,7 @@
 #define R92C_RESP_SIFS_CCK		0x63c
 #define R92C_RESP_SIFS_OFDM		0x63e
 #define R92C_ACKTO			0x640
+#define R92C_WMAC_TRXPTCL_CTL		0x668
 #define R92C_CAMCMD			0x670
 #define R92C_CAMWRITE			0x674
 #define R92C_CAMREAD			0x678
@@ -417,12 +419,13 @@
 #define R92C_CR_MACRXEN		0x00000080
 #define R92C_CR_ENSEC		0x00000200
 #define R92C_CR_CALTMR_EN	0x00000400
-#define R92C_CR_NETTYPE_S	16
-#define R92C_CR_NETTYPE_M	0x00030000
-#define R92C_CR_NETTYPE_NOLINK	0
-#define R92C_CR_NETTYPE_ADHOC	1
-#define R92C_CR_NETTYPE_INFRA	2
-#define R92C_CR_NETTYPE_AP	3
+
+/* Bits for R92C_MSR. */
+#define R92C_MSR_NETTYPE_NOLINK	0x00
+#define R92C_MSR_NETTYPE_ADHOC	0x01
+#define R92C_MSR_NETTYPE_INFRA	0x02
+#define R92C_MSR_NETTYPE_AP	0x03
+#define R92C_MSR_NETTYPE_MASK	0x03
 
 /* Bits for R92C_PBP. */
 #define R92C_PBP_PSRX_M		0x0f
@@ -537,6 +540,15 @@
 #define R92C_TXPAUSE_AC_VI		0x02
 #define R92C_TXPAUSE_AC_BE		0x04
 #define R92C_TXPAUSE_AC_BK		0x08
+#define R92C_TXPAUSE_MGNT		0x10
+#define R92C_TXPAUSE_HIGH		0x20
+#define R92C_TXPAUSE_BCN		0x40
+#define R92C_TXPAUSE_BCN_HIGH_MGNT	0x80
+
+#define R92C_TXPAUSE_ALL	(R92C_TXPAUSE_AC_VO | R92C_TXPAUSE_AC_VI | \
+				R92C_TXPAUSE_AC_BE | R92C_TXPAUSE_AC_BK | \
+				R92C_TXPAUSE_MGNT | R92C_TXPAUSE_HIGH | \
+				R92C_TXPAUSE_BCN | R92C_TXPAUSE_BCN_HIGH_MGNT)
 
 /* Bits for R92C_BCN_CTRL. */
 #define R92C_BCN_CTRL_EN_MBSSID		0x02
@@ -592,6 +604,9 @@
 #define R92C_RCR_APP_ICV	0x20000000
 #define R92C_RCR_APP_MIC	0x40000000
 #define R92C_RCR_APPFCS		0x80000000
+
+/* Bits for R92C_WMAC_TRXPTCL_CTL. */
+#define R92C_WMAC_TRXPTCL_CTL_SHORT	0x00020000
 
 /* Bits for R92C_CAMCMD. */
 #define R92C_CAMCMD_ADDR_M	0x0000ffff
@@ -667,8 +682,8 @@
 /*Receive DMA OK interrupt */
 #define R92C_IMR_ROK		0x00000001
 
-#define R92C_IBSS_INT_MASK			(R92C_IMR_BCNINT | R92C_IMR_TBDOK | R92C_IMR_TBDER)
-
+#define R92C_IBSS_INT_MASK	(R92C_IMR_BCNINT | R92C_IMR_TBDOK | \
+				R92C_IMR_TBDER)
 
 /*
  * Baseband registers.
@@ -1157,22 +1172,23 @@ struct r88e_tx_rpt_ccx {
 	uint8_t		rptb7;
 } __packed;
 
-struct r88e_rx_cck {
+struct r88e_rx_phystat {
 	uint8_t		path_agc[2];
-	uint8_t		sig_qual;
+	uint8_t		ch_corr[2];
+	uint8_t		sq_rpt;
 	uint8_t		agc_rpt;
 	uint8_t		rpt_b;
 	uint8_t		reserved1;
 	uint8_t		noise_power;
-	uint8_t		path_cfotail[2];
+	int8_t		path_cfotail[2];
 	uint8_t		pcts_mask[2];
-	uint8_t		stream_rxevm[2];
+	int8_t		stream_rxevm[2];
 	uint8_t		path_rxsnr[2];
 	uint8_t		noise_power_db_lsb;
 	uint8_t		reserved2[3];
 	uint8_t		stream_csi[2];
 	uint8_t		stream_target_csi[2];
-	uint8_t		sig_evm;
+	int8_t		sig_evm;
 	uint8_t		reserved3;
 	uint8_t		reserved4;
 } __packed;
@@ -1222,6 +1238,12 @@ struct r92c_rx_desc_usb {
 #define R92C_RXDW3_RATE_S	0
 #define R92C_RXDW3_HT		0x00000040
 #define R92C_RXDW3_HTC		0x00000400
+#define R88E_RXDW3_RPT_M	0x0000c000
+#define R88E_RXDW3_RPT_S	14
+#define R88E_RXDW3_RPT_RX	0
+#define R88E_RXDW3_RPT_TX1	1
+#define R88E_RXDW3_RPT_TX2	2
+#define R88E_RXDW3_RPT_HIS	3
 
 /* Tx MAC descriptor. */
 
@@ -1294,13 +1316,6 @@ struct r92c_tx_desc_usb {
 #define R88E_TXDW2_AGGBK	0x00010000
 #define R92C_TXDW2_CCX_RPT	0x00080000
 
-#define R88E_RXDW3_RPT_M	0x0000c000
-#define R88E_RXDW3_RPT_S	14
-#define R88E_RXDW3_RPT_RX	0
-#define R88E_RXDW3_RPT_TX1	1
-#define R88E_RXDW3_RPT_TX2	2
-#define R88E_RXDW3_RPT_HIS	3
-
 #define R92C_TXDW4_RTSRATE_M	0x0000001f
 #define R92C_TXDW4_RTSRATE_S	0
 #define R92C_TXDW4_QOS		0x00000040
@@ -1313,6 +1328,7 @@ struct r92c_tx_desc_usb {
 #define R92C_TXDW4_SCO_S	20
 #define R92C_TXDW4_SCO_SCA	1
 #define R92C_TXDW4_SCO_SCB	2
+#define R92C_TXDW4_SHORTPRE	0x01000000
 #define R92C_TXDW4_40MHZ	0x02000000
 #define R92C_TXDW4_RTS_SHORT	0x04000000
 
@@ -1593,7 +1609,6 @@ static const uint32_t rtl8192ce_bb_vals[] = {
 
 static const uint32_t rtl8192ce_bb_vals_2t[] = {
 	0x0011800f, 0x00ffdb83, 0x80040002, 0x00000003, 0x0000fc00,
-	0x0011800d, 0x00ffdb83, 0x80040002, 0x00000003, 0x0000fc00,
 	0x0000000a, 0x10005388, 0x020c3d10, 0x02200385, 0x00000000,
 	0x01000100, 0x00390004, 0x01000100, 0x00390004, 0x27272727,
 	0x27272727, 0x27272727, 0x27272727, 0x00010000, 0x00010000,

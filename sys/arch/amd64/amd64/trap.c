@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.56 2017/07/20 18:22:25 bluhm Exp $	*/
+/*	$OpenBSD: trap.c,v 1.64 2018/02/21 19:24:15 guenther Exp $	*/
 /*	$NetBSD: trap.c,v 1.2 2003/05/04 23:51:56 fvdl Exp $	*/
 
 /*-
@@ -74,8 +74,6 @@
 #include <sys/proc.h>
 #include <sys/signalvar.h>
 #include <sys/user.h>
-#include <sys/acct.h>
-#include <sys/kernel.h>
 #include <sys/signal.h>
 #include <sys/syscall.h>
 #include <sys/syscall_mi.h>
@@ -145,6 +143,7 @@ trap(struct trapframe *frame)
 	int type = (int)frame->tf_trapno;
 	struct pcb *pcb;
 	extern char doreti_iret[], resume_iret[];
+	extern char xrstor_fault[], xrstor_resume[];
 	caddr_t onfault;
 	int error;
 	uint64_t cr2;
@@ -163,6 +162,15 @@ trap(struct trapframe *frame)
 		printf("curproc %p\n", (void *)p);
 		if (p != NULL)
 			printf("pid %d\n", p->p_p->ps_pid);
+	}
+#endif
+#ifdef DIAGNOSTIC
+	if (curcpu()->ci_feature_sefflags_ebx & SEFF0EBX_SMAP) {
+		u_long rf = read_rflags();
+		if (rf & PSL_AC) {
+			write_rflags(rf & ~PSL_AC);
+			panic("%s: AC set on entry", "trap");
+		}
 	}
 #endif
 
@@ -195,17 +203,13 @@ trap(struct trapframe *frame)
 		/*NOTREACHED*/
 
 	case T_PROTFLT:
-	case T_SEGNPFLT:
-	case T_ALIGNFLT:
-	case T_TSSFLT:
-		if (p == NULL)
-			goto we_re_toast;
-		/* Check for copyin/copyout fault. */
-		if (pcb->pcb_onfault != 0) {
-			error = EFAULT;
-copyfault:
-			frame->tf_rip = (u_int64_t)pcb->pcb_onfault;
-			frame->tf_rax = error;
+		/*
+		 * Check for xrstor faulting because of invalid xstate
+		 * We do this by looking at the address of the
+		 * instruction that faulted.
+		 */
+		if (frame->tf_rip == (u_int64_t)xrstor_fault && p != NULL) {
+			frame->tf_rip = (u_int64_t)xrstor_resume;
 			return;
 		}
 
@@ -216,6 +220,19 @@ copyfault:
 		 */
 		if (frame->tf_rip == (u_int64_t)doreti_iret) {
 			frame->tf_rip = (u_int64_t)resume_iret;
+			return;
+		}
+		/* FALLTHROUGH */
+
+	case T_SEGNPFLT:
+	case T_ALIGNFLT:
+	case T_TSSFLT:
+		if (p == NULL)
+			goto we_re_toast;
+		/* Check for copyin/copyout fault. */
+		if (pcb->pcb_onfault != 0) {
+copyfault:
+			frame->tf_rip = (u_int64_t)pcb->pcb_onfault;
 			return;
 		}
 		goto we_re_toast;
@@ -365,12 +382,16 @@ faultcommon:
 		}
 
 		if (type == T_PAGEFLT) {
+			static char faultbuf[512];
 			if (pcb->pcb_onfault != 0) {
 				KERNEL_UNLOCK();
 				goto copyfault;
 			}
-			printf("uvm_fault(%p, 0x%lx, 0, %d) -> %x\n",
+			snprintf(faultbuf, sizeof faultbuf,
+			    "uvm_fault(%p, 0x%lx, 0, %d) -> %x",
 			    map, fa, ftype, error);
+			printf("%s\n", faultbuf);
+			faultstr = faultbuf;
 			goto we_re_toast;
 		}
 
@@ -440,8 +461,12 @@ out:
 static void
 frame_dump(struct trapframe *tf)
 {
-	printf("rip %p  rsp %p  rfl %p\n",
-	    (void *)tf->tf_rip, (void *)tf->tf_rsp, (void *)tf->tf_rflags);
+	printf("rip %p  cs 0x%x  rfl %p  rsp %p  ss 0x%x\n",
+	    (void *)tf->tf_rip, (unsigned)tf->tf_cs & 0xffff,
+	    (void *)tf->tf_rflags,
+	    (void *)tf->tf_rsp, (unsigned)tf->tf_ss & 0xffff);
+	printf("err 0x%llx  trapno 0x%llx\n",
+	    tf->tf_err, tf->tf_trapno);
 	printf("rdi %p  rsi %p  rdx %p\n",
 	    (void *)tf->tf_rdi, (void *)tf->tf_rsi, (void *)tf->tf_rdx);
 	printf("rcx %p  r8  %p  r9  %p\n",
@@ -490,6 +515,16 @@ syscall(struct trapframe *frame)
 	int nsys;
 	size_t argsize, argoff;
 	register_t code, args[9], rval[2], *argp;
+
+#ifdef DIAGNOSTIC
+	if (curcpu()->ci_feature_sefflags_ebx & SEFF0EBX_SMAP) {
+		u_long rf = read_rflags();
+		if (rf & PSL_AC) {
+			write_rflags(rf & ~PSL_AC);
+			panic("%s: AC set on entry", "syscall");
+		}
+	}
+#endif
 
 	uvmexp.syscalls++;
 	p = curproc;

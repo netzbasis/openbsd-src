@@ -1076,6 +1076,7 @@
 ./usr/share/man/man4/acpitz.4
 ./usr/share/man/man4/acpivideo.4
 ./usr/share/man/man4/acpivout.4
+./usr/share/man/man4/acrtc.4
 ./usr/share/man/man4/acx.4
 ./usr/share/man/man4/adc.4
 ./usr/share/man/man4/addcom.4
@@ -1106,17 +1107,18 @@
 ./usr/share/man/man4/alpha/bba.4
 ./usr/share/man/man4/alpha/cia.4
 ./usr/share/man/man4/alpha/intro.4
+./usr/share/man/man4/alpha/ioasic.4
 ./usr/share/man/man4/alpha/irongate.4
 ./usr/share/man/man4/alpha/lca.4
 ./usr/share/man/man4/alpha/le.4
 ./usr/share/man/man4/alpha/mcbus.4
 ./usr/share/man/man4/alpha/mcpcia.4
 ./usr/share/man/man4/alpha/mem.4
-./usr/share/man/man4/alpha/scc.4
 ./usr/share/man/man4/alpha/tcasic.4
 ./usr/share/man/man4/alpha/tga.4
 ./usr/share/man/man4/alpha/tsc.4
 ./usr/share/man/man4/alpha/tsciic.4
+./usr/share/man/man4/alpha/zs.4
 ./usr/share/man/man4/amas.4
 ./usr/share/man/man4/amd64/amdpcib.4
 ./usr/share/man/man4/amd64/apm.4
@@ -1179,6 +1181,7 @@
 ./usr/share/man/man4/armv7/sximmc.4
 ./usr/share/man/man4/armv7/sxipio.4
 ./usr/share/man/man4/armv7/sxitimer.4
+./usr/share/man/man4/armv7/sxits.4
 ./usr/share/man/man4/armv7/sysreg.4
 ./usr/share/man/man4/arp.4
 ./usr/share/man/man4/asbtm.4
@@ -1202,8 +1205,11 @@
 ./usr/share/man/man4/axen.4
 ./usr/share/man/man4/azalia.4
 ./usr/share/man/man4/bce.4
+./usr/share/man/man4/bcmrng.4
+./usr/share/man/man4/bcmtemp.4
 ./usr/share/man/man4/berkwdt.4
 ./usr/share/man/man4/bge.4
+./usr/share/man/man4/bgw.4
 ./usr/share/man/man4/bio.4
 ./usr/share/man/man4/bktr.4
 ./usr/share/man/man4/bmtphy.4
@@ -1213,6 +1219,7 @@
 ./usr/share/man/man4/brgphy.4
 ./usr/share/man/man4/bridge.4
 ./usr/share/man/man4/brswphy.4
+./usr/share/man/man4/bwfm.4
 ./usr/share/man/man4/bwi.4
 ./usr/share/man/man4/bytgpio.4
 ./usr/share/man/man4/cac.4
@@ -1245,6 +1252,7 @@
 ./usr/share/man/man4/dwge.4
 ./usr/share/man/man4/dwiic.4
 ./usr/share/man/man4/dwmmc.4
+./usr/share/man/man4/dwxe.4
 ./usr/share/man/man4/eap.4
 ./usr/share/man/man4/ec.4
 ./usr/share/man/man4/eephy.4
@@ -1496,6 +1504,7 @@
 ./usr/share/man/man4/midi.4
 ./usr/share/man/man4/mii.4
 ./usr/share/man/man4/mlphy.4
+./usr/share/man/man4/mobileip.4
 ./usr/share/man/man4/mos.4
 ./usr/share/man/man4/moscom.4
 ./usr/share/man/man4/mpath.4
@@ -1597,6 +1606,8 @@
 ./usr/share/man/man4/re.4
 ./usr/share/man/man4/rgephy.4
 ./usr/share/man/man4/ricohrtc.4
+./usr/share/man/man4/rkpcie.4
+./usr/share/man/man4/rktemp.4
 ./usr/share/man/man4/rl.4
 ./usr/share/man/man4/rlphy.4
 ./usr/share/man/man4/route.4
@@ -1754,6 +1765,8 @@
 ./usr/share/man/man4/stp.4
 ./usr/share/man/man4/sv.4
 ./usr/share/man/man4/switch.4
+./usr/share/man/man4/sxirsb.4
+./usr/share/man/man4/sxitemp.4
 ./usr/share/man/man4/sym.4
 ./usr/share/man/man4/tap.4
 ./usr/share/man/man4/tcic.4
@@ -1774,7 +1787,6 @@
 ./usr/share/man/man4/twe.4
 ./usr/share/man/man4/txp.4
 ./usr/share/man/man4/txphy.4
-./usr/share/man/man4/ualea.4
 ./usr/share/man/man4/uark.4
 ./usr/share/man/man4/uath.4
 ./usr/share/man/man4/uaudio.4
@@ -1827,6 +1839,7 @@
 ./usr/share/man/man4/url.4
 ./usr/share/man/man4/urlphy.4
 ./usr/share/man/man4/urndis.4
+./usr/share/man/man4/urng.4
 ./usr/share/man/man4/urtw.4
 ./usr/share/man/man4/urtwn.4
 ./usr/share/man/man4/usb.4

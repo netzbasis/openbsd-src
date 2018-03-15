@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.202 2017/08/10 16:05:23 benno Exp $	*/
+/*	$OpenBSD: route.c,v 1.207 2018/01/16 10:33:55 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -72,7 +72,7 @@ union sockunion so_dst, so_gate, so_mask, so_ifa, so_ifp, so_label, so_src;
 
 typedef union sockunion *sup;
 pid_t	pid;
-int	rtm_addrs, s, defroute;
+int	rtm_addrs, s;
 int	forcehost, forcenet, Fflag, nflag, af, qflag, tflag, Tflag;
 int	iflag, verbose, aflen = sizeof(struct sockaddr_in);
 int	locking, lockrest, debugonly;
@@ -674,13 +674,8 @@ newroute(int argc, char **argv)
 		} else
 			break;
 	}
-	if (*cmd == 'g') {
-		if (ret != 0 && qflag == 0)
-			warn("writing to routing socket");
-		exit(0);
-	}
 	oerrno = errno;
-	if (!qflag) {
+	if (!qflag && (*cmd != 'g' || ret != 0)) {
 		printf("%s %s %s", cmd, ishost ? "host" : "net", dest);
 		if (*gateway) {
 			printf(": gateway %s", gateway);
@@ -876,10 +871,6 @@ getaddr(int which, char *s, struct hostent **hpp)
 		break;
 	case RTA_GATEWAY:
 		su = &so_gate;
-		if (defroute) {
-			so_dst.sa.sa_len = aflen;
-			so_dst.sa.sa_family = af;
-		}
 		break;
 	case RTA_NETMASK:
 		su = &so_mask;
@@ -906,8 +897,6 @@ getaddr(int which, char *s, struct hostent **hpp)
 			break;
 		case RTA_NETMASK:
 			su->sa.sa_len = 0;
-			af = 0;
-			defroute = 1;
 		}
 		return (0);
 	}
@@ -1279,7 +1268,7 @@ char routeflags[] =
 "\020PROTO1\021CLONED\022CACHED\023MPATH\025MPLS\026LOCAL\027BROADCAST"
 "\030CONNECTED\031BFD";
 char ifnetflags[] =
-"\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6NOTRAILERS\7RUNNING\010NOARP\011PPROMISC"
+"\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6STATICARP\7RUNNING\010NOARP\011PPROMISC"
 "\012ALLMULTI\013OACTIVE\014SIMPLEX\015LINK0\016LINK1\017LINK2\020MULTICAST";
 char addrnames[] =
 "\1DST\2GATEWAY\3NETMASK\4GENMASK\5IFP\6IFA\7AUTHOR\010BRD\011SRC\012SRCMASK\013LABEL\014BFD\015DNS\016STATIC\017SEARCH";

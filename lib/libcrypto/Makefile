@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.22 2017/08/20 17:53:12 espie Exp $
+# $OpenBSD: Makefile,v 1.24 2018/02/17 13:57:14 tb Exp $
 
 LIB=	crypto
 LIBREBUILD=y
@@ -64,7 +64,7 @@ SRCS+= a_time_tm.c
 SRCS+= bf_skey.c bf_ecb.c bf_cfb64.c bf_ofb64.c
 
 # bio/
-SRCS+= bio_lib.c bio_cb.c bio_err.c
+SRCS+= bio_lib.c bio_cb.c bio_err.c bio_meth.c
 SRCS+= bss_mem.c bss_null.c bss_fd.c
 SRCS+= bss_file.c bss_sock.c bss_conn.c
 SRCS+= bf_null.c bf_buff.c b_print.c b_dump.c
@@ -225,7 +225,7 @@ SRCS+= rmd_dgst.c rmd_one.c
 
 # rsa/
 SRCS+= rsa_eay.c rsa_gen.c rsa_lib.c rsa_sign.c rsa_saos.c rsa_err.c
-SRCS+= rsa_pk1.c rsa_ssl.c rsa_none.c rsa_oaep.c rsa_chk.c
+SRCS+= rsa_pk1.c rsa_none.c rsa_oaep.c rsa_chk.c
 SRCS+= rsa_pss.c rsa_x931.c rsa_asn1.c rsa_depr.c rsa_ameth.c rsa_prn.c
 SRCS+= rsa_pmeth.c rsa_crpt.c
 

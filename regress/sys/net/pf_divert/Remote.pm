@@ -1,4 +1,4 @@
-#	$OpenBSD: Remote.pm,v 1.8 2017/08/15 04:11:20 bluhm Exp $
+#	$OpenBSD: Remote.pm,v 1.10 2017/12/18 17:01:27 bluhm Exp $
 
 # Copyright (c) 2010-2014 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -22,10 +22,12 @@ use parent 'Proc';
 use Carp;
 use Cwd;
 use File::Basename;
+use File::Copy;
 
 sub new {
 	my $class = shift;
 	my %args = @_;
+	$args{ktracefile} ||= "remote.ktrace";
 	$args{logfile} ||= "remote.log";
 	$args{up} ||= "Started";
 	$args{down} ||= "Shutdown";
@@ -46,7 +48,7 @@ sub new {
 
 sub up {
 	my $self = Proc::up(shift, @_);
-	my $timeout = shift || 10;
+	my $timeout = shift || 20;
 	if ($self->{connect}) {
 		$self->loggrep(qr/^Connected$/, $timeout)
 		    or croak ref($self), " no Connected in $self->{logfile} ".
@@ -60,6 +62,42 @@ sub up {
 	    or croak ref($self), " no listen addr and port in $self->{logfile}";
 	$self->{listenaddr} = $addr;
 	$self->{listenport} = $port;
+	return $self;
+}
+
+sub down {
+	my $self = Proc::down(shift, @_);
+
+	if ($ENV{KTRACE}) {
+		my @sshopts = $ENV{SSH_OPTIONS} ?
+		    split(' ', $ENV{SSH_OPTIONS}) : ();
+		my $dir = dirname($0);
+		$dir = getcwd() if ! $dir || $dir eq ".";
+		my $ktr;
+
+		my @cmd = ("ssh", "-n", @sshopts, $self->{remotessh},
+		    "cat", "$dir/remote.ktrace");
+		do { local $< = $>; open($ktr, '-|', @cmd) }
+		    or die ref($self), " open pipe from '@cmd' failed: $!";
+		unlink $self->{ktracefile};
+		copy($ktr, $self->{ktracefile});
+		close($ktr) or die ref($self), $! ?
+		    " close pipe from '@cmd' failed: $!" :
+		    " '@cmd' failed: $?";
+
+		if ($self->{packet}) {
+			@cmd = ("ssh", "-n", @sshopts, $self->{remotessh},
+			    "cat", "$dir/packet.ktrace");
+			do { local $< = $>; open($ktr, '-|', @cmd) }
+			    or die ref($self),
+			    " open pipe from '@cmd' failed: $!";
+			unlink "packet.ktrace";
+			copy($ktr, "packet.ktrace");
+			close($ktr) or die ref($self), $! ?
+			    " close pipe from '@cmd' failed: $!" :
+			    " '@cmd' failed: $?";
+		}
+	}
 	return $self;
 }
 
@@ -79,9 +117,11 @@ sub child {
 	print STDERR $self->{up}, "\n";
 	my @sshopts = $ENV{SSH_OPTIONS} ? split(' ', $ENV{SSH_OPTIONS}) : ();
 	my @sudo = $ENV{SUDO} ? ($ENV{SUDO}, "SUDO=$ENV{SUDO}") : ();
+	my @ktrace = $ENV{KTRACE} ? "KTRACE=$ENV{KTRACE}" : ();
 	my $dir = dirname($0);
 	$dir = getcwd() if ! $dir || $dir eq ".";
-	my @cmd = ("ssh", "-n", @sshopts, $self->{remotessh}, @sudo, "perl",
+	my @cmd = ("ssh", $self->{remotessh},
+	    @sudo, @ktrace, "perl",
 	    "-I", $dir, "$dir/".basename($0), @remoteopts, $self->{af},
 	    $self->{bindaddr}, $self->{connectaddr}, $self->{connectport},
 	    ($self->{bindport} ? $self->{bindport} : ()),

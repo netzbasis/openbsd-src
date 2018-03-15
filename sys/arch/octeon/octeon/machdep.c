@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.97 2017/07/31 14:53:56 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.104 2018/01/18 14:02:54 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Miodrag Vallat.
@@ -47,7 +47,6 @@
 #include <sys/buf.h>
 #include <sys/reboot.h>
 #include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/msgbuf.h>
 #include <sys/tty.h>
 #include <sys/user.h>
@@ -80,6 +79,7 @@
 #include <dev/cons.h>
 #include <dev/ofw/fdt.h>
 
+#include <octeon/dev/cn30xxcorereg.h>
 #include <octeon/dev/cn30xxipdreg.h>
 #include <octeon/dev/iobusvar.h>
 #include <machine/octeonreg.h>
@@ -348,9 +348,13 @@ mips_init(register_t a0, register_t a1, register_t a2, register_t a3)
 
 	bootcpu_hwinfo.c0prid = prid;
 	bootcpu_hwinfo.type = (prid >> 8) & 0xff;
-	bootcpu_hwinfo.c1prid = 0;	/* No FPU */
+	if (cp0_get_config_1() & CONFIG1_FP)
+		bootcpu_hwinfo.c1prid = cp1_get_prid();
+	else
+		bootcpu_hwinfo.c1prid = 0;
 
-	bootcpu_hwinfo.tlbsize = 1 + ((cp0_get_config_1() >> 25) & 0x3f);
+	bootcpu_hwinfo.tlbsize = 1 + ((cp0_get_config_1() & CONFIG1_MMUSize1)
+	    >> CONFIG1_MMUSize1_SHIFT);
 	if (cp0_get_config_3() & CONFIG3_M) {
 		config4 = cp0_get_config_4();
 		if (((config4 & CONFIG4_MMUExtDef) >>
@@ -634,8 +638,22 @@ octeon_ioclock_speed(void)
 void
 octeon_tlb_init(void)
 {
+	uint64_t cvmmemctl;
 	uint32_t hwrena = 0;
 	uint32_t pgrain = 0;
+	int chipid;
+
+	chipid = octeon_get_chipid();
+	switch (octeon_model_family(chipid)) {
+	case OCTEON_MODEL_FAMILY_CN73XX:
+		/* Enable LMTDMA/LMTST transactions. */
+		cvmmemctl = octeon_get_cvmmemctl();
+		cvmmemctl |= COP_0_CVMMEMCTL_LMTENA;
+		cvmmemctl &= ~COP_0_CVMMEMCTL_LMTLINE_M;
+		cvmmemctl |= 2ull << COP_0_CVMMEMCTL_LMTLINE_S;
+		octeon_set_cvmmemctl(cvmmemctl);
+		break;
+	}
 
 	/*
 	 * If the UserLocal register is available, let userspace
@@ -663,11 +681,11 @@ get_ncpusfound(void)
 {
 	extern struct boot_desc *octeon_boot_desc;
 	uint64_t core_mask = octeon_boot_desc->core_mask;
-	uint64_t i, m, ncpus = 0;
+	uint64_t i, ncpus = 0;
 
-	for (i = 0, m = 1 ; i < MAXCPUS; i++, m <<= 1)
-		if (core_mask & m)
-			ncpus++;
+	/* There has to be 1-to-1 mapping between cpuids and coreids. */
+	for (i = 0; i < OCTEON_MAXCPUS && (core_mask & (1ul << i)) != 0; i++)
+		ncpus++;
 
 	return ncpus;
 }
@@ -741,7 +759,7 @@ boot(int howto)
 	boothowto = howto;
 	if ((howto & RB_NOSYNC) == 0 && waittime < 0) {
 		waittime = 0;
-		vfs_shutdown();
+		vfs_shutdown(curproc);
 
 		if ((howto & RB_TIMEBAD) == 0) {
 			resettodr();
@@ -902,8 +920,6 @@ hw_cpu_hatch(struct cpu_info *ci)
 	 */
 	Octeon_ConfigCache(ci);
 	Mips_SyncCache(ci);
-
-	printf("cpu%lu launched\n", cpu_number());
 
 	(*md_startclock)(ci);
 	ncpus++;

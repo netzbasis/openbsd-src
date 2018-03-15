@@ -1,4 +1,4 @@
-/*	$OpenBSD: pluart.c,v 1.4 2017/04/30 16:45:45 mpi Exp $	*/
+/*	$OpenBSD: pluart.c,v 1.7 2018/02/19 08:59:52 mpi Exp $	*/
 
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
@@ -40,8 +40,6 @@
 #include <machine/bus.h>
 #include <machine/fdt.h>
 #include <arm/armv7/armv7var.h>
-#include <armv7/armv7/armv7var.h>
-#include <armv7/armv7/armv7_machdep.h>
 
 #include <dev/ofw/fdt.h>
 #include <dev/ofw/openfirm.h>
@@ -167,7 +165,6 @@ struct pluart_softc {
 int  pluartprobe(struct device *parent, void *self, void *aux);
 void pluartattach(struct device *parent, struct device *self, void *aux);
 
-void pluartcnprobe(struct consdev *cp);
 void pluartcnprobe(struct consdev *cp);
 void pluartcninit(struct consdev *cp);
 int pluartcnattach(bus_space_tag_t iot, bus_addr_t iobase, int rate,
@@ -797,7 +794,7 @@ pluartioctl( dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case TIOCGFLAGS:
 		break;
 	case TIOCSFLAGS:
-		error = suser(p, 0);
+		error = suser(p);
 		if (error != 0)
 			return(EPERM);
 		break;

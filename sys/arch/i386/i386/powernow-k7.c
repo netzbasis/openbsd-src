@@ -1,4 +1,4 @@
-/* $OpenBSD: powernow-k7.c,v 1.37 2015/09/08 07:12:56 deraadt Exp $ */
+/* $OpenBSD: powernow-k7.c,v 1.39 2018/03/13 13:51:05 bluhm Exp $ */
 
 /*
  * Copyright (c) 2004 Martin Végiard.
@@ -28,7 +28,6 @@
 
 /* AMD POWERNOW K7 driver */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -435,7 +434,7 @@ k7_powernow_init(void)
 		else
 			techname = "PowerNow! K7";
 		printf("%s: %s %d MHz: speeds:",
-		    ci->ci_dev.dv_xname, techname, cpuspeed);
+		    ci->ci_dev->dv_xname, techname, cpuspeed);
 		for (i = cstate->n_states; i > 0; i--) {
 			state = &cstate->state_table[i-1];
 			printf(" %d", state->freq);

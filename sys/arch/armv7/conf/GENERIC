@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.88 2017/08/14 21:46:02 ians Exp $
+#	$OpenBSD: GENERIC,v 1.106 2018/01/06 13:05:20 kettenis Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -41,7 +41,7 @@ armliicc*	at cortex?
 # iMX
 imxccm*		at fdt? early 1		# clock control module
 imxiomuxc*	at fdt? early 1		# iomux controller
-imxocotp*	at fdt?			# on-chip otp controller
+imxanatop*	at fdt?			# anatop controller
 imxgpc*		at fdt?			# power controller
 imxdog*		at fdt?			# watchdog timer
 imxtemp*	at fdt?			# temperature monitor
@@ -91,10 +91,14 @@ sxipio*		at fdt? early 1		# GPIO pins for leds & PHYs
 gpio*		at sxipio?
 sxiccmu*	at fdt? early 1		# Clock Control Module/Unit
 sxitimer*	at fdt? early 1
+sxirsb*		at fdt? early 1		# Reduced Serial Bus
+acrtc*		at rsb?
+axppmic*	at rsb?
 sxidog*		at fdt?			# watchdog timer
 sxirtc*		at fdt?			# Real Time Clock
 sxie*		at fdt?
 dwge*		at fdt?
+dwxe*		at fdt?
 sxiahci*	at fdt?			# AHCI/SATA
 sximmc*		at fdt?			# SD/MMC card controller
 sdmmc*		at sximmc?		# SD/MMC bus
@@ -102,6 +106,8 @@ ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
 #usb*		at ohci?
+sxitemp*	at fdt?			# Temperature sensor
+sxits*		at fdt?			# Touchpad controller
 sxitwi*		at fdt?			# Two-Wire Serial Interface
 iic*		at sxitwi?		# I2C bus
 
@@ -111,8 +117,12 @@ pluart*		at fdt?
 plrtc*		at fdt?
 virtio*		at fdt?
 
-psci*		at fdt?
-syscon*		at fdt?
+sdhc*		at fdt?
+sdmmc*		at sdhc?
+#bwfm*		at sdmmc?		# Broadcom FullMAC
+
+psci*		at fdt? early 1
+syscon*		at fdt? early 1
 
 simplefb*	at fdt?
 wsdisplay*	at simplefb?
@@ -122,7 +132,6 @@ wsdisplay*	at simplefb?
 #wsdisplay*	at exdisplay? console ?
 exclock*	at fdt? early 1
 expower*	at fdt? early 1
-exsysreg*	at fdt? early 1
 exmct*		at fdt? early 1
 exdog*		at fdt?
 exgpio*		at fdt? early 1
@@ -152,12 +161,21 @@ mvmbus*		at fdt?
 mvxhci*		at fdt?
 usb*		at mvxhci?
 mvahci*		at fdt?
+mvpinctrl*	at fdt?
+mvmdio*		at fdt?
+mvneta*		at fdt?
+mvmpic*		at fdt?
+mvpxa*		at fdt?
+sdmmc*		at mvpxa?
 
 # Rockchip SoCs
 rkclock*	at fdt? early 1
 rkgrf*		at fdt? early 1
 rkpinctrl*	at fdt? early 1
 rkgpio*		at fdt?
+rkiic*		at fdt?
+iic*		at rkiic?
+rktemp*		at fdt?
 dwdog*		at fdt?
 
 axppmic*	at iic?			# axp209 pmic
@@ -165,6 +183,7 @@ crosec*		at iic?
 wskbd*		at crosec? mux 1
 pcfrtc*		at iic?
 pcxrtc*		at iic?
+rkpmic*		at iic?			# RK808 PMIC
 tpspmic*	at iic?
 
 # virtio devices
@@ -180,7 +199,7 @@ usb*		at ehci?	flags 0x1
 # USB devices
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
-ualea*	at uhub?		# Araneus Alea II TRNG
+urng*	at uhub?		# USB Random Number Generator
 uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
@@ -281,6 +300,7 @@ video*	at utvfu?
 audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
+#bwfm*	at uhub?		# Broadcom FullMAC
 
 atphy*		at mii?			# Attansic F1 PHYs
 rgephy*		at mii?			# Realtek 8169S/8110S PHY

@@ -32,7 +32,7 @@
 /sem.t/1.1.1.1/Mon Nov 17 20:53:17 2014/-kb/
 /semctl.t/1.1/Sun Feb  5 00:32:19 2017/-ko/
 /shm.t/1.1.1.3/Mon Nov 17 20:53:17 2014/-ko/
-/socket.t/1.2/Sun Feb  5 00:32:19 2017/-kb/
+/socket.t/1.3/Sun Oct 29 22:37:24 2017/-kb/
 /tell.t/1.13/Mon Nov 17 20:57:07 2014/-ko/
 /through.t/1.2/Sun Feb  5 00:32:19 2017/-ko/
 /utf8.t/1.2/Sun Feb  5 00:32:19 2017/-ko/

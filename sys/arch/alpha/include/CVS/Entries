@@ -1,5 +1,5 @@
 /_float.h/1.1/Tue Jun 26 16:12:43 2012//
-/_types.h/1.23/Sat Sep 26 16:01:00 2015//
+/_types.h/1.24/Mon Mar  5 01:15:24 2018//
 /alpha_cpu.h/1.13/Sun May 15 23:37:42 2016//
 /asm.h/1.14/Thu Jun 29 17:36:16 2017//
 /atomic.h/1.12/Sat Mar 29 18:09:28 2014//
@@ -20,15 +20,15 @@
 /frame.h/1.4/Wed Mar 23 16:54:34 2011//
 /ieee.h/1.5/Sun Sep  7 20:36:06 2008//
 /ieeefp.h/1.6/Wed Mar 23 16:54:34 2011//
-/intr.h/1.46/Mon Jun 13 01:26:14 2016//
+/intr.h/1.47/Sat Jan 13 15:18:11 2018//
 /ioctl_fd.h/1.3/Wed Mar 23 16:54:34 2011//
 /kcore.h/1.4/Wed Mar 23 16:54:34 2011//
 /limits.h/1.14/Thu Apr 30 13:42:08 2015//
 /loadfile_machdep.h/1.2/Fri Jul 17 20:44:38 2015//
 /lock.h/1.10/Mon May 29 14:19:49 2017//
 /logout.h/1.3/Fri Sep 25 04:38:40 2009//
-/mplock.h/1.1/Sun Jan 26 17:40:11 2014//
-/mutex.h/1.8/Thu Apr 20 13:57:29 2017//
+/mplock.h/1.2/Mon Dec  4 09:51:03 2017//
+/mutex.h/1.11/Thu Jan 25 15:06:29 2018//
 /pal.h/1.2/Wed Nov  8 21:27:20 2000//
 /param.h/1.41/Mon Jun  5 17:49:06 2017//
 /pcb.h/1.11/Tue May  5 02:13:46 2015//
@@ -44,11 +44,12 @@
 /setjmp.h/1.3/Wed Oct 30 22:39:27 1996//
 /sfbreg.h/1.4/Sat Oct 18 20:14:42 2003//
 /signal.h/1.10/Tue May 10 18:39:42 2016//
-/spinlock.h/1.2/Sat Jun  1 20:47:40 2013//
+/spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.14/Tue Mar 11 19:45:27 2014//
 /sysarch.h/1.9/Wed Dec  5 23:20:09 2012//
 /tc_machdep.h/1.3/Thu May  2 22:56:06 2002//
 /tcb.h/1.2/Sun May 15 23:37:42 2016//
 /varargs.h/1.6/Wed Mar 23 16:54:34 2011//
 /vmparam.h/1.28/Sun Nov  1 20:09:59 2015//
+/z8530var.h/1.1/Thu Nov  2 14:04:24 2017//
 D

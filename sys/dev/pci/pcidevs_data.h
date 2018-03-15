@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1823 2017/07/16 13:41:58 kettenis Exp 
+ *	OpenBSD: pcidevs,v 1.1840 2018/03/14 20:07:06 jasper Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -122,6 +122,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_O2MICRO, PCI_PRODUCT_O2MICRO_OZ7223,
 	    "OZ711E0 CardBus",
+	},
+	{
+	    PCI_VENDOR_O2MICRO, PCI_PRODUCT_O2MICRO_OZ8621,
+	    "0Z8621 SD/MMC",
 	},
 	{
 	    PCI_VENDOR_3COM, PCI_PRODUCT_3COM_3C985,
@@ -1288,6 +1292,58 @@ static const struct pci_known_product pci_known_products[] = {
 	    "AMD64 16h Host",
 	},
 	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_LINK,
+	    "AMD64 15h Link Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_ADDR,
+	    "AMD64 15h Address Map",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_DRAM,
+	    "AMD64 15h DRAM Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_MISC,
+	    "AMD64 15h Misc Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_CPU_PM,
+	    "AMD64 15h CPU Power",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_MISC_2,
+	    "AMD64 15h Misc Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_RC,
+	    "AMD64 15h Root Complex",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_IOMMU,
+	    "AMD64 15h IOMMU",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_PSP,
+	    "AMD64 15h PSP 2.0",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_AUDIO,
+	    "AMD64 15h HD Audio",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_HB_1,
+	    "AMD64 15h Host",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_PCIE_1,
+	    "AMD64 15h PCIE",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_6X_HB_2,
+	    "AMD64 15h Host",
+	},
+	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_LINK,
 	    "AMD64 16h Link Cfg",
 	},
@@ -1720,6 +1776,42 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Bolton xHCI",
 	},
 	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_SATA_1,
+	    "Carrizo SATA",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_AHCI_1,
+	    "Carrizo AHCI",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_RAID_1,
+	    "Carrizo RAID",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_RAID_2,
+	    "Carrizo RAID",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_AHCI_2,
+	    "Carrizo AHCI",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_EHCI,
+	    "Carrizo USB2",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_SMB,
+	    "Carrizo SMBus",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_LPC,
+	    "Carrizo LPC",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CARRIZO_XHCI,
+	    "Carrizo xHCI",
+	},
+	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_RS780_HB,
 	    "RS780 Host",
 	},
@@ -2036,7 +2128,11 @@ static const struct pci_known_product pci_known_products[] = {
 	    "BCM5701",
 	},
 	{
-	    PCI_VENDOR_APPLE, PCI_PRODUCT_APPLE_NVME,
+	    PCI_VENDOR_APPLE, PCI_PRODUCT_APPLE_NVME1,
+	    "NVMe",
+	},
+	{
+	    PCI_VENDOR_APPLE, PCI_PRODUCT_APPLE_NVME2,
 	    "NVMe",
 	},
 	{
@@ -5384,6 +5480,26 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Mullins",
 	},
 	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_CARRIZO_1,
+	    "Carrizo",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_CARRIZO_2,
+	    "Carrizo",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_CARRIZO_3,
+	    "Carrizo",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_CARRIZO_4,
+	    "Carrizo",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_CARRIZO_5,
+	    "Carrizo",
+	},
+	{
 	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_ARUBA_1,
 	    "Aruba",
 	},
@@ -6486,6 +6602,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_BROADCOM, PCI_PRODUCT_BROADCOM_BCM4360,
 	    "BCM4360",
+	},
+	{
+	    PCI_VENDOR_BROADCOM, PCI_PRODUCT_BROADCOM_BCM4350,
+	    "BCM4350",
 	},
 	{
 	    PCI_VENDOR_BROADCOM, PCI_PRODUCT_BROADCOM_BCM43602,
@@ -8716,12 +8836,20 @@ static const struct pci_known_product pci_known_products[] = {
 	    "89HPES4T4",
 	},
 	{
-	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89HPES5T5ZB,
-	    "89HPES5T5ZB",
+	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89HPES5T5,
+	    "89HPES5T5",
 	},
 	{
 	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89HPES24T3G2,
 	    "89HPES24T3G2",
+	},
+	{
+	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89HPES64H16G2,
+	    "89HPES64H16G2",
+	},
+	{
+	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89HPES48H12G2,
+	    "89HPES48H12G2",
 	},
 	{
 	    PCI_VENDOR_IDT, PCI_PRODUCT_IDT_89H64H16G3,
@@ -10912,6 +11040,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "I350 SGMII",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_ICH10_D_BM_V,
+	    "ICH10 D BM V",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82576_QUAD_CU_ET2,
 	    "82576",
 	},
@@ -10933,6 +11065,14 @@ static const struct pci_known_product pci_known_products[] = {
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I210_COPPER,
+	    "I210",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I210_COPPER_OEM1,
+	    "I210",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I210_COPPER_IT,
 	    "I210",
 	},
 	{
@@ -11128,6 +11268,22 @@ static const struct pci_known_product pci_known_products[] = {
 	    "I219-LM",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM7,
+	    "I219-LM",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V7,
+	    "I219-V",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM6,
+	    "I219-LM",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V6,
+	    "I219-V",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X550EM_A_KR,
 	    "X553 Backplane",
 	},
@@ -11160,6 +11316,18 @@ static const struct pci_known_product pci_known_products[] = {
 	    "X550T",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_JHL6540,
+	    "JHL6540 Thunderbolt",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_JHL6540_PCIE,
+	    "JHL6540 Thunderbolt",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_JHL6540_XHCI,
+	    "JHL6540 Thunderbolt",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V5,
 	    "I219-V",
 	},
@@ -11169,6 +11337,22 @@ static const struct pci_known_product pci_known_products[] = {
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V4,
+	    "I219-V",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM8,
+	    "I219-LM",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V8,
+	    "I219-V",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM9,
+	    "I219-LM",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V9,
 	    "I219-V",
 	},
 	{
@@ -11972,6 +12156,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Braswell AHCI",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_AUDIO,
+	    "Braswell LPE Audio",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CHV_IGD_1,
 	    "HD Graphics",
 	},
@@ -11990,6 +12178,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_XHCI,
 	    "Braswell xHCI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_USB_OTG,
+	    "Braswell USB OTG",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BSW_ISP,
@@ -15360,6 +15552,34 @@ static const struct pci_known_product pci_known_products[] = {
 	    "E5 SAD",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_HB_4C,
+	    "Core 8G Host",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_PCIE_X16,
+	    "Core 8G PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_PCIE_X8,
+	    "Core 8G PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_PCIE_X4,
+	    "Core 8G PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_GMM,
+	    "Core 8G GMM",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_GT2_1,
+	    "UHD Graphics 630",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_S_HB_6C,
+	    "Core 8G Host",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_5400_HB,
 	    "5400 Host",
 	},
@@ -15704,12 +15924,20 @@ static const struct pci_known_product pci_known_products[] = {
 	    "HD Graphics 630",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_U_HB,
+	    "Core 8G Host",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE7G_IMGU,
 	    "Core 7G Imaging Unit",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE7G_U_GT2_1,
 	    "HD Graphics 620",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE8G_U_GT2,
+	    "UHD Graphics 620",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE7G_SRV_GT2,
@@ -17472,6 +17700,14 @@ static const struct pci_known_product pci_known_products[] = {
 	    "CM236 LPC",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_I2C0,
+	    "100 Series I2C",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_I2C1,
+	    "100 Series I2C",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_17,
 	    "100 Series PCIE",
 	},
@@ -17490,6 +17726,174 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_HDA,
 	    "100 Series HD Audio",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_AHCI_1,
+	    "200 Series AHCI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_RAID_1,
+	    "200 Series RAID",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_1,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_2,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_3,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_4,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_5,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_6,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_7,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_8,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_9,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_10,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_11,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_12,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_13,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_14,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_15,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_16,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PMC,
+	    "200 Series PMC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_SMB,
+	    "200 Series SMBus",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_XHCI,
+	    "200 Series xHCI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_THERM,
+	    "200 Series Thermal",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_MEI_1,
+	    "200 Series MEI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_MEI_2,
+	    "200 Series MEI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_IDER,
+	    "200 Series IDER",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_KT,
+	    "200 Series KT",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_H270_LPC,
+	    "H270 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_Z270_LPC,
+	    "Z270 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_Q270_LPC,
+	    "Q270 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_Q250_LPC,
+	    "Q250 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_B250_LPC,
+	    "B250 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_Z370_LPC,
+	    "Z370 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X299_LPC,
+	    "X299 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_17,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_18,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_19,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_20,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_21,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_22,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_23,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_PCIE_24,
+	    "200 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_200SERIES_HDA,
+	    "200 Series HD Audio",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_21152,
@@ -18476,6 +18880,46 @@ static const struct pci_known_product pci_known_products[] = {
 	    "GPS170PCI",
 	},
 	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27700,
+	    "ConnectX-4",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27700VF,
+	    "ConnectX-4 VF",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27710,
+	    "ConnectX-4 Lx",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27710VF,
+	    "ConnectX-4 Lx VF",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27800,
+	    "ConnectX-5",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT27800VF,
+	    "ConnectX-5 VF",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT28800,
+	    "ConnectX-5 Ex",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT28800VF,
+	    "ConnectX-5 Ex VF",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT28908,
+	    "ConnectX-6",
+	},
+	{
+	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_MT28908VF,
+	    "ConnectX-6 VF",
+	},
+	{
 	    PCI_VENDOR_MELLANOX, PCI_PRODUCT_MELLANOX_CONNECTX_EN,
 	    "ConnectX EN",
 	},
@@ -19194,6 +19638,30 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_895A,
 	    "53c895A",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3516,
+	    "MegaRAID SAS3516",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3416,
+	    "MegaRAID SAS3416",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3508,
+	    "MegaRAID SAS3508",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3408,
+	    "MegaRAID SAS3408",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3504,
+	    "MegaRAID SAS3504",
+	},
+	{
+	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_MEGARAID_3404,
+	    "MegaRAID SAS3404",
 	},
 	{
 	    PCI_VENDOR_SYMBIOS, PCI_PRODUCT_SYMBIOS_1010,
@@ -23320,6 +23788,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "5U852 SD/MMC",
 	},
 	{
+	    PCI_VENDOR_ROCKCHIP, PCI_PRODUCT_ROCKCHIP_RK3399_RC,
+	    "RK3399 Root Complex",
+	},
+	{
 	    PCI_VENDOR_ROCKWELL, PCI_PRODUCT_ROCKWELL_RS56SP_PCI11P1,
 	    "RS56/SP-PCI11P1 Modem",
 	},
@@ -23558,6 +24030,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM961_NVME,
 	    "SM961/PM961 NVMe",
+	},
+	{
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM981_NVME,
+	    "SM981/PM981 NVMe",
 	},
 	{
 	    PCI_VENDOR_SANGOMA, PCI_PRODUCT_SANGOMA_A10X,
@@ -24136,6 +24612,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "910",
 	},
 	{
+	    PCI_VENDOR_SMI, PCI_PRODUCT_SMI_SM2260,
+	    "SM2260 NVMe",
+	},
+	{
 	    PCI_VENDOR_SMSC, PCI_PRODUCT_SMSC_VICTORY66_IDE_1,
 	    "Victory66 IDE",
 	},
@@ -24244,12 +24724,16 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Psycho PCI",
 	},
 	{
-	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SPARC_PCIE2,
-	    "SPARC PCIE",
+	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SPARC_T3_PCIE,
+	    "SPARC-T3/T4 PCIE",
 	},
 	{
-	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SPARC_PCIE3,
-	    "SPARC PCIE",
+	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SPARC_M7_PCIE,
+	    "SPARC-M7 PCIE",
+	},
+	{
+	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SPARC_T5_PCIE,
+	    "SPARC-T5/M5/M6 PCIE",
 	},
 	{
 	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_MS_IIep,
@@ -27774,6 +28258,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_SYMPHONY2,
 	    "Symphony Labs",
+	},
+	{
+	    PCI_VENDOR_ROCKCHIP,
+	    "Rockchip",
 	},
 	{
 	    PCI_VENDOR_TEKRAM2,

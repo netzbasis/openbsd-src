@@ -1,4 +1,4 @@
-/*	$OpenBSD: glxsb.c,v 1.32 2017/05/02 11:47:49 mikeb Exp $	*/
+/*	$OpenBSD: glxsb.c,v 1.34 2017/12/27 15:10:16 fcambus Exp $	*/
 
 /*
  * Copyright (c) 2006 Tom Cosgrove <tom@openbsd.org>
@@ -28,7 +28,6 @@
 #include <sys/device.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
-#include <sys/types.h>
 #include <sys/timeout.h>
 
 #include <machine/bus.h>
@@ -526,22 +525,22 @@ glxsb_crypto_freesession(uint64_t tid)
 
 		if (swd->sw_kschedule) {
 			explicit_bzero(swd->sw_kschedule, txf->ctxsize);
-			free(swd->sw_kschedule, M_CRYPTO_DATA, 0);
+			free(swd->sw_kschedule, M_CRYPTO_DATA, txf->ctxsize);
 		}
-		free(swd, M_CRYPTO_DATA, 0);
+		free(swd, M_CRYPTO_DATA, sizeof(*swd));
 	}
 	if ((swd = sc->sc_sessions[sesn].ses_swd_auth)) {
 		axf = swd->sw_axf;
 
 		if (swd->sw_ictx) {
 			explicit_bzero(swd->sw_ictx, axf->ctxsize);
-			free(swd->sw_ictx, M_CRYPTO_DATA, 0);
+			free(swd->sw_ictx, M_CRYPTO_DATA, axf->ctxsize);
 		}
 		if (swd->sw_octx) {
 			explicit_bzero(swd->sw_octx, axf->ctxsize);
-			free(swd->sw_octx, M_CRYPTO_DATA, 0);
+			free(swd->sw_octx, M_CRYPTO_DATA, axf->ctxsize);
 		}
-		free(swd, M_CRYPTO_DATA, sizeof *swd);
+		free(swd, M_CRYPTO_DATA, sizeof(*swd));
 	}
 	explicit_bzero(&sc->sc_sessions[sesn], sizeof(sc->sc_sessions[sesn]));
 	return (0);

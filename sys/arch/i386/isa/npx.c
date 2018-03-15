@@ -1,4 +1,4 @@
-/*	$OpenBSD: npx.c,v 1.62 2017/05/29 14:19:50 mpi Exp $	*/
+/*	$OpenBSD: npx.c,v 1.65 2018/03/13 13:51:05 bluhm Exp $	*/
 /*	$NetBSD: npx.c,v 1.57 1996/05/12 23:12:24 mycroft Exp $	*/
 
 #if 0
@@ -43,7 +43,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/proc.h>
 #include <sys/signalvar.h>
 #include <sys/user.h>
@@ -354,7 +353,7 @@ npxinit(struct cpu_info *ci)
 	if (npx586bug1(4195835, 3145727) != 0) {
 		i386_fpu_fdivbug = 1;
 		printf("%s: WARNING: Pentium FDIV bug detected!\n",
-		    ci->ci_dev.dv_xname);
+		    ci->ci_dev->dv_xname);
 	}
 	if (fpu_mxcsr_mask == 0 && i386_use_fxsave) {
 		struct savexmm xm __attribute__((aligned(16)));
@@ -529,7 +528,9 @@ npxintr(void *arg)
 		else
 			code = x86fpflags_to_siginfo(addr->sv_87.sv_ex_sw);
 		sv.sival_int = frame->if_eip;
+		KERNEL_LOCK();
 		trapsignal(p, SIGFPE, T_ARITHTRAP, code, sv);
+		KERNEL_UNLOCK();
 	} else {
 		/*
 		 * Nested interrupt.  These losers occur when:
@@ -545,7 +546,9 @@ npxintr(void *arg)
 		 *
 		 * Treat them like a true async interrupt.
 		 */
+		KERNEL_LOCK();
 		psignal(p, SIGFPE);
+		KERNEL_UNLOCK();
 	}
 
 	return (1);

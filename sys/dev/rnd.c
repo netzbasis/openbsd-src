@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.193 2017/07/30 21:40:14 deraadt Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.198 2018/02/09 03:01:24 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -197,17 +197,13 @@
 #define	POOL_TAP3	819
 #define	POOL_TAP4	411
 
-struct mutex entropylock = MUTEX_INITIALIZER(IPL_HIGH);
-
 /*
  * Raw entropy collection from device drivers; at interrupt context or not.
  * add_*_randomness() provide data which is put into the entropy queue.
- * Almost completely under the entropylock.
  */
 
-#define QEVLEN (1024 / sizeof(struct rand_event))
+#define QEVLEN	128		 /* must be a power of 2 */
 #define QEVSLOW (QEVLEN * 3 / 4) /* yet another 0.75 for 60-minutes hour /-; */
-#define QEVSBITS 10
 
 #define KEYSZ	32
 #define IVSZ	8
@@ -219,8 +215,12 @@ struct rand_event {
 	u_int re_time;
 	u_int re_val;
 } rnd_event_space[QEVLEN];
-/* index of next free slot */
-u_int rnd_event_idx;
+
+u_int rnd_event_cons;
+u_int rnd_event_prod;
+
+struct mutex rnd_enqlck = MUTEX_INITIALIZER(IPL_HIGH);
+struct mutex rnd_deqlck = MUTEX_INITIALIZER(IPL_HIGH);
 
 struct timeout rnd_timeout;
 
@@ -246,39 +246,38 @@ struct filterops randomread_filtops =
 struct filterops randomwrite_filtops =
 	{ 1, NULL, filt_randomdetach, filt_randomwrite };
 
-static __inline struct rand_event *
+static inline struct rand_event *
 rnd_get(void)
 {
-	if (rnd_event_idx == 0)
-		return NULL;
-	/* if it wrapped around, start dequeuing at the end */
-	if (rnd_event_idx > QEVLEN)
-		rnd_event_idx = QEVLEN;
+	u_int idx;
 
-	return &rnd_event_space[--rnd_event_idx];
+	/* nothing to do if queue is empty */
+	if (rnd_event_prod == rnd_event_cons)
+		return NULL;
+
+	if (rnd_event_prod - rnd_event_cons > QEVLEN)
+		rnd_event_cons = rnd_event_prod - QEVLEN;
+	idx = rnd_event_cons++;
+	return &rnd_event_space[idx & (QEVLEN - 1)];
 }
 
-static __inline struct rand_event *
+static inline struct rand_event *
 rnd_put(void)
 {
-	u_int idx = rnd_event_idx++;
+	u_int idx = rnd_event_prod++;
 
-	/* allow wrapping. caller will use xor. */
-	idx = idx % QEVLEN;
-
-	return &rnd_event_space[idx];
+	/* allow wrapping. caller will mix it in. */
+	return &rnd_event_space[idx & (QEVLEN - 1)];
 }
 
-static __inline u_int
+static inline u_int
 rnd_qlen(void)
 {
-	return rnd_event_idx;
+	return rnd_event_prod - rnd_event_cons;
 }
 
 /*
- * This function adds entropy to the entropy pool by using timing
- * delays.  It uses the timer_rand_state structure to make an estimate
- * of how many bits of entropy this call has added to the pool.
+ * This function adds entropy to the entropy pool by using timing delays.
  *
  * The number "val" is also added to the pool - it should somehow describe
  * the type of event which just happened.  Currently the values of 0-255
@@ -289,6 +288,7 @@ enqueue_randomness(u_int state, u_int val)
 {
 	struct rand_event *rep;
 	struct timespec	ts;
+	u_int qlen;
 
 #ifdef DIAGNOSTIC
 	if (state >= RND_SRC_NUM)
@@ -300,18 +300,16 @@ enqueue_randomness(u_int state, u_int val)
 
 	val += state << 13;
 
-	mtx_enter(&entropylock);
-
+	mtx_enter(&rnd_enqlck);
 	rep = rnd_put();
-
 	rep->re_time += ts.tv_nsec ^ (ts.tv_sec << 20);
 	rep->re_val += val;
+	qlen = rnd_qlen();
+	mtx_leave(&rnd_enqlck);
 
-	if (rnd_qlen() > QEVSLOW/2 && timeout_initialized(&rnd_timeout) &&
+	if (qlen > QEVSLOW/2 && timeout_initialized(&rnd_timeout) &&
 	    !timeout_pending(&rnd_timeout))
 		timeout_add(&rnd_timeout, 1);
-
-	mtx_leave(&entropylock);
 }
 
 /*
@@ -373,21 +371,18 @@ dequeue_randomness(void *v)
 	struct rand_event *rep;
 	u_int32_t buf[2];
 
-	mtx_enter(&entropylock);
-
 	if (timeout_initialized(&rnd_timeout))
 		timeout_del(&rnd_timeout);
 
+	mtx_enter(&rnd_deqlck);
 	while ((rep = rnd_get())) {
 		buf[0] = rep->re_time;
 		buf[1] = rep->re_val;
-		mtx_leave(&entropylock);
-
+		mtx_leave(&rnd_deqlck);
 		add_entropy_words(buf, 2);
-
-		mtx_enter(&entropylock);
+		mtx_enter(&rnd_deqlck);
 	}
-	mtx_leave(&entropylock);
+	mtx_leave(&rnd_deqlck);
 }
 
 /*
@@ -406,7 +401,7 @@ extract_entropy(u_int8_t *buf)
 #endif
 
 	/*
-	 * INTENTIONALLY not protected by entropylock.  Races during
+	 * INTENTIONALLY not protected by any lock.  Races during
 	 * memcpy() result in acceptable input data; races during
 	 * SHA512Update() would create nasty data dependencies.  We
 	 * do not rely on this as a benefit, but if it happens, cool.
@@ -657,6 +652,41 @@ arc4random_buf(void *buf, size_t n)
 }
 
 /*
+ * Allocate a new ChaCha20 context for the caller to use.
+ */
+struct arc4random_ctx *
+arc4random_ctx_new()
+{
+	char keybuf[KEYSZ + IVSZ];
+
+	chacha_ctx *ctx = malloc(sizeof(chacha_ctx), M_TEMP, M_WAITOK);
+	arc4random_buf(keybuf, KEYSZ + IVSZ);
+	chacha_keysetup(ctx, keybuf, KEYSZ * 8);
+	chacha_ivsetup(ctx, keybuf + KEYSZ, NULL);
+	explicit_bzero(keybuf, sizeof(keybuf));
+	return (struct arc4random_ctx *)ctx;
+}
+
+/*
+ * Free a ChaCha20 context created by arc4random_ctx_new()
+ */
+void
+arc4random_ctx_free(struct arc4random_ctx *ctx)
+{
+	explicit_bzero(ctx, sizeof(chacha_ctx));
+	free(ctx, M_TEMP, sizeof(chacha_ctx));
+}
+
+/*
+ * Use a given ChaCha20 context to fill a buffer
+ */
+void
+arc4random_ctx_buf(struct arc4random_ctx *ctx, void *buf, size_t n)
+{
+	chacha_encrypt_bytes((chacha_ctx *)ctx, buf, buf, n);
+}
+
+/*
  * Calculate a uniformly distributed random number less than upper_bound
  * avoiding "modulo bias".
  *
@@ -717,6 +747,8 @@ arc4_reinit(void *v)
 void
 random_start(void)
 {
+	extern char etext[];
+
 #if !defined(NO_PROPOLICE)
 	extern long __guard_local;
 
@@ -731,6 +763,8 @@ random_start(void)
 	if (msgbufp->msg_magic == MSG_MAGIC)
 		add_entropy_words((u_int32_t *)msgbufp->msg_bufc,
 		    msgbufp->msg_bufs / sizeof(u_int32_t));
+	add_entropy_words((u_int32_t *)etext - 32*1024,
+	    8192/sizeof(u_int32_t));
 
 	dequeue_randomness(NULL);
 	arc4_init(NULL);

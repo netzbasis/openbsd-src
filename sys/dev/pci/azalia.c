@@ -1,4 +1,4 @@
-/*	$OpenBSD: azalia.c,v 1.236 2017/08/10 15:25:52 tb Exp $	*/
+/*	$OpenBSD: azalia.c,v 1.240 2018/01/10 09:00:40 ratchov Exp $	*/
 /*	$NetBSD: azalia.c,v 1.20 2006/05/07 08:31:44 kent Exp $	*/
 
 /*-
@@ -46,7 +46,6 @@
 #include <sys/device.h>
 #include <sys/malloc.h>
 #include <sys/systm.h>
-#include <sys/types.h>
 #include <sys/timeout.h>
 #include <dev/audio_if.h>
 #include <dev/pci/pcidevs.h>
@@ -212,7 +211,7 @@ int	azalia_get_response(azalia_t *, uint32_t *);
 void	azalia_rirb_kick_unsol_events(void *);
 void	azalia_rirb_intr(azalia_t *);
 int	azalia_alloc_dmamem(azalia_t *, size_t, size_t, azalia_dma_t *);
-int	azalia_free_dmamem(const azalia_t *, azalia_dma_t*);
+void	azalia_free_dmamem(const azalia_t *, azalia_dma_t*);
 
 int	azalia_codec_init(codec_t *);
 int	azalia_codec_delete(codec_t *);
@@ -455,6 +454,7 @@ azalia_configure_pci(azalia_t *az)
 	case PCI_PRODUCT_INTEL_BAYTRAIL_HDA:
 	case PCI_PRODUCT_INTEL_100SERIES_HDA:
 	case PCI_PRODUCT_INTEL_100SERIES_LP_HDA:
+	case PCI_PRODUCT_INTEL_200SERIES_HDA:
 	case PCI_PRODUCT_INTEL_200SERIES_U_HDA:
 	case PCI_PRODUCT_INTEL_C600_HDA:
 	case PCI_PRODUCT_INTEL_C610_HDA:
@@ -697,23 +697,12 @@ azalia_shutdown(void *v)
 {
 	azalia_t *az = (azalia_t *)v;
 	uint32_t gctl;
-	codec_t *codec;
-	int i;
 
 	/* disable unsolicited response */
 	gctl = AZ_READ_4(az, GCTL);
 	AZ_WRITE_4(az, GCTL, gctl & ~(HDA_GCTL_UNSOL));
 
 	timeout_del(&az->unsol_to);
-
-	/* power off all codecs */
-	for (i = 0; i < az->ncodecs; i++) {
-		codec = &az->codecs[i];
-		if (codec->audiofunc < 0)
-			continue;
-		azalia_comresp(codec, codec->audiofunc, CORB_SET_POWER_STATE,
-		    CORB_PS_D3, NULL);
-	}
 
 	/* halt CORB/RIRB */
 	azalia_halt_corb(az);
@@ -990,10 +979,20 @@ int
 azalia_halt_corb(azalia_t *az)
 {
 	uint8_t corbctl;
+	codec_t *codec;
 	int i;
 
 	corbctl = AZ_READ_1(az, CORBCTL);
 	if (corbctl & HDA_CORBCTL_CORBRUN) { /* running? */
+		/* power off all codecs */
+		for (i = 0; i < az->ncodecs; i++) {
+			codec = &az->codecs[i];
+			if (codec->audiofunc < 0)
+				continue;
+			azalia_comresp(codec, codec->audiofunc,
+			    CORB_SET_POWER_STATE, CORB_PS_D3, NULL);
+		}
+
 		AZ_WRITE_1(az, CORBCTL, corbctl & ~HDA_CORBCTL_CORBRUN);
 		for (i = 5000; i > 0; i--) {
 			DELAY(10);
@@ -1332,17 +1331,16 @@ free:
 	return err;
 }
 
-int
+void
 azalia_free_dmamem(const azalia_t *az, azalia_dma_t* d)
 {
 	if (d->addr == NULL)
-		return 0;
+		return;
 	bus_dmamap_unload(az->dmat, d->map);
 	bus_dmamap_destroy(az->dmat, d->map);
 	bus_dmamem_unmap(az->dmat, d->addr, d->size);
 	bus_dmamem_free(az->dmat, d->segments, 1);
 	d->addr = NULL;
-	return 0;
 }
 
 int

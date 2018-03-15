@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_rwlock.c,v 1.30 2017/08/12 23:27:44 guenther Exp $	*/
+/*	$OpenBSD: kern_rwlock.c,v 1.33 2017/12/18 10:05:43 mpi Exp $	*/
 
 /*
  * Copyright (c) 2002, 2003 Artur Grabowski <art@openbsd.org>
@@ -96,7 +96,7 @@ _rw_enter_read(struct rwlock *rwl LOCK_FL_VARS)
 	    rw_cas(&rwl->rwl_owner, owner, owner + RWLOCK_READ_INCR)))
 		_rw_enter(rwl, RW_READ LOCK_FL_ARGS);
 	else {
-		membar_enter();
+		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, LOP_NEWORDER, file, line,
 		    NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, 0, file, line);
@@ -112,7 +112,7 @@ _rw_enter_write(struct rwlock *rwl LOCK_FL_VARS)
 	    RW_PROC(p) | RWLOCK_WRLOCK)))
 		_rw_enter(rwl, RW_WRITE LOCK_FL_ARGS);
 	else {
-		membar_enter();
+		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj,
 		    LOP_EXCLUSIVE | LOP_NEWORDER, file, line, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE, file, line);
@@ -126,7 +126,7 @@ _rw_exit_read(struct rwlock *rwl LOCK_FL_VARS)
 
 	rw_assert_rdlock(rwl);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	if (__predict_false((owner & RWLOCK_WAIT) ||
 	    rw_cas(&rwl->rwl_owner, owner, owner - RWLOCK_READ_INCR)))
 		_rw_exit(rwl LOCK_FL_ARGS);
@@ -141,7 +141,7 @@ _rw_exit_write(struct rwlock *rwl LOCK_FL_VARS)
 
 	rw_assert_wrlock(rwl);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	if (__predict_false((owner & RWLOCK_WAIT) ||
 	    rw_cas(&rwl->rwl_owner, owner, 0)))
 		_rw_exit(rwl LOCK_FL_ARGS);
@@ -261,7 +261,7 @@ retry:
 
 	if (__predict_false(rw_cas(&rwl->rwl_owner, o, o + inc)))
 		goto retry;
-	membar_enter();
+	membar_enter_after_atomic();
 
 	/*
 	 * If old lock had RWLOCK_WAIT and RWLOCK_WRLOCK set, it means we
@@ -287,6 +287,10 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 	int wrlock = owner & RWLOCK_WRLOCK;
 	unsigned long set;
 
+	/* Avoid deadlocks after panic */
+	if (panicstr)
+		return;
+
 	if (wrlock)
 		rw_assert_wrlock(rwl);
 	else
@@ -295,7 +299,7 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, wrlock ? LOP_EXCLUSIVE : 0,
 	    file, line);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	do {
 		owner = rwl->rwl_owner;
 		if (wrlock)
@@ -312,13 +316,15 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 int
 rw_status(struct rwlock *rwl)
 {
-	if (rwl->rwl_owner & RWLOCK_WRLOCK) {
-		if (RW_PROC(curproc) == RW_PROC(rwl->rwl_owner))
+	unsigned long owner = rwl->rwl_owner;
+
+	if (owner & RWLOCK_WRLOCK) {
+		if (RW_PROC(curproc) == RW_PROC(owner))
 			return RW_WRITE;
 		else
 			return RW_WRITE_OTHER;
 	}
-	if (rwl->rwl_owner)
+	if (owner)
 		return RW_READ;
 	return (0);
 }

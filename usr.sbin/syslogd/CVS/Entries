@@ -6,9 +6,9 @@
 /privsep.c/1.67/Wed Apr  5 11:31:45 2017//
 /privsep_fdpass.c/1.11/Thu Jul  9 20:16:04 2015//
 /ringbuf.c/1.10/Sun Oct 16 22:12:50 2016//
-/syslog.conf.5/1.34/Wed Jul  6 19:29:13 2016//
-/syslogd.8/1.56/Wed Jul  5 09:40:16 2017//
-/syslogd.c/1.245/Tue Aug  8 14:23:23 2017//
-/syslogd.h/1.31/Tue Aug  8 14:23:23 2017//
-/ttymsg.c/1.16/Tue Aug  8 14:23:23 2017//
+/syslog.conf.5/1.36/Fri Feb  2 10:53:44 2018//
+/syslogd.8/1.57/Sat Jan 27 08:38:06 2018//
+/syslogd.c/1.254/Fri Nov 24 23:11:42 2017//
+/syslogd.h/1.32/Thu Oct  5 16:15:24 2017//
+/ttymsg.c/1.17/Thu Oct  5 16:15:24 2017//
 D

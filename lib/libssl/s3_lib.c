@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.158 2017/08/12 21:03:08 jsing Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.164 2018/02/17 15:08:21 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1040,7 +1040,7 @@ SSL_CIPHER ssl3_ciphers[] = {
 		.algorithm_enc = SSL_3DES,
 		.algorithm_mac = SSL_SHA1,
 		.algorithm_ssl = SSL_TLSV1,
-		.algo_strength = SSL_HIGH,
+		.algo_strength = SSL_MEDIUM,
 		.algorithm2 = SSL_HANDSHAKE_MAC_DEFAULT|TLS1_PRF,
 		.strength_bits = 112,
 		.alg_bits = 168,
@@ -1299,57 +1299,6 @@ SSL_CIPHER ssl3_ciphers[] = {
 		.alg_bits = 256,
 	},
 
-	/* Cipher CC13 */
-	{
-		.valid = 1,
-		.name = TLS1_TXT_ECDHE_RSA_WITH_CHACHA20_POLY1305_OLD,
-		.id = TLS1_CK_ECDHE_RSA_CHACHA20_POLY1305_OLD,
-		.algorithm_mkey = SSL_kECDHE,
-		.algorithm_auth = SSL_aRSA,
-		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
-		.algorithm_mac = SSL_AEAD,
-		.algorithm_ssl = SSL_TLSV1_2,
-		.algo_strength = SSL_HIGH,
-		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
-		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(0),
-		.strength_bits = 256,
-		.alg_bits = 256,
-	},
-
-	/* Cipher CC14 */
-	{
-		.valid = 1,
-		.name = TLS1_TXT_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_OLD,
-		.id = TLS1_CK_ECDHE_ECDSA_CHACHA20_POLY1305_OLD,
-		.algorithm_mkey = SSL_kECDHE,
-		.algorithm_auth = SSL_aECDSA,
-		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
-		.algorithm_mac = SSL_AEAD,
-		.algorithm_ssl = SSL_TLSV1_2,
-		.algo_strength = SSL_HIGH,
-		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
-		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(0),
-		.strength_bits = 256,
-		.alg_bits = 256,
-	},
-
-	/* Cipher CC15 */
-	{
-		.valid = 1,
-		.name = TLS1_TXT_DHE_RSA_WITH_CHACHA20_POLY1305_OLD,
-		.id = TLS1_CK_DHE_RSA_CHACHA20_POLY1305_OLD,
-		.algorithm_mkey = SSL_kDHE,
-		.algorithm_auth = SSL_aRSA,
-		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
-		.algorithm_mac = SSL_AEAD,
-		.algorithm_ssl = SSL_TLSV1_2,
-		.algo_strength = SSL_HIGH,
-		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
-		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(0),
-		.strength_bits = 256,
-		.alg_bits = 256,
-	},
-
 	/* Cipher CCA8 */
 	{
 		.valid = 1,
@@ -1604,10 +1553,16 @@ ssl3_handshake_msg_finish_cbb(SSL *s, CBB *handshake)
 int
 ssl3_handshake_write(SSL *s)
 {
-	if (SSL_IS_DTLS(s))
-		return dtls1_do_write(s, SSL3_RT_HANDSHAKE);
+	return ssl3_record_write(s, SSL3_RT_HANDSHAKE);
+}
 
-	return ssl3_do_write(s, SSL3_RT_HANDSHAKE);
+int
+ssl3_record_write(SSL *s, int type)
+{
+	if (SSL_IS_DTLS(s))
+		return dtls1_do_write(s, type);
+
+	return ssl3_do_write(s, type);
 }
 
 int
@@ -1903,6 +1858,7 @@ _SSL_get_tlsext_status_exts(SSL *s, STACK_OF(X509_EXTENSION) **exts)
 static int
 _SSL_set_tlsext_status_exts(SSL *s, STACK_OF(X509_EXTENSION) *exts)
 {
+	/* XXX - leak... */
 	s->internal->tlsext_ocsp_exts = exts;
 	return 1;
 }
@@ -1917,6 +1873,7 @@ _SSL_get_tlsext_status_ids(SSL *s, STACK_OF(OCSP_RESPID) **ids)
 static int
 _SSL_set_tlsext_status_ids(SSL *s, STACK_OF(OCSP_RESPID) *ids)
 {
+	/* XXX - leak... */
 	s->internal->tlsext_ocsp_ids = ids;
 	return 1;
 }
@@ -2177,6 +2134,13 @@ _SSL_CTX_set_tlsext_ticket_keys(SSL_CTX *ctx, unsigned char *keys, int keys_len)
 }
 
 static int
+_SSL_CTX_get_tlsext_status_arg(SSL_CTX *ctx, void **arg)
+{
+	*arg = ctx->internal->tlsext_status_arg;
+	return 1;
+}
+
+static int
 _SSL_CTX_set_tlsext_status_arg(SSL_CTX *ctx, void *arg)
 {
 	ctx->internal->tlsext_status_arg = arg;
@@ -2258,6 +2222,9 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 	case SSL_CTRL_SET_TLSEXT_TICKET_KEYS:
 		return _SSL_CTX_set_tlsext_ticket_keys(ctx, parg, larg);
 
+	case SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB_ARG:
+		return _SSL_CTX_get_tlsext_status_arg(ctx, parg);
+
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB_ARG:
 		return _SSL_CTX_set_tlsext_status_arg(ctx, parg);
 
@@ -2322,6 +2289,10 @@ ssl3_ctx_callback_ctrl(SSL_CTX *ctx, int cmd, void (*fp)(void))
 		    (int (*)(SSL *, int *, void *))fp;
 		return 1;
 
+	case SSL_CTRL_GET_TLSEXT_STATUS_REQ_CB:
+		*(int (**)(SSL *, void *))fp = ctx->internal->tlsext_status_cb;
+		return 1;
+
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB:
 		ctx->internal->tlsext_status_cb = (int (*)(SSL *, void *))fp;
 		return 1;
@@ -2341,12 +2312,12 @@ ssl3_ctx_callback_ctrl(SSL_CTX *ctx, int cmd, void (*fp)(void))
 const SSL_CIPHER *
 ssl3_get_cipher_by_char(const unsigned char *p)
 {
-	CBS cipher;
 	uint16_t cipher_value;
+	CBS cbs;
 
 	/* We have to assume it is at least 2 bytes due to existing API. */
-	CBS_init(&cipher, p, 2);
-	if (!CBS_get_u16(&cipher, &cipher_value))
+	CBS_init(&cbs, p, 2);
+	if (!CBS_get_u16(&cbs, &cipher_value))
 		return NULL;
 
 	return ssl3_get_cipher_by_value(cipher_value);
@@ -2355,12 +2326,29 @@ ssl3_get_cipher_by_char(const unsigned char *p)
 int
 ssl3_put_cipher_by_char(const SSL_CIPHER *c, unsigned char *p)
 {
-	if (p != NULL) {
-		if ((c->id & ~SSL3_CK_VALUE_MASK) != SSL3_CK_ID)
-			return (0);
-		s2n(ssl3_cipher_get_value(c), p); 
-	}
+	CBB cbb;
+
+	if (p == NULL)
+		return (2);
+
+	if ((c->id & ~SSL3_CK_VALUE_MASK) != SSL3_CK_ID)
+		return (0);
+
+	memset(&cbb, 0, sizeof(cbb));
+
+	/* We have to assume it is at least 2 bytes due to existing API. */
+	if (!CBB_init_fixed(&cbb, p, 2))
+		goto err;
+	if (!CBB_add_u16(&cbb, ssl3_cipher_get_value(c)))
+		goto err;
+	if (!CBB_finish(&cbb, NULL, NULL))
+		goto err;
+
 	return (2);
+
+ err:
+	CBB_cleanup(&cbb);
+	return (0);
 }
 
 SSL_CIPHER *

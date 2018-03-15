@@ -1,4 +1,4 @@
-/*	$OpenBSD: aesni.c,v 1.41 2017/05/02 11:47:49 mikeb Exp $	*/
+/*	$OpenBSD: aesni.c,v 1.43 2018/02/23 15:41:08 visa Exp $	*/
 /*-
  * Copyright (c) 2003 Jason Wright
  * Copyright (c) 2003, 2004 Theo de Raadt
@@ -22,7 +22,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/queue.h>
-#include <sys/types.h>
 #include <sys/malloc.h>
 #include <sys/pool.h>
 #include <sys/mbuf.h>
@@ -251,10 +250,6 @@ aesni_newsession(u_int32_t *sidp, struct cryptoini *cri)
 				aesni_freesession(ses->ses_sid);
 				return (ENOMEM);
 			}
-
-			bzero(ses->ses_ghash->H, GMAC_BLOCK_LEN);
-			bzero(ses->ses_ghash->S, GMAC_BLOCK_LEN);
-			bzero(ses->ses_ghash->Z, GMAC_BLOCK_LEN);
 
 			/* prepare a hash subkey */
 			aesni_enc(ses, ses->ses_ghash->H, ses->ses_ghash->H);

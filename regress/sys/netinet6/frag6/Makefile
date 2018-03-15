@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.20 2017/07/07 23:15:27 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.23 2017/11/14 15:30:35 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -35,8 +35,8 @@ LOCAL_IF ?=	em1
 LOCAL_MAC ?=	00:1b:21:0e:6e:8e
 REMOTE_MAC ?=	00:04:23:b0:68:8e
 
-LOCAL_ADDR ?=	fdd7:e83e:66bc:81::21
-REMOTE_ADDR ?=	fdd7:e83e:66bc:81::22
+LOCAL_ADDR6 ?=	fdd7:e83e:66bc:81::21
+REMOTE_ADDR6 ?=	fdd7:e83e:66bc:81::22
 
 REMOTE_SSH ?=
 
@@ -90,7 +90,7 @@ stamp-pf: addr.py pf.conf
 	rm -f stamp-stack stamp-pf
 	cat addr.py ${.CURDIR}/pf.conf | pfctl -n -f -
 	cat addr.py ${.CURDIR}/pf.conf | \
-	    ssh ${IPS_SSH} ${SUDO} pfctl -a regress -f -
+	    ssh ${REMOTE_SSH} ${SUDO} pfctl -a regress -f -
 	-ssh ${REMOTE_SSH} ${SUDO} pfctl -e
 	date >$@
 
@@ -133,7 +133,13 @@ REGRESS_TARGETS +=	run-regress-${sp}-ping6 run-regress-${sp}-fragping6 \
 
 # After running the tests, turn on pf on remote machine.
 # This is the expected default configuration.
-REGRESS_TARGETS +=	stamp-pf
+
+cleanup-pf:
+	rm -f stamp-stack stamp-pf
+	ssh ${REMOTE_SSH} ${SUDO} pfctl -a regress -Fa
+	-ssh ${REMOTE_SSH} ${SUDO} pfctl -e || true
+
+REGRESS_TARGETS +=	cleanup-pf
 
 CLEANFILES +=		addr.py *.pyc *.log stamp-*
 
@@ -161,5 +167,8 @@ check-setup-remote:
 	ssh ${REMOTE_SSH} ping6 -n -c 1 ${LOCAL_ADDR6}  # LOCAL_ADDR6
 	ssh ${REMOTE_SSH} ndp -n ${LOCAL_ADDR6} |\
 	    grep -q ' ${LOCAL_MAC} '  # LOCAL_ADDR6 LOCAL_MAC
+	ssh ${REMOTE_SSH} route -n get -inet6 ${FAKE_NET_ADDR6} |\
+	    grep -q 'gateway: ${LOCAL_ADDR6}'  # FAKE_NET_ADDR6 LOCAL_ADDR6
+	ssh ${REMOTE_SSH} netstat -na -f inet6 -p udp | fgrep ' *.7 '
 
 .include <bsd.regress.mk>

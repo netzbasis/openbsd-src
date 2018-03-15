@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.h,v 1.8 2017/08/21 14:44:26 florian Exp $	*/
+/*	$OpenBSD: slaacd.h,v 1.12 2018/02/10 05:57:59 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -21,8 +21,7 @@
 #define	SLAACD_SOCKET		"/dev/slaacd.sock"
 #define SLAACD_USER		"_slaacd"
 
-#define OPT_VERBOSE	0x00000001
-#define OPT_VERBOSE2	0x00000002
+#define SLAACD_SOIIKEY_LEN	16
 
 /* MAXDNAME from arpa/namesr.h */
 #define SLAACD_MAX_DNSSL	1025
@@ -54,9 +53,13 @@ enum imsg_type {
 	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS,
 	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL,
 	IMSG_CTL_END,
+	IMSG_UPDATE_ADDRESS,
 #endif	/* SMALL */
 	IMSG_CTL_SEND_SOLICITATION,
 	IMSG_SOCKET_IPC,
+	IMSG_ICMP6SOCK,
+	IMSG_ROUTESOCK,
+	IMSG_CONTROLFD,
 	IMSG_STARTUP,
 	IMSG_UPDATE_IF,
 	IMSG_REMOVE_IF,
@@ -89,6 +92,7 @@ struct ctl_engine_info {
 	uint32_t		if_index;
 	int			running;
 	int			autoconfprivacy;
+	int			soii;
 	struct ether_addr	hw_address;
 	struct sockaddr_in6	ll_address;
 };
@@ -151,14 +155,27 @@ struct ctl_engine_info_dfr_proposal {
 	uint32_t		 router_lifetime;
 	char			 rpref[sizeof("MEDIUM")];
 };
+
+struct imsg_addrinfo {
+	uint32_t		if_index;
+	struct ether_addr	hw_address;
+	struct sockaddr_in6	ll_address;
+	struct sockaddr_in6	addr;
+	struct in6_addr		mask;
+	int			privacy;
+	uint32_t		vltime;
+	uint32_t		pltime;
+};
 #endif	/* SMALL */
 
 struct imsg_ifinfo {
 	uint32_t		if_index;
 	int			running;
 	int			autoconfprivacy;
+	int			soii;
 	struct ether_addr	hw_address;
 	struct sockaddr_in6	ll_address;
+	uint8_t			soiikey[SLAACD_SOIIKEY_LEN];
 };
 
 struct imsg_del_addr {
@@ -179,11 +196,7 @@ struct imsg_ra {
 	uint8_t			packet[1500];
 };
 
-extern uint32_t	 cmd_opts;
-
 /* slaacd.c */
-int		main_imsg_compose_frontend(int, pid_t, void *, uint16_t);
-int		main_imsg_compose_engine(int, pid_t, void *, uint16_t);
 void		imsg_event_add(struct imsgev *);
 int		imsg_compose_event(struct imsgev *, uint16_t, uint32_t, pid_t,
 		    int, void *, uint16_t);

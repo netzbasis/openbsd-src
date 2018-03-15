@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_vnops.c,v 1.77 2016/03/19 12:04:16 natano Exp $	*/
+/*	$OpenBSD: ext2fs_vnops.c,v 1.79 2018/01/08 16:15:34 millert Exp $	*/
 /*	$NetBSD: ext2fs_vnops.c,v 1.1 1997/06/11 09:34:09 bouyer Exp $	*/
 
 /*
@@ -43,7 +43,7 @@
 #include <sys/systm.h>
 #include <sys/resourcevar.h>
 #include <sys/kernel.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/proc.h>
 #include <sys/conf.h>
@@ -1292,7 +1292,7 @@ struct vops ext2fs_vops = {
         .vop_write      = ext2fs_write,
         .vop_ioctl      = ufs_ioctl,
         .vop_poll       = ufs_poll,
-        .vop_kqfilter   = vop_generic_kqfilter,
+        .vop_kqfilter   = ufs_kqfilter,
         .vop_fsync      = ext2fs_fsync,
         .vop_remove     = ext2fs_remove,
         .vop_link       = ext2fs_link,

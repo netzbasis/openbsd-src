@@ -1,6 +1,7 @@
-/*	$OpenBSD: drm_linux.h,v 1.62 2017/08/14 01:35:04 jsg Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.84 2018/02/19 08:59:52 mpi Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
+ * Copyright (c) 2017 Martin Pieuchot
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -49,6 +50,8 @@
 #pragma clang diagnostic ignored "-Wtautological-compare"
 #pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
 #pragma clang diagnostic ignored "-Wunused-const-variable"
+#else
+#pragma GCC diagnostic ignored "-Wformat-zero-length"
 #endif
 
 typedef int irqreturn_t;
@@ -89,6 +92,10 @@ typedef off_t loff_t;
 #define __init
 #define __exit
 
+#ifndef __user
+#define __user
+#endif
+
 #define __printf(x, y)
 
 #define barrier()		__asm __volatile("" : : : "memory");
@@ -103,10 +110,17 @@ typedef off_t loff_t;
 
 #define le16_to_cpu(x) letoh16(x)
 #define le32_to_cpu(x) letoh32(x)
+#define be16_to_cpu(x) betoh16(x)
+#define be32_to_cpu(x) betoh32(x)
+#define le16_to_cpup(x)	lemtoh16(x)
+#define le32_to_cpup(x)	lemtoh32(x)
+#define be16_to_cpup(x)	bemtoh16(x)
+#define be32_to_cpup(x)	bemtoh32(x)
+#define get_unaligned_le32(x)	lemtoh32(x)
 #define cpu_to_le16(x) htole16(x)
 #define cpu_to_le32(x) htole32(x)
-
-#define be32_to_cpup(x) betoh32(*x)
+#define cpu_to_be16(x) htobe16(x)
+#define cpu_to_be32(x) htobe32(x)
 
 static inline uint8_t
 hweight8(uint32_t x)
@@ -271,6 +285,8 @@ struct module;
 #define module_param_named(name, value, type, perm)
 #define module_param_named_unsafe(name, value, type, perm)
 #define module_param_unsafe(name, type, perm)
+#define module_init(x)
+#define module_exit(x)
 
 #define THIS_MODULE	NULL
 
@@ -279,7 +295,6 @@ struct module;
 #define ERESTARTSYS	EINTR
 #define ETIME		ETIMEDOUT
 #define EREMOTEIO	EIO
-#define EPROTO		EIO
 #define ENOTSUPP	ENOTSUP
 #define ENODATA		ENOTSUP
 #define ECHRNG		EINVAL
@@ -479,7 +494,7 @@ PTR_ERR_OR_ZERO(const void *ptr)
 	do { __typeof(a) __tmp = (a); (a) = (b); (b) = __tmp; } while(0)
 
 #define container_of(ptr, type, member) ({                      \
-	__typeof( ((type *)0)->member ) *__mptr = (ptr);        \
+	const __typeof( ((type *)0)->member ) *__mptr = (ptr);        \
 	(type *)( (char *)__mptr - offsetof(type,member) );})
 
 #ifndef __DECONST
@@ -520,7 +535,9 @@ _spin_unlock_irqrestore(struct mutex *mtxp, __unused unsigned long flags
 #define mutex_trylock(rwl)		(rw_enter(rwl, RW_WRITE | RW_NOSLEEP) == 0)
 #define mutex_unlock(rwl)		rw_exit_write(rwl)
 #define mutex_is_locked(rwl)		(rw_status(rwl) == RW_WRITE)
+#define mutex_destroy(rwl)
 #define down_read(rwl)			rw_enter_read(rwl)
+#define down_read_trylock(rwl)		(rw_enter(rwl, RW_READ | RW_NOSLEEP) == 0)
 #define up_read(rwl)			rw_exit_read(rwl)
 #define down_write(rwl)			rw_enter_write(rwl)
 #define up_write(rwl)			rw_exit_write(rwl)
@@ -553,93 +570,84 @@ typedef struct wait_queue_head wait_queue_head_t;
 static inline void
 init_waitqueue_head(wait_queue_head_t *wq)
 {
-	mtx_init(&wq->lock, IPL_NONE);
+	mtx_init(&wq->lock, IPL_TTY);
 	wq->count = 0;
 }
 
-#define wait_event(wq, condition) \
-do {						\
-	struct sleep_state sls;			\
-						\
-	KASSERT(!cold);				\
-	if (condition)				\
-		break;				\
-	atomic_inc_int(&(wq).count);		\
-	sleep_setup(&sls, &wq, 0, "drmwe");	\
-	sleep_finish(&sls, !(condition));	\
-	atomic_dec_int(&(wq).count);		\
-} while (!(condition))
+#define __wait_event_intr_timeout(wq, condition, timo, prio)		\
+({									\
+	long ret = timo;						\
+	mtx_enter(&(wq).lock);						\
+	do {								\
+		int deadline, __error;					\
+									\
+		KASSERT(!cold);						\
+		atomic_inc_int(&(wq).count);				\
+		deadline = ticks + ret;					\
+		__error = msleep(&wq, &(wq).lock, prio, "drmweti", ret); \
+		ret = deadline - ticks;					\
+		atomic_dec_int(&(wq).count);				\
+		if (__error == ERESTART || __error == EINTR) {		\
+			ret = -ERESTARTSYS;				\
+			break;						\
+		}							\
+		if (timo && (ret <= 0 || __error == EWOULDBLOCK)) { 	\
+			ret = ((condition)) ? 1 : 0;			\
+			break;						\
+ 		}							\
+	} while (ret > 0 && !(condition));				\
+	mtx_leave(&(wq).lock);						\
+	ret;								\
+})
 
-#define __wait_event_timeout(wq, condition, ret) \
+/*
+ * Sleep until `condition' gets true.
+ */
+#define wait_event(wq, condition) 		\
 do {						\
-	struct sleep_state sls;			\
-	int deadline, __error;			\
-						\
-	KASSERT(!cold);				\
-	atomic_inc_int(&(wq).count);		\
-	sleep_setup(&sls, &wq, 0, "drmwet");	\
-	sleep_setup_timeout(&sls, ret);		\
-	deadline = ticks + ret;			\
-	sleep_finish(&sls, !(condition));	\
-	ret = deadline - ticks;			\
-	__error = sleep_finish_timeout(&sls);	\
-	atomic_dec_int(&(wq).count);		\
-	if (ret < 0 || __error == EWOULDBLOCK)	\
-		ret = 0;			\
-	if (ret == 0 && (condition)) {		\
-		ret = 1;			\
-		break;				\
-	}					\
-} while (ret > 0 && !(condition))
+	if (!(condition))			\
+		__wait_event_intr_timeout(wq, condition, 0, 0); \
+} while (0)
 
+/*
+ * Sleep until `condition' gets true or `timo' expires.
+ *
+ * Returns 0 if `condition' is still false when `timo' expires or
+ * the remaining (>=1) ticks otherwise.
+ */
 #define wait_event_timeout(wq, condition, timo)	\
 ({						\
 	long __ret = timo;			\
 	if (!(condition))			\
-		__wait_event_timeout(wq, condition, __ret); \
+		__ret = __wait_event_intr_timeout(wq, condition, timo, 0); \
 	__ret;					\
 })
 
-#define __wait_event_interruptible_timeout(wq, condition, ret) \
-do {						\
-	struct sleep_state sls;			\
-	int deadline, __error, __error1;	\
-						\
-	KASSERT(!cold);				\
-	atomic_inc_int(&(wq).count);		\
-	sleep_setup(&sls, &wq, PCATCH, "drmweti"); \
-	sleep_setup_timeout(&sls, ret);		\
-	sleep_setup_signal(&sls, PCATCH);	\
-	deadline = ticks + ret;			\
-	sleep_finish(&sls, !(condition));	\
-	ret = deadline - ticks;			\
-	__error1 = sleep_finish_timeout(&sls);	\
-	__error = sleep_finish_signal(&sls);	\
-	atomic_dec_int(&(wq).count);		\
-	if (ret < 0 || __error1 == EWOULDBLOCK)	\
-		ret = 0;			\
-	if (__error == ERESTART)		\
-		ret = -ERESTARTSYS;		\
-	else if (__error)			\
-		ret = -__error;			\
-	if (ret == 0 && (condition)) {		\
-		ret = 1;			\
-		break;				\
-	}					\
-} while (ret > 0 && !(condition))
-
+/*
+ * Sleep until `condition' gets true, `timo' expires or the process
+ * receives a signal.
+ *
+ * Returns -ERESTARTSYS if interrupted by a signal.
+ * Returns 0 if `condition' is still false when `timo' expires or
+ * the remaining (>=1) ticks otherwise.
+ */
 #define wait_event_interruptible_timeout(wq, condition, timo) \
 ({						\
 	long __ret = timo;			\
 	if (!(condition))			\
-		__wait_event_interruptible_timeout(wq, condition, __ret); \
+		__ret = __wait_event_intr_timeout(wq, condition, timo, PCATCH);\
 	__ret;					\
 })
 
-#define wake_up(x)			wakeup(x)
-#define wake_up_all(x)			wakeup(x)
-#define wake_up_all_locked(x)		wakeup(x)
-#define wake_up_interruptible(x)	wakeup(x)
+#define wake_up(wq)				\
+do {						\
+	mtx_enter(&(wq)->lock);			\
+	wakeup(wq);				\
+	mtx_leave(&(wq)->lock);			\
+} while (0)
+#define wake_up_all(wq)			wake_up(wq)
+#define wake_up_all_locked(wq)		wakeup(wq)
+#define wake_up_interruptible(wq)	wake_up(wq)
 
 #define waitqueue_active(wq)		((wq)->count > 0)
 
@@ -699,6 +707,13 @@ alloc_ordered_workqueue(const char *name, int flags)
 	return (struct workqueue_struct *)tq;
 }
 
+static inline struct workqueue_struct *
+create_singlethread_workqueue(const char *name)
+{
+	struct taskq *tq = taskq_create(name, 1, IPL_TTY, 0);
+	return (struct workqueue_struct *)tq;
+}
+
 static inline void
 destroy_workqueue(struct workqueue_struct *wq)
 {
@@ -739,6 +754,8 @@ struct delayed_work {
 	struct timeout to;
 	struct taskq *tq;
 };
+
+#define system_power_efficient_wq ((struct workqueue_struct *)systq)
 
 static inline struct delayed_work *
 to_delayed_work(struct work_struct *work)
@@ -833,6 +850,7 @@ typedef void *async_cookie_t;
 #define TASK_INTERRUPTIBLE	PCATCH
 
 #define signal_pending_state(x, y) CURSIG(curproc)
+#define signal_pending(y) CURSIG(curproc)
 
 #define NSEC_PER_USEC	1000L
 #define NSEC_PER_MSEC	1000000L
@@ -994,6 +1012,7 @@ ktime_us_delta(struct timeval a, struct timeval b)
 #define GFP_ATOMIC	M_NOWAIT
 #define GFP_NOWAIT	M_NOWAIT
 #define GFP_KERNEL	(M_WAITOK | M_CANFAIL)
+#define GFP_USER	(M_WAITOK | M_CANFAIL)
 #define GFP_TEMPORARY	(M_WAITOK | M_CANFAIL)
 #define GFP_HIGHUSER	0
 #define GFP_DMA32	0
@@ -1063,6 +1082,12 @@ kasprintf(int flags, const char *fmt, ...)
 	}
 
 	return buf;
+}
+
+static inline void *
+vmalloc(unsigned long size)
+{
+	return malloc(size, M_DRM, M_WAITOK | M_CANFAIL);
 }
 
 static inline void *
@@ -1187,6 +1212,35 @@ kobject_del(struct kobject *obj)
 {
 }
 
+#define	DEFINE_WAIT(wait)		wait_queue_head_t *wait = NULL
+
+static inline void
+prepare_to_wait(wait_queue_head_t *wq, wait_queue_head_t **wait, int state)
+{
+	if (*wait == NULL) {
+		mtx_enter(&wq->lock);
+		*wait = wq;
+	}
+}
+
+static inline void
+finish_wait(wait_queue_head_t *wq, wait_queue_head_t **wait)
+{
+	if (*wait)
+		mtx_leave(&wq->lock);
+}
+
+static inline long
+schedule_timeout(long timeout, wait_queue_head_t **wait)
+{
+	if (cold) {
+		delay((timeout * 1000000) / hz);
+		return -ETIMEDOUT;
+	}
+
+	return -msleep(*wait, &(*wait)->lock, PZERO, "schto", timeout);
+}
+
 struct idr_entry {
 	SPLAY_ENTRY(idr_entry) entry;
 	int id;
@@ -1284,6 +1338,7 @@ div64_s64(int64_t x, int64_t y)
 }
 
 #define mult_frac(x, n, d) (((x) * (n)) / (d))
+#define order_base_2(x) drm_order(x)
 
 static inline int64_t
 abs64(int64_t x)
@@ -1370,6 +1425,7 @@ struct dmi_system_id {
 #define	DMI_MATCH(a, b) {(a), (b)}
 #define	DMI_EXACT_MATCH(a, b) {(a), (b)}
 int dmi_check_system(const struct dmi_system_id *);
+bool dmi_match(int, const char *);
 
 struct resource {
 	u_long	start;
@@ -1378,6 +1434,7 @@ struct resource {
 struct pci_bus {
 	pci_chipset_tag_t pc;
 	unsigned char	number;
+	pcitag_t	*bridgetag;
 };
 
 struct pci_dev {
@@ -1400,6 +1457,7 @@ struct pci_dev {
 };
 #define PCI_ANY_ID (uint16_t) (~0U)
 
+#define PCI_VENDOR_ID_APPLE	PCI_VENDOR_APPLE
 #define PCI_VENDOR_ID_ASUSTEK	PCI_VENDOR_ASUSTEK
 #define PCI_VENDOR_ID_ATI	PCI_VENDOR_ATI
 #define PCI_VENDOR_ID_DELL	PCI_VENDOR_DELL
@@ -1417,6 +1475,13 @@ struct pci_dev {
 
 #define pci_dev_put(x)
 
+#define PCI_EXP_DEVSTA		0x0a
+#define PCI_EXP_DEVSTA_TRPND	0x0020
+#define PCI_EXP_LNKCAP		0x0c
+#define PCI_EXP_LNKCAP_CLKPM	0x00040000
+#define PCI_EXP_LNKCTL		0x10
+#define PCI_EXP_LNKCTL_HAWD	0x0200
+#define PCI_EXP_LNKCTL2		0x30
 
 static inline int
 pci_read_config_dword(struct pci_dev *pdev, int reg, u32 *val)
@@ -1502,7 +1567,40 @@ pci_bus_read_config_byte(struct pci_bus *bus, unsigned int devfn,
 	return 0;
 }
 
+static inline int
+pci_pcie_cap(struct pci_dev *pdev)
+{
+	int pos;
+	if (!pci_get_capability(pdev->pc, pdev->tag, PCI_CAP_PCIEXPRESS,
+	    &pos, NULL))
+		return -EINVAL;
+	return pos;
+}
+
+static inline bool
+pci_is_root_bus(struct pci_bus *pbus)
+{
+	return (pbus->bridgetag == NULL);
+}
+
+static inline int
+pcie_capability_read_dword(struct pci_dev *pdev, int off, u32 *val)
+{
+	int pos;
+	if (!pci_get_capability(pdev->pc, pdev->tag, PCI_CAP_PCIEXPRESS,
+	    &pos, NULL)) {
+		*val = 0;
+		return -EINVAL;
+	}
+	*val = pci_conf_read(pdev->pc, pdev->tag, pos + off);
+	return 0;
+}
+
 #define pci_set_master(x)
+#define pci_clear_master(x)
+
+#define pci_save_state(x)
+#define pci_restore_state(x)
 
 #define pci_enable_msi(x)
 #define pci_disable_msi(x)
@@ -1518,6 +1616,7 @@ typedef enum {
 #define pci_save_state(x)
 #define pci_enable_device(x)	0
 #define pci_disable_device(x)
+#define pci_set_power_state(d, s)
 
 static inline int
 vga_client_register(struct pci_dev *a, void *b, void *c, void *d)
@@ -1556,11 +1655,12 @@ pci_dma_mapping_error(struct pci_dev *pdev, dma_addr_t dma_addr)
 void vga_get_uninterruptible(struct pci_dev *, int);
 void vga_put(struct pci_dev *, int);
 
+#endif
+
 #define vga_switcheroo_register_client(a, b, c)	0
 #define vga_switcheroo_unregister_client(a)
 #define vga_switcheroo_process_delayed_switch()
-
-#endif
+#define vga_switcheroo_fini_domain_pm_ops(x)
 
 struct i2c_algorithm;
 
@@ -1594,8 +1694,14 @@ struct i2c_msg {
 #define I2C_M_NOSTART	0x0002
 
 struct i2c_algorithm {
-	u32 (*functionality)(struct i2c_adapter *);
 	int (*master_xfer)(struct i2c_adapter *, struct i2c_msg *, int);
+	u32 (*functionality)(struct i2c_adapter *);
+};
+
+extern struct i2c_algorithm i2c_bit_algo;
+
+struct i2c_algo_bit_data {
+	struct i2c_controller ic;
 };
 
 int i2c_transfer(struct i2c_adapter *, struct i2c_msg *, int);
@@ -1613,6 +1719,8 @@ i2c_set_adapdata(struct i2c_adapter *adap, void *data)
 {
 	adap->data = data;
 }
+
+int i2c_bit_add_bus(struct i2c_adapter *);
 
 #define memcpy_toio(d, s, n)	memcpy(d, s, n)
 #define memcpy_fromio(d, s, n)	memcpy(d, s, n)
@@ -1636,9 +1744,16 @@ iowrite32(u32 val, volatile void __iomem *addr)
 	*(volatile uint32_t *)addr = val;
 }
 
+static inline void
+iowrite64(u64 val, volatile void __iomem *addr)
+{
+	*(volatile uint64_t *)addr = val;
+}
+
 #define readl(p) ioread32(p)
 #define writel(v, p) iowrite32(v, p)
 #define readq(p) ioread64(p)
+#define writeq(v, p) iowrite64(v, p)
 
 #define page_to_phys(page)	(VM_PAGE_TO_PHYS(page))
 #define page_to_pfn(pp)		(VM_PAGE_TO_PHYS(pp) / PAGE_SIZE)
@@ -1658,7 +1773,7 @@ static inline int
 capable(int cap)
 {
 	KASSERT(cap == CAP_SYS_ADMIN);
-	return suser(curproc, 0);
+	return suser(curproc);
 }
 
 typedef int pgprot_t;
@@ -1677,6 +1792,26 @@ void	 vunmap(void *, size_t);
 #define DIV_ROUND_UP_ULL(x, y)	DIV_ROUND_UP(x, y)
 #define DIV_ROUND_CLOSEST(x, y)	(((x) + ((y) / 2)) / (y))
 #define DIV_ROUND_CLOSEST_ULL(x, y)	DIV_ROUND_CLOSEST(x, y)
+
+/*
+ * Compute the greatest common divisor of a and b.
+ * from libc getopt_long.c
+ */
+static inline unsigned long
+gcd(unsigned long a, unsigned long b)
+{
+	unsigned long c;
+
+	c = a % b;
+	while (c != 0) {
+		a = b;
+		b = c;
+		c = a % b;
+	}
+
+	return (b);
+}
+
 
 static inline unsigned long
 roundup_pow_of_two(unsigned long x)
@@ -1760,6 +1895,18 @@ power_supply_is_system_supplied(void)
 
 #define pm_qos_update_request(x, y)
 #define pm_qos_remove_request(x)
+#define pm_runtime_mark_last_busy(x)
+#define pm_runtime_use_autosuspend(x)
+#define pm_runtime_put_autosuspend(x)
+#define pm_runtime_set_autosuspend_delay(x, y)
+#define pm_runtime_set_active(x)
+#define pm_runtime_allow(x)
+
+static inline int
+pm_runtime_get_sync(struct device *dev)
+{
+	return 0;
+}
 
 #define _U      0x01
 #define _L      0x02
@@ -1817,6 +1964,8 @@ get_order(size_t size)
 {
 	return flsl((size - 1) >> PAGE_SHIFT);
 }
+
+#define ilog2(x) ((sizeof(x) <= 4) ? (fls(x) - 1) : (flsl(x) - 1))
 
 #if defined(__i386__) || defined(__amd64__)
 
@@ -2146,6 +2295,7 @@ size_t sg_copy_from_buffer(struct scatterlist *, unsigned int,
     const void *, size_t);
 
 struct firmware {
+	size_t size;
 	const u8 *data;
 };
 
@@ -2153,7 +2303,14 @@ static inline int
 request_firmware(const struct firmware **fw, const char *name,
     struct device *device)
 {
-	return -EINVAL;
+	int r;
+	struct firmware *f = malloc(sizeof(struct firmware), M_DRM, M_WAITOK);
+	*fw = f;
+	r = loadfirmware(name, __DECONST(u_char **, &f->data), &f->size);
+	if (r != 0)
+		return -r;
+	else
+		return 0;
 }
 
 #define request_firmware_nowait(a, b, c, d, e, f, g) -EINVAL
@@ -2161,6 +2318,8 @@ request_firmware(const struct firmware **fw, const char *name,
 static inline void
 release_firmware(const struct firmware *fw)
 {
+	free(__DECONST(u_char *, fw->data), M_DRM, fw->size);
+	free(__DECONST(struct firmware *, fw), M_DRM, sizeof(*fw));
 }
 
 void *memchr_inv(const void *, int, size_t);

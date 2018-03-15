@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.248 2017/08/11 21:24:19 mpi Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.262 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -70,6 +70,7 @@
 #include <sys/socketvar.h>
 #include <sys/domain.h>
 #include <sys/protosw.h>
+#include <sys/srp.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -94,7 +95,6 @@
 #include <sys/kernel.h>
 #include <sys/timeout.h>
 
-struct sockaddr		route_dst = { 2, PF_ROUTE, };
 struct sockaddr		route_src = { 2, PF_ROUTE, };
 
 struct walkarg {
@@ -103,6 +103,8 @@ struct walkarg {
 };
 
 void	route_prinit(void);
+void	route_ref(void *, void *);
+void	route_unref(void *, void *);
 int	route_output(struct mbuf *, struct socket *, struct sockaddr *,
 	    struct mbuf *);
 int	route_ctloutput(int, struct socket *, int, int, struct mbuf *);
@@ -133,20 +135,21 @@ int		 sysctl_rtable_rtstat(void *, size_t *, void *);
 
 struct routecb {
 	struct rawcb		rcb;
-	LIST_ENTRY(routecb)	rcb_list;
+	SRPL_ENTRY(routecb)	rcb_list;
+	struct refcnt		refcnt;
 	struct timeout		timeout;
 	unsigned int		msgfilter;
 	unsigned int		flags;
 	u_int			rtableid;
+	u_char			priority;
 };
 #define	sotoroutecb(so)	((struct routecb *)(so)->so_pcb)
 
 struct route_cb {
-	LIST_HEAD(, routecb)	rcb;
-	int			ip_count;
-	int			ip6_count;
-	int			mpls_count;
-	int			any_count;
+	SRPL_HEAD(, routecb)	rcb;
+	struct srpl_rc		rcb_rc;
+	struct rwlock		rcb_lk;
+	unsigned int		any_count;
 };
 
 struct route_cb route_cb;
@@ -165,17 +168,35 @@ struct route_cb route_cb;
 void
 route_prinit(void)
 {
-	LIST_INIT(&route_cb.rcb);
+	srpl_rc_init(&route_cb.rcb_rc, route_ref, route_unref, NULL);
+	rw_init(&route_cb.rcb_lk, "rtsock");
+	SRPL_INIT(&route_cb.rcb);
 }
 
+void
+route_ref(void *null, void *v)
+{
+	struct routecb *rop = v;
+
+	refcnt_take(&rop->refcnt);
+}
+
+void
+route_unref(void *null, void *v)
+{
+	struct routecb *rop = v;
+
+	refcnt_rele_wake(&rop->refcnt);
+}
 
 int
 route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
 	struct routecb	*rop;
-	int		 af;
 	int		 error = 0;
+
+	soassertlocked(so);
 
 	rop = sotoroutecb(so);
 	if (rop == NULL) {
@@ -196,20 +217,6 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			rop->flags &= ~ROUTECB_FLAG_FLUSH;
 		break;
 
-	case PRU_DETACH:
-		timeout_del(&rop->timeout);
-		af = rop->rcb.rcb_proto.sp_protocol;
-		if (af == AF_INET)
-			route_cb.ip_count--;
-		else if (af == AF_INET6)
-			route_cb.ip6_count--;
-#ifdef MPLS
-		else if (af == AF_MPLS)
-			route_cb.mpls_count--;
-#endif
-		route_cb.any_count--;
-		LIST_REMOVE(rop, rcb_list);
-		/* FALLTHROUGH */
 	default:
 		error = raw_usrreq(so, req, m, nam, control, p);
 	}
@@ -231,39 +238,67 @@ route_attach(struct socket *so, int proto)
 	 */
 	rop = malloc(sizeof(struct routecb), M_PCB, M_WAITOK|M_ZERO);
 	rp = &rop->rcb;
-	so->so_pcb = rp;
+	so->so_pcb = rop;
 	/* Init the timeout structure */
-	timeout_set(&rop->timeout, route_senddesync, rp);
+	timeout_set(&rop->timeout, route_senddesync, rop);
+	refcnt_init(&rop->refcnt);
 
 	if (curproc == NULL)
 		error = EACCES;
 	else
-		error = raw_attach(so, proto);
+		error = soreserve(so, RAWSNDQ, RAWRCVQ);
 	if (error) {
 		free(rop, M_PCB, sizeof(struct routecb));
 		return (error);
 	}
+
+	rp->rcb_socket = so;
+	rp->rcb_proto.sp_family = so->so_proto->pr_domain->dom_family;
+	rp->rcb_proto.sp_protocol = proto;
+
 	rop->rtableid = curproc->p_p->ps_rtableid;
-	switch (rp->rcb_proto.sp_protocol) {
-	case AF_INET:
-		route_cb.ip_count++;
-		break;
-	case AF_INET6:
-		route_cb.ip6_count++;
-		break;
-#ifdef MPLS
-	case AF_MPLS:
-		route_cb.mpls_count++;
-		break;
-#endif
-	}
 
 	soisconnected(so);
 	so->so_options |= SO_USELOOPBACK;
 
 	rp->rcb_faddr = &route_src;
+
+	rw_enter(&route_cb.rcb_lk, RW_WRITE);
+
+	SRPL_INSERT_HEAD_LOCKED(&route_cb.rcb_rc, &route_cb.rcb, rop, rcb_list);
 	route_cb.any_count++;
-	LIST_INSERT_HEAD(&route_cb.rcb, rop, rcb_list);
+
+	rw_exit(&route_cb.rcb_lk);
+
+	return (0);
+}
+
+int
+route_detach(struct socket *so)
+{
+	struct routecb	*rop;
+
+	soassertlocked(so);
+
+	rop = sotoroutecb(so);
+	if (rop == NULL)
+		return (EINVAL);
+
+	rw_enter(&route_cb.rcb_lk, RW_WRITE);
+
+	timeout_del(&rop->timeout);
+	route_cb.any_count--;
+
+	SRPL_REMOVE_LOCKED(&route_cb.rcb_rc, &route_cb.rcb,
+	    rop, routecb, rcb_list);
+
+	rw_exit(&route_cb.rcb_lk);
+	/* wait for all references to drop */
+	refcnt_finalize(&rop->refcnt, "rtsockrefs");
+
+	so->so_pcb = NULL;
+	sofree(so);
+	free(rop, M_PCB, sizeof(struct routecb));
 
 	return (0);
 }
@@ -274,14 +309,10 @@ route_ctloutput(int op, struct socket *so, int level, int optname,
 {
 	struct routecb *rop = sotoroutecb(so);
 	int error = 0;
-	unsigned int tid;
+	unsigned int tid, prio;
 
-	if (level != AF_ROUTE) {
-		error = EINVAL;
-		if (op == PRCO_SETOPT && m)
-			m_free(m);
-		return (error);
-	}
+	if (level != AF_ROUTE)
+		return (EINVAL);
 
 	switch (op) {
 	case PRCO_SETOPT:
@@ -303,11 +334,21 @@ route_ctloutput(int op, struct socket *so, int level, int optname,
 			else
 				rop->rtableid = tid;
 			break;
+		case ROUTE_PRIOFILTER:
+			if (m == NULL || m->m_len != sizeof(unsigned int)) {
+				error = EINVAL;
+				break;
+			}
+			prio = *mtod(m, unsigned int *);
+			if (prio > RTP_MAX)
+				error = EINVAL;
+			else
+				rop->priority = prio;
+			break;
 		default:
 			error = ENOPROTOOPT;
 			break;
 		}
-		m_free(m);
 		break;
 	case PRCO_GETOPT:
 		switch (optname) {
@@ -318,6 +359,10 @@ route_ctloutput(int op, struct socket *so, int level, int optname,
 		case ROUTE_TABLEFILTER:
 			m->m_len = sizeof(unsigned int);
 			*mtod(m, unsigned int *) = rop->rtableid;
+			break;
+		case ROUTE_PRIOFILTER:
+			m->m_len = sizeof(unsigned int);
+			*mtod(m, unsigned int *) = rop->priority;
 			break;
 		default:
 			error = ENOPROTOOPT;
@@ -330,12 +375,10 @@ route_ctloutput(int op, struct socket *so, int level, int optname,
 void
 route_senddesync(void *data)
 {
-	struct rawcb	*rp;
 	struct routecb	*rop;
 	struct mbuf	*desync_mbuf;
 
-	rp = (struct rawcb *)data;
-	rop = (struct routecb *)rp;
+	rop = (struct routecb *)data;
 
 	/* If we are in a DESYNC state, try to send a RTM_DESYNC packet */
 	if ((rop->flags & ROUTECB_FLAG_DESYNC) == 0)
@@ -347,11 +390,11 @@ route_senddesync(void *data)
 	 */
 	desync_mbuf = rtm_msg1(RTM_DESYNC, NULL);
 	if (desync_mbuf != NULL) {
-		struct socket *so = rp->rcb_socket;
+		struct socket *so = rop->rcb.rcb_socket;
 		if (sbappendaddr(so, &so->so_rcv, &route_src,
 		    desync_mbuf, NULL) != 0) {
 			rop->flags &= ~ROUTECB_FLAG_DESYNC;
-			sorwakeup(rp->rcb_socket);
+			sorwakeup(rop->rcb.rcb_socket);
 			return;
 		}
 		m_freem(desync_mbuf);
@@ -363,18 +406,14 @@ route_senddesync(void *data)
 void
 route_input(struct mbuf *m0, struct socket *so, sa_family_t sa_family)
 {
-	struct rawcb *rp;
 	struct routecb *rop;
+	struct rawcb *rp;
 	struct rt_msghdr *rtm;
 	struct mbuf *m = m0;
-	int sockets = 0;
 	struct socket *last = NULL;
-	struct sockaddr *sosrc, *sodst;
+	struct srp_ref sr;
 
 	KERNEL_ASSERT_LOCKED();
-
-	sosrc = &route_src;
-	sodst = &route_dst;
 
 	/* ensure that we can access the rtm_type via mtod() */
 	if (m->m_len < offsetof(struct rt_msghdr, rtm_type) + 1) {
@@ -382,7 +421,7 @@ route_input(struct mbuf *m0, struct socket *so, sa_family_t sa_family)
 		return;
 	}
 
-	LIST_FOREACH(rop, &route_cb.rcb, rcb_list) {
+	SRPL_FOREACH(rop, &sr, &route_cb.rcb, rcb_list) {
 		rp = &rop->rcb;
 		if (!(rp->rcb_socket->so_state & SS_ISCONNECTED))
 			continue;
@@ -407,6 +446,8 @@ route_input(struct mbuf *m0, struct socket *so, sa_family_t sa_family)
 		/* but RTM_DESYNC can't be filtered */
 		if (rtm->rtm_type != RTM_DESYNC && rop->msgfilter != 0 &&
 		    !(rop->msgfilter & (1 << rtm->rtm_type)))
+			continue;
+		if (rop->priority != 0 && rop->priority < rtm->rtm_priority)
 			continue;
 		switch (rtm->rtm_type) {
 		case RTM_IFANNOUNCE:
@@ -441,8 +482,8 @@ route_input(struct mbuf *m0, struct socket *so, sa_family_t sa_family)
 			struct mbuf *n;
 			if ((n = m_copym(m, 0, M_COPYALL, M_NOWAIT)) != NULL) {
 				if (sbspace(last, &last->so_rcv) < (2*MSIZE) ||
-				    sbappendaddr(last, &last->so_rcv, sosrc,
-				    n, (struct mbuf *)NULL) == 0) {
+				    sbappendaddr(last, &last->so_rcv,
+				    &route_src, n, (struct mbuf *)NULL) == 0) {
 					/*
 					 * Flag socket as desync'ed and
 					 * flush required
@@ -450,31 +491,35 @@ route_input(struct mbuf *m0, struct socket *so, sa_family_t sa_family)
 					sotoroutecb(last)->flags |=
 					    ROUTECB_FLAG_DESYNC |
 					    ROUTECB_FLAG_FLUSH;
-					route_senddesync(sotorawcb(last));
+					route_senddesync(sotoroutecb(last));
 					m_freem(n);
 				} else {
 					sorwakeup(last);
-					sockets++;
 				}
 			}
+			refcnt_rele_wake(&sotoroutecb(last)->refcnt);
 		}
-		last = rp->rcb_socket;
+		/* keep a reference for last */
+		refcnt_take(&rop->refcnt);
+		last = rop->rcb.rcb_socket;
 	}
 	if (last) {
 		if (sbspace(last, &last->so_rcv) < (2 * MSIZE) ||
-		    sbappendaddr(last, &last->so_rcv, sosrc,
+		    sbappendaddr(last, &last->so_rcv, &route_src,
 		    m, (struct mbuf *)NULL) == 0) {
 			/* Flag socket as desync'ed and flush required */
 			sotoroutecb(last)->flags |=
 			    ROUTECB_FLAG_DESYNC | ROUTECB_FLAG_FLUSH;
-			route_senddesync(sotorawcb(last));
+			route_senddesync(sotoroutecb(last));
 			m_freem(m);
 		} else {
 			sorwakeup(last);
-			sockets++;
 		}
+		refcnt_rele_wake(&sotoroutecb(last)->refcnt);
 	} else
 		m_freem(m);
+
+	SRPL_LEAVE(&sr);
 }
 
 struct rt_msghdr *
@@ -611,7 +656,7 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 	 * Verify that the caller has the appropriate privilege; RTM_GET
 	 * is the only operation the non-superuser is allowed.
 	 */
-	if (rtm->rtm_type != RTM_GET && suser(curproc, 0) != 0) {
+	if (rtm->rtm_type != RTM_GET && suser(curproc) != 0) {
 		error = EACCES;
 		goto fail;
 	}
@@ -676,26 +721,21 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 	}
 
 	/*
-	 * Do not use goto flush before this point since the message itself
-	 * may be not consistent and could cause unexpected behaviour in other
-	 * userland clients. Use goto fail instead.
-	 */
-
-	/*
 	 * Validate RTM_PROPOSAL and pass it along or error out.
 	 */
 	if (rtm->rtm_type == RTM_PROPOSAL) {
-	       if (rtm_validate_proposal(&info) == -1) {
+		if (rtm_validate_proposal(&info) == -1) {
 			error = EINVAL;
 			goto fail;
-	       }
+		}
 	} else {
 		error = rtm_output(rtm, &rt, &info, prio, tableid);
 		if (!error) {
 			type = rtm->rtm_type;
 			seq = rtm->rtm_seq;
-			free(rtm, M_RTABLE, 0);
+			free(rtm, M_RTABLE, len);
 			rtm = rtm_report(rt, type, seq, tableid);
+			len = rtm->rtm_msglen;
 		}
 	}
 
@@ -713,18 +753,18 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 		if (route_cb.any_count <= 1) {
 			/* no other listener and no loopback of messages */
 fail:
-			free(rtm, M_RTABLE, 0);
+			free(rtm, M_RTABLE, len);
 			m_freem(m);
 			return (error);
 		}
 	}
 	if (rtm) {
-		if (m_copyback(m, 0, rtm->rtm_msglen, rtm, M_NOWAIT)) {
+		if (m_copyback(m, 0, len, rtm, M_NOWAIT)) {
 			m_freem(m);
 			m = NULL;
-		} else if (m->m_pkthdr.len > rtm->rtm_msglen)
-			m_adj(m, rtm->rtm_msglen - m->m_pkthdr.len);
-		free(rtm, M_RTABLE, 0);
+		} else if (m->m_pkthdr.len > len)
+			m_adj(m, len - m->m_pkthdr.len);
+		free(rtm, M_RTABLE, len);
 	}
 	if (m)
 		route_input(m, so, info.rti_info[RTAX_DST] ?
@@ -879,7 +919,7 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 		 */
 		plen = rtable_satoplen(info->rti_info[RTAX_DST]->sa_family,
 		    info->rti_info[RTAX_NETMASK]);
-		if (rt_plen(rt) != plen ) {
+		if (rt_plen(rt) != plen) {
 			error = ESRCH;
 			break;
 		}
@@ -967,7 +1007,8 @@ change:
 				/* if gateway changed remove MPLS information */
 				if (rt->rt_llinfo != NULL &&
 				    rt->rt_flags & RTF_MPLS) {
-					free(rt->rt_llinfo, M_TEMP, 0);
+					free(rt->rt_llinfo, M_TEMP,
+					    sizeof(struct rt_mpls));
 					rt->rt_llinfo = NULL;
 					rt->rt_flags &= ~RTF_MPLS;
 				}
@@ -1149,7 +1190,7 @@ route_cleargateway(struct rtentry *rt, void *arg, unsigned int rtableid)
 
 	if (ISSET(rt->rt_flags, RTF_GATEWAY) && rt->rt_gwroute == nhrt &&
 	    !ISSET(rt->rt_locks, RTV_MTU))
-                rt->rt_mtu = 0;
+		rt->rt_mtu = 0;
 
 	return (0);
 }
@@ -1350,22 +1391,20 @@ again:
 	/* align message length to the next natural boundary */
 	len = ALIGN(len);
 	if (cp == 0 && w != NULL && !second_time) {
-		struct walkarg *rw = w;
-
-		rw->w_needed += len;
-		if (rw->w_needed <= 0 && rw->w_where) {
-			if (rw->w_tmemsize < len) {
-				free(rw->w_tmem, M_RTABLE, 0);
-				rw->w_tmem = malloc(len, M_RTABLE, M_NOWAIT);
-				if (rw->w_tmem)
-					rw->w_tmemsize = len;
+		w->w_needed += len;
+		if (w->w_needed <= 0 && w->w_where) {
+			if (w->w_tmemsize < len) {
+				free(w->w_tmem, M_RTABLE, w->w_tmemsize);
+				w->w_tmem = malloc(len, M_RTABLE, M_NOWAIT);
+				if (w->w_tmem)
+					w->w_tmemsize = len;
 			}
-			if (rw->w_tmem) {
-				cp = rw->w_tmem;
+			if (w->w_tmem) {
+				cp = w->w_tmem;
 				second_time = 1;
 				goto again;
 			} else
-				rw->w_where = 0;
+				w->w_where = 0;
 		}
 	}
 	if (cp && w)		/* clear the message header */
@@ -1473,7 +1512,7 @@ void
 rtm_addr(struct rtentry *rt, int cmd, struct ifaddr *ifa)
 {
 	struct ifnet		*ifp = ifa->ifa_ifp;
-	struct mbuf		*m = NULL;
+	struct mbuf		*m;
 	struct rt_addrinfo	 info;
 	struct ifa_msghdr	*ifam;
 
@@ -1736,8 +1775,6 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 	struct rt_tableinfo	 tableinfo;
 	u_int			 tableid = 0;
 
-	NET_ASSERT_LOCKED();
-
 	if (new)
 		return (EPERM);
 	if (namelen < 3 || namelen > 4)
@@ -1760,6 +1797,7 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 	switch (w.w_op) {
 	case NET_RT_DUMP:
 	case NET_RT_FLAGS:
+		NET_LOCK();
 		for (i = 1; i <= AF_MAX; i++) {
 			if (af != 0 && af != i)
 				continue;
@@ -1770,10 +1808,13 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 			if (error)
 				break;
 		}
+		NET_UNLOCK();
 		break;
 
 	case NET_RT_IFLIST:
+		NET_LOCK();
 		error = sysctl_iflist(af, &w);
+		NET_UNLOCK();
 		break;
 
 	case NET_RT_STATS:
@@ -1789,10 +1830,12 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 		    &tableinfo, sizeof(tableinfo));
 		return (error);
 	case NET_RT_IFNAMES:
+		NET_LOCK();
 		error = sysctl_ifnames(&w);
+		NET_UNLOCK();
 		break;
 	}
-	free(w.w_tmem, M_RTABLE, 0);
+	free(w.w_tmem, M_RTABLE, w.w_tmemsize);
 	w.w_needed += w.w_given;
 	if (where) {
 		*given = w.w_where - (caddr_t)where;
@@ -1921,6 +1964,7 @@ struct protosw routesw[] = {
   .pr_ctloutput	= route_ctloutput,
   .pr_usrreq	= route_usrreq,
   .pr_attach	= route_attach,
+  .pr_detach	= route_detach,
   .pr_init	= route_prinit,
   .pr_sysctl	= sysctl_rtable
 }

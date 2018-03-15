@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnd.c,v 1.165 2017/07/19 14:54:29 deraadt Exp $	*/
+/*	$OpenBSD: vnd.c,v 1.167 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: vnd.c,v 1.26 1996/03/30 23:06:11 christos Exp $	*/
 
 /*
@@ -59,7 +59,7 @@
 #include <sys/disk.h>
 #include <sys/stat.h>
 #include <sys/vnode.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/uio.h>
 #include <sys/conf.h>
 #include <sys/dkio.h>
@@ -404,7 +404,7 @@ vndioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	DNPRINTF(VDB_FOLLOW, "vndioctl(%x, %lx, %p, %x, %p): unit %d\n",
 	    dev, cmd, addr, flag, p, unit);
 
-	error = suser(p, 0);
+	error = suser(p);
 	if (error)
 		return (error);
 	if (unit >= numvnd)

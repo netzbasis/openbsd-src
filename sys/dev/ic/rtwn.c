@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtwn.c,v 1.32 2017/08/21 03:02:54 jsg Exp $	*/
+/*	$OpenBSD: rtwn.c,v 1.36 2017/10/26 15:00:28 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -126,7 +126,10 @@ int		rtwn_r88e_ra_init(struct rtwn_softc *, u_int8_t, u_int32_t,
 		    int, uint32_t, int);
 void		rtwn_tsf_sync_enable(struct rtwn_softc *);
 void		rtwn_set_led(struct rtwn_softc *, int, int);
+void		rtwn_set_nettype(struct rtwn_softc *, enum ieee80211_opmode);
 void		rtwn_update_short_preamble(struct ieee80211com *);
+void		rtwn_r92c_update_short_preamble(struct rtwn_softc *);
+void		rtwn_r88e_update_short_preamble(struct rtwn_softc *);
 int8_t		rtwn_r88e_get_rssi(struct rtwn_softc *, int, void *);
 void		rtwn_watchdog(struct ifnet *);
 void		rtwn_fw_reset(struct rtwn_softc *);
@@ -815,7 +818,7 @@ rtwn_tsf_sync_enable(struct rtwn_softc *sc)
 	    rtwn_read_1(sc, R92C_BCN_CTRL) & ~R92C_BCN_CTRL_EN_BCN);
 
 	/* Set initial TSF. */
-	memcpy(&tsf, ni->ni_tstamp, 8);
+	memcpy(&tsf, ni->ni_tstamp, sizeof(tsf));
 	tsf = letoh64(tsf);
 	tsf = tsf - (tsf % (ni->ni_intval * IEEE80211_DUR_TU));
 	tsf -= IEEE80211_DUR_TU;
@@ -861,6 +864,27 @@ rtwn_set_led(struct rtwn_softc *sc, int led, int on)
 		}
 	}
 	sc->ledlink = on;	/* Save LED state. */
+}
+
+void
+rtwn_set_nettype(struct rtwn_softc *sc, enum ieee80211_opmode opmode)
+{
+	uint8_t msr;
+
+	msr = rtwn_read_1(sc, R92C_MSR) & ~R92C_MSR_NETTYPE_MASK;
+
+	switch (opmode) {
+	case IEEE80211_M_MONITOR:
+		msr |= R92C_MSR_NETTYPE_NOLINK;
+		break;
+	case IEEE80211_M_STA:
+		msr |= R92C_MSR_NETTYPE_INFRA;
+		break;
+	default:
+		break;
+	}
+
+	rtwn_write_1(sc, R92C_MSR, msr);
 }
 
 void
@@ -920,9 +944,7 @@ rtwn_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 		rtwn_set_led(sc, RTWN_LED_LINK, 0);
 
 		/* Set media status to 'No Link'. */
-		reg = rtwn_read_4(sc, R92C_CR);
-		reg = RW(reg, R92C_CR_NETTYPE, R92C_CR_NETTYPE_NOLINK);
-		rtwn_write_4(sc, R92C_CR, reg);
+		rtwn_set_nettype(sc, IEEE80211_M_MONITOR);
 
 		/* Stop Rx of data frames. */
 		rtwn_write_2(sc, R92C_RXFLTMAP2, 0);
@@ -973,7 +995,9 @@ rtwn_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 
 		/* Pause AC Tx queues. */
 		rtwn_write_1(sc, R92C_TXPAUSE,
-		    rtwn_read_1(sc, R92C_TXPAUSE) | 0x0f);
+		    rtwn_read_1(sc, R92C_TXPAUSE) | R92C_TXPAUSE_AC_VO |
+		    R92C_TXPAUSE_AC_VI | R92C_TXPAUSE_AC_BE |
+		    R92C_TXPAUSE_AC_BK);
 
 		rtwn_set_chan(sc, ic->ic_bss->ni_chan, NULL);
 		sc->sc_ops.next_scan(sc->sc_ops.cookie);
@@ -1009,9 +1033,7 @@ rtwn_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 		ni = ic->ic_bss;
 
 		/* Set media status to 'Associated'. */
-		reg = rtwn_read_4(sc, R92C_CR);
-		reg = RW(reg, R92C_CR_NETTYPE, R92C_CR_NETTYPE_INFRA);
-		rtwn_write_4(sc, R92C_CR, reg);
+		rtwn_set_nettype(sc, IEEE80211_M_STA);
 
 		/* Set BSSID. */
 		rtwn_write_4(sc, R92C_BSSID + 0, LE_READ_4(&ni->ni_bssid[0]));
@@ -1029,7 +1051,7 @@ rtwn_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 		rtwn_write_2(sc, R92C_RXFLTMAP2, 0xffff);
 
 		/* Flush all AC queues. */
-		rtwn_write_1(sc, R92C_TXPAUSE, 0);
+		rtwn_write_1(sc, R92C_TXPAUSE, 0x00);
 
 		/* Set beacon interval. */
 		rtwn_write_2(sc, R92C_BCN_INTERVAL, ni->ni_intval);
@@ -1067,14 +1089,37 @@ void
 rtwn_update_short_preamble(struct ieee80211com *ic)
 {
 	struct rtwn_softc *sc = ic->ic_softc;
+
+	if (sc->chip & RTWN_CHIP_88E)
+		rtwn_r88e_update_short_preamble(sc);
+	else
+		rtwn_r92c_update_short_preamble(sc);
+}
+
+void
+rtwn_r92c_update_short_preamble(struct rtwn_softc *sc)
+{
 	uint32_t reg;
 
 	reg = rtwn_read_4(sc, R92C_RRSR);
-	if (ic->ic_flags & IEEE80211_F_SHPREAMBLE)
+	if (sc->sc_ic.ic_flags & IEEE80211_F_SHPREAMBLE)
 		reg |= R92C_RRSR_SHORT;
 	else
 		reg &= ~R92C_RRSR_SHORT;
 	rtwn_write_4(sc, R92C_RRSR, reg);
+}
+
+void
+rtwn_r88e_update_short_preamble(struct rtwn_softc *sc)
+{
+	uint32_t reg;
+
+	reg = rtwn_read_4(sc, R92C_WMAC_TRXPTCL_CTL);
+	if (sc->sc_ic.ic_flags & IEEE80211_F_SHPREAMBLE)
+		reg |= R92C_WMAC_TRXPTCL_CTL_SHORT;
+	else
+		reg &= ~R92C_WMAC_TRXPTCL_CTL_SHORT;
+	rtwn_write_4(sc, R92C_WMAC_TRXPTCL_CTL, reg);
 }
 
 void
@@ -1236,19 +1281,21 @@ rtwn_update_avgrssi(struct rtwn_softc *sc, int rate, int8_t rssi)
 		pwdb = 100;
 	else
 		pwdb = 100 + rssi;
-	if (rate <= 3) {
-		/* CCK gain is smaller than OFDM/MCS gain. */
-		pwdb += 6;
-		if (pwdb > 100)
-			pwdb = 100;
-		if (pwdb <= 14)
-			pwdb -= 4;
-		else if (pwdb <= 26)
-			pwdb -= 8;
-		else if (pwdb <= 34)
-			pwdb -= 6;
-		else if (pwdb <= 42)
-			pwdb -= 2;
+	if (sc->chip & (RTWN_CHIP_92C | RTWN_CHIP_88C)) {
+		if (rate <= 3) {
+			/* CCK gain is smaller than OFDM/MCS gain. */
+			pwdb += 6;
+			if (pwdb > 100)
+				pwdb = 100;
+			if (pwdb <= 14)
+				pwdb -= 4;
+			else if (pwdb <= 26)
+				pwdb -= 8;
+			else if (pwdb <= 34)
+				pwdb -= 6;
+			else if (pwdb <= 42)
+				pwdb -= 2;
+		}
 	}
 	if (sc->avg_pwdb == -1)	/* Init. */
 		sc->avg_pwdb = pwdb;
@@ -1291,50 +1338,23 @@ rtwn_get_rssi(struct rtwn_softc *sc, int rate, void *physt)
 int8_t
 rtwn_r88e_get_rssi(struct rtwn_softc *sc, int rate, void *physt)
 {
-	struct r92c_rx_phystat *phy;
-	struct r88e_rx_cck *cck;
-	uint8_t cck_agc_rpt, lna_idx, vga_idx;
+	static const int8_t cckoff[] = { 20, 14, 10, -4, -16, -22, -38, -40 };
+	struct r88e_rx_phystat *phy;
+	uint8_t rpt;
 	int8_t rssi;
 
-	rssi = 0;
+	phy = (struct r88e_rx_phystat *)physt;
+
 	if (rate <= 3) {
-		cck = (struct r88e_rx_cck *)physt;
-		cck_agc_rpt = cck->agc_rpt;
-		lna_idx = (cck_agc_rpt & 0xe0) >> 5;
-		vga_idx = cck_agc_rpt & 0x1f; 
-		switch (lna_idx) {
-		case 7:
-			if (vga_idx <= 27)
-				rssi = -100 + 2* (27 - vga_idx);
-			else
-				rssi = -100;
-			break;
-		case 6:
-			rssi = -48 + 2 * (2 - vga_idx);
-			break;
-		case 5:
-			rssi = -42 + 2 * (7 - vga_idx);
-			break;
-		case 4:
-			rssi = -36 + 2 * (7 - vga_idx);
-			break;
-		case 3:
-			rssi = -24 + 2 * (7 - vga_idx);
-			break;
-		case 2:
-			rssi = -12 + 2 * (5 - vga_idx);
-			break;
-		case 1:
-			rssi = 8 - (2 * vga_idx);
-			break;
-		case 0:
-			rssi = 14 - (2 * vga_idx);
-			break;
+		rpt = (phy->agc_rpt >> 5) & 0x7;
+		rssi = (phy->agc_rpt & 0x1f) << 1;
+		if (sc->sc_flags & RTWN_FLAG_CCK_HIPWR) {
+			if (rpt == 2)
+				rssi -= 6;
 		}
-		rssi += 6;
+		rssi = (phy->agc_rpt & 0x1f) > 27 ? -94 : cckoff[rpt] - rssi;
 	} else {	/* OFDM/HT. */
-		phy = (struct r92c_rx_phystat *)physt;
-		rssi = ((le32toh(phy->phydw1) >> 1) & 0x7f) - 110;
+		rssi = ((le32toh(phy->sq_rpt) >> 1) & 0x7f) - 110;
 	}
 	return (rssi);
 }
@@ -1414,7 +1434,6 @@ rtwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct rtwn_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifreq *ifr;
 	int s, error = 0;
 
 	s = splnet();
@@ -1442,15 +1461,6 @@ rtwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_flags & IFF_RUNNING)
 				rtwn_stop(ifp);
 		}
-		break;
-	case SIOCADDMULTI:
-	case SIOCDELMULTI:
-		ifr = (struct ifreq *)data;
-		error = (cmd == SIOCADDMULTI) ?
-		    ether_addmulti(ifr, &ic->ic_ac) :
-		    ether_delmulti(ifr, &ic->ic_ac);
-		if (error == ENETRESET)
-			error = 0;
 		break;
 	case SIOCS80211CHANNEL:
 		error = ieee80211_ioctl(ifp, cmd, data);
@@ -2293,7 +2303,9 @@ rtwn_iq_calib_run(struct rtwn_softc *sc, int n, uint16_t tx[2][2],
 		rtwn_bb_write(sc, R92C_LSSI_PARAM(1), 0x00010000);
 	}
 
-	rtwn_write_1(sc, R92C_TXPAUSE, 0x3f);
+	rtwn_write_1(sc, R92C_TXPAUSE, R92C_TXPAUSE_AC_VO |
+	    R92C_TXPAUSE_AC_VI | R92C_TXPAUSE_AC_BE | R92C_TXPAUSE_AC_BK |
+	    R92C_TXPAUSE_MGNT | R92C_TXPAUSE_HIGH);
 	rtwn_write_1(sc, R92C_BCN_CTRL,
 	    iq_cal_regs->bcn_ctrl & ~(R92C_BCN_CTRL_EN_BCN));
 	rtwn_write_1(sc, R92C_BCN_CTRL1,
@@ -2532,7 +2544,7 @@ rtwn_lc_calib(struct rtwn_softc *sc)
 		}
 	} else {
 		/* Block all Tx queues. */
-		rtwn_write_1(sc, R92C_TXPAUSE, 0xff);
+		rtwn_write_1(sc, R92C_TXPAUSE, R92C_TXPAUSE_ALL);
 	}
 	/* Start calibration. */
 	rtwn_rf_write(sc, 0, R92C_RF_CHNLBW,
@@ -2689,9 +2701,7 @@ rtwn_init(struct ifnet *ifp)
 		rtwn_write_1(sc, R92C_MACID + i, ic->ic_myaddr[i]);
 
 	/* Set initial network type. */
-	reg = rtwn_read_4(sc, R92C_CR);
-	reg = RW(reg, R92C_CR_NETTYPE, R92C_CR_NETTYPE_INFRA);
-	rtwn_write_4(sc, R92C_CR, reg);
+	rtwn_set_nettype(sc, IEEE80211_M_MONITOR);
 
 	rtwn_rxfilter_init(sc);
 

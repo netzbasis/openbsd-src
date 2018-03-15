@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.33 2017/08/18 07:01:29 mlarkin Exp $	*/
+/*	$OpenBSD: config.c,v 1.42 2018/03/14 07:29:34 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -20,6 +20,7 @@
 #include <sys/queue.h>
 #include <sys/time.h>
 #include <sys/uio.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 
 #include <net/if.h>
@@ -40,7 +41,6 @@
 
 /* Supported bridge types */
 const char *vmd_descsw[] = { "switch", "bridge", NULL };
-
 
 int
 config_init(struct vmd *env)
@@ -80,14 +80,18 @@ config_purge(struct vmd *env, unsigned int reset)
 	struct vmd_switch	*vsw;
 	unsigned int		 what;
 
+	log_debug("%s: purging vms and switches from running config",
+	    __func__);
 	/* Reset global configuration (prefix was verified before) */
 	(void)host(VMD_DHCP_PREFIX, &env->vmd_cfg.cfg_localprefix);
 
 	/* Reset other configuration */
 	what = ps->ps_what[privsep_process] & reset;
 	if (what & CONFIG_VMS && env->vmd_vms != NULL) {
-		while ((vm = TAILQ_FIRST(env->vmd_vms)) != NULL)
+		while ((vm = TAILQ_FIRST(env->vmd_vms)) != NULL) {
+			log_debug("%s: calling vm_remove", __func__);
 			vm_remove(vm);
+		}
 		env->vmd_nvm = 0;
 	}
 	if (what & CONFIG_SWITCHES && env->vmd_switches != NULL) {
@@ -103,6 +107,7 @@ config_setconfig(struct vmd *env)
 	struct privsep	*ps = &env->vmd_ps;
 	unsigned int	 id;
 
+	log_debug("%s: setting config", __func__);
 	for (id = 0; id < PROC_MAX; id++) {
 		if (id == privsep_process)
 			continue;
@@ -116,6 +121,7 @@ config_setconfig(struct vmd *env)
 int
 config_getconfig(struct vmd *env, struct imsg *imsg)
 {
+	log_debug("%s: retrieving config", __func__);
 	IMSG_SIZE_CHECK(imsg, &env->vmd_cfg);
 	memcpy(&env->vmd_cfg, imsg->data, sizeof(env->vmd_cfg));
 
@@ -128,6 +134,7 @@ config_setreset(struct vmd *env, unsigned int reset)
 	struct privsep	*ps = &env->vmd_ps;
 	unsigned int	 id;
 
+	log_debug("%s: resetting state", __func__);
 	for (id = 0; id < PROC_MAX; id++) {
 		if ((reset & ps->ps_what[id]) == 0 ||
 		    id == privsep_process)
@@ -146,6 +153,7 @@ config_getreset(struct vmd *env, struct imsg *imsg)
 	IMSG_SIZE_CHECK(imsg, &mode);
 	memcpy(&mode, imsg->data, sizeof(mode));
 
+	log_debug("%s: resetting state", __func__);
 	config_purge(env, mode);
 
 	return (0);
@@ -157,9 +165,11 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 	struct vmd_if		*vif;
 	struct vmop_create_params *vmc = &vm->vm_params;
 	struct vm_create_params	*vcp = &vmc->vmc_params;
+	struct stat		 stat_buf;
 	unsigned int		 i;
 	int			 fd = -1, vmboot = 0;
 	int			 kernfd = -1, *diskfds = NULL, *tapfds = NULL;
+	int			 cdromfd = -1;
 	int			 saved_errno = 0;
 	char			 ifname[IF_NAMESIZE], *s;
 	char			 path[PATH_MAX];
@@ -194,16 +204,18 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 
 	if (!vm->vm_received) {
 		if (strlen(vcp->vcp_kernel)) {
-			/* Boot kernel from disk image if path matches the root
-			 * disk */
+			/*
+			 * Boot kernel from disk image if path matches the
+			 * root disk.
+			 */
 			if (vcp->vcp_ndisks &&
 			    strcmp(vcp->vcp_kernel, vcp->vcp_disks[0]) == 0)
 				vmboot = 1;
 			/* Open external kernel for child */
-			else if ((kernfd = open(vcp->vcp_kernel, O_RDONLY)) ==
-			    -1) {
-				log_warn("%s: can't open kernel/BIOS boot image\
-						%s", __func__, vcp->vcp_kernel);
+			else if ((kernfd =
+			    open(vcp->vcp_kernel, O_RDONLY)) == -1) {
+				log_warn("%s: can't open kernel or BIOS "
+				    "boot image %s", __func__, vcp->vcp_kernel);
 				goto fail;
 			}
 		}
@@ -223,13 +235,51 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 		}
 	}
 
+	/* Open CDROM image for child */
+	if (strlen(vcp->vcp_cdrom)) {
+		/* Stat cdrom to ensure it is a regular file */
+		if ((cdromfd =
+		    open(vcp->vcp_cdrom, O_RDONLY)) == -1) {
+			log_warn("%s: can't open cdrom %s", __func__,
+			    vcp->vcp_cdrom);
+			errno = VMD_CDROM_MISSING;
+			goto fail;
+		}
+		if (fstat(cdromfd, &stat_buf) == -1) {
+			log_warn("%s: can't open cdrom %s", __func__,
+			    vcp->vcp_cdrom);
+			errno = VMD_CDROM_MISSING;
+			goto fail;
+		}
+		if (S_ISREG(stat_buf.st_mode) == 0) {
+			log_warnx("%s: cdrom %s is not a regular file", __func__,
+			    vcp->vcp_cdrom);
+			errno = VMD_CDROM_INVALID;
+			goto fail;
+		}
+	}
+
 	/* Open disk images for child */
 	for (i = 0 ; i < vcp->vcp_ndisks; i++) {
+                /* Stat disk[i] to ensure it is a regular file */
 		if ((diskfds[i] =
-		    open(vcp->vcp_disks[i], O_RDWR)) == -1) {
+		    open(vcp->vcp_disks[i], O_RDWR | O_EXLOCK | O_NONBLOCK)) ==
+		        -1) {
 			log_warn("%s: can't open disk %s", __func__,
 			    vcp->vcp_disks[i]);
 			errno = VMD_DISK_MISSING;
+			goto fail;
+		}
+		if (fstat(diskfds[i], &stat_buf) == -1) {
+			log_warn("%s: can't open disk %s", __func__,
+			    vcp->vcp_disks[i]);
+			errno = VMD_DISK_INVALID;
+			goto fail;
+		}
+		if (S_ISREG(stat_buf.st_mode) == 0) {
+			log_warnx("%s: disk %s is not a regular file", __func__,
+			    vcp->vcp_disks[i]);
+			errno = VMD_DISK_INVALID;
 			goto fail;
 		}
 	}
@@ -321,6 +371,12 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 		proc_compose_imsg(ps, PROC_VMM, -1,
 		    IMSG_VMDOP_START_VM_REQUEST, vm->vm_vmid, kernfd,
 		    vmc, sizeof(*vmc));
+
+	if (strlen(vcp->vcp_cdrom))
+		proc_compose_imsg(ps, PROC_VMM, -1,
+		    IMSG_VMDOP_START_VM_CDROM, vm->vm_vmid, cdromfd,
+		    NULL, 0);
+
 	for (i = 0; i < vcp->vcp_ndisks; i++) {
 		proc_compose_imsg(ps, PROC_VMM, -1,
 		    IMSG_VMDOP_START_VM_DISK, vm->vm_vmid, diskfds[i],
@@ -348,6 +404,8 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 
 	if (kernfd != -1)
 		close(kernfd);
+	if (cdromfd != -1)
+		close(cdromfd);
 	if (diskfds != NULL) {
 		for (i = 0; i < vcp->vcp_ndisks; i++)
 			close(diskfds[i]);
@@ -359,7 +417,13 @@ config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid, uid_t uid)
 		free(tapfds);
 	}
 
-	vm_remove(vm);
+	if (vm->vm_from_config) {
+		log_debug("%s: calling stop vm %d", __func__, vm->vm_vmid);
+		vm_stop(vm, 0);
+	} else {
+		log_debug("%s: calling remove vm %d", __func__, vm->vm_vmid);
+		vm_remove(vm);
+	}
 	errno = saved_errno;
 	if (errno == 0)
 		errno = EINVAL;
@@ -391,6 +455,7 @@ config_getvm(struct privsep *ps, struct imsg *imsg)
 		imsg->fd = -1;
 	}
 
+	log_debug("%s: calling vm_remove", __func__);
 	vm_remove(vm);
 	if (errno == 0)
 		errno = EINVAL;
@@ -444,6 +509,31 @@ config_getif(struct privsep *ps, struct imsg *imsg)
 		goto fail;
 	}
 	vm->vm_ifs[n].vif_fd = imsg->fd;
+	return (0);
+ fail:
+	if (imsg->fd != -1)
+		close(imsg->fd);
+	errno = EINVAL;
+	return (-1);
+}
+
+int
+config_getcdrom(struct privsep *ps, struct imsg *imsg)
+{
+	struct vmd_vm	*vm;
+
+	errno = 0;
+	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
+		errno = ENOENT;
+		return (-1);
+	}
+
+	if (imsg->fd == -1) {
+		log_debug("invalid cdrom id");
+		goto fail;
+	}
+
+	vm->vm_cdrom = imsg->fd;
 	return (0);
  fail:
 	if (imsg->fd != -1)

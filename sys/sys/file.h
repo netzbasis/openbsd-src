@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.h,v 1.38 2016/08/23 23:28:02 tedu Exp $	*/
+/*	$OpenBSD: file.h,v 1.40 2018/02/10 05:24:23 deraadt Exp $	*/
 /*	$NetBSD: file.h,v 1.11 1995/03/26 20:24:13 jtc Exp $	*/
 
 /*
@@ -32,9 +32,10 @@
  *	@(#)file.h	8.2 (Berkeley) 8/20/94
  */
 
+#ifndef _KERNEL
 #include <sys/fcntl.h>
 
-#ifdef _KERNEL
+#else /* _KERNEL */
 #include <sys/queue.h>
 
 struct proc;
@@ -88,7 +89,13 @@ struct file {
 #define FILE_IS_USABLE(fp) \
 	(((fp)->f_iflags & FIF_LARVAL) == 0)
 
-#define FREF(fp)	do { (fp)->f_count++; } while (0)
+#define FREF(fp) \
+	do { \
+		extern struct rwlock vfs_stall_lock; \
+		rw_enter_read(&vfs_stall_lock); \
+		rw_exit_read(&vfs_stall_lock); \
+		(fp)->f_count++; \
+	} while (0)
 #define FRELE(fp,p)	(--(fp)->f_count == 0 ? fdrop(fp, p) : 0)
 
 #define FILE_SET_MATURE(fp,p) do {				\

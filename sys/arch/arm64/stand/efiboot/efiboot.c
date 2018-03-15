@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.12 2017/08/22 17:18:21 kettenis Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.16 2018/03/02 03:11:23 jsg Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -31,6 +31,7 @@
 #include <stand/boot/cmd.h>
 
 #include "disk.h"
+#include "efiboot.h"
 #include "eficall.h"
 #include "fdt.h"
 #include "libsa.h"
@@ -51,9 +52,10 @@ UINT32			 mmap_version;
 static EFI_GUID		 imgp_guid = LOADED_IMAGE_PROTOCOL;
 static EFI_GUID		 blkio_guid = BLOCK_IO_PROTOCOL;
 static EFI_GUID		 devp_guid = DEVICE_PATH_PROTOCOL;
+static EFI_GUID		 gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
-static int efi_device_path_depth(EFI_DEVICE_PATH *dp, int);
-static int efi_device_path_ncmp(EFI_DEVICE_PATH *, EFI_DEVICE_PATH *, int);
+int efi_device_path_depth(EFI_DEVICE_PATH *dp, int);
+int efi_device_path_ncmp(EFI_DEVICE_PATH *, EFI_DEVICE_PATH *, int);
 static void efi_heap_init(void);
 static void efi_memprobe_internal(void);
 static void efi_timer_init(void);
@@ -71,6 +73,9 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	ST = systab;
 	BS = ST->BootServices;
 	IH = image;
+
+	/* disable reset by watchdog after 5 minutes */
+	EFI_CALL(BS->SetWatchdogTimer, 0, 0, 0, NULL);
 
 	status = EFI_CALL(BS->HandleProtocol, image, &imgp_guid,
 	    (void **)&imgp);
@@ -187,7 +192,7 @@ efi_diskprobe(void)
 		    0, &sz, handles);
 	}
 	if (handles == NULL || EFI_ERROR(status))
-		panic("BS->LocateHandle() returns %d", status);
+		return;
 
 	if (efi_bootdp != NULL)
 		depth = efi_device_path_depth(efi_bootdp, MEDIA_DEVICE_PATH);
@@ -230,7 +235,7 @@ efi_diskprobe(void)
  * Determine the number of nodes up to, but not including, the first
  * node of the specified type.
  */
-static int
+int
 efi_device_path_depth(EFI_DEVICE_PATH *dp, int dptype)
 {
 	int	i;
@@ -243,7 +248,7 @@ efi_device_path_depth(EFI_DEVICE_PATH *dp, int dptype)
 	return (-1);
 }
 
-static int
+int
 efi_device_path_ncmp(EFI_DEVICE_PATH *dpa, EFI_DEVICE_PATH *dpb, int deptn)
 {
 	int	 i, cmp;
@@ -265,6 +270,95 @@ efi_device_path_ncmp(EFI_DEVICE_PATH *dpa, EFI_DEVICE_PATH *dpb, int deptn)
 	return (0);
 }
 
+void
+efi_framebuffer(void)
+{
+	EFI_GRAPHICS_OUTPUT *gop;
+	EFI_STATUS status;
+	void *node, *child;
+	uint32_t acells, scells;
+	uint64_t base, size;
+	uint32_t reg[4];
+	uint32_t width, height, stride;
+	char *format;
+
+	/*
+	 * Don't create a "simple-framebuffer" node if we already have
+	 * one.  Besides "/chosen", we also check under "/" since that
+	 * is where the Raspberry Pi firmware puts it.
+	 */
+	node = fdt_find_node("/chosen");
+	for (child = fdt_child_node(node); child;
+	     child = fdt_next_node(child)) {
+		if (fdt_node_is_compatible(child, "simple-framebuffer"))
+			return;
+	}
+	node = fdt_find_node("/");
+	for (child = fdt_child_node(node); child;
+	     child = fdt_next_node(child)) {
+		if (fdt_node_is_compatible(child, "simple-framebuffer"))
+			return;
+	}
+
+	status = EFI_CALL(BS->LocateProtocol, &gop_guid, NULL, (void **)&gop);
+	if (status != EFI_SUCCESS)
+		return;
+
+	/* Paranoia! */
+	if (gop == NULL || gop->Mode == NULL || gop->Mode->Info == NULL)
+		return;
+
+	/* We only support 32-bit pixel modes for now. */
+	switch (gop->Mode->Info->PixelFormat) {
+	case PixelRedGreenBlueReserved8BitPerColor:
+		format = "a8r8g8b8";
+		break;
+	case PixelBlueGreenRedReserved8BitPerColor:
+		format = "a8b8g8r8";
+		break;
+	default:
+		return;
+	}
+
+	base = gop->Mode->FrameBufferBase;
+	size = gop->Mode->FrameBufferSize;
+	width = htobe32(gop->Mode->Info->HorizontalResolution);
+	height = htobe32(gop->Mode->Info->VerticalResolution);
+	stride = htobe32(gop->Mode->Info->PixelsPerScanLine * 4);
+
+	node = fdt_find_node("/");
+	if (fdt_node_property_int(node, "#address-cells", &acells) != 1)
+		acells = 1;
+	if (fdt_node_property_int(node, "#size-cells", &scells) != 1)
+		scells = 1;
+	if (acells > 2 || scells > 2)
+		return;
+	if (acells >= 1)
+		reg[0] = htobe32(base);
+	if (acells == 2) {
+		reg[1] = reg[0];
+		reg[0] = htobe32(base >> 32);
+	}
+	if (scells >= 1)
+		reg[acells] = htobe32(size);
+	if (scells == 2) {
+		reg[acells + 1] = reg[acells];
+		reg[acells] = htobe32(size >> 32);
+	}
+
+	node = fdt_find_node("/chosen");
+	fdt_node_add_node(node, "framebuffer", &child);
+	fdt_node_add_property(child, "status", "okay", strlen("okay") + 1);
+	fdt_node_add_property(child, "format", format, strlen(format) + 1);
+	fdt_node_add_property(child, "stride", &stride, 4);
+	fdt_node_add_property(child, "height", &height, 4);
+	fdt_node_add_property(child, "width", &width, 4);
+	fdt_node_add_property(child, "reg", reg, (acells + scells) * 4);
+	fdt_node_add_property(child, "compatible",
+	    "simple-framebuffer", strlen("simple-framebuffer") + 1);
+}
+
+char *bootmac = NULL;
 static EFI_GUID fdt_guid = FDT_TABLE_GUID;
 
 #define	efi_guidcmp(_a, _b)	memcmp((_a), (_b), sizeof(EFI_GUID))
@@ -303,6 +397,10 @@ efi_makebootargs(char *bootargs)
 		    sizeof(bootduid));
 	}
 
+	/* Pass netboot interface address. */
+	if (bootmac)
+		fdt_node_add_property(node, "openbsd,bootmac", bootmac, 6);
+
 	/* Pass EFI system table. */
 	fdt_node_add_property(node, "openbsd,uefi-system-table",
 	    &uefi_system_table, sizeof(uefi_system_table));
@@ -312,6 +410,8 @@ efi_makebootargs(char *bootargs)
 	fdt_node_add_property(node, "openbsd,uefi-mmap-size", zero, 4);
 	fdt_node_add_property(node, "openbsd,uefi-mmap-desc-size", zero, 4);
 	fdt_node_add_property(node, "openbsd,uefi-mmap-desc-ver", zero, 4);
+
+	efi_framebuffer();
 
 	fdt_finalize();
 
@@ -366,6 +466,7 @@ machdep(void)
 
 	efi_timer_init();
 	efi_diskprobe();
+	efi_pxeprobe();
 }
 
 void
@@ -449,7 +550,10 @@ getsecs(void)
 void
 devboot(dev_t dev, char *p)
 {
-	strlcpy(p, "sd0a", 5);
+	if (disk)
+		strlcpy(p, "sd0a", 5);
+	else
+		strlcpy(p, "tftp0a", 7);
 }
 
 int
@@ -550,7 +654,7 @@ devopen(struct open_file *f, const char *fname, char **file)
 	if (error)
 		return (error);
 
-	dp = &devsw[0];
+	dp = &devsw[dev];
 	f->f_dev = dp;
 
 	return (*dp->dv_open)(f, unit, part);

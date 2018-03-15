@@ -346,6 +346,23 @@ slot_init(struct slot *s)
 			s->convbuf =
 			    xmalloc(s->round * slot_nch * sizeof(adata_t));
 		}
+
+		/*
+		 * cmap_copy() doesn't write samples in all channels,
+	         * for instance when mono->stereo conversion is
+	         * disabled. So we have to prefill cmap_copy() output
+	         * with silence.
+	         */
+		if (s->resampbuf) {
+			memset(s->resampbuf, 0,
+			    dev_round * slot_nch * sizeof(adata_t));
+		} else if (s->convbuf) {
+			memset(s->convbuf, 0,
+			    s->round * slot_nch * sizeof(adata_t));
+		} else {
+			memset(s->buf.data, 0,
+			    bufsz * slot_nch * sizeof(adata_t));
+		}
 	}
 	s->pstate = SLOT_INIT;
 #ifdef DEBUG

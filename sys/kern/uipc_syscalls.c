@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.159 2017/08/22 09:13:36 mpi Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.167 2018/02/21 09:30:02 mpi Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <sys/systm.h>
 #include <sys/filedesc.h>
 #include <sys/proc.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/malloc.h>
@@ -82,7 +83,8 @@ sys_socket(struct proc *p, void *v, register_t *retval)
 	struct file *fp;
 	int type = SCARG(uap, type);
 	int domain = SCARG(uap, domain);
-	int fd, error, ss = 0;
+	int fd, cloexec, nonblock, fflag, error;
+	unsigned int ss = 0;
 
 	if ((type & SOCK_DNS) && !(domain == AF_INET || domain == AF_INET6))
 		return (EINVAL);
@@ -93,24 +95,25 @@ sys_socket(struct proc *p, void *v, register_t *retval)
 	if (error)
 		return (error);
 
-	fdplock(fdp);
-	error = falloc(p, (type & SOCK_CLOEXEC) ? UF_EXCLOSE : 0, &fp, &fd);
-	fdpunlock(fdp);
+	type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK | SOCK_DNS);
+	cloexec = (SCARG(uap, type) & SOCK_CLOEXEC) ? UF_EXCLOSE : 0;
+	nonblock = SCARG(uap, type) & SOCK_NONBLOCK;
+	fflag = FREAD | FWRITE | (nonblock ? FNONBLOCK : 0);
+
+	error = socreate(SCARG(uap, domain), &so, type, SCARG(uap, protocol));
 	if (error != 0)
 		goto out;
 
-	fp->f_flag = FREAD | FWRITE | (type & SOCK_NONBLOCK ? FNONBLOCK : 0);
-	fp->f_type = DTYPE_SOCKET;
-	fp->f_ops = &socketops;
-	error = socreate(SCARG(uap, domain), &so,
-	    type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK | SOCK_DNS), SCARG(uap, protocol));
+	fdplock(fdp);
+	error = falloc(p, cloexec, &fp, &fd);
+	fdpunlock(fdp);
 	if (error) {
-		fdplock(fdp);
-		fdremove(fdp, fd);
-		closef(fp, p);
-		fdpunlock(fdp);
+		soclose(so);
 	} else {
-		if (type & SOCK_NONBLOCK)
+		fp->f_flag = fflag;
+		fp->f_type = DTYPE_SOCKET;
+		fp->f_ops = &socketops;
+		if (nonblock)
 			so->so_state |= SS_NBIO;
 		so->so_state |= ss;
 		fp->f_data = so;
@@ -445,11 +448,11 @@ sys_socketpair(struct proc *p, void *v, register_t *retval)
 	struct filedesc *fdp = p->p_fd;
 	struct file *fp1, *fp2;
 	struct socket *so1, *so2;
-	int s, type, cloexec, nonblock, fflag, error, sv[2];
+	int type, cloexec, nonblock, fflag, error, sv[2];
 
 	type  = SCARG(uap, type) & ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
 	cloexec = (SCARG(uap, type) & SOCK_CLOEXEC) ? UF_EXCLOSE : 0;
-	nonblock = SCARG(uap, type) &  SOCK_NONBLOCK;
+	nonblock = SCARG(uap, type) & SOCK_NONBLOCK;
 	fflag = FREAD | FWRITE | (nonblock ? FNONBLOCK : 0);
 
 	error = socreate(SCARG(uap, domain), &so1, type, SCARG(uap, protocol));
@@ -459,9 +462,7 @@ sys_socketpair(struct proc *p, void *v, register_t *retval)
 	if (error)
 		goto free1;
 
-	s = solock(so1);
 	error = soconnect2(so1, so2);
-	sounlock(s);
 	if (error != 0)
 		goto free2;
 
@@ -469,9 +470,7 @@ sys_socketpair(struct proc *p, void *v, register_t *retval)
 		/*
 		 * Datagram socket connection is asymmetric.
 		 */
-		s = solock(so2);
 		error = soconnect2(so2, so1);
-		sounlock(s);
 		if (error != 0)
 			goto free2;
 	}
@@ -979,7 +978,6 @@ sys_setsockopt(struct proc *p, void *v, register_t *retval)
 	s = solock(so);
 	error = sosetopt(so, SCARG(uap, level), SCARG(uap, name), m);
 	sounlock(s);
-	m = NULL;
 bad:
 	m_freem(m);
 	FRELE(fp, p);
@@ -1182,7 +1180,7 @@ sys_setrtable(struct proc *p, void *v, register_t *retval)
 
 	if (p->p_p->ps_rtableid == (u_int)rtableid)
 		return (0);
-	if (p->p_p->ps_rtableid != 0 && (error = suser(p, 0)) != 0)
+	if (p->p_p->ps_rtableid != 0 && (error = suser(p)) != 0)
 		return (error);
 	if (rtableid < 0 || !rtable_exists((u_int)rtableid))
 		return (EINVAL);

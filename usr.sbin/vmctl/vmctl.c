@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.38 2017/08/18 07:01:29 mlarkin Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.48 2018/03/14 07:29:34 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -62,6 +61,7 @@ int info_console;
  *  ndisks: number of disk images
  *  disks: disk image file names
  *  kernel: kernel image to load
+ *  iso: iso image file
  *
  * Return:
  *  0 if the request to start the VM was sent successfully.
@@ -69,7 +69,7 @@ int info_console;
  */
 int
 vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
-    char **nics, int ndisks, char **disks, char *kernel)
+    char **nics, int ndisks, char **disks, char *kernel, char *iso)
 {
 	struct vmop_create_params *vmc;
 	struct vm_create_params *vcp;
@@ -85,6 +85,8 @@ vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
 		flags |= VMOP_CREATE_DISK;
 	if (kernel)
 		flags |= VMOP_CREATE_KERNEL;
+	if (iso)
+		flags |= VMOP_CREATE_CDROM;
 	if (flags != 0) {
 		if (memsize < 1)
 			memsize = VM_DEFAULT_MEMORY;
@@ -156,6 +158,9 @@ vm_start(uint32_t start_id, const char *name, int memsize, int nnics,
 	if (kernel != NULL)
 		strlcpy(vcp->vcp_kernel, kernel, VMM_MAX_KERNEL_PATH);
 
+	if (iso != NULL)
+		strlcpy(vcp->vcp_cdrom, iso, VMM_MAX_PATH_CDROM);
+
 	imsg_compose(ibuf, IMSG_VMDOP_START_VM_REQUEST, 0, 0, -1,
 	    vmc, sizeof(struct vmop_create_params));
 
@@ -202,7 +207,21 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 				*ret = ENOENT;
 				break;
 			case VMD_DISK_MISSING:
-				warnx("could not find specified disk image(s)");
+				warnx("could not open specified disk image(s)");
+				*ret = ENOENT;
+				break;
+			case VMD_DISK_INVALID:
+				warnx("specified disk image(s) are "
+				    "not regular files");
+				*ret = ENOENT;
+				break;
+			case VMD_CDROM_MISSING:
+				warnx("could not find specified iso image");
+				*ret = ENOENT;
+				break;
+			case VMD_CDROM_INVALID:
+				warnx("specified iso image is not a regular "
+				    "file");
 				*ret = ENOENT;
 				break;
 			default:
@@ -231,7 +250,13 @@ send_vm(uint32_t id, const char *name)
 {
 	struct vmop_id vid;
 	int fds[2], readn, writen;
-	char buf[PAGE_SIZE];
+	long pagesz;
+	char *buf;
+
+	pagesz = getpagesize();
+	buf = malloc(pagesz);
+	if (buf == NULL)
+		errx(1, "%s: memory allocation failure", __func__);
 
 	memset(&vid, 0, sizeof(vid));
 	vid.vid_id = id;
@@ -244,7 +269,7 @@ send_vm(uint32_t id, const char *name)
 				&vid, sizeof(vid));
 		imsg_flush(ibuf);
 		while (1) {
-			readn = atomicio(read, fds[1], buf, sizeof(buf));
+			readn = atomicio(read, fds[1], buf, pagesz);
 			if (!readn)
 				break;
 			writen = atomicio(vwrite, STDOUT_FILENO, buf,
@@ -257,6 +282,8 @@ send_vm(uint32_t id, const char *name)
 		else
 			warnx("sent vm %s successfully", vid.vid_name);
 	}
+
+	free(buf);
 }
 
 void
@@ -264,7 +291,13 @@ vm_receive(uint32_t id, const char *name)
 {
 	struct vmop_id vid;
 	int fds[2], readn, writen;
-	char buf[PAGE_SIZE];
+	long pagesz;
+	char *buf;
+
+	pagesz = getpagesize();
+	buf = malloc(pagesz);
+	if (buf == NULL)
+		errx(1, "%s: memory allocation failure", __func__);
 
 	memset(&vid, 0, sizeof(vid));
 	if (name != NULL)
@@ -276,7 +309,7 @@ vm_receive(uint32_t id, const char *name)
 		    &vid, sizeof(vid));
 		imsg_flush(ibuf);
 		while (1) {
-			readn = atomicio(read, STDIN_FILENO, buf, sizeof(buf));
+			readn = atomicio(read, STDIN_FILENO, buf, pagesz);
 			if (!readn) {
 				close(fds[1]);
 				break;
@@ -286,6 +319,8 @@ vm_receive(uint32_t id, const char *name)
 				break;
 		}
 	}
+
+	free(buf);
 }
 
 void
@@ -419,20 +454,28 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
 		vmr = (struct vmop_result *)imsg->data;
 		res = vmr->vmr_result;
 		if (res) {
-			errno = res;
-			if (res == ENOENT)
+			switch (res) {
+			case VMD_VM_STOP_INVALID:
+				warnx("cannot stop vm that is not running");
+				*ret = EINVAL;
+				break;
+			case ENOENT:
 				warnx("vm not found");
-			else
+				*ret = EIO;
+				break;
+			default:
 				warn("terminate vm command failed");
-			*ret = EIO;
+				*ret = EIO;
+			}
 		} else {
-			warnx("terminated vm %d successfully", vmr->vmr_id);
+			warnx("sent request to terminate vm %d", vmr->vmr_id);
 			*ret = 0;
 		}
 	} else {
 		warnx("unexpected response received from vmd");
 		*ret = EINVAL;
 	}
+	errno = *ret;
 
 	return (1);
 }
@@ -659,7 +702,7 @@ vm_console(struct vmop_info_result *list, size_t ct)
 		}
 	}
 
-	errx(1, "console %d not found", info_id);
+	errx(1, "console not found");
 }
 
 /*

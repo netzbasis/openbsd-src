@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.231 2017/05/09 09:32:21 mpi Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.234 2018/02/19 08:59:53 mpi Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -656,7 +656,10 @@ reroute:
 	 */
 	tlen = m->m_pkthdr.len;
 
-	if (opt && (opt->ip6po_flags & IP6PO_DONTFRAG))
+	if (ISSET(m->m_pkthdr.csum_flags, M_IPV6_DF_OUT)) {
+		CLR(m->m_pkthdr.csum_flags, M_IPV6_DF_OUT);
+		dontfrag = 1;
+	} else if (opt && ISSET(opt->ip6po_flags, IP6PO_DONTFRAG))
 		dontfrag = 1;
 	else
 		dontfrag = 0;
@@ -1045,11 +1048,8 @@ ip6_ctloutput(int op, struct socket *so, int level, int optname,
 	privileged = (inp->inp_socket->so_state & SS_PRIV);
 	uproto = (int)so->so_proto->pr_protocol;
 
-	if (level != IPPROTO_IPV6) {
-		if (op == PRCO_SETOPT)
-			m_free(m);
+	if (level != IPPROTO_IPV6)
 		return (EINVAL);
-	}
 
 	switch (op) {
 	case PRCO_SETOPT:
@@ -1306,7 +1306,7 @@ do { \
 			switch (optname) {
 			case IPV6_AUTH_LEVEL:
 			        if (optval < IPSEC_AUTH_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1315,7 +1315,7 @@ do { \
 
 			case IPV6_ESP_TRANS_LEVEL:
 			        if (optval < IPSEC_ESP_TRANS_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1324,7 +1324,7 @@ do { \
 
 			case IPV6_ESP_NETWORK_LEVEL:
 			        if (optval < IPSEC_ESP_NETWORK_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1333,7 +1333,7 @@ do { \
 
 			case IPV6_IPCOMP_LEVEL:
 			        if (optval < IPSEC_IPCOMP_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1353,7 +1353,7 @@ do { \
 			/* needs privileges to switch when already set */
 			if (p->p_p->ps_rtableid != rtid &&
 			    p->p_p->ps_rtableid != 0 &&
-			    (error = suser(p, 0)) != 0)
+			    (error = suser(p)) != 0)
 				break;
 			/* table must exist */
 			if (!rtable_exists(rtid)) {
@@ -1378,7 +1378,6 @@ do { \
 			error = ENOPROTOOPT;
 			break;
 		}
-		m_free(m);
 		break;
 
 	case PRCO_GETOPT:
@@ -1590,11 +1589,8 @@ ip6_raw_ctloutput(int op, struct socket *so, int level, int optname,
 	const int icmp6off = offsetof(struct icmp6_hdr, icmp6_cksum);
 	struct inpcb *inp = sotoinpcb(so);
 
-	if (level != IPPROTO_IPV6) {
-		if (op == PRCO_SETOPT)
-			(void)m_free(m);
+	if (level != IPPROTO_IPV6)
 		return (EINVAL);
-	}
 
 	switch (optname) {
 	case IPV6_CHECKSUM:
@@ -1643,9 +1639,6 @@ ip6_raw_ctloutput(int op, struct socket *so, int level, int optname,
 		error = ENOPROTOOPT;
 		break;
 	}
-
-	if (op == PRCO_SETOPT)
-		(void)m_free(m);
 
 	return (error);
 }
@@ -1966,7 +1959,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m,
 			 * all multicast addresses. Only super user is allowed
 			 * to do this.
 			 */
-			if (suser(p, 0))
+			if (suser(p))
 			{
 				error = EACCES;
 				break;
@@ -2058,7 +2051,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m,
 		}
 		mreq = mtod(m, struct ipv6_mreq *);
 		if (IN6_IS_ADDR_UNSPECIFIED(&mreq->ipv6mr_multiaddr)) {
-			if (suser(p, 0))
+			if (suser(p))
 			{
 				error = EACCES;
 				break;

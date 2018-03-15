@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-pane.c,v 1.39 2017/08/08 09:21:20 nicm Exp $ */
+/* $OpenBSD: cmd-select-pane.c,v 1.42 2017/11/17 09:52:18 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -18,6 +18,8 @@
 
 #include <sys/types.h>
 
+#include <stdlib.h>
+
 #include "tmux.h"
 
 /*
@@ -30,8 +32,8 @@ const struct cmd_entry cmd_select_pane_entry = {
 	.name = "select-pane",
 	.alias = "selectp",
 
-	.args = { "DdegLlMmP:Rt:U", 0, 0 },
-	.usage = "[-DdegLlMmRU] [-P style] " CMD_TARGET_PANE_USAGE,
+	.args = { "DdegLlMmP:RT:t:U", 0, 0 },
+	.usage = "[-DdegLlMmRU] [-P style] [-T title] " CMD_TARGET_PANE_USAGE,
 
 	.target = { 't', CMD_FIND_PANE, 0 },
 
@@ -57,10 +59,12 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
 	struct cmd_find_state	*current = &item->shared->current;
+	struct client		*c = cmd_find_client(item, NULL, 1);
 	struct winlink		*wl = item->target.wl;
 	struct window		*w = wl->window;
 	struct session		*s = item->target.s;
 	struct window_pane	*wp = item->target.wp, *lastwp, *markedwp;
+	char			*pane_title;
 	const char		*style;
 
 	if (self->entry == &cmd_last_pane_entry || args_has(args, 'l')) {
@@ -77,7 +81,7 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 			server_unzoom_window(w);
 			window_redraw_active_switch(w, lastwp);
 			if (window_set_active_pane(w, lastwp)) {
-				cmd_find_from_winlink(current, wl);
+				cmd_find_from_winlink(current, wl, 0);
 				server_status_window(w);
 				server_redraw_window_borders(w);
 			}
@@ -147,6 +151,14 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 		return (CMD_RETURN_NORMAL);
 	}
 
+	if (args_has(self->args, 'T')) {
+		pane_title = format_single(item, args_get(self->args, 'T'),
+		    c, s, wl, wp);
+		screen_set_title(&wp->base, pane_title);
+		server_status_window(wp->window);
+		free(pane_title);
+	}
+
 	if (wp == w->active)
 		return (CMD_RETURN_NORMAL);
 	server_unzoom_window(wp->window);
@@ -156,7 +168,7 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 	}
 	window_redraw_active_switch(w, wp);
 	if (window_set_active_pane(w, wp)) {
-		cmd_find_from_winlink_pane(current, wl, wp);
+		cmd_find_from_winlink_pane(current, wl, wp, 0);
 		hooks_insert(s->hooks, item, current, "after-select-pane");
 		server_status_window(w);
 		server_redraw_window_borders(w);

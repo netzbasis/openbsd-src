@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.38 2017/08/18 16:53:02 tom Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.41 2017/10/14 04:44:43 jsg Exp $	*/
 /*	$NetBSD: vm_machdep.c,v 1.1 2003/04/26 18:39:33 fvdl Exp $	*/
 
 /*-
@@ -45,22 +45,15 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
-#include <sys/malloc.h>
-#include <sys/vnode.h>
 #include <sys/buf.h>
 #include <sys/user.h>
-#include <sys/exec.h>
-#include <sys/ptrace.h>
-#include <sys/signalvar.h>
 
 #include <uvm/uvm_extern.h>
 
 #include <machine/cpu.h>
-#include <machine/reg.h>
 #include <machine/fpu.h>
-#include <machine/tcb.h>
 
-void setredzone(struct proc *);
+void setguardpage(struct proc *);
 
 /*
  * Finish a fork operation, with process p2 nearly set up.
@@ -110,7 +103,7 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	p2->p_md.md_regs = tf = (struct trapframe *)pcb->pcb_kstack - 1;
 	*tf = *p1->p_md.md_regs;
 
-	setredzone(p2);
+	setguardpage(p2);
 
 	/*
 	 * If specified, give the child a different stack and/or TCB
@@ -150,13 +143,11 @@ cpu_exit(struct proc *p)
  * Set a red zone in the kernel stack after the u. area.
  */
 void
-setredzone(struct proc *p)
+setguardpage(struct proc *p)
 {
-#if 0
 	pmap_remove(pmap_kernel(), (vaddr_t)p->p_addr + PAGE_SIZE,
 	    (vaddr_t)p->p_addr + 2 * PAGE_SIZE);
 	pmap_update(pmap_kernel());
-#endif
 }
 
 /*

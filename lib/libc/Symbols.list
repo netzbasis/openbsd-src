@@ -6,11 +6,18 @@
  * static, or renamed it to have a leading underbar.
  */
 
-/* symbols that no one should be using currently */
+/* brk/sbrk need this so it can be overriden by the executable's value */
+_end
+
+/*
+ * XXX binutils can create corrupt symbol table entries (uninitialized?)
+ * in shared libs in at least the samba port if at least the __data_start
+ * symbol is missing.  For now, put them all back until the bug can be
+ * stomped on
+ */
 __data_start
 __bss_start
 _edata
-_end
 __end
 
 /* sys */
@@ -25,6 +32,7 @@ __thrsigdivert
 __thrsleep
 __thrwakeup
 _exit
+_thread_canceled
 _thread_sys___get_tcb
 _thread_sys___getcwd
 _thread_sys___semctl
@@ -584,7 +592,6 @@ daemon
 devname
 dirfd
 dirname
-elf_hash
 endfsent
 endgrent
 endnetgrent
@@ -937,19 +944,46 @@ SipHash_Update
 /* locale */
 __mb_cur_max
 btowc
+duplocale
+freelocale
+isalnum_l
+isalpha_l
+isblank_l
+iscntrl_l
+isdigit_l
+isgraph_l
+islower_l
+isprint_l
+ispunct_l
+isspace_l
+isupper_l
 iswalnum
+iswalnum_l
 iswalpha
+iswalpha_l
 iswblank
+iswblank_l
 iswcntrl
+iswcntrl_l
 iswctype
+iswctype_l
 iswdigit
+iswdigit_l
 iswgraph
+iswgraph_l
 iswlower
+iswlower_l
 iswprint
+iswprint_l
 iswpunct
+iswpunct_l
 iswspace
+iswspace_l
 iswupper
+iswupper_l
 iswxdigit
+iswxdigit_l
+isxdigit_l
 localeconv
 mblen
 mbrlen
@@ -958,14 +992,23 @@ mbsinit
 mbsnrtowcs
 mbsrtowcs
 mbstowcs
+newlocale
 mbtowc
 nl_langinfo
+nl_langinfo_l
 setlocale
+tolower_l
+toupper_l
 towctrans
+towctrans_l
 towlower
+towlower_l
 towupper
+towupper_l
+uselocale
 wcrtomb
 wcscoll
+wcscoll_l
 wcsnrtombs
 wcsrtombs
 wcstod
@@ -979,10 +1022,13 @@ wcstoul
 wcstoull
 wcstoumax
 wcsxfrm
+wcsxfrm_l
 wctob
 wctomb
 wctrans
+wctrans_l
 wctype
+wctype_l
 wcwidth
 
 /* asr */
@@ -1420,6 +1466,8 @@ random
 /* stdlib */
 _Exit
 __cxa_atexit
+__cxa_thread_atexit
+__cxa_thread_atexit_impl
 __cxa_finalize
 __isthreaded
 a64l
@@ -1536,21 +1584,25 @@ rindex
 stpcpy
 stpncpy
 strcasecmp
+strcasecmp_l
 strcasestr
 strcat
 strchr
 strcmp
 strcoll
+strcoll_l
 strcpy
 strcspn
 strdup
 strerror
+strerror_l
 strerror_r
 strlcat
 strlcpy
 strlen
 strmode
 strncasecmp
+strncasecmp_l
 strncat
 strncmp
 strncpy
@@ -1565,10 +1617,12 @@ strstr
 strtok
 strtok_r
 strxfrm
+strxfrm_l
 swab
 timingsafe_bcmp
 timingsafe_memcmp
 wcscasecmp
+wcscasecmp_l
 wcscat
 wcschr
 wcscmp
@@ -1579,6 +1633,7 @@ wcslcat
 wcslcpy
 wcslen
 wcsncasecmp
+wcsncasecmp_l
 wcsncat
 wcsncmp
 wcsncpy
@@ -1613,9 +1668,38 @@ tcsetattr
 tcsetpgrp
 
 /* thread */
+_rthread_debug
+_spinlock
+_spinlocktry
+_spinunlock
 _thread_atfork
+_thread_dofork
 _thread_set_callbacks
 pthread_atfork
+pthread_cond_broadcast
+pthread_cond_destroy
+pthread_cond_init
+pthread_cond_signal
+pthread_cond_timedwait
+pthread_cond_wait
+pthread_condattr_destroy
+pthread_condattr_getclock
+pthread_condattr_init
+pthread_condattr_setclock
+pthread_equal
+pthread_exit
+pthread_getspecific
+pthread_key_create
+pthread_key_delete
+pthread_mutex_destroy
+pthread_mutex_init
+pthread_mutex_lock
+pthread_mutex_timedlock
+pthread_mutex_trylock
+pthread_mutex_unlock
+pthread_once
+pthread_self
+pthread_setspecific
 
 /* time */
 asctime
@@ -1632,6 +1716,7 @@ mktime
 offtime
 posix2time
 strftime
+strftime_l
 strptime
 time2posix
 timegm

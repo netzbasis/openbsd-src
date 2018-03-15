@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_ksh.c,v 1.50 2016/03/21 13:35:00 tb Exp $	*/
+/*	$OpenBSD: c_ksh.c,v 1.58 2018/01/16 22:52:32 jca Exp $	*/
 
 /*
  * built-in Korn commands: c_*
@@ -121,7 +121,7 @@ c_cd(char **wp)
 		return 1;
 	}
 
-	Xinit(xs, xp, PATH, ATEMP);
+	Xinit(xs, xp, PATH_MAX, ATEMP);
 	/* xp will have a bogus value after make_path() - set it to 0
 	 * so that if it's used, it will cause a dump
 	 */
@@ -963,8 +963,8 @@ c_alias(char **wp)
 				afree(ap->val.s, APERM);
 			}
 			/* ignore values for -t (at&t ksh does this) */
-			newval = tflag ? search(alias, path, X_OK, NULL) :
-			    val;
+			newval = tflag ? search(alias, search_path, X_OK, NULL)
+			    : val;
 			if (newval) {
 				ap->val.s = str_save(newval, APERM);
 				ap->flag |= ALLOC|ISSET;
@@ -1090,7 +1090,6 @@ c_jobs(char **wp)
 	return rv;
 }
 
-#ifdef JOBS
 int
 c_fgbg(char **wp)
 {
@@ -1114,7 +1113,6 @@ c_fgbg(char **wp)
 	 */
 	return (bg || Flag(FPOSIX)) ? 0 : rv;
 }
-#endif
 
 struct kill_info {
 	int num_width;
@@ -1206,7 +1204,7 @@ c_kill(char **wp)
 					shprintf("%s%s", p, sigtraps[i].name);
 			shprintf("\n");
 		} else {
-			int mess_width = 0, w, i;
+			int mess_width = 0, w;
 			struct kill_info ki = {
 				.num_width = 1,
 				.name_width = 0,
@@ -1216,7 +1214,8 @@ c_kill(char **wp)
 				ki.num_width++;
 
 			for (i = 0; i < NSIG; i++) {
-				w = sigtraps[i].name ? strlen(sigtraps[i].name) :
+				w = sigtraps[i].name ?
+				    (int)strlen(sigtraps[i].name) :
 				    ki.num_width;
 				if (w > ki.name_width)
 					ki.name_width = w;
@@ -1296,7 +1295,7 @@ c_getopts(char **wp)
 	}
 
 	if (genv->loc->next == NULL) {
-		internal_errorf(0, "c_getopts: no argv");
+		internal_warningf("c_getopts: no argv");
 		return 1;
 	}
 	/* Which arguments are we parsing... */
@@ -1407,9 +1406,7 @@ const struct builtin kshbuiltins [] = {
 	{"+command", c_command},
 	{"echo", c_print},
 	{"*=export", c_typeset},
-#ifdef HISTORY
 	{"+fc", c_fc},
-#endif /* HISTORY */
 	{"+getopts", c_getopts},
 	{"+jobs", c_jobs},
 	{"+kill", c_kill},
@@ -1422,10 +1419,8 @@ const struct builtin kshbuiltins [] = {
 	{"=typeset", c_typeset},
 	{"+unalias", c_unalias},
 	{"whence", c_whence},
-#ifdef JOBS
 	{"+bg", c_fgbg},
 	{"+fg", c_fgbg},
-#endif
 #ifdef EMACS
 	{"bind", c_bind},
 #endif

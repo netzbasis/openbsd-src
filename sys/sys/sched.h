@@ -1,4 +1,4 @@
-/*	$OpenBSD: sched.h,v 1.42 2017/02/14 10:31:15 mpi Exp $	*/
+/*	$OpenBSD: sched.h,v 1.44 2017/12/14 23:21:04 dlg Exp $	*/
 /* $NetBSD: sched.h,v 1.2 1999/02/28 18:14:58 ross Exp $ */
 
 /*-
@@ -114,8 +114,6 @@ struct schedstate_percpu {
 	struct proc *spc_reaper;	/* dead proc reaper */
 #endif
 	LIST_HEAD(,proc) spc_deadproc;
-
-	volatile int spc_barrier;	/* for sched_barrier() */
 };
 
 #ifdef	_KERNEL
@@ -199,9 +197,12 @@ extern struct __mp_lock sched_lock;
 #define	SCHED_ASSERT_LOCKED()						\
 do {									\
 	splassert(IPL_SCHED);						\
-	KASSERT(__mp_lock_held(&sched_lock));				\
+	KASSERT(__mp_lock_held(&sched_lock, curcpu()));			\
 } while (0)
-#define	SCHED_ASSERT_UNLOCKED()	KASSERT(__mp_lock_held(&sched_lock) == 0)
+#define	SCHED_ASSERT_UNLOCKED()						\
+do {									\
+	KASSERT(__mp_lock_held(&sched_lock, curcpu()) == 0);		\
+} while (0)
 
 #define	SCHED_LOCK_INIT()	__mp_lock_init(&sched_lock)
 

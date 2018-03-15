@@ -1,4 +1,4 @@
-/* $OpenBSD: acpidev.h,v 1.41 2017/07/22 21:06:17 jcs Exp $ */
+/* $OpenBSD: acpidev.h,v 1.43 2018/01/17 07:40:29 bentley Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
@@ -50,9 +50,9 @@
  * 	OEM Information			//ASCIIZ
  * }
  *
- * _BIX (Battery InFormation Extended)
+ * _BIX (Battery Information Extended)
  * Arguments: none
- * Results  : package _BIX (Battery InFormation Extended)
+ * Results  : package _BIX (Battery Information Extended)
  * Package {
  * 	// ASCIIZ is ASCII character string terminated with a 0x00.
  *	Revision			//Integer
@@ -374,6 +374,7 @@ struct acpiec_softc {
 	struct acpiec_event	sc_events[ACPIEC_MAX_EVENTS];
 	int			sc_gotsci;
 	int			sc_glk;
+	int			sc_cantburst;
 };
 
 void		acpibtn_disable_psw(void);

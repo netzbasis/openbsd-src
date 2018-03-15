@@ -1,4 +1,4 @@
-#	$OpenBSD: list,v 1.30 2017/07/08 15:42:46 florian Exp $
+#	$OpenBSD: list,v 1.34 2017/12/03 10:34:30 jsg Exp $
 
 SRCDIRS distrib/special
 
@@ -35,6 +35,7 @@ LINK	instbin					sbin/fdisk
 LINK	instbin					sbin/fsck
 LINK	instbin					sbin/fsck_ext2fs
 LINK	instbin					sbin/fsck_ffs
+LINK	instbin					sbin/growfs
 LINK	instbin					sbin/ifconfig
 LINK	instbin					sbin/init
 LINK	instbin					sbin/mknod
@@ -123,15 +124,13 @@ COPY	/usr/local/share/u-boot/am335x_boneblack/MLO	usr/mdec/am335x/MLO
 COPY	/usr/local/share/u-boot/am335x_boneblack/u-boot.img	usr/mdec/am335x/u-boot.img
 COPY	/usr/local/share/dtb/arm/am335x-bone.dtb	usr/mdec/am335x/am335x-bone.dtb
 COPY	/usr/local/share/dtb/arm/am335x-boneblack.dtb	usr/mdec/am335x/am335x-boneblack.dtb
+COPY	/usr/local/share/dtb/arm/am335x-boneblack-wireless.dtb	usr/mdec/am335x/am335x-boneblack-wireless.dtb
+COPY	/usr/local/share/dtb/arm/am335x-boneblue.dtb	usr/mdec/am335x/am335x-boneblue.dtb
 COPY	/usr/local/share/dtb/arm/am335x-bonegreen.dtb	usr/mdec/am335x/am335x-bonegreen.dtb
+COPY	/usr/local/share/dtb/arm/am335x-bonegreen-wireless.dtb	usr/mdec/am335x/am335x-bonegreen-wireless.dtb
 COPY	/usr/local/share/dtb/arm/am335x-evm.dtb		usr/mdec/am335x/am335x-evm.dtb
 COPY	/usr/local/share/dtb/arm/am335x-evmsk.dtb	usr/mdec/am335x/am335x-evmsk.dtb
-
-COPY	/usr/local/share/u-boot/omap3_beagle/MLO	usr/mdec/beagle/MLO
-COPY	/usr/local/share/u-boot/omap3_beagle/u-boot.img	usr/mdec/beagle/u-boot.img
-COPY	/usr/local/share/dtb/arm/omap3-beagle-xm-ab.dtb	usr/mdec/beagle/omap3-beagle-xm-ab.dtb
-COPY	/usr/local/share/dtb/arm/omap3-beagle-xm.dtb	usr/mdec/beagle/omap3-beagle-xm.dtb
-COPY	/usr/local/share/dtb/arm/omap3-beagle.dtb	usr/mdec/beagle/omap3-beagle.dtb
+COPY	/usr/local/share/dtb/arm/am335x-icev2.dtb	usr/mdec/am335x/am335x-icev2.dtb
 
 COPY	/usr/local/share/u-boot/Cubieboard2/u-boot-sunxi-with-spl.bin	usr/mdec/cubie/u-boot-sunxi-with-spl.bin
 COPY	/usr/local/share/dtb/arm/sun7i-a20-cubieboard2.dtb	usr/mdec/cubie/sun7i-a20-cubieboard2.dtb
@@ -159,9 +158,12 @@ COPY	/usr/local/share/dtb/arm/imx6q-sabrelite.dtb	usr/mdec/nitrogen/imx6q-sabrel
 
 COPY	/usr/local/share/u-boot/wandboard/SPL		usr/mdec/wandboard/SPL
 COPY	/usr/local/share/u-boot/wandboard/u-boot.img	usr/mdec/wandboard/u-boot.img
-COPY	/usr/local/share/dtb/arm/imx6dl-wandboard-revb1.dtb	usr/mdec/wandboard/imx6dl-wandboard-revb1.dtb
 COPY	/usr/local/share/dtb/arm/imx6dl-wandboard.dtb	usr/mdec/wandboard/imx6dl-wandboard.dtb
-COPY	/usr/local/share/dtb/arm/imx6q-wandboard-revb1.dtb	usr/mdec/wandboard/imx6q-wandboard-revb1.dtb
+COPY	/usr/local/share/dtb/arm/imx6dl-wandboard-revb1.dtb	usr/mdec/wandboard/imx6dl-wandboard-revb1.dtb
+COPY	/usr/local/share/dtb/arm/imx6dl-wandboard-revd1.dtb	usr/mdec/wandboard/imx6dl-wandboard-revd1.dtb
 COPY	/usr/local/share/dtb/arm/imx6q-wandboard.dtb	usr/mdec/wandboard/imx6q-wandboard.dtb
+COPY	/usr/local/share/dtb/arm/imx6q-wandboard-revb1.dtb	usr/mdec/wandboard/imx6q-wandboard-revb1.dtb
+COPY	/usr/local/share/dtb/arm/imx6q-wandboard-revd1.dtb	usr/mdec/wandboard/imx6q-wandboard-revd1.dtb
+COPY	/usr/local/share/dtb/arm/imx6qp-wandboard-revd1.dtb	usr/mdec/wandboard/imx6qp-wandboard-revd1.dtb
 
 TZ

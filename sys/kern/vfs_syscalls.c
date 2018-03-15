@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.272 2017/04/15 13:56:43 bluhm Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.276 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <sys/kernel.h>
 #include <sys/conf.h>
 #include <sys/sysctl.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/lock.h>
@@ -114,8 +115,9 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	struct nameidata nd;
 	struct vfsconf *vfsp;
 	int flags = SCARG(uap, flags);
+	void *args = NULL;
 
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 
 	/*
@@ -130,15 +132,24 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	 */
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_SYSSPACE, fspath, p);
 	if ((error = namei(&nd)) != 0)
-		return (error);
+		goto fail;
 	vp = nd.ni_vp;
 	if (flags & MNT_UPDATE) {
 		if ((vp->v_flag & VROOT) == 0) {
 			vput(vp);
-			return (EINVAL);
+			error = EINVAL;
+			goto fail;
 		}
 		mp = vp->v_mount;
 		vfsp = mp->mnt_vfc;
+
+		args = malloc(vfsp->vfc_datasize, M_TEMP, M_WAITOK | M_ZERO);
+		error = copyin(SCARG(uap, data), args, vfsp->vfc_datasize);
+		if (error) {
+			vput(vp);
+			goto fail;
+		}
+
 		mntflag = mp->mnt_flag;
 		/*
 		 * We only allow the filesystem to be reloaded if it
@@ -147,12 +158,13 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 		if ((flags & MNT_RELOAD) &&
 		    ((mp->mnt_flag & MNT_RDONLY) == 0)) {
 			vput(vp);
-			return (EOPNOTSUPP);	/* Needs translation */
+			error = EOPNOTSUPP;	/* Needs translation */
+			goto fail;
 		}
 
 		if ((error = vfs_busy(mp, VB_READ|VB_NOWAIT)) != 0) {
 			vput(vp);
-			return (error);
+			goto fail;
 		}
 		mp->mnt_flag |= flags & (MNT_RELOAD | MNT_UPDATE);
 		goto update;
@@ -164,20 +176,21 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	if ((flags & MNT_NOPERM) &&
 	    (flags & (MNT_NODEV | MNT_NOEXEC)) != (MNT_NODEV | MNT_NOEXEC)) {
 		vput(vp);
-		return (EPERM);
+		error = EPERM;
+		goto fail;
 	}
 	if ((error = vinvalbuf(vp, V_SAVE, p->p_ucred, p, 0, 0)) != 0) {
 		vput(vp);
-		return (error);
+		goto fail;
 	}
 	if (vp->v_type != VDIR) {
 		vput(vp);
-		return (ENOTDIR);
+		goto fail;
 	}
 	error = copyinstr(SCARG(uap, type), fstypename, MFSNAMELEN, NULL);
 	if (error) {
 		vput(vp);
-		return (error);
+		goto fail;
 	}
 	for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next) {
 		if (!strcmp(vfsp->vfc_name, fstypename))
@@ -186,12 +199,21 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 
 	if (vfsp == NULL) {
 		vput(vp);
-		return (EOPNOTSUPP);
+		error = EOPNOTSUPP;
+		goto fail;
+	}
+
+	args = malloc(vfsp->vfc_datasize, M_TEMP, M_WAITOK | M_ZERO);
+	error = copyin(SCARG(uap, data), args, vfsp->vfc_datasize);
+	if (error) {
+		vput(vp);
+		goto fail;
 	}
 
 	if (vp->v_mountedhere != NULL) {
 		vput(vp);
-		return (EBUSY);
+		error = EBUSY;
+		goto fail;
 	}
 
 	/*
@@ -218,7 +240,7 @@ update:
 			free(mp, M_MOUNT, sizeof(*mp));
 		}
 		vput(vp);
-		return (error);
+		goto fail;
 	}
 
 	/*
@@ -237,7 +259,7 @@ update:
 	/*
 	 * Mount the filesystem.
 	 */
-	error = VFS_MOUNT(mp, fspath, SCARG(uap, data), &nd, p);
+	error = VFS_MOUNT(mp, fspath, args, &nd, p);
 	if (!error) {
 		mp->mnt_stat.f_ctime = time_second;
 	}
@@ -261,7 +283,7 @@ update:
 		}
 
 		vfs_unbusy(mp);
-		return (error);
+		goto fail;
 	}
 
 	vp->v_mountedhere = mp;
@@ -289,6 +311,9 @@ update:
 		vfs_unbusy(vp->v_mount);
 		vput(vp);
 	}
+fail:
+	if (args)
+		free(args, M_TEMP, vfsp->vfc_datasize);
 	return (error);
 }
 
@@ -354,7 +379,7 @@ sys_unmount(struct proc *p, void *v, register_t *retval)
 	int error;
 	struct nameidata nd;
 
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
@@ -469,7 +494,7 @@ dounmount_leaf(struct mount *mp, int flags, struct proc *p)
 		mp->mnt_syncer = NULL;
 	}
 	if (((mp->mnt_flag & MNT_RDONLY) ||
-	    (error = VFS_SYNC(mp, MNT_WAIT, p->p_ucred, p)) == 0) ||
+	    (error = VFS_SYNC(mp, MNT_WAIT, 0, p->p_ucred, p)) == 0) ||
 	    (flags & MNT_FORCE))
 		error = VFS_UNMOUNT(mp, flags, p);
 
@@ -518,7 +543,7 @@ sys_sync(struct proc *p, void *v, register_t *retval)
 			asyncflag = mp->mnt_flag & MNT_ASYNC;
 			mp->mnt_flag &= ~MNT_ASYNC;
 			uvm_vnp_sync(mp);
-			VFS_SYNC(mp, MNT_NOWAIT, p->p_ucred, p);
+			VFS_SYNC(mp, MNT_NOWAIT, 0, p->p_ucred, p);
 			if (asyncflag)
 				mp->mnt_flag |= MNT_ASYNC;
 		}
@@ -563,7 +588,7 @@ copyout_statfs(struct statfs *sp, void *uaddr, struct proc *p)
 	int error;
 
 	/* Don't let non-root see filesystem id (for NFS security) */
-	if (suser(p, 0)) {
+	if (suser(p)) {
 		fsid_t fsid;
 
 		s = (char *)sp;
@@ -787,7 +812,7 @@ sys_chroot(struct proc *p, void *v, register_t *retval)
 	int error;
 	struct nameidata nd;
 
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
 	    SCARG(uap, path), p);
@@ -995,7 +1020,7 @@ sys_getfh(struct proc *p, void *v, register_t *retval)
 	/*
 	 * Must be super user
 	 */
-	error = suser(p, 0);
+	error = suser(p);
 	if (error)
 		return (error);
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
@@ -1041,7 +1066,7 @@ sys_fhopen(struct proc *p, void *v, register_t *retval)
 	/*
 	 * Must be super user
 	 */
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 
 	flags = FFLAGS(SCARG(uap, flags));
@@ -1164,7 +1189,7 @@ sys_fhstat(struct proc *p, void *v, register_t *retval)
 	/*
 	 * Must be super user
 	 */
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 
 	if ((error = copyin(SCARG(uap, fhp), &fh, sizeof(fhandle_t))) != 0)
@@ -1198,7 +1223,7 @@ sys_fhstatfs(struct proc *p, void *v, register_t *retval)
 	/*
 	 * Must be super user
 	 */
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 
 	if ((error = copyin(SCARG(uap, fhp), &fh, sizeof(fhandle_t))) != 0)
@@ -1264,7 +1289,7 @@ domknodat(struct proc *p, int fd, const char *path, mode_t mode, dev_t dev)
 	vp = nd.ni_vp;
 	if (!S_ISFIFO(mode) || dev != 0) {
 		if ((nd.ni_dvp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
-		    (error = suser(p, 0)) != 0)
+		    (error = suser(p)) != 0)
 			goto out;
 		if (p->p_fd->fd_rdir) {
 			error = EINVAL;
@@ -1776,7 +1801,7 @@ dofstatat(struct proc *p, int fd, const char *path, struct stat *buf, int flag)
 			return (ENOENT);
 	}
 	/* Don't let non-root see generation numbers (for NFS security) */
-	if (suser(p, 0))
+	if (suser(p))
 		sb.st_gen = 0;
 	error = copyout(&sb, buf, sizeof(sb));
 #ifdef KTRACE
@@ -1968,7 +1993,7 @@ dovchflags(struct proc *p, struct vnode *vp, u_int flags)
 	else if (flags == VNOVAL)
 		error = EINVAL;
 	else {
-		if (suser(p, 0)) {
+		if (suser(p)) {
 			if ((error = VOP_GETATTR(vp, &vattr, p->p_ucred, p))
 			    != 0)
 				goto out;
@@ -2142,7 +2167,7 @@ dofchownat(struct proc *p, int fd, const char *path, uid_t uid, gid_t gid,
 			goto out;
 		if ((uid != -1 || gid != -1) &&
 		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
-		    (suser(p, 0) || suid_clear)) {
+		    (suser(p) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
 				goto out;
@@ -2194,7 +2219,7 @@ sys_lchown(struct proc *p, void *v, register_t *retval)
 			goto out;
 		if ((uid != -1 || gid != -1) &&
 		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
-		    (suser(p, 0) || suid_clear)) {
+		    (suser(p) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
 				goto out;
@@ -2244,7 +2269,7 @@ sys_fchown(struct proc *p, void *v, register_t *retval)
 			goto out;
 		if ((uid != -1 || gid != -1) &&
 		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
-		    (suser(p, 0) || suid_clear)) {
+		    (suser(p) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
 				goto out;
@@ -2849,7 +2874,7 @@ sys_revoke(struct proc *p, void *v, register_t *retval)
 	if ((error = VOP_GETATTR(vp, &vattr, p->p_ucred, p)) != 0)
 		goto out;
 	if (p->p_ucred->cr_uid != vattr.va_uid &&
-	    (error = suser(p, 0)))
+	    (error = suser(p)))
 		goto out;
 	if (vp->v_usecount > 1 || (vp->v_flag & (VALIASED)))
 		VOP_REVOKE(vp, REVOKEALL);

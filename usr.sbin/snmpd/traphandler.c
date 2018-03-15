@@ -1,4 +1,4 @@
-/*	$OpenBSD: traphandler.c,v 1.9 2017/08/12 04:29:57 rob Exp $	*/
+/*	$OpenBSD: traphandler.c,v 1.11 2018/02/08 18:02:06 jca Exp $	*/
 
 /*
  * Copyright (c) 2014 Bret Stephen Lambert <blambert@openbsd.org>
@@ -18,7 +18,6 @@
 
 #include <sys/queue.h>
 #include <sys/socket.h>
-#include <sys/socketvar.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/uio.h>
@@ -219,7 +218,6 @@ traphandler_parse(char *buf, size_t n, struct ber_element **req,
 	u_int			 vers, gtype, etype;
 
 	bzero(&ber, sizeof(ber));
-	ber.fd = -1;
 	ber_set_application(&ber, smi_application);
 	ber_set_readbuf(&ber, buf, n);
 

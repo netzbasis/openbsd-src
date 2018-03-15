@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.80 2017/07/04 17:29:51 tedu Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.83 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <sys/ioctl.h>
 #include <sys/proc.h>
 #include <sys/tty.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/uio.h>
@@ -247,7 +248,7 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 		tp->t_cflag = TTYDEF_CFLAG;
 		tp->t_ispeed = tp->t_ospeed = B115200;
 		ttsetwater(tp);		/* would be done in xxparam() */
-	} else if (tp->t_state & TS_XCLUDE && suser(p, 0) != 0)
+	} else if (tp->t_state & TS_XCLUDE && suser(p) != 0)
 		return (EBUSY);
 	if (tp->t_oproc)			/* Ctrlr still around. */
 		tp->t_state |= TS_CARR_ON;
@@ -860,6 +861,20 @@ ptyioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	if (error < 0)
 		 error = ttioctl(tp, cmd, data, flag, p);
 	if (error < 0) {
+		/*
+		 * Translate TIOCSBRK/TIOCCBRK to user mode ioctls to
+		 * let the master interpret BREAK conditions.
+		 */
+		switch (cmd) {
+		case TIOCSBRK:
+			cmd = UIOCCMD(TIOCUCNTL_SBRK);
+			break;
+		case TIOCCBRK:
+			cmd = UIOCCMD(TIOCUCNTL_CBRK);
+			break;
+		default:
+			break;
+		}
 		if (pti->pt_flags & PF_UCNTL &&
 		    (cmd & ~0xff) == UIOCCMD(0)) {
 			if (cmd & 0xff) {

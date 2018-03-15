@@ -1,4 +1,4 @@
-/*	$OpenBSD: mem.c,v 1.24 2016/09/25 15:23:37 deraadt Exp $	*/
+/*	$OpenBSD: mem.c,v 1.27 2018/02/19 08:59:52 mpi Exp $	*/
 /*	$NetBSD: mem.c,v 1.1 1996/09/30 16:34:50 ws Exp $ */
 
 /*
@@ -43,11 +43,11 @@
 
 #include <sys/param.h>
 #include <sys/buf.h>
+#include <sys/filio.h>
 #include <sys/systm.h>
 #include <sys/ioccom.h>
 #include <sys/uio.h>
 #include <sys/malloc.h>
-#include <sys/types.h>
 
 #include <machine/cpu.h>
 
@@ -204,7 +204,7 @@ mmopen(dev_t dev, int flag, int mode, struct proc *p)
 		break;
 #ifdef APERTURE
 	case 4:
-	        if (suser(p, 0) != 0 || !allowaperture)
+	        if (suser(p) != 0 || !allowaperture)
 			return (EPERM);
 
 		/* authorize only one simultaneous open() unless
@@ -307,5 +307,12 @@ mmmmap(dev_t dev, off_t off, int prot)
 int
 mmioctl(dev_t dev, u_long cmd, caddr_t data, int flags, struct proc *p)
 {
+        switch (cmd) {
+        case FIONBIO:
+        case FIOASYNC:
+                /* handled by fd layer */
+                return 0;
+        }
+
 	return (EOPNOTSUPP);
 }

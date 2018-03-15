@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.68 2017/08/20 21:15:32 pd Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.81 2018/03/14 07:29:34 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -22,6 +22,7 @@
 #include <sys/cdefs.h>
 #include <sys/stat.h>
 #include <sys/tty.h>
+#include <sys/ttycom.h>
 #include <sys/ioctl.h>
 
 #include <stdio.h>
@@ -102,7 +103,7 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		}
 		if (res == 0 &&
-		    config_setvm(ps, vm, imsg->hdr.peerid, vmc.vmc_uid) == -1) {
+		    config_setvm(ps, vm, imsg->hdr.peerid, vm->vm_params.vmc_uid) == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		}
@@ -185,6 +186,10 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 			} else {
 				vid.vid_id = vm->vm_vmid;
 			}
+		} else if (vm_getbyid(vid.vid_id) == NULL) {
+			res = ENOENT;
+			cmd = IMSG_VMDOP_PAUSE_VM_RESPONSE;
+			break;
 		}
 		proc_compose_imsg(ps, PROC_VMM, -1, imsg->hdr.type,
 		    imsg->hdr.peerid, -1, &vid, sizeof(vid));
@@ -372,6 +377,8 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
 		IMSG_SIZE_CHECK(imsg, &vmr);
 		memcpy(&vmr, imsg->data, sizeof(vmr));
+		log_debug("%s: forwarding TERMINATE VM for vm id %d",
+		    __func__, vmr.vmr_id);
 		proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
 		if ((vm = vm_getbyvmid(vmr.vmr_id)) == NULL)
 			break;
@@ -392,17 +399,29 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_TERMINATE_VM_EVENT:
 		IMSG_SIZE_CHECK(imsg, &vmr);
 		memcpy(&vmr, imsg->data, sizeof(vmr));
-		if ((vm = vm_getbyvmid(vmr.vmr_id)) == NULL)
+		log_debug("%s: handling TERMINATE_EVENT for vm id %d ret %d",
+		    __func__, vmr.vmr_id, vmr.vmr_result);
+		if ((vm = vm_getbyvmid(vmr.vmr_id)) == NULL) {
+			log_debug("%s: vm %d is no longer available",
+			    __func__, vmr.vmr_id);
 			break;
-		if (vmr.vmr_result == 0) {
-			if (vm->vm_from_config)
+		}
+		if (vmr.vmr_result != EAGAIN) {
+			if (vm->vm_from_config) {
+				log_debug("%s: about to stop vm id %d",
+				    __func__, vm->vm_vmid);
 				vm_stop(vm, 0);
-			else
+			} else {
+				log_debug("%s: about to remove vm %d",
+				    __func__, vm->vm_vmid);
 				vm_remove(vm);
-		} else if (vmr.vmr_result == EAGAIN) {
+			}
+		} else {
 			/* Stop VM instance but keep the tty open */
+			log_debug("%s: about to stop vm id %d with tty open",
+			    __func__, vm->vm_vmid);
 			vm_stop(vm, 1);
-			config_setvm(ps, vm, (uint32_t)-1, 0);
+			config_setvm(ps, vm, (uint32_t)-1, vm->vm_uid);
 		}
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_DATA:
@@ -425,6 +444,8 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 		if (proc_compose_imsg(ps, PROC_CONTROL, -1, imsg->hdr.type,
 		    imsg->hdr.peerid, -1, &vir, sizeof(vir)) == -1) {
+			log_debug("%s: GET_INFO_VM failed for vm %d, removing",
+			    __func__, vm->vm_vmid);
 			vm_remove(vm);
 			return (-1);
 		}
@@ -453,6 +474,8 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 				    IMSG_VMDOP_GET_INFO_VM_DATA,
 				    imsg->hdr.peerid, -1, &vir,
 				    sizeof(vir)) == -1) {
+					log_debug("%s: GET_INFO_VM_END failed",
+					    __func__);
 					vm_remove(vm);
 					return (-1);
 				}
@@ -592,6 +615,7 @@ vmd_sighdlr(int sig, short event, void *arg)
 {
 	if (privsep_process != PROC_PARENT)
 		return;
+	log_debug("%s: handling signal", __func__);
 
 	switch (sig) {
 	case SIGHUP:
@@ -781,15 +805,16 @@ vmd_configure(void)
 	 * stdio - for malloc and basic I/O including events.
 	 * rpath - for reload to open and read the configuration files.
 	 * wpath - for opening disk images and tap devices.
-	 * tty - for openpty.
+	 * tty - for openpty and TIOCUCNTL.
 	 * proc - run kill to terminate its children safely.
 	 * sendfd - for disks, interfaces and other fds.
 	 * recvfd - for send and receive.
 	 * getpw - lookup user or group id by name.
 	 * chown, fattr - change tty ownership
+	 * flock - locking disk files
 	 */
 	if (pledge("stdio rpath wpath proc tty recvfd sendfd getpw"
-	    " chown fattr", NULL) == -1)
+	    " chown fattr flock", NULL) == -1)
 		fatal("pledge");
 
 	if (parse_config(env->vmd_conffile) == -1) {
@@ -821,7 +846,7 @@ vmd_configure(void)
 			    vm->vm_params.vmc_params.vcp_name);
 			continue;
 		}
-		if (config_setvm(&env->vmd_ps, vm, -1, 0) == -1)
+		if (config_setvm(&env->vmd_ps, vm, -1, vm->vm_params.vmc_uid) == -1)
 			return (-1);
 	}
 
@@ -862,8 +887,11 @@ vmd_reload(unsigned int reset, const char *filename)
 
 		if (reload) {
 			TAILQ_FOREACH_SAFE(vm, env->vmd_vms, vm_entry, next_vm) {
-				if (vm->vm_running == 0)
+				if (vm->vm_running == 0) {
+					log_debug("%s: calling vm_remove",
+					    __func__);
 					vm_remove(vm);
+				}
 			}
 
 			/* Update shared global configuration in all children */
@@ -896,7 +924,7 @@ vmd_reload(unsigned int reset, const char *filename)
 					    vm->vm_params.vmc_params.vcp_name);
 					continue;
 				}
-				if (config_setvm(&env->vmd_ps, vm, -1, 0) == -1)
+				if (config_setvm(&env->vmd_ps, vm, -1, vm->vm_params.vmc_uid) == -1)
 					return (-1);
 			} else {
 				log_debug("%s: not creating vm \"%s\": "
@@ -914,6 +942,7 @@ vmd_shutdown(void)
 {
 	struct vmd_vm *vm, *vm_next;
 
+	log_debug("%s: performing shutdown", __func__);
 	TAILQ_FOREACH_SAFE(vm, env->vmd_vms, vm_entry, vm_next) {
 		vm_remove(vm);
 	}
@@ -1011,6 +1040,7 @@ vm_stop(struct vmd_vm *vm, int keeptty)
 	if (vm == NULL)
 		return;
 
+	log_debug("%s: stopping vm %d", __func__, vm->vm_vmid);
 	vm->vm_running = 0;
 	vm->vm_shutdown = 0;
 
@@ -1040,9 +1070,14 @@ vm_stop(struct vmd_vm *vm, int keeptty)
 		close(vm->vm_kernel);
 		vm->vm_kernel = -1;
 	}
-	vm->vm_uid = 0;
-	if (!keeptty)
+	if (vm->vm_cdrom != -1) {
+		close(vm->vm_cdrom);
+		vm->vm_cdrom = -1;
+	}
+	if (!keeptty) {
 		vm_closetty(vm);
+		vm->vm_uid = 0;
+	}
 }
 
 void
@@ -1051,7 +1086,10 @@ vm_remove(struct vmd_vm *vm)
 	if (vm == NULL)
 		return;
 
+	log_debug("%s: removing vm id %d from running config",
+	    __func__, vm->vm_vmid);
 	TAILQ_REMOVE(env->vmd_vms, vm, vm_entry);
+	log_debug("%s: calling vm_stop", __func__);
 	vm_stop(vm, 0);
 	free(vm);
 }
@@ -1073,7 +1111,7 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 
 	if ((vm = vm_getbyname(vcp->vcp_name)) != NULL ||
 	    (vm = vm_getbyvmid(vcp->vcp_id)) != NULL) {
-		if (vm_checkperm(vm, uid) != 0 || vmc->vmc_flags != 0) {
+		if (vm_checkperm(vm, uid) != 0) {
 			errno = EPERM;
 			goto fail;
 		}
@@ -1107,8 +1145,9 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 	} else if (vcp->vcp_nnics > VMM_MAX_NICS_PER_VM) {
 		log_warnx("invalid number of interfaces");
 		goto fail;
-	} else if (strlen(vcp->vcp_kernel) == 0 && vcp->vcp_ndisks == 0) {
-		log_warnx("no kernel or disk specified");
+	} else if (strlen(vcp->vcp_kernel) == 0 &&
+	    vcp->vcp_ndisks == 0 && strlen(vcp->vcp_cdrom) == 0) {
+		log_warnx("no kernel or disk/cdrom specified");
 		goto fail;
 	} else if (strlen(vcp->vcp_name) == 0) {
 		log_warnx("invalid VM name");
@@ -1144,10 +1183,6 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 		vm->vm_ifs[i].vif_fd = -1;
 
 		if ((sw = switch_getbyname(vmc->vmc_ifswitch[i])) != NULL) {
-			/* overwrite the rdomain, if configured on the switch */
-			if (sw->sw_flags & VMIFF_RDOMAIN)
-				vmc->vmc_ifrdomain[i] = sw->sw_rdomain;
-
 			/* inherit per-interface flags from the switch */
 			vmc->vmc_ifflags[i] |= (sw->sw_flags & VMIFF_OPTMASK);
 		}
@@ -1170,6 +1205,7 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 		}
 	}
 	vm->vm_kernel = -1;
+	vm->vm_cdrom = -1;
 	vm->vm_iev.ibuf.fd = -1;
 
 	if (++env->vmd_nvm == 0)
@@ -1178,6 +1214,7 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 	/* Assign a new internal Id if not specified */
 	vm->vm_vmid = id == 0 ? env->vmd_nvm : id;
 
+	log_debug("%s: registering vm %d", __func__, vm->vm_vmid);
 	TAILQ_INSERT_TAIL(env->vmd_vms, vm, vm_entry);
 
 	*ret_vm = vm;
@@ -1188,6 +1225,21 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 	return (-1);
 }
 
+/*
+ * vm_checkperm
+ *
+ * Checks if the user represented by the 'uid' parameter is allowed to
+ * manipulate the VM described by the 'vm' parameter (or connect to said VM's
+ * console.)
+ *
+ * Parameters:
+ *  vm: the VM whose permission is to be checked
+ *  uid: the user ID of the user making the request
+ *
+ * Return values:
+ *   0: the permission should be granted
+ *  -1: the permission check failed (also returned if vm == null)
+ */
 int
 vm_checkperm(struct vmd_vm *vm, uid_t uid)
 {
@@ -1228,12 +1280,20 @@ vm_opentty(struct vmd_vm *vm)
 	uid_t			 uid;
 	gid_t			 gid;
 	mode_t			 mode;
+	int			 on;
 
 	/*
 	 * Open tty with pre-opened PTM fd
 	 */
 	if ((ioctl(env->vmd_ptmfd, PTMGET, &ptm) == -1))
 		return (-1);
+
+	/*
+	 * We use user ioctl(2) mode to pass break commands.
+	 */
+	on = 1;
+	if (ioctl(ptm.cfd, TIOCUCNTL, &on))
+		fatal("could not enable user ioctl mode");
 
 	vm->vm_tty = ptm.cfd;
 	close(ptm.sfd);
@@ -1313,19 +1373,10 @@ vm_closetty(struct vmd_vm *vm)
 void
 switch_remove(struct vmd_switch *vsw)
 {
-	struct vmd_if	*vif;
-
 	if (vsw == NULL)
 		return;
 
 	TAILQ_REMOVE(env->vmd_switches, vsw, sw_entry);
-
-	while ((vif = TAILQ_FIRST(&vsw->sw_ifs)) != NULL) {
-		free(vif->vif_name);
-		free(vif->vif_switch);
-		TAILQ_REMOVE(&vsw->sw_ifs, vif, vif_entry);
-		free(vif);
-	}
 
 	free(vsw->sw_group);
 	free(vsw->sw_name);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in.h,v 1.124 2017/08/11 19:53:02 bluhm Exp $	*/
+/*	$OpenBSD: in.h,v 1.129 2018/03/02 15:52:11 claudio Exp $	*/
 /*	$NetBSD: in.h,v 1.20 1996/02/13 23:41:47 christos Exp $	*/
 
 /*
@@ -317,11 +317,6 @@ struct ip_opts {
 						/* source address to use */
 
 #define IP_RTABLE		0x1021	/* int; routing table, see SO_RTABLE */
-#define IP_DIVERTFL		0x1022	/* int; divert direction flag opt */
-
-/* Values used by IP_DIVERTFL socket option */
-#define IPPROTO_DIVERT_RESP	0x01	/* divert response packets */
-#define IPPROTO_DIVERT_INIT	0x02	/* divert packets initial direction */
 
 #if __BSD_VISIBLE
 /*
@@ -750,19 +745,19 @@ struct ip_mreq {
 	&ipport_hifirstauto, \
 	&ipport_hilastauto, \
 	&ip_maxqueue, \
-	&encdebug, \
+	NULL /* encdebug */, \
 	NULL, \
-	&ipsec_expire_acquire, \
-	&ipsec_keep_invalid, \
-	&ipsec_require_pfs, \
-	&ipsec_soft_allocations, \
-	&ipsec_exp_allocations, \
-	&ipsec_soft_bytes, \
-	&ipsec_exp_bytes, \
-	&ipsec_exp_timeout, \
-	&ipsec_soft_timeout, \
-	&ipsec_soft_first_use, \
-	&ipsec_exp_first_use, \
+	NULL /* ipsec_expire_acquire */, \
+	NULL /* ipsec_keep_invalid */, \
+	NULL /* ipsec_require_pfs */, \
+	NULL /* ipsec_soft_allocations */, \
+	NULL /* ipsec_exp_allocations */, \
+	NULL /* ipsec_soft_bytes */, \
+	NULL /* ipsec_exp_bytes */, \
+	NULL /* ipsec_exp_timeout */, \
+	NULL /* ipsec_soft_timeout */, \
+	NULL /* ipsec_soft_first_use */, \
+	NULL /* ipsec_exp_first_use */, \
 	NULL, \
 	NULL, \
 	NULL, \
@@ -799,7 +794,7 @@ __END_DECLS
 #endif /* !_KERNEL */
 
 #ifdef _KERNEL
-extern	   int inetctlerrmap[];
+extern	   const int inetctlerrmap[];
 extern	   struct in_addr zeroin_addr;
 
 struct mbuf;
