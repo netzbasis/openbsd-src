@@ -16,22 +16,16 @@
 int
 c_pledge(char **wp)
 {
-	wp += 1;
-	if (*wp != NULL)
-		if (pledge(*wp, NULL) == -1)
-			return 1;
-	return 0;
-}
+	const char *pledge1;
+	const char *pledge2;
 
-int
-c_pledgedir(char **wp)
-{
 	wp += 1;
-	if (*wp != NULL) {
-		shprintf("%s\n", *wp);
-		if (pledge(NULL, wp) == -1)
-			return 1;
-	}
+	pledge1 = *wp; /* possible NULL */
+	wp += 1;
+	pledge2 = *wp; /* possible NULL */
+
+	if (pledge(pledge1, pledge2) == -1)
+		return 1;
 	return 0;
 }
 
@@ -1412,7 +1406,6 @@ const struct builtin kshbuiltins [] = {
 	{"+kill", c_kill},
 	{"let", c_let},
 	{"+pledge", c_pledge},
-	{"+pledgedir", c_pledgedir},
 	{"print", c_print},
 	{"pwd", c_pwd},
 	{"*=readonly", c_typeset},
