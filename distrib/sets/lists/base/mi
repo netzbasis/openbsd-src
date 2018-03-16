@@ -211,9 +211,6 @@
 ./etc/rpc
 ./etc/services
 ./etc/signify
-./etc/signify/openbsd-60-base.pub
-./etc/signify/openbsd-60-fw.pub
-./etc/signify/openbsd-60-pkg.pub
 ./etc/signify/openbsd-61-base.pub
 ./etc/signify/openbsd-61-fw.pub
 ./etc/signify/openbsd-61-pkg.pub
@@ -225,9 +222,11 @@
 ./etc/signify/openbsd-63-base.pub
 ./etc/signify/openbsd-63-fw.pub
 ./etc/signify/openbsd-63-pkg.pub
+./etc/signify/openbsd-63-syspatch.pub
 ./etc/signify/openbsd-64-base.pub
 ./etc/signify/openbsd-64-fw.pub
 ./etc/signify/openbsd-64-pkg.pub
+./etc/signify/openbsd-64-syspatch.pub
 ./etc/skel
 ./etc/skel/.ssh
 ./etc/ssh
@@ -649,10 +648,10 @@
 ./usr/lib/librpcsvc.so.2.0
 ./usr/lib/libskey.so.6.0
 ./usr/lib/libsndio.so.7.0
-./usr/lib/libssl.so.44.8
+./usr/lib/libssl.so.44.9
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.16.8
+./usr/lib/libtls.so.16.9
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.13.0
 ./usr/lib/libz.so.5.0
