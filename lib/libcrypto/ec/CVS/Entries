@@ -5,7 +5,7 @@
 /ec_ameth.c/1.19/Mon Mar 12 13:14:21 2018//
 /ec_asn1.c/1.25/Mon Mar 12 13:14:21 2018//
 /ec_check.c/1.6/Sun Jan 29 17:49:23 2017//
-/ec_curve.c/1.15/Sun Jan 29 17:49:23 2017//
+/ec_curve.c/1.16/Fri Mar 16 12:31:09 2018//
 /ec_cvt.c/1.6/Thu Jul 10 22:45:57 2014//
 /ec_err.c/1.10/Sun Jan 29 17:49:23 2017//
 /ec_key.c/1.14/Tue May  2 03:59:44 2017//

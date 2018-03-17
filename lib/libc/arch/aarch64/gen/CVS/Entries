@@ -7,10 +7,10 @@
 /fabs.c/1.1/Wed Jan 11 18:09:24 2017//
 /flt_rounds.c/1.1/Wed Jan 11 18:09:24 2017//
 /fpclassifyl.c/1.1/Wed Jan 11 18:09:24 2017//
-/fpgetmask.c/1.1/Wed Jan 11 18:09:24 2017//
+/fpgetmask.c/1.2/Fri Mar 16 10:22:52 2018//
 /fpgetround.c/1.2/Wed Mar 22 07:32:34 2017//
 /fpgetsticky.c/1.1/Wed Jan 11 18:09:24 2017//
-/fpsetmask.c/1.1/Wed Jan 11 18:09:24 2017//
+/fpsetmask.c/1.2/Fri Mar 16 10:22:52 2018//
 /fpsetround.c/1.2/Wed Mar 22 07:32:34 2017//
 /fpsetsticky.c/1.1/Wed Jan 11 18:09:24 2017//
 /infinity.c/1.1/Wed Jan 11 18:09:24 2017//

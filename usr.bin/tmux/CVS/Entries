@@ -59,7 +59,7 @@
 /cmd-show-messages.c/1.27/Sat Apr 22 10:22:39 2017//
 /cmd-show-options.c/1.42/Wed May 10 13:05:41 2017//
 /cmd-source-file.c/1.35/Wed Apr 19 16:59:54 2017//
-/cmd-split-window.c/1.88/Thu Mar  1 12:53:08 2018//
+/cmd-split-window.c/1.89/Fri Mar 16 15:15:39 2018//
 /cmd-string.c/1.29/Wed Jun 14 07:42:41 2017//
 /cmd-swap-pane.c/1.31/Sat Apr 22 10:22:39 2017//
 /cmd-swap-window.c/1.23/Sat Apr 22 10:22:39 2017//
@@ -104,7 +104,7 @@
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
 /tmux.1/1.593/Wed Feb 28 08:55:44 2018//
 /tmux.c/1.186/Fri Jan 12 10:22:02 2018//
-/tmux.h/1.821/Thu Mar  8 08:09:10 2018//
+/tmux.h/1.822/Fri Mar 16 15:15:39 2018//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.102/Mon Oct  9 11:35:35 2017//
 /tty-term.c/1.58/Sun Feb  4 10:10:39 2018//
@@ -115,7 +115,7 @@
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
 /window-copy.c/1.187/Thu Mar  8 08:09:10 2018//
 /window-tree.c/1.28/Wed Feb 28 08:55:44 2018//
-/window.c/1.207/Thu Nov  9 23:02:13 2017//
+/window.c/1.208/Fri Mar 16 15:15:39 2018//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
 /xmalloc.h/1.2/Thu Nov 17 10:06:08 2016//
 /xterm-keys.c/1.22/Sun May  7 21:25:59 2017//
