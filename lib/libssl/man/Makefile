@@ -1,9 +1,10 @@
-# $OpenBSD: Makefile,v 1.63 2018/02/27 18:30:30 schwarze Exp $
+# $OpenBSD: Makefile,v 1.65 2018/03/17 18:52:42 schwarze Exp $
 
 .include <bsd.own.mk>
 
 MAN =	BIO_f_ssl.3 \
 	DTLSv1_listen.3 \
+	OPENSSL_init_ssl.3 \
 	PEM_read_SSL_SESSION.3 \
 	SSL_CIPHER_get_name.3 \
 	SSL_COMP_add_compression_method.3 \
@@ -57,6 +58,7 @@ MAN =	BIO_f_ssl.3 \
 	SSL_SESSION_get_protocol_version.3 \
 	SSL_SESSION_get_time.3 \
 	SSL_SESSION_get0_peer.3 \
+	SSL_SESSION_has_ticket.3 \
 	SSL_SESSION_new.3 \
 	SSL_SESSION_print.3 \
 	SSL_SESSION_set1_id_context.3 \
