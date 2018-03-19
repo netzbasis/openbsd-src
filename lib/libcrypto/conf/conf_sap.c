@@ -1,4 +1,4 @@
-/* $OpenBSD: conf_sap.c,v 1.12 2018/03/17 16:20:01 beck Exp $ */
+/* $OpenBSD: conf_sap.c,v 1.14 2018/03/19 03:56:08 beck Exp $ */
 /* Written by Stephen Henson (steve@openssl.org) for the OpenSSL
  * project 2001.
  */
@@ -80,15 +80,13 @@ static pthread_once_t openssl_configured = PTHREAD_ONCE_INIT;
 
 static const char *openssl_config_name;
 
-void ENGINE_load_builtin_engines_internal(void);
-
 static void
 OPENSSL_config_internal(void)
 {
 	OPENSSL_load_builtin_modules();
 #ifndef OPENSSL_NO_ENGINE
 	/* Need to load ENGINEs */
-	ENGINE_load_builtin_engines_internal();
+	ENGINE_load_builtin_engines();
 #endif
 	/* Add others here? */
 
@@ -108,8 +106,8 @@ OPENSSL_config_internal(void)
 	return;
 }
 
-void
-OPENSSL_config(const char *config_name)
+int
+OpenSSL_config(const char *config_name)
 {
 	/* Don't override if NULL */
 	/*
@@ -120,11 +118,19 @@ OPENSSL_config(const char *config_name)
 	if (config_name != NULL)
 		openssl_config_name = config_name;
 
-	(void) OPENSSL_init_crypto(0, NULL);
+	if (OPENSSL_init_crypto(0, NULL) == 0)
+		return 0;
 
-	(void) pthread_once(&openssl_configured, OPENSSL_config_internal);
+	if (pthread_once(&openssl_configured, OPENSSL_config_internal) != 0)
+		return 0;
 
-	return;
+	return 1;
+}
+
+void
+OPENSSL_config(const char *config_name)
+{
+	(void) OpenSSL_config(config_name);
 }
 
 static void
@@ -132,8 +138,17 @@ OPENSSL_no_config_internal(void)
 {
 }
 
+int
+OpenSSL_no_config(void)
+{
+	if (pthread_once(&openssl_configured, OPENSSL_no_config_internal) != 0)
+		return 0;
+
+	return 1;
+}
+
 void
 OPENSSL_no_config(void)
 {
-	(void) pthread_once(&openssl_configured, OPENSSL_no_config_internal);
+	(void) OpenSSL_no_config();
 }
