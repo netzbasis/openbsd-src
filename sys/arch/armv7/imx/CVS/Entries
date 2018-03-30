@@ -1,4 +1,4 @@
-/files.imx/1.21/Mon Oct 23 17:37:51 2017//
+/files.imx/1.22/Thu Mar 29 20:33:53 2018//
 /if_fec.c/1.21/Sun Mar 11 17:58:52 2018//
 /imxahci.c/1.7/Thu Aug  4 15:52:52 2016//
 /imxanatop.c/1.2/Mon Mar 12 21:27:34 2018//
@@ -16,7 +16,4 @@
 /imxiomuxc.c/1.8/Sun Sep 18 18:16:00 2016//
 /imxiomuxcvar.h/1.3/Sat Aug  6 17:18:38 2016//
 /imxtemp.c/1.4/Mon Oct 23 17:37:51 2017//
-/imxuart.c/1.19/Tue Mar 20 23:05:54 2018//
-/imxuartreg.h/1.1/Fri Sep  6 20:45:54 2013//
-/imxuartvar.h/1.1/Fri Sep  6 20:45:54 2013//
 D

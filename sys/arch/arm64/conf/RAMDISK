@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.44 2018/02/24 13:46:57 kettenis Exp $
+# $OpenBSD: RAMDISK,v 1.46 2018/03/29 20:33:53 patrick Exp $
 #
 # GENERIC machine description file
 #
@@ -90,6 +90,9 @@ vioscsi*	at virtio?
 simplefb*	at fdt?
 wsdisplay*	at simplefb?
 
+# iMX
+imxuart*	at fdt?
+
 # Raspberry Pi 3
 bcmaux*		at fdt?
 bcmintc*	at fdt?
@@ -97,6 +100,13 @@ bcmdog*		at fdt?
 bcmrng*		at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+
+# Marvell SoCs
+mvclock*	at fdt? early 1
+mvicu*		at fdt? early 1
+mvpinctrl*	at fdt? early 1
+mvgpio*		at fdt?
+mvrtc*		at fdt?
 
 # Rockchip SoCs
 rkclock*	at fdt? early 1
