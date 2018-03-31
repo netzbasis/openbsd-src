@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.46 2018/03/29 20:33:53 patrick Exp $
+# $OpenBSD: RAMDISK,v 1.51 2018/03/30 20:38:50 patrick Exp $
 #
 # GENERIC machine description file
 #
@@ -91,7 +91,14 @@ simplefb*	at fdt?
 wsdisplay*	at simplefb?
 
 # iMX
+imxanatop*	at fdt?
+imxgpc*		at fdt?
+imxgpio*	at fdt?
 imxuart*	at fdt?
+imxiic*		at fdt?
+iic*		at imxiic?
+imxesdhc*	at fdt?
+sdmmc*		at imxesdhc?
 
 # Raspberry Pi 3
 bcmaux*		at fdt?
