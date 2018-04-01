@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.566 2018/03/20 11:46:32 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.568 2018/03/31 19:01:22 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -96,10 +96,9 @@
 #include "privsep.h"
 
 char *path_dhclient_conf = _PATH_DHCLIENT_CONF;
-char *path_lease_db = NULL;
+char *path_lease_db;
+char *path_option_db;
 char *log_procname;
-
-char path_option_db[PATH_MAX];
 
 int nullfd = -1;
 int cmd_opts;
@@ -456,7 +455,7 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 'L':
-			strlcat(path_option_db, optarg, PATH_MAX);
+			path_option_db = optarg;
 			if (lstat(path_option_db, &sb) != -1) {
 				if (S_ISREG(sb.st_mode) == 0)
 					fatalx("'%s' is not a regular file",
@@ -622,7 +621,7 @@ main(int argc, char *argv[])
 	write_lease_db(ifi);
 	close(fd);
 
-	if (strlen(path_option_db) != 0) {
+	if (path_option_db != NULL) {
 		/*
 		 * Open 'a' so file is not truncated. The truncation
 		 * is done when new data is about to be written to the
@@ -2422,8 +2421,13 @@ apply_ignore_list(char *ignore_list)
 			list[ix++] = i;
 	}
 
-	for (i = 0; i < ix; i++)
-		config->default_actions[list[i]] = ACTION_IGNORE;
+	for (i = 0; i < ix; i++) {
+		j = list[i];
+		config->default_actions[j] = ACTION_IGNORE;
+		free(config->defaults[j].data);
+		config->defaults[j].data = NULL;
+		config->defaults[j].len = 0;
+	}
 }
 
 void
