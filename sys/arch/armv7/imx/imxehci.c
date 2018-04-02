@@ -1,4 +1,4 @@
-/*	$OpenBSD: imxehci.c,v 1.20 2018/03/30 20:32:50 patrick Exp $ */
+/*	$OpenBSD: imxehci.c,v 1.22 2018/04/01 22:28:54 patrick Exp $ */
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -36,6 +36,7 @@
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
 #include <dev/ofw/ofw_gpio.h>
+#include <dev/ofw/ofw_misc.h>
 #include <dev/ofw/ofw_pinctrl.h>
 #include <dev/ofw/ofw_regulator.h>
 #include <dev/ofw/fdt.h>
@@ -68,6 +69,18 @@
 #define USBNC_USB_OTG_CTRL_OVER_CUR_DIS	(1 << 7)
 #define USBNC_USB_UH1_CTRL_OVER_CUR_POL	(1 << 8)
 #define USBNC_USB_UH1_CTRL_OVER_CUR_DIS	(1 << 7)
+
+/* anatop */
+#define ANALOG_USB1_CHRG_DETECT			0x1b0
+#define ANALOG_USB1_CHRG_DETECT_SET		0x1b4
+#define ANALOG_USB1_CHRG_DETECT_CLR		0x1b8
+#define  ANALOG_USB1_CHRG_DETECT_CHK_CHRG_B		(1 << 19)
+#define  ANALOG_USB1_CHRG_DETECT_EN_B			(1 << 20)
+#define ANALOG_USB2_CHRG_DETECT			0x210
+#define ANALOG_USB2_CHRG_DETECT_SET		0x214
+#define ANALOG_USB2_CHRG_DETECT_CLR		0x218
+#define  ANALOG_USB2_CHRG_DETECT_CHK_CHRG_B		(1 << 19)
+#define  ANALOG_USB2_CHRG_DETECT_EN_B			(1 << 20)
 
 int	imxehci_match(struct device *, void *, void *);
 void	imxehci_attach(struct device *, struct device *, void *);
@@ -103,11 +116,13 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct imxehci_softc *sc = (struct imxehci_softc *)self;
 	struct fdt_attach_args *faa = aux;
+	struct regmap *rm = NULL;
 	usbd_status r;
 	char *devname = sc->sc.sc_bus.bdev.dv_xname;
 	uint32_t phy[1], misc[2];
 	uint32_t phy_reg[2];
 	uint32_t misc_reg[2];
+	uint32_t anatop[1];
 	uint32_t vbus;
 	int node;
 
@@ -129,6 +144,10 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	if (OF_getpropintarray(node, "reg", phy_reg,
 	    sizeof(phy_reg)) != sizeof(phy_reg))
 		return;
+
+	if (OF_getpropintarray(node, "fsl,anatop",
+	    anatop, sizeof(anatop)) == sizeof(anatop))
+		rm = regmap_byphandle(anatop[0]);
 
 	node = OF_getnodebyphandle(misc[0]);
 	if (node == 0)
@@ -181,7 +200,11 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	switch (misc[1]) {
 	case 0:
 		/* disable the carger detection, else signal on DP will be poor */
-		imxccm_disable_usb1_chrg_detect();
+		if (rm != NULL)
+			regmap_write_4(rm, ANALOG_USB1_CHRG_DETECT_SET,
+			    ANALOG_USB1_CHRG_DETECT_CHK_CHRG_B |
+			    ANALOG_USB1_CHRG_DETECT_EN_B);
+
 		/* power host 0 */
 		imxccm_enable_pll_usb1();
 
@@ -192,7 +215,11 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 		break;
 	case 1:
 		/* disable the carger detection, else signal on DP will be poor */
-		imxccm_disable_usb2_chrg_detect();
+		if (rm != NULL)
+			regmap_write_4(rm, ANALOG_USB2_CHRG_DETECT_SET,
+			    ANALOG_USB2_CHRG_DETECT_CHK_CHRG_B |
+			    ANALOG_USB2_CHRG_DETECT_EN_B);
+
 		/* power host 1 */
 		imxccm_enable_pll_usb2();
 
