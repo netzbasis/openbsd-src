@@ -27,6 +27,7 @@ DISK_DEV=$(df /usr/share | sed '1d;s/ .*//')
 KERNEL=$(sysctl -n kern.osversion)
 KERNEL=${KERNEL%#*}
 KERNEL_DIR=/usr/share/relink/kernel
+KERNEL_CONF=/etc/kernel.conf
 LOGFILE=$KERNEL_DIR/$KERNEL/relink.log
 PROGNAME=${0##*/}
 SHA256=/var/db/kernel.SHA256
@@ -54,6 +55,14 @@ sha256 -C $SHA256 /bsd
 
 cd $KERNEL_DIR/$KERNEL
 make newbsd
+
+# Configure custom kernel options
+if [[ -f $KERNEL_CONF ]]; then
+	while read _option; do
+		printf "%s\nquit" "$_option" | config -fe bsd
+	done < $KERNEL_CONF
+fi
+
 make newinstall
 
 echo "\nKernel has been relinked and is active on next reboot.\n"
