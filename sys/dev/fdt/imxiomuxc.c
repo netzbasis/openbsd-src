@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiomuxc.c,v 1.9 2018/03/30 20:10:00 patrick Exp $ */
+/* $OpenBSD: imxiomuxc.c,v 1.2 2018/04/02 17:49:58 patrick Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2016 Mark Kettenis <kettenis@openbsd.org>
@@ -29,59 +29,9 @@
 #include <machine/bus.h>
 #include <machine/fdt.h>
 
-#include <armv7/imx/imxiomuxcvar.h>
-
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_pinctrl.h>
 #include <dev/ofw/fdt.h>
-
-/* registers */
-#define IOMUXC_GPR13			0x034
-
-/* bits and bytes */
-#define IOMUXC_GPR13_SATA_PHY_1_FAST_EDGE_RATE			(0x00 << 0)
-#define IOMUXC_GPR13_SATA_PHY_1_SLOW_EDGE_RATE			(0x02 << 0)
-#define IOMUXC_GPR13_SATA_PHY_1_EDGE_RATE_MASK			0x3
-#define IOMUXC_GPR13_SATA_PHY_2_1104V				(0x11 << 2)
-#define IOMUXC_GPR13_SATA_PHY_3_333DB				(0x00 << 7)
-#define IOMUXC_GPR13_SATA_PHY_4_9_16				(0x04 << 11)
-#define IOMUXC_GPR13_SATA_PHY_5_SS				(0x01 << 14)
-#define IOMUXC_GPR13_SATA_SPEED_3G				(0x01 << 15)
-#define IOMUXC_GPR13_SATA_PHY_6					(0x03 << 16)
-#define IOMUXC_GPR13_SATA_PHY_7_SATA2M				(0x12 << 19)
-#define IOMUXC_GPR13_SATA_PHY_8_30DB				(0x05 << 24)
-#define IOMUXC_GPR13_SATA_MASK					0x07FFFFFD
-
-#define IOMUXC_PAD_CTL_SRE_SLOW		(1 << 0)
-#define IOMUXC_PAD_CTL_SRE_FAST		(1 << 0)
-#define IOMUXC_PAD_CTL_DSE_HIZ		(0 << 3)
-#define IOMUXC_PAD_CTL_DSE_240OHM	(1 << 3)
-#define IOMUXC_PAD_CTL_DSE_120OHM	(2 << 3)
-#define IOMUXC_PAD_CTL_DSE_80OHM	(3 << 3)
-#define IOMUXC_PAD_CTL_DSE_60OHM	(4 << 3)
-#define IOMUXC_PAD_CTL_DSE_48OHM	(5 << 3)
-#define IOMUXC_PAD_CTL_DSE_40OHM	(6 << 3)
-#define IOMUXC_PAD_CTL_DSE_34OHM	(7 << 3)
-#define IOMUXC_PAD_CTL_SPEED_TBD	(0 << 6)
-#define IOMUXC_PAD_CTL_SPEED_LOW	(1 << 6)
-#define IOMUXC_PAD_CTL_SPEED_MED	(2 << 6)
-#define IOMUXC_PAD_CTL_SPEED_MAX	(3 << 6)
-#define IOMUXC_PAD_CTL_ODE_DISABLED	(0 << 11)
-#define IOMUXC_PAD_CTL_ODE_ENABLED	(1 << 11)
-#define IOMUXC_PAD_CTL_PKE_DISABLED	(0 << 12)
-#define IOMUXC_PAD_CTL_PKE_ENABLED	(1 << 12)
-#define IOMUXC_PAD_CTL_PUE_KEEP		(0 << 13)
-#define IOMUXC_PAD_CTL_PUE_PULL		(1 << 13)
-#define IOMUXC_PAD_CTL_PUS_100K_OHM_PD	(0 << 14)
-#define IOMUXC_PAD_CTL_PUS_47K_OHM_PU	(1 << 14)
-#define IOMUXC_PAD_CTL_PUS_100K_OHM_PU	(2 << 14)
-#define IOMUXC_PAD_CTL_PUS_22K_OHM_PU	(3 << 14)
-#define IOMUXC_PAD_CTL_HYS_DISABLED	(0 << 16)
-#define IOMUXC_PAD_CTL_HYS_ENABLED	(1 << 16)
-
-#define IOMUXC_IMX6Q_I2C_PAD_CTRL	(IOMUXC_PAD_CTL_SRE_FAST | IOMUXC_PAD_CTL_ODE_ENABLED | \
-		IOMUXC_PAD_CTL_PKE_ENABLED | IOMUXC_PAD_CTL_PUE_PULL | IOMUXC_PAD_CTL_DSE_40OHM | \
-		IOMUXC_PAD_CTL_PUS_100K_OHM_PU | IOMUXC_PAD_CTL_HYS_ENABLED | IOMUXC_PAD_CTL_SPEED_MED)
 
 #define IOMUX_CONFIG_SION		(1 << 4)
 
@@ -118,7 +68,8 @@ imxiomuxc_match(struct device *parent, void *match, void *aux)
 	    OF_is_compatible(faa->fa_node, "fsl,imx6dl-iomuxc") ||
 	    OF_is_compatible(faa->fa_node, "fsl,imx6sl-iomuxc") ||
 	    OF_is_compatible(faa->fa_node, "fsl,imx6sx-iomuxc") ||
-	    OF_is_compatible(faa->fa_node, "fsl,imx6ul-iomuxc"));
+	    OF_is_compatible(faa->fa_node, "fsl,imx6ul-iomuxc") ||
+	    OF_is_compatible(faa->fa_node, "fsl,imx8mq-iomuxc"));
 }
 
 void
@@ -209,21 +160,4 @@ imxiomuxc_pinctrl(uint32_t phandle, void *cookie)
 
 	free(pins, M_TEMP, len);
 	return 0;
-}
-
-void
-imxiomuxc_enable_sata(void)
-{
-	struct imxiomuxc_softc *sc = imxiomuxc_sc;
-
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, IOMUXC_GPR13,
-	    (bus_space_read_4(sc->sc_iot, sc->sc_ioh, IOMUXC_GPR13) & ~IOMUXC_GPR13_SATA_MASK) |
-		IOMUXC_GPR13_SATA_PHY_1_FAST_EDGE_RATE | IOMUXC_GPR13_SATA_PHY_2_1104V |
-		IOMUXC_GPR13_SATA_PHY_3_333DB | IOMUXC_GPR13_SATA_PHY_4_9_16 |
-		IOMUXC_GPR13_SATA_SPEED_3G | IOMUXC_GPR13_SATA_PHY_6 |
-		IOMUXC_GPR13_SATA_PHY_7_SATA2M | IOMUXC_GPR13_SATA_PHY_8_30DB);
-
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, IOMUXC_GPR13,
-	    (bus_space_read_4(sc->sc_iot, sc->sc_ioh, IOMUXC_GPR13) & ~IOMUXC_GPR13_SATA_PHY_1_SLOW_EDGE_RATE) |
-		IOMUXC_GPR13_SATA_PHY_1_SLOW_EDGE_RATE);
 }

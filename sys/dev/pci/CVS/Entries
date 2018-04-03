@@ -35,7 +35,7 @@
 /autrivar.h/1.4/Fri Aug 27 18:50:56 2010//
 /auvia.c/1.58/Tue Dec 20 15:45:29 2016//
 /auviavar.h/1.12/Sun Sep 12 02:03:35 2010//
-/azalia.c/1.240/Wed Jan 10 09:00:40 2018//
+/azalia.c/1.241/Mon Apr  2 08:40:46 2018//
 /azalia.h/1.65/Wed Sep 14 06:12:19 2016//
 /azalia_codec.c/1.172/Tue Mar 28 04:54:44 2017//
 /berkwdt.c/1.9/Fri Sep  8 05:36:52 2017//
@@ -91,7 +91,7 @@
 /hifn7751var.h/1.53/Wed Dec 15 23:34:23 2010//
 /i82365_pci.c/1.12/Fri Sep  8 05:36:52 2017//
 /i82365_pcivar.h/1.6/Thu Jun 26 05:42:17 2008//
-/ichiic.c/1.40/Sat Dec 23 01:42:31 2017//
+/ichiic.c/1.41/Mon Apr  2 08:39:24 2018//
 /ichreg.h/1.7/Sun Dec 18 12:09:04 2005//
 /ichwdt.c/1.6/Sat Mar 19 11:34:22 2016//
 /if_acx_pci.c/1.9/Tue Nov 24 17:11:39 2015//
@@ -260,9 +260,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1840/Wed Mar 14 20:07:06 2018//
-/pcidevs.h/1.1833/Wed Mar 14 20:07:40 2018//
-/pcidevs_data.h/1.1828/Wed Mar 14 20:07:40 2018//
+/pcidevs/1.1841/Mon Apr  2 08:37:41 2018//
+/pcidevs.h/1.1834/Mon Apr  2 08:38:24 2018//
+/pcidevs_data.h/1.1829/Mon Apr  2 08:38:24 2018//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

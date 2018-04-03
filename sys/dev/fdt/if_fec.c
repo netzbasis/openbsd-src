@@ -1,4 +1,4 @@
-/* $OpenBSD: if_fec.c,v 1.24 2018/04/01 18:50:54 patrick Exp $ */
+/* $OpenBSD: if_fec.c,v 1.2 2018/04/02 17:52:36 patrick Exp $ */
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -43,8 +43,6 @@
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 #include <dev/mii/miidevs.h>
-
-#include <armv7/imx/imxccmvar.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
@@ -272,7 +270,8 @@ fec_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "fsl,imx6q-fec");
+	return (OF_is_compatible(faa->fa_node, "fsl,imx6q-fec") ||
+	    OF_is_compatible(faa->fa_node, "fsl,imx8mq-fec"));
 }
 
 void
@@ -301,7 +300,7 @@ fec_attach(struct device *parent, struct device *self, void *aux)
 	pinctrl_byname(faa->fa_node, "default");
 
 	/* power it up */
-	imxccm_enable_enet();
+	clock_enable_all(faa->fa_node);
 
 	/* reset PHY */
 	if (OF_getpropintarray(faa->fa_node, "phy-reset-gpios", phy_reset_gpio,

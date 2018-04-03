@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.60 2018/03/31 16:35:53 kettenis Exp $
+# $OpenBSD: GENERIC,v 1.65 2018/04/02 21:41:33 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -52,6 +52,8 @@ agintc*		at fdt?
 agtimer*	at fdt?
 ahci*		at fdt?
 dwge*		at fdt?
+dwpcie*		at fdt?
+pci*		at dwpcie?
 ehci*		at fdt?
 pciecam*	at fdt?
 pci*		at pciecam?
@@ -84,9 +86,12 @@ simplefb*	at fdt?
 wsdisplay*	at simplefb?
 
 # iMX
+imxccm*		at fdt? early 1
+imxiomuxc*	at fdt? early 1
 imxanatop*	at fdt?
 imxgpc*		at fdt?
 imxgpio*	at fdt?
+fec*		at fdt?
 imxuart*	at fdt?
 imxiic*		at fdt?
 iic*		at imxiic?
@@ -107,6 +112,7 @@ mvclock*	at fdt? early 1
 mvicu*		at fdt? early 1
 mvpinctrl*	at fdt? early 1
 mvgpio*		at fdt?
+mvrng*		at fdt?
 mvrtc*		at fdt?
 mvtemp*		at fdt?
 

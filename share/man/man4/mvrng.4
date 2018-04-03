@@ -1,5 +1,6 @@
-.\" $OpenBSD: fec.4,v 1.2 2016/06/13 13:24:38 jsg Exp $
-.\" Copyright (c) 2014 Sylvestre Gallon <syl@openbsd.org>
+.\"	$OpenBSD: mvrng.4,v 1.1 2018/04/02 21:42:15 kettenis Exp $
+.\"
+.\" Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -13,33 +14,34 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 13 2016 $
-.Dt FEC 4 armv7
+.Dd $Mdocdate: April 2 2018 $
+.Dt MVRNG 4
 .Os
 .Sh NAME
-.Nm fec
-.Nd Freescale i.MX6 Ethernet device
+.Nm mvrng
+.Nd Marvell ARMADA 7K/8K random number generator
 .Sh SYNOPSIS
-.Cd "fec* at fdt?"
+.Cd "mvrng* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the Freescale i.MX6 Ethernet device.
-For more information on configuring this device, see
-.Xr ifconfig 8 .
+driver provides support for the random number generator found on the
+Marvell ARMADA 7K/8K SoCs.
+.Pp
+It feeds the random subsystem's entropy pool with 128 bits of random
+data every second.
 .Sh SEE ALSO
-.Xr ifmedia 4 ,
-.Xr mii 4 ,
-.Xr hostname.if 5 ,
-.Xr ifconfig 8
+.Xr intro 4 ,
+.Xr random 4 ,
+.Xr arc4random 9
 .Sh HISTORY
 The
 .Nm
-device driver first appeared in
-.Ox 5.5 .
+driver first appeared in
+.Ox 6.4 .
 .Sh AUTHORS
 .An -nosplit
 The
 .Nm
 driver was written by
-.An Patrick Wildt Aq Mt patrick@blueri.se .
+.An Mark Kettenis Mt kettenis@openbsd.org .
