@@ -56,11 +56,11 @@
 /mdoc_argv.c/1.71/Tue May 30 16:21:07 2017//
 /mdoc_html.c/1.169/Sat Jul 15 17:57:46 2017//
 /mdoc_macro.c/1.181/Tue May 30 16:21:07 2017//
-/mdoc_man.c/1.121/Sat Jan 13 05:20:10 2018//
+/mdoc_man.c/1.123/Thu Apr  5 22:04:37 2018//
 /mdoc_markdown.c/1.23/Wed Jun 14 01:31:19 2017//
 /mdoc_state.c/1.9/Wed Nov 29 20:04:36 2017//
-/mdoc_term.c/1.264/Sat Jan 13 05:20:10 2018//
-/mdoc_validate.c/1.271/Fri Mar 16 20:41:19 2018//
+/mdoc_term.c/1.265/Thu Apr  5 09:16:45 2018//
+/mdoc_validate.c/1.272/Thu Apr  5 09:16:45 2018//
 /msec.c/1.12/Tue Oct  6 18:30:44 2015//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
 /out.c/1.42/Tue Jun 27 18:23:29 2017//
@@ -75,7 +75,7 @@
 /roff_term.c/1.14/Sat Jun 24 14:38:28 2017//
 /roff_validate.c/1.9/Wed Jun 14 22:50:37 2017//
 /st.c/1.11/Sat Jun 24 14:38:28 2017//
-/st.in/1.23/Sat Jun 24 13:49:19 2017//
+/st.in/1.24/Thu Apr  5 09:16:45 2018//
 /tag.c/1.19/Thu Feb  8 01:36:38 2018//
 /tag.h/1.7/Fri Nov 20 21:58:32 2015//
 /tbl.c/1.23/Sat Jul  8 17:52:42 2017//
