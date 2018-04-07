@@ -1,5 +1,5 @@
 /CMakeLists.txt/1.1.1.2/Sat Jan 14 19:55:47 2017//
-/module.modulemap/1.1.1.4/Wed Oct  4 20:27:43 2017//
+/module.modulemap/1.1.1.5/Fri Apr  6 14:26:26 2018//
 D/ARCMigrate////
 D/AST////
 D/ASTMatchers////
@@ -7,6 +7,7 @@ D/Analysis////
 D/Basic////
 D/CodeGen////
 D/Config////
+D/CrossTU////
 D/Driver////
 D/Edit////
 D/Format////

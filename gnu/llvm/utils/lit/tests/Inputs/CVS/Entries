@@ -1,3 +1,4 @@
+D/config-map-discovery////
 D/discovery////
 D/exec-discovery////
 D/exec-discovery-in-tree////
@@ -6,6 +7,8 @@ D/googletest-timeout////
 D/googletest-upstream-format////
 D/max-failures////
 D/progress-bar////
+D/py-config-discovery////
+D/shtest-env////
 D/shtest-format////
 D/shtest-output-printing////
 D/shtest-shell////
