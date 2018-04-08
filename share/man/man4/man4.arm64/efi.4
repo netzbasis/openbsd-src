@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mvrng.4,v 1.2 2018/04/07 13:30:03 jmc Exp $
+.\"	$OpenBSD: efi.4,v 1.2 2018/04/07 13:52:48 jmc Exp $
 .\"
 .\" Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -15,30 +15,27 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: April 7 2018 $
-.Dt MVRNG 4
+.Dt EFI 4 arm64
 .Os
 .Sh NAME
-.Nm mvrng
-.Nd Marvell ARMADA 7K/8K random number generator
+.Nm efi
+.Nd EFI runtime services
 .Sh SYNOPSIS
-.Cd "mvrng* at fdt?"
+.Cd "efi* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the random number generator found on the
-Marvell ARMADA 7K/8K SoCs.
-.Pp
-It feeds the random subsystem's entropy pool with 128 bits of random
-data every second.
+driver provides support for EFI runtime services offered by UEFI
+firmware implementations.
+Support is currently limited to reading and setting the Real Time
+Clock on systems that offer such functionality.
 .Sh SEE ALSO
-.Xr intro 4 ,
-.Xr random 4 ,
-.Xr arc4random 9
+.Xr intro 4
 .Sh HISTORY
 The
 .Nm
-driver first appeared in
-.Ox 6.4 .
+device driver first appeared in
+.Ox 6.3 .
 .Sh AUTHORS
 .An -nosplit
 The
