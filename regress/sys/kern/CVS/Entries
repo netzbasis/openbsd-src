@@ -48,6 +48,7 @@ D/sigprof////
 D/sigsuspend////
 D/sosplice////
 D/stackjmp////
+D/stackpivot////
 D/syscall////
 D/sysvmsg////
 D/sysvsem////

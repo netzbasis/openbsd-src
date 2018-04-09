@@ -1,7 +1,7 @@
 /acpi_machdep.c/1.80/Thu Jan 11 22:31:09 2018//
 /acpi_wakecode.S/1.41/Wed Aug 30 23:40:22 2017//
 /aes_intel.S/1.10/Wed Jan 17 16:33:33 2018//
-/aesni.c/1.43/Fri Feb 23 15:41:08 2018//
+/aesni.c/1.44/Mon Apr  9 04:34:56 2018//
 /amd64_mem.c/1.13/Tue Apr 26 15:27:32 2016//
 /amd64errata.c/1.9/Fri Sep  8 05:36:51 2017//
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
@@ -55,7 +55,7 @@
 /spl.S/1.12/Wed Feb 21 19:24:15 2018//
 /sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
 /trap.c/1.64/Wed Feb 21 19:24:15 2018//
-/tsc.c/1.8/Wed Mar  7 01:39:08 2018//
+/tsc.c/1.9/Sun Apr  8 18:26:29 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
 /vector.S/1.54/Fri Mar  9 07:43:07 2018//
 /via.c/1.28/Wed Feb 21 21:09:57 2018//
