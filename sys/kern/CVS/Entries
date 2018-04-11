@@ -12,7 +12,7 @@
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.93/Sat Jul 22 14:33:45 2017//
 /kern_descrip.c/1.147/Mon Apr  9 13:59:03 2018//
-/kern_event.c/1.86/Sun Apr  8 16:45:12 2018//
+/kern_event.c/1.87/Tue Apr 10 09:17:45 2018//
 /kern_exec.c/1.193/Tue Jan  2 06:38:45 2018//
 /kern_exit.c/1.164/Sat Feb 10 10:32:51 2018//
 /kern_fork.c/1.202/Sat Dec 30 20:47:00 2017//
@@ -52,7 +52,7 @@
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
 /subr_pool.c/1.222/Tue Feb  6 22:35:32 2018//
-/subr_prf.c/1.94/Tue Mar 20 15:45:32 2018//
+/subr_prf.c/1.95/Tue Apr 10 09:24:56 2018//
 /subr_prof.c/1.30/Sun Sep  4 09:22:29 2016//
 /subr_tree.c/1.9/Thu Jun  8 03:30:52 2017//
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
@@ -60,9 +60,9 @@
 /subr_xxx.c/1.16/Tue Apr  3 08:58:05 2018//
 /sys_futex.c/1.6/Mon Jan  8 22:33:13 2018//
 /sys_generic.c/1.117/Mon Apr  9 09:53:13 2018//
-/sys_pipe.c/1.77/Tue Jan  2 06:38:45 2018//
+/sys_pipe.c/1.78/Tue Apr 10 09:17:45 2018//
 /sys_process.c/1.80/Mon Feb 19 09:25:13 2018//
-/sys_socket.c/1.35/Sun Dec 10 11:31:54 2017//
+/sys_socket.c/1.36/Tue Apr 10 09:17:45 2018//
 /syscalls.c/1.190/Tue Dec 12 01:13:14 2017//
 /syscalls.conf/1.20/Sat Sep 14 01:35:01 2013//
 /syscalls.master/1.180/Tue Dec 12 01:12:34 2017//
@@ -97,6 +97,6 @@
 /vfs_subr.c/1.267/Wed Mar  7 18:30:23 2018//
 /vfs_sync.c/1.57/Sat Feb 10 05:24:23 2018//
 /vfs_syscalls.c/1.279/Tue Apr  3 09:10:02 2018//
-/vfs_vnops.c/1.89/Tue Jan  2 06:38:45 2018//
+/vfs_vnops.c/1.90/Tue Apr 10 09:17:45 2018//
 /vfs_vops.c/1.17/Sat Feb 10 05:24:23 2018//
 D

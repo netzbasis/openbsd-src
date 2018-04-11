@@ -79,7 +79,7 @@
 /smtpd.conf.5/1.174/Tue Jul 11 06:08:40 2017//
 /smtpd.h/1.538/Wed Mar 14 22:25:21 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
-/spfwalk.c/1.8/Mon Apr  9 11:09:40 2018//
+/spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
 /ssl_smtpd.c/1.13/Wed Dec 30 16:02:08 2015//
