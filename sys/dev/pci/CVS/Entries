@@ -35,14 +35,14 @@
 /autrivar.h/1.4/Fri Aug 27 18:50:56 2010//
 /auvia.c/1.58/Tue Dec 20 15:45:29 2016//
 /auviavar.h/1.12/Sun Sep 12 02:03:35 2010//
-/azalia.c/1.241/Mon Apr  2 08:40:46 2018//
+/azalia.c/1.242/Wed Apr 11 04:48:31 2018//
 /azalia.h/1.65/Wed Sep 14 06:12:19 2016//
 /azalia_codec.c/1.172/Tue Mar 28 04:54:44 2017//
 /berkwdt.c/1.9/Fri Sep  8 05:36:52 2017//
 /bt8370reg.h/1.3/Mon Dec 19 15:53:15 2005//
 /cac_pci.c/1.15/Fri Dec 19 22:44:58 2014//
 /ciss_pci.c/1.20/Mon Oct 20 19:19:20 2014//
-/cmpci.c/1.42/Mon Sep 19 06:46:44 2016//
+/cmpci.c/1.43/Wed Apr 11 04:48:31 2018//
 /cmpcireg.h/1.5/Sun Jun  5 14:13:47 2011//
 /cmpcivar.h/1.7/Fri Oct  8 14:01:07 2010//
 /cs4280.c/1.51/Mon Dec 26 17:38:14 2016//
@@ -58,7 +58,7 @@
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
 /dpt_pci.c/1.9/Fri Dec 19 22:44:58 2014//
 /dwiic_pci.c/1.3/Fri Jan 12 08:11:48 2018//
-/eap.c/1.53/Mon Sep 19 06:46:44 2016//
+/eap.c/1.54/Wed Apr 11 04:48:31 2018//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.30/Wed Jul 20 09:48:06 2016//
 /emuxki.c/1.52/Fri Sep  8 05:36:52 2017//
@@ -67,7 +67,7 @@
 /envy.c/1.72/Sat Mar 17 13:35:12 2018//
 /envyreg.h/1.17/Wed Apr 27 07:01:33 2011//
 /envyvar.h/1.19/Sun Aug 30 08:52:26 2015//
-/esa.c/1.33/Fri Sep  8 05:36:52 2017//
+/esa.c/1.34/Wed Apr 11 04:48:31 2018//
 /esareg.h/1.2/Thu Oct 18 21:44:21 2012//
 /esavar.h/1.2/Tue Sep  7 16:21:44 2010//
 /eso.c/1.44/Wed Apr 11 04:37:19 2018//
@@ -179,7 +179,7 @@
 /if_pcn.c/1.43/Sun Jan 22 10:17:38 2017//
 /if_pgt_pci.c/1.18/Fri Dec 11 16:07:02 2015//
 /if_ral_pci.c/1.26/Wed May 31 03:45:15 2017//
-/if_re_pci.c/1.51/Mon Jun 12 03:00:26 2017//
+/if_re_pci.c/1.52/Wed Apr 11 08:02:18 2018//
 /if_rl_pci.c/1.33/Tue Nov 24 17:11:39 2015//
 /if_rtw_pci.c/1.20/Tue Nov 24 17:11:39 2015//
 /if_rtwn.c/1.30/Sun Sep  3 16:20:46 2017//
@@ -239,7 +239,7 @@
 /jmb.c/1.9/Sat Mar 14 03:38:48 2015//
 /kate.c/1.6/Sat Mar 14 03:38:48 2015//
 /km.c/1.11/Wed Nov  4 19:39:30 2015//
-/maestro.c/1.42/Mon Sep 19 06:46:44 2016//
+/maestro.c/1.43/Wed Apr 11 04:48:31 2018//
 /mbg.c/1.30/Fri Sep  8 05:36:52 2017//
 /mfi_pci.c/1.29/Tue Sep  9 03:08:30 2014//
 /mfii.c/1.50/Fri Mar 16 05:12:37 2018//
@@ -247,7 +247,7 @@
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
 /mpii.c/1.113/Tue Dec 12 11:18:32 2017//
 /mpiireg.h/1.12/Mon Jan 16 18:09:35 2017//
-/neo.c/1.32/Mon Sep 19 06:46:44 2016//
+/neo.c/1.33/Wed Apr 11 04:48:31 2018//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//
 /nviic.c/1.17/Sat Mar 14 03:38:48 2015//
 /nvme_pci.c/1.7/Wed Jan 10 15:45:46 2018//

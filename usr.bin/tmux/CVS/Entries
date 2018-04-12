@@ -39,7 +39,7 @@
 /cmd-pipe-pane.c/1.47/Tue Jan 16 09:00:38 2018//
 /cmd-queue.c/1.58/Wed Aug 30 10:33:57 2017//
 /cmd-refresh-client.c/1.26/Sun May 28 19:00:52 2017//
-/cmd-rename-session.c/1.27/Thu Mar  1 12:53:08 2018//
+/cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
 /cmd-resize-pane.c/1.31/Thu May 11 07:24:42 2017//
 /cmd-respawn-pane.c/1.26/Fri Jul 21 09:17:19 2017//
