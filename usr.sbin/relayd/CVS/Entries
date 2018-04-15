@@ -5,7 +5,7 @@
 /carp.c/1.12/Thu Aug 18 00:45:52 2016//
 /check_icmp.c/1.47/Wed Jul 12 22:57:40 2017//
 /check_script.c/1.21/Sun May 28 10:39:15 2017//
-/check_tcp.c/1.55/Tue Jul  4 20:27:09 2017//
+/check_tcp.c/1.56/Sat Apr 14 20:42:41 2018//
 /check_tls.c/1.1/Sat May 27 08:33:25 2017//
 /config.c/1.36/Wed Nov 29 15:24:50 2017//
 /control.c/1.56/Mon Jan  9 14:49:21 2017//
