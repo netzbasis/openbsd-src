@@ -11,7 +11,7 @@
 /kern_acct.c/1.35/Mon Feb 19 08:59:52 2018//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.93/Sat Jul 22 14:33:45 2017//
-/kern_descrip.c/1.150/Thu Apr 12 10:30:18 2018//
+/kern_descrip.c/1.151/Wed Apr 18 09:59:09 2018//
 /kern_event.c/1.87/Tue Apr 10 09:17:45 2018//
 /kern_exec.c/1.193/Tue Jan  2 06:38:45 2018//
 /kern_exit.c/1.164/Sat Feb 10 10:32:51 2018//
@@ -85,7 +85,7 @@
 /uipc_socket.c/1.220/Sun Apr  8 18:57:39 2018//
 /uipc_socket2.c/1.92/Sun Apr  8 18:57:39 2018//
 /uipc_syscalls.c/1.168/Wed Mar 28 09:54:00 2018//
-/uipc_usrreq.c/1.123/Thu Jan  4 10:45:30 2018//
+/uipc_usrreq.c/1.124/Wed Apr 18 09:56:57 2018//
 /vfs_bio.c/1.185/Sun Aug 27 01:59:30 2017//
 /vfs_biomem.c/1.39/Thu Mar 29 01:43:41 2018//
 /vfs_cache.c/1.53/Thu Feb  9 19:02:34 2017//
