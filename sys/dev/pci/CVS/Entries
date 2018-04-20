@@ -41,6 +41,7 @@
 /berkwdt.c/1.9/Fri Sep  8 05:36:52 2017//
 /bt8370reg.h/1.3/Mon Dec 19 15:53:15 2005//
 /cac_pci.c/1.15/Fri Dec 19 22:44:58 2014//
+/ccp_pci.c/1.1/Fri Apr 20 04:37:21 2018//
 /ciss_pci.c/1.20/Mon Oct 20 19:19:20 2014//
 /cmpci.c/1.43/Wed Apr 11 04:48:31 2018//
 /cmpcireg.h/1.5/Sun Jun  5 14:13:47 2011//
@@ -74,7 +75,7 @@
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.6/Tue Sep 21 20:11:44 2010//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//
-/files.pci/1.333/Sun Dec 24 19:50:56 2017//
+/files.pci/1.334/Fri Apr 20 04:37:21 2018//
 /fms.c/1.30/Tue Dec 20 15:31:00 2016//
 /fmsradio.c/1.6/Thu Jun  6 16:29:37 2002//
 /fmsreg.h/1.3/Thu Jun 26 05:42:17 2008//
@@ -260,9 +261,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1843/Sat Apr 14 20:27:17 2018//
-/pcidevs.h/1.1836/Sat Apr 14 20:27:38 2018//
-/pcidevs_data.h/1.1831/Sat Apr 14 20:27:38 2018//
+/pcidevs/1.1844/Fri Apr 20 04:34:11 2018//
+/pcidevs.h/1.1837/Fri Apr 20 04:34:34 2018//
+/pcidevs_data.h/1.1832/Fri Apr 20 04:34:34 2018//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//
