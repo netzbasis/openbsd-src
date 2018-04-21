@@ -1,4 +1,4 @@
-/autoconf.c/1.9/Sat Jan 27 22:55:23 2018//
+/autoconf.c/1.10/Fri Apr 20 14:08:12 2018//
 /bus_dma.c/1.20/Thu Jan 11 15:49:34 2018//
 /bus_space.c/1.2/Sat May 24 21:11:01 2014//
 /conf.c/1.24/Sun May 21 13:00:53 2017//
@@ -14,10 +14,10 @@
 /loongson2_machdep.c/1.16/Wed Sep 28 14:03:19 2016//
 /loongson3_intr.c/1.7/Sat Feb 24 11:42:31 2018//
 /loongson3_machdep.c/1.1/Sat Aug 15 22:31:38 2015//
-/machdep.c/1.82/Sat Dec 30 20:46:59 2017//
+/machdep.c/1.83/Fri Apr 20 14:08:12 2018//
 /pciide_machdep.c/1.2/Sat May  8 21:59:56 2010//
 /pmon.c/1.8/Sun May 21 14:22:36 2017//
-/pmon32.S/1.4/Thu Feb 18 18:53:33 2010//
+/pmon32.S/1.5/Fri Apr 20 14:36:42 2018//
 /wscons_machdep.c/1.13/Sun Oct  9 11:25:39 2016//
 /yeeloong_machdep.c/1.27/Sat Feb 24 11:42:31 2018//
 D

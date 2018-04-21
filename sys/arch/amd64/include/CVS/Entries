@@ -16,7 +16,7 @@
 /cpuvar.h/1.9/Fri Oct  6 13:33:53 2017//
 /db_machdep.h/1.16/Sun Apr 30 13:04:49 2017//
 /disklabel.h/1.11/Wed Sep 30 14:57:03 2015//
-/efifbvar.h/1.4/Tue Jun 21 15:24:55 2016//
+/efifbvar.h/1.6/Fri Apr 20 16:09:36 2018//
 /endian.h/1.6/Sat Jul 12 16:25:08 2014//
 /exec.h/1.7/Wed Feb  8 05:09:25 2017//
 /fenv.h/1.4/Wed May 25 21:46:49 2011//
@@ -52,7 +52,7 @@
 /pctr.h/1.5/Sat Mar 29 18:09:28 2014//
 /pic.h/1.7/Tue Dec 16 21:20:23 2014//
 /pio.h/1.5/Sat Apr 25 21:31:24 2015//
-/pmap.h/1.66/Tue Mar 13 07:37:58 2018//
+/pmap.h/1.67/Fri Apr 20 07:27:54 2018//
 /proc.h/1.9/Thu Apr 13 03:52:25 2017//
 /profile.h/1.4/Wed Aug 22 17:19:35 2012//
 /psl.h/1.4/Wed Mar 23 16:54:34 2011//
