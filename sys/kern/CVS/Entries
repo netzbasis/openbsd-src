@@ -31,7 +31,7 @@
 /kern_sig.c/1.219/Thu Apr 12 17:13:44 2018//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.49/Tue Feb 14 10:31:15 2017//
-/kern_synch.c/1.143/Thu Dec 14 00:41:58 2017//
+/kern_synch.c/1.144/Tue Apr 24 16:28:42 2018//
 /kern_sysctl.c/1.332/Mon Feb 19 08:59:52 2018//
 /kern_task.c/1.22/Thu Dec 14 00:45:16 2017//
 /kern_tc.c/1.31/Tue Mar  7 20:22:37 2017//
@@ -58,7 +58,7 @@
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
 /subr_witness.c/1.8/Thu Apr 12 14:59:08 2018//
 /subr_xxx.c/1.16/Tue Apr  3 08:58:05 2018//
-/sys_futex.c/1.6/Mon Jan  8 22:33:13 2018//
+/sys_futex.c/1.7/Tue Apr 24 17:19:35 2018//
 /sys_generic.c/1.117/Mon Apr  9 09:53:13 2018//
 /sys_pipe.c/1.78/Tue Apr 10 09:17:45 2018//
 /sys_process.c/1.80/Mon Feb 19 09:25:13 2018//

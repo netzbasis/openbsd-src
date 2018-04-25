@@ -14,10 +14,10 @@
 /rthread_mutex_prio.c/1.2/Mon Jun 23 00:43:15 2014//
 /rthread_mutexattr.c/1.3/Fri Apr 13 13:50:37 2012//
 /rthread_np.c/1.20/Tue Sep  5 02:40:54 2017//
-/rthread_rwlock.c/1.10/Sat Jul 29 16:42:10 2017//
+/rthread_rwlock.c/1.11/Tue Apr 24 16:28:42 2018//
 /rthread_rwlockattr.c/1.2/Wed Feb 15 04:58:42 2012//
 /rthread_sched.c/1.14/Tue Sep  5 02:40:54 2017//
-/rthread_sem.c/1.26/Tue Sep  5 02:40:54 2017//
+/rthread_sem.c/1.27/Tue Apr 24 16:28:42 2018//
 /rthread_sig.c/1.18/Sat May  7 19:05:22 2016//
 /rthread_spin_lock.c/1.4/Sun Sep  4 10:13:35 2016//
 /rthread_stack.c/1.19/Sun Feb 11 04:12:22 2018//
