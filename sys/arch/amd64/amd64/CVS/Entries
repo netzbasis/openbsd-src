@@ -54,13 +54,13 @@
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
 /spl.S/1.12/Wed Feb 21 19:24:15 2018//
 /sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
-/trap.c/1.66/Tue Apr 24 20:58:48 2018//
+/trap.c/1.67/Wed Apr 25 17:35:04 2018//
 /tsc.c/1.9/Sun Apr  8 18:26:29 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
-/vector.S/1.54/Fri Mar  9 07:43:07 2018//
+/vector.S/1.55/Wed Apr 25 17:35:04 2018//
 /via.c/1.28/Wed Feb 21 21:09:57 2018//
 /vm_machdep.c/1.41/Sat Oct 14 04:44:43 2017//
-/vmm.c/1.190/Tue Apr 24 20:33:28 2018//
+/vmm.c/1.191/Wed Apr 25 16:22:19 2018//
 /vmm_support.S/1.10/Tue Apr 24 20:33:28 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D

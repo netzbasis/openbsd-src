@@ -11,14 +11,14 @@
 /kern_acct.c/1.35/Mon Feb 19 08:59:52 2018//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.93/Sat Jul 22 14:33:45 2017//
-/kern_descrip.c/1.151/Wed Apr 18 09:59:09 2018//
+/kern_descrip.c/1.152/Wed Apr 25 10:29:16 2018//
 /kern_event.c/1.87/Tue Apr 10 09:17:45 2018//
 /kern_exec.c/1.193/Tue Jan  2 06:38:45 2018//
 /kern_exit.c/1.164/Sat Feb 10 10:32:51 2018//
 /kern_fork.c/1.202/Sat Dec 30 20:47:00 2017//
 /kern_kthread.c/1.41/Sun Feb 12 04:55:08 2017//
 /kern_ktrace.c/1.95/Mon Feb 19 08:59:52 2018//
-/kern_lock.c/1.61/Tue Mar 27 08:32:29 2018//
+/kern_lock.c/1.62/Wed Apr 25 10:30:41 2018//
 /kern_malloc.c/1.133/Thu Jan 18 18:08:51 2018//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
 /kern_pledge.c/1.229/Tue Mar 27 08:42:49 2018//
@@ -32,7 +32,7 @@
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.49/Tue Feb 14 10:31:15 2017//
 /kern_synch.c/1.144/Tue Apr 24 16:28:42 2018//
-/kern_sysctl.c/1.332/Mon Feb 19 08:59:52 2018//
+/kern_sysctl.c/1.333/Wed Apr 25 10:29:16 2018//
 /kern_task.c/1.22/Thu Dec 14 00:45:16 2017//
 /kern_tc.c/1.31/Tue Mar  7 20:22:37 2017//
 /kern_time.c/1.101/Mon Feb 19 08:59:52 2018//

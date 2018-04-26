@@ -13,13 +13,13 @@
 /fls.c/1.1/Thu Jul 11 01:20:32 2013//
 /flsl.c/1.1/Thu Jul 11 01:20:32 2013//
 /funcs.h/1.2/Mon Jun 21 22:55:04 2004//
-/getsn.c/1.6/Wed Dec  5 23:20:22 2012//
+/getsn.c/1.7/Wed Apr 25 11:15:58 2018//
 /htonl.c/1.9/Sat Dec 20 18:15:29 2014//
 /htons.c/1.9/Sat Dec 20 18:15:29 2014//
 /imax.c/1.4/Sat Aug  7 00:38:32 2004//
 /imin.c/1.4/Sat Aug  7 00:38:32 2004//
 /iordi3.c/1.6/Tue Oct 27 23:59:35 2009//
-/libkern.h/1.34/Sun Jul 13 23:49:40 2014//
+/libkern.h/1.35/Wed Apr 25 11:15:58 2018//
 /lmax.c/1.4/Sat Aug  7 00:38:32 2004//
 /lmin.c/1.4/Sat Aug  7 00:38:32 2004//
 /lshldi3.c/1.6/Tue Oct 27 23:59:35 2009//
