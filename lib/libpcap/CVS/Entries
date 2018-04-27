@@ -12,7 +12,7 @@
 /inet.c/1.24/Tue Dec 22 19:51:04 2015//
 /llc.h/1.2/Fri Apr 11 04:08:58 2014//
 /nametoaddr.c/1.21/Fri Dec  2 02:37:30 2016//
-/optimize.c/1.19/Fri Feb  5 16:58:39 2016//
+/optimize.c/1.20/Thu Apr 26 16:22:40 2018//
 /pcap-bpf.c/1.36/Thu Apr  5 03:47:27 2018//
 /pcap-filter.3/1.2/Wed Feb 19 04:51:32 2014//
 /pcap-int.h/1.14/Thu Apr  5 03:47:27 2018//

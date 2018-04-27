@@ -1,4 +1,4 @@
-/*	$OpenBSD: syscalls.c,v 1.10 2018/04/25 11:55:18 beck Exp $	*/
+/*	$OpenBSD: syscalls.c,v 1.17 2018/04/26 18:11:12 beck Exp $	*/
 
 /*
  * Copyright (c) 2017 Bob Beck <beck@openbsd.org>
@@ -52,7 +52,7 @@ char pp_file2[] = "/tmp/ppfile2.XXXXXX"; /* not pledgepathed */
 } while(0)
 
 /* all the things unless we override */
-static int pp_flags = O_RDWR|O_EXEC|O_CREAT; 
+const char *pp_flags = "rwxc";
 
 static void
 do_pledgepath(void)
@@ -75,6 +75,10 @@ runcompare(int (*func)(int))
 	waitpid(pid, &status, 0);
 	if (WIFEXITED(status))
 		nonppath = WEXITSTATUS(status);
+	if (WIFSIGNALED(status)) {
+		printf("[FAIL] nonppath exited with signal %d\n", WTERMSIG(status));
+		goto fail;
+	}
 	pid = fork();
 	if (pid == 0) {
 		exit(func(1));
@@ -83,12 +87,16 @@ runcompare(int (*func)(int))
 	waitpid(pid, &status, 0);
 	if (WIFEXITED(status))
 		ppath = WEXITSTATUS(status);
-
+	if (WIFSIGNALED(status)) {
+		printf("[FAIL] nonppath exited with signal %d\n", WTERMSIG(status));
+		goto fail;
+	}
 	if (ppath == nonppath) {
 		printf("[SUCCESS] ppath = %d, nonppath = %d\n", ppath, nonppath);
 		return 0;
 	}
 	printf("[FAIL] ppath = %d, nonppath = %d\n", ppath, nonppath);
+ fail:
 	return 1;
 }
 
@@ -106,8 +114,60 @@ test_open(int do_pp)
 	if (do_pp) {
 		printf("testing open and openat\n");
 		do_pledgepath();
+		if (pledgepath("/tmp/alpha", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/bravo", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/charlie", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/delta", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/echo", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/foxtrot", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/golf", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/hotel", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/india", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/juliet", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/kilo", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/lima", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/money", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/november", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/oscar", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/papa", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/quebec", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/romeo", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/sierra", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/tango", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/uniform", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/victor", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/whiskey", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/xray", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/yankee", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+		if (pledgepath("/tmp/zulu", pp_flags) == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 	}
-	PP_SHOULD_SUCCEED((pledge("paths stdio rpath cpath wpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("paths stdio rpath cpath wpath exec", NULL) == -1), "pledge");
 
 
 	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");
@@ -122,7 +182,7 @@ test_open(int do_pp)
 	sleep(1);
 	PP_SHOULD_SUCCEED((open(pp_file1, O_RDWR) == -1), "open");
 	if (do_pp) {
-		if (pledgepath(pp_file1, O_RDONLY) == -1)
+		if (pledgepath(pp_file1, "r") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 	}
 	PP_SHOULD_FAIL((open(pp_file1, O_RDWR) == -1), "open");
@@ -132,14 +192,62 @@ test_open(int do_pp)
 	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");
 	(void) snprintf(filename, sizeof(filename), "%s/%s", pp_dir1, "newfile");
 	PP_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT) == -1), "open");
+	(void) snprintf(filename, sizeof(filename), "/%s/%s", pp_dir1, "doubleslash");
+	PP_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT) == -1), "open");
+	(void) snprintf(filename, sizeof(filename), "/%s//%s", pp_dir1, "doubleslash2");
+	PP_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT) == -1), "open");
+	(void) snprintf(filename, sizeof(filename), "%s/../..%s/%s", pp_dir1, pp_dir1, "blem");
+	PP_SHOULD_FAIL((open(filename, O_RDWR|O_CREAT) == -1), "open");
 	(void) snprintf(filename, sizeof(filename), "%s/%s", pp_dir2, "newfile");
 	PP_SHOULD_FAIL((open(filename, O_RDWR|O_CREAT) == -1), "open");
+
+	if (do_pp) {
+		printf("testing clearing flags\n");
+		if (pledgepath(pp_dir1, "") == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+	}
+	(void) snprintf(filename, sizeof(filename), "%s/%s", pp_dir1, "noflagsiamboned");
+	PP_SHOULD_FAIL((open(filename, O_RDWR|O_CREAT) == -1), "open");
+
+	if (do_pp) {
+		printf("testing restoring flags\n");
+		if (pledgepath(pp_dir1, "rwxc") == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+	}
+
+	PP_SHOULD_SUCCEED((open(pp_file1, O_RDONLY) == -1), "open");
+	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");	
+	if (do_pp) {
+		printf("testing O_RDONLY\n");
+		if (pledgepath(pp_file1, "r") == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+	}
+	PP_SHOULD_SUCCEED((open(pp_file1, O_RDONLY) == -1), "open");
+	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");
+
+	if (do_pp) {
+		printf("testing O_RDWR\n");
+		if (pledgepath(pp_file1, "rw") == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+	}
+	PP_SHOULD_SUCCEED((open(pp_file1, O_RDONLY) == -1), "open");
+	PP_SHOULD_SUCCEED((open(pp_file1, O_RDWR) == -1), "open");
+
+	if (do_pp) {
+		printf("testing O_EXEC\n");
+		if (pledgepath(pp_file1, "x") == -1)
+			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
+	}
+	PP_SHOULD_FAIL((open(pp_file1, O_RDONLY) == -1), "open");
+	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");
 
 	if (do_pp) {
 		printf("(testing pledgepath after pledge)\n");
 		do_pledgepath();
 	}
 	PP_SHOULD_SUCCEED((pledge("stdio rpath cpath wpath", NULL) == -1), "pledge");
+
+	printf("(testing dropping ppath)\n");
 
 	PP_SHOULD_FAIL((open(pp_file2, O_RDWR) == -1), "open");
 	return 0;
@@ -166,14 +274,14 @@ test_unlink(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("paths stdio rpath cpath wpath", NULL) == -1),
+	PP_SHOULD_SUCCEED((pledge("paths stdio fattr rpath cpath wpath", NULL) == -1),
 	    "pledge");
 	PP_SHOULD_SUCCEED((unlink(filename1) == -1), "unlink");
 	PP_SHOULD_FAIL((unlink(filename2) == -1), "unlink");
 	PP_SHOULD_FAIL((unlink(filename3) == -1), "unlink");
 	if (do_pp) {
 		printf("testing unlink without O_CREAT\n");
-		if (pledgepath(filename3, O_RDWR) == -1)
+		if (pledgepath(filename3, "rw") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 
 	}
@@ -192,7 +300,7 @@ test_link(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("paths stdio rpath cpath wpath", NULL) == -1),
+	PP_SHOULD_SUCCEED((pledge("paths stdio fattr rpath cpath wpath", NULL) == -1),
 	    "pledge");
 	(void) snprintf(filename, sizeof(filename), "%s/%s", pp_dir1,
 	    "linkpp1");
@@ -206,7 +314,7 @@ test_link(int do_pp)
 	PP_SHOULD_FAIL((link(pp_file1, filename2) == -1), "link");
 	if (do_pp) {
 		printf("testing link without O_CREAT\n");
-		if (pledgepath(filename, O_RDWR) == -1)
+		if (pledgepath(filename, "rw") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 
 	}
@@ -225,7 +333,7 @@ test_chdir(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((chdir(pp_dir1) == -1), "chdir");
 	PP_SHOULD_FAIL((chdir(pp_dir2) == -1), "chdir");
 
@@ -260,7 +368,7 @@ test_rename(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath wpath cpath", NULL) == -1),
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath wpath cpath", NULL) == -1),
 	    "pledge");
 	PP_SHOULD_SUCCEED((rename(filename1, rfilename1) == -1), "rename");
 	PP_SHOULD_FAIL((rename(filename2, rfilename2) == -1), "rename");
@@ -287,7 +395,7 @@ test_access(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((access(pp_file1, R_OK) == -1), "access");
 	PP_SHOULD_FAIL((access(pp_file2, R_OK) == -1), "access");
 	PP_SHOULD_SUCCEED((access(pp_dir1, R_OK) == -1), "access");
@@ -304,7 +412,7 @@ test_chflags(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((chflags(pp_file1, UF_NODUMP) == -1), "chflags");
 	PP_SHOULD_FAIL((chflags(pp_file2, UF_NODUMP) == -1), "chflags");
 
@@ -320,7 +428,7 @@ test_stat(int do_pp)
 	}
 	struct stat sb;
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((stat(pp_file1, &sb) == -1), "stat");
 	PP_SHOULD_FAIL((stat(pp_file2, &sb) == -1), "stat");
 	PP_SHOULD_SUCCEED((stat(pp_dir1, &sb) == -1), "stat");
@@ -338,7 +446,7 @@ test_statfs(int do_pp)
 	}
 	struct statfs sb;
 
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((statfs(pp_file1, &sb) == -1), "statfs");
 	PP_SHOULD_FAIL((statfs(pp_file2, &sb) == -1), "statfs");
 	PP_SHOULD_SUCCEED((statfs(pp_dir1, &sb) == -1), "statfs");
@@ -360,7 +468,7 @@ test_symlink(int do_pp)
 		do_pledgepath();
 	}
 
-	PP_SHOULD_SUCCEED((pledge("paths stdio rpath cpath wpath", NULL) == -1),
+	PP_SHOULD_SUCCEED((pledge("paths stdio fattr rpath cpath wpath", NULL) == -1),
 	    "pledge");
 	(void) snprintf(filename, sizeof(filename), "%s/%s", pp_dir1,
 	    "slinkpp1");
@@ -383,7 +491,7 @@ test_symlink(int do_pp)
 
 	if (do_pp) {
 		printf("testing symlink without O_CREAT\n");
-		if (pledgepath(filename, O_RDWR) == -1)
+		if (pledgepath(filename, "rw") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 	}
 	PP_SHOULD_FAIL((symlink(pp_file1, filename) == -1), "symlink");
@@ -398,9 +506,9 @@ test_chmod(int do_pp)
 		printf("testing chmod\n");
 		do_pledgepath();
 	}
-	PP_SHOULD_SUCCEED((pledge("stdio rpath", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((chmod(pp_file1, S_IRWXU) == -1), "chmod");
-	PP_SHOULD_FAIL((chmod(pp_file1, S_IRWXU) == -1), "chmod");
+	PP_SHOULD_FAIL((chmod(pp_file2, S_IRWXU) == -1), "chmod");
 	PP_SHOULD_SUCCEED((chmod(pp_dir1, S_IRWXU) == -1), "chmod");
 	PP_SHOULD_FAIL((chmod(pp_dir2, S_IRWXU) == -1), "chmod");
 
@@ -413,10 +521,10 @@ test_exec(int do_pp)
 	extern char **environ;
 	if (do_pp) {
 		printf("testing execve with O_EXEC only\n");
-		if (pledgepath("/usr/bin/true", O_EXEC) == -1)
+		if (pledgepath("/usr/bin/true", "x") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 	}
-	PP_SHOULD_SUCCEED((pledge("paths stdio exec", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("paths stdio fattr exec", NULL) == -1), "pledge");
 	PP_SHOULD_SUCCEED((execve(argv[0], argv, environ) == -1), "execve");
 	return 0;
 }
@@ -427,10 +535,10 @@ test_exec2(int do_pp)
 	extern char **environ;
 	if (do_pp) {
 		printf("testing execve without O_EXEC\n");
-		if (pledgepath("/usr/bin/true", O_RDWR) == -1)
+		if (pledgepath("/usr/bin/true", "rw") == -1)
 			err(1, "%s:%d - pledgepath", __FILE__, __LINE__);
 	}
-	PP_SHOULD_SUCCEED((pledge("paths stdio exec", NULL) == -1), "pledge");
+	PP_SHOULD_SUCCEED((pledge("paths stdio fattr exec", NULL) == -1), "pledge");
 	PP_SHOULD_FAIL((execve(argv[0], argv, environ) == -1), "execve");
 	return 0;
 }
@@ -444,6 +552,7 @@ main (int argc, char *argv[])
 	PP_SHOULD_SUCCEED((mkdtemp(pp_dir2) == NULL), "mkdtmp");
 	PP_SHOULD_SUCCEED(((fd1 = mkstemp(pp_file1)) == -1), "mkstemp");
 	close(fd1);
+	PP_SHOULD_SUCCEED((chmod(pp_file1, S_IRWXU) == -1), "chmod");
 	PP_SHOULD_SUCCEED(((fd2 = mkstemp(pp_file2)) == -1), "mkstemp");
 	close(fd2);
 
@@ -460,6 +569,6 @@ main (int argc, char *argv[])
 	failures += runcompare(test_chmod);
 	failures += runcompare(test_exec);
 	failures += runcompare(test_exec2);
-
 	exit(failures);
+
 }

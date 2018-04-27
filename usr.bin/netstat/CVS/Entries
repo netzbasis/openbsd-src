@@ -6,10 +6,10 @@
 /mbuf.c/1.40/Sat Oct 28 15:25:20 2017//
 /mroute.c/1.25/Thu Feb 12 23:31:12 2015//
 /mroute6.c/1.23/Mon May  8 09:31:34 2017//
-/net80211.c/1.17/Sat Aug 27 04:13:43 2016//
-/netstat.1/1.81/Sat Aug 12 03:21:02 2017//
+/net80211.c/1.18/Thu Apr 26 12:42:51 2018//
+/netstat.1/1.82/Thu Apr 26 12:11:51 2018//
 /netstat.h/1.71/Sat Aug 12 03:21:02 2017//
 /route.c/1.101/Thu Sep 15 01:01:07 2016//
 /show.c/1.53/Sat Jan 21 11:32:04 2017//
-/unix.c/1.31/Fri Jan  5 10:41:24 2018//
+/unix.c/1.32/Thu Apr 26 12:42:51 2018//
 D

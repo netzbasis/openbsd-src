@@ -11,14 +11,14 @@
 /kern_acct.c/1.35/Mon Feb 19 08:59:52 2018//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.93/Sat Jul 22 14:33:45 2017//
-/kern_descrip.c/1.152/Wed Apr 25 10:29:16 2018//
+/kern_descrip.c/1.153/Thu Apr 26 06:28:43 2018//
 /kern_event.c/1.87/Tue Apr 10 09:17:45 2018//
 /kern_exec.c/1.193/Tue Jan  2 06:38:45 2018//
 /kern_exit.c/1.164/Sat Feb 10 10:32:51 2018//
 /kern_fork.c/1.202/Sat Dec 30 20:47:00 2017//
 /kern_kthread.c/1.41/Sun Feb 12 04:55:08 2017//
 /kern_ktrace.c/1.95/Mon Feb 19 08:59:52 2018//
-/kern_lock.c/1.62/Wed Apr 25 10:30:41 2018//
+/kern_lock.c/1.63/Thu Apr 26 06:51:48 2018//
 /kern_malloc.c/1.133/Thu Jan 18 18:08:51 2018//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
 /kern_pledge.c/1.229/Tue Mar 27 08:42:49 2018//
@@ -62,7 +62,7 @@
 /sys_generic.c/1.117/Mon Apr  9 09:53:13 2018//
 /sys_pipe.c/1.78/Tue Apr 10 09:17:45 2018//
 /sys_process.c/1.80/Mon Feb 19 09:25:13 2018//
-/sys_socket.c/1.36/Tue Apr 10 09:17:45 2018//
+/sys_socket.c/1.37/Thu Apr 26 10:45:45 2018//
 /syscalls.c/1.190/Tue Dec 12 01:13:14 2017//
 /syscalls.conf/1.20/Sat Sep 14 01:35:01 2013//
 /syscalls.master/1.180/Tue Dec 12 01:12:34 2017//
