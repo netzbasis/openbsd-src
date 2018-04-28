@@ -70,7 +70,7 @@
 /smtp.c/1.157/Tue Nov 21 12:20:34 2017//
 /smtp.h/1.1/Thu Apr 26 13:57:13 2018//
 /smtp_client.c/1.2/Thu Apr 26 21:19:46 2018//
-/smtp_session.c/1.319/Wed Mar 14 22:02:51 2018//
+/smtp_session.c/1.320/Fri Apr 27 15:16:12 2018//
 /smtpc.c/1.2/Thu Apr 26 21:19:46 2018//
 /smtpctl.8/1.62/Tue Jan 30 20:48:35 2018//
 /smtpctl.c/1.159/Thu Apr 26 20:57:59 2018//

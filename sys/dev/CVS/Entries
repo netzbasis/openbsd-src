@@ -6,7 +6,7 @@
 /cninit.c/1.15/Sat Dec 30 20:46:59 2017//
 /cons.c/1.28/Mon Feb 19 08:59:52 2018//
 /cons.h/1.18/Tue May 17 23:43:47 2016//
-/diskmap.c/1.17/Tue Jan  2 06:38:45 2018//
+/diskmap.c/1.18/Sat Apr 28 03:13:04 2018//
 /firmload.c/1.14/Tue Dec 29 04:46:28 2015//
 /flash.c/1.32/Thu May  4 22:47:27 2017//
 /flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
@@ -39,7 +39,7 @@
 /spdmemvar.h/1.1/Mon Mar 22 21:20:56 2010//
 /video.c/1.41/Wed Oct 11 08:08:50 2017//
 /video_if.h/1.18/Sat Oct 18 08:01:34 2014//
-/vnd.c/1.167/Mon Feb 19 08:59:52 2018//
+/vnd.c/1.168/Sat Apr 28 03:13:04 2018//
 /vndioctl.h/1.10/Wed Dec 14 18:59:12 2016//
 /vscsi.c/1.41/Sun Feb 12 17:12:37 2017//
 /vscsivar.h/1.5/Tue Apr  5 15:28:49 2011//
