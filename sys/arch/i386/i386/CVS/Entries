@@ -8,12 +8,12 @@
 /apm.c/1.117/Thu Aug 17 19:44:27 2017//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.105/Wed Feb  7 18:42:38 2018//
-/bios.c/1.117/Wed Apr 11 15:44:08 2018//
+/bios.c/1.118/Sat Apr 28 15:44:59 2018//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
 /codepatch.c/1.4/Mon Jul 10 00:59:24 2017//
 /conf.c/1.158/Fri Oct 21 06:20:58 2016//
-/cpu.c/1.90/Fri Apr 20 07:27:54 2018//
+/cpu.c/1.91/Sat Apr 28 15:44:59 2018//
 /db_disasm.c/1.21/Sun Mar  5 01:02:48 2017//
 /db_interface.c/1.40/Sat Mar 31 13:45:03 2018//
 /db_memrw.c/1.17/Sun Apr 30 13:04:49 2017//
@@ -62,7 +62,7 @@
 /sys_machdep.c/1.39/Mon Feb 19 08:59:52 2018//
 /trap.c/1.137/Thu Apr 12 17:13:43 2018//
 /vector.s/1.22/Wed Apr 11 15:44:08 2018//
-/via.c/1.42/Wed Feb 21 21:09:57 2018//
+/via.c/1.43/Sat Apr 28 15:44:59 2018//
 /vm86.c/1.24/Sat Dec 30 20:46:59 2017//
 /vm_machdep.c/1.70/Sat Mar 31 13:45:03 2018//
 /vmm.c/1.38/Fri Apr 27 15:45:52 2018//

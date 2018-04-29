@@ -6,7 +6,7 @@
 /files.usb/1.134/Wed Oct 11 17:19:50 2017//
 /if_athn_usb.c/1.50/Mon Feb  5 09:52:03 2018//
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
-/if_atu.c/1.124/Wed Jan 31 12:36:13 2018//
+/if_atu.c/1.126/Sat Apr 28 16:05:56 2018//
 /if_atureg.h/1.33/Mon Apr 15 09:23:01 2013//
 /if_aue.c/1.106/Sun Jan 22 10:17:39 2017//
 /if_auereg.h/1.18/Thu Jun 18 10:02:49 2015//
@@ -124,12 +124,12 @@
 /uoaklux.c/1.13/Sat Apr  8 02:57:25 2017//
 /uoakrh.c/1.15/Sat Apr  8 02:57:25 2017//
 /uoakv.c/1.13/Sat Apr  8 02:57:25 2017//
-/uonerng.c/1.2/Fri Sep  2 09:14:59 2016//
+/uonerng.c/1.3/Sat Apr 28 15:44:59 2018//
 /uow.c/1.35/Sun Nov  6 12:58:01 2016//
 /uowreg.h/1.5/Sun Oct  8 20:04:23 2006//
 /upd.c/1.26/Sat Apr  8 02:57:25 2017//
 /uplcom.c/1.71/Fri Apr 27 09:40:59 2018//
-/urng.c/1.7/Tue Sep 12 19:14:35 2017//
+/urng.c/1.8/Sat Apr 28 15:44:59 2018//
 /usb.c/1.118/Mon Feb 26 13:06:49 2018//
 /usb.h/1.59/Fri Sep  1 16:38:14 2017//
 /usb_mem.c/1.30/Wed Mar  7 04:39:54 2018//
@@ -166,7 +166,7 @@
 /uvisor.c/1.51/Fri Sep  2 09:14:59 2016//
 /uvscom.c/1.37/Fri Apr 27 08:08:06 2018//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
-/xhci.c/1.82/Fri Apr 27 13:25:08 2018//
-/xhcireg.h/1.13/Fri Apr 27 14:17:52 2018//
+/xhci.c/1.83/Sat Apr 28 08:20:23 2018//
+/xhcireg.h/1.14/Sat Apr 28 08:19:35 2018//
 /xhcivar.h/1.8/Sun Jan 18 20:35:11 2015//
 D/dwc2////

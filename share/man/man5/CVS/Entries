@@ -1,4 +1,4 @@
-/Makefile/1.55/Tue Feb  7 11:37:23 2017//
+/Makefile/1.56/Sat Apr 28 16:43:44 2018//
 /acct.5/1.16/Thu Jun  8 17:14:02 2017//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.10/Tue Apr 11 20:40:43 2017//
@@ -19,7 +19,7 @@
 /genassym.cf.5/1.10/Sat Jul  5 07:18:33 2014//
 /group.5/1.15/Wed Jun 20 22:15:13 2012//
 /hostname.if.5/1.65/Fri Mar 10 18:28:11 2017//
-/hosts.5/1.22/Sat Aug 23 07:25:54 2014//
+/hosts.5/1.23/Sat Apr 28 16:40:10 2018//
 /installurl.5/1.6/Fri May 19 16:56:49 2017//
 /intro.5/1.8/Wed Aug 14 06:32:33 2013//
 /login.conf.5/1.64/Thu Jul 13 19:16:33 2017//
@@ -31,7 +31,6 @@
 /motd.5/1.10/Wed May  6 19:43:16 2009//
 /myname.5/1.9/Thu Jul 13 19:16:33 2017//
 /netgroup.5/1.16/Thu Jul 13 19:16:33 2017//
-/networks.5/1.19/Sat Aug 23 07:25:54 2014//
 /passwd.5/1.41/Sun Nov  2 05:33:04 2014//
 /pf.conf.5/1.574/Fri Feb  9 07:14:17 2018//
 /pf.os.5/1.8/Thu May 31 19:19:58 2007//

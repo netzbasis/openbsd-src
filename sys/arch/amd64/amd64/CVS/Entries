@@ -6,7 +6,7 @@
 /amd64errata.c/1.9/Fri Sep  8 05:36:51 2017//
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
 /autoconf.c/1.51/Wed Feb  7 18:42:38 2018//
-/bios.c/1.35/Sat Oct 14 04:44:43 2017//
+/bios.c/1.36/Sat Apr 28 15:44:59 2018//
 /bus_dma.c/1.50/Sat Oct 14 04:44:43 2017//
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
 /cacheinfo.c/1.8/Wed Feb  3 03:25:07 2016//
@@ -14,7 +14,7 @@
 /conf.c/1.60/Sun Sep  4 10:51:23 2016//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.11/Sat Sep 16 02:03:40 2017//
-/cpu.c/1.116/Tue Apr 24 15:32:28 2018//
+/cpu.c/1.117/Sat Apr 28 15:44:59 2018//
 /db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.32/Tue Apr 24 20:58:48 2018//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
@@ -58,7 +58,7 @@
 /tsc.c/1.9/Sun Apr  8 18:26:29 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
 /vector.S/1.56/Thu Apr 26 14:09:05 2018//
-/via.c/1.28/Wed Feb 21 21:09:57 2018//
+/via.c/1.29/Sat Apr 28 15:44:59 2018//
 /vm_machdep.c/1.41/Sat Oct 14 04:44:43 2017//
 /vmm.c/1.197/Fri Apr 27 15:45:52 2018//
 /vmm_support.S/1.10/Tue Apr 24 20:33:28 2018//

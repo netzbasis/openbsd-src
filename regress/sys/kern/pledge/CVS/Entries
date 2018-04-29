@@ -3,7 +3,6 @@ D/execpromise////
 D/filedescriptor////
 D/generic////
 D/ioctl////
-D/pledgepath////
 D/sendrecvfd////
 D/sigabrt////
 D/sockopt////

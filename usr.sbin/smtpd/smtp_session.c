@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.320 2018/04/27 15:16:12 eric Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.326 2018/04/28 16:13:37 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -169,26 +169,23 @@ static int smtp_parse_mail_args(struct smtp_session *, char *);
 static int smtp_parse_rcpt_args(struct smtp_session *, char *);
 static void smtp_rfc4954_auth_plain(struct smtp_session *, char *);
 static void smtp_rfc4954_auth_login(struct smtp_session *, char *);
-static void smtp_message_fd(struct smtp_session *, int);
-static void smtp_message_end(struct smtp_session *);
-static int smtp_message_printf(struct smtp_session *, const char *, ...);
 static void smtp_free(struct smtp_session *, const char *);
 static const char *smtp_strstate(int);
 static void smtp_tls_init(struct smtp_session *);
 static int smtp_verify_certificate(struct smtp_session *);
-static uint8_t dsn_notify_str_to_uint8(const char *);
 static void smtp_auth_failure_pause(struct smtp_session *);
 static void smtp_auth_failure_resume(int, short, void *);
 
 static int  smtp_tx(struct smtp_session *);
 static void smtp_tx_free(struct smtp_tx *);
-
-static void smtp_queue_create_message(struct smtp_session *);
-static void smtp_queue_open_message(struct smtp_session *);
-static void smtp_queue_commit(struct smtp_session *);
-static void smtp_queue_rollback(struct smtp_session *);
-
-static int smtp_dataline(struct smtp_session *, const char *);
+static void smtp_tx_create_message(struct smtp_tx *);
+static void smtp_tx_open_message(struct smtp_tx *);
+static void smtp_tx_commit(struct smtp_tx *);
+static void smtp_tx_rollback(struct smtp_tx *);
+static int  smtp_tx_dataline(struct smtp_tx *, const char *);
+static void smtp_message_fd(struct smtp_tx *, int);
+static void smtp_message_end(struct smtp_tx *);
+static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
 
 static struct { int code; const char *cmd; } commands[] = {
 	{ CMD_HELO,		"HELO" },
@@ -220,23 +217,23 @@ static struct tree wait_ssl_verify;
 static void
 header_default_callback(const struct rfc2822_header *hdr, void *arg)
 {
-	struct smtp_session    *s = arg;
+	struct smtp_tx         *tx = arg;
 	struct rfc2822_line    *l;
 
-	if (smtp_message_printf(s, "%s:", hdr->name) == -1)
+	if (smtp_message_printf(tx, "%s:", hdr->name) == -1)
 		return;
 
 	TAILQ_FOREACH(l, &hdr->lines, next)
-		if (smtp_message_printf(s, "%s\n", l->buffer) == -1)
+		if (smtp_message_printf(tx, "%s\n", l->buffer) == -1)
 			return;
 }
 
 static void
 dataline_callback(const char *line, void *arg)
 {
-	struct smtp_session	*s = arg;
+	struct smtp_tx *tx = arg;
 
-	smtp_message_printf(s, "%s\n", line);
+	smtp_message_printf(tx, "%s\n", line);
 }
 
 static void
@@ -409,13 +406,16 @@ header_address_rewrite_buffer(char *buffer, const char *address, size_t len)
 static void
 header_domain_append_callback(const struct rfc2822_header *hdr, void *arg)
 {
-	struct smtp_session    *s = arg;
+	struct smtp_session    *s;
+	struct smtp_tx         *tx = arg;
 	struct rfc2822_line    *l;
 	size_t			i, j;
 	int			escape, quote, comment, skip;
 	char			buffer[APPEND_DOMAIN_BUFFER_SIZE];
 
-	if (smtp_message_printf(s, "%s:", hdr->name) == -1)
+	s = tx->session;
+
+	if (smtp_message_printf(tx, "%s:", hdr->name) == -1)
 		return;
 
 	j = 0;
@@ -443,10 +443,10 @@ header_domain_append_callback(const struct rfc2822_header *hdr, void *arg)
 					    s->listener->sendertable[0] &&
 					    s->listener->flags & F_MASQUERADE &&
 					    !(strcasecmp(hdr->name, "From")))
-						header_address_rewrite_buffer(buffer, mailaddr_to_text(&s->tx->evp.sender),
+						header_address_rewrite_buffer(buffer, mailaddr_to_text(&tx->evp.sender),
 						    sizeof buffer);
 				}
-				if (smtp_message_printf(s, "%s,", buffer) == -1)
+				if (smtp_message_printf(tx, "%s,", buffer) == -1)
 					return;
 				j = 0;
 				skip = 0;
@@ -454,13 +454,13 @@ header_domain_append_callback(const struct rfc2822_header *hdr, void *arg)
 			}
 			else {
 				if (skip) {
-					if (smtp_message_printf(s, "%c", l->buffer[i]) == -1)
+					if (smtp_message_printf(tx, "%c", l->buffer[i]) == -1)
 						return;
 				}
 				else {
 					buffer[j++] = l->buffer[i];
 					if (j == sizeof (buffer) - 1) {
-						if (smtp_message_printf(s, "%s", buffer) == -1)
+						if (smtp_message_printf(tx, "%s", buffer) == -1)
 							return;
 						skip = 1;
 						j = 0;
@@ -470,13 +470,13 @@ header_domain_append_callback(const struct rfc2822_header *hdr, void *arg)
 			}
 		}
 		if (skip) {
-			if (smtp_message_printf(s, "\n") == -1)
+			if (smtp_message_printf(tx, "\n") == -1)
 				return;
 		}
 		else {
 			buffer[j++] = '\n';
 			if (j == sizeof (buffer) - 1) {
-				if (smtp_message_printf(s, "%s", buffer) == -1)
+				if (smtp_message_printf(tx, "%s", buffer) == -1)
 					return;
 				skip = 1;
 				j = 0;
@@ -493,24 +493,24 @@ header_domain_append_callback(const struct rfc2822_header *hdr, void *arg)
 			    s->listener->sendertable[0] &&
 			    s->listener->flags & F_MASQUERADE &&
 			    !(strcasecmp(hdr->name, "From")))
-				header_address_rewrite_buffer(buffer, mailaddr_to_text(&s->tx->evp.sender),
+				header_address_rewrite_buffer(buffer, mailaddr_to_text(&tx->evp.sender),
 				    sizeof buffer);
 		}
-		smtp_message_printf(s, "%s", buffer);
+		smtp_message_printf(tx, "%s", buffer);
 	}
 }
 
 static void
 header_missing_callback(const char *header, void *arg)
 {
-	struct smtp_session	*s = arg;
+	struct smtp_tx *tx = arg;
 
 	if (strcasecmp(header, "message-id") == 0)
-		smtp_message_printf(s, "Message-Id: <%016"PRIx64"@%s>\n",
-		    generate_uid(), s->listener->hostname);
+		smtp_message_printf(tx, "Message-Id: <%016"PRIx64"@%s>\n",
+		    generate_uid(), tx->session->listener->hostname);
 
 	if (strcasecmp(header, "date") == 0)
-		smtp_message_printf(s, "Date: %s\n", time_to_text(s->tx->time));
+		smtp_message_printf(tx, "Date: %s\n", time_to_text(tx->time));
 }
 
 static void
@@ -625,7 +625,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		s = tree_xpop(&wait_lka_mail, reqid);
 		switch (status) {
 		case LKA_OK:
-			smtp_queue_create_message(s);
+			smtp_tx_create_message(s->tx);
 			break;
 
 		case LKA_PERMFAIL:
@@ -710,7 +710,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 
 		log_debug("smtp: %p: fd %d from queue", s, imsg->fd);
 
-		smtp_message_fd(s, imsg->fd);
+		smtp_message_fd(s->tx, imsg->fd);
 		return;
 
 	case IMSG_QUEUE_ENVELOPE_SUBMIT:
@@ -909,66 +909,6 @@ smtp_tls_verified(struct smtp_session *s)
 	}
 }
 
-void
-smtp_message_fd(struct smtp_session *s, int fd)
-{
-	X509 *x;
-
-	log_debug("smtp: %p: message fd %d", s, fd);
-
-	if ((s->tx->ofile = fdopen(fd, "w")) == NULL) {
-		close(fd);
-		smtp_reply(s, "421 %s: Temporary Error",
-		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
-		smtp_enter_state(s, STATE_QUIT);
-		return;
-	}
-
-	smtp_message_printf(s, "Received: ");
-	if (!(s->listener->flags & F_MASK_SOURCE)) {
-		smtp_message_printf(s, "from %s (%s [%s])",
-		    s->helo,
-		    s->hostname,
-		    ss_to_text(&s->ss));
-	}
-	smtp_message_printf(s, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
-	    s->smtpname,
-	    SMTPD_NAME,
-	    s->flags & SF_EHLO ? "E" : "",
-	    s->flags & SF_SECURE ? "S" : "",
-	    s->flags & SF_AUTHENTICATED ? "A" : "",
-	    s->tx->msgid);
-
-	if (s->flags & SF_SECURE) {
-		x = SSL_get_peer_certificate(io_ssl(s->io));
-		smtp_message_printf(s, " (%s:%s:%d:%s)",
-		    SSL_get_version(io_ssl(s->io)),
-		    SSL_get_cipher_name(io_ssl(s->io)),
-		    SSL_get_cipher_bits(io_ssl(s->io), NULL),
-		    (s->flags & SF_VERIFIED) ? "YES" : (x ? "FAIL" : "NO"));
-		X509_free(x);
-
-		if (s->listener->flags & F_RECEIVEDAUTH) {
-			smtp_message_printf(s, " auth=%s",
-			    s->username[0] ? "yes" : "no");
-			if (s->username[0])
-				smtp_message_printf(s, " user=%s", s->username);
-		}
-	}
-
-	if (s->tx->rcptcount == 1) {
-		smtp_message_printf(s, "\n\tfor <%s@%s>",
-		    s->tx->evp.rcpt.user,
-		    s->tx->evp.rcpt.domain);
-	}
-
-	smtp_message_printf(s, ";\n\t%s\n", time_to_text(time(&s->tx->time)));
-
-	smtp_enter_state(s, STATE_BODY);
-	smtp_reply(s, "354 Enter mail, end with \".\""
-	    " on a line by itself");
-}
-
 static void
 smtp_io(struct io *io, int evt, void *arg)
 {
@@ -1025,7 +965,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		/* Message body */
 		eom = 0;
 		if (s->state == STATE_BODY) {
-			eom = smtp_dataline(s, line);
+			eom = smtp_tx_dataline(s->tx, line);
 			if (eom == 0)
 				goto nextline;
 		}
@@ -1042,7 +982,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
-			smtp_message_end(s);
+			smtp_message_end(s->tx);
 			io_set_write(io);
 			return;
 		}
@@ -1102,77 +1042,6 @@ smtp_io(struct io *io, int evt, void *arg)
 	default:
 		fatalx("smtp_io()");
 	}
-}
-
-static int
-smtp_tx(struct smtp_session *s)
-{
-	struct smtp_tx *tx;
-
-	tx = calloc(1, sizeof(*tx));
-	if (tx == NULL)
-		return 0;
-
-	TAILQ_INIT(&tx->rcpts);
-
-	s->tx = tx;
-	tx->session = s;
-
-	/* setup the envelope */
-	s->tx->evp.ss = s->ss;
-	(void)strlcpy(s->tx->evp.tag, s->listener->tag, sizeof(s->tx->evp.tag));
-	(void)strlcpy(s->tx->evp.smtpname, s->smtpname, sizeof(s->tx->evp.smtpname));
-	(void)strlcpy(s->tx->evp.hostname, s->hostname, sizeof s->tx->evp.hostname);
-	(void)strlcpy(s->tx->evp.helo, s->helo, sizeof s->tx->evp.helo);
-
-	if (s->flags & SF_BOUNCE)
-		s->tx->evp.flags |= EF_BOUNCE;
-	if (s->flags & SF_AUTHENTICATED)
-		s->tx->evp.flags |= EF_AUTHENTICATED;
-
-	/* Setup parser and callbacks */
-	rfc2822_parser_init(&tx->rfc2822_parser);
-	rfc2822_header_default_callback(&tx->rfc2822_parser,
-	    header_default_callback, s);
-	rfc2822_header_callback(&tx->rfc2822_parser, "bcc",
-	    header_bcc_callback, s);
-	rfc2822_header_callback(&tx->rfc2822_parser, "from",
-	    header_domain_append_callback, s);
-	rfc2822_header_callback(&tx->rfc2822_parser, "to",
-	    header_domain_append_callback, s);
-	rfc2822_header_callback(&tx->rfc2822_parser, "cc",
-	    header_domain_append_callback, s);
-	rfc2822_body_callback(&tx->rfc2822_parser,
-	    dataline_callback, s);
-
-	if (s->listener->local || s->listener->port == htons(587)) {
-		rfc2822_missing_header_callback(&tx->rfc2822_parser, "date",
-		    header_missing_callback, s);
-		rfc2822_missing_header_callback(&tx->rfc2822_parser, "message-id",
-		    header_missing_callback, s);
-	}
-
-	return 1;
-}
-
-static void
-smtp_tx_free(struct smtp_tx *tx)
-{
-	struct smtp_rcpt *rcpt;
-
-	rfc2822_parser_release(&tx->rfc2822_parser);
-
-	while ((rcpt = TAILQ_FIRST(&tx->rcpts))) {
-		TAILQ_REMOVE(&tx->rcpts, rcpt, entry);
-		free(rcpt);
-	}
-
-	if (tx->ofile)
-		fclose(tx->ofile);
-
-	tx->session->tx = NULL;
-
-	free(tx);
 }
 
 static void
@@ -1419,7 +1288,7 @@ smtp_command(struct smtp_session *s, char *line)
 			tree_xset(&wait_lka_mail, s->id, s);
 		}
 		else
-			smtp_queue_create_message(s);
+			smtp_tx_create_message(s->tx);
 		break;
 	/*
 	 * TRANSACTION
@@ -1466,7 +1335,7 @@ smtp_command(struct smtp_session *s, char *line)
 
 		if (s->tx) {
 			if (s->tx->msgid)
-				smtp_queue_rollback(s);
+				smtp_tx_rollback(s->tx);
 			smtp_tx_free(s->tx);
 		}
 
@@ -1488,7 +1357,7 @@ smtp_command(struct smtp_session *s, char *line)
 			break;
 		}
 
-		smtp_queue_open_message(s);
+		smtp_tx_open_message(s->tx);
 		break;
 	/*
 	 * ANY
@@ -1638,26 +1507,10 @@ abort:
 	smtp_enter_state(s, STATE_HELO);
 }
 
-static uint8_t
-dsn_notify_str_to_uint8(const char *arg)
-{
-	if (strcasecmp(arg, "SUCCESS") == 0)
-		return DSN_SUCCESS;
-	else if (strcasecmp(arg, "FAILURE") == 0)
-		return DSN_FAILURE;
-	else if (strcasecmp(arg, "DELAY") == 0)
-		return DSN_DELAY;
-	else if (strcasecmp(arg, "NEVER") == 0)
-		return DSN_NEVER;
-
-	return (0);
-}
-
 static int
 smtp_parse_rcpt_args(struct smtp_session *s, char *args)
 {
-	char 	*b, *p;
-	uint8_t flag;
+	char *b, *p;
 
 	while ((b = strsep(&args, " "))) {
 		if (*b == '\0')
@@ -1666,14 +1519,16 @@ smtp_parse_rcpt_args(struct smtp_session *s, char *args)
 		if (ADVERTISE_EXT_DSN(s) && strncasecmp(b, "NOTIFY=", 7) == 0) {
 			b += 7;
 			while ((p = strsep(&b, ","))) {
-				if (*p == '\0')
-					continue;
-
-				if ((flag = dsn_notify_str_to_uint8(p)) == 0)
-					continue;
-
-				s->tx->evp.dsn_notify |= flag;
+				if (strcasecmp(p, "SUCCESS") == 0)
+					s->tx->evp.dsn_notify |= DSN_SUCCESS;
+				else if (strcasecmp(p, "FAILURE") == 0)
+					s->tx->evp.dsn_notify |= DSN_FAILURE;
+				else if (strcasecmp(p, "DELAY") == 0)
+					s->tx->evp.dsn_notify |= DSN_DELAY;
+				else if (strcasecmp(p, "NEVER") == 0)
+					s->tx->evp.dsn_notify |= DSN_NEVER;
 			}
+
 			if (s->tx->evp.dsn_notify & DSN_NEVER &&
 			    s->tx->evp.dsn_notify & (DSN_SUCCESS | DSN_FAILURE |
 			    DSN_DELAY)) {
@@ -1809,76 +1664,6 @@ smtp_enter_state(struct smtp_session *s, int newstate)
 }
 
 static void
-smtp_message_end(struct smtp_session *s)
-{
-	log_debug("debug: %p: end of message, error=%d", s, s->tx->error);
-
-	fclose(s->tx->ofile);
-	s->tx->ofile = NULL;
-
-	switch(s->tx->error) {
-	case TX_OK:
-		smtp_queue_commit(s);
-		return;		
-
-	case TX_ERROR_SIZE:
-		smtp_reply(s, "554 %s %s: Transaction failed, message too big",
-		    esc_code(ESC_STATUS_PERMFAIL, ESC_MESSAGE_TOO_BIG_FOR_SYSTEM),
-		    esc_description(ESC_MESSAGE_TOO_BIG_FOR_SYSTEM));
-		break;
-
-	case TX_ERROR_LOOP:
-		smtp_reply(s, "500 %s %s: Loop detected",
-		   esc_code(ESC_STATUS_PERMFAIL, ESC_ROUTING_LOOP_DETECTED),
-		   esc_description(ESC_ROUTING_LOOP_DETECTED));
-		break;
-
-	case TX_ERROR_MALFORMED:
-		smtp_reply(s, "550 %s %s: Message is not RFC 2822 compliant",
-		    esc_code(ESC_STATUS_PERMFAIL, ESC_DELIVERY_NOT_AUTHORIZED_MESSAGE_REFUSED),
-		    esc_description(ESC_DELIVERY_NOT_AUTHORIZED_MESSAGE_REFUSED));
-		break;
-
-	case TX_ERROR_IO:
-	case TX_ERROR_RESOURCES:
-		smtp_reply(s, "421 %s: Temporary Error",
-		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
-		break;
-
-	default:
-		/* fatal? */
-		smtp_reply(s, "421 Internal server error");
-	}
-
-	smtp_queue_rollback(s);
-	smtp_tx_free(s->tx);
-	smtp_enter_state(s, STATE_HELO);
-}
-
-static int
-smtp_message_printf(struct smtp_session *s, const char *fmt, ...)
-{
-	va_list	ap;
-	int	len;
-
-	if (s->tx->error)
-		return -1;
-
-	va_start(ap, fmt);
-	len = vfprintf(s->tx->ofile, fmt, ap);
-	va_end(ap);
-
-	if (len < 0) {
-		log_warn("smtp-in: session %016"PRIx64": vfprintf", s->id);
-		s->tx->error = TX_ERROR_IO;
-	}
-	else
-		s->tx->odatalen += len;
-
-	return len;
-}
-
-static void
 smtp_reply(struct smtp_session *s, char *fmt, ...)
 {
 	va_list	 ap;
@@ -1941,7 +1726,7 @@ smtp_free(struct smtp_session *s, const char * reason)
 
 	if (s->tx) {
 		if (s->tx->msgid)
-			smtp_queue_rollback(s);
+			smtp_tx_rollback(s->tx);
 		smtp_tx_free(s->tx);
 	}
 
@@ -2173,45 +1958,116 @@ smtp_auth_failure_pause(struct smtp_session *s)
 	evtimer_add(&s->pause, &tv);
 }
 
+static int
+smtp_tx(struct smtp_session *s)
+{
+	struct smtp_tx *tx;
+
+	tx = calloc(1, sizeof(*tx));
+	if (tx == NULL)
+		return 0;
+
+	TAILQ_INIT(&tx->rcpts);
+
+	s->tx = tx;
+	tx->session = s;
+
+	/* setup the envelope */
+	s->tx->evp.ss = s->ss;
+	(void)strlcpy(s->tx->evp.tag, s->listener->tag, sizeof(s->tx->evp.tag));
+	(void)strlcpy(s->tx->evp.smtpname, s->smtpname, sizeof(s->tx->evp.smtpname));
+	(void)strlcpy(s->tx->evp.hostname, s->hostname, sizeof s->tx->evp.hostname);
+	(void)strlcpy(s->tx->evp.helo, s->helo, sizeof s->tx->evp.helo);
+
+	if (s->flags & SF_BOUNCE)
+		s->tx->evp.flags |= EF_BOUNCE;
+	if (s->flags & SF_AUTHENTICATED)
+		s->tx->evp.flags |= EF_AUTHENTICATED;
+
+	/* Setup parser and callbacks */
+	rfc2822_parser_init(&tx->rfc2822_parser);
+	rfc2822_header_default_callback(&tx->rfc2822_parser,
+	    header_default_callback, tx);
+	rfc2822_header_callback(&tx->rfc2822_parser, "bcc",
+	    header_bcc_callback, tx);
+	rfc2822_header_callback(&tx->rfc2822_parser, "from",
+	    header_domain_append_callback, tx);
+	rfc2822_header_callback(&tx->rfc2822_parser, "to",
+	    header_domain_append_callback, tx);
+	rfc2822_header_callback(&tx->rfc2822_parser, "cc",
+	    header_domain_append_callback, tx);
+	rfc2822_body_callback(&tx->rfc2822_parser,
+	    dataline_callback, tx);
+
+	if (s->listener->local || s->listener->port == htons(587)) {
+		rfc2822_missing_header_callback(&tx->rfc2822_parser, "date",
+		    header_missing_callback, tx);
+		rfc2822_missing_header_callback(&tx->rfc2822_parser, "message-id",
+		    header_missing_callback, tx);
+	}
+
+	return 1;
+}
+
 static void
-smtp_queue_create_message(struct smtp_session *s)
+smtp_tx_free(struct smtp_tx *tx)
+{
+	struct smtp_rcpt *rcpt;
+
+	rfc2822_parser_release(&tx->rfc2822_parser);
+
+	while ((rcpt = TAILQ_FIRST(&tx->rcpts))) {
+		TAILQ_REMOVE(&tx->rcpts, rcpt, entry);
+		free(rcpt);
+	}
+
+	if (tx->ofile)
+		fclose(tx->ofile);
+
+	tx->session->tx = NULL;
+
+	free(tx);
+}
+
+static void
+smtp_tx_create_message(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_CREATE, 0, 0, -1);
-	m_add_id(p_queue, s->id);
+	m_add_id(p_queue, tx->session->id);
 	m_close(p_queue);
-	tree_xset(&wait_queue_msg, s->id, s);
+	tree_xset(&wait_queue_msg, tx->session->id, tx->session);
 }
 
 static void
-smtp_queue_open_message(struct smtp_session *s)
+smtp_tx_open_message(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_OPEN, 0, 0, -1);
-	m_add_id(p_queue, s->id);
-	m_add_msgid(p_queue, s->tx->msgid);
+	m_add_id(p_queue, tx->session->id);
+	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
-	tree_xset(&wait_queue_fd, s->id, s);
+	tree_xset(&wait_queue_fd, tx->session->id, tx->session);
 }
 
 static void
-smtp_queue_commit(struct smtp_session *s)
+smtp_tx_commit(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_COMMIT, 0, 0, -1);
-	m_add_id(p_queue, s->id);
-	m_add_msgid(p_queue, s->tx->msgid);
+	m_add_id(p_queue, tx->session->id);
+	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
-	tree_xset(&wait_queue_commit, s->id, s);
+	tree_xset(&wait_queue_commit, tx->session->id, tx->session);
 }
 
 static void
-smtp_queue_rollback(struct smtp_session *s)
+smtp_tx_rollback(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_ROLLBACK, 0, 0, -1);
-	m_add_msgid(p_queue, s->tx->msgid);
+	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
 }
 
 static int
-smtp_dataline(struct smtp_session *s, const char *line)
+smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 {
 	int	ret;
 
@@ -2219,13 +2075,13 @@ smtp_dataline(struct smtp_session *s, const char *line)
 
 	if (!strcmp(line, ".")) {
 		log_trace(TRACE_SMTP, "<<< [EOM]");
-		if (!s->tx->error)
-			rfc2822_parser_flush(&s->tx->rfc2822_parser);
+		if (!tx->error)
+			rfc2822_parser_flush(&tx->rfc2822_parser);
 		return 1;
 	}
 
 	/* ignore data line if an error is set */
-	if (s->tx->error)
+	if (tx->error)
 		return 0;
 
 	/* escape lines starting with a '.' */
@@ -2233,46 +2089,183 @@ smtp_dataline(struct smtp_session *s, const char *line)
 		line += 1;
 
 	/* account for newline */
-	s->tx->datain += strlen(line) + 1;
-	if (s->tx->datain > env->sc_maxsize) {
-		s->tx->error = TX_ERROR_SIZE;
+	tx->datain += strlen(line) + 1;
+	if (tx->datain > env->sc_maxsize) {
+		tx->error = TX_ERROR_SIZE;
 		return 0;
 	}
 
-	if (!s->tx->hdrdone) {
+	if (!tx->hdrdone) {
 
 		/* folded header that must be skipped */
-		if (isspace((unsigned char)line[0]) && s->tx->skiphdr)
+		if (isspace((unsigned char)line[0]) && tx->skiphdr)
 			return 0;
-		s->tx->skiphdr = 0;
+		tx->skiphdr = 0;
 
 		/* BCC should be stripped from headers */
 		if (strncasecmp("bcc:", line, 4) == 0) {
-			s->tx->skiphdr = 1;
+			tx->skiphdr = 1;
 			return 0;
 		}
 
 		/* check for loop */
 		if (strncasecmp("Received: ", line, 10) == 0)
-			s->tx->rcvcount++;
-		if (s->tx->rcvcount == MAX_HOPS_COUNT) {
-			s->tx->error = TX_ERROR_LOOP;
+			tx->rcvcount++;
+		if (tx->rcvcount == MAX_HOPS_COUNT) {
+			tx->error = TX_ERROR_LOOP;
 			log_warnx("warn: loop detected");
 			return 0;
 		}
 
 		if (line[0] == '\0')
-			s->tx->hdrdone = 1;
+			tx->hdrdone = 1;
 	}
 
-	ret = rfc2822_parser_feed(&s->tx->rfc2822_parser, line);
+	ret = rfc2822_parser_feed(&tx->rfc2822_parser, line);
 	if (ret == -1)
-		s->tx->error = TX_ERROR_RESOURCES;
+		tx->error = TX_ERROR_RESOURCES;
 
 	if (ret == 0)
-		s->tx->error = TX_ERROR_MALFORMED;
+		tx->error = TX_ERROR_MALFORMED;
 
 	return 0;
+}
+
+static void
+smtp_message_fd(struct smtp_tx *tx, int fd)
+{
+	struct smtp_session *s;
+	X509 *x;
+
+	s = tx->session;
+
+	log_debug("smtp: %p: message fd %d", s, fd);
+
+	if ((s->tx->ofile = fdopen(fd, "w")) == NULL) {
+		close(fd);
+		smtp_reply(s, "421 %s: Temporary Error",
+		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+		smtp_enter_state(s, STATE_QUIT);
+		return;
+	}
+
+	smtp_message_printf(tx, "Received: ");
+	if (!(s->listener->flags & F_MASK_SOURCE)) {
+		smtp_message_printf(tx, "from %s (%s [%s])",
+		    s->helo,
+		    s->hostname,
+		    ss_to_text(&s->ss));
+	}
+	smtp_message_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
+	    s->smtpname,
+	    SMTPD_NAME,
+	    s->flags & SF_EHLO ? "E" : "",
+	    s->flags & SF_SECURE ? "S" : "",
+	    s->flags & SF_AUTHENTICATED ? "A" : "",
+	    s->tx->msgid);
+
+	if (s->flags & SF_SECURE) {
+		x = SSL_get_peer_certificate(io_ssl(s->io));
+		smtp_message_printf(tx, " (%s:%s:%d:%s)",
+		    SSL_get_version(io_ssl(s->io)),
+		    SSL_get_cipher_name(io_ssl(s->io)),
+		    SSL_get_cipher_bits(io_ssl(s->io), NULL),
+		    (s->flags & SF_VERIFIED) ? "YES" : (x ? "FAIL" : "NO"));
+		X509_free(x);
+
+		if (s->listener->flags & F_RECEIVEDAUTH) {
+			smtp_message_printf(tx, " auth=%s",
+			    s->username[0] ? "yes" : "no");
+			if (s->username[0])
+				smtp_message_printf(tx, " user=%s", s->username);
+		}
+	}
+
+	if (tx->rcptcount == 1) {
+		smtp_message_printf(tx, "\n\tfor <%s@%s>",
+		    tx->evp.rcpt.user,
+		    tx->evp.rcpt.domain);
+	}
+
+	smtp_message_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
+
+	smtp_enter_state(s, STATE_BODY);
+	smtp_reply(s, "354 Enter mail, end with \".\""
+	    " on a line by itself");
+}
+
+static void
+smtp_message_end(struct smtp_tx *tx)
+{
+	struct smtp_session *s;
+
+	s = tx->session;
+
+	log_debug("debug: %p: end of message, error=%d", s, tx->error);
+
+	fclose(tx->ofile);
+	tx->ofile = NULL;
+
+	switch(tx->error) {
+	case TX_OK:
+		smtp_tx_commit(tx);
+		return;		
+
+	case TX_ERROR_SIZE:
+		smtp_reply(s, "554 %s %s: Transaction failed, message too big",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_MESSAGE_TOO_BIG_FOR_SYSTEM),
+		    esc_description(ESC_MESSAGE_TOO_BIG_FOR_SYSTEM));
+		break;
+
+	case TX_ERROR_LOOP:
+		smtp_reply(s, "500 %s %s: Loop detected",
+		   esc_code(ESC_STATUS_PERMFAIL, ESC_ROUTING_LOOP_DETECTED),
+		   esc_description(ESC_ROUTING_LOOP_DETECTED));
+		break;
+
+	case TX_ERROR_MALFORMED:
+		smtp_reply(s, "550 %s %s: Message is not RFC 2822 compliant",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_DELIVERY_NOT_AUTHORIZED_MESSAGE_REFUSED),
+		    esc_description(ESC_DELIVERY_NOT_AUTHORIZED_MESSAGE_REFUSED));
+		break;
+
+	case TX_ERROR_IO:
+	case TX_ERROR_RESOURCES:
+		smtp_reply(s, "421 %s: Temporary Error",
+		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+		break;
+
+	default:
+		/* fatal? */
+		smtp_reply(s, "421 Internal server error");
+	}
+
+	smtp_tx_rollback(tx);
+	smtp_tx_free(tx);
+	smtp_enter_state(s, STATE_HELO);
+}
+
+static int
+smtp_message_printf(struct smtp_tx *tx, const char *fmt, ...)
+{
+	va_list	ap;
+	int	len;
+
+	if (tx->error)
+		return -1;
+
+	va_start(ap, fmt);
+	len = vfprintf(tx->ofile, fmt, ap);
+	va_end(ap);
+
+	if (len < 0) {
+		log_warn("smtp-in: session %016"PRIx64": vfprintf", tx->session->id);
+		tx->error = TX_ERROR_IO;
+	}
+	else
+		tx->odatalen += len;
+
+	return len;
 }
 
 #define CASE(x) case x : return #x
