@@ -141,7 +141,7 @@
 /usbdevs/1.684/Wed Apr 11 04:15:26 2018//
 /usbdevs.h/1.696/Wed Apr 11 04:18:18 2018//
 /usbdevs_data.h/1.690/Wed Apr 11 04:18:18 2018//
-/usbdi.c/1.97/Sat Feb  3 13:37:37 2018//
+/usbdi.c/1.98/Sun Apr 29 08:57:48 2018//
 /usbdi.h/1.69/Mon May 15 11:05:51 2017//
 /usbdi_util.c/1.42/Mon Jan  9 14:44:28 2017//
 /usbdi_util.h/1.29/Mon Dec  8 22:00:11 2014//
@@ -166,7 +166,7 @@
 /uvisor.c/1.51/Fri Sep  2 09:14:59 2016//
 /uvscom.c/1.37/Fri Apr 27 08:08:06 2018//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
-/xhci.c/1.83/Sat Apr 28 08:20:23 2018//
+/xhci.c/1.84/Sun Apr 29 09:00:42 2018//
 /xhcireg.h/1.14/Sat Apr 28 08:19:35 2018//
 /xhcivar.h/1.8/Sun Jan 18 20:35:11 2015//
 D/dwc2////

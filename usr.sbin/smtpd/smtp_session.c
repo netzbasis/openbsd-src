@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.326 2018/04/28 16:13:37 eric Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.328 2018/04/29 09:23:00 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -179,6 +179,8 @@ static void smtp_auth_failure_resume(int, short, void *);
 static int  smtp_tx(struct smtp_session *);
 static void smtp_tx_free(struct smtp_tx *);
 static void smtp_tx_create_message(struct smtp_tx *);
+static void smtp_tx_mail_from(struct smtp_tx *, char *);
+static void smtp_tx_rcpt_to(struct smtp_tx *, char *);
 static void smtp_tx_open_message(struct smtp_tx *);
 static void smtp_tx_commit(struct smtp_tx *);
 static void smtp_tx_rollback(struct smtp_tx *);
@@ -1265,30 +1267,7 @@ smtp_command(struct smtp_session *s, char *line)
 			break;
 		}
 
-		if (smtp_mailaddr(&s->tx->evp.sender, args, 1, &args,
-			s->smtpname) == 0) {
-			smtp_tx_free(s->tx);
-			smtp_reply(s, "553 %s: Sender address syntax error",
-			    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
-			break;
-		}
-		if (args && smtp_parse_mail_args(s, args) == -1) {
-			smtp_tx_free(s->tx);
-			break;
-		}
-
-		/* only check sendertable if defined and user has authenticated */
-		if (s->flags & SF_AUTHENTICATED && s->listener->sendertable[0]) {
-			m_create(p_lka, IMSG_SMTP_CHECK_SENDER, 0, 0, -1);
-			m_add_id(p_lka, s->id);
-			m_add_string(p_lka, s->listener->sendertable);
-			m_add_string(p_lka, s->username);
-			m_add_mailaddr(p_lka, &s->tx->evp.sender);
-			m_close(p_lka);
-			tree_xset(&wait_lka_mail, s->id, s);
-		}
-		else
-			smtp_tx_create_message(s->tx);
+		smtp_tx_mail_from(s->tx, args);
 		break;
 	/*
 	 * TRANSACTION
@@ -1301,28 +1280,7 @@ smtp_command(struct smtp_session *s, char *line)
 			break;
 		}
 
-		if (s->tx->rcptcount >= env->sc_session_max_rcpt) {
-			smtp_reply(s, "451 %s %s: Too many recipients",
-			    esc_code(ESC_STATUS_TEMPFAIL, ESC_TOO_MANY_RECIPIENTS),
-			    esc_description(ESC_TOO_MANY_RECIPIENTS));
-			break;
-		}
-
-		if (smtp_mailaddr(&s->tx->evp.rcpt, args, 0, &args,
-		    s->smtpname) == 0) {
-			smtp_reply(s,
-			    "501 %s: Recipient address syntax error",
-			    esc_code(ESC_STATUS_PERMFAIL, ESC_BAD_DESTINATION_MAILBOX_ADDRESS_SYNTAX));
-			break;
-		}
-		if (args && smtp_parse_rcpt_args(s, args) == -1)
-			break;
-
-		m_create(p_lka, IMSG_SMTP_EXPAND_RCPT, 0, 0, -1);
-		m_add_id(p_lka, s->id);
-		m_add_envelope(p_lka, &s->tx->evp);
-		m_close(p_lka);
-		tree_xset(&wait_lka_rcpt, s->id, s);
+		smtp_tx_rcpt_to(s->tx, args);
 		break;
 
 	case CMD_RSET:
@@ -1973,16 +1931,16 @@ smtp_tx(struct smtp_session *s)
 	tx->session = s;
 
 	/* setup the envelope */
-	s->tx->evp.ss = s->ss;
-	(void)strlcpy(s->tx->evp.tag, s->listener->tag, sizeof(s->tx->evp.tag));
-	(void)strlcpy(s->tx->evp.smtpname, s->smtpname, sizeof(s->tx->evp.smtpname));
-	(void)strlcpy(s->tx->evp.hostname, s->hostname, sizeof s->tx->evp.hostname);
-	(void)strlcpy(s->tx->evp.helo, s->helo, sizeof s->tx->evp.helo);
+	tx->evp.ss = s->ss;
+	(void)strlcpy(tx->evp.tag, s->listener->tag, sizeof(tx->evp.tag));
+	(void)strlcpy(tx->evp.smtpname, s->smtpname, sizeof(tx->evp.smtpname));
+	(void)strlcpy(tx->evp.hostname, s->hostname, sizeof tx->evp.hostname);
+	(void)strlcpy(tx->evp.helo, s->helo, sizeof(tx->evp.helo));
 
 	if (s->flags & SF_BOUNCE)
-		s->tx->evp.flags |= EF_BOUNCE;
+		tx->evp.flags |= EF_BOUNCE;
 	if (s->flags & SF_AUTHENTICATED)
-		s->tx->evp.flags |= EF_AUTHENTICATED;
+		tx->evp.flags |= EF_AUTHENTICATED;
 
 	/* Setup parser and callbacks */
 	rfc2822_parser_init(&tx->rfc2822_parser);
@@ -2030,12 +1988,72 @@ smtp_tx_free(struct smtp_tx *tx)
 }
 
 static void
+smtp_tx_mail_from(struct smtp_tx *tx, char *line)
+{
+	if (smtp_mailaddr(&tx->evp.sender, line, 1, &line,
+		tx->session->smtpname) == 0) {
+		smtp_tx_free(tx);
+		smtp_reply(tx->session, "553 %s: Sender address syntax error",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
+		return;
+	}
+
+	if (line && smtp_parse_mail_args(tx->session, line) == -1) {
+		smtp_tx_free(tx);
+		return;
+	}
+
+	/* only check sendertable if defined and user has authenticated */
+	if (tx->session->flags & SF_AUTHENTICATED &&
+	    tx->session->listener->sendertable[0]) {
+		m_create(p_lka, IMSG_SMTP_CHECK_SENDER, 0, 0, -1);
+		m_add_id(p_lka, tx->session->id);
+		m_add_string(p_lka, tx->session->listener->sendertable);
+		m_add_string(p_lka, tx->session->username);
+		m_add_mailaddr(p_lka, &tx->evp.sender);
+		m_close(p_lka);
+		tree_xset(&wait_lka_mail, tx->session->id, tx->session);
+	}
+	else
+		smtp_tx_create_message(tx);
+}
+
+static void
 smtp_tx_create_message(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_CREATE, 0, 0, -1);
 	m_add_id(p_queue, tx->session->id);
 	m_close(p_queue);
 	tree_xset(&wait_queue_msg, tx->session->id, tx->session);
+}
+
+static void
+smtp_tx_rcpt_to(struct smtp_tx *tx, char *line)
+{
+	if (tx->rcptcount >= env->sc_session_max_rcpt) {
+		smtp_reply(tx->session, "451 %s %s: Too many recipients",
+		    esc_code(ESC_STATUS_TEMPFAIL, ESC_TOO_MANY_RECIPIENTS),
+		    esc_description(ESC_TOO_MANY_RECIPIENTS));
+		return;
+	}
+
+	if (smtp_mailaddr(&tx->evp.rcpt, line, 0, &line,
+	    tx->session->smtpname) == 0) {
+		smtp_reply(tx->session,
+		    "501 %s: Recipient address syntax error",
+		    esc_code(ESC_STATUS_PERMFAIL,
+		        ESC_BAD_DESTINATION_MAILBOX_ADDRESS_SYNTAX));
+		return;
+	}
+
+	if (line && smtp_parse_rcpt_args(tx->session, line) == -1)
+		return;
+
+	m_create(p_lka, IMSG_SMTP_EXPAND_RCPT, 0, 0, -1);
+	m_add_id(p_lka, tx->session->id);
+	m_add_envelope(p_lka, &tx->evp);
+	m_close(p_lka);
+	tree_xset(&wait_lka_rcpt, tx->session->id, tx->session);
 }
 
 static void
@@ -2141,7 +2159,7 @@ smtp_message_fd(struct smtp_tx *tx, int fd)
 
 	log_debug("smtp: %p: message fd %d", s, fd);
 
-	if ((s->tx->ofile = fdopen(fd, "w")) == NULL) {
+	if ((tx->ofile = fdopen(fd, "w")) == NULL) {
 		close(fd);
 		smtp_reply(s, "421 %s: Temporary Error",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
@@ -2162,7 +2180,7 @@ smtp_message_fd(struct smtp_tx *tx, int fd)
 	    s->flags & SF_EHLO ? "E" : "",
 	    s->flags & SF_SECURE ? "S" : "",
 	    s->flags & SF_AUTHENTICATED ? "A" : "",
-	    s->tx->msgid);
+	    tx->msgid);
 
 	if (s->flags & SF_SECURE) {
 		x = SSL_get_peer_certificate(io_ssl(s->io));

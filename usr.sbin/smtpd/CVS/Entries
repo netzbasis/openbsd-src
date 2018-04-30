@@ -66,11 +66,11 @@
 /scheduler_proc.c/1.8/Sat Dec  5 13:14:21 2015//
 /scheduler_ramqueue.c/1.43/Mon Jan  9 09:53:23 2017//
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
-/smtp.1/1.4/Sat Apr 28 16:17:39 2018//
+/smtp.1/1.5/Sun Apr 29 11:58:45 2018//
 /smtp.c/1.157/Tue Nov 21 12:20:34 2017//
 /smtp.h/1.1/Thu Apr 26 13:57:13 2018//
 /smtp_client.c/1.2/Thu Apr 26 21:19:46 2018//
-/smtp_session.c/1.326/Sat Apr 28 16:13:37 2018//
+/smtp_session.c/1.328/Sun Apr 29 09:23:00 2018//
 /smtpc.c/1.2/Thu Apr 26 21:19:46 2018//
 /smtpctl.8/1.62/Tue Jan 30 20:48:35 2018//
 /smtpctl.c/1.159/Thu Apr 26 20:57:59 2018//
