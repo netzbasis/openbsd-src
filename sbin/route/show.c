@@ -1,4 +1,4 @@
-/*	$OpenBSD: show.c,v 1.109 2018/04/28 18:53:12 florian Exp $	*/
+/*	$OpenBSD: show.c,v 1.111 2018/04/30 15:06:18 schwarze Exp $	*/
 /*	$NetBSD: show.c,v 1.1 1996/11/15 18:01:41 gwr Exp $	*/
 
 /*
@@ -111,12 +111,12 @@ char	*netname6(struct sockaddr_in6 *, struct sockaddr_in6 *);
  * Print routing tables.
  */
 void
-p_rttables(int af, u_int tableid, int hastable, char prio)
+p_rttables(int af, u_int tableid, char prio)
 {
 	struct rt_msghdr *rtm;
 	char *buf = NULL, *next, *lim = NULL;
 	size_t needed;
-	int mib[7], mcnt;
+	int mib[7];
 	struct sockaddr *sa;
 
 	mib[0] = CTL_NET;
@@ -125,20 +125,16 @@ p_rttables(int af, u_int tableid, int hastable, char prio)
 	mib[3] = af;
 	mib[4] = NET_RT_DUMP;
 	mib[5] = prio;
-	if (hastable) {
-		mib[6] = tableid;
-		mcnt = 7;
-	} else
-		mcnt = 6;
+	mib[6] = tableid;
 
 	while (1) {
-		if (sysctl(mib, mcnt, NULL, &needed, NULL, 0) == -1)
+		if (sysctl(mib, 7, NULL, &needed, NULL, 0) == -1)
 			err(1, "route-sysctl-estimate");
 		if (needed == 0)
 			break;
 		if ((buf = realloc(buf, needed)) == NULL)
 			err(1, NULL);
-		if (sysctl(mib, mcnt, buf, &needed, NULL, 0) == -1) {
+		if (sysctl(mib, 7, buf, &needed, NULL, 0) == -1) {
 			if (errno == ENOMEM)
 				continue;
 			err(1, "sysctl of routing table");
@@ -522,27 +518,24 @@ routename6(struct sockaddr_in6 *sin6)
 	return (line);
 }
 
-/*
- * Return the name of the network whose address is given.
- * The address is assumed to be that of a net or subnet, not a host.
- */
 char *
 netname4(in_addr_t in, struct sockaddr_in *maskp)
 {
 	char *cp = NULL;
-	struct netent *np = NULL;
+	struct hostent *hp;
 	in_addr_t mask;
 	int mbits;
 
-	in = ntohl(in);
 	mask = maskp && maskp->sin_len != 0 ? ntohl(maskp->sin_addr.s_addr) : 0;
 	if (!nflag && in != INADDR_ANY) {
-		if ((np = getnetbyaddr(in, AF_INET)) != NULL)
-			cp = np->n_name;
+		if ((hp = gethostbyaddr((char *)&in,
+		    sizeof(in), AF_INET)) != NULL)
+			cp = hp->h_name;
 	}
 	if (in == INADDR_ANY && mask == INADDR_ANY)
 		cp = "default";
 	mbits = mask ? 33 - ffs(mask) : 0;
+	in = ntohl(in);
 	if (cp)
 		strlcpy(line, cp, sizeof(line));
 #define C(x)	((x) & 0xff)
