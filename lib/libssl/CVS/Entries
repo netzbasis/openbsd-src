@@ -1,7 +1,7 @@
 /LICENSE/1.12/Fri Jul 11 09:48:48 2014//
 /Makefile/1.39/Sat Mar 17 16:20:01 2018//
 /Symbols.list/1.22/Tue Mar 20 15:28:12 2018//
-/bio_ssl.c/1.27/Tue Feb  7 02:08:38 2017//
+/bio_ssl.c/1.28/Tue May  1 13:30:24 2018//
 /bs_ber.c/1.9/Sat Dec  3 12:34:35 2016//
 /bs_cbb.c/1.18/Tue Nov 28 16:34:20 2017//
 /bs_cbs.c/1.17/Wed Jun 24 09:44:18 2015//
@@ -22,7 +22,7 @@
 /s3_lib.c/1.166/Sat Apr  7 16:55:13 2018//
 /shlib_version/1.75/Tue Mar 20 15:35:09 2018//
 /srtp.h/1.6/Tue Sep  1 15:18:23 2015//
-/ssl.h/1.157/Wed Apr 25 07:25:17 2018//
+/ssl.h/1.158/Tue May  1 13:30:24 2018//
 /ssl2.h/1.12/Sun Dec 14 15:30:50 2014//
 /ssl23.h/1.4/Sun Dec 14 15:30:50 2014//
 /ssl3.h/1.47/Sat Apr  7 16:55:13 2018//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.212 2018/04/30 15:06:18 schwarze Exp $	*/
+/*	$OpenBSD: route.c,v 1.214 2018/05/01 18:14:10 florian Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -115,7 +115,6 @@ int	 rtmsg(int, int, int, uint8_t);
 __dead void usage(char *);
 void	 set_metric(char *, int);
 void	 inet_makenetandmask(u_int32_t, struct sockaddr_in *, int);
-void	 interfaces(void);
 void	 getlabel(char *);
 int	 gettable(const char *);
 int	 rdomain(int, char **);
@@ -281,7 +280,7 @@ int
 flushroutes(int argc, char **argv)
 {
 	size_t needed;
-	int mib[7], rlen, seqno, af = AF_UNSPEC;
+	int mib[7], mcnt, rlen, seqno, af = AF_UNSPEC;
 	char *buf = NULL, *next, *lim = NULL;
 	struct rt_msghdr *rtm;
 	struct sockaddr *sa;
@@ -333,21 +332,10 @@ flushroutes(int argc, char **argv)
 	mib[4] = NET_RT_DUMP;
 	mib[5] = prio;
 	mib[6] = tableid;
-	while (1) {
-		if (sysctl(mib, 7, NULL, &needed, NULL, 0) == -1)
-			err(1, "route-sysctl-estimate");
-		if (needed == 0)
-			break;
-		if ((buf = realloc(buf, needed)) == NULL)
-			err(1, "realloc");
-		if (sysctl(mib, 7, buf, &needed, NULL, 0) == -1) {
-			if (errno == ENOMEM)
-				continue;
-			err(1, "actual retrieval of routing table");
-		}
-		lim = buf + needed;
-		break;
-	}
+	mcnt = 7;
+
+	needed = get_sysctl(mib, mcnt, &buf);
+	lim = buf + needed;
 
 	if (pledge("stdio dns", NULL) == -1)
 		err(1, "pledge");
@@ -1081,36 +1069,6 @@ prefixlen(int af, char *s)
 }
 
 void
-interfaces(void)
-{
-	size_t needed;
-	int mib[6];
-	char *buf = NULL, *lim, *next;
-	struct rt_msghdr *rtm;
-
-	mib[0] = CTL_NET;
-	mib[1] = PF_ROUTE;
-	mib[2] = 0;		/* protocol */
-	mib[3] = 0;		/* wildcard address family */
-	mib[4] = NET_RT_IFLIST;
-	mib[5] = 0;		/* no flags */
-	if (sysctl(mib, 6, NULL, &needed, NULL, 0) < 0)
-		err(1, "route-sysctl-estimate");
-	if (needed) {
-		if ((buf = malloc(needed)) == NULL)
-			err(1, "malloc");
-		if (sysctl(mib, 6, buf, &needed, NULL, 0) < 0)
-			err(1, "actual retrieval of interface table");
-		lim = buf + needed;
-		for (next = buf; next < lim; next += rtm->rtm_msglen) {
-			rtm = (struct rt_msghdr *)next;
-			print_rtmsg(rtm, rtm->rtm_msglen);
-		}
-		free(buf);
-	}
-}
-
-void
 monitor(int argc, char *argv[])
 {
 	int n;
@@ -1118,10 +1076,6 @@ monitor(int argc, char *argv[])
 	time_t now;
 
 	verbose = 1;
-	if (debugonly) {
-		interfaces();
-		exit(0);
-	}
 	for (;;) {
 		if ((n = read(s, msg, sizeof(msg))) == -1) {
 			if (errno == EINTR)

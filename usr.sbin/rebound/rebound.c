@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.96 2018/04/30 17:43:36 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.98 2018/05/01 15:14:43 anton Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -676,7 +676,8 @@ preloadcache(const char *name, uint16_t type, void *rdata, uint16_t rdatalen)
 	ttl = htonl(10);
 	memcpy(p, &ttl, 4);
 	p += 4;
-	memcpy(p, &rdatalen, 2);
+	len = htons(rdatalen);
+	memcpy(p, &len, 2);
 	p += 2;
 	memcpy(p, rdata, rdatalen);
 
@@ -764,7 +765,7 @@ readconfig(int conffd, union sockun *remoteaddr)
 			if (strcmp(rectype, "A") == 0) {
 				if (strlen(name) < 2 ||
 				    name[strlen(name) - 1] != '.') {
-					logmsg(LOG_ERR, "do not like name %s\n", name);
+					logmsg(LOG_ERR, "do not like name %s", name);
 					continue;
 				}
 				preloadA(name, value);
