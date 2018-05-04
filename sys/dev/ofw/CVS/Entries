@@ -1,7 +1,7 @@
 /fdt.c/1.22/Wed Dec 27 11:40:14 2017//
 /fdt.h/1.5/Tue Jul 26 22:10:10 2016//
-/ofw_clock.c/1.8/Sun Mar 12 11:44:42 2017//
-/ofw_clock.h/1.5/Tue Aug 23 21:30:18 2016//
+/ofw_clock.c/1.9/Thu May  3 10:56:14 2018//
+/ofw_clock.h/1.6/Thu May  3 10:56:14 2018//
 /ofw_gpio.c/1.2/Wed Jul 27 21:13:49 2016//
 /ofw_gpio.h/1.2/Wed Jul 27 21:13:49 2016//
 /ofw_misc.c/1.5/Mon Apr  2 17:42:15 2018//
