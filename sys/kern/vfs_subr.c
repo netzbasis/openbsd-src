@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.270 2018/05/07 15:24:05 bluhm Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.272 2018/05/08 10:53:35 bluhm Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -1590,13 +1590,17 @@ struct rwlock vfs_stall_lock = RWLOCK_INITIALIZER("vfs_stall");
 int
 vfs_stall(struct proc *p, int stall)
 {
-	struct mount *mp, *nmp;
+	struct mount *mp;
 	int allerror = 0, error;
 
 	if (stall)
 		rw_enter_write(&vfs_stall_lock);
 
-	TAILQ_FOREACH_REVERSE_SAFE(mp, &mountlist, mntlist, mnt_list, nmp) {
+	/*
+	 * The loop variable mp is protected by vfs_busy() so that it cannot
+	 * be unmounted while VFS_SYNC() sleeps.
+	 */
+	TAILQ_FOREACH_REVERSE(mp, &mountlist, mntlist, mnt_list) {
 		if (stall) {
 			error = vfs_busy(mp, VB_WRITE|VB_WAIT);
 			if (error) {
@@ -1625,6 +1629,13 @@ vfs_stall(struct proc *p, int stall)
 		rw_exit_write(&vfs_stall_lock);
 
 	return (allerror);
+}
+
+void
+vfs_stall_barrier(void)
+{
+	rw_enter_read(&vfs_stall_lock);
+	rw_exit_read(&vfs_stall_lock);
 }
 
 /*
