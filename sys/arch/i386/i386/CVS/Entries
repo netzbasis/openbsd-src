@@ -37,7 +37,7 @@
 /kvm86.c/1.17/Wed Apr 11 15:44:08 2018//
 /kvm86call.S/1.13/Wed Apr 11 15:44:08 2018//
 /lapic.c/1.46/Fri Apr 20 07:27:54 2018//
-/locore.s/1.185/Wed Apr 11 15:44:08 2018//
+/locore.s/1.186/Fri May 11 15:27:43 2018//
 /locore0.S/1.3/Sun Dec 10 21:44:07 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.616/Thu Apr 12 17:13:43 2018//
