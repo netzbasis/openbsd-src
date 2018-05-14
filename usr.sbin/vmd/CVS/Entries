@@ -2,7 +2,7 @@
 /atomicio.c/1.1/Mon May  8 09:08:40 2017//
 /atomicio.h/1.1/Mon May  8 09:08:40 2017//
 /config.c/1.42/Wed Mar 14 07:29:34 2018//
-/control.c/1.22/Fri Sep  8 06:24:31 2017//
+/control.c/1.23/Sun May 13 22:48:11 2018//
 /dhcp.c/1.4/Sun Nov  5 20:01:09 2017//
 /dhcp.h/1.1/Wed Apr 19 15:38:32 2017//
 /disklabel.c/1.2/Tue Aug 29 21:10:20 2017//
@@ -32,11 +32,11 @@
 /virtio.c/1.60/Mon Apr 30 08:27:53 2018//
 /virtio.h/1.25/Thu Apr 26 15:59:12 2018//
 /vm.c/1.33/Fri Apr 27 12:15:10 2018//
-/vm.conf.5/1.27/Wed Jan  3 05:39:56 2018//
+/vm.conf.5/1.28/Sun May 13 22:48:11 2018//
 /vmboot.c/1.4/Tue Aug 29 21:10:20 2017//
 /vmboot.h/1.2/Sat Nov 26 20:03:42 2016//
 /vmd.8/1.8/Wed Jul 19 01:26:20 2017//
-/vmd.c/1.84/Wed Apr 25 15:49:48 2018//
+/vmd.c/1.85/Sun May 13 22:48:11 2018//
 /vmd.h/1.68/Fri Apr 27 12:15:10 2018//
 /vmm.c/1.81/Fri Apr 13 17:12:44 2018//
 /vmm.h/1.5/Wed Jun  7 14:53:28 2017//

@@ -1,4 +1,4 @@
-/* $OpenBSD: x509v3.h,v 1.23 2018/04/25 11:48:21 tb Exp $ */
+/* $OpenBSD: x509v3.h,v 1.25 2018/05/13 17:49:03 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -121,9 +121,9 @@ void *usr_data;	/* Any extension specific data */
 };
 
 typedef struct X509V3_CONF_METHOD_st {
-char * (*get_string)(void *db, char *section, char *value);
-STACK_OF(CONF_VALUE) * (*get_section)(void *db, char *section);
-void (*free_string)(void *db, char * string);
+char *(*get_string)(void *db, const char *section, const char *value);
+STACK_OF(CONF_VALUE) *(*get_section)(void *db, const char *section);
+void (*free_string)(void *db, char *string);
 void (*free_section)(void *db, STACK_OF(CONF_VALUE) *section);
 } X509V3_CONF_METHOD;
 
@@ -524,9 +524,12 @@ SXNETID *d2i_SXNETID(SXNETID **a, const unsigned char **in, long len);
 int i2d_SXNETID(SXNETID *a, unsigned char **out);
 extern const ASN1_ITEM SXNETID_it;
 
-int SXNET_add_id_asc(SXNET **psx, char *zone, char *user, int userlen); 
-int SXNET_add_id_ulong(SXNET **psx, unsigned long lzone, char *user, int userlen); 
-int SXNET_add_id_INTEGER(SXNET **psx, ASN1_INTEGER *izone, char *user, int userlen); 
+int SXNET_add_id_asc(SXNET **psx, const char *zone, const char *user,
+    int userlen); 
+int SXNET_add_id_ulong(SXNET **psx, unsigned long lzone, const char *user,
+    int userlen); 
+int SXNET_add_id_INTEGER(SXNET **psx, ASN1_INTEGER *izone, const char *user,
+    int userlen); 
 
 ASN1_OCTET_STRING *SXNET_get_id_asc(SXNET *sx, const char *zone);
 ASN1_OCTET_STRING *SXNET_get_id_ulong(SXNET *sx, unsigned long lzone);
@@ -693,23 +696,29 @@ GENERAL_NAME *v2i_GENERAL_NAME_ex(GENERAL_NAME *out,
 				  X509V3_CTX *ctx, CONF_VALUE *cnf, int is_nc);
 void X509V3_conf_free(CONF_VALUE *val);
 
-X509_EXTENSION *X509V3_EXT_nconf_nid(CONF *conf, X509V3_CTX *ctx, int ext_nid, char *value);
-X509_EXTENSION *X509V3_EXT_nconf(CONF *conf, X509V3_CTX *ctx, char *name, char *value);
-int X509V3_EXT_add_nconf_sk(CONF *conf, X509V3_CTX *ctx, char *section, STACK_OF(X509_EXTENSION) **sk);
-int X509V3_EXT_add_nconf(CONF *conf, X509V3_CTX *ctx, char *section, X509 *cert);
-int X509V3_EXT_REQ_add_nconf(CONF *conf, X509V3_CTX *ctx, char *section, X509_REQ *req);
-int X509V3_EXT_CRL_add_nconf(CONF *conf, X509V3_CTX *ctx, char *section, X509_CRL *crl);
+X509_EXTENSION *X509V3_EXT_nconf_nid(CONF *conf, X509V3_CTX *ctx, int ext_nid,
+    const char *value);
+X509_EXTENSION *X509V3_EXT_nconf(CONF *conf, X509V3_CTX *ctx, const char *name,
+    const char *value);
+int X509V3_EXT_add_nconf_sk(CONF *conf, X509V3_CTX *ctx, const char *section,
+    STACK_OF(X509_EXTENSION) **sk);
+int X509V3_EXT_add_nconf(CONF *conf, X509V3_CTX *ctx, const char *section,
+    X509 *cert);
+int X509V3_EXT_REQ_add_nconf(CONF *conf, X509V3_CTX *ctx, const char *section,
+    X509_REQ *req);
+int X509V3_EXT_CRL_add_nconf(CONF *conf, X509V3_CTX *ctx, const char *section,
+    X509_CRL *crl);
 
 X509_EXTENSION *X509V3_EXT_conf_nid(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
-				    int ext_nid, char *value);
+    int ext_nid, const char *value);
 X509_EXTENSION *X509V3_EXT_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
-				char *name, char *value);
+    const char *name, const char *value);
 int X509V3_EXT_add_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
-			char *section, X509 *cert);
+    const char *section, X509 *cert);
 int X509V3_EXT_REQ_add_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
-			    char *section, X509_REQ *req);
+    const char *section, X509_REQ *req);
 int X509V3_EXT_CRL_add_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
-			    char *section, X509_CRL *crl);
+    const char *section, X509_CRL *crl);
 
 int X509V3_add_value_bool_nf(char *name, int asn1_bool,
 			     STACK_OF(CONF_VALUE) **extlist);
