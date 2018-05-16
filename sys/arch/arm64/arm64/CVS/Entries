@@ -1,5 +1,5 @@
 /arm64_machdep.h/1.2/Sun Aug 27 12:42:22 2017//
-/arm64var.h/1.1/Sat Dec 17 23:38:33 2016//
+/arm64var.h/1.2/Tue May 15 11:12:35 2018//
 /ast.c/1.5/Thu Apr 12 17:13:43 2018//
 /autoconf.c/1.9/Tue Feb  6 20:35:21 2018//
 /bus_dma.c/1.10/Thu Jan 11 15:49:34 2018//
@@ -18,7 +18,7 @@
 /intr.c/1.11/Mon Apr  9 18:35:13 2018//
 /locore.S/1.22/Sun Jan 28 13:17:45 2018//
 /locore0.S/1.4/Sun Jan 21 22:30:41 2018//
-/machdep.c/1.32/Sun May  6 17:16:48 2018//
+/machdep.c/1.33/Tue May 15 11:12:35 2018//
 /mem.c/1.6/Fri May  4 15:45:11 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.51/Wed Apr 18 11:41:16 2018//
