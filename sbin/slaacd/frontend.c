@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.17 2018/05/17 13:39:00 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.19 2018/05/18 13:21:46 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -344,6 +344,11 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			event_set(&ev_route, fd, EV_READ | EV_PERSIST,
 			    route_receive, NULL);
 			break;
+		case IMSG_STARTUP:
+			if (pledge("stdio inet route", NULL) == -1)
+				fatal("pledge");
+			frontend_startup();
+			break;
 #ifndef	SMALL
 		case IMSG_CONTROLFD:
 			if ((fd = imsg.fd) == -1)
@@ -354,14 +359,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			/* Listen on control socket. */
 			TAILQ_INIT(&ctl_conns);
 			control_listen();
-#endif	/* SMALL */
 			break;
-		case IMSG_STARTUP:
-			if (pledge("stdio inet route", NULL) == -1)
-				fatal("pledge");
-			frontend_startup();
-			break;
-#ifndef	SMALL
 		case IMSG_CTL_END:
 			control_imsg_relay(&imsg);
 			break;
@@ -678,7 +676,7 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 	struct sockaddr_rtlabel		*rl;
 	struct in6_addr			*in6;
 	int64_t				 id, pid;
-	int				 flags, xflags, if_index;
+	int				 xflags, if_index;
 	char				 ifnamebuf[IFNAMSIZ];
 	char				*if_name;
 	char				**ap, *argv[4], *p;
@@ -695,7 +693,6 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 			    &if_index, sizeof(if_index));
 		} else {
 			xflags = get_xflags(if_name);
-			flags = get_flags(if_name);
 			if (!(xflags & IFXF_AUTOCONF6)) {
 				log_debug("RTM_IFINFO: %s(%d) no(longer) "
 				   "autoconf6", if_name, ifm->ifm_index);
@@ -901,9 +898,6 @@ icmp6_receive(int fd, short events, void *arg)
 	ssize_t			 len;
 	int			 if_index = 0, *hlimp = NULL;
 	char			 ntopbuf[INET6_ADDRSTRLEN], ifnamebuf[IFNAMSIZ];
-	uint8_t			*p;
-
-	p = icmp6ev.answer;
 
 	if ((len = recvmsg(fd, &icmp6ev.rcvmhdr, 0)) < 0) {
 		log_warn("recvmsg");

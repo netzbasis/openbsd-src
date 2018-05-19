@@ -1,4 +1,4 @@
-/* $OpenBSD: x509v3.h,v 1.25 2018/05/13 17:49:03 tb Exp $ */
+/* $OpenBSD: x509v3.h,v 1.27 2018/05/18 19:34:37 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -686,7 +686,7 @@ extern const ASN1_ITEM POLICY_CONSTRAINTS_it;
 
 GENERAL_NAME *a2i_GENERAL_NAME(GENERAL_NAME *out,
 			       const X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
-			       int gen_type, char *value, int is_nc);
+			       int gen_type, const char *value, int is_nc);
 
 #ifdef HEADER_CONF_H
 GENERAL_NAME *v2i_GENERAL_NAME(const X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
@@ -720,16 +720,17 @@ int X509V3_EXT_REQ_add_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
 int X509V3_EXT_CRL_add_conf(LHASH_OF(CONF_VALUE) *conf, X509V3_CTX *ctx,
     const char *section, X509_CRL *crl);
 
-int X509V3_add_value_bool_nf(char *name, int asn1_bool,
+int X509V3_add_value_bool_nf(const char *name, int asn1_bool,
 			     STACK_OF(CONF_VALUE) **extlist);
-int X509V3_get_value_bool(CONF_VALUE *value, int *asn1_bool);
-int X509V3_get_value_int(CONF_VALUE *value, ASN1_INTEGER **aint);
+int X509V3_get_value_bool(const CONF_VALUE *value, int *asn1_bool);
+int X509V3_get_value_int(const CONF_VALUE *value, ASN1_INTEGER **aint);
 void X509V3_set_nconf(X509V3_CTX *ctx, CONF *conf);
 void X509V3_set_conf_lhash(X509V3_CTX *ctx, LHASH_OF(CONF_VALUE) *lhash);
 #endif
 
-char * X509V3_get_string(X509V3_CTX *ctx, char *name, char *section);
-STACK_OF(CONF_VALUE) * X509V3_get_section(X509V3_CTX *ctx, char *section);
+char *X509V3_get_string(X509V3_CTX *ctx, const char *name,
+    const char *section);
+STACK_OF(CONF_VALUE) *X509V3_get_section(X509V3_CTX *ctx, const char *section);
 void X509V3_string_free(X509V3_CTX *ctx, char *str);
 void X509V3_section_free( X509V3_CTX *ctx, STACK_OF(CONF_VALUE) *section);
 void X509V3_set_ctx(X509V3_CTX *ctx, X509 *issuer, X509 *subject,
@@ -782,16 +783,16 @@ int X509_check_issued(X509 *issuer, X509 *subject);
 int X509_check_akid(X509 *issuer, AUTHORITY_KEYID *akid);
 int X509_PURPOSE_get_count(void);
 X509_PURPOSE * X509_PURPOSE_get0(int idx);
-int X509_PURPOSE_get_by_sname(char *sname);
+int X509_PURPOSE_get_by_sname(const char *sname);
 int X509_PURPOSE_get_by_id(int id);
 int X509_PURPOSE_add(int id, int trust, int flags,
 			int (*ck)(const X509_PURPOSE *, const X509 *, int),
-				char *name, char *sname, void *arg);
-char *X509_PURPOSE_get0_name(X509_PURPOSE *xp);
-char *X509_PURPOSE_get0_sname(X509_PURPOSE *xp);
-int X509_PURPOSE_get_trust(X509_PURPOSE *xp);
+			const char *name, const char *sname, void *arg);
+char *X509_PURPOSE_get0_name(const X509_PURPOSE *xp);
+char *X509_PURPOSE_get0_sname(const X509_PURPOSE *xp);
+int X509_PURPOSE_get_trust(const X509_PURPOSE *xp);
 void X509_PURPOSE_cleanup(void);
-int X509_PURPOSE_get_id(X509_PURPOSE *);
+int X509_PURPOSE_get_id(const X509_PURPOSE *);
 
 STACK_OF(OPENSSL_STRING) *X509_get1_email(X509 *x);
 STACK_OF(OPENSSL_STRING) *X509_REQ_get1_email(X509_REQ *x);

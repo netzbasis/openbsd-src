@@ -243,7 +243,7 @@
 /maestro.c/1.43/Wed Apr 11 04:48:31 2018//
 /mbg.c/1.30/Fri Sep  8 05:36:52 2017//
 /mfi_pci.c/1.29/Tue Sep  9 03:08:30 2014//
-/mfii.c/1.50/Fri Mar 16 05:12:37 2018//
+/mfii.c/1.55/Fri May 18 05:20:32 2018//
 /mmuagp.c/1.5/Tue Jul  8 17:19:25 2014//
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
 /mpii.c/1.113/Tue Dec 12 11:18:32 2017//
@@ -261,9 +261,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1848/Thu May 17 04:42:27 2018//
-/pcidevs.h/1.1841/Thu May 17 04:43:40 2018//
-/pcidevs_data.h/1.1836/Thu May 17 04:43:40 2018//
+/pcidevs/1.1849/Fri May 18 19:01:08 2018//
+/pcidevs.h/1.1842/Fri May 18 19:01:37 2018//
+/pcidevs_data.h/1.1837/Fri May 18 19:01:37 2018//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

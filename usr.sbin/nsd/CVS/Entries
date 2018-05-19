@@ -48,12 +48,12 @@
 /nsd-mem.c/1.4/Thu May 17 18:58:40 2018//
 /nsd.8.in/1.21/Thu May 17 18:58:40 2018//
 /nsd.c/1.30/Tue Mar  6 21:01:56 2018//
-/nsd.conf.5.in/1.25/Thu May 17 19:07:08 2018//
+/nsd.conf.5.in/1.26/Fri May 18 05:12:46 2018//
 /nsd.conf.sample.in/1.7/Thu May 17 18:58:40 2018//
 /nsd.h/1.4/Tue Mar  6 21:01:56 2018//
 /nsec3.c/1.16/Tue Mar  6 21:01:56 2018//
 /nsec3.h/1.1.1.6/Tue Sep 16 16:53:58 2014//
-/options.c/1.11/Thu May 17 18:58:40 2018//
+/options.c/1.12/Fri May 18 05:12:46 2018//
 /options.h/1.10/Thu May 17 18:58:40 2018//
 /packet.c/1.2/Sat Apr 15 09:15:45 2017//
 /packet.h/1.3/Sat Apr 15 09:15:45 2017//

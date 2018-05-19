@@ -13,7 +13,7 @@
 /a_print.c/1.11/Fri Jul 11 08:44:47 2014//
 /a_set.c/1.18/Sun Jan 29 17:49:22 2017//
 /a_sign.c/1.23/Tue May  2 03:59:44 2017//
-/a_strex.c/1.26/Wed Apr 25 11:48:21 2018//
+/a_strex.c/1.27/Fri May 18 18:23:24 2018//
 /a_strnid.c/1.21/Sun Jan 29 17:49:22 2017//
 /a_time.c/1.27/Mon Oct 19 16:32:37 2015//
 /a_time_tm.c/1.15/Wed Apr 25 11:48:21 2018//
@@ -54,7 +54,7 @@
 /t_pkey.c/1.16/Fri Jul 11 08:44:47 2014//
 /t_req.c/1.19/Sun Jan 29 17:49:22 2017//
 /t_spki.c/1.11/Fri Jul 11 08:44:47 2014//
-/t_x509.c/1.30/Tue May  1 19:01:27 2018//
+/t_x509.c/1.31/Fri May 18 18:23:24 2018//
 /t_x509a.c/1.8/Fri Jul 11 08:44:47 2014//
 /tasn_dec.c/1.35/Thu Mar 29 02:29:24 2018//
 /tasn_enc.c/1.21/Fri Dec 30 16:04:34 2016//
