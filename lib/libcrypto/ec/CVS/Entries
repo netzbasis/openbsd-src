@@ -1,9 +1,9 @@
-/ec.h/1.12/Fri Nov  4 17:33:19 2016//
+/ec.h/1.13/Sat May 19 10:37:02 2018//
 /ec2_mult.c/1.9/Sun Jan 29 17:49:23 2017//
 /ec2_oct.c/1.8/Sun Jan 29 17:49:23 2017//
 /ec2_smpl.c/1.15/Sun Jan 29 17:49:23 2017//
 /ec_ameth.c/1.20/Tue May  1 19:01:28 2018//
-/ec_asn1.c/1.26/Mon Apr 23 09:37:50 2018//
+/ec_asn1.c/1.27/Sat May 19 10:37:02 2018//
 /ec_check.c/1.6/Sun Jan 29 17:49:23 2017//
 /ec_curve.c/1.16/Fri Mar 16 12:31:09 2018//
 /ec_cvt.c/1.6/Thu Jul 10 22:45:57 2014//

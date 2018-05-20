@@ -1,4 +1,4 @@
-/* $OpenBSD: x509.h,v 1.65 2018/05/18 19:28:27 tb Exp $ */
+/* $OpenBSD: x509.h,v 1.67 2018/05/19 10:58:08 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1107,8 +1107,8 @@ X509_NAME_ENTRY *X509_NAME_get_entry(const X509_NAME *name, int loc);
 X509_NAME_ENTRY *X509_NAME_delete_entry(X509_NAME *name, int loc);
 int 		X509_NAME_add_entry(X509_NAME *name, const X509_NAME_ENTRY *ne,
 			int loc, int set);
-int X509_NAME_add_entry_by_OBJ(X509_NAME *name, ASN1_OBJECT *obj, int type,
-			const unsigned char *bytes, int len, int loc, int set);
+int X509_NAME_add_entry_by_OBJ(X509_NAME *name, const ASN1_OBJECT *obj,
+    int type, const unsigned char *bytes, int len, int loc, int set);
 int X509_NAME_add_entry_by_NID(X509_NAME *name, int nid, int type,
 			const unsigned char *bytes, int len, int loc, int set);
 X509_NAME_ENTRY *X509_NAME_ENTRY_create_by_txt(X509_NAME_ENTRY **ne,
@@ -1186,7 +1186,7 @@ int		X509_REVOKED_add1_ext_i2d(X509_REVOKED *x, int nid, void *value,
 X509_EXTENSION *X509_EXTENSION_create_by_NID(X509_EXTENSION **ex,
 			int nid, int crit, ASN1_OCTET_STRING *data);
 X509_EXTENSION *X509_EXTENSION_create_by_OBJ(X509_EXTENSION **ex,
-			ASN1_OBJECT *obj,int crit,ASN1_OCTET_STRING *data);
+    const ASN1_OBJECT *obj, int crit, ASN1_OCTET_STRING *data);
 int		X509_EXTENSION_set_object(X509_EXTENSION *ex,
 		    const ASN1_OBJECT *obj);
 int		X509_EXTENSION_set_critical(X509_EXTENSION *ex, int crit);

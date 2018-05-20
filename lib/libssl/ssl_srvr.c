@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_srvr.c,v 1.30 2018/05/13 15:51:29 jsing Exp $ */
+/* $OpenBSD: ssl_srvr.c,v 1.32 2018/05/19 14:23:16 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1889,120 +1889,69 @@ ssl3_get_client_kex_dhe(SSL *s, unsigned char *p, long n)
 static int
 ssl3_get_client_kex_ecdhe_ecp(SSL *s, unsigned char *p, long n)
 {
-	EC_KEY *srvr_ecdh = NULL;
-	EVP_PKEY *clnt_pub_pkey = NULL;
-	EC_POINT *clnt_ecpoint = NULL;
-	BN_CTX *bn_ctx = NULL;
-	int i, al;
-
-	int ret = 1;
-	int key_size;
-	const EC_KEY   *tkey;
+	EC_POINT *point = NULL;
 	const EC_GROUP *group;
-	const BIGNUM *priv_key;
-
-	/* Initialize structures for server's ECDH key pair. */
-	if ((srvr_ecdh = EC_KEY_new()) == NULL) {
-		SSLerror(s, ERR_R_MALLOC_FAILURE);
-		goto err;
-	}
+	BN_CTX *bn_ctx = NULL;
+	EC_KEY *ecdh;
+	int key_size;
+	int ret = 1;
+	int i;
 
 	/*
 	 * Use the ephemeral values we saved when
 	 * generating the ServerKeyExchange message.
 	 */
-	tkey = S3I(s)->tmp.ecdh;
-
-	group = EC_KEY_get0_group(tkey);
-	priv_key = EC_KEY_get0_private_key(tkey);
-
-	if (!EC_KEY_set_group(srvr_ecdh, group) ||
-	    !EC_KEY_set_private_key(srvr_ecdh, priv_key)) {
-		SSLerror(s, ERR_R_EC_LIB);
-		goto err;
-	}
+	ecdh = S3I(s)->tmp.ecdh;
+	group = EC_KEY_get0_group(ecdh);
 
 	/* Let's get client's public key */
-	if ((clnt_ecpoint = EC_POINT_new(group)) == NULL) {
+	if ((point = EC_POINT_new(group)) == NULL) {
 		SSLerror(s, ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 
-	if (n == 0L) {
-		/* Client Publickey was in Client Certificate */
-		if (((clnt_pub_pkey = X509_get_pubkey(
-		    s->session->peer)) == NULL) ||
-		    (clnt_pub_pkey->type != EVP_PKEY_EC)) {
-			/*
-			 * XXX: For now, we do not support client
-			 * authentication using ECDH certificates
-			 * so this branch (n == 0L) of the code is
-			 * never executed. When that support is
-			 * added, we ought to ensure the key
-			 * received in the certificate is
-			 * authorized for key agreement.
-			 * ECDH_compute_key implicitly checks that
-			 * the two ECDH shares are for the same
-			 * group.
-			 */
-			al = SSL_AD_HANDSHAKE_FAILURE;
-			SSLerror(s, SSL_R_UNABLE_TO_DECODE_ECDH_CERTS);
-			goto f_err;
-		}
-
-		if (EC_POINT_copy(clnt_ecpoint,
-		    EC_KEY_get0_public_key(clnt_pub_pkey->pkey.ec))
-		    == 0) {
-			SSLerror(s, ERR_R_EC_LIB);
-			goto err;
-		}
-		ret = 2; /* Skip certificate verify processing */
-	} else {
-		/*
-		 * Get client's public key from encoded point
-		 * in the ClientKeyExchange message.
-		 */
-		if ((bn_ctx = BN_CTX_new()) == NULL) {
-			SSLerror(s, ERR_R_MALLOC_FAILURE);
-			goto err;
-		}
-
-		/* Get encoded point length */
-		i = *p;
-
-		p += 1;
-		if (n != 1 + i) {
-			SSLerror(s, ERR_R_EC_LIB);
-			goto err;
-		}
-		if (EC_POINT_oct2point(group,
-			clnt_ecpoint, p, i, bn_ctx) == 0) {
-			SSLerror(s, ERR_R_EC_LIB);
-			goto err;
-		}
-		/*
-		 * p is pointing to somewhere in the buffer
-		 * currently, so set it to the start.
-		 */
-		p = (unsigned char *)s->internal->init_buf->data;
+	/*
+	 * Get client's public key from encoded point
+	 * in the ClientKeyExchange message.
+	 */
+	if ((bn_ctx = BN_CTX_new()) == NULL) {
+		SSLerror(s, ERR_R_MALLOC_FAILURE);
+		goto err;
 	}
 
+	/* Get encoded point length */
+	if (n < 1)
+		goto err;
+	i = *p;
+	p += 1;
+	if (n != 1 + i) {
+		SSLerror(s, ERR_R_EC_LIB);
+		goto err;
+	}
+	if (EC_POINT_oct2point(group, point, p, i, bn_ctx) == 0) {
+		SSLerror(s, ERR_R_EC_LIB);
+		goto err;
+	}
+
+	/*
+	 * p is pointing to somewhere in the buffer
+	 * currently, so set it to the start.
+	 */
+	p = (unsigned char *)s->internal->init_buf->data;
+
 	/* Compute the shared pre-master secret */
-	key_size = ECDH_size(srvr_ecdh);
+	key_size = ECDH_size(ecdh);
 	if (key_size <= 0) {
 		SSLerror(s, ERR_R_ECDH_LIB);
 		goto err;
 	}
-	i = ECDH_compute_key(p, key_size, clnt_ecpoint, srvr_ecdh,
-	    NULL);
+	i = ECDH_compute_key(p, key_size, point, ecdh, NULL);
 	if (i <= 0) {
 		SSLerror(s, ERR_R_ECDH_LIB);
 		goto err;
 	}
 
-	EVP_PKEY_free(clnt_pub_pkey);
-	EC_POINT_free(clnt_ecpoint);
-	EC_KEY_free(srvr_ecdh);
+	EC_POINT_free(point);
 	BN_CTX_free(bn_ctx);
 	EC_KEY_free(S3I(s)->tmp.ecdh);
 	S3I(s)->tmp.ecdh = NULL;
@@ -2015,12 +1964,8 @@ ssl3_get_client_kex_ecdhe_ecp(SSL *s, unsigned char *p, long n)
 	explicit_bzero(p, i);
 	return (ret);
 
- f_err:
-	ssl3_send_alert(s, SSL3_AL_FATAL, al);
  err:
-	EVP_PKEY_free(clnt_pub_pkey);
-	EC_POINT_free(clnt_ecpoint);
-	EC_KEY_free(srvr_ecdh);
+	EC_POINT_free(point);
 	BN_CTX_free(bn_ctx);
 	return (-1);
 }
@@ -2073,24 +2018,30 @@ ssl3_get_client_kex_ecdhe(SSL *s, unsigned char *p, long n)
 static int
 ssl3_get_client_kex_gost(SSL *s, unsigned char *p, long n)
 {
-
 	EVP_PKEY_CTX *pkey_ctx;
 	EVP_PKEY *client_pub_pkey = NULL, *pk = NULL;
-	unsigned char premaster_secret[32], *start;
-	size_t outlen = 32, inlen;
+	unsigned char premaster_secret[32];
 	unsigned long alg_a;
-	int Ttag, Tclass;
-	long Tlen;
+	size_t outlen = 32;
+	CBS cbs, gostblob;
 	int al;
 	int ret = 0;
+
+	if (n < 0)
+		goto err;
+
+	CBS_init(&cbs, p, n);
 
 	/* Get our certificate private key*/
 	alg_a = S3I(s)->hs.new_cipher->algorithm_auth;
 	if (alg_a & SSL_aGOST01)
 		pk = s->cert->pkeys[SSL_PKEY_GOST01].privatekey;
 
-	pkey_ctx = EVP_PKEY_CTX_new(pk, NULL);
-	EVP_PKEY_decrypt_init(pkey_ctx);
+	if ((pkey_ctx = EVP_PKEY_CTX_new(pk, NULL)) == NULL)
+		goto err;
+	if (EVP_PKEY_decrypt_init(pkey_ctx) <= 0)
+		goto gerr;
+
 	/*
 	 * If client certificate is present and is of the same type,
 	 * maybe use it for key exchange.
@@ -2098,32 +2049,28 @@ ssl3_get_client_kex_gost(SSL *s, unsigned char *p, long n)
 	 * it is completely valid to use a client certificate for
 	 * authorization only.
 	 */
-	client_pub_pkey = X509_get_pubkey(s->session->peer);
-	if (client_pub_pkey) {
+	if ((client_pub_pkey = X509_get_pubkey(s->session->peer)) != NULL) {
 		if (EVP_PKEY_derive_set_peer(pkey_ctx,
 		    client_pub_pkey) <= 0)
 			ERR_clear_error();
 	}
-	if (2 > n)
-		goto truncated;
+
 	/* Decrypt session key */
-	if (ASN1_get_object((const unsigned char **)&p, &Tlen, &Ttag,
-	    &Tclass, n) != V_ASN1_CONSTRUCTED ||
-	    Ttag != V_ASN1_SEQUENCE || Tclass != V_ASN1_UNIVERSAL) {
-		SSLerror(s, SSL_R_DECRYPTION_FAILED);
-		goto gerr;
-	}
-	start = p;
-	inlen = Tlen;
+	if (!CBS_get_asn1(&cbs, &gostblob, CBS_ASN1_SEQUENCE))
+		goto truncated;
+	if (CBS_len(&cbs) != 0)
+		goto truncated;
 	if (EVP_PKEY_decrypt(pkey_ctx, premaster_secret, &outlen,
-	    start, inlen) <=0) {
+	    CBS_data(&gostblob), CBS_len(&gostblob)) <= 0) {
 		SSLerror(s, SSL_R_DECRYPTION_FAILED);
 		goto gerr;
 	}
+
 	/* Generate master secret */
 	s->session->master_key_length =
 	    tls1_generate_master_secret(
 		s, s->session->master_key, premaster_secret, 32);
+
 	/* Check if pubkey from client certificate was used */
 	if (EVP_PKEY_CTX_ctrl(pkey_ctx, -1, -1,
 	    EVP_PKEY_CTRL_PEER_KEY, 2, NULL) > 0)

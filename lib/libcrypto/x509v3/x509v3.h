@@ -1,4 +1,4 @@
-/* $OpenBSD: x509v3.h,v 1.27 2018/05/18 19:34:37 tb Exp $ */
+/* $OpenBSD: x509v3.h,v 1.30 2018/05/19 10:50:08 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -595,15 +595,17 @@ int GENERAL_NAME_set0_othername(GENERAL_NAME *gen,
 int GENERAL_NAME_get0_otherName(GENERAL_NAME *gen, 
 				ASN1_OBJECT **poid, ASN1_TYPE **pvalue);
 
-char *i2s_ASN1_OCTET_STRING(X509V3_EXT_METHOD *method, ASN1_OCTET_STRING *ia5);
-ASN1_OCTET_STRING *s2i_ASN1_OCTET_STRING(X509V3_EXT_METHOD *method, X509V3_CTX *ctx, char *str);
+char *i2s_ASN1_OCTET_STRING(X509V3_EXT_METHOD *method,
+    const ASN1_OCTET_STRING *ia5);
+ASN1_OCTET_STRING *s2i_ASN1_OCTET_STRING(X509V3_EXT_METHOD *method,
+    X509V3_CTX *ctx, const char *str);
 
 EXTENDED_KEY_USAGE *EXTENDED_KEY_USAGE_new(void);
 void EXTENDED_KEY_USAGE_free(EXTENDED_KEY_USAGE *a);
 EXTENDED_KEY_USAGE *d2i_EXTENDED_KEY_USAGE(EXTENDED_KEY_USAGE **a, const unsigned char **in, long len);
 int i2d_EXTENDED_KEY_USAGE(EXTENDED_KEY_USAGE *a, unsigned char **out);
 extern const ASN1_ITEM EXTENDED_KEY_USAGE_it;
-int i2a_ACCESS_DESCRIPTION(BIO *bp, ACCESS_DESCRIPTION* a);
+int i2a_ACCESS_DESCRIPTION(BIO *bp, const ACCESS_DESCRIPTION* a);
 
 CERTIFICATEPOLICIES *CERTIFICATEPOLICIES_new(void);
 void CERTIFICATEPOLICIES_free(CERTIFICATEPOLICIES *a);
@@ -742,12 +744,13 @@ int X509V3_add_value_uchar(const char *name, const unsigned char *value,
 						STACK_OF(CONF_VALUE) **extlist);
 int X509V3_add_value_bool(const char *name, int asn1_bool,
 						STACK_OF(CONF_VALUE) **extlist);
-int X509V3_add_value_int(const char *name, ASN1_INTEGER *aint,
+int X509V3_add_value_int(const char *name, const ASN1_INTEGER *aint,
 						STACK_OF(CONF_VALUE) **extlist);
-char * i2s_ASN1_INTEGER(X509V3_EXT_METHOD *meth, ASN1_INTEGER *aint);
-ASN1_INTEGER * s2i_ASN1_INTEGER(X509V3_EXT_METHOD *meth, const char *value);
-char * i2s_ASN1_ENUMERATED(X509V3_EXT_METHOD *meth, ASN1_ENUMERATED *aint);
-char * i2s_ASN1_ENUMERATED_TABLE(X509V3_EXT_METHOD *meth, ASN1_ENUMERATED *aint);
+char *i2s_ASN1_INTEGER(X509V3_EXT_METHOD *meth, const ASN1_INTEGER *aint);
+ASN1_INTEGER *s2i_ASN1_INTEGER(X509V3_EXT_METHOD *meth, const char *value);
+char *i2s_ASN1_ENUMERATED(X509V3_EXT_METHOD *meth, const ASN1_ENUMERATED *aint);
+char *i2s_ASN1_ENUMERATED_TABLE(X509V3_EXT_METHOD *meth,
+    const ASN1_ENUMERATED *aint);
 int X509V3_EXT_add(X509V3_EXT_METHOD *ext);
 int X509V3_EXT_add_list(X509V3_EXT_METHOD *extlist);
 int X509V3_EXT_add_alias(int nid_to, int nid_from);
@@ -758,7 +761,8 @@ const X509V3_EXT_METHOD *X509V3_EXT_get_nid(int nid);
 int X509V3_add_standard_extensions(void);
 STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line);
 void *X509V3_EXT_d2i(X509_EXTENSION *ext);
-void *X509V3_get_d2i(STACK_OF(X509_EXTENSION) *x, int nid, int *crit, int *idx);
+void *X509V3_get_d2i(const STACK_OF(X509_EXTENSION) *x, int nid, int *crit,
+    int *idx);
 
 
 X509_EXTENSION *X509V3_EXT_i2d(int ext_nid, int crit, void *ext_struc);
@@ -773,7 +777,8 @@ void X509V3_EXT_val_prn(BIO *out, STACK_OF(CONF_VALUE) *val, int indent,
 int X509V3_EXT_print(BIO *out, X509_EXTENSION *ext, unsigned long flag, int indent);
 int X509V3_EXT_print_fp(FILE *out, X509_EXTENSION *ext, int flag, int indent);
 
-int X509V3_extensions_print(BIO *out, char *title, STACK_OF(X509_EXTENSION) *exts, unsigned long flag, int indent);
+int X509V3_extensions_print(BIO *out, const char *title,
+    const STACK_OF(X509_EXTENSION) *exts, unsigned long flag, int indent);
 
 int X509_check_ca(X509 *x);
 int X509_check_purpose(X509 *x, int id, int ca);
