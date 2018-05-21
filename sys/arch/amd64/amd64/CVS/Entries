@@ -35,7 +35,7 @@
 /ipifuncs.c/1.30/Tue Apr 24 20:29:15 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
 /lapic.c/1.51/Fri Apr 20 07:27:54 2018//
-/locore.S/1.95/Thu Apr 26 14:09:05 2018//
+/locore.S/1.96/Sun May 20 18:14:01 2018//
 /locore0.S/1.7/Wed Feb 21 19:24:15 2018//
 /machdep.c/1.242/Thu Apr 26 12:47:02 2018//
 /mainbus.c/1.43/Wed Apr 25 00:46:28 2018//
