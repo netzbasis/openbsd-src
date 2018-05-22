@@ -6,11 +6,11 @@
 /fuse.c/1.44/Tue May 15 11:57:32 2018//
 /fuse.h/1.14/Wed May 16 13:09:17 2018//
 /fuse_main.3/1.2/Wed May 18 17:36:24 2016//
-/fuse_ops.c/1.31/Sun May 20 02:51:26 2018//
+/fuse_ops.c/1.32/Mon May 21 11:47:46 2018//
 /fuse_opt.c/1.26/Tue May 15 11:57:32 2018//
 /fuse_opt.h/1.5/Sun Apr  8 20:57:28 2018//
 /fuse_private.h/1.18/Wed May 16 13:09:17 2018//
-/fuse_subr.c/1.11/Wed Sep  7 17:53:35 2016//
+/fuse_subr.c/1.12/Mon May 21 11:47:46 2018//
 /generate_pkgconfig.sh/1.2/Sat Jun 15 11:40:56 2013//
 /shlib_version/1.4/Fri Dec 15 16:40:33 2017//
 /tree.c/1.2/Wed Feb  5 20:13:58 2014//
