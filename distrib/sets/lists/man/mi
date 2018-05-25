@@ -1229,6 +1229,7 @@
 ./usr/share/man/man4/carp.4
 ./usr/share/man/man4/cas.4
 ./usr/share/man/man4/ccp.4
+./usr/share/man/man4/ccpmic.4
 ./usr/share/man/man4/cd.4
 ./usr/share/man/man4/cdce.4
 ./usr/share/man/man4/cfxga.4
@@ -2255,7 +2256,10 @@
 ./usr/share/man/man8/macppc/eeprom.8
 ./usr/share/man/man8/macppc/gpioctl.8
 ./usr/share/man/man8/macppc/pdisk.8
+./usr/share/man/man8/mail.lmtp.8
 ./usr/share/man/man8/mail.local.8
+./usr/share/man/man8/mail.maildir.8
+./usr/share/man/man8/mail.mda.8
 ./usr/share/man/man8/mailwrapper.8
 ./usr/share/man/man8/makedbm.8
 ./usr/share/man/man8/makefs.8
