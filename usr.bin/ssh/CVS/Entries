@@ -19,7 +19,7 @@
 /auth-options.h/1.26/Mon Mar 12 00:52:01 2018//
 /auth-passwd.c/1.46/Sat Mar  3 03:15:51 2018//
 /auth-rhosts.c/1.48/Sat Aug 13 17:47:41 2016//
-/auth.c/1.127/Mon Mar 12 00:52:01 2018//
+/auth.c/1.128/Fri May 25 07:11:01 2018//
 /auth.h/1.96/Tue Apr 10 00:10:49 2018//
 /auth2-chall.c/1.48/Tue May 30 14:29:59 2017//
 /auth2-gss.c/1.26/Sat Jun 24 06:34:38 2017//

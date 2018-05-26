@@ -40,7 +40,7 @@
 /mta.c/1.207/Thu May 24 11:38:24 2018//
 /mta_session.c/1.98/Wed May 24 21:27:32 2017//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
-/parse.y/1.201/Thu May 24 11:38:24 2018//
+/parse.y/1.202/Fri May 25 14:10:28 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
 /pony.c/1.20/Thu May 24 11:38:24 2018//
@@ -72,7 +72,7 @@
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.295/Thu May 24 11:38:24 2018//
-/smtpd.conf.5/1.176/Thu May 24 12:40:38 2018//
+/smtpd.conf.5/1.178/Fri May 25 14:41:57 2018//
 /smtpd.h/1.542/Thu May 24 12:22:00 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
