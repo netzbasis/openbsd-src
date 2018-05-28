@@ -4,10 +4,10 @@
 /direntry.h/1.7/Fri Oct 23 10:45:31 2015//
 /fat.h/1.12/Mon Aug 14 22:45:12 2017//
 /msdosfs_conv.c/1.19/Fri Oct 23 10:45:31 2015//
-/msdosfs_denode.c/1.62/Wed May  2 02:24:56 2018//
+/msdosfs_denode.c/1.63/Sun May 27 06:02:14 2018//
 /msdosfs_fat.c/1.32/Mon May  7 14:43:01 2018//
 /msdosfs_lookup.c/1.32/Wed May  2 02:24:56 2018//
-/msdosfs_vfsops.c/1.89/Wed May  2 02:24:56 2018//
+/msdosfs_vfsops.c/1.90/Sun May 27 06:02:15 2018//
 /msdosfs_vnops.c/1.120/Mon May  7 14:43:01 2018//
 /msdosfsmount.h/1.22/Sat Feb 10 05:24:23 2018//
 D
