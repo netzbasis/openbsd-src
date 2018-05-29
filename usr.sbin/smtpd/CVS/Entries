@@ -37,7 +37,7 @@
 /mda.c/1.131/Thu May 24 11:38:24 2018//
 /mda_variables.c/1.2/Thu May 24 11:38:24 2018//
 /mproc.c/1.29/Fri Mar 17 20:57:57 2017//
-/mta.c/1.207/Thu May 24 11:38:24 2018//
+/mta.c/1.210/Mon May 28 19:13:37 2018//
 /mta_session.c/1.98/Wed May 24 21:27:32 2017//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
 /parse.y/1.202/Fri May 25 14:10:28 2018//
@@ -82,7 +82,7 @@
 /stat_backend.c/1.10/Tue Jan 20 17:37:54 2015//
 /stat_ramstat.c/1.10/Tue Jan 20 17:37:54 2015//
 /table.5/1.9/Thu May 24 20:40:21 2018//
-/table.c/1.25/Thu May 24 11:38:24 2018//
+/table.c/1.26/Mon May 28 17:11:58 2018//
 /table_api.c/1.8/Sat Dec  5 13:14:21 2015//
 /table_db.c/1.9/Tue Nov 24 07:40:26 2015//
 /table_getpwnam.c/1.4/Tue Jan 20 17:37:54 2015//

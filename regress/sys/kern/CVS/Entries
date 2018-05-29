@@ -1,9 +1,10 @@
-/Makefile/1.70/Fri Jul  7 23:15:27 2017//
+/Makefile/1.71/Mon May 28 09:04:44 2018//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
 D/dup2////
+D/dup2_accept////
 D/dup2_self////
 D/exec_self////
 D/execve////
