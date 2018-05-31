@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.204 2018/05/29 22:16:15 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.206 2018/05/30 19:01:58 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -178,6 +178,7 @@ typedef struct {
 %token	FILTER FOR FORWARD_ONLY FROM
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
+%token	JUNK
 %token	KEY
 %token	LIMIT LISTEN LMTP LOCAL
 %token	MAIL_FROM MAILDIR MASK_SRC MASQUERADE MATCH MAX_MESSAGE_SIZE MAX_DEFERRED MBOX MDA MTA MX
@@ -256,6 +257,40 @@ optnl		: '\n' optnl
 		;
 
 nl		: '\n' optnl
+		;
+
+negation	: '!'		{ $$ = 1; }
+		| /* empty */	{ $$ = 0; }
+		;
+
+assign		: '=' | ARROW;
+
+
+keyval		: STRING assign STRING		{
+			table->t_type = T_HASH;
+			table_add(table, $1, $3);
+			free($1);
+			free($3);
+		}
+		;
+
+keyval_list	: keyval
+		| keyval comma keyval_list
+		;
+
+stringel	: STRING			{
+			table->t_type = T_LIST;
+			table_add(table, $1, NULL);
+			free($1);
+		}
+		;
+
+string_list	: stringel
+		| stringel comma string_list
+		;
+
+tableval_list	: string_list			{ }
+		| keyval_list			{ }
 		;
 
 
@@ -357,6 +392,9 @@ MBOX {
 | MAILDIR {
 	asprintf(&dispatcher->u.local.command, "/usr/libexec/mail.maildir");
 } dispatcher_local_options
+| MAILDIR JUNK {
+	asprintf(&dispatcher->u.local.command, "/usr/libexec/mail.maildir -j");
+} dispatcher_local_options
 | MAILDIR STRING {
 	if (strncmp($2, "~/", 2) == 0)
 		asprintf(&dispatcher->u.local.command,
@@ -364,6 +402,14 @@ MBOX {
 	else
 		asprintf(&dispatcher->u.local.command,
 		    "/usr/libexec/mail.maildir \"%s\"", $2);
+} dispatcher_local_options
+| MAILDIR STRING JUNK {
+	if (strncmp($2, "~/", 2) == 0)
+		asprintf(&dispatcher->u.local.command,
+		    "/usr/libexec/mail.maildir -j \"%%{user.directory}/%s\"", $2+2);
+	else
+		asprintf(&dispatcher->u.local.command,
+		    "/usr/libexec/mail.maildir -j \"%s\"", $2);
 } dispatcher_local_options
 | LMTP STRING {
 	asprintf(&dispatcher->u.local.command,
@@ -1412,35 +1458,6 @@ table		: TABLE STRING STRING	{
 		}
 		;
 
-assign		: '=' | ARROW;
-
-keyval		: STRING assign STRING		{
-			table->t_type = T_HASH;
-			table_add(table, $1, $3);
-			free($1);
-			free($3);
-		}
-		;
-
-keyval_list	: keyval
-		| keyval comma keyval_list
-		;
-
-stringel	: STRING			{
-			table->t_type = T_LIST;
-			table_add(table, $1, NULL);
-			free($1);
-		}
-		;
-
-string_list	: stringel
-		| stringel comma string_list
-		;
-
-tableval_list	: string_list			{ }
-		| keyval_list			{ }
-		;
-
 tablenew	: STRING			{
 			struct table	*t;
 
@@ -1474,9 +1491,6 @@ tables		: tablenew			{ $$ = $1; }
 		| tableref			{ $$ = $1; }
 		;
 
-negation	: '!'		{ $$ = 1; }
-		| /* empty */	{ $$ = 0; }
-		;
 
 %%
 
@@ -1539,6 +1553,7 @@ lookup(char *s)
 		{ "include",		INCLUDE },
 		{ "inet4",		INET4 },
 		{ "inet6",		INET6 },
+		{ "junk",		JUNK },
 		{ "key",		KEY },
 		{ "limit",		LIMIT },
 		{ "listen",		LISTEN },

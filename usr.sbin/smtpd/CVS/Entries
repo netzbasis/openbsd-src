@@ -27,8 +27,8 @@
 /log.h/1.8/Thu Apr 26 20:57:59 2018//
 /mail.lmtp.8/1.1/Tue Feb 14 15:16:34 2017//
 /mail.lmtp.c/1.3/Tue May 29 22:16:15 2018//
-/mail.maildir.8/1.3/Tue May 29 19:32:34 2018//
-/mail.maildir.c/1.4/Tue May 29 19:32:34 2018//
+/mail.maildir.8/1.5/Wed May 30 12:37:57 2018//
+/mail.maildir.c/1.6/Wed May 30 18:08:06 2018//
 /mail.mda.8/1.1/Wed Aug  9 07:56:10 2017//
 /mail.mda.c/1.2/Sat Apr 28 10:37:20 2018//
 /mailaddr.c/1.2/Mon Dec 28 22:08:30 2015//
@@ -40,7 +40,7 @@
 /mta.c/1.211/Tue May 29 20:43:07 2018//
 /mta_session.c/1.98/Wed May 24 21:27:32 2017//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
-/parse.y/1.204/Tue May 29 22:16:15 2018//
+/parse.y/1.206/Wed May 30 19:01:58 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
 /pony.c/1.20/Thu May 24 11:38:24 2018//
@@ -72,7 +72,7 @@
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.297/Tue May 29 22:10:29 2018//
-/smtpd.conf.5/1.180/Tue May 29 22:16:15 2018//
+/smtpd.conf.5/1.182/Wed May 30 13:44:03 2018//
 /smtpd.h/1.545/Tue May 29 21:05:52 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
