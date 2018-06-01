@@ -4,7 +4,6 @@
 /arm64_bus_space.c/1.6/Tue May 15 11:12:35 2018//
 /bcm2835_dwctwo.c/1.2/Wed Feb 22 04:39:30 2017//
 /bcm2836_intr.c/1.8/Sat Feb 24 12:46:45 2018//
-/com_fdt.c/1.6/Mon May 14 19:25:54 2018//
 /efi.c/1.4/Fri Apr  6 19:09:05 2018//
 /mainbus.c/1.9/Sat Feb 24 09:45:10 2018//
 /mainbus.h/1.2/Thu Apr 27 10:23:19 2017//
