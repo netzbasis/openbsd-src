@@ -37,10 +37,10 @@
 /mda.c/1.132/Thu May 31 21:06:12 2018//
 /mda_variables.c/1.2/Thu May 24 11:38:24 2018//
 /mproc.c/1.29/Fri Mar 17 20:57:57 2017//
-/mta.c/1.213/Thu May 31 21:06:12 2018//
-/mta_session.c/1.99/Thu May 31 21:06:12 2018//
+/mta.c/1.214/Fri Jun  1 12:24:16 2018//
+/mta_session.c/1.100/Fri Jun  1 19:28:59 2018//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
-/parse.y/1.207/Thu May 31 21:06:12 2018//
+/parse.y/1.210/Fri Jun  1 20:31:33 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
 /pony.c/1.20/Thu May 24 11:38:24 2018//
@@ -72,8 +72,8 @@
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.298/Thu May 31 21:06:12 2018//
-/smtpd.conf.5/1.183/Thu May 31 13:36:35 2018//
-/smtpd.h/1.546/Thu May 31 21:06:12 2018//
+/smtpd.conf.5/1.186/Fri Jun  1 19:42:24 2018//
+/smtpd.h/1.547/Fri Jun  1 12:24:16 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
