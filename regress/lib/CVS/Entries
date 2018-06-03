@@ -2,6 +2,7 @@
 D/csu////
 D/libc////
 D/libcrypto////
+D/libcsi////
 D/libedit////
 D/libevent////
 D/libexpat////
