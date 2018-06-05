@@ -86,7 +86,7 @@
 /mpu401.c/1.15/Sat Mar 14 03:38:47 2015//
 /mpu_isa.c/1.6/Sat Mar 14 03:38:47 2015//
 /mpu_isapnp.c/1.8/Sun Sep 14 14:17:25 2014//
-/nsclpcsio_isa.c/1.13/Wed Oct 15 19:12:18 2008//
+/nsclpcsio_isa.c/1.14/Mon Jun  4 05:24:11 2018//
 /pas.c/1.29/Mon Sep 19 06:46:44 2016//
 /pasreg.h/1.3/Tue Feb 11 19:20:27 2003//
 /pcdisplay.c/1.12/Sun Oct 20 20:07:29 2013//

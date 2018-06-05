@@ -10,7 +10,7 @@
 /init_sysent.c/1.192/Mon May 28 09:17:36 2018//
 /kern_acct.c/1.36/Sat Apr 28 03:13:04 2018//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
-/kern_clock.c/1.94/Mon May 14 12:31:21 2018//
+/kern_clock.c/1.95/Mon Jun  4 18:16:43 2018//
 /kern_descrip.c/1.163/Sat Jun  2 12:42:18 2018//
 /kern_event.c/1.90/Sat Jun  2 10:27:43 2018//
 /kern_exec.c/1.196/Sat Jun  2 10:27:43 2018//
@@ -21,11 +21,11 @@
 /kern_lock.c/1.64/Mon May 14 12:31:21 2018//
 /kern_malloc.c/1.133/Thu Jan 18 18:08:51 2018//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.230/Sat Apr 28 12:49:21 2018//
+/kern_pledge.c/1.231/Sun Jun  3 18:20:28 2018//
 /kern_proc.c/1.83/Tue Mar 27 08:42:49 2018//
 /kern_prot.c/1.73/Tue Feb 20 12:38:58 2018//
 /kern_resource.c/1.58/Mon Feb 19 08:59:52 2018//
-/kern_rwlock.c/1.35/Wed Mar 21 12:28:39 2018//
+/kern_rwlock.c/1.36/Mon Jun  4 04:46:07 2018//
 /kern_sched.c/1.47/Thu Dec 14 23:21:04 2017//
 /kern_sensors.c/1.38/Sun Apr  9 15:47:18 2017//
 /kern_sig.c/1.220/Sat Apr 28 03:13:04 2018//
@@ -58,7 +58,7 @@
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
 /subr_witness.c/1.18/Fri Jun  1 15:48:19 2018//
 /subr_xxx.c/1.16/Tue Apr  3 08:58:05 2018//
-/sys_futex.c/1.7/Tue Apr 24 17:19:35 2018//
+/sys_futex.c/1.8/Sun Jun  3 15:09:26 2018//
 /sys_generic.c/1.119/Tue May  8 08:53:41 2018//
 /sys_pipe.c/1.79/Sat Jun  2 10:27:43 2018//
 /sys_process.c/1.80/Mon Feb 19 09:25:13 2018//
@@ -88,15 +88,15 @@
 /uipc_usrreq.c/1.126/Sat Apr 28 03:13:04 2018//
 /vfs_bio.c/1.185/Sun Aug 27 01:59:30 2017//
 /vfs_biomem.c/1.39/Thu Mar 29 01:43:41 2018//
-/vfs_cache.c/1.56/Sun May 27 06:02:14 2018//
+/vfs_cache.c/1.57/Mon Jun  4 19:42:54 2018//
 /vfs_default.c/1.43/Tue Jan 10 19:48:32 2017//
 /vfs_getcwd.c/1.31/Sun May 27 06:02:14 2018//
 /vfs_init.c/1.39/Mon Dec 11 05:27:40 2017//
 /vfs_lockf.c/1.25/Mon Feb 26 13:43:51 2018//
 /vfs_lookup.c/1.69/Wed May  2 02:24:56 2018//
-/vfs_subr.c/1.273/Sun May 27 06:02:14 2018//
+/vfs_subr.c/1.274/Mon Jun  4 04:57:09 2018//
 /vfs_sync.c/1.59/Sun May 27 06:02:14 2018//
-/vfs_syscalls.c/1.284/Sat Jun  2 10:27:43 2018//
+/vfs_syscalls.c/1.285/Mon Jun  4 04:57:09 2018//
 /vfs_vnops.c/1.92/Wed May  2 02:24:56 2018//
 /vfs_vops.c/1.18/Sat Apr 28 03:13:05 2018//
 D

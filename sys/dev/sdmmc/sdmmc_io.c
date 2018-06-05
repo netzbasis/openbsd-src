@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_io.c,v 1.35 2018/05/30 14:53:11 patrick Exp $	*/
+/*	$OpenBSD: sdmmc_io.c,v 1.38 2018/06/04 15:04:57 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -49,6 +49,8 @@ int	sdmmc_io_xchg(struct sdmmc_softc *, struct sdmmc_function *,
 void	sdmmc_io_reset(struct sdmmc_softc *);
 int	sdmmc_io_send_op_cond(struct sdmmc_softc *, u_int32_t, u_int32_t *);
 void	sdmmc_io_set_blocklen(struct sdmmc_function *, unsigned int);
+void	sdmmc_io_set_bus_width(struct sdmmc_function *, int);
+int	sdmmc_io_set_highspeed(struct sdmmc_function *sf, int);
 
 #ifdef SDMMC_DEBUG
 #define DPRINTF(s)	printf s
@@ -183,9 +185,17 @@ sdmmc_io_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 		sdmmc_print_cis(sf);
 
 	if (sf->number == 0) {
-		/* XXX respect host and card capabilities */
-		(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
-		    25000, SDMMC_TIMING_LEGACY);
+		if (ISSET(sc->sc_caps, SMC_CAPS_SD_HIGHSPEED) &&
+		    sdmmc_io_set_highspeed(sf, 1) == 0)
+			(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
+			    SDMMC_SDCLK_50MHZ, SDMMC_TIMING_HIGHSPEED);
+			if (ISSET(sc->sc_caps, SMC_CAPS_4BIT_MODE)) {
+				sdmmc_io_set_bus_width(sf, 4);
+				sdmmc_chip_bus_width(sc->sct, sc->sch, 4);
+			}
+		else
+			(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
+			    SDMMC_SDCLK_25MHZ, SDMMC_TIMING_LEGACY);
 	}
 
 	return 0;
@@ -856,4 +866,36 @@ sdmmc_io_set_blocklen(struct sdmmc_function *sf, unsigned int blklen)
 	sdmmc_io_write_1(sf0, SD_IO_FBR_BASE(sf->number) +
 	    SD_IO_FBR_BLOCKLEN+ 1, (blklen >> 8) & 0xff);
 	sf->cur_blklen = blklen;
+}
+
+void
+sdmmc_io_set_bus_width(struct sdmmc_function *sf, int width)
+{
+	u_int8_t rv;
+
+	rw_assert_wrlock(&sf->sc->sc_lock);
+	rv = sdmmc_io_read_1(sf, SD_IO_CCCR_BUS_WIDTH);
+	rv &= ~CCCR_BUS_WIDTH_MASK;
+	if (width == 4)
+		rv |= CCCR_BUS_WIDTH_4;
+	else
+		rv |= CCCR_BUS_WIDTH_1;
+	sdmmc_io_write_1(sf, SD_IO_CCCR_BUS_WIDTH, rv);
+}
+
+int
+sdmmc_io_set_highspeed(struct sdmmc_function *sf, int enable)
+{
+	u_int8_t rv;
+
+	rw_assert_wrlock(&sf->sc->sc_lock);
+
+	rv = sdmmc_io_read_1(sf, SD_IO_CCCR_SPEED);
+	if (enable && !(rv & CCCR_SPEED_SHS))
+		return 1;
+	rv &= ~CCCR_SPEED_MASK;
+	if (enable)
+		rv |= CCCR_SPEED_EHS;
+	sdmmc_io_write_1(sf, SD_IO_CCCR_SPEED, rv);
+	return 0;
 }
