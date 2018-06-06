@@ -48,7 +48,7 @@
 /MachineConstantPool.h/1.1.1.2/Wed Oct  4 20:27:55 2017//
 /MachineDominanceFrontier.h/1.1.1.3/Fri Apr  6 14:26:04 2018//
 /MachineDominators.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
-/MachineFrameInfo.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
+/MachineFrameInfo.h/1.2/Wed Jun  6 00:14:29 2018//
 /MachineFunction.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
 /MachineFunctionPass.h/1.1.1.3/Wed Oct  4 20:27:55 2017//
 /MachineInstr.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
@@ -73,7 +73,7 @@
 /MacroFusion.h/1.1.1.1/Wed Oct  4 20:27:55 2017/-ko/
 /PBQPRAConstraint.h/1.1.1.2/Wed Oct  4 20:27:55 2017//
 /ParallelCG.h/1.1.1.2/Sat Jan 14 19:55:55 2017//
-/Passes.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
+/Passes.h/1.2/Wed Jun  6 00:14:29 2018//
 /PreISelIntrinsicLowering.h/1.1.1.2/Fri Apr  6 14:26:04 2018/-ko/
 /PseudoSourceValue.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
 /RegAllocPBQP.h/1.1.1.4/Wed Oct  4 20:27:55 2017//
@@ -103,7 +103,7 @@
 /StackProtector.h/1.1.1.3/Wed Oct  4 20:27:55 2017//
 /TailDuplicator.h/1.1.1.4/Fri Apr  6 14:26:04 2018/-ko/
 /TargetCallingConv.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
-/TargetFrameLowering.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
+/TargetFrameLowering.h/1.2/Wed Jun  6 00:14:29 2018/-ko/
 /TargetInstrInfo.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
 /TargetLowering.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
 /TargetLoweringObjectFile.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
