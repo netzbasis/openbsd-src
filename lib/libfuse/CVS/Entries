@@ -9,7 +9,7 @@
 /fuse_ops.c/1.33/Tue May 22 12:52:14 2018//
 /fuse_opt.c/1.26/Tue May 15 11:57:32 2018//
 /fuse_opt.h/1.5/Sun Apr  8 20:57:28 2018//
-/fuse_private.h/1.19/Tue May 22 12:52:14 2018//
+/fuse_private.h/1.20/Thu Jun  7 22:28:11 2018//
 /fuse_subr.c/1.12/Mon May 21 11:47:46 2018//
 /generate_pkgconfig.sh/1.2/Sat Jun 15 11:40:56 2013//
 /shlib_version/1.4/Fri Dec 15 16:40:33 2017//
