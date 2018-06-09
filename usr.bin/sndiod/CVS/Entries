@@ -2,10 +2,10 @@
 /abuf.c/1.4/Fri Jan  8 16:17:31 2016//
 /abuf.h/1.2/Wed Mar 23 06:11:52 2016//
 /defs.h/1.2/Fri Dec  7 08:04:58 2012//
-/dev.c/1.31/Thu Nov 23 06:26:45 2017//
+/dev.c/1.32/Fri Jun  8 06:20:49 2018//
 /dev.h/1.11/Wed Mar 23 06:16:35 2016//
-/dsp.c/1.12/Thu Oct 27 04:37:47 2016//
-/dsp.h/1.6/Thu Oct 20 05:29:55 2016//
+/dsp.c/1.13/Fri Jun  8 06:21:56 2018//
+/dsp.h/1.7/Fri Jun  8 06:21:56 2018//
 /fdpass.c/1.4/Mon Nov 20 17:26:39 2017//
 /fdpass.h/1.1/Sun Dec 20 11:38:33 2015//
 /file.c/1.23/Thu Oct 27 04:37:47 2016//
