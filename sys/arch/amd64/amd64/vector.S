@@ -1,4 +1,4 @@
-/*	$OpenBSD: vector.S,v 1.62 2018/06/09 16:51:23 guenther Exp $	*/
+/*	$OpenBSD: vector.S,v 1.64 2018/06/10 15:51:41 guenther Exp $	*/
 /*	$NetBSD: vector.S,v 1.5 2004/06/28 09:13:11 fvdl Exp $	*/
 
 /*
@@ -176,7 +176,14 @@ IDTVEC(trap03)
 #else /* !defined(GPROF) && defined(DDBPROF) */
 	pushq	$0
 	pushq	$T_BPTFLT
-	INTRENTRY(trap03)
+	testb	$SEL_RPL,24(%rsp)
+	je	INTRENTRY_LABEL(trap03)
+	jmp	alltraps
+	.text
+	.global	INTRENTRY_LABEL(trap03)
+INTRENTRY_LABEL(trap03):
+	INTR_ENTRY_KERN
+	INTR_SAVE_MOST_GPRS_NO_ADJ
 	sti
 	cld
 	SMAP_CLAC
@@ -203,14 +210,11 @@ IDTVEC(trap03)
 	movq	TF_RDX(%rsp),%rdx
 	movq	TF_RCX(%rsp),%rcx
 	movq	TF_R11(%rsp),%r11
-	movq	TF_RAX(%rsp),%rax
+	/* %rax restored below, after begin used to shift the stack */
 
 	/*
 	 * We are returning from a probe trap so we need to fix the
 	 * stack layout and emulate the patched instruction.
-	 *
-	 * The code below does that by trashing %rax, so it MUST be
-	 * restored afterward.
 	 * Reserve enough room to emulate "pushq %rbp".
 	 */
 	subq	$16, %rsp
@@ -233,7 +237,7 @@ IDTVEC(trap03)
 	movq	%rax, TF_RSP(%rsp)
 	movq	%rbp, (%rax)
 
-	/* Write back overwritten %rax */
+	/* Finally restore %rax */
 	movq	(TF_RAX + 16)(%rsp),%rax
 
 	addq	$TF_RIP,%rsp
