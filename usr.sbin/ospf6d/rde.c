@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.74 2018/06/10 14:39:38 remi Exp $ */
+/*	$OpenBSD: rde.c,v 1.76 2018/06/12 20:12:36 remi Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -640,7 +640,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 	struct lsa		*lsa;
 	struct vertex		*v;
 	ssize_t			 n;
-	int			 shut = 0, wasvalid;
+	int			 shut = 0, link_ok, prev_link_ok;
 	unsigned int		 ifindex;
 
 	if (event & EV_READ) {
@@ -710,20 +710,23 @@ rde_dispatch_parent(int fd, short event, void *bula)
 			if (iface == NULL)
 				fatalx("interface lost in rde");
 
-			wasvalid = (iface->flags & IFF_UP) &&
+			prev_link_ok = (iface->flags & IFF_UP) &&
 			    LINK_STATE_IS_UP(iface->linkstate);
 
 			if_update(iface, ifp->mtu, ifp->flags, ifp->if_type,
 			    ifp->linkstate, ifp->baudrate);
 
 			/* Resend LSAs if interface state changes. */
-			if (wasvalid != (iface->flags & IFF_UP) &&
-			    LINK_STATE_IS_UP(iface->linkstate)) {
-				area = area_find(rdeconf, iface->area_id);
-				if (!area)
-					fatalx("interface lost area");
-				orig_intra_area_prefix_lsas(area);
-			}
+			link_ok = (iface->flags & IFF_UP) &&
+			          LINK_STATE_IS_UP(iface->linkstate);
+			if (prev_link_ok == link_ok)
+				break;
+
+			area = area_find(rdeconf, iface->area_id);
+			if (!area)
+				fatalx("interface lost area");
+			orig_intra_area_prefix_lsas(area);
+
 			break;
 		case IMSG_IFADD:
 			if ((iface = malloc(sizeof(struct iface))) == NULL)
@@ -1479,9 +1482,18 @@ orig_intra_lsa_rtr(struct area *area, struct vertex *old)
 	numprefix = 0;
 	LIST_FOREACH(iface, &area->iface_list, entry) {
 		if (!((iface->flags & IFF_UP) &&
-		    LINK_STATE_IS_UP(iface->linkstate)))
-			/* interface or link state down */
+		    LINK_STATE_IS_UP(iface->linkstate)) &&
+		    !(iface->if_type == IFT_CARP))
+			/* interface or link state down
+			 * and not a carp interface */
 			continue;
+
+		if (iface->if_type == IFT_CARP &&
+		    (iface->linkstate == LINK_STATE_UNKNOWN ||
+		    iface->linkstate == LINK_STATE_INVALID))
+			/* carp interface in state invalid or unknown */
+			continue;
+
 		if ((iface->state & IF_STA_DOWN) &&
 		    !(iface->cflags & F_IFACE_PASSIVE))
 			/* passive interfaces stay in state DOWN */
@@ -1517,6 +1529,13 @@ orig_intra_lsa_rtr(struct area *area, struct vertex *old)
 			    iface->state & IF_STA_LOOPBACK) {
 				lsa_prefix->prefixlen = 128;
 				lsa_prefix->metric = 0;
+			} else if (iface->if_type == IFT_CARP &&
+				   iface->linkstate == LINK_STATE_DOWN) {
+				/* carp interfaces in state backup are
+				 * announced with high metric for faster
+				 * failover. */
+				lsa_prefix->prefixlen = ia->prefixlen;
+				lsa_prefix->metric = MAX_METRIC;
 			} else {
 				lsa_prefix->prefixlen = ia->prefixlen;
 				lsa_prefix->metric = htons(iface->metric);
@@ -1526,9 +1545,9 @@ orig_intra_lsa_rtr(struct area *area, struct vertex *old)
 				lsa_prefix->options |= OSPF_PREFIX_LA;
 
 			log_debug("orig_intra_lsa_rtr: area %s, interface %s: "
-			    "%s/%d", inet_ntoa(area->id),
+			    "%s/%d, metric %d", inet_ntoa(area->id),
 			    iface->name, log_in6addr(&ia->addr),
-			    lsa_prefix->prefixlen);
+			    lsa_prefix->prefixlen, ntohs(lsa_prefix->metric));
 
 			prefix = (struct in6_addr *)(lsa_prefix + 1);
 			inet6applymask(prefix, &ia->addr,
