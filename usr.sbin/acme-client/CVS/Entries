@@ -1,7 +1,7 @@
 /Makefile/1.8/Mon Jul  3 22:21:47 2017//
 /acctproc.c/1.11/Tue Jan 24 13:32:55 2017//
-/acme-client.1/1.23/Tue Oct 17 22:47:58 2017//
-/acme-client.conf.5/1.11/Mon Nov 27 01:58:52 2017//
+/acme-client.1/1.24/Wed Jun 13 15:08:24 2018//
+/acme-client.conf.5/1.12/Wed Jun 13 15:08:24 2018//
 /base64.c/1.9/Tue Jan 24 13:32:55 2017//
 /certproc.c/1.10/Tue Jan 24 13:32:55 2017//
 /chngproc.c/1.12/Tue Jan 24 13:32:55 2017//
