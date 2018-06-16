@@ -37,7 +37,7 @@
 /lapic.c/1.51/Fri Apr 20 07:27:54 2018//
 /locore.S/1.101/Thu Jun 14 19:57:29 2018//
 /locore0.S/1.8/Tue May 22 15:55:30 2018//
-/machdep.c/1.245/Tue Jun  5 06:39:10 2018//
+/machdep.c/1.246/Sat Jun 16 03:30:11 2018//
 /mainbus.c/1.43/Wed Apr 25 00:46:28 2018//
 /mem.c/1.34/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//
@@ -54,7 +54,7 @@
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
 /spl.S/1.14/Thu Jun  7 04:09:35 2018//
 /sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
-/trap.c/1.69/Tue Jun  5 06:39:10 2018//
+/trap.c/1.70/Fri Jun 15 20:41:15 2018//
 /tsc.c/1.9/Sun Apr  8 18:26:29 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
 /vector.S/1.66/Thu Jun 14 19:57:29 2018//
