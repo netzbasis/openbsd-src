@@ -1,5 +1,6 @@
-.\" $OpenBSD: imxesdhc.4,v 1.3 2018/06/16 14:32:22 kettenis Exp $
-.\" Copyright (c) 2014 Sylvestre Gallon <syl@openbsd.org>
+.\"	$OpenBSD: imxrtc.4,v 1.1 2018/06/16 14:31:52 kettenis Exp $
+.\"
+.\" Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -14,35 +15,28 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: June 16 2018 $
-.Dt IMXESDHC 4
+.Dt IMXRTC 4
 .Os
 .Sh NAME
-.Nm imxesdhc
-.Nd i.MX SD host controller
+.Nm imxrtc
+.Nd i.MX Real Time Clock
 .Sh SYNOPSIS
-.Cd "imxesdhc* at fdt?"
-.Cd "sdmmc* at imxesdhc?"
+.Cd "imxrtc* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the MMC/SD/SDIO controller integrated in
-i.MX 6, i.MAX 7 and i.MX 8 processors.
-.Pp
-The
-.Xr sdmmc 4
-subsystem performs SD/MMC transactions to communicate with
-MMC, SD, SDHC, or SDIO devices inserted into the SD slot.
+driver provides support for the RTC integrated in Freescale i.MX7 and
+i.MX8 processors.
 .Sh SEE ALSO
-.Xr intro 4 ,
-.Xr sdmmc 4
+.Xr intro 4
 .Sh HISTORY
 The
 .Nm
 driver first appeared in
-.Ox 5.5 .
+.Ox 6.4 .
 .Sh AUTHORS
 .An -nosplit
 The
 .Nm
 driver was written by
-.An Patrick Wildt Aq Mt patrick@blueri.se .
+.An Mark Kettenis Aq Mt kettenis@openbsd.org .

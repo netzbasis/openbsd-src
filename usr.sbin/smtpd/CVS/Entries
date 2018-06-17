@@ -1,11 +1,11 @@
 /Makefile/1.18/Thu May 24 11:38:24 2018//
 /aliases.5/1.15/Thu May 24 11:38:24 2018//
-/aliases.c/1.72/Thu May 24 11:38:24 2018//
+/aliases.c/1.73/Sat Jun 16 19:41:26 2018//
 /bounce.c/1.79/Thu May 31 21:06:12 2018//
 /ca.c/1.29/Thu May 24 11:38:24 2018//
 /compress_backend.c/1.9/Tue Jan 20 17:37:54 2015//
 /compress_gzip.c/1.10/Mon Dec 28 22:08:30 2015//
-/config.c/1.39/Thu May 24 11:38:24 2018//
+/config.c/1.40/Sat Jun 16 19:41:26 2018//
 /control.c/1.123/Thu May 31 21:06:12 2018//
 /crypto.c/1.6/Sat Sep  3 14:42:08 2016//
 /dict.c/1.5/Tue Jan 20 17:37:54 2015//
@@ -21,8 +21,8 @@
 /ioev.c/1.41/Wed May 17 14:00:06 2017//
 /ioev.h/1.16/Wed Nov 30 17:43:32 2016//
 /limit.c/1.5/Wed Jun 15 19:59:03 2016//
-/lka.c/1.205/Thu May 31 21:06:12 2018//
-/lka_session.c/1.83/Thu May 31 21:06:12 2018//
+/lka.c/1.206/Sat Jun 16 19:41:26 2018//
+/lka_session.c/1.84/Sat Jun 16 19:41:26 2018//
 /log.c/1.20/Tue Mar 21 12:06:56 2017//
 /log.h/1.8/Thu Apr 26 20:57:59 2018//
 /mail.lmtp.8/1.1/Tue Feb 14 15:16:34 2017//
@@ -33,7 +33,7 @@
 /mail.mda.c/1.2/Sat Apr 28 10:37:20 2018//
 /mailaddr.c/1.3/Thu May 31 21:06:12 2018//
 /makemap.8/1.29/Sat Feb 13 08:53:18 2016//
-/makemap.c/1.69/Thu May 31 21:06:12 2018//
+/makemap.c/1.70/Sat Jun 16 19:41:26 2018//
 /mda.c/1.132/Thu May 31 21:06:12 2018//
 /mda_unpriv.c/1.2/Mon Jun  4 15:57:46 2018//
 /mda_variables.c/1.4/Fri Jun 15 08:57:17 2018//
@@ -41,7 +41,7 @@
 /mta.c/1.219/Thu Jun  7 11:31:51 2018//
 /mta_session.c/1.102/Thu Jun  7 11:31:51 2018//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
-/parse.y/1.212/Fri Jun 15 08:57:17 2018//
+/parse.y/1.213/Sat Jun 16 19:41:26 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
 /pony.c/1.20/Thu May 24 11:38:24 2018//
@@ -53,7 +53,7 @@
 /queue_ram.c/1.8/Mon May 14 15:23:05 2018//
 /rfc2822.c/1.10/Sat Feb  4 19:25:24 2017//
 /rfc2822.h/1.5/Fri Feb 16 20:57:30 2018//
-/ruleset.c/1.35/Thu May 24 11:38:24 2018//
+/ruleset.c/1.36/Sat Jun 16 19:41:26 2018//
 /runq.c/1.2/Tue Jan 20 17:37:54 2015//
 /scheduler.c/1.58/Thu May 31 21:06:12 2018//
 /scheduler_backend.c/1.16/Thu May 24 11:38:24 2018//
@@ -74,7 +74,7 @@
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.299/Sun Jun  3 14:04:06 2018//
 /smtpd.conf.5/1.195/Fri Jun 15 08:57:17 2018//
-/smtpd.h/1.552/Thu Jun  7 16:28:14 2018//
+/smtpd.h/1.553/Sat Jun 16 19:41:26 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
@@ -83,12 +83,12 @@
 /stat_backend.c/1.10/Tue Jan 20 17:37:54 2015//
 /stat_ramstat.c/1.11/Thu May 31 21:06:12 2018//
 /table.5/1.9/Thu May 24 20:40:21 2018//
-/table.c/1.29/Thu May 31 21:06:12 2018//
+/table.c/1.30/Sat Jun 16 19:41:26 2018//
 /table_api.c/1.8/Sat Dec  5 13:14:21 2015//
 /table_db.c/1.10/Thu May 31 21:06:12 2018//
 /table_getpwnam.c/1.4/Tue Jan 20 17:37:54 2015//
 /table_proc.c/1.7/Thu May 31 21:06:12 2018//
-/table_static.c/1.18/Thu May 24 11:38:24 2018//
+/table_static.c/1.19/Sat Jun 16 19:41:26 2018//
 /to.c/1.31/Thu Jun  7 11:31:51 2018//
 /tree.c/1.5/Tue Jan 20 17:37:54 2015//
 /unpack_dns.c/1.1/Sat Jan  6 07:57:53 2018//
