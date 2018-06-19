@@ -1,7 +1,7 @@
 /Makefile/1.1/Thu Jun  1 21:15:40 2006//
 /devlist2h.awk/1.2/Fri Jun  2 21:16:44 2006//
 /files.sdmmc/1.6/Tue Mar 20 04:18:40 2018//
-/if_bwfm_sdio.c/1.19/Wed May 30 14:04:53 2018//
+/if_bwfm_sdio.c/1.20/Mon Jun 18 15:01:22 2018//
 /if_bwfm_sdio.h/1.2/Sat May 19 10:43:10 2018//
 /sdhc.c/1.60/Wed May 30 13:32:40 2018//
 /sdhcreg.h/1.8/Mon Mar 19 21:40:32 2018//

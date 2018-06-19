@@ -32,7 +32,7 @@
 /virtio.c/1.60/Mon Apr 30 08:27:53 2018//
 /virtio.h/1.25/Thu Apr 26 15:59:12 2018//
 /vm.c/1.33/Fri Apr 27 12:15:10 2018//
-/vm.conf.5/1.28/Sun May 13 22:48:11 2018//
+/vm.conf.5/1.29/Mon Jun 18 06:04:25 2018//
 /vmboot.c/1.4/Tue Aug 29 21:10:20 2017//
 /vmboot.h/1.2/Sat Nov 26 20:03:42 2016//
 /vmd.8/1.8/Wed Jul 19 01:26:20 2017//
