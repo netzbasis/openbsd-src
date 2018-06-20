@@ -34,7 +34,7 @@
 /file.h/1.48/Mon Jun 18 09:15:05 2018//
 /filedesc.h/1.39/Mon Jun 18 09:15:05 2018//
 /filio.h/1.5/Fri Jun  1 22:30:48 2007//
-/fusebuf.h/1.12/Thu Nov 30 11:29:03 2017//
+/fusebuf.h/1.13/Tue Jun 19 11:27:54 2018//
 /futex.h/1.2/Sun Jun  3 15:09:26 2018//
 /gmon.h/1.8/Sat May  7 19:30:52 2016//
 /gpio.h/1.8/Mon Oct  3 20:24:51 2011//
@@ -54,7 +54,7 @@
 /mbuf.h/1.235/Sun Feb 11 00:24:13 2018//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.32/Sun Feb 11 05:11:50 2018//
-/mount.h/1.137/Mon Jun  4 04:57:09 2018//
+/mount.h/1.138/Tue Jun 19 13:01:34 2018//
 /mplock.h/1.12/Fri Jun  8 15:38:15 2018//
 /msg.h/1.19/Sun Nov 23 04:31:42 2014//
 /msgbuf.h/1.11/Thu Jun 23 13:15:21 2016//
@@ -78,7 +78,7 @@
 /resource.h/1.14/Fri Oct 25 04:42:48 2013//
 /resourcevar.h/1.18/Fri Jan 24 04:26:51 2014//
 /rwlock.h/1.24/Fri Jun  8 15:38:15 2018//
-/sched.h/1.45/Mon May 14 12:31:21 2018//
+/sched.h/1.46/Tue Jun 19 19:29:52 2018//
 /scsiio.h/1.10/Wed Sep  5 17:17:47 2012//
 /select.h/1.17/Mon Sep 12 19:41:20 2016//
 /selinfo.h/1.5/Tue Jul 18 19:20:26 2017//
@@ -101,7 +101,7 @@
 /syscall.h/1.191/Mon May 28 11:15:55 2018//
 /syscall_mi.h/1.19/Thu Apr 12 17:13:44 2018//
 /syscallargs.h/1.194/Mon May 28 11:15:55 2018//
-/sysctl.h/1.177/Sat May 26 10:16:14 2018//
+/sysctl.h/1.178/Tue Jun 19 19:29:52 2018//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
 /systm.h/1.140/Thu May 31 02:16:22 2018//
