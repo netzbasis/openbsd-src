@@ -66,7 +66,7 @@
 /intel_i2c.c/1.16/Wed Apr 25 01:27:46 2018//
 /intel_lrc.c/1.2/Sat Sep 30 07:36:56 2017//
 /intel_lrc.h/1.1/Sat Jul  1 16:14:10 2017//
-/intel_lvds.c/1.17/Sat Jul  1 16:14:10 2017//
+/intel_lvds.c/1.18/Wed Jun 20 05:51:25 2018//
 /intel_mocs.c/1.2/Sat Sep 30 07:36:56 2017//
 /intel_mocs.h/1.1/Sat Jul  1 16:14:10 2017//
 /intel_modes.c/1.8/Sat Jul  1 16:14:10 2017//

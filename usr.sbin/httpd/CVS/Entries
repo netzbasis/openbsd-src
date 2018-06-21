@@ -1,14 +1,14 @@
 /Makefile/1.30/Mon Jul  3 22:21:47 2017//
-/config.c/1.54/Sat May 19 13:56:56 2018//
+/config.c/1.55/Wed Jun 20 16:43:05 2018//
 /control.c/1.13/Mon Jan  9 14:49:22 2017//
 /http.h/1.14/Mon Aug  1 21:15:30 2016//
 /httpd.8/1.53/Thu Sep 15 20:57:07 2016//
 /httpd.c/1.67/Sun May 28 10:37:26 2017//
-/httpd.conf.5/1.100/Mon Jun 18 06:04:25 2018//
-/httpd.h/1.137/Sat May 19 13:56:56 2018//
+/httpd.conf.5/1.101/Wed Jun 20 16:43:05 2018//
+/httpd.h/1.138/Wed Jun 20 16:43:05 2018//
 /log.c/1.14/Tue Mar 21 12:06:55 2017//
 /logger.c/1.21/Wed Feb  7 03:28:05 2018//
-/parse.y/1.102/Wed Jun 13 15:08:24 2018//
+/parse.y/1.103/Wed Jun 20 16:43:05 2018//
 /patterns.7/1.6/Sat Jun 10 13:31:45 2017//
 /patterns.c/1.5/Sun Feb 14 18:20:59 2016//
 /patterns.h/1.3/Sat Dec 12 19:59:43 2015//
@@ -16,5 +16,5 @@
 /server.c/1.114/Sat May 19 13:56:56 2018//
 /server_fcgi.c/1.76/Sat May 19 13:56:56 2018//
 /server_file.c/1.66/Fri Jun 15 12:36:05 2018//
-/server_http.c/1.121/Fri Jun 15 12:36:05 2018//
+/server_http.c/1.122/Wed Jun 20 16:43:05 2018//
 D
