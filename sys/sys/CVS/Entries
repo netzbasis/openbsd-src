@@ -38,7 +38,7 @@
 /futex.h/1.2/Sun Jun  3 15:09:26 2018//
 /gmon.h/1.8/Sat May  7 19:30:52 2016//
 /gpio.h/1.8/Mon Oct  3 20:24:51 2011//
-/hibernate.h/1.41/Thu Jun 22 15:56:29 2017//
+/hibernate.h/1.42/Thu Jun 21 07:33:30 2018//
 /hotplug.h/1.5/Sun May 28 16:52:34 2006//
 /ioccom.h/1.5/Fri Mar 22 21:22:05 2013//
 /ioctl.h/1.17/Sun Feb 28 15:46:19 2016//
@@ -117,7 +117,7 @@
 /ttycom.h/1.17/Sat Jun 16 13:55:03 2018//
 /ttydefaults.h/1.6/Mon Jun  2 23:28:22 2003//
 /types.h/1.47/Sat Feb  4 02:54:33 2017//
-/ucred.h/1.12/Mon Feb 19 08:59:53 2018//
+/ucred.h/1.13/Thu Jun 21 13:58:21 2018//
 /uio.h/1.18/Sun Jan 18 20:35:44 2015//
 /un.h/1.14/Sat Jul 18 15:00:01 2015//
 /unistd.h/1.31/Mon Jul 20 00:56:10 2015//

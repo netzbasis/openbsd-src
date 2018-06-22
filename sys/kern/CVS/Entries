@@ -22,8 +22,8 @@
 /kern_malloc.c/1.133/Thu Jan 18 18:08:51 2018//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
 /kern_pledge.c/1.233/Wed Jun 20 10:48:55 2018//
-/kern_proc.c/1.83/Tue Mar 27 08:42:49 2018//
-/kern_prot.c/1.73/Tue Feb 20 12:38:58 2018//
+/kern_proc.c/1.84/Thu Jun 21 13:58:21 2018//
+/kern_prot.c/1.74/Thu Jun 21 13:58:21 2018//
 /kern_resource.c/1.58/Mon Feb 19 08:59:52 2018//
 /kern_rwlock.c/1.37/Fri Jun  8 15:38:15 2018//
 /kern_sched.c/1.48/Tue Jun 19 19:29:52 2018//
@@ -47,7 +47,7 @@
 /subr_disk.c/1.234/Sat Apr 28 15:44:59 2018//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
 /subr_extent.c/1.58/Thu Sep 15 02:00:16 2016//
-/subr_hibernate.c/1.123/Thu Aug 17 06:50:41 2017//
+/subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
 /subr_log.c/1.55/Mon Feb 19 08:59:52 2018//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
@@ -98,5 +98,5 @@
 /vfs_sync.c/1.59/Sun May 27 06:02:14 2018//
 /vfs_syscalls.c/1.290/Mon Jun 18 09:15:05 2018//
 /vfs_vnops.c/1.93/Thu Jun  7 13:37:27 2018//
-/vfs_vops.c/1.18/Sat Apr 28 03:13:05 2018//
+/vfs_vops.c/1.19/Thu Jun 21 14:17:23 2018//
 D

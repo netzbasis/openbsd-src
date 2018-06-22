@@ -1,5 +1,5 @@
 /acpi_machdep.c/1.81/Tue Jun  5 06:39:10 2018//
-/acpi_wakecode.S/1.42/Tue May 22 15:55:30 2018//
+/acpi_wakecode.S/1.43/Thu Jun 21 07:33:30 2018//
 /aes_intel.S/1.10/Wed Jan 17 16:33:33 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
 /amd64_mem.c/1.13/Tue Apr 26 15:27:32 2016//
@@ -26,7 +26,7 @@
 /fpu.c/1.40/Tue Jun  5 06:39:10 2018//
 /gdt.c/1.26/Wed Feb 21 19:24:15 2018//
 /genassym.cf/1.36/Tue Jun  5 06:39:10 2018//
-/hibernate_machdep.c/1.41/Tue Mar 20 04:18:40 2018//
+/hibernate_machdep.c/1.42/Thu Jun 21 07:33:30 2018//
 /i8259.c/1.10/Sat Oct 14 04:44:43 2017//
 /identcpu.c/1.97/Wed Jun 20 19:30:34 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
@@ -60,7 +60,7 @@
 /vector.S/1.66/Thu Jun 14 19:57:29 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.42/Tue Jun  5 06:39:10 2018//
-/vmm.c/1.200/Tue Jun  5 06:39:10 2018//
+/vmm.c/1.201/Thu Jun 21 05:41:54 2018//
 /vmm_support.S/1.10/Tue Apr 24 20:33:28 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D
