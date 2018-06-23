@@ -23,7 +23,7 @@
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
 /kern_pledge.c/1.233/Wed Jun 20 10:48:55 2018//
 /kern_proc.c/1.84/Thu Jun 21 13:58:21 2018//
-/kern_prot.c/1.74/Thu Jun 21 13:58:21 2018//
+/kern_prot.c/1.75/Fri Jun 22 13:33:30 2018//
 /kern_resource.c/1.58/Mon Feb 19 08:59:52 2018//
 /kern_rwlock.c/1.37/Fri Jun  8 15:38:15 2018//
 /kern_sched.c/1.48/Tue Jun 19 19:29:52 2018//
