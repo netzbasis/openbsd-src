@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCreate.pm,v 1.145 2018/06/22 21:29:06 espie Exp $
+# $OpenBSD: PkgCreate.pm,v 1.149 2018/06/23 22:28:13 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -875,6 +875,7 @@ sub solve_all_depends
 {
 	my ($solver, $state) = @_;
 
+	$solver->{tag_finder} = OpenBSD::lookup::tag->new($solver, $state);
 	while (1) {
 		my @todo = $solver->solve_depends($state);
 		if (@todo == 0) {
@@ -911,22 +912,51 @@ sub solve_wantlibs
 	return $okay;
 }
 
+sub verify_tag
+{
+	my ($self, $tag, $state, $final) = @_;
+	if (!defined $tag->{definition_list}) {
+		$state->errsay("Can't find \@tag #1 in dependency tree",
+		    $tag->name) if $final;
+		return 0;
+	}
+	my $use_params = 0;
+	for my $d (@{$tag->{definition_list}}) {
+		if ($d->need_params) {
+			$use_params = 1;
+			last;
+		}
+	}
+	if ($tag->{params} eq '' && $use_params) {
+		$state->errsay(
+		    "\@tag #1 has no parameters but some define wants them",
+		    $tag->name) if $final;
+		return 0;
+	} elsif ($tag->{params} ne '' && !$use_params) {
+		$state->errsay(
+		    "\@tag #1 has parameters but no define uses them",
+		    $tag->name) if $final;
+		return 0;
+	}
+	return 1;
+}
+
 sub solve_tags
 {
 	my ($solver, $state, $final) = @_;
+	return 1;
 
 	my $okay = 1;
 	my $h = $solver->{set}{new}[0];
 	my $plist = $h->{plist};
-	$solver->{tag_finder} //= OpenBSD::lookup::tag->new($solver, $state);
 	return 1 if !defined $plist->{tags};
 	for my $tag (@{$plist->{tags}}) {
-		next if $solver->{tag_finder}->lookup($solver,
-		    $solver->{to_register}{$h}, $state, $tag);
-		next if $solver->find_in_self($plist, $state, $tag);
-		$state->errsay("Can't do #1: tag definition not found #2",
-		    $plist->pkgname, $tag->name) if $final;
-		$okay = 0;
+		$solver->{tag_finder}->lookup($solver,
+		    $solver->{to_register}{$h}, $state, $tag) ||
+		    $solver->find_in_self($plist, $state, $tag);
+		if (!$solver->verify_tag($tag, $state, $final)) {
+			$okay = 0;
+		}
 	}
 	if (!$okay && $final) {
 		$solver->dump($state);
@@ -1032,6 +1062,7 @@ sub really_solve_from_ports
 		}
 	}
 	OpenBSD::SharedLibs::add_libs_from_plist($plist, $state);
+	$self->{tag_finder}->find_in_plist($plist, $dep->{pkgpath});
 	$self->add_dep($plist);
 	return $plist->pkgname;
 }
@@ -1222,7 +1253,7 @@ sub read_fragments
 				}
 				my $s = $subst->do($l);
 				if ($fast) {
-					next unless $s =~ m/^\@(?:cwd|lib|libset|depend|wantlib)\b/o || $s =~ m/lib.*\.a$/o;
+					next unless $s =~ m/^\@(?:cwd|lib|libset|define-tag|depend|wantlib)\b/o || $s =~ m/lib.*\.a$/o;
 				}
 	# XXX some things, like @comment no checksum, don't produce an object
 				my $o = &$cont($s);
