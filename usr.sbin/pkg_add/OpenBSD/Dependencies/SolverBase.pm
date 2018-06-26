@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: SolverBase.pm,v 1.5 2018/06/24 12:38:41 espie Exp $
+# $OpenBSD: SolverBase.pm,v 1.7 2018/06/25 18:18:00 espie Exp $
 #
 # Copyright (c) 2005-2018 Marc Espie <espie@openbsd.org>
 #
@@ -213,8 +213,9 @@ sub find_in_already_done
 		$obj->{definition_list} = $d;
 		$state->say("Found tag #1 in #2", $obj->stringize, $dep)
 		    if $state->verbose >= 3;
+		return $dep;
 	}
-	return $r;
+	return undef;
 }
 
 sub find_in_plist
@@ -473,7 +474,7 @@ sub verify_tag
 			last;
 		}
 	}
-	if ($tag->{params} eq '' && $use_params) {
+	if ($tag->{params} eq '' && $use_params && !$tag->{found_in_self}) {
 		$state->errsay(
 		    "$msg has no parameters but some define wants them",
 		    $plist->pkgname, $tag->name);

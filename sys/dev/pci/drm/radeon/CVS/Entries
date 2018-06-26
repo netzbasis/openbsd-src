@@ -108,7 +108,7 @@
 /radeon_display.c/1.16/Wed Apr 25 01:27:46 2018//
 /radeon_dp_auxch.c/1.1/Sat Jul  1 16:14:10 2017//
 /radeon_dp_mst.c/1.1/Wed Apr 25 01:27:46 2018//
-/radeon_drv.c/1.1/Wed Apr 25 01:27:46 2018//
+/radeon_drv.c/1.2/Mon Jun 25 22:29:16 2018//
 /radeon_drv.h/1.1/Wed Apr 25 01:27:46 2018//
 /radeon_encoders.c/1.5/Wed Apr 25 01:27:46 2018//
 /radeon_family.h/1.4/Wed Apr 25 01:27:46 2018//
@@ -131,7 +131,7 @@
 /radeon_object.c/1.13/Wed Apr 25 01:27:46 2018//
 /radeon_object.h/1.6/Wed Apr 25 01:27:46 2018//
 /radeon_pm.c/1.18/Wed Apr 25 01:27:46 2018//
-/radeon_prime.c/1.7/Wed Apr 25 01:27:46 2018//
+/radeon_prime.c/1.8/Mon Jun 25 22:29:16 2018//
 /radeon_reg.h/1.4/Wed Apr 25 01:27:46 2018//
 /radeon_ring.c/1.11/Wed Apr 25 01:27:46 2018//
 /radeon_sa.c/1.11/Wed Apr 25 01:27:46 2018//

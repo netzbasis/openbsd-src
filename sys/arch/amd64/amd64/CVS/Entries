@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.81/Tue Jun  5 06:39:10 2018//
+/acpi_machdep.c/1.82/Mon Jun 25 22:33:24 2018//
 /acpi_wakecode.S/1.43/Thu Jun 21 07:33:30 2018//
 /aes_intel.S/1.10/Wed Jan 17 16:33:33 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
@@ -26,7 +26,7 @@
 /fpu.c/1.41/Sun Jun 24 00:49:25 2018//
 /gdt.c/1.26/Wed Feb 21 19:24:15 2018//
 /genassym.cf/1.36/Tue Jun  5 06:39:10 2018//
-/hibernate_machdep.c/1.42/Thu Jun 21 07:33:30 2018//
+/hibernate_machdep.c/1.43/Mon Jun 25 22:33:24 2018//
 /i8259.c/1.10/Sat Oct 14 04:44:43 2017//
 /identcpu.c/1.97/Wed Jun 20 19:30:34 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
