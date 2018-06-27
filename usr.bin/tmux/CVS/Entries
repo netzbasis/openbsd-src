@@ -16,7 +16,7 @@
 /cmd-display-message.c/1.44/Mon Apr 23 13:43:08 2018//
 /cmd-display-panes.c/1.20/Wed Aug 16 12:12:54 2017//
 /cmd-find-window.c/1.44/Wed May 31 16:44:33 2017//
-/cmd-find.c/1.65/Mon May 28 11:50:47 2018//
+/cmd-find.c/1.66/Tue Jun 26 13:21:28 2018//
 /cmd-if-shell.c/1.58/Thu May 24 09:42:49 2018//
 /cmd-join-pane.c/1.33/Wed Aug 30 10:33:57 2017//
 /cmd-kill-pane.c/1.26/Tue Apr 10 10:48:44 2018//
@@ -113,7 +113,7 @@
 /window-buffer.c/1.13/Wed Feb 28 08:55:44 2018//
 /window-client.c/1.14/Wed Feb 28 08:55:44 2018//
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
-/window-copy.c/1.188/Mon Apr 23 13:46:34 2018//
+/window-copy.c/1.189/Tue Jun 26 11:14:05 2018//
 /window-tree.c/1.30/Tue Apr 10 10:48:44 2018//
 /window.c/1.210/Thu May 24 09:42:49 2018//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
