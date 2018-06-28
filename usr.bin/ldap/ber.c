@@ -1,4 +1,4 @@
-/*	$OpenBSD: ber.c,v 1.1.1.1 2018/06/13 15:45:57 reyk Exp $ */
+/*	$OpenBSD: ber.c,v 1.4 2018/06/27 20:38:10 rob Exp $ */
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@vantronix.net>
@@ -269,7 +269,7 @@ ber_add_nstring(struct ber_element *prev, const char *string0, size_t len)
 	struct ber_element *elm;
 	char *string;
 
-	if ((string = calloc(1, len)) == NULL)
+	if ((string = calloc(1, len + 1)) == NULL)
 		return NULL;
 	if ((elm = ber_get_element(BER_TYPE_OCTETSTRING)) == NULL) {
 		free(string);
@@ -861,7 +861,8 @@ ber_calc_len(struct ber_element *root)
 		size += ber_calc_len(root->be_next);
 
 	/* This is an empty element, do not use a minimal size */
-	if (root->be_type == BER_TYPE_EOC && root->be_len == 0)
+	if (root->be_class == BER_CLASS_UNIVERSAL &&
+	    root->be_type == BER_TYPE_EOC && root->be_len == 0)
 		return (0);
 
 	return (root->be_len + size);
@@ -1078,8 +1079,8 @@ ber_read_element(struct ber *ber, struct ber_element *elm)
 	DPRINTF("ber read element size %zd\n", len);
 	totlen += r + len;
 
-	/* If the total size of the element is larger than external
-	 * buffer don't bother to continue. */
+	/* If the total size of the element is larger than the buffer
+	 * don't bother to continue. */
 	if (len > ber->br_rend - ber->br_rptr) {
 		errno = ECANCELED;
 		return -1;
