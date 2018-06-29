@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.171 2018/06/27 13:14:44 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.174 2018/06/28 09:54:48 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -402,10 +402,9 @@ u_char		*community_ext_delete_non_trans(u_char *, u_int16_t,
 void		 prefix_evaluate(struct prefix *, struct rib_entry *);
 
 /* rde_filter.c */
-enum filter_actions rde_filter(struct filter_head *, struct rde_aspath **,
-		     struct rde_peer *, struct rde_aspath *,
-		     struct bgpd_addr *, u_int8_t, struct rde_peer *);
-void		 rde_apply_set(struct rde_aspath *, struct filter_set_head *,
+enum filter_actions rde_filter(struct filter_head *, struct rde_peer *,
+		     struct rde_aspath **, struct prefix *);
+void		 rde_apply_set(struct filter_set_head *, struct rde_aspath *,
 		     u_int8_t, struct rde_peer *, struct rde_peer *);
 int		 rde_filter_equal(struct filter_head *, struct filter_head *,
 		     struct rde_peer *, struct prefixset_head *);
@@ -479,6 +478,8 @@ struct rde_aspath *path_get(void);
 void		 path_put(struct rde_aspath *);
 
 #define	PREFIX_SIZE(x)	(((x) + 7) / 8 + 1)
+struct prefix	*prefix_get(struct rib *, struct rde_peer *,
+		    struct bgpd_addr *, int, u_int32_t);
 int		 prefix_remove(struct rib *, struct rde_peer *,
 		    struct bgpd_addr *, int, u_int32_t);
 int		 prefix_write(u_char *, int, struct bgpd_addr *, u_int8_t, int);
@@ -505,8 +506,8 @@ prefix_peer(struct prefix *p)
 
 void		 nexthop_init(u_int32_t);
 void		 nexthop_shutdown(void);
-void		 nexthop_modify(struct rde_aspath *, struct nexthop *,
-		     enum action_types, u_int8_t);
+void		 nexthop_modify(struct nexthop *, enum action_types, u_int8_t,
+		    struct nexthop **, u_int32_t *);
 void		 nexthop_link(struct rde_aspath *);
 void		 nexthop_unlink(struct rde_aspath *);
 void		 nexthop_update(struct kroute_nexthop *);

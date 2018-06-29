@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_rib.c,v 1.162 2018/06/27 13:14:44 claudio Exp $ */
+/*	$OpenBSD: rde_rib.c,v 1.164 2018/06/28 08:55:56 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -47,8 +47,6 @@ struct rib_entry *rib_restart(struct rib_context *);
 RB_PROTOTYPE(rib_tree, rib_entry, rib_e, rib_compare);
 RB_GENERATE(rib_tree, rib_entry, rib_e, rib_compare);
 
-struct prefix	*prefix_get(struct rib *, struct rde_peer *,
-		    struct bgpd_addr *, int, u_int32_t);
 int		 prefix_add(struct rib *, struct rde_aspath *,
 		    struct bgpd_addr *, int, int);
 void		 prefix_move(struct rde_aspath *, struct prefix *, int);
@@ -1229,32 +1227,32 @@ nexthop_update(struct kroute_nexthop *msg)
 }
 
 void
-nexthop_modify(struct rde_aspath *asp, struct nexthop *nh,
-    enum action_types type, u_int8_t aid)
+nexthop_modify(struct nexthop *setnh, enum action_types type, u_int8_t aid,
+    struct nexthop **nexthop, u_int32_t *flags)
 {
-	if (asp->flags & F_ATTR_LINKED)
-		fatalx("nexthop_modify: trying to modify linked asp");
-
-	if (type == ACTION_SET_NEXTHOP && aid != nh->exit_nexthop.aid)
-		return;
-
-	asp->flags &= ~F_NEXTHOP_MASK;
+	*flags &= ~F_NEXTHOP_MASK;
 	switch (type) {
 	case ACTION_SET_NEXTHOP_REJECT:
-		asp->flags |= F_NEXTHOP_REJECT;
+		*flags |= F_NEXTHOP_REJECT;
 		break;
 	case ACTION_SET_NEXTHOP_BLACKHOLE:
-		asp->flags |= F_NEXTHOP_BLACKHOLE;
+		*flags |= F_NEXTHOP_BLACKHOLE;
 		break;
 	case ACTION_SET_NEXTHOP_NOMODIFY:
-		asp->flags |= F_NEXTHOP_NOMODIFY;
+		*flags |= F_NEXTHOP_NOMODIFY;
 		break;
 	case ACTION_SET_NEXTHOP_SELF:
-		asp->flags |= F_NEXTHOP_SELF;
+		*flags |= F_NEXTHOP_SELF;
 		break;
 	case ACTION_SET_NEXTHOP:
-		nexthop_put(asp->nexthop);
-		asp->nexthop = nexthop_ref(nh);
+		/*
+		 * it is possible that a prefix matches but has the wrong
+		 * address family for the set nexthop. In this case ignore it.
+		 */
+		if (aid != setnh->exit_nexthop.aid)
+			break;
+		nexthop_put(*nexthop);
+		*nexthop = nexthop_ref(setnh);
 		break;
 	default:
 		break;
