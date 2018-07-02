@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.66/Mon Jun 25 22:33:24 2018//
+/acpi_machdep.c/1.67/Sun Jul  1 15:52:12 2018//
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
 /acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
@@ -41,7 +41,7 @@
 /locore0.S/1.4/Mon May 28 20:52:44 2018//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.618/Fri Jun 22 13:21:14 2018//
-/mainbus.c/1.57/Sat Mar 25 22:24:01 2017//
+/mainbus.c/1.58/Mon Jul  2 04:26:58 2018//
 /mem.c/1.54/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
 /mpbios.c/1.41/Wed Feb  7 06:19:54 2018//

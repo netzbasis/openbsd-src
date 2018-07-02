@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.82/Mon Jun 25 22:33:24 2018//
+/acpi_machdep.c/1.83/Sun Jul  1 15:52:12 2018//
 /acpi_wakecode.S/1.43/Thu Jun 21 07:33:30 2018//
 /aes_intel.S/1.10/Wed Jan 17 16:33:33 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
@@ -35,7 +35,7 @@
 /ipifuncs.c/1.31/Tue Jun  5 06:39:10 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
 /lapic.c/1.51/Fri Apr 20 07:27:54 2018//
-/locore.S/1.101/Thu Jun 14 19:57:29 2018//
+/locore.S/1.102/Sun Jul  1 04:47:32 2018//
 /locore0.S/1.8/Tue May 22 15:55:30 2018//
 /machdep.c/1.246/Sat Jun 16 03:30:11 2018//
 /mainbus.c/1.43/Wed Apr 25 00:46:28 2018//
@@ -57,7 +57,7 @@
 /trap.c/1.71/Sun Jun 24 00:49:25 2018//
 /tsc.c/1.9/Sun Apr  8 18:26:29 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
-/vector.S/1.66/Thu Jun 14 19:57:29 2018//
+/vector.S/1.67/Sun Jul  1 16:02:12 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.42/Tue Jun  5 06:39:10 2018//
 /vmm.c/1.204/Sat Jun 30 19:24:07 2018//
