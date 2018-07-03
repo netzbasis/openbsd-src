@@ -8,7 +8,7 @@
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
 /if_atu.c/1.126/Sat Apr 28 16:05:56 2018//
 /if_atureg.h/1.33/Mon Apr 15 09:23:01 2013//
-/if_aue.c/1.106/Sun Jan 22 10:17:39 2017//
+/if_aue.c/1.107/Tue Jul  3 00:49:14 2018//
 /if_auereg.h/1.18/Thu Jun 18 10:02:49 2015//
 /if_axe.c/1.138/Sun Jan 22 10:17:39 2017//
 /if_axen.c/1.25/Tue Jun 12 06:59:27 2018//
@@ -22,7 +22,7 @@
 /if_kue.c/1.88/Sat Apr  8 02:57:25 2017//
 /if_kuereg.h/1.12/Sat Apr  8 02:57:25 2017//
 /if_kuevar.h/1.2/Mon Nov 22 21:23:57 2004//
-/if_mos.c/1.38/Sun Jan 22 10:17:39 2017//
+/if_mos.c/1.39/Tue Jul  3 00:47:49 2018//
 /if_mosreg.h/1.7/Mon Apr 15 09:23:01 2013//
 /if_otus.c/1.60/Thu Oct 26 15:00:28 2017//
 /if_otusreg.h/1.10/Sat Apr  8 02:57:25 2017//

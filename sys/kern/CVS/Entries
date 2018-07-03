@@ -11,7 +11,7 @@
 /kern_acct.c/1.36/Sat Apr 28 03:13:04 2018//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.95/Mon Jun  4 18:16:43 2018//
-/kern_descrip.c/1.173/Sun Jul  1 16:33:15 2018//
+/kern_descrip.c/1.175/Mon Jul  2 14:36:33 2018//
 /kern_event.c/1.94/Mon Jun 18 09:15:05 2018//
 /kern_exec.c/1.198/Mon Jun 18 09:15:05 2018//
 /kern_exit.c/1.164/Sat Feb 10 10:32:51 2018//
@@ -32,7 +32,7 @@
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
 /kern_synch.c/1.146/Thu May 31 02:16:22 2018//
-/kern_sysctl.c/1.344/Sun Jul  1 16:33:15 2018//
+/kern_sysctl.c/1.345/Mon Jul  2 14:36:33 2018//
 /kern_task.c/1.22/Thu Dec 14 00:45:16 2017//
 /kern_tc.c/1.33/Mon May 28 18:05:42 2018//
 /kern_time.c/1.103/Mon May 28 18:05:42 2018//
@@ -42,7 +42,7 @@
 /kern_xxx.c/1.35/Thu Mar  8 22:04:18 2018//
 /makesyscalls.sh/1.13/Mon Sep 26 16:42:34 2016//
 /sched_bsd.c/1.47/Mon Dec  4 09:38:20 2017//
-/spec_vnops.c/1.92/Wed May  2 02:24:56 2018//
+/spec_vnops.c/1.93/Mon Jul  2 20:56:22 2018//
 /subr_autoconf.c/1.92/Mon Mar 14 23:08:06 2016//
 /subr_disk.c/1.234/Sat Apr 28 15:44:59 2018//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
@@ -85,7 +85,7 @@
 /uipc_socket.c/1.224/Thu Jun 14 08:46:09 2018//
 /uipc_socket2.c/1.95/Mon Jun 11 08:57:35 2018//
 /uipc_syscalls.c/1.177/Wed Jun 20 10:52:49 2018//
-/uipc_usrreq.c/1.132/Sun Jul  1 16:33:15 2018//
+/uipc_usrreq.c/1.133/Mon Jul  2 14:36:33 2018//
 /vfs_bio.c/1.185/Sun Aug 27 01:59:30 2017//
 /vfs_biomem.c/1.39/Thu Mar 29 01:43:41 2018//
 /vfs_cache.c/1.57/Mon Jun  4 19:42:54 2018//
@@ -94,7 +94,7 @@
 /vfs_init.c/1.39/Mon Dec 11 05:27:40 2017//
 /vfs_lockf.c/1.25/Mon Feb 26 13:43:51 2018//
 /vfs_lookup.c/1.69/Wed May  2 02:24:56 2018//
-/vfs_subr.c/1.275/Wed Jun  6 19:02:38 2018//
+/vfs_subr.c/1.276/Mon Jul  2 20:56:22 2018//
 /vfs_sync.c/1.59/Sun May 27 06:02:14 2018//
 /vfs_syscalls.c/1.291/Mon Jun 25 16:06:27 2018//
 /vfs_vnops.c/1.93/Thu Jun  7 13:37:27 2018//
