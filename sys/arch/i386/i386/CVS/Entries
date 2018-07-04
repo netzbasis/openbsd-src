@@ -27,7 +27,7 @@
 /est.c/1.52/Sat Mar 31 13:45:03 2018//
 /gdt.c/1.43/Fri Jun 22 13:21:14 2018//
 /genassym.cf/1.47/Fri Jun 22 13:21:14 2018//
-/hibernate_machdep.c/1.53/Mon Jun 25 22:33:24 2018//
+/hibernate_machdep.c/1.54/Wed Jul  4 02:05:06 2018//
 /i686_mem.c/1.18/Tue Apr 26 15:27:32 2016//
 /in_cksum.s/1.9/Thu Jun 29 17:17:28 2017//
 /ioapic.c/1.40/Tue Aug 29 15:19:57 2017//
@@ -53,8 +53,8 @@
 /pctr.c/1.30/Fri Sep  8 05:36:51 2017//
 /pmap.c/1.203/Fri Jun 22 13:21:14 2018//
 /pmapae.c/1.56/Fri Jun 22 13:21:14 2018//
-/powernow-k7.c/1.41/Sat Mar 31 13:45:03 2018//
-/powernow-k8.c/1.33/Sat Mar 31 13:45:03 2018//
+/powernow-k7.c/1.42/Wed Jul  4 02:06:15 2018//
+/powernow-k8.c/1.34/Wed Jul  4 02:06:15 2018//
 /powernow.c/1.6/Sun Sep 14 14:17:23 2014//
 /process_machdep.c/1.28/Wed May  8 15:36:30 2013//
 /rbus_machdep.c/1.27/Wed Sep 22 02:28:37 2010//

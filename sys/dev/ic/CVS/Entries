@@ -317,7 +317,7 @@
 /sli.c/1.2/Sat May 19 04:05:40 2007//
 /slireg.h/1.4/Sat May 19 10:24:18 2007//
 /slivar.h/1.4/Sat May 19 04:10:20 2007//
-/smc83c170.c/1.27/Sun Jan 22 10:17:38 2017//
+/smc83c170.c/1.28/Tue Jul  3 14:33:43 2018//
 /smc83c170reg.h/1.2/Thu Jun 26 05:42:16 2008//
 /smc83c170var.h/1.4/Fri Sep 11 13:02:28 2015//
 /smc91cxx.c/1.49/Sun Jan 22 10:17:38 2017//
