@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.83/Sun Jul  1 15:52:12 2018//
+/acpi_machdep.c/1.84/Wed Jul  4 20:46:21 2018//
 /acpi_wakecode.S/1.44/Tue Jul  3 23:21:15 2018//
 /aes_intel.S/1.11/Tue Jul  3 23:21:15 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
@@ -60,7 +60,7 @@
 /vector.S/1.68/Tue Jul  3 20:15:57 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.42/Tue Jun  5 06:39:10 2018//
-/vmm.c/1.205/Mon Jul  2 05:37:18 2018//
+/vmm.c/1.207/Thu Jul  5 04:36:14 2018//
 /vmm_support.S/1.11/Tue Jul  3 23:21:15 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D

@@ -61,7 +61,7 @@
 /scheduler_proc.c/1.8/Sat Dec  5 13:14:21 2015//
 /scheduler_ramqueue.c/1.45/Thu May 31 21:06:12 2018//
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
-/smtp.1/1.6/Sat May 12 15:18:24 2018//
+/smtp.1/1.7/Wed Jul  4 08:23:43 2018//
 /smtp.c/1.158/Mon Jun 18 18:14:39 2018//
 /smtp.h/1.1/Thu Apr 26 13:57:13 2018//
 /smtp_client.c/1.5/Sat Jun  9 10:01:17 2018//
