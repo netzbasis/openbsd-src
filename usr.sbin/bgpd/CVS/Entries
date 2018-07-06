@@ -1,7 +1,7 @@
 /Makefile/1.32/Mon Aug 21 14:43:33 2017//
 /bgpd.8/1.58/Wed Jun 13 09:33:51 2018//
 /bgpd.c/1.192/Sat Feb 10 01:24:28 2018//
-/bgpd.conf.5/1.169/Mon Jun 18 06:04:25 2018//
+/bgpd.conf.5/1.170/Thu Jul  5 19:51:35 2018//
 /bgpd.h/1.320/Fri Jun 29 11:45:50 2018//
 /carp.c/1.9/Tue Jan 24 04:22:42 2017//
 /config.c/1.68/Sat Feb 10 01:24:28 2018//
@@ -17,7 +17,7 @@
 /pfkey.c/1.51/Mon Aug 21 14:43:33 2017//
 /pftable.c/1.10/Tue Jan 24 04:22:42 2017//
 /printconf.c/1.108/Wed Jun 13 09:33:51 2018//
-/rde.c/1.383/Thu Jun 28 09:54:48 2018//
+/rde.c/1.384/Thu Jul  5 10:25:26 2018//
 /rde.h/1.175/Fri Jun 29 11:45:50 2018//
 /rde_attr.c/1.102/Fri Jun 29 11:45:50 2018//
 /rde_decide.c/1.68/Thu Jun 21 17:26:16 2018//

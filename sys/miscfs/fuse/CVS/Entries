@@ -1,7 +1,7 @@
 /fuse_device.c/1.29/Wed Jun 27 13:58:22 2018//
 /fuse_file.c/1.9/Tue Aug 30 16:45:54 2016//
 /fuse_lookup.c/1.21/Thu Jun 21 14:53:36 2018//
-/fuse_vfsops.c/1.39/Mon Jun 25 12:03:53 2018//
+/fuse_vfsops.c/1.40/Thu Jul  5 15:34:25 2018//
 /fuse_vnops.c/1.49/Thu Jun 21 14:17:23 2018//
 /fusebuf.c/1.16/Thu Jun 21 14:53:36 2018//
 /fusefs.h/1.12/Mon Jun 25 12:03:53 2018//
