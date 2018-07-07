@@ -102,7 +102,7 @@
 /session.c/1.79/Fri May  4 08:21:42 2018//
 /status.c/1.176/Thu Feb 22 11:42:41 2018//
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
-/tmux.1/1.605/Wed Jul  4 13:27:32 2018//
+/tmux.1/1.606/Fri Jul  6 07:11:23 2018//
 /tmux.c/1.186/Fri Jan 12 10:22:02 2018//
 /tmux.h/1.828/Wed Jul  4 12:30:52 2018//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
@@ -113,7 +113,7 @@
 /window-buffer.c/1.13/Wed Feb 28 08:55:44 2018//
 /window-client.c/1.14/Wed Feb 28 08:55:44 2018//
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
-/window-copy.c/1.190/Wed Jul  4 09:44:07 2018//
+/window-copy.c/1.191/Fri Jul  6 07:11:23 2018//
 /window-tree.c/1.30/Tue Apr 10 10:48:44 2018//
 /window.c/1.210/Thu May 24 09:42:49 2018//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
