@@ -1,4 +1,4 @@
-/Makefile/1.71/Mon May 28 09:04:44 2018//
+/Makefile/1.72/Sun Jul  8 02:16:48 2018//
 D/__syscall////
 D/accept////
 D/access////
@@ -13,6 +13,7 @@ D/extent////
 D/fchdir////
 D/fcntl_dup////
 D/flock////
+D/ftruncate////
 D/futex////
 D/getpeereid////
 D/getrusage////

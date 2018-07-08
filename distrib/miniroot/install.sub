@@ -1,5 +1,5 @@
 #!/bin/ksh
-#	$OpenBSD: install.sub,v 1.1080 2018/07/06 21:07:46 rpe Exp $
+#	$OpenBSD: install.sub,v 1.1086 2018/07/07 14:39:23 rpe Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -681,7 +681,7 @@ _autorespond() {
 	typeset -l _q=$1 _key
 	local _def=$2 _l _val
 
-	[[ -f $AI_RESPFILE ]] || return
+	[[ -f $AI_RESPFILE && -n $_q ]] || return
 
 	mv /tmp/ai/ai.conf /tmp/ai/ai.conf.tmp
 	while IFS=' 	' read -r _l; do
@@ -696,16 +696,15 @@ _autorespond() {
 	err_exit "\nQuestion has no answer in response file."
 }
 
-# Issue a read into the global variable $resp. If the dmesg output is
-# changed while inside this function, the current read will be aborted
-# and the function will return a non-zero value. Normally, the caller
-# will then reprint any prompt and call the function again.
+# Capture user response either by issuing an interactive read or by searching
+# the response file and store the response in the global variable $resp.
 #
-# Optional parameters:
+# Optionally present a question $1 and a default answer $2 shown in [].
 #
-# $1 = the question to ask the user
-# $2 = the default answer
-#
+# If the dmesg output is changed while waiting for the interactive response,
+# the current read will be aborted and the function will return a non-zero
+# value. Normally, the caller function will then reprint any prompt and call
+# the function again.
 _ask() {
 	local _q=$1 _def=$2 _int _redo=0 _pid
 
@@ -736,24 +735,18 @@ _ask() {
 	return $_redo
 }
 
-# Ask for user input presenting question $1 with an optional default answer $2.
-# Save the answer in the global variable $resp. Additionally write the question
-# and the answer to a logfile. Parameters $1 and $2 are passed on to _ask(),
-# which is called repeatedly until it succeds.
+# Ask for user response to question $1 with an optional default answer $2.
+# Write the question and the answer to a logfile.
 ask() {
+
+	# Prompt again in case the dmesg listener detected a change.
 	while ! _ask "$1" "$2"; do done
 	log_answers "$1" "$resp"
 }
 
-# Ask the user a yes/no question, and insist on 'y', 'yes', 'n' or 'no'.
-# Return 'y' or 'n' in $resp.
-# Exit code: (y)es => 0, (n)o => 1
-#
-# Parameters:
-#
-# $1 = the question to ask the user
-# $2 = the default answer (assumed to be 'n' if empty).
-#
+# Ask the user a yes/no question $1 with 'no' as default answer unless $2 is
+# set to 'yes' and insist on 'y', 'yes', 'n' or 'no' as response.
+# Return response via $resp as 'y' with exit code 0 or 'n' with exit code 1.
 ask_yn() {
 	local _q=$1 _a=${2:-no}
 	typeset -l _resp
@@ -1288,7 +1281,7 @@ configure_ifs() {
 		# asking the user.
 		resp=$(hostname -s)
 		[[ -n $_first && $_first != $_if ]] &&
-			ask "Symbolic (host) name for $_if?" $resp
+			ask "Symbolic (host) name for $_if?" "$resp"
 		_name=$resp
 
 		v4_config $_if $_name $_hn
@@ -1958,7 +1951,7 @@ set_term() {
 	export TERM=${TERM:-${MDTERM:-vt220}}
 
 	if [[ -n $CONSOLE ]]; then
-		ask "Terminal type?" $TERM
+		ask "Terminal type?" "$TERM"
 		TERM=$resp
 	else
 		[[ -x /sbin/kbd ]] || return
@@ -2100,7 +2093,7 @@ user_setup() {
 	done
 	ADMIN=$resp
 	while :; do
-		ask "Full name for user $ADMIN?" $ADMIN
+		ask "Full name for user $ADMIN?" "$ADMIN"
 		case $resp in
 		*[:\&,]*)
 			echo "':', '&' or ',' are not allowed."
