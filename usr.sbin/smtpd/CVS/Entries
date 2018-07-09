@@ -22,7 +22,7 @@
 /ioev.h/1.16/Wed Nov 30 17:43:32 2016//
 /limit.c/1.5/Wed Jun 15 19:59:03 2016//
 /lka.c/1.206/Sat Jun 16 19:41:26 2018//
-/lka_session.c/1.85/Sat Jul  7 13:38:55 2018//
+/lka_session.c/1.86/Sun Jul  8 13:10:49 2018//
 /log.c/1.20/Tue Mar 21 12:06:56 2017//
 /log.h/1.8/Thu Apr 26 20:57:59 2018//
 /mail.lmtp.8/1.1/Tue Feb 14 15:16:34 2017//
@@ -34,12 +34,12 @@
 /mailaddr.c/1.3/Thu May 31 21:06:12 2018//
 /makemap.8/1.29/Sat Feb 13 08:53:18 2016//
 /makemap.c/1.71/Tue Jul  3 01:34:43 2018//
-/mda.c/1.132/Thu May 31 21:06:12 2018//
+/mda.c/1.133/Sun Jul  8 13:06:37 2018//
 /mda_unpriv.c/1.2/Mon Jun  4 15:57:46 2018//
 /mda_variables.c/1.4/Fri Jun 15 08:57:17 2018//
 /mproc.c/1.29/Fri Mar 17 20:57:57 2017//
-/mta.c/1.219/Thu Jun  7 11:31:51 2018//
-/mta_session.c/1.102/Thu Jun  7 11:31:51 2018//
+/mta.c/1.220/Sun Jul  8 13:06:37 2018//
+/mta_session.c/1.103/Sun Jul  8 13:06:37 2018//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
 /parse.y/1.214/Mon Jun 18 18:19:14 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
@@ -65,7 +65,7 @@
 /smtp.c/1.158/Mon Jun 18 18:14:39 2018//
 /smtp.h/1.1/Thu Apr 26 13:57:13 2018//
 /smtp_client.c/1.5/Sat Jun  9 10:01:17 2018//
-/smtp_session.c/1.332/Mon Jun 18 18:14:39 2018//
+/smtp_session.c/1.333/Sun Jul  8 13:06:37 2018//
 /smtpc.c/1.3/Mon May 21 21:25:37 2018//
 /smtpctl.8/1.63/Mon May 14 15:23:05 2018//
 /smtpctl.c/1.162/Thu May 31 21:06:12 2018//
