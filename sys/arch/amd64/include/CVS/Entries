@@ -22,7 +22,7 @@
 /fenv.h/1.4/Wed May 25 21:46:49 2011//
 /fpu.h/1.15/Sun Jun 24 00:49:25 2018//
 /frame.h/1.9/Tue Jul  3 20:15:57 2018//
-/frameasm.h/1.16/Thu Jun 14 19:57:29 2018//
+/frameasm.h/1.17/Mon Jul  9 08:35:36 2018//
 /gdt.h/1.6/Wed Feb 21 19:24:15 2018//
 /hibernate.h/1.7/Thu Jun 21 07:33:30 2018//
 /hibernate_var.h/1.12/Mon Dec  8 07:12:37 2014//
@@ -55,7 +55,7 @@
 /pmap.h/1.67/Fri Apr 20 07:27:54 2018//
 /proc.h/1.10/Tue Jun  5 06:39:11 2018//
 /profile.h/1.4/Wed Aug 22 17:19:35 2012//
-/psl.h/1.4/Wed Mar 23 16:54:34 2011//
+/psl.h/1.5/Mon Jul  9 19:20:29 2018//
 /pte.h/1.14/Sun Jan  7 19:56:19 2018//
 /ptrace.h/1.1/Wed Jan 28 01:39:39 2004//
 /rbus_machdep.h/1.7/Wed Mar 23 16:54:34 2011//

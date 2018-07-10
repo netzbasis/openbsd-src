@@ -68,7 +68,7 @@
 /pledge.h/1.36/Sat Jun 16 15:37:00 2018//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.74/Sun Aug 13 20:26:33 2017//
-/proc.h/1.249/Sun Jun 17 08:22:02 2018//
+/proc.h/1.250/Tue Jul 10 04:19:59 2018//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.44/Fri Sep  9 20:31:46 2016//
@@ -87,7 +87,7 @@
 /shm.h/1.28/Mon Mar  5 01:15:26 2018//
 /siginfo.h/1.12/Fri Apr  7 04:48:44 2017//
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
-/signalvar.h/1.30/Sat Mar 24 04:13:59 2018//
+/signalvar.h/1.31/Tue Jul 10 04:19:59 2018//
 /socket.h/1.96/Sun Apr  8 18:57:39 2018//
 /socketvar.h/1.84/Mon Jun 11 08:57:35 2018//
 /sockio.h/1.76/Wed May 30 18:15:47 2018//

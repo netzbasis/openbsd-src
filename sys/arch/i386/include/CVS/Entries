@@ -11,7 +11,7 @@
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /codepatch.h/1.2/Sat Jul  1 19:42:59 2017//
 /conf.h/1.16/Fri Oct 21 06:56:38 2016//
-/cpu.h/1.163/Fri Jun 22 13:21:14 2018//
+/cpu.h/1.164/Mon Jul  9 19:20:30 2018//
 /cpu_full.h/1.3/Fri Jun 22 13:21:14 2018//
 /cpufunc.h/1.29/Sat Jun 30 10:16:35 2018//
 /cputypes.h/1.10/Mon Dec 29 08:14:18 2003//
@@ -55,13 +55,13 @@
 /pmap.h/1.85/Mon May 28 20:52:44 2018//
 /proc.h/1.10/Sat Mar 31 13:45:03 2018//
 /profile.h/1.12/Sat Mar 29 18:09:29 2014//
-/psl.h/1.20/Thu May 16 19:26:04 2013//
+/psl.h/1.21/Mon Jul  9 19:20:30 2018//
 /pte.h/1.22/Fri Oct 21 06:20:59 2016//
 /ptrace.h/1.3/Sun Apr  3 20:21:44 2005//
 /rbus_machdep.h/1.9/Wed Mar 23 16:54:35 2011//
 /reg.h/1.7/Wed Mar 23 16:54:35 2011//
 /reloc.h/1.3/Wed Mar 23 16:54:35 2011//
-/segments.h/1.25/Fri Jun 22 13:21:14 2018//
+/segments.h/1.26/Mon Jul  9 19:20:30 2018//
 /setjmp.h/1.2/Sat Aug  5 22:07:32 2000//
 /signal.h/1.11/Tue May 10 18:39:45 2016//
 /smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
@@ -74,7 +74,6 @@
 /tss.h/1.12/Fri Jun 22 13:21:14 2018//
 /varargs.h/1.6/Wed Mar 23 16:54:35 2011//
 /vga_post.h/1.2/Wed Mar 23 16:54:35 2011//
-/vm86.h/1.10/Sat Jun 25 19:20:41 2011//
 /vmmvar.h/1.16/Mon Apr 30 08:27:53 2018//
 /vmparam.h/1.56/Tue Apr 17 15:50:05 2018//
 D

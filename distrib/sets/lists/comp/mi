@@ -540,6 +540,7 @@
 ./usr/include/dev/pci/if_bcereg.h
 ./usr/include/dev/pci/if_bgereg.h
 ./usr/include/dev/pci/if_bnxreg.h
+./usr/include/dev/pci/if_bnxtreg.h
 ./usr/include/dev/pci/if_bwfm_pci.h
 ./usr/include/dev/pci/if_casreg.h
 ./usr/include/dev/pci/if_casvar.h
@@ -1593,7 +1594,6 @@
 ./usr/share/man/man2/i386/i386_get_fsbase.2
 ./usr/share/man/man2/i386/i386_get_gsbase.2
 ./usr/share/man/man2/i386/i386_iopl.2
-./usr/share/man/man2/i386/i386_vm86.2
 ./usr/share/man/man2/intro.2
 ./usr/share/man/man2/ioctl.2
 ./usr/share/man/man2/issetugid.2
@@ -1683,6 +1683,7 @@
 ./usr/share/man/man2/wait.2
 ./usr/share/man/man2/write.2
 ./usr/share/man/man3/ACCESS_DESCRIPTION_new.3
+./usr/share/man/man3/ASN1_INTEGER_get.3
 ./usr/share/man/man3/ASN1_OBJECT_new.3
 ./usr/share/man/man3/ASN1_STRING_TABLE_add.3
 ./usr/share/man/man3/ASN1_STRING_length.3
