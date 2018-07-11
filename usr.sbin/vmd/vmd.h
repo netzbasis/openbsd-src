@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.70 2018/07/09 08:43:09 mlarkin Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.72 2018/07/10 20:43:15 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -64,12 +64,6 @@
 
 /* 100.64.0.0/10 from rfc6598 (IPv4 Prefix for Shared Address Space) */
 #define VMD_DHCP_PREFIX		"100.64.0.0/10"
-
-#ifdef VMD_DEBUG
-#define dprintf(x...)   do { log_debug(x); } while(0)
-#else
-#define dprintf(x...)
-#endif /* VMD_DEBUG */
 
 enum imsg_type {
 	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,
@@ -308,8 +302,8 @@ uint32_t vm_id2vmid(uint32_t, struct vmd_vm *);
 uint32_t vm_vmid2id(uint32_t, struct vmd_vm *);
 struct vmd_vm *vm_getbyname(const char *);
 struct vmd_vm *vm_getbypid(pid_t);
-void	 vm_stop(struct vmd_vm *, int);
-void	 vm_remove(struct vmd_vm *);
+void	 vm_stop(struct vmd_vm *, int, const char *);
+void	 vm_remove(struct vmd_vm *, const char *);
 int	 vm_register(struct privsep *, struct vmop_create_params *,
 	    struct vmd_vm **, uint32_t, uid_t);
 int	 vm_checkperm(struct vmd_vm *, uid_t);

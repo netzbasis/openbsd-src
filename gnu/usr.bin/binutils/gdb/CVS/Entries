@@ -57,7 +57,7 @@
 /amd64nbsd-nat.c/1.1.1.2/Mon Dec 27 13:08:56 2004//
 /amd64nbsd-tdep.c/1.1.1.2/Mon Dec 27 13:07:16 2004//
 /amd64obsd-nat.c/1.6/Fri Apr 13 17:43:25 2012//
-/amd64obsd-tdep.c/1.10/Tue Jul  3 20:15:57 2018//
+/amd64obsd-tdep.c/1.11/Tue Jul 10 08:57:44 2018//
 /annotate.c/1.4/Mon Dec 27 14:00:32 2004//
 /annotate.h/1.4/Mon Dec 27 14:00:32 2004//
 /arch-utils.c/1.1.1.2/Mon Dec 27 13:05:10 2004//

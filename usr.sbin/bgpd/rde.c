@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.386 2018/07/09 14:44:02 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.390 2018/07/10 15:13:35 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -767,7 +767,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				rib = rib_new(rn.name, rn.rtableid, rn.flags);
 			else if (rib->rtableid != rn.rtableid ||
 			    (rib->flags & F_RIB_HASNOFIB) !=
-			    (rib->flags & F_RIB_HASNOFIB)) {
+			    (rn.flags & F_RIB_HASNOFIB)) {
 				struct filter_head	*in_rules;
 				struct rib_desc		*ribd = rib_desc(rib);
 				/*
@@ -938,10 +938,10 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 int
 rde_update_dispatch(struct imsg *imsg)
 {
+	struct rde_aspath	 asp;
 	struct bgpd_addr	 prefix;
 	struct mpattr		 mpa;
 	struct rde_peer		*peer;
-	struct rde_aspath	*asp = NULL;
 	u_char			*p, *mpp = NULL;
 	int			 error = -1, pos = 0;
 	u_int16_t		 afi, len, mplen;
@@ -986,11 +986,11 @@ rde_update_dispatch(struct imsg *imsg)
 	    imsg->hdr.len - IMSG_HEADER_SIZE - 4 - withdrawn_len - attrpath_len;
 	bzero(&mpa, sizeof(mpa));
 
+	path_prep(&asp);
 	if (attrpath_len != 0) { /* 0 = no NLRI information in this message */
 		/* parse path attributes */
-		asp = path_get();
 		while (len > 0) {
-			if ((pos = rde_attr_parse(p, len, peer, asp,
+			if ((pos = rde_attr_parse(p, len, peer, &asp,
 			    &mpa)) < 0)
 				goto done;
 			p += pos;
@@ -998,19 +998,19 @@ rde_update_dispatch(struct imsg *imsg)
 		}
 
 		/* check for missing but necessary attributes */
-		if ((subtype = rde_attr_missing(asp, peer->conf.ebgp,
+		if ((subtype = rde_attr_missing(&asp, peer->conf.ebgp,
 		    nlri_len))) {
 			rde_update_err(peer, ERR_UPDATE, ERR_UPD_MISSNG_WK_ATTR,
 			    &subtype, sizeof(u_int8_t));
 			goto done;
 		}
 
-		rde_as4byte_fixup(peer, asp);
+		rde_as4byte_fixup(peer, &asp);
 
 		/* enforce remote AS if requested */
-		if (asp->flags & F_ATTR_ASPATH &&
+		if (asp.flags & F_ATTR_ASPATH &&
 		    peer->conf.enforce_as == ENFORCE_AS_ON) {
-			fas = aspath_neighbor(asp->aspath);
+			fas = aspath_neighbor(asp.aspath);
 			if (peer->conf.remote_as != fas) {
 			    log_peer_warnx(&peer->conf, "bad path, "
 				"starting with %s, "
@@ -1021,7 +1021,7 @@ rde_update_dispatch(struct imsg *imsg)
 			}
 		}
 
-		rde_reflector(peer, asp);
+		rde_reflector(peer, &asp);
 	}
 
 	p = imsg->data;
@@ -1040,13 +1040,6 @@ rde_update_dispatch(struct imsg *imsg)
 			    NULL, 0);
 			goto done;
 		}
-		if (prefixlen > 32) {
-			log_peer_warnx(&peer->conf, "bad withdraw prefix");
-			rde_update_err(peer, ERR_UPDATE, ERR_UPD_NETWORK,
-			    NULL, 0);
-			goto done;
-		}
-
 		p += pos;
 		len -= pos;
 
@@ -1103,7 +1096,7 @@ rde_update_dispatch(struct imsg *imsg)
 			goto done;
 		}
 
-		if ((asp->flags & ~F_ATTR_MP_UNREACH) == 0 && mplen == 0) {
+		if ((asp.flags & ~F_ATTR_MP_UNREACH) == 0 && mplen == 0) {
 			/* EoR marker */
 			peer_recv_eor(peer, aid);
 		}
@@ -1120,15 +1113,6 @@ rde_update_dispatch(struct imsg *imsg)
 					    mpa.unreach, mpa.unreach_len);
 					goto done;
 				}
-				if (prefixlen > 128) {
-					log_peer_warnx(&peer->conf,
-					    "bad IPv6 withdraw prefix");
-					rde_update_err(peer, ERR_UPDATE,
-					    ERR_UPD_OPTATTR,
-					    mpa.unreach, mpa.unreach_len);
-					goto done;
-				}
-
 				mpp += pos;
 				mplen -= pos;
 
@@ -1146,15 +1130,6 @@ rde_update_dispatch(struct imsg *imsg)
 					    mpa.unreach, mpa.unreach_len);
 					goto done;
 				}
-				if (prefixlen > 32) {
-					log_peer_warnx(&peer->conf,
-					    "bad VPNv4 withdraw prefix");
-					rde_update_err(peer, ERR_UPDATE,
-					    ERR_UPD_OPTATTR,
-					    mpa.unreach, mpa.unreach_len);
-					goto done;
-				}
-
 				mpp += pos;
 				mplen -= pos;
 
@@ -1166,7 +1141,7 @@ rde_update_dispatch(struct imsg *imsg)
 			break;
 		}
 
-		if ((asp->flags & ~F_ATTR_MP_UNREACH) == 0) {
+		if ((asp.flags & ~F_ATTR_MP_UNREACH) == 0) {
 			error = 0;
 			goto done;
 		}
@@ -1178,8 +1153,8 @@ rde_update_dispatch(struct imsg *imsg)
 	/* aspath needs to be loop free nota bene this is not a hard error */
 	if (peer->conf.ebgp &&
 	    peer->conf.enforce_local_as == ENFORCE_AS_ON &&
-	    !aspath_loopfree(asp->aspath, peer->conf.local_as))
-		asp->flags |= F_ATTR_LOOP;
+	    !aspath_loopfree(asp.aspath, peer->conf.local_as))
+		asp.flags |= F_ATTR_LOOP;
 
 	/* parse nlri prefix */
 	while (nlri_len > 0) {
@@ -1190,13 +1165,6 @@ rde_update_dispatch(struct imsg *imsg)
 			    NULL, 0);
 			goto done;
 		}
-		if (prefixlen > 32) {
-			log_peer_warnx(&peer->conf, "bad nlri prefix");
-			rde_update_err(peer, ERR_UPDATE, ERR_UPD_NETWORK,
-			    NULL, 0);
-			goto done;
-		}
-
 		p += pos;
 		nlri_len -= pos;
 
@@ -1208,7 +1176,7 @@ rde_update_dispatch(struct imsg *imsg)
 			goto done;
 		}
 
-		if (rde_update_update(peer, asp, &prefix, prefixlen) == -1)
+		if (rde_update_update(peer, &asp, &prefix, prefixlen) == -1)
 			goto done;
 
 	}
@@ -1244,11 +1212,11 @@ rde_update_dispatch(struct imsg *imsg)
 		 * this works because asp is not linked.
 		 * But first unlock the previously locked nexthop.
 		 */
-		if (asp->nexthop) {
-			(void)nexthop_put(asp->nexthop);
-			asp->nexthop = NULL;
+		if (asp.nexthop) {
+			(void)nexthop_put(asp.nexthop);
+			asp.nexthop = NULL;
 		}
-		if ((pos = rde_get_mp_nexthop(mpp, mplen, aid, asp)) == -1) {
+		if ((pos = rde_get_mp_nexthop(mpp, mplen, aid, &asp)) == -1) {
 			log_peer_warnx(&peer->conf, "bad nlri prefix");
 			rde_update_err(peer, ERR_UPDATE, ERR_UPD_OPTATTR,
 			    mpa.reach, mpa.reach_len);
@@ -1269,17 +1237,10 @@ rde_update_dispatch(struct imsg *imsg)
 					    mpa.reach, mpa.reach_len);
 					goto done;
 				}
-				if (prefixlen > 128) {
-					rde_update_err(peer, ERR_UPDATE,
-					    ERR_UPD_OPTATTR,
-					    mpa.reach, mpa.reach_len);
-					goto done;
-				}
-
 				mpp += pos;
 				mplen -= pos;
 
-				if (rde_update_update(peer, asp, &prefix,
+				if (rde_update_update(peer, &asp, &prefix,
 				    prefixlen) == -1)
 					goto done;
 			}
@@ -1295,17 +1256,10 @@ rde_update_dispatch(struct imsg *imsg)
 					    mpa.reach, mpa.reach_len);
 					goto done;
 				}
-				if (prefixlen > 32) {
-					rde_update_err(peer, ERR_UPDATE,
-					    ERR_UPD_OPTATTR,
-					    mpa.reach, mpa.reach_len);
-					goto done;
-				}
-
 				mpp += pos;
 				mplen -= pos;
 
-				if (rde_update_update(peer, asp, &prefix,
+				if (rde_update_update(peer, &asp, &prefix,
 				    prefixlen) == -1)
 					goto done;
 			}
@@ -1317,10 +1271,7 @@ rde_update_dispatch(struct imsg *imsg)
 	}
 
 done:
-	if (attrpath_len != 0) {
-		/* free allocated attribute memory that is no longer used */
-		path_put(asp);
-	}
+	path_clean(&asp);
 
 	return (error);
 }
@@ -1916,6 +1867,8 @@ rde_update_get_prefix(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
 	prefix->aid = AID_INET;
 	*prefixlen = pfxlen;
 
+	if (pfxlen > 32)
+		return (-1);
 	if ((plen = rde_update_extract_prefix(p, len, &prefix->v4, pfxlen,
 	    sizeof(prefix->v4))) == -1)
 		return (-1);
@@ -1940,6 +1893,8 @@ rde_update_get_prefix6(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
 	prefix->aid = AID_INET6;
 	*prefixlen = pfxlen;
 
+	if (pfxlen > 128)
+		return (-1);
 	if ((plen = rde_update_extract_prefix(p, len, &prefix->v6, pfxlen,
 	    sizeof(prefix->v6))) == -1)
 		return (-1);
@@ -2001,6 +1956,8 @@ rde_update_get_vpn4(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
 	prefix->aid = AID_VPN_IPv4;
 	*prefixlen = pfxlen;
 
+	if (pfxlen > 32)
+		return (-1);
 	if ((rv = rde_update_extract_prefix(p, len, &prefix->vpn4.addr,
 	    pfxlen, sizeof(prefix->vpn4.addr))) == -1)
 		return (-1);
@@ -3537,7 +3494,7 @@ network_add(struct network_config *nc, int flagstatic)
 	in_addr_t		 prefix4;
 	u_int16_t		 i;
 
-	if (nc->rtableid) {
+	if (nc->rtableid != conf->default_tableid) {
 		SIMPLEQ_FOREACH(rd, rdomains_l, entry) {
 			if (rd->rtableid != nc->rtableid)
 				continue;

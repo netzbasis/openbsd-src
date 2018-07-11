@@ -1,7 +1,5 @@
-/Makefile/1.13/Mon Jul  9 17:18:56 2018//
+/Makefile/1.14/Tue Jul 10 09:05:47 2018//
 /check-lib-depends.1/1.1/Tue Jun 26 05:38:49 2018//
-/check-manpages.1/1.1/Tue Jun 26 05:38:49 2018//
-/check-problems.1/1.1/Tue Jun 26 05:38:49 2018//
 /clang-local.1/1.15/Wed Jun 13 04:34:41 2018//
 /clean-old-distfiles.1/1.1/Tue Jun 26 05:38:49 2018//
 /dpb-replay.1/1.1/Tue Jun 26 05:38:49 2018//
@@ -10,6 +8,8 @@
 /help.1/1.4/Thu Jul 13 08:29:36 2017//
 /intro.1/1.13/Tue Apr 21 14:27:07 2015//
 /outdated-perl-ports.1/1.2/Mon Jul  9 18:27:58 2018//
+/pkg_check-manpages.1/1.1/Tue Jul 10 09:05:47 2018//
+/pkg_check-problems.1/1.1/Tue Jul 10 09:05:47 2018//
 /pkg_outdated.1/1.2/Mon Jul  9 18:27:58 2018//
 /pkg_subst.1/1.1/Tue Jun 26 05:38:49 2018//
 /port-getpkgpath-helper.1/1.1/Mon Jul  9 13:57:13 2018//

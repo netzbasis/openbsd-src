@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.325 2018/07/09 12:05:11 krw Exp $ */
+/*	$OpenBSD: parse.y,v 1.327 2018/07/10 12:40:41 benno Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -487,6 +487,11 @@ conf_main	: AS as4number		{
 			free($3);
 		}
 		| RDE RIB STRING RTABLE NUMBER {
+			if ($5 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $5,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if (add_rib($3, $5, 0)) {
 				free($3);
 				YYERROR;
@@ -495,6 +500,11 @@ conf_main	: AS as4number		{
 		}
 		| RDE RIB STRING RTABLE NUMBER FIBUPDATE yesno {
 			int	flags = 0;
+			if ($5 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $5,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if ($7 == 0)
 				flags = F_RIB_NOFIBSYNC;
 			if (add_rib($3, $5, flags)) {
@@ -631,6 +641,11 @@ conf_main	: AS as4number		{
 		}
 		| RTABLE NUMBER {
 			struct rde_rib *rr;
+			if ($2 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $2,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if (ktable_exists($2, NULL) != 1) {
 				yyerror("rtable id %lld does not exist", $2);
 				YYERROR;
@@ -888,6 +903,11 @@ optnumber	: /* empty */		{ $$ = 0; }
 		;
 
 rdomain		: RDOMAIN NUMBER optnl '{' optnl	{
+			if ($2 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $2,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if (ktable_exists($2, NULL) != 1) {
 				yyerror("rdomain %lld does not exist", $2);
 				YYERROR;
@@ -2974,9 +2994,10 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 
 	netconf = &conf->networks;
 
-	/* the Adj-RIB-In/Out have no fib so no need to set the tableid */
-	add_rib("Adj-RIB-In", 0, F_RIB_NOFIB | F_RIB_NOEVALUATE);
-	add_rib("Adj-RIB-Out", 0, F_RIB_NOFIB | F_RIB_NOEVALUATE);
+	add_rib("Adj-RIB-In", conf->default_tableid,
+	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
+	add_rib("Adj-RIB-Out", conf->default_tableid,
+	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
 	add_rib("Loc-RIB", conf->default_tableid, F_RIB_LOCAL);
 
 	if ((file = pushfile(filename, 1)) == NULL) {
@@ -3566,8 +3587,8 @@ add_rib(char *name, u_int rtableid, u_int16_t flags)
 			free(rr);
 			return (-1);
 		}
-		rr->rtableid = rtableid;
 	}
+	rr->rtableid = rtableid;
 	SIMPLEQ_INSERT_TAIL(&ribnames, rr, entry);
 	return (0);
 }

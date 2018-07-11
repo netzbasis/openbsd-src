@@ -12,7 +12,7 @@
 /ftruncate.c/1.1.1.1/Tue Dec 19 09:21:28 1995//
 /getdate.c/1.11/Tue Dec  3 01:32:49 2013//
 /getdate.y/1.13/Tue Dec  3 01:32:49 2013//
-/getline.c/1.2/Sun Mar  4 04:05:15 2012//
+/getline.c/1.3/Tue Jul 10 17:45:52 2018//
 /getline.h/1.2/Sun Mar  4 04:05:15 2012//
 /getopt.c/1.1.1.3/Fri Feb 21 06:36:29 1997//
 /getopt.h/1.1.1.3/Fri Sep 10 05:06:09 1999//
@@ -22,7 +22,7 @@
 /md5.h/1.1.1.3/Sun Feb 28 21:31:17 1999//
 /memmove.c/1.4/Sun Feb 28 21:57:41 1999//
 /mkdir.c/1.1.1.3/Fri Feb 21 06:36:32 1997//
-/regex.c/1.1.1.7/Sat Feb 10 18:57:25 2001//
+/regex.c/1.2/Tue Jul 10 17:45:52 2018//
 /regex.h/1.1.1.4/Sat Feb 10 18:57:27 2001//
 /rename.c/1.1.1.4/Fri Sep 28 22:45:41 2001//
 /savecwd.c/1.1.1.2/Sat Feb 10 18:57:26 2001//

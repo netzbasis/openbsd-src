@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.81 2018/04/13 17:12:44 martijn Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.84 2018/07/10 20:52:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -54,7 +54,7 @@
 #include "vmm.h"
 
 void vmm_sighdlr(int, short, void *);
-int vmm_start_vm(struct imsg *, uint32_t *);
+int vmm_start_vm(struct imsg *, uint32_t *, pid_t *);
 int vmm_dispatch_parent(int, struct privsep_proc *, struct imsg *);
 void vmm_run(struct privsep *, struct privsep_proc *, void *);
 void vmm_dispatch_vm(int, short, void *);
@@ -110,6 +110,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct vmop_result	 vmr;
 	struct vmop_create_params vmc;
 	uint32_t		 id = 0;
+	pid_t			 pid = 0;
 	unsigned int		 mode;
 
 	switch (imsg->hdr.type) {
@@ -142,7 +143,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 		break;
 	case IMSG_VMDOP_START_VM_END:
-		res = vmm_start_vm(imsg, &id);
+		res = vmm_start_vm(imsg, &id, &pid);
 		/* Check if the ID can be mapped correctly */
 		if ((id = vm_id2vmid(id, NULL)) == 0)
 			res = ENOENT;
@@ -152,14 +153,15 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &vtp);
 		memcpy(&vtp, imsg->data, sizeof(vtp));
 		id = vtp.vtp_vm_id;
-		log_debug("%s: recv'ed TERMINATE_VM for %d", __func__, id);
+
+		DPRINTF("%s: recv'ed TERMINATE_VM for %d", __func__, id);
 
 		if (id == 0) {
 			res = ENOENT;
 		} else if ((vm = vm_getbyvmid(id)) != NULL) {
 			if (vm->vm_shutdown == 0) {
-				log_debug("%s: sending shutdown req to vm %d",
-				    __func__, id);
+				log_debug("%s: sending shutdown request"
+				    " to vm %d", __func__, id);
 
 				/*
 				 * Request reboot but mark the VM as shutting
@@ -283,7 +285,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 			break;
 		}
 		vm->vm_receive_fd = imsg->fd;
-		res = vmm_start_vm(imsg, &id);
+		res = vmm_start_vm(imsg, &id, &pid);
 		/* Check if the ID can be mapped correctly */
 		if ((id = vm_id2vmid(id, NULL)) == 0)
 			res = ENOENT;
@@ -302,7 +304,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 			if ((vm = vm_getbyvmid(imsg->hdr.peerid)) != NULL) {
 				log_debug("%s: removing vm, START_VM_RESPONSE",
 				    __func__);
-				vm_remove(vm);
+				vm_remove(vm, __func__);
 			}
 		}
 		if (id == 0)
@@ -313,6 +315,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		memset(&vmr, 0, sizeof(vmr));
 		vmr.vmr_result = res;
 		vmr.vmr_id = id;
+		vmr.vmr_pid = pid;
 		if (proc_compose_imsg(ps, PROC_PARENT, -1, cmd,
 		    imsg->hdr.peerid, -1, &vmr, sizeof(vmr)) == -1)
 			return (-1);
@@ -382,8 +385,7 @@ vmm_sighdlr(int sig, short event, void *arg)
 					log_warnx("could not terminate VM %u",
 					    vm->vm_vmid);
 
-				log_debug("%s: calling vm_remove", __func__);
-				vm_remove(vm);
+				vm_remove(vm, __func__);
 			} else
 				fatalx("unexpected cause of SIGCHLD");
 		} while (pid > 0 || (pid == -1 && errno == EINTR));
@@ -409,8 +411,7 @@ vmm_shutdown(void)
 
 		/* XXX suspend or request graceful shutdown */
 		(void)terminate_vm(&vtp);
-		log_debug("%s: calling vm_remove", __func__);
-		vm_remove(vm);
+		vm_remove(vm, __func__);
 	}
 }
 
@@ -480,7 +481,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 		if (n == 0)
 			break;
 
-		dprintf("%s: got imsg %d from %s",
+		DPRINTF("%s: got imsg %d from %s",
 		    __func__, imsg.hdr.type,
 		    vm->vm_params.vmc_params.vcp_name);
 
@@ -495,8 +496,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 			IMSG_SIZE_CHECK(&imsg, &vmr);
 			memcpy(&vmr, imsg.data, sizeof(vmr));
 			if (!vmr.vmr_result) {
-				log_debug("%s: calling vm_remove", __func__);
-				vm_remove(vm);
+				vm_remove(vm, __func__);
 			}
 		case IMSG_VMDOP_PAUSE_VM_RESPONSE:
 		case IMSG_VMDOP_UNPAUSE_VM_RESPONSE:
@@ -582,13 +582,14 @@ opentap(char *ifname)
  * Parameters:
  *  imsg: The VM data structure that is including the VM create parameters.
  *  id: Returns the VM id as reported by the kernel and obtained from the VM.
+ *  pid: Returns the VM pid to the parent.
  *
  * Return values:
  *  0: success
  *  !0 : failure - typically an errno indicating the source of the failure
  */
 int
-vmm_start_vm(struct imsg *imsg, uint32_t *id)
+vmm_start_vm(struct imsg *imsg, uint32_t *id, pid_t *pid)
 {
 	struct vm_create_params	*vcp;
 	struct vmd_vm		*vm;
@@ -656,6 +657,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 			goto err;
 
 		*id = vcp->vcp_id;
+		*pid = vm->vm_pid;
 
 		if (vmm_pipe(vm, fds[0], vmm_dispatch_vm) == -1)
 			fatal("setup vm pipe");
@@ -674,8 +676,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 	return (0);
 
  err:
-	log_debug("%s: calling vm_remove", __func__);
-	vm_remove(vm);
+	vm_remove(vm, __func__);
 
 	return (ret);
 }
