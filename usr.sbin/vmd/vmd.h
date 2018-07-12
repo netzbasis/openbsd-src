@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.72 2018/07/10 20:43:15 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.74 2018/07/11 13:19:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -121,6 +121,9 @@ struct vmop_id {
 	uint32_t		 vid_id;
 	char			 vid_name[VMM_MAX_NAME_LEN];
 	uid_t			 vid_uid;
+	unsigned int		 vid_flags;
+#define VMOP_FORCE		0x01
+#define VMOP_WAIT		0x02
 };
 
 struct vmop_ifreq {

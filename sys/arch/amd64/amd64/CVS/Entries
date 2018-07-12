@@ -28,7 +28,7 @@
 /genassym.cf/1.38/Tue Jul 10 08:57:44 2018//
 /hibernate_machdep.c/1.44/Wed Jul  4 01:41:56 2018//
 /i8259.c/1.10/Sat Oct 14 04:44:43 2017//
-/identcpu.c/1.100/Tue Jul  3 08:42:32 2018//
+/identcpu.c/1.101/Wed Jul 11 20:07:55 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
 /ioapic.c/1.28/Sat Oct 14 04:44:43 2017//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
@@ -47,7 +47,7 @@
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
-/pmap.c/1.114/Thu Apr 26 06:51:48 2018//
+/pmap.c/1.115/Wed Jul 11 20:07:55 2018//
 /powernow-k8.c/1.28/Sun Jan 14 00:33:09 2018//
 /process_machdep.c/1.16/Tue Jun  5 06:39:10 2018//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
@@ -60,7 +60,7 @@
 /vector.S/1.71/Tue Jul 10 16:01:26 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.42/Tue Jun  5 06:39:10 2018//
-/vmm.c/1.210/Tue Jul 10 09:04:22 2018//
+/vmm.c/1.214/Wed Jul 11 18:04:18 2018//
 /vmm_support.S/1.11/Tue Jul  3 23:21:15 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D

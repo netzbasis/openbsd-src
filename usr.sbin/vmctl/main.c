@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.35 2018/02/24 10:39:35 phessler Exp $	*/
+/*	$OpenBSD: main.c,v 1.37 2018/07/11 13:19:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -73,7 +73,7 @@ struct ctl_command ctl_commands[] = {
 	    " [-Lc] [-b image] [-r image] [-m size]\n"
 	    "\t\t[-n switch] [-i count] [-d disk]*" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
-	{ "stop",	CMD_STOP,	ctl_stop,	"id" },
+	{ "stop",	CMD_STOP,	ctl_stop,	"id [-fw]" },
 	{ "pause",	CMD_PAUSE,	ctl_pause,	"id" },
 	{ "unpause",	CMD_UNPAUSE,	ctl_unpause,	"id" },
 	{ "send",	CMD_SEND,	ctl_send,	"id",	1},
@@ -182,6 +182,7 @@ vmmaction(struct parse_result *res)
 	int			 done = 0;
 	int			 n;
 	int			 ret, action;
+	unsigned int		 flags;
 
 	if (ctl_sock == -1) {
 		if ((ctl_sock = socket(AF_UNIX,
@@ -212,7 +213,7 @@ vmmaction(struct parse_result *res)
 		}
 		break;
 	case CMD_STOP:
-		terminate_vm(res->id, res->name);
+		terminate_vm(res->id, res->name, res->flags);
 		break;
 	case CMD_STATUS:
 		get_info_vm(res->id, res->name, 0);
@@ -254,6 +255,7 @@ vmmaction(struct parse_result *res)
 	}
 
 	action = res->action;
+	flags = res->flags;
 	parse_free(res);
 
 	while (ibuf->w.queued)
@@ -292,7 +294,8 @@ vmmaction(struct parse_result *res)
 				    tty_autoconnect);
 				break;
 			case CMD_STOP:
-				done = terminate_vm_complete(&imsg, &ret);
+				done = terminate_vm_complete(&imsg, &ret,
+				    flags);
 				break;
 			case CMD_CONSOLE:
 			case CMD_STATUS:
@@ -641,11 +644,30 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 int
 ctl_stop(struct parse_result *res, int argc, char *argv[])
 {
-	if (argc == 2) {
-		if (parse_vmid(res, argv[1], 0) == -1)
-			errx(1, "invalid id: %s", argv[1]);
-	} else if (argc != 2)
+	int		 ch;
+
+	if (argc < 2)
 		ctl_usage(res->ctl);
+
+	if (parse_vmid(res, argv[1], 0) == -1)
+		errx(1, "invalid id: %s", argv[1]);
+
+	argc--;
+	argv++;
+
+	while ((ch = getopt(argc, argv, "fw")) != -1) {
+		switch (ch) {
+		case 'f':
+			res->flags |= VMOP_FORCE;
+			break;
+		case 'w':
+			res->flags |= VMOP_WAIT;
+			break;
+		default:
+			ctl_usage(res->ctl);
+			/* NOTREACHED */
+		}
+	}
 
 	return (vmmaction(res));
 }

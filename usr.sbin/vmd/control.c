@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.25 2018/07/10 20:46:50 reyk Exp $	*/
+/*	$OpenBSD: control.c,v 1.27 2018/07/11 13:19:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>

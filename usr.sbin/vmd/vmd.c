@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.90 2018/07/10 21:12:20 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.94 2018/07/11 16:37:31 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -56,7 +56,7 @@ void	 vmd_shutdown(void);
 int	 vmd_control_run(void);
 int	 vmd_dispatch_control(int, struct privsep_proc *, struct imsg *);
 int	 vmd_dispatch_vmm(int, struct privsep_proc *, struct imsg *);
-int	 check_vmh(struct vm_dump_header *);
+int	 vmd_check_vmh(struct vm_dump_header *);
 
 struct vmd	*env;
 
@@ -76,10 +76,9 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep			*ps = p->p_ps;
 	int				 res = 0, ret = 0, cmd = 0, verbose;
-	unsigned int			 v = 0;
+	unsigned int			 v = 0, flags;
 	struct vmop_create_params	 vmc;
 	struct vmop_id			 vid;
-	struct vm_terminate_params	 vtp;
 	struct vmop_result		 vmr;
 	struct vm_dump_header		 vmh;
 	struct vmd_vm			*vm = NULL;
@@ -113,13 +112,16 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vid);
 		memcpy(&vid, imsg->data, sizeof(vid));
+		flags = vid.vid_flags;
+
 		if ((id = vid.vid_id) == 0) {
 			/* Lookup vm (id) by name */
 			if ((vm = vm_getbyname(vid.vid_name)) == NULL) {
 				res = ENOENT;
 				cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 				break;
-			} else if (vm->vm_shutdown) {
+			} else if (vm->vm_shutdown &&
+			    (flags & VMOP_FORCE) == 0) {
 				res = EALREADY;
 				cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 				break;
@@ -139,10 +141,12 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 			cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 			break;
 		}
-		memset(&vtp, 0, sizeof(vtp));
-		vtp.vtp_vm_id = id;
+
+		memset(&vid, 0, sizeof(vid));
+		vid.vid_id = id;
+		vid.vid_flags = flags;
 		if (proc_compose_imsg(ps, PROC_VMM, -1, imsg->hdr.type,
-		    imsg->hdr.peerid, -1, &vtp, sizeof(vtp)) == -1)
+		    imsg->hdr.peerid, -1, &vid, sizeof(vid)) == -1)
 			return (-1);
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_REQUEST:
@@ -243,7 +247,7 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 			break;
 		}
 
-		if (check_vmh(&vmh)) {
+		if (vmd_check_vmh(&vmh)) {
 			res = ENOENT;
 			close(imsg->fd);
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -430,6 +434,17 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 			vm_stop(vm, 1, __func__);
 			config_setvm(ps, vm, (uint32_t)-1, vm->vm_uid);
 		}
+
+		/* Send a response if a control client is waiting for it */
+		if (imsg->hdr.peerid != (uint32_t)-1) {
+			/* the error is meaningless for deferred responses */
+			vmr.vmr_result = 0;
+
+			if (proc_compose_imsg(ps, PROC_CONTROL, -1,
+			    IMSG_VMDOP_TERMINATE_VM_RESPONSE,
+			    imsg->hdr.peerid, -1, &vmr, sizeof(vmr)) == -1)
+				return (-1);
+		}
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_DATA:
 		IMSG_SIZE_CHECK(imsg, &vir);
@@ -500,7 +515,7 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 }
 
 int
-check_vmh(struct vm_dump_header *vmh)
+vmd_check_vmh(struct vm_dump_header *vmh)
 {
 	int i;
 	unsigned int code, leaf;
@@ -523,96 +538,101 @@ check_vmh(struct vm_dump_header *vmh)
 
 		switch (code) {
 		case 0x00:
-		CPUID_LEAF(code, leaf, a, b, c, d);
-		if (vmh->vmh_cpuids[i].a > a) {
-			log_debug("%s: incompatible cpuid level", __func__);
-			return (-1);
-		}
-		if (!(vmh->vmh_cpuids[i].b == b &&
-		    vmh->vmh_cpuids[i].c == c &&
-		    vmh->vmh_cpuids[i].d == d)) {
-			log_debug("%s: incompatible cpu brand", __func__);
-			return (-1);
-		}
-		break;
+			CPUID_LEAF(code, leaf, a, b, c, d);
+			if (vmh->vmh_cpuids[i].a > a) {
+				log_debug("%s: incompatible cpuid level",
+				    __func__);
+				return (-1);
+			}
+			if (!(vmh->vmh_cpuids[i].b == b &&
+			    vmh->vmh_cpuids[i].c == c &&
+			    vmh->vmh_cpuids[i].d == d)) {
+				log_debug("%s: incompatible cpu brand",
+				    __func__);
+				return (-1);
+			}
+			break;
 
 		case 0x01:
-		CPUID_LEAF(code, leaf, a, b, c, d);
-		if ((vmh->vmh_cpuids[i].c & c & VMM_CPUIDECX_MASK) !=
-		    (vmh->vmh_cpuids[i].c & VMM_CPUIDECX_MASK)) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: c", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		if ((vmh->vmh_cpuids[i].d & d & VMM_CPUIDEDX_MASK) !=
-		    (vmh->vmh_cpuids[i].d & VMM_CPUIDEDX_MASK)) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: d", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		break;
+			CPUID_LEAF(code, leaf, a, b, c, d);
+			if ((vmh->vmh_cpuids[i].c & c & VMM_CPUIDECX_MASK) !=
+			    (vmh->vmh_cpuids[i].c & VMM_CPUIDECX_MASK)) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: c", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			if ((vmh->vmh_cpuids[i].d & d & VMM_CPUIDEDX_MASK) !=
+			    (vmh->vmh_cpuids[i].d & VMM_CPUIDEDX_MASK)) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: d", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			break;
 
 		case 0x07:
-		CPUID_LEAF(code, leaf, a, b, c, d);
-		if ((vmh->vmh_cpuids[i].b & b & VMM_SEFF0EBX_MASK) !=
-		    (vmh->vmh_cpuids[i].b & VMM_SEFF0EBX_MASK)) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: c", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		if ((vmh->vmh_cpuids[i].c & c & VMM_SEFF0ECX_MASK) !=
-		    (vmh->vmh_cpuids[i].c & VMM_SEFF0ECX_MASK)) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: d", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		break;
+			CPUID_LEAF(code, leaf, a, b, c, d);
+			if ((vmh->vmh_cpuids[i].b & b & VMM_SEFF0EBX_MASK) !=
+			    (vmh->vmh_cpuids[i].b & VMM_SEFF0EBX_MASK)) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: c", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			if ((vmh->vmh_cpuids[i].c & c & VMM_SEFF0ECX_MASK) !=
+			    (vmh->vmh_cpuids[i].c & VMM_SEFF0ECX_MASK)) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: d", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			break;
 
 		case 0x0d:
-		CPUID_LEAF(code, leaf, a, b, c, d);
-		if (vmh->vmh_cpuids[i].b > b) {
-			log_debug("%s: incompatible cpu: insufficient "
-			    "max save area for enabled XCR0 features",
-			    __func__);
-			return (-1);
-		}
-		if (vmh->vmh_cpuids[i].c > c) {
-			log_debug("%s: incompatible cpu: insufficient "
-			    "max save area for supported XCR0 features",
-			    __func__);
-			return (-1);
-		}
-		break;
+			CPUID_LEAF(code, leaf, a, b, c, d);
+			if (vmh->vmh_cpuids[i].b > b) {
+				log_debug("%s: incompatible cpu: insufficient "
+				    "max save area for enabled XCR0 features",
+				    __func__);
+				return (-1);
+			}
+			if (vmh->vmh_cpuids[i].c > c) {
+				log_debug("%s: incompatible cpu: insufficient "
+				    "max save area for supported XCR0 features",
+				    __func__);
+				return (-1);
+			}
+			break;
 
 		case 0x80000001:
-		CPUID_LEAF(code, leaf, a, b, c, d);
-		if ((vmh->vmh_cpuids[i].a & a) != vmh->vmh_cpuids[i].a) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: a", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		if ((vmh->vmh_cpuids[i].c & c) != vmh->vmh_cpuids[i].c) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: c", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		if ((vmh->vmh_cpuids[i].d & d) != vmh->vmh_cpuids[i].d) {
-			log_debug("%s: incompatible cpu features "
-			    "code: 0x%x leaf: 0x%x  reg: d", __func__,
-			    code, leaf);
-			return (-1);
-		}
-		break;
+			CPUID_LEAF(code, leaf, a, b, c, d);
+			if ((vmh->vmh_cpuids[i].a & a) !=
+			    vmh->vmh_cpuids[i].a) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: a", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			if ((vmh->vmh_cpuids[i].c & c) !=
+			    vmh->vmh_cpuids[i].c) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: c", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			if ((vmh->vmh_cpuids[i].d & d) !=
+			    vmh->vmh_cpuids[i].d) {
+				log_debug("%s: incompatible cpu features "
+				    "code: 0x%x leaf: 0x%x  reg: d", __func__,
+				    code, leaf);
+				return (-1);
+			}
+			break;
 
 		default:
-		log_debug("%s: unknown code 0x%x", __func__, code);
-		return (-1);
+			log_debug("%s: unknown code 0x%x", __func__, code);
+			return (-1);
 		}
 	}
 

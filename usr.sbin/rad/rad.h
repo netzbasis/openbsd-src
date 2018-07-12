@@ -1,4 +1,4 @@
-/*	$OpenBSD: rad.h,v 1.2 2018/07/10 22:14:19 florian Exp $	*/
+/*	$OpenBSD: rad.h,v 1.6 2018/07/11 19:05:25 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -61,10 +61,11 @@ enum imsg_type {
 	IMSG_STARTUP_DONE,
 	IMSG_RA_RS,
 	IMSG_SEND_RA,
+	IMSG_UPDATE_IF,
+	IMSG_REMOVE_IF,
+	IMSG_SHUTDOWN,
 	IMSG_SOCKET_IPC
 };
-
-extern const char* imsg_type_name[];
 
 /* RFC 4861 Section 4.2 */
 struct ra_options_conf {

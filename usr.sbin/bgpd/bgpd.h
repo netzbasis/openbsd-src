@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.322 2018/07/10 13:06:28 benno Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.324 2018/07/11 16:34:36 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -344,7 +344,8 @@ enum network_type {
 	NETWORK_STATIC,
 	NETWORK_CONNECTED,
 	NETWORK_RTLABEL,
-	NETWORK_MRTCLONE
+	NETWORK_MRTCLONE,
+	NETWORK_PRIORITY
 };
 
 struct network_config {
@@ -355,6 +356,7 @@ struct network_config {
 	u_int16_t		 rtlabel;
 	enum network_type	 type;
 	u_int8_t		 prefixlen;
+	u_int8_t		 priority;
 	u_int8_t		 old;	/* used for reloading */
 };
 
@@ -389,6 +391,7 @@ enum imsg_type {
 	IMSG_CTL_SHOW_RIB_LARGECOMMUNITY,
 	IMSG_CTL_SHOW_NETWORK,
 	IMSG_CTL_SHOW_RIB_MEM,
+	IMSG_CTL_SHOW_RIB_HASH,
 	IMSG_CTL_SHOW_TERSE,
 	IMSG_CTL_SHOW_TIMER,
 	IMSG_CTL_LOG_VERBOSE,
@@ -994,6 +997,15 @@ struct rde_memstats {
 	int64_t		attr_refs;
 	int64_t		attr_data;
 	int64_t		attr_dcnt;
+};
+
+struct rde_hashstats {
+	char		name[16];
+	int64_t		num;
+	int64_t		min;
+	int64_t		max;
+	int64_t		sum;
+	int64_t		sumq;
 };
 
 #define	MRT_FILE_LEN	512
