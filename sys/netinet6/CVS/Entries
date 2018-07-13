@@ -17,7 +17,7 @@
 /ip6_input.c/1.215/Mon May 21 15:52:22 2018//
 /ip6_mroute.c/1.115/Wed May  2 07:19:45 2018//
 /ip6_mroute.h/1.20/Tue May 16 08:50:18 2017//
-/ip6_output.c/1.237/Tue Mar 27 15:03:52 2018//
+/ip6_output.c/1.238/Thu Jul 12 15:51:50 2018//
 /ip6_var.h/1.83/Sat Feb 10 05:52:08 2018//
 /ip6protosw.h/1.13/Thu Nov 23 13:45:46 2017//
 /mld6.c/1.55/Sun Oct 29 14:56:36 2017//
@@ -25,7 +25,7 @@
 /mld6_var.h/1.6/Fri Apr 18 06:42:20 2008//
 /nd6.c/1.225/Wed Jul 11 21:18:23 2018//
 /nd6.h/1.74/Mon Nov 27 15:41:30 2017//
-/nd6_nbr.c/1.123/Mon Jun 11 08:48:54 2018//
+/nd6_nbr.c/1.124/Thu Jul 12 16:07:35 2018//
 /nd6_rtr.c/1.166/Tue Jan 23 22:06:42 2018//
 /raw_ip6.c/1.129/Thu Jul  5 21:16:52 2018//
 /raw_ip6.h/1.4/Thu Feb  9 15:23:35 2017//

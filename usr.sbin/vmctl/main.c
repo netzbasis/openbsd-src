@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.37 2018/07/11 13:19:47 reyk Exp $	*/
+/*	$OpenBSD: main.c,v 1.39 2018/07/12 14:53:37 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -71,7 +71,7 @@ struct ctl_command ctl_commands[] = {
 	{ "show",	CMD_STATUS,	ctl_status,	"[id]" },
 	{ "start",	CMD_START,	ctl_start,	"\"name\""
 	    " [-Lc] [-b image] [-r image] [-m size]\n"
-	    "\t\t[-n switch] [-i count] [-d disk]*" },
+	    "\t\t[-n switch] [-i count] [-d disk]* [-t name]" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
 	{ "stop",	CMD_STOP,	ctl_stop,	"id [-fw]" },
 	{ "pause",	CMD_PAUSE,	ctl_pause,	"id" },
@@ -206,7 +206,7 @@ vmmaction(struct parse_result *res)
 	case CMD_START:
 		ret = vm_start(res->id, res->name, res->size, res->nifs,
 		    res->nets, res->ndisks, res->disks, res->path,
-		    res->isopath);
+		    res->isopath, res->instance);
 		if (ret) {
 			errno = ret;
 			err(1, "start VM operation failed");
@@ -330,6 +330,7 @@ parse_free(struct parse_result *res)
 	free(res->name);
 	free(res->path);
 	free(res->isopath);
+	free(res->instance);
 	for (i = 0; i < res->ndisks; i++)
 		free(res->disks[i]);
 	free(res->disks);
@@ -447,6 +448,20 @@ parse_vmid(struct parse_result *res, char *word, int needname)
 		if ((res->name = strdup(word)) == NULL)
 			errx(1, "strdup");
 	}
+
+	return (0);
+}
+
+int
+parse_instance(struct parse_result *res, char *word)
+{
+	if (strlen(word) >= VMM_MAX_NAME_LEN) {
+		warnx("instance vm name too long");
+		return (-1);
+	}
+	res->id = 0;
+	if ((res->instance = strdup(word)) == NULL)
+		errx(1, "strdup");
 
 	return (0);
 }
@@ -577,7 +592,7 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 	argc--;
 	argv++;
 
-	while ((ch = getopt(argc, argv, "b:r:cLm:n:d:i:")) != -1) {
+	while ((ch = getopt(argc, argv, "b:r:cLm:n:d:i:t:")) != -1) {
 		switch (ch) {
 		case 'b':
 			if (res->path)
@@ -623,6 +638,10 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 				errx(1, "interfaces specified multiple times");
 			if (parse_ifs(res, optarg, 0) != 0)
 				errx(1, "invalid interface count: %s", optarg);
+			break;
+		case 't':
+			if (parse_instance(res, optarg) == -1)
+				errx(1, "invalid name: %s", optarg);
 			break;
 		default:
 			ctl_usage(res->ctl);
