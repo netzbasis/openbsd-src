@@ -1,7 +1,7 @@
 /bcmp.S/1.4/Tue Jul  3 23:22:48 2018//
 /bcopy.S/1.3/Thu Jun 13 02:18:31 2013//
 /bzero.S/1.5/Tue Jul  3 23:22:48 2018//
-/ffs.S/1.3/Tue Jul  3 23:22:48 2018//
+/ffs.S/1.4/Fri Jul 13 05:56:57 2018//
 /htonl.S/1.3/Tue Jul 10 16:01:26 2018//
 /htons.S/1.3/Tue Jul 10 16:01:26 2018//
 /index.S/1.4/Mon Jun  3 05:39:02 2013//
@@ -13,8 +13,8 @@
 /rindex.S/1.4/Mon Jun  3 05:39:02 2013//
 /scanc.S/1.4/Tue Jul  3 23:22:48 2018//
 /skpc.S/1.4/Tue Jul  3 23:22:48 2018//
-/strchr.S/1.4/Tue Jul  3 23:22:48 2018//
+/strchr.S/1.5/Fri Jul 13 05:56:57 2018//
 /strcmp.S/1.4/Tue Jul  3 23:22:48 2018//
-/strlen.S/1.6/Tue Jul  3 23:22:48 2018//
+/strlen.S/1.7/Fri Jul 13 05:56:57 2018//
 /strrchr.S/1.4/Tue Jul  3 23:22:48 2018//
 D

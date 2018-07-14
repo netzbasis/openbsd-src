@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.219 2018/07/12 16:08:02 florian Exp $	*/
+/*	$OpenBSD: route.c,v 1.221 2018/07/13 09:19:42 schwarze Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -130,7 +130,7 @@ usage(char *cp)
 	if (cp)
 		warnx("botched keyword: %s", cp);
 	fprintf(stderr,
-	    "usage: %s [-dnqtv] [-T tableid] command [[modifiers] args]\n",
+	    "usage: %s [-dnqtv] [-T rtable] command [[modifiers] args]\n",
 	    __progname);
 	fprintf(stderr,
 	    "commands: add, change, delete, exec, flush, get, monitor, show\n");
@@ -763,15 +763,6 @@ inet_makenetandmask(u_int32_t net, struct sockaddr_in *sin, int bits)
 	else if (bits) {
 		addr = net;
 		mask = 0xffffffff << (32 - bits);
-	} else if (net < IN_CLASSA_MAX) {
-		addr = net << IN_CLASSA_NSHIFT;
-		mask = IN_CLASSA_NET;
-	} else if (net < IN_CLASSB_MAX) {
-		addr = net << IN_CLASSB_NSHIFT;
-		mask = IN_CLASSB_NET;
-	} else if (net < (1 << 24)) {
-		addr = net << IN_CLASSC_NSHIFT;
-		mask = IN_CLASSC_NET;
 	} else {
 		addr = net;
 		if ((addr & IN_CLASSA_HOST) == 0)

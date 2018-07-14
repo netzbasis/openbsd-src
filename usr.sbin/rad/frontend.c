@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.5 2018/07/11 19:05:25 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.8 2018/07/13 09:16:50 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -86,7 +86,8 @@
 #include "frontend.h"
 #include "control.h"
 
-#define	RA_MAX_SIZE	1500
+#define	RA_MAX_SIZE		1500
+#define	ROUTE_SOCKET_BUF_SIZE	16384
 
 struct icmp6_ev {
 	struct event		 ev;
@@ -131,10 +132,16 @@ void			 get_interface_prefixes(struct ra_iface *,
 void			 build_package(struct ra_iface *);
 void			 build_leaving_package(struct ra_iface *);
 void			 ra_output(struct ra_iface *, struct sockaddr_in6 *);
+void			 get_rtaddrs(int, struct sockaddr *,
+			     struct sockaddr **);
+void			 route_receive(int, short, void *);
+void			 handle_route_message(struct rt_msghdr *,
+			     struct sockaddr **);
 
 struct rad_conf	*frontend_conf;
 struct imsgev		*iev_main;
 struct imsgev		*iev_engine;
+struct event		 ev_route;
 int			 icmp6sock = -1, ioctlsock = -1;
 struct ipv6_mreq	 all_routers;
 struct sockaddr_in6	 all_nodes;
@@ -159,7 +166,7 @@ frontend_sig_handler(int sig, short event, void *bula)
 }
 
 void
-frontend(int debug, int verbose, char *sockname)
+frontend(int debug, int verbose)
 {
 	struct event		 ev_sigint, ev_sigterm;
 	struct passwd		*pw;
@@ -168,14 +175,10 @@ frontend(int debug, int verbose, char *sockname)
 	uint8_t			*sndcmsgbuf = NULL;
 
 	frontend_conf = config_new_empty();
+	control_state.fd = -1;
 
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(verbose);
-
-	/* XXX pass in from main */
-	/* Create rad control socket outside chroot. */
-	if (control_init(sockname) == -1)
-		fatalx("control socket setup failed");
 
 	if ((pw = getpwnam(RAD_USER)) == NULL)
 		fatal("getpwnam");
@@ -256,10 +259,6 @@ frontend(int debug, int verbose, char *sockname)
 	sndmhdr.msg_controllen = sndcmsgbuflen;
 
 	TAILQ_INIT(&ra_interfaces);
-
-	/* Listen on control socket. */
-	TAILQ_INIT(&ctl_conns);
-	control_listen();
 
 	event_dispatch();
 
@@ -406,10 +405,28 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				    __func__);
 			event_set(&icmp6ev.ev, icmp6sock, EV_READ | EV_PERSIST,
 			    icmp6_receive, NULL);
+		case IMSG_ROUTESOCK:
+			if ((fd = imsg.fd) == -1)
+				fatalx("%s: expected to receive imsg "
+				    "routesocket fd but didn't receive any",
+				    __func__);
+			event_set(&ev_route, fd, EV_READ | EV_PERSIST,
+			    route_receive, NULL);
+			break;
 		case IMSG_STARTUP:
 			if (pledge("stdio inet unix route mcast", NULL) == -1)
 				fatal("pledge");
 			frontend_startup();
+			break;
+		case IMSG_CONTROLFD:
+			if ((fd = imsg.fd) == -1)
+				fatalx("%s: expected to receive imsg "
+				    "control fd but didn't receive any",
+				    __func__);
+			control_state.fd = fd;
+			/* Listen on control socket. */
+			TAILQ_INIT(&ctl_conns);
+			control_listen();
 			break;
 		case IMSG_SHUTDOWN:
 			frontend_imsg_compose_engine(IMSG_SHUTDOWN, 0, NULL, 0);
@@ -503,13 +520,11 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 void
 frontend_startup(void)
 {
-#if 0
 	if (!event_initialized(&ev_route))
 		fatalx("%s: did not receive a route socket from the main "
 		    "process", __func__);
 
 	event_add(&ev_route, NULL);
-#endif
 
 	if (!event_initialized(&icmp6ev.ev))
 		fatalx("%s: did not receive a icmp6 socket fd from the main "
@@ -968,4 +983,80 @@ ra_output(struct ra_iface *ra_iface, struct sockaddr_in6 *to)
 	if (len < 0)
 		log_warn("sendmsg on %s", ra_iface->name);
 
+}
+
+#define ROUNDUP(a) \
+	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
+
+void
+get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
+{
+	int	i;
+
+	for (i = 0; i < RTAX_MAX; i++) {
+		if (addrs & (1 << i)) {
+			rti_info[i] = sa;
+			sa = (struct sockaddr *)((char *)(sa) +
+			    ROUNDUP(sa->sa_len));
+		} else
+			rti_info[i] = NULL;
+	}
+}
+
+void
+route_receive(int fd, short events, void *arg)
+{
+	static uint8_t			 *buf;
+
+	struct rt_msghdr		*rtm;
+	struct sockaddr			*sa, *rti_info[RTAX_MAX];
+	ssize_t				 n;
+
+	if (buf == NULL) {
+		buf = malloc(ROUTE_SOCKET_BUF_SIZE);
+		if (buf == NULL)
+			fatal("malloc");
+	}
+	rtm = (struct rt_msghdr *)buf;
+	if ((n = read(fd, buf, ROUTE_SOCKET_BUF_SIZE)) == -1) {
+		if (errno == EAGAIN || errno == EINTR)
+			return;
+		log_warn("dispatch_rtmsg: read error");
+		return;
+	}
+
+	if (n == 0)
+		fatal("routing socket closed");
+
+	if (n < (ssize_t)sizeof(rtm->rtm_msglen) || n < rtm->rtm_msglen) {
+		log_warnx("partial rtm of %zd in buffer", n);
+		return;
+	}
+
+	if (rtm->rtm_version != RTM_VERSION)
+		return;
+
+	sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
+	get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+
+	handle_route_message(rtm, rti_info);
+}
+
+void
+handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
+{
+	switch (rtm->rtm_type) {
+	case RTM_IFINFO:
+	case RTM_NEWADDR:
+	case RTM_DELADDR:
+		/*
+		 * do the same thing as after a config reload when interfaces
+		 * change or IPv6 addresses show up / disappear
+		 */
+		merge_ra_interfaces();
+		break;
+	default:
+		log_debug("unexpected RTM: %d", rtm->rtm_type);
+		break;
+	}
 }

@@ -13,7 +13,7 @@
 /bn_gf2m.c/1.23/Sun Jan 29 17:49:22 2017//
 /bn_kron.c/1.6/Mon Feb  9 15:49:22 2015//
 /bn_lcl.h/1.28/Tue Jul 10 21:52:07 2018//
-/bn_lib.c/1.43/Wed Jul 11 13:57:53 2018//
+/bn_lib.c/1.44/Fri Jul 13 08:43:31 2018//
 /bn_mod.c/1.12/Sun Jan 29 17:49:22 2017//
 /bn_mont.c/1.26/Sat Jan 21 11:00:46 2017//
 /bn_mpi.c/1.8/Sun Jan 29 17:49:22 2017//

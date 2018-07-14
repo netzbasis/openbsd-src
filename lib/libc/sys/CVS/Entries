@@ -1,4 +1,4 @@
-/Makefile.inc/1.154/Fri Jan 12 04:36:12 2018//
+/Makefile.inc/1.155/Fri Jul 13 09:25:22 2018//
 /__get_tcb.2/1.6/Wed Mar 30 06:58:06 2016//
 /__thrsigdivert.2/1.5/Sun Aug 21 13:31:21 2016//
 /__thrsleep.2/1.7/Tue Apr 24 16:28:42 2018//
@@ -87,7 +87,7 @@
 /open.2/1.49/Mon Jan 19 15:54:11 2015//
 /pathconf.2/1.25/Thu Jun 21 20:30:36 2018//
 /pipe.2/1.18/Wed Dec 10 19:30:22 2014//
-/pledge.2/1.52/Fri Mar 16 07:11:03 2018//
+/pledge.2/1.53/Fri Jul 13 09:25:22 2018//
 /poll.2/1.35/Tue Feb 14 17:51:14 2017//
 /posix_madvise.c/1.4/Fri Sep 11 13:26:20 2015//
 /pread.c/1.11/Sat May  7 19:05:22 2016//
@@ -152,6 +152,7 @@
 /truncate.c/1.14/Fri Sep 11 13:26:20 2015//
 /umask.2/1.12/Mon Oct 12 17:51:55 2015//
 /unlink.2/1.27/Wed Jun  1 23:00:40 2016//
+/unveil.2/1.2/Fri Jul 13 17:18:34 2018//
 /utimes.2/1.27/Tue Jan  5 17:40:26 2016//
 /utrace.2/1.1/Sat Jun  1 09:49:53 2013//
 /vfork.2/1.20/Thu Sep 10 17:55:21 2015//
