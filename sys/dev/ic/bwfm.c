@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfm.c,v 1.50 2018/07/06 12:30:36 patrick Exp $ */
+/* $OpenBSD: bwfm.c,v 1.53 2018/07/17 19:44:38 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -174,7 +174,6 @@ bwfm_attach(struct bwfm_softc *sc)
 	struct ifnet *ifp = &ic->ic_if;
 
 	TAILQ_INIT(&sc->sc_bcdc_rxctlq);
-	TAILQ_INIT(&sc->sc_bcdc_txctlq);
 
 	/* Init host async commands ring. */
 	sc->sc_cmdq.cur = sc->sc_cmdq.next = sc->sc_cmdq.queued = 0;
@@ -1089,6 +1088,7 @@ bwfm_chip_sr_capable(struct bwfm_softc *sc)
 		return 0;
 
 	switch (sc->sc_chip.ch_chip) {
+	case BRCM_CC_4345_CHIP_ID:
 	case BRCM_CC_4354_CHIP_ID:
 	case BRCM_CC_4356_CHIP_ID:
 		core = bwfm_chip_get_pmu(sc);
@@ -1358,9 +1358,8 @@ bwfm_proto_bcdc_txctl(struct bwfm_softc *sc, int reqid, char *buf, size_t *len)
 	ctl->reqid = reqid;
 	ctl->buf = buf;
 	ctl->len = *len;
-	TAILQ_INSERT_TAIL(&sc->sc_bcdc_txctlq, ctl, next);
 
-	if (sc->sc_bus_ops->bs_txctl(sc)) {
+	if (sc->sc_bus_ops->bs_txctl(sc, ctl)) {
 		DPRINTF(("%s: tx failed\n", DEVNAME(sc)));
 		return 1;
 	}
@@ -1859,9 +1858,9 @@ bwfm_rx(struct bwfm_softc *sc, struct mbuf *m)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
-	struct bwfm_event *e = mtod(m, struct bwfm_event *);
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct ieee80211_node *ni;
+	struct bwfm_event *e;
 
 #ifdef __STRICT_ALIGNMENT
 	/* Remaining data is an ethernet packet, so align. */
@@ -1877,6 +1876,7 @@ bwfm_rx(struct bwfm_softc *sc, struct mbuf *m)
 	}
 #endif
 
+	e = mtod(m, struct bwfm_event *);
 	if (m->m_len >= sizeof(e->ehdr) &&
 	    ntohs(e->ehdr.ether_type) == BWFM_ETHERTYPE_LINK_CTL &&
 	    memcmp(BWFM_BRCM_OUI, e->hdr.oui, sizeof(e->hdr.oui)) == 0 &&

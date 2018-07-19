@@ -14,7 +14,7 @@
 /if_axen.c/1.25/Tue Jun 12 06:59:27 2018//
 /if_axenreg.h/1.6/Wed Sep 14 12:41:09 2016//
 /if_axereg.h/1.26/Fri Jun 12 15:47:31 2015//
-/if_bwfm_usb.c/1.15/Wed May 23 14:15:06 2018//
+/if_bwfm_usb.c/1.16/Tue Jul 17 19:44:38 2018//
 /if_cdce.c/1.74/Fri Apr 21 09:42:53 2017//
 /if_cdcereg.h/1.7/Wed Oct 12 21:51:11 2016//
 /if_cue.c/1.77/Sun Jan 22 10:17:39 2017//
@@ -166,7 +166,7 @@
 /uvisor.c/1.51/Fri Sep  2 09:14:59 2016//
 /uvscom.c/1.37/Fri Apr 27 08:08:06 2018//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
-/xhci.c/1.86/Sun May 13 06:58:42 2018//
+/xhci.c/1.87/Mon Jul 16 07:48:17 2018//
 /xhcireg.h/1.14/Sat Apr 28 08:19:35 2018//
 /xhcivar.h/1.9/Tue May  8 13:41:52 2018//
 D/dwc2////

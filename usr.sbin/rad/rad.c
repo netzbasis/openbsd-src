@@ -1,4 +1,4 @@
-/*	$OpenBSD: rad.c,v 1.7 2018/07/13 09:16:15 florian Exp $	*/
+/*	$OpenBSD: rad.c,v 1.9 2018/07/18 14:43:34 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -129,7 +129,7 @@ main(int argc, char *argv[])
 	char			*saved_argv0;
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
-	int			 icmp6sock, on = 1;
+	int			 icmp6sock, on = 1, off = 0;
 	int			 frontend_routesock, rtfilter;
 	int			 control_fd;
 
@@ -273,6 +273,10 @@ main(int argc, char *argv[])
 
 	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on,
 	    sizeof(on)) < 0)
+		fatal("IPV6_RECVHOPLIMIT");
+
+	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off,
+	    sizeof(off)) < 0)
 		fatal("IPV6_RECVHOPLIMIT");
 
 	/* only router advertisements and solicitations */
@@ -594,6 +598,8 @@ main_imsg_send_config(struct rad_conf *xconf)
 {
 	struct ra_iface_conf	*ra_iface_conf;
 	struct ra_prefix_conf	*ra_prefix_conf;
+	struct ra_rdnss_conf	*ra_rdnss_conf;
+	struct ra_dnssl_conf	*ra_dnssl_conf;
 
 	/* Send fixed part of config to children. */
 	if (main_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
@@ -614,6 +620,22 @@ main_imsg_send_config(struct rad_conf *xconf)
 		    entry) {
 			if (main_sendboth(IMSG_RECONF_RA_PREFIX,
 			    ra_prefix_conf, sizeof(*ra_prefix_conf)) == -1)
+				return (-1);
+		}
+		if (main_sendboth(IMSG_RECONF_RA_RDNS_LIFETIME,
+		    &ra_iface_conf->rdns_lifetime,
+		    sizeof(ra_iface_conf->rdns_lifetime)) == -1)
+			return (-1);
+		SIMPLEQ_FOREACH(ra_rdnss_conf, &ra_iface_conf->ra_rdnss_list,
+		    entry) {
+			if (main_sendboth(IMSG_RECONF_RA_RDNSS, ra_rdnss_conf,
+			    sizeof(*ra_rdnss_conf)) == -1)
+				return (-1);
+		}
+		SIMPLEQ_FOREACH(ra_dnssl_conf, &ra_iface_conf->ra_dnssl_list,
+		    entry) {
+			if (main_sendboth(IMSG_RECONF_RA_DNSSL, ra_dnssl_conf,
+			    sizeof(*ra_dnssl_conf)) == -1)
 				return (-1);
 		}
 	}

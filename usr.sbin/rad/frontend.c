@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.8 2018/07/13 09:16:50 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.11 2018/07/18 09:10:50 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -129,8 +129,8 @@ void			 free_ra_iface(struct ra_iface *);
 int			 in6_mask2prefixlen(struct in6_addr *);
 void			 get_interface_prefixes(struct ra_iface *,
 			     struct ra_prefix_conf *);
-void			 build_package(struct ra_iface *);
-void			 build_leaving_package(struct ra_iface *);
+void			 build_packet(struct ra_iface *);
+void			 build_leaving_packet(struct ra_iface *);
 void			 ra_output(struct ra_iface *, struct sockaddr_in6 *);
 void			 get_rtaddrs(int, struct sockaddr *,
 			     struct sockaddr **);
@@ -308,6 +308,8 @@ frontend_dispatch_main(int fd, short event, void *bula)
 	struct imsgev			*iev = bula;
 	struct imsgbuf			*ibuf = &iev->ibuf;
 	struct ra_prefix_conf		*ra_prefix_conf;
+	struct ra_rdnss_conf		*ra_rdnss_conf;
+	struct ra_dnssl_conf		*ra_dnssl_conf;
 	int				 n, shut = 0;
 
 	if (event & EV_READ) {
@@ -374,6 +376,8 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    ra_iface_conf));
 			ra_iface_conf->autoprefix = NULL;
 			SIMPLEQ_INIT(&ra_iface_conf->ra_prefix_list);
+			SIMPLEQ_INIT(&ra_iface_conf->ra_rdnss_list);
+			SIMPLEQ_INIT(&ra_iface_conf->ra_dnssl_list);
 			SIMPLEQ_INSERT_TAIL(&nconf->ra_iface_list,
 			    ra_iface_conf, entry);
 			break;
@@ -392,6 +396,27 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    sizeof(struct ra_prefix_conf));
 			SIMPLEQ_INSERT_TAIL(&ra_iface_conf->ra_prefix_list,
 			    ra_prefix_conf, entry);
+			break;
+		case IMSG_RECONF_RA_RDNS_LIFETIME:
+			ra_iface_conf->rdns_lifetime = *((uint32_t *)imsg.data);
+			break;
+		case IMSG_RECONF_RA_RDNSS:
+			if ((ra_rdnss_conf = malloc(sizeof(struct
+			    ra_rdnss_conf))) == NULL)
+				fatal(NULL);
+			memcpy(ra_rdnss_conf, imsg.data, sizeof(struct
+			    ra_rdnss_conf));
+			SIMPLEQ_INSERT_TAIL(&ra_iface_conf->ra_rdnss_list,
+			    ra_rdnss_conf, entry);
+			break;
+		case IMSG_RECONF_RA_DNSSL:
+			if ((ra_dnssl_conf = malloc(sizeof(struct
+			    ra_dnssl_conf))) == NULL)
+				fatal(NULL);
+			memcpy(ra_dnssl_conf, imsg.data, sizeof(struct
+			    ra_dnssl_conf));
+			SIMPLEQ_INSERT_TAIL(&ra_iface_conf->ra_dnssl_list,
+			    ra_dnssl_conf, entry);
 			break;
 		case IMSG_RECONF_END:
 			merge_config(frontend_conf, nconf);
@@ -584,7 +609,7 @@ icmp6_receive(int fd, short events, void *arg)
 		return;
 	}
 
-	log_warnx("RA or RS with hop limit of %d from %s on %s",
+	log_debug("RA or RS with hop limit of %d from %s on %s",
 	    *hlimp, inet_ntop(AF_INET6, &icmp6ev.from.sin6_addr,
 	    ntopbuf, INET6_ADDRSTRLEN), if_indextoname(if_index,
 	    ifnamebuf));
@@ -705,7 +730,7 @@ merge_ra_interfaces(void)
 
 		if (ra_iface->removed) {
 			log_debug("iface removed: %s", ra_iface->name);
-			build_leaving_package(ra_iface);
+			build_leaving_packet(ra_iface);
 			frontend_imsg_compose_engine(IMSG_REMOVE_IF, 0,
 			    &ra_iface->if_index, sizeof(ra_iface->if_index));
 			continue;
@@ -726,7 +751,7 @@ merge_ra_interfaces(void)
 			    &ra_prefix_conf->prefix,
 			    ra_prefix_conf->prefixlen, ra_prefix_conf);
 		}
-		build_package(ra_iface);
+		build_packet(ra_iface);
 	}
 }
 
@@ -859,15 +884,20 @@ add_new_prefix_to_ra_iface(struct ra_iface *ra_iface, struct in6_addr *addr,
 }
 
 void
-build_package(struct ra_iface *ra_iface)
+build_packet(struct ra_iface *ra_iface)
 {
 	struct nd_router_advert		*ra;
 	struct nd_opt_prefix_info	*ndopt_pi;
 	struct ra_iface_conf		*ra_iface_conf;
 	struct ra_options_conf		*ra_options_conf;
 	struct ra_prefix_conf		*ra_prefix_conf;
-	size_t				 len;
+	struct nd_opt_rdnss		*ndopt_rdnss;
+	struct nd_opt_dnssl		*ndopt_dnssl;
+	struct ra_rdnss_conf		*ra_rdnss;
+	struct ra_dnssl_conf		*ra_dnssl;
+	size_t				 len, label_len;
 	uint8_t				*p, buf[RA_MAX_SIZE];
+	char				*label_start, *label_end;
 
 	ra_iface_conf = find_ra_iface_conf(&frontend_conf->ra_iface_list,
 	    ra_iface->name);
@@ -875,6 +905,14 @@ build_package(struct ra_iface *ra_iface)
 
 	len = sizeof(*ra);
 	len += sizeof(*ndopt_pi) * ra_iface->prefix_count;
+	if (ra_iface_conf->rdnss_count > 0)
+		len += sizeof(*ndopt_rdnss) + ra_iface_conf->rdnss_count *
+		    sizeof(struct in6_addr);
+
+	if (ra_iface_conf->dnssl_len > 0)
+		/* round up to 8 byte boundary */
+		len += sizeof(*ndopt_dnssl) + ((ra_iface_conf->dnssl_len + 7)
+		    & ~7);
 
 	if (len > sizeof(ra_iface->data))
 		fatal("%s: packet too big", __func__); /* XXX send multiple */
@@ -922,6 +960,50 @@ build_package(struct ra_iface *ra_iface)
 		p += sizeof(*ndopt_pi);
 	}
 
+	if (ra_iface_conf->rdnss_count > 0) {
+		ndopt_rdnss = (struct nd_opt_rdnss *)p;
+		ndopt_rdnss->nd_opt_rdnss_type = ND_OPT_RDNSS;
+		ndopt_rdnss->nd_opt_rdnss_len = 1 +
+		    ra_iface_conf->rdnss_count * 2;
+		ndopt_rdnss->nd_opt_rdnss_reserved = 0;
+		ndopt_rdnss->nd_opt_rdnss_lifetime =
+		    htonl(ra_iface_conf->rdns_lifetime);
+		p += sizeof(struct nd_opt_rdnss);
+		SIMPLEQ_FOREACH(ra_rdnss, &ra_iface_conf->ra_rdnss_list, 
+		    entry) {
+			memcpy(p, &ra_rdnss->rdnss, sizeof(ra_rdnss->rdnss));
+			p += sizeof(ra_rdnss->rdnss);
+		}
+	}
+
+	if (ra_iface_conf->dnssl_len > 0) {
+		ndopt_dnssl = (struct nd_opt_dnssl *)p;
+		ndopt_dnssl->nd_opt_dnssl_type = ND_OPT_DNSSL;
+		/* round up to 8 byte boundary */
+		ndopt_dnssl->nd_opt_dnssl_len = 1 +
+		    ((ra_iface_conf->dnssl_len + 7) & ~7) / 8;
+		ndopt_dnssl->nd_opt_dnssl_reserved = 0;
+		ndopt_dnssl->nd_opt_dnssl_lifetime =
+		    htonl(ra_iface_conf->rdns_lifetime);
+		p += sizeof(struct nd_opt_dnssl);
+
+		SIMPLEQ_FOREACH(ra_dnssl, &ra_iface_conf->ra_dnssl_list,
+		    entry) {
+			label_start = ra_dnssl->search;
+			while ((label_end = strchr(label_start, '.')) != NULL) {
+				label_len = label_end - label_start;
+				*p++ = label_len;
+				memcpy(p, label_start, label_len);
+				p += label_len;
+				label_start = label_end + 1;
+			}
+			*p++ = '\0'; /* last dot */
+		}
+		/* zero pad */
+		while (((uintptr_t)p) % 8 != 0)
+			*p++ = '\0';
+	}
+
 	if (len != ra_iface->datalen || memcmp(buf, ra_iface->data, len)
 	    != 0) {
 		memcpy(ra_iface->data, buf, len);
@@ -933,7 +1015,7 @@ build_package(struct ra_iface *ra_iface)
 }
 
 void
-build_leaving_package(struct ra_iface *ra_iface)
+build_leaving_packet(struct ra_iface *ra_iface)
 {
 	struct nd_router_advert		 ra;
 	size_t				 len;
