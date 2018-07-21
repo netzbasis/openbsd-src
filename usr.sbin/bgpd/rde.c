@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.394 2018/07/16 09:09:20 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.397 2018/07/20 14:58:20 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -61,14 +61,6 @@ int		 rde_attr_add(struct rde_aspath *, u_char *, u_int16_t);
 u_int8_t	 rde_attr_missing(struct rde_aspath *, int, u_int16_t);
 int		 rde_get_mp_nexthop(u_char *, u_int16_t, u_int8_t,
 		     struct filterstate *);
-int		 rde_update_extract_prefix(u_char *, u_int16_t, void *,
-		     u_int8_t, u_int8_t);
-int		 rde_update_get_prefix(u_char *, u_int16_t, struct bgpd_addr *,
-		     u_int8_t *);
-int		 rde_update_get_prefix6(u_char *, u_int16_t, struct bgpd_addr *,
-		     u_int8_t *);
-int		 rde_update_get_vpn4(u_char *, u_int16_t, struct bgpd_addr *,
-		     u_int8_t *, int);
 void		 rde_update_err(struct rde_peer *, u_int8_t , u_int8_t,
 		     void *, u_int16_t);
 void		 rde_update_log(const char *, u_int16_t,
@@ -1041,7 +1033,7 @@ rde_update_dispatch(struct imsg *imsg)
 	p += 2;
 	/* withdraw prefix */
 	while (len > 0) {
-		if ((pos = rde_update_get_prefix(p, len, &prefix,
+		if ((pos = nlri_get_prefix(p, len, &prefix,
 		    &prefixlen)) == -1) {
 			/*
 			 * the RFC does not mention what we should do in
@@ -1117,7 +1109,7 @@ rde_update_dispatch(struct imsg *imsg)
 		switch (aid) {
 		case AID_INET6:
 			while (mplen > 0) {
-				if ((pos = rde_update_get_prefix6(mpp, mplen,
+				if ((pos = nlri_get_prefix6(mpp, mplen,
 				    &prefix, &prefixlen)) == -1) {
 					log_peer_warnx(&peer->conf,
 					    "bad IPv6 withdraw prefix");
@@ -1134,7 +1126,7 @@ rde_update_dispatch(struct imsg *imsg)
 			break;
 		case AID_VPN_IPv4:
 			while (mplen > 0) {
-				if ((pos = rde_update_get_vpn4(mpp, mplen,
+				if ((pos = nlri_get_vpn4(mpp, mplen,
 				    &prefix, &prefixlen, 1)) == -1) {
 					log_peer_warnx(&peer->conf,
 					    "bad VPNv4 withdraw prefix");
@@ -1171,7 +1163,7 @@ rde_update_dispatch(struct imsg *imsg)
 
 	/* parse nlri prefix */
 	while (nlri_len > 0) {
-		if ((pos = rde_update_get_prefix(p, nlri_len, &prefix,
+		if ((pos = nlri_get_prefix(p, nlri_len, &prefix,
 		    &prefixlen)) == -1) {
 			log_peer_warnx(&peer->conf, "bad nlri prefix");
 			rde_update_err(peer, ERR_UPDATE, ERR_UPD_NETWORK,
@@ -1241,7 +1233,7 @@ rde_update_dispatch(struct imsg *imsg)
 		switch (aid) {
 		case AID_INET6:
 			while (mplen > 0) {
-				if ((pos = rde_update_get_prefix6(mpp, mplen,
+				if ((pos = nlri_get_prefix6(mpp, mplen,
 				    &prefix, &prefixlen)) == -1) {
 					log_peer_warnx(&peer->conf,
 					    "bad IPv6 nlri prefix");
@@ -1260,7 +1252,7 @@ rde_update_dispatch(struct imsg *imsg)
 			break;
 		case AID_VPN_IPv4:
 			while (mplen > 0) {
-				if ((pos = rde_update_get_vpn4(mpp, mplen,
+				if ((pos = nlri_get_vpn4(mpp, mplen,
 				    &prefix, &prefixlen, 0)) == -1) {
 					log_peer_warnx(&peer->conf,
 					    "bad VPNv4 nlri prefix");
@@ -1839,147 +1831,6 @@ rde_get_mp_nexthop(u_char *data, u_int16_t len, u_int8_t aid,
 	data += nhlen + 1;
 
 	return (totlen);
-}
-
-int
-rde_update_extract_prefix(u_char *p, u_int16_t len, void *va,
-    u_int8_t pfxlen, u_int8_t max)
-{
-	static u_char addrmask[] = {
-	    0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff };
-	u_char		*a = va;
-	int		 i;
-	u_int16_t	 plen = 0;
-
-	for (i = 0; pfxlen && i < max; i++) {
-		if (len <= plen)
-			return (-1);
-		if (pfxlen < 8) {
-			a[i] = *p++ & addrmask[pfxlen];
-			plen++;
-			break;
-		} else {
-			a[i] = *p++;
-			plen++;
-			pfxlen -= 8;
-		}
-	}
-	return (plen);
-}
-
-int
-rde_update_get_prefix(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
-    u_int8_t *prefixlen)
-{
-	u_int8_t	 pfxlen;
-	int		 plen;
-
-	if (len < 1)
-		return (-1);
-
-	pfxlen = *p++;
-	len--;
-
-	bzero(prefix, sizeof(struct bgpd_addr));
-	prefix->aid = AID_INET;
-	*prefixlen = pfxlen;
-
-	if (pfxlen > 32)
-		return (-1);
-	if ((plen = rde_update_extract_prefix(p, len, &prefix->v4, pfxlen,
-	    sizeof(prefix->v4))) == -1)
-		return (-1);
-
-	return (plen + 1);	/* pfxlen needs to be added */
-}
-
-int
-rde_update_get_prefix6(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
-    u_int8_t *prefixlen)
-{
-	int		plen;
-	u_int8_t	pfxlen;
-
-	if (len < 1)
-		return (-1);
-
-	pfxlen = *p++;
-	len--;
-
-	bzero(prefix, sizeof(struct bgpd_addr));
-	prefix->aid = AID_INET6;
-	*prefixlen = pfxlen;
-
-	if (pfxlen > 128)
-		return (-1);
-	if ((plen = rde_update_extract_prefix(p, len, &prefix->v6, pfxlen,
-	    sizeof(prefix->v6))) == -1)
-		return (-1);
-
-	return (plen + 1);	/* pfxlen needs to be added */
-}
-
-int
-rde_update_get_vpn4(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
-    u_int8_t *prefixlen, int withdraw)
-{
-	int		 rv, done = 0;
-	u_int8_t	 pfxlen;
-	u_int16_t	 plen;
-
-	if (len < 1)
-		return (-1);
-
-	memcpy(&pfxlen, p, 1);
-	p += 1;
-	plen = 1;
-
-	bzero(prefix, sizeof(struct bgpd_addr));
-
-	/* label stack */
-	do {
-		if (len - plen < 3 || pfxlen < 3 * 8)
-			return (-1);
-		if (prefix->vpn4.labellen + 3U >
-		    sizeof(prefix->vpn4.labelstack))
-			return (-1);
-		if (withdraw) {
-			/* on withdraw ignore the labelstack all together */
-			plen += 3;
-			pfxlen -= 3 * 8;
-			break;
-		}
-		prefix->vpn4.labelstack[prefix->vpn4.labellen++] = *p++;
-		prefix->vpn4.labelstack[prefix->vpn4.labellen++] = *p++;
-		prefix->vpn4.labelstack[prefix->vpn4.labellen] = *p++;
-		if (prefix->vpn4.labelstack[prefix->vpn4.labellen] &
-		    BGP_MPLS_BOS)
-			done = 1;
-		prefix->vpn4.labellen++;
-		plen += 3;
-		pfxlen -= 3 * 8;
-	} while (!done);
-
-	/* RD */
-	if (len - plen < (int)sizeof(u_int64_t) ||
-	    pfxlen < sizeof(u_int64_t) * 8)
-		return (-1);
-	memcpy(&prefix->vpn4.rd, p, sizeof(u_int64_t));
-	pfxlen -= sizeof(u_int64_t) * 8;
-	p += sizeof(u_int64_t);
-	plen += sizeof(u_int64_t);
-
-	/* prefix */
-	prefix->aid = AID_VPN_IPv4;
-	*prefixlen = pfxlen;
-
-	if (pfxlen > 32)
-		return (-1);
-	if ((rv = rde_update_extract_prefix(p, len, &prefix->vpn4.addr,
-	    pfxlen, sizeof(prefix->vpn4.addr))) == -1)
-		return (-1);
-
-	return (plen + rv);
 }
 
 void

@@ -6,7 +6,7 @@
 /bcm2835_rng.c/1.2/Sat Apr 28 15:44:59 2018//
 /bcm2835_temp.c/1.1/Sat Feb 24 11:06:59 2018//
 /ccp_fdt.c/1.1/Fri Apr 20 04:37:21 2018//
-/com_fdt.c/1.1/Thu May 31 20:03:18 2018//
+/com_fdt.c/1.2/Fri Jul 20 05:37:06 2018//
 /dwdog.c/1.1/Tue Jul 25 20:20:09 2017//
 /dwmmc.c/1.15/Sun Jun  3 17:26:31 2018//
 /dwpcie.c/1.6/Sun Jul  1 18:58:06 2018//
