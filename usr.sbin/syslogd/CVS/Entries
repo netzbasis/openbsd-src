@@ -6,7 +6,7 @@
 /privsep.c/1.68/Thu Apr 26 13:40:09 2018//
 /privsep_fdpass.c/1.11/Thu Jul  9 20:16:04 2015//
 /ringbuf.c/1.10/Sun Oct 16 22:12:50 2016//
-/syslog.conf.5/1.37/Tue Jul 17 13:51:47 2018//
+/syslog.conf.5/1.38/Mon Jul 23 19:02:49 2018//
 /syslogd.8/1.58/Sun Apr  8 18:57:39 2018//
 /syslogd.c/1.255/Tue Jul 17 13:51:47 2018//
 /syslogd.h/1.32/Thu Oct  5 16:15:24 2017//
