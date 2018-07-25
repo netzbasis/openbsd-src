@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl_parser.c,v 1.321 2018/07/10 09:30:49 henning Exp $ */
+/*	$OpenBSD: pfctl_parser.c,v 1.323 2018/07/24 09:48:04 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1092,14 +1092,8 @@ print_rule(struct pf_rule *r, const char *anchor_call, int opts)
 	case PF_DIVERT_NONE:
 		break;
 	case PF_DIVERT_TO: {
-		/* XXX cut&paste from print_addr */
-		char buf[48];
-
 		printf(" divert-to ");
-		if (inet_ntop(r->af, &r->divert.addr, buf, sizeof(buf)) == NULL)
-			printf("?");
-		else
-			printf("%s", buf);
+		print_addr_str(r->af, &r->divert.addr);
 		printf(" port %u", ntohs(r->divert.port));
 		break;
 	}
@@ -1806,8 +1800,7 @@ host_dns(const char *s, int v4mask, int v6mask, int numeric)
 {
 	struct addrinfo		 hints, *res0, *res;
 	struct node_host	*n, *h = NULL;
-	int			 error, noalias = 0;
-	int			 got4 = 0, got6 = 0;
+	int			 noalias = 0, got4 = 0, got6 = 0;
 	char			*p, *ps;
 
 	if ((ps = strdup(s)) == NULL)
@@ -1821,11 +1814,8 @@ host_dns(const char *s, int v4mask, int v6mask, int numeric)
 	hints.ai_socktype = SOCK_STREAM; /* DUMMY */
 	if (numeric)
 		hints.ai_flags = AI_NUMERICHOST;
-	error = getaddrinfo(ps, NULL, &hints, &res0);
-	if (error) {
-		free(ps);
-		return (h);
-	}
+	if (getaddrinfo(ps, NULL, &hints, &res0) != 0)
+		goto error;
 
 	for (res = res0; res; res = res->ai_next) {
 		if (res->ai_family != AF_INET &&
@@ -1873,6 +1863,7 @@ host_dns(const char *s, int v4mask, int v6mask, int numeric)
 		}
 	}
 	freeaddrinfo(res0);
+error:
 	free(ps);
 
 	return (h);
