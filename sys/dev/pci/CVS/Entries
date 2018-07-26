@@ -114,7 +114,7 @@
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
 /if_bnxt.c/1.4/Wed Jul 11 06:48:58 2018//
 /if_bnxtreg.h/1.1/Mon Jul  9 10:46:15 2018//
-/if_bwfm_pci.c/1.25/Fri Jul  6 12:36:53 2018//
+/if_bwfm_pci.c/1.26/Wed Jul 25 20:47:45 2018//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.16/Tue Nov 24 17:11:39 2015//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//
@@ -304,7 +304,7 @@
 /pucvar.h/1.16/Wed May  2 19:11:01 2018//
 /pwdog.c/1.10/Fri Sep  8 05:36:52 2017//
 /qla_pci.c/1.8/Thu Apr  3 20:01:47 2014//
-/qle.c/1.41/Tue Jul  3 07:07:17 2018//
+/qle.c/1.42/Thu Jul 26 04:26:30 2018//
 /qlereg.h/1.9/Sun Apr 20 09:49:23 2014//
 /qlw_pci.c/1.10/Thu Aug 17 12:21:31 2017//
 /rtsx_pci.c/1.14/Wed Sep  6 13:07:38 2017//

@@ -1,6 +1,6 @@
-.\"	$OpenBSD: dpb-replay.1,v 1.2 2018/07/25 12:44:55 espie Exp $
+.\"	$OpenBSD: mail.mboxfile.8,v 1.1 2018/07/25 10:19:28 gilles Exp $
 .\"
-.\" Copyright (c) 2013 Marc Espie <espie@openbsd.org>
+.\" Copyright (c) 2017 Gilles Chehade <gilles@poolp.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,41 +15,20 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: July 25 2018 $
-.Dt DPB-REPLAY 1
+.Dt MAIL.MDA 8
 .Os
 .Sh NAME
-.Nm dpb-replay
-.Nd replays dpb terminal output
+.Nm mail.mboxfile
+.Nd deliver mail to a file in mbox format
 .Sh SYNOPSIS
-.Nm
-.Op Fl c
-.Op Fl e Ar regexp
-.Op Fl s Ar speedup
+.Nm mail.mboxfile
 .Ar file
 .Sh DESCRIPTION
 .Nm
-is used to replay
-.Xr dpb 1
-terminal logs
-.Po
-.Pa %L/term-report.log
-.Pc
-later, usually at a much higher speed than the first run,
-for demonstration and optimization purposes.
-The options are as follows
-.Bl -tag -width keywordaaaa
-.It Fl c
-Color display.
-.It Fl e Ar regexp
-Start display only when information matches
-.Ar regexp ,
-which is a
-.Xr perl 1
-regexp.
-.It Fl s Ar speedup
-Sets the time acceleration to
-.Ar speedup
-(defaults to 10).
-.El
+appends mail to a file in mbox format and acknowledges delivery success or failure
+with its exit status.
+.Sh EXIT STATUS
+.Ex -std mail.mboxfile
 .Sh SEE ALSO
-.Xr dpb 1
+.Xr mail 1 ,
+.Xr smtpd 8
