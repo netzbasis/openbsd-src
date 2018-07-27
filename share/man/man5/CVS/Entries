@@ -2,7 +2,7 @@
 /acct.5/1.16/Thu Jun  8 17:14:02 2017//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.10/Tue Apr 11 20:40:43 2017//
-/bsd.port.mk.5/1.488/Mon Jul 16 09:13:29 2018//
+/bsd.port.mk.5/1.489/Thu Jul 26 20:36:10 2018//
 /bsd.regress.mk.5/1.15/Fri Aug 11 16:51:50 2017//
 /changelist.5/1.9/Thu Jul 13 19:16:33 2017//
 /core.5/1.23/Fri Jan 12 04:36:44 2018//
@@ -39,7 +39,7 @@
 /protocols.5/1.11/Thu May 31 19:19:58 2007//
 /ranlib.5/1.2/Thu Sep 10 17:55:21 2015//
 /remote.5/1.27/Thu Nov  2 17:53:12 2017//
-/resolv.conf.5/1.54/Wed May  2 15:54:43 2018//
+/resolv.conf.5/1.55/Thu Jul 26 20:18:11 2018//
 /rpc.5/1.9/Wed Sep  1 14:43:34 2010//
 /ruby-module.5/1.23/Wed Nov  1 12:02:44 2017//
 /services.5/1.12/Thu May 31 19:19:58 2007//
