@@ -5,7 +5,7 @@
 /iscsi.h/1.8/Tue Apr 26 21:30:14 2011//
 /mpath.c/1.41/Sun Aug 23 01:55:39 2015//
 /mpath_emc.c/1.21/Sat Mar 14 03:38:52 2015//
-/mpath_hds.c/1.19/Sun Jun  7 19:13:27 2015//
+/mpath_hds.c/1.20/Fri Jul 27 04:57:45 2018//
 /mpath_rdac.c/1.23/Sat Mar 14 03:38:52 2015//
 /mpath_sym.c/1.23/Sat Mar 14 03:38:52 2015//
 /mpathvar.h/1.9/Tue Aug 27 00:53:10 2013//
