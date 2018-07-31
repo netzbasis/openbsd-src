@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.297 2018/07/30 00:11:04 deraadt Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.299 2018/07/30 17:21:37 anton Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -883,15 +883,15 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 {
 	struct sys_unveil_args /* {
 		syscallarg(const char *) path;
-		syscallarg(const char *) flags;
+		syscallarg(const char *) permissions;
 	} */ *uap = v;
 	char pathname[MAXPATHLEN];
 	struct nameidata nd;
 	size_t pathlen;
-	char cflags[5];
+	char permissions[5];
 	int error;
 
-	if (SCARG(uap, path) == NULL && SCARG(uap, flags) == NULL) {
+	if (SCARG(uap, path) == NULL && SCARG(uap, permissions) == NULL) {
 		p->p_p->ps_uvdone = 1;
 		return (0);
 	}
@@ -899,7 +899,8 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 	if (p->p_p->ps_uvdone != 0)
 		return EINVAL;
 
-	error = copyinstr(SCARG(uap, flags), cflags, sizeof(cflags), NULL);
+	error = copyinstr(SCARG(uap, permissions), permissions,
+	    sizeof(permissions), NULL);
 	if (error)
 		return(error);
 	error = copyinstr(SCARG(uap, path), pathname, sizeof(pathname), &pathlen);
@@ -908,7 +909,7 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_STRUCT))
-		ktrstruct(p, "unveil", cflags, strlen(cflags));
+		ktrstruct(p, "unveil", permissions, strlen(permissions));
 #endif
 	if (pathlen < 2)
 		return EINVAL;
@@ -935,7 +936,7 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 	    VOP_ACCESS(nd.ni_dvp, VREAD, p->p_ucred, p) == 0 ||
 	    VOP_ACCESS(nd.ni_dvp, VWRITE, p->p_ucred, p) == 0 ||
 	    VOP_ACCESS(nd.ni_dvp, VEXEC, p->p_ucred, p) == 0)
-		error = unveil_add(p, &nd, cflags);
+		error = unveil_add(p, &nd, permissions);
 	else
 		error = EPERM;
 
@@ -1071,7 +1072,7 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 	if (localtrunc) {
 		if ((fp->f_flag & FWRITE) == 0)
 			error = EACCES;
-		else if (vp->v_mount->mnt_flag & MNT_RDONLY)
+		else if (vp->v_mount && (vp->v_mount->mnt_flag & MNT_RDONLY))
 			error = EROFS;
 		else if (vp->v_type == VDIR)
 			error = EISDIR;

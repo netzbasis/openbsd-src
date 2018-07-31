@@ -37,7 +37,7 @@
 /lapic.c/1.52/Fri Jul 27 21:11:31 2018//
 /locore.S/1.107/Tue Jul 24 02:42:25 2018//
 /locore0.S/1.9/Tue Jul 10 16:01:26 2018//
-/machdep.c/1.249/Fri Jul 27 21:11:31 2018//
+/machdep.c/1.250/Mon Jul 30 09:04:52 2018//
 /mainbus.c/1.44/Fri Jul 13 08:30:34 2018//
 /mem.c/1.34/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//

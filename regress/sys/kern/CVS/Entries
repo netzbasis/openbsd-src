@@ -1,4 +1,4 @@
-/Makefile/1.74/Sun Jul 22 06:39:46 2018//
+/Makefile/1.75/Mon Jul 30 17:27:37 2018//
 D/__syscall////
 D/accept////
 D/access////
@@ -31,6 +31,7 @@ D/mmap3////
 D/mount////
 D/nanosleep////
 D/noexec////
+D/open////
 D/pledge////
 D/pread////
 D/preadv////
