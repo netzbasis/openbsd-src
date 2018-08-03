@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.831 2018/07/31 11:49:26 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.836 2018/08/02 18:35:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -18,8 +18,6 @@
 
 #ifndef TMUX_H
 #define TMUX_H
-
-#define PROTOCOL_VERSION 8
 
 #include <sys/time.h>
 #include <sys/queue.h>
@@ -53,6 +51,9 @@ struct options_entry;
 struct session;
 struct tmuxpeer;
 struct tmuxproc;
+
+/* Client-server protocol version. */
+#define PROTOCOL_VERSION 8
 
 /* Default global configuration file. */
 #define TMUX_CONF "/etc/tmux.conf"
@@ -821,12 +822,11 @@ struct window {
 	int		 flags;
 #define WINDOW_BELL 0x1
 #define WINDOW_ACTIVITY 0x2
-/* 0x4 unused */
-#define WINDOW_SILENCE 0x8
-#define WINDOW_ZOOMED 0x1000
-#define WINDOW_FORCEWIDTH 0x2000
-#define WINDOW_FORCEHEIGHT 0x4000
-#define WINDOW_STYLECHANGED 0x8000
+#define WINDOW_SILENCE 0x4
+#define WINDOW_ZOOMED 0x8
+#define WINDOW_FORCEWIDTH 0x10
+#define WINDOW_FORCEHEIGHT 0x20
+#define WINDOW_STYLECHANGED 0x40
 #define WINDOW_ALERTFLAGS (WINDOW_BELL|WINDOW_ACTIVITY|WINDOW_SILENCE)
 
 	int		 alerts_queued;
@@ -1357,6 +1357,7 @@ struct client {
 	void		(*identify_callback)(struct client *,
 			     struct window_pane *);
 	void		*identify_callback_data;
+	struct cmdq_item *identify_callback_item;
 
 	char		*message_string;
 	struct event	 message_timer;
@@ -1402,7 +1403,7 @@ struct key_binding {
 RB_HEAD(key_bindings, key_binding);
 
 struct key_table {
-	const char		 *name;
+	const char		*name;
 	struct key_bindings	 key_bindings;
 
 	u_int			 references;
@@ -1423,6 +1424,7 @@ enum options_table_type {
 	OPTIONS_TABLE_STYLE,
 	OPTIONS_TABLE_ARRAY,
 };
+
 enum options_table_scope {
 	OPTIONS_TABLE_NONE,
 	OPTIONS_TABLE_SERVER,
@@ -1739,7 +1741,6 @@ int		 cmd_find_empty_state(struct cmd_find_state *);
 int		 cmd_find_valid_state(struct cmd_find_state *);
 void		 cmd_find_copy_state(struct cmd_find_state *,
 		     struct cmd_find_state *);
-void		 cmd_find_log_state(const char *, struct cmd_find_state *);
 void		 cmd_find_from_session(struct cmd_find_state *,
 		     struct session *, int);
 void		 cmd_find_from_winlink(struct cmd_find_state *,
@@ -1759,6 +1760,7 @@ int		 cmd_find_from_mouse(struct cmd_find_state *,
 int		 cmd_find_from_nothing(struct cmd_find_state *, int);
 
 /* cmd.c */
+void		 cmd_log_argv(int, char **, const char *);
 int		 cmd_pack_argv(int, char **, char *, size_t);
 int		 cmd_unpack_argv(char *, size_t, int, char ***);
 char	       **cmd_copy_argv(int, char **);
@@ -1808,13 +1810,13 @@ void	cmd_wait_for_flush(void);
 int	client_main(struct event_base *, int, char **, int);
 
 /* key-bindings.c */
-RB_PROTOTYPE(key_bindings, key_binding, entry, key_bindings_cmp);
-RB_PROTOTYPE(key_tables, key_table, entry, key_table_cmp);
-extern struct key_tables key_tables;
-int	 key_table_cmp(struct key_table *, struct key_table *);
-int	 key_bindings_cmp(struct key_binding *, struct key_binding *);
 struct key_table *key_bindings_get_table(const char *, int);
+struct key_table *key_bindings_first_table(void);
+struct key_table *key_bindings_next_table(struct key_table *);
 void	 key_bindings_unref_table(struct key_table *);
+struct key_binding *key_bindings_get(struct key_table *, key_code);
+struct key_binding *key_bindings_first(struct key_table *);
+struct key_binding *key_bindings_next(struct key_table *, struct key_binding *);
 void	 key_bindings_add(const char *, key_code, int, struct cmd_list *);
 void	 key_bindings_remove(const char *, key_code);
 void	 key_bindings_remove_table(const char *);
@@ -1848,7 +1850,6 @@ void	 server_add_accept(int);
 /* server-client.c */
 u_int	 server_client_how_many(void);
 void	 server_client_set_identify(struct client *, u_int);
-void	 server_client_clear_identify(struct client *, struct window_pane *);
 void	 server_client_set_key_table(struct client *, const char *);
 const char *server_client_get_key_table(struct client *);
 int	 server_client_check_nested(struct client *);
@@ -2212,7 +2213,6 @@ void	 mode_tree_expand_current(struct mode_tree_data *);
 void	 mode_tree_set_current(struct mode_tree_data *, uint64_t);
 void	 mode_tree_each_tagged(struct mode_tree_data *, mode_tree_each_cb,
 	     struct client *, key_code, int);
-void	 mode_tree_up(struct mode_tree_data *, int);
 void	 mode_tree_down(struct mode_tree_data *, int);
 struct mode_tree_data *mode_tree_start(struct window_pane *, struct args *,
 	     mode_tree_build_cb, mode_tree_draw_cb, mode_tree_search_cb,
@@ -2282,11 +2282,8 @@ void	control_notify_session_window_changed(struct session *);
 
 /* session.c */
 extern struct sessions sessions;
-extern struct session_groups session_groups;
 int	session_cmp(struct session *, struct session *);
 RB_PROTOTYPE(sessions, session, entry, session_cmp);
-int	session_group_cmp(struct session_group *, struct session_group *);
-RB_PROTOTYPE(session_groups, session_group, entry, session_group_cmp);
 int		 session_alive(struct session *);
 struct session	*session_find(const char *);
 struct session	*session_find_by_id_str(const char *);

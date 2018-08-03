@@ -3,7 +3,7 @@
 /ehci.c/1.200/Mon May 15 10:52:08 2017//
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
-/files.usb/1.134/Wed Oct 11 17:19:50 2017//
+/files.usb/1.135/Fri Aug  3 01:50:15 2018//
 /if_athn_usb.c/1.50/Mon Feb  5 09:52:03 2018//
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
 /if_atu.c/1.126/Sat Apr 28 16:05:56 2018//
@@ -24,6 +24,8 @@
 /if_kuevar.h/1.2/Mon Nov 22 21:23:57 2004//
 /if_mos.c/1.39/Tue Jul  3 00:47:49 2018//
 /if_mosreg.h/1.7/Mon Apr 15 09:23:01 2013//
+/if_mue.c/1.1/Fri Aug  3 01:50:15 2018//
+/if_muereg.h/1.1/Fri Aug  3 01:50:15 2018//
 /if_otus.c/1.60/Thu Oct 26 15:00:28 2017//
 /if_otusreg.h/1.10/Sat Apr  8 02:57:25 2017//
 /if_ral.c/1.144/Thu Oct 26 15:00:28 2017//

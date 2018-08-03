@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.403 2018/07/31 08:04:49 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.406 2018/08/02 12:49:00 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -90,9 +90,9 @@ void		 rde_rib_free(struct rib_desc *);
 
 int		 rde_rdomain_import(struct rde_aspath *, struct rdomain *);
 void		 rde_reload_done(void);
-void		 rde_softreconfig_out(struct rib_entry *, void *);
-void		 rde_softreconfig_in(struct rib_entry *, void *);
-void		 rde_softreconfig_unload_peer(struct rib_entry *, void *);
+static void	 rde_softreconfig_out(struct rib_entry *, void *);
+static void	 rde_softreconfig_in(struct rib_entry *, void *);
+static void	 rde_softreconfig_unload_peer(struct rib_entry *, void *);
 void		 rde_up_dump_upcall(struct rib_entry *, void *);
 void		 rde_update_queue_runner(void);
 void		 rde_update6_queue_runner(u_int8_t);
@@ -108,9 +108,9 @@ void		 peer_up(u_int32_t, struct session_up *);
 void		 peer_down(u_int32_t);
 void		 peer_flush(struct rde_peer *, u_int8_t);
 void		 peer_stale(u_int32_t, u_int8_t);
-void		 peer_recv_eor(struct rde_peer *, u_int8_t);
 void		 peer_dump(u_int32_t, u_int8_t);
-void		 peer_send_eor(struct rde_peer *, u_int8_t);
+static void	 peer_recv_eor(struct rde_peer *, u_int8_t);
+static void	 peer_send_eor(struct rde_peer *, u_int8_t);
 
 void		 network_add(struct network_config *, int);
 void		 network_delete(struct network_config *, int);
@@ -1336,10 +1336,9 @@ rde_update_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix,
 	for (i = RIB_LOC_START; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
 			break;
-		if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen, 0)) {
+		if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen, 0))
 			rde_update_log("withdraw", i, peer, NULL, prefix,
 			    prefixlen);
-		}
 	}
 
 	/* remove original path form the Adj-RIB-In */
@@ -2724,6 +2723,9 @@ rde_reload_done(void)
 	peerself->remote_bgpid = ntohl(conf->bgpid);
 	peerself->conf.local_as = conf->as;
 	peerself->conf.remote_as = conf->as;
+	peerself->conf.remote_addr.aid = AID_INET;
+	peerself->conf.remote_addr.v4.s_addr = conf->bgpid;
+	peerself->conf.remote_masklen = 32;
 	peerself->short_as = conf->short_as;
 
 	/* apply new set of rdomain, sync will be done later */
@@ -2829,8 +2831,7 @@ rde_reload_done(void)
 		ribs[rid].state = RECONF_NONE;
 	}
 
-	if (prefixsets_old != NULL)
-		free_prefixsets(prefixsets_old);
+	free_prefixsets(prefixsets_old);
 	prefixsets_old = NULL;
 
 	log_info("RDE reconfigured");
@@ -2838,7 +2839,7 @@ rde_reload_done(void)
 	    -1, NULL, 0);
 }
 
-void
+static void
 rde_softreconfig_in(struct rib_entry *re, void *ptr)
 {
 	struct filterstate	 state;
@@ -2872,7 +2873,7 @@ rde_softreconfig_in(struct rib_entry *re, void *ptr)
 	}
 }
 
-void
+static void
 rde_softreconfig_out(struct rib_entry *re, void *ptr)
 {
 	struct filterstate	 ostate, nstate;
@@ -2927,7 +2928,7 @@ rde_softreconfig_out(struct rib_entry *re, void *ptr)
 	rde_filterstate_clean(&nstate);
 }
 
-void
+static void
 rde_softreconfig_unload_peer(struct rib_entry *re, void *ptr)
 {
 	struct filterstate	 ostate;
@@ -3292,7 +3293,7 @@ peer_dump(u_int32_t id, u_int8_t aid)
 }
 
 /* End-of-RIB marker, RFC 4724 */
-void
+static void
 peer_recv_eor(struct rde_peer *peer, u_int8_t aid)
 {
 	peer->prefix_rcvd_eor++;
@@ -3313,7 +3314,7 @@ peer_recv_eor(struct rde_peer *peer, u_int8_t aid)
 	    aid2str(aid));
 }
 
-void
+static void
 peer_send_eor(struct rde_peer *peer, u_int8_t aid)
 {
 	u_int16_t	afi;
@@ -3423,9 +3424,16 @@ network_add(struct network_config *nc, int flagstatic)
 	if (vpnset)
 		rde_apply_set(vpnset, &state, nc->prefix.aid, peerself,
 		    peerself);
+
+	if (path_update(&ribs[RIB_ADJ_IN].rib, peerself, &state, &nc->prefix,
+		    nc->prefixlen, 0))
+		peerself->prefix_cnt++;
 	for (i = RIB_LOC_START; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
 			break;
+		rde_update_log("announce", i, peerself,
+		    state.nexthop ? &state.nexthop->exit_nexthop : NULL,
+		    &nc->prefix, nc->prefixlen);
 		path_update(&ribs[i].rib, peerself, &state, &nc->prefix,
 		    nc->prefixlen, 0);
 	}
@@ -3475,9 +3483,15 @@ network_delete(struct network_config *nc, int flagstatic)
 	for (i = RIB_LOC_START; i < rib_size; i++) {
 		if (*ribs[i].name == '\0')
 			break;
-		prefix_remove(&ribs[i].rib, peerself, &nc->prefix,
-		    nc->prefixlen, flags);
+		if (prefix_remove(&ribs[i].rib, peerself, &nc->prefix,
+		    nc->prefixlen, flags))
+			rde_update_log("withdraw announce", i, peerself,
+			    NULL, &nc->prefix, nc->prefixlen);
+
 	}
+	if (prefix_remove(&ribs[RIB_ADJ_IN].rib, peerself, &nc->prefix,
+	    nc->prefixlen, flags))
+		peerself->prefix_cnt--;	
 }
 
 void
