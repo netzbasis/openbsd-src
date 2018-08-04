@@ -1,7 +1,7 @@
 /Makefile/1.8/Mon Jul  3 22:21:47 2017//
 /acctproc.c/1.12/Sat Jul 28 15:25:23 2018//
 /acme-client.1/1.26/Thu Aug  2 14:39:26 2018//
-/acme-client.conf.5/1.14/Thu Aug  2 14:40:38 2018//
+/acme-client.conf.5/1.16/Fri Aug  3 17:48:34 2018//
 /base64.c/1.9/Tue Jan 24 13:32:55 2017//
 /certproc.c/1.11/Sat Jul 28 15:25:23 2018//
 /chngproc.c/1.12/Tue Jan 24 13:32:55 2017//
@@ -18,7 +18,7 @@
 /main.c/1.41/Mon Jul 30 09:59:03 2018//
 /netproc.c/1.16/Wed Mar 14 12:28:25 2018//
 /parse.h/1.9/Mon Nov 27 16:53:04 2017//
-/parse.y/1.26/Sun Jul 29 12:46:31 2018//
+/parse.y/1.29/Fri Aug  3 17:57:21 2018//
 /revokeproc.c/1.14/Sat Jul 28 15:25:23 2018//
 /rsa.c/1.7/Sat Jul 28 15:25:23 2018//
 /rsa.h/1.1/Wed Aug 31 22:01:42 2016//
