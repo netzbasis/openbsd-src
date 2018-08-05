@@ -2,7 +2,7 @@
 /client.c/1.105/Tue May 30 23:30:48 2017//
 /config.c/1.28/Mon Oct 12 06:50:08 2015//
 /constraint.c/1.35/Mon Dec  5 10:41:33 2016//
-/control.c/1.12/Mon Jan  9 14:04:31 2017//
+/control.c/1.13/Sat Aug  4 11:07:14 2018//
 /log.c/1.17/Tue Mar 21 12:06:56 2017//
 /ntp.c/1.148/Thu Jul 19 10:20:09 2018//
 /ntp.h/1.13/Wed Apr 22 07:42:17 2009//
@@ -10,9 +10,9 @@
 /ntp_msg.c/1.22/Sat Sep  3 11:52:06 2016//
 /ntpctl.8/1.8/Wed Mar 11 19:38:48 2015//
 /ntpd.8/1.41/Wed Sep  6 19:43:46 2017//
-/ntpd.c/1.114/Thu Aug  2 13:05:34 2018//
+/ntpd.c/1.115/Sat Aug  4 11:07:14 2018//
 /ntpd.conf.5/1.37/Thu Aug 10 22:59:42 2017//
-/ntpd.h/1.135/Tue May 30 23:30:48 2017//
+/ntpd.h/1.136/Sat Aug  4 11:07:14 2018//
 /parse.y/1.69/Mon Jul  9 12:05:11 2018//
 /sensors.c/1.52/Sat Sep  3 11:52:06 2016//
 /server.c/1.44/Sat Sep  3 11:52:06 2016//
