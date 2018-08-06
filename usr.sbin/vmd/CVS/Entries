@@ -2,7 +2,7 @@
 /atomicio.c/1.1/Mon May  8 09:08:40 2017//
 /atomicio.h/1.1/Mon May  8 09:08:40 2017//
 /config.c/1.48/Sun Jul 15 14:36:54 2018//
-/control.c/1.28/Fri Jul 13 08:42:49 2018//
+/control.c/1.29/Sun Aug  5 08:20:54 2018//
 /dhcp.c/1.4/Sun Nov  5 20:01:09 2017//
 /dhcp.h/1.1/Wed Apr 19 15:38:32 2017//
 /disklabel.c/1.2/Tue Aug 29 21:10:20 2017//
@@ -22,8 +22,8 @@
 /pci.c/1.27/Thu Jul 12 10:15:44 2018//
 /pci.h/1.7/Sun Sep 17 23:07:56 2017//
 /priv.c/1.13/Sat Nov 11 02:50:07 2017//
-/proc.c/1.16/Sat Nov  4 07:40:31 2017//
-/proc.h/1.14/Sun Jul 15 14:36:54 2018//
+/proc.c/1.17/Sun Aug  5 08:20:54 2018//
+/proc.h/1.15/Sun Aug  5 08:20:54 2018//
 /task.c/1.2/Tue Jun 19 17:12:34 2018//
 /task.h/1.1/Fri Sep 15 02:39:33 2017//
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
