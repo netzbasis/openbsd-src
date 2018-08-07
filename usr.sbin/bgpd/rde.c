@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.408 2018/08/03 16:31:22 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.411 2018/08/06 15:59:01 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -527,7 +527,7 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 				break;
 			default:
 badnet:
-				log_warnx("rde_dispatch: bad network");
+				log_warnx("request to insert invalid network");
 				break;
 			}
 			break;
@@ -539,7 +539,23 @@ badnet:
 			}
 			memcpy(&netconf_s, imsg.data, sizeof(netconf_s));
 			TAILQ_INIT(&netconf_s.attrset);
-			network_delete(&netconf_s, 0);
+
+			switch (netconf_s.prefix.aid) {
+			case AID_INET:
+				if (netconf_s.prefixlen > 32)
+					goto badnetdel;
+				network_delete(&netconf_s, 0);
+				break;
+			case AID_INET6:
+				if (netconf_s.prefixlen > 128)
+					goto badnetdel;
+				network_delete(&netconf_s, 0);
+				break;
+			default:
+badnetdel:
+				log_warnx("request to remove invalid network");
+				break;
+			}
 			break;
 		case IMSG_NETWORK_FLUSH:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE) {
@@ -2120,7 +2136,7 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 	if (req->flags & F_CTL_ADJ_IN ||
 	    !(req->flags & (F_CTL_ADJ_IN|F_CTL_ADJ_OUT))) {
 		asp = prefix_aspath(p);
-		if (req->peerid && req->peerid != asp->peer->conf.id)
+		if (req->peerid && req->peerid != prefix_peer(p)->conf.id)
 			return;
 		if (req->type == IMSG_CTL_SHOW_RIB_AS &&
 		    !aspath_match(asp->aspath->data, asp->aspath->len,
@@ -2882,7 +2898,7 @@ rde_softreconfig_in(struct rib_entry *re, void *bula)
 	pt_getaddr(pt, &addr);
 	LIST_FOREACH(p, &re->prefix_h, rib_l) {
 		asp = prefix_aspath(p);
-		peer = asp->peer;
+		peer = prefix_peer(p);
 
 		for (i = RIB_LOC_START; i < rib_size; i++) {
 			rib = &ribs[i];
@@ -3273,7 +3289,7 @@ peer_flush(struct rde_peer *peer, u_int8_t aid)
 	/* walk through per peer RIB list and remove all stale prefixes. */
 	for (asp = TAILQ_FIRST(&peer->path_h); asp != NULL; asp = nasp) {
 		nasp = TAILQ_NEXT(asp, peer_l);
-		rprefixes += path_remove_stale(asp, aid);
+		rprefixes += path_remove_stale(asp, aid, peer->staletime[aid]);
 	}
 
 	/* Deletions are performed in path_remove() */
