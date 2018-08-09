@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_attr.c,v 1.105 2018/07/13 08:18:11 claudio Exp $ */
+/*	$OpenBSD: rde_attr.c,v 1.107 2018/08/08 14:29:05 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -1337,6 +1337,12 @@ community_ext_matchone(struct filter_extcommunity *c, u_int16_t neighas,
 	return (0);
 }
 
+struct wire_largecommunity {
+	uint32_t	as;
+	uint32_t	ld1;
+	uint32_t	ld2;
+};
+
 int
 community_large_match(struct rde_aspath *asp, int64_t as, int64_t ld1,
     int64_t ld2)
@@ -1500,7 +1506,7 @@ community_ext_delete_non_trans(u_char *data, u_int16_t len, u_int16_t *newlen)
 
 	newdata = malloc(nlen);
 	if (newdata == NULL)
-		fatal("%s", __func__);;
+		fatal("%s", __func__);
 
 	for (l = 0, nlen = 0; l < len; l += sizeof(u_int64_t)) {
 		if (!(ext[l] & EXT_COMMUNITY_TRANSITIVE)) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.411 2018/08/06 15:59:01 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.413 2018/08/08 13:08:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -90,7 +90,10 @@ void		 rde_rib_free(struct rib_desc *);
 
 int		 rde_rdomain_import(struct rde_aspath *, struct rdomain *);
 void		 rde_reload_done(void);
-static void	 rde_softreconfig_done(void *);
+static void	 rde_reload_runner(void);
+static void	 rde_softreconfig_in_done(void *);
+static void	 rde_softreconfig_out_done(void *);
+static void	 rde_softreconfig_done(void);
 static void	 rde_softreconfig_out(struct rib_entry *, void *);
 static void	 rde_softreconfig_in(struct rib_entry *, void *);
 static void	 rde_softreconfig_unload_peer(struct rib_entry *, void *);
@@ -132,6 +135,7 @@ struct imsgbuf		*ibuf_se;
 struct imsgbuf		*ibuf_se_ctl;
 struct imsgbuf		*ibuf_main;
 struct rde_memstats	 rdemem;
+int			 softreconfig;
 
 struct rde_dump_ctx {
 	LIST_ENTRY(rde_dump_ctx)	entry;
@@ -322,6 +326,9 @@ rde_main(int debug, int verbose)
 		if (rde_dump_pending() &&
 		    ibuf_se_ctl && ibuf_se_ctl->w.queued <= 10)
 			rde_dump_runner();
+		if (softreconfig) {
+			rde_reload_runner();
+		}
 	}
 
 	/* do not clean up on shutdown on production, it takes ages. */
@@ -773,7 +780,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				fatal(NULL);
 			memcpy(nconf, imsg.data, sizeof(struct bgpd_config));
 			for (rid = 0; rid < rib_size; rid++) {
-				if (*ribs[rid].name == '\0')
+				if (!rib_valid(rid))
 					break;
 				ribs[rid].state = RECONF_DELETE;
 			}
@@ -1320,7 +1327,7 @@ rde_update_update(struct rde_peer *peer, struct filterstate *in,
 		fatalx("rde_update_update: no prefix in Adj-RIB-In");
 
 	for (i = RIB_LOC_START; i < rib_size; i++) {
-		if (*ribs[i].name == '\0')
+		if (!rib_valid(i))
 			break;
 		rde_filterstate_prep(&state, &in->aspath, in->nexthop,
 		    in->nhflags);
@@ -1352,7 +1359,7 @@ rde_update_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix,
 	u_int16_t i;
 
 	for (i = RIB_LOC_START; i < rib_size; i++) {
-		if (*ribs[i].name == '\0')
+		if (!rib_valid(i))
 			break;
 		if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen, 0))
 			rde_update_log("withdraw", i, peer, NULL, prefix,
@@ -2715,6 +2722,7 @@ rde_reload_done(void)
 	struct rdomain		*rd;
 	struct rde_peer		*peer;
 	struct filter_head	*fh;
+	struct rib_context	*ctx;
 	u_int16_t		 rid;
 	int			 reload = 0;
 
@@ -2799,7 +2807,7 @@ rde_reload_done(void)
 	}
 	/* bring ribs in sync */
 	for (rid = 0; rid < rib_size; rid++) {
-		if (*ribs[rid].name == '\0')
+		if (!rib_valid(rid))
 			continue;
 		rde_filter_calc_skip_steps(ribs[rid].in_rules_tmp);
 
@@ -2835,14 +2843,55 @@ rde_reload_done(void)
 		filterlist_free(ribs[rid].in_rules_tmp);
 		ribs[rid].in_rules_tmp = NULL;
 	}
+	log_info("RDE reconfigured");
 
-	if (reload > 0)
-		rib_dump(&ribs[RIB_ADJ_IN].rib, rde_softreconfig_in, NULL,
-		    AID_UNSPEC);
+	softreconfig++;
+	if (reload > 0) {
+		ctx = &ribs[RIB_ADJ_IN].ribctx;
+		memset(ctx, 0, sizeof(*ctx));
+		ctx->ctx_rib = &ribs[RIB_ADJ_IN].rib;
+		ctx->ctx_arg = &ribs[RIB_ADJ_IN];
+		ctx->ctx_upcall = rde_softreconfig_in;
+		ctx->ctx_done = rde_softreconfig_in_done;
+		ctx->ctx_aid = AID_UNSPEC;
+		ctx->ctx_count = RDE_RUNNER_ROUNDS;
+		ribs[RIB_ADJ_IN].dumping = 1;
+		log_info("running softreconfig in");
+	} else {
+		rde_softreconfig_in_done(&ribs[RIB_ADJ_IN]);
+	}
+}
+
+static void
+rde_reload_runner(void)
+{
+	u_int16_t	rid;
+
+	for (rid = 0; rid < rib_size; rid++) {
+		if (*ribs[rid].name == '\0')
+			continue;
+		if (ribs[rid].dumping)
+			rib_dump_r(&ribs[rid].ribctx);
+	}
+}
+
+static void
+rde_softreconfig_in_done(void *arg)
+{
+	struct rib_desc		*rib = arg;
+	struct rde_peer		*peer;
+	u_int16_t		 rid;
+
+	/* Adj-RIB-In run is done */
+	softreconfig--;
+	rib->dumping = 0;
 
 	/* now do the Adj-RIB-Out sync */
-	for (rid = 0; rid < rib_size; rid++)
+	for (rid = 0; rid < rib_size; rid++) {
+		if (*ribs[rid].name == '\0')
+			continue;
 		ribs[rid].state = RECONF_NONE;
+	}
 
 	LIST_FOREACH(peer, &peerlist, peer_l) {
 		if (peer->reconf_out)
@@ -2852,23 +2901,58 @@ rde_reload_done(void)
 			peer_dump(peer->conf.id, AID_UNSPEC);
 	}
 
-	for (rid = 0; rid < rib_size; rid++)
-		if (ribs[rid].state == RECONF_RELOAD)
-			rib_dump(&ribs[rid].rib, rde_softreconfig_out, NULL,
-			    AID_UNSPEC);
+	for (rid = 0; rid < rib_size; rid++) {
+		if (*ribs[rid].name == '\0')
+			continue;
+		if (ribs[rid].state == RECONF_RELOAD) {
+			struct rib_context	*ctx;
 
-	rde_softreconfig_done(NULL);
+			ctx = &ribs[rid].ribctx;
+			memset(ctx, 0, sizeof(*ctx));
+			ctx->ctx_rib = &ribs[rid].rib;
+			ctx->ctx_arg = &ribs[rid];
+			ctx->ctx_upcall = rde_softreconfig_out;
+			ctx->ctx_done = rde_softreconfig_out_done;
+			ctx->ctx_aid = AID_UNSPEC;
+			ctx->ctx_count = RDE_RUNNER_ROUNDS;
+			ribs[rid].dumping = 1;
+			softreconfig++;
+			log_info("starting softreconfig out for rib %s",
+			    ribs[rid].name);
+		}
+	}
+
+	/* if nothing to do move to last stage */
+	if (softreconfig == 0)
+		rde_softreconfig_done();
 }
 
 static void
-rde_softreconfig_done(void *arg)
+rde_softreconfig_out_done(void *arg)
 {
-	u_int16_t		 rid;
+	struct rib_desc		*rib = arg;
+
+	/* this RIB dump is done */
+	softreconfig--;
+	rib->dumping = 0;
+	log_info("softreconfig out done for %s", rib->name);
+
+	/* but other dumps are still running */
+	if (softreconfig > 0)
+		return;
+
+	rde_softreconfig_done();
+}
+
+static void
+rde_softreconfig_done(void)
+{
+	u_int16_t	rid;
 
 	filterlist_free(out_rules_tmp);
 	out_rules_tmp = NULL;
 	for (rid = 0; rid < rib_size; rid++) {
-		if (*ribs[rid].name == '\0')
+		if (!rib_valid(rid))
 			continue;
 		ribs[rid].state = RECONF_NONE;
 	}
@@ -2876,7 +2960,7 @@ rde_softreconfig_done(void *arg)
 	free_prefixsets(prefixsets_old);
 	prefixsets_old = NULL;
 
-	log_info("RDE reconfigured");
+	log_info("RDE soft reconfiguration done");
 	imsg_compose(ibuf_main, IMSG_RECONF_DONE, 0, 0,
 	    -1, NULL, 0);
 }
@@ -2900,11 +2984,15 @@ rde_softreconfig_in(struct rib_entry *re, void *bula)
 		asp = prefix_aspath(p);
 		peer = prefix_peer(p);
 
+		/* skip announced networks, they are never filtered */
+		if (asp->flags & F_PREFIX_ANNOUNCED)
+			continue;
+
 		for (i = RIB_LOC_START; i < rib_size; i++) {
 			rib = &ribs[i];
 			if (rib->state != RECONF_RELOAD)
 				continue;
-			if (*rib->name == '\0')
+			if (!rib_valid(i))
 				break;
 
 			rde_filterstate_prep(&state, asp, prefix_nexthop(p),
@@ -3486,7 +3574,7 @@ network_add(struct network_config *nc, int flagstatic)
 		    nc->prefixlen, 0))
 		peerself->prefix_cnt++;
 	for (i = RIB_LOC_START; i < rib_size; i++) {
-		if (*ribs[i].name == '\0')
+		if (!rib_valid(i))
 			break;
 		rde_update_log("announce", i, peerself,
 		    state.nexthop ? &state.nexthop->exit_nexthop : NULL,
@@ -3538,7 +3626,7 @@ network_delete(struct network_config *nc, int flagstatic)
 	}
 
 	for (i = RIB_LOC_START; i < rib_size; i++) {
-		if (*ribs[i].name == '\0')
+		if (!rib_valid(i))
 			break;
 		if (prefix_remove(&ribs[i].rib, peerself, &nc->prefix,
 		    nc->prefixlen, flags))
@@ -3607,7 +3695,7 @@ rde_shutdown(void)
 	/* free filters */
 	filterlist_free(out_rules);
 	for (i = 0; i < rib_size; i++) {
-		if (*ribs[i].name == '\0')
+		if (!rib_valid(i))
 			break;
 		filterlist_free(ribs[i].in_rules);
 	}

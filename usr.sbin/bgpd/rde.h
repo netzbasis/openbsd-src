@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.184 2018/08/06 08:13:31 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.186 2018/08/08 13:08:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -287,9 +287,11 @@ struct rib {
 struct rib_desc {
 	char			name[PEER_DESCR_LEN];
 	struct rib		rib;
+	struct rib_context	ribctx;
 	struct filter_head	*in_rules;
 	struct filter_head	*in_rules_tmp;
 	enum reconf_action 	state;
+	u_int8_t		dumping;
 };
 
 #define RIB_ADJ_IN	0
@@ -464,6 +466,14 @@ static inline struct rib *
 re_rib(struct rib_entry *re)
 {
 	return (struct rib *)((intptr_t)re->__rib & ~1);
+}
+
+static inline int
+rib_valid(u_int16_t rid)
+{
+	if (rid >= rib_size || *ribs[rid].name == '\0')
+		return 0;
+	return 1;
 }
 
 void		 path_init(u_int32_t);
