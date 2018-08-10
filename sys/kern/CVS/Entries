@@ -12,7 +12,7 @@
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.95/Mon Jun  4 18:16:43 2018//
 /kern_descrip.c/1.177/Tue Jul 10 08:58:50 2018//
-/kern_event.c/1.95/Tue Aug  7 12:38:15 2018//
+/kern_event.c/1.96/Thu Aug  9 15:02:45 2018//
 /kern_exec.c/1.201/Sun Aug  5 14:23:57 2018//
 /kern_exit.c/1.165/Fri Jul 13 09:25:23 2018//
 /kern_fork.c/1.205/Fri Jul 20 07:28:36 2018//
