@@ -38,7 +38,7 @@
 /man_validate.c/1.105/Wed Apr 11 17:10:35 2018//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
 /mandoc.1/1.150/Sat Jul 28 18:32:30 2018//
-/mandoc.c/1.72/Sat Jul 28 18:32:30 2018//
+/mandoc.c/1.73/Fri Aug 10 22:12:40 2018//
 /mandoc.css/1.23/Mon Jul 23 22:51:24 2018//
 /mandoc.h/1.190/Sat Jul 28 18:32:30 2018//
 /mandoc_aux.c/1.9/Wed Feb  7 20:04:33 2018//
@@ -68,12 +68,12 @@
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
 /read.c/1.168/Sat Jul 28 18:32:30 2018//
-/roff.c/1.201/Wed Aug  1 15:39:47 2018//
+/roff.c/1.202/Fri Aug 10 04:41:21 2018//
 /roff.h/1.41/Wed Apr 11 17:10:35 2018//
 /roff_html.c/1.12/Mon Jun 25 14:53:54 2018//
 /roff_int.h/1.9/Sat Jul  8 17:52:42 2017//
-/roff_term.c/1.14/Sat Jun 24 14:38:28 2017//
-/roff_validate.c/1.9/Wed Jun 14 22:50:37 2017//
+/roff_term.c/1.15/Fri Aug 10 20:40:43 2018//
+/roff_validate.c/1.10/Fri Aug 10 20:40:43 2018//
 /st.c/1.11/Sat Jun 24 14:38:28 2017//
 /st.in/1.24/Thu Apr  5 09:16:45 2018//
 /tag.c/1.19/Thu Feb  8 01:36:38 2018//

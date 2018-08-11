@@ -1,8 +1,9 @@
-/Makefile/1.75/Mon Jul 30 17:27:37 2018//
+/Makefile/1.76/Fri Aug 10 15:58:16 2018//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
+D/descrip////
 D/dup2////
 D/dup2_accept////
 D/dup2_self////
