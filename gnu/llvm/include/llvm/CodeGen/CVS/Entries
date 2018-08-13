@@ -48,7 +48,7 @@
 /MachineConstantPool.h/1.1.1.2/Wed Oct  4 20:27:55 2017//
 /MachineDominanceFrontier.h/1.1.1.3/Fri Apr  6 14:26:04 2018//
 /MachineDominators.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
-/MachineFrameInfo.h/1.2/Wed Jun  6 00:14:29 2018//
+/MachineFrameInfo.h/1.3/Sun Aug 12 16:59:31 2018//
 /MachineFunction.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
 /MachineFunctionPass.h/1.1.1.3/Wed Oct  4 20:27:55 2017//
 /MachineInstr.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
@@ -83,6 +83,7 @@
 /RegisterScavenging.h/1.1.1.4/Wed Oct  4 20:27:55 2017//
 /RegisterUsageInfo.h/1.1.1.3/Fri Apr  6 14:26:04 2018/-ko/
 /ResourcePriorityQueue.h/1.1.1.3/Fri Apr  6 14:26:04 2018//
+/ReturnProtectorLowering.h/1.1/Sun Aug 12 16:59:31 2018//
 /RuntimeLibcalls.def/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
 /RuntimeLibcalls.h/1.1.1.5/Fri Apr  6 14:26:04 2018//
 /SDNodeProperties.td/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
@@ -103,7 +104,7 @@
 /StackProtector.h/1.1.1.3/Wed Oct  4 20:27:55 2017//
 /TailDuplicator.h/1.1.1.4/Fri Apr  6 14:26:04 2018/-ko/
 /TargetCallingConv.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
-/TargetFrameLowering.h/1.2/Wed Jun  6 00:14:29 2018/-ko/
+/TargetFrameLowering.h/1.3/Sun Aug 12 16:59:31 2018/-ko/
 /TargetInstrInfo.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
 /TargetLowering.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/
 /TargetLoweringObjectFile.h/1.1.1.1/Fri Apr  6 14:26:04 2018/-ko/

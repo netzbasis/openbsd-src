@@ -54,8 +54,8 @@
 /if_spppsubr.c/1.174/Mon Feb 19 08:59:52 2018//
 /if_switch.c/1.23/Mon Feb 19 08:59:52 2018//
 /if_switch.h/1.10/Sun Nov 20 12:45:26 2016//
-/if_trunk.c/1.136/Mon Feb 19 08:59:52 2018//
-/if_trunk.h/1.25/Wed Sep 23 12:40:12 2015//
+/if_trunk.c/1.137/Sun Aug 12 23:50:31 2018//
+/if_trunk.h/1.26/Sun Aug 12 23:50:31 2018//
 /if_tun.c/1.181/Sat Feb 24 07:20:04 2018//
 /if_tun.h/1.15/Tue Feb  6 10:49:40 2007//
 /if_types.h/1.21/Wed Jun 15 19:39:34 2016//
@@ -102,6 +102,6 @@
 /slcompress.h/1.10/Tue Jan 24 10:08:30 2017//
 /switchctl.c/1.12/Fri Aug 11 21:24:19 2017//
 /switchofp.c/1.70/Mon Feb 19 08:59:52 2018//
-/trunklacp.c/1.29/Tue Jan 24 10:08:30 2017//
-/trunklacp.h/1.13/Sat May 12 02:02:34 2018//
+/trunklacp.c/1.30/Sun Aug 12 23:50:31 2018//
+/trunklacp.h/1.14/Sun Aug 12 23:50:31 2018//
 D

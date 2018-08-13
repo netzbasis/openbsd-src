@@ -1,8 +1,8 @@
 /Makefile.inc/1.1/Wed Jan 11 18:09:24 2017//
 /_atomic_lock.c/1.2/Thu May 17 20:28:32 2018//
 /_setjmp.S/1.2/Sun Apr 16 13:35:14 2017//
-/byte_swap_2.S/1.1/Wed Jan 11 18:09:24 2017//
-/byte_swap_4.S/1.1/Wed Jan 11 18:09:24 2017//
+/byte_swap_2.S/1.2/Sun Aug 12 17:15:10 2018//
+/byte_swap_4.S/1.2/Sun Aug 12 17:15:10 2018//
 /clz_tab.c/1.1/Wed Jan 11 18:09:24 2017//
 /fabs.c/1.1/Wed Jan 11 18:09:24 2017//
 /flt_rounds.c/1.1/Wed Jan 11 18:09:24 2017//
