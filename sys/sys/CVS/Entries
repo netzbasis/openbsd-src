@@ -7,7 +7,7 @@
 /ataio.h/1.5/Fri Sep 26 21:43:32 2003//
 /atomic.h/1.5/Sat May 27 19:47:08 2017//
 /audioio.h/1.27/Wed Sep 14 06:12:20 2016//
-/buf.h/1.106/Sun Apr 16 14:25:42 2017//
+/buf.h/1.107/Mon Aug 13 15:26:17 2018//
 /cdefs.h/1.41/Fri Apr 14 07:22:02 2017//
 /cdio.h/1.17/Tue Oct 24 09:36:13 2017//
 /chio.h/1.7/Wed May 31 03:01:44 2006//
@@ -60,7 +60,7 @@
 /msgbuf.h/1.11/Thu Jun 23 13:15:21 2016//
 /mtio.h/1.9/Fri Jun  1 18:44:48 2007//
 /mutex.h/1.15/Fri Jun  8 15:38:15 2018//
-/namei.h/1.37/Sat Aug 11 16:16:07 2018//
+/namei.h/1.38/Mon Aug 13 23:11:44 2018//
 /param.h/1.127/Fri Aug 10 20:27:01 2018//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.7/Thu Feb 23 00:15:12 2017//
@@ -68,7 +68,7 @@
 /pledge.h/1.38/Sat Aug 11 16:16:07 2018//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.74/Sun Aug 13 20:26:33 2017//
-/proc.h/1.255/Sun Aug  5 14:23:57 2018//
+/proc.h/1.256/Mon Aug 13 15:26:17 2018//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.45/Thu Jul 12 14:22:54 2018//
@@ -128,7 +128,7 @@
 /varargs.h/1.2/Sat Jan  3 14:55:34 2004//
 /videoio.h/1.16/Fri Feb 17 06:48:33 2017//
 /vmmeter.h/1.15/Wed Jul 27 14:44:59 2016//
-/vnode.h/1.147/Fri Jul 13 09:25:23 2018//
+/vnode.h/1.148/Mon Aug 13 15:26:17 2018//
 /wait.h/1.17/Fri Jun 13 22:40:31 2014//
 /witness.h/1.3/Fri Jun  8 15:38:15 2018//
 D
