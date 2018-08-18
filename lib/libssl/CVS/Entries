@@ -31,7 +31,7 @@
 /ssl_both.c/1.11/Sun Oct  8 16:24:02 2017//
 /ssl_cert.c/1.67/Wed Apr 25 07:10:39 2018//
 /ssl_ciph.c/1.99/Wed Apr 25 07:10:39 2018//
-/ssl_clnt.c/1.30/Thu Aug 16 17:39:50 2018//
+/ssl_clnt.c/1.31/Fri Aug 17 16:28:21 2018//
 /ssl_err.c/1.36/Tue Mar 20 15:28:12 2018//
 /ssl_init.c/1.2/Fri Mar 30 14:59:46 2018//
 /ssl_lib.c/1.185/Wed Apr 25 07:10:39 2018//

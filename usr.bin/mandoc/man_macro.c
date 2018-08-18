@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_macro.c,v 1.88 2018/08/16 23:40:19 schwarze Exp $ */
+/*	$OpenBSD: man_macro.c,v 1.90 2018/08/18 02:03:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2012-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -38,7 +38,7 @@ static	int		 man_args(struct roff_man *, int,
 				int *, char *, char **);
 static	void		 rew_scope(struct roff_man *, enum roff_tok);
 
-const	struct man_macro __man_macros[MAN_MAX - MAN_TH] = {
+static const struct man_macro man_macros[MAN_MAX - MAN_TH] = {
 	{ in_line_eoln, MAN_BSCOPE }, /* TH */
 	{ blk_imp, MAN_BSCOPE | MAN_SCOPED }, /* SH */
 	{ blk_imp, MAN_BSCOPE | MAN_SCOPED }, /* SS */
@@ -69,6 +69,8 @@ const	struct man_macro __man_macros[MAN_MAX - MAN_TH] = {
 	{ in_line_eoln, MAN_NSCOPED }, /* PD */
 	{ in_line_eoln, 0 }, /* AT */
 	{ in_line_eoln, MAN_NSCOPED }, /* in */
+	{ blk_exp, MAN_BSCOPE }, /* SY */
+	{ blk_close, MAN_BSCOPE }, /* YS */
 	{ in_line_eoln, 0 }, /* OP */
 	{ in_line_eoln, MAN_BSCOPE }, /* EX */
 	{ in_line_eoln, MAN_BSCOPE }, /* EE */
@@ -77,8 +79,14 @@ const	struct man_macro __man_macros[MAN_MAX - MAN_TH] = {
 	{ blk_exp, MAN_BSCOPE }, /* MT */
 	{ blk_close, MAN_BSCOPE }, /* ME */
 };
-const	struct man_macro *const man_macros = __man_macros - MAN_TH;
 
+
+const struct man_macro *
+man_macro(enum roff_tok tok)
+{
+	assert(tok >= MAN_TH && tok <= MAN_MAX);
+	return man_macros + (tok - MAN_TH);
+}
 
 void
 man_unscope(struct roff_man *man, const struct roff_node *to)
@@ -93,7 +101,7 @@ man_unscope(struct roff_man *man, const struct roff_node *to)
 
 		if (to == NULL && ! (n->flags & NODE_VALID)) {
 			if (man->flags & (MAN_BLINE | MAN_ELINE) &&
-			    man_macros[n->tok].flags & MAN_SCOPED) {
+			    man_macro(n->tok)->flags & MAN_SCOPED) {
 				mandoc_vmsg(MANDOCERR_BLK_LINE,
 				    man->parse, n->line, n->pos,
 				    "EOF breaks %s", roff_name[n->tok]);
@@ -110,7 +118,7 @@ man_unscope(struct roff_man *man, const struct roff_node *to)
 				continue;
 			}
 			if (n->type == ROFFT_BLOCK &&
-			    man_macros[n->tok].fp == blk_exp)
+			    man_macro(n->tok)->fp == blk_exp)
 				mandoc_msg(MANDOCERR_BLK_NOEND,
 				    man->parse, n->line, n->pos,
 				    roff_name[n->tok]);
@@ -174,7 +182,7 @@ rew_scope(struct roff_man *man, enum roff_tok tok)
 		}
 		if (tok != MAN_SH && (n->tok == MAN_SH ||
 		    (tok != MAN_SS && (n->tok == MAN_SS ||
-		     man_macros[n->tok].fp == blk_exp))))
+		     man_macro(n->tok)->fp == blk_exp))))
 			return;
 		man_unscope(man, n);
 		n = man->last;
@@ -214,6 +222,9 @@ blk_close(MACRO_PROT_ARGS)
 			    line, ppos, "RE %d", target);
 			return;
 		}
+		break;
+	case MAN_YS:
+		ntok = MAN_SY;
 		break;
 	case MAN_UE:
 		ntok = MAN_UR;
@@ -325,7 +336,7 @@ blk_imp(MACRO_PROT_ARGS)
 	 * For `TP', always keep the head open.
 	 */
 
-	if (man_macros[tok].flags & MAN_SCOPED &&
+	if (man_macro(tok)->flags & MAN_SCOPED &&
 	    (tok == MAN_TP || tok == MAN_TQ || n == man->last)) {
 		man->flags |= MAN_BLINE;
 		return;
@@ -363,7 +374,7 @@ in_line_eoln(MACRO_PROT_ARGS)
 		la = *pos;
 		if ( ! man_args(man, line, pos, buf, &p))
 			break;
-		if (man_macros[tok].flags & MAN_JOIN &&
+		if (man_macro(tok)->flags & MAN_JOIN &&
 		    man->last->type == ROFFT_TEXT)
 			roff_word_append(man, p);
 		else
@@ -385,8 +396,8 @@ in_line_eoln(MACRO_PROT_ARGS)
 	 * waiting for terms to load into our context.
 	 */
 
-	if (n == man->last && man_macros[tok].flags & MAN_SCOPED) {
-		assert( ! (man_macros[tok].flags & MAN_NSCOPED));
+	if (n == man->last && man_macro(tok)->flags & MAN_SCOPED) {
+		assert((man_macro(tok)->flags & MAN_NSCOPED) == 0);
 		man->flags |= MAN_ELINE;
 		return;
 	}
