@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_term.c,v 1.168 2018/08/18 02:03:41 schwarze Exp $ */
+/*	$OpenBSD: man_term.c,v 1.172 2018/08/18 17:06:58 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -115,8 +115,8 @@ static const struct man_term_act man_term_acts[MAN_MAX - MAN_TH] = {
 	{ pre_I, NULL, 0 }, /* I */
 	{ pre_alternate, NULL, 0 }, /* IR */
 	{ pre_alternate, NULL, 0 }, /* RI */
-	{ pre_literal, NULL, 0 }, /* nf */
-	{ pre_literal, NULL, 0 }, /* fi */
+	{ pre_literal, NULL, MAN_NOTEXT }, /* nf */
+	{ pre_literal, NULL, MAN_NOTEXT }, /* fi */
 	{ NULL, NULL, 0 }, /* RE */
 	{ pre_RS, post_RS, 0 }, /* RS */
 	{ pre_DT, NULL, 0 }, /* DT */
@@ -344,7 +344,7 @@ pre_OP(DECL_ARGS)
 {
 
 	term_word(p, "[");
-	p->flags |= TERMP_NOSPACE;
+	p->flags |= TERMP_KEEP | TERMP_NOSPACE;
 
 	if (NULL != (n = n->child)) {
 		term_fontrepl(p, TERMFONT_BOLD);
@@ -356,6 +356,7 @@ pre_OP(DECL_ARGS)
 	}
 
 	term_fontrepl(p, TERMFONT_NONE);
+	p->flags &= ~TERMP_KEEP;
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, "]");
 	return 0;
@@ -858,7 +859,8 @@ pre_SY(DECL_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		print_bvspace(p, n, mt->pardist);
+		if (n->prev == NULL || n->prev->tok != MAN_SY)
+			print_bvspace(p, n, mt->pardist);
 		return 1;
 	case ROFFT_HEAD:
 	case ROFFT_BODY:
@@ -868,7 +870,7 @@ pre_SY(DECL_ARGS)
 	}
 
 	nn = n->parent->head->child;
-	len = nn == NULL ? 0 : term_strlen(p, nn->string) + 1;
+	len = nn == NULL ? 1 : term_strlen(p, nn->string) + 1;
 
 	switch (n->type) {
 	case ROFFT_HEAD:

@@ -1,7 +1,7 @@
-/*	$OpenBSD: out.c,v 1.42 2017/06/27 18:23:29 schwarze Exp $ */
+/*	$OpenBSD: out.c,v 1.44 2018/08/18 20:17:58 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011, 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -166,6 +166,7 @@ tblcalc(struct rofftbl *tbl, const struct tbl_span *sp,
 	}
 
 	/*
+	 * Align numbers with text.
 	 * Count columns to equalize and columns to maximize.
 	 * Find maximum width of the columns to equalize.
 	 * Find total width of the columns *not* to maximize.
@@ -175,6 +176,10 @@ tblcalc(struct rofftbl *tbl, const struct tbl_span *sp,
 	ewidth = xwidth = 0;
 	for (icol = 0; icol <= maxcol; icol++) {
 		col = tbl->cols + icol;
+		if (col->width > col->nwidth)
+			col->decimal += (col->width - col->nwidth) / 2;
+		else
+			col->width = col->nwidth;
 		if (col->spacing == SIZE_MAX || icol == maxcol)
 			col->spacing = 3;
 		if (col->flags & TBL_CELL_EQUAL) {
@@ -318,7 +323,7 @@ tblcalc_number(struct rofftbl *tbl, struct roffcol *col,
 		const struct tbl_opts *opts, const struct tbl_dat *dp)
 {
 	int		 i;
-	size_t		 sz, psz, ssz, d;
+	size_t		 sz, ssz, d;
 	const char	*str;
 	char		*cp;
 	char		 buf[2];
@@ -340,17 +345,15 @@ tblcalc_number(struct rofftbl *tbl, struct roffcol *col,
 	buf[0] = opts->decimal;
 	buf[1] = '\0';
 
-	psz = (*tbl->slen)(buf, tbl->arg);
-
 	if (NULL != (cp = strrchr(str, opts->decimal))) {
 		buf[1] = '\0';
 		for (ssz = 0, i = 0; cp != &str[i]; i++) {
 			buf[0] = str[i];
 			ssz += (*tbl->slen)(buf, tbl->arg);
 		}
-		d = ssz + psz;
+		d = ssz;
 	} else
-		d = sz + psz;
+		d = sz;
 
 	/* Adjust the settings for this column. */
 
@@ -358,10 +361,10 @@ tblcalc_number(struct rofftbl *tbl, struct roffcol *col,
 		sz += col->decimal - d;
 		d = col->decimal;
 	} else
-		col->width += d - col->decimal;
+		col->nwidth += d - col->decimal;
 
-	if (sz > col->width)
-		col->width = sz;
+	if (sz > col->nwidth)
+		col->nwidth = sz;
 	if (d > col->decimal)
 		col->decimal = d;
 }
