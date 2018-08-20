@@ -48,7 +48,7 @@
 /mutex.h/1.11/Thu Jan 25 15:06:29 2018//
 /param.h/1.25/Sun Mar  4 16:44:02 2018//
 /pcb.h/1.17/Tue Jun  5 06:39:11 2018//
-/pci_machdep.h/1.26/Wed Jul  4 20:46:22 2018//
+/pci_machdep.h/1.27/Sun Aug 19 08:23:47 2018//
 /pctr.h/1.5/Sat Mar 29 18:09:28 2014//
 /pic.h/1.7/Tue Dec 16 21:20:23 2014//
 /pio.h/1.5/Sat Apr 25 21:31:24 2015//

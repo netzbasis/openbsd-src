@@ -100,7 +100,7 @@
 /radeon_bios.c/1.13/Wed Apr 25 01:27:46 2018//
 /radeon_clocks.c/1.6/Wed Apr 25 01:27:46 2018//
 /radeon_combios.c/1.14/Wed Apr 25 01:27:46 2018//
-/radeon_connectors.c/1.10/Wed Apr 25 01:27:46 2018//
+/radeon_connectors.c/1.11/Mon Aug 20 01:54:34 2018//
 /radeon_cs.c/1.7/Wed Apr 25 01:27:46 2018//
 /radeon_cursor.c/1.6/Wed Apr 25 01:27:46 2018//
 /radeon_device.c/1.18/Fri Apr 27 02:54:01 2018//

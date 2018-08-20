@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.84/Wed Jul  4 20:46:21 2018//
+/acpi_machdep.c/1.85/Sun Aug 19 08:23:47 2018//
 /acpi_wakecode.S/1.45/Tue Aug 14 16:43:02 2018//
 /aes_intel.S/1.13/Mon Jul  9 08:39:28 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
@@ -11,7 +11,7 @@
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
 /cacheinfo.c/1.8/Wed Feb  3 03:25:07 2016//
 /codepatch.c/1.7/Fri Jul 13 08:30:34 2018//
-/conf.c/1.60/Sun Sep  4 10:51:23 2016//
+/conf.c/1.62/Sun Aug 19 18:01:04 2018//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.12/Tue Jul  3 23:21:15 2018//
 /cpu.c/1.126/Fri Jul 27 21:11:31 2018//

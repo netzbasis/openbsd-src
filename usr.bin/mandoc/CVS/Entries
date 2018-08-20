@@ -3,7 +3,7 @@
 /att.c/1.12/Sat Jun 24 14:38:27 2017//
 /cgi.c/1.96/Tue May 29 20:32:41 2018//
 /cgi.h.example/1.6/Sat Mar 18 16:48:07 2017//
-/chars.c/1.43/Wed Aug 23 13:01:22 2017//
+/chars.c/1.44/Sun Aug 19 23:47:43 2018//
 /dba.c/1.7/Thu Feb  9 18:26:17 2017//
 /dba.h/1.2/Wed Aug 17 20:46:06 2016//
 /dba_array.c/1.1/Mon Aug  1 10:32:39 2016//
@@ -63,12 +63,12 @@
 /mdoc_validate.c/1.277/Fri Aug 17 20:31:52 2018//
 /msec.c/1.12/Tue Oct  6 18:30:44 2015//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
-/out.c/1.44/Sat Aug 18 20:17:58 2018//
+/out.c/1.45/Sun Aug 19 23:10:16 2018//
 /out.h/1.24/Sat Aug 18 20:17:58 2018//
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
 /read.c/1.168/Sat Jul 28 18:32:30 2018//
-/roff.c/1.207/Sat Aug 18 22:04:32 2018//
+/roff.c/1.208/Sun Aug 19 17:43:39 2018//
 /roff.h/1.43/Sat Aug 18 02:03:41 2018//
 /roff_html.c/1.12/Mon Jun 25 14:53:54 2018//
 /roff_int.h/1.9/Sat Jul  8 17:52:42 2017//
@@ -83,7 +83,7 @@
 /tbl_html.c/1.19/Mon Jun 25 13:46:01 2018//
 /tbl_layout.c/1.31/Tue Jun 27 18:23:29 2017//
 /tbl_opts.c/1.13/Sat Sep 26 00:53:15 2015//
-/tbl_term.c/1.46/Sat Aug 18 16:44:52 2018//
+/tbl_term.c/1.48/Sun Aug 19 23:10:16 2018//
 /term.c/1.135/Thu Aug 16 13:49:40 2018//
 /term.h/1.74/Sat Jul  8 14:51:01 2017//
 /term_ascii.c/1.47/Sat Aug 18 15:16:05 2018//

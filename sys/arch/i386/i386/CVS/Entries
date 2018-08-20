@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.68/Wed Jul  4 20:46:22 2018//
+/acpi_machdep.c/1.69/Sun Aug 19 08:23:47 2018//
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
 /acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
@@ -12,7 +12,7 @@
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
 /codepatch.c/1.4/Mon Jul 10 00:59:24 2017//
-/conf.c/1.158/Fri Oct 21 06:20:58 2016//
+/conf.c/1.160/Sun Aug 19 18:01:05 2018//
 /cpu.c/1.94/Mon Jul 30 14:19:12 2018//
 /db_disasm.c/1.21/Sun Mar  5 01:02:48 2017//
 /db_interface.c/1.40/Sat Mar 31 13:45:03 2018//
