@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.c,v 1.28 2018/08/15 13:19:06 visa Exp $	*/
+/*	$OpenBSD: drm_linux.c,v 1.30 2018/08/20 16:00:22 mpi Exp $	*/
 /*
  * Copyright (c) 2013 Jonathan Gray <jsg@openbsd.org>
  * Copyright (c) 2015, 2016 Mark Kettenis <kettenis@openbsd.org>
@@ -809,13 +809,13 @@ fence_context_alloc(unsigned int num)
 }
 
 int
-dmabuf_read(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
+dmabuf_read(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
 
 int
-dmabuf_write(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
+dmabuf_write(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
@@ -914,7 +914,6 @@ dma_buf_export(const struct dma_buf_export_info *info)
 	dmabuf->size = info->size;
 	dmabuf->file = fp;
 	fp->f_data = dmabuf;
-	FRELE(fp, p);
 	return dmabuf;
 }
 

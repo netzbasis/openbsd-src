@@ -1,4 +1,4 @@
-/* $OpenBSD: wycheproof.go,v 1.5 2018/08/10 16:22:58 jsing Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.11 2018/08/20 21:18:03 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
  *
@@ -25,6 +25,7 @@ package main
 #include <openssl/curve25519.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
+#include <openssl/evp.h>
 #include <openssl/objects.h>
 #include <openssl/rsa.h>
 */
@@ -47,6 +48,27 @@ import (
 )
 
 const testVectorPath = "/usr/local/share/wycheproof/testvectors"
+
+type wycheproofTestGroupChaCha20Poly1305 struct {
+	IVSize  int                               `json:"ivSize"`
+	KeySize int                               `json:"keySize"`
+	TagSize int                               `json:"tagSize"`
+	Type    string                            `json:"type"`
+	Tests   []*wycheproofTestChaCha20Poly1305 `json:"tests"`
+}
+
+type wycheproofTestChaCha20Poly1305 struct {
+	TCID	int      `json:"tcId"`
+	Comment string   `json:"comment"`
+	Key     string   `json:"key"`
+	IV      string   `json:"iv"`
+	AAD     string   `json:"aad"`
+	Msg     string   `json:"msg"`
+	CT      string   `json:"ct"`
+	Tag     string   `json:"tag"`
+	Result	string	 `json:"result"`
+	Flags   []string `json:"flags"`
+}
 
 type wycheproofECDSAKey struct {
 	Curve        string `json:"curve"`
@@ -167,6 +189,131 @@ func hashFromString(hs string) (hash.Hash, error) {
 	default:
 		return nil, fmt.Errorf("unknown hash %q", hs)
 	}
+}
+
+func runChaCha20Poly1305Test(iv_len int, key_len int, tag_len int, wt *wycheproofTestChaCha20Poly1305) bool {
+	aead := C.EVP_aead_chacha20_poly1305()
+	if aead == nil {
+		log.Fatal("EVP_aead_chacha20_poly1305 failed")
+	}
+
+	key, err := hex.DecodeString(wt.Key)
+	if err != nil {
+		log.Fatalf("Failed to decode key %q: %v", wt.Key, err)
+	}
+	iv, err := hex.DecodeString(wt.IV)
+	if err != nil {
+		log.Fatalf("Failed to decode key %q: %v", wt.IV, err)
+	}
+	aad, err := hex.DecodeString(wt.AAD)
+	if err != nil {
+		log.Fatalf("Failed to decode AAD %q: %v", wt.AAD, err)
+	}
+	msg, err := hex.DecodeString(wt.Msg)
+	if err != nil {
+		log.Fatalf("Failed to decode msg %q: %v", wt.Msg, err)
+	}
+	ct, err := hex.DecodeString(wt.CT)
+	if err != nil {
+		log.Fatalf("Failed to decode ct %q: %v", wt.CT, err)
+	}
+	tag, err := hex.DecodeString(wt.Tag)
+	if err != nil {
+		log.Fatalf("Failed to decode tag %q: %v", wt.Tag, err)
+	}
+
+	keyLen, ivLen, aadLen, tagLen := len(key), len(iv), len(aad), len(tag)
+	if key_len != keyLen || iv_len != ivLen || tag_len != tagLen {
+		fmt.Printf("FAIL: Test case %d (%q) - length mismatch; key: got %d, want %d; IV: got %d, want %d; tag: got %d, want %d\n", wt.TCID, wt.Comment, keyLen, key_len, ivLen, iv_len, tagLen, tag_len)
+		return false
+	}
+
+	msgLen, ctLen := len(msg), len(ct)
+	if msgLen != ctLen {
+		fmt.Printf("FAIL: Test case %d (%q) - length mismatch: msgLen = %d, ctLen = %d\n", wt.TCID, wt.Comment, msgLen, ctLen)
+		return false
+	}
+
+	if ivLen == 0 {
+		iv = append(iv, 0)
+	}
+	if aadLen == 0 {
+		aad = append(aad, 0)
+	}
+	if msgLen == 0 {
+		msg = append(msg, 0)
+	}
+
+	maxOutLen := msgLen + tag_len
+
+	sealed := make([]byte, maxOutLen)
+	var sealedLen C.size_t
+
+	opened := make([]byte, maxOutLen)
+	var openedLen C.size_t
+
+	var ctx C.EVP_AEAD_CTX
+	if C.EVP_AEAD_CTX_init((*C.EVP_AEAD_CTX)(unsafe.Pointer(&ctx)), aead, (*C.uchar)(unsafe.Pointer(&key[0])), C.size_t(key_len), C.size_t(tag_len), nil) != 1 {
+		log.Fatalf("Failed to initialize AEAD context")
+	}
+
+	sealRet := C.EVP_AEAD_CTX_seal((*C.EVP_AEAD_CTX)(unsafe.Pointer(&ctx)), (*C.uint8_t)(unsafe.Pointer(&sealed[0])), (*C.size_t)(unsafe.Pointer(&sealedLen)), C.size_t(maxOutLen), (*C.uint8_t)(unsafe.Pointer(&iv[0])), C.size_t(ivLen), (*C.uint8_t)(unsafe.Pointer(&msg[0])), C.size_t(msgLen), (*C.uint8_t)(unsafe.Pointer(&aad[0])), C.size_t(aadLen))
+
+	concat := append(ct, tag...)
+	openRet := C.EVP_AEAD_CTX_open((*C.EVP_AEAD_CTX)(unsafe.Pointer(&ctx)), (*C.uint8_t)(unsafe.Pointer(&opened[0])), (*C.size_t)(unsafe.Pointer(&openedLen)), C.size_t(maxOutLen), (*C.uint8_t)(unsafe.Pointer(&iv[0])), C.size_t(ivLen), (*C.uint8_t)(unsafe.Pointer(&concat[0])), C.size_t(maxOutLen), (*C.uint8_t)(unsafe.Pointer(&aad[0])), C.size_t(aadLen))
+
+	C.EVP_AEAD_CTX_cleanup((*C.EVP_AEAD_CTX)(unsafe.Pointer(&ctx)))
+
+	if sealRet != 1 && wt.Result == "invalid" {
+		fmt.Printf("INFO: Test case %d (%q) - EVP_AEAD_CTX_seal() = %d, EVP_AEAD_CTX_open() = %d, want %v\n", wt.TCID, wt.Comment, int(sealRet), int(openRet), wt.Result)
+		return true
+	}
+	if openRet != 1 && wt.Result == "invalid" {
+		return true
+	}
+
+	if (sealedLen != C.size_t(maxOutLen)) {
+		fmt.Printf("FAIL: Test case %d (%q) - seal length mismatch: got %d, want %d\n", wt.TCID, wt.Comment, sealedLen, maxOutLen)
+		return false
+	}
+	if (openedLen != C.size_t(msgLen)) {
+		fmt.Printf("FAIL: Test case %d (%q) - open length mismatch: got %d, want %d\n", wt.TCID, wt.Comment, openedLen, msgLen)
+		return false
+	}
+	
+	sealedCt := sealed[0:msgLen]
+	sealedTag := sealed[msgLen: maxOutLen]
+
+	openedMsg := opened[0:openedLen]
+	if (msgLen == 0) {
+		msg = nil
+	}
+
+	success := false
+	if (bytes.Equal(sealedCt, ct) && bytes.Equal(sealedTag, tag) && bytes.Equal(openedMsg, msg)) || wt.Result == "invalid" {
+		success = true
+	} else {
+		fmt.Printf("FAIL: Test case %d (%q) - EVP_AEAD_CTX_seal() = %d, ct match: %t, tag match: %t; msg match: %t; want %v\n", wt.TCID, wt.Comment, int(sealRet), bytes.Equal(sealedCt, ct), bytes.Equal(sealedTag, tag), bytes.Equal(openedMsg, msg), wt.Result)
+	}
+
+	return success
+}
+
+func runChaCha20Poly1305TestGroup(wtg *wycheproofTestGroupChaCha20Poly1305) bool {
+	// We currently only support nonces of length 12 (96 bits)
+	if wtg.IVSize != 96 {
+		return true
+	}
+
+	fmt.Printf("Running ChaCha20-Poly1305 test group %v with IV size %d, key size %d, tag size %d...\n", wtg.Type, wtg.IVSize, wtg.KeySize, wtg.TagSize)
+
+	success := true
+	for _, wt := range wtg.Tests {
+		if !runChaCha20Poly1305Test(wtg.IVSize / 8, wtg.KeySize / 8, wtg.TagSize / 8, wt) {
+			success = false
+		}
+	}
+	return success
 }
 
 func runECDSATest(ecKey *C.EC_KEY, nid int, h hash.Hash, wt *wycheproofTestECDSA) bool {
@@ -390,6 +537,8 @@ func runTestVectors(path string) bool {
 
 	var wtg interface{}
 	switch wtv.Algorithm {
+	case "CHACHA20-POLY1305":
+		wtg = &wycheproofTestGroupChaCha20Poly1305{}
 	case "ECDSA":
 		wtg = &wycheproofTestGroupECDSA{}
 	case "RSASig":
@@ -406,6 +555,10 @@ func runTestVectors(path string) bool {
 			log.Fatalf("Failed to unmarshal test groups JSON: %v", err)
 		}
 		switch wtv.Algorithm {
+		case "CHACHA20-POLY1305":
+			if !runChaCha20Poly1305TestGroup(wtg.(*wycheproofTestGroupChaCha20Poly1305)) {
+				success = false
+			}
 		case "ECDSA":
 			if !runECDSATestGroup(wtg.(*wycheproofTestGroupECDSA)) {
 				success = false
@@ -437,6 +590,7 @@ func main() {
 		name    string
 		pattern string
 	}{
+		{"ChaCha20-Poly1305", "chacha20_poly1305_test.json"},
 		{"ECDSA", "ecdsa_[^w]*test.json"}, // Skip ecdsa_webcrypto_test.json for now.
 		{"RSA signature", "rsa_signature_*test.json"},
 		{"X25519", "x25519_*test.json"},

@@ -3,7 +3,7 @@
 /att.c/1.12/Sat Jun 24 14:38:27 2017//
 /cgi.c/1.96/Tue May 29 20:32:41 2018//
 /cgi.h.example/1.6/Sat Mar 18 16:48:07 2017//
-/chars.c/1.44/Sun Aug 19 23:47:43 2018//
+/chars.c/1.45/Tue Aug 21 01:56:26 2018//
 /dba.c/1.7/Thu Feb  9 18:26:17 2017//
 /dba.h/1.2/Wed Aug 17 20:46:06 2016//
 /dba_array.c/1.1/Mon Aug  1 10:32:39 2016//
@@ -38,7 +38,7 @@
 /man_validate.c/1.108/Sat Aug 18 02:03:41 2018//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
 /mandoc.1/1.150/Sat Jul 28 18:32:30 2018//
-/mandoc.c/1.74/Thu Aug 16 13:49:40 2018//
+/mandoc.c/1.75/Mon Aug 20 18:06:42 2018//
 /mandoc.css/1.23/Mon Jul 23 22:51:24 2018//
 /mandoc.h/1.191/Thu Aug 16 13:49:40 2018//
 /mandoc_aux.c/1.9/Wed Feb  7 20:04:33 2018//
@@ -68,7 +68,7 @@
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
 /read.c/1.168/Sat Jul 28 18:32:30 2018//
-/roff.c/1.208/Sun Aug 19 17:43:39 2018//
+/roff.c/1.209/Mon Aug 20 17:31:44 2018//
 /roff.h/1.43/Sat Aug 18 02:03:41 2018//
 /roff_html.c/1.12/Mon Jun 25 14:53:54 2018//
 /roff_int.h/1.9/Sat Jul  8 17:52:42 2017//
