@@ -40,7 +40,7 @@
 /locore.s/1.190/Mon Jul  9 19:20:29 2018//
 /locore0.S/1.4/Mon May 28 20:52:44 2018//
 /longrun.c/1.17/Mon Jul 30 14:19:12 2018//
-/machdep.c/1.623/Wed Aug  1 20:33:53 2018//
+/machdep.c/1.625/Tue Aug 21 12:44:13 2018//
 /mainbus.c/1.58/Mon Jul  2 04:26:58 2018//
 /mem.c/1.54/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//

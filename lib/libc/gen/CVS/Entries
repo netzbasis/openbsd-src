@@ -81,9 +81,9 @@
 /getpass.3/1.18/Sat Sep  3 12:47:28 2016//
 /getprogname.3/1.5/Tue May  5 14:37:20 2015//
 /getprogname.c/1.4/Sun Mar 13 18:34:20 2016//
-/getpwent.3/1.31/Sun Aug 14 14:57:16 2016//
-/getpwent.c/1.61/Sat May  7 21:52:29 2016//
-/getpwnam.3/1.12/Tue Oct 17 22:47:58 2017//
+/getpwent.3/1.32/Tue Aug 21 20:20:04 2018//
+/getpwent.c/1.62/Tue Aug 21 20:20:04 2018//
+/getpwnam.3/1.13/Tue Aug 21 20:20:04 2018//
 /getttyent.3/1.12/Wed Jun  5 03:39:22 2013//
 /getttyent.c/1.15/Sun Sep 13 11:47:54 2015//
 /getusershell.3/1.14/Wed Jun  5 03:39:22 2013//

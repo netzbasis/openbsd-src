@@ -28,7 +28,7 @@
 /genassym.cf/1.38/Tue Jul 10 08:57:44 2018//
 /hibernate_machdep.c/1.45/Fri Jul 27 21:11:31 2018//
 /i8259.c/1.11/Fri Jul 27 21:11:31 2018//
-/identcpu.c/1.106/Wed Aug 15 02:07:35 2018//
+/identcpu.c/1.107/Tue Aug 21 19:04:38 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
 /ioapic.c/1.28/Sat Oct 14 04:44:43 2017//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
@@ -59,8 +59,8 @@
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
 /vector.S/1.75/Tue Jul 24 02:42:25 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
-/vm_machdep.c/1.42/Tue Jun  5 06:39:10 2018//
-/vmm.c/1.218/Fri Jul 27 21:11:31 2018//
-/vmm_support.S/1.12/Tue Jul 24 02:42:25 2018//
+/vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
+/vmm.c/1.219/Tue Aug 21 19:04:38 2018//
+/vmm_support.S/1.13/Tue Aug 21 19:04:38 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D
