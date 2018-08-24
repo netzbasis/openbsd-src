@@ -6,14 +6,14 @@
 /apmvar.h/1.20/Fri Feb  6 08:16:49 2015//
 /asm.h/1.16/Wed Apr 11 15:44:08 2018//
 /atomic.h/1.18/Sun May 28 01:33:26 2017//
-/biosvar.h/1.66/Tue Jun 20 12:39:20 2017//
+/biosvar.h/1.67/Thu Aug 23 14:47:52 2018//
 /bus.h/1.67/Mon May  8 00:27:45 2017//
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /codepatch.h/1.2/Sat Jul  1 19:42:59 2017//
 /conf.h/1.16/Fri Oct 21 06:56:38 2016//
 /cpu.h/1.165/Tue Aug 21 06:03:34 2018//
 /cpu_full.h/1.3/Fri Jun 22 13:21:14 2018//
-/cpufunc.h/1.30/Mon Jul 30 14:19:12 2018//
+/cpufunc.h/1.31/Thu Aug 23 14:47:52 2018//
 /cputypes.h/1.10/Mon Dec 29 08:14:18 2003//
 /cpuvar.h/1.7/Thu Jul 28 21:57:57 2016//
 /db_machdep.h/1.27/Sun Apr 30 13:04:49 2017//
@@ -65,7 +65,7 @@
 /setjmp.h/1.2/Sat Aug  5 22:07:32 2000//
 /signal.h/1.11/Tue May 10 18:39:45 2016//
 /smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
-/specialreg.h/1.70/Tue Aug 21 12:44:13 2018//
+/specialreg.h/1.71/Thu Aug 23 14:47:52 2018//
 /spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.16/Tue Mar 11 19:45:27 2014//
 /sysarch.h/1.14/Thu Mar 24 04:56:08 2016//

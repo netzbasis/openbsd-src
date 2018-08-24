@@ -1,4 +1,4 @@
-/acpi_machdep.c/1.69/Sun Aug 19 08:23:47 2018//
+/acpi_machdep.c/1.70/Thu Aug 23 14:47:52 2018//
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
 /acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
@@ -8,12 +8,12 @@
 /apm.c/1.118/Mon Jul 30 14:19:12 2018//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.105/Wed Feb  7 18:42:38 2018//
-/bios.c/1.118/Sat Apr 28 15:44:59 2018//
+/bios.c/1.119/Thu Aug 23 14:47:52 2018//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
 /codepatch.c/1.4/Mon Jul 10 00:59:24 2017//
 /conf.c/1.160/Sun Aug 19 18:01:05 2018//
-/cpu.c/1.94/Mon Jul 30 14:19:12 2018//
+/cpu.c/1.95/Thu Aug 23 14:47:52 2018//
 /db_disasm.c/1.21/Sun Mar  5 01:02:48 2017//
 /db_interface.c/1.40/Sat Mar 31 13:45:03 2018//
 /db_memrw.c/1.17/Sun Apr 30 13:04:49 2017//
@@ -40,7 +40,7 @@
 /locore.s/1.190/Mon Jul  9 19:20:29 2018//
 /locore0.S/1.4/Mon May 28 20:52:44 2018//
 /longrun.c/1.17/Mon Jul 30 14:19:12 2018//
-/machdep.c/1.625/Tue Aug 21 12:44:13 2018//
+/machdep.c/1.626/Thu Aug 23 14:47:52 2018//
 /mainbus.c/1.58/Mon Jul  2 04:26:58 2018//
 /mem.c/1.54/Mon Feb 19 08:59:52 2018//
 /mp_setperf.c/1.6/Fri Sep 12 09:52:45 2014//
@@ -61,6 +61,7 @@
 /softintr.c/1.7/Tue Sep  1 06:01:26 2015//
 /sys_machdep.c/1.40/Mon Jul  9 19:20:29 2018//
 /trap.c/1.138/Mon Jul  9 19:20:30 2018//
+/ucode.c/1.1/Thu Aug 23 14:47:52 2018//
 /vector.s/1.23/Mon Jun 18 23:15:05 2018//
 /via.c/1.45/Fri Jun  1 14:23:48 2018//
 /vm_machdep.c/1.70/Sat Mar 31 13:45:03 2018//

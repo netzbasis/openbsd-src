@@ -56,6 +56,8 @@
 /resolver.c/1.1/Wed Jul 25 16:00:48 2018//
 /rfc2822.c/1.10/Sat Feb  4 19:25:24 2017//
 /rfc2822.h/1.5/Fri Feb 16 20:57:30 2018//
+/rfc5322.c/1.1/Thu Aug 23 10:07:06 2018//
+/rfc5322.h/1.1/Thu Aug 23 10:07:06 2018//
 /ruleset.c/1.36/Sat Jun 16 19:41:26 2018//
 /runq.c/1.2/Tue Jan 20 17:37:54 2015//
 /scheduler.c/1.58/Thu May 31 21:06:12 2018//
