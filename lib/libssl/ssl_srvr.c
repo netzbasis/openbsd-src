@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_srvr.c,v 1.42 2018/08/22 17:46:29 jsing Exp $ */
+/* $OpenBSD: ssl_srvr.c,v 1.45 2018/08/24 18:10:25 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -784,10 +784,10 @@ ssl3_send_hello_request(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_HELLO_REQ_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &hello,
+		if (!ssl3_handshake_msg_start(s, &cbb, &hello,
 		    SSL3_MT_HELLO_REQUEST))
 			goto err;
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_HELLO_REQ_B;
@@ -818,7 +818,6 @@ ssl3_get_client_hello(SSL *s)
 	unsigned long alg_k;
 	const SSL_METHOD *method;
 	uint16_t shared_version;
-	unsigned char *end;
 
 	/*
 	 * We do this so that we will respond with our native type.
@@ -842,17 +841,28 @@ ssl3_get_client_hello(SSL *s)
 	if (n < 0)
 		goto err;
 
-	end = (unsigned char *)s->internal->init_msg + n;
-
 	CBS_init(&cbs, s->internal->init_msg, n);
+
+	/* Parse client hello up until the extensions (if any). */
+	if (!CBS_get_u16(&cbs, &client_version))
+		goto truncated;
+	if (!CBS_get_bytes(&cbs, &client_random, SSL3_RANDOM_SIZE))
+		goto truncated;
+	if (!CBS_get_u8_length_prefixed(&cbs, &session_id))
+		goto truncated;
+	if (SSL_IS_DTLS(s)) {
+		if (!CBS_get_u8_length_prefixed(&cbs, &cookie))
+			goto truncated;
+	}
+	if (!CBS_get_u16_length_prefixed(&cbs, &cipher_suites))
+		goto truncated;
+	if (!CBS_get_u8_length_prefixed(&cbs, &compression_methods))
+		goto truncated;
 
 	/*
 	 * Use version from inside client hello, not from record header.
 	 * (may differ: see RFC 2246, Appendix E, second paragraph)
 	 */
-	if (!CBS_get_u16(&cbs, &client_version))
-		goto truncated;
-
 	if (ssl_max_shared_version(s, client_version, &shared_version) != 1) {
 		SSLerror(s, SSL_R_WRONG_VERSION_NUMBER);
 		if ((s->client_version >> 8) == SSL3_VERSION_MAJOR &&
@@ -877,19 +887,12 @@ ssl3_get_client_hello(SSL *s)
 	}
 	s->method = method;
 
-	if (!CBS_get_bytes(&cbs, &client_random, SSL3_RANDOM_SIZE))
-		goto truncated;
-	if (!CBS_get_u8_length_prefixed(&cbs, &session_id))
-		goto truncated;
-
 	/*
-	 * If we require cookies (DTLS) and this ClientHello doesn't
-	 * contain one, just return since we do not want to
-	 * allocate any memory yet. So check cookie length...
+	 * If we require cookies (DTLS) and this ClientHello does not contain
+	 * one, just return since we do not want to allocate any memory yet.
+	 * So check cookie length...
 	 */
 	if (SSL_IS_DTLS(s)) {
-		if (!CBS_get_u8_length_prefixed(&cbs, &cookie))
-			goto truncated;
 		if (SSL_get_options(s) & SSL_OP_COOKIE_EXCHANGE) {
 			if (CBS_len(&cookie) == 0)
 				return (1);
@@ -922,10 +925,12 @@ ssl3_get_client_hello(SSL *s)
 		if (!ssl_get_new_session(s, 1))
 			goto err;
 	} else {
-		/* XXX - pass CBS through instead... */
-		i = ssl_get_prev_session(s,
-		    (unsigned char *)CBS_data(&session_id),
-		    CBS_len(&session_id), end);
+		CBS ext_block;
+
+		CBS_dup(&cbs, &ext_block);
+
+		i = ssl_get_prev_session(s, CBS_data(&session_id),
+		    CBS_len(&session_id), &ext_block);
 		if (i == 1) { /* previous session */
 			s->internal->hit = 1;
 		} else if (i == -1)
@@ -979,9 +984,6 @@ ssl3_get_client_hello(SSL *s)
 		}
 	}
 
-	if (!CBS_get_u16_length_prefixed(&cbs, &cipher_suites))
-		goto truncated;
-
 	/* XXX - This logic seems wrong... */
 	if (CBS_len(&cipher_suites) == 0 && CBS_len(&session_id) != 0) {
 		/* we need a cipher if we are not resuming a session */
@@ -1019,9 +1021,6 @@ ssl3_get_client_hello(SSL *s)
 			goto f_err;
 		}
 	}
-
-	if (!CBS_get_u8_length_prefixed(&cbs, &compression_methods))
-		goto truncated;
 
 	comp_null = 0;
 	while (CBS_len(&compression_methods) > 0) {
@@ -1175,7 +1174,7 @@ ssl3_send_server_hello(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_SRVR_HELLO_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &server_hello,
+		if (!ssl3_handshake_msg_start(s, &cbb, &server_hello,
 		    SSL3_MT_SERVER_HELLO))
 			goto err;
 
@@ -1232,7 +1231,7 @@ ssl3_send_server_hello(SSL *s)
 			goto err;
 		}
 
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 	}
 
@@ -1253,10 +1252,10 @@ ssl3_send_server_done(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_SRVR_DONE_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &done,
+		if (!ssl3_handshake_msg_start(s, &cbb, &done,
 		    SSL3_MT_SERVER_DONE))
 			goto err;
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_SRVR_DONE_B;
@@ -1519,7 +1518,7 @@ ssl3_send_server_key_exchange(SSL *s)
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_KEY_EXCH_A) {
 
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &server_kex,
+		if (!ssl3_handshake_msg_start(s, &cbb, &server_kex,
 		    SSL3_MT_SERVER_KEY_EXCHANGE))
 			goto err;
 
@@ -1600,7 +1599,7 @@ ssl3_send_server_key_exchange(SSL *s)
 				goto err;
 		}
 
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_KEY_EXCH_B;
@@ -1639,7 +1638,7 @@ ssl3_send_certificate_request(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_CERT_REQ_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &cert_request,
+		if (!ssl3_handshake_msg_start(s, &cbb, &cert_request,
 		    SSL3_MT_CERTIFICATE_REQUEST))
 			goto err;
 
@@ -1679,7 +1678,7 @@ ssl3_send_certificate_request(SSL *s)
 				goto err;
 		}
 
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_CERT_REQ_B;
@@ -2502,12 +2501,12 @@ ssl3_send_server_certificate(SSL *s)
 			return (0);
 		}
 
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &server_cert,
+		if (!ssl3_handshake_msg_start(s, &cbb, &server_cert,
 		    SSL3_MT_CERTIFICATE))
 			goto err;
 		if (!ssl3_output_cert_chain(s, &server_cert, x))
 			goto err;
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_CERT_B;
@@ -2548,7 +2547,7 @@ ssl3_send_newsession_ticket(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_SESSION_TICKET_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &session_ticket,
+		if (!ssl3_handshake_msg_start(s, &cbb, &session_ticket,
 		    SSL3_MT_NEWSESSION_TICKET))
 			goto err;
 
@@ -2657,7 +2656,7 @@ ssl3_send_newsession_ticket(SSL *s)
 		if (!HMAC_Final(&hctx, hmac, &hlen))
 			goto err;
 
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_SESSION_TICKET_B;
@@ -2689,7 +2688,7 @@ ssl3_send_cert_status(SSL *s)
 	memset(&cbb, 0, sizeof(cbb));
 
 	if (S3I(s)->hs.state == SSL3_ST_SW_CERT_STATUS_A) {
-		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &certstatus,
+		if (!ssl3_handshake_msg_start(s, &cbb, &certstatus,
 		    SSL3_MT_CERTIFICATE_STATUS))
 			goto err;
 		if (!CBB_add_u8(&certstatus, s->tlsext_status_type))
@@ -2699,7 +2698,7 @@ ssl3_send_cert_status(SSL *s)
 		if (!CBB_add_bytes(&ocspresp, s->internal->tlsext_ocsp_resp,
 		    s->internal->tlsext_ocsp_resplen))
 			goto err;
-		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;
 
 		S3I(s)->hs.state = SSL3_ST_SW_CERT_STATUS_B;

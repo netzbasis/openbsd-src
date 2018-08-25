@@ -1,6 +1,7 @@
-/* $OpenBSD: wycheproof.go,v 1.16 2018/08/23 19:46:59 tb Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.19 2018/08/24 17:37:25 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
+ * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +21,8 @@ package main
 
 /*
 #cgo LDFLAGS: -lcrypto
+
+#include <string.h>
 
 #include <openssl/bn.h>
 #include <openssl/curve25519.h>
@@ -450,10 +453,34 @@ func runDSATestGroup(wtg *wycheproofTestGroupDSA) bool {
 		log.Fatalf("Failed to get hash: %v", err)
 	}
 
+	der, err := hex.DecodeString(wtg.KeyDER)
+	if err != nil {
+		log.Fatalf("Failed to decode DER encoded key: %v", err)
+	}
+
+	derLen := len(der)
+	if derLen == 0 {
+		der = append(der, 0)
+	}
+
+	Cder := (*C.uchar)(C.malloc((C.ulong)(derLen)))
+	if Cder == nil {
+		log.Fatal("malloc failed")
+	}
+	C.memcpy(unsafe.Pointer(Cder), unsafe.Pointer(&der[0]), C.ulong(derLen))
+
+	p := (*C.uchar)(Cder)
+	dsaDER := C.d2i_DSA_PUBKEY(nil, (**C.uchar)(&p), C.long(derLen))
+	defer C.DSA_free(dsaDER)
+	C.free(unsafe.Pointer(Cder))
+
 	/// XXX audit acceptable cases
 	success := true
 	for _, wt := range wtg.Tests {
 		if !runDSATest(dsa, h, wt) {
+			success = false
+		}
+		if !runDSATest(dsaDER, h, wt) {
 			success = false
 		}
 	}
@@ -735,7 +762,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// AES, DSA, ECDH
+	// AES, ECDH, RSA-PSS
 	tests := []struct {
 		name    string
 		pattern string

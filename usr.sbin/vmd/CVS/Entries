@@ -1,4 +1,4 @@
-/Makefile/1.18/Thu Jun 28 02:21:15 2018//
+/Makefile/1.19/Sat Aug 25 04:16:09 2018//
 /atomicio.c/1.1/Mon May  8 09:08:40 2017//
 /atomicio.h/1.1/Mon May  8 09:08:40 2017//
 /config.c/1.50/Tue Aug  7 14:49:05 2018//
@@ -27,10 +27,11 @@
 /task.c/1.2/Tue Jun 19 17:12:34 2018//
 /task.h/1.1/Fri Sep 15 02:39:33 2017//
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
-/vioscsi.c/1.10/Sun Jul 15 20:25:52 2018//
+/vioraw.c/1.1/Sat Aug 25 04:16:09 2018//
+/vioscsi.c/1.11/Sat Aug 25 04:16:09 2018//
 /vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
-/virtio.c/1.63/Mon Jul  9 16:11:37 2018//
-/virtio.h/1.26/Mon Jul  9 08:43:09 2018//
+/virtio.c/1.64/Sat Aug 25 04:16:09 2018//
+/virtio.h/1.27/Sat Aug 25 04:16:09 2018//
 /vm.c/1.38/Tue Jul 17 13:47:06 2018//
 /vm.conf.5/1.35/Fri Jul 13 17:48:30 2018//
 /vmboot.c/1.4/Tue Aug 29 21:10:20 2017//

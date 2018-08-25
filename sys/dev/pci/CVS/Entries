@@ -112,7 +112,7 @@
 /if_bgereg.h/1.130/Sun Nov 29 20:19:35 2015//
 /if_bnx.c/1.125/Sat Mar 10 10:51:46 2018//
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
-/if_bnxt.c/1.8/Fri Aug 24 02:26:31 2018//
+/if_bnxt.c/1.9/Fri Aug 24 12:35:10 2018//
 /if_bnxtreg.h/1.1/Mon Jul  9 10:46:15 2018//
 /if_bwfm_pci.c/1.27/Mon Aug 20 18:58:06 2018//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
