@@ -25,11 +25,11 @@
 /i2c_scan.c/1.145/Fri May 29 00:37:10 2015//
 /i2cvar.h/1.16/Sat Apr 23 09:40:28 2016//
 /iatp.c/1.6/Mon Jul 30 15:56:30 2018//
-/ihidev.c/1.16/Fri Jan 12 08:11:47 2018//
-/ihidev.h/1.5/Wed Nov 29 02:48:16 2017//
+/ihidev.c/1.17/Sat Aug 25 18:32:05 2018//
+/ihidev.h/1.6/Sat Aug 25 18:32:05 2018//
 /ikbd.c/1.1/Thu Jan 14 21:01:49 2016//
 /ims.c/1.1/Tue Jan 12 01:11:15 2016//
-/imt.c/1.2/Sun Jul 23 22:39:11 2017//
+/imt.c/1.4/Sat Aug 25 20:31:31 2018//
 /isl1208.c/1.1/Sat Apr  7 18:16:35 2018//
 /lis331dl.c/1.1/Wed Aug 12 14:51:20 2009//
 /lm75.c/1.20/Sat May 30 08:39:05 2015//

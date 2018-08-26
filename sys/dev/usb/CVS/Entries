@@ -3,7 +3,7 @@
 /ehci.c/1.200/Mon May 15 10:52:08 2017//
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
-/files.usb/1.135/Fri Aug  3 01:50:15 2018//
+/files.usb/1.136/Sat Aug 25 20:31:31 2018//
 /if_athn_usb.c/1.50/Mon Feb  5 09:52:03 2018//
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
 /if_atu.c/1.126/Sat Apr 28 16:05:56 2018//
@@ -38,7 +38,7 @@
 /if_rumvar.h/1.9/Mon Apr 15 09:23:01 2013//
 /if_run.c/1.125/Tue Jan 30 20:56:38 2018//
 /if_runvar.h/1.10/Sat May 24 10:10:17 2014//
-/if_smsc.c/1.31/Sat Jul 29 17:24:04 2017//
+/if_smsc.c/1.32/Sat Aug 25 17:09:40 2018//
 /if_smscreg.h/1.5/Thu Jun 18 09:28:54 2015//
 /if_uath.c/1.82/Thu Oct 26 15:00:28 2017//
 /if_uathreg.h/1.2/Mon Sep 18 16:34:23 2006//
@@ -48,7 +48,7 @@
 /if_ugl.c/1.22/Thu Mar 15 21:36:59 2018//
 /if_umb.c/1.19/Mon Apr 30 19:07:44 2018//
 /if_umb.h/1.4/Tue Apr 18 13:27:55 2017//
-/if_upgt.c/1.81/Thu Oct 26 15:00:28 2017//
+/if_upgt.c/1.82/Sat Aug 25 17:07:20 2018//
 /if_upgtvar.h/1.17/Mon Apr 15 09:23:01 2013//
 /if_upl.c/1.74/Sun Oct 29 21:54:22 2017//
 /if_ure.c/1.8/Thu Jul 20 08:30:34 2017//
@@ -94,8 +94,8 @@
 /uhcivar.h/1.33/Sun May 18 17:10:27 2014//
 /uhid.c/1.71/Tue May  1 18:14:46 2018//
 /uhid_rdesc.h/1.1/Fri Oct 25 03:09:59 2013//
-/uhidev.c/1.75/Sat Apr  8 02:57:25 2017//
-/uhidev.h/1.24/Sat Jan  9 02:01:06 2016//
+/uhidev.c/1.76/Sat Aug 25 18:32:05 2018//
+/uhidev.h/1.25/Sat Aug 25 18:32:05 2018//
 /uhub.c/1.90/Sat Apr  8 02:57:25 2017//
 /uipaq.c/1.26/Sun Nov  6 12:58:01 2016//
 /ukbd.c/1.78/Fri May 12 09:16:55 2017//
@@ -121,6 +121,7 @@
 /umodem.c/1.63/Sat Dec 30 20:47:00 2017//
 /ums.c/1.43/Tue Jan 12 19:16:21 2016//
 /umsm.c/1.114/Wed Aug 15 14:13:07 2018//
+/umt.c/1.1/Sat Aug 25 20:31:31 2018//
 /uoak.h/1.3/Mon Apr 15 09:23:02 2013//
 /uoak_subr.c/1.9/Tue May  1 18:14:46 2018//
 /uoaklux.c/1.13/Sat Apr  8 02:57:25 2017//

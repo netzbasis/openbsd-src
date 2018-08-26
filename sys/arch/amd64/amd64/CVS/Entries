@@ -14,7 +14,7 @@
 /conf.c/1.62/Sun Aug 19 18:01:04 2018//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.12/Tue Jul  3 23:21:15 2018//
-/cpu.c/1.126/Fri Jul 27 21:11:31 2018//
+/cpu.c/1.127/Sat Aug 25 05:29:28 2018//
 /db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.33/Fri Jul  6 02:43:01 2018//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
@@ -30,7 +30,7 @@
 /i8259.c/1.11/Fri Jul 27 21:11:31 2018//
 /identcpu.c/1.108/Fri Aug 24 06:25:40 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
-/ioapic.c/1.28/Sat Oct 14 04:44:43 2017//
+/ioapic.c/1.29/Sat Aug 25 16:09:29 2018//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
 /ipifuncs.c/1.32/Fri Jul 27 21:11:31 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//

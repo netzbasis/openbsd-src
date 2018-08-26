@@ -1,4 +1,4 @@
-/* $OpenBSD: hidmt.c,v 1.7 2018/07/30 15:56:30 jcs Exp $ */
+/* $OpenBSD: hidmt.c,v 1.9 2018/08/25 20:31:31 jcs Exp $ */
 /*
  * HID multitouch driver for devices conforming to Windows Precision Touchpad
  * standard
@@ -126,7 +126,11 @@ hidmt_setup(struct device *self, struct hidmt *mt, void *desc, int dlen)
 	capsize = hid_report_size(desc, dlen, hid_feature, mt->sc_rep_cap);
 	rep = malloc(capsize, M_DEVBUF, M_NOWAIT | M_ZERO);
 
-	if (mt->hidev_get_report(mt->sc_device, hid_feature, mt->sc_rep_cap,
+	if (mt->hidev_report_type_conv == NULL)
+		panic("no report type conversion function");
+
+	if (mt->hidev_get_report(mt->sc_device,
+	    mt->hidev_report_type_conv(hid_feature), mt->sc_rep_cap,
 	    rep, capsize)) {
 		printf("\n%s: failed getting capability report\n",
 		    self->dv_xname);
@@ -217,7 +221,7 @@ hidmt_setup(struct device *self, struct hidmt *mt, void *desc, int dlen)
 		return 1;
 	}
 
-	if (hidmt_set_input_mode(mt, HIDMT_INPUT_MODE_MT)) {
+	if (hidmt_set_input_mode(mt, HIDMT_INPUT_MODE_MT_TOUCHPAD)) {
 		printf("\n%s: switch to multitouch mode failed\n",
 		    self->dv_xname);
 		return 1;
@@ -278,8 +282,12 @@ hidmt_detach(struct hidmt *mt, int flags)
 int
 hidmt_set_input_mode(struct hidmt *mt, uint16_t mode)
 {
-	return mt->hidev_set_report(mt->sc_device, hid_feature,
-	    mt->sc_rep_config, &mode, 2);
+	if (mt->hidev_report_type_conv == NULL)
+		panic("no report type conversion function");
+
+	return mt->hidev_set_report(mt->sc_device,
+	    mt->hidev_report_type_conv(hid_feature),
+	    mt->sc_rep_config, &mode, sizeof(mode));
 }
 
 void

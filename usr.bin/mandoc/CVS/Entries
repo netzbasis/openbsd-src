@@ -28,7 +28,7 @@
 /main.h/1.23/Thu Aug 23 19:32:03 2018//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
 /man.1/1.31/Thu Apr 19 23:40:43 2018//
-/man.c/1.126/Thu Aug 23 19:32:03 2018//
+/man.c/1.127/Sat Aug 25 12:28:52 2018//
 /man.cgi.8/1.22/Sun May 20 21:48:23 2018//
 /man.conf.5/1.5/Tue Aug 22 18:17:47 2017//
 /man.h/1.59/Thu Aug 23 19:32:03 2018//
@@ -37,10 +37,10 @@
 /man_term.c/1.172/Sat Aug 18 17:06:58 2018//
 /man_validate.c/1.108/Sat Aug 18 02:03:41 2018//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
-/mandoc.1/1.151/Thu Aug 23 14:16:12 2018//
+/mandoc.1/1.152/Sat Aug 25 16:43:52 2018//
 /mandoc.c/1.75/Mon Aug 20 18:06:42 2018//
 /mandoc.css/1.23/Mon Jul 23 22:51:24 2018//
-/mandoc.h/1.194/Fri Aug 24 22:56:37 2018//
+/mandoc.h/1.195/Sat Aug 25 16:43:52 2018//
 /mandoc_aux.c/1.9/Wed Feb  7 20:04:33 2018//
 /mandoc_aux.h/1.9/Mon Jun 12 18:55:42 2017//
 /mandoc_ohash.c/1.2/Mon Oct 19 18:58:20 2015//
@@ -67,8 +67,8 @@
 /out.h/1.24/Sat Aug 18 20:17:58 2018//
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
-/read.c/1.171/Fri Aug 24 22:56:37 2018//
-/roff.c/1.212/Fri Aug 24 22:56:37 2018//
+/read.c/1.172/Sat Aug 25 16:43:52 2018//
+/roff.c/1.213/Sat Aug 25 16:43:52 2018//
 /roff.h/1.43/Sat Aug 18 02:03:41 2018//
 /roff_html.c/1.12/Mon Jun 25 14:53:54 2018//
 /roff_int.h/1.9/Sat Jul  8 17:52:42 2017//
