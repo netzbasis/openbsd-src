@@ -20,7 +20,7 @@
 /eqn_term.c/1.13/Wed Aug 23 21:56:04 2017//
 /html.c/1.109/Thu Aug 16 13:49:40 2018//
 /html.h/1.54/Mon Jun 25 16:54:55 2018//
-/libman.h/1.57/Fri Aug 17 20:31:52 2018//
+/libman.h/1.58/Sun Aug 26 16:18:38 2018//
 /libmandoc.h/1.59/Fri Aug 24 22:56:37 2018//
 /libmdoc.h/1.84/Fri Aug 17 20:31:52 2018//
 /libroff.h/1.20/Sat Jul  8 17:52:42 2017//
@@ -28,13 +28,13 @@
 /main.h/1.23/Thu Aug 23 19:32:03 2018//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
 /man.1/1.31/Thu Apr 19 23:40:43 2018//
-/man.c/1.127/Sat Aug 25 12:28:52 2018//
+/man.c/1.128/Sun Aug 26 16:18:38 2018//
 /man.cgi.8/1.22/Sun May 20 21:48:23 2018//
 /man.conf.5/1.5/Tue Aug 22 18:17:47 2017//
 /man.h/1.59/Thu Aug 23 19:32:03 2018//
 /man_html.c/1.109/Sat Aug 18 02:03:41 2018//
-/man_macro.c/1.94/Sat Aug 18 20:41:50 2018//
-/man_term.c/1.172/Sat Aug 18 17:06:58 2018//
+/man_macro.c/1.95/Sun Aug 26 16:18:38 2018//
+/man_term.c/1.173/Sun Aug 26 16:18:38 2018//
 /man_validate.c/1.108/Sat Aug 18 02:03:41 2018//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
 /mandoc.1/1.152/Sat Aug 25 16:43:52 2018//

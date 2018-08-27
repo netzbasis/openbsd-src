@@ -71,7 +71,7 @@
 /control-notify.c/1.21/Thu May  4 07:16:43 2017//
 /control.c/1.20/Sun Jan 15 22:00:56 2017//
 /environ.c/1.20/Thu May 11 07:34:54 2017//
-/format.c/1.160/Thu Aug 23 15:45:05 2018//
+/format.c/1.161/Sun Aug 26 09:28:42 2018//
 /grid-view.c/1.31/Wed Jul  4 09:44:07 2018//
 /grid.c/1.86/Wed Jul 11 06:51:39 2018//
 /hooks.c/1.10/Thu Jan 18 07:10:53 2018//
@@ -102,7 +102,7 @@
 /session.c/1.81/Sat Aug 18 20:08:52 2018//
 /status.c/1.179/Wed Aug 22 20:06:14 2018//
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
-/tmux.1/1.609/Wed Aug 22 20:06:14 2018//
+/tmux.1/1.610/Sun Aug 26 09:28:42 2018//
 /tmux.c/1.186/Fri Jan 12 10:22:02 2018//
 /tmux.h/1.844/Thu Aug 23 15:45:05 2018//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
