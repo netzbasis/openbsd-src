@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.85 2018/08/26 19:50:08 kettenis Exp $
+# $OpenBSD: GENERIC,v 1.90 2018/08/27 21:09:47 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -100,6 +100,10 @@ option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
 simplefb*	at fdt?
 wsdisplay*	at simplefb?
 
+radeondrm*	at pci?
+drm*		at radeondrm?
+wsdisplay*	at radeondrm?
+
 # iMX
 imxccm*		at fdt? early 1
 imxiomuxc*	at fdt? early 1
@@ -127,6 +131,12 @@ bcmrng*		at fdt?
 bcmtemp*	at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+
+# HiSilicon SoCs
+hiclock*	at fdt? early 1
+hidwusb*	at fdt?
+hireset*	at fdt? early 1
+hitemp*		at fdt?
 
 # Marvell SoCs
 mvclock*	at fdt? early 1

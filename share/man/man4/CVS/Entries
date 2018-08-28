@@ -1,4 +1,4 @@
-/Makefile/1.693/Sun Aug 26 19:54:39 2018//
+/Makefile/1.696/Mon Aug 27 21:12:28 2018//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
 /acphy.4/1.7/Thu May 31 19:19:48 2007//
@@ -189,11 +189,15 @@
 /gre.4/1.72/Fri Apr 20 22:55:53 2018//
 /gscsio.4/1.6/Tue Jul 16 16:05:49 2013//
 /hds.4/1.2/Tue Jul 16 16:05:49 2013//
+/hiclock.4/1.2/Mon Aug 27 20:36:49 2018//
+/hidwusb.4/1.1/Mon Aug 27 20:05:56 2018//
 /hifn.4/1.51/Tue Sep 27 17:06:24 2016//
 /hil.4/1.11/Tue Mar 18 22:36:31 2014//
 /hilid.4/1.5/Thu May 31 19:19:50 2007//
 /hilkbd.4/1.13/Sun Jan 30 07:53:57 2011//
 /hilms.4/1.7/Thu May 31 19:19:50 2007//
+/hireset.4/1.2/Mon Aug 27 20:36:49 2018//
+/hitemp.4/1.1/Mon Aug 27 21:56:31 2018//
 /hme.4/1.15/Fri Mar 27 21:15:46 2015//
 /hotplug.4/1.6/Mon Sep 14 17:09:26 2015//
 /hsq.4/1.18/Wed Jan  3 08:43:09 2018//
@@ -381,6 +385,7 @@
 /rgephy.4/1.9/Fri Jul 31 14:20:29 2009//
 /ricohrtc.4/1.5/Mon Jun 18 06:06:52 2018//
 /rkclock.4/1.2/Sat Mar 31 09:44:35 2018//
+/rkdwusb.4/1.1/Mon Aug 27 20:09:29 2018//
 /rkgpio.4/1.1/Sun Apr  1 09:03:25 2018//
 /rkgrf.4/1.2/Sat Mar 31 09:44:35 2018//
 /rkiic.4/1.1/Sun Apr  1 09:03:25 2018//

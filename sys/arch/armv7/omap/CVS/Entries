@@ -6,7 +6,7 @@
 /dmtimer.c/1.7/Fri Sep  8 05:36:51 2017//
 /edma.c/1.7/Fri Sep  8 05:36:51 2017//
 /edmavar.h/1.4/Thu Jan 22 14:33:01 2015//
-/files.omap/1.22/Wed Feb 14 23:51:49 2018//
+/files.omap/1.23/Mon Aug 27 10:17:35 2018//
 /gptimer.c/1.5/Fri Sep  8 05:36:51 2017//
 /if_cpsw.c/1.43/Sun Apr 30 16:45:45 2017//
 /if_cpswreg.h/1.6/Wed Mar  2 01:31:41 2016//
@@ -29,7 +29,6 @@
 /omgpiovar.h/1.2/Wed Nov 20 13:32:40 2013//
 /ommmc.c/1.31/Sat Jan 21 05:42:03 2017//
 /omohci.c/1.3/Mon May 19 13:11:31 2014//
-/ompinmux.c/1.2/Fri Sep  8 05:36:51 2017//
 /omusbtll.c/1.2/Wed Nov  6 19:03:07 2013//
 /omwugen.c/1.1/Thu Sep 15 21:55:51 2016//
 /prcm.c/1.13/Fri Sep  8 05:36:51 2017//
