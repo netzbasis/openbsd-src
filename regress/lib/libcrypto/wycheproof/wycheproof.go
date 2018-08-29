@@ -1,4 +1,4 @@
-/* $OpenBSD: wycheproof.go,v 1.28 2018/08/27 21:27:39 tb Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.31 2018/08/28 18:28:30 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -26,6 +26,7 @@ package main
 
 #include <openssl/bio.h>
 #include <openssl/bn.h>
+#include <openssl/cmac.h>
 #include <openssl/curve25519.h>
 #include <openssl/dsa.h>
 #include <openssl/ec.h>
@@ -95,6 +96,23 @@ type wycheproofTestAesCcm struct {
 	Flags   []string `json:"flags"`
 }
 
+type wycheproofTestGroupAesCmac struct {
+	KeySize int                      `json:"keySize"`
+	TagSize int                      `json:"tagSize"`
+	Type    string                   `json:"type"`
+	Tests   []*wycheproofTestAesCmac `json:"tests"`
+}
+
+type wycheproofTestAesCmac struct {
+	TCID    int      `json:"tcId"`
+	Comment string   `json:"comment"`
+	Key     string   `json:"key"`
+	Msg     string   `json:"msg"`
+	Tag     string   `json:"tag"`
+	Result  string   `json:"result"`
+	Flags   []string `json:"flags"`
+}
+
 type wycheproofTestGroupChaCha20Poly1305 struct {
 	IVSize  int                               `json:"ivSize"`
 	KeySize int                               `json:"keySize"`
@@ -104,7 +122,7 @@ type wycheproofTestGroupChaCha20Poly1305 struct {
 }
 
 type wycheproofTestChaCha20Poly1305 struct {
-	TCID	int      `json:"tcId"`
+	TCID    int      `json:"tcId"`
 	Comment string   `json:"comment"`
 	Key     string   `json:"key"`
 	IV      string   `json:"iv"`
@@ -112,17 +130,17 @@ type wycheproofTestChaCha20Poly1305 struct {
 	Msg     string   `json:"msg"`
 	CT      string   `json:"ct"`
 	Tag     string   `json:"tag"`
-	Result	string	 `json:"result"`
+	Result  string   `json:"result"`
 	Flags   []string `json:"flags"`
 }
 
 type wycheproofDSAKey struct {
 	G       string `json:"g"`
 	KeySize int    `json:"keySize"`
-	P       string `json:"p"` 
+	P       string `json:"p"`
 	Q       string `json:"q"`
 	Type    string `json:"type"`
-	Y       string `json:"y"` 
+	Y       string `json:"y"`
 }
 
 type wycheproofTestDSA struct {
@@ -339,17 +357,17 @@ func runAesCbcPkcs5Test(ctx *C.EVP_CIPHER_CTX, wt *wycheproofTestAesCbcPkcs5) bo
 	}
 
 	keyLen, ivLen, ctLen, msgLen := len(key), len(iv), len(ct), len(msg)
-	
-	if (keyLen == 0) {
+
+	if keyLen == 0 {
 		key = append(key, 0)
 	}
-	if (ivLen == 0) {
+	if ivLen == 0 {
 		iv = append(iv, 0)
 	}
-	if (ctLen == 0) {
+	if ctLen == 0 {
 		ct = append(ct, 0)
 	}
-	if (msgLen == 0) {
+	if msgLen == 0 {
 		msg = append(msg, 0)
 	}
 
@@ -404,7 +422,7 @@ func checkAesCcm(ctx *C.EVP_CIPHER_CTX, doEncrypt int, key []byte, keyLen int, i
 		action = "decrypting"
 		setTag = unsafe.Pointer(&tag[0])
 	}
-	
+
 	ret := C.EVP_CipherInit_ex(ctx, nil, nil, nil, nil, C.int(doEncrypt))
 	if ret != 1 {
 		log.Fatalf("[%v] cipher init failed", action)
@@ -412,7 +430,7 @@ func checkAesCcm(ctx *C.EVP_CIPHER_CTX, doEncrypt int, key []byte, keyLen int, i
 
 	ret = C.EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_CCM_SET_IVLEN, C.int(ivLen), nil)
 	if ret != 1 {
-		if (wt.Comment == "Nonce is too long" || wt.Comment == "Invalid nonce size") {
+		if wt.Comment == "Nonce is too long" || wt.Comment == "Invalid nonce size" {
 			return true
 		}
 		fmt.Printf("FAIL: Test case %d (%q) [%v] - setting IV len to %d failed. got %d, want %v\n", wt.TCID, wt.Comment, action, ivLen, ret, wt.Result)
@@ -421,7 +439,7 @@ func checkAesCcm(ctx *C.EVP_CIPHER_CTX, doEncrypt int, key []byte, keyLen int, i
 
 	ret = C.EVP_CIPHER_CTX_ctrl(ctx, C.EVP_CTRL_CCM_SET_TAG, C.int(tagLen), setTag)
 	if ret != 1 {
-		if (wt.Comment == "Invalid tag size") {
+		if wt.Comment == "Invalid tag size" {
 			return true
 		}
 		fmt.Printf("FAIL: Test case %d (%q) [%v] - setting tag length to %d failed. got %d, want %v\n", wt.TCID, wt.Comment, action, tagLen, ret, wt.Result)
@@ -495,7 +513,7 @@ func runAesCcmTest(ctx *C.EVP_CIPHER_CTX, wt *wycheproofTestAesCcm) bool {
 	if err != nil {
 		log.Fatalf("Failed to decode msg %q: %v", wt.Msg, err)
 	}
-	
+
 	ct, err := hex.DecodeString(wt.CT)
 	if err != nil {
 		log.Fatalf("Failed to decode CT %q: %v", wt.CT, err)
@@ -565,6 +583,96 @@ func runAesCcmTestGroup(wtg *wycheproofTestGroupAesCcm) bool {
 	return success
 }
 
+func runAesCmacTest(cipher *C.EVP_CIPHER, wt *wycheproofTestAesCmac) bool {
+	key, err := hex.DecodeString(wt.Key)
+	if err != nil {
+		log.Fatalf("Failed to decode key %q: %v", wt.Key, err)
+	}
+
+	msg, err := hex.DecodeString(wt.Msg)
+	if err != nil {
+		log.Fatalf("Failed to decode msg %q: %v", wt.Msg, err)
+	}
+
+	tag, err := hex.DecodeString(wt.Tag)
+	if err != nil {
+		log.Fatalf("Failed to decode tag %q: %v", wt.Tag, err)
+	}
+
+	keyLen, msgLen, tagLen := len(key), len(msg), len(tag)
+
+	if keyLen == 0 {
+		key = append(key, 0)
+	}
+	if msgLen == 0 {
+		msg = append(msg, 0)
+	}
+	if tagLen == 0 {
+		tag = append(tag, 0)
+	}
+
+	ctx := C.CMAC_CTX_new()
+	if ctx == nil {
+		log.Fatal("CMAC_CTX_new failed")
+	}
+	defer C.CMAC_CTX_free(ctx)
+
+	ret := C.CMAC_Init(ctx, unsafe.Pointer(&key[0]), C.size_t(keyLen), cipher, nil)
+	if ret != 1 {
+		fmt.Printf("FAIL: Test case %d (%q) - CMAC_Init() failed. got %d, want %v\n", wt.TCID, wt.Comment, ret, wt.Result)
+		return false
+	}
+
+	ret = C.CMAC_Update(ctx, unsafe.Pointer(&msg[0]), C.size_t(msgLen))
+	if ret != 1 {
+		fmt.Printf("FAIL: Test case %d (%q) - CMAC_Update() failed. got %d, want %v\n", wt.TCID, wt.Comment, ret, wt.Result)
+		return false
+	}
+
+	var outLen C.size_t
+	outTag := make([]byte, 16)
+
+	ret = C.CMAC_Final(ctx, (*C.uchar)(unsafe.Pointer(&outTag[0])), &outLen)
+	if ret != 1 {
+		fmt.Printf("FAIL: Test case %d (%q) - CMAC_Final() failed. got %d, want %v\n", wt.TCID, wt.Comment, ret, wt.Result)
+		return false
+	}
+
+	outTag = outTag[0:tagLen]
+
+	success := true
+	if bytes.Equal(tag, outTag) != (wt.Result == "valid") {
+		fmt.Printf("FAIL: Test case %d (%q) - want %v\n", wt.TCID, wt.Comment, wt.Result)
+		success = false
+	}
+	return success
+}
+
+func runAesCmacTestGroup(wtg *wycheproofTestGroupAesCmac) bool {
+	fmt.Printf("Running AES-CMAC test group %v with key size %d and tag size %d...\n", wtg.Type, wtg.KeySize, wtg.TagSize)
+	var cipher *C.EVP_CIPHER
+
+	switch wtg.KeySize {
+	case 128:
+		cipher = C.EVP_aes_128_cbc()
+	case 192:
+		cipher = C.EVP_aes_192_cbc()
+	case 256:
+		cipher = C.EVP_aes_256_cbc()
+	default:
+		fmt.Printf("INFO: Skipping tests with invalid key size %d\n", wtg.KeySize)
+		return true
+	}
+
+	success := true
+	for _, wt := range wtg.Tests {
+		if !runAesCmacTest(cipher, wt) {
+			success = false
+		}
+	}
+	return success
+}
+
 func checkChaCha20Poly1305Open(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen int, msg []byte, msgLen int, ct []byte, ctLen int, tag []byte, tagLen int, wt *wycheproofTestChaCha20Poly1305) bool {
 	maxOutLen := ctLen + tagLen
 
@@ -582,18 +690,18 @@ func checkChaCha20Poly1305Open(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []
 		return false
 	}
 
-	if (openedMsgLen != C.size_t(msgLen)) {
+	if openedMsgLen != C.size_t(msgLen) {
 		fmt.Printf("FAIL: Test case %d (%q) - open length mismatch: got %d, want %d\n", wt.TCID, wt.Comment, openedMsgLen, msgLen)
 		return false
 	}
-	
+
 	openedMsg := opened[0:openedMsgLen]
-	if (msgLen == 0) {
+	if msgLen == 0 {
 		msg = nil
 	}
 
 	success := false
-	if (bytes.Equal(openedMsg, msg)) || wt.Result == "invalid" {
+	if bytes.Equal(openedMsg, msg) || wt.Result == "invalid" {
 		success = true
 	} else {
 		fmt.Printf("FAIL: Test case %d (%q) - msg match: %t; want %v\n", wt.TCID, wt.Comment, bytes.Equal(openedMsg, msg), wt.Result)
@@ -614,16 +722,16 @@ func checkChaCha20Poly1305Seal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []
 		return false
 	}
 
-	if (sealedLen != C.size_t(maxOutLen)) {
+	if sealedLen != C.size_t(maxOutLen) {
 		fmt.Printf("FAIL: Test case %d (%q) - seal length mismatch: got %d, want %d\n", wt.TCID, wt.Comment, sealedLen, maxOutLen)
 		return false
 	}
 
 	sealedCt := sealed[0:msgLen]
-	sealedTag := sealed[msgLen: maxOutLen]
+	sealedTag := sealed[msgLen:maxOutLen]
 
 	success := false
-	if (bytes.Equal(sealedCt, ct) && bytes.Equal(sealedTag, tag)) || wt.Result == "invalid" {
+	if bytes.Equal(sealedCt, ct) && bytes.Equal(sealedTag, tag) || wt.Result == "invalid" {
 		success = true
 	} else {
 		fmt.Printf("FAIL: Test case %d (%q) - EVP_AEAD_CTX_seal() = %d, ct match: %t, tag match: %t; want %v\n", wt.TCID, wt.Comment, int(sealRet), bytes.Equal(sealedCt, ct), bytes.Equal(sealedTag, tag), wt.Result)
@@ -806,7 +914,7 @@ func runDSATestGroup(wtg *wycheproofTestGroupDSA) bool {
 		der = append(der, 0)
 	}
 
-	Cder := (*C.uchar)(C.malloc((C.ulong)(derLen)))
+	Cder := (*C.uchar)(C.malloc(C.ulong(derLen)))
 	if Cder == nil {
 		log.Fatal("malloc failed")
 	}
@@ -818,7 +926,7 @@ func runDSATestGroup(wtg *wycheproofTestGroupDSA) bool {
 	C.free(unsafe.Pointer(Cder))
 
 
-	keyPEM := C.CString(wtg.KeyPEM);
+	keyPEM := C.CString(wtg.KeyPEM)
 	bio := C.BIO_new_mem_buf(unsafe.Pointer(keyPEM), C.int(len(wtg.KeyPEM)))
 	if bio == nil {
 		log.Fatal("BIO_new_mem_buf failed")
@@ -1072,6 +1180,8 @@ func runTestVectors(path string) bool {
 		wtg = &wycheproofTestGroupAesCbcPkcs5{}
 	case "AES-CCM":
 		wtg = &wycheproofTestGroupAesCcm{}
+	case "AES-CMAC":
+		wtg = &wycheproofTestGroupAesCmac{}
 	case "CHACHA20-POLY1305":
 		wtg = &wycheproofTestGroupChaCha20Poly1305{}
 	case "DSA":
@@ -1098,6 +1208,10 @@ func runTestVectors(path string) bool {
 			}
 		case "AES-CCM":
 			if !runAesCcmTestGroup(wtg.(*wycheproofTestGroupAesCcm)) {
+				success = false
+			}
+		case "AES-CMAC":
+			if !runAesCmacTestGroup(wtg.(*wycheproofTestGroupAesCmac)) {
 				success = false
 			}
 		case "CHACHA20-POLY1305":
@@ -1139,7 +1253,7 @@ func main() {
 		name    string
 		pattern string
 	}{
-		{"AES", "aes_c[bc]*test.json"},
+		{"AES", "aes_c*test.json"},
 		{"ChaCha20-Poly1305", "chacha20_poly1305_test.json"},
 		{"DSA", "dsa_test.json"},
 		{"ECDSA", "ecdsa_[^w]*test.json"}, // Skip ecdsa_webcrypto_test.json for now.
