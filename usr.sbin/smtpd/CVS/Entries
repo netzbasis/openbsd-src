@@ -53,7 +53,7 @@
 /queue_null.c/1.7/Mon May 14 15:23:05 2018//
 /queue_proc.c/1.7/Mon May 14 15:23:05 2018//
 /queue_ram.c/1.8/Mon May 14 15:23:05 2018//
-/resolver.c/1.1/Wed Jul 25 16:00:48 2018//
+/resolver.c/1.2/Wed Aug 29 17:56:17 2018//
 /rfc2822.c/1.10/Sat Feb  4 19:25:24 2017//
 /rfc2822.h/1.5/Fri Feb 16 20:57:30 2018//
 /rfc5322.c/1.1/Thu Aug 23 10:07:06 2018//
