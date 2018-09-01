@@ -70,7 +70,7 @@
 /smtp.c/1.159/Wed Jul 25 16:00:48 2018//
 /smtp.h/1.1/Thu Apr 26 13:57:13 2018//
 /smtp_client.c/1.6/Thu Aug 30 11:58:01 2018//
-/smtp_session.c/1.334/Wed Jul 25 16:00:48 2018//
+/smtp_session.c/1.335/Fri Aug 31 07:28:27 2018//
 /smtpc.c/1.3/Mon May 21 21:25:37 2018//
 /smtpctl.8/1.63/Mon May 14 15:23:05 2018//
 /smtpctl.c/1.162/Thu May 31 21:06:12 2018//
@@ -79,7 +79,7 @@
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.302/Wed Jul 25 16:00:48 2018//
 /smtpd.conf.5/1.198/Thu Jul  5 14:56:26 2018//
-/smtpd.h/1.556/Wed Jul 25 16:00:48 2018//
+/smtpd.h/1.557/Fri Aug 31 07:28:27 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
