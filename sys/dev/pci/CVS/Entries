@@ -27,7 +27,7 @@
 /auacerreg.h/1.1/Thu Aug 28 10:21:23 2008//
 /auglx.c/1.16/Tue Dec 20 15:45:29 2016//
 /auich.c/1.106/Mon Sep 19 06:46:44 2016//
-/auixp.c/1.39/Fri Sep  8 05:36:52 2017//
+/auixp.c/1.40/Mon Sep  3 05:37:32 2018//
 /auixpreg.h/1.1/Sun Aug  7 20:08:45 2005//
 /auixpvar.h/1.4/Mon Sep 19 06:46:44 2016//
 /autri.c/1.42/Tue Dec 20 15:45:29 2016//
@@ -46,7 +46,7 @@
 /cmpci.c/1.43/Wed Apr 11 04:48:31 2018//
 /cmpcireg.h/1.5/Sun Jun  5 14:13:47 2011//
 /cmpcivar.h/1.7/Fri Oct  8 14:01:07 2010//
-/cs4280.c/1.51/Mon Dec 26 17:38:14 2016//
+/cs4280.c/1.52/Mon Sep  3 05:37:32 2018//
 /cs4280reg.h/1.1/Fri Jun 30 03:28:08 2000//
 /cs4281.c/1.36/Mon Sep 19 06:46:44 2016//
 /cs4281reg.h/1.2/Fri Feb  9 21:15:23 2001//
@@ -65,7 +65,7 @@
 /emuxki.c/1.52/Fri Sep  8 05:36:52 2017//
 /emuxkireg.h/1.6/Thu Jun 26 05:42:17 2008//
 /emuxkivar.h/1.11/Mon Sep 19 06:46:44 2016//
-/envy.c/1.72/Sat Mar 17 13:35:12 2018//
+/envy.c/1.73/Mon Sep  3 05:37:32 2018//
 /envyreg.h/1.17/Wed Apr 27 07:01:33 2011//
 /envyvar.h/1.19/Sun Aug 30 08:52:26 2015//
 /esa.c/1.34/Wed Apr 11 04:48:31 2018//
@@ -263,9 +263,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1859/Sat Aug 25 17:38:28 2018//
-/pcidevs.h/1.1852/Sat Aug 25 17:39:15 2018//
-/pcidevs_data.h/1.1847/Sat Aug 25 17:39:15 2018//
+/pcidevs/1.1860/Mon Sep  3 19:51:48 2018//
+/pcidevs.h/1.1853/Mon Sep  3 19:52:51 2018//
+/pcidevs_data.h/1.1848/Mon Sep  3 19:52:51 2018//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//
