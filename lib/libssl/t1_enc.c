@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_enc.c,v 1.110 2018/08/31 18:31:34 jsing Exp $ */
+/* $OpenBSD: t1_enc.c,v 1.112 2018/09/05 16:58:59 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -397,10 +397,13 @@ tls1_change_cipher_state_aead(SSL *s, char is_read, const unsigned char *key,
 	SSL_AEAD_CTX *aead_ctx;
 
 	if (is_read) {
+		ssl_clear_cipher_read_state(s);
 		if (!tls1_aead_ctx_init(&s->internal->aead_read_ctx))
 			return 0;
 		aead_ctx = s->internal->aead_read_ctx;
 	} else {
+		/* XXX - Need to correctly handle DTLS. */
+		ssl_clear_cipher_write_state(s);
 		if (!tls1_aead_ctx_init(&s->internal->aead_write_ctx))
 			return 0;
 		aead_ctx = s->internal->aead_write_ctx;
@@ -468,15 +471,12 @@ tls1_change_cipher_state_cipher(SSL *s, char is_read,
 		else
 			s->internal->mac_flags &= ~SSL_MAC_FLAG_READ_MAC_STREAM;
 
-		EVP_CIPHER_CTX_free(s->enc_read_ctx);
-		s->enc_read_ctx = NULL;
-		EVP_MD_CTX_destroy(s->read_hash);
-		s->read_hash = NULL;
+		ssl_clear_cipher_read_state(s);
 
 		if ((cipher_ctx = EVP_CIPHER_CTX_new()) == NULL)
 			goto err;
 		s->enc_read_ctx = cipher_ctx;
-		if ((mac_ctx = EVP_MD_CTX_create()) == NULL)
+		if ((mac_ctx = EVP_MD_CTX_new()) == NULL)
 			goto err;
 		s->read_hash = mac_ctx;
 	} else {
@@ -492,16 +492,13 @@ tls1_change_cipher_state_cipher(SSL *s, char is_read,
 		 * contexts that are used for DTLS - these are instead freed
 		 * by DTLS when its frees a ChangeCipherSpec fragment.
 		 */
-		if (!SSL_IS_DTLS(s)) {
-			EVP_CIPHER_CTX_free(s->internal->enc_write_ctx);
-			s->internal->enc_write_ctx = NULL;
-			EVP_MD_CTX_destroy(s->internal->write_hash);
-			s->internal->write_hash = NULL;
-		}
+		if (!SSL_IS_DTLS(s))
+			ssl_clear_cipher_write_state(s);
+
 		if ((cipher_ctx = EVP_CIPHER_CTX_new()) == NULL)
 			goto err;
 		s->internal->enc_write_ctx = cipher_ctx;
-		if ((mac_ctx = EVP_MD_CTX_create()) == NULL)
+		if ((mac_ctx = EVP_MD_CTX_new()) == NULL)
 			goto err;
 		s->internal->write_hash = mac_ctx;
 	}
