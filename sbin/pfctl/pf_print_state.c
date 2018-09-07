@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_print_state.c,v 1.65 2018/07/24 09:48:04 kn Exp $	*/
+/*	$OpenBSD: pf_print_state.c,v 1.67 2018/09/06 15:07:33 kn Exp $	*/
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -111,7 +111,7 @@ print_addr(struct pf_addr_wrap *addr, sa_family_t af, int verbose)
 	if (addr->type != PF_ADDR_RANGE &&
 	    !(PF_AZERO(&addr->v.a.addr, AF_INET6) &&
 	    PF_AZERO(&addr->v.a.mask, AF_INET6))) {
-		int bits = unmask(&addr->v.a.mask, af);
+		int bits = unmask(&addr->v.a.mask);
 
 		if (bits < (af == AF_INET ? 32 : 128))
 			printf("/%d", bits);
@@ -166,8 +166,9 @@ void
 print_host(struct pf_addr *addr, u_int16_t port, sa_family_t af, u_int16_t rdom,
     const char *proto, int opts)
 {
-	struct servent	*s = NULL;
-	char		ps[6];
+	struct pf_addr_wrap	 aw;
+	struct servent		*s = NULL;
+	char			 ps[6];
 
 	if (rdom)
 		printf("(%u) ", ntohs(rdom));
@@ -175,16 +176,9 @@ print_host(struct pf_addr *addr, u_int16_t port, sa_family_t af, u_int16_t rdom,
 	if (opts & PF_OPT_USEDNS)
 		print_name(addr, af);
 	else {
-		struct pf_addr_wrap aw;
-
 		memset(&aw, 0, sizeof(aw));
 		aw.v.a.addr = *addr;
-		if (af == AF_INET)
-			aw.v.a.mask.addr32[0] = 0xffffffff;
-		else {
-			memset(&aw.v.a.mask, 0xff, sizeof(aw.v.a.mask));
-			af = AF_INET6;
-		}
+		memset(&aw.v.a.mask, 0xff, sizeof(aw.v.a.mask));
 		print_addr(&aw, af, opts & PF_OPT_VERBOSE2);
 	}
 
@@ -362,7 +356,7 @@ print_state(struct pfsync_state *s, int opts)
 }
 
 int
-unmask(struct pf_addr *m, sa_family_t af)
+unmask(struct pf_addr *m)
 {
 	int i = 31, j = 0, b = 0;
 	u_int32_t tmp;
