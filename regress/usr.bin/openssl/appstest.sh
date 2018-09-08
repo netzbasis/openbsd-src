@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: appstest.sh,v 1.9 2018/08/27 06:50:13 inoguchi Exp $
+# $OpenBSD: appstest.sh,v 1.11 2018/09/08 03:39:51 inoguchi Exp $
 #
 # Copyright (c) 2016 Kinichiro Inoguchi <inoguchi@openbsd.org>
 #
@@ -953,6 +953,7 @@ $openssl_bin s_server -accept $port -CAfile $ca_cert \
     -cert $server_cert -key $server_key -pass pass:$server_pass \
     -context "appstest.sh" -id_prefix "APPSTEST.SH" -crl_check \
     -nextprotoneg "http/1.1,spdy/3" -alpn "http/1.1,spdy/3" -www \
+    -cipher ALL \
     -msg -tlsextdebug > $s_server_out 2>&1 &
 check_exit_status $?
 s_server_pid=$!
@@ -1004,20 +1005,26 @@ check_exit_status $?
 grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
 check_exit_status $?
 
-# cipher = CHACHA20
+# all available ciphers with random order
 
-s_client_out=$user1_dir/s_client_tls_chacha20.out
+ciphers=`$openssl_bin ciphers -v ALL:!ECDSA:!kGOST | awk '{print $1}' | sort -R`
+cnum=0
+for c in $ciphers ; do
+    cnum=`expr $cnum + 1`
+    cnstr=`printf %03d $cnum`
+    s_client_out=$user1_dir/s_client_tls_${cnstr}_${c}.out
 
-start_message "s_client ... connect to SSL/TLS test server with CHACHA20"
-$openssl_bin s_client -connect $host:$port -CAfile $ca_cert -pause -prexit \
-    -cipher 'CHACHA20' -msg -tlsextdebug < /dev/null > $s_client_out 2>&1
-check_exit_status $?
+    start_message "s_client ... connect to SSL/TLS test server with [ $cnstr ] $c"
+    $openssl_bin s_client -connect $host:$port -CAfile $ca_cert -pause -prexit \
+        -cipher $c -msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+    check_exit_status $?
 
-grep 'Cipher    : .*-CHACHA20-.*' $s_client_out > /dev/null
-check_exit_status $?
+    grep "Cipher    : $c" $s_client_out > /dev/null
+    check_exit_status $?
 
-grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
-check_exit_status $?
+    grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
+    check_exit_status $?
+done
 
 # Get session ticket to reuse
 

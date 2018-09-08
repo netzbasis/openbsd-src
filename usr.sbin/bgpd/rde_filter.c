@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_filter.c,v 1.101 2018/09/05 17:32:43 claudio Exp $ */
+/*	$OpenBSD: rde_filter.c,v 1.104 2018/09/07 16:45:23 benno Exp $ */
 
 /*
  * Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -342,7 +342,6 @@ rde_filter_match(struct filter_rule *f, struct rde_peer *peer,
 {
 	int		cas, type;
 	int64_t		las, ld1, ld2;
-	struct prefixset_item	*psi;
 	struct rde_aspath	*asp = NULL;
 
 	if (state != NULL)
@@ -483,17 +482,15 @@ rde_filter_match(struct filter_rule *f, struct rde_peer *peer,
 	 * prefixset and prefix filter rules are mutual exclusive
 	 */
 	if (f->match.prefixset.flags != 0) {
-		log_debug("%s: processing filter for prefixset %s",
-		    __func__, f->match.prefixset.name);
-		SIMPLEQ_FOREACH(psi, &f->match.prefixset.ps->psitems, entry) {
-			if (rde_prefix_match(&psi->p, p)) {
-				log_debug("%s: prefixset %s matched %s",
-				    __func__, f->match.prefixset.ps->name,
-				    log_addr(&psi->p.addr));
-				return (1);
-			}
-		}
-		return (0);
+		struct bgpd_addr addr, *prefix = &addr;
+		u_int8_t plen;
+
+		pt_getaddr(p->re->prefix, prefix);
+		plen = p->re->prefix->prefixlen;
+
+		if (f->match.prefixset.ps == NULL ||
+		    !trie_match(&f->match.prefixset.ps->th, prefix, plen))
+			return (0);
 	} else if (f->match.prefix.addr.aid != 0)
 		return (rde_prefix_match(&f->match.prefix, p));
 
@@ -571,10 +568,12 @@ rde_filter_skip_rule(struct rde_peer *peer, struct filter_rule *f)
 
 int
 rde_filter_equal(struct filter_head *a, struct filter_head *b,
-    struct rde_peer *peer, struct prefixset_head *psh)
+    struct rde_peer *peer)
 {
 	struct filter_rule	*fa, *fb;
-	struct prefixset	*psa, *psb;
+	struct rde_prefixset	*psa, *psb;
+	struct as_set		*asa, *asb;
+	int			 r;
 
 	fa = a ? TAILQ_FIRST(a) : NULL;
 	fb = b ? TAILQ_FIRST(b) : NULL;
@@ -603,18 +602,30 @@ rde_filter_equal(struct filter_head *a, struct filter_head *b,
 		/* compare filter_rule.match without the prefixset pointer */
 		psa = fa->match.prefixset.ps;
 		psb = fb->match.prefixset.ps;
+		asa = fa->match.as.aset;
+		asb = fb->match.as.aset;
 		fa->match.prefixset.ps = fb->match.prefixset.ps = NULL;
-		if (memcmp(&fa->match, &fb->match, sizeof(fa->match)))
-			return (0);
+		fa->match.as.aset = fb->match.as.aset = NULL;
+		r = memcmp(&fa->match, &fb->match, sizeof(fa->match));
+		/* fixup the struct again */
 		fa->match.prefixset.ps = psa;
 		fb->match.prefixset.ps = psb;
-
-		if ((fa->match.prefixset.flags != 0) &&
-		    (fa->match.prefixset.ps != NULL) &&
-		    ((fa->match.prefixset.ps->sflags
-		    & PREFIXSET_FLAG_DIRTY) != 0)) {
+		fa->match.as.aset = asa;
+		fb->match.as.aset = asb;
+		if (r != 0)
+			return (0);
+		if (fa->match.prefixset.flags != 0 &&
+		    fa->match.prefixset.ps != NULL &&
+		    fa->match.prefixset.ps->dirty) {
 			log_debug("%s: prefixset %s has changed",
 			    __func__, fa->match.prefixset.name);
+			return (0);
+		}
+
+		if ((fa->match.as.flags & AS_FLAG_AS_SET) &&
+		    as_set_dirty(fa->match.as.aset)) {
+			log_debug("%s: as-set %s has changed",
+			    __func__, fa->match.as.name);
 			return (0);
 		}
 

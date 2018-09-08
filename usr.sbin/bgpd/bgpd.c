@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.194 2018/07/14 12:32:35 benno Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.197 2018/09/07 10:59:16 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -507,7 +507,7 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 	while ((ps = SIMPLEQ_FIRST(conf->prefixsets)) != NULL) {
 		SIMPLEQ_REMOVE_HEAD(conf->prefixsets, entry);
 		if (imsg_compose(ibuf_rde, IMSG_RECONF_PREFIXSET, 0, 0, -1,
-		    ps, sizeof(*ps)) == -1)
+		    ps->name, sizeof(ps->name)) == -1)
 			return (-1);
 		while ((psi = SIMPLEQ_FIRST(&ps->psitems)) != NULL) {
 			SIMPLEQ_REMOVE_HEAD(&ps->psitems, entry);
@@ -518,6 +518,12 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 		}
 		free(ps);
 	}
+
+	/* as-sets for filters in the RDE */
+	if (as_sets_send(ibuf_rde, conf->as_sets) == -1)
+		return (-1);
+	as_sets_free(conf->as_sets);
+	conf->as_sets = NULL;
 
 	/* filters for the RDE */
 	while ((r = TAILQ_FIRST(conf->filters)) != NULL) {
@@ -880,7 +886,7 @@ set_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 }
 
 int
-handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)  
+handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 {
 	ssize_t n;
 
