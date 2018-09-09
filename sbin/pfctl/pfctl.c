@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.357 2018/09/07 19:56:07 kn Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.359 2018/09/08 14:45:55 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -2496,10 +2496,16 @@ main(int argc, char *argv[])
 		/* NOTREACHED */
 	}
 
-	if ((path = calloc(1, PATH_MAX)) == NULL)
-		errx(1, "pfctl: calloc");
 	memset(anchorname, 0, sizeof(anchorname));
 	if (anchoropt != NULL) {
+		if (mode == O_RDONLY && showopt == NULL) {
+			warnx("anchors apply to -f, -F and -s only");
+			usage();
+		}
+		if (mode == O_RDWR &&
+		    (anchoropt[0] == '_' || strstr(anchoropt, "/_") != NULL))
+			errx(1, "anchor names beginning with '_' cannot "
+			    "be modified from the command line");
 		int len = strlen(anchoropt);
 
 		if (anchoropt[len - 1] == '*') {
@@ -2532,6 +2538,9 @@ main(int argc, char *argv[])
 	if (opts & PF_OPT_DISABLE)
 		if (pfctl_disable(dev, opts))
 			error = 1;
+
+	if ((path = calloc(1, PATH_MAX)) == NULL)
+		errx(1, "%s: calloc", __func__);
 
 	if (showopt != NULL) {
 		switch (*showopt) {
@@ -2603,10 +2612,6 @@ main(int argc, char *argv[])
 		    anchorname, 0, 0, -1);
 
 	if (clearopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
-
 		switch (*clearopt) {
 		case 'r':
 			pfctl_clear_rules(dev, opts, anchorname);
@@ -2685,9 +2690,6 @@ main(int argc, char *argv[])
 	}
 
 	if (rulesopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
 		if (pfctl_rules(dev, rulesopt, opts, optimize,
 		    anchorname, NULL))
 			error = 1;

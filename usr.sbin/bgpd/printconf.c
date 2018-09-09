@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.112 2018/09/07 05:43:33 claudio Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.114 2018/09/08 15:25:27 benno Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -444,10 +444,14 @@ print_prefixsets(struct prefixset_head *psh)
 	struct prefixset_item	*psi;
 
 	SIMPLEQ_FOREACH(ps, psh, entry) {
-		printf("prefix-set \"%s\" { ", ps->name);
-		SIMPLEQ_FOREACH(psi, &ps->psitems, entry)
-			print_prefix(&psi->p, "");
-		printf(" }\n");
+		int count = 0;
+		printf("prefix-set \"%s\" {\n", ps->name);
+		SIMPLEQ_FOREACH(psi, &ps->psitems, entry) {
+			print_prefix(&psi->p, "\t");
+			if (count++ & 0x1)
+				printf("\n");
+		}
+		printf("\n}\n\n");
 	}
 }
 
@@ -681,6 +685,8 @@ print_rule(struct peer *peer_l, struct filter_rule *r)
 
 	if (r->match.prefixset.flags & PREFIXSET_FLAG_FILTER)
 		printf("prefix-set \"%s\" ", r->match.prefixset.name);
+	if (r->match.prefixset.flags & PREFIXSET_FLAG_LONGER)
+		printf("or-longer ");
 
 	if (r->match.nexthop.flags) {
 		if (r->match.nexthop.flags == FILTER_NEXTHOP_NEIGHBOR)

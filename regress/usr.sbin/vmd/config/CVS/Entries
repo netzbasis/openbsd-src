@@ -1,4 +1,6 @@
-/Makefile/1.5/Fri Jul 20 22:18:49 2018//
+/Makefile/1.6/Sun Sep  9 04:11:55 2018//
+/vmd-fail-bad-format.conf/1.1/Sun Sep  9 04:11:55 2018//
+/vmd-fail-bad-format.ok/1.1/Sun Sep  9 04:11:55 2018//
 /vmd-fail-boot-name-too-long.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-fail-boot-name-too-long.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-fail-cdrom-name-too-long.conf/1.1/Sun Jan  7 22:59:57 2018//
@@ -7,6 +9,8 @@
 /vmd-fail-disk-path-too-long.ok/1.2/Fri Jul 20 22:18:49 2018//
 /vmd-fail-kernel-keyword.conf/1.2/Mon Oct 30 03:49:30 2017//
 /vmd-fail-kernel-keyword.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-missing-format.conf/1.1/Sun Sep  9 04:11:55 2018//
+/vmd-fail-missing-format.ok/1.1/Sun Sep  9 04:11:55 2018//
 /vmd-fail-switch-no-add.conf/1.1/Sat Nov 11 02:54:42 2017//
 /vmd-fail-switch-no-add.ok/1.1/Sat Nov 11 02:54:42 2017//
 /vmd-fail-switch-no-interface.conf/1.2/Sat Nov 11 02:54:42 2017//
@@ -23,6 +27,8 @@
 /vmd-pass-boot-keyword.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-pass-cdrom-keyword.conf/1.1/Sun Jan  7 22:59:57 2018//
 /vmd-pass-cdrom-keyword.ok/1.1/Sun Jan  7 22:59:57 2018//
+/vmd-pass-format-keyword.conf/1.1/Sun Sep  9 04:11:55 2018//
+/vmd-pass-format-keyword.ok/1.1/Sun Sep  9 04:11:55 2018//
 /vmd-pass-memory-just-enough.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-pass-memory-just-enough.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-pass-memory-round.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//

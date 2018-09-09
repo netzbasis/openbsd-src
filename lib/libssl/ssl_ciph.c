@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_ciph.c,v 1.103 2018/09/06 16:40:45 jsing Exp $ */
+/* $OpenBSD: ssl_ciph.c,v 1.105 2018/09/08 14:39:41 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -164,17 +164,14 @@ static const EVP_CIPHER *ssl_cipher_methods[SSL_ENC_NUM_IDX] = {
 	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 };
 
-#define SSL_MD_MD5_IDX	0
-#define SSL_MD_SHA1_IDX	1
-#define SSL_MD_GOST94_IDX 2
-#define SSL_MD_GOST89MAC_IDX 3
-#define SSL_MD_SHA256_IDX 4
-#define SSL_MD_SHA384_IDX 5
-#define SSL_MD_STREEBOG256_IDX 6
-/*Constant SSL_MAX_DIGEST equal to size of digests array should be
- * defined in the
- * ssl_locl.h */
-#define SSL_MD_NUM_IDX	SSL_MAX_DIGEST
+#define SSL_MD_MD5_IDX		0
+#define SSL_MD_SHA1_IDX		1
+#define SSL_MD_GOST94_IDX	2
+#define SSL_MD_GOST89MAC_IDX	3
+#define SSL_MD_SHA256_IDX	4
+#define SSL_MD_SHA384_IDX	5
+#define SSL_MD_STREEBOG256_IDX	6
+#define SSL_MD_NUM_IDX		7
 static const EVP_MD *ssl_digest_methods[SSL_MD_NUM_IDX] = {
 	NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 };
@@ -601,12 +598,20 @@ ssl_cipher_get_evp(const SSL_SESSION *s, const EVP_CIPHER **enc,
 			*mac_secret_size = ssl_mac_secret_size[i];
 	}
 
-	if (*enc != NULL &&
-	    (*md != NULL || (EVP_CIPHER_flags(*enc) & EVP_CIPH_FLAG_AEAD_CIPHER)) &&
-	    (!mac_pkey_type || *mac_pkey_type != NID_undef))
-		return 1;
+	if (*enc == NULL || *md == NULL ||
+	    (mac_pkey_type != NULL && *mac_pkey_type == NID_undef))
+		return 0;
 
-	return 0;
+	/*
+	 * EVP_CIPH_FLAG_AEAD_CIPHER and EVP_CIPH_GCM_MODE ciphers are not
+	 * supported via EVP_CIPHER (they should be using EVP_AEAD instead).
+	 */
+	if (EVP_CIPHER_flags(*enc) & EVP_CIPH_FLAG_AEAD_CIPHER)
+		return 0;
+	if (EVP_CIPHER_mode(*enc) == EVP_CIPH_GCM_MODE)
+		return 0;
+
+	return 1;
 }
 
 /*
