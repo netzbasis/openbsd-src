@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.341 2018/09/08 15:25:27 benno Exp $ */
+/*	$OpenBSD: parse.y,v 1.349 2018/09/09 20:39:09 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -149,8 +149,6 @@ int		 expand_rule(struct filter_rule *, struct filter_rib_l *,
 int		 str2key(char *, char *, size_t);
 int		 neighbor_consistent(struct peer *);
 int		 merge_filterset(struct filter_set_head *, struct filter_set *);
-void		 copy_filterset(struct filter_set_head *,
-		    struct filter_set_head *);
 void		 merge_filter_lists(struct filter_head *, struct filter_head *);
 struct filter_rule	*get_rule(enum action_types);
 
@@ -161,9 +159,9 @@ int		 parsesubtype(char *, int *, int *);
 int		 parseextvalue(char *, u_int32_t *);
 int		 parseextcommunity(struct filter_extcommunity *, char *,
 		    char *);
-int		 asset_new(char *);
-void		 asset_add(u_int32_t);
-void		 asset_done(void);
+static int	 new_as_set(char *);
+static void	 add_as_set(u_int32_t);
+static void	 done_as_set(void);
 
 typedef struct {
 	union {
@@ -249,7 +247,7 @@ grammar		: /* empty */
 		| grammar '\n'
 		| grammar varset '\n'
 		| grammar include '\n'
-		| grammar asset '\n'
+		| grammar as_set '\n'
 		| grammar prefixset '\n'
 		| grammar conf_main '\n'
 		| grammar rdomain '\n'
@@ -403,16 +401,21 @@ include		: INCLUDE STRING		{
 		}
 		;
 
-asset		: ASSET STRING '{' optnl	{
-			if (asset_new($2) != 0)
+as_set		: ASSET STRING '{' optnl	{
+			if (new_as_set($2) != 0)
 				YYERROR;
 			free($2);
-		} asset_l optnl '}' {
-			asset_done();
+		} as_set_l optnl '}' {
+			done_as_set();
+		}
+		| ASSET STRING '{' optnl '}'	{
+			if (new_as_set($2) != 0)
+				YYERROR;
+			free($2);
 		}
 
-asset_l		: as4number_any			{ asset_add($1); }
-		| asset_l optnl as4number_any	{ asset_add($3); }
+as_set_l	: as4number_any			{ add_as_set($1); }
+		| as_set_l comma as4number_any	{ add_as_set($3); }
 
 prefixset	: PREFIXSET STRING '{' optnl		{
 			if (find_prefixset($2, conf->prefixsets) != NULL)  {
@@ -434,11 +437,30 @@ prefixset	: PREFIXSET STRING '{' optnl		{
 			SIMPLEQ_INSERT_TAIL(conf->prefixsets, curpset, entry);
 			curpset = NULL;
 		}
+		| PREFIXSET STRING '{' optnl '}'	{
+			if (find_prefixset($2, conf->prefixsets) != NULL)  {
+				yyerror("duplicate prefixset %s", $2);
+				free($2);
+				YYERROR;
+			}
+			if ((curpset = calloc(1, sizeof(*curpset))) == NULL)
+				fatal("prefixset");
+			if (strlcpy(curpset->name, $2, sizeof(curpset->name)) >=
+			    sizeof(curpset->name)) {
+				yyerror("prefix-set \"%s\" too long: max %zu",
+				    $2, sizeof(curpset->name) - 1);
+				free($2);
+				YYERROR;
+			}
+			SIMPLEQ_INIT(&curpset->psitems);
+			SIMPLEQ_INSERT_TAIL(conf->prefixsets, curpset, entry);
+			curpset = NULL;
+		}
 
 prefixset_l	: prefixset_item			{
 			SIMPLEQ_INSERT_TAIL(&curpset->psitems, $1, entry);
 		}
-		| prefixset_l optnl prefixset_item	{
+		| prefixset_l comma prefixset_item	{
 			SIMPLEQ_INSERT_TAIL(&curpset->psitems, $3, entry);
 		}
 		;
@@ -448,7 +470,8 @@ prefixset_item	: prefix prefixlenop			{
 				fatal(NULL);
 			memcpy(&$$->p.addr, &$1.prefix, sizeof($$->p.addr));
 			$$->p.len = $1.len;
-
+			if ($2.op != OP_NONE)
+				curpset->sflags |= PREFIXSET_FLAG_OPS;
 			if (merge_prefixspec(&$$->p, &$2) == -1) {
 				free($$);
 				YYERROR;
@@ -785,19 +808,34 @@ network		: NETWORK prefix filter_set	{
 			TAILQ_INSERT_TAIL(netconf, n, entry);
 		}
 		| NETWORK PREFIXSET STRING filter_set	{
-			if ((find_prefixset($3, conf->prefixsets)) == NULL) {
-				yyerror("prefix-set %s not defined", $3);
+			struct prefixset *ps;
+			struct network	*n;
+			if ((ps = find_prefixset($3, conf->prefixsets))
+			    == NULL) {
+				yyerror("prefix-set %s not defined", ps->name);
 				free($3);
+				filterset_free($4);
 				free($4);
 				YYERROR;
 			}
-			/*
-			 * XXX not implemented
-			 */
-			yyerror("network prefix-set not implemented.");
+			if (ps->sflags & PREFIXSET_FLAG_OPS) {
+				yyerror("prefix-set %s has prefixlen operators "
+				    "and cannot be used in network statements.",
+				    ps->name);
+				free($3);
+				filterset_free($4);
+				free($4);
+				YYERROR;
+			}
+			if ((n = calloc(1, sizeof(struct network))) == NULL)
+				fatal("new_network");
+			strlcpy(n->net.psname, ps->name, sizeof(n->net.psname));
+			TAILQ_INIT(&n->net.attrset);
+			TAILQ_CONCAT(&n->net.attrset, $4, entry);
+			n->net.type = NETWORK_PREFIXSET;
+			TAILQ_INSERT_TAIL(netconf, n, entry);
 			free($3);
 			free($4);
-			YYERROR;
 		}
 		| NETWORK family RTLABEL STRING filter_set	{
 			struct network	*n;
@@ -939,18 +977,11 @@ addrspec	: address	{
 		| prefix
 		;
 
-optnl		: '\n' optnl
-		|
-		;
-
-nl		: '\n' optnl		/* one newline or more */
-		;
-
 optnumber	: /* empty */		{ $$ = 0; }
 		| NUMBER
 		;
 
-rdomain		: RDOMAIN NUMBER optnl '{' optnl	{
+rdomain		: RDOMAIN NUMBER			{
 			if ($2 > RT_TABLEID_MAX) {
 				yyerror("rtable %llu too big: max %u", $2,
 				    RT_TABLEID_MAX);
@@ -968,19 +999,18 @@ rdomain		: RDOMAIN NUMBER optnl '{' optnl	{
 			TAILQ_INIT(&currdom->export);
 			TAILQ_INIT(&currdom->net_l);
 			netconf = &currdom->net_l;
-		}
-		    rdomainopts_l '}' {
+		} '{' rdomainopts_l '}'	{
 			/* insert into list */
 			SIMPLEQ_INSERT_TAIL(&conf->rdomains, currdom, entry);
 			currdom = NULL;
 			netconf = &conf->networks;
 		}
-
-rdomainopts_l	: rdomainopts_l rdomainoptsl
-		| rdomainoptsl
 		;
 
-rdomainoptsl	: rdomainopts nl
+rdomainopts_l	: /* empty */
+		| rdomainopts_l '\n'
+		| rdomainopts_l rdomainopts '\n'
+		| rdomainopts_l error '\n'
 		;
 
 rdomainopts	: RD STRING {
@@ -1126,7 +1156,7 @@ neighbor	: {	curpeer = new_peer(); }
 		}
 		;
 
-group		: GROUP string optnl '{' optnl {
+group		: GROUP string 			{
 			curgroup = curpeer = new_group();
 			if (strlcpy(curgroup->conf.group, $2,
 			    sizeof(curgroup->conf.group)) >=
@@ -1141,8 +1171,7 @@ group		: GROUP string optnl '{' optnl {
 				yyerror("get_id failed");
 				YYERROR;
 			}
-		}
-		    groupopts_l '}' {
+		} '{' groupopts_l '}'		{
 			if (curgroup_filter[0] != NULL)
 				TAILQ_INSERT_TAIL(groupfilter_l,
 				    curgroup_filter[0], entry);
@@ -1157,24 +1186,22 @@ group		: GROUP string optnl '{' optnl {
 		}
 		;
 
-groupopts_l	: groupopts_l groupoptsl
-		| groupoptsl
+groupopts_l	: /* empty */
+		| groupopts_l '\n'
+		| groupopts_l peeropts '\n'
+		| groupopts_l neighbor '\n'
+		| groupopts_l error '\n'
 		;
 
-groupoptsl	: peeropts nl
-		| neighbor nl
-		| error nl
-		;
-
-peeropts_h	: '{' optnl peeropts_l '}'
+peeropts_h	: '{' '\n' peeropts_l '}'
+		| '{' peeropts '}'
 		| /* empty */
 		;
 
-peeropts_l	: peeropts_l peeroptsl
-		| peeroptsl
-		;
-
-peeroptsl	: peeropts nl
+peeropts_l	: /* empty */
+		| peeropts_l '\n'
+		| peeropts_l peeropts '\n'
+		| peeropts_l error '\n'
 		;
 
 peeropts	: REMOTEAS as4number	{
@@ -1511,17 +1538,17 @@ peeropts	: REMOTEAS as4number	{
 			if (merge_filterset(&r->set, $2) == -1)
 				YYERROR;
 		}
-		| SET optnl "{" optnl filter_set_l optnl "}"	{
+		| SET "{" optnl filter_set_l optnl "}"	{
 			struct filter_rule	*r;
 			struct filter_set	*s;
 
-			while ((s = TAILQ_FIRST($5)) != NULL) {
-				TAILQ_REMOVE($5, s, entry);
+			while ((s = TAILQ_FIRST($4)) != NULL) {
+				TAILQ_REMOVE($4, s, entry);
 				r = get_rule(s->type);
 				if (merge_filterset(&r->set, s) == -1)
 					YYERROR;
 			}
-			free($5);
+			free($4);
 		}
 		| mrtdump
 		| REFLECTOR		{
@@ -1700,7 +1727,7 @@ direction	: FROM		{ $$ = DIR_IN; }
 
 filter_rib_h	: /* empty */			{ $$ = NULL; }
 		| RIB filter_rib		{ $$ = $2; }
-		| RIB '{' filter_rib_l '}'	{ $$ = $3; }
+		| RIB '{' optnl filter_rib_l optnl '}'	{ $$ = $4; }
 
 filter_rib_l	: filter_rib			{ $$ = $1; }
 		| filter_rib_l comma filter_rib	{
@@ -1732,7 +1759,7 @@ filter_rib	: STRING	{
 		;
 
 filter_peer_h	: filter_peer
-		| '{' filter_peer_l '}'		{ $$ = $2; }
+		| '{' optnl filter_peer_l optnl '}'	{ $$ = $3; }
 		;
 
 filter_peer_l	: filter_peer				{ $$ = $1; }
@@ -2141,7 +2168,7 @@ filter_elm	: filter_prefix_h	{
 			}
 			if ($3.op == OP_RANGE && ps->sflags & PREFIXSET_FLAG_OPS) {
 				yyerror("prefix-set %s contains prefixlen "
-				    "operators and cannot be used in with a "
+				    "operators and cannot be used with an "
 				    "or-longer filter", ps->name);
 				free($2);
 				YYERROR;
@@ -2199,6 +2226,9 @@ prefixlenop	: /* empty */			{ bzero(&$$, sizeof($$)); }
 				min = $3;
 				max = -1;
 				break;
+			default:
+				yyerror("unknown prefixlen operation");
+				YYERROR;
 			}
 			$$.len_min = min;
 			$$.len_max = max;
@@ -2233,7 +2263,7 @@ filter_set	: /* empty */					{ $$ = NULL; }
 			TAILQ_INIT($$);
 			TAILQ_INSERT_TAIL($$, $2, entry);
 		}
-		| SET optnl "{" optnl filter_set_l optnl "}"	{ $$ = $5; }
+		| SET "{" optnl filter_set_l optnl "}"	{ $$ = $4; }
 		;
 
 filter_set_l	: filter_set_l comma filter_set_opt	{
@@ -2570,8 +2600,14 @@ origincode	: string {
 			free($1);
 		};
 
-comma		: ","
-		| /* empty */
+optnl		: /* empty */
+		| '\n' optnl
+		;
+
+comma		: /* empty */
+		| ','
+		| '\n' optnl
+		| ',' '\n' optnl
 		;
 
 unaryop		: '='		{ $$ = OP_EQ; }
@@ -4091,22 +4127,6 @@ merge_filterset(struct filter_set_head *sh, struct filter_set *s)
 }
 
 void
-copy_filterset(struct filter_set_head *source, struct filter_set_head *dest)
-{
-	struct filter_set	*s, *t;
-
-	if (source == NULL)
-		return;
-
-	TAILQ_FOREACH(s, source, entry) {
-		if ((t = malloc(sizeof(struct filter_set))) == NULL)
-			fatal(NULL);
-		memcpy(t, s, sizeof(struct filter_set));
-		TAILQ_INSERT_TAIL(dest, t, entry);
-	}
-}
-
-void
 merge_filter_lists(struct filter_head *dst, struct filter_head *src)
 {
 	struct filter_rule *r;
@@ -4156,14 +4176,11 @@ get_rule(enum action_types type)
 	return (r);
 }
 
-struct as_set *curasset;
-int
-asset_new(char *name)
+struct as_set *curaset;
+static int
+new_as_set(char *name)
 {
 	struct as_set *aset;
-
-	if (curasset)
-		fatalx("%s: bad mojo jojo", __func__);
 
 	if (as_sets_lookup(conf->as_sets, name) != NULL) {
 		yyerror("as-set \"%s\" already exists", name);
@@ -4175,22 +4192,22 @@ asset_new(char *name)
 		fatal(NULL);
 	as_sets_insert(conf->as_sets, aset);
 
-	curasset = aset;
+	curaset = aset;
 	return 0;
 }
 
-void
-asset_add(u_int32_t as)
+static void
+add_as_set(u_int32_t as)
 {
-	if (curasset == NULL)
+	if (curaset == NULL)
 		fatalx("%s: bad mojo jojo", __func__);
 
-	if (as_set_add(curasset, &as, 1) != 0)
+	if (as_set_add(curaset, &as, 1) != 0)
 		fatal(NULL);
 }
 
-void
-asset_done(void)
+static void
+done_as_set(void)
 {
-	curasset = NULL;
+	curaset = NULL;
 }
