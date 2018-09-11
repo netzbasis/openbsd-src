@@ -14,7 +14,7 @@
 /conf.h/1.145/Fri Aug 31 04:20:37 2018//
 /core.h/1.7/Sat Sep 17 06:09:08 2016//
 /ctf.h/1.5/Sun Aug 13 14:56:05 2017//
-/device.h/1.54/Fri Dec 11 16:07:02 2015//
+/device.h/1.55/Mon Sep 10 16:18:34 2018//
 /dir.h/1.5/Mon Jun  2 23:28:21 2003//
 /dirent.h/1.11/Fri Dec 13 18:09:27 2013//
 /disk.h/1.36/Thu May  4 22:47:27 2017//
@@ -52,7 +52,7 @@
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.9/Sun Mar 24 17:45:25 2013//
 /malloc.h/1.116/Mon Nov 27 09:23:44 2017//
-/mbuf.h/1.236/Tue Jul 10 09:28:27 2018//
+/mbuf.h/1.238/Mon Sep 10 16:14:08 2018//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.32/Sun Feb 11 05:11:50 2018//
 /mount.h/1.138/Tue Jun 19 13:01:34 2018//

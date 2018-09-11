@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bnxt.c,v 1.12 2018/09/07 13:18:06 jmatthew Exp $	*/
+/*	$OpenBSD: if_bnxt.c,v 1.15 2018/09/10 04:59:32 jmatthew Exp $	*/
 /*-
  * Broadcom NetXtreme-C/E network driver.
  *
@@ -276,6 +276,7 @@ int		bnxt_intr(void *);
 void		bnxt_watchdog(struct ifnet *);
 void		bnxt_media_status(struct ifnet *, struct ifmediareq *);
 int		bnxt_media_change(struct ifnet *);
+int		bnxt_media_autonegotiate(struct bnxt_softc *);
 
 struct cmpl_base *bnxt_cpr_next_cmpl(struct bnxt_softc *, struct bnxt_cp_ring *);
 void		bnxt_cpr_commit(struct bnxt_softc *, struct bnxt_cp_ring *);
@@ -607,6 +608,7 @@ bnxt_attach(struct device *parent, struct device *self, void *aux)
 
 	timeout_set(&sc->sc_rx_refill, bnxt_refill, sc);
 
+	bnxt_media_autonegotiate(sc);
 	bnxt_hwrm_port_phy_qcfg(sc, NULL);
 	return;
 
@@ -1323,6 +1325,7 @@ uint64_t
 bnxt_get_media_type(uint64_t speed, int phy_type)
 {
 	switch (phy_type) {
+	case HWRM_PORT_PHY_QCFG_OUTPUT_PHY_TYPE_UNKNOWN:
 	case HWRM_PORT_PHY_QCFG_OUTPUT_PHY_TYPE_BASECR:
 	case HWRM_PORT_PHY_QCFG_OUTPUT_PHY_TYPE_25G_BASECR_CA_L:
 	case HWRM_PORT_PHY_QCFG_OUTPUT_PHY_TYPE_25G_BASECR_CA_S:
@@ -1508,7 +1511,7 @@ bnxt_hwrm_port_phy_qcfg(struct bnxt_softc *softc, struct ifmediareq *ifmr)
 	struct hwrm_port_phy_qcfg_output *resp =
 	    BNXT_DMA_KVA(softc->sc_cmd_resp);
 	int link_state = LINK_STATE_DOWN;
-	int speeds[] = {
+	uint64_t speeds[] = {
 		IF_Gbps(1), IF_Gbps(2), IF_Mbps(2500), IF_Gbps(10), IF_Gbps(20),
 		IF_Gbps(25), IF_Gbps(40), IF_Gbps(50), IF_Gbps(100)
 	};
@@ -1706,6 +1709,24 @@ bnxt_media_change(struct ifnet *ifp)
 
 	return hwrm_send_message(sc, &req, sizeof(req));
 }
+
+int
+bnxt_media_autonegotiate(struct bnxt_softc *sc)
+{
+	struct hwrm_port_phy_cfg_input req = {0};
+
+	if (sc->sc_flags & BNXT_FLAG_NPAR)
+		return ENODEV;
+
+	bnxt_hwrm_cmd_hdr_init(sc, &req, HWRM_PORT_PHY_CFG);
+	req.auto_mode |= HWRM_PORT_PHY_CFG_INPUT_AUTO_MODE_ALL_SPEEDS;
+	req.enables |= htole32(HWRM_PORT_PHY_CFG_INPUT_ENABLES_AUTO_MODE);
+	req.flags |= htole32(HWRM_PORT_PHY_CFG_INPUT_FLAGS_RESTART_AUTONEG);
+	req.flags |= htole32(HWRM_PORT_PHY_CFG_INPUT_FLAGS_RESET_PHY);
+
+	return hwrm_send_message(sc, &req, sizeof(req));
+}
+
 
 void
 bnxt_mark_cpr_invalid(struct bnxt_cp_ring *cpr)

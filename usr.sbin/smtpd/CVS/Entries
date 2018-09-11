@@ -78,7 +78,7 @@
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.303/Tue Sep  4 13:04:42 2018//
-/smtpd.conf.5/1.203/Wed Sep  5 07:16:08 2018//
+/smtpd.conf.5/1.204/Mon Sep 10 12:42:17 2018//
 /smtpd.h/1.559/Sat Sep  8 10:05:07 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//

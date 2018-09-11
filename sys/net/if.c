@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.561 2018/09/09 10:09:06 henning Exp $	*/
+/*	$OpenBSD: if.c,v 1.563 2018/09/10 16:18:34 sashan Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -129,9 +129,12 @@
 #include <net/pfvar.h>
 #endif
 
+#include <sys/device.h>
+
 void	if_attachsetup(struct ifnet *);
 void	if_attachdomain(struct ifnet *);
 void	if_attach_common(struct ifnet *);
+int	if_createrdomain(int, struct ifnet *);
 int	if_setrdomain(struct ifnet *, int);
 void	if_slowtimo(void *);
 
@@ -219,8 +222,6 @@ void	if_idxmap_remove(struct ifnet *);
 
 TAILQ_HEAD(, ifg_group) ifg_head = TAILQ_HEAD_INITIALIZER(ifg_head);
 
-/* Serialize access to &if_cloners and if_cloners_count */
-struct rwlock if_cloners_lock = RWLOCK_INITIALIZER("ifclonerslk");
 LIST_HEAD(, if_clone) if_cloners = LIST_HEAD_INITIALIZER(if_cloners);
 int if_cloners_count;
 
@@ -1252,13 +1253,11 @@ if_clone_lookup(const char *name, int *unitp)
 	if (cp - name < IFNAMSIZ-1 && *cp == '0' && cp[1] != '\0')
 		return (NULL);	/* unit number 0 padded */
 
-	rw_enter_read(&if_cloners_lock);
 	LIST_FOREACH(ifc, &if_cloners, ifc_list) {
 		if (strlen(ifc->ifc_name) == cp - name &&
 		    !strncmp(name, ifc->ifc_name, cp - name))
 			break;
 	}
-	rw_exit_read(&if_cloners_lock);
 
 	if (ifc == NULL)
 		return (NULL);
@@ -1284,22 +1283,15 @@ if_clone_lookup(const char *name, int *unitp)
 void
 if_clone_attach(struct if_clone *ifc)
 {
-	rw_enter_write(&if_cloners_lock);
+	/*
+	 * we are called at kernel boot by main(), when pseudo devices are
+	 * being attached. The main() is the only guy which may alter the
+	 * if_cloners. While system is running and main() is done with
+	 * initialization, the if_cloners becomes immutable. 
+	 */
+	KASSERT(pdevinit_done == 0);
 	LIST_INSERT_HEAD(&if_cloners, ifc, ifc_list);
 	if_cloners_count++;
-	rw_exit_write(&if_cloners_lock);
-}
-
-/*
- * Unregister a network interface cloner.
- */
-void
-if_clone_detach(struct if_clone *ifc)
-{
-	rw_enter_write(&if_cloners_lock);
-	LIST_REMOVE(ifc, ifc_list);
-	if_cloners_count--;
-	rw_exit_write(&if_cloners_lock);
 }
 
 /*
@@ -1314,16 +1306,12 @@ if_clone_list(struct if_clonereq *ifcr)
 
 	if ((dst = ifcr->ifcr_buffer) == NULL) {
 		/* Just asking how many there are. */
-		rw_enter_read(&if_cloners_lock);
 		ifcr->ifcr_total = if_cloners_count;
-		rw_exit_read(&if_cloners_lock);
 		return (0);
 	}
 
 	if (ifcr->ifcr_count < 0)
 		return (EINVAL);
-
-	rw_enter_read(&if_cloners_lock);
 
 	ifcr->ifcr_total = if_cloners_count;
 	count = MIN(if_cloners_count, ifcr->ifcr_count);
@@ -1340,7 +1328,6 @@ if_clone_list(struct if_clonereq *ifcr)
 		dst += IFNAMSIZ;
 	}
 
-	rw_exit_read(&if_cloners_lock);
 	return (error);
 }
 
@@ -1735,10 +1722,37 @@ if_setlladdr(struct ifnet *ifp, const uint8_t *lladdr)
 }
 
 int
+if_createrdomain(int rdomain, struct ifnet *ifp)
+{
+	int error;
+	struct ifnet *loifp;
+	char loifname[IFNAMSIZ];
+	unsigned int unit = rdomain;
+
+	if (!rtable_exists(rdomain) && (error = rtable_add(rdomain)) != 0)
+		return (error);
+	if (!rtable_empty(rdomain))
+		return (EEXIST);
+
+	/* Create rdomain including its loopback if with unit == rdomain */
+	snprintf(loifname, sizeof(loifname), "lo%u", unit);
+	error = if_clone_create(loifname, 0);
+	if ((loifp = ifunit(loifname)) == NULL)
+		return (ENXIO);
+	if (error && (ifp != loifp || error != EEXIST))
+		return (error);
+
+	rtable_l2set(rdomain, rdomain, loifp->if_index);
+	loifp->if_rdomain = rdomain;
+
+	return (0);
+}
+
+int
 if_setrdomain(struct ifnet *ifp, int rdomain)
 {
 	struct ifreq ifr;
-	int error, createerr, up = 0, s;
+	int error, up = 0, s;
 
 	if (rdomain < 0 || rdomain > RT_TABLEID_MAX)
 		return (EINVAL);
@@ -1748,35 +1762,8 @@ if_setrdomain(struct ifnet *ifp, int rdomain)
 	    (ifp->if_index == rtable_loindex(ifp->if_rdomain)))
 		return (EPERM);
 
-	/*
-	 * Create the routing table if it does not exist, including its
-	 * loopback interface with unit == rdomain.
-	 */
-	if (!rtable_exists(rdomain) || rtable_empty(rdomain)) {
-		struct ifnet *loifp;
-		char loifname[IFNAMSIZ];
-		unsigned int unit = rdomain;
-
-		snprintf(loifname, sizeof(loifname), "lo%u", unit);
-		createerr = if_clone_create(loifname, 0);
-		if (createerr && createerr != EEXIST)
-			return (createerr);
-
-		if ((loifp = ifunit(loifname)) == NULL)
-			return (ENXIO);
-
-		if (!rtable_exists(rdomain)) {
-			error = rtable_add(rdomain);
-			if (error) {
-				if (createerr != EEXIST)
-					if_clone_destroy(loifname);
-				return (error);
-			}
-		}
-
-		rtable_l2set(rdomain, rdomain, loifp->if_index);
-		loifp->if_rdomain = rdomain;
-	}
+	if (!rtable_exists(rdomain))
+		return (ESRCH);
 
 	/* make sure that the routing table is a real rdomain */
 	if (rdomain != rtable_l2(rdomain))
@@ -2066,7 +2053,9 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		if ((error = suser(p)) != 0)
 			break;
 		NET_LOCK();
-		error = if_setrdomain(ifp, ifr->ifr_rdomainid);
+		error = if_createrdomain(ifr->ifr_rdomainid, ifp);
+		if (!error || error == EEXIST)
+			error = if_setrdomain(ifp, ifr->ifr_rdomainid);
 		NET_UNLOCK();
 		break;
 
