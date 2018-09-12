@@ -1,4 +1,4 @@
-/* $OpenBSD: sshkey.h,v 1.26 2018/07/03 13:20:25 djm Exp $ */
+/* $OpenBSD: sshkey.h,v 1.28 2018/09/12 01:32:54 djm Exp $ */
 
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
@@ -96,6 +96,7 @@ struct sshkey_cert {
 	struct sshbuf	*critical;
 	struct sshbuf	*extensions;
 	struct sshkey	*signature_key;
+	char		*signature_type;
 };
 
 /* XXX opaquify? */
@@ -151,6 +152,7 @@ int	 sshkey_cert_check_authority(const struct sshkey *, int, int,
     const char *, const char **);
 size_t	 sshkey_format_cert_validity(const struct sshkey_cert *,
     char *, size_t) __attribute__((__bounded__(__string__, 2, 3)));
+int	 sshkey_check_cert_sigtype(const struct sshkey *, const char *);
 
 int	 sshkey_certify(struct sshkey *, struct sshkey *, const char *);
 /* Variant allowing use of a custom signature function (e.g. for ssh-agent) */

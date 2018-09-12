@@ -2,11 +2,11 @@
 /frag6.c/1.85/Mon Sep 10 16:14:08 2018//
 /icmp6.c/1.226/Wed Sep  5 09:47:18 2018//
 /in6.c/1.227/Sat May 12 09:43:02 2018//
-/in6.h/1.102/Thu Jun  7 08:46:24 2018//
+/in6.h/1.103/Tue Sep 11 21:04:03 2018//
 /in6_cksum.c/1.17/Mon Jun  8 22:19:28 2015//
 /in6_ifattach.c/1.110/Sun Aug 26 22:30:00 2018//
 /in6_ifattach.h/1.8/Sat Feb 10 05:52:08 2018//
-/in6_pcb.c/1.104/Thu Jun 14 17:00:58 2018//
+/in6_pcb.c/1.106/Tue Sep 11 21:04:03 2018//
 /in6_proto.c/1.102/Sat Feb 10 08:12:01 2018//
 /in6_src.c/1.81/Fri Dec  2 11:16:04 2016//
 /in6_var.h/1.72/Sun May  6 15:21:25 2018//
