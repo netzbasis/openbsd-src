@@ -35,7 +35,7 @@
 /ipifuncs.c/1.32/Fri Jul 27 21:11:31 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
 /lapic.c/1.52/Fri Jul 27 21:11:31 2018//
-/locore.S/1.108/Sun Sep  9 22:09:36 2018//
+/locore.S/1.109/Wed Sep 12 06:12:59 2018//
 /locore0.S/1.9/Tue Jul 10 16:01:26 2018//
 /machdep.c/1.250/Mon Jul 30 09:04:52 2018//
 /mainbus.c/1.44/Fri Jul 13 08:30:34 2018//
@@ -47,7 +47,7 @@
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
-/pmap.c/1.118/Sun Sep  9 22:46:54 2018//
+/pmap.c/1.120/Wed Sep 12 07:00:51 2018//
 /powernow-k8.c/1.28/Sun Jan 14 00:33:09 2018//
 /process_machdep.c/1.16/Tue Jun  5 06:39:10 2018//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
