@@ -64,7 +64,7 @@
 /getdomainname.c/1.9/Sat Sep 12 14:56:50 2015//
 /getfsent.3/1.13/Tue Jan 21 03:15:45 2014//
 /getgrent.3/1.22/Wed Nov  4 08:36:10 2015//
-/getgrent.c/1.46/Tue Dec  1 15:08:25 2015//
+/getgrent.c/1.47/Thu Sep 13 12:31:15 2018//
 /getgrouplist.3/1.17/Wed Jun  5 03:39:22 2013//
 /getgrouplist.c/1.27/Tue Dec  1 15:08:25 2015//
 /gethostname.3/1.28/Fri Jan 12 04:36:44 2018//
@@ -143,8 +143,8 @@
 /psignal.c/1.10/Mon Aug 31 02:53:57 2015//
 /pw_dup.3/1.9/Fri Nov 22 15:41:05 2013//
 /pw_dup.c/1.8/Sun Sep 13 15:33:48 2015//
-/pwcache.3/1.13/Sat Mar 26 14:36:37 2016//
-/pwcache.c/1.13/Wed Nov 25 23:16:01 2015//
+/pwcache.3/1.15/Thu Sep 13 16:50:54 2018//
+/pwcache.c/1.14/Thu Sep 13 12:31:15 2018//
 /raise.3/1.11/Thu Jan 29 01:46:30 2015//
 /raise.c/1.8/Tue Nov 10 04:30:59 2015//
 /readdir.c/1.22/Sat Sep 12 13:34:22 2015//
