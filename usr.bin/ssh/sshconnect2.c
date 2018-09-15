@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.285 2018/09/14 04:17:12 djm Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.287 2018/09/14 05:26:27 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -580,16 +580,19 @@ input_userauth_failure(int type, u_int32_t seq, struct ssh *ssh)
 static char *
 format_identity(Identity *id)
 {
-	char *fp, *ret = NULL;
+	char *fp = NULL, *ret = NULL;
 
-	if ((fp = sshkey_fingerprint(id->key, options.fingerprint_hash,
-	    SSH_FP_DEFAULT)) == NULL)
-		fatal("%s: sshkey_fingerprint failed", __func__);
-	xasprintf(&ret, "%s %s %s%s%s%s",
-	    id->filename, sshkey_type(id->key), fp,
-	    id->userprovided ? ", explicit" : "",
-	    (id->key->flags & SSHKEY_FLAG_EXT) ? ", token" : "",
-	    id->agent_fd != -1 ? ", agent" : "");
+	if (id->key != NULL) {
+	     fp = sshkey_fingerprint(id->key, options.fingerprint_hash,
+		    SSH_FP_DEFAULT);
+	}
+	xasprintf(&ret, "%s %s%s%s%s%s%s",
+	    id->filename,
+	    id->key ? sshkey_type(id->key) : "", id->key ? " " : "",
+	    fp ? fp : "",
+	    id->userprovided ? " explicit" : "",
+	    (id->key && (id->key->flags & SSHKEY_FLAG_EXT)) ? " token" : "",
+	    id->agent_fd != -1 ? " agent" : "");
 	free(fp);
 	return ret;
 }
@@ -1593,6 +1596,9 @@ pubkey_prepare(Authctxt *authctxt)
 			memset(id, 0, sizeof(*id));
 			continue;
 		}
+	}
+	/* List the keys we plan on using */
+	TAILQ_FOREACH_SAFE(id, preferred, next, id2) {
 		ident = format_identity(id);
 		debug("Will attempt key: %s", ident);
 		free(ident);
