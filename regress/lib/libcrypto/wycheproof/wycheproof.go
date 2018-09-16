@@ -1,4 +1,4 @@
-/* $OpenBSD: wycheproof.go,v 1.46 2018/09/02 20:29:01 tb Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.53 2018/09/15 22:09:08 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -75,15 +75,15 @@ type wycheproofTestAesCbcPkcs5 struct {
 	Flags   []string `json:"flags"`
 }
 
-type wycheproofTestGroupAesCcmOrGcm struct {
-	IVSize  int                          `json:"ivSize"`
-	KeySize int                          `json:"keySize"`
-	TagSize int                          `json:"tagSize"`
-	Type    string                       `json:"type"`
-	Tests   []*wycheproofTestAesCcmOrGcm `json:"tests"`
+type wycheproofTestGroupAead struct {
+	IVSize  int                   `json:"ivSize"`
+	KeySize int                   `json:"keySize"`
+	TagSize int                   `json:"tagSize"`
+	Type    string                `json:"type"`
+	Tests   []*wycheproofTestAead `json:"tests"`
 }
 
-type wycheproofTestAesCcmOrGcm struct {
+type wycheproofTestAead struct {
 	TCID    int      `json:"tcId"`
 	Comment string   `json:"comment"`
 	Key     string   `json:"key"`
@@ -108,27 +108,6 @@ type wycheproofTestAesCmac struct {
 	Comment string   `json:"comment"`
 	Key     string   `json:"key"`
 	Msg     string   `json:"msg"`
-	Tag     string   `json:"tag"`
-	Result  string   `json:"result"`
-	Flags   []string `json:"flags"`
-}
-
-type wycheproofTestGroupChaCha20Poly1305 struct {
-	IVSize  int                               `json:"ivSize"`
-	KeySize int                               `json:"keySize"`
-	TagSize int                               `json:"tagSize"`
-	Type    string                            `json:"type"`
-	Tests   []*wycheproofTestChaCha20Poly1305 `json:"tests"`
-}
-
-type wycheproofTestChaCha20Poly1305 struct {
-	TCID    int      `json:"tcId"`
-	Comment string   `json:"comment"`
-	Key     string   `json:"key"`
-	IV      string   `json:"iv"`
-	AAD     string   `json:"aad"`
-	Msg     string   `json:"msg"`
-	CT      string   `json:"ct"`
 	Tag     string   `json:"tag"`
 	Result  string   `json:"result"`
 	Flags   []string `json:"flags"`
@@ -470,7 +449,7 @@ func runAesCbcPkcs5TestGroup(algorithm string, wtg *wycheproofTestGroupAesCbcPkc
 	return success
 }
 
-func checkAesCcmOrGcm(algorithm string, ctx *C.EVP_CIPHER_CTX, doEncrypt int, key []byte, keyLen int, iv []byte, ivLen int, aad []byte, aadLen int, in []byte, inLen int, out []byte, outLen int, tag []byte, tagLen int, wt *wycheproofTestAesCcmOrGcm) bool {
+func checkAesCcmOrGcm(algorithm string, ctx *C.EVP_CIPHER_CTX, doEncrypt int, key []byte, keyLen int, iv []byte, ivLen int, aad []byte, aadLen int, in []byte, inLen int, out []byte, outLen int, tag []byte, tagLen int, wt *wycheproofTestAead) bool {
 	var ctrlSetIVLen C.int
 	var ctrlSetTag C.int
 	var ctrlGetTag C.int
@@ -588,16 +567,22 @@ func checkAesCcmOrGcm(algorithm string, ctx *C.EVP_CIPHER_CTX, doEncrypt int, ke
 			fmt.Printf("FAIL: Test case %d (%q) [%v] - EVP_CIPHER_CTX_ctrl() = %d, want %v\n", wt.TCID, wt.Comment, action, ret, wt.Result)
 			return false
 		}
-		// XXX audit acceptable cases...
+
+		// There are no acceptable CCM cases. All acceptable GCM tests
+		// pass. They have len(IV) <= 48. NIST SP 800-38D, 5.2.1.1, p.8,
+		// allows 1 <= len(IV) <= 2^64-1, but notes:
+		//   "For IVs it is recommended that implementations restrict
+		//    support to the length of 96 bits, to promote
+		//    interoperability, efficiency and simplicity of design."
 		if bytes.Equal(tagOut, tag) != (wt.Result == "valid" || wt.Result == "acceptable") {
-			fmt.Printf("FAIL: Test case %d (%q) [%v] - expected and computed tag do not match. Result: %v\n", wt.TCID, wt.Comment, action, ret, wt.Result)
+			fmt.Printf("FAIL: Test case %d (%q) [%v] - expected and computed tag do not match - ret: %d, Result: %v\n", wt.TCID, wt.Comment, action, ret, wt.Result)
 			success = false
 		}
 	}
 	return success
 }
 
-func runAesCcmOrGcmTest(algorithm string, ctx *C.EVP_CIPHER_CTX, wt *wycheproofTestAesCcmOrGcm) bool {
+func runAesCcmOrGcmTest(algorithm string, ctx *C.EVP_CIPHER_CTX, aead *C.EVP_AEAD, wt *wycheproofTestAead) bool {
 	key, err := hex.DecodeString(wt.Key)
 	if err != nil {
 		log.Fatalf("Failed to decode key %q: %v", wt.Key, err)
@@ -649,16 +634,34 @@ func runAesCcmOrGcmTest(algorithm string, ctx *C.EVP_CIPHER_CTX, wt *wycheproofT
 		tag = append(tag, 0)
 	}
 
-	openSuccess := checkAesCcmOrGcm(algorithm, ctx, 0, key, keyLen, iv, ivLen, aad, aadLen, ct, ctLen, msg, msgLen, tag, tagLen, wt)
-	sealSuccess := checkAesCcmOrGcm(algorithm, ctx, 1, key, keyLen, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
+	openEvp := checkAesCcmOrGcm(algorithm, ctx, 0, key, keyLen, iv, ivLen, aad, aadLen, ct, ctLen, msg, msgLen, tag, tagLen, wt)
+	sealEvp := checkAesCcmOrGcm(algorithm, ctx, 1, key, keyLen, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
 
-	return openSuccess && sealSuccess
+	openAead, sealAead := true, true
+	if aead != nil {
+		var ctx C.EVP_AEAD_CTX
+		if C.EVP_AEAD_CTX_init(&ctx, aead, (*C.uchar)(unsafe.Pointer(&key[0])), C.size_t(keyLen), C.size_t(tagLen), nil) != 1 {
+			log.Fatal("Failed to initialize AEAD context")
+		}
+		defer C.EVP_AEAD_CTX_cleanup(&ctx)
+
+		// Make sure we don't accidentally prepend or compare against a 0.
+		if ctLen == 0 {
+			ct = nil
+		}
+
+		openAead = checkAeadOpen(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
+		sealAead = checkAeadSeal(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
+	}
+
+	return openEvp && sealEvp && openAead && sealAead
 }
 
-func runAesCcmOrGcmTestGroup(algorithm string, wtg *wycheproofTestGroupAesCcmOrGcm) bool {
+func runAesCcmOrGcmTestGroup(algorithm string, wtg *wycheproofTestGroupAead) bool {
 	fmt.Printf("Running %v test group %v with IV size %d, key size %d and tag size %d...\n", algorithm, wtg.Type, wtg.IVSize, wtg.KeySize, wtg.TagSize)
 
 	var cipher *C.EVP_CIPHER
+	var aead *C.EVP_AEAD
 	switch algorithm {
 	case "AES-CCM":
 		switch wtg.KeySize {
@@ -676,10 +679,12 @@ func runAesCcmOrGcmTestGroup(algorithm string, wtg *wycheproofTestGroupAesCcmOrG
 		switch wtg.KeySize {
 		case 128:
 			cipher = C.EVP_aes_128_gcm()
+			aead = C.EVP_aead_aes_128_gcm()
 		case 192:
 			cipher = C.EVP_aes_192_gcm()
 		case 256:
 			cipher = C.EVP_aes_256_gcm()
+			aead = C.EVP_aead_aes_256_gcm()
 		default:
 			fmt.Printf("INFO: Skipping tests with invalid key size %d\n", wtg.KeySize)
 			return true
@@ -696,7 +701,7 @@ func runAesCcmOrGcmTestGroup(algorithm string, wtg *wycheproofTestGroupAesCcmOrG
 
 	success := true
 	for _, wt := range wtg.Tests {
-		if !runAesCcmOrGcmTest(algorithm, ctx, wt) {
+		if !runAesCcmOrGcmTest(algorithm, ctx, aead, wt) {
 			success = false
 		}
 	}
@@ -793,7 +798,7 @@ func runAesCmacTestGroup(algorithm string, wtg *wycheproofTestGroupAesCmac) bool
 	return success
 }
 
-func checkChaCha20Poly1305Open(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen int, msg []byte, msgLen int, ct []byte, ctLen int, tag []byte, tagLen int, wt *wycheproofTestChaCha20Poly1305) bool {
+func checkAeadOpen(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen int, msg []byte, msgLen int, ct []byte, ctLen int, tag []byte, tagLen int, wt *wycheproofTestAead) bool {
 	maxOutLen := ctLen + tagLen
 
 	opened := make([]byte, maxOutLen)
@@ -829,7 +834,7 @@ func checkChaCha20Poly1305Open(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []
 	return success
 }
 
-func checkChaCha20Poly1305Seal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen int, msg []byte, msgLen int, ct []byte, ctLen int, tag []byte, tagLen int, wt *wycheproofTestChaCha20Poly1305) bool {
+func checkAeadSeal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen int, msg []byte, msgLen int, ct []byte, ctLen int, tag []byte, tagLen int, wt *wycheproofTestAead) bool {
 	maxOutLen := msgLen + tagLen
 
 	sealed := make([]byte, maxOutLen)
@@ -859,7 +864,7 @@ func checkChaCha20Poly1305Seal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []
 	return success
 }
 
-func runChaCha20Poly1305Test(iv_len int, key_len int, tag_len int, wt *wycheproofTestChaCha20Poly1305) bool {
+func runChaCha20Poly1305Test(iv_len int, key_len int, tag_len int, wt *wycheproofTestAead) bool {
 	aead := C.EVP_aead_chacha20_poly1305()
 	if aead == nil {
 		log.Fatal("EVP_aead_chacha20_poly1305 failed")
@@ -918,13 +923,13 @@ func runChaCha20Poly1305Test(iv_len int, key_len int, tag_len int, wt *wycheproo
 	}
 	defer C.EVP_AEAD_CTX_cleanup(&ctx)
 
-	openSuccess := checkChaCha20Poly1305Open(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
-	sealSuccess := checkChaCha20Poly1305Seal(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
+	openSuccess := checkAeadOpen(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
+	sealSuccess := checkAeadSeal(&ctx, iv, ivLen, aad, aadLen, msg, msgLen, ct, ctLen, tag, tagLen, wt)
 
 	return openSuccess && sealSuccess
 }
 
-func runChaCha20Poly1305TestGroup(algorithm string, wtg *wycheproofTestGroupChaCha20Poly1305) bool {
+func runChaCha20Poly1305TestGroup(algorithm string, wtg *wycheproofTestGroupAead) bool {
 	// We currently only support nonces of length 12 (96 bits)
 	if wtg.IVSize != 96 {
 		return true
@@ -1323,7 +1328,7 @@ func runRSASSATest(rsa *C.RSA, h hash.Hash, sha *C.EVP_MD, mgfSha *C.EVP_MD, sLe
 
 	ret = C.RSA_verify_PKCS1_PSS_mgf1(rsa, (*C.uchar)(unsafe.Pointer(&msg[0])), sha, mgfSha, (*C.uchar)(unsafe.Pointer(&sigOut[0])), C.int(sLen))
 
-	// XXX: audit acceptable cases...
+	// XX: audit acceptable cases...
 	success := false
 	if ret == 1 && (wt.Result == "valid" || wt.Result == "acceptable") {
 		success = true
@@ -1513,13 +1518,13 @@ func runTestVectors(path string) bool {
 	case "AES-CBC-PKCS5":
 		wtg = &wycheproofTestGroupAesCbcPkcs5{}
 	case "AES-CCM":
-		wtg = &wycheproofTestGroupAesCcmOrGcm{}
+		wtg = &wycheproofTestGroupAead{}
 	case "AES-CMAC":
 		wtg = &wycheproofTestGroupAesCmac{}
 	case "AES-GCM":
-		wtg = &wycheproofTestGroupAesCcmOrGcm{}
+		wtg = &wycheproofTestGroupAead{}
 	case "CHACHA20-POLY1305":
-		wtg = &wycheproofTestGroupChaCha20Poly1305{}
+		wtg = &wycheproofTestGroupAead{}
 	case "DSA":
 		wtg = &wycheproofTestGroupDSA{}
 	case "ECDH":
@@ -1547,7 +1552,7 @@ func runTestVectors(path string) bool {
 				success = false
 			}
 		case "AES-CCM":
-			if !runAesCcmOrGcmTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAesCcmOrGcm)) {
+			if !runAesCcmOrGcmTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAead)) {
 				success = false
 			}
 		case "AES-CMAC":
@@ -1555,11 +1560,11 @@ func runTestVectors(path string) bool {
 				success = false
 			}
 		case "AES-GCM":
-			if !runAesCcmOrGcmTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAesCcmOrGcm)) {
+			if !runAesCcmOrGcmTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAead)) {
 				success = false
 			}
 		case "CHACHA20-POLY1305":
-			if !runChaCha20Poly1305TestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupChaCha20Poly1305)) {
+			if !runChaCha20Poly1305TestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAead)) {
 				success = false
 			}
 		case "DSA":
