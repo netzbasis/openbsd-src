@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.27 2018/09/15 12:15:32 miko Exp $	*/
+/*	$OpenBSD: extern.h,v 1.29 2018/09/18 02:29:10 miko Exp $	*/
 /*	$NetBSD: extern.h,v 1.8 1996/10/31 23:50:54 christos Exp $	*/
 
 /*-
@@ -181,7 +181,6 @@ void	 unreadc(int);
 /*
  * misc.c
  */
-int	  any(char *, int);
 Char	**blkcat(Char **, Char **);
 Char	**blkcpy(Char **, Char **);
 Char	**blkend(Char **);
@@ -281,9 +280,9 @@ void	psecs(long);
 /*
  * alloc.c
  */
-void *	Malloc(size_t);
-void *	Reallocarray(void *, size_t, size_t);
-void *	Calloc(size_t, size_t);
+void *	xmalloc(size_t);
+void *	xreallocarray(void *, size_t, size_t);
+void *	xcalloc(size_t, size_t);
 
 /*
  * str.c:
