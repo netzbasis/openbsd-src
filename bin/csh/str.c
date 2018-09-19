@@ -1,4 +1,4 @@
-/*	$OpenBSD: str.c,v 1.20 2018/09/15 12:15:32 miko Exp $	*/
+/*	$OpenBSD: str.c,v 1.22 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: str.c,v 1.6 1995/03/21 09:03:24 cgd Exp $	*/
 
 /*-

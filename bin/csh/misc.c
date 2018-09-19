@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.22 2018/09/17 16:00:19 martijn Exp $	*/
+/*	$OpenBSD: misc.c,v 1.24 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: misc.c,v 1.6 1995/03/21 09:03:09 cgd Exp $	*/
 
 /*-
@@ -34,7 +34,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdarg.h>
-#include <string.h>
 
 #include "csh.h"
 #include "extern.h"
@@ -42,18 +41,15 @@
 static int	fdcmp(int);
 static int	renum(int, int);
 
-char   *
-xstrdup(const char *s)
+int
+any(char *s, int c)
 {
-    char *n;
-
-    if (s == NULL)
-	s = "";
-    if ((n = strdup(s)) == NULL) {
-	child++;
-	stderror(ERR_NOMEM);
-    }
-    return (n);
+    if (!s)
+	return (0);		/* Check for nil pointer */
+    while (*s)
+	if (*s++ == c)
+	    return (1);
+    return (0);
 }
 
 Char  **

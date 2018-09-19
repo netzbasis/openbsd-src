@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.h,v 1.31 2018/09/18 02:29:10 miko Exp $	*/
+/*	$OpenBSD: csh.h,v 1.33 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: csh.h,v 1.9 1995/03/21 09:02:40 cgd Exp $	*/
 
 /*-

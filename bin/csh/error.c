@@ -1,4 +1,4 @@
-/*	$OpenBSD: error.c,v 1.15 2018/09/15 12:15:32 miko Exp $	*/
+/*	$OpenBSD: error.c,v 1.17 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: err.c,v 1.6 1995/03/21 09:02:47 cgd Exp $	*/
 
 /*-

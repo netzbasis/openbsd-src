@@ -1,4 +1,4 @@
-/*	$OpenBSD: alloc.c,v 1.18 2018/09/18 02:29:10 miko Exp $	*/
+/*	$OpenBSD: alloc.c,v 1.20 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: alloc.c,v 1.6 1995/03/21 09:02:23 cgd Exp $	*/
 
 /*-
@@ -34,6 +34,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "csh.h"
 #include "extern.h"
@@ -73,4 +74,18 @@ xcalloc(size_t s, size_t n)
     }
 
     return (ptr);
+}
+
+char *
+xstrdup(const char *s)
+{
+    char *n;
+ 
+    if (s == NULL)
+	s = "";
+    if ((n = strdup(s)) == NULL) {
+	child++;
+	stderror(ERR_NOMEM);
+    }
+    return (n);
 }
