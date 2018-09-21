@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.119 2018/09/13 11:25:41 claudio Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.121 2018/09/20 11:45:59 claudio Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -40,6 +40,7 @@ void		 print_rdomain_targets(struct filter_set_head *, const char *);
 void		 print_rdomain(struct rdomain *);
 const char	*print_af(u_int8_t);
 void		 print_network(struct network_config *, const char *);
+void		 print_as_sets(struct as_set_head *);
 void		 print_prefixsets(struct prefixset_head *);
 void		 print_peer(struct peer_config *, struct bgpd_config *,
 		    const char *);
@@ -443,6 +444,28 @@ print_network(struct network_config *n, const char *c)
 }
 
 void
+print_as_sets(struct as_set_head *as_sets)
+{
+	struct as_set *aset;
+	u_int32_t *as;
+	size_t i, n;
+	int len;
+
+	SIMPLEQ_FOREACH(aset, as_sets, entry) {
+		printf("as-set \"%s\" {\n\t", aset->name);
+		as = set_get(aset->set, &n);
+		for (i = 0, len = 8; i < n; i++) {
+			if (len > 72) {
+				printf("\n\t");
+				len = 8;
+			}
+			len += printf("%u ", as[i]);
+		}
+		printf("\n}\n\n");
+	}
+}
+
+void
 print_prefixsets(struct prefixset_head *psh)
 {
 	struct prefixset	*ps;
@@ -451,7 +474,7 @@ print_prefixsets(struct prefixset_head *psh)
 	SIMPLEQ_FOREACH(ps, psh, entry) {
 		int count = 0;
 		printf("prefix-set \"%s\" {", ps->name);
-		SIMPLEQ_FOREACH(psi, &ps->psitems, entry) {
+		RB_FOREACH(psi, prefixset_tree, &ps->psitems) {
 			if (count++ % 2 == 0)
 				printf("\n\t");
 			else
@@ -867,7 +890,7 @@ print_config(struct bgpd_config *conf, struct rib_names *rib_l,
 
 	print_mainconf(conf);
 	print_prefixsets(conf->prefixsets);
-	as_sets_print(conf->as_sets);
+	print_as_sets(conf->as_sets);
 	TAILQ_FOREACH(n, net_l, entry)
 		print_network(&n->net, "");
 	if (!SIMPLEQ_EMPTY(rdom_l))

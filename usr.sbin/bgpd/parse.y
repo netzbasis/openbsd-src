@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.353 2018/09/14 10:22:11 claudio Exp $ */
+/*	$OpenBSD: parse.y,v 1.355 2018/09/20 11:45:59 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -443,14 +443,37 @@ prefixset	: PREFIXSET STRING '{' optnl		{
 		}
 
 prefixset_l	: prefixset_item			{
-			SIMPLEQ_INSERT_TAIL(&curpset->psitems, $1, entry);
+			struct prefixset_item	*psi;
+			psi = RB_INSERT(prefixset_tree, &curpset->psitems, $1);
+			if (psi != NULL) {
+				if (cmd_opts & BGPD_OPT_VERBOSE2)
+					log_warnx("warning: duplicate entry in "
+					    "prefixset \"%s\" for %s/%u",
+					    curpset->name,
+					    log_addr(&$1->p.addr), $1->p.len);
+				free($1);
+			}
 		}
 		| prefixset_l comma prefixset_item	{
-			SIMPLEQ_INSERT_TAIL(&curpset->psitems, $3, entry);
+			struct prefixset_item	*psi;
+			psi = RB_INSERT(prefixset_tree, &curpset->psitems, $3);
+			if (psi != NULL) {
+				if (cmd_opts & BGPD_OPT_VERBOSE2)
+					log_warnx("warning: duplicate entry in "
+					    "prefixset \"%s\" for %s/%u",
+					    curpset->name,
+					    log_addr(&$3->p.addr), $3->p.len);
+				free($3);
+			}
 		}
 		;
 
 prefixset_item	: prefix prefixlenop			{
+			if ($2.op != OP_NONE && $2.op != OP_RANGE) {
+				yyerror("unsupported prefixlen operation in "
+				    "prefix-set");
+				YYERROR;
+			}
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
 				fatal(NULL);
 			memcpy(&$$->p.addr, &$1.prefix, sizeof($$->p.addr));
@@ -4172,7 +4195,7 @@ get_rule(enum action_types type)
 	return (r);
 }
 
-struct as_set *curaset;
+struct set_table *curset;
 static int
 new_as_set(char *name)
 {
@@ -4183,29 +4206,28 @@ new_as_set(char *name)
 		return -1;
 	}
 
-	aset = as_set_new(name, 0, sizeof(u_int32_t));
+	aset = as_sets_new(conf->as_sets, name, 0, sizeof(u_int32_t));
 	if (aset == NULL)
 		fatal(NULL);
-	as_sets_insert(conf->as_sets, aset);
 
-	curaset = aset;
+	curset = aset->set;
 	return 0;
 }
 
 static void
 add_as_set(u_int32_t as)
 {
-	if (curaset == NULL)
+	if (curset == NULL)
 		fatalx("%s: bad mojo jojo", __func__);
 
-	if (as_set_add(curaset, &as, 1) != 0)
+	if (set_add(curset, &as, 1) != 0)
 		fatal(NULL);
 }
 
 static void
 done_as_set(void)
 {
-	curaset = NULL;
+	curset = NULL;
 }
 
 static int
@@ -4223,6 +4245,6 @@ new_prefix_set(char *name)
 		    name, sizeof(curpset->name) - 1);
 			return -1;
 	}
-	SIMPLEQ_INIT(&curpset->psitems);
+	RB_INIT(&curpset->psitems);
 	return 0;
 }

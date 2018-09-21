@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.191 2018/09/18 15:14:07 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.193 2018/09/20 11:45:59 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -295,7 +295,7 @@ struct rib_desc {
 	struct rib_context	ribctx;
 	struct filter_head	*in_rules;
 	struct filter_head	*in_rules_tmp;
-	enum reconf_action 	state;
+	enum reconf_action	state;
 	u_int8_t		dumping;
 };
 
@@ -586,7 +586,7 @@ int		 up_dump_mp_reach(u_char *, u_int16_t *, struct rde_peer *,
 int	trie_add(struct trie_head *, struct bgpd_addr *, u_int8_t, u_int8_t,
 	    u_int8_t);
 int	trie_roa_add(struct trie_head *, struct bgpd_addr *, u_int8_t,
-	    struct as_set *);
+	    struct set_table *);
 void	trie_free(struct trie_head *);
 int	trie_match(struct trie_head *, struct bgpd_addr *, u_int8_t, int);
 int	trie_roa_check(struct trie_head *, struct bgpd_addr *, u_int8_t,
