@@ -2,7 +2,7 @@
 /ieee80211.h/1.60/Sun Jul  2 14:48:19 2017//
 /ieee80211_amrr.c/1.11/Tue Jan  5 18:41:16 2016//
 /ieee80211_amrr.h/1.4/Sat Jun 16 13:17:05 2007//
-/ieee80211_crypto.c/1.73/Sat Apr 28 14:46:10 2018//
+/ieee80211_crypto.c/1.74/Mon Sep 24 20:14:59 2018//
 /ieee80211_crypto.h/1.25/Fri Aug 18 17:30:12 2017//
 /ieee80211_crypto_bip.c/1.9/Tue May  2 17:07:06 2017//
 /ieee80211_crypto_ccmp.c/1.20/Tue May  2 17:07:06 2017//
