@@ -1,4 +1,4 @@
-/*	$OpenBSD: getent.c,v 1.14 2016/02/01 19:57:28 jca Exp $	*/
+/*	$OpenBSD: getent.c,v 1.18 2018/09/25 19:51:39 kn Exp $	*/
 /*	$NetBSD: getent.c,v 1.7 2005/08/24 14:31:02 ginsbach Exp $	*/
 
 /*-
@@ -55,7 +55,7 @@
 
 #include <rpc/rpc.h>
 
-static int	usage(void);
+static void	usage(void);
 static int	ethers(int, char *[]);
 static int	group(int, char *[]);
 static int	hosts(int, char *[]);
@@ -77,15 +77,16 @@ static struct getentdb {
 	const char	*name;
 	int		(*fn)(int, char *[]);
 	const char	*pledge;
+	const char	*unveil;
 } databases[] = {
-	{	"ethers",	ethers,		"stdio rpath"	},
-	{	"group",	group,		"stdio getpw"	},
-	{	"hosts",	hosts,		"stdio dns"	},
-	{	"passwd",	passwd,		"stdio getpw"	},
-	{	"protocols",	protocols,	"stdio rpath"	},
-	{	"rpc",		rpc,		"stdio rpath"	},
-	{	"services",	services,	"stdio rpath"	},
-	{	"shells",	shells,		"stdio rpath"	},
+	{	"ethers",	ethers,		"stdio rpath",	"/etc/ethers"	},
+	{	"group",	group,		"stdio getpw",	NULL	},
+	{	"hosts",	hosts,		"stdio dns",	NULL	},
+	{	"passwd",	passwd,		"stdio getpw",	NULL	},
+	{	"protocols",	protocols,	"stdio rpath",	"/etc/protocols"	},
+	{	"rpc",		rpc,		"stdio rpath",	"/etc/rpc"	},
+	{	"services",	services,	"stdio rpath",	"/etc/services"	},
+	{	"shells",	shells,		"stdio rpath",	"/etc/shells"	},
 
 	{	NULL,		NULL,				},
 };
@@ -95,13 +96,14 @@ main(int argc, char *argv[])
 {
 	struct getentdb	*curdb;
 
-	if (pledge("stdio dns rpath getpw", NULL) == -1)
-		err(1, "pledge");
-
 	if (argc < 2)
 		usage();
 	for (curdb = databases; curdb->name != NULL; curdb++) {
 		if (strcmp(curdb->name, argv[1]) == 0) {
+			if (curdb->unveil != NULL) {
+				if (unveil(curdb->unveil, "r") == -1)
+					err(1, "unveil");
+			}
 			if (pledge(curdb->pledge, NULL) == -1)
 				err(1, "pledge");
 
@@ -113,12 +115,11 @@ main(int argc, char *argv[])
 	return RV_USAGE;
 }
 
-static int
+static void
 usage(void)
 {
 	fprintf(stderr, "usage: %s database [key ...]\n", __progname);
 	exit(RV_USAGE);
-	/* NOTREACHED */
 }
 
 /*
@@ -227,42 +228,30 @@ hostsprint(const struct hostent *he)
 	printfmtstrings(he->h_aliases, "  ", " ", "%-16s  %s", buf, he->h_name);
 }
 static int
-hostsaddrinfo(char* name)
+hostsaddrinfo(const char *name)
 {
 	struct addrinfo	 hints, *res, *res0;
-	void		*src;
-	int		 rv;
 	char		 buf[INET6_ADDRSTRLEN];
+	int		 rv;
 
 	rv = RV_NOTFOUND;
 	memset(buf, 0, sizeof(buf));
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_UNSPEC;
+	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_DGRAM;
 
-	if (getaddrinfo(name, NULL, &hints, &res0) == 0) {
-		for (res = res0; res; res = res->ai_next) {
-			switch (res->ai_family) {
-			case AF_INET:
-				src = &((struct sockaddr_in*)
-				    res->ai_addr)->sin_addr;
-				break;
-			case AF_INET6:
-				src = &((struct sockaddr_in6*)
-				    res->ai_addr)->sin6_addr;
-				break;
-			default: /* not reached */
-				src = NULL;
-			}
-			if (src==NULL || inet_ntop(res->ai_family, src, buf,
-			    sizeof(buf)) == NULL)
-				strlcpy(buf, "# unknown", sizeof(buf));
-			else
-				rv = RV_OK;
-			printf("%-39s %s\n", buf, name);
-		}
-		freeaddrinfo(res0);
+	if (getaddrinfo(name, NULL, &hints, &res0) != 0)
+		return (rv);
+	for (res = res0; res; res = res->ai_next) {
+		if ((res->ai_family != AF_INET6 && res->ai_family != AF_INET) ||
+		    getnameinfo(res->ai_addr, res->ai_addrlen, buf, sizeof(buf),
+		    NULL, 0, NI_NUMERICHOST) != 0)
+			strlcpy(buf, "# unknown", sizeof(buf));
+		else
+			rv = RV_OK;
+		printf("%-39s %s\n", buf, name);
 	}
+	freeaddrinfo(res0);
 
 	return (rv);
 }
