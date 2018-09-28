@@ -274,7 +274,7 @@
 /qlw.c/1.31/Tue Jan 24 02:28:17 2017//
 /qlwreg.h/1.7/Sat Mar 15 21:49:47 2014//
 /qlwvar.h/1.10/Sat Mar 15 13:08:52 2014//
-/r92creg.h/1.18/Fri Sep 21 01:45:53 2018//
+/r92creg.h/1.19/Fri Sep 28 02:38:38 2018//
 /ramdac.h/1.7/Thu Jun 26 05:42:16 2008//
 /re.c/1.202/Mon Jun 19 09:36:27 2017//
 /revar.h/1.7/Tue Jul 27 20:53:39 2010//
@@ -298,8 +298,8 @@
 /rtsxreg.h/1.4/Wed Sep  6 13:07:38 2017//
 /rtsxvar.h/1.6/Mon Oct  9 16:12:20 2017//
 /rtw.c/1.100/Fri Sep 22 13:44:00 2017//
-/rtwn.c/1.38/Fri Sep 21 01:45:53 2018//
-/rtwnvar.h/1.11/Fri Sep 21 01:45:53 2018//
+/rtwn.c/1.39/Fri Sep 28 02:38:38 2018//
+/rtwnvar.h/1.12/Fri Sep 28 02:38:38 2018//
 /rtwreg.h/1.14/Sun Aug 16 18:21:57 2009//
 /rtwvar.h/1.31/Wed Nov  4 12:11:59 2015//
 /s3_617.h/1.2/Wed Jul  4 09:03:04 2001//
