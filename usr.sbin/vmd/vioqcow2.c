@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioqcow2.c,v 1.3 2018/09/19 04:29:21 ccardenas Exp $	*/
+/*	$OpenBSD: vioqcow2.c,v 1.5 2018/09/28 12:35:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2018 Ori Bernstein <ori@eigenstate.org>
@@ -108,7 +108,7 @@ static int qc2_openpath(struct qcdisk *, char *, int);
 static int qc2_open(struct qcdisk *, int);
 static ssize_t qc2_pread(void *, char *, size_t, off_t);
 static ssize_t qc2_pwrite(void *, char *, size_t, off_t);
-static void qc2_close(void *);
+static void qc2_close(void *, int);
 
 /*
  * Initializes a raw disk image backing file from an fd.
@@ -260,13 +260,16 @@ qc2_open(struct qcdisk *disk, int fd)
 
 	disk->end = st.st_size;
 
-	log_debug("opened qcow2 disk version %d:", version);
-	log_debug("size:\t%lld", disk->disksz);
-	log_debug("end:\t%lld", disk->end);
-	log_debug("nsnap:\t%d", disk->nsnap);
+	log_debug("%s: qcow2 disk version %d size %lld end %lld snap %d",
+	    __func__,
+	    version,
+	    disk->disksz,
+	    disk->end,
+	    disk->nsnap);
+
 	return 0;
 error:
-	qc2_close(disk);
+	qc2_close(disk, 0);
 	return -1;
 }
 
@@ -374,14 +377,15 @@ qc2_pwrite(void *p, char *buf, size_t len, off_t off)
 }
 
 static void
-qc2_close(void *p)
+qc2_close(void *p, int stayopen)
 {
 	struct qcdisk *disk;
 
 	disk = p;
 	if (disk->base)
-		qc2_close(disk->base);
-	close(disk->fd);
+		qc2_close(disk->base, stayopen);
+	if (!stayopen)
+		close(disk->fd);
 	free(disk->l1);
 	free(disk);
 }
