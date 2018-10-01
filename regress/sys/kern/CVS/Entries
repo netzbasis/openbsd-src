@@ -1,8 +1,9 @@
-/Makefile/1.76/Fri Aug 10 15:58:16 2018//
+/Makefile/1.77/Sun Sep 30 08:26:40 2018//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
+D/cmsgsize////
 D/descrip////
 D/dup2////
 D/dup2_accept////
