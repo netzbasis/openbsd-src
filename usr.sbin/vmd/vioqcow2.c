@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioqcow2.c,v 1.5 2018/09/28 12:35:32 reyk Exp $	*/
+/*	$OpenBSD: vioqcow2.c,v 1.7 2018/10/01 17:34:56 reyk Exp $	*/
 
 /*
  * Copyright (c) 2018 Ori Bernstein <ori@eigenstate.org>
@@ -127,7 +127,6 @@ virtio_init_qcow2(struct virtio_backing *file, off_t *szp, int fd)
 		return -1;
 	if (qc2_open(diskp, fd) == -1) {
 		log_warnx("%s: could not open qcow2 disk", __func__);
-		free(diskp);
 		return -1;
 	}
 	file->p = diskp;
@@ -169,7 +168,8 @@ qc2_open(struct qcdisk *disk, int fd)
 		log_warn("%s: short read on header", __func__);
 		goto error;
 	}
-	if (strncmp(header.magic, "QFI\xfb", 4) != 0) {
+	if (strncmp(header.magic,
+	    VM_MAGIC_QCOW, strlen(VM_MAGIC_QCOW)) != 0) {
 		log_warn("%s: invalid magic numbers", __func__);
 		goto error;
 	}
