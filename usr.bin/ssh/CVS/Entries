@@ -2,7 +2,7 @@
 /Makefile/1.16/Sun Dec 10 19:37:57 2017//
 /Makefile.inc/1.60/Wed Jul 18 11:34:04 2018//
 /OVERVIEW/1.14/Fri Jul 27 03:55:22 2018//
-/PROTOCOL/1.35/Fri Aug 10 00:44:01 2018//
+/PROTOCOL/1.36/Tue Oct  2 12:51:58 2018//
 /PROTOCOL.agent/1.12/Fri May 19 21:07:17 2017//
 /PROTOCOL.certkeys/1.15/Tue Jul  3 11:39:54 2018//
 /PROTOCOL.chacha20poly1305/1.4/Tue Apr 10 00:10:49 2018//
@@ -144,8 +144,8 @@
 /servconf.h/1.137/Thu Sep 20 03:28:06 2018//
 /serverloop.c/1.209/Fri Jul 27 05:13:02 2018//
 /serverloop.h/1.8/Tue Sep 12 06:32:07 2017//
-/session.c/1.305/Wed Jul 25 13:56:23 2018//
-/session.h/1.35/Tue Sep 12 06:32:07 2017//
+/session.c/1.306/Tue Oct  2 12:40:07 2018//
+/session.h/1.36/Tue Oct  2 12:40:07 2018//
 /sftp-client.c/1.130/Tue Jul 31 03:07:24 2018//
 /sftp-client.h/1.27/Fri May  8 06:45:13 2015//
 /sftp-common.c/1.31/Thu Sep 13 15:23:32 2018//

@@ -17,7 +17,7 @@
 /db_machdep.h/1.16/Sun Apr 30 13:04:49 2017//
 /disklabel.h/1.11/Wed Sep 30 14:57:03 2015//
 /efifbvar.h/1.8/Sat Sep 22 17:41:52 2018//
-/endian.h/1.6/Sat Jul 12 16:25:08 2014//
+/endian.h/1.7/Tue Oct  2 21:30:44 2018//
 /exec.h/1.7/Wed Feb  8 05:09:25 2017//
 /fenv.h/1.4/Wed May 25 21:46:49 2011//
 /fpu.h/1.15/Sun Jun 24 00:49:25 2018//
