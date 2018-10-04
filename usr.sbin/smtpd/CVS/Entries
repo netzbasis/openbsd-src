@@ -54,8 +54,6 @@
 /queue_proc.c/1.7/Mon May 14 15:23:05 2018//
 /queue_ram.c/1.8/Mon May 14 15:23:05 2018//
 /resolver.c/1.2/Wed Aug 29 17:56:17 2018//
-/rfc2822.c/1.10/Sat Feb  4 19:25:24 2017//
-/rfc2822.h/1.5/Fri Feb 16 20:57:30 2018//
 /rfc5322.c/1.1/Thu Aug 23 10:07:06 2018//
 /rfc5322.h/1.1/Thu Aug 23 10:07:06 2018//
 /ruleset.c/1.36/Sat Jun 16 19:41:26 2018//
@@ -81,7 +79,7 @@
 /smtpd.conf.5/1.205/Mon Sep 24 16:14:34 2018//
 /smtpd.h/1.562/Mon Sep 24 16:14:34 2018//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
-/spfwalk.c/1.9/Tue Apr 10 14:37:08 2018//
+/spfwalk.c/1.10/Wed Oct  3 11:43:57 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
 /ssl_smtpd.c/1.13/Wed Dec 30 16:02:08 2015//

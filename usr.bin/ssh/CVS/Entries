@@ -15,7 +15,7 @@
 /atomicio.h/1.11/Wed Sep 22 22:58:51 2010//
 /auth-bsdauth.c/1.15/Mon Jul  9 21:35:50 2018//
 /auth-krb5.c/1.23/Mon Jul  9 21:35:50 2018//
-/auth-options.c/1.83/Tue Jun 19 02:59:41 2018//
+/auth-options.c/1.84/Wed Oct  3 06:38:35 2018//
 /auth-options.h/1.27/Wed Jun  6 18:23:32 2018//
 /auth-passwd.c/1.47/Mon Jul  9 21:26:02 2018//
 /auth-rhosts.c/1.49/Mon Jul  9 21:35:50 2018//
@@ -39,8 +39,8 @@
 /canohost.h/1.12/Mon Mar  7 19:02:43 2016//
 /chacha.c/1.1/Thu Nov 21 00:45:44 2013//
 /chacha.h/1.4/Sat Aug 27 04:04:56 2016//
-/channels.c/1.384/Fri Jul 27 12:03:17 2018//
-/channels.h/1.131/Wed Jun  6 18:22:41 2018//
+/channels.c/1.386/Thu Oct  4 01:04:52 2018//
+/channels.h/1.132/Thu Oct  4 00:10:11 2018//
 /cipher-aesctr.c/1.2/Wed Jan 14 10:24:42 2015//
 /cipher-aesctr.h/1.1/Tue Apr 29 15:39:33 2014//
 /cipher-chachapoly.c/1.8/Wed Aug  3 05:41:57 2016//
@@ -94,7 +94,7 @@
 /kexecdhs.c/1.17/Wed Feb  7 02:06:51 2018//
 /kexgex.c/1.29/Mon Jan 19 20:16:15 2015//
 /kexgexc.c/1.28/Thu Sep 13 02:08:33 2018//
-/kexgexs.c/1.34/Thu Sep 13 02:08:33 2018//
+/kexgexs.c/1.35/Thu Oct  4 00:04:41 2018//
 /krl.c/1.42/Wed Sep 12 01:21:34 2018//
 /krl.h/1.6/Wed Sep 12 01:21:34 2018//
 /log.c/1.51/Fri Jul 27 12:03:17 2018//
@@ -103,8 +103,8 @@
 /mac.h/1.10/Fri Jul  8 03:44:42 2016//
 /match.c/1.38/Wed Jul  4 13:49:31 2018//
 /match.h/1.18/Wed Jul  4 13:49:31 2018//
-/misc.c/1.131/Fri Jul 27 05:13:02 2018//
-/misc.h/1.74/Fri Jul 27 05:13:02 2018//
+/misc.c/1.132/Wed Oct  3 06:38:35 2018//
+/misc.h/1.75/Wed Oct  3 06:38:35 2018//
 /moduli.c/1.32/Fri Dec  8 03:45:52 2017//
 /monitor.c/1.187/Thu Sep 13 02:08:33 2018//
 /monitor.h/1.21/Mon Jul  9 21:53:45 2018//
@@ -116,7 +116,7 @@
 /msg.h/1.5/Thu Jan 15 09:40:00 2015//
 /mux.c/1.77/Wed Sep 26 07:32:44 2018//
 /myproposal.h/1.57/Wed Sep 12 01:34:02 2018//
-/nchan.c/1.67/Tue Sep 12 06:35:32 2017//
+/nchan.c/1.68/Thu Oct  4 00:10:11 2018//
 /nchan.ms/1.8/Fri Nov 21 11:57:03 2003//
 /nchan2.ms/1.4/Thu May 15 23:52:24 2008//
 /opacket.c/1.7/Fri Oct 20 01:56:39 2017//
@@ -129,7 +129,7 @@
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
 /progressmeter.c/1.45/Thu Jun 30 05:17:05 2016//
 /progressmeter.h/1.3/Wed Jan 14 13:54:13 2015//
-/readconf.c/1.298/Thu Sep 20 03:30:44 2018//
+/readconf.c/1.299/Wed Oct  3 06:38:35 2018//
 /readconf.h/1.128/Thu Sep 20 03:30:44 2018//
 /readpass.c/1.52/Wed Jul 18 11:34:04 2018//
 /rijndael.c/1.20/Mon Mar 16 11:09:52 2015//
@@ -144,7 +144,7 @@
 /servconf.h/1.137/Thu Sep 20 03:28:06 2018//
 /serverloop.c/1.209/Fri Jul 27 05:13:02 2018//
 /serverloop.h/1.8/Tue Sep 12 06:32:07 2017//
-/session.c/1.306/Tue Oct  2 12:40:07 2018//
+/session.c/1.307/Thu Oct  4 00:10:11 2018//
 /session.h/1.36/Tue Oct  2 12:40:07 2018//
 /sftp-client.c/1.130/Tue Jul 31 03:07:24 2018//
 /sftp-client.h/1.27/Fri May  8 06:45:13 2015//
@@ -181,13 +181,13 @@
 /ssh-sandbox.h/1.1/Thu Jun 23 09:34:13 2011//
 /ssh-xmss.c/1.1/Fri Feb 23 15:58:38 2018//
 /ssh.1/1.399/Thu Sep 20 06:58:48 2018//
-/ssh.c/1.493/Fri Sep 21 03:11:36 2018//
+/ssh.c/1.494/Wed Oct  3 06:38:35 2018//
 /ssh.h/1.88/Wed Jun  6 18:29:18 2018//
 /ssh2.h/1.18/Wed May  4 14:22:33 2016//
 /ssh_api.c/1.8/Sun Apr 30 23:13:25 2017//
 /ssh_api.h/1.2/Tue Apr 10 00:10:49 2018//
 /ssh_config/1.33/Sun May  7 23:12:57 2017//
-/ssh_config.5/1.285/Fri Sep 21 12:46:22 2018//
+/ssh_config.5/1.286/Wed Oct  3 06:38:35 2018//
 /sshbuf-getput-basic.c/1.7/Thu Jun  1 04:51:58 2017//
 /sshbuf-getput-crypto.c/1.5/Tue Jan 12 23:42:54 2016//
 /sshbuf-misc.c/1.6/Mon May  2 08:49:03 2016//
