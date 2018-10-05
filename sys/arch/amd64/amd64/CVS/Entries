@@ -1,5 +1,5 @@
 /acpi_machdep.c/1.85/Sun Aug 19 08:23:47 2018//
-/acpi_wakecode.S/1.45/Tue Aug 14 16:43:02 2018//
+/acpi_wakecode.S/1.46/Thu Oct  4 05:00:40 2018//
 /aes_intel.S/1.13/Mon Jul  9 08:39:28 2018//
 /aesni.c/1.48/Thu Jun 14 18:44:43 2018//
 /amd64_mem.c/1.14/Fri Jul 27 21:11:31 2018//
@@ -14,7 +14,7 @@
 /conf.c/1.63/Fri Aug 31 04:20:37 2018//
 /consinit.c/1.7/Sat Oct 14 04:44:43 2017//
 /copy.S/1.12/Tue Jul  3 23:21:15 2018//
-/cpu.c/1.128/Wed Sep 26 03:05:53 2018//
+/cpu.c/1.129/Thu Oct  4 05:00:40 2018//
 /db_disasm.c/1.18/Thu Dec  7 20:38:15 2017//
 /db_interface.c/1.33/Fri Jul  6 02:43:01 2018//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
@@ -25,17 +25,17 @@
 /est.c/1.39/Sun Mar  6 22:41:24 2016//
 /fpu.c/1.41/Sun Jun 24 00:49:25 2018//
 /gdt.c/1.26/Wed Feb 21 19:24:15 2018//
-/genassym.cf/1.38/Tue Jul 10 08:57:44 2018//
+/genassym.cf/1.39/Thu Oct  4 05:00:40 2018//
 /hibernate_machdep.c/1.45/Fri Jul 27 21:11:31 2018//
 /i8259.c/1.11/Fri Jul 27 21:11:31 2018//
-/identcpu.c/1.108/Fri Aug 24 06:25:40 2018//
+/identcpu.c/1.109/Thu Oct  4 05:00:40 2018//
 /intr.c/1.51/Mon Jan 22 09:08:43 2018//
 /ioapic.c/1.29/Sat Aug 25 16:09:29 2018//
 /ipi.c/1.16/Sun Jul 19 18:44:15 2015//
 /ipifuncs.c/1.32/Fri Jul 27 21:11:31 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
-/lapic.c/1.52/Fri Jul 27 21:11:31 2018//
-/locore.S/1.109/Wed Sep 12 06:12:59 2018//
+/lapic.c/1.53/Thu Oct  4 05:00:40 2018//
+/locore.S/1.110/Thu Oct  4 05:00:40 2018//
 /locore0.S/1.9/Tue Jul 10 16:01:26 2018//
 /machdep.c/1.250/Mon Jul 30 09:04:52 2018//
 /mainbus.c/1.45/Sat Sep 22 17:41:52 2018//
@@ -47,7 +47,7 @@
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
-/pmap.c/1.120/Wed Sep 12 07:00:51 2018//
+/pmap.c/1.121/Thu Oct  4 05:00:40 2018//
 /powernow-k8.c/1.28/Sun Jan 14 00:33:09 2018//
 /process_machdep.c/1.16/Tue Jun  5 06:39:10 2018//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
@@ -57,7 +57,7 @@
 /trap.c/1.73/Fri Jul  6 02:43:01 2018//
 /tsc.c/1.10/Fri Jul 27 21:11:31 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
-/vector.S/1.75/Tue Jul 24 02:42:25 2018//
+/vector.S/1.76/Thu Oct  4 05:00:40 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
 /vmm.c/1.220/Thu Sep 20 14:32:59 2018//

@@ -14,7 +14,7 @@
 /kern_descrip.c/1.182/Fri Aug 24 12:45:27 2018//
 /kern_event.c/1.99/Tue Sep  4 02:38:25 2018//
 /kern_exec.c/1.201/Sun Aug  5 14:23:57 2018//
-/kern_exit.c/1.169/Sat Aug 25 15:38:07 2018//
+/kern_exit.c/1.170/Thu Oct  4 20:07:54 2018//
 /kern_fork.c/1.207/Thu Aug 30 03:30:25 2018//
 /kern_kthread.c/1.42/Thu Jul  5 14:42:30 2018//
 /kern_ktrace.c/1.99/Sun Aug  5 14:23:57 2018//
@@ -32,7 +32,7 @@
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
 /kern_synch.c/1.146/Thu May 31 02:16:22 2018//
-/kern_sysctl.c/1.348/Wed Sep 26 17:23:13 2018//
+/kern_sysctl.c/1.349/Thu Oct  4 17:33:40 2018//
 /kern_task.c/1.22/Thu Dec 14 00:45:16 2017//
 /kern_tc.c/1.34/Tue Sep 18 20:47:11 2018//
 /kern_time.c/1.103/Mon May 28 18:05:42 2018//
