@@ -103,7 +103,7 @@
 /mac.h/1.10/Fri Jul  8 03:44:42 2016//
 /match.c/1.38/Wed Jul  4 13:49:31 2018//
 /match.h/1.18/Wed Jul  4 13:49:31 2018//
-/misc.c/1.132/Wed Oct  3 06:38:35 2018//
+/misc.c/1.133/Fri Oct  5 14:26:09 2018//
 /misc.h/1.75/Wed Oct  3 06:38:35 2018//
 /moduli.c/1.32/Fri Dec  8 03:45:52 2017//
 /monitor.c/1.187/Thu Sep 13 02:08:33 2018//
@@ -129,7 +129,7 @@
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
 /progressmeter.c/1.45/Thu Jun 30 05:17:05 2016//
 /progressmeter.h/1.3/Wed Jan 14 13:54:13 2015//
-/readconf.c/1.299/Wed Oct  3 06:38:35 2018//
+/readconf.c/1.300/Fri Oct  5 14:26:09 2018//
 /readconf.h/1.128/Thu Sep 20 03:30:44 2018//
 /readpass.c/1.52/Wed Jul 18 11:34:04 2018//
 /rijndael.c/1.20/Mon Mar 16 11:09:52 2015//

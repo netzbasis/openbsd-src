@@ -9,7 +9,7 @@
 /bsd.port.mk/1.95/Sat Sep 24 07:26:01 2011//
 /bsd.port.subdir.mk/1.9/Sat Sep 24 07:26:01 2011//
 /bsd.prog.mk/1.75/Fri Jul 21 11:00:24 2017//
-/bsd.regress.mk/1.15/Wed Sep 26 09:34:23 2018//
+/bsd.regress.mk/1.16/Fri Oct  5 11:15:29 2018//
 /bsd.subdir.mk/1.22/Sat Oct  8 09:43:46 2016//
 /bsd.sys.mk/1.13/Sun Jul  9 14:04:50 2017//
 /bsd.xconf.mk/1.1/Tue Mar 25 23:35:56 2008//
