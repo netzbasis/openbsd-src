@@ -35,7 +35,7 @@
 /ipifuncs.c/1.32/Fri Jul 27 21:11:31 2018//
 /k1x-pstate.c/1.10/Wed Dec 27 17:41:54 2017//
 /lapic.c/1.53/Thu Oct  4 05:00:40 2018//
-/locore.S/1.110/Thu Oct  4 05:00:40 2018//
+/locore.S/1.111/Sun Oct  7 22:43:06 2018//
 /locore0.S/1.9/Tue Jul 10 16:01:26 2018//
 /machdep.c/1.250/Mon Jul 30 09:04:52 2018//
 /mainbus.c/1.45/Sat Sep 22 17:41:52 2018//
@@ -57,10 +57,10 @@
 /trap.c/1.73/Fri Jul  6 02:43:01 2018//
 /tsc.c/1.10/Fri Jul 27 21:11:31 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
-/vector.S/1.76/Thu Oct  4 05:00:40 2018//
+/vector.S/1.77/Sun Oct  7 22:43:06 2018//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
-/vmm.c/1.220/Thu Sep 20 14:32:59 2018//
+/vmm.c/1.221/Sun Oct  7 22:43:06 2018//
 /vmm_support.S/1.14/Tue Sep 18 16:02:08 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D

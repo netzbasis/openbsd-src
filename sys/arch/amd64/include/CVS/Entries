@@ -20,7 +20,7 @@
 /endian.h/1.7/Tue Oct  2 21:30:44 2018//
 /exec.h/1.7/Wed Feb  8 05:09:25 2017//
 /fenv.h/1.4/Wed May 25 21:46:49 2011//
-/fpu.h/1.15/Sun Jun 24 00:49:25 2018//
+/fpu.h/1.16/Sun Oct  7 22:43:06 2018//
 /frame.h/1.10/Tue Jul 10 08:57:44 2018//
 /frameasm.h/1.20/Mon Jul 23 17:54:04 2018//
 /gdt.h/1.6/Wed Feb 21 19:24:15 2018//
