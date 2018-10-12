@@ -5,7 +5,7 @@
 /httpd.8/1.53/Thu Sep 15 20:57:07 2016//
 /httpd.c/1.68/Sun Sep  9 21:06:51 2018//
 /httpd.conf.5/1.101/Wed Jun 20 16:43:05 2018//
-/httpd.h/1.141/Mon Oct  1 19:24:09 2018//
+/httpd.h/1.142/Thu Oct 11 09:52:22 2018//
 /log.c/1.14/Tue Mar 21 12:06:55 2017//
 /logger.c/1.21/Wed Feb  7 03:28:05 2018//
 /parse.y/1.106/Fri Sep  7 07:35:30 2018//
@@ -13,8 +13,8 @@
 /patterns.c/1.5/Sun Feb 14 18:20:59 2016//
 /patterns.h/1.3/Sat Dec 12 19:59:43 2015//
 /proc.c/1.38/Sun Sep  9 21:06:51 2018//
-/server.c/1.115/Mon Oct  1 19:24:09 2018//
+/server.c/1.116/Thu Oct 11 09:52:22 2018//
 /server_fcgi.c/1.76/Sat May 19 13:56:56 2018//
 /server_file.c/1.66/Fri Jun 15 12:36:05 2018//
-/server_http.c/1.124/Mon Oct  1 19:24:09 2018//
+/server_http.c/1.125/Thu Oct 11 09:52:22 2018//
 D
