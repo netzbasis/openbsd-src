@@ -1,4 +1,4 @@
-/* $OpenBSD: wycheproof.go,v 1.81 2018/10/07 04:40:14 tb Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.84 2018/10/19 04:32:33 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -360,7 +360,12 @@ func printAcceptableStatistics() {
 	}
 	sort.Strings(comments)
 	for _, comment := range comments {
-		fmt.Printf("%-45v %5d\n", comment, acceptableComments[comment])
+		prcomment := comment
+		if len(comment) > 42 {
+			prcomment = comment[0:42]
+			prcomment += "..."
+		}
+		fmt.Printf("%-45v %5d\n", prcomment, acceptableComments[comment])
 	}
 
 	fmt.Printf("\nFlag statistics:\n")
@@ -1362,12 +1367,11 @@ func runECDHWebCryptoTest(nid int, wt *wycheproofTestECDHWebCrypto) bool {
 	}
 	defer C.EC_KEY_free(privKey)
 
-	var bnD *C.BIGNUM
 	d, err := base64.RawURLEncoding.DecodeString(wt.Private.D)
 	if err != nil {
 		log.Fatalf("Failed to base64 decode d: %v", err)
 	}
-	bnD = C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&d[0])), C.int(len(d)), nil)
+	bnD := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&d[0])), C.int(len(d)), nil)
 	if bnD == nil {
 		log.Fatal("Failed to decode D")
 	}
@@ -1380,23 +1384,21 @@ func runECDHWebCryptoTest(nid int, wt *wycheproofTestECDHWebCrypto) bool {
 		return false
 	}
 
-	var bnX *C.BIGNUM
 	x, err := base64.RawURLEncoding.DecodeString(wt.Public.X)
 	if err != nil {
 		log.Fatalf("Failed to base64 decode x: %v", err)
 	}
-	bnX = C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&x[0])), C.int(len(x)), nil)
+	bnX := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&x[0])), C.int(len(x)), nil)
 	if bnX == nil {
 		log.Fatal("Failed to decode X")
 	}
 	defer C.BN_free(bnX)
 
-	var bnY *C.BIGNUM
 	y, err := base64.RawURLEncoding.DecodeString(wt.Public.Y)
 	if err != nil {
 		log.Fatalf("Failed to base64 decode y: %v", err)
 	}
-	bnY = C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&y[0])), C.int(len(y)), nil)
+	bnY := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&y[0])), C.int(len(y)), nil)
 	if bnY == nil {
 		log.Fatal("Failed to decode Y")
 	}
@@ -1635,8 +1637,7 @@ func runECDSAWebCryptoTestGroup(algorithm string, wtg *wycheproofTestGroupECDSAW
 	if err != nil {
 		log.Fatalf("Failed to base64 decode X: %v", err)
 	}
-	var bnX *C.BIGNUM
-	bnX = C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&x[0])), C.int(len(x)), nil)
+	bnX := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&x[0])), C.int(len(x)), nil)
 	if bnX == nil {
 		log.Fatal("Failed to decode X")
 	}
@@ -1646,8 +1647,7 @@ func runECDSAWebCryptoTestGroup(algorithm string, wtg *wycheproofTestGroupECDSAW
 	if err != nil {
 		log.Fatalf("Failed to base64 decode Y: %v", err)
 	}
-	var bnY *C.BIGNUM
-	bnY = C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&y[0])), C.int(len(y)), nil)
+	bnY := C.BN_bin2bn((*C.uchar)(unsafe.Pointer(&y[0])), C.int(len(y)), nil)
 	if bnY == nil {
 		log.Fatal("Failed to decode Y")
 	}
@@ -1698,7 +1698,7 @@ func runRSASSATest(rsa *C.RSA, h hash.Hash, sha *C.EVP_MD, mgfSha *C.EVP_MD, sLe
 		sig = append(sig, 0)
 	}
 
-	sigOut := make([]byte, sigLen)
+	sigOut := make([]byte, C.RSA_size(rsa) - 11)
 	if sigLen == 0 {
 		sigOut = append(sigOut, 0)
 	}
