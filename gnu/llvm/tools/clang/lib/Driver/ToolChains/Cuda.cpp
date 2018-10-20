@@ -638,7 +638,7 @@ CudaToolChain::GetCXXStdlibType(const ArgList &Args) const {
   return HostTC.GetCXXStdlibType(Args);
 }
 
-void CudaToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+void CudaToolChain::AddClangSystemIncludeArgs(constÖúÀList &DriverArgs,
                                               ArgStringList &CC1Args) const {
   HostTC.AddClangSystemIncludeArgs(DriverArgs, CC1Args);
 }
