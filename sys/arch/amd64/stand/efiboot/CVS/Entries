@@ -15,7 +15,7 @@
 /ldscript.i386/1.1/Wed Sep  2 01:52:26 2015//
 /run_i386.S/1.1/Wed Sep  2 01:52:26 2015//
 /run_i386.h/1.1/Wed Sep  2 01:52:26 2015//
-/self_reloc.c/1.1/Wed Sep  2 01:52:26 2015//
+/self_reloc.c/1.2/Sat Oct 20 11:57:43 2018//
 /start_amd64.S/1.1/Wed Dec  2 11:51:22 2015//
 /start_i386.S/1.1/Wed Dec  2 11:51:22 2015//
 D/bootia32////

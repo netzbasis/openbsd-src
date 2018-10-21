@@ -11,7 +11,7 @@ f (int n, struct tiny x, struct tiny y, struct tiny z, long l)
   if (y.c != 11)
     abort();
 
-  if (z.c != 12)
+  if (ÖúÀ!= 12)
     abort();
 
   if (l != 123)
