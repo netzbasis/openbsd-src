@@ -18,8 +18,8 @@
 /eqn.c/1.41/Sat Jul 15 15:06:31 2017//
 /eqn_html.c/1.13/Fri Jul 14 13:32:27 2017//
 /eqn_term.c/1.14/Tue Oct  2 12:14:44 2018//
-/html.c/1.111/Tue Oct  2 14:56:36 2018//
-/html.h/1.56/Tue Oct  2 14:56:36 2018//
+/html.c/1.112/Thu Oct 25 01:21:30 2018//
+/html.h/1.57/Thu Oct 25 01:21:30 2018//
 /libman.h/1.58/Sun Aug 26 16:18:38 2018//
 /libmandoc.h/1.59/Fri Aug 24 22:56:37 2018//
 /libmdoc.h/1.84/Fri Aug 17 20:31:52 2018//
@@ -38,9 +38,9 @@
 /man_validate.c/1.108/Sat Aug 18 02:03:41 2018//
 /manconf.h/1.6/Tue Oct  2 14:56:36 2018//
 /mandoc.1/1.154/Tue Oct  2 14:56:36 2018//
-/mandoc.c/1.75/Mon Aug 20 18:06:42 2018//
+/mandoc.c/1.76/Thu Oct 25 01:21:30 2018//
 /mandoc.css/1.24/Mon Aug 27 23:12:57 2018//
-/mandoc.h/1.195/Sat Aug 25 16:43:52 2018//
+/mandoc.h/1.196/Thu Oct 25 01:21:30 2018//
 /mandoc_aux.c/1.9/Wed Feb  7 20:04:33 2018//
 /mandoc_aux.h/1.9/Mon Jun 12 18:55:42 2017//
 /mandoc_ohash.c/1.2/Mon Oct 19 18:58:20 2015//
@@ -57,7 +57,7 @@
 /mdoc_html.c/1.190/Thu Oct  4 13:22:35 2018//
 /mdoc_macro.c/1.182/Fri Aug 17 20:31:52 2018//
 /mdoc_man.c/1.126/Thu Aug 23 19:32:03 2018//
-/mdoc_markdown.c/1.26/Fri Aug 17 20:31:52 2018//
+/mdoc_markdown.c/1.27/Thu Oct 25 01:21:30 2018//
 /mdoc_state.c/1.10/Fri Aug 17 20:31:52 2018//
 /mdoc_term.c/1.267/Fri Aug 17 20:31:52 2018//
 /mdoc_validate.c/1.277/Fri Aug 17 20:31:52 2018//
@@ -68,7 +68,7 @@
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
 /read.c/1.172/Sat Aug 25 16:43:52 2018//
-/roff.c/1.213/Sat Aug 25 16:43:52 2018//
+/roff.c/1.214/Thu Oct 25 01:21:30 2018//
 /roff.h/1.43/Sat Aug 18 02:03:41 2018//
 /roff_html.c/1.12/Mon Jun 25 14:53:54 2018//
 /roff_int.h/1.9/Sat Jul  8 17:52:42 2017//
@@ -84,7 +84,7 @@
 /tbl_layout.c/1.31/Tue Jun 27 18:23:29 2017//
 /tbl_opts.c/1.13/Sat Sep 26 00:53:15 2015//
 /tbl_term.c/1.48/Sun Aug 19 23:10:16 2018//
-/term.c/1.135/Thu Aug 16 13:49:40 2018//
+/term.c/1.136/Thu Oct 25 01:21:30 2018//
 /term.h/1.74/Sat Jul  8 14:51:01 2017//
 /term_ascii.c/1.48/Tue Aug 21 16:01:38 2018//
 /term_ps.c/1.55/Fri Nov 10 14:16:28 2017//

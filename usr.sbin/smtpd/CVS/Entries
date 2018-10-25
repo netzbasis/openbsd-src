@@ -28,7 +28,7 @@
 /mail.lmtp.8/1.1/Tue Feb 14 15:16:34 2017//
 /mail.lmtp.c/1.4/Sun Oct 21 18:22:50 2018//
 /mail.maildir.8/1.5/Wed May 30 12:37:57 2018//
-/mail.maildir.c/1.6/Wed May 30 18:08:06 2018//
+/mail.maildir.c/1.7/Wed Oct 24 19:26:23 2018//
 /mail.mboxfile.8/1.1/Wed Jul 25 10:19:28 2018//
 /mail.mboxfile.c/1.1/Wed Jul 25 10:19:28 2018//
 /mail.mda.8/1.1/Wed Aug  9 07:56:10 2017//
@@ -54,7 +54,7 @@
 /queue_proc.c/1.7/Mon May 14 15:23:05 2018//
 /queue_ram.c/1.8/Mon May 14 15:23:05 2018//
 /resolver.c/1.2/Wed Aug 29 17:56:17 2018//
-/rfc5322.c/1.1/Thu Aug 23 10:07:06 2018//
+/rfc5322.c/1.2/Wed Oct 24 18:59:29 2018//
 /rfc5322.h/1.1/Thu Aug 23 10:07:06 2018//
 /ruleset.c/1.36/Sat Jun 16 19:41:26 2018//
 /runq.c/1.2/Tue Jan 20 17:37:54 2015//
