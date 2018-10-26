@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_carp.c,v 1.330 2018/02/19 08:59:53 mpi Exp $	*/
+/*	$OpenBSD: ip_carp.c,v 1.334 2018/09/24 12:25:52 mpi Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff. All rights reserved.
@@ -217,7 +217,7 @@ int	carp6_proto_input_if(struct ifnet *, struct mbuf **, int *, int);
 #endif
 void	carpattach(int);
 void	carpdetach(void *);
-int	carp_prepare_ad(struct mbuf *, struct carp_vhost_entry *,
+void	carp_prepare_ad(struct mbuf *, struct carp_vhost_entry *,
 	    struct carp_header *);
 void	carp_send_ad_all(void);
 void	carp_vhe_send_ad_all(struct carp_softc *);
@@ -259,6 +259,7 @@ void	carp_update_lsmask(struct carp_softc *);
 int	carp_new_vhost(struct carp_softc *, int, int);
 void	carp_destroy_vhosts(struct carp_softc *);
 void	carp_del_all_timeouts(struct carp_softc *);
+int	carp_vhe_match(struct carp_softc *, uint8_t *);
 
 struct if_clone carp_cloner =
     IF_CLONE_INITIALIZER("carp", carp_clone_create, carp_clone_destroy);
@@ -972,7 +973,7 @@ carp_destroy_vhosts(struct carp_softc *sc)
 	sc->sc_vhe_count = 0;
 }
 
-int
+void
 carp_prepare_ad(struct mbuf *m, struct carp_vhost_entry *vhe,
     struct carp_header *ch)
 {
@@ -989,8 +990,6 @@ carp_prepare_ad(struct mbuf *m, struct carp_vhost_entry *vhe,
 	 * in the HMAC.
 	 */
 	carp_hmac_generate(vhe, ch->carp_counter, ch->carp_md, HMAC_NOV6LL);
-
-	return (0);
 }
 
 void
@@ -1127,8 +1126,7 @@ carp_send_ad(struct carp_vhost_entry *vhe)
 
 		ch_ptr = (struct carp_header *)(ip + 1);
 		bcopy(&ch, ch_ptr, sizeof(ch));
-		if (carp_prepare_ad(m, vhe, ch_ptr))
-			goto retry_later;
+		carp_prepare_ad(m, vhe, ch_ptr);
 
 		m->m_data += sizeof(*ip);
 		ch_ptr->carp_cksum = carp_cksum(m, len - sizeof(*ip));
@@ -1217,8 +1215,7 @@ carp_send_ad(struct carp_vhost_entry *vhe)
 
 		ch_ptr = (struct carp_header *)(ip6 + 1);
 		bcopy(&ch, ch_ptr, sizeof(ch));
-		if (carp_prepare_ad(m, vhe, ch_ptr))
-			goto retry_later;
+		carp_prepare_ad(m, vhe, ch_ptr);
 
 		m->m_data += sizeof(*ip6);
 		ch_ptr->carp_cksum = carp_cksum(m, len - sizeof(*ip6));
@@ -1281,7 +1278,6 @@ carp_send_arp(struct carp_softc *sc)
 
 		in = ifatoia(ifa)->ia_addr.sin_addr.s_addr;
 		arprequest(&sc->sc_if, &in, &in, sc->sc_ac.ac_enaddr);
-		DELAY(1000);	/* XXX */
 	}
 }
 
@@ -1302,7 +1298,6 @@ carp_send_na(struct carp_softc *sc)
 		nd6_na_output(&sc->sc_if, &mcast, in6,
 		    ND_NA_FLAG_OVERRIDE |
 		    (ip6_forwarding ? ND_NA_FLAG_ROUTER : 0), 1, NULL);
-		DELAY(1000);	/* XXX */
 	}
 }
 #endif /* INET6 */
@@ -1346,29 +1341,27 @@ carp_iamatch(struct ifnet *ifp)
 }
 
 int
-carp_ourether(struct ifnet *ifp, u_int8_t *ena)
+carp_ourether(struct ifnet *ifp, uint8_t *ena)
 {
 	struct srpl *cif = &ifp->if_carp;
-	struct carp_softc *vh;
-
-	KERNEL_ASSERT_LOCKED(); /* touching if_carp + carp_vhosts */
-
-	if (SRPL_EMPTY_LOCKED(cif))
-		return (0);
+	struct carp_softc *sc;
+	struct srp_ref sr;
+	int match = 0;
 
 	KASSERT(ifp->if_type == IFT_ETHER);
 
-	SRPL_FOREACH_LOCKED(vh, cif, sc_list) {
-		struct carp_vhost_entry *vhe;
-		if ((vh->sc_if.if_flags & (IFF_UP|IFF_RUNNING)) !=
+	SRPL_FOREACH(sc, &sr, cif, sc_list) {
+		if ((sc->sc_if.if_flags & (IFF_UP|IFF_RUNNING)) !=
 		    (IFF_UP|IFF_RUNNING))
 			continue;
-		vhe = SRPL_FIRST_LOCKED(&vh->carp_vhosts);
-		if ((vhe->state == MASTER || vh->sc_balancing >= CARP_BAL_IP) &&
-		    !memcmp(ena, vh->sc_ac.ac_enaddr, ETHER_ADDR_LEN))
-			return (1);
+		if (carp_vhe_match(sc, ena)) {
+			match = 1;
+			break;
+		}
 	}
-	return (0);
+	SRPL_LEAVE(&sr);
+
+	return (match);
 }
 
 int
@@ -1472,21 +1465,18 @@ out:
 }
 
 int
-carp_lsdrop(struct mbuf *m, sa_family_t af, u_int32_t *src, u_int32_t *dst,
-   int drop)
+carp_lsdrop(struct ifnet *ifp, struct mbuf *m, sa_family_t af, u_int32_t *src,
+    u_int32_t *dst, int drop)
 {
-	struct ifnet *ifp;
 	struct carp_softc *sc;
-	int match = 1;
 	u_int32_t fold;
 	struct m_tag *mtag;
 
-	ifp = if_get(m->m_pkthdr.ph_ifidx);
-	KASSERT(ifp != NULL);
-
+	if (ifp->if_type != IFT_CARP)
+		return 0;
 	sc = ifp->if_softc;
 	if (sc->sc_balancing == CARP_BAL_NONE)
-		goto done;
+		return 0;
 
 	/*
 	 * Remove M_MCAST flag from mbuf of balancing ip traffic, since the fact
@@ -1504,14 +1494,14 @@ carp_lsdrop(struct mbuf *m, sa_family_t af, u_int32_t *src, u_int32_t *dst,
 	 * M_MCAST flag and do nothing else.
 	 */
 	if (!drop)
-		goto done;
+		return 0;
 
 	/*
 	 * Never drop carp advertisements.
 	 * XXX Bad idea to pass all broadcast / multicast traffic?
 	 */
 	if (m->m_flags & (M_BCAST|M_MCAST))
-		goto done;
+		return 0;
 
 	fold = src[0] ^ dst[0];
 #ifdef INET6
@@ -1522,13 +1512,9 @@ carp_lsdrop(struct mbuf *m, sa_family_t af, u_int32_t *src, u_int32_t *dst,
 	}
 #endif
 	if (sc->sc_lscount == 0) /* just to be safe */
-		match = 0;
-	else
-		match = (1 << (ntohl(fold) % sc->sc_lscount)) & sc->sc_lsmask;
+		return 1;
 
-done:
-	if_put(ifp);
-	return (!match);
+	return ((1 << (ntohl(fold) % sc->sc_lscount)) & sc->sc_lsmask) == 0;
 }
 
 void

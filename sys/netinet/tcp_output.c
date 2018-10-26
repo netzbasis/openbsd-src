@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_output.c,v 1.123 2017/10/25 12:38:21 job Exp $	*/
+/*	$OpenBSD: tcp_output.c,v 1.126 2018/09/13 19:53:58 bluhm Exp $	*/
 /*	$NetBSD: tcp_output.c,v 1.16 1997/06/03 16:17:09 kml Exp $	*/
 
 /*
@@ -78,7 +78,11 @@
 #include <sys/socketvar.h>
 #include <sys/kernel.h>
 
+#include <net/if.h>
 #include <net/route.h>
+#if NPF > 0
+#include <net/pfvar.h>
+#endif
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -983,7 +987,7 @@ send:
 	 * Trace.
 	 */
 	if (so->so_options & SO_DEBUG)
-		tcp_trace(TA_OUTPUT, tp->t_state, tp, mtod(m, caddr_t), 0,
+		tcp_trace(TA_OUTPUT, tp->t_state, tp, tp, mtod(m, caddr_t), 0,
 			len);
 
 	/*
@@ -1014,7 +1018,7 @@ send:
 	m->m_pkthdr.ph_rtableid = tp->t_inpcb->inp_rtableid;
 
 #if NPF > 0
-	m->m_pkthdr.pf.inp = tp->t_inpcb;
+	pf_mbuf_link_inpcb(m, tp->t_inpcb);
 #endif
 
 	switch (tp->pf) {
@@ -1089,8 +1093,8 @@ out:
 		}
 
 		/* Restart the delayed ACK timer, if necessary. */
-		if (tp->t_flags & TF_DELACK)
-			TCP_RESTART_DELACK(tp);
+		if (TCP_TIMER_ISARMED(tp, TCPT_DELACK))
+			TCP_TIMER_ARM_MSEC(tp, TCPT_DELACK, tcp_delack_msecs);
 
 		return (error);
 	}
@@ -1099,7 +1103,7 @@ out:
 		tp->t_pmtud_mtu_sent = packetlen;
 
 	tcpstat_inc(tcps_sndtotal);
-	if (tp->t_flags & TF_DELACK)
+	if (TCP_TIMER_ISARMED(tp, TCPT_DELACK))
 		tcpstat_inc(tcps_delack);
 
 	/*
@@ -1112,7 +1116,7 @@ out:
 		tp->rcv_adv = tp->rcv_nxt + win;
 	tp->last_ack_sent = tp->rcv_nxt;
 	tp->t_flags &= ~TF_ACKNOW;
-	TCP_CLEAR_DELACK(tp);
+	TCP_TIMER_DISARM(tp, TCPT_DELACK);
 	if (sendalot && --maxburst)
 		goto again;
 	return (0);

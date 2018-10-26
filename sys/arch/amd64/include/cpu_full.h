@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu_full.h,v 1.2 2018/02/22 20:27:14 bluhm Exp $	*/
+/*	$OpenBSD: cpu_full.h,v 1.4 2018/09/12 07:00:51 guenther Exp $	*/
 /*
  * Copyright (c) Philip Guenther <guenther@openbsd.org>
  *
@@ -29,10 +29,14 @@
 struct cpu_info_full {
 	/* page mapped kRO in u-k */
 	union {
-		struct x86_64_tss	u_tss; /* followed by gdt */
+		struct {
+			struct x86_64_tss	uu_tss;
+			uint64_t		uu_gdt[GDT_SIZE / 8];
+		} u_tssgdt;
 		char			u_align[PAGE_SIZE];
 	} cif_RO;
-#define cif_tss	cif_RO.u_tss
+#define cif_tss	cif_RO.u_tssgdt.uu_tss
+#define cif_gdt	cif_RO.u_tssgdt.uu_gdt
 
 	/* start of page mapped kRW in u-k */
 	uint64_t cif_tramp_stack[(PAGE_SIZE / 4
@@ -48,9 +52,9 @@ struct cpu_info_full {
 } __aligned(PAGE_SIZE);
 
 /* tss, align shim, and gdt must fit in a page */
-CTASSERT(_ALIGN(sizeof(struct x86_64_tss)) + 
+CTASSERT(_ALIGN(sizeof(struct x86_64_tss)) +
 	 sizeof(struct mem_segment_descriptor) * (NGDT_MEM + 2*NGDT_SYS)
-	 < PAGE_SIZE); 
+	 < PAGE_SIZE);
 
 /* verify expected alignment */
 CTASSERT(offsetof(struct cpu_info_full, cif_cpu.ci_PAGEALIGN) % PAGE_SIZE == 0);

@@ -1,17 +1,22 @@
-/Makefile/1.70/Fri Jul  7 23:15:27 2017//
+/Makefile/1.77/Sun Sep 30 08:26:40 2018//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
+D/cmsgsize////
+D/descrip////
 D/dup2////
+D/dup2_accept////
 D/dup2_self////
 D/exec_self////
 D/execve////
 D/exit////
 D/extent////
 D/fchdir////
+D/fchown////
 D/fcntl_dup////
 D/flock////
+D/ftruncate////
 D/futex////
 D/getpeereid////
 D/getrusage////
@@ -28,6 +33,7 @@ D/mmap3////
 D/mount////
 D/nanosleep////
 D/noexec////
+D/open////
 D/pledge////
 D/pread////
 D/preadv////
@@ -48,6 +54,7 @@ D/sigprof////
 D/sigsuspend////
 D/sosplice////
 D/stackjmp////
+D/stackpivot////
 D/syscall////
 D/sysvmsg////
 D/sysvsem////
@@ -55,4 +62,5 @@ D/sysvshm////
 D/unalign////
 D/unfdpass////
 D/unixsock////
+D/unveil////
 D/wait////

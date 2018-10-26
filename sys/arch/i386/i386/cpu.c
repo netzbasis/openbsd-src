@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.86 2018/03/13 13:51:05 bluhm Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.96 2018/10/23 17:51:32 kettenis Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -80,6 +80,7 @@
 #include <uvm/uvm_extern.h>
 
 #include <machine/codepatch.h>
+#include <machine/cpu_full.h>
 #include <machine/cpu.h>
 #include <machine/cpufunc.h>
 #include <machine/cpuvar.h>
@@ -113,6 +114,15 @@
 #include <i386/isa/nvram.h>
 #include <dev/isa/isareg.h>
 
+/* #define CPU_DEBUG */
+
+#ifdef CPU_DEBUG
+#define DPRINTF(x...)	do  { printf(x); } while (0)
+#else
+#define DPRINTF(x...)
+#endif	/* CPU_DEBUG */
+
+
 struct cpu_softc;
 
 int     cpu_match(struct device *, void *, void *);
@@ -121,6 +131,8 @@ int     cpu_activate(struct device *, int);
 void	patinit(struct cpu_info *ci);
 void	cpu_idle_mwait_cycle(void);
 void	cpu_init_mwait(struct cpu_softc *);
+void	cpu_init_tss(struct i386tss *, void *, void *);
+void	cpu_update_nmi_cr3(vaddr_t);
 #if NVMM > 0
 void	cpu_init_vmm(struct cpu_info *ci);
 #endif /* NVMM > 0 */
@@ -139,7 +151,8 @@ struct cpu_functions mp_cpu_funcs =
  * CPU, on uniprocessors).  The CPU info list is initialized to
  * point at it.
  */
-struct cpu_info cpu_info_primary;
+struct cpu_info_full cpu_info_full_primary = { .cif_cpu = { .ci_self = &cpu_info_primary } };
+
 struct cpu_info *cpu_info_list = &cpu_info_primary;
 
 #ifdef MULTIPROCESSOR
@@ -233,8 +246,15 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 #endif
 
 	if (caa->cpu_role == CPU_ROLE_AP) {
-		ci = malloc(sizeof(*ci), M_DEVBUF, M_WAITOK|M_ZERO);
+		struct cpu_info_full *cif;
+
+		cif = km_alloc(sizeof *cif, &kv_any, &kp_zero, &kd_waitok);
+		ci = &cif->cif_cpu;
 #ifdef MULTIPROCESSOR
+		ci->ci_tss = &cif->cif_tss;
+		ci->ci_nmi_tss = &cif->cif_nmi_tss;
+		ci->ci_gdt = (void *)&cif->cif_gdt;
+		cpu_enter_pages(cif);
 		if (cpu_info[cpunum] != NULL)
 			panic("cpu at apic id %d already attached?", cpunum);
 		cpu_info[cpunum] = ci;
@@ -269,7 +289,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	 * Allocate UPAGES contiguous pages for the idle PCB and stack.
 	 */
 
-	kstack = uvm_km_alloc(kernel_map, USPACE);
+	kstack = (vaddr_t)km_alloc(USPACE, &kv_any, &kp_dirty, &kd_nowait);
 	if (kstack == 0) {
 		if (cpunum == 0) { /* XXX */
 			panic("cpu_attach: unable to allocate idle stack for"
@@ -297,6 +317,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	case CPU_ROLE_SP:
 		printf("(uniprocessor)\n");
 		ci->ci_flags |= CPUF_PRESENT | CPUF_SP | CPUF_PRIMARY;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -308,6 +331,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	case CPU_ROLE_BP:
 		printf("apid %d (boot processor)\n", caa->cpu_apicid);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_BSP | CPUF_PRIMARY;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -336,6 +362,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 #ifdef MULTIPROCESSOR
 		gdt_alloc_cpu(ci);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_AP;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 		sched_init_cpu(ci);
 		ci->ci_next = cpu_info_list->ci_next;
@@ -416,7 +445,7 @@ cpu_init(struct cpu_info *ci)
 #ifdef MULTIPROCESSOR
 	ci->ci_flags |= CPUF_RUNNING;
 	/*
-	 * Big hammer: flush all TLB entries, including ones from PTE's
+	 * Big hammer: flush all TLB entries, including ones from PTEs
 	 * with the G bit set.  This should only be necessary if TLB
 	 * shootdown falls far behind.
 	 *
@@ -514,7 +543,7 @@ rdrand(void *v)
 			    "setc	%1\n"
 			    : "=r" (r), "=qm" (valid) );
 		if (valid)
-			add_true_randomness(r);
+			enqueue_randomness(r);
 	}
 
 	if (tmo)
@@ -524,16 +553,56 @@ rdrand(void *v)
 int
 cpu_activate(struct device *self, int act)
 {
-	struct cpu_info *sc = (struct cpu_info *)self;
+	struct cpu_softc *sc = (struct cpu_softc *)self;
 
 	switch (act) {
 	case DVACT_RESUME:
-		if (sc->ci_cpuid == 0)
+		if (sc->sc_info->ci_cpuid == 0)
 			rdrand(NULL);
 		break;
 	}
 
 	return (0);
+}
+
+void
+cpu_enter_pages(struct cpu_info_full *cif)
+{
+	vaddr_t	va;
+	paddr_t pa;
+	extern void Xnmi(void);
+
+	/* The TSS + GDT need to be readable */
+	va = (vaddr_t)&cif->cif_tss;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ, 0);
+	DPRINTF("%s: entered tss+gdt page at va 0x%08x pa 0x%08x\n", __func__,
+	    (uint32_t)va, (uint32_t)pa);
+
+	/* The trampoline stack page needs to be read/write */
+	va = (vaddr_t)&cif->cif_tramp_stack;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ | PROT_WRITE, 0);
+	DPRINTF("%s: entered t.stack page at va 0x%08x pa 0x%08x\n", __func__,
+	    (uint32_t)va, (uint32_t)pa);
+
+	/* Setup trampoline stack in TSS */
+	cif->cif_tss.tss_esp0 = va + sizeof(cif->cif_tramp_stack) - 16;
+	cif->cif_tss.tss_ss0 = GSEL(GDATA_SEL, SEL_KPL);
+	DPRINTF("%s: cif_tss.tss_esp0 = 0x%08x\n", __func__,
+	    (uint32_t)cif->cif_tss.tss_esp0);
+	cif->cif_cpu.ci_intr_esp = cif->cif_tss.tss_esp0 -
+	    sizeof(struct trampframe);
+
+	/* Setup NMI stack in NMI TSS */
+	va = (vaddr_t)&cif->cif_nmi_stack + sizeof(cif->cif_nmi_stack);
+	cpu_init_tss(&cif->cif_nmi_tss, (void *)va, Xnmi);
+	DPRINTF("%s: cif_nmi_tss.tss_esp0 = 0x%08x\n", __func__,
+	    (uint32_t)cif->cif_nmi_tss.tss_esp0);
+
+	/* empty iomap */
+	cif->cif_tss.tss_ioopt = sizeof(cif->cif_tss) << 16;
+	cif->cif_nmi_tss.tss_ioopt = sizeof(cif->cif_nmi_tss) << 16;
 }
 
 #ifdef MULTIPROCESSOR
@@ -645,7 +714,7 @@ cpu_hatch(void *v)
 
 	s = splhigh();		/* XXX prevent softints from running here.. */
 	lapic_tpr = 0;
-	enable_intr();
+	intr_enable();
 	if (mp_verbose)
 		printf("%s: CPU at apid %ld running\n",
 		    ci->ci_dev->dv_xname, ci->ci_cpuid);
@@ -817,3 +886,29 @@ cpu_init_mwait(struct cpu_softc *sc)
 		cpu_idle_cycle_fcn = &cpu_idle_mwait_cycle;
 }
 
+void
+cpu_init_tss(struct i386tss *tss, void *stack, void *func)
+{
+	memset(tss, 0, sizeof *tss);
+	tss->tss_esp0 = tss->tss_esp = (int)((char *)stack - 16);
+	tss->tss_ss0 = tss->tss_ss = GSEL(GDATA_SEL, SEL_KPL);
+	tss->tss_cs = GSEL(GCODE_SEL, SEL_KPL);
+	tss->tss_ds = tss->tss_es = tss->tss_ss = GSEL(GDATA_SEL, SEL_KPL);
+	tss->tss_fs = GSEL(GCPU_SEL, SEL_KPL);
+	tss->tss_gs = GSEL(GNULL_SEL, SEL_KPL);
+	tss->tss_ldt = GSEL(GNULL_SEL, SEL_KPL);
+	tss->tss_cr3 = pmap_kernel()->pm_pdirpa;
+	/* PSL_I not set -> no IRQs after task switch */
+	tss->tss_eflags = PSL_MBO;
+	tss->tss_eip = (int)func;
+}
+
+void
+cpu_update_nmi_cr3(vaddr_t cr3)
+{
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+
+	CPU_INFO_FOREACH(cii, ci)
+		ci->ci_nmi_tss->tss_cr3 = cr3;
+}

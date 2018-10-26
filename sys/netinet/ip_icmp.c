@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.174 2017/12/14 14:26:50 bluhm Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.177 2018/09/06 03:42:21 miko Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -497,8 +497,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 		sin.sin_len = sizeof(struct sockaddr_in);
 		sin.sin_addr = icp->icmp_ip.ip_dst;
 #if NCARP > 0
-		if (ifp->if_type == IFT_CARP &&
-		    carp_lsdrop(m, AF_INET, &sin.sin_addr.s_addr,
+		if (carp_lsdrop(ifp, m, AF_INET, &sin.sin_addr.s_addr,
 		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
@@ -581,8 +580,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 		}
 reflect:
 #if NCARP > 0
-		if (ifp->if_type == IFT_CARP &&
-		    carp_lsdrop(m, AF_INET, &ip->ip_src.s_addr,
+		if (carp_lsdrop(ifp, m, AF_INET, &ip->ip_src.s_addr,
 		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
@@ -642,8 +640,7 @@ reflect:
 #endif
 
 #if NCARP > 0
-		if (ifp->if_type == IFT_CARP &&
-		    carp_lsdrop(m, AF_INET, &sdst.sin_addr.s_addr,
+		if (carp_lsdrop(ifp, m, AF_INET, &sdst.sin_addr.s_addr,
 		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
@@ -955,20 +952,16 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
-	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE)))
+		goto bad;
 
 	/*
 	 * No PMTU for local routes and permanent neighbors,
 	 * ARP and NDP use the same expire timer as the route.
 	 */
 	if (ISSET(rt->rt_flags, RTF_LOCAL) ||
-	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0)) {
-		rtfree(rt);
-		return (NULL);
-	}
+	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0))
+		goto bad;
 
 	/* If we didn't get a host route, allocate one */
 	if ((rt->rt_flags & RTF_HOST) == 0) {
@@ -986,22 +979,22 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 
 		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
 		    rtableid);
-		if (error) {
-			rtfree(rt);
-			return (NULL);
-		}
+		if (error)
+			goto bad;
 		nrt->rt_rmx = rt->rt_rmx;
 		rtfree(rt);
 		rt = nrt;
+		rtm_send(rt, RTM_ADD, 0, rtableid);
 	}
 	error = rt_timer_add(rt, icmp_mtudisc_timeout, ip_mtudisc_timeout_q,
 	    rtableid);
-	if (error) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (error)
+		goto bad;
 
 	return (rt);
+bad:
+	rtfree(rt);
+	return (NULL);
 }
 
 /* Table of common MTUs: */

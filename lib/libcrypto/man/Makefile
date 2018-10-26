@@ -1,9 +1,10 @@
-# $OpenBSD: Makefile,v 1.136 2018/03/01 19:20:09 schwarze Exp $
+# $OpenBSD: Makefile,v 1.142 2018/07/08 23:00:17 schwarze Exp $
 
 .include <bsd.own.mk>
 
 MAN=	\
 	ACCESS_DESCRIPTION_new.3 \
+	ASN1_INTEGER_get.3 \
 	ASN1_OBJECT_new.3 \
 	ASN1_STRING_length.3 \
 	ASN1_STRING_new.3 \
@@ -85,6 +86,7 @@ MAN=	\
 	DSA_generate_parameters.3 \
 	DSA_get_ex_new_index.3 \
 	DSA_get0_pqg.3 \
+	DSA_meth_new.3 \
 	DSA_new.3 \
 	DSA_set_method.3 \
 	DSA_sign.3 \
@@ -96,6 +98,17 @@ MAN=	\
 	EC_KEY_new.3 \
 	EC_POINT_add.3 \
 	EC_POINT_new.3 \
+	ENGINE_add.3 \
+	ENGINE_ctrl.3 \
+	ENGINE_get_default_RSA.3 \
+	ENGINE_init.3 \
+	ENGINE_new.3 \
+	ENGINE_register_RSA.3 \
+	ENGINE_register_all_RSA.3 \
+	ENGINE_set_RSA.3 \
+	ENGINE_set_default.3 \
+	ENGINE_set_flags.3 \
+	ENGINE_unregister_RSA.3 \
 	ERR.3 \
 	ERR_GET_LIB.3 \
 	ERR_asprintf_error_data.3 \
@@ -155,6 +168,7 @@ MAN=	\
 	OPENSSL_VERSION_NUMBER.3 \
 	OPENSSL_cleanse.3 \
 	OPENSSL_config.3 \
+	OPENSSL_init_crypto.3 \
 	OPENSSL_load_builtin_modules.3 \
 	OPENSSL_malloc.3 \
 	OPENSSL_sk_new.3 \
@@ -191,6 +205,7 @@ MAN=	\
 	RSA_generate_key.3 \
 	RSA_get_ex_new_index.3 \
 	RSA_get0_key.3 \
+	RSA_meth_new.3 \
 	RSA_new.3 \
 	RSA_padding_add_PKCS1_type_1.3 \
 	RSA_print.3 \
@@ -288,7 +303,6 @@ MAN=	\
 	d2i_X509_REQ.3 \
 	d2i_X509_SIG.3 \
 	des_read_pw.3 \
-	engine.3 \
 	evp.3 \
 	get_rfc3526_prime_8192.3 \
 	i2d_PKCS7_bio_stream.3 \

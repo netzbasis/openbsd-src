@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.28 2017/05/06 20:42:57 beck Exp $
+#	$OpenBSD: Makefile,v 1.32 2018/07/25 18:04:09 jsing Exp $
 
 SUBDIR= \
 	aead \
@@ -21,12 +21,14 @@ SUBDIR= \
 	engine \
 	evp \
 	exp \
+	free \
 	gcm128 \
 	gost \
 	hkdf \
 	hmac \
 	idea \
 	ige \
+	init \
 	md4 \
 	md5 \
 	pbkdf2 \
@@ -41,7 +43,9 @@ SUBDIR= \
 	sha2 \
 	sha256 \
 	sha512 \
-	utf8
+	utf8 \
+	wycheproof \
+	x509
 
 install:
 

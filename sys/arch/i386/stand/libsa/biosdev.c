@@ -1,4 +1,4 @@
-/*	$OpenBSD: biosdev.c,v 1.96 2017/07/21 01:21:42 yasuoka Exp $	*/
+/*	$OpenBSD: biosdev.c,v 1.98 2018/09/06 11:50:54 jsg Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -439,7 +439,7 @@ bios_getdisklabel(bios_diskinfo_t *bd, struct disklabel *label)
 		if (start == (u_int)-1) {
 			if (err != NULL)
 				return (err);
- 			return "no OpenBSD partition\n";
+			return "no OpenBSD partition\n";
 		}
 	}
 
@@ -530,7 +530,7 @@ biosopen(struct open_file *f, ...)
 		}
 
 		if (bv->sbv_level == 'C' && bv->sbv_keys == NULL)
-			if (sr_crypto_decrypt_keys(bv) != 0)
+			if (sr_crypto_unlock_volume(bv) != 0)
 				return EPERM;
 
 		if (bv->sbv_diskinfo == NULL) {

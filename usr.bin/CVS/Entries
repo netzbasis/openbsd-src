@@ -1,4 +1,4 @@
-/Makefile/1.156/Fri Aug 11 14:28:14 2017//
+/Makefile/1.157/Tue Jun 19 14:01:16 2018//
 /Makefile.inc/1.3/Fri Jul 11 13:13:04 2014//
 D/apply////
 D/arch////
@@ -74,6 +74,7 @@ D/ktrace////
 D/lam////
 D/last////
 D/lastcomm////
+D/ldap////
 D/leave////
 D/less////
 D/lex////

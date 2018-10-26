@@ -43,9 +43,6 @@ namespace llvm {
   /// the entry block.
   FunctionPass *createUnreachableBlockEliminationPass();
 
-  /// Insert mcount-like function calls.
-  FunctionPass *createCountingFunctionInserterPass();
-
   /// MachineFunctionPrinter pass - This pass prints out the machine function to
   /// the given stream as a debugging tool.
   MachineFunctionPass *
@@ -310,6 +307,9 @@ namespace llvm {
   ///
   FunctionPass *createStackProtectorPass();
 
+  // createReturnProtectorPass - This pass add return protectors to functions.
+  FunctionPass *createReturnProtectorPass();
+
   /// createMachineVerifierPass - This pass verifies cenerated machine code
   /// instructions for correctness.
   ///
@@ -409,16 +409,19 @@ namespace llvm {
   /// This pass frees the memory occupied by the MachineFunction.
   FunctionPass *createFreeMachineFunctionPass();
 
-  /// This pass combine basic blocks guarded by the same branch.
-  extern char &BranchCoalescingID;
-
   /// This pass performs outlining on machine instructions directly before
   /// printing assembly.
-  ModulePass *createMachineOutlinerPass();
+  ModulePass *createMachineOutlinerPass(bool OutlineFromLinkOnceODRs = false);
 
   /// This pass expands the experimental reduction intrinsics into sequences of
   /// shuffles.
   FunctionPass *createExpandReductionsPass();
+
+  // This pass expands memcmp() to load/stores.
+  FunctionPass *createExpandMemCmpPass();
+
+  // This pass expands indirectbr instructions.
+  FunctionPass *createIndirectBrExpandPass();
 
 } // End llvm namespace
 

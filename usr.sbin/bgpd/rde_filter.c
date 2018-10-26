@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_filter.c,v 1.86 2018/02/10 04:23:48 benno Exp $ */
+/*	$OpenBSD: rde_filter.c,v 1.112 2018/09/29 08:11:11 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -29,13 +29,13 @@
 #include "rde.h"
 #include "log.h"
 
-int	rde_filter_match(struct filter_rule *, struct rde_aspath *,
-	    struct bgpd_addr *, u_int8_t, struct rde_peer *, struct rde_peer *);
+int	rde_filter_match(struct filter_rule *, struct rde_peer *,
+	    struct filterstate *, struct prefix *);
+int	rde_prefix_match(struct filter_prefix *, struct prefix *);
 int	filterset_equal(struct filter_set_head *, struct filter_set_head *);
-int	rde_test_prefix(struct filter_prefix *, struct bgpd_addr *, u_int8_t);
 
 void
-rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
+rde_apply_set(struct filter_set_head *sh, struct filterstate *state,
     u_int8_t aid, struct rde_peer *from, struct rde_peer *peer)
 {
 	struct filter_set	*set;
@@ -46,73 +46,80 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 	u_int16_t		 nl;
 	u_int8_t		 prepend;
 
-	if (asp == NULL)
+	if (state == NULL)
 		return;
 
 	TAILQ_FOREACH(set, sh, entry) {
 		switch (set->type) {
 		case ACTION_SET_LOCALPREF:
-			asp->lpref = set->action.metric;
+			state->aspath.lpref = set->action.metric;
 			break;
 		case ACTION_SET_RELATIVE_LOCALPREF:
 			if (set->action.relative > 0) {
-				if (set->action.relative + asp->lpref <
-				    asp->lpref)
-					asp->lpref = UINT_MAX;
+				if (set->action.relative + state->aspath.lpref <
+				    state->aspath.lpref)
+					state->aspath.lpref = UINT_MAX;
 				else
-					asp->lpref += set->action.relative;
+					state->aspath.lpref +=
+					    set->action.relative;
 			} else {
 				if ((u_int32_t)-set->action.relative >
-				    asp->lpref)
-					asp->lpref = 0;
+				    state->aspath.lpref)
+					state->aspath.lpref = 0;
 				else
-					asp->lpref += set->action.relative;
+					state->aspath.lpref +=
+					    set->action.relative;
 			}
 			break;
 		case ACTION_SET_MED:
-			asp->flags |= F_ATTR_MED | F_ATTR_MED_ANNOUNCE;
-			asp->med = set->action.metric;
+			state->aspath.flags |= F_ATTR_MED | F_ATTR_MED_ANNOUNCE;
+			state->aspath.med = set->action.metric;
 			break;
 		case ACTION_SET_RELATIVE_MED:
-			asp->flags |= F_ATTR_MED | F_ATTR_MED_ANNOUNCE;
+			state->aspath.flags |= F_ATTR_MED | F_ATTR_MED_ANNOUNCE;
 			if (set->action.relative > 0) {
-				if (set->action.relative + asp->med <
-				    asp->med)
-					asp->med = UINT_MAX;
+				if (set->action.relative + state->aspath.med <
+				    state->aspath.med)
+					state->aspath.med = UINT_MAX;
 				else
-					asp->med += set->action.relative;
+					state->aspath.med +=
+					    set->action.relative;
 			} else {
 				if ((u_int32_t)-set->action.relative >
-				    asp->med)
-					asp->med = 0;
+				    state->aspath.med)
+					state->aspath.med = 0;
 				else
-					asp->med += set->action.relative;
+					state->aspath.med +=
+					    set->action.relative;
 			}
 			break;
 		case ACTION_SET_WEIGHT:
-			asp->weight = set->action.metric;
+			state->aspath.weight = set->action.metric;
 			break;
 		case ACTION_SET_RELATIVE_WEIGHT:
 			if (set->action.relative > 0) {
-				if (set->action.relative + asp->weight <
-				    asp->weight)
-					asp->weight = UINT_MAX;
+				if (set->action.relative + state->aspath.weight
+				    < state->aspath.weight)
+					state->aspath.weight = UINT_MAX;
 				else
-					asp->weight += set->action.relative;
+					state->aspath.weight +=
+					    set->action.relative;
 			} else {
 				if ((u_int32_t)-set->action.relative >
-				    asp->weight)
-					asp->weight = 0;
+				    state->aspath.weight)
+					state->aspath.weight = 0;
 				else
-					asp->weight += set->action.relative;
+					state->aspath.weight +=
+					    set->action.relative;
 			}
 			break;
 		case ACTION_SET_PREPEND_SELF:
 			prep_as = peer->conf.local_as;
 			prepend = set->action.prepend;
-			np = aspath_prepend(asp->aspath, prep_as, prepend, &nl);
-			aspath_put(asp->aspath);
-			asp->aspath = aspath_get(np, nl);
+			np = aspath_prepend(state->aspath.aspath, prep_as,
+			    prepend, &nl);
+			aspath_put(state->aspath.aspath);
+			state->aspath.aspath = aspath_get(np, nl);
 			free(np);
 			break;
 		case ACTION_SET_PREPEND_PEER:
@@ -120,9 +127,10 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 				break;
 			prep_as = from->conf.remote_as;
 			prepend = set->action.prepend;
-			np = aspath_prepend(asp->aspath, prep_as, prepend, &nl);
-			aspath_put(asp->aspath);
-			asp->aspath = aspath_get(np, nl);
+			np = aspath_prepend(state->aspath.aspath, prep_as,
+			    prepend, &nl);
+			aspath_put(state->aspath.aspath);
+			state->aspath.aspath = aspath_get(np, nl);
 			free(np);
 			break;
 		case ACTION_SET_NEXTHOP:
@@ -130,14 +138,14 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 		case ACTION_SET_NEXTHOP_BLACKHOLE:
 		case ACTION_SET_NEXTHOP_NOMODIFY:
 		case ACTION_SET_NEXTHOP_SELF:
-			nexthop_modify(asp, &set->action.nexthop, set->type,
-			    aid);
+			nexthop_modify(set->action.nh, set->type, aid,
+			    &state->nexthop, &state->nhflags);
 			break;
 		case ACTION_SET_COMMUNITY:
 			switch (set->action.community.as) {
 			case COMMUNITY_ERROR:
 			case COMMUNITY_ANY:
-				fatalx("rde_apply_set bad community string");
+				fatalx("%s: bad community string", __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				as = peer->conf.remote_as;
 				break;
@@ -152,7 +160,7 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 			switch (set->action.community.type) {
 			case COMMUNITY_ERROR:
 			case COMMUNITY_ANY:
-				fatalx("rde_apply_set bad community string");
+				fatalx("%s: bad community string", __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				type = peer->conf.remote_as;
 				break;
@@ -164,12 +172,12 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 				break;
 			}
 
-			community_set(asp, as, type);
+			community_set(&state->aspath, as, type);
 			break;
 		case ACTION_DEL_COMMUNITY:
 			switch (set->action.community.as) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad community string");
+				fatalx("%s: bad community string", __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				as = peer->conf.remote_as;
 				break;
@@ -184,7 +192,7 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 
 			switch (set->action.community.type) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad community string");
+				fatalx("%s: bad community string", __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				type = peer->conf.remote_as;
 				break;
@@ -197,12 +205,13 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 				break;
 			}
 
-			community_delete(asp, as, type);
+			community_delete(&state->aspath, as, type);
 			break;
 		case ACTION_SET_LARGE_COMMUNITY:
 			switch (set->action.large_community.as) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				las = peer->conf.remote_as;
 				break;
@@ -217,7 +226,8 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 
 			switch (set->action.large_community.ld1) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				ld1 = peer->conf.remote_as;
 				break;
@@ -232,7 +242,8 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 
 			switch (set->action.large_community.ld2) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				ld2 = peer->conf.remote_as;
 				break;
@@ -245,12 +256,13 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 				break;
 			}
 
-			community_large_set(asp, las, ld1, ld2);
+			community_large_set(&state->aspath, las, ld1, ld2);
 			break;
 		case ACTION_DEL_LARGE_COMMUNITY:
 			switch (set->action.large_community.as) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				las = peer->conf.remote_as;
 				break;
@@ -265,7 +277,8 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 
 			switch (set->action.large_community.ld1) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				ld1 = peer->conf.remote_as;
 				break;
@@ -280,7 +293,8 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 
 			switch (set->action.large_community.ld2) {
 			case COMMUNITY_ERROR:
-				fatalx("rde_apply_set bad large community string");
+				fatalx("%s: bad large community string",
+				    __func__);
 			case COMMUNITY_NEIGHBOR_AS:
 				ld2 = peer->conf.remote_as;
 				break;
@@ -293,7 +307,7 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 				break;
 			}
 
-			community_large_delete(asp, las, ld1, ld2);
+			community_large_delete(&state->aspath, las, ld1, ld2);
 			break;
 		case ACTION_PFTABLE:
 			/* convert pftable name to an id */
@@ -301,9 +315,8 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 			set->type = ACTION_PFTABLE_ID;
 			/* FALLTHROUGH */
 		case ACTION_PFTABLE_ID:
-			pftable_unref(asp->pftableid);
-			asp->pftableid = set->action.id;
-			pftable_ref(asp->pftableid);
+			pftable_unref(state->aspath.pftableid);
+			state->aspath.pftableid = pftable_ref(set->action.id);
 			break;
 		case ACTION_RTLABEL:
 			/* convert the route label to an id for faster access */
@@ -311,19 +324,20 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 			set->type = ACTION_RTLABEL_ID;
 			/* FALLTHROUGH */
 		case ACTION_RTLABEL_ID:
-			rtlabel_unref(asp->rtlabelid);
-			asp->rtlabelid = set->action.id;
-			rtlabel_ref(asp->rtlabelid);
+			rtlabel_unref(state->aspath.rtlabelid);
+			state->aspath.rtlabelid = rtlabel_ref(set->action.id);
 			break;
 		case ACTION_SET_ORIGIN:
-			asp->origin = set->action.origin;
+			state->aspath.origin = set->action.origin;
 			break;
 		case ACTION_SET_EXT_COMMUNITY:
-			community_ext_set(asp, &set->action.ext_community,
+			community_ext_set(&state->aspath,
+			    &set->action.ext_community,
 			    peer->conf.remote_as);
 			break;
 		case ACTION_DEL_EXT_COMMUNITY:
-			community_ext_delete(asp, &set->action.ext_community,
+			community_ext_delete(&state->aspath,
+			    &set->action.ext_community,
 			    peer->conf.remote_as);
 			break;
 		}
@@ -331,29 +345,31 @@ rde_apply_set(struct rde_aspath *asp, struct filter_set_head *sh,
 }
 
 int
-rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
-    struct bgpd_addr *prefix, u_int8_t plen, struct rde_peer *peer,
-    struct rde_peer *from)
+rde_filter_match(struct filter_rule *f, struct rde_peer *peer,
+    struct filterstate *state, struct prefix *p)
 {
-	u_int32_t	pas;
 	int		cas, type;
 	int64_t		las, ld1, ld2;
-	struct prefixset_item *psi;
+	struct rde_aspath	*asp = NULL;
 
-	if (asp != NULL && f->match.as.type != AS_NONE) {
-		if (f->match.as.flags & AS_FLAG_NEIGHBORAS)
-			pas = peer->conf.remote_as;
-		else
-			pas = f->match.as.as;
-		if (aspath_match(asp->aspath->data, asp->aspath->len,
-		    &f->match.as, pas) == 0)
+	if (state != NULL)
+		asp = &state->aspath;
+
+	if (f->peer.ebgp && !peer->conf.ebgp)
+		return (0);
+	if (f->peer.ibgp && peer->conf.ebgp)
+		return (0);
+
+	if (f->match.ovs.is_set) {
+		if (prefix_vstate(p) != f->match.ovs.validity)
 			return (0);
 	}
 
-	if (asp != NULL && f->peer.ebgp && !peer->conf.ebgp)
+	if (asp != NULL && f->match.as.type != AS_UNDEF) {
+		if (aspath_match(asp->aspath->data, asp->aspath->len,
+		    &f->match.as, peer->conf.remote_as) == 0)
 			return (0);
-	if (asp != NULL && f->peer.ibgp && peer->conf.ebgp)
-			return (0);
+	}
 
 	if (asp != NULL && f->match.aslen.type != ASLEN_NONE)
 		if (aspath_lenmatch(asp->aspath, f->match.aslen.type,
@@ -363,7 +379,7 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 	if (asp != NULL && f->match.community.as != COMMUNITY_UNSET) {
 		switch (f->match.community.as) {
 		case COMMUNITY_ERROR:
-			fatalx("rde_apply_set bad community string");
+			fatalx("rde_filter_match bad community string");
 		case COMMUNITY_NEIGHBOR_AS:
 			cas = peer->conf.remote_as;
 			break;
@@ -377,7 +393,7 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 
 		switch (f->match.community.type) {
 		case COMMUNITY_ERROR:
-			fatalx("rde_apply_set bad community string");
+			fatalx("rde_filter_match bad community string");
 		case COMMUNITY_NEIGHBOR_AS:
 			type = peer->conf.remote_as;
 			break;
@@ -397,11 +413,10 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 		if (community_ext_match(asp, &f->match.ext_community,
 		    peer->conf.remote_as) == 0)
 			return (0);
-	if (asp != NULL && f->match.large_community.as !=
-	    COMMUNITY_UNSET) {
+	if (asp != NULL && f->match.large_community.as != COMMUNITY_UNSET) {
 		switch (f->match.large_community.as) {
 		case COMMUNITY_ERROR:
-			fatalx("rde_apply_set bad community string");
+			fatalx("rde_filter_match bad community string");
 		case COMMUNITY_NEIGHBOR_AS:
 			las = peer->conf.remote_as;
 			break;
@@ -415,7 +430,7 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 
 		switch (f->match.large_community.ld1) {
 		case COMMUNITY_ERROR:
-			fatalx("rde_apply_set bad community string");
+			fatalx("rde_filter_match bad community string");
 		case COMMUNITY_NEIGHBOR_AS:
 			ld1 = peer->conf.remote_as;
 			break;
@@ -429,7 +444,7 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 
 		switch (f->match.large_community.ld2) {
 		case COMMUNITY_ERROR:
-			fatalx("rde_apply_set bad community string");
+			fatalx("rde_filter_match bad community string");
 		case COMMUNITY_NEIGHBOR_AS:
 			ld2 = peer->conf.remote_as;
 			break;
@@ -445,16 +460,16 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 			return (0);
 	}
 
-	if (f->match.nexthop.flags != 0) {
+	if (state != NULL && f->match.nexthop.flags != 0) {
 		struct bgpd_addr *nexthop, *cmpaddr;
-		if (asp != NULL && asp->nexthop == NULL)
+		if (state->nexthop == NULL)
 			/* no nexthop, skip */
 			return (0);
-		nexthop = &asp->nexthop->exit_nexthop;
+		nexthop = &state->nexthop->exit_nexthop;
 		if (f->match.nexthop.flags == FILTER_NEXTHOP_ADDR)
 			cmpaddr = &f->match.nexthop.addr;
 		else
-			cmpaddr = &from->remote_addr;
+			cmpaddr = &prefix_peer(p)->remote_addr;
 		if (cmpaddr->aid != nexthop->aid)
 			/* don't use IPv4 rules for IPv6 and vice versa */
 			return (0);
@@ -474,78 +489,126 @@ rde_filter_match(struct filter_rule *f, struct rde_aspath *asp,
 		}
 	}
 
+	/* origin-set lookups match only on ROA_VALID */
+	if (asp != NULL && f->match.originset.ps != NULL) {
+		struct bgpd_addr addr, *prefix = &addr;
+		u_int8_t plen;
+
+		pt_getaddr(p->re->prefix, prefix);
+		plen = p->re->prefix->prefixlen;
+		if (trie_roa_check(&f->match.originset.ps->th, prefix, plen,
+		    asp->source_as) != ROA_VALID)
+			return (0);
+	}
+
 	/*
-	 * XXX must be second to last because we unconditionally return here.
 	 * prefixset and prefix filter rules are mutual exclusive
 	 */
 	if (f->match.prefixset.flags != 0) {
-		log_debug("%s: processing filter for prefixset %s",
-		    __func__, f->match.prefixset.name);
-		SIMPLEQ_FOREACH(psi, &f->match.prefixset.ps->psitems, entry) {
-			if (rde_test_prefix(&psi->p, prefix, plen)) {
-				log_debug("%s: prefixset %s matched %s",
-				    __func__, f->match.prefixset.ps->name,
-				    log_addr(&psi->p.addr));
-				return (1);
-			}
-		}
-		return (0);
+		struct bgpd_addr addr, *prefix = &addr;
+		u_int8_t plen;
+
+		pt_getaddr(p->re->prefix, prefix);
+		plen = p->re->prefix->prefixlen;
+		if (f->match.prefixset.ps == NULL ||
+		    !trie_match(&f->match.prefixset.ps->th, prefix, plen,
+		    (f->match.prefixset.flags & PREFIXSET_FLAG_LONGER)))
+			return (0);
 	} else if (f->match.prefix.addr.aid != 0)
-		return (rde_test_prefix(&f->match.prefix, prefix, plen));
+		return (rde_prefix_match(&f->match.prefix, p));
 
 	/* matched somewhen or is anymatch rule  */
 	return (1);
 }
 
+/* return 1 when prefix matches filter_prefix, 0 if not */
+int
+rde_prefix_match(struct filter_prefix *fp, struct prefix *p)
+{
+	struct bgpd_addr addr, *prefix = &addr;
+	u_int8_t plen;
+
+	pt_getaddr(p->re->prefix, prefix);
+	plen = p->re->prefix->prefixlen;
+
+	if (fp->addr.aid != prefix->aid)
+		/* don't use IPv4 rules for IPv6 and vice versa */
+		return (0);
+
+	if (prefix_compare(prefix, &fp->addr, fp->len))
+		return (0);
+
+	/* test prefixlen stuff too */
+	switch (fp->op) {
+	case OP_NONE: /* perfect match */
+		return (plen == fp->len);
+	case OP_EQ:
+		return (plen == fp->len_min);
+	case OP_NE:
+		return (plen != fp->len_min);
+	case OP_RANGE:
+		return ((plen >= fp->len_min) &&
+		    (plen <= fp->len_max));
+	case OP_XRANGE:
+		return ((plen < fp->len_min) ||
+		    (plen > fp->len_max));
+	default:
+		log_warnx("%s: unsupported prefix operation", __func__);
+		return (0);
+	}
+}
+
+/* return true when the rule f can never match for this peer */
+static int
+rde_filter_skip_rule(struct rde_peer *peer, struct filter_rule *f)
+{
+	/* if any of the two is unset then rule can't be skipped */
+	if (peer == NULL || f == NULL)
+		return (0);
+
+	if (f->peer.groupid != 0 &&
+	    f->peer.groupid != peer->conf.groupid)
+		return (1);
+
+	if (f->peer.peerid != 0 &&
+	    f->peer.peerid != peer->conf.id)
+		return (1);
+
+	if (f->peer.remote_as != 0 &&
+	    f->peer.remote_as != peer->conf.remote_as)
+		return (1);
+
+	if (f->peer.ebgp != 0 &&
+	    f->peer.ebgp != peer->conf.ebgp)
+		return (1);
+
+	if (f->peer.ibgp != 0 &&
+	    f->peer.ibgp != !peer->conf.ebgp)
+		return (1);
+
+	return (0);
+}
+
 int
 rde_filter_equal(struct filter_head *a, struct filter_head *b,
-    struct rde_peer *peer, struct prefixset_head *psh)
+    struct rde_peer *peer)
 {
 	struct filter_rule	*fa, *fb;
-	struct prefixset	*psa, *psb;
+	struct rde_prefixset	*psa, *psb, *osa, *osb;
+	struct as_set		*asa, *asb;
+	int			 r;
 
 	fa = a ? TAILQ_FIRST(a) : NULL;
 	fb = b ? TAILQ_FIRST(b) : NULL;
 
 	while (fa != NULL || fb != NULL) {
 		/* skip all rules with wrong peer */
-		if (peer != NULL && fa != NULL && fa->peer.groupid != 0 &&
-		    fa->peer.groupid != peer->conf.groupid) {
+		if (rde_filter_skip_rule(peer, fa)) {
 			fa = TAILQ_NEXT(fa, entry);
 			continue;
 		}
-		if (peer != NULL && fa != NULL && fa->peer.peerid != 0 &&
-		    fa->peer.peerid != peer->conf.id) {
-			fa = TAILQ_NEXT(fa, entry);
-			continue;
-		}
-
-		if (peer != NULL && fb != NULL && fb->peer.groupid != 0 &&
-		    fb->peer.groupid != peer->conf.groupid) {
+		if (rde_filter_skip_rule(peer, fb)) {
 			fb = TAILQ_NEXT(fb, entry);
-			continue;
-		}
-		if (peer != NULL && fb != NULL && fb->peer.peerid != 0 &&
-		    fb->peer.peerid != peer->conf.id) {
-			fb = TAILQ_NEXT(fb, entry);
-			continue;
-		}
-
-		if (peer != NULL && fa != NULL && fa->peer.remote_as != 0 &&
-		    fa->peer.remote_as != peer->conf.remote_as) {
-			fa = TAILQ_NEXT(fa, entry);
-			continue;
-		}
-
-		if (peer != NULL && fa != NULL && fa->peer.ebgp != 0 &&
-		    fa->peer.ebgp != peer->conf.ebgp) {
-			fa = TAILQ_NEXT(fa, entry);
-			continue;
-		}
-
-		if (peer != NULL && fa != NULL && fa->peer.ibgp != 0 &&
-		    fa->peer.ibgp != !peer->conf.ebgp) {
-			fa = TAILQ_NEXT(fa, entry);
 			continue;
 		}
 
@@ -562,18 +625,39 @@ rde_filter_equal(struct filter_head *a, struct filter_head *b,
 		/* compare filter_rule.match without the prefixset pointer */
 		psa = fa->match.prefixset.ps;
 		psb = fb->match.prefixset.ps;
+		osa = fa->match.originset.ps;
+		osb = fb->match.originset.ps;
+		asa = fa->match.as.aset;
+		asb = fb->match.as.aset;
 		fa->match.prefixset.ps = fb->match.prefixset.ps = NULL;
-		if (memcmp(&fa->match, &fb->match, sizeof(fa->match)))
-			return (0);
+		fa->match.originset.ps = fb->match.originset.ps = NULL;
+		fa->match.as.aset = fb->match.as.aset = NULL;
+		r = memcmp(&fa->match, &fb->match, sizeof(fa->match));
+		/* fixup the struct again */
 		fa->match.prefixset.ps = psa;
 		fb->match.prefixset.ps = psb;
-
-		if ((fa->match.prefixset.flags != 0) &&
-		    (fa->match.prefixset.ps != NULL) &&
-		    ((fa->match.prefixset.ps->sflags
-		    & PREFIXSET_FLAG_DIRTY) != 0)) {
+		fa->match.originset.ps = osa;
+		fb->match.originset.ps = osb;
+		fa->match.as.aset = asa;
+		fb->match.as.aset = asb;
+		if (r != 0)
+			return (0);
+		if (fa->match.prefixset.ps != NULL &&
+		    fa->match.prefixset.ps->dirty) {
 			log_debug("%s: prefixset %s has changed",
 			    __func__, fa->match.prefixset.name);
+			return (0);
+		}
+		if (fa->match.originset.ps != NULL &&
+		    fa->match.originset.ps->dirty) {
+			log_debug("%s: originset %s has changed",
+			    __func__, fa->match.originset.name);
+			return (0);
+		}
+		if ((fa->match.as.flags & AS_FLAG_AS_SET) &&
+		    fa->match.as.aset->dirty) {
+			log_debug("%s: as-set %s has changed",
+			    __func__, fa->match.as.name);
 			return (0);
 		}
 
@@ -584,6 +668,27 @@ rde_filter_equal(struct filter_head *a, struct filter_head *b,
 		fb = TAILQ_NEXT(fb, entry);
 	}
 	return (1);
+}
+
+void
+rde_filterstate_prep(struct filterstate *state, struct rde_aspath *asp,
+    struct nexthop *nh, u_int8_t nhflags)
+{
+	memset(state, 0, sizeof(*state));
+
+	path_prep(&state->aspath);
+	if (asp)
+		path_copy(&state->aspath, asp);
+	state->nexthop = nexthop_ref(nh);
+	state->nhflags = nhflags;
+}
+
+void
+rde_filterstate_clean(struct filterstate *state)
+{
+	path_clean(&state->aspath);
+	nexthop_put(state->nexthop);
+	state->nexthop = NULL;
 }
 
 void
@@ -607,7 +712,6 @@ void
 filterset_free(struct filter_set_head *sh)
 {
 	struct filter_set	*s;
-	struct nexthop		*nh;
 
 	if (sh == NULL)
 		return;
@@ -619,11 +723,8 @@ filterset_free(struct filter_set_head *sh)
 		else if (s->type == ACTION_PFTABLE_ID)
 			pftable_unref(s->action.id);
 		else if (s->type == ACTION_SET_NEXTHOP &&
-		    bgpd_process == PROC_RDE) {
-			nh = nexthop_get(&s->action.nexthop);
-			--nh->refcnt;
-			(void)nexthop_delete(nh);
-		}
+		    bgpd_process == PROC_RDE)
+			nexthop_put(s->action.nh);
 		free(s);
 	}
 }
@@ -688,17 +789,10 @@ filterset_cmp(struct filter_set *a, struct filter_set *b)
 void
 filterset_move(struct filter_set_head *source, struct filter_set_head *dest)
 {
-	struct filter_set	*s;
-
 	TAILQ_INIT(dest);
-
 	if (source == NULL)
 		return;
-
-	while ((s = TAILQ_FIRST(source)) != NULL) {
-		TAILQ_REMOVE(source, s, entry);
-		TAILQ_INSERT_TAIL(dest, s, entry);
-	}
+	TAILQ_CONCAT(dest, source, entry);
 }
 
 int
@@ -924,7 +1018,7 @@ rde_filter_calc_skip_steps(struct filter_head *rules)
 			RDE_FILTER_SET_SKIP_STEPS(RDE_FILTER_SKIP_GROUPID);
 		if (cur->peer.remote_as != prev->peer.remote_as)
 			RDE_FILTER_SET_SKIP_STEPS(RDE_FILTER_SKIP_REMOTE_AS);
-		 if (cur->peer.peerid != prev->peer.peerid)
+		if (cur->peer.peerid != prev->peer.peerid)
 			RDE_FILTER_SET_SKIP_STEPS(RDE_FILTER_SKIP_PEERID);
 		prev = cur;
 		cur = TAILQ_NEXT(cur, entry);
@@ -943,19 +1037,18 @@ rde_filter_calc_skip_steps(struct filter_head *rules)
 	} while (0)
 
 enum filter_actions
-rde_filter(struct filter_head *rules, struct rde_aspath **new,
-    struct rde_peer *peer, struct rde_aspath *asp, struct bgpd_addr *prefix,
-    u_int8_t prefixlen, struct rde_peer *from)
+rde_filter(struct filter_head *rules, struct rde_peer *peer,
+    struct prefix *p, struct filterstate *state)
 {
 	struct filter_rule	*f;
-	enum filter_actions	 action = ACTION_ALLOW; /* default allow */
+	enum filter_actions	 action = ACTION_DENY; /* default deny */
 
-	if (new != NULL)
-		*new = NULL;
+	if (state == NULL) /* withdraw should be accepted by default */
+		action = ACTION_ALLOW;
 
-	if (asp->flags & F_ATTR_PARSE_ERR)
+	if (state && state->aspath.flags & F_ATTR_PARSE_ERR)
 		/*
-	 	 * don't try to filter bad updates just deny them
+		 * don't try to filter bad updates just deny them
 		 * so they act as implicit withdraws
 		 */
 		return (ACTION_DENY);
@@ -977,16 +1070,11 @@ rde_filter(struct filter_head *rules, struct rde_aspath **new,
 		    (f->peer.peerid &&
 		     f->peer.peerid != peer->conf.id),
 		     f->skip[RDE_FILTER_SKIP_PEERID].ptr);
-		if (rde_filter_match(f, asp, prefix, prefixlen, peer, from)) {
-			if (asp != NULL && new != NULL) {
-				/* asp may get modified so create a copy */
-				if (*new == NULL) {
-					*new = path_copy(asp);
-					/* ... and use the copy from now on */
-					asp = *new;
-				}
-				rde_apply_set(asp, &f->set, prefix->aid,
-				    from, peer);
+
+		if (rde_filter_match(f, peer, state, p)) {
+			if (state != NULL) {
+				rde_apply_set(&f->set, state,
+				    p->re->prefix->aid, prefix_peer(p), peer);
 			}
 			if (f->action != ACTION_NONE)
 				action = f->action;
@@ -997,42 +1085,4 @@ rde_filter(struct filter_head *rules, struct rde_aspath **new,
  nextrule: ;
 	}
 	return (action);
-}
-
-/* return 1 when prefix matches filter_prefix, 0 if not */
-int
-rde_test_prefix(struct filter_prefix *fp, struct bgpd_addr *prefix,
-    u_int8_t plen)
-{
-	if (fp->addr.aid != prefix->aid)
-		/* don't use IPv4 rules for IPv6 and vice versa */
-		return (0);
-
-	if (prefix_compare(prefix, &fp->addr, fp->len))
-		return (0);
-
-	/* test prefixlen stuff too */
-	switch (fp->op) {
-	case OP_NONE: /* perfect match */
-		return (plen == fp->len);
-	case OP_EQ:
-		return (plen == fp->len_min);
-	case OP_NE:
-		return (plen != fp->len_min);
-	case OP_RANGE:
-		return ((plen >= fp->len_min) &&
-		    (plen <= fp->len_max));
-	case OP_XRANGE:
-		return ((plen < fp->len_min) ||
-		    (plen > fp->len_max));
-	case OP_LE:
-		return (plen <= fp->len_min);
-	case OP_LT:
-		return (plen < fp->len_min);
-	case OP_GE:
-		return (plen >= fp->len_min);
-	case OP_GT:
-		return (plen > fp->len_min);
-	}
-	return (0); /* should not be reached */
 }

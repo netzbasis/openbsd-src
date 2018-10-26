@@ -1,4 +1,4 @@
-/*	$OpenBSD: mda_variables.c,v 1.1 2017/05/26 21:30:00 gilles Exp $	*/
+/*	$OpenBSD: mda_variables.c,v 1.4 2018/06/15 08:57:17 gilles Exp $	*/
 
 /*
  * Copyright (c) 2011-2017 Gilles Chehade <gilles@poolp.org>
@@ -36,10 +36,10 @@
 
 #define	EXPAND_DEPTH	10
 
-size_t mda_expand_format(char *, size_t, const struct envelope *,
-    const struct userinfo *);
+size_t mda_expand_format(char *, size_t, const struct deliver *,
+    const struct userinfo *, const char *);
 static size_t mda_expand_token(char *, size_t, const char *,
-    const struct envelope *, const struct userinfo *);
+    const struct deliver *, const struct userinfo *, const char *);
 static int mod_lowercase(char *, size_t);
 static int mod_uppercase(char *, size_t);
 static int mod_strip(char *, size_t);
@@ -58,7 +58,7 @@ static struct modifiers {
 
 static size_t
 mda_expand_token(char *dest, size_t len, const char *token,
-    const struct envelope *ep, const struct userinfo *ui)
+    const struct deliver *dlv, const struct userinfo *ui, const char *mda_command)
 {
 	char		rtoken[MAXTOKENLEN];
 	char		tmp[EXPAND_BUFFER];
@@ -114,40 +114,58 @@ mda_expand_token(char *dest, size_t len, const char *token,
 	/* token -> expanded token */
 	if (!strcasecmp("sender", rtoken)) {
 		if (snprintf(tmp, sizeof tmp, "%s@%s",
-			ep->sender.user, ep->sender.domain) >= (int)sizeof tmp)
+			dlv->sender.user, dlv->sender.domain) >= (int)sizeof tmp)
 			return 0;
-		string = tmp;
-	}
-	else if (!strcasecmp("dest", rtoken)) {
-		if (snprintf(tmp, sizeof tmp, "%s@%s",
-			ep->dest.user, ep->dest.domain) >= (int)sizeof tmp)
-			return 0;
+		if (strcmp(tmp, "@") == 0)
+			(void)strlcpy(tmp, "", sizeof tmp);
 		string = tmp;
 	}
 	else if (!strcasecmp("rcpt", rtoken)) {
 		if (snprintf(tmp, sizeof tmp, "%s@%s",
-			ep->rcpt.user, ep->rcpt.domain) >= (int)sizeof tmp)
+			dlv->rcpt.user, dlv->rcpt.domain) >= (int)sizeof tmp)
 			return 0;
+		if (strcmp(tmp, "@") == 0)
+			(void)strlcpy(tmp, "", sizeof tmp);
+		string = tmp;
+	}
+	else if (!strcasecmp("dest", rtoken)) {
+		if (snprintf(tmp, sizeof tmp, "%s@%s",
+			dlv->dest.user, dlv->dest.domain) >= (int)sizeof tmp)
+			return 0;
+		if (strcmp(tmp, "@") == 0)
+			(void)strlcpy(tmp, "", sizeof tmp);
 		string = tmp;
 	}
 	else if (!strcasecmp("sender.user", rtoken))
-		string = ep->sender.user;
+		string = dlv->sender.user;
 	else if (!strcasecmp("sender.domain", rtoken))
-		string = ep->sender.domain;
+		string = dlv->sender.domain;
 	else if (!strcasecmp("user.username", rtoken))
 		string = ui->username;
 	else if (!strcasecmp("user.directory", rtoken)) {
 		string = ui->directory;
 		replace = 0;
 	}
-	else if (!strcasecmp("dest.user", rtoken))
-		string = ep->dest.user;
-	else if (!strcasecmp("dest.domain", rtoken))
-		string = ep->dest.domain;
 	else if (!strcasecmp("rcpt.user", rtoken))
-		string = ep->rcpt.user;
+		string = dlv->rcpt.user;
 	else if (!strcasecmp("rcpt.domain", rtoken))
-		string = ep->rcpt.domain;
+		string = dlv->rcpt.domain;
+	else if (!strcasecmp("dest.user", rtoken))
+		string = dlv->dest.user;
+	else if (!strcasecmp("dest.domain", rtoken))
+		string = dlv->dest.domain;
+	else if (!strcasecmp("mda", rtoken)) {
+		string = mda_command;
+		replace = 0;
+	}
+	else if (!strcasecmp("mbox.from", rtoken)) {
+		if (snprintf(tmp, sizeof tmp, "%s@%s",
+			dlv->sender.user, dlv->sender.domain) >= (int)sizeof tmp)
+			return 0;
+		if (strcmp(tmp, "@") == 0)
+			(void)strlcpy(tmp, "MAILER-DAEMON", sizeof tmp);
+		string = tmp;
+	}
 	else
 		return 0;
 
@@ -227,8 +245,8 @@ mda_expand_token(char *dest, size_t len, const char *token,
 
 
 size_t
-mda_expand_format(char *buf, size_t len, const struct envelope *ep,
-    const struct userinfo *ui)
+mda_expand_format(char *buf, size_t len, const struct deliver *dlv,
+    const struct userinfo *ui, const char *mda_command)
 {
 	char		tmpbuf[EXPAND_BUFFER], *ptmp, *pbuf, *ebuf;
 	char		exptok[EXPAND_BUFFER];
@@ -288,8 +306,8 @@ mda_expand_format(char *buf, size_t len, const struct envelope *ep,
 			return 0;
 		*strchr(token, '}') = '\0';
 
-		exptoklen = mda_expand_token(exptok, sizeof exptok, token, ep,
-		    ui);
+		exptoklen = mda_expand_token(exptok, sizeof exptok, token, dlv,
+		    ui, mda_command);
 		if (exptoklen == 0)
 			return 0;
 

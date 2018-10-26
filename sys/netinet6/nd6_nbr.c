@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_nbr.c,v 1.122 2017/11/23 13:32:25 mpi Exp $	*/
+/*	$OpenBSD: nd6_nbr.c,v 1.124 2018/07/12 16:07:35 florian Exp $	*/
 /*	$KAME: nd6_nbr.c,v 1.61 2001/02/10 16:06:14 jinmei Exp $	*/
 
 /*
@@ -720,9 +720,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			ln->ln_state = ND6_LLINFO_REACHABLE;
 			ln->ln_byhint = 0;
 			/* Notify userland that a new ND entry is reachable. */
-			KERNEL_LOCK();
 			rtm_send(rt, RTM_RESOLVE, 0, ifp->if_rdomain);
-			KERNEL_UNLOCK();
 			if (!ND6_LLINFO_PERMANENT(ln)) {
 				nd6_llinfo_settimer(ln,
 				    ND_IFINFO(ifp)->reachable);
@@ -1102,6 +1100,9 @@ nd6_dad_start(struct ifaddr *ifa)
 	KASSERT(ia6->ia6_flags & IN6_IFF_TENTATIVE);
 	if ((ia6->ia6_flags & IN6_IFF_ANYCAST) || (!ip6_dad_count)) {
 		ia6->ia6_flags &= ~IN6_IFF_TENTATIVE;
+
+		rtm_addr(RTM_CHGADDRATTR, ifa);
+
 		return;
 	}
 
@@ -1250,6 +1251,8 @@ nd6_dad_timer(void *xifa)
 			 */
 			ia6->ia6_flags &= ~IN6_IFF_TENTATIVE;
 
+			rtm_addr(RTM_CHGADDRATTR, ifa);
+
 			nd6log((LOG_DEBUG,
 			    "%s: DAD complete for %s - no duplicates found\n",
 			    ifa->ifa_ifp->if_xname,
@@ -1293,6 +1296,9 @@ nd6_dad_duplicated(struct dadq *dp)
 	    ia6->ia_ifp->if_xname);
 
 	TAILQ_REMOVE(&dadq, dp, dad_list);
+
+	rtm_addr(RTM_CHGADDRATTR, dp->dad_ifa);
+
 	ifafree(dp->dad_ifa);
 	free(dp, M_IP6NDP, sizeof(*dp));
 	ip6_dad_pending--;

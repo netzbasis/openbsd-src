@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.224 2017/11/08 17:27:39 visa Exp $	*/
+/*	$OpenBSD: ping.c,v 1.230 2018/10/14 19:47:53 kn Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -178,8 +178,8 @@ u_char *outpack = outpackhdr+sizeof(struct ip);
 char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
 char *hostname;
-int ident;			/* process id to identify our packets */
-int v6flag = 0;			/* are we ping6? */
+int ident;			/* random number to identify our packets */
+int v6flag;			/* are we ping6? */
 
 /* counters */
 int64_t npackets;		/* max packets to transmit */
@@ -190,13 +190,13 @@ int64_t nmissedmax = 1;		/* max value of ntransmitted - nreceived - 1 */
 struct timeval interval = {1, 0}; /* interval between packets */
 
 /* timing */
-int timing = 0;			/* flag to do timing */
-int timinginfo = 0;
+int timing;			/* flag to do timing */
+int timinginfo;
 unsigned int maxwait = MAXWAIT_DEFAULT;	/* max seconds to wait for response */
 double tmin = 999999999.0;	/* minimum round trip time */
-double tmax = 0.0;		/* maximum round trip time */
-double tsum = 0.0;		/* sum of all times, for doing average */
-double tsumsq = 0.0;		/* sum of all times squared, for std. dev. */
+double tmax;			/* maximum round trip time */
+double tsum;			/* sum of all times, for doing average */
+double tsumsq;			/* sum of all times squared, for std. dev. */
 
 struct tv64 tv64_offset;
 SIPHASH_KEY mac_key;
@@ -449,14 +449,10 @@ main(int argc, char *argv[])
 
 	switch (res->ai_family) {
 	case AF_INET:
-		if (res->ai_addrlen != sizeof(dst4))
-			errx(1, "size of sockaddr mismatch");
 		dst = (struct sockaddr *)&dst4;
 		from = (struct sockaddr *)&from4;
 		break;
 	case AF_INET6:
-		if (res->ai_addrlen != sizeof(dst6))
-			errx(1, "size of sockaddr mismatch");
 		dst = (struct sockaddr *)&dst6;
 		from = (struct sockaddr *)&from6;
 		break;
@@ -488,8 +484,6 @@ main(int argc, char *argv[])
 		hints.ai_family = dst->sa_family;
 		if ((error = getaddrinfo(source, NULL, &hints, &res)))
 			errx(1, "%s: %s", source, gai_strerror(error));
-		if (res->ai_addrlen != dst->sa_len)
-			errx(1, "size of sockaddr mismatch");
 		memcpy(from, res->ai_addr, res->ai_addrlen);
 		freeaddrinfo(res);
 
@@ -586,7 +580,7 @@ main(int argc, char *argv[])
 		for (i = ECHOTMLEN; i < datalen; ++i)
 			*datap++ = i;
 
-	ident = getpid() & 0xFFFF;
+	ident = arc4random() & 0xFFFF;
 
 	/*
 	 * When trying to send large packets, you must increase the
@@ -817,8 +811,23 @@ main(int argc, char *argv[])
 		}
 
 		if (options & F_FLOOD) {
-			(void)pinger(s);
-			timeout = 10;
+			if (pinger(s) != 0) {
+				(void)signal(SIGALRM, onsignal);
+				timeout = INFTIM;
+				memset(&itimer, 0, sizeof(itimer));
+				if (nreceived) {
+					itimer.it_value.tv_sec = 2 * tmax /
+					    1000;
+					if (itimer.it_value.tv_sec == 0)
+						itimer.it_value.tv_sec = 1;
+				} else
+					itimer.it_value.tv_sec = maxwait;
+				(void)setitimer(ITIMER_REAL, &itimer, NULL);
+
+				/* When the alarm goes off we are done. */
+				seenint = 1;
+			} else
+				timeout = 10;
 		} else
 			timeout = INFTIM;
 
@@ -976,7 +985,7 @@ void
 retransmit(int s)
 {
 	struct itimerval itimer;
-	static int last_time = 0;
+	static int last_time;
 
 	if (last_time) {
 		seenint = 1;	/* break out of ping event loop */
@@ -991,15 +1000,13 @@ retransmit(int s)
 	 * to wait two round-trip times if we've received any packets or
 	 * maxwait seconds if we haven't.
 	 */
+	memset(&itimer, 0, sizeof(itimer));
 	if (nreceived) {
 		itimer.it_value.tv_sec = 2 * tmax / 1000;
 		if (itimer.it_value.tv_sec == 0)
 			itimer.it_value.tv_sec = 1;
 	} else
 		itimer.it_value.tv_sec = maxwait;
-	itimer.it_interval.tv_sec = 0;
-	itimer.it_interval.tv_usec = 0;
-	itimer.it_value.tv_usec = 0;
 	(void)setitimer(ITIMER_REAL, &itimer, NULL);
 
 	/* When the alarm goes off we are done. */
@@ -1009,7 +1016,7 @@ retransmit(int s)
 /*
  * pinger --
  *	Compose and transmit an ICMP ECHO REQUEST packet.  The IP packet
- * will be added on by the kernel.  The ID field is our UNIX process ID,
+ * will be added on by the kernel.  The ID field is a random number,
  * and the sequence number is an ascending integer.  The first 8 bytes
  * of the data portion are used to hold a UNIX "timeval" struct in VAX
  * byte-order, to compute the round-trip time.
@@ -1033,7 +1040,7 @@ pinger(int s)
 		icp6->icmp6_cksum = 0;
 		icp6->icmp6_type = ICMP6_ECHO_REQUEST;
 		icp6->icmp6_code = 0;
-		icp6->icmp6_id = htons(ident);
+		icp6->icmp6_id = ident;
 		icp6->icmp6_seq = seq;
 	} else {
 		icp = (struct icmp *)outpack;
@@ -1041,7 +1048,7 @@ pinger(int s)
 		icp->icmp_code = 0;
 		icp->icmp_cksum = 0;
 		icp->icmp_seq = seq;
-		icp->icmp_id = ident;			/* ID */
+		icp->icmp_id = ident;
 	}
 	CLR(ntohs(seq) % mx_dup_ck);
 
@@ -1151,7 +1158,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		}
 
 		if (icp6->icmp6_type == ICMP6_ECHO_REPLY) {
-			if (ntohs(icp6->icmp6_id) != ident)
+			if (icp6->icmp6_id != ident)
 				return;			/* 'Twas not our ECHO */
 			seq = icp6->icmp6_seq;
 			echo_reply = 1;

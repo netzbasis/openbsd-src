@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.235 2018/02/11 00:24:13 dlg Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.238 2018/09/10 16:14:08 bluhm Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -100,10 +100,11 @@ struct pkthdr_pf {
 	struct inpcb	*inp;		/* connected pcb for outgoing packet */
 	u_int32_t	 qid;		/* queue id */
 	u_int16_t	 tag;		/* tag id */
+	u_int16_t	 delay;		/* delay packet by X ms */
 	u_int8_t	 flags;
 	u_int8_t	 routed;
 	u_int8_t	 prio;
-	u_int8_t	 pad[3];
+	u_int8_t	 pad[1];
 };
 
 /* pkthdr_pf.flags */
@@ -440,7 +441,9 @@ struct	mbuf *m_get(int, int);
 struct	mbuf *m_getclr(int, int);
 struct	mbuf *m_gethdr(int, int);
 struct	mbuf *m_inithdr(struct mbuf *);
+void	m_removehdr(struct mbuf *);
 void	m_resethdr(struct mbuf *);
+void	m_calchdrlen(struct mbuf *);
 int	m_defrag(struct mbuf *, int);
 struct	mbuf *m_prepend(struct mbuf *, int, int);
 struct	mbuf *m_pulldown(struct mbuf *, int, int, int *);

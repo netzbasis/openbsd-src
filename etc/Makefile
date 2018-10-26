@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.461 2017/11/05 10:29:24 rpe Exp $
+#	$OpenBSD: Makefile,v 1.465 2018/07/24 18:15:30 jasper Exp $
 
 .include <bsd.own.mk>
 
@@ -41,13 +41,13 @@ BINOWN= root
 BINGRP= wheel
 MUTABLE=acme-client.conf changelist daily etc.${MACHINE}/disktab \
 	etc.${MACHINE}/login.conf ftpusers gettytab group ksh.kshrc locate.rc \
-	mailer.conf moduli monthly netstart networks newsyslog.conf ntpd.conf \
+	mailer.conf moduli monthly netstart newsyslog.conf ntpd.conf \
 	pf.os protocols rc rc.conf rpc services shells syslog.conf weekly
 
 # -rw-r--r--
 EXAMPLES=chio.conf dhclient.conf dhcpd.conf exports \
 	httpd.conf ifstated.conf inetd.conf man.conf mixerctl.conf \
-	mrouted.conf ntpd.conf printcap rbootd.conf \
+	mrouted.conf ntpd.conf printcap rad.conf rbootd.conf \
 	remote sensorsd.conf wsconsctl.conf
 
 # -rw-------
@@ -61,8 +61,8 @@ RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dhcrelay6 dvmrpd \
 	eigrpd ftpd ftpproxy ftpproxy6 hostapd hotplugd httpd identd ifstated \
 	iked inetd isakmpd iscsid ldapd ldattach ldomd ldpd lockd \
 	lpd mopd mountd mrouted nfsd npppd nsd ntpd ospf6d ospfd \
-	pflogd portmap radiusd rarpd rbootd rebound relayd ripd route6d \
-	rtadvd sasyncd sensorsd slowcgi slaacd smtpd sndiod snmpd spamd \
+	pflogd portmap rad radiusd rarpd rbootd rebound relayd ripd route6d \
+	sasyncd sensorsd slowcgi slaacd smtpd sndiod snmpd spamd \
 	spamlogd sshd statd switchd syslogd tftpd tftpproxy unbound \
 	vmd watchdogd wsmoused xenodm ypbind ypldap ypserv
 

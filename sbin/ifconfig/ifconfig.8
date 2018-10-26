@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ifconfig.8,v 1.304 2018/02/23 05:17:39 akoshibe Exp $
+.\"	$OpenBSD: ifconfig.8,v 1.319 2018/09/08 15:21:03 phessler Exp $
 .\"	$NetBSD: ifconfig.8,v 1.11 1996/01/04 21:27:29 pk Exp $
 .\"     $FreeBSD: ifconfig.8,v 1.16 1998/02/01 07:03:29 steve Exp $
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"     @(#)ifconfig.8	8.4 (Berkeley) 6/1/94
 .\"
-.Dd $Mdocdate: February 23 2018 $
+.Dd $Mdocdate: September 8 2018 $
 .Dt IFCONFIG 8
 .Os
 .Sh NAME
@@ -122,7 +122,7 @@ a host name present in the host name database,
 .Xr hosts 5 ;
 .Dq dot
 notation (IPv4);
-colon separated (IPv6);
+colon-separated (IPv6);
 or CIDR notation.
 .It Ar dest_address
 Specify the address of the correspondent on the other end
@@ -408,9 +408,7 @@ networks into subnetworks.
 The mask includes the network part of the local address
 and the subnet part, which is taken from the host field of the address.
 The mask can be specified as a single hexadecimal number
-with a leading 0x, with a dot-notation Internet address,
-or with a pseudo-network name listed in the network table
-.Xr networks 5 .
+with a leading 0x, or with a dot-notation Internet address.
 The mask contains 1's for the bit positions in the 32-bit address
 which are to be used for the network and subnet parts,
 and 0's for the host part.
@@ -425,10 +423,17 @@ but you can specify prefix length by digits.
 .It Cm priority Ar n
 Set the interface routing priority to
 .Ar n .
-This will influence the default routing priority of new static routes added to
-the kernel.
 .Ar n
 is in the range of 0 to 15 with smaller numbers being better.
+The default priority of an interface is 0,
+except for IEEE 802.11 wireless interfaces (priority 4) and
+.Xr carp 4
+interfaces (priority 15).
+The default priority of newly connected routes (routes created by
+configuring an IP address on an interface) is calculated by adding 4
+(RTP_CONNECTED) to the interface priority.
+The default priority of new static routes added to the kernel is
+calculated by adding 8 (RTP_STATIC) to the interface priority.
 .It Cm rdomain Ar rdomainid
 Attach the interface to the routing domain with the specified
 .Ar rdomainid .
@@ -833,7 +838,7 @@ and
 Create a load balancing group consisting of up to 32 nodes.
 Each node is specified as a
 .Ar vhid:advskew
-tuple in a comma separated list.
+tuple in a comma-separated list.
 .It Cm carpdev Ar iface
 Attach to parent interface
 .Ar iface .
@@ -890,6 +895,8 @@ will begin advertising as master.
 .Ar wireless-interface
 .Op Oo Fl Oc Ns Cm bssid Ar bssid
 .Op Oo Fl Oc Ns Cm chan Op Ar n
+.Op Oo Fl Oc Ns Cm join Ar id
+.Op Oo Fl Oc Ns Cm joinlist
 .Op Oo Fl Oc Ns Cm nwflag Ar flag
 .Op Oo Fl Oc Ns Cm nwid Ar id
 .Op Oo Fl Oc Ns Cm nwkey Ar key
@@ -921,6 +928,33 @@ show the list of channels supported by the device.
 .It Cm -chan
 Unset the desired channel.
 It doesn't affect the channel to be created for IBSS or Host AP mode.
+.It Cm join Ar id
+Add the network with NWID/ESSID
+.Ar id
+to the list of auto-join networks.
+Information about such networks is retained,
+such that configured interfaces can automatically switch to such networks
+as necessary.
+.Pp
+The
+.Ar id
+can either be any text string up to 32 characters in length,
+or a series of hexadecimal digits up to 64 digits.
+Any necessary
+.Cm wpakey
+or
+.Cm nwkey
+arguments should be specified on the same line.
+May not be used with
+.Cm nwid .
+.It Cm -join Ar id
+Remove the network with NWID
+.Ar id ,
+from the list of auto-join networks.
+.It Cm joinlist
+Show the list of currently configured auto-join networks.
+.It Cm -joinlist
+Remove all networks in the list of auto-join networks.
 .It Cm nwflag Ar flag
 Set specified flag.
 The flag name can be either
@@ -953,16 +987,16 @@ and
 .It Cm -nwflag Ar flag
 Remove specified flag.
 .It Cm nwid Ar id
-Configure network ID.
-The
-.Ar id
-can either be any text string up to 32 characters in length,
-or a series of hexadecimal digits up to 64 digits.
+Connect to the network with NWID
+.Ar id .
+Unlike auto-join networks,
+information about the network is not retained.
 The empty string allows the interface to connect to any available
 access points.
-Note that network ID is synonymous with Extended Service Set ID (ESSID).
+May not be used with
+.Cm join .
 .It Cm -nwid
-Set the network ID to the empty string to allow the interface to connect
+Set the NWID to the empty string to allow the interface to connect
 to any available access point.
 .It Cm nwkey Ar key
 Enable WEP encryption using the specified
@@ -1093,9 +1127,9 @@ The key can be given using either a passphrase or a full length hex key,
 starting with 0x.
 If a passphrase is used the
 .Cm nwid
-option must be set prior to specifying the
-.Cm wpakey
-option, since
+or
+.Cm join
+option must first be specified, since
 .Nm
 will hash the nwid along with the passphrase to create the key.
 .It Cm -wpakey
@@ -1187,10 +1221,10 @@ Currently configured addresses will not be removed until they become
 invalid.
 .It Cm eui64
 Fill the interface index
-.Pq the lowermost 64th bit of an IPv6 address
+.Pq the lowermost 64 bits of an IPv6 address
 automatically.
 .It Cm pltime Ar n
-Set preferred lifetime for the address.
+Set preferred lifetime for the address, in seconds.
 .It Cm soii
 Enable persistent Semantically Opaque Interface Identifiers (SOIIs),
 as per RFC 7217, for link local and SLAAC addresses on the interface.
@@ -1212,7 +1246,7 @@ Set the IPv6 tentative address bit.
 .It Cm -tentative
 Clear the IPv6 tentative address bit.
 .It Cm vltime Ar n
-Set valid lifetime for the address.
+Set valid lifetime for the address, in seconds.
 .El
 .Sh INTERFACE GROUPS
 .Nm ifconfig
@@ -1586,6 +1620,16 @@ The following options are available for a
 .Xr trunk 4
 interface:
 .Bl -tag -width Ds
+.It Cm lacpmode Cm active Ns | Ns Cm passive
+Set the LACP trunk mode to either
+.Cm active
+or
+.Cm passive .
+.It Cm lacptimeout Cm fast Ns | Ns Cm slow
+Set the LACP timeout speed to either
+.Cm fast
+or
+.Cm slow .
 .It Cm trunkport Ar child-iface
 Add
 .Ar child-iface
@@ -1606,8 +1650,8 @@ for a complete list of the available protocols.
 .Ar tunnel-interface
 .Op Oo Fl Oc Ns Cm keepalive Ar period count
 .Op Oo Fl Oc Ns Cm tunnel Ar src_address dest_address
-.Op Cm tunneldomain Ar tableid
 .Op Oo Fl Oc Ns Cm tunneldf
+.Op Oo Fl Oc Ns Cm tunneldomain Ar rtable
 .Op Cm tunnelttl Ar ttl
 .Op Oo Fl Oc Ns Cm vnetflowid
 .Op Oo Fl Oc Ns Cm vnetid Ar network-id
@@ -1651,19 +1695,21 @@ The optional destination port can be specified for interfaces such as
 which further encapsulate the packets in UDP datagrams.
 .It Cm -tunnel
 Remove the source and destination tunnel addresses.
-.It Cm tunneldomain Ar tableid
-Use routing table
-.Ar tableid
-instead of the default table.
-The tunnel does not need to terminate in the same routing domain as the
-interface itself.
-.Ar tableid
-can be set to any valid routing table ID;
-the corresponding routing domain is derived from this table.
 .It Cm tunneldf
 Do not allow fragmentation of encapsulated packets.
 .It Cm -tunneldf
 Allow fragmentation of encapsulated packets.
+.It Cm tunneldomain Ar rtable
+Use routing table
+.Ar rtable
+instead of the default table.
+The tunnel does not need to terminate in the same routing domain as the
+interface itself.
+.Ar rtable
+can be set to any valid routing table ID;
+the corresponding routing domain is derived from this table.
+.It Cm -tunneldomain
+Use the default routing table and routing domain 0.
 .It Cm tunnelttl Ar ttl
 Set the IP or multicast TTL of the tunnel packets.
 If supported by the tunnel protocol,
@@ -1835,9 +1881,9 @@ tried to alter an interface's configuration.
 .Xr inet 4 ,
 .Xr intro 4 ,
 .Xr netintro 4 ,
+.Xr route 4 ,
 .Xr hostname.if 5 ,
 .Xr hosts 5 ,
-.Xr networks 5 ,
 .Xr rc 8 ,
 .Xr slaacd 8 ,
 .Xr tcpdump 8

@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.syspatch.mk,v 1.19 2017/10/17 19:31:56 naddy Exp $
+#	$OpenBSD: bsd.syspatch.mk,v 1.22 2018/10/08 20:38:32 tb Exp $
 #
 # Copyright (c) 2016-2017 Robert Nagy <robert@openbsd.org>
 #
@@ -110,14 +110,15 @@ ${_FAKE_COOKIE}:
 	@su ${BUILDUSER} -c 'touch $@'
 .endif
 
-${ERRATA}/${ERRATA}.patch:
+${ERRATA}/${ERRATA}.patch.sig:
 	@su ${BUILDUSER} -c '${INSTALL} -d -m 755 ${ERRATA}' && \
-	echo '>> Fetching & Verifying ${MIRROR}/${.TARGET:T}.sig'; \
-	if su ${BUILDUSER} -c '${FETCH} -o ${ERRATA}/${.TARGET:T}.sig \
-		${MIRROR}/${.TARGET:T}.sig'; then \
-		su ${BUILDUSER} -c '/usr/bin/signify -Vep ${SIGNIFY_KEY} -x \
-			${ERRATA}/${.TARGET:T}.sig -m ${.TARGET}' && exit 0; \
-	fi; exit 1
+	echo '>> Fetching & Verifying ${MIRROR}/${.TARGET:T}'; \
+	su ${BUILDUSER} -c '${FETCH} -o ${ERRATA}/${.TARGET:T} \
+		${MIRROR}/${.TARGET:T}'
+
+${ERRATA}/${ERRATA}.patch: ${ERRATA}/${ERRATA}.patch.sig
+	@su ${BUILDUSER} -c '/usr/bin/signify -Vep ${SIGNIFY_KEY} -x \
+		${ERRATA}/${.TARGET:T}.sig -m ${.TARGET}'
 
 ${_PATCH_COOKIE}: ${ERRATA}/${ERRATA}.patch
 	@echo '>> Applying ${ERRATA}.patch'; \
@@ -164,14 +165,14 @@ ${_BUILD_COOKIE}: ${_PATCH_COOKIE} ${_FAKE_COOKIE}
 		su ${BUILDUSER} -c 'umask ${WOBJUMASK} && \
 		cd ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/GENERIC/obj && \
 		cp -p *.o Makefile ld.script makegap.sh \
-		${FAKE}/usr/share/compile/GENERIC/' || \
+		${FAKE}/usr/share/relink/kernel/GENERIC/' || \
 		{ echo "***>   failed to install ${_kern} object files"; \
 		exit 1; }; \
 	elif [ ${_kern} = "GENERIC.MP" ]; then \
 		su ${BUILDUSER} -c 'umask ${WOBJUMASK} && \
 		cd ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/GENERIC.MP/obj && \
 		cp -p *.o Makefile ld.script makegap.sh \
-		${FAKE}/usr/share/compile/GENERIC.MP/' || \
+		${FAKE}/usr/share/relink/kernel/GENERIC.MP/' || \
 		{ echo "***>   failed to install ${_kern} object files"; \
 		exit 1; }; \
 	fi; exit 0
@@ -201,6 +202,6 @@ ${ERRATA}/.plist: ${_BUILD_COOKIE}
 		done > ${.TARGET}' || \
 		{ echo "***>   unable to create list of files";	\
 		exit 1; };
-	@su ${BUILDUSER} -c 'sed -i "s,^${FAKEROOT}/syspatch/${OSrev}-[^/]*/,,g" ${.TARGET}' 
+	@su ${BUILDUSER} -c 'sed -i "s,^${FAKEROOT}/syspatch/${OSrev}-[^/]*/,,g" ${.TARGET}'
 
 .include <bsd.obj.mk>

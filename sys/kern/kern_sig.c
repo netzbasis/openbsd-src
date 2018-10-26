@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sig.c,v 1.216 2018/02/26 13:33:25 mpi Exp $	*/
+/*	$OpenBSD: kern_sig.c,v 1.224 2018/08/03 14:47:56 deraadt Exp $	*/
 /*	$NetBSD: kern_sig.c,v 1.54 1996/04/22 01:38:32 christos Exp $	*/
 
 /*
@@ -554,6 +554,11 @@ sys_sigaltstack(struct proc *p, void *v, register_t *retval)
 	}
 	if (ss.ss_size < MINSIGSTKSZ)
 		return (ENOMEM);
+
+	error = uvm_map_remap_as_stack(p, (vaddr_t)ss.ss_sp, ss.ss_size);
+	if (error)
+		return (error);
+
 	p->p_sigstk = ss;
 	return (0);
 }
@@ -793,17 +798,15 @@ trapsignal(struct proc *p, int signum, u_long trapno, int code,
 	if ((pr->ps_flags & PS_TRACED) == 0 &&
 	    (ps->ps_sigcatch & mask) != 0 &&
 	    (p->p_sigmask & mask) == 0) {
+		siginfo_t si;
+		initsiginfo(&si, signum, trapno, code, sigval);
 #ifdef KTRACE
 		if (KTRPOINT(p, KTR_PSIG)) {
-			siginfo_t si;
-
-			initsiginfo(&si, signum, trapno, code, sigval);
 			ktrpsig(p, signum, ps->ps_sigact[signum],
 			    p->p_sigmask, code, &si);
 		}
 #endif
-		(*pr->ps_emul->e_sendsig)(ps->ps_sigact[signum], signum,
-		    p->p_sigmask, trapno, code, sigval);
+		sendsig(ps->ps_sigact[signum], signum, p->p_sigmask, &si);
 		postsig_done(p, signum, ps);
 	} else {
 		p->p_sisig = signum;
@@ -1167,11 +1170,13 @@ issignal(struct proc *p)
 		    (pr->ps_flags & PS_TRACED) == 0)
 			continue;
 
-		if ((pr->ps_flags & (PS_TRACED | PS_PPWAIT)) == PS_TRACED) {
-			/*
-			 * If traced, always stop, and stay
-			 * stopped until released by the debugger.
-			 */
+		/*
+		 * If traced, always stop, and stay stopped until released
+		 * by the debugger.  If our parent process is waiting for
+		 * us, don't hang as we could deadlock.
+		 */
+		if (((pr->ps_flags & (PS_TRACED | PS_PPWAIT)) == PS_TRACED) &&
+		    signum != SIGKILL) {
 			p->p_xstat = signum;
 
 			if (dolock)
@@ -1352,6 +1357,7 @@ postsig(struct proc *p, int signum)
 	sig_t action;
 	u_long trapno;
 	int mask, returnmask;
+	siginfo_t si;
 	union sigval sigval;
 	int s, code;
 
@@ -1372,12 +1378,10 @@ postsig(struct proc *p, int signum)
 		code = p->p_sicode;
 		sigval = p->p_sigval;
 	}
+	initsiginfo(&si, signum, trapno, code, sigval);
 
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_PSIG)) {
-		siginfo_t si;
-
-		initsiginfo(&si, signum, trapno, code, sigval);
 		ktrpsig(p, signum, action, p->p_flag & P_SIGSUSPEND ?
 		    p->p_oldmask : p->p_sigmask, code, &si);
 	}
@@ -1424,8 +1428,7 @@ postsig(struct proc *p, int signum)
 			p->p_sigval.sival_ptr = NULL;
 		}
 
-		(*pr->ps_emul->e_sendsig)(action, signum, returnmask, trapno,
-		    code, sigval);
+		sendsig(action, signum, returnmask, &si);
 		postsig_done(p, signum, ps);
 		splx(s);
 	}
@@ -1562,7 +1565,7 @@ coredump(struct proc *p)
 	 */
 	vp = nd.ni_vp;
 	if ((error = VOP_GETATTR(vp, &vattr, cred, p)) != 0) {
-		VOP_UNLOCK(vp, p);
+		VOP_UNLOCK(vp);
 		vn_close(vp, FWRITE, cred, p);
 		goto out;
 	}
@@ -1570,7 +1573,7 @@ coredump(struct proc *p)
 	    vattr.va_mode & ((VREAD | VWRITE) >> 3 | (VREAD | VWRITE) >> 6) ||
 	    vattr.va_uid != cred->cr_uid) {
 		error = EACCES;
-		VOP_UNLOCK(vp, p);
+		VOP_UNLOCK(vp);
 		vn_close(vp, FWRITE, cred, p);
 		goto out;
 	}
@@ -1583,7 +1586,7 @@ coredump(struct proc *p)
 	io.io_vp = vp;
 	io.io_cred = cred;
 	io.io_offset = 0;
-	VOP_UNLOCK(vp, p);
+	VOP_UNLOCK(vp);
 	vref(vp);
 	error = vn_close(vp, FWRITE, cred, p);
 	if (error == 0)
@@ -1619,11 +1622,14 @@ coredump_write(void *cookie, enum uio_seg segflg, const void *data, size_t len)
 		    IO_UNIT, io->io_cred, NULL, io->io_proc);
 		if (error) {
 			struct process *pr = io->io_proc->p_p;
+
 			if (error == ENOSPC)
-				log(LOG_ERR, "coredump of %s(%d) failed, filesystem full\n",
+				log(LOG_ERR,
+				    "coredump of %s(%d) failed, filesystem full\n",
 				    pr->ps_comm, pr->ps_pid);
 			else
-				log(LOG_ERR, "coredump of %s(%d), write failed: errno %d\n",
+				log(LOG_ERR,
+				    "coredump of %s(%d), write failed: errno %d\n",
 				    pr->ps_comm, pr->ps_pid, error);
 			return (error);
 		}
@@ -1833,7 +1839,7 @@ userret(struct proc *p)
 		KERNEL_UNLOCK();
 	}
 
-	if (CURSIG(p) != 0) {
+	if (SIGPENDING(p)) {
 		KERNEL_LOCK();
 		while ((signum = CURSIG(p)) != 0)
 			postsig(p, signum);

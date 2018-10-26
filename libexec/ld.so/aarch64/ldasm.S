@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.5 2017/12/21 00:32:55 kettenis Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.7 2018/10/01 22:53:48 mortimer Exp $ */
 
 /*
  * Copyright (c) 2016 Dale Rahn
@@ -41,7 +41,7 @@ ENTRY(_dl_start)
 	mov	x0, x29				// original stack
 	mov	x1, x20				// dl_data
 
-	adrp	x2, :got:_DYNAMIC		/* &_DYNAMIC */
+	adrp	x2, _DYNAMIC			/* &_DYNAMIC */
 	add	x2, x2, #:lo12:_DYNAMIC
 
 	bl	_dl_boot_bind
@@ -105,5 +105,7 @@ ENTRY(_dl_bind_start)
 	br	x17
 
 ENTRY(_rtld_tlsdesc)
+	RETGUARD_SETUP(_rtld_tlsdesc, x15)
 	ldr	x0, [x0, #8]
+	RETGUARD_CHECK(_rtld_tlsdesc, x15)
 	ret

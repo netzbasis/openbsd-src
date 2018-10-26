@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka.c,v 1.202 2018/01/03 11:12:21 sunil Exp $	*/
+/*	$OpenBSD: lka.c,v 1.207 2018/07/25 16:00:48 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -88,9 +88,12 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 
+	case IMSG_GETADDRINFO:
+	case IMSG_GETNAMEINFO:
+		resolver_dispatch_request(p, imsg);
+		return;
+
 	case IMSG_MTA_DNS_HOST:
-	case IMSG_MTA_DNS_PTR:
-	case IMSG_SMTP_DNS_PTR:
 	case IMSG_MTA_DNS_MX:
 	case IMSG_MTA_DNS_MX_PREFERENCE:
 		dns_imsg(p, imsg);
@@ -167,13 +170,13 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 	case IMSG_SMTP_TLS_VERIFY_CERT:
 	case IMSG_MTA_TLS_VERIFY_CERT:
-		req_ca_vrfy = xmemdup(imsg->data, sizeof *req_ca_vrfy, "lka:ca_vrfy");
+		req_ca_vrfy = xmemdup(imsg->data, sizeof *req_ca_vrfy);
 		req_ca_vrfy->cert = xmemdup((char *)imsg->data +
-		    sizeof *req_ca_vrfy, req_ca_vrfy->cert_len, "lka:ca_vrfy");
+		    sizeof *req_ca_vrfy, req_ca_vrfy->cert_len);
 		req_ca_vrfy->chain_cert = xcalloc(req_ca_vrfy->n_chain,
-		    sizeof (unsigned char *), "lka:ca_vrfy");
+		    sizeof (unsigned char *));
 		req_ca_vrfy->chain_cert_len = xcalloc(req_ca_vrfy->n_chain,
-		    sizeof (off_t), "lka:ca_vrfy");
+		    sizeof (off_t));
 		return;
 
 	case IMSG_SMTP_TLS_VERIFY_CHAIN:
@@ -182,7 +185,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			fatalx("lka:ca_vrfy: chain without a certificate");
 		req_ca_vrfy_chain = imsg->data;
 		req_ca_vrfy->chain_cert[req_ca_vrfy->chain_offset] = xmemdup((char *)imsg->data +
-		    sizeof *req_ca_vrfy_chain, req_ca_vrfy_chain->cert_len, "lka:ca_vrfy");
+		    sizeof *req_ca_vrfy_chain, req_ca_vrfy_chain->cert_len);
 		req_ca_vrfy->chain_cert_len[req_ca_vrfy->chain_offset] = req_ca_vrfy_chain->cert_len;
 		req_ca_vrfy->chain_offset++;
 		return;
@@ -259,7 +262,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &tablename);
 		m_end(&m);
 
-		table = table_find(tablename, NULL);
+		table = table_find(env, tablename, NULL);
 
 		m_create(p, IMSG_MTA_LOOKUP_SOURCE, 0, 0, -1);
 		m_add_id(p, reqid);
@@ -302,15 +305,44 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_close(p);
 		return;
 
+	case IMSG_MTA_LOOKUP_SMARTHOST:
+		m_msg(&m, imsg);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &tablename);
+		m_end(&m);
+
+		table = table_find(env, tablename, NULL);
+
+		m_create(p, IMSG_MTA_LOOKUP_SMARTHOST, 0, 0, -1);
+		m_add_id(p, reqid);
+
+		if (table == NULL) {
+			log_warn("warn: smarthost table %s missing", tablename);
+			m_add_int(p, LKA_TEMPFAIL);
+		}
+		else {
+			ret = table_fetch(table, NULL, K_RELAYHOST, &lk);
+			if (ret == -1)
+				m_add_int(p, LKA_TEMPFAIL);
+			else if (ret == 0)
+				m_add_int(p, LKA_PERMFAIL);
+			else {
+				m_add_int(p, LKA_OK);
+				m_add_string(p, lk.relayhost);
+			}
+		}
+		m_close(p);
+		return;
+
 	case IMSG_CONF_START:
 		return;
 
 	case IMSG_CONF_END:
 		if (tracing & TRACE_TABLES)
-			table_dump_all();
+			table_dump_all(env);
 
 		/* fork & exec tables that need it */
-		table_open_all();
+		table_open_all(env);
 
 		/* revoke proc & exec */
 		if (pledge("stdio rpath inet dns getpw recvfd",
@@ -346,7 +378,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 	case IMSG_CTL_UPDATE_TABLE:
 		ret = 0;
-		table = table_find(imsg->data, NULL);
+		table = table_find(env, imsg->data, NULL);
 		if (table == NULL) {
 			log_warnx("warn: Lookup table not found: "
 			    "\"%s\"", (char *)imsg->data);
@@ -439,7 +471,7 @@ lka_authenticate(const char *tablename, const char *user, const char *password)
 	union lookup		 lk;
 
 	log_debug("debug: lka: authenticating for %s:%s", tablename, user);
-	table = table_find(tablename, NULL);
+	table = table_find(env, tablename, NULL);
 	if (table == NULL) {
 		log_warnx("warn: could not find table %s needed for authentication",
 		    tablename);
@@ -468,7 +500,7 @@ lka_credentials(const char *tablename, const char *label, char *dst, size_t sz)
 	char			*buf;
 	int			 buflen, r;
 
-	table = table_find(tablename, NULL);
+	table = table_find(env, tablename, NULL);
 	if (table == NULL) {
 		log_warnx("warn: credentials table %s missing", tablename);
 		return (LKA_TEMPFAIL);
@@ -476,7 +508,7 @@ lka_credentials(const char *tablename, const char *label, char *dst, size_t sz)
 
 	dst[0] = '\0';
 
-	switch(table_lookup(table, NULL, label, K_CREDENTIALS, &lk)) {
+	switch (table_lookup(table, NULL, label, K_CREDENTIALS, &lk)) {
 	case -1:
 		log_warnx("warn: credentials lookup fail for %s:%s",
 		    tablename, label);
@@ -511,7 +543,7 @@ lka_userinfo(const char *tablename, const char *username, struct userinfo *res)
 	union lookup	 lk;
 
 	log_debug("debug: lka: userinfo %s:%s", tablename, username);
-	table = table_find(tablename, NULL);
+	table = table_find(env, tablename, NULL);
 	if (table == NULL) {
 		log_warnx("warn: cannot find user table %s", tablename);
 		return (LKA_TEMPFAIL);
@@ -541,7 +573,7 @@ lka_addrname(const char *tablename, const struct sockaddr *sa,
 	source = sa_to_text(sa);
 
 	log_debug("debug: lka: helo %s:%s", tablename, source);
-	table = table_find(tablename, NULL);
+	table = table_find(env, tablename, NULL);
 	if (table == NULL) {
 		log_warnx("warn: cannot find helo table %s", tablename);
 		return (LKA_TEMPFAIL);
@@ -569,7 +601,7 @@ lka_mailaddrmap(const char *tablename, const char *username, const struct mailad
 	int			found;
 
 	log_debug("debug: lka: mailaddrmap %s:%s", tablename, username);
-	table = table_find(tablename, NULL);
+	table = table_find(env, tablename, NULL);
 	if (table == NULL) {
 		log_warnx("warn: cannot find mailaddrmap table %s", tablename);
 		return (LKA_TEMPFAIL);

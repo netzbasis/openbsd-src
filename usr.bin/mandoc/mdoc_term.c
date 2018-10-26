@@ -1,7 +1,7 @@
-/*	$OpenBSD: mdoc_term.c,v 1.264 2018/01/13 05:20:10 schwarze Exp $ */
+/*	$OpenBSD: mdoc_term.c,v 1.267 2018/08/17 20:31:52 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2012-2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2012-2018 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2013 Franco Fichtner <franco@lastsummer.de>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -45,7 +45,7 @@ struct	termpair {
 		  const struct roff_meta *meta, \
 		  struct roff_node *n
 
-struct	termact {
+struct	mdoc_term_act {
 	int	(*pre)(DECL_ARGS);
 	void	(*post)(DECL_ARGS);
 };
@@ -122,7 +122,7 @@ static	int	  termp_vt_pre(DECL_ARGS);
 static	int	  termp_xr_pre(DECL_ARGS);
 static	int	  termp_xx_pre(DECL_ARGS);
 
-static	const struct termact __termacts[MDOC_MAX - MDOC_Dd] = {
+static const struct mdoc_term_act mdoc_term_acts[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, NULL }, /* Dd */
 	{ NULL, NULL }, /* Dt */
 	{ NULL, NULL }, /* Os */
@@ -244,7 +244,6 @@ static	const struct termact __termacts[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, termp____post }, /* %U */
 	{ NULL, NULL }, /* Ta */
 };
-static	const struct termact *const termacts = __termacts - MDOC_Dd;
 
 static	int	 fn_prio;
 
@@ -281,7 +280,9 @@ terminal_mdoc(void *arg, const struct roff_man *mdoc)
 			p->defindent = 5;
 		term_begin(p, print_mdoc_head, print_mdoc_foot,
 		    &mdoc->meta);
-		while (n != NULL && n->flags & NODE_NOPRT)
+		while (n != NULL &&
+		    (n->type == ROFFT_COMMENT ||
+		     n->flags & NODE_NOPRT))
 			n = n->next;
 		if (n != NULL) {
 			if (n->tok != MDOC_Sh)
@@ -306,11 +307,12 @@ print_mdoc_nodelist(DECL_ARGS)
 static void
 print_mdoc_node(DECL_ARGS)
 {
-	int		 chld;
+	const struct mdoc_term_act *act;
 	struct termpair	 npair;
 	size_t		 offset, rmargin;
+	int		 chld;
 
-	if (n->flags & NODE_NOPRT)
+	if (n->type == ROFFT_COMMENT || n->flags & NODE_NOPRT)
 		return;
 
 	chld = 1;
@@ -366,10 +368,10 @@ print_mdoc_node(DECL_ARGS)
 			return;
 		}
 		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
-		if (termacts[n->tok].pre != NULL &&
+		act = mdoc_term_acts + (n->tok - MDOC_Dd);
+		if (act->pre != NULL &&
 		    (n->end == ENDBODY_NOT || n->child != NULL))
-			chld = (*termacts[n->tok].pre)
-				(p, &npair, meta, n);
+			chld = (*act->pre)(p, &npair, meta, n);
 		break;
 	}
 
@@ -387,9 +389,9 @@ print_mdoc_node(DECL_ARGS)
 	case ROFFT_EQN:
 		break;
 	default:
-		if (termacts[n->tok].post == NULL || n->flags & NODE_ENDED)
+		if (act->post == NULL || n->flags & NODE_ENDED)
 			break;
-		(void)(*termacts[n->tok].post)(p, &npair, meta, n);
+		(void)(*act->post)(p, &npair, meta, n);
 
 		/*
 		 * Explicit end tokens not only call the post
@@ -565,7 +567,9 @@ print_bvspace(struct termp *p,
 	/* Do not vspace directly after Ss/Sh. */
 
 	nn = n;
-	while (nn->prev != NULL && nn->prev->flags & NODE_NOPRT)
+	while (nn->prev != NULL &&
+	    (nn->prev->type == ROFFT_COMMENT ||
+	     nn->prev->flags & NODE_NOPRT))
 		nn = nn->prev;
 	while (nn->prev == NULL) {
 		do {
@@ -1548,7 +1552,8 @@ termp_ss_pre(DECL_ARGS)
 	case ROFFT_BLOCK:
 		term_newln(p);
 		for (nn = n->prev; nn != NULL; nn = nn->prev)
-			if ((nn->flags & NODE_NOPRT) == 0)
+			if (nn->type != ROFFT_COMMENT &&
+			    (nn->flags & NODE_NOPRT) == 0)
 				break;
 		if (nn != NULL)
 			term_vspace(p);
@@ -1662,7 +1667,7 @@ termp_quote_pre(DECL_ARGS)
 		/* FALLTHROUGH */
 	case MDOC_Do:
 	case MDOC_Dq:
-		term_word(p, "\\(Lq");
+		term_word(p, "\\(lq");
 		break;
 	case MDOC_En:
 		if (NULL == n->norm->Es ||
@@ -1720,7 +1725,7 @@ termp_quote_post(DECL_ARGS)
 		/* FALLTHROUGH */
 	case MDOC_Do:
 	case MDOC_Dq:
-		term_word(p, "\\(Rq");
+		term_word(p, "\\(rq");
 		break;
 	case MDOC_En:
 		if (n->norm->Es == NULL ||

@@ -1,4 +1,4 @@
-/TestLinuxCore.py/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
+/TestLinuxCore.py/1.1.1.2/Fri Apr  6 14:26:53 2018/-ko/
 /altmain.c/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /altmain.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /fpr_sse.cpp/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
@@ -6,6 +6,7 @@
 /linux-mips64el-gnuabi64.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /linux-mips64el-gnuabin32.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /linux-mipsel-gnuabio32.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
+/linux-ppc64le.out/1.1.1.1/Fri Apr  6 14:26:53 2018/-ko/
 /linux-s390x.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /linux-x86_64.out/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/
 /main.c/1.1.1.1/Wed Oct  4 20:27:41 2017/-ko/

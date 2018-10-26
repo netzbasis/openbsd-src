@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.167 2018/02/05 14:53:26 bluhm Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.169 2018/06/11 07:40:26 bluhm Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -127,11 +127,9 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
 	struct inpcb *inp;
-	struct tcpcb *tp = NULL;
+	struct tcpcb *otp = NULL, *tp = NULL;
 	int error = 0;
 	short ostate;
-
-	soassertlocked(so);
 
 	if (req == PRU_CONTROL) {
 #ifdef INET6
@@ -143,6 +141,9 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			return (in_control(so, (u_long)m, (caddr_t)nam,
 			    (struct ifnet *)control));
 	}
+
+	soassertlocked(so);
+
 	if (control && control->m_len) {
 		m_freem(control);
 		m_freem(m);
@@ -171,7 +172,10 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	/* tp might get 0 when using socket splicing */
 	if (tp == NULL)
 		return (0);
-	ostate = tp->t_state;
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
 
 	switch (req) {
 
@@ -398,8 +402,8 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	default:
 		panic("tcp_usrreq");
 	}
-	if (tp && (so->so_options & SO_DEBUG))
-		tcp_trace(TA_USER, ostate, tp, (caddr_t)0, req, 0);
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, req, 0);
 	return (error);
 }
 
@@ -598,7 +602,7 @@ tcp_attach(struct socket *so, int proto)
 		so->so_linger = TCP_LINGERTIME;
 
 	if (so->so_options & SO_DEBUG)
-		tcp_trace(TA_USER, TCPS_CLOSED, tp, (caddr_t)0, PRU_ATTACH, 0);
+		tcp_trace(TA_USER, TCPS_CLOSED, tp, tp, NULL, PRU_ATTACH, 0);
 	return (0);
 }
 
@@ -606,7 +610,7 @@ int
 tcp_detach(struct socket *so)
 {
 	struct inpcb *inp;
-	struct tcpcb *tp = NULL;
+	struct tcpcb *otp = NULL, *tp = NULL;
 	int error = 0;
 	short ostate;
 
@@ -628,7 +632,10 @@ tcp_detach(struct socket *so)
 	/* tp might get 0 when using socket splicing */
 	if (tp == NULL)
 		return (0);
-	ostate = tp->t_state;
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
+		ostate = tp->t_state;
+	}
 
 	/*
 	 * Detach the TCP protocol from the socket.
@@ -639,8 +646,8 @@ tcp_detach(struct socket *so)
 	 */
 	tp = tcp_disconnect(tp);
 
-	if (tp && (so->so_options & SO_DEBUG))
-		tcp_trace(TA_USER, ostate, tp, (caddr_t)0, PRU_DETACH, 0);
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_DETACH, 0);
 	return (error);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.h,v 1.135 2018/02/10 05:24:23 deraadt Exp $	*/
+/*	$OpenBSD: mount.h,v 1.142 2018/09/29 04:29:48 visa Exp $	*/
 /*	$NetBSD: mount.h,v 1.48 1996/02/18 11:55:47 fvdl Exp $	*/
 
 /*
@@ -246,6 +246,15 @@ struct fusefs_args {
 	char *name;
 	int fd;
 	int max_read;
+
+	/*
+	 * FUSE does not allow the file system to be accessed by other users
+	 * unless this option is specified. This is to prevent unintentional
+	 * denial of service to other users if the file system is not
+	 * responding. e.g. user executes df(1) or cron job that scans mounted
+	 * file systems.
+	 */
+	int allow_other;
 };
 
 /*
@@ -445,9 +454,8 @@ struct vfsconf {
 	const struct vfsops *vfc_vfsops; /* filesystem operations vector */
 	char	vfc_name[MFSNAMELEN];	/* filesystem type name */
 	int	vfc_typenum;		/* historic filesystem type number */
-	int	vfc_refcount;		/* number mounted of this type */
+	u_int	vfc_refcount;		/* number mounted of this type */
 	int	vfc_flags;		/* permanent flags */
-	struct	vfsconf *vfc_next;	/* next in list */
 	size_t	vfc_datasize;		/* size of data args */
 };
 
@@ -491,7 +499,6 @@ struct nameidata;
 struct mbuf;
 
 extern int maxvfsconf;		/* highest defined filesystem type */
-extern struct vfsconf *vfsconf;	/* head of list of filesystem types */
 
 struct vfsops {
 	int	(*vfs_mount)(struct mount *mp, const char *path,
@@ -564,8 +571,11 @@ int	vfs_busy(struct mount *, int);
 #define VB_WRITE	0x02
 #define VB_NOWAIT	0x04	/* immediately fail on busy lock */
 #define VB_WAIT		0x08	/* sleep fail on busy lock */
+#define VB_DUPOK	0x10	/* permit duplicate mount busying */
 
 int     vfs_isbusy(struct mount *);
+struct	mount *vfs_mount_alloc(struct vnode *, struct vfsconf *);
+void	vfs_mount_free(struct mount *);
 int     vfs_mount_foreach_vnode(struct mount *, int (*func)(struct vnode *,
 				    void *), void *);
 void	vfs_getnewfsid(struct mount *);
@@ -575,6 +585,7 @@ int	vfs_rootmountalloc(char *, char *, struct mount **);
 void	vfs_unbusy(struct mount *);
 extern	TAILQ_HEAD(mntlist, mount) mountlist;
 int	vfs_stall(struct proc *, int);
+void	vfs_stall_barrier(void);
 
 struct	mount *getvfs(fsid_t *);	    /* return vfs given fsid */
 					    /* process mount export info */
@@ -589,8 +600,8 @@ int	vfs_syncwait(struct proc *, int);   /* sync and wait for complete */
 void	vfs_shutdown(struct proc *);	    /* unmount and sync file systems */
 int	dounmount(struct mount *, int, struct proc *);
 void	vfsinit(void);
-int	vfs_register(struct vfsconf *);
-int	vfs_unregister(struct vfsconf *);
+struct	vfsconf *vfs_byname(const char *);
+struct	vfsconf *vfs_bytypenum(int);
 #else /* _KERNEL */
 __BEGIN_DECLS
 int	fstatfs(int, struct statfs *);

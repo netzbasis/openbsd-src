@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.159 2018/03/13 13:51:05 bluhm Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.165 2018/08/21 06:03:34 jsg Exp $	*/
 /*	$NetBSD: cpu.h,v 1.35 1996/05/05 19:29:26 christos Exp $	*/
 
 /*-
@@ -103,7 +103,11 @@ union vmm_cpu_cap {
 #ifdef _KERNEL
 /* XXX stuff to move to cpuvar.h later */
 struct cpu_info {
-	struct device	*ci_dev;	/* our device */
+	u_int32_t	ci_kern_cr3;	/* U+K page table */
+	u_int32_t	ci_scratch;	/* for U<-->K transition */
+
+#define ci_PAGEALIGN	ci_dev
+	struct device *ci_dev;		/* our device */
 	struct cpu_info *ci_self;	/* pointer to this structure */
 	struct schedstate_percpu ci_schedstate; /* scheduler state */
 	struct cpu_info *ci_next;	/* next cpu */
@@ -116,6 +120,10 @@ struct cpu_info {
 	u_int ci_apicid;		/* our APIC ID */
 	u_int ci_acpi_proc_id;
 	u_int32_t ci_randseed;
+
+	u_int32_t ci_kern_esp;		/* kernel-only stack */
+	u_int32_t ci_intr_esp;		/* U<-->K trampoline stack */
+	u_int32_t ci_user_cr3;		/* U-K page table */
 
 #if defined(MULTIPROCESSOR)
 	struct srp_hazard ci_srp_hazards[SRP_HAZARD_NUM];
@@ -154,6 +162,7 @@ struct cpu_info {
 	u_int32_t	ci_feature_flags;	/* X86 CPUID feature bits */
 	u_int32_t	ci_feature_sefflags_ebx;/* more CPUID feature bits */
 	u_int32_t	ci_feature_sefflags_ecx;/* more CPUID feature bits */
+	u_int32_t	ci_feature_sefflags_edx;/* more CPUID feature bits */
 	u_int32_t	ci_feature_tpmflags;	/* thermal & power bits */
 	u_int32_t	cpu_class;		/* CPU class */
 	u_int32_t	ci_cflushsz;		/* clflush cache-line size */
@@ -176,6 +185,7 @@ struct cpu_info {
 
 	union descriptor *ci_gdt;
 	struct i386tss	*ci_tss;
+	struct i386tss	*ci_nmi_tss;
 
 	volatile int ci_ddb_paused;	/* paused due to other proc in ddb */
 #define CI_DDB_RUNNING		0
@@ -224,7 +234,10 @@ struct cpu_info {
  * the only CPU on uniprocessors), and the primary CPU is the
  * first CPU on the CPU info list.
  */
-extern struct cpu_info cpu_info_primary;
+struct cpu_info_full;
+extern struct cpu_info_full cpu_info_full_primary;
+#define cpu_info_primary (*(struct cpu_info *)((char *)&cpu_info_full_primary + PAGE_SIZE*2 - offsetof(struct cpu_info, ci_PAGEALIGN)))
+
 extern struct cpu_info *cpu_info_list;
 
 #define	CPU_INFO_ITERATOR		int
@@ -388,6 +401,7 @@ extern int cpu_apmi_edx;
 /* cpu.c */
 extern u_int cpu_mwait_size;
 extern u_int cpu_mwait_states;
+extern void cpu_update_nmi_cr3(vaddr_t);
 
 /* machdep.c */
 extern int cpu_apmhalt;
@@ -496,11 +510,6 @@ int	kvtop(caddr_t);
 /* mp_setperf.c */
 void	mp_setperf_init(void);
 #endif
-
-#ifdef VM86
-/* vm86.c */
-void	vm86_gpfault(struct proc *, int);
-#endif /* VM86 */
 
 int	cpu_paenable(void *);
 #endif /* _KERNEL */

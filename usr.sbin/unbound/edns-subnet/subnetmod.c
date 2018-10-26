@@ -339,6 +339,7 @@ update_cache(struct module_qstate *qstate, int id)
 			return;
 		}
 		lru_entry = &mrep_entry->entry;
+		lock_rw_wrlock(&lru_entry->lock);
 		lru_entry->data = calloc(1,
 			sizeof(struct subnet_msg_cache_data));
 		if (!lru_entry->data) {
@@ -352,7 +353,9 @@ update_cache(struct module_qstate *qstate, int id)
 		log_err("Subnet cache insertion failed");
 		return;
 	}
+	lock_quick_lock(&sne->alloc.lock);
 	rep = reply_info_copy(qstate->return_msg->rep, &sne->alloc, NULL);
+	lock_quick_unlock(&sne->alloc.lock);
 	if (!rep) {
 		if (acquired_lock) lock_rw_unlock(&lru_entry->lock);
 		log_err("Subnet cache insertion failed");
@@ -374,6 +377,7 @@ update_cache(struct module_qstate *qstate, int id)
 	if (acquired_lock) {
 		lock_rw_unlock(&lru_entry->lock);
 	} else {
+		lock_rw_unlock(&lru_entry->lock);
 		slabhash_insert(subnet_msg_cache, h, lru_entry, lru_entry->data,
 			NULL);
 	}
@@ -460,7 +464,12 @@ eval_response(struct module_qstate *qstate, int id, struct subnet_qstate *sq)
 
 	memset(c_out, 0, sizeof(*c_out));
 
-	if (!qstate->return_msg) return module_error;
+	if (!qstate->return_msg) {
+		/* already an answer and its not a message, but retain
+		 * the actual rcode, instead of module_error, so send
+		 * module_finished */
+		return module_finished;
+	}
 	
 	/* We have not asked for subnet data */
 	if (!sq->subnet_sent) {
@@ -507,6 +516,7 @@ eval_response(struct module_qstate *qstate, int id, struct subnet_qstate *sq)
 
 	lock_rw_wrlock(&sne->biglock);
 	update_cache(qstate, id);
+	sne->num_msg_nocache++;
 	lock_rw_unlock(&sne->biglock);
 	
 	if (sq->subnet_downstream) {
@@ -689,6 +699,7 @@ subnetmod_operate(struct module_qstate *qstate, enum module_ev event,
 
 		lock_rw_wrlock(&sne->biglock);
 		if (lookup_and_reply(qstate, id, sq)) {
+			sne->num_msg_cache++;
 			lock_rw_unlock(&sne->biglock);
 			verbose(VERB_QUERY, "subnet: answered from cache");
 			qstate->ext_state[id] = module_finished;
@@ -737,7 +748,8 @@ subnetmod_operate(struct module_qstate *qstate, enum module_ev event,
 	/* Query handed back by next module, we have a 'final' answer */
 	if(sq && event == module_event_moddone) {
 		qstate->ext_state[id] = eval_response(qstate, id, sq);
-		if(qstate->ext_state[id] == module_finished) {
+		if(qstate->ext_state[id] == module_finished &&
+			qstate->return_msg) {
 			ecs_opt_list_append(&sq->ecs_client_out,
 				&qstate->edns_opts_front_out, qstate);
 		}

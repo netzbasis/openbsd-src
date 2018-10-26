@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.c,v 1.231 2018/03/06 20:56:36 tim Exp $	*/
+/*	$OpenBSD: sysctl.c,v 1.237 2018/09/29 04:29:48 visa Exp $	*/
 /*	$NetBSD: sysctl.c,v 1.9 1995/09/30 07:12:50 thorpej Exp $	*/
 
 /*
@@ -129,6 +129,7 @@ struct ctlname *vfsname;
 struct ctlname machdepname[] = CTL_MACHDEP_NAMES;
 #endif
 struct ctlname ddbname[] = CTL_DDB_NAMES;
+struct ctlname audioname[] = CTL_KERN_AUDIO_NAMES;
 char names[BUFSIZ];
 int lastused;
 
@@ -212,6 +213,7 @@ void print_sensor(struct sensor *);
 #ifdef CPU_CHIPSET
 int sysctl_chipset(char *, char **, int *, int, int *);
 #endif
+int sysctl_audio(char *, char **, int *, int, int *);
 void vfsinit(void);
 
 char *equ = "=";
@@ -495,6 +497,11 @@ parse(char *string, int flags)
 		case KERN_SOMINCONN:
 			special |= UNSIGNED;
 			break;
+		case KERN_AUDIO:
+			len = sysctl_audio(string, &bufp, mib, flags, &type);
+			if (len < 0)
+				return;
+			break;
 		}
 		break;
 
@@ -664,6 +671,10 @@ parse(char *string, int flags)
 #ifdef CPU_CONSDEV
 		if (mib[1] == CPU_CONSDEV)
 			special |= CHRDEV;
+#endif
+#ifdef CPU_CPUID
+		if (mib[1] == CPU_CPUID)
+			special |= HEX;
 #endif
 #ifdef CPU_CPUFEATURE
 		if (mib[1] == CPU_CPUFEATURE)
@@ -1282,11 +1293,11 @@ sysctl_vfsgen(char *string, char **bufpp, int mib[], int flags, int *typep)
 	if (flags == 0 && vfc.vfc_refcount == 0)
 		return -1;
 	if (!nflag)
-		fprintf(stdout, "%s has %d mounted instance%s\n",
+		fprintf(stdout, "%s has %u mounted instance%s\n",
 		    string, vfc.vfc_refcount,
 		    vfc.vfc_refcount != 1 ? "s" : "");
 	else
-		fprintf(stdout, "%d\n", vfc.vfc_refcount);
+		fprintf(stdout, "%u\n", vfc.vfc_refcount);
 
 	return -1;
 }
@@ -1704,6 +1715,7 @@ struct list semlist = { semname, KERN_SEMINFO_MAXID };
 struct list shmlist = { shmname, KERN_SHMINFO_MAXID };
 struct list watchdoglist = { watchdogname, KERN_WATCHDOG_MAXID };
 struct list tclist = { tcname, KERN_TIMECOUNTER_MAXID };
+struct list audiolist = { audioname, KERN_AUDIO_MAXID };
 
 /*
  * handle vfs namei cache statistics
@@ -2300,12 +2312,7 @@ sysctl_pipex(char *string, char **bufpp, int mib[], int flags, int *typep)
  * Handle SysV semaphore info requests
  */
 int
-sysctl_seminfo(string, bufpp, mib, flags, typep)
-	char *string;
-	char **bufpp;
-	int mib[];
-	int flags;
-	int *typep;
+sysctl_seminfo(char *string, char **bufpp, int mib[], int flags, int *typep)
 {
 	int indx;
 
@@ -2324,12 +2331,7 @@ sysctl_seminfo(string, bufpp, mib, flags, typep)
  * Handle SysV shared memory info requests
  */
 int
-sysctl_shminfo(string, bufpp, mib, flags, typep)
-	char *string;
-	char **bufpp;
-	int mib[];
-	int flags;
-	int *typep;
+sysctl_shminfo(char *string, char **bufpp, int mib[], int flags, int *typep)
 {
 	int indx;
 
@@ -2692,6 +2694,25 @@ print_sensor(struct sensor *s)
 		ct[19] = '\0';
 		printf(", %s.%03ld", ct, s->tv.tv_usec / 1000);
 	}
+}
+
+/*
+ * Handle audio support
+ */
+int
+sysctl_audio(char *string, char **bufpp, int mib[], int flags, int *typep)
+{
+	int indx;
+
+	if (*bufpp == NULL) {
+		listall(string, &audiolist);
+		return (-1);
+	}
+	if ((indx = findname(string, "third", bufpp, &audiolist)) == -1)
+		return (-1);
+	mib[2] = indx;
+	*typep = audiolist.list[indx].ctl_type;
+	return (3);
 }
 
 /*

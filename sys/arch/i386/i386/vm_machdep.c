@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.68 2018/03/13 13:51:05 bluhm Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.70 2018/03/31 13:45:03 bluhm Exp $	*/
 /*	$NetBSD: vm_machdep.c,v 1.61 1996/05/03 19:42:35 christos Exp $	*/
 
 /*-

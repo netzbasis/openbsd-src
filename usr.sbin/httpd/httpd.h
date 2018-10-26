@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.h,v 1.135 2018/02/07 03:28:05 florian Exp $	*/
+/*	$OpenBSD: httpd.h,v 1.142 2018/10/11 09:52:22 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -53,13 +53,14 @@
 #define HTTPD_LOGROOT		"/logs"
 #define HTTPD_ACCESS_LOG	"access.log"
 #define HTTPD_ERROR_LOG		"error.log"
+#define HTTPD_MAX_ALIAS_IP	16
 #define HTTPD_REALM_MAX		255
 #define HTTPD_LOCATION_MAX	255
 #define HTTPD_DEFAULT_TYPE	{ "bin", "application", "octet-stream", NULL }
 #define HTTPD_LOGVIS		VIS_NL|VIS_TAB|VIS_CSTYLE
 #define HTTPD_TLS_CERT		"/etc/ssl/server.crt"
 #define HTTPD_TLS_KEY		"/etc/ssl/private/server.key"
-#define HTTPD_TLS_CONFIG_MAX	255
+#define HTTPD_TLS_CONFIG_MAX	511
 #define HTTPD_TLS_CIPHERS	"compat"
 #define HTTPD_TLS_DHE_PARAMS	"none"
 #define HTTPD_TLS_ECDHE_CURVES	"default"
@@ -397,13 +398,15 @@ SPLAY_HEAD(client_tree, client);
 #define SRVFLAG_SERVER_MATCH	0x00200000
 #define SRVFLAG_SERVER_HSTS	0x00400000
 #define SRVFLAG_DEFAULT_TYPE	0x00800000
+#define SRVFLAG_PATH_REWRITE	0x01000000
+#define SRVFLAG_NO_PATH_REWRITE	0x02000000
 
 #define SRVFLAG_BITS							\
 	"\10\01INDEX\02NO_INDEX\03AUTO_INDEX\04NO_AUTO_INDEX"		\
 	"\05ROOT\06LOCATION\07FCGI\10NO_FCGI\11LOG\12NO_LOG\13SOCKET"	\
 	"\14SYSLOG\15NO_SYSLOG\16TLS\17ACCESS_LOG\20ERROR_LOG"		\
 	"\21AUTH\22NO_AUTH\23BLOCK\24NO_BLOCK\25LOCATION_MATCH"		\
-	"\26SERVER_MATCH\27SERVER_HSTS\30DEFAULT_TYPE"
+	"\26SERVER_MATCH\27SERVER_HSTS\30DEFAULT_TYPE\31PATH\32NO_PATH"
 
 #define TCPFLAG_NODELAY		0x01
 #define TCPFLAG_NNODELAY	0x02
@@ -422,6 +425,11 @@ SPLAY_HEAD(client_tree, client);
 #define HSTSFLAG_SUBDOMAINS	0x01
 #define HSTSFLAG_PRELOAD	0x02
 #define HSTSFLAG_BITS		"\10\01SUBDOMAINS\02PRELOAD"
+
+#define TLSFLAG_CA		0x01
+#define TLSFLAG_CRL		0x02
+#define TLSFLAG_OPTIONAL	0x04
+#define TLSFLAG_BITS		"\10\01CA\02CRL\03OPTIONAL"
 
 enum log_format {
 	LOG_FORMAT_COMMON,
@@ -464,8 +472,9 @@ struct server_config {
 	uint32_t		 parent_id;
 	char			 name[HOST_NAME_MAX+1];
 	char			 location[HTTPD_LOCATION_MAX];
-	char			 index[PATH_MAX];
 	char			 root[PATH_MAX];
+	char			 path[PATH_MAX];
+	char			 index[PATH_MAX];
 	char			 socket[PATH_MAX];
 	char			 accesslog[PATH_MAX];
 	char			 errorlog[PATH_MAX];
@@ -479,12 +488,19 @@ struct server_config {
 	uint32_t		 maxrequests;
 	size_t			 maxrequestbody;
 
+	uint8_t			*tls_ca;
+	char			*tls_ca_file;
+	size_t			 tls_ca_len;
 	uint8_t			*tls_cert;
 	size_t			 tls_cert_len;
 	char			*tls_cert_file;
 	char			 tls_ciphers[HTTPD_TLS_CONFIG_MAX];
+	uint8_t			*tls_crl;
+	char			*tls_crl_file;
+	size_t			 tls_crl_len;
 	char			 tls_dhe_params[HTTPD_TLS_CONFIG_MAX];
 	char			 tls_ecdhe_curves[HTTPD_TLS_CONFIG_MAX];
+	uint8_t			 tls_flags;
 	uint8_t			*tls_key;
 	size_t			 tls_key_len;
 	char			*tls_key_file;
@@ -523,7 +539,9 @@ struct server_config {
 TAILQ_HEAD(serverhosts, server_config);
 
 enum tls_config_type {
+	TLS_CFG_CA,
 	TLS_CFG_CERT,
+	TLS_CFG_CRL,
 	TLS_CFG_KEY,
 	TLS_CFG_OCSP_STAPLE,
 };
@@ -597,6 +615,8 @@ int	 cmdline_symset(char *);
 /* server.c */
 void	 server(struct privsep *, struct privsep_proc *);
 int	 server_tls_cmp(struct server *, struct server *, int);
+int	 server_tls_load_ca(struct server *);
+int	 server_tls_load_crl(struct server *);
 int	 server_tls_load_keypair(struct server *);
 int	 server_tls_load_ocsp(struct server *);
 void	 server_generate_ticket_key(struct server_config *);
@@ -760,7 +780,7 @@ __dead void fatalx(const char *, ...)
 /* proc.c */
 enum privsep_procid
 	    proc_getid(struct privsep_proc *, unsigned int, const char *);
-void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int,
+void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **, enum privsep_procid);
 void	 proc_kill(struct privsep *);
 void	 proc_connect(struct privsep *);

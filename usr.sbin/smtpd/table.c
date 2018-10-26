@@ -1,4 +1,4 @@
-/*	$OpenBSD: table.c,v 1.24 2017/05/01 09:29:07 gilles Exp $	*/
+/*	$OpenBSD: table.c,v 1.30 2018/06/16 19:41:26 gilles Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -98,24 +98,25 @@ table_service_name(enum table_service s)
 	case K_MAILADDR:	return "MAILADDR";
 	case K_ADDRNAME:	return "ADDRNAME";
 	case K_MAILADDRMAP:	return "MAILADDRMAP";
+	case K_RELAYHOST:	return "RELAYHOST";
 	default:		return "???";
 	}
 }
 
 struct table *
-table_find(const char *name, const char *tag)
+table_find(struct smtpd *conf, const char *name, const char *tag)
 {
 	char buf[LINE_MAX];
 
 	if (tag == NULL)
-		return dict_get(env->sc_tables_dict, name);
+		return dict_get(conf->sc_tables_dict, name);
 
 	if ((size_t)snprintf(buf, sizeof(buf), "%s#%s", name, tag) >= sizeof(buf)) {
 		log_warnx("warn: table name too long: %s#%s", name, tag);
 		return (NULL);
 	}
 
-	return dict_get(env->sc_tables_dict, buf);
+	return dict_get(conf->sc_tables_dict, buf);
 }
 
 int
@@ -186,7 +187,7 @@ table_fetch(struct table *table, struct dict *params, enum table_service kind, u
 }
 
 struct table *
-table_create(const char *backend, const char *name, const char *tag,
+table_create(struct smtpd *conf, const char *backend, const char *name, const char *tag,
     const char *config)
 {
 	struct table		*t;
@@ -204,7 +205,7 @@ table_create(const char *backend, const char *name, const char *tag,
 		name = buf;
 	}
 
-	if (name && table_find(name, NULL))
+	if (name && table_find(conf, name, NULL))
 		fatalx("table_create: table \"%s\" already defined", name);
 
 	if ((tb = table_backend_lookup(backend)) == NULL) {
@@ -229,7 +230,7 @@ table_create(const char *backend, const char *name, const char *tag,
 	if (tb == NULL)
 		fatalx("table_create: backend \"%s\" does not exist", backend);
 
-	t = xcalloc(1, sizeof(*t), "table_create");
+	t = xcalloc(1, sizeof(*t));
 	t->t_backend = tb;
 
 	/* XXX */
@@ -259,20 +260,20 @@ table_create(const char *backend, const char *name, const char *tag,
 	}
 
 	dict_init(&t->t_dict);
-	dict_set(env->sc_tables_dict, t->t_name, t);
+	dict_set(conf->sc_tables_dict, t->t_name, t);
 
 	return (t);
 }
 
 void
-table_destroy(struct table *t)
+table_destroy(struct smtpd *conf, struct table *t)
 {
 	void	*p = NULL;
 
 	while (dict_poproot(&t->t_dict, (void **)&p))
 		free(p);
 
-	dict_xpop(env->sc_tables_dict, t->t_name);
+	dict_xpop(conf->sc_tables_dict, t->t_name);
 	free(t);
 }
 
@@ -297,7 +298,7 @@ table_add(struct table *t, const char *key, const char *val)
 		return;
 	}
 
-	old = dict_set(&t->t_dict, lkey, val ? xstrdup(val, "table_add") : NULL);
+	old = dict_set(&t->t_dict, lkey, val ? xstrdup(val) : NULL);
 	if (old) {
 		log_warnx("warn: duplicate key \"%s\" in static table \"%s\"",
 		    lkey, t->t_name);
@@ -458,7 +459,7 @@ table_inet6_match(struct sockaddr_in6 *ss, struct netaddr *ssmask)
 }
 
 void
-table_dump_all(void)
+table_dump_all(struct smtpd *conf)
 {
 	struct table	*t;
 	void		*iter, *i2;
@@ -467,7 +468,7 @@ table_dump_all(void)
 	char		 buf[1024];
 
 	iter = NULL;
-	while (dict_iter(env->sc_tables_dict, &iter, NULL, (void **)&t)) {
+	while (dict_iter(conf->sc_tables_dict, &iter, NULL, (void **)&t)) {
 		i2 = NULL;
 		sep = "";
  		buf[0] = '\0';
@@ -497,25 +498,25 @@ table_dump_all(void)
 }
 
 void
-table_open_all(void)
+table_open_all(struct smtpd *conf)
 {
 	struct table	*t;
 	void		*iter;
 
 	iter = NULL;
-	while (dict_iter(env->sc_tables_dict, &iter, NULL, (void **)&t))
+	while (dict_iter(conf->sc_tables_dict, &iter, NULL, (void **)&t))
 		if (!table_open(t))
 			fatalx("failed to open table %s", t->t_name);
 }
 
 void
-table_close_all(void)
+table_close_all(struct smtpd *conf)
 {
 	struct table	*t;
 	void		*iter;
 
 	iter = NULL;
-	while (dict_iter(env->sc_tables_dict, &iter, NULL, (void **)&t))
+	while (dict_iter(conf->sc_tables_dict, &iter, NULL, (void **)&t))
 		table_close(t);
 }
 
@@ -621,6 +622,12 @@ table_parse_lookup(enum table_service service, const char *key,
 			return (-1);
 		return (1);
 
+	case K_RELAYHOST:
+		if (strlcpy(lk->relayhost, line, sizeof(lk->relayhost))
+		    >= sizeof(lk->relayhost))
+			return (-1);
+		return (1);
+
 	default:
 		return (-1);
 	}
@@ -690,6 +697,11 @@ table_dump_lookup(enum table_service s, union lookup *lk)
 		ret = snprintf(buf, sizeof(buf), "%s",
 		    lk->addrname.name);
 		if (ret == -1 || (size_t)ret >= sizeof (buf))
+			goto err;
+		break;
+
+	case K_RELAYHOST:
+		if (strlcpy(buf, lk->relayhost, sizeof(buf)) >= sizeof(buf))
 			goto err;
 		break;
 

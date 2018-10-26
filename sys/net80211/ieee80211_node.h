@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.h,v 1.73 2018/02/06 22:17:03 phessler Exp $	*/
+/*	$OpenBSD: ieee80211_node.h,v 1.77 2018/08/13 15:19:52 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.h,v 1.9 2004/04/30 22:57:32 dyoung Exp $	*/
 
 /*-
@@ -307,6 +307,17 @@ struct ieee80211_node {
 
 RBT_HEAD(ieee80211_tree, ieee80211_node);
 
+struct ieee80211_ess_rbt {
+	RBT_ENTRY(ieee80211_ess_rbt)	 ess_rbt;
+	u_int8_t			 esslen;
+	u_int8_t			 essid[IEEE80211_NWID_LEN];
+	struct ieee80211_node		*ni2;
+	struct ieee80211_node		*ni5;
+	struct ieee80211_node		*ni;
+};
+
+RBT_HEAD(ieee80211_ess_tree, ieee80211_ess_rbt);
+
 static inline void
 ieee80211_node_incref(struct ieee80211_node *ni)
 {
@@ -382,7 +393,7 @@ struct ieee80211_node *
 		const char *, u_int8_t);
 void ieee80211_release_node(struct ieee80211com *,
 		struct ieee80211_node *);
-void ieee80211_free_allnodes(struct ieee80211com *);
+void ieee80211_free_allnodes(struct ieee80211com *, int);
 void ieee80211_iterate_nodes(struct ieee80211com *,
 		ieee80211_iter_func *, void *);
 void ieee80211_clean_cached(struct ieee80211com *);
@@ -391,7 +402,7 @@ void ieee80211_setup_htcaps(struct ieee80211_node *, const uint8_t *,
     uint8_t);
 void ieee80211_clear_htcaps(struct ieee80211_node *);
 int ieee80211_setup_htop(struct ieee80211_node *, const uint8_t *,
-    uint8_t);
+    uint8_t, int);
 int ieee80211_setup_rates(struct ieee80211com *,
 	    struct ieee80211_node *, const u_int8_t *, const u_int8_t *, int);
 int ieee80211_iserp_sta(const struct ieee80211_node *);
@@ -405,6 +416,9 @@ void ieee80211_node_leave(struct ieee80211com *,
 		struct ieee80211_node *);
 int ieee80211_match_bss(struct ieee80211com *,
 		struct ieee80211_node *);
+struct ieee80211_node *ieee80211_node_choose_bss(struct ieee80211com *, int,
+		struct ieee80211_node **);
+void ieee80211_node_join_bss(struct ieee80211com *, struct ieee80211_node *);
 void ieee80211_create_ibss(struct ieee80211com* ,
 		struct ieee80211_channel *);
 void ieee80211_notify_dtim(struct ieee80211com *);
@@ -412,6 +426,9 @@ void ieee80211_set_tim(struct ieee80211com *, int, int);
 
 int ieee80211_node_cmp(const struct ieee80211_node *,
 		const struct ieee80211_node *);
+int ieee80211_ess_cmp(const struct ieee80211_ess_rbt *,
+		const struct ieee80211_ess_rbt *);
 RBT_PROTOTYPE(ieee80211_tree, ieee80211_node, ni_node, ieee80211_node_cmp);
+RBT_PROTOTYPE(ieee80211_ess_tree, ieee80211_ess_rbt, ess_rbt, ieee80211_ess_cmp);
 
 #endif /* _NET80211_IEEE80211_NODE_H_ */

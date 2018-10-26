@@ -1,4 +1,4 @@
-/*	$OpenBSD: scheduler.c,v 1.56 2017/01/09 14:49:22 reyk Exp $	*/
+/*	$OpenBSD: scheduler.c,v 1.58 2018/05/31 21:06:12 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -216,7 +216,7 @@ scheduler_imsg(struct mproc *p, struct imsg *imsg)
 				req.timestamp = timestamp;
 				req.bounce.type = B_WARNING;
 				req.bounce.delay = env->sc_bounce_warn[i];
-				req.bounce.expire = si.expire;
+				req.bounce.ttl = si.ttl;
 				m_compose(p, IMSG_SCHED_ENVELOPE_BOUNCE, 0, 0, -1,
 				    &req, sizeof req);
 				break;
@@ -433,7 +433,7 @@ scheduler(void)
 		errx(1, "cannot find scheduler backend \"%s\"",
 		    backend_scheduler);
 
-	purge_config(PURGE_EVERYTHING);
+	purge_config(PURGE_EVERYTHING & ~PURGE_DISPATCHERS);
 
 	if ((pw = getpwnam(SMTPD_USER)) == NULL)
 		fatalx("unknown user " SMTPD_USER);
@@ -452,10 +452,10 @@ scheduler(void)
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("scheduler: cannot drop privileges");
 
-	evpids = xcalloc(env->sc_scheduler_max_schedule, sizeof *evpids, "scheduler: init evpids");
-	types = xcalloc(env->sc_scheduler_max_schedule, sizeof *types, "scheduler: init types");
-	msgids = xcalloc(env->sc_scheduler_max_msg_batch_size, sizeof *msgids, "scheduler: list msg");
-	state = xcalloc(env->sc_scheduler_max_evp_batch_size, sizeof *state, "scheduler: list evp");
+	evpids = xcalloc(env->sc_scheduler_max_schedule, sizeof *evpids);
+	types = xcalloc(env->sc_scheduler_max_schedule, sizeof *types);
+	msgids = xcalloc(env->sc_scheduler_max_msg_batch_size, sizeof *msgids);
+	state = xcalloc(env->sc_scheduler_max_evp_batch_size, sizeof *state);
 
 	imsg_callback = scheduler_imsg;
 	event_init();

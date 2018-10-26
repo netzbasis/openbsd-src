@@ -1,7 +1,9 @@
 D/address_breakpoints////
+D/auto_continue////
 D/breakpoint_case_sensitivity////
 D/breakpoint_command////
 D/breakpoint_conditions////
+D/breakpoint_hit_count////
 D/breakpoint_ids////
 D/breakpoint_ignore_count////
 D/breakpoint_in_delayslot////
@@ -16,6 +18,7 @@ D/cpp////
 D/cpp_exception////
 D/debugbreak////
 D/dummy_target_breakpoints////
+D/global_constructor////
 D/hardware_breakpoints////
 D/inlined_breakpoints////
 D/move_nearest////

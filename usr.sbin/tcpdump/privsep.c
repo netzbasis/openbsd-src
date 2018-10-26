@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.47 2017/09/08 19:30:13 brynet Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.49 2018/09/28 06:48:59 mestre Exp $	*/
 
 /*
  * Copyright (c) 2003 Can Erkin Acar
@@ -207,7 +207,7 @@ __dead void
 priv_exec(int argc, char *argv[])
 {
 	int bpfd = -1;
-	int i, sock, cmd, nflag = 0, Pflag = 0;
+	int i, sock, cmd, nflag = 0, oflag = 0, Pflag = 0;
 	char *cmdbuf, *infile = NULL;
 	char *RFileName = NULL;
 	char *WFileName = NULL;
@@ -227,6 +227,10 @@ priv_exec(int argc, char *argv[])
 		switch (i) {
 		case 'n':
 			nflag++;
+			break;
+
+		case 'o':
+			oflag = 1;
 			break;
 
 		case 'r':
@@ -305,7 +309,15 @@ priv_exec(int argc, char *argv[])
 			test_state(cmd, STATE_RUN);
 			impl_init_done(sock, &bpfd);
 
-			if (pledge("stdio rpath inet unix dns recvfd bpf", NULL) == -1)
+			if (oflag) {
+				if (unveil("/etc/pf.os", "r") == -1)
+					err(1, "unveil");
+			}
+			if (unveil("/etc/ethers", "r") == -1)
+				err(1, "unveil");
+			if (unveil("/etc/rpc", "r") == -1)
+				err(1, "unveil");
+			if (pledge("stdio rpath inet dns recvfd bpf", NULL) == -1)
 				err(1, "pledge");
 
 			break;

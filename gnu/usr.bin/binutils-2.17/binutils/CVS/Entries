@@ -13,7 +13,7 @@
 /README/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /acinclude.m4/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /aclocal.m4/1.1.1.1/Sun Apr 24 20:14:40 2011//
-/addr2line.c/1.2/Thu Oct 22 14:53:00 2015//
+/addr2line.c/1.3/Tue Sep 18 18:25:31 2018//
 /ar.c/1.5/Mon Feb 27 07:13:54 2017//
 /arlex.l/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /arparse.y/1.1.1.1/Sun Apr 24 20:14:40 2011//
@@ -60,7 +60,7 @@
 /nm.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /not-ranlib.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /not-strip.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
-/objcopy.c/1.4/Sun Nov 15 04:13:17 2015//
+/objcopy.c/1.5/Mon May 21 18:00:54 2018//
 /objdump.c/1.2/Thu Oct 22 14:53:00 2015//
 /prdbg.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /ranlib.sh/1.1.1.1/Sun Apr 24 20:14:40 2011//

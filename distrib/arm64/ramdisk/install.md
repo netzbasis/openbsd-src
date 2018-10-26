@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.8 2018/02/25 01:53:29 jsg Exp $
+#	$OpenBSD: install.md,v 1.11 2018/10/12 18:37:22 kettenis Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -61,9 +61,9 @@ md_installboot() {
 		cp $_mdec/{bootcode.bin,start.elf,fixup.dat,*.dtb} /mnt/mnt/
 		cp $_mdec/u-boot.bin /mnt/mnt/
 		cat > /mnt/mnt/config.txt<<-__EOT
-			arm_control=0x200
+			arm_64bit=1
 			enable_uart=1
-			device_tree_address=0x100
+			device_tree_address=0x02600000
 			kernel=u-boot.bin
 		__EOT
 		;;
@@ -87,7 +87,7 @@ md_prep_fdisk() {
 		else
 			echo "MBR has invalid signature; not showing it."
 		fi
-		ask "Use (W)hole disk$ or (E)dit the MBR?" "$_d"
+		ask "Use (W)hole disk or (E)dit the MBR?" "$_d"
 		case $resp in
 		[wW]*)
 			echo -n "Creating a ${bootfstype} partition and an OpenBSD partition for rest of $_disk..."
@@ -150,4 +150,12 @@ md_congrats() {
 }
 
 md_consoleinfo() {
+	CTTY=console
+	DEFCONS=y
+	case $CSPEED in
+	9600|19200|38400|57600|115200|1500000)
+		;;
+	*)
+		CSPEED=115200;;
+	esac
 }

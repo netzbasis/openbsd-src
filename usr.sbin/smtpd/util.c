@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.133 2018/01/30 12:44:55 eric Exp $	*/
+/*	$OpenBSD: util.c,v 1.137 2018/09/02 21:06:44 gilles Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -45,6 +45,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -59,57 +60,66 @@ int	tracing = 0;
 int	foreground_log = 0;
 
 void *
-xmalloc(size_t size, const char *where)
+xmalloc(size_t size)
 {
 	void	*r;
 
-	if ((r = malloc(size)) == NULL) {
-		log_warnx("%s: malloc(%zu)", where, size);
-		fatalx("exiting");
-	}
+	if ((r = malloc(size)) == NULL)
+		fatal("malloc");
 
 	return (r);
 }
 
 void *
-xcalloc(size_t nmemb, size_t size, const char *where)
+xcalloc(size_t nmemb, size_t size)
 {
 	void	*r;
 
-	if ((r = calloc(nmemb, size)) == NULL) {
-		log_warnx("%s: calloc(%zu, %zu)", where, nmemb, size);
-		fatalx("exiting");
-	}
+	if ((r = calloc(nmemb, size)) == NULL)
+		fatal("calloc");
 
 	return (r);
 }
 
 char *
-xstrdup(const char *str, const char *where)
+xstrdup(const char *str)
 {
 	char	*r;
 
-	if ((r = strdup(str)) == NULL) {
-		log_warnx("%s: strdup(%p)", where, str);
-		fatalx("exiting");
-	}
+	if ((r = strdup(str)) == NULL)
+		fatal("strdup");
 
 	return (r);
 }
 
 void *
-xmemdup(const void *ptr, size_t size, const char *where)
+xmemdup(const void *ptr, size_t size)
 {
 	void	*r;
 
-	if ((r = malloc(size)) == NULL) {
-		log_warnx("%s: malloc(%zu)", where, size);
-		fatalx("exiting");
-	}
+	if ((r = malloc(size)) == NULL)
+		fatal("malloc");
+
 	memmove(r, ptr, size);
 
 	return (r);
 }
+
+int
+xasprintf(char **ret, const char *format, ...)
+{
+	int r;
+	va_list ap;
+
+	va_start(ap, format);
+	r = vasprintf(ret, format, ap);
+	va_end(ap);
+	if (r == -1)
+		fatal("vasprintf");
+
+	return (r);
+}
+
 
 #if !defined(NO_IO)
 int
@@ -455,7 +465,7 @@ mailaddr_match(const struct mailaddr *maddr1, const struct mailaddr *maddr2)
 	if (m2.user[0] == '\0' && m2.domain[0] == '\0')
 		return 1;
 
-	if (!hostname_match(m1.domain, m2.domain))
+	if (m2.domain[0] && !hostname_match(m1.domain, m2.domain))
 		return 0;
 
 	if (m2.user[0]) {

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.89 2018/01/06 07:57:53 sunil Exp $
+#	$OpenBSD: Makefile,v 1.93 2018/08/31 07:28:27 eric Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -11,7 +11,6 @@ SRCS+=	compress_backend.c
 SRCS+=	config.c
 SRCS+=	control.c
 SRCS+=	crypto.c
-SRCS+=	delivery.c
 SRCS+=	dict.c
 SRCS+=	dns.c
 SRCS+=	unpack_dns.c
@@ -27,6 +26,7 @@ SRCS+=	lka_session.c
 SRCS+=	log.c
 SRCS+=	mailaddr.c
 SRCS+=	mda.c
+SRCS+=	mda_unpriv.c
 SRCS+=	mda_variables.c
 SRCS+=	mproc.c
 SRCS+=	mta.c
@@ -35,6 +35,8 @@ SRCS+=	parse.y
 SRCS+=	pony.c
 SRCS+=	queue.c
 SRCS+=	queue_backend.c
+SRCS+=	resolver.c
+SRCS+=	rfc5322.c
 SRCS+=	ruleset.c
 SRCS+=	runq.c
 SRCS+=	scheduler.c
@@ -52,17 +54,8 @@ SRCS+=	tree.c
 SRCS+=	util.c
 SRCS+=	waitq.c
 
-# RFC parsers
-SRCS+=		rfc2822.c
-
 # backends
 SRCS+=		compress_gzip.c
-
-SRCS+=		delivery_filename.c
-SRCS+=		delivery_maildir.c
-SRCS+=		delivery_mbox.c
-SRCS+=		delivery_mda.c
-SRCS+=		delivery_lmtp.c
 
 SRCS+=		table_db.c
 SRCS+=		table_getpwnam.c

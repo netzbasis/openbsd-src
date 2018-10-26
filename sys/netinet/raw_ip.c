@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_ip.c,v 1.108 2017/12/04 13:40:34 bluhm Exp $	*/
+/*	$OpenBSD: raw_ip.c,v 1.114 2018/10/04 17:33:41 bluhm Exp $	*/
 /*	$NetBSD: raw_ip.c,v 1.25 1996/02/18 18:58:33 christos Exp $	*/
 
 /*
@@ -287,7 +287,7 @@ rip_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 #if NPF > 0
 	if (inp->inp_socket->so_state & SS_ISCONNECTED &&
 	    ip->ip_p != IPPROTO_ICMP)
-		m->m_pkthdr.pf.inp = inp;
+		pf_mbuf_link_inpcb(m, inp);
 #endif
 
 	error = ip_output(m, inp->inp_options, &inp->inp_route, flags,
@@ -365,15 +365,16 @@ int
 rip_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
-	struct inpcb *inp = sotoinpcb(so);
+	struct inpcb *inp;
 	int error = 0;
-
-	soassertlocked(so);
 
 	if (req == PRU_CONTROL)
 		return (in_control(so, (u_long)m, (caddr_t)nam,
 		    (struct ifnet *)control));
 
+	soassertlocked(so);
+
+	inp = sotoinpcb(so);
 	if (inp == NULL) {
 		error = EINVAL;
 		goto release;
@@ -482,13 +483,15 @@ rip_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	/*
 	 * Not supported.
 	 */
-	case PRU_RCVOOB:
-	case PRU_RCVD:
 	case PRU_LISTEN:
 	case PRU_ACCEPT:
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
+
+	case PRU_RCVD:
+	case PRU_RCVOOB:
+		return (EOPNOTSUPP);	/* do not free mbuf's */
 
 	case PRU_SOCKADDR:
 		in_setsockaddr(inp, nam);
@@ -502,6 +505,7 @@ rip_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		panic("rip_usrreq");
 	}
 release:
+	m_freem(control);
 	m_freem(m);
 	return (error);
 }

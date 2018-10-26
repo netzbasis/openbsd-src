@@ -5,7 +5,7 @@
 /iscsi.h/1.8/Tue Apr 26 21:30:14 2011//
 /mpath.c/1.41/Sun Aug 23 01:55:39 2015//
 /mpath_emc.c/1.21/Sat Mar 14 03:38:52 2015//
-/mpath_hds.c/1.19/Sun Jun  7 19:13:27 2015//
+/mpath_hds.c/1.21/Thu Aug  9 01:41:48 2018//
 /mpath_rdac.c/1.23/Sat Mar 14 03:38:52 2015//
 /mpath_sym.c/1.23/Sat Mar 14 03:38:52 2015//
 /mpathvar.h/1.9/Tue Aug 27 00:53:10 2013//
@@ -16,7 +16,7 @@
 /scsi_changer.h/1.6/Sun Jun  7 19:13:27 2015//
 /scsi_debug.h/1.13/Sat Nov 11 02:35:16 2017//
 /scsi_disk.h/1.35/Sun Jun  7 19:13:27 2015//
-/scsi_ioctl.c/1.53/Fri Sep  8 05:36:53 2017//
+/scsi_ioctl.c/1.54/Fri Apr 27 08:08:06 2018//
 /scsi_message.h/1.9/Sun Nov  1 23:06:03 2009//
 /scsi_scanner.h/1.10/Sat Dec 10 01:30:13 2005//
 /scsi_tape.h/1.9/Sun Jun  7 19:13:27 2015//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: systm.h,v 1.138 2018/02/08 09:27:44 mortimer Exp $	*/
+/*	$OpenBSD: systm.h,v 1.140 2018/05/31 02:16:22 guenther Exp $	*/
 /*	$NetBSD: systm.h,v 1.50 1996/06/09 04:55:09 briggs Exp $	*/
 
 /*-
@@ -79,6 +79,7 @@ extern const char ostype[];
 extern const char osversion[];
 extern const char osrelease[];
 extern int cold;		/* cold start flag initialized in locore */
+extern int db_active;		/* running currently inside ddb(4) */
 
 extern int ncpus;		/* number of CPUs used */
 extern int ncpusfound;		/* number of CPUs found */
@@ -250,6 +251,7 @@ void	sleep_setup_signal(struct sleep_state *, int);
 void	sleep_finish(struct sleep_state *, int);
 int	sleep_finish_timeout(struct sleep_state *);
 int	sleep_finish_signal(struct sleep_state *);
+int	sleep_finish_all(struct sleep_state *, int);
 void	sleep_queue_init(void);
 
 struct cond;

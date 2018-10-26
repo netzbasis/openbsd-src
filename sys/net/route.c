@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.373 2018/02/22 08:47:20 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.378 2018/09/27 12:36:57 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -254,7 +254,6 @@ rt_clone(struct rtentry **rtp, struct sockaddr *dst, unsigned int rtableid)
 	memset(&info, 0, sizeof(info));
 	info.rti_info[RTAX_DST] = dst;
 
-	KERNEL_LOCK();
 	/*
 	 * The priority of cloned route should be different
 	 * to avoid conflict with /32 cloning routes.
@@ -262,8 +261,10 @@ rt_clone(struct rtentry **rtp, struct sockaddr *dst, unsigned int rtableid)
 	 * It should also be higher to let the ARP layer find
 	 * cloned routes instead of the cloning one.
 	 */
+	KERNEL_LOCK();
 	error = rtrequest(RTM_RESOLVE, &info, rt->rt_priority - 1, &rt,
 	    rtableid);
+	KERNEL_UNLOCK();
 	if (error) {
 		rtm_miss(RTM_MISS, &info, 0, RTP_NONE, 0, error, rtableid);
 	} else {
@@ -272,7 +273,6 @@ rt_clone(struct rtentry **rtp, struct sockaddr *dst, unsigned int rtableid)
 		rtfree(*rtp);
 		*rtp = rt;
 	}
-	KERNEL_UNLOCK();
 	return (error);
 }
 
@@ -395,11 +395,8 @@ rt_setgwroute(struct rtentry *rt, u_int rtableid)
 	if (nhrt->rt_ifidx != rt->rt_ifidx) {
 		struct sockaddr_in6	sa_mask;
 
-		/*
-		 * If we found a non-L2 entry on a different interface
-		 * there's nothing we can do.
-		 */
-		if (!ISSET(nhrt->rt_flags, RTF_LLINFO)) {
+		if (!ISSET(nhrt->rt_flags, RTF_LLINFO) ||
+		    !ISSET(nhrt->rt_flags, RTF_CLONED)) {
 			rtfree(nhrt);
 			return (EHOSTUNREACH);
 		}
@@ -518,8 +515,7 @@ rtfree(struct rtentry *rt)
 		ifafree(rt->rt_ifa);
 		rtlabel_unref(rt->rt_labelid);
 #ifdef MPLS
-		if (rt->rt_flags & RTF_MPLS)
-			free(rt->rt_llinfo, M_TEMP, sizeof(struct rt_mpls));
+		rt_mpls_clear(rt);
 #endif
 		free(rt->rt_gateway, M_RTABLE, ROUNDUP(rt->rt_gateway->sa_len));
 		free(rt_key(rt), M_RTABLE, rt_key(rt)->sa_len);
@@ -655,9 +651,7 @@ out:
 	info.rti_info[RTAX_DST] = dst;
 	info.rti_info[RTAX_GATEWAY] = gateway;
 	info.rti_info[RTAX_AUTHOR] = src;
-	KERNEL_LOCK();
 	rtm_miss(RTM_REDIRECT, &info, flags, prio, ifidx, error, rdomain);
-	KERNEL_UNLOCK();
 }
 
 /*
@@ -683,9 +677,7 @@ rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 	if (!ISSET(rt->rt_flags, RTF_HOST))
 		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
 	error = rtrequest_delete(&info, rt->rt_priority, ifp, &rt, tableid);
-	KERNEL_LOCK();
 	rtm_send(rt, RTM_DELETE, error, tableid);
-	KERNEL_UNLOCK();
 	if (error == 0)
 		rtfree(rt);
 	return (error);
@@ -818,9 +810,6 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 	struct sockaddr_rtlabel	*sa_rl, sa_rl2;
 	struct sockaddr_dl	 sa_dl = { sizeof(sa_dl), AF_LINK };
 	int			 dlen, error;
-#ifdef MPLS
-	struct sockaddr_mpls	*sa_mpls;
-#endif
 
 	NET_ASSERT_LOCKED();
 
@@ -896,32 +885,15 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		if (info->rti_flags & RTF_MPLS &&
 		    (info->rti_info[RTAX_SRC] != NULL ||
 		    info->rti_info[RTAX_DST]->sa_family == AF_MPLS)) {
-			struct rt_mpls *rt_mpls;
-
-			sa_mpls = (struct sockaddr_mpls *)
-			    info->rti_info[RTAX_SRC];
-
-			rt->rt_llinfo = malloc(sizeof(struct rt_mpls),
-			    M_TEMP, M_NOWAIT|M_ZERO);
-
-			if (rt->rt_llinfo == NULL) {
+			error = rt_mpls_set(rt, info->rti_info[RTAX_SRC],
+			    info->rti_mpls);
+			if (error) {
 				free(ndst, M_RTABLE, dlen);
 				pool_put(&rtentry_pool, rt);
-				return (ENOMEM);
+				return (error);
 			}
-
-			rt_mpls = (struct rt_mpls *)rt->rt_llinfo;
-
-			if (sa_mpls != NULL)
-				rt_mpls->mpls_label = sa_mpls->smpls_label;
-
-			rt_mpls->mpls_operation = info->rti_mpls;
-
-			/* XXX: set experimental bits */
-
-			rt->rt_flags |= RTF_MPLS;
 		} else
-			rt->rt_flags &= ~RTF_MPLS;
+			rt_mpls_clear(rt);
 #endif
 
 		ifa->ifa_refcnt++;
@@ -1103,7 +1075,7 @@ rt_ifa_add(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 		 * userland that a new address has been added.
 		 */
 		if (flags & RTF_LOCAL)
-			rtm_addr(rt, RTM_NEWADDR, ifa);
+			rtm_addr(RTM_NEWADDR, ifa);
 		rtm_send(rt, RTM_ADD, 0, rtableid);
 		rtfree(rt);
 	}
@@ -1159,7 +1131,7 @@ rt_ifa_del(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 	if (error == 0) {
 		rtm_send(rt, RTM_DELETE, 0, rtableid);
 		if (flags & RTF_LOCAL)
-			rtm_addr(rt, RTM_DELADDR, ifa);
+			rtm_addr(RTM_DELADDR, ifa);
 		rtfree(rt);
 	}
 	m_free(m);
@@ -1297,7 +1269,6 @@ rt_ifa_purge_walker(struct rtentry *rt, void *vifa, unsigned int rtableid)
 	}
 
 	return (EAGAIN);
-
 }
 
 /*
@@ -1489,6 +1460,40 @@ rt_timer_timer(void *arg)
 
 	timeout_add_sec(to, 1);
 }
+
+#ifdef MPLS
+int
+rt_mpls_set(struct rtentry *rt, struct sockaddr *src, uint8_t op)
+{
+	struct sockaddr_mpls	*psa_mpls = (struct sockaddr_mpls *)src;
+	struct rt_mpls		*rt_mpls;
+
+	rt->rt_llinfo = malloc(sizeof(struct rt_mpls), M_TEMP, M_NOWAIT|M_ZERO);
+	if (rt->rt_llinfo == NULL)
+		return (ENOMEM);
+
+	rt_mpls = (struct rt_mpls *)rt->rt_llinfo;
+	if (psa_mpls != NULL)
+		rt_mpls->mpls_label = psa_mpls->smpls_label;
+
+	rt_mpls->mpls_operation = op;
+
+	/* XXX: set experimental bits */
+	rt->rt_flags |= RTF_MPLS;
+
+	return (0);
+}
+
+void
+rt_mpls_clear(struct rtentry *rt)
+{
+	if (rt->rt_llinfo != NULL && rt->rt_flags & RTF_MPLS) {
+		free(rt->rt_llinfo, M_TEMP, sizeof(struct rt_mpls));
+		rt->rt_llinfo = NULL;
+	}
+	rt->rt_flags &= ~RTF_MPLS;
+}
+#endif
 
 u_int16_t
 rtlabel_name2id(char *name)

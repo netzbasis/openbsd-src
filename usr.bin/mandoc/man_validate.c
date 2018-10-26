@@ -1,7 +1,7 @@
-/*	$OpenBSD: man_validate.c,v 1.104 2017/07/26 10:33:02 schwarze Exp $ */
+/*	$OpenBSD: man_validate.c,v 1.108 2018/08/18 02:03:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2012-2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2012-2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,11 +52,12 @@ static	void	  post_UR(CHKARGS);
 static	void	  post_in(CHKARGS);
 static	void	  post_vs(CHKARGS);
 
-static	const v_check __man_valids[MAN_MAX - MAN_TH] = {
+static	const v_check man_valids[MAN_MAX - MAN_TH] = {
 	post_TH,    /* TH */
 	NULL,       /* SH */
 	NULL,       /* SS */
 	NULL,       /* TP */
+	NULL,       /* TQ */
 	check_par,  /* LP */
 	check_par,  /* PP */
 	check_par,  /* P */
@@ -82,6 +83,8 @@ static	const v_check __man_valids[MAN_MAX - MAN_TH] = {
 	NULL,       /* PD */
 	post_AT,    /* AT */
 	post_in,    /* in */
+	NULL,       /* SY */
+	NULL,       /* YS */
 	post_OP,    /* OP */
 	NULL,       /* EX */
 	NULL,       /* EE */
@@ -90,7 +93,6 @@ static	const v_check __man_valids[MAN_MAX - MAN_TH] = {
 	post_UR,    /* MT */
 	NULL,       /* ME */
 };
-static	const v_check *man_valids = __man_valids - MAN_TH;
 
 
 void
@@ -118,6 +120,7 @@ man_node_validate(struct roff_man *man)
 	case ROFFT_ROOT:
 		check_root(man, n);
 		break;
+	case ROFFT_COMMENT:
 	case ROFFT_EQN:
 	case ROFFT_TBL:
 		break;
@@ -135,7 +138,7 @@ man_node_validate(struct roff_man *man)
 			break;
 		}
 		assert(n->tok >= MAN_TH && n->tok < MAN_MAX);
-		cp = man_valids + n->tok;
+		cp = man_valids + (n->tok - MAN_TH);
 		if (*cp)
 			(*cp)(man, n);
 		if (man->last == n)
@@ -147,10 +150,9 @@ man_node_validate(struct roff_man *man)
 static void
 check_root(CHKARGS)
 {
-
 	assert((man->flags & (MAN_BLINE | MAN_ELINE)) == 0);
 
-	if (NULL == man->first->child)
+	if (n->last == NULL || n->last->type == ROFFT_COMMENT)
 		mandoc_msg(MANDOCERR_DOC_EMPTY, man->parse,
 		    n->line, n->pos, NULL);
 	else

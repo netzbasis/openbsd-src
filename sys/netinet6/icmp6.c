@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.221 2017/12/14 14:26:50 bluhm Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.226 2018/09/05 09:47:18 miko Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -104,7 +104,6 @@
 
 struct cpumem *icmp6counters;
 
-extern struct inpcbtable rawin6pcbtable;
 extern int icmp6errppslim;
 static int icmp6errpps_count = 0;
 static struct timeval icmp6errppslim_last;
@@ -448,9 +447,8 @@ icmp6_input(struct mbuf **mp, int *offp, int proto, int af)
 	if (ifp == NULL)
 		goto freeit;
 
-	if (ifp->if_type == IFT_CARP &&
-	    icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
-	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
+	if (icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
+	    carp_lsdrop(ifp, m, AF_INET6, ip6->ip6_src.s6_addr32,
 	    ip6->ip6_dst.s6_addr32, 1)) {
 		if_put(ifp);
 		goto freeit;
@@ -1075,7 +1073,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 			if ((m = m_pullup(m, l)) == NULL)
 				return;
 		}
-		bcopy((caddr_t)&nip6, mtod(m, caddr_t), sizeof(nip6));
+		memcpy(mtod(m, caddr_t), &nip6, sizeof(nip6));
 	} else /* off == sizeof(struct ip6_hdr) */ {
 		size_t l;
 		l = sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr);
@@ -1268,7 +1266,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 	bzero(&sin6, sizeof(sin6));
 	sin6.sin6_family = AF_INET6;
 	sin6.sin6_len = sizeof(struct sockaddr_in6);
-	bcopy(&reddst6, &sin6.sin6_addr, sizeof(reddst6));
+	memcpy(&sin6.sin6_addr, &reddst6, sizeof(reddst6));
 	rt = rtalloc(sin6tosa(&sin6), 0, m->m_pkthdr.ph_rtableid);
 	if (rt) {
 		if (rt->rt_gateway == NULL ||
@@ -1376,9 +1374,9 @@ icmp6_redirect_input(struct mbuf *m, int off)
 		sdst.sin6_family = sgw.sin6_family = ssrc.sin6_family = AF_INET6;
 		sdst.sin6_len = sgw.sin6_len = ssrc.sin6_len =
 			sizeof(struct sockaddr_in6);
-		bcopy(&redtgt6, &sgw.sin6_addr, sizeof(struct in6_addr));
-		bcopy(&reddst6, &sdst.sin6_addr, sizeof(struct in6_addr));
-		bcopy(&src6, &ssrc.sin6_addr, sizeof(struct in6_addr));
+		memcpy(&sgw.sin6_addr, &redtgt6, sizeof(struct in6_addr));
+		memcpy(&sdst.sin6_addr, &reddst6, sizeof(struct in6_addr));
+		memcpy(&ssrc.sin6_addr, &src6, sizeof(struct in6_addr));
 		rtredirect(sin6tosa(&sdst), sin6tosa(&sgw), sin6tosa(&ssrc),
 		    &newrt, m->m_pkthdr.ph_rtableid);
 
@@ -1395,7 +1393,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 		bzero(&sdst, sizeof(sdst));
 		sdst.sin6_family = AF_INET6;
 		sdst.sin6_len = sizeof(struct sockaddr_in6);
-		bcopy(&reddst6, &sdst.sin6_addr, sizeof(struct in6_addr));
+		memcpy(&sdst.sin6_addr, &reddst6, sizeof(struct in6_addr));
 		pfctlinput(PRC_REDIRECT_HOST, sin6tosa(&sdst));
 	}
 
@@ -1770,20 +1768,16 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rtableid)
 	rt = rtalloc(dst, RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
-	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE)))
+		goto bad;
 
 	/*
 	 * No PMTU for local routes and permanent neighbors,
 	 * ARP and NDP use the same expire timer as the route.
 	 */
 	if (ISSET(rt->rt_flags, RTF_LOCAL) ||
-	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0)) {
-		rtfree(rt);
-		return (NULL);
-	}
+	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0))
+		goto bad;
 
 	/* If we didn't get a host route, allocate one */
 	if ((rt->rt_flags & RTF_HOST) == 0) {
@@ -1801,22 +1795,22 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rtableid)
 
 		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
 		    rtableid);
-		if (error) {
-			rtfree(rt);
-			return (NULL);
-		}
+		if (error)
+			goto bad;
 		nrt->rt_rmx = rt->rt_rmx;
 		rtfree(rt);
 		rt = nrt;
+		rtm_send(rt, RTM_ADD, 0, rtableid);
 	}
 	error = rt_timer_add(rt, icmp6_mtudisc_timeout, icmp6_mtudisc_timeout_q,
 	    rtableid);
-	if (error) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (error)
+		goto bad;
 
 	return (rt);
+bad:
+	rtfree(rt);
+	return (NULL);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.42 2017/11/03 11:29:46 jasper Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.44 2018/05/04 02:54:23 visa Exp $	*/
 
 /*
  * Copyright (c) 1999-2003 Michael Shalayeff
@@ -122,7 +122,6 @@ struct db_variable db_regs[] = {
 	{ "cr30",  (long *)&ddb_regs.tf_cr30,  FCN_NULL },
 };
 struct db_variable *db_eregs = db_regs + nitems(db_regs);
-int db_active = 0;
 
 void
 db_enter(void)
@@ -325,6 +324,7 @@ db_save_stack_trace(struct db_stack_trace *st)
 	pc = 0;
 	rp = fp[-5];
 
+	st->st_count = 0;
 	for (i = 0; i < DB_STACK_TRACE_MAX; i++) {
 		st->st_pc[st->st_count++] = rp;
 

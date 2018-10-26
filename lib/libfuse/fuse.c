@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse.c,v 1.43 2017/12/18 14:20:23 helg Exp $ */
+/* $OpenBSD: fuse.c,v 1.49 2018/07/05 10:57:31 helg Exp $ */
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -64,8 +64,6 @@ static struct fuse_opt fuse_core_opts[] = {
 #define FUSE_LIB_OPT(o, m) {o, offsetof(struct fuse_config, m), 1}
 static struct fuse_opt fuse_lib_opts[] = {
 	FUSE_OPT_KEY("ac_attr_timeout=",	KEY_STUB),
-	FUSE_OPT_KEY("allow_other",		KEY_STUB),
-	FUSE_OPT_KEY("allow_root",		KEY_STUB),
 	FUSE_OPT_KEY("attr_timeout=",		KEY_STUB),
 	FUSE_OPT_KEY("auto_cache",		KEY_STUB),
 	FUSE_OPT_KEY("noauto_cache",		KEY_STUB),
@@ -86,7 +84,7 @@ static struct fuse_opt fuse_lib_opts[] = {
 	FUSE_OPT_KEY("subtype=",		KEY_STUB),
 	FUSE_LIB_OPT("uid=",			set_uid),
 	FUSE_LIB_OPT("uid=%u",			uid),
-	FUSE_OPT_KEY("use_ino",			KEY_STUB),
+	FUSE_LIB_OPT("use_ino",			use_ino),
 	FUSE_OPT_KEY("dmask=%o",		KEY_STUB),
 	FUSE_OPT_KEY("fmask=%o",		KEY_STUB),
 	FUSE_LIB_OPT("umask=",			set_mode),
@@ -97,6 +95,8 @@ static struct fuse_opt fuse_lib_opts[] = {
 /* options supported by fuse_mount */
 #define FUSE_MOUNT_OPT(o, m) {o, offsetof(struct fuse_mount_opts, m), 1}
 static struct fuse_opt fuse_mount_opts[] = {
+	FUSE_MOUNT_OPT("allow_other",		allow_other),
+	FUSE_OPT_KEY("allow_root",		KEY_STUB),
 	FUSE_OPT_KEY("async_read",		KEY_STUB),
 	FUSE_OPT_KEY("blkdev",			KEY_STUB),
 	FUSE_OPT_KEY("blksize=",		KEY_STUB),
@@ -228,10 +228,10 @@ fuse_loop(struct fuse *fuse)
 			}
 
 			ctx.fuse = fuse;
-			ctx.uid = fuse->conf.uid;
-			ctx.gid = fuse->conf.gid;
-			ctx.pid = fuse->conf.pid;
-			ctx.umask = fuse->conf.umask;
+			ctx.uid = fbuf.fb_uid;
+			ctx.gid = fbuf.fb_gid;
+			ctx.pid = fbuf.fb_tid;
+			ctx.umask = fbuf.fb_umask;
 			ctx.private_data = fuse->private_data;
 			ictx = &ctx;
 
@@ -296,7 +296,7 @@ fuse_mount(const char *dir, struct fuse_args *args)
 		goto bad;
 	}
 
-	bzero(&opts, sizeof(opts));
+	memset(&opts, 0, sizeof(opts));
 	if (fuse_opt_parse(args, &opts, fuse_mount_opts, NULL) == -1)
 		goto bad;
 
@@ -312,9 +312,10 @@ fuse_mount(const char *dir, struct fuse_args *args)
 		goto bad;
 	}
 
-	bzero(&fargs, sizeof(fargs));
+	memset(&fargs, 0, sizeof(fargs));
 	fargs.fd = fc->fd;
 	fargs.max_read = opts.max_read;
+	fargs.allow_other = opts.allow_other;
 
 	if (mount(MOUNT_FUSEFS, fc->dir, mnt_flags, &fargs)) {
 		switch (errno) {
@@ -475,20 +476,51 @@ DEF(fuse_destroy);
 void
 fuse_remove_signal_handlers(unused struct fuse_session *se)
 {
-	signal(SIGHUP, SIG_DFL);
-	signal(SIGINT, SIG_DFL);
-	signal(SIGTERM, SIG_DFL);
-	signal(SIGPIPE, SIG_DFL);
+	struct sigaction old_sa;
+
+	if (sigaction(SIGHUP, NULL, &old_sa) == 0)
+		if (old_sa.sa_handler == ifuse_sighdlr)
+			signal(SIGHUP, SIG_DFL);
+
+	if (sigaction(SIGINT, NULL, &old_sa) == 0)
+		if (old_sa.sa_handler == ifuse_sighdlr)
+			signal(SIGINT, SIG_DFL);
+
+	if (sigaction(SIGTERM, NULL, &old_sa) == 0)
+		if (old_sa.sa_handler == ifuse_sighdlr)
+			signal(SIGTERM, SIG_DFL);
+
+	if (sigaction(SIGPIPE, NULL, &old_sa) == 0)
+		if (old_sa.sa_handler == SIG_IGN)
+			signal(SIGPIPE, SIG_DFL);
 }
 DEF(fuse_remove_signal_handlers);
 
 int
 fuse_set_signal_handlers(unused struct fuse_session *se)
 {
-	signal(SIGHUP, ifuse_sighdlr);
-	signal(SIGINT, ifuse_sighdlr);
-	signal(SIGTERM, ifuse_sighdlr);
-	signal(SIGPIPE, SIG_IGN);
+	struct sigaction old_sa;
+
+	if (sigaction(SIGHUP, NULL, &old_sa) == -1)
+		return (-1);
+	if (old_sa.sa_handler == SIG_DFL)
+		signal(SIGHUP, ifuse_sighdlr);
+
+	if (sigaction(SIGINT, NULL, &old_sa) == -1)
+		return (-1);
+	if (old_sa.sa_handler == SIG_DFL)
+		signal(SIGINT, ifuse_sighdlr);
+
+	if (sigaction(SIGTERM, NULL, &old_sa) == -1)
+		return (-1);
+	if (old_sa.sa_handler == SIG_DFL)
+		signal(SIGTERM, ifuse_sighdlr);
+
+	if (sigaction(SIGPIPE, NULL, &old_sa) == -1)
+		return (-1);
+	if (old_sa.sa_handler == SIG_DFL)
+		signal(SIGPIPE, SIG_IGN);
+
 	return (0);
 }
 
@@ -567,7 +599,7 @@ fuse_parse_cmdline(struct fuse_args *args, char **mp, int *mt, int *fg)
 {
 	struct fuse_core_opts opt;
 
-	bzero(&opt, sizeof(opt));
+	memset(&opt, 0, sizeof(opt));
 	if (fuse_opt_parse(args, &opt, fuse_core_opts, ifuse_process_opt) == -1)
 		return (-1);
 

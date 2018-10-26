@@ -1,4 +1,4 @@
-/*	$OpenBSD: hibernate_machdep.c,v 1.50 2018/02/10 05:11:06 jmatthew Exp $	*/
+/*	$OpenBSD: hibernate_machdep.c,v 1.55 2018/07/30 14:19:12 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2011 Mike Larkin <mlarkin@openbsd.org>
@@ -26,13 +26,11 @@
 #include <sys/timeout.h>
 #include <sys/malloc.h>
 
-#include <dev/acpi/acpivar.h>
-
 #include <uvm/uvm_extern.h>
 #include <uvm/uvm_pmemrange.h>
 
+#include <machine/biosvar.h>
 #include <machine/hibernate.h>
-#include <machine/hibernate_var.h>
 #include <machine/kcore.h>
 #include <machine/pmap.h>
 
@@ -40,19 +38,20 @@
 #include <machine/mpbiosvar.h>
 #endif /* MULTIPROCESSOR */
 
+#include <dev/acpi/acpivar.h>
+
 #include "acpi.h"
 #include "wd.h"
 #include "ahci.h"
 #include "softraid.h"
 #include "sd.h"
+#include "sdmmc.h"
 
 /* Hibernate support */
 void    hibernate_enter_resume_4k_pte(vaddr_t, paddr_t);
 void    hibernate_enter_resume_4k_pde(vaddr_t);
 void    hibernate_enter_resume_4m_pde(vaddr_t, paddr_t);
 
-extern	void hibernate_resume_machdep(void);
-extern	void hibernate_flush(void);
 extern	caddr_t start, end;
 extern	int ndumpmem;
 extern  struct dumpmem dumpmem[];
@@ -97,6 +96,8 @@ get_hibernate_io_function(dev_t dev)
 		    vaddr_t addr, size_t size, int op, void *page);
 		extern int sr_hibernate_io(dev_t dev, daddr_t blkno,
 		    vaddr_t addr, size_t size, int op, void *page);
+		extern int sdmmc_scsi_hibernate_io(dev_t dev, daddr_t blkno,
+		    vaddr_t addr, size_t size, int op, void *page);
 		struct device *dv = disk_lookup(&sd_cd, DISKUNIT(dev));
 		struct {
 			const char *driver;
@@ -107,6 +108,9 @@ get_hibernate_io_function(dev_t dev)
 #endif
 #if NSOFTRAID > 0
 			{ "softraid", sr_hibernate_io },
+#endif
+#if SDMMC > 0
+			{ "sdmmc", sdmmc_scsi_hibernate_io },
 #endif
 		};
 
@@ -383,13 +387,13 @@ hibernate_inflate_skip(union hibernate_info *hib_info, paddr_t dest)
 void
 hibernate_enable_intr_machdep(void)
 {
-	enable_intr();
+	intr_enable();
 }
 
 void
 hibernate_disable_intr_machdep(void)
 {
-	disable_intr();
+	intr_disable();
 }
 
 #ifdef MULTIPROCESSOR

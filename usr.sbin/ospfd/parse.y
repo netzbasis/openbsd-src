@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.86 2018/02/11 02:27:33 benno Exp $ */
+/*	$OpenBSD: parse.y,v 1.92 2018/09/07 07:35:31 miko Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Esben Norby <norby@openbsd.org>
@@ -48,6 +48,10 @@ static struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
+	size_t			 ungetpos;
+	size_t			 ungetsize;
+	u_char			*ungetbuf;
+	int			 eof_reached;
 	int			 lineno;
 	int			 errors;
 } *file, *topfile;
@@ -61,8 +65,9 @@ int		 yyerror(const char *, ...)
     __attribute__((__nonnull__ (1)));
 int		 kw_cmp(const void *, const void *);
 int		 lookup(char *);
+int		 igetc(void);
 int		 lgetc(int);
-int		 lungetc(int);
+void		 lungetc(int);
 int		 findeol(void);
 
 TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
@@ -154,7 +159,8 @@ grammar		: /* empty */
 include		: INCLUDE STRING		{
 			struct file	*nfile;
 
-			if ((nfile = pushfile($2, 1)) == NULL) {
+			if ((nfile = pushfile($2,
+			    !(conf->opts & OSPFD_OPT_NOACTION))) == NULL) {
 				yyerror("failed to include file %s", $2);
 				free($2);
 				YYERROR;
@@ -203,6 +209,8 @@ varset		: STRING '=' string		{
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -834,34 +842,39 @@ lookup(char *s)
 		return (STRING);
 }
 
-#define MAXPUSHBACK	128
+#define START_EXPAND	1
+#define DONE_EXPAND	2
 
-u_char	*parsebuf;
-int	 parseindex;
-u_char	 pushback_buffer[MAXPUSHBACK];
-int	 pushback_index = 0;
+static int	expanding;
+
+int
+igetc(void)
+{
+	int	c;
+
+	while (1) {
+		if (file->ungetpos > 0)
+			c = file->ungetbuf[--file->ungetpos];
+		else
+			c = getc(file->stream);
+
+		if (c == START_EXPAND)
+			expanding = 1;
+		else if (c == DONE_EXPAND)
+			expanding = 0;
+		else
+			break;
+	}
+	return (c);
+}
 
 int
 lgetc(int quotec)
 {
 	int		c, next;
 
-	if (parsebuf) {
-		/* Read character from the parsebuffer instead of input. */
-		if (parseindex >= 0) {
-			c = parsebuf[parseindex++];
-			if (c != '\0')
-				return (c);
-			parsebuf = NULL;
-		} else
-			parseindex++;
-	}
-
-	if (pushback_index)
-		return (pushback_buffer[--pushback_index]);
-
 	if (quotec) {
-		if ((c = getc(file->stream)) == EOF) {
+		if ((c = igetc()) == EOF) {
 			yyerror("reached end of file while parsing "
 			    "quoted string");
 			if (file == topfile || popfile() == EOF)
@@ -871,8 +884,8 @@ lgetc(int quotec)
 		return (c);
 	}
 
-	while ((c = getc(file->stream)) == '\\') {
-		next = getc(file->stream);
+	while ((c = igetc()) == '\\') {
+		next = igetc();
 		if (next != '\n') {
 			c = next;
 			break;
@@ -881,28 +894,39 @@ lgetc(int quotec)
 		file->lineno++;
 	}
 
-	while (c == EOF) {
-		if (file == topfile || popfile() == EOF)
-			return (EOF);
-		c = getc(file->stream);
+	if (c == EOF) {
+		/*
+		 * Fake EOL when hit EOF for the first time. This gets line
+		 * count right if last line in included file is syntactically
+		 * invalid and has no newline.
+		 */
+		if (file->eof_reached == 0) {
+			file->eof_reached = 1;
+			return ('\n');
+		}
+		while (c == EOF) {
+			if (file == topfile || popfile() == EOF)
+				return (EOF);
+			c = igetc();
+		}
 	}
 	return (c);
 }
 
-int
+void
 lungetc(int c)
 {
 	if (c == EOF)
-		return (EOF);
-	if (parsebuf) {
-		parseindex--;
-		if (parseindex >= 0)
-			return (c);
+		return;
+
+	if (file->ungetpos >= file->ungetsize) {
+		void *p = reallocarray(file->ungetbuf, file->ungetsize, 2);
+		if (p == NULL)
+			err(1, "%s", __func__);
+		file->ungetbuf = p;
+		file->ungetsize *= 2;
 	}
-	if (pushback_index < MAXPUSHBACK-1)
-		return (pushback_buffer[pushback_index++] = c);
-	else
-		return (EOF);
+	file->ungetbuf[file->ungetpos++] = c;
 }
 
 int
@@ -910,14 +934,9 @@ findeol(void)
 {
 	int	c;
 
-	parsebuf = NULL;
-
 	/* skip to either EOF or the first real EOL */
 	while (1) {
-		if (pushback_index)
-			c = pushback_buffer[--pushback_index];
-		else
-			c = lgetc(0);
+		c = lgetc(0);
 		if (c == '\n') {
 			file->lineno++;
 			break;
@@ -945,7 +964,7 @@ top:
 	if (c == '#')
 		while ((c = lgetc(0)) != '\n' && c != EOF)
 			; /* nothing */
-	if (c == '$' && parsebuf == NULL) {
+	if (c == '$' && !expanding) {
 		while (1) {
 			if ((c = lgetc(0)) == EOF)
 				return (0);
@@ -967,8 +986,13 @@ top:
 			yyerror("macro '%s' not defined", buf);
 			return (findeol());
 		}
-		parsebuf = val;
-		parseindex = 0;
+		p = val + strlen(val) - 1;
+		lungetc(DONE_EXPAND);
+		while (p >= val) {
+			lungetc(*p);
+			p--;
+		}
+		lungetc(START_EXPAND);
 		goto top;
 	}
 
@@ -1007,7 +1031,7 @@ top:
 		}
 		yylval.v.string = strdup(buf);
 		if (yylval.v.string == NULL)
-			err(1, "yylex: strdup");
+			err(1, "%s", __func__);
 		return (STRING);
 	}
 
@@ -1065,7 +1089,7 @@ nodigits:
 		*p = '\0';
 		if ((token = lookup(buf)) == STRING)
 			if ((yylval.v.string = strdup(buf)) == NULL)
-				err(1, "yylex: strdup");
+				err(1, "%s", __func__);
 		return (token);
 	}
 	if (c == '\n') {
@@ -1103,16 +1127,16 @@ pushfile(const char *name, int secret)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		free(nfile);
 		return (NULL);
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		log_warn("%s", nfile->name);
+		log_warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -1123,7 +1147,16 @@ pushfile(const char *name, int secret)
 		free(nfile);
 		return (NULL);
 	}
-	nfile->lineno = 1;
+	nfile->lineno = TAILQ_EMPTY(&files) ? 1 : 0;
+	nfile->ungetsize = 16;
+	nfile->ungetbuf = malloc(nfile->ungetsize);
+	if (nfile->ungetbuf == NULL) {
+		log_warn("%s", __func__);
+		fclose(nfile->stream);
+		free(nfile->name);
+		free(nfile);
+		return (NULL);
+	}
 	TAILQ_INSERT_TAIL(&files, nfile, entry);
 	return (nfile);
 }
@@ -1139,6 +1172,7 @@ popfile(void)
 	TAILQ_REMOVE(&files, file, entry);
 	fclose(file->stream);
 	free(file->name);
+	free(file->ungetbuf);
 	free(file);
 	file = prev;
 	return (file ? 0 : EOF);
@@ -1170,7 +1204,8 @@ parse_config(char *filename, int opts)
 	conf->spf_hold_time = DEFAULT_SPF_HOLDTIME;
 	conf->spf_state = SPF_IDLE;
 
-	if ((file = pushfile(filename, !(conf->opts & OSPFD_OPT_NOACTION))) == NULL) {
+	if ((file = pushfile(filename,
+	    !(conf->opts & OSPFD_OPT_NOACTION))) == NULL) {
 		free(conf);
 		return (NULL);
 	}
@@ -1259,17 +1294,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		errx(1, "cmdline_symset: malloc");
-
-	strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		errx(1, "%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 

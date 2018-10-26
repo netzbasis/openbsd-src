@@ -1,4 +1,4 @@
-/* $OpenBSD: ns8250.c,v 1.14 2018/01/08 18:21:22 anton Exp $ */
+/* $OpenBSD: ns8250.c,v 1.19 2018/10/04 16:21:59 mlarkin Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -58,6 +58,7 @@ ratelimit(int fd, short type, void *arg)
 	com1_dev.regs.iir |= IIR_TXRDY;
 	com1_dev.regs.iir &= ~IIR_NOPEND;
 	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
 }
 
 void
@@ -127,6 +128,7 @@ com_rcv_event(int fd, short kind, void *arg)
 		if ((com1_dev.regs.iir & IIR_NOPEND) == 0) {
 			/* XXX: vcpu_id */
 			vcpu_assert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
+			vcpu_deassert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
 		}
 	}
 
@@ -214,7 +216,7 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
  *  interrupt to inject, or 0xFF if nothing to inject
  */
 uint8_t
-vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
+vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -235,8 +237,10 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
 			/* Limit output rate if needed */
-			if (com1_dev.byte_out % com1_dev.pause_ct == 0) {
-				evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+			if (com1_dev.pause_ct > 0 &&
+			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
+					evtimer_add(&com1_dev.rate,
+					    &com1_dev.rate_tv);
 			} else {
 				/* Set TXRDY and clear "no pending interrupt" */
 				com1_dev.regs.iir |= IIR_TXRDY;
@@ -262,7 +266,8 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 			com1_dev.regs.lsr &= ~LSR_RXRDY;
 		} else {
 			set_return_data(vei, com1_dev.regs.data);
-			log_warnx("%s: guest reading com1 when not ready", __func__);
+			log_warnx("%s: guest reading com1 when not ready",
+			    __func__);
 		}
 
 		/* Reading the data register always clears RXRDY from IIR */
@@ -296,7 +301,7 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
  *      instruction being performed
  */
 void
-vcpu_process_com_lcr(union vm_exit *vei)
+vcpu_process_com_lcr(struct vm_exit *vei)
 {
 	uint8_t data = (uint8_t)vei->vei.vei_data;
 	uint16_t divisor;
@@ -349,7 +354,7 @@ vcpu_process_com_lcr(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_iir(union vm_exit *vei)
+vcpu_process_com_iir(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -388,7 +393,7 @@ vcpu_process_com_iir(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_mcr(union vm_exit *vei)
+vcpu_process_com_mcr(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -417,7 +422,7 @@ vcpu_process_com_mcr(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_lsr(union vm_exit *vei)
+vcpu_process_com_lsr(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -449,7 +454,7 @@ vcpu_process_com_lsr(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_msr(union vm_exit *vei)
+vcpu_process_com_msr(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -481,7 +486,7 @@ vcpu_process_com_msr(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_scr(union vm_exit *vei)
+vcpu_process_com_scr(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -511,7 +516,7 @@ vcpu_process_com_scr(union vm_exit *vei)
  *      instruction being performed
  */
 void
-vcpu_process_com_ier(union vm_exit *vei)
+vcpu_process_com_ier(struct vm_exit *vei)
 {
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -557,7 +562,7 @@ uint8_t
 vcpu_exit_com(struct vm_run_params *vrp)
 {
 	uint8_t intr = 0xFF;
-	union vm_exit *vei = vrp->vrp_exit;
+	struct vm_exit *vei = vrp->vrp_exit;
 
 	mutex_lock(&com1_dev.mutex);
 
@@ -590,11 +595,6 @@ vcpu_exit_com(struct vm_run_params *vrp)
 	}
 
 	mutex_unlock(&com1_dev.mutex);
-
-	if ((com1_dev.regs.iir & IIR_NOPEND)) {
-		/* XXX: vcpu_id */
-		vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-	}
 
 	return (intr);
 }

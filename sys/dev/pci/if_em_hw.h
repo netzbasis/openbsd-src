@@ -31,7 +31,7 @@
 
 *******************************************************************************/
 
-/* $OpenBSD: if_em_hw.h,v 1.72 2018/03/10 04:35:01 jsg Exp $ */
+/* $OpenBSD: if_em_hw.h,v 1.76 2018/04/29 08:45:01 sf Exp $ */
 /* $FreeBSD: if_em_hw.h,v 1.15 2005/05/26 23:32:02 tackerman Exp $ */
 
 /* if_em_hw.h
@@ -81,6 +81,7 @@ typedef enum {
     em_pch2lan,
     em_pch_lpt,
     em_pch_spt,
+    em_pch_cnp,
     em_num_macs
 } em_mac_type;
 
@@ -1633,6 +1634,7 @@ struct em_hw {
     uint8_t bus_func;
     uint16_t swfw;
     boolean_t eee_enable;
+    int sw_flag;
 };
 
 #define E1000_EEPROM_SWDPIN0   0x0001   /* SWDPIN 0 EEPROM Value */
@@ -2294,6 +2296,7 @@ struct em_hw {
 #define E1000_WUS_FLX_FILTERS 0x000F0000 /* Mask for the 4 flexible filters */
 
 /* TRAC0 bits */
+#define E1000_TARC0_CB_MULTIQ_2_REQ     (1 << 29)
 #define E1000_TARC0_CB_MULTIQ_3_REQ     (1 << 28 | 1 << 29)
 
 /* Management Control */
@@ -2754,6 +2757,8 @@ struct em_host_command_info {
 #define AUTO_READ_DONE_TIMEOUT      10
 /* Number of milliseconds we wait for PHY configuration done after MAC reset */
 #define PHY_CFG_TIMEOUT             100
+/* SW Semaphore flag timeout in ms */
+#define SW_FLAG_TIMEOUT		1000
 
 #define E1000_TX_BUFFER_SIZE ((uint32_t)1514)
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_dwxe.c,v 1.6 2017/12/13 10:38:06 kettenis Exp $	*/
+/*	$OpenBSD: if_dwxe.c,v 1.10 2018/08/06 10:52:30 patrick Exp $	*/
 /*
  * Copyright (c) 2008 Mark Kettenis
  * Copyright (c) 2017 Patrick Wildt <patrick@blueri.se>
@@ -220,7 +220,7 @@ struct dwxe_desc {
 #define DWXE_RX_INT_CTL		(1 << 31)
 
 /* EMAC syscon bits */
-#define SYSCON				0x30
+#define SYSCON_EMAC			0x30
 #define SYSCON_ETCS_MASK		(0x3 << 0)
 #define SYSCON_ETCS_MII			(0 << 0)
 #define SYSCON_ETCS_EXT_GMII		(1 << 0)
@@ -237,6 +237,16 @@ struct dwxe_desc {
 #define SYSCON_H3_EPHY_CLK_SEL		(1 << 18) /* 1: 24MHz, 0: 25MHz */
 #define SYSCON_H3_EPHY_ADDR_MASK	(0x1f << 20)
 #define SYSCON_H3_EPHY_ADDR_SHIFT	20
+
+/* GMAC syscon bits (Allwinner R40) */
+#define SYSCON_GMAC			0x00
+#define SYSCON_GTCS_MASK		SYSCON_ETCS_MASK
+#define SYSCON_GTCS_MII			SYSCON_ETCS_MII
+#define SYSCON_GTCS_EXT_GMII		SYSCON_ETCS_EXT_GMII
+#define SYSCON_GTCS_INT_GMII		SYSCON_ETCS_INT_GMII
+#define SYSCON_GPIT			SYSCON_EPIT
+#define SYSCON_GRXDC_MASK		(0x7 << 5)
+#define SYSCON_GRXDC_SHIFT		5
 
 struct dwxe_buf {
 	bus_dmamap_t	tb_map;
@@ -296,7 +306,8 @@ struct dwxe_softc {
 
 int	dwxe_match(struct device *, void *, void *);
 void	dwxe_attach(struct device *, struct device *, void *);
-void	dwxe_phy_setup(struct dwxe_softc *);
+void	dwxe_phy_setup_emac(struct dwxe_softc *);
+void	dwxe_phy_setup_gmac(struct dwxe_softc *);
 
 struct cfattach dwxe_ca = {
 	sizeof(struct dwxe_softc), dwxe_match, dwxe_attach
@@ -349,6 +360,7 @@ dwxe_match(struct device *parent, void *cfdata, void *aux)
 	struct fdt_attach_args *faa = aux;
 
 	return OF_is_compatible(faa->fa_node, "allwinner,sun8i-h3-emac") ||
+	    OF_is_compatible(faa->fa_node, "allwinner,sun8i-r40-gmac") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-emac");
 }
 
@@ -399,11 +411,16 @@ dwxe_attach(struct device *parent, struct device *self, void *aux)
 	else
 		sc->sc_clk = DWXE_MDIO_CMD_MDC_DIV_RATIO_M_16;
 
-	dwxe_lladdr_read(sc, sc->sc_lladdr);
+	if (OF_getprop(faa->fa_node, "local-mac-address",
+	    &sc->sc_lladdr, ETHER_ADDR_LEN) != ETHER_ADDR_LEN)
+		dwxe_lladdr_read(sc, sc->sc_lladdr);
 	printf(": address %s\n", ether_sprintf(sc->sc_lladdr));
 
 	/* Do hardware specific initializations. */
-	dwxe_phy_setup(sc);
+	if (OF_is_compatible(faa->fa_node, "allwinner,sun8i-r40-gmac"))
+		dwxe_phy_setup_gmac(sc);
+	else
+		dwxe_phy_setup_emac(sc);
 
 	timeout_set(&sc->sc_tick, dwxe_tick, sc);
 
@@ -439,15 +456,16 @@ dwxe_attach(struct device *parent, struct device *self, void *aux)
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
-	arm_intr_establish_fdt(faa->fa_node, IPL_NET, dwxe_intr, sc,
+	fdt_intr_establish(faa->fa_node, IPL_NET, dwxe_intr, sc,
 	    sc->sc_dev.dv_xname);
 }
 
 void
-dwxe_phy_setup(struct dwxe_softc *sc)
+dwxe_phy_setup_emac(struct dwxe_softc *sc)
 {
 	struct regmap *rm;
 	uint32_t syscon;
+	uint32_t tx_delay, rx_delay;
 	char *phy_mode;
 	int len;
 
@@ -455,8 +473,9 @@ dwxe_phy_setup(struct dwxe_softc *sc)
 	if (rm == NULL)
 		return;
 
-	syscon = regmap_read_4(rm, SYSCON);
+	syscon = regmap_read_4(rm, SYSCON_EMAC);
 	syscon &= ~(SYSCON_ETCS_MASK|SYSCON_EPIT|SYSCON_RMII_EN);
+	syscon &= ~(SYSCON_ETXDC_MASK | SYSCON_ERXDC_MASK);
 	syscon &= ~SYSCON_H3_EPHY_SELECT;
 
 	if ((len = OF_getproplen(sc->sc_node, "phy-mode")) <= 0)
@@ -480,7 +499,45 @@ dwxe_phy_setup(struct dwxe_softc *sc)
 	}
 	free(phy_mode, M_TEMP, len);
 
-	regmap_write_4(rm, SYSCON, syscon);
+	tx_delay = OF_getpropint(sc->sc_node, "allwinner,tx-delay-ps", 0);
+	rx_delay = OF_getpropint(sc->sc_node, "allwinner,rx-delay-ps", 0);
+	syscon |= ((tx_delay / 100) << SYSCON_ETXDC_SHIFT) & SYSCON_ETXDC_MASK;
+	syscon |= ((rx_delay / 100) << SYSCON_ERXDC_SHIFT) & SYSCON_ERXDC_MASK;
+
+	regmap_write_4(rm, SYSCON_EMAC, syscon);
+	dwxe_reset(sc);
+}
+
+void
+dwxe_phy_setup_gmac(struct dwxe_softc *sc)
+{
+	struct regmap *rm;
+	uint32_t syscon;
+	uint32_t rx_delay;
+	char *phy_mode;
+	int len;
+
+	rm = regmap_byphandle(OF_getpropint(sc->sc_node, "syscon", 0));
+	if (rm == NULL)
+		return;
+
+	syscon = regmap_read_4(rm, SYSCON_GMAC);
+	syscon &= ~(SYSCON_GTCS_MASK|SYSCON_GPIT|SYSCON_ERXDC_MASK);
+
+	if ((len = OF_getproplen(sc->sc_node, "phy-mode")) <= 0)
+		return;
+	phy_mode = malloc(len, M_TEMP, M_WAITOK);
+	OF_getprop(sc->sc_node, "phy-mode", phy_mode, len);
+	if (!strncmp(phy_mode, "rgmii", strlen("rgmii")))
+		syscon |= SYSCON_GPIT | SYSCON_GTCS_INT_GMII;
+	else if (!strncmp(phy_mode, "rmii", strlen("rmii")))
+		syscon |= SYSCON_GPIT | SYSCON_GTCS_EXT_GMII;
+	free(phy_mode, M_TEMP, len);
+
+	rx_delay = OF_getpropint(sc->sc_node, "allwinner,rx-delay-ps", 0);
+	syscon |= ((rx_delay / 100) << SYSCON_ERXDC_SHIFT) & SYSCON_ERXDC_MASK;
+
+	regmap_write_4(rm, SYSCON_GMAC, syscon);
 	dwxe_reset(sc);
 }
 

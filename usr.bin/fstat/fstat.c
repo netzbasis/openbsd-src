@@ -1,4 +1,4 @@
-/*	$OpenBSD: fstat.c,v 1.91 2017/12/08 17:51:26 deraadt Exp $	*/
+/*	$OpenBSD: fstat.c,v 1.95 2018/09/16 02:44:06 millert Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -159,6 +159,9 @@ main(int argc, char *argv[])
 		optstr = "fnop:su:vN:M:";
 	}
 
+	/* Keep passwd file open for faster lookups. */
+	setpassent(1);
+
 	/*
 	 * fuser and fstat share three flags: -f, -s and -u.  In both cases
 	 * -f is a boolean, but for -u fstat wants an argument while fuser
@@ -217,15 +220,17 @@ main(int argc, char *argv[])
 			if (uflg++)
 				usage();
 			if (!fuser) {
-				if (!(passwd = getpwnam(optarg))) {
-					arg = strtonum(optarg, 0, UID_MAX,
+				uid_t uid;
+
+				if (uid_from_user(optarg, &uid) == -1) {
+					uid = strtonum(optarg, 0, UID_MAX,
 					    &errstr);
 					if (errstr != NULL) {
 						errx(1, "%s: unknown uid",
 						    optarg);
 					}
-				} else
-					arg = passwd->pw_uid;
+				}
+				arg = uid;
 				what = KERN_FILE_BYUID;
 			}
 			break;
@@ -331,7 +336,7 @@ fstat_header(void)
 	putchar('\n');
 }
 
-char	*Uname, *Comm;
+const char *Uname, *Comm;
 uid_t	*procuid;
 pid_t	Pid;
 
@@ -452,6 +457,8 @@ vtrans(struct kinfo_file *kf)
 		strlcat(rwep, "w", sizeof rwep);
 	if (kf->fd_ofileflags & UF_EXCLOSE)
 		strlcat(rwep, "e", sizeof rwep);
+	if (kf->fd_ofileflags & UF_PLEDGED)
+		strlcat(rwep, "p", sizeof rwep);
 	printf(" %4s", rwep);
 	switch (kf->v_type) {
 	case VBLK:
@@ -738,11 +745,15 @@ socktrans(struct kinfo_file *kf)
 		printf("* internet %s", stype);
 		getinetproto(kf->so_protocol);
 		print_inet_details(kf);
+		if (kf->inp_rtableid)
+			printf(" rtable %u", kf->inp_rtableid);
 		break;
 	case AF_INET6:
 		printf("* internet6 %s", stype);
 		getinetproto(kf->so_protocol);
 		print_inet6_details(kf);
+		if (kf->inp_rtableid)
+			printf(" rtable %u", kf->inp_rtableid);
 		break;
 	case AF_UNIX:
 		/* print address of pcb and connected pcb */

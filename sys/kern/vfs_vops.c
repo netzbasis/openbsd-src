@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_vops.c,v 1.17 2018/02/10 05:24:23 deraadt Exp $	*/
+/*	$OpenBSD: vfs_vops.c,v 1.19 2018/06/21 14:17:23 visa Exp $	*/
 /*
  * Copyright (c) 2010 Thordur I. Bjornsson <thib@openbsd.org> 
  *
@@ -458,6 +458,8 @@ VOP_RMDIR(struct vnode *dvp, struct vnode *vp, struct componentname *cnp)
 	ASSERT_VP_ISLOCKED(dvp);
 	ASSERT_VP_ISLOCKED(vp);
 
+	KASSERT(dvp != vp);
+
 	if (dvp->v_op->vop_rmdir == NULL)
 		return (EOPNOTSUPP);
 
@@ -584,12 +586,11 @@ VOP_RECLAIM(struct vnode *vp, struct proc *p)
 }
 
 int
-VOP_LOCK(struct vnode *vp, int flags, struct proc *p)
+VOP_LOCK(struct vnode *vp, int flags)
 {
 	struct vop_lock_args a;
 	a.a_vp = vp;
 	a.a_flags = flags;
-	a.a_p = p;
 
 	if (vp->v_op->vop_lock == NULL)
 		return (EOPNOTSUPP);
@@ -598,12 +599,11 @@ VOP_LOCK(struct vnode *vp, int flags, struct proc *p)
 }
 
 int
-VOP_UNLOCK(struct vnode *vp, struct proc *p)
+VOP_UNLOCK(struct vnode *vp)
 {
 	int r;
 	struct vop_unlock_args a;
 	a.a_vp = vp;
-	a.a_p = p;
 
 	if (vp->v_op->vop_unlock == NULL)
 		return (EOPNOTSUPP);

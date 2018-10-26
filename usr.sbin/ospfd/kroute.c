@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.109 2018/02/11 02:27:33 benno Exp $ */
+/*	$OpenBSD: kroute.c,v 1.111 2018/07/10 11:49:04 friehm Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
@@ -1072,8 +1072,9 @@ void
 if_newaddr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
     struct sockaddr_in *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka;
+	struct kif_node 	*kif;
+	struct kif_addr 	*ka;
+	struct ifaddrchange	 ifn;
 
 	if (ifa == NULL || ifa->sin_family != AF_INET)
 		return;
@@ -1094,15 +1095,21 @@ if_newaddr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
 		ka->dstbrd.s_addr = INADDR_NONE;
 
 	TAILQ_INSERT_TAIL(&kif->addrs, ka, entry);
+
+	ifn.addr = ka->addr;
+	ifn.mask = ka->mask;
+	ifn.dst = ka->dstbrd;
+	ifn.ifindex = ifindex;
+	main_imsg_compose_ospfe(IMSG_IFADDRADD, 0, &ifn, sizeof(ifn));
 }
 
 void
 if_deladdr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
     struct sockaddr_in *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka, *nka;
-	struct ifaddrdel ifc;
+	struct kif_node 	*kif;
+	struct kif_addr		*ka, *nka;
+	struct ifaddrchange	 ifc;
 
 	if (ifa == NULL || ifa->sin_family != AF_INET)
 		return;
@@ -1442,10 +1449,8 @@ rtmsg_process(char *buf, size_t len)
 			if ((sa = rti_info[RTAX_GATEWAY]) != NULL) {
 				switch (sa->sa_family) {
 				case AF_INET:
-					if (rtm->rtm_flags & RTF_CONNECTED) {
+					if (rtm->rtm_flags & RTF_CONNECTED)
 						flags |= F_CONNECTED;
-						break;
-					}
 
 					nexthop.s_addr = ((struct
 					    sockaddr_in *)sa)->sin_addr.s_addr;

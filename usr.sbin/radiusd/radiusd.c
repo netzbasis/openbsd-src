@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.20 2017/06/13 05:40:22 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.22 2018/10/09 03:35:44 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -739,7 +739,7 @@ radius_code_string(int code)
 	    { RADIUS_CODE_ACCOUNTING_RESPONSE,	"Accounting-Response" },
 	    { RADIUS_CODE_ACCESS_CHALLENGE,	"Access-Challenge" },
 	    { RADIUS_CODE_STATUS_SERVER,	"Status-Server" },
-	    { RADIUS_CODE_STATUS_CLIENT,	"Status-Clinet" },
+	    { RADIUS_CODE_STATUS_CLIENT,	"Status-Client" },
 	    { -1,				NULL }
 	};
 
@@ -1066,8 +1066,10 @@ radiusd_module_stop(struct radiusd_module *module)
 {
 	module->stopped = true;
 
-	freezero(module->secret, strlen(module->secret));
-	module->secret = NULL;
+	if (module->secret != NULL) {
+		freezero(module->secret, strlen(module->secret));
+		module->secret = NULL;
+	}
 
 	if (module->fd >= 0) {
 		imsg_compose(&module->ibuf, IMSG_RADIUSD_MODULE_STOP, 0, 0, -1,

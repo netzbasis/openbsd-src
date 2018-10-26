@@ -1,4 +1,4 @@
-# $OpenBSD: bsd.regress.mk,v 1.14 2018/01/15 20:38:47 bluhm Exp $
+# $OpenBSD: bsd.regress.mk,v 1.16 2018/10/05 11:15:29 bluhm Exp $
 # Documented in bsd.regress.mk(5)
 
 # No man pages for regression tests.
@@ -65,7 +65,26 @@ REGRESS_SKIP_TARGETS+=${REGRESS_ROOT_TARGETS}
 .  if !empty(ERRORS:M"Fatal\:*") || !empty(ERRORS:M'Fatal\:*')
 	@exit 1
 .  endif
-.endif 
+.endif
+
+REGRESS_SETUP?=
+REGRESS_SETUP_ONCE?=
+REGRESS_CLEANUP?=
+
+.if !empty(REGRESS_SETUP)
+${REGRESS_TARGETS}: ${REGRESS_SETUP}
+.endif
+
+.if !empty(REGRESS_SETUP_ONCE)
+CLEANFILES+=${REGRESS_SETUP_ONCE:S/^/stamp-/}
+${REGRESS_TARGETS}: ${REGRESS_SETUP_ONCE:S/^/stamp-/}
+${REGRESS_SETUP_ONCE:S/^/stamp-/}: .SILENT
+	${MAKE} -C ${.CURDIR} ${@:S/^stamp-//}
+	date >$@
+REGRESS_CLEANUP+=${REGRESS_SETUP_ONCE:S/^/cleanup-stamp-/}
+${REGRESS_SETUP_ONCE:S/^/cleanup-stamp-/}: .SILENT
+	rm -f ${@:S/^cleanup-//}
+.endif
 
 regress: .SILENT
 .if ! ${REGRESS_LOG:M/*}
@@ -75,7 +94,10 @@ regress: .SILENT
 	echo =========================================================
 	exit 1
 .endif
-.for RT in ${REGRESS_TARGETS} 
+.if !empty(REGRESS_SETUP_ONCE)
+	rm -f ${REGRESS_SETUP_ONCE:S/^/stamp-/}
+.endif
+.for RT in ${REGRESS_TARGETS} ${REGRESS_CLEANUP}
 .  if ${REGRESS_SKIP_TARGETS:M${RT}}
 	@echo -n "SKIP " ${_REGRESS_OUT}
 .  else

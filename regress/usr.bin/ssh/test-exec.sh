@@ -1,4 +1,4 @@
-#	$OpenBSD: test-exec.sh,v 1.61 2017/07/28 10:32:08 dtucker Exp $
+#	$OpenBSD: test-exec.sh,v 1.64 2018/08/10 01:35:49 dtucker Exp $
 #	Placed in the Public Domain.
 
 USER=`id -un`
@@ -235,7 +235,10 @@ fail ()
 	save_debug_log "FAIL: $@"
 	RESULT=1
 	echo "$@"
-
+	if test "x$TEST_SSH_FAIL_FATAL" != "x" ; then
+		cleanup
+		exit $RESULT
+	fi
 }
 
 fatal ()
@@ -362,6 +365,7 @@ if test "$REGRESS_INTEROP_PUTTY" = "yes" ; then
 	# Add a PuTTY key to authorized_keys
 	rm -f ${OBJ}/putty.rsa2
 	if ! puttygen -t rsa -o ${OBJ}/putty.rsa2 \
+	    --random-device=/dev/urandom \
 	    --new-passphrase /dev/null < /dev/null > /dev/null; then
 		echo "Your installed version of PuTTY is too old to support --new-passphrase; trying without (may require manual interaction) ..." >&2
 		puttygen -t rsa -o ${OBJ}/putty.rsa2 < /dev/null > /dev/null
@@ -370,10 +374,13 @@ if test "$REGRESS_INTEROP_PUTTY" = "yes" ; then
 	    >> $OBJ/authorized_keys_$USER
 
 	# Convert rsa2 host key to PuTTY format
-	${SRC}/ssh2putty.sh 127.0.0.1 $PORT $OBJ/rsa > \
+	cp $OBJ/rsa $OBJ/rsa_oldfmt
+	${SSHKEYGEN} -p -N '' -m PEM -f $OBJ/rsa_oldfmt >/dev/null
+	${SRC}/ssh2putty.sh 127.0.0.1 $PORT $OBJ/rsa_oldfmt > \
 	    ${OBJ}/.putty/sshhostkeys
-	${SRC}/ssh2putty.sh 127.0.0.1 22 $OBJ/rsa >> \
+	${SRC}/ssh2putty.sh 127.0.0.1 22 $OBJ/rsa_oldfmt >> \
 	    ${OBJ}/.putty/sshhostkeys
+	rm -f $OBJ/rsa_oldfmt
 
 	# Setup proxied session
 	mkdir -p ${OBJ}/.putty/sessions

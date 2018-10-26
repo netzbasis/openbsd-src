@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_socket.c,v 1.128 2017/09/07 11:35:34 bluhm Exp $	*/
+/*	$OpenBSD: nfs_socket.c,v 1.131 2018/09/10 16:14:08 bluhm Exp $	*/
 /*	$NetBSD: nfs_socket.c,v 1.27 1996/04/15 20:20:00 thorpej Exp $	*/
 
 /*
@@ -365,7 +365,7 @@ nfs_connect(struct nfsmount *nmp, struct nfsreq *rep)
 		goto bad;
 	so->so_rcv.sb_flags |= SB_NOINTR;
 	so->so_snd.sb_flags |= SB_NOINTR;
-	sounlock(s);
+	sounlock(so, s);
 
 	m_freem(mopt);
 	m_freem(nam);
@@ -378,7 +378,7 @@ nfs_connect(struct nfsmount *nmp, struct nfsreq *rep)
 	return (0);
 
 bad:
-	sounlock(s);
+	sounlock(so, s);
 
 	m_freem(mopt);
 	m_freem(nam);
@@ -433,7 +433,7 @@ nfs_disconnect(struct nfsmount *nmp)
 		so = nmp->nm_so;
 		nmp->nm_so = NULL;
 		soshutdown(so, SHUT_RDWR);
-		soclose(so);
+		soclose(so, 0);
 	}
 }
 
@@ -855,7 +855,6 @@ nfs_request(struct vnode *vp, int procnum, struct nfsm_info *infop)
 	int t1, i, error = 0;
 	int trylater_delay;
 	struct nfsreq *rep;
-	int mrest_len;
 	struct nfsm_info info;
 
 	rep = pool_get(&nfsreqpl, PR_WAITOK);
@@ -864,17 +863,11 @@ nfs_request(struct vnode *vp, int procnum, struct nfsm_info *infop)
 	rep->r_procp = infop->nmi_procp;
 	rep->r_procnum = procnum;
 
-	mrest_len = 0;
-	m = infop->nmi_mreq;
-	while (m) {
-		mrest_len += m->m_len;
-		m = m->m_next;
-	}
-
 	/* empty mbuf for AUTH_UNIX header */
 	rep->r_mreq = m_gethdr(M_WAIT, MT_DATA);
 	rep->r_mreq->m_next = infop->nmi_mreq;
-	rep->r_mreq->m_pkthdr.len = mrest_len;
+	rep->r_mreq->m_len = 0;
+	m_calchdrlen(rep->r_mreq);
 
 	trylater_delay = NFS_MINTIMEO;
 

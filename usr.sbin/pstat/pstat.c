@@ -1,4 +1,4 @@
-/*	$OpenBSD: pstat.c,v 1.114 2018/01/02 06:38:45 guenther Exp $	*/
+/*	$OpenBSD: pstat.c,v 1.120 2018/09/10 06:40:06 yasuoka Exp $	*/
 /*	$NetBSD: pstat.c,v 1.27 1996/10/23 22:50:06 cgd Exp $	*/
 
 /*-
@@ -69,7 +69,7 @@
 
 struct nlist vnodenl[] = {
 #define	FNL_NFILE	0		/* sysctl */
-	{"_nfiles"},
+	{"_numfiles"},
 #define FNL_MAXFILE	1		/* sysctl */
 	{"_maxfiles"},
 #define TTY_NTTY	2		/* sysctl */
@@ -229,6 +229,8 @@ main(int argc, char *argv[])
 			ttymodeprep();
 	}
 
+	if (unveil(_PATH_DEVDB, "r") == -1)
+		err(1, "unveil");
 	if (pledge("stdio rpath vminfo", NULL) == -1)
 		err(1, "pledge");
 
@@ -1044,8 +1046,6 @@ filemode(void)
 
 		if (kf->f_iflags & FIF_HASLOCK)
 			*fbp++ = 'L';
-		if (kf->f_iflags & FIF_LARVAL)
-			*fbp++ = 'l';
 
 		*fbp = '\0';
 		(void)printf("%6s  %3ld", flagbuf, (long)kf->f_count);

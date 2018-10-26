@@ -297,6 +297,7 @@ BIO_meth_get_destroy
 BIO_meth_get_gets
 BIO_meth_get_puts
 BIO_meth_get_read
+BIO_meth_get_write
 BIO_meth_new
 BIO_meth_set_callback_ctrl
 BIO_meth_set_create
@@ -830,6 +831,11 @@ DSA_get0_pqg
 DSA_get_default_method
 DSA_get_ex_data
 DSA_get_ex_new_index
+DSA_meth_dup
+DSA_meth_free
+DSA_meth_new
+DSA_meth_set_finish
+DSA_meth_set_sign
 DSA_new
 DSA_new_method
 DSA_print
@@ -885,8 +891,10 @@ ECDH_set_method
 ECDH_size
 ECDSA_OpenSSL
 ECDSA_SIG_free
+ECDSA_SIG_get0
 ECDSA_SIG_it
 ECDSA_SIG_new
+ECDSA_SIG_set0
 ECDSA_do_sign
 ECDSA_do_sign_ex
 ECDSA_do_verify
@@ -1250,9 +1258,11 @@ EVP_CIPHER_CTX_cleanup
 EVP_CIPHER_CTX_clear_flags
 EVP_CIPHER_CTX_copy
 EVP_CIPHER_CTX_ctrl
+EVP_CIPHER_CTX_encrypting
 EVP_CIPHER_CTX_flags
 EVP_CIPHER_CTX_free
 EVP_CIPHER_CTX_get_app_data
+EVP_CIPHER_CTX_get_iv
 EVP_CIPHER_CTX_init
 EVP_CIPHER_CTX_iv_length
 EVP_CIPHER_CTX_key_length
@@ -1262,6 +1272,7 @@ EVP_CIPHER_CTX_rand_key
 EVP_CIPHER_CTX_reset
 EVP_CIPHER_CTX_set_app_data
 EVP_CIPHER_CTX_set_flags
+EVP_CIPHER_CTX_set_iv
 EVP_CIPHER_CTX_set_key_length
 EVP_CIPHER_CTX_set_padding
 EVP_CIPHER_CTX_test_flags
@@ -1341,7 +1352,6 @@ EVP_PBE_cleanup
 EVP_PBE_find
 EVP_PKCS82PKEY
 EVP_PKEY2PKCS8
-EVP_PKEY2PKCS8_broken
 EVP_PKEY_CTX_ctrl
 EVP_PKEY_CTX_ctrl_str
 EVP_PKEY_CTX_dup
@@ -1830,6 +1840,7 @@ OCSP_SINGLERESP_add1_ext_i2d
 OCSP_SINGLERESP_add_ext
 OCSP_SINGLERESP_delete_ext
 OCSP_SINGLERESP_free
+OCSP_SINGLERESP_get0_id
 OCSP_SINGLERESP_get1_ext_d2i
 OCSP_SINGLERESP_get_ext
 OCSP_SINGLERESP_get_ext_by_NID
@@ -1889,6 +1900,7 @@ OPENSSL_cpu_caps
 OPENSSL_cpuid_setup
 OPENSSL_ia32cap_P
 OPENSSL_init
+OPENSSL_init_crypto
 OPENSSL_load_builtin_modules
 OPENSSL_no_config
 OPENSSL_strcasecmp
@@ -2182,9 +2194,10 @@ PKCS8_PRIV_KEY_INFO_new
 PKCS8_add_keyusage
 PKCS8_decrypt
 PKCS8_encrypt
+PKCS8_pkey_add1_attr_by_NID
 PKCS8_pkey_get0
+PKCS8_pkey_get0_attrs
 PKCS8_pkey_set0
-PKCS8_set_broken
 PKEY_USAGE_PERIOD_free
 PKEY_USAGE_PERIOD_it
 PKEY_USAGE_PERIOD_new
@@ -2261,6 +2274,14 @@ RSA_get_default_method
 RSA_get_ex_data
 RSA_get_ex_new_index
 RSA_get_method
+RSA_meth_dup
+RSA_meth_free
+RSA_meth_get_finish
+RSA_meth_new
+RSA_meth_set1_name
+RSA_meth_set_finish
+RSA_meth_set_priv_dec
+RSA_meth_set_priv_enc
 RSA_new
 RSA_new_method
 RSA_padding_add_PKCS1_OAEP
@@ -2655,14 +2676,19 @@ X509_CRL_get0_extensions
 X509_CRL_get0_lastUpdate
 X509_CRL_get0_nextUpdate
 X509_CRL_get0_signature
+X509_CRL_get_REVOKED
 X509_CRL_get_ext
 X509_CRL_get_ext_by_NID
 X509_CRL_get_ext_by_OBJ
 X509_CRL_get_ext_by_critical
 X509_CRL_get_ext_count
 X509_CRL_get_ext_d2i
+X509_CRL_get_issuer
+X509_CRL_get_lastUpdate
 X509_CRL_get_meth_data
+X509_CRL_get_nextUpdate
 X509_CRL_get_signature_nid
+X509_CRL_get_version
 X509_CRL_it
 X509_CRL_match
 X509_CRL_new
@@ -2718,6 +2744,7 @@ X509_NAME_ENTRY_get_data
 X509_NAME_ENTRY_get_object
 X509_NAME_ENTRY_it
 X509_NAME_ENTRY_new
+X509_NAME_ENTRY_set
 X509_NAME_ENTRY_set_data
 X509_NAME_ENTRY_set_object
 X509_NAME_INTERNAL_it
@@ -2749,6 +2776,7 @@ X509_NAME_set
 X509_OBJECT_free_contents
 X509_OBJECT_get0_X509
 X509_OBJECT_get0_X509_CRL
+X509_OBJECT_get_type
 X509_OBJECT_idx_by_subject
 X509_OBJECT_retrieve_by_subject
 X509_OBJECT_retrieve_match
@@ -2758,6 +2786,7 @@ X509_PKEY_new
 X509_POLICY_NODE_print
 X509_PUBKEY_free
 X509_PUBKEY_get
+X509_PUBKEY_get0
 X509_PUBKEY_get0_param
 X509_PUBKEY_it
 X509_PUBKEY_new
@@ -2799,6 +2828,8 @@ X509_REQ_get_extension_nids
 X509_REQ_get_extensions
 X509_REQ_get_pubkey
 X509_REQ_get_signature_nid
+X509_REQ_get_subject_name
+X509_REQ_get_version
 X509_REQ_it
 X509_REQ_new
 X509_REQ_print
@@ -2815,6 +2846,7 @@ X509_REQ_verify
 X509_REVOKED_add1_ext_i2d
 X509_REVOKED_add_ext
 X509_REVOKED_delete_ext
+X509_REVOKED_dup
 X509_REVOKED_free
 X509_REVOKED_get0_extensions
 X509_REVOKED_get0_revocationDate
@@ -2876,6 +2908,7 @@ X509_STORE_add_crl
 X509_STORE_add_lookup
 X509_STORE_free
 X509_STORE_get0_objects
+X509_STORE_get0_param
 X509_STORE_get1_certs
 X509_STORE_get1_crls
 X509_STORE_get_by_subject
@@ -2987,9 +3020,12 @@ X509_get_ext_d2i
 X509_get_issuer_name
 X509_get_pubkey
 X509_get_pubkey_parameters
+X509_get0_serialNumber
 X509_get_serialNumber
 X509_get_signature_nid
+X509_get_signature_type
 X509_get_subject_name
+X509_get_version
 X509_getm_notAfter
 X509_getm_notBefore
 X509_gmtime_adj

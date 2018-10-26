@@ -1,7 +1,7 @@
-/*	$OpenBSD: html.h,v 1.49 2017/07/08 14:51:01 schwarze Exp $ */
+/*	$OpenBSD: html.h,v 1.56 2018/10/02 14:56:36 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +23,7 @@ enum	htmltag {
 	TAG_META,
 	TAG_TITLE,
 	TAG_DIV,
+	TAG_IDIV,
 	TAG_H1,
 	TAG_H2,
 	TAG_SPAN,
@@ -30,8 +31,6 @@ enum	htmltag {
 	TAG_BR,
 	TAG_A,
 	TAG_TABLE,
-	TAG_COLGROUP,
-	TAG_COL,
 	TAG_TR,
 	TAG_TD,
 	TAG_LI,
@@ -94,6 +93,7 @@ struct	html {
 #define	HTML_SPLIT	 (1 << 8) /* break line before .An */
 #define	HTML_NONEWLINE	 (1 << 9) /* No line break in nofill mode. */
 #define	HTML_BUFFER	 (1 << 10) /* Collect a word to see if it fits. */
+#define	HTML_TOCDONE	 (1 << 11) /* The TOC was already written. */
 	size_t		  indent; /* current output indentation level */
 	int		  noindent; /* indent disabled by <pre> */
 	size_t		  col; /* current output byte position */
@@ -102,7 +102,8 @@ struct	html {
 	struct tag	 *tag; /* last open tag */
 	struct rofftbl	  tbl; /* current table */
 	struct tag	 *tblt; /* current open table scope */
-	char		 *base_man; /* base for manpage href */
+	char		 *base_man1; /* bases for manpage href */
+	char		 *base_man2;
 	char		 *base_includes; /* base for include href */
 	char		 *style; /* style-sheet URI */
 	struct tag	 *metaf; /* current open font scope */
@@ -110,6 +111,7 @@ struct	html {
 	enum htmlfont	  metac; /* current font mode */
 	int		  oflags; /* output options */
 #define	HTML_FRAGMENT	 (1 << 0) /* don't emit HTML/HEAD/BODY */
+#define	HTML_TOC	 (1 << 1) /* emit a table of contents */
 };
 
 
@@ -119,6 +121,7 @@ struct	eqn_box;
 
 void		  roff_html_pre(struct html *, const struct roff_node *);
 
+void		  print_gen_comment(struct html *, struct roff_node *);
 void		  print_gen_decls(struct html *);
 void		  print_gen_head(struct html *);
 struct tag	 *print_otag(struct html *, enum htmltag, const char *, ...);
@@ -131,5 +134,4 @@ void		  print_eqn(struct html *, const struct eqn_box *);
 void		  print_paragraph(struct html *);
 void		  print_endline(struct html *);
 
-char		 *html_make_id(const struct roff_node *);
-int		  html_strlen(const char *);
+char		 *html_make_id(const struct roff_node *, int);

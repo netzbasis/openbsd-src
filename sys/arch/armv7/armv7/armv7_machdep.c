@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_machdep.c,v 1.50 2018/03/08 20:44:23 patrick Exp $ */
+/*	$OpenBSD: armv7_machdep.c,v 1.55 2018/08/06 18:39:13 kettenis Exp $ */
 /*	$NetBSD: lubbock_machdep.c,v 1.2 2003/07/15 00:25:06 lukem Exp $ */
 
 /*
@@ -149,6 +149,7 @@
 BootConfig bootconfig;		/* Boot config storage */
 char *boot_args = NULL;
 char *boot_file = "";
+uint8_t *bootmac = NULL;
 u_int cpu_reset_address = 0;
 
 vaddr_t physical_start;
@@ -206,17 +207,8 @@ void	consinit(void);
 
 bs_protos(bs_notimpl);
 
-#ifndef CONSPEED
-#define CONSPEED B115200	/* What u-boot */
-#endif
-#ifndef CONMODE
-#define CONMODE ((TTYDEF_CFLAG & ~(CSIZE | CSTOPB | PARENB)) | CS8) /* 8N1 */
-#endif
-
-int comcnspeed = CONSPEED;
-int comcnmode = CONMODE;
-
-int stdout_node = 0;
+int stdout_node;
+int stdout_speed;
 
 void (*cpuresetfn)(void);
 void (*powerdownfn)(void);
@@ -264,7 +256,7 @@ haltsys:
 	config_suspend_all(DVACT_POWERDOWN);
 
 	/* Make sure IRQ's are disabled */
-	IRQdisable;
+	intr_disable();
 
 	if ((howto & RB_HALT) != 0) {
 		if ((howto & RB_POWERDOWN) != 0) {
@@ -409,14 +401,10 @@ initarm(void *arg0, void *arg1, void *arg2, paddr_t loadaddr)
 	/*
 	 * Temporarily replace bus_space_map() functions so that
 	 * console devices can get mapped.
-	 *
-	 * Note that this relies upon the fact that both regular
-	 * and a4x bus_space tags use the same map function.
 	 */
 	tmp_bs_tag = armv7_bs_tag;
 	map_func_save = armv7_bs_tag.bs_map;
 	armv7_bs_tag.bs_map = bootstrap_bs_map;
-	armv7_a4x_bs_tag.bs_map = bootstrap_bs_map;
 	tmp_bs_tag.bs_map = bootstrap_bs_map;
 
 	/*
@@ -437,16 +425,23 @@ initarm(void *arg0, void *arg1, void *arg2, paddr_t loadaddr)
 
 	node = fdt_find_node("/chosen");
 	if (node != NULL) {
-		char *args, *duid;
+		char *prop;
 		int len;
+		static uint8_t lladdr[6];
 
-		len = fdt_node_property(node, "bootargs", &args);
+		len = fdt_node_property(node, "bootargs", &prop);
 		if (len > 0)
-			process_kernel_args(args);
+			process_kernel_args(prop);
 
-		len = fdt_node_property(node, "openbsd,bootduid", &duid);
+		len = fdt_node_property(node, "openbsd,bootduid", &prop);
 		if (len == sizeof(bootduid))
-			memcpy(bootduid, duid, sizeof(bootduid));
+			memcpy(bootduid, prop, sizeof(bootduid));
+
+		len = fdt_node_property(node, "openbsd,bootmac", &prop);
+		if (len == sizeof(lladdr)) {
+			memcpy(lladdr, prop, sizeof(lladdr));
+			bootmac = lladdr;
+		}
 	}
 
 	node = fdt_find_node("/memory");
@@ -782,7 +777,6 @@ initarm(void *arg0, void *arg1, void *arg2, paddr_t loadaddr)
 	 * Restore proper bus_space operation, now that pmap is initialized.
 	 */
 	armv7_bs_tag.bs_map = map_func_save;
-	armv7_a4x_bs_tag.bs_map = map_func_save;
 
 #ifdef DDB
 	db_machine_init();
@@ -865,6 +859,30 @@ process_kernel_args(char *args)
 	}
 }
 
+static int
+atoi(const char *s)
+{
+	int n, neg;
+
+	n = 0;
+	neg = 0;
+
+	while (*s == '-') {
+		s++;
+		neg = !neg;
+	}
+
+	while (*s != '\0') {
+		if (*s < '0' || *s > '9')
+			break;
+
+		n = (10 * n) + (*s - '0');
+		s++;
+	}
+
+	return (neg ? -n : n);
+}
+
 void *
 fdt_find_cons(const char *name)
 {
@@ -880,8 +898,10 @@ fdt_find_cons(const char *name)
 		if (fdt_node_property(node, "stdout-path", &stdout) > 0) {
 			if (strchr(stdout, ':') != NULL) {
 				strlcpy(buf, stdout, sizeof(buf));
-				if ((p = strchr(buf, ':')) != NULL)
-					*p = '\0';
+				if ((p = strchr(buf, ':')) != NULL) {
+					*p++ = '\0';
+					stdout_speed = atoi(p);
+				}
 				stdout = buf;
 			}
 			if (stdout[0] != '/') {

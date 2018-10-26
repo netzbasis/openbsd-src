@@ -131,7 +131,8 @@ safe_kill(pid_t pid, int sig)
 #define FAIL(test)							\
 	do {								\
 		if (test) {						\
-			if (verbose) printf("FAIL (%s)\n", #test);	\
+			if (verbose) printf("%s: %d: FAIL (%s)\n",	\
+				__func__, __LINE__, #test);		\
 			return -1;					\
 		}							\
 	} while (0)
@@ -1412,6 +1413,328 @@ test15(int fd, __unused int argc, const __unused char **argv)
 #endif
 }
 
+/*
+ * Test 16 - double free regression
+ */
+static int
+test16(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int res;
+
+	fl.l_pid = 0;
+	fl.l_type = 1;
+	fl.l_whence = 0;
+
+	fl.l_start = 0;
+	fl.l_len = 0x8000000000000000;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 0x10000;
+	fl.l_len = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 0;
+	fl.l_len = 0x8000000000000000;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 0x10000;
+	fl.l_len = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	SUCCEED;
+}
+
+/*
+ * Test 17 - lf_findoverlap() case 0
+ *
+ * No overlap.
+ */
+static int
+test17(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int nfd, res;
+
+	/* First lock. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 0;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	/* Insert at end. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 100;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 200;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	/* Insert before overlap. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 300;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 500;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 400;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	SUCCEED;
+}
+
+/*
+ * Test 18 - lf_findoverlap() case 1
+ *
+ * Overlap and lock are equal.
+ */
+static int
+test18(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int res;
+
+	fl.l_start = 0;
+	fl.l_len = 100;
+	fl.l_pid = 0;
+	fl.l_type = F_RDLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	SUCCEED;
+}
+
+/*
+ * Test 19 - lf_findoverlap() case 2
+ *
+ * Overlap contains lock.
+ */
+static int
+test19(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int nfd, res;
+
+	/* Same type. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 0;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 0;
+		fl.l_len = 50;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	/* Different type, same start offset. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 100;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 100;
+		fl.l_len = 50;
+		fl.l_pid = 0;
+		fl.l_type = F_WRLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	/* Split fallback. */
+	{
+		nfd = dup(fd);
+		FAIL(nfd == -1);
+
+		fl.l_start = 100;
+		fl.l_len = 100;
+		fl.l_pid = 0;
+		fl.l_type = F_RDLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		fl.l_start = 110;
+		fl.l_len = 50;
+		fl.l_pid = 0;
+		fl.l_type = F_WRLCK;
+		fl.l_whence = 0;
+		res = fcntl(fd, F_SETLK, &fl);
+		FAIL(res != 0);
+
+		close(nfd);
+	}
+
+	SUCCEED;
+}
+
+/*
+ * Test 20 - lf_findoverlap() case 3
+ *
+ * Lock contains overlap.
+ */
+static int
+test20(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int res;
+
+	fl.l_start = 0;
+	fl.l_len = 100;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 0;
+	fl.l_len = 200;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	SUCCEED;
+}
+
+/*
+ * Test 21 - lf_findoverlap() case 4
+ *
+ * Overlap starts before lock.
+ */
+static int
+test21(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int res;
+
+	fl.l_start = 0;
+	fl.l_len = 100;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 50;
+	fl.l_len = 100;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	SUCCEED;
+}
+
+/*
+ * Test 22 - lf_findoverlap() case 5
+ *
+ * Overlap ends after lock.
+ */
+static int
+test22(int fd, __unused int argc, const __unused char **argv)
+{
+	struct flock fl;
+	int res;
+
+	fl.l_start = 10;
+	fl.l_len = 100;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	fl.l_start = 0;
+	fl.l_len = 50;
+	fl.l_pid = 0;
+	fl.l_type = F_WRLCK;
+	fl.l_whence = 0;
+	res = fcntl(fd, F_SETLK, &fl);
+	FAIL(res != 0);
+
+	SUCCEED;
+}
+
 struct test {
 	int (*testfn)(int, int, const char **);	/* function to perform the test */
 	int num;		/* test number */
@@ -1434,6 +1757,13 @@ struct test tests[] = {
 	{	test13,		13,	1	},
 	{	test14,		14,	0	},
 	{	test15,		15,	1	},
+	{	test16,		16,	0	},
+	{	test17,		17,	0	},
+	{	test18,		18,	0	},
+	{	test19,		19,	0	},
+	{	test20,		20,	0	},
+	{	test21,		21,	0	},
+	{	test22,		22,	0	},
 };
 int test_count = sizeof(tests) / sizeof(tests[0]);
 

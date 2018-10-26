@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpithinkpad.c,v 1.58 2017/08/12 17:33:51 jcs Exp $	*/
+/*	$OpenBSD: acpithinkpad.c,v 1.61 2018/07/01 19:40:49 mlarkin Exp $	*/
 /*
  * Copyright (c) 2008 joshua stein <jcs@openbsd.org>
  *
@@ -110,8 +110,11 @@
 #define	THINKPAD_TABLET_SCREEN_CHANGED	0x60c0
 #define	THINKPAD_SWITCH_WIRELESS	0x7000
 
-#define THINKPAD_NSENSORS 9
+#define THINKPAD_NSENSORS 10
 #define THINKPAD_NTEMPSENSORS 8
+
+#define THINKPAD_SENSOR_FANRPM		THINKPAD_NTEMPSENSORS
+#define THINKPAD_SENSOR_PORTREPL	THINKPAD_NTEMPSENSORS + 1
 
 #define THINKPAD_ECOFFSET_VOLUME	0x30
 #define THINKPAD_ECOFFSET_VOLUME_MUTE_MASK 0x40
@@ -138,7 +141,7 @@ struct acpithinkpad_softc {
 	uint64_t		 sc_brightness;
 };
 
-extern void acpiec_read(struct acpiec_softc *, u_int8_t, int, u_int8_t *);
+extern void acpiec_read(struct acpiec_softc *, uint8_t, int, uint8_t *);
 
 int	thinkpad_match(struct device *, void *, void *);
 void	thinkpad_attach(struct device *, struct device *, void *);
@@ -192,7 +195,7 @@ const char *acpithinkpad_hids[] = {
 	"IBM0068",
 	"LEN0068",
 	"LEN0268",
-	0
+	NULL
 };
 
 int
@@ -233,8 +236,15 @@ thinkpad_sensor_attach(struct acpithinkpad_softc *sc)
 	}
 
 	/* Add fan probe */
-	sc->sc_sens[i].type = SENSOR_FANRPM;
-	sensor_attach(&sc->sc_sensdev, &sc->sc_sens[i]);
+	sc->sc_sens[THINKPAD_SENSOR_FANRPM].type = SENSOR_FANRPM;
+	sensor_attach(&sc->sc_sensdev, &sc->sc_sens[THINKPAD_SENSOR_FANRPM]);
+
+	/* Add port replicator indicator */
+	sc->sc_sens[THINKPAD_SENSOR_PORTREPL].type = SENSOR_INDICATOR;
+	sc->sc_sens[THINKPAD_SENSOR_PORTREPL].status = SENSOR_S_UNKNOWN;
+	strlcpy(sc->sc_sens[THINKPAD_SENSOR_PORTREPL].desc, "port replicator",
+	        sizeof(sc->sc_sens[THINKPAD_SENSOR_PORTREPL].desc));
+	sensor_attach(&sc->sc_sensdev, &sc->sc_sens[THINKPAD_SENSOR_PORTREPL]);
 
 	sensordev_install(&sc->sc_sensdev);
 }
@@ -243,7 +253,7 @@ void
 thinkpad_sensor_refresh(void *arg)
 {
 	struct acpithinkpad_softc *sc = arg;
-	u_int8_t lo, hi, i;
+	uint8_t lo, hi, i;
 	int64_t tmp;
 	char sname[5];
 
@@ -260,7 +270,7 @@ thinkpad_sensor_refresh(void *arg)
 	/* Read fan RPM */
 	acpiec_read(sc->sc_ec, THINKPAD_ECOFFSET_FANLO, 1, &lo);
 	acpiec_read(sc->sc_ec, THINKPAD_ECOFFSET_FANHI, 1, &hi);
-	sc->sc_sens[i].value = ((hi << 8L) + lo);
+	sc->sc_sens[THINKPAD_SENSOR_FANRPM].value = ((hi << 8L) + lo);
 }
 
 void
@@ -420,6 +430,16 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 			break;
 		case THINKPAD_BACKLIGHT_CHANGED:
 			thinkpad_get_brightness(sc);
+			break;
+		case THINKPAD_PORT_REPL_DOCKED:
+			sc->sc_sens[THINKPAD_SENSOR_PORTREPL].value = 1;
+			sc->sc_sens[THINKPAD_SENSOR_PORTREPL].status = 
+			    SENSOR_S_OK;
+			break;
+		case THINKPAD_PORT_REPL_UNDOCKED:
+			sc->sc_sens[THINKPAD_SENSOR_PORTREPL].value = 0;
+			sc->sc_sens[THINKPAD_SENSOR_PORTREPL].status = 
+			    SENSOR_S_OK;
 			break;
 		default:
 			/* unknown or boring event */
@@ -715,7 +735,7 @@ thinkpad_attach_deferred(void *v __unused)
 int
 thinkpad_get_volume_mute(struct acpithinkpad_softc *sc)
 {
-	u_int8_t vol = 0;
+	uint8_t vol = 0;
 
 	if (sc->sc_acpi->sc_ec == NULL)
 		return (-1);

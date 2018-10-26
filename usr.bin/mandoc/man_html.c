@@ -1,7 +1,7 @@
-/*	$OpenBSD: man_html.c,v 1.98 2017/06/25 07:23:53 bentley Exp $ */
+/*	$OpenBSD: man_html.c,v 1.110 2018/10/23 17:17:54 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2013, 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,25 +33,22 @@
 
 /* FIXME: have PD set the default vspace width. */
 
-#define	INDENT		  5
-
 #define	MAN_ARGS	  const struct roff_meta *man, \
 			  const struct roff_node *n, \
 			  struct html *h
 
-struct	htmlman {
+struct	man_html_act {
 	int		(*pre)(MAN_ARGS);
 	int		(*post)(MAN_ARGS);
 };
 
 static	void		  print_bvspace(struct html *,
 				const struct roff_node *);
-static	void		  print_man_head(MAN_ARGS);
+static	void		  print_man_head(const struct roff_meta *,
+				struct html *);
 static	void		  print_man_nodelist(MAN_ARGS);
 static	void		  print_man_node(MAN_ARGS);
 static	int		  fillmode(struct html *, int);
-static	int		  a2width(const struct roff_node *,
-				struct roffsu *);
 static	int		  man_B_pre(MAN_ARGS);
 static	int		  man_HP_pre(MAN_ARGS);
 static	int		  man_IP_pre(MAN_ARGS);
@@ -62,18 +59,22 @@ static	int		  man_RS_pre(MAN_ARGS);
 static	int		  man_SH_pre(MAN_ARGS);
 static	int		  man_SM_pre(MAN_ARGS);
 static	int		  man_SS_pre(MAN_ARGS);
+static	int		  man_SY_pre(MAN_ARGS);
 static	int		  man_UR_pre(MAN_ARGS);
 static	int		  man_alt_pre(MAN_ARGS);
 static	int		  man_ign_pre(MAN_ARGS);
 static	int		  man_in_pre(MAN_ARGS);
-static	void		  man_root_post(MAN_ARGS);
-static	void		  man_root_pre(MAN_ARGS);
+static	void		  man_root_post(const struct roff_meta *,
+				struct html *);
+static	void		  man_root_pre(const struct roff_meta *,
+				struct html *);
 
-static	const struct htmlman __mans[MAN_MAX - MAN_TH] = {
+static	const struct man_html_act man_html_acts[MAN_MAX - MAN_TH] = {
 	{ NULL, NULL }, /* TH */
 	{ man_SH_pre, NULL }, /* SH */
 	{ man_SS_pre, NULL }, /* SS */
 	{ man_IP_pre, NULL }, /* TP */
+	{ man_IP_pre, NULL }, /* TQ */
 	{ man_PP_pre, NULL }, /* LP */
 	{ man_PP_pre, NULL }, /* PP */
 	{ man_PP_pre, NULL }, /* P */
@@ -99,6 +100,8 @@ static	const struct htmlman __mans[MAN_MAX - MAN_TH] = {
 	{ man_ign_pre, NULL }, /* PD */
 	{ man_ign_pre, NULL }, /* AT */
 	{ man_in_pre, NULL }, /* in */
+	{ man_SY_pre, NULL }, /* SY */
+	{ NULL, NULL }, /* YS */
 	{ man_OP_pre, NULL }, /* OP */
 	{ NULL, NULL }, /* EX */
 	{ NULL, NULL }, /* EE */
@@ -107,7 +110,6 @@ static	const struct htmlman __mans[MAN_MAX - MAN_TH] = {
 	{ man_UR_pre, NULL }, /* MT */
 	{ NULL, NULL }, /* ME */
 };
-static	const struct htmlman *const mans = __mans - MAN_TH;
 
 
 /*
@@ -136,30 +138,34 @@ print_bvspace(struct html *h, const struct roff_node *n)
 void
 html_man(void *arg, const struct roff_man *man)
 {
-	struct html	*h;
-	struct tag	*t;
+	struct html		*h;
+	struct roff_node	*n;
+	struct tag		*t;
 
 	h = (struct html *)arg;
+	n = man->first->child;
 
 	if ((h->oflags & HTML_FRAGMENT) == 0) {
 		print_gen_decls(h);
 		print_otag(h, TAG_HTML, "");
+		if (n->type == ROFFT_COMMENT)
+			print_gen_comment(h, n);
 		t = print_otag(h, TAG_HEAD, "");
-		print_man_head(&man->meta, man->first, h);
+		print_man_head(&man->meta, h);
 		print_tagq(h, t);
 		print_otag(h, TAG_BODY, "");
 	}
 
-	man_root_pre(&man->meta, man->first, h);
+	man_root_pre(&man->meta, h);
 	t = print_otag(h, TAG_DIV, "c", "manual-text");
-	print_man_nodelist(&man->meta, man->first->child, h);
+	print_man_nodelist(&man->meta, n, h);
 	print_tagq(h, t);
-	man_root_post(&man->meta, man->first, h);
+	man_root_post(&man->meta, h);
 	print_tagq(h, NULL);
 }
 
 static void
-print_man_head(MAN_ARGS)
+print_man_head(const struct roff_meta *man, struct html *h)
 {
 	char	*cp;
 
@@ -256,9 +262,11 @@ print_man_node(MAN_ARGS)
 		    n->flags & NODE_LINE && *n->string == ' ' &&
 		    (h->flags & HTML_NONEWLINE) == 0)
 			print_otag(h, TAG_BR, "");
-		if (*n->string != '\0')
+		if (want_fillmode == MAN_nf || *n->string != '\0')
 			break;
 		print_paragraph(h);
+		return;
+	case ROFFT_COMMENT:
 		return;
 	default:
 		break;
@@ -310,8 +318,9 @@ print_man_node(MAN_ARGS)
 		}
 
 		assert(n->tok >= MAN_TH && n->tok < MAN_MAX);
-		if (mans[n->tok].pre)
-			child = (*mans[n->tok].pre)(man, n, h);
+		if (man_html_acts[n->tok - MAN_TH].pre != NULL)
+			child = (*man_html_acts[n->tok - MAN_TH].pre)(man,
+			    n, h);
 
 		/* Some block macros resume .nf in the body. */
 		if (save_fillmode && n->type == ROFFT_BODY)
@@ -327,8 +336,11 @@ print_man_node(MAN_ARGS)
 	print_stagq(h, t);
 
 	if (fillmode(h, 0) == MAN_nf &&
-	    n->next != NULL && n->next->flags & NODE_LINE)
+	    n->next != NULL && n->next->flags & NODE_LINE) {
+		/* In .nf = <pre>, print even empty lines. */
+		h->col++;
 		print_endline(h);
+	}
 }
 
 /*
@@ -357,16 +369,8 @@ fillmode(struct html *h, int want)
 	return had;
 }
 
-static int
-a2width(const struct roff_node *n, struct roffsu *su)
-{
-	if (n->type != ROFFT_TEXT)
-		return 0;
-	return a2roffsu(n->string, su, SCALE_EN) != NULL;
-}
-
 static void
-man_root_pre(MAN_ARGS)
+man_root_pre(const struct roff_meta *man, struct html *h)
 {
 	struct tag	*t, *tt;
 	char		*title;
@@ -394,7 +398,7 @@ man_root_pre(MAN_ARGS)
 }
 
 static void
-man_root_post(MAN_ARGS)
+man_root_post(const struct roff_meta *man, struct html *h)
 {
 	struct tag	*t, *tt;
 
@@ -417,11 +421,10 @@ man_SH_pre(MAN_ARGS)
 	char	*id;
 
 	if (n->type == ROFFT_HEAD) {
-		id = html_make_id(n);
+		id = html_make_id(n, 1);
 		print_otag(h, TAG_H1, "cTi", "Sh", id);
 		if (id != NULL)
-			print_otag(h, TAG_A, "chR", "selflink", id);
-		free(id);
+			print_otag(h, TAG_A, "chR", "permalink", id);
 	}
 	return 1;
 }
@@ -487,11 +490,10 @@ man_SS_pre(MAN_ARGS)
 	char	*id;
 
 	if (n->type == ROFFT_HEAD) {
-		id = html_make_id(n);
+		id = html_make_id(n, 1);
 		print_otag(h, TAG_H2, "cTi", "Ss", id);
 		if (id != NULL)
-			print_otag(h, TAG_A, "chR", "selflink", id);
-		free(id);
+			print_otag(h, TAG_A, "chR", "permalink", id);
 	}
 	return 1;
 }
@@ -514,32 +516,32 @@ man_IP_pre(MAN_ARGS)
 	const struct roff_node	*nn;
 
 	if (n->type == ROFFT_BODY) {
-		print_otag(h, TAG_DD, "c", "It-tag");
+		print_otag(h, TAG_DD, "");
 		return 1;
 	} else if (n->type != ROFFT_HEAD) {
 		print_otag(h, TAG_DL, "c", "Bl-tag");
 		return 1;
 	}
 
-	/* FIXME: width specification. */
+	print_otag(h, TAG_DT, "");
 
-	print_otag(h, TAG_DT, "c", "It-tag");
-
-	/* For IP, only print the first header element. */
-
-	if (MAN_IP == n->tok && n->child)
-		print_man_node(man, n->child, h);
-
-	/* For TP, only print next-line header elements. */
-
-	if (MAN_TP == n->tok) {
+	switch(n->tok) {
+	case MAN_IP:  /* Only print the first header element. */
+		if (n->child != NULL)
+			print_man_node(man, n->child, h);
+		break;
+	case MAN_TP:  /* Only print next-line header elements. */
+	case MAN_TQ:
 		nn = n->child;
-		while (NULL != nn && 0 == (NODE_LINE & nn->flags))
+		while (nn != NULL && (NODE_LINE & nn->flags) == 0)
 			nn = nn->next;
-		while (NULL != nn) {
+		while (nn != NULL) {
 			print_man_node(man, nn, h);
 			nn = nn->next;
 		}
+		break;
+	default:
+		abort();
 	}
 
 	return 0;
@@ -548,24 +550,13 @@ man_IP_pre(MAN_ARGS)
 static int
 man_HP_pre(MAN_ARGS)
 {
-	struct roffsu	 sum, sui;
-	const struct roff_node *np;
-
 	if (n->type == ROFFT_HEAD)
 		return 0;
-	else if (n->type != ROFFT_BLOCK)
-		return 1;
 
-	np = n->head->child;
-
-	if (np == NULL || !a2width(np, &sum))
-		SCALE_HS_INIT(&sum, INDENT);
-
-	sui.unit = sum.unit;
-	sui.scale = -sum.scale;
-
-	print_bvspace(h, n);
-	print_otag(h, TAG_DIV, "csului", "Pp", &sum, &sui);
+	if (n->type == ROFFT_BLOCK) {
+		print_bvspace(h, n);
+		print_otag(h, TAG_DIV, "c", "HP");
+	}
 	return 1;
 }
 
@@ -627,18 +618,31 @@ man_ign_pre(MAN_ARGS)
 static int
 man_RS_pre(MAN_ARGS)
 {
-	struct roffsu	 su;
-
 	if (n->type == ROFFT_HEAD)
 		return 0;
-	else if (n->type == ROFFT_BODY)
-		return 1;
+	if (n->type == ROFFT_BLOCK)
+		print_otag(h, TAG_DIV, "c", "Bd-indent");
+	return 1;
+}
 
-	SCALE_HS_INIT(&su, INDENT);
-	if (n->head->child)
-		a2width(n->head->child, &su);
-
-	print_otag(h, TAG_DIV, "sul", &su);
+static int
+man_SY_pre(MAN_ARGS)
+{
+	switch (n->type) {
+	case ROFFT_BLOCK:
+		print_otag(h, TAG_TABLE, "c", "Nm");
+		print_otag(h, TAG_TR, "");
+		break;
+	case ROFFT_HEAD:
+		print_otag(h, TAG_TD, "");
+		print_otag(h, TAG_CODE, "cT", "Nm");
+		break;
+	case ROFFT_BODY:
+		print_otag(h, TAG_TD, "");
+		break;
+	default:
+		abort();
+	}
 	return 1;
 }
 

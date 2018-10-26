@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.135 2017/08/29 02:51:27 deraadt Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.137 2018/07/02 20:56:22 bluhm Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -1432,7 +1432,6 @@ nfsrv_fhtovp(fhandle_t *fhp, int lockflag, struct vnode **vpp,
     struct ucred *cred, struct nfssvc_sock *slp, struct mbuf *nam,
     int *rdonlyp)
 {
-	struct proc *p = curproc;	/* XXX */
 	struct mount *mp;
 	int i;
 	struct ucred *credanon;
@@ -1472,7 +1471,7 @@ nfsrv_fhtovp(fhandle_t *fhp, int lockflag, struct vnode **vpp,
 	else
 		*rdonlyp = 0;
 	if (!lockflag)
-		VOP_UNLOCK(*vpp, p);
+		VOP_UNLOCK(*vpp);
 
 	return (0);
 }
@@ -1520,10 +1519,9 @@ loop:
 		if (vp->v_mount != mp)	/* Paranoia */
 			goto loop;
 		nvp = LIST_NEXT(vp, v_mntvnodes);
-		for (bp = LIST_FIRST(&vp->v_dirtyblkhd); bp != NULL; bp = nbp) {
-			nbp = LIST_NEXT(bp, b_vnbufs);
+		LIST_FOREACH_SAFE(bp, &vp->v_dirtyblkhd, b_vnbufs, nbp) {
 			if ((bp->b_flags & (B_BUSY | B_DELWRI | B_NEEDCOMMIT))
-				== (B_DELWRI | B_NEEDCOMMIT))
+			    == (B_DELWRI | B_NEEDCOMMIT))
 				bp->b_flags &= ~B_NEEDCOMMIT;
 		}
 	}

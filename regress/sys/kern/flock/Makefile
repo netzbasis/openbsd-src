@@ -1,8 +1,10 @@
-#	$OpenBSD: Makefile,v 1.3 2011/07/07 01:38:53 guenther Exp $
+#	$OpenBSD: Makefile,v 1.5 2018/10/21 15:19:25 anton Exp $
 
 PROG=	flock
 
-TESTS!=jot 15 1
+WARNINGS=	yes
+
+TESTS!=jot 22 1
 
 # XXX known failures (talk to art)
 REGRESS_SKIP_TARGETS = t-5 t-6

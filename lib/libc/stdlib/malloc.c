@@ -1,4 +1,4 @@
-/*	$OpenBSD: malloc.c,v 1.247 2018/03/06 14:28:01 deraadt Exp $	*/
+/*	$OpenBSD: malloc.c,v 1.249 2018/04/07 09:57:08 otto Exp $	*/
 /*
  * Copyright (c) 2008, 2010, 2011, 2016 Otto Moerbeek <otto@drijf.net>
  * Copyright (c) 2012 Matthew Dempsky <matthew@openbsd.org>
@@ -28,13 +28,12 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/mman.h>
-#include <sys/uio.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <unistd.h>
 
 #ifdef MALLOC_STATS
@@ -57,7 +56,11 @@
 #define MALLOC_MAXCHUNK		(1 << MALLOC_MAXSHIFT)
 #define MALLOC_MAXCACHE		256
 #define MALLOC_DELAYED_CHUNK_MASK	15
+#ifdef MALLOC_STATS
+#define MALLOC_INITIAL_REGIONS	512
+#else
 #define MALLOC_INITIAL_REGIONS	(MALLOC_PAGESIZE / sizeof(struct region_info))
+#endif
 #define MALLOC_DEFAULT_CACHE	64
 #define MALLOC_CHUNK_LISTS	4
 #define CHUNK_CHECK_LENGTH	32

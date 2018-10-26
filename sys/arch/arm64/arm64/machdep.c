@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.30 2018/03/09 16:14:47 kettenis Exp $ */
+/* $OpenBSD: machdep.c,v 1.36 2018/07/04 22:26:20 drahn Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -56,7 +56,8 @@ uint8_t *bootmac = NULL;
 
 extern uint64_t esym;
 
-int stdout_node = 0;
+int stdout_node;
+int stdout_speed;
 
 void (*cpuresetfn)(void);
 void (*powerdownfn)(void);
@@ -150,6 +151,30 @@ inittodr(time_t base)
 	printf("WARNING: CHECK AND RESET THE DATE!\n");
 }
 
+static int
+atoi(const char *s)
+{
+	int n, neg;
+
+	n = 0;
+	neg = 0;
+
+	while (*s == '-') {
+		s++;
+		neg = !neg;
+	}
+
+	while (*s != '\0') {
+		if (*s < '0' || *s > '9')
+			break;
+
+		n = (10 * n) + (*s - '0');
+		s++;
+	}
+
+	return (neg ? -n : n);
+}
+
 void *
 fdt_find_cons(const char *name)
 {
@@ -165,8 +190,10 @@ fdt_find_cons(const char *name)
 		if (fdt_node_property(node, "stdout-path", &stdout) > 0) {
 			if (strchr(stdout, ':') != NULL) {
 				strlcpy(buf, stdout, sizeof(buf));
-				if ((p = strchr(buf, ':')) != NULL)
-					*p = '\0';
+				if ((p = strchr(buf, ':')) != NULL) {
+					*p++ = '\0';
+					stdout_speed = atoi(p);
+				}
 				stdout = buf;
 			}
 			if (stdout[0] != '/') {
@@ -197,6 +224,7 @@ fdt_find_cons(const char *name)
 }
 
 extern void	com_fdt_init_cons(void);
+extern void	imxuart_init_cons(void);
 extern void	pluart_init_cons(void);
 extern void	simplefb_init_cons(bus_space_tag_t);
 
@@ -211,6 +239,7 @@ consinit(void)
 	consinit_called = 1;
 
 	com_fdt_init_cons();
+	imxuart_init_cons();
 	pluart_init_cons();
 	simplefb_init_cons(&arm64_bs_tag);
 }
@@ -224,6 +253,7 @@ void
 cpu_idle_cycle()
 {
 	restore_daif(0x0); // enable interrupts
+	__asm volatile("dsb sy");
 	__asm volatile("wfi");
 }
 
@@ -766,8 +796,6 @@ initarm(struct arm64_bootparams *abp)
 	EFI_PHYSICAL_ADDRESS system_table = 0;
 	int (*map_func_save)(bus_space_tag_t, bus_addr_t, bus_size_t, int,
 	    bus_space_handle_t *);
-	int (*map_a4x_func_save)(bus_space_tag_t, bus_addr_t, bus_size_t, int,
-	    bus_space_handle_t *);
 
 	// NOTE that 1GB of ram is mapped in by default in
 	// the bootstrap memory config, so nothing is necessary
@@ -918,16 +946,12 @@ initarm(struct arm64_bootparams *abp)
 	    bus_size_t size, int flags, bus_space_handle_t *bshp);
 
 	map_func_save = arm64_bs_tag._space_map;
-	map_a4x_func_save = arm64_a4x_bs_tag._space_map;
-
 	arm64_bs_tag._space_map = pmap_bootstrap_bs_map;
-	arm64_a4x_bs_tag._space_map = pmap_bootstrap_bs_map;
 
 	// cninit
 	consinit();
 
 	arm64_bs_tag._space_map = map_func_save;
-	arm64_a4x_bs_tag._space_map = map_a4x_func_save;
 
 	/* Remap EFI runtime. */
 	if (mmap_start != 0 && system_table != 0)
@@ -1112,14 +1136,13 @@ remap_efi_runtime(EFI_PHYSICAL_ADDRESS system_table)
 		printf("SetVirtualAddressMap failed: %lu\n", status);
 }
 
-int comcnspeed = B115200;
-char bootargs[MAX_BOOT_STRING];
+char bootargs[256];
 
 void
 collect_kernel_args(char *args)
 {
 	/* Make a local copy of the bootargs */
-	strncpy(bootargs, args, MAX_BOOT_STRING - sizeof(int));
+	strlcpy(bootargs, args, sizeof(bootargs));
 }
 
 void
@@ -1171,12 +1194,6 @@ process_kernel_args(void)
 			break;
 		case 's':
 			fl |= RB_SINGLE;
-			break;
-		case '1':
-			comcnspeed = B115200;
-			break;
-		case '9':
-			comcnspeed = B9600;
 			break;
 		default:
 			printf("unknown option `%c'\n", *cp);

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.88 2018/03/01 12:53:08 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.91 2018/10/18 08:38:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -64,7 +64,7 @@ cmd_split_window_exec(struct cmd *self, struct cmdq_item *item)
 	const char		*cmd, *path, *shell, *template, *tmp;
 	char		       **argv, *cause, *new_cause, *cp, *cwd;
 	u_int			 hlimit;
-	int			 argc, size, percentage;
+	int			 argc, size, percentage, before;
 	enum layout_type	 type;
 	struct layout_cell	*lc;
 	struct environ_entry	*envent;
@@ -88,14 +88,13 @@ cmd_split_window_exec(struct cmd *self, struct cmdq_item *item)
 
 	if ((tmp = args_get(args, 'c')) != NULL)
 		cwd = format_single(item, tmp, c, s, NULL, NULL);
-	else if (item->client != NULL && item->client->session == NULL)
-		cwd = xstrdup(item->client->cwd);
 	else
-		cwd = xstrdup(s->cwd);
+		cwd = xstrdup(server_client_get_cwd(item->client, s));
 
 	type = LAYOUT_TOPBOTTOM;
 	if (args_has(args, 'h'))
 		type = LAYOUT_LEFTRIGHT;
+	before = args_has(args, 'b');
 
 	size = -1;
 	if (args_has(args, 'l')) {
@@ -125,13 +124,12 @@ cmd_split_window_exec(struct cmd *self, struct cmdq_item *item)
 	if (*shell == '\0' || areshell(shell))
 		shell = _PATH_BSHELL;
 
-	lc = layout_split_pane(wp, type, size, args_has(args, 'b'),
-	    args_has(args, 'f'));
+	lc = layout_split_pane(wp, type, size, before, args_has(args, 'f'));
 	if (lc == NULL) {
 		cause = xstrdup("pane too small");
 		goto error;
 	}
-	new_wp = window_add_pane(w, wp, args_has(args, 'b'), hlimit);
+	new_wp = window_add_pane(w, wp, before, args_has(args, 'f'), hlimit);
 	layout_make_leaf(lc, new_wp);
 
 	path = NULL;
@@ -150,7 +148,7 @@ cmd_split_window_exec(struct cmd *self, struct cmdq_item *item)
 	}
 	environ_free(env);
 
-	layout_fix_panes(w, w->sx, w->sy);
+	layout_fix_panes(w);
 	server_redraw_window(w);
 
 	if (!args_has(args, 'd')) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.123 2018/01/04 10:45:30 mpi Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.134 2018/07/09 10:58:21 claudio Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -307,7 +307,7 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		break;
 
 	default:
-		panic("piusrreq");
+		panic("uipc_usrreq");
 	}
 release:
 	m_freem(control);
@@ -456,6 +456,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	vattr.va_type = VSOCK;
 	vattr.va_mode = ACCESSPERMS &~ p->p_fd->fd_cmask;
 	error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
+	vput(nd.ni_dvp);
 	if (error) {
 		m_freem(nam2);
 		return (error);
@@ -468,7 +469,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	unp->unp_connid.gid = p->p_ucred->cr_gid;
 	unp->unp_connid.pid = p->p_p->ps_pid;
 	unp->unp_flags |= UNP_FEIDSBIND;
-	VOP_UNLOCK(vp, p);
+	VOP_UNLOCK(vp);
 	return (0);
 }
 
@@ -612,11 +613,17 @@ unp_drop(struct unpcb *unp, int errno)
 {
 	struct socket *so = unp->unp_socket;
 
+	KERNEL_ASSERT_LOCKED();
+
 	so->so_error = errno;
 	unp_disconnect(unp);
 	if (so->so_head) {
 		so->so_pcb = NULL;
-		sofree(so);
+		/*
+		 * As long as the KERNEL_LOCK() is the default lock for Unix
+		 * sockets, do not release it.
+		 */
+		sofree(so, SL_NOUNLOCK);
 		m_freem(unp->unp_addr);
 		free(unp, M_PCB, sizeof *unp);
 	}
@@ -650,7 +657,8 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 {
 	struct proc *p = curproc;		/* XXX */
 	struct cmsghdr *cm = mtod(rights, struct cmsghdr *);
-	int i, *fdp = NULL;
+	struct filedesc *fdp = p->p_fd;
+	int i, *fds = NULL;
 	struct fdpass *rp;
 	struct file *fp;
 	int nfds, error = 0;
@@ -679,22 +687,22 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 		 * No to block devices.  If passing a directory,
 		 * make sure that it is underneath the root.
 		 */
-		if (p->p_fd->fd_rdir != NULL && fp->f_type == DTYPE_VNODE) {
+		if (fdp->fd_rdir != NULL && fp->f_type == DTYPE_VNODE) {
 			struct vnode *vp = (struct vnode *)fp->f_data;
 
 			if (vp->v_type == VBLK ||
 			    (vp->v_type == VDIR &&
-			    !vn_isunder(vp, p->p_fd->fd_rdir, p))) {
+			    !vn_isunder(vp, fdp->fd_rdir, p))) {
 				error = EPERM;
 				break;
 			}
 		}
 	}
 
-	fdp = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
+	fds = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
 
 restart:
-	fdplock(p->p_fd);
+	fdplock(fdp);
 	if (error != 0) {
 		if (nfds > 0) {
 			rp = ((struct fdpass *)CMSG_DATA(cm));
@@ -709,12 +717,12 @@ restart:
 	 */
 	rp = ((struct fdpass *)CMSG_DATA(cm));
 	for (i = 0; i < nfds; i++) {
-		if ((error = fdalloc(p, 0, &fdp[i])) != 0) {
+		if ((error = fdalloc(p, 0, &fds[i])) != 0) {
 			/*
 			 * Back out what we've done so far.
 			 */
 			for (--i; i >= 0; i--)
-				fdremove(p->p_fd, fdp[i]);
+				fdremove(fdp, fds[i]);
 
 			if (error == ENOSPC) {
 				fdexpand(p);
@@ -727,7 +735,7 @@ restart:
 				 */
 				error = EMSGSIZE;
 			}
-			fdpunlock(p->p_fd);
+			fdpunlock(fdp);
 			goto restart;
 		}
 
@@ -736,12 +744,16 @@ restart:
 		 * fdalloc() works properly.. We finalize it all
 		 * in the loop below.
 		 */
-		p->p_fd->fd_ofiles[fdp[i]] = rp->fp;
-		p->p_fd->fd_ofileflags[fdp[i]] = (rp->flags & UF_PLEDGED);
-		rp++;
+		mtx_enter(&fdp->fd_fplock);
+		KASSERT(fdp->fd_ofiles[fds[i]] == NULL);
+		fdp->fd_ofiles[fds[i]] = rp->fp;
+		mtx_leave(&fdp->fd_fplock);
 
+		fdp->fd_ofileflags[fds[i]] = (rp->flags & UF_PLEDGED);
 		if (flags & MSG_CMSG_CLOEXEC)
-			p->p_fd->fd_ofileflags[fdp[i]] |= UF_EXCLOSE;
+			fdp->fd_ofileflags[fds[i]] |= UF_EXCLOSE;
+
+		rp++;
 	}
 
 	/*
@@ -763,13 +775,13 @@ restart:
 	 * Copy temporary array to message and adjust length, in case of
 	 * transition from large struct file pointers to ints.
 	 */
-	memcpy(CMSG_DATA(cm), fdp, nfds * sizeof(int));
+	memcpy(CMSG_DATA(cm), fds, nfds * sizeof(int));
 	cm->cmsg_len = CMSG_LEN(nfds * sizeof(int));
 	rights->m_len = CMSG_LEN(nfds * sizeof(int));
  out:
-	fdpunlock(p->p_fd);
-	if (fdp)
-		free(fdp, M_TEMP, nfds * sizeof(int));
+	fdpunlock(fdp);
+	if (fds != NULL)
+		free(fds, M_TEMP, nfds * sizeof(int));
 	return (error);
 }
 
@@ -831,6 +843,7 @@ morespace:
 
 	ip = ((int *)CMSG_DATA(cm)) + nfds - 1;
 	rp = ((struct fdpass *)CMSG_DATA(cm)) + nfds - 1;
+	fdplock(fdp);
 	for (i = 0; i < nfds; i++) {
 		memcpy(&fd, ip, sizeof fd);
 		ip--;
@@ -838,14 +851,14 @@ morespace:
 			error = EBADF;
 			goto fail;
 		}
-		if (fp->f_count == LONG_MAX-2) {
+		if (fp->f_count >= FDUP_MAX_COUNT) {
 			error = EDEADLK;
 			goto fail;
 		}
 		error = pledge_sendfd(p, fp);
 		if (error)
 			goto fail;
-		    
+
 		/* kqueue descriptors cannot be copied */
 		if (fp->f_type == DTYPE_KQUEUE) {
 			error = EINVAL;
@@ -854,22 +867,25 @@ morespace:
 		rp->fp = fp;
 		rp->flags = fdp->fd_ofileflags[fd] & UF_PLEDGED;
 		rp--;
-		fp->f_count++;
 		if ((unp = fptounp(fp)) != NULL) {
 			unp->unp_file = fp;
 			unp->unp_msgcount++;
 		}
 		unp_rights++;
 	}
+	fdpunlock(fdp);
 	return (0);
 fail:
+	fdpunlock(fdp);
+	if (fp != NULL)
+		FRELE(fp, p);
 	/* Back out what we just did. */
 	for ( ; i > 0; i--) {
 		rp++;
 		fp = rp->fp;
-		fp->f_count--;
 		if ((unp = fptounp(fp)) != NULL)
 			unp->unp_msgcount--;
+		FRELE(fp, p);
 		unp_rights--;
 	}
 
@@ -898,6 +914,7 @@ unp_gc(void *arg __unused)
 			fp = defer->ud_fp[i].fp;
 			if (fp == NULL)
 				continue;
+			 /* closef() expects a refcount of 2 */
 			FREF(fp);
 			if ((unp = fptounp(fp)) != NULL)
 				unp->unp_msgcount--;
@@ -914,6 +931,7 @@ unp_gc(void *arg __unused)
 	do {
 		nunref = 0;
 		LIST_FOREACH(unp, &unp_head, unp_link) {
+			fp = unp->unp_file;
 			if (unp->unp_flags & UNP_GCDEFER) {
 				/*
 				 * This socket is referenced by another
@@ -925,7 +943,7 @@ unp_gc(void *arg __unused)
 			} else if (unp->unp_flags & UNP_GCMARK) {
 				/* marked as live in previous pass */
 				continue;
-			} else if ((fp = unp->unp_file) == NULL) {
+			} else if (fp == NULL) {
 				/* not being passed, so can't be in loop */
 			} else if (fp->f_count == 0) {
 				/*

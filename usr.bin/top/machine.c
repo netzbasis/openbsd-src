@@ -1,4 +1,4 @@
-/* $OpenBSD: machine.c,v 1.89 2017/05/30 06:01:30 tedu Exp $	 */
+/* $OpenBSD: machine.c,v 1.94 2018/10/05 18:56:57 cheloha Exp $	 */
 
 /*-
  * Copyright (c) 1994 Thorsten Lockert <tholo@sigmasoft.com>
@@ -108,7 +108,7 @@ char *procstatenames[] = {
 /* these are for detailing the cpu states */
 int64_t *cpu_states;
 char *cpustatenames[] = {
-	"user", "nice", "system", "interrupt", "idle", NULL
+	"user", "nice", "sys", "spin", "intr", "idle", NULL
 };
 
 /* these are for detailing the memory statistics */
@@ -545,8 +545,8 @@ format_comm(struct kinfo_proc *kp)
 }
 
 char *
-format_next_process(caddr_t hndl, char *(*get_userid)(uid_t), pid_t *pid,
-    int show_threads)
+format_next_process(caddr_t hndl, const char *(*get_userid)(uid_t, int),
+    pid_t *pid, int show_threads)
 {
 	char *p_wait;
 	struct kinfo_proc *pp;
@@ -573,7 +573,7 @@ format_next_process(caddr_t hndl, char *(*get_userid)(uid_t), pid_t *pid,
 	if (show_threads)
 		snprintf(buf, sizeof(buf), "%8d", pp->p_tid);
 	else
-		snprintf(buf, sizeof(buf), "%s", (*get_userid)(pp->p_ruid));
+		snprintf(buf, sizeof(buf), "%s", (*get_userid)(pp->p_ruid, 0));
 
 	/* format this entry */
 	snprintf(fmt, sizeof(fmt), Proc_format, pp->p_pid, buf,

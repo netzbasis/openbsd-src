@@ -94,6 +94,7 @@ struct nsd_options {
 	int log_time_ascii;
 	int round_robin;
 	int minimal_responses;
+	int refuse_any;
 	int reuseport;
 
         /** remote control section. enable toggle. */
@@ -339,6 +340,10 @@ void options_zonestatnames_create(struct nsd_options* opt);
 unsigned getzonestatid(struct nsd_options* opt, struct zone_options* zopt);
 /* create string, same options as zonefile but no chroot changes */
 const char* config_cook_string(struct zone_options* zone, const char* input);
+
+/** check if config for remote control turns on IP-address interface
+ * with certificates or a named pipe without certificates. */
+int options_remote_is_address(struct nsd_options* cfg);
 
 #if defined(HAVE_SSL)
 /* tsig must be inited, adds all keys in options to tsig. */

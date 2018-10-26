@@ -1,4 +1,4 @@
-/*	$OpenBSD: bridgectl.c,v 1.8 2018/02/05 05:06:51 henning Exp $	*/
+/*	$OpenBSD: bridgectl.c,v 1.10 2018/10/22 13:18:23 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -66,7 +66,7 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifbrlreq *brlreq = (struct ifbrlreq *)data;
 	struct ifbareq *bareq = (struct ifbareq *)data;
 	struct ifbrparam *bparam = (struct ifbrparam *)data;
-	struct bridge_iflist *p;
+	struct bridge_iflist *bif;
 	struct ifnet *ifs;
 	int error = 0;
 
@@ -83,8 +83,8 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		p = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (p == NULL || p->bridge_sc != sc) {
+		bif = (struct bridge_iflist *)ifs->if_bridgeport;
+		if (bif == NULL || bif->bridge_sc != sc) {
 			error = ESRCH;
 			break;
 		}
@@ -124,8 +124,8 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		p = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (p == NULL || p->bridge_sc != sc) {
+		bif = (struct bridge_iflist *)ifs->if_bridgeport;
+		if (bif == NULL || bif->bridge_sc != sc) {
 			error = ESRCH;
 			break;
 		}
@@ -136,12 +136,12 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 		if (brlreq->ifbr_flags & BRL_FLAG_IN) {
-			error = bridge_addrule(p, brlreq, 0);
+			error = bridge_addrule(bif, brlreq, 0);
 			if (error)
 				break;
 		}
 		if (brlreq->ifbr_flags & BRL_FLAG_OUT) {
-			error = bridge_addrule(p, brlreq, 1);
+			error = bridge_addrule(bif, brlreq, 1);
 			if (error)
 				break;
 		}
@@ -152,12 +152,12 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		p = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (p == NULL || p->bridge_sc != sc) {
+		bif = (struct bridge_iflist *)ifs->if_bridgeport;
+		if (bif == NULL || bif->bridge_sc != sc) {
 			error = ESRCH;
 			break;
 		}
-		bridge_flushrule(p);
+		bridge_flushrule(bif);
 		break;
 	case SIOCBRDGGRL:
 		error = bridge_brlconf(sc, (struct ifbrlconf *)data);
@@ -538,7 +538,7 @@ int
 bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
 {
 	struct ifnet *ifp;
-	struct bridge_iflist *ifl;
+	struct bridge_iflist *bif;
 	struct brl_node *n;
 	struct ifbrlreq req;
 	int error = 0;
@@ -547,14 +547,14 @@ bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
 	ifp = ifunit(bc->ifbrl_ifsname);
 	if (ifp == NULL)
 		return (ENOENT);
-	ifl = (struct bridge_iflist *)ifp->if_bridgeport;
-	if (ifl == NULL || ifl->bridge_sc != sc)
+	bif = (struct bridge_iflist *)ifp->if_bridgeport;
+	if (bif == NULL || bif->bridge_sc != sc)
 		return (ESRCH);
 
-	SIMPLEQ_FOREACH(n, &ifl->bif_brlin, brl_next) {
+	SIMPLEQ_FOREACH(n, &bif->bif_brlin, brl_next) {
 		total++;
 	}
-	SIMPLEQ_FOREACH(n, &ifl->bif_brlout, brl_next) {
+	SIMPLEQ_FOREACH(n, &bif->bif_brlout, brl_next) {
 		total++;
 	}
 
@@ -563,12 +563,12 @@ bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
 		goto done;
 	}
 
-	SIMPLEQ_FOREACH(n, &ifl->bif_brlin, brl_next) {
+	SIMPLEQ_FOREACH(n, &bif->bif_brlin, brl_next) {
 		bzero(&req, sizeof req);
 		if (bc->ifbrl_len < sizeof(req))
 			goto done;
 		strlcpy(req.ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
-		strlcpy(req.ifbr_ifsname, ifl->ifp->if_xname, IFNAMSIZ);
+		strlcpy(req.ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
 		req.ifbr_action = n->brl_action;
 		req.ifbr_flags = n->brl_flags;
 		req.ifbr_src = n->brl_src;
@@ -587,12 +587,12 @@ bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
 		bc->ifbrl_len -= sizeof(req);
 	}
 
-	SIMPLEQ_FOREACH(n, &ifl->bif_brlout, brl_next) {
+	SIMPLEQ_FOREACH(n, &bif->bif_brlout, brl_next) {
 		bzero(&req, sizeof req);
 		if (bc->ifbrl_len < sizeof(req))
 			goto done;
 		strlcpy(req.ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
-		strlcpy(req.ifbr_ifsname, ifl->ifp->if_xname, IFNAMSIZ);
+		strlcpy(req.ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
 		req.ifbr_action = n->brl_action;
 		req.ifbr_flags = n->brl_flags;
 		req.ifbr_src = n->brl_src;

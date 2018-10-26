@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK_CD,v 1.169 2017/11/16 18:12:27 jcs Exp $
+#	$OpenBSD: RAMDISK_CD,v 1.173 2018/08/31 00:09:13 jmatthew Exp $
 
 machine		amd64
 maxusers	4
@@ -111,6 +111,7 @@ smsc*		at uhub?		# SMSC LAN95xx Ethernet
 cdce*		at uhub?		# CDC Ethernet
 udav*		at uhub?		# Davicom DM9601 based Ethernet
 mos*		at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
+mue*		at uhub?		# Microchip LAN75xx/LAN78xx Ethernet
 url*		at uhub?		# Realtek RTL8150L based adapters
 ure*		at uhub?		# Realtek RTL8152 based adapters
 wi*		at uhub?		# WaveLAN IEEE 802.11DS
@@ -236,6 +237,7 @@ alc*		at pci?			# Attansic L1C/L1D/L2C Ethernet
 ale*		at pci?			# Attansic L1E Ethernet
 lii*		at pci?			# Attansic L2 Ethernet
 jme*		at pci?			# JMicron JMC250/JMC260 Ethernet
+bnxt*		at pci?			# Broadcom BCM573xx, BCM574xx
 
 acx*		at pci?			# TI ACX100/ACX111 (802.11b/g)
 acx*		at cardbus?		# TI ACX100/ACX111 (802.11b/g)
@@ -299,6 +301,7 @@ vioblk*		at virtio?		# Virtio block device
 vio*		at virtio?		# Virtio network device
 viornd*		at virtio?		# Virtio entropy device
 vioscsi*	at virtio?		# Virtio SCSI device
+vmmci*		at virtio?		# VMM control interface
 
 pseudo-device	loop 1
 pseudo-device	vlan

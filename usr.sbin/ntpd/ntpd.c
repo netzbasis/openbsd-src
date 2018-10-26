@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.c,v 1.113 2017/01/09 14:49:22 reyk Exp $ */
+/*	$OpenBSD: ntpd.c,v 1.117 2018/08/31 18:45:02 deraadt Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -220,6 +220,9 @@ main(int argc, char *argv[])
 	    pipe_chld) == -1)
 		fatal("socketpair");
 
+	if (chdir("/") == -1)
+		fatal("chdir(\"/\")");
+
 	signal(SIGCHLD, sighdlr);
 
 	/* fork child process */
@@ -244,6 +247,10 @@ main(int argc, char *argv[])
 	 * Constraint processes are forked with certificates in memory,
 	 * then privdrop into chroot before speaking to the outside world.
 	 */
+	if (unveil("/etc/ssl/cert.pem", "r") == -1)
+		err(1, "unveil");
+	if (unveil("/usr/sbin/ntpd", "x") == -1)
+		err(1, "unveil");
 	if (pledge("stdio rpath inet settime proc exec id", NULL) == -1)
 		err(1, "pledge");
 

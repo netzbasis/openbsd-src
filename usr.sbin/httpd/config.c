@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.53 2017/07/19 17:36:25 jsing Exp $	*/
+/*	$OpenBSD: config.c,v 1.55 2018/06/20 16:43:05 reyk Exp $	*/
 
 /*
  * Copyright (c) 2011 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -304,8 +304,16 @@ config_setserver_tls(struct httpd *env, struct server *srv)
 
 	log_debug("%s: configuring tls for %s", __func__, srv_conf->name);
 
+	if (config_settls(env, srv, TLS_CFG_CA, "ca", srv_conf->tls_ca,
+	    srv_conf->tls_ca_len) != 0)
+		return (-1);
+
 	if (config_settls(env, srv, TLS_CFG_CERT, "cert", srv_conf->tls_cert,
 	    srv_conf->tls_cert_len) != 0)
+		return (-1);
+
+	if (config_settls(env, srv, TLS_CFG_CRL, "crl", srv_conf->tls_crl,
+	    srv_conf->tls_crl_len) != 0)
 		return (-1);
 
 	if (config_settls(env, srv, TLS_CFG_KEY, "key", srv_conf->tls_key,
@@ -431,6 +439,7 @@ config_getserver_config(struct httpd *env, struct server *srv,
 
 		f = SRVFLAG_TLS;
 		srv_conf->flags |= parent->flags & f;
+		srv_conf->tls_flags = parent->tls_flags;
 
 		f = SRVFLAG_ACCESS_LOG;
 		if ((srv_conf->flags & f) == 0) {
@@ -465,6 +474,13 @@ config_getserver_config(struct httpd *env, struct server *srv,
 			srv_conf->flags |= parent->flags & f;
 			memcpy(&srv_conf->default_type,
 			    &parent->default_type, sizeof(struct media_type));
+		}
+
+		f = SRVFLAG_PATH_REWRITE|SRVFLAG_NO_PATH_REWRITE;
+		if ((srv_conf->flags & f) == 0) {
+			srv_conf->flags |= parent->flags & f;
+			(void)strlcpy(srv_conf->path, parent->path,
+			    sizeof(srv_conf->path));
 		}
 
 		f = SRVFLAG_SERVER_HSTS;
@@ -655,9 +671,21 @@ config_getserver_tls(struct httpd *env, struct imsg *imsg)
 	}
 
 	switch (tls_conf.tls_type) {
+	case TLS_CFG_CA:
+		if (config_gettls(env, srv_conf, &tls_conf, "ca", p, len,
+		    &srv_conf->tls_ca, &srv_conf->tls_ca_len) != 0)
+			goto fail;
+		break;
+
 	case TLS_CFG_CERT:
 		if (config_gettls(env, srv_conf, &tls_conf, "cert", p, len,
 		    &srv_conf->tls_cert, &srv_conf->tls_cert_len) != 0)
+			goto fail;
+		break;
+
+	case TLS_CFG_CRL:
+		if (config_gettls(env, srv_conf, &tls_conf, "crl", p, len,
+		    &srv_conf->tls_crl, &srv_conf->tls_crl_len) != 0)
 			goto fail;
 		break;
 
