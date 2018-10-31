@@ -1,4 +1,4 @@
-/Makefile.inc/1.78/Fri Jan 12 04:36:12 2018//
+/Makefile.inc/1.79/Tue Oct 30 16:28:42 2018//
 /__tfork_thread.3/1.4/Wed May 11 21:52:49 2016//
 /alarm.3/1.15/Thu Jan 28 22:11:39 2016//
 /alarm.c/1.8/Thu Jan 28 16:40:54 2016//
@@ -191,6 +191,8 @@
 /time.c/1.7/Thu Oct 29 03:58:55 2015//
 /times.3/1.15/Fri Mar  2 16:35:58 2018//
 /times.c/1.8/Fri Mar  2 16:35:58 2018//
+/timespec_get.3/1.2/Tue Oct 30 22:31:45 2018//
+/timespec_get.c/1.1/Tue Oct 30 16:28:42 2018//
 /toascii.3/1.8/Wed Jun  5 03:39:22 2013//
 /tolower.3/1.14/Tue Sep  5 03:16:13 2017//
 /tolower_.c/1.11/Sat Sep 19 04:02:21 2015//
