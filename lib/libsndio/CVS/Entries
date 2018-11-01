@@ -5,13 +5,13 @@
 /aucat.h/1.7/Sun Nov 22 12:01:23 2015//
 /debug.c/1.5/Wed Sep 26 08:33:22 2018//
 /debug.h/1.5/Fri Oct  2 09:48:22 2015//
-/mio.c/1.21/Wed Sep 19 14:01:52 2018//
+/mio.c/1.22/Wed Oct 31 10:06:54 2018//
 /mio_aucat.c/1.12/Sat Jan  9 08:27:24 2016//
 /mio_open.3/1.17/Tue Oct 17 22:47:58 2017//
 /mio_priv.h/1.12/Sun Nov 22 12:01:23 2015//
 /mio_rmidi.c/1.27/Wed Sep 19 16:21:00 2018//
 /shlib_version/1.11/Tue Dec 26 15:23:33 2017//
-/sio.c/1.22/Wed Sep 19 14:01:52 2018//
+/sio.c/1.23/Wed Oct 31 10:06:54 2018//
 /sio_aucat.c/1.20/Sat Jan  9 08:27:24 2016//
 /sio_open.3/1.47/Sat Jul 28 09:11:55 2018//
 /sio_priv.h/1.9/Fri Jan 16 16:48:52 2015//
