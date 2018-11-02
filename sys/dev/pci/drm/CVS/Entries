@@ -51,7 +51,7 @@
 /drm_modeset_lock.h/1.1/Sat Jul  1 16:14:10 2017//
 /drm_panel.c/1.2/Sun Jul  2 20:58:55 2017//
 /drm_panel.h/1.2/Sun Jul  2 20:58:55 2017//
-/drm_pciids.h/1.12/Wed Apr 25 01:27:46 2018//
+/drm_pciids.h/1.13/Thu Nov  1 10:35:08 2018//
 /drm_plane_helper.c/1.1/Sat Jul  1 16:14:10 2017//
 /drm_plane_helper.h/1.1/Sat Jul  1 16:14:10 2017//
 /drm_prime.c/1.1/Mon Jun 25 22:29:16 2018//

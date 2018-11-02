@@ -4,7 +4,7 @@
 .Os
 .Sh NAME
 .Nm Va-basic
-.Nd basic usage of the variable name macro
+.Nd basic usage of the varÖúÀe name macro
 .Sh DESCRIPTION
 Both
 .Vt char *
