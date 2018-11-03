@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.341 2018/11/01 14:48:49 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.345 2018/11/02 17:20:22 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -568,9 +568,6 @@ smtp_session(struct listener *listener, int sock,
 	}
 
 	/* session may have been freed by now */
-
-	smtp_report_link_connect(s->id, ss_to_text(&s->ss),
-	    ss_to_text(&s->listener->ss));
 
 	return (0);
 }
@@ -1620,6 +1617,9 @@ smtp_connected(struct smtp_session *s)
 
 	log_info("%016"PRIx64" smtp connected address=%s host=%s",
 	    s->id, ss_to_text(&s->ss), s->hostname);
+
+	smtp_report_link_connect(s->id, s->hostname, &s->ss,
+	    &s->listener->ss);
 
 	sl = sizeof(ss);
 	if (getsockname(io_fileno(s->io), (struct sockaddr*)&ss, &sl) == -1) {

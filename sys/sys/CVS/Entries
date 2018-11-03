@@ -50,7 +50,7 @@
 /ktrace.h/1.36/Tue Nov 28 16:05:13 2017//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
-/lockf.h/1.11/Sat Oct 27 08:53:35 2018//
+/lockf.h/1.12/Fri Nov  2 07:15:03 2018//
 /malloc.h/1.116/Mon Nov 27 09:23:44 2017//
 /mbuf.h/1.238/Mon Sep 10 16:14:08 2018//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
