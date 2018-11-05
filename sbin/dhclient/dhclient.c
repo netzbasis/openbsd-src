@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.579 2018/11/03 23:17:21 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.581 2018/11/04 19:10:34 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -127,7 +127,7 @@ struct proposal {
 
 void		 sighdlr(int);
 void		 usage(void);
-int		 res_hnok_list(const char *dn);
+int		 res_hnok_list(const char *);
 int		 addressinuse(char *, struct in_addr, char *);
 
 void		 fork_privchld(struct interface_info *, int, int);
@@ -598,12 +598,6 @@ main(int argc, char *argv[])
 		close(tailfd);
 	}
 
-	/*
-	 * Do the initial status check and possible force up before creating
-	 * the routing socket. If we bounce the interface down and up while
-	 * the routing socket is listening, the RTM_IFINFO message with the
-	 * RTF_UP flag reset will cause premature exit.
-	 */
 	interface_state(ifi);
 	if (!LINK_STATE_IS_UP(ifi->link_state))
 		interface_link_forceup(ifi->name, ioctlfd);
