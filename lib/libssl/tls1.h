@@ -1,4 +1,4 @@
-/* $OpenBSD: tls1.h,v 1.32 2018/02/17 15:08:21 jsing Exp $ */
+/* $OpenBSD: tls1.h,v 1.34 2018/11/06 01:37:23 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -151,6 +151,8 @@
 #ifndef HEADER_TLS1_H
 #define HEADER_TLS1_H
 
+#include <openssl/opensslconf.h>
+
 #include <openssl/buffer.h>
 
 #ifdef  __cplusplus
@@ -158,6 +160,10 @@ extern "C" {
 #endif
 
 #define TLS1_ALLOW_EXPERIMENTAL_CIPHERSUITES	0
+
+#if defined(LIBRESSL_HAS_TLS1_3) || defined(LIBRESSL_INTERNAL)
+#define TLS1_3_VERSION			0x0304
+#endif
 
 #define TLS1_2_VERSION			0x0303
 #define TLS1_2_VERSION_MAJOR		0x03
@@ -230,8 +236,13 @@ extern "C" {
 /* ExtensionType values from RFC 6091. */
 #define TLSEXT_TYPE_cert_type		9
 
+/* ExtensionType values from RFC 7919. */
+#define TLSEXT_TYPE_supported_groups		10
+
 /* ExtensionType values from RFC 4492. */
-#define TLSEXT_TYPE_elliptic_curves		10
+#ifndef LIBRESSL_INTERNAL
+#define TLSEXT_TYPE_elliptic_curves		TLSEXT_TYPE_supported_groups
+#endif
 #define TLSEXT_TYPE_ec_point_formats		11
 
 /* ExtensionType value from RFC 5054. */

@@ -47,7 +47,7 @@
 /kcov.h/1.1/Sun Aug 19 11:42:33 2018//
 /kernel.h/1.17/Mon Jul 20 23:47:20 2015//
 /kthread.h/1.6/Mon Nov 18 20:21:51 2013//
-/ktrace.h/1.36/Tue Nov 28 16:05:13 2017//
+/ktrace.h/1.37/Mon Nov  5 17:05:50 2018//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.12/Fri Nov  2 07:15:03 2018//

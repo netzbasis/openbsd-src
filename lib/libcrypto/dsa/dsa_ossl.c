@@ -1,4 +1,4 @@
-/* $OpenBSD: dsa_ossl.c,v 1.37 2018/06/14 18:34:50 jsing Exp $ */
+/* $OpenBSD: dsa_ossl.c,v 1.39 2018/11/06 02:14:39 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
