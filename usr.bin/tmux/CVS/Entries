@@ -64,7 +64,7 @@
 /cmd-string.c/1.30/Sun Aug 19 19:03:46 2018//
 /cmd-swap-pane.c/1.32/Thu Oct 18 08:38:01 2018//
 /cmd-swap-window.c/1.23/Sat Apr 22 10:22:39 2017//
-/cmd-switch-client.c/1.54/Thu Oct 18 08:38:01 2018//
+/cmd-switch-client.c/1.55/Tue Nov  6 15:13:13 2018//
 /cmd-unbind-key.c/1.30/Tue Jan 24 21:50:22 2017//
 /cmd-wait-for.c/1.16/Sun Oct 16 19:04:05 2016//
 /cmd.c/1.141/Thu Oct 18 08:38:01 2018//
