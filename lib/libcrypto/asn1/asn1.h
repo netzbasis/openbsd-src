@@ -1,4 +1,4 @@
-/* $OpenBSD: asn1.h,v 1.50 2018/10/24 17:57:22 jsing Exp $ */
+/* $OpenBSD: asn1.h,v 1.52 2018/11/09 03:42:30 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -899,25 +899,17 @@ extern const ASN1_ITEM NETSCAPE_X509_it;
 
 int ASN1_UNIVERSALSTRING_to_string(ASN1_UNIVERSALSTRING *s);
 
-int ASN1_TYPE_set_octetstring(ASN1_TYPE *a, unsigned char *data, int len);
+int ASN1_TYPE_set_octetstring(ASN1_TYPE *a, const unsigned char *data, int len);
 int ASN1_TYPE_get_octetstring(const ASN1_TYPE *a, unsigned char *data,
     int max_len);
-int ASN1_TYPE_set_int_octetstring(ASN1_TYPE *a, long num, unsigned char *data,
+int ASN1_TYPE_set_int_octetstring(ASN1_TYPE *a, long num, const unsigned char *data,
     int len);
 int ASN1_TYPE_get_int_octetstring(const ASN1_TYPE *a, long *num,
     unsigned char *data, int max_len);
 
-STACK_OF(OPENSSL_BLOCK) *ASN1_seq_unpack(const unsigned char *buf, int len,
-    d2i_of_void *d2i, void (*free_func)(OPENSSL_BLOCK));
-unsigned char *ASN1_seq_pack(STACK_OF(OPENSSL_BLOCK) *safes, i2d_of_void *i2d,
-    unsigned char **buf, int *len);
-void *ASN1_unpack_string(ASN1_STRING *oct, d2i_of_void *d2i);
-void *ASN1_item_unpack(const ASN1_STRING *oct, const ASN1_ITEM *it);
-ASN1_STRING *ASN1_pack_string(void *obj, i2d_of_void *i2d,
-    ASN1_OCTET_STRING **oct);
-
 ASN1_STRING *ASN1_item_pack(void *obj, const ASN1_ITEM *it,
     ASN1_OCTET_STRING **oct);
+void *ASN1_item_unpack(const ASN1_STRING *oct, const ASN1_ITEM *it);
 
 void ASN1_STRING_set_default_mask(unsigned long mask);
 int ASN1_STRING_set_default_mask_asc(const char *p);

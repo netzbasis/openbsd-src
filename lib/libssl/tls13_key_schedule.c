@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_key_schedule.c,v 1.1 2018/11/07 19:43:12 beck Exp $ */
+/* $OpenBSD: tls13_key_schedule.c,v 1.3 2018/11/08 23:50:54 beck Exp $ */
 /* Copyright (c) 2018, Bob Beck <beck@openbsd.org>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -17,7 +17,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <openssl/evp.h>
 #include <openssl/hkdf.h>
 
 #include "bytestring.h"
@@ -30,7 +29,7 @@ tls13_secrets_destroy(struct tls13_secrets *secrets)
 		return;
 
 	/* you can never be too sure :) */
-	freezero(secrets->zeros.data, secrets->zeros.len); 
+	freezero(secrets->zeros.data, secrets->zeros.len);
 
 	freezero(secrets->extracted_early.data,
 	    secrets->extracted_early.len);
@@ -75,7 +74,8 @@ tls13_secrets_new(size_t hash_length)
 
 	if ((secrets = calloc(1, sizeof(struct tls13_secrets))) == NULL)
 		goto err;
-	if ((secrets->zeros.data = calloc(hash_length, sizeof(uint8_t))) == NULL)
+	if ((secrets->zeros.data = calloc(hash_length, sizeof(uint8_t))) ==
+	    NULL)
 		goto err;
 	secrets->zeros.len = hash_length;
 

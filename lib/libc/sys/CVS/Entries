@@ -87,7 +87,7 @@
 /open.2/1.49/Mon Jan 19 15:54:11 2015//
 /pathconf.2/1.25/Thu Jun 21 20:30:36 2018//
 /pipe.2/1.18/Wed Dec 10 19:30:22 2014//
-/pledge.2/1.53/Fri Jul 13 09:25:22 2018//
+/pledge.2/1.54/Thu Nov  8 05:58:21 2018//
 /poll.2/1.36/Sat Aug 18 16:55:30 2018//
 /posix_madvise.c/1.4/Fri Sep 11 13:26:20 2015//
 /pread.c/1.11/Sat May  7 19:05:22 2016//

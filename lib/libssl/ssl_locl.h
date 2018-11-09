@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.220 2018/11/07 01:53:36 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.223 2018/11/09 00:34:55 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -780,8 +780,8 @@ typedef struct ssl3_state_internal_st {
 	int wpend_ret;		/* number of bytes submitted */
 	const unsigned char *wpend_buf;
 
-	/* used during startup, digest all incoming/outgoing packets */
-	BIO *handshake_buffer;
+	/* Transcript of handshake messages that have been sent and received. */
+	BUF_MEM *handshake_transcript;
 
 	/* Rolling hash of handshake messages. */
 	EVP_MD_CTX *handshake_hash;
@@ -1048,7 +1048,6 @@ void ssl_clear_cipher_write_state(SSL *s);
 int ssl_clear_bad_session(SSL *s);
 CERT *ssl_cert_new(void);
 CERT *ssl_cert_dup(CERT *cert);
-int ssl_cert_inst(CERT **o);
 void ssl_cert_free(CERT *c);
 SESS_CERT *ssl_sess_cert_new(void);
 void ssl_sess_cert_free(SESS_CERT *sc);
@@ -1239,11 +1238,14 @@ int tls1_handshake_hash_value(SSL *s, const unsigned char *out, size_t len,
     size_t *outlen);
 void tls1_handshake_hash_free(SSL *s);
 
-int tls1_init_finished_mac(SSL *s);
-int tls1_finish_mac(SSL *s, const unsigned char *buf, int len);
-void tls1_free_digest_list(SSL *s);
+int tls1_transcript_init(SSL *s);
+void tls1_transcript_free(SSL *s);
+int tls1_transcript_append(SSL *s, const unsigned char *buf, size_t len);
+int tls1_transcript_data(SSL *s, const unsigned char **data, size_t *len);
+void tls1_transcript_freeze(SSL *s);
+int tls1_transcript_record(SSL *s, const unsigned char *buf, size_t len);
+
 void tls1_cleanup_key_block(SSL *s);
-int tls1_digest_cached_records(SSL *s);
 int tls1_change_cipher_state(SSL *s, int which);
 int tls1_setup_key_block(SSL *s);
 int tls1_enc(SSL *s, int snd);
@@ -1284,15 +1286,9 @@ int ssl_check_serverhello_tlsext(SSL *s);
 #define tlsext_tick_md	EVP_sha256
 int tls1_process_ticket(SSL *s, const unsigned char *session_id,
     int session_id_len, CBS *ext_block, SSL_SESSION **ret);
-int tls12_get_hashid(const EVP_MD *md);
-int tls12_get_sigid(const EVP_PKEY *pk);
-int tls12_get_hashandsig(CBB *cbb, const EVP_PKEY *pk, const EVP_MD *md);
-const EVP_MD *tls12_get_hash(unsigned char hash_alg);
 
 long ssl_get_algorithm2(SSL *s);
 int tls1_process_sigalgs(SSL *s, CBS *cbs);
-void tls12_get_req_sig_algs(SSL *s, unsigned char **sigalgs,
-    size_t *sigalgs_len);
 
 int tls1_check_ec_server_key(SSL *s);
 
