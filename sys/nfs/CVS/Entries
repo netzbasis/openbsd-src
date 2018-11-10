@@ -7,10 +7,10 @@
 /nfs_debug.c/1.6/Sun Sep 14 14:17:26 2014//
 /nfs_kq.c/1.22/Sat Nov 15 00:03:12 2014//
 /nfs_node.c/1.70/Sun May 27 06:02:15 2018//
-/nfs_serv.c/1.116/Wed Jun 13 14:57:24 2018//
-/nfs_socket.c/1.131/Mon Sep 10 16:14:08 2018//
+/nfs_serv.c/1.117/Fri Nov  9 14:14:32 2018//
+/nfs_socket.c/1.132/Fri Nov  9 14:14:32 2018//
 /nfs_srvcache.c/1.28/Fri Aug 28 00:03:54 2015//
-/nfs_subs.c/1.137/Mon Jul  2 20:56:22 2018//
+/nfs_subs.c/1.138/Fri Nov  9 14:14:32 2018//
 /nfs_syscalls.c/1.114/Wed Jun  6 06:55:22 2018//
 /nfs_var.h/1.63/Wed Feb 22 11:42:46 2017//
 /nfs_vfsops.c/1.122/Mon Jul  2 20:56:22 2018//

@@ -8,7 +8,7 @@
 /bpfdesc.h/1.36/Wed Jan 24 00:25:17 2018//
 /bridgectl.c/1.11/Fri Oct 26 14:55:27 2018//
 /bridgestp.c/1.66/Mon Oct 22 13:18:23 2018//
-/bsd-comp.c/1.15/Fri Sep  8 05:36:53 2017//
+/bsd-comp.c/1.16/Fri Nov  9 14:14:31 2018//
 /ethertypes.h/1.11/Tue Jan 24 10:08:30 2017//
 /fq_codel.c/1.11/Mon Nov 27 16:53:04 2017//
 /fq_codel.h/1.3/Fri May 12 19:15:22 2017//
@@ -44,7 +44,7 @@
 /if_pflow.h/1.17/Wed May 31 13:05:43 2017//
 /if_pfsync.c/1.261/Wed Oct  3 01:24:14 2018//
 /if_pfsync.h/1.54/Tue Sep 11 07:53:38 2018//
-/if_ppp.c/1.111/Mon Feb 19 08:59:52 2018//
+/if_ppp.c/1.112/Fri Nov  9 14:14:31 2018//
 /if_ppp.h/1.9/Tue Oct 24 09:36:13 2017//
 /if_pppoe.c/1.67/Mon Feb 19 08:59:52 2018//
 /if_pppoe.h/1.6/Fri Apr 10 13:58:20 2015//
@@ -88,9 +88,9 @@
 /pipex.h/1.21/Tue Jan 24 10:08:30 2017//
 /pipex_local.h/1.29/Thu Jul 27 05:57:04 2017//
 /ppp-comp.h/1.8/Fri Sep 13 00:12:07 2002//
-/ppp-deflate.c/1.14/Fri Sep  8 05:36:53 2017//
+/ppp-deflate.c/1.15/Fri Nov  9 14:14:31 2018//
 /ppp_defs.h/1.13/Fri Sep 13 00:12:07 2002//
-/ppp_tty.c/1.50/Tue May 15 09:21:52 2018//
+/ppp_tty.c/1.51/Fri Nov  9 14:14:31 2018//
 /radix.c/1.58/Tue Jun 20 09:03:39 2017//
 /radix.h/1.30/Mon Jun 19 09:42:45 2017//
 /route.c/1.378/Thu Sep 27 12:36:57 2018//
@@ -100,7 +100,7 @@
 /rtsock.c/1.279/Tue Jul 10 20:28:34 2018//
 /slcompress.c/1.12/Thu Dec  3 14:34:48 2015//
 /slcompress.h/1.10/Tue Jan 24 10:08:30 2017//
-/switchctl.c/1.12/Fri Aug 11 21:24:19 2017//
+/switchctl.c/1.13/Fri Nov  9 14:14:31 2018//
 /switchofp.c/1.71/Tue Aug 21 16:40:23 2018//
 /trunklacp.c/1.30/Sun Aug 12 23:50:31 2018//
 /trunklacp.h/1.14/Sun Aug 12 23:50:31 2018//

@@ -1,17 +1,16 @@
-#	$OpenBSD: Makefile,v 1.28 2018/11/07 21:42:10 beck Exp $
+#	$OpenBSD: Makefile,v 1.30 2018/11/09 19:31:50 tb Exp $
 
-SUBDIR= \
-	asn1 \
-	bytestring \
-	ciphers \
-	client \
-	interop \
-	pqueue \
-	server \
-	ssl \
-	tlsext \
-	key_schedule \
-	unit
+SUBDIR += asn1
+SUBDIR += bytestring
+SUBDIR += ciphers
+SUBDIR += client
+SUBDIR += interop
+SUBDIR += pqueue
+SUBDIR += server
+SUBDIR += ssl
+SUBDIR += tlsext
+SUBDIR += key_schedule
+SUBDIR += unit
 
 install:
 
