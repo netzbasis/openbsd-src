@@ -34,7 +34,7 @@ main(int argc, char *argv[])
 	char *mode;
 
 	mode = calloc(1, MODELEN);
-	if (mode = NULL)
+	if (mode == NULL)
 		err(1, "calloc");
 
 	while ((ch = getopt(argc, argv, "p:u:m:")) != -1) {
@@ -59,11 +59,11 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (unveil(NULL, NULL)i == -1)
+	if (unveil(NULL, NULL) == -1)
 		err(1, "unveil locking failed");
 
 	
-	printf("%s\n", argv);
+	printf("%s %s\n", argv[0], argv[1]);
 
 	return 0;
 }
