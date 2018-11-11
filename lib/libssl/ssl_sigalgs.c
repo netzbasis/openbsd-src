@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_sigalgs.c,v 1.4 2018/11/10 01:19:09 beck Exp $ */
+/* $OpenBSD: ssl_sigalgs.c,v 1.6 2018/11/11 02:03:23 beck Exp $ */
 /*
  * Copyright (c) 2018, Bob Beck <beck@openbsd.org>
  *
@@ -83,7 +83,6 @@ const struct ssl_sigalg sigalgs[] = {
 		.pkey_idx = SSL_PKEY_GOST01,
 	},
 #endif
-#ifdef LIBRESSL_HAS_TLS1_3
 	{
 		.value = SIGALG_RSA_PSS_RSAE_SHA256,
 		.md = EVP_sha256,
@@ -126,7 +125,6 @@ const struct ssl_sigalg sigalgs[] = {
 		.pkey_idx = SSL_PKEY_RSA_SIGN,
 		.flags = SIGALG_FLAG_RSA_PSS,
 	},
-#endif
 	{
 		.value = SIGALG_RSA_PKCS1_SHA224,
 		.md = EVP_sha224,
@@ -203,19 +201,6 @@ ssl_sigalg(uint16_t sigalg, uint16_t *values, size_t len)
 	}
 
 	return NULL;
-}
-
-uint16_t
-ssl_sigalg_value(const EVP_PKEY *pk, const EVP_MD *md)
-{
-	int i;
-
-	for (i = 0; sigalgs[i].value != SIGALG_NONE; i++) {
-		if ((sigalgs[i].key_type == pk->type) &&
-		    ((sigalgs[i].md() == md)))
-			return sigalgs[i].value;
-	}
-	return SIGALG_NONE;
 }
 
 int
