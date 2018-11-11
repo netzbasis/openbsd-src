@@ -71,6 +71,6 @@ main(int argc, char *argv[])
 static void __dead
 usage(void)
 {
-	fputs("usage: pledge [-p "pledges"] [-m mode] [-u unveil] cmd args ...\n", stderr);
+	fputs("usage: pledge [-p pledges] [-m mode] [-u unveil] cmd args ...\n", stderr);
 	exit(1);
 }
