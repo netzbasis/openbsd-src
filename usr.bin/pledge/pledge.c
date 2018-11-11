@@ -22,34 +22,48 @@
 #include <err.h>
 #include <unistd.h>
 
+#define MODELEN 16
+
 static void __dead usage(void);
 
 int
 main(int argc, char *argv[])
 {
-	int i;
-	size_t arglen;
-	char **options;
+	int ch;
+	size_t modelen;
+	char *mode;
 
-	if (argc < 3)
-		usage();
+	mode = calloc(1, MODELEN);
+	if (mode = NULL)
+		err(1, "calloc");
 
-	options = reallocarray(NULL, (argc+1), sizeof *options);
-	if (options == NULL)
-		err(1, "malloc");
-
-	for (i=0; i<argc; i++) {
-		options[i] = strdup(argv[i]);
+	while ((ch = getopt(argc, argv, "p:u:m:")) != -1) {
+		switch (ch) {
+		case 'p':
+			if (pledge(NULL, optarg) == -1)
+				err(1, "pledge failed");
+			break;
+		case 'u':
+			if (unveil(optarg, mode) == -1)
+				err(1, "unveil failed");
+			break;
+		case 'm':
+			modelen = strlcpy(mode, optarg, MODELEN);
+			if (modelen >= MODELEN)
+				err(1, "mode truncated");
+			break;
+		default:
+			usage();
+		}
 	}
-	options[argc] = NULL;
+	argc -= optind;
+	argv += optind;
 
-	if (pledge("stdio exec", options[1]) == -1)
-		err(1, "pledge");
+	if (unveil(NULL, NULL)i == -1)
+		err(1, "unveil locking failed");
 
 	
-	printf("%s %s %s\n", options[1], options[2], options[3]);
-	if (execl("/bin/cat", "/bin/cat", "/tmp/hello", NULL) == -1)
-		err(1, "exec");
+	printf("%s\n", argv);
 
 	return 0;
 }
@@ -57,6 +71,6 @@ main(int argc, char *argv[])
 static void __dead
 usage(void)
 {
-	fputs("usage: pledge \"<pledges>\" cmd <options>\n", stderr);
+	fputs("usage: pledge [-p "pledges"] [-m mode] [-u unveil] cmd args ...\n", stderr);
 	exit(1);
 }
