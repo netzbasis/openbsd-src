@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.280 2018/07/11 18:55:11 markus Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.288 2018/10/11 03:48:04 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -573,6 +573,30 @@ input_userauth_failure(int type, u_int32_t seq, struct ssh *ssh)
 	return 0;
 }
 
+/*
+ * Format an identity for logging including filename, key type, fingerprint
+ * and location (agent, etc.). Caller must free.
+ */
+static char *
+format_identity(Identity *id)
+{
+	char *fp = NULL, *ret = NULL;
+
+	if (id->key != NULL) {
+	     fp = sshkey_fingerprint(id->key, options.fingerprint_hash,
+		    SSH_FP_DEFAULT);
+	}
+	xasprintf(&ret, "%s %s%s%s%s%s%s",
+	    id->filename,
+	    id->key ? sshkey_type(id->key) : "", id->key ? " " : "",
+	    fp ? fp : "",
+	    id->userprovided ? " explicit" : "",
+	    (id->key && (id->key->flags & SSHKEY_FLAG_EXT)) ? " token" : "",
+	    id->agent_fd != -1 ? " agent" : "");
+	free(fp);
+	return ret;
+}
+
 /* ARGSUSED */
 int
 input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
@@ -580,9 +604,9 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 	Authctxt *authctxt = ssh->authctxt;
 	struct sshkey *key = NULL;
 	Identity *id = NULL;
-	int pktype, sent = 0;
+	int pktype, found = 0, sent = 0;
 	size_t blen;
-	char *pkalg = NULL, *fp;
+	char *pkalg = NULL, *fp = NULL, *ident = NULL;
 	u_char *pkblob = NULL;
 	int r;
 
@@ -594,10 +618,8 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 	    (r = sshpkt_get_end(ssh)) != 0)
 		goto done;
 
-	debug("Server accepts key: pkalg %s blen %zu", pkalg, blen);
-
 	if ((pktype = sshkey_type_from_name(pkalg)) == KEY_UNSPEC) {
-		debug("unknown pkalg %s", pkalg);
+		debug("%s: server sent unknown pkalg %s", __func__, pkalg);
 		goto done;
 	}
 	if ((r = sshkey_from_blob(pkblob, blen, &key)) != 0) {
@@ -610,11 +632,6 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 		    key->type, pktype);
 		goto done;
 	}
-	if ((fp = sshkey_fingerprint(key, options.fingerprint_hash,
-	    SSH_FP_DEFAULT)) == NULL)
-		goto done;
-	debug2("input_userauth_pk_ok: fp %s", fp);
-	free(fp);
 
 	/*
 	 * search keys in the reverse order, because last candidate has been
@@ -623,13 +640,25 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 	 */
 	TAILQ_FOREACH_REVERSE(id, &authctxt->keys, idlist, next) {
 		if (sshkey_equal(key, id->key)) {
-			sent = sign_and_send_pubkey(ssh, authctxt, id);
+			found = 1;
 			break;
 		}
 	}
+	if (!found || id == NULL) {
+		fp = sshkey_fingerprint(key, options.fingerprint_hash,
+		    SSH_FP_DEFAULT);
+		error("%s: server replied with unknown key: %s %s", __func__,
+		    sshkey_type(key), fp == NULL ? "<ERROR>" : fp);
+		goto done;
+	}
+	ident = format_identity(id);
+	debug("Server accepts key: %s", ident);
+	sent = sign_and_send_pubkey(ssh, authctxt, id);
 	r = 0;
  done:
 	sshkey_free(key);
+	free(ident);
+	free(fp);
 	free(pkalg);
 	free(pkblob);
 
@@ -1051,7 +1080,8 @@ key_sig_algorithm(struct ssh *ssh, const struct sshkey *key)
 	 * newer (SHA2) algorithms.
 	 */
 	if (ssh == NULL || ssh->kex->server_sig_algs == NULL ||
-	    (key->type != KEY_RSA && key->type != KEY_RSA_CERT)) {
+	    (key->type != KEY_RSA && key->type != KEY_RSA_CERT) ||
+	    (key->type == KEY_RSA_CERT && (datafellows & SSH_BUG_SIGTYPE))) {
 		/* Filter base key signature alg against our configuration */
 		return match_list(sshkey_ssh_name(key),
 		    options.pubkey_key_types, NULL);
@@ -1450,6 +1480,7 @@ pubkey_prepare(Authctxt *authctxt)
 	int agent_fd = -1, i, r, found;
 	size_t j;
 	struct ssh_identitylist *idlist;
+	char *ident;
 
 	TAILQ_INIT(&agent);	/* keys from the agent */
 	TAILQ_INIT(&files);	/* keys from the config file */
@@ -1566,10 +1597,14 @@ pubkey_prepare(Authctxt *authctxt)
 			memset(id, 0, sizeof(*id));
 			continue;
 		}
-		debug2("key: %s (%p)%s%s", id->filename, id->key,
-		    id->userprovided ? ", explicit" : "",
-		    id->agent_fd != -1 ? ", agent" : "");
 	}
+	/* List the keys we plan on using */
+	TAILQ_FOREACH_SAFE(id, preferred, next, id2) {
+		ident = format_identity(id);
+		debug("Will attempt key: %s", ident);
+		free(ident);
+	}
+	debug2("%s: done", __func__);
 }
 
 static void
@@ -1617,7 +1652,7 @@ userauth_pubkey(Authctxt *authctxt)
 	struct ssh *ssh = active_state; /* XXX */
 	Identity *id;
 	int sent = 0;
-	char *fp;
+	char *ident;
 
 	while ((id = TAILQ_FIRST(&authctxt->keys))) {
 		if (id->tried++)
@@ -1632,16 +1667,9 @@ userauth_pubkey(Authctxt *authctxt)
 		 */
 		if (id->key != NULL) {
 			if (try_identity(id)) {
-				if ((fp = sshkey_fingerprint(id->key,
-				    options.fingerprint_hash,
-				    SSH_FP_DEFAULT)) == NULL) {
-					error("%s: sshkey_fingerprint failed",
-					    __func__);
-					return 0;
-				}
-				debug("Offering public key: %s %s %s",
-				    sshkey_type(id->key), fp, id->filename);
-				free(fp);
+				ident = format_identity(id);
+				debug("Offering public key: %s", ident);
+				free(ident);
 				sent = send_pubkey_test(ssh, authctxt, id);
 			}
 		} else {
@@ -1804,7 +1832,6 @@ ssh_keysign(struct sshkey *key, u_char **sigp, size_t *lenp,
 	if (pid == 0) {
 		/* keep the socket on exec */
 		fcntl(sock, F_SETFD, 0);
-		permanently_drop_suid(getuid());
 		close(from[0]);
 		if (dup2(from[1], STDOUT_FILENO) < 0)
 			fatal("%s: dup2: %s", __func__, strerror(errno));
@@ -1982,12 +2009,8 @@ userauth_hostbased(Authctxt *authctxt)
 #ifdef DEBUG_PK
 	sshbuf_dump(b, stderr);
 #endif
-	if (authctxt->sensitive->external_keysign)
-		r = ssh_keysign(private, &sig, &siglen,
-		    sshbuf_ptr(b), sshbuf_len(b));
-	else if ((r = sshkey_sign(private, &sig, &siglen,
-	    sshbuf_ptr(b), sshbuf_len(b), NULL, datafellows)) != 0)
-		debug("%s: sshkey_sign: %s", __func__, ssh_err(r));
+	r = ssh_keysign(private, &sig, &siglen,
+	    sshbuf_ptr(b), sshbuf_len(b));
 	if (r != 0) {
 		error("sign using hostkey %s %s failed",
 		    sshkey_ssh_name(private), fp);

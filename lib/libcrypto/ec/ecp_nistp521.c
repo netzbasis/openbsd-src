@@ -1,4 +1,4 @@
-/* $OpenBSD: ecp_nistp521.c,v 1.20 2018/07/10 22:06:14 tb Exp $ */
+/* $OpenBSD: ecp_nistp521.c,v 1.23 2018/11/05 20:18:21 tb Exp $ */
 /*
  * Written by Adam Langley (Google) for the OpenSSL project
  */
@@ -1614,7 +1614,8 @@ EC_GFp_nistp521_method(void)
 		.precompute_mult = ec_GFp_nistp521_precompute_mult,
 		.have_precompute_mult = ec_GFp_nistp521_have_precompute_mult,
 		.field_mul = ec_GFp_nist_field_mul,
-		.field_sqr = ec_GFp_nist_field_sqr
+		.field_sqr = ec_GFp_nist_field_sqr,
+		.blind_coordinates = NULL,
 	};
 
 	return &ret;

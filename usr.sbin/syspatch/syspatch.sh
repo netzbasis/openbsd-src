@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.137 2018/05/09 10:22:06 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.139 2018/10/28 09:00:07 ajacoutot Exp $
 #
 # Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -137,13 +137,17 @@ fetch_and_verify()
 
 install_file()
 {
-	# XXX handle hard and symbolic links, dir->file, file->dir?
+	# XXX handle hard link, dir->file, file->dir?
 	local _dst=$2 _fgrp _fmode _fown _src=$1
 	[[ -f ${_src} && -f ${_dst} ]]
 
-	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
-
-	install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
+	if [[ -h ${_src} ]]; then
+		ln -sf $(readlink ${_src}) ${_dst}
+	else
+		eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
+		install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} \
+			${_dst}
+	fi
 }
 
 ls_installed()
@@ -293,8 +297,6 @@ shift $((OPTIND - 1))
 
 # default action: apply all patches
 if ((OPTIND == 1)); then
-	# XXX remove for OPENBSD_6_4
-	rm -f /bsd.syspatch+([[:digit:]])
 	# remove non matching release /var/syspatch/ content
 	for _D in ${_PDIR}/{.[!.],}*; do
 		[[ -e ${_D} ]] || continue

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.216 2018/07/12 10:16:41 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.221 2018/10/07 22:43:06 guenther Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -41,6 +41,8 @@
 #include <dev/isa/isareg.h>
 
 /* #define VMM_DEBUG */
+
+void *l1tf_flush_region;
 
 #ifdef VMM_DEBUG
 #define DPRINTF(x...)	do { printf(x); } while(0)
@@ -372,21 +374,37 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 	rw_init(&sc->vm_lock, "vmlistlock");
 
 	if (sc->nr_ept_cpus) {
-		printf(": VMX/EPT\n");
+		printf(": VMX/EPT");
 		sc->mode = VMM_MODE_EPT;
 	} else if (sc->nr_vmx_cpus) {
-		printf(": VMX\n");
+		printf(": VMX");
 		sc->mode = VMM_MODE_VMX;
 	} else if (sc->nr_rvi_cpus) {
-		printf(": SVM/RVI\n");
+		printf(": SVM/RVI");
 		sc->mode = VMM_MODE_RVI;
 	} else if (sc->nr_svm_cpus) {
-		printf(": SVM\n");
+		printf(": SVM");
 		sc->mode = VMM_MODE_SVM;
 	} else {
-		printf(": unknown\n");
+		printf(": unknown");
 		sc->mode = VMM_MODE_UNKNOWN;
 	}
+
+	if (sc->mode == VMM_MODE_EPT || sc->mode == VMM_MODE_VMX) {
+		if (!(curcpu()->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr)) {
+			l1tf_flush_region = km_alloc(VMX_L1D_FLUSH_SIZE,
+			    &kv_any, &vmm_kp_contig, &kd_waitok);
+			if (!l1tf_flush_region) {
+				printf(" (failing, no memory)");
+				sc->mode = VMM_MODE_UNKNOWN;
+			} else {
+				printf(" (using slow L1TF mitigation)");
+				memset(l1tf_flush_region, 0xcc,
+				    VMX_L1D_FLUSH_SIZE);
+			}
+		}
+	}
+	printf("\n");
 
 	if (sc->mode == VMM_MODE_SVM || sc->mode == VMM_MODE_RVI) {
 		sc->max_vpid = curcpu()->ci_vmm_cap.vcc_svm.svm_max_asid;
@@ -3833,14 +3851,6 @@ vmm_fpurestore(struct vcpu *vcpu)
 	}
 
 	if (vcpu->vc_fpuinited) {
-		/* Restore guest XCR0 and FPU context */
-		if (vcpu->vc_gueststate.vg_xcr0 & ~xsave_mask) {
-			DPRINTF("%s: guest attempted to set invalid bits in "
-			    "xcr0 (guest %%xcr0=0x%llx, host mask=0x%llx)\n",
-			    __func__, vcpu->vc_gueststate.vg_xcr0, ~xsave_mask);
-			return EINVAL;
-		}
-
 		if (xrstor_user(&vcpu->vc_g_fpu, xsave_mask)) {
 			DPRINTF("%s: guest attempted to set invalid %s\n",
 			    __func__, "xsave/xrstor state");
@@ -3850,7 +3860,12 @@ vmm_fpurestore(struct vcpu *vcpu)
 
 	if (xsave_mask) {
 		/* Restore guest %xcr0 */
-		xsetbv(0, vcpu->vc_gueststate.vg_xcr0);
+		if (xsetbv_user(0, vcpu->vc_gueststate.vg_xcr0)) {
+			DPRINTF("%s: guest attempted to set invalid bits in "
+			    "xcr0 (guest %%xcr0=0x%llx, host %%xcr0=0x%llx)\n",
+			    __func__, vcpu->vc_gueststate.vg_xcr0, xsave_mask);
+			return EINVAL;
+		}
 	}
 
 	return 0;
@@ -3905,6 +3920,7 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 	struct vmx_invvpid_descriptor vid;
 	uint64_t eii, procbased, int_st;
 	uint16_t irq;
+	u_long s;
 
 	resume = 0;
 	irq = vrp->vrp_irq;
@@ -4099,15 +4115,16 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 #endif /* VMM_DEBUG */
 
 		/* Disable interrupts and save the current host FPU state. */
-		disable_intr();
+		s = intr_disable();
 		if ((ret = vmm_fpurestore(vcpu))) {
-			enable_intr();
+			intr_restore(s);
 			break;
 		}
 
 		KERNEL_UNLOCK();
 		ret = vmx_enter_guest(&vcpu->vc_control_pa,
-		    &vcpu->vc_gueststate, resume);
+		    &vcpu->vc_gueststate, resume,
+		    curcpu()->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr);
 
 		/*
 		 * On exit, interrupts are disabled, and we are running with
@@ -4116,7 +4133,7 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 		 */
 		vmm_fpusave(vcpu);
 
-		enable_intr();
+		intr_restore(s);
 
 		exit_reason = VM_EXIT_NONE;
 		if (ret == 0) {
@@ -5721,18 +5738,7 @@ vmm_handle_xsetbv(struct vcpu *vcpu, uint64_t *rax)
 		return (EINVAL);
 	}
 
-	/*
-	 * No bits in %edx are currently supported. Check this, and validate
-	 * against the host mask.
-	 */
-	if (*rdx != 0 || (*rax & ~xsave_mask)) {
-		DPRINTF("%s: guest specified invalid xcr0 content "
-		    "(0x%llx:0x%llx)\n", __func__, *rdx, *rax);
-		/* XXX this should #GP(0) instead of killing the guest */
-		return (EINVAL);
-	}
-
-	vcpu->vc_gueststate.vg_xcr0 = *rax;
+	vcpu->vc_gueststate.vg_xcr0 = *rax + (*rdx << 32);
 
 	return (0);
 }
@@ -5893,12 +5899,6 @@ vmm_handle_cpuid(struct vcpu *vcpu)
 		if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 			DPRINTF("%s: can't obtain instruction length\n",
 			    __func__);
-			return (EINVAL);
-		}
-
-		if (insn_length != 2) {
-			DPRINTF("%s: CPUID with instruction length %lld not "
-			    "supported\n", __func__, insn_length);
 			return (EINVAL);
 		}
 
@@ -6132,7 +6132,7 @@ vmm_handle_cpuid(struct vcpu *vcpu)
 	case 0x80000001: 	/* Extended function info */
 		*rax = curcpu()->ci_efeature_eax;
 		*rbx = 0;	/* Reserved */
-		*rcx = curcpu()->ci_efeature_ecx;
+		*rcx = curcpu()->ci_efeature_ecx & VMM_ECPUIDECX_MASK;
 		*rdx = curcpu()->ci_feature_eflags & VMM_FEAT_EFLAGS_MASK;
 		break;
 	case 0x80000002:	/* Brand string */

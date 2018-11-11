@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiic.c,v 1.4 2018/06/10 09:25:50 patrick Exp $ */
+/* $OpenBSD: imxiic.c,v 1.6 2018/08/20 16:48:47 patrick Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -125,13 +125,13 @@ imxiic_attach(struct device *parent, struct device *self, void *aux)
 		panic("imxiic_attach: bus_space_map failed!");
 
 #if 0
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_BIO,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
 	    imxiic_intr, sc, sc->sc_dev.dv_xname);
 #endif
 
 	printf("\n");
 
-	/* set iomux pins */
+	clock_enable(faa->fa_node, NULL);
 	pinctrl_byname(faa->fa_node, "default");
 
 	/* set speed */

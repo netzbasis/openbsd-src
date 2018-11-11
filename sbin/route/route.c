@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.221 2018/07/13 09:19:42 schwarze Exp $	*/
+/*	$OpenBSD: route.c,v 1.226 2018/10/15 11:27:34 florian Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -108,7 +108,6 @@ void	 pmsg_common(struct rt_msghdr *);
 void	 pmsg_addrs(char *, int);
 void	 bprintf(FILE *, int, char *);
 void	 mask_addr(union sockunion *, union sockunion *, int);
-int	 inet6_makenetandmask(struct sockaddr_in6 *, char *);
 int	 getaddr(int, int, char *, struct hostent **);
 void	 getmplslabel(char *, int);
 int	 rtmsg(int, int, int, uint8_t);
@@ -150,6 +149,7 @@ main(int argc, char **argv)
 	int kw;
 	int Terr = 0;
 	int af = AF_UNSPEC;
+	u_int rtable_any = RTABLE_ANY;
 
 	if (argc < 2)
 		usage(NULL);
@@ -231,10 +231,15 @@ main(int argc, char **argv)
 	}
 
 	/* force socket onto table user requested */
-	if (Tflag == 1 && Terr == 0 &&
-	    setsockopt(s, AF_ROUTE, ROUTE_TABLEFILTER,
-	    &tableid, sizeof(tableid)) == -1)
-		err(1, "setsockopt(ROUTE_TABLEFILTER)");
+	if (Tflag == 1 && Terr == 0) {
+		if (setsockopt(s, AF_ROUTE, ROUTE_TABLEFILTER,
+		    &tableid, sizeof(tableid)) == -1)
+			err(1, "setsockopt(ROUTE_TABLEFILTER)");
+	} else {
+		if (setsockopt(s, AF_ROUTE, ROUTE_TABLEFILTER,
+		    &rtable_any, sizeof(tableid)) == -1)
+			err(1, "setsockopt(ROUTE_TABLEFILTER)");
+	}
 
 	if (pledge("stdio dns route", NULL) == -1)
 		err(1, "pledge");
@@ -754,28 +759,19 @@ show(int argc, char *argv[])
 void
 inet_makenetandmask(u_int32_t net, struct sockaddr_in *sin, int bits)
 {
-	u_int32_t addr, mask = 0;
+	u_int32_t mask;
 	char *cp;
 
 	rtm_addrs |= RTA_NETMASK;
-	if (net == 0 && bits == 0)
-		mask = addr = 0;
-	else if (bits) {
-		addr = net;
+	if (bits == 0 && net == 0)
+		mask = 0;
+	else {
+		if (bits == 0)
+			bits = 32;
 		mask = 0xffffffff << (32 - bits);
-	} else {
-		addr = net;
-		if ((addr & IN_CLASSA_HOST) == 0)
-			mask = IN_CLASSA_NET;
-		else if ((addr & IN_CLASSB_HOST) == 0)
-			mask = IN_CLASSB_NET;
-		else if ((addr & IN_CLASSC_HOST) == 0)
-			mask = IN_CLASSC_NET;
-		else
-			mask = 0xffffffff;
+		net &= mask;
 	}
-	addr &= mask;
-	sin->sin_addr.s_addr = htonl(addr);
+	sin->sin_addr.s_addr = htonl(net);
 	sin = &so_mask.sin;
 	sin->sin_addr.s_addr = htonl(mask);
 	sin->sin_len = 0;
@@ -787,52 +783,6 @@ inet_makenetandmask(u_int32_t net, struct sockaddr_in *sin, int bits)
 }
 
 /*
- * XXX the function may need more improvement...
- */
-int
-inet6_makenetandmask(struct sockaddr_in6 *sin6, char *plen)
-{
-	struct in6_addr in6;
-	const char *errstr;
-	int i, len, q, r;
-
-	if (NULL==plen) {
-		if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) &&
-		    sin6->sin6_scope_id == 0) {
-			plen = "0";
-		} else if ((sin6->sin6_addr.s6_addr[0] & 0xe0) == 0x20) {
-			/* aggregatable global unicast - RFC2374 */
-			memset(&in6, 0, sizeof(in6));
-			if (!memcmp(&sin6->sin6_addr.s6_addr[8],
-			    &in6.s6_addr[8], 8))
-				plen = "64";
-		}
-	}
-
-	if (!plen || strcmp(plen, "128") == 0)
-		return (1);
-	else {
-		rtm_addrs |= RTA_NETMASK;
-		prefixlen(AF_INET6, plen);
-
-		len = strtonum(plen, 0, 128, &errstr);
-		if (errstr)
-			errx(1, "prefixlen %s is %s", plen, errstr);
-
-		q = (128-len) >> 3;
-		r = (128-len) & 7;
-		i = 15;
-
-		while (q-- > 0)
-			sin6->sin6_addr.s6_addr[i--] = 0;
-		if (r > 0)
-			sin6->sin6_addr.s6_addr[i] &= 0xff << r;
-
-		return (0);
-	}
-}
-
-/*
  * Interpret an argument as a network address of some kind,
  * returning 1 if a host address, 0 if a network address.
  */
@@ -841,8 +791,7 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 {
 	sup su = NULL;
 	struct hostent *hp;
-	int afamily, bits, irc;
-	in_addr_t addr;
+	int afamily, bits;
 
 	if (af == AF_UNSPEC) {
 		if (strchr(s, ':') != NULL) {
@@ -917,8 +866,6 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 			if (getaddrinfo(buf, "0", &hints, &res) != 0)
 				errx(1, "%s: bad value", s);
 		}
-		if (sizeof(su->sin6) != res->ai_addrlen)
-			errx(1, "%s: bad value", s);
 		if (res->ai_next)
 			errx(1, "%s: resolved to multiple values", s);
 		memcpy(&su->sin6, res->ai_addr, sizeof(su->sin6));
@@ -932,8 +879,13 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 			su->sin6.sin6_scope_id = 0;
 		}
 		if (hints.ai_flags == AI_NUMERICHOST) {
-			if (which == RTA_DST)
-				return (inet6_makenetandmask(&su->sin6, sep));
+			if (which == RTA_DST) {
+				if (sep == NULL && su->sin6.sin6_scope_id == 0 &&
+				    IN6_IS_ADDR_UNSPECIFIED(&su->sin6.sin6_addr))
+					sep = "0";
+				if (sep == NULL || prefixlen(AF_INET6, sep))
+					return (1);
+			}
 			return (0);
 		} else
 			return (1);
@@ -968,27 +920,12 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 			if (inet_pton(AF_INET, s, &su->sin.sin_addr) == 1)
 				return (1);
 		hp = gethostbyname(s);
-		if (hp != NULL) {
-			if (which == RTA_DST && !forcehost) {
-				addr = ((struct in_addr *)hp->h_addr)->s_addr;
-				if (addr != 0) {
-					inet_makenetandmask(ntohl(addr),
-					    &su->sin, 0);
-					irc = so_mask.sin.sin_addr.s_addr ==
-					    0xffffffff;
-					if (irc == 0 || !forcenet)
-						return (irc);
-				}
-				if (forcenet)
-					errx(1, "%s: not a network", s);
-			}
-			if (hpp != NULL)
-				*hpp = hp;
-			su->sin.sin_addr = *(struct in_addr *)hp->h_addr;
-			return (1);
-		}
-		errx(1, "%s: bad address", s);
-		/* NOTREACHED */
+		if (hp == NULL)
+			errx(1, "%s: bad address", s);
+		if (hpp != NULL)
+			*hpp = hp;
+		su->sin.sin_addr = *(struct in_addr *)hp->h_addr;
+		return (1);
 
 	default:
 		errx(1, "%d: bad address family", afamily);

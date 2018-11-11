@@ -673,6 +673,7 @@ void LinkerDriver::readConfigs(opt::InputArgList &Args) {
   Config->WarnCommon = Args.hasArg(OPT_warn_common);
   Config->ZCombreloc = !hasZOption(Args, "nocombreloc");
   Config->ZExecstack = hasZOption(Args, "execstack");
+  Config->ZInitfirst = hasZOption(Args, "initfirst");
   Config->ZNocopyreloc = hasZOption(Args, "nocopyreloc");
   Config->ZNodelete = hasZOption(Args, "nodelete");
   Config->ZNodlopen = hasZOption(Args, "nodlopen");
@@ -961,7 +962,7 @@ static void excludeLibs(opt::InputArgList &Args, ArrayRef<InputFile *> Files) {
     if (Optional<StringRef> Archive = getArchiveName(File))
       if (All || Libs.count(path::filename(*Archive)))
         for (Symbol *Sym : File->getSymbols())
-          if (!Sym->isLocal())
+          if (!Sym->isLocal() && Sym->File == File)
             Sym->VersionId = VER_NDX_LOCAL;
 }
 

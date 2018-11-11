@@ -1,4 +1,4 @@
-/*	$OpenBSD: identcpu.c,v 1.102 2018/07/12 14:11:11 guenther Exp $	*/
+/*	$OpenBSD: identcpu.c,v 1.110 2018/10/20 20:40:54 kettenis Exp $	*/
 /*	$NetBSD: identcpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*
@@ -209,7 +209,9 @@ const struct {
 	{ SEFF0EDX_AVX512_4FMAPS, "AVX512FMAPS" },
 	{ SEFF0EDX_IBRS,	"IBRS,IBPB" },
 	{ SEFF0EDX_STIBP,	"STIBP" },
+	{ SEFF0EDX_L1DF,	"L1DF" },
 	 /* SEFF0EDX_ARCH_CAP (not printed) */
+	{ SEFF0EDX_SSBD,	"SSBD" },
 }, cpu_tpm_eaxfeatures[] = {
 	{ TPM_SENSOR,		"SENSOR" },
 	{ TPM_ARAT,		"ARAT" },
@@ -561,6 +563,9 @@ identifycpu(struct cpu_info *ci)
 		cpu_cpuspeed = cpu_amd64speed;
 	}
 
+	printf(", %02x-%02x-%02x", ci->ci_family, ci->ci_model,
+	    ci->ci_signature & 0x0f);
+
 	printf("\n%s: ", ci->ci_dev->dv_xname);
 
 	for (i = 0; i < nitems(cpu_cpuid_features); i++)
@@ -634,12 +639,33 @@ identifycpu(struct cpu_info *ci)
 
 	if (cpu_meltdown)
 		printf(",MELTDOWN");
-	else
-		replacemeltdown();
 
 	printf("\n");
 
+	replacemeltdown();
 	x86_print_cacheinfo(ci);
+
+	/*
+	 * "Mitigation G-2" per AMD's Whitepaper "Software Techniques
+	 * for Managing Speculation on AMD Processors"
+	 *
+	 * By setting MSR C001_1029[1]=1, LFENCE becomes a dispatch
+	 * serializing instruction.
+	 *
+	 * This MSR is available on all AMD families >= 10h, except 11h
+	 * where LFENCE is always serializing.
+	 */
+	if (!strcmp(cpu_vendor, "AuthenticAMD")) {
+		if (ci->ci_family >= 0x10 && ci->ci_family != 0x11) {
+			uint64_t msr;
+
+			msr = rdmsr(MSR_DE_CFG);
+			if ((msr & DE_CFG_SERIALIZE_LFENCE) == 0) {
+				msr |= DE_CFG_SERIALIZE_LFENCE;
+				wrmsr(MSR_DE_CFG, msr);
+			}
+		}
+	}
 
 	/*
 	 * Attempt to disable Silicon Debug and lock the configuration
@@ -809,7 +835,8 @@ cpu_topology(struct cpu_info *ci)
 			ci->ci_smt_id = 0;
 			CPU_INFO_FOREACH(cii, ci_other) {
 				if (ci != ci_other &&
-				    ci_other->ci_core_id == ci->ci_core_id)
+				    ci_other->ci_core_id == ci->ci_core_id &&
+				    ci_other->ci_pkg_id == ci->ci_pkg_id)
 					ci->ci_smt_id++;
 			}
 		} else {
@@ -986,6 +1013,28 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 		CPUID(CPUID_AMD_SVM_CAP, dummy, dummy, dummy, cap);
 		if (cap & AMD_SVM_NESTED_PAGING_CAP)
 			ci->ci_vmm_flags |= CI_VMM_RVI;
+	}
+
+	/*
+	 * Check "L1 flush on VM entry" (Intel L1TF vuln) semantics
+	 */
+	if (!strcmp(cpu_vendor, "GenuineIntel")) {
+		if (ci->ci_feature_sefflags_edx & SEFF0EDX_L1DF)
+			ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr = 1;
+		else
+			ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr = 0;
+
+		/*
+		 * Certain CPUs may have the vulnerability remedied in
+		 * hardware, check for that and override the setting
+		 * calculated above.
+		 */	
+		if (ci->ci_feature_sefflags_edx & SEFF0EDX_ARCH_CAP) {
+			msr = rdmsr(MSR_ARCH_CAPABILITIES);
+			if (msr & ARCH_CAPABILITIES_SKIP_L1DFL_VMENTRY)
+				ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr =
+				    VMX_SKIP_L1D_FLUSH;
+		}
 	}
 }
 #endif /* NVMM > 0 */

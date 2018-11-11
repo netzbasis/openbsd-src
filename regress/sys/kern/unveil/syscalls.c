@@ -1,4 +1,4 @@
-/*	$OpenBSD: syscalls.c,v 1.9 2018/07/13 08:59:02 beck Exp $	*/
+/*	$OpenBSD: syscalls.c,v 1.18 2018/10/28 22:42:33 beck Exp $	*/
 
 /*
  * Copyright (c) 2017-2018 Bob Beck <beck@openbsd.org>
@@ -83,7 +83,7 @@ do_unveil2(void)
 }
 
 static int
-runcompare(int (*func)(int))
+runcompare_internal(int (*func)(int), int fail_ok)
 {
 	int unveil = 0, nonunveil = 0, status;
 	pid_t pid = fork();
@@ -110,6 +110,10 @@ runcompare(int (*func)(int))
 		printf("[FAIL] nonunveil exited with signal %d\n", WTERMSIG(status));
 		goto fail;
 	}
+	if (!fail_ok && (unveil || nonunveil)) {
+		printf("[FAIL] unveil = %d, nonunveil = %d\n", unveil, nonunveil);
+		goto fail;
+	}
 	if (unveil == nonunveil) {
 		printf("[SUCCESS] unveil = %d, nonunveil = %d\n", unveil, nonunveil);
 		return 0;
@@ -117,6 +121,12 @@ runcompare(int (*func)(int))
 	printf("[FAIL] unveil = %d, nonunveil = %d\n", unveil, nonunveil);
  fail:
 	return 1;
+}
+
+static int
+runcompare(int (*func)(int))
+{
+	return runcompare_internal(func, 1);
 }
 
 static int
@@ -440,12 +450,13 @@ test_chdir(int do_uv)
 
 	return 0;
 }
+
 static int
 test_parent_dir(int do_uv)
 {
 	char filename[255];
 	if (do_uv) {
-		printf("testing chdir\n");
+		printf("testing parent dir\n");
 		do_unveil2();
 	} else {
 		(void) snprintf(filename, sizeof(filename), "/%s/doof", uv_dir1);
@@ -455,23 +466,31 @@ test_parent_dir(int do_uv)
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1", uv_dir1);
 		UV_SHOULD_SUCCEED((mkdir(filename, 0777) == -1), "mkdir");
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
-		UV_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT) == -1), "open");
+		UV_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT, 0644) == -1), "open");
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/link", uv_dir1);
 		UV_SHOULD_SUCCEED((symlink("../subdir1/poop", filename) == -1), "symlink");
 	}
 	sleep(1);
-	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
-	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
 	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/link", uv_dir1);
 	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
-	return 0;
+	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
+	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
 	UV_SHOULD_SUCCEED((chdir(uv_dir1) == -1), "chdir");
 	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1", uv_dir1);
 	UV_SHOULD_SUCCEED((chdir(filename) == -1), "chdir");
+	UV_SHOULD_SUCCEED((access("poop", R_OK) == -1), "access");
 	UV_SHOULD_SUCCEED((chdir("../subdir2") == -1), "chdir");
 	UV_SHOULD_SUCCEED((chdir("../subdir1") == -1), "chdir");
-
-	return 0;
+	UV_SHOULD_SUCCEED((chdir(filename) == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir2") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir1") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir2") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir1") == -1), "chdir");
+	UV_SHOULD_SUCCEED((access("poop", R_OK) == -1), "access");
+	UV_SHOULD_SUCCEED((access("../subdir1/poop", R_OK) == -1), "access");
+	UV_SHOULD_EACCES((chdir("../../../") == -1), "chdir");
+	UV_SHOULD_ENOENT((chdir(uv_dir2) == -1), "chdir");
+	return(0);
 }
 
 static int
@@ -583,6 +602,25 @@ test_stat(int do_uv)
 }
 
 static int
+test_stat2(int do_uv)
+{
+	if (do_uv) {
+		printf("testing stat components to nonexistant \"rw\"\n");
+		if (unveil("/usr/share/man/nonexistant", "rw") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+	}
+	struct stat sb;
+
+	UV_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
+	UV_SHOULD_SUCCEED((stat("/", &sb) == -1), "stat");
+	UV_SHOULD_SUCCEED((stat("/usr", &sb) == -1), "stat");
+	UV_SHOULD_SUCCEED((stat("/usr/share", &sb) == -1), "stat");
+	UV_SHOULD_SUCCEED((stat("/usr/share/man", &sb) == -1), "stat");
+	UV_SHOULD_ENOENT((stat("/usr/share/man/nonexistant", &sb) == -1), "stat");
+	return 0;
+}
+
+static int
 test_statfs(int do_uv)
 {
 	if (do_uv) {
@@ -658,14 +696,38 @@ test_chmod(int do_uv)
 		printf("testing chmod\n");
 		do_unveil();
 	}
-	UV_SHOULD_SUCCEED((pledge("stdio fattr rpath", NULL) == -1), "pledge");
+	UV_SHOULD_SUCCEED((pledge("stdio fattr rpath unveil", NULL) == -1), "pledge");
 	UV_SHOULD_SUCCEED((chmod(uv_file1, S_IRWXU) == -1), "chmod");
 	UV_SHOULD_ENOENT((chmod(uv_file2, S_IRWXU) == -1), "chmod");
 	UV_SHOULD_SUCCEED((chmod(uv_dir1, S_IRWXU) == -1), "chmod");
 	UV_SHOULD_ENOENT((chmod(uv_dir2, S_IRWXU) == -1), "chmod");
-
+	if (do_uv) {
+		printf("testing chmod should fail for read\n");
+		if (unveil(uv_file1, "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+	}
+	UV_SHOULD_EACCES((chmod(uv_file1, S_IRWXU) == -1), "chmod");
 	return 0;
 }
+
+
+static int
+test_fork_body(int do_uv)
+{
+	UV_SHOULD_SUCCEED((open(uv_file1, O_RDWR|O_CREAT) == -1), "open after fork");
+	UV_SHOULD_SUCCEED((opendir(uv_dir1) == NULL), "opendir after fork");
+	UV_SHOULD_ENOENT((opendir(uv_dir2) == NULL), "opendir after fork");
+	UV_SHOULD_ENOENT((open(uv_file2, O_RDWR|O_CREAT) == -1), "open after fork");
+	return 0;
+}
+static int
+test_fork()
+{
+	printf("testing fork inhertiance\n");
+	do_unveil();
+	return runcompare_internal(test_fork_body, 0);
+}
+
 static int
 test_exec(int do_uv)
 {
@@ -675,11 +737,17 @@ test_exec(int do_uv)
 		printf("testing execve with \"x\"\n");
 		if (unveil("/usr/bin/true", "x") == -1)
 			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		/* dynamic linking requires this */
+		if (unveil("/usr/lib", "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		if (unveil("/usr/libexec/ld.so", "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
 	}
 	UV_SHOULD_SUCCEED((pledge("unveil stdio fattr exec", NULL) == -1), "pledge");
 	UV_SHOULD_SUCCEED((execve(argv[0], argv, environ) == -1), "execve");
 	return 0;
 }
+
 static int
 test_exec2(int do_uv)
 {
@@ -688,6 +756,11 @@ test_exec2(int do_uv)
 	if (do_uv) {
 		printf("testing execve with \"rw\"\n");
 		if (unveil("/usr/bin/true", "rw") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		/* dynamic linking requires this */
+		if (unveil("/usr/lib", "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		if (unveil("/usr/libexec/ld.so", "r") == -1)
 			err(1, "%s:%d - unveil", __FILE__, __LINE__);
 	}
 	UV_SHOULD_SUCCEED((pledge("unveil stdio fattr exec", NULL) == -1), "pledge");
@@ -700,6 +773,7 @@ test_slash(int do_uv)
 {
 	extern char **environ;
 	if (do_uv) {
+		printf("testing unveil(\"/\")\n");
 		if (unveil("/bin/sh", "x") == -1)
 			err(1, "%s:%d - unveil", __FILE__, __LINE__);
 		if (unveil("/", "r") == -1)
@@ -709,24 +783,56 @@ test_slash(int do_uv)
 }
 
 static int
-test_fork(int do_uv)
+test_dot(int do_uv)
 {
-	int status;
+	extern char **environ;
 	if (do_uv) {
-		if (unveil("/etc/passswd", "r") == -1)
+		printf("testing dot(\".\")\n");
+		if (unveil(".", "rwxc") == -1)
 			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		if ((unlink(".") == -1) && errno != EPERM)
+			err(1, "%s:%d - unlink", __FILE__, __LINE__);
+		printf("testing dot flags(\".\")\n");
+		if (unveil(".", "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		if ((unlink(".") == -1) && errno != EACCES)
+			warn("%s:%d - unlink", __FILE__, __LINE__);
 	}
-	pid_t pid = fork();
-	if (pid == 0) {
-		printf ("testing child\n");
-		if (do_uv) {
-		if (open("/etc/hosts", O_RDONLY) != -1)
-			   err(1, "open /etc/hosts worked");
-		if (open("/etc/passwd", O_RDONLY) == -1)
-			   err(1, "open /etc/passwd failed");
-		}
-		exit(0);
+	return 0;
+}
+
+static int
+test_bypassunveil(int do_uv)
+{
+	if (do_uv) {
+		printf("testing BYPASSUNVEIL\n");
+		do_unveil2();
 	}
+	char filename3[] = "/tmp/nukeme.XXXXXX";
+
+	UV_SHOULD_SUCCEED((pledge("stdio tmppath", NULL) == -1), "pledge");
+	UV_SHOULD_SUCCEED((mkstemp(filename3) == -1), "mkstemp");
+
+	return 0;
+}
+
+
+static int
+test_dotdotup(int do_uv)
+{
+	UV_SHOULD_SUCCEED((open("/tmp/hello", O_RDWR|O_CREAT) == -1), "open");
+	if (do_uv) {
+		printf("testing dotdotup\n");
+		do_unveil2();
+	}
+	if ((chdir(uv_dir1) == -1)) {
+		err(1, "chdir");
+	}
+	UV_SHOULD_SUCCEED((open("./derp", O_RDWR|O_CREAT) == -1), "open");
+	UV_SHOULD_SUCCEED((open("derp", O_RDWR|O_CREAT) == -1), "open");
+	UV_SHOULD_ENOENT((open("../hello", O_RDWR|O_CREAT) == -1), "open");
+	UV_SHOULD_ENOENT((open(".././hello", O_RDWR|O_CREAT) == -1), "open");
+	return 0;
 }
 
 int
@@ -747,7 +853,6 @@ main (int argc, char *argv[])
 	UV_SHOULD_SUCCEED((mkdir(filename, 0777) == -1), "mkdir");
 	close(fd2);
 
-
 	failures += runcompare(test_open);
 	failures += runcompare(test_opendir);
 	failures += runcompare(test_noflags);
@@ -762,6 +867,7 @@ main (int argc, char *argv[])
 	failures += runcompare(test_access);
 	failures += runcompare(test_chflags);
 	failures += runcompare(test_stat);
+	failures += runcompare(test_stat2);
 	failures += runcompare(test_statfs);
 	failures += runcompare(test_symlink);
 	failures += runcompare(test_chmod);
@@ -770,6 +876,9 @@ main (int argc, char *argv[])
 	failures += runcompare(test_realpath);
 	failures += runcompare(test_parent_dir);
 	failures += runcompare(test_slash);
-	failures += runcompare(test_fork);
+	failures += runcompare(test_dot);
+	failures += runcompare(test_bypassunveil);
+	failures += runcompare_internal(test_fork, 0);
+	failures += runcompare(test_dotdotup);
 	exit(failures);
 }

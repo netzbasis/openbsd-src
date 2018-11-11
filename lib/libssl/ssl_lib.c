@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.185 2018/04/25 07:10:39 tb Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.192 2018/11/10 01:19:09 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -156,6 +156,7 @@
 #endif
 
 #include "bytestring.h"
+#include "ssl_sigalgs.h"
 
 const char *SSL_version_str = OPENSSL_VERSION_TEXT;
 
@@ -191,9 +192,7 @@ SSL_clear(SSL *s)
 	BUF_MEM_free(s->internal->init_buf);
 	s->internal->init_buf = NULL;
 
-	ssl_clear_cipher_ctx(s);
-	ssl_clear_hash_ctx(&s->read_hash);
-	ssl_clear_hash_ctx(&s->internal->write_hash);
+	ssl_clear_cipher_state(s);
 
 	s->internal->first_packet = 0;
 
@@ -263,23 +262,8 @@ SSL_new(SSL_CTX *ctx)
 	s->internal->mode = ctx->internal->mode;
 	s->internal->max_cert_list = ctx->internal->max_cert_list;
 
-	if (ctx->internal->cert != NULL) {
-		/*
-		 * Earlier library versions used to copy the pointer to
-		 * the CERT, not its contents; only when setting new
-		 * parameters for the per-SSL copy, ssl_cert_new would be
-		 * called (and the direct reference to the per-SSL_CTX
-		 * settings would be lost, but those still were indirectly
-		 * accessed for various purposes, and for that reason they
-		 * used to be known as s->ctx->default_cert).
-		 * Now we don't look at the SSL_CTX's CERT after having
-		 * duplicated it once.
-		*/
-		s->cert = ssl_cert_dup(ctx->internal->cert);
-		if (s->cert == NULL)
-			goto err;
-	} else
-		s->cert=NULL; /* Cannot really happen (see SSL_CTX_new) */
+	if ((s->cert = ssl_cert_dup(ctx->internal->cert)) == NULL)
+		goto err;
 
 	s->internal->read_ahead = ctx->internal->read_ahead;
 	s->internal->msg_callback = ctx->internal->msg_callback;
@@ -534,9 +518,7 @@ SSL_free(SSL *s)
 		SSL_SESSION_free(s->session);
 	}
 
-	ssl_clear_cipher_ctx(s);
-	ssl_clear_hash_ctx(&s->read_hash);
-	ssl_clear_hash_ctx(&s->internal->write_hash);
+	ssl_clear_cipher_state(s);
 
 	ssl_cert_free(s->cert);
 
@@ -809,7 +791,7 @@ SSL_pending(const SSL *s)
 	 * (Note that SSL_pending() is often used as a boolean value,
 	 * so we'd better not return -1.)
 	 */
-	return (s->method->internal->ssl_pending(s));
+	return (ssl3_pending(s));
 }
 
 X509 *
@@ -853,22 +835,21 @@ SSL_get_peer_cert_chain(const SSL *s)
  * Now in theory, since the calling process own 't' it should be safe to
  * modify.  We need to be able to read f without being hassled
  */
-void
+int
 SSL_copy_session_id(SSL *t, const SSL *f)
 {
 	CERT	*tmp;
 
-	/* Do we need to to SSL locking? */
-	SSL_set_session(t, SSL_get_session(f));
+	/* Do we need to do SSL locking? */
+	if (!SSL_set_session(t, SSL_get_session(f)))
+		return 0;
 
-	/*
-	 * What if we are setup as SSLv2 but want to talk SSLv3 or
-	 * vice-versa.
-	 */
+	/* What if we are set up for one protocol but want to talk another? */
 	if (t->method != f->method) {
-		t->method->internal->ssl_free(t);	/* cleanup current */
-		t->method = f->method;	/* change method */
-		t->method->internal->ssl_new(t);	/* setup new */
+		t->method->internal->ssl_free(t);
+		t->method = f->method;
+		if (!t->method->internal->ssl_new(t))
+			return 0;
 	}
 
 	tmp = t->cert;
@@ -878,7 +859,11 @@ SSL_copy_session_id(SSL *t, const SSL *f)
 	} else
 		t->cert = NULL;
 	ssl_cert_free(tmp);
-	SSL_set_session_id_context(t, f->sid_ctx, f->sid_ctx_length);
+
+	if (!SSL_set_session_id_context(t, f->sid_ctx, f->sid_ctx_length))
+		return 0;
+
+	return 1;
 }
 
 /* Fix this so it checks all the valid key/cert options */
@@ -1012,10 +997,10 @@ SSL_shutdown(SSL *s)
 		return (-1);
 	}
 
-	if ((s != NULL) && !SSL_in_init(s))
-		return (s->method->internal->ssl_shutdown(s));
-	else
-		return (1);
+	if (s != NULL && !SSL_in_init(s))
+		return (ssl3_shutdown(s));
+
+	return (1);
 }
 
 int
@@ -1424,6 +1409,11 @@ ssl_cipher_list_to_bytes(SSL *s, STACK_OF(SSL_CIPHER) *ciphers, CBB *cbb)
 	for (i = 0; i < sk_SSL_CIPHER_num(ciphers); i++) {
 		if ((cipher = sk_SSL_CIPHER_value(ciphers, i)) == NULL)
 			return 0;
+
+		/* Skip TLS v1.3 only ciphersuites if lower than v1.3 */
+		if ((cipher->algorithm_ssl & SSL_TLSV1_3) &&
+		    (TLS1_get_client_version(s) < TLS1_3_VERSION))
+			continue;
 
 		/* Skip TLS v1.2 only ciphersuites if lower than v1.2 */
 		if ((cipher->algorithm_ssl & SSL_TLSV1_2) &&
@@ -1851,6 +1841,7 @@ SSL_CTX_new(const SSL_METHOD *meth)
 	ret->verify_mode = SSL_VERIFY_NONE;
 	ret->sid_ctx_length = 0;
 	ret->internal->default_verify_callback = NULL;
+
 	if ((ret->internal->cert = ssl_cert_new()) == NULL)
 		goto err;
 
@@ -2183,8 +2174,11 @@ ssl_get_server_send_cert(const SSL *s)
 }
 
 EVP_PKEY *
-ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *cipher, const EVP_MD **pmd)
+ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *cipher, const EVP_MD **pmd,
+    const struct ssl_sigalg **sap)
 {
+	const struct ssl_sigalg *sigalg = NULL;
+	EVP_PKEY *pkey = NULL;
 	unsigned long	 alg_a;
 	CERT		*c;
 	int		 idx = -1;
@@ -2204,9 +2198,27 @@ ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *cipher, const EVP_MD **pmd)
 		SSLerror(s, ERR_R_INTERNAL_ERROR);
 		return (NULL);
 	}
-	if (pmd)
-		*pmd = c->pkeys[idx].digest;
-	return (c->pkeys[idx].privatekey);
+
+	pkey = c->pkeys[idx].privatekey;
+	sigalg = c->pkeys[idx].sigalg;
+	if (!SSL_USE_SIGALGS(s)) {
+		if (pkey->type == EVP_PKEY_RSA) {
+			sigalg = ssl_sigalg_lookup(SIGALG_RSA_PKCS1_SHA1);
+		} else if (pkey->type == EVP_PKEY_EC) {
+			sigalg = ssl_sigalg_lookup(SIGALG_ECDSA_SHA1);
+		} else {
+			SSLerror(s, SSL_R_UNKNOWN_PKEY_TYPE);
+			return (NULL);
+		}
+	}
+	if (sigalg == NULL) {
+		SSLerror(s, SSL_R_SIGNATURE_ALGORITHMS_ERROR);
+		return (NULL);
+	}
+	*pmd = sigalg->md();
+	*sap = sigalg;
+
+	return (pkey);
 }
 
 DH *
@@ -2428,10 +2440,7 @@ SSL_set_accept_state(SSL *s)
 	s->internal->shutdown = 0;
 	S3I(s)->hs.state = SSL_ST_ACCEPT|SSL_ST_BEFORE;
 	s->internal->handshake_func = s->method->internal->ssl_accept;
-	/* clear the current cipher */
-	ssl_clear_cipher_ctx(s);
-	ssl_clear_hash_ctx(&s->read_hash);
-	ssl_clear_hash_ctx(&s->internal->write_hash);
+	ssl_clear_cipher_state(s);
 }
 
 void
@@ -2441,10 +2450,7 @@ SSL_set_connect_state(SSL *s)
 	s->internal->shutdown = 0;
 	S3I(s)->hs.state = SSL_ST_CONNECT|SSL_ST_BEFORE;
 	s->internal->handshake_func = s->method->internal->ssl_connect;
-	/* clear the current cipher */
-	ssl_clear_cipher_ctx(s);
-	ssl_clear_hash_ctx(&s->read_hash);
-	ssl_clear_hash_ctx(&s->internal->write_hash);
+	ssl_clear_cipher_state(s);
 }
 
 int
@@ -2500,15 +2506,15 @@ SSL_dup(SSL *s)
 	int i;
 
 	if ((ret = SSL_new(SSL_get_SSL_CTX(s))) == NULL)
-		return (NULL);
+		goto err;
 
 	ret->version = s->version;
 	ret->internal->type = s->internal->type;
 	ret->method = s->method;
 
 	if (s->session != NULL) {
-		/* This copies session-id, SSL_METHOD, sid_ctx, and 'cert' */
-		SSL_copy_session_id(ret, s);
+		if (!SSL_copy_session_id(ret, s))
+			goto err;
 	} else {
 		/*
 		 * No session has been established yet, so we have to expect
@@ -2521,15 +2527,13 @@ SSL_dup(SSL *s)
 		ret->method = s->method;
 		ret->method->internal->ssl_new(ret);
 
-		if (s->cert != NULL) {
-			ssl_cert_free(ret->cert);
-			ret->cert = ssl_cert_dup(s->cert);
-			if (ret->cert == NULL)
-				goto err;
-		}
+		ssl_cert_free(ret->cert);
+		if ((ret->cert = ssl_cert_dup(s->cert)) == NULL)
+			goto err;
 
-		SSL_set_session_id_context(ret,
-		s->sid_ctx, s->sid_ctx_length);
+		if (!SSL_set_session_id_context(ret, s->sid_ctx,
+		    s->sid_ctx_length))
+			goto err;
 	}
 
 	ret->internal->options = s->internal->options;
@@ -2612,54 +2616,61 @@ SSL_dup(SSL *s)
 		}
 	}
 
-	if (0) {
-err:
-		if (ret != NULL)
-			SSL_free(ret);
-		ret = NULL;
-	}
-	return (ret);
+	return ret;
+ err:
+	SSL_free(ret);
+	return NULL;
 }
 
 void
-ssl_clear_cipher_ctx(SSL *s)
+ssl_clear_cipher_state(SSL *s)
+{
+	ssl_clear_cipher_read_state(s);
+	ssl_clear_cipher_write_state(s);
+}
+
+void
+ssl_clear_cipher_read_state(SSL *s)
 {
 	EVP_CIPHER_CTX_free(s->enc_read_ctx);
 	s->enc_read_ctx = NULL;
-	EVP_CIPHER_CTX_free(s->internal->enc_write_ctx);
-	s->internal->enc_write_ctx = NULL;
+	EVP_MD_CTX_free(s->read_hash);
+	s->read_hash = NULL;
 
 	if (s->internal->aead_read_ctx != NULL) {
 		EVP_AEAD_CTX_cleanup(&s->internal->aead_read_ctx->ctx);
 		free(s->internal->aead_read_ctx);
 		s->internal->aead_read_ctx = NULL;
 	}
+}
+
+void
+ssl_clear_cipher_write_state(SSL *s)
+{
+	EVP_CIPHER_CTX_free(s->internal->enc_write_ctx);
+	s->internal->enc_write_ctx = NULL;
+	EVP_MD_CTX_free(s->internal->write_hash);
+	s->internal->write_hash = NULL;
+
 	if (s->internal->aead_write_ctx != NULL) {
 		EVP_AEAD_CTX_cleanup(&s->internal->aead_write_ctx->ctx);
 		free(s->internal->aead_write_ctx);
 		s->internal->aead_write_ctx = NULL;
 	}
-
 }
 
 /* Fix this function so that it takes an optional type parameter */
 X509 *
 SSL_get_certificate(const SSL *s)
 {
-	if (s->cert != NULL)
-		return (s->cert->key->x509);
-	else
-		return (NULL);
+	return (s->cert->key->x509);
 }
 
 /* Fix this function so that it takes an optional type parameter */
 EVP_PKEY *
 SSL_get_privatekey(const SSL *s)
 {
-	if (s->cert != NULL)
-		return (s->cert->key->privatekey);
-	else
-		return (NULL);
+	return (s->cert->key->privatekey);
 }
 
 const SSL_CIPHER *
@@ -2821,9 +2832,9 @@ SSL_set_SSL_CTX(SSL *ssl, SSL_CTX* ctx)
 	ssl->cert = ssl_cert_dup(ctx->internal->cert);
 	if (ocert != NULL) {
 		int i;
-		/* Copy negotiated digests from original certificate. */
+		/* Copy negotiated sigalg from original certificate. */
 		for (i = 0; i < SSL_PKEY_NUM; i++)
-			ssl->cert->pkeys[i].digest = ocert->pkeys[i].digest;
+			ssl->cert->pkeys[i].sigalg = ocert->pkeys[i].sigalg;
 		ssl_cert_free(ocert);
 	}
 	CRYPTO_add(&ctx->references, 1, CRYPTO_LOCK_SSL_CTX);
@@ -3017,14 +3028,6 @@ SSL_set_msg_callback(SSL *ssl, void (*cb)(int write_p, int version,
     int content_type, const void *buf, size_t len, SSL *ssl, void *arg))
 {
 	SSL_callback_ctrl(ssl, SSL_CTRL_SET_MSG_CALLBACK, (void (*)(void))cb);
-}
-
-void
-ssl_clear_hash_ctx(EVP_MD_CTX **hash)
-{
-	if (*hash)
-		EVP_MD_CTX_destroy(*hash);
-	*hash = NULL;
 }
 
 void

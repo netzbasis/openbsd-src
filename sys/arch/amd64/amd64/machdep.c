@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.248 2018/07/12 14:11:11 guenther Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.251 2018/11/05 15:13:56 kn Exp $	*/
 /*	$NetBSD: machdep.c,v 1.3 2003/05/07 22:58:18 fvdl Exp $	*/
 
 /*-
@@ -1485,6 +1485,16 @@ init_x86_64(paddr_t first_avail)
 				continue;
 		}
 
+		/*
+		 * The direct map is limited to 512GB of memory, so
+		 * discard anything above that.
+		 */
+		if (e1 >= (uint64_t)512*1024*1024*1024) {
+			e1 = (uint64_t)512*1024*1024*1024;
+			if (s1 > e1)
+				continue;
+		}
+
 		/* Crop stuff into "640K hole" */
 		if (s1 < IOM_BEGIN && e1 > IOM_BEGIN)
 			e1 = IOM_BEGIN;
@@ -1705,7 +1715,7 @@ init_x86_64(paddr_t first_avail)
 
 	softintr_init();
 	splraise(IPL_IPI);
-	enable_intr();
+	intr_enable();
 
 #ifdef DDB
 	db_machine_init();
@@ -1718,8 +1728,7 @@ init_x86_64(paddr_t first_avail)
 void
 cpu_reset(void)
 {
-
-	disable_intr();
+	intr_disable();
 
 	if (cpuresetfn)
 		(*cpuresetfn)();
@@ -1934,9 +1943,9 @@ getbootinfo(char *bootinfo, int bootinfo_size)
 		case BOOTARG_CONSDEV:
 			if (q->ba_size >= sizeof(bios_consdev_t) +
 			    offsetof(struct _boot_args32, ba_arg)) {
+#if NCOM > 0
 				bios_consdev_t *cdp =
 				    (bios_consdev_t*)q->ba_arg;
-#if NCOM > 0
 				static const int ports[] =
 				    { 0x3f8, 0x2f8, 0x3e8, 0x2e8 };
 				int unit = minor(cdp->consdev);

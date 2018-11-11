@@ -1,8 +1,10 @@
-/Makefile/1.73/Fri Jul 13 09:25:22 2018//
+/Makefile/1.77/Sun Sep 30 08:26:40 2018//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
+D/cmsgsize////
+D/descrip////
 D/dup2////
 D/dup2_accept////
 D/dup2_self////
@@ -11,6 +13,7 @@ D/execve////
 D/exit////
 D/extent////
 D/fchdir////
+D/fchown////
 D/fcntl_dup////
 D/flock////
 D/ftruncate////
@@ -30,6 +33,7 @@ D/mmap3////
 D/mount////
 D/nanosleep////
 D/noexec////
+D/open////
 D/pledge////
 D/pread////
 D/preadv////

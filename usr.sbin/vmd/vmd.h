@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.77 2018/07/13 10:26:57 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.84 2018/10/19 10:12:39 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -48,11 +48,21 @@
 #define VM_DEFAULT_DEVICE	"hd0a"
 #define VM_BOOT_CONF		"/etc/boot.conf"
 #define VM_NAME_MAX		64
+#define VM_MAX_BASE_PER_DISK	4
 #define VM_TTYNAME_MAX		16
 #define MAX_TAP			256
 #define NR_BACKLOG		5
 #define VMD_SWITCH_TYPE		"bridge"
 #define VM_DEFAULT_MEMORY	512
+
+/* Rate-limit fast reboots */
+#define VM_START_RATE_SEC	6	/* min. seconds since last reboot */
+#define VM_START_RATE_LIMIT	3	/* max. number of fast reboots */
+
+/* default user instance limits */
+#define VM_DEFAULT_USER_MAXCPU	4
+#define VM_DEFAULT_USER_MAXMEM	2048
+#define VM_DEFAULT_USER_MAXIFS	8
 
 /* vmd -> vmctl error codes */
 #define VMD_BIOS_MISSING	1001
@@ -61,6 +71,9 @@
 #define VMD_VM_STOP_INVALID	1004
 #define VMD_CDROM_MISSING	1005
 #define VMD_CDROM_INVALID	1006
+
+/* Image file signatures */
+#define VM_MAGIC_QCOW		"QFI\xfb"
 
 /* 100.64.0.0/10 from rfc6598 (IPv4 Prefix for Shared Address Space) */
 #define VMD_DHCP_PREFIX		"100.64.0.0/10"
@@ -159,6 +172,12 @@ struct vmop_create_params {
 #define VMIFF_LOCAL		0x04
 #define VMIFF_RDOMAIN		0x08
 #define VMIFF_OPTMASK		(VMIFF_LOCKED|VMIFF_LOCAL|VMIFF_RDOMAIN)
+
+	unsigned int		 vmc_disktypes[VMM_MAX_DISKS_PER_VM];
+	unsigned int		 vmc_diskbases[VMM_MAX_DISKS_PER_VM];
+#define VMDF_RAW		0x01
+#define VMDF_QCOW2		0x02
+
 	char			 vmc_ifnames[VMM_MAX_NICS_PER_VM][IF_NAMESIZE];
 	char			 vmc_ifswitch[VMM_MAX_NICS_PER_VM][VM_NAME_MAX];
 	char			 vmc_ifgroup[VMM_MAX_NICS_PER_VM][IF_NAMESIZE];
@@ -189,13 +208,14 @@ struct vm_dump_header {
 } __packed;
 
 struct vmboot_params {
-	int			 vbp_fd;
 	off_t			 vbp_partoff;
 	char			 vbp_device[PATH_MAX];
 	char			 vbp_image[PATH_MAX];
 	uint32_t		 vbp_bootdev;
 	uint32_t		 vbp_howto;
-	char			*vbp_arg;
+	unsigned int		 vbp_type;
+	void			*vbp_arg;
+	char			*vbp_buf;
 };
 
 struct vmd_if {
@@ -226,7 +246,7 @@ struct vmd_vm {
 	uint32_t		 vm_vmid;
 	int			 vm_kernel;
 	int			 vm_cdrom;
-	int			 vm_disks[VMM_MAX_DISKS_PER_VM];
+	int			 vm_disks[VMM_MAX_DISKS_PER_VM][VM_MAX_BASE_PER_DISK];
 	struct vmd_if		 vm_ifs[VMM_MAX_NICS_PER_VM];
 	char			*vm_ttyname;
 	int			 vm_tty;
@@ -243,10 +263,26 @@ struct vmd_vm {
 	int			 vm_received;
 	int			 vm_paused;
 	int			 vm_receive_fd;
+	struct vmd_user		*vm_user;
+
+	/* For rate-limiting */
+	struct timeval		 vm_start_tv;
+	int			 vm_start_limit;
 
 	TAILQ_ENTRY(vmd_vm)	 vm_entry;
 };
 TAILQ_HEAD(vmlist, vmd_vm);
+
+struct vmd_user {
+	struct vmop_owner	 usr_id;
+	uint64_t		 usr_maxcpu;
+	uint64_t		 usr_maxmem;
+	uint64_t		 usr_maxifs;
+	int			 usr_refcnt;
+
+	TAILQ_ENTRY(vmd_user)	 usr_entry;
+};
+TAILQ_HEAD(userlist, vmd_user);
 
 struct address {
 	struct sockaddr_storage	 ss;
@@ -274,6 +310,7 @@ struct vmd {
 	struct vmlist		*vmd_vms;
 	uint32_t		 vmd_nswitches;
 	struct switchlist	*vmd_switches;
+	struct userlist		*vmd_users;
 
 	int			 vmd_fd;
 	int			 vmd_ptmfd;
@@ -329,8 +366,13 @@ int	 vm_opentty(struct vmd_vm *);
 void	 vm_closetty(struct vmd_vm *);
 void	 switch_remove(struct vmd_switch *);
 struct vmd_switch *switch_getbyname(const char *);
+struct vmd_user *user_get(uid_t);
+void	 user_put(struct vmd_user *);
+void	 user_inc(struct vm_create_params *, struct vmd_user *, int);
+int	 user_checklimit(struct vmd_user *, struct vm_create_params *);
 char	*get_string(uint8_t *, size_t);
 uint32_t prefixlen2mask(uint8_t);
+void	 getmonotime(struct timeval *);
 
 /* priv.c */
 void	 priv(struct privsep *, struct privsep_proc *);
@@ -375,12 +417,15 @@ int	 config_getif(struct privsep *, struct imsg *);
 int	 config_getcdrom(struct privsep *, struct imsg *);
 
 /* vmboot.c */
-FILE	*vmboot_open(int, int, struct vmboot_params *);
+FILE	*vmboot_open(int, int *, int, unsigned int, struct vmboot_params *);
 void	 vmboot_close(FILE *, struct vmboot_params *);
 
 /* parse.y */
 int	 parse_config(const char *);
 int	 cmdline_symset(char *);
 int	 host(const char *, struct address *);
+
+/* virtio.c */
+int	 virtio_get_base(int, char *, size_t, int, const char *);
 
 #endif /* VMD_H */

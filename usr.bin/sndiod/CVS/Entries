@@ -4,7 +4,7 @@
 /defs.h/1.2/Fri Dec  7 08:04:58 2012//
 /dev.c/1.47/Tue Jun 26 07:49:44 2018//
 /dev.h/1.20/Tue Jun 26 07:44:35 2018//
-/dsp.c/1.13/Fri Jun  8 06:21:56 2018//
+/dsp.c/1.14/Tue Sep 18 06:05:45 2018//
 /dsp.h/1.7/Fri Jun  8 06:21:56 2018//
 /fdpass.c/1.4/Mon Nov 20 17:26:39 2017//
 /fdpass.h/1.1/Sun Dec 20 11:38:33 2015//
@@ -21,7 +21,7 @@
 /siofile.c/1.14/Thu Jul 20 10:23:45 2017//
 /siofile.h/1.3/Sat Sep 28 18:49:32 2013//
 /sndiod.8/1.2/Mon Jan 18 11:38:07 2016//
-/sndiod.c/1.33/Tue Jun 26 07:12:35 2018//
+/sndiod.c/1.34/Wed Aug  8 22:31:43 2018//
 /sock.c/1.29/Tue Jun 26 07:39:59 2018//
 /sock.h/1.5/Tue Jun 26 07:13:54 2018//
 /sysex.h/1.2/Fri Dec 20 08:47:37 2013//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.42 2018/07/13 08:42:49 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.48 2018/11/01 00:18:44 sashan Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -39,11 +39,13 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <string.h>
+#include <unistd.h>
 #include <ctype.h>
 #include <netdb.h>
 #include <util.h>
 #include <errno.h>
 #include <err.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <grp.h>
 
@@ -88,7 +90,8 @@ int		 symset(const char *, const char *, int);
 char		*symget(const char *);
 
 ssize_t		 parse_size(char *, int64_t);
-int		 parse_disk(char *);
+int		 parse_disk(char *, int);
+unsigned int	 parse_format(const char *);
 
 static struct vmop_create_params vmc;
 static struct vm_create_params	*vcp;
@@ -117,13 +120,14 @@ typedef struct {
 
 
 %token	INCLUDE ERROR
-%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE GROUP INSTANCE INTERFACE
-%token	LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX RDOMAIN SIZE SOCKET
-%token	SWITCH UP VM VMID
+%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE FORMAT GROUP INSTANCE
+%token	INTERFACE LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX RDOMAIN
+%token	SIZE SOCKET SWITCH UP VM VMID
 %token	<v.number>	NUMBER
 %token	<v.string>	STRING
 %type	<v.lladdr>	lladdr
 %type	<v.number>	disable
+%type	<v.number>	image_format
 %type	<v.number>	local
 %type	<v.number>	locked
 %type	<v.number>	updown
@@ -368,8 +372,8 @@ vm_opts_l	: vm_opts_l vm_opts nl
 vm_opts		: disable			{
 			vcp_disable = $1;
 		}
-		| DISK string			{
-			if (parse_disk($2) != 0) {
+		| DISK string image_format	{
+			if (parse_disk($2, $3) != 0) {
 				yyerror("failed to parse disks: %s", $2);
 				free($2);
 				YYERROR;
@@ -412,20 +416,27 @@ vm_opts		: disable			{
 			vmc.vmc_flags |= VMOP_CREATE_NETWORK;
 		}
 		| BOOT string			{
+			char	 path[PATH_MAX];
+
 			if (vcp->vcp_kernel[0] != '\0') {
 				yyerror("kernel specified more than once");
 				free($2);
 				YYERROR;
 
 			}
-			if (strlcpy(vcp->vcp_kernel, $2,
-			    sizeof(vcp->vcp_kernel)) >=
-			    sizeof(vcp->vcp_kernel)) {
-				yyerror("kernel name too long");
+			if (realpath($2, path) == NULL) {
+				yyerror("kernel path not found: %s",
+				    strerror(errno));
 				free($2);
 				YYERROR;
 			}
 			free($2);
+			if (strlcpy(vcp->vcp_kernel, path,
+			    sizeof(vcp->vcp_kernel)) >=
+			    sizeof(vcp->vcp_kernel)) {
+				yyerror("kernel name too long");
+				YYERROR;
+			}
 			vmc.vmc_flags |= VMOP_CREATE_KERNEL;
 		}
 		| CDROM string			{
@@ -556,6 +567,18 @@ owner_id	: /* none */		{
 			}
 
 			free($1);
+		}
+		;
+
+image_format	: /* none 	*/	{
+			$$ = 0;
+		}
+	     	| FORMAT string		{
+			if (($$ = parse_format($2)) == 0) {
+				yyerror("unrecognized disk format %s", $2);
+				free($2);
+				YYERROR;
+			}
 		}
 		;
 
@@ -720,6 +743,7 @@ lookup(char *s)
 		{ "disk",		DISK },
 		{ "down",		DOWN },
 		{ "enable",		ENABLE },
+		{ "format",		FORMAT },
 		{ "group",		GROUP },
 		{ "id",			VMID },
 		{ "include",		INCLUDE },
@@ -925,7 +949,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -1154,17 +1179,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = (val - s) + 1;
-	if ((sym = malloc(len)) == NULL)
-		fatal("cmdline_symset: malloc");
-
-	(void)strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		fatal("%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -1212,9 +1232,11 @@ parse_size(char *word, int64_t val)
 }
 
 int
-parse_disk(char *word)
+parse_disk(char *word, int type)
 {
-	char	path[PATH_MAX];
+	char	 buf[BUFSIZ], path[PATH_MAX];
+	int	 fd;
+	ssize_t	 len;
 
 	if (vcp->vcp_ndisks >= VMM_MAX_DISKS_PER_VM) {
 		log_warnx("too many disks");
@@ -1226,14 +1248,42 @@ parse_disk(char *word)
 		return (-1);
 	}
 
+	if (!type) {
+		/* Use raw as the default format */
+		type = VMDF_RAW;
+
+		/* Try to derive the format from the file signature */
+		if ((fd = open(path, O_RDONLY)) != -1) {
+			len = read(fd, buf, sizeof(buf));
+			close(fd);
+			if (len >= (ssize_t)strlen(VM_MAGIC_QCOW) &&
+			    strncmp(buf, VM_MAGIC_QCOW,
+			    strlen(VM_MAGIC_QCOW)) == 0) {
+				/* The qcow version will be checked later */
+				type = VMDF_QCOW2;
+			}
+		}
+	}
+
 	if (strlcpy(vcp->vcp_disks[vcp->vcp_ndisks], path,
 	    VMM_MAX_PATH_DISK) >= VMM_MAX_PATH_DISK) {
 		log_warnx("disk path too long");
 		return (-1);
 	}
+	vmc.vmc_disktypes[vcp->vcp_ndisks] = type;
 
 	vcp->vcp_ndisks++;
 
+	return (0);
+}
+
+unsigned int
+parse_format(const char *word)
+{
+	if (strcasecmp(word, "raw") == 0)
+		return (VMDF_RAW);
+	else if (strcasecmp(word, "qcow2") == 0)
+		return (VMDF_QCOW2);
 	return (0);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.125 2018/07/12 14:11:11 guenther Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.130 2018/10/23 17:51:32 kettenis Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -174,7 +174,14 @@ replacemeltdown(void)
 	replacedone = 1;
 
 	s = splhigh();
-	codepatch_nop(CPTAG_MELTDOWN_NOP);
+	if (!cpu_meltdown)
+		codepatch_nop(CPTAG_MELTDOWN_NOP);
+	else if (pmap_use_pcid) {
+		extern long _pcid_set_reuse;
+		DPRINTF("%s: codepatching PCID use", __func__);
+		codepatch_replace(CPTAG_PCID_SET_REUSE, &_pcid_set_reuse,
+		    PCID_SET_REUSE_SIZE);
+	}
 	splx(s);
 }
 
@@ -410,7 +417,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * Allocate UPAGES contiguous pages for the idle PCB and stack.
 	 */
-	kstack = uvm_km_alloc (kernel_map, USPACE);
+	kstack = (vaddr_t)km_alloc(USPACE, &kv_any, &kp_dirty, &kd_nowait);
 	if (kstack == 0) {
 		if (caa->cpu_role != CPU_ROLE_AP) {
 			panic("cpu_attach: unable to allocate idle stack for"
@@ -563,6 +570,8 @@ cpu_init(struct cpu_info *ci)
 		cr4 |= CR4_UMIP;
 	if ((cpu_ecxfeature & CPUIDECX_XSAVE) && cpuid_level >= 0xd)
 		cr4 |= CR4_OSXSAVE;
+	if (pmap_use_pcid)
+		cr4 |= CR4_PCIDE;
 	lcr4(cr4);
 
 	if ((cpu_ecxfeature & CPUIDECX_XSAVE) && cpuid_level >= 0xd) {
@@ -692,7 +701,7 @@ cpu_start_secondary(struct cpu_info *ci)
 		atomic_setbits_int(&ci->ci_flags, CPUF_IDENTIFY);
 
 		/* wait for it to identify */
-		for (i = 100000; (ci->ci_flags & CPUF_IDENTIFY) && i > 0; i--)
+		for (i = 2000000; (ci->ci_flags & CPUF_IDENTIFY) && i > 0; i--)
 			delay(10);
 
 		if (ci->ci_flags & CPUF_IDENTIFY)
@@ -800,7 +809,7 @@ cpu_hatch(void *v)
 
 	s = splhigh();
 	lcr8(0);
-	enable_intr();
+	intr_enable();
 
 	nanouptime(&ci->ci_schedstate.spc_runtime);
 	splx(s);

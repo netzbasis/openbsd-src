@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.176 2018/07/11 13:06:16 claudio Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.180 2018/11/05 21:50:39 claudio Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -206,9 +206,9 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	 * according to RFC1812;
 	 */
 
-	KASSERT(ICMP_MINLEN <= MCLBYTES);
+	KASSERT(ICMP_MINLEN + sizeof (struct ip) <= MCLBYTES);
 
-	if (icmplen + ICMP_MINLEN > MCLBYTES)
+	if (sizeof (struct ip) + icmplen + ICMP_MINLEN > MCLBYTES)
 		icmplen = MCLBYTES - ICMP_MINLEN - sizeof (struct ip);
 
 	m = m_gethdr(M_DONTWAIT, MT_HEADER);
@@ -226,6 +226,9 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	m->m_len = icmplen + ICMP_MINLEN;
 	if ((m->m_flags & M_EXT) == 0)
 		MH_ALIGN(m, m->m_len);
+	else
+		m->m_data += (m->m_ext.ext_size - m->m_len) &
+		    ~(sizeof(long) - 1);
 	icp = mtod(m, struct icmp *);
 	if ((u_int)type > ICMP_MAXTYPE)
 		panic("icmp_error");
@@ -254,8 +257,7 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	 * Now, copy old ip header (without options)
 	 * in front of icmp message.
 	 */
-	if ((m->m_flags & M_EXT) == 0 &&
-	    m->m_data - sizeof(struct ip) < m->m_pktdat)
+	if (m_leadingspace(m) < sizeof(struct ip))
 		panic("icmp len");
 	m->m_data -= sizeof(struct ip);
 	m->m_len += sizeof(struct ip);
@@ -353,8 +355,8 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 		icmpstat_inc(icps_tooshort);
 		goto freeit;
 	}
-	i = hlen + min(icmplen, ICMP_ADVLENMIN);
-	if (m->m_len < i && (m = *mp = m_pullup(m, i)) == NULL) {
+	i = hlen + min(icmplen, ICMP_ADVLENMAX);
+	if ((m = *mp = m_pullup(m, i)) == NULL) {
 		icmpstat_inc(icps_tooshort);
 		return IPPROTO_DONE;
 	}
@@ -476,15 +478,6 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 			    icmplen < ICMP_V6ADVLEN(icp)) {
 				icmpstat_inc(icps_badlen);
 				goto freeit;
-			} else {
-				if ((m = *mp = m_pullup(m, (ip->ip_hl << 2) +
-				    ICMP_V6ADVLEN(icp))) == NULL) {
-					icmpstat_inc(icps_tooshort);
-					return IPPROTO_DONE;
-				}
-				ip = mtod(m, struct ip *);
-				icp = (struct icmp *)
-				    (m->m_data + (ip->ip_hl << 2));
 			}
 		}
 #endif /* INET6 */
@@ -952,20 +945,16 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
-	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE)))
+		goto bad;
 
 	/*
 	 * No PMTU for local routes and permanent neighbors,
 	 * ARP and NDP use the same expire timer as the route.
 	 */
 	if (ISSET(rt->rt_flags, RTF_LOCAL) ||
-	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0)) {
-		rtfree(rt);
-		return (NULL);
-	}
+	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0))
+		goto bad;
 
 	/* If we didn't get a host route, allocate one */
 	if ((rt->rt_flags & RTF_HOST) == 0) {
@@ -983,10 +972,8 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 
 		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
 		    rtableid);
-		if (error) {
-			rtfree(rt);
-			return (NULL);
-		}
+		if (error)
+			goto bad;
 		nrt->rt_rmx = rt->rt_rmx;
 		rtfree(rt);
 		rt = nrt;
@@ -994,12 +981,13 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	}
 	error = rt_timer_add(rt, icmp_mtudisc_timeout, ip_mtudisc_timeout_q,
 	    rtableid);
-	if (error) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (error)
+		goto bad;
 
 	return (rt);
+bad:
+	rtfree(rt);
+	return (NULL);
 }
 
 /* Table of common MTUs: */

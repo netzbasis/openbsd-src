@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.c,v 1.26 2018/07/03 20:40:25 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.c,v 1.32 2018/09/11 20:25:58 kettenis Exp $	*/
 /*
  * Copyright (c) 2013 Jonathan Gray <jsg@openbsd.org>
  * Copyright (c) 2015, 2016 Mark Kettenis <kettenis@openbsd.org>
@@ -729,7 +729,7 @@ vga_put(struct pci_dev *pdev, int rsrc)
  * ACPI types and interfaces.
  */
 
-#if defined(__amd64__) || defined(__i386__)
+#ifdef __HAVE_ACPI
 #include "acpi.h"
 #endif
 
@@ -746,6 +746,9 @@ acpi_get_table_with_size(const char *sig, int instance,
 	struct acpi_q *entry;
 
 	KASSERT(instance == 1);
+
+	if (sc == NULL)
+		return AE_NOT_FOUND;
 
 	SIMPLEQ_FOREACH(entry, &sc->sc_tables, q_next) {
 		if (memcmp(entry->q_table, sig, strlen(sig)) == 0) {
@@ -809,13 +812,13 @@ fence_context_alloc(unsigned int num)
 }
 
 int
-dmabuf_read(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
+dmabuf_read(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
 
 int
-dmabuf_write(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
+dmabuf_write(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
@@ -855,7 +858,9 @@ dmabuf_close(struct file *fp, struct proc *p)
 	struct dma_buf *dmabuf = fp->f_data;
 
 	fp->f_data = NULL;
+	KERNEL_LOCK();
 	dmabuf->ops->release(dmabuf);
+	KERNEL_UNLOCK();
 	free(dmabuf, M_DRM, sizeof(struct dma_buf));
 	return (0);
 }

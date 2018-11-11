@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sched.c,v 1.51 2018/07/12 01:23:38 cheloha Exp $	*/
+/*	$OpenBSD: kern_sched.c,v 1.53 2018/10/05 18:56:57 cheloha Exp $	*/
 /*
  * Copyright (c) 2007, 2008 Artur Grabowski <art@openbsd.org>
  *

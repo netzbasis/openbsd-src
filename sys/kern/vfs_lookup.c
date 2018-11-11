@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_lookup.c,v 1.71 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: vfs_lookup.c,v 1.75 2018/10/28 22:42:33 beck Exp $	*/
 /*	$NetBSD: vfs_lookup.c,v 1.17 1996/02/09 19:00:59 christos Exp $	*/
 
 /*
@@ -57,6 +57,7 @@
 #include <sys/ktrace.h>
 #endif
 
+void unveil_start_relative(struct proc *p, struct nameidata *ni);
 void unveil_check_component(struct proc *p, struct nameidata *ni, struct vnode *dp );
 int unveil_check_final(struct proc *p, struct nameidata *ni);
 
@@ -171,12 +172,17 @@ fail:
 	/*
 	 * Get starting point for the translation.
 	 */
-	if ((ndp->ni_rootdir = fdp->fd_rdir) == NULL)
+	if ((ndp->ni_rootdir = fdp->fd_rdir) == NULL ||
+	    (ndp->ni_cnd.cn_flags & KERNELPATH))
 		ndp->ni_rootdir = rootvnode;
 
-	error = pledge_namei(p, ndp, cnp->cn_pnbuf);
-	if (error)
-		goto fail;
+	if (ndp->ni_cnd.cn_flags & KERNELPATH) {
+		ndp->ni_cnd.cn_flags |= BYPASSUNVEIL;
+	} else {
+		error = pledge_namei(p, ndp, cnp->cn_pnbuf);
+		if (error)
+			goto fail;
+	}
 
 	/*
 	 * Check if starting from root directory or current directory.
@@ -189,6 +195,7 @@ fail:
 	} else if (ndp->ni_dirfd == AT_FDCWD) {
 		dp = fdp->fd_cdir;
 		vref(dp);
+		unveil_start_relative(p, ndp);
 		unveil_check_component(p, ndp, dp);
 	} else {
 		struct file *fp = fd_getfile(fdp, ndp->ni_dirfd);
@@ -227,7 +234,8 @@ fail:
 			if ((error = unveil_check_final(p, ndp))) {
 				pool_put(&namei_pool, cnp->cn_pnbuf);
 				if ((cnp->cn_flags & LOCKPARENT) &&
-				    (cnp->cn_flags & ISLASTCN))
+				    (cnp->cn_flags & ISLASTCN) &&
+				    (ndp->ni_vp != ndp->ni_dvp))
 					VOP_UNLOCK(ndp->ni_dvp);
 				if (ndp->ni_vp) {
 					if ((cnp->cn_flags & LOCKLEAF))
@@ -298,14 +306,7 @@ badlink:
 			ndp->ni_unveil_match = NULL;
 			curproc->p_p->ps_uvpcwd = NULL;
 			unveil_check_component(p, ndp, dp);
-		} else {
-			/*
-			 * this is a relative link, so remember our
-			 * unveil match from this point
-			 */
-			curproc->p_p->ps_uvpcwd = ndp->ni_unveil_match;
 		}
-
 	}
 	pool_put(&namei_pool, cnp->cn_pnbuf);
 	vrele(ndp->ni_dvp);
@@ -495,20 +496,13 @@ dirloop:
 	 */
 	if (cnp->cn_flags & ISDOTDOT) {
 		for (;;) {
-			if (curproc->p_p->ps_uvvcount > 0) {
-#if 0
-				error = ENOENT;
-				goto bad;
-#else
-				ndp->ni_unveil_match = NULL;
-#endif
-			}
 			if (dp == ndp->ni_rootdir || dp == rootvnode) {
 				ndp->ni_dvp = dp;
 				ndp->ni_vp = dp;
 				vref(dp);
 				curproc->p_p->ps_uvpcwd = NULL;
 				curproc->p_p->ps_uvpcwdgone = 0;
+				ndp->ni_unveil_match = NULL;
 				goto nextname;
 			}
 			if ((dp->v_flag & VROOT) == 0 ||
@@ -558,11 +552,13 @@ dirloop:
 		}
 		/*
 		 * If creating and at end of pathname, then can consider
-		 * allowing file to be created.
+		 * allowing file to be created. Check for a read only
+		 * filesystem and disallow this unless we are unveil'ing
 		 */
-		if (rdonly || (ndp->ni_dvp->v_mount->mnt_flag & MNT_RDONLY)) {
-			error = EROFS;
-			goto bad;
+		if (ndp->ni_pledge != PLEDGE_UNVEIL && (rdonly ||
+		    (ndp->ni_dvp->v_mount->mnt_flag & MNT_RDONLY))) {
+			    error = EROFS;
+			    goto bad;
 		}
 		/*
 		 * We return with ni_vp NULL to indicate that the entry

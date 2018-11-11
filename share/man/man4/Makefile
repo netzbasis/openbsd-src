@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.688 2018/07/09 11:04:21 jmatthew Exp $
+#	$OpenBSD: Makefile,v 1.696 2018/08/27 21:12:28 kettenis Exp $
 
 MAN=	aac.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -28,7 +28,8 @@ MAN=	aac.4 ac97.4 acphy.4 acrtc.4 \
 	fanpwr.4 fd.4 fdc.4 fec.4 fins.4 fintek.4 fms.4 fuse.4 fxp.4 gdt.4 \
 	gentbi.4 gem.4 gif.4 \
 	glenv.4 gpio.4 gpiodcf.4 gpioiic.4 gpioow.4 gpr.4 gre.4 gscsio.4 \
-	hds.4 hifn.4 hil.4 hilid.4 hilkbd.4 hilms.4 hme.4 hotplug.4 hsq.4 \
+	hds.4 hiclock.4 hidwusb.4 hifn.4 hil.4 hilid.4 hilkbd.4 hilms.4 \
+	hireset.4 hitemp.4 hme.4 hotplug.4 hsq.4 \
 	hvn.4 hvs.4 hyperv.4 \
 	iatp.4 ichiic.4 ichwdt.4 icmp.4 icmp6.4 icsphy.4 ifmedia.4 \
 	iha.4 ihidev.4 iic.4 ikbd.4 ims.4 imt.4 imxanatop.4 \
@@ -37,12 +38,12 @@ MAN=	aac.4 ac97.4 acphy.4 acrtc.4 \
 	ip.4 ip6.4 ipcomp.4 ipgphy.4 ipmi.4 ips.4 ipsec.4 ipw.4 \
 	isa.4 isagpio.4 isapnp.4 islrtc.4 it.4 itherm.4 iwi.4 iwn.4 iwm.4 \
 	ix.4 ixgb.4 jmb.4 jme.4 jmphy.4 \
-	kate.4 km.4 ksyms.4 kue.4 lc.4 lge.4 lii.4 lisa.4 lm.4 \
+	kate.4 kcov.4 km.4 ksyms.4 kue.4 lc.4 lge.4 lii.4 lisa.4 lm.4 \
 	lmenv.4 lmn.4 lmtemp.4 lo.4 lpt.4 lxtphy.4 luphy.4 \
 	maestro.4 mainbus.4 malo.4 maxds.4 maxrtc.4 maxtmp.4 mbg.4 midi.4 \
 	mii.4 mfi.4 \
 	mfii.4 mlphy.4 mobileip.4 moscom.4 mos.4 mpe.4 mpath.4 mpi.4 mpii.4 \
-	mpu.4 msk.4 mpw.4 msts.4 mtd.4 mtdphy.4 multicast.4 mtio.4 \
+	mpu.4 msk.4 mpw.4 msts.4 mtd.4 mtdphy.4 mtio.4 mue.4 multicast.4 \
 	mvclock.4 mvgpio.4 mvicu.4 mvneta.4 mvpinctrl.4 mvrng.4 mvrtc.4 \
 	mvtemp.4 myx.4 \
 	ne.4 neo.4 nep.4 netintro.4 nfe.4 nge.4 nmea.4 \
@@ -52,11 +53,11 @@ MAN=	aac.4 ac97.4 acphy.4 acrtc.4 \
 	pair.4 pcagpio.4 pcaled.4 pcdisplay.4 pchb.4 pchtemp.4 pci.4 pcib.4 \
 	pcfadc.4 pcfiic.4 pcfrtc.4 pcxrtc.4 pciide.4 pckbc.4 pckbd.4 \
 	pcmcia.4 pcn.4 pcppi.4 pcscp.4 pf.4 pflog.4 pflow.4 pfsync.4 \
-	pgt.4 piixpm.4 pipex.4 plrtc.4 pluart.4 \
+	pgt.4 piixpm.4 pinctrl.4 pipex.4 plgpio.4 plrtc.4 pluart.4 \
 	pms.4 ppb.4 ppp.4 pppoe.4 pppx.4 psci.4  pty.4 puc.4 pvbus.4 pwdog.4 \
 	qla.4 qle.4 qlw.4 qsphy.4 radio.4 \
 	ral.4 random.4 rdomain.4 rd.4 rdac.4 re.4 rdcphy.4 rgephy.4 \
-	ricohrtc.4 rkclock.4 rkgpio.4 rkgrf.4 rkiic.4 \
+	ricohrtc.4 rkclock.4 rkdwusb.4 rkgpio.4 rkgrf.4 rkiic.4 \
 	rkpcie.4 rkpinctrl.4 rkpmic.4 rktemp.4 \
 	rl.4 rlphy.4 route.4 rsu.4 rtsx.4 rum.4 run.4 \
 	rtfps.4 rtw.4 rtwn.4 safe.4 safte.4 sbus.4 schsio.4 \
@@ -75,8 +76,8 @@ MAN=	aac.4 ac97.4 acphy.4 acrtc.4 \
 	uftdi.4 ugen.4 ugl.4 ugold.4 uguru.4 uhci.4 uhid.4 uhidev.4 uipaq.4 \
 	uk.4 ukbd.4 \
 	ukphy.4 ulpt.4 umass.4 umb.4 umbg.4 umcs.4 umct.4 umidi.4 umodem.4 \
-	ums.4 umsm.4 unix.4 uonerng.4 uow.4 uoaklux.4 uoakrh.4 uoakv.4 upd.4 \
-	upgt.4 upl.4 uplcom.4 ural.4 ure.4 url.4 urlphy.4 \
+	ums.4 umsm.4 umt.4 unix.4 uonerng.4 uow.4 uoaklux.4 uoakrh.4 uoakv.4 \
+	upd.4 upgt.4 upl.4 uplcom.4 ural.4 ure.4 url.4 urlphy.4 \
 	urndis.4 urng.4 urtw.4 urtwn.4 usb.4 uscom.4 uslcom.4 usps.4 \
 	uthum.4 uticom.4 utpms.4 utwitch.4 utrh.4 uts.4 utvfu.4 uvideo.4 \
 	uvisor.4 uvscom.4 uwacom.4 \

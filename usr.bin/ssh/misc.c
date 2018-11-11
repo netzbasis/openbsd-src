@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.129 2018/06/09 03:01:12 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.133 2018/10/05 14:26:09 naddy Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005,2006 Damien Miller.  All rights reserved.
@@ -36,6 +36,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -58,7 +59,6 @@
 #include "ssh.h"
 #include "sshbuf.h"
 #include "ssherr.h"
-#include "uidswap.h"
 
 /* remove newline at end of string */
 char *
@@ -300,13 +300,16 @@ pwcopy(struct passwd *pw)
 int
 a2port(const char *s)
 {
+	struct servent *se;
 	long long port;
 	const char *errstr;
 
 	port = strtonum(s, 0, 65535, &errstr);
-	if (errstr != NULL)
-		return -1;
-	return (int)port;
+	if (errstr == NULL)
+		return (int)port;
+	if ((se = getservbyname(s, "tcp")) != NULL)
+		return ntohs(se->s_port);
+	return -1;
 }
 
 int
@@ -1501,15 +1504,6 @@ forward_equals(const struct Forward *a, const struct Forward *b)
 	return 1;
 }
 
-/* returns 1 if bind to specified port by specified user is permitted */
-int
-bind_permitted(int port, uid_t uid)
-{
-	if (port < IPPORT_RESERVED && uid != 0)
-		return 0;
-	return 1;
-}
-
 /* returns 1 if process is already daemonized, 0 otherwise */
 int
 daemonized(void)
@@ -1870,6 +1864,25 @@ bad:
 	if (errstr != NULL)
 		*errstr = errbuf;
 	return 0;
+}
+
+/*
+ * Verify that a environment variable name (not including initial '$') is
+ * valid; consisting of one or more alphanumeric or underscore characters only.
+ * Returns 1 on valid, 0 otherwise.
+ */
+int
+valid_env_name(const char *name)
+{
+	const char *cp;
+
+	if (name[0] == '\0')
+		return 0;
+	for (cp = name; *cp != '\0'; cp++) {
+		if (!isalnum((u_char)*cp) && *cp != '_')
+			return 0;
+	}
+	return 1;
 }
 
 const char *

@@ -1,4 +1,4 @@
-/audio.c/1.172/Sun Jun 24 23:54:22 2018//
+/audio.c/1.173/Wed Oct 31 02:25:26 2018//
 /audio_if.h/1.34/Sat Mar 11 10:12:45 2017//
 /bio.c/1.17/Wed Aug 26 22:28:57 2015//
 /biovar.h/1.45/Sun Aug 14 04:08:03 2016//
@@ -6,14 +6,15 @@
 /cninit.c/1.15/Sat Dec 30 20:46:59 2017//
 /cons.c/1.28/Mon Feb 19 08:59:52 2018//
 /cons.h/1.18/Tue May 17 23:43:47 2016//
-/diskmap.c/1.22/Wed Jul  4 12:42:30 2018//
-/firmload.c/1.14/Tue Dec 29 04:46:28 2015//
+/diskmap.c/1.24/Mon Aug 20 14:59:02 2018//
+/firmload.c/1.16/Mon Aug 13 23:12:39 2018//
 /flash.c/1.32/Thu May  4 22:47:27 2017//
 /flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
 /hotplug.c/1.16/Tue Jun  7 01:31:54 2016//
 /ipmi.c/1.102/Fri Jun 15 12:21:41 2018//
 /ipmi.h/1.1/Fri Feb  5 06:29:01 2016//
 /ipmivar.h/1.28/Fri Feb  5 06:29:01 2016//
+/kcov.c/1.4/Mon Aug 27 15:57:39 2018//
 /ksyms.c/1.31/Mon Jan 11 17:29:43 2016//
 /midi.c/1.43/Wed Jul 19 22:23:54 2017//
 /midi_if.h/1.9/Sat May 16 10:04:20 2015//
@@ -69,6 +70,7 @@ D/pv////
 D/rasops////
 D/sbus////
 D/sdmmc////
+D/spi////
 D/sun////
 D/tc////
 D/usb////

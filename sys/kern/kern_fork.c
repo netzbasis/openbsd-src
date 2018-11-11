@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.204 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.207 2018/08/30 03:30:25 visa Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -65,6 +65,8 @@
 #include <uvm/uvm.h>
 #include <machine/tcb.h>
 
+#include "kcov.h"
+
 int	nprocesses = 1;		/* process 0 */
 int	nthreads = 1;		/* proc 0 */
 int	randompid;		/* when set to 1, pid's go random */
@@ -75,7 +77,7 @@ pid_t alloctid(void);
 pid_t allocpid(void);
 int ispidtaken(pid_t);
 
-struct unveil *unveil_copy(struct process *s, size_t *count);
+void unveil_copy(struct process *parent, struct process *child);
 
 struct proc *thread_new(struct proc *_parent, vaddr_t _uaddr);
 struct process *process_new(struct proc *, struct process *, int);
@@ -178,6 +180,10 @@ thread_new(struct proc *parent, vaddr_t uaddr)
 	p->p_sleeplocks = NULL;
 #endif
 
+#if NKCOV > 0
+	p->p_kd = NULL;
+#endif
+
 	return p;
 }
 
@@ -200,6 +206,7 @@ process_initialize(struct process *pr, struct proc *p)
 	KASSERT(p->p_ucred->cr_ref >= 2);	/* new thread and new process */
 
 	LIST_INIT(&pr->ps_children);
+	LIST_INIT(&pr->ps_ftlist);
 	LIST_INIT(&pr->ps_kqlist);
 
 	timeout_set(&pr->ps_realit_to, realitexpire, pr);
@@ -237,18 +244,9 @@ process_new(struct proc *p, struct process *parent, int flags)
 	pr->ps_textvp = parent->ps_textvp;
 	if (pr->ps_textvp)
 		vref(pr->ps_textvp);
-#if 0  /* XXX Fix this */
+
 	/* copy unveil if unveil is active */
-	if (parent->ps_uvvcount) {
-		pr->ps_uvpaths = unveil_copy(parent, &pr->ps_uvncount);
-		if (parent->ps_uvpcwd)
-			pr->ps_uvpcwd = pr->ps_uvpaths +
-			    (parent->ps_uvpcwd - parent->ps_uvpaths);
-		pr->ps_uvpcwdgone = parent->ps_uvpcwdgone;
-		pr->ps_uvdone = parent->ps_uvdone;
-		pr->ps_uvshrink = 1;
-	}
-#endif
+	unveil_copy(parent, pr);
 
 	pr->ps_flags = parent->ps_flags &
 	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_EXECPLEDGE | PS_WXNEEDED);

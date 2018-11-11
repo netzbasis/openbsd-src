@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.681 2018/07/13 08:41:15 kn Exp $	*/
+/*	$OpenBSD: parse.y,v 1.687 2018/11/10 21:22:17 kn Exp $	*/
 
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -938,12 +938,6 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 				YYERROR;
 			}
 
-			if ($9.marker & FOM_ONCE) {
-				yyerror("cannot specify 'once' "
-				    "on anchors");
-				YYERROR;
-			}
-
 			decide_address_family($8.src.host, &r.af);
 			decide_address_family($8.dst.host, &r.af);
 
@@ -1559,15 +1553,6 @@ pfrule		: action dir logquick interface af proto fromto
 
 			if (filteropts_to_rule(&r, &$8))
 				YYERROR;
-
-			if ($8.marker & FOM_ONCE) {
-				if (r.action == PF_MATCH) {
-					yyerror("can't specify once for "
-					    "match rules");
-					YYERROR;
-				}
-				r.rule_flag |= PFRULE_ONCE;
-			}
 
 			if ($8.flags.b1 || $8.flags.b2 || $7.src_os) {
 				for (proto = $6; proto != NULL &&
@@ -2678,9 +2663,9 @@ host		: STRING			{
 			if (b->af != e->af ||
 			    b->addr.type != PF_ADDR_ADDRMASK ||
 			    e->addr.type != PF_ADDR_ADDRMASK ||
-			    unmask(&b->addr.v.a.mask, b->af) !=
+			    unmask(&b->addr.v.a.mask) !=
 			    (b->af == AF_INET ? 32 : 128) ||
-			    unmask(&e->addr.v.a.mask, e->af) !=
+			    unmask(&e->addr.v.a.mask) !=
 			    (e->af == AF_INET ? 32 : 128) ||
 			    b->next != NULL || b->not ||
 			    e->next != NULL || e->not) {
@@ -2980,14 +2965,14 @@ uid		: STRING			{
 			if (!strcmp($1, "unknown"))
 				$$ = UID_MAX;
 			else {
-				struct passwd	*pw;
+				uid_t uid;
 
-				if ((pw = getpwnam($1)) == NULL) {
+				if (uid_from_user($1, &uid) == -1) {
 					yyerror("unknown user %s", $1);
 					free($1);
 					YYERROR;
 				}
-				$$ = pw->pw_uid;
+				$$ = uid;
 			}
 			free($1);
 		}
@@ -3058,14 +3043,14 @@ gid		: STRING			{
 			if (!strcmp($1, "unknown"))
 				$$ = GID_MAX;
 			else {
-				struct group	*grp;
+				gid_t gid;
 
-				if ((grp = getgrnam($1)) == NULL) {
+				if (gid_from_group($1, &gid) == -1) {
 					yyerror("unknown group %s", $1);
 					free($1);
 					YYERROR;
 				}
-				$$ = grp->gr_gid;
+				$$ = gid;
 			}
 			free($1);
 		}
@@ -4207,7 +4192,7 @@ expand_label_addr(const char *name, char *label, size_t len, sa_family_t af,
 				    sizeof(a)) == NULL)
 					snprintf(tmp, sizeof(tmp), "?");
 				else {
-					bits = unmask(&h->addr.v.a.mask, af);
+					bits = unmask(&h->addr.v.a.mask);
 					if ((af == AF_INET && bits < 32) ||
 					    (af == AF_INET6 && bits < 128))
 						snprintf(tmp, sizeof(tmp),
@@ -5294,7 +5279,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -5578,11 +5564,9 @@ pfctl_cmdline_symset(char *s)
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
 
-	if ((sym = malloc(strlen(s) - strlen(val) + 1)) == NULL)
+	sym = strndup(s, val - s);
+	if (sym == NULL)
 		err(1, "%s", __func__);
-
-	strlcpy(sym, s, strlen(s) - strlen(val) + 1);
-
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -5879,6 +5863,13 @@ rdomain_exists(u_int rdomain)
 int
 filteropts_to_rule(struct pf_rule *r, struct filter_opts *opts)
 {
+	if (opts->marker & FOM_ONCE) {
+		if (r->action != PF_PASS && r->action != PF_MATCH) {
+			yyerror("'once' only applies to pass/block rules");
+			return (1);
+		}
+		r->rule_flag |= PFRULE_ONCE;
+	}
 
 	r->keep_state = opts->keep.action;
 	r->pktrate.limit = opts->pktrate.limit;
@@ -5929,12 +5920,6 @@ filteropts_to_rule(struct pf_rule *r, struct filter_opts *opts)
 	}
 	if (opts->marker & FOM_SCRUB_TCP)
 		r->scrub_flags |= PFSTATE_SCRUB_TCP;
-	if (opts->marker & FOM_PRIO) {
-		if (opts->prio == 0)
-			r->prio = PF_PRIO_ZERO;
-		else
-			r->prio = opts->prio;
-	}
 	if (opts->marker & FOM_SETDELAY) {
 		r->delay = opts->delay;
 		r->rule_flag |= PFRULE_SETDELAY;
@@ -5948,12 +5933,8 @@ filteropts_to_rule(struct pf_rule *r, struct filter_opts *opts)
 		r->scrub_flags |= PFSTATE_SETTOS;
 		r->set_tos = opts->settos;
 	}
-	if (opts->marker & FOM_PRIO) {
-		if (opts->prio == 0)
-			r->prio = PF_PRIO_ZERO;
-		else
-			r->prio = opts->prio;
-	}
+	if (opts->marker & FOM_PRIO)
+		r->prio = opts->prio ? opts->prio : PF_PRIO_ZERO;
 	if (opts->marker & FOM_SETPRIO) {
 		r->set_prio[0] = opts->set_prio[0];
 		r->set_prio[1] = opts->set_prio[1];
@@ -5983,7 +5964,7 @@ filteropts_to_rule(struct pf_rule *r, struct filter_opts *opts)
 			    "%d chars)", sizeof(r->pqname)-1);
 			return (1);
 		}
-		free(opts->queues.qname);
+		free(opts->queues.pqname);
 	}
 
 	if (opts->fragment)

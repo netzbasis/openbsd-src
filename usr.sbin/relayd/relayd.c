@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.c,v 1.171 2017/11/29 15:24:50 benno Exp $	*/
+/*	$OpenBSD: relayd.c,v 1.174 2018/09/09 21:06:51 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -184,6 +184,7 @@ main(int argc, char *argv[])
 	TAILQ_INIT(&env->sc_hosts);
 	TAILQ_INIT(&env->sc_sessions);
 	env->sc_rtable = getrtable();
+	env->sc_snmp = -1;
 	/* initialize the TLS session id to a random key for all relay procs */
 	arc4random_buf(env->sc_conf.tls_sid, sizeof(env->sc_conf.tls_sid));
 
@@ -212,7 +213,7 @@ main(int argc, char *argv[])
 		ps->ps_title[proc_id] = title;
 
 	/* only the parent returns */
-	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
+	proc_init(ps, procs, nitems(procs), debug, argc0, argv, proc_id);
 
 	log_procinit("parent");
 	if (!debug && daemon(1, 0) == -1)
@@ -558,7 +559,7 @@ purge_relay(struct relayd *env, struct relay *rlay)
 	/* cleanup sessions */
 	while ((con =
 	    SPLAY_ROOT(&rlay->rl_sessions)) != NULL)
-		relay_close(con, NULL);
+		relay_close(con, NULL, 0);
 
 	/* cleanup relay */
 	if (rlay->rl_bev != NULL)

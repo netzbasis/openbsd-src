@@ -45,7 +45,7 @@
 /ike_auth.h/1.5/Thu Apr 15 18:39:25 2004//
 /ike_main_mode.c/1.19/Mon Jan 15 09:54:48 2018//
 /ike_main_mode.h/1.6/Sun May 23 18:17:56 2004//
-/ike_phase_1.c/1.77/Wed Nov  8 13:33:49 2017//
+/ike_phase_1.c/1.78/Thu Sep 20 11:49:55 2018//
 /ike_phase_1.h/1.4/Thu Apr 15 18:39:25 2004//
 /ike_quick_mode.c/1.114/Mon Jan 15 09:54:48 2018//
 /ike_quick_mode.h/1.6/Thu Apr 15 18:39:25 2004//

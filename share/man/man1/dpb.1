@@ -1,4 +1,4 @@
-.\"	$OpenBSD: dpb.1,v 1.5 2018/07/09 18:27:58 jmc Exp $
+.\"	$OpenBSD: dpb.1,v 1.8 2018/11/02 08:11:43 espie Exp $
 .\"
 .\" Copyright (c) 2010-2013 Marc Espie <espie@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 9 2018 $
+.Dd $Mdocdate: November 2 2018 $
 .Dt DPB 1
 .Os
 .Sh NAME
@@ -252,6 +252,13 @@ User for all fetch activities if possible
 .It Ar FETCH_TIMEOUT
 Timeout (in seconds) after which fetches that don't show
 any progress will be killed.
+This can be instead set in
+.Ar DEFAULT
+or
+.Ar localhost
+as the
+.Sq fetch_timeout
+property.
 .It Ar FTP_ONLY
 Don't fetch distfiles that are not allowed for ftp.
 .It Ar HISTORY_ONLY
@@ -407,6 +414,13 @@ value).
 Chroot to
 .Ar dir
 before building.
+.It fetch_timeout=s
+Timeout (in seconds) after which fetches that don't show
+any progress will be killed.
+Only makes sense for
+.Ar DEFAULT
+or
+.Ar localhost .
 .It jobs=n
 Number of jobs to run on that host, defaults to hw.ncpu.
 .It junk=n
@@ -445,6 +459,10 @@ Run big ports on several cores.
 See
 .Fl p
 option.
+.It parallel2=p
+Run largest ports on many cores.
+Defaults to the same value as the parallel option, but can be increased for,
+say, chromium.
 .It repair=0/1
 Defaults to 1.
 Run
@@ -836,6 +854,10 @@ from running while port is building.
 Port that can be built in parallel, uses
 .Ev MAKE_JOBS
 and several build slots.
+.It Ar parallel2
+Very large port that should be built in parallel, uses
+.Ev MAKE_JOBS
+and lots of build slots.
 .It Ar tag:kde3
 kde3 port that conflicts with kde4 ports.
 Prevent scheduling ports with
@@ -1559,6 +1581,13 @@ can't start a new fetch job.
 Printed in
 .Ar path/pkgpath.log
 when a port exceeds its timeout.
+.It !: <path> tried and didn't get it
+Printed in
+.Ar engine.log
+Scanning the port didn't give us useful information.
+See
+.Ar vars.log
+for gory details.
 .El
 .Sh BUGS AND LIMITATIONS
 .Nm

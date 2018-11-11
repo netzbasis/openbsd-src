@@ -1,4 +1,4 @@
-/*	$OpenBSD: parser.c,v 1.82 2018/07/10 13:03:06 benno Exp $ */
+/*	$OpenBSD: parser.c,v 1.86 2018/10/03 11:36:39 denis Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -81,6 +81,7 @@ static const struct token t_show[];
 static const struct token t_show_summary[];
 static const struct token t_show_fib[];
 static const struct token t_show_rib[];
+static const struct token t_show_ovs[];
 static const struct token t_show_mrt[];
 static const struct token t_show_mrt_file[];
 static const struct token t_show_rib_neigh[];
@@ -177,6 +178,7 @@ static const struct token t_show_rib[] = {
 	{ FLAG,		"best",		F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"selected",	F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"detail",	F_CTL_DETAIL,	t_show_rib},
+	{ FLAG,		"error",	F_CTL_INVALID,	t_show_rib},
 	{ FLAG,		"ssv"	,	F_CTL_SSV,	t_show_rib},
 	{ FLAG,		"in",		F_CTL_ADJ_IN,	t_show_rib},
 	{ FLAG,		"out",		F_CTL_ADJ_OUT,	t_show_rib},
@@ -184,11 +186,18 @@ static const struct token t_show_rib[] = {
 	{ KEYWORD,	"table",	NONE,		t_show_rib_rib},
 	{ KEYWORD,	"summary",	SHOW_SUMMARY,	t_show_summary},
 	{ KEYWORD,	"memory",	SHOW_RIB_MEM,	NULL},
+	{ KEYWORD,	"ovs",		NONE,		t_show_ovs},
 	{ FAMILY,	"",		NONE,		t_show_rib},
 	{ PREFIX,	"",		NONE,		t_show_prefix},
 	{ ENDTOKEN,	"",		NONE,		NULL}
 };
 
+static const struct token t_show_ovs[] = {
+	{ FLAG,		"valid"	,	F_CTL_OVS_VALID,	t_show_rib},
+	{ FLAG,		"invalid",	F_CTL_OVS_INVALID,	t_show_rib},
+	{ FLAG,		"not-found",	F_CTL_OVS_NOTFOUND,	t_show_rib},
+	{ ENDTOKEN,	"",		NONE,		NULL}
+};
 
 static const struct token t_show_mrt[] = {
 	{ NOTOKEN,	"",		NONE,		NULL},
@@ -614,7 +623,8 @@ match_token(int *argc, char **argv[], const struct token table[])
 			}
 			break;
 		case ASNUM:
-			if (parse_asnum(word, wordlen, &res.as.as)) {
+			if (parse_asnum(word, wordlen, &res.as.as_min)) {
+				res.as.as_max = res.as.as_min;
 				match++;
 				t = &table[i];
 			}

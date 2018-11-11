@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.2 2018/07/11 08:47:03 florian Exp $	*/
+/*	$OpenBSD: parse.y,v 1.11 2018/11/01 00:18:44 sashan Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -100,6 +100,8 @@ static struct ra_prefix_conf	*ra_prefix_conf;
 
 struct ra_prefix_conf	*conf_get_ra_prefix(struct in6_addr*, int);
 struct ra_iface_conf	*conf_get_ra_iface(char *);
+void			 copy_dns_options(const struct ra_options_conf *,
+			    struct ra_options_conf *);
 
 typedef struct {
 	union {
@@ -115,7 +117,7 @@ typedef struct {
 %token	DEFAULT ROUTER HOP LIMIT MANAGED ADDRESS
 %token	CONFIGURATION OTHER LIFETIME REACHABLE TIME RETRANS TIMER
 %token	AUTO PREFIX VALID PREFERRED LIFETIME ONLINK AUTONOMOUS
-%token	ADDRESS_CONFIGURATION
+%token	ADDRESS_CONFIGURATION DNS NAMESERVER SEARCH MTU
 
 %token	<v.string>	STRING
 %token	<v.number>	NUMBER
@@ -209,6 +211,10 @@ ra_opt_block	: DEFAULT ROUTER yesno {
 		| RETRANS TIMER NUMBER {
 			ra_options->retrans_timer = $3;
 		}
+		| MTU NUMBER {
+			ra_options->mtu = $2;
+		}
+		| DNS dns_block
 		;
 
 optnl		: '\n' optnl		/* zero or more newlines */
@@ -225,6 +231,7 @@ ra_iface	: RA_IFACE STRING {
 			ra_options = &ra_iface_conf->ra_options;
 		} ra_iface_block {
 			ra_iface_conf = NULL;
+			ra_options = &conf->ra_options;
 		}
 		;
 
@@ -243,8 +250,9 @@ ra_ifaceoptsl	: NO AUTO PREFIX {
 		}
 		| AUTO PREFIX {
 			if (ra_iface_conf->autoprefix == NULL)
-				ra_iface_conf->autoprefix = 
-			ra_prefix_conf = conf_get_ra_prefix(NULL, 0);
+				ra_iface_conf->autoprefix =
+				    conf_get_ra_prefix(NULL, 0);
+			ra_prefix_conf = ra_iface_conf->autoprefix;
 		} ra_prefix_block {
 			ra_prefix_conf = NULL;
 		}
@@ -260,6 +268,8 @@ ra_ifaceoptsl	: NO AUTO PREFIX {
 				free($2);
 				YYERROR;
 			}
+			if (prefixlen == 128 && strchr($2, '/') == NULL)
+				prefixlen = 64;
 			mask_prefix(&addr, prefixlen);
 			ra_prefix_conf = conf_get_ra_prefix(&addr, prefixlen);
 		} ra_prefix_block {
@@ -290,7 +300,91 @@ ra_prefixoptsl	: VALID LIFETIME NUMBER {
 			ra_prefix_conf->aflag = $3;
 		}
 		;
+dns_block	: '{' optnl dnsopts_l '}'
+		| '{' optnl '}'
+		| /* empty */
+		;
 
+dnsopts_l	: dnsopts_l dnsoptsl nl
+		| dnsoptsl optnl
+		;
+
+dnsoptsl	: LIFETIME NUMBER {
+			ra_options->rdns_lifetime = $2;
+		}
+		| NAMESERVER nserver_block
+		| SEARCH search_block
+		;
+nserver_block	: '{' optnl nserveropts_l '}'
+			| '{' optnl '}'
+			| nserveroptsl
+			| /* empty */
+			;
+
+nserveropts_l	: nserveropts_l nserveroptsl optnl
+		| nserveroptsl optnl
+		;
+
+nserveroptsl	: STRING {
+			struct ra_rdnss_conf	*ra_rdnss_conf;
+			struct in6_addr		 addr;
+
+			memset(&addr, 0, sizeof(addr));
+			if (inet_pton(AF_INET6, $1, &addr)
+			    != 1) {
+				yyerror("error parsing nameserver address %s",
+				    $1);
+				free($1);
+				YYERROR;
+			}
+			if ((ra_rdnss_conf = calloc(1, sizeof(*ra_rdnss_conf)))
+			    == NULL)
+				err(1, "%s", __func__);
+			memcpy(&ra_rdnss_conf->rdnss, &addr, sizeof(addr));
+			SIMPLEQ_INSERT_TAIL(&ra_options->ra_rdnss_list,
+			    ra_rdnss_conf, entry);
+			ra_options->rdnss_count++;
+		}
+		;
+search_block	: '{' optnl searchopts_l '}'
+		| '{' optnl '}'
+		| searchoptsl
+		| /* empty */
+		;
+
+searchopts_l	: searchopts_l searchoptsl optnl
+		| searchoptsl optnl
+		;
+
+searchoptsl	: STRING {
+			struct ra_dnssl_conf	*ra_dnssl_conf;
+			size_t			 len;
+
+			if ((ra_dnssl_conf = calloc(1,
+			    sizeof(*ra_dnssl_conf))) == NULL)
+				err(1, "%s", __func__);
+
+			if ((len = strlcpy(ra_dnssl_conf->search, $1,
+			    sizeof(ra_dnssl_conf->search))) >
+			    sizeof(ra_dnssl_conf->search)) {
+				yyerror("search string too long");
+				free($1);
+				YYERROR;
+			}
+			if (ra_dnssl_conf->search[len] != '.') {
+				if ((len = strlcat(ra_dnssl_conf->search, ".",
+				    sizeof(ra_dnssl_conf->search))) >
+				    sizeof(ra_dnssl_conf->search)) {
+					yyerror("search string too long");
+					free($1);
+					YYERROR;
+				}
+			}
+			SIMPLEQ_INSERT_TAIL(&ra_options->ra_dnssl_list,
+			    ra_dnssl_conf, entry);
+			ra_options->dnssl_len += len + 1;
+		}
+		;
 %%
 
 struct keywords {
@@ -331,12 +425,15 @@ lookup(char *s)
 		{"autonomous",		AUTONOMOUS},
 		{"configuration",	CONFIGURATION},
 		{"default",		DEFAULT},
+		{"dns",			DNS},
 		{"hop",			HOP},
 		{"include",		INCLUDE},
 		{"interface",		RA_IFACE},
 		{"lifetime",		LIFETIME},
 		{"limit",		LIMIT},
 		{"managed",		MANAGED},
+		{"mtu",			MTU},
+		{"nameserver",		NAMESERVER},
 		{"no",			NO},
 		{"on-link",		ONLINK},
 		{"other",		OTHER},
@@ -345,6 +442,7 @@ lookup(char *s)
 		{"reachable",		REACHABLE},
 		{"retrans",		RETRANS},
 		{"router",		ROUTER},
+		{"search",		SEARCH},
 		{"time",		TIME},
 		{"timer",		TIMER},
 		{"valid",		VALID},
@@ -528,7 +626,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -700,7 +799,8 @@ popfile(void)
 struct rad_conf *
 parse_config(char *filename)
 {
-	struct sym	*sym, *next;
+	struct sym		*sym, *next;
+	struct ra_iface_conf	*iface;
 
 	conf = config_new_empty();
 	ra_options = NULL;
@@ -734,7 +834,42 @@ parse_config(char *filename)
 		return (NULL);
 	}
 
+	if (!SIMPLEQ_EMPTY(&conf->ra_options.ra_rdnss_list) ||
+	    !SIMPLEQ_EMPTY(&conf->ra_options.ra_dnssl_list)) {
+		SIMPLEQ_FOREACH(iface, &conf->ra_iface_list, entry)
+			copy_dns_options(&conf->ra_options,
+			    &iface->ra_options);
+	}
+
 	return (conf);
+}
+
+void
+copy_dns_options(const struct ra_options_conf *src, struct ra_options_conf *dst)
+{
+	struct ra_rdnss_conf	*ra_rdnss, *nra_rdnss;
+	struct ra_dnssl_conf	*ra_dnssl, *nra_dnssl;
+
+	if (SIMPLEQ_EMPTY(&dst->ra_rdnss_list)) {
+		SIMPLEQ_FOREACH(ra_rdnss, &src->ra_rdnss_list, entry) {
+			if ((nra_rdnss = calloc(1, sizeof(*nra_rdnss))) == NULL)
+				errx(1, "%s", __func__);
+			memcpy(nra_rdnss, ra_rdnss, sizeof(*nra_rdnss));
+			SIMPLEQ_INSERT_TAIL(&dst->ra_rdnss_list, nra_rdnss,
+			    entry);
+		}
+		dst->rdnss_count = src->rdnss_count;
+	}
+	if (SIMPLEQ_EMPTY(&dst->ra_dnssl_list)) {
+		SIMPLEQ_FOREACH(ra_dnssl, &src->ra_dnssl_list, entry) {
+			if ((nra_dnssl = calloc(1, sizeof(*nra_dnssl))) == NULL)
+				errx(1, "%s", __func__);
+			memcpy(nra_dnssl, ra_dnssl, sizeof(*nra_dnssl));
+			SIMPLEQ_INSERT_TAIL(&dst->ra_dnssl_list, nra_dnssl,
+			    entry);
+		}
+		dst->dnssl_len = src->dnssl_len;
+	}
 }
 
 int
@@ -782,17 +917,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		errx(1, "cmdline_symset: malloc");
-
-	strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		errx(1, "%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -871,6 +1001,10 @@ conf_get_ra_iface(char *name)
 	iface->ra_options = conf->ra_options;
 
 	SIMPLEQ_INIT(&iface->ra_prefix_list);
+	SIMPLEQ_INIT(&iface->ra_options.ra_rdnss_list);
+	iface->ra_options.rdnss_count = 0;
+	SIMPLEQ_INIT(&iface->ra_options.ra_dnssl_list);
+	iface->ra_options.dnssl_len = 0;
 
 	SIMPLEQ_INSERT_TAIL(&conf->ra_iface_list, iface, entry);
 
@@ -882,9 +1016,11 @@ clear_config(struct rad_conf *xconf)
 {
 	struct ra_iface_conf	*iface;
 
+	free_dns_options(&xconf->ra_options);
+
 	while((iface = SIMPLEQ_FIRST(&xconf->ra_iface_list)) != NULL) {
 		SIMPLEQ_REMOVE_HEAD(&xconf->ra_iface_list, entry);
-		free(iface);
+		free_ra_iface_conf(iface);
 	}
 
 	free(xconf);

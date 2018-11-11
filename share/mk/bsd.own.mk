@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.189 2018/01/19 16:54:54 kettenis Exp $
+#	$OpenBSD: bsd.own.mk,v 1.192 2018/11/08 14:13:51 visa Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -18,6 +18,7 @@ YP?=		yes
 CLANG_ARCH=aarch64 amd64 arm i386 sparc64
 GCC4_ARCH=alpha hppa mips64 mips64el powerpc sh sparc64
 GCC3_ARCH=m88k
+LLD_ARCH=aarch64 amd64 arm
 
 # m88k: ?
 PIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
@@ -49,8 +50,20 @@ BUILD_CLANG?=yes
 BUILD_CLANG?=no
 .endif
 
+.if !empty(LLD_ARCH:M${_arch})
+LINKER_VERSION?=lld
+.else
+LINKER_VERSION?=bfd
+.endif
+
 .if !empty(STATICPIE_ARCH:M${_arch})
 STATICPIE?=-pie
+.endif
+
+# Executables are always PIC on mips64.
+# Do not pass -fno-pie to the compiler because clang does not accept it.
+.if ${MACHINE_ARCH} == "mips64" || ${MACHINE_ARCH} == "mips64el"
+NOPIE_FLAGS?=
 .endif
 
 .if !empty(PIE_ARCH:M${_arch})

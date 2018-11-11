@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.97 2018/07/13 10:26:57 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.104 2018/10/15 10:35:41 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -36,6 +36,7 @@
 #include <signal.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <util.h>
 #include <ctype.h>
 #include <pwd.h>
 #include <grp.h>
@@ -418,10 +419,27 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		memcpy(&vmr, imsg->data, sizeof(vmr));
 		if ((vm = vm_getbyvmid(vmr.vmr_id)) == NULL)
 			break;
-		if (!vmr.vmr_result)
+		if (!vmr.vmr_result) {
 			log_info("%s: sent vm %d successfully.",
 			    vm->vm_params.vmc_params.vcp_name,
 			    vm->vm_vmid);
+			if (vm->vm_from_config)
+				vm_stop(vm, 0, __func__);
+			else
+				vm_remove(vm, __func__);
+		}
+
+		/* Send a response if a control client is waiting for it */
+		if (imsg->hdr.peerid != (uint32_t)-1) {
+			/* the error is meaningless for deferred responses */
+			vmr.vmr_result = 0;
+
+			if (proc_compose_imsg(ps, PROC_CONTROL, -1,
+			    IMSG_VMDOP_SEND_VM_RESPONSE,
+			    imsg->hdr.peerid, -1, &vmr, sizeof(vmr)) == -1)
+				return (-1);
+		}
+		break;
 	case IMSG_VMDOP_TERMINATE_VM_EVENT:
 		IMSG_SIZE_CHECK(imsg, &vmr);
 		memcpy(&vmr, imsg->data, sizeof(vmr));
@@ -791,7 +809,8 @@ main(int argc, char **argv)
 		ps->ps_title[proc_id] = title;
 
 	/* only the parent returns */
-	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
+	proc_init(ps, procs, nitems(procs), env->vmd_debug, argc0, argv,
+	    proc_id);
 
 	log_procinit("parent");
 	if (!env->vmd_debug && daemon(0, 0) == -1)
@@ -1078,7 +1097,7 @@ void
 vm_stop(struct vmd_vm *vm, int keeptty, const char *caller)
 {
 	struct privsep	*ps = &env->vmd_ps;
-	unsigned int	 i;
+	unsigned int	 i, j;
 
 	if (vm == NULL)
 		return;
@@ -1090,14 +1109,19 @@ vm_stop(struct vmd_vm *vm, int keeptty, const char *caller)
 	vm->vm_running = 0;
 	vm->vm_shutdown = 0;
 
+	user_inc(&vm->vm_params.vmc_params, vm->vm_user, 0);
+	user_put(vm->vm_user);
+
 	if (vm->vm_iev.ibuf.fd != -1) {
 		event_del(&vm->vm_iev.ev);
 		close(vm->vm_iev.ibuf.fd);
 	}
 	for (i = 0; i < VMM_MAX_DISKS_PER_VM; i++) {
-		if (vm->vm_disks[i] != -1) {
-			close(vm->vm_disks[i]);
-			vm->vm_disks[i] = -1;
+		for (j = 0; j < VM_MAX_BASE_PER_DISK; j++) {
+			if (vm->vm_disks[i][j] != -1) {
+				close(vm->vm_disks[i][j]);
+				vm->vm_disks[i][j] = -1;
+			}
 		}
 	}
 	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++) {
@@ -1140,6 +1164,7 @@ vm_remove(struct vmd_vm *vm, const char *caller)
 
 	TAILQ_REMOVE(env->vmd_vms, vm, vm_entry);
 
+	user_put(vm->vm_user);
 	vm_stop(vm, 0, caller);
 	free(vm);
 }
@@ -1151,8 +1176,9 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 	struct vmd_vm		*vm = NULL, *vm_parent = NULL;
 	struct vm_create_params	*vcp = &vmc->vmc_params;
 	struct vmop_owner	*vmo = NULL;
+	struct vmd_user		*usr = NULL;
 	uint32_t		 rng;
-	unsigned int		 i;
+	unsigned int		 i, j;
 	struct vmd_switch	*sw;
 	char			*s;
 
@@ -1223,6 +1249,13 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 		}
 	}
 
+	/* track active users */
+	if (uid != 0 && env->vmd_users != NULL &&
+	    (usr = user_get(uid)) == NULL) {
+		log_warnx("could not add user");
+		goto fail;
+	}
+
 	if ((vm = calloc(1, sizeof(*vm))) == NULL)
 		goto fail;
 
@@ -1233,12 +1266,14 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 	vm->vm_tty = -1;
 	vm->vm_receive_fd = -1;
 	vm->vm_paused = 0;
+	vm->vm_user = usr;
 
-	for (i = 0; i < vcp->vcp_ndisks; i++)
-		vm->vm_disks[i] = -1;
-	for (i = 0; i < vcp->vcp_nnics; i++) {
+	for (i = 0; i < VMM_MAX_DISKS_PER_VM; i++)
+		for (j = 0; j < VM_MAX_BASE_PER_DISK; j++)
+			vm->vm_disks[i][j] = -1;
+	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++)
 		vm->vm_ifs[i].vif_fd = -1;
-
+	for (i = 0; i < vcp->vcp_nnics; i++) {
 		if ((sw = switch_getbyname(vmc->vmc_ifswitch[i])) != NULL) {
 			/* inherit per-interface flags from the switch */
 			vmc->vmc_ifflags[i] |= (sw->sw_flags & VMIFF_OPTMASK);
@@ -1765,6 +1800,104 @@ switch_getbyname(const char *name)
 	return (NULL);
 }
 
+struct vmd_user *
+user_get(uid_t uid)
+{
+	struct vmd_user		*usr;
+
+	if (uid == 0)
+		return (NULL);
+
+	/* first try to find an existing user */
+	TAILQ_FOREACH(usr, env->vmd_users, usr_entry) {
+		if (usr->usr_id.uid == uid)
+			goto done;
+	}
+
+	if ((usr = calloc(1, sizeof(*usr))) == NULL) {
+		log_warn("could not allocate user");
+		return (NULL);
+	}
+
+	usr->usr_id.uid = uid;
+	usr->usr_id.gid = -1;
+	TAILQ_INSERT_TAIL(env->vmd_users, usr, usr_entry);
+
+ done:
+	DPRINTF("%s: uid %d #%d +",
+	    __func__, usr->usr_id.uid, usr->usr_refcnt + 1);
+	usr->usr_refcnt++;
+
+	return (usr);
+}
+
+void
+user_put(struct vmd_user *usr)
+{
+	if (usr == NULL)
+		return;
+
+	DPRINTF("%s: uid %d #%d -",
+	    __func__, usr->usr_id.uid, usr->usr_refcnt - 1);
+
+	if (--usr->usr_refcnt > 0)
+		return;
+
+	TAILQ_REMOVE(env->vmd_users, usr, usr_entry);
+	free(usr);
+}
+
+void
+user_inc(struct vm_create_params *vcp, struct vmd_user *usr, int inc)
+{
+	char	 mem[FMT_SCALED_STRSIZE];
+
+	if (usr == NULL)
+		return;
+
+	/* increment or decrement counters */
+	inc = inc ? 1 : -1;
+
+	usr->usr_maxcpu += vcp->vcp_ncpus * inc;
+	usr->usr_maxmem += vcp->vcp_memranges[0].vmr_size * inc;
+	usr->usr_maxifs += vcp->vcp_nnics * inc;
+
+	if (log_getverbose() > 1) {
+		(void)fmt_scaled(usr->usr_maxmem * 1024 * 1024, mem);
+		log_debug("%s: %c uid %d ref %d cpu %llu mem %s ifs %llu",
+		    __func__, inc == 1 ? '+' : '-',
+		    usr->usr_id.uid, usr->usr_refcnt,
+		    usr->usr_maxcpu, mem, usr->usr_maxifs);
+	}
+}
+
+int
+user_checklimit(struct vmd_user *usr, struct vm_create_params *vcp)
+{
+	const char	*limit = "";
+
+	/* XXX make the limits configurable */
+	if (usr->usr_maxcpu > VM_DEFAULT_USER_MAXCPU) {
+		limit = "cpu ";
+		goto fail;
+	}
+	if (usr->usr_maxmem > VM_DEFAULT_USER_MAXMEM) {
+		limit = "memory ";
+		goto fail;
+	}
+	if (usr->usr_maxifs > VM_DEFAULT_USER_MAXIFS) {
+		limit = "interface ";
+		goto fail;
+	}
+
+	return (0);
+
+ fail:
+	log_warnx("%s: user %d %slimit reached", vcp->vcp_name,
+	    usr->usr_id.uid, limit);
+	return (-1);
+}
+
 char *
 get_string(uint8_t *ptr, size_t len)
 {
@@ -1787,4 +1920,15 @@ prefixlen2mask(uint8_t prefixlen)
 		prefixlen = 32;
 
 	return (htonl(0xffffffff << (32 - prefixlen)));
+}
+
+void
+getmonotime(struct timeval *tv)
+{
+	struct timespec	 ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts))
+		fatal("clock_gettime");
+
+	TIMESPEC_TO_TIMEVAL(tv, &ts);
 }

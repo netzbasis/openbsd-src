@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtwn.c,v 1.36 2017/10/26 15:00:28 mpi Exp $	*/
+/*	$OpenBSD: rtwn.c,v 1.41 2018/10/04 01:14:30 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -118,6 +118,7 @@ int		rtwn_read_chipid(struct rtwn_softc *);
 void		rtwn_read_rom(struct rtwn_softc *);
 void		rtwn_r92c_read_rom(struct rtwn_softc *);
 void		rtwn_r88e_read_rom(struct rtwn_softc *);
+void		rtwn_r23a_read_rom(struct rtwn_softc *);
 int		rtwn_media_change(struct ifnet *);
 int		rtwn_ra_init(struct rtwn_softc *);
 int		rtwn_r92c_ra_init(struct rtwn_softc *, u_int8_t, u_int32_t,
@@ -215,7 +216,10 @@ rtwn_attach(struct device *pdev, struct rtwn_softc *sc)
 		printf("%s: MAC/BB RTL%s, RF 6052 %dT%dR, address %s\n",
 		    sc->sc_pdev->dv_xname,
 		    (sc->chip & RTWN_CHIP_92C) ? "8192CE" :
-		    (sc->chip & RTWN_CHIP_88E) ? "8188EE" : "8188CE",
+		    (sc->chip & RTWN_CHIP_88E) ? "8188EE" :
+		    (sc->chip & RTWN_CHIP_92E) ? "8192EE" :
+		    (sc->chip & RTWN_CHIP_23A) ? "8723AE" :
+		    (sc->chip & RTWN_CHIP_23B) ? "8723BE" : "8188CE",
 		    sc->ntxchains, sc->nrxchains,
 		    ether_sprintf(ic->ic_myaddr));
 	} else if (sc->chip & RTWN_CHIP_USB) {
@@ -442,9 +446,11 @@ rtwn_rf_read(struct rtwn_softc *sc, int chain, uint8_t addr)
 	    R92C_HSSI_PARAM2_READ_EDGE);
 	DELAY(1000);
 
-	rtwn_bb_write(sc, R92C_HSSI_PARAM2(0),
-	    reg[0] | R92C_HSSI_PARAM2_READ_EDGE);
-	DELAY(1000);
+	if (!(sc->chip & RTWN_CHIP_88E)) {
+		rtwn_bb_write(sc, R92C_HSSI_PARAM2(0),
+		    reg[0] | R92C_HSSI_PARAM2_READ_EDGE);
+		DELAY(1000);
+	}
 
 	if (rtwn_bb_read(sc, R92C_HSSI_PARAM1(chain)) & R92C_HSSI_PARAM1_PI)
 		val = rtwn_bb_read(sc, R92C_HSPI_READBACK(chain));
@@ -593,6 +599,12 @@ rtwn_read_chipid(struct rtwn_softc *sc)
 		}
 
 		return (0);
+	} else if (sc->chip & RTWN_CHIP_23A) {
+		sc->sc_flags |= RTWN_FLAG_EXT_HDR;
+
+		if ((reg & 0xf000) == 0)
+			sc->chip |= RTWN_CHIP_UMC_A_CUT;
+		return (0);
 	}
 
 	return (ENXIO); /* unsupported chip */
@@ -603,6 +615,8 @@ rtwn_read_rom(struct rtwn_softc *sc)
 {
 	if (sc->chip & RTWN_CHIP_88E)
 		rtwn_r88e_read_rom(sc);
+	else if (sc->chip & RTWN_CHIP_23A)
+		rtwn_r23a_read_rom(sc);
 	else
 		rtwn_r92c_read_rom(sc);
 }
@@ -640,11 +654,27 @@ rtwn_r88e_read_rom(struct rtwn_softc *sc)
 	rtwn_efuse_read(sc, (uint8_t *)&sc->sc_r88e_rom,
 	    sizeof(sc->sc_r88e_rom));
 
-	sc->crystal_cap = rom->xtal;
+	sc->crystal_cap = (sc->chip & RTWN_CHIP_PCI) ? 0x20 : rom->xtal;
 	DPRINTF(("Crystal cap=0x%x\n", sc->crystal_cap));
 
 	sc->regulatory = MS(rom->rf_board_opt, R92C_ROM_RF1_REGULATORY);
 	DPRINTF(("regulatory type=%d\n", sc->regulatory));
+
+	if (sc->chip & RTWN_CHIP_PCI)
+		IEEE80211_ADDR_COPY(ic->ic_myaddr, rom->r88ee_rom.macaddr);
+	else
+		IEEE80211_ADDR_COPY(ic->ic_myaddr, rom->r88eu_rom.macaddr);
+}
+
+void
+rtwn_r23a_read_rom(struct rtwn_softc *sc)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct r23a_rom *rom = &sc->sc_r23a_rom;
+
+	/* Read full ROM image. */
+	rtwn_efuse_read(sc, (uint8_t *)&sc->sc_r23a_rom,
+	    sizeof(sc->sc_r23a_rom));
 
 	IEEE80211_ADDR_COPY(ic->ic_myaddr, rom->macaddr);
 }
@@ -1566,7 +1596,8 @@ rtwn_load_firmware(struct rtwn_softc *sc)
 	ptr = fw;
 	hdr = (const struct r92c_fw_hdr *)ptr;
 	/* Check if there is a valid FW header and skip it. */
-	if ((letoh16(hdr->signature) >> 4) == 0x88c ||
+	if ((letoh16(hdr->signature) >> 4) == 0x230 ||
+	    (letoh16(hdr->signature) >> 4) == 0x88c ||
 	    (letoh16(hdr->signature) >> 4) == 0x88e ||
 	    (letoh16(hdr->signature) >> 4) == 0x92c) {
 		DPRINTF(("FW V%d.%d %02d-%02d %02d:%02d\n",
@@ -1630,7 +1661,7 @@ rtwn_load_firmware(struct rtwn_softc *sc)
 	reg = rtwn_read_4(sc, R92C_MCUFWDL);
 	reg = (reg & ~R92C_MCUFWDL_WINTINI_RDY) | R92C_MCUFWDL_RDY;
 	rtwn_write_4(sc, R92C_MCUFWDL, reg);
-	if (sc->chip & (RTWN_CHIP_92C | RTWN_CHIP_88C)) {
+	if (sc->chip & (RTWN_CHIP_92C | RTWN_CHIP_88C | RTWN_CHIP_23A)) {
 		reg = rtwn_read_2(sc, R92C_SYS_FUNC_EN);
 		rtwn_write_2(sc, R92C_SYS_FUNC_EN,
 		    reg & ~R92C_SYS_FUNC_EN_CPUEN);
@@ -1727,10 +1758,25 @@ rtwn_rf_init(struct rtwn_softc *sc)
 		sc->rf_chnlbw[i] = rtwn_rf_read(sc, i, R92C_RF_CHNLBW);
 	}
 
+	/* magic value for HP 8188EEs */
+	if (sc->chip == (RTWN_CHIP_88E | RTWN_CHIP_PCI)) {
+		struct r88e_rom *rom = &sc->sc_r88e_rom;
+		if (rom->r88ee_rom.svid == 0x103c &&
+		    rom->r88ee_rom.smid == 0x197d)
+			rtwn_rf_write(sc, 0, 0x52, 0x7e4bd);
+	}
+
 	if ((sc->chip & (RTWN_CHIP_UMC_A_CUT | RTWN_CHIP_92C)) ==
 	    RTWN_CHIP_UMC_A_CUT) {
 		rtwn_rf_write(sc, 0, R92C_RF_RX_G1, 0x30255);
 		rtwn_rf_write(sc, 0, R92C_RF_RX_G2, 0x50a00);
+	} else if (sc->chip & RTWN_CHIP_23A) {
+		rtwn_rf_write(sc, 0, 0x0C, 0x894ae);
+		rtwn_rf_write(sc, 0, 0x0A, 0x1af31);
+		rtwn_rf_write(sc, 0, R92C_RF_IPA, 0x8f425);
+		rtwn_rf_write(sc, 0, R92C_RF_SYN_G(1), 0x4f200);
+		rtwn_rf_write(sc, 0, R92C_RF_RCK1, 0x44053);
+		rtwn_rf_write(sc, 0, R92C_RF_RCK2, 0x80201);
 	}
 }
 
@@ -2184,6 +2230,9 @@ rtwn_set_chan(struct rtwn_softc *sc, struct ieee80211_channel *c,
 		    ((sc->chip & RTWN_CHIP_88E) ? R88E_RF_CHNLBW_BW20 :
 		    R92C_RF_CHNLBW_BW20));
 	}
+
+	if (sc->chip == (RTWN_CHIP_88E | RTWN_CHIP_PCI))
+		DELAY(25000);
 }
 
 int
@@ -2607,12 +2656,23 @@ rtwn_enable_intr(struct rtwn_softc *sc)
 {
 	if (sc->chip & RTWN_CHIP_88E) {
 		rtwn_write_4(sc, R88E_HISR, 0xffffffff);
-		rtwn_write_4(sc, R88E_HIMR, R88E_HIMR_CPWM |
-		R88E_HIMR_CPWM2 | R88E_HIMR_TBDER |
-		R88E_HIMR_PSTIMEOUT);
-		rtwn_write_4(sc, R88E_HIMRE, R88E_HIMRE_RXFOVW |
-		    R88E_HIMRE_TXFOVW | R88E_HIMRE_RXERR |
-		    R88E_HIMRE_TXERR);
+		if (sc->chip & RTWN_CHIP_USB) {
+			rtwn_write_4(sc, R88E_HIMR, R88E_HIMR_CPWM |
+			R88E_HIMR_CPWM2 | R88E_HIMR_TBDER |
+			R88E_HIMR_PSTIMEOUT);
+			rtwn_write_4(sc, R88E_HIMRE, R88E_HIMRE_RXFOVW |
+			    R88E_HIMRE_TXFOVW | R88E_HIMRE_RXERR |
+			    R88E_HIMRE_TXERR);
+		} else {
+			rtwn_write_4(sc, R88E_HIMR,
+			    RTWN_88E_INT_ENABLE);
+			rtwn_write_4(sc, R88E_HIMRE,
+			    R88E_HIMRE_RXFOVW);
+			rtwn_write_1(sc, R92C_C2HEVT_CLEAR, 0);
+			rtwn_write_4(sc, R92C_HSIMR,
+			    R88E_HSIMR_PDN_INT_EN | R88E_HSIMR_RON_INT_EN);
+		}
+
 		if (sc->chip & RTWN_CHIP_USB) {
 			rtwn_write_1(sc, R92C_USB_SPECIAL_OPTION,
 			    rtwn_read_1(sc, R92C_USB_SPECIAL_OPTION) |
@@ -2624,7 +2684,7 @@ rtwn_enable_intr(struct rtwn_softc *sc)
 		if (sc->chip & RTWN_CHIP_USB)
 			imask = 0xffffffff;
 		else if (sc->chip & RTWN_CHIP_PCI)
-			imask = RTWN_INT_ENABLE;
+			imask = RTWN_92C_INT_ENABLE;
 		else
 			panic("unknown chip type 0x%x", sc->chip);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.236 2018/07/10 09:28:27 henning Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.239 2018/11/09 14:14:32 claudio Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -367,18 +367,6 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
 	  (((m)->m_flags & M_EXTWR) == 0 || MCLISREFERENCED(m)))
 
 /*
- * Compute the amount of space available
- * before the current start of data in an mbuf.
- */
-#define	M_LEADINGSPACE(m) m_leadingspace(m)
-
-/*
- * Compute the amount of space available
- * after the end of data in an mbuf.
- */
-#define	M_TRAILINGSPACE(m) m_trailingspace(m)
-
-/*
  * Arrange to prepend space of size plen to mbuf m.
  * If a new mbuf must be allocated, how specifies whether to wait.
  * If how is M_DONTWAIT and allocation fails, the original mbuf chain
@@ -441,7 +429,9 @@ struct	mbuf *m_get(int, int);
 struct	mbuf *m_getclr(int, int);
 struct	mbuf *m_gethdr(int, int);
 struct	mbuf *m_inithdr(struct mbuf *);
+void	m_removehdr(struct mbuf *);
 void	m_resethdr(struct mbuf *);
+void	m_calchdrlen(struct mbuf *);
 int	m_defrag(struct mbuf *, int);
 struct	mbuf *m_prepend(struct mbuf *, int, int);
 struct	mbuf *m_pulldown(struct mbuf *, int, int, int *);

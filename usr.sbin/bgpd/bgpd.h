@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.325 2018/07/12 21:45:37 benno Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.353 2018/11/10 11:19:01 denis Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -43,7 +43,7 @@
 #define	TCP_MD5_KEY_LEN			80
 #define	IPSEC_ENC_KEY_LEN		32
 #define	IPSEC_AUTH_KEY_LEN		20
-#define	PREFIXSET_NAME_LEN		32
+#define	SET_NAME_LEN			64
 
 #define	MAX_PKTSIZE			4096
 #define	MIN_HOLDTIME			3
@@ -87,6 +87,19 @@
 #define	F_CTL_ACTIVE		0x8000
 #define	F_RTLABEL		0x10000
 #define	F_CTL_SSV		0x20000	/* only used by bgpctl */
+#define	F_CTL_INVALID		0x40000 /* only used by bgpctl */
+#define	F_CTL_OVS_VALID		0x80000
+#define	F_CTL_OVS_INVALID	0x100000
+#define	F_CTL_OVS_NOTFOUND	0x200000
+
+/*
+ * Note that these numeric assignments differ from the numbers commonly
+ * used in route origin validation context.
+ */
+#define	ROA_NOTFOUND		0x0	/* default */
+#define	ROA_INVALID		0x1
+#define	ROA_VALID		0x2
+#define	ROA_MASK		0x3
 
 /*
  * Limit the number of messages queued in the session engine.
@@ -211,6 +224,29 @@ TAILQ_HEAD(network_head, network);
 
 struct prefixset;
 SIMPLEQ_HEAD(prefixset_head, prefixset);
+struct prefixset_item;
+RB_HEAD(prefixset_tree, prefixset_item);
+
+struct tentry_v4;
+struct tentry_v6;
+struct trie_head {
+	struct tentry_v4	*root_v4;
+	struct tentry_v6	*root_v6;
+	int			 match_default_v4;
+	int			 match_default_v6;
+};
+
+struct rde_prefixset {
+	char				name[SET_NAME_LEN];
+	struct trie_head		th;
+	SIMPLEQ_ENTRY(rde_prefixset)	entry;
+	int				dirty;
+};
+SIMPLEQ_HEAD(rde_prefixset_head, rde_prefixset);
+
+struct set_table;
+struct as_set;
+SIMPLEQ_HEAD(as_set_head, as_set);
 
 struct filter_rule;
 TAILQ_HEAD(filter_head, filter_rule);
@@ -221,7 +257,13 @@ struct bgpd_config {
 	struct filter_head			*filters;
 	struct listen_addrs			*listen_addrs;
 	struct mrt_head				*mrt;
-	struct prefixset_head			*prefixsets;
+	struct prefixset_head			 prefixsets;
+	struct prefixset_head			 originsets;
+	struct prefixset_tree			 roa;
+	struct rde_prefixset_head		 rde_prefixsets;
+	struct rde_prefixset_head		 rde_originsets;
+	struct rde_prefixset			 rde_roa;
+	struct as_set_head			*as_sets;
 	char					*csock;
 	char					*rcsock;
 	int					 flags;
@@ -345,13 +387,15 @@ enum network_type {
 	NETWORK_CONNECTED,
 	NETWORK_RTLABEL,
 	NETWORK_MRTCLONE,
-	NETWORK_PRIORITY
+	NETWORK_PRIORITY,
+	NETWORK_PREFIXSET,
 };
 
 struct network_config {
 	struct bgpd_addr	 prefix;
 	struct filter_set_head	 attrset;
 	struct rde_aspath	*asp;
+	char			 psname[SET_NAME_LEN];
 	u_int			 rtableid;
 	u_int16_t		 rtlabel;
 	enum network_type	 type;
@@ -403,8 +447,6 @@ enum imsg_type {
 	IMSG_NETWORK_FLUSH,
 	IMSG_NETWORK_DONE,
 	IMSG_FILTER_SET,
-	IMSG_RECONF_PREFIXSET,
-	IMSG_RECONF_PREFIXSETITEM,
 	IMSG_SOCKET_CONN,
 	IMSG_SOCKET_CONN_CTL,
 	IMSG_RECONF_CONF,
@@ -417,6 +459,15 @@ enum imsg_type {
 	IMSG_RECONF_RDOMAIN_EXPORT,
 	IMSG_RECONF_RDOMAIN_IMPORT,
 	IMSG_RECONF_RDOMAIN_DONE,
+	IMSG_RECONF_PREFIX_SET,
+	IMSG_RECONF_PREFIX_SET_ITEM,
+	IMSG_RECONF_AS_SET,
+	IMSG_RECONF_AS_SET_ITEMS,
+	IMSG_RECONF_AS_SET_DONE,
+	IMSG_RECONF_ORIGIN_SET,
+	IMSG_RECONF_ROA_SET,
+	IMSG_RECONF_ROA_SET_ITEMS,
+	IMSG_RECONF_DRAIN,
 	IMSG_RECONF_DONE,
 	IMSG_UPDATE,
 	IMSG_UPDATE_ERR,
@@ -458,7 +509,8 @@ enum ctl_results {
 	CTL_RES_PENDING,
 	CTL_RES_NOMEM,
 	CTL_RES_BADPEER,
-	CTL_RES_BADSTATE
+	CTL_RES_BADSTATE,
+	CTL_RES_NOSUCHRIB
 };
 
 /* needed for session.h parse prototype */
@@ -612,6 +664,7 @@ struct ctl_neighbor {
 #define	F_PREF_INTERNAL	0x04
 #define	F_PREF_ANNOUNCE	0x08
 #define	F_PREF_STALE	0x10
+#define	F_PREF_INVALID	0x20
 
 struct ctl_show_rib {
 	struct bgpd_addr	true_nexthop;
@@ -628,11 +681,12 @@ struct ctl_show_rib {
 	u_int16_t		aspath_len;
 	u_int8_t		prefixlen;
 	u_int8_t		origin;
+	u_int8_t		validation_state;
 	/* plus a aspath_len bytes long aspath */
 };
 
 enum as_spec {
-	AS_NONE,
+	AS_UNDEF,
 	AS_ALL,
 	AS_SOURCE,
 	AS_TRANSIT,
@@ -646,13 +700,18 @@ enum aslen_spec {
 	ASLEN_SEQ
 };
 
+#define AS_FLAG_NEIGHBORAS	0x01
+#define AS_FLAG_AS_SET_NAME	0x02
+#define AS_FLAG_AS_SET		0x04
+
 struct filter_as {
-	u_int32_t	as;
-	u_int16_t	flags;
-	enum as_spec	type;
-	u_int8_t	op;
-	u_int32_t	as_min;
-	u_int32_t	as_max;
+	char		 name[SET_NAME_LEN];
+	struct as_set	*aset;
+	u_int32_t	 as_min;
+	u_int32_t	 as_max;
+	enum as_spec	 type;
+	u_int8_t	 flags;
+	u_int8_t	 op;
 };
 
 struct filter_aslen {
@@ -662,14 +721,24 @@ struct filter_aslen {
 
 #define PREFIXSET_FLAG_FILTER	0x01
 #define PREFIXSET_FLAG_DIRTY	0x02	/* prefix-set changed at reload */
+#define PREFIXSET_FLAG_OPS	0x04	/* indiv. prefixes have prefixlenops */
+#define PREFIXSET_FLAG_LONGER	0x08	/* filter all prefixes with or-longer */
 
 struct filter_prefixset {
 	int			 flags;
-	char			 name[PREFIXSET_NAME_LEN];
-	struct prefixset	*ps;
+	char			 name[SET_NAME_LEN];
+	struct rde_prefixset	*ps;
 };
 
-#define AS_FLAG_NEIGHBORAS	0x01
+struct filter_originset {
+	char			 name[SET_NAME_LEN];
+	struct rde_prefixset	*ps;
+};
+
+struct filter_ovs {
+	u_int8_t		 validity;
+	u_int8_t		 is_set;
+};
 
 struct filter_community {
 	int		as;
@@ -680,12 +749,6 @@ struct filter_largecommunity {
 	int64_t		as;
 	int64_t		ld1;
 	int64_t		ld2;
-};
-
-struct wire_largecommunity {
-	uint32_t	as;
-	uint32_t	ld1;
-	uint32_t	ld2;
 };
 
 struct filter_extcommunity {
@@ -718,8 +781,9 @@ struct ctl_show_rib_request {
 	struct filter_extcommunity extcommunity;
 	struct filter_largecommunity large_community;
 	u_int32_t		peerid;
+	u_int32_t		flags;
+	u_int8_t		validation_state;
 	pid_t			pid;
-	u_int16_t		flags;
 	enum imsg_type		type;
 	u_int8_t		prefixlen;
 	u_int8_t		aid;
@@ -771,7 +835,7 @@ struct filter_peers {
 #define	COMMUNITY_LOCAL_AS		-4
 #define	COMMUNITY_UNSET			-5
 #define	COMMUNITY_WELLKNOWN		0xffff
-#define	COMMUNITY_GRACEFUL_SHUTDOWN	0x0000  /* draft-ietf-grow-bgp-gshut */
+#define	COMMUNITY_GRACEFUL_SHUTDOWN	0x0000  /* RFC 8326 */
 #define	COMMUNITY_BLACKHOLE		0x029A	/* RFC 7999 */
 #define	COMMUNITY_NO_EXPORT		0xff01
 #define	COMMUNITY_NO_ADVERTISE		0xff02
@@ -868,6 +932,8 @@ struct filter_match {
 	struct filter_largecommunity	large_community;
 	struct filter_extcommunity	ext_community;
 	struct filter_prefixset		prefixset;
+	struct filter_originset		originset;
+	struct filter_ovs		ovs;
 };
 
 union filter_rule_ptr {
@@ -939,17 +1005,29 @@ struct filter_set {
 	enum action_types		type;
 };
 
-struct prefixset_item {
-	struct filter_prefix		 p;
-	SIMPLEQ_ENTRY(prefixset_item)	 entry;
+struct roa_set {
+	u_int32_t	as;	/* must be first */
+	u_int32_t	maxlen;	/* change type for better struct layout */
 };
-SIMPLEQ_HEAD(prefixset_items_h, prefixset_item);
+
+struct prefixset_item {
+	struct filter_prefix		p;
+	RB_ENTRY(prefixset_item)	entry;
+	struct set_table		*set;
+};
 
 struct prefixset {
 	int				 sflags;
-	char				 name[PREFIXSET_NAME_LEN];
-	struct prefixset_items_h	 psitems;
+	char				 name[SET_NAME_LEN];
+	struct prefixset_tree		 psitems;
 	SIMPLEQ_ENTRY(prefixset)	 entry;
+};
+
+struct as_set {
+	char				 name[SET_NAME_LEN];
+	SIMPLEQ_ENTRY(as_set)		 entry;
+	struct set_table		*set;
+	int				 dirty;
 };
 
 struct rdomain {
@@ -984,9 +1062,12 @@ extern struct rib_names ribnames;
 
 /* 4-byte magic AS number */
 #define AS_TRANS	23456
+/* AS_NONE for origin validation */
+#define AS_NONE		0
 
 struct rde_memstats {
 	int64_t		path_cnt;
+	int64_t		path_refs;
 	int64_t		prefix_cnt;
 	int64_t		rib_cnt;
 	int64_t		pt_cnt[AID_MAX];
@@ -998,6 +1079,11 @@ struct rde_memstats {
 	int64_t		attr_refs;
 	int64_t		attr_data;
 	int64_t		attr_dcnt;
+	int64_t		aset_cnt;
+	int64_t		aset_size;
+	int64_t		aset_nmemb;
+	int64_t		pset_cnt;
+	int64_t		pset_size;
 };
 
 struct rde_hashstats {
@@ -1068,8 +1154,13 @@ int	control_imsg_relay(struct imsg *);
 struct bgpd_config	*new_config(void);
 void			 free_config(struct bgpd_config *);
 void	free_prefixsets(struct prefixset_head *);
+void	free_prefixtree(struct prefixset_tree *);
 void	filterlist_free(struct filter_head *);
 int	host(const char *, struct bgpd_addr *, u_int8_t *);
+void	copy_filterset(struct filter_set_head *, struct filter_set_head *);
+void	expand_networks(struct bgpd_config *);
+int	prefixset_cmp(struct prefixset_item *, struct prefixset_item *);
+RB_PROTOTYPE(prefixset_tree, prefixset_item, entry, prefixset_cmp);
 
 /* kroute.c */
 int		 kr_init(void);
@@ -1079,13 +1170,13 @@ void		 ktable_postload(u_int8_t);
 int		 ktable_exists(u_int, u_int *);
 int		 kr_change(u_int, struct kroute_full *,  u_int8_t);
 int		 kr_delete(u_int, struct kroute_full *, u_int8_t);
-void		 kr_shutdown(u_int8_t);
+void		 kr_shutdown(u_int8_t, u_int);
 void		 kr_fib_couple(u_int, u_int8_t);
 void		 kr_fib_couple_all(u_int8_t);
 void		 kr_fib_decouple(u_int, u_int8_t);
 void		 kr_fib_decouple_all(u_int8_t);
 void		 kr_fib_update_prio_all(u_int8_t);
-int		 kr_dispatch_msg(void);
+int		 kr_dispatch_msg(u_int rdomain);
 int		 kr_nexthop_add(u_int32_t, struct bgpd_addr *,
 		    struct bgpd_config *);
 void		 kr_nexthop_delete(u_int32_t, struct bgpd_addr *,
@@ -1132,8 +1223,6 @@ u_int16_t	 pftable_ref(u_int16_t);
 /* parse.y */
 int		 cmdline_symset(char *);
 struct prefixset *find_prefixset(char *, struct prefixset_head *);
-struct prefixset_item *find_prefixsetitem(struct prefixset_item *i,
-				struct prefixset_items_h *psitems);
 
 /* pftable.c */
 int	pftable_exists(const char *);
@@ -1150,6 +1239,23 @@ void		 filterset_move(struct filter_set_head *,
 		    struct filter_set_head *);
 const char	*filterset_name(enum action_types);
 
+/* rde_sets.c */
+struct as_set	*as_sets_lookup(struct as_set_head *, const char *);
+struct as_set	*as_sets_new(struct as_set_head *, const char *, size_t,
+		    size_t);
+void		 as_sets_free(struct as_set_head *);
+void		 as_sets_mark_dirty(struct as_set_head *, struct as_set_head *);
+int		 as_set_match(const struct as_set *, u_int32_t);
+
+struct set_table	*set_new(size_t, size_t);
+void		 	 set_free(struct set_table *);
+int			 set_add(struct set_table *, void *, size_t);
+void			*set_get(struct set_table *, size_t *);
+void			 set_prep(struct set_table *);
+void			*set_match(const struct set_table *, u_int32_t);
+int			 set_equal(const struct set_table *,
+			    const struct set_table *);
+
 /* util.c */
 const char	*log_addr(const struct bgpd_addr *);
 const char	*log_in6addr(const struct in6_addr *);
@@ -1162,12 +1268,23 @@ int		 aspath_snprint(char *, size_t, void *, u_int16_t);
 int		 aspath_asprint(char **, void *, u_int16_t);
 size_t		 aspath_strlen(void *, u_int16_t);
 int		 aspath_match(void *, u_int16_t, struct filter_as *, u_int32_t);
-int		 as_compare(u_int8_t, u_int32_t, u_int32_t, u_int32_t,
-		    u_int32_t);
 u_int32_t	 aspath_extract(const void *, int);
+int		 aspath_verify(void *, u_int16_t, int);
+#define		 AS_ERR_LEN	-1
+#define		 AS_ERR_TYPE	-2
+#define		 AS_ERR_BAD	-3
+#define		 AS_ERR_SOFT	-4
+u_char		*aspath_inflate(void *, u_int16_t, u_int16_t *);
+int		 nlri_get_prefix(u_char *, u_int16_t, struct bgpd_addr *,
+		     u_int8_t *);
+int		 nlri_get_prefix6(u_char *, u_int16_t, struct bgpd_addr *,
+		     u_int8_t *);
+int		 nlri_get_vpn4(u_char *, u_int16_t, struct bgpd_addr *,
+		     u_int8_t *, int);
 int		 prefix_compare(const struct bgpd_addr *,
 		    const struct bgpd_addr *, int);
 in_addr_t	 prefixlen2mask(u_int8_t);
+void		 inet4applymask(struct in_addr *, const struct in_addr *, int);
 void		 inet6applymask(struct in6_addr *, const struct in6_addr *,
 		    int);
 const char	*aid2str(u_int8_t);
@@ -1177,6 +1294,10 @@ sa_family_t	 aid2af(u_int8_t);
 int		 af2aid(sa_family_t, u_int8_t, u_int8_t *);
 struct sockaddr	*addr2sa(struct bgpd_addr *, u_int16_t);
 void		 sa2addr(struct sockaddr *, struct bgpd_addr *);
+uint64_t	 ift2ifm(uint8_t);
+const char *	 get_media_descr(uint64_t);
+const char *	 get_linkstate(uint8_t, int);
+const char *	 get_baudrate(u_int64_t, char *);
 
 static const char * const log_procnames[] = {
 	"parent",
@@ -1294,7 +1415,8 @@ static const char * const ctl_res_strerror[] = {
 	"previous reload still running",
 	"out of memory",
 	"not a cloned peer",
-	"peer still active, down peer first"
+	"peer still active, down peer first",
+	"no such RIB"
 };
 
 static const char * const timernames[] = {

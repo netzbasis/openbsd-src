@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.512 2018/07/11 18:53:29 markus Exp $ */
+/* $OpenBSD: sshd.c,v 1.517 2018/10/23 05:56:35 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -469,8 +469,8 @@ demote_sensitive_data(void)
 
 	for (i = 0; i < options.num_host_key_files; i++) {
 		if (sensitive_data.host_keys[i]) {
-			if ((r = sshkey_demote(sensitive_data.host_keys[i],
-			    &tmp)) != 0)
+			if ((r = sshkey_from_private(
+			    sensitive_data.host_keys[i], &tmp)) != 0)
 				fatal("could not demote host %s key: %s",
 				    sshkey_type(sensitive_data.host_keys[i]),
 				    ssh_err(r));
@@ -492,8 +492,7 @@ privsep_preauth_child(void)
 
 #ifdef GSSAPI
 	/* Cache supported mechanism OIDs for later use */
-	if (options.gss_authentication)
-		ssh_gssapi_prepare_supported_oids();
+	ssh_gssapi_prepare_supported_oids();
 #endif
 
 	/* Demote the private keys to public keys. */
@@ -876,7 +875,7 @@ usage(void)
 	fprintf(stderr, "%s, %s\n",
 	    SSH_VERSION,
 #ifdef WITH_OPENSSL
-	    SSLeay_version(SSLEAY_VERSION)
+	    OpenSSL_version(OPENSSL_VERSION)
 #else
 	    "without OpenSSL"
 #endif
@@ -1607,7 +1606,7 @@ main(int ac, char **av)
 
 	debug("sshd version %s, %s", SSH_VERSION,
 #ifdef WITH_OPENSSL
-	    SSLeay_version(SSLEAY_VERSION)
+	    OpenSSL_version(OPENSSL_VERSION)
 #else
 	    "without OpenSSL"
 #endif
@@ -1642,7 +1641,7 @@ main(int ac, char **av)
 			error("Error loading host key \"%s\": %s",
 			    options.host_key_files[i], ssh_err(r));
 		if (pubkey == NULL && key != NULL)
-			if ((r = sshkey_demote(key, &pubkey)) != 0)
+			if ((r = sshkey_from_private(key, &pubkey)) != 0)
 				fatal("Could not demote key: \"%s\": %s",
 				    options.host_key_files[i], ssh_err(r));
 		sensitive_data.host_keys[i] = key;

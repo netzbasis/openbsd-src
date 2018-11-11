@@ -1,4 +1,4 @@
-.\" $OpenBSD: vm.conf.5,v 1.35 2018/07/13 17:48:30 jmc Exp $
+.\" $OpenBSD: vm.conf.5,v 1.39 2018/10/30 17:56:54 anton Exp $
 .\"
 .\" Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
 .\" Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 13 2018 $
+.Dd $Mdocdate: October 30 2018 $
 .Dt VM.CONF 5
 .Os
 .Sh NAME
@@ -144,8 +144,15 @@ nor
 is specified.
 .It Cm disable
 Do not start this VM.
-.It Cm disk Ar path
+.It Cm disk Ar path Op Cm format Ar fmt
 Disk image file (may be specified multiple times to add multiple disk images).
+The format may be specified as either
+.Ar qcow2
+or
+.Ar raw .
+If left unspecified, the format defaults to
+.Pa raw
+if it cannot be derived automatically.
 .It Oo Cm local Oc Cm interface Oo name Oc Op Brq ...
 Network interface to add to the VM.
 The optional
@@ -168,7 +175,9 @@ For example, this can be used to write
 rules for several VM interfaces in the same group.
 The
 .Ar group-name
-must not end with a digit.
+must not be longer than 15 characters or end with a digit,
+as described in
+.Xr ifconfig 8 .
 .It Oo Cm locked Oc Cm lladdr Op Ar etheraddr
 Change the link layer address (MAC address) of the interface on the
 VM guest side.
@@ -283,7 +292,7 @@ Allow the specified user or group to create the instances.
 The owner will be allowed to create VM instances, start or stop the
 instances, pause or unpause the instances, and open the instances'
 consoles.
-.It Cm owner : Ns Ar group
+.It Cm owner Pf : Ar group
 Set the owner to the specified group.
 .El
 .Sh SWITCH CONFIGURATION
@@ -347,7 +356,9 @@ For example, this can be used to write
 rules for several VM interfaces in the same group.
 The
 .Ar group-name
-must not end with a digit.
+must not be longer than 15 characters or end with a digit,
+as described in
+.Xr ifconfig 8 .
 .It Cm interface Ar name
 Set the
 .Xr switch 4

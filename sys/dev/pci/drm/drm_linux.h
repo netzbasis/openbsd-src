@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.89 2018/06/25 22:29:16 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.92 2018/10/31 08:50:25 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  * Copyright (c) 2017 Martin Pieuchot
@@ -898,8 +898,8 @@ void flush_delayed_work(struct delayed_work *);
 typedef void *async_cookie_t;
 #define async_schedule(func, data)	(func)((data), NULL)
 
-#define local_irq_disable()	disable_intr()
-#define local_irq_enable()	enable_intr()
+#define local_irq_disable()	intr_disable()
+#define local_irq_enable()	intr_enable()
 
 #define setup_timer(x, y, z)	timeout_set((x), (void (*)(void *))(y), (void *)(z))
 #define mod_timer(x, y)		timeout_add((x), (y - jiffies))
@@ -2119,6 +2119,26 @@ capable(int cap)
 typedef int pgprot_t;
 #define pgprot_val(v)	(v)
 #define PAGE_KERNEL	0
+
+static inline pgprot_t
+pgprot_writecombine(pgprot_t prot)
+{
+#if PMAP_WC != 0
+	return prot | PMAP_WC;
+#else
+	return prot | PMAP_NOCACHE;
+#endif
+}
+
+static inline pgprot_t
+pgprot_noncached(pgprot_t prot)
+{
+#if PMAP_DEVICE != 0
+	return prot | PMAP_DEVICE;
+#else
+	return prot | PMAP_NOCACHE;
+#endif
+}
 
 void	*kmap(struct vm_page *);
 void	 kunmap(void *addr);

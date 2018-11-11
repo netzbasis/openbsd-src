@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.10 2018/07/11 07:39:22 krw Exp $	*/
+/*	$OpenBSD: parse.y,v 1.14 2018/11/08 17:48:06 akoshibe Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -146,6 +146,9 @@ listen		: LISTEN ON STRING opttls port {
 				YYERROR;
 			}
 			free($3);
+			conf->sc_server.srv_tls = $4;
+			((struct sockaddr_in *)&conf->sc_server.srv_addr)
+			    ->sin_port = htons(SWITCHD_CTLR_PORT);
 		}
 		;
 
@@ -475,7 +478,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -626,7 +630,7 @@ parse_config(const char *filename, struct switchd *sc)
 
 	conf = sc;
 
-	/* Set the default 0.0.0.0 6633/tcp */
+	/* Set the default 0.0.0.0 6653/tcp */
 	memset(&conf->sc_server.srv_addr, 0, sizeof(conf->sc_server.srv_addr));
 	sin4 = (struct sockaddr_in *)&conf->sc_server.srv_addr;
 	sin4->sin_family = AF_INET;
@@ -705,17 +709,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = (val - s) + 1;
-	if ((sym = malloc(len)) == NULL)
-		fatal("cmdline_symset: malloc");
-
-	(void)strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		fatal("%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 

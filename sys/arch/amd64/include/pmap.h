@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.h,v 1.67 2018/04/20 07:27:54 mlarkin Exp $	*/
+/*	$OpenBSD: pmap.h,v 1.69 2018/10/04 05:00:40 guenther Exp $	*/
 /*	$NetBSD: pmap.h,v 1.1 2003/04/26 18:39:46 fvdl Exp $	*/
 
 /*
@@ -243,6 +243,18 @@
 /* PG_AVAIL3 not used */
 
 /*
+ * PCID assignments.
+ * The shootdown code assumes KERN, PROC, and PROC_INTEL are both
+ * consecutive and in that order.
+ */
+#define PCID_KERN	0	/* for pmap_kernel() */
+#define PCID_PROC	1	/* non-pmap_kernel(), U+K */
+#define PCID_PROC_INTEL	2	/* non-pmap_kernel(), U-K (meltdown) */
+#define PCID_TEMP	3	/* temp mapping of another non-pmap_kernel() */
+
+extern int pmap_use_pcid;	/* non-zero if PCID support is enabled */
+
+/*
  * Number of PTEs per cache line.  8 byte pte, 64-byte cache line
  * Used to avoid false sharing of cache lines.
  */
@@ -378,8 +390,6 @@ static void	pmap_update_pg(vaddr_t);
 void		pmap_write_protect(struct pmap *, vaddr_t,
 				vaddr_t, vm_prot_t);
 void		pmap_fix_ept(struct pmap *, vaddr_t);
-
-vaddr_t reserve_dumppages(vaddr_t); /* XXX: not a pmap fn */
 
 paddr_t	pmap_prealloc_lowmem_ptps(paddr_t);
 

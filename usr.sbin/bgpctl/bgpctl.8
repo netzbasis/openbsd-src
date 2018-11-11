@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpctl.8,v 1.79 2017/10/15 20:44:21 deraadt Exp $
+.\" $OpenBSD: bgpctl.8,v 1.83 2018/10/03 11:36:39 denis Exp $
 .\"
 .\" Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 15 2017 $
+.Dd $Mdocdate: October 3 2018 $
 .Dt BGPCTL 8
 .Os
 .Sh NAME
@@ -148,6 +148,8 @@ may be the neighbor's address or description.
 Add the specified prefix to the list of announced networks.
 It is possible to set various path attributes with additional
 .Ar arguments .
+Adding a prefix will replace an existing equal prefix, including
+prefixes loaded from the configuration.
 .It Xo
 .Cm network bulk
 .Op Ar arguments
@@ -170,7 +172,9 @@ Prefixes should be sent via stdin.
 .It Cm network delete Ar prefix
 Remove the specified prefix from the list of announced networks.
 .It Cm network flush
-Remove all dynamically added prefixes from the list of announced networks.
+Remove all dynamically (i.e. with
+.Nm Cm network add )
+added prefixes from the list of announced networks.
 .It Cm network mrt file Ar file filter
 Import networks from an MRT table dump for debugging purposes.
 .Ar filter
@@ -353,6 +357,8 @@ Show only entries from the specified RIB table.
 Show all entries with
 .Ar as
 anywhere but rightmost.
+.It Cm ovs Pq Ic valid | not-found | invalid                                                                                                            
+Show all entries with matching Origin Validation State (OVS).
 .El
 .Pp
 Additionally, the following
@@ -363,6 +369,8 @@ are defined:
 .It Cm best
 Alias for
 .Ic selected .
+.It Cm error
+Show only prefixes which are marked invalid and were treated as withdrawn.
 .It Cm selected
 Show only selected routes.
 .It Cm ssv
@@ -376,9 +384,6 @@ Show more detailed output for matching routes.
 Limit the output to the given address family.
 .It Cm in
 Show routes from the unfiltered Adj-RIB-In.
-This is only possible if
-.Em softreconfig in
-is enabled for the neighbor.
 The
 .Cm neighbor
 needs to be specified.

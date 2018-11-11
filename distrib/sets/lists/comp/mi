@@ -711,6 +711,8 @@
 ./usr/include/dev/sdmmc/sdmmcvar.h
 ./usr/include/dev/softraidvar.h
 ./usr/include/dev/spdmemvar.h
+./usr/include/dev/spi
+./usr/include/dev/spi/spivar.h
 ./usr/include/dev/sun
 ./usr/include/dev/sun/disklabel.h
 ./usr/include/dev/sun/sunkbdreg.h
@@ -747,6 +749,7 @@
 ./usr/include/dev/usb/if_kuereg.h
 ./usr/include/dev/usb/if_kuevar.h
 ./usr/include/dev/usb/if_mosreg.h
+./usr/include/dev/usb/if_muereg.h
 ./usr/include/dev/usb/if_otusreg.h
 ./usr/include/dev/usb/if_ralreg.h
 ./usr/include/dev/usb/if_ralvar.h
@@ -838,6 +841,7 @@
 ./usr/include/dev/wsfont/bold8x16-iso1.h
 ./usr/include/dev/wsfont/bold8x16.h
 ./usr/include/dev/wsfont/gallant12x22.h
+./usr/include/dev/wsfont/spleen5x8.h
 ./usr/include/dev/wsfont/wsfont.h
 ./usr/include/dev/x86emu
 ./usr/include/dev/x86emu/x86emu.h
@@ -1051,7 +1055,6 @@
 ./usr/include/openssl
 ./usr/include/openssl/aes.h
 ./usr/include/openssl/asn1.h
-./usr/include/openssl/asn1_mac.h
 ./usr/include/openssl/asn1t.h
 ./usr/include/openssl/bio.h
 ./usr/include/openssl/blowfish.h
@@ -1277,6 +1280,7 @@
 ./usr/include/sys/ioctl.h
 ./usr/include/sys/ipc.h
 ./usr/include/sys/kcore.h
+./usr/include/sys/kcov.h
 ./usr/include/sys/kernel.h
 ./usr/include/sys/kthread.h
 ./usr/include/sys/ktrace.h
@@ -1676,6 +1680,7 @@
 ./usr/share/man/man2/truncate.2
 ./usr/share/man/man2/umask.2
 ./usr/share/man/man2/unlink.2
+./usr/share/man/man2/unveil.2
 ./usr/share/man/man2/utimes.2
 ./usr/share/man/man2/utrace.2
 ./usr/share/man/man2/vfork.2
@@ -2307,6 +2312,8 @@
 ./usr/share/man/man3/fuse_chan_fd.3
 ./usr/share/man/man3/fuse_daemonize.3
 ./usr/share/man/man3/fuse_destroy.3
+./usr/share/man/man3/fuse_get_context.3
+./usr/share/man/man3/fuse_get_session.3
 ./usr/share/man/man3/fuse_loop.3
 ./usr/share/man/man3/fuse_main.3
 ./usr/share/man/man3/fuse_mount.3
@@ -2694,6 +2701,7 @@
 ./usr/share/man/man3/time.3
 ./usr/share/man/man3/time2posix.3
 ./usr/share/man/man3/times.3
+./usr/share/man/man3/timespec_get.3
 ./usr/share/man/man3/timingsafe_bcmp.3
 ./usr/share/man/man3/tls_accept_socket.3
 ./usr/share/man/man3/tls_client.3

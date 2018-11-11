@@ -1,4 +1,4 @@
-/*	$Id: netproc.c,v 1.16 2018/03/14 12:28:25 florian Exp $ */
+/*	$Id: netproc.c,v 1.18 2018/11/06 20:40:49 jsing Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <tls.h>
 
 #include "http.h"
 #include "extern.h"
@@ -611,6 +612,11 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 	memset(&paths, 0, sizeof(struct capaths));
 	memset(&c, 0, sizeof(struct conn));
+
+	if (unveil(TLS_CA_CERT_FILE, "r") == -1) {
+		warn("unveil");
+		goto out;
+	}
 
 	if (pledge("stdio inet rpath", NULL) == -1) {
 		warn("pledge");

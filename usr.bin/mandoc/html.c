@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.108 2018/06/25 16:54:55 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.112 2018/10/25 01:21:30 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include <assert.h>
 #include <ctype.h>
@@ -126,10 +127,15 @@ html_alloc(const struct manoutput *outopts)
 
 	h->tag = NULL;
 	h->style = outopts->style;
-	h->base_man = outopts->man;
+	if ((h->base_man1 = outopts->man) == NULL)
+		h->base_man2 = NULL;
+	else if ((h->base_man2 = strchr(h->base_man1, ';')) != NULL)
+		*h->base_man2++ = '\0';
 	h->base_includes = outopts->includes;
 	if (outopts->fragment)
 		h->oflags |= HTML_FRAGMENT;
+	if (outopts->toc)
+		h->oflags |= HTML_TOC;
 
 	mandoc_ohash_init(&id_unique, 4, 0);
 
@@ -220,6 +226,9 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 	case ESCAPE_FONTBI:
 		font = HTMLFONT_BI;
 		break;
+	case ESCAPE_FONTCW:
+		font = HTMLFONT_CW;
+		break;
 	case ESCAPE_FONT:
 	case ESCAPE_FONTROMAN:
 		font = HTMLFONT_NONE;
@@ -246,6 +255,9 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 	case HTMLFONT_BI:
 		h->metaf = print_otag(h, TAG_B, "");
 		print_otag(h, TAG_I, "");
+		break;
+	case HTMLFONT_CW:
+		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
 		break;
 	default:
 		break;
@@ -400,6 +412,7 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 		case ESCAPE_FONTBOLD:
 		case ESCAPE_FONTITALIC:
 		case ESCAPE_FONTBI:
+		case ESCAPE_FONTCW:
 		case ESCAPE_FONTROMAN:
 			if (0 == norecurse)
 				print_metaf(h, esc);
@@ -431,6 +444,9 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			if (c <= 0)
 				continue;
 			break;
+		case ESCAPE_DEVICE:
+			print_word(h, "html");
+			continue;
 		case ESCAPE_BREAK:
 			breakline = 1;
 			continue;
@@ -462,9 +478,21 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 static void
 print_href(struct html *h, const char *name, const char *sec, int man)
 {
+	struct stat	 sb;
 	const char	*p, *pp;
+	char		*filename;
 
-	pp = man ? h->base_man : h->base_includes;
+	if (man) {
+		pp = h->base_man1;
+		if (h->base_man2 != NULL) {
+			mandoc_asprintf(&filename, "%s.%s", name, sec);
+			if (stat(filename, &sb) == -1)
+				pp = h->base_man2;
+			free(filename);
+		}
+	} else
+		pp = h->base_includes;
+
 	while ((p = strchr(pp, '%')) != NULL) {
 		print_encode(h, pp, p, 1);
 		if (man && p[1] == 'S') {
@@ -714,6 +742,9 @@ print_text(struct html *h, const char *word)
 	case HTMLFONT_BI:
 		h->metaf = print_otag(h, TAG_B, "");
 		print_otag(h, TAG_I, "");
+		break;
+	case HTMLFONT_CW:
+		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
 		break;
 	default:
 		print_indent(h);

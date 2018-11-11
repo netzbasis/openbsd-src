@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.294 2018/07/13 09:36:00 beck Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.308 2018/10/28 22:42:33 beck Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -194,11 +194,7 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 		vput(vp);
 		goto fail;
 	}
-	for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next) {
-		if (!strcmp(vfsp->vfc_name, fstypename))
-			break;
-	}
-
+	vfsp = vfs_byname(fstypename);
 	if (vfsp == NULL) {
 		vput(vp);
 		error = EOPNOTSUPP;
@@ -221,13 +217,7 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	/*
 	 * Allocate and initialize the file system.
 	 */
-	mp = malloc(sizeof(*mp), M_MOUNT, M_WAITOK|M_ZERO);
-	(void) vfs_busy(mp, VB_READ|VB_NOWAIT);
-	mp->mnt_op = vfsp->vfc_vfsops;
-	mp->mnt_vfc = vfsp;
-	mp->mnt_flag |= (vfsp->vfc_flags & MNT_VISFLAGMASK);
-	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
-	mp->mnt_vnodecovered = vp;
+	mp = vfs_mount_alloc(vp, vfsp);
 	mp->mnt_stat.f_owner = p->p_ucred->cr_uid;
 
 update:
@@ -239,7 +229,7 @@ update:
 			vfs_unbusy(mp);
 		} else {
 			vfs_unbusy(mp);
-			free(mp, M_MOUNT, sizeof(*mp));
+			vfs_mount_free(mp);
 		}
 		vput(vp);
 		goto fail;
@@ -295,7 +285,6 @@ update:
 	 */
 	cache_purge(vp);
 	if (!error) {
-		vfsp->vfc_refcount++;
 		TAILQ_INSERT_TAIL(&mountlist, mp, mnt_list);
 		checkdirs(vp);
 		vfs_unbusy(vp->v_mount);
@@ -309,7 +298,7 @@ update:
 	} else {
 		mp->mnt_vnodecovered->v_mountedhere = NULL;
 		vfs_unbusy(mp);
-		free(mp, M_MOUNT, sizeof(*mp));
+		vfs_mount_free(mp);
 		vfs_unbusy(vp->v_mount);
 		vput(vp);
 	}
@@ -526,13 +515,11 @@ dounmount_leaf(struct mount *mp, int flags, struct proc *p)
 		vrele(coveredvp);
 	}
 
-	mp->mnt_vfc->vfc_refcount--;
-
 	if (!LIST_EMPTY(&mp->mnt_vnodelist))
 		panic("unmount: dangling vnode");
 
 	vfs_unbusy(mp);
-	free(mp, M_MOUNT, sizeof(*mp));
+	vfs_mount_free(mp);
 
 	return (0);
 }
@@ -636,9 +623,10 @@ sys_statfs(struct proc *p, void *v, register_t *retval)
 	int error;
 	struct nameidata nd;
 
-	NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
+	NDINIT(&nd, LOOKUP, FOLLOW | BYPASSUNVEIL, UIO_USERSPACE,
+	    SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_RPATH;
-	nd.ni_cnd.cn_flags |= BYPASSUNVEIL;
+	nd.ni_unveil = UNVEIL_READ;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	mp = nd.ni_vp->v_mount;
@@ -809,6 +797,7 @@ sys_chdir(struct proc *p, void *v, register_t *retval)
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
 	    SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_READ;
 	if ((error = change_dir(&nd, p)) != 0)
 		return (error);
 	p->p_p->ps_uvpcwd = nd.ni_unveil_match;
@@ -883,23 +872,24 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 {
 	struct sys_unveil_args /* {
 		syscallarg(const char *) path;
-		syscallarg(const char *) flags;
+		syscallarg(const char *) permissions;
 	} */ *uap = v;
 	char pathname[MAXPATHLEN];
 	struct nameidata nd;
 	size_t pathlen;
-	char cflags[5];
-	int error;
+	char permissions[5];
+	int error, allow;
 
-	if (SCARG(uap, path) == NULL && SCARG(uap, flags) == NULL) {
+	if (SCARG(uap, path) == NULL && SCARG(uap, permissions) == NULL) {
 		p->p_p->ps_uvdone = 1;
 		return (0);
 	}
 
 	if (p->p_p->ps_uvdone != 0)
-		return EINVAL;
+		return EPERM;
 
-	error = copyinstr(SCARG(uap, flags), cflags, sizeof(cflags), NULL);
+	error = copyinstr(SCARG(uap, permissions), permissions,
+	    sizeof(permissions), NULL);
 	if (error)
 		return(error);
 	error = copyinstr(SCARG(uap, path), pathname, sizeof(pathname), &pathlen);
@@ -908,13 +898,10 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_STRUCT))
-		ktrstruct(p, "unveil", cflags, strlen(cflags));
+		ktrstruct(p, "unveil", permissions, strlen(permissions));
 #endif
 	if (pathlen < 2)
 		return EINVAL;
-
-	/* XXX unveil is disabled but returns sucess for now */
-	return 0;
 
 	if (pathlen == 2 && pathname[0] == '/')
 		NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF | SAVENAME,
@@ -931,22 +918,31 @@ sys_unveil(struct proc *p, void *v, register_t *retval)
 	 * XXX Any access to the file or directory will allow us to
 	 * pledge path it
 	 */
-	if ((nd.ni_vp &&
+	allow = ((nd.ni_vp &&
 	    (VOP_ACCESS(nd.ni_vp, VREAD, p->p_ucred, p) == 0 ||
 	    VOP_ACCESS(nd.ni_vp, VWRITE, p->p_ucred, p) == 0 ||
 	    VOP_ACCESS(nd.ni_vp, VEXEC, p->p_ucred, p) == 0)) ||
 	    VOP_ACCESS(nd.ni_dvp, VREAD, p->p_ucred, p) == 0 ||
 	    VOP_ACCESS(nd.ni_dvp, VWRITE, p->p_ucred, p) == 0 ||
-	    VOP_ACCESS(nd.ni_dvp, VEXEC, p->p_ucred, p) == 0)
-		error = unveil_add(p, &nd, cflags);
+	    VOP_ACCESS(nd.ni_dvp, VEXEC, p->p_ucred, p) == 0);
+
+	/* release lock from namei, but keep ref */
+	if (nd.ni_vp)
+		VOP_UNLOCK(nd.ni_vp);
+	if (nd.ni_dvp && nd.ni_dvp != nd.ni_vp)
+		VOP_UNLOCK(nd.ni_dvp);
+
+	if (allow)
+		error = unveil_add(p, &nd, permissions);
 	else
 		error = EPERM;
 
-	/* release vref and lock from namei, but not vref from ppath_add */
+	/* release vref from namei, but not vref from unveil_add */
 	if (nd.ni_vp)
-		vput(nd.ni_vp);
-	if (nd.ni_dvp)
-		vput(nd.ni_dvp);
+		vrele(nd.ni_vp);
+	if (nd.ni_dvp && nd.ni_dvp != nd.ni_vp)
+		vrele(nd.ni_dvp);
+
 	return (error);
 }
 
@@ -993,7 +989,8 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 	int type, indx, error, localtrunc = 0;
 	struct flock lf;
 	struct nameidata nd;
-	int ni_pledge = 0;
+	uint64_t ni_pledge = 0;
+	u_char ni_unveil = 0;
 
 	if (oflags & (O_EXLOCK | O_SHLOCK)) {
 		error = pledge_flock(p);
@@ -1009,18 +1006,25 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 	fdpunlock(fdp);
 
 	flags = FFLAGS(oflags);
-	if (flags & FREAD)
+	if (flags & FREAD) {
 		ni_pledge |= PLEDGE_RPATH;
-	if (flags & FWRITE)
+		ni_unveil |= UNVEIL_READ;
+	}
+	if (flags & FWRITE) {
 		ni_pledge |= PLEDGE_WPATH;
-	if (oflags & O_CREAT)
+		ni_unveil |= UNVEIL_WRITE;
+	}
+	if (oflags & O_CREAT) {
 		ni_pledge |= PLEDGE_CPATH;
+		ni_unveil |= UNVEIL_CREATE;
+	}
 
 	cmode = ((mode &~ fdp->fd_cmask) & ALLPERMS) &~ S_ISTXT;
 	if ((p->p_p->ps_flags & PS_PLEDGE))
 		cmode &= ACCESSPERMS;
 	NDINITAT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = ni_pledge;
+	nd.ni_unveil = ni_unveil;
 	p->p_dupfd = -1;			/* XXX check for fdopen */
 	if ((flags & O_TRUNC) && (flags & (O_EXLOCK | O_SHLOCK))) {
 		localtrunc = 1;
@@ -1074,7 +1078,7 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 	if (localtrunc) {
 		if ((fp->f_flag & FWRITE) == 0)
 			error = EACCES;
-		else if (vp->v_mount->mnt_flag & MNT_RDONLY)
+		else if (vp->v_mount && (vp->v_mount->mnt_flag & MNT_RDONLY))
 			error = EROFS;
 		else if (vp->v_type == VDIR)
 			error = EISDIR;
@@ -1385,6 +1389,7 @@ domknodat(struct proc *p, int fd, const char *path, mode_t mode, dev_t dev)
 		return (EINVAL);
 	NDINITAT(&nd, CREATE, LOCKPARENT, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_DPATH;
+	nd.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -1521,6 +1526,7 @@ dolinkat(struct proc *p, int fd1, const char *path1, int fd2,
 	follow = (flag & AT_SYMLINK_FOLLOW) ? FOLLOW : NOFOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd1, path1, p);
 	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_READ;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -1532,6 +1538,7 @@ dolinkat(struct proc *p, int fd1, const char *path1, int fd2,
 
 	NDINITAT(&nd, CREATE, flags, UIO_USERSPACE, fd2, path2, p);
 	nd.ni_pledge = PLEDGE_CPATH;
+	nd.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&nd)) != 0)
 		goto out;
 	if (nd.ni_vp) {
@@ -1591,6 +1598,7 @@ dosymlinkat(struct proc *p, const char *upath, int fd, const char *link)
 		goto out;
 	NDINITAT(&nd, CREATE, LOCKPARENT, UIO_USERSPACE, fd, link, p);
 	nd.ni_pledge = PLEDGE_CPATH;
+	nd.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&nd)) != 0)
 		goto out;
 	if (nd.ni_vp) {
@@ -1650,6 +1658,7 @@ dounlinkat(struct proc *p, int fd, const char *path, int flag)
 	NDINITAT(&nd, DELETE, LOCKPARENT | LOCKLEAF, UIO_USERSPACE,
 	    fd, path, p);
 	nd.ni_pledge = PLEDGE_CPATH;
+	nd.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -1796,7 +1805,8 @@ dofaccessat(struct proc *p, int fd, const char *path, int amode, int flag)
 	}
 
 	NDINITAT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE, fd, path, p);
-	nd.ni_pledge = PLEDGE_RPATH | PLEDGE_STAT;
+	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_INSPECT;
 	if ((error = namei(&nd)) != 0)
 		goto out;
 	vp = nd.ni_vp;
@@ -1866,7 +1876,8 @@ dofstatat(struct proc *p, int fd, const char *path, struct stat *buf, int flag)
 
 	follow = (flag & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow | LOCKLEAF, UIO_USERSPACE, fd, path, p);
-	nd.ni_pledge = PLEDGE_RPATH | PLEDGE_STAT;
+	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_INSPECT;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	error = vn_stat(nd.ni_vp, &sb, p);
@@ -1925,6 +1936,7 @@ sys_pathconf(struct proc *p, void *v, register_t *retval)
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
 	    SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_READ;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	error = VOP_PATHCONF(nd.ni_vp, SCARG(uap, name), retval);
@@ -1973,7 +1985,8 @@ doreadlinkat(struct proc *p, int fd, const char *path, char *buf,
 	struct nameidata nd;
 
 	NDINITAT(&nd, LOOKUP, NOFOLLOW | LOCKLEAF, UIO_USERSPACE, fd, path, p);
-	nd.ni_pledge = PLEDGE_RPATH | PLEDGE_STAT;
+	nd.ni_pledge = PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_INSPECT;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2037,6 +2050,7 @@ dochflagsat(struct proc *p, int fd, const char *path, u_int flags, int atflags)
 	follow = (atflags & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	return (dovchflags(p, nd.ni_vp, flags));
@@ -2140,6 +2154,7 @@ dofchmodat(struct proc *p, int fd, const char *path, mode_t mode, int flag)
 	follow = (flag & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2239,6 +2254,7 @@ dofchownat(struct proc *p, int fd, const char *path, uid_t uid, gid_t gid,
 	follow = (flag & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_CHOWN | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2291,6 +2307,7 @@ sys_lchown(struct proc *p, void *v, register_t *retval)
 
 	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_CHOWN | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2345,13 +2362,14 @@ sys_fchown(struct proc *p, void *v, register_t *retval)
 		return (error);
 	vp = fp->f_data;
 	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-	if (vp->v_mount->mnt_flag & MNT_RDONLY)
+	if (vp->v_mount && (vp->v_mount->mnt_flag & MNT_RDONLY))
 		error = EROFS;
 	else {
 		if ((error = pledge_chown(p, uid, gid)))
 			goto out;
 		if ((uid != -1 || gid != -1) &&
-		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
+		    (vp->v_mount &&
+		     (vp->v_mount->mnt_flag & MNT_NOPERM) == 0) &&
 		    (suser(p) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
@@ -2442,6 +2460,7 @@ doutimensat(struct proc *p, int fd, const char *path,
 	follow = (flag & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2589,6 +2608,7 @@ sys_truncate(struct proc *p, void *v, register_t *retval)
 
 	NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_unveil = UNVEIL_WRITE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2714,6 +2734,7 @@ dorenameat(struct proc *p, int fromfd, const char *from, int tofd,
 	NDINITAT(&fromnd, DELETE, WANTPARENT | SAVESTART, UIO_USERSPACE,
 	    fromfd, from, p);
 	fromnd.ni_pledge = PLEDGE_RPATH | PLEDGE_CPATH;
+	fromnd.ni_unveil = UNVEIL_READ | UNVEIL_CREATE;
 	if ((error = namei(&fromnd)) != 0)
 		return (error);
 	fvp = fromnd.ni_vp;
@@ -2727,6 +2748,7 @@ dorenameat(struct proc *p, int fromfd, const char *from, int tofd,
 
 	NDINITAT(&tond, RENAME, flags, UIO_USERSPACE, tofd, to, p);
 	tond.ni_pledge = PLEDGE_CPATH;
+	tond.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&tond)) != 0) {
 		VOP_ABORTOP(fromnd.ni_dvp, &fromnd.ni_cnd);
 		vrele(fromnd.ni_dvp);
@@ -2820,6 +2842,7 @@ domkdirat(struct proc *p, int fd, const char *path, mode_t mode)
 	NDINITAT(&nd, CREATE, LOCKPARENT | STRIPSLASHES, UIO_USERSPACE,
 	    fd, path, p);
 	nd.ni_pledge = PLEDGE_CPATH;
+	nd.ni_unveil = UNVEIL_CREATE;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2946,6 +2969,7 @@ sys_revoke(struct proc *p, void *v, register_t *retval)
 
 	NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
 	nd.ni_pledge = PLEDGE_RPATH | PLEDGE_TTY;
+	nd.ni_unveil = UNVEIL_READ;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -3010,33 +3034,19 @@ sys_pread(struct proc *p, void *v, register_t *retval)
 		syscallarg(off_t) offset;
 	} */ *uap = v;
 	struct iovec iov;
-	struct filedesc *fdp = p->p_fd;
-	struct file *fp;
-	struct vnode *vp;
-	off_t offset;
-	int fd = SCARG(uap, fd);
+	struct uio auio;
 
 	iov.iov_base = SCARG(uap, buf);
 	iov.iov_len = SCARG(uap, nbyte);
-
-	if ((fp = fd_getfile_mode(fdp, fd, FREAD)) == NULL)
-		return (EBADF);
-
-	vp = fp->f_data;
-	if (fp->f_type != DTYPE_VNODE || vp->v_type == VFIFO ||
-	    (vp->v_flag & VISTTY)) {
-		FRELE(fp, p);
-		return (ESPIPE);
-	}
-
-	offset = SCARG(uap, offset);
-	if (offset < 0 && vp->v_type != VCHR) {
-		FRELE(fp, p);
+	if (iov.iov_len > SSIZE_MAX)
 		return (EINVAL);
-	}
 
-	/* dofilereadv() will FRELE the descriptor for us */
-	return (dofilereadv(p, fd, fp, &iov, 1, 0, &offset, retval));
+	auio.uio_iov = &iov;
+	auio.uio_iovcnt = 1;
+	auio.uio_resid = iov.iov_len;
+	auio.uio_offset = SCARG(uap, offset);
+
+	return (dofilereadv(p, SCARG(uap, fd), &auio, FO_POSITION, retval));
 }
 
 /*
@@ -3052,31 +3062,24 @@ sys_preadv(struct proc *p, void *v, register_t *retval)
 		syscallarg(int) pad;
 		syscallarg(off_t) offset;
 	} */ *uap = v;
-	struct filedesc *fdp = p->p_fd;
-	struct file *fp;
-	struct vnode *vp;
-	off_t offset;
-	int fd = SCARG(uap, fd);
+	struct iovec aiov[UIO_SMALLIOV], *iov = NULL;
+	int error, iovcnt = SCARG(uap, iovcnt);
+	struct uio auio;
+	size_t resid;
 
-	if ((fp = fd_getfile_mode(fdp, fd, FREAD)) == NULL)
-		return (EBADF);
+	error = iovec_copyin(SCARG(uap, iovp), &iov, aiov, iovcnt, &resid);
+	if (error)
+		goto done;
 
-	vp = fp->f_data;
-	if (fp->f_type != DTYPE_VNODE || vp->v_type == VFIFO ||
-	    (vp->v_flag & VISTTY)) {
-		FRELE(fp, p);
-		return (ESPIPE);
-	}
+	auio.uio_iov = iov;
+	auio.uio_iovcnt = iovcnt;
+	auio.uio_resid = resid;
+	auio.uio_offset = SCARG(uap, offset);
 
-	offset = SCARG(uap, offset);
-	if (offset < 0 && vp->v_type != VCHR) {
-		FRELE(fp, p);
-		return (EINVAL);
-	}
-
-	/* dofilereadv() will FRELE the descriptor for us */
-	return (dofilereadv(p, fd, fp, SCARG(uap, iovp), SCARG(uap, iovcnt), 1,
-	    &offset, retval));
+	error = dofilereadv(p, SCARG(uap, fd), &auio, FO_POSITION, retval);
+ done:
+	iovec_free(iov, iovcnt);
+ 	return (error);
 }
 
 /*
@@ -3093,33 +3096,19 @@ sys_pwrite(struct proc *p, void *v, register_t *retval)
 		syscallarg(off_t) offset;
 	} */ *uap = v;
 	struct iovec iov;
-	struct filedesc *fdp = p->p_fd;
-	struct file *fp;
-	struct vnode *vp;
-	off_t offset;
-	int fd = SCARG(uap, fd);
+	struct uio auio;
 
 	iov.iov_base = (void *)SCARG(uap, buf);
 	iov.iov_len = SCARG(uap, nbyte);
-
-	if ((fp = fd_getfile_mode(fdp, fd, FWRITE)) == NULL)
-		return (EBADF);
-
-	vp = fp->f_data;
-	if (fp->f_type != DTYPE_VNODE || vp->v_type == VFIFO ||
-	    (vp->v_flag & VISTTY)) {
-		FRELE(fp, p);
-		return (ESPIPE);
-	}
-
-	offset = SCARG(uap, offset);
-	if (offset < 0 && vp->v_type != VCHR) {
-		FRELE(fp, p);
+	if (iov.iov_len > SSIZE_MAX)
 		return (EINVAL);
-	}
 
-	/* dofilewritev() will FRELE the descriptor for us */
-	return (dofilewritev(p, fd, fp, &iov, 1, 0, &offset, retval));
+	auio.uio_iov = &iov;
+	auio.uio_iovcnt = 1;
+	auio.uio_resid = iov.iov_len;
+	auio.uio_offset = SCARG(uap, offset);
+
+	return (dofilewritev(p, SCARG(uap, fd), &auio, FO_POSITION, retval));
 }
 
 /*
@@ -3135,29 +3124,22 @@ sys_pwritev(struct proc *p, void *v, register_t *retval)
 		syscallarg(int) pad;
 		syscallarg(off_t) offset;
 	} */ *uap = v;
-	struct filedesc *fdp = p->p_fd;
-	struct file *fp;
-	struct vnode *vp;
-	off_t offset;
-	int fd = SCARG(uap, fd);
+	struct iovec aiov[UIO_SMALLIOV], *iov = NULL;
+	int error, iovcnt = SCARG(uap, iovcnt);
+	struct uio auio;
+	size_t resid;
 
-	if ((fp = fd_getfile_mode(fdp, fd, FWRITE)) == NULL)
-		return (EBADF);
+	error = iovec_copyin(SCARG(uap, iovp), &iov, aiov, iovcnt, &resid);
+	if (error)
+		goto done;
 
-	vp = fp->f_data;
-	if (fp->f_type != DTYPE_VNODE || vp->v_type == VFIFO ||
-	    (vp->v_flag & VISTTY)) {
-		FRELE(fp, p);
-		return (ESPIPE);
-	}
+	auio.uio_iov = iov;
+	auio.uio_iovcnt = iovcnt;
+	auio.uio_resid = resid;
+	auio.uio_offset = SCARG(uap, offset);
 
-	offset = SCARG(uap, offset);
-	if (offset < 0 && vp->v_type != VCHR) {
-		FRELE(fp, p);
-		return (EINVAL);
-	}
-
-	/* dofilewritev() will FRELE the descriptor for us */
-	return (dofilewritev(p, fd, fp, SCARG(uap, iovp), SCARG(uap, iovcnt),
-	    1, &offset, retval));
+	error = dofilewritev(p, SCARG(uap, fd), &auio, FO_POSITION, retval);
+ done:
+	iovec_free(iov, iovcnt);
+ 	return (error);
 }

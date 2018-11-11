@@ -1,4 +1,4 @@
-/* $OpenBSD: ecp_nist.c,v 1.11 2018/07/10 22:06:14 tb Exp $ */
+/* $OpenBSD: ecp_nist.c,v 1.15 2018/11/05 20:18:21 tb Exp $ */
 /*
  * Written by Nils Larsch for the OpenSSL project.
  */
@@ -103,8 +103,12 @@ EC_GFp_nist_method(void)
 		.point_cmp = ec_GFp_simple_cmp,
 		.make_affine = ec_GFp_simple_make_affine,
 		.points_make_affine = ec_GFp_simple_points_make_affine,
+		.mul_generator_ct = ec_GFp_simple_mul_generator_ct,
+		.mul_single_ct = ec_GFp_simple_mul_single_ct,
+		.mul_double_nonct = ec_GFp_simple_mul_double_nonct,
 		.field_mul = ec_GFp_nist_field_mul,
-		.field_sqr = ec_GFp_nist_field_sqr
+		.field_sqr = ec_GFp_nist_field_sqr,
+		.blind_coordinates = ec_GFp_simple_blind_coordinates,
 	};
 
 	return &ret;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.199 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.202 2018/10/30 03:27:45 deraadt Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -117,6 +117,8 @@ check_exec(struct proc *p, struct exec_package *epp)
 	ndp = epp->ep_ndp;
 	ndp->ni_cnd.cn_nameiop = LOOKUP;
 	ndp->ni_cnd.cn_flags = FOLLOW | LOCKLEAF | SAVENAME;
+	if (epp->ep_flags & EXEC_INDIR)
+		ndp->ni_cnd.cn_flags |= BYPASSUNVEIL;
 	/* first get the vnode */
 	if ((error = namei(ndp)) != 0)
 		return (error);
@@ -185,8 +187,6 @@ check_exec(struct proc *p, struct exec_package *epp)
 		if (execsw[i].es_check == NULL)
 			continue;
 		newerror = (*execsw[i].es_check)(p, epp);
-		if (!newerror && !(epp->ep_emul->e_flags & EMUL_ENABLED))
-			newerror = EPERM;
 		/* make sure the first "interesting" error code is saved. */
 		if (!newerror || error == ENOEXEC)
 			error = newerror;
@@ -277,6 +277,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 
 	NDINIT(&nid, LOOKUP, NOFOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
 	nid.ni_pledge = PLEDGE_EXEC;
+	nid.ni_unveil = UNVEIL_EXEC;
 
 	/*
 	 * initialize the fields of the exec package.

@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.254 2018/03/27 06:10:05 deraadt Exp $
+#	$OpenBSD: GENERIC,v 1.256 2018/10/18 02:10:54 lteo Exp $
 #
 #	Machine-independent option; used by all architectures for their
 #	GENERIC kernel

@@ -1,4 +1,4 @@
-/*	$OpenBSD: suff.c,v 1.92 2017/07/24 12:07:46 espie Exp $ */
+/*	$OpenBSD: suff.c,v 1.94 2018/10/08 19:52:53 espie Exp $ */
 /*	$NetBSD: suff.c,v 1.13 1996/11/06 17:59:25 christos Exp $	*/
 
 /*

@@ -429,6 +429,7 @@ timer_delete
 timer_getoverrun
 timer_gettime
 timer_settime
+timespec_get
 thrkill
 truncate
 umask
@@ -663,6 +664,7 @@ getpwuid_shadow
 getttyent
 getttynam
 getusershell
+gid_from_group
 glob
 globfree
 group_from_gid
@@ -798,6 +800,7 @@ ttyname
 ttyname_r
 ttyslot
 ualarm
+uid_from_user
 uname
 unvis
 user_from_uid
@@ -1475,6 +1478,7 @@ __isthreaded
 a64l
 abort
 abs
+aligned_alloc
 atexit
 atof
 atoi

@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.292 2018/07/04 13:49:31 djm Exp $ */
+/* $OpenBSD: readconf.c,v 1.300 2018/10/05 14:26:09 naddy Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -38,6 +38,7 @@
 
 #include "xmalloc.h"
 #include "ssh.h"
+#include "ssherr.h"
 #include "compat.h"
 #include "cipher.h"
 #include "pathnames.h"
@@ -156,7 +157,7 @@ typedef enum {
 	oCanonicalizeFallbackLocal, oCanonicalizePermittedCNAMEs,
 	oStreamLocalBindMask, oStreamLocalBindUnlink, oRevokedHostKeys,
 	oFingerprintHash, oUpdateHostkeys, oHostbasedKeyTypes,
-	oPubkeyAcceptedKeyTypes, oProxyJump,
+	oPubkeyAcceptedKeyTypes, oCASignatureAlgorithms, oProxyJump,
 	oIgnore, oIgnoredUnknownOption, oDeprecated, oUnsupported
 } OpCodes;
 
@@ -175,6 +176,7 @@ static struct {
 	{ "userknownhostsfile2", oDeprecated },
 	{ "useroaming", oDeprecated },
 	{ "usersh", oDeprecated },
+	{ "useprivilegedport", oDeprecated },
 
 	/* Unsupported options */
 	{ "afstokenpassing", oUnsupported },
@@ -207,7 +209,6 @@ static struct {
 	{ "exitonforwardfailure", oExitOnForwardFailure },
 	{ "xauthlocation", oXAuthLocation },
 	{ "gatewayports", oGatewayPorts },
-	{ "useprivilegedport", oUsePrivilegedPort },
 	{ "passwordauthentication", oPasswordAuthentication },
 	{ "kbdinteractiveauthentication", oKbdInteractiveAuthentication },
 	{ "kbdinteractivedevices", oKbdInteractiveDevices },
@@ -250,6 +251,7 @@ static struct {
 	{ "dynamicforward", oDynamicForward },
 	{ "preferredauthentications", oPreferredAuthentications },
 	{ "hostkeyalgorithms", oHostKeyAlgorithms },
+	{ "casignaturealgorithms", oCASignatureAlgorithms },
 	{ "bindaddress", oBindAddress },
 	{ "bindinterface", oBindInterface },
 	{ "clearallforwardings", oClearAllForwardings },
@@ -305,12 +307,8 @@ void
 add_local_forward(Options *options, const struct Forward *newfwd)
 {
 	struct Forward *fwd;
-	extern uid_t original_real_uid;
 	int i;
 
-	if (!bind_permitted(newfwd->listen_port, original_real_uid) &&
-	    newfwd->listen_path == NULL)
-		fatal("Privileged ports can only be forwarded by root.");
 	/* Don't add duplicates */
 	for (i = 0; i < options->num_local_forwards; i++) {
 		if (forward_equals(newfwd, options->local_forwards + i))
@@ -468,7 +466,6 @@ execute_in_shell(const char *cmd)
 	char *shell;
 	pid_t pid;
 	int devnull, status;
-	extern uid_t original_real_uid;
 
 	if ((shell = getenv("SHELL")) == NULL)
 		shell = _PATH_BSHELL;
@@ -482,9 +479,6 @@ execute_in_shell(const char *cmd)
 	/* Fork and execute the command. */
 	if ((pid = fork()) == 0) {
 		char *argv[4];
-
-		/* Child.  Permanently give up superuser privileges. */
-		permanently_drop_suid(original_real_uid);
 
 		/* Redirect child stdin and stdout. Leave stderr */
 		if (dup2(devnull, STDIN_FILENO) == -1)
@@ -937,10 +931,6 @@ parse_time:
 		intptr = &options->exit_on_forward_failure;
 		goto parse_flag;
 
-	case oUsePrivilegedPort:
-		intptr = &options->use_privileged_port;
-		goto parse_flag;
-
 	case oPasswordAuthentication:
 		intptr = &options->password_authentication;
 		goto parse_flag;
@@ -1153,7 +1143,20 @@ parse_command:
 		return 0;
 
 	case oPort:
-		intptr = &options->port;
+		arg = strdelim(&s);
+		if (!arg || *arg == '\0')
+			fatal("%.200s line %d: Missing argument.",
+			    filename, linenum);
+		value = a2port(arg);
+		if (value <= 0)
+			fatal("%.200s line %d: Bad port '%s'.",
+			    filename, linenum, arg);
+		if (*activep && options->port == -1)
+			options->port = value;
+		break;
+
+	case oConnectionAttempts:
+		intptr = &options->connection_attempts;
 parse_int:
 		arg = strdelim(&s);
 		if ((errstr = atoi_err(arg, &value)) != NULL)
@@ -1162,10 +1165,6 @@ parse_int:
 		if (*activep && *intptr == -1)
 			*intptr = value;
 		break;
-
-	case oConnectionAttempts:
-		intptr = &options->connection_attempts;
-		goto parse_int;
 
 	case oCiphers:
 		arg = strdelim(&s);
@@ -1216,6 +1215,10 @@ parse_keytypes:
 		if (*activep && *charptr == NULL)
 			*charptr = xstrdup(arg);
 		break;
+
+	case oCASignatureAlgorithms:
+		charptr = &options->ca_sign_algorithms;
+		goto parse_keytypes;
 
 	case oLogLevel:
 		log_level_ptr = &options->log_level;
@@ -1691,7 +1694,18 @@ parse_keytypes:
 
 	case oIdentityAgent:
 		charptr = &options->identity_agent;
-		goto parse_string;
+		arg = strdelim(&s);
+		if (!arg || *arg == '\0')
+			fatal("%.200s line %d: Missing argument.",
+			    filename, linenum);
+		/* Extra validation if the string represents an env var. */
+		if (arg[0] == '$' && !valid_env_name(arg + 1)) {
+			fatal("%.200s line %d: Invalid environment name %s.",
+			    filename, linenum, arg);
+		}
+		if (*activep && *charptr == NULL)
+			*charptr = xstrdup(arg);
+		break;
 
 	case oDeprecated:
 		debug("%s line %d: Deprecated option \"%s\"",
@@ -1810,7 +1824,6 @@ initialize_options(Options * options)
 	options->fwd_opts.gateway_ports = -1;
 	options->fwd_opts.streamlocal_bind_mask = (mode_t)-1;
 	options->fwd_opts.streamlocal_bind_unlink = -1;
-	options->use_privileged_port = -1;
 	options->pubkey_authentication = -1;
 	options->challenge_response_authentication = -1;
 	options->gss_authentication = -1;
@@ -1833,6 +1846,7 @@ initialize_options(Options * options)
 	options->macs = NULL;
 	options->kex_algorithms = NULL;
 	options->hostkeyalgorithms = NULL;
+	options->ca_sign_algorithms = NULL;
 	options->num_identity_files = 0;
 	options->num_certificate_files = 0;
 	options->hostname = NULL;
@@ -1921,7 +1935,8 @@ fill_default_options_for_canonicalization(Options *options)
 void
 fill_default_options(Options * options)
 {
-	char *all_cipher, *all_mac, *all_kex, *all_key;
+	char *all_cipher, *all_mac, *all_kex, *all_key, *all_sig;
+	int r;
 
 	if (options->forward_agent == -1)
 		options->forward_agent = 0;
@@ -1952,8 +1967,6 @@ fill_default_options(Options * options)
 		options->fwd_opts.streamlocal_bind_mask = 0177;
 	if (options->fwd_opts.streamlocal_bind_unlink == -1)
 		options->fwd_opts.streamlocal_bind_unlink = 0;
-	if (options->use_privileged_port == -1)
-		options->use_privileged_port = 0;
 	if (options->pubkey_authentication == -1)
 		options->pubkey_authentication = 1;
 	if (options->challenge_response_authentication == -1)
@@ -2073,21 +2086,25 @@ fill_default_options(Options * options)
 	all_mac = mac_alg_list(',');
 	all_kex = kex_alg_list(',');
 	all_key = sshkey_alg_list(0, 0, 1, ',');
-	if (kex_assemble_names(&options->ciphers,
-	    KEX_CLIENT_ENCRYPT, all_cipher) != 0 ||
-	    kex_assemble_names(&options->macs,
-	    KEX_CLIENT_MAC, all_mac) != 0 ||
-	    kex_assemble_names(&options->kex_algorithms,
-	    KEX_CLIENT_KEX, all_kex) != 0 ||
-	    kex_assemble_names(&options->hostbased_key_types,
-	    KEX_DEFAULT_PK_ALG, all_key) != 0 ||
-	    kex_assemble_names(&options->pubkey_key_types,
-	    KEX_DEFAULT_PK_ALG, all_key) != 0)
-		fatal("%s: kex_assemble_names failed", __func__);
+	all_sig = sshkey_alg_list(0, 1, 1, ',');
+#define ASSEMBLE(what, defaults, all) \
+	do { \
+		if ((r = kex_assemble_names(&options->what, \
+		    defaults, all)) != 0) \
+			fatal("%s: %s: %s", __func__, #what, ssh_err(r)); \
+	} while (0)
+	ASSEMBLE(ciphers, KEX_SERVER_ENCRYPT, all_cipher);
+	ASSEMBLE(macs, KEX_SERVER_MAC, all_mac);
+	ASSEMBLE(kex_algorithms, KEX_SERVER_KEX, all_kex);
+	ASSEMBLE(hostbased_key_types, KEX_DEFAULT_PK_ALG, all_key);
+	ASSEMBLE(pubkey_key_types, KEX_DEFAULT_PK_ALG, all_key);
+	ASSEMBLE(ca_sign_algorithms, SSH_ALLOWED_CA_SIGALGS, all_sig);
+#undef ASSEMBLE
 	free(all_cipher);
 	free(all_mac);
 	free(all_kex);
 	free(all_key);
+	free(all_sig);
 
 #define CLEAR_ON_NONE(v) \
 	do { \
@@ -2585,7 +2602,6 @@ dump_client_config(Options *o, const char *host)
 	dump_cfg_fmtint(oStrictHostKeyChecking, o->strict_host_key_checking);
 	dump_cfg_fmtint(oTCPKeepAlive, o->tcp_keep_alive);
 	dump_cfg_fmtint(oTunnel, o->tun_open);
-	dump_cfg_fmtint(oUsePrivilegedPort, o->use_privileged_port);
 	dump_cfg_fmtint(oVerifyHostKeyDNS, o->verify_host_key_dns);
 	dump_cfg_fmtint(oVisualHostKey, o->visual_host_key);
 	dump_cfg_fmtint(oUpdateHostkeys, o->update_hostkeys);
@@ -2610,6 +2626,7 @@ dump_client_config(Options *o, const char *host)
 	dump_cfg_string(oIgnoreUnknown, o->ignored_unknown);
 	dump_cfg_string(oKbdInteractiveDevices, o->kbd_interactive_devices);
 	dump_cfg_string(oKexAlgorithms, o->kex_algorithms ? o->kex_algorithms : KEX_CLIENT_KEX);
+	dump_cfg_string(oCASignatureAlgorithms, o->ca_sign_algorithms ? o->ca_sign_algorithms : SSH_ALLOWED_CA_SIGALGS);
 	dump_cfg_string(oLocalCommand, o->local_command);
 	dump_cfg_string(oRemoteCommand, o->remote_command);
 	dump_cfg_string(oLogLevel, log_level_name(o->log_level));

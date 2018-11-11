@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.256 2018/05/23 12:18:58 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.258 2018/11/11 00:49:05 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -129,8 +129,7 @@ struct interface_info {
 	int			 link_state;
 	int			 rdomain;
 	int			 flags;
-#define	IFI_VALID_LLADDR	0x01
-#define IFI_IN_CHARGE		0x02
+#define IFI_IN_CHARGE		0x01
 	struct dhcp_packet	 recv_packet;
 	struct dhcp_packet	 sent_packet;
 	int			 sent_packet_length;
@@ -201,7 +200,6 @@ void		 dispatch(struct interface_info *, int);
 void		 set_timeout( struct interface_info *, time_t,
     void (*)(struct interface_info *));
 void		 cancel_timeout(struct interface_info *);
-void		 sendhup(void);
 
 /* dhclient.c */
 extern char			*path_dhclient_conf;

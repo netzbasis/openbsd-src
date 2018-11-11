@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip_divert.c,v 1.57 2018/04/24 15:40:55 pirofti Exp $ */
+/*      $OpenBSD: ip_divert.c,v 1.60 2018/11/10 18:40:34 bluhm Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -157,8 +157,6 @@ divert_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 
 		error = ip_output(m, NULL, &inp->inp_route,
 		    IP_ALLOWBROADCAST | IP_RAWOUTPUT, NULL, NULL, 0);
-		if (error == EACCES)	/* translate pf(4) error for userland */
-			error = EHOSTUNREACH;
 	}
 
 	divstat_inc(divs_opackets);

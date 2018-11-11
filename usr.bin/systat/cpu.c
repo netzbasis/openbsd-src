@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.6 2018/05/14 12:31:21 mpi Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.8 2018/10/05 18:56:57 cheloha Exp $	*/
 
 /*
  * Copyright (c) 2013 Reyk Floeter <reyk@openbsd.org>

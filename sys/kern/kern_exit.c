@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exit.c,v 1.165 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: kern_exit.c,v 1.170 2018/10/04 20:07:54 kettenis Exp $	*/
 /*	$NetBSD: kern_exit.c,v 1.39 1996/04/22 01:38:25 christos Exp $	*/
 
 /*
@@ -69,6 +69,11 @@
 #include <sys/syscallargs.h>
 
 #include <uvm/uvm_extern.h>
+
+#include "kcov.h"
+#if NKCOV > 0
+#include <sys/kcov.h>
+#endif
 
 void	proc_finish_wait(struct proc *, struct proc *);
 void	process_zap(struct process *);
@@ -176,6 +181,10 @@ exit1(struct proc *p, int rv, int flags)
 	}
 	p->p_siglist = 0;
 
+#if NKCOV > 0
+	kcov_exit(p);
+#endif
+
 	if ((p->p_flag & P_THREAD) == 0) {
 		/* close open files and release open-file table */
 		fdfree(p);
@@ -194,6 +203,8 @@ exit1(struct proc *p, int rv, int flags)
 		if (pr->ps_tracevp)
 			ktrcleartrace(pr);
 #endif
+
+		unveil_destroy(pr);
 
 		/*
 		 * If parent has the SAS_NOCLDWAIT flag set, we're not
@@ -376,7 +387,7 @@ proc_free(struct proc *p)
  * a zombie, and the parent is allowed to read the undead's status.
  */
 void
-reaper(void)
+reaper(void *arg)
 {
 	struct proc *p;
 
@@ -606,8 +617,6 @@ process_zap(struct process *pr)
 	 * Decrement the count of procs running with this uid.
 	 */
 	(void)chgproccnt(pr->ps_ucred->cr_ruid, -1);
-
-	unveil_destroy(pr);
 
 	/*
 	 * Release reference to text vnode

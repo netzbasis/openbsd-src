@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl.h,v 1.158 2018/05/01 13:30:24 tb Exp $ */
+/* $OpenBSD: ssl.h,v 1.161 2018/11/07 01:53:36 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -146,6 +146,7 @@
 #include <stdint.h>
 
 #include <openssl/opensslconf.h>
+
 #include <openssl/hmac.h>
 #include <openssl/pem.h>
 #include <openssl/safestack.h>
@@ -305,6 +306,9 @@ extern "C" {
 #define SSL_TXT_TLSV1		"TLSv1"
 #define SSL_TXT_TLSV1_1		"TLSv1.1"
 #define SSL_TXT_TLSV1_2		"TLSv1.2"
+#if defined(LIBRESSL_HAS_TLS1_3) || defined(LIBRESSL_INTERNAL)
+#define SSL_TXT_TLSV1_3		"TLSv1.3"
+#endif
 
 #define SSL_TXT_EXP		"EXP"
 #define SSL_TXT_EXPORT		"EXPORT"
@@ -511,6 +515,10 @@ struct ssl_session_st {
 #define SSL_OP_NO_TLSv1					0x04000000L
 #define SSL_OP_NO_TLSv1_2				0x08000000L
 #define SSL_OP_NO_TLSv1_1				0x10000000L
+
+#if defined(LIBRESSL_HAS_TLS1_3) || defined(LIBRESSL_INTERNAL)
+#define SSL_OP_NO_TLSv1_3				0x20000000L
+#endif
 
 /* SSL_OP_ALL: various bug workarounds that should be rather harmless. */
 #define SSL_OP_ALL \
@@ -1311,7 +1319,7 @@ long	SSL_SESSION_get_time(const SSL_SESSION *s);
 long	SSL_SESSION_set_time(SSL_SESSION *s, long t);
 long	SSL_SESSION_get_timeout(const SSL_SESSION *s);
 long	SSL_SESSION_set_timeout(SSL_SESSION *s, long t);
-void	SSL_copy_session_id(SSL *to, const SSL *from);
+int	SSL_copy_session_id(SSL *to, const SSL *from);
 X509	*SSL_SESSION_get0_peer(SSL_SESSION *s);
 int	SSL_SESSION_set1_id(SSL_SESSION *s, const unsigned char *sid,
 	    unsigned int sid_len);

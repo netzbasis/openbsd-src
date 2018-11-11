@@ -1,4 +1,4 @@
-/* $OpenBSD: ip_ipcomp.c,v 1.63 2018/07/12 15:51:50 mpi Exp $ */
+/* $OpenBSD: ip_ipcomp.c,v 1.66 2018/09/13 12:29:43 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Jean-Jacques Bernard-Gundol (jj@wabbitt.org)
@@ -186,6 +186,7 @@ ipcomp_input_cb(struct tdb *tdb, struct tdb_crypto *tc, struct mbuf *m, int clen
 {
 	int skip, protoff, roff, hlen = IPCOMP_HLENGTH;
 	u_int8_t nproto;
+	u_int64_t ibytes;
 	struct mbuf *m1, *mo;
 	struct ipcomp  *ipcomp;
 	caddr_t addr;
@@ -195,9 +196,14 @@ ipcomp_input_cb(struct tdb *tdb, struct tdb_crypto *tc, struct mbuf *m, int clen
 
 	NET_ASSERT_LOCKED();
 
+	skip = tc->tc_skip;
+	protoff = tc->tc_protoff;
+
 	/* update the counters */
-	tdb->tdb_cur_bytes += m->m_pkthdr.len - (skip + hlen);
-	ipcompstat_add(ipcomps_ibytes, m->m_pkthdr.len - (skip + hlen));
+	ibytes = m->m_pkthdr.len - (skip + hlen);
+	tdb->tdb_cur_bytes += ibytes;
+	tdb->tdb_ibytes += ibytes;
+	ipcompstat_add(ipcomps_ibytes, ibytes);
 
 	/* Hard expiration */
 	if ((tdb->tdb_flags & TDBF_BYTES) &&
@@ -212,9 +218,6 @@ ipcomp_input_cb(struct tdb *tdb, struct tdb_crypto *tc, struct mbuf *m, int clen
 		pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_SOFT);
 		tdb->tdb_flags &= ~TDBF_SOFT_BYTES;	/* Turn off checking */
 	}
-
-	skip = tc->tc_skip;
-	protoff = tc->tc_protoff;
 
 	/* In case it's not done already, adjust the size of the mbuf chain */
 	m->m_pkthdr.len = clen + hlen + skip;
@@ -500,7 +503,7 @@ ipcomp_output_cb(struct tdb *tdb, struct tdb_crypto *tc, struct mbuf *m,
 	rlen = ilen - skip;
 
 	/* Check sizes. */
-	if (rlen < olen) {
+	if (rlen <= olen + IPCOMP_HLENGTH) {
 		/* Compression was useless, we have lost time. */
 		ipcompstat_inc(ipcomps_minlen); /* misnomer, but like to count */
 		goto skiphdr;

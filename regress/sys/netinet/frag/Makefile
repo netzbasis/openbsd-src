@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.2 2017/09/15 14:03:14 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.4 2018/09/10 13:00:58 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -90,7 +90,7 @@ stamp-pf: addr.py pf.conf
 	rm -f stamp-stack stamp-pf
 	cat addr.py ${.CURDIR}/pf.conf | pfctl -n -f -
 	cat addr.py ${.CURDIR}/pf.conf | \
-	    ssh ${IPS_SSH} ${SUDO} pfctl -a regress -f -
+	    ssh ${REMOTE_SSH} ${SUDO} pfctl -a regress -f -
 	-ssh ${REMOTE_SSH} ${SUDO} pfctl -e
 	date >$@
 
@@ -110,6 +110,11 @@ run-regress-stack-frag_mf0short.py:
 run-regress-stack-frag_mf1end.py:
 	@echo '\n======== $@ ========'
 	# the stack allows fragments with MF together with fragments without MF
+	@echo DISABLED
+
+run-regress-stack-frag_queuelimit.py:
+	@echo '\n======== $@ ========'
+	# the stack does not limit the amount of fragments during reassembly
 	@echo DISABLED
 
 .for sp in stack pf
@@ -151,7 +156,7 @@ REGRESS_TARGETS +=	run-regress-${sp}-ping run-regress-${sp}-fragping \
 
 cleanup-pf:
 	rm -f stamp-stack stamp-pf
-	ssh ${IPS_SSH} ${SUDO} pfctl -a regress -Fa
+	ssh ${REMOTE_SSH} ${SUDO} pfctl -a regress -Fa
 	-ssh ${REMOTE_SSH} ${SUDO} pfctl -e || true
 
 REGRESS_TARGETS +=	cleanup-pf

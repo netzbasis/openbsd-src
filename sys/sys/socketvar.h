@@ -1,4 +1,4 @@
-/*	$OpenBSD: socketvar.h,v 1.85 2018/07/10 10:02:14 bluhm Exp $	*/
+/*	$OpenBSD: socketvar.h,v 1.87 2018/08/20 16:00:22 mpi Exp $	*/
 /*	$NetBSD: socketvar.h,v 1.18 1996/02/09 18:25:38 christos Exp $	*/
 
 /*-
@@ -148,7 +148,6 @@ struct socket {
 #define	SS_ISDISCONNECTED	0x800	/* socket disconnected from peer */
 
 #define	SS_PRIV			0x080	/* privileged for broadcast, raw... */
-#define	SS_NBIO			0x100	/* non-blocking ops */
 #define	SS_ASYNC		0x200	/* async i/o notify */
 #define	SS_CONNECTOUT		0x1000	/* connect, not accept, at this end */
 #define	SS_ISSENDING		0x2000	/* hint for lower layer */
@@ -276,15 +275,12 @@ struct knote;
 /*
  * File operations on sockets.
  */
-int	soo_read(struct file *fp, off_t *, struct uio *uio, 
-	    struct ucred *cred);
-int	soo_write(struct file *fp, off_t *, struct uio *uio,
-	    struct ucred *cred);
-int	soo_ioctl(struct file *fp, u_long cmd, caddr_t data,
-	    struct proc *p);
-int	soo_poll(struct file *fp, int events, struct proc *p);
-int	soo_kqfilter(struct file *fp, struct knote *kn);
-int 	soo_close(struct file *fp, struct proc *p);
+int	soo_read(struct file *, struct uio *, int);
+int	soo_write(struct file *, struct uio *, int);
+int	soo_ioctl(struct file *, u_long, caddr_t, struct proc *);
+int	soo_poll(struct file *, int events, struct proc *);
+int	soo_kqfilter(struct file *, struct knote *);
+int 	soo_close(struct file *, struct proc *);
 int	soo_stat(struct file *, struct stat *, struct proc *);
 void	sbappend(struct socket *, struct sockbuf *, struct mbuf *);
 void	sbappendstream(struct socket *, struct sockbuf *, struct mbuf *);
@@ -312,7 +308,7 @@ int	soaccept(struct socket *so, struct mbuf *nam);
 int	sobind(struct socket *so, struct mbuf *nam, struct proc *p);
 void	socantrcvmore(struct socket *so);
 void	socantsendmore(struct socket *so);
-int	soclose(struct socket *so);
+int	soclose(struct socket *, int);
 int	soconnect(struct socket *so, struct mbuf *nam);
 int	soconnect2(struct socket *so1, struct socket *so2);
 int	socreate(int dom, struct socket **aso, int type, int proto);

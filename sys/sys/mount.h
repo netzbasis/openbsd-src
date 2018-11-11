@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.h,v 1.138 2018/06/19 13:01:34 helg Exp $	*/
+/*	$OpenBSD: mount.h,v 1.142 2018/09/29 04:29:48 visa Exp $	*/
 /*	$NetBSD: mount.h,v 1.48 1996/02/18 11:55:47 fvdl Exp $	*/
 
 /*
@@ -454,9 +454,8 @@ struct vfsconf {
 	const struct vfsops *vfc_vfsops; /* filesystem operations vector */
 	char	vfc_name[MFSNAMELEN];	/* filesystem type name */
 	int	vfc_typenum;		/* historic filesystem type number */
-	int	vfc_refcount;		/* number mounted of this type */
+	u_int	vfc_refcount;		/* number mounted of this type */
 	int	vfc_flags;		/* permanent flags */
-	struct	vfsconf *vfc_next;	/* next in list */
 	size_t	vfc_datasize;		/* size of data args */
 };
 
@@ -500,7 +499,6 @@ struct nameidata;
 struct mbuf;
 
 extern int maxvfsconf;		/* highest defined filesystem type */
-extern struct vfsconf *vfsconf;	/* head of list of filesystem types */
 
 struct vfsops {
 	int	(*vfs_mount)(struct mount *mp, const char *path,
@@ -576,6 +574,8 @@ int	vfs_busy(struct mount *, int);
 #define VB_DUPOK	0x10	/* permit duplicate mount busying */
 
 int     vfs_isbusy(struct mount *);
+struct	mount *vfs_mount_alloc(struct vnode *, struct vfsconf *);
+void	vfs_mount_free(struct mount *);
 int     vfs_mount_foreach_vnode(struct mount *, int (*func)(struct vnode *,
 				    void *), void *);
 void	vfs_getnewfsid(struct mount *);
@@ -600,8 +600,8 @@ int	vfs_syncwait(struct proc *, int);   /* sync and wait for complete */
 void	vfs_shutdown(struct proc *);	    /* unmount and sync file systems */
 int	dounmount(struct mount *, int, struct proc *);
 void	vfsinit(void);
-int	vfs_register(struct vfsconf *);
-int	vfs_unregister(struct vfsconf *);
+struct	vfsconf *vfs_byname(const char *);
+struct	vfsconf *vfs_bytypenum(int);
 #else /* _KERNEL */
 __BEGIN_DECLS
 int	fstatfs(int, struct statfs *);

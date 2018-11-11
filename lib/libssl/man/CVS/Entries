@@ -63,7 +63,7 @@
 /SSL_alert_type_string.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_clear.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_connect.3/1.6/Tue Mar 27 17:35:50 2018//
-/SSL_copy_session_id.3/1.4/Tue Mar 27 17:35:50 2018//
+/SSL_copy_session_id.3/1.6/Fri Aug 24 21:29:51 2018//
 /SSL_do_handshake.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_dup.3/1.3/Tue Mar 27 17:35:50 2018//
 /SSL_dup_CA_list.3/1.5/Wed Apr 25 13:51:34 2018//
@@ -111,6 +111,6 @@
 /SSL_state_string.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_want.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_write.3/1.5/Tue Mar 27 17:35:50 2018//
-/d2i_SSL_SESSION.3/1.5/Tue Mar 27 17:35:50 2018//
+/d2i_SSL_SESSION.3/1.6/Mon Aug 27 15:42:39 2018//
 /ssl.3/1.14/Sat Mar 17 18:19:49 2018//
 D

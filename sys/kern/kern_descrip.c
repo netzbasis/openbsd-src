@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.177 2018/07/10 08:58:50 mpi Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.183 2018/11/05 17:05:50 anton Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -527,6 +527,10 @@ restart:
 		    sizeof (fl));
 		if (error)
 			break;
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrflock(p, &fl);
+#endif
 		if (fl.l_whence == SEEK_CUR) {
 			if (fl.l_start == 0 && fl.l_len < 0) {
 				/* lockf(3) compliance hack */
@@ -615,6 +619,10 @@ restart:
 		error = VOP_ADVLOCK(vp, fdp, F_GETLK, &fl, F_POSIX);
 		if (error)
 			break;
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrflock(p, &fl);
+#endif
 		error = (copyout((caddr_t)&fl, (caddr_t)SCARG(uap, arg),
 		    sizeof (fl)));
 		break;
@@ -1002,6 +1010,7 @@ restart:
 		return (ENFILE);
 	}
 
+	FREF(fp);
 	*resultfp = fp;
 	*resultfd = i;
 
@@ -1021,12 +1030,6 @@ fnew(struct proc *p)
 		return (NULL);
 	}
 
-	/*
-	 * Allocate a new file descriptor.
-	 * If the process has file descriptor zero open, add to the list
-	 * of open files at that point, otherwise put it at the front of
-	 * the list of open files.
-	 */
 	fp = pool_get(&file_pool, PR_WAITOK|PR_ZERO);
 	/*
 	 * We need to block interrupts as long as `f_mtx' is being taken
@@ -1036,8 +1039,6 @@ fnew(struct proc *p)
 	fp->f_count = 1;
 	fp->f_cred = p->p_ucred;
 	crhold(fp->f_cred);
-
-	FREF(fp);
 
 	return (fp);
 }
@@ -1143,8 +1144,11 @@ fdcopy(struct process *pr)
 			 * their internal consistency, so close them here.
 			 */
 			if (fp->f_count >= FDUP_MAX_COUNT ||
-			    fp->f_type == DTYPE_KQUEUE)
+			    fp->f_type == DTYPE_KQUEUE) {
+				if (i < newfdp->fd_freefile)
+					newfdp->fd_freefile = i;
 				continue;
+			}
 
 			FREF(fp);
 			newfdp->fd_ofiles[i] = fp;
@@ -1164,16 +1168,16 @@ void
 fdfree(struct proc *p)
 {
 	struct filedesc *fdp = p->p_fd;
-	struct file **fpp, *fp;
-	int i;
+	struct file *fp;
+	int fd;
 
 	if (--fdp->fd_refcnt > 0)
 		return;
-	fpp = fdp->fd_ofiles;
-	for (i = fdp->fd_lastfile; i >= 0; i--, fpp++) {
-		fp = *fpp;
+	for (fd = 0; fd <= fdp->fd_lastfile; fd++) {
+		fp = fdp->fd_ofiles[fd];
 		if (fp != NULL) {
-			*fpp = NULL;
+			fdp->fd_ofiles[fd] = NULL;
+			knote_fdclose(p, fd);
 			 /* closef() expects a refcount of 2 */
 			FREF(fp);
 			(void) closef(fp, p);

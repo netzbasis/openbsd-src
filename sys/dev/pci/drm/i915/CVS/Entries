@@ -9,16 +9,16 @@
 /dvo_tfp410.c/1.7/Sat Jul  1 16:14:10 2017//
 /i915_cmd_parser.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_devlist.h/1.8/Mon Jan 22 02:28:09 2018//
-/i915_dma.c/1.26/Sat Sep 30 07:36:56 2017//
+/i915_dma.c/1.28/Wed Oct 31 08:50:25 2018//
 /i915_drv.c/1.114/Mon Jun 25 22:29:16 2018//
 /i915_drv.h/1.80/Mon Jun 25 22:29:16 2018//
-/i915_gem.c/1.112/Thu May 31 02:16:22 2018//
+/i915_gem.c/1.114/Wed Oct 31 08:50:25 2018//
 /i915_gem_batch_pool.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_batch_pool.h/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_context.c/1.15/Sat Jul  1 16:14:10 2017//
 /i915_gem_dmabuf.c/1.1/Mon Jun 25 22:29:16 2018//
 /i915_gem_evict.c/1.8/Sat Jul  1 16:14:10 2017//
-/i915_gem_execbuffer.c/1.43/Wed Feb 28 00:44:28 2018//
+/i915_gem_execbuffer.c/1.44/Wed Oct 31 10:35:27 2018//
 /i915_gem_fence.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_gtt.c/1.16/Tue Dec 26 13:22:36 2017//
 /i915_gem_gtt.h/1.1/Sat Jul  1 16:14:10 2017//
@@ -26,7 +26,7 @@
 /i915_gem_render_state.h/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_stolen.c/1.3/Sat Sep 30 07:36:56 2017//
 /i915_gem_tiling.c/1.20/Sat Jul  1 16:14:10 2017//
-/i915_gem_userptr.c/1.1/Sat Jul  1 16:14:10 2017//
+/i915_gem_userptr.c/1.2/Thu Sep 13 03:45:08 2018//
 /i915_gpu_error.c/1.2/Sat Jul  1 16:14:10 2017//
 /i915_guc_reg.h/1.1/Sat Jul  1 16:14:10 2017//
 /i915_guc_submission.c/1.2/Sat Sep 30 07:36:56 2017//
@@ -34,7 +34,7 @@
 /i915_params.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_reg.h/1.14/Sat Sep 30 07:36:56 2017//
 /i915_suspend.c/1.8/Sat Jul  1 16:14:10 2017//
-/i915_trace.h/1.14/Sat Jul  1 16:14:10 2017//
+/i915_trace.h/1.15/Wed Oct 31 10:35:27 2018//
 /i915_vgpu.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_vgpu.h/1.1/Sat Jul  1 16:14:10 2017//
 /intel_atomic.c/1.1/Sat Jul  1 16:14:10 2017//
@@ -55,7 +55,7 @@
 /intel_dsi_pll.c/1.2/Sun Jul  2 20:58:55 2017//
 /intel_dvo.c/1.8/Sat Jul  1 16:14:10 2017//
 /intel_fbc.c/1.2/Sat Sep 30 07:36:56 2017//
-/intel_fbdev.c/1.3/Sat Jul  1 16:14:10 2017//
+/intel_fbdev.c/1.4/Mon Jul 30 19:40:53 2018//
 /intel_fifo_underrun.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_frontbuffer.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_gtt.c/1.1/Sat Jul  1 16:14:10 2017//
@@ -82,7 +82,7 @@
 /intel_renderstate_gen8.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_renderstate_gen9.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_ringbuffer.c/1.34/Sat Sep 30 07:36:56 2017//
-/intel_ringbuffer.h/1.7/Sat Jul  1 16:14:10 2017//
+/intel_ringbuffer.h/1.8/Thu Nov  1 10:44:27 2018//
 /intel_runtime_pm.c/1.2/Sat Sep 30 07:36:56 2017//
 /intel_sdvo.c/1.21/Fri Jul 14 11:18:04 2017//
 /intel_sdvo_regs.h/1.3/Sat Jul  1 16:14:10 2017//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: display.h,v 1.12 2013/01/14 21:33:59 guenther Exp $	*/
+/*	$OpenBSD: display.h,v 1.14 2018/10/05 18:56:57 cheloha Exp $	*/
 
 /*
  *  Top users/processes display for Unix

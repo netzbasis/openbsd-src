@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.77 2018/07/05 19:25:38 kettenis Exp $
+# $OpenBSD: GENERIC,v 1.91 2018/09/11 13:54:28 ccardenas Exp $
 #
 # GENERIC machine description file
 #
@@ -58,7 +58,8 @@ uk*		at scsibus?
 
 ampintc*	at fdt? early 1
 ampintcmsi*	at fdt? early 1
-agintc*		at fdt?
+agintc*		at fdt? early 1
+agintcmsi*	at fdt? early 1
 agtimer*	at fdt?
 ahci*		at fdt?
 dwge*		at fdt?
@@ -76,9 +77,11 @@ ccp*		at fdt?		# AMD Cryptographic Co-processor
 # NS16550 compatible serial ports
 com*		at fdt?
 
-# Virt on-chip devices
-pluart*		at fdt?		# onboard uarts
+# Generic devices
+pinctrl*	at fdt? early 1
+plgpio*		at fdt? early 1
 plrtc*		at fdt?
+pluart*		at fdt?
 psci*		at fdt? early 1
 syscon*		at fdt? early 1
 
@@ -97,6 +100,10 @@ option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
 simplefb*	at fdt?
 wsdisplay*	at simplefb?
 
+radeondrm*	at pci?
+drm*		at radeondrm?
+wsdisplay*	at radeondrm?
+
 # iMX
 imxccm*		at fdt? early 1
 imxiomuxc*	at fdt? early 1
@@ -111,6 +118,10 @@ imxesdhc*	at fdt?
 sdmmc*		at imxesdhc?
 imxpd*		at fdt?
 imxdwusb*	at fdt?
+imxspi*		at fdt?
+ssdfb*		at iic?
+ssdfb*		at spi?
+wsdisplay*	at ssdfb?
 
 # Raspberry Pi 3
 bcmaux*		at fdt?
@@ -120,6 +131,12 @@ bcmrng*		at fdt?
 bcmtemp*	at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+
+# HiSilicon SoCs
+hiclock*	at fdt? early 1
+hidwusb*	at fdt?
+hireset*	at fdt? early 1
+hitemp*		at fdt?
 
 # Marvell SoCs
 mvclock*	at fdt? early 1
@@ -163,6 +180,7 @@ ppb*		at pci?			# PCI-PCI bridges
 pci*		at ppb?
 
 # PCI Ethernet
+bnxt*		at pci?			# Broadcom BCM573xx, BCM574xx
 em*		at pci?			# Intel Pro/1000 Ethernet
 ix*		at pci?			# Intel 82598EB 10Gb Ethernet
 mskc*		at pci?			# Marvell Yukon-2
@@ -207,6 +225,8 @@ umct*		at uhub?		# MCT USB-RS232 serial adapter
 ucom*		at umct?
 uslcom*		at uhub?		# Silicon Laboratories CP210x serial
 ucom*		at uslcom?
+uscom*		at uhub?		# Simple USB serial adapters
+ucom*		at uscom?
 uark*		at uhub?		# Arkmicro ARK3116 serial
 ucom*		at uark?
 moscom*		at uhub?		# MosChip MCS7703 serial
@@ -255,6 +275,7 @@ upl*		at uhub?		# Prolific PL2301/PL2302 host-to-host `network'
 ugl*		at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*		at uhub?		# Davicom DM9601 based Ethernet
 mos*		at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
+mue*		at uhub?		# Microchip LAN75xx/LAN78xx Ethernet
 url*		at uhub?		# Realtek RTL8150L based adapters
 ure*		at uhub?		# Realtek RTL8152 based adapters
 wi*		at uhub?		# WaveLAN IEEE 802.11DS

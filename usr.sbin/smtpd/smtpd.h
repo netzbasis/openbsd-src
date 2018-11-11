@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.555 2018/06/18 18:19:14 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.573 2018/11/08 13:21:00 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -23,13 +23,12 @@
 #endif
 
 #include <netinet/in.h>
+#include <netdb.h>
 #include <event.h>
 
 #include "smtpd-defines.h"
 #include "smtpd-api.h"
 #include "ioev.h"
-
-#include "rfc2822.h"
 
 #define CHECK_IMSG_DATA_SIZE(imsg, expected_sz) do {			\
 	if ((imsg)->hdr.len - IMSG_HEADER_SIZE != (expected_sz))	\
@@ -84,15 +83,14 @@
 #define	F_EXT_DSN		0x400
 #define	F_RECEIVEDAUTH		0x800
 #define	F_MASQUERADE		0x1000
+#define	F_FILTERED		0x2000
 
+#define RELAY_TLS_OPPORTUNISTIC	0
+#define RELAY_TLS_STARTTLS	1
+#define RELAY_TLS_SMTPS		2
+#define RELAY_TLS_NO		3
 
-#define RELAY_STARTTLS		0x01
-#define RELAY_SMTPS		0x02
-#define	RELAY_TLS_OPTIONAL     	0x04
-#define RELAY_SSL		(RELAY_STARTTLS | RELAY_SMTPS)
 #define RELAY_AUTH		0x08
-#define RELAY_BACKUP		0x10
-#define RELAY_MX		0x20
 #define RELAY_LMTP		0x80
 #define	RELAY_TLS_VERIFY	0x200
 
@@ -116,6 +114,7 @@ struct netaddr {
 
 struct relayhost {
 	uint16_t flags;
+	int tls;
 	char hostname[HOST_NAME_MAX+1];
 	uint16_t port;
 	char authlabel[PATH_MAX];
@@ -199,6 +198,10 @@ enum imsg_type {
 
 	IMSG_CTL_SMTP_SESSION,
 
+	IMSG_GETADDRINFO,
+	IMSG_GETADDRINFO_END,
+	IMSG_GETNAMEINFO,
+
 	IMSG_SETUP_KEY,
 	IMSG_SETUP_PEER,
 	IMSG_SETUP_DONE,
@@ -255,7 +258,6 @@ enum imsg_type {
 	IMSG_MTA_DELIVERY_HOLD,
 	IMSG_MTA_DNS_HOST,
 	IMSG_MTA_DNS_HOST_END,
-	IMSG_MTA_DNS_PTR,
 	IMSG_MTA_DNS_MX,
 	IMSG_MTA_DNS_MX_PREFERENCE,
 	IMSG_MTA_HOLDQ_RELEASE,
@@ -278,7 +280,6 @@ enum imsg_type {
 	IMSG_SCHED_ENVELOPE_TRANSFER,
 
 	IMSG_SMTP_AUTHENTICATE,
-	IMSG_SMTP_DNS_PTR,
 	IMSG_SMTP_MESSAGE_COMMIT,
 	IMSG_SMTP_MESSAGE_CREATE,
 	IMSG_SMTP_MESSAGE_ROLLBACK,
@@ -302,6 +303,22 @@ enum imsg_type {
 	IMSG_SMTP_EVENT_ROLLBACK,
 	IMSG_SMTP_EVENT_DISCONNECT,
 
+	IMSG_LKA_PROCESSOR_FORK,
+
+	IMSG_SMTP_REPORT_LINK_CONNECT,
+	IMSG_SMTP_REPORT_LINK_DISCONNECT,
+	IMSG_SMTP_REPORT_LINK_TLS,
+
+	IMSG_SMTP_REPORT_TX_BEGIN,
+	IMSG_SMTP_REPORT_TX_ENVELOPE,
+	IMSG_SMTP_REPORT_TX_COMMIT,
+	IMSG_SMTP_REPORT_TX_ROLLBACK,
+
+	IMSG_SMTP_REPORT_PROTOCOL_CLIENT,
+	IMSG_SMTP_REPORT_PROTOCOL_SERVER,
+
+	IMSG_SMTP_FILTER,
+
 	IMSG_CA_PRIVENC,
 	IMSG_CA_PRIVDEC
 };
@@ -314,7 +331,7 @@ enum smtp_proc_type {
 	PROC_SCHEDULER,
 	PROC_PONY,
 	PROC_CA,
-
+	PROC_PROCESSOR,
 	PROC_CLIENT,
 };
 
@@ -375,6 +392,23 @@ enum expand_type {
 	EXPAND_INCLUDE,
 	EXPAND_ADDRESS,
 	EXPAND_ERROR,
+};
+
+enum filter_phase {
+	FILTER_CONNECTED = 0,
+	FILTER_HELO,
+	FILTER_EHLO,
+	FILTER_STARTTLS,
+	FILTER_AUTH,
+	FILTER_MAIL_FROM,
+	FILTER_RCPT_TO,
+	FILTER_DATA,
+	FILTER_RSET,
+	FILTER_QUIT,
+	FILTER_NOOP,
+	FILTER_HELP,
+	FILTER_WIZ,
+	FILTER_PHASES_COUNT     /* must be last */
 };
 
 struct expandnode {
@@ -478,7 +512,6 @@ struct listener {
 	char			 pki_name[PATH_MAX];
 	char			 ca_name[PATH_MAX];
 	char			 tag[SMTPD_TAG_SIZE];
-	char			 filter[PATH_MAX];
 	char			 authtable[LINE_MAX];
 	char			 hostname[HOST_NAME_MAX+1];
 	char			 hostnametable[PATH_MAX];
@@ -531,6 +564,9 @@ struct smtpd {
 	size_t				sc_scheduler_max_msg_batch_size;
 	size_t				sc_scheduler_max_schedule;
 
+	struct dict		       *sc_processors_dict;
+	struct dict		       *sc_smtp_reporters_dict;
+
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
 	time_t				sc_bounce_warn[MAX_BOUNCE_WARN];
@@ -546,6 +582,8 @@ struct smtpd {
 	TAILQ_HEAD(listenerlist, listener)	*sc_listeners;
 
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
+	TAILQ_HEAD(filterrules, filter_rule)    sc_filter_rules[FILTER_PHASES_COUNT];
+
 	struct dict				*sc_dispatchers;
 	struct dispatcher			*sc_dispatcher_bounce;
 
@@ -626,7 +664,7 @@ struct mta_mx {
 struct mta_domain {
 	SPLAY_ENTRY(mta_domain)	 entry;
 	char			*name;
-	int			 flags;
+	int			 as_host;
 	TAILQ_HEAD(, mta_mx)	 mxs;
 	int			 mxstatus;
 	int			 refcount;
@@ -731,6 +769,7 @@ struct mta_relay {
 	struct dispatcher	*dispatcher;
 	struct mta_domain	*domain;
 	struct mta_limits	*limits;
+	int			 tls;
 	int			 flags;
 	char			*backupname;
 	int			 backuppref;
@@ -975,9 +1014,48 @@ enum lka_resp_status {
 	LKA_PERMFAIL
 };
 
+struct processor {
+	const char		       *command;
+	const char		       *user;
+	const char		       *group;
+	const char		       *chroot;
+};
+
+struct filter_rule {
+	TAILQ_ENTRY(filter_rule)        entry;
+
+	enum filter_phase               phase;
+	char                           *reject;
+	char                           *disconnect;
+	char                           *rewrite;
+	char                           *proc;
+
+	int8_t                          not_table;
+	struct table                   *table;
+
+	int8_t                          not_regex;
+	struct table                   *regex;
+
+	int8_t				not_rdns;
+	int8_t				rdns;
+};
+
+enum filter_status {
+	FILTER_PROCEED,
+	FILTER_REWRITE,
+	FILTER_REJECT,
+	FILTER_DISCONNECT,
+};
+
 enum ca_resp_status {
 	CA_OK,
 	CA_FAIL
+};
+
+enum mda_resp_status {
+	MDA_OK,
+	MDA_TEMPFAIL,
+	MDA_PERMFAIL
 };
 
 struct ca_cert_req_msg {
@@ -1056,6 +1134,7 @@ struct dispatcher_remote {
 
 	char	*smarthost;
 	char	*auth;
+	int	 tls_required;
 	int	 tls_noverify;
 
 	int	 backup;
@@ -1212,6 +1291,28 @@ int limit_mta_set(struct mta_limits *, const char*, int64_t);
 int lka(void);
 
 
+/* lka_proc.c */
+void lka_proc_forked(const char *, int);
+struct io *lka_proc_get_io(const char *);
+
+
+/* lka_report.c */
+void lka_report_smtp_link_connect(time_t, uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
+void lka_report_smtp_link_disconnect(time_t, uint64_t);
+void lka_report_smtp_link_tls(time_t, uint64_t, const char *);
+void lka_report_smtp_tx_begin(time_t, uint64_t, uint32_t);
+void lka_report_smtp_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
+void lka_report_smtp_tx_commit(time_t, uint64_t, uint32_t, size_t);
+void lka_report_smtp_tx_rollback(time_t, uint64_t);
+void lka_report_smtp_protocol_client(time_t, uint64_t, const char *);
+void lka_report_smtp_protocol_server(time_t, uint64_t, const char *);
+
+
+/* lka_filter.c */
+void lka_filter(uint64_t, enum filter_phase, const char *, const char *);
+int lka_filter_response(uint64_t, const char *, const char *);
+
+
 /* lka_session.c */
 void lka_session(uint64_t, struct envelope *);
 void lka_session_forward_reply(struct forward_req *, int);
@@ -1362,12 +1463,33 @@ int pony(void);
 void pony_imsg(struct mproc *, struct imsg *);
 
 
+/* resolver.c */
+void resolver_getaddrinfo(const char *, const char *, const struct addrinfo *,
+    void(*)(void *, int, struct addrinfo*), void *);
+void resolver_getnameinfo(const struct sockaddr *, int,
+    void(*)(void *, int, const char *, const char *), void *);
+void resolver_dispatch_request(struct mproc *, struct imsg *);
+void resolver_dispatch_result(struct mproc *, struct imsg *);
+
+
 /* smtp.c */
 void smtp_postfork(void);
 void smtp_postprivdrop(void);
 void smtp_imsg(struct mproc *, struct imsg *);
 void smtp_configure(void);
 void smtp_collect(void);
+
+
+/* smtp_report.c */
+void smtp_report_link_connect(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
+void smtp_report_link_disconnect(uint64_t);
+void smtp_report_link_tls(uint64_t, const char *);
+void smtp_report_tx_begin(uint64_t, uint32_t);
+void smtp_report_tx_envelope(uint64_t, uint32_t, uint64_t);
+void smtp_report_tx_commit(uint64_t, uint32_t, size_t);
+void smtp_report_tx_rollback(uint64_t);
+void smtp_report_protocol_client(uint64_t, const char *);
+void smtp_report_protocol_server(uint64_t, const char *);
 
 
 /* smtp_session.c */
@@ -1426,6 +1548,7 @@ void table_add(struct table *, const char *, const char *);
 int table_domain_match(const char *, const char *);
 int table_netaddr_match(const char *, const char *);
 int table_mailaddr_match(const char *, const char *);
+int table_regex_match(const char *, const char *);
 void	table_open_all(struct smtpd *);
 void	table_dump_all(struct smtpd *);
 void	table_close_all(struct smtpd *);
@@ -1470,6 +1593,7 @@ int hostname_match(const char *, const char *);
 int mailaddr_match(const struct mailaddr *, const struct mailaddr *);
 int valid_localpart(const char *);
 int valid_domainpart(const char *);
+int valid_smtp_response(const char *);
 int secure_file(int, char *, char *, uid_t, int);
 int  lowercase(char *, const char *, size_t);
 void xlowercase(char *, const char *, size_t);

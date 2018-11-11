@@ -1,4 +1,4 @@
-/*	$OpenBSD: ipsec_input.c,v 1.165 2018/07/11 09:07:59 mpi Exp $	*/
+/*	$OpenBSD: ipsec_input.c,v 1.168 2018/11/09 13:26:12 claudio Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -162,7 +162,7 @@ ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto,
 } while (0)
 
 	union sockaddr_union dst_address;
-	struct tdb *tdbp;
+	struct tdb *tdbp = NULL;
 	struct ifnet *encif;
 	u_int32_t spi;
 	u_int16_t cpi;
@@ -325,17 +325,24 @@ ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto,
 			    tdbp->tdb_soft_first_use);
 	}
 
+	tdbp->tdb_ipackets++;
+	tdbp->tdb_ibytes += m->m_pkthdr.len;
+
 	/*
 	 * Call appropriate transform and return -- callback takes care of
 	 * everything else.
 	 */
 	error = (*(tdbp->tdb_xform->xf_input))(m, tdbp, skip, protoff);
-	if (error)
+	if (error) {
 		ipsecstat_inc(ipsec_idrops);
+		tdbp->tdb_idrops++;
+	}
 	return error;
 
  drop:
 	ipsecstat_inc(ipsec_idrops);
+	if (tdbp != NULL)
+		tdbp->tdb_idrops++;
 	m_freem(m);
 	return error;
 }
@@ -345,7 +352,7 @@ ipsec_input_cb(struct cryptop *crp)
 {
 	struct tdb_crypto *tc = (struct tdb_crypto *) crp->crp_opaque;
 	struct mbuf *m = (struct mbuf *) crp->crp_buf;
-	struct tdb *tdb;
+	struct tdb *tdb = NULL;
 	int clen, error;
 
 	if (m == NULL) {
@@ -400,14 +407,18 @@ ipsec_input_cb(struct cryptop *crp)
 	}
 
 	NET_UNLOCK();
-	if (error)
+	if (error) {
 		ipsecstat_inc(ipsec_idrops);
+		tdb->tdb_idrops++;
+	}
 	return;
 
  baddone:
 	NET_UNLOCK();
  droponly:
 	ipsecstat_inc(ipsec_idrops);
+	if (tdb != NULL)
+		tdb->tdb_idrops++;
 	free(tc, M_XDATA, 0);
 	m_freem(m);
 	crypto_freereq(crp);
@@ -651,6 +662,7 @@ ipsec_common_input_cb(struct mbuf *m, struct tdb *tdbp, int skip, int protoff)
 		m->m_flags |= M_TUNNEL;
 
 	ipsecstat_add(ipsec_idecompbytes, m->m_pkthdr.len);
+	tdbp->tdb_idecompbytes += m->m_pkthdr.len;
 
 #if NBPFILTER > 0
 	if ((encif = enc_getif(tdbp->tdb_rdomain, tdbp->tdb_tap)) != NULL) {
@@ -879,7 +891,6 @@ ah4_input(struct mbuf **mp, int *offp, int proto, int af)
 	return IPPROTO_DONE;
 }
 
-/* XXX rdomain */
 void
 ah4_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 {
@@ -980,7 +991,6 @@ ipsec_common_ctlinput(u_int rdomain, int cmd, struct sockaddr *sa,
 	}
 }
 
-/* XXX rdomain */
 void
 udpencap_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 {
@@ -1037,7 +1047,6 @@ udpencap_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 	}
 }
 
-/* XXX rdomain */
 void
 esp4_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *v)
 {

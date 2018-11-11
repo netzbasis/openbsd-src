@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_var.h,v 1.86 2018/07/11 20:18:09 phessler Exp $	*/
+/*	$OpenBSD: ieee80211_var.h,v 1.92 2018/10/27 10:02:47 phessler Exp $	*/
 /*	$NetBSD: ieee80211_var.h,v 1.7 2004/05/06 03:07:10 dyoung Exp $	*/
 
 /*-
@@ -339,9 +339,6 @@ struct ieee80211com {
 #define	ic_if		ic_ac.ac_if
 #define	ic_softc	ic_if.if_softc
 
-LIST_HEAD(ieee80211com_head, ieee80211com);
-extern struct ieee80211com_head ieee80211com_head;
-
 /* list of APs we want to automatically use */
 /* all data is copied from struct ieee80211com */
 struct ieee80211_ess {
@@ -392,7 +389,8 @@ struct ieee80211_ess {
 #define	IEEE80211_F_HTON	0x02000000	/* CONF: HT enabled */
 #define	IEEE80211_F_PBAR	0x04000000	/* CONF: PBAC required */
 #define	IEEE80211_F_BGSCAN	0x08000000	/* STATUS: background scan */
-#define IEEE80211_F_USERMASK	0xf0000000	/* CONF: ioctl flag mask */
+#define IEEE80211_F_AUTO_JOIN	0x10000000	/* CONF: auto-join active */
+#define IEEE80211_F_USERMASK	0xe0000000	/* CONF: ioctl flag mask */
 
 /* ic_xflags */
 #define	IEEE80211_F_TX_MGMT_ONLY 0x00000001	/* leave data frames on ifq */
@@ -451,9 +449,11 @@ enum ieee80211_phymode ieee80211_chan2mode(struct ieee80211com *,
 		const struct ieee80211_channel *);
 void	ieee80211_disable_wep(struct ieee80211com *); 
 void	ieee80211_disable_rsn(struct ieee80211com *); 
-int	ieee80211_add_ess(struct ieee80211com *, char *, int, int);
+int	ieee80211_add_ess(struct ieee80211com *, struct ieee80211_join *);
 void	ieee80211_del_ess(struct ieee80211com *, char *, int);
-void	ieee80211_set_ess(struct ieee80211com *, char *);
+void	ieee80211_set_ess(struct ieee80211com *, struct ieee80211_ess *,
+	    struct ieee80211_node *);
+struct ieee80211_ess *ieee80211_get_ess(struct ieee80211com *, const char *, int);
 
 extern	int ieee80211_cache_size;
 

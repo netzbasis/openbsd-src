@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.277 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.282 2018/09/29 04:29:48 visa Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -64,6 +64,7 @@
 #include <sys/pool.h>
 #include <sys/tree.h>
 #include <sys/specdev.h>
+#include <sys/atomic.h>
 
 #include <netinet/in.h>
 
@@ -163,6 +164,42 @@ vntblinit(void)
 }
 
 /*
+ * Allocate a mount point.
+ *
+ * The returned mount point is marked as busy.
+ */
+struct mount *
+vfs_mount_alloc(struct vnode *vp, struct vfsconf *vfsp)
+{
+	struct mount *mp;
+
+	mp = malloc(sizeof(*mp), M_MOUNT, M_WAITOK|M_ZERO);
+	rw_init_flags(&mp->mnt_lock, "vfslock", RWL_IS_VNODE);
+	(void)vfs_busy(mp, VB_READ|VB_NOWAIT);
+
+	LIST_INIT(&mp->mnt_vnodelist);
+	mp->mnt_vnodecovered = vp;
+
+	atomic_inc_int(&vfsp->vfc_refcount);
+	mp->mnt_vfc = vfsp;
+	mp->mnt_op = vfsp->vfc_vfsops;
+	mp->mnt_flag = vfsp->vfc_flags & MNT_VISFLAGMASK;
+	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
+
+	return (mp);
+}
+
+/*
+ * Release a mount point.
+ */
+void
+vfs_mount_free(struct mount *mp)
+{
+	atomic_dec_int(&mp->mnt_vfc->vfc_refcount);
+	free(mp, M_MOUNT, sizeof(*mp));
+}
+
+/*
  * Mark a mount point as busy. Used to synchronize access and to delay
  * unmounting.
  *
@@ -173,10 +210,6 @@ int
 vfs_busy(struct mount *mp, int flags)
 {
 	int rwflags = 0;
-
-	/* new mountpoints need their lock initialised */
-	if (mp->mnt_lock.rwl_name == NULL)
-		rw_init_flags(&mp->mnt_lock, "vfslock", RWL_IS_VNODE);
 
 	if (flags & VB_WRITE)
 		rwflags |= RW_WRITE;
@@ -229,21 +262,11 @@ vfs_rootmountalloc(char *fstypename, char *devname, struct mount **mpp)
 	struct vfsconf *vfsp;
 	struct mount *mp;
 
-	for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next)
-		if (!strcmp(vfsp->vfc_name, fstypename))
-			break;
+	vfsp = vfs_byname(fstypename);
 	if (vfsp == NULL)
 		return (ENODEV);
-	mp = malloc(sizeof(*mp), M_MOUNT, M_WAITOK|M_ZERO);
-	(void)vfs_busy(mp, VB_READ|VB_NOWAIT);
-	LIST_INIT(&mp->mnt_vnodelist);
-	mp->mnt_vfc = vfsp;
-	mp->mnt_op = vfsp->vfc_vfsops;
-	mp->mnt_flag = MNT_RDONLY;
-	mp->mnt_vnodecovered = NULLVP;
-	vfsp->vfc_refcount++;
-	mp->mnt_flag |= vfsp->vfc_flags & MNT_VISFLAGMASK;
-	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
+	mp = vfs_mount_alloc(NULLVP, vfsp);
+	mp->mnt_flag |= MNT_RDONLY;
 	mp->mnt_stat.f_mntonname[0] = '/';
 	copystr(devname, mp->mnt_stat.f_mntfromname, MNAMELEN, 0);
 	copystr(devname, mp->mnt_stat.f_mntfromspec, MNAMELEN, 0);
@@ -1307,10 +1330,7 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (ENOTDIR);		/* overloaded */
 
 	if (name[0] != VFS_GENERIC) {
-		for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next)
-			if (vfsp->vfc_typenum == name[0])
-				break;
-
+		vfsp = vfs_bytypenum(name[0]);
 		if (vfsp == NULL || vfsp->vfc_vfsops->vfs_sysctl == NULL)
 			return (EOPNOTSUPP);
 
@@ -1326,10 +1346,7 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		if (namelen < 3)
 			return (ENOTDIR);	/* overloaded */
 
-		for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next)
-			if (vfsp->vfc_typenum == name[2])
-				break;
-
+		vfsp = vfs_bytypenum(name[2]);
 		if (vfsp == NULL)
 			return (EOPNOTSUPP);
 
@@ -1337,7 +1354,6 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		tmpvfsp = malloc(sizeof(*tmpvfsp), M_TEMP, M_WAITOK|M_ZERO);
 		memcpy(tmpvfsp, vfsp, sizeof(*tmpvfsp));
 		tmpvfsp->vfc_vfsops = NULL;
-		tmpvfsp->vfc_next = NULL;
 
 		ret = sysctl_rdstruct(oldp, oldlenp, newp, tmpvfsp,
 		    sizeof(struct vfsconf));
@@ -1691,7 +1707,7 @@ vfs_shutdown(struct proc *p)
 	acct_shutdown();
 #endif
 
-	printf("syncing disks... ");
+	printf("syncing disks...");
 
 	if (panicstr == 0) {
 		/* Sync before unmount, in case we hang on something. */
@@ -1704,9 +1720,9 @@ vfs_shutdown(struct proc *p)
 #endif
 
 	if (vfs_syncwait(p, 1))
-		printf("giving up\n");
+		printf(" giving up\n");
 	else
-		printf("done\n");
+		printf(" done\n");
 }
 
 /*
@@ -2120,72 +2136,6 @@ reassignbuf(struct buf *bp)
 	bufinsvn(bp, listheadp);
 }
 
-int
-vfs_register(struct vfsconf *vfs)
-{
-	struct vfsconf *vfsp;
-	struct vfsconf **vfspp;
-
-#ifdef DIAGNOSTIC
-	/* Paranoia? */
-	if (vfs->vfc_refcount != 0)
-		printf("vfs_register called with vfc_refcount > 0\n");
-#endif
-
-	/* Check if filesystem already known */
-	for (vfspp = &vfsconf, vfsp = vfsconf; vfsp;
-	    vfspp = &vfsp->vfc_next, vfsp = vfsp->vfc_next)
-		if (strcmp(vfsp->vfc_name, vfs->vfc_name) == 0)
-			return (EEXIST);
-
-	if (vfs->vfc_typenum > maxvfsconf)
-		maxvfsconf = vfs->vfc_typenum;
-
-	vfs->vfc_next = NULL;
-
-	/* Add to the end of the list */
-	*vfspp = vfs;
-
-	/* Call vfs_init() */
-	if (vfs->vfc_vfsops->vfs_init)
-		(*(vfs->vfc_vfsops->vfs_init))(vfs);
-
-	return 0;
-}
-
-int
-vfs_unregister(struct vfsconf *vfs)
-{
-	struct vfsconf *vfsp;
-	struct vfsconf **vfspp;
-	int maxtypenum;
-
-	/* Find our vfsconf struct */
-	for (vfspp = &vfsconf, vfsp = vfsconf; vfsp;
-	    vfspp = &vfsp->vfc_next, vfsp = vfsp->vfc_next) {
-		if (strcmp(vfsp->vfc_name, vfs->vfc_name) == 0)
-			break;
-	}
-
-	if (!vfsp)			/* Not found */
-		return (ENOENT);
-
-	if (vfsp->vfc_refcount)		/* In use */
-		return (EBUSY);
-
-	/* Remove from list and free */
-	*vfspp = vfsp->vfc_next;
-
-	maxtypenum = 0;
-
-	for (vfsp = vfsconf; vfsp; vfsp = vfsp->vfc_next)
-		if (vfsp->vfc_typenum > maxtypenum)
-			maxtypenum = vfsp->vfc_typenum;
-
-	maxvfsconf = maxtypenum;
-	return 0;
-}
-
 /*
  * Check if vnode represents a disk device
  */
@@ -2278,7 +2228,7 @@ vfs_mount_print(struct mount *mp, int full,
 	    mp->mnt_flag, MNT_BITS,
 	    mp->mnt_vnodecovered, mp->mnt_syncer, mp->mnt_data);
 
-	(*pr)("vfsconf: ops %p name \"%s\" num %d ref %d flags 0x%x\n",
+	(*pr)("vfsconf: ops %p name \"%s\" num %d ref %u flags 0x%x\n",
             vfc->vfc_vfsops, vfc->vfc_name, vfc->vfc_typenum,
 	    vfc->vfc_refcount, vfc->vfc_flags);
 

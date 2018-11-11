@@ -14,7 +14,7 @@
 /db_interface.c/1.50/Tue Mar 20 15:45:32 2018//
 /db_trace.c/1.14/Fri Nov  3 11:29:47 2017//
 /disksubr.c/1.72/Tue Feb 28 10:49:37 2017//
-/emul.c/1.23/Sun Nov 16 12:30:59 2014//
+/emul.c/1.24/Wed Aug  8 08:42:49 2018//
 /genassym.cf/1.37/Sun Dec  3 10:55:50 2017//
 /hvcall.S/1.10/Sat Jun 25 20:45:00 2011//
 /in4_cksum.c/1.7/Sun Aug 24 20:06:57 2014//
@@ -27,7 +27,7 @@
 /mdesc.c/1.7/Sun Nov 30 22:26:15 2014//
 /mem.c/1.19/Thu Dec 14 03:30:43 2017//
 /mutex.S/1.9/Thu Apr 20 13:57:30 2017//
-/ofw_machdep.c/1.33/Mon Mar  7 13:21:51 2016//
+/ofw_machdep.c/1.34/Tue Aug 28 00:00:42 2018//
 /openfirm.c/1.21/Thu Aug 10 19:39:38 2017//
 /openprom.c/1.21/Sat Sep 19 21:07:04 2015//
 /pmap.c/1.103/Mon Dec  4 22:06:21 2017//

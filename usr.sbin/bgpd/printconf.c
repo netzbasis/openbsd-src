@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.109 2018/07/11 14:08:46 benno Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.123 2018/09/29 08:11:11 claudio Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -29,7 +29,7 @@
 #include "rde.h"
 #include "log.h"
 
-void		 print_op(enum comp_ops);
+void		 print_prefix(struct filter_prefix *p);
 void		 print_community(int, int);
 void		 print_largecommunity(int64_t, int64_t, int64_t);
 void		 print_extcommunity(struct filter_extcommunity *);
@@ -40,7 +40,10 @@ void		 print_rdomain_targets(struct filter_set_head *, const char *);
 void		 print_rdomain(struct rdomain *);
 const char	*print_af(u_int8_t);
 void		 print_network(struct network_config *, const char *);
+void		 print_as_sets(struct as_set_head *);
 void		 print_prefixsets(struct prefixset_head *);
+void		 print_originsets(struct prefixset_head *);
+void		 print_roa(struct prefixset_tree *p);
 void		 print_peer(struct peer_config *, struct bgpd_config *,
 		    const char *);
 const char	*print_auth_alg(u_int8_t);
@@ -55,35 +58,48 @@ void		 print_groups(struct bgpd_config *, struct peer *);
 int		 peer_compare(const void *, const void *);
 
 void
-print_op(enum comp_ops op)
+print_prefix(struct filter_prefix *p)
 {
-	switch (op) {
-	case OP_RANGE:
-		printf("-");
+	u_int8_t max_len = 0;
+
+	switch (p->addr.aid) {
+	case AID_INET:
+	case AID_VPN_IPv4:
+		max_len = 32;
 		break;
-	case OP_XRANGE:
-		printf("><");
+	case AID_INET6:
+		max_len = 128;
 		break;
-	case OP_EQ:
-		printf("=");
+	case AID_UNSPEC:
+		/* no prefix to print */
+		return;
+	}
+
+	printf("%s/%u", log_addr(&p->addr), p->len);
+
+	switch (p->op) {
+	case OP_NONE:
 		break;
 	case OP_NE:
-		printf("!=");
+		printf(" prefixlen != %u", p->len_min);
 		break;
-	case OP_LE:
-		printf("<=");
+	case OP_XRANGE:
+		printf(" prefixlen %u >< %u ", p->len_min, p->len_max);
 		break;
-	case OP_LT:
-		printf("<");
-		break;
-	case OP_GE:
-		printf(">=");
-		break;
-	case OP_GT:
-		printf(">");
+	case OP_RANGE:
+		if (p->len_min == p->len_max && p->len != p->len_min)
+			printf(" prefixlen = %u", p->len_min);
+		else if (p->len == p->len_min && p->len_max == max_len)
+			printf(" or-longer");
+		else if (p->len == p->len_min && p->len != p->len_max)
+			printf(" maxlen %u", p->len_max);
+		else if (p->len_max == max_len)
+			printf(" prefixlen >= %u", p->len_min);
+		else
+			printf(" prefixlen %u - %u", p->len_min, p->len_max);
 		break;
 	default:
-		printf("?");
+		printf(" prefixlen %u ??? %u", p->len_min, p->len_max);
 		break;
 	}
 }
@@ -343,6 +359,7 @@ print_mainconf(struct bgpd_config *conf)
 	if (conf->flags & BGPD_FLAG_NEXTHOP_DEFAULT)
 		printf("nexthop qualify via default\n");
 	printf("fib-priority %hhu", conf->fib_priority);
+	printf("\n\n");
 }
 
 void
@@ -414,6 +431,9 @@ print_network(struct network_config *n, const char *c)
 		printf("%snetwork %s priority %d", c,
 		    print_af(n->prefix.aid), n->priority);
 		break;
+	case NETWORK_PREFIXSET:
+		printf("%snetwork prefix-set %s", c, n->psname);
+		break;
 	default:
 		printf("%snetwork %s/%u", c, log_addr(&n->prefix),
 		    n->prefixlen);
@@ -426,32 +446,93 @@ print_network(struct network_config *n, const char *c)
 }
 
 void
+print_as_sets(struct as_set_head *as_sets)
+{
+	struct as_set *aset;
+	u_int32_t *as;
+	size_t i, n;
+	int len;
+
+	SIMPLEQ_FOREACH(aset, as_sets, entry) {
+		printf("as-set \"%s\" {\n\t", aset->name);
+		as = set_get(aset->set, &n);
+		for (i = 0, len = 8; i < n; i++) {
+			if (len > 72) {
+				printf("\n\t");
+				len = 8;
+			}
+			len += printf("%u ", as[i]);
+		}
+		printf("\n}\n\n");
+	}
+}
+
+void
 print_prefixsets(struct prefixset_head *psh)
 {
 	struct prefixset	*ps;
 	struct prefixset_item	*psi;
 
 	SIMPLEQ_FOREACH(ps, psh, entry) {
-		printf("prefix-set \"%s\" { ", ps->name);
-		SIMPLEQ_FOREACH(psi, &ps->psitems, entry) {
-			if (psi->p.addr.aid)
-				printf("%s/%u ", log_addr(&psi->p.addr),
-				    psi->p.len);
-			if (psi->p.op) {
-				if (psi->p.op == OP_RANGE ||
-				    psi->p.op == OP_XRANGE) {
-					printf("prefixlen %u ", psi->p.len_min);
-					print_op(psi->p.op);
-					printf(" %u ", psi->p.len_max);
-				} else {
-					printf("prefixlen ");
-					print_op(psi->p.op);
-					printf(" %u ", psi->p.len_min);
-				}
+		int count = 0;
+		printf("prefix-set \"%s\" {", ps->name);
+		RB_FOREACH(psi, prefixset_tree, &ps->psitems) {
+			if (count++ % 2 == 0)
+				printf("\n\t");
+			else
+				printf(", ");
+			print_prefix(&psi->p);
+		}
+		printf("\n}\n\n");
+	}
+}
+
+void
+print_originsets(struct prefixset_head *psh)
+{
+	struct prefixset	*ps;
+	struct prefixset_item	*psi;
+	struct roa_set		*rs;
+	size_t			 i, n;
+
+	SIMPLEQ_FOREACH(ps, psh, entry) {
+		printf("origin-set \"%s\" {", ps->name);
+		RB_FOREACH(psi, prefixset_tree, &ps->psitems) {
+			rs = set_get(psi->set, &n);
+			for (i = 0; i < n; i++) {
+				printf("\n\t");
+				print_prefix(&psi->p);
+				if (psi->p.len != rs[i].maxlen)
+					printf(" maxlen %u", rs[i].maxlen);
+				printf(" source-as %u", rs[i].as);
 			}
 		}
-		printf(" }\n");
+		printf("\n}\n\n");
 	}
+}
+
+void
+print_roa(struct prefixset_tree *p)
+{
+	struct prefixset_item	*psi;
+	struct roa_set		*rs;
+	size_t			 i, n;
+
+	if (RB_EMPTY(p))
+		return;
+
+	printf("roa-set {");
+	RB_FOREACH(psi, prefixset_tree, p) {
+		rs = set_get(psi->set, &n);
+		for (i = 0; i < n; i++) {
+			printf("\n\t");
+			print_prefix(&psi->p);
+			if (psi->p.len != rs[i].maxlen)
+				printf(" maxlen %u", rs[i].maxlen);
+			printf(" source-as %u", rs[i].as);
+		}
+	}
+	printf("\n}\n\n");
 }
 
 void
@@ -609,6 +690,10 @@ print_announce(struct peer_config *p, const char *c)
 
 void print_as(struct filter_rule *r)
 {
+	if (r->match.as.flags & AS_FLAG_AS_SET_NAME) {
+		printf("as-set \"%s\" ", r->match.as.name);
+		return;
+	}
 	switch(r->match.as.op) {
 	case OP_RANGE:
 		printf("%s - ", log_as(r->match.as.as_min));
@@ -619,10 +704,10 @@ void print_as(struct filter_rule *r)
 		printf("%s ", log_as(r->match.as.as_max));
 		break;
 	case OP_NE:
-		printf("!= %s ", log_as(r->match.as.as));
+		printf("!= %s ", log_as(r->match.as.as_min));
 		break;
 	default:
-		printf("%s ", log_as(r->match.as.as));
+		printf("%s ", log_as(r->match.as.as_min));
 		break;
 	}
 }
@@ -676,25 +761,35 @@ print_rule(struct peer *peer_l, struct filter_rule *r)
 	} else
 		printf("any ");
 
-	if (r->match.prefix.addr.aid)
-		printf("prefix %s/%u ", log_addr(&r->match.prefix.addr),
-		    r->match.prefix.len);
-
-	if (r->match.prefix.op) {
-		if (r->match.prefix.op == OP_RANGE ||
-		    r->match.prefix.op == OP_XRANGE) {
-			printf("prefixlen %u ", r->match.prefix.len_min);
-			print_op(r->match.prefix.op);
-			printf(" %u ", r->match.prefix.len_max);
-		} else {
-			printf("prefixlen ");
-			print_op(r->match.prefix.op);
-			printf(" %u ", r->match.prefix.len_min);
+	if (r->match.ovs.is_set) {
+		switch (r->match.ovs.validity) {
+		case ROA_VALID:
+			printf("ovs valid ");
+			break;
+		case ROA_INVALID:
+			printf("ovs invalid ");
+			break;
+		case ROA_NOTFOUND:
+			printf("ovs not-found ");
+			break;
+		default:
+			printf("ovs ??? %d ??? ", r->match.ovs.validity);
 		}
 	}
 
-	if (r->match.prefixset.flags & PREFIXSET_FLAG_FILTER)
+	if (r->match.prefix.addr.aid != AID_UNSPEC) {
+		printf("prefix ");
+		print_prefix(&r->match.prefix);
+		printf(" ");
+	}
+
+	if (r->match.prefixset.name[0] != '\0')
 		printf("prefix-set \"%s\" ", r->match.prefixset.name);
+	if (r->match.prefixset.flags & PREFIXSET_FLAG_LONGER)
+		printf("or-longer ");
+
+	if (r->match.originset.name[0] != '\0')
+		printf("origin-set \"%s\" ", r->match.originset.name);
 
 	if (r->match.nexthop.flags) {
 		if (r->match.nexthop.flags == FILTER_NEXTHOP_NEIGHBOR)
@@ -789,6 +884,8 @@ print_mrt(struct bgpd_config *conf, u_int32_t pid, u_int32_t gid,
 			else
 				printf(" %d\n", MRT2MC(m)->ReopenTimerInterval);
 		}
+	if (!LIST_EMPTY(conf->mrt))
+		printf("\n");
 }
 
 void
@@ -861,10 +958,14 @@ print_config(struct bgpd_config *conf, struct rib_names *rib_l,
 	struct rdomain		*rd;
 
 	print_mainconf(conf);
-	printf("\n");
+	print_roa(&conf->roa);
+	print_as_sets(conf->as_sets);
+	print_prefixsets(&conf->prefixsets);
+	print_originsets(&conf->originsets);
 	TAILQ_FOREACH(n, net_l, entry)
 		print_network(&n->net, "");
-	printf("\n");
+	if (!SIMPLEQ_EMPTY(rdom_l))
+		printf("\n");
 	SIMPLEQ_FOREACH(rd, rdom_l, entry)
 		print_rdomain(rd);
 	printf("\n");
@@ -879,12 +980,8 @@ print_config(struct bgpd_config *conf, struct rib_names *rib_l,
 			    "no" : "yes");
 	}
 	printf("\n");
-	print_prefixsets(conf->prefixsets);
-	printf("\n");
 	print_mrt(conf, 0, 0, "", "");
-	printf("\n");
 	print_groups(conf, peer_l);
-	printf("\n");
 	TAILQ_FOREACH(r, rules_l, entry)
 		print_rule(peer_l, r);
 }

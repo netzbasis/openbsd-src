@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.456 2018/06/30 18:15:12 mlarkin Exp $
+#	$OpenBSD: GENERIC,v 1.464 2018/10/26 20:26:19 kettenis Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -47,6 +47,7 @@ acpicpu*	at acpi?
 acpicmos*	at acpi?
 acpidock*	at acpi?
 acpiec*		at acpi?
+acpipci*	at acpi?
 acpiprt*	at acpi?
 acpisbs*	at acpi?
 acpitz*		at acpi?
@@ -230,6 +231,8 @@ umct*	at uhub?		# MCT USB-RS232 serial adapter
 ucom*	at umct?
 uslcom*	at uhub?		# Silicon Laboratories CP210x serial
 ucom*	at uslcom?
+uscom*	at uhub?		# Simple USB serial adapters
+ucom*	at uscom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 moscom*	at uhub?		# MosChip MCS7703 serial
@@ -255,6 +258,8 @@ wsmouse* at ubcmtp? mux 0
 uhidev*	at uhub?		# Human Interface Devices
 ums*	at uhidev?		# USB mouse
 wsmouse* at ums? mux 0
+umt*	at uhidev?		# USB multitouch touchpad
+wsmouse* at umt? mux 0
 uts*	at uhub?		# USB touchscreen
 wsmouse* at uts? mux 0
 uwacom*	at uhidev?		# USB Wacom tablet
@@ -280,6 +285,7 @@ upl*	at uhub?		# Prolific PL2301/PL2302 host-to-host `network'
 ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
+mue*	at uhub?		# Microchip LAN75xx/LAN78xx Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
 ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
@@ -414,7 +420,6 @@ pcscp*	at pci?				# AMD 53c974 PCscsi-PCI SCSI
 #trm*	at pci?				# Tekram DC-3x5U SCSI Controllers
 vmwpvs*	at pci?				# VMware ParaVirtual SCSI
 nvme*	at pci?				# NVMe controllers
-bwfm*	at pci?				# Broadcom FullMAC
 
 scsibus* at scsi?
 sd*	at scsibus?			# SCSI disk drives
@@ -511,6 +516,7 @@ alc*	at pci?				# Attansic L1C/L1D/L2C Ethernet
 ale*	at pci?				# Attansic L1E Ethernet
 lii*	at pci?				# Attansic L2 Ethernet
 jme*	at pci?				# JMicron JMC250/JMC260 Ethernet
+bnxt*	at pci?				# Broadcom BCM573xx, BCM574xx
 
 # Wireless network cards
 acx*	at pci?				# TI ACX100/ACX111 (802.11b/g)
@@ -541,6 +547,7 @@ pgt*	at cardbus?			# Prism54 (only full-mac varients)
 malo*	at pci?				# Marvell Libertas
 malo*	at cardbus?			# Marvell Libertas
 malo*	at pcmcia?			# Marvell 88W8385
+bwfm*	at pci?				# Broadcom FullMAC
 
 # Media Independent Interface (mii) drivers
 exphy*	at mii?				# 3Com internal PHYs

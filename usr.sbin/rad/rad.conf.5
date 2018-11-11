@@ -1,4 +1,4 @@
-.\"	$OpenBSD: rad.conf.5,v 1.3 2018/07/13 08:08:11 florian Exp $
+.\"	$OpenBSD: rad.conf.5,v 1.12 2018/09/16 18:58:36 bluhm Exp $
 .\"
 .\" Copyright (c) 2018 Florian Obser <florian@openbsd.org>
 .\" Copyright (c) 2005 Esben Norby <norby@openbsd.org>
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 13 2018 $
+.Dd $Mdocdate: September 16 2018 $
 .Dt RAD.CONF 5
 .Os
 .Sh NAME
@@ -69,16 +69,36 @@ These can be overwritten in interface blocks.
 .It Ic default router Pq Ic yes Ns | Ns Ic no
 Act as a default router or not.
 The default is yes.
+.It Ic dns Brq dns options
+.Ic dns
+options are as follows:
+.Bl -tag -width Ds
+.It Ic lifetime Ar seconds
+The number of seconds the dns options are valid after receiving a router
+advertisement message.
+The default is 900 seconds.
+.It Ic nameserver Pq Ar IP Ns | Ns { nameserver list }
+IPv6 address or list of IPv6 addresses of DNS name servers.
+.It Ic search Pq Ar domain Ns | Ns { domain list }
+Domain or list of domains for the
+.Xr resolv.conf 5
+search list.
+.El
 .It Ic hop limit Ar hops
 Specify the diameter of the internet.
 The default is 0, meaning unspecified by this router.
-.It managed address configuration Pq Ic yes Ns | Ns Ic no
+.It Ic managed address configuration Pq Ic yes Ns | Ns Ic no
 If set to yes, indicate that stateless address configuration prefixes are
 not available and hosts should consult DHCPv6.
 The default is no.
-.It other configuration Pq Ic yes Ns | Ns Ic no
+.It Ic mtu Ar bytes
+The MTU option is used in Router Advertisement messages to ensure that all
+nodes on a link use the same MTU value in those cases where the link MTU
+is not well known.
+The default is 0, meaning unspecified by this router.
+.It Ic other configuration Pq Ic yes Ns | Ns Ic no
 If set to yes, hosts should consult DHCPv6 for additional configuration
-like NTP servers or DNS resolvers.
+like NTP servers or DNS name servers.
 .It Ic router lifetime Ar seconds
 The number of seconds this router is a valid default router after receiving
 a router advertisement message.
@@ -106,6 +126,9 @@ The default is to discover prefixes to announce by inspecting the IPv6
 addresses configured on an interface.
 This can be disabled with
 .Ic no auto prefix .
+If
+.Ar prefix
+is specified without prefixlen, its default is 64.
 .Pp
 .Ic prefix
 options are as follows:

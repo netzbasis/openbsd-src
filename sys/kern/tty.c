@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty.c,v 1.141 2018/06/16 13:55:03 deraadt Exp $	*/
+/*	$OpenBSD: tty.c,v 1.143 2018/09/06 11:50:54 jsg Exp $	*/
 /*	$NetBSD: tty.c,v 1.68.4.2 1996/06/06 16:04:52 thorpej Exp $	*/
 
 /*-
@@ -792,6 +792,7 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 			/* ensure user can open the real console */
 			NDINIT(&nid, LOOKUP, FOLLOW, UIO_SYSSPACE, "/dev/console", p);
 			nid.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
+			nid.ni_unveil = UNVEIL_READ | UNVEIL_WRITE;
 			error = namei(&nid);
 			if (error)
 				return (error);
@@ -1609,10 +1610,10 @@ read:
 		/*
 		 * Give user character.
 		 */
- 		error = ureadc(c, uio);
+		error = ureadc(c, uio);
 		if (error)
 			break;
- 		if (uio->uio_resid == 0)
+		if (uio->uio_resid == 0)
 			break;
 		/*
 		 * In canonical mode check for a "break character"

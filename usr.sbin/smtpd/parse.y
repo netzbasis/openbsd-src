@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.216 2018/07/11 07:39:22 krw Exp $	*/
+/*	$OpenBSD: parse.y,v 1.230 2018/11/08 13:24:22 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -42,7 +42,6 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <netdb.h>
-#include <paths.h>
 #include <pwd.h>
 #include <resolv.h>
 #include <stdio.h>
@@ -99,7 +98,6 @@ char		*symget(const char *);
 struct smtpd		*conf = NULL;
 static int		 errors = 0;
 
-struct filter_conf	*filter = NULL;
 struct table		*table = NULL;
 struct mta_limits	*limits;
 static struct pki	*pki;
@@ -107,7 +105,8 @@ static struct ca	*sca;
 
 struct dispatcher	*dispatcher;
 struct rule		*rule;
-
+struct processor	*processor;
+struct filter_rule	*filter_rule;
 
 enum listen_options {
 	LO_FAMILY	= 0x000001,
@@ -157,7 +156,6 @@ static int	interface(struct listen_opts *);
 int		 delaytonum(char *);
 int		 is_if_in_group(const char *, const char *);
 
-static int config_lo_filter(struct listen_opts *, char *);
 static int config_lo_mask_source(struct listen_opts *);
 
 typedef struct {
@@ -175,23 +173,25 @@ typedef struct {
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE
-%token	CA CERT CIPHERS COMPRESSION
-%token	DHE DOMAIN
-%token	ENCRYPTION ERROR EXPAND_ONLY
+%token	CA CERT CHROOT CIPHERS COMPRESSION CONNECT
+%token	CHECK_RDNS CHECK_REGEX CHECK_TABLE
+%token	DATA DHE DISCONNECT DOMAIN
+%token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY 
 %token	FILTER FOR FORWARD_ONLY FROM
+%token	GROUP
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
 %token	JUNK
 %token	KEY
 %token	LIMIT LISTEN LMTP LOCAL
 %token	MAIL_FROM MAILDIR MASK_SRC MASQUERADE MATCH MAX_MESSAGE_SIZE MAX_DEFERRED MBOX MDA MTA MX
-%token	NODSN NOVERIFY
+%token	NO_DSN NO_VERIFY NOOP
 %token	ON
-%token	PKI PORT
-%token	QUEUE
-%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT
-%token	SCHEDULER SENDER SENDERS SMTP SMTPS SOCKET SRC SUB_ADDR_DELIM
-%token	TABLE TAG TAGGED TLS TLS_REQUIRE TO TTL
+%token	PKI PORT PROC
+%token	QUEUE QUIT
+%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT REPORT REWRITE RSET
+%token	SCHEDULER SENDER SENDERS SMTP SMTP_IN SMTPS SOCKET SRC SUB_ADDR_DELIM
+%token	TABLE TAG TAGGED TLS TLS_REQUIRE TTL
 %token	USER USERBASE
 %token	VERIFY VIRTUAL
 %token	WARN_INTERVAL WRAPPER
@@ -212,13 +212,16 @@ grammar		: /* empty */
 		| grammar mda '\n'
 		| grammar mta '\n'
 		| grammar pki '\n'
+		| grammar proc '\n'
 		| grammar queue '\n'
+		| grammar report '\n'
 		| grammar scheduler '\n'
 		| grammar smtp '\n'
 		| grammar listen '\n'
 		| grammar table '\n'
 		| grammar dispatcher '\n'
 		| grammar match '\n'
+		| grammar filter '\n'
 		| grammar error '\n'		{ file->errors++; }
 		;
 
@@ -430,6 +433,73 @@ pki_params_opt pki_params
 ;
 
 
+proc:
+PROC STRING STRING {
+	if (dict_get(conf->sc_processors_dict, $2)) {
+		yyerror("processor already exists with that name: %s", $2);
+		free($2);
+		free($3);
+		YYERROR;
+	}
+	processor = xcalloc(1, sizeof *processor);
+	processor->command = $3;
+} proc_params {
+	dict_set(conf->sc_processors_dict, $2, processor);
+	processor = NULL;
+}
+;
+
+
+proc_params_opt:
+USER STRING {
+	if (processor->user) {
+		yyerror("user already specified for this processor");
+		free($2);
+		YYERROR;
+	}
+	processor->user = $2;
+}
+| GROUP STRING {
+	if (processor->group) {
+		yyerror("group already specified for this processor");
+		free($2);
+		YYERROR;
+	}
+	processor->group = $2;
+}
+| CHROOT STRING {
+	if (processor->chroot) {
+		yyerror("chroot already specified for this processor");
+		free($2);
+		YYERROR;
+	}
+	processor->chroot = $2;
+}
+;
+
+proc_params:
+proc_params_opt proc_params
+| /* empty */
+;
+
+
+report:
+REPORT SMTP_IN ON STRING {
+	if (! dict_get(conf->sc_processors_dict, $4)) {
+		yyerror("no processor exist with that name: %s", $4);
+		free($4);
+		YYERROR;
+	}
+	if (dict_get(conf->sc_smtp_reporters_dict, $4)) {
+		yyerror("processor already registered for smtp reporting: %s", $4);
+		free($4);
+		YYERROR;
+	}
+	dict_set(conf->sc_smtp_reporters_dict, $4, (void *)~0);
+}
+;
+
+
 queue:
 QUEUE COMPRESSION {
 	conf->sc_queue_flags |= QUEUE_COMPRESSION;
@@ -613,11 +683,11 @@ MBOX {
 } dispatcher_local_options
 | LMTP STRING {
 	asprintf(&dispatcher->u.local.command,
-	    "/usr/libexec/mail.lmtp -f \"%%{sender}\" -d %s %%{user.username}", $2);
+	    "/usr/libexec/mail.lmtp -f %%{mbox.from} -d %s %%{user.username}", $2);
 } dispatcher_local_options
 | LMTP STRING RCPT_TO {
 	asprintf(&dispatcher->u.local.command,
-	    "/usr/libexec/mail.lmtp -f \"%%{sender}\" -d %s %%{dest}", $2);
+	    "/usr/libexec/mail.lmtp -f %%{mbox.from} -d %s %%{dest}", $2);
 } dispatcher_local_options
 | MDA STRING {
 	asprintf(&dispatcher->u.local.command,
@@ -741,17 +811,21 @@ HELO STRING {
 
 	dispatcher->u.remote.smarthost = strdup(t->t_name);
 }
-| TLS NOVERIFY {
-	if (dispatcher->u.remote.smarthost == NULL) {
-		yyerror("tls no-verify may not be specified without host on a dispatcher");
+| TLS {
+	if (dispatcher->u.remote.tls_required == 1) {
+		yyerror("tls already specified for this dispatcher");
 		YYERROR;
 	}
 
-	if (dispatcher->u.remote.tls_noverify == 1) {
-		yyerror("tls no-verify already specified for this dispatcher");
+	dispatcher->u.remote.tls_required = 1;
+}
+| TLS NO_VERIFY {
+	if (dispatcher->u.remote.tls_required == 1) {
+		yyerror("tls already specified for this dispatcher");
 		YYERROR;
 	}
 
+	dispatcher->u.remote.tls_required = 1;
 	dispatcher->u.remote.tls_noverify = 1;
 }
 | AUTH tables {
@@ -1058,6 +1132,162 @@ MATCH {
 }
 ;
 
+filter_action_proc:
+ON STRING {
+	filter_rule->proc = $2;
+}
+;
+
+filter_action_builtin:
+REJECT STRING {
+	filter_rule->reject = $2;
+}
+| DISCONNECT STRING {
+	filter_rule->disconnect = $2;
+}
+/*
+| REWRITE STRING {
+	filter_rule->rewrite = $2;
+}
+*/
+;
+
+filter_phase_check_table:
+negation CHECK_TABLE tables {
+	filter_rule->not_table =  $1 ? -1 : 1;
+	filter_rule->table = $3;
+}
+;
+
+filter_phase_check_regex:
+negation CHECK_REGEX tables {
+	filter_rule->not_regex = $1 ? -1 : 1;
+	filter_rule->regex = $3;
+}
+;
+
+filter_phase_check_rdns:
+negation CHECK_RDNS {
+	filter_rule->not_rdns = $1 ? -1 : 1;
+	filter_rule->rdns = 1;
+}
+;
+
+filter_phase_connect_options:
+filter_phase_check_table | filter_phase_check_regex | filter_phase_check_rdns;
+
+filter_phase_connect:
+CONNECT {
+	filter_rule->phase = FILTER_CONNECTED;
+} filter_phase_connect_options filter_action_builtin
+| CONNECT {
+	filter_rule->phase = FILTER_CONNECTED;
+} filter_action_proc
+;
+
+filter_phase_helo_options:
+filter_phase_check_table | filter_phase_check_regex | filter_phase_check_rdns;
+
+filter_phase_helo:
+HELO {
+	filter_rule->phase = FILTER_HELO;
+} filter_phase_helo_options filter_action_builtin
+| HELO {
+	filter_rule->phase = FILTER_HELO;
+} filter_action_proc
+;
+
+filter_phase_ehlo:
+EHLO {
+	filter_rule->phase = FILTER_EHLO;
+} filter_phase_helo_options filter_action_builtin
+| EHLO {
+	filter_rule->phase = FILTER_EHLO;
+} filter_action_proc
+;
+
+filter_phase_mail_from_options:
+filter_phase_check_table | filter_phase_check_regex;
+
+filter_phase_mail_from:
+MAIL_FROM {
+	filter_rule->phase = FILTER_MAIL_FROM;
+} filter_phase_mail_from_options filter_action_builtin
+| MAIL_FROM {
+	filter_rule->phase = FILTER_MAIL_FROM;
+} filter_action_proc
+;
+
+filter_phase_rcpt_to_options:
+filter_phase_check_table | filter_phase_check_regex;
+
+filter_phase_rcpt_to:
+RCPT_TO {
+	filter_rule->phase = FILTER_RCPT_TO;
+} filter_phase_rcpt_to_options filter_action_builtin
+| RCPT_TO {
+	filter_rule->phase = FILTER_RCPT_TO;
+} filter_action_proc
+;
+
+filter_phase_data:
+DATA {
+	filter_rule->phase = FILTER_DATA;
+} filter_action_builtin
+| DATA {
+	filter_rule->phase = FILTER_DATA;
+} filter_action_proc
+;
+
+filter_phase_quit:
+QUIT {
+	filter_rule->phase = FILTER_QUIT;
+} filter_action_builtin
+| QUIT {
+	filter_rule->phase = FILTER_QUIT;
+} filter_action_proc
+;
+
+filter_phase_rset:
+RSET {
+	filter_rule->phase = FILTER_RSET;
+} filter_action_builtin
+| RSET {
+	filter_rule->phase = FILTER_RSET;
+} filter_action_proc
+;
+
+filter_phase_noop:
+NOOP {
+	filter_rule->phase = FILTER_NOOP;
+} filter_action_builtin
+| NOOP {
+	filter_rule->phase = FILTER_NOOP;
+} filter_action_proc
+;
+
+
+filter_phase:
+filter_phase_connect
+| filter_phase_helo
+| filter_phase_ehlo
+| filter_phase_mail_from
+| filter_phase_rcpt_to
+| filter_phase_data
+| filter_phase_quit
+| filter_phase_noop
+| filter_phase_rset
+;
+
+filter:
+FILTER SMTP_IN {
+	filter_rule = xcalloc(1, sizeof *filter_rule);
+} filter_phase {
+	TAILQ_INSERT_TAIL(&conf->sc_filter_rules[filter_rule->phase], filter_rule, entry);
+	filter_rule = NULL;
+}
+;
+
 size		: NUMBER		{
 			if ($1 < 0) {
 				yyerror("invalid size: %" PRId64, $1);
@@ -1198,10 +1428,12 @@ limits_scheduler: opt_limit_scheduler limits_scheduler
 		;
 
 
-opt_sock_listen : FILTER STRING {
-			if (config_lo_filter(&listen_opts, $2)) {
+opt_sock_listen : FILTER {
+			if (listen_opts.options & LO_FILTER) {
+				yyerror("filter already specified");
 				YYERROR;
 			}
+			listen_opts.options |= LO_FILTER;
 		}
 		| MASK_SRC {
 			if (config_lo_mask_source(&listen_opts)) {
@@ -1257,10 +1489,12 @@ opt_if_listen : INET4 {
 			}
 			listen_opts.port = $2;
 		}
-		| FILTER STRING			{
-			if (config_lo_filter(&listen_opts, $2)) {
+		| FILTER			{
+			if (listen_opts.options & LO_FILTER) {
+				yyerror("filter already specified");
 				YYERROR;
 			}
+			listen_opts.options |= LO_FILTER;
 		}
 		| SMTPS				{
 			if (listen_opts.options & LO_SSL) {
@@ -1404,7 +1638,7 @@ opt_if_listen : INET4 {
 			listen_opts.options |= LO_RECEIVEDAUTH;
 			listen_opts.flags |= F_RECEIVEDAUTH;
 		}
-		| NODSN	{
+		| NO_DSN	{
 			if (listen_opts.options & LO_NODSN) {
 				yyerror("no-dsn already specified");
 				YYERROR;
@@ -1605,16 +1839,25 @@ lookup(char *s)
 		{ "bounce",		BOUNCE },
 		{ "ca",			CA },
 		{ "cert",		CERT },
+		{ "check-rdns",		CHECK_RDNS },
+		{ "check-regex",	CHECK_REGEX },
+		{ "check-table",	CHECK_TABLE },
+		{ "chroot",		CHROOT },
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
+		{ "connect",		CONNECT },
+		{ "data",		DATA },
 		{ "dhe",		DHE },
+		{ "disconnect",		DISCONNECT },
 		{ "domain",		DOMAIN },
+		{ "ehlo",		EHLO },
 		{ "encryption",		ENCRYPTION },
 		{ "expand-only",      	EXPAND_ONLY },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
 		{ "forward-only",      	FORWARD_ONLY },
 		{ "from",		FROM },
+		{ "group",		GROUP },
 		{ "helo",		HELO },
 		{ "helo-src",       	HELO_SRC },
 		{ "host",		HOST },
@@ -1640,20 +1883,27 @@ lookup(char *s)
 		{ "mda",		MDA },
 		{ "mta",		MTA },
 		{ "mx",			MX },
-		{ "no-dsn",		NODSN },
-		{ "no-verify",		NOVERIFY },
+		{ "no-dsn",		NO_DSN },
+		{ "no-verify",		NO_VERIFY },
+		{ "noop",		NOOP },
 		{ "on",			ON },
 		{ "pki",		PKI },
 		{ "port",		PORT },
+		{ "proc",		PROC },
 		{ "queue",		QUEUE },
+		{ "quit",		QUIT },
 		{ "rcpt-to",		RCPT_TO },
 		{ "received-auth",     	RECEIVEDAUTH },
 		{ "recipient",		RECIPIENT },
 		{ "reject",		REJECT },
 		{ "relay",		RELAY },
+		{ "report",		REPORT },
+		{ "rewrite",		REWRITE },
+		{ "rset",		RSET },
 		{ "scheduler",		SCHEDULER },
 		{ "senders",   		SENDERS },
 		{ "smtp",		SMTP },
+		{ "smtp-in",		SMTP_IN },
 		{ "smtps",		SMTPS },
 		{ "socket",		SOCKET },
 		{ "src",		SRC },
@@ -1663,7 +1913,6 @@ lookup(char *s)
 		{ "tagged",		TAGGED },
 		{ "tls",		TLS },
 		{ "tls-require",       	TLS_REQUIRE },
-		{ "to",			TO },
 		{ "ttl",		TTL },
 		{ "user",		USER },
 		{ "userbase",		USERBASE },
@@ -1850,7 +2099,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -2126,17 +2376,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		errx(1, "cmdline_symset: malloc");
-
-	(void)strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		errx(1, "%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -2226,8 +2471,8 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	if (lo->hostname == NULL)
 		lo->hostname = conf->sc_hostname;
 
-	if (lo->filtername)
-		(void)strlcpy(h->filter, lo->filtername, sizeof(h->filter));
+	if (lo->options & LO_FILTER)
+		h->flags |= F_FILTERED;
 
 	h->pki_name[0] = '\0';
 
@@ -2531,18 +2776,6 @@ is_if_in_group(const char *ifname, const char *groupname)
 end:
 	close(s);
 	return ret;
-}
-
-static int
-config_lo_filter(struct listen_opts *lo, char *filter_name) {
-	if (lo->options & LO_FILTER) {
-		yyerror("filter already specified");
-		return -1;
-	}
-	lo->options |= LO_FILTER;
-	lo->filtername = filter_name;
-
-	return 0;
 }
 
 static int

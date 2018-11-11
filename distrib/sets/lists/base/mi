@@ -75,6 +75,7 @@
 ./etc/examples/ospfd.conf
 ./etc/examples/pf.conf
 ./etc/examples/printcap
+./etc/examples/rad.conf
 ./etc/examples/radiusd.conf
 ./etc/examples/rbootd.conf
 ./etc/examples/rc.local
@@ -183,7 +184,6 @@
 ./etc/rc.d/relayd
 ./etc/rc.d/ripd
 ./etc/rc.d/route6d
-./etc/rc.d/rtadvd
 ./etc/rc.d/sasyncd
 ./etc/rc.d/sensorsd
 ./etc/rc.d/slaacd
@@ -211,10 +211,6 @@
 ./etc/rpc
 ./etc/services
 ./etc/signify
-./etc/signify/openbsd-61-base.pub
-./etc/signify/openbsd-61-fw.pub
-./etc/signify/openbsd-61-pkg.pub
-./etc/signify/openbsd-61-syspatch.pub
 ./etc/signify/openbsd-62-base.pub
 ./etc/signify/openbsd-62-fw.pub
 ./etc/signify/openbsd-62-pkg.pub
@@ -227,6 +223,10 @@
 ./etc/signify/openbsd-64-fw.pub
 ./etc/signify/openbsd-64-pkg.pub
 ./etc/signify/openbsd-64-syspatch.pub
+./etc/signify/openbsd-65-base.pub
+./etc/signify/openbsd-65-fw.pub
+./etc/signify/openbsd-65-pkg.pub
+./etc/signify/openbsd-65-syspatch.pub
 ./etc/skel
 ./etc/skel/.ssh
 ./etc/ssh
@@ -624,8 +624,8 @@
 ./usr/games
 ./usr/include
 ./usr/lib
-./usr/lib/libc.so.92.4
-./usr/lib/libcrypto.so.43.1
+./usr/lib/libc.so.92.7
+./usr/lib/libcrypto.so.45.0
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.2
 ./usr/lib/libevent.so.4.1
@@ -651,10 +651,10 @@
 ./usr/lib/librpcsvc.so.2.0
 ./usr/lib/libskey.so.6.0
 ./usr/lib/libsndio.so.7.0
-./usr/lib/libssl.so.45.1
+./usr/lib/libssl.so.47.0
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.17.1
+./usr/lib/libtls.so.19.0
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.13.0
 ./usr/lib/libz.so.5.0
@@ -2222,6 +2222,7 @@
 ./usr/libexec/mail.lmtp
 ./usr/libexec/mail.local
 ./usr/libexec/mail.maildir
+./usr/libexec/mail.mboxfile
 ./usr/libexec/mail.mda
 ./usr/libexec/makewhatis
 ./usr/libexec/ntalkd
@@ -2482,7 +2483,6 @@
 ./usr/sbin/rpc.bootparamd
 ./usr/sbin/rpc.lockd
 ./usr/sbin/rpc.statd
-./usr/sbin/rtadvd
 ./usr/sbin/sa
 ./usr/sbin/sasyncd
 ./usr/sbin/sendmail
@@ -2712,8 +2712,8 @@
 ./usr/share/relink/kernel.tgz
 ./usr/share/relink/usr
 ./usr/share/relink/usr/lib
-./usr/share/relink/usr/lib/libc.so.92.3.a
-./usr/share/relink/usr/lib/libcrypto.so.43.1.a
+./usr/share/relink/usr/lib/libc.so.92.7.a
+./usr/share/relink/usr/lib/libcrypto.so.45.0.a
 ./usr/share/relink/usr/libexec
 ./usr/share/relink/usr/libexec/ld.so.a
 ./usr/share/snmp

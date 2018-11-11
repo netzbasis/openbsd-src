@@ -1,4 +1,4 @@
-/* $OpenBSD: bn_lcl.h,v 1.28 2018/07/10 21:52:07 tb Exp $ */
+/* $OpenBSD: bn_lcl.h,v 1.30 2018/11/05 23:52:47 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -583,6 +583,7 @@ BN_ULONG bn_add_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp, int 
 BN_ULONG bn_sub_words(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp, int num);
 
 int BN_bntest_rand(BIGNUM *rnd, int bits, int top, int bottom);
+int bn_rand_interval(BIGNUM *rnd, const BIGNUM *lower_inc, const BIGNUM *upper_exc);
 
 /* Explicitly const time / non-const time versions for internal use */
 int BN_mod_exp_ct(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
@@ -606,7 +607,7 @@ BIGNUM *BN_mod_inverse_nonct(BIGNUM *ret, const BIGNUM *a, const BIGNUM *n,
 int	BN_gcd_ct(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx);
 int	BN_gcd_nonct(BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *ctx);
 
-int	BN_swap_ct(BN_ULONG swap, BIGNUM *a, BIGNUM *b, int nwords);
+int	BN_swap_ct(BN_ULONG swap, BIGNUM *a, BIGNUM *b, size_t nwords);
 
 __END_HIDDEN_DECLS
 #endif

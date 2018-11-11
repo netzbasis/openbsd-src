@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.52 2018/07/11 08:29:21 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.54 2018/08/27 11:03:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -85,14 +85,17 @@ cmd_load_buffer_exec(struct cmd *self, struct cmdq_item *item)
 		error = server_set_stdin_callback(c, cmd_load_buffer_callback,
 		    cdata, &cause);
 		if (error != 0) {
-			cmdq_error(item, "%s: %s", path, cause);
+			cmdq_error(item, "-: %s", cause);
 			free(cause);
+			free(cdata);
 			return (CMD_RETURN_ERROR);
 		}
 		return (CMD_RETURN_WAIT);
 	}
 
 	file = server_client_get_path(c, path);
+	free(path);
+
 	f = fopen(file, "rb");
 	if (f == NULL) {
 		cmdq_error(item, "%s: %s", file, strerror(errno));

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmstat.c,v 1.86 2018/06/22 14:22:06 krw Exp $	*/
+/*	$OpenBSD: vmstat.c,v 1.88 2018/10/05 18:56:57 cheloha Exp $	*/
 /*	$NetBSD: vmstat.c,v 1.5 1996/05/10 23:16:40 thorpej Exp $	*/
 
 /*-

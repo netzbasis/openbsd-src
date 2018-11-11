@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.252 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: proc.h,v 1.260 2018/10/28 22:42:33 beck Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -112,12 +112,8 @@ struct	emul {
 	char	*e_sigcode;		/* Start of sigcode */
 	char	*e_esigcode;		/* End of sigcode */
 	char	*e_esigret;		/* sigaction RET position */
-	int	e_flags;		/* Flags, see below */
 	struct uvm_object *e_sigobject;	/* shared sigcode object */
 };
-/* Flags for e_flags */
-#define	EMUL_ENABLED	0x0001		/* Allow exec to continue */
-#define	EMUL_NATIVE	0x0002		/* Always enabled */
 
 /*
  * time usage: accumulated times in ticks
@@ -134,7 +130,7 @@ struct tusage {
 struct unvname {
 	char 			*un_name;
 	size_t 			un_namesize;
-	uint64_t		un_flags;
+	u_char			un_flags;
 	RBT_ENTRY(unvnmae)	un_rbt;
 };
 
@@ -153,6 +149,8 @@ RBT_HEAD(unvname_rbt, unvname);
  * run-time information needed by threads.
  */
 #ifdef __need_process
+struct futex;
+LIST_HEAD(futex_list, futex);
 struct unveil;
 struct process {
 	/*
@@ -178,6 +176,7 @@ struct process {
 	struct	vmspace *ps_vmspace;	/* Address space */
 	pid_t	ps_pid;			/* Process identifier. */
 
+	struct	futex_list ps_ftlist;	/* futexes attached to this process */
 	LIST_HEAD(, kqueue) ps_kqlist;	/* kqueues attached to this process */
 
 /* The following fields are all zeroed upon creation in process_new. */
@@ -205,10 +204,9 @@ struct process {
 
 	struct unveil *ps_uvpaths;	/* unveil vnodes and names */
 	struct unveil *ps_uvpcwd;	/* pointer to unveil of cwd, NULL if none */
-	size_t ps_uvvcount;		/* count of unveil vnodes held */
+	ssize_t ps_uvvcount;		/* count of unveil vnodes held */
 	size_t ps_uvncount;		/* count of unveil names allocated */
 	int ps_uvshrink;		/* do we need to shrink vnode list */
-	int ps_uvactive;		/* is unveil active */
 	int ps_uvdone;			/* no more unveil is permitted */
 	int ps_uvpcwdgone;		/* need to reevaluate cwd unveil */
 
@@ -293,6 +291,7 @@ struct process {
      "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED" "\027EXECPLEDGE" )
 
 
+struct kcov_dev;
 struct lock_list_entry;
 
 struct proc {
@@ -379,6 +378,8 @@ struct proc {
 	u_short	p_xstat;	/* Exit status for wait; also stop signal. */
 
 	struct	lock_list_entry *p_sleeplocks;
+
+	struct	kcov_dev *p_kd;
 };
 
 /* Status values. */
@@ -427,9 +428,10 @@ struct proc {
 
 struct unveil {
 	struct vnode		*uv_vp;
+	ssize_t			uv_cover;
 	struct unvname_rbt	uv_names;
 	struct rwlock		uv_lock;
-	u_int64_t		uv_flags;
+	u_char			uv_flags;
 };
 
 struct uidinfo {
@@ -540,7 +542,7 @@ void	resetpriority(struct proc *);
 void	setrunnable(struct proc *);
 void	endtsleep(void *);
 void	unsleep(struct proc *);
-void	reaper(void);
+void	reaper(void *);
 void	exit1(struct proc *, int, int);
 void	exit2(struct proc *);
 int	dowait4(struct proc *, pid_t, int *, int, struct rusage *,

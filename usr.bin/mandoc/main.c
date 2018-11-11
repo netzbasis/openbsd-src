@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.209 2018/05/14 14:09:48 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.211 2018/08/23 19:32:03 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014-2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -456,12 +456,6 @@ main(int argc, char *argv[])
 	curp.mp = mparse_alloc(options, curp.mmin, mmsg,
 	    curp.os_e, curp.os_s);
 
-	/*
-	 * Conditionally start up the lookaside buffer before parsing.
-	 */
-	if (OUTT_MAN == curp.outtype)
-		mparse_keep(curp.mp);
-
 	if (argc < 1) {
 		if (use_pager)
 			tag_files = tag_init();
@@ -760,8 +754,14 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 					return 1;
 		}
 		if (res != NULL && *ressz == lastsz &&
-		    strchr(*argv, '/') == NULL)
-			warnx("No entry for %s in the manual.", *argv);
+		    strchr(*argv, '/') == NULL) {
+			if (cfg->sec == NULL)
+				warnx("No entry for %s in the manual.",
+				    *argv);
+			else
+				warnx("No entry for %s in section %s "
+				    "of the manual.", *argv, cfg->sec);
+		}
 		lastsz = *ressz;
 		argv++;
 		argc--;
@@ -842,7 +842,7 @@ parse(struct curparse *curp, int fd, const char *file)
 			tree_man(curp->outdata, man);
 			break;
 		case OUTT_MAN:
-			man_man(curp->outdata, man);
+			mparse_copy(curp->mp);
 			break;
 		case OUTT_PDF:
 		case OUTT_ASCII:

@@ -1,7 +1,11 @@
-#	$OpenBSD: files.fdt,v 1.65 2018/07/02 12:46:20 kettenis Exp $
+#	$OpenBSD: files.fdt,v 1.74 2018/08/27 21:09:47 kettenis Exp $
 #
 # Config file and device description for machine-independent FDT code.
 # Included by ports that need it.
+
+device	pinctrl
+attach	pinctrl at fdt
+file	dev/fdt/pinctrl.c		pinctrl
 
 device	simplefb: wsemuldisplaydev, rasops15, rasops16, rasops24, rasops32
 attach	simplefb at fdt
@@ -73,6 +77,11 @@ device	exrtc
 attach	exrtc at fdt
 file	dev/fdt/exrtc.c			exrtc
 
+# ARM PrimeCell PL061 General Purpose Input/Output
+device	plgpio
+attach	plgpio at fdt
+file	dev/fdt/plgpio.c		plgpio
+
 # ARM PrimeCell PL031 Real-time clock
 device	plrtc
 attach	plrtc at fdt
@@ -109,6 +118,22 @@ file	dev/fdt/xhci_fdt.c		xhci_fdt
 device	syscon: fdt
 attach	syscon at fdt
 file	dev/fdt/syscon.c		syscon
+
+device	hiclock
+attach	hiclock at fdt
+file	dev/fdt/hiclock.c		hiclock
+
+device	hidwusb: fdt
+attach	hidwusb at fdt
+file	dev/fdt/hidwusb.c		hidwusb
+
+device	hireset
+attach	hireset at fdt
+file	dev/fdt/hireset.c		hireset
+
+device	hitemp
+attach	hitemp at fdt
+file	dev/fdt/hitemp.c		hitemp
 
 device	rkclock
 attach	rkclock at fdt
@@ -250,8 +275,18 @@ device	fec: ether, ifnet, mii, ifmedia
 attach	fec at fdt
 file	dev/fdt/if_fec.c		fec
 
+define	spi {}
+device	imxspi: spi
+attach	imxspi at fdt
+file	dev/fdt/imxspi.c		imxspi
+
 attach	ccp at fdt with ccp_fdt
 file	dev/fdt/ccp_fdt.c		ccp_fdt
 
 attach	com at fdt with com_fdt
 file	dev/fdt/com_fdt.c		com_fdt
+
+device	ssdfb: wsemuldisplaydev, rasops1
+attach	ssdfb at spi with ssdfb_spi
+attach	ssdfb at i2c with ssdfb_i2c
+file	dev/fdt/ssdfb.c			ssdfb

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.h,v 1.135 2017/05/30 23:30:48 benno Exp $ */
+/*	$OpenBSD: ntpd.h,v 1.137 2018/11/06 20:41:36 jsing Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -80,7 +80,6 @@
 #define CONSTRAINT_PORT			"443"	/* HTTPS port */
 #define	CONSTRAINT_MAXHEADERLENGTH	8192
 #define CONSTRAINT_PASSFD		(STDERR_FILENO + 1)
-#define CONSTRAINT_CA			"/etc/ssl/cert.pem"
 
 #define PARENT_SOCK_FILENO		CONSTRAINT_PASSFD
 
@@ -397,7 +396,6 @@ void			ntp_dns(struct ntpd_conf *, struct passwd *);
 int			 control_init(char *);
 int			 control_listen(int);
 void			 control_shutdown(int);
-void			 control_cleanup(const char *);
 int			 control_accept(int);
 struct ctl_conn		*control_connbyfd(int);
 int			 control_close(int);

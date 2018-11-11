@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.236 2018/07/13 09:25:23 beck Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.244 2018/11/06 07:49:38 otto Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -78,9 +78,9 @@
 #endif
 #endif
 
-#if defined(__amd64__) || defined(__i386__) || \
-    defined(__loongson__) || defined(__macppc__) || \
-    defined(__sparc64__)
+#if defined(__amd64__) || defined(__arm64__) || \
+    defined(__i386__) || defined(__loongson__) || \
+    defined(__macppc__) || defined(__sparc64__)
 #include "drm.h"
 #endif
 
@@ -245,7 +245,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	/*
 	 * Path access/creation calls encounter many extensive
-	 * checks are done during namei()
+	 * checks done during pledge_namei()
 	 */
 	[SYS_open] = PLEDGE_STDIO,
 	[SYS_stat] = PLEDGE_STDIO,
@@ -568,8 +568,8 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	    (p->p_p->ps_flags & PS_COREDUMP))
 		return (0);
 
-	if (!ni || (ni->ni_pledge == 0))
-		panic("ni_pledge");
+	if (ni->ni_pledge == 0)
+		panic("pledge_namei: ni_pledge");
 
 	/*
 	 * We set the BYPASSUNVEIL flag to skip unveil checks
@@ -608,7 +608,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	switch (p->p_pledge_syscall) {
 	case SYS_access:
 		/* tzset() needs this. */
-		if ((ni->ni_pledge == PLEDGE_RPATH) &&
+		if (ni->ni_pledge == PLEDGE_RPATH &&
 		    strcmp(path, "/etc/localtime") == 0) {
 			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
@@ -623,6 +623,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 			} else
 				return (pledge_fail(p, error, PLEDGE_GETPW));
 		}
+		break;
 	case SYS_open:
 		/* daemon(3) or other such functions */
 		if ((ni->ni_pledge & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
@@ -730,13 +731,9 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 		break;
 	}
 
-	/* Doing a stat */
-	if (ni->ni_pledge & PLEDGE_STAT)
-		return(0);
-
 	/*
-	 * Ensure each flag of p_pledgenote has counterpart allowing it in
-	 * ps_pledge
+	 * Ensure each flag of ni_pledge has counterpart allowing it in
+	 * ps_pledge.
 	 */
 	if (ni->ni_pledge & ~p->p_p->ps_pledge)
 		return (pledge_fail(p, EPERM, (ni->ni_pledge & ~p->p_p->ps_pledge)));
@@ -973,6 +970,9 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 		return (0);
 	if (miblen == 2 &&		/* vm.loadavg / getloadavg(3) */
 	    mib[0] == CTL_VM && mib[1] == VM_LOADAVG)
+		return (0);
+	if (miblen == 2 &&		/* vm.malloc_conf */
+	    mib[0] == CTL_VM && mib[1] == VM_MALLOC_CONF)
 		return (0);
 #ifdef CPU_SSE
 	if (miblen == 2 &&		/* i386 libm tests for SSE */
@@ -1257,6 +1257,10 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 	if ((p->p_p->ps_pledge & PLEDGE_WROUTE)) {
 		switch (com) {
 		case SIOCAIFADDR_IN6:
+			if (fp->f_type == DTYPE_SOCKET)
+				return (0);
+			break;
+		case SIOCSIFMTU:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;

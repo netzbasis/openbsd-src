@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.13 2018/06/26 10:00:08 reyk Exp $	*/
+/*	$OpenBSD: proc.h,v 1.16 2018/09/10 10:36:01 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>
@@ -69,11 +69,6 @@ struct control_sock {
 };
 TAILQ_HEAD(control_socks, control_sock);
 
-struct {
-	struct event	 ev;
-	int		 fd;
-} control_state;
-
 struct ctl_conn {
 	TAILQ_ENTRY(ctl_conn)	 entry;
 	uint8_t			 flags;
@@ -98,6 +93,7 @@ enum privsep_procid {
 #define CONFIG_RELOAD		0x00
 #define CONFIG_VMS		0x01
 #define CONFIG_SWITCHES		0x02
+#define CONFIG_USERS		0x04
 #define CONFIG_ALL		0xff
 
 struct privsep_pipes {
@@ -160,7 +156,7 @@ struct privsep_fd {
 #define PROC_MAX_INSTANCES	32
 
 /* proc.c */
-void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int,
+void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **, enum privsep_procid);
 void	 proc_kill(struct privsep *);
 void	 proc_connect(struct privsep *ps);
@@ -196,7 +192,6 @@ void	 control(struct privsep *, struct privsep_proc *);
 int	 control_init(struct privsep *, struct control_sock *);
 int	 control_reset(struct control_sock *);
 int	 control_listen(struct control_sock *);
-void	 control_cleanup(struct control_sock *);
 
 /* log.c */
 void	log_init(int, int);

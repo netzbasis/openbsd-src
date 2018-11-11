@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket2.c,v 1.96 2018/07/10 10:02:14 bluhm Exp $	*/
+/*	$OpenBSD: uipc_socket2.c,v 1.98 2018/11/09 14:14:31 claudio Exp $	*/
 /*	$NetBSD: uipc_socket2.c,v 1.11 1996/02/04 02:17:55 christos Exp $	*/
 
 /*
@@ -483,8 +483,7 @@ sbreserve(struct socket *so, struct sockbuf *sb, u_long cc)
 	if (cc == 0 || cc > sb_max)
 		return (1);
 	sb->sb_hiwat = cc;
-	sb->sb_mbmax = max(3 * MAXMCLBYTES,
-	    min(cc * 2, sb_max + (sb_max / MCLBYTES) * MSIZE));
+	sb->sb_mbmax = max(3 * MAXMCLBYTES, cc * 8);
 	if (sb->sb_lowat > sb->sb_hiwat)
 		sb->sb_lowat = sb->sb_hiwat;
 	return (0);
@@ -885,9 +884,9 @@ sbcompress(struct sockbuf *sb, struct mbuf *m, struct mbuf *n)
 			continue;
 		}
 		if (n && (n->m_flags & M_EOR) == 0 &&
-		    /* M_TRAILINGSPACE() checks buffer writeability */
+		    /* m_trailingspace() checks buffer writeability */
 		    m->m_len <= MCLBYTES / 4 && /* XXX Don't copy too much */
-		    m->m_len <= M_TRAILINGSPACE(n) &&
+		    m->m_len <= m_trailingspace(n) &&
 		    n->m_type == m->m_type) {
 			memcpy(mtod(n, caddr_t) + n->m_len, mtod(m, caddr_t),
 			    m->m_len);

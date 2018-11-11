@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.26 2018/07/13 08:18:11 claudio Exp $ */
+/*	$OpenBSD: util.c,v 1.40 2018/09/26 14:38:19 claudio Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -18,6 +18,9 @@
  */
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <net/if.h>
+#include <net/if_media.h>
+#include <net/if_types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -309,15 +312,52 @@ aspath_strlen(void *data, u_int16_t len)
 	return (total_size);
 }
 
+static int
+as_compare(struct filter_as *f, u_int32_t as, u_int32_t neighas)
+{
+	u_int32_t match;
+
+	if (f->flags & AS_FLAG_AS_SET_NAME)	/* should not happen */
+		return (0);
+	if (f->flags & AS_FLAG_AS_SET)
+		return (as_set_match(f->aset, as));
+
+	if (f->flags & AS_FLAG_NEIGHBORAS)
+		match = neighas;
+	else
+		match = f->as_min;
+
+	switch (f->op) {
+	case OP_NONE:
+	case OP_EQ:
+		if (as == match)
+			return (1);
+		break;
+	case OP_NE:
+		if (as != match)
+			return (1);
+		break;
+	case OP_RANGE:
+		if (as >= f->as_min && as <= f->as_max)
+			return (1);
+		break;
+	case OP_XRANGE:
+		if (as < f->as_min || as > f->as_max)
+			return (1);
+		break;
+	}
+	return (0);
+}
+
 /* we need to be able to search more than one as */
 int
-aspath_match(void *data, u_int16_t len, struct filter_as *f, u_int32_t match)
+aspath_match(void *data, u_int16_t len, struct filter_as *f, u_int32_t neighas)
 {
 	u_int8_t	*seg;
 	int		 final;
 	u_int16_t	 seg_size;
 	u_int8_t	 i, seg_len;
-	u_int32_t	 as;
+	u_int32_t	 as = 0;
 
 	if (f->type == AS_EMPTY) {
 		if (len == 0)
@@ -327,27 +367,35 @@ aspath_match(void *data, u_int16_t len, struct filter_as *f, u_int32_t match)
 	}
 
 	seg = data;
-	for (; len > 0; len -= seg_size, seg += seg_size) {
+
+	/* just check the leftmost AS */
+	if (f->type == AS_PEER && len >= 6) {
+		as = aspath_extract(seg, 0);
+		if (as_compare(f, as, neighas))
+			return (1);
+		else
+			return (0);
+	}
+
+	for (; len >= 6; len -= seg_size, seg += seg_size) {
 		seg_len = seg[1];
 		seg_size = 2 + sizeof(u_int32_t) * seg_len;
 
 		final = (len == seg_size);
 
-		/* just check the first (leftmost) AS */
-		if (f->type == AS_PEER) {
-			as = aspath_extract(seg, 0);
-			if (as_compare(f->op, as, match, f->as_min, f->as_max))
-				return (1);
-			else
-				return (0);
-		}
-		/* just check the final (rightmost) AS */
 		if (f->type == AS_SOURCE) {
+			/*
+			 * Just extract the rightmost AS
+			 * but if that segment is an AS_SET then the rightmost
+			 * AS of a previous AS_SEQUENCE segment should be used.
+			 * Because of that just look at AS_SEQUENCE segments.
+			 */
+			if (seg[0] == AS_SEQUENCE)
+				as = aspath_extract(seg, seg_len - 1);
 			/* not yet in the final segment */
 			if (!final)
 				continue;
-			as = aspath_extract(seg, seg_len - 1);
-			if (as_compare(f->op, as, match, f->as_min, f->as_max))
+			if (as_compare(f, as, neighas))
 				return (1);
 			else
 				return (0);
@@ -361,25 +409,10 @@ aspath_match(void *data, u_int16_t len, struct filter_as *f, u_int32_t match)
 			if (final && i == seg_len - 1 && f->type == AS_TRANSIT)
 				return (0);
 			as = aspath_extract(seg, i);
-			if (as_compare(f->op, as, match, f->as_min, f->as_max))
+			if (as_compare(f, as, neighas))
 				return (1);
 		}
 	}
-	return (0);
-}
-
-int
-as_compare(u_int8_t op, u_int32_t as, u_int32_t match, u_int32_t as_min,
-    u_int32_t as_max)
-{
-	if ((op == OP_NONE || op == OP_EQ) && as == match)
-		return (1);
-	else if (op == OP_NE && as != match)
-		return (1);
-	else if (op == OP_RANGE && as >= as_min && as <= as_max)
-		return (1);
-	else if (op == OP_XRANGE && as > as_min && as < as_max)
-		return (1);
 	return (0);
 }
 
@@ -418,13 +451,17 @@ aspath_verify(void *data, u_int16_t len, int as4byte)
 		as_size = 4;
 
 	for (; len > 0; len -= seg_size, seg += seg_size) {
-		const u_char    *ptr;
+		const u_int8_t	*ptr;
 		int		 pos;
 
 		if (len < 2)	/* header length check */
 			return (AS_ERR_BAD);
 		seg_type = seg[0];
 		seg_len = seg[1];
+
+		if (seg_len == 0)
+			/* empty aspath segments are not allowed */
+			return (AS_ERR_BAD);
 
 		/*
 		 * BGP confederations should not show up but consider them
@@ -442,19 +479,15 @@ aspath_verify(void *data, u_int16_t len, int as4byte)
 		if (seg_size > len)
 			return (AS_ERR_LEN);
 
-		if (seg_size == 0)
-			/* empty aspath segments are not allowed */
-			return (AS_ERR_BAD);
-
 		/* RFC 7607 - AS 0 is considered malformed */
 		ptr = seg + 2;
 		for (pos = 0; pos < seg_len; pos++) {
-			u_int32_t	 as = 0;
+			u_int32_t as;
 
-			ptr += as_size;
 			memcpy(&as, ptr, as_size);
 			if (as == 0)
-				return (AS_ERR_SOFT);
+				error = AS_ERR_SOFT;
+			ptr += as_size;
 		}
 	}
 	return (error);	/* aspath is valid but probably not loop free */
@@ -502,6 +535,148 @@ aspath_inflate(void *data, u_int16_t len, u_int16_t *newlen)
 	}
 
 	return (ndata);
+}
+
+/* NLRI functions to extract prefixes from the NLRI blobs */
+static int
+extract_prefix(u_char *p, u_int16_t len, void *va,
+    u_int8_t pfxlen, u_int8_t max)
+{
+	static u_char addrmask[] = {
+	    0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff };
+	u_char		*a = va;
+	int		 i;
+	u_int16_t	 plen = 0;
+
+	for (i = 0; pfxlen && i < max; i++) {
+		if (len <= plen)
+			return (-1);
+		if (pfxlen < 8) {
+			a[i] = *p++ & addrmask[pfxlen];
+			plen++;
+			break;
+		} else {
+			a[i] = *p++;
+			plen++;
+			pfxlen -= 8;
+		}
+	}
+	return (plen);
+}
+
+int
+nlri_get_prefix(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
+    u_int8_t *prefixlen)
+{
+	u_int8_t	 pfxlen;
+	int		 plen;
+
+	if (len < 1)
+		return (-1);
+
+	pfxlen = *p++;
+	len--;
+
+	bzero(prefix, sizeof(struct bgpd_addr));
+	prefix->aid = AID_INET;
+	*prefixlen = pfxlen;
+
+	if (pfxlen > 32)
+		return (-1);
+	if ((plen = extract_prefix(p, len, &prefix->v4, pfxlen,
+	    sizeof(prefix->v4))) == -1)
+		return (-1);
+
+	return (plen + 1);	/* pfxlen needs to be added */
+}
+
+int
+nlri_get_prefix6(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
+    u_int8_t *prefixlen)
+{
+	int		plen;
+	u_int8_t	pfxlen;
+
+	if (len < 1)
+		return (-1);
+
+	pfxlen = *p++;
+	len--;
+
+	bzero(prefix, sizeof(struct bgpd_addr));
+	prefix->aid = AID_INET6;
+	*prefixlen = pfxlen;
+
+	if (pfxlen > 128)
+		return (-1);
+	if ((plen = extract_prefix(p, len, &prefix->v6, pfxlen,
+	    sizeof(prefix->v6))) == -1)
+		return (-1);
+
+	return (plen + 1);	/* pfxlen needs to be added */
+}
+
+int
+nlri_get_vpn4(u_char *p, u_int16_t len, struct bgpd_addr *prefix,
+    u_int8_t *prefixlen, int withdraw)
+{
+	int		 rv, done = 0;
+	u_int8_t	 pfxlen;
+	u_int16_t	 plen;
+
+	if (len < 1)
+		return (-1);
+
+	memcpy(&pfxlen, p, 1);
+	p += 1;
+	plen = 1;
+
+	bzero(prefix, sizeof(struct bgpd_addr));
+
+	/* label stack */
+	do {
+		if (len - plen < 3 || pfxlen < 3 * 8)
+			return (-1);
+		if (prefix->vpn4.labellen + 3U >
+		    sizeof(prefix->vpn4.labelstack))
+			return (-1);
+		if (withdraw) {
+			/* on withdraw ignore the labelstack all together */
+			plen += 3;
+			pfxlen -= 3 * 8;
+			break;
+		}
+		prefix->vpn4.labelstack[prefix->vpn4.labellen++] = *p++;
+		prefix->vpn4.labelstack[prefix->vpn4.labellen++] = *p++;
+		prefix->vpn4.labelstack[prefix->vpn4.labellen] = *p++;
+		if (prefix->vpn4.labelstack[prefix->vpn4.labellen] &
+		    BGP_MPLS_BOS)
+			done = 1;
+		prefix->vpn4.labellen++;
+		plen += 3;
+		pfxlen -= 3 * 8;
+	} while (!done);
+
+	/* RD */
+	if (len - plen < (int)sizeof(u_int64_t) ||
+	    pfxlen < sizeof(u_int64_t) * 8)
+		return (-1);
+	memcpy(&prefix->vpn4.rd, p, sizeof(u_int64_t));
+	pfxlen -= sizeof(u_int64_t) * 8;
+	p += sizeof(u_int64_t);
+	plen += sizeof(u_int64_t);
+
+	/* prefix */
+	prefix->aid = AID_VPN_IPv4;
+	*prefixlen = pfxlen;
+
+	if (pfxlen > 32)
+		return (-1);
+	if ((rv = extract_prefix(p, len, &prefix->vpn4.addr,
+	    pfxlen, sizeof(prefix->vpn4.addr))) == -1)
+		return (-1);
+
+	return (plen + rv);
 }
 
 /*
@@ -577,6 +752,15 @@ prefixlen2mask(u_int8_t prefixlen)
 		return (0);
 
 	return (0xffffffff << (32 - prefixlen));
+}
+
+void
+inet4applymask(struct in_addr *dest, const struct in_addr *src, int prefixlen)
+{
+	struct in_addr mask;
+
+	mask.s_addr = htonl(prefixlen2mask(prefixlen));
+	dest->s_addr = src->s_addr & mask.s_addr;
 }
 
 void
@@ -706,4 +890,73 @@ sa2addr(struct sockaddr *sa, struct bgpd_addr *addr)
 		addr->scope_id = sa_in6->sin6_scope_id; /* I hate v6 */
 		break;
 	}
+}
+
+const struct if_status_description
+		if_status_descriptions[] = LINK_STATE_DESCRIPTIONS;
+const struct ifmedia_description
+		ifm_type_descriptions[] = IFM_TYPE_DESCRIPTIONS;
+
+uint64_t
+ift2ifm(uint8_t if_type)
+{
+	switch (if_type) {
+	case IFT_ETHER:
+		return (IFM_ETHER);
+	case IFT_FDDI:
+		return (IFM_FDDI);
+	case IFT_CARP:
+		return (IFM_CARP);
+	case IFT_IEEE80211:
+		return (IFM_IEEE80211);
+	default:
+		return (0);
+	}
+}
+
+const char *
+get_media_descr(uint64_t media_type)
+{
+	const struct ifmedia_description	*p;
+
+	for (p = ifm_type_descriptions; p->ifmt_string != NULL; p++)
+		if (media_type == p->ifmt_word)
+			return (p->ifmt_string);
+
+	return ("unknown media");
+}
+
+const char *
+get_linkstate(uint8_t if_type, int link_state)
+{
+	const struct if_status_description *p;
+	static char buf[8];
+
+	for (p = if_status_descriptions; p->ifs_string != NULL; p++) {
+		if (LINK_STATE_DESC_MATCH(p, if_type, link_state))
+			return (p->ifs_string);
+	}
+	snprintf(buf, sizeof(buf), "[#%d]", link_state);
+	return (buf);
+}
+
+const char *
+get_baudrate(u_int64_t baudrate, char *unit)
+{
+	static char bbuf[16];
+
+	if (baudrate > IF_Gbps(1))
+		snprintf(bbuf, sizeof(bbuf), "%llu G%s",
+		    baudrate / IF_Gbps(1), unit);
+	else if (baudrate > IF_Mbps(1))
+		snprintf(bbuf, sizeof(bbuf), "%llu M%s",
+		    baudrate / IF_Mbps(1), unit);
+	else if (baudrate > IF_Kbps(1))
+		snprintf(bbuf, sizeof(bbuf), "%llu K%s",
+		    baudrate / IF_Kbps(1), unit);
+	else
+		snprintf(bbuf, sizeof(bbuf), "%llu %s",
+		    baudrate, unit);
+
+	return (bbuf);
 }

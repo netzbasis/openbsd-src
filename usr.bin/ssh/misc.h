@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.73 2018/06/09 03:01:12 djm Exp $ */
+/* $OpenBSD: misc.h,v 1.75 2018/10/03 06:38:35 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -31,7 +31,6 @@ struct Forward {
 };
 
 int forward_equals(const struct Forward *, const struct Forward *);
-int bind_permitted(int, uid_t);
 int daemonized(void);
 
 /* Common server and client forwarding options. */
@@ -75,6 +74,7 @@ double	 monotime_double(void);
 void	 lowercase(char *s);
 int	 unix_listener(const char *, int, int);
 int	 valid_domain(char *, int, const char **);
+int	 valid_env_name(const char *);
 const char *atoi_err(const char *, int *);
 int	 parse_absolute_time(const char *, uint64_t *);
 void	 format_absolute_time(uint64_t, char *, size_t);

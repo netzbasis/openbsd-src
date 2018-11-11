@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.c,v 1.232 2018/05/26 10:16:14 ratchov Exp $	*/
+/*	$OpenBSD: sysctl.c,v 1.238 2018/11/06 07:55:08 otto Exp $	*/
 /*	$NetBSD: sysctl.c,v 1.9 1995/09/30 07:12:50 thorpej Exp $	*/
 
 /*
@@ -567,7 +567,8 @@ parse(char *string, int flags)
 		} else if (mib[1] == VM_NKMEMPAGES ||
 		    mib[1] == VM_ANONMIN ||
 		    mib[1] == VM_VTEXTMIN ||
-		    mib[1] == VM_VNODEMIN) {
+		    mib[1] == VM_VNODEMIN ||
+		    mib[1] == VM_MALLOC_CONF) {
 			break;
 		}
 		if (flags == 0)
@@ -671,6 +672,10 @@ parse(char *string, int flags)
 #ifdef CPU_CONSDEV
 		if (mib[1] == CPU_CONSDEV)
 			special |= CHRDEV;
+#endif
+#ifdef CPU_CPUID
+		if (mib[1] == CPU_CPUID)
+			special |= HEX;
 #endif
 #ifdef CPU_CPUFEATURE
 		if (mib[1] == CPU_CPUFEATURE)
@@ -1289,11 +1294,11 @@ sysctl_vfsgen(char *string, char **bufpp, int mib[], int flags, int *typep)
 	if (flags == 0 && vfc.vfc_refcount == 0)
 		return -1;
 	if (!nflag)
-		fprintf(stdout, "%s has %d mounted instance%s\n",
+		fprintf(stdout, "%s has %u mounted instance%s\n",
 		    string, vfc.vfc_refcount,
 		    vfc.vfc_refcount != 1 ? "s" : "");
 	else
-		fprintf(stdout, "%d\n", vfc.vfc_refcount);
+		fprintf(stdout, "%u\n", vfc.vfc_refcount);
 
 	return -1;
 }
@@ -2308,12 +2313,7 @@ sysctl_pipex(char *string, char **bufpp, int mib[], int flags, int *typep)
  * Handle SysV semaphore info requests
  */
 int
-sysctl_seminfo(string, bufpp, mib, flags, typep)
-	char *string;
-	char **bufpp;
-	int mib[];
-	int flags;
-	int *typep;
+sysctl_seminfo(char *string, char **bufpp, int mib[], int flags, int *typep)
 {
 	int indx;
 
@@ -2332,12 +2332,7 @@ sysctl_seminfo(string, bufpp, mib, flags, typep)
  * Handle SysV shared memory info requests
  */
 int
-sysctl_shminfo(string, bufpp, mib, flags, typep)
-	char *string;
-	char **bufpp;
-	int mib[];
-	int flags;
-	int *typep;
+sysctl_shminfo(char *string, char **bufpp, int mib[], int flags, int *typep)
 {
 	int indx;
 

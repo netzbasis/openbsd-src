@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_input.c,v 1.338 2018/07/10 11:34:12 mpi Exp $	*/
+/*	$OpenBSD: ip_input.c,v 1.342 2018/10/13 18:36:01 florian Exp $	*/
 /*	$NetBSD: ip_input.c,v 1.30 1996/03/16 23:53:58 christos Exp $	*/
 
 /*
@@ -119,6 +119,8 @@ struct cpumem *ipcounters;
 int ip_sysctl_ipstat(void *, size_t *, void *);
 
 static struct mbuf_queue	ipsend_mq;
+
+extern struct niqueue		arpinq;
 
 int	ip_ours(struct mbuf **, int *, int, int);
 int	ip_local(struct mbuf **, int *, int, int);
@@ -947,6 +949,7 @@ insert:
 		nq = LIST_NEXT(q, ipqe_q);
 		pool_put(&ipqent_pool, q);
 		ip_frags--;
+		m_removehdr(t);
 		m_cat(m, t);
 	}
 
@@ -963,13 +966,7 @@ insert:
 	pool_put(&ipq_pool, fp);
 	m->m_len += (ip->ip_hl << 2);
 	m->m_data -= (ip->ip_hl << 2);
-	/* some debugging cruft by sklower, below, will go away soon */
-	if (m->m_flags & M_PKTHDR) { /* XXX this should be done elsewhere */
-		int plen = 0;
-		for (t = m; t; t = t->m_next)
-			plen += t->m_len;
-		m->m_pkthdr.len = plen;
-	}
+	m_calchdrlen(m);
 	return (m);
 
 dropfrag:
@@ -1384,7 +1381,7 @@ ip_stripoptions(struct mbuf *m)
 	ip->ip_len = htons(ntohs(ip->ip_len) - olen);
 }
 
-const int inetctlerrmap[PRC_NCMDS] = {
+const u_char inetctlerrmap[PRC_NCMDS] = {
 	0,		0,		0,		0,
 	0,		EMSGSIZE,	EHOSTDOWN,	EHOSTUNREACH,
 	EHOSTUNREACH,	EHOSTUNREACH,	ECONNREFUSED,	ECONNREFUSED,
@@ -1584,7 +1581,8 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 #endif
 
 	/* Almost all sysctl names at this level are terminal. */
-	if (namelen != 1 && name[0] != IPCTL_IFQUEUE)
+	if (namelen != 1 && name[0] != IPCTL_IFQUEUE &&
+	    name[0] != IPCTL_ARPQUEUE)
 		return (ENOTDIR);
 
 	switch (name[0]) {
@@ -1644,6 +1642,9 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case IPCTL_IFQUEUE:
 		return (sysctl_niq(name + 1, namelen - 1,
 		    oldp, oldlenp, newp, newlen, &ipintrq));
+	case IPCTL_ARPQUEUE:
+		return (sysctl_niq(name + 1, namelen - 1,
+		    oldp, oldlenp, newp, newlen, &arpinq));
 	case IPCTL_STATS:
 		return (ip_sysctl_ipstat(oldp, oldlenp, newp));
 #ifdef MROUTING

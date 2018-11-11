@@ -3,7 +3,7 @@
 /AArch64A53Fix835769.cpp/1.1.1.4/Fri Apr  6 14:26:15 2018//
 /AArch64A57FPLoadBalancing.cpp/1.1.1.5/Fri Apr  6 14:26:14 2018//
 /AArch64AdvSIMDScalarPass.cpp/1.1.1.4/Fri Apr  6 14:26:14 2018//
-/AArch64AsmPrinter.cpp/1.1.1.5/Fri Apr  6 14:26:14 2018//
+/AArch64AsmPrinter.cpp/1.2/Sun Aug 12 17:07:00 2018//
 /AArch64CallLowering.cpp/1.1.1.4/Fri Apr  6 14:26:14 2018/-ko/
 /AArch64CallLowering.h/1.1.1.4/Fri Apr  6 14:26:15 2018/-ko/
 /AArch64CallingConvention.h/1.1.1.2/Fri Apr  6 14:26:15 2018//
@@ -17,8 +17,8 @@
 /AArch64ExpandPseudoInsts.cpp/1.1.1.5/Fri Apr  6 14:26:14 2018//
 /AArch64FalkorHWPFFix.cpp/1.1.1.3/Fri Apr  6 14:26:14 2018/-ko/
 /AArch64FastISel.cpp/1.1.1.5/Fri Apr  6 14:26:15 2018//
-/AArch64FrameLowering.cpp/1.1.1.5/Fri Apr  6 14:26:14 2018//
-/AArch64FrameLowering.h/1.1.1.3/Fri Apr  6 14:26:15 2018//
+/AArch64FrameLowering.cpp/1.2/Sun Aug 12 17:07:00 2018//
+/AArch64FrameLowering.h/1.2/Sun Aug 12 17:07:00 2018//
 /AArch64GenRegisterBankInfo.def/1.1.1.3/Fri Apr  6 14:26:15 2018/-ko/
 /AArch64ISelDAGToDAG.cpp/1.1.1.5/Fri Apr  6 14:26:14 2018//
 /AArch64ISelLowering.cpp/1.7/Fri Apr  6 14:38:27 2018//
@@ -27,7 +27,7 @@
 /AArch64InstrFormats.td/1.1.1.5/Fri Apr  6 14:26:14 2018//
 /AArch64InstrInfo.cpp/1.1.1.7/Fri Apr  6 14:26:15 2018//
 /AArch64InstrInfo.h/1.1.1.5/Fri Apr  6 14:26:14 2018//
-/AArch64InstrInfo.td/1.1.1.6/Fri Apr  6 14:26:14 2018//
+/AArch64InstrInfo.td/1.2/Sun Aug 12 17:07:00 2018//
 /AArch64InstructionSelector.cpp/1.1.1.3/Fri Apr  6 14:26:14 2018/-ko/
 /AArch64LegalizerInfo.cpp/1.1.1.3/Fri Apr  6 14:26:15 2018/-ko/
 /AArch64LegalizerInfo.h/1.1.1.3/Fri Apr  6 14:26:15 2018/-ko/
@@ -48,6 +48,8 @@
 /AArch64RegisterInfo.cpp/1.1.1.5/Fri Apr  6 14:26:15 2018//
 /AArch64RegisterInfo.h/1.1.1.2/Tue Jan 24 08:33:30 2017//
 /AArch64RegisterInfo.td/1.1.1.4/Fri Apr  6 14:26:14 2018//
+/AArch64ReturnProtectorLowering.cpp/1.1/Sun Aug 12 17:07:00 2018//
+/AArch64ReturnProtectorLowering.h/1.1/Sun Aug 12 17:07:00 2018//
 /AArch64SIMDInstrOpt.cpp/1.1.1.1/Fri Apr  6 14:26:15 2018/-ko/
 /AArch64SVEInstrInfo.td/1.1.1.1/Fri Apr  6 14:26:14 2018/-ko/
 /AArch64SchedA53.td/1.1.1.4/Fri Apr  6 14:26:14 2018//

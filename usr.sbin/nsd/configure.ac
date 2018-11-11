@@ -4,7 +4,7 @@ dnl
 
 sinclude(acx_nlnetlabs.m4)
 
-AC_INIT(NSD,4.1.22,nsd-bugs@nlnetlabs.nl)
+AC_INIT(NSD,4.1.25,nsd-bugs@nlnetlabs.nl)
 AC_CONFIG_HEADER([config.h])
 
 CFLAGS="$CFLAGS"
@@ -230,6 +230,28 @@ if test $ac_cv_c_unused_attribute = yes; then
 fi
 ])dnl
 
+AC_DEFUN([CHECK_NORETURN_ATTRIBUTE],
+[AC_REQUIRE([AC_PROG_CC])
+AC_MSG_CHECKING(whether the C compiler (${CC-cc}) accepts the "noreturn" attribute)
+AC_CACHE_VAL(ac_cv_c_noreturn_attribute,
+[ac_cv_c_noreturn_attribute=no
+AC_TRY_COMPILE(
+[ #include <stdio.h>
+__attribute__((noreturn)) void f(int x) { printf("%d", x); }
+], [
+   f(1);
+],
+[ac_cv_c_noreturn_attribute="yes"],
+[ac_cv_c_noreturn_attribute="no"])
+])
+
+AC_MSG_RESULT($ac_cv_c_noreturn_attribute)
+if test $ac_cv_c_noreturn_attribute = yes; then
+  AC_DEFINE(HAVE_ATTR_NORETURN, 1, [Whether the C compiler accepts the "noreturn" attribute])
+  AC_DEFINE(ATTR_NORETURN, [__attribute__((__noreturn__))], [apply the noreturn attribute to a function that exits the program])
+fi
+])dnl End of CHECK_NORETURN_ATTRIBUTE
+
 AC_DEFUN([CHECK_COMPILER_FLAG],
 [
 AC_REQUIRE([AC_PROG_CC])
@@ -296,6 +318,7 @@ AC_TYPE_OFF_T
 
 AC_CHECK_FORMAT_ATTRIBUTE
 AC_CHECK_UNUSED_ATTRIBUTE
+CHECK_NORETURN_ATTRIBUTE
 ACX_CHECK_MEMCMP_SIGNED
 AC_CHECK_CTIME_R
 
@@ -415,7 +438,7 @@ fi
 # Checks for header files.
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS([time.h arpa/inet.h signal.h string.h strings.h fcntl.h limits.h netinet/in.h netinet/tcp.h stddef.h sys/param.h sys/socket.h syslog.h unistd.h sys/select.h stdarg.h stdint.h netdb.h sys/bitypes.h tcpd.h glob.h grp.h endian.h])
+AC_CHECK_HEADERS([time.h arpa/inet.h signal.h string.h strings.h fcntl.h limits.h netinet/in.h netinet/tcp.h stddef.h sys/param.h sys/socket.h sys/un.h syslog.h unistd.h sys/select.h stdarg.h stdint.h netdb.h sys/bitypes.h tcpd.h glob.h grp.h endian.h])
 
 AC_DEFUN([CHECK_VALIST_DEF],
 [
@@ -586,6 +609,12 @@ AC_CHECK_TYPE(in_addr_t, [], [AC_DEFINE([in_addr_t], [uint32_t], [in_addr_t])], 
 #endif])
 ACX_CHECK_SS_FAMILY
 AC_CHECK_MEMBERS([struct stat.st_mtimensec, struct stat.st_mtim.tv_nsec])
+AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,[
+AC_INCLUDES_DEFAULT
+#ifdef HAVE_SYS_UN_H
+#include <sys/un.h>
+#endif
+])
 
 # Checks for library functions.
 AC_FUNC_CHOWN
@@ -931,6 +960,10 @@ case "$enable_packed" in
 	no|*)
 	;;
 esac
+
+# Include systemd.m4 - begin
+sinclude(systemd.m4)
+# Include systemd.m4 - end
 
 AH_BOTTOM([
 /* define before includes as it specifies what standard to use. */

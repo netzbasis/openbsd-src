@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.136 2018/05/31 21:06:12 gilles Exp $	*/
+/*	$OpenBSD: util.c,v 1.138 2018/10/31 16:32:12 gilles Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -465,7 +465,7 @@ mailaddr_match(const struct mailaddr *maddr1, const struct mailaddr *maddr2)
 	if (m2.user[0] == '\0' && m2.domain[0] == '\0')
 		return 1;
 
-	if (!hostname_match(m1.domain, m2.domain))
+	if (m2.domain[0] && !hostname_match(m1.domain, m2.domain))
 		return 0;
 
 	if (m2.user[0]) {
@@ -538,6 +538,21 @@ valid_domainpart(const char *s)
 		return 0;
 
 	return res_hnok(s);
+}
+
+int
+valid_smtp_response(const char *s)
+{
+	if (strlen(s) < 5)
+		return 0;
+
+	if ((s[0] < '2' || s[0] > '5') ||
+	    (s[1] < '0' || s[1] > '9') ||
+	    (s[2] < '0' || s[2] > '9') ||
+	    (s[3] != ' '))
+		return 0;
+
+	return 1;
 }
 
 int

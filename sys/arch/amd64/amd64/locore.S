@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.105 2018/07/12 14:11:11 guenther Exp $	*/
+/*	$OpenBSD: locore.S,v 1.111 2018/10/07 22:43:06 guenther Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -445,8 +445,23 @@ restore_saved:
 	/* Stack pivot done, setup RETGUARD */
 	RETGUARD_SETUP_OFF(cpu_switchto, r11, 6*8)
 
-	movq	PCB_CR3(%r13),%rax
+	/* don't switch cr3 to the same thing it already was */
+	movq	%cr3,%rax
+	cmpq	PCB_CR3(%r13),%rax
+	movq	PCB_CR3(%r13),%rax	/* flags from cmpq unchanged */
+	jz	.Lsame_cr3
+
 	movq	%rax,%cr3			/* %rax used below too */
+
+.Lsame_cr3:
+	/*
+	 * If we switched from a userland thread with a shallow call stack
+	 * (e.g interrupt->ast->mi_ast->prempt->mi_switch->cpu_switchto)
+	 * then the RSB may have attacker controlled entries when we switch
+	 * to a deeper call stack in the new thread.  Refill the RSB with
+	 * entries safe to speculate into/through.
+	 */
+	RET_STACK_REFILL_WITH_RCX
 
 	/* Don't bother with the rest if switching to a system process. */
 	testl	$P_SYSTEM,P_FLAG(%r12)
@@ -465,6 +480,8 @@ restore_saved:
 	 * interrupt trampolines.
 	 */
 	movq	PM_PDIRPA_INTEL(%rcx),%rdx
+	orq	cr3_reuse_pcid,%rax
+	orq	cr3_pcid_proc_intel,%rdx
 	movq	%rax,CPUVAR(KERN_CR3)
 	movq	%rdx,CPUVAR(USER_CR3)
 	CODEPATCH_END(CPTAG_MELTDOWN_NOP)
@@ -571,6 +588,7 @@ XUsyscall_meltdown:
 	movq	CPUVAR(KERN_CR3),%rax
 	movq	%rax,%cr3
 0:	pause
+	lfence
 	jmp	0b
 KUTEXT_PAGE_END
 
@@ -585,6 +603,9 @@ IDTVEC_NOALIGN(syscall)
 	movq	%rax,CPUVAR(SCRATCH)
 	movq	CPUVAR(KERN_RSP),%rax
 	xchgq	%rax,%rsp
+	movq	%rcx,TF_RCX(%rsp)
+	movq	%rcx,TF_RIP(%rsp)
+	RET_STACK_REFILL_WITH_RCX
 	sti
 
 	/*
@@ -598,10 +619,8 @@ IDTVEC_NOALIGN(syscall)
 	movq	%rax,TF_RSP(%rsp)
 	movq	CPUVAR(SCRATCH),%rax
 	INTR_SAVE_MOST_GPRS_NO_ADJ
-	movq	%rcx,TF_RCX(%rsp)
 	movq	%r11, TF_RFLAGS(%rsp)	/* old rflags from syscall insn */
 	movq	$(GSEL(GUCODE_SEL, SEL_UPL)), TF_CS(%rsp)
-	movq	%rcx,TF_RIP(%rsp)
 	movq	%rax,TF_ERR(%rsp)	/* stash syscall # for SPL check */
 	INTR_CLEAR_GPRS
 
@@ -641,6 +660,8 @@ IDTVEC_NOALIGN(syscall)
 	jz	.Lsyscall_restore_fsbase
 
 .Lsyscall_restore_registers:
+	RET_STACK_REFILL_WITH_RCX
+
 	movq	TF_RDI(%rsp),%rdi
 	movq	TF_RSI(%rsp),%rsi
 	movq	TF_R8(%rsp),%r8
@@ -669,9 +690,11 @@ IDTVEC_NOALIGN(syscall)
 	CODEPATCH_START
 	movq	%rax,CPUVAR(SCRATCH)
 	movq	CPUVAR(USER_CR3),%rax
+	PCID_SET_REUSE_NOP
 	movq	%rax,%cr3
 Xsyscall_trampback:
 0:	pause
+	lfence
 	jmp	0b
 	CODEPATCH_END(CPTAG_MELTDOWN_NOP)
 	swapgs
@@ -804,6 +827,8 @@ intr_user_exit_post_ast:
 	jz	.Lintr_restore_fsbase
 
 .Lintr_restore_registers:
+	RET_STACK_REFILL_WITH_RCX
+
 	movq	TF_RDI(%rsp),%rdi
 	movq	TF_RSI(%rsp),%rsi
 	movq	TF_R8(%rsp),%r8
@@ -842,11 +867,34 @@ intr_user_exit_post_ast:
 	CODEPATCH_START
 	movq	%rax,CPUVAR(SCRATCH)
 	movq	CPUVAR(USER_CR3),%rax
+	PCID_SET_REUSE_NOP
 	movq	%rax,%cr3
 Xiretq_trampback:
+KTEXT_PAGE_END
+/* the movq %cr3 switches to this "KUTEXT" page */
+KUTEXT_PAGE_START
+	.space	(Xiretq_trampback - Xsyscall_meltdown) - \
+		(. - XUsyscall_meltdown), 0xcc
+	movq	CPUVAR(SCRATCH),%rax
+.Liretq_swapgs:
+	swapgs
+doreti_iret_meltdown:
+	iretq
+KUTEXT_PAGE_END
+/*
+ * Back to the "KTEXT" page to fill in the speculation trap and the
+ * swapgs+iretq used for non-Meltdown kernels.  This switching back
+ * and forth between segments is so that we can do the .space
+ * calculation below to guarantee the iretq's above and below line
+ * up, so the 'doreti_iret' label lines up with the iretq whether
+ * the CPU is affected by Meltdown or not.
+ */
+KTEXT_PAGE_START
 0:	pause
+	lfence
 	jmp	0b
-	.space	5,0xcc		/* pad to match "movq CPUVAR(SCRATCH),%rax" */
+	.space	(.Liretq_swapgs - XUsyscall_meltdown) - \
+		(. - Xsyscall_meltdown), 0xcc
 	CODEPATCH_END(CPTAG_MELTDOWN_NOP)
 	swapgs
 
@@ -854,14 +902,6 @@ Xiretq_trampback:
 _C_LABEL(doreti_iret):
 	iretq
 KTEXT_PAGE_END
-
-KUTEXT_PAGE_START
-	.space	(Xiretq_trampback - Xsyscall_meltdown) - \
-		(. - XUsyscall_meltdown), 0xcc
-	movq	CPUVAR(SCRATCH),%rax
-	swapgs
-	iretq
-KUTEXT_PAGE_END
 
 	.text
 	_ALIGN_TRAPS
@@ -998,6 +1038,8 @@ warn_once:
  *		save current state, but retain it in the FPU
  *	void fpusavereset(sfp)
  *		save current state and reset FPU to initial/kernel state
+ *	int xsetbv_user(reg, mask)
+ *		load specifed %xcr# register, returns 0/1 if okay/it trapped
  */
 
 ENTRY(xrstor_user)
@@ -1050,6 +1092,24 @@ ENTRY(fpusavereset)
 	ret
 END(fpusavereset)
 
+ENTRY(xsetbv_user)
+	RETGUARD_SETUP(xsetbv_user, r11)
+	movl	%edi, %ecx
+	movq	%rsi, %rdx
+	movl	%esi, %eax
+	shrq	$32, %rdx
+	.globl	xsetbv_fault
+xsetbv_fault:
+	xsetbv
+	xorl	%eax, %eax
+	RETGUARD_CHECK(xsetbv_user, r11)
+	ret
+NENTRY(xsetbv_resume)
+	movl	$1, %eax
+	RETGUARD_CHECK(xsetbv_user, r11)
+	ret
+END(xsetbv_user)
+
 	.section .rodata
 	.globl	_C_LABEL(_xrstor)
 _C_LABEL(_xrstor):
@@ -1062,6 +1122,10 @@ _C_LABEL(_xsave):
 	.globl	_C_LABEL(_xsaveopt)
 _C_LABEL(_xsaveopt):
 	.byte 0x48; xsaveopt	(%rdi)		/* really xsaveopt64 */
+
+	.globl	_C_LABEL(_pcid_set_reuse)
+_C_LABEL(_pcid_set_reuse):
+	orl	$(CR3_REUSE_PCID >> 32),CPUVAR(USER_CR3 + 4)
 
 ENTRY(pagezero)
 	RETGUARD_SETUP(pagezero, r11)

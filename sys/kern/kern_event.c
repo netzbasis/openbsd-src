@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.94 2018/06/18 09:15:05 mpi Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.99 2018/09/04 02:38:25 cheloha Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -58,10 +58,8 @@ int	kqueue_scan(struct kqueue *kq, int maxevents,
 		    struct kevent *ulistp, const struct timespec *timeout,
 		    struct proc *p, int *retval);
 
-int	kqueue_read(struct file *fp, off_t *poff, struct uio *uio,
-		    struct ucred *cred);
-int	kqueue_write(struct file *fp, off_t *poff, struct uio *uio,
-		    struct ucred *cred);
+int	kqueue_read(struct file *, struct uio *, int);
+int	kqueue_write(struct file *, struct uio *, int);
 int	kqueue_ioctl(struct file *fp, u_long com, caddr_t data,
 		    struct proc *p);
 int	kqueue_poll(struct file *fp, int events, struct proc *p);
@@ -590,8 +588,7 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct proc *p)
 
 		if (kev->ident < kq->kq_knlistsize) {
 			SLIST_FOREACH(kn, &kq->kq_knlist[kev->ident], kn_link) {
-				if (kq == kn->kn_kq &&
-				    kev->filter == kn->kn_filter)
+				if (kev->filter == kn->kn_filter)
 					break;
 			}
 		}
@@ -603,7 +600,6 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct proc *p)
 			    KN_HASH((u_long)kev->ident, kq->kq_knhashmask)];
 			SLIST_FOREACH(kn, list, kn_link) {
 				if (kev->ident == kn->kn_id &&
-				    kq == kn->kn_kq &&
 				    kev->filter == kn->kn_filter)
 					break;
 			}
@@ -698,8 +694,7 @@ kqueue_scan(struct kqueue *kq, int maxevents, struct kevent *ulistp,
 	const struct timespec *tsp, struct proc *p, int *retval)
 {
 	struct kevent *kevp;
-	struct timespec ats;
-	struct timeval atv, rtv, ttv;
+	struct timespec ats, rts, tts;
 	struct knote *kn, marker;
 	int s, count, timeout, nkev = 0, error = 0;
 	struct kevent kev[KQ_NEVENTS];
@@ -710,39 +705,36 @@ kqueue_scan(struct kqueue *kq, int maxevents, struct kevent *ulistp,
 
 	if (tsp != NULL) {
 		ats = *tsp;
-		if (timespecfix(&ats)) {
-			error = EINVAL;
-			goto done;
-		}
-		TIMESPEC_TO_TIMEVAL(&atv, &ats);
-		if (atv.tv_sec == 0 && atv.tv_usec == 0) {
+		if (!timespecisset(&ats)) {
 			/* No timeout, just poll */
 			timeout = -1;
 			goto start;
 		}
-		itimerround(&atv);
+		if (timespecfix(&ats)) {
+			error = EINVAL;
+			goto done;
+		}
 
-		timeout = atv.tv_sec > 24 * 60 * 60 ?
-		    24 * 60 * 60 * hz : tvtohz(&atv);
+		timeout = ats.tv_sec > 24 * 60 * 60 ?
+		    24 * 60 * 60 * hz : tstohz(&ats);
 
-		getmicrouptime(&rtv);
-		timeradd(&atv, &rtv, &atv);
+		getnanouptime(&rts);
+		timespecadd(&ats, &rts, &ats);
 	} else {
-		atv.tv_sec = 0;
-		atv.tv_usec = 0;
+		timespecclear(&ats);
 		timeout = 0;
 	}
 	goto start;
 
 retry:
-	if (atv.tv_sec || atv.tv_usec) {
-		getmicrouptime(&rtv);
-		if (timercmp(&rtv, &atv, >=))
+	if (timespecisset(&ats)) {
+		getnanouptime(&rts);
+		if (timespeccmp(&rts, &ats, >=))
 			goto done;
-		ttv = atv;
-		timersub(&ttv, &rtv, &ttv);
-		timeout = ttv.tv_sec > 24 * 60 * 60 ?
-		    24 * 60 * 60 * hz : tvtohz(&ttv);
+		tts = ats;
+		timespecsub(&tts, &rts, &tts);
+		timeout = tts.tv_sec > 24 * 60 * 60 ?
+		    24 * 60 * 60 * hz : tstohz(&tts);
 	}
 
 start:
@@ -852,14 +844,13 @@ done:
  * This could be expanded to call kqueue_scan, if desired.
  */
 int
-kqueue_read(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
+kqueue_read(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
 
 int
-kqueue_write(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
-
+kqueue_write(struct file *fp, struct uio *uio, int fflags)
 {
 	return (ENXIO);
 }
@@ -905,48 +896,23 @@ int
 kqueue_close(struct file *fp, struct proc *p)
 {
 	struct kqueue *kq = fp->f_data;
-	struct knote **knp, *kn, *kn0;
 	int i;
 
-	for (i = 0; i < kq->kq_knlistsize; i++) {
-		knp = &SLIST_FIRST(&kq->kq_knlist[i]);
-		kn = *knp;
-		while (kn != NULL) {
-			kn0 = SLIST_NEXT(kn, kn_link);
-			if (kq == kn->kn_kq) {
-				kn->kn_fop->f_detach(kn);
-				FRELE(kn->kn_fp, p);
-				knote_free(kn);
-				*knp = kn0;
-			} else {
-				knp = &SLIST_NEXT(kn, kn_link);
-			}
-			kn = kn0;
-		}
-	}
+	KERNEL_LOCK();
+
+	for (i = 0; i < kq->kq_knlistsize; i++)
+		knote_remove(p, &kq->kq_knlist[i]);
 	if (kq->kq_knhashmask != 0) {
-		for (i = 0; i < kq->kq_knhashmask + 1; i++) {
-			knp = &SLIST_FIRST(&kq->kq_knhash[i]);
-			kn = *knp;
-			while (kn != NULL) {
-				kn0 = SLIST_NEXT(kn, kn_link);
-				if (kq == kn->kn_kq) {
-					kn->kn_fop->f_detach(kn);
-		/* XXX non-fd release of kn->kn_ptr */
-					knote_free(kn);
-					*knp = kn0;
-				} else {
-					knp = &SLIST_NEXT(kn, kn_link);
-				}
-				kn = kn0;
-			}
-		}
+		for (i = 0; i < kq->kq_knhashmask + 1; i++)
+			knote_remove(p, &kq->kq_knhash[i]);
 	}
 	fp->f_data = NULL;
 
 	kq->kq_state |= KQ_DYING;
 	kqueue_wakeup(kq);
 	KQRELE(kq);
+
+	KERNEL_UNLOCK();
 
 	return (0);
 }

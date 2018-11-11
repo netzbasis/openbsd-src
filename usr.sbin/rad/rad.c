@@ -1,4 +1,4 @@
-/*	$OpenBSD: rad.c,v 1.7 2018/07/13 09:16:15 florian Exp $	*/
+/*	$OpenBSD: rad.c,v 1.16 2018/09/16 08:53:02 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -56,7 +56,7 @@ __dead void	main_shutdown(void);
 
 void	main_sig_handler(int, short, void *);
 
-static pid_t	start_child(int, char *, int, int, int, char *);
+static pid_t	start_child(int, char *, int, int, int);
 
 void	main_dispatch_frontend(int, short, void *);
 void	main_dispatch_engine(int, short, void *);
@@ -67,14 +67,12 @@ static int	main_imsg_send_config(struct rad_conf *);
 int	main_reload(void);
 int	main_sendboth(enum imsg_type, void *, uint16_t);
 
-void	free_ra_iface_conf(struct ra_iface_conf *);
 void	in6_prefixlen2mask(struct in6_addr *, int len);
 
 struct rad_conf	*main_conf;
 struct imsgev		*iev_frontend;
 struct imsgev		*iev_engine;
 char			*conffile;
-char			*csock;
 
 pid_t	 frontend_pid;
 pid_t	 engine_pid;
@@ -129,9 +127,10 @@ main(int argc, char *argv[])
 	char			*saved_argv0;
 	int			 pipe_main2frontend[2];
 	int			 pipe_main2engine[2];
-	int			 icmp6sock, on = 1;
+	int			 icmp6sock, on = 1, off = 0;
 	int			 frontend_routesock, rtfilter;
 	int			 control_fd;
+	char			*csock;
 
 	conffile = CONF_FILE;
 	csock = RAD_SOCKET;
@@ -221,9 +220,9 @@ main(int argc, char *argv[])
 
 	/* Start children. */
 	engine_pid = start_child(PROC_ENGINE, saved_argv0, pipe_main2engine[1],
-	    debug, cmd_opts & OPT_VERBOSE, NULL);
+	    debug, cmd_opts & OPT_VERBOSE);
 	frontend_pid = start_child(PROC_FRONTEND, saved_argv0,
-	    pipe_main2frontend[1], debug, cmd_opts & OPT_VERBOSE, csock);
+	    pipe_main2frontend[1], debug, cmd_opts & OPT_VERBOSE);
 
 	rad_process = PROC_MAIN;
 	log_procinit(log_procnames[rad_process]);
@@ -275,6 +274,10 @@ main(int argc, char *argv[])
 	    sizeof(on)) < 0)
 		fatal("IPV6_RECVHOPLIMIT");
 
+	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off,
+	    sizeof(off)) < 0)
+		fatal("IPV6_RECVHOPLIMIT");
+
 	/* only router advertisements and solicitations */
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
@@ -301,7 +304,7 @@ main(int argc, char *argv[])
 	main_imsg_compose_frontend_fd(IMSG_CONTROLFD, 0, control_fd);
 	main_imsg_send_config(main_conf);
 
-	if (pledge("stdio rpath cpath sendfd", NULL) == -1)
+	if (pledge("stdio rpath sendfd", NULL) == -1)
 		fatal("pledge");
 
 	main_imsg_compose_frontend(IMSG_STARTUP, 0, NULL, 0);
@@ -341,16 +344,14 @@ main_shutdown(void)
 	free(iev_frontend);
 	free(iev_engine);
 
-	control_cleanup(csock);
-
 	log_info("terminating");
 	exit(0);
 }
 
 static pid_t
-start_child(int p, char *argv0, int fd, int debug, int verbose, char *sockname)
+start_child(int p, char *argv0, int fd, int debug, int verbose)
 {
-	char	*argv[7];
+	char	*argv[6];
 	int	 argc = 0;
 	pid_t	 pid;
 
@@ -382,10 +383,6 @@ start_child(int p, char *argv0, int fd, int debug, int verbose, char *sockname)
 		argv[argc++] = "-d";
 	if (verbose)
 		argv[argc++] = "-v";
-	if (sockname) {
-		argv[argc++] = "-s";
-		argv[argc++] = sockname;
-	}
 	argv[argc++] = NULL;
 
 	execvp(argv0, argv);
@@ -424,7 +421,7 @@ main_dispatch_frontend(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_STARTUP_DONE:
-			if (pledge("stdio rpath cpath", NULL) == -1)
+			if (pledge("stdio rpath", NULL) == -1)
 				fatal("pledge");
 			break;
 		case IMSG_CTL_RELOAD:
@@ -594,10 +591,26 @@ main_imsg_send_config(struct rad_conf *xconf)
 {
 	struct ra_iface_conf	*ra_iface_conf;
 	struct ra_prefix_conf	*ra_prefix_conf;
+	struct ra_rdnss_conf	*ra_rdnss_conf;
+	struct ra_dnssl_conf	*ra_dnssl_conf;
 
 	/* Send fixed part of config to children. */
 	if (main_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
 		return (-1);
+
+	/* send global dns options to children */
+	SIMPLEQ_FOREACH(ra_rdnss_conf, &xconf->ra_options.ra_rdnss_list,
+	    entry) {
+		if (main_sendboth(IMSG_RECONF_RA_RDNSS, ra_rdnss_conf,
+		    sizeof(*ra_rdnss_conf)) == -1)
+			return (-1);
+	}
+	SIMPLEQ_FOREACH(ra_dnssl_conf, &xconf->ra_options.ra_dnssl_list,
+	    entry) {
+		if (main_sendboth(IMSG_RECONF_RA_DNSSL, ra_dnssl_conf,
+		    sizeof(*ra_dnssl_conf)) == -1)
+			return (-1);
+	}
 
 	/* Send the interface list to children. */
 	SIMPLEQ_FOREACH(ra_iface_conf, &xconf->ra_iface_list, entry) {
@@ -614,6 +627,18 @@ main_imsg_send_config(struct rad_conf *xconf)
 		    entry) {
 			if (main_sendboth(IMSG_RECONF_RA_PREFIX,
 			    ra_prefix_conf, sizeof(*ra_prefix_conf)) == -1)
+				return (-1);
+		}
+		SIMPLEQ_FOREACH(ra_rdnss_conf,
+		    &ra_iface_conf->ra_options.ra_rdnss_list, entry) {
+			if (main_sendboth(IMSG_RECONF_RA_RDNSS, ra_rdnss_conf,
+			    sizeof(*ra_rdnss_conf)) == -1)
+				return (-1);
+		}
+		SIMPLEQ_FOREACH(ra_dnssl_conf,
+		    &ra_iface_conf->ra_options.ra_dnssl_list, entry) {
+			if (main_sendboth(IMSG_RECONF_RA_DNSSL, ra_dnssl_conf,
+			    sizeof(*ra_dnssl_conf)) == -1)
 				return (-1);
 		}
 	}
@@ -645,27 +670,53 @@ free_ra_iface_conf(struct ra_iface_conf *ra_iface_conf)
 
 	free(ra_iface_conf->autoprefix);
 
-	while ((prefix = SIMPLEQ_FIRST(&ra_iface_conf->ra_prefix_list))
-	    != NULL) {
+	while ((prefix = SIMPLEQ_FIRST(&ra_iface_conf->ra_prefix_list)) !=
+	    NULL) {
 		SIMPLEQ_REMOVE_HEAD(&ra_iface_conf->ra_prefix_list, entry);
 		free(prefix);
 	}
 
+	free_dns_options(&ra_iface_conf->ra_options);
+
 	free(ra_iface_conf);
+}
+
+void
+free_dns_options(struct ra_options_conf *ra_options)
+{
+	struct ra_rdnss_conf	*ra_rdnss;
+	struct ra_dnssl_conf	*ra_dnssl;
+
+	while ((ra_rdnss = SIMPLEQ_FIRST(&ra_options->ra_rdnss_list)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&ra_options->ra_rdnss_list, entry);
+		free(ra_rdnss);
+	}
+	ra_options->rdnss_count = 0;
+
+	while ((ra_dnssl = SIMPLEQ_FIRST(&ra_options->ra_dnssl_list)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&ra_options->ra_dnssl_list, entry);
+		free(ra_dnssl);
+	}
+	ra_options->dnssl_len = 0;
 }
 
 void
 merge_config(struct rad_conf *conf, struct rad_conf *xconf)
 {
 	struct ra_iface_conf	*ra_iface_conf;
-
-	conf->ra_options = xconf->ra_options;
+	struct ra_rdnss_conf	*ra_rdnss;
+	struct ra_dnssl_conf	*ra_dnssl;
 
 	/* Remove & discard existing interfaces. */
 	while ((ra_iface_conf = SIMPLEQ_FIRST(&conf->ra_iface_list)) != NULL) {
 		SIMPLEQ_REMOVE_HEAD(&conf->ra_iface_list, entry);
 		free_ra_iface_conf(ra_iface_conf);
 	}
+	free_dns_options(&conf->ra_options);
+
+	conf->ra_options = xconf->ra_options;
+	SIMPLEQ_INIT(&conf->ra_options.ra_rdnss_list);
+	SIMPLEQ_INIT(&conf->ra_options.ra_dnssl_list);
 
 	/* Add new interfaces. */
 	while ((ra_iface_conf = SIMPLEQ_FIRST(&xconf->ra_iface_list)) != NULL) {
@@ -673,6 +724,19 @@ merge_config(struct rad_conf *conf, struct rad_conf *xconf)
 		SIMPLEQ_INSERT_TAIL(&conf->ra_iface_list, ra_iface_conf, entry);
 	}
 
+	/* Add dns options */
+	while ((ra_rdnss = SIMPLEQ_FIRST(&xconf->ra_options.ra_rdnss_list))
+	    != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&xconf->ra_options.ra_rdnss_list, entry);
+		SIMPLEQ_INSERT_TAIL(&conf->ra_options.ra_rdnss_list, ra_rdnss,
+		    entry);
+	}
+	while ((ra_dnssl = SIMPLEQ_FIRST(&xconf->ra_options.ra_dnssl_list))
+	    != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&xconf->ra_options.ra_dnssl_list, entry);
+		SIMPLEQ_INSERT_TAIL(&conf->ra_options.ra_dnssl_list, ra_dnssl,
+		    entry);
+	}
 	free(xconf);
 }
 
@@ -694,6 +758,10 @@ config_new_empty(void)
 	xconf->ra_options.router_lifetime = 1800;
 	xconf->ra_options.reachable_time = 0;
 	xconf->ra_options.retrans_timer = 0;
+	xconf->ra_options.mtu = 0;
+	xconf->ra_options.rdns_lifetime = DEFAULT_RDNS_LIFETIME;
+	SIMPLEQ_INIT(&xconf->ra_options.ra_rdnss_list);
+	SIMPLEQ_INIT(&xconf->ra_options.ra_dnssl_list);
 
 	return (xconf);
 }
@@ -710,7 +778,8 @@ config_clear(struct rad_conf *conf)
 	free(conf);
 }
 
-void mask_prefix(struct in6_addr* in6, int len)
+void
+mask_prefix(struct in6_addr* in6, int len)
 {
 	uint8_t	bitmask[8] = {0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe};
 	int	i, skip;
@@ -720,7 +789,8 @@ void mask_prefix(struct in6_addr* in6, int len)
 
 	skip = len / 8;
 
-	in6->s6_addr[skip] &= bitmask[len % 8];
+	if (skip < 16)
+		in6->s6_addr[skip] &= bitmask[len % 8];
 
 	for (i = skip + 1; i < 16; i++)
 		in6->s6_addr[i] = 0;

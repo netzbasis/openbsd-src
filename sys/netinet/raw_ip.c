@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_ip.c,v 1.111 2018/07/05 21:16:52 bluhm Exp $	*/
+/*	$OpenBSD: raw_ip.c,v 1.115 2018/11/10 18:40:34 bluhm Exp $	*/
 /*	$NetBSD: raw_ip.c,v 1.25 1996/02/18 18:58:33 christos Exp $	*/
 
 /*
@@ -287,13 +287,11 @@ rip_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 #if NPF > 0
 	if (inp->inp_socket->so_state & SS_ISCONNECTED &&
 	    ip->ip_p != IPPROTO_ICMP)
-		m->m_pkthdr.pf.inp = inp;
+		pf_mbuf_link_inpcb(m, inp);
 #endif
 
 	error = ip_output(m, inp->inp_options, &inp->inp_route, flags,
 	    inp->inp_moptions, inp, 0);
-	if (error == EACCES)	/* translate pf(4) error for userland */
-		error = EHOSTUNREACH;
 	return (error);
 }
 

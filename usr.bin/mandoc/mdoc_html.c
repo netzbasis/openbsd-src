@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.184 2018/06/25 16:54:55 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.190 2018/10/04 13:22:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014,2015,2016,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -32,8 +32,6 @@
 #include "html.h"
 #include "main.h"
 
-#define	INDENT		 5
-
 #define	MDOC_ARGS	  const struct roff_meta *meta, \
 			  struct roff_node *n, \
 			  struct html *h
@@ -42,7 +40,7 @@
 #define	MIN(a,b)	((/*CONSTCOND*/(a)<(b))?(a):(b))
 #endif
 
-struct	htmlmdoc {
+struct	mdoc_html_act {
 	int		(*pre)(MDOC_ARGS);
 	void		(*post)(MDOC_ARGS);
 };
@@ -119,7 +117,7 @@ static	int		  mdoc_vt_pre(MDOC_ARGS);
 static	int		  mdoc_xr_pre(MDOC_ARGS);
 static	int		  mdoc_xx_pre(MDOC_ARGS);
 
-static	const struct htmlmdoc __mdocs[MDOC_MAX - MDOC_Dd] = {
+static const struct mdoc_html_act mdoc_html_acts[MDOC_MAX - MDOC_Dd] = {
 	{NULL, NULL}, /* Dd */
 	{NULL, NULL}, /* Dt */
 	{NULL, NULL}, /* Os */
@@ -241,7 +239,6 @@ static	const struct htmlmdoc __mdocs[MDOC_MAX - MDOC_Dd] = {
 	{mdoc__x_pre, mdoc__x_post}, /* %U */
 	{NULL, NULL}, /* Ta */
 };
-static	const struct htmlmdoc *const mdocs = __mdocs - MDOC_Dd;
 
 
 /*
@@ -402,9 +399,10 @@ print_mdoc_node(MDOC_ARGS)
 			break;
 		}
 		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
-		if (mdocs[n->tok].pre != NULL &&
+		if (mdoc_html_acts[n->tok - MDOC_Dd].pre != NULL &&
 		    (n->end == ENDBODY_NOT || n->child != NULL))
-			child = (*mdocs[n->tok].pre)(meta, n, h);
+			child = (*mdoc_html_acts[n->tok - MDOC_Dd].pre)(meta,
+			    n, h);
 		break;
 	}
 
@@ -423,10 +421,10 @@ print_mdoc_node(MDOC_ARGS)
 		break;
 	default:
 		if (n->tok < ROFF_MAX ||
-		    mdocs[n->tok].post == NULL ||
+		    mdoc_html_acts[n->tok - MDOC_Dd].post == NULL ||
 		    n->flags & NODE_ENDED)
 			break;
-		(*mdocs[n->tok].post)(meta, n, h);
+		(*mdoc_html_acts[n->tok - MDOC_Dd].post)(meta, n, h);
 		if (n->end != ENDBODY_NOT)
 			n->body->flags |= NODE_ENDED;
 		break;
@@ -507,9 +505,57 @@ cond_id(const struct roff_node *n)
 static int
 mdoc_sh_pre(MDOC_ARGS)
 {
-	char	*id;
+	struct roff_node	*sn, *subn;
+	struct tag		*t, *tsec, *tsub;
+	char			*id;
+	int			 sc;
 
 	switch (n->type) {
+	case ROFFT_BLOCK:
+		if ((h->oflags & HTML_TOC) == 0 ||
+		    h->flags & HTML_TOCDONE ||
+		    n->sec <= SEC_SYNOPSIS)
+			break;
+		h->flags |= HTML_TOCDONE;
+		sc = 0;
+		for (sn = n->next; sn != NULL; sn = sn->next)
+			if (sn->sec == SEC_CUSTOM)
+				if (++sc == 2)
+					break;
+		if (sc < 2)
+			break;
+		t = print_otag(h, TAG_H1, "c", "Sh");
+		print_text(h, "TABLE OF CONTENTS");
+		print_tagq(h, t);
+		t = print_otag(h, TAG_UL, "c", "Bl-compact");
+		for (sn = n; sn != NULL; sn = sn->next) {
+			tsec = print_otag(h, TAG_LI, "");
+			id = html_make_id(sn->head, 0);
+			print_otag(h, TAG_A, "hR", id);
+			free(id);
+			print_mdoc_nodelist(meta, sn->head->child, h);
+			tsub = NULL;
+			for (subn = sn->body->child; subn != NULL;
+			    subn = subn->next) {
+				if (subn->tok != MDOC_Ss)
+					continue;
+				id = html_make_id(subn->head, 0);
+				if (id == NULL)
+					continue;
+				if (tsub == NULL)
+					print_otag(h, TAG_UL,
+					    "c", "Bl-compact");
+				tsub = print_otag(h, TAG_LI, "");
+				print_otag(h, TAG_A, "hR", id);
+				free(id);
+				print_mdoc_nodelist(meta,
+				    subn->head->child, h);
+				print_tagq(h, tsub);
+			}
+			print_tagq(h, tsec);
+		}
+		print_tagq(h, t);
+		break;
 	case ROFFT_HEAD:
 		id = html_make_id(n, 1);
 		print_otag(h, TAG_H1, "cTi", "Sh", id);
@@ -611,7 +657,7 @@ mdoc_xr_pre(MDOC_ARGS)
 	if (NULL == n->child)
 		return 0;
 
-	if (h->base_man)
+	if (h->base_man1)
 		print_otag(h, TAG_A, "cThM", "Xr",
 		    n->child->string, n->child->next == NULL ?
 		    NULL : n->child->next->string);

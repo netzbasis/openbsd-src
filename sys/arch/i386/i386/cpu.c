@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.93 2018/06/22 13:21:14 bluhm Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.96 2018/10/23 17:51:32 kettenis Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -289,7 +289,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	 * Allocate UPAGES contiguous pages for the idle PCB and stack.
 	 */
 
-	kstack = uvm_km_alloc(kernel_map, USPACE);
+	kstack = (vaddr_t)km_alloc(USPACE, &kv_any, &kp_dirty, &kd_nowait);
 	if (kstack == 0) {
 		if (cpunum == 0) { /* XXX */
 			panic("cpu_attach: unable to allocate idle stack for"
@@ -317,6 +317,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	case CPU_ROLE_SP:
 		printf("(uniprocessor)\n");
 		ci->ci_flags |= CPUF_PRESENT | CPUF_SP | CPUF_PRIMARY;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -328,6 +331,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	case CPU_ROLE_BP:
 		printf("apid %d (boot processor)\n", caa->cpu_apicid);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_BSP | CPUF_PRIMARY;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -356,6 +362,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 #ifdef MULTIPROCESSOR
 		gdt_alloc_cpu(ci);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_AP;
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 		sched_init_cpu(ci);
 		ci->ci_next = cpu_info_list->ci_next;
@@ -705,7 +714,7 @@ cpu_hatch(void *v)
 
 	s = splhigh();		/* XXX prevent softints from running here.. */
 	lapic_tpr = 0;
-	enable_intr();
+	intr_enable();
 	if (mp_verbose)
 		printf("%s: CPU at apid %ld running\n",
 		    ci->ci_dev->dv_xname, ci->ci_cpuid);

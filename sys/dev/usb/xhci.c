@@ -1,4 +1,4 @@
-/* $OpenBSD: xhci.c,v 1.86 2018/05/13 06:58:42 visa Exp $ */
+/* $OpenBSD: xhci.c,v 1.89 2018/09/06 15:39:48 mpi Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -25,6 +25,7 @@
 #include <sys/timeout.h>
 #include <sys/pool.h>
 #include <sys/endian.h>
+#include <sys/rwlock.h>
 
 #include <machine/bus.h>
 
@@ -344,6 +345,7 @@ xhci_init(struct xhci_softc *sc)
 		return (ENOMEM);
 
 	/* Setup command ring. */
+	rw_init(&sc->sc_cmd_lock, "xhcicmd");
 	error = xhci_ring_alloc(sc, &sc->sc_cmd_ring, XHCI_MAX_CMDS,
 	    XHCI_CMDS_RING_ALIGN);
 	if (error) {
@@ -764,7 +766,7 @@ xhci_event_xfer(struct xhci_softc *sc, uint64_t paddr, uint32_t status,
 		 * If this is not the last TRB of a transfer, we should
 		 * theoretically clear the IOC at the end of the chain
 		 * but the HC might have already processed it before we
-		 * had a change to schedule the softinterrupt.
+		 * had a chance to schedule the softinterrupt.
 		 */
 		xx = (struct xhci_xfer *)xfer;
 		if (xx->index != trb_idx) {
@@ -1043,7 +1045,7 @@ xhci_pipe_open(struct usbd_pipe *pipe)
 
 	/*
 	 * Our USBD Bus Interface is pipe-oriented but for most of the
-	 * operations we need to access a device context, so keep trace
+	 * operations we need to access a device context, so keep track
 	 * of the slot ID in every pipe.
 	 */
 	if (slot == 0)
@@ -1327,7 +1329,7 @@ xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe)
 		 * be in the ENABLED state.  Issue an "Address Device"
 		 * with BSR=1 to put the device in the DEFAULT state.
 		 * We cannot jump directly to the ADDRESSED state with
-		 * BSR=0 because some Low/Full speed devices wont accept
+		 * BSR=0 because some Low/Full speed devices won't accept
 		 * a SET_ADDRESS command before we've read their device
 		 * descriptor.
 		 */
@@ -1663,7 +1665,7 @@ xhci_command_submit(struct xhci_softc *sc, struct xhci_trb *trb0, int timeout)
 		return (0);
 	}
 
-	assertwaitok();
+	rw_assert_wrlock(&sc->sc_cmd_lock);
 
 	s = splusb();
 	sc->sc_cmd_trb = trb;
@@ -1729,6 +1731,7 @@ int
 xhci_cmd_configure_ep(struct xhci_softc *sc, uint8_t slot, uint64_t addr)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s dev %u\n", DEVNAME(sc), __func__, slot));
 
@@ -1738,13 +1741,17 @@ xhci_cmd_configure_ep(struct xhci_softc *sc, uint8_t slot, uint64_t addr)
 	    XHCI_TRB_SET_SLOT(slot) | XHCI_CMD_CONFIG_EP
 	);
 
-	return (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT));
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	return (error);
 }
 
 int
 xhci_cmd_stop_ep(struct xhci_softc *sc, uint8_t slot, uint8_t dci)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s dev %u dci %u\n", DEVNAME(sc), __func__, slot, dci));
 
@@ -1754,7 +1761,10 @@ xhci_cmd_stop_ep(struct xhci_softc *sc, uint8_t slot, uint8_t dci)
 	    XHCI_TRB_SET_SLOT(slot) | XHCI_TRB_SET_EP(dci) | XHCI_CMD_STOP_EP
 	);
 
-	return (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT));
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	return (error);
 }
 
 void
@@ -1794,6 +1804,7 @@ int
 xhci_cmd_slot_control(struct xhci_softc *sc, uint8_t *slotp, int enable)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s\n", DEVNAME(sc), __func__));
 
@@ -1806,7 +1817,10 @@ xhci_cmd_slot_control(struct xhci_softc *sc, uint8_t *slotp, int enable)
 			XHCI_TRB_SET_SLOT(*slotp) | XHCI_CMD_DISABLE_SLOT
 		);
 
-	if (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT))
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	if (error != 0)
 		return (EIO);
 
 	if (enable)
@@ -1820,6 +1834,7 @@ xhci_cmd_set_address(struct xhci_softc *sc, uint8_t slot, uint64_t addr,
     uint32_t bsr)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s BSR=%u\n", DEVNAME(sc), __func__, bsr ? 1 : 0));
 
@@ -1829,13 +1844,17 @@ xhci_cmd_set_address(struct xhci_softc *sc, uint8_t slot, uint64_t addr,
 	    XHCI_TRB_SET_SLOT(slot) | XHCI_CMD_ADDRESS_DEVICE | bsr
 	);
 
-	return (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT));
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	return (error);
 }
 
 int
 xhci_cmd_evaluate_ctx(struct xhci_softc *sc, uint8_t slot, uint64_t addr)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s dev %u\n", DEVNAME(sc), __func__, slot));
 
@@ -1845,7 +1864,10 @@ xhci_cmd_evaluate_ctx(struct xhci_softc *sc, uint8_t slot, uint64_t addr)
 	    XHCI_TRB_SET_SLOT(slot) | XHCI_CMD_EVAL_CTX
 	);
 
-	return (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT));
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	return (error);
 }
 
 #ifdef XHCI_DEBUG
@@ -1853,6 +1875,7 @@ int
 xhci_cmd_noop(struct xhci_softc *sc)
 {
 	struct xhci_trb trb;
+	int error;
 
 	DPRINTF(("%s: %s\n", DEVNAME(sc), __func__));
 
@@ -1860,7 +1883,10 @@ xhci_cmd_noop(struct xhci_softc *sc)
 	trb.trb_status = 0;
 	trb.trb_flags = htole32(XHCI_CMD_NOOP);
 
-	return (xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT));
+	rw_enter_write(&sc->sc_cmd_lock);
+	error = xhci_command_submit(sc, &trb, XHCI_CMD_TIMEOUT);
+	rw_exit_write(&sc->sc_cmd_lock);
+	return (error);
 }
 #endif
 
@@ -2029,8 +2055,13 @@ xhci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 	xp->aborted_xfer = xfer;
 
 	/* Stop the endpoint and wait until the hardware says so. */
-	if (xhci_cmd_stop_ep(sc, xp->slot, xp->dci))
+	if (xhci_cmd_stop_ep(sc, xp->slot, xp->dci)) {
 		DPRINTF(("%s: error stopping endpoint\n", DEVNAME(sc)));
+		/* Assume the device is gone. */
+		xfer->status = status;
+		usb_transfer_complete(xfer);
+		return;
+	}
 
 	/*
 	 * The transfer was already completed when we stopped the
@@ -2047,7 +2078,7 @@ xhci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 	 * At this stage the endpoint has been stopped, so update its
 	 * dequeue pointer past the last TRB of the transfer.
 	 *
-	 * Note: This assume that only one transfer per endpoint has
+	 * Note: This assumes that only one transfer per endpoint has
 	 *	 pending TRBs on the ring.
 	 */
 	xhci_cmd_set_tr_deq_async(sc, xp->slot, xp->dci,
