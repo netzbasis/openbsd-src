@@ -59,11 +59,13 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if (unveil("/bin", "rx") == -1)
+		err(1, "unveil locking failed");
 	if (unveil(NULL, NULL) == -1)
 		err(1, "unveil locking failed");
 
-	
-	printf("%s %s\n", argv[0], argv[1]);
+	if (execvp(argv[0], argv) == -1)
+		err(1, NULL);
 
 	return 0;
 }
