@@ -1,5 +1,5 @@
-/Makefile/1.28/Wed Oct 24 17:57:22 2018//
-/Symbols.list/1.79/Fri Nov  2 13:38:01 2018//
+/Makefile/1.30/Sun Nov 11 06:53:31 2018//
+/Symbols.list/1.80/Sun Nov 11 06:53:31 2018//
 /alphacpuid.pl/1.3/Thu Apr 17 18:49:35 2014//
 /arm_arch.h/1.8/Sun Jan  7 12:35:52 2018//
 /armcap.c/1.7/Sun Nov 11 03:27:56 2018//
@@ -7,10 +7,11 @@
 /cert.pem/1.17/Wed Sep 12 22:17:08 2018//
 /constant_time_locl.h/1.2/Wed Dec 21 15:49:29 2016//
 /cpt_err.c/1.13/Thu Jul 10 22:45:56 2014//
-/cryptlib.c/1.41/Sat Apr 29 21:48:43 2017//
+/cryptlib.c/1.43/Sun Nov 11 16:32:28 2018//
 /cryptlib.h/1.25/Fri Nov  4 17:30:30 2016//
-/crypto.h/1.47/Fri Aug 24 19:16:03 2018//
-/crypto_init.c/1.3/Mon Mar 19 14:07:18 2018//
+/crypto.h/1.49/Sun Nov 11 16:32:28 2018//
+/crypto_init.c/1.4/Sun Nov 11 06:41:28 2018//
+/crypto_lock.c/1.1/Sun Nov 11 06:41:28 2018//
 /cversion.c/1.17/Sat Feb 17 06:56:12 2018//
 /ex_data.c/1.20/Sat Mar 17 16:20:01 2018//
 /format-pem.pl/1.2/Wed Mar 21 15:23:53 2018//
@@ -30,7 +31,7 @@
 /pariscid.pl/1.5/Thu May  1 22:26:21 2014//
 /ppccap.c/1.6/Thu Jul 17 23:48:24 2014//
 /ppccpuid.pl/1.4/Sat May  3 11:39:46 2014//
-/shlib_version/1.47/Wed Oct 24 18:08:02 2018//
+/shlib_version/1.48/Sun Nov 11 07:00:14 2018//
 /sparccpuid.S/1.3/Thu Apr 17 18:49:35 2014//
 /sparcv9cap.c/1.7/Fri Jun 20 21:00:46 2014//
 /x509v3.cnf/1.2/Thu Aug 14 17:55:28 2014//
@@ -84,6 +85,7 @@ D/rc4////
 D/ripemd////
 D/rsa////
 D/sha////
+D/sm3////
 D/stack////
 D/ts////
 D/txt_db////

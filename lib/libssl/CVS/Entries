@@ -1,6 +1,6 @@
 /LICENSE/1.12/Fri Jul 11 09:48:48 2014//
 /Makefile/1.43/Fri Nov  9 00:34:55 2018//
-/Symbols.list/1.22/Tue Mar 20 15:28:12 2018//
+/Symbols.list/1.23/Sun Nov 11 06:58:14 2018//
 /bio_ssl.c/1.29/Fri Aug 24 20:30:21 2018//
 /bs_ber.c/1.9/Sat Dec  3 12:34:35 2016//
 /bs_cbb.c/1.19/Thu Aug 16 18:39:37 2018//
@@ -19,9 +19,9 @@
 /pqueue.h/1.4/Fri Nov  4 18:28:58 2016//
 /s3_cbc.c/1.17/Sat Sep  8 14:39:41 2018//
 /s3_lib.c/1.176/Thu Nov  8 22:28:52 2018//
-/shlib_version/1.78/Wed Oct 24 18:08:02 2018//
+/shlib_version/1.79/Sun Nov 11 07:00:14 2018//
 /srtp.h/1.6/Tue Sep  1 15:18:23 2015//
-/ssl.h/1.161/Wed Nov  7 01:53:36 2018//
+/ssl.h/1.162/Sun Nov 11 06:58:14 2018//
 /ssl2.h/1.12/Sun Dec 14 15:30:50 2014//
 /ssl23.h/1.4/Sun Dec 14 15:30:50 2014//
 /ssl3.h/1.49/Thu Nov  8 22:28:52 2018//
@@ -30,19 +30,19 @@
 /ssl_both.c/1.14/Thu Nov  8 22:28:52 2018//
 /ssl_cert.c/1.70/Sat Nov 10 01:19:09 2018//
 /ssl_ciph.c/1.106/Wed Nov  7 01:53:36 2018//
-/ssl_clnt.c/1.43/Sun Nov 11 02:22:34 2018//
+/ssl_clnt.c/1.44/Sun Nov 11 21:54:47 2018//
 /ssl_err.c/1.36/Tue Mar 20 15:28:12 2018//
 /ssl_init.c/1.2/Fri Mar 30 14:59:46 2018//
-/ssl_lib.c/1.192/Sat Nov 10 01:19:09 2018//
+/ssl_lib.c/1.193/Sun Nov 11 06:58:14 2018//
 /ssl_locl.h/1.224/Sat Nov 10 01:19:09 2018//
 /ssl_methods.c/1.1/Mon Nov  5 05:45:15 2018//
 /ssl_packet.c/1.8/Thu Nov  8 22:28:52 2018//
 /ssl_pkt.c/1.14/Wed Oct 24 18:04:50 2018//
 /ssl_rsa.c/1.30/Thu Nov  8 20:55:18 2018//
 /ssl_sess.c/1.81/Fri Aug 24 18:10:25 2018//
-/ssl_sigalgs.c/1.6/Sun Nov 11 02:03:23 2018//
-/ssl_sigalgs.h/1.6/Sat Nov 10 08:42:39 2018//
-/ssl_srvr.c/1.57/Sun Nov 11 02:22:34 2018//
+/ssl_sigalgs.c/1.7/Sun Nov 11 21:54:47 2018//
+/ssl_sigalgs.h/1.7/Sun Nov 11 21:54:47 2018//
+/ssl_srvr.c/1.60/Sun Nov 11 21:54:47 2018//
 /ssl_stat.c/1.14/Sun May  7 04:22:24 2017//
 /ssl_tlsext.c/1.26/Fri Nov  9 05:02:53 2018//
 /ssl_tlsext.h/1.14/Fri Nov  9 03:17:24 2018//
@@ -52,7 +52,7 @@
 /t1_hash.c/1.4/Thu Nov  8 22:28:52 2018//
 /t1_lib.c/1.150/Sat Nov 10 01:19:09 2018//
 /tls1.h/1.37/Fri Nov  9 00:34:55 2018//
-/tls13_handshake.c/1.6/Sat Nov 10 08:10:43 2018//
+/tls13_handshake.c/1.7/Sun Nov 11 06:49:35 2018//
 /tls13_internal.h/1.5/Fri Nov  9 23:56:20 2018//
 /tls13_key_schedule.c/1.6/Sat Nov 10 01:34:02 2018//
 D/doc////

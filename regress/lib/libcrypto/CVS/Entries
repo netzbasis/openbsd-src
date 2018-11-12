@@ -1,4 +1,4 @@
-/Makefile/1.34/Fri Nov  9 23:44:32 2018//
+/Makefile/1.35/Sun Nov 11 07:13:03 2018//
 /Makefile.inc/1.2/Tue Jul 17 17:06:49 2018//
 D/CA////
 D/aead////
@@ -45,6 +45,7 @@ D/sha1////
 D/sha2////
 D/sha256////
 D/sha512////
+D/sm3////
 D/utf8////
 D/wycheproof////
 D/x509////

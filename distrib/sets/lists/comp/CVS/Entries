@@ -2,6 +2,9 @@
 /clang.arm64/1.11/Fri Oct  5 14:30:02 2018//
 /clang.armv7/1.10/Fri Oct  5 14:30:02 2018//
 /clang.i386/1.18/Fri Oct  5 14:30:02 2018//
+/clang.loongson/1.1/Sun Nov 11 17:25:17 2018//
+/clang.octeon/1.1/Sun Nov 11 17:25:17 2018//
+/clang.sgi/1.1/Sun Nov 11 17:25:17 2018//
 /clang.sparc64/1.5/Tue Sep 11 19:43:15 2018//
 /gcc.alpha/1.9/Fri Aug 10 20:27:18 2018//
 /gcc.amd64/1.9/Fri Aug 10 20:27:18 2018//
@@ -30,5 +33,5 @@
 /md.sgi/1.82/Sun Aug 20 14:53:38 2017//
 /md.socppc/1.53/Sun Aug 20 14:53:38 2017//
 /md.sparc64/1.117/Sun Aug 20 14:53:38 2017//
-/mi/1.1428/Tue Oct 30 18:08:56 2018//
+/mi/1.1429/Sun Nov 11 07:01:59 2018//
 D
