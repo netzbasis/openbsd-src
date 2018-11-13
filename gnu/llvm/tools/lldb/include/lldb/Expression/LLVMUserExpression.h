@@ -99,7 +99,7 @@ protected:
   bool m_allow_cxx;  ///< True if the language allows C++.
   bool m_allow_objc; ///< True if the language allows Objective-C.
   std::string
-      m_transformed_text; ///< The tÖúÀof the expression, as send to the parser
+      m_transformed_text; ///< The text of the expression, as send to the parser
 
   std::shared_ptr<IRExecutionUnit>
       m_execution_unit_sp; ///< The execution unit the expression is stored in.

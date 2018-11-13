@@ -68,7 +68,7 @@
 /rcparse.y/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /rdcoff.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /rddbg.c/1.2/Sun Apr 24 20:19:24 2011//
-/readelf.c/1.16/Wed Oct 24 15:17:35 2018//
+/readelf.c/1.17/Tue Nov 13 04:47:36 2018//
 /rename.c/1.3/Sun Nov 15 14:03:31 2015//
 /resbin.c/1.1.1.1/Sun Apr 24 20:14:40 2011//
 /rescoff.c/1.1.1.1/Sun Apr 24 20:14:40 2011//

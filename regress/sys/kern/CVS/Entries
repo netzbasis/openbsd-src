@@ -1,4 +1,4 @@
-/Makefile/1.77/Sun Sep 30 08:26:40 2018//
+/Makefile/1.78/Mon Nov 12 16:50:28 2018//
 D/__syscall////
 D/accept////
 D/access////
@@ -47,6 +47,7 @@ D/rlimit-file////
 D/setuid////
 D/sig-stop////
 D/siginfo-fault////
+D/sigio////
 D/signal////
 D/signal-stress////
 D/sigpending////
