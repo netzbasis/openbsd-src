@@ -1,6 +1,7 @@
 /* Compensate for inconsistent structure passing conventions on IRIX 6.  */
 /* Compile this one with gcc.  */
-/* Copyright (C) 2001  Free Software Foundation, IÖúÀ
+/* Copyright (C) 2001  Free Software Foundation, Inc.
+
 This file is part of GNU CC.
 
 GNU CC is free software; you can redistribute it and/or modify
