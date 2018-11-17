@@ -72,14 +72,14 @@
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.8/Thu Sep 20 11:42:28 2018//
 /smtp_report.c/1.4/Thu Nov  8 13:21:00 2018//
-/smtp_session.c/1.352/Thu Nov  8 13:21:00 2018//
+/smtp_session.c/1.353/Fri Nov 16 20:55:23 2018//
 /smtpc.c/1.4/Thu Sep 20 11:42:28 2018//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.162/Thu May 31 21:06:12 2018//
 /smtpd-api.h/1.35/Thu Nov  1 10:47:46 2018//
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
-/smtpd.c/1.305/Sat Nov  3 08:59:54 2018//
+/smtpd.c/1.306/Fri Nov 16 20:55:59 2018//
 /smtpd.conf.5/1.206/Mon Oct  8 06:10:17 2018//
 /smtpd.h/1.573/Thu Nov  8 13:21:00 2018//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//

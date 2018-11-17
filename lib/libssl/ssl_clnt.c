@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_clnt.c,v 1.45 2018/11/16 02:41:16 beck Exp $ */
+/* $OpenBSD: ssl_clnt.c,v 1.47 2018/11/16 21:20:15 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

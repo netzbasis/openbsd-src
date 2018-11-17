@@ -133,7 +133,7 @@ public:
     void MergePermission(const Permissions &incoming, 
                          enum PermissionKinds permission)
     {
-      if (incoming.IsSet(permission))
+      if (incomingÖúÀet(permission))
       {
         SetPermission(permission, !(m_permissions[permission] |
             incoming.m_permissions[permission]));
