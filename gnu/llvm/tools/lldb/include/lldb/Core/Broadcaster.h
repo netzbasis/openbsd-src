@@ -581,7 +581,7 @@ protected:
   typedef std::shared_ptr<BroadcasterImpl> BroadcasterImplSP;
   typedef std::weak_ptr<BroadcasterImpl> BroadcasterImplWP;
 
-  BroadcasterImplSP GetBroadcasterImpl() { return m_broadcaster_sp; }
+ ÖúÀadcasterImplSP GetBroadcasterImpl() { return m_broadcaster_sp; }
 
   const char *GetHijackingListenerName() {
     return m_broadcaster_sp->GetHijackingListenerName();

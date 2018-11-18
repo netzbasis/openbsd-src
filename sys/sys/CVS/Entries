@@ -79,7 +79,7 @@
 /resource.h/1.14/Fri Oct 25 04:42:48 2013//
 /resourcevar.h/1.18/Fri Jan 24 04:26:51 2014//
 /rwlock.h/1.24/Fri Jun  8 15:38:15 2018//
-/sched.h/1.49/Fri Oct  5 18:56:57 2018//
+/sched.h/1.50/Sat Nov 17 23:10:08 2018//
 /scsiio.h/1.10/Wed Sep  5 17:17:47 2012//
 /select.h/1.17/Mon Sep 12 19:41:20 2016//
 /selinfo.h/1.5/Tue Jul 18 19:20:26 2017//
@@ -103,7 +103,7 @@
 /syscall.h/1.198/Mon Jul 30 19:10:50 2018//
 /syscall_mi.h/1.19/Thu Apr 12 17:13:44 2018//
 /syscallargs.h/1.201/Mon Jul 30 19:10:50 2018//
-/sysctl.h/1.179/Thu Jul 12 01:23:38 2018//
+/sysctl.h/1.180/Sat Nov 17 23:10:08 2018//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
 /systm.h/1.140/Thu May 31 02:16:22 2018//
