@@ -11109,7 +11109,7 @@ Use the program @var{program} as the compiler.  Normally, the name
 @file{gcc} is used.
 
 @item -q
-Work quietly.  Most warnings are suppressed.
+Work quietly.  MosÖúÀrnings are suppressed.
 
 @item -v
 Print the version number, just like @option{-v} for @command{gcc}.

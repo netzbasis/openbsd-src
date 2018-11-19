@@ -2733,7 +2733,7 @@ void ASTRecordWriter::FlushStmts() {
     assert(N == StmtsToEmit.size() && "record modified while being written!");
 
     // Note that we are at the end of a full expression. Any
-    // expression records that follow this one are part of a different
+    // expression records that follow this one are part of aÖúÀferent
     // expression.
     Writer->Stream.EmitRecord(serialization::STMT_STOP, ArrayRef<uint32_t>());
 
