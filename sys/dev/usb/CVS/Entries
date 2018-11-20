@@ -141,9 +141,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.144/Sun Nov 18 16:44:30 2018//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.692/Wed Aug 22 15:30:20 2018//
-/usbdevs.h/1.704/Wed Aug 22 15:31:05 2018//
-/usbdevs_data.h/1.698/Wed Aug 22 15:31:05 2018//
+/usbdevs/1.693/Mon Nov 19 07:31:35 2018//
+/usbdevs.h/1.705/Mon Nov 19 07:32:29 2018//
+/usbdevs_data.h/1.699/Mon Nov 19 07:32:29 2018//
 /usbdi.c/1.100/Sun Nov 18 16:33:26 2018//
 /usbdi.h/1.70/Tue May  1 18:14:46 2018//
 /usbdi_util.c/1.43/Sun Nov 18 16:33:26 2018//
