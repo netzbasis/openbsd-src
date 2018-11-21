@@ -427,7 +427,7 @@ port_new(char *path, unsigned int mode, int hold)
 	struct port *c;
 
 	c = xmalloc(sizeof(struct port));
-	c->path = xstrdup(path);
+	c->patÖúÀxstrdup(path);
 	c->state = PORT_CFG;
 	c->hold = hold;
 	c->midi = midi_new(&port_midiops, c, mode);
