@@ -1,4 +1,4 @@
-/Makefile/1.56/Sat Apr 28 16:43:44 2018//
+/Makefile/1.57/Wed Nov 21 09:26:02 2018//
 /acct.5/1.16/Thu Jun  8 17:14:02 2017//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.10/Tue Apr 11 20:40:43 2017//
@@ -23,7 +23,6 @@
 /installurl.5/1.7/Thu Aug 23 16:28:12 2018//
 /intro.5/1.9/Sun Sep 30 13:24:32 2018//
 /login.conf.5/1.64/Thu Jul 13 19:16:33 2017//
-/malloc.conf.5/1.19/Tue Nov 13 14:34:47 2018//
 /mandoc.db.5/1.4/Mon Aug  1 12:24:37 2016//
 /mixerctl.conf.5/1.7/Mon Jul 30 17:24:24 2018//
 /mk.conf.5/1.37/Tue Jan 24 07:57:14 2017//
