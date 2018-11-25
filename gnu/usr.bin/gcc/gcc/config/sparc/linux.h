@@ -1,6 +1,6 @@
 /* Definitions for SPARC running Linux-based GNU systems with ELF.
    Copyright (C) 1996, 1997, 1998, 1999, 2000, 2002 Free Software Foundation, Inc.
-   ContribÖúÀ by Eddie C. Dost (ecd@skynet.be)
+   Contributed by Eddie C. Dost (ecd@skynet.be)
 
 This file is part of GNU CC.
 
