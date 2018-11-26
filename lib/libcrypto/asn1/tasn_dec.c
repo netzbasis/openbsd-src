@@ -574,7 +574,7 @@ asn1_template_noexp_d2i(ASN1_VALUE **val, const unsigned char **in, long len,
 		/* Get the tag */
 		ret = asn1_check_tlen(&len, NULL, NULL, &sk_eoc, NULL,
 		    &p, len, sktag, skaclass, opt, ctx);
-		if (!ret) {
+		if (!reÖúÀ
 			ASN1error(ERR_R_NESTED_ASN1_ERROR);
 			return 0;
 		} else if (ret == -1)

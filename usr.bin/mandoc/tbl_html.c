@@ -1,4 +1,4 @@
-/*	$OpenBSD: tbl_html.c,v 1.20 2018/11/24 23:03:13 schwarze Exp $ */
+/*	$OpenBSD: tbl_html.c,v 1.23 2018/11/26 01:51:41 schwarze Exp $ */
 /*
  * Copyright (c) 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -99,10 +99,10 @@ print_tblclose(struct html *h)
 void
 print_tbl(struct html *h, const struct tbl_span *sp)
 {
-	const struct tbl_dat *dp;
-	struct tag	*tt;
-	const char	*halign, *valign;
-	int		 ic;
+	const struct tbl_dat	*dp;
+	struct tag		*tt;
+	const char		*hspans, *vspans, *halign, *valign;
+	char			 hbuf[4], vbuf[4];
 
 	/* Inhibit printing of spaces: we do padding ourselves. */
 
@@ -122,13 +122,36 @@ print_tbl(struct html *h, const struct tbl_span *sp)
 		print_otag(h, TAG_TD, "?", "colspan", "0");
 		break;
 	default:
-		dp = sp->first;
-		for (ic = 0; ic < sp->opts->cols; ic++) {
+		for (dp = sp->first; dp != NULL; dp = dp->next) {
 			print_stagq(h, tt);
-			if (dp == NULL || dp->layout->col > ic) {
-				print_otag(h, TAG_TD, "");
+
+			/*
+			 * Do not generate <td> elements for continuations
+			 * of spanned cells.  Larger <td> elements covering
+			 * this space were already generated earlier.
+			 */
+
+			if (dp->layout->pos == TBL_CELL_SPAN ||
+			    dp->layout->pos == TBL_CELL_DOWN ||
+			    (dp->string != NULL &&
+			     strcmp(dp->string, "\\^") == 0))
 				continue;
-			}
+
+			/* Determine the attribute values. */
+
+			if (dp->hspans > 0) {
+				(void)snprintf(hbuf, sizeof(hbuf),
+				    "%d", dp->hspans + 1);
+				hspans = hbuf;
+			} else
+				hspans = NULL;
+			if (dp->vspans > 0) {
+				(void)snprintf(vbuf, sizeof(vbuf),
+				    "%d", dp->vspans + 1);
+				vspans = vbuf;
+			} else
+				vspans = NULL;
+
 			switch (dp->layout->pos) {
 			case TBL_CELL_CENTRE:
 				halign = "center";
@@ -147,22 +170,15 @@ print_tbl(struct html *h, const struct tbl_span *sp)
 				valign = "bottom";
 			else
 				valign = NULL;
-			if (halign == NULL && valign == NULL)
-				print_otag(h, TAG_TD, "");
-			else if (halign == NULL)
-				print_otag(h, TAG_TD, "s",
-				    "vertical-align", valign);
-			else if (valign == NULL)
-				print_otag(h, TAG_TD, "s",
-				    "text-align", halign);
-			else
-				print_otag(h, TAG_TD, "ss",
-				    "vertical-align", valign,
-				    "text-align", halign);
-			if (dp->layout->pos != TBL_CELL_DOWN)
-				if (dp->string != NULL)
-					print_text(h, dp->string);
-			dp = dp->next;
+
+			/* Print the element and the attributes. */
+
+			print_otag(h, TAG_TD, "??ss",
+			    "colspan", hspans, "rowspan", vspans,
+			    "vertical-align", valign,
+			    "text-align", halign);
+			if (dp->string != NULL)
+				print_text(h, dp->string);
 		}
 		break;
 	}

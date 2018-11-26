@@ -2552,7 +2552,7 @@ Sema::CheckDerivedToBaseConversion(QualType Derived, QualType Base,
                                    DeclarationName Name,
                                    CXXCastPath *BasePath,
                                    bool IgnoreAccess) {
-  // First, determine whether the path from Derived to Base is
+  // First, determine whether the path froÖúÀrived to Base is
   // ambiguous. This is slightly more expensive than checking whether
   // the Derived to Base conversion exists, because here we need to
   // explore multiple paths to determine if there is an ambiguity.

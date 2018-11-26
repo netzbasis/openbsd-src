@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.384 2018/11/20 20:49:26 phessler Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.386 2018/11/25 12:14:01 phessler Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -630,6 +630,7 @@ const char *get_linkstate(int, int);
 void	status(int, struct sockaddr_dl *, int);
 __dead void	usage(void);
 const char *get_string(const char *, const char *, u_int8_t *, int *);
+int	len_string(const u_int8_t *, int);
 int	print_string(const u_int8_t *, int);
 char	*sec2str(time_t);
 
@@ -1652,6 +1653,29 @@ get_string(const char *val, const char *sep, u_int8_t *buf, int *lenp)
 }
 
 int
+len_string(const u_int8_t *buf, int len)
+{
+	int i = 0, hasspc = 0;
+
+	if (len < 2 || buf[0] != '0' || tolower(buf[1]) != 'x') {
+		for (; i < len; i++) {
+			/* Only print 7-bit ASCII keys */
+			if (buf[i] & 0x80 || !isprint(buf[i]))
+				break;
+			if (isspace(buf[i]))
+				hasspc++;
+		}
+	}
+	if (i == len) {
+		if (hasspc || len == 0)
+			return len + 2;
+		else
+			return len;
+	} else
+		return (len * 2) + 2;
+}
+
+int
 print_string(const u_int8_t *buf, int len)
 {
 	int i = 0, hasspc = 0;
@@ -1909,7 +1933,7 @@ setifwpa(const char *val, int d)
 	wpa.i_enabled = d;
 
 	if (actions & A_JOIN) {
-		memcpy(&join.i_wpaparams, &wpa, sizeof(join.i_wpaparams));
+		join.i_wpaparams.i_enabled = d;
 		join.i_flags |= IEEE80211_JOIN_WPA;
 		return;
 	}
@@ -1940,6 +1964,12 @@ setifwpaprotos(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_protos = rval;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
@@ -1948,12 +1978,6 @@ setifwpaprotos(const char *val, int d)
 	/* Let the kernel set up the appropriate default ciphers. */
 	wpa.i_ciphers = 0;
 	wpa.i_groupcipher = 0;
-
-	if (actions & A_JOIN) {
-		memcpy(&join.i_wpaparams, &wpa, sizeof(join.i_wpaparams));
-		join.i_flags |= IEEE80211_JOIN_WPA;
-		return;
-	}
 
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
@@ -1981,6 +2005,14 @@ setifwpaakms(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_akms = rval;
+		join.i_wpaparams.i_enabled =
+		    ((rval & IEEE80211_WPA_AKM_8021X) != 0);
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
@@ -1988,12 +2020,6 @@ setifwpaakms(const char *val, int d)
 	wpa.i_akms = rval;
 	/* Enable WPA for 802.1x here. PSK case is handled in setifwpakey(). */
 	wpa.i_enabled = ((rval & IEEE80211_WPA_AKM_8021X) != 0);
-
-	if (actions & A_JOIN) {
-		memcpy(&join.i_wpaparams, &wpa, sizeof(join.i_wpaparams));
-		join.i_flags |= IEEE80211_JOIN_WPA;
-		return;
-	}
 
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
@@ -2042,17 +2068,17 @@ setifwpaciphers(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_ciphers = rval;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCG80211WPAPARMS");
 	wpa.i_ciphers = rval;
-
-	if (actions & A_JOIN) {
-		memcpy(&join.i_wpaparams, &wpa, sizeof(join.i_wpaparams));
-		join.i_flags |= IEEE80211_JOIN_WPA;
-		return;
-	}
 
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
@@ -2076,7 +2102,7 @@ setifwpagroupcipher(const char *val, int d)
 	wpa.i_groupcipher = cipher;
 
 	if (actions & A_JOIN) {
-		memcpy(&join.i_wpaparams, &wpa, sizeof(join.i_wpaparams));
+		join.i_wpaparams.i_groupcipher = cipher;
 		join.i_flags |= IEEE80211_JOIN_WPA;
 		return;
 	}
@@ -2427,10 +2453,12 @@ join_status(void)
 {
 	struct ieee80211_joinreq_all ja;
 	struct ieee80211_join *jn = NULL;
+	struct ieee80211_wpaparams *wpa;
 	int jsz = 100;
 	int ojsz;
 	int i;
 	int r;
+	int maxlen, len;
 
 	bzero(&ja, sizeof(ja));
 	jn = recallocarray(NULL, 0, jsz, sizeof(*jn));
@@ -2460,13 +2488,54 @@ join_status(void)
 	if (!ja.ja_nodes)
 		return;
 
-	fputs("\tjoin: ", stdout);
+	maxlen = 0;
 	for (i = 0; i < ja.ja_nodes; i++) {
-		if (i > 0)
-			printf("\t      ");
+		len = len_string(jn[i].i_nwid, jn[i].i_len);
+		if (len > maxlen)
+			maxlen = len;
+	}
+	if (maxlen > IEEE80211_NWID_LEN)
+		maxlen = IEEE80211_NWID_LEN - 1;
+
+	for (i = 0; i < ja.ja_nodes; i++) {
+		printf("\t      ");
 		if (jn[i].i_len > IEEE80211_NWID_LEN)
 			jn[i].i_len = IEEE80211_NWID_LEN;
-		print_string(jn[i].i_nwid, jn[i].i_len);
+		len = print_string(jn[i].i_nwid, jn[i].i_len);
+		printf("%-*s", maxlen - len, " ");
+		if (jn[i].i_flags) {
+			const char *sep;
+			printf(" ");
+
+			if (jn[i].i_flags & IEEE80211_JOIN_NWKEY)
+				printf("nwkey");
+
+			if (jn[i].i_flags & IEEE80211_JOIN_WPA) {
+				wpa = &jn[i].i_wpaparams;
+
+				printf("wpaprotos "); sep = "";
+				if (wpa->i_protos & IEEE80211_WPA_PROTO_WPA1) {
+					printf("wpa1");
+					sep = ",";
+				}
+				if (wpa->i_protos & IEEE80211_WPA_PROTO_WPA2)
+					printf("%swpa2", sep);
+
+				printf(" wpaakms ", stdout); sep = "";
+				if (wpa->i_akms & IEEE80211_WPA_AKM_PSK) {
+					printf("psk");
+					sep = ",";
+				}
+				if (wpa->i_akms & IEEE80211_WPA_AKM_8021X)
+					printf("%s802.1x", sep);
+
+				printf(" wpaciphers ");
+				print_cipherset(wpa->i_ciphers);
+
+				printf(" wpagroupcipher ");
+				print_cipherset(wpa->i_groupcipher);
+			}
+		}
 		putchar('\n');
 	}
 }

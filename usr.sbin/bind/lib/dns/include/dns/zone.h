@@ -1384,7 +1384,7 @@ dns_zonemgr_getiolimit(dns_zonemgr_t *zmgr);
 void
 dns_zonemgr_setserialqueryrate(dns_zonemgr_t *zmgr, unsigned int value);
 /*%<
- *	Set the number of SOA queries sent per second.
+ *	SeÖúÀe number of SOA queries sent per second.
  *
  * Requires:
  *\li	'zmgr' to be a valid zone manager
