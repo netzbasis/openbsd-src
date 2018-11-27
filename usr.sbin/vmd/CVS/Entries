@@ -1,7 +1,7 @@
 /Makefile/1.20/Sun Sep  9 04:09:32 2018//
 /atomicio.c/1.1/Mon May  8 09:08:40 2017//
 /atomicio.h/1.1/Mon May  8 09:08:40 2017//
-/config.c/1.56/Sat Nov 24 04:51:55 2018//
+/config.c/1.57/Mon Nov 26 05:44:46 2018//
 /control.c/1.29/Sun Aug  5 08:20:54 2018//
 /dhcp.c/1.6/Wed Nov 21 12:31:47 2018//
 /dhcp.h/1.1/Wed Apr 19 15:38:32 2017//
@@ -27,19 +27,19 @@
 /task.c/1.2/Tue Jun 19 17:12:34 2018//
 /task.h/1.1/Fri Sep 15 02:39:33 2017//
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
-/vioqcow2.c/1.11/Sat Nov 24 04:51:55 2018//
-/vioraw.c/1.4/Mon Oct  8 16:32:01 2018//
+/vioqcow2.c/1.12/Mon Nov 26 10:39:30 2018//
+/vioraw.c/1.5/Mon Nov 26 10:39:30 2018//
 /vioscsi.c/1.11/Sat Aug 25 04:16:09 2018//
 /vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
-/virtio.c/1.73/Fri Oct 19 10:12:39 2018//
-/virtio.h/1.32/Fri Oct 19 10:12:39 2018//
+/virtio.c/1.74/Mon Nov 26 10:39:30 2018//
+/virtio.h/1.33/Mon Nov 26 10:39:30 2018//
 /vm.c/1.41/Mon Oct  8 16:32:01 2018//
 /vm.conf.5/1.41/Wed Nov 21 13:48:20 2018//
-/vmboot.c/1.6/Mon Oct  8 16:32:01 2018//
+/vmboot.c/1.7/Mon Nov 26 10:39:30 2018//
 /vmboot.h/1.2/Sat Nov 26 20:03:42 2016//
 /vmd.8/1.8/Wed Jul 19 01:26:20 2017//
-/vmd.c/1.105/Wed Nov 21 12:31:47 2018//
-/vmd.h/1.85/Wed Nov 21 12:31:47 2018//
+/vmd.c/1.106/Mon Nov 26 05:44:46 2018//
+/vmd.h/1.86/Mon Nov 26 05:44:46 2018//
 /vmm.c/1.90/Mon Oct  8 16:32:01 2018//
 /vmm.h/1.6/Thu Jul 12 10:15:44 2018//
 D
