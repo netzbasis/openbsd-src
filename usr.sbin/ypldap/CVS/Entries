@@ -1,10 +1,10 @@
 /Makefile/1.10/Mon Jul  3 22:21:47 2017//
-/aldap.c/1.43/Sun Aug 12 22:04:09 2018//
-/aldap.h/1.11/Thu Jun 21 10:37:00 2018//
-/ber.c/1.32/Tue Nov 20 07:20:22 2018//
-/ber.h/1.9/Sun Aug 12 22:04:09 2018//
+/aldap.c/1.44/Tue Nov 27 12:06:39 2018//
+/aldap.h/1.12/Tue Nov 27 12:06:39 2018//
+/ber.c/1.33/Tue Nov 27 12:06:39 2018//
+/ber.h/1.10/Tue Nov 27 12:06:39 2018//
 /entries.c/1.4/Wed Jul 12 23:18:24 2017//
-/ldapclient.c/1.41/Thu Dec  7 05:09:27 2017//
+/ldapclient.c/1.42/Tue Nov 27 12:06:39 2018//
 /log.c/1.4/Tue Mar 21 12:06:56 2017//
 /log.h/1.1/Fri Jan 20 12:39:36 2017//
 /parse.y/1.31/Tue Nov  6 20:42:03 2018//
