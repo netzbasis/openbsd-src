@@ -63,7 +63,7 @@
 /mdoc_validate.c/1.277/Fri Aug 17 20:31:52 2018//
 /msec.c/1.12/Tue Oct  6 18:30:44 2015//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
-/out.c/1.46/Sun Nov 25 19:23:59 2018//
+/out.c/1.47/Thu Nov 29 01:54:58 2018//
 /out.h/1.24/Sat Aug 18 20:17:58 2018//
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
@@ -83,10 +83,10 @@
 /tbl_html.c/1.24/Mon Nov 26 21:05:54 2018//
 /tbl_layout.c/1.31/Tue Jun 27 18:23:29 2017//
 /tbl_opts.c/1.13/Sat Sep 26 00:53:15 2015//
-/tbl_term.c/1.50/Wed Nov 28 04:47:46 2018//
+/tbl_term.c/1.51/Wed Nov 28 13:43:26 2018//
 /term.c/1.136/Thu Oct 25 01:21:30 2018//
 /term.h/1.74/Sat Jul  8 14:51:01 2017//
-/term_ascii.c/1.48/Tue Aug 21 16:01:38 2018//
+/term_ascii.c/1.49/Wed Nov 28 14:23:02 2018//
 /term_ps.c/1.55/Fri Nov 10 14:16:28 2017//
 /term_tab.c/1.4/Sat Jun 17 14:55:02 2017//
 /tree.c/1.47/Sun Nov 25 19:23:59 2018//
