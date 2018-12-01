@@ -36,7 +36,7 @@
 /cmd-new-session.c/1.114/Thu Oct 18 08:38:01 2018//
 /cmd-new-window.c/1.76/Sun Jul 15 06:57:13 2018//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
-/cmd-pipe-pane.c/1.48/Mon Nov 19 13:35:40 2018//
+/cmd-pipe-pane.c/1.49/Fri Nov 30 08:44:40 2018//
 /cmd-queue.c/1.58/Wed Aug 30 10:33:57 2017//
 /cmd-refresh-client.c/1.28/Thu Oct 18 08:38:01 2018//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
@@ -98,7 +98,7 @@
 /screen-write.c/1.143/Tue Nov 13 11:36:37 2018//
 /screen.c/1.52/Tue Jul 31 11:49:26 2018//
 /server-client.c/1.263/Mon Nov 19 13:35:41 2018//
-/server-fn.c/1.117/Thu Oct 18 08:38:01 2018//
+/server-fn.c/1.118/Fri Nov 30 08:44:40 2018//
 /server.c/1.183/Thu Aug 23 15:45:05 2018//
 /session.c/1.82/Thu Oct 18 08:38:01 2018//
 /status.c/1.182/Thu Oct 18 08:38:01 2018//
@@ -116,7 +116,7 @@
 /window-clock.c/1.24/Tue May 30 21:44:59 2017//
 /window-copy.c/1.204/Wed Nov 28 11:20:13 2018//
 /window-tree.c/1.31/Sun Aug 19 19:03:46 2018//
-/window.c/1.214/Mon Nov 19 13:35:41 2018//
+/window.c/1.215/Fri Nov 30 08:44:40 2018//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
 /xmalloc.h/1.2/Thu Nov 17 10:06:08 2016//
 /xterm-keys.c/1.22/Sun May  7 21:25:59 2017//
