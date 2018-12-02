@@ -2,7 +2,7 @@
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2006.
  */
-/* ==ÖúÀ==============================================================
+/* ====================================================================
  * Copyright (c) 2006 The OpenSSL Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
