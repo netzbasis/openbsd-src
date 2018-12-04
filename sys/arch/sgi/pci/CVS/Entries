@@ -4,7 +4,7 @@
 /iof.c/1.9/Mon May 19 21:18:42 2014//
 /iofreg.h/1.5/Mon Dec 30 05:27:01 2013//
 /iofvar.h/1.4/Tue Apr  6 19:12:34 2010//
-/macepcibridge.c/1.48/Thu May 11 15:47:45 2017//
+/macepcibridge.c/1.49/Mon Dec  3 13:46:30 2018//
 /macepcibrvar.h/1.6/Wed Jul 22 20:28:21 2009//
 /pci_machdep.c/1.5/Thu Jul 23 19:24:30 2009//
 /pci_machdep.h/1.17/Wed May  4 14:30:01 2016//
