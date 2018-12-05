@@ -1,5 +1,5 @@
 /Makefile/1.34/Fri Sep  7 10:49:22 2018//
-/bgpd.8/1.59/Sun Nov  4 14:34:00 2018//
+/bgpd.8/1.60/Tue Dec  4 14:13:40 2018//
 /bgpd.c/1.204/Sat Sep 29 08:11:11 2018//
 /bgpd.conf.5/1.181/Sat Oct  6 13:59:32 2018//
 /bgpd.h/1.355/Wed Nov 28 08:32:26 2018//
@@ -20,7 +20,7 @@
 /rde.c/1.451/Thu Nov 29 15:11:27 2018//
 /rde.h/1.203/Wed Nov 28 08:32:27 2018//
 /rde_attr.c/1.113/Wed Nov 28 08:32:27 2018//
-/rde_decide.c/1.72/Thu Sep 27 15:53:14 2018//
+/rde_decide.c/1.73/Tue Dec  4 14:13:40 2018//
 /rde_filter.c/1.114/Wed Nov 28 08:32:27 2018//
 /rde_prefix.c/1.34/Tue Sep  4 12:00:29 2018//
 /rde_rib.c/1.186/Wed Nov 14 12:14:41 2018//
