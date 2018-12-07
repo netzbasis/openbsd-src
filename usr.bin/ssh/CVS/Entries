@@ -39,7 +39,7 @@
 /canohost.h/1.12/Mon Mar  7 19:02:43 2016//
 /chacha.c/1.1/Thu Nov 21 00:45:44 2013//
 /chacha.h/1.4/Sat Aug 27 04:04:56 2016//
-/channels.c/1.386/Thu Oct  4 01:04:52 2018//
+/channels.c/1.387/Fri Dec  7 02:31:20 2018//
 /channels.h/1.132/Thu Oct  4 00:10:11 2018//
 /cipher-aesctr.c/1.2/Wed Jan 14 10:24:42 2015//
 /cipher-aesctr.h/1.1/Tue Apr 29 15:39:33 2014//
@@ -81,8 +81,8 @@
 /hmac.h/1.9/Tue Jun 24 01:13:21 2014//
 /hostfile.c/1.73/Mon Jul 16 03:09:13 2018//
 /hostfile.h/1.24/Mon Feb 16 22:08:57 2015//
-/kex.c/1.141/Mon Jul  9 13:37:10 2018//
-/kex.h/1.91/Wed Jul 11 18:53:29 2018//
+/kex.c/1.142/Fri Dec  7 03:39:40 2018//
+/kex.h/1.92/Fri Dec  7 03:39:40 2018//
 /kexc25519.c/1.10/Mon May  2 08:49:03 2016//
 /kexc25519c.c/1.9/Mon Dec 18 02:25:15 2017//
 /kexc25519s.c/1.11/Wed May 31 04:19:28 2017//
@@ -103,8 +103,8 @@
 /mac.h/1.10/Fri Jul  8 03:44:42 2016//
 /match.c/1.38/Wed Jul  4 13:49:31 2018//
 /match.h/1.18/Wed Jul  4 13:49:31 2018//
-/misc.c/1.134/Fri Nov 16 03:26:01 2018//
-/misc.h/1.76/Fri Nov 16 03:26:01 2018//
+/misc.c/1.135/Fri Dec  7 04:36:09 2018//
+/misc.h/1.77/Fri Dec  7 04:36:09 2018//
 /moduli.c/1.32/Fri Dec  8 03:45:52 2017//
 /monitor.c/1.188/Fri Nov 16 02:43:56 2018//
 /monitor.h/1.21/Mon Jul  9 21:53:45 2018//
@@ -166,7 +166,7 @@
 /ssh-ecdsa.c/1.15/Thu Sep 13 02:08:33 2018//
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
-/ssh-keygen.1/1.150/Wed Sep 12 06:18:59 2018//
+/ssh-keygen.1/1.152/Fri Dec  7 03:33:18 2018//
 /ssh-keygen.c/1.323/Fri Oct 19 03:12:42 2018//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.120/Wed Jun  6 18:29:18 2018//
