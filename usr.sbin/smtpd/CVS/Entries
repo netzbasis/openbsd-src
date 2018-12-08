@@ -3,6 +3,7 @@
 /aliases.c/1.73/Sat Jun 16 19:41:26 2018//
 /bounce.c/1.79/Thu May 31 21:06:12 2018//
 /ca.c/1.29/Thu May 24 11:38:24 2018//
+/cert.c/1.1/Fri Dec  7 08:05:59 2018//
 /compress_backend.c/1.9/Tue Jan 20 17:37:54 2015//
 /compress_gzip.c/1.10/Mon Dec 28 22:08:30 2015//
 /config.c/1.46/Fri Nov 30 15:33:40 2018//
@@ -21,7 +22,7 @@
 /ioev.c/1.41/Wed May 17 14:00:06 2017//
 /ioev.h/1.16/Wed Nov 30 17:43:32 2016//
 /limit.c/1.5/Wed Jun 15 19:59:03 2016//
-/lka.c/1.218/Thu Dec  6 16:05:04 2018//
+/lka.c/1.219/Fri Dec  7 08:05:59 2018//
 /lka_filter.c/1.7/Thu Dec  6 13:57:06 2018//
 /lka_proc.c/1.4/Thu Dec  6 13:57:06 2018//
 /lka_report.c/1.11/Thu Dec  6 16:05:04 2018//
@@ -50,7 +51,7 @@
 /parse.y/1.233/Thu Dec  6 13:57:06 2018//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
-/pony.c/1.23/Thu Dec  6 12:09:50 2018//
+/pony.c/1.24/Fri Dec  7 08:05:59 2018//
 /queue.c/1.187/Thu May 31 21:06:12 2018//
 /queue_backend.c/1.64/Thu May 31 21:06:12 2018//
 /queue_fs.c/1.17/Thu May 31 21:06:12 2018//
@@ -73,16 +74,16 @@
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.8/Thu Sep 20 11:42:28 2018//
 /smtp_report.c/1.7/Thu Dec  6 16:05:04 2018//
-/smtp_session.c/1.361/Thu Dec  6 16:05:04 2018//
+/smtp_session.c/1.362/Fri Dec  7 14:18:17 2018//
 /smtpc.c/1.4/Thu Sep 20 11:42:28 2018//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.162/Thu May 31 21:06:12 2018//
 /smtpd-api.h/1.35/Thu Nov  1 10:47:46 2018//
 /smtpd-defines.h/1.9/Thu May 24 13:03:11 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
-/smtpd.c/1.308/Thu Dec  6 12:09:50 2018//
+/smtpd.c/1.309/Fri Dec  7 08:05:59 2018//
 /smtpd.conf.5/1.206/Mon Oct  8 06:10:17 2018//
-/smtpd.h/1.580/Thu Dec  6 16:05:04 2018//
+/smtpd.h/1.581/Fri Dec  7 08:05:59 2018//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
