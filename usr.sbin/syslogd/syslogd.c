@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.254 2017/11/24 23:11:42 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.257 2018/11/29 21:10:51 kn Exp $	*/
 
 /*
  * Copyright (c) 2014-2017 Alexander Bluhm <bluhm@genua.de>
@@ -98,6 +98,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <limits.h>
 #include <paths.h>
 #include <signal.h>
@@ -879,7 +880,7 @@ main(int argc, char *argv[])
 
 	signal_add(ev_hup, NULL);
 	signal_add(ev_term, NULL);
-	if (Debug) {
+	if (Debug || Foreground) {
 		signal_add(ev_int, NULL);
 		signal_add(ev_quit, NULL);
 	} else {
@@ -1823,9 +1824,9 @@ logline(int pri, int flags, char *from, char *msg)
 			continue;
 
 		/* skip messages with the incorrect program or hostname */
-		if (f->f_program && strcmp(prog, f->f_program) != 0)
+		if (f->f_program && fnmatch(f->f_program, prog, 0) != 0)
 			continue;
-		if (f->f_hostname && strcmp(from, f->f_hostname) != 0)
+		if (f->f_hostname && fnmatch(f->f_hostname, from, 0) != 0)
 			continue;
 
 		if (f->f_type == F_CONSOLE && (flags & IGN_CONS))
@@ -2276,9 +2277,7 @@ __dead void
 die(int signo)
 {
 	struct filed *f;
-	int was_initialized = Initialized;
 
-	Initialized = 0;		/* Don't log SIGCHLDs */
 	SIMPLEQ_FOREACH(f, &Files, f_next) {
 		/* flush any pending output */
 		if (f->f_prevcount)
@@ -2293,7 +2292,6 @@ die(int signo)
 			f->f_dropped = 0;
 		}
 	}
-	Initialized = was_initialized;
 	dropped_warn(&init_dropped, "during initialization");
 	dropped_warn(&file_dropped, "to file");
 	dropped_warn(&tcpbuf_dropped, "to remote loghost");

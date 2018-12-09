@@ -1,4 +1,4 @@
-/Makefile/1.1/Mon Sep  5 10:56:48 2016//
+/Makefile/1.2/Fri Apr  6 14:44:04 2018//
 D/AST////
 D/Basic////
 D/Config////
@@ -6,4 +6,5 @@ D/Driver////
 D/Parse////
 D/Sema////
 D/Serialization////
+D/StaticAnalyzer////
 D/intrin////

@@ -8,7 +8,7 @@
 /isr.c/1.11/Wed Jun 28 10:31:48 2017//
 /isr.h/1.4/Thu Jun 26 05:42:11 2008//
 /locore.S/1.32/Sun Jul 23 09:17:17 2017//
-/locore0.S/1.1/Sun Jul 23 09:17:17 2017//
+/locore0.S/1.2/Wed Jun  6 12:58:05 2018//
 /m8820x.c/1.16/Tue Jun  3 12:11:19 2014//
 /machdep.c/1.127/Mon Dec 11 05:27:40 2017//
 /mainbus.c/1.15/Fri Nov  3 09:07:54 2017//

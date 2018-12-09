@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.226 2018/02/28 14:39:35 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.233 2018/09/22 13:55:55 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -3443,6 +3443,7 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	uint32_t len;
 	uint32_t rx_pkt_status;
 	int rssi, chanidx;
+	uint8_t saved_bssid[IEEE80211_ADDR_LEN] = { 0 };
 
 	bus_dmamap_sync(sc->sc_dmat, data->map, 0, IWM_RBUF_SIZE,
 	    BUS_DMASYNC_POSTREAD);
@@ -3498,6 +3499,7 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 		 * Record the current channel so we can restore it later.
 		 */
 		bss_chan = ni->ni_chan;
+		IEEE80211_ADDR_COPY(&saved_bssid, ni->ni_macaddr);
 	}
 	ni->ni_chan = &ic->ic_channels[chanidx];
 
@@ -3562,7 +3564,11 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	}
 #endif
 	ieee80211_input(IC2IFP(ic), m, ni, &rxi);
-	if (ni == ic->ic_bss)
+	/*
+	 * ieee80211_input() might have changed our BSS.
+	 * Restore ic_bss's channel if we are still in the same BSS.
+	 */
+	if (ni == ic->ic_bss && IEEE80211_ADDR_EQ(saved_bssid, ni->ni_macaddr))
 		ni->ni_chan = bss_chan;
 	ieee80211_release_node(ic, ni);
 }
@@ -5501,6 +5507,10 @@ iwm_scan(struct iwm_softc *sc)
 		printf("%s: %s -> %s\n", ifp->if_xname,
 		    ieee80211_state_name[ic->ic_state],
 		    ieee80211_state_name[IEEE80211_S_SCAN]);
+	if ((sc->sc_flags & IWM_FLAG_BGSCAN) == 0) {
+		ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+		ieee80211_free_allnodes(ic, 1);
+	}
 	ic->ic_state = IEEE80211_S_SCAN;
 	iwm_led_blink_start(sc);
 	wakeup(&ic->ic_state); /* wake iwm_init() */
@@ -6708,9 +6718,6 @@ iwm_stop(struct ifnet *ifp)
 		sc->sc_cmd_resp_pkt[i] = NULL;
 		sc->sc_cmd_resp_len[i] = 0;
 	}
-	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
-		wakeup(&ic->ic_scan_lock);
-	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 	ifp->if_flags &= ~IFF_RUNNING;
 	ifq_clr_oactive(&ifp->if_snd);
 

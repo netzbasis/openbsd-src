@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.12 2018/03/02 00:56:30 jsg Exp $
+# $OpenBSD: Makefile,v 1.14 2018/07/26 13:20:53 kettenis Exp $
 
 .include <bsd.own.mk>
 
@@ -7,7 +7,7 @@ BINDIR=	/usr/bin
 SRCS=	lld.cpp
 
 TARGET_ARCH?=	${MACHINE_ARCH}
-.if ${TARGET_ARCH} == "aarch64"
+.if ${LINKER_VERSION:L} == "lld"
 LINKS=	${BINDIR}/ld.lld ${BINDIR}/ld
 MLINKS=	ld.lld.1 ld.1
 .endif
@@ -19,7 +19,7 @@ CPPFLAGS+=	-I${.CURDIR}/../../../llvm/tools/lld/include
 .PATH:	${.CURDIR}/../../../llvm/tools/lld/docs
 
 LLVM_LIBDEPS=	lldELF \
-		lldConfig \
+		lldCommon \
 		lldCore \
 		LLVMLTO \
 		LLVMPasses \

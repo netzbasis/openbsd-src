@@ -1,4 +1,4 @@
-/* $OpenBSD: pmap.c,v 1.49 2018/02/20 23:45:24 kettenis Exp $ */
+/* $OpenBSD: pmap.c,v 1.58 2018/09/12 11:58:28 kettenis Exp $ */
 /*
  * Copyright (c) 2008-2009,2014-2016 Dale Rahn <drahn@dalerahn.com>
  *
@@ -512,9 +512,9 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	 */
 	if (pg != NULL &&
 	    ((flags & PROT_MASK) || (pg->pg_flags & PG_PMAP_REF))) {
-		pg->pg_flags |= PG_PMAP_REF;
+		atomic_setbits_int(&pg->pg_flags, PG_PMAP_REF);
 		if ((prot & PROT_WRITE) && (flags & PROT_WRITE)) {
-			pg->pg_flags |= PG_PMAP_MOD;
+			atomic_setbits_int(&pg->pg_flags, PG_PMAP_MOD);
 			atomic_clearbits_int(&pg->pg_flags, PG_PMAP_EXE);
 		}
 	}
@@ -960,72 +960,6 @@ pmap_vp_destroy(pmap_t pm)
 	pm->pm_vp.l0 = NULL;
 }
 
-/*
- * Similar to pmap_steal_avail, but operating on vm_physmem since
- * uvm_page_physload() has been called.
- */
-vaddr_t
-pmap_steal_memory(vsize_t size, vaddr_t *start, vaddr_t *end)
-{
-	struct vm_physseg *seg;
-	vaddr_t va;
-	paddr_t pa;
-	int segno;
-	u_int npg;
-
-	size = round_page(size);
-	npg = atop(size);
-
-	for (segno = 0, seg = vm_physmem; segno < vm_nphysseg; segno++, seg++) {
-		if (seg->avail_end - seg->avail_start < npg)
-			continue;
-		/*
-		 * We can only steal at an ``unused'' segment boundary,
-		 * i.e. either at the start or at the end.
-		 */
-		if (seg->avail_start == seg->start ||
-		    seg->avail_end == seg->end)
-			break;
-	}
-	if (segno == vm_nphysseg)
-		va = 0;
-	else {
-		if (seg->avail_start == seg->start) {
-			pa = ptoa(seg->avail_start);
-			seg->avail_start += npg;
-			seg->start += npg;
-		} else {
-			pa = ptoa(seg->avail_end) - size;
-			seg->avail_end -= npg;
-			seg->end -= npg;
-		}
-		/*
-		 * If all the segment has been consumed now, remove it.
-		 * Note that the crash dump code still knows about it
-		 * and will dump it correctly.
-		 */
-		if (seg->start == seg->end) {
-			if (vm_nphysseg-- == 1)
-				panic("pmap_steal_memory: out of memory");
-			while (segno < vm_nphysseg) {
-				seg[0] = seg[1]; /* struct copy */
-				seg++;
-				segno++;
-			}
-		}
-
-		va = (vaddr_t)pa;	/* 1:1 mapping */
-		bzero((void *)va, size);
-	}
-
-	if (start != NULL)
-		*start = VM_MIN_KERNEL_ADDRESS;
-	if (end != NULL)
-		*end = VM_MAX_KERNEL_ADDRESS;
-
-	return (va);
-}
-
 vaddr_t virtual_avail, virtual_end;
 
 static inline uint64_t
@@ -1036,6 +970,122 @@ VP_Lx(paddr_t pa)
 	 * into the form that should be inserted into the VM table.
 	 */
 	return pa | Lx_TYPE_PT;
+}
+
+/*
+ * Allocator for growing the kernel page tables.  We use a dedicated
+ * submap to make sure we have the space to map them as we are called
+ * when address space is tight!
+ */
+
+struct vm_map *pmap_kvp_map;
+
+const struct kmem_va_mode kv_kvp = {
+	.kv_map = &pmap_kvp_map,
+	.kv_wait = 0
+};
+
+void *
+pmap_kvp_alloc(void)
+{
+	return km_alloc(sizeof(struct pmapvp0), &kv_kvp, &kp_zero, &kd_nowait);
+}
+
+struct pte_desc *
+pmap_kpted_alloc(void)
+{
+	static struct pte_desc *pted;
+	static int npted;
+
+	if (npted == 0) {
+		pted = km_alloc(PAGE_SIZE, &kv_kvp, &kp_zero, &kd_nowait);
+		if (pted == NULL)
+			return NULL;
+		npted = PAGE_SIZE / sizeof(struct pte_desc);
+	}
+
+	npted--;
+	return pted++;
+}
+
+/*
+ * In pmap_bootstrap() we allocate the page tables for the first GB
+ * of the kernel address space.
+ */
+vaddr_t pmap_maxkvaddr = VM_MIN_KERNEL_ADDRESS + 1024 * 1024 * 1024;
+
+vaddr_t
+pmap_growkernel(vaddr_t maxkvaddr)
+{
+	struct pmapvp1 *vp1 = pmap_kernel()->pm_vp.l1;
+	struct pmapvp2 *vp2;
+	struct pmapvp3 *vp3;
+	struct pte_desc *pted;
+	paddr_t pa;
+	int lb_idx2, ub_idx2;
+	int i, j, k;
+	int s;
+
+	if (maxkvaddr <= pmap_maxkvaddr)
+		return pmap_maxkvaddr;
+
+	/*
+	 * Not strictly necessary, but we use an interrupt-safe map
+	 * and uvm asserts that we're at IPL_VM.
+	 */
+	s = splvm();
+
+	for (i = VP_IDX1(pmap_maxkvaddr); i <= VP_IDX1(maxkvaddr - 1); i++) {
+		vp2 = vp1->vp[i];
+		if (vp2 == NULL) {
+			vp2 = pmap_kvp_alloc();
+			if (vp2 == NULL)
+				goto fail;
+			pmap_extract(pmap_kernel(), (vaddr_t)vp2, &pa);
+			vp1->vp[i] = vp2;
+			vp1->l1[i] = VP_Lx(pa);
+		}
+
+		if (i == VP_IDX1(pmap_maxkvaddr)) {
+			lb_idx2 = VP_IDX2(pmap_maxkvaddr);
+		} else {
+			lb_idx2 = 0;
+		}
+
+		if (i == VP_IDX1(maxkvaddr - 1)) {
+			ub_idx2 = VP_IDX2(maxkvaddr - 1);
+		} else {
+			ub_idx2 = VP_IDX2_CNT - 1;
+		}
+
+		for (j = lb_idx2; j <= ub_idx2; j++) {
+			vp3 = vp2->vp[j];
+			if (vp3 == NULL) {
+				vp3 = pmap_kvp_alloc();
+				if (vp3 == NULL)
+					goto fail;
+				pmap_extract(pmap_kernel(), (vaddr_t)vp3, &pa);
+				vp2->vp[j] = vp3;
+				vp2->l2[j] = VP_Lx(pa);
+			}
+
+			for (k = 0; k <= VP_IDX3_CNT - 1; k++) {
+				if (vp3->vp[k] == NULL) {
+					pted = pmap_kpted_alloc();
+					if (pted == NULL)
+						goto fail;
+					vp3->vp[k] = pted;
+					pmap_maxkvaddr += PAGE_SIZE;
+				}
+			}
+		}
+	}
+	KASSERT(pmap_maxkvaddr >= maxkvaddr);
+
+fail:
+	splx(s);
+	
+	return pmap_maxkvaddr;
 }
 
 void pmap_setup_avail(uint64_t ram_start, uint64_t ram_end, uint64_t kvo);
@@ -1100,7 +1150,7 @@ pmap_bootstrap(long kvo, paddr_t lpt1, long kernelstart, long kernelend,
 
 	/* allocate Lx entries */
 	for (i = VP_IDX1(VM_MIN_KERNEL_ADDRESS);
-	    i <= VP_IDX1(VM_MAX_KERNEL_ADDRESS);
+	    i <= VP_IDX1(pmap_maxkvaddr - 1);
 	    i++) {
 		mappings_allocated++;
 		pa = pmap_steal_avail(sizeof(struct pmapvp2), Lx_TABLE_ALIGN,
@@ -1114,10 +1164,10 @@ pmap_bootstrap(long kvo, paddr_t lpt1, long kernelstart, long kernelend,
 		} else {
 			lb_idx2 = 0;
 		}
-		if (i == VP_IDX1(VM_MAX_KERNEL_ADDRESS)) {
-			ub_idx2 = VP_IDX2(VM_MAX_KERNEL_ADDRESS);
+		if (i == VP_IDX1(pmap_maxkvaddr - 1)) {
+			ub_idx2 = VP_IDX2(pmap_maxkvaddr - 1);
 		} else {
-			ub_idx2 = VP_IDX2_CNT-1;
+			ub_idx2 = VP_IDX2_CNT - 1;
 		}
 		for (j = lb_idx2; j <= ub_idx2; j++) {
 			mappings_allocated++;
@@ -1131,7 +1181,7 @@ pmap_bootstrap(long kvo, paddr_t lpt1, long kernelstart, long kernelend,
 	}
 	/* allocate Lx entries */
 	for (i = VP_IDX1(VM_MIN_KERNEL_ADDRESS);
-	    i <= VP_IDX1(VM_MAX_KERNEL_ADDRESS);
+	    i <= VP_IDX1(pmap_maxkvaddr - 1);
 	    i++) {
 		/* access must be performed physical */
 		vp2 = (void *)((long)vp1->vp[i] + kvo);
@@ -1141,16 +1191,16 @@ pmap_bootstrap(long kvo, paddr_t lpt1, long kernelstart, long kernelend,
 		} else {
 			lb_idx2 = 0;
 		}
-		if (i == VP_IDX1(VM_MAX_KERNEL_ADDRESS)) {
-			ub_idx2 = VP_IDX2(VM_MAX_KERNEL_ADDRESS);
+		if (i == VP_IDX1(pmap_maxkvaddr - 1)) {
+			ub_idx2 = VP_IDX2(pmap_maxkvaddr - 1);
 		} else {
-			ub_idx2 = VP_IDX2_CNT-1;
+			ub_idx2 = VP_IDX2_CNT - 1;
 		}
 		for (j = lb_idx2; j <= ub_idx2; j++) {
 			/* access must be performed physical */
 			vp3 = (void *)((long)vp2->vp[j] + kvo);
 
-			for (k = 0; k <= VP_IDX3_CNT-1; k++) {
+			for (k = 0; k <= VP_IDX3_CNT - 1; k++) {
 				pted_allocated++;
 				pa = pmap_steal_avail(sizeof(struct pte_desc),
 				    4, &va);
@@ -1374,6 +1424,10 @@ pmap_page_ro(pmap_t pm, vaddr_t va, vm_prot_t prot)
 
 	pted->pted_va &= ~PROT_WRITE;
 	pted->pted_pte &= ~PROT_WRITE;
+	if ((prot & PROT_EXEC) == 0) {
+		pted->pted_va &= ~PROT_EXEC;
+		pted->pted_pte &= ~PROT_EXEC;
+	}
 	pmap_pte_update(pted, pl3);
 
 	ttlb_flush(pm, pted->pted_va & ~PAGE_MASK);
@@ -1446,7 +1500,7 @@ pmap_protect(pmap_t pm, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 	if (prot & (PROT_READ | PROT_EXEC)) {
 		pmap_lock(pm);
 		while (sva < eva) {
-			pmap_page_ro(pm, sva, 0);
+			pmap_page_ro(pm, sva, prot);
 			sva += PAGE_SIZE;
 		}
 		pmap_unlock(pm);
@@ -1487,9 +1541,43 @@ pmap_init(void)
 void
 pmap_proc_iflush(struct process *pr, vaddr_t va, vsize_t len)
 {
-	/* We only need to do anything if it is the current process. */
-	if (pr == curproc->p_p)
+	struct pmap *pm = vm_map_pmap(&pr->ps_vmspace->vm_map);
+	vaddr_t kva = zero_page + cpu_number() * PAGE_SIZE;
+	paddr_t pa;
+	vsize_t clen;
+	vsize_t off;
+
+	/*
+	 * If we're caled for the current processes, we can simply
+	 * flush the data cache to the point of unification and
+	 * invalidate the instruction cache.
+	 */
+	if (pr == curproc->p_p) {
 		cpu_icache_sync_range(va, len);
+		return;
+	}
+
+	/*
+	 * Flush and invalidate through an aliased mapping.  This
+	 * assumes the instruction cache is PIPT.  That is only true
+	 * for some of the hardware we run on.
+	 */
+	while (len > 0) {
+		/* add one to always round up to the next page */
+		clen = round_page(va + 1) - va;
+		if (clen > len)
+			clen = len;
+
+		off = va - trunc_page(va);
+		if (pmap_extract(pm, trunc_page(va), &pa)) {
+			pmap_kenter_pa(kva, pa, PROT_READ|PROT_WRITE);
+			cpu_icache_sync_range(kva + off, clen);
+			pmap_kremove_pg(kva);
+		}
+
+		len -= clen;
+		va += clen;
+	}
 }
 
 void
@@ -1596,11 +1684,14 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 	paddr_t pa;
 	uint64_t *pl3 = NULL;
 	int need_sync = 0;
+	int retcode = 0;
+
+	pmap_lock(pm);
 
 	/* Every VA needs a pted, even unmanaged ones. */
 	pted = pmap_vp_lookup(pm, va, &pl3);
 	if (!pted || !PTED_VALID(pted))
-		return 0;
+		goto done;
 
 	/* There has to be a PA for the VA, get it. */
 	pa = (pted->pted_pte & PTE_RPGN);
@@ -1608,14 +1699,14 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 	/* If it's unmanaged, it must not fault. */
 	pg = PHYS_TO_VM_PAGE(pa);
 	if (pg == NULL)
-		return 0;
+		goto done;
 
 	/*
 	 * Check based on fault type for mod/ref emulation.
 	 * if L3 entry is zero, it is not a possible fixup
 	 */
 	if (*pl3 == 0)
-		return 0;
+		goto done;
 
 	/*
 	 * Check the fault types to find out if we were doing
@@ -1630,8 +1721,7 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 		 * a reference.  This means that we can enable read and
 		 * exec as well, akin to the page reference emulation.
 		 */
-		pg->pg_flags |= PG_PMAP_MOD;
-		pg->pg_flags |= PG_PMAP_REF;
+		atomic_setbits_int(&pg->pg_flags, PG_PMAP_MOD|PG_PMAP_REF);
 		atomic_clearbits_int(&pg->pg_flags, PG_PMAP_EXE);
 
 		/* Thus, enable read, write and exec. */
@@ -1646,7 +1736,7 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 		 * the page has been accesed, we can enable read as well
 		 * if UVM allows it.
 		 */
-		pg->pg_flags |= PG_PMAP_REF;
+		atomic_setbits_int(&pg->pg_flags, PG_PMAP_REF);
 
 		/* Thus, enable read and exec. */
 		pted->pted_pte |= (pted->pted_va & (PROT_READ|PROT_EXEC));
@@ -1659,13 +1749,13 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 		 * has been accessed, we can enable exec as well if UVM
 		 * allows it.
 		 */
-		pg->pg_flags |= PG_PMAP_REF;
+		atomic_setbits_int(&pg->pg_flags, PG_PMAP_REF);
 
 		/* Thus, enable read and exec. */
 		pted->pted_pte |= (pted->pted_va & (PROT_READ|PROT_EXEC));
 	} else {
 		/* didn't catch it, so probably broken */
-		return 0;
+		goto done;
 	}
 
 	/* We actually made a change, so flush it and sync. */
@@ -1686,7 +1776,10 @@ pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 			cpu_icache_sync_range(va & ~PAGE_MASK, PAGE_SIZE);
 	}
 
-	return 1;
+	retcode = 1;
+done:
+	pmap_unlock(pm);
+	return retcode;
 }
 
 void
@@ -1694,11 +1787,35 @@ pmap_postinit(void)
 {
 	extern char trampoline_vectors[];
 	paddr_t pa;
+	vaddr_t minaddr, maxaddr;
+	u_long npteds, npages;
 
 	memset(pmap_tramp.pm_vp.l1, 0, sizeof(struct pmapvp1));
 	pmap_extract(pmap_kernel(), (vaddr_t)trampoline_vectors, &pa);
 	pmap_enter(&pmap_tramp, (vaddr_t)trampoline_vectors, pa,
 	    PROT_READ | PROT_EXEC, PROT_READ | PROT_EXEC | PMAP_WIRED);
+
+	/*
+	 * Reserve enough virtual address space to grow the kernel
+	 * page tables.  We need a descriptor for each page as well as
+	 * an extra page for level 1/2/3 page tables for management.
+	 * To simplify the code, we always allocate full tables at
+	 * level 3, so take that into account.
+	 */
+	npteds = (VM_MAX_KERNEL_ADDRESS - pmap_maxkvaddr + 1) / PAGE_SIZE;
+	npteds = roundup(npteds, VP_IDX3_CNT);
+	npages = howmany(npteds, PAGE_SIZE / (sizeof(struct pte_desc)));
+	npages += 2 * howmany(npteds, VP_IDX3_CNT);
+	npages += 2 * howmany(npteds, VP_IDX3_CNT * VP_IDX2_CNT);
+	npages += 2 * howmany(npteds, VP_IDX3_CNT * VP_IDX2_CNT * VP_IDX1_CNT);
+
+	/*
+	 * Use an interrupt safe map such that we don't recurse into
+	 * uvm_map() to allocate map entries.
+	 */
+	minaddr = vm_map_min(kernel_map);
+	pmap_kvp_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
+	    npages * PAGE_SIZE, VM_MAP_INTRSAFE, FALSE, NULL);
 }
 
 void
@@ -2090,33 +2207,45 @@ pmap_map_early(paddr_t spa, psize_t len)
  */
 
 #define NUM_ASID (1 << 16)
-uint64_t pmap_asid[NUM_ASID / 64];
+uint32_t pmap_asid[NUM_ASID / 32];
 
 void
 pmap_allocate_asid(pmap_t pm)
 {
+	uint32_t bits;
 	int asid, bit;
 
-	do {
-		asid = arc4random() & (NUM_ASID - 2);
-		bit = (asid & (64 - 1));
-	} while (asid == 0 || (pmap_asid[asid / 64] & (3ULL << bit)));
+	for (;;) {
+		do {
+			asid = arc4random() & (NUM_ASID - 2);
+			bit = (asid & (32 - 1));
+			bits = pmap_asid[asid / 32];
+		} while (asid == 0 || (bits & (3U << bit)));
 
-	pmap_asid[asid / 64] |= (3ULL << bit);
+		if (atomic_cas_uint(&pmap_asid[asid / 32], bits,
+		    bits | (3U << bit)) == bits)
+			break;
+	}
 	pm->pm_asid = asid;
 }
 
 void
 pmap_free_asid(pmap_t pm)
 {
+	uint32_t bits;
 	int bit;
 
 	KASSERT(pm != curcpu()->ci_curpm);
 	cpu_tlb_flush_asid_all((uint64_t)pm->pm_asid << 48);
 	cpu_tlb_flush_asid_all((uint64_t)(pm->pm_asid | ASID_USER) << 48);
 
-	bit = (pm->pm_asid & (64 - 1));
-	pmap_asid[pm->pm_asid / 64] &= ~(3ULL << bit);
+	bit = (pm->pm_asid & (32 - 1));
+	for (;;) {
+		bits = pmap_asid[pm->pm_asid / 32];
+		if (atomic_cas_uint(&pmap_asid[pm->pm_asid / 32], bits,
+		    bits & ~(3U << bit)) == bits)
+			break;
+	}
 }
 
 void

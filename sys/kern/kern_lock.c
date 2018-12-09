@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_lock.c,v 1.61 2018/03/27 08:32:29 mpi Exp $	*/
+/*	$OpenBSD: kern_lock.c,v 1.66 2018/06/15 13:59:53 visa Exp $	*/
 
 /*
  * Copyright (c) 2017 Visa Hankala
@@ -27,11 +27,6 @@
 
 #include <ddb/db_output.h>
 
-#if defined(MULTIPROCESSOR) || defined(WITNESS)
-#include <sys/mplock.h>
-struct __mp_lock kernel_lock;
-#endif
-
 #ifdef MP_LOCKDEBUG
 #ifndef DDB
 #error "MP_LOCKDEBUG requires DDB"
@@ -42,6 +37,9 @@ int __mp_lock_spinout = 200000000;
 #endif /* MP_LOCKDEBUG */
 
 #ifdef MULTIPROCESSOR
+
+#include <sys/mplock.h>
+struct __mp_lock kernel_lock;
 
 /*
  * Functions for manipulating the kernel_lock.  We put them here
@@ -91,7 +89,7 @@ _kernel_lock_held(void)
 #include <machine/cpu.h>
 
 void
-___mp_lock_init(struct __mp_lock *mpl, struct lock_type *type)
+___mp_lock_init(struct __mp_lock *mpl, const struct lock_type *type)
 {
 	memset(mpl->mpl_cpus, 0, sizeof(mpl->mpl_cpus));
 	mpl->mpl_users = 0;
@@ -113,22 +111,24 @@ ___mp_lock_init(struct __mp_lock *mpl, struct lock_type *type)
 static __inline void
 __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 {
-#ifndef MP_LOCKDEBUG
-	while (mpl->mpl_ticket != me)
-		CPU_BUSY_CYCLE();
-#else
+	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
+#ifdef MP_LOCKDEBUG
 	int nticks = __mp_lock_spinout;
+#endif
 
+	spc->spc_spinning++;
 	while (mpl->mpl_ticket != me) {
 		CPU_BUSY_CYCLE();
 
+#ifdef MP_LOCKDEBUG
 		if (--nticks <= 0) {
-			db_printf("__mp_lock(%p): lock spun out", mpl);
+			db_printf("%s: %p lock spun out", __func__, mpl);
 			db_enter();
 			nticks = __mp_lock_spinout;
 		}
-	}
 #endif
+	}
+	spc->spc_spinning--;
 }
 
 void
@@ -258,14 +258,12 @@ __mtx_init(struct mutex *mtx, int wantipl)
 void
 __mtx_enter(struct mutex *mtx)
 {
+	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
 #ifdef MP_LOCKDEBUG
 	int nticks = __mp_lock_spinout;
 #endif
 
-	/* Avoid deadlocks after panic or in DDB */
-	if (panicstr || db_active)
-		return;
-
+	spc->spc_spinning++;
 	while (__mtx_enter_try(mtx) == 0) {
 		CPU_BUSY_CYCLE();
 
@@ -277,6 +275,7 @@ __mtx_enter(struct mutex *mtx)
 		}
 #endif
 	}
+	spc->spc_spinning--;
 }
 
 int
@@ -284,6 +283,10 @@ __mtx_enter_try(struct mutex *mtx)
 {
 	struct cpu_info *owner, *ci = curcpu();
 	int s;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return (1);
 
 	if (mtx->mtx_wantipl != IPL_NONE)
 		s = splraise(mtx->mtx_wantipl);
@@ -369,7 +372,7 @@ __mtx_leave(struct mutex *mtx)
 #ifdef WITNESS
 void
 _mtx_init_flags(struct mutex *m, int ipl, const char *name, int flags,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	struct lock_object *lo = MUTEX_LOCK_OBJECT(m);
 

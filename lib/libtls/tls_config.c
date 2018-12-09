@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_config.c,v 1.51 2018/03/20 15:40:10 jsing Exp $ */
+/* $OpenBSD: tls_config.c,v 1.53 2018/11/29 14:24:23 tedu Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -26,6 +26,14 @@
 #include <tls.h>
 
 #include "tls_internal.h"
+
+static const char default_ca_file[] = "/etc/ssl/cert.pem";
+
+const char *
+tls_default_ca_cert_file(void)
+{
+	return default_ca_file;
+}
 
 int
 tls_config_load_file(struct tls_error *error, const char *filetype,
@@ -189,10 +197,7 @@ tls_config_clear_keys(struct tls_config *config)
 	struct tls_keypair *kp;
 
 	for (kp = config->keypair; kp != NULL; kp = kp->next)
-		tls_keypair_clear(kp);
-
-	tls_config_set_ca_mem(config, NULL, 0);
-	tls_config_set_crl_mem(config, NULL, 0);
+		tls_keypair_clear_key(kp);
 }
 
 int

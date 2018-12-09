@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.9 2018/03/31 18:19:12 patrick Exp $
+#	$OpenBSD: Makefile,v 1.11 2018/06/23 22:13:50 kettenis Exp $
 
 NOMAN=		#
 
@@ -17,7 +17,8 @@ EFIDIR=		${S}/stand/efi
 OBJCOPY?=	objcopy
 OBJDUMP?=	objdump
 
-LDFLAGS+=-nostdlib -T ${.CURDIR}/ldscript.arm -Bsymbolic -shared
+LDFLAGS+=	-nostdlib -T ${.CURDIR}/ldscript.arm -Bsymbolic -shared
+LDFLAGS+=	-z notext -z norelro
 
 .PATH:	${S}/stand/boot
 SRCS+=	boot.c cmd.c vars.c
@@ -48,6 +49,7 @@ CPPFLAGS+=	-DNEEDS_HEAP_H
 COPTS+=		-ffreestanding -fno-stack-protector
 COPTS+=		-fshort-wchar -fPIC -fno-builtin
 COPTS+=		-Wall -Werror
+COPTS+=		-mfloat-abi=soft
 
 PROG.elf=	${PROG:S/.EFI/.elf/}
 CLEANFILES+=	${PROG.elf} ${PROG.elf}.tmp

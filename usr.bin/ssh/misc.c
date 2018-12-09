@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.127 2018/03/12 00:52:01 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.135 2018/12/07 04:36:09 dtucker Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005,2006 Damien Miller.  All rights reserved.
@@ -36,6 +36,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -58,7 +59,6 @@
 #include "ssh.h"
 #include "sshbuf.h"
 #include "ssherr.h"
-#include "uidswap.h"
 
 /* remove newline at end of string */
 char *
@@ -214,8 +214,8 @@ set_rdomain(int fd, const char *name)
 #define QUOTE	"\""
 
 /* return next token in configuration line */
-char *
-strdelim(char **s)
+static char *
+strdelim_internal(char **s, int split_equals)
 {
 	char *old;
 	int wspace = 0;
@@ -225,7 +225,8 @@ strdelim(char **s)
 
 	old = *s;
 
-	*s = strpbrk(*s, WHITESPACE QUOTE "=");
+	*s = strpbrk(*s,
+	    split_equals ? WHITESPACE QUOTE "=" : WHITESPACE QUOTE);
 	if (*s == NULL)
 		return (old);
 
@@ -242,16 +243,35 @@ strdelim(char **s)
 	}
 
 	/* Allow only one '=' to be skipped */
-	if (*s[0] == '=')
+	if (split_equals && *s[0] == '=')
 		wspace = 1;
 	*s[0] = '\0';
 
 	/* Skip any extra whitespace after first token */
 	*s += strspn(*s + 1, WHITESPACE) + 1;
-	if (*s[0] == '=' && !wspace)
+	if (split_equals && *s[0] == '=' && !wspace)
 		*s += strspn(*s + 1, WHITESPACE) + 1;
 
 	return (old);
+}
+
+/*
+ * Return next token in configuration line; splts on whitespace or a
+ * single '=' character.
+ */
+char *
+strdelim(char **s)
+{
+	return strdelim_internal(s, 1);
+}
+
+/*
+ * Return next token in configuration line; splts on whitespace only.
+ */
+char *
+strdelimw(char **s)
+{
+	return strdelim_internal(s, 0);
 }
 
 struct passwd *
@@ -280,13 +300,16 @@ pwcopy(struct passwd *pw)
 int
 a2port(const char *s)
 {
+	struct servent *se;
 	long long port;
 	const char *errstr;
 
 	port = strtonum(s, 0, 65535, &errstr);
-	if (errstr != NULL)
-		return -1;
-	return (int)port;
+	if (errstr == NULL)
+		return (int)port;
+	if ((se = getservbyname(s, "tcp")) != NULL)
+		return ntohs(se->s_port);
+	return -1;
 }
 
 int
@@ -972,31 +995,6 @@ percent_expand(const char *string, ...)
 #undef EXPAND_MAX_KEYS
 }
 
-/*
- * Read an entire line from a public key file into a static buffer, discarding
- * lines that exceed the buffer size.  Returns 0 on success, -1 on failure.
- */
-int
-read_keyfile_line(FILE *f, const char *filename, char *buf, size_t bufsz,
-   u_long *lineno)
-{
-	while (fgets(buf, bufsz, f) != NULL) {
-		if (buf[0] == '\0')
-			continue;
-		(*lineno)++;
-		if (buf[strlen(buf) - 1] == '\n' || feof(f)) {
-			return 0;
-		} else {
-			debug("%s: %s line %lu exceeds size limit", __func__,
-			    filename, *lineno);
-			/* discard remainder of line */
-			while (fgetc(f) != '\n' && !feof(f))
-				;	/* nothing */
-		}
-	}
-	return -1;
-}
-
 int
 tun_open(int tun, int mode, char **ifname)
 {
@@ -1273,11 +1271,11 @@ bandwidth_limit_init(struct bwlimit *bw, u_int64_t kbps, size_t buflen)
 {
 	bw->buflen = buflen;
 	bw->rate = kbps;
-	bw->thresh = bw->rate;
+	bw->thresh = buflen;
 	bw->lamt = 0;
 	timerclear(&bw->bwstart);
 	timerclear(&bw->bwend);
-}	
+}
 
 /* Callback from read/write loop to insert bandwidth-limiting delays */
 void
@@ -1286,12 +1284,11 @@ bandwidth_limit(struct bwlimit *bw, size_t read_len)
 	u_int64_t waitlen;
 	struct timespec ts, rm;
 
+	bw->lamt += read_len;
 	if (!timerisset(&bw->bwstart)) {
 		monotime_tv(&bw->bwstart);
 		return;
 	}
-
-	bw->lamt += read_len;
 	if (bw->lamt < bw->thresh)
 		return;
 
@@ -1503,15 +1500,6 @@ forward_equals(const struct Forward *a, const struct Forward *b)
 	if (strcmp_maybe_null(a->connect_path, b->connect_path) == 0)
 		return 0;
 	/* allocated_port and handle are not checked */
-	return 1;
-}
-
-/* returns 1 if bind to specified port by specified user is permitted */
-int
-bind_permitted(int port, uid_t uid)
-{
-	if (port < IPPORT_RESERVED && uid != 0)
-		return 0;
 	return 1;
 }
 
@@ -1877,6 +1865,25 @@ bad:
 	return 0;
 }
 
+/*
+ * Verify that a environment variable name (not including initial '$') is
+ * valid; consisting of one or more alphanumeric or underscore characters only.
+ * Returns 1 on valid, 0 otherwise.
+ */
+int
+valid_env_name(const char *name)
+{
+	const char *cp;
+
+	if (name[0] == '\0')
+		return 0;
+	for (cp = name; *cp != '\0'; cp++) {
+		if (!isalnum((u_char)*cp) && *cp != '_')
+			return 0;
+	}
+	return 1;
+}
+
 const char *
 atoi_err(const char *nptr, int *val)
 {
@@ -1942,4 +1949,11 @@ format_absolute_time(uint64_t t, char *buf, size_t len)
 
 	localtime_r(&tt, &tm);
 	strftime(buf, len, "%Y-%m-%dT%H:%M:%S", &tm);
+}
+
+/* check if path is absolute */
+int
+path_absolute(const char *path)
+{
+	return (*path == '/') ? 1 : 0;
 }

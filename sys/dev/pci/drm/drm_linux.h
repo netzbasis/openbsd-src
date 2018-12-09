@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.84 2018/02/19 08:59:52 mpi Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.92 2018/10/31 08:50:25 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  * Copyright (c) 2017 Martin Pieuchot
@@ -22,6 +22,7 @@
 #include <sys/param.h>
 #include <sys/atomic.h>
 #include <sys/errno.h>
+#include <sys/fcntl.h>
 #include <sys/kernel.h>
 #include <sys/signalvar.h>
 #include <sys/stdint.h>
@@ -53,6 +54,8 @@
 #else
 #pragma GCC diagnostic ignored "-Wformat-zero-length"
 #endif
+
+#define STUB() do { printf("%s: stub\n", __func__); } while(0)
 
 typedef int irqreturn_t;
 enum irqreturn {
@@ -558,45 +561,72 @@ _spin_unlock_irqrestore(struct mutex *mtxp, __unused unsigned long flags
 #define free_irq(irq, dev)
 #define synchronize_irq(x)
 
-#define fence_wait(x, y)
-#define fence_put(x)
+typedef struct wait_queue wait_queue_t;
+struct wait_queue {
+	unsigned int flags;
+	void *private;
+	int (*func)(wait_queue_t *, unsigned, int, void *);
+};
+
+extern struct mutex sch_mtx;
+extern void *sch_ident;
+extern int sch_priority;
 
 struct wait_queue_head {
 	struct mutex lock;
 	unsigned int count;
+	struct wait_queue *_wq;
 };
 typedef struct wait_queue_head wait_queue_head_t;
+
+#define MAX_SCHEDULE_TIMEOUT (INT32_MAX)
 
 static inline void
 init_waitqueue_head(wait_queue_head_t *wq)
 {
 	mtx_init(&wq->lock, IPL_TTY);
 	wq->count = 0;
+	wq->_wq = NULL;
+}
+
+static inline void
+__add_wait_queue(wait_queue_head_t *head, wait_queue_t *new)
+{
+	head->_wq = new;
+}
+
+static inline void
+__remove_wait_queue(wait_queue_head_t *head, wait_queue_t *old)
+{
+	head->_wq = NULL;
 }
 
 #define __wait_event_intr_timeout(wq, condition, timo, prio)		\
 ({									\
 	long ret = timo;						\
-	mtx_enter(&(wq).lock);						\
 	do {								\
 		int deadline, __error;					\
 									\
 		KASSERT(!cold);						\
+									\
+		mtx_enter(&sch_mtx);					\
 		atomic_inc_int(&(wq).count);				\
 		deadline = ticks + ret;					\
-		__error = msleep(&wq, &(wq).lock, prio, "drmweti", ret); \
+		__error = msleep(&wq, &sch_mtx, prio, "drmweti", ret);	\
 		ret = deadline - ticks;					\
 		atomic_dec_int(&(wq).count);				\
 		if (__error == ERESTART || __error == EINTR) {		\
 			ret = -ERESTARTSYS;				\
+			mtx_leave(&sch_mtx);				\
 			break;						\
 		}							\
 		if (timo && (ret <= 0 || __error == EWOULDBLOCK)) { 	\
+			mtx_leave(&sch_mtx);				\
 			ret = ((condition)) ? 1 : 0;			\
 			break;						\
  		}							\
+		mtx_leave(&sch_mtx);					\
 	} while (ret > 0 && !(condition));				\
-	mtx_leave(&(wq).lock);						\
 	ret;								\
 })
 
@@ -608,6 +638,14 @@ do {						\
 	if (!(condition))			\
 		__wait_event_intr_timeout(wq, condition, 0, 0); \
 } while (0)
+
+#define wait_event_interruptible_locked(wq, condition) 		\
+({						\
+	int __ret = 0;				\
+	if (!(condition))			\
+		__ret = __wait_event_intr_timeout(wq, condition, 0, PCATCH); \
+	__ret;					\
+})
 
 /*
  * Sleep until `condition' gets true or `timo' expires.
@@ -639,16 +677,43 @@ do {						\
 	__ret;					\
 })
 
-#define wake_up(wq)				\
-do {						\
-	mtx_enter(&(wq)->lock);			\
-	wakeup(wq);				\
-	mtx_leave(&(wq)->lock);			\
-} while (0)
-#define wake_up_all(wq)			wake_up(wq)
-#define wake_up_all_locked(wq)		wakeup(wq)
-#define wake_up_interruptible(wq)	wake_up(wq)
+static inline void
+_wake_up(wait_queue_head_t *wq LOCK_FL_VARS)
+{
+	_mtx_enter(&wq->lock LOCK_FL_ARGS);
+	if (wq->_wq != NULL && wq->_wq->func != NULL)
+		wq->_wq->func(wq->_wq, 0, wq->_wq->flags, NULL);
+	else {
+		mtx_enter(&sch_mtx);
+		wakeup(wq);
+		mtx_leave(&sch_mtx);
+	}
+	_mtx_leave(&wq->lock LOCK_FL_ARGS);
+}
 
+#define wake_up_process(task)			\
+do {						\
+	mtx_enter(&sch_mtx);			\
+	wakeup(task);				\
+	mtx_leave(&sch_mtx);			\
+} while (0)
+
+#define wake_up(wq)			_wake_up(wq LOCK_FILE_LINE)
+#define wake_up_all(wq)			_wake_up(wq LOCK_FILE_LINE)
+
+static inline void
+wake_up_all_locked(wait_queue_head_t *wq)
+{
+	if (wq->_wq != NULL && wq->_wq->func != NULL)
+		wq->_wq->func(wq->_wq, 0, wq->_wq->flags, NULL);
+	else {
+		mtx_enter(&sch_mtx);
+		wakeup(wq);
+		mtx_leave(&sch_mtx);
+	}
+}
+
+#define wake_up_interruptible(wq)	_wake_up(wq LOCK_FILE_LINE)
 #define waitqueue_active(wq)		((wq)->count > 0)
 
 struct completion {
@@ -833,8 +898,8 @@ void flush_delayed_work(struct delayed_work *);
 typedef void *async_cookie_t;
 #define async_schedule(func, data)	(func)((data), NULL)
 
-#define local_irq_disable()	disable_intr()
-#define local_irq_enable()	enable_intr()
+#define local_irq_disable()	intr_disable()
+#define local_irq_enable()	intr_enable()
 
 #define setup_timer(x, y, z)	timeout_set((x), (void (*)(void *))(y), (void *)(z))
 #define mod_timer(x, y)		timeout_add((x), (y - jiffies))
@@ -848,6 +913,7 @@ typedef void *async_cookie_t;
 
 #define TASK_UNINTERRUPTIBLE	0
 #define TASK_INTERRUPTIBLE	PCATCH
+#define TASK_RUNNING		-1
 
 #define signal_pending_state(x, y) CURSIG(curproc)
 #define signal_pending(y) CURSIG(curproc)
@@ -874,6 +940,7 @@ timespec_sub(struct timespec t1, struct timespec t2)
 #define time_in_range(x, min, max) ((x) >= (min) && (x) <= (max))
 
 extern volatile unsigned long jiffies;
+#define jiffies_64 jiffies /* XXX */
 #undef HZ
 #define HZ	hz
 
@@ -1218,27 +1285,300 @@ static inline void
 prepare_to_wait(wait_queue_head_t *wq, wait_queue_head_t **wait, int state)
 {
 	if (*wait == NULL) {
-		mtx_enter(&wq->lock);
+		mtx_enter(&sch_mtx);
 		*wait = wq;
 	}
+	MUTEX_ASSERT_LOCKED(&sch_mtx);
+	sch_ident = wq;
+	sch_priority = state;
 }
 
 static inline void
 finish_wait(wait_queue_head_t *wq, wait_queue_head_t **wait)
 {
-	if (*wait)
-		mtx_leave(&wq->lock);
+	if (*wait) {
+		MUTEX_ASSERT_LOCKED(&sch_mtx);
+		sch_ident = NULL;
+		mtx_leave(&sch_mtx);
+	}
+}
+
+static inline void
+set_current_state(int state)
+{
+	if (sch_ident != curproc)
+		mtx_enter(&sch_mtx);
+	MUTEX_ASSERT_LOCKED(&sch_mtx);
+	sch_ident = curproc;
+	sch_priority = state;
+}
+
+static inline void
+__set_current_state(int state)
+{
+	KASSERT(state == TASK_RUNNING);
+	if (sch_ident == curproc) {
+		MUTEX_ASSERT_LOCKED(&sch_mtx);
+		sch_ident = NULL;
+		mtx_leave(&sch_mtx);
+	}
 }
 
 static inline long
-schedule_timeout(long timeout, wait_queue_head_t **wait)
+schedule_timeout(long timeout)
 {
+	int err;
+	long deadline;
+
 	if (cold) {
 		delay((timeout * 1000000) / hz);
-		return -ETIMEDOUT;
+		return 0;
 	}
 
-	return -msleep(*wait, &(*wait)->lock, PZERO, "schto", timeout);
+	if (timeout == MAX_SCHEDULE_TIMEOUT) {
+		err = msleep(sch_ident, &sch_mtx, sch_priority, "schto", 0);
+		sch_ident = curproc;
+		return timeout;
+	}
+
+	deadline = ticks + timeout;
+	err = msleep(sch_ident, &sch_mtx, sch_priority, "schto", timeout);
+	timeout = deadline - ticks;
+	if (timeout < 0)
+		timeout = 0;
+	sch_ident = curproc;
+	return timeout;
+}
+
+struct seq_file;
+
+static inline void
+seq_printf(struct seq_file *m, const char *fmt, ...) {};
+
+#define preempt_enable()
+#define preempt_disable()
+
+#define FENCE_TRACE(fence, fmt, args...) do {} while(0)
+
+struct fence {
+	struct kref refcount;
+	const struct fence_ops *ops;
+	unsigned long flags;
+	unsigned int context;
+	unsigned int seqno;
+	struct mutex *lock;
+	struct list_head cb_list;
+};
+
+enum fence_flag_bits {
+	FENCE_FLAG_SIGNALED_BIT,
+	FENCE_FLAG_ENABLE_SIGNAL_BIT,
+	FENCE_FLAG_USER_BITS,
+};
+
+struct fence_ops {
+	const char * (*get_driver_name)(struct fence *);
+	const char * (*get_timeline_name)(struct fence *);
+	bool (*enable_signaling)(struct fence *);
+	bool (*signaled)(struct fence *);
+	long (*wait)(struct fence *, bool, long);
+	void (*release)(struct fence *);
+};
+
+struct fence_cb;
+typedef void (*fence_func_t)(struct fence *fence, struct fence_cb *cb);
+
+struct fence_cb {
+	struct list_head node;
+	fence_func_t func;
+};
+
+unsigned int fence_context_alloc(unsigned int);
+
+static inline struct fence *
+fence_get(struct fence *fence)
+{
+	if (fence)
+		kref_get(&fence->refcount);
+	return fence;
+}
+
+static inline struct fence *
+fence_get_rcu(struct fence *fence)
+{
+	if (fence)
+		kref_get(&fence->refcount);
+	return fence;
+}
+
+static inline void
+fence_release(struct kref *ref)
+{
+	struct fence *fence = container_of(ref, struct fence, refcount);
+	if (fence->ops && fence->ops->release)
+		fence->ops->release(fence);
+	else
+		free(fence, M_DRM, 0);
+}
+
+static inline void
+fence_put(struct fence *fence)
+{
+	if (fence)
+		kref_put(&fence->refcount, fence_release);
+}
+
+static inline int
+fence_signal(struct fence *fence)
+{
+	if (fence == NULL)
+		return -EINVAL;
+
+	if (test_and_set_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		return -EINVAL;
+
+	if (test_bit(FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags)) {
+		struct fence_cb *cur, *tmp;
+
+		mtx_enter(fence->lock);
+		list_for_each_entry_safe(cur, tmp, &fence->cb_list, node) {
+			list_del_init(&cur->node);
+			cur->func(fence, cur);
+		}
+		mtx_leave(fence->lock);
+	}
+
+	return 0;
+}
+
+static inline int
+fence_signal_locked(struct fence *fence)
+{
+	struct fence_cb *cur, *tmp;
+
+	if (fence == NULL)
+		return -EINVAL;
+
+	if (test_and_set_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		return -EINVAL;
+
+	list_for_each_entry_safe(cur, tmp, &fence->cb_list, node) {
+		list_del_init(&cur->node);
+		cur->func(fence, cur);
+	}
+
+	return 0;
+}
+
+static inline bool
+fence_is_signaled(struct fence *fence)
+{
+	if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		return true;
+
+	if (fence->ops->signaled && fence->ops->signaled(fence)) {
+		fence_signal(fence);
+		return true;
+	}
+
+	return false;
+}
+
+static inline long
+fence_wait_timeout(struct fence *fence, bool intr, signed long timeout)
+{
+	if (timeout < 0)
+		return -EINVAL;
+
+	if (timeout == 0)
+		return fence_is_signaled(fence);
+
+	return fence->ops->wait(fence, intr, timeout);
+}
+
+static inline long
+fence_wait(struct fence *fence, bool intr)
+{
+	return fence_wait_timeout(fence, intr, MAX_SCHEDULE_TIMEOUT);
+}
+
+static inline void
+fence_enable_sw_signaling(struct fence *fence)
+{
+	if (!test_and_set_bit(FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags) &&
+	    !test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+		mtx_enter(fence->lock);
+		if (!fence->ops->enable_signaling(fence))
+			fence_signal_locked(fence);
+		mtx_leave(fence->lock);
+	}
+}
+
+static inline void
+fence_init(struct fence *fence, const struct fence_ops *ops,
+    struct mutex *lock, unsigned context, unsigned seqno)
+{
+	fence->ops = ops;
+	fence->lock = lock;
+	fence->context = context;
+	fence->seqno = seqno;
+	fence->flags = 0;
+	kref_init(&fence->refcount);
+	INIT_LIST_HEAD(&fence->cb_list);
+}
+
+static inline int
+fence_add_callback(struct fence *fence, struct fence_cb *cb,
+    fence_func_t func)
+{
+	int ret = 0;
+	bool was_set;
+
+	if (WARN_ON(!fence || !func))
+		return -EINVAL;
+
+	if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags)) {
+		INIT_LIST_HEAD(&cb->node);
+		return -ENOENT;
+	}
+
+	mtx_enter(fence->lock);
+
+	was_set = test_and_set_bit(FENCE_FLAG_ENABLE_SIGNAL_BIT, &fence->flags);
+
+	if (test_bit(FENCE_FLAG_SIGNALED_BIT, &fence->flags))
+		ret = -ENOENT;
+	else if (!was_set) {
+		if (!fence->ops->enable_signaling(fence)) {
+			fence_signal_locked(fence);
+			ret = -ENOENT;
+		}
+	}
+
+	if (!ret) {
+		cb->func = func;
+		list_add_tail(&cb->node, &fence->cb_list);
+	} else
+		INIT_LIST_HEAD(&cb->node);
+	mtx_leave(fence->lock);
+
+	return ret;
+}
+
+static inline bool
+fence_remove_callback(struct fence *fence, struct fence_cb *cb)
+{
+	bool ret;
+
+	mtx_enter(fence->lock);
+
+	ret = !list_empty(&cb->node);
+	if (ret)
+		list_del_init(&cb->node);
+
+	mtx_leave(fence->lock);
+
+	return ret;
 }
 
 struct idr_entry {
@@ -1780,6 +2120,26 @@ typedef int pgprot_t;
 #define pgprot_val(v)	(v)
 #define PAGE_KERNEL	0
 
+static inline pgprot_t
+pgprot_writecombine(pgprot_t prot)
+{
+#if PMAP_WC != 0
+	return prot | PMAP_WC;
+#else
+	return prot | PMAP_NOCACHE;
+#endif
+}
+
+static inline pgprot_t
+pgprot_noncached(pgprot_t prot)
+{
+#if PMAP_DEVICE != 0
+	return prot | PMAP_DEVICE;
+#else
+	return prot | PMAP_NOCACHE;
+#endif
+}
+
 void	*kmap(struct vm_page *);
 void	 kunmap(void *addr);
 void	*vmap(struct vm_page **, unsigned int, unsigned long, pgprot_t);
@@ -1863,6 +2223,55 @@ cpu_relax(void)
 #define cpu_relax_lowlatency() CPU_BUSY_CYCLE()
 #define cpu_has_pat	1
 #define cpu_has_clflush	1
+
+struct lock_class_key {
+};
+
+typedef struct {
+	unsigned int sequence;
+} seqcount_t;
+
+static inline void
+__seqcount_init(seqcount_t *s, const char *name,
+    struct lock_class_key *key)
+{
+	s->sequence = 0;
+}
+
+static inline unsigned int
+read_seqcount_begin(const seqcount_t *s)
+{
+	unsigned int r;
+	for (;;) {
+		r = s->sequence;
+		if ((r & 1) == 0)
+			break;
+		cpu_relax();
+	}
+	membar_consumer();
+	return r;
+}
+
+static inline int
+read_seqcount_retry(const seqcount_t *s, unsigned start)
+{
+	membar_consumer();
+	return (s->sequence != start);
+}
+
+static inline void
+write_seqcount_begin(seqcount_t *s)
+{
+	s->sequence++;
+	membar_producer();
+}
+
+static inline void
+write_seqcount_end(seqcount_t *s)
+{
+	membar_producer();
+	s->sequence++;
+}
 
 static inline uint32_t ror32(uint32_t word, unsigned int shift)
 {
@@ -2304,7 +2713,8 @@ request_firmware(const struct firmware **fw, const char *name,
     struct device *device)
 {
 	int r;
-	struct firmware *f = malloc(sizeof(struct firmware), M_DRM, M_WAITOK);
+	struct firmware *f = malloc(sizeof(struct firmware), M_DRM,
+	    M_WAITOK | M_ZERO);
 	*fw = f;
 	r = loadfirmware(name, __DECONST(u_char **, &f->data), &f->size);
 	if (r != 0)
@@ -2318,10 +2728,45 @@ request_firmware(const struct firmware **fw, const char *name,
 static inline void
 release_firmware(const struct firmware *fw)
 {
-	free(__DECONST(u_char *, fw->data), M_DRM, fw->size);
+	if (fw)
+		free(__DECONST(u_char *, fw->data), M_DEVBUF, fw->size);
 	free(__DECONST(struct firmware *, fw), M_DRM, sizeof(*fw));
 }
 
 void *memchr_inv(const void *, int, size_t);
+
+struct dma_buf_ops;
+
+struct dma_buf {
+	const struct dma_buf_ops *ops;
+	void *priv;
+	size_t size;
+	struct file *file;
+};
+
+struct dma_buf_attachment;
+
+void	get_dma_buf(struct dma_buf *);
+struct dma_buf *dma_buf_get(int);
+void	dma_buf_put(struct dma_buf *);
+int	dma_buf_fd(struct dma_buf *, int);
+
+struct dma_buf_ops {
+	void (*release)(struct dma_buf *);
+};
+
+struct dma_buf_export_info {
+	const struct dma_buf_ops *ops;
+	size_t size;
+	int flags;
+	void *priv;
+};
+
+#define DEFINE_DMA_BUF_EXPORT_INFO(x)  struct dma_buf_export_info x 
+
+struct dma_buf *dma_buf_export(const struct dma_buf_export_info *);
+
+#define dma_buf_attach(x, y) NULL
+#define dma_buf_detach(x, y) panic("dma_buf_detach")
 
 #endif

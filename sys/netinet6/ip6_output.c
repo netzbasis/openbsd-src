@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.237 2018/03/27 15:03:52 dhill Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.241 2018/12/03 17:25:22 claudio Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -897,7 +897,7 @@ ip6_insert_jumboopt(struct ip6_exthdrs *exthdrs, u_int32_t plen)
 		struct ip6_hbh *hbh;
 
 		mopt = exthdrs->ip6e_hbh;
-		if (M_TRAILINGSPACE(mopt) < JUMBOOPTLEN) {
+		if (m_trailingspace(mopt) < JUMBOOPTLEN) {
 			/*
 			 * XXX assumption:
 			 * - exthdrs->ip6e_hbh is not referenced from places
@@ -985,7 +985,7 @@ ip6_insertfraghdr(struct mbuf *m0, struct mbuf *m, int hlen,
 		;
 
 	if ((mlast->m_flags & M_EXT) == 0 &&
-	    M_TRAILINGSPACE(mlast) >= sizeof(struct ip6_frag)) {
+	    m_trailingspace(mlast) >= sizeof(struct ip6_frag)) {
 		/* use the trailing space of the last mbuf for the fragment hdr */
 		*frghdrp = (struct ip6_frag *)(mtod(mlast, caddr_t) +
 		    mlast->m_len);
@@ -2571,13 +2571,13 @@ ip6_splithdr(struct mbuf *m, struct ip6_exthdrs *exthdrs)
 
 	ip6 = mtod(m, struct ip6_hdr *);
 	if (m->m_len > sizeof(*ip6)) {
-		MGETHDR(mh, M_DONTWAIT, MT_HEADER);
+		MGET(mh, M_DONTWAIT, MT_HEADER);
 		if (mh == NULL) {
 			m_freem(m);
 			return ENOBUFS;
 		}
 		M_MOVE_PKTHDR(mh, m);
-		MH_ALIGN(mh, sizeof(*ip6));
+		m_align(mh, sizeof(*ip6));
 		m->m_len -= sizeof(*ip6);
 		m->m_data += sizeof(*ip6);
 		mh->m_next = m;
@@ -2765,6 +2765,7 @@ ip6_output_ipsec_send(struct tdb *tdb, struct mbuf *m, int tunalready, int fwd)
 #if NPF > 0
 	struct ifnet *encif;
 #endif
+	int error;
 
 #if NPF > 0
 	if ((encif = enc_getif(tdb->tdb_rdomain, tdb->tdb_tap)) == NULL ||
@@ -2786,6 +2787,11 @@ ip6_output_ipsec_send(struct tdb *tdb, struct mbuf *m, int tunalready, int fwd)
 	m->m_flags &= ~(M_BCAST | M_MCAST);	/* just in case */
 
 	/* Callee frees mbuf */
-	return ipsp_process_packet(m, tdb, AF_INET6, tunalready);
+	error = ipsp_process_packet(m, tdb, AF_INET6, tunalready);
+	if (error) {
+		ipsecstat_inc(ipsec_odrops);
+		tdb->tdb_odrops++;
+	}
+	return error;
 }
 #endif /* IPSEC */

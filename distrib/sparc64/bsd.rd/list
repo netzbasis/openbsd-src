@@ -1,4 +1,4 @@
-#	$OpenBSD: list,v 1.61 2016/09/17 15:03:39 florian Exp $
+#	$OpenBSD: list,v 1.63 2018/10/07 01:16:40 jsg Exp $
 
 SRCDIRS distrib/special
 
@@ -46,6 +46,7 @@ LINK	instbin					sbin/ping sbin/ping6
 LINK	instbin					sbin/reboot sbin/halt
 LINK	instbin					sbin/restore
 LINK	instbin					sbin/route
+LINK	instbin					sbin/slaacd
 LINK	instbin					sbin/sysctl
 LINK	instbin					sbin/umount
 LINK	instbin					usr/bin/doas
@@ -94,6 +95,7 @@ COPY	${DESTDIR}/etc/firmware/ral-rt2561	etc/firmware/ral-rt2561
 COPY	${DESTDIR}/etc/firmware/ral-rt2561s	etc/firmware/ral-rt2561s
 COPY	${DESTDIR}/etc/firmware/ral-rt2661	etc/firmware/ral-rt2661
 COPY	${DESTDIR}/etc/firmware/ral-rt2860	etc/firmware/ral-rt2860
+COPY	${DESTDIR}/etc/firmware/ral-rt3290	etc/firmware/ral-rt3290
 COPY	${DESTDIR}/etc/firmware/rum-rt2573	etc/firmware/rum-rt2573
 COPY	${DESTDIR}/etc/firmware/run-rt2870	etc/firmware/run-rt2870
 COPY	${DESTDIR}/etc/firmware/run-rt3071	etc/firmware/run-rt3071

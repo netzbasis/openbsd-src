@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.198 2017/12/12 15:57:11 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.202 2018/08/07 18:13:14 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -268,12 +268,13 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 		ni->ni_rstamp = rxi->rxi_tstamp;
 		ni->ni_inact = 0;
 
-		if (ic->ic_state == IEEE80211_S_RUN) {
+		if (ic->ic_state == IEEE80211_S_RUN && ic->ic_bgscan_start) {
 			/* Cancel or start background scan based on RSSI. */
 			if ((*ic->ic_node_checkrssi)(ic, ni))
 				timeout_del(&ic->ic_bgscan_timeout);
 			else if (!timeout_pending(&ic->ic_bgscan_timeout) &&
-			    (ic->ic_flags & IEEE80211_F_BGSCAN) == 0)
+			    (ic->ic_flags & IEEE80211_F_BGSCAN) == 0 &&
+			    (ic->ic_flags & IEEE80211_F_DESBSSID) == 0)
 				timeout_add_msec(&ic->ic_bgscan_timeout,
 				    500 * (ic->ic_bgscan_fail + 1));
 		}
@@ -1537,7 +1538,7 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 
 	if (htcaps)
 		ieee80211_setup_htcaps(ni, htcaps + 2, htcaps[1]);
-	if (htop && !ieee80211_setup_htop(ni, htop + 2, htop[1]))
+	if (htop && !ieee80211_setup_htop(ni, htop + 2, htop[1], 1))
 		htop = NULL; /* invalid HTOP */
 
 	ni->ni_dtimcount = dtim_count;
@@ -1688,13 +1689,26 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 		memcpy(ni->ni_essid, &ssid[2], ssid[1]);
 	}
 	IEEE80211_ADDR_COPY(ni->ni_bssid, wh->i_addr3);
-	ni->ni_rssi = rxi->rxi_rssi;
+	/* XXX validate channel # */
+	ni->ni_chan = &ic->ic_channels[chan];
+	if (ic->ic_state == IEEE80211_S_SCAN &&
+	    IEEE80211_IS_CHAN_5GHZ(ni->ni_chan)) {
+		/*
+		 * During a scan on 5Ghz, prefer RSSI measured for probe
+		 * response frames. i.e. don't allow beacons to lower the
+		 * measured RSSI. Some 5GHz APs send beacons with much
+		 * less Tx power than they use for probe responses.
+		 */
+		 if (isprobe)
+			ni->ni_rssi = rxi->rxi_rssi;
+		else if (ni->ni_rssi < rxi->rxi_rssi)
+			ni->ni_rssi = rxi->rxi_rssi;
+	} else
+		ni->ni_rssi = rxi->rxi_rssi;
 	ni->ni_rstamp = rxi->rxi_tstamp;
 	memcpy(ni->ni_tstamp, tstamp, sizeof(ni->ni_tstamp));
 	ni->ni_intval = bintval;
 	ni->ni_capinfo = capinfo;
-	/* XXX validate channel # */
-	ni->ni_chan = &ic->ic_channels[chan];
 	ni->ni_erp = erp;
 	/* NB: must be after ni_chan is setup */
 	ieee80211_setup_rates(ic, ni, rates, xrates, IEEE80211_F_DOSORT);
@@ -2300,7 +2314,7 @@ ieee80211_recv_assoc_resp(struct ieee80211com *ic, struct mbuf *m,
 	if (htcaps)
 		ieee80211_setup_htcaps(ni, htcaps + 2, htcaps[1]);
 	if (htop)
-		ieee80211_setup_htop(ni, htop + 2, htop[1]);
+		ieee80211_setup_htop(ni, htop + 2, htop[1], 0);
 	ieee80211_ht_negotiate(ic, ni);
 
 	/* Hop into 11n mode after associating to an HT AP in a non-11n mode. */

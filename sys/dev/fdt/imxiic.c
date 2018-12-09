@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiic.c,v 1.1 2018/03/30 20:02:28 patrick Exp $ */
+/* $OpenBSD: imxiic.c,v 1.6 2018/08/20 16:48:47 patrick Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -54,6 +54,7 @@ struct imxiic_softc {
 	bus_size_t		sc_ios;
 	void			*sc_ih;
 	int			sc_node;
+	int			sc_bitrate;
 
 	struct rwlock		sc_buslock;
 	struct i2c_controller	i2c_tag;
@@ -124,17 +125,19 @@ imxiic_attach(struct device *parent, struct device *self, void *aux)
 		panic("imxiic_attach: bus_space_map failed!");
 
 #if 0
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_BIO,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
 	    imxiic_intr, sc, sc->sc_dev.dv_xname);
 #endif
 
 	printf("\n");
 
-	/* set iomux pins */
+	clock_enable(faa->fa_node, NULL);
 	pinctrl_byname(faa->fa_node, "default");
 
-	/* set speed to 100kHz */
-	imxiic_setspeed(sc, 100);
+	/* set speed */
+	sc->sc_bitrate = OF_getpropint(sc->sc_node,
+	    "clock-frequency", 100000) / 1000;
+	imxiic_setspeed(sc, sc->sc_bitrate);
 
 	/* reset */
 	HWRITE2(sc, I2C_I2CR, 0);
@@ -322,8 +325,8 @@ imxiic_i2c_acquire_bus(void *cookie, int flags)
 	/* clock gating */
 	clock_enable(sc->sc_node, NULL);
 
-	/* set speed to 100kHz */
-	imxiic_setspeed(sc, 100);
+	/* set speed */
+	imxiic_setspeed(sc, sc->sc_bitrate);
 
 	/* enable the controller */
 	HWRITE2(sc, I2C_I2SR, 0);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: imxesdhc.c,v 1.2 2018/03/30 19:53:42 patrick Exp $	*/
+/*	$OpenBSD: imxesdhc.c,v 1.10 2018/08/09 13:53:30 patrick Exp $	*/
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -30,6 +30,7 @@
 
 #include <dev/sdmmc/sdmmcchip.h>
 #include <dev/sdmmc/sdmmcvar.h>
+#include <dev/sdmmc/sdmmc_ioreg.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
@@ -181,6 +182,7 @@ struct imxesdhc_softc {
 	uint32_t		 sc_vmmc;
 	uint32_t		 sc_pwrseq;
 	uint32_t		 sc_vdd;
+	int			 sc_cookies[SDMMC_MAX_FUNCTIONS];
 	u_int sc_flags;
 
 	struct device		*sdmmc;		/* generic SD/MMC device */
@@ -283,6 +285,7 @@ imxesdhc_match(struct device *parent, void *match, void *aux)
 	struct fdt_attach_args *faa = aux;
 
 	return OF_is_compatible(faa->fa_node, "fsl,imx6q-usdhc") ||
+	    OF_is_compatible(faa->fa_node, "fsl,imx6sl-usdhc") ||
 	    OF_is_compatible(faa->fa_node, "fsl,imx6sx-usdhc") ||
 	    OF_is_compatible(faa->fa_node, "fsl,imx8mq-usdhc");
 }
@@ -293,7 +296,7 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 	struct imxesdhc_softc *sc = (struct imxesdhc_softc *) self;
 	struct fdt_attach_args *faa = aux;
 	struct sdmmcbus_attach_args saa;
-	int error = 1;
+	int error = 1, node, reg;
 	uint32_t caps;
 	uint32_t width;
 
@@ -311,7 +314,9 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 
 	pinctrl_byname(faa->fa_node, "default");
 
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_SDMMC,
+	clock_set_assigned(faa->fa_node);
+
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_SDMMC,
 	   imxesdhc_intr, sc, sc->sc_dev.dv_xname);
 
 	OF_getpropintarray(sc->sc_node, "cd-gpios", sc->sc_gpio,
@@ -329,7 +334,9 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* Determine host capabilities. */
 	caps = HREAD4(sc, SDHC_HOST_CTRL_CAP);
-	if (OF_is_compatible(sc->sc_node, "fsl,imx6sx-usdhc"))
+	if (OF_is_compatible(sc->sc_node, "fsl,imx6sl-usdhc") ||
+	    OF_is_compatible(sc->sc_node, "fsl,imx6sx-usdhc") ||
+	    OF_is_compatible(sc->sc_node, "fsl,imx8mq-usdhc"))
 		caps &= 0xffff0000;
 
 	/* Use DMA if the host system and the controller support it. */
@@ -432,13 +439,21 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 		saa.caps |= SMC_CAPS_DMA;
 	
 	if (caps & SDHC_HOST_CTRL_CAP_HSS)
-		saa.caps |= SMC_CAPS_MMC_HIGHSPEED;
+		saa.caps |= SMC_CAPS_MMC_HIGHSPEED | SMC_CAPS_SD_HIGHSPEED;
 
 	width = OF_getpropint(sc->sc_node, "bus-width", 1);
 	if (width >= 8)
 		saa.caps |= SMC_CAPS_8BIT_MODE;
 	if (width >= 4)
 		saa.caps |= SMC_CAPS_4BIT_MODE;
+
+	for (node = OF_child(sc->sc_node); node; node = OF_peer(node)) {
+		reg = OF_getpropint(node, "reg", -1);
+		if (reg < 0 || reg >= SDMMC_MAX_FUNCTIONS)
+			continue;
+		sc->sc_cookies[reg] = node;
+		saa.cookies[reg] = &sc->sc_cookies[reg];
+	}
 
 	sc->sdmmc = config_found(&sc->sc_dev, &saa, NULL);
 	if (sc->sdmmc == NULL) {
@@ -900,7 +915,8 @@ imxesdhc_start_command(struct imxesdhc_softc *sc, struct sdmmc_command *cmd)
 		command |= SDHC_MIX_CTRL_BCEN;
 		if (blkcount > 1) {
 			command |= SDHC_MIX_CTRL_MSBSEL;
-			command |= SDHC_MIX_CTRL_AC12EN;
+			if (cmd->c_opcode != SD_IO_RW_EXTENDED)
+				command |= SDHC_MIX_CTRL_AC12EN;
 		}
 	}
 	if (cmd->c_dmamap && cmd->c_datalen > 0 &&
@@ -961,7 +977,8 @@ imxesdhc_start_command(struct imxesdhc_softc *sc, struct sdmmc_command *cmd)
 
 		HWRITE4(sc, SDHC_ADMA_SYS_ADDR,
 		    sc->adma_map->dm_segs[0].ds_addr);
-	}
+	} else
+		HCLR4(sc, SDHC_PROT_CTRL, SDHC_PROT_CTRL_DMASEL_MASK);
 
 	/*
 	 * Start a CPU data transfer.  Writing to the high order byte

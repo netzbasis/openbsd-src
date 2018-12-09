@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.19 2017/11/27 01:58:52 florian Exp $ */
+/*	$OpenBSD: parse.y,v 1.31 2018/11/01 00:18:44 sashan Exp $ */
 
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -43,6 +43,10 @@ static struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
+	size_t			 ungetpos;
+	size_t			 ungetsize;
+	u_char			*ungetbuf;
+	int			 eof_reached;
 	int			 lineno;
 	int			 errors;
 } *file, *topfile;
@@ -55,8 +59,9 @@ int		 yyerror(const char *, ...)
     __attribute__((__nonnull__ (1)));
 int		 kw_cmp(const void *, const void *);
 int		 lookup(char *);
+int		 igetc(void);
 int		 lgetc(int);
-int		 lungetc(int);
+void		 lungetc(int);
 int		 findeol(void);
 
 struct authority_c	*conf_new_authority(struct acme_conf *, char *);
@@ -92,7 +97,7 @@ typedef struct {
 
 %}
 
-%token	AUTHORITY AGREEMENT URL API ACCOUNT
+%token	AUTHORITY URL API ACCOUNT
 %token	DOMAIN ALTERNATIVE NAMES CERT FULL CHAIN KEY SIGN WITH CHALLENGEDIR
 %token	YES NO
 %token	INCLUDE
@@ -148,6 +153,8 @@ varset		: STRING '=' string		{
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -188,11 +195,7 @@ authorityopts_l	: authorityopts_l authorityoptsl nl
 		| authorityoptsl optnl
 		;
 
-authorityoptsl	: AGREEMENT URL STRING {
-			warnx("\"agreement url\" is deprecated.");
-			/* XXX remove after 6.3 */
-		}
-		| API URL STRING {
+authorityoptsl	: API URL STRING {
 			char *s;
 			if (auth->api != NULL) {
 				yyerror("duplicate api");
@@ -308,7 +311,7 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 		| DOMAIN FULL CHAIN CERT STRING {
 			char *s;
 			if (domain->fullchain != NULL) {
-				yyerror("duplicate chain");
+				yyerror("duplicate full chain");
 				YYERROR;
 			}
 			if ((s = strdup($5)) == NULL)
@@ -323,13 +326,13 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 		| SIGN WITH STRING {
 			char *s;
 			if (domain->auth != NULL) {
-				yyerror("duplicate use");
+				yyerror("duplicate sign with");
 				YYERROR;
 			}
 			if ((s = strdup($3)) == NULL)
 				err(EXIT_FAILURE, "strdup");
 			if (authority_find(conf, s) == NULL) {
-				yyerror("use: unknown authority");
+				yyerror("sign with: unknown authority");
 				free(s);
 				YYERROR;
 			}
@@ -399,7 +402,7 @@ yyerror(const char *fmt, ...)
 int
 kw_cmp(const void *k, const void *e)
 {
-	return (strcmp(k, ((const struct keywords *)e)->k_name));
+	return strcmp(k, ((const struct keywords *)e)->k_name);
 }
 
 int
@@ -408,7 +411,6 @@ lookup(char *s)
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
 		{"account",		ACCOUNT},
-		{"agreement",		AGREEMENT},
 		{"alternative",		ALTERNATIVE},
 		{"api",			API},
 		{"authority",		AUTHORITY},
@@ -429,51 +431,56 @@ lookup(char *s)
 	p = bsearch(s, keywords, sizeof(keywords)/sizeof(keywords[0]),
 	    sizeof(keywords[0]), kw_cmp);
 
-	if (p)
-		return (p->k_val);
+	if (p != NULL)
+		return p->k_val;
 	else
-		return (STRING);
+		return STRING;
 }
 
-#define MAXPUSHBACK	128
+#define	START_EXPAND	1
+#define	DONE_EXPAND	2
 
-u_char	*parsebuf;
-int	 parseindex;
-u_char	 pushback_buffer[MAXPUSHBACK];
-int	 pushback_index = 0;
+static int	expanding;
+
+int
+igetc(void)
+{
+	int	c;
+
+	while (1) {
+		if (file->ungetpos > 0)
+			c = file->ungetbuf[--file->ungetpos];
+		else
+			c = getc(file->stream);
+
+		if (c == START_EXPAND)
+			expanding = 1;
+		else if (c == DONE_EXPAND)
+			expanding = 0;
+		else
+			break;
+	}
+	return c;
+}
 
 int
 lgetc(int quotec)
 {
 	int		c, next;
 
-	if (parsebuf) {
-		/* Read character from the parsebuffer instead of input. */
-		if (parseindex >= 0) {
-			c = parsebuf[parseindex++];
-			if (c != '\0')
-				return (c);
-			parsebuf = NULL;
-		} else
-			parseindex++;
-	}
-
-	if (pushback_index)
-		return (pushback_buffer[--pushback_index]);
-
 	if (quotec) {
-		if ((c = getc(file->stream)) == EOF) {
+		if ((c = igetc()) == EOF) {
 			yyerror("reached end of file while parsing "
 			    "quoted string");
 			if (file == topfile || popfile() == EOF)
 				return (EOF);
-			return (quotec);
+			return quotec;
 		}
-		return (c);
+		return c;
 	}
 
-	while ((c = getc(file->stream)) == '\\') {
-		next = getc(file->stream);
+	while ((c = igetc()) == '\\') {
+		next = igetc();
 		if (next != '\n') {
 			c = next;
 			break;
@@ -482,28 +489,39 @@ lgetc(int quotec)
 		file->lineno++;
 	}
 
-	while (c == EOF) {
-		if (file == topfile || popfile() == EOF)
-			return (EOF);
-		c = getc(file->stream);
+	if (c == EOF) {
+		/*
+		 * Fake EOL when hit EOF for the first time. This gets line
+		 * count right if last line in included file is syntactically
+		 * invalid and has no newline.
+		 */
+		if (file->eof_reached == 0) {
+			file->eof_reached = 1;
+			return '\n';
+		}
+		while (c == EOF) {
+			if (file == topfile || popfile() == EOF)
+				return (EOF);
+			c = igetc();
+		}
 	}
-	return (c);
+	return c;
 }
 
-int
+void
 lungetc(int c)
 {
 	if (c == EOF)
-		return (EOF);
-	if (parsebuf) {
-		parseindex--;
-		if (parseindex >= 0)
-			return (c);
+		return;
+
+	if (file->ungetpos >= file->ungetsize) {
+		void *p = reallocarray(file->ungetbuf, file->ungetsize, 2);
+		if (p == NULL)
+			err(1, "%s", __func__);
+		file->ungetbuf = p;
+		file->ungetsize *= 2;
 	}
-	if (pushback_index < MAXPUSHBACK-1)
-		return (pushback_buffer[pushback_index++] = c);
-	else
-		return (EOF);
+	file->ungetbuf[file->ungetpos++] = c;
 }
 
 int
@@ -511,14 +529,9 @@ findeol(void)
 {
 	int	c;
 
-	parsebuf = NULL;
-
 	/* skip to either EOF or the first real EOL */
 	while (1) {
-		if (pushback_index)
-			c = pushback_buffer[--pushback_index];
-		else
-			c = lgetc(0);
+		c = lgetc(0);
 		if (c == '\n') {
 			file->lineno++;
 			break;
@@ -526,7 +539,7 @@ findeol(void)
 		if (c == EOF)
 			break;
 	}
-	return (ERROR);
+	return ERROR;
 }
 
 int
@@ -546,14 +559,14 @@ top:
 	if (c == '#')
 		while ((c = lgetc(0)) != '\n' && c != EOF)
 			; /* nothing */
-	if (c == '$' && parsebuf == NULL) {
+	if (c == '$' && !expanding) {
 		while (1) {
 			if ((c = lgetc(0)) == EOF)
-				return (0);
+				return 0;
 
 			if (p + 1 >= buf + sizeof(buf) - 1) {
 				yyerror("string too long");
-				return (findeol());
+				return findeol();
 			}
 			if (isalnum(c) || c == '_') {
 				*p++ = c;
@@ -566,10 +579,15 @@ top:
 		val = symget(buf);
 		if (val == NULL) {
 			yyerror("macro '%s' not defined", buf);
-			return (findeol());
+			return findeol();
 		}
-		parsebuf = val;
-		parseindex = 0;
+		p = val + strlen(val) - 1;
+		lungetc(DONE_EXPAND);
+		while (p >= val) {
+			lungetc(*p);
+			p--;
+		}
+		lungetc(START_EXPAND);
 		goto top;
 	}
 
@@ -579,14 +597,15 @@ top:
 		quotec = c;
 		while (1) {
 			if ((c = lgetc(quotec)) == EOF)
-				return (0);
+				return 0;
 			if (c == '\n') {
 				file->lineno++;
 				continue;
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
-					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+					return 0;
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -598,18 +617,18 @@ top:
 				break;
 			} else if (c == '\0') {
 				yyerror("syntax error");
-				return (findeol());
+				return findeol();
 			}
 			if (p + 1 >= buf + sizeof(buf) - 1) {
 				yyerror("string too long");
-				return (findeol());
+				return findeol();
 			}
 			*p++ = c;
 		}
 		yylval.v.string = strdup(buf);
 		if (yylval.v.string == NULL)
-			err(EXIT_FAILURE, "yylex: strdup");
-		return (STRING);
+			err(EXIT_FAILURE, "%s", __func__);
+		return STRING;
 	}
 
 #define allowed_to_end_number(x) \
@@ -620,7 +639,7 @@ top:
 			*p++ = c;
 			if ((unsigned)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
-				return (findeol());
+				return findeol();
 			}
 		} while ((c = lgetc(0)) != EOF && isdigit(c));
 		lungetc(c);
@@ -632,19 +651,19 @@ top:
 			*p = '\0';
 			yylval.v.number = strtonum(buf, LLONG_MIN,
 			    LLONG_MAX, &errstr);
-			if (errstr) {
+			if (errstr != NULL) {
 				yyerror("\"%s\" invalid number: %s",
 				    buf, errstr);
 				return (findeol());
 			}
-			return (NUMBER);
+			return NUMBER;
 		} else {
 nodigits:
 			while (p > buf + 1)
 				lungetc(*--p);
 			c = *--p;
 			if (c == '-')
-				return (c);
+				return c;
 		}
 	}
 
@@ -666,17 +685,17 @@ nodigits:
 		*p = '\0';
 		if ((token = lookup(buf)) == STRING) {
 			if ((yylval.v.string = strdup(buf)) == NULL)
-				err(EXIT_FAILURE, "yylex: strdup");
+				err(EXIT_FAILURE, "%s", __func__);
 		}
-		return (token);
+		return token;
 	}
 	if (c == '\n') {
 		yylval.lineno = file->lineno;
 		file->lineno++;
 	}
 	if (c == EOF)
-		return (0);
-	return (c);
+		return 0;
+	return c;
 }
 
 struct file *
@@ -685,23 +704,32 @@ pushfile(const char *name)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		warn("malloc");
-		return (NULL);
+		warn("%s", __func__);
+		return NULL;
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		warn("strdup");
+		warn("%s", __func__);
 		free(nfile);
-		return (NULL);
+		return NULL;
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		warn("%s", nfile->name);
+		warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
-		return (NULL);
+		return NULL;
 	}
-	nfile->lineno = 1;
+	nfile->lineno = TAILQ_EMPTY(&files) ? 1 : 0;
+	nfile->ungetsize = 16;
+	nfile->ungetbuf = malloc(nfile->ungetsize);
+	if (nfile->ungetbuf == NULL) {
+		warn("%s", __func__);
+		fclose(nfile->stream);
+		free(nfile->name);
+		free(nfile);
+		return NULL;
+	}
 	TAILQ_INSERT_TAIL(&files, nfile, entry);
-	return (nfile);
+	return nfile;
 }
 
 int
@@ -715,6 +743,7 @@ popfile(void)
 	TAILQ_REMOVE(&files, file, entry);
 	fclose(file->stream);
 	free(file->name);
+	free(file->ungetbuf);
 	free(file);
 	file = prev;
 	return (file ? 0 : EOF);
@@ -726,12 +755,12 @@ parse_config(const char *filename, int opts)
 	struct sym	*sym, *next;
 
 	if ((conf = calloc(1, sizeof(struct acme_conf))) == NULL)
-		err(EXIT_FAILURE, "parse_config");
+		err(EXIT_FAILURE, "%s", __func__);
 	conf->opts = opts;
 
 	if ((file = pushfile(filename)) == NULL) {
 		free(conf);
-		return (NULL);
+		return NULL;
 	}
 	topfile = file;
 
@@ -755,15 +784,15 @@ parse_config(const char *filename, int opts)
 		}
 	}
 
-	if (errors) {
+	if (errors != 0) {
 		clear_config(conf);
-		return (NULL);
+		return NULL;
 	}
 
 	if (opts & ACME_OPT_CHECK)
 		print_config(conf);
 
-	return (conf);
+	return conf;
 }
 
 int
@@ -787,23 +816,23 @@ symset(const char *nam, const char *val, int persist)
 		}
 	}
 	if ((sym = calloc(1, sizeof(*sym))) == NULL)
-		return (-1);
+		return -1;
 
 	sym->nam = strdup(nam);
 	if (sym->nam == NULL) {
 		free(sym);
-		return (-1);
+		return -1;
 	}
 	sym->val = strdup(val);
 	if (sym->val == NULL) {
 		free(sym->nam);
 		free(sym);
-		return (-1);
+		return -1;
 	}
 	sym->used = 0;
 	sym->persist = persist;
 	TAILQ_INSERT_TAIL(&symhead, sym, entry);
-	return (0);
+	return 0;
 }
 
 int
@@ -811,21 +840,16 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
-		return (-1);
-
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		errx(EXIT_FAILURE, "cmdline_symset: malloc");
-
-	strlcpy(sym, s, len);
-
+		return -1;
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		errx(EXIT_FAILURE, "%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
-	return (ret);
+	return ret;
 }
 
 char *
@@ -836,10 +860,10 @@ symget(const char *nam)
 	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
-			return (sym->val);
+			return sym->val;
 		}
 	}
-	return (NULL);
+	return NULL;
 }
 
 struct authority_c *
@@ -848,14 +872,14 @@ conf_new_authority(struct acme_conf *c, char *s)
 	struct authority_c *a;
 
 	a = authority_find(c, s);
-	if (a)
-		return (NULL);
+	if (a != NULL)
+		return NULL;
 	if ((a = calloc(1, sizeof(struct authority_c))) == NULL)
-		err(EXIT_FAILURE, "calloc");
+		err(EXIT_FAILURE, "%s", __func__);
 	TAILQ_INSERT_TAIL(&c->authority_list, a, entry);
 
 	a->name = s;
-	return (a);
+	return a;
 }
 
 struct authority_c *
@@ -865,10 +889,10 @@ authority_find(struct acme_conf *c, char *s)
 
 	TAILQ_FOREACH(a, &c->authority_list, entry) {
 		if (strncmp(a->name, s, AUTH_MAXLEN) == 0) {
-			return (a);
+			return a;
 		}
 	}
-	return (NULL);
+	return NULL;
 }
 
 struct authority_c *
@@ -883,16 +907,16 @@ conf_new_domain(struct acme_conf *c, char *s)
 	struct domain_c *d;
 
 	d = domain_find(c, s);
-	if (d)
+	if (d != NULL)
 		return (NULL);
 	if ((d = calloc(1, sizeof(struct domain_c))) == NULL)
-		err(EXIT_FAILURE, "calloc");
+		err(EXIT_FAILURE, "%s", __func__);
 	TAILQ_INSERT_TAIL(&c->domain_list, d, entry);
 
 	d->domain = s;
 	TAILQ_INIT(&d->altname_list);
 
-	return (d);
+	return d;
 }
 
 struct domain_c *
@@ -902,10 +926,10 @@ domain_find(struct acme_conf *c, char *s)
 
 	TAILQ_FOREACH(d, &c->domain_list, entry) {
 		if (strncmp(d->domain, s, DOMAIN_MAXLEN) == 0) {
-			return (d);
+			return d;
 		}
 	}
-	return (NULL);
+	return NULL;
 }
 
 struct keyfile *
@@ -915,16 +939,16 @@ conf_new_keyfile(struct acme_conf *c, char *s)
 
 	LIST_FOREACH(k, &c->used_key_list, entry) {
 		if (strncmp(k->name, s, PATH_MAX) == 0) {
-			return (NULL);
+			return NULL;
 		}
 	}
 
 	if ((k = calloc(1, sizeof(struct keyfile))) == NULL)
-		err(EXIT_FAILURE, "calloc");
+		err(EXIT_FAILURE, "%s", __func__);
 	LIST_INSERT_HEAD(&c->used_key_list, k, entry);
 
 	k->name = s;
-	return (k);
+	return k;
 }
 
 void
@@ -970,14 +994,14 @@ print_config(struct acme_conf *xconf)
 		printf("domain %s {\n", d->domain);
 		TAILQ_FOREACH(ac, &d->altname_list, entry) {
 			if (!f)
-				printf("\talternative names { ");
+				printf("\talternative names {");
 			if (ac->domain != NULL) {
 				printf("%s%s", f ? ", " : " ", ac->domain);
 				f = 1;
 			}
 		}
 		if (f)
-			printf("}\n");
+			printf(" }\n");
 		if (d->key != NULL)
 			printf("\tdomain key \"%s\"\n", d->key);
 		if (d->cert != NULL)
@@ -1008,8 +1032,8 @@ domain_valid(const char *cp)
 	for ( ; *cp != '\0'; cp++)
 		if (!(*cp == '.' || *cp == '-' ||
 		    *cp == '_' || isalnum((int)*cp)))
-			return (0);
-	return (1);
+			return 0;
+	return 1;
 }
 
 int
@@ -1019,17 +1043,17 @@ conf_check_file(char *s, int dontstat)
 
 	if (s[0] != '/') {
 		warnx("%s: not an absolute path", s);
-		return (0);
+		return 0;
 	}
 	if (dontstat)
-		return (1);
+		return 1;
 	if (stat(s, &st)) {
 		warn("cannot stat %s", s);
-		return (0);
+		return 0;
 	}
 	if (st.st_mode & (S_IRWXG | S_IRWXO)) {
 		warnx("%s: group read/writable or world read/writable", s);
-		return (0);
+		return 0;
 	}
-	return (1);
+	return 1;
 }

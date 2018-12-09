@@ -1,4 +1,4 @@
-/*	$OpenBSD: gencode.c,v 1.48 2018/02/06 02:55:48 dlg Exp $	*/
+/*	$OpenBSD: gencode.c,v 1.51 2018/11/10 10:17:37 denis Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998
@@ -275,7 +275,7 @@ int no_optimize;
 
 int
 pcap_compile(pcap_t *p, struct bpf_program *program,
-	     char *buf, int optimize, bpf_u_int32 mask)
+	     const char *buf, int optimize, bpf_u_int32 mask)
 {
 	extern int n_errors;
 	int len;
@@ -322,7 +322,7 @@ pcap_compile(pcap_t *p, struct bpf_program *program,
 int
 pcap_compile_nopcap(int snaplen_arg, int linktype_arg,
 		    struct bpf_program *program,
-	     char *buf, int optimize, bpf_u_int32 mask)
+	     const char *buf, int optimize, bpf_u_int32 mask)
 {
 	extern int n_errors;
 	int len;
@@ -2244,7 +2244,7 @@ gen_proto(v, proto, dir)
 		bpf_error("'ah proto' is bogus");
 
 	case Q_ESP:
-		bpf_error("'ah proto' is bogus");
+		bpf_error("'esp proto' is bogus");
 
 	default:
 		abort();
@@ -3364,6 +3364,11 @@ gen_vlan(vlan_num)
 		/*NOTREACHED*/
 	}
 
+	if (vlan_num > 4095) {
+		bpf_error("invalid VLAN number : %d", vlan_num);
+		/*NOTREACHED*/
+	}
+
 	/*
 	 * Change the offsets to point to the type and data fields within
 	 * the VLAN packet.  This is somewhat of a kludge.
@@ -3395,7 +3400,7 @@ gen_vlan(vlan_num)
 	if (vlan_num >= 0) {
 		struct block *b1;
 
-		b1 = gen_cmp(orig_nl, BPF_H, (bpf_int32)vlan_num);
+		b1 = gen_mcmp(orig_nl, BPF_H, (bpf_int32)vlan_num, 0x0FFF);
 		gen_and(b0, b1);
 		b0 = b1;
 	}

@@ -1,6 +1,6 @@
 /Makefile/1.4/Wed Jul 16 20:08:25 2014//
-/apic.c/1.18/Tue Sep  8 07:14:04 2015//
-/asp.c/1.14/Thu Jun  9 18:01:36 2005//
+/apic.c/1.19/Mon May 14 13:54:39 2018//
+/asp.c/1.15/Mon May 14 13:54:39 2018//
 /astro.c/1.17/Sun Nov 16 12:30:57 2014//
 /clock.c/1.29/Sat Mar 29 18:09:29 2014//
 /com_dino.c/1.4/Sun Jul 15 19:25:49 2007//
@@ -10,12 +10,12 @@
 /cpudevs.h/1.39/Fri May 18 15:58:55 2007//
 /cpudevs_data.h/1.40/Fri May 18 15:58:55 2007//
 /devlist2h.awk/1.6/Wed Apr  7 18:24:19 2004//
-/dino.c/1.31/Sat Mar 29 18:09:29 2014//
+/dino.c/1.32/Mon May 14 13:54:39 2018//
 /elroy.c/1.11/Sat Feb 25 17:08:49 2012//
 /elroyreg.h/1.1/Mon May 21 22:43:38 2007//
 /elroyvar.h/1.4/Sat Aug 22 02:54:50 2009//
 /gecko.c/1.1/Sun Apr 27 14:39:51 2008//
-/lasi.c/1.22/Wed Sep 15 20:11:28 2004//
+/lasi.c/1.23/Mon May 14 13:54:39 2018//
 /lcd.c/1.4/Fri Dec 11 16:07:01 2015//
 /lpt_ssio.c/1.1/Wed Jun 20 18:22:15 2007//
 /mongoose.c/1.21/Mon May 24 15:04:53 2010//
@@ -31,5 +31,5 @@
 /sti_sgc.c/1.40/Sat Aug 30 14:42:05 2014//
 /uturn.c/1.7/Thu Apr 29 13:48:29 2010//
 /viper.h/1.6/Tue Apr 10 17:47:54 2007//
-/wax.c/1.10/Mon Nov  8 20:53:25 2004//
+/wax.c/1.11/Mon May 14 13:54:39 2018//
 D

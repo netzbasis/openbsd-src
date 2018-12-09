@@ -1,4 +1,4 @@
-/* $OpenBSD: imxuart.c,v 1.1 2018/03/29 20:33:53 patrick Exp $ */
+/* $OpenBSD: imxuart.c,v 1.4 2018/08/06 10:52:30 patrick Exp $ */
 /*
  * Copyright (c) 2005 Dale Rahn <drahn@motorola.com>
  *
@@ -107,9 +107,6 @@ struct imxuart_softc *imxuart_sc(dev_t dev);
 
 int imxuart_intr(void *);
 
-extern int comcnspeed;
-extern int comcnmode;
-
 /* XXX - we imitate 'com' serial ports and take over their entry points */
 /* XXX: These belong elsewhere */
 cdev_decl(com);
@@ -138,8 +135,10 @@ imxuart_init_cons(void)
 	struct fdt_reg reg;
 	void *node;
 
-	if ((node = fdt_find_cons("fsl,imx21-uart")) == NULL)
+	if ((node = fdt_find_cons("fsl,imx21-uart")) == NULL &&
+	    (node = fdt_find_cons("fsl,imx6q-uart")) == NULL)
 		return;
+
 	if (fdt_get_reg(node, 0, &reg))
 		return;
 
@@ -151,7 +150,8 @@ imxuart_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return OF_is_compatible(faa->fa_node, "fsl,imx21-uart");
+	return (OF_is_compatible(faa->fa_node, "fsl,imx21-uart") ||
+	    OF_is_compatible(faa->fa_node, "fsl,imx6q-uart"));
 }
 
 void
@@ -166,7 +166,7 @@ imxuart_attach(struct device *parent, struct device *self, void *aux)
 
 	pinctrl_byname(faa->fa_node, "default");
 
-	sc->sc_irq = arm_intr_establish_fdt(faa->fa_node, IPL_TTY,
+	sc->sc_irq = fdt_intr_establish(faa->fa_node, IPL_TTY,
 	    imxuart_intr, sc, sc->sc_dev.dv_xname);
 
 	sc->sc_node = faa->fa_node;

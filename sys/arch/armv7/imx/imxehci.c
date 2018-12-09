@@ -1,4 +1,4 @@
-/*	$OpenBSD: imxehci.c,v 1.22 2018/04/01 22:28:54 patrick Exp $ */
+/*	$OpenBSD: imxehci.c,v 1.25 2018/06/11 09:22:50 kettenis Exp $ */
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -30,8 +30,6 @@
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
-
-#include <armv7/imx/imxccmvar.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
@@ -92,6 +90,7 @@ struct imxehci_softc {
 	bus_space_handle_t	uh_ioh;
 	bus_space_handle_t	ph_ioh;
 	bus_space_handle_t	nc_ioh;
+	uint32_t		sc_unit;
 };
 
 struct cfattach imxehci_ca = {
@@ -102,6 +101,8 @@ struct cfattach imxehci_ca = {
 struct cfdriver imxehci_cd = {
 	NULL, "imxehci", DV_DULL
 };
+
+void	imxehci_init_phy(struct imxehci_softc *, uint32_t *);
 
 int
 imxehci_match(struct device *parent, void *match, void *aux)
@@ -116,15 +117,12 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct imxehci_softc *sc = (struct imxehci_softc *)self;
 	struct fdt_attach_args *faa = aux;
-	struct regmap *rm = NULL;
 	usbd_status r;
 	char *devname = sc->sc.sc_bus.bdev.dv_xname;
 	uint32_t phy[1], misc[2];
-	uint32_t phy_reg[2];
 	uint32_t misc_reg[2];
-	uint32_t anatop[1];
 	uint32_t vbus;
-	int node;
+	int misc_node;
 
 	if (faa->fa_nreg < 1)
 		return;
@@ -137,23 +135,11 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	    misc, sizeof(misc)) != sizeof(misc))
 		return;
 
-	node = OF_getnodebyphandle(phy[0]);
-	if (node == 0)
+	misc_node = OF_getnodebyphandle(misc[0]);
+	if (misc_node == 0)
 		return;
 
-	if (OF_getpropintarray(node, "reg", phy_reg,
-	    sizeof(phy_reg)) != sizeof(phy_reg))
-		return;
-
-	if (OF_getpropintarray(node, "fsl,anatop",
-	    anatop, sizeof(anatop)) == sizeof(anatop))
-		rm = regmap_byphandle(anatop[0]);
-
-	node = OF_getnodebyphandle(misc[0]);
-	if (node == 0)
-		return;
-
-	if (OF_getpropintarray(node, "reg", misc_reg,
+	if (OF_getpropintarray(misc_node, "reg", misc_reg,
 	    sizeof(misc_reg)) != sizeof(misc_reg))
 		return;
 
@@ -161,6 +147,7 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc.sc_bus.dmatag = faa->fa_dmat;
 	sc->sc.sc_size = faa->fa_reg[0].size - USB_EHCI_OFFSET;
 	sc->sc.sc_flags = EHCIF_USBMODE;
+	sc->sc_unit = misc[1];
 
 	/* Map I/O space */
 	if (bus_space_map(sc->sc.iot, faa->fa_reg[0].addr,
@@ -174,16 +161,10 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 		goto mem0;
 	}
 
-	if (bus_space_map(sc->sc.iot, phy_reg[0],
-	    phy_reg[1], 0, &sc->ph_ioh)) {
-		printf(": cannot map mem space\n");
-		goto mem1;
-	}
-
 	if (bus_space_map(sc->sc.iot, misc_reg[0],
 	    misc_reg[1], 0, &sc->nc_ioh)) {
 		printf(": cannot map mem space\n");
-		goto mem2;
+		goto mem1;
 	}
 
 	printf("\n");
@@ -192,46 +173,24 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	clock_enable(faa->fa_node, NULL);
 	delay(1000);
 
-	/* enable usb bus power */
-	vbus = OF_getpropint(faa->fa_node, "vbus-supply", 0);
-	if (vbus)
-		regulator_enable(vbus);
-
+	/* over current and polarity setting */
 	switch (misc[1]) {
 	case 0:
-		/* disable the carger detection, else signal on DP will be poor */
-		if (rm != NULL)
-			regmap_write_4(rm, ANALOG_USB1_CHRG_DETECT_SET,
-			    ANALOG_USB1_CHRG_DETECT_CHK_CHRG_B |
-			    ANALOG_USB1_CHRG_DETECT_EN_B);
-
-		/* power host 0 */
-		imxccm_enable_pll_usb1();
-
-		/* over current and polarity setting */
 		bus_space_write_4(sc->sc.iot, sc->nc_ioh, USBNC_USB_OTG_CTRL,
 		    bus_space_read_4(sc->sc.iot, sc->nc_ioh, USBNC_USB_OTG_CTRL) |
 		    (USBNC_USB_OTG_CTRL_OVER_CUR_POL | USBNC_USB_OTG_CTRL_OVER_CUR_DIS));
 		break;
 	case 1:
-		/* disable the carger detection, else signal on DP will be poor */
-		if (rm != NULL)
-			regmap_write_4(rm, ANALOG_USB2_CHRG_DETECT_SET,
-			    ANALOG_USB2_CHRG_DETECT_CHK_CHRG_B |
-			    ANALOG_USB2_CHRG_DETECT_EN_B);
-
-		/* power host 1 */
-		imxccm_enable_pll_usb2();
-
-		/* over current and polarity setting */
 		bus_space_write_4(sc->sc.iot, sc->nc_ioh, USBNC_USB_UH1_CTRL,
 		    bus_space_read_4(sc->sc.iot, sc->nc_ioh, USBNC_USB_UH1_CTRL) |
 		    (USBNC_USB_UH1_CTRL_OVER_CUR_POL | USBNC_USB_UH1_CTRL_OVER_CUR_DIS));
 		break;
 	}
 
-	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_CLR,
-	    USBPHY_CTRL_CLKGATE);
+	/* enable usb bus power */
+	vbus = OF_getpropint(faa->fa_node, "vbus-supply", 0);
+	if (vbus)
+		regulator_enable(vbus);
 
 	/* Disable interrupts, so we don't get any spurious ones. */
 	sc->sc.sc_offs = EREAD1(&sc->sc, EHCI_CAPLENGTH);
@@ -252,23 +211,8 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	while (EOREAD4(&sc->sc, EHCI_USBCMD) & EHCI_CMD_HCRESET)
 		;
 
-	/* Reset USBPHY module */
-	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_SET, USBPHY_CTRL_SFTRST);
-
-	delay(10);
-
-	/* Remove CLKGATE and SFTRST */
-	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_CLR,
-	    USBPHY_CTRL_CLKGATE | USBPHY_CTRL_SFTRST);
-
-	delay(10);
-
-	/* Power up the PHY */
-	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_PWD, 0);
-
-	/* enable FS/LS device */
-	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_SET,
-	    USBPHY_CTRL_ENUTMILEVEL2 | USBPHY_CTRL_ENUTMILEVEL3);
+	/* power up PHY */
+	imxehci_init_phy(sc, phy);
 
 	/* set host mode */
 	EOWRITE4(&sc->sc, EHCI_USBMODE,
@@ -282,10 +226,10 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 	    ehci_intr, &sc->sc, devname);
 	if (sc->sc_ih == NULL) {
 		printf(": unable to establish interrupt\n");
-		goto mem3;
+		goto mem2;
 	}
 
-	strlcpy(sc->sc.sc_vendor, "i.MX6", sizeof(sc->sc.sc_vendor));
+	strlcpy(sc->sc.sc_vendor, "i.MX", sizeof(sc->sc.sc_vendor));
 	r = ehci_init(&sc->sc);
 	if (r != USBD_NORMAL_COMPLETION) {
 		printf("%s: init failed, error=%d\n", devname, r);
@@ -299,10 +243,8 @@ imxehci_attach(struct device *parent, struct device *self, void *aux)
 intr:
 	arm_intr_disestablish(sc->sc_ih);
 	sc->sc_ih = NULL;
-mem3:
-	bus_space_unmap(sc->sc.iot, sc->nc_ioh, misc_reg[1]);
 mem2:
-	bus_space_unmap(sc->sc.iot, sc->ph_ioh, phy_reg[1]);
+	bus_space_unmap(sc->sc.iot, sc->nc_ioh, misc_reg[1]);
 mem1:
 mem0:
 	bus_space_unmap(sc->sc.iot, sc->sc.ioh, faa->fa_reg[0].size);
@@ -332,4 +274,122 @@ imxehci_detach(struct device *self, int flags)
 	}
 
 	return (0);
+}
+
+/*
+ * PHY initialization.
+ */
+
+struct imxehci_phy {
+	const char *compat;
+	void (*init)(struct imxehci_softc *, uint32_t *);
+};
+
+void imx23_usb_init(struct imxehci_softc *, uint32_t *);
+static void nop_xceiv_init(struct imxehci_softc *, uint32_t *);
+
+struct imxehci_phy imxehci_phys[] = {
+	{ "fsl,imx23-usbphy", imx23_usb_init },
+	{ "usb-nop-xceiv", nop_xceiv_init },
+};
+
+void
+imxehci_init_phy(struct imxehci_softc *sc, uint32_t *cells)
+{
+	int node;
+	int i;
+
+	node = OF_getnodebyphandle(cells[0]);
+	if (node == 0)
+		return;
+
+	for (i = 0; i < nitems(imxehci_phys); i++) {
+		if (OF_is_compatible(node, imxehci_phys[i].compat)) {
+			imxehci_phys[i].init(sc, cells);
+			return;
+		}
+	}
+}
+
+/*
+ * i.MX5/6 PHYs.
+ */
+
+void
+imx23_usb_init(struct imxehci_softc *sc, uint32_t *cells)
+{
+	struct regmap *rm = NULL;
+	uint32_t phy_reg[2];
+	uint32_t anatop[1];
+	int node;
+
+	node = OF_getnodebyphandle(cells[0]);
+	KASSERT(node != 0);
+
+	if (OF_getpropintarray(node, "reg", phy_reg,
+	    sizeof(phy_reg)) != sizeof(phy_reg))
+		return;
+
+	if (bus_space_map(sc->sc.iot, phy_reg[0],
+	    phy_reg[1], 0, &sc->ph_ioh)) {
+		printf("%s: can't map PHY registers\n",
+		    sc->sc.sc_bus.bdev.dv_xname);
+		return;
+	}
+
+	if (OF_getpropintarray(node, "fsl,anatop",
+	    anatop, sizeof(anatop)) == sizeof(anatop))
+		rm = regmap_byphandle(anatop[0]);
+
+	/* Disable the carger detection, else signal on DP will be poor */
+	switch (sc->sc_unit) {
+	case 0:
+		if (rm != NULL)
+			regmap_write_4(rm, ANALOG_USB1_CHRG_DETECT_SET,
+			    ANALOG_USB1_CHRG_DETECT_CHK_CHRG_B |
+			    ANALOG_USB1_CHRG_DETECT_EN_B);
+		break;
+	case 1:
+		if (rm != NULL)
+			regmap_write_4(rm, ANALOG_USB2_CHRG_DETECT_SET,
+			    ANALOG_USB2_CHRG_DETECT_CHK_CHRG_B |
+			    ANALOG_USB2_CHRG_DETECT_EN_B);
+		break;
+	}
+
+	clock_enable(node, NULL);
+
+	/* Reset USBPHY module */
+	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_SET,
+	    USBPHY_CTRL_SFTRST);
+
+	delay(10);
+
+	/* Remove CLKGATE and SFTRST */
+	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_CLR,
+	    USBPHY_CTRL_CLKGATE | USBPHY_CTRL_SFTRST);
+
+	delay(10);
+
+	/* Power up the PHY */
+	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_PWD, 0);
+
+	/* enable FS/LS device */
+	bus_space_write_4(sc->sc.iot, sc->ph_ioh, USBPHY_CTRL_SET,
+	    USBPHY_CTRL_ENUTMILEVEL2 | USBPHY_CTRL_ENUTMILEVEL3);
+}
+
+/*
+ * i.MX7 PHYs.
+ */
+
+static void
+nop_xceiv_init(struct imxehci_softc *sc, uint32_t *cells)
+{
+	int node;
+
+	node = OF_getnodebyphandle(cells[0]);
+	KASSERT(node != 0);
+
+	clock_enable(node, NULL);
 }

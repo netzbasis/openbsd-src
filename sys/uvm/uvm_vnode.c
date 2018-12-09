@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_vnode.c,v 1.100 2018/03/30 11:22:58 mpi Exp $	*/
+/*	$OpenBSD: uvm_vnode.c,v 1.103 2018/07/16 16:44:09 helg Exp $	*/
 /*	$NetBSD: uvm_vnode.c,v 1.36 2000/11/24 20:34:01 chs Exp $	*/
 
 /*
@@ -1185,7 +1185,7 @@ uvn_io(struct uvm_vnode *uvn, vm_page_t *pps, int npages, int flags, int rw)
 	 */
 	result = 0;
 	if ((uvn->u_flags & UVM_VNODE_VNISLOCKED) == 0)
-		result = vn_lock(vn, LK_EXCLUSIVE | LK_RECURSEFAIL, curproc);
+		result = vn_lock(vn, LK_EXCLUSIVE | LK_RECURSEFAIL);
 
 	if (result == 0) {
 		/* NOTE: vnode now locked! */
@@ -1197,7 +1197,7 @@ uvn_io(struct uvm_vnode *uvn, vm_page_t *pps, int npages, int flags, int rw)
 			    curproc->p_ucred);
 
 		if ((uvn->u_flags & UVM_VNODE_VNISLOCKED) == 0)
-			VOP_UNLOCK(vn, curproc);
+			VOP_UNLOCK(vn);
 
 	}
 
@@ -1274,6 +1274,8 @@ uvn_io(struct uvm_vnode *uvn, vm_page_t *pps, int npages, int flags, int rw)
  *	then return "text busy"
  * nfs_open: seems to uncache any file opened with nfs
  * vn_writechk: if VTEXT vnode and can't uncache return "text busy"
+ * fusefs_open: uncaches any file that is opened
+ * fusefs_write: uncaches on every write
  */
 
 int
@@ -1323,9 +1325,9 @@ uvm_vnp_uncache(struct vnode *vp)
 	 * unlocked causing us to return TRUE when we should not.   we ignore
 	 * this as a false-positive return value doesn't hurt us.
 	 */
-	VOP_UNLOCK(vp, curproc);
+	VOP_UNLOCK(vp);
 	uvn_detach(&uvn->u_obj);
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, curproc);
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 
 	return(TRUE);
 }
@@ -1341,8 +1343,10 @@ uvm_vnp_uncache(struct vnode *vp)
  *	us.
  *
  * called from:
- *  => truncate fns (ext2fs_truncate, ffs_truncate, detrunc[msdos])
- *  => "write" fns (ext2fs_write, WRITE [ufs/ufs], msdosfs_write, nfs_write)
+ *  => truncate fns (ext2fs_truncate, ffs_truncate, detrunc[msdos],
+ *     fusefs_setattr)
+ *  => "write" fns (ext2fs_write, WRITE [ufs/ufs], msdosfs_write, nfs_write
+ *     fusefs_write)
  *  => ffs_balloc [XXX: why? doesn't WRITE handle?]
  *  => NFS: nfs_loadattrcache, nfs_getattrcache, nfs_setattr
  *  => union fs: union_newsize

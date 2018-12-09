@@ -1,4 +1,4 @@
-/*	$OpenBSD: uaudio.c,v 1.128 2017/12/30 23:08:29 guenther Exp $ */
+/*	$OpenBSD: uaudio.c,v 1.133 2018/08/31 07:18:18 miko Exp $ */
 /*	$NetBSD: uaudio.c,v 1.90 2004/10/29 17:12:53 kent Exp $	*/
 
 /*
@@ -172,6 +172,7 @@ struct chan {
 #define UAUDIO_FLAG_VENDOR_CLASS 0x0010	/* claims vendor class but works */
 #define UAUDIO_FLAG_DEPENDENT	 0x0020	/* play and record params must equal */
 #define UAUDIO_FLAG_EMU0202	 0x0040
+#define UAUDIO_FLAG_BAD_ADC_LEN	 0x0080	/* bad audio control descriptor size */
 
 struct uaudio_devs {
 	struct usb_devno	 uv_dev;
@@ -222,6 +223,18 @@ struct uaudio_devs {
 		UAUDIO_FLAG_BAD_AUDIO },
 	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_QUICKCAMZOOM },
 		UAUDIO_FLAG_BAD_AUDIO },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC200 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC210 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC250 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC270 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC310 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
+	{ { USB_VENDOR_LOGITECH, USB_PRODUCT_LOGITECH_WEBCAMC500 },
+		UAUDIO_FLAG_BAD_ADC_LEN },
 	{ { USB_VENDOR_TELEX, USB_PRODUCT_TELEX_MIC1 },
 		UAUDIO_FLAG_NO_FRAC }
 };
@@ -301,8 +314,6 @@ const usb_interface_descriptor_t *uaudio_find_iface
 	(const char *, int, int *, int, int);
 
 void	uaudio_mixer_add_ctl(struct uaudio_softc *, struct mixerctl *);
-char	*uaudio_id_name
-	(struct uaudio_softc *, const struct io_terminal *, int);
 uByte	uaudio_get_cluster_nchan
 	(int, const struct io_terminal *);
 void	uaudio_add_input
@@ -659,14 +670,6 @@ uaudio_mixer_add_ctl(struct uaudio_softc *sc, struct mixerctl *mc)
 #endif
 }
 
-char *
-uaudio_id_name(struct uaudio_softc *sc, const struct io_terminal *iot, int id)
-{
-	static char buf[32];
-	snprintf(buf, sizeof(buf), "i%d", id);
-	return (buf);
-}
-
 uByte
 uaudio_get_cluster_nchan(int id, const struct io_terminal *iot)
 {
@@ -747,17 +750,21 @@ uaudio_add_mixer(struct uaudio_softc *sc, const struct io_terminal *iot, int id)
 {
 	const struct usb_audio_mixer_unit *d = iot[id].d.mu;
 	struct usb_audio_mixer_unit_1 *d1;
-	int c, chs, ichs, ochs, i, o, bno, p, mo, mc, k;
+	int c, chs, ochs, i, o, bno, p, mo, mc, k;
+#ifdef UAUDIO_DEBUG
+	int ichs = 0;
+#endif
 	uByte *bm;
 	struct mixerctl mix;
 
 	DPRINTFN(2,("%s: bUnitId=%d bNrInPins=%d\n", __func__,
 		    d->bUnitId, d->bNrInPins));
 
+#ifdef UAUDIO_DEBUG
 	/* Compute the number of input channels */
-	ichs = 0;
 	for (i = 0; i < d->bNrInPins; i++)
 		ichs += uaudio_get_cluster_nchan(d->baSourceId[i], iot);
+#endif
 
 	/* and the number of output channels */
 	d1 = (struct usb_audio_mixer_unit_1 *)&d->baSourceId[d->bNrInPins];
@@ -792,9 +799,8 @@ uaudio_add_mixer(struct uaudio_softc *sc, const struct io_terminal *iot, int id)
 						mix.wValue[k++] =
 							MAKE(p+c+1, o+1);
 				}
-			snprintf(mix.ctlname, sizeof(mix.ctlname), "mix%d-%s",
-			    d->bUnitId, uaudio_id_name(sc, iot,
-			    d->baSourceId[i]));
+			snprintf(mix.ctlname, sizeof(mix.ctlname), "mix%d-i%d",
+			    d->bUnitId, d->baSourceId[i]);
 			mix.nchan = chs;
 			uaudio_mixer_add_ctl(sc, &mix);
 		} else {
@@ -1067,15 +1073,19 @@ uaudio_add_feature(struct uaudio_softc *sc, const struct io_terminal *iot, int i
 	const struct usb_audio_feature_unit *d = iot[id].d.fu;
 	uByte *ctls = (uByte *)d->bmaControls;
 	int ctlsize = d->bControlSize;
-	int nchan = (d->bLength - 7) / ctlsize;
 	u_int fumask, mmask, cmask;
 	struct mixerctl mix;
-	int chan, ctl, i, unit;
+	int chan, ctl, i, nchan, unit;
 	const char *mixername;
 
 #define GET(i) (ctls[(i)*ctlsize] | \
 		(ctlsize > 1 ? ctls[(i)*ctlsize+1] << 8 : 0))
 
+	if (ctlsize == 0) {
+		DPRINTF(("ignoring feature %d: bControlSize == 0\n", id));
+		return;
+	}
+	nchan = (d->bLength - 7) / ctlsize;
 	mmask = GET(0);
 	/* Figure out what we can control */
 	for (cmask = 0, chan = 1; chan < nchan; chan++) {
@@ -1340,8 +1350,7 @@ uaudio_io_terminaltype(int outtype, struct io_terminal *iot, int id)
 		it->output = tml;
 		if (it->inputs != NULL) {
 			for (i = 0; i < it->inputs_size; i++)
-				if (it->inputs[i] != NULL)
-					free(it->inputs[i], M_TEMP, 0);
+				free(it->inputs[i], M_TEMP, 0);
 			free(it->inputs, M_TEMP, 0);
 		}
 		it->inputs_size = 0;
@@ -1815,6 +1824,10 @@ uaudio_identify_ac(struct uaudio_softc *sc, const usb_config_descriptor_t *cdesc
 	DPRINTFN(2,("%s: found AC header, vers=%03x, len=%d\n",
 		 __func__, sc->sc_audio_rev, aclen));
 
+	/* Some webcams descriptors advertise an off-by-one wTotalLength */
+	if (sc->sc_quirks & UAUDIO_FLAG_BAD_ADC_LEN)
+		aclen++;
+
 	sc->sc_nullalt = -1;
 
 	/* Scan through all the AC specific descriptors */
@@ -1857,8 +1870,7 @@ uaudio_identify_ac(struct uaudio_softc *sc, const usb_config_descriptor_t *cdesc
 			continue;
 		pot = iot[i].d.ot;
 		tml = uaudio_io_terminaltype(UGETW(pot->wTerminalType), iot, i);
-		if (tml != NULL)
-			free(tml, M_TEMP, 0);
+		free(tml, M_TEMP, 0);
 	}
 
 #ifdef UAUDIO_DEBUG
@@ -1971,14 +1983,11 @@ uaudio_identify_ac(struct uaudio_softc *sc, const usb_config_descriptor_t *cdesc
 		if (iot[i].d.desc == NULL)
 			continue;
 		if (iot[i].inputs != NULL) {
-			for (j = 0; j < iot[i].inputs_size; j++) {
-				if (iot[i].inputs[j] != NULL)
-					free(iot[i].inputs[j], M_TEMP, 0);
-			}
+			for (j = 0; j < iot[i].inputs_size; j++)
+				free(iot[i].inputs[j], M_TEMP, 0);
 			free(iot[i].inputs, M_TEMP, 0);
 		}
-		if (iot[i].output != NULL)
-			free(iot[i].output, M_TEMP, 0);
+		free(iot[i].output, M_TEMP, 0);
 		iot[i].d.desc = NULL;
 	}
 	free(iot, M_TEMP, 256 * sizeof(struct io_terminal));

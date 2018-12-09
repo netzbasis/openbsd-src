@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.222 2018/03/27 15:03:52 dhill Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.227 2018/11/09 14:14:32 claudio Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -104,7 +104,6 @@
 
 struct cpumem *icmp6counters;
 
-extern struct inpcbtable rawin6pcbtable;
 extern int icmp6errppslim;
 static int icmp6errpps_count = 0;
 static struct timeval icmp6errppslim_last;
@@ -448,9 +447,8 @@ icmp6_input(struct mbuf **mp, int *offp, int proto, int af)
 	if (ifp == NULL)
 		goto freeit;
 
-	if (ifp->if_type == IFT_CARP &&
-	    icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
-	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
+	if (icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
+	    carp_lsdrop(ifp, m, AF_INET6, ip6->ip6_src.s6_addr32,
 	    ip6->ip6_dst.s6_addr32, 1)) {
 		if_put(ifp);
 		goto freeit;
@@ -1475,7 +1473,7 @@ icmp6_redirect_output(struct mbuf *m0, struct rtentry *rt)
 		goto fail;
 	m->m_pkthdr.ph_ifidx = 0;
 	m->m_len = 0;
-	maxlen = M_TRAILINGSPACE(m);
+	maxlen = m_trailingspace(m);
 	maxlen = min(IPV6_MMTU, maxlen);
 	/* just for safety */
 	if (maxlen < sizeof(struct ip6_hdr) + sizeof(struct icmp6_hdr) +
@@ -1770,20 +1768,16 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rtableid)
 	rt = rtalloc(dst, RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
-	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE)))
+		goto bad;
 
 	/*
 	 * No PMTU for local routes and permanent neighbors,
 	 * ARP and NDP use the same expire timer as the route.
 	 */
 	if (ISSET(rt->rt_flags, RTF_LOCAL) ||
-	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0)) {
-		rtfree(rt);
-		return (NULL);
-	}
+	    (ISSET(rt->rt_flags, RTF_LLINFO) && rt->rt_expire == 0))
+		goto bad;
 
 	/* If we didn't get a host route, allocate one */
 	if ((rt->rt_flags & RTF_HOST) == 0) {
@@ -1801,22 +1795,22 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rtableid)
 
 		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
 		    rtableid);
-		if (error) {
-			rtfree(rt);
-			return (NULL);
-		}
+		if (error)
+			goto bad;
 		nrt->rt_rmx = rt->rt_rmx;
 		rtfree(rt);
 		rt = nrt;
+		rtm_send(rt, RTM_ADD, 0, rtableid);
 	}
 	error = rt_timer_add(rt, icmp6_mtudisc_timeout, icmp6_mtudisc_timeout_q,
 	    rtableid);
-	if (error) {
-		rtfree(rt);
-		return (NULL);
-	}
+	if (error)
+		goto bad;
 
 	return (rt);
+bad:
+	rtfree(rt);
+	return (NULL);
 }
 
 void

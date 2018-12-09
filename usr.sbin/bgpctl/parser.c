@@ -1,4 +1,4 @@
-/*	$OpenBSD: parser.c,v 1.81 2017/10/15 20:44:21 deraadt Exp $ */
+/*	$OpenBSD: parser.c,v 1.87 2018/11/28 08:33:59 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -81,6 +81,7 @@ static const struct token t_show[];
 static const struct token t_show_summary[];
 static const struct token t_show_fib[];
 static const struct token t_show_rib[];
+static const struct token t_show_ovs[];
 static const struct token t_show_mrt[];
 static const struct token t_show_mrt_file[];
 static const struct token t_show_rib_neigh[];
@@ -177,6 +178,7 @@ static const struct token t_show_rib[] = {
 	{ FLAG,		"best",		F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"selected",	F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"detail",	F_CTL_DETAIL,	t_show_rib},
+	{ FLAG,		"error",	F_CTL_INVALID,	t_show_rib},
 	{ FLAG,		"ssv"	,	F_CTL_SSV,	t_show_rib},
 	{ FLAG,		"in",		F_CTL_ADJ_IN,	t_show_rib},
 	{ FLAG,		"out",		F_CTL_ADJ_OUT,	t_show_rib},
@@ -184,11 +186,18 @@ static const struct token t_show_rib[] = {
 	{ KEYWORD,	"table",	NONE,		t_show_rib_rib},
 	{ KEYWORD,	"summary",	SHOW_SUMMARY,	t_show_summary},
 	{ KEYWORD,	"memory",	SHOW_RIB_MEM,	NULL},
+	{ KEYWORD,	"ovs",		NONE,		t_show_ovs},
 	{ FAMILY,	"",		NONE,		t_show_rib},
 	{ PREFIX,	"",		NONE,		t_show_prefix},
 	{ ENDTOKEN,	"",		NONE,		NULL}
 };
 
+static const struct token t_show_ovs[] = {
+	{ FLAG,		"valid"	,	F_CTL_OVS_VALID,	t_show_rib},
+	{ FLAG,		"invalid",	F_CTL_OVS_INVALID,	t_show_rib},
+	{ FLAG,		"not-found",	F_CTL_OVS_NOTFOUND,	t_show_rib},
+	{ ENDTOKEN,	"",		NONE,		NULL}
+};
 
 static const struct token t_show_mrt[] = {
 	{ NOTOKEN,	"",		NONE,		NULL},
@@ -469,12 +478,10 @@ int			 parse_addr(const char *, struct bgpd_addr *);
 int			 parse_asnum(const char *, size_t, u_int32_t *);
 int			 parse_number(const char *, struct parse_result *,
 			     enum token_type);
-int			 getcommunity(const char *);
 int			 parse_community(const char *, struct parse_result *);
 int			 parsesubtype(const char *, u_int8_t *, u_int8_t *);
 int			 parseextvalue(const char *, u_int32_t *);
 u_int			 parseextcommunity(const char *, struct parse_result *);
-u_int			 getlargecommunity(const char *);
 int			 parse_largecommunity(const char *,
 			     struct parse_result *);
 int			 parse_nexthop(const char *, struct parse_result *);
@@ -487,11 +494,7 @@ parse(int argc, char *argv[])
 	const struct token	*match;
 
 	bzero(&res, sizeof(res));
-	res.community.as = COMMUNITY_UNSET;
-	res.community.type = COMMUNITY_UNSET;
-	res.large_community.as = COMMUNITY_UNSET;
-	res.large_community.ld1 = COMMUNITY_UNSET;
-	res.large_community.ld2 = COMMUNITY_UNSET;
+	res.rtableid = getrtable();
 	TAILQ_INIT(&res.set);
 	if ((res.irr_outdir = getcwd(NULL, 0)) == NULL) {
 		fprintf(stderr, "getcwd failed: %s\n", strerror(errno));
@@ -613,7 +616,8 @@ match_token(int *argc, char **argv[], const struct token table[])
 			}
 			break;
 		case ASNUM:
-			if (parse_asnum(word, wordlen, &res.as.as)) {
+			if (parse_asnum(word, wordlen, &res.as.as_min)) {
+				res.as.as_max = res.as.as_min;
 				match++;
 				t = &table[i];
 			}
@@ -1008,19 +1012,26 @@ parse_number(const char *word, struct parse_result *r, enum token_type type)
 	return (1);
 }
 
-int
-getcommunity(const char *s)
+static u_int32_t
+getcommunity(const char *s, int large, u_int8_t *flag)
 {
+	int64_t		 max = USHRT_MAX;
 	const char	*errstr;
-	u_int16_t	 uval;
+	u_int32_t	 uval;
 
-	if (strcmp(s, "*") == 0)
-		return (COMMUNITY_ANY);
+	if (strcmp(s, "*") == 0) {
+		*flag = COMMUNITY_ANY;
+		return (0);
+	}
 
-	uval = strtonum(s, 0, USHRT_MAX, &errstr);
+	if (large)
+		max = UINT_MAX;
+
+	uval = strtonum(s, 0, max, &errstr);
 	if (errstr)
 		errx(1, "Community is %s: %s", errstr, s);
 
+	*flag = 0;
 	return (uval);
 }
 
@@ -1029,7 +1040,8 @@ parse_community(const char *word, struct parse_result *r)
 {
 	struct filter_set	*fs;
 	char			*p;
-	int			 as, type;
+	u_int32_t		 as, type;
+	u_int8_t		 asflag, tflag;
 
 	/* Well-known communities */
 	if (strcasecmp(word, "GRACEFUL_SHUTDOWN") == 0) {
@@ -1064,33 +1076,20 @@ parse_community(const char *word, struct parse_result *r)
 	}
 	*p++ = 0;
 
-	as = getcommunity(word);
-	type = getcommunity(p);
+	as = getcommunity(word, 0, &asflag);
+	type = getcommunity(p, 0, &tflag);
 
 done:
-	if (as == 0) {
-		fprintf(stderr, "Invalid community\n");
-		return (0);
-	}
-	if (as == COMMUNITY_WELLKNOWN)
-		switch (type) {
-		case COMMUNITY_GRACEFUL_SHUTDOWN:
-		case COMMUNITY_NO_EXPORT:
-		case COMMUNITY_NO_ADVERTISE:
-		case COMMUNITY_NO_EXPSUBCONFED:
-		case COMMUNITY_BLACKHOLE:
-			/* valid */
-			break;
-		}
-
 	if ((fs = calloc(1, sizeof(struct filter_set))) == NULL)
 		err(1, NULL);
 	fs->type = ACTION_SET_COMMUNITY;
-	fs->action.community.as = as;
-	fs->action.community.type = type;
+	fs->action.community.type = COMMUNITY_TYPE_BASIC;
+	fs->action.community.data1 = as;
+	fs->action.community.data2 = type;
+	fs->action.community.dflag1 = asflag;
+	fs->action.community.dflag2 = tflag;
 
-	r->community.as = as;
-	r->community.type = type;
+	r->community = fs->action.community;
 
 	TAILQ_INSERT_TAIL(&r->set, fs, entry);
 	return (1);
@@ -1274,22 +1273,6 @@ parseextcommunity(const char *word, struct parse_result *r)
 	return (0);
 }
 
-u_int
-getlargecommunity(const char *s)
-{
-	const char	*errstr;
-	u_int32_t	 uval;
-
-	if (strcmp(s, "*") == 0)
-		return (COMMUNITY_ANY);
-
-	uval = strtonum(s, 0, UINT_MAX, &errstr);
-	if (errstr)
-		errx(1, "Large Community is %s: %s", errstr, s);
-
-	return (uval);
-}
-
 int
 parse_largecommunity(const char *word, struct parse_result *r)
 {
@@ -1297,7 +1280,8 @@ parse_largecommunity(const char *word, struct parse_result *r)
 	char		*p, *po = strdup(word);
 	char		*array[3] = { NULL, NULL, NULL };
 	char		*val;
-	int64_t		 as, ld1, ld2;
+	u_int32_t	 as, ld1, ld2;
+	u_int8_t	 asflag, ld1flag, ld2flag;
 	int		 i = 0;
 
 	p = po;
@@ -1309,22 +1293,24 @@ parse_largecommunity(const char *word, struct parse_result *r)
 	if ((p != NULL) || !(array[0] && array[1] && array[2]))
 		errx(1, "Invalid Large-Community syntax");
 
-	as   = getlargecommunity(array[0]);
-	ld1  = getlargecommunity(array[1]);
-	ld2  = getlargecommunity(array[2]);
+	as = getcommunity(array[0], 1, &asflag);
+	ld1 = getcommunity(array[1], 1, &ld1flag);
+	ld2 = getcommunity(array[2], 1, &ld2flag);
 
 	free(po);
 
 	if ((fs = calloc(1, sizeof(struct filter_set))) == NULL)
 		err(1, NULL);
-	fs->type = ACTION_SET_LARGE_COMMUNITY;
-	fs->action.large_community.as = as;
-	fs->action.large_community.ld1 = ld1;
-	fs->action.large_community.ld2 = ld2;
+	fs->type = ACTION_SET_COMMUNITY;
+	fs->action.community.type = COMMUNITY_TYPE_LARGE;
+	fs->action.community.data1 = as;
+	fs->action.community.data2 = ld1;
+	fs->action.community.data3 = ld2;
+	fs->action.community.dflag1 = asflag;
+	fs->action.community.dflag2 = ld1flag;
+	fs->action.community.dflag3 = ld2flag;
 
-	r->large_community.as = as;
-	r->large_community.ld1 = ld1;
-	r->large_community.ld2 = ld2;
+	r->community = fs->action.community;
 
 	TAILQ_INSERT_TAIL(&r->set, fs, entry);
 	return (1);

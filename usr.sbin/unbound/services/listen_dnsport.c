@@ -167,7 +167,7 @@ create_udp_sock(int family, int socktype, struct sockaddr* addr,
 	int freebind, int use_systemd)
 {
 	int s;
-#if defined(SO_REUSEADDR) || defined(SO_REUSEPORT) || defined(IPV6_USE_MIN_MTU)  || defined(IP_TRANSPARENT) || defined(IP_BINDANY) || defined(IP_FREEBIND) || defined(SO_BINDANY)
+#if defined(SO_REUSEADDR) || defined(SO_REUSEPORT) || defined(IPV6_USE_MIN_MTU)  || defined(IP_TRANSPARENT) || defined(IP_BINDANY) || defined(IP_FREEBIND) || defined (SO_BINDANY)
 	int on=1;
 #endif
 #ifdef IPV6_MTU
@@ -247,6 +247,26 @@ create_udp_sock(int family, int socktype, struct sockaddr* addr,
 		}
 #endif /* SO_REUSEADDR */
 #ifdef SO_REUSEPORT
+#  ifdef SO_REUSEPORT_LB
+		/* on FreeBSD 12 we have SO_REUSEPORT_LB that does loadbalance
+		 * like SO_REUSEPORT on Linux.  This is what the users want
+		 * with the config option in unbound.conf; if we actually
+		 * need local address and port reuse they'll also need to
+		 * have SO_REUSEPORT set for them, assume it was _LB they want.
+		 */
+		if (reuseport && *reuseport &&
+		    setsockopt(s, SOL_SOCKET, SO_REUSEPORT_LB, (void*)&on,
+			(socklen_t)sizeof(on)) < 0) {
+#ifdef ENOPROTOOPT
+			if(errno != ENOPROTOOPT || verbosity >= 3)
+				log_warn("setsockopt(.. SO_REUSEPORT_LB ..) failed: %s",
+					strerror(errno));
+#endif
+			/* this option is not essential, we can continue */
+			*reuseport = 0;
+		}
+#  else /* no SO_REUSEPORT_LB */
+
 		/* try to set SO_REUSEPORT so that incoming
 		 * queries are distributed evenly among the receiving threads.
 		 * Each thread must have its own socket bound to the same port,
@@ -263,6 +283,7 @@ create_udp_sock(int family, int socktype, struct sockaddr* addr,
 			/* this option is not essential, we can continue */
 			*reuseport = 0;
 		}
+#  endif /* SO_REUSEPORT_LB */
 #else
 		(void)reuseport;
 #endif /* defined(SO_REUSEPORT) */
@@ -564,7 +585,12 @@ create_udp_sock(int family, int socktype, struct sockaddr* addr,
 		/* detect freebsd jail with no ipv6 permission */
 		if(family==AF_INET6 && errno==EINVAL)
 			*noproto = 1;
-		else if(errno != EADDRINUSE) {
+		else if(errno != EADDRINUSE &&
+			!(errno == EACCES && verbosity < 4 && !listen)
+#ifdef EADDRNOTAVAIL
+			&& !(errno == EADDRNOTAVAIL && verbosity < 4 && !listen)
+#endif
+			) {
 			log_err_addr("can't bind socket", strerror(errno),
 				(struct sockaddr_storage*)addr, addrlen);
 		}
@@ -572,7 +598,8 @@ create_udp_sock(int family, int socktype, struct sockaddr* addr,
 		close(s);
 #else /* USE_WINSOCK */
 		if(WSAGetLastError() != WSAEADDRINUSE &&
-			WSAGetLastError() != WSAEADDRNOTAVAIL) {
+			WSAGetLastError() != WSAEADDRNOTAVAIL &&
+			!(WSAGetLastError() == WSAEACCES && verbosity < 4 && !listen)) {
 			log_err_addr("can't bind socket", 
 				wsa_strerror(WSAGetLastError()),
 				(struct sockaddr_storage*)addr, addrlen);
@@ -1056,6 +1083,26 @@ set_recvpktinfo(int s, int family)
 	return 1;
 }
 
+/** see if interface is ssl, its port number == the ssl port number */
+static int
+if_is_ssl(const char* ifname, const char* port, int ssl_port,
+	struct config_strlist* tls_additional_port)
+{
+	struct config_strlist* s;
+	char* p = strchr(ifname, '@');
+	if(!p && atoi(port) == ssl_port)
+		return 1;
+	if(p && atoi(p+1) == ssl_port)
+		return 1;
+	for(s = tls_additional_port; s; s = s->next) {
+		if(p && atoi(p+1) == atoi(s->str))
+			return 1;
+		if(!p && atoi(port) == atoi(s->str))
+			return 1;
+	}
+	return 0;
+}
+
 /**
  * Helper for ports_open. Creates one interface (or NULL for default).
  * @param ifname: The interface ip address.
@@ -1069,6 +1116,7 @@ set_recvpktinfo(int s, int family)
  * @param rcv: receive buffer size for UDP
  * @param snd: send buffer size for UDP
  * @param ssl_port: ssl service port number
+ * @param tls_additional_port: list of additional ssl service port numbers.
  * @param reuseport: try to set SO_REUSEPORT if nonNULL and true.
  * 	set to false on exit if reuseport failed due to no kernel support.
  * @param transparent: set IP_TRANSPARENT socket option.
@@ -1081,8 +1129,10 @@ set_recvpktinfo(int s, int family)
 static int
 ports_create_if(const char* ifname, int do_auto, int do_udp, int do_tcp, 
 	struct addrinfo *hints, const char* port, struct listen_port** list,
-	size_t rcv, size_t snd, int ssl_port, int* reuseport, int transparent,
-	int tcp_mss, int freebind, int use_systemd, int dnscrypt_port)
+	size_t rcv, size_t snd, int ssl_port,
+	struct config_strlist* tls_additional_port, int* reuseport,
+	int transparent, int tcp_mss, int freebind, int use_systemd,
+	int dnscrypt_port)
 {
 	int s, noip6=0;
 #ifdef USE_DNSCRYPT
@@ -1146,9 +1196,8 @@ ports_create_if(const char* ifname, int do_auto, int do_udp, int do_tcp,
 		}
 	}
 	if(do_tcp) {
-		int is_ssl = ((strchr(ifname, '@') && 
-			atoi(strchr(ifname, '@')+1) == ssl_port) ||
-			(!strchr(ifname, '@') && atoi(port) == ssl_port));
+		int is_ssl = if_is_ssl(ifname, port, ssl_port,
+			tls_additional_port);
 		if((s = make_sock_port(SOCK_STREAM, ifname, port, hints, 1, 
 			&noip6, 0, 0, reuseport, transparent, tcp_mss,
 			freebind, use_systemd)) == -1) {
@@ -1194,7 +1243,8 @@ listen_cp_insert(struct comm_point* c, struct listen_dnsport* front)
 
 struct listen_dnsport* 
 listen_create(struct comm_base* base, struct listen_port* ports,
-	size_t bufsize, int tcp_accept_count, void* sslctx,
+	size_t bufsize, int tcp_accept_count, int tcp_idle_timeout,
+	struct tcl_list* tcp_conn_limit, void* sslctx,
 	struct dt_env* dtenv, comm_point_callback_type* cb, void *cb_arg)
 {
 	struct listen_dnsport* front = (struct listen_dnsport*)
@@ -1221,10 +1271,12 @@ listen_create(struct comm_base* base, struct listen_port* ports,
 		else if(ports->ftype == listen_type_tcp ||
 				ports->ftype == listen_type_tcp_dnscrypt)
 			cp = comm_point_create_tcp(base, ports->fd, 
-				tcp_accept_count, bufsize, cb, cb_arg);
+				tcp_accept_count, tcp_idle_timeout,
+				tcp_conn_limit, bufsize, cb, cb_arg);
 		else if(ports->ftype == listen_type_ssl) {
 			cp = comm_point_create_tcp(base, ports->fd, 
-				tcp_accept_count, bufsize, cb, cb_arg);
+				tcp_accept_count, tcp_idle_timeout,
+				tcp_conn_limit, bufsize, cb, cb_arg);
 			cp->ssl = sslctx;
 		} else if(ports->ftype == listen_type_udpancil ||
 				  ports->ftype == listen_type_udpancil_dnscrypt)
@@ -1334,8 +1386,8 @@ listening_ports_open(struct config_file* cfg, int* reuseport)
 				do_auto, cfg->do_udp, do_tcp, 
 				&hints, portbuf, &list,
 				cfg->so_rcvbuf, cfg->so_sndbuf,
-				cfg->ssl_port, reuseport,
-				cfg->ip_transparent,
+				cfg->ssl_port, cfg->tls_additional_port,
+				reuseport, cfg->ip_transparent,
 				cfg->tcp_mss, cfg->ip_freebind, cfg->use_systemd,
 				cfg->dnscrypt_port)) {
 				listening_ports_free(list);
@@ -1348,8 +1400,8 @@ listening_ports_open(struct config_file* cfg, int* reuseport)
 				do_auto, cfg->do_udp, do_tcp, 
 				&hints, portbuf, &list,
 				cfg->so_rcvbuf, cfg->so_sndbuf,
-				cfg->ssl_port, reuseport,
-				cfg->ip_transparent,
+				cfg->ssl_port, cfg->tls_additional_port,
+				reuseport, cfg->ip_transparent,
 				cfg->tcp_mss, cfg->ip_freebind, cfg->use_systemd,
 				cfg->dnscrypt_port)) {
 				listening_ports_free(list);
@@ -1364,8 +1416,8 @@ listening_ports_open(struct config_file* cfg, int* reuseport)
 			if(!ports_create_if(cfg->ifs[i], 0, cfg->do_udp, 
 				do_tcp, &hints, portbuf, &list, 
 				cfg->so_rcvbuf, cfg->so_sndbuf,
-				cfg->ssl_port, reuseport,
-				cfg->ip_transparent,
+				cfg->ssl_port, cfg->tls_additional_port,
+				reuseport, cfg->ip_transparent,
 				cfg->tcp_mss, cfg->ip_freebind, cfg->use_systemd,
 				cfg->dnscrypt_port)) {
 				listening_ports_free(list);
@@ -1378,8 +1430,8 @@ listening_ports_open(struct config_file* cfg, int* reuseport)
 			if(!ports_create_if(cfg->ifs[i], 0, cfg->do_udp, 
 				do_tcp, &hints, portbuf, &list, 
 				cfg->so_rcvbuf, cfg->so_sndbuf,
-				cfg->ssl_port, reuseport,
-				cfg->ip_transparent,
+				cfg->ssl_port, cfg->tls_additional_port,
+				reuseport, cfg->ip_transparent,
 				cfg->tcp_mss, cfg->ip_freebind, cfg->use_systemd,
 				cfg->dnscrypt_port)) {
 				listening_ports_free(list);

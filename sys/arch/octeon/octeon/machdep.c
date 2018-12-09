@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.104 2018/01/18 14:02:54 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.107 2018/12/04 16:24:13 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Miodrag Vallat.
@@ -285,10 +285,14 @@ mips_init(register_t a0, register_t a1, register_t a2, register_t a3)
 		octeon_ver = OCTEON_PLUS;
 		break;
 	case OCTEON_MODEL_FAMILY_CN61XX:
+	case OCTEON_MODEL_FAMILY_CN63XX:
+	case OCTEON_MODEL_FAMILY_CN66XX:
+	case OCTEON_MODEL_FAMILY_CN68XX:
 		octeon_ver = OCTEON_2;
 		break;
 	case OCTEON_MODEL_FAMILY_CN71XX:
 	case OCTEON_MODEL_FAMILY_CN73XX:
+	case OCTEON_MODEL_FAMILY_CN78XX:
 		octeon_ver = OCTEON_3;
 		break;
 	}
@@ -419,8 +423,6 @@ mips_init(register_t a0, register_t a1, register_t a2, register_t a3)
 	consinit();
 	printf("Initial setup done, switching console.\n");
 
-#define DEBUG
-#ifdef DEBUG
 #define DUMP_BOOT_DESC(field, format) \
 	printf("boot_desc->" #field ":" #format "\n", boot_desc->field)
 #define DUMP_BOOT_INFO(field, format) \
@@ -466,7 +468,6 @@ mips_init(register_t a0, register_t a1, register_t a2, register_t a3)
 	DUMP_BOOT_INFO(config_flags, %#x);
 	if (octeon_boot_info->ver_minor >= 3)
 		DUMP_BOOT_INFO(fdt_addr, %#llx);
-#endif
 
 	/*
 	 * It is possible to launch the kernel from the bootloader without
@@ -654,6 +655,11 @@ octeon_tlb_init(void)
 		octeon_set_cvmmemctl(cvmmemctl);
 		break;
 	}
+
+	/*
+	 * Make sure Coprocessor 2 is disabled.
+	 */
+	setsr(getsr() & ~SR_COP_2_BIT);
 
 	/*
 	 * If the UserLocal register is available, let userspace

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.16 2017/07/18 23:00:31 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.18 2018/09/12 11:59:40 kettenis Exp $
 
 PROG=		noexec
 SRCS=		noexec.c testfly.S
@@ -15,55 +15,56 @@ REGRESS_SKIP_TARGETS+=	nxtext-mmap
 .PHONY: ${REGRESS_TARGETS}
 
 nxtext-mmap: ${PROG}
-	@./${PROG} -T -m
+	./${PROG} -T -m
 
 nxtext-mprotect: ${PROG}
-	@./${PROG} -T -p
+	./${PROG} -T -p
 
 nxdata: ${PROG}
-	@./${PROG} -D
+	./${PROG} -D
 
 nxdata-mprotect: ${PROG}
-	@./${PROG} -D -p
+	./${PROG} -D -p
 
 nxdata-mmap: ${PROG}
-	@./${PROG} -D -m
+	./${PROG} -D -m
 
 nxbss: ${PROG}
-	@./${PROG} -B
+	./${PROG} -B
 
 nxbss-mmap: ${PROG}
-	@./${PROG} -B -m
+	./${PROG} -B -m
 
 nxbss-mprotect: ${PROG}
-	@./${PROG} -B -p
+	./${PROG} -B -p
 
 nxheap: ${PROG}
-	@./${PROG} -H
+	./${PROG} -H
 
 nxheap-mmap: ${PROG}
-	@./${PROG} -H -m
+	./${PROG} -H -m
 
 nxheap-mprotect: ${PROG}
-	@./${PROG} -H -p
+	./${PROG} -H -p
 
 nxstack: ${PROG}
-	@./${PROG} -S
+	./${PROG} -S
 
 nxstack-mmap: ${PROG}
-	@./${PROG} -S -m
+	./${PROG} -S -m
 
 nxstack-mprotect: ${PROG}
-	@./${PROG} -S -p
+	./${PROG} -S -p
 
 nxmmap: ${PROG}
-	@./${PROG} -m
+	./${PROG} -m
 
 nxmmap-mprotect: ${PROG}
-	@./${PROG} -m -p
+	./${PROG} -m -p
 
 .if ${MACHINE} != "alpha" && \
     ${MACHINE} != "amd64" && \
+    ${MACHINE} != "arm64" && \
     ${MACHINE} != "armv7" && \
     ${MACHINE} != "hppa" && \
     ${MACHINE} != "i386" && \

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sched.c,v 1.47 2017/12/14 23:21:04 dlg Exp $	*/
+/*	$OpenBSD: kern_sched.c,v 1.54 2018/11/17 23:10:08 cheloha Exp $	*/
 /*
  * Copyright (c) 2007, 2008 Artur Grabowski <art@openbsd.org>
  *
@@ -56,6 +56,8 @@ uint64_t sched_wasidle;		/* Times we came out of idle */
 struct taskq *sbartq;
 #endif
 
+int sched_smt;
+
 /*
  * A few notes about cpu_switchto that is implemented in MD code.
  *
@@ -97,6 +99,11 @@ sched_init_cpu(struct cpu_info *ci)
 	 * structures.
 	 */
 	cpuset_init_cpu(ci);
+
+#ifdef __HAVE_CPU_TOPOLOGY
+	if (!sched_smt && ci->ci_smt_id > 0)
+		return;
+#endif
 	cpuset_add(&sched_all_cpus, ci);
 }
 
@@ -211,8 +218,11 @@ sched_exit(struct proc *p)
 
 	LIST_INSERT_HEAD(&spc->spc_deadproc, p, p_hash);
 
+#ifdef MULTIPROCESSOR
 	/* This process no longer needs to hold the kernel lock. */
-	KERNEL_UNLOCK();
+	KERNEL_ASSERT_LOCKED();
+	__mp_release_all(&kernel_lock);
+#endif
 
 	SCHED_LOCK(s);
 	idle = spc->spc_idleproc;
@@ -464,6 +474,10 @@ sched_steal_proc(struct cpu_info *self)
 
 	KASSERT((self->ci_schedstate.spc_schedflags & SPCF_SHOULDHALT) == 0);
 
+	/* Don't steal if we don't want to schedule processes in this CPU. */
+	if (!cpuset_isset(&sched_all_cpus, self))
+		return (NULL);
+
 	cpuset_copy(&set, &sched_queued_cpus);
 
 	while ((ci = cpuset_first(&set)) != NULL) {
@@ -615,9 +629,13 @@ sched_start_secondary_cpus(void)
 
 		if (CPU_IS_PRIMARY(ci))
 			continue;
-		cpuset_add(&sched_all_cpus, ci);
 		atomic_clearbits_int(&spc->spc_schedflags,
 		    SPCF_SHOULDHALT | SPCF_HALTED);
+#ifdef __HAVE_CPU_TOPOLOGY
+		if (!sched_smt && ci->ci_smt_id > 0)
+			continue;
+#endif
+		cpuset_add(&sched_all_cpus, ci);
 	}
 }
 
@@ -793,3 +811,68 @@ cpuset_complement(struct cpuset *to, struct cpuset *a, struct cpuset *b)
 	for (i = 0; i < CPUSET_ASIZE(ncpus); i++)
 		to->cs_set[i] = b->cs_set[i] & ~a->cs_set[i];
 }
+
+int
+cpuset_cardinality(struct cpuset *cs)
+{
+	int cardinality, i, n;
+
+	cardinality = 0;
+
+	for (i = 0; i < CPUSET_ASIZE(ncpus); i++)
+		for (n = cs->cs_set[i]; n != 0; n &= n - 1)
+			cardinality++;
+
+	return (cardinality);
+}
+
+int
+sysctl_hwncpuonline(void)
+{
+	return cpuset_cardinality(&sched_all_cpus);
+}
+
+int
+cpu_is_online(struct cpu_info *ci)
+{
+	return cpuset_isset(&sched_all_cpus, ci);
+}
+
+#ifdef __HAVE_CPU_TOPOLOGY
+
+#include <sys/sysctl.h>
+
+int
+sysctl_hwsmt(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
+{
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
+	int err, newsmt;
+
+	newsmt = sched_smt;
+	err = sysctl_int(oldp, oldlenp, newp, newlen, &newsmt);
+	if (err)
+		return err;
+	if (newsmt > 1)
+		newsmt = 1;
+	if (newsmt < 0)
+		newsmt = 0;
+	if (newsmt == sched_smt)
+		return 0;
+
+	sched_smt = newsmt;
+	CPU_INFO_FOREACH(cii, ci) {
+		if (CPU_IS_PRIMARY(ci))
+			continue;
+		if (ci->ci_smt_id == 0)
+			continue;
+		if (sched_smt)
+			cpuset_add(&sched_all_cpus, ci);
+		else
+			cpuset_del(&sched_all_cpus, ci);
+	}
+
+	return 0;
+}
+
+#endif

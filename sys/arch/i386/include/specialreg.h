@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.65 2018/02/10 09:46:58 jsg Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.72 2018/09/11 07:13:23 jsg Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.7 1994/10/27 04:16:26 cgd Exp $	*/
 
 /*-
@@ -206,6 +206,14 @@
 #define SEFF0ECX_AVX512VBMI	0x00000002 /* AVX-512 vector bit inst */
 #define SEFF0ECX_UMIP		0x00000004 /* UMIP support */
 #define SEFF0ECX_PKU		0x00000008 /* Page prot keys for user mode */
+/* SEFF EDX bits */
+#define SEFF0EDX_AVX512_4FNNIW	0x00000004 /* AVX-512 neural network insns */
+#define SEFF0EDX_AVX512_4FMAPS	0x00000008 /* AVX-512 mult accum single prec */
+#define SEFF0EDX_IBRS		0x04000000 /* IBRS / IBPB Speculation Control */
+#define SEFF0EDX_STIBP		0x08000000 /* STIBP Speculation Control */
+#define SEFF0EDX_L1DF		0x10000000 /* L1D_FLUSH */
+#define SEFF0EDX_ARCH_CAP	0x20000000 /* Has IA32_ARCH_CAPABILITIES MSR */
+#define SEFF0EDX_SSBD		0x80000000 /* Spec Store Bypass Disable */
 
 /*
  * Thermal and Power Management (CPUID function 0x6) EAX bits
@@ -244,6 +252,7 @@
 #define	CPUID_MMXX	0x00400000	/* AMD MMX Extensions */
 #define	CPUID_FFXSR	0x02000000	/* fast FP/MMX save/restore */
 #define	CPUID_PAGE1GB	0x04000000	/* 1-GByte pages */
+#define	CPUID_RDTSCP	0x08000000	/* RDTSCP / IA32_TSC_AUX available */
 #define	CPUID_LONG	0x20000000	/* long mode */
 #define	CPUID_3DNOW2	0x40000000	/* 3DNow! Instruction Extension */
 #define	CPUID_3DNOW	0x80000000	/* 3DNow! Instructions */
@@ -284,6 +293,19 @@
 
 #define CPUIDEDX_ITSC		(1 << 8)	/* Invariant TSC */
 
+/*
+ * AMD CPUID function 0x80000008 EBX bits
+ */
+#define CPUIDEBX_IBPB		(1ULL << 12)	/* Speculation Control IBPB */
+#define CPUIDEBX_IBRS		(1ULL << 14)	/* Speculation Control IBRS */
+#define CPUIDEBX_STIBP		(1ULL << 15)	/* Speculation Control STIBP */
+#define CPUIDEBX_IBRS_ALWAYSON	(1ULL << 16)	/* IBRS always on mode */
+#define CPUIDEBX_STIBP_ALWAYSON	(1ULL << 17)	/* STIBP always on mode */
+#define CPUIDEBX_IBRS_PREF	(1ULL << 18)	/* IBRS preferred */
+#define CPUIDEBX_SSBD		(1ULL << 24)	/* Speculation Control SSBD */
+#define CPUIDEBX_VIRT_SSBD	(1ULL << 25)	/* Virt Spec Control SSBD */
+#define CPUIDEBX_SSBD_NOTREQ	(1ULL << 26)	/* SSBD not required */
+
 #define	CPUID2FAMILY(cpuid)	(((cpuid) >> 8) & 15)
 #define	CPUID2MODEL(cpuid)	(((cpuid) >> 4) & 15)
 #define	CPUID2STEPPING(cpuid)	((cpuid) & 15)
@@ -307,6 +329,7 @@
 #define	P5MSR_CTRSEL		0x011	/* P5 only (trap on P6) */
 #define	P5MSR_CTR0		0x012	/* P5 only (trap on P6) */
 #define	P5MSR_CTR1		0x013	/* P5 only (trap on P6) */
+#define MSR_PLATFORM_ID		0x017	/* Platform ID for microcode */
 #define MSR_APICBASE		0x01b
 #define	APICBASE_BSP		0x100
 #define APICBASE_ENABLE_X2APIC	0x400
@@ -315,6 +338,12 @@
 #define MSR_EBC_FREQUENCY_ID	0x02c	/* Pentium 4 only */
 #define	MSR_TEST_CTL		0x033
 #define MSR_IA32_FEATURE_CONTROL 0x03a
+#define MSR_SPEC_CTRL		0x048	/* Speculation Control IBRS / STIBP */
+#define SPEC_CTRL_IBRS		(1ULL << 0)
+#define SPEC_CTRL_STIBP		(1ULL << 1)
+#define SPEC_CTRL_SSBD		(1ULL << 2)
+#define MSR_PRED_CMD		0x049	/* Speculation Control IBPB */
+#define PRED_CMD_IBPB		(1ULL << 0)
 #define MSR_BIOS_UPDT_TRIG	0x079
 #define	MSR_BBL_CR_D0		0x088	/* PII+ only */
 #define	MSR_BBL_CR_D1		0x089	/* PII+ only */
@@ -329,6 +358,14 @@
 #define MTRRcap_FIXED		0x100	/* bit 8 - fixed MTRRs supported */
 #define MTRRcap_WC		0x400	/* bit 10 - WC type supported */
 #define MTRRcap_SMRR		0x800	/* bit 11 - SMM range reg supported */
+#define MSR_ARCH_CAPABILITIES	0x10a
+#define ARCH_CAPABILITIES_RDCL_NO	(1 << 0)	/* Meltdown safe */
+#define ARCH_CAPABILITIES_IBRS_ALL	(1 << 1)	/* enhanced IBRS */
+#define ARCH_CAPABILITIES_RSBA		(1 << 2)	/* RSB Alternate */
+#define ARCH_CAPABILITIES_SKIP_L1DFL_VMENTRY	(1 << 3)
+#define ARCH_CAPABILITIES_SSB_NO	(1 << 4)	/* Spec St Byp safe */
+#define MSR_FLUSH_CMD		0x10b
+#define FLUSH_CMD_L1D_FLUSH	(1ULL << 0)
 #define	MSR_BBL_CR_ADDR		0x116	/* PII+ only */
 #define	MSR_BBL_CR_DECC		0x118	/* PII+ only */
 #define	MSR_BBL_CR_CTL		0x119	/* PII+ only */
@@ -457,6 +494,7 @@
 /*
  * AMD K8 (Opteron) MSRs.
  */
+#define	MSR_PATCH_LEVEL	0x0000008b
 #define	MSR_SYSCFG	0xc0000010
 
 #define MSR_EFER	0xc0000080		/* Extended feature enable */
@@ -474,10 +512,12 @@
 #define MSR_FSBASE	0xc0000100		/* 64bit offset for fs: */
 #define MSR_GSBASE	0xc0000101		/* 64bit offset for gs: */
 #define MSR_KERNELGSBASE 0xc0000102		/* storage for swapgs ins */
+#define MSR_PATCH_LOADER 0xc0010020
 #define MSR_INT_PEN_MSG	0xc0010055		/* Interrupt pending message */
 
 #define MSR_DE_CFG	0xc0011029		/* Decode Configuration */
 #define	DE_CFG_721	0x00000001	/* errata 721 */
+#define	DE_CFG_SERIALIZE_LFENCE	(1 << 1)	/* Enable serializing lfence */
 
 #define IPM_C1E_CMP_HLT	0x10000000
 #define IPM_SMI_CMP_HLT	0x08000000
@@ -1202,3 +1242,10 @@
 #define PAT_WB          0x6UL
 #define PAT_UCMINUS     0x7UL
 
+/*
+ * XSAVE subfeatures (cpuid 0xd, leaf 1)
+ */
+#define XSAVE_XSAVEOPT		0x1UL
+#define XSAVE_XSAVEC		0x2UL
+#define XSAVE_XGETBV1		0x4UL
+#define XSAVE_XSAVES		0x8UL

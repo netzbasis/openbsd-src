@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.593 2018/02/28 08:55:44 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.615 2018/11/07 07:58:16 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: February 28 2018 $
+.Dd $Mdocdate: November 7 2018 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -851,6 +851,8 @@ the initial size is 80 x 24;
 and
 .Fl y
 can be used to specify a different size.
+.Ql -
+uses the size of the current client if any.
 .Pp
 If run from a terminal, any
 .Xr termios 4
@@ -915,9 +917,10 @@ is used, the
 .Ic update-environment
 option will not be applied.
 .It Xo Ic refresh-client
+.Op Fl cDlLRSU
 .Op Fl C Ar width,height
-.Op Fl S
 .Op Fl t Ar target-client
+.Op Ar adjustment
 .Xc
 .D1 (alias: Ic refresh )
 Refresh the current client if bound to a key, or a single client if one is given
@@ -929,6 +932,25 @@ is specified, only update the client's status line.
 .Pp
 .Fl C
 sets the width and height of a control client.
+.Fl l
+requests the clipboard from the client using the
+.Xr xterm 1
+escape sequence and stores it in a new paste buffer.
+.Pp
+.Fl L ,
+.Fl R ,
+.Fl U
+and
+.Fl D
+move the visible portion of the window left, right, up or down
+by
+.Ar adjustment ,
+if the window is larger than the client.
+.Fl c
+resets so that the position follows the cursor.
+See the
+.Ic window-size
+option.
 .It Xo Ic rename-session
 .Op Fl t Ar target-session
 .Ar new-name
@@ -962,7 +984,7 @@ show debugging information about jobs and terminals.
 Execute commands from
 .Ar path
 (which may be a
-.Xr glob 3
+.Xr glob 7
 pattern).
 If
 .Fl q
@@ -1459,6 +1481,8 @@ The following keys may be used in tree mode:
 .It Li "Enter" Ta "Choose selected item"
 .It Li "Up" Ta "Select previous item"
 .It Li "Down" Ta "Select next item"
+.It Li "x" Ta "Kill selected item"
+.It Li "X" Ta "Kill tagged items"
 .It Li "<" Ta "Scroll list of previews left"
 .It Li ">" Ta "Scroll list of previews right"
 .It Li "C-s" Ta "Search by name"
@@ -1536,7 +1560,7 @@ The default
 .Ar template
 is "select-pane -t '%%'".
 .It Xo Ic find-window
-.Op Fl CNT
+.Op Fl CNTZ
 .Op Fl t Ar target-pane
 .Ar match-string
 .Xc
@@ -1555,6 +1579,8 @@ matches only the window name and
 matches only the window title.
 The default is
 .Fl CNT .
+.Fl Z
+zooms the pane.
 .Pp
 This command works only if at least one client is attached.
 .It Xo Ic join-pane
@@ -2724,7 +2750,7 @@ Set status line message command style, where
 .Ar style
 is a comma-separated list of characteristics to be specified.
 .Pp
-These may be
+The style format is shared by many options and may be:
 .Ql bg=colour
 to set the background colour,
 .Ql fg=colour
@@ -2747,10 +2773,14 @@ and so on),
 to
 .Ic colour255
 from the 256-colour set,
-.Ic default ,
-or a hexadecimal RGB string such as
-.Ql #ffffff ,
-which chooses the closest match from the default 256-colour set.
+.Ic default
+for the default colour (inherited from another option in the case of some options, for example
+.Ic window-status-style
+inherits from
+.Ic status-style ) ,
+.Ic terminal
+for the terminal default colour, or a hexadecimal RGB string such as
+.Ql #ffffff .
 .Pp
 The attributes is either
 .Ic none
@@ -2764,8 +2794,12 @@ or a comma-delimited list of one or more of:
 .Ic reverse ,
 .Ic hidden ,
 .Ic italics ,
+.Ic strikethrough ,
+.Ic double-underscore
+.Ic curly-underscore
+.Ic dotted-underscore
 or
-.Ic strikethrough
+.Ic dashed-underscore
 to turn an attribute on, or an attribute prefixed with
 .Ql no
 to turn one off.
@@ -3420,6 +3454,14 @@ Run when the program running in a pane exits, but
 is on so the pane has not closed.
 .It pane-exited
 Run when the program running in a pane exits.
+.It pane-focus-in
+Run when the focus enters a pane, if the
+.Ic focus-events
+option is on.
+.It pane-focus-out
+Run when the focus exits a pane, if the
+.Ic focus-events
+option is on.
 .It pane-set-clipboard
 Run when the terminal clipboard is set using the
 .Xr xterm 1
@@ -3441,12 +3483,14 @@ Run when a window is unlinked from a session.
 Hooks are managed with these commands:
 .Bl -tag -width Ds
 .It Xo Ic set-hook
-.Op Fl gu
+.Op Fl gRu
 .Op Fl t Ar target-session
 .Ar hook-name
 .Ar command
 .Xc
-Sets (or with
+Without
+.Fl R ,
+sets (or with
 .Fl u
 unsets) hook
 .Ar hook-name
@@ -3462,6 +3506,12 @@ hooks (for
 with
 .Fl t ) .
 Like options, session hooks inherit from the global ones.
+.Pp
+With
+.Fl R ,
+run
+.Ar hook-name
+immediately.
 .It Xo Ic show-hooks
 .Op Fl g
 .Op Fl t Ar target-session
@@ -3483,7 +3533,10 @@ and a location suffix (one of
 for the contents of a pane,
 .Ql Border
 for a pane border or
-.Ql Status
+.Ql Status ,
+.Ql StatusLeft ,
+or
+.Ql StatusRight
 for the status line).
 The following mouse events are available:
 .Bl -column "MouseDown1" "MouseDrag1" "WheelDown" -offset indent
@@ -3541,11 +3594,17 @@ The possible variables are listed in the table below, or the name of a
 .Nm
 option may be used for an option's value.
 Some variables have a shorter alias such as
-.Ql #S ,
-and
+.Ql #S ;
 .Ql ##
 is replaced by a single
-.Ql # .
+.Ql # ,
+.Ql #,
+by a
+.Ql \&,
+and
+.Ql #}
+by a
+.Ql } .
 .Pp
 Conditionals are available by prefixing with
 .Ql \&?
@@ -3567,6 +3626,22 @@ if
 is enabled, or
 .Ql no
 if not.
+Conditionals can be nested arbitrarily.
+Inside a conditional,
+.Ql \&,
+and
+.Ql }
+must be escaped as
+.Ql #,
+and
+.Ql #} ,
+unless they are part of a
+.Ql #{...}
+replacement.
+For example:
+.Bd -literal -offset indent
+#{?pane_in_mode,#[fg=white#,bg=red],#[fg=red#,bg=white]}#W .
+.Ed
 .Pp
 Comparisons may be expressed by prefixing two comma-separated
 alternatives by
@@ -3594,7 +3669,7 @@ and
 .Ql &&
 evaluate to true if either or both of two comma-separated alternatives are
 true, for example
-.Ql #{||,#{pane_in_mode},#{alternate_on}} .
+.Ql #{||:#{pane_in_mode},#{alternate_on}} .
 A
 .Ql C
 performs a search for an
@@ -3630,6 +3705,10 @@ prefixes are
 and
 .Xr dirname 3
 of the variable respectively.
+.Ql q:
+will escape
+.Xr sh 1
+special characters.
 A prefix of the form
 .Ql s/foo/bar/:
 will substitute
@@ -3740,6 +3819,7 @@ The following variables are available, where appropriate:
 .It Li "pane_tty" Ta "" Ta "Pseudo terminal of pane"
 .It Li "pane_width" Ta "" Ta "Width of pane"
 .It Li "pid" Ta ""  Ta "Server PID"
+.It Li "rectangle_toggle" Ta "" Ta "1 if rectangle selection is activated"
 .It Li "scroll_region_lower" Ta "" Ta "Bottom of scroll region in pane"
 .It Li "scroll_region_upper" Ta "" Ta "Top of scroll region in pane"
 .It Li "scroll_position" Ta "" Ta "Scroll position in copy mode"
@@ -3820,7 +3900,9 @@ for
 or
 .Ic new-session ) .
 .It
-An escape sequence:
+An escape sequence (if the
+.Ic allow-rename
+option is turned on):
 .Bd -literal -offset indent
 $ printf '\e033kWINDOW_NAME\e033\e\e'
 .Ed
@@ -3833,7 +3915,7 @@ option.
 .El
 .Pp
 When a pane is first created, its title is the hostname.
-A pane's title can be set via the OSC title setting sequence, for example:
+A pane's title can be set via the title setting escape sequence, for example:
 .Bd -literal -offset indent
 $ printf '\e033]2;My Title\e033\e\e'
 .Ed
@@ -4348,8 +4430,6 @@ is used, the channel is locked and any clients that try to lock the same
 channel are made to wait until the channel is unlocked with
 .Ic wait-for
 .Fl U .
-This command only works from outside
-.Nm .
 .El
 .Sh TERMINFO EXTENSIONS
 .Nm
@@ -4366,6 +4446,11 @@ to change the cursor colour from inside
 .Bd -literal -offset indent
 $ printf '\e033]12;red\e033\e\e'
 .Ed
+.It Em \&Smulx
+Set a styled underline.
+The single parameter is one of: 0 for no underline, 1 for normal
+underline, 2 for double underline, 3 for curly underline, 4 for dotted
+underline and 5 for dashed underline.
 .It Em \&Ss , Se
 Set or reset the cursor style.
 If set, a sequence such as this may be used
@@ -4382,7 +4467,7 @@ Indicate that the terminal supports the
 .Ql direct colour
 RGB escape sequence (for example, \ee[38;2;255;255;255m).
 .Pp
-If supported, this is used for the OSC initialize colour escape sequence (which
+If supported, this is used for the initialize colour escape sequence (which
 may be enabled by adding the
 .Ql initc
 and

@@ -149,10 +149,11 @@ void openbsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles)) {
     if (!Args.hasArg(options::OPT_shared)) {
-      if (Args.hasArg(options::OPT_pg))
+      if (Args.hasArg(options::OPT_pg)) {
+        CmdArgs.push_back("-nopie");
         CmdArgs.push_back(
             Args.MakeArgString(getToolChain().GetFilePath("gcrt0.o")));
-      else if (Args.hasArg(options::OPT_static) &&
+      } else if (Args.hasArg(options::OPT_static) &&
                !Args.hasArg(options::OPT_nopie))
         CmdArgs.push_back(
             Args.MakeArgString(getToolChain().GetFilePath("rcrt0.o")));
@@ -177,7 +178,8 @@ void openbsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
     if (D.CCCIsCXX()) {
-      getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
+      if (getToolChain().ShouldLinkCXXStdlib(Args))
+        getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
       if (Args.hasArg(options::OPT_pg))
         CmdArgs.push_back("-lm_p");
       else

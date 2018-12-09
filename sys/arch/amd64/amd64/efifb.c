@@ -1,4 +1,4 @@
-/*	$OpenBSD: efifb.c,v 1.12 2017/10/28 01:48:03 yasuoka Exp $	*/
+/*	$OpenBSD: efifb.c,v 1.18 2018/09/22 17:41:52 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -101,6 +101,7 @@ int	 efifb_show_screen(void *, void *, int, void (*cb) (void *, int, int),
 	    void *);
 int	 efifb_list_font(void *, struct wsdisplay_font *);
 int	 efifb_load_font(void *, void *, struct wsdisplay_font *);
+void	 efifb_scrollback(void *, void *, int lines);
 void	 efifb_efiinfo_init(struct efifb *);
 void	 efifb_cnattach_common(void);
 
@@ -133,7 +134,8 @@ struct wsdisplay_accessops efifb_accessops = {
 	.free_screen = efifb_free_screen,
 	.show_screen = efifb_show_screen,
 	.load_font = efifb_load_font,
-	.list_font = efifb_list_font
+	.list_font = efifb_list_font,
+	.scrollback = efifb_scrollback,
 };
 
 struct cfdriver efifb_cd = {
@@ -212,11 +214,6 @@ efifb_attach(struct device *parent, struct device *self, void *aux)
 
 		ccol = ri->ri_ccol;
 		crow = ri->ri_crow;
-
-		if (bus_space_map(iot, fb->paddr, fb->psize,
-		    BUS_SPACE_MAP_PREFETCHABLE | BUS_SPACE_MAP_LINEAR,
-		    &ioh) == 0)
-			ri->ri_origbits = bus_space_vaddr(iot, ioh);
 
 		efifb_rasops_preinit(fb);
 		ri->ri_flg &= ~RI_CLEAR;
@@ -324,12 +321,6 @@ efifb_ioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 		case 8:
 			*(u_int *)data = WSDISPLAYIO_DEPTH_8;
 			break;
-		case 4:
-			*(u_int *)data = WSDISPLAYIO_DEPTH_4;
-			break;
-		case 1:
-			*(u_int *)data = WSDISPLAYIO_DEPTH_1;
-			break;
 		default:
 			return (-1);
 		}
@@ -399,6 +390,15 @@ efifb_list_font(void *v, struct wsdisplay_font *font)
 	return (rasops_list_font(ri, font));
 }
 
+void
+efifb_scrollback(void *v, void *cookie, int lines)
+{
+	struct efifb_softc	*sc = v;
+	struct rasops_info	*ri = &sc->sc_fb->rinfo;
+
+	rasops_scrollback(ri, cookie, lines);
+}
+
 int
 efifb_cnattach(void)
 {
@@ -423,6 +423,7 @@ efifb_efiinfo_init(struct efifb *fb)
 	fb->psize = bios_efiinfo->fb_height *
 	    bios_efiinfo->fb_pixpsl * (fb->depth / 8);
 }
+
 void
 efifb_cnattach_common(void)
 {
@@ -445,6 +446,28 @@ efifb_cnattach_common(void)
 
 	ri->ri_ops.alloc_attr(ri, 0, 0, 0, &defattr);
 	wsdisplay_cnattach(&efifb_std_descr, ri, 0, 0, defattr);
+}
+
+void
+efifb_cnremap(void)
+{
+	struct efifb		*fb = &efifb_console;
+	struct rasops_info	*ri = &fb->rinfo;
+	bus_space_tag_t		 iot = X86_BUS_SPACE_MEM;
+	bus_space_handle_t	 ioh;
+
+	if (fb->paddr == 0)
+		return;
+
+	if (_bus_space_map(iot, fb->paddr, fb->psize,
+	    BUS_SPACE_MAP_PREFETCHABLE | BUS_SPACE_MAP_LINEAR, &ioh) == 0)
+		ri->ri_origbits = bus_space_vaddr(iot, ioh);
+
+	efifb_rasops_preinit(fb);
+	ri->ri_flg &= ~RI_CLEAR;
+	ri->ri_flg |= RI_CENTER | RI_WRONLY;
+
+	rasops_init(ri, efifb_std_descr.nrows, efifb_std_descr.ncols);
 }
 
 int
@@ -482,6 +505,12 @@ void
 efifb_cndetach(void)
 {
 	efifb_console.detached = 1;
+}
+
+void
+efifb_cnreattach(void)
+{
+	efifb_console.detached = 0;
 }
 
 int

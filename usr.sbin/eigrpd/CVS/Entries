@@ -1,12 +1,12 @@
 /Makefile/1.2/Fri Sep  2 17:59:58 2016//
-/control.c/1.7/Sun Jan  8 23:04:42 2017//
-/control.h/1.3/Fri Sep  2 16:44:33 2016//
+/control.c/1.8/Sun Aug  5 08:10:35 2018//
+/control.h/1.4/Sun Aug  5 08:10:35 2018//
 /eigrp.h/1.6/Fri Sep  2 16:34:20 2016//
 /eigrpd.8/1.3/Tue Oct 27 07:26:43 2015//
-/eigrpd.c/1.21/Fri Sep  2 17:59:58 2016//
-/eigrpd.conf.5/1.6/Thu Dec 24 05:42:54 2015//
-/eigrpd.h/1.24/Thu Feb  8 00:16:54 2018//
-/eigrpe.c/1.34/Fri Sep  2 17:59:58 2016//
+/eigrpd.c/1.26/Wed Sep 26 14:53:34 2018//
+/eigrpd.conf.5/1.7/Mon Jun 18 06:04:25 2018//
+/eigrpd.h/1.25/Sun Aug  5 08:10:35 2018//
+/eigrpe.c/1.36/Sun Aug  5 08:10:35 2018//
 /eigrpe.h/1.16/Wed Feb 22 14:24:50 2017//
 /hello.c/1.5/Fri Sep  2 16:29:55 2016//
 /in_cksum.c/1.1/Fri Oct  2 04:26:47 2015//
@@ -17,7 +17,7 @@
 /logmsg.c/1.1/Fri Sep  2 17:59:58 2016//
 /neighbor.c/1.10/Fri Sep  2 16:44:33 2016//
 /packet.c/1.18/Fri Sep  2 16:44:33 2016//
-/parse.y/1.22/Wed Feb 22 14:24:50 2017//
+/parse.y/1.29/Thu Nov  1 00:18:44 2018//
 /printconf.c/1.6/Fri Sep  2 16:44:33 2016//
 /query.c/1.5/Fri Sep  2 16:46:29 2016//
 /rde.c/1.23/Fri Sep  2 16:46:29 2016//
@@ -27,5 +27,5 @@
 /rtp.c/1.7/Fri Sep  2 16:44:33 2016//
 /tlv.c/1.15/Mon Oct 10 02:26:24 2016//
 /update.c/1.6/Fri Sep  2 16:46:29 2016//
-/util.c/1.9/Fri Sep  2 16:36:33 2016//
+/util.c/1.10/Fri Dec  7 08:40:54 2018//
 D

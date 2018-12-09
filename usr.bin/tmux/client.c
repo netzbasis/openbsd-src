@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.126 2018/01/01 11:19:08 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.128 2018/11/22 10:36:40 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -17,9 +17,7 @@
  */
 
 #include <sys/types.h>
-#include <sys/file.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 
@@ -224,7 +222,7 @@ client_main(struct event_base *base, int argc, char **argv, int flags)
 	const char		*ttynam, *cwd;
 	pid_t			 ppid;
 	enum msgtype		 msg;
-	char			*cause, path[PATH_MAX];
+	char			*cause;
 	struct termios		 tio, saved_tio;
 	size_t			 size;
 
@@ -279,9 +277,7 @@ client_main(struct event_base *base, int argc, char **argv, int flags)
 	client_peer = proc_add_peer(client_proc, fd, client_dispatch, NULL);
 
 	/* Save these before pledge(). */
-	if ((cwd = getenv("PWD")) == NULL &&
-	    (cwd = getcwd(path, sizeof path)) == NULL &&
-	    (cwd = find_home()) == NULL)
+	if ((cwd = find_cwd()) == NULL && (cwd = find_home()) == NULL)
 		cwd = "/";
 	if ((ttynam = ttyname(STDIN_FILENO)) == NULL)
 		ttynam = "";

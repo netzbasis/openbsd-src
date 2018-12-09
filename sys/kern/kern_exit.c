@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exit.c,v 1.164 2018/02/10 10:32:51 mpi Exp $	*/
+/*	$OpenBSD: kern_exit.c,v 1.171 2018/11/12 15:09:17 visa Exp $	*/
 /*	$NetBSD: kern_exit.c,v 1.39 1996/04/22 01:38:25 christos Exp $	*/
 
 /*
@@ -70,9 +70,15 @@
 
 #include <uvm/uvm_extern.h>
 
+#include "kcov.h"
+#if NKCOV > 0
+#include <sys/kcov.h>
+#endif
+
 void	proc_finish_wait(struct proc *, struct proc *);
 void	process_zap(struct process *);
 void	proc_free(struct proc *);
+void	unveil_destroy(struct process *ps);
 
 /*
  * exit --
@@ -175,7 +181,13 @@ exit1(struct proc *p, int rv, int flags)
 	}
 	p->p_siglist = 0;
 
+#if NKCOV > 0
+	kcov_exit(p);
+#endif
+
 	if ((p->p_flag & P_THREAD) == 0) {
+		sigio_freelist(&pr->ps_sigiolst);
+
 		/* close open files and release open-file table */
 		fdfree(p);
 
@@ -193,6 +205,8 @@ exit1(struct proc *p, int rv, int flags)
 		if (pr->ps_tracevp)
 			ktrcleartrace(pr);
 #endif
+
+		unveil_destroy(pr);
 
 		/*
 		 * If parent has the SAS_NOCLDWAIT flag set, we're not
@@ -375,7 +389,7 @@ proc_free(struct proc *p)
  * a zombie, and the parent is allowed to read the undead's status.
  */
 void
-reaper(void)
+reaper(void *arg)
 {
 	struct proc *p;
 

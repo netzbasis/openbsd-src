@@ -1,7 +1,7 @@
-/*	$OpenBSD: html.c,v 1.90 2017/09/06 16:24:11 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.115 2018/12/04 18:29:18 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,10 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -27,6 +29,7 @@
 #include <unistd.h>
 
 #include "mandoc_aux.h"
+#include "mandoc_ohash.h"
 #include "mandoc.h"
 #include "roff.h"
 #include "out.h"
@@ -57,6 +60,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"meta",	HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
 	{"title",	HTML_NLAROUND},
 	{"div",		HTML_NLAROUND},
+	{"div",		0},
 	{"h1",		HTML_NLAROUND},
 	{"h2",		HTML_NLAROUND},
 	{"span",	0},
@@ -64,8 +68,6 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"br",		HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
 	{"a",		0},
 	{"table",	HTML_NLALL | HTML_INDENT},
-	{"colgroup",	HTML_NLALL | HTML_INDENT},
-	{"col",		HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
 	{"tr",		HTML_NLALL | HTML_INDENT},
 	{"td",		HTML_NLAROUND},
 	{"li",		HTML_NLAROUND | HTML_INDENT},
@@ -101,20 +103,9 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"mover",	0},
 };
 
-static	const char	*const roffscales[SCALE_MAX] = {
-	"cm", /* SCALE_CM */
-	"in", /* SCALE_IN */
-	"pc", /* SCALE_PC */
-	"pt", /* SCALE_PT */
-	"em", /* SCALE_EM */
-	"em", /* SCALE_MM */
-	"ex", /* SCALE_EN */
-	"ex", /* SCALE_BU */
-	"em", /* SCALE_VS */
-	"ex", /* SCALE_FS */
-};
+/* Avoid duplicate HTML id= attributes. */
+static	struct ohash	 id_unique;
 
-static	void	 a2width(const char *, struct roffsu *);
 static	void	 print_byte(struct html *, char);
 static	void	 print_endword(struct html *);
 static	void	 print_indent(struct html *);
@@ -136,10 +127,17 @@ html_alloc(const struct manoutput *outopts)
 
 	h->tag = NULL;
 	h->style = outopts->style;
-	h->base_man = outopts->man;
+	if ((h->base_man1 = outopts->man) == NULL)
+		h->base_man2 = NULL;
+	else if ((h->base_man2 = strchr(h->base_man1, ';')) != NULL)
+		*h->base_man2++ = '\0';
 	h->base_includes = outopts->includes;
 	if (outopts->fragment)
 		h->oflags |= HTML_FRAGMENT;
+	if (outopts->toc)
+		h->oflags |= HTML_TOC;
+
+	mandoc_ohash_init(&id_unique, 4, 0);
 
 	return h;
 }
@@ -149,15 +147,22 @@ html_free(void *p)
 {
 	struct tag	*tag;
 	struct html	*h;
+	char		*cp;
+	unsigned int	 slot;
 
 	h = (struct html *)p;
-
 	while ((tag = h->tag) != NULL) {
 		h->tag = tag->next;
 		free(tag);
 	}
-
 	free(h);
+
+	cp = ohash_first(&id_unique, &slot);
+	while (cp != NULL) {
+		free(cp);
+		cp = ohash_next(&id_unique, &slot);
+	}
+	ohash_delete(&id_unique);
 }
 
 void
@@ -166,9 +171,14 @@ print_gen_head(struct html *h)
 	struct tag	*t;
 
 	print_otag(h, TAG_META, "?", "charset", "utf-8");
+	if (h->style != NULL) {
+		print_otag(h, TAG_LINK, "?h??", "rel", "stylesheet",
+		    h->style, "type", "text/css", "media", "all");
+		return;
+	}
 
 	/*
-	 * Print a default style-sheet.
+	 * Print a minimal embedded style sheet.
 	 */
 
 	t = print_otag(h, TAG_STYLE, "");
@@ -179,11 +189,23 @@ print_gen_head(struct html *h)
 	print_text(h, "td.head-vol { text-align: center; }");
 	print_endline(h);
 	print_text(h, "div.Pp { margin: 1ex 0ex; }");
+	print_endline(h);
+	print_text(h, "div.Nd, div.Bf, div.Op { display: inline; }");
+	print_endline(h);
+	print_text(h, "span.Pa, span.Ad { font-style: italic; }");
+	print_endline(h);
+	print_text(h, "span.Ms { font-weight: bold; }");
+	print_endline(h);
+	print_text(h, "dl.Bl-diag ");
+	print_byte(h, '>');
+	print_text(h, " dt { font-weight: bold; }");
+	print_endline(h);
+	print_text(h, "code.Nm, code.Fl, code.Cm, code.Ic, "
+	    "code.In, code.Fd, code.Fn,");
+	print_endline(h);
+	print_text(h, "code.Cd { font-weight: bold; "
+	    "font-family: inherit; }");
 	print_tagq(h, t);
-
-	if (h->style)
-		print_otag(h, TAG_LINK, "?h??", "rel", "stylesheet",
-		    h->style, "type", "text/css", "media", "all");
 }
 
 static void
@@ -203,6 +225,9 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 		break;
 	case ESCAPE_FONTBI:
 		font = HTMLFONT_BI;
+		break;
+	case ESCAPE_FONTCW:
+		font = HTMLFONT_CW;
 		break;
 	case ESCAPE_FONT:
 	case ESCAPE_FONTROMAN:
@@ -231,16 +256,21 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 		h->metaf = print_otag(h, TAG_B, "");
 		print_otag(h, TAG_I, "");
 		break;
+	case HTMLFONT_CW:
+		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
+		break;
 	default:
 		break;
 	}
 }
 
 char *
-html_make_id(const struct roff_node *n)
+html_make_id(const struct roff_node *n, int unique)
 {
 	const struct roff_node	*nch;
-	char			*buf, *cp;
+	char			*buf, *bufs, *cp;
+	unsigned int		 slot;
+	int			 suffix;
 
 	for (nch = n->child; nch != NULL; nch = nch->next)
 		if (nch->type != ROFFT_TEXT)
@@ -251,64 +281,43 @@ html_make_id(const struct roff_node *n)
 	if (buf == NULL)
 		return NULL;
 
-	/* http://www.w3.org/TR/html5/dom.html#the-id-attribute */
-
-	for (cp = buf; *cp != '\0'; cp++)
-		if (*cp == ' ')
-			*cp = '_';
-
-	return buf;
-}
-
-int
-html_strlen(const char *cp)
-{
-	size_t		 rsz;
-	int		 skip, sz;
-
 	/*
-	 * Account for escaped sequences within string length
-	 * calculations.  This follows the logic in term_strlen() as we
-	 * must calculate the width of produced strings.
-	 * Assume that characters are always width of "1".  This is
-	 * hacky, but it gets the job done for approximation of widths.
+	 * In ID attributes, only use ASCII characters that are
+	 * permitted in URL-fragment strings according to the
+	 * explicit list at:
+	 * https://url.spec.whatwg.org/#url-fragment-string
 	 */
 
-	sz = 0;
-	skip = 0;
-	while (1) {
-		rsz = strcspn(cp, "\\");
-		if (rsz) {
-			cp += rsz;
-			if (skip) {
-				skip = 0;
-				rsz--;
+	for (cp = buf; *cp != '\0'; cp++)
+		if (isalnum((unsigned char)*cp) == 0 &&
+		    strchr("!$&'()*+,-./:;=?@_~", *cp) == NULL)
+			*cp = '_';
+
+	if (unique == 0)
+		return buf;
+
+	/* Avoid duplicate HTML id= attributes. */
+
+	bufs = NULL;
+	suffix = 1;
+	slot = ohash_qlookup(&id_unique, buf);
+	cp = ohash_find(&id_unique, slot);
+	if (cp != NULL) {
+		while (cp != NULL) {
+			free(bufs);
+			if (++suffix > 127) {
+				free(buf);
+				return NULL;
 			}
-			sz += rsz;
+			mandoc_asprintf(&bufs, "%s_%d", buf, suffix);
+			slot = ohash_qlookup(&id_unique, bufs);
+			cp = ohash_find(&id_unique, slot);
 		}
-		if ('\0' == *cp)
-			break;
-		cp++;
-		switch (mandoc_escape(&cp, NULL, NULL)) {
-		case ESCAPE_ERROR:
-			return sz;
-		case ESCAPE_UNICODE:
-		case ESCAPE_NUMBERED:
-		case ESCAPE_SPECIAL:
-		case ESCAPE_OVERSTRIKE:
-			if (skip)
-				skip = 0;
-			else
-				sz++;
-			break;
-		case ESCAPE_SKIPCHAR:
-			skip = 1;
-			break;
-		default:
-			break;
-		}
+		free(buf);
+		buf = bufs;
 	}
-	return sz;
+	ohash_insert(&id_unique, slot, buf);
+	return buf;
 }
 
 static int
@@ -346,7 +355,6 @@ static int
 print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 {
 	char		 numbuf[16];
-	struct tag	*t;
 	const char	*seq;
 	size_t		 sz;
 	int		 c, len, breakline, nospace;
@@ -372,9 +380,7 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 
 		if (breakline &&
 		    (p >= pend || *p == ' ' || *p == ASCII_NBRSP)) {
-			t = print_otag(h, TAG_DIV, "");
-			print_text(h, "\\~");
-			print_tagq(h, t);
+			print_otag(h, TAG_BR, "");
 			breakline = 0;
 			while (p < pend && (*p == ' ' || *p == ASCII_NBRSP))
 				p++;
@@ -403,9 +409,13 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 		case ESCAPE_FONTBOLD:
 		case ESCAPE_FONTITALIC:
 		case ESCAPE_FONTBI:
+		case ESCAPE_FONTCW:
 		case ESCAPE_FONTROMAN:
-			if (0 == norecurse)
+			if (0 == norecurse) {
+				h->flags |= HTML_NOSPACE;
 				print_metaf(h, esc);
+				h->flags &= ~HTML_NOSPACE;
+			}
 			continue;
 		case ESCAPE_SKIPCHAR:
 			h->flags |= HTML_SKIPCHAR;
@@ -434,6 +444,9 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			if (c <= 0)
 				continue;
 			break;
+		case ESCAPE_DEVICE:
+			print_word(h, "html");
+			continue;
 		case ESCAPE_BREAK:
 			breakline = 1;
 			continue;
@@ -465,9 +478,21 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 static void
 print_href(struct html *h, const char *name, const char *sec, int man)
 {
+	struct stat	 sb;
 	const char	*p, *pp;
+	char		*filename;
 
-	pp = man ? h->base_man : h->base_includes;
+	if (man) {
+		pp = h->base_man1;
+		if (h->base_man2 != NULL) {
+			mandoc_asprintf(&filename, "%s.%s", name, sec);
+			if (stat(filename, &sb) == -1)
+				pp = h->base_man2;
+			free(filename);
+		}
+	} else
+		pp = h->base_includes;
+
 	while ((p = strchr(pp, '%')) != NULL) {
 		print_encode(h, pp, p, 1);
 		if (man && p[1] == 'S') {
@@ -490,13 +515,10 @@ struct tag *
 print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 {
 	va_list		 ap;
-	struct roffsu	 mysu, *su;
-	char		 numbuf[16];
 	struct tag	*t;
 	const char	*attr;
 	char		*arg1, *arg2;
-	double		 v;
-	int		 i, have_style, tflags;
+	int		 style_written, tflags;
 
 	tflags = htmltags[tag].flags;
 
@@ -536,17 +558,12 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 
 	va_start(ap, fmt);
 
-	have_style = 0;
-	while (*fmt != '\0') {
-		if (*fmt == 's') {
-			have_style = 1;
-			fmt++;
-			break;
-		}
+	while (*fmt != '\0' && *fmt != 's') {
 
-		/* Parse a non-style attribute and its arguments. */
+		/* Parse attributes and arguments. */
 
 		arg1 = va_arg(ap, char *);
+		arg2 = NULL;
 		switch (*fmt++) {
 		case 'c':
 			attr = "class";
@@ -564,13 +581,12 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		default:
 			abort();
 		}
-		arg2 = NULL;
 		if (*fmt == 'M')
 			arg2 = va_arg(ap, char *);
 		if (arg1 == NULL)
 			continue;
 
-		/* Print the non-style attributes. */
+		/* Print the attributes. */
 
 		print_byte(h, ' ');
 		print_word(h, attr);
@@ -603,106 +619,24 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		print_byte(h, '"');
 	}
 
-	/* Print out styles. */
-
-	while (*fmt != '\0') {
-		arg1 = NULL;
-		su = NULL;
-
-		/* First letter: input argument type. */
-
-		switch (*fmt++) {
-		case 'h':
-			i = va_arg(ap, int);
-			su = &mysu;
-			SCALE_HS_INIT(su, i);
-			break;
-		case 's':
-			arg1 = va_arg(ap, char *);
-			break;
-		case 'u':
-			su = va_arg(ap, struct roffsu *);
-			break;
-		case 'w':
-			if ((arg2 = va_arg(ap, char *)) != NULL) {
-				su = &mysu;
-				a2width(arg2, su);
-			}
-			if (*fmt == '*') {
-				if (su != NULL && su->unit == SCALE_EN &&
-				    su->scale > 5.9 && su->scale < 6.1)
-					su = NULL;
-				fmt++;
-			}
-			if (*fmt == '+') {
-				if (su != NULL) {
-					/* Make even bold text fit. */
-					su->scale *= 1.2;
-					/* Add padding. */
-					su->scale += 3.0;
-				}
-				fmt++;
-			}
-			if (*fmt == '-') {
-				if (su != NULL)
-					su->scale *= -1.0;
-				fmt++;
-			}
-			break;
-		default:
-			abort();
-		}
-
-		/* Second letter: style name. */
-
-		switch (*fmt++) {
-		case 'h':
-			attr = "height";
-			break;
-		case 'i':
-			attr = "text-indent";
-			break;
-		case 'l':
-			attr = "margin-left";
-			break;
-		case 'w':
-			attr = "width";
-			break;
-		case 'W':
-			attr = "min-width";
-			break;
-		case '?':
-			attr = arg1;
-			arg1 = va_arg(ap, char *);
-			break;
-		default:
-			abort();
-		}
-		if (su == NULL && arg1 == NULL)
+	style_written = 0;
+	while (*fmt++ == 's') {
+		arg1 = va_arg(ap, char *);
+		arg2 = va_arg(ap, char *);
+		if (arg2 == NULL)
 			continue;
-
-		if (have_style == 1)
-			print_word(h, " style=\"");
-		else
-			print_byte(h, ' ');
-		print_word(h, attr);
+		print_byte(h, ' ');
+		if (style_written == 0) {
+			print_word(h, "style=\"");
+			style_written = 1;
+		}
+		print_word(h, arg1);
 		print_byte(h, ':');
 		print_byte(h, ' ');
-		if (su != NULL) {
-			v = su->scale;
-			if (su->unit == SCALE_MM && (v /= 100.0) == 0.0)
-				v = 1.0;
-			else if (su->unit == SCALE_BU)
-				v /= 24.0;
-			(void)snprintf(numbuf, sizeof(numbuf), "%.2f", v);
-			print_word(h, numbuf);
-			print_word(h, roffscales[su->unit]);
-		} else
-			print_word(h, arg1);
+		print_word(h, arg2);
 		print_byte(h, ';');
-		have_style = 2;
 	}
-	if (have_style == 2)
+	if (style_written)
 		print_byte(h, '"');
 
 	va_end(ap);
@@ -769,6 +703,32 @@ print_gen_decls(struct html *h)
 }
 
 void
+print_gen_comment(struct html *h, struct roff_node *n)
+{
+	int	 wantblank;
+
+	print_word(h, "<!-- This is an automatically generated file."
+	    "  Do not edit.");
+	h->indent = 1;
+	wantblank = 0;
+	while (n != NULL && n->type == ROFFT_COMMENT) {
+		if (strstr(n->string, "-->") == NULL &&
+		    (wantblank || *n->string != '\0')) {
+			print_endline(h);
+			print_indent(h);
+			print_word(h, n->string);
+			wantblank = *n->string != '\0';
+		}
+		n = n->next;
+	}
+	if (wantblank)
+		print_endline(h);
+	print_word(h, " -->");
+	print_endline(h);
+	h->indent = 0;
+}
+
+void
 print_text(struct html *h, const char *word)
 {
 	if (h->col && (h->flags & HTML_NOSPACE) == 0) {
@@ -791,6 +751,9 @@ print_text(struct html *h, const char *word)
 	case HTMLFONT_BI:
 		h->metaf = print_otag(h, TAG_B, "");
 		print_otag(h, TAG_I, "");
+		break;
+	case HTMLFONT_CW:
+		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
 		break;
 	default:
 		print_indent(h);
@@ -958,22 +921,4 @@ print_word(struct html *h, const char *cp)
 {
 	while (*cp != '\0')
 		print_byte(h, *cp++);
-}
-
-/*
- * Calculate the scaling unit passed in a `-width' argument.  This uses
- * either a native scaling unit (e.g., 1i, 2m) or the string length of
- * the value.
- */
-static void
-a2width(const char *p, struct roffsu *su)
-{
-	const char	*end;
-
-	end = a2roffsu(p, su, SCALE_MAX);
-	if (end == NULL || *end != '\0') {
-		su->unit = SCALE_EN;
-		su->scale = html_strlen(p);
-	} else if (su->scale < 0.0)
-		su->scale = 0.0;
 }

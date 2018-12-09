@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.i386,v 1.122 2018/02/09 03:59:15 tb Exp $
+#	$OpenBSD: Makefile.i386,v 1.130 2018/10/30 11:08:30 kettenis Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -25,7 +25,6 @@ INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
-		-Wno-address-of-packed-member -Wno-constant-conversion \
 		-Wframe-larger-than=2047
 
 CMACHFLAGS=
@@ -34,11 +33,14 @@ SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
 CMACHFLAGS+=	-fno-stack-protector
 .endif
- .if ${IDENT:M-DSMALL_KERNEL}
+.if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+.elif ${COMPILER_VERSION:Mclang}
+CMACHFLAGS+=	-mretpoline
 .endif
 .if ${COMPILER_VERSION:Mclang}
 NO_INTEGR_AS=	-no-integrated-as
+CWARNFLAGS+=	-Wno-address-of-packed-member -Wno-constant-conversion
 .endif
 
 DEBUG?=		-g
@@ -50,7 +52,7 @@ LINKFLAGS=	-T ld.script -X --warn-common -nopie
 .if ${MACHINE} == "amd64"
 CFLAGS+=	-m32
 AFLAGS+=	-m32
-LDFLAGS=	-melf_i386_obsd
+LDFLAGS=	-melf_i386
 LINKFLAGS+=	${LDFLAGS}
 .endif
 
@@ -94,6 +96,10 @@ SYSTEM_LD_TAIL+=; umask 007; \
 LINKFLAGS+=	-S
 .endif
 
+.if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
+PROF=		-fsanitize-coverage=trace-pc
+.endif
+
 %LOAD
 
 # cc's -MD puts the source and output paths in the dependency file;
@@ -124,21 +130,30 @@ ioconf.o: ioconf.c
 ld.script: ${_machdir}/conf/ld.script
 	cp ${_machdir}/conf/ld.script $@
 
+gapdummy.o:
+	echo '__asm(".section .rodata,\"a\"");' > gapdummy.c
+	${CC} -c ${CFLAGS} ${CPPFLAGS} gapdummy.c -o $@
+
 makegap.sh:
 	cp $S/conf/makegap.sh $@
 
-MAKE_GAP = LD="${LD}" LDFLAGS="${LDFLAGS}" sh makegap.sh 0xcccccccc
+MAKE_GAP = LD="${LD}" LDFLAGS="${LDFLAGS}" sh makegap.sh 0xcccccccc gapdummy.o
 
-gap.o:	Makefile makegap.sh vers.o
+gap.o:	Makefile makegap.sh gapdummy.o vers.o
 	${MAKE_GAP}
 
 vers.o: ${SYSTEM_DEP:Ngap.o}
 	sh $S/conf/newvers.sh
 	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c vers.c
 
+.if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
+kcov.o: $S/dev/kcov.c
+	${NORMAL_C} -fno-sanitize-coverage=trace-pc
+.endif
+
 clean:
 	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* \
-	    gap.link ld.script lorder makegap.sh param.c
+	    gap.link gapdummy.c ld.script lorder makegap.sh param.c
 
 cleandir: clean
 	rm -f Makefile *.h ioconf.c options machine ${_mach} vers.c

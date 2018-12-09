@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.c,v 1.364 2017/05/29 14:22:51 benno Exp $ */
+/*	$OpenBSD: session.c,v 1.370 2018/10/22 07:46:55 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004, 2005 Henning Brauer <henning@openbsd.org>
@@ -94,6 +94,7 @@ int	capa_neg_calc(struct peer *);
 void	session_dispatch_imsg(struct imsgbuf *, int, u_int *);
 void	session_up(struct peer *);
 void	session_down(struct peer *);
+int	imsg_rde(int, u_int32_t, void *, u_int16_t);
 void	session_demote(struct peer *, int);
 int	session_link_state_is_up(int, int, int);
 
@@ -1379,10 +1380,10 @@ session_sendmsg(struct bgp_msg *msg, struct peer *p)
 
 	ibuf_close(&p->wbuf, msg->buf);
 	if (!p->throttled && p->wbuf.queued > SESS_MSG_HIGH_MARK) {
-		if (imsg_compose(ibuf_rde, IMSG_XOFF, p->conf.id, 0, -1,
-		    NULL, 0) == -1)
+		if (imsg_rde(IMSG_XOFF, p->conf.id, NULL, 0) == -1)
 			log_peer_warn(&p->conf, "imsg_compose XOFF");
-		p->throttled = 1;
+		else
+			p->throttled = 1;
 	}
 
 	free(msg);
@@ -1671,16 +1672,16 @@ session_graceful_restart(struct peer *p)
 
 	for (i = 0; i < AID_MAX; i++) {
 		if (p->capa.neg.grestart.flags[i] & CAPA_GR_PRESENT) {
-			if (imsg_compose(ibuf_rde, IMSG_SESSION_STALE,
-			    p->conf.id, 0, -1, &i, sizeof(i)) == -1)
+			if (imsg_rde(IMSG_SESSION_STALE, p->conf.id,
+			    &i, sizeof(i)) == -1)
 				return (-1);
 			log_peer_warnx(&p->conf,
 			    "graceful restart of %s, keeping routes",
 			    aid2str(i));
 			p->capa.neg.grestart.flags[i] |= CAPA_GR_RESTARTING;
 		} else if (p->capa.neg.mp[i]) {
-			if (imsg_compose(ibuf_rde, IMSG_SESSION_FLUSH,
-			    p->conf.id, 0, -1, &i, sizeof(i)) == -1)
+			if (imsg_rde(IMSG_SESSION_FLUSH, p->conf.id,
+			    &i, sizeof(i)) == -1)
 				return (-1);
 			log_peer_warnx(&p->conf,
 			    "graceful restart of %s, flushing routes",
@@ -1704,8 +1705,8 @@ session_graceful_stop(struct peer *p)
 		if (p->capa.neg.grestart.flags[i] & CAPA_GR_RESTARTING) {
 			log_peer_warnx(&p->conf, "graceful restart of %s, "
 			    "time-out, flushing", aid2str(i));
-			if (imsg_compose(ibuf_rde, IMSG_SESSION_FLUSH,
-			    p->conf.id, 0, -1, &i, sizeof(i)) == -1)
+			if (imsg_rde(IMSG_SESSION_FLUSH, p->conf.id,
+			    &i, sizeof(i)) == -1)
 				return (-1);
 		}
 		p->capa.neg.grestart.flags[i] &= ~CAPA_GR_RESTARTING;
@@ -1771,10 +1772,10 @@ session_dispatch_msg(struct pollfd *pfd, struct peer *p)
 			return (1);
 		}
 		if (p->throttled && p->wbuf.queued < SESS_MSG_LOW_MARK) {
-			if (imsg_compose(ibuf_rde, IMSG_XON, p->conf.id, 0, -1,
-			    NULL, 0) == -1)
+			if (imsg_rde(IMSG_XON, p->conf.id, NULL, 0) == -1)
 				log_peer_warn(&p->conf, "imsg_compose XON");
-			p->throttled = 0;
+			else
+				p->throttled = 0;
 		}
 		if (!(pfd->revents & POLLIN))
 			return (1);
@@ -2183,8 +2184,7 @@ parse_update(struct peer *peer)
 	p += MSGSIZE_HEADER;	/* header is already checked */
 	datalen -= MSGSIZE_HEADER;
 
-	if (imsg_compose(ibuf_rde, IMSG_UPDATE, peer->conf.id, 0, -1, p,
-	    datalen) == -1)
+	if (imsg_rde(IMSG_UPDATE, peer->conf.id, p, datalen) == -1)
 		return (-1);
 
 	return (0);
@@ -2221,8 +2221,7 @@ parse_refresh(struct peer *peer)
 		return (0);
 	}
 
-	if (imsg_compose(ibuf_rde, IMSG_REFRESH, peer->conf.id, 0, -1, &aid,
-	    sizeof(aid)) == -1)
+	if (imsg_rde(IMSG_REFRESH, peer->conf.id, &aid, sizeof(aid)) == -1)
 		return (-1);
 
 	return (0);
@@ -2490,8 +2489,8 @@ parse_capabilities(struct peer *peer, u_char *d, u_int16_t dlen, u_int32_t *as)
 			if (*as == 0) {
 				log_peer_warnx(&peer->conf,
 				    "peer requests unacceptable AS %u", *as);
-				session_notification(peer, ERR_OPEN, ERR_OPEN_AS,
-				    NULL, 0);
+				session_notification(peer, ERR_OPEN,
+				    ERR_OPEN_AS, NULL, 0);
 				change_state(peer, STATE_IDLE, EVNT_RCVD_OPEN);
 				return (-1);
 			}
@@ -2551,8 +2550,8 @@ capa_neg_calc(struct peer *p)
 		if (negflags & CAPA_GR_RESTARTING) {
 			if (!(p->capa.peer.grestart.flags[i] &
 			    CAPA_GR_FORWARD)) {
-				if (imsg_compose(ibuf_rde, IMSG_SESSION_FLUSH,
-				    p->conf.id, 0, -1, &i, sizeof(i)) == -1)
+				if (imsg_rde(IMSG_SESSION_FLUSH, p->conf.id,
+				    &i, sizeof(i)) == -1)
 					return (-1);
 				log_peer_warnx(&p->conf, "graceful restart of "
 				    "%s, not restarted, flushing", aid2str(i));
@@ -2657,9 +2656,8 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 
 			/* sync the RDE in case we keep the peer */
 			if (reconf == RECONF_KEEP) {
-				if (imsg_compose(ibuf_rde, IMSG_SESSION_ADD,
-				    p->conf.id, 0, -1, &p->conf,
-				    sizeof(struct peer_config)) == -1)
+				if (imsg_rde(IMSG_SESSION_ADD, p->conf.id,
+				    &p->conf, sizeof(struct peer_config)) == -1)
 					fatalx("imsg_compose error");
 				if (p->conf.template) {
 					/* apply the conf to all clones */
@@ -2670,13 +2668,12 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 						session_template_clone(np,
 						    NULL, np->conf.id,
 						    np->conf.remote_as);
-						if (imsg_compose(ibuf_rde,
-						    IMSG_SESSION_ADD,
-						    np->conf.id, 0, -1,
-						    &np->conf,
+						if (imsg_rde(IMSG_SESSION_ADD,
+						    np->conf.id, &np->conf,
 						    sizeof(struct peer_config))
 						    == -1)
-							fatalx("imsg_compose error");
+							fatalx("imsg_compose"
+							    " error");
 					}
 				}
 			}
@@ -2737,6 +2734,12 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 				control_shutdown(csock);
 				csock = imsg.fd;
 			}
+			break;
+		case IMSG_RECONF_DRAIN:
+			if (idx != PFD_PIPE_MAIN)
+				fatalx("reconf request not from parent");
+			imsg_compose(ibuf_main, IMSG_RECONF_DRAIN, 0, 0,
+			    -1, NULL, 0);
 			break;
 		case IMSG_RECONF_DONE:
 			if (idx != PFD_PIPE_MAIN)
@@ -2877,6 +2880,7 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 		case IMSG_CTL_SHOW_RIB_PREFIX:
 		case IMSG_CTL_SHOW_RIB_ATTR:
 		case IMSG_CTL_SHOW_RIB_MEM:
+		case IMSG_CTL_SHOW_RIB_HASH:
 		case IMSG_CTL_SHOW_NETWORK:
 		case IMSG_CTL_SHOW_NEIGHBOR:
 			if (idx != PFD_PIPE_ROUTE_CTL)
@@ -2964,9 +2968,8 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 				timer_stop(p, Timer_RestartTimeout);
 
 				/* signal back to RDE to cleanup stale routes */
-				if (imsg_compose(ibuf_rde,
-				    IMSG_SESSION_RESTARTED, imsg.hdr.peerid, 0,
-				    -1, &aid, sizeof(aid)) == -1)
+				if (imsg_rde(IMSG_SESSION_RESTARTED,
+				    imsg.hdr.peerid, &aid, sizeof(aid)) == -1)
 					fatal("imsg_compose: "
 					    "IMSG_SESSION_RESTARTED");
 			}
@@ -3149,19 +3152,20 @@ session_template_clone(struct peer *p, struct sockaddr *ip, u_int32_t id,
 int
 session_match_mask(struct peer *p, struct bgpd_addr *a)
 {
-	in_addr_t	 v4mask;
-	struct in6_addr	 masked;
+	struct in_addr	 v4masked;
+	struct in6_addr	 v6masked;
 
 	switch (p->conf.remote_addr.aid) {
 	case AID_INET:
-		v4mask = htonl(prefixlen2mask(p->conf.remote_masklen));
-		if (p->conf.remote_addr.v4.s_addr == (a->v4.s_addr & v4mask))
+		inet4applymask(&v4masked, &a->v4, p->conf.remote_masklen);
+		if (p->conf.remote_addr.v4.s_addr == v4masked.s_addr)
 			return (1);
 		return (0);
 	case AID_INET6:
-		inet6applymask(&masked, &a->v6, p->conf.remote_masklen);
+		inet6applymask(&v6masked, &a->v6, p->conf.remote_masklen);
 
-		if (!memcmp(&masked, &p->conf.remote_addr.v6, sizeof(masked)))
+		if (memcmp(&v6masked, &p->conf.remote_addr.v6,
+		    sizeof(v6masked)) == 0)
 			return (1);
 		return (0);
 	}
@@ -3186,8 +3190,14 @@ session_down(struct peer *peer)
 {
 	bzero(&peer->capa.neg, sizeof(peer->capa.neg));
 	peer->stats.last_updown = time(NULL);
-	if (imsg_compose(ibuf_rde, IMSG_SESSION_DOWN, peer->conf.id, 0, -1,
-	    NULL, 0) == -1)
+	/*
+	 * session_down is called in the exit code path so check
+	 * if the RDE is still around, if not there is no need to
+	 * send the message.
+	 */
+	if (ibuf_rde == NULL)
+		return;
+	if (imsg_rde(IMSG_SESSION_DOWN, peer->conf.id, NULL, 0) == -1)
 		fatalx("imsg_compose error");
 }
 
@@ -3196,7 +3206,7 @@ session_up(struct peer *p)
 {
 	struct session_up	 sup;
 
-	if (imsg_compose(ibuf_rde, IMSG_SESSION_ADD, p->conf.id, 0, -1,
+	if (imsg_rde(IMSG_SESSION_ADD, p->conf.id,
 	    &p->conf, sizeof(p->conf)) == -1)
 		fatalx("imsg_compose error");
 
@@ -3207,8 +3217,7 @@ session_up(struct peer *p)
 	sup.short_as = p->short_as;
 	memcpy(&sup.capa, &p->capa.neg, sizeof(sup.capa));
 	p->stats.last_updown = time(NULL);
-	if (imsg_compose(ibuf_rde, IMSG_SESSION_UP, p->conf.id, 0, -1,
-	    &sup, sizeof(sup)) == -1)
+	if (imsg_rde(IMSG_SESSION_UP, p->conf.id, &sup, sizeof(sup)) == -1)
 		fatalx("imsg_compose error");
 }
 
@@ -3222,11 +3231,27 @@ imsg_ctl_parent(int type, u_int32_t peerid, pid_t pid, void *data,
 int
 imsg_ctl_rde(int type, pid_t pid, void *data, u_int16_t datalen)
 {
+	if (ibuf_rde_ctl == NULL) {
+		log_warnx("Can't send message %u to RDE, ctl pipe closed",
+		    type);
+		return (0);
+	}
 	/*
 	 * Use control socket to talk to RDE to bypass the queue of the
 	 * regular imsg socket.
 	 */
 	return (imsg_compose(ibuf_rde_ctl, type, 0, pid, -1, data, datalen));
+}
+
+int
+imsg_rde(int type, uint32_t peerid, void *data, u_int16_t datalen)
+{
+	if (ibuf_rde == NULL) {
+		log_warnx("Can't send message %u to RDE, pipe closed", type);
+		return (0);
+	}
+
+	return (imsg_compose(ibuf_rde, type, peerid, 0, -1, data, datalen));
 }
 
 void
@@ -3256,7 +3281,8 @@ session_stop(struct peer *peer, u_int8_t subcode)
 
 	communication = peer->conf.shutcomm;
 
-	if ((subcode == ERR_CEASE_ADMIN_DOWN || subcode == ERR_CEASE_ADMIN_RESET)
+	if ((subcode == ERR_CEASE_ADMIN_DOWN ||
+	    subcode == ERR_CEASE_ADMIN_RESET)
 	    && communication && *communication) {
 		shutcomm_len = strlen(communication);
 		if(shutcomm_len < SHUT_COMM_LEN) {

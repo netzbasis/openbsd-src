@@ -1,4 +1,4 @@
-/* $OpenBSD: wsconsio.h,v 1.87 2017/11/15 13:25:19 anton Exp $ */
+/* $OpenBSD: wsconsio.h,v 1.90 2018/11/10 14:27:51 bru Exp $ */
 /* $NetBSD: wsconsio.h,v 1.74 2005/04/28 07:15:44 martin Exp $ */
 
 /*
@@ -238,6 +238,7 @@ struct wskbd_encoding_data {
 #define		WSMOUSE_TYPE_SGI	17	/* SGI serial mouse */
 #define		WSMOUSE_TYPE_ELANTECH	18	/* Elantech touchpad */
 #define		WSMOUSE_TYPE_SYNAP_SBTN	19	/* Synaptics soft buttons */
+#define		WSMOUSE_TYPE_TOUCHPAD	20	/* Generic touchpad */
 
 /* Set resolution.  Not applicable to all mouse types. */
 #define	WSMOUSEIO_SRES		_IOW('W', 33, u_int)
@@ -294,7 +295,8 @@ enum wsmousecfg {
 	WSMOUSECFG_X_HYSTERESIS,/* retard value for X coordinates */
 	WSMOUSECFG_Y_HYSTERESIS,/* retard value for Y coordinates */
 	WSMOUSECFG_DECELERATION,/* threshold (distance) for deceleration */
-	WSMOUSECFG_STRONG_HYSTERESIS,	/* apply the filter continuously */
+	WSMOUSECFG_STRONG_HYSTERESIS,	/* FALSE and read-only, the fea-
+					   ture is not supported anymore. */
 	WSMOUSECFG_SMOOTHING,	/* smoothing factor (0-7) */
 
 	/*
@@ -328,8 +330,14 @@ enum wsmousecfg {
 					   the button-up-event (ms) */
 	WSMOUSECFG_TAP_LOCKTIME,	/* time between a tap-and-drag action
 					   and the button-up-event (ms) */
+
+	/*
+	 * Enable/Disable debug output.
+	 */
+	WSMOUSECFG_LOG_INPUT = 256,
+	WSMOUSECFG_LOG_EVENTS,
 };
-#define WSMOUSECFG_MAX	36	/* max size of param array per ioctl */
+#define WSMOUSECFG_MAX	38	/* max size of param array per ioctl */
 
 struct wsmouse_param {
 	enum wsmousecfg key;

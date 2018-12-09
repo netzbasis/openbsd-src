@@ -1,4 +1,6 @@
 D/atomic////
+D/bitset////
+D/forward_list////
 D/function////
 D/initializerlist////
 D/iterator////
@@ -6,8 +8,10 @@ D/list////
 D/map////
 D/multimap////
 D/multiset////
+D/queue////
 D/set////
 D/string////
+D/tuple////
 D/unordered////
 D/vbool////
 D/vector////

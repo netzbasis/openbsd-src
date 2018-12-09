@@ -1,4 +1,4 @@
-/*	$OpenBSD: segments.h,v 1.24 2018/03/31 13:45:03 bluhm Exp $	*/
+/*	$OpenBSD: segments.h,v 1.26 2018/07/09 19:20:30 guenther Exp $	*/
 /*	$NetBSD: segments.h,v 1.23 1996/02/01 22:31:03 mycroft Exp $	*/
 
 /*-
@@ -59,13 +59,8 @@
 #define	GSEL(s,r)	(((s) << 3) | r)		/* a global selector */
 #define	LSEL(s,r)	(((s) << 3) | r | SEL_LDT)	/* a local selector */
 
-#ifdef VM86
-#define	USERMODE(c, f)		(ISPL(c) == SEL_UPL || ((f) & PSL_VM) != 0)
-#define	KERNELMODE(c, f)	(ISPL(c) == SEL_KPL && ((f) & PSL_VM) == 0)
-#else
 #define	USERMODE(c, f)		(ISPL(c) == SEL_UPL)
 #define	KERNELMODE(c, f)	(ISPL(c) == SEL_KPL)
-#endif
 
 #ifndef _LOCORE
 
@@ -222,8 +217,9 @@ void idt_vec_free(int);
 #define	GUFS_SEL	11	/* User per-thread (%fs) descriptor */
 #define	GUGS_SEL	12	/* User per-thread (%gs) descriptor */
 #define GTSS_SEL	13	/* common TSS */
-#define	GBIOS32_SEL	14	/* spare slot for 32 bit BIOS calls */
-#define	NGDT		15
+#define GNMITSS_SEL	14	/* NMI TSS */
+#define	GBIOS32_SEL	15	/* spare slot for 32 bit BIOS calls */
+#define	NGDT		16
 
 #define GDT_SIZE	(NGDT << 3)
 

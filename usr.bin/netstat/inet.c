@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.c,v 1.162 2017/11/07 16:51:23 visa Exp $	*/
+/*	$OpenBSD: inet.c,v 1.164 2018/11/19 13:15:37 visa Exp $	*/
 /*	$NetBSD: inet.c,v 1.14 1995/10/03 21:42:37 thorpej Exp $	*/
 
 /*
@@ -1010,6 +1010,40 @@ etherip_stats(char *name)
 }
 
 /*
+ * Dump IPsec statistics structure.
+ */
+void
+ipsec_stats(char *name)
+{
+	struct ipsecstat ipsecstat;
+	int mib[] = { CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPSEC_STATS };
+	size_t len = sizeof(ipsecstat);
+
+	if (sysctl(mib, sizeof(mib) / sizeof(mib[0]),
+	    &ipsecstat, &len, NULL, 0) == -1) {
+		if (errno != ENOPROTOOPT)
+			warn("%s", name);
+		return;
+	}
+
+	printf("%s:\n", name);
+#define p(f, m) if (ipsecstat.f || sflag <= 1) \
+	printf(m, ipsecstat.f, plural(ipsecstat.f))
+	p(ipsec_ipackets, "\t%llu input IPsec packet%s\n");
+	p(ipsec_opackets, "\t%llu output IPsec packet%s\n");
+	p(ipsec_ibytes, "\t%llu input byte%s\n");
+	p(ipsec_obytes, "\t%llu output byte%s\n");
+	p(ipsec_idecompbytes, "\t%llu input byte%s, decompressed\n");
+	p(ipsec_ouncompbytes, "\t%llu output byte%s, uncompressed\n");
+	p(ipsec_idrops, "\t%llu packet%s dropped on input\n");
+	p(ipsec_odrops, "\t%llu packet%s dropped on output\n");
+	p(ipsec_crypto, "\t%llu packet%s that failed crypto processing\n");
+	p(ipsec_noxform, "\t%llu packet%s for which no XFORM was set in TDB received\n");
+	p(ipsec_notdb, "\t%llu packet%s for which no TDB was found\n");
+#undef p
+}
+
+/*
  * Dump ESP statistics structure.
  */
 void
@@ -1277,9 +1311,7 @@ socket_dump(u_long off)
 	p("%d", so_qlimit, "\n ");
 	p("%d", so_timeo, "\n ");
 	p("%u", so_error, "\n ");
-	p("%d", so_pgid, ", ");
-	p("%u", so_siguid, ", ");
-	p("%u", so_sigeuid, "\n ");
+	p("%p", so_sigio.sir_sigio, "\n ");
 	p("%lu", so_oobmark, "\n ");
 	if (so.so_sp)
 		sosplice_dump((u_long)so.so_sp);

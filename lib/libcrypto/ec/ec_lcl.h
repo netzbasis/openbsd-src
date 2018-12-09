@@ -1,4 +1,4 @@
-/* $OpenBSD: ec_lcl.h,v 1.7 2016/12/21 15:49:29 jsing Exp $ */
+/* $OpenBSD: ec_lcl.h,v 1.11 2018/11/05 20:18:21 tb Exp $ */
 /*
  * Originally written by Bodo Moeller for the OpenSSL project.
  */
@@ -160,10 +160,12 @@ struct ec_method_st {
 	int (*make_affine)(const EC_GROUP *, EC_POINT *, BN_CTX *);
 	int (*points_make_affine)(const EC_GROUP *, size_t num, EC_POINT *[], BN_CTX *);
 
-	/* used by EC_POINTs_mul, EC_POINT_mul, EC_POINT_precompute_mult, EC_POINT_have_precompute_mult
-	 * (default implementations are used if the 'mul' pointer is 0): */
-	int (*mul)(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
-		size_t num, const EC_POINT *points[], const BIGNUM *scalars[], BN_CTX *);
+	/* used by EC_POINTs_mul, EC_POINT_mul, EC_POINT_precompute_mult, EC_POINT_have_precompute_mult */
+	int (*mul_generator_ct)(const EC_GROUP *, EC_POINT *r, const BIGNUM *scalar, BN_CTX *);
+	int (*mul_single_ct)(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
+		const EC_POINT *point, BN_CTX *);
+	int (*mul_double_nonct)(const EC_GROUP *group, EC_POINT *r, const BIGNUM *g_scalar,
+		const BIGNUM *p_scalar, const EC_POINT *point, BN_CTX *);
 	int (*precompute_mult)(EC_GROUP *group, BN_CTX *);
 	int (*have_precompute_mult)(const EC_GROUP *group);
 
@@ -180,6 +182,7 @@ struct ec_method_st {
 	int (*field_encode)(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, BN_CTX *); /* e.g. to Montgomery */
 	int (*field_decode)(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, BN_CTX *); /* e.g. from Montgomery */
 	int (*field_set_to_one)(const EC_GROUP *, BIGNUM *r, BN_CTX *);
+	int (*blind_coordinates)(const EC_GROUP *group, EC_POINT *p, BN_CTX *ctx);
 } /* EC_METHOD */;
 
 typedef struct ec_extra_data_st {
@@ -337,6 +340,12 @@ int ec_GFp_simple_make_affine(const EC_GROUP *, EC_POINT *, BN_CTX *);
 int ec_GFp_simple_points_make_affine(const EC_GROUP *, size_t num, EC_POINT *[], BN_CTX *);
 int ec_GFp_simple_field_mul(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, const BIGNUM *b, BN_CTX *);
 int ec_GFp_simple_field_sqr(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, BN_CTX *);
+int ec_GFp_simple_blind_coordinates(const EC_GROUP *group, EC_POINT *p, BN_CTX *ctx);
+int ec_GFp_simple_mul_generator_ct(const EC_GROUP *, EC_POINT *r, const BIGNUM *scalar, BN_CTX *);
+int ec_GFp_simple_mul_single_ct(const EC_GROUP *, EC_POINT *r, const BIGNUM *scalar,
+	const EC_POINT *point, BN_CTX *);
+int ec_GFp_simple_mul_double_nonct(const EC_GROUP *, EC_POINT *r, const BIGNUM *g_scalar,
+	const BIGNUM *p_scalar, const EC_POINT *point, BN_CTX *);
 
 
 /* method functions in ecp_mont.c */
@@ -351,6 +360,7 @@ int ec_GFp_mont_field_encode(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, BN_CT
 int ec_GFp_mont_field_decode(const EC_GROUP *, BIGNUM *r, const BIGNUM *a, BN_CTX *);
 int ec_GFp_mont_field_set_to_one(const EC_GROUP *, BIGNUM *r, BN_CTX *);
 
+int ec_point_blind_coordinates(const EC_GROUP *group, EC_POINT *p, BN_CTX *ctx);
 
 /* method functions in ecp_nist.c */
 int ec_GFp_nist_group_copy(EC_GROUP *dest, const EC_GROUP *src);

@@ -286,6 +286,9 @@
 #define EV_NONE		0		/* Invalid ELF version */
 #define EV_CURRENT	1		/* Current version */
 
+/* Magic for e_phnum: get real value from sh_info of first section header */
+#define PN_XNUM		0xffff
+
 /* Values for program header, p_type field.  */
 
 #define PT_NULL		0		/* Program header table entry unused */
@@ -343,6 +346,7 @@
 #define SHT_LOOS	0x60000000	/* First of OS specific semantics */
 #define SHT_HIOS	0x6fffffff	/* Last of OS specific semantics */
 
+#define SHT_GNU_HASH	0x6ffffff6	/* GNU style symbol hash table */
 #define SHT_GNU_LIBLIST	0x6ffffff7	/* List of prelink dependencies */
 
 /* The next three section types are defined by Solaris, and are named

@@ -1,7 +1,7 @@
-/*	$OpenBSD: tree.c,v 1.44 2017/07/08 14:51:01 schwarze Exp $ */
+/*	$OpenBSD: tree.c,v 1.47 2018/11/25 19:23:59 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2013, 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -113,6 +113,9 @@ print_mdoc(const struct roff_node *n, int indent)
 	case ROFFT_TEXT:
 		t = "text";
 		break;
+	case ROFFT_COMMENT:
+		t = "comment";
+		break;
 	case ROFFT_TBL:
 		break;
 	case ROFFT_EQN:
@@ -124,6 +127,7 @@ print_mdoc(const struct roff_node *n, int indent)
 
 	switch (n->type) {
 	case ROFFT_TEXT:
+	case ROFFT_COMMENT:
 		p = n->string;
 		break;
 	case ROFFT_BODY:
@@ -229,6 +233,9 @@ print_man(const struct roff_node *n, int indent)
 	case ROFFT_TEXT:
 		t = "text";
 		break;
+	case ROFFT_COMMENT:
+		t = "comment";
+		break;
 	case ROFFT_BLOCK:
 		t = "block";
 		break;
@@ -249,6 +256,7 @@ print_man(const struct roff_node *n, int indent)
 
 	switch (n->type) {
 	case ROFFT_TEXT:
+	case ROFFT_COMMENT:
 		p = n->string;
 		break;
 	case ROFFT_ELEM:
@@ -279,6 +287,8 @@ print_man(const struct roff_node *n, int indent)
 		if (NODE_LINE & n->flags)
 			putchar('*');
 		printf("%d:%d", n->line, n->pos + 1);
+		if (NODE_DELIMC & n->flags)
+			putchar(')');
 		if (NODE_EOS & n->flags)
 			putchar('.');
 		putchar('\n');
@@ -367,35 +377,41 @@ print_span(const struct tbl_span *sp, int indent)
 	switch (sp->pos) {
 	case TBL_SPAN_HORIZ:
 		putchar('-');
-		return;
+		putchar(' ');
+		break;
 	case TBL_SPAN_DHORIZ:
 		putchar('=');
-		return;
+		putchar(' ');
+		break;
 	default:
+		for (dp = sp->first; dp; dp = dp->next) {
+			switch (dp->pos) {
+			case TBL_DATA_HORIZ:
+			case TBL_DATA_NHORIZ:
+				putchar('-');
+				putchar(' ');
+				continue;
+			case TBL_DATA_DHORIZ:
+			case TBL_DATA_NDHORIZ:
+				putchar('=');
+				putchar(' ');
+				continue;
+			default:
+				break;
+			}
+			printf("[\"%s\"", dp->string ? dp->string : "");
+			if (dp->hspans)
+				printf(">%d", dp->hspans);
+			if (dp->vspans)
+				printf("v%d", dp->vspans);
+			if (dp->layout == NULL)
+				putchar('*');
+			else if (dp->layout->pos == TBL_CELL_DOWN)
+				putchar('^');
+			putchar(']');
+			putchar(' ');
+		}
 		break;
 	}
-
-	for (dp = sp->first; dp; dp = dp->next) {
-		switch (dp->pos) {
-		case TBL_DATA_HORIZ:
-		case TBL_DATA_NHORIZ:
-			putchar('-');
-			continue;
-		case TBL_DATA_DHORIZ:
-		case TBL_DATA_NDHORIZ:
-			putchar('=');
-			continue;
-		default:
-			break;
-		}
-		printf("[\"%s\"", dp->string ? dp->string : "");
-		if (dp->spans)
-			printf("(%d)", dp->spans);
-		if (NULL == dp->layout)
-			putchar('*');
-		putchar(']');
-		putchar(' ');
-	}
-
 	printf("(tbl) %d:1\n", sp->line);
 }

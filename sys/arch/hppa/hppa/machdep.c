@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.250 2017/12/30 20:46:59 guenther Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.254 2018/07/20 01:30:30 guenther Exp $	*/
 
 /*
  * Copyright (c) 1999-2003 Michael Shalayeff
@@ -165,12 +165,6 @@ struct pdc_hwtlb pdc_hwtlb PDC_ALIGNMENT;
 struct pdc_coherence pdc_coherence PDC_ALIGNMENT;
 struct pdc_spidb pdc_spidbits PDC_ALIGNMENT;
 struct pdc_model pdc_model PDC_ALIGNMENT;
-
-#ifdef DEBUG
-int sigdebug = 0;
-pid_t sigpid = 0;
-#define SDB_FOLLOW	0x01
-#endif
 
 struct uvm_constraint_range  dma_constraint = { 0x0, (paddr_t)-1 };
 struct uvm_constraint_range *uvm_md_constraints[] = { NULL };
@@ -1204,15 +1198,13 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
  * Send an interrupt to process.
  */
 void
-sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
-    union sigval val)
+sendsig(sig_t catcher, int sig, sigset_t mask, const siginfo_t *ksip)
 {
 	struct proc *p = curproc;
 	struct trapframe *tf = p->p_md.md_regs;
 	struct pcb *pcb = &p->p_addr->u_pcb;
 	struct sigacts *psp = p->p_p->ps_sigacts;
 	struct sigcontext ksc;
-	siginfo_t ksi;
 	register_t scp, sip;
 	int sss;
 
@@ -1224,7 +1216,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	 */
 	if ((p->p_sigstk.ss_flags & SS_DISABLE) == 0 &&
 	    !sigonstack(tf->tf_sp) && (psp->ps_sigonstack & sigmask(sig)))
-		scp = (register_t)p->p_sigstk.ss_sp;
+		scp = round_page((vaddr_t)p->p_sigstk.ss_sp);
 	else
 		scp = (tf->tf_sp + 63) & ~63;
 
@@ -1232,7 +1224,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	sip = 0;
 	if (psp->ps_siginfo & sigmask(sig)) {
 		sip = scp + sizeof(ksc);
-		sss += (sizeof(ksi) + 63) & ~63;
+		sss += (sizeof(*ksip) + 63) & ~63;
 	}
 
 	bzero(&ksc, sizeof(ksc));
@@ -1294,8 +1286,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 		sigexit(p, SIGILL);
 
 	if (sip) {
-		initsiginfo(&ksi, sig, code, type, val);
-		if (copyout(&ksi, (void *)sip, sizeof(ksi)))
+		if (copyout(ksip, (void *)sip, sizeof *ksip))
 			sigexit(p, SIGILL);
 	}
 }

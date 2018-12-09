@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.arm64,v 1.28 2018/03/12 22:20:07 kettenis Exp $
+#	$OpenBSD: Makefile.arm64,v 1.30 2018/10/30 11:10:03 kettenis Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -118,7 +118,7 @@ ld.script: ${_archdir}/conf/kern.ldscript
 	    sed -e 's/@KERNEL_BASE_PHYS@/${KERNEL_BASE_PHYS}/' \
 	    -e 's/@KERNEL_BASE_VIRT@/${KERNEL_BASE_VIRT}/' > ld.script
 gapdummy.o:
-	echo 'const char gapdummy;' > gapdummy.c
+	echo '__asm(".section .rodata,\"a\"");' > gapdummy.c
 	${CC} -c ${CFLAGS} ${CPPFLAGS} gapdummy.c -o $@
 
 makegap.sh:
@@ -135,7 +135,7 @@ vers.o: ${SYSTEM_DEP:Ngap.o}
 
 clean:
 	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* \
-	    gap.link ld.script lorder makegap.sh param.c
+	    gap.link gapdummy.c ld.script lorder makegap.sh param.c
 
 cleandir: clean
 	rm -f Makefile *.h ioconf.c options machine ${_mach} vers.c

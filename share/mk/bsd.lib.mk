@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.lib.mk,v 1.92 2017/11/14 10:02:56 kettenis Exp $
+#	$OpenBSD: bsd.lib.mk,v 1.94 2018/10/18 14:25:14 naddy Exp $
 #	$NetBSD: bsd.lib.mk,v 1.67 1996/01/17 20:39:26 mycroft Exp $
 #	@(#)bsd.lib.mk	5.26 (Berkeley) 5/2/91
 
@@ -33,8 +33,6 @@ CFLAGS+=	${NOPIE_FLAGS}
 CXXFLAGS+=	${NOPIE_FLAGS}
 AFLAGS+=	${NOPIE_FLAGS}
 .endif
-
-DIST_CFLAGS+=	-Oz
 
 .c.o:
 	@echo "${COMPILE.c} ${.IMPSRC} -o ${.TARGET}"

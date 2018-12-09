@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_softdep.c,v 1.140 2018/04/01 12:02:00 dhill Exp $	*/
+/*	$OpenBSD: ffs_softdep.c,v 1.143 2018/07/02 20:56:22 bluhm Exp $	*/
 
 /*
  * Copyright 1998, 2000 Marshall Kirk McKusick. All Rights Reserved.
@@ -866,9 +866,9 @@ softdep_flushworklist(struct mount *oldmnt, int *countp, struct proc *p)
 	devvp = VFSTOUFS(oldmnt)->um_devvp;
 	while ((count = softdep_process_worklist(oldmnt)) > 0) {
 		*countp += count;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
+		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
 		error = VOP_FSYNC(devvp, p->p_ucred, MNT_WAIT, p);
-		VOP_UNLOCK(devvp, p);
+		VOP_UNLOCK(devvp);
 		if (error)
 			break;
 	}
@@ -4578,9 +4578,9 @@ softdep_fsync(struct vnode *vp)
 		 * ufs_lookup for details on possible races.
 		 */
 		FREE_LOCK(&lk);
-		VOP_UNLOCK(vp, p);
+		VOP_UNLOCK(vp);
 		error = VFS_VGET(mnt, parentino, &pvp);
-		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
+		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 		if (error != 0)
 			return (error);
 		/*
@@ -4640,8 +4640,7 @@ softdep_fsync_mountdev(struct vnode *vp, int waitfor)
 	if (!vn_isdisk(vp, NULL))
 		panic("softdep_fsync_mountdev: vnode not a disk");
 	ACQUIRE_LOCK(&lk);
-	for (bp = LIST_FIRST(&vp->v_dirtyblkhd); bp; bp = nbp) {
-		nbp = LIST_NEXT(bp, b_vnbufs);
+	LIST_FOREACH_SAFE(bp, &vp->v_dirtyblkhd, b_vnbufs, nbp) {
 		/* 
 		 * If it is already scheduled, skip to the next buffer.
 		 */
@@ -4932,7 +4931,7 @@ loop:
 	 * all potential buffers on the dirty list will be visible.
 	 */
 	drain_output(vp, 1);
-	if (LIST_FIRST(&vp->v_dirtyblkhd) == NULL) {
+	if (LIST_EMPTY(&vp->v_dirtyblkhd)) {
 		FREE_LOCK(&lk);
 		return (0);
 	}

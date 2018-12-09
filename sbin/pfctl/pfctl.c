@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.354 2018/02/08 09:15:46 henning Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.360 2018/09/18 12:55:19 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -145,6 +145,7 @@ static const struct {
 	{ "frags",		PF_LIMIT_FRAGS },
 	{ "tables",		PF_LIMIT_TABLES },
 	{ "table-entries",	PF_LIMIT_TABLE_ENTRIES },
+	{ "pktdelay-pkts",	PF_LIMIT_PKTDELAY_PKTS },
 	{ NULL,			0 }
 };
 
@@ -1611,19 +1612,17 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	rs->anchor = pf.anchor;
 	if (strlcpy(pf.anchor->path, anchorname,
 	    sizeof(pf.anchor->path)) >= sizeof(pf.anchor->path))
-		errx(1, "pfctl_add_rule: strlcpy");
+		errx(1, "%s: strlcpy", __func__);
 
 	if ((p = strrchr(anchorname, '/')) != NULL) {
 		if (strlen(p) == 1)
-			errx(1, "pfctl_add_rule: bad anchor name %s",
-			    anchorname);
+			errx(1, "%s: bad anchor name %s", __func__, anchorname);
 	} else
 		p = anchorname;
 
 	if (strlcpy(pf.anchor->name, p,
 	    sizeof(pf.anchor->name)) >= sizeof(pf.anchor->name))
-		errx(1, "pfctl_add_rule: strlcpy");
-
+		errx(1, "%s: strlcpy", __func__);
 
 	pf.astack[0] = pf.anchor;
 	pf.asd = 0;
@@ -1765,6 +1764,7 @@ pfctl_init_options(struct pfctl *pf)
 	pf->limit[PF_LIMIT_SRC_NODES] = PFSNODE_HIWAT;
 	pf->limit[PF_LIMIT_TABLES] = PFR_KTABLE_HIWAT;
 	pf->limit[PF_LIMIT_TABLE_ENTRIES] = PFR_KENTRY_HIWAT;
+	pf->limit[PF_LIMIT_PKTDELAY_PKTS] = PF_PKTDELAY_MAXPKTS;
 
 	mib[0] = CTL_HW;
 	mib[1] = HW_PHYSMEM64;
@@ -2489,17 +2489,23 @@ main(int argc, char *argv[])
 		argc -= optind;
 		argv += optind;
 		ch = *tblcmdopt;
-		mode = strchr("acdefkrz", ch) ? O_RDWR : O_RDONLY;
+		mode = strchr("st", ch) ? O_RDONLY : O_RDWR;
 	} else if (argc != optind) {
 		warnx("unknown command line argument: %s ...", argv[optind]);
 		usage();
 		/* NOTREACHED */
 	}
 
-	if ((path = calloc(1, PATH_MAX)) == NULL)
-		errx(1, "pfctl: calloc");
 	memset(anchorname, 0, sizeof(anchorname));
 	if (anchoropt != NULL) {
+		if (mode == O_RDONLY && showopt == NULL && tblcmdopt == NULL) {
+			warnx("anchors apply to -f, -F, -s, and -T only");
+			usage();
+		}
+		if (mode == O_RDWR && tblcmdopt == NULL &&
+		    (anchoropt[0] == '_' || strstr(anchoropt, "/_") != NULL))
+			errx(1, "anchor names beginning with '_' cannot "
+			    "be modified from the command line");
 		int len = strlen(anchoropt);
 
 		if (anchoropt[len - 1] == '*') {
@@ -2532,6 +2538,9 @@ main(int argc, char *argv[])
 	if (opts & PF_OPT_DISABLE)
 		if (pfctl_disable(dev, opts))
 			error = 1;
+
+	if ((path = calloc(1, PATH_MAX)) == NULL)
+		errx(1, "%s: calloc", __func__);
 
 	if (showopt != NULL) {
 		switch (*showopt) {
@@ -2603,10 +2612,6 @@ main(int argc, char *argv[])
 		    anchorname, 0, 0, -1);
 
 	if (clearopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
-
 		switch (*clearopt) {
 		case 'r':
 			pfctl_clear_rules(dev, opts, anchorname);
@@ -2685,9 +2690,6 @@ main(int argc, char *argv[])
 	}
 
 	if (rulesopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
 		if (pfctl_rules(dev, rulesopt, opts, optimize,
 		    anchorname, NULL))
 			error = 1;

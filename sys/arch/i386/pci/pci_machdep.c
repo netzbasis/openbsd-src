@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci_machdep.c,v 1.82 2017/09/08 05:36:51 deraadt Exp $	*/
+/*	$OpenBSD: pci_machdep.c,v 1.84 2018/08/19 08:23:47 kettenis Exp $	*/
 /*	$NetBSD: pci_machdep.c,v 1.28 1997/06/06 23:29:17 thorpej Exp $	*/
 
 /*-
@@ -190,6 +190,25 @@ struct bus_dma_tag pci_bus_dma_tag = {
 	_bus_dmamem_unmap,
 	_bus_dmamem_mmap,
 };
+
+void
+pci_mcfg_init(bus_space_tag_t iot, bus_addr_t addr, int segment,
+    int min_bus, int max_bus)
+{
+	if (segment == 0) {
+		pci_mcfgt = iot;
+		pci_mcfg_addr = addr;
+		pci_mcfg_min_bus = min_bus;
+		pci_mcfg_max_bus = max_bus;
+	}
+}
+
+pci_chipset_tag_t
+pci_lookup_segment(int segment)
+{
+	KASSERT(segment == 0);
+	return NULL;
+}
 
 void
 pci_attach_hook(struct device *parent, struct device *self,

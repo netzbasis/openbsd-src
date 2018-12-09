@@ -219,6 +219,7 @@ static void configure_handler_event_types(short event_types);
 static uint16_t *compressed_dname_offsets = 0;
 static uint32_t compression_table_capacity = 0;
 static uint32_t compression_table_size = 0;
+static domain_type* compressed_dnames[MAXRRSPP];
 
 /*
  * Remove the specified pid from the list of child pids.  Returns -1 if
@@ -768,7 +769,8 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 #endif /* SO_BINDANY */
 		}
 
-		if (bind(nsd->udp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
+		if (
+			bind(nsd->udp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
 			log_msg(LOG_ERR, "can't bind udp socket: %s", strerror(errno));
 			return -1;
 		}
@@ -904,7 +906,8 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 #endif /* SO_BINDANY */
 		}
 
-		if (bind(nsd->tcp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
+		if(
+			bind(nsd->tcp[i].s, (struct sockaddr *) addr->ai_addr, addr->ai_addrlen) != 0) {
 			log_msg(LOG_ERR, "can't bind tcp socket: %s", strerror(errno));
 			return -1;
 		}
@@ -2023,7 +2026,7 @@ server_child(struct nsd *nsd)
 		server_close_all_sockets(nsd->udp, nsd->ifs);
 	}
 
-	if (nsd->this_child && nsd->this_child->parent_fd != -1) {
+	if (nsd->this_child->parent_fd != -1) {
 		struct event *handler;
 		struct ipc_handler_conn_data* user_data =
 			(struct ipc_handler_conn_data*)region_alloc(
@@ -2056,13 +2059,15 @@ server_child(struct nsd *nsd)
 	if (nsd->server_kind & NSD_SERVER_UDP) {
 #if (defined(NONBLOCKING_IS_BROKEN) || !defined(HAVE_RECVMMSG))
 		udp_query = query_create(server_region,
-			compressed_dname_offsets, compression_table_size);
+			compressed_dname_offsets, compression_table_size,
+			compressed_dnames);
 #else
 		udp_query = NULL;
 		memset(msgs, 0, sizeof(msgs));
 		for (i = 0; i < NUM_RECV_PER_SELECT; i++) {
 			queries[i] = query_create(server_region,
-				compressed_dname_offsets, compression_table_size);
+				compressed_dname_offsets,
+				compression_table_size, compressed_dnames);
 			query_reset(queries[i], UDP_MAX_MESSAGE_LEN, 0);
 			iovecs[i].iov_base          = buffer_begin(queries[i]->packet);
 			iovecs[i].iov_len           = buffer_remaining(queries[i]->packet);;
@@ -2883,7 +2888,11 @@ handle_tcp_accept(int fd, short event, void* arg)
 
 	/* Accept it... */
 	addrlen = sizeof(addr);
+#ifndef HAVE_ACCEPT4
 	s = accept(fd, (struct sockaddr *) &addr, &addrlen);
+#else
+	s = accept4(fd, (struct sockaddr *) &addr, &addrlen, SOCK_NONBLOCK);
+#endif
 	if (s == -1) {
 		/**
 		 * EMFILE and ENFILE is a signal that the limit of open
@@ -2920,11 +2929,13 @@ handle_tcp_accept(int fd, short event, void* arg)
 		return;
 	}
 
+#ifndef HAVE_ACCEPT4
 	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1) {
 		log_msg(LOG_ERR, "fcntl failed: %s", strerror(errno));
 		close(s);
 		return;
 	}
+#endif
 
 	/*
 	 * This region is deallocated when the TCP connection is
@@ -2935,7 +2946,7 @@ handle_tcp_accept(int fd, short event, void* arg)
 		tcp_region, sizeof(struct tcp_handler_data));
 	tcp_data->region = tcp_region;
 	tcp_data->query = query_create(tcp_region, compressed_dname_offsets,
-		compression_table_size);
+		compression_table_size, compressed_dnames);
 	tcp_data->nsd = data->nsd;
 	tcp_data->query_count = 0;
 

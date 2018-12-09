@@ -1,7 +1,7 @@
-/*	$OpenBSD: libmdoc.h,v 1.83 2017/05/30 16:21:07 schwarze Exp $ */
+/*	$OpenBSD: libmdoc.h,v 1.85 2018/12/04 02:53:45 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2013, 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -59,10 +59,8 @@ enum	mdelim {
 	DELIM_MAX
 };
 
-extern	const struct mdoc_macro *const mdoc_macros;
+const struct mdoc_macro *mdoc_macro(enum roff_tok);
 
-
-void		  mdoc_macro(MACRO_PROT_ARGS);
 void		  mdoc_elem_alloc(struct roff_man *, int, int,
 			enum roff_tok, struct mdoc_arg *);
 struct roff_node *mdoc_block_alloc(struct roff_man *, int, int,
@@ -71,7 +69,6 @@ void		  mdoc_tail_alloc(struct roff_man *, int, int,
 			enum roff_tok);
 struct roff_node *mdoc_endbody_alloc(struct roff_man *, int, int,
 			enum roff_tok, struct roff_node *);
-void		  mdoc_node_relink(struct roff_man *, struct roff_node *);
 void		  mdoc_node_validate(struct roff_man *);
 void		  mdoc_state(struct roff_man *, struct roff_node *);
 void		  mdoc_state_reset(struct roff_man *);

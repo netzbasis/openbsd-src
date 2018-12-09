@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.120 2018/03/29 01:21:02 guenther Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.128 2018/12/05 10:28:21 jsg Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -51,6 +51,7 @@
 #include <sys/device.h>
 #include <sys/sched.h>
 #include <sys/sensors.h>
+#include <sys/srp.h>
 
 #ifdef _KERNEL
 
@@ -71,6 +72,7 @@ struct vmx {
 	uint32_t	vmx_msr_table_size;
 	uint32_t	vmx_cr3_tgt_count;
 	uint64_t	vmx_vm_func;
+	uint8_t		vmx_has_l1_flush_msr;
 };
 
 /*
@@ -115,10 +117,6 @@ struct cpu_info {
 	u_int64_t ci_intr_rsp;	/* U<-->K trampoline stack */
 	u_int64_t ci_user_cr3;	/* U-K page table */
 
-	struct proc *ci_fpcurproc;
-	struct proc *ci_fpsaveproc;
-	int ci_fpsaving;
-
 	struct pcb *ci_curpcb;
 	struct pcb *ci_idle_pcb;
 
@@ -156,7 +154,7 @@ struct cpu_info {
 
 	int		ci_inatomic;
 
-#define ARCH_HAVE_CPU_TOPOLOGY
+#define __HAVE_CPU_TOPOLOGY
 	u_int32_t	ci_smt_id;
 	u_int32_t	ci_core_id;
 	u_int32_t	ci_pkg_id;
@@ -215,9 +213,9 @@ struct cpu_info {
 #define CPUF_IDENTIFIED	0x0020		/* CPU has been identified */
 
 #define CPUF_CONST_TSC	0x0040		/* CPU has constant TSC */
-#define CPUF_USERSEGS_BIT	7	/* CPU has curproc's segments */
-#define CPUF_USERSEGS	(1<<CPUF_USERSEGS_BIT)		/* and FS.base */
+#define CPUF_USERSEGS	0x0080		/* CPU has curproc's segs and FS.base */
 #define CPUF_INVAR_TSC	0x0100		/* CPU has invariant TSC */
+#define CPUF_USERXSTATE	0x0200		/* CPU has curproc's xsave state */
 
 #define CPUF_PRESENT	0x1000		/* CPU is present */
 #define CPUF_RUNNING	0x2000		/* CPU is running */
@@ -267,7 +265,6 @@ extern void need_resched(struct cpu_info *);
 extern struct cpu_info *cpu_info[MAXCPUS];
 
 void cpu_boot_secondary_processors(void);
-void cpu_init_idle_pcbs(void);    
 
 void cpu_kick(struct cpu_info *);
 void cpu_unidle(struct cpu_info *);
@@ -324,7 +321,7 @@ void cpu_unidle(struct cpu_info *);
 /*
  * Give a profiling tick to the current process when the user profiling
  * buffer pages are invalid.  On the i386, request an ast to send us
- * through trap(), marking the proc as needing a profiling tick.
+ * through usertrap(), marking the proc as needing a profiling tick.
  */
 #define	need_proftick(p)	aston(p)
 
@@ -357,6 +354,7 @@ extern int cpu_id;
 extern char cpu_vendor[];
 extern int cpuid_level;
 extern int cpuspeed;
+extern int cpu_meltdown;
 
 /* cpu.c */
 extern u_int cpu_mwait_size;
@@ -371,7 +369,6 @@ void	dumpconf(void);
 void	cpu_reset(void);
 void	x86_64_proc0_tss_ldt_init(void);
 void	x86_64_bufinit(void);
-void	x86_64_init_pcb_tss_ldt(struct cpu_info *);
 void	cpu_proc_fork(struct proc *, struct proc *);
 int	amd64_pa_used(paddr_t);
 extern void (*cpu_idle_enter_fcn)(void);
@@ -468,13 +465,5 @@ void mp_setperf_init(void);
 	{ "tscfreq", CTLTYPE_QUAD }, \
 	{ "invarianttsc", CTLTYPE_INT }, \
 }
-
-/*
- * Default cr4 flags.
- * Doesn't really belong here, but doesn't really belong anywhere else
- * either. Just to avoid painful mismatches of cr4 flags since they are
- * set in three different places.
- */
-#define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
 
 #endif /* !_MACHINE_CPU_H_ */

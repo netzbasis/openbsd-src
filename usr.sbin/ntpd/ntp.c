@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntp.c,v 1.146 2017/05/30 23:30:48 benno Exp $ */
+/*	$OpenBSD: ntp.c,v 1.148 2018/07/19 10:20:09 sthen Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
