@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan.c,v 1.174 2017/06/22 11:34:51 tom Exp $	*/
+/*	$OpenBSD: if_vlan.c,v 1.179 2018/11/16 08:43:08 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -157,10 +157,7 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 	struct ifvlan	*ifv;
 	struct ifnet	*ifp;
 
-	ifv = malloc(sizeof(*ifv), M_DEVBUF, M_NOWAIT|M_ZERO);
-	if (ifv == NULL)
-		return (ENOMEM);
-
+	ifv = malloc(sizeof(*ifv), M_DEVBUF, M_WAITOK|M_ZERO);
 	LIST_INIT(&ifv->vlan_mc_listhead);
 	ifp = &ifv->ifv_if;
 	ifp->if_softc = ifv;
@@ -176,6 +173,7 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 		ifv->ifv_type = ETHERTYPE_VLAN;
 
 	refcnt_init(&ifv->ifv_refcnt);
+	ifv->ifv_prio = IF_HDRPRIO_PACKET;
 
 	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_CLONED|IFXF_MPSAFE;
@@ -248,6 +246,7 @@ vlan_start(struct ifqueue *ifq)
 	struct ifvlan   *ifv;
 	struct ifnet	*ifp0;
 	struct mbuf	*m;
+	int		 txprio;
 	uint8_t		 prio;
 
 	ifv = ifp->if_softc;
@@ -258,15 +257,18 @@ vlan_start(struct ifqueue *ifq)
 		goto leave;
 	}
 
+	txprio = ifv->ifv_prio;
+
 	while ((m = ifq_dequeue(ifq)) != NULL) {
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
 			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif /* NBPFILTER > 0 */
 
+		prio = (txprio == IF_HDRPRIO_PACKET) ?
+		    m->m_pkthdr.pf.prio : txprio;
 
 		/* IEEE 802.1p has prio 0 and 1 swapped */
-		prio = m->m_pkthdr.pf.prio;
 		if (prio <= 1)
 			prio = !prio;
 
@@ -475,6 +477,11 @@ vlan_up(struct ifvlan *ifv)
 	ifp->if_hardmtu = hardmtu;
 	SET(ifp->if_flags, ifp0->if_flags & IFF_SIMPLEX);
 
+	/*
+	 * Note: In cases like vio(4) and em(4) where the offsets of the
+	 * csum can be freely defined, we could actually do csum offload
+	 * for VLAN and QINQ packets.
+	 */
 	if (ifv->ifv_type != ETHERTYPE_VLAN) {
 		/*
 		 * Hardware offload only works with the default VLAN
@@ -483,12 +490,8 @@ vlan_up(struct ifvlan *ifv)
 		ifp->if_capabilities = 0;
 	} else if (ISSET(ifp0->if_capabilities, IFCAP_VLAN_HWTAGGING)) {
 		/*
-		 * If the parent interface can do hardware-assisted
-		 * VLAN encapsulation, then propagate its hardware-
-		 * assisted checksumming flags.
-		 *
-		 * If the card cannot handle hardware tagging, it cannot
-		 * possibly compute the correct checksums for tagged packets.
+		 * Chips that can do hardware-assisted VLAN encapsulation, can
+		 * calculate the correct checksum for VLAN tagged packets.
 		 */
 		ifp->if_capabilities = ifp0->if_capabilities & IFCAP_CSUM_MASK;
 	}
@@ -715,6 +718,21 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = vlan_get_compat(ifp, ifr);
 		break;
 
+	case SIOCSTXHPRIO:
+		if (ifr->ifr_hdrprio == IF_HDRPRIO_PACKET)
+			;
+		else if (ifr->ifr_hdrprio > IF_HDRPRIO_MAX ||
+		    ifr->ifr_hdrprio < IF_HDRPRIO_MIN) {
+			error = EINVAL;
+			break;
+		}
+
+		ifv->ifv_prio = ifr->ifr_hdrprio;
+		break;
+	case SIOCGTXHPRIO:
+		ifr->ifr_hdrprio = ifv->ifv_prio;
+		break;
+
 	default:
 		error = ether_ioctl(ifp, &ifv->ifv_ac, cmd, data);
 		break;
@@ -893,7 +911,7 @@ vlan_set_compat(struct ifnet *ifp, struct ifreq *ifr)
 
 	int error;
 
-	error = suser(curproc, 0);
+	error = suser(curproc);
 	if (error != 0)
 		return (error);
 

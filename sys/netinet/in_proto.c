@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_proto.c,v 1.88 2017/11/23 13:45:46 mpi Exp $	*/
+/*	$OpenBSD: in_proto.c,v 1.91 2018/11/19 10:15:04 claudio Exp $	*/
 /*	$NetBSD: in_proto.c,v 1.14 1996/02/18 18:58:32 christos Exp $	*/
 
 /*
@@ -172,6 +172,11 @@
 #include <net/if_etherip.h>
 #endif
 
+#include "mobileip.h"
+#if NMOBILEIP > 0
+#include <net/if_mobileip.h>
+#endif
+
 u_char ip_protox[IPPROTO_MAX];
 
 const struct protosw inetsw[] = {
@@ -274,7 +279,7 @@ const struct protosw inetsw[] = {
   .pr_domain	= &inetdomain,
   .pr_protocol	= IPPROTO_MPLS,
   .pr_flags	= PR_ATOMIC|PR_ADDR,
-  .pr_input	= mplsip_input,
+  .pr_input	= in_gif_input,
   .pr_usrreq	= rip_usrreq,
   .pr_attach	= rip_attach,
   .pr_detach	= rip_detach,
@@ -348,19 +353,21 @@ const struct protosw inetsw[] = {
   .pr_detach	= rip_detach,
   .pr_sysctl	= gre_sysctl
 },
+#endif /* NGRE > 0 */
+#if NMOBILEIP > 0
 {
   .pr_type	= SOCK_RAW,
   .pr_domain	= &inetdomain,
   .pr_protocol	= IPPROTO_MOBILE,
   .pr_flags	= PR_ATOMIC|PR_ADDR,
-  .pr_input	= gre_mobile_input,
+  .pr_input	= mobileip_input,
   .pr_ctloutput	= rip_ctloutput,
   .pr_usrreq	= rip_usrreq,
   .pr_attach	= rip_attach,
   .pr_detach	= rip_detach,
-  .pr_sysctl	= ipmobile_sysctl
+  .pr_sysctl	= mobileip_sysctl
 },
-#endif /* NGRE > 0 */
+#endif /* NMOBILEIP > 0 */
 #if NCARP > 0
 {
   .pr_type	= SOCK_RAW,
@@ -436,7 +443,6 @@ struct domain inetdomain = {
   .dom_name = "internet",
   .dom_protosw = inetsw,
   .dom_protoswNPROTOSW = &inetsw[nitems(inetsw)],
-  .dom_rtkeylen = sizeof(struct sockaddr_in),
   .dom_rtoffset = offsetof(struct sockaddr_in, sin_addr),
   .dom_maxplen = 32
 };

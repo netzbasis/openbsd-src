@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.28 2017/11/25 19:02:07 patrick Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.32 2018/11/20 03:10:47 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -19,6 +19,7 @@
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <dev/cons.h>
+#include <dev/isa/isareg.h>
 #include <sys/disklabel.h>
 #include <cmd.h>
 #include <stand/boot/bootarg.h>
@@ -80,6 +81,9 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	BS = ST->BootServices;
 	RS = ST->RuntimeServices;
 	IH = image;
+
+	/* disable reset by watchdog after 5 minutes */
+	EFI_CALL(BS->SetWatchdogTimer, 0, 0, 0, NULL);
 
 	efi_video_init();
 	efi_heap_init();
@@ -390,10 +394,10 @@ efi_memprobe_internal(void)
 		}
 	}
 	for (bm = bios_memmap; bm->type != BIOS_MAP_END; bm++) {
-		if (bm->addr < 0x0a0000)	/* Below memory hole */
+		if (bm->addr < IOM_BEGIN)	/* Below memory hole */
 			cnvmem =
 			    max(cnvmem, (bm->addr + bm->size) / 1024);
-		if (bm->addr >= 0x10000 /* Above the memory hole */ &&
+		if (bm->addr >= IOM_END /* Above the memory hole */ &&
 		    bm->addr / 1024 == extmem + 1024)
 			extmem += bm->size / 1024;
 	}
@@ -491,7 +495,7 @@ efi_cons_getc(dev_t dev)
 	}
 
 	status = EFI_CALL(conin->ReadKeyStroke, conin, &key);
-	while (status == EFI_NOT_READY) {
+	while (status == EFI_NOT_READY || key.UnicodeChar == 0) {
 		if (dev & 0x80)
 			return (0);
 		EFI_CALL(BS->WaitForEvent, 1, &conin->WaitForKey, &dummy);
@@ -638,7 +642,8 @@ void
 efi_com_init(struct consdev *cn)
 {
 	if (!efi_valid_com(cn->cn_dev))
-		panic("com%d is not probed", minor(cn->cn_dev));
+		/* This actually happens if the machine has another serial.  */
+		return;
 
 	if (com_speed == -1)
 		comspeed(cn->cn_dev, 9600); /* default speed is 9600 baud */
@@ -654,7 +659,7 @@ efi_com_getc(dev_t dev)
 	static u_char		 lastchar = 0;
 
 	if (!efi_valid_com(dev & 0x7f))
-		panic("com%d is not probed", minor(dev));
+		return (0) ;
 	serio = serios[minor(dev & 0x7f)];
 
 	if (lastchar != 0) {
@@ -689,7 +694,7 @@ efi_com_putc(dev_t dev, int c)
 	u_char			 buf;
 
 	if (!efi_valid_com(dev))
-		panic("com%d is not probed", minor(dev));
+		return;
 	serio = serios[minor(dev)];
 	buf = c;
 	EFI_CALL(serio->Write, serio, &sz, &buf);

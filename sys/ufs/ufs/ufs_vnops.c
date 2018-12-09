@@ -1,4 +1,4 @@
-/*	$OpenBSD: ufs_vnops.c,v 1.134 2017/04/19 17:26:13 dhill Exp $	*/
+/*	$OpenBSD: ufs_vnops.c,v 1.142 2018/06/21 14:17:23 visa Exp $	*/
 /*	$NetBSD: ufs_vnops.c,v 1.18 1996/05/11 18:28:04 mycroft Exp $	*/
 
 /*
@@ -42,6 +42,7 @@
 #include <sys/namei.h>
 #include <sys/resourcevar.h>
 #include <sys/kernel.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/buf.h>
@@ -150,10 +151,9 @@ ufs_create(void *v)
 	error =
 	    ufs_makeinode(MAKEIMODE(ap->a_vap->va_type, ap->a_vap->va_mode),
 			  ap->a_dvp, ap->a_vpp, ap->a_cnp);
-	if (error)
-		return (error);
-	VN_KNOTE(ap->a_dvp, NOTE_WRITE);
-	return (0);
+	if (error == 0)
+		VN_KNOTE(ap->a_dvp, NOTE_WRITE);
+	return (error);
 }
 
 /*
@@ -629,7 +629,6 @@ ufs_link(void *v)
 	struct vnode *dvp = ap->a_dvp;
 	struct vnode *vp = ap->a_vp;
 	struct componentname *cnp = ap->a_cnp;
-	struct proc *p = cnp->cn_proc;
 	struct inode *ip;
 	struct direct newdir;
 	int error;
@@ -648,7 +647,7 @@ ufs_link(void *v)
 		error = EXDEV;
 		goto out2;
 	}
-	if (dvp != vp && (error = vn_lock(vp, LK_EXCLUSIVE, p))) {
+	if (dvp != vp && (error = vn_lock(vp, LK_EXCLUSIVE))) {
 		VOP_ABORTOP(dvp, cnp);
 		goto out2;
 	}
@@ -684,7 +683,7 @@ ufs_link(void *v)
 	VN_KNOTE(dvp, NOTE_WRITE);
 out1:
 	if (dvp != vp)
-		VOP_UNLOCK(vp, p);
+		VOP_UNLOCK(vp);
 out2:
 	vput(dvp);
 	return (error);
@@ -724,7 +723,6 @@ ufs_rename(void *v)
 	struct vnode *fdvp = ap->a_fdvp;
 	struct componentname *tcnp = ap->a_tcnp;
 	struct componentname *fcnp = ap->a_fcnp;
-	struct proc *p = fcnp->cn_proc;
 	struct inode *ip, *xp, *dp;
 	struct direct newdir;
 	int doingdirectory = 0, oldparent = 0, newparent = 0;
@@ -802,20 +800,20 @@ abortit:
 		return (VOP_REMOVE(fdvp, fvp, fcnp));
 	}
 
-	if ((error = vn_lock(fvp, LK_EXCLUSIVE, p)) != 0)
+	if ((error = vn_lock(fvp, LK_EXCLUSIVE)) != 0)
 		goto abortit;
 
 	/* fvp, tdvp, tvp now locked */
 	dp = VTOI(fdvp);
 	ip = VTOI(fvp);
 	if ((nlink_t) DIP(ip, nlink) >= LINK_MAX) {
-		VOP_UNLOCK(fvp, p);
+		VOP_UNLOCK(fvp);
 		error = EMLINK;
 		goto abortit;
 	}
 	if ((DIP(ip, flags) & (IMMUTABLE | APPEND)) ||
 	    (DIP(dp, flags) & APPEND)) {
-		VOP_UNLOCK(fvp, p);
+		VOP_UNLOCK(fvp);
 		error = EPERM;
 		goto abortit;
 	}
@@ -824,7 +822,7 @@ abortit:
 		if (!error && tvp)
 			error = VOP_ACCESS(tvp, VWRITE, tcnp->cn_cred, tcnp->cn_proc);
 		if (error) {
-			VOP_UNLOCK(fvp, p);
+			VOP_UNLOCK(fvp);
 			error = EACCES;
 			goto abortit;
 		}
@@ -836,7 +834,7 @@ abortit:
 		    (fcnp->cn_flags & ISDOTDOT) ||
 		    (tcnp->cn_flags & ISDOTDOT) ||
 		    (ip->i_flag & IN_RENAME)) {
-			VOP_UNLOCK(fvp, p);
+			VOP_UNLOCK(fvp);
 			error = EINVAL;
 			goto abortit;
 		}
@@ -867,7 +865,7 @@ abortit:
 	if (DOINGSOFTDEP(fvp))
 		softdep_change_linkcnt(ip, 0);
 	if ((error = UFS_UPDATE(ip, !DOINGSOFTDEP(fvp))) != 0) {
-		VOP_UNLOCK(fvp, p);
+		VOP_UNLOCK(fvp);
 		goto bad;
 	}
 
@@ -882,7 +880,7 @@ abortit:
 	 * call to checkpath().
 	 */
 	error = VOP_ACCESS(fvp, VWRITE, tcnp->cn_cred, tcnp->cn_proc);
-	VOP_UNLOCK(fvp, p);
+	VOP_UNLOCK(fvp);
 
 	/* tdvp and tvp locked */
 	if (oldparent != dp->i_number)
@@ -1114,7 +1112,7 @@ out:
 	vrele(fdvp);
 	if (doingdirectory)
 		ip->i_flag &= ~IN_RENAME;
-	if (vn_lock(fvp, LK_EXCLUSIVE, p) == 0) {
+	if (vn_lock(fvp, LK_EXCLUSIVE) == 0) {
 		ip->i_effnlink--;
 		DIP_ADD(ip, nlink, -1);
 		ip->i_flag |= IN_CHANGE;
@@ -1295,17 +1293,6 @@ ufs_rmdir(void *v)
 	ip = VTOI(vp);
 	dp = VTOI(dvp);
 	/*
-	 * No rmdir "." or of mounted on directories.
-	 */
-	if (dp == ip || vp->v_mountedhere != NULL) {
-		if (dp == ip)
-			vrele(dvp);
-		else
-			vput(dvp);
-		vput(vp);
-		return (EINVAL);
-	}
-	/*
 	 * Do not remove a directory that is in the process of being renamed.
 	 * Verify the directory is empty (and valid). Rmdir ".." will not be
 	 * valid since ".." will contain a reference to the current directory
@@ -1393,9 +1380,12 @@ ufs_symlink(void *v)
 
 	error = ufs_makeinode(IFLNK | ap->a_vap->va_mode, ap->a_dvp,
 	    vpp, ap->a_cnp);
-	if (error)
+	if (error) {
+		vput(ap->a_dvp);
 		return (error);
+	}
 	VN_KNOTE(ap->a_dvp, NOTE_WRITE);
+	vput(ap->a_dvp);
 	vp = *vpp;
 	ip = VTOI(vp);
 	len = strlen(ap->a_target);
@@ -1838,7 +1828,6 @@ ufs_makeinode(int mode, struct vnode *dvp, struct vnode **vpp,
 
 	if ((error = UFS_INODE_ALLOC(pdir, mode, cnp->cn_cred, &tvp)) != 0) {
 		pool_put(&namei_pool, cnp->cn_pnbuf);
-		vput(dvp);
 		return (error);
 	}
 
@@ -1852,7 +1841,6 @@ ufs_makeinode(int mode, struct vnode *dvp, struct vnode **vpp,
 		pool_put(&namei_pool, cnp->cn_pnbuf);
 		UFS_INODE_FREE(ip, ip->i_number, mode);
 		vput(tvp);
-		vput(dvp);
 		return (error);
 	}
 
@@ -1881,7 +1869,6 @@ ufs_makeinode(int mode, struct vnode *dvp, struct vnode **vpp,
 
 	if ((cnp->cn_flags & SAVESTART) == 0)
 		pool_put(&namei_pool, cnp->cn_pnbuf);
-	vput(dvp);
 	*vpp = tvp;
 	return (0);
 
@@ -1891,7 +1878,6 @@ bad:
 	 * or the directory so must deallocate the inode.
 	 */
 	pool_put(&namei_pool, cnp->cn_pnbuf);
-	vput(dvp);
 	ip->i_effnlink = 0;
 	DIP_ASSIGN(ip, nlink, 0);
 	ip->i_flag |= IN_CHANGE;
@@ -1961,7 +1947,12 @@ filt_ufsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-	kn->kn_data = DIP(ip, size) - kn->kn_fp->f_offset;
+#ifdef EXT2FS
+	if (IS_EXT2_VNODE(ip->i_vnode))
+		kn->kn_data = ext2fs_size(ip) - kn->kn_fp->f_offset;
+	else
+#endif
+		kn->kn_data = DIP(ip, size) - kn->kn_fp->f_offset;
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: frag6.c,v 1.81 2017/11/14 14:46:49 bluhm Exp $	*/
+/*	$OpenBSD: frag6.c,v 1.85 2018/09/10 16:14:08 bluhm Exp $	*/
 /*	$KAME: frag6.c,v 1.40 2002/05/27 21:40:31 itojun Exp $	*/
 
 /*
@@ -400,6 +400,7 @@ frag6_input(struct mbuf **mp, int *offp, int proto, int af)
 			t = t->m_next;
 		t->m_next = af6->ip6af_m;
 		m_adj(t->m_next, af6->ip6af_offset);
+		m_removehdr(t->m_next);
 		pool_put(&ip6af_pool, af6);
 	}
 
@@ -422,14 +423,6 @@ frag6_input(struct mbuf **mp, int *offp, int proto, int af)
 		goto dropfrag;
 	}
 
-	/*
-	 * Store NXT to the original.
-	 */
-	{
-		u_int8_t *prvnxtp = ip6_get_prevhdr(m, offset); /* XXX */
-		*prvnxtp = nxt;
-	}
-
 	TAILQ_REMOVE(&frag6_queue, q6, ip6q_queue);
 	frag6_nfrags -= q6->ip6q_nfrag;
 	frag6_nfragpackets--;
@@ -438,11 +431,20 @@ frag6_input(struct mbuf **mp, int *offp, int proto, int af)
 
 	pool_put(&ip6q_pool, q6);
 
-	if (m->m_flags & M_PKTHDR) { /* Isn't it always true? */
-		int plen = 0;
-		for (t = m; t; t = t->m_next)
-			plen += t->m_len;
-		m->m_pkthdr.len = plen;
+	m_calchdrlen(m);
+
+	/*
+	 * Restore NXT to the original.
+	 */
+	{
+		int prvnxt = ip6_get_prevhdr(m, offset);
+		uint8_t *prvnxtp;
+
+		IP6_EXTHDR_GET(prvnxtp, uint8_t *, m, prvnxt,
+		    sizeof(*prvnxtp));
+		if (prvnxtp == NULL)
+			goto dropfrag;
+		*prvnxtp = nxt;
 	}
 
 	ip6stat_inc(ip6s_reassembled);
@@ -534,8 +536,10 @@ frag6_freef(struct ip6q *q6)
 			ip6->ip6_src = q6->ip6q_src;
 			ip6->ip6_dst = q6->ip6q_dst;
 
+			NET_LOCK();
 			icmp6_error(m, ICMP6_TIME_EXCEEDED,
 				    ICMP6_TIME_EXCEED_REASSEMBLY, 0);
+			NET_UNLOCK();
 		} else
 			m_freem(m);
 		pool_put(&ip6af_pool, af6);
@@ -593,12 +597,8 @@ frag6_slowtimo(void)
 
 	mtx_leave(&frag6_mutex);
 
-	if (!TAILQ_EMPTY(&rmq6)) {
-		NET_LOCK();
-		while ((q6 = TAILQ_FIRST(&rmq6)) != NULL) {
-			TAILQ_REMOVE(&rmq6, q6, ip6q_queue);
-			frag6_freef(q6);
-		}
-		NET_UNLOCK();
+	while ((q6 = TAILQ_FIRST(&rmq6)) != NULL) {
+		TAILQ_REMOVE(&rmq6, q6, ip6q_queue);
+		frag6_freef(q6);
 	}
 }

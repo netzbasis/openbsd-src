@@ -1,4 +1,4 @@
-/*	$OpenBSD: usm.c,v 1.11 2016/10/28 08:01:53 rzalamena Exp $	*/
+/*	$OpenBSD: usm.c,v 1.13 2018/08/12 22:04:09 rob Exp $	*/
 
 /*
  * Copyright (c) 2012 GeNUA mbH
@@ -229,7 +229,6 @@ usm_decode(struct snmp_message *msg, struct ber_element *elm, const char **errp)
 		goto done;
 	}
 
-	ber.fd = -1;
 	ber_set_readbuf(&ber, usmparams, len);
 	usm = ber_read_elements(&ber, NULL);
 	if (usm == NULL) {
@@ -337,11 +336,11 @@ usm_encode(struct snmp_message *msg, struct ber_element *e)
 	struct ber_element	*usm, *a, *res = NULL;
 	void			*ptr;
 	char			 digest[SNMP_USM_DIGESTLEN];
-	size_t			 digestlen, saltlen, len;
+	size_t			 digestlen, saltlen;
+	ssize_t			 len;
 
 	msg->sm_digest_offs = 0;
 	bzero(&ber, sizeof(ber));
-	ber.fd = -1;
 
 	usm = ber_add_sequence(NULL);
 
@@ -416,15 +415,13 @@ usm_encrypt(struct snmp_message *msg, struct ber_element *pdu)
 	struct ber		 ber;
 	struct ber_element	*encrpdu = NULL;
 	void			*ptr;
-	int			 len;
-	ssize_t			 elen;
+	ssize_t			 elen, len;
 	u_char			 encbuf[READ_BUF_SIZE];
 
 	if (!MSG_HAS_PRIV(msg))
 		return pdu;
 
 	bzero(&ber, sizeof(ber));
-	ber.fd = -1;
 
 #ifdef DEBUG
 	fprintf(stderr, "encrypted PDU:\n");
@@ -544,7 +541,6 @@ usm_decrypt(struct snmp_message *msg, struct ber_element *encr)
 		return NULL;
 
 	bzero(&ber, sizeof(ber));
-	ber.fd = -1;
 	ber_set_readbuf(&ber, buf, scoped_pdu_len);
 	scoped_pdu = ber_read_elements(&ber, NULL);
 

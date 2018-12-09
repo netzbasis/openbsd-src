@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.162 2017/12/01 10:33:33 bluhm Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.170 2018/11/04 19:36:25 bluhm Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -127,11 +127,9 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
 	struct inpcb *inp;
-	struct tcpcb *tp = NULL;
+	struct tcpcb *otp = NULL, *tp = NULL;
 	int error = 0;
 	short ostate;
-
-	soassertlocked(so);
 
 	if (req == PRU_CONTROL) {
 #ifdef INET6
@@ -143,6 +141,9 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			return (in_control(so, (u_long)m, (caddr_t)nam,
 			    (struct ifnet *)control));
 	}
+
+	soassertlocked(so);
+
 	if (control && control->m_len) {
 		m_freem(control);
 		m_freem(m);
@@ -167,18 +168,15 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			m_freem(m);
 		return (error);
 	}
-	if (inp) {
-		tp = intotcpcb(inp);
-		/* tp might get 0 when using socket splicing */
-		if (tp == NULL) {
-			return (0);
-		}
-#ifdef KPROF
-		tcp_acounts[tp->t_state][req]++;
-#endif
+	tp = intotcpcb(inp);
+	/* tp might get 0 when using socket splicing */
+	if (tp == NULL)
+		return (0);
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
 		ostate = tp->t_state;
-	} else
-		ostate = 0;
+	}
+
 	switch (req) {
 
 	/*
@@ -404,8 +402,8 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	default:
 		panic("tcp_usrreq");
 	}
-	if (tp && (so->so_options & SO_DEBUG))
-		tcp_trace(TA_USER, ostate, tp, (caddr_t)0, req, 0);
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, req, 0);
 	return (error);
 }
 
@@ -583,7 +581,7 @@ tcp_attach(struct socket *so, int proto)
 	inp = sotoinpcb(so);
 	tp = tcp_newtcpcb(inp);
 	if (tp == NULL) {
-		int nofd = so->so_state & SS_NOFDREF;	/* XXX */
+		unsigned int nofd = so->so_state & SS_NOFDREF;	/* XXX */
 
 		so->so_state &= ~SS_NOFDREF;	/* don't free the socket yet */
 		in_pcbdetach(inp);
@@ -603,8 +601,8 @@ tcp_attach(struct socket *so, int proto)
 	if ((so->so_options & SO_LINGER) && so->so_linger == 0)
 		so->so_linger = TCP_LINGERTIME;
 
-	if (tp && (so->so_options & SO_DEBUG))
-		tcp_trace(TA_USER, 0, tp, (caddr_t)0, 0 /* XXX */, 0);
+	if (so->so_options & SO_DEBUG)
+		tcp_trace(TA_USER, TCPS_CLOSED, tp, tp, NULL, PRU_ATTACH, 0);
 	return (0);
 }
 
@@ -612,7 +610,7 @@ int
 tcp_detach(struct socket *so)
 {
 	struct inpcb *inp;
-	struct tcpcb *tp = NULL;
+	struct tcpcb *otp = NULL, *tp = NULL;
 	int error = 0;
 	short ostate;
 
@@ -628,21 +626,16 @@ tcp_detach(struct socket *so)
 		error = so->so_error;
 		if (error == 0)
 			error = EINVAL;
-
 		return (error);
 	}
-	if (inp) {
-		tp = intotcpcb(inp);
-		/* tp might get 0 when using socket splicing */
-		if (tp == NULL) {
-			return (0);
-		}
-#ifdef KPROF
-		tcp_acounts[tp->t_state][req]++;
-#endif
+	tp = intotcpcb(inp);
+	/* tp might get 0 when using socket splicing */
+	if (tp == NULL)
+		return (0);
+	if (so->so_options & SO_DEBUG) {
+		otp = tp;
 		ostate = tp->t_state;
-	} else
-		ostate = 0;
+	}
 
 	/*
 	 * Detach the TCP protocol from the socket.
@@ -651,8 +644,10 @@ tcp_detach(struct socket *so)
 	 * which may finish later; embryonic TCB's can just
 	 * be discarded here.
 	 */
-	tcp_disconnect(tp);
+	tp = tcp_disconnect(tp);
 
+	if (otp)
+		tcp_trace(TA_USER, ostate, tp, otp, NULL, PRU_DETACH, 0);
 	return (error);
 }
 
@@ -1148,8 +1143,9 @@ tcp_update_sndspace(struct tcpcb *tp)
 	if (sbspace(so, &so->so_snd) >= so->so_snd.sb_lowat) {
 		if (nmax < so->so_snd.sb_cc + so->so_snd.sb_lowat)
 			nmax = so->so_snd.sb_cc + so->so_snd.sb_lowat;
-		if (nmax * 2 < so->so_snd.sb_mbcnt + so->so_snd.sb_lowat)
-			nmax = (so->so_snd.sb_mbcnt+so->so_snd.sb_lowat+1) / 2;
+		/* keep in sync with sbreserve() calculation */
+		if (nmax * 8 < so->so_snd.sb_mbcnt + so->so_snd.sb_lowat)
+			nmax = (so->so_snd.sb_mbcnt+so->so_snd.sb_lowat+7) / 8;
 	}
 
 	/* round to MSS boundary */

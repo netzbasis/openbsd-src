@@ -1,4 +1,4 @@
-/*	$OpenBSD: spl.S,v 1.11 2016/05/20 14:37:53 deraadt Exp $	*/
+/*	$OpenBSD: spl.S,v 1.17 2018/07/10 16:01:26 deraadt Exp $	*/
 /*	$NetBSD: spl.S,v 1.3 2004/06/28 09:13:11 fvdl Exp $	*/
 
 /*
@@ -65,8 +65,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define ALIGN_TEXT	.align 16,0x90
-
 #include <machine/asm.h>
 #include <machine/psl.h>
 #include <machine/trap.h>
@@ -86,20 +84,24 @@
 
 	.align 16, 0xcc
 _C_LABEL(splhigh):
+	RETGUARD_SETUP(splhigh, r11)
 	movl	$IPL_HIGH,%eax
 	xchgl	%eax,CPUVAR(ILEVEL)
+	RETGUARD_CHECK(splhigh, r11)
 	ret
 
 	.align 16, 0xcc
 _C_LABEL(splx):
+	RETGUARD_SETUP(splx, r11)
 	movl	4(%esp),%eax
 	movl	%eax,CPUVAR(ILEVEL)
 	testl	%eax,%eax
 	jnz	_C_LABEL(Xspllower)
+	RETGUARD_CHECK(splx, r11)
 	ret
 #endif /* PROF || GPROF */
 #endif
-	
+
 /*
  * Process pending interrupts.
  *
@@ -114,27 +116,31 @@ _C_LABEL(splx):
  * a lower-prio one first, which needs to take the kernel lock -->
  * the sending CPU will never see the that CPU accept the IPI
  */
-IDTVEC(spllower)
+KIDTVEC(spllower)
 	_PROF_PROLOGUE
+	RETGUARD_SETUP(Xspllower, r11)
 	pushq	%rbx
 	pushq	%r13
+	RETGUARD_PUSH(r11)
 	movl	%edi,%ebx
 	leaq	1f(%rip),%r13		# address to resume loop at
 1:	movl	%ebx,%eax		# get cpl
 	movq	CPUVAR(IUNMASK)(,%rax,8),%rax
 	cli
 	andq	CPUVAR(IPENDING),%rax		# any non-masked bits left?
-	jz	2f
-	bsrq	%rax,%rax
-	btrq	%rax,CPUVAR(IPENDING)
-	movq	CPUVAR(ISOURCES)(,%rax,8),%rax
-	jmp	*IS_RECURSE(%rax)
-2:
+	jnz	2f
 	movl	%ebx,CPUVAR(ILEVEL)
 	sti
+	RETGUARD_POP(r11)
 	popq	%r13
 	popq	%rbx
+	RETGUARD_CHECK(Xspllower, r11)
 	ret
+2:	bsrq	%rax,%rax
+	btrq	%rax,CPUVAR(IPENDING)
+	movq	CPUVAR(ISOURCES)(,%rax,8),%rax
+	movq    IS_RECURSE(%rax),%rax
+	jmp     retpoline_rax
 
 /*
  * Handle return from interrupt after device handler finishes.
@@ -143,29 +149,21 @@ IDTVEC(spllower)
  *   ebx - cpl to restore
  *   r13 - address to resume loop at
  */
-IDTVEC(doreti)
-	popq	%rbx			# get previous priority
+KIDTVEC(doreti)
+	movq	IF_PPL(%rsp),%rbx	# get previous priority
 	decl	CPUVAR(IDEPTH)
 	leaq	1f(%rip),%r13
 1:	movl	%ebx,%eax
 	movq	CPUVAR(IUNMASK)(,%rax,8),%rax
 	cli
 	andq	CPUVAR(IPENDING),%rax
-	jz	2f
-	bsrq    %rax,%rax               # slow, but not worth optimizing
+	jnz	2f
+	movl	%ebx,CPUVAR(ILEVEL)
+	testb	$SEL_RPL,TF_CS(%rsp)
+	jnz	intr_user_exit		# Check for ASTs on exit to user mode
+	INTRFASTEXIT
+2:	bsrq    %rax,%rax               # slow, but not worth optimizing
 	btrq    %rax,CPUVAR(IPENDING)
 	movq	CPUVAR(ISOURCES)(,%rax, 8),%rax
-	jmp	*IS_RESUME(%rax)
-2:	/* Check for ASTs on exit to user mode. */
-	movl	%ebx,CPUVAR(ILEVEL)
-5:	CHECK_ASTPENDING(%r11)
-	je	3f
-	testb   $SEL_RPL,TF_CS(%rsp)
-	jz	3f
-4:	CLEAR_ASTPENDING(%r11)
-	sti
-	movq	%rsp, %rdi
-	call	_C_LABEL(ast)
-	cli
-	jmp	5b
-3: 	INTRFASTEXIT
+	movq    IS_RESUME(%rax),%rax
+	jmp     retpoline_rax

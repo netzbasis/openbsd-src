@@ -66,10 +66,10 @@ struct addrtree {
 	struct addrnode *root;
 	/** Number of elements in the tree (not always equal to number of 
 	 * nodes) */
-	unsigned int node_count;
+	uint32_t node_count;
 	/** Maximum number of allowed nodes, will be enforced by LRU list.
 	 * Excluding the root node, 0 for unlimited */
-	unsigned int max_node_count;
+	uint32_t max_node_count;
 	/** Size of tree in bytes */
 	size_t size_bytes;
 	/** Maximum prefix length we are willing to cache. */
@@ -108,7 +108,7 @@ struct addrnode {
 struct addredge {
 	/** address of connected node */
 	addrkey_t *str;
-	/** lenght in bits of str */
+	/** length in bits of str */
 	addrlen_t len;
 	/** child node this edge is connected to */
 	struct addrnode *node;
@@ -137,7 +137,7 @@ size_t addrtree_size(const struct addrtree *tree);
  */
 struct addrtree * 
 addrtree_create(addrlen_t max_depth, void (*delfunc)(void *, void *), 
-	size_t (*sizefunc)(void *), void *env, unsigned int max_node_count);
+	size_t (*sizefunc)(void *), void *env, uint32_t max_node_count);
 
 /** 
  * Free tree and all nodes below.

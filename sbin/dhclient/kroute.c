@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.154 2017/10/23 13:31:35 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.156 2018/06/13 01:37:54 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -221,10 +221,14 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
     unsigned int rtstatic_len)
 {
 	const struct in_addr	 any = { INADDR_ANY };
+	const struct in_addr	 broadcast = { INADDR_BROADCAST };
 	struct in_addr		 dest, gateway, netmask;
+	in_addr_t		 addrnet, gatewaynet;
 	unsigned int		 i, len;
 
 	flush_routes(rtstatic, rtstatic_len);
+
+	addrnet = addr.s_addr & addrmask.s_addr;
 
 	/* Add classless static routes. */
 	i = 0;
@@ -248,19 +252,26 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 			/*
 			 * DEFAULT ROUTE
 			 */
-			if (addrmask.s_addr == INADDR_BROADCAST) {
+			gatewaynet = gateway.s_addr & addrmask.s_addr;
+			if (gatewaynet != addrnet) {
 				/*
 				 * DIRECT ROUTE TO DEFAULT GATEWAY
 				 *
-				 * To be compatible with ISC DHCP behavior on
-				 * Linux, if we were given a /32 IP assignment
-				 * then add a /32 direct route for the gateway
-				 * to make it routable.
+				 * route add -net $gateway
+				 *	-netmask 255.255.255.255
+				 *	-cloning -iface $addr
 				 *
-				 * route add -net $gateway -netmask $addrmask
-				 *     -cloning -iface $addr
+				 * If the default route gateway is not reachable
+				 * via the IP assignment then add a cloning
+				 * direct route for the gateway. Deals with
+				 * weird configs seen in the wild.
+				 *
+				 * e.g. add the route if we were given a /32 IP
+				 * assignment. a.k.a. "make Google Cloud DHCP
+				 * work".
+				 *
 				 */
-				add_route(gateway, addrmask, addr,
+				add_route(gateway, broadcast, addr,
 				    RTF_STATIC | RTF_CLONING);
 			}
 
@@ -655,7 +666,11 @@ default_route_index(int rdomain, int routefd)
 		fatal("start time");
 
 	if (writev(routefd, iov, 3) == -1) {
-		log_warn("%s: writev(RTM_GET)", log_procname);
+		if (errno == ESRCH)
+			log_debug("%s: writev(RTM_GET) - no default route",
+			    log_procname);
+		else
+			log_warn("%s: writev(RTM_GET)", log_procname); 
 		return 0;
 	}
 

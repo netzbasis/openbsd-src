@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.69 2017/12/05 23:59:47 dtucker Exp $ */
+/* $OpenBSD: misc.h,v 1.77 2018/12/07 04:36:09 dtucker Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -31,7 +31,6 @@ struct Forward {
 };
 
 int forward_equals(const struct Forward *, const struct Forward *);
-int bind_permitted(int, uid_t);
 int daemonized(void);
 
 /* Common server and client forwarding options. */
@@ -45,6 +44,7 @@ struct ForwardOptions {
 
 char	*chop(char *);
 char	*strdelim(char **);
+char	*strdelimw(char **);
 int	 set_nonblock(int);
 int	 unset_nonblock(int);
 void	 set_nodelay(int);
@@ -74,7 +74,11 @@ double	 monotime_double(void);
 void	 lowercase(char *s);
 int	 unix_listener(const char *, int, int);
 int	 valid_domain(char *, int, const char **);
+int	 valid_env_name(const char *);
 const char *atoi_err(const char *, int *);
+int	 parse_absolute_time(const char *, uint64_t *);
+void	 format_absolute_time(uint64_t, char *, size_t);
+int	 path_absolute(const char *);
 
 struct passwd *pwcopy(struct passwd *);
 const char *ssh_gai_strerror(int);
@@ -129,7 +133,9 @@ void		put_u32_le(void *, u_int32_t)
 
 struct bwlimit {
 	size_t buflen;
-	u_int64_t rate, thresh, lamt;
+	u_int64_t rate;		/* desired rate in kbit/s */
+	u_int64_t thresh;	/* threshold after which we'll check timers */
+	u_int64_t lamt;		/* amount written in last timer interval */
 	struct timeval bwstart, bwend;
 };
 
@@ -147,12 +153,6 @@ int	 argv_split(const char *, int *, char ***);
 char	*argv_assemble(int, char **argv);
 int	 exited_cleanly(pid_t, const char *, const char *, int);
 
-#define SSH_SUBPROCESS_STDOUT_DISCARD	(1)	/* Discard stdout */
-#define SSH_SUBPROCESS_STDOUT_CAPTURE	(1<<1)	/* Redirect stdout */
-#define SSH_SUBPROCESS_STDERR_DISCARD	(1<<2)	/* Discard stderr */
-pid_t	 subprocess(const char *, struct passwd *,
-    const char *, int, char **, FILE **, u_int flags);
-
 struct stat;
 int	 safe_path(const char *, struct stat *, const char *, uid_t,
 	     char *, size_t);
@@ -168,7 +168,6 @@ int	 safe_path_fd(int, const char *, struct passwd *,
 
 char	*read_passphrase(const char *, int);
 int	 ask_permission(const char *, ...) __attribute__((format(printf, 1, 2)));
-int	 read_keyfile_line(FILE *, const char *, char *, size_t, u_long *);
 
 #define MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
 #define MAXIMUM(a, b)	(((a) > (b)) ? (a) : (b))

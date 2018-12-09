@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_pool.c,v 1.220 2017/08/13 20:26:33 guenther Exp $	*/
+/*	$OpenBSD: subr_pool.c,v 1.223 2018/06/08 15:38:15 guenther Exp $	*/
 /*	$NetBSD: subr_pool.c,v 1.61 2001/09/26 07:14:56 chs Exp $	*/
 
 /*-
@@ -37,6 +37,7 @@
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/pool.h>
+#include <sys/proc.h>
 #include <sys/syslog.h>
 #include <sys/sysctl.h>
 #include <sys/task.h>
@@ -76,7 +77,7 @@ struct pool phpool;
 
 struct pool_lock_ops {
 	void	(*pl_init)(struct pool *, union pool_lock *,
-		    struct lock_type *);
+		    const struct lock_type *);
 	void	(*pl_enter)(union pool_lock * LOCK_FL_VARS);
 	int	(*pl_enter_try)(union pool_lock * LOCK_FL_VARS);
 	void	(*pl_leave)(union pool_lock * LOCK_FL_VARS);
@@ -90,7 +91,7 @@ static const struct pool_lock_ops pool_lock_ops_rw;
 
 #ifdef WITNESS
 #define pl_init(pp, pl) do {						\
-	static struct lock_type __lock_type = { .lt_name = #pl };	\
+	static const struct lock_type __lock_type = { .lt_name = #pl };	\
 	(pp)->pr_lock_ops->pl_init(pp, pl, &__lock_type);		\
 } while (0)
 #else /* WITNESS */
@@ -596,6 +597,11 @@ pool_get(struct pool *pp, int flags)
 		struct pool_get_memory mem = { .v = NULL };
 		struct pool_request pr;
 
+#ifdef DIAGNOSTIC
+		if (ISSET(flags, PR_WAITOK) && curproc == &proc0)
+			panic("%s: cannot sleep for memory during boot",
+			    __func__);
+#endif
 		pl_init(pp, &mem.lock);
 		pool_request_init(&pr, pool_get_done, &mem);
 		pool_request(pp, &pr);
@@ -911,6 +917,8 @@ pool_p_alloc(struct pool *pp, int flags, int *slowdown)
 	struct pool_page_header *ph;
 	struct pool_item *pi;
 	caddr_t addr;
+	unsigned int order;
+	int o;
 	int n;
 
 	pl_assert_unlocked(pp, &pp->pr_lock);
@@ -945,10 +953,19 @@ pool_p_alloc(struct pool *pp, int flags, int *slowdown)
 #endif /* DIAGNOSTIC */
 
 	n = pp->pr_itemsperpage;
+	o = 32;
 	while (n--) {
 		pi = (struct pool_item *)addr;
 		pi->pi_magic = POOL_IMAGIC(ph, pi);
-		XSIMPLEQ_INSERT_TAIL(&ph->ph_items, pi, pi_list);
+
+		if (o == 32) {
+			order = arc4random();
+			o = 0;
+		}
+		if (ISSET(order, 1 << o++))
+			XSIMPLEQ_INSERT_TAIL(&ph->ph_items, pi, pi_list);
+		else
+			XSIMPLEQ_INSERT_HEAD(&ph->ph_items, pi, pi_list);
 
 #ifdef DIAGNOSTIC
 		if (POOL_PHPOISON(ph))
@@ -2173,7 +2190,7 @@ pool_cache_cpus_info(struct pool *pp, void *oldp, size_t *oldlenp)
 
 void
 pool_lock_mtx_init(struct pool *pp, union pool_lock *lock,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	_mtx_init_flags(&lock->prl_mtx, pp->pr_ipl, pp->pr_wchan, 0, type);
 }
@@ -2227,7 +2244,7 @@ static const struct pool_lock_ops pool_lock_ops_mtx = {
 
 void
 pool_lock_rw_init(struct pool *pp, union pool_lock *lock,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	_rw_init_flags(&lock->prl_rwlock, pp->pr_wchan, 0, type);
 }

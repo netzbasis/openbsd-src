@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.108 2017/07/24 11:00:01 friehm Exp $ */
+/*	$OpenBSD: kroute.c,v 1.111 2018/07/10 11:49:04 friehm Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
@@ -127,10 +127,11 @@ kif_init(void)
 }
 
 int
-kr_init(int fs, u_int rdomain)
+kr_init(int fs, u_int rdomain, int redis_label_or_prefix)
 {
 	int		opt = 0, rcvbuf, default_rcvbuf;
 	socklen_t	optlen;
+	int		filter_prio = RTP_OSPF;
 
 	kr_state.fib_sync = fs;
 	kr_state.rdomain = rdomain;
@@ -145,6 +146,18 @@ kr_init(int fs, u_int rdomain)
 	if (setsockopt(kr_state.fd, SOL_SOCKET, SO_USELOOPBACK,
 	    &opt, sizeof(opt)) == -1)
 		log_warn("kr_init: setsockopt");	/* not fatal */
+
+	if (redis_label_or_prefix) {
+		filter_prio = 0;
+		log_info("%s: priority filter disabled", __func__);
+	} else
+		log_debug("%s: priority filter enabled", __func__);
+
+	if (setsockopt(kr_state.fd, AF_ROUTE, ROUTE_PRIOFILTER, &filter_prio,
+	    sizeof(filter_prio)) == -1) {
+		log_warn("%s: setsockopt AF_ROUTE ROUTE_PRIOFILTER", __func__);
+		/* not fatal */
+	}
 
 	/* grow receive buffer, don't wanna miss messages */
 	optlen = sizeof(default_rcvbuf);
@@ -600,12 +613,27 @@ kr_redistribute(struct kroute_node *kh)
 }
 
 void
-kr_reload(void)
+kr_reload(int redis_label_or_prefix)
 {
 	struct kroute_node	*kr, *kn;
 	u_int32_t		 dummy;
 	int			 r;
+	int			 filter_prio = RTP_OSPF;
 
+	/* update the priority filter */
+	if (redis_label_or_prefix) {
+		filter_prio = 0;
+		log_info("%s: priority filter disabled", __func__);
+	} else
+		log_debug("%s: priority filter enabled", __func__);
+
+	if (setsockopt(kr_state.fd, AF_ROUTE, ROUTE_PRIOFILTER, &filter_prio,
+	    sizeof(filter_prio)) == -1) {
+		log_warn("%s: setsockopt AF_ROUTE ROUTE_PRIOFILTER", __func__);
+		/* not fatal */
+	}
+
+	/* update redistribute lists */
 	RB_FOREACH(kr, kroute_tree, &krt) {
 		for (kn = kr; kn; kn = kn->next) {
 			r = ospf_redistribute(&kn->r, &dummy);
@@ -1044,8 +1072,9 @@ void
 if_newaddr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
     struct sockaddr_in *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka;
+	struct kif_node 	*kif;
+	struct kif_addr 	*ka;
+	struct ifaddrchange	 ifn;
 
 	if (ifa == NULL || ifa->sin_family != AF_INET)
 		return;
@@ -1066,15 +1095,21 @@ if_newaddr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
 		ka->dstbrd.s_addr = INADDR_NONE;
 
 	TAILQ_INSERT_TAIL(&kif->addrs, ka, entry);
+
+	ifn.addr = ka->addr;
+	ifn.mask = ka->mask;
+	ifn.dst = ka->dstbrd;
+	ifn.ifindex = ifindex;
+	main_imsg_compose_ospfe(IMSG_IFADDRADD, 0, &ifn, sizeof(ifn));
 }
 
 void
 if_deladdr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
     struct sockaddr_in *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka, *nka;
-	struct ifaddrdel ifc;
+	struct kif_node 	*kif;
+	struct kif_addr		*ka, *nka;
+	struct ifaddrchange	 ifc;
 
 	if (ifa == NULL || ifa->sin_family != AF_INET)
 		return;
@@ -1414,10 +1449,8 @@ rtmsg_process(char *buf, size_t len)
 			if ((sa = rti_info[RTAX_GATEWAY]) != NULL) {
 				switch (sa->sa_family) {
 				case AF_INET:
-					if (rtm->rtm_flags & RTF_CONNECTED) {
+					if (rtm->rtm_flags & RTF_CONNECTED)
 						flags |= F_CONNECTED;
-						break;
-					}
 
 					nexthop.s_addr = ((struct
 					    sockaddr_in *)sa)->sin_addr.s_addr;

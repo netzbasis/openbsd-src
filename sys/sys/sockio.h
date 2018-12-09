@@ -1,4 +1,4 @@
-/*	$OpenBSD: sockio.h,v 1.72 2017/10/24 09:36:13 jsg Exp $	*/
+/*	$OpenBSD: sockio.h,v 1.78 2018/11/29 00:11:23 dlg Exp $	*/
 /*	$NetBSD: sockio.h,v 1.5 1995/08/23 00:40:47 thorpej Exp $	*/
 
 /*-
@@ -89,6 +89,7 @@
 #define	SIOCBRDGDADDR	 _IOW('i', 71, struct ifbareq)	/* delete addr */
 #define	SIOCBRDGFLUSH	 _IOW('i', 72, struct ifbreq)	/* flush addr cache */
 #define	SIOCBRDGADDL	 _IOW('i', 73, struct ifbreq)	/* add local port */
+#define	SIOCBRDGSIFPROT	 _IOW('i', 74, struct ifbreq)	/* set protected grp */
 
 #define SIOCBRDGARL	 _IOW('i', 77, struct ifbrlreq)	/* add bridge rule */
 #define SIOCBRDGFRL	 _IOW('i', 78, struct ifbrlreq)	/* flush brdg rules */
@@ -128,6 +129,7 @@
 #define	SIOCGIFGMEMB   _IOWR('i', 138, struct ifgroupreq) /* get members */
 #define	SIOCGIFGATTR   _IOWR('i', 139, struct ifgroupreq) /* get ifgroup attribs */
 #define	SIOCSIFGATTR   _IOW('i', 140, struct ifgroupreq) /* set ifgroup attribs */
+#define	SIOCGIFGLIST   _IOWR('i', 141, struct ifgroupreq) /* get ifgroup list */
 
 #define	SIOCSIFDESCR	 _IOW('i', 128, struct ifreq)	/* set ifnet descr */
 #define	SIOCGIFDESCR	_IOWR('i', 129, struct ifreq)	/* get ifnet descr */
@@ -189,6 +191,18 @@
 #define	SIOCGUMBINFO	_IOWR('i', 190, struct ifreq)	/* get MBIM info */
 #define	SIOCSUMBPARAM	 _IOW('i', 191, struct ifreq)	/* set MBIM param */
 #define	SIOCGUMBPARAM	_IOWR('i', 192, struct ifreq)	/* get MBIM param */
+
+#define	SIOCSLIFPHYDF	_IOW('i', 193, struct ifreq)	/* set tunnel df/nodf */
+#define	SIOCGLIFPHYDF	_IOWR('i', 194, struct ifreq)	/* set tunnel df/nodf */
+
+#define	SIOCSVNETFLOWID	_IOW('i', 195, struct ifreq)	/* set vnet flowid */
+#define	SIOCGVNETFLOWID	_IOWR('i', 196, struct ifreq)	/* get vnet flowid */
+
+#define	SIOCSTXHPRIO	_IOW('i', 197, struct ifreq)	/* set tx hdr prio */
+#define	SIOCGTXHPRIO	_IOWR('i', 198, struct ifreq)	/* get tx hdr prio */
+
+#define	SIOCSLIFPHYECN	_IOW('i', 199, struct ifreq)	/* set ecn copying */
+#define	SIOCGLIFPHYECN	_IOWR('i', 200, struct ifreq)	/* get ecn copying */
 
 #define	SIOCSVH		_IOWR('i', 245, struct ifreq)	/* set carp param */
 #define	SIOCGVH		_IOWR('i', 246, struct ifreq)	/* get carp param */

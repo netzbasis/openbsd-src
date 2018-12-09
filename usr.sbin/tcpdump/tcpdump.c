@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcpdump.c,v 1.81 2017/12/08 17:04:15 deraadt Exp $	*/
+/*	$OpenBSD: tcpdump.c,v 1.88 2018/11/08 14:06:09 brynet Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -115,6 +115,7 @@ static struct printer printers[] = {
 	{ sl_if_print,			DLT_SLIP },
 	{ sl_bsdos_if_print,		DLT_SLIP_BSDOS },
 	{ ppp_if_print,			DLT_PPP },
+	{ ppp_hdlc_if_print,		DLT_PPP_SERIAL },
 	{ fddi_if_print,		DLT_FDDI },
 	{ null_if_print,		DLT_NULL },
 	{ raw_if_print,			DLT_RAW },
@@ -127,6 +128,7 @@ static struct printer printers[] = {
 	{ ieee802_11_if_print,		DLT_IEEE802_11 },
 	{ ieee802_11_radio_if_print,	DLT_IEEE802_11_RADIO },
 	{ ofp_if_print,			DLT_OPENFLOW },
+	{ usbpcap_if_print,		DLT_USBPCAP },
 	{ NULL,				0 },
 };
 
@@ -345,6 +347,14 @@ main(int argc, char **argv)
 				packettype = PT_VRRP;
 			else if (strcasecmp(optarg, "tcp") == 0)
 				packettype = PT_TCP;
+			else if (strcasecmp(optarg, "gre") == 0)
+				packettype = PT_GRE;
+			else if (strcasecmp(optarg, "vxlan") == 0)
+				packettype = PT_VXLAN;
+			else if (strcasecmp(optarg, "mpls") == 0)
+				packettype = PT_MPLS;
+			else if (strcasecmp(optarg, "tftp") == 0)
+				packettype = PT_TFTP;
 			else if (strcasecmp(optarg, "sack") == 0)
 				/*
 				 * kept for compatibility; DEFAULT_SNAPLEN
@@ -461,6 +471,8 @@ main(int argc, char **argv)
 		bpf_dump(fcode, dflag);
 		exit(0);
 	}
+	if (oflag)
+		oflag = init_pfosfp();
 	init_addrtoname(localnet, netmask);
 
 	if (WFileName) {
@@ -490,8 +502,6 @@ main(int argc, char **argv)
 		(void)fflush(stderr);
 	}
 
-	if (oflag)
-		oflag = init_pfosfp();
 	if (tflag > 0)
 		thiszone = gmt2local(0);
 

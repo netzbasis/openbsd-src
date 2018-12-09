@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_proc.c,v 1.78 2017/12/04 09:51:03 mpi Exp $	*/
+/*	$OpenBSD: kern_proc.c,v 1.85 2018/11/12 15:09:17 visa Exp $	*/
 /*	$NetBSD: kern_proc.c,v 1.14 1996/02/09 18:59:41 christos Exp $	*/
 
 /*
@@ -39,7 +39,7 @@
 #include <sys/buf.h>
 #include <sys/acct.h>
 #include <sys/wait.h>
-#include <sys/file.h>
+#include <sys/rwlock.h>
 #include <ufs/ufs/quota.h>
 #include <sys/uio.h>
 #include <sys/malloc.h>
@@ -48,7 +48,9 @@
 #include <sys/tty.h>
 #include <sys/signalvar.h>
 #include <sys/pool.h>
+#include <sys/vnode.h>
 
+struct rwlock uidinfolk;
 #define	UIHASH(uid)	(&uihashtbl[(uid) & uihash])
 LIST_HEAD(uihashhead, uidinfo) *uihashtbl;
 u_long uihash;		/* size of hash table - 1 */
@@ -73,6 +75,9 @@ struct pool ucred_pool;
 struct pool pgrp_pool;
 struct pool session_pool;
 
+void	pgdelete(struct pgrp *);
+void	fixjobc(struct process *, struct pgrp *, int);
+
 static void orphanpg(struct pgrp *);
 #ifdef DEBUG
 void pgrpdump(void);
@@ -88,6 +93,7 @@ procinit(void)
 	LIST_INIT(&zombprocess);
 	LIST_INIT(&allproc);
 
+	rw_init(&uidinfolk, "uidinfo");
 
 	tidhashtbl = hashinit(maxthread / 4, M_PROC, M_NOWAIT, &tidhash);
 	pidhashtbl = hashinit(maxprocess / 4, M_PROC, M_NOWAIT, &pidhash);
@@ -102,7 +108,7 @@ procinit(void)
 	    PR_WAITOK, "processpl", NULL);
 	pool_init(&rusage_pool, sizeof(struct rusage), 0, IPL_NONE,
 	    PR_WAITOK, "zombiepl", NULL);
-	pool_init(&ucred_pool, sizeof(struct ucred), 0, IPL_NONE,
+	pool_init(&ucred_pool, sizeof(struct ucred), 0, IPL_MPFLOOR,
 	    PR_WAITOK, "ucredpl", NULL);
 	pool_init(&pgrp_pool, sizeof(struct pgrp), 0, IPL_NONE,
 	    PR_WAITOK, "pgrppl", NULL);
@@ -110,6 +116,10 @@ procinit(void)
 	    PR_WAITOK, "sessionpl", NULL);
 }
 
+/*
+ * This returns with `uidinfolk' held: caller must call uid_release()
+ * after making whatever change they needed.
+ */
 struct uidinfo *
 uid_find(uid_t uid)
 {
@@ -117,12 +127,15 @@ uid_find(uid_t uid)
 	struct uihashhead *uipp;
 
 	uipp = UIHASH(uid);
+	rw_enter_write(&uidinfolk);
 	LIST_FOREACH(uip, uipp, ui_hash)
 		if (uip->ui_uid == uid)
 			break;
 	if (uip)
 		return (uip);
+	rw_exit_write(&uidinfolk);
 	nuip = malloc(sizeof(*nuip), M_PROC, M_WAITOK|M_ZERO);
+	rw_enter_write(&uidinfolk);
 	LIST_FOREACH(uip, uipp, ui_hash)
 		if (uip->ui_uid == uid)
 			break;
@@ -136,6 +149,12 @@ uid_find(uid_t uid)
 	return (nuip);
 }
 
+void
+uid_release(struct uidinfo *uip)
+{
+	rw_exit_write(&uidinfolk);
+}
+
 /*
  * Change the count associated with number of threads
  * a given user is using.
@@ -144,12 +163,14 @@ int
 chgproccnt(uid_t uid, int diff)
 {
 	struct uidinfo *uip;
+	long count;
 
 	uip = uid_find(uid);
-	uip->ui_proccnt += diff;
-	if (uip->ui_proccnt < 0)
+	count = (uip->ui_proccnt += diff);
+	uid_release(uip);
+	if (count < 0)
 		panic("chgproccnt: procs < 0");
-	return (uip->ui_proccnt);
+	return count;
 }
 
 /*
@@ -222,67 +243,55 @@ zombiefind(pid_t pid)
 }
 
 /*
- * Move p to a new or existing process group (and session)
- * Caller provides a pre-allocated pgrp and session that should
- * be freed if they are not used.
- * XXX need proctree lock
+ * Move process to a new process group.  If a session is provided
+ * then it's a new session to contain this process group; otherwise
+ * the process is staying within its existing session.
  */
-int
-enterpgrp(struct process *pr, pid_t pgid, struct pgrp *newpgrp,
-    struct session *newsess)
+void
+enternewpgrp(struct process *pr, struct pgrp *pgrp, struct session *newsess)
 {
-	struct pgrp *pgrp = pgfind(pgid);
-
 #ifdef DIAGNOSTIC
-	if (pgrp != NULL && newsess)	/* firewalls */
-		panic("enterpgrp: setsid into non-empty pgrp");
 	if (SESS_LEADER(pr))
-		panic("enterpgrp: session leader attempted setpgrp");
-#endif
-	if (pgrp == NULL) {
-		/*
-		 * new process group
-		 */
-#ifdef DIAGNOSTIC
-		if (pr->ps_pid != pgid)
-			panic("enterpgrp: new pgrp and pid != pgid");
+		panic("%s: session leader attempted setpgrp", __func__);
 #endif
 
-		pgrp = newpgrp;
-		if (newsess) {
-			/*
-			 * new session
-			 */
-			newsess->s_leader = pr;
-			newsess->s_count = 1;
-			newsess->s_ttyvp = NULL;
-			newsess->s_ttyp = NULL;
-			memcpy(newsess->s_login, pr->ps_session->s_login,
-			    sizeof(newsess->s_login));
-			atomic_clearbits_int(&pr->ps_flags, PS_CONTROLT);
-			pgrp->pg_session = newsess;
+	if (newsess != NULL) {
+		/*
+		 * New session.  Initialize it completely
+		 */
+		timeout_set(&newsess->s_verauthto, zapverauth, newsess);
+		newsess->s_leader = pr;
+		newsess->s_count = 1;
+		newsess->s_ttyvp = NULL;
+		newsess->s_ttyp = NULL;
+		memcpy(newsess->s_login, pr->ps_session->s_login,
+		    sizeof(newsess->s_login));
+		atomic_clearbits_int(&pr->ps_flags, PS_CONTROLT);
+		pgrp->pg_session = newsess;
 #ifdef DIAGNOSTIC
-			if (pr != curproc->p_p)
-				panic("enterpgrp: mksession but not curproc");
+		if (pr != curproc->p_p)
+			panic("%s: mksession but not curproc", __func__);
 #endif
-		} else {
-			pgrp->pg_session = pr->ps_session;
-			pgrp->pg_session->s_count++;
-		}
-		pgrp->pg_id = pgid;
-		LIST_INIT(&pgrp->pg_members);
-		LIST_INSERT_HEAD(PGRPHASH(pgid), pgrp, pg_hash);
-		pgrp->pg_jobc = 0;
-	} else if (pgrp == pr->ps_pgrp) {
-		if (newsess)
-			pool_put(&session_pool, newsess);
-		pool_put(&pgrp_pool, newpgrp);
-		return (0);
 	} else {
-		if (newsess)
-			pool_put(&session_pool, newsess);
-		pool_put(&pgrp_pool, newpgrp);
+		pgrp->pg_session = pr->ps_session;
+		pgrp->pg_session->s_count++;
 	}
+	pgrp->pg_id = pr->ps_pid;
+	LIST_INIT(&pgrp->pg_members);
+	LIST_INIT(&pgrp->pg_sigiolst);
+	LIST_INSERT_HEAD(PGRPHASH(pr->ps_pid), pgrp, pg_hash);
+	pgrp->pg_jobc = 0;
+
+	enterthispgrp(pr, pgrp);
+}
+
+/*
+ * move process to an existing process group
+ */
+void
+enterthispgrp(struct process *pr, struct pgrp *pgrp)
+{
+	struct pgrp *savepgrp = pr->ps_pgrp;
 
 	/*
 	 * Adjust eligibility of affected pgrps to participate in job control.
@@ -290,14 +299,13 @@ enterpgrp(struct process *pr, pid_t pgid, struct pgrp *newpgrp,
 	 * could reach 0 spuriously during the first call.
 	 */
 	fixjobc(pr, pgrp, 1);
-	fixjobc(pr, pr->ps_pgrp, 0);
+	fixjobc(pr, savepgrp, 0);
 
 	LIST_REMOVE(pr, ps_pglist);
-	if (LIST_EMPTY(&pr->ps_pgrp->pg_members))
-		pgdelete(pr->ps_pgrp);
 	pr->ps_pgrp = pgrp;
 	LIST_INSERT_HEAD(&pgrp->pg_members, pr, ps_pglist);
-	return (0);
+	if (LIST_EMPTY(&savepgrp->pg_members))
+		pgdelete(savepgrp);
 }
 
 /*
@@ -321,6 +329,7 @@ leavepgrp(struct process *pr)
 void
 pgdelete(struct pgrp *pgrp)
 {
+	sigio_freelist(&pgrp->pg_sigiolst);
 
 	if (pgrp->pg_session->s_ttyp != NULL && 
 	    pgrp->pg_session->s_ttyp->t_pgrp == pgrp)
@@ -381,6 +390,48 @@ fixjobc(struct process *pr, struct pgrp *pgrp, int entering)
 			else if (--hispgrp->pg_jobc == 0)
 				orphanpg(hispgrp);
 		}
+}
+
+void
+killjobc(struct process *pr)
+{
+	if (SESS_LEADER(pr)) {
+		struct session *sp = pr->ps_session;
+
+		if (sp->s_ttyvp) {
+			struct vnode *ovp;
+
+			/*
+			 * Controlling process.
+			 * Signal foreground pgrp,
+			 * drain controlling terminal
+			 * and revoke access to controlling terminal.
+			 */
+			if (sp->s_ttyp->t_session == sp) {
+				if (sp->s_ttyp->t_pgrp)
+					pgsignal(sp->s_ttyp->t_pgrp, SIGHUP, 1);
+				ttywait(sp->s_ttyp);
+				/*
+				 * The tty could have been revoked
+				 * if we blocked.
+				 */
+				if (sp->s_ttyvp)
+					VOP_REVOKE(sp->s_ttyvp, REVOKEALL);
+			}
+			ovp = sp->s_ttyvp;
+			sp->s_ttyvp = NULL;
+			if (ovp)
+				vrele(ovp);
+			/*
+			 * s_ttyp is not zero'd; we use this to
+			 * indicate that the session once had a
+			 * controlling terminal.  (for logging and
+			 * informational purposes)
+			 */
+		}
+		sp->s_leader = NULL;
+	}
+	fixjobc(pr, pr->ps_pgrp, 0);
 }
 
 /* 
@@ -458,6 +509,7 @@ db_kill_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 	memset(&sa, 0, sizeof sa);
 	sa.sa_handler = SIG_DFL;
 	setsigvec(p, SIGABRT, &sa);
+	atomic_clearbits_int(&p->p_sigmask, sigmask(SIGABRT));
 	psignal(p, SIGABRT);
 }
 

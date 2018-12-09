@@ -1,4 +1,4 @@
-/*	$OpenBSD: error.c,v 1.12 2015/12/26 13:48:38 mestre Exp $	*/
+/*	$OpenBSD: error.c,v 1.17 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: err.c,v 1.6 1995/03/21 09:02:47 cgd Exp $	*/
 
 /*-
@@ -289,7 +289,7 @@ seterror(int id, ...)
 	vsnprintf(berr, sizeof(berr), errorlist[id], va);
 	va_end(va);
 
-	seterr = strsave(berr);
+	seterr = xstrdup(berr);
     }
 }
 
@@ -315,7 +315,6 @@ void
 stderror(int id, ...)
 {
     va_list va;
-    Char **v;
     int     flags = id & ERR_FLAGS;
 
     id &= ~ERR_FLAGS;
@@ -346,15 +345,13 @@ stderror(int id, ...)
 	}
     }
 
-    if (seterr) {
-	free(seterr);
-	seterr = NULL;
-    }
+    free(seterr);
+    seterr = NULL;
 
-    if ((v = pargv) != NULL)
-	pargv = 0, blkfree(v);
-    if ((v = gargv) != NULL)
-	gargv = 0, blkfree(v);
+    blkfree(pargv);
+    pargv = NULL;
+    blkfree(gargv);
+    gargv = NULL;
 
     (void) fflush(cshout);
     (void) fflush(csherr);

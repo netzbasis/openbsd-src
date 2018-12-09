@@ -1,4 +1,4 @@
-/bus_dma.c/1.3/Tue Sep  1 08:44:34 2015//
+/bus_dma.c/1.5/Thu Jan 11 15:49:34 2018//
 /bus_space.c/1.5/Mon Feb  9 13:35:44 2015//
 /copystr.c/1.8/Wed Oct 15 02:43:09 2003//
 /cpu_subr.c/1.8/Mon Apr 27 07:20:57 2015//
@@ -7,12 +7,11 @@
 /in_cksum.c/1.10/Tue Jul 22 10:35:35 2014//
 /intr.c/1.9/Sun Sep 13 14:06:40 2015//
 /lock_machdep.c/1.7/Mon Dec  4 09:51:03 2017//
-/mutex.c/1.7/Mon Sep 11 09:52:15 2017//
-/pmap.c/1.167/Tue May 16 20:52:54 2017//
+/pmap.c/1.168/Mon Oct 22 17:31:25 2018//
 /process_machdep.c/1.13/Sun Sep  9 20:49:18 2007//
 /setjmp.S/1.9/Wed May 21 19:42:07 2008//
 /softintr.c/1.9/Tue Jul 25 03:46:59 2017//
 /sys_machdep.c/1.4/Wed Oct 15 02:43:09 2003//
-/trap.c/1.106/Tue Dec 20 12:08:01 2016//
+/trap.c/1.107/Thu Apr 12 17:13:44 2018//
 /vm_machdep.c/1.49/Sun Feb 12 04:55:08 2017//
 D

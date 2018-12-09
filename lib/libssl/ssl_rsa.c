@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_rsa.c,v 1.28 2017/02/07 02:08:38 beck Exp $ */
+/* $OpenBSD: ssl_rsa.c,v 1.30 2018/11/08 20:55:18 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -77,10 +77,6 @@ SSL_use_certificate(SSL *ssl, X509 *x)
 		SSLerror(ssl, ERR_R_PASSED_NULL_PARAMETER);
 		return (0);
 	}
-	if (!ssl_cert_inst(&ssl->cert)) {
-		SSLerror(ssl, ERR_R_MALLOC_FAILURE);
-		return (0);
-	}
 	return (ssl_set_cert(ssl->cert, x));
 }
 
@@ -133,7 +129,7 @@ SSL_use_certificate_ASN1(SSL *ssl, const unsigned char *d, int len)
 	X509 *x;
 	int ret;
 
-	x = d2i_X509(NULL, &d,(long)len);
+	x = d2i_X509(NULL, &d, (long)len);
 	if (x == NULL) {
 		SSLerror(ssl, ERR_R_ASN1_LIB);
 		return (0);
@@ -152,10 +148,6 @@ SSL_use_RSAPrivateKey(SSL *ssl, RSA *rsa)
 
 	if (rsa == NULL) {
 		SSLerror(ssl, ERR_R_PASSED_NULL_PARAMETER);
-		return (0);
-	}
-	if (!ssl_cert_inst(&ssl->cert)) {
-		SSLerror(ssl, ERR_R_MALLOC_FAILURE);
 		return (0);
 	}
 	if ((pkey = EVP_PKEY_new()) == NULL) {
@@ -254,14 +246,12 @@ end:
 }
 
 int
-SSL_use_RSAPrivateKey_ASN1(SSL *ssl, unsigned char *d, long len)
+SSL_use_RSAPrivateKey_ASN1(SSL *ssl, const unsigned char *d, long len)
 {
 	int ret;
-	const unsigned char *p;
 	RSA *rsa;
 
-	p = d;
-	if ((rsa = d2i_RSAPrivateKey(NULL, &p,(long)len)) == NULL) {
+	if ((rsa = d2i_RSAPrivateKey(NULL, &d, (long)len)) == NULL) {
 		SSLerror(ssl, ERR_R_ASN1_LIB);
 		return (0);
 	}
@@ -278,10 +268,6 @@ SSL_use_PrivateKey(SSL *ssl, EVP_PKEY *pkey)
 
 	if (pkey == NULL) {
 		SSLerror(ssl, ERR_R_PASSED_NULL_PARAMETER);
-		return (0);
-	}
-	if (!ssl_cert_inst(&ssl->cert)) {
-		SSLerror(ssl, ERR_R_MALLOC_FAILURE);
 		return (0);
 	}
 	ret = ssl_set_pkey(ssl->cert, pkey);
@@ -332,11 +318,9 @@ int
 SSL_use_PrivateKey_ASN1(int type, SSL *ssl, const unsigned char *d, long len)
 {
 	int ret;
-	const unsigned char *p;
 	EVP_PKEY *pkey;
 
-	p = d;
-	if ((pkey = d2i_PrivateKey(type, NULL, &p,(long)len)) == NULL) {
+	if ((pkey = d2i_PrivateKey(type, NULL, &d, (long)len)) == NULL) {
 		SSLerror(ssl, ERR_R_ASN1_LIB);
 		return (0);
 	}
@@ -351,10 +335,6 @@ SSL_CTX_use_certificate(SSL_CTX *ctx, X509 *x)
 {
 	if (x == NULL) {
 		SSLerrorx(ERR_R_PASSED_NULL_PARAMETER);
-		return (0);
-	}
-	if (!ssl_cert_inst(&ctx->internal->cert)) {
-		SSLerrorx(ERR_R_MALLOC_FAILURE);
 		return (0);
 	}
 	return (ssl_set_cert(ctx->internal->cert, x));
@@ -465,7 +445,7 @@ SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, int len, const unsigned char *d)
 	X509 *x;
 	int ret;
 
-	x = d2i_X509(NULL, &d,(long)len);
+	x = d2i_X509(NULL, &d, (long)len);
 	if (x == NULL) {
 		SSLerrorx(ERR_R_ASN1_LIB);
 		return (0);
@@ -484,10 +464,6 @@ SSL_CTX_use_RSAPrivateKey(SSL_CTX *ctx, RSA *rsa)
 
 	if (rsa == NULL) {
 		SSLerrorx(ERR_R_PASSED_NULL_PARAMETER);
-		return (0);
-	}
-	if (!ssl_cert_inst(&ctx->internal->cert)) {
-		SSLerrorx(ERR_R_MALLOC_FAILURE);
 		return (0);
 	}
 	if ((pkey = EVP_PKEY_new()) == NULL) {
@@ -547,11 +523,9 @@ int
 SSL_CTX_use_RSAPrivateKey_ASN1(SSL_CTX *ctx, const unsigned char *d, long len)
 {
 	int ret;
-	const unsigned char *p;
 	RSA *rsa;
 
-	p = d;
-	if ((rsa = d2i_RSAPrivateKey(NULL, &p,(long)len)) == NULL) {
+	if ((rsa = d2i_RSAPrivateKey(NULL, &d, (long)len)) == NULL) {
 		SSLerrorx(ERR_R_ASN1_LIB);
 		return (0);
 	}
@@ -566,10 +540,6 @@ SSL_CTX_use_PrivateKey(SSL_CTX *ctx, EVP_PKEY *pkey)
 {
 	if (pkey == NULL) {
 		SSLerrorx(ERR_R_PASSED_NULL_PARAMETER);
-		return (0);
-	}
-	if (!ssl_cert_inst(&ctx->internal->cert)) {
-		SSLerrorx(ERR_R_MALLOC_FAILURE);
 		return (0);
 	}
 	return (ssl_set_pkey(ctx->internal->cert, pkey));
@@ -620,11 +590,9 @@ SSL_CTX_use_PrivateKey_ASN1(int type, SSL_CTX *ctx, const unsigned char *d,
     long len)
 {
 	int ret;
-	const unsigned char *p;
 	EVP_PKEY *pkey;
 
-	p = d;
-	if ((pkey = d2i_PrivateKey(type, NULL, &p,(long)len)) == NULL) {
+	if ((pkey = d2i_PrivateKey(type, NULL, &d, (long)len)) == NULL) {
 		SSLerrorx(ERR_R_ASN1_LIB);
 		return (0);
 	}

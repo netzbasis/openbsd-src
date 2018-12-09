@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.210 2017/11/23 13:45:46 mpi Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.216 2018/11/09 14:14:32 claudio Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -92,6 +92,7 @@
 #include <netinet/in_pcb.h>
 #include <netinet/ip_var.h>
 #include <netinet6/in6_var.h>
+#include <netinet6/in6_ifattach.h>
 #include <netinet/ip6.h>
 #include <netinet6/ip6_var.h>
 #include <netinet/icmp6.h>
@@ -118,12 +119,15 @@ struct niqueue ip6intrq = NIQUEUE_INITIALIZER(IPQ_MAXLEN, NETISR_IPV6);
 
 struct cpumem *ip6counters;
 
+uint8_t ip6_soiikey[IP6_SOIIKEY_LEN];
+
 int ip6_ours(struct mbuf **, int *, int, int);
 int ip6_local(struct mbuf **, int *, int, int);
 int ip6_check_rh0hdr(struct mbuf *, int *);
 int ip6_hbhchcheck(struct mbuf *, int *, int *, int *);
 int ip6_hopopts_input(u_int32_t *, u_int32_t *, struct mbuf **, int *);
 struct mbuf *ip6_pullexthdr(struct mbuf *, size_t, int);
+int ip6_sysctl_soiikey(void *, size_t *, void *, size_t);
 
 static struct mbuf_queue	ip6send_mq;
 
@@ -241,8 +245,7 @@ ip6_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
 	}
 
 #if NCARP > 0
-	if (ifp->if_type == IFT_CARP &&
-	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
+	if (carp_lsdrop(ifp, m, AF_INET6, ip6->ip6_src.s6_addr32,
 	    ip6->ip6_dst.s6_addr32, (ip6->ip6_nxt == IPPROTO_ICMPV6 ? 0 : 1)))
 		goto bad;
 #endif
@@ -491,8 +494,8 @@ ip6_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
 	}
 
 #if NCARP > 0
-	if (ifp->if_type == IFT_CARP && ip6->ip6_nxt == IPPROTO_ICMPV6 &&
-	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
+	if (ip6->ip6_nxt == IPPROTO_ICMPV6 &&
+	    carp_lsdrop(ifp, m, AF_INET6, ip6->ip6_src.s6_addr32,
 	    ip6->ip6_dst.s6_addr32, 1))
 		goto bad;
 #endif
@@ -1177,7 +1180,7 @@ ip6_pullexthdr(struct mbuf *m, size_t off, int nxt)
 		return NULL;
 
 	n->m_len = 0;
-	if (elen >= M_TRAILINGSPACE(n)) {
+	if (elen >= m_trailingspace(n)) {
 		m_free(n);
 		return NULL;
 	}
@@ -1188,50 +1191,44 @@ ip6_pullexthdr(struct mbuf *m, size_t off, int nxt)
 }
 
 /*
- * Get pointer to the previous header followed by the header
+ * Get offset to the previous header followed by the header
  * currently processed.
- * XXX: This function supposes that
- *	M includes all headers,
- *	the next header field and the header length field of each header
- *	are valid, and
- *	the sum of each header length equals to OFF.
- * Because of these assumptions, this function must be called very
- * carefully. Moreover, it will not be used in the near future when
- * we develop `neater' mechanism to process extension headers.
  */
-u_int8_t *
+int
 ip6_get_prevhdr(struct mbuf *m, int off)
 {
 	struct ip6_hdr *ip6 = mtod(m, struct ip6_hdr *);
 
-	if (off == sizeof(struct ip6_hdr))
-		return (&ip6->ip6_nxt);
-	else {
-		int len, nxt;
-		struct ip6_ext *ip6e = NULL;
+	if (off == sizeof(struct ip6_hdr)) {
+		return offsetof(struct ip6_hdr, ip6_nxt);
+	} else if (off < sizeof(struct ip6_hdr)) {
+		panic("%s: off < sizeof(struct ip6_hdr)", __func__);
+	} else {
+		int len, nlen, nxt;
+		struct ip6_ext ip6e;
 
 		nxt = ip6->ip6_nxt;
 		len = sizeof(struct ip6_hdr);
+		nlen = 0;
 		while (len < off) {
-			ip6e = (struct ip6_ext *)(mtod(m, caddr_t) + len);
+			m_copydata(m, len, sizeof(ip6e), (caddr_t)&ip6e);
 
 			switch (nxt) {
 			case IPPROTO_FRAGMENT:
-				len += sizeof(struct ip6_frag);
+				nlen = sizeof(struct ip6_frag);
 				break;
 			case IPPROTO_AH:
-				len += (ip6e->ip6e_len + 2) << 2;
+				nlen = (ip6e.ip6e_len + 2) << 2;
 				break;
 			default:
-				len += (ip6e->ip6e_len + 1) << 3;
+				nlen = (ip6e.ip6e_len + 1) << 3;
 				break;
 			}
-			nxt = ip6e->ip6e_nxt;
+			len += nlen;
+			nxt = ip6e.ip6e_nxt;
 		}
-		if (ip6e)
-			return (&ip6e->ip6e_nxt);
-		else
-			return NULL;
+
+		return (len - nlen);
 	}
 }
 
@@ -1373,6 +1370,35 @@ ip6_sysctl_ip6stat(void *oldp, size_t *oldlenp, void *newp)
 }
 
 int
+ip6_sysctl_soiikey(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
+{
+	struct ifnet *ifp;
+	uint8_t oldkey[IP6_SOIIKEY_LEN];
+	int error;
+
+	error = suser(curproc);
+	if (error != 0)
+		return (error);
+
+	memcpy(oldkey, ip6_soiikey, sizeof(oldkey));
+
+	error = sysctl_struct(oldp, oldlenp, newp, newlen, ip6_soiikey,
+	    sizeof(ip6_soiikey));
+
+	if (!error && memcmp(ip6_soiikey, oldkey, sizeof(oldkey)) != 0) {
+		TAILQ_FOREACH(ifp, &ifnet, if_list) {
+			if (ifp->if_flags & IFF_LOOPBACK)
+				continue;
+			NET_LOCK();
+			in6_soiiupdate(ifp);
+			NET_UNLOCK();
+		}
+	}
+
+	return (error);
+}
+
+int
 ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen)
 {
@@ -1435,6 +1461,8 @@ ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	case IPV6CTL_IFQUEUE:
 		return (sysctl_niq(name + 1, namelen - 1,
 		    oldp, oldlenp, newp, newlen, &ip6intrq));
+	case IPV6CTL_SOIIKEY:
+		return (ip6_sysctl_soiikey(oldp, oldlenp, newp, newlen));
 	default:
 		if (name[0] < IPV6CTL_MAXID) {
 			NET_LOCK();

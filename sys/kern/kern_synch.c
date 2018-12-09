@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.142 2017/12/04 09:38:20 mpi Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.146 2018/05/31 02:16:22 guenther Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -107,7 +107,6 @@ int
 tsleep(const volatile void *ident, int priority, const char *wmesg, int timo)
 {
 	struct sleep_state sls;
-	int error, error1;
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
@@ -146,15 +145,23 @@ tsleep(const volatile void *ident, int priority, const char *wmesg, int timo)
 	sleep_setup_timeout(&sls, timo);
 	sleep_setup_signal(&sls, priority);
 
-	sleep_finish(&sls, 1);
-	error1 = sleep_finish_timeout(&sls);
-	error = sleep_finish_signal(&sls);
+	return sleep_finish_all(&sls, 1);
+}
+
+int
+sleep_finish_all(struct sleep_state *sls, int do_sleep)
+{
+	int error, error1;
+
+	sleep_finish(sls, do_sleep);
+	error1 = sleep_finish_timeout(sls);
+	error = sleep_finish_signal(sls);
 
 	/* Signal errors are higher priority than timeouts. */
 	if (error == 0 && error1 != 0)
 		error = error1;
 
-	return (error);
+	return error;
 }
 
 /*
@@ -166,7 +173,7 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
     const char *wmesg, int timo)
 {
 	struct sleep_state sls;
-	int error, error1, spl;
+	int error, spl;
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
@@ -213,9 +220,7 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 	MUTEX_OLDIPL(mtx) = splsched();
 	mtx_leave(mtx);
 
-	sleep_finish(&sls, 1);
-	error1 = sleep_finish_timeout(&sls);
-	error = sleep_finish_signal(&sls);
+	error = sleep_finish_all(&sls, 1);
 
 	if ((priority & PNORELOCK) == 0) {
 		mtx_enter(mtx);
@@ -224,11 +229,7 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 	} else
 		splx(spl);
 
-	/* Signal errors are higher priority than timeouts. */
-	if (error == 0 && error1 != 0)
-		error = error1;
-
-	return (error);
+	return error;
 }
 
 /*
@@ -236,38 +237,33 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
  * entered the sleep queue we drop the it. After sleeping we re-lock.
  */
 int
-rwsleep(const volatile void *ident, struct rwlock *wl, int priority,
+rwsleep(const volatile void *ident, struct rwlock *rwl, int priority,
     const char *wmesg, int timo)
 {
 	struct sleep_state sls;
-	int error, error1;
+	int error, status;
 	WITNESS_SAVE_DECL(lock_fl);
 
 	KASSERT((priority & ~(PRIMASK | PCATCH | PNORELOCK)) == 0);
-	rw_assert_wrlock(wl);
+	rw_assert_anylock(rwl);
+	status = rw_status(rwl);
 
 	sleep_setup(&sls, ident, priority, wmesg);
 	sleep_setup_timeout(&sls, timo);
 	sleep_setup_signal(&sls, priority);
 
-	WITNESS_SAVE(&wl->rwl_lock_obj, lock_fl);
+	WITNESS_SAVE(&rwl->rwl_lock_obj, lock_fl);
 
-	rw_exit_write(wl);
+	rw_exit(rwl);
 
-	sleep_finish(&sls, 1);
-	error1 = sleep_finish_timeout(&sls);
-	error = sleep_finish_signal(&sls);
+	error = sleep_finish_all(&sls, 1);
 
 	if ((priority & PNORELOCK) == 0) {
-		rw_enter_write(wl);
-		WITNESS_RESTORE(&wl->rwl_lock_obj, lock_fl);
+		rw_enter(rwl, status);
+		WITNESS_RESTORE(&rwl->rwl_lock_obj, lock_fl);
 	}
 
-	/* Signal errors are higher priority than timeouts. */
-	if (error == 0 && error1 != 0)
-		error = error1;
-
-	return (error);
+	return error;
 }
 
 void
@@ -592,7 +588,7 @@ out:
 	p->p_thrslpid = 0;
 
 	if (error == ERESTART)
-		error = EINTR;
+		error = ECANCELED;
 
 	return (error);
 
@@ -614,13 +610,17 @@ sys___thrsleep(struct proc *p, void *v, register_t *retval)
 	if (SCARG(uap, tp) != NULL) {
 		if ((error = copyin(SCARG(uap, tp), &ts, sizeof(ts)))) {
 			*retval = error;
-			return (0);
+			return 0;
+		}
+		if (ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000) {
+			*retval = EINVAL;
+			return 0;
 		}
 		SCARG(uap, tp) = &ts;
 	}
 
 	*retval = thrsleep(p, uap);
-	return (0);
+	return 0;
 }
 
 int
@@ -702,5 +702,33 @@ refcnt_finalize(struct refcnt *r, const char *wmesg)
 		sleep_setup(&sls, r, PWAIT, wmesg);
 		refcnt = r->refs;
 		sleep_finish(&sls, refcnt);
+	}
+}
+
+void
+cond_init(struct cond *c)
+{
+	c->c_wait = 1;
+}
+
+void
+cond_signal(struct cond *c)
+{
+	c->c_wait = 0;
+
+	wakeup_one(c);
+}
+
+void
+cond_wait(struct cond *c, const char *wmesg)
+{
+	struct sleep_state sls;
+	int wait;
+
+	wait = c->c_wait;
+	while (wait) {
+		sleep_setup(&sls, c, PWAIT, wmesg);
+		wait = c->c_wait;
+		sleep_finish(&sls, wait);
 	}
 }

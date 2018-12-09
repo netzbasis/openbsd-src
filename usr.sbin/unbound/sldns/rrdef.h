@@ -182,9 +182,7 @@ enum sldns_enum_rr_type
 	LDNS_RR_TYPE_NSEC3PARAM = 51, /* RFC 5155 */
 	LDNS_RR_TYPE_NSEC3PARAMS = 51,
 	LDNS_RR_TYPE_TLSA = 52, /* RFC 6698 */
-	LDNS_RR_TYPE_SMIMEA = 53, /* draft-ietf-dane-smime, TLSA-like but may
-				     be extended */
-
+	LDNS_RR_TYPE_SMIMEA = 53, /* RFC 8162 */
 	LDNS_RR_TYPE_HIP = 55, /* RFC 5205 */
 
 	/** draft-reid-dnsext-zs */
@@ -331,13 +329,13 @@ enum sldns_enum_rdf_type
         LDNS_RDF_TYPE_NSEC3_NEXT_OWNER,
 
         /** 4 shorts represented as 4 * 16 bit hex numbers
-         *  seperated by colons. For NID and L64.
+         *  separated by colons. For NID and L64.
          */
         LDNS_RDF_TYPE_ILNP64,
 
-        /** 6 * 8 bit hex numbers seperated by dashes. For EUI48. */
+        /** 6 * 8 bit hex numbers separated by dashes. For EUI48. */
         LDNS_RDF_TYPE_EUI48,
-        /** 8 * 8 bit hex numbers seperated by dashes. For EUI64. */
+        /** 8 * 8 bit hex numbers separated by dashes. For EUI64. */
         LDNS_RDF_TYPE_EUI64,
 
         /** A non-zero sequence of US-ASCII letters and numbers in lower case.

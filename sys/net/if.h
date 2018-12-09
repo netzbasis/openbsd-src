@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.h,v 1.188 2017/11/09 09:07:01 tb Exp $	*/
+/*	$OpenBSD: if.h,v 1.198 2018/11/12 23:34:48 dlg Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -58,6 +58,10 @@ __END_DECLS
 #endif
 
 #if __BSD_VISIBLE
+
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/socket.h>
 
 /*
  * Structure used to query names of interface cloners.
@@ -122,8 +126,11 @@ struct	if_data {
 };
 
 #define IFQ_NQUEUES	8
+#define IFQ_MINPRIO	0
 #define IFQ_MAXPRIO	IFQ_NQUEUES - 1
 #define IFQ_DEFPRIO	3
+#define IFQ_PRIO2TOS(_p) ((_p) << 5)
+#define IFQ_TOS2PRIO(_t) ((_t) >> 5)
 
 /*
  * Values for if_link_state.
@@ -184,34 +191,44 @@ struct if_status_description {
  */
 #define	IFDESCRSIZE	64
 
-#define	IFF_UP		0x1		/* interface is up */
-#define	IFF_BROADCAST	0x2		/* broadcast address valid */
-#define	IFF_DEBUG	0x4		/* turn on debugging */
-#define	IFF_LOOPBACK	0x8		/* is a loopback net */
-#define	IFF_POINTOPOINT	0x10		/* interface is point-to-point link */
-#define	IFF_NOTRAILERS	0x20		/* avoid use of trailers */
-#define	IFF_RUNNING	0x40		/* resources allocated */
-#define	IFF_NOARP	0x80		/* no address resolution protocol */
-#define	IFF_PROMISC	0x100		/* receive all packets */
-#define	IFF_ALLMULTI	0x200		/* receive all multicast packets */
-#define	IFF_OACTIVE	0x400		/* transmission in progress */
-#define	IFF_SIMPLEX	0x800		/* can't hear own transmissions */
-#define	IFF_LINK0	0x1000		/* per link layer defined bit */
-#define	IFF_LINK1	0x2000		/* per link layer defined bit */
-#define	IFF_LINK2	0x4000		/* per link layer defined bit */
-#define	IFF_MULTICAST	0x8000		/* supports multicast */
+/*
+ * Interface flags can be either owned by the stack or the driver.  The
+ * symbols below document who is toggling which flag.
+ *
+ *	I	immutable after creation
+ *	N	written by the stack (upon user request)
+ *	d	written by the driver
+ *	c	for userland compatibility only
+ */
+#define	IFF_UP		0x1		/* [N] interface is up */
+#define	IFF_BROADCAST	0x2		/* [I] broadcast address valid */
+#define	IFF_DEBUG	0x4		/* [N] turn on debugging */
+#define	IFF_LOOPBACK	0x8		/* [I] is a loopback net */
+#define	IFF_POINTOPOINT	0x10		/* [I] is point-to-point link */
+#define	IFF_STATICARP	0x20		/* [N] only static ARP */
+#define	IFF_RUNNING	0x40		/* [d] resources allocated */
+#define	IFF_NOARP	0x80		/* [N] no address resolution protocol */
+#define	IFF_PROMISC	0x100		/* [N] receive all packets */
+#define	IFF_ALLMULTI	0x200		/* [d] receive all multicast packets */
+#define	IFF_OACTIVE	0x400		/* [c] transmission in progress */
+#define	IFF_SIMPLEX	0x800		/* [I] can't hear own transmissions */
+#define	IFF_LINK0	0x1000		/* [N] per link layer defined bit */
+#define	IFF_LINK1	0x2000		/* [N] per link layer defined bit */
+#define	IFF_LINK2	0x4000		/* [N] per link layer defined bit */
+#define	IFF_MULTICAST	0x8000		/* [I] supports multicast */
 
 /* flags set internally only: */
 #define	IFF_CANTCHANGE \
 	(IFF_BROADCAST|IFF_POINTOPOINT|IFF_RUNNING|IFF_OACTIVE|\
 	    IFF_SIMPLEX|IFF_MULTICAST|IFF_ALLMULTI)
 
-#define	IFXF_MPSAFE		0x1		/* if_start is mpsafe */
-#define	IFXF_CLONED		0x2		/* pseudo interface */
-#define	IFXF_INET6_NOPRIVACY	0x4		/* don't autoconf privacy */
-#define	IFXF_MPLS		0x8		/* supports MPLS */
-#define	IFXF_WOL		0x10		/* wake on lan enabled */
-#define	IFXF_AUTOCONF6		0x20		/* v6 autoconf enabled */
+#define	IFXF_MPSAFE		0x1	/* [I] if_start is mpsafe */
+#define	IFXF_CLONED		0x2	/* [I] pseudo interface */
+#define	IFXF_INET6_NOPRIVACY	0x4	/* [N] don't autoconf privacy */
+#define	IFXF_MPLS		0x8	/* [N] supports MPLS */
+#define	IFXF_WOL		0x10	/* [N] wake on lan enabled */
+#define	IFXF_AUTOCONF6		0x20	/* [N] v6 autoconf enabled */
+#define IFXF_INET6_NOSOII	0x40	/* [N] don't do RFC 7217 */
 
 #define	IFXF_CANTCHANGE \
 	(IFXF_MPSAFE|IFXF_CLONED)
@@ -296,7 +313,7 @@ struct if_announcemsghdr {
 	u_short	ifan_msglen;	/* to skip over non-understood messages */
 	u_char	ifan_version;	/* future binary compatibility */
 	u_char	ifan_type;	/* message type */
-	u_short ifan_hdrlen;	/* sizeof(ifa_msghdr) to skip over the header */
+	u_short ifan_hdrlen;	/* sizeof(if_announcemsghdr) to skip header */
 	u_short	ifan_index;	/* index for associated ifp */
 	u_short	ifan_what;	/* what type of announcement */
 	char	ifan_name[IFNAMSIZ];	/* if name, e.g. "en0" */
@@ -304,6 +321,27 @@ struct if_announcemsghdr {
 
 #define IFAN_ARRIVAL	0	/* interface arrival */
 #define IFAN_DEPARTURE	1	/* interface departure */
+
+/* message format used to pass 80211 interface info */
+struct if_ieee80211_data {
+	uint8_t		ifie_channel;	/* IEEE80211_CHAN_MAX  == 255 */
+	uint8_t		ifie_nwid_len;
+	uint32_t	ifie_flags;	/* ieee80211com.ic_flags */
+	uint32_t	ifie_xflags;	/* ieee80211com.ic xflags */
+	uint8_t		ifie_nwid[32];	/* IEEE80211_NWID_LEN */
+	uint8_t		ifie_addr[6];	/* IEEE80211_ADDR_LEN */
+};
+
+struct if_ieee80211_msghdr {
+	uint16_t	ifim_msglen;
+	uint8_t		ifim_version;
+	uint8_t		ifim_type;
+	uint16_t	ifim_hdrlen;
+	uint16_t	ifim_index;
+	uint16_t	ifim_tableid;
+
+	struct if_ieee80211_data	ifim_ifie;
+};
 
 /* message format used to pass interface name to index mappings */
 struct if_nameindex_msg {
@@ -377,10 +415,17 @@ struct	ifreq {
 #define	ifr_rdomainid	ifr_ifru.ifru_metric	/* VRF instance (overload) */
 #define ifr_vnetid	ifr_ifru.ifru_vnetid	/* Virtual Net Id */
 #define ifr_ttl		ifr_ifru.ifru_metric	/* tunnel TTL (overload) */
+#define ifr_df		ifr_ifru.ifru_metric	/* tunnel DF (overload) */
 #define	ifr_data	ifr_ifru.ifru_data	/* for use by interface */
 #define ifr_index	ifr_ifru.ifru_index	/* interface index */
 #define ifr_llprio	ifr_ifru.ifru_metric	/* link layer priority */
+#define ifr_hdrprio	ifr_ifru.ifru_metric	/* header prio field config */
 };
+
+#define IF_HDRPRIO_MIN		IFQ_MINPRIO
+#define IF_HDRPRIO_MAX		IFQ_MAXPRIO
+#define IF_HDRPRIO_PACKET	-1	/* use mbuf prio */
+#define IF_HDRPRIO_PAYLOAD	-2	/* copy payload prio */
 
 struct ifaliasreq {
 	char	ifra_name[IFNAMSIZ];		/* if name, e.g. "en0" */
@@ -463,6 +508,7 @@ void	if_alloc_sadl(struct ifnet *);
 void	if_free_sadl(struct ifnet *);
 void	if_attach(struct ifnet *);
 void	if_attach_queues(struct ifnet *, unsigned int);
+void	if_attach_iqueues(struct ifnet *, unsigned int);
 void	if_attach_ifq(struct ifnet *, const struct ifq_ops *, void *);
 void	if_attachtail(struct ifnet *);
 void	if_attachhead(struct ifnet *);

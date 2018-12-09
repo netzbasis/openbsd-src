@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_table.c,v 1.127 2017/08/16 14:19:57 mikeb Exp $	*/
+/*	$OpenBSD: pf_table.c,v 1.129 2018/10/15 21:15:35 kn Exp $	*/
 
 /*
  * Copyright (c) 2002 Cedric Berger
@@ -741,7 +741,7 @@ pfr_validate_addr(struct pfr_addr *ad)
 			return (-1);
 	if (ad->pfra_not && ad->pfra_not != 1)
 		return (-1);
-	if (ad->pfra_fback)
+	if (ad->pfra_fback != PFR_FB_NONE)
 		return (-1);
 	if (ad->pfra_type >= PFRKE_MAX)
 		return (-1);
@@ -1305,8 +1305,10 @@ pfr_add_tables(struct pfr_table *tbl, int size, int *nadd, int flags)
 			if (p == NULL)
 				senderr(ENOMEM);
 			SLIST_FOREACH(q, &addq, pfrkt_workq) {
-				if (!pfr_ktable_compare(p, q))
+				if (!pfr_ktable_compare(p, q)) {
+					pfr_destroy_ktable(p, 0);
 					goto _skip;
+				}
 			}
 			SLIST_INSERT_HEAD(&addq, p, pfrkt_workq);
 			xadd++;

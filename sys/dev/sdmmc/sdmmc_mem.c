@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_mem.c,v 1.30 2017/04/06 03:15:29 deraadt Exp $	*/
+/*	$OpenBSD: sdmmc_mem.c,v 1.33 2018/06/04 13:33:10 patrick Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -28,6 +28,10 @@
 #include <dev/sdmmc/sdmmcreg.h>
 #include <dev/sdmmc/sdmmcvar.h>
 
+#ifdef HIBERNATE
+#include <uvm/uvm_extern.h>
+#endif
+
 typedef struct { uint32_t _bits[512/32]; } __packed __aligned(4) sdmmc_bitfield512_t;
 
 void	sdmmc_be512_to_bitfield512(sdmmc_bitfield512_t *);
@@ -46,7 +50,7 @@ int	sdmmc_mem_decode_scr(struct sdmmc_softc *, uint32_t *,
 	    struct sdmmc_function *);
 
 int	sdmmc_mem_send_cxd_data(struct sdmmc_softc *, int, void *, size_t);
-int	sdmmc_set_bus_width(struct sdmmc_function *, int);
+int	sdmmc_mem_set_bus_width(struct sdmmc_function *, int);
 int	sdmmc_mem_mmc_switch(struct sdmmc_function *, uint8_t, uint8_t, uint8_t);
 
 int	sdmmc_mem_sd_init(struct sdmmc_softc *, struct sdmmc_function *);
@@ -448,7 +452,7 @@ out:
 }
 
 int
-sdmmc_set_bus_width(struct sdmmc_function *sf, int width)
+sdmmc_mem_set_bus_width(struct sdmmc_function *sf, int width)
 {
 	struct sdmmc_softc *sc = sf->sc;
 	struct sdmmc_command cmd;
@@ -609,7 +613,7 @@ sdmmc_mem_sd_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 	if (ISSET(sc->sc_caps, SMC_CAPS_4BIT_MODE) &&
 	    ISSET(sf->scr.bus_width, SCR_SD_BUS_WIDTHS_4BIT)) {
 		DPRINTF(("%s: change bus width\n", DEVNAME(sc)));
-		error = sdmmc_set_bus_width(sf, 4);
+		error = sdmmc_mem_set_bus_width(sf, 4);
 		if (error) {
 			printf("%s: can't change bus width\n", DEVNAME(sc));
 			return error;
@@ -669,6 +673,12 @@ sdmmc_mem_mmc_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 	int speed = 20000;
 	int timing = SDMMC_TIMING_LEGACY;
 	u_int32_t sectors = 0;
+
+	error = sdmmc_chip_bus_clock(sc->sct, sc->sch, speed, timing);
+	if (error) {
+		printf("%s: can't change bus clock\n", DEVNAME(sc));
+		return error;
+	}
 
 	if (sf->csd.mmcver >= MMC_CSD_MMCVER_4_0) {
 		/* read EXT_CSD */
@@ -1104,3 +1114,37 @@ out:
 	rw_exit(&sc->sc_lock);
 	return (error);
 }
+
+#ifdef HIBERNATE
+int
+sdmmc_mem_hibernate_write(struct sdmmc_function *sf, daddr_t blkno,
+    u_char *data, size_t datalen)
+{
+	struct sdmmc_softc *sc = sf->sc;
+	int i, error;
+	struct bus_dmamap dmamap;
+	paddr_t phys_addr;
+
+	if (ISSET(sc->sc_caps, SMC_CAPS_SINGLE_ONLY)) {
+		for (i = 0; i < datalen / sf->csd.sector_size; i++) {
+			error = sdmmc_mem_write_block_subr(sf, NULL, blkno + i,
+			    data + i * sf->csd.sector_size,
+			    sf->csd.sector_size);
+			if (error)
+				return (error);
+		}
+	} else if (!ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
+		return (sdmmc_mem_write_block_subr(sf, NULL, blkno, data,
+		    datalen));
+	}
+
+	/* pretend we're bus_dmamap_load */
+	bzero(&dmamap, sizeof(dmamap));
+	pmap_extract(pmap_kernel(), (vaddr_t)data, &phys_addr);
+	dmamap.dm_mapsize = datalen;
+	dmamap.dm_nsegs = 1;
+	dmamap.dm_segs[0].ds_addr = phys_addr;
+	dmamap.dm_segs[0].ds_len = datalen;
+	return (sdmmc_mem_write_block_subr(sf, &dmamap, blkno, data, datalen));
+}
+#endif

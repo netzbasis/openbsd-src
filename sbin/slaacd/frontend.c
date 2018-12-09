@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.10 2017/12/10 10:07:54 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.22 2018/07/23 17:25:52 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -73,6 +73,7 @@ void		 get_lladdr(char *, struct ether_addr *, struct sockaddr_in6 *);
 void		 send_solicitation(uint32_t);
 #ifndef	SMALL
 void		 update_autoconf_addresses(uint32_t, char*);
+const char	*flags_to_str(int);
 #endif	/* SMALL */
 
 struct imsgev			*iev_main;
@@ -141,7 +142,7 @@ frontend(int debug, int verbose)
 	setproctitle("%s", log_procnames[slaacd_process]);
 	log_procinit(log_procnames[slaacd_process]);
 
-	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM, 0)) < 0)
+	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
 		fatal("socket");
 
 	if (setgroups(1, &pw->pw_gid) ||
@@ -149,7 +150,7 @@ frontend(int debug, int verbose)
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio inet recvfd route", NULL) == -1)
+	if (pledge("stdio unix recvfd route", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -344,6 +345,11 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			event_set(&ev_route, fd, EV_READ | EV_PERSIST,
 			    route_receive, NULL);
 			break;
+		case IMSG_STARTUP:
+			if (pledge("stdio unix route", NULL) == -1)
+				fatal("pledge");
+			frontend_startup();
+			break;
 #ifndef	SMALL
 		case IMSG_CONTROLFD:
 			if ((fd = imsg.fd) == -1)
@@ -354,14 +360,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			/* Listen on control socket. */
 			TAILQ_INIT(&ctl_conns);
 			control_listen();
-#endif	/* SMALL */
 			break;
-		case IMSG_STARTUP:
-			if (pledge("stdio inet route", NULL) == -1)
-				fatal("pledge");
-			frontend_startup();
-			break;
-#ifndef	SMALL
 		case IMSG_CTL_END:
 			control_imsg_relay(&imsg);
 			break;
@@ -490,6 +489,7 @@ update_iface(uint32_t if_index, char* if_name)
 	imsg_ifinfo.running = (flags & (IFF_UP | IFF_RUNNING)) == (IFF_UP |
 	    IFF_RUNNING);
 	imsg_ifinfo.autoconfprivacy = !(xflags & IFXF_INET6_NOPRIVACY);
+	imsg_ifinfo.soii = !(xflags & IFXF_INET6_NOSOII);
 	get_lladdr(if_name, &imsg_ifinfo.hw_address, &imsg_ifinfo.ll_address);
 
 	memcpy(&nd_opt_source_link_addr, &imsg_ifinfo.hw_address,
@@ -508,6 +508,7 @@ update_autoconf_addresses(uint32_t if_index, char* if_name)
 	struct ifaddrs		*ifap, *ifa;
 	struct in6_addrlifetime *lifetime;
 	struct sockaddr_in6	*sin6;
+	struct imsg_link_state	 imsg_link_state;
 	time_t			 t;
 	int			 xflags;
 
@@ -521,12 +522,20 @@ update_autoconf_addresses(uint32_t if_index, char* if_name)
 	get_lladdr(if_name, &imsg_addrinfo.hw_address,
 	    &imsg_addrinfo.ll_address);
 
+	memset(&imsg_link_state, 0, sizeof(imsg_link_state));
+	imsg_link_state.if_index = if_index;
+
 	if (getifaddrs(&ifap) != 0)
 		fatal("getifaddrs");
 
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		if (strcmp(if_name, ifa->ifa_name) != 0)
 			continue;
+
+		if (ifa->ifa_addr->sa_family == AF_LINK)
+			imsg_link_state.link_state =
+			    ((struct if_data *)ifa->ifa_data)->ifi_link_state;
+
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		sin6 = (struct sockaddr_in6 *)ifa->ifa_addr;
@@ -592,6 +601,37 @@ update_autoconf_addresses(uint32_t if_index, char* if_name)
 
 	}
 	freeifaddrs(ifap);
+
+	log_debug("%s: %s link state down? %s", __func__, if_name,
+	    imsg_link_state.link_state == LINK_STATE_DOWN ? "yes" : "no");
+
+	frontend_imsg_compose_main(IMSG_UPDATE_LINK_STATE, 0, 
+	    &imsg_link_state, sizeof(imsg_link_state));
+}
+
+const char*
+flags_to_str(int flags)
+{
+	static char	buf[sizeof(" anycast tentative duplicated detached "
+			    "deprecated autoconf autoconfprivacy")];
+
+	buf[0] = '\0';
+	if (flags & IN6_IFF_ANYCAST)
+		(void)strlcat(buf, " anycast", sizeof(buf));
+	if (flags & IN6_IFF_TENTATIVE)
+		(void)strlcat(buf, " tentative", sizeof(buf));
+	if (flags & IN6_IFF_DUPLICATED)
+		(void)strlcat(buf, " duplicated", sizeof(buf));
+	if (flags & IN6_IFF_DETACHED)
+		(void)strlcat(buf, " detached", sizeof(buf));
+	if (flags & IN6_IFF_DEPRECATED)
+		(void)strlcat(buf, " deprecated", sizeof(buf));
+	if (flags & IN6_IFF_AUTOCONF)
+		(void)strlcat(buf, " autoconf", sizeof(buf));
+	if (flags & IN6_IFF_PRIVACY)
+		(void)strlcat(buf, " autoconfprivacy", sizeof(buf));
+
+	return (buf);
 }
 #endif	/* SMALL */
 
@@ -615,6 +655,8 @@ frontend_startup(void)
 	if ((ifnidxp = if_nameindex()) == NULL)
 		fatalx("if_nameindex");
 
+	frontend_imsg_compose_main(IMSG_STARTUP_DONE, 0, NULL, 0);
+
 	for(ifnidx = ifnidxp; ifnidx->if_index !=0 && ifnidx->if_name != NULL;
 	    ifnidx++) {
 		update_iface(ifnidx->if_index, ifnidx->if_name);
@@ -629,13 +671,19 @@ frontend_startup(void)
 void
 route_receive(int fd, short events, void *arg)
 {
-	static uint8_t			 buf[ROUTE_SOCKET_BUF_SIZE];
+	static uint8_t			 *buf;
 
-	struct rt_msghdr		*rtm = (struct rt_msghdr *)buf;
+	struct rt_msghdr		*rtm;
 	struct sockaddr			*sa, *rti_info[RTAX_MAX];
 	ssize_t				 n;
 
-	if ((n = read(fd, &buf, sizeof(buf))) == -1) {
+	if (buf == NULL) {
+		buf = malloc(ROUTE_SOCKET_BUF_SIZE);
+		if (buf == NULL)
+			fatal("malloc");
+	}
+	rtm = (struct rt_msghdr *)buf;
+	if ((n = read(fd, buf, ROUTE_SOCKET_BUF_SIZE)) == -1) {
 		if (errno == EAGAIN || errno == EINTR)
 			return;
 		log_warn("dispatch_rtmsg: read error");
@@ -645,8 +693,8 @@ route_receive(int fd, short events, void *arg)
 	if (n == 0)
 		fatal("routing socket closed");
 
-	if (n < rtm->rtm_msglen) {
-		log_warnx("partial rtm in buffer");
+	if (n < (ssize_t)sizeof(rtm->rtm_msglen) || n < rtm->rtm_msglen) {
+		log_warnx("partial rtm of %zd in buffer", n);
 		return;
 	}
 
@@ -665,9 +713,14 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 	struct if_msghdr		*ifm;
 	struct imsg_proposal_ack	 proposal_ack;
 	struct imsg_del_addr		 del_addr;
+	struct imsg_del_route		 del_route;
+	struct imsg_dup_addr		 dup_addr;
 	struct sockaddr_rtlabel		*rl;
+	struct sockaddr_in6		*sin6;
+	struct in6_ifreq		 ifr6;
+	struct in6_addr			*in6;
 	int64_t				 id, pid;
-	int				 flags, xflags, if_index;
+	int				 xflags, if_index;
 	char				 ifnamebuf[IFNAMSIZ];
 	char				*if_name;
 	char				**ap, *argv[4], *p;
@@ -684,7 +737,6 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 			    &if_index, sizeof(if_index));
 		} else {
 			xflags = get_xflags(if_name);
-			flags = get_flags(if_name);
 			if (!(xflags & IFXF_AUTOCONF6)) {
 				log_debug("RTM_IFINFO: %s(%d) no(longer) "
 				   "autoconf6", if_name, ifm->ifm_index);
@@ -720,6 +772,82 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 			    ifm->ifm_index);
 		}
 		break;
+	case RTM_CHGADDRATTR:
+		ifm = (struct if_msghdr *)rtm;
+		if_name = if_indextoname(ifm->ifm_index, ifnamebuf);
+		if (rtm->rtm_addrs & RTA_IFA && rti_info[RTAX_IFA]->sa_family
+		    == AF_INET6) {
+			sin6 = (struct sockaddr_in6 *) rti_info[RTAX_IFA];
+
+			if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr))
+				break;
+
+			memset(&ifr6, 0, sizeof(ifr6));
+			(void) strlcpy(ifr6.ifr_name, if_name,
+			    sizeof(ifr6.ifr_name));
+			memcpy(&ifr6.ifr_addr, sin6, sizeof(ifr6.ifr_addr));
+
+			if (ioctl(ioctlsock, SIOCGIFAFLAG_IN6, (caddr_t)&ifr6)
+			    < 0) {
+				log_warn("SIOCGIFAFLAG_IN6");
+				break;
+			}
+
+#ifndef	SMALL
+			log_debug("RTM_CHGADDRATTR: %s -%s",
+			    sin6_to_str(sin6),
+			    flags_to_str(ifr6.ifr_ifru.ifru_flags6));
+#endif	/* SMALL */
+
+			if (ifr6.ifr_ifru.ifru_flags6 & IN6_IFF_DUPLICATED) {
+				dup_addr.if_index = ifm->ifm_index;
+				dup_addr.addr = *sin6;
+				frontend_imsg_compose_engine(IMSG_DUP_ADDRESS,
+				    0, 0, &dup_addr, sizeof(dup_addr));
+			}
+
+		}
+		break;
+	case RTM_DELETE:
+		ifm = (struct if_msghdr *)rtm;
+		if ((rtm->rtm_addrs & (RTA_DST | RTA_GATEWAY | RTA_LABEL)) !=
+		    (RTA_DST | RTA_GATEWAY | RTA_LABEL))
+			break;
+		if (rti_info[RTAX_DST]->sa_family != AF_INET6)
+			break;
+		if (!IN6_IS_ADDR_UNSPECIFIED(&((struct sockaddr_in6 *)
+		    rti_info[RTAX_DST])->sin6_addr))
+			break;
+		if (rti_info[RTAX_GATEWAY]->sa_family != AF_INET6)
+			break;
+		if (rti_info[RTAX_LABEL]->sa_len !=
+		    sizeof(struct sockaddr_rtlabel))
+			break;
+
+		rl = (struct sockaddr_rtlabel *)rti_info[RTAX_LABEL];
+		if (strcmp(rl->sr_label, SLAACD_RTA_LABEL) != 0)
+			break;
+
+		if_name = if_indextoname(ifm->ifm_index, ifnamebuf);
+
+		del_route.if_index = ifm->ifm_index;
+		memcpy(&del_route.gw, rti_info[RTAX_GATEWAY],
+		    sizeof(del_route.gw));
+		in6 = &del_route.gw.sin6_addr;
+		/* XXX from route(8) p_sockaddr() */
+		if (IN6_IS_ADDR_LINKLOCAL(in6) ||
+		    IN6_IS_ADDR_MC_LINKLOCAL(in6) ||
+		    IN6_IS_ADDR_MC_INTFACELOCAL(in6)) {
+			del_route.gw.sin6_scope_id =
+			    (u_int32_t)ntohs(*(u_short *) &in6->s6_addr[2]);
+			*(u_short *)&in6->s6_addr[2] = 0;
+		}
+		frontend_imsg_compose_engine(IMSG_DEL_ROUTE,
+		    0, 0, &del_route, sizeof(del_route));
+		log_debug("RTM_DELETE: %s[%u]", if_name,
+		    ifm->ifm_index);
+
+		break;
 	case RTM_PROPOSAL:
 		ifm = (struct if_msghdr *)rtm;
 		if_name = if_indextoname(ifm->ifm_index, ifnamebuf);
@@ -738,9 +866,10 @@ handle_route_message(struct rt_msghdr *rtm, struct sockaddr **rti_info)
 			}
 			*ap = NULL;
 
-			if (argv[0] != NULL && strncmp(argv[0], "slaacd:",
-			    strlen("slaacd:")) == 0 && argv[1] != NULL &&
-			    argv[2] != NULL && argv[3] == NULL) {
+			if (argv[0] != NULL && strncmp(argv[0],
+			    SLAACD_RTA_LABEL":", strlen(SLAACD_RTA_LABEL":"))
+			    == 0 && argv[1] != NULL && argv[2] != NULL &&
+			    argv[3] == NULL) {
 				id = strtonum(argv[1], 0, INT64_MAX, &errstr);
 				if (errstr != NULL) {
 					log_warn("%s: proposal seq is %s: %s",
@@ -849,9 +978,6 @@ icmp6_receive(int fd, short events, void *arg)
 	ssize_t			 len;
 	int			 if_index = 0, *hlimp = NULL;
 	char			 ntopbuf[INET6_ADDRSTRLEN], ifnamebuf[IFNAMSIZ];
-	uint8_t			*p;
-
-	p = icmp6ev.answer;
 
 	if ((len = recvmsg(fd, &icmp6ev.rcvmhdr, 0)) < 0) {
 		log_warn("recvmsg");

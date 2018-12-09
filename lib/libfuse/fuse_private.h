@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_private.h,v 1.15 2017/11/26 15:17:17 helg Exp $ */
+/* $OpenBSD: fuse_private.h,v 1.22 2018/11/16 02:16:17 tedu Exp $ */
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -29,7 +29,6 @@
 
 #include "fuse.h"
 
-struct fuse_dirhandle;
 struct fuse_args;
 
 struct fuse_vnode {
@@ -38,9 +37,19 @@ struct fuse_vnode {
 	unsigned int ref;
 
 	char path[NAME_MAX + 1];
-	struct fuse_dirhandle *fd;
 
 	SIMPLEQ_ENTRY(fuse_vnode) node; /* for dict */
+};
+
+struct fuse_dirhandle {
+	struct fuse *fuse;
+	fuse_fill_dir_t filler;
+	void *buf;
+	int full;
+	uint32_t size;
+	uint32_t start;
+	uint32_t idx;
+	off_t off;
 };
 
 SIMPLEQ_HEAD(fuse_vn_head, fuse_vnode);
@@ -60,7 +69,6 @@ struct fuse_chan {
 
 	/* kqueue stuff */
 	int kq;
-	struct kevent event;
 };
 
 struct fuse_config {
@@ -71,11 +79,22 @@ struct fuse_config {
 	int			set_mode;
 	int			set_uid;
 	int			set_gid;
+	int			use_ino;
 };
 
-struct fuse_core_opt {
+struct fuse_core_opts {
 	char			*mp;
 	int			foreground;
+};
+
+struct fuse_mount_opts {
+	char			*fsname;
+	int			allow_other;
+	int			def_perms;
+	int			max_read;
+	int			noatime;
+	int			nonempty;
+	int			rdonly;
 };
 
 struct fuse {
@@ -126,5 +145,25 @@ void			*dict_pop(struct dict *, const char *);
 
 #define FUSE_VERSION_PKG_INFO "2.8.0"
 #define unused __attribute__ ((unused))
+
+#define	PROTO(x)	__dso_hidden typeof(x) x asm("__"#x)
+#define	DEF(x)		__strong_alias(x, __##x)
+
+PROTO(fuse_daemonize);
+PROTO(fuse_destroy);
+PROTO(fuse_get_context);
+PROTO(fuse_get_session);
+PROTO(fuse_loop);
+PROTO(fuse_mount);
+PROTO(fuse_new);
+PROTO(fuse_opt_add_arg);
+PROTO(fuse_opt_free_args);
+PROTO(fuse_opt_insert_arg);
+PROTO(fuse_opt_match);
+PROTO(fuse_opt_parse);
+PROTO(fuse_parse_cmdline);
+PROTO(fuse_remove_signal_handlers);
+PROTO(fuse_setup);
+PROTO(fuse_unmount);
 
 #endif /* _FUSE_SUBR_ */

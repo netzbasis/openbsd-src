@@ -1,4 +1,4 @@
-/*	$OpenBSD: amdcf.c,v 1.4 2017/10/24 09:36:13 jsg Exp $	*/
+/*	$OpenBSD: amdcf.c,v 1.6 2018/05/30 14:53:56 fcambus Exp $	*/
 
 /*
  * Copyright (c) 2007, Juniper Networks, Inc.
@@ -75,7 +75,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/conf.h>
-#include <sys/file.h>
+#include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/mutex.h>
@@ -495,7 +495,7 @@ amdcfioctl(dev_t dev, u_long xfer, caddr_t addr, int flag, struct proc *p)
 		lp = malloc(sizeof(*lp), M_TEMP, M_WAITOK);
 		amdcfgetdisklabel(dev, sc, lp, 0);
 		bcopy(lp, sc->sc_dk.dk_label, sizeof(*lp));
-		free(lp, M_TEMP, 0);
+		free(lp, M_TEMP, sizeof(*lp));
 		goto exit;
 
 	case DIOCGPDINFO:

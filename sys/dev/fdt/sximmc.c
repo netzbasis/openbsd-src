@@ -1,4 +1,4 @@
-/* $OpenBSD: sximmc.c,v 1.3 2017/08/13 00:13:07 kettenis Exp $ */
+/* $OpenBSD: sximmc.c,v 1.7 2018/12/04 11:25:48 kettenis Exp $ */
 /* $NetBSD: awin_mmc.c,v 1.23 2015/11/14 10:32:40 bouyer Exp $ */
 
 /*-
@@ -219,6 +219,8 @@ int	sximmc_bus_power(sdmmc_chipset_handle_t, uint32_t);
 int	sximmc_bus_clock(sdmmc_chipset_handle_t, int, int);
 int	sximmc_bus_width(sdmmc_chipset_handle_t, int);
 void	sximmc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
+void	sximmc_card_intr_mask(sdmmc_chipset_handle_t, int);
+void	sximmc_card_intr_ack(sdmmc_chipset_handle_t);
 
 void	sximmc_pwrseq_pre(uint32_t);
 void	sximmc_pwrseq_post(uint32_t);
@@ -232,6 +234,8 @@ struct sdmmc_chip_functions sximmc_chip_functions = {
 	.bus_clock = sximmc_bus_clock,
 	.bus_width = sximmc_bus_width,
 	.exec_command = sximmc_exec_command,
+	.card_intr_mask = sximmc_card_intr_mask,
+	.card_intr_ack = sximmc_card_intr_ack,
 };
 
 struct sximmc_softc {
@@ -265,6 +269,7 @@ struct sximmc_softc {
 
 	uint32_t sc_gpio[4];
 	uint32_t sc_vmmc;
+	uint32_t sc_vqmmc;
 	uint32_t sc_pwrseq;
 	uint32_t sc_vdd;
 };
@@ -293,7 +298,8 @@ sximmc_match(struct device *parent, void *match, void *aux)
 	    OF_is_compatible(faa->fa_node, "allwinner,sun5i-a13-mmc") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun7i-a20-mmc") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun9i-a80-mmc") ||
-	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-mmc"));
+	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-mmc") ||
+	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-emmc"));
 }
 
 int
@@ -301,7 +307,8 @@ sximmc_idma_setup(struct sximmc_softc *sc)
 {
 	int error;
 
-	if (OF_is_compatible(sc->sc_node, "allwinner,sun4i-a10-mmc")) {
+	if (OF_is_compatible(sc->sc_node, "allwinner,sun4i-a10-mmc") ||
+	    OF_is_compatible(sc->sc_node, "allwinner,sun50i-a64-emmc")) {
 		sc->sc_idma_xferlen = 0x2000;
 	} else {
 		sc->sc_idma_xferlen = 0x10000;
@@ -407,12 +414,13 @@ sximmc_attach(struct device *parent, struct device *self, void *aux)
 	gpio_controller_config_pin(sc->sc_gpio, GPIO_CONFIG_INPUT);
 
 	sc->sc_vmmc = OF_getpropint(sc->sc_node, "vmmc-supply", 0);
+	sc->sc_vqmmc = OF_getpropint(sc->sc_node, "vqmmc-supply", 0);
 	sc->sc_pwrseq = OF_getpropint(sc->sc_node, "mmc-pwrseq", 0);
 
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_BIO,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
 	    sximmc_intr, sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
-		printf(": can't to establish interrupt\n");
+		printf(": can't establish interrupt\n");
 		return;
 	}
 
@@ -489,9 +497,44 @@ sximmc_intr(void *priv)
 	if (rint) {
 		sc->sc_intr_rint |= rint;
 		wakeup(&sc->sc_intr_rint);
+
+		if (rint & SXIMMC_INT_SDIO_INT) {
+			uint32_t imask;
+
+			imask = MMC_READ(sc, SXIMMC_IMASK);
+			imask &= ~SXIMMC_INT_SDIO_INT;
+			MMC_WRITE(sc, SXIMMC_IMASK, imask);
+			sdmmc_card_intr(sc->sc_sdmmc_dev);
+		}
 	}
 
 	return 1;
+}
+
+void
+sximmc_card_intr_mask(sdmmc_chipset_handle_t sch, int enable)
+{
+	struct sximmc_softc *sc = sch;
+	uint32_t imask;
+
+	imask = MMC_READ(sc, SXIMMC_IMASK);
+	if (enable)
+		imask |= SXIMMC_INT_SDIO_INT;
+	else
+		imask &= ~SXIMMC_INT_SDIO_INT;
+	MMC_WRITE(sc, SXIMMC_IMASK, imask);
+}
+
+void
+sximmc_card_intr_ack(sdmmc_chipset_handle_t sch)
+{
+	struct sximmc_softc *sc = sch;
+	uint32_t imask;
+
+	MMC_WRITE(sc, SXIMMC_RINT, SXIMMC_INT_SDIO_INT);
+	imask = MMC_READ(sc, SXIMMC_IMASK);
+	imask |= SXIMMC_INT_SDIO_INT;
+	MMC_WRITE(sc, SXIMMC_IMASK, imask);
 }
 
 int
@@ -562,6 +605,10 @@ sximmc_host_reset(sdmmc_chipset_handle_t sch)
 		printf("%s: host reset succeeded\n", sc->sc_dev.dv_xname);
 #endif
 
+	/* Allow access to the FIFO by the CPU. */
+	MMC_WRITE(sc, SXIMMC_GCTRL,
+	    MMC_READ(sc, SXIMMC_GCTRL) | SXIMMC_GCTRL_ACCESS_BY_AHB);
+
 	MMC_WRITE(sc, SXIMMC_TIMEOUT, 0xffffffff);
 
 	MMC_WRITE(sc, SXIMMC_IMASK,
@@ -624,6 +671,11 @@ sximmc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 	/* enable mmc power */
 	if (sc->sc_vmmc && vdd > 0)
 		regulator_enable(sc->sc_vmmc);
+
+	if (sc->sc_vqmmc && vdd > 0)
+		regulator_enable(sc->sc_vqmmc);
+
+	delay(10000);
 
 	if (sc->sc_vdd == 0 && vdd > 0)
 		sximmc_pwrseq_post(sc->sc_pwrseq);
@@ -749,17 +801,34 @@ sximmc_pio_wait(struct sximmc_softc *sc, struct sdmmc_command *cmd)
 int
 sximmc_pio_transfer(struct sximmc_softc *sc, struct sdmmc_command *cmd)
 {
-	uint32_t *datap = (uint32_t *)cmd->c_data;
-	int i;
+	u_char *datap = cmd->c_data;
+	int datalen = cmd->c_resid;
 
-	for (i = 0; i < (cmd->c_resid >> 2); i++) {
+	while (datalen > 3) {
 		if (sximmc_pio_wait(sc, cmd))
 			return ETIMEDOUT;
 		if (cmd->c_flags & SCF_CMD_READ) {
-			datap[i] = MMC_READ(sc, sc->sc_fifo_reg);
+			*(uint32_t *)datap = MMC_READ(sc, sc->sc_fifo_reg);
 		} else {
-			MMC_WRITE(sc, sc->sc_fifo_reg, datap[i]);
+			MMC_WRITE(sc, sc->sc_fifo_reg, *(uint32_t *)datap);
 		}
+		datap += 4;
+		datalen -= 4;
+	}
+
+	if (datalen > 0 && cmd->c_flags & SCF_CMD_READ) {
+		uint32_t rv = MMC_READ(sc, sc->sc_fifo_reg);
+		do {
+			*datap++ = rv & 0xff;
+			rv = rv >> 8;
+		} while(--datalen > 0);
+	} else if (datalen > 0) {
+		uint32_t rv = *datap++;
+		if (datalen > 1)
+			rv |= *datap++ << 8;
+		if (datalen > 2)
+			rv |= *datap++ << 16;
+		MMC_WRITE(sc, sc->sc_fifo_reg, rv);
 	}
 
 	return 0;
@@ -887,7 +956,7 @@ sximmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 
 		blksize = MIN(cmd->c_datalen, cmd->c_blklen);
 		blkcount = cmd->c_datalen / blksize;
-		if (blkcount > 1) {
+		if (blkcount > 1 && cmd->c_opcode != SD_IO_RW_EXTENDED) {
 			cmdval |= SXIMMC_CMD_SEND_AUTO_STOP;
 		}
 

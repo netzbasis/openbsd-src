@@ -1,4 +1,5 @@
-/Makefile/1.42/Wed Jun 28 15:09:41 2017//
+/Makefile/1.44/Mon Oct 15 08:08:46 2018//
+D/apply////
 D/basename////
 D/bc////
 D/calendar////
@@ -19,7 +20,9 @@ D/fold////
 D/ftp////
 D/grep////
 D/gzip////
+D/join////
 D/jot////
+D/lam////
 D/lastcomm////
 D/libtool////
 D/m4////

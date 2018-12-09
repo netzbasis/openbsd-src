@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.109 2017/08/30 10:33:57 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.114 2018/10/18 08:38:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -71,16 +71,18 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 	struct session		*s, *as, *groupwith;
 	struct window		*w;
 	struct environ		*env;
+	struct options		*oo;
 	struct termios		 tio, *tiop;
 	struct session_group	*sg;
-	const char		*newname, *errstr, *template, *group, *prefix;
-	const char		*path, *cmd, *cwd;
-	char		       **argv, *cause, *cp, *to_free = NULL;
+	const char		*errstr, *template, *group, *prefix;
+	const char		*path, *cmd, *tmp, *value;
+	char		       **argv, *cause, *cp, *newname, *cwd = NULL;
 	int			 detached, already_attached, idx, argc;
 	int			 is_control = 0;
-	u_int			 sx, sy;
+	u_int			 sx, sy, dsx = 80, dsy = 24;
 	struct environ_entry	*envent;
 	struct cmd_find_state	 fs;
+	enum cmd_retval		 retval;
 
 	if (self->entry == &cmd_has_session_entry) {
 		/*
@@ -95,20 +97,24 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 		return (CMD_RETURN_ERROR);
 	}
 
-	newname = args_get(args, 's');
-	if (newname != NULL) {
+	newname = NULL;
+	if (args_has(args, 's')) {
+		newname = format_single(item, args_get(args, 's'), c, NULL,
+		    NULL, NULL);
 		if (!session_check_name(newname)) {
 			cmdq_error(item, "bad session name: %s", newname);
-			return (CMD_RETURN_ERROR);
+			goto error;
 		}
 		if ((as = session_find(newname)) != NULL) {
 			if (args_has(args, 'A')) {
-				return (cmd_attach_session(item,
+				retval = cmd_attach_session(item,
 				    newname, args_has(args, 'D'),
-				    0, NULL, args_has(args, 'E')));
+				    0, NULL, args_has(args, 'E'));
+				free(newname);
+				return (retval);
 			}
 			cmdq_error(item, "duplicate session: %s", newname);
-			return (CMD_RETURN_ERROR);
+			goto error;
 		}
 	}
 
@@ -149,14 +155,10 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 		already_attached = 1;
 
 	/* Get the new session working directory. */
-	if (args_has(args, 'c')) {
-		cwd = args_get(args, 'c');
-		to_free = format_single(item, cwd, c, NULL, NULL, NULL);
-		cwd = to_free;
-	} else if (c != NULL && c->session == NULL && c->cwd != NULL)
-		cwd = c->cwd;
+	if ((tmp = args_get(args, 'c')) != NULL)
+		cwd = format_single(item, tmp, c, NULL, NULL, NULL);
 	else
-		cwd = ".";
+		cwd = xstrdup(server_client_get_cwd(c, NULL));
 
 	/*
 	 * If this is a new client, check for nesting and save the termios
@@ -188,8 +190,36 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 		}
 	}
 
+	/* Get default session size. */
+	if (args_has(args, 'x')) {
+		tmp = args_get(args, 'x');
+		if (strcmp(tmp, "-") == 0) {
+			if (c != NULL)
+				dsx = c->tty.sx;
+		} else {
+			dsx = strtonum(tmp, 1, USHRT_MAX, &errstr);
+			if (errstr != NULL) {
+				cmdq_error(item, "width %s", errstr);
+				goto error;
+			}
+		}
+	}
+	if (args_has(args, 'y')) {
+		tmp = args_get(args, 'y');
+		if (strcmp(tmp, "-") == 0) {
+			if (c != NULL)
+				dsy = c->tty.sy;
+		} else {
+			dsy = strtonum(tmp, 1, USHRT_MAX, &errstr);
+			if (errstr != NULL) {
+				cmdq_error(item, "height %s", errstr);
+				goto error;
+			}
+		}
+	}
+
 	/* Find new session size. */
-	if (!detached) {
+	if (!detached && !is_control) {
 		sx = c->tty.sx;
 		sy = c->tty.sy;
 		if (!is_control &&
@@ -197,22 +227,15 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 		    options_get_number(global_s_options, "status"))
 			sy--;
 	} else {
-		sx = 80;
-		sy = 24;
-	}
-	if ((is_control || detached) && args_has(args, 'x')) {
-		sx = strtonum(args_get(args, 'x'), 1, USHRT_MAX, &errstr);
-		if (errstr != NULL) {
-			cmdq_error(item, "width %s", errstr);
-			goto error;
+		value = options_get_string(global_s_options, "default-size");
+		if (sscanf(value, "%ux%u", &sx, &sy) != 2) {
+			sx = 80;
+			sy = 24;
 		}
-	}
-	if ((is_control || detached) && args_has(args, 'y')) {
-		sy = strtonum(args_get(args, 'y'), 1, USHRT_MAX, &errstr);
-		if (errstr != NULL) {
-			cmdq_error(item, "height %s", errstr);
-			goto error;
-		}
+		if (args_has(args, 'x'))
+			sx = dsx;
+		if (args_has(args, 'y'))
+			sy = dsy;
 	}
 	if (sx == 0)
 		sx = 1;
@@ -249,10 +272,15 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 	if (c != NULL && !args_has(args, 'E'))
 		environ_update(global_s_options, c->environ, env);
 
+	/* Set up the options. */
+	oo = options_create(global_s_options);
+	if (args_has(args, 'x') || args_has(args, 'y'))
+		options_set_string(oo, "default-size", 0, "%ux%u", dsx, dsy);
+
 	/* Create the new session. */
 	idx = -1 - options_get_number(global_s_options, "base-index");
-	s = session_create(prefix, newname, argc, argv, path, cwd, env, tiop,
-	    idx, sx, sy, &cause);
+	s = session_create(prefix, newname, argc, argv, path, cwd, env, oo,
+	    tiop, idx, &cause);
 	environ_free(env);
 	if (s == NULL) {
 		cmdq_error(item, "create session failed: %s", cause);
@@ -261,10 +289,12 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 	}
 
 	/* Set the initial window name if one given. */
-	if (argc >= 0 && args_has(args, 'n')) {
+	if (argc >= 0 && (tmp = args_get(args, 'n')) != NULL) {
+		cp = format_single(item, tmp, c, s, NULL, NULL);
 		w = s->curw->window;
-		window_set_name(w, args_get(args, 'n'));
+		window_set_name(w, cp);
 		options_set_number(w->options, "automatic-rename", 0);
+		free(cp);
 	}
 
 	/*
@@ -298,6 +328,7 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 		c->session = s;
 		if (~item->shared->flags & CMDQ_SHARED_REPEAT)
 			server_client_set_key_table(c, NULL);
+		tty_update_client_offset(c);
 		status_timer_start(c);
 		notify_client("client-session-changed", c);
 		session_update_activity(s, NULL);
@@ -331,10 +362,12 @@ cmd_new_session_exec(struct cmd *self, struct cmdq_item *item)
 	cmd_find_from_session(&fs, s, 0);
 	hooks_insert(s->hooks, item, &fs, "after-new-session");
 
-	free(to_free);
+	free(cwd);
+	free(newname);
 	return (CMD_RETURN_NORMAL);
 
 error:
-	free(to_free);
+	free(cwd);
+	free(newname);
 	return (CMD_RETURN_ERROR);
 }

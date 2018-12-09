@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.240 2017/08/29 02:51:27 deraadt Exp $	*/
+/*	$OpenBSD: proc.h,v 1.261 2018/11/12 15:09:17 visa Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -48,6 +48,9 @@
 #include <sys/event.h>			/* For struct klist */
 #include <sys/mutex.h>			/* For struct mutex */
 #include <sys/resource.h>		/* For struct rusage */
+#include <sys/rwlock.h>			/* For struct rwlock */
+#include <sys/sigio.h>			/* For struct sigio */
+#include <sys/tree.h>
 
 #ifdef _KERNEL
 #include <sys/atomic.h>
@@ -78,6 +81,7 @@ struct	pgrp {
 	LIST_ENTRY(pgrp) pg_hash;	/* Hash chain. */
 	LIST_HEAD(, process) pg_members;/* Pointer to pgrp members. */
 	struct	session *pg_session;	/* Pointer to session. */
+	struct	sigiolst pg_sigiolst;	/* List of sigio structures. */
 	pid_t	pg_id;			/* Pgrp id. */
 	int	pg_jobc;	/* # procs qualifying pgrp for job control */
 };
@@ -94,8 +98,6 @@ union sigval;
 struct	emul {
 	char	e_name[8];		/* Symbolic name */
 	int	*e_errno;		/* Errno array */
-					/* Signal sending function */
-	void	(*e_sendsig)(void (*)(int), int, int, u_long, int, union sigval);
 	int	e_nosys;		/* Offset of the nosys() syscall */
 	int	e_nsysent;		/* Number of system call entries */
 	struct sysent *e_sysent;	/* System call array */
@@ -112,12 +114,8 @@ struct	emul {
 	char	*e_sigcode;		/* Start of sigcode */
 	char	*e_esigcode;		/* End of sigcode */
 	char	*e_esigret;		/* sigaction RET position */
-	int	e_flags;		/* Flags, see below */
 	struct uvm_object *e_sigobject;	/* shared sigcode object */
 };
-/* Flags for e_flags */
-#define	EMUL_ENABLED	0x0001		/* Allow exec to continue */
-#define	EMUL_NATIVE	0x0002		/* Always enabled */
 
 /*
  * time usage: accumulated times in ticks
@@ -130,6 +128,15 @@ struct tusage {
 	uint64_t	tu_sticks;	/* Statclock hits in system mode. */
 	uint64_t	tu_iticks;	/* Statclock hits processing intr. */
 };
+
+struct unvname {
+	char 			*un_name;
+	size_t 			un_namesize;
+	u_char			un_flags;
+	RBT_ENTRY(unvnmae)	un_rbt;
+};
+
+RBT_HEAD(unvname_rbt, unvname);
 
 /*
  * Description of a process.
@@ -144,6 +151,9 @@ struct tusage {
  * run-time information needed by threads.
  */
 #ifdef __need_process
+struct futex;
+LIST_HEAD(futex_list, futex);
+struct unveil;
 struct process {
 	/*
 	 * ps_mainproc is the original thread in the process.
@@ -162,11 +172,15 @@ struct process {
 	LIST_HEAD(, process) ps_children;/* Pointer to list of children. */
 	LIST_ENTRY(process) ps_hash;    /* Hash chain. */
 
+	struct	sigiolst ps_sigiolst;	/* List of sigio structures. */
 	struct	sigacts *ps_sigacts;	/* Signal actions, state */
 	struct	vnode *ps_textvp;	/* Vnode of executable. */
 	struct	filedesc *ps_fd;	/* Ptr to open files structure */
 	struct	vmspace *ps_vmspace;	/* Address space */
 	pid_t	ps_pid;			/* Process identifier. */
+
+	struct	futex_list ps_ftlist;	/* futexes attached to this process */
+	LIST_HEAD(, kqueue) ps_kqlist;	/* kqueues attached to this process */
 
 /* The following fields are all zeroed upon creation in process_new. */
 #define	ps_startzero	ps_klist
@@ -191,6 +205,14 @@ struct process {
 
 	u_int64_t ps_wxcounter;
 
+	struct unveil *ps_uvpaths;	/* unveil vnodes and names */
+	struct unveil *ps_uvpcwd;	/* pointer to unveil of cwd, NULL if none */
+	ssize_t ps_uvvcount;		/* count of unveil vnodes held */
+	size_t ps_uvncount;		/* count of unveil names allocated */
+	int ps_uvshrink;		/* do we need to shrink vnode list */
+	int ps_uvdone;			/* no more unveil is permitted */
+	int ps_uvpcwdgone;		/* need to reevaluate cwd unveil */
+
 /* End area that is zeroed on creation. */
 #define	ps_endzero	ps_startcopy
 
@@ -203,7 +225,6 @@ struct process {
 	char	ps_comm[MAXCOMLEN+1];
 
 	vaddr_t	ps_strings;		/* User pointers to argv/env */
-	vaddr_t	ps_stackgap;		/* User pointer to the "stackgap" */
 	vaddr_t	ps_sigcode;		/* User pointer to the signal code */
 	vaddr_t ps_sigcoderet;		/* User pointer to sigreturn retPC */
 	u_long	ps_sigcookie;
@@ -220,6 +241,7 @@ struct process {
 	u_short	ps_acflag;		/* Accounting flags. */
 
 	uint64_t ps_pledge;
+	uint64_t ps_execpledge;
 
 	int64_t ps_kbind_cookie;
 	u_long  ps_kbind_addr;
@@ -262,15 +284,17 @@ struct process {
 #define	PS_NOBROADCASTKILL 0x00080000	/* Process excluded from kill -1. */
 #define	PS_PLEDGE	0x00100000	/* Has called pledge(2) */
 #define	PS_WXNEEDED	0x00200000	/* Process may violate W^X */
+#define	PS_EXECPLEDGE	0x00400000	/* Has exec pledges */
 
 #define	PS_BITS \
     ("\20" "\01CONTROLT" "\02EXEC" "\03INEXEC" "\04EXITING" "\05SUGID" \
      "\06SUGIDEXEC" "\07PPWAIT" "\010ISPWAIT" "\011PROFIL" "\012TRACED" \
      "\013WAITED" "\014COREDUMP" "\015SINGLEEXIT" "\016SINGLEUNWIND" \
      "\017NOZOMBIE" "\020STOPPED" "\021SYSTEM" "\022EMBRYO" "\023ZOMBIE" \
-     "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED")
+     "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED" "\027EXECPLEDGE" )
 
 
+struct kcov_dev;
 struct lock_list_entry;
 
 struct proc {
@@ -329,6 +353,10 @@ struct proc {
 #define	p_startcopy	p_sigmask
 	sigset_t p_sigmask;	/* Current signal mask. */
 
+	u_int	 p_spserial;
+	vaddr_t	 p_spstart;
+	vaddr_t	 p_spend;
+
 	u_char	p_priority;	/* Process priority. */
 	u_char	p_usrpri;	/* User-priority based on p_estcpu and ps_nice. */
 	int	p_pledge_syscall;	/* Cache of current syscall */
@@ -353,6 +381,8 @@ struct proc {
 	u_short	p_xstat;	/* Exit status for wait; also stop signal. */
 
 	struct	lock_list_entry *p_sleeplocks;
+
+	struct	kcov_dev *p_kd;
 };
 
 /* Status values. */
@@ -399,6 +429,14 @@ struct proc {
 
 #ifdef _KERNEL
 
+struct unveil {
+	struct vnode		*uv_vp;
+	ssize_t			uv_cover;
+	struct unvname_rbt	uv_names;
+	struct rwlock		uv_lock;
+	u_char			uv_flags;
+};
+
 struct uidinfo {
 	LIST_ENTRY(uidinfo) ui_hash;
 	uid_t   ui_uid;
@@ -407,6 +445,7 @@ struct uidinfo {
 };
 
 struct uidinfo *uid_find(uid_t);
+void uid_release(struct uidinfo *);
 
 /*
  * We use process IDs <= PID_MAX; PID_MAX + 1 must also fit in a pid_t,
@@ -495,18 +534,18 @@ void	proc_printit(struct proc *p, const char *modif,
     int (*pr)(const char *, ...));
 
 int	chgproccnt(uid_t uid, int diff);
-int	enterpgrp(struct process *, pid_t, struct pgrp *, struct session *);
-void	fixjobc(struct process *, struct pgrp *, int);
+void	enternewpgrp(struct process *, struct pgrp *, struct session *);
+void	enterthispgrp(struct process *, struct pgrp *);
 int	inferior(struct process *, struct process *);
 void	leavepgrp(struct process *);
+void	killjobc(struct process *);
 void	preempt(void);
-void	pgdelete(struct pgrp *);
 void	procinit(void);
 void	resetpriority(struct proc *);
 void	setrunnable(struct proc *);
 void	endtsleep(void *);
 void	unsleep(struct proc *);
-void	reaper(void);
+void	reaper(void *);
 void	exit1(struct proc *, int, int);
 void	exit2(struct proc *);
 int	dowait4(struct proc *, pid_t, int *, int, struct rusage *,
@@ -555,6 +594,12 @@ struct sleep_state {
 	int sls_sig;
 };
 
+struct cond {
+	int	c_wait;
+};
+
+#define COND_INITIALIZER()		{ 1 }
+
 #if defined(MULTIPROCESSOR)
 void	proc_trampoline_mp(void);	/* XXX */
 #endif
@@ -582,6 +627,7 @@ void cpuset_copy(struct cpuset *, struct cpuset *);
 void cpuset_union(struct cpuset *, struct cpuset *, struct cpuset *);
 void cpuset_intersection(struct cpuset *t, struct cpuset *, struct cpuset *);
 void cpuset_complement(struct cpuset *, struct cpuset *, struct cpuset *);
+int cpuset_cardinality(struct cpuset *);
 struct cpu_info *cpuset_first(struct cpuset *);
 
 #endif	/* _KERNEL */

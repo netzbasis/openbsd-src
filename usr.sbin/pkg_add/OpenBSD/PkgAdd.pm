@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgAdd.pm,v 1.97 2017/11/01 18:18:10 espie Exp $
+# $OpenBSD: PkgAdd.pm,v 1.105 2018/10/22 10:29:06 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -129,16 +129,6 @@ sub handle_options
 		    $state->usage("bad option: -P #1", $state->opt('P'));
 		}
 	}
-	if (defined $state->opt('B')) {
-		$state->{destdir} = $state->opt('B');
-	}
-	if (defined $state->{destdir}) {
-		$state->{destdir}.='/';
-	} else {
-		$state->{destdir} = '';
-	}
-
-
 	$state->{hard_replace} = $state->opt('r');
 	$state->{newupdates} = $state->opt('u') || $state->opt('U');
 	$state->{allow_replacing} = $state->{hard_replace} ||
@@ -244,18 +234,7 @@ sub merge
 
 package OpenBSD::UpdateSet;
 use OpenBSD::PackageInfo;
-use OpenBSD::Error;
 use OpenBSD::Handle;
-
-OpenBSD::Auto::cache(solver,
-    sub {
-	return OpenBSD::Dependencies::Solver->new(shift);
-    });
-
-OpenBSD::Auto::cache(conflict_cache,
-    sub {
-	return OpenBSD::ConflictCache->new;
-    });
 
 sub setup_header
 {
@@ -574,7 +553,8 @@ sub check_forward_dependencies
 		if ($state->defines('updatedepends')) {
 			$state->errsay("Forcing update");
 			return $no_merge;
-		} elsif ($state->confirm("Proceed with update anyway", 0)) {
+		} elsif ($state->confirm_defaults_to_no(
+		    "Proceed with update anyway")) {
 				return $no_merge;
 		} else {
 				return undef;
@@ -605,7 +585,6 @@ sub recheck_conflicts
 package OpenBSD::PkgAdd;
 our @ISA = qw(OpenBSD::AddDelete);
 
-use OpenBSD::Dependencies;
 use OpenBSD::PackingList;
 use OpenBSD::PackageInfo;
 use OpenBSD::PackageName;
@@ -706,7 +685,7 @@ sub delete_old_packages
 		$state->set_name_from_handle($o, '-');
 		require OpenBSD::Delete;
 		try {
-			OpenBSD::Delete::delete_plist($o->plist, $state);
+			OpenBSD::Delete::delete_handle($o, $state);
 		} catchall {
 			$state->errsay($_);
 			$state->fatal(partial_install(
@@ -1004,12 +983,12 @@ sub process_set
 		$state->tracker->cant($set);
 		return ();
 	}
-#	if (!$set->solver->solve_tags($state)) {
-#		if (!$state->defines('libdepends')) {
-#			$state->{bad}++;
-#			return ();
-#		}
-#	}
+	if (!$set->solver->solve_tags($state)) {
+		$set->cleanup(OpenBSD::Handle::CANT_INSTALL, "tags not found");
+		$state->tracker->cant($set);
+		$state->{bad}++;
+		return ();
+	}
 	if (!$set->recheck_conflicts($state)) {
 		$state->{bad}++;
 		$set->cleanup(OpenBSD::Handle::CANT_INSTALL, "fatal conflicts");
@@ -1060,10 +1039,19 @@ sub inform_user_of_problems
 
 		$state->say("Couldn't find updates for #1", 
 		    join(' ', sort @cantupdate)) if @cantupdate > 0;
+		if (@cantupdate > 0) {
+			$state->{bad}++;
+		}
 	}
 	if (defined $state->{issues}) {
 		$state->say("There were some ambiguities. ".
 		    "Please run in interactive mode again.");
+	}
+	my @install = $state->tracker->cant_install_list;
+	if (@install > 0) {
+		$state->say("Couldn't install #1", 
+		    join(' ', sort @install));
+		$state->{bad}++;
 	}
 }
 

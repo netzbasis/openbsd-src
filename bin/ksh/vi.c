@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi.c,v 1.50 2017/11/27 04:23:50 tb Exp $	*/
+/*	$OpenBSD: vi.c,v 1.56 2018/03/15 16:51:29 anton Exp $	*/
 
 /*
  *	vi command editing
@@ -61,7 +61,7 @@ static void	display(char *, char *, int);
 static void	ed_mov_opt(int, char *);
 static int	expand_word(int);
 static int	complete_word(int, int);
-static int	print_expansions(struct edstate *, int);
+static int	print_expansions(struct edstate *);
 static int	char_len(int);
 static void	x_vi_zotc(int);
 static void	vi_pprompt(int);
@@ -238,7 +238,7 @@ x_vi(char *buf, size_t len)
 
 	x_putc('\r'); x_putc('\n'); x_flush();
 
-	if (c == -1 || len <= es->linelen)
+	if (c == -1 || len <= (size_t)es->linelen)
 		return -1;
 
 	if (es->cbuf != buf)
@@ -648,7 +648,7 @@ vi_insert(int ch)
 		break;
 
 	case CTRL('e'):
-		print_expansions(es, 0);
+		print_expansions(es);
 		break;
 
 	case CTRL('i'):
@@ -1125,7 +1125,7 @@ vi_cmd(int argcnt, const char *cmd)
 
 		case '=':			/* at&t ksh */
 		case CTRL('e'):			/* Nonstandard vi/ksh */
-			print_expansions(es, 1);
+			print_expansions(es);
 			break;
 
 
@@ -1669,7 +1669,7 @@ grabhist(int save, int n)
 	}
 	(void) histnum(n);
 	if ((hptr = *histpos()) == NULL) {
-		internal_errorf(0, "grabhist: bad history array");
+		internal_warningf("%s: bad history array", __func__);
 		return -1;
 	}
 	if (save)
@@ -2052,7 +2052,7 @@ complete_word(int command, int count)
 
 	/* Undo previous completion */
 	if (command == 0 && expanded == COMPLETE && buf) {
-		print_expansions(buf, 0);
+		print_expansions(buf);
 		expanded = PRINT;
 		return 0;
 	}
@@ -2143,7 +2143,7 @@ complete_word(int command, int count)
 }
 
 static int
-print_expansions(struct edstate *e, int command)
+print_expansions(struct edstate *e)
 {
 	int nwords;
 	int start, end;

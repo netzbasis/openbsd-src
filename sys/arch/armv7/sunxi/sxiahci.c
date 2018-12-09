@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxiahci.c,v 1.12 2017/01/21 08:26:49 patrick Exp $	*/
+/*	$OpenBSD: sxiahci.c,v 1.14 2018/06/04 09:19:52 kettenis Exp $	*/
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2013,2014 Artturi Alm
@@ -30,7 +30,6 @@
 #include <dev/ic/ahcireg.h>
 #include <dev/ic/ahcivar.h>
 
-#include <armv7/armv7/armv7var.h>
 #include <dev/fdt/sunxireg.h>
 
 #include <dev/ofw/openfirm.h>
@@ -114,6 +113,8 @@ sxiahci_attach(struct device *parent, struct device *self, void *aux)
 	/* enable clocks */
 	clock_enable_all(faa->fa_node);
 	delay(5000);
+
+	reset_deassert_all(faa->fa_node);
 
 	/* XXX setup magix */
 	SXIWRITE4(sc, SXIAHCI_RWC, 0);

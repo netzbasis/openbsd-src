@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.75 2017/11/21 17:57:41 tb Exp $	*/
+/*	$OpenBSD: history.c,v 1.81 2018/11/20 07:02:23 martijn Exp $	*/
 
 /*
  * command history
@@ -25,8 +25,6 @@
 
 #include "sh.h"
 
-#ifdef HISTORY
-
 static void	history_write(void);
 static FILE	*history_open(void);
 static void	history_load(Source *);
@@ -50,6 +48,8 @@ static uint32_t	line_co;
 
 static struct stat last_sb;
 
+static volatile sig_atomic_t	c_fc_depth;
+
 int
 c_fc(char **wp)
 {
@@ -60,9 +60,8 @@ c_fc(char **wp)
 	int optc, ret;
 	char *first = NULL, *last = NULL;
 	char **hfirst, **hlast, **hp;
-	static int depth;
 
-	if (depth != 0) {
+	if (c_fc_depth != 0) {
 		bi_errorf("history function called recursively");
 		return 1;
 	}
@@ -148,9 +147,9 @@ c_fc(char **wp)
 		    hist_get_newest(false);
 		if (!hp)
 			return 1;
-		depth++;
+		c_fc_depth++;
 		ret = hist_replace(hp, pat, rep, gflag);
-		depth--;
+		c_fc_reset();
 		return ret;
 	}
 
@@ -270,11 +269,20 @@ c_fc(char **wp)
 		shf_close(shf);
 		*xp = '\0';
 		strip_nuls(Xstring(xs, xp), Xlength(xs, xp));
-		depth++;
+		c_fc_depth++;
 		ret = hist_execute(Xstring(xs, xp));
-		depth--;
+		c_fc_reset();
 		return ret;
 	}
+}
+
+/* Reset the c_fc depth counter.
+ * Made available for when an fc call is interrupted.
+ */
+void
+c_fc_reset(void)
+{
+	c_fc_depth = 0;
 }
 
 /* Save cmd in history, execute cmd (cmd gets trashed) */
@@ -545,7 +553,7 @@ sethistcontrol(const char *str)
 void
 sethistsize(int n)
 {
-	if (n > 0 && n != histsize) {
+	if (n > 0 && (uint32_t)n != histsize) {
 		int offset = histptr - history;
 
 		/* save most recent history */
@@ -793,10 +801,9 @@ hist_init(Source *s)
 
 	hist_source = s;
 
-	hname = str_val(global("HISTFILE"));
-	if (hname == NULL)
+	if (str_val(global("HISTFILE")) == null)
 		return;
-	hname = str_save(hname, APERM);
+	hname = str_save(str_val(global("HISTFILE")), APERM);
 	histfh = history_open();
 	if (histfh == NULL)
 		return;
@@ -856,25 +863,3 @@ hist_finish(void)
 {
 	history_close();
 }
-
-#else /* HISTORY */
-
-/* No history to be compiled in: dummy routines to avoid lots more ifdefs */
-void
-init_histvec(void)
-{
-}
-void
-hist_init(Source *s)
-{
-}
-void
-hist_finish(void)
-{
-}
-void
-histsave(int lno, const char *cmd, int dowrite)
-{
-	errorf("history not enabled");
-}
-#endif /* HISTORY */

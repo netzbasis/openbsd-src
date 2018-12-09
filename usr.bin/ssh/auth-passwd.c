@@ -1,4 +1,4 @@
-/* $OpenBSD: auth-passwd.c,v 1.45 2016/07/21 01:39:35 dtucker Exp $ */
+/* $OpenBSD: auth-passwd.c,v 1.47 2018/07/09 21:26:02 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -45,18 +45,19 @@
 #include <stdarg.h>
 
 #include "packet.h"
-#include "buffer.h"
+#include "sshbuf.h"
+#include "ssherr.h"
 #include "log.h"
 #include "misc.h"
 #include "servconf.h"
-#include "key.h"
+#include "sshkey.h"
 #include "hostfile.h"
 #include "auth.h"
 #include "auth-options.h"
 
-extern Buffer loginmsg;
+extern struct sshbuf *loginmsg;
 extern ServerOptions options;
-int sys_auth_passwd(Authctxt *, const char *);
+int sys_auth_passwd(struct ssh *, const char *);
 
 extern login_cap_t *lc;
 
@@ -65,22 +66,15 @@ extern login_cap_t *lc;
 
 #define MAX_PASSWORD_LEN	1024
 
-static void
-disable_forwarding(void)
-{
-	no_port_forwarding_flag = 1;
-	no_agent_forwarding_flag = 1;
-	no_x11_forwarding_flag = 1;
-}
-
 /*
  * Tries to authenticate the user using password.  Returns true if
  * authentication succeeds.
  */
 int
-auth_password(Authctxt *authctxt, const char *password)
+auth_password(struct ssh *ssh, const char *password)
 {
-	struct passwd * pw = authctxt->pw;
+	Authctxt *authctxt = ssh->authctxt;
+	struct passwd *pw = authctxt->pw;
 	int ok = authctxt->valid;
 
 	if (strlen(password) > MAX_PASSWORD_LEN)
@@ -98,13 +92,13 @@ auth_password(Authctxt *authctxt, const char *password)
 		/* Fall back to ordinary passwd authentication. */
 	}
 #endif
-	return (sys_auth_passwd(authctxt, password) && ok);
+	return (sys_auth_passwd(ssh, password) && ok);
 }
 
 static void
 warn_expiry(Authctxt *authctxt, auth_session_t *as)
 {
-	char buf[256];
+	int r;
 	quad_t pwtimeleft, actimeleft, daysleft, pwwarntime, acwarntime;
 
 	pwwarntime = acwarntime = TWO_WEEKS;
@@ -119,34 +113,34 @@ warn_expiry(Authctxt *authctxt, auth_session_t *as)
 	}
 	if (pwtimeleft != 0 && pwtimeleft < pwwarntime) {
 		daysleft = pwtimeleft / DAY + 1;
-		snprintf(buf, sizeof(buf),
+		if ((r = sshbuf_putf(loginmsg,
 		    "Your password will expire in %lld day%s.\n",
-		    daysleft, daysleft == 1 ? "" : "s");
-		buffer_append(&loginmsg, buf, strlen(buf));
+		    daysleft, daysleft == 1 ? "" : "s")) != 0)
+			fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	}
 	if (actimeleft != 0 && actimeleft < acwarntime) {
 		daysleft = actimeleft / DAY + 1;
-		snprintf(buf, sizeof(buf),
+		if ((r = sshbuf_putf(loginmsg,
 		    "Your account will expire in %lld day%s.\n",
-		    daysleft, daysleft == 1 ? "" : "s");
-		buffer_append(&loginmsg, buf, strlen(buf));
+		    daysleft, daysleft == 1 ? "" : "s")) != 0)
+			fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	}
 }
 
 int
-sys_auth_passwd(Authctxt *authctxt, const char *password)
+sys_auth_passwd(struct ssh *ssh, const char *password)
 {
-	struct passwd *pw = authctxt->pw;
+	Authctxt *authctxt = ssh->authctxt;
 	auth_session_t *as;
 	static int expire_checked = 0;
 
-	as = auth_usercheck(pw->pw_name, authctxt->style, "auth-ssh",
+	as = auth_usercheck(authctxt->pw->pw_name, authctxt->style, "auth-ssh",
 	    (char *)password);
 	if (as == NULL)
 		return (0);
 	if (auth_getstate(as) & AUTH_PWEXPIRED) {
 		auth_close(as);
-		disable_forwarding();
+		auth_restrict_session(ssh);
 		authctxt->force_pwchange = 1;
 		return (1);
 	} else {

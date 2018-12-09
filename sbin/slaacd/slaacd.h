@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.h,v 1.11 2017/12/10 10:07:54 florian Exp $	*/
+/*	$OpenBSD: slaacd.h,v 1.20 2018/07/27 06:23:08 bket Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -20,14 +20,17 @@
 
 #define	SLAACD_SOCKET		"/dev/slaacd.sock"
 #define SLAACD_USER		"_slaacd"
+#define SLAACD_RTA_LABEL	"slaacd"
+
+#define SLAACD_SOIIKEY_LEN	16
 
 /* MAXDNAME from arpa/namesr.h */
 #define SLAACD_MAX_DNSSL	1025
 
 static const char * const log_procnames[] = {
 	"main",
-	"frontend",
-	"engine"
+	"engine",
+	"frontend"
 };
 
 struct imsgev {
@@ -52,6 +55,7 @@ enum imsg_type {
 	IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL,
 	IMSG_CTL_END,
 	IMSG_UPDATE_ADDRESS,
+	IMSG_UPDATE_LINK_STATE,
 #endif	/* SMALL */
 	IMSG_CTL_SEND_SOLICITATION,
 	IMSG_SOCKET_IPC,
@@ -59,6 +63,7 @@ enum imsg_type {
 	IMSG_ROUTESOCK,
 	IMSG_CONTROLFD,
 	IMSG_STARTUP,
+	IMSG_STARTUP_DONE,
 	IMSG_UPDATE_IF,
 	IMSG_REMOVE_IF,
 	IMSG_RA,
@@ -66,12 +71,12 @@ enum imsg_type {
 	IMSG_PROPOSAL_ACK,
 	IMSG_CONFIGURE_ADDRESS,
 	IMSG_DEL_ADDRESS,
+	IMSG_DEL_ROUTE,
 	IMSG_FAKE_ACK,
 	IMSG_CONFIGURE_DFR,
 	IMSG_WITHDRAW_DFR,
+	IMSG_DUP_ADDRESS,
 };
-
-extern const char* imsg_type_name[];
 
 enum {
 	PROC_MAIN,
@@ -90,6 +95,7 @@ struct ctl_engine_info {
 	uint32_t		if_index;
 	int			running;
 	int			autoconfprivacy;
+	int			soii;
 	struct ether_addr	hw_address;
 	struct sockaddr_in6	ll_address;
 };
@@ -105,6 +111,7 @@ struct ctl_engine_info_ra {
 	uint16_t		 router_lifetime;	/* in seconds */
 	uint32_t		 reachable_time;	/* in milliseconds */
 	uint32_t		 retrans_time;		/* in milliseconds */
+	uint32_t		 mtu;
 };
 
 struct ctl_engine_info_ra_prefix {
@@ -163,19 +170,31 @@ struct imsg_addrinfo {
 	uint32_t		vltime;
 	uint32_t		pltime;
 };
+
+struct imsg_link_state {
+	uint32_t	if_index;
+	int		link_state;
+};
 #endif	/* SMALL */
 
 struct imsg_ifinfo {
 	uint32_t		if_index;
 	int			running;
 	int			autoconfprivacy;
+	int			soii;
 	struct ether_addr	hw_address;
 	struct sockaddr_in6	ll_address;
+	uint8_t			soiikey[SLAACD_SOIIKEY_LEN];
 };
 
 struct imsg_del_addr {
 	uint32_t		if_index;
 	struct sockaddr_in6	addr;
+};
+
+struct imsg_del_route {
+	uint32_t		if_index;
+	struct sockaddr_in6	gw;
 };
 
 struct imsg_proposal_ack {
@@ -189,6 +208,11 @@ struct imsg_ra {
 	struct sockaddr_in6	from;
 	ssize_t			len;
 	uint8_t			packet[1500];
+};
+
+struct imsg_dup_addr {
+	uint32_t		if_index;
+	struct sockaddr_in6	addr;
 };
 
 /* slaacd.c */

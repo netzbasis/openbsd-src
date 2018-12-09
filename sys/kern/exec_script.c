@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_script.c,v 1.40 2017/02/11 19:51:06 guenther Exp $	*/
+/*	$OpenBSD: exec_script.c,v 1.47 2018/06/18 09:15:05 mpi Exp $	*/
 /*	$NetBSD: exec_script.c,v 1.13 1996/02/04 02:15:06 christos Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 #include <sys/vnode.h>
 #include <sys/lock.h>
 #include <sys/namei.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/exec.h>
@@ -157,9 +158,9 @@ check_shell:
 	 * close all open fd's when they start.  That kills this
 	 * method of implementing "safe" set-id and x-only scripts.
 	 */
-	vn_lock(scriptvp, LK_EXCLUSIVE|LK_RETRY, p);
+	vn_lock(scriptvp, LK_EXCLUSIVE|LK_RETRY);
 	error = VOP_ACCESS(scriptvp, VREAD, p->p_ucred, p);
-	VOP_UNLOCK(scriptvp, p);
+	VOP_UNLOCK(scriptvp);
 	if (error == EACCES || script_sbits) {
 		struct file *fp;
 
@@ -169,17 +170,20 @@ check_shell:
 #endif
 
 		fdplock(p->p_fd);
-		error = falloc(p, 0, &fp, &epp->ep_fd);
-		fdpunlock(p->p_fd);
-		if (error)
+		error = falloc(p, &fp, &epp->ep_fd);
+		if (error) {
+			fdpunlock(p->p_fd);
 			goto fail;
+		}
 
 		epp->ep_flags |= EXEC_HASFD;
 		fp->f_type = DTYPE_VNODE;
 		fp->f_ops = &vnops;
 		fp->f_data = (caddr_t) scriptvp;
 		fp->f_flag = FREAD;
-		FILE_SET_MATURE(fp, p);
+		fdinsert(p->p_fd, epp->ep_fd, 0, fp);
+		fdpunlock(p->p_fd);
+		FRELE(fp, p);
 	}
 
 	/* set up the parameters for the recursive check_exec() call */
@@ -264,11 +268,13 @@ fail:
 	pool_put(&namei_pool, epp->ep_ndp->ni_cnd.cn_pnbuf);
 
 	/* free the fake arg list, because we're not returning it */
-	if ((tmpsap = shellargp) != NULL) {
-		while (*tmpsap != NULL) {
-			free(*tmpsap, M_EXEC, 0);
-			tmpsap++;
-		}
+	if (shellargp != NULL) {
+		free(shellargp[0], M_EXEC, shellnamelen + 1);
+		if (shellargp[2] != NULL) {
+			free(shellargp[1], M_EXEC, shellarglen + 1);
+			free(shellargp[2], M_EXEC, MAXPATHLEN);
+		} else
+			free(shellargp[1], M_EXEC, MAXPATHLEN);
 		free(shellargp, M_EXEC, 4 * sizeof(char *));
 	}
 

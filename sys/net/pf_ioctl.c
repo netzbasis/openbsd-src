@@ -1,8 +1,8 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.326 2017/11/28 16:05:46 bluhm Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.338 2018/10/01 19:47:30 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
- * Copyright (c) 2002 - 2013 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2002 - 2018 Henning Brauer <henning@openbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -132,7 +132,21 @@ TAILQ_HEAD(pf_tags, pf_tagname)	pf_tags = TAILQ_HEAD_INITIALIZER(pf_tags),
 				pf_qids = TAILQ_HEAD_INITIALIZER(pf_qids);
 
 #ifdef WITH_PF_LOCK
+/*
+ * pf_lock protects consistency of PF data structures, which don't have
+ * their dedicated lock yet. The pf_lock currently protects:
+ *	- rules,
+ *	- radix tables,
+ *	- source nodes
+ * All callers must grab pf_lock exclusively.
+ *
+ * pf_state_lock protects consistency of state table. Packets, which do state
+ * look up grab the lock as readers. If packet must create state, then it must
+ * grab the lock as writer. Whenever packet creates state it grabs pf_lock
+ * first then it locks pf_state_lock as the writer.
+ */
 struct rwlock		 pf_lock = RWLOCK_INITIALIZER("pf_lock");
+struct rwlock		 pf_state_lock = RWLOCK_INITIALIZER("pf_state_lock");
 #endif /* WITH_PF_LOCK */
 
 #if (PF_QNAME_SIZE != PF_TAG_NAME_SIZE)
@@ -169,10 +183,14 @@ pfattach(int num)
 	    IPL_SOFTNET, 0, "pfqueue", NULL);
 	pool_init(&pf_tag_pl, sizeof(struct pf_tagname), 0,
 	    IPL_SOFTNET, 0, "pftag", NULL);
+	pool_init(&pf_pktdelay_pl, sizeof(struct pf_pktdelay), 0,
+	    IPL_SOFTNET, 0, "pfpktdelay", NULL);
+
 	hfsc_initialize();
 	pfr_initialize();
 	pfi_initialize();
 	pf_osfp_initialize();
+	pf_syncookies_init();
 
 	pool_sethardlimit(pf_pool_limits[PF_LIMIT_STATES].pp,
 	    pf_pool_limits[PF_LIMIT_STATES].limit, NULL, 0);
@@ -225,7 +243,7 @@ pfattach(int num)
 	pf_default_rule.route.addr.type =  PF_ADDR_NONE;
 
 	pf_normalize_init();
-	bzero(&pf_status, sizeof(pf_status));
+	memset(&pf_status, 0, sizeof(pf_status));
 	pf_status.debug = LOG_ERR;
 	pf_status.reass = PF_REASS_ENABLED;
 
@@ -790,7 +808,7 @@ pf_commit_rules(u_int32_t ticket, char *anchor)
 	u_int32_t		 old_rcount;
 
 	/* Make sure any expired rules get removed from active rules first. */
-	pf_purge_expired_rules(1);
+	pf_purge_expired_rules();
 
 	rs = pf_find_ruleset(anchor);
 	if (rs == NULL || !rs->rules.inactive.open ||
@@ -933,6 +951,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		case DIOCRADDADDRS:
 		case DIOCRDELADDRS:
 		case DIOCRSETADDRS:
+		case DIOCRGETADDRS:
 		case DIOCRGETASTATS:
 		case DIOCRCLRASTATS:
 		case DIOCRTSTADDRS:
@@ -942,6 +961,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		case DIOCIGETIFACES:
 		case DIOCSETIFFLAG:
 		case DIOCCLRIFFLAG:
+		case DIOCGETSYNFLWATS:
 			break;
 		case DIOCRCLRTABLES:
 		case DIOCRADDTABLES:
@@ -977,6 +997,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		case DIOCOSFPGET:
 		case DIOCGETSRCNODES:
 		case DIOCIGETIFACES:
+		case DIOCGETSYNFLWATS:
 			break;
 		case DIOCRCLRTABLES:
 		case DIOCRADDTABLES:
@@ -1076,7 +1097,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			PF_UNLOCK();
 			break;
 		}
-		bcopy(qs, &pq->queue, sizeof(pq->queue));
+		memcpy(&pq->queue, qs, sizeof(pq->queue));
 		PF_UNLOCK();
 		break;
 	}
@@ -1105,7 +1126,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			PF_UNLOCK();
 			break;
 		}
-		bcopy(qs, &pq->queue, sizeof(pq->queue));
+		memcpy(&pq->queue, qs, sizeof(pq->queue));
 		/* It's a root flow queue but is not an HFSC root class */
 		if ((qs->flags & PFQS_FLOWQUEUE) && qs->parent_qid == 0 &&
 		    !(qs->flags & PFQS_ROOTCLASS))
@@ -1136,8 +1157,14 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			PF_UNLOCK();
 			break;
 		}
-		bcopy(&q->queue, qs, sizeof(*qs));
+		memcpy(qs, &q->queue, sizeof(*qs));
 		qs->qid = pf_qname2qid(qs->qname, 1);
+		if (qs->qid == 0) {
+			pool_put(&pf_queue_pl, qs);
+			error = EBUSY;
+			PF_UNLOCK();
+			break;
+		}
 		if (qs->parent[0] && (qs->parent_qid =
 		    pf_qname2qid(qs->parent, 0)) == 0) {
 			pool_put(&pf_queue_pl, qs);
@@ -1308,8 +1335,8 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			PF_UNLOCK();
 			break;
 		}
-		bcopy(rule, &pr->rule, sizeof(struct pf_rule));
-		bzero(&pr->rule.entries, sizeof(pr->rule.entries));
+		memcpy(&pr->rule, rule, sizeof(struct pf_rule));
+		memset(&pr->rule.entries, 0, sizeof(pr->rule.entries));
 		pr->rule.kif = NULL;
 		pr->rule.nat.kif = NULL;
 		pr->rule.rdr.kif = NULL;
@@ -1318,7 +1345,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		pr->rule.anchor = NULL;
 		pr->rule.overload_tbl = NULL;
 		pr->rule.pktrate.limit /= PF_THRESHOLD_MULT;
-		bzero(&pr->rule.gcle, sizeof(pr->rule.gcle));
+		memset(&pr->rule.gcle, 0, sizeof(pr->rule.gcle));
 		pr->rule.ruleset = NULL;
 		if (pf_anchor_copyout(ruleset, rule, pr)) {
 			error = EBUSY;
@@ -1406,7 +1433,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				break;
 #endif /* INET6 */
 			default:
-				pool_put(&pf_rule_pl, newrule);
+				pf_rm_rule(NULL, newrule);
 				error = EAFNOSUPPORT;
 				PF_UNLOCK();
 				goto fail;
@@ -1489,6 +1516,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		u_int			 killed = 0;
 
 		PF_LOCK();
+		PF_STATE_ENTER_WRITE();
 		for (s = RB_MIN(pf_state_tree_id, &tree_id); s; s = nexts) {
 			nexts = RB_NEXT(pf_state_tree_id, &tree_id, s);
 
@@ -1502,6 +1530,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				killed++;
 			}
 		}
+		PF_STATE_EXIT_WRITE();
 		psk->psk_killed = killed;
 #if NPFSYNC > 0
 		pfsync_clear_states(pf_status.hostid, psk->psk_ifname);
@@ -1525,10 +1554,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			if (psk->psk_pfcmp.creatorid == 0)
 				psk->psk_pfcmp.creatorid = pf_status.hostid;
 			PF_LOCK();
+			PF_STATE_ENTER_WRITE();
 			if ((s = pf_find_state_byid(&psk->psk_pfcmp))) {
 				pf_remove_state(s);
 				psk->psk_killed = 1;
 			}
+			PF_STATE_EXIT_WRITE();
 			PF_UNLOCK();
 			break;
 		}
@@ -1542,6 +1573,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			key.rdomain = psk->psk_rdomain;
 
 			PF_LOCK();
+			PF_STATE_ENTER_WRITE();
 			for (i = 0; i < nitems(dirs); i++) {
 				if (dirs[i] == PF_IN) {
 					sidx = 0;
@@ -1582,11 +1614,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 			if (killed)
 				psk->psk_killed = killed;
+			PF_STATE_EXIT_WRITE();
 			PF_UNLOCK();
 			break;
 		}
 
 		PF_LOCK();
+		PF_STATE_ENTER_WRITE();
 		for (s = RB_MIN(pf_state_tree_id, &tree_id); s;
 		    s = nexts) {
 			nexts = RB_NEXT(pf_state_tree_id, &tree_id, s);
@@ -1632,6 +1666,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 		}
 		psk->psk_killed = killed;
+		PF_STATE_EXIT_WRITE();
 		PF_UNLOCK();
 		break;
 	}
@@ -1646,7 +1681,9 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			break;
 		}
 		PF_LOCK();
+		PF_STATE_ENTER_WRITE();
 		error = pfsync_state_import(sp, PFSYNC_SI_IOCTL);
+		PF_STATE_EXIT_WRITE();
 		PF_UNLOCK();
 		break;
 	}
@@ -1657,20 +1694,21 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pf_state		*s;
 		struct pf_state_cmp	 id_key;
 
-		bzero(&id_key, sizeof(id_key));
+		memset(&id_key, 0, sizeof(id_key));
 		id_key.id = ps->state.id;
 		id_key.creatorid = ps->state.creatorid;
 
-		PF_LOCK();
+		PF_STATE_ENTER_READ();
 		s = pf_find_state_byid(&id_key);
+		s = pf_state_ref(s);
+		PF_STATE_EXIT_READ();
 		if (s == NULL) {
 			error = ENOENT;
-			PF_UNLOCK();
 			break;
 		}
 
 		pf_state_export(&ps->state, s);
-		PF_UNLOCK();
+		pf_state_unref(s);
 		break;
 	}
 
@@ -1690,7 +1728,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 
 		p = ps->ps_states;
 
-		PF_LOCK();
+		PF_STATE_ENTER_READ();
 		state = TAILQ_FIRST(&state_list);
 		while (state) {
 			if (state->timeout != PFTM_UNLINKED) {
@@ -1700,6 +1738,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				error = copyout(pstore, p, sizeof(*p));
 				if (error) {
 					free(pstore, M_TEMP, sizeof(*pstore));
+					PF_STATE_EXIT_READ();
 					goto fail;
 				}
 				p++;
@@ -1707,7 +1746,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 			state = TAILQ_NEXT(state, entry_list);
 		}
-		PF_UNLOCK();
+		PF_STATE_EXIT_READ();
 
 		ps->ps_len = sizeof(struct pfsync_state) * nr;
 
@@ -1718,7 +1757,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 	case DIOCGETSTATUS: {
 		struct pf_status *s = (struct pf_status *)addr;
 		PF_LOCK();
-		bcopy(&pf_status, s, sizeof(struct pf_status));
+		memcpy(s, &pf_status, sizeof(struct pf_status));
 		pfi_update_status(s->ifname, s);
 		PF_UNLOCK();
 		break;
@@ -1729,7 +1768,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 
 		PF_LOCK();
 		if (pi->pfiio_name[0] == 0) {
-			bzero(pf_status.ifname, IFNAMSIZ);
+			memset(pf_status.ifname, 0, IFNAMSIZ);
 			PF_UNLOCK();
 			break;
 		}
@@ -1750,9 +1789,9 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			break;
 		}
 
-		bzero(pf_status.counters, sizeof(pf_status.counters));
-		bzero(pf_status.fcounters, sizeof(pf_status.fcounters));
-		bzero(pf_status.scounters, sizeof(pf_status.scounters));
+		memset(pf_status.counters, 0, sizeof(pf_status.counters));
+		memset(pf_status.fcounters, 0, sizeof(pf_status.fcounters));
+		memset(pf_status.scounters, 0, sizeof(pf_status.scounters));
 		pf_status.since = time_uptime;
 
 		PF_UNLOCK();
@@ -1788,8 +1827,10 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			PF_ACPY(&key.addr[didx], &pnl->daddr, pnl->af);
 			key.port[didx] = pnl->dport;
 
-			PF_LOCK();
+			PF_STATE_ENTER_READ();
 			state = pf_find_state_all(&key, direction, &m);
+			state = pf_state_ref(state);
+			PF_STATE_EXIT_READ();
 
 			if (m > 1)
 				error = E2BIG;	/* more than one state */
@@ -1802,7 +1843,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				pnl->rrdomain = sk->rdomain;
 			} else
 				error = ENOENT;
-			PF_UNLOCK();
+			pf_state_unref(state);
 		}
 		break;
 	}
@@ -2217,7 +2258,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		ioe = malloc(sizeof(*ioe), M_TEMP, M_WAITOK);
 		table = malloc(sizeof(*table), M_TEMP, M_WAITOK);
 		pf_default_rule_new = pf_default_rule;
-		bzero(&pf_trans_set, sizeof(pf_trans_set));
+		memset(&pf_trans_set, 0, sizeof(pf_trans_set));
 		for (i = 0; i < io->size; i++) {
 			if (copyin(io->array+i, ioe, sizeof(*ioe))) {
 				free(table, M_TEMP, sizeof(*table));
@@ -2236,7 +2277,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
-				bzero(table, sizeof(*table));
+				memset(table, 0, sizeof(*table));
 				strlcpy(table->pfrt_anchor, ioe->anchor,
 				    sizeof(table->pfrt_anchor));
 				if ((error = pfr_ina_begin(table,
@@ -2247,7 +2288,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail;
 				}
 				break;
-			default:
+			case PF_TRANS_RULESET:
 				if ((error = pf_begin_rules(&ioe->ticket,
 				    ioe->anchor))) {
 					free(table, M_TEMP, sizeof(*table));
@@ -2256,6 +2297,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail;
 				}
 				break;
+			default:
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = EINVAL;
+				PF_UNLOCK();
+				goto fail;
 			}
 			if (copyout(ioe, io->array+i, sizeof(io->array[i]))) {
 				free(table, M_TEMP, sizeof(*table));
@@ -2302,7 +2349,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
-				bzero(table, sizeof(*table));
+				memset(table, 0, sizeof(*table));
 				strlcpy(table->pfrt_anchor, ioe->anchor,
 				    sizeof(table->pfrt_anchor));
 				if ((error = pfr_ina_rollback(table,
@@ -2313,7 +2360,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail; /* really bad */
 				}
 				break;
-			default:
+			case PF_TRANS_RULESET:
 				if ((error = pf_rollback_rules(ioe->ticket,
 				    ioe->anchor))) {
 					free(table, M_TEMP, sizeof(*table));
@@ -2322,6 +2369,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail; /* really bad */
 				}
 				break;
+			default:
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = EINVAL;
+				PF_UNLOCK();
+				goto fail; /* really bad */
 			}
 		}
 		free(table, M_TEMP, sizeof(*table));
@@ -2373,7 +2426,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail;
 				}
 				break;
-			default:
+			case PF_TRANS_RULESET:
 				rs = pf_find_ruleset(ioe->anchor);
 				if (rs == NULL ||
 				    !rs->rules.inactive.open ||
@@ -2386,6 +2439,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail;
 				}
 				break;
+			default:
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = EINVAL;
+				PF_UNLOCK();
+				goto fail;
 			}
 		}
 
@@ -2422,7 +2481,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			}
 			switch (ioe->type) {
 			case PF_TRANS_TABLE:
-				bzero(table, sizeof(*table));
+				memset(table, 0, sizeof(*table));
 				strlcpy(table->pfrt_anchor, ioe->anchor,
 				    sizeof(table->pfrt_anchor));
 				if ((error = pfr_ina_commit(table, ioe->ticket,
@@ -2433,7 +2492,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail; /* really bad */
 				}
 				break;
-			default:
+			case PF_TRANS_RULESET:
 				if ((error = pf_commit_rules(ioe->ticket,
 				    ioe->anchor))) {
 					free(table, M_TEMP, sizeof(*table));
@@ -2442,6 +2501,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 					goto fail; /* really bad */
 				}
 				break;
+			default:
+				free(table, M_TEMP, sizeof(*table));
+				free(ioe, M_TEMP, sizeof(*ioe));
+				error = EINVAL;
+				PF_UNLOCK();
+				goto fail; /* really bad */
 			}
 		}
 		for (i = 0; i < PF_LIMIT_MAX; i++) {
@@ -2498,8 +2563,8 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			if ((nr + 1) * sizeof(*p) > (unsigned)psn->psn_len)
 				break;
 
-			bcopy(n, pstore, sizeof(*pstore));
-			bzero(&pstore->entry, sizeof(pstore->entry));
+			memcpy(pstore, n, sizeof(*pstore));
+			memset(&pstore->entry, 0, sizeof(pstore->entry));
 			pstore->rule.ptr = NULL;
 			pstore->kif = NULL;
 			pstore->rule.nr = n->rule.ptr->nr;
@@ -2539,11 +2604,13 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pf_state		*state;
 
 		PF_LOCK();
+		PF_STATE_ENTER_WRITE();
 		RB_FOREACH(state, pf_state_tree_id, &tree_id)
 			pf_src_tree_remove_state(state);
+		PF_STATE_EXIT_WRITE();
 		RB_FOREACH(n, pf_src_tree, &tree_src_tracking)
 			n->expire = 1;
-		pf_purge_expired_src_nodes(1);
+		pf_purge_expired_src_nodes();
 		PF_UNLOCK();
 		break;
 	}
@@ -2566,17 +2633,21 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				&psnk->psnk_dst.addr.v.a.mask,
 				&sn->raddr, sn->af)) {
 				/* Handle state to src_node linkage */
-				if (sn->states != 0)
+				if (sn->states != 0) {
+					PF_ASSERT_LOCKED();
+					PF_STATE_ENTER_WRITE();
 					RB_FOREACH(s, pf_state_tree_id,
 					   &tree_id)
 						pf_state_rm_src_node(s, sn);
+					PF_STATE_EXIT_WRITE();
+				}
 				sn->expire = 1;
 				killed++;
 			}
 		}
 
 		if (killed > 0)
-			pf_purge_expired_src_nodes(1);
+			pf_purge_expired_src_nodes();
 
 		psnk->psnk_killed = killed;
 		PF_UNLOCK();
@@ -2644,6 +2715,33 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		break;
 	}
 
+	case DIOCSETSYNFLWATS: {
+		struct pfioc_synflwats *io = (struct pfioc_synflwats *)addr;
+
+		PF_LOCK();
+		error = pf_syncookies_setwats(io->hiwat, io->lowat);
+		PF_UNLOCK();
+		break;
+	}
+
+	case DIOCGETSYNFLWATS: {
+		struct pfioc_synflwats *io = (struct pfioc_synflwats *)addr;
+
+		PF_LOCK();
+		error = pf_syncookies_getwats(io);
+		PF_UNLOCK();
+		break;
+	}
+
+	case DIOCSETSYNCOOKIES: {
+		u_int8_t	*mode = (u_int8_t *)addr;
+
+		PF_LOCK();
+		error = pf_syncookies_setmode(*mode);
+		PF_UNLOCK();
+		break;
+	}
+
 	default:
 		error = ENODEV;
 		break;
@@ -2669,7 +2767,7 @@ pf_trans_set_commit(void)
 void
 pf_pool_copyin(struct pf_pool *from, struct pf_pool *to)
 {
-	bcopy(from, to, sizeof(*to));
+	memmove(to, from, sizeof(*to));
 	to->kif = NULL;
 }
 

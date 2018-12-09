@@ -1,4 +1,4 @@
-/*      $OpenBSD: agentx.c,v 1.10 2015/12/05 06:42:18 mmcc Exp $    */
+/*      $OpenBSD: agentx.c,v 1.13 2018/06/17 18:19:59 rob Exp $    */
 /*
  * Copyright (c) 2013,2014 Bret Stephen Lambert <blambert@openbsd.org>
  *
@@ -17,13 +17,9 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/uio.h>
+#include <sys/queue.h>
 #include <sys/un.h>
 
-#include <arpa/inet.h>
-
-#include <err.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -217,26 +213,17 @@ snmp_agentx_response(struct agentx_handle *h, struct agentx_pdu *pdu)
 {
 	struct agentx_response_data resp;
 
-	if (snmp_agentx_read_response(pdu, &resp) == -1)
+	if (snmp_agentx_read_raw(pdu, &resp, sizeof(resp)) == -1)
 		return (-1);
+
+	if (!snmp_agentx_byteorder_native(pdu->hdr)) {
+		resp.error = snmp_agentx_int16_byteswap(resp.error);
+		resp.index = snmp_agentx_int16_byteswap(resp.index);
+	}
 
 	h->error = resp.error;
 	if (resp.error != AGENTX_ERR_NONE)
 		return (-1);
-
-	return (0);
-}
-
-int
-snmp_agentx_read_response(struct agentx_pdu *pdu, struct agentx_response_data *resp)
-{
-	if (snmp_agentx_read_raw(pdu, resp, sizeof(*resp)) == -1)
-		return (-1);
-
-	if (!snmp_agentx_byteorder_native(pdu->hdr)) {
-		resp->error = snmp_agentx_int16_byteswap(resp->error);
-		resp->index = snmp_agentx_int16_byteswap(resp->index);
-	}
 
 	return (0);
 }
@@ -341,7 +328,7 @@ snmp_agentx_recv(struct agentx_handle *h)
 	if (h->r == NULL) {
 		if ((h->r = snmp_agentx_pdu_alloc()) == NULL)
 			return (NULL);
-		h->r->datalen = 0;	/* XXX -- force this for receive buffers */
+		h->r->datalen = 0;	/* XXX force this for receive buffers */
 	}
 	pdu = h->r;
 
@@ -962,7 +949,8 @@ snmp_agentx_do_read_oid(struct agentx_pdu *pdu, struct snmp_oid *oid,
 }
 
 int
-snmp_agentx_read_searchrange(struct agentx_pdu *pdu, struct agentx_search_range *sr)
+snmp_agentx_read_searchrange(struct agentx_pdu *pdu,
+    struct agentx_search_range *sr)
 {
 	if (snmp_agentx_do_read_oid(pdu, &sr->start, &sr->include) == -1 ||
 	    snmp_agentx_read_oid(pdu, &sr->end) == -1)
@@ -1037,7 +1025,7 @@ snmp_oid2string(struct snmp_oid *o, char *buf, size_t len)
 	bzero(buf, len);
 
 	for (i = 0; i < o->o_n; i++) {
-		snprintf(str, sizeof(str), "%d", o->o_id[i]);
+		snprintf(str, sizeof(str), "%u", o->o_id[i]);
 		strlcat(buf, str, len);
 		if (i < (o->o_n - 1))
 			strlcat(buf, ".", len);
@@ -1124,7 +1112,7 @@ snmp_agentx_dump_hdr(struct agentx_hdr *hdr)
 		return;
 	}
 
-	fprintf(stderr, 
+	fprintf(stderr,
 	    "agentx: version %d type %s flags %d reserved %d"
 	    " sessionid %d transactid %d packetid %d length %d",
 	    hdr->version, snmp_agentx_type2name(hdr->type), hdr->flags,

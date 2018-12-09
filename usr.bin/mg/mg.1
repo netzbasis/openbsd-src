@@ -1,7 +1,7 @@
-.\"	$OpenBSD: mg.1,v 1.105 2016/07/28 21:37:45 tedu Exp $
+.\"	$OpenBSD: mg.1,v 1.108 2018/11/18 07:57:28 lum Exp $
 .\" This file is in the public domain.
 .\"
-.Dd $Mdocdate: July 28 2016 $
+.Dd $Mdocdate: November 18 2018 $
 .Dt MG 1
 .Os
 .Sh NAME
@@ -496,7 +496,7 @@ Delete trailing whitespace on the current line.
 Delete all lines after dot that contain a string matching
 the supplied regular expression.
 .It delete-non-matching-lines
-Delete all lines after dot that contain a string matching
+Delete all lines after dot that don't contain a string matching
 the supplied regular expression.
 .It delete-other-windows
 Make the current window the only window visible on the screen.
@@ -846,6 +846,9 @@ Currently only affects fill-paragraph.
 Set case-fold searching, causing case not to matter
 in regular expression searches.
 This is the default.
+.It set-case-replace
+Preserve the case of the replaced string.
+This is the default.
 .It set-default-mode
 Append the supplied mode to the list of default modes
 used by subsequent buffer creation.
@@ -954,7 +957,7 @@ Specific key bindings are available in dired mode.
 dired-unmark-backward
 .It RET, e, f and C-m
 dired-find-file
-.It SPC
+.It SPC, n
 dired-next-line
 .It !
 dired-shell-command
@@ -968,8 +971,6 @@ dired-do-copy
 dired-flag-file-deletion
 .It g
 dired-revert
-.It n
-dired-next-line
 .It o
 dired-find-file-other-window
 .It p
@@ -1020,7 +1021,7 @@ dired buffer in another window.
 .It dired-previous-line
 Move the cursor to the previous line.
 .It dired-revert
-Refresh the dired buffer.
+Refresh the dired buffer while retaining any flags.
 .It dired-scroll-down
 Scroll down the dired buffer.
 .It dired-scroll-up

@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.22 2015/09/27 17:31:50 stsp Exp $ */
+/*	$OpenBSD: interface.c,v 1.24 2018/07/12 13:45:03 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -235,13 +235,14 @@ if_new(u_short ifindex, char *ifname)
 
 void
 if_update(struct iface *iface, int mtu, int flags, u_int8_t type,
-    u_int8_t state, u_int64_t rate)
+    u_int8_t state, u_int64_t rate, u_int32_t rdomain)
 {
 	iface->mtu = mtu;
 	iface->flags = flags;
 	iface->if_type = type;
 	iface->linkstate = state;
 	iface->baudrate = rate;
+	iface->rdomain = rdomain;
 
 	/* set type */
 	if (flags & IFF_POINTOPOINT)
@@ -711,10 +712,13 @@ if_set_recvbuf(int fd)
 {
 	int	bsize;
 
-	bsize = 65535;
+	bsize = 256 * 1024;
 	while (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bsize,
 	    sizeof(bsize)) == -1)
 		bsize /= 2;
+
+	if (bsize != 256 * 1024)
+		log_warnx("if_set_recvbuf: recvbuf size only %d", bsize);
 }
 
 int

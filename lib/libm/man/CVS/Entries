@@ -35,7 +35,7 @@
 /fdim.3/1.3/Tue Apr 26 19:49:22 2016//
 /feclearexcept.3/1.5/Tue Apr 26 19:49:22 2016//
 /feenableexcept.3/1.3/Wed Jun  5 03:40:26 2013//
-/fegetenv.3/1.3/Wed Jun  5 03:40:26 2013//
+/fegetenv.3/1.4/Fri Mar 16 16:58:26 2018//
 /fegetround.3/1.3/Wed Jun  5 03:40:26 2013//
 /floor.3/1.14/Wed Jul 17 05:42:11 2013//
 /fma.3/1.3/Wed Jun  5 03:40:26 2013//
@@ -55,6 +55,7 @@
 /round.3/1.5/Thu Jul  7 01:34:52 2011//
 /scalbn.3/1.5/Tue Apr 26 19:49:22 2016//
 /sin.3/1.17/Wed Sep 27 06:41:53 2017//
+/sincos.3/1.1/Sat Mar 10 20:52:58 2018//
 /sinh.3/1.15/Wed Jul 17 05:42:11 2013//
 /sqrt.3/1.16/Wed Jul 17 05:42:11 2013//
 /tan.3/1.12/Wed Jun  5 03:40:26 2013//

@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.h,v 1.78 2017/09/30 07:36:56 robert Exp $ */
+/* $OpenBSD: i915_drv.h,v 1.80 2018/06/25 22:29:16 kettenis Exp $ */
 /* i915_drv.h -- Private header for the I915 driver -*- linux-c -*-
  */
 /*
@@ -1102,9 +1102,7 @@ struct intel_gmbus {
 	u32 force_bit;
 	u32 reg0;
 	u32 gpio_reg;
-#ifdef __linux__
 	struct i2c_algo_bit_data bit_algo;
-#endif
 	struct drm_i915_private *dev_priv;
 };
 
@@ -3217,13 +3215,11 @@ i915_gem_get_gtt_alignment(struct drm_device *dev, uint32_t size,
 int i915_gem_object_set_cache_level(struct drm_i915_gem_object *obj,
 				    enum i915_cache_level cache_level);
 
-#ifdef notyet
 struct drm_gem_object *i915_gem_prime_import(struct drm_device *dev,
 				struct dma_buf *dma_buf);
 
 struct dma_buf *i915_gem_prime_export(struct drm_device *dev,
 				struct drm_gem_object *gem_obj, int flags);
-#endif
 
 u64 i915_gem_obj_ggtt_offset_view(struct drm_i915_gem_object *o,
 				  const struct i915_ggtt_view *view);

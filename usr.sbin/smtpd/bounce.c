@@ -1,4 +1,4 @@
-/*	$OpenBSD: bounce.c,v 1.77 2016/11/30 11:52:48 eric Exp $	*/
+/*	$OpenBSD: bounce.c,v 1.79 2018/05/31 21:06:12 gilles Exp $	*/
 
 /*
  * Copyright (c) 2009 Gilles Chehade <gilles@poolp.org>
@@ -160,19 +160,19 @@ bounce_add(uint64_t evpid)
 	}
 
 	key.bounce.dsn_ret = evp.dsn_ret;
-	key.bounce.expire = evp.expire;
+	key.bounce.ttl = evp.ttl;
 	msg = SPLAY_FIND(bounce_message_tree, &messages, &key);
 	if (msg == NULL) {
-		msg = xcalloc(1, sizeof(*msg), "bounce_add");
+		msg = xcalloc(1, sizeof(*msg));
 		msg->msgid = key.msgid;
 		msg->bounce = key.bounce;
 
 		TAILQ_INIT(&msg->envelopes);
 
-		msg->smtpname = xstrdup(evp.smtpname, "bounce_add");
+		msg->smtpname = xstrdup(evp.smtpname);
 		(void)snprintf(buf, sizeof(buf), "%s@%s", evp.sender.user,
 		    evp.sender.domain);
-		msg->to = xstrdup(buf, "bounce_add");
+		msg->to = xstrdup(buf);
 		nmessage += 1;
 		SPLAY_INSERT(bounce_message_tree, &messages, msg);
 		log_debug("debug: bounce: new message %08" PRIx32,
@@ -187,9 +187,9 @@ bounce_add(uint64_t evpid)
 	(void)snprintf(buf, sizeof(buf), "%s@%s: %s\n", evp.dest.user,
 	    evp.dest.domain, line);
 
-	be = xmalloc(sizeof *be, "bounce_add");
+	be = xmalloc(sizeof *be);
 	be->id = evpid;
-	be->report = xstrdup(buf, "bounce_add");
+	be->report = xstrdup(buf);
 	(void)strlcpy(be->dest.user, evp.dest.user, sizeof(be->dest.user));
 	(void)strlcpy(be->dest.domain, evp.dest.domain,
 	    sizeof(be->dest.domain));
@@ -225,8 +225,8 @@ bounce_fd(int fd)
 
 	msg = TAILQ_FIRST(&pending);
 
-	s = xcalloc(1, sizeof(*s), "bounce_fd");
-	s->smtpname = xstrdup(msg->smtpname, "bounce_fd");
+	s = xcalloc(1, sizeof(*s));
+	s->smtpname = xstrdup(msg->smtpname);
 	s->state = BOUNCE_EHLO;
 	s->io = io_new();
 	io_set_callback(s->io, bounce_io, s);
@@ -500,7 +500,7 @@ bounce_next(struct bounce_session *s)
 
 		if (s->msg->bounce.type == B_WARNING)
 			io_xprintf(s->io, notice_warning2,
-			    bounce_duration(s->msg->bounce.expire));
+			    bounce_duration(s->msg->bounce.ttl));
 
 		io_xprintf(s->io,
 		    "    Below is a copy of the original message:\n"

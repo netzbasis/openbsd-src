@@ -1,4 +1,4 @@
-/*	$OpenBSD: diskprobe.c,v 1.21 2017/11/06 08:57:34 yasuoka Exp $	*/
+/*	$OpenBSD: diskprobe.c,v 1.23 2018/06/18 15:37:48 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -94,7 +94,7 @@ floppyprobe(void)
 			if (debug)
 				printf(" <!fd%u>", i);
 #endif
-			free(dip, 0);
+			free(dip, sizeof(*dip));
 			break;
 		}
 
@@ -136,7 +136,7 @@ hardprobe(void)
 			if (debug)
 				printf(" <!hd%u>", i&0x7f);
 #endif
-			free(dip, 0);
+			free(dip, sizeof(*dip));
 			break;
 		}
 
@@ -323,7 +323,7 @@ cdprobe(void)
 #if 0
 	if (bios_getdiskinfo(cddev, &dip->bios_info)) {
 		printf(" <!cd0>");	/* XXX */
-		free(dip, 0);
+		free(dip, sizeof(*dip));
 		return;
 	}
 #endif
@@ -344,10 +344,6 @@ cdprobe(void)
 	dip->disklabel.d_ncylinders = 1;
 	dip->disklabel.d_secpercyl = dip->disklabel.d_ntracks *
 	    dip->disklabel.d_nsectors;
-	if (dip->disklabel.d_secpercyl == 0) {
-		dip->disklabel.d_secpercyl = 100;
-		/* as long as it's not 0, since readdisklabel divides by it */
-	}
 
 	strncpy(dip->disklabel.d_typename, "ATAPI CD-ROM",
 	    sizeof(dip->disklabel.d_typename));

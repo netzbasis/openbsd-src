@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_command.c,v 1.81 2017/12/11 05:27:40 deraadt Exp $	*/
+/*	$OpenBSD: db_command.c,v 1.84 2018/09/18 18:36:27 anton Exp $	*/
 /*	$NetBSD: db_command.c,v 1.20 1996/03/30 22:30:05 christos Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <ddb/db_watch.h>
 #include <ddb/db_run.h>
 #include <ddb/db_sym.h>
+#include <ddb/db_var.h>
 #include <ddb/db_variables.h>
 #include <ddb/db_interface.h>
 #include <ddb/db_extern.h>
@@ -491,6 +492,11 @@ db_show_panic_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
 	if (panicstr)
 		db_printf("%s\n", panicstr);
+	else if (faultstr) {
+		db_printf("kernel page fault\n");
+		db_printf("%s\n", faultstr);
+		db_stack_trace_print(addr, have_addr, 1, modif, db_printf);
+	}
 	else
 		db_printf("the kernel did not panic\n");	/* yet */
 }
@@ -628,6 +634,7 @@ struct db_command db_command_table[] = {
 	{ "next",	db_trace_until_matching_cmd,0,		NULL },
 	{ "match",	db_trace_until_matching_cmd,0,		NULL },
 	{ "trace",	db_stack_trace_cmd,	0,		NULL },
+	{ "bt",		db_stack_trace_cmd,	0,		NULL },
 	{ "call",	db_fncall,		CS_OWN,		NULL },
 	{ "ps",		db_show_all_procs,	0,		NULL },
 	{ "callout",	db_show_callout,	0,		NULL },
@@ -871,7 +878,7 @@ db_show_regs(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
  */
 /*ARGSUSED*/
 void
-db_write_cmd(db_expr_t	address, boolean_t have_addr, db_expr_t count,
+db_write_cmd(db_expr_t address, boolean_t have_addr, db_expr_t count,
     char *modif)
 {
 	db_addr_t	addr;

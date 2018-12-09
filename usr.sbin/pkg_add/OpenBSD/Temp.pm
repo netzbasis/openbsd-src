@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Temp.pm,v 1.27 2015/03/04 13:55:32 espie Exp $
+# $OpenBSD: Temp.pm,v 1.29 2018/10/04 09:17:00 espie Exp $
 #
 # Copyright (c) 2003-2005 Marc Espie <espie@openbsd.org>
 #
@@ -64,8 +64,9 @@ sub dir
 	return "$dir/";
 }
 
-sub file
+sub fh_file
 {
+	my ($stem, $cleanup) = @_;
 	my $caught;
 	my $h = sub { $caught = shift; };
 	my ($fh, $file);
@@ -76,15 +77,21 @@ sub file
 	    local $SIG{'HUP'} = $h;
 	    local $SIG{'KILL'} = $h;
 	    local $SIG{'TERM'} = $h;
-	    ($fh, $file) = permanent_file($tempbase, "pkgout");
+	    ($fh, $file) = permanent_file($tempbase, $stem);
 	    if (defined $file) {
-		    $files->{$file} = $$;
+		    &$cleanup($file);
 	    }
 	}
 	if (defined $caught) {
 		kill $caught, $$;
 	}
-	return $file;
+	return ($fh, $file);
+}
+
+sub file
+{
+	return (fh_file("pkgout", 
+	    sub { my $n = shift; $files->{$n} = $$; })) [1];
 }
 
 sub reclaim

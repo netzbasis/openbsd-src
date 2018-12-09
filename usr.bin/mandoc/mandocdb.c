@@ -1,7 +1,7 @@
-/*	$OpenBSD: mandocdb.c,v 1.205 2017/08/26 20:38:09 schwarze Exp $ */
+/*	$OpenBSD: mandocdb.c,v 1.208 2018/08/17 20:31:52 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011-2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2018 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2016 Ed Maste <emaste@freebsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -124,6 +124,8 @@ static	void	 parse_mdoc(struct mpage *, const struct roff_meta *,
 			const struct roff_node *);
 static	int	 parse_mdoc_head(struct mpage *, const struct roff_meta *,
 			const struct roff_node *);
+static	int	 parse_mdoc_Fa(struct mpage *, const struct roff_meta *,
+			const struct roff_node *);
 static	int	 parse_mdoc_Fd(struct mpage *, const struct roff_meta *,
 			const struct roff_node *);
 static	void	 parse_mdoc_fname(struct mpage *, const struct roff_node *);
@@ -168,7 +170,7 @@ static	struct ohash	 names; /* table of all names */
 static	struct ohash	 strings; /* table of all strings */
 static	uint64_t	 name_mask;
 
-static	const struct mdoc_handler __mdocs[MDOC_MAX - MDOC_Dd] = {
+static	const struct mdoc_handler mdoc_handlers[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, 0, NODE_NOPRT },  /* Dd */
 	{ NULL, 0, NODE_NOPRT },  /* Dt */
 	{ NULL, 0, NODE_NOPRT },  /* Os */
@@ -192,11 +194,11 @@ static	const struct mdoc_handler __mdocs[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, TYPE_Er, 0 },  /* Er */
 	{ NULL, TYPE_Ev, 0 },  /* Ev */
 	{ NULL, 0, 0 },  /* Ex */
-	{ NULL, TYPE_Fa, 0 },  /* Fa */
+	{ parse_mdoc_Fa, 0, 0 },  /* Fa */
 	{ parse_mdoc_Fd, 0, 0 },  /* Fd */
 	{ NULL, TYPE_Fl, 0 },  /* Fl */
 	{ parse_mdoc_Fn, 0, 0 },  /* Fn */
-	{ NULL, TYPE_Ft, 0 },  /* Ft */
+	{ NULL, TYPE_Ft | TYPE_Vt, 0 },  /* Ft */
 	{ NULL, TYPE_Ic, 0 },  /* Ic */
 	{ NULL, TYPE_In, 0 },  /* In */
 	{ NULL, TYPE_Li, 0 },  /* Li */
@@ -290,7 +292,6 @@ static	const struct mdoc_handler __mdocs[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, 0, 0 },  /* %U */
 	{ NULL, 0, 0 },  /* Ta */
 };
-static	const struct mdoc_handler *const mdocs = __mdocs - MDOC_Dd;
 
 
 int
@@ -1335,7 +1336,12 @@ parse_cat(struct mpage *mpage, int fd)
 		plen -= 2;
 	}
 
-	mpage->desc = mandoc_strdup(p);
+	/*
+	 * Cut off excessive one-line descriptions.
+	 * Bad pages are not worth better heuristics.
+	 */
+
+	mpage->desc = mandoc_strndup(p, 150);
 	fclose(stream);
 	free(title);
 }
@@ -1479,7 +1485,12 @@ parse_man(struct mpage *mpage, const struct roff_meta *meta,
 			while (' ' == *start)
 				start++;
 
-			mpage->desc = mandoc_strdup(start);
+			/*
+			 * Cut off excessive one-line descriptions.
+			 * Bad pages are not worth better heuristics.
+			 */
+
+			mpage->desc = mandoc_strndup(start, 150);
 			free(title);
 			return;
 		}
@@ -1496,25 +1507,28 @@ static void
 parse_mdoc(struct mpage *mpage, const struct roff_meta *meta,
 	const struct roff_node *n)
 {
+	const struct mdoc_handler *handler;
 
 	for (n = n->child; n != NULL; n = n->next) {
-		if (n->tok == TOKEN_NONE ||
-		    n->tok < ROFF_MAX ||
-		    n->flags & mdocs[n->tok].taboo)
+		if (n->tok == TOKEN_NONE || n->tok < ROFF_MAX)
 			continue;
 		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
+		handler = mdoc_handlers + (n->tok - MDOC_Dd);
+		if (n->flags & handler->taboo)
+			continue;
+
 		switch (n->type) {
 		case ROFFT_ELEM:
 		case ROFFT_BLOCK:
 		case ROFFT_HEAD:
 		case ROFFT_BODY:
 		case ROFFT_TAIL:
-			if (mdocs[n->tok].fp != NULL &&
-			    (*mdocs[n->tok].fp)(mpage, meta, n) == 0)
+			if (handler->fp != NULL &&
+			    (*handler->fp)(mpage, meta, n) == 0)
 				break;
-			if (mdocs[n->tok].mask)
+			if (handler->mask)
 				putmdockey(mpage, n->child,
-				    mdocs[n->tok].mask, mdocs[n->tok].taboo);
+				    handler->mask, handler->taboo);
 			break;
 		default:
 			continue;
@@ -1522,6 +1536,20 @@ parse_mdoc(struct mpage *mpage, const struct roff_meta *meta,
 		if (NULL != n->child)
 			parse_mdoc(mpage, meta, n);
 	}
+}
+
+static int
+parse_mdoc_Fa(struct mpage *mpage, const struct roff_meta *meta,
+	const struct roff_node *n)
+{
+	uint64_t mask;
+
+	mask = TYPE_Fa;
+	if (n->sec == SEC_SYNOPSIS)
+		mask |= TYPE_Vt;
+
+	putmdockey(mpage, n->child, mask, 0);
+	return 0;
 }
 
 static int
@@ -1593,15 +1621,20 @@ static int
 parse_mdoc_Fn(struct mpage *mpage, const struct roff_meta *meta,
 	const struct roff_node *n)
 {
+	uint64_t mask;
 
 	if (n->child == NULL)
 		return 0;
 
 	parse_mdoc_fname(mpage, n->child);
 
-	for (n = n->child->next; n != NULL; n = n->next)
-		if (n->type == ROFFT_TEXT)
-			putkey(mpage, n->string, TYPE_Fa);
+	n = n->child->next;
+	if (n != NULL && n->type == ROFFT_TEXT) {
+		mask = TYPE_Fa;
+		if (n->sec == SEC_SYNOPSIS)
+			mask |= TYPE_Vt;
+		putmdockey(mpage, n, mask, 0);
+	}
 
 	return 0;
 }

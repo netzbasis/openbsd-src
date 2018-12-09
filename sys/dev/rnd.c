@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.195 2017/11/26 17:06:46 mikeb Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.199 2018/04/28 15:44:59 jasper Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -199,7 +199,7 @@
 
 /*
  * Raw entropy collection from device drivers; at interrupt context or not.
- * add_*_randomness() provide data which is put into the entropy queue.
+ * enqueue_randomness() provide data which is put into the entropy queue.
  */
 
 #define QEVLEN	128		 /* must be a power of 2 */
@@ -284,21 +284,14 @@ rnd_qlen(void)
  * are for keyboard scan codes, 256 and upwards - for interrupts.
  */
 void
-enqueue_randomness(u_int state, u_int val)
+enqueue_randomness(u_int val)
 {
 	struct rand_event *rep;
 	struct timespec	ts;
 	u_int qlen;
 
-#ifdef DIAGNOSTIC
-	if (state >= RND_SRC_NUM)
-		return;
-#endif
-
 	if (timeout_initialized(&rnd_timeout))
 		nanotime(&ts);
-
-	val += state << 13;
 
 	mtx_enter(&rnd_enqlck);
 	rep = rnd_put();
@@ -417,7 +410,7 @@ extract_entropy(u_int8_t *buf)
 	memcpy(buf, digest, EBUFSIZE);
 
 	/* Modify pool so next hash will produce different results */
-	add_timer_randomness(EBUFSIZE);
+	enqueue_randomness(EBUFSIZE);
 	dequeue_randomness(NULL);
 
 	/* Wipe data from memory */
@@ -447,8 +440,8 @@ suspend_randomness(void)
 	struct timespec ts;
 
 	getnanotime(&ts);
-	add_true_randomness(ts.tv_sec);
-	add_true_randomness(ts.tv_nsec);
+	enqueue_randomness(ts.tv_sec);
+	enqueue_randomness(ts.tv_nsec);
 
 	dequeue_randomness(NULL);
 	rs_count = 0;
@@ -463,8 +456,8 @@ resume_randomness(char *buf, size_t buflen)
 	if (buf && buflen)
 		_rs_seed(buf, buflen);
 	getnanotime(&ts);
-	add_true_randomness(ts.tv_sec);
-	add_true_randomness(ts.tv_nsec);
+	enqueue_randomness(ts.tv_sec);
+	enqueue_randomness(ts.tv_nsec);
 
 	dequeue_randomness(NULL);
 	rs_count = 0;
@@ -652,6 +645,41 @@ arc4random_buf(void *buf, size_t n)
 }
 
 /*
+ * Allocate a new ChaCha20 context for the caller to use.
+ */
+struct arc4random_ctx *
+arc4random_ctx_new()
+{
+	char keybuf[KEYSZ + IVSZ];
+
+	chacha_ctx *ctx = malloc(sizeof(chacha_ctx), M_TEMP, M_WAITOK);
+	arc4random_buf(keybuf, KEYSZ + IVSZ);
+	chacha_keysetup(ctx, keybuf, KEYSZ * 8);
+	chacha_ivsetup(ctx, keybuf + KEYSZ, NULL);
+	explicit_bzero(keybuf, sizeof(keybuf));
+	return (struct arc4random_ctx *)ctx;
+}
+
+/*
+ * Free a ChaCha20 context created by arc4random_ctx_new()
+ */
+void
+arc4random_ctx_free(struct arc4random_ctx *ctx)
+{
+	explicit_bzero(ctx, sizeof(chacha_ctx));
+	free(ctx, M_TEMP, sizeof(chacha_ctx));
+}
+
+/*
+ * Use a given ChaCha20 context to fill a buffer
+ */
+void
+arc4random_ctx_buf(struct arc4random_ctx *ctx, void *buf, size_t n)
+{
+	chacha_encrypt_bytes((chacha_ctx *)ctx, buf, buf, n);
+}
+
+/*
  * Calculate a uniformly distributed random number less than upper_bound
  * avoiding "modulo bias".
  *
@@ -712,6 +740,8 @@ arc4_reinit(void *v)
 void
 random_start(void)
 {
+	extern char etext[];
+
 #if !defined(NO_PROPOLICE)
 	extern long __guard_local;
 
@@ -726,6 +756,8 @@ random_start(void)
 	if (msgbufp->msg_magic == MSG_MAGIC)
 		add_entropy_words((u_int32_t *)msgbufp->msg_bufc,
 		    msgbufp->msg_bufs / sizeof(u_int32_t));
+	add_entropy_words((u_int32_t *)etext - 32*1024,
+	    8192/sizeof(u_int32_t));
 
 	dequeue_randomness(NULL);
 	arc4_init(NULL);

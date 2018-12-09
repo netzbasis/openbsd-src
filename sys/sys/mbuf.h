@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.232 2017/10/19 11:02:42 bluhm Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.241 2018/12/07 08:37:24 claudio Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -100,14 +100,16 @@ struct pkthdr_pf {
 	struct inpcb	*inp;		/* connected pcb for outgoing packet */
 	u_int32_t	 qid;		/* queue id */
 	u_int16_t	 tag;		/* tag id */
+	u_int16_t	 delay;		/* delay packet by X ms */
 	u_int8_t	 flags;
 	u_int8_t	 routed;
 	u_int8_t	 prio;
-	u_int8_t	 pad[3];
+	u_int8_t	 pad[1];
 };
 
 /* pkthdr_pf.flags */
 #define	PF_TAG_GENERATED		0x01
+#define	PF_TAG_SYNCOOKIE_RECREATED	0x02
 #define	PF_TAG_TRANSLATE_LOCALHOST	0x04
 #define	PF_TAG_DIVERTED			0x08
 #define	PF_TAG_DIVERTED_PACKET		0x10
@@ -223,12 +225,14 @@ struct mbuf {
 #define	M_ICMP_CSUM_OUT		0x0200	/* ICMP/ICMPv6 checksum needed */
 #define	M_ICMP_CSUM_IN_OK	0x0400	/* ICMP/ICMPv6 checksum verified */
 #define	M_ICMP_CSUM_IN_BAD	0x0800	/* ICMP/ICMPv6 checksum bad */
+#define	M_IPV6_DF_OUT		0x1000	/* don't fragment outgoing IPv6 */
 
 #ifdef _KERNEL
 #define MCS_BITS \
     ("\20\1IPV4_CSUM_OUT\2TCP_CSUM_OUT\3UDP_CSUM_OUT\4IPV4_CSUM_IN_OK" \
     "\5IPV4_CSUM_IN_BAD\6TCP_CSUM_IN_OK\7TCP_CSUM_IN_BAD\10UDP_CSUM_IN_OK" \
-    "\11UDP_CSUM_IN_BAD\12ICMP_CSUM_OUT\13ICMP_CSUM_IN_OK\14ICMP_CSUM_IN_BAD")
+    "\11UDP_CSUM_IN_BAD\12ICMP_CSUM_OUT\13ICMP_CSUM_IN_OK\14ICMP_CSUM_IN_BAD" \
+    "\15IPV6_NODF_OUT")
 #endif
 
 /* mbuf types */
@@ -341,19 +345,6 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
 } while (/* CONSTCOND */ 0)
 
 /*
- * Set the m_data pointer of a newly-allocated mbuf (m_get/MGET) to place
- * an object of the specified size at the end of the mbuf, longword aligned.
- */
-#define	M_ALIGN(m, len) \
-	(m)->m_data += (MLEN - (len)) &~ (sizeof(long) - 1)
-/*
- * As above, for mbufs allocated with m_gethdr/MGETHDR
- * or initialized by M_MOVE_PKTHDR.
- */
-#define	MH_ALIGN(m, len) \
-	(m)->m_data += (MHLEN - (len)) &~ (sizeof(long) - 1)
-
-/*
  * Determine if an mbuf's data area is read-only. This is true for
  * non-cluster external storage and for clusters that are being
  * referenced by more than one mbuf.
@@ -361,18 +352,6 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
 #define	M_READONLY(m)							\
 	(((m)->m_flags & M_EXT) != 0 &&					\
 	  (((m)->m_flags & M_EXTWR) == 0 || MCLISREFERENCED(m)))
-
-/*
- * Compute the amount of space available
- * before the current start of data in an mbuf.
- */
-#define	M_LEADINGSPACE(m) m_leadingspace(m)
-
-/*
- * Compute the amount of space available
- * after the end of data in an mbuf.
- */
-#define	M_TRAILINGSPACE(m) m_trailingspace(m)
 
 /*
  * Arrange to prepend space of size plen to mbuf m.
@@ -437,7 +416,9 @@ struct	mbuf *m_get(int, int);
 struct	mbuf *m_getclr(int, int);
 struct	mbuf *m_gethdr(int, int);
 struct	mbuf *m_inithdr(struct mbuf *);
+void	m_removehdr(struct mbuf *);
 void	m_resethdr(struct mbuf *);
+void	m_calchdrlen(struct mbuf *);
 int	m_defrag(struct mbuf *, int);
 struct	mbuf *m_prepend(struct mbuf *, int, int);
 struct	mbuf *m_pulldown(struct mbuf *, int, int, int *);
@@ -447,6 +428,7 @@ struct	mbuf *m_makespace(struct mbuf *, int, int, int *);
 struct  mbuf *m_getptr(struct mbuf *, int, int *);
 int	m_leadingspace(struct mbuf *);
 int	m_trailingspace(struct mbuf *);
+void	m_align(struct mbuf *, int);
 struct mbuf *m_clget(struct mbuf *, int, u_int);
 void	m_extref(struct mbuf *, struct mbuf *);
 void	m_pool_init(struct pool *, u_int, u_int, const char *);
@@ -554,6 +536,7 @@ unsigned int		mq_purge(struct mbuf_queue *);
 
 #define	mq_len(_mq)		ml_len(&(_mq)->mq_list)
 #define	mq_empty(_mq)		ml_empty(&(_mq)->mq_list)
+#define	mq_full(_mq)		(mq_len((_mq)) >= (_mq)->mq_maxlen)
 #define	mq_drops(_mq)		((_mq)->mq_drops)
 #define	mq_set_maxlen(_mq, _l)	((_mq)->mq_maxlen = (_l))
 

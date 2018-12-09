@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.154 2017/07/19 22:05:58 kettenis Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.158 2018/06/25 22:29:16 kettenis Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -50,6 +50,7 @@
 #include <sys/systm.h>
 #include <sys/ttycom.h> /* for TIOCSGRP */
 #include <sys/vnode.h>
+#include <sys/event.h>
 
 #include <uvm/uvm.h>
 #include <uvm/uvm_device.h>
@@ -206,10 +207,8 @@ static struct drm_ioctl_desc drm_ioctls[] = {
 
 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_GETRESOURCES, drm_mode_getresources, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
 
-#ifdef notyet
 	DRM_IOCTL_DEF(DRM_IOCTL_PRIME_HANDLE_TO_FD, drm_prime_handle_to_fd_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF(DRM_IOCTL_PRIME_FD_TO_HANDLE, drm_prime_fd_to_handle_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
-#endif
 
 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_GETPLANERESOURCES, drm_mode_getplane_res, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
 	DRM_IOCTL_DEF(DRM_IOCTL_MODE_GETCRTC, drm_mode_getcrtc, DRM_CONTROL_ALLOW|DRM_UNLOCKED),
@@ -294,6 +293,12 @@ int drm_noop(struct drm_device *dev, void *data,
 	     struct drm_file *file_priv)
 {
 	return 0;
+}
+
+int drm_invalid_op(struct drm_device *dev, void *data,
+		   struct drm_file *file_priv)
+{
+	return -EINVAL;
 }
 
 /*
@@ -423,6 +428,7 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 	dev->pdev->bus = &dev->pdev->_bus;
 	dev->pdev->bus->pc = da->pc;
 	dev->pdev->bus->number = bus;
+	dev->pdev->bus->bridgetag = da->bridgetag;
 	dev->pdev->devfn = PCI_DEVFN(slot, func);
 
 	dev->pc = da->pc;
@@ -633,6 +639,55 @@ drm_lastclose(struct drm_device *dev)
 	return 0;
 }
 
+void
+filt_drmdetach(struct knote *kn)
+{
+	struct drm_device *dev = kn->kn_hook;
+	int s;
+
+	s = spltty();
+	SLIST_REMOVE(&dev->note, kn, knote, kn_selnext);
+	splx(s);
+}
+
+int
+filt_drmkms(struct knote *kn, long hint)
+{
+	if (kn->kn_sfflags & hint)
+		kn->kn_fflags |= hint;
+	return (kn->kn_fflags != 0);
+}
+
+struct filterops drm_filtops =
+	{ 1, NULL, filt_drmdetach, filt_drmkms };
+
+int
+drmkqfilter(dev_t kdev, struct knote *kn)
+{
+	struct drm_device	*dev = NULL;
+	int s;
+
+	dev = drm_get_device_from_kdev(kdev);
+	if (dev == NULL || dev->dev_private == NULL)
+		return (ENXIO);
+
+	switch (kn->kn_filter) {
+	case EVFILT_DEVICE:
+		kn->kn_fop = &drm_filtops;
+		break;
+	default:
+		return (EINVAL);
+	}
+
+	kn->kn_hook = dev;
+
+	s = spltty();
+	SLIST_INSERT_HEAD(&dev->note, kn, kn_selnext);
+	splx(s);
+
+	return (0);
+}
+
 int
 drmopen(dev_t kdev, int flags, int fmt, struct proc *p)
 {
@@ -678,6 +733,9 @@ drmopen(dev_t kdev, int flags, int fmt, struct proc *p)
 
 	if (dev->driver->driver_features & DRIVER_GEM)
 		drm_gem_open(dev, file_priv);
+
+	if (drm_core_check_feature(dev, DRIVER_PRIME))
+		drm_prime_init_file_private(&file_priv->prime);
 
 	if (dev->driver->open) {
 		ret = dev->driver->open(dev, file_priv);
@@ -771,6 +829,10 @@ drmclose(dev_t kdev, int flags, int fmt, struct proc *p)
 
 	if (dev->driver->postclose)
 		dev->driver->postclose(dev, file_priv);
+
+
+	if (drm_core_check_feature(dev, DRIVER_PRIME))
+		drm_prime_destroy_file_private(&file_priv->prime);
 
 	SPLAY_REMOVE(drm_file_tree, &dev->files, file_priv);
 	drm_free(file_priv);
@@ -1059,12 +1121,10 @@ drm_getcap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 	case DRM_CAP_DUMB_PREFER_SHADOW:
 		req->value = dev->mode_config.prefer_shadow;
 		break;
-#ifdef notyet
 	case DRM_CAP_PRIME:
 		req->value |= dev->driver->prime_fd_to_handle ? DRM_PRIME_CAP_IMPORT : 0;
 		req->value |= dev->driver->prime_handle_to_fd ? DRM_PRIME_CAP_EXPORT : 0;
 		break;
-#endif
 	case DRM_CAP_TIMESTAMP_MONOTONIC:
 		req->value = drm_timestamp_monotonic;
 		break;

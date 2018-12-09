@@ -29,13 +29,16 @@
 ./etc/firmware/zd1211b
 ./sbin/kbd
 ./sbin/wsconsctl
+./usr/bin/clang
+./usr/bin/clang++
+./usr/bin/clang-cpp
 ./usr/bin/objcopy
 ./usr/lib/crtbegin.o
 ./usr/lib/crtbeginS.o
 ./usr/lib/crtend.o
 ./usr/lib/crtendS.o
-./usr/lib/libc++.so.1.0
-./usr/lib/libc++abi.so.0.0
+./usr/lib/libc++.so.2.0
+./usr/lib/libc++abi.so.0.1
 ./usr/lib/libcompiler_rt.a
 ./usr/libdata/perl5/aarch64-openbsd
 ./usr/libdata/perl5/aarch64-openbsd/.packlist
@@ -447,6 +450,7 @@
 ./usr/libdata/perl5/aarch64-openbsd/threads/shared.pm
 ./usr/local/libdata/perl5/site_perl/aarch64-openbsd
 ./usr/mdec/BOOTAA64.EFI
+./usr/sbin/acpidump
 ./usr/sbin/eeprom
 ./usr/sbin/gpioctl
 ./usr/sbin/hotplugd

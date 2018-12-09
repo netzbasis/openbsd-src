@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.351 2017/11/25 22:26:25 sashan Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.360 2018/09/18 12:55:19 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -81,6 +81,8 @@ int	 pfctl_load_debug(struct pfctl *, unsigned int);
 int	 pfctl_load_logif(struct pfctl *, char *);
 int	 pfctl_load_hostid(struct pfctl *, unsigned int);
 int	 pfctl_load_reassembly(struct pfctl *, u_int32_t);
+int	 pfctl_load_syncookies(struct pfctl *, u_int8_t);
+int	 pfctl_set_synflwats(struct pfctl *, u_int32_t, u_int32_t);
 void	 pfctl_print_rule_counters(struct pf_rule *, int);
 int	 pfctl_show_rules(int, char *, int, enum pfctl_show, char *, int, int,
 	    long);
@@ -143,6 +145,7 @@ static const struct {
 	{ "frags",		PF_LIMIT_FRAGS },
 	{ "tables",		PF_LIMIT_TABLES },
 	{ "table-entries",	PF_LIMIT_TABLE_ENTRIES },
+	{ "pktdelay-pkts",	PF_LIMIT_PKTDELAY_PKTS },
 	{ NULL,			0 }
 };
 
@@ -1104,14 +1107,22 @@ int
 pfctl_show_status(int dev, int opts)
 {
 	struct pf_status status;
+	struct pfctl_watermarks wats;
+	struct pfioc_synflwats iocwats;
 
 	if (ioctl(dev, DIOCGETSTATUS, &status)) {
 		warn("DIOCGETSTATUS");
 		return (-1);
 	}
+	if (ioctl(dev, DIOCGETSYNFLWATS, &iocwats)) {
+		warn("DIOCGETSYNFLWATS");
+		return (-1);
+	}
+	wats.hi = iocwats.hiwat;
+	wats.lo = iocwats.lowat;
 	if (opts & PF_OPT_SHOWALL)
 		pfctl_print_title("INFO:");
-	print_status(&status, opts);
+	print_status(&status, &wats, opts);
 	return (0);
 }
 
@@ -1601,19 +1612,17 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	rs->anchor = pf.anchor;
 	if (strlcpy(pf.anchor->path, anchorname,
 	    sizeof(pf.anchor->path)) >= sizeof(pf.anchor->path))
-		errx(1, "pfctl_add_rule: strlcpy");
+		errx(1, "%s: strlcpy", __func__);
 
 	if ((p = strrchr(anchorname, '/')) != NULL) {
 		if (strlen(p) == 1)
-			errx(1, "pfctl_add_rule: bad anchor name %s",
-			    anchorname);
+			errx(1, "%s: bad anchor name %s", __func__, anchorname);
 	} else
 		p = anchorname;
 
 	if (strlcpy(pf.anchor->name, p,
 	    sizeof(pf.anchor->name)) >= sizeof(pf.anchor->name))
-		errx(1, "pfctl_add_rule: strlcpy");
-
+		errx(1, "%s: strlcpy", __func__);
 
 	pf.astack[0] = pf.anchor;
 	pf.asd = 0;
@@ -1742,6 +1751,9 @@ pfctl_init_options(struct pfctl *pf)
 
 	pf->limit[PF_LIMIT_STATES] = PFSTATE_HIWAT;
 
+	pf->syncookieswat[0] = PF_SYNCOOKIES_LOWATPCT;
+	pf->syncookieswat[1] = PF_SYNCOOKIES_HIWATPCT;
+
 	mib[0] = CTL_KERN;
 	mib[1] = KERN_MAXCLUSTERS;
 	size = sizeof(mcl);
@@ -1752,6 +1764,7 @@ pfctl_init_options(struct pfctl *pf)
 	pf->limit[PF_LIMIT_SRC_NODES] = PFSNODE_HIWAT;
 	pf->limit[PF_LIMIT_TABLES] = PFR_KTABLE_HIWAT;
 	pf->limit[PF_LIMIT_TABLE_ENTRIES] = PFR_KENTRY_HIWAT;
+	pf->limit[PF_LIMIT_PKTDELAY_PKTS] = PF_PKTDELAY_MAXPKTS;
 
 	mib[0] = CTL_HW;
 	mib[1] = HW_PHYSMEM64;
@@ -1811,6 +1824,27 @@ pfctl_load_options(struct pfctl *pf)
 	/* load reassembly settings */
 	if (pf->reass_set && pfctl_load_reassembly(pf, pf->reassemble))
 		error = 1;
+
+	/* load syncookies settings */
+	if (pf->syncookies_set && pfctl_load_syncookies(pf, pf->syncookies))
+		error = 1;
+	if (pf->syncookieswat_set) {
+		struct pfioc_limit pl;
+		unsigned curlim;
+
+		if (pf->limit_set[PF_LIMIT_STATES])
+			curlim = pf->limit[PF_LIMIT_STATES];
+		else {
+			memset(&pl, 0, sizeof(pl));
+			pl.index = pf_limits[PF_LIMIT_STATES].index;
+			if (ioctl(dev, DIOCGETLIMIT, &pl))
+				err(1, "DIOCGETLIMIT");
+			curlim = pl.limit;
+		}
+		if (pfctl_set_synflwats(pf, curlim * pf->syncookieswat[0]/100,
+		    curlim * pf->syncookieswat[1]/100))
+			error = 1;
+	}
 
 	return (error);
 }
@@ -1900,6 +1934,22 @@ pfctl_load_timeout(struct pfctl *pf, unsigned int timeout, unsigned int seconds)
 }
 
 int
+pfctl_set_synflwats(struct pfctl *pf, u_int32_t lowat, u_int32_t hiwat)
+{
+	struct pfioc_synflwats ps;
+
+	memset(&ps, 0, sizeof(ps));
+	ps.hiwat = hiwat;
+	ps.lowat = lowat;
+
+	if (ioctl(pf->dev, DIOCSETSYNFLWATS, &ps)) {
+		warnx("Cannot set synflood detection watermarks");
+		return (1);
+	}
+	return (0);
+}
+
+int
 pfctl_set_reassembly(struct pfctl *pf, int on, int nodf)
 {
 	pf->reass_set = 1;
@@ -1915,6 +1965,50 @@ pfctl_set_reassembly(struct pfctl *pf, int on, int nodf)
 		printf("set reassemble %s %s\n", on ? "yes" : "no",
 		    nodf ? "no-df" : "");
 
+	return (0);
+}
+
+int
+pfctl_set_syncookies(struct pfctl *pf, u_int8_t val, struct pfctl_watermarks *w)
+{
+	if (val != PF_SYNCOOKIES_ADAPTIVE && w != NULL) {
+		warnx("syncookies start/end only apply to adaptive");
+		return (1);
+	}
+	if (val == PF_SYNCOOKIES_ADAPTIVE && w != NULL) {
+		if (!w->hi)
+			w->hi = PF_SYNCOOKIES_HIWATPCT;
+		if (!w->lo)
+			w->lo = w->hi / 2;
+		if (w->lo >= w->hi) {
+			warnx("start must be higher than end");
+			return (1);
+		}
+		pf->syncookieswat[0] = w->lo;
+		pf->syncookieswat[1] = w->hi;
+		pf->syncookieswat_set = 1;
+	}
+
+	if (pf->opts & PF_OPT_VERBOSE) {
+		if (val == PF_SYNCOOKIES_NEVER)
+			printf("set syncookies never\n");
+		else if (val == PF_SYNCOOKIES_ALWAYS)
+			printf("set syncookies always\n");
+		else if (val == PF_SYNCOOKIES_ADAPTIVE) {
+			if (pf->syncookieswat_set)
+				printf("set syncookies adaptive (start %u%%, "
+				    "end %u%%)\n", pf->syncookieswat[1],
+				    pf->syncookieswat[0]);
+			else
+				printf("set syncookies adaptive\n");
+		} else {	/* cannot happen */
+			warnx("king bula ate all syncookies");
+			return (1);
+		}
+	}
+
+	pf->syncookies_set = 1;
+	pf->syncookies = val;
 	return (0);
 }
 
@@ -2009,6 +2103,16 @@ pfctl_load_reassembly(struct pfctl *pf, u_int32_t reassembly)
 {
 	if (ioctl(dev, DIOCSETREASS, &reassembly)) {
 		warnx("DIOCSETREASS");
+		return (1);
+	}
+	return (0);
+}
+
+int
+pfctl_load_syncookies(struct pfctl *pf, u_int8_t val)
+{
+	if (ioctl(dev, DIOCSETSYNCOOKIES, &val)) {
+		warnx("DIOCSETSYNCOOKIES");
 		return (1);
 	}
 	return (0);
@@ -2385,17 +2489,23 @@ main(int argc, char *argv[])
 		argc -= optind;
 		argv += optind;
 		ch = *tblcmdopt;
-		mode = strchr("acdefkrz", ch) ? O_RDWR : O_RDONLY;
+		mode = strchr("st", ch) ? O_RDONLY : O_RDWR;
 	} else if (argc != optind) {
 		warnx("unknown command line argument: %s ...", argv[optind]);
 		usage();
 		/* NOTREACHED */
 	}
 
-	if ((path = calloc(1, PATH_MAX)) == NULL)
-		errx(1, "pfctl: calloc");
 	memset(anchorname, 0, sizeof(anchorname));
 	if (anchoropt != NULL) {
+		if (mode == O_RDONLY && showopt == NULL && tblcmdopt == NULL) {
+			warnx("anchors apply to -f, -F, -s, and -T only");
+			usage();
+		}
+		if (mode == O_RDWR && tblcmdopt == NULL &&
+		    (anchoropt[0] == '_' || strstr(anchoropt, "/_") != NULL))
+			errx(1, "anchor names beginning with '_' cannot "
+			    "be modified from the command line");
 		int len = strlen(anchoropt);
 
 		if (anchoropt[len - 1] == '*') {
@@ -2428,6 +2538,9 @@ main(int argc, char *argv[])
 	if (opts & PF_OPT_DISABLE)
 		if (pfctl_disable(dev, opts))
 			error = 1;
+
+	if ((path = calloc(1, PATH_MAX)) == NULL)
+		errx(1, "%s: calloc", __func__);
 
 	if (showopt != NULL) {
 		switch (*showopt) {
@@ -2499,10 +2612,6 @@ main(int argc, char *argv[])
 		    anchorname, 0, 0, -1);
 
 	if (clearopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
-
 		switch (*clearopt) {
 		case 'r':
 			pfctl_clear_rules(dev, opts, anchorname);
@@ -2581,9 +2690,6 @@ main(int argc, char *argv[])
 	}
 
 	if (rulesopt != NULL) {
-		if (anchorname[0] == '_' || strstr(anchorname, "/_") != NULL)
-			errx(1, "anchor names beginning with '_' cannot "
-			    "be modified from the command line");
 		if (pfctl_rules(dev, rulesopt, opts, optimize,
 		    anchorname, NULL))
 			error = 1;

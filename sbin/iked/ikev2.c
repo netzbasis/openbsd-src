@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.164 2017/12/05 09:06:53 patrick Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.166 2018/03/05 14:30:30 patrick Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -67,6 +67,9 @@ int	 ikev2_init_ike_sa_peer(struct iked *, struct iked_policy *,
 int	 ikev2_init_ike_auth(struct iked *, struct iked_sa *);
 int	 ikev2_init_auth(struct iked *, struct iked_message *);
 int	 ikev2_init_done(struct iked *, struct iked_sa *);
+
+void	 ikev2_enable_timer(struct iked *, struct iked_sa *);
+void	 ikev2_disable_timer(struct iked *, struct iked_sa *);
 
 void	 ikev2_resp_recv(struct iked *, struct iked_message *,
 	    struct ike_header *);
@@ -189,9 +192,8 @@ ikev2_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_CTL_PASSIVE:
 		if (config_getmode(env, imsg->hdr.type) == -1)
 			return (0);	/* ignore error */
-		if (env->sc_passive)
-			timer_del(env, &env->sc_inittmr);
-		else {
+		timer_del(env, &env->sc_inittmr);
+		if (!env->sc_passive) {
 			timer_set(env, &env->sc_inittmr, ikev2_init_ike_sa,
 			    NULL);
 			timer_add(env, &env->sc_inittmr,
@@ -844,11 +846,7 @@ ikev2_init_recv(struct iked *env, struct iked_message *msg,
 		(void)ikev2_ike_auth_recv(env, sa, msg);
 		break;
 	case IKEV2_EXCHANGE_CREATE_CHILD_SA:
-		if (ikev2_init_create_child_sa(env, msg) != 0) {
-			if (msg->msg_error == 0)
-				msg->msg_error = IKEV2_N_NO_PROPOSAL_CHOSEN;
-			ikev2_send_error(env, sa, msg, hdr->ike_exchange);
-		}
+		(void)ikev2_init_create_child_sa(env, msg);
 		break;
 	case IKEV2_EXCHANGE_INFORMATIONAL:
 		sa->sa_stateflags &= ~IKED_REQ_INF;
@@ -1214,6 +1212,28 @@ ikev2_init_ike_auth(struct iked *env, struct iked_sa *sa)
 	return (ret);
 }
 
+void
+ikev2_enable_timer(struct iked *env, struct iked_sa *sa)
+{
+	timer_set(env, &sa->sa_timer, ikev2_ike_sa_alive, sa);
+	timer_add(env, &sa->sa_timer, IKED_IKE_SA_ALIVE_TIMEOUT);
+	timer_set(env, &sa->sa_keepalive, ikev2_ike_sa_keepalive, sa);
+	if (sa->sa_usekeepalive)
+		timer_add(env, &sa->sa_keepalive,
+		    IKED_IKE_SA_KEEPALIVE_TIMEOUT);
+	timer_set(env, &sa->sa_rekey, ikev2_ike_sa_rekey, sa);
+	if (sa->sa_policy->pol_rekey)
+		ikev2_ike_sa_rekey_schedule(env, sa);
+}
+
+void
+ikev2_disable_timer(struct iked *env, struct iked_sa *sa)
+{
+	timer_del(env, &sa->sa_timer);
+	timer_del(env, &sa->sa_keepalive);
+	timer_del(env, &sa->sa_rekey);
+}
+
 int
 ikev2_init_done(struct iked *env, struct iked_sa *sa)
 {
@@ -1230,15 +1250,7 @@ ikev2_init_done(struct iked *env, struct iked_sa *sa)
 		sa_state(env, sa, IKEV2_STATE_ESTABLISHED);
 		/* Delete exchange timeout. */
 		timer_del(env, &sa->sa_timer);
-		timer_set(env, &sa->sa_timer, ikev2_ike_sa_alive, sa);
-		timer_add(env, &sa->sa_timer, IKED_IKE_SA_ALIVE_TIMEOUT);
-		timer_set(env, &sa->sa_keepalive, ikev2_ike_sa_keepalive, sa);
-		if (sa->sa_usekeepalive)
-			timer_add(env, &sa->sa_keepalive,
-			    IKED_IKE_SA_KEEPALIVE_TIMEOUT);
-		timer_set(env, &sa->sa_rekey, ikev2_ike_sa_rekey, sa);
-		if (sa->sa_policy->pol_rekey)
-			ikev2_ike_sa_rekey_schedule(env, sa);
+		ikev2_enable_timer(env, sa);
 	}
 
 	if (ret)
@@ -2755,15 +2767,7 @@ ikev2_resp_ike_auth(struct iked *env, struct iked_sa *sa)
 		sa_state(env, sa, IKEV2_STATE_ESTABLISHED);
 		/* Delete exchange timeout. */
 		timer_del(env, &sa->sa_timer);
-		timer_set(env, &sa->sa_timer, ikev2_ike_sa_alive, sa);
-		timer_add(env, &sa->sa_timer, IKED_IKE_SA_ALIVE_TIMEOUT);
-		timer_set(env, &sa->sa_keepalive, ikev2_ike_sa_keepalive, sa);
-		if (sa->sa_usekeepalive)
-			timer_add(env, &sa->sa_keepalive,
-			    IKED_IKE_SA_KEEPALIVE_TIMEOUT);
-		timer_set(env, &sa->sa_rekey, ikev2_ike_sa_rekey, sa);
-		if (sa->sa_policy->pol_rekey)
-			ikev2_ike_sa_rekey_schedule(env, sa);
+		ikev2_enable_timer(env, sa);
 	}
 
  done:
@@ -3516,23 +3520,13 @@ ikev2_ikesa_enable(struct iked *env, struct iked_sa *sa, struct iked_sa *nsa)
 
 	log_debug("%s: activating new IKE SA", __func__);
 	sa_state(env, nsa, IKEV2_STATE_ESTABLISHED);
-	timer_set(env, &nsa->sa_timer, ikev2_ike_sa_alive, nsa);
-	timer_add(env, &nsa->sa_timer, IKED_IKE_SA_ALIVE_TIMEOUT);
-	timer_set(env, &nsa->sa_keepalive, ikev2_ike_sa_keepalive, nsa);
-	if (nsa->sa_usekeepalive)
-		timer_add(env, &nsa->sa_keepalive,
-		    IKED_IKE_SA_KEEPALIVE_TIMEOUT);
-	timer_set(env, &nsa->sa_rekey, ikev2_ike_sa_rekey, nsa);
-	if (nsa->sa_policy->pol_rekey)
-		ikev2_ike_sa_rekey_schedule(env, nsa);
+	ikev2_enable_timer(env, nsa);
+
 	nsa->sa_stateflags = nsa->sa_statevalid; /* XXX */
 
 	/* unregister DPD keep alive timer & rekey first */
-	if (sa->sa_state == IKEV2_STATE_ESTABLISHED) {
-		timer_del(env, &sa->sa_rekey);
-		timer_del(env, &sa->sa_keepalive);
-		timer_del(env, &sa->sa_timer);
-	}
+	if (sa->sa_state == IKEV2_STATE_ESTABLISHED)
+		ikev2_disable_timer(env, sa);
 
 	ikev2_ikesa_delete(env, sa, nsa->sa_hdr.sh_initiator);
 	return (0);
@@ -4286,16 +4280,6 @@ ikev2_sa_initiator_dh(struct iked_sa *sa, struct iked_message *msg,
 	/* Initial message */
 	if (msg == NULL)
 		return (0);
-
-	/* Look for dhgroup mismatch during an IKE SA negotiation */
-	if (msg->msg_dhgroup != sa->sa_dhgroup->id) {
-		log_debug("%s: want dh %s, KE has %s", __func__,
-		    print_map(sa->sa_dhgroup->id, ikev2_xformdh_map),
-		    print_map(msg->msg_dhgroup, ikev2_xformdh_map));
-		msg->msg_error = IKEV2_N_INVALID_KE_PAYLOAD;
-		msg->msg_dhgroup = sa->sa_dhgroup->id;
-		return (-1);
-	}
 
 	if (!ibuf_length(sa->sa_dhrexchange)) {
 		if (!ibuf_length(msg->msg_ke)) {

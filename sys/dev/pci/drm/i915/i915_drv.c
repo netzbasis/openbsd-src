@@ -468,6 +468,7 @@ static const struct intel_device_info intel_kabylake_gt3_info = {
 	INTEL_SKL_GT1_IDS(&intel_skylake_info),	\
 	INTEL_SKL_GT2_IDS(&intel_skylake_info),	\
 	INTEL_SKL_GT3_IDS(&intel_skylake_gt3_info),	\
+	INTEL_SKL_GT4_IDS(&intel_skylake_gt3_info),	\
 	INTEL_BXT_IDS(&intel_broxton_info),		\
 	INTEL_KBL_GT1_IDS(&intel_kabylake_info),	\
 	INTEL_KBL_GT2_IDS(&intel_kabylake_info),	\
@@ -1792,12 +1793,10 @@ static struct drm_driver driver = {
 	.gem_fault = i915_gem_fault,
 #endif
 
-#ifdef notyet
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
 	.gem_prime_export = i915_gem_prime_export,
 	.gem_prime_import = i915_gem_prime_import,
-#endif
 
 	.dumb_create = i915_gem_dumb_create,
 	.dumb_map_offset = i915_gem_mmap_gtt,
@@ -1924,6 +1923,7 @@ int	inteldrm_list_font(void *, struct wsdisplay_font *);
 int	inteldrm_getchar(void *, int, int, struct wsdisplay_charcell *);
 void	inteldrm_burner(void *, u_int, u_int);
 void	inteldrm_burner_cb(void *);
+void	inteldrm_scrollback(void *, void *, int lines);
 
 struct wsscreen_descr inteldrm_stdscreen = {
 	"std",
@@ -1952,6 +1952,7 @@ struct wsdisplay_accessops inteldrm_accessops = {
 	.getchar = inteldrm_getchar,
 	.load_font = inteldrm_load_font,
 	.list_font = inteldrm_list_font,
+	.scrollback = inteldrm_scrollback,
 	.burn_screen = inteldrm_burner
 };
 
@@ -2173,6 +2174,15 @@ const struct backlight_ops inteldrm_backlight_ops = {
 	.get_brightness = inteldrm_backlight_get_brightness
 };
 
+void
+inteldrm_scrollback(void *v, void *cookie, int lines)
+{
+	struct inteldrm_softc *dev_priv = v;
+	struct rasops_info *ri = &dev_priv->ro;
+
+	rasops_scrollback(ri, cookie, lines);
+}
+
 int	inteldrm_match(struct device *, void *, void *);
 void	inteldrm_attach(struct device *, struct device *, void *);
 int	inteldrm_detach(struct device *, int);
@@ -2326,8 +2336,24 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	inteldrm_init_backlight(dev_priv);
 
 	ri->ri_flg = RI_CENTER | RI_WRONLY | RI_VCONS | RI_CLEAR;
-	if (ri->ri_width < ri->ri_height)
-		ri->ri_flg |= RI_ROTATE_CCW;
+	if (ri->ri_width < ri->ri_height) {
+		pcireg_t subsys;
+
+#define PCI_PRODUCT_ASUSTEK_T100HA	0x1bdd
+
+		/*
+		 * Asus T100HA needs to be rotated counter-clockwise.
+		 * Everybody else seems to mount their panels the
+		 * other way around.
+		 */
+		subsys = pci_conf_read(pa->pa_pc, pa->pa_tag,
+		    PCI_SUBSYS_ID_REG);
+		if (PCI_VENDOR(subsys) == PCI_VENDOR_ASUSTEK &&
+		    PCI_PRODUCT(subsys) == PCI_PRODUCT_ASUSTEK_T100HA)
+			ri->ri_flg |= RI_ROTATE_CCW;
+		else
+			ri->ri_flg |= RI_ROTATE_CW;
+	}
 	ri->ri_hw = dev_priv;
 	rasops_init(ri, 160, 160);
 
@@ -2354,7 +2380,7 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 		 * Clear the entire screen if we're doing rotation to
 		 * make sure no unrotated content survives.
 		 */
-		if (ri->ri_flg & RI_ROTATE_CCW)
+		if (ri->ri_flg & (RI_ROTATE_CW | RI_ROTATE_CCW))
 			memset(ri->ri_bits, 0, ri->ri_height * ri->ri_stride);
 
 		ri->ri_ops.alloc_attr(ri->ri_active, 0, 0, 0, &defattr);

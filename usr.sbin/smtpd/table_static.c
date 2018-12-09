@@ -1,4 +1,4 @@
-/*	$OpenBSD: table_static.c,v 1.17 2017/08/29 07:37:11 eric Exp $	*/
+/*	$OpenBSD: table_static.c,v 1.20 2018/11/01 10:47:46 gilles Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -50,7 +50,8 @@ static void  table_static_close(void *);
 
 struct table_backend table_backend_static = {
 	K_ALIAS|K_CREDENTIALS|K_DOMAIN|K_NETADDR|K_USERINFO|
-	K_SOURCE|K_MAILADDR|K_ADDRNAME|K_MAILADDRMAP,
+	K_SOURCE|K_MAILADDR|K_ADDRNAME|K_MAILADDRMAP|K_RELAYHOST|
+	K_STRING|K_REGEX,
 	table_static_config,
 	table_static_open,
 	table_static_update,
@@ -65,7 +66,8 @@ static struct keycmp {
 } keycmp[] = {
 	{ K_DOMAIN, table_domain_match },
 	{ K_NETADDR, table_netaddr_match },
-	{ K_MAILADDR, table_mailaddr_match }
+	{ K_MAILADDR, table_mailaddr_match },
+	{ K_REGEX, table_regex_match },
 };
 
 
@@ -180,7 +182,7 @@ table_static_update(struct table *table)
 	if (table->t_config[0] == '\0')
 		goto ok;
 
-	t = table_create("static", table->t_name, "update", table->t_config);
+	t = table_create(env, "static", table->t_name, "update", table->t_config);
 	if (!table_config(t))
 		goto err;
 
@@ -188,14 +190,14 @@ table_static_update(struct table *table)
 	while (dict_poproot(&table->t_dict, (void **)&p))
 		free(p);
 	dict_merge(&table->t_dict, &t->t_dict);
-	table_destroy(t);
+	table_destroy(env, t);
 
 ok:
 	log_info("info: Table \"%s\" successfully updated", table->t_name);
 	return 1;
 
 err:
-	table_destroy(t);
+	table_destroy(env, t);
 	log_info("info: Failed to update table \"%s\"", table->t_name);
 	return 0;
 }

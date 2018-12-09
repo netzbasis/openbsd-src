@@ -1,4 +1,4 @@
-/* $OpenBSD: exception.S,v 1.4 2017/08/05 17:30:51 drahn Exp $ */
+/* $OpenBSD: exception.S,v 1.8 2018/08/03 18:36:01 kettenis Exp $ */
 /*-
  * Copyright (c) 2014 Andrew Turner
  * All rights reserved.
@@ -30,6 +30,8 @@
 #if 0
 __FBSDID("$FreeBSD: head/sys/arm64/arm64/exception.S 297028 2016-03-18 16:18:29Z andrew $");
 #endif
+
+#include <machine/armreg.h>
 
 #include "assym.h"
 
@@ -125,8 +127,11 @@ __FBSDID("$FreeBSD: head/sys/arm64/arm64/exception.S 297028 2016-03-18 16:18:29Z
 	mrs	x18, tpidr_el1
 	ldr	x1, [x18, #CI_CURPROC]
 	cbz	x1, 2f
-	ldr	w1, [x1, #P_ASTPENDING]
-	cbz	w1, 2f
+	ldr	w2, [x1, #P_ASTPENDING]
+	cbz	w2, 2f
+
+	// clear astpending before enabling interrupts.
+	str	wzr, [x1, #P_ASTPENDING]
 
 	/* Restore interrupts */
 	msr	daif, x19
@@ -136,6 +141,23 @@ __FBSDID("$FreeBSD: head/sys/arm64/arm64/exception.S 297028 2016-03-18 16:18:29Z
 	bl	_C_LABEL(ast)
 	b	1b
 2:
+.endm
+
+.macro disable_ss
+	mrs	x2, mdscr_el1
+	and	x2, x2, #(~DBG_MDSCR_SS)
+	msr	mdscr_el1, x2
+.endm
+
+.macro allow_ss
+	mrs	x2, tpidr_el1
+	ldr	x2, [x2, #(CI_CURPCB)]
+	ldr	w2, [x2, #(PCB_FLAGS)]
+	tbz	w2, #1, 1f	/* PCB_SINGLESTEP bit */
+	mrs	x2, mdscr_el1
+	orr	x2, x2, #(DBG_MDSCR_SS)
+	msr	mdscr_el1, x2
+1:
 .endm
 
 handle_el1h_sync:
@@ -155,27 +177,46 @@ handle_el1h_irq:
 handle_el1h_error:
 	brk	0xf13
 
+.macro	return
+	msr	tpidrro_el0, x18
+	ldr	x18, =trampoline_vectors
+	msr	vbar_el1, x18
+	isb
+	b	tramp_return
+.endm
+
+	.globl handle_el0_sync
+	.type handle_el0_sync,@function
 handle_el0_sync:
 	save_registers 0
+	disable_ss
 	mov	x0, sp
 	bl	do_el0_sync
 	do_ast
 	bl	_C_LABEL(vfp_enable)
+	allow_ss
 	restore_registers 0
-	eret
+	return
 
+	.globl handle_el0_irq
+	.type handle_el0_irq,@function
 handle_el0_irq:
 	save_registers 0
+	disable_ss
 	bl	_C_LABEL(vfp_save)
 	mov	x0, sp
 	bl	arm_cpu_intr
 	do_ast
 	bl	_C_LABEL(vfp_enable)
+	allow_ss
 	restore_registers 0
-	eret
+	return
 
+	.globl handle_el0_error
+	.type handle_el0_error,@function
 handle_el0_error:
 	save_registers 0
+	disable_ss
 	mov	x0, sp
 	bl	do_el0_error
 	brk	0xf23
@@ -184,7 +225,7 @@ handle_el0_error:
 ENTRY(syscall_return)
 	do_ast
 	restore_registers 0
-	eret
+	return
 
 .macro	vempty
 	.align 7
@@ -210,13 +251,12 @@ exception_vectors:
 	vempty			/* FIQ EL1h */
 	vector el1h_error	/* Error EL1h */
 
-	vector el0_sync		/* Synchronous 64-bit EL0 */
-	vector el0_irq		/* IRQ 64-bit EL0 */
+	vempty			/* Synchronous 64-bit EL0 */
+	vempty			/* IRQ 64-bit EL0 */
 	vempty			/* FIQ 64-bit EL0 */
-	vector el0_error	/* Error 64-bit EL0 */
+	vempty			/* Error 64-bit EL0 */
 
 	vempty			/* Synchronous 32-bit EL0 */
 	vempty			/* IRQ 32-bit EL0 */
 	vempty			/* FIQ 32-bit EL0 */
 	vempty			/* Error 32-bit EL0 */
-

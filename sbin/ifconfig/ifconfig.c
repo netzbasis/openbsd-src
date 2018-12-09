@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.351 2017/11/17 18:04:51 benno Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.387 2018/11/29 00:12:34 dlg Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -60,7 +60,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/param.h> /* NBBY isset */
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
@@ -84,6 +83,7 @@
 #include <net/if_pflow.h>
 #include <net/if_pppoe.h>
 #include <net/if_trunk.h>
+#include <net/trunklacp.h>
 #include <net/if_sppp.h>
 #include <net/ppp_defs.h>
 
@@ -121,6 +121,26 @@
 	"\5VLAN_MTU\6VLAN_HWTAGGING\10CSUM_TCPv6"			\
 	"\11CSUM_UDPv6\20WOL"
 
+struct ifencap {
+	unsigned int	 ife_flags;
+#define IFE_VNETID_MASK		0xf
+#define IFE_VNETID_NOPE		0x0
+#define IFE_VNETID_NONE		0x1
+#define IFE_VNETID_ANY		0x2
+#define IFE_VNETID_SET		0x3
+	int64_t		 ife_vnetid;
+#define IFE_VNETFLOWID		0x10
+
+#define IFE_PARENT_MASK		0xf00
+#define IFE_PARENT_NOPE		0x000
+#define IFE_PARENT_NONE		0x100
+#define IFE_PARENT_SET		0x200
+	char		ife_parent[IFNAMSIZ];
+
+#define IFE_TXHPRIO_SET		0x1000
+	int		ife_txhprio;
+};
+
 struct	ifreq		ifr, ridreq;
 struct	in_aliasreq	in_addreq;
 struct	in6_ifreq	ifr6;
@@ -146,6 +166,7 @@ int	newaddr = 0;
 int	af = AF_INET;
 int	explicit_prefix = 0;
 int	Lflag = 1;
+int	show_join = 0;
 
 int	showmediaflag;
 int	showcapsflag;
@@ -153,7 +174,14 @@ int	shownet80211chans;
 int	shownet80211nodes;
 int	showclasses;
 
-struct ifencap;
+struct	ifencap;
+
+struct ieee80211_join join;
+
+const	char *lacpmodeactive = "active";
+const	char *lacpmodepassive = "passive";
+const	char *lacptimeoutfast = "fast";
+const	char *lacptimeoutslow = "slow";
 
 void	notealias(const char *, int);
 void	setifaddr(const char *, int);
@@ -168,6 +196,9 @@ void	setifbroadaddr(const char *, int);
 void	setifmtu(const char *, int);
 void	setifllprio(const char *, int);
 void	setifnwid(const char *, int);
+void	setifjoin(const char *, int);
+void	delifjoin(const char *, int);
+void	showjoin(const char *, int);
 void	setifbssid(const char *, int);
 void	setifnwkey(const char *, int);
 void	setifwpa(const char *, int);
@@ -183,8 +214,10 @@ void	unsetifnwflag(const char *, int);
 void	setifnetmask(const char *, int);
 void	setifprefixlen(const char *, int);
 void	settunnel(const char *, const char *);
+void	settunneladdr(const char *, int);
 void	deletetunnel(const char *, int);
 void	settunnelinst(const char *, int);
+void	unsettunnelinst(const char *, int);
 void	settunnelttl(const char *, int);
 void	setvnetid(const char *, int);
 void	delvnetid(const char *, int);
@@ -220,6 +253,7 @@ void	unsetvlandev(const char *, int);
 void	mpe_status(void);
 void	mpw_status(void);
 void	setrdomain(const char *, int);
+void	unsetrdomain(const char *, int);
 int	prefix(void *val, int);
 void	getifgroups(void);
 void	setifgroup(const char *, int);
@@ -230,6 +264,8 @@ void	setautoconf(const char *, int);
 void	settrunkport(const char *, int);
 void	unsettrunkport(const char *, int);
 void	settrunkproto(const char *, int);
+void	settrunklacpmode(const char *, int);
+void	settrunklacptimeout(const char *, int);
 void	trunk_status(void);
 void	list_cloners(void);
 
@@ -252,6 +288,15 @@ void	setpfsync_syncpeer(const char *, int);
 void	unsetpfsync_syncpeer(const char *, int);
 void	setpfsync_defer(const char *, int);
 void	pfsync_status(void);
+void	setvnetflowid(const char *, int);
+void	delvnetflowid(const char *, int);
+void	getvnetflowid(struct ifencap *);
+void	gettxprio(struct ifencap *);
+void	settxprio(const char *, int);
+void	settunneldf(const char *, int);
+void	settunnelnodf(const char *, int);
+void	settunnelecn(const char *, int);
+void	settunnelnoecn(const char *, int);
 void	setpppoe_dev(const char *,int);
 void	setpppoe_svc(const char *,int);
 void	setpppoe_ac(const char *,int);
@@ -317,6 +362,7 @@ int	actions;			/* Actions performed */
 #define	A_MEDIAOPT	(A_MEDIAOPTSET|A_MEDIAOPTCLR)
 #define	A_MEDIAINST	0x0008		/* instance or inst command */
 #define	A_MEDIAMODE	0x0010		/* mode command */
+#define	A_JOIN		0x0020		/* join */
 #define A_SILENT	0x8000000	/* doing operation, do not print */
 
 #define	NEXTARG0	0xffffff
@@ -348,6 +394,10 @@ const struct	cmd {
 	{ "mtu",	NEXTARG,	0,		setifmtu },
 	{ "nwid",	NEXTARG,	0,		setifnwid },
 	{ "-nwid",	-1,		0,		setifnwid },
+	{ "join",	NEXTARG,	A_JOIN,		setifjoin },
+	{ "-join",	NEXTARG,	0,		delifjoin },
+	{ "joinlist",	NEXTARG0,	0,		showjoin },
+	{ "-joinlist",	-1,		0,		delifjoin },
 	{ "bssid",	NEXTARG,	0,		setifbssid },
 	{ "-bssid",	-1,		0,		setifbssid },
 	{ "nwkey",	NEXTARG,	0,		setifnwkey },
@@ -379,6 +429,8 @@ const struct	cmd {
 	{ "trunkport",	NEXTARG,	0,		settrunkport },
 	{ "-trunkport",	NEXTARG,	0,		unsettrunkport },
 	{ "trunkproto",	NEXTARG,	0,		settrunkproto },
+	{ "lacpmode",	NEXTARG,	0,		settrunklacpmode },
+	{ "lacptimeout", NEXTARG,	0,		settrunklacptimeout },
 	{ "anycast",	IN6_IFF_ANYCAST,	0,	setia6flags },
 	{ "-anycast",	-IN6_IFF_ANYCAST,	0,	setia6flags },
 	{ "tentative",	IN6_IFF_TENTATIVE,	0,	setia6flags },
@@ -388,6 +440,8 @@ const struct	cmd {
 	{ "eui64",	0,		0,		setia6eui64 },
 	{ "autoconfprivacy",	-IFXF_INET6_NOPRIVACY,	0,	setifxflags },
 	{ "-autoconfprivacy",	IFXF_INET6_NOPRIVACY,	0,	setifxflags },
+	{ "soii",	-IFXF_INET6_NOSOII,	0,	setifxflags },
+	{ "-soii",	IFXF_INET6_NOSOII,	0,	setifxflags },
 #ifndef SMALL
 	{ "hwfeatures", NEXTARG0,	0,		printifhwfeatures },
 	{ "metric",	NEXTARG,	0,		setifmetric },
@@ -397,6 +451,9 @@ const struct	cmd {
 	{ "rtlabel",	NEXTARG,	0,		setifrtlabel },
 	{ "-rtlabel",	-1,		0,		setifrtlabel },
 	{ "rdomain",	NEXTARG,	0,		setrdomain },
+	{ "-rdomain",	0,		0,		unsetrdomain },
+	{ "staticarp",	IFF_STATICARP,	0,		setifflags },
+	{ "-staticarp",	-IFF_STATICARP,	0,		setifflags },
 	{ "mpls",	IFXF_MPLS,	0,		setifxflags },
 	{ "-mpls",	-IFXF_MPLS,	0,		setifxflags },
 	{ "mplslabel",	NEXTARG,	0,		setmpelabel },
@@ -425,11 +482,20 @@ const struct	cmd {
 	{ "defer",	1,		0,		setpfsync_defer },
 	{ "-defer",	0,		0,		setpfsync_defer },
 	{ "tunnel",	NEXTARG2,	0,		NULL, settunnel },
+	{ "tunneladdr",	NEXTARG,	0,		settunneladdr },
 	{ "-tunnel",	0,		0,		deletetunnel },
 	/* deletetunnel is for backward compat, remove during 6.4-current */
 	{ "deletetunnel",  0,		0,		deletetunnel },
 	{ "tunneldomain", NEXTARG,	0,		settunnelinst },
+	{ "-tunneldomain", 0,		0,		unsettunnelinst },
 	{ "tunnelttl",	NEXTARG,	0,		settunnelttl },
+	{ "tunneldf",	0,		0,		settunneldf },
+	{ "-tunneldf",	0,		0,		settunnelnodf },
+	{ "tunnelecn",	0,		0,		settunnelecn },
+	{ "-tunnelecn",	0,		0,		settunnelnoecn },
+	{ "vnetflowid",	0,		0,		setvnetflowid },
+	{ "-vnetflowid", 0,		0,		delvnetflowid },
+	{ "txprio",	NEXTARG,	0,		settxprio },
 	{ "pppoedev",	NEXTARG,	0,		setpppoe_dev },
 	{ "pppoesvc",	NEXTARG,	0,		setpppoe_svc },
 	{ "-pppoesvc",	1,		0,		setpppoe_svc },
@@ -470,6 +536,8 @@ const struct	cmd {
 	{ "-edge",	NEXTARG,	0,		unsetedge },
 	{ "autoedge",	NEXTARG,	0,		setautoedge },
 	{ "-autoedge",	NEXTARG,	0,		unsetautoedge },
+	{ "protected",	NEXTARG2,	0,		NULL, bridge_protect },
+	{ "-protected",	NEXTARG,	0,		bridge_unprotect },
 	{ "ptp",	NEXTARG,	0,		setptp },
 	{ "-ptp",	NEXTARG,	0,		unsetptp },
 	{ "autoptp",	NEXTARG,	0,		setautoptp },
@@ -566,7 +634,8 @@ const char *get_linkstate(int, int);
 void	status(int, struct sockaddr_dl *, int);
 __dead void	usage(void);
 const char *get_string(const char *, const char *, u_int8_t *, int *);
-void	print_string(const u_int8_t *, int);
+int	len_string(const u_int8_t *, int);
+int	print_string(const u_int8_t *, int);
 char	*sec2str(time_t);
 
 const char *get_media_type_string(uint64_t);
@@ -580,6 +649,8 @@ void	print_media_word(uint64_t, int, int);
 void	process_media_commands(void);
 void	init_current_media(void);
 
+void	process_join_commands(void);
+
 unsigned long get_ts_map(int, int, int);
 
 void	in_status(int);
@@ -591,6 +662,7 @@ void	in6_status(int);
 void	in6_getaddr(const char *, int);
 void	in6_getprefix(const char *, int);
 void	ieee80211_status(void);
+void	join_status(void);
 void	ieee80211_listchans(void);
 void	ieee80211_listnodes(void);
 void	ieee80211_printnode(struct ieee80211_nodereq *);
@@ -621,6 +693,9 @@ const struct afswtch {
 
 const struct afswtch *afp;	/*the address family being set or asked about*/
 
+char joinname[IEEE80211_NWID_LEN];
+char nwidname[IEEE80211_NWID_LEN];
+
 int ifaliases = 0;
 int aflag = 0;
 
@@ -631,10 +706,15 @@ main(int argc, char *argv[])
 	int create = 0;
 	int Cflag = 0;
 	int gflag = 0;
+	int found_rulefile = 0;
 	int i;
 
 	/* If no args at all, print all interfaces.  */
 	if (argc < 2) {
+		if (unveil("/", "") == -1)
+			err(1, "unveil");
+		if (unveil(NULL, NULL) == -1)
+			err(1, "unveil");
 		aflag = 1;
 		printif(NULL, 0);
 		return (0);
@@ -676,6 +756,25 @@ main(int argc, char *argv[])
 	} else if (strlcpy(name, *argv, sizeof(name)) >= IFNAMSIZ)
 		errx(1, "interface name '%s' too long", *argv);
 	argc--, argv++;
+
+	for (i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "rulefile") == 0) {
+			found_rulefile = 1;
+			break;
+		}
+	}
+
+	if (!found_rulefile) {
+		if (unveil("/etc/resolv.conf", "r") == -1)
+			err(1, "unveil");
+		if (unveil("/etc/hosts", "r") == -1)
+			err(1, "unveil");
+		if (unveil("/etc/services", "r") == -1)
+			err(1, "unveil");
+		if (unveil(NULL, NULL) == -1)
+			err(1, "unveil");
+	}
+
 	if (argc > 0) {
 		for (afp = rafp = afs; rafp->af_name; rafp++)
 			if (strcmp(rafp->af_name, *argv) == 0) {
@@ -790,6 +889,8 @@ nextarg:
 		printif(ifr.ifr_name, aflag ? ifaliases : 1);
 		return (0);
 	}
+
+	process_join_commands();
 
 	/* Process any media commands that may have been issued. */
 	process_media_commands();
@@ -1555,8 +1656,8 @@ get_string(const char *val, const char *sep, u_int8_t *buf, int *lenp)
 	return val;
 }
 
-void
-print_string(const u_int8_t *buf, int len)
+int
+len_string(const u_int8_t *buf, int len)
 {
 	int i = 0, hasspc = 0;
 
@@ -1571,13 +1672,40 @@ print_string(const u_int8_t *buf, int len)
 	}
 	if (i == len) {
 		if (hasspc || len == 0)
-			printf("\"%.*s\"", len, buf);
+			return len + 2;
 		else
+			return len;
+	} else
+		return (len * 2) + 2;
+}
+
+int
+print_string(const u_int8_t *buf, int len)
+{
+	int i = 0, hasspc = 0;
+
+	if (len < 2 || buf[0] != '0' || tolower(buf[1]) != 'x') {
+		for (; i < len; i++) {
+			/* Only print 7-bit ASCII keys */
+			if (buf[i] & 0x80 || !isprint(buf[i]))
+				break;
+			if (isspace(buf[i]))
+				hasspc++;
+		}
+	}
+	if (i == len) {
+		if (hasspc || len == 0) {
+			printf("\"%.*s\"", len, buf);
+			return len + 2;
+		} else {
 			printf("%.*s", len, buf);
+			return len;
+		}
 	} else {
 		printf("0x");
 		for (i = 0; i < len; i++)
 			printf("%02x", buf[i]);
+		return (len * 2) + 2;
 	}
 }
 
@@ -1586,6 +1714,10 @@ setifnwid(const char *val, int d)
 {
 	struct ieee80211_nwid nwid;
 	int len;
+
+	if (strlen(joinname) != 0) {
+		errx(1, "nwid and join may not be used at the same time");
+	}
 
 	if (d != 0) {
 		/* no network id is especially desired */
@@ -1598,9 +1730,76 @@ setifnwid(const char *val, int d)
 	}
 	nwid.i_len = len;
 	(void)strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	(void)strlcpy(nwidname, nwid.i_nwid, sizeof(nwidname));
 	ifr.ifr_data = (caddr_t)&nwid;
 	if (ioctl(s, SIOCS80211NWID, (caddr_t)&ifr) < 0)
 		warn("SIOCS80211NWID");
+}
+
+
+void
+process_join_commands(void)
+{
+	int len;
+
+	if (!(actions & A_JOIN))
+		return;
+
+	ifr.ifr_data = (caddr_t)&join;
+	if (ioctl(s, SIOCS80211JOIN, (caddr_t)&ifr) < 0)
+		warn("SIOCS80211JOIN");
+}
+
+void
+setifjoin(const char *val, int d)
+{
+	int len;
+
+	if (strlen(nwidname) != 0) {
+		errx(1, "nwid and join may not be used at the same time");
+	}
+
+	if (d != 0) {
+		/* no network id is especially desired */
+		memset(&join, 0, sizeof(join));
+		len = 0;
+	} else {
+		len = sizeof(join.i_nwid);
+		if (get_string(val, NULL, join.i_nwid, &len) == NULL)
+			return;
+	}
+	join.i_len = len;
+	(void)strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	(void)strlcpy(joinname, join.i_nwid, sizeof(joinname));
+
+	actions |= A_JOIN;
+}
+
+void
+delifjoin(const char *val, int d)
+{
+	struct ieee80211_join join;
+	int len;
+
+	memset(&join, 0, sizeof(join));
+	len = 0;
+	join.i_flags |= IEEE80211_JOIN_DEL;
+
+	if (d == -1) {
+		ifr.ifr_data = (caddr_t)&join;
+		if (ioctl(s, SIOCS80211JOIN, (caddr_t)&ifr) < 0)
+			warn("SIOCS80211JOIN");
+		return;
+	}
+
+	len = sizeof(join.i_nwid);
+	if (get_string(val, NULL, join.i_nwid, &len) == NULL)
+		return;
+	join.i_len = len;
+	(void)strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_data = (caddr_t)&join;
+	if (ioctl(s, SIOCS80211JOIN, (caddr_t)&ifr) < 0)
+		warn("SIOCS80211JOIN");
 }
 
 void
@@ -1715,6 +1914,13 @@ setifnwkey(const char *val, int d)
 		}
 	}
 	(void)strlcpy(nwkey.i_name, name, sizeof(nwkey.i_name));
+
+	if (actions & A_JOIN) {
+		memcpy(&join.i_nwkey, &nwkey, sizeof(join.i_nwkey));
+		join.i_flags |= IEEE80211_JOIN_NWKEY;
+		return;
+	}
+
 	if (ioctl(s, SIOCS80211NWKEY, (caddr_t)&nwkey) == -1)
 		warn("SIOCS80211NWKEY");
 }
@@ -1729,6 +1935,13 @@ setifwpa(const char *val, int d)
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	/* Don't read current values. The kernel will set defaults. */
 	wpa.i_enabled = d;
+
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_enabled = d;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1755,6 +1968,12 @@ setifwpaprotos(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_protos = rval;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
@@ -1763,6 +1982,7 @@ setifwpaprotos(const char *val, int d)
 	/* Let the kernel set up the appropriate default ciphers. */
 	wpa.i_ciphers = 0;
 	wpa.i_groupcipher = 0;
+
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1789,11 +2009,22 @@ setifwpaakms(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_akms = rval;
+		join.i_wpaparams.i_enabled =
+		    ((rval & IEEE80211_WPA_AKM_8021X) != 0);
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCG80211WPAPARMS");
 	wpa.i_akms = rval;
+	/* Enable WPA for 802.1x here. PSK case is handled in setifwpakey(). */
+	wpa.i_enabled = ((rval & IEEE80211_WPA_AKM_8021X) != 0);
+
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1841,11 +2072,18 @@ setifwpaciphers(const char *val, int d)
 	}
 	free(optlist);
 
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_ciphers = rval;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	memset(&wpa, 0, sizeof(wpa));
 	(void)strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCG80211WPAPARMS");
 	wpa.i_ciphers = rval;
+
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1866,6 +2104,13 @@ setifwpagroupcipher(const char *val, int d)
 	if (ioctl(s, SIOCG80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCG80211WPAPARMS");
 	wpa.i_groupcipher = cipher;
+
+	if (actions & A_JOIN) {
+		join.i_wpaparams.i_groupcipher = cipher;
+		join.i_flags |= IEEE80211_JOIN_WPA;
+		return;
+	}
+
 	if (ioctl(s, SIOCS80211WPAPARMS, (caddr_t)&wpa) < 0)
 		err(1, "SIOCS80211WPAPARMS");
 }
@@ -1883,8 +2128,20 @@ setifwpakey(const char *val, int d)
 		memset(&ifr, 0, sizeof(ifr));
 		ifr.ifr_data = (caddr_t)&nwid;
 		strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
-		if (ioctl(s, SIOCG80211NWID, (caddr_t)&ifr))
-			err(1, "SIOCG80211NWID");
+
+		/* Use the value specified in 'join' or 'nwid' */
+		if (strlen(joinname) != 0) {
+			strlcpy(nwid.i_nwid, joinname, sizeof(nwid.i_nwid));
+			nwid.i_len = strlen(joinname);
+		} else if (strlen(nwidname) != 0) {
+			strlcpy(nwid.i_nwid, nwidname, sizeof(nwid.i_nwid));
+			nwid.i_len = strlen(nwidname);
+		} else {
+			warnx("no nwid or join command, guessing nwid to use");
+
+			if (ioctl(s, SIOCG80211NWID, (caddr_t)&ifr))
+				err(1, "SIOCG80211NWID");
+		}
 
 		passlen = strlen(val);
 		if (passlen == 2 + 2 * sizeof(psk.i_psk) &&
@@ -1910,6 +2167,15 @@ setifwpakey(const char *val, int d)
 		psk.i_enabled = 0;
 
 	(void)strlcpy(psk.i_name, name, sizeof(psk.i_name));
+
+	if (actions & A_JOIN) {
+		memcpy(&join.i_wpapsk, &psk, sizeof(join.i_wpapsk));
+		join.i_flags |= IEEE80211_JOIN_WPAPSK;
+		if (!join.i_wpaparams.i_enabled)
+			setifwpa(NULL, join.i_wpapsk.i_enabled);
+		return;
+	}
+
 	if (ioctl(s, SIOCS80211WPAPSK, (caddr_t)&psk) < 0)
 		err(1, "SIOCS80211WPAPSK");
 
@@ -2042,9 +2308,10 @@ print_cipherset(u_int32_t cipherset)
 void
 ieee80211_status(void)
 {
-	int len, i, nwkey_verbose, inwid, inwkey, ipsk, ichan, ipwr;
+	int len, inwid, ijoin, inwkey, ipsk, ichan, ipwr;
 	int ibssid, iwpa;
 	struct ieee80211_nwid nwid;
+	struct ieee80211_join join;
 	struct ieee80211_nwkey nwkey;
 	struct ieee80211_wpapsk psk;
 	struct ieee80211_power power;
@@ -2053,7 +2320,6 @@ ieee80211_status(void)
 	struct ieee80211_wpaparams wpa;
 	struct ieee80211_nodereq nr;
 	u_int8_t zero_bssid[IEEE80211_ADDR_LEN];
-	u_int8_t keybuf[IEEE80211_WEP_NKID][16];
 	struct ether_addr ea;
 
 	/* get current status via ioctls */
@@ -2061,6 +2327,10 @@ ieee80211_status(void)
 	ifr.ifr_data = (caddr_t)&nwid;
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 	inwid = ioctl(s, SIOCG80211NWID, (caddr_t)&ifr);
+
+	ifr.ifr_data = (caddr_t)&join;
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ijoin = ioctl(s, SIOCG80211JOIN, (caddr_t)&ifr);
 
 	memset(&nwkey, 0, sizeof(nwkey));
 	strlcpy(nwkey.i_name, name, sizeof(nwkey.i_name));
@@ -2087,8 +2357,8 @@ ieee80211_status(void)
 	iwpa = ioctl(s, SIOCG80211WPAPARMS, &wpa);
 
 	/* check if any ieee80211 option is active */
-	if (inwid == 0 || inwkey == 0 || ipsk == 0 || ipwr == 0 ||
-	    ichan == 0 || ibssid == 0 || iwpa == 0)
+	if (inwid == 0 || ijoin == 0 || inwkey == 0 || ipsk == 0 ||
+	    ipwr == 0 || ichan == 0 || ibssid == 0 || iwpa == 0)
 		fputs("\tieee80211:", stdout);
 	else
 		return;
@@ -2098,7 +2368,10 @@ ieee80211_status(void)
 		len = nwid.i_len;
 		if (len > IEEE80211_NWID_LEN)
 			len = IEEE80211_NWID_LEN;
-		fputs(" nwid ", stdout);
+		if (ijoin == 0 && join.i_flags & IEEE80211_JOIN_FOUND)
+			fputs(" join ", stdout);
+		else
+			fputs(" nwid ", stdout);
 		print_string(nwid.i_nwid, len);
 	}
 
@@ -2124,70 +2397,11 @@ ieee80211_status(void)
 		}
 	}
 
-	if (inwkey == 0 && nwkey.i_wepon > IEEE80211_NWKEY_OPEN) {
-		fputs(" nwkey ", stdout);
-		/* try to retrieve WEP keys */
-		for (i = 0; i < IEEE80211_WEP_NKID; i++) {
-			nwkey.i_key[i].i_keydat = keybuf[i];
-			nwkey.i_key[i].i_keylen = sizeof(keybuf[i]);
-		}
-		if (ioctl(s, SIOCG80211NWKEY, (caddr_t)&nwkey) == -1) {
-			fputs("<not displayed>", stdout);
-		} else {
-			nwkey_verbose = 0;
-			/*
-			 * check to see non default key
-			 * or multiple keys defined
-			 */
-			if (nwkey.i_defkid != 1) {
-				nwkey_verbose = 1;
-			} else {
-				for (i = 1; i < IEEE80211_WEP_NKID; i++) {
-					if (nwkey.i_key[i].i_keylen != 0) {
-						nwkey_verbose = 1;
-						break;
-					}
-				}
-			}
-			/* check extra ambiguity with keywords */
-			if (!nwkey_verbose) {
-				if (nwkey.i_key[0].i_keylen >= 2 &&
-				    isdigit((unsigned char)nwkey.i_key[0].i_keydat[0]) &&
-				    nwkey.i_key[0].i_keydat[1] == ':')
-					nwkey_verbose = 1;
-				else if (nwkey.i_key[0].i_keylen >= 7 &&
-				    strncasecmp("persist",
-				    (char *)nwkey.i_key[0].i_keydat, 7) == 0)
-					nwkey_verbose = 1;
-			}
-			if (nwkey_verbose)
-				printf("%d:", nwkey.i_defkid);
-			for (i = 0; i < IEEE80211_WEP_NKID; i++) {
-				if (i > 0)
-					putchar(',');
-				if (nwkey.i_key[i].i_keylen < 0) {
-					fputs("persist", stdout);
-				} else {
-					/*
-					 * XXX
-					 * sanity check nwkey.i_key[i].i_keylen
-					 */
-					print_string(nwkey.i_key[i].i_keydat,
-					    nwkey.i_key[i].i_keylen);
-				}
-				if (!nwkey_verbose)
-					break;
-			}
-		}
-	}
+	if (inwkey == 0 && nwkey.i_wepon > IEEE80211_NWKEY_OPEN)
+		fputs(" nwkey", stdout);
 
-	if (ipsk == 0 && psk.i_enabled) {
-		fputs(" wpakey ", stdout);
-		if (psk.i_enabled == 2)
-			fputs("<not displayed>", stdout);
-		else
-			print_string(psk.i_psk, sizeof(psk.i_psk));
-	}
+	if (ipsk == 0 && psk.i_enabled)
+		fputs(" wpakey", stdout);
 	if (iwpa == 0 && wpa.i_enabled) {
 		const char *sep;
 
@@ -2222,12 +2436,112 @@ ieee80211_status(void)
 		putchar(' ');
 		printb_status(ifr.ifr_flags, IEEE80211_F_USERBITS);
 	}
-
 	putchar('\n');
+	if (show_join)
+		join_status();
 	if (shownet80211chans)
 		ieee80211_listchans();
 	else if (shownet80211nodes)
 		ieee80211_listnodes();
+}
+
+void
+showjoin(const char *cmd, int val)
+{
+	show_join = 1;
+	return;
+}
+
+void
+join_status(void)
+{
+	struct ieee80211_joinreq_all ja;
+	struct ieee80211_join *jn = NULL;
+	struct ieee80211_wpaparams *wpa;
+	int jsz = 100;
+	int ojsz;
+	int i;
+	int r;
+	int maxlen, len;
+
+	bzero(&ja, sizeof(ja));
+	jn = recallocarray(NULL, 0, jsz, sizeof(*jn));
+	if (jn == NULL)
+		err(1, "recallocarray");
+	ojsz = jsz;
+	while (1) {
+		ja.ja_node = jn;
+		ja.ja_size = jsz * sizeof(*jn);
+		strlcpy(ja.ja_ifname, name, sizeof(ja.ja_ifname));
+		
+		if ((r = ioctl(s, SIOCG80211JOINALL, &ja)) != 0) {
+			if (errno == E2BIG) {
+				jsz += 100;
+				jn = recallocarray(jn, ojsz, jsz, sizeof(*jn));
+				if (jn == NULL)
+					err(1, "recallocarray");
+				ojsz = jsz;
+				continue;
+			} else if (errno != ENOENT)
+				warn("SIOCG80211JOINALL");
+			return;
+		}
+		break;
+	}
+
+	if (!ja.ja_nodes)
+		return;
+
+	maxlen = 0;
+	for (i = 0; i < ja.ja_nodes; i++) {
+		len = len_string(jn[i].i_nwid, jn[i].i_len);
+		if (len > maxlen)
+			maxlen = len;
+	}
+	if (maxlen > IEEE80211_NWID_LEN)
+		maxlen = IEEE80211_NWID_LEN - 1;
+
+	for (i = 0; i < ja.ja_nodes; i++) {
+		printf("\t      ");
+		if (jn[i].i_len > IEEE80211_NWID_LEN)
+			jn[i].i_len = IEEE80211_NWID_LEN;
+		len = print_string(jn[i].i_nwid, jn[i].i_len);
+		printf("%-*s", maxlen - len, " ");
+		if (jn[i].i_flags) {
+			const char *sep;
+			printf(" ");
+
+			if (jn[i].i_flags & IEEE80211_JOIN_NWKEY)
+				printf("nwkey");
+
+			if (jn[i].i_flags & IEEE80211_JOIN_WPA) {
+				wpa = &jn[i].i_wpaparams;
+
+				printf("wpaprotos "); sep = "";
+				if (wpa->i_protos & IEEE80211_WPA_PROTO_WPA1) {
+					printf("wpa1");
+					sep = ",";
+				}
+				if (wpa->i_protos & IEEE80211_WPA_PROTO_WPA2)
+					printf("%swpa2", sep);
+
+				printf(" wpaakms ", stdout); sep = "";
+				if (wpa->i_akms & IEEE80211_WPA_AKM_PSK) {
+					printf("psk");
+					sep = ",";
+				}
+				if (wpa->i_akms & IEEE80211_WPA_AKM_8021X)
+					printf("%s802.1x", sep);
+
+				printf(" wpaciphers ");
+				print_cipherset(wpa->i_ciphers);
+
+				printf(" wpagroupcipher ");
+				print_cipherset(wpa->i_groupcipher);
+			}
+		}
+		putchar('\n');
+	}
 }
 
 void
@@ -2276,11 +2590,11 @@ ieee80211_listnodes(void)
 	struct ieee80211_nodereq_all na;
 	struct ieee80211_nodereq nr[512];
 	struct ifreq ifr;
-	int i, down = 0;
+	int i;
 
 	if ((flags & IFF_UP) == 0) {
-		down = 1;
-		setifflags("up", IFF_UP);
+		printf("\t\tcannot scan, interface is down\n");
+		return;
 	}
 
 	bzero(&ifr, sizeof(ifr));
@@ -2289,7 +2603,7 @@ ieee80211_listnodes(void)
 	if (ioctl(s, SIOCS80211SCAN, (caddr_t)&ifr) != 0) {
 		if (errno == EPERM)
 			printf("\t\tno permission to scan\n");
-		goto done;
+		return;
 	}
 
 	bzero(&na, sizeof(na));
@@ -2300,7 +2614,7 @@ ieee80211_listnodes(void)
 
 	if (ioctl(s, SIOCG80211ALLNODES, &na) != 0) {
 		warn("SIOCG80211ALLNODES");
-		goto done;
+		return;
 	}
 
 	if (!na.na_nodes)
@@ -2313,10 +2627,6 @@ ieee80211_listnodes(void)
 		ieee80211_printnode(&nr[i]);
 		putchar('\n');
 	}
-
- done:
-	if (down)
-		setifflags("restore", -IFF_UP);
 }
 
 void
@@ -2759,45 +3069,90 @@ print_media_word(uint64_t ifmw, int print_type, int as_syntax)
 		printf(" instance %lld", IFM_INST(ifmw));
 }
 
-/* ARGSUSED */
 static void
-phys_status(int force)
+print_tunnel(const struct if_laddrreq *req)
 {
 	char psrcaddr[NI_MAXHOST];
 	char pdstaddr[NI_MAXHOST];
 	const char *ver = "";
 	const int niflag = NI_NUMERICHOST;
-	struct if_laddrreq req;
-	in_port_t dstport = 0;
+
+	if (req == NULL) {
+		printf("(unset)");
+		return;
+	}
 
 	psrcaddr[0] = pdstaddr[0] = '\0';
 
-	memset(&req, 0, sizeof(req));
-	(void) strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
-	if (ioctl(s, SIOCGLIFPHYADDR, (caddr_t)&req) < 0)
-		return;
-	if (getnameinfo((struct sockaddr *)&req.addr, req.addr.ss_len,
+	if (getnameinfo((struct sockaddr *)&req->addr, req->addr.ss_len,
 	    psrcaddr, sizeof(psrcaddr), 0, 0, niflag) != 0)
 		strlcpy(psrcaddr, "<error>", sizeof(psrcaddr));
-	if (req.addr.ss_family == AF_INET6)
+	if (req->addr.ss_family == AF_INET6)
 		ver = "6";
 
-	if (req.dstaddr.ss_family == AF_INET)
-		dstport = ((struct sockaddr_in *)&req.dstaddr)->sin_port;
-	else if (req.dstaddr.ss_family == AF_INET6)
-		dstport = ((struct sockaddr_in6 *)&req.dstaddr)->sin6_port;
-	if (getnameinfo((struct sockaddr *)&req.dstaddr, req.dstaddr.ss_len,
-	    pdstaddr, sizeof(pdstaddr), 0, 0, niflag) != 0)
-		strlcpy(pdstaddr, "<error>", sizeof(pdstaddr));
+	printf("inet%s %s", ver, psrcaddr);
 
-	printf("\ttunnel: inet%s %s -> %s", ver,
-	    psrcaddr, pdstaddr);
+	if (req->dstaddr.ss_family != AF_UNSPEC) {
+		in_port_t dstport = 0;
+		const struct sockaddr_in *sin;
+		const struct sockaddr_in6 *sin6;
 
-	if (dstport)
-		printf(":%u", ntohs(dstport));
-	if (ioctl(s, SIOCGLIFPHYTTL, (caddr_t)&ifr) == 0 && ifr.ifr_ttl > 0)
-		printf(" ttl %d", ifr.ifr_ttl);
+		if (getnameinfo((struct sockaddr *)&req->dstaddr,
+		    req->dstaddr.ss_len, pdstaddr, sizeof(pdstaddr),
+		    0, 0, niflag) != 0)
+			strlcpy(pdstaddr, "<error>", sizeof(pdstaddr));
+
+		printf(" -> %s", pdstaddr);
+
+		switch (req->dstaddr.ss_family) {
+		case AF_INET:
+			sin = (const struct sockaddr_in *)&req->dstaddr;
+			dstport = sin->sin_port;
+			break;
+		case AF_INET6:
+			sin6 = (const struct sockaddr_in6 *)&req->dstaddr;
+			dstport = sin6->sin6_port;
+			break;
+		}
+
+		if (dstport)
+			printf(":%u", ntohs(dstport));
+	}
+}
+
+/* ARGSUSED */
+static void
+phys_status(int force)
+{
+	struct if_laddrreq req;
+	struct if_laddrreq *r = &req;
+
+	memset(&req, 0, sizeof(req));
+	(void) strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
+	if (ioctl(s, SIOCGLIFPHYADDR, (caddr_t)&req) < 0) {
+		if (errno != EADDRNOTAVAIL)
+			return;
+
+		r = NULL;
+	}
+
+	printf("\ttunnel: ");
+	print_tunnel(r);
+
+	if (ioctl(s, SIOCGLIFPHYTTL, (caddr_t)&ifr) == 0) {
+		if (ifr.ifr_ttl == -1)
+			printf(" ttl copy");
+		else if (ifr.ifr_ttl > 0)
+			printf(" ttl %d", ifr.ifr_ttl);
+	}
+
+	if (ioctl(s, SIOCGLIFPHYDF, (caddr_t)&ifr) == 0)
+		printf(" %s", ifr.ifr_df ? "df" : "nodf");
+
 #ifndef SMALL
+	if (ioctl(s, SIOCGLIFPHYECN, (caddr_t)&ifr) == 0)
+		printf(" %s", ifr.ifr_metric ? "ecn" : "noecn");
+
 	if (ioctl(s, SIOCGLIFPHYRTABLE, (caddr_t)&ifr) == 0 &&
 	    (rdomainid != 0 || ifr.ifr_rdomainid != 0))
 		printf(" rdomain %d", ifr.ifr_rdomainid);
@@ -3273,10 +3628,6 @@ settunnel(const char *src, const char *dst)
 		errx(1,
 		    "source and destination address families do not match");
 
-	if (srcres->ai_addrlen > sizeof(req.addr) ||
-	    dstres->ai_addrlen > sizeof(req.dstaddr))
-		errx(1, "invalid sockaddr");
-
 	memset(&req, 0, sizeof(req));
 	(void) strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
 	memcpy(&req.addr, srcres->ai_addr, srcres->ai_addrlen);
@@ -3286,6 +3637,40 @@ settunnel(const char *src, const char *dst)
 
 	freeaddrinfo(srcres);
 	freeaddrinfo(dstres);
+}
+
+void
+settunneladdr(const char *addr, int ignored)
+{
+	struct addrinfo hints, *res;
+	struct if_laddrreq req;
+	ssize_t len;
+	int rv;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = 0;
+	hints.ai_flags = AI_PASSIVE;
+
+	rv = getaddrinfo(addr, NULL, &hints, &res);
+	if (rv != 0)
+		errx(1, "tunneladdr %s: %s", addr, gai_strerror(rv));
+
+	memset(&req, 0, sizeof(req));
+	len = strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
+	if (len >= sizeof(req.iflr_name))
+		errx(1, "%s: Interface name too long", name);
+
+	memcpy(&req.addr, res->ai_addr, res->ai_addrlen);
+
+	req.dstaddr.ss_len = 2;
+	req.dstaddr.ss_family = AF_UNSPEC;
+
+	if (ioctl(s, SIOCSLIFPHYADDR, &req) < 0)
+		warn("tunneladdr %s", addr);
+
+	freeaddrinfo(res);
 }
 
 /* ARGSUSED */
@@ -3313,19 +3698,92 @@ settunnelinst(const char *id, int param)
 }
 
 void
+unsettunnelinst(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_rdomainid = 0;
+	if (ioctl(s, SIOCSLIFPHYRTABLE, (caddr_t)&ifr) < 0)
+		warn("SIOCSLIFPHYRTABLE");
+}
+
+void
 settunnelttl(const char *id, int param)
 {
 	const char *errmsg = NULL;
 	int ttl;
 
-	ttl = strtonum(id, 0, 0xff, &errmsg);
-	if (errmsg)
-		errx(1, "tunnelttl %s: %s", id, errmsg);
+	if (strcmp(id, "copy") == 0)
+		ttl = -1;
+	else {
+		ttl = strtonum(id, 0, 0xff, &errmsg);
+		if (errmsg)
+			errx(1, "tunnelttl %s: %s", id, errmsg);
+	}
 
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 	ifr.ifr_ttl = ttl;
 	if (ioctl(s, SIOCSLIFPHYTTL, (caddr_t)&ifr) < 0)
 		warn("SIOCSLIFPHYTTL");
+}
+
+void
+settunneldf(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_df = 1;
+	if (ioctl(s, SIOCSLIFPHYDF, (caddr_t)&ifr) < 0)
+		warn("SIOCSLIFPHYDF");
+}
+
+void
+settunnelnodf(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_df = 0;
+	if (ioctl(s, SIOCSLIFPHYDF, (caddr_t)&ifr) < 0)
+		warn("SIOCSLIFPHYDF");
+}
+
+void
+settunnelecn(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_metric = 1;
+	if (ioctl(s, SIOCSLIFPHYECN, (caddr_t)&ifr) < 0)
+		warn("SIOCSLIFPHYECN");
+}
+
+void
+settunnelnoecn(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_metric = 0;
+	if (ioctl(s, SIOCSLIFPHYECN, (caddr_t)&ifr) < 0)
+		warn("SIOCSLIFPHYECN");
+}
+
+void
+setvnetflowid(const char *ignored, int alsoignored)
+{
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "vnetflowid: name is too long");
+
+	ifr.ifr_vnetid = 1;
+	if (ioctl(s, SIOCSVNETFLOWID, &ifr) < 0)
+		warn("SIOCSVNETFLOWID");
+}
+
+void
+delvnetflowid(const char *ignored, int alsoignored)
+{
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "vnetflowid: name is too long");
+
+	ifr.ifr_vnetid = 0;
+	if (ioctl(s, SIOCSVNETFLOWID, &ifr) < 0)
+		warn("SIOCSVNETFLOWID");
 }
 
 void
@@ -3514,21 +3972,19 @@ setmpwcontrolword(const char *value, int d)
 }
 #endif /* SMALL */
 
-struct ifencap {
-	unsigned int	 ife_flags;
-#define IFE_VNETID_MASK		0xf
-#define IFE_VNETID_NOPE		0x0
-#define IFE_VNETID_NONE		0x1
-#define IFE_VNETID_ANY		0x2
-#define IFE_VNETID_SET		0x3
-	int64_t		 ife_vnetid;
+void
+getvnetflowid(struct ifencap *ife)
+{
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "vnetflowid: name is too long");
 
-#define IFE_PARENT_MASK		0xf0
-#define IFE_PARENT_NOPE		0x00
-#define IFE_PARENT_NONE		0x10
-#define IFE_PARENT_SET		0x20
-	char		ife_parent[IFNAMSIZ];
-};
+	if (ioctl(s, SIOCGVNETFLOWID, &ifr) == -1)
+		return;
+
+	if (ifr.ifr_vnetid)
+		ife->ife_flags |= IFE_VNETFLOWID;
+}
 
 void
 setvnetid(const char *id, int param)
@@ -3630,13 +4086,57 @@ getifparent(struct ifencap *ife)
 	}
 }
 
+#ifndef SMALL
+void
+gettxprio(struct ifencap *ife)
+{
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "hdr prio: name is too long");
+
+	if (ioctl(s, SIOCGTXHPRIO, (caddr_t)&ifr) == -1)
+		return;
+
+	ife->ife_flags |= IFE_TXHPRIO_SET;
+	ife->ife_txhprio = ifr.ifr_hdrprio;
+}
+
+void
+settxprio(const char *val, int d)
+{
+	const char *errmsg = NULL;
+
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "tx prio: name is too long");
+
+	if (strcmp(val, "packet") == 0)
+		ifr.ifr_hdrprio = IF_HDRPRIO_PACKET;
+	else if (strcmp(val, "payload") == 0)
+		ifr.ifr_hdrprio = IF_HDRPRIO_PAYLOAD;
+	else {
+		ifr.ifr_hdrprio = strtonum(val,
+		    IF_HDRPRIO_MIN, IF_HDRPRIO_MAX, &errmsg);
+		if (errmsg)
+			errx(1, "tx prio %s: %s", val, errmsg);
+	}
+
+	if (ioctl(s, SIOCSTXHPRIO, (caddr_t)&ifr) < 0)
+		warn("SIOCSTXHPRIO");
+}
+#endif
+
 void
 getencap(void)
 {
 	struct ifencap ife = { .ife_flags = 0 };
 
 	getvnetid(&ife);
+	getvnetflowid(&ife);
 	getifparent(&ife);
+#ifndef SMALL
+	gettxprio(&ife);
+#endif
 
 	if (ife.ife_flags == 0)
 		return;
@@ -3652,6 +4152,8 @@ getencap(void)
 		break;
 	case IFE_VNETID_SET:
 		printf(" vnetid %lld", ife.ife_vnetid);
+		if (ife.ife_flags & IFE_VNETFLOWID)
+			printf("+");
 		break;
 	}
 
@@ -3663,6 +4165,22 @@ getencap(void)
 		printf(" parent %s", ife.ife_parent);
 		break;
 	}
+
+#ifndef SMALL
+	if (ife.ife_flags & IFE_TXHPRIO_SET) {
+		switch (ife.ife_txhprio) {
+		case IF_HDRPRIO_PACKET:
+			printf(" txprio packet");
+			break;
+		case IF_HDRPRIO_PAYLOAD:
+			printf(" txprio payload");
+			break;
+		default:
+			printf(" txprio %d", ife.ife_txhprio);
+			break;
+		}
+	}
+#endif
 
 	printf("\n");
 }
@@ -3678,7 +4196,9 @@ setvlantag(const char *val, int d)
 	struct vlanreq vreq;
 	const char *errmsg = NULL;
 
-	__tag = tag = strtonum(val, 0, 4095, &errmsg);
+	warnx("The 'vlan' option is deprecated, use 'vnetid'");
+
+	__tag = tag = strtonum(val, EVL_VLID_MIN, EVL_VLID_MAX, &errmsg);
 	if (errmsg)
 		errx(1, "vlan tag %s: %s", val, errmsg);
 	__have_tag = 1;
@@ -3703,6 +4223,8 @@ setvlandev(const char *val, int d)
 	int		 tag;
 	size_t		 skip;
 	const char	*estr;
+
+	warnx("The 'vlandev' option is deprecated, use 'parent'");
 
 	bzero((char *)&vreq, sizeof(struct vlanreq));
 	ifr.ifr_data = (caddr_t)&vreq;
@@ -3730,6 +4252,8 @@ void
 unsetvlandev(const char *val, int d)
 {
 	struct vlanreq vreq;
+
+	warnx("The '-vlandev' option is deprecated, use '-parent'");
 
 	bzero((char *)&vreq, sizeof(struct vlanreq));
 	ifr.ifr_data = (caddr_t)&vreq;
@@ -3795,6 +4319,72 @@ settrunkproto(const char *val, int d)
 }
 
 void
+settrunklacpmode(const char *val, int d)
+{
+	struct trunk_reqall ra;
+	struct trunk_opts tops;
+
+	bzero(&ra, sizeof(ra));
+	strlcpy(ra.ra_ifname, name, sizeof(ra.ra_ifname));
+
+	if (ioctl(s, SIOCGTRUNK, &ra) != 0)
+		err(1, "SIOCGTRUNK");
+
+	if (ra.ra_proto != TRUNK_PROTO_LACP)
+		errx(1, "Invalid option for trunk: %s", name);
+
+	if (strcmp(val, lacpmodeactive) != 0 &&
+	    strcmp(val, lacpmodepassive) != 0)
+		errx(1, "Invalid lacpmode option for trunk: %s", name);
+
+	bzero(&tops, sizeof(tops));
+	strlcpy(tops.to_ifname, name, sizeof(tops.to_ifname));
+	tops.to_proto = TRUNK_PROTO_LACP;
+	tops.to_opts |= TRUNK_OPT_LACP_MODE;
+
+	if (strcmp(val, lacpmodeactive) == 0)
+		tops.to_lacpopts.lacp_mode = 1;
+	else
+		tops.to_lacpopts.lacp_mode = 0;
+
+	if (ioctl(s, SIOCSTRUNKOPTS, &tops) != 0)
+		err(1, "SIOCSTRUNKOPTS");
+}
+
+void
+settrunklacptimeout(const char *val, int d)
+{
+	struct trunk_reqall ra;
+	struct trunk_opts tops;
+
+	bzero(&ra, sizeof(ra));
+	strlcpy(ra.ra_ifname, name, sizeof(ra.ra_ifname));
+
+	if (ioctl(s, SIOCGTRUNK, &ra) != 0)
+		err(1, "SIOCGTRUNK");
+
+	if (ra.ra_proto != TRUNK_PROTO_LACP)
+		errx(1, "Invalid option for trunk: %s", name);
+
+	if (strcmp(val, lacptimeoutfast) != 0 &&
+	    strcmp(val, lacptimeoutslow) != 0)
+		errx(1, "Invalid lacptimeout option for trunk: %s", name);
+
+	bzero(&tops, sizeof(tops));
+	strlcpy(tops.to_ifname, name, sizeof(tops.to_ifname));
+	tops.to_proto = TRUNK_PROTO_LACP;
+	tops.to_opts |= TRUNK_OPT_LACP_TIMEOUT;
+
+	if (strcmp(val, lacptimeoutfast) == 0)
+		tops.to_lacpopts.lacp_timeout = 1;
+	else
+		tops.to_lacpopts.lacp_timeout = 0;
+
+	if (ioctl(s, SIOCSTRUNKOPTS, &tops) != 0)
+		err(1, "SIOCSTRUNKOPTS");
+}
+
+void
 trunk_status(void)
 {
 	struct trunk_protos tpr[] = TRUNK_PROTOS;
@@ -3848,6 +4438,20 @@ trunk_status(void)
 		}
 
 		for (i = 0; i < ra.ra_ports; i++) {
+			lp = (struct lacp_opreq *)&(rpbuf[i].rp_lacpreq);
+			if (ra.ra_proto == TRUNK_PROTO_LACP) {
+				printf("\t\ttrunkport %s lacp_state actor ",
+				    rpbuf[i].rp_portname);
+				printb_status(lp->actor_state,
+				    LACP_STATE_BITS);
+				putchar('\n');
+				printf("\t\ttrunkport %s lacp_state partner ",
+				    rpbuf[i].rp_portname);
+				printb_status(lp->partner_state,
+				    LACP_STATE_BITS);
+				putchar('\n');
+			}
+
 			printf("\t\ttrunkport %s ", rpbuf[i].rp_portname);
 			printb_status(rpbuf[i].rp_flags, TRUNK_PORT_BITS);
 			putchar('\n');
@@ -5299,7 +5903,6 @@ in_getaddr(const char *s, int which)
 {
 	struct sockaddr_in *sin = sintab[which], tsin;
 	struct hostent *hp;
-	struct netent *np;
 	int bits, l;
 	char p[3];
 
@@ -5319,11 +5922,12 @@ in_getaddr(const char *s, int which)
 	} else if (inet_aton(s, &sin->sin_addr) == 0) {
 		if ((hp = gethostbyname(s)))
 			memcpy(&sin->sin_addr, hp->h_addr, hp->h_length);
-		else if ((np = getnetbyname(s)))
-			sin->sin_addr = inet_makeaddr(np->n_net, INADDR_ANY);
 		else
 			errx(1, "%s: bad value", s);
 	}
+	if (which == MASK && (ntohl(sin->sin_addr.s_addr) &
+	    (~ntohl(sin->sin_addr.s_addr) >> 1)))
+		errx(1, "%s: non-contiguous mask", s);
 }
 
 /* ARGSUSED */
@@ -5440,8 +6044,6 @@ in6_getaddr(const char *s, int which)
 	error = getaddrinfo(s, "0", &hints, &res);
 	if (error)
 		errx(1, "%s: %s", s, gai_strerror(error));
-	if (res->ai_addrlen != sizeof(struct sockaddr_in6))
-		errx(1, "%s: bad value", s);
 	memcpy(sin6, res->ai_addr, res->ai_addrlen);
 #ifdef __KAME__
 	if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr) &&
@@ -5635,6 +6237,15 @@ setrdomain(const char *id, int param)
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 	ifr.ifr_rdomainid = rdomainid;
 	if (ioctl(s, SIOCSIFRDOMAIN, (caddr_t)&ifr) < 0)
+		warn("SIOCSIFRDOMAIN");
+}
+
+void
+unsetrdomain(const char *ignored, int alsoignored)
+{
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	ifr.ifr_rdomainid = 0;
+	if (ioctl(s, SIOCSIFRDOMAIN, (caddr_t)&ifr) < 0) 	
 		warn("SIOCSIFRDOMAIN");
 }
 #endif

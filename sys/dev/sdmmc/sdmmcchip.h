@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmcchip.h,v 1.9 2016/05/05 20:40:48 kettenis Exp $	*/
+/*	$OpenBSD: sdmmcchip.h,v 1.12 2018/08/09 13:52:36 patrick Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -46,6 +46,8 @@ struct sdmmc_chip_functions {
 	void	(*card_intr_ack)(sdmmc_chipset_handle_t);
 	/* UHS functions */
 	int		(*signal_voltage)(sdmmc_chipset_handle_t, int);
+	/* hibernate */
+	int	(*hibernate_init)(sdmmc_chipset_handle_t, void *);
 };
 
 /* host controller reset */
@@ -92,14 +94,18 @@ struct sdmmc_chip_functions {
 #define SDMMC_TIMING_HIGHSPEED	1
 #define SDMMC_TIMING_MMC_DDR52	2
 
+#define SDMMC_MAX_FUNCTIONS	8
+
 struct sdmmcbus_attach_args {
 	const char *saa_busname;
 	sdmmc_chipset_tag_t sct;
 	sdmmc_chipset_handle_t sch;
 	bus_dma_tag_t dmat;
+	bus_dmamap_t dmap;
 	int	flags;
 	int	caps;
 	long	max_xfer;
+	void	*cookies[SDMMC_MAX_FUNCTIONS];
 };
 
 void	sdmmc_needs_discover(struct device *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.29 2017/01/06 00:06:02 jsg Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.31 2018/06/30 15:23:36 deraadt Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.29 2003/09/06 09:08:35 rearnsha Exp $	*/
 
 /*
@@ -231,6 +231,9 @@ void	armv7_tlb_flushI	(void);
 void	armv7_tlb_flushD	(void);
 void	armv7_tlb_flushD_SE	(u_int va);
 
+void	armv7_flush_bp(void);
+void	cortex_a15_flush_bp(void);
+
 void	armv7_drain_writebuf	(void);
 void	armv7_cpu_sleep		(int mode);
 
@@ -340,5 +343,3 @@ extern int	arm_dcache_align_mask;
 
 #endif	/* _KERNEL */
 #endif	/* _ARM_CPUFUNC_H_ */
-
-/* End of cpufunc.h */

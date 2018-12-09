@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.143 2016/09/04 10:51:24 naddy Exp $	*/
+/*	$OpenBSD: conf.h,v 1.145 2018/08/31 04:20:37 visa Exp $	*/
 /*	$NetBSD: conf.h,v 1.33 1996/05/03 20:03:32 christos Exp $	*/
 
 /*-
@@ -444,7 +444,7 @@ extern struct cdevsw cdevsw[];
 	dev_init(c,n,open), dev_init(c,n,close), dev_init(c, n, read), \
 	(dev_type_write((*))) enodev, dev_init(c,n,ioctl), \
 	(dev_type_stop((*))) enodev, 0,  dev_init(c,n,poll), \
-	dev_init(c,n,mmap), 0, D_CLONE }
+	dev_init(c,n,mmap), 0, D_CLONE, dev_init(c,n,kqfilter) }
 
 /* open, close, ioctl */
 #define cdev_amdmsr_init(c,n) { \
@@ -474,6 +474,13 @@ extern struct cdevsw cdevsw[];
 	(dev_type_write((*))) enodev, dev_init(c,n,ioctl), \
 	(dev_type_stop((*))) enodev, 0, (dev_type_poll((*))) enodev, \
 	(dev_type_mmap((*))) enodev, 0 }
+
+/* open, close, ioctl, mmap */
+#define cdev_kcov_init(c,n) { \
+	dev_init(c,n,open), dev_init(c,n,close), (dev_type_read((*))) enodev, \
+	(dev_type_write((*))) enodev, dev_init(c,n,ioctl), \
+	(dev_type_stop((*))) enodev, 0, selfalse, \
+	(dev_init(c,n,mmap)), 0, D_CLONE }
 
 #endif
 
@@ -607,6 +614,7 @@ cdev_decl(amdmsr);
 cdev_decl(fuse);
 cdev_decl(pvbus);
 cdev_decl(ipmi);
+cdev_decl(kcov);
 
 #endif
 

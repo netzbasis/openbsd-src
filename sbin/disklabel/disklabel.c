@@ -1,4 +1,4 @@
-/*	$OpenBSD: disklabel.c,v 1.226 2017/09/29 18:32:09 otto Exp $	*/
+/*	$OpenBSD: disklabel.c,v 1.230 2018/08/11 18:37:21 krw Exp $	*/
 
 /*
  * Copyright (c) 1987, 1993
@@ -87,7 +87,6 @@ int	uidflag;
 int	verbose;
 int	quiet;
 int	donothing;
-char	print_unit;
 
 void	makedisktab(FILE *, struct disklabel *);
 void	makelabel(char *, char *, struct disklabel *);
@@ -117,9 +116,10 @@ getphysmem(void)
 int
 main(int argc, char *argv[])
 {
-	int ch, f, error = 0;
 	FILE *t;
 	char *autotable = NULL;
+	int ch, f, error = 0;
+	char print_unit = '\0';
 
 	getphysmem();
 
@@ -188,7 +188,7 @@ main(int argc, char *argv[])
 		case '?':
 		default:
 			usage();
-	}
+		}
 	argc -= optind;
 	argv += optind;
 
@@ -196,7 +196,7 @@ main(int argc, char *argv[])
 		op = READ;
 
 	if (argc < 1 || (fstabfile && !(op == EDITOR || op == RESTORE ||
-		    aflag)))
+	    aflag)))
 		usage();
 
 	if (argv[0] == NULL)
@@ -394,8 +394,8 @@ parselabel(void)
 		err(4, NULL);
 	i = asprintf(&partduid,
 	    "%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx.a",
-            lab.d_uid[0], lab.d_uid[1], lab.d_uid[2], lab.d_uid[3],
-            lab.d_uid[4], lab.d_uid[5], lab.d_uid[6], lab.d_uid[7]);
+	    lab.d_uid[0], lab.d_uid[1], lab.d_uid[2], lab.d_uid[3],
+	    lab.d_uid[4], lab.d_uid[5], lab.d_uid[6], lab.d_uid[7]);
 	if (i == -1)
 		err(4, NULL);
 	setfsent();
@@ -517,7 +517,7 @@ scale(u_int64_t sz, char unit, struct disklabel *lp)
 void
 display_partition(FILE *f, struct disklabel *lp, int i, char unit)
 {
-	volatile struct partition *pp = &lp->d_partitions[i];
+	struct partition *pp = &lp->d_partitions[i];
 	double p_size;
 
 	p_size = scale(DL_GETPSIZE(pp), unit, lp);
@@ -600,8 +600,8 @@ display(FILE *f, struct disklabel *lp, char unit, int all)
 	fprintf(f, "label: %.*s\n", (int)sizeof(lp->d_packname),
 	    lp->d_packname);
 	fprintf(f, "duid: %02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx\n",
-            lp->d_uid[0], lp->d_uid[1], lp->d_uid[2], lp->d_uid[3],
-            lp->d_uid[4], lp->d_uid[5], lp->d_uid[6], lp->d_uid[7]);
+	    lp->d_uid[0], lp->d_uid[1], lp->d_uid[2], lp->d_uid[3],
+	    lp->d_uid[4], lp->d_uid[5], lp->d_uid[6], lp->d_uid[7]);
 	fprintf(f, "flags:");
 	if (lp->d_flags & D_BADSECT)
 		fprintf(f, " badsect");
@@ -753,7 +753,7 @@ editit(const char *pathname)
 	else
 		ret = WEXITSTATUS(st);
 
- fail:
+fail:
 	saved_errno = errno;
 	(void)signal(SIGHUP, sighup);
 	(void)signal(SIGINT, sigint);
@@ -932,7 +932,7 @@ getasciilabel(FILE *f, struct disklabel *lp)
 				v = GETNUM(lp->d_drivedata[i], cp, 0, &errstr);
 				if (errstr)
 					warnx("line %d: bad drivedata %s",
-					   lineno, cp);
+					    lineno, cp);
 				lp->d_drivedata[i++] = v;
 				tp = word(cp);
 			}
@@ -1039,12 +1039,12 @@ getasciilabel(FILE *f, struct disklabel *lp)
 				}
 			}
 			pp = &lp->d_partitions[part];
-#define NXTNUM(n, field, errstr) { \
-	if (tp == NULL) {					\
-		warnx("line %d: too few fields", lineno);	\
-		errors++;					\
-		break;						\
-	} else							\
+#define NXTNUM(n, field, errstr) {					\
+	if (tp == NULL) {						\
+		warnx("line %d: too few fields", lineno);		\
+		errors++;						\
+		break;							\
+	} else								\
 		cp = tp, tp = word(cp), (n) = GETNUM(field, cp, 0, errstr); \
 }
 			NXTNUM(lv, lv, &errstr);
@@ -1084,7 +1084,7 @@ getasciilabel(FILE *f, struct disklabel *lp)
 				v = FS_UNUSED;
 			}
 			pp->p_fstype = v;
-	gottype:
+gottype:
 			switch (pp->p_fstype) {
 
 			case FS_UNUSED:				/* XXX */
@@ -1117,7 +1117,7 @@ getasciilabel(FILE *f, struct disklabel *lp)
 		}
 		warnx("line %d: unknown field: %s", lineno, cp);
 		errors++;
-	next:
+next:
 		;
 	}
 	errors += checklabel(lp);

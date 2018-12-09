@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmcvar.h,v 1.26 2016/05/05 11:01:08 kettenis Exp $	*/
+/*	$OpenBSD: sdmmcvar.h,v 1.30 2018/08/09 13:52:36 patrick Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -146,11 +146,13 @@ struct sdmmc_function {
 	int flags;
 #define SFF_ERROR		0x0001	/* function is poo; ignore it */
 #define SFF_SDHC		0x0002	/* SD High Capacity card */
+	void *cookie;			/* pass extra info from bus to dev */
 	SIMPLEQ_ENTRY(sdmmc_function) sf_list;
 	/* SD card I/O function members */
 	int number;			/* I/O function number or -1 */
 	struct device *child;		/* function driver */
 	struct sdmmc_cis cis;		/* decoded CIS */
+	unsigned int cur_blklen;	/* current block length */
 	/* SD/MMC memory card members */
 	struct sdmmc_csd csd;		/* decoded CSD value */
 	struct sdmmc_cid cid;		/* decoded CID value */
@@ -212,6 +214,7 @@ struct sdmmc_softc {
 	void *sc_scsibus;		/* SCSI bus emulation softc */
 	TAILQ_HEAD(, sdmmc_intr_handler) sc_intrq; /* interrupt handlers */
 	long sc_max_xfer;		/* maximum transfer size */
+	void *sc_cookies[SDMMC_MAX_FUNCTIONS]; /* pass extra info from bus to dev */
 };
 
 /*
@@ -258,13 +261,16 @@ u_int8_t sdmmc_io_read_1(struct sdmmc_function *, int);
 u_int16_t sdmmc_io_read_2(struct sdmmc_function *, int);
 u_int32_t sdmmc_io_read_4(struct sdmmc_function *, int);
 int	sdmmc_io_read_multi_1(struct sdmmc_function *, int, u_char *, int);
+int	sdmmc_io_read_region_1(struct sdmmc_function *, int, u_char *, int);
 void	sdmmc_io_write_1(struct sdmmc_function *, int, u_int8_t);
 void	sdmmc_io_write_2(struct sdmmc_function *, int, u_int16_t);
 void	sdmmc_io_write_4(struct sdmmc_function *, int, u_int32_t);
 int	sdmmc_io_write_multi_1(struct sdmmc_function *, int, u_char *, int);
+int	sdmmc_io_write_region_1(struct sdmmc_function *, int, u_char *, int);
 int	sdmmc_io_function_ready(struct sdmmc_function *);
 int	sdmmc_io_function_enable(struct sdmmc_function *);
 void	sdmmc_io_function_disable(struct sdmmc_function *);
+void	sdmmc_io_set_blocklen(struct sdmmc_function *, unsigned int);
 
 int	sdmmc_read_cis(struct sdmmc_function *, struct sdmmc_cis *);
 void	sdmmc_print_cis(struct sdmmc_function *);
@@ -275,6 +281,11 @@ void	sdmmc_mem_scan(struct sdmmc_softc *);
 int	sdmmc_mem_init(struct sdmmc_softc *, struct sdmmc_function *);
 int	sdmmc_mem_read_block(struct sdmmc_function *, int, u_char *, size_t);
 int	sdmmc_mem_write_block(struct sdmmc_function *, int, u_char *, size_t);
+
+#ifdef HIBERNATE
+int	sdmmc_mem_hibernate_write(struct sdmmc_function *, daddr_t, u_char *,
+	    size_t);
+#endif
 
 /* ioctls */
 

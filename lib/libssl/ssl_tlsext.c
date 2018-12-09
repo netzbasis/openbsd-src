@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_tlsext.c,v 1.18 2017/11/28 16:46:14 jsing Exp $ */
+/* $OpenBSD: ssl_tlsext.c,v 1.26 2018/11/09 05:02:53 beck Exp $ */
 /*
  * Copyright (c) 2016, 2017 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
@@ -22,6 +22,7 @@
 
 #include "bytestring.h"
 #include "ssl_tlsext.h"
+#include "ssl_sigalgs.h"
 
 /*
  * Supported Application-Layer Protocol Negotiation - RFC 7301
@@ -163,34 +164,33 @@ tlsext_alpn_serverhello_parse(SSL *s, CBS *cbs, int *alert)
 }
 
 /*
- * Supported Elliptic Curves - RFC 4492 section 5.1.1
+ * Supported Groups - RFC 7919 section 2
  */
 int
-tlsext_ec_clienthello_needs(SSL *s)
+tlsext_supportedgroups_clienthello_needs(SSL *s)
 {
 	return ssl_has_ecc_ciphers(s);
 }
 
 int
-tlsext_ec_clienthello_build(SSL *s, CBB *cbb)
+tlsext_supportedgroups_clienthello_build(SSL *s, CBB *cbb)
 {
-	CBB curvelist;
-	size_t curves_len;
+	const uint16_t *groups;
+	size_t groups_len;
+	CBB grouplist;
 	int i;
-	const uint16_t *curves;
 
-	tls1_get_curvelist(s, 0, &curves, &curves_len);
-
-	if (curves_len == 0) {
+	tls1_get_group_list(s, 0, &groups, &groups_len);
+	if (groups_len == 0) {
 		SSLerror(s, ERR_R_INTERNAL_ERROR);
 		return 0;
 	}
 
-	if (!CBB_add_u16_length_prefixed(cbb, &curvelist))
+	if (!CBB_add_u16_length_prefixed(cbb, &grouplist))
 		return 0;
 
-	for (i = 0; i < curves_len; i++) {
-		if (!CBB_add_u16(&curvelist, curves[i]))
+	for (i = 0; i < groups_len; i++) {
+		if (!CBB_add_u16(&grouplist, groups[i]))
 			return 0;
 	}
 
@@ -201,48 +201,48 @@ tlsext_ec_clienthello_build(SSL *s, CBB *cbb)
 }
 
 int
-tlsext_ec_clienthello_parse(SSL *s, CBS *cbs, int *alert)
+tlsext_supportedgroups_clienthello_parse(SSL *s, CBS *cbs, int *alert)
 {
-	CBS curvelist;
-	size_t curves_len;
+	CBS grouplist;
+	size_t groups_len;
 
-	if (!CBS_get_u16_length_prefixed(cbs, &curvelist))
+	if (!CBS_get_u16_length_prefixed(cbs, &grouplist))
 		goto err;
 	if (CBS_len(cbs) != 0)
 		goto err;
 
-	curves_len = CBS_len(&curvelist);
-	if (curves_len == 0 || curves_len % 2 != 0)
+	groups_len = CBS_len(&grouplist);
+	if (groups_len == 0 || groups_len % 2 != 0)
 		goto err;
-	curves_len /= 2;
+	groups_len /= 2;
 
 	if (!s->internal->hit) {
+		uint16_t *groups;
 		int i;
-		uint16_t *curves;
 
 		if (SSI(s)->tlsext_supportedgroups != NULL)
 			goto err;
 
-		if ((curves = reallocarray(NULL, curves_len,
+		if ((groups = reallocarray(NULL, groups_len,
 		    sizeof(uint16_t))) == NULL) {
 			*alert = TLS1_AD_INTERNAL_ERROR;
 			return 0;
 		}
 
-		for (i = 0; i < curves_len; i++) {
-			if (!CBS_get_u16(&curvelist, &curves[i])) {
-				free(curves);
+		for (i = 0; i < groups_len; i++) {
+			if (!CBS_get_u16(&grouplist, &groups[i])) {
+				free(groups);
 				goto err;
 			}
 		}
 
-		if (CBS_len(&curvelist) != 0) {
-			free(curves);
+		if (CBS_len(&grouplist) != 0) {
+			free(groups);
 			goto err;
 		}
 
-		SSI(s)->tlsext_supportedgroups = curves;
-		SSI(s)->tlsext_supportedgroups_length = curves_len;
+		SSI(s)->tlsext_supportedgroups = groups;
+		SSI(s)->tlsext_supportedgroups_length = groups_len;
 	}
 
 	return 1;
@@ -254,28 +254,29 @@ tlsext_ec_clienthello_parse(SSL *s, CBS *cbs, int *alert)
 
 /* This extension is never used by the server. */
 int
-tlsext_ec_serverhello_needs(SSL *s)
+tlsext_supportedgroups_serverhello_needs(SSL *s)
 {
 	return 0;
 }
 
 int
-tlsext_ec_serverhello_build(SSL *s, CBB *cbb)
+tlsext_supportedgroups_serverhello_build(SSL *s, CBB *cbb)
 {
 	return 0;
 }
 
 int
-tlsext_ec_serverhello_parse(SSL *s, CBS *cbs, int *alert)
+tlsext_supportedgroups_serverhello_parse(SSL *s, CBS *cbs, int *alert)
 {
 	/*
 	 * Servers should not send this extension per the RFC.
 	 *
-	 * However, F5 sends it by mistake (case ID 492780) so we need to skip
-	 * over it.  This bug is from at least 2014 but as of 2017, there
-	 * are still large sites with this bug in production.
+	 * However, certain F5 BIG-IP systems incorrectly send it. This bug is
+	 * from at least 2014 but as of 2017, there are still large sites with
+	 * this unpatched in production. As a result, we need to currently skip
+	 * over the extension and ignore its content:
 	 *
-	 * https://devcentral.f5.com/questions/disable-supported-elliptic-curves-extension-from-server
+	 *  https://support.f5.com/csp/article/K37345003
 	 */
 	if (!CBS_skip(cbs, CBS_len(cbs))) {
 		*alert = TLS1_AD_INTERNAL_ERROR;
@@ -332,14 +333,16 @@ tlsext_ecpf_parse(SSL *s, CBS *cbs, int *alert)
 
 	if (!s->internal->hit) {
 		if (!CBS_stow(&ecpf, &(SSI(s)->tlsext_ecpointformatlist),
-		    &(SSI(s)->tlsext_ecpointformatlist_length)))
-			goto err;
+		    &(SSI(s)->tlsext_ecpointformatlist_length))) {
+			*alert = TLS1_AD_INTERNAL_ERROR;
+			return 0;
+		}
 	}
 
 	return 1;
 
  err:
-	*alert = TLS1_AD_INTERNAL_ERROR;
+	*alert = SSL_AD_DECODE_ERROR;
 	return 0;
 }
 
@@ -526,16 +529,14 @@ tlsext_sigalgs_clienthello_needs(SSL *s)
 int
 tlsext_sigalgs_clienthello_build(SSL *s, CBB *cbb)
 {
-	unsigned char *sigalgs_data;
-	size_t sigalgs_len;
 	CBB sigalgs;
-
-	tls12_get_req_sig_algs(s, &sigalgs_data, &sigalgs_len);
 
 	if (!CBB_add_u16_length_prefixed(cbb, &sigalgs))
 		return 0;
-	if (!CBB_add_bytes(&sigalgs, sigalgs_data, sigalgs_len))
+
+	if (!ssl_sigalgs_build(&sigalgs, tls12_sigalgs, tls12_sigalgs_len))
 		return 0;
+
 	if (!CBB_flush(cbb))
 		return 0;
 
@@ -1193,109 +1194,175 @@ tlsext_srtp_serverhello_parse(SSL *s, CBS *cbs, int *alert)
 
 #endif /* OPENSSL_NO_SRTP */
 
+struct tls_extension_funcs {
+	int (*needs)(SSL *s);
+	int (*build)(SSL *s, CBB *cbb);
+	int (*parse)(SSL *s, CBS *cbs, int *alert);
+};
+
 struct tls_extension {
 	uint16_t type;
-	int (*clienthello_needs)(SSL *s);
-	int (*clienthello_build)(SSL *s, CBB *cbb);
-	int (*clienthello_parse)(SSL *s, CBS *cbs, int *alert);
-	int (*serverhello_needs)(SSL *s);
-	int (*serverhello_build)(SSL *s, CBB *cbb);
-	int (*serverhello_parse)(SSL *s, CBS *cbs, int *alert);
+	struct tls_extension_funcs clienthello;
+	struct tls_extension_funcs serverhello;
 };
 
 static struct tls_extension tls_extensions[] = {
 	{
 		.type = TLSEXT_TYPE_server_name,
-		.clienthello_needs = tlsext_sni_clienthello_needs,
-		.clienthello_build = tlsext_sni_clienthello_build,
-		.clienthello_parse = tlsext_sni_clienthello_parse,
-		.serverhello_needs = tlsext_sni_serverhello_needs,
-		.serverhello_build = tlsext_sni_serverhello_build,
-		.serverhello_parse = tlsext_sni_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_sni_clienthello_needs,
+			.build = tlsext_sni_clienthello_build,
+			.parse = tlsext_sni_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_sni_serverhello_needs,
+			.build = tlsext_sni_serverhello_build,
+			.parse = tlsext_sni_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_renegotiate,
-		.clienthello_needs = tlsext_ri_clienthello_needs,
-		.clienthello_build = tlsext_ri_clienthello_build,
-		.clienthello_parse = tlsext_ri_clienthello_parse,
-		.serverhello_needs = tlsext_ri_serverhello_needs,
-		.serverhello_build = tlsext_ri_serverhello_build,
-		.serverhello_parse = tlsext_ri_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_ri_clienthello_needs,
+			.build = tlsext_ri_clienthello_build,
+			.parse = tlsext_ri_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_ri_serverhello_needs,
+			.build = tlsext_ri_serverhello_build,
+			.parse = tlsext_ri_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_status_request,
-		.clienthello_needs = tlsext_ocsp_clienthello_needs,
-		.clienthello_build = tlsext_ocsp_clienthello_build,
-		.clienthello_parse = tlsext_ocsp_clienthello_parse,
-		.serverhello_needs = tlsext_ocsp_serverhello_needs,
-		.serverhello_build = tlsext_ocsp_serverhello_build,
-		.serverhello_parse = tlsext_ocsp_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_ocsp_clienthello_needs,
+			.build = tlsext_ocsp_clienthello_build,
+			.parse = tlsext_ocsp_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_ocsp_serverhello_needs,
+			.build = tlsext_ocsp_serverhello_build,
+			.parse = tlsext_ocsp_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_ec_point_formats,
-		.clienthello_needs = tlsext_ecpf_clienthello_needs,
-		.clienthello_build = tlsext_ecpf_clienthello_build,
-		.clienthello_parse = tlsext_ecpf_clienthello_parse,
-		.serverhello_needs = tlsext_ecpf_serverhello_needs,
-		.serverhello_build = tlsext_ecpf_serverhello_build,
-		.serverhello_parse = tlsext_ecpf_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_ecpf_clienthello_needs,
+			.build = tlsext_ecpf_clienthello_build,
+			.parse = tlsext_ecpf_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_ecpf_serverhello_needs,
+			.build = tlsext_ecpf_serverhello_build,
+			.parse = tlsext_ecpf_serverhello_parse,
+		},
 	},
 	{
-		.type = TLSEXT_TYPE_elliptic_curves,
-		.clienthello_needs = tlsext_ec_clienthello_needs,
-		.clienthello_build = tlsext_ec_clienthello_build,
-		.clienthello_parse = tlsext_ec_clienthello_parse,
-		.serverhello_needs = tlsext_ec_serverhello_needs,
-		.serverhello_build = tlsext_ec_serverhello_build,
-		.serverhello_parse = tlsext_ec_serverhello_parse,
+		.type = TLSEXT_TYPE_supported_groups,
+		.clienthello = {
+			.needs = tlsext_supportedgroups_clienthello_needs,
+			.build = tlsext_supportedgroups_clienthello_build,
+			.parse = tlsext_supportedgroups_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_supportedgroups_serverhello_needs,
+			.build = tlsext_supportedgroups_serverhello_build,
+			.parse = tlsext_supportedgroups_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_session_ticket,
-		.clienthello_needs = tlsext_sessionticket_clienthello_needs,
-		.clienthello_build = tlsext_sessionticket_clienthello_build,
-		.clienthello_parse = tlsext_sessionticket_clienthello_parse,
-		.serverhello_needs = tlsext_sessionticket_serverhello_needs,
-		.serverhello_build = tlsext_sessionticket_serverhello_build,
-		.serverhello_parse = tlsext_sessionticket_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_sessionticket_clienthello_needs,
+			.build = tlsext_sessionticket_clienthello_build,
+			.parse = tlsext_sessionticket_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_sessionticket_serverhello_needs,
+			.build = tlsext_sessionticket_serverhello_build,
+			.parse = tlsext_sessionticket_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_signature_algorithms,
-		.clienthello_needs = tlsext_sigalgs_clienthello_needs,
-		.clienthello_build = tlsext_sigalgs_clienthello_build,
-		.clienthello_parse = tlsext_sigalgs_clienthello_parse,
-		.serverhello_needs = tlsext_sigalgs_serverhello_needs,
-		.serverhello_build = tlsext_sigalgs_serverhello_build,
-		.serverhello_parse = tlsext_sigalgs_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_sigalgs_clienthello_needs,
+			.build = tlsext_sigalgs_clienthello_build,
+			.parse = tlsext_sigalgs_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_sigalgs_serverhello_needs,
+			.build = tlsext_sigalgs_serverhello_build,
+			.parse = tlsext_sigalgs_serverhello_parse,
+		},
 	},
 	{
 		.type = TLSEXT_TYPE_application_layer_protocol_negotiation,
-		.clienthello_needs = tlsext_alpn_clienthello_needs,
-		.clienthello_build = tlsext_alpn_clienthello_build,
-		.clienthello_parse = tlsext_alpn_clienthello_parse,
-		.serverhello_needs = tlsext_alpn_serverhello_needs,
-		.serverhello_build = tlsext_alpn_serverhello_build,
-		.serverhello_parse = tlsext_alpn_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_alpn_clienthello_needs,
+			.build = tlsext_alpn_clienthello_build,
+			.parse = tlsext_alpn_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_alpn_serverhello_needs,
+			.build = tlsext_alpn_serverhello_build,
+			.parse = tlsext_alpn_serverhello_parse,
+		},
 	},
 #ifndef OPENSSL_NO_SRTP
 	{
 		.type = TLSEXT_TYPE_use_srtp,
-		.clienthello_needs = tlsext_srtp_clienthello_needs,
-		.clienthello_build = tlsext_srtp_clienthello_build,
-		.clienthello_parse = tlsext_srtp_clienthello_parse,
-		.serverhello_needs = tlsext_srtp_serverhello_needs,
-		.serverhello_build = tlsext_srtp_serverhello_build,
-		.serverhello_parse = tlsext_srtp_serverhello_parse,
+		.clienthello = {
+			.needs = tlsext_srtp_clienthello_needs,
+			.build = tlsext_srtp_clienthello_build,
+			.parse = tlsext_srtp_clienthello_parse,
+		},
+		.serverhello = {
+			.needs = tlsext_srtp_serverhello_needs,
+			.build = tlsext_srtp_serverhello_build,
+			.parse = tlsext_srtp_serverhello_parse,
+		},
 	}
 #endif /* OPENSSL_NO_SRTP */
 };
 
 #define N_TLS_EXTENSIONS (sizeof(tls_extensions) / sizeof(*tls_extensions))
 
-int
-tlsext_clienthello_build(SSL *s, CBB *cbb)
+/* Ensure that extensions fit in a uint32_t bitmask. */
+CTASSERT(N_TLS_EXTENSIONS <= (sizeof(uint32_t) * 8));
+
+static struct tls_extension *
+tls_extension_find(uint16_t type, size_t *tls_extensions_idx)
 {
-	CBB extensions, extension_data;
+	size_t i;
+
+	for (i = 0; i < N_TLS_EXTENSIONS; i++) {
+		if (tls_extensions[i].type == type) {
+			*tls_extensions_idx = i;
+			return &tls_extensions[i];
+		}
+	}
+
+	return NULL;
+}
+
+static struct tls_extension_funcs *
+tlsext_funcs(struct tls_extension *tlsext, int is_serverhello)
+{
+	if (is_serverhello)
+		return &tlsext->serverhello;
+
+	return &tlsext->clienthello;	
+}
+
+static int
+tlsext_build(SSL *s, CBB *cbb, int is_serverhello)
+{
+	struct tls_extension_funcs *ext;
 	struct tls_extension *tlsext;
+	CBB extensions, extension_data;
 	int extensions_present = 0;
 	size_t i;
 
@@ -1304,15 +1371,17 @@ tlsext_clienthello_build(SSL *s, CBB *cbb)
 
 	for (i = 0; i < N_TLS_EXTENSIONS; i++) {
 		tlsext = &tls_extensions[i];
+		ext = tlsext_funcs(tlsext, is_serverhello);
 
-		if (!tlsext->clienthello_needs(s))
+		if (!ext->needs(s))
 			continue;
 
 		if (!CBB_add_u16(&extensions, tlsext->type))
 			return 0;
 		if (!CBB_add_u16_length_prefixed(&extensions, &extension_data))
 			return 0;
-		if (!tls_extensions[i].clienthello_build(s, &extension_data))
+
+		if (!ext->build(s, &extension_data))
 			return 0;
 
 		extensions_present = 1;
@@ -1327,88 +1396,102 @@ tlsext_clienthello_build(SSL *s, CBB *cbb)
 	return 1;
 }
 
-int
-tlsext_clienthello_parse_one(SSL *s, CBS *cbs, uint16_t type, int *alert)
+static int
+tlsext_parse(SSL *s, CBS *cbs, int *alert, int is_serverhello)
 {
+	struct tls_extension_funcs *ext;
 	struct tls_extension *tlsext;
-	size_t i;
+	CBS extensions, extension_data;
+	uint32_t extensions_seen = 0;
+	uint16_t type;
+	size_t idx;
 
-	for (i = 0; i < N_TLS_EXTENSIONS; i++) {
-		tlsext = &tls_extensions[i];
-
-		if (tlsext->type != type)
-			continue;
-		if (!tlsext->clienthello_parse(s, cbs, alert))
-			return 0;
-		if (CBS_len(cbs) != 0) {
-			*alert = SSL_AD_DECODE_ERROR;
-			return 0;
-		}
-
+	/* An empty extensions block is valid. */
+	if (CBS_len(cbs) == 0)
 		return 1;
+
+	*alert = SSL_AD_DECODE_ERROR;
+
+	if (!CBS_get_u16_length_prefixed(cbs, &extensions))
+		return 0;
+
+	while (CBS_len(&extensions) > 0) {
+		if (!CBS_get_u16(&extensions, &type))
+			return 0;
+		if (!CBS_get_u16_length_prefixed(&extensions, &extension_data))
+			return 0;
+
+		if (s->internal->tlsext_debug_cb != NULL)
+			s->internal->tlsext_debug_cb(s, is_serverhello, type,
+			    (unsigned char *)CBS_data(&extension_data),
+			    CBS_len(&extension_data),
+			    s->internal->tlsext_debug_arg);
+
+		/* Unknown extensions are ignored. */
+		if ((tlsext = tls_extension_find(type, &idx)) == NULL)
+			continue;
+
+		/* Check for duplicate known extensions. */
+		if ((extensions_seen & (1 << idx)) != 0)
+			return 0;
+		extensions_seen |= (1 << idx);
+
+		ext = tlsext_funcs(tlsext, is_serverhello);
+		if (!ext->parse(s, &extension_data, alert))
+			return 0;
+
+		if (CBS_len(&extension_data) != 0)
+			return 0;
 	}
 
-	/* Not found. */
-	return 2;
+	return 1;
+}
+
+static void
+tlsext_clienthello_reset_state(SSL *s)
+{
+	s->internal->servername_done = 0;
+	s->tlsext_status_type = -1;
+	S3I(s)->renegotiate_seen = 0;
+	free(S3I(s)->alpn_selected);
+	S3I(s)->alpn_selected = NULL;
+	s->internal->srtp_profile = NULL;
+}
+
+int
+tlsext_clienthello_build(SSL *s, CBB *cbb)
+{
+	return tlsext_build(s, cbb, 0);
+}
+
+int
+tlsext_clienthello_parse(SSL *s, CBS *cbs, int *alert)
+{
+	/* XXX - this possibly should be done by the caller... */
+	tlsext_clienthello_reset_state(s);
+
+	return tlsext_parse(s, cbs, alert, 0);
+}
+
+static void
+tlsext_serverhello_reset_state(SSL *s)
+{
+	S3I(s)->renegotiate_seen = 0;   
+	free(S3I(s)->alpn_selected);
+	S3I(s)->alpn_selected = NULL;
 }
 
 int
 tlsext_serverhello_build(SSL *s, CBB *cbb)
 {
-	CBB extensions, extension_data;
-	struct tls_extension *tlsext;
-	int extensions_present = 0;
-	size_t i;
-
-	if (!CBB_add_u16_length_prefixed(cbb, &extensions))
-		return 0;
-
-	for (i = 0; i < N_TLS_EXTENSIONS; i++) {
-		tlsext = &tls_extensions[i];
-
-		if (!tlsext->serverhello_needs(s))
-			continue;
-
-		if (!CBB_add_u16(&extensions, tlsext->type))
-			return 0;
-		if (!CBB_add_u16_length_prefixed(&extensions, &extension_data))
-			return 0;
-		if (!tlsext->serverhello_build(s, &extension_data))
-			return 0;
-
-		extensions_present = 1;
-	}
-
-	if (!extensions_present)
-		CBB_discard_child(cbb);
-
-	if (!CBB_flush(cbb))
-		return 0;
-
-	return 1;
+	return tlsext_build(s, cbb, 1);
 }
 
 int
-tlsext_serverhello_parse_one(SSL *s, CBS *cbs, uint16_t type, int *alert)
+tlsext_serverhello_parse(SSL *s, CBS *cbs, int *alert)
 {
-	struct tls_extension *tlsext;
-	size_t i;
+	/* XXX - this possibly should be done by the caller... */
+	tlsext_serverhello_reset_state(s);
 
-	for (i = 0; i < N_TLS_EXTENSIONS; i++) {
-		tlsext = &tls_extensions[i];
-
-		if (tlsext->type != type)
-			continue;
-		if (!tlsext->serverhello_parse(s, cbs, alert))
-			return 0;
-		if (CBS_len(cbs) != 0) {
-			*alert = SSL_AD_DECODE_ERROR;
-			return 0;
-		}
-
-		return 1;
-	}
-
-	/* Not found. */
-	return 2;
+	return tlsext_parse(s, cbs, alert, 1);
 }

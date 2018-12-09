@@ -8,9 +8,9 @@
 .\"
 .\" Created: Sun May  7 00:14:37 1995 ylo
 .\"
-.\" $OpenBSD: scp.1,v 1.76 2017/10/25 06:19:46 jmc Exp $
+.\" $OpenBSD: scp.1,v 1.81 2018/09/20 06:58:48 jmc Exp $
 .\"
-.Dd $Mdocdate: October 25 2017 $
+.Dd $Mdocdate: September 20 2018 $
 .Dt SCP 1
 .Os
 .Sh NAME
@@ -124,11 +124,13 @@ For full details of the options listed below, and their possible values, see
 .It AddressFamily
 .It BatchMode
 .It BindAddress
+.It BindInterface
 .It CanonicalDomains
 .It CanonicalizeFallbackLocal
 .It CanonicalizeHostname
 .It CanonicalizeMaxDots
 .It CanonicalizePermittedCNAMEs
+.It CASignatureAlgorithms
 .It CertificateFile
 .It ChallengeResponseAuthentication
 .It CheckHostIP
@@ -172,10 +174,10 @@ For full details of the options listed below, and their possible values, see
 .It SendEnv
 .It ServerAliveInterval
 .It ServerAliveCountMax
+.It SetEnv
 .It StrictHostKeyChecking
 .It TCPKeepAlive
 .It UpdateHostKeys
-.It UsePrivilegedPort
 .It User
 .It UserKnownHostsFile
 .It VerifyHostKeyDNS

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.1 2016/12/17 23:38:33 patrick Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.3 2018/06/28 22:47:20 kettenis Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.5 2001/11/22 18:00:00 thorpej Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
  * Machine-dependent defines for new kernel debugger.
  */
 
+#include <sys/param.h>
 #include <uvm/uvm_extern.h>
 #include <machine/armreg.h>
 #include <machine/frame.h>
@@ -88,5 +89,9 @@ void db_machine_init (void);
 	db_branch_taken((ins), (pc), (regs))
 
 void db_show_frame_cmd(db_expr_t, int, db_expr_t, char *);
+
+#define DDB_STATE_NOT_RUNNING	0  
+#define DDB_STATE_RUNNING	1
+#define DDB_STATE_EXITING	2
 
 #endif	/* _MACHINE_DB_MACHDEP_H_ */

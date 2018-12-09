@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.88 2017/08/13 11:10:31 eric Exp $
+#	$OpenBSD: Makefile,v 1.99 2018/12/07 08:05:59 eric Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -7,13 +7,14 @@ PROG=		smtpd
 SRCS=	aliases.c
 SRCS+=	bounce.c
 SRCS+=	ca.c
+SRCS+=	cert.c
 SRCS+=	compress_backend.c
 SRCS+=	config.c
 SRCS+=	control.c
 SRCS+=	crypto.c
-SRCS+=	delivery.c
 SRCS+=	dict.c
 SRCS+=	dns.c
+SRCS+=	unpack_dns.c
 SRCS+=	envelope.c
 SRCS+=	esc.c
 SRCS+=	expand.c
@@ -22,25 +23,32 @@ SRCS+=	iobuf.c
 SRCS+=	ioev.c
 SRCS+=	limit.c
 SRCS+=	lka.c
+SRCS+=	lka_filter.c
+SRCS+=	lka_proc.c
+SRCS+=	lka_report.c
 SRCS+=	lka_session.c
 SRCS+=	log.c
 SRCS+=	mailaddr.c
 SRCS+=	mda.c
+SRCS+=	mda_unpriv.c
 SRCS+=	mda_variables.c
 SRCS+=	mproc.c
 SRCS+=	mta.c
+SRCS+=	mta_report.c
 SRCS+=	mta_session.c
 SRCS+=	parse.y
 SRCS+=	pony.c
 SRCS+=	queue.c
 SRCS+=	queue_backend.c
+SRCS+=	resolver.c
+SRCS+=	rfc5322.c
 SRCS+=	ruleset.c
 SRCS+=	runq.c
 SRCS+=	scheduler.c
 SRCS+=	scheduler_backend.c
 SRCS+=	smtp.c
+SRCS+=	smtp_report.c
 SRCS+=	smtp_session.c
-SRCS+=	smtpf_session.c
 SRCS+=	smtpd.c
 SRCS+=	ssl.c
 SRCS+=	ssl_smtpd.c
@@ -51,17 +59,8 @@ SRCS+=	tree.c
 SRCS+=	util.c
 SRCS+=	waitq.c
 
-# RFC parsers
-SRCS+=		rfc2822.c
-
 # backends
 SRCS+=		compress_gzip.c
-
-SRCS+=		delivery_filename.c
-SRCS+=		delivery_maildir.c
-SRCS+=		delivery_mbox.c
-SRCS+=		delivery_mda.c
-SRCS+=		delivery_lmtp.c
 
 SRCS+=		table_db.c
 SRCS+=		table_getpwnam.c

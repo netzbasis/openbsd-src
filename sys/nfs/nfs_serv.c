@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_serv.c,v 1.111 2017/02/22 11:42:46 mpi Exp $	*/
+/*	$OpenBSD: nfs_serv.c,v 1.117 2018/11/09 14:14:32 claudio Exp $	*/
 /*     $NetBSD: nfs_serv.c,v 1.34 1997/05/12 23:37:12 fvdl Exp $       */
 
 /*
@@ -58,7 +58,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
-#include <sys/file.h>
 #include <sys/namei.h>
 #include <sys/vnode.h>
 #include <sys/lock.h>
@@ -597,7 +596,7 @@ nfsrv_read(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 		i = 0;
 		m = m2 = info.nmi_mb;
 		while (left > 0) {
-			siz = min(M_TRAILINGSPACE(m), left);
+			siz = min(m_trailingspace(m), left);
 			if (siz > 0) {
 				left -= siz;
 				i++;
@@ -620,7 +619,7 @@ nfsrv_read(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 		while (left > 0) {
 			if (m == NULL)
 				panic("nfsrv_read iov");
-			siz = min(M_TRAILINGSPACE(m), left);
+			siz = min(m_trailingspace(m), left);
 			if (siz > 0) {
 				iv->iov_base = mtod(m, caddr_t) + m->m_len;
 				iv->iov_len = siz;
@@ -962,7 +961,9 @@ nfsrv_create(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 	if (nd.ni_vp == NULL) {
 		if (va.va_type == VREG || va.va_type == VSOCK) {
 			vrele(nd.ni_startdir);
-			error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &va);
+			error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd,
+			    &va);
+			vput(nd.ni_dvp);
 			if (!error) {
 				pool_put(&namei_pool, nd.ni_cnd.cn_pnbuf);
 				if (exclusive_flag) {
@@ -994,6 +995,7 @@ nfsrv_create(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 				va.va_rdev = (dev_t)rdev;
 			error = VOP_MKNOD(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd,
 			    &va);
+			vput(nd.ni_dvp);
 			if (error) {
 				vrele(nd.ni_startdir);
 				if (nd.ni_cnd.cn_flags & HASBUF) {
@@ -1203,6 +1205,7 @@ nfsrv_mknod(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 	if (vtyp == VSOCK) {
 		vrele(nd.ni_startdir);
 		error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &va);
+		vput(nd.ni_dvp);
 		if (!error)
 			pool_put(&namei_pool, nd.ni_cnd.cn_pnbuf);
 	} else {
@@ -1215,6 +1218,7 @@ nfsrv_mknod(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 			goto out;
 		}
 		error = VOP_MKNOD(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &va);
+		vput(nd.ni_dvp);
 		if (error) {
 			vrele(nd.ni_startdir);
 			goto out;
@@ -1975,6 +1979,13 @@ nfsrv_rmdir(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 		goto out;
 	}
 	/*
+	 * A mounted on directory cannot be deleted.
+	 */
+	if (vp->v_mountedhere != NULL) {
+		error = EBUSY;
+		goto out;
+	}
+	/*
 	 * The root of a mounted filesystem cannot be deleted.
 	 */
 	if (vp->v_flag & VROOT)
@@ -2106,7 +2117,7 @@ nfsrv_readdir(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 		error = 0;
 		goto nfsmout;
 	}
-	VOP_UNLOCK(vp, procp);
+	VOP_UNLOCK(vp);
 	rbuf = malloc(fullsiz, M_TEMP, M_WAITOK);
 again:
 	iv.iov_base = rbuf;
@@ -2120,7 +2131,7 @@ again:
 	io.uio_procp = NULL;
 	eofflag = 0;
 
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, procp);
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 	error = VOP_READDIR(vp, &io, cred, &eofflag);
 
 	off = (off_t)io.uio_offset;
@@ -2130,7 +2141,7 @@ again:
 			error = getret;
 	}
 
-	VOP_UNLOCK(vp, procp);
+	VOP_UNLOCK(vp);
 	if (error) {
 		vrele(vp);
 		free(rbuf, M_TEMP, fullsiz);
@@ -2305,7 +2316,7 @@ nfsrv_readdirplus(struct nfsrv_descript *nfsd, struct nfssvc_sock *slp,
 		error = 0;
 		goto nfsmout;
 	}
-	VOP_UNLOCK(vp, procp);
+	VOP_UNLOCK(vp);
 
 	rbuf = malloc(fullsiz, M_TEMP, M_WAITOK);
 again:
@@ -2320,13 +2331,13 @@ again:
 	io.uio_procp = NULL;
 	eofflag = 0;
 
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, procp);
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 	error = VOP_READDIR(vp, &io, cred, &eofflag);
 
 	off = (u_quad_t)io.uio_offset;
 	getret = VOP_GETATTR(vp, &at, cred, procp);
 
-	VOP_UNLOCK(vp, procp);
+	VOP_UNLOCK(vp);
 
 	if (!error)
 		error = getret;

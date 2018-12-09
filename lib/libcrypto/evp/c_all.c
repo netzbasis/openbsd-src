@@ -1,4 +1,4 @@
-/* $OpenBSD: c_all.c,v 1.21 2017/03/01 13:53:58 jsing Exp $ */
+/* $OpenBSD: c_all.c,v 1.23 2018/11/11 07:07:44 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -57,6 +57,7 @@
  */
 
 #include <stdio.h>
+#include <pthread.h>
 
 #include <openssl/opensslconf.h>
 
@@ -66,8 +67,8 @@
 
 #include "cryptlib.h"
 
-void
-OpenSSL_add_all_ciphers(void)
+static void
+OpenSSL_add_all_ciphers_internal(void)
 {
 #ifndef OPENSSL_NO_DES
 	EVP_add_cipher(EVP_des_cfb());
@@ -226,7 +227,14 @@ OpenSSL_add_all_ciphers(void)
 }
 
 void
-OpenSSL_add_all_digests(void)
+OpenSSL_add_all_ciphers(void)
+{
+	static pthread_once_t add_all_ciphers_once = PTHREAD_ONCE_INIT;
+	(void) pthread_once(&add_all_ciphers_once, OpenSSL_add_all_ciphers_internal);
+}
+
+static void
+OpenSSL_add_all_digests_internal(void)
 {
 #ifndef OPENSSL_NO_MD4
 	EVP_add_digest(EVP_md4());
@@ -278,9 +286,19 @@ OpenSSL_add_all_digests(void)
 	EVP_add_digest(EVP_sha384());
 	EVP_add_digest(EVP_sha512());
 #endif
+#ifndef OPENSSL_NO_SM3
+	EVP_add_digest(EVP_sm3());
+#endif
 #ifndef OPENSSL_NO_WHIRLPOOL
 	EVP_add_digest(EVP_whirlpool());
 #endif
+}
+
+void
+OpenSSL_add_all_digests(void)
+{
+	static pthread_once_t add_all_digests_once = PTHREAD_ONCE_INIT;
+	(void) pthread_once(&add_all_digests_once, OpenSSL_add_all_digests_internal);
 }
 
 void

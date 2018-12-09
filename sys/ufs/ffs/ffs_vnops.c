@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vnops.c,v 1.88 2016/09/10 16:53:30 natano Exp $	*/
+/*	$OpenBSD: ffs_vnops.c,v 1.92 2018/07/21 09:35:08 anton Exp $	*/
 /*	$NetBSD: ffs_vnops.c,v 1.7 1996/05/11 18:27:24 mycroft Exp $	*/
 
 /*
@@ -36,7 +36,6 @@
 #include <sys/systm.h>
 #include <sys/resourcevar.h>
 #include <sys/kernel.h>
-#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/buf.h>
 #include <sys/mount.h>
@@ -316,7 +315,7 @@ ffs_write(void *v)
 			panic("ffs_write: nonsync dir write");
 		break;
 	default:
-		panic("ffs_write: type");
+		panic("ffs_write: type %d", vp->v_type);
 	}
 
 	fs = ip->i_fs;
@@ -358,8 +357,17 @@ ffs_write(void *v)
 			xfersize = size;
 
 		error = uiomove(bp->b_data + blkoffset, xfersize, uio);
-
-		if (error != 0)
+		/*
+		 * If the buffer is not already filled and we encounter an
+		 * error while trying to fill it, we have to clear out any
+		 * garbage data from the pages instantiated for the buffer.
+		 * If we do not, a failed uiomove() during a write can leave
+		 * the prior contents of the pages exposed to a userland mmap.
+		 *
+		 * Note that we don't need to clear buffers that were
+		 * allocated with the B_CLRBUF flag set.
+                 */
+		if (error != 0 && !(flags & B_CLRBUF))
 			memset(bp->b_data + blkoffset, 0, xfersize);
 
 #if 0
@@ -427,11 +435,10 @@ ffs_fsync(void *v)
 		skipmeta = 1;
 	s = splbio();
 loop:
-	for (bp = LIST_FIRST(&vp->v_dirtyblkhd); bp;
-	     bp = LIST_NEXT(bp, b_vnbufs))
+	LIST_FOREACH(bp, &vp->v_dirtyblkhd, b_vnbufs) {
 		bp->b_flags &= ~B_SCANNED;
-	for (bp = LIST_FIRST(&vp->v_dirtyblkhd); bp; bp = nbp) {
-		nbp = LIST_NEXT(bp, b_vnbufs);
+	}
+	LIST_FOREACH_SAFE(bp, &vp->v_dirtyblkhd, b_vnbufs, nbp) {
 		/* 
 		 * Reasons to skip this buffer: it has already been considered
 		 * on this pass, this pass is the first time through on a

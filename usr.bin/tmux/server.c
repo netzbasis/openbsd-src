@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.177 2017/10/12 11:32:27 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.183 2018/08/23 15:45:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -50,7 +50,6 @@ static struct event	 server_ev_accept;
 
 struct cmd_find_state	 marked_pane;
 
-static int	server_create_socket(void);
 static int	server_loop(void);
 static void	server_send_exit(void);
 static void	server_accept(int, short, void *);
@@ -99,39 +98,62 @@ server_check_marked(void)
 
 /* Create server socket. */
 static int
-server_create_socket(void)
+server_create_socket(char **cause)
 {
 	struct sockaddr_un	sa;
 	size_t			size;
 	mode_t			mask;
-	int			fd;
+	int			fd, saved_errno;
 
 	memset(&sa, 0, sizeof sa);
 	sa.sun_family = AF_UNIX;
 	size = strlcpy(sa.sun_path, socket_path, sizeof sa.sun_path);
 	if (size >= sizeof sa.sun_path) {
 		errno = ENAMETOOLONG;
-		return (-1);
+		goto fail;
 	}
 	unlink(sa.sun_path);
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-		return (-1);
+		goto fail;
 
 	mask = umask(S_IXUSR|S_IXGRP|S_IRWXO);
-	if (bind(fd, (struct sockaddr *) &sa, sizeof(sa)) == -1) {
+	if (bind(fd, (struct sockaddr *)&sa, sizeof sa) == -1) {
+		saved_errno = errno;
 		close(fd);
-		return (-1);
+		errno = saved_errno;
+		goto fail;
 	}
 	umask(mask);
 
 	if (listen(fd, 128) == -1) {
+		saved_errno = errno;
 		close(fd);
-		return (-1);
+		errno = saved_errno;
+		goto fail;
 	}
 	setblocking(fd, 0);
 
 	return (fd);
+
+fail:
+	if (cause != NULL) {
+		xasprintf(cause, "error creating %s (%s)", socket_path,
+		    strerror(errno));
+	}
+	return (-1);
+}
+
+/* Server error callback. */
+static enum cmd_retval
+server_start_error(struct cmdq_item *item, void *data)
+{
+	char	*error = data;
+
+	cmdq_error(item, "%s", error);
+	free(error);
+
+	return (CMD_RETURN_NORMAL);
 }
 
 /* Fork new server. */
@@ -140,8 +162,9 @@ server_start(struct tmuxproc *client, struct event_base *base, int lockfd,
     char *lockfile)
 {
 	int		 pair[2];
-	struct job	*job;
 	sigset_t	 set, oldset;
+	struct client	*c;
+	char		*cause = NULL;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pair) != 0)
 		fatal("socketpair failed");
@@ -178,16 +201,14 @@ server_start(struct tmuxproc *client, struct event_base *base, int lockfd,
 	RB_INIT(&all_window_panes);
 	TAILQ_INIT(&clients);
 	RB_INIT(&sessions);
-	RB_INIT(&session_groups);
 	key_bindings_init();
 
 	gettimeofday(&start_time, NULL);
 
-	server_fd = server_create_socket();
-	if (server_fd == -1)
-		fatal("couldn't create socket");
-	server_update_socket();
-	server_client_create(pair[1]);
+	server_fd = server_create_socket(&cause);
+	if (server_fd != -1)
+		server_update_socket();
+	c = server_client_create(pair[1]);
 
 	if (lockfd >= 0) {
 		unlink(lockfile);
@@ -195,18 +216,19 @@ server_start(struct tmuxproc *client, struct event_base *base, int lockfd,
 		close(lockfd);
 	}
 
-	start_cfg();
+	if (cause != NULL) {
+		cmdq_append(c, cmdq_get_callback(server_start_error, cause));
+		c->flags |= CLIENT_EXIT;
+	}
 
+	start_cfg();
 	server_add_accept(0);
 
 	proc_loop(server_proc, server_loop);
 
-	LIST_FOREACH(job, &all_jobs, entry) {
-		if (job->pid != -1)
-			kill(job->pid, SIGTERM);
-	}
-
+	job_kill_all();
 	status_prompt_save_history();
+
 	exit(0);
 }
 
@@ -227,6 +249,9 @@ server_loop(void)
 
 	server_client_loop();
 
+	if (!options_get_number(global_options, "exit-empty") && !server_exit)
+		return (0);
+
 	if (!options_get_number(global_options, "exit-unattached")) {
 		if (!RB_EMPTY(&sessions))
 			return (0);
@@ -245,6 +270,9 @@ server_loop(void)
 	if (!TAILQ_EMPTY(&clients))
 		return (0);
 
+	if (job_still_running())
+		return (0);
+
 	return (1);
 }
 
@@ -260,8 +288,11 @@ server_send_exit(void)
 	TAILQ_FOREACH_SAFE(c, &clients, entry, c1) {
 		if (c->flags & CLIENT_SUSPENDED)
 			server_client_lost(c);
-		else
+		else {
+			if (c->flags & CLIENT_ATTACHED)
+				notify_client("client-detached", c);
 			proc_send(c->peer, MSG_SHUTDOWN, -1, NULL, 0);
+		}
 		c->session = NULL;
 	}
 
@@ -280,7 +311,7 @@ server_update_socket(void)
 
 	n = 0;
 	RB_FOREACH(s, sessions, &sessions) {
-		if (!(s->flags & SESSION_UNATTACHED)) {
+		if (s->attached != 0) {
 			n++;
 			break;
 		}
@@ -375,7 +406,7 @@ server_signal(int sig)
 		break;
 	case SIGUSR1:
 		event_del(&server_ev_accept);
-		fd = server_create_socket();
+		fd = server_create_socket(NULL);
 		if (fd != -1) {
 			close(server_fd);
 			server_fd = fd;
@@ -418,7 +449,6 @@ server_child_exited(pid_t pid, int status)
 {
 	struct window		*w, *w1;
 	struct window_pane	*wp;
-	struct job		*job;
 
 	RB_FOREACH_SAFE(w, windows, &windows, w1) {
 		TAILQ_FOREACH(wp, &w->panes, entry) {
@@ -435,13 +465,7 @@ server_child_exited(pid_t pid, int status)
 			}
 		}
 	}
-
-	LIST_FOREACH(job, &all_jobs, entry) {
-		if (pid == job->pid) {
-			job_died(job, status);	/* might free job */
-			break;
-		}
-	}
+	job_check_died(pid, status);
 }
 
 /* Handle stopped children. */

@@ -1,4 +1,4 @@
-/* $OpenBSD: window-client.c,v 1.12 2017/11/03 17:02:33 nicm Exp $ */
+/* $OpenBSD: window-client.c,v 1.14 2018/02/28 08:55:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2017 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -229,10 +229,10 @@ window_client_draw(__unused void *modedata, void *itemdata,
 	screen_write_hline(ctx, sx, 0, 0);
 
 	screen_write_cursormove(ctx, cx, cy + sy - 1);
-	if (c->old_status != NULL)
-		screen_write_fast_copy(ctx, c->old_status, 0, 0, sx, 1);
+	if (c->status.old_status != NULL)
+		screen_write_fast_copy(ctx, c->status.old_status, 0, 0, sx, 1);
 	else
-		screen_write_fast_copy(ctx, &c->status, 0, 0, sx, 1);
+		screen_write_fast_copy(ctx, &c->status.status, 0, 0, sx, 1);
 }
 
 static struct screen *
@@ -256,6 +256,7 @@ window_client_init(struct window_pane *wp, __unused struct cmd_find_state *fs,
 	data->data = mode_tree_start(wp, args, window_client_build,
 	    window_client_draw, NULL, data, window_client_sort_list,
 	    nitems(window_client_sort_list), &s);
+	mode_tree_zoom(data->data, args);
 
 	mode_tree_build(data->data);
 	mode_tree_draw(data->data);

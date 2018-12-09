@@ -1,4 +1,4 @@
-/*	$OpenBSD: systm.h,v 1.135 2017/11/13 14:41:46 mpi Exp $	*/
+/*	$OpenBSD: systm.h,v 1.140 2018/05/31 02:16:22 guenther Exp $	*/
 /*	$NetBSD: systm.h,v 1.50 1996/06/09 04:55:09 briggs Exp $	*/
 
 /*-
@@ -72,12 +72,14 @@
  */
 extern int securelevel;		/* system security level */
 extern const char *panicstr;	/* panic message */
+extern const char *faultstr;	/* fault message */
 extern const char version[];		/* system version */
 extern const char copyright[];	/* system copyright */
 extern const char ostype[];
 extern const char osversion[];
 extern const char osrelease[];
 extern int cold;		/* cold start flag initialized in locore */
+extern int db_active;		/* running currently inside ddb(4) */
 
 extern int ncpus;		/* number of CPUs used */
 extern int ncpusfound;		/* number of CPUs found */
@@ -209,8 +211,12 @@ int	copyin(const void *, void *, size_t)
 int	copyout(const void *, void *, size_t);
 int	copyin32(const uint32_t *, uint32_t *);
 
+struct arc4random_ctx;
 void	arc4random_buf(void *, size_t)
 		__attribute__ ((__bounded__(__buffer__,1,2)));
+struct arc4random_ctx	*arc4random_ctx_new(void);
+void	arc4random_ctx_free(struct arc4random_ctx *);
+void	arc4random_ctx_buf(struct arc4random_ctx *, void *, size_t);
 u_int32_t arc4random(void);
 u_int32_t arc4random_uniform(u_int32_t);
 
@@ -245,7 +251,13 @@ void	sleep_setup_signal(struct sleep_state *, int);
 void	sleep_finish(struct sleep_state *, int);
 int	sleep_finish_timeout(struct sleep_state *);
 int	sleep_finish_signal(struct sleep_state *);
+int	sleep_finish_all(struct sleep_state *, int);
 void	sleep_queue_init(void);
+
+struct cond;
+void	cond_init(struct cond *);
+void	cond_wait(struct cond *, const char *);
+void	cond_signal(struct cond *);
 
 struct mutex;
 struct rwlock;

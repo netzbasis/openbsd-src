@@ -31,15 +31,30 @@ class AllocaInst;
 class CalleeSavedInfo {
   unsigned Reg;
   int FrameIdx;
+  /// Flag indicating whether the register is actually restored in the epilog.
+  /// In most cases, if a register is saved, it is also restored. There are
+  /// some situations, though, when this is not the case. For example, the
+  /// LR register on ARM is usually saved, but on exit from the function its
+  /// saved value may be loaded directly into PC. Since liveness tracking of
+  /// physical registers treats callee-saved registers are live outside of
+  /// the function, LR would be treated as live-on-exit, even though in these
+  /// scenarios it is not. This flag is added to indicate that the saved
+  /// register described by this object is not restored in the epilog.
+  /// The long-term solution is to model the liveness of callee-saved registers
+  /// by implicit uses on the return instructions, however, the required
+  /// changes in the ARM backend would be quite extensive.
+  bool Restored;
 
 public:
   explicit CalleeSavedInfo(unsigned R, int FI = 0)
-  : Reg(R), FrameIdx(FI) {}
+  : Reg(R), FrameIdx(FI), Restored(true) {}
 
   // Accessors.
   unsigned getReg()                        const { return Reg; }
   int getFrameIdx()                        const { return FrameIdx; }
   void setFrameIdx(int FI)                       { FrameIdx = FI; }
+  bool isRestored()                        const { return Restored; }
+  void setRestored(bool R)                       { Restored = R; }
 };
 
 /// The MachineFrameInfo class represents an abstract stack frame until
@@ -99,8 +114,16 @@ class MachineFrameInfo {
     /// and/or GC related) over a statepoint. We know that the address of the
     /// slot can't alias any LLVM IR value.  This is very similar to a Spill
     /// Slot, but is created by statepoint lowering is SelectionDAG, not the
-    /// register allocator. 
-    bool isStatepointSpillSlot;
+    /// register allocator.
+    bool isStatepointSpillSlot = false;
+
+    /// Identifier for stack memory type analagous to address space. If this is
+    /// non-0, the meaning is target defined. Offsets cannot be directly
+    /// compared between objects with different stack IDs. The object may not
+    /// necessarily reside in the same contiguous memory block as other stack
+    /// objects. Objects with differing stack IDs should not be merged or
+    /// replaced substituted for each other.
+    uint8_t StackID;
 
     /// If this stack object is originated from an Alloca instruction
     /// this value saves the original IR allocation. Can be NULL.
@@ -108,7 +131,7 @@ class MachineFrameInfo {
 
     // If true, the object was mapped into the local frame
     // block and doesn't need additional handling for allocation beyond that.
-    bool PreAllocated;
+    bool PreAllocated = false;
 
     // If true, an LLVM IR value might point to this object.
     // Normally, spill slots and fixed-offset objects don't alias IR-accessible
@@ -117,16 +140,17 @@ class MachineFrameInfo {
     bool isAliased;
 
     /// If true, the object has been zero-extended.
-    bool isZExt;
+    bool isZExt = false;
 
     /// If true, the object has been zero-extended.
-    bool isSExt;
+    bool isSExt = false;
 
-    StackObject(uint64_t Sz, unsigned Al, int64_t SP, bool IM,
-                bool isSS, const AllocaInst *Val, bool A)
-      : SPOffset(SP), Size(Sz), Alignment(Al), isImmutable(IM),
-        isSpillSlot(isSS), isStatepointSpillSlot(false), Alloca(Val),
-        PreAllocated(false), isAliased(A), isZExt(false), isSExt(false) {}
+    StackObject(uint64_t Size, unsigned Alignment, int64_t SPOffset,
+                bool IsImmutable, bool IsSpillSlot, const AllocaInst *Alloca,
+                bool IsAliased, uint8_t StackID = 0)
+      : SPOffset(SPOffset), Size(Size), Alignment(Alignment),
+        isImmutable(IsImmutable), isSpillSlot(IsSpillSlot),
+        StackID(StackID), Alloca(Alloca), isAliased(IsAliased) {}
   };
 
   /// The alignment of the stack.
@@ -213,6 +237,13 @@ class MachineFrameInfo {
   /// The frame index for the stack protector.
   int StackProtectorIdx = -1;
 
+  struct ReturnProtector {
+    /// The register to use for return protector calculations
+    unsigned Register = 0;
+    /// Set to true if this function needs return protectors
+    bool Needed = false;
+  } RPI;
+
   /// The frame index for the function context. Used for SjLj exceptions.
   int FunctionContextIdx = -1;
 
@@ -289,6 +320,14 @@ public:
   int getStackProtectorIndex() const { return StackProtectorIdx; }
   void setStackProtectorIndex(int I) { StackProtectorIdx = I; }
   bool hasStackProtectorIndex() const { return StackProtectorIdx != -1; }
+
+  /// Get / Set return protector calculation register
+  unsigned getReturnProtectorRegister() const { return RPI.Register; }
+  void setReturnProtectorRegister(unsigned I) { RPI.Register = I; }
+  bool hasReturnProtectorRegister() const { return RPI.Register != 0; }
+  /// Get / Set if this frame needs a return protector
+  void setReturnProtectorNeeded(bool I) { RPI.Needed = I; }
+  bool getReturnProtectorNeeded() const { return RPI.Needed; }
 
   /// Return the index for the function context object.
   /// This object is used for SjLj exceptions.
@@ -549,13 +588,13 @@ public:
   /// All fixed objects should be created before other objects are created for
   /// efficiency. By default, fixed objects are not pointed to by LLVM IR
   /// values. This returns an index with a negative value.
-  int CreateFixedObject(uint64_t Size, int64_t SPOffset, bool Immutable,
+  int CreateFixedObject(uint64_t Size, int64_t SPOffset, bool IsImmutable,
                         bool isAliased = false);
 
   /// Create a spill slot at a fixed location on the stack.
   /// Returns an index with a negative value.
   int CreateFixedSpillStackObject(uint64_t Size, int64_t SPOffset,
-                                  bool Immutable = false);
+                                  bool IsImmutable = false);
 
   /// Returns true if the specified index corresponds to a fixed stack object.
   bool isFixedObjectIndex(int ObjectIdx) const {
@@ -581,10 +620,10 @@ public:
   }
 
   /// Marks the immutability of an object.
-  void setIsImmutableObjectIndex(int ObjectIdx, bool Immutable) {
+  void setIsImmutableObjectIndex(int ObjectIdx, bool IsImmutable) {
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");
-    Objects[ObjectIdx+NumFixedObjects].isImmutable = Immutable;
+    Objects[ObjectIdx+NumFixedObjects].isImmutable = IsImmutable;
   }
 
   /// Returns true if the specified index corresponds to a spill slot.
@@ -598,6 +637,18 @@ public:
     assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");
     return Objects[ObjectIdx+NumFixedObjects].isStatepointSpillSlot;
+  }
+
+  /// \see StackID
+  uint8_t getStackID(int ObjectIdx) const {
+    return Objects[ObjectIdx+NumFixedObjects].StackID;
+  }
+
+  /// \see StackID
+  void setStackID(int ObjectIdx, uint8_t ID) {
+    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
+           "Invalid Object Idx!");
+    Objects[ObjectIdx+NumFixedObjects].StackID = ID;
   }
 
   /// Returns true if the specified index corresponds to a dead object.
@@ -624,8 +675,8 @@ public:
 
   /// Create a new statically sized stack object, returning
   /// a nonnegative identifier to represent it.
-  int CreateStackObject(uint64_t Size, unsigned Alignment, bool isSS,
-                        const AllocaInst *Alloca = nullptr);
+  int CreateStackObject(uint64_t Size, unsigned Alignment, bool isSpillSlot,
+                        const AllocaInst *Alloca = nullptr, uint8_t ID = 0);
 
   /// Create a new statically sized stack object that represents a spill slot,
   /// returning a nonnegative identifier to represent it.
@@ -646,6 +697,8 @@ public:
   const std::vector<CalleeSavedInfo> &getCalleeSavedInfo() const {
     return CSInfo;
   }
+  /// \copydoc getCalleeSavedInfo()
+  std::vector<CalleeSavedInfo> &getCalleeSavedInfo() { return CSInfo; }
 
   /// Used by prolog/epilog inserter to set the function's callee saved
   /// information.

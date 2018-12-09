@@ -20,6 +20,7 @@
 /getsrcs.sh/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /lldbDataFormatters.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvm-compilers-check/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/llvm-gisel-cov.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
 /llvm-native-gxx/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvm.grm/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvmdo/1.1.1.1/Sat Sep  3 22:46:59 2016//
@@ -28,9 +29,10 @@
 /prepare-code-coverage-artifact.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
 /schedcover.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /shuffle_fuzz.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/shuffle_select_fuzz_tester.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
 /sort_includes.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/test_debuginfo.pl/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/update_llc_test_checks.py/1.1.1.4/Wed Oct  4 20:27:51 2017//
+/update_llc_test_checks.py/1.1.1.5/Fri Apr  6 14:26:23 2018//
+/update_mir_test_checks.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
 /update_test_checks.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
 /wciia.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 D/FileCheck////

@@ -20,6 +20,7 @@
 #include "xfrd.h"
 #include "xfrd-notify.h"
 #include "difffile.h"
+#include "rrl.h"
 
 /* attempt to send NSD_STATS command to child fd */
 static void send_stat_to_child(struct main_ipc_handler_data* data, int fd);
@@ -29,6 +30,7 @@ static void xfrd_send_reload_req(xfrd_state_type* xfrd);
 static void xfrd_send_quit_req(xfrd_state_type* xfrd);
 /* perform read part of handle ipc for xfrd */
 static void xfrd_handle_ipc_read(struct event* handler, xfrd_state_type* xfrd);
+static void ipc_child_quit(struct nsd* nsd) ATTR_NORETURN;
 
 static void
 ipc_child_quit(struct nsd* nsd)
@@ -39,9 +41,12 @@ ipc_child_quit(struct nsd* nsd)
 	bind8_stats(nsd);
 #endif /* BIND8_STATS */
 
-#if 0 /* OS collects memory pages */
-	event_base_free(event_base);
-	region_destroy(server_region);
+#ifdef MEMCLEAN /* OS collects memory pages */
+#ifdef RATELIMIT
+        rrl_deinit(nsd->this_child->child_num);
+#endif
+	event_base_free(nsd->event_base);
+	region_destroy(nsd->server_region);
 #endif
 	server_shutdown(nsd);
 	exit(0);

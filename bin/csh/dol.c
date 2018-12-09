@@ -1,4 +1,4 @@
-/*	$OpenBSD: dol.c,v 1.20 2015/12/26 13:48:38 mestre Exp $	*/
+/*	$OpenBSD: dol.c,v 1.25 2018/10/26 14:36:03 miko Exp $	*/
 /*	$NetBSD: dol.c,v 1.8 1995/09/27 00:38:38 jtc Exp $	*/
 
 /*-
@@ -408,8 +408,7 @@ Dgetdol(void)
 	if (dimen || bitset)
 	    stderror(ERR_SYNTAX);
 	if (backpid != 0) {
-	    if (dolbang)
-		free(dolbang);
+	    free(dolbang);
 	    setDolp(dolbang = putn(backpid));
 	}
 	goto eatbrac;
@@ -763,12 +762,8 @@ setDolp(Char *cp)
 	}
     }
 
-    if (dp) {
-	addla(dp);
-	free(dp);
-    }
-    else
-	addla(cp);
+    addla(cp);
+    free(cp);
 
     dolp = STRNULL;
     if (seterr)
@@ -953,7 +948,7 @@ heredoc(Char *term)
 		ocnt = BUFSIZ;
 	    }
 	}
-	if (pargv)
-	    blkfree(pargv), pargv = 0;
+	blkfree(pargv);
+	pargv = NULL;
     }
 }

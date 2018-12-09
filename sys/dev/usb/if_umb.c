@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.c,v 1.17 2017/10/23 15:23:13 gerhard Exp $ */
+/*	$OpenBSD: if_umb.c,v 1.21 2018/10/02 19:49:10 stsp Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -686,7 +686,7 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct umb_parameter mp;
 
 	if (usbd_is_dying(sc->sc_udev))
-		return EIO;
+		return ENXIO;
 
 	s = splnet();
 	switch (cmd) {
@@ -698,7 +698,7 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		    sizeof (sc->sc_info));
 		break;
 	case SIOCSUMBPARAM:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			break;
 		if ((error = copyin(ifr->ifr_data, &mp, sizeof (mp))) != 0)
 			break;
@@ -905,13 +905,7 @@ umb_statechg_timeout(void *arg)
 {
 	struct umb_softc *sc = arg;
 
-	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
-		/*
-		 * Query the registration state until we're with the home
-		 * network again.
-		 */
-		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
-	} else
+	if (sc->sc_info.regstate != MBIM_REGSTATE_ROAMING || sc->sc_roaming)
 		printf("%s: state change timeout\n",DEVNAM(sc));
 	usb_add_task(sc->sc_udev, &sc->sc_umb_task);
 }
@@ -944,6 +938,15 @@ umb_state_task(void *arg)
 	int	 s;
 	int	 state;
 
+	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
+		/*
+		 * Query the registration state until we're with the home
+		 * network again.
+		 */
+		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
+		return;
+	}
+
 	s = splnet();
 	if (ifp->if_flags & IFF_UP)
 		umb_up(sc);
@@ -965,7 +968,6 @@ umb_state_task(void *arg)
 			 */
 			memset(sc->sc_info.ipv4dns, 0,
 			    sizeof (sc->sc_info.ipv4dns));
-			NET_LOCK();
 			if (in_ioctl(SIOCGIFADDR, (caddr_t)&ifr, ifp, 1) == 0 &&
 			    satosin(&ifr.ifr_addr)->sin_addr.s_addr !=
 			    INADDR_ANY) {
@@ -974,7 +976,6 @@ umb_state_task(void *arg)
 				    sizeof (ifra.ifra_addr));
 				in_ioctl(SIOCDIFADDR, (caddr_t)&ifra, ifp, 1);
 			}
-			NET_UNLOCK();
 		}
 		if_link_state_change(ifp);
 	}
@@ -1661,9 +1662,7 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		sin->sin_len = sizeof (ifra.ifra_mask);
 		in_len2mask(&sin->sin_addr, ipv4elem.prefixlen);
 
-		NET_LOCK();
 		rv = in_ioctl(SIOCAIFADDR, (caddr_t)&ifra, ifp, 1);
-		NET_UNLOCK();
 		if (rv == 0) {
 			if (ifp->if_flags & IFF_DEBUG)
 				log(LOG_INFO, "%s: IPv4 addr %s, mask %s, "

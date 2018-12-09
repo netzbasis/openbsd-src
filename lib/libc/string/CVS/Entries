@@ -7,7 +7,7 @@
 /bzero.c/1.9/Mon Aug 31 02:53:57 2015//
 /explicit_bzero.c/1.4/Mon Aug 31 02:53:57 2015//
 /ffs.3/1.10/Tue Nov 24 09:14:35 2015//
-/ffs.c/1.9/Mon Aug 31 02:53:57 2015//
+/ffs.c/1.10/Thu Jan 18 08:23:44 2018//
 /memccpy.3/1.12/Wed Sep 25 21:49:30 2013//
 /memccpy.c/1.7/Mon Aug 31 02:53:57 2015//
 /memchr.3/1.12/Mon Apr  7 17:57:56 2014//
@@ -32,8 +32,8 @@
 /strcasestr.c/1.4/Mon Aug 31 02:53:57 2015//
 /strcat.3/1.18/Thu May 26 21:30:13 2016//
 /strcat.c/1.10/Tue Nov 28 06:55:49 2017//
-/strchr.3/1.12/Tue Nov 24 09:14:35 2015//
-/strchr.c/1.3/Mon Aug 31 02:53:57 2015//
+/strchr.3/1.13/Mon Oct  1 06:37:37 2018//
+/strchr.c/1.4/Mon Oct  1 06:37:37 2018//
 /strcmp.3/1.14/Wed Jul 17 05:42:11 2013//
 /strcmp.c/1.9/Mon Aug 31 02:53:57 2015//
 /strcoll.3/1.10/Tue Sep  5 03:16:13 2017//
@@ -65,8 +65,8 @@
 /strnlen.c/1.8/Sun Oct 16 17:37:39 2016//
 /strpbrk.3/1.10/Wed Jun  5 03:39:23 2013//
 /strpbrk.c/1.6/Mon Aug 31 02:53:57 2015//
-/strrchr.3/1.11/Tue Nov 24 09:14:35 2015//
-/strrchr.c/1.3/Mon Aug 31 02:53:57 2015//
+/strrchr.3/1.12/Mon Oct  1 06:37:37 2018//
+/strrchr.c/1.4/Mon Oct  1 06:37:37 2018//
 /strsep.3/1.14/Wed Jun  5 03:39:23 2013//
 /strsep.c/1.8/Mon Aug 31 02:53:57 2015//
 /strsignal.3/1.8/Wed Jun  5 03:39:23 2013//
@@ -74,7 +74,7 @@
 /strspn.3/1.11/Wed Jun  5 03:39:23 2013//
 /strspn.c/1.6/Mon Aug 31 02:53:57 2015//
 /strstr.3/1.13/Wed May 11 17:51:50 2016//
-/strstr.c/1.7/Wed Apr 12 16:06:12 2017//
+/strstr.c/1.8/Mon Apr 30 07:44:56 2018//
 /strtok.3/1.23/Sat Sep  2 13:56:44 2017//
 /strtok.c/1.8/Mon Aug 31 02:53:57 2015//
 /strxfrm.3/1.11/Tue Sep  5 03:16:13 2017//

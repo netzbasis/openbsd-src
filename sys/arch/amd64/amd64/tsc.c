@@ -1,4 +1,4 @@
-/*	$OpenBSD: tsc.c,v 1.6 2017/10/19 22:09:49 mikeb Exp $	*/
+/*	$OpenBSD: tsc.c,v 1.10 2018/07/27 21:11:31 kettenis Exp $	*/
 /*
  * Copyright (c) 2016,2017 Reyk Floeter <reyk@openbsd.org>
  * Copyright (c) 2017 Adam Steen <adam@adamsteen.com.au>
@@ -56,14 +56,13 @@ tsc_freq_cpuid(struct cpu_info *ci)
 			case 0x5e: /* Skylake desktop */
 			case 0x8e: /* Kabylake mobile */
 			case 0x9e: /* Kabylake desktop */
-				khz = 24000; /* 24.0 Mhz */
+				khz = 24000; /* 24.0 MHz */
 				break;
-			case 0x55: /* Skylake X */
 			case 0x5f: /* Atom Denverton */
-				khz = 25000; /* 25.0 Mhz */
+				khz = 25000; /* 25.0 MHz */
 				break;
 			case 0x5c: /* Atom Goldmont */
-				khz = 19200; /* 19.2 Mhz */
+				khz = 19200; /* 19.2 MHz */
 				break;
 			}
 		}
@@ -121,7 +120,7 @@ uint64_t
 measure_tsc_freq(struct timecounter *tc)
 {
 	uint64_t count1, count2, frequency, min_freq, tsc1, tsc2;
-	u_long ef;
+	u_long s;
 	int delay_usec, i, err1, err2, usec, success = 0;
 
 	/* warmup the timers */
@@ -134,14 +133,13 @@ measure_tsc_freq(struct timecounter *tc)
 
 	delay_usec = 100000;
 	for (i = 0; i < 3; i++) {
-		ef = read_rflags();
-		disable_intr();
+		s = intr_disable();
 
 		err1 = get_tsc_and_timecount(tc, &tsc1, &count1);
 		delay(delay_usec);
 		err2 = get_tsc_and_timecount(tc, &tsc2, &count2);
 
-		write_rflags(ef);
+		intr_restore(s);
 
 		if (err1 || err2)
 			continue;
@@ -176,9 +174,6 @@ calibrate_tsc_freq(void)
 	tsc_timecounter.tc_frequency = freq;
 	if (tsc_is_invariant)
 		tsc_timecounter.tc_quality = 2000;
-
-	printf("%s: recalibrated TSC frequency %llu Hz\n",
-	    reference->tc_name, tsc_timecounter.tc_frequency);
 }
 
 void

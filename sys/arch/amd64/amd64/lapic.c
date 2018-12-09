@@ -1,4 +1,4 @@
-/*	$OpenBSD: lapic.c,v 1.49 2017/10/14 04:44:43 jsg Exp $	*/
+/*	$OpenBSD: lapic.c,v 1.53 2018/10/04 05:00:40 guenther Exp $	*/
 /* $NetBSD: lapic.c,v 1.2 2003/05/08 01:04:35 fvdl Exp $ */
 
 /*-
@@ -58,6 +58,14 @@
 #if NIOAPIC > 0
 #include <machine/i82093var.h>
 #endif
+
+/* #define LAPIC_DEBUG */
+
+#ifdef LAPIC_DEBUG
+#define DPRINTF(x...)	do { printf(x); } while(0)
+#else
+#define DPRINTF(x...)
+#endif /* LAPIC_DEBUG */
 
 struct evcount clk_count;
 #ifdef MULTIPROCESSOR
@@ -166,13 +174,14 @@ lapic_cpu_number(void)
 void
 lapic_map(paddr_t lapic_base)
 {
-	int s;
 	pt_entry_t *pte;
 	vaddr_t va;
 	u_int64_t msr;
+	u_long s;
+	int tpr;
 
-	disable_intr();
-	s = lapic_tpr;
+	s = intr_disable();
+	tpr = lapic_tpr;
 
 	msr = rdmsr(MSR_APICBASE);
 
@@ -200,12 +209,13 @@ lapic_map(paddr_t lapic_base)
 		x2apic_enabled = 1;
 		codepatch_call(CPTAG_EOI, &x2apic_eoi);
 
-		lapic_writereg(LAPIC_TPRI, s);
+		lapic_writereg(LAPIC_TPRI, tpr);
+		va = (vaddr_t)&local_apic;
 	} else {
 		/*
 		 * Map local apic.  If we have a local apic, it's safe to
 		 * assume we're on a 486 or better and can use invlpg and
-		 * non-cacheable PTE's
+		 * non-cacheable PTEs
 		 *
 		 * Whap the PTE "by hand" rather than calling pmap_kenter_pa
 		 * because the latter will attempt to invoke TLB shootdown
@@ -217,10 +227,21 @@ lapic_map(paddr_t lapic_base)
 		*pte = lapic_base | PG_RW | PG_V | PG_N | PG_G | pg_nx;
 		invlpg(va);
 
-		lapic_tpr = s;
+		lapic_tpr = tpr;
 	}
 
-	enable_intr();
+	/*
+	 * Enter the LAPIC MMIO page in the U-K page table for handling
+	 * Meltdown (needed in the interrupt stub to acknowledge the
+	 * incoming interrupt). On CPUs unaffected by Meltdown,
+	 * pmap_enter_special is a no-op.
+	 * XXX - need to map this PG_N
+	 */
+	pmap_enter_special(va, lapic_base, PROT_READ | PROT_WRITE);
+	DPRINTF("%s: entered lapic page va 0x%llx pa 0x%llx\n", __func__,
+	    (uint64_t)va, (uint64_t)lapic_base);
+
+	intr_restore(s);
 }
 
 /*
@@ -340,11 +361,17 @@ lapic_boot_init(paddr_t lapic_base)
 	idt_allocmap[LAPIC_IPI_VECTOR] = 1;
 	idt_vec_set(LAPIC_IPI_VECTOR, Xintr_lapic_ipi);
 	idt_allocmap[LAPIC_IPI_INVLTLB] = 1;
-	idt_vec_set(LAPIC_IPI_INVLTLB, Xipi_invltlb);
 	idt_allocmap[LAPIC_IPI_INVLPG] = 1;
-	idt_vec_set(LAPIC_IPI_INVLPG, Xipi_invlpg);
 	idt_allocmap[LAPIC_IPI_INVLRANGE] = 1;
-	idt_vec_set(LAPIC_IPI_INVLRANGE, Xipi_invlrange);
+	if (!pmap_use_pcid) {
+		idt_vec_set(LAPIC_IPI_INVLTLB, Xipi_invltlb);
+		idt_vec_set(LAPIC_IPI_INVLPG, Xipi_invlpg);
+		idt_vec_set(LAPIC_IPI_INVLRANGE, Xipi_invlrange);
+	} else {
+		idt_vec_set(LAPIC_IPI_INVLTLB, Xipi_invltlb_pcid);
+		idt_vec_set(LAPIC_IPI_INVLPG, Xipi_invlpg_pcid);
+		idt_vec_set(LAPIC_IPI_INVLRANGE, Xipi_invlrange_pcid);
+	}
 #endif
 	idt_allocmap[LAPIC_SPURIOUS_VECTOR] = 1;
 	idt_vec_set(LAPIC_SPURIOUS_VECTOR, Xintrspurious);
@@ -459,7 +486,7 @@ lapic_calibrate_timer(struct cpu_info *ci)
 {
 	unsigned int startapic, endapic;
 	u_int64_t dtick, dapic, tmp;
-	long rf = read_rflags();
+	u_long s;
 	int i;
 
 	if (mp_verbose)
@@ -473,7 +500,7 @@ lapic_calibrate_timer(struct cpu_info *ci)
 	lapic_writereg(LAPIC_DCR_TIMER, LAPIC_DCRT_DIV1);
 	lapic_writereg(LAPIC_ICR_TIMER, 0x80000000);
 
-	disable_intr();
+	s = intr_disable();
 
 	/* wait for current cycle to finish */
 	wait_next_cycle();
@@ -485,7 +512,8 @@ lapic_calibrate_timer(struct cpu_info *ci)
 		wait_next_cycle();
 
 	endapic = lapic_gettick();
-	write_rflags(rf);
+
+	intr_restore(s);
 
 	dtick = hz * rtclock_tval;
 	dapic = startapic-endapic;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: malo.c,v 1.116 2017/10/26 15:00:28 mpi Exp $ */
+/*	$OpenBSD: malo.c,v 1.118 2018/11/09 14:14:31 claudio Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -620,7 +620,7 @@ malo_alloc_rx_ring(struct malo_softc *sc, struct malo_rx_ring *ring, int count)
 			goto fail;
 		}
 
-		desc->status = htole16(1);
+		desc->status = 1;
 		desc->physdata = htole32(data->map->dm_segs->ds_addr);
 		desc->physnext = htole32(ring->physaddr +
 		    (i + 1) % count * sizeof(struct malo_rx_desc));
@@ -1411,8 +1411,8 @@ malo_tx_mgt(struct malo_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	 *  6 bytes addr4 (inject)
 	 *  n bytes 802.11 frame body
 	 */
-	if (M_LEADINGSPACE(m0) < 8) {
-		if (M_TRAILINGSPACE(m0) < 8)
+	if (m_leadingspace(m0) < 8) {
+		if (m_trailingspace(m0) < 8)
 			panic("%s: not enough space for mbuf dance",
 			    sc->sc_dev.dv_xname);
 		bcopy(m0->m_data, m0->m_data + 8, m0->m_len);

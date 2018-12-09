@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.40 2017/08/28 19:32:53 jasper Exp $
+#	$OpenBSD: GENERIC,v 1.44 2018/08/22 15:38:46 mpi Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -35,6 +35,7 @@ iobus0		at mainbus0
 simplebus*	at fdt?
 simplebus*	at iobus?
 
+octcrypto0	at mainbus0
 octrtc0		at mainbus0
 
 octcf0		at iobus0
@@ -48,7 +49,7 @@ ppb*		at pci?		# PCI-PCI bridges
 pci*		at ppb?
 
 cn30xxsmi*	at fdt?		# MDIO controller
-com*		at fdt?
+com*		at fdt_octeon?
 octcib*		at fdt?		# Interrupt controller
 octcit*		at fdt?		# Interrupt controller v3
 octciu*		at fdt?		# Interrupt controller v1
@@ -109,6 +110,8 @@ umct*		at uhub?	# MCT USB-RS232 serial adapter
 ucom*		at umct?
 uslcom*		at uhub?	# Silicon Laboratories CP210x serial
 ucom*		at uslcom?
+uscom*		at uhub?	# Simple USB serial adapters
+ucom*		at uscom?
 uark*		at uhub?	# Arkmicro ARK3116 serial
 ucom*		at uark?
 moscom*		at uhub?	# MosChip MCS7703 serial

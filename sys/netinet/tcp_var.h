@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_var.h,v 1.128 2017/11/02 14:01:18 florian Exp $	*/
+/*	$OpenBSD: tcp_var.h,v 1.133 2018/06/11 07:40:26 bluhm Exp $	*/
 /*	$NetBSD: tcp_var.h,v 1.17 1996/02/13 23:44:24 christos Exp $	*/
 
 /*
@@ -78,7 +78,6 @@ struct tcpcb {
 	char	t_force;		/* 1 if forcing out a byte */
 	u_int	t_flags;
 #define	TF_ACKNOW	0x0001		/* ack peer immediately */
-#define	TF_DELACK	0x0002		/* ack, but try to delay it */
 #define	TF_NODELAY	0x0004		/* don't delay packets to coalesce */
 #define	TF_NOOPT	0x0008		/* don't use tcp options */
 #define	TF_SENTFIN	0x0010		/* have sent FIN */
@@ -95,15 +94,20 @@ struct tcpcb {
 #define TF_DISABLE_ECN	0x00040000	/* disable ECN for this connection */
 #endif
 #define TF_LASTIDLE	0x00100000	/* no outstanding ACK on last send */
-#define TF_DEAD		0x00200000	/* dead and to-be-released */
 #define TF_PMTUD_PEND	0x00400000	/* Path MTU Discovery pending */
 #define TF_NEEDOUTPUT	0x00800000	/* call tcp_output after tcp_input */
 #define TF_BLOCKOUTPUT	0x01000000	/* avert tcp_output during tcp_input */
 #define TF_NOPUSH	0x02000000	/* don't push */
+#define TF_TMR_REXMT	0x04000000	/* retransmit timer armed */
+#define TF_TMR_PERSIST	0x08000000	/* retransmit persistence timer armed */
+#define TF_TMR_KEEP	0x10000000	/* keep alive timer armed */
+#define TF_TMR_2MSL	0x20000000	/* 2*msl quiet time timer armed */
+#define TF_TMR_REAPER	0x40000000	/* delayed cleanup timer armed, dead */
+#define TF_TMR_DELACK	0x80000000	/* delayed ack timer armed */
+#define TF_TIMER	TF_TMR_REXMT	/* used to shift with TCPT values */
 
 	struct	mbuf *t_template;	/* skeletal packet for transmit */
 	struct	inpcb *t_inpcb;		/* back pointer to internet pcb */
-	struct	timeout t_delack_to;	/* delayed ACK callback */
 /*
  * The following fields are used as in the protocol specification.
  * See RFC793, Dec. 1981, page 21.
@@ -193,39 +197,12 @@ struct tcpcb {
 	u_short	t_pmtud_ip_hl;		/* IP header length from ICMP payload */
 
 	int pf;
-
-	struct	timeout t_reap_to;	/* delayed cleanup timeout */
 };
 
 #define	intotcpcb(ip)	((struct tcpcb *)(ip)->inp_ppcb)
 #define	sototcpcb(so)	(intotcpcb(sotoinpcb(so)))
 
 #ifdef _KERNEL
-extern int tcp_delack_ticks;
-void	tcp_delack(void *);
-
-#define TCP_INIT_DELACK(tp)						\
-	timeout_set_proc(&(tp)->t_delack_to, tcp_delack, tp)
-
-#define TCP_RESTART_DELACK(tp)						\
-	timeout_add(&(tp)->t_delack_to, tcp_delack_ticks)
-
-#define	TCP_SET_DELACK(tp)						\
-do {									\
-	if (((tp)->t_flags & TF_DELACK) == 0) {				\
-		(tp)->t_flags |= TF_DELACK;				\
-		TCP_RESTART_DELACK(tp);					\
-	}								\
-} while (/* CONSTCOND */ 0)
-
-#define	TCP_CLEAR_DELACK(tp)						\
-do {									\
-	if ((tp)->t_flags & TF_DELACK) {				\
-		(tp)->t_flags &= ~TF_DELACK;				\
-		timeout_del(&(tp)->t_delack_to);			\
-	}								\
-} while (/* CONSTCOND */ 0)
-
 /*
  * Handy way of passing around TCP option info.
  */
@@ -679,6 +656,7 @@ tcpstat_pkt(enum tcpstat_counters pcounter, enum tcpstat_counters bcounter,
 	counters_pkt(tcpcounters, pcounter, bcounter, v);
 }
 
+extern	struct pool tcpcb_pool;
 extern	struct inpcbtable tcbtable;	/* head of queue of active tcpcb's */
 extern	u_int32_t tcp_now;		/* for RFC 1323 timestamps */
 extern	int tcp_do_rfc1323;	/* enabled/disabled? */
@@ -705,7 +683,6 @@ extern	int tcp_syn_cache_active; /* active syn cache, may be 0 or 1 */
 void	 tcp_canceltimers(struct tcpcb *);
 struct tcpcb *
 	 tcp_close(struct tcpcb *);
-void	 tcp_reaper(void *);
 int	 tcp_freeq(struct tcpcb *);
 #ifdef INET6
 void	 tcp6_ctlinput(int, struct sockaddr *, u_int, void *);
@@ -744,7 +721,8 @@ void	 tcp_update_rcvspace(struct tcpcb *);
 void	 tcp_slowtimo(void);
 struct mbuf *
 	 tcp_template(struct tcpcb *);
-void	 tcp_trace(short, short, struct tcpcb *, caddr_t, int, int);
+void	 tcp_trace(short, short, struct tcpcb *, struct tcpcb *, caddr_t,
+		int, int);
 struct tcpcb *
 	 tcp_usrclosed(struct tcpcb *);
 int	 tcp_sysctl(int *, u_int, void *, size_t *, void *, size_t);

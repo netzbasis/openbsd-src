@@ -1,38 +1,21 @@
-/*	$OpenBSD: kern_lock.c,v 1.52 2017/12/04 09:51:03 mpi Exp $	*/
+/*	$OpenBSD: kern_lock.c,v 1.66 2018/06/15 13:59:53 visa Exp $	*/
 
-/* 
- * Copyright (c) 1995
- *	The Regents of the University of California.  All rights reserved.
+/*
+ * Copyright (c) 2017 Visa Hankala
+ * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
+ * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>
  *
- * This code contains ideas from software contributed to Berkeley by
- * Avadis Tevanian, Jr., Michael Wayne Young, and the Mach Operating
- * System project at Carnegie-Mellon University.
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- *	@(#)kern_lock.c	8.18 (Berkeley) 5/21/95
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <sys/param.h>
@@ -40,6 +23,7 @@
 #include <sys/sched.h>
 #include <sys/atomic.h>
 #include <sys/witness.h>
+#include <sys/mutex.h>
 
 #include <ddb/db_output.h>
 
@@ -52,11 +36,10 @@
 int __mp_lock_spinout = 200000000;
 #endif /* MP_LOCKDEBUG */
 
-#if defined(MULTIPROCESSOR) || defined(WITNESS)
-struct __mp_lock kernel_lock;
-#endif
-
 #ifdef MULTIPROCESSOR
+
+#include <sys/mplock.h>
+struct __mp_lock kernel_lock;
 
 /*
  * Functions for manipulating the kernel_lock.  We put them here
@@ -94,7 +77,7 @@ _kernel_unlock(void)
 int
 _kernel_lock_held(void)
 {
-	if (panicstr)
+	if (panicstr || db_active)
 		return 1;
 	return (__mp_lock_held(&kernel_lock, curcpu()));
 }
@@ -102,26 +85,11 @@ _kernel_lock_held(void)
 #ifdef __USE_MI_MPLOCK
 
 /* Ticket lock implementation */
-/*
- * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
 
 #include <machine/cpu.h>
 
 void
-___mp_lock_init(struct __mp_lock *mpl, struct lock_type *type)
+___mp_lock_init(struct __mp_lock *mpl, const struct lock_type *type)
 {
 	memset(mpl->mpl_cpus, 0, sizeof(mpl->mpl_cpus));
 	mpl->mpl_users = 0;
@@ -143,22 +111,24 @@ ___mp_lock_init(struct __mp_lock *mpl, struct lock_type *type)
 static __inline void
 __mp_lock_spin(struct __mp_lock *mpl, u_int me)
 {
-#ifndef MP_LOCKDEBUG
-	while (mpl->mpl_ticket != me)
-		CPU_BUSY_CYCLE();
-#else
+	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
+#ifdef MP_LOCKDEBUG
 	int nticks = __mp_lock_spinout;
+#endif
 
+	spc->spc_spinning++;
 	while (mpl->mpl_ticket != me) {
 		CPU_BUSY_CYCLE();
 
+#ifdef MP_LOCKDEBUG
 		if (--nticks <= 0) {
-			db_printf("__mp_lock(%p): lock spun out", mpl);
+			db_printf("%s: %p lock spun out", __func__, mpl);
 			db_enter();
 			nticks = __mp_lock_spinout;
 		}
-	}
 #endif
+	}
+	spc->spc_spinning--;
 }
 
 void
@@ -273,3 +243,177 @@ __mp_lock_held(struct __mp_lock *mpl, struct cpu_info *ci)
 #endif /* __USE_MI_MPLOCK */
 
 #endif /* MULTIPROCESSOR */
+
+
+#ifdef __USE_MI_MUTEX
+void
+__mtx_init(struct mutex *mtx, int wantipl)
+{
+	mtx->mtx_owner = NULL;
+	mtx->mtx_wantipl = wantipl;
+	mtx->mtx_oldipl = IPL_NONE;
+}
+
+#ifdef MULTIPROCESSOR
+void
+__mtx_enter(struct mutex *mtx)
+{
+	struct schedstate_percpu *spc = &curcpu()->ci_schedstate;
+#ifdef MP_LOCKDEBUG
+	int nticks = __mp_lock_spinout;
+#endif
+
+	spc->spc_spinning++;
+	while (__mtx_enter_try(mtx) == 0) {
+		CPU_BUSY_CYCLE();
+
+#ifdef MP_LOCKDEBUG
+		if (--nticks == 0) {
+			db_printf("%s: %p lock spun out", __func__, mtx);
+			db_enter();
+			nticks = __mp_lock_spinout;
+		}
+#endif
+	}
+	spc->spc_spinning--;
+}
+
+int
+__mtx_enter_try(struct mutex *mtx)
+{
+	struct cpu_info *owner, *ci = curcpu();
+	int s;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return (1);
+
+	if (mtx->mtx_wantipl != IPL_NONE)
+		s = splraise(mtx->mtx_wantipl);
+
+	owner = atomic_cas_ptr(&mtx->mtx_owner, NULL, ci);
+#ifdef DIAGNOSTIC
+	if (__predict_false(owner == ci))
+		panic("mtx %p: locking against myself", mtx);
+#endif
+	if (owner == NULL) {
+		membar_enter_after_atomic();
+		if (mtx->mtx_wantipl != IPL_NONE)
+			mtx->mtx_oldipl = s;
+#ifdef DIAGNOSTIC
+		ci->ci_mutex_level++;
+#endif
+		return (1);
+	}
+
+	if (mtx->mtx_wantipl != IPL_NONE)
+		splx(s);
+
+	return (0);
+}
+#else
+void
+__mtx_enter(struct mutex *mtx)
+{
+	struct cpu_info *ci = curcpu();
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return;
+
+#ifdef DIAGNOSTIC
+	if (__predict_false(mtx->mtx_owner == ci))
+		panic("mtx %p: locking against myself", mtx);
+#endif
+
+	if (mtx->mtx_wantipl != IPL_NONE)
+		mtx->mtx_oldipl = splraise(mtx->mtx_wantipl);
+
+	mtx->mtx_owner = ci;
+
+#ifdef DIAGNOSTIC
+	ci->ci_mutex_level++;
+#endif
+}
+
+int
+__mtx_enter_try(struct mutex *mtx)
+{
+	__mtx_enter(mtx);
+	return (1);
+}
+#endif
+
+void
+__mtx_leave(struct mutex *mtx)
+{
+	int s;
+
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return;
+
+	MUTEX_ASSERT_LOCKED(mtx);
+
+#ifdef DIAGNOSTIC
+	curcpu()->ci_mutex_level--;
+#endif
+
+	s = mtx->mtx_oldipl;
+#ifdef MULTIPROCESSOR
+	membar_exit_before_atomic();
+#endif
+	mtx->mtx_owner = NULL;
+	if (mtx->mtx_wantipl != IPL_NONE)
+		splx(s);
+}
+#endif /* __USE_MI_MUTEX */
+
+#ifdef WITNESS
+void
+_mtx_init_flags(struct mutex *m, int ipl, const char *name, int flags,
+    const struct lock_type *type)
+{
+	struct lock_object *lo = MUTEX_LOCK_OBJECT(m);
+
+	lo->lo_flags = MTX_LO_FLAGS(flags);
+	if (name != NULL)
+		lo->lo_name = name;
+	else
+		lo->lo_name = type->lt_name;
+	WITNESS_INIT(lo, type);
+
+	_mtx_init(m, ipl);
+}
+
+void
+_mtx_enter(struct mutex *m, const char *file, int line)
+{
+	struct lock_object *lo = MUTEX_LOCK_OBJECT(m);
+
+	WITNESS_CHECKORDER(lo, LOP_EXCLUSIVE | LOP_NEWORDER, file, line, NULL);
+	__mtx_enter(m);
+	WITNESS_LOCK(lo, LOP_EXCLUSIVE, file, line);
+}
+
+int
+_mtx_enter_try(struct mutex *m, const char *file, int line)
+{
+	struct lock_object *lo = MUTEX_LOCK_OBJECT(m);
+
+	if (__mtx_enter_try(m)) {
+		WITNESS_LOCK(lo, LOP_EXCLUSIVE, file, line);
+		return 1;
+	}
+	return 0;
+}
+
+void
+_mtx_leave(struct mutex *m, const char *file, int line)
+{
+	struct lock_object *lo = MUTEX_LOCK_OBJECT(m);
+
+	WITNESS_UNLOCK(lo, LOP_EXCLUSIVE, file, line);
+	__mtx_leave(m);
+}
+#endif /* WITNESS */

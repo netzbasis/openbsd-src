@@ -1,4 +1,4 @@
-/* $OpenBSD: dwiic_acpi.c,v 1.2 2017/12/03 19:42:20 kettenis Exp $ */
+/* $OpenBSD: dwiic_acpi.c,v 1.8 2018/07/01 11:37:11 kettenis Exp $ */
 /*
  * Synopsys DesignWare I2C controller
  *
@@ -46,14 +46,6 @@ struct dwiic_crs {
 int		dwiic_acpi_match(struct device *, void *, void *);
 void		dwiic_acpi_attach(struct device *, struct device *, void *);
 
-int		dwiic_init(struct dwiic_softc *);
-void		dwiic_enable(struct dwiic_softc *, int);
-int		dwiic_intr(void *);
-
-void *		dwiic_i2c_intr_establish(void *, void *, int,
-		    int (*)(void *), void *, const char *);
-const char *	dwiic_i2c_intr_string(void *, void *);
-
 int		dwiic_acpi_parse_crs(int, union acpi_resource *, void *);
 int		dwiic_acpi_found_ihidev(struct dwiic_softc *,
 		    struct aml_node *, char *, struct dwiic_crs);
@@ -64,14 +56,6 @@ void		dwiic_acpi_get_params(struct dwiic_softc *, char *, uint16_t *,
 void		dwiic_acpi_power(struct dwiic_softc *, int);
 void		dwiic_acpi_bus_scan(struct device *,
 		    struct i2cbus_attach_args *, void *);
-
-int		dwiic_i2c_acquire_bus(void *, int);
-void		dwiic_i2c_release_bus(void *, int);
-uint32_t	dwiic_read(struct dwiic_softc *, int);
-void		dwiic_write(struct dwiic_softc *, int, uint32_t);
-int		dwiic_i2c_exec(void *, i2c_op_t, i2c_addr_t, const void *,
-		    size_t, void *, size_t, int);
-void		dwiic_xfer_msg(struct dwiic_softc *);
 
 struct cfattach dwiic_acpi_ca = {
 	sizeof(struct dwiic_softc),
@@ -124,7 +108,7 @@ dwiic_acpi_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_devnode = aa->aaa_node;
 	memcpy(&sc->sc_hid, aa->aaa_dev, sizeof(sc->sc_hid));
 
-	printf(": %s", sc->sc_devnode->name);
+	printf(" %s", sc->sc_devnode->name);
 
 	if (aml_evalname(sc->sc_acpi, sc->sc_devnode, "_CRS", 0, NULL, &res)) {
 		printf(", no _CRS method\n");
@@ -208,6 +192,11 @@ dwiic_acpi_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_iba.iba_bus_scan_arg = sc;
 
 	config_found((struct device *)sc, &sc->sc_iba, iicbus_print);
+
+#ifndef SMALL_KERNEL
+	sc->sc_devnode->i2c = &sc->sc_i2c_tag;
+	acpi_register_gsb(sc->sc_acpi, sc->sc_devnode);
+#endif
 
 	return;
 }
@@ -404,6 +393,10 @@ dwiic_acpi_found_hid(struct aml_node *node, void *arg)
 	ia.ia_tag = sc->sc_iba.iba_tag;
 	ia.ia_name = dev;
 	ia.ia_addr = crs.i2c_addr;
+	ia.ia_cookie = node->parent;
+
+	if (crs.irq_int != 0 || crs.gpio_int_node != NULL)
+		ia.ia_intr = &crs;
 
 	config_found(sc->sc_iic, &ia, dwiic_i2c_print);
 	node->parent->attached = 1;

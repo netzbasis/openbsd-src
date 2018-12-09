@@ -257,6 +257,31 @@
 #define SVM_VMEXIT_INVALID			-1
 
 /*
+ * Exception injection vectors (these correspond to the CPU exception types
+ * defined in the SDM.)
+ */
+#define VMM_EX_DE	0	/* Divide Error #DE */
+#define VMM_EX_DB	1	/* Debug Exception #DB */
+#define VMM_EX_NMI	2	/* NMI */
+#define VMM_EX_BP	3	/* Breakpoint #BP */
+#define VMM_EX_OF	4	/* Overflow #OF */
+#define VMM_EX_BR	5	/* Bound range exceeded #BR */
+#define VMM_EX_UD	6	/* Undefined opcode #UD */
+#define VMM_EX_NM	7	/* Device not available #NM */
+#define VMM_EX_DF	8	/* Double fault #DF */
+#define VMM_EX_CP	9	/* Coprocessor segment overrun (unused) */
+#define VMM_EX_TS	10	/* Invalid TSS #TS */
+#define VMM_EX_NP	11	/* Segment not present #NP */
+#define VMM_EX_SS	12	/* Stack segment fault #SS */
+#define VMM_EX_GP	13	/* General protection #GP */
+#define VMM_EX_PF	14	/* Page fault #PF */
+#define VMM_EX_MF	16	/* x87 FPU floating point error #MF */
+#define VMM_EX_AC	17	/* Alignment check #AC */
+#define VMM_EX_MC	18	/* Machine check #MC */
+#define VMM_EX_XM	19	/* SIMD floating point exception #XM */
+#define VMM_EX_VE	20	/* Virtualization exception #VE */
+
+/*
  * VCPU state values. Note that there is a conversion function in vmm.c
  * (vcpu_state_decode) that converts these to human readable strings,
  * so this enum and vcpu_state_decode should be kept in sync.
@@ -275,6 +300,13 @@ enum {
 };
 
 /*
+ * Port definitions not found elsewhere
+ */
+#define PCKBC_AUX	0x61
+#define ELCR0		0x4D0
+#define ELCR1		0x4D1
+
+/*
  * vm exit data
  *  vm_exit_inout		: describes an IN/OUT exit
  */
@@ -286,10 +318,6 @@ struct vm_exit_inout {
 	uint8_t			vei_encoding;	/* operand encoding */
 	uint16_t		vei_port;	/* port */
 	uint32_t		vei_data;	/* data (for IN insns) */
-};
-
-union vm_exit {
-	struct vm_exit_inout	vei;		/* IN/OUT exit */
 };
 
 /*
@@ -337,7 +365,13 @@ struct vcpu_segment_info {
 #define VCPU_REGS_NSREGS	(VCPU_REGS_TR + 1)
 
 #define VCPU_REGS_EFER		0
-#define VCPU_REGS_NMSRS		(VCPU_REGS_EFER + 1)
+#define VCPU_REGS_STAR   	1
+#define VCPU_REGS_LSTAR  	2
+#define VCPU_REGS_CSTAR  	3
+#define VCPU_REGS_SFMASK 	4
+#define VCPU_REGS_KGSBASE	5
+#define VCPU_REGS_MISC_ENABLE	6
+#define VCPU_REGS_NMSRS	(VCPU_REGS_MISC_ENABLE + 1)
 
 struct vcpu_reg_state {
 	uint32_t			vrs_gprs[VCPU_REGS_NGPRS];
@@ -352,6 +386,20 @@ struct vm_mem_range {
 	paddr_t	vmr_gpa;
 	vaddr_t vmr_va;
 	size_t	vmr_size;
+};
+
+/*
+ * struct vm_exit
+ *
+ * Contains VM exit information communicated to vmd(8). This information is
+ * gathered by vmm(4) from the CPU on each exit that requires help from vmd.
+ */
+struct vm_exit {
+	union {
+		struct vm_exit_inout    vei;            /* IN/OUT exit */
+	};
+
+	struct vcpu_reg_state           vrs;
 };
 
 struct vm_create_params {
@@ -379,7 +427,7 @@ struct vm_run_params {
 	uint16_t	vrp_irq;		/* IRQ to inject */
 
 	/* Input/output parameter to VMM_IOC_RUN */
-	union vm_exit	*vrp_exit;		/* updated exit data */
+	struct vm_exit	*vrp_exit;		/* updated exit data */
 
 	/* Output parameter from VMM_IOC_RUN */
 	uint16_t	vrp_exit_reason;	/* exit reason */
@@ -500,6 +548,11 @@ struct vm_rwregs_params {
     SEFF0EBX_RTM | SEFF0EBX_PQM | SEFF0EBX_MPX | \
     SEFF0EBX_PCOMMIT | SEFF0EBX_PT)
 #define VMM_SEFF0ECX_MASK 0xFFFFFFFF
+
+/*
+ * CPUID[0x4] deterministic cache info
+ */
+#define VMM_CPUID4_CACHE_TOPOLOGY_MASK	0x3FF
 
 #ifdef _KERNEL
 
@@ -709,16 +762,19 @@ struct vcpu {
 
 	struct vm *vc_parent;
 	uint32_t vc_id;
+	uint16_t vc_vpid;
 	u_int vc_state;
 	SLIST_ENTRY(vcpu) vc_vcpu_link;
 
 	uint8_t vc_virt_mode;
 
 	struct cpu_info *vc_last_pcpu;
-	union vm_exit vc_exit;
+	struct vm_exit vc_exit;
 
 	uint16_t vc_intr;
 	uint8_t vc_irqready;
+
+	uint8_t vc_event;
 
 	/* VMX only */
 	uint64_t vc_vmx_basic;
@@ -738,6 +794,7 @@ struct vcpu {
 	paddr_t vc_vmx_msr_exit_load_pa;
 	vaddr_t vc_vmx_msr_entry_load_va;
 	paddr_t vc_vmx_msr_entry_load_pa;
+	uint8_t vc_vmx_vpid_enabled;
 
 	/* SVM only */
 	vaddr_t vc_svm_hsa_va;
@@ -761,6 +818,8 @@ void	invept(uint32_t, struct vmx_invept_descriptor *);
 int	vmx_enter_guest(uint64_t *, struct vmx_gueststate *, int, vaddr_t);
 void	start_vmm_on_cpu(struct cpu_info *);
 void	stop_vmm_on_cpu(struct cpu_info *);
+
+typedef u_int64_t pd_entry_t;
 
 #endif /* _KERNEL */
 

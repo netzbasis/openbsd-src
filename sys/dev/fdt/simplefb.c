@@ -1,4 +1,4 @@
-/*	$OpenBSD: simplefb.c,v 1.2 2017/08/27 12:42:22 kettenis Exp $	*/
+/*	$OpenBSD: simplefb.c,v 1.5 2018/08/27 09:30:07 kettenis Exp $	*/
 /*
  * Copyright (c) 2016 Mark Kettenis
  *
@@ -18,6 +18,8 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/device.h>
+
+#include <uvm/uvm_extern.h>
 
 #include <machine/bus.h>
 #include <machine/fdt.h>
@@ -108,6 +110,10 @@ simplefb_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
+	/* Don't attach if another driver already claimed our framebuffer. */
+	if (faa->fa_nreg > 0 && rasops_check_framebuffer(faa->fa_reg[0].addr))
+		return 0;
+
 	return OF_is_compatible(faa->fa_node, "simple-framebuffer");
 }
 
@@ -152,7 +158,7 @@ simplefb_attach(struct device *parent, struct device *self, void *aux)
 		ri->ri_flg &= ~RI_CLEAR;
 	}
 
-	printf(": %dx%d\n", ri->ri_width, ri->ri_height);
+	printf(": %dx%d, %dbpp\n", ri->ri_width, ri->ri_height, ri->ri_depth);
 
 	ri->ri_flg |= RI_VCONS;
 	rasops_init(ri, SIMPLEFB_HEIGHT, SIMPLEFB_WIDTH);
@@ -276,7 +282,7 @@ simplefb_wsmmap(void *v, off_t off, int prot)
 	if (off < 0 || off >= sc->sc_psize)
 		return -1;
 
-	return sc->sc_paddr + off;
+	return ((sc->sc_paddr + off) | PMAP_NOCACHE);
 }
 
 int

@@ -1,4 +1,4 @@
-/*	$OpenBSD: time.h,v 1.36 2016/09/12 19:41:20 guenther Exp $	*/
+/*	$OpenBSD: time.h,v 1.38 2018/05/28 18:05:42 guenther Exp $	*/
 /*	$NetBSD: time.h,v 1.18 1996/04/23 10:29:33 mycroft Exp $	*/
 
 /*
@@ -60,14 +60,14 @@ struct timespec {
 };
 #endif
 
-#define	TIMEVAL_TO_TIMESPEC(tv, ts) {					\
+#define	TIMEVAL_TO_TIMESPEC(tv, ts) do {				\
 	(ts)->tv_sec = (tv)->tv_sec;					\
 	(ts)->tv_nsec = (tv)->tv_usec * 1000;				\
-}
-#define	TIMESPEC_TO_TIMEVAL(tv, ts) {					\
+} while (0)
+#define	TIMESPEC_TO_TIMEVAL(tv, ts) do {				\
 	(tv)->tv_sec = (ts)->tv_sec;					\
 	(tv)->tv_usec = (ts)->tv_nsec / 1000;				\
-}
+} while (0)
 
 struct timezone {
 	int	tz_minuteswest;	/* minutes west of Greenwich */
@@ -180,7 +180,7 @@ bintime_addx(struct bintime *bt, uint64_t x)
 }
 
 static __inline void
-bintime_add(struct bintime *bt, struct bintime *bt2)
+bintime_add(struct bintime *bt, const struct bintime *bt2)
 {
 	uint64_t u;
 
@@ -192,7 +192,7 @@ bintime_add(struct bintime *bt, struct bintime *bt2)
 }
 
 static __inline void
-bintime_sub(struct bintime *bt, struct bintime *bt2)
+bintime_sub(struct bintime *bt, const struct bintime *bt2)
 {
 	uint64_t u;
 
@@ -218,7 +218,7 @@ bintime_sub(struct bintime *bt, struct bintime *bt2)
  */
 
 static __inline void
-bintime2timespec(struct bintime *bt, struct timespec *ts)
+bintime2timespec(const struct bintime *bt, struct timespec *ts)
 {
 
 	ts->tv_sec = bt->sec;
@@ -226,7 +226,7 @@ bintime2timespec(struct bintime *bt, struct timespec *ts)
 }
 
 static __inline void
-timespec2bintime(struct timespec *ts, struct bintime *bt)
+timespec2bintime(const struct timespec *ts, struct bintime *bt)
 {
 
 	bt->sec = ts->tv_sec;
@@ -235,7 +235,7 @@ timespec2bintime(struct timespec *ts, struct bintime *bt)
 }
 
 static __inline void
-bintime2timeval(struct bintime *bt, struct timeval *tv)
+bintime2timeval(const struct bintime *bt, struct timeval *tv)
 {
 
 	tv->tv_sec = bt->sec;
@@ -243,7 +243,7 @@ bintime2timeval(struct bintime *bt, struct timeval *tv)
 }
 
 static __inline void
-timeval2bintime(struct timeval *tv, struct bintime *bt)
+timeval2bintime(const struct timeval *tv, struct bintime *bt)
 {
 
 	bt->sec = (time_t)tv->tv_sec;
@@ -296,7 +296,7 @@ int	timespecfix(struct timespec *);
 int	itimerfix(struct timeval *);
 int	itimerdecr(struct itimerval *itp, int usec);
 void	itimerround(struct timeval *);
-int	settime(struct timespec *);
+int	settime(const struct timespec *);
 int	ratecheck(struct timeval *, const struct timeval *);
 int	ppsratecheck(struct timeval *, int *, int);
 

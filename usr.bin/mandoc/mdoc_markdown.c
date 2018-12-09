@@ -1,6 +1,6 @@
-/*	$OpenBSD: mdoc_markdown.c,v 1.23 2017/06/14 01:31:19 schwarze Exp $ */
+/*	$OpenBSD: mdoc_markdown.c,v 1.28 2018/12/03 21:00:06 schwarze Exp $ */
 /*
- * Copyright (c) 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "mandoc_aux.h"
@@ -48,6 +49,7 @@ static	void	 md_uri(const char *);
 static	int	 md_cond_head(struct roff_node *);
 static	int	 md_cond_body(struct roff_node *);
 
+static	int	 md_pre_abort(struct roff_node *);
 static	int	 md_pre_raw(struct roff_node *);
 static	int	 md_pre_word(struct roff_node *);
 static	int	 md_pre_skip(struct roff_node *);
@@ -103,7 +105,7 @@ static	void	 md_post_Pf(struct roff_node *);
 static	void	 md_post_Vt(struct roff_node *);
 static	void	 md_post__T(struct roff_node *);
 
-static	const struct md_act __md_acts[MDOC_MAX - MDOC_Dd] = {
+static	const struct md_act md_acts[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, NULL, NULL, NULL, NULL }, /* Dd */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Dt */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Os */
@@ -138,7 +140,7 @@ static	const struct md_act __md_acts[MDOC_MAX - MDOC_Dd] = {
 	{ md_cond_head, md_pre_Nd, NULL, NULL, NULL }, /* Nd */
 	{ NULL, md_pre_Nm, md_post_Nm, "**", "**" }, /* Nm */
 	{ md_cond_body, md_pre_word, md_post_word, "[", "]" }, /* Op */
-	{ NULL, md_pre_Fd, md_post_raw, "*", "*" }, /* Ot */
+	{ NULL, md_pre_abort, NULL, NULL, NULL }, /* Ot */
 	{ NULL, md_pre_raw, md_post_raw, "*", "*" }, /* Pa */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Rv */
 	{ NULL, NULL, NULL, NULL, NULL }, /* St */
@@ -211,7 +213,7 @@ static	const struct md_act __md_acts[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, md_pre_raw, md_post_raw, "*", "*" }, /* Fr */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Ud */
 	{ NULL, NULL, md_post_Lb, NULL, NULL }, /* Lb */
-	{ NULL, md_pre_Pp, NULL, NULL, NULL }, /* Lp */
+	{ NULL, md_pre_abort, NULL, NULL, NULL }, /* Lp */
 	{ NULL, md_pre_Lk, NULL, NULL, NULL }, /* Lk */
 	{ NULL, md_pre_Mt, NULL, NULL, NULL }, /* Mt */
 	{ md_cond_body, md_pre_word, md_post_word, "{", "}" }, /* Brq */
@@ -225,7 +227,7 @@ static	const struct md_act __md_acts[MDOC_MAX - MDOC_Dd] = {
 	{ NULL, md_pre_Lk, md_post_pc, NULL, NULL }, /* %U */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Ta */
 };
-static	const struct md_act *const md_acts = __md_acts - MDOC_Dd;
+static const struct md_act *md_act(enum roff_tok);
 
 static	int	 outflags;
 #define	MD_spc		 (1 << 0)  /* Blank character before next word. */
@@ -249,6 +251,14 @@ static	int	 escflags; /* Escape in generated markdown code: */
 
 static	int	 code_blocks, quote_blocks, list_blocks;
 static	int	 outcount;
+
+
+static const struct md_act *
+md_act(enum roff_tok tok)
+{
+	assert(tok >= MDOC_Dd && tok <= MDOC_MAX);
+	return md_acts + (tok - MDOC_Dd);
+}
 
 void
 markdown_mdoc(void *arg, const struct roff_man *mdoc)
@@ -294,7 +304,7 @@ md_node(struct roff_node *n)
 	const struct md_act	*act;
 	int			 cond, process_children;
 
-	if (n->flags & NODE_NOPRT)
+	if (n->type == ROFFT_COMMENT || n->flags & NODE_NOPRT)
 		return;
 
 	if (outflags & MD_nonl)
@@ -330,8 +340,7 @@ md_node(struct roff_node *n)
 			break;
 		}
 	} else {
-		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
-		act = md_acts + n->tok;
+		act = md_act(n->tok);
 		cond = act->cond == NULL || (*act->cond)(n);
 		if (cond && act->pre != NULL &&
 		    (n->end == ENDBODY_NOT || n->child != NULL))
@@ -580,6 +589,9 @@ md_word(const char *s)
 			case ESCAPE_SPECIAL:
 				uc = mchars_spec2cp(seq, sz);
 				break;
+			case ESCAPE_DEVICE:
+				md_rawword("markdown");
+				continue;
 			case ESCAPE_FONTBOLD:
 				nextfont = "**";
 				break;
@@ -590,6 +602,7 @@ md_word(const char *s)
 				nextfont = "***";
 				break;
 			case ESCAPE_FONT:
+			case ESCAPE_FONTCW:
 			case ESCAPE_FONTROMAN:
 				nextfont = "";
 				break;
@@ -712,11 +725,17 @@ md_cond_body(struct roff_node *n)
 }
 
 static int
+md_pre_abort(struct roff_node *n)
+{
+	abort();
+}
+
+static int
 md_pre_raw(struct roff_node *n)
 {
 	const char	*prefix;
 
-	if ((prefix = md_acts[n->tok].prefix) != NULL) {
+	if ((prefix = md_act(n->tok)->prefix) != NULL) {
 		md_rawword(prefix);
 		outflags &= ~MD_spc;
 		if (*prefix == '`')
@@ -730,7 +749,7 @@ md_post_raw(struct roff_node *n)
 {
 	const char	*suffix;
 
-	if ((suffix = md_acts[n->tok].suffix) != NULL) {
+	if ((suffix = md_act(n->tok)->suffix) != NULL) {
 		outflags &= ~(MD_spc | MD_nl);
 		md_rawword(suffix);
 		if (*suffix == '`')
@@ -743,7 +762,7 @@ md_pre_word(struct roff_node *n)
 {
 	const char	*prefix;
 
-	if ((prefix = md_acts[n->tok].prefix) != NULL) {
+	if ((prefix = md_act(n->tok)->prefix) != NULL) {
 		md_word(prefix);
 		outflags &= ~MD_spc;
 	}
@@ -755,7 +774,7 @@ md_post_word(struct roff_node *n)
 {
 	const char	*suffix;
 
-	if ((suffix = md_acts[n->tok].suffix) != NULL) {
+	if ((suffix = md_act(n->tok)->suffix) != NULL) {
 		outflags &= ~(MD_spc | MD_nl);
 		md_word(suffix);
 	}

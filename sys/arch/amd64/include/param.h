@@ -1,4 +1,4 @@
-/*	$OpenBSD: param.h,v 1.24 2017/09/06 04:44:39 dlg Exp $	*/
+/*	$OpenBSD: param.h,v 1.26 2018/08/25 17:24:22 kettenis Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -75,7 +75,7 @@
 #define	NMBCLUSTERS	(256 * 1024)		/* max cluster allocation */
 
 #ifndef	MSGBUFSIZE
-#define	MSGBUFSIZE	(16 * PAGE_SIZE)	/* default message buffer size */
+#define	MSGBUFSIZE	(24 * PAGE_SIZE)	/* default message buffer size */
 #endif
 
 /*
@@ -83,6 +83,8 @@
  * logical pages.
  */
 #define	NKMEMPAGES_MAX_DEFAULT	((128 * 1024 * 1024) >> PAGE_SHIFT)
+
+#define __HAVE_ACPI
 
 #endif /* _KERNEL */
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.136 2017/10/04 17:41:01 deraadt Exp $	*/
+/*	$OpenBSD: trap.c,v 1.138 2018/07/09 19:20:30 guenther Exp $	*/
 /*	$NetBSD: trap.c,v 1.95 1996/05/05 06:50:02 mycroft Exp $	*/
 
 /*-
@@ -154,9 +154,27 @@ trap(struct trapframe *frame)
 #endif
 
 	if (!KERNELMODE(frame->tf_cs, frame->tf_eflags)) {
+		vaddr_t sp;
+
 		type |= T_USER;
 		p->p_md.md_regs = frame;
 		refreshcreds(p);
+
+		sp = PROC_STACK(p);
+		if (p->p_vmspace->vm_map.serial != p->p_spserial ||
+		    p->p_spstart == 0 || sp < p->p_spstart ||
+		    sp >= p->p_spend) {
+			KERNEL_LOCK();
+			if (!uvm_map_check_stack_range(p, sp)) {
+				printf("trap [%s]%d/%d type %d: sp %lx not inside %lx-%lx\n",
+				    p->p_p->ps_comm, p->p_p->ps_pid, p->p_tid,
+				    (int)frame->tf_trapno, sp, p->p_spstart, p->p_spend);
+				sv.sival_ptr = (void *)PROC_PC(p);
+				trapsignal(p, SIGSEGV, type & ~T_USER,
+				    SEGV_ACCERR, sv);
+			}
+			KERNEL_UNLOCK();
+		}
 	}
 
 	switch (type) {
@@ -265,13 +283,7 @@ trap(struct trapframe *frame)
 
 	case T_PROTFLT|T_USER:		/* protection fault */
 		KERNEL_LOCK();
-#ifdef VM86
-		if (frame->tf_eflags & PSL_VM) {
-			vm86_gpfault(p, type & ~T_USER);
-			KERNEL_UNLOCK();
-			goto out;
-		}
-#endif
+
 		/* If pmap_exec_fixup does something, let's retry the trap. */
 		if (pmap_exec_fixup(&p->p_vmspace->vm_map, frame,
 		    &p->p_addr->u_pcb)) {
@@ -563,17 +575,6 @@ syscall(struct trapframe *frame)
 	callp = p->p_p->ps_emul->e_sysent;
 
 	params = (caddr_t)frame->tf_esp + sizeof(int);
-
-#ifdef VM86
-	/*
-	 * VM86 mode application found our syscall trap gate by accident; let
-	 * it get a SIGSYS and have the VM86 handler in the process take care
-	 * of it.
-	 */
-	if (frame->tf_eflags & PSL_VM)
-		code = -1;
-	else
-#endif
 
 	switch (code) {
 	case SYS_syscall:

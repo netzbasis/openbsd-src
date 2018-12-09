@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.31 2017/11/28 00:20:23 claudio Exp $	*/
+/*	$OpenBSD: ca.c,v 1.34 2018/09/19 11:28:02 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -266,15 +266,22 @@ ca_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 			break;
 		}
 
+		if (cko.cko_tlen == -1) {
+			char buf[256];
+			log_warnx("%s: %s", __func__,
+			    ERR_error_string(ERR_get_error(), buf));
+		}
+
 		iov[c].iov_base = &cko;
 		iov[c++].iov_len = sizeof(cko);
-		if (cko.cko_tlen) {
+		if (cko.cko_tlen > 0) {
 			iov[c].iov_base = to;
 			iov[c++].iov_len = cko.cko_tlen;
 		}
 
-		proc_composev_imsg(env->sc_ps, PROC_RELAY, cko.cko_proc,
-		    imsg->hdr.type, -1, -1, iov, c);
+		if (proc_composev_imsg(env->sc_ps, PROC_RELAY, cko.cko_proc,
+		    imsg->hdr.type, -1, -1, iov, c) == -1)
+			log_warn("%s: proc_composev_imsg", __func__);
 
 		free(to);
 		RSA_free(rsa);
@@ -350,7 +357,8 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 	 * Send a synchronous imsg because we cannot defer the RSA
 	 * operation in OpenSSL's engine layer.
 	 */
-	imsg_composev(ibuf, cmd, 0, 0, -1, iov, cnt);
+	if (imsg_composev(ibuf, cmd, 0, 0, -1, iov, cnt) == -1)
+		log_warn("%s: imsg_composev", __func__);
 	if (imsg_flush(ibuf) == -1)
 		log_warn("%s: imsg_flush", __func__);
 
@@ -361,8 +369,9 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 		case -1:
 			fatal("%s: poll", __func__);
 		case 0:
-			log_warnx("%s: poll timeout", __func__);
-			break;
+			log_warnx("%s: priv%s poll timeout", __func__,
+			    cmd == IMSG_CA_PRIVENC ? "enc" : "dec");
+			return (-1);
 		default:
 			break;
 		}
@@ -381,12 +390,12 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 
 			IMSG_SIZE_CHECK(&imsg, (&cko));
 			memcpy(&cko, imsg.data, sizeof(cko));
-			if (IMSG_DATA_SIZE(&imsg) !=
-			    (sizeof(cko) + cko.cko_tlen))
-				fatalx("data size");
 
 			ret = cko.cko_tlen;
-			if (ret) {
+			if (ret > 0) {
+				if (IMSG_DATA_SIZE(&imsg) !=
+				    (sizeof(cko) + ret))
+					fatalx("data size");
 				toptr = (u_char *)imsg.data + sizeof(cko);
 				memcpy(to, toptr, ret);
 			}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_nmea.c,v 1.45 2015/12/21 21:49:02 sf Exp $ */
+/*	$OpenBSD: tty_nmea.c,v 1.47 2018/09/01 06:09:26 landry Exp $ */
 
 /*
  * Copyright (c) 2006, 2007, 2008 Marc Balmer <mbalmer@openbsd.org>
@@ -95,7 +95,7 @@ nmeaopen(dev_t dev, struct tty *tp, struct proc *p)
 
 	if (tp->t_line == NMEADISC)
 		return (ENODEV);
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 	np = malloc(sizeof(struct nmea), M_DEVBUF, M_WAITOK | M_ZERO);
 	snprintf(np->timedev.xname, sizeof(np->timedev.xname), "nmea%d",
@@ -260,8 +260,20 @@ nmea_scan(struct nmea *np, struct tty *tp)
 		}
 	}
 
-	/* we only look at the GPRMC message */
-	if (strcmp(fld[0], "GPRMC"))
+	/*
+	 * we only look at the RMC message, which can come from different 'talkers',
+	 * distinguished by the two-chars prefix, the most common being:
+	 * GPS (GP)
+	 * Glonass (GL)
+	 * BeiDou (BD)
+	 * Galileo (GA)
+	 * 'Any kind/a mix of GNSS systems' (GN)
+	 */
+	if (strcmp(fld[0], "BDRMC") &&
+	    strcmp(fld[0], "GARMC") &&
+	    strcmp(fld[0], "GLRMC") &&
+	    strcmp(fld[0], "GNRMC") &&
+	    strcmp(fld[0], "GPRMC"))
 		return;
 
 	/* if we have a checksum, verify it */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.200 2017/09/27 06:45:00 deraadt Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.208 2018/11/12 15:09:17 visa Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -49,7 +49,6 @@
 #include <sys/signalvar.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
-#include <sys/file.h>
 #include <sys/acct.h>
 #include <sys/ktrace.h>
 #include <sys/sched.h>
@@ -66,6 +65,8 @@
 #include <uvm/uvm.h>
 #include <machine/tcb.h>
 
+#include "kcov.h"
+
 int	nprocesses = 1;		/* process 0 */
 int	nthreads = 1;		/* proc 0 */
 int	randompid;		/* when set to 1, pid's go random */
@@ -75,6 +76,8 @@ void fork_return(void *);
 pid_t alloctid(void);
 pid_t allocpid(void);
 int ispidtaken(pid_t);
+
+void unveil_copy(struct process *parent, struct process *child);
 
 struct proc *thread_new(struct proc *_parent, vaddr_t _uaddr);
 struct process *process_new(struct proc *, struct process *, int);
@@ -177,6 +180,10 @@ thread_new(struct proc *parent, vaddr_t uaddr)
 	p->p_sleeplocks = NULL;
 #endif
 
+#if NKCOV > 0
+	p->p_kd = NULL;
+#endif
+
 	return p;
 }
 
@@ -199,6 +206,9 @@ process_initialize(struct process *pr, struct proc *p)
 	KASSERT(p->p_ucred->cr_ref >= 2);	/* new thread and new process */
 
 	LIST_INIT(&pr->ps_children);
+	LIST_INIT(&pr->ps_ftlist);
+	LIST_INIT(&pr->ps_kqlist);
+	LIST_INIT(&pr->ps_sigiolst);
 
 	timeout_set(&pr->ps_realit_to, realitexpire, pr);
 }
@@ -236,8 +246,11 @@ process_new(struct proc *p, struct process *parent, int flags)
 	if (pr->ps_textvp)
 		vref(pr->ps_textvp);
 
+	/* copy unveil if unveil is active */
+	unveil_copy(parent, pr);
+
 	pr->ps_flags = parent->ps_flags &
-	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_WXNEEDED);
+	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_EXECPLEDGE | PS_WXNEEDED);
 	if (parent->ps_session->s_ttyvp != NULL)
 		pr->ps_flags |= parent->ps_flags & PS_CONTROLT;
 

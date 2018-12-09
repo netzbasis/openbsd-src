@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.187 2017/10/26 19:08:33 kettenis Exp $
+#	$OpenBSD: bsd.own.mk,v 1.193 2018/11/11 17:23:18 visa Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -15,9 +15,10 @@ SKEY?=		yes
 # Set `YP' to `yes' to build with support for NIS/YP.
 YP?=		yes
 
-CLANG_ARCH=aarch64 amd64 arm i386
-GCC4_ARCH=alpha arm hppa mips64 mips64el powerpc sh sparc64
+CLANG_ARCH=aarch64 amd64 arm i386 mips64 mips64el sparc64
+GCC4_ARCH=alpha hppa mips64 mips64el powerpc sh sparc64
 GCC3_ARCH=m88k
+LLD_ARCH=aarch64 amd64 arm
 
 # m88k: ?
 PIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
@@ -38,7 +39,7 @@ BUILD_GCC3?=yes
 BUILD_GCC3?=no
 .endif
 .if !empty(GCC4_ARCH:M${_arch}) || ${MACHINE_ARCH} == "amd64" || \
-    ${MACHINE_ARCH} == "i386"
+    ${MACHINE_ARCH} == "arm" || ${MACHINE_ARCH} == "i386"
 BUILD_GCC4?=yes
 .else
 BUILD_GCC4?=no
@@ -49,8 +50,20 @@ BUILD_CLANG?=yes
 BUILD_CLANG?=no
 .endif
 
+.if !empty(LLD_ARCH:M${_arch})
+LINKER_VERSION?=lld
+.else
+LINKER_VERSION?=bfd
+.endif
+
 .if !empty(STATICPIE_ARCH:M${_arch})
 STATICPIE?=-pie
+.endif
+
+# Executables are always PIC on mips64.
+# Do not pass -fno-pie to the compiler because clang does not accept it.
+.if ${MACHINE_ARCH} == "mips64" || ${MACHINE_ARCH} == "mips64el"
+NOPIE_FLAGS?=
 .endif
 
 .if !empty(PIE_ARCH:M${_arch})

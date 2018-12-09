@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_switch.c,v 1.21 2017/11/20 10:17:40 mpi Exp $	*/
+/*	$OpenBSD: if_switch.c,v 1.24 2018/12/07 16:19:40 mpi Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -151,7 +151,6 @@ switch_clone_create(struct if_clone *ifc, int unit)
 
 	sc = malloc(sizeof(struct switch_softc), M_DEVBUF, M_WAITOK|M_ZERO);
 	ifp = &sc->sc_if;
-
 	snprintf(ifp->if_xname, sizeof ifp->if_xname, "switch%d", unit);
 	ifp->if_softc = sc;
 	ifp->if_mtu = ETHERMTU;
@@ -159,7 +158,6 @@ switch_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_output = NULL;
 	ifp->if_start = NULL;
 	ifp->if_type = IFT_BRIDGE;
-	ifp->if_addrlen = 0;
 	ifp->if_hdrlen = ETHER_HDR_LEN;
 	TAILQ_INIT(&sc->sc_swpo_list);
 
@@ -392,12 +390,12 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 
 	switch (cmd) {
 	case SIOCBRDGADD:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_add(sc, (struct ifbreq *)data);
 		break;
 	case SIOCBRDGDEL:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_del(sc, (struct ifbreq *)data);
 		break;
@@ -405,7 +403,7 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		error = switch_port_list(sc, (struct ifbifconf *)data);
 		break;
 	case SIOCBRDGADDL:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_add(sc, (struct ifbreq *)data);
 		if (error && error != EEXIST)
@@ -720,8 +718,7 @@ switch_port_egress(struct switch_softc *sc, struct switch_fwdp_queue *fwdp_q,
 		 */
 		if (!(swpo->swpo_flags & IFBIF_LOCAL) &&
 		    ((len - ETHER_HDR_LEN) > dst_if->if_mtu))
-			bridge_fragment((struct bridge_softc *)sc,
-			    dst_if, &eh, mc);
+			bridge_fragment(&sc->sc_if, dst_if, &eh, mc);
 		else
 			switch_ifenqueue(sc, dst_if, mc,
 			    (swpo->swpo_flags & IFBIF_LOCAL));

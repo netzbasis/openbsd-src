@@ -1,4 +1,4 @@
-/* $OpenBSD: layout-set.c,v 1.19 2017/11/15 19:59:27 nicm Exp $ */
+/* $OpenBSD: layout-set.c,v 1.21 2018/10/18 08:38:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -138,6 +138,8 @@ layout_set_even(struct window *w, enum layout_type type)
 	TAILQ_FOREACH(wp, &w->panes, entry) {
 		lcnew = layout_create_cell(lc);
 		layout_make_leaf(lcnew, wp);
+		lcnew->sx = w->sx;
+		lcnew->sy = w->sy;
 		TAILQ_INSERT_TAIL(&lc->cells, lcnew, entry);
 	}
 
@@ -146,7 +148,7 @@ layout_set_even(struct window *w, enum layout_type type)
 
 	/* Fix cell offsets. */
 	layout_fix_offsets(lc);
-	layout_fix_panes(w, w->sx, w->sy);
+	layout_fix_panes(w);
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
@@ -282,7 +284,7 @@ layout_set_main_h(struct window *w)
 
 	/* Fix cell offsets. */
 	layout_fix_offsets(lc);
-	layout_fix_panes(w, w->sx, w->sy);
+	layout_fix_panes(w);
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
@@ -406,7 +408,7 @@ layout_set_main_v(struct window *w)
 
 	/* Fix cell offsets. */
 	layout_fix_offsets(lc);
-	layout_fix_panes(w, w->sx, w->sy);
+	layout_fix_panes(w);
 
 	layout_print_cell(w->layout_root, __func__, 1);
 
@@ -509,7 +511,7 @@ layout_set_tiled(struct window *w)
 
 	/* Fix cell offsets. */
 	layout_fix_offsets(lc);
-	layout_fix_panes(w, w->sx, w->sy);
+	layout_fix_panes(w);
 
 	layout_print_cell(w->layout_root, __func__, 1);
 

@@ -184,7 +184,11 @@ struct	nsd
 
 	/* mmaps with data exchange from xfrd and reload */
 	struct udb_base* task[2];
-	int mytask; /* the base used by this process */
+	int mytask;
+	/* the base used by this (child)process */
+	struct event_base* event_base;
+	/* the server_region used by this (child)process */
+	region_type* server_region;
 	struct netio_handler* xfrd_listener;
 	struct daemon_remote* rc;
 
@@ -278,7 +282,7 @@ int server_init(struct nsd *nsd);
 int server_prepare(struct nsd *nsd);
 void server_main(struct nsd *nsd);
 void server_child(struct nsd *nsd);
-void server_shutdown(struct nsd *nsd);
+void server_shutdown(struct nsd *nsd) ATTR_NORETURN;
 void server_close_all_sockets(struct nsd_socket sockets[], size_t n);
 struct event_base* nsd_child_event_base(void);
 /* extra domain numbers for temporary domains */

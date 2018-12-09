@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.35 2017/08/01 18:05:53 martijn Exp $	*/
+/*	$OpenBSD: main.c,v 1.39 2018/12/06 20:16:04 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992 Diomidis Spinellis.
@@ -160,6 +160,10 @@ main(int argc, char *argv[])
 		termwidth = win.ws_col;
 	if (termwidth == 0)
 		termwidth = 80;
+	if (termwidth <= 8)
+		termwidth = 1;
+	else
+		termwidth -= 8;
 
 	if (inplace != NULL) {
 		if (pledge("stdio rpath wpath cpath fattr chown", NULL) == -1)
@@ -237,9 +241,9 @@ again:
 			state = ST_FILE;
 			goto again;
 		case CU_STRING:
-			if ((snprintf(string_ident,
-			    sizeof(string_ident), "\"%s\"", script->s)) >=
-			    sizeof(string_ident))
+			len = snprintf(string_ident, sizeof(string_ident),
+			    "\"%s\"", script->s);
+			if (len >= sizeof(string_ident))
 				strlcpy(string_ident +
 				    sizeof(string_ident) - 6, " ...\"", 5);
 			fname = string_ident;
@@ -306,6 +310,30 @@ again:
 	return (NULL);
 }
 
+void
+finish_file(void)
+{
+	if (infile != NULL) {
+		fclose(infile);
+		if (*oldfname != '\0') {
+			if (rename(fname, oldfname) != 0) {
+				warning("rename()");
+				unlink(tmpfname);
+				exit(1);
+			}
+			*oldfname = '\0';
+		}
+		if (*tmpfname != '\0') {
+			if (outfile != NULL && outfile != stdout)
+				fclose(outfile);
+			outfile = NULL;
+			rename(tmpfname, fname);
+			*tmpfname = '\0';
+		}
+		outfname = NULL;
+	}
+}
+
 /*
  * Like fgets, but go through the list of files chaining them together.
  * Set len to the length of the line.
@@ -317,51 +345,14 @@ mf_fgets(SPACE *sp, enum e_spflag spflag)
 	size_t len;
 	char *p;
 	int c, fd;
-	static int firstfile;
-
-	if (infile == NULL) {
-		/* stdin? */
-		if (files->fname == NULL) {
-			if (inplace != NULL)
-				error(FATAL, "-i may not be used with stdin");
-			infile = stdin;
-			fname = "stdin";
-			outfile = stdout;
-			outfname = "stdout";
-		}
-
-		firstfile = 1;
-	}
+	static int firstfile = 1;
 
 	for (;;) {
 		if (infile != NULL && (c = getc(infile)) != EOF) {
 			(void)ungetc(c, infile);
 			break;
 		}
-		/* If we are here then either eof or no files are open yet */
-		if (infile == stdin) {
-			sp->len = 0;
-			return (0);
-		}
-		if (infile != NULL) {
-			fclose(infile);
-			if (*oldfname != '\0') {
-				if (rename(fname, oldfname) != 0) {
-					warning("rename()");
-					unlink(tmpfname);
-					exit(1);
-				}
-				*oldfname = '\0';
-			}
-			if (*tmpfname != '\0') {
-				if (outfile != NULL && outfile != stdout)
-					fclose(outfile);
-				outfile = NULL;
-				rename(tmpfname, fname);
-				*tmpfname = '\0';
-			}
-			outfname = NULL;
-		}
+		finish_file();
 		if (firstfile == 0)
 			files = files->next;
 		else
@@ -371,6 +362,13 @@ mf_fgets(SPACE *sp, enum e_spflag spflag)
 			return (0);
 		}
 		fname = files->fname;
+		if (fname == NULL || strcmp(fname, "-") == 0) {
+			infile = stdin;
+			fname = "stdin";
+			outfile = stdout;
+			outfname = "stdout";
+			break;
+		}
 		if (inplace != NULL) {
 			if (lstat(fname, &sb) != 0)
 				error(FATAL, "%s: %s", fname,
@@ -401,7 +399,7 @@ mf_fgets(SPACE *sp, enum e_spflag spflag)
 			fchmod(fileno(outfile), sb.st_mode & ALLPERMS);
 			outfname = tmpfname;
 			linenum = 0;
-			resetranges();
+			resetstate();
 		} else {
 			outfile = stdout;
 			outfname = "stdout";

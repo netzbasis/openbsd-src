@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.h,v 1.83 2017/05/08 02:34:01 guenther Exp $ */
+/*	$OpenBSD: resolve.h,v 1.88 2018/12/05 04:28:32 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -32,6 +32,8 @@
 #include <sys/queue.h>
 #include <link.h>
 #include <dlfcn.h>
+
+#define __relro		__attribute__((section(".data.rel.ro")))
 
 /* Number of low tags that are used saved internally (0 .. DT_NUM-1) */
 #define DT_NUM	(DT_PREINIT_ARRAYSZ + 1)
@@ -117,6 +119,7 @@ struct elf_object {
 #define	STAT_UNLOADED	0x20
 #define	STAT_NODELETE	0x40
 #define	STAT_VISITED	0x80
+#define	STAT_GNU_HASH	0x100
 
 	Elf_Phdr	*phdrp;
 	int		phdrc;
@@ -128,11 +131,33 @@ struct elf_object {
 #define	OBJTYPE_DLO	4
 	int		obj_flags;	/* c.f. <sys/exec_elf.h> DF_1_* */
 
-	Elf_Word	*buckets;
+	/* shared by ELF and GNU hash */
 	u_int32_t	nbuckets;
-	Elf_Word	*chains;
-	u_int32_t	nchains;
-	Elf_Dyn		*dynamic;
+	u_int32_t	nchains;	/* really, number of symbols */
+	union {
+		struct {
+			/* specific to ELF hash */
+			const Elf_Word	*buckets;
+			const Elf_Word	*chains;
+		} u_elf;
+		struct {
+			/* specific to GNU hash */
+			const Elf32_Word	*buckets;
+			const Elf32_Word	*chains;
+			const Elf_Addr		*bloom;
+			Elf32_Word		mask_bm;
+			Elf32_Word		shift2;
+			Elf32_Word		symndx;
+		} u_gnu;
+	} hash_u;
+#define buckets_elf	hash_u.u_elf.buckets
+#define chains_elf	hash_u.u_elf.chains
+#define buckets_gnu	hash_u.u_gnu.buckets
+#define chains_gnu	hash_u.u_gnu.chains
+#define bloom_gnu	hash_u.u_gnu.bloom
+#define mask_bm_gnu	hash_u.u_gnu.mask_bm
+#define shift2_gnu	hash_u.u_gnu.shift2
+#define symndx_gnu	hash_u.u_gnu.symndx
 
 	TAILQ_HEAD(,dep_node)	child_list;	/* direct dep libs of object */
 	TAILQ_HEAD(,dep_node)	grpsym_list;	/* ordered complete dep list */
@@ -195,8 +220,6 @@ elf_object_t *_dl_finalize_object(const char *objname, Elf_Dyn *dynp,
     const long obase);
 void	_dl_remove_object(elf_object_t *object);
 void	_dl_cleanup_objects(void);
-void	*_dl_protect_segment(elf_object_t *_object, Elf_Addr _addr,
-	    const char *_start_sym, const char *_end_sym, int _prot);
 
 elf_object_t *_dl_load_shlib(const char *, elf_object_t *, int, int);
 elf_object_t *_dl_tryload_shlib(const char *libname, int type, int flags);
@@ -228,7 +251,6 @@ Elf_Addr _dl_find_symbol_bysym(elf_object_t *req_obj, unsigned int symidx,
 #define SYM_SEARCH_SELF		0x01
 #define SYM_SEARCH_OTHER	0x02
 #define SYM_SEARCH_NEXT		0x04
-#define SYM_SEARCH_OBJ		0x08
 /* warnnotfound */
 #define SYM_NOWARNNOTFOUND	0x00
 #define SYM_WARNNOTFOUND	0x10
@@ -288,13 +310,14 @@ extern int  _dl_errno;
 
 extern char **_dl_libpath;
 
+extern int _dl_bindnow;
+extern int _dl_traceld;
+extern int _dl_debug;
+
 extern char *_dl_preload;
-extern char *_dl_bindnow;
-extern char *_dl_traceld;
 extern char *_dl_tracefmt1;
 extern char *_dl_tracefmt2;
 extern char *_dl_traceprog;
-extern char *_dl_debug;
 
 extern int _dl_trust;
 

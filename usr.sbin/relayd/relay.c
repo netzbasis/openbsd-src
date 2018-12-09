@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.236 2017/11/28 01:51:47 claudio Exp $	*/
+/*	$OpenBSD: relay.c,v 1.241 2018/09/19 11:28:02 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -397,7 +397,7 @@ relay_statistics(int fd, short events, void *arg)
 			    &rlay->rl_sessions, con);
 			timersub(&tv_now, &con->se_tv_last, &tv);
 			if (timercmp(&tv, &rlay->rl_conf.timeout, >=))
-				relay_close(con, "hard timeout");
+				relay_close(con, "hard timeout", 1);
 		}
 	}
 
@@ -661,6 +661,7 @@ relay_connected(int fd, short sig, void *arg)
 	evbuffercb		 outwr = relay_write;
 	struct bufferevent	*bev;
 	struct ctl_relay_event	*out = &con->se_out;
+	char			*msg;
 	socklen_t		 len;
 	int			 error;
 
@@ -670,12 +671,22 @@ relay_connected(int fd, short sig, void *arg)
 	}
 
 	len = sizeof(error);
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error,
-	    &len) == -1 || error) {
-		if (error)
-			errno = error;
-		relay_abort_http(con, 500, "socket error", 0);
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == -1) {
+		relay_abort_http(con, 500, "getsockopt failed", 0);
 		return;
+	}
+	if (error) {
+		errno = error;
+		if (asprintf(&msg, "socket error: %s",
+		    strerror(error)) >= 0) {
+			relay_abort_http(con, 500, msg, 0);
+			free(msg);
+			return;
+		} else {
+			relay_abort_http(con, 500,
+			    "socket error and asprintf failed", 0);
+			return;
+		}
 	}
 
 	if ((rlay->rl_conf.flags & F_TLSCLIENT) && (out->tls == NULL)) {
@@ -689,7 +700,7 @@ relay_connected(int fd, short sig, void *arg)
 	case RELAY_PROTO_HTTP:
 		if (relay_httpdesc_init(out) == -1) {
 			relay_close(con,
-			    "failed to allocate http descriptor");
+			    "failed to allocate http descriptor", 1);
 			return;
 		}
 		con->se_out.toread = TOREAD_HTTP_HEADER;
@@ -731,7 +742,7 @@ relay_connected(int fd, short sig, void *arg)
 		bufferevent_enable(con->se_in.bev, EV_READ);
 
 	if (relay_splice(&con->se_out) == -1)
-		relay_close(con, strerror(errno));
+		relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -746,7 +757,7 @@ relay_input(struct rsession *con)
 	case RELAY_PROTO_HTTP:
 		if (relay_httpdesc_init(&con->se_in) == -1) {
 			relay_close(con,
-			    "failed to allocate http descriptor");
+			    "failed to allocate http descriptor", 1);
 			return;
 		}
 		con->se_in.toread = TOREAD_HTTP_HEADER;
@@ -765,7 +776,7 @@ relay_input(struct rsession *con)
 	con->se_in.bev = bufferevent_new(con->se_in.s, inrd, inwr,
 	    relay_error, &con->se_in);
 	if (con->se_in.bev == NULL) {
-		relay_close(con, "failed to allocate input buffer event");
+		relay_close(con, "failed to allocate input buffer event", 1);
 		return;
 	}
 
@@ -780,7 +791,7 @@ relay_input(struct rsession *con)
 	bufferevent_enable(con->se_in.bev, EV_READ|EV_WRITE);
 
 	if (relay_splice(&con->se_in) == -1)
-		relay_close(con, strerror(errno));
+		relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -800,10 +811,10 @@ relay_write(struct bufferevent *bev, void *arg)
 
 	return;
  done:
-	relay_close(con, "last write (done)");
+	relay_close(con, "last write (done)", 0);
 	return;
  fail:
-	relay_close(con, strerror(errno));
+	relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -849,10 +860,10 @@ relay_read(struct bufferevent *bev, void *arg)
 
 	return;
  done:
-	relay_close(con, "last read (done)");
+	relay_close(con, "last read (done)", 0);
 	return;
  fail:
-	relay_close(con, strerror(errno));
+	relay_close(con, strerror(errno), 1);
 }
 
 /*
@@ -974,7 +985,7 @@ relay_error(struct bufferevent *bev, short error, void *arg)
 			case -1:
 				goto fail;
 			case 0:
-				relay_close(con, "buffer event timeout");
+				relay_close(con, "buffer event timeout", 1);
 				break;
 			case 1:
 				cre->timedout = 1;
@@ -982,7 +993,7 @@ relay_error(struct bufferevent *bev, short error, void *arg)
 				break;
 			}
 		} else {
-			relay_close(con, "buffer event timeout");
+			relay_close(con, "buffer event timeout", 1);
 		}
 		return;
 	}
@@ -992,14 +1003,14 @@ relay_error(struct bufferevent *bev, short error, void *arg)
 			case -1:
 				goto fail;
 			case 0:
-				relay_close(con, "splice timeout");
+				relay_close(con, "splice timeout", 1);
 				return;
 			case 1:
 				bufferevent_enable(bev, EV_READ);
 				break;
 			}
 		} else if (cre->dst->timedout) {
-			relay_close(con, "splice timeout");
+			relay_close(con, "splice timeout", 1);
 			return;
 		}
 		if (relay_spliceadjust(cre) == -1)
@@ -1025,13 +1036,13 @@ relay_error(struct bufferevent *bev, short error, void *arg)
 		} else if (cre->toread == TOREAD_UNLIMITED || cre->toread == 0)
 			return;
 
-		relay_close(con, "done");
+		relay_close(con, "done", 0);
 		return;
 	}
-	relay_close(con, "buffer event error");
+	relay_close(con, "buffer event error", 1);
 	return;
  fail:
-	relay_close(con, strerror(errno));
+	relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -1066,8 +1077,7 @@ relay_accept(int fd, short event, void *arg)
 		}
 		return;
 	}
-	if (relay_sessions >= RELAY_MAX_SESSIONS ||
-	    rlay->rl_conf.flags & F_DISABLE)
+	if (rlay->rl_conf.flags & F_DISABLE)
 		goto err;
 
 	if ((con = calloc(1, sizeof(*con))) == NULL)
@@ -1128,7 +1138,7 @@ relay_accept(int fd, short event, void *arg)
 	/* Pre-allocate output buffer */
 	con->se_out.output = evbuffer_new();
 	if (con->se_out.output == NULL) {
-		relay_close(con, "failed to allocate output buffer");
+		relay_close(con, "failed to allocate output buffer", 1);
 		return;
 	}
 
@@ -1136,7 +1146,7 @@ relay_accept(int fd, short event, void *arg)
 		slen = sizeof(con->se_out.ss);
 		if (getsockname(s, (struct sockaddr *)&con->se_out.ss,
 		    &slen) == -1) {
-			relay_close(con, "peer lookup failed");
+			relay_close(con, "peer lookup failed", 1);
 			return;
 		}
 		con->se_out.port = relay_socket_getport(&con->se_out.ss);
@@ -1148,7 +1158,7 @@ relay_accept(int fd, short event, void *arg)
 			con->se_out.ss.ss_family = AF_UNSPEC;
 	} else if (rlay->rl_conf.flags & F_NATLOOK) {
 		if ((cnl = calloc(1, sizeof(*cnl))) == NULL) {
-			relay_close(con, "failed to allocate nat lookup");
+			relay_close(con, "failed to allocate nat lookup", 1);
 			return;
 		}
 
@@ -1163,7 +1173,7 @@ relay_accept(int fd, short event, void *arg)
 		slen = sizeof(cnl->dst);
 		if (getsockname(s,
 		    (struct sockaddr *)&cnl->dst, &slen) == -1) {
-			relay_close(con, "failed to get local address");
+			relay_close(con, "failed to get local address", 1);
 			return;
 		}
 
@@ -1358,7 +1368,7 @@ relay_natlook(int fd, short event, void *arg)
 	if (con->se_out.ss.ss_family == AF_UNSPEC && cnl->in == -1 &&
 	    rlay->rl_conf.dstss.ss_family == AF_UNSPEC &&
 	    TAILQ_EMPTY(&rlay->rl_tables)) {
-		relay_close(con, "session NAT lookup failed");
+		relay_close(con, "session NAT lookup failed", 1);
 		return;
 	}
 	if (cnl->in != -1) {
@@ -1380,7 +1390,7 @@ relay_session(struct rsession *con)
 	if (bcmp(&rlay->rl_conf.ss, &out->ss, sizeof(out->ss)) == 0 &&
 	    out->port == rlay->rl_conf.port) {
 		log_debug("%s: session %d: looping", __func__, con->se_id);
-		relay_close(con, "session aborted");
+		relay_close(con, "session aborted", 1);
 		return;
 	}
 
@@ -1391,7 +1401,7 @@ relay_session(struct rsession *con)
 		if (rlay->rl_proto->request == NULL)
 			fatalx("invalide UDP session");
 		if ((*rlay->rl_proto->request)(con) == -1)
-			relay_close(con, "session failed");
+			relay_close(con, "session failed", 1);
 		return;
 	}
 
@@ -1404,7 +1414,7 @@ relay_session(struct rsession *con)
 		if (rlay->rl_conf.fwdmode == FWD_TRANS)
 			relay_bindanyreq(con, 0, IPPROTO_TCP);
 		else if (relay_connect(con) == -1) {
-			relay_close(con, "session failed");
+			relay_close(con, "session failed", 1);
 			return;
 		}
 	}
@@ -1441,11 +1451,11 @@ relay_bindany(int fd, short event, void *arg)
 	struct rsession	*con = arg;
 
 	if (con->se_bnds == -1) {
-		relay_close(con, "bindany failed, invalid socket");
+		relay_close(con, "bindany failed, invalid socket", 1);
 		return;
 	}
 	if (relay_connect(con) == -1)
-		relay_close(con, "session failed");
+		relay_close(con, "session failed", 1);
 }
 
 void
@@ -1660,7 +1670,7 @@ relay_connect(struct rsession *con)
 }
 
 void
-relay_close(struct rsession *con, const char *msg)
+relay_close(struct rsession *con, const char *msg, int err)
 {
 	char		 ibuf[128], obuf[128], *ptr = NULL;
 	struct relay	*rlay = con->se_relay;
@@ -1675,7 +1685,8 @@ relay_close(struct rsession *con, const char *msg)
 	if (con->se_out.bev != NULL)
 		bufferevent_disable(con->se_out.bev, EV_READ|EV_WRITE);
 
-	if ((env->sc_conf.opts & RELAYD_OPT_LOGUPDATE) && msg != NULL) {
+	if ((env->sc_conf.opts & (RELAYD_OPT_LOGCON|RELAYD_OPT_LOGCONERR)) &&
+	    msg != NULL) {
 		bzero(&ibuf, sizeof(ibuf));
 		bzero(&obuf, sizeof(obuf));
 		(void)print_host(&con->se_in.ss, ibuf, sizeof(ibuf));
@@ -1685,12 +1696,22 @@ relay_close(struct rsession *con, const char *msg)
 			ptr = evbuffer_readln(con->se_log, NULL,
 			    EVBUFFER_EOL_CRLF);
 		}
-		log_info("relay %s, "
-		    "session %d (%d active), %s, %s -> %s:%d, "
-		    "%s%s%s", rlay->rl_conf.name, con->se_id, relay_sessions,
-		    con->se_tag != 0 ? tag_id2name(con->se_tag) : "0", ibuf,
-		    obuf, ntohs(con->se_out.port), msg, ptr == NULL ? "" : ",",
-		    ptr == NULL ? "" : ptr);
+		if (err == 0 && (env->sc_conf.opts & RELAYD_OPT_LOGCON))
+			log_info("relay %s, "
+			    "session %d (%d active), %s, %s -> %s:%d, "
+			    "%s%s%s", rlay->rl_conf.name, con->se_id,
+			    relay_sessions, con->se_tag != 0 ?
+			    tag_id2name(con->se_tag) : "0", ibuf, obuf,
+			    ntohs(con->se_out.port), msg, ptr == NULL ?
+			    "" : ",", ptr == NULL ? "" : ptr);
+		if (err == 1 && (env->sc_conf.opts & RELAYD_OPT_LOGCONERR))
+			log_warn("relay %s, "
+			    "session %d (%d active), %s, %s -> %s:%d, "
+			    "%s%s%s", rlay->rl_conf.name, con->se_id,
+			    relay_sessions, con->se_tag != 0 ?
+			    tag_id2name(con->se_tag) : "0", ibuf, obuf,
+			    ntohs(con->se_out.port), msg, ptr == NULL ?
+			    "" : ",", ptr == NULL ? "" : ptr);
 		free(ptr);
 	}
 
@@ -1889,6 +1910,14 @@ relay_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 int
 relay_dispatch_ca(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
+	switch (imsg->hdr.type) {
+	case IMSG_CA_PRIVENC:
+	case IMSG_CA_PRIVDEC:
+		log_warnx("%s: priv%s result after timeout", __func__,
+		    imsg->hdr.type == IMSG_CA_PRIVENC ? "enc" : "dec");
+		return (0);
+	}
+
 	return (-1);
 }
 
@@ -2283,7 +2312,7 @@ relay_tls_transaction(struct rsession *con, struct ctl_relay_event *cre)
 	return;
 
  err:
-	relay_close(con, errstr);
+	relay_close(con, errstr, 1);
 }
 
 void
@@ -2294,9 +2323,10 @@ relay_tls_handshake(int fd, short event, void *arg)
 	struct relay		*rlay = con->se_relay;
 	int			 retry_flag = 0;
 	int			 ret;
+	char			*msg;
 
 	if (event == EV_TIMEOUT) {
-		relay_close(con, "TLS handshake timeout");
+		relay_close(con, "TLS handshake timeout", 1);
 		return;
 	}
 
@@ -2333,7 +2363,7 @@ relay_tls_handshake(int fd, short event, void *arg)
 				con->se_in.tlscert = NULL;
 			if (con->se_in.tlscert == NULL)
 				relay_close(con,
-				    "could not create certificate");
+				    "could not create certificate", 1);
 			else
 				relay_session(con);
 			return;
@@ -2345,10 +2375,13 @@ relay_tls_handshake(int fd, short event, void *arg)
 	} else if (ret == TLS_WANT_POLLOUT) {
 		retry_flag = EV_WRITE;
 	} else {
-		log_debug("TLS handshake failed: %s: %s: %s",
-		    rlay->rl_conf.name, __func__,
-		    tls_error(cre->tls));
-		relay_close(con, "TLS handshake error");
+		if (asprintf(&msg, "TLS handshake error: %s",
+		    tls_error(cre->tls)) >= 0) {
+			relay_close(con, msg, 1);
+			free(msg);
+		} else {
+			relay_close(con, "TLS handshake error", 1);
+		}
 		return;
 	}
 

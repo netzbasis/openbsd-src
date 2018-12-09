@@ -107,7 +107,7 @@ void slabhash_clear(struct slabhash* table);
  *	But entry->data is set to NULL before deletion, and put into
  * 	the existing entry. The data is then freed.
  * @param data: the data.
- * @param cb_override: if not NULL overrides the cb_arg for deletfunc.
+ * @param cb_override: if not NULL overrides the cb_arg for deletefunc.
  */
 void slabhash_insert(struct slabhash* table, hashvalue_type hash, 
 	struct lruhash_entry* entry, void* data, void* cb_override);
@@ -151,6 +151,15 @@ void slabhash_status(struct slabhash* table, const char* id, int extended);
  * @return size configured as max.
  */
 size_t slabhash_get_size(struct slabhash* table);
+
+/**
+ * See if slabhash is of given (size, slabs) configuration.
+ * @param table: hash table
+ * @param size: max size to test for
+ * @param slabs: slab count to test for.
+ * @return true if equal
+ */
+int slabhash_is_size(struct slabhash* table, size_t size, size_t slabs);
 
 /**
  * Retrieve slab hash current memory use.

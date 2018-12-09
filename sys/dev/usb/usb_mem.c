@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb_mem.c,v 1.29 2017/04/08 02:57:25 deraadt Exp $ */
+/*	$OpenBSD: usb_mem.c,v 1.32 2018/12/05 17:41:23 gerhard Exp $ */
 /*	$NetBSD: usb_mem.c,v 1.26 2003/02/01 06:23:40 thorpej Exp $	*/
 
 /*
@@ -90,7 +90,7 @@ usb_block_allocmem(bus_dma_tag_t tag, size_t size, size_t align,
         struct usb_dma_block *p;
 	int s;
 
-	DPRINTFN(5, ("usb_block_allocmem: size=%lu align=%lu\n",
+	DPRINTFN(5, ("%s: size=%lu align=%lu\n", __func__,
 		     (u_long)size, (u_long)align));
 
 	s = splusb();
@@ -101,19 +101,12 @@ usb_block_allocmem(bus_dma_tag_t tag, size_t size, size_t align,
 			usb_blk_nfree--;
 			splx(s);
 			*dmap = p;
-			DPRINTFN(6,("usb_block_allocmem: free list size=%lu\n",
+			DPRINTFN(6,("%s: free list size=%lu\n", __func__,
 				    (u_long)p->size));
 			return (USBD_NORMAL_COMPLETION);
 		}
 	}
 	splx(s);
-
-#ifdef DIAGNOSTIC
-	if (!curproc) {
-		printf("usb_block_allocmem: in interrupt context, failed\n");
-		return (USBD_NOMEM);
-	}
-#endif
 
 	DPRINTFN(6, ("usb_block_allocmem: no free\n"));
 	p = malloc(sizeof *p, M_USB, M_NOWAIT);
@@ -162,12 +155,6 @@ free0:
 void
 usb_block_real_freemem(struct usb_dma_block *p)
 {
-#ifdef DIAGNOSTIC
-	if (!curproc) {
-		printf("usb_block_real_freemem: in interrupt context\n");
-		return;
-	}
-#endif
 	bus_dmamap_unload(p->tag, p->map);
 	bus_dmamap_destroy(p->tag, p->map);
 	bus_dmamem_unmap(p->tag, p->kaddr, p->size);
@@ -186,7 +173,7 @@ usb_block_freemem(struct usb_dma_block *p)
 {
 	int s;
 
-	DPRINTFN(6, ("usb_block_freemem: size=%lu\n", (u_long)p->size));
+	DPRINTFN(6, ("%s: size=%lu\n", __func__, (u_long)p->size));
 	s = splusb();
 	LIST_INSERT_HEAD(&usb_blk_freelist, p, next);
 	usb_blk_nfree++;
@@ -205,7 +192,7 @@ usb_allocmem(struct usbd_bus *bus, size_t size, size_t align, struct usb_dma *p)
 
 	/* If the request is large then just use a full block. */
 	if (size > USB_MEM_SMALL || align > USB_MEM_SMALL) {
-		DPRINTFN(1, ("usb_allocmem: large alloc %d\n", (int)size));
+		DPRINTFN(1, ("%s: large alloc %d\n", __func__, (int)size));
 		size = (size + USB_MEM_BLOCK - 1) & ~(USB_MEM_BLOCK - 1);
 		err = usb_block_allocmem(tag, size, align, &p->block);
 		if (!err) {
@@ -246,7 +233,7 @@ usb_allocmem(struct usbd_bus *bus, size_t size, size_t align, struct usb_dma *p)
 	p->offs = f->offs;
 	LIST_REMOVE(f, next);
 	splx(s);
-	DPRINTFN(5, ("usb_allocmem: use frag=%p size=%d\n", f, (int)size));
+	DPRINTFN(5, ("%s: use frag=%p size=%d\n", __func__, f, (int)size));
 	return (USBD_NORMAL_COMPLETION);
 }
 
@@ -265,7 +252,7 @@ usb_freemem(struct usbd_bus *bus, struct usb_dma *p)
 	f = &p->block->frags[p->offs / USB_MEM_SMALL];
 	LIST_INSERT_HEAD(&usb_frag_freelist, f, next);
 	splx(s);
-	DPRINTFN(5, ("usb_freemem: frag=%p block=%p\n", f, f->block));
+	DPRINTFN(5, ("%s: frag=%p block=%p\n", __func__, f, f->block));
 }
 
 void

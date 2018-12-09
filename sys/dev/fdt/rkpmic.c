@@ -1,4 +1,4 @@
-/*	$OpenBSD: rkpmic.c,v 1.3 2017/11/18 20:29:51 kettenis Exp $	*/
+/*	$OpenBSD: rkpmic.c,v 1.6 2018/07/31 10:09:25 kettenis Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -50,6 +50,16 @@ struct rkpmic_regdata {
 	uint32_t base, delta;
 };
 
+struct rkpmic_regdata rk805_regdata[] = {
+	{ "DCDC_REG1", 0x2f, 0x3f, 712500, 12500 },
+	{ "DCDC_REG2", 0x33, 0x3f, 712500, 12500 },
+	{ "DCDC_REG4", 0x38, 0x1f, 800000, 100000 },
+	{ "LDO_REG1", 0x3b, 0x1f, 800000, 100000 },
+	{ "LDO_REG2", 0x3d, 0x1f, 800000, 100000 },
+	{ "LDO_REG3", 0x3f, 0x1f, 800000, 100000 },
+	{ }
+};
+
 struct rkpmic_regdata rk808_regdata[] = {
 	{ "DCDC_REG1", 0x2f, 0x3f, 712500, 12500 },
 	{ "DCDC_REG2", 0x33, 0x3f, 712500, 12500 },
@@ -62,6 +72,7 @@ struct rkpmic_regdata rk808_regdata[] = {
 	{ "LDO_REG6", 0x45, 0x1f, 800000, 100000 },
 	{ "LDO_REG7", 0x47, 0x1f, 800000, 100000 },
 	{ "LDO_REG8", 0x49, 0x1f, 1800000, 100000 },
+	{ }
 };
 
 struct rkpmic_softc {
@@ -70,6 +81,7 @@ struct rkpmic_softc {
 	i2c_addr_t sc_addr;
 
 	struct todr_chip_handle sc_todr;
+	struct rkpmic_regdata *sc_regdata;
 };
 
 int	rkpmic_match(struct device *, void *, void *);
@@ -97,7 +109,8 @@ rkpmic_match(struct device *parent, void *match, void *aux)
 	struct i2c_attach_args *ia = aux;
 	int node = *(int *)ia->ia_cookie;
 
-	return (OF_is_compatible(node, "rockchip,rk808"));
+	return (OF_is_compatible(node, "rockchip,rk805") ||
+		OF_is_compatible(node, "rockchip,rk808"));
 }
 
 void
@@ -106,16 +119,25 @@ rkpmic_attach(struct device *parent, struct device *self, void *aux)
 	struct rkpmic_softc *sc = (struct rkpmic_softc *)self;
 	struct i2c_attach_args *ia = aux;
 	int node = *(int *)ia->ia_cookie;
+	const char *chip;
 
 	sc->sc_tag = ia->ia_tag;
 	sc->sc_addr = ia->ia_addr;
 
-	printf("\n");
-
 	sc->sc_todr.cookie = sc;
 	sc->sc_todr.todr_gettime = rkpmic_gettime;
 	sc->sc_todr.todr_settime = rkpmic_settime;
-	todr_handle = &sc->sc_todr;
+	if (todr_handle == NULL)
+		todr_handle = &sc->sc_todr;
+
+	if (OF_is_compatible(node, "rockchip,rk805")) {
+		chip = "RK805";
+		sc->sc_regdata = rk805_regdata;
+	} else {
+		chip = "RK808";
+		sc->sc_regdata = rk808_regdata;
+	}
+	printf(": %s\n", chip);
 
 	node = OF_getnodebyname(node, "regulators");
 	if (node == 0)
@@ -134,6 +156,7 @@ struct rkpmic_regulator {
 };
 
 uint32_t rkpmic_get_voltage(void *);
+int	rkpmic_set_voltage(void *, uint32_t);
 
 void
 rkpmic_attach_regulator(struct rkpmic_softc *sc, int node)
@@ -145,24 +168,25 @@ rkpmic_attach_regulator(struct rkpmic_softc *sc, int node)
 	name[0] = 0;
 	OF_getprop(node, "name", name, sizeof(name));
 	name[sizeof(name) - 1] = 0;
-	for (i = 0; i < nitems(rk808_regdata); i++) {
-		if (strcmp(rk808_regdata[i].name, name) == 0)
+	for (i = 0; sc->sc_regdata[i].name; i++) {
+		if (strcmp(sc->sc_regdata[i].name, name) == 0)
 			break;
 	}
-	if (i == nitems(rk808_regdata))
+	if (sc->sc_regdata[i].name == NULL)
 		return;
 
 	rr = malloc(sizeof(*rr), M_DEVBUF, M_WAITOK | M_ZERO);
 	rr->rr_sc = sc;
 
-	rr->rr_reg = rk808_regdata[i].reg;
-	rr->rr_mask = rk808_regdata[i].mask;
-	rr->rr_base = rk808_regdata[i].base;
-	rr->rr_delta = rk808_regdata[i].delta;
+	rr->rr_reg = sc->sc_regdata[i].reg;
+	rr->rr_mask = sc->sc_regdata[i].mask;
+	rr->rr_base = sc->sc_regdata[i].base;
+	rr->rr_delta = sc->sc_regdata[i].delta;
 
 	rr->rr_rd.rd_node = node;
 	rr->rr_rd.rd_cookie = rr;
 	rr->rr_rd.rd_get_voltage = rkpmic_get_voltage;
+	rr->rr_rd.rd_set_voltage = rkpmic_set_voltage;
 	regulator_register(&rr->rr_rd);
 }
 
@@ -170,10 +194,29 @@ uint32_t
 rkpmic_get_voltage(void *cookie)
 {
 	struct rkpmic_regulator *rr = cookie;
-	uint8_t value;
+	uint8_t vsel;
 	
-	value = rkpmic_reg_read(rr->rr_sc, rr->rr_reg);
-	return rr->rr_base + (value & rr->rr_mask) * rr->rr_delta;
+	vsel = rkpmic_reg_read(rr->rr_sc, rr->rr_reg);
+	return rr->rr_base + (vsel & rr->rr_mask) * rr->rr_delta;
+}
+
+int
+rkpmic_set_voltage(void *cookie, uint32_t voltage)
+{
+	struct rkpmic_regulator *rr = cookie;
+	uint32_t vmin = rr->rr_base;
+	uint32_t vmax = vmin + rr->rr_mask * rr->rr_delta;
+	uint8_t vsel;
+
+	if (voltage < vmin || voltage > vmax)
+		return EINVAL;
+
+	vsel = rkpmic_reg_read(rr->rr_sc, rr->rr_reg);
+	vsel &= ~rr->rr_mask;
+	vsel |= (voltage - rr->rr_base) / rr->rr_delta;
+	rkpmic_reg_write(rr->rr_sc, rr->rr_reg, vsel);
+
+	return 0;
 }
 
 int

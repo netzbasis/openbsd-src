@@ -1,4 +1,4 @@
-/*	$OpenBSD: irq_dispatch.S,v 1.13 2017/01/06 00:06:02 jsg Exp $	*/
+/*	$OpenBSD: irq_dispatch.S,v 1.15 2018/08/06 18:39:13 kettenis Exp $	*/
 /*	$NetBSD: irq_dispatch.S,v 1.5 2003/10/30 08:57:24 scw Exp $	*/
 
 /*
@@ -71,8 +71,8 @@
 #include "assym.h"
 
 #include <machine/asm.h>
+#include <arm/armreg.h>
 #include <arm/sysreg.h>
-#include <machine/cpu.h>
 #include <machine/frame.h>
 #include <machine/intr.h>
 
@@ -90,12 +90,17 @@
 .Lcpu_info_primary:
 	.word	_C_LABEL(cpu_info_primary)
 
+#define STOREVFP						\
+	bl	_C_LABEL(vfp_save)
+
 AST_LOCALS
 
 ASENTRY_NP(irq_entry)
 	sub	lr, lr, #0x00000004	/* Adjust the lr */
 
 	PUSHFRAMEINSVC			/* Push an interrupt frame */
+
+	STOREVFP			/* save fpu state before irq handler */
 
 	/*
 	 * Increment the interrupt nesting depth and call the interrupt

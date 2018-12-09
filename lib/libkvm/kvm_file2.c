@@ -1,4 +1,4 @@
-/*	$OpenBSD: kvm_file2.c,v 1.52 2017/01/21 05:42:04 guenther Exp $	*/
+/*	$OpenBSD: kvm_file2.c,v 1.54 2018/09/07 07:24:05 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -105,6 +105,7 @@
 #include <netinet6/ip6_var.h>
 #endif
 
+#include <fcntl.h>
 #include <nlist.h>
 #include <kvm.h>
 #include <db.h>
@@ -208,7 +209,7 @@ kvm_deadfile_byfile(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 	int nfiles;
 
 	nl[0].n_name = "_filehead";
-	nl[1].n_name = "_nfiles";
+	nl[1].n_name = "_numfiles";
 	nl[2].n_name = 0;
 
 	if (kvm_nlist(kd, nl) != 0) {
@@ -279,7 +280,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 	int i, nfiles;
 
 	nl[0].n_name = "_filehead";
-	nl[1].n_name = "_nfiles";
+	nl[1].n_name = "_numfiles";
 	nl[2].n_name = "_allprocess";
 	nl[3].n_name = 0;
 

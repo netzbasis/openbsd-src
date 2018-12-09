@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.84 2017/11/17 03:51:32 dlg Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.90 2018/09/10 16:18:34 sashan Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <sys/refcnt.h>
 #include <sys/task.h>
 #include <sys/time.h>
+#include <sys/timeout.h>
 
 #include <net/ifq.h>
 
@@ -73,7 +74,6 @@
  */
 
 struct rtentry;
-struct timeout;
 struct ifnet;
 struct task;
 
@@ -90,8 +90,22 @@ struct if_clone {
 };
 
 #define	IF_CLONE_INITIALIZER(name, create, destroy)			\
-	{ { 0 }, name, sizeof(name) - 1, create, destroy }
+{									\
+  .ifc_list	= { NULL, NULL },					\
+  .ifc_name	= name,							\
+  .ifc_namelen	= sizeof(name) - 1,					\
+  .ifc_create	= create,						\
+  .ifc_destroy	= destroy,						\
+}
 
+/*
+ *  Locks used to protect struct members in this file:
+ *	I	immutable after creation
+ *	d	protection left do the driver
+ *	c	only used in ioctl or routing socket contexts (kernel lock)
+ *	k	kernel lock
+ *	N	net lock
+ */
 /*
  * Structure defining a queue for a network interface.
  *
@@ -102,17 +116,17 @@ TAILQ_HEAD(ifnet_head, ifnet);		/* the actual queue head */
 struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
 	struct	refcnt if_refcnt;
-	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
-	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
-	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* list of multicast records */
-	TAILQ_HEAD(, ifg_list) if_groups; /* linked list of groups per if */
-	struct hook_desc_head *if_addrhooks; /* address change callbacks */
-	struct hook_desc_head *if_linkstatehooks; /* link change callbacks */
-	struct hook_desc_head *if_detachhooks; /* detach callbacks */
-					/* check or clean routes (+ or -)'d */
+	TAILQ_ENTRY(ifnet) if_list;	/* [k] all struct ifnets are chained */
+	TAILQ_HEAD(, ifaddr) if_addrlist; /* [N] list of addresses per if */
+	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* [N] list of multicast records */
+	TAILQ_HEAD(, ifg_list) if_groups; /* [N] list of groups per if */
+	struct hook_desc_head *if_addrhooks; /* [I] address change callbacks */
+	struct hook_desc_head *if_linkstatehooks; /* [I] link change callbacks*/
+	struct hook_desc_head *if_detachhooks; /* [I] detach callbacks */
+				/* [I] check or clean routes (+ or -)'d */
 	void	(*if_rtrequest)(struct ifnet *, int, struct rtentry *);
-	char	if_xname[IFNAMSIZ];	/* external name (name + unit) */
-	int	if_pcount;		/* number of promiscuous listeners */
+	char	if_xname[IFNAMSIZ];	/* [I] external name (name + unit) */
+	int	if_pcount;		/* [k] # of promiscuous listeners */
 	caddr_t	if_bpf;			/* packet filter structure */
 	caddr_t if_bridgeport;		/* used by bridge ports */
 	caddr_t if_switchport;		/* used by switch ports */
@@ -120,51 +134,48 @@ struct ifnet {				/* and the entries */
 	caddr_t if_mcast6;		/* used by IPv6 multicast code */
 	caddr_t	if_pf_kif;		/* pf interface abstraction */
 	union {
-		caddr_t	carp_s;		/* carp structure (used by !carp ifs) */
+		struct srpl carp_s;	/* carp if list (used by !carp ifs) */
 		struct ifnet *carp_d;	/* ptr to carpdev (used by carp ifs) */
 	} if_carp_ptr;
 #define if_carp		if_carp_ptr.carp_s
 #define if_carpdev	if_carp_ptr.carp_d
-	unsigned int if_index;		/* numeric abbreviation for this if */
+	unsigned int if_index;		/* [I] unique index for this if */
 	short	if_timer;		/* time 'til if_watchdog called */
-	unsigned short if_flags;	/* up/down, broadcast, etc. */
-	int	if_xflags;		/* extra softnet flags */
+	unsigned short if_flags;	/* [N] up/down, broadcast, etc. */
+	int	if_xflags;		/* [N] extra softnet flags */
 	struct	if_data if_data;	/* stats and other data about if */
-	u_int32_t if_hardmtu;		/* maximum MTU device supports */
-	char	if_description[IFDESCRSIZE]; /* interface description */
-	u_short	if_rtlabelid;		/* next route label */
-	u_int8_t if_priority;
-	u_int8_t if_llprio;		/* link layer priority */
-	struct	timeout *if_slowtimo;	/* watchdog timeout */
-	struct	task *if_watchdogtask;	/* watchdog task */
-	struct	task *if_linkstatetask; /* task to do route updates */
+	uint32_t if_hardmtu;		/* [d] maximum MTU device supports */
+	char	if_description[IFDESCRSIZE]; /* [c] interface description */
+	u_short	if_rtlabelid;		/* [c] next route label */
+	uint8_t if_priority;		/* [c] route priority offset */
+	uint8_t if_llprio;		/* [N] link layer priority */
+	struct	timeout if_slowtimo;	/* [I] watchdog timeout */
+	struct	task if_watchdogtask;	/* [I] watchdog task */
+	struct	task if_linkstatetask;	/* [I] task to do route updates */
 
 	/* procedure handles */
-	struct mbuf_queue if_inputqueue;
-	struct task *if_inputtask;	/* input task */
 	SRPL_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
-
-					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
-		     struct rtentry *);
-
+		     struct rtentry *);	/* output routine (enqueue) */
 					/* link level output function */
 	int	(*if_ll_output)(struct ifnet *, struct mbuf *,
 		    struct sockaddr *, struct rtentry *);
-					/* initiate output routine */
-	void	(*if_start)(struct ifnet *);
-					/* ioctl routine */
-	int	(*if_ioctl)(struct ifnet *, u_long, caddr_t);
-					/* timer routine */
-	void	(*if_watchdog)(struct ifnet *);
-	int	(*if_wol)(struct ifnet *, int);
+	void	(*if_start)(struct ifnet *);	/* initiate output */
+	int	(*if_ioctl)(struct ifnet *, u_long, caddr_t); /* ioctl hook */
+	void	(*if_watchdog)(struct ifnet *);	/* timer routine */
+	int	(*if_wol)(struct ifnet *, int);	/* WoL routine **/
 
+	/* queues */
 	struct	ifqueue if_snd;		/* transmit queue */
-	struct	ifqueue **if_ifqs;	/* pointer to an array of sndqs */
+	struct	ifqueue **if_ifqs;	/* [I] pointer to an array of sndqs */
 	void	(*if_qstart)(struct ifqueue *);
-	unsigned int if_nifqs;
+	unsigned int if_nifqs;		/* [I] number of output queues */
 
-	struct sockaddr_dl *if_sadl;	/* pointer to our sockaddr_dl */
+	struct	ifiqueue if_rcv;	/* rx/input queue */
+	struct	ifiqueue **if_iqs;	/* [I] pointer to the array of iqs */
+	unsigned int if_niqs;		/* [I] number of input queues */
+
+	struct sockaddr_dl *if_sadl;	/* [N] pointer to our sockaddr_dl */
 
 	void	*if_afdata[AF_MAX];
 };
@@ -187,7 +198,7 @@ struct ifnet {				/* and the entries */
 #define	if_iqdrops	if_data.ifi_iqdrops
 #define	if_oqdrops	if_data.ifi_oqdrops
 #define	if_noproto	if_data.ifi_noproto
-#define	if_lastchange	if_data.ifi_lastchange
+#define	if_lastchange	if_data.ifi_lastchange	/* [c] last op. state change */
 #define	if_capabilities	if_data.ifi_capabilities
 #define	if_rdomain	if_data.ifi_rdomain
 
@@ -303,7 +314,9 @@ void	if_start(struct ifnet *);
 int	if_enqueue_try(struct ifnet *, struct mbuf *);
 int	if_enqueue(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);
+void	if_input_process(struct ifnet *, struct mbuf_list *);
 int	if_input_local(struct ifnet *, struct mbuf *, sa_family_t);
+int	if_output_local(struct ifnet *, struct mbuf *, sa_family_t);
 void	if_rtrequest_dummy(struct ifnet *, int, struct rtentry *);
 void	p2p_rtrequest(struct ifnet *, int, struct rtentry *);
 
@@ -315,7 +328,6 @@ void	ifafree(struct ifaddr *);
 int	if_isconnected(const struct ifnet *, unsigned int);
 
 void	if_clone_attach(struct if_clone *);
-void	if_clone_detach(struct if_clone *);
 
 int	if_clone_create(const char *, int);
 int	if_clone_destroy(const char *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.27 2017/01/30 05:00:31 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.29 2018/11/16 21:15:47 guenther Exp $ */
 
 /*
  * Copyright (c) 1998-2004 Opsycon AB, Sweden.
@@ -235,8 +235,9 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 			    symp, object, NULL);
 			if (this)
 				*gotp = this->st_value + ooff;
-		} else if (ELF64_ST_TYPE(symp->st_info) == STT_FUNC &&
-			symp->st_value != *gotp) {
+		} else if ((ELF64_ST_TYPE(symp->st_info) == STT_FUNC &&
+			symp->st_value != *gotp) ||
+			ELF_ST_VISIBILITY(symp->st_other) == STV_PROTECTED) {
 			*gotp += loff;
 		} else {	/* Resolve all others immediately */
 			this = NULL;
@@ -252,9 +253,6 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 		symp++;
 	}
 	object->status |= STAT_GOT_DONE;
-
-	/* mprotect the GOT */
-	_dl_protect_segment(object, 0, "__got_start", "__got_end", PROT_READ);
 
 	return (0);
 }

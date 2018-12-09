@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfe.c,v 1.99 2017/01/24 04:24:25 benno Exp $ */
+/*	$OpenBSD: ospfe.c,v 1.103 2018/09/27 12:34:06 benno Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -90,10 +90,6 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	/* cleanup a bit */
 	kif_clear();
 
-	/* create ospfd control socket outside chroot */
-	if (control_init(xconf->csock) == -1)
-		fatalx("control socket setup failed");
-
 	/* create the raw ip socket */
 	if ((xconf->ospf_socket = socket(AF_INET,
 	    SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
@@ -136,7 +132,7 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio inet mcast", NULL) == -1)
+	if (pledge("stdio inet mcast recvfd", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -181,20 +177,13 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	event_add(&oeconf->ev, NULL);
 
 	/* remove unneeded config stuff */
-	while ((r = SIMPLEQ_FIRST(&oeconf->redist_list)) != NULL) {
-		SIMPLEQ_REMOVE_HEAD(&oeconf->redist_list, entry);
-		free(r);
-	}
+	conf_clear_redist_list(&oeconf->redist_list);
 	LIST_FOREACH(area, &oeconf->area_list, entry) {
 		while ((r = SIMPLEQ_FIRST(&area->redist_list)) != NULL) {
 			SIMPLEQ_REMOVE_HEAD(&area->redist_list, entry);
 			free(r);
 		}
 	}
-
-	/* listen on ospfd control socket */
-	TAILQ_INIT(&ctl_conns);
-	control_listen();
 
 	if ((pkt_ptr = calloc(1, READ_BUF_SIZE)) == NULL)
 		fatal("ospfe");
@@ -278,7 +267,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 {
 	static struct area	*narea;
 	static struct iface	*niface;
-	struct ifaddrdel	*ifc;
+	struct ifaddrchange	*ifc;
 	struct imsg	 imsg;
 	struct imsgev	*iev = bula;
 	struct imsgbuf	*ibuf = &iev->ibuf;
@@ -346,12 +335,56 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 							    iface->name);
 						}
 					}
+					if (strcmp(kif->ifname,
+					    iface->dependon) == 0) {
+						log_warnx("interface %s"
+						    " changed state, %s"
+						    " depends on it",
+						    kif->ifname,
+						    iface->name);
+						iface->depend_ok =
+						    ifstate_is_up(kif);
+
+						if ((iface->flags &
+						    IFF_UP) &&
+						    LINK_STATE_IS_UP(iface->linkstate))
+							orig_rtr_lsa(iface->area);
+					}
+				}
+			}
+			break;
+		case IMSG_IFADDRADD:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(struct ifaddrchange))
+				fatalx("IFADDRADD imsg with wrong len");
+			ifc = imsg.data;
+
+			LIST_FOREACH(area, &oeconf->area_list, entry) {
+				LIST_FOREACH(iface, &area->iface_list, entry) {
+					if (ifc->ifindex == iface->ifindex &&
+					    ifc->addr.s_addr ==
+					    iface->addr.s_addr) {
+						iface->mask = ifc->mask;
+						iface->dst = ifc->dst;
+						/*
+						 * Previous down event might
+						 * have failed if the address
+						 * was not present at that
+						 * time.
+						 */
+						if_fsm(iface, IF_EVT_DOWN);
+						if_fsm(iface, IF_EVT_UP);
+						log_warnx("interface %s:%s "
+						    "returned", iface->name,
+						    inet_ntoa(iface->addr));
+						break;
+					}
 				}
 			}
 			break;
 		case IMSG_IFADDRDEL:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
-			    sizeof(struct ifaddrdel))
+			    sizeof(struct ifaddrchange))
 				fatalx("IFADDRDEL imsg with wrong len");
 			ifc = imsg.data;
 
@@ -423,6 +456,17 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 		case IMSG_CTL_IFINFO:
 		case IMSG_CTL_END:
 			control_imsg_relay(&imsg);
+			break;
+		case IMSG_CONTROLFD:
+			if ((fd = imsg.fd) == -1)
+				fatalx("%s: expected to receive imsg control"
+				    "fd but didn't receive any", __func__);
+			control_state.fd = fd;
+			/* Listen on control socket. */
+			TAILQ_INIT(&ctl_conns);
+			control_listen();
+			if (pledge("stdio inet mcast", NULL) == -1)
+				fatal("pledge");
 			break;
 		default:
 			log_debug("ospfe_dispatch_main: error handling imsg %d",
@@ -847,6 +891,9 @@ orig_rtr_lsa(struct area *area)
 				if (oeconf->flags & OSPFD_FLAG_STUB_ROUTER ||
 				    oe_nofib)
 					rtr_link.metric = MAX_METRIC;
+				else if (iface->dependon[0] != '\0' &&
+					 iface->depend_ok == 0)
+					rtr_link.metric = MAX_METRIC;
 				else
 					rtr_link.metric = htons(iface->metric);
 				num_links++;
@@ -916,11 +963,15 @@ orig_rtr_lsa(struct area *area)
 
 			rtr_link.num_tos = 0;
 			/*
-			 * backup carp interfaces are anounced with high metric
-			 * for faster failover.
+			 * backup carp interfaces and interfaces that depend
+			 * on an interface that is down are announced with
+			 * high metric for faster failover.
 			 */
 			if (iface->if_type == IFT_CARP &&
 			    iface->linkstate == LINK_STATE_DOWN)
+				rtr_link.metric = MAX_METRIC;
+			else if (iface->dependon[0] != '\0' &&
+			         iface->depend_ok == 0)
 				rtr_link.metric = MAX_METRIC;
 			else
 				rtr_link.metric = htons(iface->metric);
@@ -977,6 +1028,9 @@ orig_rtr_lsa(struct area *area)
 					/* RFC 3137: stub router support */
 					if (oe_nofib || oeconf->flags &
 					    OSPFD_FLAG_STUB_ROUTER)
+						rtr_link.metric = MAX_METRIC;
+					else if (iface->dependon[0] != '\0' &&
+						 iface->depend_ok == 0)
 						rtr_link.metric = MAX_METRIC;
 					else
 						rtr_link.metric =

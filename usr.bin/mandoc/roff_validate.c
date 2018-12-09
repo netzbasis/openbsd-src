@@ -1,6 +1,6 @@
-/*	$OpenBSD: roff_validate.c,v 1.9 2017/06/14 22:50:37 schwarze Exp $ */
+/*	$OpenBSD: roff_validate.c,v 1.12 2018/12/04 03:28:54 schwarze Exp $ */
 /*
- * Copyright (c) 2010, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "mandoc.h"
 #include "roff.h"
@@ -28,17 +29,19 @@
 
 typedef	void	(*roff_valid_fp)(ROFF_VALID_ARGS);
 
+static	void	  roff_valid_br(ROFF_VALID_ARGS);
 static	void	  roff_valid_ft(ROFF_VALID_ARGS);
+static	void	  roff_valid_sp(ROFF_VALID_ARGS);
 
 static	const roff_valid_fp roff_valids[ROFF_MAX] = {
-	NULL,  /* br */
+	roff_valid_br,  /* br */
 	NULL,  /* ce */
 	roff_valid_ft,  /* ft */
 	NULL,  /* ll */
 	NULL,  /* mc */
 	NULL,  /* po */
 	NULL,  /* rj */
-	NULL,  /* sp */
+	roff_valid_sp,  /* sp */
 	NULL,  /* ta */
 	NULL,  /* ti */
 };
@@ -56,9 +59,42 @@ roff_validate(struct roff_man *man)
 }
 
 static void
+roff_valid_br(ROFF_VALID_ARGS)
+{
+	struct roff_node	*np;
+
+	if (n->child != NULL)
+		mandoc_vmsg(MANDOCERR_ARG_SKIP, man->parse,
+		    n->line, n->pos, "br %s", n->child->string);
+
+	if (n->next != NULL && n->next->type == ROFFT_TEXT &&
+	    *n->next->string == ' ') {
+		mandoc_msg(MANDOCERR_PAR_SKIP, man->parse, n->line, n->pos,
+		    "br before text line with leading blank");
+		roff_node_delete(man, n);
+		return;
+	}
+
+	if ((np = n->prev) == NULL)
+		return;
+
+	switch (np->tok) {
+	case ROFF_br:
+	case ROFF_sp:
+	case MDOC_Pp:
+		mandoc_vmsg(MANDOCERR_PAR_SKIP, man->parse,
+		    n->line, n->pos, "br after %s", roff_name[np->tok]);
+		roff_node_delete(man, n);
+		break;
+	default:
+		break;
+	}
+}
+
+static void
 roff_valid_ft(ROFF_VALID_ARGS)
 {
-	char	*cp;
+	const char		*cp;
 
 	if (n->child == NULL) {
 		man->next = ROFF_NEXT_CHILD;
@@ -84,7 +120,8 @@ roff_valid_ft(ROFF_VALID_ARGS)
 			return;
 		break;
 	case 'C':
-		if (cp[1] == 'W' && cp[2] == '\0')
+		if (cp[1] != '\0' && cp[2] == '\0' &&
+		    strchr("BIRW", cp[1]) != NULL)
 			return;
 		break;
 	default:
@@ -94,4 +131,33 @@ roff_valid_ft(ROFF_VALID_ARGS)
 	mandoc_vmsg(MANDOCERR_FT_BAD, man->parse,
 	    n->line, n->pos, "ft %s", cp);
 	roff_node_delete(man, n);
+}
+
+static void
+roff_valid_sp(ROFF_VALID_ARGS)
+{
+	struct roff_node	*np;
+
+	if (n->child != NULL && n->child->next != NULL)
+		mandoc_vmsg(MANDOCERR_ARG_EXCESS, man->parse,
+		    n->child->next->line, n->child->next->pos,
+		    "sp ... %s", n->child->next->string);
+
+	if ((np = n->prev) == NULL)
+		return;
+
+	switch (np->tok) {
+	case ROFF_br:
+		mandoc_msg(MANDOCERR_PAR_SKIP, man->parse,
+		    np->line, np->pos, "br before sp");
+		roff_node_delete(man, np);
+		break;
+	case MDOC_Pp:
+		mandoc_msg(MANDOCERR_PAR_SKIP, man->parse,
+		    n->line, n->pos, "sp after Pp");
+		roff_node_delete(man, n);
+		break;
+	default:
+		break;
+	}
 }

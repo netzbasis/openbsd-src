@@ -1,4 +1,4 @@
-/*	$OpenBSD: event.h,v 1.27 2017/11/04 14:13:53 mpi Exp $	*/
+/*	$OpenBSD: event.h,v 1.30 2018/01/13 12:58:40 robert Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -38,8 +38,9 @@
 #define EVFILT_PROC		(-5)	/* attached to struct process */
 #define EVFILT_SIGNAL		(-6)	/* attached to struct process */
 #define EVFILT_TIMER		(-7)	/* timers */
+#define EVFILT_DEVICE		(-8)	/* devices */
 
-#define EVFILT_SYSCOUNT		7
+#define EVFILT_SYSCOUNT		8
 
 #define EV_SET(kevp_, a, b, c, d, e, f) do {	\
 	struct kevent *kevp = (kevp_);		\
@@ -54,9 +55,9 @@
 struct kevent {
 	__uintptr_t	ident;		/* identifier for this event */
 	short		filter;		/* filter for event */
-	u_short		flags;
-	u_int		fflags;
-	__int64_t	data;
+	unsigned short	flags;		/* action flags for kqueue */
+	unsigned int	fflags;		/* filter flag value */
+	__int64_t	data;		/* filter data value */
 	void		*udata;		/* opaque user data identifier */
 };
 
@@ -111,6 +112,9 @@ struct kevent {
 #define	NOTE_TRACKERR	0x00000002		/* could not track child */
 #define	NOTE_CHILD	0x00000004		/* am a child process */
 
+/* data/hint flags for EVFILT_DEVICE, shared with userspace */
+#define NOTE_CHANGE	0x00000001		/* device change event */
+
 /*
  * This is currently visible to userland to work around broken
  * programs which pull in <sys/proc.h> or <sys/selinfo.h>.
@@ -120,8 +124,6 @@ struct knote;
 SLIST_HEAD(klist, knote);
 
 #ifdef _KERNEL
-
-#define EVFILT_MARKER	0xF			/* placemarker for tailq */
 
 /*
  * hint flag for in-kernel use - must not equal any existing note
@@ -168,8 +170,6 @@ struct knote {
 #define KN_QUEUED	0x0002			/* event is on queue */
 #define KN_DISABLED	0x0004			/* event is disabled */
 #define KN_DETACHED	0x0008			/* knote is detached */
-#define KN_PROCESSING	0x0010			/* event processing in prog */
-#define KN_WAITING	0x0020			/* waiting on processing */
 
 #define kn_id		kn_kevent.ident
 #define kn_filter	kn_kevent.filter

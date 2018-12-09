@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_var.h,v 1.82 2017/12/08 21:16:01 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_var.h,v 1.92 2018/10/27 10:02:47 phessler Exp $	*/
 /*	$NetBSD: ieee80211_var.h,v 1.7 2004/05/06 03:07:10 dyoung Exp $	*/
 
 /*-
@@ -52,7 +52,7 @@
 #define	IEEE80211_CHAN_MAX	255
 #define	IEEE80211_CHAN_ANY	0xffff		/* token for ``any channel'' */
 #define	IEEE80211_CHAN_ANYC \
-	((struct ieee80211_channel *) IEEE80211_CHAN_ANY)
+	((struct ieee80211_channel *) NULL)
 
 #define	IEEE80211_TXPOWER_MAX	100	/* max power */
 #define	IEEE80211_TXPOWER_MIN	-50	/* kill radio (if possible) */
@@ -204,6 +204,8 @@ struct ieee80211com {
 				    struct ieee80211_node *, int, int, int);
 	int			(*ic_newstate)(struct ieee80211com *,
 				    enum ieee80211_state, int);
+	int			(*ic_newauth)(struct ieee80211com *,
+				    struct ieee80211_node *, int, uint16_t);
 	void			(*ic_newassoc)(struct ieee80211com *,
 				    struct ieee80211_node *, int);
 	void			(*ic_node_leave)(struct ieee80211com *,
@@ -238,7 +240,6 @@ struct ieee80211com {
 	u_char			ic_chan_scan[howmany(IEEE80211_CHAN_MAX,NBBY)];
 	struct mbuf_queue	ic_mgtq;
 	struct mbuf_queue	ic_pwrsaveq;
-	u_int			ic_scan_lock;	/* user-initiated scan */
 	u_int8_t		ic_scan_count;	/* count scans */
 	u_int32_t		ic_flags;	/* state flags */
 	u_int32_t		ic_xflags;	/* more flags */
@@ -333,12 +334,34 @@ struct ieee80211com {
 	u_int8_t		ic_aselcaps;
 	u_int8_t		ic_dialog_token;
 	int			ic_fixed_mcs;
+	TAILQ_HEAD(, ieee80211_ess)	 ic_ess;
 };
 #define	ic_if		ic_ac.ac_if
 #define	ic_softc	ic_if.if_softc
 
-LIST_HEAD(ieee80211com_head, ieee80211com);
-extern struct ieee80211com_head ieee80211com_head;
+/* list of APs we want to automatically use */
+/* all data is copied from struct ieee80211com */
+struct ieee80211_ess {
+	/* nwid */
+	int			esslen;
+	u_int8_t		essid[IEEE80211_NWID_LEN];
+
+	/* clear/wep/wpa */
+	u_int32_t		flags;
+
+	/* nwkey */
+	struct ieee80211_key    nw_keys[IEEE80211_GROUP_NKID];
+	int			def_txkey;
+
+	/* wpakey */
+	u_int8_t		psk[IEEE80211_PMK_LEN];
+	u_int			rsnprotos;
+	u_int			rsnakms;
+	u_int			rsnciphers;
+	enum ieee80211_cipher	rsngroupcipher;
+
+	TAILQ_ENTRY(ieee80211_ess) ess_next;
+};
 
 #define	IEEE80211_ADDR_EQ(a1,a2)	(memcmp(a1,a2,IEEE80211_ADDR_LEN) == 0)
 #define	IEEE80211_ADDR_COPY(dst,src)	memcpy(dst,src,IEEE80211_ADDR_LEN)
@@ -366,7 +389,8 @@ extern struct ieee80211com_head ieee80211com_head;
 #define	IEEE80211_F_HTON	0x02000000	/* CONF: HT enabled */
 #define	IEEE80211_F_PBAR	0x04000000	/* CONF: PBAC required */
 #define	IEEE80211_F_BGSCAN	0x08000000	/* STATUS: background scan */
-#define IEEE80211_F_USERMASK	0xf0000000	/* CONF: ioctl flag mask */
+#define IEEE80211_F_AUTO_JOIN	0x10000000	/* CONF: auto-join active */
+#define IEEE80211_F_USERMASK	0xe0000000	/* CONF: ioctl flag mask */
 
 /* ic_xflags */
 #define	IEEE80211_F_TX_MGMT_ONLY 0x00000001	/* leave data frames on ifq */
@@ -425,6 +449,11 @@ enum ieee80211_phymode ieee80211_chan2mode(struct ieee80211com *,
 		const struct ieee80211_channel *);
 void	ieee80211_disable_wep(struct ieee80211com *); 
 void	ieee80211_disable_rsn(struct ieee80211com *); 
+int	ieee80211_add_ess(struct ieee80211com *, struct ieee80211_join *);
+void	ieee80211_del_ess(struct ieee80211com *, char *, int);
+void	ieee80211_set_ess(struct ieee80211com *, struct ieee80211_ess *,
+	    struct ieee80211_node *);
+struct ieee80211_ess *ieee80211_get_ess(struct ieee80211com *, const char *, int);
 
 extern	int ieee80211_cache_size;
 

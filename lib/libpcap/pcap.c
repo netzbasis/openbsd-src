@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcap.c,v 1.20 2016/11/16 13:47:27 reyk Exp $	*/
+/*	$OpenBSD: pcap.c,v 1.24 2018/06/03 10:29:28 sthen Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996, 1997, 1998
@@ -223,6 +223,15 @@ pcap_set_timeout(pcap_t *p, int timeout_ms)
 }
 
 int
+pcap_set_immediate_mode(pcap_t *p, int immediate)
+{
+	if (pcap_check_activated(p))
+		return PCAP_ERROR_ACTIVATED;
+	p->opt.immediate = immediate;
+	return 0;
+}
+
+int
 pcap_set_buffer_size(pcap_t *p, int buffer_size)
 {
 	if (pcap_check_activated(p))
@@ -313,6 +322,7 @@ DLT_CHOICE(DLT_IEEE802, "IEEE 802 Networks"),
 DLT_CHOICE(DLT_ARCNET, "ARCNET"),
 DLT_CHOICE(DLT_SLIP, "Serial Line IP"),
 DLT_CHOICE(DLT_PPP, "Point-to-point Protocol"),
+DLT_CHOICE(DLT_PPP_SERIAL, "PPP over serial"),
 DLT_CHOICE(DLT_FDDI, "FDDI"),
 DLT_CHOICE(DLT_ATM_RFC1483, "LLC/SNAP encapsulated atm"),
 DLT_CHOICE(DLT_LOOP, "loopback type (af header)"),
@@ -326,6 +336,7 @@ DLT_CHOICE(DLT_IEEE802_11, "IEEE 802.11 wireless"),
 DLT_CHOICE(DLT_PFLOG, "Packet filter logging, by pcap people"),
 DLT_CHOICE(DLT_IEEE802_11_RADIO, "IEEE 802.11 plus WLAN header"),
 DLT_CHOICE(DLT_OPENFLOW, "OpenFlow"),
+DLT_CHOICE(DLT_USBPCAP, "USB"),
 #undef DLT_CHOICE
 	{ NULL, NULL, -1}
 };
@@ -404,7 +415,7 @@ pcap_fileno(pcap_t *p)
 }
 
 void
-pcap_perror(pcap_t *p, char *prefix)
+pcap_perror(pcap_t *p, const char *prefix)
 {
 	fprintf(stderr, "%s: %s\n", prefix, p->errbuf);
 }
@@ -520,7 +531,7 @@ pcap_statustostr(int errnum)
 /*
  * Not all systems have strerror().
  */
-char *
+const char *
 pcap_strerror(int errnum)
 {
 #ifdef HAVE_STRERROR

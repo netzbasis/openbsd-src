@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.222 2017/12/10 20:34:41 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.233 2018/09/22 13:55:55 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -418,7 +418,7 @@ int	iwm_rm_sta_cmd(struct iwm_softc *, struct iwm_node *);
 uint16_t iwm_scan_rx_chain(struct iwm_softc *);
 uint32_t iwm_scan_rate_n_flags(struct iwm_softc *, int, int);
 uint8_t	iwm_lmac_scan_fill_channels(struct iwm_softc *,
-	    struct iwm_scan_channel_cfg_lmac *, int);
+	    struct iwm_scan_channel_cfg_lmac *, int, int);
 int	iwm_fill_probe_req(struct iwm_softc *, struct iwm_scan_probe_req *);
 int	iwm_lmac_scan(struct iwm_softc *, int);
 int	iwm_config_umac_scan(struct iwm_softc *);
@@ -3443,6 +3443,7 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	uint32_t len;
 	uint32_t rx_pkt_status;
 	int rssi, chanidx;
+	uint8_t saved_bssid[IEEE80211_ADDR_LEN] = { 0 };
 
 	bus_dmamap_sync(sc->sc_dmat, data->map, 0, IWM_RBUF_SIZE,
 	    BUS_DMASYNC_POSTREAD);
@@ -3498,6 +3499,7 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 		 * Record the current channel so we can restore it later.
 		 */
 		bss_chan = ni->ni_chan;
+		IEEE80211_ADDR_COPY(&saved_bssid, ni->ni_macaddr);
 	}
 	ni->ni_chan = &ic->ic_channels[chanidx];
 
@@ -3562,7 +3564,11 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	}
 #endif
 	ieee80211_input(IC2IFP(ic), m, ni, &rxi);
-	if (ni == ic->ic_bss)
+	/*
+	 * ieee80211_input() might have changed our BSS.
+	 * Restore ic_bss's channel if we are still in the same BSS.
+	 */
+	if (ni == ic->ic_bss && IEEE80211_ADDR_EQ(saved_bssid, ni->ni_macaddr))
 		ni->ni_chan = bss_chan;
 	ieee80211_release_node(ic, ni);
 }
@@ -4724,7 +4730,7 @@ iwm_scan_rate_n_flags(struct iwm_softc *sc, int flags, int no_cck)
 
 uint8_t
 iwm_lmac_scan_fill_channels(struct iwm_softc *sc,
-    struct iwm_scan_channel_cfg_lmac *chan, int n_ssids)
+    struct iwm_scan_channel_cfg_lmac *chan, int n_ssids, int bgscan)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_channel *c;
@@ -4741,10 +4747,8 @@ iwm_lmac_scan_fill_channels(struct iwm_softc *sc,
 		chan->iter_count = htole16(1);
 		chan->iter_interval = 0;
 		chan->flags = htole32(IWM_UNIFIED_SCAN_CHANNEL_PARTIAL);
-#if 0 /* makes scanning while associated less useful */
-		if (n_ssids != 0)
+		if (n_ssids != 0 && !bgscan)
 			chan->flags |= htole32(1 << 1); /* select SSID 0 */
-#endif
 		chan++;
 		nchan++;
 	}
@@ -4754,7 +4758,7 @@ iwm_lmac_scan_fill_channels(struct iwm_softc *sc,
 
 uint8_t
 iwm_umac_scan_fill_channels(struct iwm_softc *sc,
-    struct iwm_scan_channel_cfg_umac *chan, int n_ssids)
+    struct iwm_scan_channel_cfg_umac *chan, int n_ssids, int bgscan)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_channel *c;
@@ -4770,10 +4774,8 @@ iwm_umac_scan_fill_channels(struct iwm_softc *sc,
 		chan->channel_num = ieee80211_mhz2ieee(c->ic_freq, 0);
 		chan->iter_count = 1;
 		chan->iter_interval = htole16(0);
-#if 0 /* makes scanning while associated less useful */
-		if (n_ssids != 0)
+		if (n_ssids != 0 && !bgscan)
 			chan->flags = htole32(1 << 0); /* select SSID 0 */
-#endif
 		chan++;
 		nchan++;
 	}
@@ -4961,7 +4963,7 @@ iwm_lmac_scan(struct iwm_softc *sc, int bgscan)
 
 	req->n_channels = iwm_lmac_scan_fill_channels(sc,
 	    (struct iwm_scan_channel_cfg_lmac *)req->data,
-	    ic->ic_des_esslen != 0);
+	    ic->ic_des_esslen != 0, bgscan);
 
 	err = iwm_fill_probe_req(sc,
 			    (struct iwm_scan_probe_req *)(req->data +
@@ -5108,7 +5110,7 @@ iwm_umac_scan(struct iwm_softc *sc, int bgscan)
 
 	req->n_channels = iwm_umac_scan_fill_channels(sc,
 	    (struct iwm_scan_channel_cfg_umac *)req->data,
-	    ic->ic_des_esslen != 0);
+	    ic->ic_des_esslen != 0, bgscan);
 
 	req->general_flags = htole32(IWM_UMAC_SCAN_GEN_FLAGS_PASS_ALL |
 	    IWM_UMAC_SCAN_GEN_FLAGS_ITER_COMPLETE |
@@ -5479,6 +5481,7 @@ int
 iwm_scan(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
+	struct ifnet *ifp = IC2IFP(ic);
 	int err;
 
 	if (sc->sc_flags & IWM_FLAG_BGSCAN) {
@@ -5500,6 +5503,14 @@ iwm_scan(struct iwm_softc *sc)
 	}
 
 	sc->sc_flags |= IWM_FLAG_SCANNING;
+	if (ifp->if_flags & IFF_DEBUG)
+		printf("%s: %s -> %s\n", ifp->if_xname,
+		    ieee80211_state_name[ic->ic_state],
+		    ieee80211_state_name[IEEE80211_S_SCAN]);
+	if ((sc->sc_flags & IWM_FLAG_BGSCAN) == 0) {
+		ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+		ieee80211_free_allnodes(ic, 1);
+	}
 	ic->ic_state = IEEE80211_S_SCAN;
 	iwm_led_blink_start(sc);
 	wakeup(&ic->ic_state); /* wake iwm_init() */
@@ -6080,10 +6091,6 @@ iwm_newstate_task(void *psc)
 	enum ieee80211_state ostate = ic->ic_state;
 	int arg = sc->ns_arg;
 	int err = 0, s = splnet();
-
-	DPRINTF(("switching state %s->%s\n",
-	    ieee80211_state_name[ostate],
-	    ieee80211_state_name[nstate]));
 
 	if (sc->sc_flags & IWM_FLAG_SHUTDOWN) {
 		/* iwm_stop() is waiting for us. */
@@ -6711,9 +6718,6 @@ iwm_stop(struct ifnet *ifp)
 		sc->sc_cmd_resp_pkt[i] = NULL;
 		sc->sc_cmd_resp_len[i] = 0;
 	}
-	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
-		wakeup(&ic->ic_scan_lock);
-	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 	ifp->if_flags &= ~IFF_RUNNING;
 	ifq_clr_oactive(&ifp->if_snd);
 
@@ -7318,6 +7322,10 @@ iwm_notif_intr(struct iwm_softc *sc)
 				sc->sc_flags &= ~IWM_FLAG_TE_ACTIVE;
 			break;
 		}
+
+		case IWM_WIDE_ID(IWM_SYSTEM_GROUP,
+		    IWM_FSEQ_VER_MISMATCH_NOTIFICATION):
+		    break;
 
 		/*
 		 * Firmware versions 21 and 22 generate some DEBUG_LOG_MSG

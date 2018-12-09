@@ -1,4 +1,4 @@
-/* $OpenBSD: acpiec.c,v 1.56 2017/03/11 21:46:32 jcs Exp $ */
+/* $OpenBSD: acpiec.c,v 1.59 2018/07/01 19:40:49 mlarkin Exp $ */
 /*
  * Copyright (c) 2006 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -33,24 +33,24 @@
 int		acpiec_match(struct device *, void *, void *);
 void		acpiec_attach(struct device *, struct device *, void *);
 
-u_int8_t	acpiec_status(struct acpiec_softc *);
-u_int8_t	acpiec_read_data(struct acpiec_softc *);
-void		acpiec_write_cmd(struct acpiec_softc *, u_int8_t);
-void		acpiec_write_data(struct acpiec_softc *, u_int8_t);
+uint8_t		acpiec_status(struct acpiec_softc *);
+uint8_t		acpiec_read_data(struct acpiec_softc *);
+void		acpiec_write_cmd(struct acpiec_softc *, uint8_t);
+void		acpiec_write_data(struct acpiec_softc *, uint8_t);
 void		acpiec_burst_enable(struct acpiec_softc *sc);
 void		acpiec_burst_disable(struct acpiec_softc *sc);
 
-u_int8_t	acpiec_read_1(struct acpiec_softc *, u_int8_t);
-void		acpiec_write_1(struct acpiec_softc *, u_int8_t, u_int8_t);
+uint8_t		acpiec_read_1(struct acpiec_softc *, uint8_t);
+void		acpiec_write_1(struct acpiec_softc *, uint8_t, uint8_t);
 
-void		acpiec_read(struct acpiec_softc *, u_int8_t, int, u_int8_t *);
-void		acpiec_write(struct acpiec_softc *, u_int8_t, int, u_int8_t *);
+void		acpiec_read(struct acpiec_softc *, uint8_t, int, uint8_t *);
+void		acpiec_write(struct acpiec_softc *, uint8_t, int, uint8_t *);
 
 int		acpiec_getcrs(struct acpiec_softc *,
 		    struct acpi_attach_args *);
 int		acpiec_parse_resources(int, union acpi_resource *, void *);
 
-void		acpiec_wait(struct acpiec_softc *, u_int8_t, u_int8_t);
+void		acpiec_wait(struct acpiec_softc *, uint8_t, uint8_t);
 void		acpiec_sci_event(struct acpiec_softc *);
 
 void		acpiec_get_events(struct acpiec_softc *);
@@ -77,6 +77,8 @@ void		acpiec_unlock(struct acpiec_softc *);
 
 int	acpiec_reg(struct acpiec_softc *);
 
+extern char	*hw_vendor, *hw_prod;
+
 struct cfattach acpiec_ca = {
 	sizeof(struct acpiec_softc), acpiec_match, acpiec_attach
 };
@@ -85,13 +87,16 @@ struct cfdriver acpiec_cd = {
 	NULL, "acpiec", DV_DULL
 };
 
-const char *acpiec_hids[] = { ACPI_DEV_ECD, 0 };
+const char *acpiec_hids[] = {
+	ACPI_DEV_ECD,
+	NULL
+};
 
 void
-acpiec_wait(struct acpiec_softc *sc, u_int8_t mask, u_int8_t val)
+acpiec_wait(struct acpiec_softc *sc, uint8_t mask, uint8_t val)
 {
 	static int acpiecnowait;
-	u_int8_t		stat;
+	uint8_t		stat;
 
 	dnprintf(40, "%s: EC wait_ns for: %b == %02x\n",
 	    DEVNAME(sc), (int)mask,
@@ -110,14 +115,14 @@ acpiec_wait(struct acpiec_softc *sc, u_int8_t mask, u_int8_t val)
 	    "\20\x8IGN\x7SMI\x6SCI\05BURST\04CMD\03IGN\02IBF\01OBF");
 }
 
-u_int8_t
+uint8_t
 acpiec_status(struct acpiec_softc *sc)
 {
 	return (bus_space_read_1(sc->sc_cmd_bt, sc->sc_cmd_bh, 0));
 }
 
 void
-acpiec_write_data(struct acpiec_softc *sc, u_int8_t val)
+acpiec_write_data(struct acpiec_softc *sc, uint8_t val)
 {
 	acpiec_wait(sc, EC_STAT_IBF, 0);
 	dnprintf(40, "acpiec: write_data -- %d\n", (int)val);
@@ -125,17 +130,17 @@ acpiec_write_data(struct acpiec_softc *sc, u_int8_t val)
 }
 
 void
-acpiec_write_cmd(struct acpiec_softc *sc, u_int8_t val)
+acpiec_write_cmd(struct acpiec_softc *sc, uint8_t val)
 {
 	acpiec_wait(sc, EC_STAT_IBF, 0);
 	dnprintf(40, "acpiec: write_cmd -- %d\n", (int)val);
 	bus_space_write_1(sc->sc_cmd_bt, sc->sc_cmd_bh, 0, val);
 }
 
-u_int8_t
+uint8_t
 acpiec_read_data(struct acpiec_softc *sc)
 {
-	u_int8_t		val;
+	uint8_t		val;
 
 	acpiec_wait(sc, EC_STAT_OBF, EC_STAT_OBF);
 	val = bus_space_read_1(sc->sc_data_bt, sc->sc_data_bh, 0);
@@ -148,7 +153,7 @@ acpiec_read_data(struct acpiec_softc *sc)
 void
 acpiec_sci_event(struct acpiec_softc *sc)
 {
-	u_int8_t		evt;
+	uint8_t		evt;
 
 	sc->sc_gotsci = 0;
 
@@ -165,10 +170,10 @@ acpiec_sci_event(struct acpiec_softc *sc)
 	}
 }
 
-u_int8_t
-acpiec_read_1(struct acpiec_softc *sc, u_int8_t addr)
+uint8_t
+acpiec_read_1(struct acpiec_softc *sc, uint8_t addr)
 {
-	u_int8_t		val;
+	uint8_t		val;
 
 	if ((acpiec_status(sc) & EC_STAT_SCI_EVT) == EC_STAT_SCI_EVT)
 		sc->sc_gotsci = 1;
@@ -182,7 +187,7 @@ acpiec_read_1(struct acpiec_softc *sc, u_int8_t addr)
 }
 
 void
-acpiec_write_1(struct acpiec_softc *sc, u_int8_t addr, u_int8_t data)
+acpiec_write_1(struct acpiec_softc *sc, uint8_t addr, uint8_t data)
 {
 	if ((acpiec_status(sc) & EC_STAT_SCI_EVT) == EC_STAT_SCI_EVT)
 		sc->sc_gotsci = 1;
@@ -195,6 +200,9 @@ acpiec_write_1(struct acpiec_softc *sc, u_int8_t addr, u_int8_t data)
 void
 acpiec_burst_enable(struct acpiec_softc *sc)
 {
+	if (sc->sc_cantburst)
+		return;
+
 	acpiec_write_cmd(sc, EC_CMD_BE);
 	acpiec_read_data(sc);
 }
@@ -202,12 +210,15 @@ acpiec_burst_enable(struct acpiec_softc *sc)
 void
 acpiec_burst_disable(struct acpiec_softc *sc)
 {
+	if (sc->sc_cantburst)
+		return;
+
 	if ((acpiec_status(sc) & EC_STAT_BURST) == EC_STAT_BURST)
 		acpiec_write_cmd(sc, EC_CMD_BD);
 }
 
 void
-acpiec_read(struct acpiec_softc *sc, u_int8_t addr, int len, u_int8_t *buffer)
+acpiec_read(struct acpiec_softc *sc, uint8_t addr, int len, uint8_t *buffer)
 {
 	int			reg;
 
@@ -226,7 +237,7 @@ acpiec_read(struct acpiec_softc *sc, u_int8_t addr, int len, u_int8_t *buffer)
 }
 
 void
-acpiec_write(struct acpiec_softc *sc, u_int8_t addr, int len, u_int8_t *buffer)
+acpiec_write(struct acpiec_softc *sc, uint8_t addr, int len, uint8_t *buffer)
 {
 	int			reg;
 
@@ -273,6 +284,7 @@ acpiec_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_acpi = (struct acpi_softc *)parent;
 	sc->sc_devnode = aa->aaa_node;
+	sc->sc_cantburst = 0;
 
 	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "_STA", 0, NULL, &st))
 		st = STA_PRESENT | STA_ENABLED | STA_DEV_OK;
@@ -293,6 +305,16 @@ acpiec_attach(struct device *parent, struct device *self, void *aux)
 		printf("%s: Failed to register address space\n", DEVNAME(sc));
 		return;
 	}
+
+	/*
+	 * Some Chromebooks using the Google EC do not support burst mode and
+	 * cause us to spin forever waiting for the acknowledgment.  Don't use
+	 * burst mode at all on these machines.
+	 */
+	if (hw_vendor != NULL && hw_prod != NULL &&
+	    strcmp(hw_vendor, "GOOGLE") == 0 &&
+	    strcmp(hw_prod, "Samus") == 0)
+		sc->sc_cantburst = 1;
 
 	acpiec_get_events(sc);
 
@@ -330,7 +352,7 @@ int
 acpiec_gpehandler(struct acpi_softc *acpi_sc, int gpe, void *arg)
 {
 	struct acpiec_softc	*sc = arg;
-	u_int8_t		mask, stat, en;
+	uint8_t			mask, stat, en;
 	int			s;
 
 	KASSERT(sc->sc_ecbusy == 0);

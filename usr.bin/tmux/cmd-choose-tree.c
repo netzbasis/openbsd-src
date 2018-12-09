@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-choose-tree.c,v 1.40 2017/11/02 18:27:35 nicm Exp $ */
+/* $OpenBSD: cmd-choose-tree.c,v 1.42 2018/11/15 10:38:53 kn Exp $ */
 
 /*
  * Copyright (c) 2012 Thomas Adam <thomas@xteddy.org>
@@ -30,9 +30,9 @@ const struct cmd_entry cmd_choose_tree_entry = {
 	.name = "choose-tree",
 	.alias = NULL,
 
-	.args = { "F:Gf:NO:st:w", 0, 1 },
+	.args = { "F:Gf:NO:st:wZ", 0, 1 },
 	.usage = "[-GNsw] [-F format] [-f filter] [-O sort-order] "
-	         CMD_TARGET_PANE_USAGE,
+	         CMD_TARGET_PANE_USAGE " [template]",
 
 	.target = { 't', CMD_FIND_PANE, 0 },
 
@@ -44,9 +44,9 @@ const struct cmd_entry cmd_choose_client_entry = {
 	.name = "choose-client",
 	.alias = NULL,
 
-	.args = { "F:f:NO:t:", 0, 1 },
+	.args = { "F:f:NO:t:Z", 0, 1 },
 	.usage = "[-N] [-F format] [-f filter] [-O sort-order] "
-	         CMD_TARGET_PANE_USAGE,
+	         CMD_TARGET_PANE_USAGE " [template]",
 
 	.target = { 't', CMD_FIND_PANE, 0 },
 
@@ -58,9 +58,9 @@ const struct cmd_entry cmd_choose_buffer_entry = {
 	.name = "choose-buffer",
 	.alias = NULL,
 
-	.args = { "F:f:NO:t:", 0, 1 },
+	.args = { "F:f:NO:t:Z", 0, 1 },
 	.usage = "[-N] [-F format] [-f filter] [-O sort-order] "
-	         CMD_TARGET_PANE_USAGE,
+	         CMD_TARGET_PANE_USAGE " [template]",
 
 	.target = { 't', CMD_FIND_PANE, 0 },
 

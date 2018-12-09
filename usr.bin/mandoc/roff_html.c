@@ -1,7 +1,7 @@
-/*	$OpenBSD: roff_html.c,v 1.11 2017/06/24 14:38:28 schwarze Exp $ */
+/*	$OpenBSD: roff_html.c,v 1.13 2018/12/03 16:17:58 schwarze Exp $ */
 /*
  * Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2014, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2014, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -58,11 +58,7 @@ roff_html_pre(struct html *h, const struct roff_node *n)
 static void
 roff_html_pre_br(ROFF_HTML_ARGS)
 {
-	struct tag	*t;
-
-	t = print_otag(h, TAG_DIV, "");
-	print_text(h, "\\~");  /* So the div isn't empty. */
-	print_tagq(h, t);
+	print_otag(h, TAG_BR, "");
 }
 
 static void
@@ -82,15 +78,5 @@ roff_html_pre_ce(ROFF_HTML_ARGS)
 static void
 roff_html_pre_sp(ROFF_HTML_ARGS)
 {
-	struct roffsu	 su;
-
-	SCALE_VS_INIT(&su, 1);
-	if ((n = n->child) != NULL) {
-		if (a2roffsu(n->string, &su, SCALE_VS) == NULL)
-			su.scale = 1.0;
-		else if (su.scale < 0.0)
-			su.scale = 0.0;
-	}
-	print_otag(h, TAG_DIV, "suh", &su);
-	print_text(h, "\\~");  /* So the div isn't empty. */
+	print_paragraph(h);
 }

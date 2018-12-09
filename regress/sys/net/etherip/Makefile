@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.4 2017/11/15 15:00:04 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.6 2018/06/25 22:22:49 bluhm Exp $
 
 # Copyright (c) 2017 Alexander Bluhm <bluhm@openbsd.org>
 # Copyright (c) 2015 Vincent Gross <vgross@openbsd.org>
@@ -15,7 +15,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-# This tests creates a routing doamin setup with bridge, vether,
+# This tests creates a routing domain setup with bridge, vether,
 # etherip, pair.  Then ping packets are sent through these interfaces.
 # Finally the setup is destroyed.
 
@@ -28,8 +28,8 @@ regress:
 	@echo SKIPPED
 .endif
 
-# This test uses routing doamin and interface number 11 and 12.
-# Adjust it here, if ue want to use something else.
+# This test uses routing domain and interface number 11 and 12.
+# Adjust it here, if you want to use something else.
 N1 =		11
 N2 =		12
 NUMS =		${N1} ${N2}
@@ -37,9 +37,9 @@ IFS =		bridge vether etherip pair
 
 CLEANFILES =	stamp-*
 
-.PHONY: check-interfaces check-rdomains ifconfig unconfig
+.PHONY: busy-interfaces busy-rdomains ifconfig unconfig
 
-check-interfaces:
+busy-interfaces:
 	# check if interfaces are busy
 .for n in ${NUMS}
 .for i in ${IFS}
@@ -48,14 +48,14 @@ check-interfaces:
 .endfor
 .endfor
 
-check-rdomains:
+busy-rdomains:
 	# check if rdomains are busy
 .for n in ${NUMS}
 	@if /sbin/ifconfig | grep -v '^lo${n}:' | grep ' rdomain ${n} '; then\
 	    echo routing domain ${n} is already used >&2; exit 1; fi
 .endfor
 
-ifconfig: check-interfaces check-rdomains
+ifconfig: unconfig
 	# create and configure interfaces
 .for n in ${NUMS}
 .for i in ${IFS}
@@ -84,7 +84,7 @@ unconfig:
 
 stamp-setup:
 	@echo '\n======== $@ ========'
-	${.MAKE} -C ${.CURDIR} ifconfig
+	${.MAKE} -C ${.CURDIR} busy-interfaces busy-rdomains ifconfig
 	date >$@
 
 REGRESS_TARGETS +=	run-regress-ping-1-2

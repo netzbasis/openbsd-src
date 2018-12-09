@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnode.h,v 1.141 2017/12/11 05:27:40 deraadt Exp $	*/
+/*	$OpenBSD: vnode.h,v 1.148 2018/08/13 15:26:17 visa Exp $	*/
 /*	$NetBSD: vnode.h,v 1.38 1996/02/29 20:59:05 cgd Exp $	*/
 
 /*
@@ -93,12 +93,14 @@ struct vnode {
 	enum	vtagtype v_tag;			/* type of underlying data */
 	u_int	v_flag;				/* vnode flags (see below) */
 	u_int   v_usecount;			/* reference count of users */
+	u_int   v_uvcount;			/* unveil references */
 	/* reference count of writers */
 	u_int   v_writecount;
 	/* Flags that can be read/written in interrupts */
 	u_int   v_bioflag;
 	u_int   v_holdcnt;			/* buffer references */
 	u_int   v_id;				/* capability identifier */
+	u_int	v_inflight;
 	struct	mount *v_mount;			/* ptr to vfs we are in */
 	TAILQ_ENTRY(vnode) v_freelist;		/* vnode freelist */
 	LIST_ENTRY(vnode) v_mntvnodes;		/* vnodes for mount point */
@@ -227,7 +229,7 @@ extern int		vttoif_tab[];
 #define	FORCECLOSE	0x0002		/* vflush: force file closeure */
 #define	WRITECLOSE	0x0004		/* vflush: only close writeable files */
 #define	DOCLOSE		0x0008		/* vclean: close active files */
-#define	WRITEDEMOTE	0x0010		/* vflush: ok if some writes remain */
+#define	IGNORECLEAN	0x0010		/* vflush: ignore clean vnodes */
 #define	V_SAVE		0x0001		/* vinvalbuf: sync file first */
 #define	V_SAVEMETA	0x0002		/* vinvalbuf: leave indirect blocks */
 
@@ -513,15 +515,13 @@ int VOP_RECLAIM(struct vnode *, struct proc *);
 struct vop_lock_args {
 	struct vnode *a_vp;
 	int a_flags;
-	struct proc *a_p;
 };
-int VOP_LOCK(struct vnode *, int, struct proc *);
+int VOP_LOCK(struct vnode *, int);
 
 struct vop_unlock_args {
 	struct vnode *a_vp;
-	struct proc *a_p;
 };
-int VOP_UNLOCK(struct vnode *, struct proc *);
+int VOP_UNLOCK(struct vnode *);
 
 struct vop_bmap_args {
 	struct vnode *a_vp;
@@ -592,7 +592,7 @@ int	vcount(struct vnode *);
 int	vfinddev(dev_t, enum vtype, struct vnode **);
 void	vflushbuf(struct vnode *, int);
 int	vflush(struct mount *, struct vnode *, int);
-int	vget(struct vnode *, int, struct proc *);
+int	vget(struct vnode *, int);
 void	vgone(struct vnode *);
 void	vgonel(struct vnode *, struct proc *);
 int	vinvalbuf(struct vnode *, int, struct ucred *, struct proc *,
@@ -634,14 +634,14 @@ int	vn_rdwr(enum uio_rw, struct vnode *, caddr_t, int, off_t,
 	    enum uio_seg, int, struct ucred *, size_t *, struct proc *);
 int	vn_stat(struct vnode *, struct stat *, struct proc *);
 int	vn_statfile(struct file *, struct stat *, struct proc *);
-int	vn_lock(struct vnode *, int, struct proc *);
+int	vn_lock(struct vnode *, int);
 int	vn_writechk(struct vnode *);
 int	vn_fsizechk(struct vnode *, struct uio *, int, ssize_t *);
 int	vn_ioctl(struct file *, u_long, caddr_t, struct proc *);
 void	vn_marktext(struct vnode *);
 
 /* vfs_sync.c */
-void	sched_sync(struct proc *);
+void	syncer_thread(void *);
 void	vn_initialize_syncerd(void);
 void	vn_syncer_add_to_worklist(struct vnode *, int);
 

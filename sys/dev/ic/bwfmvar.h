@@ -1,4 +1,4 @@
-/* $OpenBSD: bwfmvar.h,v 1.3 2017/10/21 20:43:20 patrick Exp $ */
+/* $OpenBSD: bwfmvar.h,v 1.15 2018/07/17 19:44:38 patrick Exp $ */
 /*
  * Copyright (c) 2010-2016 Broadcom Corporation
  * Copyright (c) 2016,2017 Patrick Wildt <patrick@blueri.se>
@@ -32,7 +32,9 @@
 #define BRCM_CC_4339_CHIP_ID		0x4339
 #define BRCM_CC_43430_CHIP_ID		43430
 #define BRCM_CC_4345_CHIP_ID		0x4345
+#define BRCM_CC_43465_CHIP_ID		43465
 #define BRCM_CC_4350_CHIP_ID		0x4350
+#define BRCM_CC_43525_CHIP_ID		43525
 #define BRCM_CC_4354_CHIP_ID		0x4354
 #define BRCM_CC_4356_CHIP_ID		0x4356
 #define BRCM_CC_43566_CHIP_ID		43566
@@ -45,6 +47,7 @@
 #define BRCM_CC_4365_CHIP_ID		0x4365
 #define BRCM_CC_4366_CHIP_ID		0x4366
 #define BRCM_CC_4371_CHIP_ID		0x4371
+#define CY_CC_4373_CHIP_ID		0x4373
 
 /* Defaults */
 #define BWFM_DEFAULT_SCAN_CHANNEL_TIME	40
@@ -82,11 +85,11 @@ struct bwfm_chip {
 };
 
 struct bwfm_bus_ops {
-	void (*bs_init)(struct bwfm_softc *);
+	int (*bs_preinit)(struct bwfm_softc *);
 	void (*bs_stop)(struct bwfm_softc *);
+	int (*bs_txcheck)(struct bwfm_softc *);
 	int (*bs_txdata)(struct bwfm_softc *, struct mbuf *);
-	int (*bs_txctl)(struct bwfm_softc *, char *, size_t);
-	int (*bs_rxctl)(struct bwfm_softc *, char *, size_t *);
+	int (*bs_txctl)(struct bwfm_softc *, void *);
 };
 
 struct bwfm_buscore_ops {
@@ -103,6 +106,8 @@ struct bwfm_proto_ops {
 	    char *, size_t *);
 	int (*proto_set_dcmd)(struct bwfm_softc *, int, int,
 	    char *, size_t);
+	void (*proto_rx)(struct bwfm_softc *, struct mbuf *);
+	void (*proto_rxctl)(struct bwfm_softc *, char *, size_t);
 };
 extern struct bwfm_proto_ops bwfm_proto_bcdc_ops;
 
@@ -111,14 +116,19 @@ struct bwfm_host_cmd {
 	uint8_t	 data[256];
 };
 
-struct bwfm_cmd_newstate {
-	enum ieee80211_state	 state;
-	int			 arg;
-};
-
 struct bwfm_cmd_key {
 	struct ieee80211_node	 *ni;
 	struct ieee80211_key	 *k;
+};
+
+struct bwfm_cmd_mbuf {
+	struct mbuf		 *m;
+};
+
+struct bwfm_cmd_flowring_create {
+	struct mbuf		*m;
+	int			 flowid;
+	int			 prio;
 };
 
 struct bwfm_host_cmd_ring {
@@ -127,6 +137,14 @@ struct bwfm_host_cmd_ring {
 	int			 cur;
 	int			 next;
 	int			 queued;
+};
+
+struct bwfm_proto_bcdc_ctl {
+	int				 reqid;
+	char				*buf;
+	size_t				 len;
+	int				 done;
+	TAILQ_ENTRY(bwfm_proto_bcdc_ctl) next;
 };
 
 struct bwfm_softc {
@@ -141,6 +159,7 @@ struct bwfm_softc {
 #define		BWFM_IO_TYPE_D11N		1
 #define		BWFM_IO_TYPE_D11AC		2
 
+	int			 sc_initialized;
 	int			 sc_tx_timer;
 
 	int			 (*sc_newstate)(struct ieee80211com *,
@@ -148,11 +167,21 @@ struct bwfm_softc {
 	struct bwfm_host_cmd_ring sc_cmdq;
 	struct taskq		*sc_taskq;
 	struct task		 sc_task;
+
+	int			 sc_bcdc_reqid;
+	TAILQ_HEAD(, bwfm_proto_bcdc_ctl) sc_bcdc_rxctlq;
 };
 
 void bwfm_attach(struct bwfm_softc *);
+void bwfm_attachhook(struct device *);
+int bwfm_preinit(struct bwfm_softc *);
 int bwfm_detach(struct bwfm_softc *, int);
 int bwfm_chip_attach(struct bwfm_softc *);
+int bwfm_chip_set_active(struct bwfm_softc *, uint32_t);
+void bwfm_chip_set_passive(struct bwfm_softc *);
+int bwfm_chip_sr_capable(struct bwfm_softc *);
 struct bwfm_core *bwfm_chip_get_core(struct bwfm_softc *, int);
 struct bwfm_core *bwfm_chip_get_pmu(struct bwfm_softc *);
-void bwfm_rx(struct bwfm_softc *, char *, size_t);
+void bwfm_rx(struct bwfm_softc *, struct mbuf *);
+void bwfm_do_async(struct bwfm_softc *, void (*)(struct bwfm_softc *, void *),
+    void *, int);

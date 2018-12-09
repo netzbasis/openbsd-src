@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.148 2017/11/01 18:18:10 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.160 2018/04/22 09:16:15 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -288,15 +288,26 @@ sub parse_problems
 	CORE::open(my $fh, '<', $filename) or return;
 
 	my $baseurl = $self->url;
-	my $url = $baseurl;
-	if (defined $object) {
-		$url = $object->url;
-	}
 	my $notyet = 1;
 	my $broken = 0;
 	my $signify_error = 0;
 	$self->{last_error} = 0;
+	$self->{count}++;
 	while(<$fh>) {
+		if (m/^Redirected to (https?)\:\/\/([^\/]*)/) {
+			my ($scheme, $newhost) = ($1, $2);
+			$self->{state}->print("#1", $_);
+			next if $scheme ne $self->urlscheme;
+			# XXX try logging but syslog doesn't exist for Info
+			eval { 
+			    $self->{state}->syslog("Redirected from #1 to #2",
+				$self->{host}, $newhost);
+			};
+			$self->{host} = $newhost;
+			$self->setup_session;
+			$baseurl = $self->url;
+			next;
+		}
 		next if m/^(?:200|220|221|226|229|230|227|250|331|500|150)[\s\-]/o;
 		next if m/^EPSV command not understood/o;
 		next if m/^Trying [\da-f\.\:]+\.\.\./o;
@@ -311,6 +322,20 @@ sub parse_problems
 		next if m/^ftp: connect to address.*: No route to host/o;
 		if (m/^ftp: Writing -: Broken pipe/o) {
 			$broken = 1;
+			next;
+		}
+		if (m/^tls session resumed\: (\w+)/) {
+			next; # disable the detailed handling for now
+			my $s = $1;
+			if ($s eq 'yes') {
+				# everything okay for now
+				$self->{said_slow} = 0;
+				next;
+			}
+			next if $self->{count} < 2 || $self->{said_slow};
+			$self->{said_slow} = 1;
+			$self->{state}->say("#1: no session resumption supported by ftp(1) on connection ##2", $self->{host}, $self->{count});
+			$self->{state}->say("#1: https will be slow", $self->{host});
 			next;
 		}
 		# http error
@@ -334,10 +359,12 @@ sub parse_problems
 		# so it's superfluous
 		next if m/^signify:/ && $self->{lasterror};
 		if ($notyet) {
-			$self->{state}->errprint("#1: ", $url);
+			my $url = $baseurl;
 			if (defined $object) {
+				$url = $object->url;
 				$object->{error_reported} = 1;
 			}
+			$self->{state}->errprint("#1: ", $url);
 			$notyet = 0;
 		}
 		if (m/^signify:/) {
@@ -579,6 +606,11 @@ sub baseurl
 	return "//$self->{host}$self->{path}";
 }
 
+sub setup_session
+{
+	# nothing to do except for https
+}
+
 sub parse_url
 {
 	my ($class, $r, $state) = @_;
@@ -593,6 +625,7 @@ sub parse_url
 			$o->can_be_empty;
 			$$r = $class->urlscheme."://$o->{host}$o->{release}:$$r";
 		}
+		$o->setup_session;
 		return $o;
 	} else {
 		return undef;
@@ -735,23 +768,49 @@ our @ISA=qw(OpenBSD::PackageRepository::Distant);
 
 our %distant = ();
 
+my ($fetch_uid, $fetch_gid, $fetch_user);
+
+sub fill_up_fetch_data
+{
+	my $self = shift;
+	if ($< == 0) {
+		$fetch_user = '_pkgfetch';
+		unless ((undef, undef, $fetch_uid, $fetch_gid) = 
+		    getpwnam($fetch_user)) {
+			$self->{state}->fatal(
+			    "Couldn't change identity: can't find #1 user", 
+			    $fetch_user);
+		}
+	} else {
+		($fetch_user) = getpwuid($<);
+    	}
+}
+
+sub fetch_id
+{
+	my $self = shift;
+	if (!defined $fetch_user) {
+		$self->fill_up_fetch_data;
+	}
+	return ($fetch_uid, $fetch_gid, $fetch_user);
+}
+
+sub ftp_cmd
+{
+	my $self = shift;
+	return OpenBSD::Paths->ftp;
+}
+
 sub drop_privileges_and_setup_env
 {
 	my $self = shift;
-	my $user = '_pkgfetch';
-	if ($< == 0) {
-		# we can't cache anything, we happen after the fork, 
-		# right before exec
-		if (my (undef, undef, $uid, $gid) = getpwnam($user)) {
-			$( = $gid;
-			$) = "$gid $gid";
-			$< = $uid;
-			$> = $uid;
-		} else {
-			$self->{state}->fatal("Couldn't change identity: can't find #1 user", $user);
-		}
-	} else {
-		($user) = getpwuid($<);
+	my ($uid, $gid, $user) = $self->fetch_id;
+	if (defined $uid) {
+		# we happen right before exec, so change id permanently
+		$( = $gid;
+		$) = "$gid $gid";
+		$< = $uid;
+		$> = $uid;
 	}
 	# create sanitized env for ftp
 	my %newenv = (
@@ -789,14 +848,14 @@ sub drop_privileges_and_setup_env
 sub grab_object
 {
 	my ($self, $object) = @_;
-	my ($ftp, @extra) = split(/\s+/, OpenBSD::Paths->ftp);
+	my ($ftp, @extra) = split(/\s+/, $self->ftp_cmd);
 	$self->drop_privileges_and_setup_env;
 	exec {$ftp}
 	    $ftp,
 	    @extra,
 	    "-o",
 	    "-", $self->url($object->{name})
-	or $self->{state}->fatal("Can't run #1: #2", OpenBSD::Paths->ftp, $!);
+	or $self->{state}->fatal("Can't run #1: #2", $self->ftp_cmd, $!);
 }
 
 sub open_read_ftp
@@ -912,7 +971,7 @@ sub get_http_list
 
 	my $fullname = $self->url;
 	my $l = [];
-	my $fh = $self->open_read_ftp(OpenBSD::Paths->ftp." -o - $fullname", 
+	my $fh = $self->open_read_ftp($self->ftp_cmd." -o - $fullname", 
 	    $error) or return;
 	while(<$fh>) {
 		chomp;
@@ -949,6 +1008,41 @@ sub urlscheme
 	return 'https';
 }
 
+sub setup_session
+{
+	my $self = shift;
+
+	require OpenBSD::Temp;
+	$self->{count} = 0;
+	local ($>, $));
+	my ($uid, $gid, $user) = $self->fetch_id;
+	if (defined $uid) {
+		$> = $uid;
+		$) = "$gid $gid";
+	}
+	my ($fh, undef) = OpenBSD::Temp::fh_file("session",
+		sub { unlink(shift); });
+	if (!defined $fh) {
+		$self->{state}->fatal("Can't write session into tmp directory");
+	}
+	$self->{fh} = $fh; # XXX store the full fh and not the fileno
+}
+
+sub ftp_cmd
+{
+	my $self = shift;
+	return $self->SUPER::ftp_cmd." -S session=/dev/fd/".fileno($self->{fh});
+}
+
+sub drop_privileges_and_setup_env
+{
+	my $self = shift;
+	$self->SUPER::drop_privileges_and_setup_env;
+	# reset the CLOEXEC flag on that one
+	use Fcntl;
+	fcntl($self->{fh}, F_SETFD, 0);
+}
+
 package OpenBSD::PackageRepository::FTP;
 our @ISA=qw(OpenBSD::PackageRepository::HTTPorFTP);
 
@@ -980,8 +1074,8 @@ sub get_ftp_list
 	my ($self, $error) = @_;
 
 	my $fullname = $self->url;
-	return $self->_list("echo 'nlist'| ".OpenBSD::Paths->ftp
-	    ." $fullname", $error);
+	return $self->_list("echo 'nlist'| ".$self->ftp_cmd." $fullname", 
+	    $error);
 }
 
 sub obtain_list

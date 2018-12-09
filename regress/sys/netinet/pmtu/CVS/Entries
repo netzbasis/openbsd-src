@@ -1,9 +1,9 @@
 /LICENSE/1.1.1.1/Mon Jul 11 13:15:20 2016//
 /Makefile/1.11/Fri Jul  7 23:15:27 2017//
 /README/1.2/Wed Oct 19 13:37:18 2016//
-/tcp_atomicfrag6.py/1.4/Thu Jan 19 15:00:38 2017//
-/tcp_connect.py/1.6/Thu Jan 19 15:00:38 2017//
-/tcp_connect6.py/1.6/Thu Jan 19 15:00:38 2017//
-/udp_atomicfrag6.py/1.3/Thu Jan 19 15:00:38 2017//
-/udp_echo6.py/1.5/Thu Jan 19 15:00:38 2017//
+/tcp_atomicfrag6.py/1.5/Mon Jul 30 18:05:56 2018//
+/tcp_connect.py/1.7/Mon Jul 30 18:05:56 2018//
+/tcp_connect6.py/1.7/Mon Jul 30 18:05:56 2018//
+/udp_atomicfrag6.py/1.4/Mon Jul 30 18:05:56 2018//
+/udp_echo6.py/1.6/Mon Jul 30 18:05:56 2018//
 D

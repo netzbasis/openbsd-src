@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.23 2017/08/28 17:41:59 jsing Exp $
+# $OpenBSD: Makefile,v 1.30 2018/11/11 06:53:31 tb Exp $
 
 LIB=	crypto
 LIBREBUILD=y
@@ -37,7 +37,7 @@ SYMBOL_LIST=	${.CURDIR}/Symbols.list
 # crypto/
 SRCS+= cryptlib.c malloc-wrapper.c mem_dbg.c cversion.c ex_data.c cpt_err.c
 SRCS+= o_time.c o_str.c o_init.c
-SRCS+= mem_clr.c
+SRCS+= mem_clr.c crypto_init.c crypto_lock.c
 
 # aes/
 SRCS+= aes_misc.c aes_ecb.c aes_cfb.c aes_ofb.c
@@ -55,16 +55,15 @@ SRCS+= tasn_new.c tasn_fre.c tasn_enc.c tasn_dec.c tasn_utl.c tasn_typ.c
 SRCS+= tasn_prn.c ameth_lib.c
 SRCS+= f_int.c f_string.c n_pkey.c
 SRCS+= f_enum.c x_pkey.c a_bool.c x_exten.c bio_asn1.c bio_ndef.c asn_mime.c
-SRCS+= asn1_gen.c asn1_par.c asn1_lib.c asn1_err.c a_bytes.c a_strnid.c
+SRCS+= asn1_gen.c asn1_par.c asn1_lib.c asn1_err.c a_strnid.c
 SRCS+= evp_asn1.c asn_pack.c p5_pbe.c p5_pbev2.c p8_pkey.c asn_moid.c
-SRCS+= a_set.c
 SRCS+= a_time_tm.c
 
 # bf/
 SRCS+= bf_skey.c bf_ecb.c bf_cfb64.c bf_ofb64.c
 
 # bio/
-SRCS+= bio_lib.c bio_cb.c bio_err.c
+SRCS+= bio_lib.c bio_cb.c bio_err.c bio_meth.c
 SRCS+= bss_mem.c bss_null.c bss_fd.c
 SRCS+= bss_file.c bss_sock.c bss_conn.c
 SRCS+= bf_null.c bf_buff.c b_print.c b_dump.c
@@ -117,6 +116,7 @@ SRCS+= dh_ameth.c dh_pmeth.c dh_prn.c
 # dsa/
 SRCS+= dsa_gen.c dsa_key.c dsa_lib.c dsa_asn1.c dsa_vrf.c dsa_sign.c
 SRCS+= dsa_err.c dsa_ossl.c dsa_depr.c dsa_ameth.c dsa_pmeth.c dsa_prn.c
+SRCS+= dsa_meth.c
 
 # dso/
 SRCS+= dso_dlfcn.c dso_err.c dso_lib.c dso_null.c
@@ -152,7 +152,7 @@ SRCS+= encode.c digest.c evp_enc.c evp_key.c
 SRCS+= e_des.c e_bf.c e_idea.c e_des3.c e_camellia.c
 SRCS+= e_rc4.c e_aes.c names.c
 SRCS+= e_xcbc_d.c e_rc2.c e_cast.c
-SRCS+= m_null.c m_md4.c m_md5.c m_sha1.c m_wp.c
+SRCS+= m_null.c m_md4.c m_md5.c m_sha1.c m_sm3.c m_wp.c
 SRCS+= m_dss.c m_dss1.c m_ripemd.c m_ecdsa.c
 SRCS+= p_open.c p_seal.c p_sign.c p_verify.c p_lib.c p_enc.c p_dec.c
 SRCS+= bio_md.c bio_b64.c bio_enc.c evp_err.c e_null.c
@@ -227,10 +227,13 @@ SRCS+= rmd_dgst.c rmd_one.c
 SRCS+= rsa_eay.c rsa_gen.c rsa_lib.c rsa_sign.c rsa_saos.c rsa_err.c
 SRCS+= rsa_pk1.c rsa_none.c rsa_oaep.c rsa_chk.c
 SRCS+= rsa_pss.c rsa_x931.c rsa_asn1.c rsa_depr.c rsa_ameth.c rsa_prn.c
-SRCS+= rsa_pmeth.c rsa_crpt.c
+SRCS+= rsa_pmeth.c rsa_crpt.c rsa_meth.c
 
 # sha/
 SRCS+= sha1dgst.c sha1_one.c sha256.c sha512.c
+
+# sm3/
+SRCS+= sm3.c
 
 # stack/
 SRCS+= stack.c
@@ -311,6 +314,7 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 	${LCRYPTO_SRC}/ripemd \
 	${LCRYPTO_SRC}/rsa \
 	${LCRYPTO_SRC}/sha \
+	${LCRYPTO_SRC}/sm3 \
 	${LCRYPTO_SRC}/stack \
 	${LCRYPTO_SRC}/threads \
 	${LCRYPTO_SRC}/ts \
@@ -323,7 +327,6 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 HDRS=\
 	${LCRYPTO_SRC}/aes/aes.h \
 	${LCRYPTO_SRC}/asn1/asn1.h \
-	${LCRYPTO_SRC}/asn1/asn1_mac.h \
 	${LCRYPTO_SRC}/asn1/asn1t.h \
 	${LCRYPTO_SRC}/bf/blowfish.h \
 	${LCRYPTO_SRC}/bio/bio.h \
@@ -372,6 +375,7 @@ HDRS=\
 	${LCRYPTO_SRC}/ripemd/ripemd.h \
 	${LCRYPTO_SRC}/rsa/rsa.h \
 	${LCRYPTO_SRC}/sha/sha.h \
+	${LCRYPTO_SRC}/sm3/sm3.h \
 	${LCRYPTO_SRC}/stack/safestack.h \
 	${LCRYPTO_SRC}/stack/stack.h \
 	${LCRYPTO_SRC}/ts/ts.h \

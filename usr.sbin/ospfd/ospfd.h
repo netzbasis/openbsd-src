@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfd.h,v 1.97 2017/01/24 04:24:25 benno Exp $ */
+/*	$OpenBSD: ospfd.h,v 1.102 2018/08/29 08:43:17 remi Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
@@ -46,7 +46,7 @@
 #define	READ_BUF_SIZE		65535
 #define	PKG_DEF_SIZE		512	/* compromise */
 #define	RT_BUF_SIZE		16384
-#define	MAX_RTSOCK_BUF		128 * 1024
+#define	MAX_RTSOCK_BUF		(2 * 1024 * 1024)
 
 #define	OSPFD_FLAG_NO_FIB_UPDATE	0x0001
 #define	OSPFD_FLAG_STUB_ROUTER		0x0002
@@ -101,6 +101,7 @@ enum imsg_type {
 	IMSG_CTL_IFINFO,
 	IMSG_CTL_END,
 	IMSG_CTL_LOG_VERBOSE,
+	IMSG_CONTROLFD,
 	IMSG_KROUTE_CHANGE,
 	IMSG_KROUTE_DELETE,
 	IMSG_IFINFO,
@@ -132,6 +133,7 @@ enum imsg_type {
 	IMSG_RECONF_REDIST,
 	IMSG_RECONF_END,
 	IMSG_DEMOTE,
+	IMSG_IFADDRADD,
 	IMSG_IFADDRDEL
 };
 
@@ -149,6 +151,7 @@ struct redistribute {
 	u_int32_t			metric;
 	u_int16_t			label;
 	u_int16_t			type;
+	char				dependon[IFNAMSIZ];
 };
 SIMPLEQ_HEAD(redist_list, redistribute);
 
@@ -325,6 +328,7 @@ struct iface {
 
 	char			 name[IF_NAMESIZE];
 	char			 demote_group[IFNAMSIZ];
+	char			 dependon[IFNAMSIZ];
 	char			 auth_key[MAX_SIMPLE_AUTH_LEN];
 	struct in_addr		 addr;
 	struct in_addr		 dst;
@@ -346,6 +350,7 @@ struct iface {
 	int			 fd;
 	int			 state;
 	int			 mtu;
+	int			 depend_ok;
 	u_int16_t		 flags;
 	u_int16_t		 transmit_delay;
 	u_int16_t		 hello_interval;
@@ -360,8 +365,10 @@ struct iface {
 	u_int8_t		 passive;
 };
 
-struct ifaddrdel {
+struct ifaddrchange {
 	struct in_addr		addr;
+	struct in_addr		mask;
+	struct in_addr		dst;
 	unsigned int		ifindex;
 };
 
@@ -391,6 +398,7 @@ struct ospfd_conf {
 	int			spf_state;
 	int			ospf_socket;
 	int			flags;
+	int			redist_label_or_prefix;
 	u_int8_t		rfc1583compat;
 	u_int8_t		border;
 	u_int8_t		redistribute;
@@ -553,6 +561,7 @@ int		 carp_demote_set(char *, int);
 /* parse.y */
 struct ospfd_conf	*parse_config(char *, int);
 int			 cmdline_symset(char *);
+void			 conf_clear_redist_list(struct redist_list *);
 
 /* in_cksum.c */
 u_int16_t	 in_cksum(void *, size_t);
@@ -563,7 +572,7 @@ u_int16_t	 iso_cksum(void *, u_int16_t, u_int16_t);
 /* kroute.c */
 int		 kif_init(void);
 void		 kif_clear(void);
-int		 kr_init(int, u_int);
+int		 kr_init(int, u_int, int);
 int		 kr_change(struct kroute *, int);
 int		 kr_delete(struct kroute *);
 void		 kr_shutdown(void);
@@ -574,7 +583,7 @@ void		 kr_dispatch_msg(int, short, void *);
 void		 kr_show_route(struct imsg *);
 void		 kr_ifinfo(char *, pid_t);
 struct kif	*kif_findname(char *, struct in_addr, struct kif_addr **);
-void		 kr_reload(void);
+void		 kr_reload(int);
 
 u_int8_t	mask2prefixlen(in_addr_t);
 in_addr_t	prefixlen2mask(u_int8_t);
@@ -597,12 +606,14 @@ void		 rtlabel_tag(u_int16_t, u_int32_t);
 
 /* ospfd.c */
 void	main_imsg_compose_ospfe(int, pid_t, void *, u_int16_t);
+void	main_imsg_compose_ospfe_fd(int, pid_t, int);
 void	main_imsg_compose_rde(int, pid_t, void *, u_int16_t);
 int	ospf_redistribute(struct kroute *, u_int32_t *);
 void	merge_config(struct ospfd_conf *, struct ospfd_conf *);
 void	imsg_event_add(struct imsgev *);
 int	imsg_compose_event(struct imsgev *, u_int16_t, u_int32_t,
 	    pid_t, int, void *, u_int16_t);
+int	ifstate_is_up(struct kif *kif);
 
 /* printconf.c */
 void	print_config(struct ospfd_conf *);

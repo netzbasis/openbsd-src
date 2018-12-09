@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_time.c,v 1.99 2017/01/24 00:58:55 mpi Exp $	*/
+/*	$OpenBSD: kern_time.c,v 1.103 2018/05/28 18:05:42 guenther Exp $	*/
 /*	$NetBSD: kern_time.c,v 1.20 1996/02/18 11:57:06 fvdl Exp $	*/
 
 /*
@@ -63,7 +63,7 @@ int64_t adjtimedelta;		/* unapplied time correction (microseconds) */
 
 /* This function is used by clock_settime and settimeofday */
 int
-settime(struct timespec *ts)
+settime(const struct timespec *ts)
 {
 	struct timespec now;
 
@@ -124,6 +124,7 @@ clock_gettime(struct proc *p, clockid_t clock_id, struct timespec *tp)
 		bintime2timespec(&bt, tp);
 		break;
 	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
 		nanouptime(tp);
 		break;
 	case CLOCK_PROCESS_CPUTIME_ID:
@@ -187,7 +188,7 @@ sys_clock_settime(struct proc *p, void *v, register_t *retval)
 	clockid_t clock_id;
 	int error;
 
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 
 	if ((error = copyin(SCARG(uap, tp), &ats, sizeof(ats))) != 0)
@@ -223,6 +224,7 @@ sys_clock_getres(struct proc *p, void *v, register_t *retval)
 	switch (clock_id) {
 	case CLOCK_REALTIME:
 	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
 	case CLOCK_UPTIME:
 	case CLOCK_PROCESS_CPUTIME_ID:
 	case CLOCK_THREAD_CPUTIME_ID:
@@ -266,7 +268,6 @@ sys_nanosleep(struct proc *p, void *v, register_t *retval)
 	struct timespec rqt, rmt;
 	struct timespec sts, ets;
 	struct timespec *rmtp;
-	struct timeval tv;
 	int error, error1;
 
 	rmtp = SCARG(uap, rmtp);
@@ -281,15 +282,14 @@ sys_nanosleep(struct proc *p, void *v, register_t *retval)
 	}
 #endif
 
-	TIMESPEC_TO_TIMEVAL(&tv, &rqt);
-	if (itimerfix(&tv))
+	if (rqt.tv_sec > 100000000 || timespecfix(&rqt))
 		return (EINVAL);
 
 	if (rmtp)
 		getnanouptime(&sts);
 
 	error = tsleep(&nanowait, PWAIT | PCATCH, "nanosleep",
-	    MAX(1, tvtohz(&tv)));
+	    MAX(1, tstohz(&rqt)));
 	if (error == ERESTART)
 		error = EINTR;
 	if (error == EWOULDBLOCK)
@@ -369,7 +369,7 @@ sys_settimeofday(struct proc *p, void *v, register_t *retval)
 	tv = SCARG(uap, tv);
 	tzp = SCARG(uap, tzp);
 
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 	/* Verify all parameters before changing time. */
 	if (tv && (error = copyin(tv, &atv, sizeof(atv))))
@@ -406,7 +406,7 @@ sys_adjfreq(struct proc *p, void *v, register_t *retval)
 			return (error);
 	}
 	if (freq) {
-		if ((error = suser(p, 0)))
+		if ((error = suser(p)))
 			return (error);
 		if ((error = copyin(freq, &f, sizeof(f))))
 			return (error);
@@ -446,7 +446,7 @@ sys_adjtime(struct proc *p, void *v, register_t *retval)
 	}
 
 	if (delta) {
-		if ((error = suser(p, 0)))
+		if ((error = suser(p)))
 			return (error);
 
 		if ((error = copyin(delta, &atv, sizeof(struct timeval))))

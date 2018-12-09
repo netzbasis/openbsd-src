@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.54 2017/10/17 08:29:43 mpi Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.56 2018/07/30 12:22:14 mpi Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <sys/filedesc.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
+#include <sys/fcntl.h>
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
@@ -355,7 +356,7 @@ logioctl(dev_t dev, u_long com, caddr_t data, int flag, struct proc *p)
 		break;
 
 	case LIOCSFD:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		fp = syslogf;
 		if ((error = getsock(p, *(int *)data, &syslogf)) != 0)
@@ -480,7 +481,8 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 
 	len = auio.uio_resid;
 	if (fp) {
-		error = sosend(fp->f_data, NULL, &auio, NULL, NULL, 0);
+		int flags = (fp->f_flag & FNONBLOCK) ? MSG_DONTWAIT : 0;
+		error = sosend(fp->f_data, NULL, &auio, NULL, NULL, flags);
 		if (error == 0)
 			len -= auio.uio_resid;
 	} else if (constty || cn_devvp) {

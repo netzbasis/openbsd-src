@@ -1,4 +1,4 @@
-/*	$OpenBSD: iostat.c,v 1.39 2015/10/23 08:21:27 tedu Exp $	*/
+/*	$OpenBSD: iostat.c,v 1.41 2018/09/05 09:35:49 yasuoka Exp $	*/
 /*	$NetBSD: iostat.c,v 1.10 1996/10/25 18:21:58 scottr Exp $	*/
 
 /*
@@ -146,9 +146,9 @@ main(int argc, char *argv[])
 			todo |= SHOW_TTY;
 			break;
 		case 'w':
-			interval = strtonum(optarg, 1, INT_MAX, &errstr);
+			interval = strtonum(optarg, 1, 100000000, &errstr);
 			if (errstr)
-				errx(1, "interval is %s", errstr);
+				errx(1, "wait is %s", errstr);
 			break;
 		case '?':
 		default:
@@ -229,7 +229,7 @@ header(void)
 				printf(" %16.16s ", cur.dk_name[i]);
 
 	if (ISSET(todo, SHOW_CPU))
-		printf("            cpu");
+		printf("               cpu");
 	printf("\n");
 
 	/* Sub-Headers. */
@@ -254,7 +254,7 @@ header(void)
 				printf("     KB  xfr time ");
 
 	if (ISSET(todo, SHOW_CPU))
-		printf(" us ni sy in id");
+		printf(" us ni sy sp in id");
 	printf("\n");
 }
 
@@ -419,7 +419,7 @@ selectdrives(char *argv[])
 			errx(1, "invalid interval or drive name: %s", *argv);
 	}
 	if (*argv) {
-		interval = strtonum(*argv, 1, INT_MAX, &errstr);
+		interval = strtonum(*argv, 1, 100000000, &errstr);
 		if (errstr)
 			errx(1, "interval is %s", errstr);
 		if (*++argv) {

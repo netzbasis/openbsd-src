@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ppp.c,v 1.109 2017/08/11 21:24:19 mpi Exp $	*/
+/*	$OpenBSD: if_ppp.c,v 1.112 2018/11/09 14:14:31 claudio Exp $	*/
 /*	$NetBSD: if_ppp.c,v 1.39 1997/05/17 21:11:59 christos Exp $	*/
 
 /*
@@ -205,10 +205,7 @@ ppp_clone_create(struct if_clone *ifc, int unit)
 {
 	struct ppp_softc *sc;
 
-	sc = malloc(sizeof(*sc), M_DEVBUF, M_NOWAIT|M_ZERO);
-	if (!sc)
-		return (ENOMEM);
-
+	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK|M_ZERO);
 	sc->sc_unit = unit;
 	snprintf(sc->sc_if.if_xname, sizeof sc->sc_if.if_xname, "%s%d",
 	    ifc->ifc_name, unit);
@@ -382,7 +379,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 		break;
 
 	case PPPIOCSFLAGS:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		flags = *(int *)data & SC_MASK;
 #ifdef PPP_COMPRESS
@@ -395,7 +392,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 		break;
 
 	case PPPIOCSMRU:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		mru = *(int *)data;
 		if (mru >= PPP_MRU && mru <= PPP_MAXMRU)
@@ -408,7 +405,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 
 #ifdef VJC
 	case PPPIOCSMAXCID:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		if (sc->sc_comp)
 			sl_compress_setup(sc->sc_comp, *(int *)data);
@@ -416,14 +413,14 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 #endif
 
 	case PPPIOCXFERUNIT:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		sc->sc_xfer = p->p_p->ps_pid;
 		break;
 
 #ifdef PPP_COMPRESS
 	case PPPIOCSCOMPRESS:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		odp = (struct ppp_option_data *) data;
 		nb = odp->length;
@@ -502,7 +499,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 		if (cmd == PPPIOCGNPMODE) {
 			npi->mode = sc->sc_npmode[npx];
 		} else {
-			if ((error = suser(p, 0)) != 0)
+			if ((error = suser(p)) != 0)
 				return (error);
 			if (npi->mode != sc->sc_npmode[npx]) {
 				sc->sc_npmode[npx] = npi->mode;
@@ -703,7 +700,6 @@ pppoutput(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
 
 	/*
 	 * Add PPP header.  If no space in first mbuf, allocate another.
-	 * (This assumes M_LEADINGSPACE is always 0 for a cluster mbuf.)
 	 */
 	M_PREPEND(m0, PPP_HDRLEN, M_DONTWAIT);
 	if (m0 == NULL) {
@@ -1282,7 +1278,7 @@ ppp_inproc(struct ppp_softc *sc, struct mbuf *m)
 		mp->m_next = NULL;
 		if (hlen + PPP_HDRLEN > MHLEN) {
 			MCLGET(mp, M_DONTWAIT);
-			if (M_TRAILINGSPACE(mp) < hlen + PPP_HDRLEN) {
+			if (m_trailingspace(mp) < hlen + PPP_HDRLEN) {
 				m_freem(mp);
 				/* lose if big headers and no clusters */
 				goto bad;
@@ -1305,7 +1301,7 @@ ppp_inproc(struct ppp_softc *sc, struct mbuf *m)
 		 */
 		m->m_data += PPP_HDRLEN + xlen;
 		m->m_len -= PPP_HDRLEN + xlen;
-		if (m->m_len <= M_TRAILINGSPACE(mp)) {
+		if (m->m_len <= m_trailingspace(mp)) {
 			bcopy(mtod(m, u_char *),
 			    mtod(mp, u_char *) + mp->m_len, m->m_len);
 			mp->m_len += m->m_len;

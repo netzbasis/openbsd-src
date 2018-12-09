@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_loop.c,v 1.83 2017/10/31 22:05:12 sashan Exp $	*/
+/*	$OpenBSD: if_loop.c,v 1.88 2018/09/09 10:11:41 henning Exp $	*/
 /*	$NetBSD: if_loop.c,v 1.15 1996/05/07 02:40:33 thorpej Exp $	*/
 
 /*
@@ -167,10 +167,7 @@ loop_clone_create(struct if_clone *ifc, int unit)
 {
 	struct ifnet *ifp;
 
-	ifp = malloc(sizeof(*ifp), M_DEVBUF, M_NOWAIT|M_ZERO);
-	if (ifp == NULL)
-		return (ENOMEM);
-
+	ifp = malloc(sizeof(*ifp), M_DEVBUF, M_WAITOK|M_ZERO);
 	snprintf(ifp->if_xname, sizeof ifp->if_xname, "lo%d", unit);
 	ifp->if_softc = NULL;
 	ifp->if_mtu = LOMTU;
@@ -181,7 +178,6 @@ loop_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_output = looutput;
 	ifp->if_type = IFT_LOOP;
 	ifp->if_hdrlen = sizeof(u_int32_t);
-	ifp->if_addrlen = 0;
 	if (unit == 0) {
 		if_attachhead(ifp);
 		if_addgroup(ifp, ifc->ifc_name);
@@ -199,8 +195,27 @@ loop_clone_create(struct if_clone *ifc, int unit)
 int
 loop_clone_destroy(struct ifnet *ifp)
 {
-	if (ifp->if_index == rtable_loindex(ifp->if_rdomain))
-		return (EPERM);
+	struct ifnet	*p;
+
+	if (ifp->if_index == rtable_loindex(ifp->if_rdomain)) {
+		/* rdomain 0 always needs a loopback */
+		if (ifp->if_rdomain == 0)
+			return (EPERM);
+
+		/* if there is any other interface in this rdomain, deny */
+		NET_LOCK();
+		TAILQ_FOREACH(p, &ifnet, if_list) {
+			if (p->if_rdomain != ifp->if_rdomain)
+				continue;
+			if (p->if_index == ifp->if_index)
+				continue;
+			NET_UNLOCK();
+			return (EBUSY);
+		}
+		NET_UNLOCK();
+
+		rtable_l2set(ifp->if_rdomain, 0, 0);
+	}
 
 	if_ih_remove(ifp, loinput, NULL);
 	if_detach(ifp);
@@ -241,12 +256,7 @@ looutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	if ((m->m_flags & M_LOOP) == 0)
 		return (if_input_local(ifp, m, dst->sa_family));
 
-	m->m_pkthdr.ph_family = dst->sa_family;
-	if (mq_enqueue(&ifp->if_inputqueue, m))
-		return ENOBUFS;
-	task_add(net_tq(ifp->if_index), ifp->if_inputtask);
-
-	return (0);
+	return (if_output_local(ifp, m, dst->sa_family));
 }
 
 void

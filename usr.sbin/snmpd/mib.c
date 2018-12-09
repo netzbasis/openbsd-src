@@ -1,4 +1,4 @@
-/*	$OpenBSD: mib.c,v 1.84 2017/06/01 14:38:28 patrick Exp $	*/
+/*	$OpenBSD: mib.c,v 1.91 2018/08/31 05:20:36 jsg Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Knight <joel@openbsd.org>
@@ -414,6 +414,8 @@ int	 mib_hrswrun(struct oid *, struct ber_oid *, struct ber_element **);
 
 int	 kinfo_proc_comp(const void *, const void *);
 int	 kinfo_proc(u_int32_t, struct kinfo_proc **);
+void	 kinfo_timer_cb(int, short, void *);
+void	 kinfo_proc_free(void);
 int	 kinfo_args(struct kinfo_proc *, char **);
 
 static struct oid hr_mib[] = {
@@ -451,18 +453,13 @@ static struct oid hr_mib[] = {
 int
 mib_hrsystemuptime(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 {
-	struct timeval   boottime;
-	int		 mib[] = { CTL_KERN, KERN_BOOTTIME };
-	time_t		 now;
-	size_t		 len;
+	struct timespec  uptime;
+	long long	 ticks;
 
-	(void)time(&now);
-	len = sizeof(boottime);
-
-	if (sysctl(mib, 2, &boottime, &len, NULL, 0) == -1)
+	if (clock_gettime(CLOCK_BOOTTIME, &uptime) == -1)
 		return (-1);
-
-	*elm = ber_add_integer(*elm, (now - boottime.tv_sec) * 100);
+	ticks = uptime.tv_sec * 100 + uptime.tv_nsec / 10000000;
+	*elm = ber_add_integer(*elm, ticks);
 	ber_set_header(*elm, BER_CLASS_APPLICATION, SNMP_T_TIMETICKS);
 
 	return (0);
@@ -519,8 +516,10 @@ mib_hrsystemprocs(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 			return (-1);
 
 		if (kvm_getprocs(kd, KERN_PROC_ALL, 0,
-		    sizeof(struct kinfo_proc), &val) == NULL)
+		    sizeof(struct kinfo_proc), &val) == NULL) {
+			kvm_close(kd);
 			return (-1);
+		}
 
 		*elm = ber_add_integer(*elm, val);
 		ber_set_header(*elm, BER_CLASS_APPLICATION, SNMP_T_GAUGE32);
@@ -862,24 +861,29 @@ kinfo_proc_comp(const void *a, const void *b)
 	return (((*k1)->p_pid > (*k2)->p_pid) ? 1 : -1);
 }
 
+static struct event	  kinfo_timer;
+static struct kinfo_proc *kp = NULL;
+static struct kinfo_proc **klist = NULL;
+static size_t		  nkp = 0, nklist = 0;
+
 int
 kinfo_proc(u_int32_t idx, struct kinfo_proc **kinfo)
 {
-	static struct kinfo_proc *kp = NULL;
-	static size_t		 nkp = 0;
-	int			 mib[] = { CTL_KERN, KERN_PROC,
-				    KERN_PROC_ALL, 0, sizeof(*kp), 0 };
-	struct kinfo_proc	**klist;
-	size_t			 size, count, i;
+	int		 mib[] = { CTL_KERN, KERN_PROC,
+			    KERN_PROC_ALL, 0, sizeof(*kp), 0 };
+	size_t		 size, count, i;
+	struct timeval	 timer;
 
+	if (kp != NULL && klist != NULL)
+		goto cached;
+
+	kinfo_proc_free();
 	for (;;) {
 		size = nkp * sizeof(*kp);
 		mib[5] = nkp;
 		if (sysctl(mib, sizeofa(mib), kp, &size, NULL, 0) == -1) {
 			if (errno == ENOMEM) {
-				free(kp);
-				kp = NULL;
-				nkp = 0;
+				kinfo_proc_free();
 				continue;
 			}
 
@@ -892,30 +896,55 @@ kinfo_proc(u_int32_t idx, struct kinfo_proc **kinfo)
 
 		kp = malloc(size);
 		if (kp == NULL) {
-			nkp = 0;
+			kinfo_proc_free();
 			return (-1);
 		}
 		nkp = count;
 	}
 
 	klist = calloc(count, sizeof(*klist));
-	if (klist == NULL)
+	if (klist == NULL) {
+		kinfo_proc_free();
 		return (-1);
+	}
+	nklist = count;
 
-	for (i = 0; i < count; i++)
+	for (i = 0; i < nklist; i++)
 		klist[i] = &kp[i];
-	qsort(klist, count, sizeof(*klist), kinfo_proc_comp);
+	qsort(klist, nklist, sizeof(*klist), kinfo_proc_comp);
 
+	evtimer_set(&kinfo_timer, kinfo_timer_cb, NULL);
+	timer.tv_sec = 5;
+	timer.tv_usec = 0;
+	evtimer_add(&kinfo_timer, &timer);
+
+cached:
 	*kinfo = NULL;
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < nklist; i++) {
 		if (klist[i]->p_pid >= (int32_t)idx) {
 			*kinfo = klist[i];
 			break;
 		}
 	}
-	free(klist);
 
 	return (0);
+}
+
+void
+kinfo_timer_cb(int fd, short event, void *arg)
+{
+	kinfo_proc_free();
+}
+
+void
+kinfo_proc_free(void)
+{
+	free(kp);
+	kp = NULL;
+	nkp = 0;
+	free(klist);
+	klist = NULL;
+	nklist = 0;
 }
 
 int
@@ -1114,7 +1143,11 @@ mib_iftable(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 		ber = ber_add_integer(ber, kif->if_mtu);
 		break;
 	case 5:
-		ber = ber_add_integer(ber, kif->if_baudrate);
+		if (kif->if_baudrate > UINT32_MAX) {
+			/* speed should be obtained from ifHighSpeed instead */
+			ber = ber_add_integer(ber, UINT32_MAX);
+		} else
+			ber = ber_add_integer(ber, kif->if_baudrate);
 		ber_set_header(ber, BER_CLASS_APPLICATION, SNMP_T_GAUGE32);
 		break;
 	case 6:
@@ -1423,6 +1456,7 @@ char	*mib_sensorvalue(struct sensor *);
 int	 mib_carpsysctl(struct oid *, struct ber_oid *, struct ber_element **);
 int	 mib_carpstats(struct oid *, struct ber_oid *, struct ber_element **);
 int	 mib_carpiftable(struct oid *, struct ber_oid *, struct ber_element **);
+int	 mib_carpgrouptable(struct oid *, struct ber_oid *, struct ber_element **);
 int	 mib_carpifnum(struct oid *, struct ber_oid *, struct ber_element **);
 struct carpif
 	*mib_carpifget(u_int);
@@ -1638,6 +1672,8 @@ static struct oid openbsd_mib[] = {
 	{ MIB(carpIfAdvbase),		OID_TRD, mib_carpiftable },
 	{ MIB(carpIfAdvskew),		OID_TRD, mib_carpiftable },
 	{ MIB(carpIfState),		OID_TRD, mib_carpiftable },
+	{ MIB(carpGroupName),		OID_TRD, mib_carpgrouptable },
+	{ MIB(carpGroupDemote),		OID_TRD, mib_carpgrouptable },
 	{ MIB(memMIBObjects),		OID_MIB },
 	{ MIB(memMIBVersion),		OID_RD, mps_getint, NULL, NULL,
 	    OIDVER_OPENBSD_MEM },
@@ -2872,6 +2908,104 @@ mib_carpiftable(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 	}
 
 	free(cif);
+	return (0);
+}
+
+static struct ifg_req *
+mib_carpgroupget(u_int idx)
+{
+	struct ifgroupreq	 ifgr;
+	struct ifg_req		*ifg = NULL;
+	u_int			 len;
+	int			 s = -1;
+
+	bzero(&ifgr, sizeof(ifgr));
+
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+		log_warn("socket");
+		return (NULL);
+	}
+
+	if (ioctl(s, SIOCGIFGLIST, (caddr_t)&ifgr) == -1) {
+		log_warn("SIOCGIFGLIST");
+		goto err;
+	}
+	len = ifgr.ifgr_len;
+
+	if (len / sizeof(*ifgr.ifgr_groups) <= idx-1)
+		goto err;
+
+	if ((ifgr.ifgr_groups = calloc(1, len)) == NULL) {
+		log_warn("alloc");
+		goto err;
+	}
+	if (ioctl(s, SIOCGIFGLIST, (caddr_t)&ifgr) == -1) {
+		log_warn("SIOCGIFGLIST");
+		goto err;
+	}
+	close(s);
+
+	if ((ifg = calloc(1, sizeof *ifg)) == NULL) {
+		log_warn("alloc");
+		goto err;
+	}
+
+	memcpy(ifg, &ifgr.ifgr_groups[idx-1], sizeof *ifg);
+	free(ifgr.ifgr_groups);
+	return ifg;
+ err:
+	free(ifgr.ifgr_groups);
+	close(s);
+	return (NULL);
+}
+
+int
+mib_carpgrouptable(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
+{
+	struct ifgroupreq	 ifgr;
+	struct ifg_req		*ifg;
+	uint32_t		 idx;
+	int			 s;
+
+	/* Get and verify the current row index */
+	idx = o->bo_id[OIDIDX_carpGroupIndex];
+
+	if ((ifg = mib_carpgroupget(idx)) == NULL)
+		return (1);
+
+	/* Tables need to prepend the OID on their own */
+	o->bo_id[OIDIDX_carpGroupIndex] = idx;
+	*elm = ber_add_oid(*elm, o);
+
+	switch (o->bo_id[OIDIDX_carpGroupEntry]) {
+	case 2:
+		*elm = ber_add_string(*elm, ifg->ifgrq_group);
+		break;
+	case 3:
+		if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+			log_warn("socket");
+			free(ifg);
+			return (1);
+		}
+
+		bzero(&ifgr, sizeof(ifgr));
+		strlcpy(ifgr.ifgr_name, ifg->ifgrq_group, sizeof(ifgr.ifgr_name));
+		if (ioctl(s, SIOCGIFGATTR, (caddr_t)&ifgr) == -1) {
+			log_warn("SIOCGIFGATTR");
+			close(s);
+			free(ifg);
+			return (1);
+		}
+
+		close(s);
+		*elm = ber_add_integer(*elm, ifgr.ifgr_attrib.ifg_carp_demoted);
+		break;
+	default:
+		free(ifg);
+		return (1);
+	}
+
+	free(ifg);
 	return (0);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.h,v 1.132 2017/12/11 05:27:40 deraadt Exp $	*/
+/*	$OpenBSD: mount.h,v 1.143 2018/12/07 16:21:19 mpi Exp $	*/
 /*	$NetBSD: mount.h,v 1.48 1996/02/18 11:55:47 fvdl Exp $	*/
 
 /*
@@ -246,6 +246,15 @@ struct fusefs_args {
 	char *name;
 	int fd;
 	int max_read;
+
+	/*
+	 * FUSE does not allow the file system to be accessed by other users
+	 * unless this option is specified. This is to prevent unintentional
+	 * denial of service to other users if the file system is not
+	 * responding. e.g. user executes df(1) or cron job that scans mounted
+	 * file systems.
+	 */
+	int allow_other;
 };
 
 /*
@@ -389,6 +398,7 @@ struct mount {
 #define	MNT_DELEXPORT	0x00020000	/* delete export host lists */
 #define	MNT_RELOAD	0x00040000	/* reload filesystem data */
 #define	MNT_FORCE	0x00080000	/* force unmount or readonly change */
+#define	MNT_STALLED	0x00100000	/* filesystem stalled */ 
 #define MNT_WANTRDWR	0x02000000	/* want upgrade to read/write */
 #define MNT_SOFTDEP     0x04000000      /* soft dependencies being done */
 #define MNT_DOOMED	0x08000000	/* device behind filesystem is gone */
@@ -444,9 +454,8 @@ struct vfsconf {
 	const struct vfsops *vfc_vfsops; /* filesystem operations vector */
 	char	vfc_name[MFSNAMELEN];	/* filesystem type name */
 	int	vfc_typenum;		/* historic filesystem type number */
-	int	vfc_refcount;		/* number mounted of this type */
+	u_int	vfc_refcount;		/* number mounted of this type */
 	int	vfc_flags;		/* permanent flags */
-	struct	vfsconf *vfc_next;	/* next in list */
 	size_t	vfc_datasize;		/* size of data args */
 };
 
@@ -490,7 +499,6 @@ struct nameidata;
 struct mbuf;
 
 extern int maxvfsconf;		/* highest defined filesystem type */
-extern struct vfsconf *vfsconf;	/* head of list of filesystem types */
 
 struct vfsops {
 	int	(*vfs_mount)(struct mount *mp, const char *path,
@@ -505,7 +513,7 @@ struct vfsops {
 				    caddr_t arg, struct proc *p);
 	int	(*vfs_statfs)(struct mount *mp, struct statfs *sbp,
 				    struct proc *p);
-	int	(*vfs_sync)(struct mount *mp, int waitfor,
+	int	(*vfs_sync)(struct mount *mp, int waitfor, int stall,
 				    struct ucred *cred, struct proc *p);
 	int	(*vfs_vget)(struct mount *mp, ino_t ino,
 				    struct vnode **vpp);
@@ -526,7 +534,7 @@ struct vfsops {
 #define VFS_ROOT(MP, VPP)	  (*(MP)->mnt_op->vfs_root)(MP, VPP)
 #define VFS_QUOTACTL(MP,C,U,A,P)  (*(MP)->mnt_op->vfs_quotactl)(MP, C, U, A, P)
 #define VFS_STATFS(MP, SBP, P)	  (*(MP)->mnt_op->vfs_statfs)(MP, SBP, P)
-#define VFS_SYNC(MP, WAIT, C, P)  (*(MP)->mnt_op->vfs_sync)(MP, WAIT, C, P)
+#define VFS_SYNC(MP, W, S, C, P)  (*(MP)->mnt_op->vfs_sync)(MP, W, S, C, P)
 #define VFS_VGET(MP, INO, VPP)	  (*(MP)->mnt_op->vfs_vget)(MP, INO, VPP)
 #define VFS_FHTOVP(MP, FIDP, VPP) \
 	(*(MP)->mnt_op->vfs_fhtovp)(MP, FIDP, VPP)
@@ -544,6 +552,7 @@ struct vfsops {
 struct netcred {
 	struct	radix_node netc_rnodes[2];
 	int	netc_exflags;
+	int	netc_len;			/* size of the allocation */
 	struct	ucred netc_anon;
 };
 
@@ -563,8 +572,11 @@ int	vfs_busy(struct mount *, int);
 #define VB_WRITE	0x02
 #define VB_NOWAIT	0x04	/* immediately fail on busy lock */
 #define VB_WAIT		0x08	/* sleep fail on busy lock */
+#define VB_DUPOK	0x10	/* permit duplicate mount busying */
 
 int     vfs_isbusy(struct mount *);
+struct	mount *vfs_mount_alloc(struct vnode *, struct vfsconf *);
+void	vfs_mount_free(struct mount *);
 int     vfs_mount_foreach_vnode(struct mount *, int (*func)(struct vnode *,
 				    void *), void *);
 void	vfs_getnewfsid(struct mount *);
@@ -573,6 +585,8 @@ int	vfs_mountedon(struct vnode *);
 int	vfs_rootmountalloc(char *, char *, struct mount **);
 void	vfs_unbusy(struct mount *);
 extern	TAILQ_HEAD(mntlist, mount) mountlist;
+int	vfs_stall(struct proc *, int);
+void	vfs_stall_barrier(void);
 
 struct	mount *getvfs(fsid_t *);	    /* return vfs given fsid */
 					    /* process mount export info */
@@ -587,8 +601,8 @@ int	vfs_syncwait(struct proc *, int);   /* sync and wait for complete */
 void	vfs_shutdown(struct proc *);	    /* unmount and sync file systems */
 int	dounmount(struct mount *, int, struct proc *);
 void	vfsinit(void);
-int	vfs_register(struct vfsconf *);
-int	vfs_unregister(struct vfsconf *);
+struct	vfsconf *vfs_byname(const char *);
+struct	vfsconf *vfs_bytypenum(int);
 #else /* _KERNEL */
 __BEGIN_DECLS
 int	fstatfs(int, struct statfs *);

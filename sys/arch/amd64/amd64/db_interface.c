@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.29 2017/07/19 14:34:10 kettenis Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.33 2018/07/06 02:43:01 guenther Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /*
@@ -45,7 +45,6 @@
 #include <machine/db_machdep.h>
 #include <machine/cpuvar.h>
 #include <machine/i82093var.h>
-#include <machine/i82489reg.h>
 #include <machine/atomic.h>
 
 #include <ddb/db_sym.h>
@@ -66,8 +65,8 @@
 #endif
 
 extern label_t *db_recover;
-extern char *trap_type[];
-extern int trap_types;
+extern const char * const trap_type[];
+extern const int trap_types;
 
 #ifdef MULTIPROCESSOR
 struct mutex ddb_mp_mutex =
@@ -78,7 +77,6 @@ boolean_t	 db_switch_cpu;
 long		 db_switch_to_cpu;
 #endif
 
-int	db_active;
 db_regs_t ddb_regs;
 
 void db_printtrap(int, int);
@@ -119,7 +117,6 @@ db_ktrap(int type, int code, db_regs_t *regs)
 	case T_BPTFLT:	/* breakpoint */
 	case T_TRCTRAP:	/* single_step */
 	case T_NMI:	/* NMI */
-	case T_NMI|T_USER:
 	case -1:	/* keyboard interrupt */
 		break;
 	default:

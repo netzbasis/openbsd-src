@@ -1,4 +1,4 @@
-/* $OpenBSD: exuart.c,v 1.13 2017/10/27 11:23:28 kevlo Exp $ */
+/* $OpenBSD: exuart.c,v 1.15 2018/05/31 10:30:10 kettenis Exp $ */
 /*
  * Copyright (c) 2005 Dale Rahn <drahn@motorola.com>
  *
@@ -108,9 +108,6 @@ struct exuart_softc *exuart_sc(dev_t dev);
 
 int exuart_intr(void *);
 
-extern int comcnspeed;
-extern int comcnmode;
-
 /* XXX - we imitate 'com' serial ports and take over their entry points */
 /* XXX: These belong elsewhere */
 cdev_decl(exuart);
@@ -152,7 +149,7 @@ exuart_init_cons(void)
 	if (fdt_get_reg(node, 0, &reg))
 		return;
 
-	exuartcnattach(&armv7_bs_tag, reg.addr, comcnspeed, comcnmode);
+	exuartcnattach(&armv7_bs_tag, reg.addr, B115200, TTYDEF_CFLAG);
 }
 
 int
@@ -645,7 +642,7 @@ exuartopen(dev_t dev, int flag, int mode, struct proc *p)
 		SET(tp->t_state, TS_CARR_ON); /* XXX */
 
 
-	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p, 0) != 0)
+	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p) != 0)
 		return EBUSY;
 	else
 		s = spltty();
@@ -825,7 +822,7 @@ exuartioctl( dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		break;
 
 	case TIOCSFLAGS:
-		error = suser(p, 0);
+		error = suser(p);
 		if (error != 0)
 			return(EPERM);
 

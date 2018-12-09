@@ -1,4 +1,4 @@
-/*	$OpenBSD: umodem.c,v 1.62 2017/03/29 01:27:40 jsg Exp $ */
+/*	$OpenBSD: umodem.c,v 1.64 2018/08/29 20:18:14 kettenis Exp $ */
 /*	$NetBSD: umodem.c,v 1.45 2002/09/23 05:51:23 simonb Exp $	*/
 
 /*
@@ -49,7 +49,6 @@
 #include <sys/kernel.h>
 #include <sys/conf.h>
 #include <sys/tty.h>
-#include <sys/file.h>
 #include <sys/selinfo.h>
 #include <sys/device.h>
 #include <sys/poll.h>
@@ -98,8 +97,6 @@ struct umodem_softc {
 	u_char			 sc_rts;	/* current RTS state */
 
 	struct device		*sc_subdev;	/* ucom device */
-
-	u_char			 sc_opening;	/* lock during open */
 
 	int			 sc_ctl_notify;	/* Notification endpoint */
 	struct usbd_pipe	*sc_notify_pipe; /* Notification pipe */

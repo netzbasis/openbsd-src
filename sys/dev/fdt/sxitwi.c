@@ -1,4 +1,4 @@
-/* $OpenBSD: sxitwi.c,v 1.3 2017/11/13 21:24:27 kettenis Exp $ */
+/* $OpenBSD: sxitwi.c,v 1.11 2018/12/04 11:25:48 kettenis Exp $ */
 /*	$NetBSD: gttwsi_core.c,v 1.2 2014/11/23 13:37:27 jmcneill Exp $	*/
 /*
  * Copyright (c) 2008 Eiji Kawauchi.
@@ -71,10 +71,6 @@
 #include <sys/kernel.h>
 #include <sys/rwlock.h>
 
-#include <sys/param.h>
-#include <sys/device.h>
-#include <sys/systm.h>
-
 #define	_I2C_PRIVATE
 #include <dev/i2c/i2cvar.h>
 
@@ -86,17 +82,14 @@
 #include <dev/ofw/ofw_pinctrl.h>
 #include <dev/ofw/fdt.h>
 
-#define	TWI_CCR_REG		0x14
-#define	TWI_CCR_CLK_M		(0x0f << 3)
-#define	TWI_CCR_CLK_N		(0x07 << 0)
-
-#define	TWSI_SLAVEADDR		0x00
-#define	TWSI_EXTEND_SLAVEADDR	0x04
-#define	TWSI_DATA		0x08
-#define	TWSI_CONTROL		0x0c
-#define	TWSI_STATUS		0x10
-#define	TWSI_BAUDRATE		0x14
-#define	TWSI_SOFTRESET		0x18
+#define	TWSI_SLAVEADDR		0
+#define	TWSI_EXTEND_SLAVEADDR	1
+#define	TWSI_DATA		2
+#define	TWSI_CONTROL		3
+#define	TWSI_STATUS		4
+#define	TWSI_CLOCK		5
+#define	TWSI_SOFTRESET		6
+#define	TWSI_NREG		7
 
 #define	SLAVEADDR_GCE_MASK	0x01
 #define	SLAVEADDR_SADDR_MASK	0xfe
@@ -132,12 +125,6 @@
 
 #define	SOFTRESET_VAL		0		/* reset value */
 
-#define	TWSI_RETRY_COUNT	1000		/* retry loop count */
-#define	TWSI_RETRY_DELAY	1		/* retry delay */
-#define	TWSI_STAT_DELAY		1		/* poll status delay */
-#define	TWSI_READ_DELAY		2		/* read delay */
-#define	TWSI_WRITE_DELAY	2		/* write delay */
-
 struct sxitwi_softc {
 	struct device		 sc_dev;
 	bus_space_tag_t		 sc_iot;
@@ -148,6 +135,8 @@ struct sxitwi_softc {
 	struct i2c_controller	 sc_ic;
 	struct rwlock		 sc_buslock;
 	void			*sc_ih;
+	uint8_t			 sc_regs[TWSI_NREG];
+	int			 sc_delay;
 };
 
 void	sxitwi_attach(struct device *, struct device *, void *);
@@ -181,7 +170,9 @@ sxitwi_match(struct device *parent, void *match, void *aux)
 
 	return (OF_is_compatible(faa->fa_node, "allwinner,sun4i-a10-i2c") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun6i-a31-i2c") ||
-	    OF_is_compatible(faa->fa_node, "allwinner,sun7i-a20-i2c"));
+	    OF_is_compatible(faa->fa_node, "allwinner,sun7i-a20-i2c") ||
+	    OF_is_compatible(faa->fa_node, "marvell,mv78230-i2c") ||
+	    OF_is_compatible(faa->fa_node, "marvell,mv78230-a0-i2c"));
 }
 
 void
@@ -190,9 +181,54 @@ sxitwi_attach(struct device *parent, struct device *self, void *aux)
 	struct sxitwi_softc *sc = (struct sxitwi_softc *)self;
 	struct fdt_attach_args *faa = aux;
 	struct i2cbus_attach_args iba;
+	uint32_t freq, parent_freq;
+	uint32_t m, n, nbase;
 
 	if (faa->fa_nreg < 1) {
 		printf(": no registers\n");
+		return;
+	}
+
+	nbase = 1;
+	sc->sc_regs[TWSI_SLAVEADDR] = 0x00;
+	sc->sc_regs[TWSI_EXTEND_SLAVEADDR] = 0x04;
+	sc->sc_regs[TWSI_DATA] = 0x08;
+	sc->sc_regs[TWSI_CONTROL] = 0x0c;
+	sc->sc_regs[TWSI_STATUS] = 0x10;
+	sc->sc_regs[TWSI_CLOCK] = 0x14;
+	sc->sc_regs[TWSI_SOFTRESET] = 0x18;
+
+	if (OF_is_compatible(faa->fa_node, "marvell,mv78230-i2c") ||
+	    OF_is_compatible(faa->fa_node, "marvell,mv78230-a0-i2c")) {
+		nbase = 2;
+		sc->sc_delay = 1;
+		sc->sc_regs[TWSI_SLAVEADDR] = 0x00;
+		sc->sc_regs[TWSI_EXTEND_SLAVEADDR] = 0x10;
+		sc->sc_regs[TWSI_DATA] = 0x04;
+		sc->sc_regs[TWSI_CONTROL] = 0x08;
+		sc->sc_regs[TWSI_STATUS] = 0x0c;
+		sc->sc_regs[TWSI_CLOCK] = 0x0c;
+		sc->sc_regs[TWSI_SOFTRESET] = 0x1c;
+	}
+
+	/*
+	 * Calculate clock dividers up front such that we can bail out
+	 * early if the desired clock rate can't be obtained.  Make
+	 * sure the bus clock rate is never above the desired rate.
+	 */
+	parent_freq = clock_get_frequency(faa->fa_node, NULL);
+	freq = OF_getpropint(faa->fa_node, "clock-frequency", 100000);
+	if (parent_freq == 0) {
+		printf(": unknown clock frequency\n");
+		return;
+	}
+	n = 0, m = 0;
+	while ((freq * (nbase << n) * 16 * 10) < parent_freq)
+		n++;
+	while ((freq * (nbase << n) * (m + 1) * 10) < parent_freq)
+		m++;
+	if (n > 8 || m > 16) {
+		printf(": clock frequency too high\n");
 		return;
 	}
 
@@ -213,7 +249,7 @@ sxitwi_attach(struct device *parent, struct device *self, void *aux)
 	 */
 	sc->sc_twsien_iflg = CONTROL_TWSIEN;
 	if (OF_is_compatible(sc->sc_node, "allwinner,sun6i-a31-i2c"))
-		sc->sc_twsien_iflg = CONTROL_IFLG;
+		sc->sc_twsien_iflg |= CONTROL_IFLG;
 
 	sc->sc_started = 0;
 	sc->sc_ic.ic_cookie = sc;
@@ -232,21 +268,17 @@ sxitwi_attach(struct device *parent, struct device *self, void *aux)
 	clock_enable(faa->fa_node, NULL);
 	reset_deassert_all(faa->fa_node);
 
-	/*
-	 * Set clock rate to 100kHz. From the datasheet:
-	 *   For 100Khz standard speed 2Wire, CLK_N=2, CLK_M=11
-	 *   F0=48M/2^2=12Mhz, F1=F0/(10*(11+1)) = 0.1Mhz
-	 */
-	sxitwi_write_4(sc, TWI_CCR_REG, (11 << 3) | (2 << 0));
+	/* Set clock rate. */
+	sxitwi_write_4(sc, TWSI_CLOCK, (m << 3) | (n << 0));
 
 	/* Put the controller into Soft Reset. */
 	sxitwi_write_4(sc, TWSI_SOFTRESET, SOFTRESET_VAL);
 
 	/* Establish interrupt */
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_BIO,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
 	    sxitwi_intr, sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
-		printf(": can't to establish interrupt\n");
+		printf(": can't establish interrupt\n");
 		return;
 	}
 
@@ -295,21 +327,15 @@ sxitwi_bus_scan(struct device *self, struct i2cbus_attach_args *iba, void *arg)
 u_int
 sxitwi_read_4(struct sxitwi_softc *sc, u_int reg)
 {
-	u_int val = bus_space_read_4(sc->sc_iot, sc->sc_ioh, reg);
-
-	delay(TWSI_READ_DELAY);
-
-	return val;
+	KASSERT(reg < TWSI_NREG);
+	return bus_space_read_4(sc->sc_iot, sc->sc_ioh, sc->sc_regs[reg]);
 }
 
 void
 sxitwi_write_4(struct sxitwi_softc *sc, u_int reg, u_int val)
 {
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, reg, val);
-
-	delay(TWSI_WRITE_DELAY);
-
-	return;
+	KASSERT(reg < TWSI_NREG);
+	bus_space_write_4(sc->sc_iot, sc->sc_ioh, sc->sc_regs[reg], val);
 }
 
 int
@@ -321,7 +347,6 @@ sxitwi_intr(void *arg)
 	val = sxitwi_read_4(sc, TWSI_CONTROL);
 	if (val & CONTROL_IFLG) {
 		sxitwi_write_4(sc, TWSI_CONTROL, val & ~CONTROL_INTEN);
-		wakeup(&sc->sc_dev);
 		return 1;
 	}
 	return 0;
@@ -368,19 +393,17 @@ int
 sxitwi_send_stop(void *v, int flags)
 {
 	struct sxitwi_softc *sc = v;
-	int retry = TWSI_RETRY_COUNT;
 
 	sc->sc_started = 0;
 
-	/* Interrupt is not generated for STAT_NRS. */
+	/*
+	 * No need to wait; the controller doesn't transmit the next
+	 * START condition until the bus is free.
+	 */
 	sxitwi_write_4(sc, TWSI_CONTROL, CONTROL_STOP | sc->sc_twsien_iflg);
-	while (--retry > 0) {
-		if (sxitwi_read_4(sc, TWSI_STATUS) == STAT_NRS)
-			return 0;
-		delay(TWSI_STAT_DELAY);
-	}
-
-	return -1;
+	if (sc->sc_delay)
+		delay(5);
+	return 0;
 }
 
 int
@@ -462,30 +485,24 @@ int
 sxitwi_wait(struct sxitwi_softc *sc, u_int control, u_int expect, int flags)
 {
 	u_int status;
-	int timo, error = 0;
+	int timo;
 
-	delay(5);
-	if (!(flags & I2C_F_POLL))
-		control |= CONTROL_INTEN;
 	sxitwi_write_4(sc, TWSI_CONTROL, control | sc->sc_twsien_iflg);
 
-	timo = 0;
-	do {
+	for (timo = 10000; timo > 0; timo--) {
 		control = sxitwi_read_4(sc, TWSI_CONTROL);
 		if (control & CONTROL_IFLG)
 			break;
-		if (flags & I2C_F_POLL)
-			delay(TWSI_RETRY_DELAY);
-		else {
-			error = tsleep(&sc->sc_dev, PWAIT, "sxitwi", 100);
-			if (error)
-				return error;
-		}
-	} while (++timo < 1000000);
+		delay(1);
+	}
+	if (timo == 0)
+		return ETIMEDOUT;
+
+	if (sc->sc_delay)
+		delay(5);
 
 	status = sxitwi_read_4(sc, TWSI_STATUS);
 	if (status != expect)
 		return EIO;
-
-	return error;
+	return 0;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_subr.c,v 1.167 2017/12/07 16:52:21 mikeb Exp $	*/
+/*	$OpenBSD: tcp_subr.c,v 1.174 2018/10/04 17:33:41 bluhm Exp $	*/
 /*	$NetBSD: tcp_subr.c,v 1.22 1996/02/13 23:44:00 christos Exp $	*/
 
 /*
@@ -191,6 +191,9 @@ tcp_template(struct tcpcb *tp)
 	struct mbuf *m;
 	struct tcphdr *th;
 
+	CTASSERT(sizeof(struct ip) + sizeof(struct tcphdr) <= MHLEN);
+	CTASSERT(sizeof(struct ip6_hdr) + sizeof(struct tcphdr) <= MHLEN);
+
 	if ((m = tp->t_template) == 0) {
 		m = m_get(M_DONTWAIT, MT_HEADER);
 		if (m == NULL)
@@ -208,19 +211,6 @@ tcp_template(struct tcpcb *tp)
 #endif /* INET6 */
 		}
 		m->m_len += sizeof (struct tcphdr);
-
-		/*
-		 * The link header, network header, TCP header, and TCP options
-		 * all must fit in this mbuf. For now, assume the worst case of
-		 * TCP options size. Eventually, compute this from tp flags.
-		 */
-		if (m->m_len + MAX_TCPOPTLEN + max_linkhdr >= MHLEN) {
-			MCLGET(m, M_DONTWAIT);
-			if ((m->m_flags & M_EXT) == 0) {
-				m_free(m);
-				return (0);
-			}
-		}
 	}
 
 	switch(tp->pf) {
@@ -433,10 +423,8 @@ tcp_newtcpcb(struct inpcb *inp)
 	tp->t_maxseg = tcp_mssdflt;
 	tp->t_maxopd = 0;
 
-	TCP_INIT_DELACK(tp);
 	for (i = 0; i < TCPT_NTIMERS; i++)
 		TCP_TIMER_INIT(tp, i);
-	timeout_set(&tp->t_reap_to, tcp_reaper, tp);
 
 	tp->sack_enable = tcp_do_sack;
 	tp->t_flags = tcp_do_rfc1323 ? (TF_REQ_SCALE|TF_REQ_TSTMP) : 0;
@@ -518,7 +506,6 @@ tcp_close(struct tcpcb *tp)
 	tcp_freeq(tp);
 
 	tcp_canceltimers(tp);
-	TCP_CLEAR_DELACK(tp);
 	syn_cache_cleanup(tp);
 
 	/* Free SACK holes. */
@@ -530,23 +517,13 @@ tcp_close(struct tcpcb *tp)
 	}
 
 	m_free(tp->t_template);
+	/* Free tcpcb after all pending timers have been run. */
+	TCP_TIMER_ARM(tp, TCPT_REAPER, 0);
 
-	tp->t_flags |= TF_DEAD;
-	timeout_add(&tp->t_reap_to, 0);
-
-	inp->inp_ppcb = 0;
+	inp->inp_ppcb = NULL;
 	soisdisconnected(so);
 	in_pcbdetach(inp);
 	return (NULL);
-}
-
-void
-tcp_reaper(void *arg)
-{
-	struct tcpcb *tp = arg;
-
-	pool_put(&tcpcb_pool, tp);
-	tcpstat_inc(tcps_closed);
 }
 
 int
@@ -859,33 +836,36 @@ void
 tcp_mtudisc(struct inpcb *inp, int errno)
 {
 	struct tcpcb *tp = intotcpcb(inp);
-	struct rtentry *rt = in_pcbrtentry(inp);
+	struct rtentry *rt;
 	int change = 0;
 
-	if (tp != 0) {
+	if (tp == NULL)
+		return;
+
+	rt = in_pcbrtentry(inp);
+	if (rt != NULL) {
 		int orig_maxseg = tp->t_maxseg;
-		if (rt != 0) {
-			/*
-			 * If this was not a host route, remove and realloc.
-			 */
-			if ((rt->rt_flags & RTF_HOST) == 0) {
-				in_rtchange(inp, errno);
-				if ((rt = in_pcbrtentry(inp)) == 0)
-					return;
-			}
-			if (orig_maxseg != tp->t_maxseg ||
-			    (rt->rt_locks & RTV_MTU))
-				change = 1;
-		}
-		tcp_mss(tp, -1);
 
 		/*
-		 * Resend unacknowledged packets
+		 * If this was not a host route, remove and realloc.
 		 */
-		tp->snd_nxt = tp->snd_una;
-		if (change || errno > 0)
-			tcp_output(tp);
+		if ((rt->rt_flags & RTF_HOST) == 0) {
+			in_rtchange(inp, errno);
+			if ((rt = in_pcbrtentry(inp)) == NULL)
+				return;
+		}
+		if (orig_maxseg != tp->t_maxseg ||
+		    (rt->rt_locks & RTV_MTU))
+			change = 1;
 	}
+	tcp_mss(tp, -1);
+
+	/*
+	 * Resend unacknowledged packets
+	 */
+	tp->snd_nxt = tp->snd_una;
+	if (change || errno > 0)
+		tcp_output(tp);
 }
 
 void
@@ -959,7 +939,7 @@ tcp_signature_tdb_init(struct tdb *tdbp, struct xformsw *xsp,
 	tdbp->tdb_amxkey = malloc(ii->ii_authkeylen, M_XDATA, M_NOWAIT);
 	if (tdbp->tdb_amxkey == NULL)
 		return (ENOMEM);
-	bcopy(ii->ii_authkey, tdbp->tdb_amxkey, ii->ii_authkeylen);
+	memcpy(tdbp->tdb_amxkey, ii->ii_authkey, ii->ii_authkeylen);
 	tdbp->tdb_amxkeylen = ii->ii_authkeylen;
 
 	return (0);
@@ -970,7 +950,7 @@ tcp_signature_tdb_zeroize(struct tdb *tdbp)
 {
 	if (tdbp->tdb_amxkey) {
 		explicit_bzero(tdbp->tdb_amxkey, tdbp->tdb_amxkeylen);
-		free(tdbp->tdb_amxkey, M_XDATA, 0);
+		free(tdbp->tdb_amxkey, M_XDATA, tdbp->tdb_amxkeylen);
 		tdbp->tdb_amxkey = NULL;
 	}
 

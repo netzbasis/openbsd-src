@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.5 2016/11/01 13:43:27 tb Exp $
+#	$OpenBSD: Makefile,v 1.7 2018/10/17 23:28:05 djm Exp $
 
 PROG=test_sshbuf
 SRCS=tests.c
@@ -10,7 +10,11 @@ SRCS+=test_sshbuf_fuzz.c
 SRCS+=test_sshbuf_getput_fuzz.c
 SRCS+=test_sshbuf_fixed.c
 
+# From usr.bin/ssh
+SRCS+=sshbuf-getput-basic.c sshbuf-getput-crypto.c sshbuf-misc.c sshbuf.c
+SRCS+=atomicio.c
+
 run-regress-${PROG}: ${PROG}
-	env ${TEST_ENV} ./${PROG}
+	env ${TEST_ENV} ./${PROG} ${UNITTEST_ARGS}
 
 .include <bsd.regress.mk>

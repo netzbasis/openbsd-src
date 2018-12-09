@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_tlsext.h,v 1.10 2017/08/27 02:58:04 doug Exp $ */
+/* $OpenBSD: ssl_tlsext.h,v 1.14 2018/11/09 03:17:24 jsing Exp $ */
 /*
  * Copyright (c) 2016, 2017 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
@@ -15,6 +15,11 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
+#ifndef HEADER_SSL_TLSEXT_H
+#define HEADER_SSL_TLSEXT_H
+
+__BEGIN_HIDDEN_DECLS
 
 int tlsext_alpn_clienthello_needs(SSL *s);
 int tlsext_alpn_clienthello_build(SSL *s, CBB *cbb);
@@ -44,12 +49,12 @@ int tlsext_sni_serverhello_needs(SSL *s);
 int tlsext_sni_serverhello_build(SSL *s, CBB *cbb);
 int tlsext_sni_serverhello_parse(SSL *s, CBS *cbs, int *alert);
 
-int tlsext_ec_clienthello_needs(SSL *s);
-int tlsext_ec_clienthello_build(SSL *s, CBB *cbb);
-int tlsext_ec_clienthello_parse(SSL *s, CBS *cbs, int *alert);
-int tlsext_ec_serverhello_needs(SSL *s);
-int tlsext_ec_serverhello_build(SSL *s, CBB *cbb);
-int tlsext_ec_serverhello_parse(SSL *s, CBS *cbs, int *alert);
+int tlsext_supportedgroups_clienthello_needs(SSL *s);
+int tlsext_supportedgroups_clienthello_build(SSL *s, CBB *cbb);
+int tlsext_supportedgroups_clienthello_parse(SSL *s, CBS *cbs, int *alert);
+int tlsext_supportedgroups_serverhello_needs(SSL *s);
+int tlsext_supportedgroups_serverhello_build(SSL *s, CBB *cbb);
+int tlsext_supportedgroups_serverhello_parse(SSL *s, CBS *cbs, int *alert);
 
 int tlsext_ecpf_clienthello_needs(SSL *s);
 int tlsext_ecpf_clienthello_build(SSL *s, CBB *cbb);
@@ -82,9 +87,11 @@ int tlsext_srtp_serverhello_parse(SSL *s, CBS *cbs, int *alert);
 #endif
 
 int tlsext_clienthello_build(SSL *s, CBB *cbb);
-int tlsext_clienthello_parse_one(SSL *s, CBS *cbs, uint16_t tlsext_type,
-    int *alert);
+int tlsext_clienthello_parse(SSL *s, CBS *cbs, int *alert);
 
 int tlsext_serverhello_build(SSL *s, CBB *cbb);
-int tlsext_serverhello_parse_one(SSL *s, CBS *cbs, uint16_t tlsext_type,
-    int *alert);
+int tlsext_serverhello_parse(SSL *s, CBS *cbs, int *alert);
+
+__END_HIDDEN_DECLS
+
+#endif

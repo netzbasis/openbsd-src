@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.61 2017/12/11 05:27:40 deraadt Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.65 2018/05/02 02:24:55 visa Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -238,9 +238,9 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 		return (error);
 	if (vcount(devvp) > 1 && devvp != rootvp)
 		return (EBUSY);
-	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, p);
+	VOP_UNLOCK(devvp);
 	if (error)
 		return (error);
 
@@ -441,9 +441,9 @@ bail:
 	if (bp != NULL)
 		brelse(bp);
 
-	vn_lock(devvp, LK_EXCLUSIVE|LK_RETRY, p);
+	vn_lock(devvp, LK_EXCLUSIVE|LK_RETRY);
 	VOP_CLOSE(devvp, FREAD, FSCRED, p);
-	VOP_UNLOCK(devvp, p);
+	VOP_UNLOCK(devvp);
 
 	return (error);
 }
@@ -464,10 +464,10 @@ udf_unmount(struct mount *mp, int mntflags, struct proc *p)
 	if ((error = vflush(mp, NULL, flags)))
 		return (error);
 
-	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
 	vinvalbuf(devvp, V_SAVE, NOCRED, p, 0, 0);
 	(void)VOP_CLOSE(devvp, FREAD, NOCRED, p);
-	VOP_UNLOCK(devvp, p);
+	VOP_UNLOCK(devvp);
 
 	devvp->v_specmountpoint = NULL;
 	vrele(devvp);
@@ -537,7 +537,7 @@ udf_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 }
 
 int
-udf_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
+udf_sync(struct mount *mp, int waitfor, int stall, struct ucred *cred, struct proc *p)
 {
 	return (0);
 }
@@ -638,7 +638,7 @@ udf_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	vp->v_data = up;
 	vref(ump->um_devvp);
 
-	rrw_init_flags(&up->u_lock, "unode", RWL_DUPOK);
+	rrw_init_flags(&up->u_lock, "unode", RWL_DUPOK | RWL_IS_VNODE);
 
 	/*
 	 * udf_hashins() will lock the vnode for us.

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.45 2017/07/03 22:21:47 espie Exp $
+#	$OpenBSD: Makefile,v 1.47 2018/07/03 01:34:43 mortimer Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -19,6 +19,7 @@ CFLAGS+=	-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=	-Wsign-compare
 CFLAGS+=	-Werror-implicit-function-declaration
 CFLAGS+=	-DNO_IO
+CFLAGS+=	-DCONFIG_MINIMUM
 YFLAGS=
 
 SRCS=	enqueue.c
@@ -35,6 +36,7 @@ SRCS+=	compress_gzip.c
 SRCS+=	to.c
 SRCS+=	expand.c
 SRCS+=	tree.c
+SRCS+=	config.c
 SRCS+=	dict.c
 SRCS+=	aliases.c
 SRCS+=	limit.c
@@ -46,7 +48,9 @@ SRCS+=	table_static.c
 SRCS+=	table_db.c
 SRCS+=	table_getpwnam.c
 SRCS+=	table_proc.c
+SRCS+=	unpack_dns.c
+SRCS+=	spfwalk.c
 
-LDADD+=	-lutil -lz -lcrypto
-DPADD+=	${LIBUTIL} ${LIBZ} ${LIBCRYPTO}
+LDADD+=	-levent -lutil -lz -lcrypto
+DPADD+=	${LIBEVENT} ${LIBUTIL} ${LIBZ} ${LIBCRYPTO}
 .include <bsd.prog.mk>

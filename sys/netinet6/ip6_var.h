@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_var.h,v 1.81 2017/11/05 13:19:59 florian Exp $	*/
+/*	$OpenBSD: ip6_var.h,v 1.84 2018/10/10 11:46:59 reyk Exp $	*/
 /*	$KAME: ip6_var.h,v 1.33 2000/06/11 14:59:20 jinmei Exp $	*/
 
 /*
@@ -279,7 +279,7 @@ extern int	ip6_mcast_pmtu;		/* path MTU discovery for multicast */
 extern int	ip6_neighborgcthresh; /* Threshold # of NDP entries for GC */
 extern int	ip6_maxdynroutes; /* Max # of routes created via redirect */
 
-extern struct socket *ip6_mrouter[RT_TABLEID_MAX]; /* multicast routing daemon */
+extern struct socket *ip6_mrouter[RT_TABLEID_MAX + 1]; /* multicast routing daemon */
 extern int	ip6_sendredirects;	/* send IP redirects when forwarding? */
 extern int	ip6_maxfragpackets; /* Maximum packets in reassembly queue */
 extern int	ip6_maxfrags;	/* Maximum fragments in reassembly queue */
@@ -292,6 +292,9 @@ extern int	ip6_dad_pending;	/* number of currently running DADs */
 extern int ip6_auto_flowlabel;
 extern int ip6_auto_linklocal;
 
+#define	IP6_SOIIKEY_LEN 16
+extern uint8_t	ip6_soiikey[IP6_SOIIKEY_LEN];
+
 struct in6pcb;
 struct inpcb;
 
@@ -303,7 +306,7 @@ int	ip6_input_if(struct mbuf **, int *, int, int, struct ifnet *);
 void	ip6_freepcbopts(struct ip6_pktopts *);
 void	ip6_freemoptions(struct ip6_moptions *);
 int	ip6_unknown_opt(u_int8_t *, struct mbuf *, int);
-u_int8_t *ip6_get_prevhdr(struct mbuf *, int);
+int	ip6_get_prevhdr(struct mbuf *, int);
 int	ip6_nexthdr(struct mbuf *, int, int, int *);
 int	ip6_lasthdr(struct mbuf *, int, int, int *);
 int	ip6_mforward(struct ip6_hdr *, struct ifnet *, struct mbuf *);

@@ -1,4 +1,4 @@
-#	$OpenBSD: rc,v 1.523 2017/11/09 11:02:10 tb Exp $
+#	$OpenBSD: rc,v 1.529 2018/07/23 11:54:49 florian Exp $
 
 # System startup script run by init on autoboot or after single-user.
 # Output and error are redirected to console by init, and the console is the
@@ -158,6 +158,12 @@ make_keys() {
 	fi
 
 	ssh-keygen -A
+
+	if [[ ! -f /etc/soii.key ]]; then
+		openssl rand -hex 16 > /etc/soii.key &&
+		    chmod 600 /etc/soii.key && sysctl -q \
+		    "net.inet6.ip6.soiikey=$(</etc/soii.key)"
+	fi
 }
 
 # Re-link libraries, placing the objects in a random order.
@@ -309,7 +315,7 @@ _rc_parse_conf
 # - execute the rc.d scripts specified by $pkg_scripts in reverse order
 # - bring carp interfaces down gracefully
 if [[ $1 == shutdown ]]; then
-	if echo 2>/dev/null >>/var/db/host.random || \
+	if echo 2>/dev/null >>/var/db/host.random ||
 	    echo 2>/dev/null >>/etc/random.seed; then
 		random_seed
 	else
@@ -328,6 +334,12 @@ if [[ $1 == shutdown ]]; then
 				[[ -x /etc/rc.d/${_d[_i]} ]] &&
 					/etc/rc.d/${_d[_i]} stop
 			done
+			echo '.'
+		fi
+
+		if /etc/rc.d/vmd check > /dev/null; then
+			echo -n 'stopping VMs'
+			/etc/rc.d/vmd stop > /dev/null
 			echo '.'
 		fi
 
@@ -569,15 +581,8 @@ run_upgrade_script sysmerge
 
 echo -n 'starting network daemons:'
 start_daemon ldomd sshd switchd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
-start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd
-
-if ifconfig lo0 inet6 >/dev/null 2>&1; then
-	if (($(sysctl -n net.inet6.ip6.forwarding) == 1)); then
-		start_daemon route6d rtadvd
-	fi
-fi
-
-start_daemon hostapd lpd smtpd slowcgi httpd ftpd
+start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd route6d
+start_daemon rad hostapd lpd smtpd slowcgi httpd ftpd
 start_daemon ftpproxy ftpproxy6 tftpd tftpproxy identd inetd rarpd bootparamd
 start_daemon rbootd mopd vmd spamd spamlogd sndiod
 echo '.'

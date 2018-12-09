@@ -1,5 +1,4 @@
-/*	$OpenBSD: radeon_trace_points.c,v 1.1 2013/08/12 04:11:53 jsg Exp $	*/
-
+// SPDX-License-Identifier: MIT
 /* Copyright Red Hat Inc 2010.
  * Author : Dave Airlie <airlied@redhat.com>
  */

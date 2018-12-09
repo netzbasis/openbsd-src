@@ -94,6 +94,7 @@ struct nsd_options {
 	int log_time_ascii;
 	int round_robin;
 	int minimal_responses;
+	int refuse_any;
 	int reuseport;
 
         /** remote control section. enable toggle. */
@@ -165,7 +166,7 @@ struct pattern_options {
 	uint8_t min_retry_time_is_default;
 	uint64_t size_limit_xfr;
 	uint8_t multi_master_check;
-};
+} ATTR_PACKED;
 
 #define PATTERN_IMPLICIT_MARKER "_implicit_"
 
@@ -186,7 +187,7 @@ struct zone_options {
 	struct pattern_options* pattern;
 	/* zone is fixed into the main config, not in zonelist, cannot delete */
 	uint8_t part_of_config;
-};
+} ATTR_PACKED;
 
 union acl_addr_storage {
 #ifdef INET6
@@ -227,7 +228,7 @@ struct acl_options {
 	uint8_t blocked;
 	const char* key_name;
 	struct key_options* key_options;
-};
+} ATTR_PACKED;
 
 /*
  * Key definition
@@ -238,7 +239,7 @@ struct key_options {
 	char* algorithm;
 	char* secret;
 	struct tsig_key* tsig_key;
-};
+} ATTR_PACKED;
 
 /** zone list free space */
 struct zonelist_free {
@@ -339,6 +340,10 @@ void options_zonestatnames_create(struct nsd_options* opt);
 unsigned getzonestatid(struct nsd_options* opt, struct zone_options* zopt);
 /* create string, same options as zonefile but no chroot changes */
 const char* config_cook_string(struct zone_options* zone, const char* input);
+
+/** check if config for remote control turns on IP-address interface
+ * with certificates or a named pipe without certificates. */
+int options_remote_is_address(struct nsd_options* cfg);
 
 #if defined(HAVE_SSL)
 /* tsig must be inited, adds all keys in options to tsig. */
