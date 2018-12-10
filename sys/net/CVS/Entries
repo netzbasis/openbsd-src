@@ -82,7 +82,7 @@
 /pfkeyv2.h/1.80/Tue Aug 28 15:15:02 2018//
 /pfkeyv2_convert.c/1.64/Tue Aug 28 15:15:02 2018//
 /pfkeyv2_parsemessage.c/1.53/Fri Jul 14 16:50:41 2017//
-/pfvar.h/1.486/Thu Sep 13 19:53:58 2018//
+/pfvar.h/1.487/Sun Dec  9 19:38:40 2018//
 /pfvar_priv.h/1.5/Tue Sep 11 07:53:38 2018//
 /pipex.c/1.106/Mon Nov 20 10:35:24 2017//
 /pipex.h/1.21/Tue Jan 24 10:08:30 2017//

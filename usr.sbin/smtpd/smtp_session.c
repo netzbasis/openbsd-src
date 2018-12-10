@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.362 2018/12/07 14:18:17 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.366 2018/12/09 17:37:15 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -609,7 +609,7 @@ smtp_session(struct listener *listener, int sock,
 		s->fcrdns = 1;
 		smtp_lookup_servername(s);
 	} else {
-		resolver_getnameinfo((struct sockaddr *)&s->ss, 0,
+		resolver_getnameinfo((struct sockaddr *)&s->ss, NI_NAMEREQD,
 		    smtp_getnameinfo_cb, s);
 	}
 
@@ -1580,7 +1580,6 @@ smtp_query_filters(enum filter_phase phase, struct smtp_session *s, const char *
 		m_create(p_lka, IMSG_SMTP_FILTER_PROTOCOL, 0, 0, -1);
 		m_add_id(p_lka, s->id);
 		m_add_int(p_lka, phase);
-		m_add_string(p_lka, s->hostname);
 		m_add_string(p_lka, args);
 		m_close(p_lka);
 		tree_xset(&wait_filters, s->id, s);
@@ -1604,6 +1603,10 @@ smtp_filter_begin(struct smtp_session *s)
 
 	m_create(p_lka, IMSG_SMTP_FILTER_BEGIN, 0, 0, -1);
 	m_add_id(p_lka, s->id);
+	m_add_sockaddr(p_lka, (struct sockaddr *)&s->ss);
+	m_add_sockaddr(p_lka, (struct sockaddr *)&s->listener->ss);
+	m_add_string(p_lka, s->hostname);
+	m_add_int(p_lka, s->fcrdns);
 	m_close(p_lka);
 }
 
@@ -1655,7 +1658,7 @@ smtp_filter_phase(enum filter_phase phase, struct smtp_session *s, const char *p
 	s->filter_phase = phase;
 	s->filter_param = param;
 
-	if (!SESSION_FILTERED(s)) {
+	if (SESSION_FILTERED(s)) {
 		smtp_query_filters(phase, s, param ? param : "");
 		return;
 	}
@@ -1664,6 +1667,7 @@ smtp_filter_phase(enum filter_phase phase, struct smtp_session *s, const char *p
 		smtp_proceed_connected(s);
 		return;
 	}
+
 	for (i = 0; i < nitems(commands); ++i)
 		if (commands[i].filter_phase == s->filter_phase) {
 			commands[i].proceed(s, param);
