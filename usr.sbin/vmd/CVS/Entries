@@ -1,4 +1,4 @@
-/Makefile/1.20/Sun Sep  9 04:09:32 2018//
+/Makefile/1.21/Mon Dec 10 21:30:33 2018//
 /atomicio.c/1.1/Mon May  8 09:08:40 2017//
 /atomicio.h/1.1/Mon May  8 09:08:40 2017//
 /config.c/1.57/Mon Nov 26 05:44:46 2018//
@@ -6,7 +6,9 @@
 /dhcp.c/1.7/Thu Dec  6 09:20:06 2018//
 /dhcp.h/1.1/Wed Apr 19 15:38:32 2017//
 /disklabel.c/1.2/Tue Aug 29 21:10:20 2017//
-/i8253.c/1.28/Thu Jul 12 10:15:44 2018//
+/fw_cfg.c/1.1/Mon Dec 10 21:30:33 2018//
+/fw_cfg.h/1.1/Mon Dec 10 21:30:33 2018//
+/i8253.c/1.29/Mon Dec 10 21:24:22 2018//
 /i8253.h/1.9/Thu Apr 26 17:10:10 2018//
 /i8259.c/1.19/Thu Jul 12 10:15:44 2018//
 /i8259.h/1.4/Fri Apr 27 12:15:10 2018//
@@ -33,13 +35,13 @@
 /vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
 /virtio.c/1.75/Thu Dec  6 09:20:06 2018//
 /virtio.h/1.34/Thu Dec  6 09:20:06 2018//
-/vm.c/1.42/Thu Dec  6 09:20:06 2018//
+/vm.c/1.43/Mon Dec 10 21:30:33 2018//
 /vm.conf.5/1.41/Wed Nov 21 13:48:20 2018//
 /vmboot.c/1.7/Mon Nov 26 10:39:30 2018//
 /vmboot.h/1.2/Sat Nov 26 20:03:42 2016//
 /vmd.8/1.8/Wed Jul 19 01:26:20 2017//
 /vmd.c/1.108/Sun Dec  9 12:26:38 2018//
-/vmd.h/1.88/Thu Dec  6 09:20:06 2018//
+/vmd.h/1.89/Mon Dec 10 21:30:33 2018//
 /vmm.c/1.91/Tue Dec  4 08:15:09 2018//
 /vmm.h/1.6/Thu Jul 12 10:15:44 2018//
 D

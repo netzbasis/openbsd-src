@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta_report.c,v 1.3 2018/12/06 16:05:04 gilles Exp $	*/
+/*	$OpenBSD: report_smtp.c,v 1.1 2018/12/11 13:29:52 gilles Exp $	*/
 
 /*
  * Copyright (c) 2018 Gilles Chehade <gilles@poolp.org>
@@ -44,11 +44,12 @@
 #include "rfc5322.h"
 
 void
-mta_report_link_connect(uint64_t qid, const char *rdns, int fcrdns,
+report_smtp_link_connect(const char *direction, uint64_t qid, const char *rdns, int fcrdns,
     const struct sockaddr_storage *ss_src,
     const struct sockaddr_storage *ss_dest)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_LINK_CONNECT, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_LINK_CONNECT, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_string(p_lka, rdns);
@@ -59,9 +60,21 @@ mta_report_link_connect(uint64_t qid, const char *rdns, int fcrdns,
 }
 
 void
-mta_report_link_tls(uint64_t qid, const char *ssl)
+report_smtp_link_identify(const char *direction, uint64_t qid, const char *identity)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_LINK_TLS, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_LINK_IDENTIFY, 0, 0, -1);
+	m_add_string(p_lka, direction);
+	m_add_time(p_lka, time(NULL));
+	m_add_id(p_lka, qid);
+	m_add_string(p_lka, identity);
+	m_close(p_lka);
+}
+
+void
+report_smtp_link_tls(const char *direction, uint64_t qid, const char *ssl)
+{
+	m_create(p_lka, IMSG_REPORT_SMTP_LINK_TLS, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_string(p_lka, ssl);
@@ -69,40 +82,31 @@ mta_report_link_tls(uint64_t qid, const char *ssl)
 }
 
 void
-mta_report_link_disconnect(uint64_t qid)
+report_smtp_link_disconnect(const char *direction, uint64_t qid)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_LINK_DISCONNECT, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_LINK_DISCONNECT, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_close(p_lka);
 }
 
 void
-mta_report_tx_begin(uint64_t qid, uint32_t msgid)
+report_smtp_tx_begin(const char *direction, uint64_t qid, uint32_t msgid)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_TX_BEGIN, 0, 0, -1);
-	m_add_time(p_lka, time(NULL));
-	m_add_id(p_lka, qid);
-	m_add_u32(p_lka, msgid);
-	m_close(p_lka);
-}
-
-void
-mta_report_tx_mail(uint64_t qid, uint32_t msgid, const char *address, int ok)
-{
-	m_create(p_lka, IMSG_MTA_REPORT_TX_MAIL, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_BEGIN, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_u32(p_lka, msgid);
-	m_add_string(p_lka, address);
-	m_add_int(p_lka, ok);
 	m_close(p_lka);
 }
 
 void
-mta_report_tx_rcpt(uint64_t qid, uint32_t msgid, const char *address, int ok)
+report_smtp_tx_mail(const char *direction, uint64_t qid, uint32_t msgid, const char *address, int ok)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_TX_RCPT, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_MAIL, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_u32(p_lka, msgid);
@@ -112,9 +116,23 @@ mta_report_tx_rcpt(uint64_t qid, uint32_t msgid, const char *address, int ok)
 }
 
 void
-mta_report_tx_envelope(uint64_t qid, uint32_t msgid, uint64_t evpid)
+report_smtp_tx_rcpt(const char *direction, uint64_t qid, uint32_t msgid, const char *address, int ok)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_TX_ENVELOPE, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_RCPT, 0, 0, -1);
+	m_add_string(p_lka, direction);
+	m_add_time(p_lka, time(NULL));
+	m_add_id(p_lka, qid);
+	m_add_u32(p_lka, msgid);
+	m_add_string(p_lka, address);
+	m_add_int(p_lka, ok);
+	m_close(p_lka);
+}
+
+void
+report_smtp_tx_envelope(const char *direction, uint64_t qid, uint32_t msgid, uint64_t evpid)
+{
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_ENVELOPE, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_u32(p_lka, msgid);
@@ -123,9 +141,10 @@ mta_report_tx_envelope(uint64_t qid, uint32_t msgid, uint64_t evpid)
 }
 
 void
-mta_report_tx_commit(uint64_t qid, uint32_t msgid, size_t msgsz)
+report_smtp_tx_commit(const char *direction, uint64_t qid, uint32_t msgid, size_t msgsz)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_TX_COMMIT, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_COMMIT, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_u32(p_lka, msgid);
@@ -134,9 +153,10 @@ mta_report_tx_commit(uint64_t qid, uint32_t msgid, size_t msgsz)
 }
 
 void
-mta_report_tx_rollback(uint64_t qid, uint32_t msgid)
+report_smtp_tx_rollback(const char *direction, uint64_t qid, uint32_t msgid)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_TX_ROLLBACK, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_TX_ROLLBACK, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_u32(p_lka, msgid);
@@ -144,9 +164,10 @@ mta_report_tx_rollback(uint64_t qid, uint32_t msgid)
 }
 
 void
-mta_report_protocol_client(uint64_t qid, const char *command)
+report_smtp_protocol_client(const char *direction, uint64_t qid, const char *command)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_PROTOCOL_CLIENT, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_PROTOCOL_CLIENT, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_string(p_lka, command);
@@ -154,11 +175,25 @@ mta_report_protocol_client(uint64_t qid, const char *command)
 }
 
 void
-mta_report_protocol_server(uint64_t qid, const char *response)
+report_smtp_protocol_server(const char *direction, uint64_t qid, const char *response)
 {
-	m_create(p_lka, IMSG_MTA_REPORT_PROTOCOL_SERVER, 0, 0, -1);
+	m_create(p_lka, IMSG_REPORT_SMTP_PROTOCOL_SERVER, 0, 0, -1);
+	m_add_string(p_lka, direction);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
 	m_add_string(p_lka, response);
+	m_close(p_lka);
+}
+
+void
+report_smtp_filter_response(const char *direction, uint64_t qid, int phase, int response, const char *param)
+{
+	m_create(p_lka, IMSG_REPORT_SMTP_FILTER_RESPONSE, 0, 0, -1);
+	m_add_string(p_lka, direction);
+	m_add_time(p_lka, time(NULL));
+	m_add_id(p_lka, qid);
+	m_add_int(p_lka, phase);
+	m_add_int(p_lka, response);
+	m_add_string(p_lka, param);
 	m_close(p_lka);
 }
