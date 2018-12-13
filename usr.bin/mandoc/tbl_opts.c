@@ -1,4 +1,4 @@
-/*	$OpenBSD: tbl_opts.c,v 1.13 2015/09/26 00:53:15 schwarze Exp $ */
+/*	$OpenBSD: tbl_opts.c,v 1.15 2018/12/13 02:05:57 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -23,8 +23,9 @@
 #include <string.h>
 
 #include "mandoc.h"
+#include "tbl.h"
 #include "libmandoc.h"
-#include "libroff.h"
+#include "tbl_int.h"
 
 #define	KEY_DPOINT	0
 #define	KEY_DELIM	1

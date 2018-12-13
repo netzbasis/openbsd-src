@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.372 2018/12/11 13:40:30 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.374 2018/12/12 21:27:49 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -2030,8 +2030,6 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 
 	log_trace(TRACE_SMTP, "smtp: %p: >>> %s", s, buf);
 
-	io_xprintf(s->io, "%s\r\n", buf);
-
 	switch (buf[0]) {
 	case '2':
 		if (s->last_cmd == CMD_MAIL_FROM)
@@ -2039,12 +2037,26 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 		else if (s->last_cmd == CMD_RCPT_TO)
 			report_smtp_tx_rcpt("smtp-in", s->id, s->tx->msgid, s->cmd + 8, 1);
 		break;
+	case '3':
+		if (s->last_cmd == CMD_DATA)
+			report_smtp_tx_data("smtp-in", s->id, s->tx->msgid, 1);
+		break;
 	case '5':
 	case '4':
-		if (s->last_cmd == CMD_MAIL_FROM)
-			report_smtp_tx_mail("smtp-in", s->id, s->tx->msgid, s->cmd + 10, buf[0] == '4' ? -1 : 0);
-		else if (s->last_cmd == CMD_RCPT_TO)
-			report_smtp_tx_rcpt("smtp-in", s->id, s->tx->msgid, s->cmd + 8, buf[0] == '4' ? -1 : 0);
+		/* do not report smtp_tx_mail/smtp_tx_rcpt errors
+		 * if they happened outside of a transaction.
+		 */
+		if (s->tx) {
+			if (s->last_cmd == CMD_MAIL_FROM)
+				report_smtp_tx_mail("smtp-in", s->id, s->tx->msgid,
+				    s->cmd + 10, buf[0] == '4' ? -1 : 0);
+			else if (s->last_cmd == CMD_RCPT_TO)
+				report_smtp_tx_rcpt("smtp-in", s->id,
+				    s->tx->msgid, s->cmd + 8, buf[0] == '4' ? -1 : 0);
+			else if (s->last_cmd == CMD_DATA && s->tx->rcptcount)
+				report_smtp_tx_data("smtp-in", s->id, s->tx->msgid,
+				    buf[0] == '4' ? -1 : 0);
+		}
 
 		if (s->flags & SF_BADINPUT) {
 			log_info("%016"PRIx64" smtp "
@@ -2078,6 +2090,8 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 		}
 		break;
 	}
+
+	io_xprintf(s->io, "%s\r\n", buf);
 	report_smtp_protocol_server("smtp-in", s->id, buf);
 }
 
@@ -2801,6 +2815,9 @@ smtp_message_begin(struct smtp_tx *tx)
 
 	log_debug("smtp: %p: message begin", s);
 
+	smtp_reply(s, "354 Enter mail, end with \".\""
+	    " on a line by itself");	
+	
 	m_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
 		m_printf(tx, "from %s (%s [%s])",
@@ -2842,8 +2859,6 @@ smtp_message_begin(struct smtp_tx *tx)
 	m_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
 
 	smtp_enter_state(s, STATE_BODY);
-	smtp_reply(s, "354 Enter mail, end with \".\""
-	    " on a line by itself");
 }
 
 static void

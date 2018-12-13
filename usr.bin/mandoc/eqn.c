@@ -1,7 +1,7 @@
-/*	$OpenBSD: eqn.c,v 1.41 2017/07/15 15:06:31 bentley Exp $ */
+/*	$OpenBSD: eqn.c,v 1.44 2018/12/13 05:13:15 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2014, 2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,8 +28,9 @@
 #include "mandoc_aux.h"
 #include "mandoc.h"
 #include "roff.h"
+#include "eqn.h"
 #include "libmandoc.h"
-#include "libroff.h"
+#include "eqn_parse.h"
 
 #define	EQN_NEST_MAX	 128 /* maximum nesting of defines */
 #define	STRNEQ(p1, sz1, p2, sz2) \
@@ -282,6 +283,13 @@ enum	parse_mode {
 	MODE_TOK
 };
 
+struct	eqn_def {
+	char		 *key;
+	size_t		  keysz;
+	char		 *val;
+	size_t		  valsz;
+};
+
 static	struct eqn_box	*eqn_box_alloc(struct eqn_node *, struct eqn_box *);
 static	struct eqn_box	*eqn_box_makebinary(struct eqn_node *,
 				struct eqn_box *);
@@ -466,6 +474,8 @@ eqn_next(struct eqn_node *ep, enum parse_mode mode)
 void
 eqn_box_free(struct eqn_box *bp)
 {
+	if (bp == NULL)
+		return;
 
 	if (bp->first)
 		eqn_box_free(bp->first);
@@ -480,6 +490,16 @@ eqn_box_free(struct eqn_box *bp)
 	free(bp);
 }
 
+struct eqn_box *
+eqn_box_new(void)
+{
+	struct eqn_box	*bp;
+
+	bp = mandoc_calloc(1, sizeof(*bp));
+	bp->expectargs = UINT_MAX;
+	return bp;
+}
+
 /*
  * Allocate a box as the last child of the parent node.
  */
@@ -488,10 +508,9 @@ eqn_box_alloc(struct eqn_node *ep, struct eqn_box *parent)
 {
 	struct eqn_box	*bp;
 
-	bp = mandoc_calloc(1, sizeof(struct eqn_box));
+	bp = eqn_box_new();
 	bp->parent = parent;
 	bp->parent->args++;
-	bp->expectargs = UINT_MAX;
 	bp->font = bp->parent->font;
 	bp->size = ep->gsize;
 
@@ -1089,6 +1108,9 @@ void
 eqn_free(struct eqn_node *p)
 {
 	int		 i;
+
+	if (p == NULL)
+		return;
 
 	for (i = 0; i < (int)p->defsz; i++) {
 		free(p->defs[i].key);
