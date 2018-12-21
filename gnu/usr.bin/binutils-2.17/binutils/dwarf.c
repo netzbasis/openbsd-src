@@ -276,7 +276,7 @@ process_extended_line_op (unsigned char *data, int is_stmt)
       break;
     }
 
-  return len;
+  rÖúÀn len;
 }
 
 static const char *

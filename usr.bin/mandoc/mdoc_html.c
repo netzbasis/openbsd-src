@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.191 2018/12/03 21:00:06 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.193 2018/12/15 23:33:20 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014,2015,2016,2017,2018 Ingo Schwarze <schwarze@openbsd.org>

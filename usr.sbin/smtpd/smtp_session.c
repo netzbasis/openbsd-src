@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.374 2018/12/12 21:27:49 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.377 2018/12/20 19:57:30 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -191,6 +191,10 @@ static void smtp_free(struct smtp_session *, const char *);
 static const char *smtp_strstate(int);
 static void smtp_tls_init(struct smtp_session *);
 static int smtp_verify_certificate(struct smtp_session *);
+static void smtp_cert_init(struct smtp_session *);
+static void smtp_cert_init_cb(void *, int, const char *, const void *, size_t);
+static void smtp_cert_verify(struct smtp_session *);
+static void smtp_cert_verify_cb(void *, int);
 static void smtp_auth_failure_pause(struct smtp_session *);
 static void smtp_auth_failure_resume(int, short, void *);
 
@@ -1089,7 +1093,7 @@ smtp_io(struct io *io, int evt, void *arg)
 	switch (evt) {
 
 	case IO_TLSREADY:
-		log_info("%016"PRIx64" smtp tls address=%s host=%s ciphers=\"%s\"",
+		log_info("%016"PRIx64" smtp tls address=%s host=%s ciphers=%s",
 		    s->id, ss_to_text(&s->ss), s->hostname, ssl_to_text(io_ssl(s->io)));
 
 		report_smtp_link_tls("smtp-in", s->id, ssl_to_text(io_ssl(s->io)));
@@ -1097,20 +1101,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		s->flags |= SF_SECURE;
 		s->helo[0] = '\0';
 
-		if (smtp_verify_certificate(s)) {
-			io_pause(s->io, IO_IN);
-			break;
-		}
-
-		if (s->listener->flags & F_TLS_VERIFY) {
-			log_info("%016"PRIx64" smtp "
-			    "disconnected address=%s host=%s reason=no-client-cert",
-			    s->id, ss_to_text(&s->ss), s->hostname);
-			smtp_free(s, "client did not present certificate");
-			return;
-		}
-
-		smtp_tls_verified(s);
+		smtp_cert_verify(s);
 		break;
 
 	case IO_DATAIN:
@@ -1182,7 +1173,7 @@ smtp_io(struct io *io, int evt, void *arg)
 
 		/* Wait for the client to start tls */
 		if (s->state == STATE_TLS) {
-			smtp_tls_init(s);
+			smtp_cert_init(s);
 			break;
 		}
 
@@ -1323,18 +1314,26 @@ smtp_command(struct smtp_session *s, char *line)
 	 * ANY
 	 */
 	case CMD_QUIT:
+		if (!smtp_check_noparam(s, args))
+			break;		
 		smtp_filter_phase(FILTER_QUIT, s, NULL);
 		break;
 
 	case CMD_NOOP:
+		if (!smtp_check_noparam(s, args))
+			break;		
 		smtp_filter_phase(FILTER_NOOP, s, NULL);
 		break;
 
 	case CMD_HELP:
+		if (!smtp_check_noparam(s, args))
+			break;		
 		smtp_proceed_help(s, NULL);
 		break;
 
 	case CMD_WIZ:
+		if (!smtp_check_noparam(s, args))
+			break;		
 		smtp_proceed_wiz(s, NULL);
 		break;
 
@@ -1349,6 +1348,9 @@ smtp_command(struct smtp_session *s, char *line)
 static int
 smtp_check_rset(struct smtp_session *s, const char *args)
 {
+	if (!smtp_check_noparam(s, args))
+		return 0;
+
 	if (s->helo[0] == '\0') {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
@@ -1556,6 +1558,9 @@ smtp_check_rcpt_to(struct smtp_session *s, const char *args)
 static int
 smtp_check_data(struct smtp_session *s, const char *args)
 {
+	if (!smtp_check_noparam(s, args))
+		return 0;
+
 	if (s->tx == NULL) {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
@@ -1576,6 +1581,12 @@ smtp_check_data(struct smtp_session *s, const char *args)
 static int
 smtp_check_noparam(struct smtp_session *s, const char *args)
 {
+	if (args != NULL) {
+		smtp_reply(s, "500 %s %s: command does not accept arguments.",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND_ARGUMENTS),
+		    esc_description(ESC_INVALID_COMMAND_ARGUMENTS));
+		return 0;
+	}
 	return 1;
 }
 
@@ -1991,7 +2002,7 @@ static void
 smtp_proceed_connected(struct smtp_session *s)
 {
 	if (s->listener->flags & F_SMTPS)
-		smtp_tls_init(s);
+		smtp_cert_init(s);
 	else
 		smtp_send_banner(s);
 }
@@ -2311,6 +2322,112 @@ smtp_verify_certificate(struct smtp_session *s)
 		free(cert_der[i]);
 
 	return res;
+}
+
+static void
+smtp_cert_init(struct smtp_session *s)
+{
+	const char *name;
+	int fallback;
+
+	if (s->listener->pki_name[0]) {
+		name = s->listener->pki_name;
+		fallback = 0;
+	}
+	else {
+		name = s->smtpname;
+		fallback = 1;
+	}
+
+	if (cert_init(name, fallback, smtp_cert_init_cb, s))
+		tree_xset(&wait_ssl_init, s->id, s);
+}
+
+static void
+smtp_cert_init_cb(void *arg, int status, const char *name, const void *cert,
+    size_t cert_len)
+{
+	struct smtp_session *s = arg;
+	void *ssl, *ssl_ctx;
+
+	tree_pop(&wait_ssl_init, s->id);
+
+	if (status == CA_FAIL) {
+		log_info("%016"PRIx64" smtp disconnected address=%s host=%s "
+		    "reason=ca-failure",
+		    s->id, ss_to_text(&s->ss), s->hostname);
+		smtp_free(s, "CA failure");
+		return;
+	}
+
+	ssl_ctx = dict_get(env->sc_ssl_dict, name);
+	ssl = ssl_smtp_init(ssl_ctx, s->listener->flags & F_TLS_VERIFY);
+	io_set_read(s->io);
+	io_start_tls(s->io, ssl);
+}
+
+static void
+smtp_cert_verify(struct smtp_session *s)
+{
+	const char *name;
+	int fallback;
+
+	if (s->listener->ca_name[0]) {
+		name = s->listener->ca_name;
+		fallback = 0;
+	}
+	else {
+		name = s->smtpname;
+		fallback = 1;
+	}
+
+	if (cert_verify(io_ssl(s->io), name, fallback, smtp_cert_verify_cb, s)) {
+		tree_xset(&wait_ssl_verify, s->id, s);
+		io_pause(s->io, IO_IN);
+	}
+}
+
+static void
+smtp_cert_verify_cb(void *arg, int status)
+{
+	struct smtp_session *s = arg;
+	const char *reason = NULL;
+	int resume;
+
+	resume = tree_pop(&wait_ssl_verify, s->id) != NULL;
+
+	switch (status) {
+	case CERT_OK:
+		reason = "cert-ok";
+		s->flags |= SF_VERIFIED;
+		break;
+	case CERT_NOCA:
+		reason = "no-ca";
+		break;
+	case CERT_NOCERT:
+		reason = "no-client-cert";
+		break;
+	case CERT_INVALID:
+		reason = "cert-invalid";
+		break;
+	default:
+		reason = "cert-check-failed";
+		break;
+	}
+
+	log_debug("smtp: %p: smtp_cert_verify_cb: %s", s, reason);
+
+	if (!(s->flags & SF_VERIFIED) && (s->listener->flags & F_TLS_VERIFY)) {
+		log_info("%016"PRIx64" smtp disconnected address=%s host=%s "
+		    " reason=%s", s->id, ss_to_text(&s->ss), s->hostname,
+		    reason);
+		smtp_free(s, "SSL certificate check failed");
+		return;
+	}
+
+	smtp_tls_verified(s);
+	if (resume)
+		io_resume(s->io, IO_IN);
 }
 
 static void

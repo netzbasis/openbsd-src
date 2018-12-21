@@ -12,7 +12,7 @@
 /ip30.h/1.10/Sun Jun 17 12:34:19 2012//
 /ip30_machdep.c/1.69/Mon Jan 29 14:51:57 2018//
 /ip30_nmi.S/1.6/Wed Oct  3 11:18:23 2012//
-/ip32_machdep.c/1.22/Sat Feb  8 22:20:15 2014//
+/ip32_machdep.c/1.23/Thu Dec 13 16:35:07 2018//
 /l1.c/1.11/Sat Sep 19 21:07:04 2015//
 /l1.h/1.6/Tue Nov 25 19:08:42 2014//
 /locore.S/1.18/Thu Jun  8 11:47:25 2017//

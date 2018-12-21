@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_html.c,v 1.111 2018/12/03 21:00:06 schwarze Exp $ */
+/*	$OpenBSD: man_html.c,v 1.113 2018/12/15 23:33:20 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>

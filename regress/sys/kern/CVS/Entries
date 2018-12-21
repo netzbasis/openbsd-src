@@ -1,4 +1,4 @@
-/Makefile/1.78/Mon Nov 12 16:50:28 2018//
+/Makefile/1.79/Wed Dec 19 21:21:59 2018//
 D/__syscall////
 D/accept////
 D/access////
@@ -43,6 +43,7 @@ D/pty////
 D/pwrite////
 D/pwritev////
 D/rcvtimeo////
+D/recvwait////
 D/rlimit-file////
 D/setuid////
 D/sig-stop////

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.204 2018/12/11 09:02:14 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.206 2018/12/19 15:26:42 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -375,12 +375,12 @@ int	 community_large_set(struct rde_aspath *, struct filter_community *,
 void	 community_large_delete(struct rde_aspath *, struct filter_community *,
 	    struct rde_peer *);
 int	 community_ext_match(struct rde_aspath *,
-	    struct filter_extcommunity *, u_int16_t);
+	    struct filter_community *, struct rde_peer *);
 int	 community_ext_set(struct rde_aspath *,
-	    struct filter_extcommunity *, u_int16_t);
+	    struct filter_community *, struct rde_peer *);
 void	 community_ext_delete(struct rde_aspath *,
-	    struct filter_extcommunity *, u_int16_t);
-int	 community_ext_conv(struct filter_extcommunity *, u_int16_t,
+	    struct filter_community *, struct rde_peer *);
+int	 community_ext_conv(struct filter_community *, struct rde_peer *,
 	    u_int64_t *);
 u_char	*community_ext_delete_non_trans(u_char *, u_int16_t, u_int16_t *);
 
@@ -475,7 +475,6 @@ int		 path_update(struct rib *, struct rde_peer *,
 		     struct filterstate *, struct bgpd_addr *, int, u_int8_t);
 int		 path_compare(struct rde_aspath *, struct rde_aspath *);
 u_int32_t	 path_remove_stale(struct rde_aspath *, u_int8_t, time_t);
-int		 path_empty(struct rde_aspath *);
 struct rde_aspath *path_copy(struct rde_aspath *, const struct rde_aspath *);
 struct rde_aspath *path_prep(struct rde_aspath *);
 struct rde_aspath *path_get(void);

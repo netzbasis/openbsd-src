@@ -1,4 +1,4 @@
-/*	$OpenBSD: tbl.c,v 1.25 2018/12/13 02:05:57 schwarze Exp $ */
+/*	$OpenBSD: tbl.c,v 1.27 2018/12/14 06:33:03 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -86,7 +86,7 @@ tbl_read(struct tbl_node *tbl, int ln, const char *p, int pos)
 }
 
 struct tbl_node *
-tbl_alloc(int pos, int line, struct mparse *parse, struct tbl_node *last_tbl)
+tbl_alloc(int pos, int line, struct tbl_node *last_tbl)
 {
 	struct tbl_node	*tbl;
 
@@ -95,7 +95,6 @@ tbl_alloc(int pos, int line, struct mparse *parse, struct tbl_node *last_tbl)
 		last_tbl->next = tbl;
 	tbl->line = line;
 	tbl->pos = pos;
-	tbl->parse = parse;
 	tbl->part = TBL_PART_OPTS;
 	tbl->opts.tab = '\t';
 	tbl->opts.decimal = '.';
@@ -142,8 +141,7 @@ void
 tbl_restart(int line, int pos, struct tbl_node *tbl)
 {
 	if (tbl->part == TBL_PART_CDATA)
-		mandoc_msg(MANDOCERR_TBLDATA_BLK, tbl->parse,
-		    line, pos, "T&");
+		mandoc_msg(MANDOCERR_TBLDATA_BLK, line, pos, "T&");
 
 	tbl->part = TBL_PART_LAYOUT;
 	tbl->line = line;
@@ -168,18 +166,15 @@ tbl_end(struct tbl_node *tbl, int still_open)
 	struct tbl_span *sp;
 
 	if (still_open)
-		mandoc_msg(MANDOCERR_BLK_NOEND, tbl->parse,
-		    tbl->line, tbl->pos, "TS");
+		mandoc_msg(MANDOCERR_BLK_NOEND, tbl->line, tbl->pos, "TS");
 	else if (tbl->part == TBL_PART_CDATA)
-		mandoc_msg(MANDOCERR_TBLDATA_BLK, tbl->parse,
-		    tbl->line, tbl->pos, "TE");
+		mandoc_msg(MANDOCERR_TBLDATA_BLK, tbl->line, tbl->pos, "TE");
 
 	sp = tbl->first_span;
 	while (sp != NULL && sp->first == NULL)
 		sp = sp->next;
 	if (sp == NULL) {
-		mandoc_msg(MANDOCERR_TBLDATA_NONE, tbl->parse,
-		    tbl->line, tbl->pos, NULL);
+		mandoc_msg(MANDOCERR_TBLDATA_NONE, tbl->line, tbl->pos, NULL);
 		return 0;
 	}
 	return 1;

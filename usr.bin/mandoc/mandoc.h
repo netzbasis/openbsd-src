@@ -1,7 +1,7 @@
-/*	$OpenBSD: mandoc.h,v 1.199 2018/12/13 05:13:15 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.204 2018/12/15 23:33:20 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2012-2018 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2012-2018 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,6 +14,8 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Error handling, escape sequence, and character utilities.
  */
 
 #define ASCII_NBRSP	 31  /* non-breaking space */
@@ -167,6 +169,7 @@ enum	mandocerr {
 	MANDOCERR_FI_TAB, /* tab in filled text */
 	MANDOCERR_EOS, /* new sentence, new line */
 	MANDOCERR_ESC_BAD, /* invalid escape sequence: esc */
+	MANDOCERR_ESC_UNDEF, /* undefined escape, printing literally: char */
 	MANDOCERR_STR_UNDEF, /* undefined string, using "": name */
 
 	/* related to tables */
@@ -229,6 +232,7 @@ enum	mandocerr {
 
 	MANDOCERR_TOOLARGE, /* input too large */
 	MANDOCERR_CHAR_UNSUPP, /* unsupported control character: number */
+	MANDOCERR_ESC_UNSUPP, /* unsupported escape sequence: escape */
 	MANDOCERR_REQ_UNSUPP, /* unsupported roff request: request */
 	MANDOCERR_WHILE_NEST, /* nested .while loops */
 	MANDOCERR_WHILE_OUTOF, /* end of scope with open .while loop */
@@ -241,25 +245,11 @@ enum	mandocerr {
 	MANDOCERR_MAX
 };
 
-/*
- * Parse options.
- */
-#define	MPARSE_MDOC	1  /* assume -mdoc */
-#define	MPARSE_MAN	2  /* assume -man */
-#define	MPARSE_SO	4  /* honour .so requests */
-#define	MPARSE_QUICK	8  /* abort the parse early */
-#define	MPARSE_UTF8	16 /* accept UTF-8 input */
-#define	MPARSE_LATIN1	32 /* accept ISO-LATIN-1 input */
-
-enum	mandoc_os {
-	MANDOC_OS_OTHER = 0,
-	MANDOC_OS_NETBSD,
-	MANDOC_OS_OPENBSD
-};
-
 enum	mandoc_esc {
 	ESCAPE_ERROR = 0, /* bail! unparsable escape */
+	ESCAPE_UNSUPP, /* unsupported escape; ignore it */
 	ESCAPE_IGNORE, /* escape to be ignored */
+	ESCAPE_UNDEF, /* undefined escape; print literal character */
 	ESCAPE_SPECIAL, /* a regular special character */
 	ESCAPE_FONT, /* a generic font mode */
 	ESCAPE_FONTBOLD, /* bold font mode */
@@ -279,14 +269,18 @@ enum	mandoc_esc {
 	ESCAPE_OVERSTRIKE /* overstrike all chars in the argument */
 };
 
-typedef	void	(*mandocmsg)(enum mandocerr, enum mandoclevel,
-			const char *, int, int, const char *);
 
-
-struct	mparse;
-struct	roff_man;
-
+enum mandoc_esc	  mandoc_font(const char *, int sz);
 enum mandoc_esc	  mandoc_escape(const char **, const char **, int *);
+void		  mandoc_msg_setoutfile(FILE *);
+const char	 *mandoc_msg_getinfilename(void);
+void		  mandoc_msg_setinfilename(const char *);
+enum mandocerr	  mandoc_msg_getmin(void);
+void		  mandoc_msg_setmin(enum mandocerr);
+enum mandoclevel  mandoc_msg_getrc(void);
+void		  mandoc_msg_setrc(enum mandoclevel);
+void		  mandoc_msg(enum mandocerr, int, int, const char *, ...)
+			__attribute__((__format__ (__printf__, 4, 5)));
 void		  mchars_alloc(void);
 void		  mchars_free(void);
 int		  mchars_num2char(const char *, size_t);
@@ -294,15 +288,3 @@ const char	 *mchars_uc2str(int);
 int		  mchars_num2uc(const char *, size_t);
 int		  mchars_spec2cp(const char *, size_t);
 const char	 *mchars_spec2str(const char *, size_t, size_t *);
-struct mparse	 *mparse_alloc(int, enum mandocerr, mandocmsg,
-			enum mandoc_os, const char *);
-void		  mparse_free(struct mparse *);
-int		  mparse_open(struct mparse *, const char *);
-enum mandoclevel  mparse_readfd(struct mparse *, int, const char *);
-void		  mparse_reset(struct mparse *);
-void		  mparse_result(struct mparse *,
-			struct roff_man **, char **);
-void		  mparse_copy(const struct mparse *);
-const char	 *mparse_strerror(enum mandocerr);
-const char	 *mparse_strlevel(enum mandoclevel);
-void		  mparse_updaterc(struct mparse *, enum mandoclevel *);
