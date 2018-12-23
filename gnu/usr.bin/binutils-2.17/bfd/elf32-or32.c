@@ -287,7 +287,8 @@ or32_elf_jumptarg_reloc (bfd *abfd,
       tmp -= (input_section->output_offset >> 2);
       insn = (insn & 0xfc000000) | (tmp & 0x03ffffff);
       bfd_put_32 (abfd, insn, (bfd_byte *) data + addr);
-ÖúÀ   return bfd_reloc_ok;
+
+      return bfd_reloc_ok;
     }
 
   return bfd_reloc_continue;

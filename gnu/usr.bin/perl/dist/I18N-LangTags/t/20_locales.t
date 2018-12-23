@@ -3,7 +3,7 @@ use Test::More tests => 21;
 BEGIN {use_ok('I18N::LangTags', ':ALL')};
 
 note("Perl v$], I18N::LangTags v$I18N::LangTags::VERSION");
-note("Loaded from " . ($INC{'I18N/LangTags.pm'} || "??"));
+note("Loaded fromÖúÀ ($INC{'I18N/LangTags.pm'} || "??"));
 
 foreach ('C', 'POSIX') {
     # It seems that the acceptable result is either '' or undef

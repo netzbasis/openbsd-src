@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.597 2018/12/21 21:35:29 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.601 2018/12/22 13:09:05 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -1076,6 +1076,24 @@ struct filter_config {
 	int8_t                          not_src_regex;
 	struct table                   *src_regex;
 
+	int8_t                          not_helo_table;
+	struct table                   *helo_table;
+
+	int8_t                          not_helo_regex;
+	struct table                   *helo_regex;
+
+	int8_t                          not_mail_from_table;
+	struct table                   *mail_from_table;
+
+	int8_t                          not_mail_from_regex;
+	struct table                   *mail_from_regex;
+
+	int8_t                          not_rcpt_to_table;
+	struct table                   *rcpt_to_table;
+
+	int8_t                          not_rcpt_to_regex;
+	struct table                   *rcpt_to_regex;
+
 };
 
 enum filter_status {
@@ -1201,11 +1219,12 @@ struct rule {
 	int8_t	flag_tag;
 	int8_t	flag_from;
 	int8_t	flag_for;
+	int8_t	flag_from_rdns;
 	int8_t	flag_from_socket;
 
 	int8_t	flag_tag_regex;
-	int8_t	flag_for_regex;
 	int8_t	flag_from_regex;
+	int8_t	flag_for_regex;
 
 	int8_t	flag_smtp_helo;
 	int8_t	flag_smtp_starttls;

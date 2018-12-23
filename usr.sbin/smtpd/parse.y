@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.241 2018/12/21 21:35:29 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.246 2018/12/22 13:09:05 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -175,10 +175,9 @@ typedef struct {
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE BUILTIN
 %token	CA CERT CHAIN CHROOT CIPHERS COMMIT COMPRESSION CONNECT
-%token	CHECK_FCRDNS CHECK_RDNS CHECK_RDNS_REGEX CHECK_RDNS_TABLE CHECK_SRC_REGEX CHECK_SRC_TABLE
 %token	DATA DATA_LINE DHE DISCONNECT DOMAIN
 %token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY 
-%token	FILTER FOR FORWARD_ONLY FROM
+%token	FCRDNS FILTER FOR FORWARD_ONLY FROM
 %token	GROUP
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
@@ -190,7 +189,7 @@ typedef struct {
 %token	ON
 %token	PKI PORT PROC PROC_EXEC
 %token	QUEUE QUIT
-%token	RCPT_TO RECIPIENT RECEIVEDAUTH REGEX RELAY REJECT REPORT REWRITE RSET
+%token	RCPT_TO RDNS RECIPIENT RECEIVEDAUTH REGEX RELAY REJECT REPORT REWRITE RSET
 %token	SCHEDULER SENDER SENDERS SMTP SMTP_IN SMTP_OUT SMTPS SOCKET SRC SUB_ADDR_DELIM
 %token	TABLE TAG TAGGED TLS TLS_REQUIRE TTL
 %token	USER USERBASE
@@ -927,11 +926,12 @@ negation TAG REGEX tables {
 	rule->flag_tag_regex = 1;
 	rule->table_tag = strdup(t->t_name);
 }
+
 | negation HELO tables {
 	struct table   *t = $3;
 
 	if (rule->flag_smtp_helo) {
-		yyerror("mail-helo already specified for this rule");
+		yyerror("helo already specified for this rule");
 		YYERROR;
 	}
 
@@ -948,7 +948,7 @@ negation TAG REGEX tables {
 	struct table   *t = $4;
 
 	if (rule->flag_smtp_helo) {
-		yyerror("mail-helo already specified for this rule");
+		yyerror("helo already specified for this rule");
 		YYERROR;
 	}
 
@@ -1146,6 +1146,45 @@ negation TAG REGEX tables {
 	rule->table_from = strdup(t->t_name);
 }
 
+| negation FROM RDNS tables {
+	struct table   *t = $4;
+
+	if (rule->flag_from) {
+		yyerror("from already specified for this rule");
+		YYERROR;
+	}
+
+	if (!table_check_use(t, T_DYNAMIC|T_LIST, K_DOMAIN)) {
+		yyerror("table \"%s\" may not be used for rdns lookups",
+		    t->t_name);
+		YYERROR;
+	}
+
+	rule->flag_from = $1 ? -1 : 1;
+	rule->flag_from_rdns = 1;
+	rule->table_from = strdup(t->t_name);
+}
+| negation FROM RDNS REGEX tables {
+	struct table   *t = $5;
+
+	if (rule->flag_from) {
+		yyerror("from already specified for this rule");
+		YYERROR;
+	}
+
+	if (!table_check_use(t, T_DYNAMIC|T_LIST, K_DOMAIN)) {
+		yyerror("table \"%s\" may not be used for rdns lookups",
+		    t->t_name);
+		YYERROR;
+	}
+
+	rule->flag_from = $1 ? -1 : 1;
+	rule->flag_from_regex = 1;
+	rule->flag_from_rdns = 1;
+	rule->table_from = strdup(t->t_name);
+}
+
+
 | negation FOR LOCAL {
 	struct table   *t = table_find(conf, "<localnames>", NULL);
 
@@ -1252,42 +1291,81 @@ REJECT STRING {
 ;
 
 filter_phase_check_fcrdns:
-negation CHECK_FCRDNS {
+negation FCRDNS {
 	filter_config->not_fcrdns = $1 ? -1 : 1;
 	filter_config->fcrdns = 1;
 }
 ;
 
 filter_phase_check_rdns:
-negation CHECK_RDNS {
+negation RDNS {
 	filter_config->not_rdns = $1 ? -1 : 1;
 	filter_config->rdns = 1;
 }
 ;
 
 filter_phase_check_rdns_table:
-negation CHECK_RDNS_TABLE tables {
+negation RDNS tables {
 	filter_config->not_rdns_table = $1 ? -1 : 1;
 	filter_config->rdns_table = $3;
 }
 ;
 filter_phase_check_rdns_regex:
-negation CHECK_RDNS_REGEX tables {
+negation RDNS REGEX tables {
 	filter_config->not_rdns_regex = $1 ? -1 : 1;
-	filter_config->rdns_regex = $3;
+	filter_config->rdns_regex = $4;
 }
 ;
 
 filter_phase_check_src_table:
-negation CHECK_SRC_TABLE tables {
+negation SRC tables {
 	filter_config->not_src_table = $1 ? -1 : 1;
 	filter_config->src_table = $3;
 }
 ;
 filter_phase_check_src_regex:
-negation CHECK_SRC_REGEX tables {
+negation SRC REGEX tables {
 	filter_config->not_src_regex = $1 ? -1 : 1;
-	filter_config->src_regex = $3;
+	filter_config->src_regex = $4;
+}
+;
+
+filter_phase_check_helo_table:
+negation HELO tables {
+	filter_config->not_helo_table = $1 ? -1 : 1;
+	filter_config->helo_table = $3;
+}
+;
+filter_phase_check_helo_regex:
+negation HELO REGEX tables {
+	filter_config->not_helo_regex = $1 ? -1 : 1;
+	filter_config->helo_regex = $4;
+}
+;
+
+filter_phase_check_mail_from_table:
+negation MAIL_FROM tables {
+	filter_config->not_mail_from_table = $1 ? -1 : 1;
+	filter_config->mail_from_table = $3;
+}
+;
+filter_phase_check_mail_from_regex:
+negation MAIL_FROM REGEX tables {
+	filter_config->not_mail_from_regex = $1 ? -1 : 1;
+	filter_config->mail_from_regex = $4;
+}
+;
+
+filter_phase_check_rcpt_to_table:
+negation RCPT_TO tables {
+	filter_config->not_rcpt_to_table = $1 ? -1 : 1;
+	filter_config->rcpt_to_table = $3;
+}
+;
+filter_phase_check_rcpt_to_regex:
+negation RCPT_TO REGEX tables {
+	filter_config->not_rcpt_to_regex = $1 ? -1 : 1;
+	filter_config->rcpt_to_regex = $4;
 }
 ;
 
@@ -1303,27 +1381,55 @@ filter_phase_connect_options:
 filter_phase_global_options;
 
 filter_phase_helo_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
 filter_phase_global_options;
 
 filter_phase_mail_from_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
+filter_phase_check_mail_from_table |
+filter_phase_check_mail_from_regex |
 filter_phase_global_options;
 
 filter_phase_rcpt_to_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
+filter_phase_check_mail_from_table |
+filter_phase_check_mail_from_regex |
+filter_phase_check_rcpt_to_table |
+filter_phase_check_rcpt_to_regex |
 filter_phase_global_options;
 
 filter_phase_data_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
+filter_phase_check_mail_from_table |
+filter_phase_check_mail_from_regex |
 filter_phase_global_options;
 
+/*
 filter_phase_quit_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
 filter_phase_global_options;
 
 filter_phase_rset_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
 filter_phase_global_options;
 
 filter_phase_noop_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
 filter_phase_global_options;
+*/
 
 filter_phase_commit_options:
+filter_phase_check_helo_table |
+filter_phase_check_helo_regex |
+filter_phase_check_mail_from_table |
+filter_phase_check_mail_from_regex |
 filter_phase_global_options;
 
 
@@ -1370,7 +1476,6 @@ DATA_LINE {
 	filter_config->phase = FILTER_DATA_LINE;
 } filter_action_builtin
 ;
-*/
 
 filter_phase_quit:
 QUIT {
@@ -1389,6 +1494,7 @@ NOOP {
 	filter_config->phase = FILTER_NOOP;
 } filter_phase_noop_options filter_action_builtin
 ;
+*/
 
 filter_phase_commit:
 COMMIT {
@@ -1406,9 +1512,9 @@ filter_phase_connect
 | filter_phase_rcpt_to
 | filter_phase_data
 /*| filter_phase_data_line*/
-| filter_phase_quit
-| filter_phase_noop
-| filter_phase_rset
+/*| filter_phase_quit*/
+/*| filter_phase_noop*/
+/*| filter_phase_rset*/
 | filter_phase_commit
 ;
 
@@ -2104,12 +2210,6 @@ lookup(char *s)
 		{ "ca",			CA },
 		{ "cert",		CERT },
 		{ "chain",		CHAIN },
-		{ "check-fcrdns",      	CHECK_FCRDNS },
-		{ "check-rdns",		CHECK_RDNS },
-		{ "check-rdns-regex",	CHECK_RDNS_REGEX },
-		{ "check-rdns-table",	CHECK_RDNS_TABLE },
-		{ "check-src-regex",	CHECK_SRC_REGEX },
-		{ "check-src-table",	CHECK_SRC_TABLE },
 		{ "chroot",		CHROOT },
 		{ "ciphers",		CIPHERS },
 		{ "commit",		COMMIT },
@@ -2123,6 +2223,7 @@ lookup(char *s)
 		{ "ehlo",		EHLO },
 		{ "encryption",		ENCRYPTION },
 		{ "expand-only",      	EXPAND_ONLY },
+		{ "fcrdns",		FCRDNS },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
 		{ "forward-only",      	FORWARD_ONLY },
@@ -2164,6 +2265,7 @@ lookup(char *s)
 		{ "queue",		QUEUE },
 		{ "quit",		QUIT },
 		{ "rcpt-to",		RCPT_TO },
+		{ "rdns",		RDNS },
 		{ "received-auth",     	RECEIVEDAUTH },
 		{ "recipient",		RECIPIENT },
 		{ "regex",		REGEX },
