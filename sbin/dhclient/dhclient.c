@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.590 2018/11/12 16:46:02 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.592 2018/12/24 23:28:20 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -969,7 +969,7 @@ bind_lease(struct interface_info *ifi)
 	int			 rslt, seen;
 
 	time(&cur_time);
-	if ((cmd_opts & OPT_VERBOSE) == 0)
+	if (log_getverbose() == 0)
 		tick_msg("lease", 1, ifi->first_sending);
 
 	lease = apply_defaults(ifi->offer);
@@ -1362,7 +1362,7 @@ send_discover(struct interface_info *ifi)
 	 * background.
 	 */
 	if (cur_time < ifi->startup_time + config->link_timeout) {
-		if ((cmd_opts & OPT_VERBOSE) == 0)
+		if (log_getverbose() == 0)
 			tick_msg("lease", 0, ifi->first_sending);
 		ifi->interval = 1;
 	} else {
@@ -1486,7 +1486,7 @@ send_request(struct interface_info *ifi)
 	 * background.
 	 */
 	if (cur_time < ifi->startup_time + config->link_timeout) {
-		if ((cmd_opts & OPT_VERBOSE) == 0)
+		if (log_getverbose() == 0)
 			tick_msg("lease", 0, ifi->first_sending);
 		ifi->interval = 1;
 	} else {
@@ -2755,7 +2755,7 @@ lease_rebind(struct client_lease *lease)
 void
 tick_msg(const char *preamble, int success, time_t start)
 {
-	static int	preamble_sent;
+	static int	preamble_sent, sleeping;
 	static time_t	stop;
 	time_t		cur_time;
 
@@ -2777,7 +2777,8 @@ tick_msg(const char *preamble, int success, time_t start)
 		return;
 	}
 
-	if (isatty(STDERR_FILENO) == 0 || cur_time < start + GRACE_SECONDS)
+	if (isatty(STDERR_FILENO) == 0 || sleeping == 1 || cur_time < start +
+	    GRACE_SECONDS)
 		return;
 
 	if (preamble_sent == 0) {
@@ -2797,7 +2798,7 @@ tick_msg(const char *preamble, int success, time_t start)
 		fprintf(stderr, " sleeping\n");
 		fflush(stderr);
 		go_daemon();
-		preamble_sent = 0;
+		sleeping = 1;	/* OPT_FOREGROUND means isatty() == 1! */
 	}
 }
 
