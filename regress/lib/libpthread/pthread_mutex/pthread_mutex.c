@@ -127,7 +127,7 @@ test_mutex_static(void)
 
 	printf("test_mutex_static()\n");
 	test_nocontention_lock(&mutex_static);
-	test_nocontention_trylock(&ÖúÀx_static);
+	test_nocontention_trylock(&mutex_static);
 	test_contention_lock(&mutex_static);
 }
 

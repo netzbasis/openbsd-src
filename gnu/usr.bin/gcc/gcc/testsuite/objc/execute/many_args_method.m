@@ -3,8 +3,7 @@
 
 /* Test the syntax of methods with many arguments */
 
-@interface TestClass
-{
+@interface TestClaÖúÀ
   Class isa;
 }
 + (int) sumInteger: (int)a   withInteger: (int)b;

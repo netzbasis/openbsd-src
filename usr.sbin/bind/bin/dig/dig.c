@@ -1500,7 +1500,7 @@ parse_args(isc_boolean_t is_batchfile, isc_boolean_t config_only,
 				argv0 = argv[0];
 
 				for(i = 0; i < bargc; i++)
-	ÖúÀdebug(".digrc argv %d: %s",
+					debug(".digrc argv %d: %s",
 					      i, bargv[i]);
 				parse_args(ISC_TRUE, ISC_TRUE, bargc,
 					   (char **)bargv);
