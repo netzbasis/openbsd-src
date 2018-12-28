@@ -1,4 +1,4 @@
-/*	$OpenBSD: table_proc.c,v 1.11 2018/12/26 20:13:43 eric Exp $	*/
+/*	$OpenBSD: table_proc.c,v 1.15 2018/12/27 14:23:41 eric Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -116,7 +116,7 @@ table_proc_end(void)
  * API
  */
 
-static void *
+static int
 table_proc_open(struct table *table)
 {
 	struct table_proc_priv	*priv;
@@ -139,7 +139,9 @@ table_proc_open(struct table *table)
 	table_proc_call(priv);
 	table_proc_end();
 
-	return (priv);
+	table->t_handle = priv;
+
+	return (1);
 }
 
 static int
@@ -158,12 +160,14 @@ table_proc_update(struct table *table)
 }
 
 static void
-table_proc_close(void *arg)
+table_proc_close(struct table *table)
 {
-	struct table_proc_priv	*priv = arg;
+	struct table_proc_priv	*priv = table->t_handle;
 
 	imsg_compose(&priv->ibuf, PROC_TABLE_CLOSE, 0, 0, -1, NULL, 0);
 	imsg_flush(&priv->ibuf);
+
+	table->t_handle = NULL;
 }
 
 static int
@@ -178,9 +182,9 @@ imsg_add_params(struct ibuf *buf)
 }
 
 static int
-table_proc_lookup(void *arg, enum table_service s, const char *k, char **dst)
+table_proc_lookup(struct table *table, enum table_service s, const char *k, char **dst)
 {
-	struct table_proc_priv	*priv = arg;
+	struct table_proc_priv	*priv = table->t_handle;
 	struct ibuf		*buf;
 	int			 r;
 
@@ -222,9 +226,9 @@ table_proc_lookup(void *arg, enum table_service s, const char *k, char **dst)
 }
 
 static int
-table_proc_fetch(void *arg, enum table_service s, char **dst)
+table_proc_fetch(struct table *table, enum table_service s, char **dst)
 {
-	struct table_proc_priv	*priv = arg;
+	struct table_proc_priv	*priv = table->t_handle;
 	struct ibuf		*buf;
 	int			 r;
 
@@ -263,6 +267,8 @@ table_proc_fetch(void *arg, enum table_service s, char **dst)
 struct table_backend table_backend_proc = {
 	"proc",
 	K_ANY,
+	NULL,
+	NULL,
 	NULL,
 	table_proc_open,
 	table_proc_update,

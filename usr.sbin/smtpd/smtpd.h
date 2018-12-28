@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.607 2018/12/26 20:13:43 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.612 2018/12/27 15:41:50 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -365,11 +365,13 @@ struct table_backend {
 	const char *name;
 	const unsigned int	services;
 	int	(*config)(struct table *);
-	void   *(*open)(struct table *);
+	int	(*add)(struct table *, const char *, const char *);
+	void	(*dump)(struct table *);
+	int	(*open)(struct table *);
 	int	(*update)(struct table *);
-	void	(*close)(void *);
-	int	(*lookup)(void *, enum table_service, const char *, char **);
-	int	(*fetch)(void *, enum table_service, char **);
+	void	(*close)(struct table *);
+	int	(*lookup)(struct table *, enum table_service, const char *, char **);
+	int	(*fetch)(struct table *, enum table_service, char **);
 };
 
 
@@ -440,6 +442,7 @@ struct expandnode {
 		char		buffer[EXPAND_BUFFER];
 		struct mailaddr	mailaddr;
 	}			u;
+	char		subaddress[SMTPD_SUBADDRESS_SIZE];
 };
 
 struct expand {
@@ -489,6 +492,7 @@ struct envelope {
 	struct mailaddr			dest;
 
 	char				mda_user[SMTPD_VUSERNAME_SIZE];
+	char				mda_subaddress[SMTPD_SUBADDRESS_SIZE];
 	char				mda_exec[LINE_MAX];
 
 	enum delivery_type		type;
@@ -648,6 +652,7 @@ struct deliver {
 	struct mailaddr		rcpt;
 	struct mailaddr		dest;
 
+	char			mda_subaddress[SMTPD_SUBADDRESS_SIZE];
 	char			mda_exec[LINE_MAX];
 
 	struct userinfo		userinfo;

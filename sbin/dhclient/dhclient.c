@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.593 2018/12/25 17:05:56 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.597 2018/12/27 17:33:15 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -307,7 +307,7 @@ get_hw_address(struct interface_info *ifi)
 }
 
 void
-routehandler(struct interface_info *ifi, int routefd)
+routefd_handler(struct interface_info *ifi, int routefd)
 {
 	struct ether_addr		 hw;
 	struct rt_msghdr		*rtm;
@@ -654,9 +654,9 @@ main(int argc, char *argv[])
 	}
 
 	/* Register the interface. */
-	ifi->ufdesc = get_udp_sock(ifi->rdomain);
-	ifi->bfdesc = get_bpf_sock(ifi->name);
-	ifi->rbuf_max = configure_bpf_sock(ifi->bfdesc);
+	ifi->udpfd = get_udp_sock(ifi->rdomain);
+	ifi->bpffd = get_bpf_sock(ifi->name);
+	ifi->rbuf_max = configure_bpf_sock(ifi->bpffd);
 	ifi->rbuf = malloc(ifi->rbuf_max);
 	if (ifi->rbuf == NULL)
 		fatal("bpf input buffer");
@@ -2590,7 +2590,7 @@ take_charge(struct interface_info *ifi, int routefd)
 			fatal("routefd: ERR|HUP|NVAL");
 		if (nfds == 0 || (fds[0].revents & POLLIN) == 0)
 			continue;
-		routehandler(ifi, routefd);
+		routefd_handler(ifi, routefd);
 	}
 }
 
@@ -2770,10 +2770,8 @@ tick_msg(const char *preamble, int success, time_t start)
 		return;
 	}
 
-	if (stop == 0) {
+	if (stop == 0)
 		stop = cur_time + config->link_timeout;
-		return;
-	}
 
 	if (isatty(STDERR_FILENO) == 0 || sleeping == 1 || cur_time < start +
 	    GRACE_SECONDS)
@@ -2906,6 +2904,6 @@ propose_release(struct interface_info *ifi)
 			fatal("routefd: ERR|HUP|NVAL");
 		if (nfds == 0 || (fds[0].revents & POLLIN) == 0)
 			continue;
-		routehandler(ifi, routefd);
+		routefd_handler(ifi, routefd);
 	}
 }
