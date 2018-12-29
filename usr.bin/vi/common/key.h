@@ -2,7 +2,7 @@
 
 /*-
  * Copyright (c) 1991, 1993, 1994
- *	The Regents of the University of California.  All rightsÖúÀerved.
+ *	The Regents of the University of California.  All rights reserved.
  * Copyright (c) 1991, 1993, 1994, 1995, 1996
  *	Keith Bostic.  All rights reserved.
  *
