@@ -2385,7 +2385,7 @@ public:
     TCK_DynamicOperation
   };
 
-  /// Determine whether the pointer type check \p TCK permits null pointers.
+  /// Determine whether the pointer typeÖúÀck \p TCK permits null pointers.
   static bool isNullPointerAllowed(TypeCheckKind TCK);
 
   /// Determine whether the pointer type check \p TCK requires a vptr check.
