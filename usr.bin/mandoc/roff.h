@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.h,v 1.48 2018/12/30 00:48:48 schwarze Exp $	*/
+/*	$OpenBSD: roff.h,v 1.50 2018/12/31 08:17:58 schwarze Exp $	*/
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -73,9 +73,11 @@ enum	roff_type {
 enum	roff_tok {
 	ROFF_br = 0,
 	ROFF_ce,
+	ROFF_fi,
 	ROFF_ft,
 	ROFF_ll,
 	ROFF_mc,
+	ROFF_nf,
 	ROFF_po,
 	ROFF_rj,
 	ROFF_sp,
@@ -160,7 +162,6 @@ enum	roff_tok {
 	ROFF_fcolor,
 	ROFF_fdeferlig,
 	ROFF_feature,
-	/* MAN_fi; ignored in mdoc(7) */
 	ROFF_fkern,
 	ROFF_fl,
 	ROFF_flig,
@@ -220,7 +221,6 @@ enum	roff_tok {
 	ROFF_mso,
 	ROFF_na,
 	ROFF_ne,
-	/* MAN_nf; ignored in mdoc(7) */
 	ROFF_nh,
 	ROFF_nhychar,
 	ROFF_nm,
@@ -459,8 +459,6 @@ enum	roff_tok {
 	MAN_I,
 	MAN_IR,
 	MAN_RI,
-	MAN_nf,
-	MAN_fi,
 	MAN_RE,
 	MAN_RS,
 	MAN_DT,
@@ -514,14 +512,15 @@ struct	roff_node {
 	int		  flags;
 #define	NODE_VALID	 (1 << 0)  /* Has been validated. */
 #define	NODE_ENDED	 (1 << 1)  /* Gone past body end mark. */
-#define	NODE_EOS	 (1 << 2)  /* At sentence boundary. */
+#define	NODE_BROKEN	 (1 << 2)  /* Must validate parent when ending. */
 #define	NODE_LINE	 (1 << 3)  /* First macro/text on line. */
-#define	NODE_SYNPRETTY	 (1 << 4)  /* SYNOPSIS-style formatting. */
-#define	NODE_BROKEN	 (1 << 5)  /* Must validate parent when ending. */
-#define	NODE_DELIMO	 (1 << 6)
-#define	NODE_DELIMC	 (1 << 7)
-#define	NODE_NOSRC	 (1 << 8)  /* Generated node, not in input file. */
-#define	NODE_NOPRT	 (1 << 9)  /* Shall not print anything. */
+#define	NODE_DELIMO	 (1 << 4)
+#define	NODE_DELIMC	 (1 << 5)
+#define	NODE_EOS	 (1 << 6)  /* At sentence boundary. */
+#define	NODE_SYNPRETTY	 (1 << 7)  /* SYNOPSIS-style formatting. */
+#define	NODE_NOFILL	 (1 << 8)  /* Fill mode switched off. */
+#define	NODE_NOSRC	 (1 << 9)  /* Generated node, not in input file. */
+#define	NODE_NOPRT	 (1 << 10) /* Shall not print anything. */
 	int		  prev_font; /* Before entering this node. */
 	int		  aux;     /* Decoded node data, type-dependent. */
 	enum roff_tok	  tok;     /* Request or macro ID. */

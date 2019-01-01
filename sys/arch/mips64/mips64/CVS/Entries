@@ -16,7 +16,7 @@
 /db_machdep.c/1.50/Wed Jun 13 14:38:42 2018//
 /exception.S/1.39/Tue Aug 16 13:03:58 2016//
 /exception_tfp.S/1.7/Wed May  9 15:03:04 2018//
-/fp_emulate.c/1.20/Mon Oct 22 17:31:25 2018//
+/fp_emulate.c/1.21/Mon Dec 31 12:42:07 2018//
 /genassym.cf/1.15/Thu Apr 20 15:42:26 2017//
 /interrupt.c/1.69/Sat Feb 24 11:42:31 2018//
 /ipifuncs.c/1.19/Wed Jun 13 14:38:42 2018//

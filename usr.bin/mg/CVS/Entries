@@ -10,7 +10,7 @@
 /cscope.c/1.17/Thu Oct 12 14:12:00 2017//
 /def.h/1.157/Thu Dec 13 14:59:16 2018//
 /dir.c/1.30/Tue May 30 07:05:22 2017//
-/dired.c/1.83/Fri Oct  7 00:17:20 2016//
+/dired.c/1.84/Sun Dec 30 23:09:58 2018//
 /display.c/1.48/Thu Jul  6 19:27:37 2017//
 /echo.c/1.66/Mon Oct 24 17:18:42 2016//
 /extend.c/1.64/Thu Sep  1 21:06:09 2016//
@@ -18,7 +18,7 @@
 /fileio.c/1.105/Fri Apr 13 14:11:37 2018//
 /funmap.c/1.55/Thu Dec 13 14:59:16 2018//
 /funmap.h/1.7/Tue Jun 10 00:19:31 2008//
-/grep.c/1.46/Tue Jan  9 17:59:29 2018//
+/grep.c/1.47/Sun Dec 30 23:09:58 2018//
 /help.c/1.35/Thu Mar 19 21:22:15 2015//
 /kbd.c/1.30/Sat Sep 26 21:51:58 2015//
 /kbd.h/1.19/Thu Mar 19 21:48:05 2015//

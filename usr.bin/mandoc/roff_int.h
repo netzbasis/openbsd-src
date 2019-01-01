@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff_int.h,v 1.12 2018/12/30 00:48:48 schwarze Exp $	*/
+/*	$OpenBSD: roff_int.h,v 1.15 2018/12/31 07:45:42 schwarze Exp $	*/
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013,2014,2015,2017,2018 Ingo Schwarze <schwarze@openbsd.org>
@@ -39,7 +39,7 @@ struct	roff_man {
 	struct roff_node *last_es; /* The most recent Es node. */
 	int		  quick;   /* Abort parse early. */
 	int		  flags;   /* Parse flags. */
-#define	MDOC_LITERAL	 (1 << 1)  /* In a literal scope. */
+#define	ROFF_NOFILL	 (1 << 1)  /* Fill mode switched off. */
 #define	MDOC_PBODY	 (1 << 2)  /* In the document body. */
 #define	MDOC_NEWLINE	 (1 << 3)  /* First macro/text in a line. */
 #define	MDOC_PHRASE	 (1 << 4)  /* In a Bl -column phrase. */
@@ -54,7 +54,6 @@ struct	roff_man {
 #define	MDOC_PHRASEQF	 (1 << 13) /* Quote first word encountered. */
 #define	MDOC_PHRASEQL	 (1 << 14) /* Quote last word of this phrase. */
 #define	MDOC_PHRASEQN	 (1 << 15) /* Quote first word of the next phrase. */
-#define	MAN_LITERAL	  MDOC_LITERAL
 #define	MAN_NEWLINE	  MDOC_NEWLINE
 	enum roff_sec	  lastsec; /* Last section seen. */
 	enum roff_sec	  lastnamed; /* Last standard section seen. */
@@ -80,6 +79,7 @@ struct ohash	 *roffhash_alloc(enum roff_tok, enum roff_tok);
 enum roff_tok	  roffhash_find(struct ohash *, const char *, size_t);
 void		  roffhash_free(struct ohash *);
 
+void		  roff_state_reset(struct roff_man *);
 void		  roff_validate(struct roff_man *);
 
 /*

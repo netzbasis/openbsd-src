@@ -57,7 +57,7 @@
 /trap.c/1.73/Fri Jul  6 02:43:01 2018//
 /tsc.c/1.10/Fri Jul 27 21:11:31 2018//
 /ucode.c/1.4/Tue Feb  6 01:09:17 2018//
-/vector.S/1.77/Sun Oct  7 22:43:06 2018//
+/vector.S/1.78/Tue Jan  1 03:19:37 2019//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
 /vmm.c/1.222/Mon Dec 10 21:13:59 2018//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_state.c,v 1.12 2018/12/30 00:48:48 schwarze Exp $ */
+/*	$OpenBSD: mdoc_state.c,v 1.14 2018/12/31 07:45:42 schwarze Exp $ */
 /*
  * Copyright (c) 2014, 2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -179,14 +179,6 @@ mdoc_state(struct roff_man *mdoc, struct roff_node *n)
 		(*handler)(mdoc, n);
 }
 
-void
-mdoc_state_reset(struct roff_man *mdoc)
-{
-
-	roff_setreg(mdoc->roff, "nS", 0, '=');
-	mdoc->flags = 0;
-}
-
 static void
 state_bd(STATE_ARGS)
 {
@@ -236,10 +228,10 @@ state_dl(STATE_ARGS)
 
 	switch (n->type) {
 	case ROFFT_HEAD:
-		mdoc->flags |= MDOC_LITERAL;
+		mdoc->flags |= ROFF_NOFILL;
 		break;
 	case ROFFT_BODY:
-		mdoc->flags &= ~MDOC_LITERAL;
+		mdoc->flags &= ~ROFF_NOFILL;
 		break;
 	default:
 		break;
