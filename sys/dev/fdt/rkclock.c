@@ -1,4 +1,4 @@
-/*	$OpenBSD: rkclock.c,v 1.35 2018/12/31 21:53:52 kettenis Exp $	*/
+/*	$OpenBSD: rkclock.c,v 1.41 2019/01/01 17:12:58 kettenis Exp $	*/
 /*
  * Copyright (c) 2017, 2018 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -137,10 +137,14 @@ struct rkclock {
 	uint16_t sel_mask;
 	uint16_t div_mask;
 	uint16_t parents[8];
+	uint32_t flags;
 };
 
 #define SEL(l, f)	(((1 << (l - f + 1)) - 1) << f)
 #define DIV(l, f)	SEL(l, f)
+
+#define FIXED_PARENT	(1 << 0)
+#define SET_PARENT	(1 << 1)
 
 #define HREAD4(sc, reg)							\
 	(bus_space_read_4((sc)->sc_iot, (sc)->sc_ioh, (reg)))
@@ -315,13 +319,31 @@ rkclock_lookup(struct rkclock_softc *sc, uint32_t idx)
 }
 
 uint32_t
-rkclock_div_con(struct rkclock_softc *sc, int idx, uint32_t freq)
+rkclock_div_con(struct rkclock_softc *sc, struct rkclock *clk,
+    uint32_t mux, uint32_t freq)
 {
-	uint32_t parent_freq, div;
+	uint32_t parent_freq, div, div_con, max_div_con;
+	uint32_t idx = clk->parents[mux];
 
+	/* Derive maximum value from mask. */
+	max_div_con = clk->div_mask >> (ffs(clk->div_mask) - 1);
+	
 	parent_freq = sc->sc_cd.cd_get_frequency(sc, &idx);
 	div = (parent_freq + freq - 1) / freq;
-	return (div > 0 ? div - 1 : 0);
+	div_con = (div > 0 ? div - 1 : 0);
+	return (div_con < max_div_con) ? div_con : max_div_con;
+}
+
+uint32_t
+rkclock_freq(struct rkclock_softc *sc, struct rkclock *clk,
+    uint32_t mux, uint32_t freq)
+{
+	uint32_t parent_freq, div_con;
+	uint32_t idx = clk->parents[mux];
+
+	parent_freq = sc->sc_cd.cd_get_frequency(sc, &idx);
+	div_con = rkclock_div_con(sc, clk, mux, freq);
+	return parent_freq / (div_con + 1);
 }
 
 uint32_t
@@ -362,7 +384,8 @@ rkclock_set_frequency(struct rkclock_softc *sc, uint32_t idx, uint32_t freq)
 {
 	struct rkclock *clk;
 	uint32_t reg, mux, div_con;
-	int shift;
+	uint32_t best_freq, best_mux, f;
+	int sel_shift, div_shift, i;
 
 	clk = rkclock_lookup(sc, idx);
 	if (clk == NULL || clk->div_mask == 0) {
@@ -371,20 +394,51 @@ rkclock_set_frequency(struct rkclock_softc *sc, uint32_t idx, uint32_t freq)
 	}
 
 	reg = HREAD4(sc, clk->reg);
-	shift = ffs(clk->sel_mask) - 1;
-	if (shift == -1)
-		mux = 0;
+	sel_shift = ffs(clk->sel_mask) - 1;
+	if (sel_shift == -1)
+		mux = sel_shift = 0;
 	else
-		mux = (reg & clk->sel_mask) >> shift;
+		mux = (reg & clk->sel_mask) >> sel_shift;
 
 	if (clk->parents[mux] == 0) {
 		printf("%s: parent 0x%08x\n", __func__, idx);
 		return 0;
 	}
 
-	div_con = rkclock_div_con(sc, clk->parents[mux], freq);
-	shift = ffs(clk->div_mask) - 1;
-	HWRITE4(sc, clk->reg, clk->div_mask << 16 | div_con << shift);
+	if (clk->flags & SET_PARENT) {
+		idx = clk->parents[mux];
+		sc->sc_cd.cd_set_frequency(sc, &idx, freq);
+	}
+
+	/*
+	 * Start out with the current parent.  This prevents
+	 * unecessary switching to a different parent.
+	 */
+	best_freq = rkclock_freq(sc, clk, mux, freq);
+	best_mux = mux;
+
+	/*
+	 * Find the parent that allows configuration of a frequency
+	 * closest to the target frequency.
+	 */
+	if ((clk->flags & FIXED_PARENT) == 0) {
+		for (i = 0; i < nitems(clk->parents); i++) {
+			if (clk->parents[i] == 0)
+				continue;
+			f = rkclock_freq(sc, clk, i, freq);
+			if ((f > best_freq && f <= freq) ||
+			    (f < best_freq && f >= freq)) {
+				best_freq = f;
+				best_mux = i;
+			}
+		}
+	}
+
+	div_con = rkclock_div_con(sc, clk, best_mux, freq);
+	div_shift = ffs(clk->div_mask) - 1;
+	HWRITE4(sc, clk->reg,
+	    clk->sel_mask << 16 | best_mux << sel_shift |
+	    clk->div_mask << 16 | div_con << div_shift);
 	return 0;
 }
 
@@ -749,6 +803,11 @@ struct rkclock rk3328_clocks[] = {
 		  RK3328_USB480M }
 	},
 	{
+		RK3328_CLK_TSADC, RK3328_CRU_CLKSEL_CON(22),
+		0, DIV(9, 0),
+		{ RK3328_CLK_24M }
+	},
+	{
 		RK3328_CLK_UART0, RK3328_CRU_CLKSEL_CON(14),
 		SEL(9, 8), 0,
 		{ 0, 0, RK3328_XIN24M, RK3328_XIN24M }
@@ -791,7 +850,8 @@ struct rkclock rk3328_clocks[] = {
 	{
 		RK3328_CLK_PDM, RK3328_CRU_CLKSEL_CON(20),
 		SEL(15, 14), DIV(12, 8),
-		{ RK3328_PLL_CPLL, RK3328_PLL_GPLL, RK3328_PLL_APLL }
+		{ RK3328_PLL_CPLL, RK3328_PLL_GPLL, RK3328_PLL_APLL },
+		FIXED_PARENT | SET_PARENT
 	},
 	{
 		RK3328_CLK_VDEC_CABAC, RK3328_CRU_CLKSEL_CON(48),
@@ -892,6 +952,11 @@ struct rkclock rk3328_clocks[] = {
 		RK3328_HCLK_PERI, RK3328_CRU_CLKSEL_CON(29),
 		0, DIV(1, 0),
 		{ RK3328_ACLK_PERI_PRE }
+	},
+	{
+		RK3328_CLK_24M, RK3328_CRU_CLKSEL_CON(2),
+		0, DIV(12, 8),
+		{ RK3328_XIN24M }
 	},
 	{
 		/* Sentinel */
@@ -1180,7 +1245,7 @@ rk3328_set_frac_pll(struct rkclock_softc *sc, bus_size_t base, uint32_t freq)
 		postdiv1 = 2; postdiv2 = 1; refdiv = 24; fracdiv = 671088;
 		break;
 	case 61440000U:
-		postdiv1 = 7; postdiv2 = 2; refdiv = 24; fracdiv = 671088;
+		postdiv1 = 7; postdiv2 = 2; refdiv = 6; fracdiv = 671088;
 		break;
 	case 56448000U:
 		postdiv1 = postdiv2 = 4; refdiv = 12; fracdiv = 9797894;
@@ -1259,6 +1324,15 @@ rk3328_get_frequency(void *cookie, uint32_t *cells)
 		return rk3328_get_armclk(sc);
 	case RK3328_XIN24M:
 		return 24000000;
+	/*
+	 * XXX The HDMIPHY and USB480M clocks are external.  Returning
+	 * zero here will cause them to be ignored for reparenting
+	 * purposes.
+	 */
+	case RK3328_HDMIPHY:
+		return 0;
+	case RK3328_USB480M:
+		return 0;
 	default:
 		break;
 	}
@@ -1407,6 +1481,11 @@ struct rkclock rk3399_clocks[] = {
 		  RK3399_XIN24M }
 	},
 	{
+		RK3399_CLK_TSADC, RK3399_CRU_CLKSEL_CON(27),
+		SEL(15, 15), DIV(9, 0),
+		{ RK3399_XIN24M, RK3399_CLK_32K }
+	},
+	{
 		RK3399_CLK_UART0, RK3399_CRU_CLKSEL_CON(33),
 		SEL(9, 8), 0,
 		{ 0, 0, RK3399_XIN24M }
@@ -1448,6 +1527,16 @@ struct rkclock rk3399_clocks[] = {
 		  RK3399_PLL_VPLL }
 	},
 	{
+		RK3399_ACLK_HDCP, RK3399_CRU_CLKSEL_CON(42),
+		SEL(15, 14), DIV(12, 8),
+		{ RK3399_PLL_CPLL, RK3399_PLL_GPLL, /* RK3399_PLL_PPLL */ }
+	},
+	{
+		RK3399_ACLK_GIC_PRE, RK3399_CRU_CLKSEL_CON(56),
+		SEL(15, 15), DIV(12, 8),
+		{ RK3399_PLL_CPLL, RK3399_PLL_GPLL }
+	},
+	{
 		RK3399_PCLK_PERIPH, RK3399_CRU_CLKSEL_CON(14),
 		0, DIV(14, 12),
 		{ RK3399_ACLK_PERIPH }
@@ -1461,6 +1550,11 @@ struct rkclock rk3399_clocks[] = {
 		RK3399_PCLK_PERILP1, RK3399_CRU_CLKSEL_CON(25),
 		0, DIV(10, 8),
 		{ RK3399_HCLK_PERILP1 }
+	},
+	{
+		RK3399_PCLK_DDR, RK3399_CRU_CLKSEL_CON(6),
+		SEL(15, 15), DIV(12, 8),
+		{ RK3399_PLL_CPLL, RK3399_PLL_GPLL }
 	},
 	{
 		RK3399_HCLK_PERIPH, RK3399_CRU_CLKSEL_CON(14),
@@ -1754,6 +1848,8 @@ rk3399_get_frequency(void *cookie, uint32_t *cells)
 		return rk3399_get_armclk(sc, RK3399_CRU_CLKSEL_CON(2));
 	case RK3399_XIN24M:
 		return 24000000;
+	case RK3399_CLK_32K:
+		return 32768;
 	default:
 		break;
 	}
