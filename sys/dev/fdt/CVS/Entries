@@ -19,14 +19,14 @@
 /hireset.c/1.1/Mon Aug 27 14:12:59 2018//
 /hitemp.c/1.1/Mon Aug 27 21:09:47 2018//
 /if_dwge_fdt.c/1.9/Tue Dec  4 11:25:48 2018//
-/if_dwxe.c/1.10/Mon Aug  6 10:52:30 2018//
+/if_dwxe.c/1.11/Thu Jan  3 00:59:58 2019//
 /if_fec.c/1.6/Mon Aug  6 10:52:30 2018//
 /if_mvneta.c/1.6/Mon Aug  6 10:52:30 2018//
 /if_mvnetareg.h/1.1/Fri Aug 25 20:09:34 2017//
 /imxanatop.c/1.5/Thu Aug 30 12:14:30 2018//
 /imxanatopvar.h/1.2/Thu Jun 28 10:07:35 2018//
 /imxccm.c/1.11/Mon Aug 20 16:48:03 2018//
-/imxccm_clocks.h/1.9/Mon Aug 20 16:48:03 2018//
+/imxccm_clocks.h/1.10/Wed Jan  2 19:12:10 2019//
 /imxdwusb.c/1.1/Wed May 16 13:21:50 2018//
 /imxesdhc.c/1.11/Sat Dec 29 11:37:54 2018//
 /imxgpc.c/1.4/Mon Aug  6 10:52:30 2018//
