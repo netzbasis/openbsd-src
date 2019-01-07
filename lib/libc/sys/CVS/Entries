@@ -57,7 +57,7 @@
 /kbind.2/1.3/Thu Sep  1 10:08:03 2016//
 /kill.2/1.25/Sat May  6 22:37:43 2017//
 /kqueue.2/1.37/Sat Jan 13 17:13:12 2018//
-/ktrace.2/1.36/Tue Jun 19 15:39:01 2018//
+/ktrace.2/1.37/Sun Jan  6 18:29:49 2019//
 /link.2/1.29/Thu Sep 10 17:55:21 2015//
 /listen.2/1.15/Thu Sep 10 17:55:21 2015//
 /lseek.2/1.17/Thu Sep 10 17:55:21 2015//
@@ -141,7 +141,7 @@
 /sync.2/1.16/Sat Jan  9 21:27:28 2016//
 /sysarch.2/1.11/Thu Sep 10 17:55:21 2015//
 /syscall.2/1.13/Mon May 30 06:48:21 2016//
-/sysctl.2/1.18/Wed Dec 26 16:14:59 2018//
+/sysctl.2/1.19/Sun Jan  6 20:09:38 2019//
 /thrkill.2/1.2/Sat Mar 19 21:56:12 2016//
 /timer_create.c/1.7/Sat Sep 12 13:13:34 2015//
 /timer_delete.c/1.6/Sat Sep 12 13:13:34 2015//
