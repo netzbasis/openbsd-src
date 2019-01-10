@@ -21,7 +21,7 @@
 /db_trace.c/1.42/Fri May  4 02:54:23 2018//
 /disksubr.c/1.78/Tue Feb 28 10:49:37 2017//
 /dkcsum.c/1.21/Sun Sep 14 14:17:23 2014//
-/efifb.c/1.18/Sat Sep 22 17:41:52 2018//
+/efifb.c/1.19/Thu Jan 10 01:16:29 2019//
 /est.c/1.39/Sun Mar  6 22:41:24 2016//
 /fpu.c/1.41/Sun Jun 24 00:49:25 2018//
 /gdt.c/1.26/Wed Feb 21 19:24:15 2018//
