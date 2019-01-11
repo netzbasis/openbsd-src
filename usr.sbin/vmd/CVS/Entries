@@ -29,11 +29,11 @@
 /task.c/1.2/Tue Jun 19 17:12:34 2018//
 /task.h/1.1/Fri Sep 15 02:39:33 2017//
 /ufs.c/1.6/Sat Oct  7 19:48:30 2017//
-/vioqcow2.c/1.12/Mon Nov 26 10:39:30 2018//
+/vioqcow2.c/1.13/Thu Jan 10 19:21:02 2019//
 /vioraw.c/1.5/Mon Nov 26 10:39:30 2018//
-/vioscsi.c/1.11/Sat Aug 25 04:16:09 2018//
+/vioscsi.c/1.12/Thu Jan 10 18:59:56 2019//
 /vioscsi.h/1.2/Tue Jan 16 06:10:45 2018//
-/virtio.c/1.75/Thu Dec  6 09:20:06 2018//
+/virtio.c/1.76/Thu Jan 10 18:59:56 2019//
 /virtio.h/1.34/Thu Dec  6 09:20:06 2018//
 /vm.c/1.43/Mon Dec 10 21:30:33 2018//
 /vm.conf.5/1.41/Wed Nov 21 13:48:20 2018//

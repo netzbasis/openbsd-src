@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.362 2019/01/02 23:08:00 kn Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.365 2019/01/11 03:09:24 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -67,7 +67,7 @@ void	 pfctl_clear_rules(int, int, char *);
 void	 pfctl_clear_src_nodes(int, int);
 void	 pfctl_clear_states(int, const char *, int);
 void	 pfctl_addrprefix(char *, struct pf_addr *);
-void	 pfctl_kill_src_nodes(int, const char *, int);
+void	 pfctl_kill_src_nodes(int, int);
 void	 pfctl_net_kill_states(int, const char *, int, int);
 void	 pfctl_label_kill_states(int, const char *, int, int);
 void	 pfctl_id_kill_states(int, int);
@@ -405,7 +405,7 @@ pfctl_addrprefix(char *addr, struct pf_addr *mask)
 }
 
 void
-pfctl_kill_src_nodes(int dev, const char *iface, int opts)
+pfctl_kill_src_nodes(int dev, int opts)
 {
 	struct pfioc_src_node_kill psnk;
 	struct addrinfo *res[2], *resp[2];
@@ -2626,13 +2626,13 @@ main(int argc, char *argv[])
 			pfctl_clear_stats(dev, ifaceopt, opts);
 			break;
 		case 'a':
-			pfctl_clear_tables(anchorname, opts);
-			pfctl_clear_rules(dev, opts, anchorname);
-			if (ifaceopt && *ifaceopt) {
+			if (ifaceopt) {
 				warnx("don't specify an interface with -Fall");
 				usage();
 				/* NOTREACHED */
 			}
+			pfctl_clear_tables(anchorname, opts);
+			pfctl_clear_rules(dev, opts, anchorname);
 			if (!*anchorname) {
 				pfctl_clear_states(dev, ifaceopt, opts);
 				pfctl_clear_src_nodes(dev, opts);
@@ -2661,7 +2661,7 @@ main(int argc, char *argv[])
 	}
 
 	if (src_node_killers)
-		pfctl_kill_src_nodes(dev, ifaceopt, opts);
+		pfctl_kill_src_nodes(dev, opts);
 
 	if (tblcmdopt != NULL) {
 		error = pfctl_table(argc, argv, tableopt,
@@ -2693,8 +2693,6 @@ main(int argc, char *argv[])
 		if (pfctl_rules(dev, rulesopt, opts, optimize,
 		    anchorname, NULL))
 			error = 1;
-		else if (!(opts & PF_OPT_NOACTION))
-			warn_namespace_collision(NULL);
 	}
 
 	if (opts & PF_OPT_ENABLE)

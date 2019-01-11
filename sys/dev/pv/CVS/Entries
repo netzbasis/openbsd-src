@@ -21,9 +21,9 @@
 /viornd.c/1.2/Sat Apr 28 15:44:59 2018//
 /vioscsi.c/1.12/Fri Sep  8 05:36:52 2017//
 /vioscsireg.h/1.1/Sat Jan 21 11:22:57 2017//
-/virtio.c/1.11/Thu Aug 10 18:00:59 2017//
-/virtioreg.h/1.1/Sat Jan 21 11:23:06 2017//
-/virtiovar.h/1.7/Fri Sep  8 05:36:52 2017//
+/virtio.c/1.13/Thu Jan 10 18:06:56 2019//
+/virtioreg.h/1.3/Thu Jan 10 18:22:17 2019//
+/virtiovar.h/1.9/Thu Jan 10 18:06:56 2019//
 /vmmci.c/1.3/Tue May  2 09:50:38 2017//
 /vmt.c/1.15/Sat Apr 28 15:44:59 2018//
 /xbf.c/1.32/Mon Jul 17 10:30:03 2017//
