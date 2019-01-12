@@ -1,6 +1,8 @@
-.\"	$OpenBSD: imxgpc.4,v 1.2 2019/01/11 20:39:46 jmc Exp $
+.\"	$OpenBSD: abcrtc.4,v 1.2 2019/01/11 20:39:46 jmc Exp $
 .\"
-.\" Copyright (c) 2018 Jonathan Gray <jsg@openbsd.org>
+.\" Copyright (c) 2006 Theo de Raadt <deraadt@openbsd.org>
+.\" Copyright (c) 2018 Mark Kettenis <ketttenis@openbsd.org>
+.\" Copyright (c) 2018 Patrick Wildt <patrick@blueri.se>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,29 +17,29 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: January 11 2019 $
-.Dt IMXGPC 4
+.Dt ABCRTC 4
 .Os
 .Sh NAME
-.Nm imxgpc
-.Nd i.MX general power controller
+.Nm abcrtc
+.Nd Abracon AB1805 real-time clock
 .Sh SYNOPSIS
-.Cd "imxgpc* at fdt?"
+.Cd "abcrtc* at iic? addr 0x69"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the i.MX general power controller (GPC).
-It acts as a "transparent" interrupt controller and hands interrupt handlers
-to the parent interrupt controller.
+driver provides support for the Abracon AB1805 real-time clock chip
+and similar variants.
 .Sh SEE ALSO
+.Xr iic 4 ,
 .Xr intro 4
 .Sh HISTORY
 The
 .Nm
 driver first appeared in
-.Ox 6.1 .
+.Ox 6.5 .
 .Sh AUTHORS
 .An -nosplit
 The
 .Nm
 driver was written by
-.An Mark Kettenis Aq Mt kettenis@openbsd.org .
+.An Patrick Wildt Aq Mt patrick@blueri.se .

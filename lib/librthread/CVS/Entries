@@ -1,5 +1,5 @@
-/Makefile/1.53/Sun Oct 21 17:07:24 2018//
-/Symbols.map/1.6/Sat Nov  4 22:53:57 2017//
+/Makefile/1.54/Sat Jan 12 00:16:03 2019//
+/Symbols.map/1.7/Sat Jan 12 00:16:03 2019//
 /namespace.h/1.1/Sat Apr  2 19:56:53 2016//
 /pthread.h/1.6/Sat Nov  4 22:53:57 2017//
 /pthread_np.h/1.1/Sat Apr  2 19:56:53 2016//
@@ -19,10 +19,9 @@
 /rthread_sched.c/1.14/Tue Sep  5 02:40:54 2017//
 /rthread_sem.c/1.29/Fri Jun  8 13:53:01 2018//
 /rthread_sem_compat.c/1.1/Fri Jun  8 13:53:01 2018//
-/rthread_sig.c/1.18/Sat May  7 19:05:22 2016//
 /rthread_spin_lock.c/1.4/Sun Sep  4 10:13:35 2016//
 /rthread_stack.c/1.19/Sun Feb 11 04:12:22 2018//
 /sched_prio.c/1.1/Sun Nov  6 12:15:51 2011//
-/shlib_version/1.27/Sat Nov  4 22:53:57 2017//
+/shlib_version/1.28/Fri Jan 11 18:46:30 2019//
 /synch.h/1.4/Fri Jun  8 13:53:01 2018//
 D

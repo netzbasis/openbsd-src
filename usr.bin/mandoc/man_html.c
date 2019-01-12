@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_html.c,v 1.120 2019/01/07 06:51:37 schwarze Exp $ */
+/*	$OpenBSD: man_html.c,v 1.122 2019/01/11 16:35:39 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -117,7 +117,7 @@ html_man(void *arg, const struct roff_meta *man)
 	if ((h->oflags & HTML_FRAGMENT) == 0) {
 		print_gen_decls(h);
 		print_otag(h, TAG_HTML, "");
-		if (n->type == ROFFT_COMMENT)
+		if (n != NULL && n->type == ROFFT_COMMENT)
 			print_gen_comment(h, n);
 		t = print_otag(h, TAG_HEAD, "");
 		print_man_head(man, h);
@@ -297,9 +297,9 @@ man_SH_pre(MAN_ARGS)
 	case ROFFT_HEAD:
 		id = html_make_id(n, 1);
 		if (n->tok == MAN_SH)
-			print_otag(h, TAG_H1, "cTi", "Sh", id);
+			print_otag(h, TAG_H1, "ci", "Sh", id);
 		else
-			print_otag(h, TAG_H2, "cTi", "Ss", id);
+			print_otag(h, TAG_H2, "ci", "Ss", id);
 		if (id != NULL)
 			print_otag(h, TAG_A, "chR", "permalink", id);
 		break;
@@ -511,7 +511,7 @@ man_SY_pre(MAN_ARGS)
 		break;
 	case ROFFT_HEAD:
 		print_otag(h, TAG_TD, "");
-		print_otag(h, TAG_CODE, "cT", "Nm");
+		print_otag(h, TAG_CODE, "c", "Nm");
 		break;
 	case ROFFT_BODY:
 		print_otag(h, TAG_TD, "");
@@ -533,10 +533,10 @@ man_UR_pre(MAN_ARGS)
 		assert(n->child->type == ROFFT_TEXT);
 		if (n->tok == MAN_MT) {
 			mandoc_asprintf(&cp, "mailto:%s", n->child->string);
-			print_otag(h, TAG_A, "cTh", "Mt", cp);
+			print_otag(h, TAG_A, "ch", "Mt", cp);
 			free(cp);
 		} else
-			print_otag(h, TAG_A, "cTh", "Lk", n->child->string);
+			print_otag(h, TAG_A, "ch", "Lk", n->child->string);
 	}
 
 	assert(n->next->type == ROFFT_BODY);
