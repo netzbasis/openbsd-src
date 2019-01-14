@@ -53,7 +53,7 @@
 /octeon_pcibusvar.h/1.3/Sun May  8 13:24:55 2011//
 /octgpio.c/1.1/Sat Jan 12 16:59:38 2019//
 /octhcireg.h/1.3/Wed Jun  8 15:46:03 2016//
-/octmmc.c/1.11/Sun Jan  7 05:19:41 2018//
+/octmmc.c/1.13/Sun Jan 13 16:45:44 2019//
 /octmmcreg.h/1.3/Mon Oct 16 14:18:47 2017//
 /octohci.c/1.4/Mon Jan  7 03:41:06 2019//
 /octrng.c/1.7/Sat Apr 28 15:44:59 2018//

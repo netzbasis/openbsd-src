@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.601 2019/01/10 14:49:07 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.607 2019/01/14 04:54:46 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -142,7 +142,6 @@ void		 rtm_dispatch(struct interface_info *, struct rt_msghdr *);
 
 struct client_lease *apply_defaults(struct client_lease *);
 struct client_lease *clone_lease(struct client_lease *);
-void		 apply_ignore_list(char *);
 
 void state_preboot(struct interface_info *);
 void state_reboot(struct interface_info *);
@@ -182,8 +181,6 @@ struct client_lease *packet_to_lease(struct interface_info *,
 void go_daemon(void);
 int rdaemon(int);
 void	take_charge(struct interface_info *, int);
-void	set_default_client_identifier(struct interface_info *);
-void	set_default_hostname(void);
 struct client_lease *get_recorded_lease(struct interface_info *);
 
 #define ROUNDUP(a)	\
@@ -454,15 +451,13 @@ main(int argc, char *argv[])
 	struct ieee80211_nwid	 nwid;
 	struct ifreq		 ifr;
 	struct stat		 sb;
-	const char		*tail_path = "/etc/resolv.conf.tail";
 	struct interface_info	*ifi;
 	struct passwd		*pw;
 	char			*ignore_list = NULL;
 	unsigned char		*newp;
-	ssize_t			 tailn;
 	size_t			 newsize;
 	int			 fd, socket_fd[2];
-	int			 rtfilter, ioctlfd, routefd, tailfd;
+	int			 rtfilter, ioctlfd, routefd;
 	int			 ch;
 
 	saved_argv = argv;
@@ -579,24 +574,9 @@ main(int argc, char *argv[])
 		fatal("unpriv_ibuf");
 	imsg_init(unpriv_ibuf, socket_fd[1]);
 
-	config = calloc(1, sizeof(*config));
-	if (config == NULL)
-		fatal("config");
-	read_conf(ifi->name);
-
+	read_conf(ifi->name, ignore_list, &ifi->hw_address);
 	if ((cmd_opts & OPT_NOACTION) != 0)
 		return 0;
-
-	/*
-	 * Set default client identifier, if needed, *before* reading
-	 * the leases file! Changes to the lladdr will trigger a restart
-	 * and go through here again.
-	 */
-	set_default_client_identifier(ifi);
-
-	/*
-	 * Set default hostname, if needed. */
-	set_default_hostname();
 
 	if ((pw = getpwnam("_dhcp")) == NULL)
 		fatalx("no such user: _dhcp");
@@ -604,33 +584,6 @@ main(int argc, char *argv[])
 	if (path_lease_db == NULL && asprintf(&path_lease_db, "%s.%s",
 	    _PATH_LEASE_DB, ifi->name) == -1)
 		fatal("path_lease_db");
-
-	/* 2nd stage (post fork) config setup. */
-	if (ignore_list != NULL)
-		apply_ignore_list(ignore_list);
-
-	tailfd = open(tail_path, O_RDONLY);
-	if (tailfd == -1) {
-		if (errno != ENOENT)
-			fatal("open(%s)", tail_path);
-	} else if (fstat(tailfd, &sb) == -1) {
-		fatal("fstat(%s)", tail_path);
-	} else {
-		if (sb.st_size > 0 && sb.st_size < LLONG_MAX) {
-			config->resolv_tail = calloc(1, sb.st_size + 1);
-			if (config->resolv_tail == NULL) {
-				fatal("%s contents", tail_path);
-			}
-			tailn = read(tailfd, config->resolv_tail, sb.st_size);
-			if (tailn == -1)
-				fatal("read(%s)", tail_path);
-			else if (tailn == 0)
-				fatalx("got no data from %s", tail_path);
-			else if (tailn != sb.st_size)
-				fatalx("short read of %s", tail_path);
-		}
-		close(tailfd);
-	}
 
 	interface_state(ifi);
 	if (!LINK_STATE_IS_UP(ifi->link_state))
@@ -2517,49 +2470,6 @@ cleanup:
 	return NULL;
 }
 
-/*
- * Apply the list of options to be ignored that was provided on the
- * command line. This will override any ignore list obtained from
- * dhclient.conf.
- */
-void
-apply_ignore_list(char *ignore_list)
-{
-	uint8_t		 list[DHO_COUNT];
-	char		*p;
-	int		 ix, i, j;
-
-	memset(list, 0, sizeof(list));
-	ix = 0;
-
-	for (p = strsep(&ignore_list, ", "); p != NULL;
-	    p = strsep(&ignore_list, ", ")) {
-		if (*p == '\0')
-			continue;
-
-		i = name_to_code(p);
-		if (i == DHO_END) {
-			log_debug("%s: invalid option name: '%s'", log_procname,
-			    p);
-			return;
-		}
-
-		/* Avoid storing duplicate options in the list. */
-		for (j = 0; j < ix && list[j] != i; j++)
-			;
-		if (j == ix)
-			list[ix++] = i;
-	}
-
-	for (i = 0; i < ix; i++) {
-		j = list[i];
-		config->default_actions[j] = ACTION_IGNORE;
-		free(config->defaults[j].data);
-		config->defaults[j].data = NULL;
-		config->defaults[j].len = 0;
-	}
-}
-
 void
 take_charge(struct interface_info *ifi, int routefd)
 {
@@ -2657,63 +2567,6 @@ get_recorded_lease(struct interface_info *ifi)
 		time(&lp->epoch);
 
 	return lp;
-}
-
-void
-set_default_client_identifier(struct interface_info *ifi)
-{
-	struct option_data	*opt;
-
-	/*
-	 * Check both len && data so
-	 *
-	 *     send dhcp-client-identifier "";
-	 *
-	 * can be used to suppress sending the default client
-	 * identifier.
-	 */
-	opt = &config->send_options[DHO_DHCP_CLIENT_IDENTIFIER];
-	if (opt->len == 0 && opt->data == NULL) {
-		opt->data = calloc(1, ETHER_ADDR_LEN + 1);
-		if (opt->data == NULL)
-			fatal("default client identifier");
-		opt->data[0] = HTYPE_ETHER;
-		memcpy(&opt->data[1], ifi->hw_address.ether_addr_octet,
-		    ETHER_ADDR_LEN);
-		opt->len = ETHER_ADDR_LEN + 1;
-	}
-}
-
-void
-set_default_hostname(void)
-{
-	char			 hn[HOST_NAME_MAX + 1], *p;
-	struct option_data	*opt;
-	int			 rslt;
-
-	/*
-	 * Check both len && data so
-	 *
-	 *     send host-name "";
-	 *
-	 * can be used to suppress sending the default host
-	 * name.
-	 */
-	opt = &config->send_options[DHO_HOST_NAME];
-	if (opt->len == 0 && opt->data == NULL) {
-		rslt = gethostname(hn, sizeof(hn));
-		if (rslt == -1) {
-			log_warn("host-name");
-			return;
-		}
-		p = strchr(hn, '.');
-		if (p != NULL)
-			*p = '\0';
-		opt->data = strdup(hn);
-		if (opt->data == NULL)
-			fatal("default host-name");
-		opt->len = strlen(opt->data);
-	}
 }
 
 time_t

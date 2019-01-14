@@ -174,7 +174,7 @@
 /signame.c/1.7/Sat Sep 19 04:02:21 2015//
 /signbit.c/1.7/Wed Jul  3 04:46:36 2013//
 /sigsetops.c/1.7/Sat Sep 12 16:46:12 2015//
-/sigwait.3/1.1/Sat Jan 12 00:16:03 2019//
+/sigwait.3/1.2/Sun Jan 13 16:16:43 2019//
 /sigwait.c/1.1/Sat Jan 12 00:16:03 2019//
 /sleep.3/1.15/Fri Feb 21 23:39:39 2014//
 /sleep.c/1.12/Mon Dec 14 05:10:13 2009//
