@@ -16,10 +16,10 @@
 /getrrsetbyname_async.c/1.11/Thu Feb 23 17:04:02 2017//
 /res_debug.c/1.1/Sat Sep  8 11:08:21 2012//
 /res_init.c/1.10/Tue Apr  5 04:29:21 2016//
-/res_mkquery.c/1.11/Mon Feb 27 11:38:08 2017//
+/res_mkquery.c/1.13/Mon Jan 14 06:49:42 2019//
 /res_query.c/1.9/Mon Oct  5 02:57:16 2015//
 /res_search_async.c/1.21/Mon Feb 27 10:44:46 2017//
 /res_send.c/1.8/Wed Mar 26 18:13:15 2014//
-/res_send_async.c/1.36/Wed Mar 15 15:54:41 2017//
+/res_send_async.c/1.38/Mon Jan 14 06:49:42 2019//
 /sethostent.c/1.2/Sat Apr 28 15:09:35 2018//
 D
