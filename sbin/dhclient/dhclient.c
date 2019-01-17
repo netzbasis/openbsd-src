@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.607 2019/01/14 04:54:46 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.609 2019/01/17 05:17:08 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -266,6 +266,9 @@ void
 interface_state(struct interface_info *ifi)
 {
 	struct ifaddrs	*ifap, *ifa;
+	int		 newlinkup, oldlinkup;
+
+	oldlinkup = LINK_STATE_IS_UP(ifi->link_state);
 
 	if (getifaddrs(&ifap) != 0)
 		fatal("getifaddrs");
@@ -276,10 +279,17 @@ interface_state(struct interface_info *ifi)
 	    (ifa->ifa_flags & IFF_RUNNING) == 0) {
 		ifi->link_state = LINK_STATE_DOWN;
 	} else {
-		ifi->link_state = ((struct if_data *)ifa->ifa_data)->ifi_link_state;
+		ifi->link_state =
+		    ((struct if_data *)ifa->ifa_data)->ifi_link_state;
 	}
-
 	freeifaddrs(ifap);
+
+	newlinkup = LINK_STATE_IS_UP(ifi->link_state);
+	if (newlinkup != oldlinkup) {
+		log_debug("%s: link %s -> %s", log_procname,
+		    (oldlinkup != 0) ? "up" : "down",
+		    (newlinkup != 0) ? "up" : "down");
+	}
 }
 
 void
@@ -394,9 +404,6 @@ rtm_dispatch(struct interface_info *ifi, struct rt_msghdr *rtm)
 		}
 
 		if (newlinkup != oldlinkup) {
-			log_debug("%s: link %s -> %s", log_procname,
-			    (oldlinkup != 0) ? "up" : "down",
-			    (newlinkup != 0) ? "up" : "down");
 			ifi->state = S_PREBOOT;
 			state_preboot(ifi);
 		}

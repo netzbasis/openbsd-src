@@ -11,7 +11,7 @@
 /atexit.3/1.11/Tue May 12 20:14:09 2015//
 /atexit.c/1.27/Sat Dec 16 20:06:56 2017//
 /atexit.h/1.12/Sat Dec 16 20:06:56 2017//
-/atof.3/1.8/Thu Sep 10 15:16:43 2015//
+/atof.3/1.9/Wed Jan 16 12:55:49 2019//
 /atof.c/1.5/Mon Aug  8 08:05:36 2005//
 /atoi.3/1.12/Thu Sep 10 15:16:43 2015//
 /atoi.c/1.6/Sun Sep 13 08:31:47 2015//
@@ -88,7 +88,7 @@
 /seed48.c/1.6/Sun Sep 13 15:20:40 2015//
 /setenv.c/1.19/Wed Sep 21 04:38:56 2016//
 /srand48.c/1.6/Sun Sep 13 08:31:48 2015//
-/strtod.3/1.21/Thu Jun  2 15:07:34 2016//
+/strtod.3/1.22/Wed Jan 16 12:55:49 2019//
 /strtoimax.c/1.4/Thu Jul  6 16:23:11 2017//
 /strtol.3/1.27/Tue Apr 14 22:16:03 2015//
 /strtol.c/1.12/Thu Jul  6 16:23:11 2017//

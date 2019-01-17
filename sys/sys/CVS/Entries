@@ -61,7 +61,7 @@
 /msgbuf.h/1.11/Thu Jun 23 13:15:21 2016//
 /mtio.h/1.9/Fri Jun  1 18:44:48 2007//
 /mutex.h/1.15/Fri Jun  8 15:38:15 2018//
-/namei.h/1.38/Mon Aug 13 23:11:44 2018//
+/namei.h/1.39/Thu Jan 17 03:26:19 2019//
 /param.h/1.127/Fri Aug 10 20:27:01 2018//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.8/Tue Aug 28 15:15:02 2018//
