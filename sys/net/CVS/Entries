@@ -19,8 +19,8 @@
 /if_arp.h/1.7/Tue Jan 24 10:08:30 2017//
 /if_bpe.c/1.2/Wed Jan 16 00:26:45 2019//
 /if_bpe.h/1.1/Thu Dec 20 23:00:55 2018//
-/if_bridge.c/1.315/Wed Dec 12 14:19:15 2018//
-/if_bridge.h/1.58/Fri Dec  7 16:19:40 2018//
+/if_bridge.c/1.316/Thu Jan 17 16:07:42 2019//
+/if_bridge.h/1.59/Thu Jan 17 16:07:42 2019//
 /if_dl.h/1.12/Thu May  4 15:00:24 2017//
 /if_enc.c/1.73/Sun Jul  8 16:41:12 2018//
 /if_enc.h/1.12/Mon Dec  8 10:46:14 2014//

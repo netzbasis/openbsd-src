@@ -1,5 +1,5 @@
 /LICENSE/1.12/Fri Jul 11 09:48:48 2014//
-/Makefile/1.44/Thu Jan 17 00:56:57 2019//
+/Makefile/1.46/Fri Jan 18 03:41:30 2019//
 /Symbols.list/1.23/Sun Nov 11 06:58:14 2018//
 /bio_ssl.c/1.29/Fri Aug 24 20:30:21 2018//
 /bs_ber.c/1.9/Sat Dec  3 12:34:35 2016//
@@ -30,7 +30,7 @@
 /ssl_both.c/1.14/Thu Nov  8 22:28:52 2018//
 /ssl_cert.c/1.72/Mon Nov 19 14:42:01 2018//
 /ssl_ciph.c/1.106/Wed Nov  7 01:53:36 2018//
-/ssl_clnt.c/1.51/Thu Nov 29 06:21:09 2018//
+/ssl_clnt.c/1.52/Fri Jan 18 00:54:42 2019//
 /ssl_err.c/1.36/Tue Mar 20 15:28:12 2018//
 /ssl_init.c/1.2/Fri Mar 30 14:59:46 2018//
 /ssl_lib.c/1.196/Mon Nov 19 15:07:29 2018//
@@ -42,21 +42,20 @@
 /ssl_sess.c/1.81/Fri Aug 24 18:10:25 2018//
 /ssl_sigalgs.c/1.11/Fri Nov 16 02:41:16 2018//
 /ssl_sigalgs.h/1.8/Fri Nov 16 02:41:16 2018//
-/ssl_srvr.c/1.62/Fri Dec  7 07:22:09 2018//
+/ssl_srvr.c/1.63/Fri Jan 18 00:54:42 2019//
 /ssl_stat.c/1.14/Sun May  7 04:22:24 2017//
-/ssl_tlsext.c/1.26/Fri Nov  9 05:02:53 2018//
-/ssl_tlsext.h/1.14/Fri Nov  9 03:17:24 2018//
+/ssl_tlsext.c/1.28/Fri Jan 18 03:39:27 2019//
+/ssl_tlsext.h/1.15/Fri Jan 18 00:54:42 2019//
 /ssl_txt.c/1.28/Tue Feb  7 02:08:38 2017//
 /ssl_versions.c/1.4/Tue Nov  6 01:40:23 2018//
 /t1_enc.c/1.116/Thu Nov  8 22:28:52 2018//
 /t1_hash.c/1.5/Wed Nov 21 15:13:29 2018//
 /t1_lib.c/1.150/Sat Nov 10 01:19:09 2018//
 /tls1.h/1.37/Fri Nov  9 00:34:55 2018//
+/tls13_buffer.c/1.1/Thu Jan 17 06:32:12 2019//
 /tls13_handshake.c/1.7/Sun Nov 11 06:49:35 2018//
-/tls13_internal.h/1.5/Fri Nov  9 23:56:20 2018//
+/tls13_internal.h/1.6/Thu Jan 17 06:32:12 2019//
 /tls13_key_schedule.c/1.7/Tue Nov 13 01:25:13 2018//
-/tls13_tlsext.c/1.2/Thu Jan 17 02:55:48 2019//
-/tls13_tlsext.h/1.2/Thu Jan 17 02:55:48 2019//
 D/doc////
 D/man////
 D/test////

@@ -10,8 +10,8 @@
 /bus.h/1.67/Mon May  8 00:27:45 2017//
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /codepatch.h/1.2/Sat Jul  1 19:42:59 2017//
-/conf.h/1.16/Fri Oct 21 06:56:38 2016//
-/cpu.h/1.166/Wed Dec  5 10:28:21 2018//
+/conf.h/1.17/Fri Jan 18 01:34:50 2019//
+/cpu.h/1.167/Fri Jan 18 01:34:50 2019//
 /cpu_full.h/1.3/Fri Jun 22 13:21:14 2018//
 /cpufunc.h/1.31/Thu Aug 23 14:47:52 2018//
 /cputypes.h/1.10/Mon Dec 29 08:14:18 2003//
@@ -33,7 +33,7 @@
 /ieee.h/1.3/Sun Sep  7 20:36:06 2008//
 /ieeefp.h/1.3/Wed Mar 23 16:54:35 2011//
 /intr.h/1.48/Mon Aug 20 15:02:07 2018//
-/intrdefs.h/1.16/Sat Jan 13 15:18:11 2018//
+/intrdefs.h/1.17/Fri Jan 18 01:34:50 2019//
 /ioctl_fd.h/1.4/Wed Mar 23 16:54:35 2011//
 /joystick.h/1.6/Wed Mar 23 16:54:35 2011//
 /kcore.h/1.1/Sat Apr 30 15:33:18 2011//
@@ -52,11 +52,11 @@
 /pctr.h/1.17/Sat Mar 29 18:09:29 2014//
 /pic.h/1.2/Tue Dec 16 21:40:05 2014//
 /pio.h/1.12/Sat Apr 25 21:31:24 2015//
-/pmap.h/1.85/Mon May 28 20:52:44 2018//
+/pmap.h/1.86/Fri Jan 18 01:34:50 2019//
 /proc.h/1.10/Sat Mar 31 13:45:03 2018//
 /profile.h/1.12/Sat Mar 29 18:09:29 2014//
 /psl.h/1.21/Mon Jul  9 19:20:30 2018//
-/pte.h/1.22/Fri Oct 21 06:20:59 2016//
+/pte.h/1.23/Fri Jan 18 01:34:50 2019//
 /ptrace.h/1.3/Sun Apr  3 20:21:44 2005//
 /rbus_machdep.h/1.9/Wed Mar 23 16:54:35 2011//
 /reg.h/1.7/Wed Mar 23 16:54:35 2011//
@@ -65,7 +65,7 @@
 /setjmp.h/1.2/Sat Aug  5 22:07:32 2000//
 /signal.h/1.11/Tue May 10 18:39:45 2016//
 /smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
-/specialreg.h/1.72/Tue Sep 11 07:13:23 2018//
+/specialreg.h/1.73/Fri Jan 18 01:34:50 2019//
 /spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.16/Tue Mar 11 19:45:27 2014//
 /sysarch.h/1.14/Thu Mar 24 04:56:08 2016//
@@ -74,6 +74,6 @@
 /tss.h/1.12/Fri Jun 22 13:21:14 2018//
 /varargs.h/1.6/Wed Mar 23 16:54:35 2011//
 /vga_post.h/1.2/Wed Mar 23 16:54:35 2011//
-/vmmvar.h/1.18/Wed Aug 29 04:51:12 2018//
+/vmmvar.h/1.19/Fri Jan 18 01:34:50 2019//
 /vmparam.h/1.56/Tue Apr 17 15:50:05 2018//
 D

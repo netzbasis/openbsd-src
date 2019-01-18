@@ -1,10 +1,14 @@
 /B.in/1.3/Tue Jul  4 14:53:27 2017//
 /B.out_ascii/1.4/Tue Jul  4 14:53:27 2017//
 /B.out_lint/1.5/Tue Jul  4 14:53:27 2017//
-/Makefile/1.15/Sat Dec 15 23:33:20 2018//
+/Makefile/1.16/Thu Jan 17 06:29:14 2019//
 /O.in/1.1/Sat Dec 15 19:30:20 2018//
 /O.out_ascii/1.1/Sat Dec 15 19:30:20 2018//
 /O.out_lint/1.1/Sat Dec 15 19:30:20 2018//
+/bs_man.in/1.1/Thu Jan 17 06:29:14 2019//
+/bs_man.out_ascii/1.1/Thu Jan 17 06:29:14 2019//
+/bs_mdoc.in/1.1/Thu Jan 17 06:29:14 2019//
+/bs_mdoc.out_ascii/1.1/Thu Jan 17 06:29:14 2019//
 /c.in/1.4/Tue Jul  4 14:53:27 2017//
 /c.out_ascii/1.6/Tue Jul  4 14:53:27 2017//
 /c_man.in/1.4/Sat Aug 25 12:28:52 2018//
