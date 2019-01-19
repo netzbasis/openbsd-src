@@ -47,7 +47,7 @@
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.8/Fri Sep  8 05:36:51 2017//
-/pmap.c/1.124/Thu Jan 17 01:52:27 2019//
+/pmap.c/1.125/Sat Jan 19 04:07:12 2019//
 /powernow-k8.c/1.28/Sun Jan 14 00:33:09 2018//
 /process_machdep.c/1.16/Tue Jun  5 06:39:10 2018//
 /rbus_machdep.c/1.13/Sat Mar 14 03:38:46 2015//
@@ -60,7 +60,7 @@
 /vector.S/1.78/Tue Jan  1 03:19:37 2019//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
-/vmm.c/1.222/Mon Dec 10 21:13:59 2018//
+/vmm.c/1.223/Fri Jan 18 08:26:55 2019//
 /vmm_support.S/1.14/Tue Sep 18 16:02:08 2018//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D

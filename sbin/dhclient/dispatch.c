@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.159 2019/01/18 01:38:58 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.162 2019/01/19 02:55:10 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -76,7 +76,7 @@ void bpffd_handler(struct interface_info *);
 void dhcp_packet_dispatch(struct interface_info *, struct sockaddr_in *,
     struct ether_addr *);
 void flush_unpriv_ibuf(void);
-void sendhup(void);
+void sendrestart(void);
 
 /*
  * Loop waiting for packets, timeouts or routing messages.
@@ -89,8 +89,8 @@ dispatch(struct interface_info *ifi, int routefd)
 	time_t			 cur_time, howlong;
 	int			 nfds, to_msec;
 
-	while (quit == 0 || quit == SIGHUP) {
-		if (quit == SIGHUP) {
+	while (quit == 0 || quit == RESTART) {
+		if (quit == RESTART) {
 			/* Ignore any future packets, messages or timeouts. */
 			if (ifi->bpffd != -1) {
 				close(ifi->bpffd);
@@ -102,7 +102,7 @@ dispatch(struct interface_info *ifi, int routefd)
 			}
 			if (ifi->timeout_func != NULL)
 				cancel_timeout(ifi);
-			sendhup();
+			sendrestart();
 			to_msec = 100;
 		} else if (ifi->timeout_func != NULL) {
 			time(&cur_time);
@@ -146,24 +146,20 @@ dispatch(struct interface_info *ifi, int routefd)
 				continue;
 			log_warn("%s: poll(bpffd, routefd, unpriv_ibuf)",
 			    log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 
 		if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
 			log_debug("%s: bpffd: ERR|HUP|NVAL", log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 		if ((fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
 			log_debug("%s: routefd: ERR|HUP|NVAL", log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 		if ((fds[2].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
 			log_debug("%s: unpriv_ibuf: ERR|HUP|NVAL", log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 
 		if (nfds == 0)
@@ -176,11 +172,8 @@ dispatch(struct interface_info *ifi, int routefd)
 		if ((fds[2].revents & POLLOUT) != 0)
 			flush_unpriv_ibuf();
 		if ((fds[2].revents & POLLIN) != 0)
-			quit = INTERNALSIG;
+			break;
 	}
-
-	if (quit != INTERNALSIG && quit != SIGHUP)
-		fatalx("%s", strsignal(quit));
 }
 
 void
@@ -306,7 +299,7 @@ flush_unpriv_ibuf(void)
 			if (errno == EAGAIN)
 				break;
 			if (quit == 0)
-				quit = INTERNALSIG;
+				quit = TERMINATE;
 			if (errno != EPIPE && errno != 0)
 				log_warn("%s: msgbuf_write(unpriv_ibuf)",
 				    log_procname);
@@ -333,14 +326,14 @@ cancel_timeout(struct interface_info *ifi)
 }
 
 /*
- * Inform the [priv] process a HUP was received.
+ * Inform the [priv] process it needs to restart.
  */
 void
-sendhup(void)
+sendrestart(void)
 {
 	int rslt;
 
-	rslt = imsg_compose(unpriv_ibuf, IMSG_HUP, 0, 0, -1, NULL, 0);
+	rslt = imsg_compose(unpriv_ibuf, IMSG_RESTART, 0, 0, -1, NULL, 0);
 	if (rslt == -1)
-		log_warn("%s: imsg_compose(IMSG_HUP)", log_procname);
+		log_warn("%s: imsg_compose(IMSG_RESTART)", log_procname);
 }

@@ -1,7 +1,8 @@
-/* $OpenBSD: ssl_tlsext.h,v 1.15 2019/01/18 00:54:42 jsing Exp $ */
+/* $OpenBSD: ssl_tlsext.h,v 1.17 2019/01/18 12:18:10 beck Exp $ */
 /*
  * Copyright (c) 2016, 2017 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
+ * Copyright (c) 2019 Bob Beck <beck@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -85,6 +86,20 @@ int tlsext_sessionticket_client_parse(SSL *s, CBS *cbs, int *alert);
 int tlsext_sessionticket_server_needs(SSL *s);
 int tlsext_sessionticket_server_build(SSL *s, CBB *cbb);
 int tlsext_sessionticket_server_parse(SSL *s, CBS *cbs, int *alert);
+
+int tlsext_versions_client_needs(SSL *s);
+int tlsext_versions_client_build(SSL *s, CBB *cbb);
+int tlsext_versions_client_parse(SSL *s, CBS *cbs, int *alert);
+int tlsext_versions_server_needs(SSL *s);
+int tlsext_versions_server_build(SSL *s, CBB *cbb);
+int tlsext_versions_server_parse(SSL *s, CBS *cbs, int *alert);
+
+int tlsext_keyshare_client_needs(SSL *s);
+int tlsext_keyshare_client_build(SSL *s, CBB *cbb);
+int tlsext_keyshare_client_parse(SSL *s, CBS *cbs, int *alert);
+int tlsext_keyshare_server_needs(SSL *s);
+int tlsext_keyshare_server_build(SSL *s, CBB *cbb);
+int tlsext_keyshare_server_parse(SSL *s, CBS *cbs, int *alert);
 
 #ifndef OPENSSL_NO_SRTP
 int tlsext_srtp_client_needs(SSL *s);

@@ -20,8 +20,8 @@
 /e_rc4.c/1.14/Fri Jul 11 08:44:48 2014//
 /e_rc4_hmac_md5.c/1.8/Tue Jan 31 13:17:21 2017//
 /e_xcbc_d.c/1.12/Fri Jul 11 08:44:48 2014//
-/encode.c/1.25/Fri Aug 24 19:45:11 2018//
-/evp.h/1.70/Sun Nov 11 06:53:31 2018//
+/encode.c/1.26/Sat Jan 19 01:24:18 2019//
+/evp.h/1.71/Sat Jan 19 01:24:18 2019//
 /evp_aead.c/1.6/Sun Jan 29 17:49:23 2017//
 /evp_enc.c/1.39/Sat Apr 14 07:09:21 2018//
 /evp_err.c/1.22/Sun Jan 29 17:49:23 2017//

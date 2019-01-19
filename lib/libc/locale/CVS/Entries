@@ -53,7 +53,7 @@
 /uselocale.3/1.1/Tue Sep  5 03:16:13 2017//
 /uselocale.c/1.1/Tue Sep  5 03:16:13 2017//
 /wcrtomb.3/1.10/Sun Mar 22 18:02:11 2015//
-/wcscoll.3/1.1/Tue Sep  5 03:16:13 2017//
+/wcscoll.3/1.2/Fri Jan 18 07:43:36 2019//
 /wcscoll.c/1.2/Wed Dec  5 23:20:00 2012//
 /wcscoll_l.c/1.1/Tue Sep  5 03:16:13 2017//
 /wcsrtombs.3/1.5/Wed Jun  5 03:39:22 2013//
@@ -70,7 +70,7 @@
 /wcstoul.c/1.2/Mon Aug  8 08:05:35 2005//
 /wcstoull.c/1.2/Mon Aug  8 08:05:35 2005//
 /wcstoumax.c/1.1/Tue Jan 13 18:13:51 2009//
-/wcsxfrm.3/1.1/Tue Sep  5 03:16:13 2017//
+/wcsxfrm.3/1.2/Fri Jan 18 07:43:36 2019//
 /wcsxfrm.c/1.3/Tue Sep  5 03:16:13 2017//
 /wcsxfrm_l.c/1.1/Tue Sep  5 03:16:13 2017//
 /wctob.3/1.3/Thu May 31 19:19:29 2007//

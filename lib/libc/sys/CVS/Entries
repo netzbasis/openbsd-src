@@ -7,7 +7,7 @@
 /access.2/1.25/Mon Jan 19 15:54:11 2015//
 /acct.2/1.18/Thu Sep 10 17:55:21 2015//
 /adjfreq.2/1.7/Thu Sep 10 17:55:21 2015//
-/adjtime.2/1.23/Fri Jan 18 05:03:42 2019//
+/adjtime.2/1.24/Fri Jan 18 05:51:58 2019//
 /bind.2/1.21/Sun Oct 11 07:25:11 2015//
 /brk.2/1.22/Sun Oct 11 07:53:49 2015//
 /canceled.c/1.2/Tue Sep  5 02:40:54 2017//
@@ -36,7 +36,7 @@
 /getfsstat.2/1.21/Fri Apr 27 13:42:08 2018//
 /getgid.2/1.19/Thu Sep 10 17:55:21 2015//
 /getgroups.2/1.14/Thu Sep 10 17:55:21 2015//
-/getitimer.2/1.29/Tue Nov 10 23:48:18 2015//
+/getitimer.2/1.30/Fri Jan 18 09:36:47 2019//
 /getlogin.2/1.21/Thu Sep 10 17:55:21 2015//
 /getpeername.2/1.26/Thu Sep 10 17:55:21 2015//
 /getpgrp.2/1.18/Thu Sep 10 17:55:21 2015//

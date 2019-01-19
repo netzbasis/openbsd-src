@@ -8,14 +8,14 @@
 /ciphers.c/1.9/Wed Feb  7 05:47:55 2018//
 /crl.c/1.11/Wed Feb  7 05:47:55 2018//
 /crl2p7.c/1.8/Wed Feb  7 05:47:55 2018//
-/dgst.c/1.12/Wed Feb  7 05:47:55 2018//
+/dgst.c/1.13/Fri Jan 18 23:33:57 2019//
 /dh.c/1.11/Wed Feb  7 05:47:55 2018//
 /dhparam.c/1.11/Wed Feb  7 05:47:55 2018//
 /dsa.c/1.11/Wed Feb  7 05:47:55 2018//
 /dsaparam.c/1.10/Wed Feb  7 05:47:55 2018//
 /ec.c/1.11/Wed Feb  7 05:47:55 2018//
 /ecparam.c/1.17/Wed Feb  7 05:47:55 2018//
-/enc.c/1.15/Fri Jan 18 03:45:47 2019//
+/enc.c/1.16/Fri Jan 18 22:47:34 2019//
 /errstr.c/1.6/Sat Oct 17 15:00:11 2015//
 /gendh.c/1.10/Wed Feb  7 05:47:55 2018//
 /gendsa.c/1.10/Wed Feb  7 05:47:55 2018//
@@ -23,7 +23,7 @@
 /genrsa.c/1.12/Sun Dec  9 19:30:34 2018//
 /nseq.c/1.8/Wed Feb  7 05:47:55 2018//
 /ocsp.c/1.15/Wed Feb  7 05:49:36 2018//
-/openssl.1/1.96/Fri Jan 18 03:54:02 2019//
+/openssl.1/1.98/Fri Jan 18 23:33:57 2019//
 /openssl.c/1.28/Sun Nov 11 07:10:57 2018//
 /passwd.c/1.9/Wed Feb  7 05:47:55 2018//
 /pkcs12.c/1.10/Wed Feb  7 05:47:55 2018//

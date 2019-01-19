@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.611 2019/01/18 01:38:58 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.616 2019/01/19 02:45:05 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -102,8 +102,7 @@ char *log_procname;
 
 int nullfd = -1;
 int cmd_opts;
-
-volatile sig_atomic_t quit;
+int quit;
 
 const struct in_addr inaddr_any = { INADDR_ANY };
 const struct in_addr inaddr_broadcast = { INADDR_BROADCAST };
@@ -125,7 +124,6 @@ struct proposal {
 	int		inits;
 };
 
-void		 sighdlr(int);
 void		 usage(void);
 int		 res_hnok_list(const char *);
 int		 addressinuse(char *, struct in_addr, char *);
@@ -189,12 +187,6 @@ struct client_lease *get_recorded_lease(struct interface_info *);
 
 static FILE *leaseFile;
 static FILE *optionDB;
-
-void
-sighdlr(int sig)
-{
-	quit = sig;
-}
 
 int
 get_ifa_family(char *cp, int n)
@@ -265,8 +257,9 @@ get_link_ifa(const char *name, struct ifaddrs *ifap)
 void
 interface_state(struct interface_info *ifi)
 {
-	struct ifaddrs	*ifap, *ifa;
-	int		 newlinkup, oldlinkup;
+	struct ether_addr		 hw;
+	struct ifaddrs			*ifap, *ifa;
+	int				 newlinkup, oldlinkup;
 
 	oldlinkup = LINK_STATE_IS_UP(ifi->link_state);
 
@@ -289,6 +282,16 @@ interface_state(struct interface_info *ifi)
 		log_debug("%s: link %s -> %s", log_procname,
 		    (oldlinkup != 0) ? "up" : "down",
 		    (newlinkup != 0) ? "up" : "down");
+	}
+
+	if (newlinkup != 0) {
+		memcpy(&hw, &ifi->hw_address, sizeof(hw));
+		get_hw_address(ifi);
+		if (memcmp(&hw, &ifi->hw_address, sizeof(hw))) {
+			tick_msg("", 0, INT64_MAX);
+			log_warnx("%s: LLADDR changed", log_procname);
+			quit = RESTART;
+		}
 	}
 }
 
@@ -349,12 +352,11 @@ routefd_handler(struct interface_info *ifi, int routefd)
 void
 rtm_dispatch(struct interface_info *ifi, struct rt_msghdr *rtm)
 {
-	struct ether_addr		 hw;
 	struct if_msghdr		*ifm;
 	struct if_announcemsghdr	*ifan;
 	struct ifa_msghdr		*ifam;
 	struct if_ieee80211_data	*ifie;
-	int				 newlinkup, oldlinkup;
+	int				 oldlinkup;
 
 	switch (rtm->rtm_type) {
 	case RTM_PROPOSAL:
@@ -373,7 +375,7 @@ rtm_dispatch(struct interface_info *ifi, struct rt_msghdr *rtm)
 		} else if ((rtm->rtm_flags & RTF_PROTO2) != 0) {
 			release_lease(ifi); /* OK even if we sent it. */
 			ifi->state = S_PREBOOT;
-			quit = INTERNALSIG;
+			quit = TERMINATE;
 		}
 		break;
 
@@ -390,22 +392,11 @@ rtm_dispatch(struct interface_info *ifi, struct rt_msghdr *rtm)
 
 		oldlinkup = LINK_STATE_IS_UP(ifi->link_state);
 		interface_state(ifi);
-		newlinkup = LINK_STATE_IS_UP(ifi->link_state);
-
-		if (newlinkup != 0) {
-			memcpy(&hw, &ifi->hw_address, sizeof(hw));
-			get_hw_address(ifi);
-			if (memcmp(&hw, &ifi->hw_address, sizeof(hw)) != 0) {
-				tick_msg("", 0, INT64_MAX);
-				log_warnx("%s: LLADDR changed", log_procname);
-				quit = SIGHUP;
-				return;
+		if (quit == 0) {
+			if (LINK_STATE_IS_UP(ifi->link_state) != oldlinkup) {
+				ifi->state = S_PREBOOT;
+				state_preboot(ifi);
 			}
-		}
-
-		if (newlinkup != oldlinkup) {
-			ifi->state = S_PREBOOT;
-			state_preboot(ifi);
 		}
 		break;
 
@@ -417,7 +408,7 @@ rtm_dispatch(struct interface_info *ifi, struct rt_msghdr *rtm)
 		    ifie->ifie_nwid, ifie->ifie_nwid_len) != 0) {
 			tick_msg("", 0, INT64_MAX);
 			log_warnx("%s: SSID changed", log_procname);
-			quit = SIGHUP;
+			quit = RESTART;
 			return;
 		}
 		break;
@@ -702,6 +693,8 @@ state_preboot(struct interface_info *ifi)
 	time(&cur_time);
 
 	interface_state(ifi);
+	if (quit != 0)
+		return;
 	tick_msg("link", LINK_STATE_IS_UP(ifi->link_state), ifi->startup_time);
 
 	if (LINK_STATE_IS_UP(ifi->link_state)) {
@@ -2107,7 +2100,7 @@ go_daemon(void)
 	log_procinit(log_procname);
 
 	setproctitle("%s", log_procname);
-	signal(SIGHUP, sighdlr);
+	signal(SIGHUP, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 }
 
@@ -2228,25 +2221,20 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 			if (errno == EINTR)
 				continue;
 			log_warn("%s: poll(priv_ibuf)", log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
-		if ((pfd[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-			quit = INTERNALSIG;
-			continue;
-		}
+		if ((pfd[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+			break;
 		if (nfds == 0 || (pfd[0].revents & POLLIN) == 0)
 			continue;
 
 		if ((n = imsg_read(priv_ibuf)) == -1 && errno != EAGAIN) {
 			log_warn("%s: imsg_read(priv_ibuf)", log_procname);
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 		if (n == 0) {
 			/* Connection closed - other end should log message. */
-			quit = INTERNALSIG;
-			continue;
+			break;
 		}
 
 		dispatch_imsg(ifi->name, ifi->rdomain, ioctlfd, routefd,
@@ -2258,15 +2246,12 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 	imsg_clear(priv_ibuf);
 	close(fd);
 
-	if (quit == SIGHUP) {
+	if (quit == RESTART) {
 		log_warnx("%s: restarting", log_procname);
 		signal(SIGHUP, SIG_IGN); /* will be restored after exec */
 		execvp(saved_argv[0], saved_argv);
 		fatal("execvp(%s)", saved_argv[0]);
 	}
-
-	if (quit != INTERNALSIG)
-		fatalx("%s", strsignal(quit));
 
 	exit(1);
 }

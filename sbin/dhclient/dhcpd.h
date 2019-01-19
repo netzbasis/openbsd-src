@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.268 2019/01/14 04:54:46 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.270 2019/01/19 02:45:05 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -41,7 +41,8 @@
 
 #define	LOCAL_PORT	68
 #define	REMOTE_PORT	67
-#define	INTERNALSIG	SIG_ATOMIC_MAX
+#define	TERMINATE	1
+#define	RESTART		2
 #define DB_TIMEFMT	"%w %Y/%m/%d %T UTC"
 #define	RT_BUF_SIZE	2048
 
@@ -206,7 +207,7 @@ extern char			*path_lease_db;
 extern char			*log_procname;
 extern struct client_config	*config;
 extern struct imsgbuf		*unpriv_ibuf;
-extern volatile sig_atomic_t	 quit;
+extern int			 quit;
 extern int			 cmd_opts;
 #define		OPT_NOACTION	1
 #define		OPT_VERBOSE	2
