@@ -154,7 +154,7 @@
 /if_ixgb.c/1.71/Sun Jan 22 10:17:38 2017//
 /if_ixgb.h/1.19/Tue Nov 24 17:11:39 2015//
 /if_ixgb_osdep.h/1.4/Tue Jul 26 14:57:57 2011//
-/if_ixl.c/1.10/Sat Jan 19 00:08:10 2019//
+/if_ixl.c/1.12/Sun Jan 20 04:58:45 2019//
 /if_ixlreg.h/1.2/Tue Nov 28 23:40:52 2017//
 /if_jme.c/1.50/Fri Sep  8 05:36:52 2017//
 /if_jmereg.h/1.4/Mon Dec  1 09:12:59 2008//
@@ -334,7 +334,7 @@
 /vga_pci_common.c/1.8/Thu Oct 29 07:47:03 2015//
 /vga_pcivar.h/1.20/Thu Oct 29 07:47:03 2015//
 /viapm.c/1.17/Thu Jul  5 10:09:11 2018//
-/virtio_pci.c/1.20/Thu Jan 10 18:11:42 2019//
+/virtio_pci.c/1.21/Sat Jan 19 16:23:46 2019//
 /virtio_pcireg.h/1.1/Thu Jan 10 18:11:42 2019//
 /vmwpvs.c/1.14/Fri Aug 26 00:45:50 2016//
 /wdt.c/1.23/Fri Sep  8 05:36:52 2017//

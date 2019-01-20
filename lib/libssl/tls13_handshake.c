@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_handshake.c,v 1.10 2019/01/19 04:02:29 jsing Exp $	*/
+/*	$OpenBSD: tls13_handshake.c,v 1.12 2019/01/20 02:57:16 jsing Exp $	*/
 /*
  * Copyright (c) 2018-2019 Theo Buehler <tb@openbsd.org>
  * Copyright (c) 2019 Joel Sing <jsing@openbsd.org>
@@ -30,7 +30,7 @@
 /* Indexing into the state machine */
 struct tls13_handshake {
 	uint8_t			hs_type;
-	int			message_number;
+	uint8_t			message_number;
 };
 
 struct tls13_ctx {
@@ -45,7 +45,8 @@ struct tls13_handshake_action {
 	uint8_t			sender;
 #define TLS13_HS_CLIENT		1
 #define TLS13_HS_SERVER		2
-#define TLS13_HS_BOTH		(TLS13_HS_CLIENT | TLS13_HS_SERVER)
+
+	uint8_t			handshake_complete;
 
 	int (*send)(struct tls13_ctx *ctx);
 	int (*recv)(struct tls13_ctx *ctx);
@@ -157,10 +158,7 @@ struct tls13_handshake_action state_machine[] = {
 	},
 	[APPLICATION_DATA] = {
 		.record_type = TLS13_APPLICATION_DATA,
-		.handshake_type = 0,
-		.sender = TLS13_HS_BOTH,
-		.send = NULL,
-		.recv = NULL,
+		.handshake_complete = 1,
 	},
 };
 
@@ -261,10 +259,18 @@ static enum tls13_message_type handshakes[][TLS13_NUM_MESSAGE_TYPES] = {
 	},
 };
 
+#define NUM_HANDSHAKES (sizeof(handshakes) / sizeof(handshakes[0]))
+
 enum tls13_message_type
 tls13_handshake_active_state(struct tls13_ctx *ctx)
 {
 	struct tls13_handshake hs = ctx->handshake;
+
+	if (hs.hs_type >= NUM_HANDSHAKES)
+		return INVALID;
+	if (hs.message_number >= TLS13_NUM_MESSAGE_TYPES)
+		return INVALID;
+
 	return handshakes[hs.hs_type][hs.message_number];
 }
 
@@ -272,7 +278,20 @@ struct tls13_handshake_action *
 tls13_handshake_active_action(struct tls13_ctx *ctx)
 {
 	enum tls13_message_type mt = tls13_handshake_active_state(ctx);
+
+	if (mt == INVALID)
+		return NULL;
+
 	return &state_machine[mt];
+}
+
+int
+tls13_handshake_advance_state_machine(struct tls13_ctx *ctx)
+{
+	if (++ctx->handshake.message_number >= TLS13_NUM_MESSAGE_TYPES)
+		return 0;
+
+	return 1;
 }
 
 int
@@ -287,7 +306,7 @@ tls13_connect(struct tls13_ctx *ctx)
 		if ((action = tls13_handshake_active_action(ctx)) == NULL)
 			return TLS13_IO_FAILURE;
 
-		if (action->sender == TLS13_HS_BOTH)
+		if (action->handshake_complete)
 			return TLS13_IO_SUCCESS;
 
 		if (action->sender == TLS13_HS_CLIENT) {
@@ -315,7 +334,7 @@ tls13_accept(struct tls13_ctx *ctx)
 		if ((action = tls13_handshake_active_action(ctx)) == NULL)
 			return TLS13_IO_FAILURE;
 
-		if (action->sender == TLS13_HS_BOTH)
+		if (action->handshake_complete)
 			return TLS13_IO_SUCCESS;
 
 		if (action->sender == TLS13_HS_SERVER) {
@@ -331,13 +350,6 @@ tls13_accept(struct tls13_ctx *ctx)
 	}
 
 	return 1;
-}
-
-int
-tls13_handshake_advance_state_machine(struct tls13_ctx *ctx)
-{
-	ctx->handshake.message_number++;
-	return 0;
 }
 
 int

@@ -6,7 +6,7 @@
 /ca.c/1.26/Wed Feb  7 05:47:55 2018//
 /certhash.c/1.16/Wed Feb  7 05:47:55 2018//
 /ciphers.c/1.9/Wed Feb  7 05:47:55 2018//
-/crl.c/1.11/Wed Feb  7 05:47:55 2018//
+/crl.c/1.12/Sat Jan 19 21:17:05 2019//
 /crl2p7.c/1.8/Wed Feb  7 05:47:55 2018//
 /dgst.c/1.13/Fri Jan 18 23:33:57 2019//
 /dh.c/1.11/Wed Feb  7 05:47:55 2018//
@@ -32,7 +32,7 @@
 /pkey.c/1.10/Wed Feb  7 05:47:55 2018//
 /pkeyparam.c/1.11/Wed Feb  7 05:47:55 2018//
 /pkeyutl.c/1.14/Wed Feb  7 05:47:55 2018//
-/prime.c/1.11/Wed Feb  7 05:47:55 2018//
+/prime.c/1.12/Sun Jan 20 01:59:06 2019//
 /progs.h/1.8/Mon Sep  5 10:45:19 2016//
 /rand.c/1.13/Wed Feb  7 05:47:55 2018//
 /req.c/1.15/Wed Feb  7 05:47:55 2018//
@@ -54,5 +54,5 @@
 /ts.c/1.15/Wed Feb  7 05:47:55 2018//
 /verify.c/1.7/Wed Feb  7 05:47:55 2018//
 /version.c/1.8/Sat Oct 17 15:00:11 2015//
-/x509.c/1.16/Wed Feb  7 05:47:55 2018//
+/x509.c/1.17/Sat Jan 19 21:17:05 2019//
 D
