@@ -44,7 +44,7 @@
 /ioctl.h/1.17/Sun Feb 28 15:46:19 2016//
 /ipc.h/1.13/Sat Nov 15 21:42:50 2014//
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
-/kcov.h/1.3/Thu Dec 27 19:33:08 2018//
+/kcov.h/1.4/Sun Jan 20 09:57:23 2019//
 /kernel.h/1.18/Sat Jan 19 01:53:44 2019//
 /kthread.h/1.6/Mon Nov 18 20:21:51 2013//
 /ktrace.h/1.37/Mon Nov  5 17:05:50 2018//
