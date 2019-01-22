@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.140 2019/01/16 22:29:12 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.142 2019/01/21 23:50:36 ajacoutot Exp $
 #
 # Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -187,7 +187,7 @@ rollback_patch()
 	local _edir _file _files _patch _ret=0
 
 	_patch="$(ls_installed | tail -1)"
-	[[ -n ${_patch} ]]
+	[[ -n ${_patch} ]] || return 0 # nothing to rollback
 
 	_edir=${_TMP}/${_patch}-rollback
 	_patch=${_OSrev}-${_patch}
@@ -232,11 +232,13 @@ trap_handler()
 	if ${_KARL}; then
 		echo -n "Relinking to create unique kernel..."
 		if /usr/libexec/reorder_kernel; then
-			echo " done."
+			echo " done; reboot to load the new kernel"
 		else
 			_ret=$?; echo " failed!"; exit ${_ret}
 		fi
 	fi
+
+	${_PATCH_APPLIED} && echo "Errata can be reviewed under ${_PDIR}"
 }
 
 unpriv()
@@ -274,6 +276,7 @@ _MIRROR=$(while read _line; do _line=${_line%%#*}; [[ -n ${_line} ]] &&
 _MIRROR="${_MIRROR}/syspatch/${_KERNV[0]}/$(machine)"
 
 (($(sysctl -n hw.ncpufound) > 1)) && _BSDMP=true || _BSDMP=false
+_PATCH_APPLIED=false
 _PDIR="/var/syspatch"
 _TMP=$(mktemp -d -p ${TMPDIR:-/tmp} syspatch.XXXXXXXXXX)
 _KARL=false
@@ -306,5 +309,6 @@ if ((OPTIND == 1)); then
 	_PATCHES=$(ls_missing)
 	for _PATCH in ${_PATCHES}; do
 		apply_patch ${_OSrev}-${_PATCH}
+		_PATCH_APPLIED=true
 	done
 fi

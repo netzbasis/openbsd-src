@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.620 2019/01/21 02:42:46 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.622 2019/01/22 03:48:24 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -515,6 +515,13 @@ main(int argc, char *argv[])
 	ifi = calloc(1, sizeof(*ifi));
 	if (ifi == NULL)
 		fatal("ifi");
+
+	/* Allocate a rbuf large enough to handle routing socket messages. */
+	ifi->rbuf_max = RT_BUF_SIZE;
+	ifi->rbuf = malloc(ifi->rbuf_max);
+	if (ifi->rbuf == NULL)
+		fatal("rbuf");
+
 	if ((ioctlfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 		fatal("socket(AF_INET, SOCK_DGRAM)");
 	get_ifname(ifi, ioctlfd, argv[0]);
@@ -597,12 +604,6 @@ main(int argc, char *argv[])
 	if (setsockopt(routefd, AF_ROUTE, ROUTE_TABLEFILTER, &ifi->rdomain,
 	    sizeof(ifi->rdomain)) == -1)
 		fatal("setsockopt(ROUTE_TABLEFILTER)");
-
-	/* Allocate a rbuf large enough to handle routing socket messages. */
-	ifi->rbuf_max = RT_BUF_SIZE;
-	ifi->rbuf = malloc(ifi->rbuf_max);
-	if (ifi->rbuf == NULL)
-		fatal("rbuf");
 
 	take_charge(ifi, routefd);
 
@@ -2245,34 +2246,26 @@ void
 get_ifname(struct interface_info *ifi, int ioctlfd, char *arg)
 {
 	struct ifgroupreq	 ifgr;
-	struct ifg_req		*ifg;
-	unsigned int		 len;
+	size_t			 len;
 
 	if (strcmp(arg, "egress") == 0) {
 		memset(&ifgr, 0, sizeof(ifgr));
 		strlcpy(ifgr.ifgr_name, "egress", sizeof(ifgr.ifgr_name));
 		if (ioctl(ioctlfd, SIOCGIFGMEMB, (caddr_t)&ifgr) == -1)
 			fatal("SIOCGIFGMEMB");
-		len = ifgr.ifgr_len;
-		if ((ifgr.ifgr_groups = calloc(1, len)) == NULL)
+		if (ifgr.ifgr_len > sizeof(struct ifg_req))
+			fatalx("too many interfaces in group egress");
+		if ((ifgr.ifgr_groups = calloc(1, ifgr.ifgr_len)) == NULL)
 			fatalx("ifgr_groups");
 		if (ioctl(ioctlfd, SIOCGIFGMEMB, (caddr_t)&ifgr) == -1)
 			fatal("SIOCGIFGMEMB");
-
-		arg = NULL;
-		for (ifg = ifgr.ifgr_groups; ifg && len >= sizeof(*ifg);
-		    ifg++) {
-			len -= sizeof(*ifg);
-			if (arg != NULL)
-				fatalx("too many interfaces in group egress");
-			arg = ifg->ifgrq_member;
-		}
-
-		if (strlcpy(ifi->name, arg, IFNAMSIZ) >= IFNAMSIZ)
-			fatalx("interface name too long");
-
+		len = strlcpy(ifi->name, ifgr.ifgr_groups->ifgrq_member,
+		    IFNAMSIZ);
 		free(ifgr.ifgr_groups);
-	} else if (strlcpy(ifi->name, arg, IFNAMSIZ) >= IFNAMSIZ)
+	} else
+		len = strlcpy(ifi->name, arg, IFNAMSIZ);
+
+	if (len >= IFNAMSIZ)
 		fatalx("interface name too long");
 }
 

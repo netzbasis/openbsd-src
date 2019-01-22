@@ -1,4 +1,4 @@
-/*	$OpenBSD: constraint.c,v 1.39 2019/01/20 16:40:42 otto Exp $	*/
+/*	$OpenBSD: constraint.c,v 1.42 2019/01/21 11:08:37 jsing Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -43,6 +43,9 @@
 #include <pwd.h>
 
 #include "ntpd.h"
+
+#define	IMF_FIXDATE	"%a, %d %h %Y %T GMT"
+#define	X509_DATE	"%Y-%m-%d %T UTC"
 
 int	 constraint_addr_init(struct constraint *);
 struct constraint *
@@ -874,6 +877,13 @@ httpsdate_init(const char *addr, const char *port, const char *hostname,
 	if (tls_config_set_ca_mem(httpsdate->tls_config, ca, ca_len) == -1)
 		goto fail;
 
+	/*
+	 * Due to the fact that we're trying to determine a constraint for time
+	 * we do our own certificate validity checking, since the automatic
+	 * version is based on our wallclock, which may well be inaccurate...
+	 */
+	tls_config_insecure_noverifytime(httpsdate->tls_config);
+
 	return (httpsdate);
 
  fail:
@@ -902,8 +912,11 @@ httpsdate_free(void *arg)
 int
 httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 {
+	char	 timebuf1[32], timebuf2[32];
 	size_t	 outlen = 0, maxlength = CONSTRAINT_MAXHEADERLENGTH, len;
 	char	*line, *p, *buf;
+	time_t	 httptime, notbefore, notafter;
+	struct tm *tm;
 	ssize_t	 ret;
 
 	if ((httpsdate->tls_ctx = tls_client()) == NULL)
@@ -959,7 +972,7 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 		 * or ANSI C's asctime() - the latter doesn't include
 		 * the timezone which is required here.
 		 */
-		if (strptime(p, "%a, %d %h %Y %T GMT",
+		if (strptime(p, IMF_FIXDATE,
 		    &httpsdate->tls_tm) == NULL) {
 			log_warnx("unsupported date format");
 			free(line);
@@ -970,6 +983,42 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 		break;
  next:
 		free(line);
+	}
+
+	/*
+	 * Now manually check the validity of the certificate presented in the
+	 * TLS handshake, based on the time specified by the server's HTTP Date:
+	 * header.
+	 */
+	notbefore = tls_peer_cert_notbefore(httpsdate->tls_ctx);
+	notafter = tls_peer_cert_notafter(httpsdate->tls_ctx);
+	if ((httptime = timegm(&httpsdate->tls_tm)) == -1)
+		goto fail;
+	if (httptime <= notbefore) {
+		if ((tm = gmtime(&notbefore)) == NULL)
+			goto fail;
+		if (strftime(timebuf1, sizeof(timebuf1), X509_DATE, tm) == 0)
+			goto fail;
+		if (strftime(timebuf2, sizeof(timebuf2), X509_DATE,
+		    &httpsdate->tls_tm) == 0)
+			goto fail;
+		log_warnx("tls certificate not yet valid: %s (%s): "
+		    "not before %s, now %s", httpsdate->tls_addr,
+		    httpsdate->tls_hostname, timebuf1, timebuf2);
+		goto fail;
+	}
+	if (httptime >= notafter) {
+		if ((tm = gmtime(&notafter)) == NULL)
+			goto fail;
+		if (strftime(timebuf1, sizeof(timebuf1), X509_DATE, tm) == 0)
+			goto fail;
+		if (strftime(timebuf2, sizeof(timebuf2), X509_DATE,
+		    &httpsdate->tls_tm) == 0)
+			goto fail;
+		log_warnx("tls certificate expired: %s (%s): "
+		    "not after %s, now %s", httpsdate->tls_addr,
+		    httpsdate->tls_hostname, timebuf1, timebuf2);
+		goto fail;
 	}
 
 	return (0);

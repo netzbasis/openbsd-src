@@ -86,7 +86,7 @@
 /open.2/1.49/Mon Jan 19 15:54:11 2015//
 /pathconf.2/1.25/Thu Jun 21 20:30:36 2018//
 /pipe.2/1.18/Wed Dec 10 19:30:22 2014//
-/pledge.2/1.54/Thu Nov  8 05:58:21 2018//
+/pledge.2/1.55/Mon Jan 21 20:10:12 2019//
 /poll.2/1.36/Sat Aug 18 16:55:30 2018//
 /posix_madvise.c/1.4/Fri Sep 11 13:26:20 2015//
 /pread.c/1.11/Sat May  7 19:05:22 2016//
@@ -140,7 +140,7 @@
 /sync.2/1.16/Sat Jan  9 21:27:28 2016//
 /sysarch.2/1.11/Thu Sep 10 17:55:21 2015//
 /syscall.2/1.13/Mon May 30 06:48:21 2016//
-/sysctl.2/1.19/Sun Jan  6 20:09:38 2019//
+/sysctl.2/1.20/Tue Jan 22 00:04:26 2019//
 /thrkill.2/1.2/Sat Mar 19 21:56:12 2016//
 /timer_create.c/1.7/Sat Sep 12 13:13:34 2015//
 /timer_delete.c/1.6/Sat Sep 12 13:13:34 2015//

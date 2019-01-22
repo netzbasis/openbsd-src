@@ -1,7 +1,8 @@
-/* $OpenBSD: tls13_internal.h,v 1.10 2019/01/20 12:27:34 jsing Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.15 2019/01/21 13:45:57 jsing Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
+ * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +25,9 @@
 #include "bytestring.h"
 
 __BEGIN_HIDDEN_DECLS
+
+#define TLS13_HS_CLIENT		1
+#define TLS13_HS_SERVER		2
 
 #define TLS13_IO_SUCCESS	 1
 #define TLS13_IO_EOF		 0
@@ -95,8 +99,6 @@ int tls13_derive_handshake_secrets(struct tls13_secrets *secrets,
 int tls13_derive_application_secrets(struct tls13_secrets *secrets,
     const struct tls13_secret *context);
 
-struct tls13_ctx;
-
 /*
  * Record Layer.
  */
@@ -139,6 +141,33 @@ int tls13_handshake_msg_recv(struct tls13_handshake_msg *msg,
 int tls13_handshake_msg_send(struct tls13_handshake_msg *msg,
     struct tls13_record_layer *rl);
 
+struct tls13_handshake_stage {
+	uint8_t	hs_type;
+	uint8_t	message_number;
+};
+
+struct tls13_ctx {
+	SSL *ssl;
+	uint8_t	mode;
+	struct tls13_handshake_stage handshake_stage;
+
+	struct tls13_record_layer *rl;
+	struct tls13_handshake_msg *hs_msg;
+};
+
+struct tls13_ctx *tls13_ctx_new(int mode);
+void tls13_ctx_free(struct tls13_ctx *ctx);
+
+/*
+ * Legacy interfaces.
+ */
+int tls13_legacy_return_code(SSL *ssl, ssize_t ret);
+ssize_t tls13_legacy_wire_read_cb(void *buf, size_t n, void *arg);
+ssize_t tls13_legacy_wire_write_cb(const void *buf, size_t n, void *arg);
+int tls13_legacy_read_bytes(SSL *ssl, int type, unsigned char *buf, int len,
+    int peek);
+int tls13_legacy_write_bytes(SSL *ssl, int type, const void *buf, int len);
+
 /*
  * Message Types - RFC 8446, Section B.3.
  *
@@ -166,6 +195,8 @@ int tls13_handshake_msg_send(struct tls13_handshake_msg *msg,
 #define	TLS13_MT_SUPPLEMENTAL_DATA_RESERVED	23
 #define	TLS13_MT_KEY_UPDATE			24
 #define	TLS13_MT_MESSAGE_HASH			254
+
+int tls13_handshake_perform(struct tls13_ctx *ctx);
 
 int tls13_client_hello_send(struct tls13_ctx *ctx);
 int tls13_client_hello_recv(struct tls13_ctx *ctx);

@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.226 2019/01/18 12:09:52 beck Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.228 2019/01/21 10:28:52 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -609,6 +609,8 @@ typedef struct ssl_ctx_internal_st {
 } SSL_CTX_INTERNAL;
 
 typedef struct ssl_internal_st {
+	struct tls13_ctx *tls13;
+
 	uint16_t min_version;
 	uint16_t max_version;
 
@@ -1050,6 +1052,8 @@ int ssl_version_set_min(const SSL_METHOD *meth, uint16_t ver, uint16_t max_ver,
 int ssl_version_set_max(const SSL_METHOD *meth, uint16_t ver, uint16_t min_ver,
     uint16_t *out_ver);
 uint16_t ssl_max_server_version(SSL *s);
+int ssl_cipher_is_permitted(const SSL_CIPHER *cipher, uint16_t min_ver,
+    uint16_t max_ver);
 
 const SSL_METHOD *dtls1_get_client_method(int ver);
 const SSL_METHOD *dtls1_get_server_method(int ver);

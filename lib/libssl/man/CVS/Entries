@@ -71,7 +71,7 @@
 /SSL_free.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_get_SSL_CTX.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_get_certificate.3/1.4/Wed Apr 25 13:51:34 2018//
-/SSL_get_ciphers.3/1.6/Tue Mar 27 17:35:50 2018//
+/SSL_get_ciphers.3/1.7/Tue Jan 22 01:18:24 2019//
 /SSL_get_client_CA_list.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_get_client_random.3/1.2/Sat Mar 24 00:55:37 2018//
 /SSL_get_current_cipher.3/1.4/Tue Mar 27 17:35:50 2018//
@@ -88,7 +88,7 @@
 /SSL_get_shared_ciphers.3/1.3/Tue Mar 27 17:35:50 2018//
 /SSL_get_state.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_get_verify_result.3/1.4/Tue Mar 27 17:35:50 2018//
-/SSL_get_version.3/1.5/Tue Mar 27 17:35:50 2018//
+/SSL_get_version.3/1.6/Mon Jan 21 12:35:33 2019//
 /SSL_library_init.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_load_client_CA_file.3/1.8/Tue Mar 27 17:35:50 2018//
 /SSL_new.3/1.6/Tue Mar 27 17:35:50 2018//

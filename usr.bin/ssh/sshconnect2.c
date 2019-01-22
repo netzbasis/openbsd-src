@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.296 2019/01/21 01:05:00 djm Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.301 2019/01/21 10:38:54 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -195,16 +195,17 @@ ssh_kex2(struct ssh *ssh, char *host, struct sockaddr *hostaddr, u_short port)
 	if ((r = kex_setup(ssh, myproposal)) != 0)
 		fatal("kex_setup: %s", ssh_err(r));
 #ifdef WITH_OPENSSL
-	ssh->kex->kex[KEX_DH_GRP1_SHA1] = kexdh_client;
-	ssh->kex->kex[KEX_DH_GRP14_SHA1] = kexdh_client;
-	ssh->kex->kex[KEX_DH_GRP14_SHA256] = kexdh_client;
-	ssh->kex->kex[KEX_DH_GRP16_SHA512] = kexdh_client;
-	ssh->kex->kex[KEX_DH_GRP18_SHA512] = kexdh_client;
+	ssh->kex->kex[KEX_DH_GRP1_SHA1] = kex_gen_client;
+	ssh->kex->kex[KEX_DH_GRP14_SHA1] = kex_gen_client;
+	ssh->kex->kex[KEX_DH_GRP14_SHA256] = kex_gen_client;
+	ssh->kex->kex[KEX_DH_GRP16_SHA512] = kex_gen_client;
+	ssh->kex->kex[KEX_DH_GRP18_SHA512] = kex_gen_client;
 	ssh->kex->kex[KEX_DH_GEX_SHA1] = kexgex_client;
 	ssh->kex->kex[KEX_DH_GEX_SHA256] = kexgex_client;
-	ssh->kex->kex[KEX_ECDH_SHA2] = kexecdh_client;
+	ssh->kex->kex[KEX_ECDH_SHA2] = kex_gen_client;
 #endif
-	ssh->kex->kex[KEX_C25519_SHA256] = kexc25519_client;
+	ssh->kex->kex[KEX_C25519_SHA256] = kex_gen_client;
+	ssh->kex->kex[KEX_KEM_SNTRUP4591761X25519_SHA512] = kex_gen_client;
 	ssh->kex->verify_host_key=&verify_host_key_callback;
 
 	ssh_dispatch_run_fatal(ssh, DISPATCH_BLOCK, &ssh->kex->done);

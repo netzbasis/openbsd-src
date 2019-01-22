@@ -18,7 +18,7 @@
 /nfsdiskless.h/1.10/Fri Sep 20 23:51:44 2013//
 /nfsm_subs.h/1.47/Fri Jan 18 13:59:18 2019//
 /nfsmount.h/1.28/Mon Apr  9 09:39:53 2018//
-/nfsnode.h/1.40/Sat May  5 11:54:11 2018//
+/nfsnode.h/1.41/Mon Jan 21 18:09:21 2019//
 /nfsproto.h/1.10/Wed Jul  8 14:39:31 2009//
 /nfsrvcache.h/1.8/Tue Nov 26 20:41:27 2013//
 /rpcv2.h/1.8/Fri Jul  4 16:49:28 2008//

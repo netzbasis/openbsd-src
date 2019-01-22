@@ -3,7 +3,7 @@
 /acpiapm.h/1.1/Sun Nov 25 15:45:17 2007//
 /amdmsr.h/1.4/Wed Mar 23 16:54:35 2011//
 /apicvar.h/1.6/Wed Mar 23 16:54:35 2011//
-/apmvar.h/1.20/Fri Feb  6 08:16:49 2015//
+/apmvar.h/1.22/Tue Jan 22 02:36:30 2019//
 /asm.h/1.16/Wed Apr 11 15:44:08 2018//
 /atomic.h/1.18/Sun May 28 01:33:26 2017//
 /biosvar.h/1.67/Thu Aug 23 14:47:52 2018//
