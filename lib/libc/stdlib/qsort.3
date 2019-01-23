@@ -29,9 +29,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: qsort.3,v 1.22 2019/01/21 20:43:27 tedu Exp $
+.\"	$OpenBSD: qsort.3,v 1.24 2019/01/22 06:49:17 jmc Exp $
 .\"
-.Dd $Mdocdate: January 21 2019 $
+.Dd $Mdocdate: January 22 2019 $
 .Dt QSORT 3
 .Os
 .Sh NAME
@@ -146,6 +146,47 @@ which is faster than
 Memory availability and pre-existing order in the data can make this untrue.
 .Sh RETURN VALUES
 .Rv -std heapsort mergesort
+.Sh EXAMPLES
+.Bd -literal
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+char *array[] = { "XX", "YYY", "Z" };
+#define N (sizeof(array) / sizeof(array[0]))
+
+int
+cmp(const void *a, const void *b)
+{
+	/*
+	 * a and b point to elements of the array.
+	 * Cast and dereference to obtain the actual elements,
+	 * which are also pointers in this case.
+	 */
+	size_t lena = strlen(*(const char **)a);
+	size_t lenb = strlen(*(const char **)b);
+	/*
+	 * Do not subtract the lengths. The difference between values
+	 * cannot be represented by an int.
+	 */
+	return lena < lenb ? -1 : lena > lenb;
+}
+
+int
+main()
+{
+	size_t i;
+
+	qsort(array, N, sizeof(array[0]), cmp);
+	for (i =  0; i < N; i++)
+		printf("%s\n", array[i]);
+}
+
+
+.Ed
+.Pp
+It is almost always an error to use subtraction to compute the return value
+of the comparison function.
 .Sh ERRORS
 The
 .Fn heapsort
@@ -168,47 +209,6 @@ or
 .Fn mergesort
 were unable to allocate memory.
 .El
-.Sh EXAMPLES
-.Bd -literal
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-char *array[] = { "XX", "YYY", "Z" };
-#define N (sizeof(array) / sizeof(array[0]))
-
-int
-cmp(const void *a, const void *b)
-{
-	/*
-	 * a and b point to elements of the array.
-	 * Cast and dereference to obtain the actual elements,
-	 * which are also pointers in this case.
-	 */
-	size_t lena = strlen(*(const char **)a);
-	size_t lenb = strlen(*(const char **)b);
-	/*
-	 * Do not subtract the lengths. The difference between values cannot
-	 * be represented by an int.
-	 */
-	return lena < lenb ? -1 : lena > lenb;
-}
-
-int
-main()
-{
-	size_t i;
-
-	qsort(array, N, sizeof(array[0]), cmp);
-	for (i =  0; i < N; i++)
-		printf("%s\n", array[i]);
-}
-
-
-.Ed
-.Pp
-It almost always an error to use subtraction to compute the return value
-of the comparison function.
 .Sh SEE ALSO
 .Xr sort 1 ,
 .Xr radixsort 3

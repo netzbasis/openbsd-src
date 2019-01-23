@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-pkcs11.c,v 1.39 2019/01/21 02:05:38 djm Exp $ */
+/* $OpenBSD: ssh-pkcs11.c,v 1.41 2019/01/22 12:03:58 djm Exp $ */
 /*
  * Copyright (c) 2010 Markus Friedl.  All rights reserved.
  * Copyright (c) 2014 Pedro Martelletto. All rights reserved.
@@ -231,6 +231,85 @@ pkcs11_find(struct pkcs11_provider *p, CK_ULONG slotidx, CK_ATTRIBUTE *attr,
 }
 
 static int
+pkcs11_login(struct pkcs11_key *k11, CK_USER_TYPE type)
+{
+	struct pkcs11_slotinfo	*si;
+	CK_FUNCTION_LIST	*f;
+	char			*pin = NULL, prompt[1024];
+	CK_RV			 rv;
+
+	if (!k11->provider || !k11->provider->valid) {
+		error("no pkcs11 (valid) provider found");
+		return (-1);
+	}
+
+	f = k11->provider->function_list;
+	si = &k11->provider->slotinfo[k11->slotidx];
+
+	if (!pkcs11_interactive) {
+		error("need pin entry%s",
+		    (si->token.flags & CKF_PROTECTED_AUTHENTICATION_PATH) ?
+		    " on reader keypad" : "");
+		return (-1);
+	}
+	if (si->token.flags & CKF_PROTECTED_AUTHENTICATION_PATH)
+		verbose("Deferring PIN entry to reader keypad.");
+	else {
+		snprintf(prompt, sizeof(prompt), "Enter PIN for '%s': ",
+		    si->token.label);
+		if ((pin = read_passphrase(prompt, RP_ALLOW_EOF)) == NULL) {
+			debug("%s: no pin specified", __func__);
+			return (-1);	/* bail out */
+		}
+	}
+	rv = f->C_Login(si->session, type, (u_char *)pin,
+	    (pin != NULL) ? strlen(pin) : 0);
+	if (pin != NULL)
+		freezero(pin, strlen(pin));
+	if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
+		error("C_Login failed: %lu", rv);
+		return (-1);
+	}
+	si->logged_in = 1;
+	return (0);
+}
+
+static int
+pkcs11_check_obj_bool_attrib(struct pkcs11_key *k11, CK_OBJECT_HANDLE obj,
+    CK_ATTRIBUTE_TYPE type, int *val)
+{
+	struct pkcs11_slotinfo	*si;
+	CK_FUNCTION_LIST	*f;
+	CK_BBOOL		flag = 0;
+	CK_ATTRIBUTE		attr;
+	CK_RV			 rv;
+
+	*val = 0;
+
+	if (!k11->provider || !k11->provider->valid) {
+		error("no pkcs11 (valid) provider found");
+		return (-1);
+	}
+
+	f = k11->provider->function_list;
+	si = &k11->provider->slotinfo[k11->slotidx];
+
+	attr.type = type;
+	attr.pValue = &flag;
+	attr.ulValueLen = sizeof(flag);
+
+	rv = f->C_GetAttributeValue(si->session, obj, &attr, 1);
+	if (rv != CKR_OK) {
+		error("C_GetAttributeValue failed: %lu", rv);
+		return (-1);
+	}
+	*val = flag != 0;
+	debug("%s: provider %p slot %lu object %lu: attrib %lu = %d",
+	    __func__, k11->provider, k11->slotidx, obj, type, *val);
+	return (0);
+}
+
+static int
 pkcs11_get_key(struct pkcs11_key *k11, CK_MECHANISM_TYPE mech_type)
 {
 	struct pkcs11_slotinfo	*si;
@@ -241,7 +320,8 @@ pkcs11_get_key(struct pkcs11_key *k11, CK_MECHANISM_TYPE mech_type)
 	CK_BBOOL		 true_val;
 	CK_MECHANISM		 mech;
 	CK_ATTRIBUTE		 key_filter[3];
-	char			*pin = NULL, prompt[1024];
+	int			 always_auth = 0;
+	int			 did_login = 0;
 
 	if (!k11->provider || !k11->provider->valid) {
 		error("no pkcs11 (valid) provider found");
@@ -252,32 +332,11 @@ pkcs11_get_key(struct pkcs11_key *k11, CK_MECHANISM_TYPE mech_type)
 	si = &k11->provider->slotinfo[k11->slotidx];
 
 	if ((si->token.flags & CKF_LOGIN_REQUIRED) && !si->logged_in) {
-		if (!pkcs11_interactive) {
-			error("need pin entry%s", (si->token.flags &
-			    CKF_PROTECTED_AUTHENTICATION_PATH) ?
-			    " on reader keypad" : "");
+		if (pkcs11_login(k11, CKU_USER) < 0) {
+			error("login failed");
 			return (-1);
 		}
-		if (si->token.flags & CKF_PROTECTED_AUTHENTICATION_PATH)
-			verbose("Deferring PIN entry to reader keypad.");
-		else {
-			snprintf(prompt, sizeof(prompt),
-			    "Enter PIN for '%s': ", si->token.label);
-			pin = read_passphrase(prompt, RP_ALLOW_EOF);
-			if (pin == NULL)
-				return (-1);	/* bail out */
-		}
-		rv = f->C_Login(si->session, CKU_USER, (u_char *)pin,
-		    (pin != NULL) ? strlen(pin) : 0);
-		if (pin != NULL) {
-			explicit_bzero(pin, strlen(pin));
-			free(pin);
-		}
-		if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
-			error("C_Login failed: %lu", rv);
-			return (-1);
-		}
-		si->logged_in = 1;
+		did_login = 1;
 	}
 
 	memset(&key_filter, 0, sizeof(key_filter));
@@ -310,6 +369,16 @@ pkcs11_get_key(struct pkcs11_key *k11, CK_MECHANISM_TYPE mech_type)
 	if ((rv = f->C_SignInit(si->session, &mech, obj)) != CKR_OK) {
 		error("C_SignInit failed: %lu", rv);
 		return (-1);
+	}
+
+	pkcs11_check_obj_bool_attrib(k11, obj, CKA_ALWAYS_AUTHENTICATE,
+	    &always_auth); /* ignore errors here */
+	if (always_auth && !did_login) {
+		debug("%s: always-auth key", __func__);
+		if (pkcs11_login(k11, CKU_CONTEXT_SPECIFIC) < 0) {
+			error("login failed for always-auth key");
+			return (-1);
+		}
 	}
 
 	return (0);
@@ -540,26 +609,36 @@ static int
 pkcs11_open_session(struct pkcs11_provider *p, CK_ULONG slotidx, char *pin,
     CK_ULONG user)
 {
-	CK_RV			rv;
+	struct pkcs11_slotinfo	*si;
 	CK_FUNCTION_LIST	*f;
+	CK_RV			rv;
 	CK_SESSION_HANDLE	session;
-	int			login_required, ret;
+	int			login_required, have_pinpad, ret;
 
 	f = p->function_list;
-	login_required = p->slotinfo[slotidx].token.flags & CKF_LOGIN_REQUIRED;
-	if (pin && login_required && !strlen(pin)) {
+	si = &p->slotinfo[slotidx];
+
+	have_pinpad = si->token.flags & CKF_PROTECTED_AUTHENTICATION_PATH;
+	login_required = si->token.flags & CKF_LOGIN_REQUIRED;
+
+	/* fail early before opening session */
+	if (login_required && !have_pinpad && pin != NULL && strlen(pin) == 0) {
 		error("pin required");
 		return (-SSH_PKCS11_ERR_PIN_REQUIRED);
 	}
 	if ((rv = f->C_OpenSession(p->slotlist[slotidx], CKF_RW_SESSION|
-	    CKF_SERIAL_SESSION, NULL, NULL, &session))
-	    != CKR_OK) {
+	    CKF_SERIAL_SESSION, NULL, NULL, &session)) != CKR_OK) {
 		error("C_OpenSession failed: %lu", rv);
 		return (-1);
 	}
-	if (login_required && pin) {
-		rv = f->C_Login(session, user,
-		    (u_char *)pin, strlen(pin));
+	if (login_required) {
+		if (have_pinpad && (pin == NULL || strlen(pin) == 0)) {
+			/* defer PIN entry to the reader keypad */
+			rv = f->C_Login(session, CKU_USER, NULL_PTR, 0);
+		} else {
+			rv = f->C_Login(session, CKU_USER,
+			    (u_char *)pin, strlen(pin));
+		}
 		if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
 			error("C_Login failed: %lu", rv);
 			ret = (rv == CKR_PIN_LOCKED) ?
@@ -569,9 +648,9 @@ pkcs11_open_session(struct pkcs11_provider *p, CK_ULONG slotidx, char *pin,
 				error("C_CloseSession failed: %lu", rv);
 			return (ret);
 		}
-		p->slotinfo[slotidx].logged_in = 1;
+		si->logged_in = 1;
 	}
-	p->slotinfo[slotidx].session = session;
+	si->session = session;
 	return (0);
 }
 
