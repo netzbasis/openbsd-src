@@ -1,4 +1,4 @@
-/*	$OpenBSD: handshake_table.c,v 1.1 2019/01/23 04:50:24 tb Exp $	*/
+/*	$OpenBSD: handshake_table.c,v 1.5 2019/01/24 03:48:09 tb Exp $	*/
 /*
  * Copyright (c) 2019 Theo Buehler <tb@openbsd.org>
  *
@@ -75,8 +75,6 @@
  *
  */
 
-extern enum tls13_message_type handshakes[][TLS13_NUM_MESSAGE_TYPES];
-
 struct child {
 	enum tls13_message_type	mt;
 	uint8_t			flag;
@@ -88,57 +86,58 @@ struct child {
 
 static struct child stateinfo[][TLS13_NUM_MESSAGE_TYPES] = {
 	[CLIENT_HELLO] = {
-		{ SERVER_HELLO, NEGOTIATED, 0, 0 },
+		{SERVER_HELLO, DEFAULT, 0, 0},
 	},
 	[SERVER_HELLO] = {
-		{ SERVER_ENCRYPTED_EXTENSIONS, DEFAULT, 0, 0 },
-		{ CLIENT_HELLO_RETRY, WITH_HRR, 0, 0 },
+		{SERVER_ENCRYPTED_EXTENSIONS, DEFAULT, 0, 0},
+		{CLIENT_HELLO_RETRY, WITH_HRR, 0, 0},
 	},
 	[CLIENT_HELLO_RETRY] = {
-		{ SERVER_ENCRYPTED_EXTENSIONS, DEFAULT, 0, 0},
+		{SERVER_ENCRYPTED_EXTENSIONS, DEFAULT, 0, 0},
 	},
 	[SERVER_ENCRYPTED_EXTENSIONS] = {
-		{ SERVER_CERTIFICATE_REQUEST, DEFAULT, 0, 0},
-		{ SERVER_CERTIFICATE, WITHOUT_CR, 0, 0},
-		{ SERVER_FINISHED, WITH_PSK, 0, 0},
+		{SERVER_CERTIFICATE_REQUEST, DEFAULT, 0, 0},
+		{SERVER_CERTIFICATE, WITHOUT_CR, 0, 0},
+		{SERVER_FINISHED, WITH_PSK, 0, 0},
 	},
 	[SERVER_CERTIFICATE_REQUEST] = {
-		{ SERVER_CERTIFICATE, DEFAULT, 0, 0},
+		{SERVER_CERTIFICATE, DEFAULT, 0, 0},
 	},
 	[SERVER_CERTIFICATE] = {
-		{ SERVER_CERTIFICATE_VERIFY, DEFAULT, 0, 0},
+		{SERVER_CERTIFICATE_VERIFY, DEFAULT, 0, 0},
 	},
 	[SERVER_CERTIFICATE_VERIFY] = {
-		{ SERVER_FINISHED, DEFAULT, 0, 0},
+		{SERVER_FINISHED, DEFAULT, 0, 0},
 	},
 	[SERVER_FINISHED] = {
-		{ CLIENT_FINISHED, DEFAULT, WITHOUT_CR | WITH_PSK, 0 },
-		{ CLIENT_CERTIFICATE, DEFAULT, 0, WITHOUT_CR | WITH_PSK },
-		/* { CLIENT_END_OF_EARLY_DATA, WITH_0RTT, 0, 0}, */
+		{CLIENT_FINISHED, DEFAULT, WITHOUT_CR | WITH_PSK, 0},
+		{CLIENT_CERTIFICATE, DEFAULT, 0, WITHOUT_CR | WITH_PSK},
+		/* {CLIENT_END_OF_EARLY_DATA, WITH_0RTT, 0, 0}, */
 	},
 	[CLIENT_CERTIFICATE] = {
-		{ CLIENT_FINISHED, DEFAULT, 0, 0},
-		{ CLIENT_CERTIFICATE_VERIFY, WITH_CCV, 0, 0},
+		{CLIENT_FINISHED, DEFAULT, 0, 0},
+		{CLIENT_CERTIFICATE_VERIFY, WITH_CCV, 0, 0},
 	},
 	[CLIENT_CERTIFICATE_VERIFY] = {
-		{ CLIENT_FINISHED, DEFAULT, 0, 0},
+		{CLIENT_FINISHED, DEFAULT, 0, 0},
 	},
 	[CLIENT_FINISHED] = {
-		{ APPLICATION_DATA, DEFAULT, 0, 0},
+		{APPLICATION_DATA, DEFAULT, 0, 0},
 	},
 	[APPLICATION_DATA] = {
-		{ 0, DEFAULT, 0, 0},
+		{0, DEFAULT, 0, 0},
 	},
 };
 
-const char *flag2str(uint8_t flag);
-void print_flags(uint8_t flags);
-const char *mt2str(enum tls13_message_type mt);
 void build_table(enum tls13_message_type
     table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES], struct child current,
     struct child end, struct child path[], uint8_t flags, unsigned int depth);
+size_t count_handshakes(void);
+const char *flag2str(uint8_t flag);
+const char *mt2str(enum tls13_message_type mt);
 void print_entry(enum tls13_message_type path[TLS13_NUM_MESSAGE_TYPES],
     uint8_t flags);
+void print_flags(uint8_t flags);
 __dead void usage(void);
 int verify_table(enum tls13_message_type
     table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES], int print);
@@ -152,8 +151,8 @@ flag2str(uint8_t flag)
 		errx(1, "more than one bit is set");
 
 	switch (flag) {
-	case DEFAULT:
-		ret = "";
+	case INITIAL:
+		ret = "INITIAL";
 		break;
 	case NEGOTIATED:
 		ret = "NEGOTIATED";
@@ -250,6 +249,11 @@ print_flags(uint8_t flags)
 {
 	int first = 1, i;
 
+	if (flags == 0) {
+		printf("%s", flag2str(flags));
+		return;
+	}
+
 	for (i = 0; i < 8; i++) {
 		uint8_t set = flags & (1U << i);
 
@@ -276,6 +280,22 @@ print_entry(enum tls13_message_type path[TLS13_NUM_MESSAGE_TYPES],
 		printf("\t\t%s,\n", mt2str(path[i]));
 	}
 	printf("\t},\n");
+}
+
+extern enum tls13_message_type handshakes[][TLS13_NUM_MESSAGE_TYPES];
+extern size_t handshake_count;
+
+size_t
+count_handshakes(void)
+{
+	size_t	ret = 0, i;
+
+	for (i = 0; i < handshake_count; i++) {
+		if (handshakes[i][0] != INVALID)
+			ret++;
+	}
+
+	return ret;
 }
 
 void
@@ -322,16 +342,18 @@ verify_table(enum tls13_message_type table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES],
     int print)
 {
 	int	success = 1, i;
+	size_t	num_valid, num_found = 0;
 	uint8_t	flags = 0;
 
 	do {
-		flags++;
 		if (table[flags][0] == 0)
 			continue;
 
+		num_found++;
+
 		for (i = 0; i < TLS13_NUM_MESSAGE_TYPES; i++) {
 			if (table[flags][i] != handshakes[flags][i]) {
-				printf("incorrrect entry %d of handshake ", i);
+				printf("incorrect entry %d of handshake ", i);
 				print_flags(flags);
 				printf("\n");
 				success = 0;
@@ -340,7 +362,14 @@ verify_table(enum tls13_message_type table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES],
 
 		if (print)
 			print_entry(table[flags], flags);
-	} while(flags != UINT8_MAX);
+	} while(++flags != 0);
+
+	num_valid = count_handshakes();
+	if (num_valid != num_found) {
+		printf("incorrect number of handshakes: want %zu, got %zu.\n",
+		    num_valid, num_found);
+		success = 0;
+	}
 
 	return success;
 }
@@ -356,15 +385,20 @@ int
 main(int argc, char *argv[])
 {
 	static enum tls13_message_type
-	    hs_table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES];
+	    hs_table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES] = {
+		[INITIAL] = {
+			CLIENT_HELLO,
+			SERVER_HELLO,
+		},
+	};
 	struct child	start = {
-		CLIENT_HELLO, NEGOTIATED, 0, 0,
+		CLIENT_HELLO, DEFAULT, 0, 0,
 	};
 	struct child	end = {
 		APPLICATION_DATA, DEFAULT, 0, 0,
 	};
-	struct child	path[TLS13_NUM_MESSAGE_TYPES] = {{ 0 }};
-	uint8_t		flags = 0;
+	struct child	path[TLS13_NUM_MESSAGE_TYPES] = {{0}};
+	uint8_t		flags = NEGOTIATED;
 	unsigned int	depth = 0;
 	int		ch, print = 0;
 

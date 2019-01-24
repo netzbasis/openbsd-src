@@ -60,7 +60,7 @@
 /msg.h/1.19/Sun Nov 23 04:31:42 2014//
 /msgbuf.h/1.11/Thu Jun 23 13:15:21 2016//
 /mtio.h/1.9/Fri Jun  1 18:44:48 2007//
-/mutex.h/1.15/Fri Jun  8 15:38:15 2018//
+/mutex.h/1.16/Wed Jan 23 22:39:47 2019//
 /namei.h/1.39/Thu Jan 17 03:26:19 2019//
 /param.h/1.127/Fri Aug 10 20:27:01 2018//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
@@ -92,7 +92,7 @@
 /signalvar.h/1.35/Mon Dec 17 14:51:57 2018//
 /socket.h/1.96/Sun Apr  8 18:57:39 2018//
 /socketvar.h/1.88/Mon Nov 19 13:15:37 2018//
-/sockio.h/1.78/Thu Nov 29 00:11:23 2018//
+/sockio.h/1.79/Wed Jan 23 08:23:18 2019//
 /specdev.h/1.38/Mon Jan 21 18:09:21 2019//
 /srp.h/1.13/Sun Nov 20 11:40:58 2016//
 /stat.h/1.28/Sat Apr  4 18:06:08 2015//

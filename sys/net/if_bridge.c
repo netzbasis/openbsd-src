@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.c,v 1.316 2019/01/17 16:07:42 mpi Exp $	*/
+/*	$OpenBSD: if_bridge.c,v 1.318 2019/01/23 15:27:08 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -777,6 +777,8 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 	ifp->if_opackets++;
 	ifp->if_obytes += m->m_pkthdr.len;
 
+	bridge_span(sc, m);
+
 	/*
 	 * If the packet is a broadcast or we don't know a better way to
 	 * get there, send to all interfaces.
@@ -787,8 +789,6 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 		struct bridge_iflist *bif, *bif0;
 		struct mbuf *mc;
 		int used = 0;
-
-		bridge_span(sc, m);
 
 		SLIST_FOREACH(bif, &sc->sc_iflist, bif_next) {
 			dst_if = bif->ifp;
@@ -850,7 +850,6 @@ sendunicast:
 	    ((brtag = bridge_tunneltag(m)) != NULL))
 		bridge_copytag(&dst_p->brt_tunnel, brtag);
 
-	bridge_span(sc, m);
 	if ((dst_if->if_flags & IFF_RUNNING) == 0) {
 		m_freem(m);
 		return (ENETDOWN);
@@ -1062,15 +1061,15 @@ bridgeintr_frame(struct bridge_softc *sc, struct ifnet *src_if, struct mbuf *m)
  * Return 1 if `ena' belongs to `bif', 0 otherwise.
  */
 int
-bridge_ourether(struct bridge_iflist *bif, uint8_t *ena)
+bridge_ourether(struct ifnet *ifp, uint8_t *ena)
 {
-	struct arpcom *ac = (struct arpcom *)bif->ifp;
+	struct arpcom *ac = (struct arpcom *)ifp;
 
 	if (memcmp(ac->ac_enaddr, ena, ETHER_ADDR_LEN) == 0)
 		return (1);
 
 #if NCARP > 0
-	if (carp_ourether(bif->ifp, ena))
+	if (carp_ourether(ifp, ena))
 		return (1);
 #endif
 
@@ -1190,7 +1189,7 @@ bridge_process(struct ifnet *ifp, struct mbuf *m)
 	SLIST_FOREACH(bif, &sc->sc_iflist, bif_next) {
 		if (bif->ifp->if_type != IFT_ETHER)
 			continue;
-		if (bridge_ourether(bif, eh->ether_dhost)) {
+		if (bridge_ourether(bif->ifp, eh->ether_dhost)) {
 			if (bif0->bif_flags & IFBIF_LEARNING)
 				bridge_rtupdate(sc,
 				    (struct ether_addr *)&eh->ether_shost,
@@ -1208,7 +1207,7 @@ bridge_process(struct ifnet *ifp, struct mbuf *m)
 			bridge_ifinput(bif->ifp, m);
 			return;
 		}
-		if (bridge_ourether(bif, eh->ether_shost)) {
+		if (bridge_ourether(bif->ifp, eh->ether_shost)) {
 			m_freem(m);
 			return;
 		}
