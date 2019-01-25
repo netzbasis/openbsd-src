@@ -1,5 +1,5 @@
 /Makefile.inc/1.29/Wed Mar 30 06:38:41 2016//
-/asprintf.c/1.25/Fri Mar 17 14:53:08 2017//
+/asprintf.c/1.26/Fri Jan 25 00:19:25 2019//
 /clrerr.c/1.10/Mon Aug 31 02:53:57 2015//
 /dprintf.c/1.2/Mon Aug 31 02:53:57 2015//
 /fclose.3/1.9/Wed Nov  4 21:30:13 2015//
@@ -114,7 +114,7 @@
 /ungetc.c/1.15/Wed Sep 21 04:38:56 2016//
 /ungetwc.3/1.5/Fri Dec  1 11:18:40 2017//
 /ungetwc.c/1.6/Mon Aug 31 02:53:57 2015//
-/vasprintf.c/1.22/Fri Mar 17 14:53:08 2017//
+/vasprintf.c/1.23/Fri Jan 25 00:19:25 2019//
 /vdprintf.c/1.2/Mon Aug 31 02:53:57 2015//
 /vfprintf.c/1.78/Tue Nov 21 17:48:19 2017//
 /vfscanf.c/1.34/Sun Oct 30 05:07:06 2016//
@@ -125,7 +125,7 @@
 /vsnprintf.c/1.16/Mon Aug 31 02:53:57 2015//
 /vsprintf.c/1.17/Tue Nov 28 06:55:49 2017//
 /vsscanf.c/1.13/Mon Aug 31 02:53:57 2015//
-/vswprintf.c/1.6/Mon Aug 31 02:53:57 2015//
+/vswprintf.c/1.7/Fri Jan 25 00:19:25 2019//
 /vswscanf.c/1.3/Mon Aug 31 02:53:57 2015//
 /vwprintf.c/1.4/Mon Aug 31 02:53:57 2015//
 /vwscanf.c/1.3/Mon Aug 31 02:53:57 2015//

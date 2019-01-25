@@ -146,7 +146,7 @@
 /if_iwm.c/1.234/Wed Jan 23 10:08:48 2019//
 /if_iwmreg.h/1.28/Wed Feb 28 14:39:35 2018//
 /if_iwmvar.h/1.37/Fri Dec  8 21:16:01 2017//
-/if_iwn.c/1.205/Sun Jan 13 22:57:37 2019//
+/if_iwn.c/1.206/Thu Jan 24 09:48:01 2019//
 /if_iwnreg.h/1.55/Thu Dec 14 14:21:11 2017//
 /if_iwnvar.h/1.34/Sun Feb 25 12:40:06 2018//
 /if_ix.c/1.152/Thu Jun 22 02:44:37 2017//
@@ -216,7 +216,7 @@
 /if_vtereg.h/1.2/Sat May 28 08:31:51 2011//
 /if_wb.c/1.69/Thu Jul 13 17:45:00 2017//
 /if_wbreg.h/1.9/Thu Oct 18 21:44:21 2012//
-/if_wi_pci.c/1.52/Tue Nov 24 17:11:39 2015//
+/if_wi_pci.c/1.53/Fri Jan 25 00:19:26 2019//
 /if_wpi.c/1.144/Sat Apr 28 16:05:56 2018//
 /if_wpireg.h/1.28/Tue Nov 26 20:33:17 2013//
 /if_wpivar.h/1.27/Sat Apr  8 02:57:25 2017//

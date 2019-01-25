@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.1 2019/01/23 13:11:00 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.3 2019/01/24 17:39:43 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -47,7 +47,15 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "asr_private.h"
+#include <assert.h>
+#include "libunbound/config.h"
+#include "libunbound/libunbound/unbound.h"
+#include "libunbound/unbound-event.h"
+#include "libunbound/sldns/rrdef.h"
+#include "libunbound/sldns/pkthdr.h"
+#include "libunbound/sldns/sbuffer.h"
+#include "libunbound/sldns/wire2str.h"
+
 #include "uw_log.h"
 #include "unwind.h"
 #include "frontend.h"
@@ -320,6 +328,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				    __func__);
 			event_set(&udp6ev.ev, udp6sock, EV_READ | EV_PERSIST,
 			    udp_receive, &udp6ev);
+			event_add(&udp6ev.ev, NULL);
 			break;
 		case IMSG_UDP4SOCK:
 			if ((udp4sock = imsg.fd) == -1)
@@ -328,6 +337,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				    __func__);
 			event_set(&udp4ev.ev, udp4sock, EV_READ | EV_PERSIST,
 			    udp_receive, &udp4ev);
+			event_add(&udp4ev.ev, NULL);
 			break;
 		case IMSG_ROUTESOCK:
 			if ((fd = imsg.fd) == -1)
@@ -432,6 +442,23 @@ frontend_dispatch_resolver(int fd, short event, void *bula)
 			send_answer(pq, imsg.data, imsg.hdr.len -
 			    IMSG_HEADER_SIZE);
 			break;
+		case IMSG_RESOLVER_DOWN:
+			log_debug("%s: IMSG_RESOLVER_DOWN", __func__);
+			if (udp4sock != -1) {
+				event_del(&udp4ev.ev);
+				close(udp4sock);
+				udp4sock = -1;
+			}
+			if (udp6sock != -1) {
+				event_del(&udp6ev.ev);
+				close(udp6sock);
+				udp6sock = -1;
+			}
+			break;
+		case IMSG_RESOLVER_UP:
+			log_debug("%s: IMSG_RESOLVER_UP", __func__);
+			frontend_imsg_compose_main(IMSG_OPEN_PORTS, 0, NULL, 0);
+			break;
 		case IMSG_CTL_RESOLVER_INFO:
 		case IMSG_CTL_RESOLVER_WHY_BOGUS:
 		case IMSG_CTL_RESOLVER_HISTOGRAM:
@@ -457,16 +484,6 @@ frontend_dispatch_resolver(int fd, short event, void *bula)
 void
 frontend_startup(void)
 {
-	if (!event_initialized(&udp4ev.ev) || !event_initialized(&udp6ev.ev))
-		fatalx("%s: did not receive a UDP4 or UDP6 socket fd from the "
-		    "main process", __func__);
-
-	if (event_initialized(&udp4ev.ev))
-		event_add(&udp4ev.ev, NULL);
-
-	if (event_initialized(&udp6ev.ev))
-		event_add(&udp6ev.ev, NULL);
-
 	if (!event_initialized(&ev_route))
 		fatalx("%s: did not receive a route socket from the main "
 		    "process", __func__);
@@ -483,41 +500,62 @@ udp_receive(int fd, short events, void *arg)
 	struct udp_ev		*udpev = (struct udp_ev *)arg;
 	struct pending_query	*pq;
 	struct query_imsg	*query_imsg;
-	struct asr_unpack	 p;
-	struct asr_dns_header	 h;
-	struct asr_dns_query	 q;
-	ssize_t			 len;
-	char			*str_from, buf[1024];
-
+	ssize_t			 len, rem_len, buf_len;
+	uint16_t		 qdcount, ancount, nscount, arcount, t, c;
+	uint8_t			*queryp;
+	char			*str_from, *str, buf[1024], *bufp;
 
 	if ((len = recvmsg(fd, &udpev->rcvmhdr, 0)) < 0) {
 		log_warn("recvmsg");
 		return;
 	}
 
+	bufp = buf;
+	buf_len = sizeof(buf);
+
 	str_from = ip_port((struct sockaddr *)&udpev->from);
 
-	_asr_unpack_init(&p, udpev->query, len);
-
-	if (_asr_unpack_header(&p, &h) == -1) {
-		log_warnx("bad query: %s, from: %s", strerror(p.err), str_from);
+	if (len < LDNS_HEADER_SIZE) {
+		log_warnx("bad query: too short, from: %s", str_from);
 		return;
 	}
 
-	if (h.qdcount != 1 && h.ancount != 0 && h.nscount != 0 &&
-	    h.arcount != 0) {
+	qdcount = LDNS_QDCOUNT(udpev->query);
+	ancount = LDNS_ANCOUNT(udpev->query);
+	nscount = LDNS_NSCOUNT(udpev->query);
+	arcount = LDNS_ARCOUNT(udpev->query);
+
+	if (qdcount != 1 && ancount != 0 && nscount != 0 && arcount != 0) {
 		log_warnx("invalid query from %s, qdcount: %d, ancount: %d "
-		    "nscount: %d, arcount: %d", str_from, h.qdcount, h.ancount,
-		    h.nscount, h.arcount);
+		    "nscount: %d, arcount: %d", str_from, qdcount, ancount,
+		    nscount, arcount);
 		return;
 	}
 
 	log_debug("query from %s", str_from);
-	log_debug(";; HEADER %s", print_header(&h, buf, sizeof(buf)));
-	log_debug(";; QUERY SECTION:");
-	if (_asr_unpack_query(&p, &q) == -1)
-		goto error;
-	log_debug("%s", print_query(&q, buf, sizeof(buf)));
+	if ((str = sldns_wire2str_pkt(udpev->query, len)) != NULL) {
+		log_debug("%s", str);
+		free(str);
+	}
+
+	queryp = udpev->query;
+	rem_len = len;
+
+	queryp += LDNS_HEADER_SIZE;
+	rem_len -= LDNS_HEADER_SIZE;
+
+	sldns_wire2str_dname_scan(&queryp, &rem_len, &bufp, &buf_len,
+	     udpev->query, len);
+
+	if (rem_len < 4) {
+		log_warnx("malformed query");
+		return;
+	}
+
+	t = sldns_read_uint16(queryp);
+	c = sldns_read_uint16(queryp+2);
+	queryp += 4;
+	rem_len -= 4;
 
 	if ((pq = malloc(sizeof(*pq))) == NULL) {
 		log_warn(NULL);
@@ -544,11 +582,18 @@ udp_receive(int fd, short events, void *arg)
 		return;
 	}
 
-	 /* XXX */
-	print_dname(q.q_dname, query_imsg->qname, sizeof(query_imsg->qname));
+	if (strlcpy(query_imsg->qname, buf, sizeof(query_imsg->qname)) >=
+	    sizeof(buf)) {
+		log_warnx("qname too long");
+		free(query_imsg);
+		/* XXX SERVFAIL */
+		free(pq->query);
+		free(pq);
+		return;
+	}
 	query_imsg->id = pq->imsg_id;
-	query_imsg->t = q.q_type;
-	query_imsg->c = q.q_class;
+	query_imsg->t = t;
+	query_imsg->c = c;
 
 	if (frontend_imsg_compose_resolver(IMSG_QUERY, 0, query_imsg,
 	    sizeof(*query_imsg)) != -1) {
@@ -560,61 +605,38 @@ udp_receive(int fd, short events, void *arg)
 		free(pq);
 	}
 
-error:
-	if (p.err)
-		log_debug(";; ERROR AT OFFSET %zu/%zu: %s", p.offset, p.len,
-		    strerror(p.err));
 }
 
 void
 send_answer(struct pending_query *pq, uint8_t *answer, ssize_t len)
 {
-	struct asr_pack		 p;
-	struct asr_unpack	 query_u, answer_u;
-	struct asr_dns_header	 query_h, answer_h;
-
 	log_debug("result for %s",
 	    ip_port((struct sockaddr*)&pq->from));
-
-	_asr_unpack_init(&query_u, pq->query, pq->len);
-	_asr_unpack_header(&query_u, &query_h); /* XXX */
 
 	if (answer == NULL) {
 		answer = pq->query;
 		len = pq->len;
-		_asr_unpack_init(&answer_u, answer, len);
-		_asr_unpack_header(&answer_u, &answer_h); /* XXX */
 
-		answer_h.flags = 0;
-		answer_h.flags |= RA_MASK;
-		answer_h.flags = (answer_h.flags & ~RCODE_MASK) | SERVFAIL;
+		LDNS_QR_SET(answer);
+		LDNS_RA_SET(answer);
+		LDNS_RCODE_SET(answer, LDNS_RCODE_SERVFAIL);
 	} else {
-		_asr_unpack_init(&answer_u, answer, len);
-		_asr_unpack_header(&answer_u, &answer_h); /* XXX */
-
 		if (pq->bogus) {
-			if(query_h.flags & CD_MASK) {
-				answer_h.id = query_h.id;
-				answer_h.flags |= CD_MASK;
+			if(LDNS_CD_WIRE(pq->query)) {
+				LDNS_ID_SET(answer, LDNS_ID_WIRE(pq->query));
+				LDNS_CD_SET(answer);
 			} else {
 				answer = pq->query;
 				len = pq->len;
 
-				_asr_unpack_init(&answer_u, answer, len);
-				_asr_unpack_header(&answer_u, &answer_h); /* XXX */
-
-				answer_h.flags = 0;
-				answer_h.flags |= RA_MASK;
-				answer_h.flags = (answer_h.flags & ~RCODE_MASK)
-				    | SERVFAIL;
+				LDNS_QR_SET(answer);
+				LDNS_RA_SET(answer);
+				LDNS_RCODE_SET(answer, LDNS_RCODE_SERVFAIL);
 			}
 		} else {
-			answer_h.id = query_h.id;
+			LDNS_ID_SET(answer, LDNS_ID_WIRE(pq->query));
 		}
 	}
-
-	_asr_pack_init(&p, answer, len);
-	_asr_pack_header(&p, &answer_h);
 
 	if(sendto(pq->fd, answer, len, 0, (struct sockaddr *)
 	   &pq->from, pq->from.ss_len) == -1)

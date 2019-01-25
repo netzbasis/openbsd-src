@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.1 2019/01/23 13:11:00 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.4 2019/01/24 17:39:43 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -28,7 +28,6 @@
 #include <netinet/in.h>
 #include <net/if.h>
 #include <arpa/inet.h>
-#include <arpa/nameser.h>
 
 #include <errno.h>
 #include <event.h>
@@ -43,17 +42,22 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <unbound.h>
-#include <unbound-event.h>
+#include <assert.h>
+#include "libunbound/config.h"
+#include "libunbound/libunbound/unbound.h"
+#include "libunbound/unbound-event.h"
+#include "libunbound/sldns/rrdef.h"
+#include "libunbound/sldns/pkthdr.h"
+#include "libunbound/sldns/sbuffer.h"
+#include "libunbound/sldns/wire2str.h"
 
 #include <openssl/crypto.h>
 
-#include "asr_private.h"
 #include "uw_log.h"
 #include "unwind.h"
 #include "resolver.h"
 
-#define	CHROOT_DIR	"/etc/unwind"
+#define	CHROOT		"/etc/unwind"
 #define	DB_DIR		"/trustanchor/"
 #define	ROOT_KEY	DB_DIR"root.key"
 
@@ -132,6 +136,8 @@ struct event_base	*ev_base;
 /* for openssl */
 pthread_mutex_t		*locks;
 
+enum unwind_resolver_state	 global_state = DEAD;
+
 void
 resolver_sig_handler(int sig, short event, void *arg)
 {
@@ -163,7 +169,7 @@ resolver(int debug, int verbose)
 	if ((pw = getpwnam(UNWIND_USER)) == NULL)
 		fatal("getpwnam");
 
-	if (chroot(CHROOT_DIR) == -1)
+	if (chroot(CHROOT) == -1)
 		fatal("chroot");
 	if (chdir("/") == -1)
 		fatal("chdir(\"/\")");
@@ -474,11 +480,10 @@ resolve_done(void *arg, int rcode, void *answer_packet, int answer_len,
 {
 	struct query_imsg	*query_imsg;
 	struct unwind_resolver	*res;
-	struct asr_unpack	 p;
-	struct asr_dns_header	 h;
 	struct timespec		 tp, elapsed;
 	int64_t			 ms;
 	size_t			 i;
+	char			*str;
 
 	clock_gettime(CLOCK_MONOTONIC, &tp);
 
@@ -504,18 +509,20 @@ resolve_done(void *arg, int rcode, void *answer_packet, int answer_len,
 
 	log_debug("%s: rcode: %d", __func__, rcode);
 
-	_asr_unpack_init(&p, answer_packet, answer_len);
-
-	if (_asr_unpack_header(&p, &h) == -1) {
-		log_warnx("bad packet: %s", strerror(p.err));
+	if (answer_len < LDNS_HEADER_SIZE) {
+		log_warnx("bad packet: too short");
 		goto servfail;
 	}
 
-	if (rcode == SERVFAIL && h.qdcount == 0 && h.id == 0) {
-		/* heuristic, authority is unreachable */
+	if (rcode == LDNS_RCODE_SERVFAIL) {
 		if (res->stop != 1)
 			check_resolver(res);
 		goto servfail;
+	}
+
+	if ((str = sldns_wire2str_pkt(answer_packet, answer_len)) != NULL) {
+		log_debug("%s", str);
+		free(str);
 	}
 
 	query_imsg->err = 0;
@@ -749,7 +756,8 @@ check_resolver(struct unwind_resolver *res)
 	data->check_res = check_res;
 	data->res = res;
 
-	if ((err = ub_resolve_event(check_res->ctx, ".", T_NS, C_IN, data,
+	if ((err = ub_resolve_event(check_res->ctx, ".",  LDNS_RR_TYPE_NS,
+	    LDNS_RR_CLASS_IN, data,
 	    check_resolver_done, NULL)) != 0) {
 		log_warn("%s: ub_resolve_event: err: %d, %s",
 		    __func__, err, ub_strerror(err));
@@ -764,25 +772,27 @@ check_resolver_done(void *arg, int rcode, void *answer_packet, int answer_len,
     int sec, char *why_bogus, int was_ratelimited)
 {
 	struct check_resolver_data	*data;
-	struct asr_unpack		 p;
-	struct asr_dns_header		 h;
+	struct unwind_resolver		*best;
+	char				*str;
 
 	data = (struct check_resolver_data *)arg;
 
 	log_debug("%s: rcode: %d", __func__, rcode);
 
-	_asr_unpack_init(&p, answer_packet, answer_len);
-
-	if (_asr_unpack_header(&p, &h) == -1) {
+	if (answer_len < LDNS_HEADER_SIZE) {
 		data->res->state = DEAD;
-		log_warnx("bad packet: %s", strerror(p.err));
+		log_warnx("bad packet: too short");
 		goto out;
 	}
 
-	if (rcode == SERVFAIL && h.qdcount == 0 && h.id == 0) {
-		/* heuristic, authority is unreachable */
+	if (rcode == LDNS_RCODE_SERVFAIL) {
 		data->res->state = DEAD;
 		goto out;
+	}
+
+	if ((str = sldns_wire2str_pkt(answer_packet, answer_len)) != NULL) {
+		log_debug("%s", str);
+		free(str);
 	}
 
 	if (sec == 2)
@@ -810,6 +820,18 @@ out:
 	resolver_unref(data->check_res);
 
 	free(data);
+
+	best = best_resolver();
+
+	if (best->state != global_state) {
+		if (best->state < RESOLVING && global_state > UNKNOWN)
+			resolver_imsg_compose_frontend(IMSG_RESOLVER_DOWN, 0,
+			    NULL, 0);
+		else if (best->state > UNKNOWN && global_state < RESOLVING)
+			resolver_imsg_compose_frontend(IMSG_RESOLVER_UP, 0,
+			    NULL, 0);
+		global_state = best->state;
+	}
 }
 
 /* for openssl */

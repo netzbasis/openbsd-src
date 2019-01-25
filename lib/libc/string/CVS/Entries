@@ -20,7 +20,7 @@
 /memmem.c/1.4/Mon Aug 31 02:53:57 2015//
 /memmove.3/1.9/Wed Jun  5 03:39:23 2013//
 /memmove.c/1.3/Wed Nov 29 05:13:57 2017//
-/memrchr.c/1.3/Mon Aug 31 02:53:57 2015//
+/memrchr.c/1.4/Fri Jan 25 00:19:25 2019//
 /memset.3/1.8/Wed Jun  5 03:39:23 2013//
 /memset.c/1.8/Wed Nov 29 05:13:57 2017//
 /stpcpy.3/1.6/Sun Feb 23 23:09:34 2014//
@@ -49,9 +49,9 @@
 /strerror.c/1.8/Mon Aug 31 02:53:57 2015//
 /strerror_l.c/1.1/Tue Sep  5 03:16:13 2017//
 /strerror_r.c/1.13/Wed Oct 19 16:26:16 2016//
-/strlcat.c/1.18/Sun Oct 16 17:37:39 2016//
-/strlcpy.3/1.26/Mon Sep 30 12:02:35 2013//
-/strlcpy.c/1.15/Sun Oct 16 17:37:39 2016//
+/strlcat.c/1.19/Fri Jan 25 00:19:25 2019//
+/strlcpy.3/1.27/Fri Jan 25 00:19:25 2019//
+/strlcpy.c/1.16/Fri Jan 25 00:19:25 2019//
 /strlen.3/1.13/Tue Dec  9 14:41:00 2014//
 /strlen.c/1.9/Mon Aug 31 02:53:57 2015//
 /strmode.3/1.17/Wed Jul  5 11:44:35 2017//
@@ -61,8 +61,8 @@
 /strncmp.c/1.9/Mon Aug 31 02:53:57 2015//
 /strncpy.3/1.2/Sat Apr 19 11:30:40 2014//
 /strncpy.c/1.8/Mon Aug 31 02:53:57 2015//
-/strndup.c/1.2/Mon Aug 31 02:53:57 2015//
-/strnlen.c/1.8/Sun Oct 16 17:37:39 2016//
+/strndup.c/1.3/Fri Jan 25 00:19:25 2019//
+/strnlen.c/1.9/Fri Jan 25 00:19:25 2019//
 /strpbrk.3/1.10/Wed Jun  5 03:39:23 2013//
 /strpbrk.c/1.6/Mon Aug 31 02:53:57 2015//
 /strrchr.3/1.12/Mon Oct  1 06:37:37 2018//
@@ -100,9 +100,9 @@
 /wcscspn.c/1.4/Sat Sep 12 16:23:14 2015//
 /wcsdup.3/1.4/Mon Jul 25 00:38:53 2011//
 /wcsdup.c/1.3/Sat Sep 12 16:23:14 2015//
-/wcslcat.c/1.6/Sat Sep 12 16:23:14 2015//
-/wcslcpy.3/1.6/Wed Sep 25 21:49:31 2013//
-/wcslcpy.c/1.7/Sat Sep 12 16:23:14 2015//
+/wcslcat.c/1.7/Fri Jan 25 00:19:25 2019//
+/wcslcpy.3/1.7/Fri Jan 25 00:19:25 2019//
+/wcslcpy.c/1.8/Fri Jan 25 00:19:25 2019//
 /wcslen.3/1.3/Wed Jun  5 03:39:23 2013//
 /wcslen.c/1.4/Sat Sep 12 16:23:14 2015//
 /wcsncat.c/1.4/Sat Sep 12 16:23:14 2015//
