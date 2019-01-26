@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.4 2019/01/24 17:39:43 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.9 2019/01/25 17:20:45 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -338,9 +338,11 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 			if ((err = ub_resolve_event(res->ctx,
 			    query_imsg->qname, query_imsg->t, query_imsg->c,
 			    (void *)query_imsg, resolve_done,
-			    &query_imsg->async_id)) != 0)
+			    &query_imsg->async_id)) != 0) {
 				log_warn("%s: ub_resolve_async: err: %d, %s",
 				    __func__, err, ub_strerror(err));
+				resolver_unref(res);
+			}
 			break;
 		case IMSG_FORWARDER:
 			/* make sure this is a string */
@@ -672,7 +674,7 @@ create_resolver(enum unwind_resolver_type type)
 		    != 0) {
 			ub_ctx_delete(res->ctx);
 			free(res);
-			log_warnx("error setting aggressive-nsec: yes: %s",
+			log_warnx("error setting use-syslog: yes: %s",
 			    ub_strerror(err));
 			return (NULL);
 		}
@@ -797,7 +799,8 @@ check_resolver_done(void *arg, int rcode, void *answer_packet, int answer_len,
 
 	if (sec == 2)
 		data->res->state = VALIDATING;
-	else if (rcode == 0) {
+	else if (rcode == LDNS_RCODE_NOERROR &&
+	    LDNS_RCODE_WIRE((uint8_t*)answer_packet) == LDNS_RCODE_NOERROR) {
 		log_debug("%s: why bogus: %s", __func__, why_bogus);
 		data->res->state = RESOLVING;
 		/* best effort */
@@ -1044,7 +1047,10 @@ send_detailed_resolver_info(struct unwind_resolver *res, pid_t pid)
 {
 	char	 buf[1024];
 
-	if (res->type == RESOLVING) {
+	if (res == NULL)
+		return;
+
+	if (res->state == RESOLVING) {
 		(void)strlcpy(buf, res->why_bogus, sizeof(buf));
 		resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_WHY_BOGUS,
 		    pid, buf, sizeof(buf));

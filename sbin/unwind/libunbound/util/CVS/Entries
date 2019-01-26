@@ -1,4 +1,4 @@
-/Makefile.inc/1.1/Wed Jan 23 13:05:27 2019//
+/Makefile.inc/1.2/Fri Jan 25 12:15:49 2019//
 /alloc.c/1.1/Wed Jan 23 13:05:27 2019//
 /alloc.h/1.1/Wed Jan 23 13:05:27 2019//
 /as112.c/1.1/Wed Jan 23 13:05:27 2019//
@@ -7,7 +7,6 @@
 /config_file.h/1.1/Wed Jan 23 13:05:27 2019//
 /configlexer.c/1.1/Wed Jan 23 13:05:27 2019//
 /configlexer.lex/1.1/Wed Jan 23 13:05:27 2019//
-/configparser.c/1.1/Wed Jan 23 13:05:27 2019//
 /configparser.h/1.1/Wed Jan 23 13:05:27 2019//
 /configparser.y/1.1/Wed Jan 23 13:05:27 2019//
 /configyyrename.h/1.1/Wed Jan 23 13:05:27 2019//
