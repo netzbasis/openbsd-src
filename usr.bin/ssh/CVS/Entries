@@ -132,8 +132,8 @@
 /sandbox-rlimit.c/1.4/Mon Sep 12 01:22:38 2016//
 /sc25519.c/1.3/Mon Dec  9 11:03:45 2013//
 /sc25519.h/1.3/Mon Dec  9 11:03:45 2013//
-/scp.1/1.84/Tue Jan 22 06:58:31 2019//
-/scp.c/1.201/Thu Jan 24 16:52:17 2019//
+/scp.1/1.85/Sat Jan 26 22:41:28 2019//
+/scp.c/1.202/Sat Jan 26 22:41:28 2019//
 /servconf.c/1.348/Thu Jan 24 02:34:52 2019//
 /servconf.h/1.139/Sat Jan 19 21:37:48 2019//
 /serverloop.c/1.213/Sat Jan 19 22:30:52 2019//
@@ -165,7 +165,7 @@
 /ssh-keygen.1/1.156/Wed Jan 23 04:51:02 2019//
 /ssh-keygen.c/1.326/Wed Jan 23 04:51:02 2019//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
-/ssh-keyscan.c/1.125/Mon Jan 21 10:38:54 2019//
+/ssh-keyscan.c/1.126/Sat Jan 26 22:35:01 2019//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
 /ssh-keysign.c/1.56/Fri Nov 23 05:08:07 2018//
 /ssh-pkcs11-client.c/1.15/Mon Jan 21 12:53:35 2019//
