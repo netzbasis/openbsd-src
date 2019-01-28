@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwind.c,v 1.3 2019/01/25 08:06:15 florian Exp $	*/
+/*	$OpenBSD: unwind.c,v 1.5 2019/01/27 12:40:54 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -22,16 +22,10 @@
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/syslog.h>
-#include <sys/uio.h>
 #include <sys/wait.h>
 
-#include <netinet/in.h>
 #include <net/if.h>
 #include <net/route.h>
-#include <netinet/in.h>
-#include <netinet/if_ether.h>
-#include <netinet6/in6_var.h>
-#include <netinet/icmp6.h>
 
 #include <err.h>
 #include <errno.h>
@@ -583,9 +577,18 @@ main_imsg_send_config(struct unwind_conf *xconf)
 	if (main_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
 		return (-1);
 
-	/* send static forarders to children */
+	/* send static forwarders to children */
 	SIMPLEQ_FOREACH(unwind_forwarder, &xconf->unwind_forwarder_list, entry) {
 		if (main_sendboth(IMSG_RECONF_FORWARDER, unwind_forwarder,
+		    sizeof(*unwind_forwarder)) == -1)
+			return (-1);
+
+	}
+
+	/* send static DoT forwarders to children */
+	SIMPLEQ_FOREACH(unwind_forwarder, &xconf->unwind_dot_forwarder_list,
+	    entry) {
+		if (main_sendboth(IMSG_RECONF_DOT_FORWARDER, unwind_forwarder,
 		    sizeof(*unwind_forwarder)) == -1)
 			return (-1);
 
@@ -619,6 +622,11 @@ merge_config(struct unwind_conf *conf, struct unwind_conf *xconf)
 		SIMPLEQ_REMOVE_HEAD(&conf->unwind_forwarder_list, entry);
 		free(unwind_forwarder);
 	}
+	while ((unwind_forwarder =
+	    SIMPLEQ_FIRST(&conf->unwind_dot_forwarder_list)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&conf->unwind_dot_forwarder_list, entry);
+		free(unwind_forwarder);
+	}
 
 	conf->unwind_options = xconf->unwind_options;
 
@@ -627,6 +635,12 @@ merge_config(struct unwind_conf *conf, struct unwind_conf *xconf)
 	    SIMPLEQ_FIRST(&xconf->unwind_forwarder_list)) != NULL) {
 		SIMPLEQ_REMOVE_HEAD(&xconf->unwind_forwarder_list, entry);
 		SIMPLEQ_INSERT_TAIL(&conf->unwind_forwarder_list,
+		    unwind_forwarder, entry);
+	}
+	while ((unwind_forwarder =
+	    SIMPLEQ_FIRST(&xconf->unwind_dot_forwarder_list)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&xconf->unwind_dot_forwarder_list, entry);
+		SIMPLEQ_INSERT_TAIL(&conf->unwind_dot_forwarder_list,
 		    unwind_forwarder, entry);
 	}
 
@@ -643,6 +657,7 @@ config_new_empty(void)
 		fatal(NULL);
 
 	SIMPLEQ_INIT(&xconf->unwind_forwarder_list);
+	SIMPLEQ_INIT(&xconf->unwind_dot_forwarder_list);
 
 	return (xconf);
 }

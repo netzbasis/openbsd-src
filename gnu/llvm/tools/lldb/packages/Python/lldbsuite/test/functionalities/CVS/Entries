@@ -29,6 +29,7 @@ D/frame-diagnose////
 D/frame-language////
 D/frame_var////
 D/frame_var_scope////
+D/gdb_remote_client////
 D/history////
 D/inferior-assert////
 D/inferior-changed////
@@ -37,6 +38,7 @@ D/inline-stepping////
 D/jitloader_gdb////
 D/launch_with_shellexpand////
 D/load_unload////
+D/load_using_paths////
 D/longjmp////
 D/memory////
 D/mtc////
@@ -62,6 +64,9 @@ D/return-value////
 D/set-data////
 D/signal////
 D/single-quote-in-filename-to-lldb////
+D/source-map////
+D/stats////
+D/stats_api////
 D/step-avoids-no-debug////
 D/stop-hook////
 D/target_command////
@@ -75,3 +80,4 @@ D/ubsan////
 D/unwind////
 D/value_md5_crash////
 D/watchpoint////
+D/wrong_commands////

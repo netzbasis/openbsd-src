@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.3 2019/01/24 17:39:43 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.5 2019/01/27 12:40:54 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -20,38 +20,29 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/syslog.h>
 #include <sys/uio.h>
 
+#include <netinet/in.h>
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/route.h>
 
-#include <arpa/nameser.h>
-#include <arpa/inet.h>
-
-#include <ctype.h>
 #include <errno.h>
 #include <event.h>
-#include <ifaddrs.h>
 #include <imsg.h>
 #include <netdb.h>
 #include <pwd.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
-#include <assert.h>
 #include "libunbound/config.h"
-#include "libunbound/libunbound/unbound.h"
-#include "libunbound/unbound-event.h"
-#include "libunbound/sldns/rrdef.h"
 #include "libunbound/sldns/pkthdr.h"
 #include "libunbound/sldns/sbuffer.h"
 #include "libunbound/sldns/wire2str.h"
@@ -307,6 +298,7 @@ frontend_dispatch_main(int fd, short event, void *bula)
 				fatal(NULL);
 			memcpy(nconf, imsg.data, sizeof(struct unwind_conf));
 			SIMPLEQ_INIT(&nconf->unwind_forwarder_list);
+			SIMPLEQ_INIT(&nconf->unwind_dot_forwarder_list);
 			break;
 		case IMSG_RECONF_FORWARDER:
 			if ((unwind_forwarder = malloc(sizeof(struct
@@ -315,6 +307,15 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			memcpy(unwind_forwarder, imsg.data, sizeof(struct
 			    unwind_forwarder));
 			SIMPLEQ_INSERT_TAIL(&nconf->unwind_forwarder_list,
+			    unwind_forwarder, entry);
+			break;
+		case IMSG_RECONF_DOT_FORWARDER:
+			if ((unwind_forwarder = malloc(sizeof(struct
+			    unwind_forwarder))) == NULL)
+				fatal(NULL);
+			memcpy(unwind_forwarder, imsg.data, sizeof(struct
+			    unwind_forwarder));
+			SIMPLEQ_INSERT_TAIL(&nconf->unwind_dot_forwarder_list,
 			    unwind_forwarder, entry);
 			break;
 		case IMSG_RECONF_END:

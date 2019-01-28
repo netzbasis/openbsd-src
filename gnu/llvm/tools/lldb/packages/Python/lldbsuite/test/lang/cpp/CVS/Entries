@@ -10,6 +10,7 @@ D/class_types////
 D/const_this////
 D/diamond////
 D/dynamic-value////
+D/dynamic-value-same-basename////
 D/enum_types////
 D/exceptions////
 D/extern_c////
@@ -17,6 +18,7 @@ D/frame-var-anon-unions////
 D/function-template-parameter-pack////
 D/global_operators////
 D/gmodules////
+D/gmodules-templates////
 D/incomplete-types////
 D/inlines////
 D/lambdas////
@@ -27,6 +29,7 @@ D/namespace////
 D/namespace_conflicts////
 D/namespace_definitions////
 D/nsimport////
+D/operator-overload////
 D/overloaded-functions////
 D/printf////
 D/rvalue-references////
@@ -38,8 +41,11 @@ D/stl////
 D/symbols////
 D/template////
 D/this////
+D/trivial_abi////
+D/type_lookup////
 D/unicode-literals////
 D/unique-types////
 D/unsigned_types////
 D/virtual////
+D/virtual-overload////
 D/wchar_t////

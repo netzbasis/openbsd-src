@@ -3,10 +3,10 @@
 /CmpDriver/1.1.1.1/Sat Sep  3 22:46:56 2016//
 /FindSpecRefs/1.1.1.1/Sat Sep  3 22:46:56 2016//
 /FuzzTest/1.1.1.1/Sat Sep  3 22:46:56 2016//
-/bash-autocomplete.sh/1.1.1.1/Wed Oct  4 20:27:43 2017/-ko/
+/bash-autocomplete.sh/1.1.1.2/Sun Jan 27 16:43:08 2019/-ko/
 /builtin-defines.c/1.1.1.1/Sat Sep  3 22:46:56 2016//
-/clangdiag.py/1.1.1.1/Fri Apr  6 14:26:35 2018/-ko/
-/find-unused-diagnostics.sh/1.1.1.1/Sat Sep  3 22:46:56 2016//
+/clangdiag.py/1.1.1.2/Sun Jan 27 16:43:08 2019/-ko/
+/find-unused-diagnostics.sh/1.1.1.2/Sun Jan 27 16:43:08 2019//
 /modfuzz.py/1.1.1.1/Sat Jan 14 19:55:49 2017/-ko/
 /token-delta.py/1.1.1.1/Sat Sep  3 22:46:56 2016//
 D/ABITest////
@@ -17,5 +17,6 @@ D/TestUtils////
 D/VtableTest////
 D/analyzer////
 D/check_cfc////
+D/hmaptool////
 D/perf-training////
 D/valgrind////
