@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.7 2019/01/27 16:59:42 patrick Exp $
 
 LIB=	LLVMTransformUtils
 NOPIC=
@@ -14,12 +14,13 @@ SRCS=	ASanStackFrameLayout.cpp \
 	BreakCriticalEdges.cpp \
 	BuildLibCalls.cpp \
 	BypassSlowDivision.cpp \
+	CallPromotionUtils.cpp \
 	CloneFunction.cpp \
 	CloneModule.cpp \
-	CmpInstAnalysis.cpp \
 	CodeExtractor.cpp \
 	CtorUtils.cpp \
 	DemoteRegToStack.cpp \
+	EntryExitInstrumenter.cpp \
 	EscapeEnumerator.cpp \
 	Evaluator.cpp \
 	FlattenCFG.cpp \
@@ -33,8 +34,10 @@ SRCS=	ASanStackFrameLayout.cpp \
 	LCSSA.cpp \
 	LibCallsShrinkWrap.cpp \
 	Local.cpp \
+	LoopRotationUtils.cpp \
 	LoopSimplify.cpp \
 	LoopUnroll.cpp \
+	LoopUnrollAndJam.cpp \
 	LoopUnrollPeel.cpp \
 	LoopUnrollRuntime.cpp \
 	LoopUtils.cpp \
@@ -42,21 +45,22 @@ SRCS=	ASanStackFrameLayout.cpp \
 	LowerInvoke.cpp \
 	LowerSwitch.cpp \
 	Mem2Reg.cpp \
-	MemorySSA.cpp \
 	MetaRenamer.cpp \
 	ModuleUtils.cpp \
 	NameAnonGlobals.cpp \
+	OrderedInstructions.cpp \
+	PredicateInfo.cpp \
 	PromoteMemoryToRegister.cpp \
 	SSAUpdater.cpp \
 	SanitizerStats.cpp \
 	SimplifyCFG.cpp \
 	SimplifyIndVar.cpp \
-	SimplifyInstructions.cpp \
 	SimplifyLibCalls.cpp \
 	SplitModule.cpp \
 	SymbolRewriter.cpp \
 	UnifyFunctionExitNodes.cpp \
 	Utils.cpp \
+	VNCoercion.cpp \
 	ValueMapper.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/Transforms/Utils

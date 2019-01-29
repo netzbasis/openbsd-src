@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.460 2017/06/22 16:02:42 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.467 2019/01/26 10:59:07 florian Exp $
 
 .include <bsd.own.mk>
 
@@ -30,24 +30,24 @@ kernels: ${ALL_KERNELS}
 	chmod a+r ${RELEASEDIR}/$K
 .endfor
 	cd ${.CURDIR}/../sys/arch/${MACHINE}/compile/ && \
-		tar -chzf ${DESTDIR}/usr/share/compile.tgz -s ',/obj/,/,' \
+		tar -chzf ${DESTDIR}/usr/share/relink/kernel.tgz -s ',/obj/,/,' \
 		GENERIC*/obj/*.o GENERIC*/obj/Makefile \
 		GENERIC*/obj/ld.script GENERIC*/obj/makegap.sh
-	chown root:wheel ${DESTDIR}/usr/share/compile.tgz
-	chmod 644 ${DESTDIR}/usr/share/compile.tgz
+	chown root:wheel ${DESTDIR}/usr/share/relink/kernel.tgz
+	chmod 644 ${DESTDIR}/usr/share/relink/kernel.tgz
 
 # -rw-r--r--
 BINOWN= root
 BINGRP= wheel
-MUTABLE=acme-client.conf changelist daily etc.${MACHINE}/disktab \
+MUTABLE=changelist daily etc.${MACHINE}/disktab \
 	etc.${MACHINE}/login.conf ftpusers gettytab group ksh.kshrc locate.rc \
-	mailer.conf moduli monthly netstart networks newsyslog.conf ntpd.conf \
+	mailer.conf moduli monthly netstart newsyslog.conf ntpd.conf \
 	pf.os protocols rc rc.conf rpc services shells syslog.conf weekly
 
 # -rw-r--r--
-EXAMPLES=chio.conf dhclient.conf dhcpd.conf exports \
+EXAMPLES=acme-client.conf chio.conf dhclient.conf dhcpd.conf exports \
 	httpd.conf ifstated.conf inetd.conf man.conf mixerctl.conf \
-	mrouted.conf ntpd.conf printcap rbootd.conf \
+	mrouted.conf ntpd.conf printcap rad.conf rbootd.conf \
 	remote sensorsd.conf wsconsctl.conf
 
 # -rw-------
@@ -61,10 +61,10 @@ RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dhcrelay6 dvmrpd \
 	eigrpd ftpd ftpproxy ftpproxy6 hostapd hotplugd httpd identd ifstated \
 	iked inetd isakmpd iscsid ldapd ldattach ldomd ldpd lockd \
 	lpd mopd mountd mrouted nfsd npppd nsd ntpd ospf6d ospfd \
-	pflogd portmap radiusd rarpd rbootd rebound relayd ripd route6d \
-	rtadvd sasyncd sensorsd slowcgi slaacd smtpd sndiod snmpd spamd \
+	pflogd portmap rad radiusd rarpd rbootd rebound relayd ripd route6d \
+	sasyncd sensorsd slowcgi slaacd smtpd sndiod snmpd spamd \
 	spamlogd sshd statd switchd syslogd tftpd tftpproxy unbound \
-	vmd watchdogd wsmoused xenodm ypbind ypldap ypserv
+	unwind vmd watchdogd wsmoused xenodm ypbind ypldap ypserv
 
 MISETS=	base${OSrev}.tgz comp${OSrev}.tgz man${OSrev}.tgz game${OSrev}.tgz
 
@@ -272,7 +272,7 @@ do-release:
 release-sets:
 	su ${BUILDUSER} -c 'exec ${MAKE} distribution'
 	su ${BUILDUSER} -c 'exec ${MAKE} kernels'
-	cp -p ${DESTDIR}/usr/share/compile.tgz /usr/share/compile.tgz
+	cp -p ${DESTDIR}/usr/share/relink/kernel.tgz /usr/share/relink/kernel.tgz
 	${MAKE} bootblocks
 	cd ${RELEASEDIR} && rm -f SHA256
 	cd ../distrib/sets && exec su ${BUILDUSER} -c 'exec sh maketars ${OSrev}'

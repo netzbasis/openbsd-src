@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.c,v 1.15 2017/08/11 21:24:19 mpi Exp $ */
+/*	$OpenBSD: if_umb.c,v 1.22 2019/01/14 13:35:41 feinerer Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -686,7 +686,7 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct umb_parameter mp;
 
 	if (usbd_is_dying(sc->sc_udev))
-		return EIO;
+		return ENXIO;
 
 	s = splnet();
 	switch (cmd) {
@@ -698,7 +698,7 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		    sizeof (sc->sc_info));
 		break;
 	case SIOCSUMBPARAM:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			break;
 		if ((error = copyin(ifr->ifr_data, &mp, sizeof (mp))) != 0)
 			break;
@@ -733,12 +733,6 @@ umb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 		ifp->if_mtu = ifr->ifr_mtu;
-		break;
-	case SIOCGIFMTU:
-		ifr->ifr_mtu = ifp->if_mtu;
-		break;
-	case SIOCGIFHARDMTU:
-		ifr->ifr_hardmtu = ifp->if_hardmtu;
 		break;
 	case SIOCSIFADDR:
 	case SIOCAIFADDR:
@@ -902,7 +896,7 @@ umb_watchdog(struct ifnet *ifp)
 
 	ifp->if_oerrors++;
 	printf("%s: watchdog timeout\n", DEVNAM(sc));
-	/* XXX FIXME: re-initialize device */
+	usbd_abort_pipe(sc->sc_tx_pipe);
 	return;
 }
 
@@ -911,13 +905,7 @@ umb_statechg_timeout(void *arg)
 {
 	struct umb_softc *sc = arg;
 
-	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
-		/*
-		 * Query the registration state until we're with the home
-		 * network again.
-		 */
-		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
-	} else
+	if (sc->sc_info.regstate != MBIM_REGSTATE_ROAMING || sc->sc_roaming)
 		printf("%s: state change timeout\n",DEVNAM(sc));
 	usb_add_task(sc->sc_udev, &sc->sc_umb_task);
 }
@@ -950,6 +938,15 @@ umb_state_task(void *arg)
 	int	 s;
 	int	 state;
 
+	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
+		/*
+		 * Query the registration state until we're with the home
+		 * network again.
+		 */
+		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
+		return;
+	}
+
 	s = splnet();
 	if (ifp->if_flags & IFF_UP)
 		umb_up(sc);
@@ -971,7 +968,6 @@ umb_state_task(void *arg)
 			 */
 			memset(sc->sc_info.ipv4dns, 0,
 			    sizeof (sc->sc_info.ipv4dns));
-			NET_LOCK();
 			if (in_ioctl(SIOCGIFADDR, (caddr_t)&ifr, ifp, 1) == 0 &&
 			    satosin(&ifr.ifr_addr)->sin_addr.s_addr !=
 			    INADDR_ANY) {
@@ -980,7 +976,6 @@ umb_state_task(void *arg)
 				    sizeof (ifra.ifra_addr));
 				in_ioctl(SIOCDIFADDR, (caddr_t)&ifra, ifp, 1);
 			}
-			NET_UNLOCK();
 		}
 		if_link_state_change(ifp);
 	}
@@ -1202,7 +1197,7 @@ umb_decode_response(struct umb_softc *sc, void *response, int len)
 		umb_command_done(sc, response, len);
 		break;
 	default:
-		DPRINTF("%s: discard messsage %s\n", DEVNAM(sc),
+		DPRINTF("%s: discard message %s\n", DEVNAM(sc),
 		    umb_request2str(type));
 		break;
 	}
@@ -1216,19 +1211,19 @@ umb_handle_indicate_status_msg(struct umb_softc *sc, void *data, int len)
 	uint32_t cid;
 
 	if (len < sizeof (*m)) {
-		DPRINTF("%s: discard short %s messsage\n", DEVNAM(sc),
+		DPRINTF("%s: discard short %s message\n", DEVNAM(sc),
 		    umb_request2str(letoh32(m->hdr.type)));
 		return;
 	}
 	if (memcmp(m->devid, umb_uuid_basic_connect, sizeof (m->devid))) {
-		DPRINTF("%s: discard %s messsage for other UUID '%s'\n",
+		DPRINTF("%s: discard %s message for other UUID '%s'\n",
 		    DEVNAM(sc), umb_request2str(letoh32(m->hdr.type)),
 		    umb_uuid2str(m->devid));
 		return;
 	}
 	infolen = letoh32(m->infolen);
 	if (len < sizeof (*m) + infolen) {
-		DPRINTF("%s: discard truncated %s messsage (want %d, got %d)\n",
+		DPRINTF("%s: discard truncated %s message (want %d, got %d)\n",
 		    DEVNAM(sc), umb_request2str(letoh32(m->hdr.type)),
 		    (int)sizeof (*m) + infolen, len);
 		return;
@@ -1667,9 +1662,7 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		sin->sin_len = sizeof (ifra.ifra_mask);
 		in_len2mask(&sin->sin_addr, ipv4elem.prefixlen);
 
-		NET_LOCK();
 		rv = in_ioctl(SIOCAIFADDR, (caddr_t)&ifra, ifp, 1);
-		NET_UNLOCK();
 		if (rv == 0) {
 			if (ifp->if_flags & IFF_DEBUG)
 				log(LOG_INFO, "%s: IPv4 addr %s, mask %s, "
@@ -1851,10 +1844,9 @@ umb_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 			if (status == USBD_STALLED)
 				usbd_clear_endpoint_stall_async(sc->sc_tx_pipe);
 		}
-	} else {
-		if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
-			umb_start(ifp);
 	}
+	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+		umb_start(ifp);
 
 	splx(s);
 }
@@ -2341,7 +2333,7 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 	int	 qmimsg = 0;
 
 	if (len < sizeof (*cmd)) {
-		DPRINTF("%s: discard short %s messsage\n", DEVNAM(sc),
+		DPRINTF("%s: discard short %s message\n", DEVNAM(sc),
 		    umb_request2str(letoh32(cmd->hdr.type)));
 		return;
 	}
@@ -2349,7 +2341,7 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 	if (memcmp(cmd->devid, umb_uuid_basic_connect, sizeof (cmd->devid))) {
 		if (memcmp(cmd->devid, umb_uuid_qmi_mbim,
 		    sizeof (cmd->devid))) {
-			DPRINTF("%s: discard %s messsage for other UUID '%s'\n",
+			DPRINTF("%s: discard %s message for other UUID '%s'\n",
 			    DEVNAM(sc), umb_request2str(letoh32(cmd->hdr.type)),
 			    umb_uuid2str(cmd->devid));
 			return;
@@ -2378,7 +2370,7 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 
 	infolen = letoh32(cmd->infolen);
 	if (len < sizeof (*cmd) + infolen) {
-		DPRINTF("%s: discard truncated %s messsage (want %d, got %d)\n",
+		DPRINTF("%s: discard truncated %s message (want %d, got %d)\n",
 		    DEVNAM(sc), umb_cid2str(cid),
 		    (int)sizeof (*cmd) + infolen, len);
 		return;

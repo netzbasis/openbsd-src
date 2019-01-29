@@ -1,4 +1,4 @@
-.\"	$OpenBSD: wprintf.3,v 1.4 2014/05/13 20:51:00 jmc Exp $
+.\"	$OpenBSD: wprintf.3,v 1.7 2019/01/16 12:55:49 schwarze Exp $
 .\"
 .\" Copyright (c) 1990, 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -33,7 +33,7 @@
 .\"
 .\"     @(#)printf.3	8.1 (Berkeley) 6/4/93
 .\"
-.Dd $Mdocdate: May 13 2014 $
+.Dd $Mdocdate: January 16 2019 $
 .Dt WPRINTF 3
 .Os
 .Sh NAME
@@ -44,18 +44,42 @@
 .In stdio.h
 .In wchar.h
 .Ft int
-.Fn fwprintf "FILE * restrict stream" "const wchar_t * restrict format" ...
+.Fo fwprintf
+.Fa "FILE * restrict stream"
+.Fa "const wchar_t * restrict format"
+.Fa ...
+.Fc
 .Ft int
-.Fn swprintf "wchar_t * restrict ws" "size_t n" "const wchar_t * restrict format" ...
+.Fo swprintf
+.Fa "wchar_t * restrict ws"
+.Fa "size_t n"
+.Fa "const wchar_t * restrict format"
+.Fa ...
+.Fc
 .Ft int
-.Fn wprintf "const wchar_t * restrict format" ...
+.Fo wprintf
+.Fa "const wchar_t * restrict format"
+.Fa ...
+.Fc
 .In stdarg.h
 .Ft int
-.Fn vfwprintf "FILE * restrict stream" "const wchar_t * restrict" "va_list ap"
+.Fo vfwprintf
+.Fa "FILE * restrict stream"
+.Fa "const wchar_t * restrict format"
+.Fa "va_list ap"
+.Fc
 .Ft int
-.Fn vswprintf "wchar_t * restrict ws" "size_t n" "const wchar_t *restrict format" "va_list ap"
+.Fo vswprintf
+.Fa "wchar_t * restrict ws"
+.Fa "size_t n"
+.Fa "const wchar_t * restrict format"
+.Fa "va_list ap"
+.Fc
 .Ft int
-.Fn vwprintf "const wchar_t * restrict format" "va_list ap"
+.Fo vwprintf
+.Fa "const wchar_t * restrict format"
+.Fa "va_list ap"
+.Fc
 .Sh DESCRIPTION
 The
 .Fn wprintf
@@ -201,17 +225,17 @@ A
 .Cm +
 overrides a space if both are used.
 .It Sq Cm '
-Decimal conversions
-.Cm ( d , u ,
+On
+.Ox ,
+this flag has no effect.
+On other systems, it may cause the insertion of
+.Xr locale 1 Ns -dependent
+thousands separator characters into the integral parts of arguments
+of the
+.Cm d , i , u , f ,
 or
-.Cm i )
-or the integral portion of a floating point conversion
-.Cm ( f
-or
-.Cm F )
-should be grouped and separated by thousands using
-the non-monetary separator returned by
-.Xr localeconv 3 .
+.Cm F
+conversions.
 .El
 .It
 An optional decimal digit string specifying a minimum field width.
@@ -554,10 +578,6 @@ is
 .Ql %% .
 .El
 .Pp
-The decimal point
-character is defined in the program's locale (category
-.Dv LC_NUMERIC ) .
-.Pp
 In no case does a non-existent or small field width cause truncation of
 a numeric field; if the result of a conversion is wider than the field
 width, the
@@ -581,3 +601,12 @@ and
 functions
 conform to
 .St -isoC-99 .
+.Sh CAVEATS
+On systems other than
+.Ox ,
+the
+.Dv LC_NUMERIC
+.Xr locale 1
+category can cause erratic output; see CAVEATS in
+.Xr setlocale 3
+for details.

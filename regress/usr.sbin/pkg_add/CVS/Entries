@@ -1,10 +1,14 @@
-/Makefile/1.53/Wed Jul 12 15:21:12 2017//
+/Makefile/1.61/Fri Dec 21 14:04:53 2018//
+/baduser1/1.1/Wed Jun  6 10:33:07 2018//
+/baduser2/1.1/Wed Jun  6 10:33:07 2018//
+/baduser3/1.1/Wed Jun  6 10:33:07 2018//
 /check-cfl/1.3/Fri Jan 31 10:28:18 2014//
 /check-name/1.11/Wed Jan 27 15:41:58 2010//
 /check-path/1.5/Sat May 28 13:44:20 2011//
 /check-sig/1.3/Wed Aug 27 18:45:57 2014//
 /empty/1.1/Fri Aug 18 13:14:34 2006//
 /extract_chunks/1.2/Sat Sep 20 09:35:54 2014//
+/injectadd/1.2/Mon Jun 18 14:59:15 2018//
 /list/1.1/Mon Nov 16 15:15:15 2009//
 /list.out/1.2/Thu Dec 31 11:32:09 2009//
 /list10.out/1.1/Wed Jul 13 11:57:10 2011//
@@ -20,5 +24,6 @@
 /minitar/1.1/Wed Jul 20 15:33:50 2005//
 /my/1.2/Thu Nov 20 11:42:50 2014//
 /mycreate/1.6/Fri Aug 17 23:49:59 2012//
-/signatures.ref/1.4/Sun Jan 19 09:33:53 2014//
-D
+/signatures.ref/1.5/Mon Sep 25 16:22:40 2017//
+D/newcups////
+D/oldcups////

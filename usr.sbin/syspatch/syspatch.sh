@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.124 2017/08/22 13:32:50 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.142 2019/01/21 23:50:36 ajacoutot Exp $
 #
 # Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -42,9 +42,10 @@ apply_patch()
 	echo "Installing patch ${_patch##${_OSrev}-}"
 	install -d ${_edir} ${_PDIR}/${_patch}
 
-	${_BSDMP} && _s="-s @usr/share/compile/GENERIC/.*@@g" ||
-		_s="-s @usr/share/compile/GENERIC.MP/.*@@g"
-	_files="$(tar -xvzphf ${_TMP}/syspatch${_patch}.tgz -C ${_edir} ${_s})"
+	${_BSDMP} && _s="-s @usr/share/relink/kernel/GENERIC/.*@@g" ||
+		_s="-s @usr/share/relink/kernel/GENERIC.MP/.*@@g"
+	_files="$(tar -xvzphf ${_TMP}/syspatch${_patch}.tgz -C ${_edir} \
+		${_s})" || { rm -r ${_PDIR}/${_patch}; return 1; }
 
 	checkfs ${_files}
 	create_rollback ${_patch} "${_files}"
@@ -64,11 +65,11 @@ apply_patch()
 	trap exit INT
 
 	echo ${_files} | grep -Eqv \
-		'(^|[[:blank:]]+)usr/share/compile/GENERI(C|C.MP)/[[:print:]]+([[:blank:]]+|$)' ||
+		'(^|[[:blank:]]+)usr/share/relink/kernel/GENERI(C|C.MP)/[[:print:]]+([[:blank:]]+|$)' ||
 		_KARL=true
 
-	${_upself} && sp_err "syspatch updated itself, run it again to install \
-missing patches" 2
+	(! ${_upself} || sp_err "${0##*/} updated itself, run it again to \
+install missing patches" 2)
 }
 
 # quick-and-dirty filesystem status and size checks:
@@ -136,13 +137,17 @@ fetch_and_verify()
 
 install_file()
 {
-	# XXX handle hard and symbolic links, dir->file, file->dir?
+	# XXX handle hard link, dir->file, file->dir?
 	local _dst=$2 _fgrp _fmode _fown _src=$1
 	[[ -f ${_src} && -f ${_dst} ]]
 
-	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
-
-	install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
+	if [[ -h ${_src} ]]; then
+		ln -sf $(readlink ${_src}) ${_dst}
+	else
+		eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
+		install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} \
+			${_dst}
+	fi
 }
 
 ls_installed()
@@ -155,16 +160,11 @@ ls_installed()
 
 ls_missing()
 {
-	local _c _f _cmd _l="$(ls_installed)" _p _r _sha=${_TMP}/SHA256
+	local _c _d _f _cmd _l="$(ls_installed)" _p _r _sha=${_TMP}/SHA256
 
-	# return inmediately if we cannot reach the mirror server
-	[[ -d ${_MIRROR#file://*} ]] ||
-		unpriv ftp -MVo /dev/null ${_MIRROR%syspatch/*} >/dev/null
-
-	# don't output anything on stdout to prevent corrupting the patch list;
-	# redirect stderr as well in case there's no patch available
+	# don't output anything on stdout to prevent corrupting the patch list
 	unpriv -f "${_sha}.sig" ftp -MVo "${_sha}.sig" "${_MIRROR}/SHA256.sig" \
-		>/dev/null 2>&1 || return 0 # empty directory
+		>/dev/null
 	unpriv -f "${_sha}" signify -Veq -x ${_sha}.sig -m ${_sha} -p \
 		/etc/signify/openbsd-${_OSrev}-syspatch.pub >/dev/null
 
@@ -187,7 +187,7 @@ rollback_patch()
 	local _edir _file _files _patch _ret=0
 
 	_patch="$(ls_installed | tail -1)"
-	[[ -n ${_patch} ]]
+	[[ -n ${_patch} ]] || return 0 # nothing to rollback
 
 	_edir=${_TMP}/${_patch}-rollback
 	_patch=${_OSrev}-${_patch}
@@ -211,8 +211,34 @@ rollback_patch()
 	trap exit INT
 
 	echo ${_files} | grep -Eqv \
-		'(^|[[:blank:]]+)usr/share/compile/GENERI(C|C.MP)/[[:print:]]+([[:blank:]]+|$)' ||
+		'(^|[[:blank:]]+)usr/share/relink/kernel/GENERI(C|C.MP)/[[:print:]]+([[:blank:]]+|$)' ||
 		_KARL=true
+}
+
+trap_handler()
+{
+	local _ret
+
+	set +e # we're trapped
+	rm -rf "${_TMP}"
+
+	# in case a patch added a new directory (install -D)
+	if [[ -n ${_PATCHES} ]]; then
+		mtree -qdef /etc/mtree/4.4BSD.dist -p / -U >/dev/null
+		[[ -f /var/sysmerge/xetc.tgz ]] &&
+			mtree -qdef /etc/mtree/BSD.x11.dist -p / -U >/dev/null
+	fi
+
+	if ${_KARL}; then
+		echo -n "Relinking to create unique kernel..."
+		if /usr/libexec/reorder_kernel; then
+			echo " done; reboot to load the new kernel"
+		else
+			_ret=$?; echo " failed!"; exit ${_ret}
+		fi
+	fi
+
+	${_PATCH_APPLIED} && echo "Errata can be reviewed under ${_PDIR}"
 }
 
 unpriv()
@@ -232,6 +258,8 @@ unpriv()
 
 [[ $@ == @(|-[[:alpha:]]) ]] || usage; [[ $@ == @(|-(c|R|r)) ]] &&
 	(($(id -u) != 0)) && sp_err "${0##*/}: need root privileges"
+[[ $@ == @(|-(R|r)) ]] && pgrep -qxf '/bin/ksh .*reorder_kernel' &&
+	sp_err "${0##*/}: cannot apply patches while reorder_kernel is running"
 
 # only run on release (not -current nor -stable)
 set -A _KERNV -- $(sysctl -n kern.version |
@@ -243,18 +271,19 @@ _OSrev=${_KERNV[0]%.*}${_KERNV[0]#*.}
 
 _MIRROR=$(while read _line; do _line=${_line%%#*}; [[ -n ${_line} ]] &&
 	print -r -- "${_line}"; done </etc/installurl | tail -1) 2>/dev/null
-[[ ${_MIRROR} == @(file|http|https)://*/*[!/] ]] ||
+[[ ${_MIRROR} == @(file|ftp|http|https)://* ]] ||
 	sp_err "${0##*/}: invalid URL configured in /etc/installurl"
 _MIRROR="${_MIRROR}/syspatch/${_KERNV[0]}/$(machine)"
 
 (($(sysctl -n hw.ncpufound) > 1)) && _BSDMP=true || _BSDMP=false
+_PATCH_APPLIED=false
 _PDIR="/var/syspatch"
 _TMP=$(mktemp -d -p ${TMPDIR:-/tmp} syspatch.XXXXXXXXXX)
 _KARL=false
 
 readonly _BSDMP _KERNV _MIRROR _OSrev _PDIR _TMP
 
-trap 'set +e; ${_KARL} && /usr/libexec/reorder_kernel; rm -rf "${_TMP}"' EXIT
+trap 'trap_handler' EXIT
 trap exit HUP INT TERM
 
 while getopts clRr arg; do
@@ -271,8 +300,6 @@ shift $((OPTIND - 1))
 
 # default action: apply all patches
 if ((OPTIND == 1)); then
-	# XXX remove for OPENBSD_6_4
-	rm -f /bsd.syspatch+([[:digit:]])
 	# remove non matching release /var/syspatch/ content
 	for _D in ${_PDIR}/{.[!.],}*; do
 		[[ -e ${_D} ]] || continue
@@ -282,11 +309,6 @@ if ((OPTIND == 1)); then
 	_PATCHES=$(ls_missing)
 	for _PATCH in ${_PATCHES}; do
 		apply_patch ${_OSrev}-${_PATCH}
+		_PATCH_APPLIED=true
 	done
-	# in case a patch added a new directory (install -D)
-	if [[ -n ${_PATCHES} ]]; then
-		mtree -qdef /etc/mtree/4.4BSD.dist -p / -U >/dev/null
-		[[ ! -f /var/sysmerge/xetc.tgz ]] ||
-			mtree -qdef /etc/mtree/BSD.x11.dist -p / -U >/dev/null
-	fi
 fi

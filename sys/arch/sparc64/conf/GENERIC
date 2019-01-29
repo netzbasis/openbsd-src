@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.306 2017/01/26 12:18:55 stsp Exp $
+#	$OpenBSD: GENERIC,v 1.309 2019/01/29 02:43:05 dlg Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -84,6 +84,7 @@ epic*	at pci?			# SMC EPIC/100 ethernet
 em*	at pci?			# Intel Pro/1000 ethernet
 #ixgb*	at pci?			# Intel Pro/10Gb ethernet
 ix*	at pci?			# Intel 82598EB 10Gb ethernet
+ixl*	at pci?			# Intel 700 Series Ethernet
 myx*	at pci?			# Myricom Myri-10G 10Gb ethernet
 oce*	at pci?			# Emulex OneConnect 10Gb ethernet
 bge*	at pci?			# Broadcom BCM570x (aka Tigon3)
@@ -175,7 +176,7 @@ usb*	at xhci?
 # USB devices
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
-ualea*	at uhub?		# Araneus Alea II TRNG
+urng*	at uhub?		# USB Random Number Generator
 uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
@@ -193,6 +194,8 @@ umct*	at uhub?		# MCT USB-RS232 serial adapter
 ucom*	at umct?
 uslcom*	at uhub?		# Silicon Laboratories CP210x serial
 ucom*	at uslcom?
+uscom*	at uhub?		# Simple USB serial adapters
+ucom*	at uscom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 uipaq*	at uhub?		# iPAQ serial adapter

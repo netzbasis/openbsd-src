@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio_mmio.c,v 1.2 2017/02/24 17:12:31 patrick Exp $	*/
+/*	$OpenBSD: virtio_mmio.c,v 1.5 2019/01/19 16:23:46 sf Exp $	*/
 /*	$NetBSD: virtio.c,v 1.3 2011/11/02 23:05:52 njoly Exp $	*/
 
 /*
@@ -74,9 +74,6 @@
  * XXX: needs to be reviewed/fixed. The non-device specific registers are
  * XXX: PCI-endian while the device specific registers are native endian.
  */
-
-#define virtio_set_status(sc, s) virtio_mmio_set_status(sc, s)
-#define virtio_device_reset(sc) virtio_set_status((sc), 0)
 
 int		virtio_mmio_match(struct device *, void *, void *);
 void		virtio_mmio_attach(struct device *, struct device *, void *);
@@ -254,7 +251,7 @@ virtio_mmio_attach(struct device *parent, struct device *self, void *aux)
 		goto fail_1;
 	}
 
-	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, vsc->sc_ipl,
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, vsc->sc_ipl,
 	    virtio_mmio_intr, sc, vsc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf("%s: couldn't establish interrupt\n",
@@ -286,7 +283,7 @@ virtio_mmio_detach(struct device *self, int flags)
 	}
 	KASSERT(vsc->sc_child == 0 || vsc->sc_child == VIRTIO_CHILD_ERROR);
 	KASSERT(vsc->sc_vqs == 0);
-	arm_intr_disestablish_fdt(sc->sc_ih);
+	fdt_intr_disestablish(sc->sc_ih);
 	sc->sc_ih = 0;
 	if (sc->sc_iosize)
 		bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_iosize);
@@ -311,8 +308,8 @@ virtio_mmio_negotiate_features(struct virtio_softc *vsc, uint32_t guest_features
 	 * indirect descriptors can be switched off by setting bit 1 in the
 	 * driver flags, see config(8)
 	 */
-	if (!(vsc->sc_dev.dv_cfdata->cf_flags & 1) &&
-	    !(vsc->sc_child->dv_cfdata->cf_flags & 1)) {
+	if (!(vsc->sc_dev.dv_cfdata->cf_flags & VIRTIO_CF_NO_INDIRECT) &&
+	    !(vsc->sc_child->dv_cfdata->cf_flags & VIRTIO_CF_NO_INDIRECT)) {
 		guest_features |= VIRTIO_F_RING_INDIRECT_DESC;
 	} else {
 		printf("RingIndirectDesc disabled by UKC\n");

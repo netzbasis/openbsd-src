@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.64 2017/08/11 19:37:58 tb Exp $	*/
+/*	$OpenBSD: history.c,v 1.81 2018/11/20 07:02:23 martijn Exp $	*/
 
 /*
  * command history
@@ -25,11 +25,9 @@
 
 #include "sh.h"
 
-#ifdef HISTORY
-
 static void	history_write(void);
 static FILE	*history_open(void);
-static int	history_load(Source *);
+static void	history_load(Source *);
 static void	history_close(void);
 
 static int	hist_execute(char *);
@@ -39,13 +37,18 @@ static char   **hist_get_oldest(void);
 static void	histbackup(void);
 
 static FILE	*histfh;
+static char   **histbase;	/* actual start of the history[] allocation */
 static char   **current;	/* current position in history[] */
 static char    *hname;		/* current name of history file */
 static int	hstarted;	/* set after hist_init() called */
+static int	ignoredups;	/* ditch duplicated history lines? */
+static int	ignorespace;	/* ditch lines starting with a space? */
 static Source	*hist_source;
 static uint32_t	line_co;
 
 static struct stat last_sb;
+
+static volatile sig_atomic_t	c_fc_depth;
 
 int
 c_fc(char **wp)
@@ -57,9 +60,8 @@ c_fc(char **wp)
 	int optc, ret;
 	char *first = NULL, *last = NULL;
 	char **hfirst, **hlast, **hp;
-	static int depth;
 
-	if (depth != 0) {
+	if (c_fc_depth != 0) {
 		bi_errorf("history function called recursively");
 		return 1;
 	}
@@ -145,9 +147,9 @@ c_fc(char **wp)
 		    hist_get_newest(false);
 		if (!hp)
 			return 1;
-		depth++;
+		c_fc_depth++;
 		ret = hist_replace(hp, pat, rep, gflag);
-		depth--;
+		c_fc_reset();
 		return ret;
 	}
 
@@ -267,11 +269,20 @@ c_fc(char **wp)
 		shf_close(shf);
 		*xp = '\0';
 		strip_nuls(Xstring(xs, xp), Xlength(xs, xp));
-		depth++;
+		c_fc_depth++;
 		ret = hist_execute(Xstring(xs, xp));
-		depth--;
+		c_fc_reset();
 		return ret;
 	}
+}
+
+/* Reset the c_fc depth counter.
+ * Made available for when an fc call is interrupted.
+ */
+void
+c_fc_reset(void)
+{
+	c_fc_depth = 0;
 }
 
 /* Save cmd in history, execute cmd (cmd gets trashed) */
@@ -434,6 +445,18 @@ histbackup(void)
 	}
 }
 
+static void
+histreset(void)
+{
+	char **hp;
+
+	for (hp = history; hp <= histptr; hp++)
+		afree(*hp, APERM);
+
+	histptr = history - 1;
+	hist_source->line = 0;
+}
+
 /*
  * Return the current position.
  */
@@ -501,6 +524,28 @@ findhistrel(const char *str)
 	return start + rec + 1;
 }
 
+void
+sethistcontrol(const char *str)
+{
+	char *spec, *tok, *state;
+
+	ignorespace = 0;
+	ignoredups = 0;
+
+	if (str == NULL)
+		return;
+
+	spec = str_save(str, ATEMP);
+	for (tok = strtok_r(spec, ":", &state); tok != NULL;
+	     tok = strtok_r(NULL, ":", &state)) {
+		if (strcmp(tok, "ignoredups") == 0)
+			ignoredups = 1;
+		else if (strcmp(tok, "ignorespace") == 0)
+			ignorespace = 1;
+	}
+	afree(spec, ATEMP);
+}
+
 /*
  *	set history
  *	this means reallocating the dataspace
@@ -508,19 +553,23 @@ findhistrel(const char *str)
 void
 sethistsize(int n)
 {
-	if (n > 0 && n != histsize) {
-		int cursize = histptr - history;
+	if (n > 0 && (uint32_t)n != histsize) {
+		int offset = histptr - history;
 
 		/* save most recent history */
-		if (n < cursize) {
-			memmove(history, histptr - n, n * sizeof(char *));
-			cursize = n;
+		if (offset > n - 1) {
+			char **hp;
+
+			offset = n - 1;
+			for (hp = history; hp < histptr - offset; hp++)
+				afree(*hp, APERM);
+			memmove(history, histptr - offset, n * sizeof(char *));
 		}
 
-		history = areallocarray(history, n, sizeof(char *), APERM);
-
 		histsize = n;
-		histptr = history + cursize;
+		histbase = areallocarray(histbase, n + 1, sizeof(char *), APERM);
+		history = histbase + 1;
+		histptr = history + offset;
 	}
 }
 
@@ -545,9 +594,7 @@ sethistfile(const char *name)
 	if (hname) {
 		afree(hname, APERM);
 		hname = NULL;
-		/* let's reset the history */
-		histptr = history - 1;
-		hist_source->line = 0;
+		histreset();
 	}
 
 	history_close();
@@ -560,9 +607,16 @@ sethistfile(const char *name)
 void
 init_histvec(void)
 {
-	if (history == NULL) {
+	if (histbase == NULL) {
 		histsize = HISTORYSIZE;
-		history = areallocarray(NULL, histsize, sizeof(char *), APERM);
+		/*
+		 * allocate one extra element so that histptr always
+		 * lies within array bounds
+		 */
+		histbase = areallocarray(NULL, histsize + 1, sizeof(char *),
+		    APERM);
+		*histbase = NULL;
+		history = histbase + 1;
 		histptr = history - 1;
 	}
 }
@@ -595,6 +649,22 @@ histsave(int lno, const char *cmd, int dowrite)
 {
 	char		*c, *cp;
 
+	if (ignorespace && cmd[0] == ' ')
+		return;
+
+	c = str_save(cmd, APERM);
+	if ((cp = strrchr(c, '\n')) != NULL)
+		*cp = '\0';
+
+	/*
+	 * XXX to properly check for duplicated lines we should first reload
+	 * the histfile if needed
+	 */
+	if (ignoredups && histptr >= history && strcmp(*histptr, c) == 0) {
+		afree(c, APERM);
+		return;
+	}
+
 	if (dowrite && histfh) {
 #ifndef SMALL
 		struct stat	sb;
@@ -604,18 +674,12 @@ histsave(int lno, const char *cmd, int dowrite)
 			if (timespeccmp(&sb.st_mtim, &last_sb.st_mtim, ==))
 				; /* file is unchanged */
 			else {
-				/* reset history */
-				histptr = history - 1;
-				hist_source->line = 0;
+				histreset();
 				history_load(hist_source);
 			}
 		}
 #endif
 	}
-
-	c = str_save(cmd, APERM);
-	if ((cp = strrchr(c, '\n')) != NULL)
-		*cp = '\0';
 
 	if (histptr < history + histsize - 1)
 		histptr++;
@@ -681,32 +745,45 @@ history_close(void)
 	}
 }
 
-static int
+static void
 history_load(Source *s)
 {
 	char		*p, encoded[LINE + 1], line[LINE + 1];
+	int		 toolongseen = 0;
 
 	rewind(histfh);
+	line_co = 1;
 
 	/* just read it all; will auto resize history upon next command */
-	for (line_co = 1; ; line_co++) {
-		p = fgets(encoded, sizeof(encoded), histfh);
-		if (p == NULL || feof(histfh) || ferror(histfh))
-			break;
+	while (fgets(encoded, sizeof(encoded), histfh)) {
 		if ((p = strchr(encoded, '\n')) == NULL) {
-			bi_errorf("history file is corrupt");
-			return 1;
+			/* discard overlong line */
+			do {
+				/* maybe a missing trailing newline? */
+				if (strlen(encoded) != sizeof(encoded) - 1) {
+					bi_errorf("history file is corrupt");
+					return;
+				}
+			} while (fgets(encoded, sizeof(encoded), histfh)
+			    && strchr(encoded, '\n') == NULL);
+
+			if (!toolongseen) {
+				toolongseen = 1;
+				bi_errorf("ignored history line(s) longer than"
+				    " %d bytes", LINE);
+			}
+
+			continue;
 		}
 		*p = '\0';
 		s->line = line_co;
 		s->cmd_offset = line_co;
 		strunvis(line, encoded);
 		histsave(line_co, line, 0);
+		line_co++;
 	}
 
 	history_write();
-
-	return 0;
 }
 
 #define HMAGIC1 0xab
@@ -724,10 +801,9 @@ hist_init(Source *s)
 
 	hist_source = s;
 
-	hname = str_val(global("HISTFILE"));
-	if (hname == NULL)
+	if (str_val(global("HISTFILE")) == null)
 		return;
-	hname = str_save(hname, APERM);
+	hname = str_save(str_val(global("HISTFILE")), APERM);
 	histfh = history_open();
 	if (histfh == NULL)
 		return;
@@ -746,8 +822,6 @@ hist_init(Source *s)
 		return;
 	}
 
-	rewind(histfh);
-
 	history_load(s);
 
 	history_lock(LOCK_UN);
@@ -756,8 +830,7 @@ hist_init(Source *s)
 static void
 history_write(void)
 {
-	char		*cmd, *encoded;
-	int		i;
+	char		**hp, *encoded;
 
 	/* see if file has grown over 25% */
 	if (line_co < histsize + (histsize / 4))
@@ -769,12 +842,8 @@ history_write(void)
 		bi_errorf("failed to rewrite history file - %s",
 		    strerror(errno));
 	}
-	for (i = 0; i < histsize; i++) {
-		cmd = history[i];
-		if (cmd == NULL)
-			break;
-
-		if (stravis(&encoded, cmd, VIS_SAFE | VIS_NL) != -1) {
+	for (hp = history; hp <= histptr; hp++) {
+		if (stravis(&encoded, *hp, VIS_SAFE | VIS_NL) != -1) {
 			if (fprintf(histfh, "%s\n", encoded) == -1) {
 				free(encoded);
 				return;
@@ -794,25 +863,3 @@ hist_finish(void)
 {
 	history_close();
 }
-
-#else /* HISTORY */
-
-/* No history to be compiled in: dummy routines to avoid lots more ifdefs */
-void
-init_histvec(void)
-{
-}
-void
-hist_init(Source *s)
-{
-}
-void
-hist_finish(void)
-{
-}
-void
-histsave(int lno, const char *cmd, int dowrite)
-{
-	errorf("history not enabled");
-}
-#endif /* HISTORY */

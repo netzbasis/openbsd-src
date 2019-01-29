@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci_machdep.c,v 1.81 2015/09/01 06:01:24 deraadt Exp $	*/
+/*	$OpenBSD: pci_machdep.c,v 1.85 2019/01/07 23:44:11 bluhm Exp $	*/
 /*	$NetBSD: pci_machdep.c,v 1.28 1997/06/06 23:29:17 thorpej Exp $	*/
 
 /*-
@@ -73,7 +73,6 @@
  * as defined section 3.6.4.1, `Generating Configuration Cycles'.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/systm.h>
@@ -191,6 +190,25 @@ struct bus_dma_tag pci_bus_dma_tag = {
 	_bus_dmamem_unmap,
 	_bus_dmamem_mmap,
 };
+
+void
+pci_mcfg_init(bus_space_tag_t iot, bus_addr_t addr, int segment,
+    int min_bus, int max_bus)
+{
+	if (segment == 0) {
+		pci_mcfgt = iot;
+		pci_mcfg_addr = addr;
+		pci_mcfg_min_bus = min_bus;
+		pci_mcfg_max_bus = max_bus;
+	}
+}
+
+pci_chipset_tag_t
+pci_lookup_segment(int segment)
+{
+	KASSERT(segment == 0);
+	return NULL;
+}
 
 void
 pci_attach_hook(struct device *parent, struct device *self,
@@ -897,7 +915,7 @@ pci_init_extents(void)
 		    NULL, 0, EX_NOWAIT | EX_FILLED);
 		if (pciio_ex == NULL)
 			return;
-		extent_free(pciio_ex, 0, 0x10000, M_NOWAIT);
+		extent_free(pciio_ex, 0, 0x10000, EX_NOWAIT);
 	}
 
 	if (pcimem_ex == NULL) {

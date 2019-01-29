@@ -45,13 +45,15 @@
 #include "tsig.h"
 #include "remote.h"
 #include "xfrd-disk.h"
+#ifdef USE_DNSTAP
+#include "dnstap/dnstap_collector.h"
+#endif
 
 /* The server handler... */
 struct nsd nsd;
 static char hostname[MAXHOSTNAMELEN];
 extern config_parser_state_type* cfg_parser;
-
-static void error(const char *format, ...) ATTR_FORMAT(printf, 1, 2);
+static void version(void) ATTR_NORETURN;
 
 /*
  * Print the help text.
@@ -115,56 +117,21 @@ version(void)
 	exit(0);
 }
 
-/*
- * Something went wrong, give error messages and exit.
- *
- */
-static void
-error(const char *format, ...)
-{
-	va_list args;
-	va_start(args, format);
-	log_vmsg(LOG_ERR, format, args);
-	va_end(args);
-	exit(1);
-}
-
-static void
-append_trailing_slash(const char** dirname, region_type* region)
-{
-	int l = strlen(*dirname);
-	if (l>0 && (*dirname)[l-1] != '/' && l < 0xffffff) {
-		char *dirname_slash = region_alloc(region, l+2);
-		memcpy(dirname_slash, *dirname, l+1);
-		strlcat(dirname_slash, "/", l+2);
-		/* old dirname is leaked, this is only used for chroot, once */
-		*dirname = dirname_slash;
-	}
-}
-
-static int
-file_inside_chroot(const char* fname, const char* chr)
-{
-	/* true if filename starts with chroot or is not absolute */
-	return ((fname && fname[0] && strncmp(fname, chr, strlen(chr)) == 0) ||
-		(fname && fname[0] != '/'));
-}
-
 void
 get_ip_port_frm_str(const char* arg, const char** hostname,
         const char** port)
 {
-        /* parse src[@port] option */
-        char* delim = NULL;
+	/* parse src[@port] option */
+	char* delim = NULL;
 	if (arg) {
 		delim = strchr(arg, '@');
 	}
 
-        if (delim) {
-                *delim = '\0';
-                *port = delim+1;
-        }
-        *hostname = arg;
+	if (delim) {
+		*delim = '\0';
+		*port = delim+1;
+	}
+	*hostname = arg;
 }
 
 /* append interface to interface array (names, udp, tcp) */
@@ -177,6 +144,9 @@ add_interface(char*** nodes, struct nsd* nsd, char* ip)
 		nsd->udp = xalloc_zero(sizeof(*nsd->udp));
 		nsd->tcp = xalloc_zero(sizeof(*nsd->udp));
 	} else {
+		region_remove_cleanup(nsd->region, free, *nodes);
+		region_remove_cleanup(nsd->region, free, nsd->udp);
+		region_remove_cleanup(nsd->region, free, nsd->tcp);
 		*nodes = xrealloc(*nodes, (nsd->ifs+1)*sizeof(*nodes));
 		nsd->udp = xrealloc(nsd->udp, (nsd->ifs+1)*sizeof(*nsd->udp));
 		nsd->tcp = xrealloc(nsd->tcp, (nsd->ifs+1)*sizeof(*nsd->udp));
@@ -184,6 +154,9 @@ add_interface(char*** nodes, struct nsd* nsd, char* ip)
 		memset(&nsd->udp[nsd->ifs], 0, sizeof(*nsd->udp));
 		memset(&nsd->tcp[nsd->ifs], 0, sizeof(*nsd->tcp));
 	}
+	region_add_cleanup(nsd->region, free, *nodes);
+	region_add_cleanup(nsd->region, free, nsd->udp);
+	region_add_cleanup(nsd->region, free, nsd->tcp);
 
 	/* add it */
 	(*nodes)[nsd->ifs] = ip;
@@ -579,6 +552,7 @@ main(int argc, char *argv[])
 		case 'v':
 			version();
 			/* version exits */
+			break;
 #ifndef NDEBUG
 		case 'F':
 			sscanf(optarg, "%x", &nsd_debug_facilities);
@@ -594,7 +568,7 @@ main(int argc, char *argv[])
 		}
 	}
 	argc -= optind;
-	argv += optind;
+	/* argv += optind; */
 
 	/* Commandline parse error */
 	if (argc != 0) {
@@ -762,6 +736,9 @@ main(int argc, char *argv[])
 		nsd.children[i].need_to_send_QUIT = 0;
 		nsd.children[i].need_to_exit = 0;
 		nsd.children[i].has_exited = 0;
+#ifdef  BIND8_STATS
+		nsd.children[i].query_count = 0;
+#endif
 	}
 
 	nsd.this_child = NULL;
@@ -798,6 +775,7 @@ main(int argc, char *argv[])
 	}
 
 	/* Set up the address info structures with real interface/port data */
+	assert(nodes);
 	for (i = 0; i < nsd.ifs; ++i) {
 		int r;
 		const char* node = NULL;
@@ -980,6 +958,7 @@ main(int argc, char *argv[])
 			break;
 		case -1:
 			error("fork() failed: %s", strerror(errno));
+			break;
 		default:
 			/* Parent is done */
 			server_close_all_sockets(nsd.udp, nsd.ifs);
@@ -1126,12 +1105,20 @@ main(int argc, char *argv[])
 	options_zonestatnames_create(nsd.options);
 	server_zonestat_alloc(&nsd);
 #endif /* USE_ZONE_STATS */
+#ifdef USE_DNSTAP
+	if(nsd.options->dnstap_enable) {
+		nsd.dt_collector = dt_collector_create(&nsd);
+		dt_collector_start(nsd.dt_collector, &nsd);
+	}
+#endif /* USE_DNSTAP */
 
 	if(nsd.server_kind == NSD_SERVER_MAIN) {
 		server_prepare_xfrd(&nsd);
 		/* xfrd forks this before reading database, so it does not get
 		 * the memory size of the database */
 		server_start_xfrd(&nsd, 0, 0);
+		/* close zonelistfile in non-xfrd processes */
+		zone_list_close(nsd.options);
 	}
 	if (server_prepare(&nsd) != 0) {
 		unlinkpid(nsd.pidfile);

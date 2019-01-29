@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.7 2019/01/27 16:59:42 patrick Exp $
 
 LIB=	LLVMSupport
 NOPIC=
@@ -10,40 +10,53 @@ CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/Support
 SRCS=	APFloat.cpp \
 	APInt.cpp \
 	APSInt.cpp \
+	ARMAttributeParser.cpp \
 	ARMBuildAttrs.cpp \
 	ARMWinEH.cpp \
 	Allocator.cpp \
+	BinaryStreamError.cpp \
+	BinaryStreamReader.cpp \
+	BinaryStreamRef.cpp \
+	BinaryStreamWriter.cpp \
 	BlockFrequency.cpp \
 	BranchProbability.cpp \
 	circular_raw_ostream.cpp \
 	COM.cpp \
+	CachePruning.cpp \
 	Chrono.cpp \
+	CodeGenCoverage.cpp \
 	CommandLine.cpp \
 	Compression.cpp \
 	ConvertUTF.cpp \
 	ConvertUTFWrapper.cpp \
 	CrashRecoveryContext.cpp \
+	DAGDeltaAlgorithm.cpp \
+	DJB.cpp \
 	DataExtractor.cpp \
 	Debug.cpp \
+	DebugCounter.cpp \
 	DeltaAlgorithm.cpp \
-	DAGDeltaAlgorithm.cpp \
-	Dwarf.cpp \
 	Error.cpp \
 	ErrorHandling.cpp \
 	FileUtilities.cpp \
 	FileOutputBuffer.cpp \
 	FoldingSet.cpp \
+	FormatVariadic.cpp \
 	FormattedStream.cpp \
 	GlobPattern.cpp \
 	GraphWriter.cpp \
 	Hashing.cpp \
+	InitLLVM.cpp \
 	IntEqClasses.cpp \
 	IntervalMap.cpp \
+	JSON.cpp \
 	JamCRC.cpp \
+	KnownBits.cpp \
 	LEB128.cpp \
 	LineIterator.cpp \
 	Locale.cpp \
 	LockFileManager.cpp \
+	LowLevelType.cpp \
 	ManagedStatic.cpp \
 	MathExtras.cpp \
 	MemoryBuffer.cpp \
@@ -96,13 +109,15 @@ SRCS=	APFloat.cpp \
 	Process.cpp \
 	Program.cpp \
 	RWMutex.cpp \
-	SearchForAddressOfSpecialSymbol.cpp \
 	Signals.cpp \
 	TargetRegistry.cpp \
 	ThreadLocal.cpp \
 	Threading.cpp \
+	UnicodeCaseFold.cpp \
 	Valgrind.cpp \
+	VersionTuple.cpp \
 	Watchdog.cpp \
+	WithColor.cpp \
 	xxhash.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/Support

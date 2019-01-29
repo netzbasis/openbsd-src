@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.120 2017/07/30 16:05:24 visa Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.126 2018/12/05 10:28:21 jsg Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -123,6 +123,7 @@
 #include <sys/device.h>
 #include <machine/intr.h>
 #include <sys/sched.h>
+#include <sys/srp.h>
 
 struct cpu_hwinfo {
 	uint32_t	c0prid;
@@ -188,7 +189,7 @@ struct cpu_info {
 	int		ci_want_resched;	/* need_resched() invoked */
 	cpuid_t		ci_cpuid;		/* our CPU ID */
 	uint32_t	ci_randseed;		/* per cpu random seed */
-	int		ci_ipl;			/* software IPL */
+	volatile int	ci_ipl;			/* software IPL */
 	uint32_t	ci_softpending;		/* pending soft interrupts */
 	int		ci_clock_started;
 	u_int32_t	ci_cpu_counter_last;	/* last compare value loaded */
@@ -205,7 +206,6 @@ struct cpu_info {
 	uint		ci_intrdepth;		/* interrupt depth */
 #ifdef MULTIPROCESSOR
 	u_long		ci_flags;		/* flags; see below */
-	struct intrhand	ci_ipiih;
 #endif
 	volatile int    ci_ddb;
 #define	CI_DDB_RUNNING		0
@@ -403,7 +403,11 @@ void	cp0_calibrate(struct cpu_info *);
 #define	MIPS_LOONGSON	0x42	/* STC LoongSon CPU		ISA III */
 #define	MIPS_VR5400	0x54	/* NEC Vr5400 CPU		ISA IV+ */
 #define	MIPS_LOONGSON2	0x63	/* STC LoongSon2/3 CPU		ISA III+ */
+#define	MIPS_CN63XX	0x90	/* Cavium OCTEON II CN6[23]xx	MIPS64R2 */
+#define	MIPS_CN68XX	0x91	/* Cavium OCTEON II CN68xx	MIPS64R2 */
+#define	MIPS_CN66XX	0x92	/* Cavium OCTEON II CN66xx	MIPS64R2 */
 #define	MIPS_CN61XX	0x93	/* Cavium OCTEON II CN6[01]xx	MIPS64R2 */
+#define	MIPS_CN78XX	0x95	/* Cavium OCTEON III CN7[678]xx	MIPS64R2 */
 #define	MIPS_CN71XX	0x96	/* Cavium OCTEON III CN7[01]xx	MIPS64R2 */
 #define	MIPS_CN73XX	0x97	/* Cavium OCTEON III CN7[23]xx	MIPS64R2 */
 
@@ -417,6 +421,12 @@ void	cp0_calibrate(struct cpu_info *);
 
 extern register_t protosr;
 extern int cpu_has_userlocal;
+
+#ifdef FPUEMUL
+#define	CPU_HAS_FPU(ci)	((ci)->ci_hw.c1prid != 0)
+#else
+#define	CPU_HAS_FPU(ci)	1
+#endif
 
 struct exec_package;
 struct user;
@@ -522,6 +532,18 @@ cp0_set_userlocal(void *value)
 	"	dmtc0	%0, $4, 2\n"
 	"	.set	pop\n"
 	: : "r" (value));
+}
+
+static inline u_long
+intr_disable(void)
+{
+	return disableintr();
+}
+
+static inline void
+intr_restore(u_long sr)
+{
+	setsr(sr);
 }
 
 /*

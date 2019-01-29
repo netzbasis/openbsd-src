@@ -12,15 +12,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "Lanai.h"
-#include "LanaiAluCode.h"
 #include "MCTargetDesc/LanaiBaseInfo.h"
 #include "MCTargetDesc/LanaiFixupKinds.h"
 #include "MCTargetDesc/LanaiMCExpr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -89,7 +88,7 @@ public:
 
 } // end anonymous namespace
 
-Lanai::Fixups FixupKind(const MCExpr *Expr) {
+static Lanai::Fixups FixupKind(const MCExpr *Expr) {
   if (isa<MCSymbolRefExpr>(Expr))
     return Lanai::FIXUP_LANAI_21;
   if (const LanaiMCExpr *McExpr = dyn_cast<LanaiMCExpr>(Expr)) {
@@ -134,8 +133,8 @@ unsigned LanaiMCCodeEmitter::getMachineOpValue(
 }
 
 // Helper function to adjust P and Q bits on load and store instructions.
-unsigned adjustPqBits(const MCInst &Inst, unsigned Value, unsigned PBitShift,
-                      unsigned QBitShift) {
+static unsigned adjustPqBits(const MCInst &Inst, unsigned Value,
+                             unsigned PBitShift, unsigned QBitShift) {
   const MCOperand AluOp = Inst.getOperand(3);
   unsigned AluCode = AluOp.getImm();
 

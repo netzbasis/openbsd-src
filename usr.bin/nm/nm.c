@@ -1,4 +1,4 @@
-/*	$OpenBSD: nm.c,v 1.51 2015/12/09 19:28:34 mmcc Exp $	*/
+/*	$OpenBSD: nm.c,v 1.53 2017/10/27 16:47:08 mpi Exp $	*/
 /*	$NetBSD: nm.c,v 1.7 1996/01/14 23:04:03 pk Exp $	*/
 
 /*
@@ -36,7 +36,7 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <a.out.h>
-#include <elf_abi.h>
+#include <elf.h>
 #include <ar.h>
 #include <ranlib.h>
 #include <unistd.h>
@@ -310,7 +310,7 @@ mmbr_name(struct ar_hdr *arh, char **name, int baselen, int *namelen, FILE *fp)
 		int len;
 
 		i = atol(&arh->ar_name[1]);
-		len = strlen(&nametab[i]);
+		len = strlen(&nametab[i]) + 1;
 		if (len > *namelen) {
 			p -= (long)*name;
 			if ((*name = realloc(*name, baselen+len)) == NULL)
@@ -319,7 +319,7 @@ mmbr_name(struct ar_hdr *arh, char **name, int baselen, int *namelen, FILE *fp)
 			p += (long)*name;
 		}
 		strlcpy(p, &nametab[i], len);
-		p += len;
+		p += len - 1;
 	} else
 #ifdef AR_EFMT1
 	/*

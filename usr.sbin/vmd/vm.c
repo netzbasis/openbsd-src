@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm.c,v 1.24 2017/08/20 21:15:32 pd Exp $	*/
+/*	$OpenBSD: vm.c,v 1.43 2018/12/10 21:30:33 claudio Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -31,6 +31,7 @@
 
 #include <machine/param.h>
 #include <machine/psl.h>
+#include <machine/pte.h>
 #include <machine/specialreg.h>
 #include <machine/vmmvar.h>
 
@@ -60,11 +61,13 @@
 #include "i8259.h"
 #include "ns8250.h"
 #include "mc146818.h"
+#include "fw_cfg.h"
 #include "atomicio.h"
 
 io_fn_t ioports_map[MAX_PORTS];
 
-int run_vm(int *, int *, struct vmop_create_params *, struct vcpu_reg_state *);
+int run_vm(int, int[][VM_MAX_BASE_PER_DISK], int *,
+    struct vmop_create_params *, struct vcpu_reg_state *);
 void vm_dispatch_vmm(int, short, void *);
 void *event_thread(void *);
 void *vcpu_run_loop(void *);
@@ -73,8 +76,10 @@ int vcpu_reset(uint32_t, uint32_t, struct vcpu_reg_state *);
 void create_memory_map(struct vm_create_params *);
 int alloc_guest_mem(struct vm_create_params *);
 int vmm_create_vm(struct vm_create_params *);
-void init_emulated_hw(struct vmop_create_params *, int *, int *);
-void restore_emulated_hw(struct vm_create_params *,int , int *, int *);
+void init_emulated_hw(struct vmop_create_params *, int,
+    int[][VM_MAX_BASE_PER_DISK], int *);
+void restore_emulated_hw(struct vm_create_params *, int, int *,
+    int[][VM_MAX_BASE_PER_DISK],int);
 void vcpu_exit_inout(struct vm_run_params *);
 uint8_t vcpu_exit_pci(struct vm_run_params *);
 int vcpu_pic_intr(uint32_t, uint32_t, uint8_t);
@@ -108,7 +113,7 @@ uint8_t vcpu_done[VMM_MAX_VCPUS_PER_VM];
 
 /*
  * Represents a standard register set for an OS to be booted
- * as a flat 32 bit address space, before paging is enabled.
+ * as a flat 64 bit address space.
  *
  * NOT set here are:
  *  RIP
@@ -121,7 +126,7 @@ uint8_t vcpu_done[VMM_MAX_VCPUS_PER_VM];
  * Note - CR3 and various bits in CR0 may be overridden by vmm(4) based on
  *        features of the CPU in use.
  */
-static const struct vcpu_reg_state vcpu_init_flat32 = {
+static const struct vcpu_reg_state vcpu_init_flat64 = {
 #ifdef __i386__
 	.vrs_gprs[VCPU_REGS_EFLAGS] = 0x2,
 	.vrs_gprs[VCPU_REGS_EIP] = 0x0,
@@ -133,6 +138,11 @@ static const struct vcpu_reg_state vcpu_init_flat32 = {
 #endif
 	.vrs_crs[VCPU_REGS_CR0] = CR0_CD | CR0_NW | CR0_ET | CR0_PE | CR0_PG,
 	.vrs_crs[VCPU_REGS_CR3] = PML4_PAGE,
+	.vrs_crs[VCPU_REGS_CR4] = CR4_PAE | CR4_PSE,
+	.vrs_crs[VCPU_REGS_PDPTE0] = 0ULL,
+	.vrs_crs[VCPU_REGS_PDPTE1] = 0ULL,
+	.vrs_crs[VCPU_REGS_PDPTE2] = 0ULL,
+	.vrs_crs[VCPU_REGS_PDPTE3] = 0ULL,
 	.vrs_sregs[VCPU_REGS_CS] = { 0x8, 0xFFFFFFFF, 0xC09F, 0x0},
 	.vrs_sregs[VCPU_REGS_DS] = { 0x10, 0xFFFFFFFF, 0xC093, 0x0},
 	.vrs_sregs[VCPU_REGS_ES] = { 0x10, 0xFFFFFFFF, 0xC093, 0x0},
@@ -143,7 +153,7 @@ static const struct vcpu_reg_state vcpu_init_flat32 = {
 	.vrs_idtr = { 0x0, 0xFFFF, 0x0, 0x0},
 	.vrs_sregs[VCPU_REGS_LDTR] = { 0x0, 0xFFFF, 0x0082, 0x0},
 	.vrs_sregs[VCPU_REGS_TR] = { 0x0, 0xFFFF, 0x008B, 0x0},
-	.vrs_msrs[VCPU_REGS_EFER] = 0ULL,
+	.vrs_msrs[VCPU_REGS_EFER] = EFER_LME | EFER_LMA,
 #ifndef __i386__
 	.vrs_msrs[VCPU_REGS_STAR] = 0ULL,
 	.vrs_msrs[VCPU_REGS_LSTAR] = 0ULL,
@@ -259,7 +269,8 @@ loadfile_bios(FILE *fp, struct vcpu_reg_state *vrs)
 int
 start_vm(struct vmd_vm *vm, int fd)
 {
-	struct vm_create_params	*vcp = &vm->vm_params.vmc_params;
+	struct vmop_create_params *vmc = &vm->vm_params;
+	struct vm_create_params	*vcp = &vmc->vmc_params;
 	struct vcpu_reg_state	 vrs;
 	int			 nicfds[VMM_MAX_NICS_PER_VM];
 	int			 ret;
@@ -312,19 +323,20 @@ start_vm(struct vmd_vm *vm, int fd)
 		vrs = vrp.vrwp_regs;
 	} else {
 		/*
-		 * Set up default "flat 32 bit" register state - RIP,
+		 * Set up default "flat 64 bit" register state - RIP,
 		 * RSP, and GDT info will be set in bootloader
 		 */
-		memcpy(&vrs, &vcpu_init_flat32, sizeof(vrs));
+		memcpy(&vrs, &vcpu_init_flat64, sizeof(vrs));
 
 		/* Find and open kernel image */
 		if ((fp = vmboot_open(vm->vm_kernel,
-		    vm->vm_disks[0], &vmboot)) == NULL)
+		    vm->vm_disks[0], vmc->vmc_diskbases[0],
+		    vmc->vmc_disktypes[0], &vmboot)) == NULL)
 			fatalx("failed to open kernel - exiting");
 
 		/* Load kernel image */
 		ret = loadfile_elf(fp, vcp, &vrs,
-		    vmboot.vbp_bootdev, vmboot.vbp_howto);
+		    vmboot.vbp_bootdev, vmboot.vbp_howto, vmc->vmc_bootdevice);
 
 		/*
 		 * Try BIOS as a fallback (only if it was provided as an image
@@ -353,7 +365,8 @@ start_vm(struct vmd_vm *vm, int fd)
 
 	if (vm->vm_received) {
 		restore_emulated_hw(vcp, vm->vm_receive_fd, nicfds,
-		    vm->vm_disks);
+		    vm->vm_disks, vm->vm_cdrom);
+		mc146818_start();
 		restore_mem(vm->vm_receive_fd, vcp);
 	}
 
@@ -361,7 +374,10 @@ start_vm(struct vmd_vm *vm, int fd)
 		fatal("setup vm pipe");
 
 	/* Execute the vcpu run loop(s) for this VM */
-	ret = run_vm(vm->vm_disks, nicfds, &vm->vm_params, &vrs);
+	ret = run_vm(vm->vm_cdrom, vm->vm_disks, nicfds, &vm->vm_params, &vrs);
+
+	/* Ensure that any in-flight data is written back */
+	virtio_shutdown(vm);
 
 	return (ret);
 }
@@ -494,6 +510,7 @@ send_vm(int fd, struct vm_create_params *vcp)
 	unsigned int		   flags = 0;
 	unsigned int		   i;
 	int			   ret = 0;
+	size_t			   sz;
 
 	if (dump_send_header(fd)) {
 		log_info("%s: failed to send vm dump header", __func__);
@@ -516,10 +533,11 @@ send_vm(int fd, struct vm_create_params *vcp)
 	vrp.vrwp_vm_id = vcp->vcp_id;
 	vrp.vrwp_mask = VM_RWREGS_ALL;
 
-	if ((ret = atomicio(vwrite, fd, vmc,
-	    sizeof(struct vmop_create_params)) !=
-	    sizeof(struct vmop_create_params)))
+	sz = atomicio(vwrite, fd, vmc,sizeof(struct vmop_create_params));
+	if (sz != sizeof(struct vmop_create_params)) {
+		ret = -1;
 		goto err;
+	}
 
 	for (i = 0; i < vcp->vcp_ncpus; i++) {
 		vrp.vrwp_vcpu_id = i;
@@ -527,10 +545,12 @@ send_vm(int fd, struct vm_create_params *vcp)
 			log_warn("%s: readregs failed", __func__);
 			goto err;
 		}
-		if ((ret = atomicio(vwrite, fd, &vrp,
-		    sizeof(struct vm_rwregs_params))) !=
-		    sizeof(struct vm_rwregs_params)) {
+
+		sz = atomicio(vwrite, fd, &vrp,
+		    sizeof(struct vm_rwregs_params));
+		if (sz != sizeof(struct vm_rwregs_params)) {
 			log_warn("%s: dumping registers failed", __func__);
+			ret = -1;
 			goto err;
 		}
 	}
@@ -542,6 +562,10 @@ send_vm(int fd, struct vm_create_params *vcp)
 	if ((ret = ns8250_dump(fd)))
 		goto err;
 	if ((ret = mc146818_dump(fd)))
+		goto err;
+	if ((ret = fw_cfg_dump(fd)))
+		goto err;
+	if ((ret = pci_dump(fd)))
 		goto err;
 	if ((ret = virtio_dump(fd)))
 		goto err;
@@ -632,7 +656,7 @@ dump_vmr(int fd, struct vm_mem_range *vmr)
 	char	buf[PAGE_SIZE];
 
 	while (rem > 0) {
-		if(read_mem(vmr->vmr_gpa + read, buf, PAGE_SIZE)) {
+		if (read_mem(vmr->vmr_gpa + read, buf, PAGE_SIZE)) {
 			log_warn("failed to read vmr");
 			return (-1);
 		}
@@ -884,8 +908,8 @@ vmm_create_vm(struct vm_create_params *vcp)
  * Initializes the userspace hardware emulation
  */
 void
-init_emulated_hw(struct vmop_create_params *vmc, int *child_disks,
-    int *child_taps)
+init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
+    int child_disks[][VM_MAX_BASE_PER_DISK], int *child_taps)
 {
 	struct vm_create_params *vcp = &vmc->vmc_params;
 	int i;
@@ -908,6 +932,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int *child_disks,
 	ioports_map[TIMER_BASE + TIMER_CNTR0] = vcpu_exit_i8253;
 	ioports_map[TIMER_BASE + TIMER_CNTR1] = vcpu_exit_i8253;
 	ioports_map[TIMER_BASE + TIMER_CNTR2] = vcpu_exit_i8253;
+	ioports_map[PCKBC_AUX] = vcpu_exit_i8253_misc;
 
 	/* Init mc146818 RTC */
 	mc146818_init(vcp->vcp_id, memlo, memhi);
@@ -920,11 +945,20 @@ init_emulated_hw(struct vmop_create_params *vmc, int *child_disks,
 	ioports_map[IO_ICU1 + 1] = vcpu_exit_i8259;
 	ioports_map[IO_ICU2] = vcpu_exit_i8259;
 	ioports_map[IO_ICU2 + 1] = vcpu_exit_i8259;
+	ioports_map[ELCR0] = vcpu_exit_elcr;
+	ioports_map[ELCR1] = vcpu_exit_elcr;
 
 	/* Init ns8250 UART */
 	ns8250_init(con_fd, vcp->vcp_id);
 	for (i = COM1_DATA; i <= COM1_SCR; i++)
 		ioports_map[i] = vcpu_exit_com;
+
+	/* Init QEMU fw_cfg interface */
+	fw_cfg_init(vmc);
+	ioports_map[FW_CFG_IO_SELECT] = vcpu_exit_fw_cfg;
+	ioports_map[FW_CFG_IO_DATA] = vcpu_exit_fw_cfg;
+	ioports_map[FW_CFG_IO_DMA_ADDR_HIGH] = vcpu_exit_fw_cfg_dma;
+	ioports_map[FW_CFG_IO_DMA_ADDR_LOW] = vcpu_exit_fw_cfg_dma;
 
 	/* Initialize PCI */
 	for (i = VMM_PCI_IO_BAR_BASE; i <= VMM_PCI_IO_BAR_END; i++)
@@ -938,7 +972,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int *child_disks,
 	pci_init();
 
 	/* Initialize virtio devices */
-	virtio_init(current_vm, child_disks, child_taps);
+	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
 }
 /*
  * restore_emulated_hw
@@ -947,7 +981,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int *child_disks,
  */
 void
 restore_emulated_hw(struct vm_create_params *vcp, int fd,
-    int *child_taps, int *child_disks)
+    int *child_taps, int child_disks[][VM_MAX_BASE_PER_DISK], int child_cdrom)
 {
 	/* struct vm_create_params *vcp = &vmc->vmc_params; */
 	int i;
@@ -977,6 +1011,13 @@ restore_emulated_hw(struct vm_create_params *vcp, int fd,
 	ioports_map[IO_RTC] = vcpu_exit_mc146818;
 	ioports_map[IO_RTC + 1] = vcpu_exit_mc146818;
 
+	/* Init QEMU fw_cfg interface */
+	fw_cfg_restore(fd);
+	ioports_map[FW_CFG_IO_SELECT] = vcpu_exit_fw_cfg;
+	ioports_map[FW_CFG_IO_DATA] = vcpu_exit_fw_cfg;
+	ioports_map[FW_CFG_IO_DMA_ADDR_HIGH] = vcpu_exit_fw_cfg_dma;
+	ioports_map[FW_CFG_IO_DMA_ADDR_LOW] = vcpu_exit_fw_cfg_dma;
+
 	/* Initialize PCI */
 	for (i = VMM_PCI_IO_BAR_BASE; i <= VMM_PCI_IO_BAR_END; i++)
 		ioports_map[i] = vcpu_exit_pci;
@@ -986,8 +1027,8 @@ restore_emulated_hw(struct vm_create_params *vcp, int fd,
 	ioports_map[PCI_MODE1_DATA_REG + 1] = vcpu_exit_pci;
 	ioports_map[PCI_MODE1_DATA_REG + 2] = vcpu_exit_pci;
 	ioports_map[PCI_MODE1_DATA_REG + 3] = vcpu_exit_pci;
-	pci_init();
-	virtio_restore(fd, current_vm, child_disks, child_taps);
+	pci_restore(fd);
+	virtio_restore(fd, current_vm, child_cdrom, child_disks, child_taps);
 }
 
 /*
@@ -996,6 +1037,7 @@ restore_emulated_hw(struct vm_create_params *vcp, int fd,
  * Runs the VM whose creation parameters are specified in vcp
  *
  * Parameters:
+ *  child_cdrom: previously-opened child ISO disk file descriptor
  *  child_disks: previously-opened child VM disk file file descriptors
  *  child_taps: previously-opened child tap file descriptors
  *  vmc: vmop_create_params struct containing the VM's desired creation
@@ -1007,7 +1049,8 @@ restore_emulated_hw(struct vm_create_params *vcp, int fd,
  *  !0 : the VM exited abnormally or failed to start
  */
 int
-run_vm(int *child_disks, int *child_taps, struct vmop_create_params *vmc,
+run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
+    int *child_taps, struct vmop_create_params *vmc,
     struct vcpu_reg_state *vrs)
 {
 	struct vm_create_params *vcp = &vmc->vmc_params;
@@ -1020,6 +1063,9 @@ run_vm(int *child_disks, int *child_taps, struct vmop_create_params *vmc,
 	void *exit_status;
 
 	if (vcp == NULL)
+		return (EINVAL);
+
+	if (child_cdrom == -1 && strlen(vcp->vcp_cdrom))
 		return (EINVAL);
 
 	if (child_disks == NULL && vcp->vcp_ndisks != 0)
@@ -1053,7 +1099,7 @@ run_vm(int *child_disks, int *child_taps, struct vmop_create_params *vmc,
 	    vcp->vcp_name);
 
 	if (!current_vm->vm_received)
-		init_emulated_hw(vmc, child_disks, child_taps);
+		init_emulated_hw(vmc, child_cdrom, child_disks, child_taps);
 
 	ret = pthread_mutex_init(&threadmutex, NULL);
 	if (ret) {
@@ -1084,14 +1130,14 @@ run_vm(int *child_disks, int *child_taps, struct vmop_create_params *vmc,
 		if (vrp[i] == NULL) {
 			log_warn("%s: memory allocation error - "
 			    "exiting.", __progname);
-			/* caller will exit, so skip free'ing */
+			/* caller will exit, so skip freeing */
 			return (ENOMEM);
 		}
-		vrp[i]->vrp_exit = malloc(sizeof(union vm_exit));
+		vrp[i]->vrp_exit = malloc(sizeof(struct vm_exit));
 		if (vrp[i]->vrp_exit == NULL) {
 			log_warn("%s: memory allocation error - "
 			    "exiting.", __progname);
-			/* caller will exit, so skip free'ing */
+			/* caller will exit, so skip freeing */
 			return (ENOMEM);
 		}
 		vrp[i]->vrp_vm_id = vcp->vcp_id;
@@ -1103,7 +1149,7 @@ run_vm(int *child_disks, int *child_taps, struct vmop_create_params *vmc,
 			return (EIO);
 		}
 
-		/* once more becuase reset_cpu changes regs */
+		/* once more because reset_cpu changes regs */
 		if (current_vm->vm_received) {
 			vregsp.vrwp_vm_id = vcp->vcp_id;
 			vregsp.vrwp_vcpu_id = i;
@@ -1297,11 +1343,13 @@ vcpu_run_loop(void *arg)
 		/* Still more pending? */
 		if (i8259_is_pending()) {
 			/* XXX can probably avoid ioctls here by providing intr in vrp */
-			if (vcpu_pic_intr(vrp->vrp_vm_id, vrp->vrp_vcpu_id, 1)) {
+			if (vcpu_pic_intr(vrp->vrp_vm_id,
+			    vrp->vrp_vcpu_id, 1)) {
 				fatal("can't set INTR");
 			}
 		} else {
-			if (vcpu_pic_intr(vrp->vrp_vm_id, vrp->vrp_vcpu_id, 0)) {
+			if (vcpu_pic_intr(vrp->vrp_vm_id,
+			    vrp->vrp_vcpu_id, 0)) {
 				fatal("can't clear INTR");
 			}
 		}
@@ -1371,7 +1419,7 @@ vcpu_pic_intr(uint32_t vm_id, uint32_t vcpu_id, uint8_t intr)
 uint8_t
 vcpu_exit_pci(struct vm_run_params *vrp)
 {
-	union vm_exit *vei = vrp->vrp_exit;
+	struct vm_exit *vei = vrp->vrp_exit;
 	uint8_t intr;
 
 	intr = 0xFF;
@@ -1410,7 +1458,7 @@ vcpu_exit_pci(struct vm_run_params *vrp)
 void
 vcpu_exit_inout(struct vm_run_params *vrp)
 {
-	union vm_exit *vei = vrp->vrp_exit;
+	struct vm_exit *vei = vrp->vrp_exit;
 	uint8_t intr = 0xFF;
 
 	if (ioports_map[vei->vei.vei_port] != NULL)
@@ -1561,6 +1609,29 @@ find_gpa_range(struct vm_create_params *vcp, paddr_t gpa, size_t len)
 	return (vmr);
 }
 
+void *
+vaddr_mem(paddr_t gpa, size_t len)
+{
+	struct vm_create_params *vcp = &current_vm->vm_params.vmc_params;
+	size_t i;
+	struct vm_mem_range *vmr;
+	paddr_t gpend = gpa + len;
+
+	/* Find the first vm_mem_range that contains gpa */
+	for (i = 0; i < vcp->vcp_nmemranges; i++) {
+		vmr = &vcp->vcp_memranges[i];
+		if (gpa < vmr->vmr_gpa)
+			continue;
+
+		if (gpend >= vmr->vmr_gpa + vmr->vmr_size)
+			continue;
+
+		return ((char *)vmr->vmr_va + (gpa - vmr->vmr_gpa));
+	}
+
+	return (NULL);
+}
+
 /*
  * write_mem
  *
@@ -1568,7 +1639,7 @@ find_gpa_range(struct vm_create_params *vcp, paddr_t gpa, size_t len)
  *
  * Parameters:
  *  dst: the destination paddr_t in the guest VM
- *  buf: data to copy
+ *  buf: data to copy (or NULL to zero the data)
  *  len: number of bytes to copy
  *
  * Return values:
@@ -1599,9 +1670,12 @@ write_mem(paddr_t dst, const void *buf, size_t len)
 			n = len;
 
 		to = (char *)vmr->vmr_va + off;
-		memcpy(to, from, n);
-
-		from += n;
+		if (buf == NULL)
+			memset(to, 0, n);
+		else {
+			memcpy(to, from, n);
+			from += n;
+		}
 		len -= n;
 		off = 0;
 		vmr++;
@@ -1658,6 +1732,43 @@ read_mem(paddr_t src, void *buf, size_t len)
 	return (0);
 }
 
+int
+iovec_mem(paddr_t src, size_t len, struct iovec *iov, int iovcnt)
+{
+	size_t n, off;
+	struct vm_mem_range *vmr;
+	int niov = 0;
+
+	vmr = find_gpa_range(&current_vm->vm_params.vmc_params, src, len);
+	if (vmr == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	off = src - vmr->vmr_gpa;
+	while (len > 0) {
+		if (niov == iovcnt) {
+			errno = ENOMEM;
+			return (-1);
+		}
+
+		n = vmr->vmr_size - off;
+		if (len < n)
+			n = len;
+
+		iov[niov].iov_base = (char *)vmr->vmr_va + off;
+		iov[niov].iov_len = n;
+
+		niov++;
+
+		len -= n;
+		off = 0;
+		vmr++;
+	}
+
+	return (niov);
+}
+
 /*
  * vcpu_assert_pic_irq
  *
@@ -1710,7 +1821,8 @@ vcpu_deassert_pic_irq(uint32_t vm_id, uint32_t vcpu_id, int irq)
 
 	if (!i8259_is_pending()) {
 		if (vcpu_pic_intr(vm_id, vcpu_id, 0))
-			fatalx("%s: can't deassert INTR", __func__);
+			fatalx("%s: can't deassert INTR for vm_id %d, "
+			    "vcpu_id %d", __func__, vm_id, vcpu_id);
 	}
 }
 
@@ -1789,7 +1901,7 @@ mutex_unlock(pthread_mutex_t *m)
  *  data: return data
  */
 void
-set_return_data(union vm_exit *vei, uint32_t data)
+set_return_data(struct vm_exit *vei, uint32_t data)
 {
 	switch (vei->vei.vei_size) {
 	case 1:
@@ -1809,16 +1921,17 @@ set_return_data(union vm_exit *vei, uint32_t data)
 /*
  * get_input_data
  *
- * Utility function for manipulating register data in vm exit info structs. This
- * function ensures that the data is copied from the vei->vei.vei_data field with
- * the proper size for the operation being performed.
+ * Utility function for manipulating register data in vm exit info
+ * structs. This function ensures that the data is copied from the
+ * vei->vei.vei_data field with the proper size for the operation being
+ * performed.
  *
  * Parameters:
  *  vei: exit information
  *  data: location to store the result
  */
 void
-get_input_data(union vm_exit *vei, uint32_t *data)
+get_input_data(struct vm_exit *vei, uint32_t *data)
 {
 	switch (vei->vei.vei_size) {
 	case 1:

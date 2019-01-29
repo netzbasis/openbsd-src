@@ -1,4 +1,4 @@
-/*	$OpenBSD: identcpu.c,v 1.87 2017/06/20 05:34:41 mlarkin Exp $	*/
+/*	$OpenBSD: identcpu.c,v 1.110 2018/10/20 20:40:54 kettenis Exp $	*/
 /*	$NetBSD: identcpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*
@@ -39,7 +39,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/sysctl.h>
-#include <sys/timetc.h>
 
 #include "vmm.h"
 
@@ -47,8 +46,9 @@
 #include <machine/cpufunc.h>
 
 void	replacesmap(void);
-u_int64_t cpu_tsc_freq(struct cpu_info *);
-u_int64_t cpu_tsc_freq_ctr(struct cpu_info *);
+void	replacemeltdown(void);
+uint64_t cpu_freq(struct cpu_info *);
+void	tsc_timecounter_init(struct cpu_info *, uint64_t);
 #if NVMM > 0
 void	cpu_check_vmm_cap(struct cpu_info *);
 #endif /* NVMM > 0 */
@@ -56,12 +56,6 @@ void	cpu_check_vmm_cap(struct cpu_info *);
 /* sysctl wants this. */
 char cpu_model[48];
 int cpuspeed;
-
-u_int tsc_get_timecount(struct timecounter *tc);
-
-struct timecounter tsc_timecounter = {
-	tsc_get_timecount, NULL, ~0u, 0, "tsc", -1000, NULL
-};
 
 int amd64_has_xcrypt;
 #ifdef CRYPTO
@@ -167,9 +161,15 @@ const struct {
 	{ CPUIDECX_SKINIT,	"SKINIT" },
 	{ CPUIDECX_LWP,		"WDT" },
 	{ CPUIDECX_FMA4,	"FMA4" },
+	{ CPUIDECX_TCE,		"TCE" },
 	{ CPUIDECX_NODEID,	"NODEID" },
 	{ CPUIDECX_TBM,		"TBM" },
 	{ CPUIDECX_TOPEXT,	"TOPEXT" },
+	{ CPUIDECX_CPCTR,	"CPCTR" },
+	{ CPUIDECX_DBKP,	"DBKP" },
+	{ CPUIDECX_PERFTSC,	"PERFTSC" },
+	{ CPUIDECX_PCTRL3,	"PCTRL3" },
+	{ CPUIDECX_MWAITX,	"MWAITX" },
 }, cpu_seff0_ebxfeatures[] = {
 	{ SEFF0EBX_FSGSBASE,	"FSGSBASE" },
 	{ SEFF0EBX_SGX,		"SGX" },
@@ -204,6 +204,14 @@ const struct {
 	{ SEFF0ECX_AVX512VBMI,	"AVX512VBMI" },
 	{ SEFF0ECX_UMIP,	"UMIP" },
 	{ SEFF0ECX_PKU,		"PKU" },
+}, cpu_seff0_edxfeatures[] = {
+	{ SEFF0EDX_AVX512_4FNNIW, "AVX512FNNIW" },
+	{ SEFF0EDX_AVX512_4FMAPS, "AVX512FMAPS" },
+	{ SEFF0EDX_IBRS,	"IBRS,IBPB" },
+	{ SEFF0EDX_STIBP,	"STIBP" },
+	{ SEFF0EDX_L1DF,	"L1DF" },
+	 /* SEFF0EDX_ARCH_CAP (not printed) */
+	{ SEFF0EDX_SSBD,	"SSBD" },
 }, cpu_tpm_eaxfeatures[] = {
 	{ TPM_SENSOR,		"SENSOR" },
 	{ TPM_ARAT,		"ARAT" },
@@ -211,6 +219,18 @@ const struct {
 	{ CPUIDEAX_VERID,	"PERF" },
 }, cpu_cpuid_apmi_edx[] = {
 	{ CPUIDEDX_ITSC,	"ITSC" },
+}, cpu_amdspec_ebxfeatures[] = {
+	{ CPUIDEBX_IBPB,	"IBPB" },
+	{ CPUIDEBX_IBRS,	"IBRS" },
+	{ CPUIDEBX_STIBP,	"STIBP" },
+	{ CPUIDEBX_SSBD,	"SSBD" },
+	{ CPUIDEBX_VIRT_SSBD,	"VIRTSSBD" },
+	{ CPUIDEBX_SSBD_NOTREQ,	"SSBDNR" },
+}, cpu_xsave_extfeatures[] = {
+	{ XSAVE_XSAVEOPT,	"XSAVEOPT" },
+	{ XSAVE_XSAVEC,		"XSAVEC" },
+	{ XSAVE_XGETBV1,	"XGETBV1" },
+	{ XSAVE_XSAVES,		"XSAVES" },
 };
 
 int
@@ -387,13 +407,12 @@ via_update_sensor(void *args)
 }
 #endif
 
-u_int64_t
-cpu_tsc_freq_ctr(struct cpu_info *ci)
+uint64_t
+cpu_freq_ctr(struct cpu_info *ci)
 {
-	u_int64_t count, last_count, msr;
+	uint64_t count, last_count, msr;
 
 	if ((ci->ci_flags & CPUF_CONST_TSC) == 0 ||
-	    (ci->ci_flags & CPUF_INVAR_TSC) ||
 	    (cpu_perf_eax & CPUIDEAX_VERID) <= 1 ||
 	    CPUIDEDX_NUM_FC(cpu_perf_edx) <= 1)
 		return (0);
@@ -425,46 +444,12 @@ cpu_tsc_freq_ctr(struct cpu_info *ci)
 	return ((count - last_count) * 10);
 }
 
-u_int64_t
-cpu_tsc_freq(struct cpu_info *ci)
+uint64_t
+cpu_freq(struct cpu_info *ci)
 {
-	u_int64_t last_count, count;
-	uint32_t eax, ebx, khz, dummy;
+	uint64_t last_count, count;
 
-	if (!strcmp(cpu_vendor, "GenuineIntel") &&
-	    cpuid_level >= 0x15) {
-		eax = ebx = khz = dummy = 0;
-		CPUID(0x15, eax, ebx, khz, dummy);
-		khz /= 1000;
-		if (khz == 0) {
-			switch (ci->ci_model) {
-			case 0x4e: /* Skylake mobile */
-			case 0x5e: /* Skylake desktop */
-			case 0x8e: /* Kabylake mobile */
-			case 0x9e: /* Kabylake desktop */
-				khz = 24000; /* 24.0 Mhz */
-				break;
-			case 0x55: /* Skylake X */
-				khz = 25000; /* 25.0 Mhz */
-				break;
-			case 0x5c: /* Atom Goldmont */
-				khz = 19200; /* 19.2 Mhz */
-				break;
-			}
-		}
-		if (ebx == 0 || eax == 0)
-			count = 0;
-		else if ((count = khz * ebx / eax) != 0) {
-			/*
-			 * Using the CPUID-derived frequency increases
-			 * the quality of the TSC time counter.
-			 */
-			tsc_timecounter.tc_quality = 2000;
-			return (count * 1000);
-		}
-	}
-
-	count = cpu_tsc_freq_ctr(ci);
+	count = cpu_freq_ctr(ci);
 	if (count != 0)
 		return (count);
 
@@ -475,15 +460,10 @@ cpu_tsc_freq(struct cpu_info *ci)
 	return ((count - last_count) * 10);
 }
 
-u_int
-tsc_get_timecount(struct timecounter *tc)
-{
-	return rdtsc();
-}
-
 void
 identifycpu(struct cpu_info *ci)
 {
+	uint64_t freq = 0;
 	u_int32_t dummy, val;
 	char mycpu_model[48];
 	int i;
@@ -568,20 +548,23 @@ identifycpu(struct cpu_info *ci)
 			ci->ci_flags |= CPUF_INVAR_TSC;
 	}
 
-	ci->ci_tsc_freq = cpu_tsc_freq(ci);
+	freq = cpu_freq(ci);
 
 	amd_cpu_cacheinfo(ci);
 
 	printf("%s: %s", ci->ci_dev->dv_xname, mycpu_model);
 
-	if (ci->ci_tsc_freq != 0)
-		printf(", %llu.%02llu MHz", (ci->ci_tsc_freq + 4999) / 1000000,
-		    ((ci->ci_tsc_freq + 4999) / 10000) % 100);
+	if (freq != 0)
+		printf(", %llu.%02llu MHz", (freq + 4999) / 1000000,
+		    ((freq + 4999) / 10000) % 100);
 
 	if (ci->ci_flags & CPUF_PRIMARY) {
-		cpuspeed = (ci->ci_tsc_freq + 4999) / 1000000;
+		cpuspeed = (freq + 4999) / 1000000;
 		cpu_cpuspeed = cpu_amd64speed;
 	}
+
+	printf(", %02x-%02x-%02x", ci->ci_family, ci->ci_model,
+	    ci->ci_signature & 0x0f);
 
 	printf("\n%s: ", ci->ci_dev->dv_xname);
 
@@ -607,7 +590,7 @@ identifycpu(struct cpu_info *ci)
 	if (cpuid_level >= 0x07) {
 		/* "Structured Extended Feature Flags" */
 		CPUID_LEAF(0x7, 0, dummy, ci->ci_feature_sefflags_ebx,
-		    ci->ci_feature_sefflags_ecx, dummy);
+		    ci->ci_feature_sefflags_ecx, ci->ci_feature_sefflags_edx);
 		for (i = 0; i < nitems(cpu_seff0_ebxfeatures); i++)
 			if (ci->ci_feature_sefflags_ebx &
 			    cpu_seff0_ebxfeatures[i].bit)
@@ -616,6 +599,10 @@ identifycpu(struct cpu_info *ci)
 			if (ci->ci_feature_sefflags_ecx &
 			    cpu_seff0_ecxfeatures[i].bit)
 				printf(",%s", cpu_seff0_ecxfeatures[i].str);
+		for (i = 0; i < nitems(cpu_seff0_edxfeatures); i++)
+			if (ci->ci_feature_sefflags_edx &
+			    cpu_seff0_edxfeatures[i].bit)
+				printf(",%s", cpu_seff0_edxfeatures[i].str);
 	}
 
 	if (!strcmp(cpu_vendor, "GenuineIntel") && cpuid_level >= 0x06) {
@@ -629,9 +616,56 @@ identifycpu(struct cpu_info *ci)
 			ci->ci_feature_tpmflags |= TPM_ARAT;
 	}
 
+	/* AMD speculation control features */
+	if (!strcmp(cpu_vendor, "AuthenticAMD")) {
+		if (ci->ci_pnfeatset >= 0x80000008) {
+			CPUID(0x80000008, dummy, ci->ci_feature_amdspec_ebx,
+			    dummy, dummy);
+			for (i = 0; i < nitems(cpu_amdspec_ebxfeatures); i++)
+				if (ci->ci_feature_amdspec_ebx &
+				    cpu_amdspec_ebxfeatures[i].bit)
+					printf(",%s",
+					    cpu_amdspec_ebxfeatures[i].str);
+		}
+	}
+
+	/* xsave subfeatures */
+	if (cpuid_level >= 0xd) {
+		CPUID_LEAF(0xd, 1, val, dummy, dummy, dummy);
+		for (i = 0; i < nitems(cpu_xsave_extfeatures); i++)
+			if (val & cpu_xsave_extfeatures[i].bit)
+				printf(",%s", cpu_xsave_extfeatures[i].str);
+	}
+
+	if (cpu_meltdown)
+		printf(",MELTDOWN");
+
 	printf("\n");
 
+	replacemeltdown();
 	x86_print_cacheinfo(ci);
+
+	/*
+	 * "Mitigation G-2" per AMD's Whitepaper "Software Techniques
+	 * for Managing Speculation on AMD Processors"
+	 *
+	 * By setting MSR C001_1029[1]=1, LFENCE becomes a dispatch
+	 * serializing instruction.
+	 *
+	 * This MSR is available on all AMD families >= 10h, except 11h
+	 * where LFENCE is always serializing.
+	 */
+	if (!strcmp(cpu_vendor, "AuthenticAMD")) {
+		if (ci->ci_family >= 0x10 && ci->ci_family != 0x11) {
+			uint64_t msr;
+
+			msr = rdmsr(MSR_DE_CFG);
+			if ((msr & DE_CFG_SERIALIZE_LFENCE) == 0) {
+				msr |= DE_CFG_SERIALIZE_LFENCE;
+				wrmsr(MSR_DE_CFG, msr);
+			}
+		}
+	}
 
 	/*
 	 * Attempt to disable Silicon Debug and lock the configuration
@@ -723,14 +757,7 @@ identifycpu(struct cpu_info *ci)
 #endif
 	}
 
-	if ((ci->ci_flags & CPUF_PRIMARY) &&
-	    (ci->ci_flags & CPUF_CONST_TSC) &&
-	    (ci->ci_flags & CPUF_INVAR_TSC)) {
-		printf("%s: TSC frequency %llu Hz\n",
-		    ci->ci_dev->dv_xname, ci->ci_tsc_freq);
-		tsc_timecounter.tc_frequency = ci->ci_tsc_freq;
-		tc_init(&tsc_timecounter);
-	}
+	tsc_timecounter_init(ci, freq);
 
 	cpu_topology(ci);
 #if NVMM > 0
@@ -798,17 +825,33 @@ cpu_topology(struct cpu_info *ci)
 		if (ci->ci_pnfeatset < 0x80000008)
 			goto no_topology;
 
-		CPUID(0x80000008, eax, ebx, ecx, edx);
-		core_bits = (ecx >> 12) & 0xf;
-		if (core_bits == 0)
-			goto no_topology;
-		/* So coreidsize 2 gives 3, 3 gives 7... */
-		core_mask = (1 << core_bits) - 1;
-		/* Core id is the least significant considering mask */
-		ci->ci_core_id = apicid & core_mask;
-		/* Pkg id is the upper remaining bits */
-		ci->ci_pkg_id = apicid & ~core_mask;
-		ci->ci_pkg_id >>= core_bits;
+		if (ci->ci_pnfeatset >= 0x8000001e) {
+			struct cpu_info *ci_other;
+			CPU_INFO_ITERATOR cii;
+
+			CPUID(0x8000001e, eax, ebx, ecx, edx);
+			ci->ci_core_id = ebx & 0xff;
+			ci->ci_pkg_id = ecx & 0xff;
+			ci->ci_smt_id = 0;
+			CPU_INFO_FOREACH(cii, ci_other) {
+				if (ci != ci_other &&
+				    ci_other->ci_core_id == ci->ci_core_id &&
+				    ci_other->ci_pkg_id == ci->ci_pkg_id)
+					ci->ci_smt_id++;
+			}
+		} else {
+			CPUID(0x80000008, eax, ebx, ecx, edx);
+			core_bits = (ecx >> 12) & 0xf;
+			if (core_bits == 0)
+				goto no_topology;
+			/* So coreidsize 2 gives 3, 3 gives 7... */
+			core_mask = (1 << core_bits) - 1;
+			/* Core id is the least significant considering mask */
+			ci->ci_core_id = apicid & core_mask;
+			/* Pkg id is the upper remaining bits */
+			ci->ci_pkg_id = apicid & ~core_mask;
+			ci->ci_pkg_id >>= core_bits;
+		}
 	} else if (strcmp(cpu_vendor, "GenuineIntel") == 0) {
 		/* We only support leaf 1/4 detection */
 		if (cpuid_level < 4)
@@ -970,6 +1013,28 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 		CPUID(CPUID_AMD_SVM_CAP, dummy, dummy, dummy, cap);
 		if (cap & AMD_SVM_NESTED_PAGING_CAP)
 			ci->ci_vmm_flags |= CI_VMM_RVI;
+	}
+
+	/*
+	 * Check "L1 flush on VM entry" (Intel L1TF vuln) semantics
+	 */
+	if (!strcmp(cpu_vendor, "GenuineIntel")) {
+		if (ci->ci_feature_sefflags_edx & SEFF0EDX_L1DF)
+			ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr = 1;
+		else
+			ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr = 0;
+
+		/*
+		 * Certain CPUs may have the vulnerability remedied in
+		 * hardware, check for that and override the setting
+		 * calculated above.
+		 */	
+		if (ci->ci_feature_sefflags_edx & SEFF0EDX_ARCH_CAP) {
+			msr = rdmsr(MSR_ARCH_CAPABILITIES);
+			if (msr & ARCH_CAPABILITIES_SKIP_L1DFL_VMENTRY)
+				ci->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr =
+				    VMX_SKIP_L1D_FLUSH;
+		}
 	}
 }
 #endif /* NVMM > 0 */

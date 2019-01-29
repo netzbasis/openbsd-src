@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.6 2014/11/20 05:51:20 jsg Exp $	*/
+/*	$OpenBSD: parse.y,v 1.9 2018/11/01 00:18:44 sashan Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis <kettenis@openbsd.org>
@@ -82,7 +82,7 @@ typedef struct {
 %}
 
 %token	DOMAIN
-%token	VCPU MEMORY VDISK VNET
+%token	VCPU MEMORY VDISK VNET VARIABLE
 %token	MAC_ADDR MTU
 %token	ERROR
 %token	<v.string>		STRING
@@ -104,6 +104,7 @@ domain		: DOMAIN STRING optnl '{' optnl	{
 			domain->name = $2;
 			SIMPLEQ_INIT(&domain->vdisk_list);
 			SIMPLEQ_INIT(&domain->vnet_list);
+			SIMPLEQ_INIT(&domain->var_list);
 		}
 		    domainopts_l '}' {
 			/* domain names need to be unique. */
@@ -141,6 +142,12 @@ domainopts	: VCPU NUMBER {
 			vnet->mac_addr = $2.mac_addr;
 			vnet->mtu = $2.mtu;
 			SIMPLEQ_INSERT_TAIL(&domain->vnet_list, vnet, entry);
+		}
+		| VARIABLE STRING '=' STRING {
+			struct var *var = xmalloc(sizeof(struct var));
+			var->name = $2;
+			var->str = $4;
+			SIMPLEQ_INSERT_TAIL(&domain->var_list, var, entry);
 		}
 		;
 
@@ -253,6 +260,7 @@ lookup(char *s)
 		{ "mac-addr",		MAC_ADDR},
 		{ "memory",		MEMORY},
 		{ "mtu",		MTU},
+		{ "variable",		VARIABLE},
 		{ "vcpu",		VCPU},
 		{ "vdisk",		VDISK},
 		{ "vnet",		VNET}
@@ -392,7 +400,8 @@ yylex(void)
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -489,7 +498,7 @@ pushfile(const char *name)
 	nfile = xzalloc(sizeof(struct file));
 	nfile->name = xstrdup(name);
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		warn("%s", nfile->name);
+		warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);

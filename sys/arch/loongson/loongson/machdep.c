@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.79 2017/07/12 06:26:33 natano Exp $ */
+/*	$OpenBSD: machdep.c,v 1.84 2019/01/19 20:45:06 tedu Exp $ */
 
 /*
  * Copyright (c) 2009, 2010, 2014 Miodrag Vallat.
@@ -47,7 +47,6 @@
 #include <sys/buf.h>
 #include <sys/reboot.h>
 #include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/msgbuf.h>
 #include <sys/tty.h>
 #include <sys/user.h>
@@ -117,6 +116,7 @@ int	ncpu = 1;		/* At least one CPU in the system. */
 int	nnodes = 1;		/* Number of NUMA nodes, only on 3A. */
 struct	user *proc0paddr;
 int	lid_action = 1;
+int	pwr_action = 1;
 
 #ifdef MULTIPROCESSOR
 uint64_t cpu_spinup_a0;
@@ -763,7 +763,8 @@ mips_init(uint64_t argc, uint64_t argv, uint64_t envp, uint64_t cv,
 #ifdef CPU_LOONGSON3
 	case 0x3a:
 		bootcpu_hwinfo.tlbsize =
-		    1 + ((cp0_get_config_1() >> 25) & 0x3f);
+		    1 + ((cp0_get_config_1() & CONFIG1_MMUSize1) >>
+		    CONFIG1_MMUSize1_SHIFT);
 		Loongson3_ConfigCache(curcpu());
 		Loongson3_SyncCache(curcpu());
 		break;
@@ -910,7 +911,8 @@ dobootopts(int argc)
 			continue;
 
 		/* device path */
-		if (*arg == '/' || strncmp(arg, "tftp://", 7) == 0) {
+		if (*arg == '/' || strncmp(arg, "bootduid=", 9) == 0 ||
+		    strncmp(arg, "tftp://", 7) == 0) {
 			if (*pmon_bootp == '\0') {
 				strlcpy(pmon_bootp, arg, sizeof pmon_bootp);
 				parsepmonbp();
@@ -1060,7 +1062,7 @@ boot(int howto)
 	boothowto = howto;
 	if ((howto & RB_NOSYNC) == 0 && waittime < 0) {
 		waittime = 0;
-		vfs_shutdown();
+		vfs_shutdown(curproc);
 
 		if ((howto & RB_TIMEBAD) == 0) {
 			resettodr();

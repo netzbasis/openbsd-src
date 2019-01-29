@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.134 2017/08/13 21:10:42 bcook Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.153 2019/01/23 18:39:28 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -119,6 +119,7 @@
 #include "ssl_locl.h"
 
 #include "bytestring.h"
+#include "ssl_sigalgs.h"
 #include "ssl_tlsext.h"
 
 static int tls_decrypt_ticket(SSL *s, const unsigned char *tick, int ticklen,
@@ -361,25 +362,25 @@ tls1_get_formatlist(SSL *s, int client_formats, const uint8_t **pformats,
 }
 
 /*
- * Return the appropriate curve list. If client_curves is non-zero, return
- * the client/session curves. Otherwise return the custom curve list if one
- * exists, or the default curves if a custom list has not been specified.
+ * Return the appropriate group list. If client_groups is non-zero, return
+ * the client/session groups. Otherwise return the custom group list if one
+ * exists, or the default groups if a custom list has not been specified.
  */
 void
-tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
-    size_t *pcurveslen)
+tls1_get_group_list(SSL *s, int client_groups, const uint16_t **pgroups,
+    size_t *pgroupslen)
 {
-	if (client_curves != 0) {
-		*pcurves = SSI(s)->tlsext_supportedgroups;
-		*pcurveslen = SSI(s)->tlsext_supportedgroups_length;
+	if (client_groups != 0) {
+		*pgroups = SSI(s)->tlsext_supportedgroups;
+		*pgroupslen = SSI(s)->tlsext_supportedgroups_length;
 		return;
 	}
 
-	*pcurves = s->internal->tlsext_supportedgroups;
-	*pcurveslen = s->internal->tlsext_supportedgroups_length;
-	if (*pcurves == NULL) {
-		*pcurves = eccurves_default;
-		*pcurveslen = sizeof(eccurves_default) / 2;
+	*pgroups = s->internal->tlsext_supportedgroups;
+	*pgroupslen = s->internal->tlsext_supportedgroups_length;
+	if (*pgroups == NULL) {
+		*pgroups = eccurves_default;
+		*pgroupslen = sizeof(eccurves_default) / 2;
 	}
 }
 
@@ -410,7 +411,7 @@ tls1_set_groups(uint16_t **out_group_ids, size_t *out_group_ids_len,
 }
 
 int
-tls1_set_groups_list(uint16_t **out_group_ids, size_t *out_group_ids_len,
+tls1_set_group_list(uint16_t **out_group_ids, size_t *out_group_ids_len,
     const char *groups)
 {
 	uint16_t *new_group_ids, *group_ids = NULL;
@@ -461,13 +462,13 @@ tls1_set_groups_list(uint16_t **out_group_ids, size_t *out_group_ids_len,
 int
 tls1_check_curve(SSL *s, const uint16_t curve_id)
 {
-	const uint16_t *curves;
-	size_t curveslen, i;
+	const uint16_t *groups;
+	size_t groupslen, i;
 
-	tls1_get_curvelist(s, 0, &curves, &curveslen);
+	tls1_get_group_list(s, 0, &groups, &groupslen);
 
-	for (i = 0; i < curveslen; i++) {
-		if (curves[i] == curve_id)
+	for (i = 0; i < groupslen; i++) {
+		if (groups[i] == curve_id)
 			return (1);
 	}
 	return (0);
@@ -486,8 +487,8 @@ tls1_get_shared_curve(SSL *s)
 
 	/* Return first preference shared curve. */
 	server_pref = (s->internal->options & SSL_OP_CIPHER_SERVER_PREFERENCE);
-	tls1_get_curvelist(s, (server_pref == 0), &pref, &preflen);
-	tls1_get_curvelist(s, (server_pref != 0), &supp, &supplen);
+	tls1_get_group_list(s, (server_pref == 0), &pref, &preflen);
+	tls1_get_group_list(s, (server_pref != 0), &supp, &supplen);
 
 	for (i = 0; i < preflen; i++) {
 		for (j = 0; j < supplen; j++) {
@@ -548,8 +549,8 @@ tls1_set_ec_id(uint16_t *curve_id, uint8_t *comp_id, EC_KEY *ec)
 static int
 tls1_check_ec_key(SSL *s, const uint16_t *curve_id, const uint8_t *comp_id)
 {
-	size_t curveslen, formatslen, i;
-	const uint16_t *curves;
+	size_t groupslen, formatslen, i;
+	const uint16_t *groups;
 	const uint8_t *formats;
 
 	/*
@@ -569,13 +570,13 @@ tls1_check_ec_key(SSL *s, const uint16_t *curve_id, const uint8_t *comp_id)
 	/*
 	 * Check curve list if present, otherwise everything is supported.
 	 */
-	tls1_get_curvelist(s, 1, &curves, &curveslen);
-	if (curve_id != NULL && curves != NULL) {
-		for (i = 0; i < curveslen; i++) {
-			if (curves[i] == *curve_id)
+	tls1_get_group_list(s, 1, &groups, &groupslen);
+	if (curve_id != NULL && groups != NULL) {
+		for (i = 0; i < groupslen; i++) {
+			if (groups[i] == *curve_id)
 				break;
 		}
-		if (i == curveslen)
+		if (i == groupslen)
 			return (0);
 	}
 
@@ -602,470 +603,6 @@ tls1_check_ec_server_key(SSL *s)
 		return (0);
 
 	return tls1_check_ec_key(s, &curve_id, &comp_id);
-}
-
-/* Check EC temporary key is compatible with client extensions. */
-int
-tls1_check_ec_tmp_key(SSL *s)
-{
-	EC_KEY *ec = s->cert->ecdh_tmp;
-	uint16_t curve_id;
-
-	/* Need a shared curve. */
-	if (tls1_get_shared_curve(s) != NID_undef)
-		return (1);
-
-	if (ec == NULL)
-		return (0);
-
-	if (tls1_set_ec_id(&curve_id, NULL, ec) != 1)
-		return (0);
-
-	return tls1_check_ec_key(s, &curve_id, NULL);
-}
-
-/*
- * List of supported signature algorithms and hashes. Should make this
- * customisable at some point, for now include everything we support.
- */
-
-static unsigned char tls12_sigalgs[] = {
-	TLSEXT_hash_sha512, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha512, TLSEXT_signature_ecdsa,
-#ifndef OPENSSL_NO_GOST
-	TLSEXT_hash_streebog_512, TLSEXT_signature_gostr12_512,
-#endif
-
-	TLSEXT_hash_sha384, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha384, TLSEXT_signature_ecdsa,
-
-	TLSEXT_hash_sha256, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha256, TLSEXT_signature_ecdsa,
-
-#ifndef OPENSSL_NO_GOST
-	TLSEXT_hash_streebog_256, TLSEXT_signature_gostr12_256,
-	TLSEXT_hash_gost94, TLSEXT_signature_gostr01,
-#endif
-
-	TLSEXT_hash_sha224, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha224, TLSEXT_signature_ecdsa,
-
-	TLSEXT_hash_sha1, TLSEXT_signature_rsa,
-	TLSEXT_hash_sha1, TLSEXT_signature_ecdsa,
-};
-
-void
-tls12_get_req_sig_algs(SSL *s, unsigned char **sigalgs, size_t *sigalgs_len)
-{
-	*sigalgs = tls12_sigalgs;
-	*sigalgs_len = sizeof(tls12_sigalgs);
-}
-
-unsigned char *
-ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
-{
-	int extdatalen = 0;
-	unsigned char *ret = p;
-	size_t len;
-	CBB cbb;
-
-	ret += 2;
-	if (ret >= limit)
-		return NULL; /* this really never occurs, but ... */
-
-	if (!CBB_init_fixed(&cbb, ret, limit - ret))
-		return NULL;
-	if (!tlsext_clienthello_build(s, &cbb)) {
-		CBB_cleanup(&cbb);
-		return NULL;
-	}
-	if (!CBB_finish(&cbb, NULL, &len)) {
-		CBB_cleanup(&cbb);
-		return NULL;
-	}
-	if (len > (limit - ret))
-		return NULL;
-	ret += len;
-
-	if (s->internal->alpn_client_proto_list != NULL &&
-	    S3I(s)->tmp.finish_md_len == 0) {
-		if ((size_t)(limit - ret) <
-		    6 + s->internal->alpn_client_proto_list_len)
-			return (NULL);
-		s2n(TLSEXT_TYPE_application_layer_protocol_negotiation, ret);
-		s2n(2 + s->internal->alpn_client_proto_list_len, ret);
-		s2n(s->internal->alpn_client_proto_list_len, ret);
-		memcpy(ret, s->internal->alpn_client_proto_list,
-		    s->internal->alpn_client_proto_list_len);
-		ret += s->internal->alpn_client_proto_list_len;
-	}
-
-#ifndef OPENSSL_NO_SRTP
-	if (SSL_IS_DTLS(s) && SSL_get_srtp_profiles(s)) {
-		int el;
-
-		ssl_add_clienthello_use_srtp_ext(s, 0, &el, 0);
-
-		if ((size_t)(limit - ret) < 4 + el)
-			return NULL;
-
-		s2n(TLSEXT_TYPE_use_srtp, ret);
-		s2n(el, ret);
-
-		if (ssl_add_clienthello_use_srtp_ext(s, ret, &el, el)) {
-			SSLerror(s, ERR_R_INTERNAL_ERROR);
-			return NULL;
-		}
-		ret += el;
-	}
-#endif
-
-	if ((extdatalen = ret - p - 2) == 0)
-		return p;
-
-	s2n(extdatalen, p);
-	return ret;
-}
-
-unsigned char *
-ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
-{
-	int extdatalen = 0;
-	unsigned char *ret = p;
-	size_t len;
-	CBB cbb;
-
-	ret += 2;
-	if (ret >= limit)
-		return NULL; /* this really never occurs, but ... */
-
-	if (!CBB_init_fixed(&cbb, ret, limit - ret))
-		return NULL;
-	if (!tlsext_serverhello_build(s, &cbb)) {
-		CBB_cleanup(&cbb);
-		return NULL;
-	}
-	if (!CBB_finish(&cbb, NULL, &len)) {
-		CBB_cleanup(&cbb);
-		return NULL;
-	}
-	if (len > (limit - ret))
-		return NULL;
-	ret += len;
-
-	/*
-	 * Currently the server should not respond with a SupportedCurves
-	 * extension.
-	 */
-
-#ifndef OPENSSL_NO_SRTP
-	if (SSL_IS_DTLS(s) && s->internal->srtp_profile) {
-		int el;
-
-		ssl_add_serverhello_use_srtp_ext(s, 0, &el, 0);
-
-		if ((size_t)(limit - ret) < 4 + el)
-			return NULL;
-
-		s2n(TLSEXT_TYPE_use_srtp, ret);
-		s2n(el, ret);
-
-		if (ssl_add_serverhello_use_srtp_ext(s, ret, &el, el)) {
-			SSLerror(s, ERR_R_INTERNAL_ERROR);
-			return NULL;
-		}
-		ret += el;
-	}
-#endif
-
-	if (S3I(s)->alpn_selected != NULL) {
-		const unsigned char *selected = S3I(s)->alpn_selected;
-		unsigned int len = S3I(s)->alpn_selected_len;
-
-		if ((long)(limit - ret - 4 - 2 - 1 - len) < 0)
-			return (NULL);
-		s2n(TLSEXT_TYPE_application_layer_protocol_negotiation, ret);
-		s2n(3 + len, ret);
-		s2n(1 + len, ret);
-		*ret++ = len;
-		memcpy(ret, selected, len);
-		ret += len;
-	}
-
-	if ((extdatalen = ret - p - 2) == 0)
-		return p;
-
-	s2n(extdatalen, p);
-	return ret;
-}
-
-/*
- * tls1_alpn_handle_client_hello is called to process the ALPN extension in a
- * ClientHello.
- *   data: the contents of the extension, not including the type and length.
- *   data_len: the number of bytes in data.
- *   al: a pointer to the alert value to send in the event of a non-zero
- *       return.
- *   returns: 1 on success.
- */
-static int
-tls1_alpn_handle_client_hello(SSL *s, const unsigned char *data,
-    unsigned int data_len, int *al)
-{
-	CBS cbs, proto_name_list, alpn;
-	const unsigned char *selected;
-	unsigned char selected_len;
-	int r;
-
-	if (s->ctx->internal->alpn_select_cb == NULL)
-		return (1);
-
-	if (data_len < 2)
-		goto parse_error;
-
-	CBS_init(&cbs, data, data_len);
-
-	/*
-	 * data should contain a uint16 length followed by a series of 8-bit,
-	 * length-prefixed strings.
-	 */
-	if (!CBS_get_u16_length_prefixed(&cbs, &alpn) ||
-	    CBS_len(&alpn) < 2 ||
-	    CBS_len(&cbs) != 0)
-		goto parse_error;
-
-	/* Validate data before sending to callback. */
-	CBS_dup(&alpn, &proto_name_list);
-	while (CBS_len(&proto_name_list) > 0) {
-		CBS proto_name;
-
-		if (!CBS_get_u8_length_prefixed(&proto_name_list, &proto_name) ||
-		    CBS_len(&proto_name) == 0)
-			goto parse_error;
-	}
-
-	r = s->ctx->internal->alpn_select_cb(s, &selected, &selected_len,
-	    CBS_data(&alpn), CBS_len(&alpn),
-	    s->ctx->internal->alpn_select_cb_arg);
-	if (r == SSL_TLSEXT_ERR_OK) {
-		free(S3I(s)->alpn_selected);
-		if ((S3I(s)->alpn_selected = malloc(selected_len)) == NULL) {
-			*al = SSL_AD_INTERNAL_ERROR;
-			return (-1);
-		}
-		memcpy(S3I(s)->alpn_selected, selected, selected_len);
-		S3I(s)->alpn_selected_len = selected_len;
-	}
-
-	return (1);
-
-parse_error:
-	*al = SSL_AD_DECODE_ERROR;
-	return (0);
-}
-
-int
-ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
-    int n, int *al)
-{
-	unsigned short type;
-	unsigned short size;
-	unsigned short len;
-	unsigned char *data = *p;
-	unsigned char *end = d + n;
-	CBS cbs;
-
-	s->internal->servername_done = 0;
-	s->tlsext_status_type = -1;
-	S3I(s)->renegotiate_seen = 0;
-	free(S3I(s)->alpn_selected);
-	S3I(s)->alpn_selected = NULL;
-	s->internal->srtp_profile = NULL;
-
-	if (data == end)
-		goto ri_check;
-
-	if (end - data < 2)
-		goto err;
-	n2s(data, len);
-
-	if (end - data != len)
-		goto err;
-
-	while (end - data >= 4) {
-		n2s(data, type);
-		n2s(data, size);
-
-		if (end - data < size)
-			goto err;
-
-		if (s->internal->tlsext_debug_cb)
-			s->internal->tlsext_debug_cb(s, 0, type, data, size,
-			    s->internal->tlsext_debug_arg);
-
-		CBS_init(&cbs, data, size);
-		if (!tlsext_clienthello_parse_one(s, &cbs, type, al))
-			return 0;
-
-		if (type ==
-		    TLSEXT_TYPE_application_layer_protocol_negotiation &&
-		    s->ctx->internal->alpn_select_cb != NULL &&
-		    S3I(s)->tmp.finish_md_len == 0) {
-			if (tls1_alpn_handle_client_hello(s, data,
-			    size, al) != 1)
-				return (0);
-		}
-		/* session ticket processed earlier */
-#ifndef OPENSSL_NO_SRTP
-		else if (SSL_IS_DTLS(s) && type == TLSEXT_TYPE_use_srtp) {
-			if (ssl_parse_clienthello_use_srtp_ext(s, data, size, al))
-				return 0;
-		}
-#endif
-
-		data += size;
-	}
-
-	/* Spurious data on the end */
-	if (data != end)
-		goto err;
-
-	*p = data;
-
-ri_check:
-
-	/* Need RI if renegotiating */
-
-	if (!S3I(s)->renegotiate_seen && s->internal->renegotiate) {
-		*al = SSL_AD_HANDSHAKE_FAILURE;
-		SSLerror(s, SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
-		return 0;
-	}
-
-	return 1;
-
-err:
-	*al = SSL_AD_DECODE_ERROR;
-	return 0;
-}
-
-int
-ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
-{
-	unsigned short type;
-	unsigned short size;
-	unsigned short len;
-	unsigned char *data = *p;
-	unsigned char *end = *p + n;
-	CBS cbs;
-
-	S3I(s)->renegotiate_seen = 0;
-	free(S3I(s)->alpn_selected);
-	S3I(s)->alpn_selected = NULL;
-
-	if (data == end)
-		goto ri_check;
-
-	if (end - data < 2)
-		goto err;
-	n2s(data, len);
-
-	if (end - data != len)
-		goto err;
-
-	while (end - data >= 4) {
-		n2s(data, type);
-		n2s(data, size);
-
-		if (end - data < size)
-			goto err;
-
-		if (s->internal->tlsext_debug_cb)
-			s->internal->tlsext_debug_cb(s, 1, type, data, size,
-			    s->internal->tlsext_debug_arg);
-
-		CBS_init(&cbs, data, size);
-		if (!tlsext_serverhello_parse_one(s, &cbs, type, al))
-			return 0;
-
-		if (type == TLSEXT_TYPE_application_layer_protocol_negotiation) {
-			unsigned int len;
-
-			/* We must have requested it. */
-			if (s->internal->alpn_client_proto_list == NULL) {
-				*al = TLS1_AD_UNSUPPORTED_EXTENSION;
-				return 0;
-			}
-			if (size < 4) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return (0);
-			}
-
-			/* The extension data consists of:
-			 *   uint16 list_length
-			 *   uint8 proto_length;
-			 *   uint8 proto[proto_length]; */
-			len = ((unsigned int)data[0]) << 8 |
-			    ((unsigned int)data[1]);
-			if (len != (unsigned int)size - 2) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return (0);
-			}
-			len = data[2];
-			if (len != (unsigned int)size - 3) {
-				*al = TLS1_AD_DECODE_ERROR;
-				return (0);
-			}
-			free(S3I(s)->alpn_selected);
-			S3I(s)->alpn_selected = malloc(len);
-			if (S3I(s)->alpn_selected == NULL) {
-				*al = TLS1_AD_INTERNAL_ERROR;
-				return (0);
-			}
-			memcpy(S3I(s)->alpn_selected, data + 3, len);
-			S3I(s)->alpn_selected_len = len;
-
-		}
-#ifndef OPENSSL_NO_SRTP
-		else if (SSL_IS_DTLS(s) && type == TLSEXT_TYPE_use_srtp) {
-			if (ssl_parse_serverhello_use_srtp_ext(s, data,
-			    size, al))
-				return 0;
-		}
-#endif
-
-		data += size;
-
-	}
-
-	if (data != end) {
-		*al = SSL_AD_DECODE_ERROR;
-		return 0;
-	}
-
-	*p = data;
-
-ri_check:
-
-	/* Determine if we need to see RI. Strictly speaking if we want to
-	 * avoid an attack we should *always* see RI even on initial server
-	 * hello because the client doesn't see any renegotiation during an
-	 * attack. However this would mean we could not connect to any server
-	 * which doesn't support RI so for the immediate future tolerate RI
-	 * absence on initial connect only.
-	 */
-	if (!S3I(s)->renegotiate_seen &&
-	    !(s->internal->options & SSL_OP_LEGACY_SERVER_CONNECT)) {
-		*al = SSL_AD_HANDSHAKE_FAILURE;
-		SSLerror(s, SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
-		return 0;
-	}
-
-	return 1;
-
-err:
-	*al = SSL_AD_DECODE_ERROR;
-	return 0;
 }
 
 int
@@ -1222,11 +759,9 @@ ssl_check_serverhello_tlsext(SSL *s)
  * ClientHello, and other operations depend on the result, we need to handle
  * any TLS session ticket extension at the same time.
  *
- *   session_id: points at the session ID in the ClientHello. This code will
- *       read past the end of this in order to parse out the session ticket
- *       extension, if any.
- *   len: the length of the session ID.
- *   limit: a pointer to the first byte after the ClientHello.
+ *   session_id: points at the session ID in the ClientHello.
+ *   session_id_len: the length of the session ID.
+ *   ext_block: a CBS for the ClientHello extensions block.
  *   ret: (output) on return, if a ticket was decrypted, then this is set to
  *       point to the resulting session.
  *
@@ -1252,55 +787,34 @@ ssl_check_serverhello_tlsext(SSL *s)
  *   Otherwise, s->internal->tlsext_ticket_expected is set to 0.
  */
 int
-tls1_process_ticket(SSL *s, const unsigned char *session, int session_len,
-    const unsigned char *limit, SSL_SESSION **ret)
+tls1_process_ticket(SSL *s, const unsigned char *session_id, int session_id_len,
+    CBS *ext_block, SSL_SESSION **ret)
 {
-	/* Point after session ID in client hello */
-	CBS session_id, cookie, cipher_list, compress_algo, extensions;
+	CBS extensions;
 
-	*ret = NULL;
 	s->internal->tlsext_ticket_expected = 0;
+	*ret = NULL;
 
-	/* If tickets disabled behave as if no ticket present
-	 * to permit stateful resumption.
+	/*
+	 * If tickets disabled behave as if no ticket present to permit stateful
+	 * resumption.
 	 */
 	if (SSL_get_options(s) & SSL_OP_NO_TICKET)
 		return 0;
-	if (!limit)
+
+	/*
+	 * An empty extensions block is valid, but obviously does not contain
+	 * a session ticket.
+	 */
+	if (CBS_len(ext_block) == 0)
 		return 0;
 
-	if (limit < session)
-		return -1;
-
-	CBS_init(&session_id, session, limit - session);
-
-	/* Skip past the session id */
-	if (!CBS_skip(&session_id, session_len))
-		return -1;
-
-	/* Skip past DTLS cookie */
-	if (SSL_IS_DTLS(s)) {
-		if (!CBS_get_u8_length_prefixed(&session_id, &cookie))
-			return -1;
-	}
-
-	/* Skip past cipher list */
-	if (!CBS_get_u16_length_prefixed(&session_id, &cipher_list))
-		return -1;
-
-	/* Skip past compression algorithm list */
-	if (!CBS_get_u8_length_prefixed(&session_id, &compress_algo))
-		return -1;
-
-	/* Now at start of extensions */
-	if (CBS_len(&session_id) == 0)
-		return 0;
-	if (!CBS_get_u16_length_prefixed(&session_id, &extensions))
+	if (!CBS_get_u16_length_prefixed(ext_block, &extensions))
 		return -1;
 
 	while (CBS_len(&extensions) > 0) {
-		CBS ext_data;
 		uint16_t ext_type;
+		CBS ext_data;
 
 		if (!CBS_get_u16(&extensions, &ext_type) ||
 		    !CBS_get_u16_length_prefixed(&extensions, &ext_data))
@@ -1314,7 +828,7 @@ tls1_process_ticket(SSL *s, const unsigned char *session, int session_len,
 				s->internal->tlsext_ticket_expected = 1;
 				return 1;
 			}
-			if (s->internal->tls_session_secret_cb) {
+			if (s->internal->tls_session_secret_cb != NULL) {
 				/* Indicate that the ticket couldn't be
 				 * decrypted rather than generating the session
 				 * from ticket now, trigger abbreviated
@@ -1324,7 +838,7 @@ tls1_process_ticket(SSL *s, const unsigned char *session, int session_len,
 			}
 
 			r = tls_decrypt_ticket(s, CBS_data(&ext_data),
-			    CBS_len(&ext_data), session, session_len, ret);
+			    CBS_len(&ext_data), session_id, session_id_len, ret);
 
 			switch (r) {
 			case 2: /* ticket couldn't be decrypted */
@@ -1486,162 +1000,56 @@ tls_decrypt_ticket(SSL *s, const unsigned char *etick, int eticklen,
 	return 2;
 }
 
-/* Tables to translate from NIDs to TLS v1.2 ids */
-
-typedef struct {
-	int nid;
-	int id;
-} tls12_lookup;
-
-static tls12_lookup tls12_md[] = {
-	{NID_md5, TLSEXT_hash_md5},
-	{NID_sha1, TLSEXT_hash_sha1},
-	{NID_sha224, TLSEXT_hash_sha224},
-	{NID_sha256, TLSEXT_hash_sha256},
-	{NID_sha384, TLSEXT_hash_sha384},
-	{NID_sha512, TLSEXT_hash_sha512},
-	{NID_id_GostR3411_94, TLSEXT_hash_gost94},
-	{NID_id_tc26_gost3411_2012_256, TLSEXT_hash_streebog_256},
-	{NID_id_tc26_gost3411_2012_512, TLSEXT_hash_streebog_512}
-};
-
-static tls12_lookup tls12_sig[] = {
-	{EVP_PKEY_RSA, TLSEXT_signature_rsa},
-	{EVP_PKEY_EC, TLSEXT_signature_ecdsa},
-	{EVP_PKEY_GOSTR01, TLSEXT_signature_gostr01},
-};
-
-static int
-tls12_find_id(int nid, tls12_lookup *table, size_t tlen)
-{
-	size_t i;
-	for (i = 0; i < tlen; i++) {
-		if (table[i].nid == nid)
-			return table[i].id;
-	}
-	return -1;
-}
-
-int
-tls12_get_sigandhash(unsigned char *p, const EVP_PKEY *pk, const EVP_MD *md)
-{
-	int sig_id, md_id;
-	if (!md)
-		return 0;
-	md_id = tls12_find_id(EVP_MD_type(md), tls12_md,
-	    sizeof(tls12_md) / sizeof(tls12_lookup));
-	if (md_id == -1)
-		return 0;
-	sig_id = tls12_get_sigid(pk);
-	if (sig_id == -1)
-		return 0;
-	p[0] = (unsigned char)md_id;
-	p[1] = (unsigned char)sig_id;
-	return 1;
-}
-
-int
-tls12_get_sigid(const EVP_PKEY *pk)
-{
-	return tls12_find_id(pk->type, tls12_sig,
-	    sizeof(tls12_sig) / sizeof(tls12_lookup));
-}
-
-const EVP_MD *
-tls12_get_hash(unsigned char hash_alg)
-{
-	switch (hash_alg) {
-	case TLSEXT_hash_sha1:
-		return EVP_sha1();
-	case TLSEXT_hash_sha224:
-		return EVP_sha224();
-	case TLSEXT_hash_sha256:
-		return EVP_sha256();
-	case TLSEXT_hash_sha384:
-		return EVP_sha384();
-	case TLSEXT_hash_sha512:
-		return EVP_sha512();
-#ifndef OPENSSL_NO_GOST
-	case TLSEXT_hash_gost94:
-		return EVP_gostr341194();
-	case TLSEXT_hash_streebog_256:
-		return EVP_streebog256();
-	case TLSEXT_hash_streebog_512:
-		return EVP_streebog512();
-#endif
-	default:
-		return NULL;
-	}
-}
-
 /* Set preferred digest for each key type */
-
 int
-tls1_process_sigalgs(SSL *s, CBS *cbs)
+tls1_process_sigalgs(SSL *s, CBS *cbs, uint16_t *sigalgs, size_t sigalgs_len)
 {
-	const EVP_MD *md;
 	CERT *c = s->cert;
-	int idx;
 
 	/* Extension ignored for inappropriate versions */
+	/* XXX get rid of this? */
 	if (!SSL_USE_SIGALGS(s))
 		return 1;
 
-	/* Should never happen */
-	if (c == NULL)
-		return 0;
-
-	c->pkeys[SSL_PKEY_RSA_SIGN].digest = NULL;
-	c->pkeys[SSL_PKEY_RSA_ENC].digest = NULL;
-	c->pkeys[SSL_PKEY_ECC].digest = NULL;
-	c->pkeys[SSL_PKEY_GOST01].digest = NULL;
-
+	c->pkeys[SSL_PKEY_RSA_SIGN].sigalg = NULL;
+	c->pkeys[SSL_PKEY_RSA_ENC].sigalg = NULL;
+	c->pkeys[SSL_PKEY_ECC].sigalg = NULL;
+#ifndef OPENSSL_NO_GOST
+	c->pkeys[SSL_PKEY_GOST01].sigalg = NULL;
+#endif
 	while (CBS_len(cbs) > 0) {
-		uint8_t hash_alg, sig_alg;
+		uint16_t sig_alg;
+		const struct ssl_sigalg *sigalg;
 
-		if (!CBS_get_u8(cbs, &hash_alg) || !CBS_get_u8(cbs, &sig_alg))
+		if (!CBS_get_u16(cbs, &sig_alg))
 			return 0;
 
-		switch (sig_alg) {
-		case TLSEXT_signature_rsa:
-			idx = SSL_PKEY_RSA_SIGN;
-			break;
-		case TLSEXT_signature_ecdsa:
-			idx = SSL_PKEY_ECC;
-			break;
-		case TLSEXT_signature_gostr01:
-		case TLSEXT_signature_gostr12_256:
-		case TLSEXT_signature_gostr12_512:
-			idx = SSL_PKEY_GOST01;
-			break;
-		default:
-			continue;
+		if ((sigalg = ssl_sigalg(sig_alg, sigalgs, sigalgs_len)) !=
+		    NULL && c->pkeys[sigalg->pkey_idx].sigalg == NULL) {
+			c->pkeys[sigalg->pkey_idx].sigalg = sigalg;
+			if (sigalg->pkey_idx == SSL_PKEY_RSA_SIGN)
+				c->pkeys[SSL_PKEY_RSA_ENC].sigalg = sigalg;
 		}
-
-		if (c->pkeys[idx].digest == NULL) {
-			md = tls12_get_hash(hash_alg);
-			if (md) {
-				c->pkeys[idx].digest = md;
-				if (idx == SSL_PKEY_RSA_SIGN)
-					c->pkeys[SSL_PKEY_RSA_ENC].digest = md;
-			}
-		}
-
 	}
 
 	/*
 	 * Set any remaining keys to default values. NOTE: if alg is not
 	 * supported it stays as NULL.
 	 */
-	if (!c->pkeys[SSL_PKEY_RSA_SIGN].digest) {
-		c->pkeys[SSL_PKEY_RSA_SIGN].digest = EVP_sha1();
-		c->pkeys[SSL_PKEY_RSA_ENC].digest = EVP_sha1();
-	}
-	if (!c->pkeys[SSL_PKEY_ECC].digest)
-		c->pkeys[SSL_PKEY_ECC].digest = EVP_sha1();
+	if (c->pkeys[SSL_PKEY_RSA_SIGN].sigalg == NULL)
+		c->pkeys[SSL_PKEY_RSA_SIGN].sigalg =
+		    ssl_sigalg_lookup(SIGALG_RSA_PKCS1_SHA1);
+	if (c->pkeys[SSL_PKEY_RSA_ENC].sigalg == NULL)
+		c->pkeys[SSL_PKEY_RSA_ENC].sigalg =
+		    ssl_sigalg_lookup(SIGALG_RSA_PKCS1_SHA1);
+	if (c->pkeys[SSL_PKEY_ECC].sigalg == NULL)
+		c->pkeys[SSL_PKEY_RSA_ENC].sigalg =
+		    ssl_sigalg_lookup(SIGALG_ECDSA_SHA1);
+
 #ifndef OPENSSL_NO_GOST
-	if (!c->pkeys[SSL_PKEY_GOST01].digest)
-		c->pkeys[SSL_PKEY_GOST01].digest = EVP_gostr341194();
+	if (c->pkeys[SSL_PKEY_GOST01].sigalg == NULL)
+		c->pkeys[SSL_PKEY_GOST01].sigalg =
+		    ssl_sigalg_lookup(SIGALG_GOSTR01_GOST94);
 #endif
 	return 1;
 }

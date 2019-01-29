@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-attach-session.c,v 1.73 2017/04/22 10:22:39 nicm Exp $ */
+/* $OpenBSD: cmd-attach-session.c,v 1.76 2018/10/18 08:38:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -90,9 +90,9 @@ cmd_attach_session(struct cmdq_item *item, const char *tflag, int dflag,
 			window_set_active_pane(wp->window, wp);
 		session_set_current(s, wl);
 		if (wp != NULL)
-			cmd_find_from_winlink_pane(current, wl, wp);
+			cmd_find_from_winlink_pane(current, wl, wp, 0);
 		else
-			cmd_find_from_winlink(current, wl);
+			cmd_find_from_winlink(current, wl, 0);
 	}
 
 	if (cflag != NULL) {
@@ -100,6 +100,7 @@ cmd_attach_session(struct cmdq_item *item, const char *tflag, int dflag,
 		s->cwd = format_single(item, cflag, c, s, wl, wp);
 	}
 
+	c->last_session = c->session;
 	if (c->session != NULL) {
 		if (dflag) {
 			TAILQ_FOREACH(c_loop, &clients, entry) {
@@ -114,6 +115,7 @@ cmd_attach_session(struct cmdq_item *item, const char *tflag, int dflag,
 		c->session = s;
 		if (~item->shared->flags & CMDQ_SHARED_REPEAT)
 			server_client_set_key_table(c, NULL);
+		tty_update_client_offset(c);
 		status_timer_start(c);
 		notify_client("client-session-changed", c);
 		session_update_activity(s, NULL);
@@ -141,6 +143,7 @@ cmd_attach_session(struct cmdq_item *item, const char *tflag, int dflag,
 
 		c->session = s;
 		server_client_set_key_table(c, NULL);
+		tty_update_client_offset(c);
 		status_timer_start(c);
 		notify_client("client-session-changed", c);
 		session_update_activity(s, NULL);

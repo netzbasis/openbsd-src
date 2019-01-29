@@ -1,4 +1,4 @@
-/*	$OpenBSD: cy.c,v 1.36 2017/02/01 16:46:57 bluhm Exp $	*/
+/*	$OpenBSD: cy.c,v 1.38 2018/02/19 08:59:52 mpi Exp $	*/
 /*
  * Copyright (c) 1996 Timo Rossi.
  * All rights reserved.
@@ -50,7 +50,6 @@
  *
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/syslog.h>
@@ -361,7 +360,7 @@ cyopen(dev, flag, mode, p)
 			SET(tp->t_state, TS_CARR_ON);
 		else
 			CLR(tp->t_state, TS_CARR_ON);
-	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p, 0) != 0) {
+	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p) != 0) {
 		return (EBUSY);
 	} else {
 		s = spltty();
@@ -566,7 +565,7 @@ cyioctl(dev, cmd, data, flag, p)
 		break;
 
 	case TIOCSFLAGS:
-		error = suser(p, 0);
+		error = suser(p);
 		if (error != 0)
 			return (EPERM);
 

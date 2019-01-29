@@ -1,4 +1,4 @@
-/*	$Id: netproc.c,v 1.13 2017/01/24 13:32:55 jsing Exp $ */
+/*	$Id: netproc.c,v 1.19 2018/11/29 14:25:07 tedu Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <tls.h>
 
 #include "http.h"
 #include "extern.h"
@@ -180,15 +181,18 @@ nreq(struct conn *c, const char *addr)
 {
 	struct httpget	*g;
 	struct source	 src[MAX_SERVERS_DNS];
+	struct httphead *st;
 	char		*host, *path;
 	short		 port;
 	size_t		 srcsz;
 	ssize_t		 ssz;
 	long		 code;
+	int		 redirects = 0;
 
 	if ((host = url2host(addr, &port, &path)) == NULL)
 		return -1;
 
+again:
 	if ((ssz = urlresolve(c->dfd, host, src)) < 0) {
 		free(host);
 		free(path);
@@ -202,19 +206,48 @@ nreq(struct conn *c, const char *addr)
 	if (g == NULL)
 		return -1;
 
-	code = g->code;
+	switch (g->code) {
+	case 301:
+	case 302:
+	case 303:
+	case 307:
+	case 308:
+		redirects++;
+		if (redirects > 3) {
+			warnx("too many redirects");
+			http_get_free(g);
+			return -1;
+		}
+
+		if ((st = http_head_get("Location", g->head, g->headsz)) ==
+		    NULL) {
+			warnx("redirect without location header");
+			return -1;
+		}
+
+		dodbg("Location: %s", st->val);
+		host = url2host(st->val, &port, &path);
+		http_get_free(g);
+		if (host == NULL)
+			return -1;
+		goto again;
+		break;
+	default:
+		code = g->code;
+		break;
+	}
 
 	/* Copy the body part into our buffer. */
 
 	free(c->buf.buf);
 	c->buf.sz = g->bodypartsz;
 	c->buf.buf = malloc(c->buf.sz);
-	memcpy(c->buf.buf, g->bodypart, c->buf.sz);
-	http_get_free(g);
 	if (c->buf.buf == NULL) {
 		warn("malloc");
-		return -1;
-	}
+		code = -1;
+	} else
+		memcpy(c->buf.buf, g->bodypart, c->buf.sz);
+	http_get_free(g);
 	return code;
 }
 
@@ -310,12 +343,12 @@ sreq(struct conn *c, const char *addr, const char *req)
 	free(c->buf.buf);
 	c->buf.sz = g->bodypartsz;
 	c->buf.buf = malloc(c->buf.sz);
-	memcpy(c->buf.buf, g->bodypart, c->buf.sz);
-	http_get_free(g);
 	if (c->buf.buf == NULL) {
 		warn("malloc");
-		return -1;
-	}
+		code = -1;
+	} else
+		memcpy(c->buf.buf, g->bodypart, c->buf.sz);
+	http_get_free(g);
 	return code;
 }
 
@@ -325,7 +358,7 @@ sreq(struct conn *c, const char *addr, const char *req)
  * Returns non-zero on success.
  */
 static int
-donewreg(struct conn *c, const char *agreement, const struct capaths *p)
+donewreg(struct conn *c, const struct capaths *p)
 {
 	int		 rc = 0;
 	char		*req;
@@ -333,7 +366,7 @@ donewreg(struct conn *c, const char *agreement, const struct capaths *p)
 
 	dodbg("%s: new-reg", p->newreg);
 
-	if ((req = json_fmt_newreg(agreement)) == NULL)
+	if ((req = json_fmt_newreg(p->agreement)) == NULL)
 		warnx("json_fmt_newreg");
 	else if ((lc = sreq(c, p->newreg, req)) < 0)
 		warnx("%s: bad comm", p->newreg);
@@ -567,7 +600,7 @@ dofullchain(struct conn *c, const char *addr)
 int
 netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
     int newacct, int revocate, struct authority_c *authority,
-    const char *const *alts,size_t altsz, const char *agreement)
+    const char *const *alts,size_t altsz)
 {
 	int		 rc = 0;
 	size_t		 i;
@@ -579,6 +612,11 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 	memset(&paths, 0, sizeof(struct capaths));
 	memset(&c, 0, sizeof(struct conn));
+
+	if (unveil(tls_default_ca_cert_file(), "r") == -1) {
+		warn("unveil");
+		goto out;
+	}
 
 	if (pledge("stdio inet rpath", NULL) == -1) {
 		warn("pledge");
@@ -673,7 +711,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 	/* If new, register with the CA server. */
 
-	if (newacct && ! donewreg(&c, agreement, &paths))
+	if (newacct && ! donewreg(&c, &paths))
 		goto out;
 
 	/* Pre-authorise all domains with CA server. */

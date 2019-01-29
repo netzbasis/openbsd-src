@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_mroute.c,v 1.120 2017/06/26 09:32:32 mpi Exp $	*/
+/*	$OpenBSD: ip_mroute.c,v 1.123 2018/10/10 11:46:59 reyk Exp $	*/
 /*	$NetBSD: ip_mroute.c,v 1.85 2004/04/26 01:31:57 matt Exp $	*/
 
 /*
@@ -95,9 +95,9 @@ int mcast_debug = 1;
  * Globals.  All but ip_mrouter and ip_mrtproto could be static,
  * except for netstat or debugging purposes.
  */
-struct socket	*ip_mrouter[RT_TABLEID_MAX];
-struct rttimer_queue *mrouterq[RT_TABLEID_MAX];
-uint64_t	 mrt_count[RT_TABLEID_MAX];
+struct socket	*ip_mrouter[RT_TABLEID_MAX + 1];
+struct rttimer_queue *mrouterq[RT_TABLEID_MAX + 1];
+uint64_t	 mrt_count[RT_TABLEID_MAX + 1];
 int		ip_mrtproto = IGMP_DVMRP;    /* for netstat only */
 
 struct mrtstat	mrtstat;
@@ -216,7 +216,6 @@ ip_mrouter_set(struct socket *so, int optname, struct mbuf *m)
 			break;
 		}
 
-	m_free(m);
 	return (error);
 }
 
@@ -265,12 +264,16 @@ mrt_ioctl(struct socket *so, u_long cmd, caddr_t data)
 	else
 		switch (cmd) {
 		case SIOCGETVIFCNT:
+			NET_RLOCK();
 			error = get_vif_cnt(inp->inp_rtableid,
 			    (struct sioc_vif_req *)data);
+			NET_RUNLOCK();
 			break;
 		case SIOCGETSGCNT:
+			NET_RLOCK();
 			error = get_sg_cnt(inp->inp_rtableid,
 			    (struct sioc_sg_req *)data);
+			NET_RUNLOCK();
 			break;
 		default:
 			error = ENOTTY;
@@ -470,7 +473,7 @@ mrt_sysctl_mfc(void *oldp, size_t *oldlenp)
 	msa.msa_len = *oldlenp;
 	msa.msa_needed = 0;
 
-	for (rtableid = 0; rtableid < RT_TABLEID_MAX; rtableid++)
+	for (rtableid = 0; rtableid <= RT_TABLEID_MAX; rtableid++)
 		rtable_walk(rtableid, AF_INET, mrt_rtwalk_mfcsysctl, &msa);
 
 	if (msa.msa_minfos != NULL && msa.msa_needed > 0 &&

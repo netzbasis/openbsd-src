@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.64 2017/08/19 17:28:32 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.73 2018/08/29 15:56:46 robert Exp $
 
 SUBDIR=ldconfig ldd
 MAN=	ld.so.1
@@ -19,7 +19,20 @@ VPATH=${.CURDIR}/../../lib/libc/string
 SRCS=	ldasm.S boot.c loader.c resolve.c dlfcn.c dl_printf.c rtld_machine.c
 SRCS+=	path.c util.c sod.c strsep.c strtol.c dir.c library_subr.c
 SRCS+=	dl_realpath.c dl_uname.c dl_dirname.c strlcat.c strlen.c trace.c
-SRCS+=	malloc.c reallocarray.c tib.c
+SRCS+=	malloc.c reallocarray.c tib.c ffs.c
+
+syscall=__syscall close exit fstat __getcwd getdents getentropy getthrid \
+	issetugid mprotect munmap open pledge read readlink sendsyslog \
+	__set_tcb sysctl thrkill utrace write
+
+GEN_PREFIX=\t.file "${@:R}.c"\n\#include "SYS.h"
+.for _i in ${syscall}
+OBJS+=dl_${_i}.o
+dl_${_i}.o: SYS.h
+	printf '${GEN_PREFIX}\nDL_SYSCALL(${_i})\n' | \
+	    ${CC} ${DEBUG} -c -fPIC ${CFLAGS:M-[ID]*} ${CFLAGS:M-pipe} ${AINC} -P \
+	    -x assembler-with-cpp - ${DFLAGS} -MF ${.TARGET:R}.d -o ${.TARGET}
+.endfor
 
 .if (${MACHINE_ARCH} == "i386")
 SRCS+=	library_mquery.c
@@ -48,10 +61,18 @@ CLEANFILES+=	${candidate}
 
 $(test_prog):
 	printf '#include <stdio.h>\nint main(int argc, char **argv){ printf("%%s: ", argv[0]); printf("%%s!\\n", argv[1] ? argv[1] : "foo"); }\n' | \
-	$(CC) -x c - -Wl,-dynamic-linker,${.OBJDIR}/$(candidate) -o $@
+	$(CC) -P -x c - -Wl,-dynamic-linker,./$(candidate) -o $@
 
-$(PROG): $(test_prog) ${VERSION_SCRIPT}
-	$(LD) ${DEBUG} -x -e _dl_start $(ELF_LDFLAGS) -o $(candidate) $(OBJS) $(LDADD)
+$(PROG): $(test_prog) ${VERSION_SCRIPT} $(OBJS)
+.if defined(SYSPATCH_PATH)
+	$(LD) ${DEBUG} -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
+            `readelf -Ws ${SYSPATCH_PATH}/usr/libexec/${.TARGET} | \
+            awk '/ FILE/{sub(".*/", "", $$NF); gsub(/\..*/, ".o", $$NF); print $$NF}' | \
+            awk '!x[$$0]++'`
+.else
+	$(LD) ${DEBUG} -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
+	    `echo ${OBJS} | tr " " "\n" | sort -R`
+.endif
 .ifndef CROSSDIR
 	ulimit -c 0; [ "`${.OBJDIR}/$(test_prog) ok`" = "${.OBJDIR}/$(test_prog): ok!" ]
 .endif
@@ -62,3 +83,16 @@ $(PROG): $(test_prog) ${VERSION_SCRIPT}
 
 boot.o: boot.c
 	${COMPILE.c} -fno-stack-protector ${.IMPSRC}
+
+CLEANFILES+=	ld.so.a
+
+all: ld.so.a
+
+ld.so.a: ${OBJS} ${.CURDIR}/Symbols.map ${test_prog}
+	ar cqD $@ $?
+
+afterinstall: ld.so.a
+	install -d -o root -g wheel -m 755 \
+	    ${DESTDIR}/usr/share/relink/usr/libexec
+	install -o ${BINOWN} -g ${BINGRP} -m ${NONBINMODE} \
+	    ld.so.a ${DESTDIR}/usr/share/relink/usr/libexec/ld.so.a

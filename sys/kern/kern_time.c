@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_time.c,v 1.99 2017/01/24 00:58:55 mpi Exp $	*/
+/*	$OpenBSD: kern_time.c,v 1.109 2019/01/23 21:53:42 cheloha Exp $	*/
 /*	$NetBSD: kern_time.c,v 1.20 1996/02/18 11:57:06 fvdl Exp $	*/
 
 /*
@@ -63,15 +63,9 @@ int64_t adjtimedelta;		/* unapplied time correction (microseconds) */
 
 /* This function is used by clock_settime and settimeofday */
 int
-settime(struct timespec *ts)
+settime(const struct timespec *ts)
 {
 	struct timespec now;
-
-	/*
-	 * Adjtime in progress is meaningless or harmful after
-	 * setting the clock. Cancel adjtime and then set new time.
-	 */
-	adjtimedelta = 0;
 
 	/*
 	 * Don't allow the time to be set forward so far it will wrap
@@ -102,6 +96,11 @@ settime(struct timespec *ts)
 		return (EPERM);
 	}
 
+	/*
+	 * Adjtime in progress is meaningless or harmful after
+	 * setting the clock. Cancel adjtime and then set new time.
+	 */
+	adjtimedelta = 0;
 	tc_setrealtimeclock(ts);
 	resettodr();
 
@@ -124,6 +123,7 @@ clock_gettime(struct proc *p, clockid_t clock_id, struct timespec *tp)
 		bintime2timespec(&bt, tp);
 		break;
 	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
 		nanouptime(tp);
 		break;
 	case CLOCK_PROCESS_CPUTIME_ID:
@@ -167,11 +167,8 @@ sys_clock_gettime(struct proc *p, void *v, register_t *retval)
 
 	error = copyout(&ats, SCARG(uap, tp), sizeof(ats));
 #ifdef KTRACE
-	if (error == 0 && KTRPOINT(p, KTR_STRUCT)) {
-		KERNEL_LOCK();
+	if (error == 0 && KTRPOINT(p, KTR_STRUCT))
 		ktrabstimespec(p, &ats);
-		KERNEL_UNLOCK();
-	}
 #endif
 	return (error);
 }
@@ -187,7 +184,7 @@ sys_clock_settime(struct proc *p, void *v, register_t *retval)
 	clockid_t clock_id;
 	int error;
 
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return (error);
 
 	if ((error = copyin(SCARG(uap, tp), &ats, sizeof(ats))) != 0)
@@ -196,6 +193,8 @@ sys_clock_settime(struct proc *p, void *v, register_t *retval)
 	clock_id = SCARG(uap, clock_id);
 	switch (clock_id) {
 	case CLOCK_REALTIME:
+		if (!timespecisvalid(&ats))
+			return (EINVAL);
 		if ((error = settime(&ats)) != 0)
 			return (error);
 		break;
@@ -223,6 +222,7 @@ sys_clock_getres(struct proc *p, void *v, register_t *retval)
 	switch (clock_id) {
 	case CLOCK_REALTIME:
 	case CLOCK_MONOTONIC:
+	case CLOCK_BOOTTIME:
 	case CLOCK_UPTIME:
 	case CLOCK_PROCESS_CPUTIME_ID:
 	case CLOCK_THREAD_CPUTIME_ID:
@@ -244,11 +244,8 @@ sys_clock_getres(struct proc *p, void *v, register_t *retval)
 	if (SCARG(uap, tp)) {
 		error = copyout(&ts, SCARG(uap, tp), sizeof (ts));
 #ifdef KTRACE
-		if (error == 0 && KTRPOINT(p, KTR_STRUCT)) {
-			KERNEL_LOCK();
+		if (error == 0 && KTRPOINT(p, KTR_STRUCT))
 			ktrreltimespec(p, &ts);
-			KERNEL_UNLOCK();
-		}
 #endif
 	}
 
@@ -263,57 +260,49 @@ sys_nanosleep(struct proc *p, void *v, register_t *retval)
 		syscallarg(const struct timespec *) rqtp;
 		syscallarg(struct timespec *) rmtp;
 	} */ *uap = v;
-	struct timespec rqt, rmt;
-	struct timespec sts, ets;
+	struct timespec elapsed, remainder, request, start, stop;
 	struct timespec *rmtp;
-	struct timeval tv;
-	int error, error1;
+	int copyout_error, error;
 
 	rmtp = SCARG(uap, rmtp);
-	error = copyin(SCARG(uap, rqtp), &rqt, sizeof(struct timespec));
+	error = copyin(SCARG(uap, rqtp), &request, sizeof(request));
 	if (error)
 		return (error);
 #ifdef KTRACE
-        if (KTRPOINT(p, KTR_STRUCT)) {
-		KERNEL_LOCK();
-		ktrreltimespec(p, &rqt);
-		KERNEL_UNLOCK();
-	}
+	if (KTRPOINT(p, KTR_STRUCT))
+		ktrreltimespec(p, &request);
 #endif
 
-	TIMESPEC_TO_TIMEVAL(&tv, &rqt);
-	if (itimerfix(&tv))
+	if (request.tv_sec < 0 || !timespecisvalid(&request))
 		return (EINVAL);
 
-	if (rmtp)
-		getnanouptime(&sts);
+	do {
+		getnanouptime(&start);
+		error = tsleep(&nanowait, PWAIT | PCATCH, "nanosleep",
+		    MAX(1, tstohz(&request)));
+		getnanouptime(&stop);
+		timespecsub(&stop, &start, &elapsed);
+		timespecsub(&request, &elapsed, &request);
+		if (request.tv_sec < 0)
+			timespecclear(&request);
+		if (error != EWOULDBLOCK)
+			break;
+	} while (timespecisset(&request));
 
-	error = tsleep(&nanowait, PWAIT | PCATCH, "nanosleep",
-	    MAX(1, tvtohz(&tv)));
 	if (error == ERESTART)
 		error = EINTR;
 	if (error == EWOULDBLOCK)
 		error = 0;
 
 	if (rmtp) {
-		getnanouptime(&ets);
-
-		memset(&rmt, 0, sizeof(rmt));
-		timespecsub(&ets, &sts, &sts);
-		timespecsub(&rqt, &sts, &rmt);
-
-		if (rmt.tv_sec < 0)
-			timespecclear(&rmt);
-
-		error1 = copyout(&rmt, rmtp, sizeof(rmt));
-		if (error1 != 0)
-			error = error1;
+		memset(&remainder, 0, sizeof(remainder));
+		remainder = request;
+		copyout_error = copyout(&remainder, rmtp, sizeof(remainder));
+		if (copyout_error)
+			error = copyout_error;
 #ifdef KTRACE
-		if (error1 == 0 && KTRPOINT(p, KTR_STRUCT)) {
-			KERNEL_LOCK();
-			ktrreltimespec(p, &rmt);
-			KERNEL_UNLOCK();
-		}
+		if (copyout_error == 0 && KTRPOINT(p, KTR_STRUCT))
+			ktrreltimespec(p, &remainder);
 #endif
 	}
 
@@ -341,11 +330,8 @@ sys_gettimeofday(struct proc *p, void *v, register_t *retval)
 		if ((error = copyout(&atv, tp, sizeof (atv))))
 			return (error);
 #ifdef KTRACE
-		if (KTRPOINT(p, KTR_STRUCT)) {
-			KERNEL_LOCK();
+		if (KTRPOINT(p, KTR_STRUCT))
 			ktrabstimeval(p, &atv);
-			KERNEL_UNLOCK();
-		}
 #endif
 	}
 	if (tzp)
@@ -369,7 +355,7 @@ sys_settimeofday(struct proc *p, void *v, register_t *retval)
 	tv = SCARG(uap, tv);
 	tzp = SCARG(uap, tzp);
 
-	if ((error = suser(p, 0)))
+	if ((error = suser(p)))
 		return (error);
 	/* Verify all parameters before changing time. */
 	if (tv && (error = copyin(tv, &atv, sizeof(atv))))
@@ -379,6 +365,8 @@ sys_settimeofday(struct proc *p, void *v, register_t *retval)
 	if (tv) {
 		struct timespec ts;
 
+		if (!timerisvalid(&atv))
+			return (EINVAL);
 		TIMEVAL_TO_TIMESPEC(&atv, &ts);
 		if ((error = settime(&ts)) != 0)
 			return (error);
@@ -406,7 +394,7 @@ sys_adjfreq(struct proc *p, void *v, register_t *retval)
 			return (error);
 	}
 	if (freq) {
-		if ((error = suser(p, 0)))
+		if ((error = suser(p)))
 			return (error);
 		if ((error = copyin(freq, &f, sizeof(f))))
 			return (error);
@@ -446,11 +434,14 @@ sys_adjtime(struct proc *p, void *v, register_t *retval)
 	}
 
 	if (delta) {
-		if ((error = suser(p, 0)))
+		if ((error = suser(p)))
 			return (error);
 
 		if ((error = copyin(delta, &atv, sizeof(struct timeval))))
 			return (error);
+
+		if (!timerisvalid(&atv))
+			return (EINVAL);
 
 		/* XXX Check for overflow? */
 		adjtimedelta = (int64_t)atv.tv_sec * 1000000 + atv.tv_usec;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.52 2017/08/08 14:23:23 bluhm Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.56 2018/07/30 12:22:14 mpi Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <sys/filedesc.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
+#include <sys/fcntl.h>
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
@@ -355,7 +356,7 @@ logioctl(dev_t dev, u_long com, caddr_t data, int flag, struct proc *p)
 		break;
 
 	case LIOCSFD:
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 		fp = syslogf;
 		if ((error = getsock(p, *(int *)data, &syslogf)) != 0)
@@ -374,31 +375,35 @@ int
 sys_sendsyslog(struct proc *p, void *v, register_t *retval)
 {
 	struct sys_sendsyslog_args /* {
-		syscallarg(const void *) buf;
+		syscallarg(const char *) buf;
 		syscallarg(size_t) nbyte;
 		syscallarg(int) flags;
 	} */ *uap = v;
 	int error;
-	static int dropped_count, orig_error;
+	static int dropped_count, orig_error, orig_pid;
 
 	if (dropped_count) {
 		size_t l;
-		char buf[64];
+		char buf[80];
 
 		l = snprintf(buf, sizeof(buf),
-		    "<%d>sendsyslog: dropped %d message%s, error %d",
+		    "<%d>sendsyslog: dropped %d message%s, error %d, pid %d",
 		    LOG_KERN|LOG_WARNING, dropped_count,
-		    dropped_count == 1 ? "" : "s", orig_error);
+		    dropped_count == 1 ? "" : "s", orig_error, orig_pid);
 		error = dosendsyslog(p, buf, ulmin(l, sizeof(buf) - 1),
 		    0, UIO_SYSSPACE);
-		if (error == 0)
+		if (error == 0) {
 			dropped_count = 0;
+			orig_error = 0;
+			orig_pid = 0;
+		}
 	}
 	error = dosendsyslog(p, SCARG(uap, buf), SCARG(uap, nbyte),
 	    SCARG(uap, flags), UIO_USERSPACE);
 	if (error) {
 		dropped_count++;
 		orig_error = error;
+		orig_pid = p->p_p->ps_pid;
 	}
 	return (error);
 }
@@ -476,7 +481,8 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 
 	len = auio.uio_resid;
 	if (fp) {
-		error = sosend(fp->f_data, NULL, &auio, NULL, NULL, 0);
+		int flags = (fp->f_flag & FNONBLOCK) ? MSG_DONTWAIT : 0;
+		error = sosend(fp->f_data, NULL, &auio, NULL, NULL, flags);
 		if (error == 0)
 			len -= auio.uio_resid;
 	} else if (constty || cn_devvp) {

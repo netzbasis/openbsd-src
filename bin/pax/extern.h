@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.57 2016/08/25 01:44:55 guenther Exp $	*/
+/*	$OpenBSD: extern.h,v 1.59 2018/09/13 12:33:43 millert Exp $	*/
 /*	$NetBSD: extern.h,v 1.5 1996/03/26 23:54:16 mrg Exp $	*/
 
 /*-
@@ -94,14 +94,6 @@ int rd_wrfile(ARCHD *, int, off_t *);
 void cp_file(ARCHD *, int, int);
 int buf_fill(void);
 int buf_flush(int);
-
-/*
- * cache.c
- */
-int usrtb_start(void);
-int grptb_start(void);
-int uid_name(char *, uid_t *);
-int gid_name(char *, gid_t *);
 
 /*
  * cpio.c
@@ -268,7 +260,7 @@ int sltab_add_link(const char *, const struct stat *);
 void sltab_process(int _in_sig);
 int name_start(void);
 int add_name(char *, int, char *);
-void sub_name(char *, int *, size_t);
+void sub_name(char *, int *, int);
 #ifndef NOCPIO
 int dev_start(void);
 int add_dev(ARCHD *);
@@ -301,7 +293,6 @@ int tar_id(char *, int);
 int tar_opt(void);
 int tar_rd(ARCHD *, char *);
 int tar_wr(ARCHD *);
-int ustar_strd(void);
 int ustar_id(char *, int);
 int ustar_rd(ARCHD *, char *);
 int ustar_wr(ARCHD *);

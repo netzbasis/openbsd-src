@@ -1,4 +1,4 @@
-/* $OpenBSD: iatp.c,v 1.3 2016/09/24 18:32:18 kettenis Exp $ */
+/* $OpenBSD: iatp.c,v 1.6 2018/07/30 15:56:30 jcs Exp $ */
 /*
  * Atmel maXTouch i2c touchscreen/touchpad driver
  * Copyright (c) 2016 joshua stein <jcs@openbsd.org>
@@ -319,6 +319,30 @@ iatp_activate(struct device *self, int act)
 }
 
 int
+iatp_configure(struct iatp_softc *sc)
+{
+	struct wsmousehw *hw;
+
+	hw = wsmouse_get_hw(sc->sc_wsmousedev);
+	if (sc->sc_touchpad) {
+		hw->type = WSMOUSE_TYPE_TOUCHPAD;
+		hw->hw_type = WSMOUSEHW_CLICKPAD;
+	} else {
+		hw->type = WSMOUSE_TYPE_TPANEL;
+		hw->hw_type = WSMOUSEHW_TPANEL;
+	}
+	hw->x_min = sc->sc_tsscale.minx;
+	hw->x_max = sc->sc_tsscale.maxx;
+	hw->y_min = sc->sc_tsscale.miny;
+	hw->y_max = sc->sc_tsscale.maxy;
+	hw->h_res = sc->sc_tsscale.resx;
+	hw->v_res = sc->sc_tsscale.resy;
+	hw->mt_slots = sc->num_touchids;
+
+	return (wsmouse_configure(sc->sc_wsmousedev, NULL, 0));
+}
+
+int
 iatp_enable(void *v)
 {
 	struct iatp_softc *sc = v;
@@ -333,13 +357,10 @@ iatp_enable(void *v)
 
 	DPRINTF(("%s: enabling\n", sc->sc_dev.dv_xname));
 
-	if (wsmouse_mt_init(sc->sc_wsmousedev, sc->num_touchids, 0)) {
-		printf("%s: failed wsmouse_mt_init\n", sc->sc_dev.dv_xname);
+	if (iatp_configure(sc)) {
+		printf("%s: failed wsmouse_configure\n", sc->sc_dev.dv_xname);
 		return 1;
 	}
-
-	if (sc->sc_touchpad)
-		wsmouse_set_mode(sc->sc_wsmousedev, WSMOUSE_COMPAT);
 
 	/* force a read of any pending messages so we start getting new
 	 * interrupts */
@@ -394,12 +415,11 @@ iatp_ioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 		wsmc->resy = sc->sc_tsscale.resy;
 		break;
 
-	case WSMOUSEIO_GTYPE:
-		if (sc->sc_touchpad)
-			*(u_int *)data = WSMOUSE_TYPE_SYNAPTICS;
-		else
-			*(u_int *)data = WSMOUSE_TYPE_TPANEL;
+	case WSMOUSEIO_GTYPE: {
+		struct wsmousehw *hw = wsmouse_get_hw(sc->sc_wsmousedev);
+		*(u_int *)data = hw->type;
 		break;
+	}
 
 	case WSMOUSEIO_SETMODE:
 		if (!sc->sc_touchpad)
@@ -661,12 +681,12 @@ iatp_read_reg(struct iatp_softc *sc, uint16_t reg, size_t len, void *val)
 	uint8_t cmd[2] = { reg & 0xff, (reg >> 8) & 0xff };
 	int ret;
 
-	iic_acquire_bus(sc->sc_tag, 0);
+	iic_acquire_bus(sc->sc_tag, I2C_F_POLL);
 
 	ret = iic_exec(sc->sc_tag, I2C_OP_READ_WITH_STOP, sc->sc_addr, &cmd,
 	    sizeof(cmd), val, len, I2C_F_POLL);
 
-	iic_release_bus(sc->sc_tag, 0);
+	iic_release_bus(sc->sc_tag, I2C_F_POLL);
 
 	return ret;
 }

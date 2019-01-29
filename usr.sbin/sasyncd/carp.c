@@ -1,4 +1,4 @@
-/*	$OpenBSD: carp.c,v 1.15 2016/08/27 04:21:08 guenther Exp $	*/
+/*	$OpenBSD: carp.c,v 1.17 2019/01/22 09:25:29 krw Exp $	*/
 
 /*
  * Copyright (c) 2005 Håkan Olsson.  All rights reserved.
@@ -154,7 +154,7 @@ carp_state_name(enum RUNSTATE state)
 {
 	static const char	*carpstate[] = CARPSTATES;
 
-	if (state < 0 || state > FAIL)
+	if ((unsigned)state > FAIL)
 		state = FAIL;
 	return carpstate[state];
 }
@@ -163,7 +163,7 @@ void
 carp_update_state(enum RUNSTATE current_state)
 {
 
-	if (current_state < 0 || current_state > FAIL) {
+	if ((unsigned)current_state > FAIL) {
 		log_err("carp_update_state: invalid carp state, abort");
 		cfgstate.runstate = FAIL;
 		return;
@@ -247,14 +247,14 @@ carp_init(void)
 		return -1;
 	}
 
-	cfgstate.route_socket = socket(PF_ROUTE, SOCK_RAW, 0);
+	cfgstate.route_socket = socket(AF_ROUTE, SOCK_RAW, 0);
 	if (cfgstate.route_socket < 0) {
 		fprintf(stderr, "No routing socket\n");
 		return -1;
 	}
 
 	rtfilter = ROUTE_FILTER(RTM_IFINFO);
-	if (setsockopt(cfgstate.route_socket, PF_ROUTE, ROUTE_MSGFILTER,
+	if (setsockopt(cfgstate.route_socket, AF_ROUTE, ROUTE_MSGFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)         /* not fatal */
 		log_msg(2, "carp_init: setsockopt");
 

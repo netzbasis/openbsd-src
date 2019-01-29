@@ -1,4 +1,4 @@
-/*	$OpenBSD: copy.S,v 1.9 2017/08/20 04:15:43 deraadt Exp $	*/
+/*	$OpenBSD: copy.S,v 1.12 2018/07/03 23:21:15 mortimer Exp $	*/
 /*	$NetBSD: copy.S,v 1.1 2003/04/26 18:39:26 fvdl Exp $	*/
 
 /*
@@ -45,23 +45,6 @@
 #include <machine/codepatch.h>
 
 /*
- * As stac/clac SMAP instructions are 3 bytes, we want the fastest
- * 3 byte nop sequence possible here.  This will be replaced by
- * stac/clac instructions if SMAP is detected after booting.
- *
- * This would be 'nop (%rax)' if binutils could cope.
- * Intel documents multi-byte NOP sequences as being available
- * on all family 0x6 and 0xf processors (ie 686+)
- */
-#define SMAP_NOP	.byte 0x0f, 0x1f, 0x00
-#define SMAP_STAC	CODEPATCH_START			;\
-			SMAP_NOP			;\
-			CODEPATCH_END(CPTAG_STAC)
-#define SMAP_CLAC	CODEPATCH_START			;\
-			SMAP_NOP			;\
-			CODEPATCH_END(CPTAG_CLAC)
-
-/*
  * Copy routines from and to userland, plus a few more. See the
  * section 9 manpages for info. Some cases can be optimized more.
  *
@@ -69,6 +52,7 @@
  */
 
 ENTRY(kcopy)
+	RETGUARD_SETUP(copy, r10)
 	movq	CPUVAR(CURPCB),%rax
 	pushq	PCB_ONFAULT(%rax)
 	leaq	_C_LABEL(copy_fault)(%rip),%r11
@@ -93,6 +77,7 @@ ENTRY(kcopy)
 	movq	CPUVAR(CURPCB),%rdx
 	popq	PCB_ONFAULT(%rdx)
 	xorq	%rax,%rax
+	RETGUARD_CHECK(copy, r10)
 	ret
 
 1:	addq	%rcx,%rdi		# copy backward
@@ -114,9 +99,11 @@ ENTRY(kcopy)
 	movq	CPUVAR(CURPCB),%rdx
 	popq	PCB_ONFAULT(%rdx)
 	xorq	%rax,%rax
+	RETGUARD_CHECK(copy, r10)
 	ret
 
 ENTRY(copyout)
+	RETGUARD_SETUP(copy, r10)
 	pushq	$0
 
 	xchgq	%rdi,%rsi
@@ -124,10 +111,10 @@ ENTRY(copyout)
 	
 	movq	%rdi,%rdx
 	addq	%rax,%rdx
-	jc	_C_LABEL(copy_efault)
+	jc	_C_LABEL(copy_fault)
 	movq	$VM_MAXUSER_ADDRESS,%r8
 	cmpq	%r8,%rdx
-	ja	_C_LABEL(copy_efault)
+	ja	_C_LABEL(copy_fault)
 
 	movq	CPUVAR(CURPCB),%rdx
 	leaq	_C_LABEL(copy_fault)(%rip),%r11
@@ -149,9 +136,11 @@ ENTRY(copyout)
 	SMAP_CLAC
 	popq	PCB_ONFAULT(%rdx)
 	xorl	%eax,%eax
+	RETGUARD_CHECK(copy, r10)
 	ret
 
 ENTRY(copyin)
+	RETGUARD_SETUP(copy, r10)
 	movq	CPUVAR(CURPCB),%rax
 	pushq	$0
 	leaq	_C_LABEL(copy_fault)(%rip),%r11
@@ -162,10 +151,10 @@ ENTRY(copyin)
 
 	movq	%rsi,%rdx
 	addq	%rax,%rdx
-	jc	_C_LABEL(copy_efault)
+	jc	_C_LABEL(copy_fault)
 	movq	$VM_MAXUSER_ADDRESS,%r8
 	cmpq	%r8,%rdx
-	ja	_C_LABEL(copy_efault)
+	ja	_C_LABEL(copy_fault)
 
 3:	/* bcopy(%rsi, %rdi, %rax); */
 	movq	%rax,%rcx
@@ -186,18 +175,19 @@ ENTRY(copyin)
 	movq	CPUVAR(CURPCB),%rdx
 	popq	PCB_ONFAULT(%rdx)
 	xorl	%eax,%eax
+	RETGUARD_CHECK(copy, r10)
 	ret
-
-NENTRY(copy_efault)
-	movq	$EFAULT,%rax
 
 NENTRY(copy_fault)
 	SMAP_CLAC
 	movq	CPUVAR(CURPCB),%rdx
 	popq	PCB_ONFAULT(%rdx)
+	movl	$EFAULT,%eax
+	RETGUARD_CHECK(copy, r10)
 	ret
 
 ENTRY(copyoutstr)
+	RETGUARD_SETUP(copystr_return, r10)
 	xchgq	%rdi,%rsi
 	movq	%rdx,%r8
 	movq	%rcx,%r9
@@ -211,7 +201,7 @@ ENTRY(copyoutstr)
 	 */
 	movq	$VM_MAXUSER_ADDRESS,%rax
 	subq	%rdi,%rax
-	jbe	_C_LABEL(copystr_efault)	/* die if CF == 1 || ZF == 1 */
+	jbe	_C_LABEL(copystr_fault)		/* die if CF == 1 || ZF == 1 */
 	cmpq	%rdx,%rax
 	jae	1f
 	movq	%rax,%rdx
@@ -234,11 +224,12 @@ ENTRY(copyoutstr)
 2:	/* rdx is zero -- return EFAULT or ENAMETOOLONG. */
 	movq	$VM_MAXUSER_ADDRESS,%r11
 	cmpq	%r11,%rdi
-	jae	_C_LABEL(copystr_efault)
-	movq	$ENAMETOOLONG,%rax
+	jae	_C_LABEL(copystr_fault)
+	movl	$ENAMETOOLONG,%eax
 	jmp	copystr_return
 
 ENTRY(copyinstr)
+	RETGUARD_SETUP(copystr_return, r10)
 	xchgq	%rdi,%rsi
 	movq	%rdx,%r8
 	movq	%rcx,%r9
@@ -253,7 +244,7 @@ ENTRY(copyinstr)
 	 */
 	movq	$VM_MAXUSER_ADDRESS,%rax
 	subq	%rsi,%rax
-	jbe	_C_LABEL(copystr_efault)	/* die if CF == 1 || ZF == 1 */
+	jbe	_C_LABEL(copystr_fault)		/* die if CF == 1 || ZF == 1 */
 	cmpq	%rdx,%rax
 	jae	1f
 	movq	%rax,%rdx
@@ -276,14 +267,12 @@ ENTRY(copyinstr)
 2:	/* edx is zero -- return EFAULT or ENAMETOOLONG. */
 	movq	$VM_MAXUSER_ADDRESS,%r11
 	cmpq	%r11,%rsi
-	jae	_C_LABEL(copystr_efault)
-	movq	$ENAMETOOLONG,%rax
+	jae	_C_LABEL(copystr_fault)
+	movl	$ENAMETOOLONG,%eax
 	jmp	copystr_return
 
-ENTRY(copystr_efault)
-	movl	$EFAULT,%eax
-
 ENTRY(copystr_fault)
+	movl	$EFAULT,%eax
 copystr_return:
 	SMAP_CLAC
 	/* Set *lencopied and return %eax. */
@@ -293,10 +282,12 @@ copystr_return:
 	jz	8f
 	subq	%rdx,%r8
 	movq	%r8,(%r9)
-
-8:	ret
+8:
+	RETGUARD_CHECK(copystr_return, r10)
+	ret
 
 ENTRY(copystr)
+	RETGUARD_SETUP(copystr, r10)
 	xchgq	%rdi,%rsi
 	movq	%rdx,%r8
 
@@ -322,8 +313,9 @@ ENTRY(copystr)
 	jz	7f
 	subq	%rdx,%r8
 	movq	%r8,(%rcx)
-
-7:	ret
+7:
+	RETGUARD_CHECK(copystr, r10)
+	ret
 
 	.section .rodata
 	.globl _C_LABEL(_stac)

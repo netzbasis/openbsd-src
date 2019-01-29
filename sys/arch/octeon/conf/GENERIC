@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.39 2017/08/01 16:18:11 visa Exp $
+#	$OpenBSD: GENERIC,v 1.45 2019/01/12 16:59:38 visa Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -35,6 +35,7 @@ iobus0		at mainbus0
 simplebus*	at fdt?
 simplebus*	at iobus?
 
+octcrypto0	at mainbus0
 octrtc0		at mainbus0
 
 octcf0		at iobus0
@@ -48,10 +49,11 @@ ppb*		at pci?		# PCI-PCI bridges
 pci*		at ppb?
 
 cn30xxsmi*	at fdt?		# MDIO controller
-com*		at fdt?
+com*		at fdt_octeon?
 octcib*		at fdt?		# Interrupt controller
 octcit*		at fdt?		# Interrupt controller v3
 octciu*		at fdt?		# Interrupt controller v1
+octgpio*	at fdt?		# GPIO controller
 octmmc*		at fdt?		# MMC host controller
 sdmmc*		at octmmc?	# SD/MMC bus
 
@@ -91,7 +93,7 @@ usb*		at xhci?
 # USB devices
 uhub*		at usb?		# USB Hubs
 uhub*		at uhub?	# USB Hubs
-ualea*		at uhub?	# Araneus Alea II TRNG
+urng*		at uhub?	# USB Random Number Generator
 uonerng*	at uhub?	# Moonbase Otago OneRNG
 umodem*		at uhub?	# USB Modems/Serial
 ucom*		at umodem?
@@ -109,6 +111,8 @@ umct*		at uhub?	# MCT USB-RS232 serial adapter
 ucom*		at umct?
 uslcom*		at uhub?	# Silicon Laboratories CP210x serial
 ucom*		at uslcom?
+uscom*		at uhub?	# Simple USB serial adapters
+ucom*		at uscom?
 uark*		at uhub?	# Arkmicro ARK3116 serial
 ucom*		at uark?
 moscom*		at uhub?	# MosChip MCS7703 serial

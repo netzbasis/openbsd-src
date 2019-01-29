@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.80 2017/03/26 15:31:15 deraadt Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.82 2018/08/25 17:07:20 mestre Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -1126,7 +1126,6 @@ upgt_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct upgt_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifreq *ifr;
 	int s, error = 0;
 	uint8_t chan;
 
@@ -1144,15 +1143,6 @@ upgt_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_flags & IFF_RUNNING)
 				upgt_stop(sc);
 		}
-		break;
-	case SIOCADDMULTI:
-	case SIOCDELMULTI:
-		ifr = (struct ifreq *)data;
-		error = (cmd == SIOCADDMULTI) ?
-		    ether_addmulti(ifr, &ic->ic_ac) :
-		    ether_delmulti(ifr, &ic->ic_ac);
-		if (error == ENETRESET)
-			error = 0;
 		break;
 	case SIOCS80211CHANNEL:
 		/* allow fast channel switching in monitor mode */
@@ -1243,7 +1233,7 @@ upgt_media_change(struct ifnet *ifp)
 
 	DPRINTF(1, "%s: %s\n", sc->sc_dev.dv_xname, __func__);
 
-	if ((error = ieee80211_media_change(ifp) != ENETRESET))
+	if ((error = ieee80211_media_change(ifp)) != ENETRESET)
 		return (error);
 
 	if (ifp->if_flags & (IFF_UP | IFF_RUNNING)) {

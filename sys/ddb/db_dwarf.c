@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_dwarf.c,v 1.5 2016/04/20 08:02:59 mpi Exp $	 */
+/*	$OpenBSD: db_dwarf.c,v 1.7 2017/10/27 08:40:15 mpi Exp $	 */
 /*
  * Copyright (c) 2014 Matthew Dempsky <matthew@dempsky.org>
  *
@@ -18,7 +18,6 @@
 #ifdef _KERNEL
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/types.h>
 #include <machine/db_machdep.h>
 #include <ddb/db_sym.h>
 #ifdef DIAGNOSTIC
@@ -397,7 +396,7 @@ next:
 #include <sys/endian.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <elf_abi.h>
+#include <elf.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>

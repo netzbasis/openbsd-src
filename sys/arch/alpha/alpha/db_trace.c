@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.19 2016/09/19 21:18:35 jasper Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.22 2017/11/03 11:29:46 jasper Exp $	*/
 
 /*
  * Copyright (c) 1997 Niklas Hallqvist.  All rights reserved.
@@ -25,7 +25,6 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 
@@ -118,36 +117,31 @@ static __inline int regc(u_int);
 static __inline int disp(u_int);
 
 static __inline int
-sext(x)
-	u_int x;
+sext(u_int x)
 {
 	return ((x & 0x8000) ? -(-x & 0xffff) : (x & 0xffff));
 }
 
 static __inline int
-rega(x)
-	u_int x;
+rega(u_int x)
 {
 	return ((x >> 21) & 0x1f);
 }
 
 static __inline int
-regb(x)
-	u_int x;
+regb(u_int x)
 {
 	return ((x >> 16) & 0x1f);
 }
 
 static __inline int
-regc(x)
-	u_int x;
+regc(u_int x)
 {
 	return (x & 0x1f);
 }
 
 static __inline int
-disp(x)
-	u_int x;
+disp(u_int x)
 {
 	return (sext(x & 0xffff));
 }
@@ -203,12 +197,14 @@ trapframe:
 
 	while (count-- && pc >= (db_addr_t)KERNBASE && pc < (db_addr_t)&etext) {
 		db_find_sym_and_offset(pc, &name, &offset);
-		if (!name) {
-			name = "?";
+
+		if (name == NULL) {
+			(*pr)("%lx(", pc);
 			/* Limit the search for procedure start */
 			offset = 65536;
+		} else {
+			(*pr)("%s(", name);
 		}
-		(*pr)("%s(", name);
 
 		framesize = 0;
 		for (i = sizeof (int); i <= offset; i += sizeof (int)) {

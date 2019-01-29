@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Add.pm,v 1.173 2017/03/03 14:06:32 espie Exp $
+# $OpenBSD: Add.pm,v 1.179 2018/12/13 12:48:53 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -100,6 +100,8 @@ sub perform_installation
 {
 	my ($handle, $state) = @_;
 
+	return if $state->defines('stub');
+
 	$state->{partial} = $handle->{partial};
 	$state->progress->visit_with_size($handle->{plist}, 'install');
 	if ($handle->{location}{early_close}) {
@@ -113,6 +115,8 @@ sub perform_extraction
 {
 	my ($handle, $state) = @_;
 
+	return if $state->defines('stub');
+
 	$handle->{partial} = {};
 	$state->{partial} = $handle->{partial};
 	$state->{archive} = $handle->{location};
@@ -122,8 +126,10 @@ sub perform_extraction
 	my $p = $state->progress->new_sizer($handle->{plist}, $state);
 	while (my $file = $state->{archive}->next) {
 		if (keys %$wanted == 0) {
+			$state->tweak_header("skipping");
 			for my $e (values %$tied) {
 				$e->tie($state);
+				$p->advance($e);
 			}
 			if (keys %$tied > 0) {
 				$handle->{location}{early_close} = 1;
@@ -146,6 +152,11 @@ sub perform_extraction
 			    $file->name);
 		}
 		delete $wanted->{$file->name};
+		my $fullname = $e->fullname;
+		if ($fullname =~ m,^$state->{localbase}/share/doc/pkg-readmes/,) {
+			push(@{$state->{readmes}}, $fullname);
+	}
+
 		$e->prepare_to_extract($state, $file);
 		$e->extract($state, $file);
 		$p->advance($e);
@@ -412,6 +423,7 @@ sub prepare_for_addition
 		$state->{problems}++;
 		return;
 	}
+	return if $state->defines('stub');
 	my $s = $state->vstat->add($fname, $self->{tieto} ? 0 : $self->{size},
 	    $pkgname);
 	return unless defined $s;
@@ -536,10 +548,6 @@ sub install
 	$self->SUPER::install($state);
 	my $fullname = $self->fullname;
 	my $destdir = $state->{destdir};
-	if ($fullname =~ m,^$state->{localbase}/share/doc/pkg-readmes/,) {
-		$state->{readmes}++;
-	}
-
 	if ($state->{not}) {
 		$state->say("moving tempfile -> #1",
 		    $destdir.$fullname) if $state->verbose >= 5;
@@ -778,6 +786,17 @@ sub should_run
 	return $state->replacing;
 }
 
+package OpenBSD::PackingElement::Tag;
+
+sub install
+{
+	my ($self, $state) = @_;
+
+	for my $d (@{$self->{definition_list}}) {
+		$d->add_tag($self, "install", $state);
+	}
+}
+
 package OpenBSD::PackingElement::Lib;
 
 sub install
@@ -847,8 +866,9 @@ sub prepare_for_addition
 		my $key = "update_".OpenBSD::PackageName::splitstem($pkgname);
 		return if $state->defines($key);
 		if ($state->is_interactive) {
-			if ($state->confirm($pkgname.":".$self->{message}."\n".
-			    "Do you want to update now", 0)) {
+			if ($state->confirm_defaults_to_no(
+			    "#1: #2.\nDo you want to update now",
+			    $pkgname, $self->{message})) {
 			    	return;
 			}
 		} else {

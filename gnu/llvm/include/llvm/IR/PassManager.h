@@ -39,8 +39,8 @@
 #define LLVM_IR_PASSMANAGER_H
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
@@ -48,9 +48,15 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/TypeName.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/type_traits.h"
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <iterator>
 #include <list>
 #include <memory>
+#include <tuple>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace llvm {
@@ -72,6 +78,46 @@ struct alignas(8) AnalysisKey {};
 /// depends only on the CFG can then check if that AnalysisSetKey is preserved;
 /// if it is, the analysis knows that it itself is preserved.
 struct alignas(8) AnalysisSetKey {};
+
+/// This templated class represents "all analyses that operate over \<a
+/// particular IR unit\>" (e.g. a Function or a Module) in instances of
+/// PreservedAnalysis.
+///
+/// This lets a transformation say e.g. "I preserved all function analyses".
+///
+/// Note that you must provide an explicit instantiation declaration and
+/// definition for this template in order to get the correct behavior on
+/// Windows. Otherwise, the address of SetKey will not be stable.
+template <typename IRUnitT> class AllAnalysesOn {
+public:
+  static AnalysisSetKey *ID() { return &SetKey; }
+
+private:
+  static AnalysisSetKey SetKey;
+};
+
+template <typename IRUnitT> AnalysisSetKey AllAnalysesOn<IRUnitT>::SetKey;
+
+extern template class AllAnalysesOn<Module>;
+extern template class AllAnalysesOn<Function>;
+
+/// Represents analyses that only rely on functions' control flow.
+///
+/// This can be used with \c PreservedAnalyses to mark the CFG as preserved and
+/// to query whether it has been preserved.
+///
+/// The CFG of a function is defined as the set of basic blocks and the edges
+/// between them. Changing the set of basic blocks in a function is enough to
+/// mutate the CFG. Mutating the condition of a branch or argument of an
+/// invoked function does not mutate the CFG, but changing the successor labels
+/// of those instructions does.
+class CFGAnalyses {
+public:
+  static AnalysisSetKey *ID() { return &SetKey; }
+
+private:
+  static AnalysisSetKey SetKey;
+};
 
 /// A set of analyses that are preserved following a run of a transformation
 /// pass.
@@ -106,20 +152,28 @@ struct alignas(8) AnalysisSetKey {};
 /// ```
 class PreservedAnalyses {
 public:
-  /// \brief Convenience factory function for the empty preserved set.
+  /// Convenience factory function for the empty preserved set.
   static PreservedAnalyses none() { return PreservedAnalyses(); }
 
-  /// \brief Construct a special preserved set that preserves all passes.
+  /// Construct a special preserved set that preserves all passes.
   static PreservedAnalyses all() {
     PreservedAnalyses PA;
     PA.PreservedIDs.insert(&AllAnalysesKey);
     return PA;
   }
 
+  /// Construct a preserved analyses object with a single preserved set.
+  template <typename AnalysisSetT>
+  static PreservedAnalyses allInSet() {
+    PreservedAnalyses PA;
+    PA.preserveSet<AnalysisSetT>();
+    return PA;
+  }
+
   /// Mark an analysis as preserved.
   template <typename AnalysisT> void preserve() { preserve(AnalysisT::ID()); }
 
-  /// \brief Given an analysis's ID, mark the analysis as preserved, adding it
+  /// Given an analysis's ID, mark the analysis as preserved, adding it
   /// to the set.
   void preserve(AnalysisKey *ID) {
     // Clear this ID from the explicit not-preserved set if present.
@@ -164,7 +218,7 @@ public:
     NotPreservedAnalysisIDs.insert(ID);
   }
 
-  /// \brief Intersect this set with another in place.
+  /// Intersect this set with another in place.
   ///
   /// This is a mutating operation on this preserved set, removing all
   /// preserved passes which are not also preserved in the argument.
@@ -186,7 +240,7 @@ public:
         PreservedIDs.erase(ID);
   }
 
-  /// \brief Intersect this set with a temporary other set in place.
+  /// Intersect this set with a temporary other set in place.
   ///
   /// This is a mutating operation on this preserved set, removing all
   /// preserved passes which are not also preserved in the argument.
@@ -348,30 +402,7 @@ struct AnalysisInfoMixin : PassInfoMixin<DerivedT> {
   }
 };
 
-/// This templated class represents "all analyses that operate over \<a
-/// particular IR unit\>" (e.g. a Function or a Module) in instances of
-/// PreservedAnalysis.
-///
-/// This lets a transformation say e.g. "I preserved all function analyses".
-///
-/// Note that you must provide an explicit instantiation declaration and
-/// definition for this template in order to get the correct behavior on
-/// Windows. Otherwise, the address of SetKey will not be stable.
-template <typename IRUnitT>
-class AllAnalysesOn {
-public:
-  static AnalysisSetKey *ID() { return &SetKey; }
-
-private:
-  static AnalysisSetKey SetKey;
-};
-
-template <typename IRUnitT> AnalysisSetKey AllAnalysesOn<IRUnitT>::SetKey;
-
-extern template class AllAnalysesOn<Module>;
-extern template class AllAnalysesOn<Function>;
-
-/// \brief Manages a sequence of passes over a particular unit of IR.
+/// Manages a sequence of passes over a particular unit of IR.
 ///
 /// A pass manager contains a sequence of passes to run over a particular unit
 /// of IR (e.g. Functions, Modules). It is itself a valid pass over that unit of
@@ -389,7 +420,7 @@ template <typename IRUnitT,
 class PassManager : public PassInfoMixin<
                         PassManager<IRUnitT, AnalysisManagerT, ExtraArgTs...>> {
 public:
-  /// \brief Construct a pass manager.
+  /// Construct a pass manager.
   ///
   /// If \p DebugLogging is true, we'll log our progress to llvm::dbgs().
   explicit PassManager(bool DebugLogging = false) : DebugLogging(DebugLogging) {}
@@ -408,7 +439,7 @@ public:
     return *this;
   }
 
-  /// \brief Run all of the passes in this manager over the given unit of IR.
+  /// Run all of the passes in this manager over the given unit of IR.
   /// ExtraArgs are passed to each pass.
   PreservedAnalyses run(IRUnitT &IR, AnalysisManagerT &AM,
                         ExtraArgTs... ExtraArgs) {
@@ -439,7 +470,7 @@ public:
       //IR.getContext().yield();
     }
 
-    // Invaliadtion was handled after each pass in the above loop for the
+    // Invalidation was handled after each pass in the above loop for the
     // current unit of IR. Therefore, the remaining analysis results in the
     // AnalysisManager are preserved. We mark this with a set so that we don't
     // need to inspect each one individually.
@@ -452,31 +483,34 @@ public:
   }
 
   template <typename PassT> void addPass(PassT Pass) {
-    typedef detail::PassModel<IRUnitT, PassT, PreservedAnalyses,
-                              AnalysisManagerT, ExtraArgTs...>
-        PassModelT;
+    using PassModelT =
+        detail::PassModel<IRUnitT, PassT, PreservedAnalyses, AnalysisManagerT,
+                          ExtraArgTs...>;
+
     Passes.emplace_back(new PassModelT(std::move(Pass)));
   }
 
 private:
-  typedef detail::PassConcept<IRUnitT, AnalysisManagerT, ExtraArgTs...>
-      PassConceptT;
+  using PassConceptT =
+      detail::PassConcept<IRUnitT, AnalysisManagerT, ExtraArgTs...>;
 
   std::vector<std::unique_ptr<PassConceptT>> Passes;
 
-  /// \brief Flag indicating whether we should do debug logging.
+  /// Flag indicating whether we should do debug logging.
   bool DebugLogging;
 };
 
 extern template class PassManager<Module>;
-/// \brief Convenience typedef for a pass manager over modules.
-typedef PassManager<Module> ModulePassManager;
+
+/// Convenience typedef for a pass manager over modules.
+using ModulePassManager = PassManager<Module>;
 
 extern template class PassManager<Function>;
-/// \brief Convenience typedef for a pass manager over functions.
-typedef PassManager<Function> FunctionPassManager;
 
-/// \brief A container for analyses that lazily runs them and caches their
+/// Convenience typedef for a pass manager over functions.
+using FunctionPassManager = PassManager<Function>;
+
+/// A container for analyses that lazily runs them and caches their
 /// results.
 ///
 /// This class can manage analyses for any IR unit where the address of the IR
@@ -487,30 +521,30 @@ public:
 
 private:
   // Now that we've defined our invalidator, we can define the concept types.
-  typedef detail::AnalysisResultConcept<IRUnitT, PreservedAnalyses, Invalidator>
-      ResultConceptT;
-  typedef detail::AnalysisPassConcept<IRUnitT, PreservedAnalyses, Invalidator,
-                                      ExtraArgTs...>
-      PassConceptT;
+  using ResultConceptT =
+      detail::AnalysisResultConcept<IRUnitT, PreservedAnalyses, Invalidator>;
+  using PassConceptT =
+      detail::AnalysisPassConcept<IRUnitT, PreservedAnalyses, Invalidator,
+                                  ExtraArgTs...>;
 
-  /// \brief List of analysis pass IDs and associated concept pointers.
+  /// List of analysis pass IDs and associated concept pointers.
   ///
   /// Requires iterators to be valid across appending new entries and arbitrary
   /// erases. Provides the analysis ID to enable finding iterators to a given
   /// entry in maps below, and provides the storage for the actual result
   /// concept.
-  typedef std::list<std::pair<AnalysisKey *, std::unique_ptr<ResultConceptT>>>
-      AnalysisResultListT;
+  using AnalysisResultListT =
+      std::list<std::pair<AnalysisKey *, std::unique_ptr<ResultConceptT>>>;
 
-  /// \brief Map type from IRUnitT pointer to our custom list type.
-  typedef DenseMap<IRUnitT *, AnalysisResultListT> AnalysisResultListMapT;
+  /// Map type from IRUnitT pointer to our custom list type.
+  using AnalysisResultListMapT = DenseMap<IRUnitT *, AnalysisResultListT>;
 
-  /// \brief Map type from a pair of analysis ID and IRUnitT pointer to an
+  /// Map type from a pair of analysis ID and IRUnitT pointer to an
   /// iterator into a particular result list (which is where the actual analysis
   /// result is stored).
-  typedef DenseMap<std::pair<AnalysisKey *, IRUnitT *>,
-                   typename AnalysisResultListT::iterator>
-      AnalysisResultMapT;
+  using AnalysisResultMapT =
+      DenseMap<std::pair<AnalysisKey *, IRUnitT *>,
+               typename AnalysisResultListT::iterator>;
 
 public:
   /// API to communicate dependencies between analyses during invalidation.
@@ -541,10 +575,10 @@ public:
     /// dependecies on it will become invalid as a result.
     template <typename PassT>
     bool invalidate(IRUnitT &IR, const PreservedAnalyses &PA) {
-      typedef detail::AnalysisResultModel<IRUnitT, PassT,
-                                          typename PassT::Result,
-                                          PreservedAnalyses, Invalidator>
-          ResultModelT;
+      using ResultModelT =
+          detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
+                                      PreservedAnalyses, Invalidator>;
+
       return invalidateImpl<ResultModelT>(PassT::ID(), IR, PA);
     }
 
@@ -600,14 +634,14 @@ public:
     const AnalysisResultMapT &Results;
   };
 
-  /// \brief Construct an empty analysis manager.
+  /// Construct an empty analysis manager.
   ///
   /// If \p DebugLogging is true, we'll log our progress to llvm::dbgs().
   AnalysisManager(bool DebugLogging = false) : DebugLogging(DebugLogging) {}
   AnalysisManager(AnalysisManager &&) = default;
   AnalysisManager &operator=(AnalysisManager &&) = default;
 
-  /// \brief Returns true if the analysis manager has an empty results cache.
+  /// Returns true if the analysis manager has an empty results cache.
   bool empty() const {
     assert(AnalysisResults.empty() == AnalysisResultLists.empty() &&
            "The storage and index of analysis results disagree on how many "
@@ -615,14 +649,14 @@ public:
     return AnalysisResults.empty();
   }
 
-  /// \brief Clear any cached analysis results for a single unit of IR.
+  /// Clear any cached analysis results for a single unit of IR.
   ///
   /// This doesn't invalidate, but instead simply deletes, the relevant results.
   /// It is useful when the IR is being removed and we want to clear out all the
   /// memory pinned for it.
-  void clear(IRUnitT &IR) {
+  void clear(IRUnitT &IR, llvm::StringRef Name) {
     if (DebugLogging)
-      dbgs() << "Clearing all analysis results for: " << IR.getName() << "\n";
+      dbgs() << "Clearing all analysis results for: " << Name << "\n";
 
     auto ResultsListI = AnalysisResultLists.find(&IR);
     if (ResultsListI == AnalysisResultLists.end())
@@ -635,7 +669,7 @@ public:
     AnalysisResultLists.erase(ResultsListI);
   }
 
-  /// \brief Clear all analysis results cached by this AnalysisManager.
+  /// Clear all analysis results cached by this AnalysisManager.
   ///
   /// Like \c clear(IRUnitT&), this doesn't invalidate the results; it simply
   /// deletes them.  This lets you clean up the AnalysisManager when the set of
@@ -646,7 +680,7 @@ public:
     AnalysisResultLists.clear();
   }
 
-  /// \brief Get the result of an analysis pass for a given IR unit.
+  /// Get the result of an analysis pass for a given IR unit.
   ///
   /// Runs the analysis if a cached result is not available.
   template <typename PassT>
@@ -655,13 +689,15 @@ public:
            "This analysis pass was not registered prior to being queried");
     ResultConceptT &ResultConcept =
         getResultImpl(PassT::ID(), IR, ExtraArgs...);
-    typedef detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
-                                        PreservedAnalyses, Invalidator>
-        ResultModelT;
+
+    using ResultModelT =
+        detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
+                                    PreservedAnalyses, Invalidator>;
+
     return static_cast<ResultModelT &>(ResultConcept).Result;
   }
 
-  /// \brief Get the cached result of an analysis pass for a given IR unit.
+  /// Get the cached result of an analysis pass for a given IR unit.
   ///
   /// This method never runs the analysis.
   ///
@@ -675,13 +711,14 @@ public:
     if (!ResultConcept)
       return nullptr;
 
-    typedef detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
-                                        PreservedAnalyses, Invalidator>
-        ResultModelT;
+    using ResultModelT =
+        detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
+                                    PreservedAnalyses, Invalidator>;
+
     return &static_cast<ResultModelT *>(ResultConcept)->Result;
   }
 
-  /// \brief Register an analysis pass with the manager.
+  /// Register an analysis pass with the manager.
   ///
   /// The parameter is a callable whose result is an analysis pass. This allows
   /// passing in a lambda to construct the analysis.
@@ -700,10 +737,10 @@ public:
   /// hashtable.)
   template <typename PassBuilderT>
   bool registerPass(PassBuilderT &&PassBuilder) {
-    typedef decltype(PassBuilder()) PassT;
-    typedef detail::AnalysisPassModel<IRUnitT, PassT, PreservedAnalyses,
-                                      Invalidator, ExtraArgTs...>
-        PassModelT;
+    using PassT = decltype(PassBuilder());
+    using PassModelT =
+        detail::AnalysisPassModel<IRUnitT, PassT, PreservedAnalyses,
+                                  Invalidator, ExtraArgTs...>;
 
     auto &PassPtr = AnalysisPasses[PassT::ID()];
     if (PassPtr)
@@ -715,7 +752,7 @@ public:
     return true;
   }
 
-  /// \brief Invalidate a specific analysis pass for an IR module.
+  /// Invalidate a specific analysis pass for an IR module.
   ///
   /// Note that the analysis result can disregard invalidation, if it determines
   /// it is in fact still valid.
@@ -725,7 +762,7 @@ public:
     invalidateImpl(PassT::ID(), IR);
   }
 
-  /// \brief Invalidate cached analyses for an IR unit.
+  /// Invalidate cached analyses for an IR unit.
   ///
   /// Walk through all of the analyses pertaining to this unit of IR and
   /// invalidate them, unless they are preserved by the PreservedAnalyses set.
@@ -780,7 +817,7 @@ public:
 
         if (DebugLogging)
           dbgs() << "Invalidating analysis: " << this->lookUpPass(ID).name()
-                 << "\n";
+                 << " on " << IR.getName() << "\n";
 
         I = ResultsList.erase(I);
         AnalysisResults.erase({ID, &IR});
@@ -792,7 +829,7 @@ public:
   }
 
 private:
-  /// \brief Look up a registered analysis pass.
+  /// Look up a registered analysis pass.
   PassConceptT &lookUpPass(AnalysisKey *ID) {
     typename AnalysisPassMapT::iterator PI = AnalysisPasses.find(ID);
     assert(PI != AnalysisPasses.end() &&
@@ -800,7 +837,7 @@ private:
     return *PI->second;
   }
 
-  /// \brief Look up a registered analysis pass.
+  /// Look up a registered analysis pass.
   const PassConceptT &lookUpPass(AnalysisKey *ID) const {
     typename AnalysisPassMapT::const_iterator PI = AnalysisPasses.find(ID);
     assert(PI != AnalysisPasses.end() &&
@@ -808,7 +845,7 @@ private:
     return *PI->second;
   }
 
-  /// \brief Get an analysis result, running the pass if necessary.
+  /// Get an analysis result, running the pass if necessary.
   ResultConceptT &getResultImpl(AnalysisKey *ID, IRUnitT &IR,
                                 ExtraArgTs... ExtraArgs) {
     typename AnalysisResultMapT::iterator RI;
@@ -821,7 +858,8 @@ private:
     if (Inserted) {
       auto &P = this->lookUpPass(ID);
       if (DebugLogging)
-        dbgs() << "Running analysis: " << P.name() << "\n";
+        dbgs() << "Running analysis: " << P.name() << " on " << IR.getName()
+               << "\n";
       AnalysisResultListT &ResultList = AnalysisResultLists[&IR];
       ResultList.emplace_back(ID, P.run(IR, *this, ExtraArgs...));
 
@@ -836,14 +874,14 @@ private:
     return *RI->second->second;
   }
 
-  /// \brief Get a cached analysis result or return null.
+  /// Get a cached analysis result or return null.
   ResultConceptT *getCachedResultImpl(AnalysisKey *ID, IRUnitT &IR) const {
     typename AnalysisResultMapT::const_iterator RI =
         AnalysisResults.find({ID, &IR});
     return RI == AnalysisResults.end() ? nullptr : &*RI->second->second;
   }
 
-  /// \brief Invalidate a function pass result.
+  /// Invalidate a function pass result.
   void invalidateImpl(AnalysisKey *ID, IRUnitT &IR) {
     typename AnalysisResultMapT::iterator RI =
         AnalysisResults.find({ID, &IR});
@@ -852,40 +890,43 @@ private:
 
     if (DebugLogging)
       dbgs() << "Invalidating analysis: " << this->lookUpPass(ID).name()
-             << "\n";
+             << " on " << IR.getName() << "\n";
     AnalysisResultLists[&IR].erase(RI->second);
     AnalysisResults.erase(RI);
   }
 
-  /// \brief Map type from module analysis pass ID to pass concept pointer.
-  typedef DenseMap<AnalysisKey *, std::unique_ptr<PassConceptT>> AnalysisPassMapT;
+  /// Map type from module analysis pass ID to pass concept pointer.
+  using AnalysisPassMapT =
+      DenseMap<AnalysisKey *, std::unique_ptr<PassConceptT>>;
 
-  /// \brief Collection of module analysis passes, indexed by ID.
+  /// Collection of module analysis passes, indexed by ID.
   AnalysisPassMapT AnalysisPasses;
 
-  /// \brief Map from function to a list of function analysis results.
+  /// Map from function to a list of function analysis results.
   ///
   /// Provides linear time removal of all analysis results for a function and
   /// the ultimate storage for a particular cached analysis result.
   AnalysisResultListMapT AnalysisResultLists;
 
-  /// \brief Map from an analysis ID and function to a particular cached
+  /// Map from an analysis ID and function to a particular cached
   /// analysis result.
   AnalysisResultMapT AnalysisResults;
 
-  /// \brief Indicates whether we log to \c llvm::dbgs().
+  /// Indicates whether we log to \c llvm::dbgs().
   bool DebugLogging;
 };
 
 extern template class AnalysisManager<Module>;
-/// \brief Convenience typedef for the Module analysis manager.
-typedef AnalysisManager<Module> ModuleAnalysisManager;
+
+/// Convenience typedef for the Module analysis manager.
+using ModuleAnalysisManager = AnalysisManager<Module>;
 
 extern template class AnalysisManager<Function>;
-/// \brief Convenience typedef for the Function analysis manager.
-typedef AnalysisManager<Function> FunctionAnalysisManager;
 
-/// \brief An analysis over an "outer" IR unit that provides access to an
+/// Convenience typedef for the Function analysis manager.
+using FunctionAnalysisManager = AnalysisManager<Function>;
+
+/// An analysis over an "outer" IR unit that provides access to an
 /// analysis manager over an "inner" IR unit.  The inner unit must be contained
 /// in the outer unit.
 ///
@@ -909,20 +950,14 @@ public:
   class Result {
   public:
     explicit Result(AnalysisManagerT &InnerAM) : InnerAM(&InnerAM) {}
+
     Result(Result &&Arg) : InnerAM(std::move(Arg.InnerAM)) {
       // We have to null out the analysis manager in the moved-from state
       // because we are taking ownership of the responsibilty to clear the
       // analysis state.
       Arg.InnerAM = nullptr;
     }
-    Result &operator=(Result &&RHS) {
-      InnerAM = RHS.InnerAM;
-      // We have to null out the analysis manager in the moved-from state
-      // because we are taking ownership of the responsibilty to clear the
-      // analysis state.
-      RHS.InnerAM = nullptr;
-      return *this;
-    }
+
     ~Result() {
       // InnerAM is cleared in a moved from state where there is nothing to do.
       if (!InnerAM)
@@ -933,10 +968,19 @@ public:
       InnerAM->clear();
     }
 
-    /// \brief Accessor for the analysis manager.
+    Result &operator=(Result &&RHS) {
+      InnerAM = RHS.InnerAM;
+      // We have to null out the analysis manager in the moved-from state
+      // because we are taking ownership of the responsibilty to clear the
+      // analysis state.
+      RHS.InnerAM = nullptr;
+      return *this;
+    }
+
+    /// Accessor for the analysis manager.
     AnalysisManagerT &getManager() { return *InnerAM; }
 
-    /// \brief Handler for invalidation of the outer IR unit, \c IRUnitT.
+    /// Handler for invalidation of the outer IR unit, \c IRUnitT.
     ///
     /// If the proxy analysis itself is not preserved, we assume that the set of
     /// inner IR objects contained in IRUnit may have changed.  In this case,
@@ -957,7 +1001,7 @@ public:
   explicit InnerAnalysisManagerProxy(AnalysisManagerT &InnerAM)
       : InnerAM(&InnerAM) {}
 
-  /// \brief Run the analysis pass and create our proxy result object.
+  /// Run the analysis pass and create our proxy result object.
   ///
   /// This doesn't do any interesting work; it is primarily used to insert our
   /// proxy result object into the outer analysis cache so that we can proxy
@@ -970,6 +1014,7 @@ public:
 private:
   friend AnalysisInfoMixin<
       InnerAnalysisManagerProxy<AnalysisManagerT, IRUnitT>>;
+
   static AnalysisKey Key;
 
   AnalysisManagerT *InnerAM;
@@ -980,8 +1025,8 @@ AnalysisKey
     InnerAnalysisManagerProxy<AnalysisManagerT, IRUnitT, ExtraArgTs...>::Key;
 
 /// Provide the \c FunctionAnalysisManager to \c Module proxy.
-typedef InnerAnalysisManagerProxy<FunctionAnalysisManager, Module>
-    FunctionAnalysisManagerModuleProxy;
+using FunctionAnalysisManagerModuleProxy =
+    InnerAnalysisManagerProxy<FunctionAnalysisManager, Module>;
 
 /// Specialization of the invalidate method for the \c
 /// FunctionAnalysisManagerModuleProxy's result.
@@ -995,7 +1040,7 @@ bool FunctionAnalysisManagerModuleProxy::Result::invalidate(
 extern template class InnerAnalysisManagerProxy<FunctionAnalysisManager,
                                                 Module>;
 
-/// \brief An analysis over an "inner" IR unit that provides access to an
+/// An analysis over an "inner" IR unit that provides access to an
 /// analysis manager over a "outer" IR unit.  The inner unit must be contained
 /// in the outer unit.
 ///
@@ -1018,17 +1063,34 @@ class OuterAnalysisManagerProxy
     : public AnalysisInfoMixin<
           OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT, ExtraArgTs...>> {
 public:
-  /// \brief Result proxy object for \c OuterAnalysisManagerProxy.
+  /// Result proxy object for \c OuterAnalysisManagerProxy.
   class Result {
   public:
     explicit Result(const AnalysisManagerT &AM) : AM(&AM) {}
 
     const AnalysisManagerT &getManager() const { return *AM; }
 
-    /// \brief Handle invalidation by ignoring it; this pass is immutable.
+    /// When invalidation occurs, remove any registered invalidation events.
     bool invalidate(
-        IRUnitT &, const PreservedAnalyses &,
-        typename AnalysisManager<IRUnitT, ExtraArgTs...>::Invalidator &) {
+        IRUnitT &IRUnit, const PreservedAnalyses &PA,
+        typename AnalysisManager<IRUnitT, ExtraArgTs...>::Invalidator &Inv) {
+      // Loop over the set of registered outer invalidation mappings and if any
+      // of them map to an analysis that is now invalid, clear it out.
+      SmallVector<AnalysisKey *, 4> DeadKeys;
+      for (auto &KeyValuePair : OuterAnalysisInvalidationMap) {
+        AnalysisKey *OuterID = KeyValuePair.first;
+        auto &InnerIDs = KeyValuePair.second;
+        InnerIDs.erase(llvm::remove_if(InnerIDs, [&](AnalysisKey *InnerID) {
+          return Inv.invalidate(InnerID, IRUnit, PA); }),
+                       InnerIDs.end());
+        if (InnerIDs.empty())
+          DeadKeys.push_back(OuterID);
+      }
+
+      for (auto OuterID : DeadKeys)
+        OuterAnalysisInvalidationMap.erase(OuterID);
+
+      // The proxy itself remains valid regardless of anything else.
       return false;
     }
 
@@ -1068,7 +1130,7 @@ public:
 
   OuterAnalysisManagerProxy(const AnalysisManagerT &AM) : AM(&AM) {}
 
-  /// \brief Run the analysis pass and create our proxy result object.
+  /// Run the analysis pass and create our proxy result object.
   /// Nothing to see here, it just forwards the \c AM reference into the
   /// result.
   Result run(IRUnitT &, AnalysisManager<IRUnitT, ExtraArgTs...> &,
@@ -1079,6 +1141,7 @@ public:
 private:
   friend AnalysisInfoMixin<
       OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT, ExtraArgTs...>>;
+
   static AnalysisKey Key;
 
   const AnalysisManagerT *AM;
@@ -1091,10 +1154,10 @@ AnalysisKey
 extern template class OuterAnalysisManagerProxy<ModuleAnalysisManager,
                                                 Function>;
 /// Provide the \c ModuleAnalysisManager to \c Function proxy.
-typedef OuterAnalysisManagerProxy<ModuleAnalysisManager, Function>
-    ModuleAnalysisManagerFunctionProxy;
+using ModuleAnalysisManagerFunctionProxy =
+    OuterAnalysisManagerProxy<ModuleAnalysisManager, Function>;
 
-/// \brief Trivial adaptor that maps from a module to its functions.
+/// Trivial adaptor that maps from a module to its functions.
 ///
 /// Designed to allow composition of a FunctionPass(Manager) and
 /// a ModulePassManager, by running the FunctionPass(Manager) over every
@@ -1124,7 +1187,7 @@ public:
   explicit ModuleToFunctionPassAdaptor(FunctionPassT Pass)
       : Pass(std::move(Pass)) {}
 
-  /// \brief Runs the function pass across every function in the module.
+  /// Runs the function pass across every function in the module.
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
     FunctionAnalysisManager &FAM =
         AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
@@ -1160,7 +1223,7 @@ private:
   FunctionPassT Pass;
 };
 
-/// \brief A function to deduce a function pass type and wrap it in the
+/// A function to deduce a function pass type and wrap it in the
 /// templated adaptor.
 template <typename FunctionPassT>
 ModuleToFunctionPassAdaptor<FunctionPassT>
@@ -1168,7 +1231,7 @@ createModuleToFunctionPassAdaptor(FunctionPassT Pass) {
   return ModuleToFunctionPassAdaptor<FunctionPassT>(std::move(Pass));
 }
 
-/// \brief A utility pass template to force an analysis result to be available.
+/// A utility pass template to force an analysis result to be available.
 ///
 /// If there are extra arguments at the pass's run level there may also be
 /// extra arguments to the analysis manager's \c getResult routine. We can't
@@ -1183,7 +1246,7 @@ template <typename AnalysisT, typename IRUnitT,
 struct RequireAnalysisPass
     : PassInfoMixin<RequireAnalysisPass<AnalysisT, IRUnitT, AnalysisManagerT,
                                         ExtraArgTs...>> {
-  /// \brief Run this pass over some unit of IR.
+  /// Run this pass over some unit of IR.
   ///
   /// This pass can be run over any unit of IR and use any analysis manager
   /// provided they satisfy the basic API requirements. When this pass is
@@ -1198,12 +1261,12 @@ struct RequireAnalysisPass
   }
 };
 
-/// \brief A no-op pass template which simply forces a specific analysis result
+/// A no-op pass template which simply forces a specific analysis result
 /// to be invalidated.
 template <typename AnalysisT>
 struct InvalidateAnalysisPass
     : PassInfoMixin<InvalidateAnalysisPass<AnalysisT>> {
-  /// \brief Run this pass over some unit of IR.
+  /// Run this pass over some unit of IR.
   ///
   /// This pass can be run over any unit of IR and use any analysis manager,
   /// provided they satisfy the basic API requirements. When this pass is
@@ -1217,12 +1280,12 @@ struct InvalidateAnalysisPass
   }
 };
 
-/// \brief A utility pass that does nothing, but preserves no analyses.
+/// A utility pass that does nothing, but preserves no analyses.
 ///
 /// Because this preserves no analyses, any analysis passes queried after this
 /// pass runs will recompute fresh results.
 struct InvalidateAllAnalysesPass : PassInfoMixin<InvalidateAllAnalysesPass> {
-  /// \brief Run this pass over some unit of IR.
+  /// Run this pass over some unit of IR.
   template <typename IRUnitT, typename AnalysisManagerT, typename... ExtraArgTs>
   PreservedAnalyses run(IRUnitT &, AnalysisManagerT &, ExtraArgTs &&...) {
     return PreservedAnalyses::none();
@@ -1256,6 +1319,6 @@ RepeatedPass<PassT> createRepeatedPass(int Count, PassT P) {
   return RepeatedPass<PassT>(Count, std::move(P));
 }
 
-}
+} // end namespace llvm
 
-#endif
+#endif // LLVM_IR_PASSMANAGER_H

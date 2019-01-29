@@ -1,4 +1,4 @@
-/*	$OpenBSD: amd64errata.c,v 1.7 2017/07/24 15:17:31 naddy Exp $	*/
+/*	$OpenBSD: amd64errata.c,v 1.12 2018/03/31 22:52:30 bluhm Exp $	*/
 /*	$NetBSD: errata.c,v 1.6 2007/02/05 21:05:45 ad Exp $	*/
 
 /*-
@@ -44,7 +44,6 @@
 
 #include <sys/param.h>
 
-#include <sys/types.h>
 #include <sys/systm.h>
 
 #include <machine/cpu.h>
@@ -333,7 +332,7 @@ amd64_errata(struct cpu_info *ci)
 
 #ifdef ERRATA_DEBUG
 		printf("%s: testing for erratum %d\n",
-		    ci->ci_dev.dv_xname, e->e_num);
+		    ci->ci_dev->dv_xname, e->e_num);
 #endif
 
 		/*
@@ -353,7 +352,7 @@ amd64_errata(struct cpu_info *ci)
 
 #ifdef ERRATA_DEBUG
 		printf("%s: erratum %d present%s\n",
-		    ci->ci_dev.dv_xname, e->e_num,
+		    ci->ci_dev->dv_xname, e->e_num,
 		    (rc == 2) ? " and patched" : "");
 #endif
 	}
@@ -364,7 +363,7 @@ amd64_errata(struct cpu_info *ci)
 		int first = 1;
 
 		/* Print out found and corrected */
-		printf("%s: AMD %s", ci->ci_dev.dv_xname,
+		printf("%s: AMD %s", ci->ci_dev->dv_xname,
 		    (corrected == 1) ? "erratum" : "errata");
 		for (e = errata; e < ex; e++) {
 			if (e->e_reported == 2) {
@@ -382,7 +381,7 @@ amd64_errata(struct cpu_info *ci)
 		int first = 1;
 
 		/* Print out found but not corrected */
-		printf("%s: AMD %s", ci->ci_dev.dv_xname,
+		printf("%s: AMD %s", ci->ci_dev->dv_xname,
 		    (found == 1) ? "erratum" : "errata");
 		for (e = errata; e < ex; e++) {
 			if (e->e_reported == 1) {

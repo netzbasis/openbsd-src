@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_command.c,v 1.75 2017/08/14 19:57:05 uwe Exp $	*/
+/*	$OpenBSD: db_command.c,v 1.84 2018/09/18 18:36:27 anton Exp $	*/
 /*	$NetBSD: db_command.c,v 1.20 1996/03/30 22:30:05 christos Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <ddb/db_watch.h>
 #include <ddb/db_run.h>
 #include <ddb/db_sym.h>
+#include <ddb/db_var.h>
 #include <ddb/db_variables.h>
 #include <ddb/db_interface.h>
 #include <ddb/db_extern.h>
@@ -110,7 +111,7 @@ void	db_dmesg_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_show_panic_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_bcstats_print_cmd(db_expr_t, int, db_expr_t, char *);
 void	db_struct_offset_cmd(db_expr_t, int, db_expr_t, char *);
-void	db_struct_layout_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_ctf_show_struct(db_expr_t, int, db_expr_t, char *);
 void	db_show_regs(db_expr_t, boolean_t, db_expr_t, char *);
 void	db_write_cmd(db_expr_t, boolean_t, db_expr_t, char *);
 void	db_witness_display(db_expr_t, int, db_expr_t, char *);
@@ -352,16 +353,7 @@ db_map_print_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 void
 db_malloc_print_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
-#if defined(MALLOC_DEBUG)
-	extern void debug_malloc_printit(int (*)(const char *, ...), vaddr_t);
-
-	if (!have_addr)
-		addr = 0;
-
-	debug_malloc_printit(db_printf, (vaddr_t)addr);
-#else
 	malloc_printit(db_printf);
-#endif
 }
 
 /*ARGSUSED*/
@@ -399,8 +391,10 @@ db_show_all_mounts(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 	if (modif[0] == 'f')
 		full = TRUE;
 
-	TAILQ_FOREACH(mp, &mountlist, mnt_list)
+	TAILQ_FOREACH(mp, &mountlist, mnt_list) {
+		db_printf("mountpoint %p\n", mp);
 		vfs_mount_print(mp, full, db_printf);
+	}
 }
 
 extern struct pool vnode_pool;
@@ -498,6 +492,11 @@ db_show_panic_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 {
 	if (panicstr)
 		db_printf("%s\n", panicstr);
+	else if (faultstr) {
+		db_printf("kernel page fault\n");
+		db_printf("%s\n", faultstr);
+		db_stack_trace_print(addr, have_addr, 1, modif, db_printf);
+	}
 	else
 		db_printf("the kernel did not panic\n");	/* yet */
 }
@@ -581,18 +580,13 @@ struct db_command db_show_cmds[] = {
 	{ "nfsnode",	db_nfsnode_print_cmd,	0,	NULL },
 #endif
 	{ "object",	db_object_print_cmd,	0,	NULL },
-#ifdef DDB_STRUCT
-	{ "offset",	db_struct_offset_cmd,	CS_OWN,	NULL },
-#endif
 	{ "page",	db_page_print_cmd,	0,	NULL },
 	{ "panic",	db_show_panic_cmd,	0,	NULL },
 	{ "pool",	db_pool_print_cmd,	0,	NULL },
 	{ "proc",	db_proc_print_cmd,	0,	NULL },
 	{ "registers",	db_show_regs,		0,	NULL },
 	{ "socket",	db_socket_print_cmd,	0,	NULL },
-#ifdef DDB_STRUCT
-	{ "struct",	db_struct_layout_cmd,	CS_OWN,	NULL },
-#endif
+	{ "struct",	db_ctf_show_struct,	CS_OWN,	NULL },
 	{ "uvmexp",	db_uvmexp_print_cmd,	0,	NULL },
 	{ "vnode",	db_vnode_print_cmd,	0,	NULL },
 	{ "watches",	db_listwatch_cmd, 	0,	NULL },
@@ -617,6 +611,7 @@ struct db_command db_command_table[] = {
   /* this must be the first entry, if it exists */
 	{ "machine",    NULL,                   0,     		NULL},
 #endif
+	{ "kill",	db_kill_cmd,		0,		NULL },
 	{ "print",	db_print_cmd,		0,		NULL },
 	{ "p",		db_print_cmd,		0,		NULL },
 	{ "pprint",	db_ctf_pprint_cmd,	CS_OWN,		NULL },
@@ -639,6 +634,7 @@ struct db_command db_command_table[] = {
 	{ "next",	db_trace_until_matching_cmd,0,		NULL },
 	{ "match",	db_trace_until_matching_cmd,0,		NULL },
 	{ "trace",	db_stack_trace_cmd,	0,		NULL },
+	{ "bt",		db_stack_trace_cmd,	0,		NULL },
 	{ "call",	db_fncall,		CS_OWN,		NULL },
 	{ "ps",		db_show_all_procs,	0,		NULL },
 	{ "callout",	db_show_callout,	0,		NULL },
@@ -781,39 +777,48 @@ db_fncall(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 }
 
 void
+db_reboot(int howto)
+{
+	spl0();
+	if (!curproc)
+		curproc = &proc0;
+	reboot(howto);
+}
+
+void
 db_boot_sync_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_AUTOBOOT | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_AUTOBOOT | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
 db_boot_crash_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_NOSYNC | RB_DUMP | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_NOSYNC | RB_DUMP | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
 db_boot_dump_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_DUMP | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_DUMP | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
 db_boot_halt_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_NOSYNC | RB_HALT | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_NOSYNC | RB_HALT | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
 db_boot_reboot_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_AUTOBOOT | RB_NOSYNC | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_AUTOBOOT | RB_NOSYNC | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
 db_boot_poweroff_cmd(db_expr_t addr, int haddr, db_expr_t count, char *modif)
 {
-	reboot(RB_NOSYNC | RB_HALT | RB_POWERDOWN | RB_TIMEBAD | RB_USERREQ);
+	db_reboot(RB_NOSYNC | RB_HALT | RB_POWERDOWN | RB_TIMEBAD | RB_USERREQ);
 }
 
 void
@@ -873,7 +878,7 @@ db_show_regs(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
  */
 /*ARGSUSED*/
 void
-db_write_cmd(db_expr_t	address, boolean_t have_addr, db_expr_t count,
+db_write_cmd(db_expr_t address, boolean_t have_addr, db_expr_t count,
     char *modif)
 {
 	db_addr_t	addr;

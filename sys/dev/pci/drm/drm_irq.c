@@ -1278,9 +1278,9 @@ void drm_vblank_put(struct drm_device *dev, unsigned int pipe)
 	if (atomic_dec_and_test(&vblank->refcount)) {
 		if (drm_vblank_offdelay == 0)
 			return;
-		else if (dev->vblank_disable_immediate || drm_vblank_offdelay < 0)
+		else if (drm_vblank_offdelay < 0)
 			vblank_disable_fn((unsigned long)vblank);
-		else
+		else if (!dev->vblank_disable_immediate)
 			mod_timer(&vblank->disable_timer,
 				  jiffies + ((drm_vblank_offdelay * HZ)/1000));
 	}
@@ -1317,8 +1317,21 @@ void drm_wait_one_vblank(struct drm_device *dev, unsigned int pipe)
 	int ret;
 	u32 last;
 
-	if (WARN_ON(pipe >= dev->num_crtcs) || cold)
+	if (WARN_ON(pipe >= dev->num_crtcs))
 		return;
+
+#ifdef __OpenBSD__
+	/*
+	 * If we're cold, vblank interrupts won't happen even if
+	 * they're turned on by the driver.  Just stall long enough
+	 * for a vblank to pass.  This assumes a vrefresh of at least
+	 * 25 Hz.
+	 */
+	if (cold) {
+		delay(40000);
+		return;
+	}
+#endif
 
 	ret = drm_vblank_get(dev, pipe);
 	if (WARN(ret, "vblank not available on crtc %i, ret=%i\n", pipe, ret))
@@ -1917,6 +1930,16 @@ bool drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 
 	wake_up(&vblank->queue);
 	drm_handle_vblank_events(dev, pipe);
+
+	/* With instant-off, we defer disabling the interrupt until after
+	 * we finish processing the following vblank. The disable has to
+	 * be last (after drm_handle_vblank_events) so that the timestamp
+	 * is always accurate.
+	 */
+	if (dev->vblank_disable_immediate &&
+	    drm_vblank_offdelay > 0 &&
+	    !atomic_read(&vblank->refcount))
+		vblank_disable_fn((unsigned long)vblank);
 
 	spin_unlock_irqrestore(&dev->event_lock, irqflags);
 

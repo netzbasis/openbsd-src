@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus_dma.c,v 1.36 2017/05/05 12:54:47 kettenis Exp $	*/
+/*	$OpenBSD: bus_dma.c,v 1.39 2018/09/06 11:50:54 jsg Exp $	*/
 /*	$NetBSD: bus_dma.c,v 1.38 2003/10/30 08:44:13 scw Exp $	*/
 
 /*-
@@ -40,7 +40,6 @@
 #include <sys/buf.h>
 #include <sys/reboot.h>
 #include <sys/conf.h>
-#include <sys/file.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/vnode.h>
@@ -159,12 +158,15 @@ _bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegments,
 void
 _bus_dmamap_destroy(bus_dma_tag_t t, bus_dmamap_t map)
 {
+	size_t mapsize;
 
 #ifdef DEBUG_DMA
 	printf("dmamap_destroy: t=%p map=%p\n", t, map);
 #endif	/* DEBUG_DMA */
 
-	free(map, M_DEVBUF, 0);
+	mapsize = sizeof(struct arm32_bus_dmamap) +
+	    (sizeof(bus_dma_segment_t) * (map->_dm_segcnt - 1));
+	free(map, M_DEVBUF, mapsize);
 }
 
 /*
@@ -256,8 +258,8 @@ _bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map, struct mbuf *m0,
 	for (m = m0; m != NULL && error == 0; m = m->m_next) {
 		if (m->m_len == 0)
 			continue;
- 		error = _bus_dmamap_load_buffer(t, map, m->m_data, m->m_len,
- 		    NULL, flags, &lastaddr, &seg, first);
+		error = _bus_dmamap_load_buffer(t, map, m->m_data, m->m_len,
+		    NULL, flags, &lastaddr, &seg, first);
 		first = 0;
 	}
 	if (error == 0) {

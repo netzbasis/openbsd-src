@@ -1,5 +1,5 @@
 /* $NetBSD: loadfile.c,v 1.10 2000/12/03 02:53:04 tsutsui Exp $ */
-/* $OpenBSD: loadfile_elf.c,v 1.26 2017/03/27 00:28:04 deraadt Exp $ */
+/* $OpenBSD: loadfile_elf.c,v 1.33 2018/12/12 21:20:57 claudio Exp $ */
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -85,8 +85,8 @@
 #include <sys/ioctl.h>
 #include <sys/reboot.h>
 #include <sys/exec.h>
-#include <sys/exec_elf.h>
 
+#include <elf.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -100,6 +100,7 @@
 #include <machine/vmmvar.h>
 #include <machine/biosvar.h>
 #include <machine/segments.h>
+#include <machine/specialreg.h>
 #include <machine/pte.h>
 
 #include "loadfile.h"
@@ -121,10 +122,11 @@ static void setsegment(struct mem_segment_descriptor *, uint32_t,
 static int elf32_exec(FILE *, Elf32_Ehdr *, u_long *, int);
 static int elf64_exec(FILE *, Elf64_Ehdr *, u_long *, int);
 static size_t create_bios_memmap(struct vm_create_params *, bios_memmap_t *);
-static uint32_t push_bootargs(bios_memmap_t *, size_t);
+static uint32_t push_bootargs(bios_memmap_t *, size_t, bios_bootmac_t *);
 static size_t push_stack(uint32_t, uint32_t, uint32_t, uint32_t);
 static void push_gdt(void);
-static void push_pt(void);
+static void push_pt_32(void);
+static void push_pt_64(void);
 static void marc4random_buf(paddr_t, int);
 static void mbzero(paddr_t, int);
 static void mbcopy(void *, paddr_t, int);
@@ -217,42 +219,52 @@ push_gdt(void)
 }
 
 /*
- * push_pt
+ * push_pt_32
  *
  * Create an identity-mapped page directory hierarchy mapping the first
- * 1GB of physical memory. This is used during bootstrapping VMs on
+ * 4GB of physical memory. This is used during bootstrapping i386 VMs on
  * CPUs without unrestricted guest capability.
  */
 static void
-push_pt(void)
+push_pt_32(void)
 {
-	pt_entry_t ptes[NPTE_PG];
-	uint64_t i;
+	uint32_t ptes[1024], i;
 
-#ifdef __i386__
 	memset(ptes, 0, sizeof(ptes));
-	for (i = 0 ; i < NPTE_PG; i++) {
-		ptes[i] = PG_V | PG_PS | (NBPD * i);
+	for (i = 0 ; i < 1024; i++) {
+		ptes[i] = PG_V | PG_RW | PG_u | PG_PS | ((4096 * 1024) * i);
 	}
-	write_mem(PML4_PAGE, ptes, PAGE_SIZE);
-#else
-	/* PML3 [0] - first 1GB */
+	write_mem(PML3_PAGE, ptes, PAGE_SIZE);
+}
+
+/*
+ * push_pt_64
+ *
+ * Create an identity-mapped page directory hierarchy mapping the first
+ * 1GB of physical memory. This is used during bootstrapping 64 bit VMs on
+ * CPUs without unrestricted guest capability.
+ */
+static void
+push_pt_64(void)
+{
+	uint64_t ptes[512], i;
+
+	/* PDPDE0 - first 1GB */
 	memset(ptes, 0, sizeof(ptes));
 	ptes[0] = PG_V | PML3_PAGE;
 	write_mem(PML4_PAGE, ptes, PAGE_SIZE);
 
-	/* PML3 [0] - first 1GB */
+	/* PDE0 - first 1GB */
 	memset(ptes, 0, sizeof(ptes));
 	ptes[0] = PG_V | PG_RW | PG_u | PML2_PAGE;
 	write_mem(PML3_PAGE, ptes, PAGE_SIZE);
 
-	/* PML2 [0..511] - first 1GB (in 2MB pages) */
+	/* First 1GB (in 2MB pages) */
 	memset(ptes, 0, sizeof(ptes));
-	for (i = 0 ; i < NPTE_PG; i++) {
-		ptes[i] = PG_V | PG_RW | PG_u | PG_PS | (NBPD_L2 * i);
+	for (i = 0 ; i < 512; i++) {
+		ptes[i] = PG_V | PG_RW | PG_u | PG_PS | ((2048 * 1024) * i);
 	}
 	write_mem(PML2_PAGE, ptes, PAGE_SIZE);
-#endif
 }
 
 /*
@@ -266,7 +278,7 @@ push_pt(void)
  *  vcp: the VM create parameters, holding the exact memory map
  *  (out) vrs: register state to set on init for this kernel
  *  bootdev: the optional non-default boot device
- *  howto: optionel boot flags for the kernel
+ *  howto: optional boot flags for the kernel
  *
  * Return values:
  *  0 if successful
@@ -274,13 +286,15 @@ push_pt(void)
  */
 int
 loadfile_elf(FILE *fp, struct vm_create_params *vcp,
-    struct vcpu_reg_state *vrs, uint32_t bootdev, uint32_t howto)
+    struct vcpu_reg_state *vrs, uint32_t bootdev, uint32_t howto,
+    unsigned int bootdevice)
 {
-	int r;
+	int r, is_i386 = 0;
 	uint32_t bootargsz;
 	size_t n, stacksize;
 	u_long marks[MARK_MAX];
 	bios_memmap_t memmap[VMM_MAX_MEM_RANGES + 1];
+	bios_bootmac_t bm, *bootmac = NULL;
 
 	if ((r = fread(&hdr, 1, sizeof(hdr), fp)) != sizeof(hdr))
 		return 1;
@@ -289,6 +303,7 @@ loadfile_elf(FILE *fp, struct vm_create_params *vcp,
 	if (memcmp(hdr.elf32.e_ident, ELFMAG, SELFMAG) == 0 &&
 	    hdr.elf32.e_ident[EI_CLASS] == ELFCLASS32) {
 		r = elf32_exec(fp, &hdr.elf32, marks, LOAD_ALL);
+		is_i386 = 1;
 	} else if (memcmp(hdr.elf64.e_ident, ELFMAG, SELFMAG) == 0 &&
 	    hdr.elf64.e_ident[EI_CLASS] == ELFCLASS64) {
 		r = elf64_exec(fp, &hdr.elf64, marks, LOAD_ALL);
@@ -299,9 +314,23 @@ loadfile_elf(FILE *fp, struct vm_create_params *vcp,
 		return (r);
 
 	push_gdt();
-	push_pt();
+
+	if (is_i386) {
+		push_pt_32();
+		/* Reconfigure the default flat-64 register set for 32 bit */
+		vrs->vrs_crs[VCPU_REGS_CR3] = PML3_PAGE;
+		vrs->vrs_crs[VCPU_REGS_CR4] = CR4_PSE;
+		vrs->vrs_msrs[VCPU_REGS_EFER] = 0ULL;
+	}
+	else
+		push_pt_64();
+
+	if (bootdevice & VMBOOTDEV_NET) {
+		bootmac = &bm;
+		memcpy(bootmac, vcp->vcp_macs[0], ETHER_ADDR_LEN);
+	}
 	n = create_bios_memmap(vcp, memmap);
-	bootargsz = push_bootargs(memmap, n);
+	bootargsz = push_bootargs(memmap, n, bootmac);
 	stacksize = push_stack(bootargsz, marks[MARK_END], bootdev, howto);
 
 #ifdef __i386__
@@ -386,9 +415,9 @@ create_bios_memmap(struct vm_create_params *vcp, bios_memmap_t *memmap)
  *  The size of the bootargs
  */
 static uint32_t
-push_bootargs(bios_memmap_t *memmap, size_t n)
+push_bootargs(bios_memmap_t *memmap, size_t n, bios_bootmac_t *bootmac)
 {
-	uint32_t memmap_sz, consdev_sz, i;
+	uint32_t memmap_sz, consdev_sz, bootmac_sz, i;
 	bios_consdev_t consdev;
 	uint32_t ba[1024];
 
@@ -401,7 +430,7 @@ push_bootargs(bios_memmap_t *memmap, size_t n)
 
 	/* Serial console device, COM1 @ 0x3f8 */
 	consdev.consdev = makedev(8, 0);	/* com1 @ 0x3f8 */
-	consdev.conspeed = 9600;
+	consdev.conspeed = 115200;
 	consdev.consaddr = 0x3f8;
 	consdev.consfreq = 0;
 
@@ -410,13 +439,22 @@ push_bootargs(bios_memmap_t *memmap, size_t n)
 	ba[i + 1] = consdev_sz;
 	ba[i + 2] = consdev_sz;
 	memcpy(&ba[i + 3], &consdev, sizeof(bios_consdev_t));
-	i = i + 3 + (sizeof(bios_consdev_t) / 4);
+	i += consdev_sz / sizeof(int);
 
-	ba[i] = 0xFFFFFFFF; /* BOOTARG_END */
+	if (bootmac) {
+		bootmac_sz = 3 * sizeof(int) + (sizeof(bios_bootmac_t) + 3) & ~3;
+		ba[i] = 0x7;   /* bootmac */
+		ba[i + 1] = bootmac_sz;
+		ba[i + 2] = bootmac_sz;
+		memcpy(&ba[i + 3], bootmac, sizeof(bios_bootmac_t));
+		i += bootmac_sz / sizeof(int);
+	} 
+
+	ba[i++] = 0xFFFFFFFF; /* BOOTARG_END */
 
 	write_mem(BOOTARGS_PAGE, ba, PAGE_SIZE);
 
-	return (memmap_sz + consdev_sz);
+	return (i * sizeof(int));
 }
 
 /*
@@ -441,7 +479,7 @@ push_bootargs(bios_memmap_t *memmap, size_t n)
  *  bootargsz: size of boot arguments
  *  end: kernel 'end' symbol value
  *  bootdev: the optional non-default boot device
- *  howto: optionel boot flags for the kernel
+ *  howto: optional boot flags for the kernel
  *
  * Return values:
  *  size of the stack
@@ -610,33 +648,8 @@ marc4random_buf(paddr_t addr, int sz)
 static void
 mbzero(paddr_t addr, int sz)
 {
-	int i, ct;
-	char buf[PAGE_SIZE];
-
-	/*
-	 * break up the 'sz' bytes into PAGE_SIZE chunks for use with
-	 * write_mem
-	 */
-	ct = 0;
-	memset(buf, 0, sizeof(buf));
-	if (addr % PAGE_SIZE != 0) {
-		ct = PAGE_SIZE - (addr % PAGE_SIZE);
-
-		if (write_mem(addr, buf, ct))
-			return;
-
-		addr += ct;
-	}
-
-	for (i = 0; i < sz; i+= PAGE_SIZE, addr += PAGE_SIZE) {
-		if (i + PAGE_SIZE > sz)
-			ct = sz - i;
-		else
-			ct = PAGE_SIZE;
-
-		if (write_mem(addr, buf, ct))
-			return;
-	}
+	if (write_mem(addr, NULL, sz))
+		return;
 }
 
 /*

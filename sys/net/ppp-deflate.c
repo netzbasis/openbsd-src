@@ -1,4 +1,4 @@
-/*	$OpenBSD: ppp-deflate.c,v 1.13 2017/06/19 17:58:49 bluhm Exp $	*/
+/*	$OpenBSD: ppp-deflate.c,v 1.15 2018/11/09 14:14:31 claudio Exp $	*/
 /*	$NetBSD: ppp-deflate.c,v 1.1 1996/03/15 02:28:09 paulus Exp $	*/
 
 /*
@@ -39,7 +39,6 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/mbuf.h>
 #include <net/ppp_defs.h>
@@ -259,7 +258,7 @@ z_compress(arg, mret, mp, orig_len, maxolen)
 	m->m_len = 0;
 	if (maxolen + state->hdrlen > MLEN)
 	    MCLGET(m, M_DONTWAIT);
-	wspace = M_TRAILINGSPACE(m);
+	wspace = m_trailingspace(m);
 	if (state->hdrlen + PPP_HDRLEN + 2 < wspace) {
 	    m->m_data += state->hdrlen;
 	    wspace -= state->hdrlen;
@@ -320,7 +319,7 @@ z_compress(arg, mret, mp, orig_len, maxolen)
 		    if (maxolen - olen > MLEN)
 			MCLGET(m, M_DONTWAIT);
 		    state->strm.next_out = mtod(m, u_char *);
-		    state->strm.avail_out = wspace = M_TRAILINGSPACE(m);
+		    state->strm.avail_out = wspace = m_trailingspace(m);
 		}
 	    }
 	    if (m == NULL) {
@@ -519,7 +518,7 @@ z_decompress(arg, mi, mop)
     mo->m_len = 0;
     mo->m_next = NULL;
     MCLGET(mo, M_DONTWAIT);
-    ospace = M_TRAILINGSPACE(mo);
+    ospace = m_trailingspace(mo);
     if (state->hdrlen + PPP_HDRLEN < ospace) {
 	mo->m_data += state->hdrlen;
 	ospace -= state->hdrlen;
@@ -595,7 +594,7 @@ z_decompress(arg, mi, mop)
 		}
 		MCLGET(mo, M_DONTWAIT);
 		state->strm.next_out = mtod(mo, u_char *);
-		state->strm.avail_out = ospace = M_TRAILINGSPACE(mo);
+		state->strm.avail_out = ospace = m_trailingspace(mo);
 	    }
 	}
     }

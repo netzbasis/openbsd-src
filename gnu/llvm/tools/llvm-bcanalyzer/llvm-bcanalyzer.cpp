@@ -31,19 +31,14 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitstreamReader.h"
 #include "llvm/Bitcode/LLVMBitCodes.h"
-#include "llvm/IR/Verifier.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/SHA1.h"
-#include "llvm/Support/Signals.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
-#include <cctype>
-#include <map>
-#include <system_error>
 using namespace llvm;
 
 static cl::opt<std::string>
@@ -71,12 +66,18 @@ static cl::opt<bool>
   ShowBinaryBlobs("show-binary-blobs",
                   cl::desc("Print binary blobs using hex escapes"));
 
+static cl::opt<std::string> CheckHash(
+    "check-hash",
+    cl::desc("Check module hash using the argument as a string table"));
+
 namespace {
 
 /// CurStreamTypeType - A type for CurStreamType
 enum CurStreamTypeType {
   UnknownBitstream,
-  LLVMIRBitstream
+  LLVMIRBitstream,
+  ClangSerializedASTBitstream,
+  ClangSerializedDiagnosticsBitstream,
 };
 
 }
@@ -121,7 +122,11 @@ static const char *GetBlockName(unsigned BlockID,
   case bitc::USELIST_BLOCK_ID:             return "USELIST_BLOCK_ID";
   case bitc::GLOBALVAL_SUMMARY_BLOCK_ID:
                                            return "GLOBALVAL_SUMMARY_BLOCK";
+  case bitc::FULL_LTO_GLOBALVAL_SUMMARY_BLOCK_ID:
+                                      return "FULL_LTO_GLOBALVAL_SUMMARY_BLOCK";
   case bitc::MODULE_STRTAB_BLOCK_ID:       return "MODULE_STRTAB_BLOCK";
+  case bitc::STRTAB_BLOCK_ID:              return "STRTAB_BLOCK";
+  case bitc::SYMTAB_BLOCK_ID:              return "SYMTAB_BLOCK";
   }
 }
 
@@ -171,7 +176,6 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(MODULE_CODE, GLOBALVAR)
       STRINGIFY_CODE(MODULE_CODE, FUNCTION)
       STRINGIFY_CODE(MODULE_CODE, ALIAS)
-      STRINGIFY_CODE(MODULE_CODE, PURGEVALS)
       STRINGIFY_CODE(MODULE_CODE, GCNAME)
       STRINGIFY_CODE(MODULE_CODE, VSTOFFSET)
       STRINGIFY_CODE(MODULE_CODE, METADATA_VALUES_UNUSED)
@@ -298,11 +302,13 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(MST_CODE, HASH)
     }
   case bitc::GLOBALVAL_SUMMARY_BLOCK_ID:
+  case bitc::FULL_LTO_GLOBALVAL_SUMMARY_BLOCK_ID:
     switch (CodeID) {
     default:
       return nullptr;
       STRINGIFY_CODE(FS, PERMODULE)
       STRINGIFY_CODE(FS, PERMODULE_PROFILE)
+      STRINGIFY_CODE(FS, PERMODULE_RELBF)
       STRINGIFY_CODE(FS, PERMODULE_GLOBALVAR_INIT_REFS)
       STRINGIFY_CODE(FS, COMBINED)
       STRINGIFY_CODE(FS, COMBINED_PROFILE)
@@ -311,7 +317,16 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(FS, COMBINED_ALIAS)
       STRINGIFY_CODE(FS, COMBINED_ORIGINAL_NAME)
       STRINGIFY_CODE(FS, VERSION)
+      STRINGIFY_CODE(FS, FLAGS)
       STRINGIFY_CODE(FS, TYPE_TESTS)
+      STRINGIFY_CODE(FS, TYPE_TEST_ASSUME_VCALLS)
+      STRINGIFY_CODE(FS, TYPE_CHECKED_LOAD_VCALLS)
+      STRINGIFY_CODE(FS, TYPE_TEST_ASSUME_CONST_VCALL)
+      STRINGIFY_CODE(FS, TYPE_CHECKED_LOAD_CONST_VCALL)
+      STRINGIFY_CODE(FS, VALUE_GUID)
+      STRINGIFY_CODE(FS, CFI_FUNCTION_DEFS)
+      STRINGIFY_CODE(FS, CFI_FUNCTION_DECLS)
+      STRINGIFY_CODE(FS, TYPE_ID)
     }
   case bitc::METADATA_ATTACHMENT_ID:
     switch(CodeID) {
@@ -378,6 +393,16 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
     default: return nullptr;
     case bitc::OPERAND_BUNDLE_TAG: return "OPERAND_BUNDLE_TAG";
     }
+  case bitc::STRTAB_BLOCK_ID:
+    switch(CodeID) {
+    default: return nullptr;
+    case bitc::STRTAB_BLOB: return "BLOB";
+    }
+  case bitc::SYMTAB_BLOCK_ID:
+    switch(CodeID) {
+    default: return nullptr;
+    case bitc::SYMTAB_BLOB: return "BLOB";
+    }
   }
 #undef STRINGIFY_CODE
 }
@@ -422,7 +447,7 @@ static std::map<unsigned, PerBlockIDStats> BlockIDStats;
 /// ReportError - All bitcode analysis errors go through this function, making this a
 /// good place to breakpoint if debugging.
 static bool ReportError(const Twine &Err) {
-  errs() << Err << "\n";
+  WithColor::error() << Err << "\n";
   return true;
 }
 
@@ -577,7 +602,7 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
     ++BlockStats.NumRecords;
 
     StringRef Blob;
-    unsigned CurrentRecordPos = Stream.GetCurrentBitNo();
+    uint64_t CurrentRecordPos = Stream.GetCurrentBitNo();
     unsigned Code = Stream.readRecord(Entry.ID, Record, &Blob);
 
     // Increment the # occurrences of this code.
@@ -631,13 +656,15 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
       }
 
       // If we found a module hash, let's verify that it matches!
-      if (BlockID == bitc::MODULE_BLOCK_ID && Code == bitc::MODULE_CODE_HASH) {
+      if (BlockID == bitc::MODULE_BLOCK_ID && Code == bitc::MODULE_CODE_HASH &&
+          !CheckHash.empty()) {
         if (Record.size() != 5)
           outs() << " (invalid)";
         else {
           // Recompute the hash and compare it to the one in the bitcode
           SHA1 Hasher;
           StringRef Hash;
+          Hasher.update(CheckHash);
           {
             int BlockSize = (CurrentRecordPos / 8) - BlockEntryPos;
             auto Ptr = Stream.getPointerToByte(BlockEntryPos, BlockSize);
@@ -672,7 +699,7 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
           std::string Str;
           bool ArrayIsPrintable = true;
           for (unsigned j = i - 1, je = Record.size(); j != je; ++j) {
-            if (!isprint(static_cast<unsigned char>(Record[j]))) {
+            if (!isPrint(static_cast<unsigned char>(Record[j]))) {
               ArrayIsPrintable = false;
               break;
             }
@@ -692,7 +719,7 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
         } else {
           bool BlobIsPrintable = true;
           for (unsigned i = 0, e = Blob.size(); i != e; ++i)
-            if (!isprint(static_cast<unsigned char>(Blob[i]))) {
+            if (!isPrint(static_cast<unsigned char>(Blob[i]))) {
               BlobIsPrintable = false;
               break;
             }
@@ -719,6 +746,35 @@ static void PrintSize(double Bits) {
 static void PrintSize(uint64_t Bits) {
   outs() << format("%lub/%.2fB/%luW", (unsigned long)Bits,
                    (double)Bits/8, (unsigned long)(Bits/32));
+}
+
+static CurStreamTypeType ReadSignature(BitstreamCursor &Stream) {
+  char Signature[6];
+  Signature[0] = Stream.Read(8);
+  Signature[1] = Stream.Read(8);
+
+  // Autodetect the file contents, if it is one we know.
+  if (Signature[0] == 'C' && Signature[1] == 'P') {
+    Signature[2] = Stream.Read(8);
+    Signature[3] = Stream.Read(8);
+    if (Signature[2] == 'C' && Signature[3] == 'H')
+      return ClangSerializedASTBitstream;
+  } else if (Signature[0] == 'D' && Signature[1] == 'I') {
+    Signature[2] = Stream.Read(8);
+    Signature[3] = Stream.Read(8);
+    if (Signature[2] == 'A' && Signature[3] == 'G')
+      return ClangSerializedDiagnosticsBitstream;
+  } else {
+    Signature[2] = Stream.Read(4);
+    Signature[3] = Stream.Read(4);
+    Signature[4] = Stream.Read(4);
+    Signature[5] = Stream.Read(4);
+    if (Signature[0] == 'B' && Signature[1] == 'C' &&
+        Signature[2] == 0x0 && Signature[3] == 0xC &&
+        Signature[4] == 0xE && Signature[5] == 0xD)
+      return LLVMIRBitstream;
+  }
+  return UnknownBitstream;
 }
 
 static bool openBitcodeFile(StringRef Path,
@@ -764,22 +820,7 @@ static bool openBitcodeFile(StringRef Path,
   }
 
   Stream = BitstreamCursor(ArrayRef<uint8_t>(BufPtr, EndBufPtr));
-
-  // Read the stream signature.
-  char Signature[6];
-  Signature[0] = Stream.Read(8);
-  Signature[1] = Stream.Read(8);
-  Signature[2] = Stream.Read(4);
-  Signature[3] = Stream.Read(4);
-  Signature[4] = Stream.Read(4);
-  Signature[5] = Stream.Read(4);
-
-  // Autodetect the file contents, if it is one we know.
-  CurStreamType = UnknownBitstream;
-  if (Signature[0] == 'B' && Signature[1] == 'C' &&
-      Signature[2] == 0x0 && Signature[3] == 0xC &&
-      Signature[4] == 0xE && Signature[5] == 0xD)
-    CurStreamType = LLVMIRBitstream;
+  CurStreamType = ReadSignature(Stream);
 
   return false;
 }
@@ -848,8 +889,18 @@ static int AnalyzeBitcode() {
   outs() << "\n";
   outs() << "        Stream type: ";
   switch (CurStreamType) {
-  case UnknownBitstream: outs() << "unknown\n"; break;
-  case LLVMIRBitstream:  outs() << "LLVM IR\n"; break;
+  case UnknownBitstream:
+    outs() << "unknown\n";
+    break;
+  case LLVMIRBitstream:
+    outs() << "LLVM IR\n";
+    break;
+  case ClangSerializedASTBitstream:
+    outs() << "Clang Serialized AST\n";
+    break;
+  case ClangSerializedDiagnosticsBitstream:
+    outs() << "Clang Serialized Diagnostics\n";
+    break;
   }
   outs() << "  # Toplevel Blocks: " << NumTopBlocks << "\n";
   outs() << "\n";
@@ -939,11 +990,7 @@ static int AnalyzeBitcode() {
 
 
 int main(int argc, char **argv) {
-  // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal(argv[0]);
-  PrettyStackTraceProgram X(argc, argv);
-  llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
+  InitLLVM X(argc, argv);
   cl::ParseCommandLineOptions(argc, argv, "llvm-bcanalyzer file analyzer\n");
-
   return AnalyzeBitcode();
 }

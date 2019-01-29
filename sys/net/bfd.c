@@ -1,7 +1,7 @@
-/*	$OpenBSD: bfd.c,v 1.63 2017/08/10 16:38:37 bluhm Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.74 2019/01/20 22:52:23 phessler Exp $	*/
 
 /*
- * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
+ * Copyright (c) 2016-2018 Peter Hessler <phessler@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,12 +20,11 @@
  * Support for Bi-directional Forwarding Detection (RFC 5880 / 5881)
  */
 
-#include <sys/errno.h>
 #include <sys/param.h>
+#include <sys/errno.h>
 
 #include <sys/task.h>
 #include <sys/pool.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/stdint.h>
@@ -150,7 +149,7 @@ void		 bfddestroy(void);
 struct socket	*bfd_listener(struct bfd_config *, unsigned int);
 struct socket	*bfd_sender(struct bfd_config *, unsigned int);
 void		 bfd_input(struct bfd_config *, struct mbuf *);
-void		 bfd_set_state(struct bfd_config *, int);
+void		 bfd_set_state(struct bfd_config *, unsigned int);
 
 int	 bfd_send(struct bfd_config *, struct mbuf *);
 void	 bfd_send_control(void *);
@@ -196,7 +195,7 @@ bfdset(struct rtentry *rt)
 	bfd->bc_rt = rt;
 	rtref(bfd->bc_rt);	/* we depend on this route not going away */
 
-	microtime(bfd->bc_time);
+	getmicrotime(bfd->bc_time);
 	bfd_reset(bfd);
 	bfd->bc_neighbor->bn_ldiscr = arc4random();
 
@@ -227,17 +226,14 @@ bfdclear(struct rtentry *rt)
 	if ((bfd = bfd_lookup(rt)) == NULL)
 		return;
 
-	task_add(systqmp, &bfd->bc_clear_task);
+	task_add(bfdtq, &bfd->bc_clear_task);
 }
 
 void
 bfd_clear_task(void *arg)
 {
-	struct rtentry *rt = (struct rtentry *)arg;
-	struct bfd_config *bfd;
-
-	if ((bfd = bfd_lookup(rt)) == NULL)
-		return;
+	struct bfd_config	*bfd = (struct bfd_config *)arg;
+	struct rtentry		*rt = bfd->bc_rt;
 
 	timeout_del(&bfd->bc_timo_rx);
 	timeout_del(&bfd->bc_timo_tx);
@@ -254,14 +250,14 @@ bfd_clear_task(void *arg)
 	if (bfd->bc_so) {
 		/* remove upcall before calling soclose or it will be called */
 		bfd->bc_so->so_upcall = NULL;
-		soclose(bfd->bc_so);
+		soclose(bfd->bc_so, MSG_DONTWAIT);
 	}
 	if (bfd->bc_soecho) {
 		bfd->bc_soecho->so_upcall = NULL;
-		soclose(bfd->bc_soecho);
+		soclose(bfd->bc_soecho, MSG_DONTWAIT);
 	}
 	if (bfd->bc_sosend)
-		soclose(bfd->bc_sosend);
+		soclose(bfd->bc_sosend, MSG_DONTWAIT);
 
 	rtfree(bfd->bc_rt);
 	bfd->bc_rt = NULL;
@@ -306,6 +302,7 @@ bfddestroy(void)
 		bfdclear(bfd->bc_rt);
 	}
 
+	taskq_barrier(bfdtq);
 	taskq_destroy(bfdtq);
 	pool_destroy(&bfd_pool_time);
 	pool_destroy(&bfd_pool_neigh);
@@ -437,6 +434,7 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 	struct socket		*so;
 	struct mbuf		*m = NULL, *mopt = NULL;
 	int			*ip, error;
+	int			 s;
 
 	/* sa_family and sa_len must be equal */
 	if (src->sa_family != dst->sa_family || src->sa_len != dst->sa_len)
@@ -453,7 +451,10 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 	mopt->m_len = sizeof(int);
 	ip = mtod(mopt, int *);
 	*ip = MAXTTL;
+	s = solock(so);
 	error = sosetopt(so, IPPROTO_IP, IP_MINTTL, mopt);
+	sounlock(so, s);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -477,7 +478,9 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 		break;
 	}
 
+	s = solock(so);
 	error = sobind(so, m, p);
+	sounlock(so, s);
 	if (error) {
 		printf("%s: sobind error %d\n",
 		    __func__, error);
@@ -492,7 +495,7 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 
  close:
 	m_free(m);
-	soclose(so);
+	soclose(so, MSG_DONTWAIT);
 
 	return (NULL);
 }
@@ -513,6 +516,7 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	struct sockaddr_in6	*sin6;
 	struct sockaddr_in	*sin;
 	int		 error, *ip;
+	int		 s;
 
 	/* sa_family and sa_len must be equal */
 	if (src->sa_family != dst->sa_family || src->sa_len != dst->sa_len)
@@ -527,7 +531,10 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	mopt->m_len = sizeof(int);
 	ip = mtod(mopt, int *);
 	*ip = IP_PORTRANGE_HIGH;
+	s = solock(so);
 	error = sosetopt(so, IPPROTO_IP, IP_PORTRANGE, mopt);
+	sounlock(so, s);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -538,7 +545,10 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	mopt->m_len = sizeof(int);
 	ip = mtod(mopt, int *);
 	*ip = MAXTTL;
+	s = solock(so);
 	error = sosetopt(so, IPPROTO_IP, IP_TTL, mopt);
+	sounlock(so, s);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -549,7 +559,10 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	mopt->m_len = sizeof(int);
 	ip = mtod(mopt, int *);
 	*ip = IPTOS_PREC_INTERNETCONTROL;
+	s = solock(so);
 	error = sosetopt(so, IPPROTO_IP, IP_TOS, mopt);
+	sounlock(so, s);
+	m_freem(mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -573,7 +586,9 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 		break;
 	}
 
+	s = solock(so);
 	error = sobind(so, m, p);
+	sounlock(so, s);
 	if (error) {
 		printf("%s: sobind error %d\n",
 		    __func__, error);
@@ -594,7 +609,9 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 		break;
 	}
 
+	s = solock(so);
 	error = soconnect(so, m);
+	sounlock(so, s);
 	if (error && error != ECONNREFUSED) {
 		printf("%s: soconnect error %d\n",
 		    __func__, error);
@@ -607,7 +624,7 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 
  close:
 	m_free(m);
-	soclose(so);
+	soclose(so, MSG_DONTWAIT);
 
 	return (NULL);
 }
@@ -885,7 +902,7 @@ bfd_input(struct bfd_config *bfd, struct mbuf *m)
 }
 
 void
-bfd_set_state(struct bfd_config *bfd, int state)
+bfd_set_state(struct bfd_config *bfd, unsigned int state)
 {
 	struct ifnet	*ifp;
 	struct rtentry	*rt = bfd->bc_rt;
@@ -939,7 +956,7 @@ bfd_set_uptime(struct bfd_config *bfd)
 {
 	struct timeval tv;
 
-	microtime(&tv);
+	getmicrotime(&tv);
 	bfd->bc_lastuptime = tv.tv_sec - bfd->bc_time->tv_sec;
 	memcpy(bfd->bc_time, &tv, sizeof(tv));
 }
@@ -989,7 +1006,7 @@ bfd_send(struct bfd_config *bfd, struct mbuf *m)
 {
 	struct rtentry *rt = bfd->bc_rt;
 
-	if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_BFD)) {
+	if (!rtisvalid(rt)) {
 		m_freem(m);
 		return (EHOSTDOWN);
 	}

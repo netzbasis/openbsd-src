@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ral.c,v 1.143 2017/07/03 09:21:09 kevlo Exp $	*/
+/*	$OpenBSD: if_ral.c,v 1.145 2019/01/13 14:27:15 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -196,7 +196,7 @@ ural_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface == NULL || uaa->configno != RAL_CONFIG_NO)
+	if (uaa->configno != RAL_CONFIG_NO || uaa->ifaceno != RAL_IFACE_NO)
 		return UMATCH_NONE;
 
 	return (usb_lookup(ural_devs, uaa->vendor, uaa->product) != NULL) ?
@@ -212,19 +212,10 @@ ural_attach(struct device *parent, struct device *self, void *aux)
 	struct ifnet *ifp = &ic->ic_if;
 	usb_interface_descriptor_t *id;
 	usb_endpoint_descriptor_t *ed;
-	usbd_status error;
 	int i;
 
 	sc->sc_udev = uaa->device;
-
-	/* get the first interface handle */
-	error = usbd_device2interface_handle(sc->sc_udev, RAL_IFACE_INDEX,
-	    &sc->sc_iface);
-	if (error != 0) {
-		printf("%s: could not get interface handle\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
+	sc->sc_iface = uaa->iface;
 
 	/*
 	 * Find endpoints.
@@ -1299,7 +1290,6 @@ ural_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct ural_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifreq *ifr;
 	int s, error = 0;
 
 	if (usbd_is_dying(sc->sc_udev))
@@ -1323,17 +1313,6 @@ ural_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_flags & IFF_RUNNING)
 				ural_stop(ifp, 1);
 		}
-		break;
-
-	case SIOCADDMULTI:
-	case SIOCDELMULTI:
-		ifr = (struct ifreq *)data;
-		error = (cmd == SIOCADDMULTI) ?
-		    ether_addmulti(ifr, &ic->ic_ac) :
-		    ether_delmulti(ifr, &ic->ic_ac);
-
-		if (error == ENETRESET)
-			error = 0;
 		break;
 
 	case SIOCS80211CHANNEL:

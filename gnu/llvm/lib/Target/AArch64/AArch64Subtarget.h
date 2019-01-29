@@ -19,9 +19,12 @@
 #include "AArch64InstrInfo.h"
 #include "AArch64RegisterInfo.h"
 #include "AArch64SelectionDAGInfo.h"
-#include "llvm/CodeGen/GlobalISel/GISelAccessor.h"
+#include "llvm/CodeGen/GlobalISel/CallLowering.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
+#include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
+#include "llvm/CodeGen/GlobalISel/RegisterBankInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include <string>
 
 #define GET_SUBTARGETINFO_HEADER
@@ -38,14 +41,22 @@ public:
     Others,
     CortexA35,
     CortexA53,
+    CortexA55,
     CortexA57,
     CortexA72,
     CortexA73,
+    CortexA75,
     Cyclone,
     ExynosM1,
+    ExynosM3,
     Falkor,
     Kryo,
-    Vulcan
+    Saphira,
+    ThunderX2T99,
+    ThunderX,
+    ThunderXT81,
+    ThunderXT83,
+    ThunderXT88
   };
 
 protected:
@@ -54,35 +65,65 @@ protected:
 
   bool HasV8_1aOps = false;
   bool HasV8_2aOps = false;
+  bool HasV8_3aOps = false;
+  bool HasV8_4aOps = false;
 
   bool HasFPARMv8 = false;
   bool HasNEON = false;
   bool HasCrypto = false;
+  bool HasDotProd = false;
   bool HasCRC = false;
   bool HasLSE = false;
   bool HasRAS = false;
+  bool HasRDM = false;
   bool HasPerfMon = false;
   bool HasFullFP16 = false;
   bool HasSPE = false;
+
+  // ARMv8.4 Crypto extensions
+  bool HasSM4 = true;
+  bool HasSHA3 = true;
+
+  bool HasSHA2 = true;
+  bool HasAES = true;
+
+  bool HasLSLFast = false;
+  bool HasSVE = false;
+  bool HasRCPC = false;
+  bool HasAggressiveFMA = false;
 
   // HasZeroCycleRegMove - Has zero-cycle register mov instructions.
   bool HasZeroCycleRegMove = false;
 
   // HasZeroCycleZeroing - Has zero-cycle zeroing instructions.
   bool HasZeroCycleZeroing = false;
+  bool HasZeroCycleZeroingFPWorkaround = false;
 
   // StrictAlign - Disallow unaligned memory accesses.
   bool StrictAlign = false;
+
+  // NegativeImmediates - transform instructions with negative immediates
+  bool NegativeImmediates = true;
+
+  // Enable 64-bit vectorization in SLP.
+  unsigned MinVectorRegisterBitWidth = 64;
+
   bool UseAA = false;
   bool PredictableSelectIsExpensive = false;
   bool BalanceFPOps = false;
   bool CustomAsCheapAsMove = false;
+  bool ExynosAsCheapAsMove = false;
   bool UsePostRAScheduler = false;
   bool Misaligned128StoreIsSlow = false;
   bool Paired128IsSlow = false;
+  bool STRQroIsSlow = false;
   bool UseAlternateSExtLoadCVTF32Pattern = false;
   bool HasArithmeticBccFusion = false;
   bool HasArithmeticCbzFusion = false;
+  bool HasFuseAddress = false;
+  bool HasFuseAES = false;
+  bool HasFuseCCSelect = false;
+  bool HasFuseLiterals = false;
   bool DisableLatencySchedHeuristic = false;
   bool UseRSqrt = false;
   uint8_t MaxInterleaveFactor = 2;
@@ -94,9 +135,13 @@ protected:
   unsigned PrefFunctionAlignment = 0;
   unsigned PrefLoopAlignment = 0;
   unsigned MaxJumpTableSize = 0;
+  unsigned WideningBaseCost = 0;
 
   // ReserveX18 - X18 is not available as a general purpose register.
   bool ReserveX18;
+
+  // ReserveX20 - X20 is not available as a general purpose register.
+  bool ReserveX20 = false;
 
   bool IsLittle;
 
@@ -107,10 +152,12 @@ protected:
   AArch64InstrInfo InstrInfo;
   AArch64SelectionDAGInfo TSInfo;
   AArch64TargetLowering TLInfo;
-  /// Gather the accessor points to GlobalISel-related APIs.
-  /// This is used to avoid ifndefs spreading around while GISel is
-  /// an optional library.
-  std::unique_ptr<GISelAccessor> GISel;
+
+  /// GlobalISel related APIs.
+  std::unique_ptr<CallLowering> CallLoweringInfo;
+  std::unique_ptr<InstructionSelector> InstSelector;
+  std::unique_ptr<LegalizerInfo> Legalizer;
+  std::unique_ptr<RegisterBankInfo> RegBankInfo;
 
 private:
   /// initializeSubtargetDependencies - Initializes using CPUString and the
@@ -128,11 +175,6 @@ public:
   AArch64Subtarget(const Triple &TT, const std::string &CPU,
                    const std::string &FS, const TargetMachine &TM,
                    bool LittleEndian);
-
-  /// This object will take onwership of \p GISelAccessor.
-  void setGISelAccessor(GISelAccessor &GISel) {
-    this->GISel.reset(&GISel);
-  }
 
   const AArch64SelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
@@ -167,34 +209,64 @@ public:
 
   bool hasV8_1aOps() const { return HasV8_1aOps; }
   bool hasV8_2aOps() const { return HasV8_2aOps; }
+  bool hasV8_3aOps() const { return HasV8_3aOps; }
+  bool hasV8_4aOps() const { return HasV8_4aOps; }
 
   bool hasZeroCycleRegMove() const { return HasZeroCycleRegMove; }
 
   bool hasZeroCycleZeroing() const { return HasZeroCycleZeroing; }
 
+  bool hasZeroCycleZeroingFPWorkaround() const {
+    return HasZeroCycleZeroingFPWorkaround;
+  }
+
   bool requiresStrictAlign() const { return StrictAlign; }
 
   bool isXRaySupported() const override { return true; }
 
+  unsigned getMinVectorRegisterBitWidth() const {
+    return MinVectorRegisterBitWidth;
+  }
+
   bool isX18Reserved() const { return ReserveX18; }
+  bool isX20Reserved() const { return ReserveX20; }
   bool hasFPARMv8() const { return HasFPARMv8; }
   bool hasNEON() const { return HasNEON; }
   bool hasCrypto() const { return HasCrypto; }
+  bool hasDotProd() const { return HasDotProd; }
   bool hasCRC() const { return HasCRC; }
   bool hasLSE() const { return HasLSE; }
   bool hasRAS() const { return HasRAS; }
+  bool hasRDM() const { return HasRDM; }
+  bool hasSM4() const { return HasSM4; }
+  bool hasSHA3() const { return HasSHA3; }
+  bool hasSHA2() const { return HasSHA2; }
+  bool hasAES() const { return HasAES; }
   bool balanceFPOps() const { return BalanceFPOps; }
   bool predictableSelectIsExpensive() const {
     return PredictableSelectIsExpensive;
   }
   bool hasCustomCheapAsMoveHandling() const { return CustomAsCheapAsMove; }
+  bool hasExynosCheapAsMoveHandling() const { return ExynosAsCheapAsMove; }
   bool isMisaligned128StoreSlow() const { return Misaligned128StoreIsSlow; }
   bool isPaired128Slow() const { return Paired128IsSlow; }
+  bool isSTRQroSlow() const { return STRQroIsSlow; }
   bool useAlternateSExtLoadCVTF32Pattern() const {
     return UseAlternateSExtLoadCVTF32Pattern;
   }
   bool hasArithmeticBccFusion() const { return HasArithmeticBccFusion; }
   bool hasArithmeticCbzFusion() const { return HasArithmeticCbzFusion; }
+  bool hasFuseAddress() const { return HasFuseAddress; }
+  bool hasFuseAES() const { return HasFuseAES; }
+  bool hasFuseCCSelect() const { return HasFuseCCSelect; }
+  bool hasFuseLiterals() const { return HasFuseLiterals; }
+
+  /// Return true if the CPU supports any kind of instruction fusion.
+  bool hasFusion() const {
+    return hasArithmeticBccFusion() || hasArithmeticCbzFusion() ||
+           hasFuseAES() || hasFuseCCSelect() || hasFuseLiterals();
+  }
+
   bool useRSqrt() const { return UseRSqrt; }
   unsigned getMaxInterleaveFactor() const { return MaxInterleaveFactor; }
   unsigned getVectorInsertExtractBaseCost() const {
@@ -211,6 +283,8 @@ public:
 
   unsigned getMaximumJumpTableSize() const { return MaxJumpTableSize; }
 
+  unsigned getWideningBaseCost() const { return WideningBaseCost; }
+
   /// CPU has TBI (top byte of addresses is ignored during HW address
   /// translation) and OS enables it.
   bool supportsAddressTopByteIgnored() const;
@@ -218,6 +292,10 @@ public:
   bool hasPerfMon() const { return HasPerfMon; }
   bool hasFullFP16() const { return HasFullFP16; }
   bool hasSPE() const { return HasSPE; }
+  bool hasLSLFast() const { return HasLSLFast; }
+  bool hasSVE() const { return HasSVE; }
+  bool hasRCPC() const { return HasRCPC; }
+  bool hasAggressiveFMA() const { return HasAggressiveFMA; }
 
   bool isLittleEndian() const { return IsLittle; }
 
@@ -227,6 +305,7 @@ public:
   bool isTargetOpenBSD() const { return TargetTriple.isOSOpenBSD(); }
   bool isTargetWindows() const { return TargetTriple.isOSWindows(); }
   bool isTargetAndroid() const { return TargetTriple.isAndroid(); }
+  bool isTargetFuchsia() const { return TargetTriple.isOSFuchsia(); }
 
   bool isTargetCOFF() const { return TargetTriple.isOSBinFormatCOFF(); }
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
@@ -234,9 +313,17 @@ public:
 
   bool useAA() const override { return UseAA; }
 
-  /// getMaxInlineSizeThreshold - Returns the maximum memset / memcpy size
-  /// that still makes it profitable to inline the call.
-  unsigned getMaxInlineSizeThreshold() const { return 64; }
+  bool useSmallAddressing() const {
+    switch (TLInfo.getTargetMachine().getCodeModel()) {
+      case CodeModel::Kernel:
+        // Kernel is currently allowed only for Fuchsia targets,
+        // where it is the same as Small for almost all purposes.
+      case CodeModel::Small:
+        return true;
+      default:
+        return false;
+    }
+  }
 
   /// ParseSubtargetFeatures - Parses features string setting specified
   /// subtarget options.  Definition of function is auto generated by tblgen.
@@ -247,12 +334,8 @@ public:
   unsigned char ClassifyGlobalReference(const GlobalValue *GV,
                                         const TargetMachine &TM) const;
 
-  /// This function returns the name of a function which has an interface
-  /// like the non-standard bzero function, if such a function exists on
-  /// the current subtarget and it is considered prefereable over
-  /// memset with zero passed as the second argument. Otherwise it
-  /// returns null.
-  const char *getBZeroEntry() const;
+  unsigned char classifyGlobalFunctionReference(const GlobalValue *GV,
+                                                const TargetMachine &TM) const;
 
   void overrideSchedPolicy(MachineSchedPolicy &Policy,
                            unsigned NumRegionInstrs) const override;
@@ -260,6 +343,19 @@ public:
   bool enableEarlyIfConversion() const override;
 
   std::unique_ptr<PBQPRAConstraint> getCustomPBQPConstraints() const override;
+
+  bool isCallingConvWin64(CallingConv::ID CC) const {
+    switch (CC) {
+    case CallingConv::C:
+      return isTargetWindows();
+    case CallingConv::Win64:
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  void mirFileLoaded(MachineFunction &MF) const override;
 };
 } // End llvm namespace
 

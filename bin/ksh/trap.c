@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.30 2016/03/17 23:33:23 mmcc Exp $	*/
+/*	$OpenBSD: trap.c,v 1.33 2018/12/08 21:03:51 jca Exp $	*/
 
 /*
  * signal handling
@@ -92,20 +92,18 @@ gettrap(const char *name, int igncase)
 			return &sigtraps[n];
 		return NULL;
 	}
+
+	if (igncase && strncasecmp(name, "SIG", 3) == 0)
+		name += 3;
+	if (!igncase && strncmp(name, "SIG", 3) == 0)
+		name += 3;
+
 	for (p = sigtraps, i = NSIG+1; --i >= 0; p++)
 		if (p->name) {
-			if (igncase) {
-				if (p->name && (!strcasecmp(p->name, name) ||
-				    (strlen(name) > 3 && !strncasecmp("SIG",
-				    p->name, 3) &&
-				    !strcasecmp(p->name, name + 3))))
-					return p;
-			} else {
-				if (p->name && (!strcmp(p->name, name) ||
-				    (strlen(name) > 3 && !strncmp("SIG",
-				    p->name, 3) && !strcmp(p->name, name + 3))))
-					return p;
-			}
+			if (igncase && strcasecmp(p->name, name) == 0)
+				return p;
+			if (!igncase && strcmp(p->name, name) == 0)
+				return p;
 		}
 	return NULL;
 }
@@ -402,8 +400,8 @@ setexecsig(Trap *p, int restore)
 {
 	/* XXX debugging */
 	if (!(p->flags & (TF_ORIG_IGN|TF_ORIG_DFL)))
-		internal_errorf(1, "setexecsig: unset signal %d(%s)",
-		    p->signal, p->name);
+		internal_errorf("%s: unset signal %d(%s)",
+		    __func__, p->signal, p->name);
 
 	/* restore original value for exec'd kids */
 	p->flags &= ~(TF_EXEC_IGN|TF_EXEC_DFL);

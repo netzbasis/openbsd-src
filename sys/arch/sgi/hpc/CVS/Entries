@@ -1,7 +1,7 @@
 /Makefile/1.1/Thu May 22 19:39:37 2014//
 /dpclock.c/1.3/Sat Oct 11 18:41:18 2014//
 /dsclock.c/1.4/Wed Oct  3 22:46:09 2012//
-/files.hpc/1.6/Mon May 11 06:46:21 2015//
+/files.hpc/1.7/Wed Feb 14 23:51:49 2018//
 /hpc.c/1.18/Fri Sep 18 20:50:02 2015//
 /hpcdma.c/1.1/Wed Mar 28 20:44:23 2012//
 /hpcdma.h/1.1/Wed Mar 28 20:44:23 2012//
@@ -17,5 +17,5 @@
 /wskbdmap_sgi.c/1.3/Wed Aug 31 15:21:34 2016//
 /z8530kbd.c/1.7/Sun Dec  7 13:10:45 2014//
 /z8530ms.c/1.2/Sun Jun  5 20:02:36 2016//
-/zs.c/1.15/Sun Apr 30 16:45:45 2017//
+/zs.c/1.16/Sat Dec 30 20:46:59 2017//
 D

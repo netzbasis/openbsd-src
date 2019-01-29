@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcmcia_cis_quirks.c,v 1.12 2015/03/14 03:38:49 jsg Exp $	*/
+/*	$OpenBSD: pcmcia_cis_quirks.c,v 1.14 2017/09/08 05:36:52 deraadt Exp $	*/
 /*	$NetBSD: pcmcia_cis_quirks.c,v 1.3 1998/12/29 09:00:28 marc Exp $	*/
 
 /*
@@ -30,7 +30,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -276,8 +275,10 @@ void pcmcia_check_cis_quirks(sc)
 				SIMPLEQ_INIT(&pf->cfe_head);
 
 				cfe = malloc(sizeof(*cfe), M_DEVBUF, M_NOWAIT);
-				if (cfe == NULL)
+				if (cfe == NULL) {
+					free(pf, M_DEVBUF, sizeof(*pf));
 					return;
+				}
 				*cfe = *pcmcia_cis_quirks[i].cfe;
 
 				SIMPLEQ_INSERT_TAIL(&pf->cfe_head, cfe, cfe_list);

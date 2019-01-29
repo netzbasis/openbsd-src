@@ -1,4 +1,4 @@
-/* $OpenBSD: acpicpu.c,v 1.80 2017/04/27 16:34:18 deraadt Exp $ */
+/* $OpenBSD: acpicpu.c,v 1.83 2018/09/19 05:23:16 guenther Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
@@ -110,7 +110,7 @@ struct acpi_cstate
 	u_short		flags;		/* CST_FLAG_* */
 	u_short		latency;
 	int		power;
-	u_int64_t	address;	/* or mwait hint */
+	uint64_t	address;	/* or mwait hint */
 };
 
 unsigned long cst_stats[4] = { 0 };
@@ -121,7 +121,7 @@ struct acpicpu_softc {
 
 	int			sc_duty_wid;
 	int			sc_duty_off;
-	u_int32_t		sc_pblk_addr;
+	uint32_t		sc_pblk_addr;
 	int			sc_pblk_len;
 	int			sc_flags;
 	unsigned long		sc_prev_sleep;
@@ -144,10 +144,10 @@ struct acpicpu_softc {
 
 	struct acpicpu_pct	sc_pct;
 	/* save compensation for pct access for lying bios' */
-	u_int32_t		sc_pct_stat_as;
-	u_int32_t		sc_pct_ctrl_as;
-	u_int32_t		sc_pct_stat_len;
-	u_int32_t		sc_pct_ctrl_len;
+	uint32_t		sc_pct_stat_as;
+	uint32_t		sc_pct_ctrl_as;
+	uint32_t		sc_pct_stat_len;
+	uint32_t		sc_pct_ctrl_len;
 	/*
 	 * XXX: _PPC Change listener
 	 * PPC changes can occur when for example a machine is disconnected
@@ -169,7 +169,7 @@ void	acpicpu_getcst_from_fadt(struct acpicpu_softc *);
 void	acpicpu_print_one_cst(struct acpi_cstate *_cx);
 void	acpicpu_print_cst(struct acpicpu_softc *_sc);
 void	acpicpu_add_cstate(struct acpicpu_softc *_sc, int _state, int _method,
-	    int _flags, int _latency, int _power, u_int64_t _address);
+	    int _flags, int _latency, int _power, uint64_t _address);
 void	acpicpu_set_pdc(struct acpicpu_softc *);
 void	acpicpu_idle(void);
 
@@ -311,12 +311,13 @@ acpicpu_set_pdc(struct acpicpu_softc *sc)
 
 /*
  * sanity check mwait hints against what cpuid told us
+ * ...but because intel screwed up, just check whether cpuid says
+ * the given state has _any_ substates.
  */
 static int
 check_mwait_hints(int state, int hints)
 {
 	int cstate;
-	int substate;
 	int num_substates;
 
 	if (cpu_mwait_size == 0)
@@ -328,11 +329,9 @@ check_mwait_hints(int state, int hints)
 		/* out of range of test against CPUID; just trust'em */
 		return (1);
 	}
-	substate = hints & 0xf;
 	num_substates = (cpu_mwait_states >> (4 * cstate)) & 0xf;
-	if (substate >= num_substates) {
-		printf("\nC%d: state %d: substate %d >= num %d",
-		    state, cstate, substate, num_substates);
+	if (num_substates == 0) {
+		printf(": C%d bad (state %d has no substates)", state, cstate);
 		return (0);
 	}
 	return (1);
@@ -340,7 +339,7 @@ check_mwait_hints(int state, int hints)
 
 void
 acpicpu_add_cstate(struct acpicpu_softc *sc, int state, int method,
-    int flags, int latency, int power, u_int64_t address)
+    int flags, int latency, int power, uint64_t address)
 {
 	struct acpi_cstate	*cx;
 
@@ -368,7 +367,7 @@ void
 acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 {
 	struct acpicpu_softc	*sc = arg;
-	u_int64_t addr;
+	uint64_t addr;
 	struct acpi_grd *grd;
 	int state, method, flags;
 
@@ -383,7 +382,7 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 	if (state < 0 || state > 4)
 		return;
 	if (val->v_package[0]->type != AML_OBJTYPE_BUFFER) {
-		printf("\nC%d: unexpected ACPI object type %d",
+		printf(": C%d (unexpected ACPI object type %d)",
 		    state, val->v_package[0]->type);
 		return;
 	}
@@ -392,7 +391,7 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 	    grd->grd_descriptor != LR_GENREGISTER ||
 	    grd->grd_length != sizeof(grd->grd_gas) ||
 	    val->v_package[0]->v_buffer[sizeof(*grd)] != SRT_ENDTAG) {
-		printf("\nC%d: bogo buffer", state);
+		printf(": C%d (bogo buffer)", state);
 		return;
 	}
 
@@ -402,11 +401,11 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 		if (grd->grd_gas.register_bit_width == 0) {
 			method = CST_METH_HALT;
 			addr = 0;
-		} else if (grd->grd_gas.register_bit_width == 1 ||
-		           grd->grd_gas.register_bit_width == 8) {
+		} else {
 			/*
-			 * vendor 1 == Intel
-			 * vendor 8 == "AML author used the bitwidth"
+			 * In theory we should only do this for
+			 * vendor 1 == Intel but other values crop up,
+			 * presumably due to the normal ACPI spec confusion.
 			 */
 			switch (grd->grd_gas.register_bit_offset) {
 			case 0x1:
@@ -415,7 +414,7 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 
 				/* i386 and amd64 I/O space is 16bits */
 				if (addr > 0xffff) {
-					printf("\nC%d: bogo I/O addr %llx",
+					printf(": C%d (bogo I/O addr %llx)",
 					    state, addr);
 					return;
 				}
@@ -428,14 +427,10 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 				flags = grd->grd_gas.access_size;
 				break;
 			default:
-				printf("\nC%d: unknown FFH class %d",
+				printf(": C%d (unknown FFH class %d)",
 				    state, grd->grd_gas.register_bit_offset);
 				return;
 			}
-		} else {
-			printf("\nC%d: unknown FFH vendor %d",
-			    state, grd->grd_gas.register_bit_width);
-			return;
 		}
 		break;
 
@@ -443,7 +438,7 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 		addr = grd->grd_gas.address;
 		if (grd->grd_gas.register_bit_width != 8 ||
 		    grd->grd_gas.register_bit_offset != 0) {
-			printf("\nC%d: unhandled %s spec: %d/%d", state,
+			printf(": C%d (unhandled %s spec: %d/%d)", state,
 			    "I/O", grd->grd_gas.register_bit_width,
 			    grd->grd_gas.register_bit_offset);
 			return;
@@ -455,9 +450,10 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 		/* dump the GAS for analysis */
 		{
 			int i;
-			printf("\nC%d: unhandled GAS:", state);
+			printf(": C%d (unhandled GAS:", state);
 			for (i = 0; i < sizeof(grd->grd_gas); i++)
 				printf(" %#x", ((u_char *)&grd->grd_gas)[i]);
+			printf(")");
 
 		}
 		return;
@@ -500,7 +496,7 @@ acpicpu_add_cdeppkg(struct aml_value *val, void *arg)
 
 	domain = val->v_package[2]->v_integer;
 	cindex = val->v_package[5]->v_integer;
-	printf("\nCSD c=%#llx d=%lld n=%lld i=%lli\n",
+	printf(": CSD (c=%#llx d=%lld n=%lld i=%lli)",
 	    coord_type, domain, num_proc, cindex);
 }
 
@@ -670,7 +666,7 @@ acpicpu_attach(struct device *parent, struct device *self, void *aux)
 	struct acpi_attach_args *aa = aux;
 	struct aml_value	res;
 	int			i;
-	u_int32_t		status = 0;
+	uint32_t		status = 0;
 	CPU_INFO_ITERATOR	cii;
 	struct cpu_info		*ci;
 
@@ -729,7 +725,7 @@ acpicpu_attach(struct device *parent, struct device *self, void *aux)
 		}
 	}
 	if (!SLIST_EMPTY(&sc->sc_cstates)) {
-		extern u_int32_t acpi_force_bm;
+		extern uint32_t acpi_force_bm;
 
 		cpu_idle_cycle_fcn = &acpicpu_idle;
 
@@ -1050,7 +1046,7 @@ acpicpu_setperf(int level)
 	struct acpicpu_softc	*sc;
 	struct acpicpu_pss	*pss = NULL;
 	int			idx, len;
-	u_int32_t		status = 0;
+	uint32_t		status = 0;
 
 	sc = acpicpu_sc[cpu_number()];
 

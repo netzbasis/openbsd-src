@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ddb.4,v 1.89 2017/08/14 21:31:00 jmc Exp $
+.\"	$OpenBSD: ddb.4,v 1.93 2018/05/19 17:51:15 jmc Exp $
 .\"	$NetBSD: ddb.4,v 1.5 1994/11/30 16:22:09 jtc Exp $
 .\"
 .\" Mach Operating System
@@ -25,7 +25,7 @@
 .\" any improvements or extensions that they make and grant Carnegie Mellon
 .\" the rights to redistribute these changes.
 .\"
-.Dd $Mdocdate: August 14 2017 $
+.Dd $Mdocdate: May 19 2018 $
 .Dt DDB 4
 .Os
 .Sh NAME
@@ -278,9 +278,9 @@ plus the size of the data examined.
 .It Xo
 .Ic p Ns Op Ic rint
 .Op Cm /axzodurc
-.Op Ar addr Op Ar addr ...
+.Op Ar addr
 .Xc
-Print each
+Print
 .Ar addr
 according to the modifier character.
 The valid modifiers are a subset of those from the
@@ -290,20 +290,15 @@ If no modifier is specified, the last one specified in a
 previous use of
 .Ic print
 is used.
-The
-.Ar addr
-argument
-can be a string, and it is printed as a literal.
 .Pp
 For example,
 .Bd -literal -offset indent
-print/x "eax = " $eax "\enecx = " $ecx "\en"
+print/x $eax
 .Ed
 .Pp
 will print something like this:
 .Bd -literal -offset indent
-eax = xxxxxx
-ecx = yyyyyy
+xxxxxx
 .Ed
 .\" --------------------
 .It Xo
@@ -348,7 +343,7 @@ is set to
 .Ar addr
 plus the size of values written.
 .Pp
-.Sy Warning:
+.Sy Warning :
 since there is no delimiter between expressions, the
 command may not parse as you expect.
 It is best to enclose each expression in parentheses.
@@ -360,7 +355,9 @@ It is best to enclose each expression in parentheses.
 .Xc
 Set the named variable or register with the value of
 .Ar expr .
-Valid variable names are described below.
+For valid variable names,
+see
+.Sx VARIABLES .
 .\" --------------------
 .It Ic boot Ar how
 Reboot the machine depending on
@@ -430,7 +427,7 @@ If the
 modifier is specified, print each instruction at each step.
 Otherwise, only print the last instruction.
 .Pp
-.Sy Warning:
+.Sy Warning :
 depending on machine type, it may not be possible to
 single-step through some low-level code paths.
 On machines with software-emulated single-stepping (e.g., alpha),
@@ -458,7 +455,7 @@ If the
 .Cm /c
 modifier is given, instructions are counted while executing.
 .Pp
-.Sy Warning:
+.Sy Warning :
 when counting with
 .Cm /c ,
 .Nm
@@ -483,7 +480,7 @@ argument defaults to 4.
 If you specify a wrong space address, the request is rejected
 with an error message.
 .Pp
-.Sy Warning:
+.Sy Warning :
 attempts to watch wired kernel memory
 may cause an unrecoverable error on some systems (e.g., i386).
 .\" --------------------
@@ -542,6 +539,13 @@ The
 command is a synonym for
 .Ic match .
 .\" --------------------
+.It Ic kill Ar pid
+Send an uncatchable
+.Dv SIGABRT
+signal to the process specified by the
+.Ar pid
+argument.
+.\" --------------------
 .It Xo
 .Ic trace
 .Op Cm /pu
@@ -569,7 +573,7 @@ If
 .Ar count
 is omitted, all frames are printed.
 .Pp
-.Sy Warning:
+.Sy Warning :
 user space stack trace is valid
 only if the machine dependent code supports it.
 .\" --------------------
@@ -733,17 +737,6 @@ If the
 modifier is specified the complete object is printed.
 .\" --------------------
 .It Xo
-.Ic show offset
-.Ar offset
-.Xc
-Prints a list of the known kernel structure fields which occur at the given
-.Ar offset
-from the beginning of the struct, as well as their size.
-The
-.Cm option DDB_STRUCT
-is required for this command to be available.
-.\" --------------------
-.It Xo
 .Ic show page
 .Op Cm /f
 .Ar addr
@@ -814,9 +807,6 @@ as a struct
 .Ar name .
 Nested structures and bit fields are not printed.
 Character arrays are printed as bytes.
-The
-.Cm option DDB_STRUCT
-is required for this command to be available.
 .\" --------------------
 .It Ic show uvmexp
 Displays a selection of uvm counters and statistics.

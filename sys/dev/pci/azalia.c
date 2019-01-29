@@ -1,4 +1,4 @@
-/*	$OpenBSD: azalia.c,v 1.236 2017/08/10 15:25:52 tb Exp $	*/
+/*	$OpenBSD: azalia.c,v 1.244 2018/04/22 10:02:13 ratchov Exp $	*/
 /*	$NetBSD: azalia.c,v 1.20 2006/05/07 08:31:44 kent Exp $	*/
 
 /*-
@@ -46,7 +46,6 @@
 #include <sys/device.h>
 #include <sys/malloc.h>
 #include <sys/systm.h>
-#include <sys/types.h>
 #include <sys/timeout.h>
 #include <dev/audio_if.h>
 #include <dev/pci/pcidevs.h>
@@ -212,7 +211,7 @@ int	azalia_get_response(azalia_t *, uint32_t *);
 void	azalia_rirb_kick_unsol_events(void *);
 void	azalia_rirb_intr(azalia_t *);
 int	azalia_alloc_dmamem(azalia_t *, size_t, size_t, azalia_dma_t *);
-int	azalia_free_dmamem(const azalia_t *, azalia_dma_t*);
+void	azalia_free_dmamem(const azalia_t *, azalia_dma_t*);
 
 int	azalia_codec_init(codec_t *);
 int	azalia_codec_delete(codec_t *);
@@ -272,9 +271,6 @@ int	azalia_params2fmt(const audio_params_t *, uint16_t *);
 
 int	azalia_match_format(codec_t *, int, audio_params_t *);
 int	azalia_set_params_sub(codec_t *, int, audio_params_t *);
-
-void	azalia_save_mixer(codec_t *);
-void	azalia_restore_mixer(codec_t *);
 
 int	azalia_suspend(azalia_t *);
 int	azalia_resume(azalia_t *);
@@ -455,10 +451,12 @@ azalia_configure_pci(azalia_t *az)
 	case PCI_PRODUCT_INTEL_BAYTRAIL_HDA:
 	case PCI_PRODUCT_INTEL_100SERIES_HDA:
 	case PCI_PRODUCT_INTEL_100SERIES_LP_HDA:
+	case PCI_PRODUCT_INTEL_200SERIES_HDA:
 	case PCI_PRODUCT_INTEL_200SERIES_U_HDA:
 	case PCI_PRODUCT_INTEL_C600_HDA:
 	case PCI_PRODUCT_INTEL_C610_HDA:
 	case PCI_PRODUCT_INTEL_BSW_HDA:
+	case PCI_PRODUCT_INTEL_APOLLOLAKE_HDA:
 		reg = azalia_pci_read(az->pc, az->tag,
 		    INTEL_PCIE_NOSNOOP_REG);
 		reg &= INTEL_PCIE_NOSNOOP_MASK;
@@ -697,23 +695,12 @@ azalia_shutdown(void *v)
 {
 	azalia_t *az = (azalia_t *)v;
 	uint32_t gctl;
-	codec_t *codec;
-	int i;
 
 	/* disable unsolicited response */
 	gctl = AZ_READ_4(az, GCTL);
 	AZ_WRITE_4(az, GCTL, gctl & ~(HDA_GCTL_UNSOL));
 
 	timeout_del(&az->unsol_to);
-
-	/* power off all codecs */
-	for (i = 0; i < az->ncodecs; i++) {
-		codec = &az->codecs[i];
-		if (codec->audiofunc < 0)
-			continue;
-		azalia_comresp(codec, codec->audiofunc, CORB_SET_POWER_STATE,
-		    CORB_PS_D3, NULL);
-	}
 
 	/* halt CORB/RIRB */
 	azalia_halt_corb(az);
@@ -990,10 +977,20 @@ int
 azalia_halt_corb(azalia_t *az)
 {
 	uint8_t corbctl;
+	codec_t *codec;
 	int i;
 
 	corbctl = AZ_READ_1(az, CORBCTL);
 	if (corbctl & HDA_CORBCTL_CORBRUN) { /* running? */
+		/* power off all codecs */
+		for (i = 0; i < az->ncodecs; i++) {
+			codec = &az->codecs[i];
+			if (codec->audiofunc < 0)
+				continue;
+			azalia_comresp(codec, codec->audiofunc,
+			    CORB_SET_POWER_STATE, CORB_PS_D3, NULL);
+		}
+
 		AZ_WRITE_1(az, CORBCTL, corbctl & ~HDA_CORBCTL_CORBRUN);
 		for (i = 5000; i > 0; i--) {
 			DELAY(10);
@@ -1332,17 +1329,16 @@ free:
 	return err;
 }
 
-int
+void
 azalia_free_dmamem(const azalia_t *az, azalia_dma_t* d)
 {
 	if (d->addr == NULL)
-		return 0;
+		return;
 	bus_dmamap_unload(az->dmat, d->map);
 	bus_dmamap_destroy(az->dmat, d->map);
 	bus_dmamem_unmap(az->dmat, d->addr, d->size);
 	bus_dmamem_free(az->dmat, d->segments, 1);
 	d->addr = NULL;
-	return 0;
 }
 
 int
@@ -1358,7 +1354,6 @@ azalia_suspend(azalia_t *az)
 
 	timeout_del(&az->unsol_to);
 
-	azalia_save_mixer(&az->codecs[az->codecno]);
 	/* azalia_halt_{corb,rirb}() only fail if the {CORB,RIRB} can't
 	 * be stopped and azalia_init_{corb,rirb}(), which starts the
 	 * {CORB,RIRB}, first calls azalia_halt_{corb,rirb}().  If halt
@@ -1422,8 +1417,6 @@ azalia_resume_codec(codec_t *this)
 			return err;
 	}
 
-	azalia_restore_mixer(this);
-
 	return(0);
 }
 
@@ -1456,74 +1449,6 @@ azalia_resume(azalia_t *az)
 		return err;
 
 	return 0;
-}
-
-void
-azalia_save_mixer(codec_t *this)
-{
-	mixer_item_t *m;
-	mixer_ctrl_t mc;
-	int i;
-
-	for (i = 0; i < this->nmixers; i++) {
-		m = &this->mixers[i];
-		if (m->nid == this->playvols.master)
-			continue;
-		mc.dev = i;
-		mc.type = m->devinfo.type;
-		azalia_mixer_get(this, m->nid, m->target, &mc);
-		switch (mc.type) {
-		case AUDIO_MIXER_ENUM:
-			m->saved.ord = mc.un.ord;
-			break;
-		case AUDIO_MIXER_SET:
-			m->saved.mask = mc.un.mask;
-			break;
-		case AUDIO_MIXER_VALUE:
-			m->saved.value = mc.un.value;
-			break;
-		case AUDIO_MIXER_CLASS:
-			break;
-		default:
-			DPRINTF(("%s: invalid mixer type in mixer %d\n",
-			    __func__, mc.dev));
-			break;
-		}
-	}
-}
-
-void
-azalia_restore_mixer(codec_t *this)
-{
-	mixer_item_t *m;
-	mixer_ctrl_t mc;
-	int i;
-
-	for (i = 0; i < this->nmixers; i++) {
-		m = &this->mixers[i];
-		if (m->nid == this->playvols.master)
-			continue;
-		mc.dev = i;
-		mc.type = m->devinfo.type;
-		switch (mc.type) {
-		case AUDIO_MIXER_ENUM:
-			mc.un.ord = m->saved.ord;
-			break;
-		case AUDIO_MIXER_SET:
-			mc.un.mask = m->saved.mask; 
-			break;
-		case AUDIO_MIXER_VALUE:
-			mc.un.value = m->saved.value;
-			break;
-		case AUDIO_MIXER_CLASS:
-			break;
-		default:
-			DPRINTF(("%s: invalid mixer type in mixer %d\n",
-			    __func__, mc.dev));
-			continue;
-		}
-		azalia_mixer_set(this, m->nid, m->target, &mc);
-	}
 }
 
 /* ================================================================
@@ -2194,7 +2119,7 @@ azalia_codec_select_dacs(codec_t *this)
 		}
 	}
 
-	free(convs, M_DEVBUF, 0);
+	free(convs, M_DEVBUF, this->na_dacs * sizeof(nid_t));
 	return(err);
 }
 
@@ -3907,14 +3832,11 @@ azalia_match_format(codec_t *codec, int mode, audio_params_t *par)
 int
 azalia_set_params_sub(codec_t *codec, int mode, audio_params_t *par)
 {
-	char *cmode;
 	int i, j;
 	uint ochan, oenc, opre;
-
-	if (mode == AUMODE_PLAY)
-		cmode = "play";
-	else
-		cmode = "record";
+#ifdef AZALIA_DEBUG
+	char *cmode = (mode == AUMODE_PLAY) ? "play" : "record";
+#endif
 
 	ochan = par->channels;
 	oenc = par->encoding;

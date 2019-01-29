@@ -1538,17 +1538,12 @@ int __i915_wait_request(struct drm_i915_gem_request *req,
 		}
 
 		sleep_setup_signal(&sls, state);
-
-		sleep_finish(&sls, 1);
-		sleep_finish_timeout(&sls);
-		ret = sleep_finish_signal(&sls);
+		sleep_finish_all(&sls, 1);
 	}
 	if (!irq_test_in_progress)
 		ring->irq_put(ring);
 
-	sleep_finish(&sls, 0);
-	sleep_finish_timeout(&sls);
-	sleep_finish_signal(&sls);
+	sleep_finish_all(&sls, 0);
 
 out:
 	now = ktime_get_raw_ns();
@@ -1992,7 +1987,8 @@ i915_gem_mmap_ioctl(struct drm_device *dev, void *data,
 	addr = 0;
 	ret = -uvm_map(&curproc->p_vmspace->vm_map, &addr, size,
 	    obj->uao, args->offset, 0, UVM_MAPFLAG(PROT_READ | PROT_WRITE,
-	    PROT_READ | PROT_WRITE, MAP_INHERIT_SHARE, MADV_RANDOM, 0));
+	    PROT_READ | PROT_WRITE, MAP_INHERIT_SHARE, MADV_RANDOM,
+	    (args->flags & I915_MMAP_WC) ? UVM_FLAG_WC : 0));
 	if (ret == 0)
 		uao_reference(obj->uao);
 	drm_gem_object_unreference_unlocked(obj);
@@ -2216,7 +2212,7 @@ i915_gem_fault(struct drm_gem_object *gem_obj, struct uvm_faultinfo *ufi,
 
 	offset -= drm_vma_node_offset_addr(&obj->base.vma_node);
 
-	if (rw_enter(&dev->struct_mutex, RW_NOSLEEP | RW_WRITE) != 0) {
+	if (!mutex_trylock(&dev->struct_mutex)) {
 		uvmfault_unlockall(ufi, NULL, &obj->base.uobj, NULL);
 		mutex_lock(&dev->struct_mutex);
 		locked = uvmfault_relock(ufi);
@@ -2782,7 +2778,7 @@ i915_gem_object_get_pages_gtt(struct drm_i915_gem_object *obj)
 	TAILQ_FOREACH(page, &plist, pageq) {
 		st->nents++;
 		sg_dma_address(sg) = VM_PAGE_TO_PHYS(page);
-		sg_dma_len(sg) = sg->length = PAGE_SIZE;
+		sg_dma_len(sg) = PAGE_SIZE;
 		sg++;
 		i++;
 	}
@@ -4363,7 +4359,7 @@ int i915_gem_set_caching_ioctl(struct drm_device *dev, void *data,
 		 * cacheline, whereas normally such cachelines would get
 		 * invalidated.
 		 */
-		if (IS_BROXTON(dev) && INTEL_REVID(dev) < BXT_REVID_B0)
+		if (IS_BXT_REVID(dev, 0, BXT_REVID_A1))
 			return -ENODEV;
 
 		level = I915_CACHE_LLC;

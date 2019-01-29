@@ -1,4 +1,4 @@
-/*	$OpenBSD: pony.c,v 1.18 2017/08/13 11:10:30 eric Exp $	*/
+/*	$OpenBSD: pony.c,v 1.26 2018/12/23 16:37:53 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -36,7 +36,6 @@
 #include <unistd.h>
 #include <limits.h>
 #include <grp.h>
-#include <vis.h>
 
 #include "smtpd.h"
 #include "log.h"
@@ -57,6 +56,18 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 		pony_shutdown();
 
 	switch (imsg->hdr.type) {
+
+	case IMSG_GETADDRINFO:
+	case IMSG_GETADDRINFO_END:
+	case IMSG_GETNAMEINFO:
+		resolver_dispatch_result(p, imsg);
+		return;
+
+	case IMSG_CERT_INIT:
+	case IMSG_CERT_VERIFY:
+		cert_dispatch_result(p, imsg);
+		return;
+
 	case IMSG_CONF_START:
 		return;
 	case IMSG_CONF_END:
@@ -76,16 +87,15 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 		return;
 
 	/* smtp imsg */
-	case IMSG_SMTP_DNS_PTR:
 	case IMSG_SMTP_CHECK_SENDER:
 	case IMSG_SMTP_EXPAND_RCPT:
 	case IMSG_SMTP_LOOKUP_HELO:
 	case IMSG_SMTP_AUTHENTICATE:
-	case IMSG_SMTP_TLS_INIT:
-	case IMSG_SMTP_TLS_VERIFY:
 	case IMSG_SMTP_MESSAGE_COMMIT:
 	case IMSG_SMTP_MESSAGE_CREATE:
 	case IMSG_SMTP_MESSAGE_OPEN:
+	case IMSG_FILTER_SMTP_PROTOCOL:
+	case IMSG_FILTER_SMTP_DATA_BEGIN:
 	case IMSG_QUEUE_ENVELOPE_SUBMIT:
 	case IMSG_QUEUE_ENVELOPE_COMMIT:
 	case IMSG_QUEUE_SMTP_SESSION:
@@ -99,14 +109,12 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_QUEUE_TRANSFER:
 	case IMSG_MTA_OPEN_MESSAGE:
 	case IMSG_MTA_LOOKUP_CREDENTIALS:
+	case IMSG_MTA_LOOKUP_SMARTHOST:
 	case IMSG_MTA_LOOKUP_SOURCE:
 	case IMSG_MTA_LOOKUP_HELO:
 	case IMSG_MTA_DNS_HOST:
 	case IMSG_MTA_DNS_HOST_END:
 	case IMSG_MTA_DNS_MX_PREFERENCE:
-	case IMSG_MTA_DNS_PTR:
-	case IMSG_MTA_TLS_INIT:
-	case IMSG_MTA_TLS_VERIFY:
 	case IMSG_CTL_RESUME_ROUTE:
 	case IMSG_CTL_MTA_SHOW_HOSTS:
 	case IMSG_CTL_MTA_SHOW_RELAYS:

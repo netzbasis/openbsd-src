@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.c,v 1.40 2017/07/26 19:15:09 anton Exp $	*/
+/*	$OpenBSD: csh.c,v 1.45 2018/10/24 06:01:03 martijn Exp $	*/
 /*	$NetBSD: csh.c,v 1.14 1995/04/29 23:21:28 mycroft Exp $	*/
 
 /*-
@@ -401,7 +401,7 @@ main(int argc, char *argv[])
      * Set up the prompt.
      */
     if (prompt) {
-	set(STRprompt, Strsave(uid == 0 ? STRsymhash : STRsymcent));
+	set(STRprompt, Strsave(uid == 0 ? STRpromptroot : STRpromptuser));
 	/* that's a meta-questionmark */
 	set(STRprompt2, Strsave(STRmquestion));
     }
@@ -578,7 +578,7 @@ importpath(Char *cp)
      * i+2 where i is the number of colons in the path. There are i+1
      * directories in the path plus we need room for a zero terminator.
      */
-    pv = (Char **) xcalloc((size_t) (i + 2), sizeof(Char **));
+    pv = xcalloc(i + 2, sizeof(*pv));
     dp = cp;
     i = 0;
     if (*dp)
@@ -885,7 +885,6 @@ pintr(int notused)
 void
 pintr1(bool wantnl)
 {
-    Char **v;
     sigset_t sigset, osigset;
 
     sigemptyset(&sigset);
@@ -914,10 +913,10 @@ pintr1(bool wantnl)
     if (gointr) {
 	gotolab(gointr);
 	timflg = 0;
-	if ((v = pargv) != NULL)
-	    pargv = 0, blkfree(v);
-	if ((v = gargv) != NULL)
-	    gargv = 0, blkfree(v);
+	blkfree(pargv);
+	pargv = NULL;
+	blkfree(gargv);
+	gargv = NULL;
 	reset();
     }
     else if (intty && wantnl) {
@@ -1008,14 +1007,13 @@ process(bool catch)
 	     * read fresh stuff. Otherwise, we are rereading input and don't
 	     * need or want to prompt.
 	     */
-	    if (!filec && aret == F_SEEK && fseekp == feobp)
+	    needprompt = aret == F_SEEK && fseekp == feobp;
+	    if (!filec && needprompt)
 		printprompt();
 	    (void) fflush(cshout);
 	}
-	if (seterr) {
-	    free(seterr);
-	    seterr = NULL;
-	}
+	free(seterr);
+	seterr = NULL;
 
 	/*
 	 * Echo not only on VERBOSE, but also with history expansion. If there
@@ -1282,7 +1280,16 @@ printprompt(void)
 	for (cp = value(STRprompt); *cp; cp++)
 	    if (*cp == HIST)
 		(void) fprintf(cshout, "%d", eventno + 1);
-	    else {
+	    else if (*cp == '%' && *(cp + 1) == 'm') {
+		char hostname[HOST_NAME_MAX + 1];
+		char *p;
+
+		gethostname(hostname, sizeof hostname);
+		if ((p = strchr(hostname, '.')) != NULL)
+		    *p = '\0';
+		fprintf(cshout, "%s", hostname);
+		cp++;
+	    } else {
 		if (*cp == '\\' && cp[1] == HIST)
 		    cp++;
 		(void) vis_fputc(*cp | QUOTE, cshout);

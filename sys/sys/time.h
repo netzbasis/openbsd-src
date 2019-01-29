@@ -1,4 +1,4 @@
-/*	$OpenBSD: time.h,v 1.36 2016/09/12 19:41:20 guenther Exp $	*/
+/*	$OpenBSD: time.h,v 1.40 2019/01/19 01:53:44 cheloha Exp $	*/
 /*	$NetBSD: time.h,v 1.18 1996/04/23 10:29:33 mycroft Exp $	*/
 
 /*
@@ -60,14 +60,14 @@ struct timespec {
 };
 #endif
 
-#define	TIMEVAL_TO_TIMESPEC(tv, ts) {					\
+#define	TIMEVAL_TO_TIMESPEC(tv, ts) do {				\
 	(ts)->tv_sec = (tv)->tv_sec;					\
 	(ts)->tv_nsec = (tv)->tv_usec * 1000;				\
-}
-#define	TIMESPEC_TO_TIMEVAL(tv, ts) {					\
+} while (0)
+#define	TIMESPEC_TO_TIMEVAL(tv, ts) do {				\
 	(tv)->tv_sec = (ts)->tv_sec;					\
 	(tv)->tv_usec = (ts)->tv_nsec / 1000;				\
-}
+} while (0)
 
 struct timezone {
 	int	tz_minuteswest;	/* minutes west of Greenwich */
@@ -84,6 +84,8 @@ struct timezone {
 /* Operations on timevals. */
 #define	timerclear(tvp)		(tvp)->tv_sec = (tvp)->tv_usec = 0
 #define	timerisset(tvp)		((tvp)->tv_sec || (tvp)->tv_usec)
+#define	timerisvalid(tvp)						\
+	((tvp)->tv_usec >= 0 && (tvp)->tv_usec < 1000000)
 #define	timercmp(tvp, uvp, cmp)						\
 	(((tvp)->tv_sec == (uvp)->tv_sec) ?				\
 	    ((tvp)->tv_usec cmp (uvp)->tv_usec) :			\
@@ -110,6 +112,8 @@ struct timezone {
 /* Operations on timespecs. */
 #define	timespecclear(tsp)		(tsp)->tv_sec = (tsp)->tv_nsec = 0
 #define	timespecisset(tsp)		((tsp)->tv_sec || (tsp)->tv_nsec)
+#define	timespecisvalid(tsp)						\
+	((tsp)->tv_nsec >= 0 && (tsp)->tv_nsec < 1000000000L)
 #define	timespeccmp(tsp, usp, cmp)					\
 	(((tsp)->tv_sec == (usp)->tv_sec) ?				\
 	    ((tsp)->tv_nsec cmp (usp)->tv_nsec) :			\
@@ -180,7 +184,7 @@ bintime_addx(struct bintime *bt, uint64_t x)
 }
 
 static __inline void
-bintime_add(struct bintime *bt, struct bintime *bt2)
+bintime_add(struct bintime *bt, const struct bintime *bt2)
 {
 	uint64_t u;
 
@@ -192,7 +196,7 @@ bintime_add(struct bintime *bt, struct bintime *bt2)
 }
 
 static __inline void
-bintime_sub(struct bintime *bt, struct bintime *bt2)
+bintime_sub(struct bintime *bt, const struct bintime *bt2)
 {
 	uint64_t u;
 
@@ -218,7 +222,7 @@ bintime_sub(struct bintime *bt, struct bintime *bt2)
  */
 
 static __inline void
-bintime2timespec(struct bintime *bt, struct timespec *ts)
+bintime2timespec(const struct bintime *bt, struct timespec *ts)
 {
 
 	ts->tv_sec = bt->sec;
@@ -226,7 +230,7 @@ bintime2timespec(struct bintime *bt, struct timespec *ts)
 }
 
 static __inline void
-timespec2bintime(struct timespec *ts, struct bintime *bt)
+timespec2bintime(const struct timespec *ts, struct bintime *bt)
 {
 
 	bt->sec = ts->tv_sec;
@@ -235,7 +239,7 @@ timespec2bintime(struct timespec *ts, struct bintime *bt)
 }
 
 static __inline void
-bintime2timeval(struct bintime *bt, struct timeval *tv)
+bintime2timeval(const struct bintime *bt, struct timeval *tv)
 {
 
 	tv->tv_sec = bt->sec;
@@ -243,7 +247,7 @@ bintime2timeval(struct bintime *bt, struct timeval *tv)
 }
 
 static __inline void
-timeval2bintime(struct timeval *tv, struct bintime *bt)
+timeval2bintime(const struct timeval *tv, struct bintime *bt)
 {
 
 	bt->sec = (time_t)tv->tv_sec;
@@ -255,7 +259,7 @@ extern volatile time_t time_second;	/* Seconds since epoch, wall time. */
 extern volatile time_t time_uptime;	/* Seconds since reboot. */
 
 /*
- * Functions for looking at our clock: [get]{bin,nano,micro}[up]time()
+ * Functions for looking at our clocks: [get]{bin,nano,micro}[boot|up]time()
  *
  * Functions without the "get" prefix returns the best timestamp
  * we can produce in the given format.
@@ -267,7 +271,10 @@ extern volatile time_t time_uptime;	/* Seconds since reboot. */
  * Functions containing "up" returns time relative to boot and
  * should be used for calculating time intervals.
  *
- * Functions without "up" returns GMT time.
+ * Functions containing "boot" return the GMT time at which the
+ * system booted.
+ *
+ * Functions with just "time" return the current GMT time.
  *
  * Functions with the "get" prefix returns a less precise result
  * much faster than the functions without "get" prefix and should
@@ -289,6 +296,9 @@ void	microuptime(struct timeval *);
 void	getnanouptime(struct timespec *);
 void	getmicrouptime(struct timeval *);
 
+void	binboottime(struct bintime *);
+void	microboottime(struct timeval *);
+
 struct proc;
 int	clock_gettime(struct proc *, clockid_t, struct timespec *);
 
@@ -296,7 +306,7 @@ int	timespecfix(struct timespec *);
 int	itimerfix(struct timeval *);
 int	itimerdecr(struct itimerval *itp, int usec);
 void	itimerround(struct timeval *);
-int	settime(struct timespec *);
+int	settime(const struct timespec *);
 int	ratecheck(struct timeval *, const struct timeval *);
 int	ppsratecheck(struct timeval *, int *, int);
 

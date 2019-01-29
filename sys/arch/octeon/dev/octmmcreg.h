@@ -1,4 +1,4 @@
-/*	$OpenBSD: octmmcreg.h,v 1.1 2016/12/21 13:59:57 visa Exp $	*/
+/*	$OpenBSD: octmmcreg.h,v 1.3 2017/10/16 14:18:47 visa Exp $	*/
 
 /*
  * Copyright (c) 2016 Visa Hankala
@@ -137,6 +137,24 @@
 #define MIO_EMM_BUF_DAT			0xe8
 
 /*
+ * MMC DMA FIFO registers
+ */
+
+/* Size of the register space. */
+#define MIO_EMM_DMA_FIFO_REGSIZE	0x20
+
+#define MIO_EMM_DMA_FIFO_CFG		0x00
+#define   MIO_EMM_DMA_FIFO_CFG_CLR		0x0000000000010000ull
+
+#define MIO_EMM_DMA_FIFO_ADR		0x10
+
+#define MIO_EMM_DMA_FIFO_CMD		0x18
+#define   MIO_EMM_DMA_FIFO_CMD_RW		0x4000000000000000ull
+#define   MIO_EMM_DMA_FIFO_CMD_INTDIS		0x1000000000000000ull
+#define   MIO_EMM_DMA_FIFO_CMD_SIZE		0x00fffff000000000ull
+#define   MIO_EMM_DMA_FIFO_CMD_SIZE_SHIFT	36
+
+/*
  * NAND flash DMA registers
  */
 
@@ -152,5 +170,6 @@
 #define   MIO_NDF_DMA_CFG_SIZE			0x00fffff000000000ull
 #define   MIO_NDF_DMA_CFG_SIZE_SHIFT		36
 #define   MIO_NDF_DMA_CFG_ADDR			0x0000000fffffffffull
+#define MIO_NDF_DMA_ADR			0x08
 
 #endif /* !_OCTMMCREG_H_ */

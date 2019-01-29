@@ -1,4 +1,4 @@
-/*	$OpenBSD: pax.c,v 1.50 2017/03/11 12:55:47 tb Exp $	*/
+/*	$OpenBSD: pax.c,v 1.52 2018/09/13 12:33:43 millert Exp $	*/
 /*	$NetBSD: pax.c,v 1.5 1996/03/26 23:54:20 mrg Exp $	*/
 
 /*-
@@ -44,7 +44,9 @@
 #include <errno.h>
 #include <err.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <paths.h>
+#include <pwd.h>
 #include <stdio.h>
 
 #include "pax.h"
@@ -250,6 +252,12 @@ main(int argc, char **argv)
 	*tempbase++ = '/';
 
 	/*
+	 * keep passwd and group files open for faster lookups.
+	 */
+	setpassent(1);
+	setgroupent(1);
+
+	/*
 	 * parse options, determine operational mode, general init
 	 */
 	options(argc, argv);
@@ -311,8 +319,6 @@ main(int argc, char **argv)
 void
 sig_cleanup(int which_sig)
 {
-	char errbuf[80];
-
 	/*
 	 * restore modes and times for any dirs we may have created
 	 * or any dirs we may have read.
@@ -320,12 +326,9 @@ sig_cleanup(int which_sig)
 
 	/* paxwarn() uses stdio; fake it as well as we can */
 	if (which_sig == SIGXCPU)
-		strlcpy(errbuf, "\nCPU time limit reached, cleaning up.\n",
-		    sizeof errbuf);
+		dprintf(STDERR_FILENO, "\nCPU time limit reached, cleaning up.\n");
 	else
-		strlcpy(errbuf, "\nSignal caught, cleaning up.\n",
-		    sizeof errbuf);
-	(void) write(STDERR_FILENO, errbuf, strlen(errbuf));
+		dprintf(STDERR_FILENO, "\nSignal caught, cleaning up.\n");
 
 	ar_close(1);
 	sltab_process(1);

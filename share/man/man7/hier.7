@@ -1,4 +1,4 @@
-.\"	$OpenBSD: hier.7,v 1.158 2017/06/29 15:32:36 jmc Exp $
+.\"	$OpenBSD: hier.7,v 1.161 2018/08/15 19:40:30 fcambus Exp $
 .\"	$NetBSD: hier.7,v 1.7 1994/11/30 19:07:10 jtc Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)hier.7	8.1 (Berkeley) 6/5/93
 .\"
-.Dd $Mdocdate: June 29 2017 $
+.Dd $Mdocdate: August 15 2018 $
 .Dt HIER 7
 .Os
 .Sh NAME
@@ -210,6 +210,8 @@ Standard C include files.
 .Bl -tag -width "libmilter/" -compact
 .It arpa/
 C include files for Internet service protocols.
+.It c++/
+Include files for the Clang C++ compiler.
 .It crypto/
 C include files for the cryptographic libraries.
 .It ddb/
@@ -331,8 +333,6 @@ Architecture independent data files.
 .It calendar/
 Variety of pre-fab calendar files (see
 .Xr calendar 1 ) .
-.It compile/
-Link kit for boot-time kernel relinking.
 .It dict/
 Word lists (see
 .Xr look 1
@@ -409,12 +409,14 @@ Miscellaneous system-wide ASCII text files.
 Terminal characteristics database (see
 .Xr termcap 5 ) .
 .It pcvtfonts/
-Additional i386 console fonts.
+Additional console fonts.
 .El
 .Pp
 .It mk/
 Templates for
 .Xr make 1 .
+.It relink/
+Link kit for boot-time kernel and library relinking.
 .It snmp/
 Data files for
 .Xr snmpd 8 .

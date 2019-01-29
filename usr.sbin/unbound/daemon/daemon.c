@@ -76,12 +76,14 @@
 #include "util/shm_side/shm_main.h"
 #include "util/storage/lookup3.h"
 #include "util/storage/slabhash.h"
+#include "util/tcp_conn_limit.h"
 #include "services/listen_dnsport.h"
 #include "services/cache/rrset.h"
 #include "services/cache/infra.h"
 #include "services/localzone.h"
 #include "services/view.h"
 #include "services/modstack.h"
+#include "services/authzone.h"
 #include "util/module.h"
 #include "util/random.h"
 #include "util/tube.h"
@@ -103,10 +105,8 @@ static int sig_record_reload = 0;
 /** cleaner ssl memory freeup */
 static void* comp_meth = NULL;
 #endif
-#ifdef LEX_HAS_YYLEX_DESTROY
 /** remove buffers for parsing and init */
 int ub_c_lex_destroy(void);
-#endif
 
 /** used when no other sighandling happens, so we don't die
   * when multiple signals in quick succession are sent to us. 
@@ -181,15 +181,8 @@ static void
 signal_handling_playback(struct worker* wrk)
 {
 #ifdef SIGHUP
-	if(sig_record_reload) {
-# ifdef HAVE_SYSTEMD
-		sd_notify(0, "RELOADING=1");
-# endif
+	if(sig_record_reload)
 		worker_sighandler(SIGHUP, wrk);
-# ifdef HAVE_SYSTEMD
-		sd_notify(0, "READY=1");
-# endif
-	}
 #endif
 	if(sig_record_quit)
 		worker_sighandler(SIGTERM, wrk);
@@ -221,7 +214,9 @@ daemon_init(void)
 #  ifdef HAVE_ERR_LOAD_CRYPTO_STRINGS
 	ERR_load_crypto_strings();
 #  endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000 || !defined(HAVE_OPENSSL_INIT_SSL)
 	ERR_load_SSL_strings();
+#endif
 #  ifdef USE_GOST
 	(void)sldns_key_EVP_load_gost_id();
 #  endif
@@ -239,7 +234,7 @@ daemon_init(void)
 #  if OPENSSL_VERSION_NUMBER < 0x10100000 || !defined(HAVE_OPENSSL_INIT_SSL)
 	(void)SSL_library_init();
 #  else
-	(void)OPENSSL_init_ssl(0, NULL);
+	(void)OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS, NULL);
 #  endif
 #  if defined(HAVE_SSL) && defined(OPENSSL_THREADS) && !defined(THREADS_DISABLED)
 	if(!ub_openssl_lock_init())
@@ -276,9 +271,25 @@ daemon_init(void)
 		free(daemon);
 		return NULL;
 	}
+	daemon->tcl = tcl_list_create();
+	if(!daemon->tcl) {
+		acl_list_delete(daemon->acl);
+		edns_known_options_delete(daemon->env);
+		free(daemon->env);
+		free(daemon);
+		return NULL;
+	}
 	if(gettimeofday(&daemon->time_boot, NULL) < 0)
 		log_err("gettimeofday: %s", strerror(errno));
 	daemon->time_last_stat = daemon->time_boot;
+	if((daemon->env->auth_zones = auth_zones_create()) == 0) {
+		acl_list_delete(daemon->acl);
+		tcl_list_delete(daemon->tcl);
+		edns_known_options_delete(daemon->env);
+		free(daemon->env);
+		free(daemon);
+		return NULL;
+	}
 	return daemon;	
 }
 
@@ -421,8 +432,8 @@ daemon_create_workers(struct daemon* daemon)
 		daemon->rand = ub_initstate(seed, NULL);
 		if(!daemon->rand)
 			fatal_exit("could not init random generator");
+		hash_set_raninit((uint32_t)ub_random(daemon->rand));
 	}
-	hash_set_raninit((uint32_t)ub_random(daemon->rand));
 	shufport = (int*)calloc(65536, sizeof(int));
 	if(!shufport)
 		fatal_exit("out of memory during daemon init");
@@ -574,6 +585,8 @@ daemon_fork(struct daemon* daemon)
 
 	if(!acl_list_apply_cfg(daemon->acl, daemon->cfg, daemon->views))
 		fatal_exit("Could not setup access control list");
+	if(!tcl_list_apply_cfg(daemon->tcl, daemon->cfg))
+		fatal_exit("Could not setup TCP connection limits");
 	if(daemon->cfg->dnscrypt) {
 #ifdef USE_DNSCRYPT
 		daemon->dnscenv = dnsc_create();
@@ -601,6 +614,10 @@ daemon_fork(struct daemon* daemon)
 		fatal_exit("Could not set up per-view response IP sets");
 	daemon->use_response_ip = !respip_set_is_empty(daemon->respip_set) ||
 		have_view_respip_cfg;
+	
+	/* read auth zonefiles */
+	if(!auth_zones_apply_cfg(daemon->env->auth_zones, daemon->cfg, 1))
+		fatal_exit("auth_zones could not be setup");
 
 	/* setup modules */
 	daemon_setup_modules(daemon);
@@ -648,7 +665,10 @@ daemon_fork(struct daemon* daemon)
 	log_info("start of service (%s).", PACKAGE_STRING);
 	worker_work(daemon->workers[0]);
 #ifdef HAVE_SYSTEMD
-	sd_notify(0, "STOPPING=1");
+	if (daemon->workers[0]->need_to_exit)
+		sd_notify(0, "STOPPING=1");
+	else
+		sd_notify(0, "RELOADING=1");
 #endif
 	log_info("service stopped (%s).", PACKAGE_STRING);
 
@@ -681,6 +701,8 @@ daemon_cleanup(struct daemon* daemon)
 	daemon->respip_set = NULL;
 	views_delete(daemon->views);
 	daemon->views = NULL;
+	if(daemon->env->auth_zones)
+		auth_zones_cleanup(daemon->env->auth_zones);
 	/* key cache is cleared by module desetup during next daemon_fork() */
 	daemon_remote_clear(daemon->rc);
 	for(i=0; i<daemon->num; i++)
@@ -688,8 +710,14 @@ daemon_cleanup(struct daemon* daemon)
 	free(daemon->workers);
 	daemon->workers = NULL;
 	daemon->num = 0;
+	alloc_clear_special(&daemon->superalloc);
 #ifdef USE_DNSTAP
 	dt_delete(daemon->dtenv);
+	daemon->dtenv = NULL;
+#endif
+#ifdef USE_DNSCRYPT
+	dnsc_delete(daemon->dnscenv);
+	daemon->dnscenv = NULL;
 #endif
 	daemon->cfg = NULL;
 }
@@ -711,10 +739,12 @@ daemon_delete(struct daemon* daemon)
 		rrset_cache_delete(daemon->env->rrset_cache);
 		infra_delete(daemon->env->infra_cache);
 		edns_known_options_delete(daemon->env);
+		auth_zones_delete(daemon->env->auth_zones);
 	}
 	ub_randfree(daemon->rand);
 	alloc_clear(&daemon->superalloc);
 	acl_list_delete(daemon->acl);
+	tcl_list_delete(daemon->tcl);
 	free(daemon->chroot);
 	free(daemon->pidfile);
 	free(daemon->env);
@@ -723,10 +753,8 @@ daemon_delete(struct daemon* daemon)
 	SSL_CTX_free((SSL_CTX*)daemon->connect_sslctx);
 #endif
 	free(daemon);
-#ifdef LEX_HAS_YYLEX_DESTROY
 	/* lex cleanup */
 	ub_c_lex_destroy();
-#endif
 	/* libcrypto cleanup */
 #ifdef HAVE_SSL
 #  if defined(USE_GOST) && defined(HAVE_LDNS_KEY_EVP_UNLOAD_GOST)
@@ -758,6 +786,9 @@ daemon_delete(struct daemon* daemon)
 #  if defined(HAVE_SSL) && defined(OPENSSL_THREADS) && !defined(THREADS_DISABLED)
 	ub_openssl_lock_delete();
 #  endif
+#ifndef HAVE_ARC4RANDOM
+	_ARC4_LOCK_DESTROY();
+#endif
 #elif defined(HAVE_NSS)
 	NSS_Shutdown();
 #endif /* HAVE_SSL or HAVE_NSS */
@@ -774,9 +805,8 @@ void daemon_apply_cfg(struct daemon* daemon, struct config_file* cfg)
 {
         daemon->cfg = cfg;
 	config_apply(cfg);
-	if(!daemon->env->msg_cache ||
-	   cfg->msg_cache_size != slabhash_get_size(daemon->env->msg_cache) ||
-	   cfg->msg_cache_slabs != daemon->env->msg_cache->size) {
+	if(!slabhash_is_size(daemon->env->msg_cache, cfg->msg_cache_size,
+	   	cfg->msg_cache_slabs)) {
 		slabhash_delete(daemon->env->msg_cache);
 		daemon->env->msg_cache = slabhash_create(cfg->msg_cache_slabs,
 			HASH_DEFAULT_STARTARRAY, cfg->msg_cache_size,

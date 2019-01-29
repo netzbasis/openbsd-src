@@ -1,8 +1,8 @@
-/*	$OpenBSD: md5.c,v 1.91 2017/05/22 16:00:47 deraadt Exp $	*/
+/*	$OpenBSD: md5.c,v 1.94 2019/01/25 00:19:25 millert Exp $	*/
 
 /*
  * Copyright (c) 2001,2003,2005-2007,2010,2013,2014
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/queue.h>
+#include <sys/resource.h>
 #include <netinet/in.h>
 #include <ctype.h>
 #include <err.h>
@@ -548,11 +549,11 @@ digest_filelist(const char *file, struct hash_function *defhash, int selcount,
 	int found, base64, error, cmp, i;
 	size_t algorithm_max, algorithm_min;
 	const char *algorithm;
-	char *filename, *checksum, *buf, *p;
+	char *filename, *checksum, *line, *p, *tmpline;
 	char digest[MAX_DIGEST_LEN + 1];
-	char *lbuf = NULL;
+	ssize_t linelen;
 	FILE *listfp, *fp;
-	size_t len, nread;
+	size_t len, linesize, nread;
 	int *sel_found = NULL;
 	u_char data[32 * 1024];
 	union ANY_CTX context;
@@ -579,20 +580,15 @@ digest_filelist(const char *file, struct hash_function *defhash, int selcount,
 	}
 
 	error = found = 0;
-	while ((buf = fgetln(listfp, &len))) {
+	line = NULL;
+	linesize = 0;
+	while ((linelen = getline(&line, &linesize, listfp)) != -1) {
+		tmpline = line;
 		base64 = 0;
-		if (buf[len - 1] == '\n')
-			buf[len - 1] = '\0';
-		else {
-			if ((lbuf = malloc(len + 1)) == NULL)
-				err(1, NULL);
-
-			(void)memcpy(lbuf, buf, len);
-			lbuf[len] = '\0';
-			buf = lbuf;
-		}
-		while (isspace((unsigned char)*buf))
-			buf++;
+		if (line[linelen - 1] == '\n')
+			line[linelen - 1] = '\0';
+		while (isspace((unsigned char)*tmpline))
+			tmpline++;
 
 		/*
 		 * Crack the line into an algorithm, filename, and checksum.
@@ -602,11 +598,11 @@ digest_filelist(const char *file, struct hash_function *defhash, int selcount,
 		 * Fallback on GNU form:
 		 *  CHECKSUM  FILENAME
 		 */
-		p = strchr(buf, ' ');
+		p = strchr(tmpline, ' ');
 		if (p != NULL && *(p + 1) == '(') {
 			/* BSD form */
 			*p = '\0';
-			algorithm = buf;
+			algorithm = tmpline;
 			len = strlen(algorithm);
 			if (len > algorithm_max || len < algorithm_min)
 				continue;
@@ -657,7 +653,7 @@ digest_filelist(const char *file, struct hash_function *defhash, int selcount,
 			if ((hf = defhash) == NULL)
 				continue;
 			algorithm = hf->name;
-			checksum = buf;
+			checksum = tmpline;
 			if ((p = strchr(checksum, ' ')) == NULL)
 				continue;
 			if (hf->style == STYLE_CKSUM) {
@@ -724,11 +720,15 @@ digest_filelist(const char *file, struct hash_function *defhash, int selcount,
 			error = 1;
 		}
 	}
+	free(line);
+	if (ferror(listfp)) {
+		warn("%s: getline", file);
+		error = 1;
+	}
 	if (listfp != stdin)
 		fclose(listfp);
 	if (!found)
 		warnx("%s: no properly formatted checksum lines found", file);
-	free(lbuf);
 	if (sel_found != NULL) {
 		/*
 		 * Mark found files by setting them to NULL so that we can
@@ -750,7 +750,8 @@ void
 digest_time(struct hash_list *hl, int times)
 {
 	struct hash_function *hf;
-	struct timeval start, stop, res;
+	struct rusage start, stop;
+	struct timeval res;
 	union ANY_CTX context;
 	u_int i;
 	u_char data[TEST_BLOCK_LEN];
@@ -769,13 +770,13 @@ digest_time(struct hash_list *hl, int times)
 		for (i = 0; i < TEST_BLOCK_LEN; i++)
 			data[i] = (u_char)(i & 0xff);
 
-		gettimeofday(&start, NULL);
+		getrusage(RUSAGE_SELF, &start);
 		hf->init(&context);
 		for (i = 0; i < count; i++)
 			hf->update(&context, data, (size_t)TEST_BLOCK_LEN);
 		digest_end(hf, &context, digest, sizeof(digest), hf->base64);
-		gettimeofday(&stop, NULL);
-		timersub(&stop, &start, &res);
+		getrusage(RUSAGE_SELF, &stop);
+		timersub(&stop.ru_utime, &start.ru_utime, &res);
 		elapsed = res.tv_sec + res.tv_usec / 1000000.0;
 
 		(void)printf("\nDigest = %s\n", digest);

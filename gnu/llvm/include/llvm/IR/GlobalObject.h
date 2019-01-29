@@ -63,8 +63,17 @@ public:
   }
   void setAlignment(unsigned Align);
 
-  unsigned getGlobalObjectSubClassData() const;
-  void setGlobalObjectSubClassData(unsigned Val);
+  unsigned getGlobalObjectSubClassData() const {
+    unsigned ValueData = getGlobalValueSubClassData();
+    return ValueData >> GlobalObjectBits;
+  }
+
+  void setGlobalObjectSubClassData(unsigned Val) {
+    unsigned OldData = getGlobalValueSubClassData();
+    setGlobalValueSubClassData((OldData & GlobalObjectMask) |
+                               (Val << GlobalObjectBits));
+    assert(getGlobalObjectSubClassData() == Val && "representation error");
+  }
 
   /// Check if this global has a custom object file section.
   ///
@@ -95,6 +104,14 @@ public:
 
   /// Check if this has any metadata.
   bool hasMetadata() const { return hasMetadataHashEntry(); }
+
+  /// Check if this has any metadata of the given kind.
+  bool hasMetadata(unsigned KindID) const {
+    return getMetadata(KindID) != nullptr;
+  }
+  bool hasMetadata(StringRef Kind) const {
+    return getMetadata(Kind) != nullptr;
+  }
 
   /// Get the current metadata attachments for the given kind, if any.
   ///
@@ -134,17 +151,21 @@ public:
   getAllMetadata(SmallVectorImpl<std::pair<unsigned, MDNode *>> &MDs) const;
 
   /// Erase all metadata attachments with the given kind.
-  void eraseMetadata(unsigned KindID);
+  ///
+  /// \returns true if any metadata was removed.
+  bool eraseMetadata(unsigned KindID);
 
   /// Copy metadata from Src, adjusting offsets by Offset.
   void copyMetadata(const GlobalObject *Src, unsigned Offset);
 
   void addTypeMetadata(unsigned Offset, Metadata *TypeID);
 
-  void copyAttributesFrom(const GlobalValue *Src) override;
+protected:
+  void copyAttributesFrom(const GlobalObject *Src);
 
+public:
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const Value *V) {
+  static bool classof(const Value *V) {
     return V->getValueID() == Value::FunctionVal ||
            V->getValueID() == Value::GlobalVariableVal;
   }

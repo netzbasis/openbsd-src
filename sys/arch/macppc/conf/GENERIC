@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.260 2016/09/12 08:28:44 mpi Exp $g
+#	$OpenBSD: GENERIC,v 1.266 2018/09/21 12:42:34 stsp Exp $g
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -15,7 +15,6 @@ maxusers	80			# estimated number of users
 
 option		PCIVERBOSE
 option		USBVERBOSE
-#option		MACOBIOVERBOSE
 option		ADBVERBOSE
 option		ALTIVEC
 option		APERTURE	# in-kernel aperture driver for XFree86
@@ -141,7 +140,6 @@ xlights*	at macobio?	# Xserve front panel LEDs
 mc*		at macobio?	# MACE ethernet
 #esp*		at macobio? flags 0x0000ffff # 53c9x SCSI
 mesh*		at macobio? flags 0xffff # MESH SCSI
-#nvram*		at macobio?	# nvram
 adb*		at macobio?	# Apple Desktop Bus
 apm0		at adb?		# APM emulation
 piic0		at adb?		# PMU I2C
@@ -207,7 +205,7 @@ usb*	at ehci?
 # USB devices
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
-ualea*	at uhub?		# Araneus Alea II TRNG
+urng*	at uhub?		# USB Random Number Generator
 uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
@@ -225,6 +223,8 @@ umct*	at uhub?		# MCT USB-RS232 serial adapter
 ucom*	at umct?
 uslcom*	at uhub?		# Silicon Laboratories CP210x serial
 ucom*	at uslcom?
+uscom*	at uhub?		# Simple USB serial adapters
+ucom*	at uscom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 moscom*	at uhub?		# MosChip MCS7703 serial
@@ -264,6 +264,7 @@ aue*	at uhub?		# ADMtek AN986 Pegasus Ethernet
 atu*	at uhub?		# Atmel AT76c50x based 802.11b
 axe*	at uhub?		# ASIX Electronics AX88172 USB Ethernet
 axen*	at uhub?		# ASIX Electronics AX88179 USB Ethernet
+bwfm*	at uhub?		# Broadcom FullMAC
 cue*	at uhub?		# CATC USB-EL1201A based Ethernet
 kue*	at uhub?		# Kawasaki KL5KUSB101B based Ethernet
 smsc*	at uhub?		# SMSC LAN95xx Ethernet
@@ -336,6 +337,7 @@ cardbus*	at cardslot?
 pcmcia*		at cardslot?
 cbb*		at pci?
 cardslot*	at cbb?
+ne*		at pcmcia?	# PCMCIA based NE2000 ethernet
 ep*		at pcmcia?	# PCMCIA based 3C5xx ethernet
 an*		at pcmcia?	# Cisco/Aironet
 ath*		at cardbus?	# Atheros AR5k (802.11a/b/g)

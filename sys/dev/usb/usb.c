@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb.c,v 1.114 2017/07/29 18:26:14 ians Exp $	*/
+/*	$OpenBSD: usb.c,v 1.123 2019/01/09 12:10:37 mpi Exp $	*/
 /*	$NetBSD: usb.c,v 1.77 2003/01/01 00:10:26 thorpej Exp $	*/
 
 /*
@@ -63,6 +63,8 @@
 #include <machine/bus.h>
 
 #include <dev/usb/usbdivar.h>
+#include <dev/usb/usb_mem.h>
+#include <dev/usb/usbpcap.h>
 
 #ifdef USB_DEBUG
 #define DPRINTF(x)	do { if (usbdebug) printf x; } while (0)
@@ -116,7 +118,6 @@ struct proc	*usb_task_thread_proc = NULL;
 void		 usb_abort_task_thread(void *);
 struct proc	*usb_abort_task_thread_proc = NULL;
 
-void		 usb_fill_di_task(void *);
 void		 usb_fill_udc_task(void *);
 void		 usb_fill_udf_task(void *);
 
@@ -182,6 +183,11 @@ usb_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 	printf("\n");
+
+#if NBPFILTER > 0
+	sc->sc_bus->bpfif = bpfsattach(&sc->sc_bus->bpf, sc->sc_dev.dv_xname,
+	    DLT_USBPCAP, sizeof(struct usbpcap_pkt_hdr));
+#endif
 
 	/* Make sure not to use tsleep() if we are cold booting. */
 	if (cold)
@@ -504,26 +510,6 @@ usbclose(dev_t dev, int flag, int mode, struct proc *p)
 }
 
 void
-usb_fill_di_task(void *arg)
-{
-	struct usb_device_info *di = (struct usb_device_info *)arg;
-	struct usb_softc *sc;
-	struct usbd_device *dev;
-
-	/* check that the bus and device are still present */
-	if (di->udi_bus >= usb_cd.cd_ndevs)
-		return;
-	sc = usb_cd.cd_devs[di->udi_bus];
-	if (sc == NULL)
-		return;
-	dev = sc->sc_bus->devices[di->udi_addr];
-	if (dev == NULL)
-		return;
-
-	usbd_fill_deviceinfo(dev, di, 0);
-}
-
-void
 usb_fill_udc_task(void *arg)
 {
 	struct usb_device_cdesc *udc = (struct usb_device_cdesc *)arg;
@@ -547,7 +533,7 @@ usb_fill_udc_task(void *arg)
 	if (cdesc == NULL)
 		return;
 	udc->udc_desc = *cdesc;
-	free(cdesc, M_TEMP, 0);
+	free(cdesc, M_TEMP, UGETW(cdesc->wTotalLength));
 }
 
 void
@@ -591,7 +577,7 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 #ifdef USB_DEBUG
 	case USB_SETDEBUG:
 		/* only root can access to these debug flags */
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			return (error);
 		if (!(flag & FWRITE))
 			return (EBADF);
@@ -616,12 +602,11 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 		void *ptr = NULL;
 		int addr = ur->ucr_addr;
 		usbd_status err;
-		int error = 0;
 
 		if (!(flag & FWRITE))
 			return (EBADF);
 
-		DPRINTF(("usbioctl: USB_REQUEST addr=%d len=%zu\n", addr, len));
+		DPRINTF(("%s: USB_REQUEST addr=%d len=%zu\n", __func__, addr, len));
 		/* Avoid requests that would damage the bus integrity. */
 		if ((ur->ucr_request.bmRequestType == UT_WRITE_DEVICE &&
 		     ur->ucr_request.bRequest == UR_SET_ADDRESS) ||
@@ -686,7 +671,6 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 	{
 		struct usb_device_info *di = (void *)data;
 		int addr = di->udi_addr;
-		struct usb_task di_task;
 		struct usbd_device *dev;
 
 		if (addr < 1 || addr >= USB_MAX_DEVICES)
@@ -696,21 +680,7 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 		if (dev == NULL)
 			return (ENXIO);
 
-		di->udi_bus = unit;
-
-		/* All devices get a driver, thanks to ugen(4).  If the
-		 * task ends without adding a driver name, there was an error.
-		 */
-		di->udi_devnames[0][0] = '\0';
-
-		usb_init_task(&di_task, usb_fill_di_task, di,
-		    USB_TASK_TYPE_GENERIC);
-		usb_add_task(sc->sc_bus->root_hub, &di_task);
-		usb_wait_task(sc->sc_bus->root_hub, &di_task);
-
-		if (di->udi_devnames[0][0] == '\0')
-			return (ENXIO);
-
+		usbd_fill_deviceinfo(dev, di);
 		break;
 	}
 
@@ -770,7 +740,6 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 		struct iovec iov;
 		struct uio uio;
 		size_t len;
-		int error;
 
 		if (addr < 1 || addr >= USB_MAX_DEVICES)
 			return (EINVAL);
@@ -802,7 +771,7 @@ usbioctl(dev_t devt, u_long cmd, caddr_t data, int flag, struct proc *p)
 		uio.uio_rw = UIO_READ;
 		uio.uio_procp = p;
 		error = uiomove((void *)cdesc, len, &uio);
-		free(cdesc, M_TEMP, 0);
+		free(cdesc, M_TEMP, UGETW(cdesc->wTotalLength));
 		return (error);
 	}
 
@@ -912,7 +881,7 @@ usb_needs_reattach(struct usbd_device *dev)
 void
 usb_schedsoftintr(struct usbd_bus *bus)
 {
-	DPRINTFN(10,("usb_schedsoftintr: polling=%d\n", bus->use_polling));
+	DPRINTFN(10,("%s: polling=%d\n", __func__, bus->use_polling));
 
 	if (bus->use_polling) {
 		bus->methods->soft_intr(bus);
@@ -973,5 +942,131 @@ usb_detach(struct device *self, int flags)
 		sc->sc_bus->soft = NULL;
 	}
 
+#if NBPFILTER > 0
+	bpfsdetach(sc->sc_bus->bpfif);
+#endif
 	return (0);
+}
+
+void
+usb_tap(struct usbd_bus *bus, struct usbd_xfer *xfer, uint8_t dir)
+{
+#if NBPFILTER > 0
+	struct usb_softc *sc = (struct usb_softc *)bus->usbctl;
+	usb_endpoint_descriptor_t *ed = xfer->pipe->endpoint->edesc;
+	union {
+		struct usbpcap_ctl_hdr		uch;
+		struct usbpcap_iso_hdr_full	uih;
+	} h;
+	struct usbpcap_pkt_hdr *uph = &h.uch.uch_hdr;
+	uint32_t nframes, offset;
+	unsigned int bpfdir;
+	void *data = NULL;
+	size_t flen;
+	caddr_t bpf;
+	int i;
+
+	bpf = bus->bpf;
+	if (bpf == NULL)
+		return;
+
+	switch (UE_GET_XFERTYPE(ed->bmAttributes)) {
+	case UE_CONTROL:
+		/* Control transfer headers include an extra byte */
+		uph->uph_hlen = htole16(sizeof(struct usbpcap_ctl_hdr));
+		uph->uph_xfertype = USBPCAP_TRANSFER_CONTROL;
+		break;
+	case UE_ISOCHRONOUS:
+		offset = 0;
+		nframes = xfer->nframes;
+#ifdef DIAGNOSTIC
+		if (nframes > _USBPCAP_MAX_ISOFRAMES) {
+			printf("%s: too many frames: %d > %d\n", __func__,
+			    xfer->nframes, _USBPCAP_MAX_ISOFRAMES);
+			nframes = _USBPCAP_MAX_ISOFRAMES;
+		}
+#endif
+		/* Isochronous transfer headers include space for one frame */
+		flen = (nframes - 1) * sizeof(struct usbpcap_iso_pkt);
+		uph->uph_hlen = htole16(sizeof(struct usbpcap_iso_hdr) + flen);
+		uph->uph_xfertype = USBPCAP_TRANSFER_ISOCHRONOUS;
+		h.uih.uih_startframe = 0; /* not yet used */
+		h.uih.uih_nframes = nframes;
+		h.uih.uih_errors = 0; /* we don't have per-frame error */
+		for (i = 0; i < nframes; i++) {
+			h.uih.uih_frames[i].uip_offset = offset;
+			h.uih.uih_frames[i].uip_length = xfer->frlengths[i];
+			/* See above, we don't have per-frame error */
+			h.uih.uih_frames[i].uip_status = 0;
+			offset += xfer->frlengths[i];
+		}
+		break;
+	case UE_BULK:
+		uph->uph_hlen = htole16(sizeof(*uph));
+		uph->uph_xfertype = USBPCAP_TRANSFER_BULK;
+		break;
+	case UE_INTERRUPT:
+		uph->uph_hlen = htole16(sizeof(*uph));
+		uph->uph_xfertype = USBPCAP_TRANSFER_INTERRUPT;
+		break;
+	default:
+		return;
+	}
+
+	uph->uph_id = 0; /* not yet used */
+	uph->uph_status = htole32(xfer->status);
+	uph->uph_function = 0; /* not yet used */
+	uph->uph_bus = htole32(sc->sc_dev.dv_unit);
+	uph->uph_devaddr = htole16(xfer->device->address);
+	uph->uph_epaddr = ed->bEndpointAddress;
+	uph->uph_info = 0;
+
+	/* Outgoing control requests start with a STAGE dump. */
+	if ((xfer->rqflags & URQ_REQUEST) && (dir == USBTAP_DIR_OUT)) {
+		h.uch.uch_stage = USBPCAP_CONTROL_STAGE_SETUP;
+		uph->uph_dlen = sizeof(usb_device_request_t);
+		bpf_tap_hdr(bpf, uph, uph->uph_hlen, &xfer->request,
+		    uph->uph_dlen, BPF_DIRECTION_OUT);
+	}
+
+	if (dir == USBTAP_DIR_OUT) {
+		bpfdir = BPF_DIRECTION_OUT;
+		if (!usbd_xfer_isread(xfer)) {
+			data = KERNADDR(&xfer->dmabuf, 0);
+			uph->uph_dlen = xfer->length;
+			if (xfer->rqflags & URQ_REQUEST)
+				h.uch.uch_stage = USBPCAP_CONTROL_STAGE_DATA;
+		} else {
+			data = NULL;
+			uph->uph_dlen = 0;
+			if (xfer->rqflags & URQ_REQUEST)
+				h.uch.uch_stage = USBPCAP_CONTROL_STAGE_STATUS;
+		}
+	} else { /* USBTAP_DIR_IN */
+		bpfdir = BPF_DIRECTION_IN;
+		uph->uph_info = USBPCAP_INFO_DIRECTION_IN;
+		if (usbd_xfer_isread(xfer)) {
+			data = KERNADDR(&xfer->dmabuf, 0);
+			uph->uph_dlen = xfer->actlen;
+			if (xfer->rqflags & URQ_REQUEST)
+				h.uch.uch_stage = USBPCAP_CONTROL_STAGE_DATA;
+		} else {
+			data = NULL;
+			uph->uph_dlen = 0;
+			if (xfer->rqflags & URQ_REQUEST)
+				h.uch.uch_stage = USBPCAP_CONTROL_STAGE_STATUS;
+		}
+	}
+
+	/* Dump bulk/intr/iso data, ctrl DATA or STATUS stage. */
+	bpf_tap_hdr(bpf, uph, uph->uph_hlen, data, uph->uph_dlen, bpfdir);
+
+	/* Incoming control requests with DATA need a STATUS stage. */
+	if ((xfer->rqflags & URQ_REQUEST) && (dir == USBTAP_DIR_IN) &&
+	    (h.uch.uch_stage == USBPCAP_CONTROL_STAGE_DATA)) {
+		h.uch.uch_stage = USBPCAP_CONTROL_STAGE_STATUS;
+		uph->uph_dlen = 0;
+		bpf_tap_hdr(bpf, uph, uph->uph_hlen, NULL, 0, BPF_DIRECTION_IN);
+	}
+#endif
 }

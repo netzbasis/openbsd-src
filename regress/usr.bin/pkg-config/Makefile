@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.56 2017/08/15 01:22:05 jasper Exp $
+#	$OpenBSD: Makefile,v 1.59 2018/05/18 12:23:20 jasper Exp $
 
 REGRESS_TARGETS=cmp-vers1-1 \
 		cmp-vers1-2 \
@@ -62,9 +62,12 @@ REGRESS_TARGETS=cmp-vers1-1 \
 		whitespace-cflags \
 		whitespace-libs \
 		whitespace-linebreak \
+		whitespace-requires-1 \
+		whitespace-requires-2 \
 		whitespace-name \
 		whitespace-property-1 \
 		whitespace-property-2 \
+		whitespace-property-3 \
 		quoting \
 		broken-require-1 \
 		broken-require-2 \
@@ -88,7 +91,10 @@ REGRESS_TARGETS=cmp-vers1-1 \
 		variables-5 \
 		filter-system-dirs-1 \
 		filter-system-dirs-2 \
-		filter-system-dirs-3
+		filter-system-dirs-3 \
+		filter-system-dirs-4 \
+		filter-system-dirs-5 \
+		filter-system-dirs-6
 
 PKG_CONFIG?=	/usr/bin/pkg-config
 PCONFIG =	PKG_CONFIG_PATH=${.CURDIR}/pcdir/ ${PKG_CONFIG}
@@ -465,6 +471,14 @@ whitespace-linebreak:
 	@${VPCONFIG} --libs linebreak
 	@diff -u ${WANT} ${GOT}
 
+whitespace-requires-1:
+	# Test whitespace in version comparison
+	@${VPCONFIG} --exists $@
+
+whitespace-requires-2:
+	# Test whitespace in version comparison
+	@${VPCONFIG} --exists $@
+
 whitespace-name:
 	# Test whitespace in Name
 	@echo "Requested 'whitespace > 0.2.0' but version of Whitespace test is 0.0.0" > ${WANT}
@@ -478,7 +492,13 @@ whitespace-property-1:
 	@diff -u ${WANT} ${GOT}
 
 whitespace-property-2:
-	# Test whitespace after property name
+	# Test whitespace after property value
+	@echo "0.0.0" > ${WANT}
+	@${VPCONFIG} --modversion whitespace-prop-2
+	@diff -u ${WANT} ${GOT}
+
+whitespace-property-3:
+	# Test whitespace before property value
 	@echo "0.0.0" > ${WANT}
 	@${VPCONFIG} --modversion whitespace-prop-3
 	@diff -u ${WANT} ${GOT}
@@ -607,6 +627,24 @@ filter-system-dirs-3:
 	# Test removing -L/usr/lib as a system directory (static)
 	@echo ' -lfilter -lprivate-filter' > ${WANT}
 	@${VPCONFIG} --static --libs filter
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-4:
+	# Test not removing -I/usr/include/filter as a system directory
+	@echo '-I/usr/include/filter -DFILTER' > ${WANT}
+	@${VPCONFIG} --cflags filter2
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-5:
+	# Test not removing -L/usr/lib/filter as a system directory
+	@echo '-L/usr/lib/filter -lfilter' > ${WANT}
+	@${VPCONFIG} --libs filter2
+	@diff -u ${WANT} ${GOT}
+
+filter-system-dirs-6:
+	# Test not removing -L/usr/lib/filter as a system directory (static)
+	@echo '-L/usr/lib/filter -lfilter -lprivate-filter' > ${WANT}
+	@${VPCONFIG} --static --libs filter2
 	@diff -u ${WANT} ${GOT}
 
 clean:

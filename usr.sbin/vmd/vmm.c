@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.72 2017/08/15 15:10:35 pd Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.91 2018/12/04 08:15:09 claudio Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -54,8 +54,7 @@
 #include "vmm.h"
 
 void vmm_sighdlr(int, short, void *);
-int vmm_start_vm(struct imsg *, uint32_t *);
-int vmm_receive_vm(struct vmd_vm * , int);
+int vmm_start_vm(struct imsg *, uint32_t *, pid_t *);
 int vmm_dispatch_parent(int, struct privsep_proc *, struct imsg *);
 void vmm_run(struct privsep *, struct privsep_proc *, void *);
 void vmm_dispatch_vm(int, short, void *);
@@ -110,12 +109,20 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct vmop_id		 vid;
 	struct vmop_result	 vmr;
 	struct vmop_create_params vmc;
-	uint32_t		 id = 0;
-	unsigned int		 mode;
+	uint32_t		 id = 0, peerid = imsg->hdr.peerid;
+	pid_t			 pid = 0;
+	unsigned int		 mode, flags;
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
 		res = config_getvm(ps, imsg);
+		if (res == -1) {
+			res = errno;
+			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
+		break;
+	case IMSG_VMDOP_START_VM_CDROM:
+		res = config_getcdrom(ps, imsg);
 		if (res == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -136,44 +143,99 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 		break;
 	case IMSG_VMDOP_START_VM_END:
-		res = vmm_start_vm(imsg, &id);
+		res = vmm_start_vm(imsg, &id, &pid);
 		/* Check if the ID can be mapped correctly */
 		if ((id = vm_id2vmid(id, NULL)) == 0)
 			res = ENOENT;
 		cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		break;
+	case IMSG_VMDOP_WAIT_VM_REQUEST:
+		IMSG_SIZE_CHECK(imsg, &vid);
+		memcpy(&vid, imsg->data, sizeof(vid));
+		id = vid.vid_id;
+
+		DPRINTF("%s: recv'ed WAIT_VM for %d", __func__, id);
+
+		cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
+		if (id == 0) {
+			res = ENOENT;
+		} else if ((vm = vm_getbyvmid(id)) != NULL) {
+			if (vm->vm_peerid != (uint32_t)-1) {
+				peerid = vm->vm_peerid;
+				res = EINTR;
+			} else
+				cmd = 0;
+			vm->vm_peerid = imsg->hdr.peerid;
+		} else {
+			/* vm doesn't exist, cannot stop vm */
+			log_debug("%s: cannot stop vm that is not running",
+			    __func__);
+			res = VMD_VM_STOP_INVALID;
+		}
+		break;
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
-		IMSG_SIZE_CHECK(imsg, &vtp);
-		memcpy(&vtp, imsg->data, sizeof(vtp));
-		id = vtp.vtp_vm_id;
+		IMSG_SIZE_CHECK(imsg, &vid);
+		memcpy(&vid, imsg->data, sizeof(vid));
+		id = vid.vid_id;
+		flags = vid.vid_flags;
+
+		DPRINTF("%s: recv'ed TERMINATE_VM for %d", __func__, id);
+
+		cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 
 		if (id == 0) {
 			res = ENOENT;
-		} else if ((vm = vm_getbyvmid(id)) != NULL &&
-		    vm->vm_shutdown == 0) {
-			log_debug("%s: sending shutdown request to vm %d",
-			    __func__, id);
-
-			/*
-			 * Request reboot but mark the VM as shutting down.
-			 * This way we can terminate the VM after the triple
-			 * fault instead of reboot and avoid being stuck in
-			 * the ACPI-less powerdown ("press any key to reboot")
-			 * of the VM.
-			 */
-			vm->vm_shutdown = 1;
-			if (imsg_compose_event(&vm->vm_iev,
-			    IMSG_VMDOP_VM_REBOOT, 0, 0, -1, NULL, 0) == -1)
-				res = errno;
-			else
+		} else if ((vm = vm_getbyvmid(id)) != NULL) {
+			if (flags & VMOP_FORCE) {
+				vtp.vtp_vm_id = vm_vmid2id(vm->vm_vmid, vm);
+				vm->vm_shutdown = 1;
+				(void)terminate_vm(&vtp);
 				res = 0;
+			} else if (vm->vm_shutdown == 0) {
+				log_debug("%s: sending shutdown request"
+				    " to vm %d", __func__, id);
+
+				/*
+				 * Request reboot but mark the VM as shutting
+				 * down. This way we can terminate the VM after
+				 * the triple fault instead of reboot and 
+				 * avoid being stuck in the ACPI-less powerdown
+				 * ("press any key to reboot") of the VM.
+				 */
+				vm->vm_shutdown = 1;
+				if (imsg_compose_event(&vm->vm_iev,
+				    IMSG_VMDOP_VM_REBOOT,
+				    0, 0, -1, NULL, 0) == -1)
+					res = errno;
+				else
+					res = 0;
+			} else {
+				/*
+				 * VM is currently being shutdown.
+				 * Check to see if the VM process is still
+				 * active.  If not, return VMD_VM_STOP_INVALID.
+				 */
+				if (vm_vmid2id(vm->vm_vmid, vm) == 0) {
+					log_debug("%s: no vm running anymore",
+					    __func__);
+					res = VMD_VM_STOP_INVALID;
+				}
+			}
+			if ((flags & VMOP_WAIT) &&
+			    res == 0 && vm->vm_shutdown == 1) {
+				if (vm->vm_peerid != (uint32_t)-1) {
+					peerid = vm->vm_peerid;
+					res = EINTR;
+				} else
+					cmd = 0;
+				vm->vm_peerid = imsg->hdr.peerid;
+			}
 		} else {
-			/* Terminate VMs that are unknown or shutting down */
-			vtp.vtp_vm_id = vm_vmid2id(vm->vm_vmid, vm);
-			res = terminate_vm(&vtp);
-			vm_remove(vm);
+			/* vm doesn't exist, cannot stop vm */
+			log_debug("%s: cannot stop vm that is not running",
+			    __func__);
+			res = VMD_VM_STOP_INVALID;
 		}
-		cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_REQUEST:
 		res = get_info_vm(ps, imsg, 0);
@@ -250,7 +312,8 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_RECEIVE_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vmc);
 		memcpy(&vmc, imsg->data, sizeof(vmc));
-		ret = vm_register(ps, &vmc, &vm, imsg->hdr.peerid, vmc.vmc_uid);
+		ret = vm_register(ps, &vmc, &vm,
+		    imsg->hdr.peerid, vmc.vmc_owner.uid);
 		vm->vm_tty = imsg->fd;
 		vm->vm_received = 1;
 		break;
@@ -262,7 +325,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 			break;
 		}
 		vm->vm_receive_fd = imsg->fd;
-		res = vmm_start_vm(imsg, &id);
+		res = vmm_start_vm(imsg, &id, &pid);
 		/* Check if the ID can be mapped correctly */
 		if ((id = vm_id2vmid(id, NULL)) == 0)
 			res = ENOENT;
@@ -278,8 +341,11 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_START_VM_RESPONSE:
 		if (res != 0) {
 			/* Remove local reference if it exists */
-			if ((vm = vm_getbyvmid(imsg->hdr.peerid)) != NULL)
-				vm_remove(vm);
+			if ((vm = vm_getbyvmid(imsg->hdr.peerid)) != NULL) {
+				log_debug("%s: removing vm, START_VM_RESPONSE",
+				    __func__);
+				vm_remove(vm, __func__);
+			}
 		}
 		if (id == 0)
 			id = imsg->hdr.peerid;
@@ -289,13 +355,14 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		memset(&vmr, 0, sizeof(vmr));
 		vmr.vmr_result = res;
 		vmr.vmr_id = id;
+		vmr.vmr_pid = pid;
 		if (proc_compose_imsg(ps, PROC_PARENT, -1, cmd,
-		    imsg->hdr.peerid, -1, &vmr, sizeof(vmr)) == -1)
+		    peerid, -1, &vmr, sizeof(vmr)) == -1)
 			return (-1);
 		break;
 	default:
 		if (proc_compose_imsg(ps, PROC_PARENT, -1, cmd,
-		    imsg->hdr.peerid, -1, &res, sizeof(res)) == -1)
+		    peerid, -1, &res, sizeof(res)) == -1)
 			return (-1);
 		break;
 	}
@@ -314,6 +381,7 @@ vmm_sighdlr(int sig, short event, void *arg)
 	struct vmd_vm *vm;
 	struct vm_terminate_params vtp;
 
+	log_debug("%s: handling signal %d", __func__, sig);
 	switch (sig) {
 	case SIGCHLD:
 		do {
@@ -341,21 +409,25 @@ vmm_sighdlr(int sig, short event, void *arg)
 
 				vmid = vm->vm_params.vmc_params.vcp_id;
 				vtp.vtp_vm_id = vmid;
-				if (terminate_vm(&vtp) == 0) {
-					memset(&vmr, 0, sizeof(vmr));
-					vmr.vmr_result = ret;
-					vmr.vmr_id = vm_id2vmid(vmid, vm);
-					if (proc_compose_imsg(ps, PROC_PARENT,
-					    -1, IMSG_VMDOP_TERMINATE_VM_EVENT,
-					    0, -1, &vmr, sizeof(vmr)) == -1)
-						log_warnx("could not signal "
-						    "termination of VM %u to "
-						    "parent", vm->vm_vmid);
-				} else
-					log_warnx("could not terminate VM %u",
+
+				if (terminate_vm(&vtp) == 0)
+					log_debug("%s: terminated vm %s"
+					    " (id %d)", __func__,
+					    vm->vm_params.vmc_params.vcp_name,
 					    vm->vm_vmid);
 
-				vm_remove(vm);
+				memset(&vmr, 0, sizeof(vmr));
+				vmr.vmr_result = ret;
+				vmr.vmr_id = vm_id2vmid(vmid, vm);
+				if (proc_compose_imsg(ps, PROC_PARENT,
+				    -1, IMSG_VMDOP_TERMINATE_VM_EVENT,
+				    vm->vm_peerid, -1,
+				    &vmr, sizeof(vmr)) == -1)
+					log_warnx("could not signal "
+					    "termination of VM %u to "
+					    "parent", vm->vm_vmid);
+
+				vm_remove(vm, __func__);
 			} else
 				fatalx("unexpected cause of SIGCHLD");
 		} while (pid > 0 || (pid == -1 && errno == EINTR));
@@ -381,7 +453,7 @@ vmm_shutdown(void)
 
 		/* XXX suspend or request graceful shutdown */
 		(void)terminate_vm(&vtp);
-		vm_remove(vm);
+		vm_remove(vm, __func__);
 	}
 }
 
@@ -451,7 +523,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 		if (n == 0)
 			break;
 
-		dprintf("%s: got imsg %d from %s",
+		DPRINTF("%s: got imsg %d from %s",
 		    __func__, imsg.hdr.type,
 		    vm->vm_params.vmc_params.vcp_name);
 
@@ -465,15 +537,15 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 		case IMSG_VMDOP_SEND_VM_RESPONSE:
 			IMSG_SIZE_CHECK(&imsg, &vmr);
 			memcpy(&vmr, imsg.data, sizeof(vmr));
-			if(!vmr.vmr_result)
-				vm_remove(vm);
+			if (!vmr.vmr_result) {
+				vm_remove(vm, __func__);
+			}
 		case IMSG_VMDOP_PAUSE_VM_RESPONSE:
 		case IMSG_VMDOP_UNPAUSE_VM_RESPONSE:
 			for (i = 0; i < sizeof(procs); i++) {
 				if (procs[i].p_id == PROC_PARENT) {
 					proc_forward_imsg(procs[i].p_ps,
-							&imsg, PROC_PARENT,
-							-1);
+					    &imsg, PROC_PARENT, -1);
 					break;
 				}
 			}
@@ -496,7 +568,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
  * supplied vm_terminate_params structure (vtp->vtp_vm_id)
  *
  * Parameters
- *  vtp: vm_create_params struct containing the ID of the VM to terminate
+ *  vtp: vm_terminate_params struct containing the ID of the VM to terminate
  *
  * Return values:
  *  0: success
@@ -506,7 +578,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 int
 terminate_vm(struct vm_terminate_params *vtp)
 {
-	if (ioctl(env->vmd_fd, VMM_IOC_TERM, vtp) < 0)
+	if (ioctl(env->vmd_fd, VMM_IOC_TERM, vtp) == -1)
 		return (errno);
 
 	return (0);
@@ -551,19 +623,20 @@ opentap(char *ifname)
  * Parameters:
  *  imsg: The VM data structure that is including the VM create parameters.
  *  id: Returns the VM id as reported by the kernel and obtained from the VM.
+ *  pid: Returns the VM pid to the parent.
  *
  * Return values:
  *  0: success
  *  !0 : failure - typically an errno indicating the source of the failure
  */
 int
-vmm_start_vm(struct imsg *imsg, uint32_t *id)
+vmm_start_vm(struct imsg *imsg, uint32_t *id, pid_t *pid)
 {
 	struct vm_create_params	*vcp;
 	struct vmd_vm		*vm;
 	int			 ret = EINVAL;
 	int			 fds[2];
-	size_t			 i;
+	size_t			 i, j;
 
 	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
 		log_warnx("%s: can't find vm", __func__);
@@ -598,20 +671,28 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 		close(fds[1]);
 
 		for (i = 0 ; i < vcp->vcp_ndisks; i++) {
-			close(vm->vm_disks[i]);
-			vm->vm_disks[i] = -1;
+			for (j = 0; j < VM_MAX_BASE_PER_DISK; j++) {
+				if (vm->vm_disks[i][j] != -1)
+					close(vm->vm_disks[i][j]);
+				vm->vm_disks[i][j] = -1;
+			}
 		}
-
 		for (i = 0 ; i < vcp->vcp_nnics; i++) {
 			close(vm->vm_ifs[i].vif_fd);
 			vm->vm_ifs[i].vif_fd = -1;
 		}
-
-		close(vm->vm_kernel);
-		vm->vm_kernel = -1;
-
-		close(vm->vm_tty);
-		vm->vm_tty = -1;
+		if (vm->vm_kernel != -1) {
+			close(vm->vm_kernel);
+			vm->vm_kernel = -1;
+		}
+		if (vm->vm_cdrom != -1) {
+			close(vm->vm_cdrom);
+			vm->vm_cdrom = -1;
+		}
+		if (vm->vm_tty != -1) {
+			close(vm->vm_tty);
+			vm->vm_tty = -1;
+		}
 
 		/* read back the kernel-generated vm id from the child */
 		if (read(fds[0], &vcp->vcp_id, sizeof(vcp->vcp_id)) !=
@@ -622,6 +703,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 			goto err;
 
 		*id = vcp->vcp_id;
+		*pid = vm->vm_pid;
 
 		if (vmm_pipe(vm, fds[0], vmm_dispatch_vm) == -1)
 			fatal("setup vm pipe");
@@ -630,6 +712,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 	} else {
 		/* Child */
 		close(fds[0]);
+		close(PROC_PARENT_SOCK_FILENO);
 
 		ret = start_vm(vm, fds[1]);
 
@@ -639,7 +722,7 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id)
 	return (0);
 
  err:
-	vm_remove(vm);
+	vm_remove(vm, __func__);
 
 	return (ret);
 }
@@ -711,7 +794,7 @@ get_info_vm(struct privsep *ps, struct imsg *imsg, int terminate)
 			vtp.vtp_vm_id = info[i].vir_id;
 			if ((ret = terminate_vm(&vtp)) != 0)
 				return (ret);
-			log_debug("%s: terminated VM %s (id %d)", __func__,
+			log_debug("%s: terminated vm %s (id %d)", __func__,
 			    info[i].vir_name, info[i].vir_id);
 			continue;
 		}

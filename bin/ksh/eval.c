@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.53 2017/07/04 11:46:15 anton Exp $	*/
+/*	$OpenBSD: eval.c,v 1.63 2018/07/09 00:20:35 anton Exp $	*/
 
 /*
  * Expansion - quoting, separation, substitution, globbing
@@ -56,9 +56,9 @@ static	void	globit(XString *, char **, char *, XPtrV *, int);
 static char	*maybe_expand_tilde(char *, XString *, char **, int);
 static	char   *tilde(char *);
 static	char   *homedir(char *);
-#ifdef BRACE_EXPAND
 static void	alt_expand(XPtrV *, char *, char *, char *, int);
-#endif
+
+static struct tbl *varcpy(struct tbl *);
 
 /* compile and expand word */
 char *
@@ -71,7 +71,7 @@ substitute(const char *cp, int f)
 	s->start = s->str = cp;
 	source = s;
 	if (yylex(ONEWORD) != LWORD)
-		internal_errorf(1, "substitute");
+		internal_errorf("substitute");
 	source = sold;
 	afree(s, ATEMP);
 	return evalstr(yylval.cp, f);
@@ -170,7 +170,7 @@ expand(char *cp,	/* input word */
 	size_t len;
 
 	if (cp == NULL)
-		internal_errorf(1, "expand(NULL)");
+		internal_errorf("expand(NULL)");
 	/* for alias, readonly, set, typeset commands */
 	if ((f & DOVACHECK) && is_wdvarassign(cp)) {
 		f &= ~(DOVACHECK|DOBLANK|DOGLOB|DOTILDE);
@@ -180,10 +180,8 @@ expand(char *cp,	/* input word */
 		f &= ~DOGLOB;
 	if (Flag(FMARKDIRS))
 		f |= DOMARKDIRS;
-#ifdef BRACE_EXPAND
 	if (Flag(FBRACEEXPAND) && (f & DOGLOB))
 		f |= DOBRACE_;
-#endif /* BRACE_EXPAND */
 
 	Xinit(ds, dp, 128, ATEMP);	/* init dest. string */
 	type = XBASE;
@@ -194,7 +192,8 @@ expand(char *cp,	/* input word */
 	doblank = 0;
 	make_magic = 0;
 	word = (f&DOBLANK) ? IFS_WS : IFS_WORD;
-	st_head.next = NULL;
+
+	memset(&st_head, 0, sizeof(st_head));
 	st = &st_head;
 
 	while (1) {
@@ -309,7 +308,7 @@ expand(char *cp,	/* input word */
 					st->stype = stype;
 					st->base = Xsavepos(ds, dp);
 					st->f = f;
-					st->var = x.var;
+					st->var = varcpy(x.var);
 					st->quote = quote;
 					/* skip qualifier(s) */
 					if (stype)
@@ -563,15 +562,12 @@ expand(char *cp,	/* input word */
 
 				*dp++ = '\0';
 				p = Xclose(ds, dp);
-#ifdef BRACE_EXPAND
 				if (fdo & DOBRACE_)
 					/* also does globbing */
 					alt_expand(wp, p, p,
 					    p + Xlength(ds, (dp - 1)),
 					    fdo | (f & DOMARKDIRS));
-				else
-#endif /* BRACE_EXPAND */
-				if (fdo & DOGLOB)
+				else if (fdo & DOGLOB)
 					glob(p, wp, f & DOMARKDIRS);
 				else if ((f & DOPAT) || !(fdo & DOMAGIC_))
 					XPput(*wp, p);
@@ -584,7 +580,7 @@ expand(char *cp,	/* input word */
 					Xinit(ds, dp, 128, ATEMP);
 			}
 			if (c == 0)
-				return;
+				goto done;
 			if (word != IFS_NWS)
 				word = ctype(c, C_IFSWS) ? IFS_WS : IFS_NWS;
 		} else {
@@ -594,7 +590,7 @@ expand(char *cp,	/* input word */
 					char *p;
 
 					if ((p = strdup("")) == NULL)
-						internal_errorf(1, "unable "
+						internal_errorf("unable "
 						    "to allocate memory");
 					XPput(*wp, p);
 				}
@@ -628,7 +624,6 @@ expand(char *cp,	/* input word */
 						*dp++ = MAGIC;
 					}
 					break;
-#ifdef BRACE_EXPAND
 				case OBRACE:
 				case ',':
 				case CBRACE:
@@ -638,7 +633,6 @@ expand(char *cp,	/* input word */
 						*dp++ = MAGIC;
 					}
 					break;
-#endif /* BRACE_EXPAND */
 				case '=':
 					/* Note first unquoted = for ~ */
 					if (!(f & DOTEMP_) && !saw_eq) {
@@ -691,6 +685,14 @@ expand(char *cp,	/* input word */
 			word = IFS_WORD;
 		}
 	}
+
+done:
+	for (st = &st_head; st != NULL; st = st->next) {
+		if (st->var == NULL || (st->var->flag & RDONLY) == 0)
+			continue;
+
+		afree(st->var, ATEMP);
+	}
 }
 
 /*
@@ -741,7 +743,7 @@ varsub(Expand *xp, char *sp, char *word,
 		if (Flag(FNOUNSET) && c == 0 && !zero_ok)
 			errorf("%s: parameter not set", sp);
 		*stypep = 0; /* unqualified variable/string substitution */
-		xp->str = str_save(ulton((unsigned long)c, 10), ATEMP);
+		xp->str = str_save(u64ton((uint64_t)c, 10), ATEMP);
 		return XSUB;
 	}
 
@@ -1076,7 +1078,6 @@ globit(XString *xs,	/* dest string */
 		int len;
 		int prefix_len;
 
-		/* xp = *xpp;	   copy_non_glob() may have re-alloc'd xs */
 		*xp = '\0';
 		prefix_len = Xlength(*xs, xp);
 		dirp = opendir(prefix_len ? Xstring(*xs, xp) : ".");
@@ -1108,47 +1109,6 @@ globit(XString *xs,	/* dest string */
 		*--np = odirsep;
 }
 
-#if 0
-/* Check if p contains something that needs globbing; if it does, 0 is
- * returned; if not, p is copied into xs/xp after stripping any MAGICs
- */
-static int	copy_non_glob(XString *xs, char **xpp, char *p);
-static int
-copy_non_glob(XString *xs, char **xpp, char *p)
-{
-	char *xp;
-	int len = strlen(p);
-
-	XcheckN(*xs, *xpp, len);
-	xp = *xpp;
-	for (; *p; p++) {
-		if (ISMAGIC(*p)) {
-			int c = *++p;
-
-			if (c == '*' || c == '?')
-				return 0;
-			if (*p == '[') {
-				char *q = p + 1;
-
-				if (ISMAGIC(*q) && q[1] == '!')
-					q += 2;
-				if (ISMAGIC(*q) && q[1] == ']')
-					q += 2;
-				for (; *q; q++)
-					if (ISMAGIC(*q) && *++q == ']')
-						return 0;
-				/* pass a literal [ through */
-			}
-			/* must be a MAGIC-MAGIC, or MAGIC-!, MAGIC--, etc. */
-		}
-		*xp++ = *p;
-	}
-	*xp = '\0';
-	*xpp = xp;
-	return 1;
-}
-#endif /* 0 */
-
 /* remove MAGIC from string */
 char *
 debunk(char *dp, const char *sp, size_t dlen)
@@ -1156,10 +1116,11 @@ debunk(char *dp, const char *sp, size_t dlen)
 	char *d, *s;
 
 	if ((s = strchr(sp, MAGIC))) {
-		if (s - sp >= dlen)
+		size_t slen = s - sp;
+		if (slen >= dlen)
 			return dp;
-		memcpy(dp, sp, s - sp);
-		for (d = dp + (s - sp); *s && (d - dp < dlen); s++)
+		memcpy(dp, sp, slen);
+		for (d = dp + slen; *s && (d < dp + dlen); s++)
 			if (!ISMAGIC(*s) || !(*++s & 0x80) ||
 			    !strchr("*+?@! ", *s & 0x7f))
 				*d++ = *s;
@@ -1167,7 +1128,7 @@ debunk(char *dp, const char *sp, size_t dlen)
 				/* extended pattern operators: *+?@! */
 				if ((*s & 0x7f) != ' ')
 					*d++ = *s & 0x7f;
-				if (d - dp < dlen)
+				if (d < dp + dlen)
 					*d++ = '(';
 			}
 		*d = '\0';
@@ -1262,7 +1223,6 @@ homedir(char *name)
 	return ap->val.s;
 }
 
-#ifdef BRACE_EXPAND
 static void
 alt_expand(XPtrV *wp, char *start, char *exp_start, char *end, int fdo)
 {
@@ -1337,4 +1297,23 @@ alt_expand(XPtrV *wp, char *start, char *exp_start, char *end, int fdo)
 	}
 	return;
 }
-#endif /* BRACE_EXPAND */
+
+/*
+ * Copy the given variable if it's flagged as read-only.
+ * Such variables have static storage and only one can therefore be referenced
+ * at a time.
+ * This is necessary in order to allow variable expansion expressions to refer
+ * to multiple read-only variables.
+ */
+static struct tbl *
+varcpy(struct tbl *vp)
+{
+	struct tbl *cpy;
+
+	if (vp == NULL || (vp->flag & RDONLY) == 0)
+		return vp;
+
+	cpy = alloc(sizeof(struct tbl), ATEMP);
+	memcpy(cpy, vp, sizeof(struct tbl));
+	return cpy;
+}

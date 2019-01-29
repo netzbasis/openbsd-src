@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211.c,v 1.62 2017/06/20 13:51:46 stsp Exp $	*/
+/*	$OpenBSD: ieee80211.c,v 1.71 2019/01/23 10:08:49 stsp Exp $	*/
 /*	$NetBSD: ieee80211.c,v 1.19 2004/06/06 05:45:29 dyoung Exp $	*/
 
 /*-
@@ -65,11 +65,43 @@ int	ieee80211_debug = 0;
 
 int ieee80211_cache_size = IEEE80211_CACHE_SIZE;
 
-struct ieee80211com_head ieee80211com_head =
-    LIST_HEAD_INITIALIZER(ieee80211com_head);
-
 void ieee80211_setbasicrates(struct ieee80211com *);
 int ieee80211_findrate(struct ieee80211com *, enum ieee80211_phymode, int);
+
+void
+ieee80211_begin_bgscan(struct ifnet *ifp)
+{
+	struct ieee80211com *ic = (void *)ifp;
+
+	if ((ic->ic_flags & IEEE80211_F_BGSCAN) ||
+	    ic->ic_state != IEEE80211_S_RUN)
+		return;
+
+	if (ic->ic_bgscan_start != NULL && ic->ic_bgscan_start(ic) == 0) {
+		/*
+		 * Free the nodes table to ensure we get an up-to-date view
+		 * of APs around us. In particular, we need to kick out the
+		 * AP we are associated to. Otherwise, our current AP might
+		 * stay cached if it is turned off while we are scanning, and
+		 * we could end up picking a now non-existent AP over and over.
+		 */
+		ieee80211_free_allnodes(ic, 0 /* keep ic->ic_bss */);
+
+		ic->ic_flags |= IEEE80211_F_BGSCAN;
+		if (ifp->if_flags & IFF_DEBUG)
+			printf("%s: begin background scan\n", ifp->if_xname);
+
+		/* Driver calls ieee80211_end_scan() when done. */
+	}
+}
+
+void
+ieee80211_bgscan_timeout(void *arg)
+{
+	struct ifnet *ifp = arg;
+
+	ieee80211_begin_bgscan(ifp);
+}
 
 void
 ieee80211_channel_init(struct ifnet *ifp)
@@ -117,7 +149,6 @@ ieee80211_channel_init(struct ifnet *ifp)
 	if ((ic->ic_modecaps & (1<<ic->ic_curmode)) == 0)
 		ic->ic_curmode = IEEE80211_MODE_AUTO;
 	ic->ic_des_chan = IEEE80211_CHAN_ANYC;	/* any channel is ok */
-	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 }
 
 void
@@ -150,7 +181,6 @@ ieee80211_ifattach(struct ifnet *ifp)
 	ic->ic_bmissthres = 7;	/* default 7 beacons */
 	ic->ic_dtim_period = 1;	/* all TIMs are DTIMs */
 
-	LIST_INSERT_HEAD(&ieee80211com_head, ic, ic_list);
 	ieee80211_node_attach(ifp);
 	ieee80211_proto_attach(ifp);
 
@@ -158,6 +188,8 @@ ieee80211_ifattach(struct ifnet *ifp)
 	ifp->if_priority = IF_WIRELESS_DEFAULT_PRIORITY;
 
 	ieee80211_set_link_state(ic, LINK_STATE_DOWN);
+
+	timeout_set(&ic->ic_bgscan_timeout, ieee80211_bgscan_timeout, ifp);
 }
 
 void
@@ -165,10 +197,10 @@ ieee80211_ifdetach(struct ifnet *ifp)
 {
 	struct ieee80211com *ic = (void *)ifp;
 
+	timeout_del(&ic->ic_bgscan_timeout);
 	ieee80211_proto_detach(ifp);
 	ieee80211_crypto_detach(ifp);
 	ieee80211_node_detach(ifp);
-	LIST_REMOVE(ic, ic_list);
 	ifmedia_delete_instance(&ic->ic_media, IFM_INST_ANY);
 	ether_ifdetach(ifp);
 }
@@ -210,14 +242,8 @@ ieee80211_chan2ieee(struct ieee80211com *ic, const struct ieee80211_channel *c)
 		return c - ic->ic_channels;
 	else if (c == IEEE80211_CHAN_ANYC)
 		return IEEE80211_CHAN_ANY;
-	else if (c != NULL) {
-		printf("%s: invalid channel freq %u flags %x\n",
-			ifp->if_xname, c->ic_freq, c->ic_flags);
-		return 0;		/* XXX */
-	} else {
-		printf("%s: invalid channel (NULL)\n", ifp->if_xname);
-		return 0;		/* XXX */
-	}
+
+	panic("%s: bogus channel pointer", ifp->if_xname);
 }
 
 /*
@@ -677,6 +703,32 @@ const struct ieee80211_rateset ieee80211_std_rateset_11b =
 const struct ieee80211_rateset ieee80211_std_rateset_11g =
 	{ 12, { 2, 4, 11, 22, 12, 18, 24, 36, 48, 72, 96, 108 } };
 
+const struct ieee80211_ht_rateset ieee80211_std_ratesets_11n[] = {
+	/* MCS 0-7, 20MHz channel, no SGI */
+	{ 8, { 13, 26, 39, 52, 78, 104, 117, 130 }, 0x000000ff, 0, 7, 0},
+
+	/* MCS 0-7, 20MHz channel, SGI */
+	{ 8, { 14, 29, 43, 58, 87, 116, 130, 144 }, 0x000000ff, 0, 7, 1 },
+
+	/* MCS 8-15, 20MHz channel, no SGI */
+	{ 8, { 26, 52, 78, 104, 156, 208, 234, 260 }, 0x0000ff00, 8, 15, 0 },
+
+	/* MCS 8-15, 20MHz channel, SGI */
+	{ 8, { 29, 58, 87, 116, 173, 231, 261, 289 }, 0x0000ff00, 8, 15, 1 },
+
+	/* MCS 16-23, 20MHz channel, no SGI */
+	{ 8, { 39, 78, 117, 156, 234, 312, 351, 390 }, 0x00ff0000, 16, 23, 0 },
+
+	/* MCS 16-23, 20MHz channel, SGI */
+	{ 8, { 43, 87, 130, 173, 260, 347, 390, 433 }, 0x00ff0000, 16, 23, 1 },
+
+	/* MCS 24-31, 20MHz channel, no SGI */
+	{ 8, { 52, 104, 156, 208, 312, 416, 468, 520 }, 0xff000000, 24, 31, 0 },
+
+	/* MCS 24-31, 20MHz channel, SGI */
+	{ 8, { 58, 116, 173, 231, 347, 462, 520, 578 }, 0xff000000, 24, 31, 1 },
+};
+
 /*
  * Mark the basic rates for the 11g rate table based on the
  * operating mode.  For real 11g we mark all the 11b rates
@@ -792,7 +844,7 @@ ieee80211_setmode(struct ieee80211com *ic, enum ieee80211_phymode mode)
 	 * channel list before committing to the new mode.
 	 */
 	if (mode >= nitems(chanflags))
-		panic("unexpected mode %u", mode);
+		panic("%s: unexpected mode %u", __func__, mode);
 	modeflags = chanflags[mode];
 	for (i = 0; i <= IEEE80211_CHAN_MAX; i++) {
 		c = &ic->ic_channels[i];
@@ -877,7 +929,9 @@ ieee80211_next_mode(struct ifnet *ifp)
 		if (ic->ic_curmode == IEEE80211_MODE_11N)
 			continue;
 
-		if (ic->ic_curmode >= IEEE80211_MODE_MAX) {
+		/* Always scan in AUTO mode if the driver scans all bands. */
+		if (ic->ic_curmode >= IEEE80211_MODE_MAX ||
+		    (ic->ic_caps & IEEE80211_C_SCANALLBAND)) {
 			ic->ic_curmode = IEEE80211_MODE_AUTO;
 			break;
 		}
@@ -936,7 +990,7 @@ ieee80211_mcs2media(struct ieee80211com *ic, int mcs,
 	case IEEE80211_MODE_11B:
 	case IEEE80211_MODE_11G:
 		/* these modes use rates, not MCS */
-		panic("unexpected mode %d", mode);
+		panic("%s: unexpected mode %d", __func__, mode);
 		break;
 	case IEEE80211_MODE_AUTO:
 	case IEEE80211_MODE_11N:
@@ -1029,7 +1083,7 @@ ieee80211_rate2media(struct ieee80211com *ic, int rate,
 		break;
 	case IEEE80211_MODE_11N:
 		/* 11n uses MCS, not rates. */
-		panic("unexpected mode %d", mode);
+		panic("%s: unexpected mode %d", __func__, mode);
 		break;
 	}
 	for (i = 0; i < nitems(rates); i++)
@@ -1102,7 +1156,7 @@ ieee80211_rate2plcp(u_int8_t rate, enum ieee80211_phymode mode)
 		case 108:	return 0x0c;
 		}
         } else
-		panic("unexpected mode %u", mode);
+		panic("%s: unexpected mode %u", __func__, mode);
 
 	DPRINTF(("unsupported rate %u\n", rate));
 
@@ -1135,7 +1189,7 @@ ieee80211_plcp2rate(u_int8_t plcp, enum ieee80211_phymode mode)
 		case 0x0c:	return 108;
 		}
 	} else
-		panic("unexpected mode %u", mode);
+		panic("%s: unexpected mode %u", __func__, mode);
 
 	DPRINTF(("unsupported plcp %u\n", plcp));
 

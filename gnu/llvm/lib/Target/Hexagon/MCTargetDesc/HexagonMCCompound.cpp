@@ -14,6 +14,7 @@
 #include "Hexagon.h"
 #include "MCTargetDesc/HexagonBaseInfo.h"
 #include "MCTargetDesc/HexagonMCInstrInfo.h"
+#include "MCTargetDesc/HexagonMCShuffler.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Debug.h"
@@ -204,7 +205,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
 
   switch (L.getOpcode()) {
   default:
-    DEBUG(dbgs() << "Possible compound ignored\n");
+    LLVM_DEBUG(dbgs() << "Possible compound ignored\n");
     return CompoundInsn;
 
   case Hexagon::A2_tfrsi:
@@ -232,7 +233,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpeq:
-    DEBUG(dbgs() << "CX: C2_cmpeq\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpeq\n");
     Rs = L.getOperand(1);
     Rt = L.getOperand(2);
 
@@ -245,7 +246,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpgt:
-    DEBUG(dbgs() << "CX: C2_cmpgt\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpgt\n");
     Rs = L.getOperand(1);
     Rt = L.getOperand(2);
 
@@ -258,7 +259,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpgtu:
-    DEBUG(dbgs() << "CX: C2_cmpgtu\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpgtu\n");
     Rs = L.getOperand(1);
     Rt = L.getOperand(2);
 
@@ -271,7 +272,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpeqi:
-    DEBUG(dbgs() << "CX: C2_cmpeqi\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpeqi\n");
     Success = L.getOperand(2).getExpr()->evaluateAsAbsolute(Value);
     (void)Success;
     assert(Success);
@@ -289,7 +290,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpgti:
-    DEBUG(dbgs() << "CX: C2_cmpgti\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpgti\n");
     Success = L.getOperand(2).getExpr()->evaluateAsAbsolute(Value);
     (void)Success;
     assert(Success);
@@ -307,7 +308,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::C2_cmpgtui:
-    DEBUG(dbgs() << "CX: C2_cmpgtui\n");
+    LLVM_DEBUG(dbgs() << "CX: C2_cmpgtui\n");
     Rs = L.getOperand(1);
     compoundOpcode = cmpgtuiBitOpcode[getCompoundOp(R)];
     CompoundInsn = new (Context) MCInst;
@@ -318,7 +319,7 @@ static MCInst *getCompoundInsn(MCContext &Context, MCInst const &L,
     break;
 
   case Hexagon::S2_tstbit_i:
-    DEBUG(dbgs() << "CX: S2_tstbit_i\n");
+    LLVM_DEBUG(dbgs() << "CX: S2_tstbit_i\n");
     Rs = L.getOperand(1);
     compoundOpcode = tstBitOpcode[getCompoundOp(R)];
     CompoundInsn = new (Context) MCInst;
@@ -371,14 +372,14 @@ static bool lookForCompound(MCInstrInfo const &MCII, MCContext &Context,
           BExtended = true;
           continue;
         }
-        DEBUG(dbgs() << "J,B: " << JumpInst->getOpcode() << ","
-                     << Inst->getOpcode() << "\n");
+        LLVM_DEBUG(dbgs() << "J,B: " << JumpInst->getOpcode() << ","
+                          << Inst->getOpcode() << "\n");
         if (isOrderedCompoundPair(*Inst, BExtended, *JumpInst, JExtended)) {
           MCInst *CompoundInsn = getCompoundInsn(Context, *Inst, *JumpInst);
           if (CompoundInsn) {
-            DEBUG(dbgs() << "B: " << Inst->getOpcode() << ","
-                         << JumpInst->getOpcode() << " Compounds to "
-                         << CompoundInsn->getOpcode() << "\n");
+            LLVM_DEBUG(dbgs() << "B: " << Inst->getOpcode() << ","
+                              << JumpInst->getOpcode() << " Compounds to "
+                              << CompoundInsn->getOpcode() << "\n");
             J->setInst(CompoundInsn);
             MCI.erase(B);
             return true;
@@ -396,7 +397,7 @@ static bool lookForCompound(MCInstrInfo const &MCII, MCContext &Context,
 /// is found update the contents fo the bundle with the compound insn.
 /// If a compound instruction is found then the bundle will have one
 /// additional slot.
-void HexagonMCInstrInfo::tryCompound(MCInstrInfo const &MCII,
+void HexagonMCInstrInfo::tryCompound(MCInstrInfo const &MCII, MCSubtargetInfo const &STI,
                                      MCContext &Context, MCInst &MCI) {
   assert(HexagonMCInstrInfo::isBundle(MCI) &&
          "Non-Bundle where Bundle expected");
@@ -405,8 +406,24 @@ void HexagonMCInstrInfo::tryCompound(MCInstrInfo const &MCII,
   if (MCI.size() < 2)
     return;
 
+  bool StartedValid = llvm::HexagonMCShuffle(Context, false, MCII, STI, MCI);
+
+  // Create a vector, needed to keep the order of jump instructions.
+  MCInst CheckList(MCI);
+
   // Look for compounds until none are found, only update the bundle when
   // a compound is found.
-  while (lookForCompound(MCII, Context, MCI))
-    ;
+  while (lookForCompound(MCII, Context, CheckList)) {
+    // Keep the original bundle around in case the shuffle fails.
+    MCInst OriginalBundle(MCI);
+
+    // Need to update the bundle.
+    MCI = CheckList;
+
+    if (StartedValid &&
+        !llvm::HexagonMCShuffle(Context, false, MCII, STI, MCI)) {
+      LLVM_DEBUG(dbgs() << "Found ERROR\n");
+      MCI = OriginalBundle;
+    }
+  }
 }

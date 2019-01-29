@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file contains the WebAssembly implementation of
+/// This file contains the WebAssembly implementation of
 /// TargetFrameLowering class.
 ///
 /// On WebAssembly, there aren't a lot of things to do here. There are no
@@ -24,10 +24,11 @@
 #include "WebAssemblyMachineFunctionInfo.h"
 #include "WebAssemblySubtarget.h"
 #include "WebAssemblyTargetMachine.h"
+#include "WebAssemblyUtilities.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Support/Debug.h"
 using namespace llvm;
@@ -93,7 +94,7 @@ bool WebAssemblyFrameLowering::needsSPWriteback(
     const MachineFunction &MF, const MachineFrameInfo &MFI) const {
   assert(needsSP(MF, MFI));
   return MFI.getStackSize() > RedZoneSize || MFI.hasCalls() ||
-         MF.getFunction()->hasFnAttribute(Attribute::NoRedZone);
+         MF.getFunction().hasFnAttribute(Attribute::NoRedZone);
 }
 
 static void writeSPToMemory(unsigned SrcReg, MachineFunction &MF,
@@ -101,25 +102,13 @@ static void writeSPToMemory(unsigned SrcReg, MachineFunction &MF,
                             MachineBasicBlock::iterator &InsertAddr,
                             MachineBasicBlock::iterator &InsertStore,
                             const DebugLoc &DL) {
-  const char *ES = "__stack_pointer";
-  auto *SPSymbol = MF.createExternalSymbolName(ES);
-  MachineRegisterInfo &MRI = MF.getRegInfo();
-  const TargetRegisterClass *PtrRC =
-      MRI.getTargetRegisterInfo()->getPointerRegClass(MF);
-  unsigned Zero = MRI.createVirtualRegister(PtrRC);
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
 
-  BuildMI(MBB, InsertAddr, DL, TII->get(WebAssembly::CONST_I32), Zero)
-      .addImm(0);
-  MachineMemOperand *MMO = MF.getMachineMemOperand(
-      MachinePointerInfo(MF.getPSVManager().getExternalSymbolCallEntry(ES)),
-      MachineMemOperand::MOStore, 4, 4);
-  BuildMI(MBB, InsertStore, DL, TII->get(WebAssembly::STORE_I32))
-      .addImm(2)  // p2align
+  const char *ES = "__stack_pointer";
+  auto *SPSymbol = MF.createExternalSymbolName(ES);
+  BuildMI(MBB, InsertStore, DL, TII->get(WebAssembly::SET_GLOBAL_I32))
       .addExternalSymbol(SPSymbol)
-      .addReg(Zero)
-      .addReg(SrcReg)
-      .addMemOperand(MMO);
+      .addReg(SrcReg);
 }
 
 MachineBasicBlock::iterator
@@ -151,27 +140,20 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   auto &MRI = MF.getRegInfo();
 
   auto InsertPt = MBB.begin();
+  while (InsertPt != MBB.end() && WebAssembly::isArgument(*InsertPt))
+    ++InsertPt;
   DebugLoc DL;
 
   const TargetRegisterClass *PtrRC =
       MRI.getTargetRegisterInfo()->getPointerRegClass(MF);
-  unsigned Zero = MRI.createVirtualRegister(PtrRC);
   unsigned SPReg = WebAssembly::SP32;
   if (StackSize)
     SPReg = MRI.createVirtualRegister(PtrRC);
+
   const char *ES = "__stack_pointer";
   auto *SPSymbol = MF.createExternalSymbolName(ES);
-  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), Zero)
-      .addImm(0);
-  MachineMemOperand *LoadMMO = MF.getMachineMemOperand(
-      MachinePointerInfo(MF.getPSVManager().getExternalSymbolCallEntry(ES)),
-      MachineMemOperand::MOLoad, 4, 4);
-  // Load the SP value.
-  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::LOAD_I32), SPReg)
-      .addImm(2)       // p2align
-      .addExternalSymbol(SPSymbol)
-      .addReg(Zero)    // addr
-      .addMemOperand(LoadMMO);
+  BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::GET_GLOBAL_I32), SPReg)
+      .addExternalSymbol(SPSymbol);
 
   bool HasBP = hasBP(MF);
   if (HasBP) {

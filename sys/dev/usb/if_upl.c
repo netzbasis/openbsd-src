@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upl.c,v 1.73 2017/01/22 10:17:39 dlg Exp $ */
+/*	$OpenBSD: if_upl.c,v 1.75 2018/10/02 19:49:10 stsp Exp $ */
 /*	$NetBSD: if_upl.c,v 1.19 2002/07/11 21:14:26 augustss Exp $	*/
 /*
  * Copyright (c) 2000 The NetBSD Foundation, Inc.
@@ -255,7 +255,7 @@ upl_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_softc = sc;
 	ifp->if_mtu = UPL_BUFSZ;
 	ifp->if_hardmtu = UPL_BUFSZ;
-	ifp->if_flags = IFF_POINTOPOINT | IFF_NOARP | IFF_SIMPLEX;
+	ifp->if_flags = IFF_POINTOPOINT | IFF_SIMPLEX;
 	ifp->if_ioctl = upl_ioctl;
 	ifp->if_start = upl_start;
 	ifp->if_watchdog = upl_watchdog;
@@ -736,7 +736,7 @@ upl_ioctl(struct ifnet *ifp, u_long command, caddr_t data)
 	int			s, error = 0;
 
 	if (usbd_is_dying(sc->sc_udev))
-		return (EIO);
+		return ENXIO;
 
 	DPRINTFN(5,("%s: %s: cmd=0x%08lx\n",
 		    sc->sc_dev.dv_xname, __func__, command));

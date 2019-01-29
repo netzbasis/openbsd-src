@@ -1,4 +1,4 @@
-/*	$OpenBSD: grep.h,v 1.24 2015/12/14 20:02:07 mmcc Exp $	*/
+/*	$OpenBSD: grep.h,v 1.26 2019/01/23 23:00:54 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -27,6 +27,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include <limits.h>
 #include <regex.h>
@@ -66,14 +67,17 @@ extern int	 cflags, eflags;
 /* Command line flags */
 extern int	 Aflag, Bflag, Eflag, Fflag, Hflag, Lflag,
 		 Rflag, Zflag,
-		 bflag, cflag, hflag, iflag, lflag, nflag, oflag, qflag, sflag,
-		 vflag, wflag, xflag;
+		 bflag, cflag, hflag, iflag, lflag, mflag, nflag, oflag, qflag,
+		 sflag, vflag, wflag, xflag;
 extern int	 binbehave;
 
 extern int	 first, matchall, patterns, tail, file_err;
 extern char    **pattern;
 extern fastgrep_t *fg_pattern;
 extern regex_t	*r_pattern;
+
+/* For -m max-count */
+extern long long mcount, mlimit;
 
 /* For regex errors  */
 #define RE_ERROR_BUF 512
@@ -103,7 +107,7 @@ typedef struct mmfile {
 	char	*base, *end, *ptr;
 } mmf_t;
 
-mmf_t		*mmopen(char *fn, char *mode);
+mmf_t		*mmopen(int fd, struct stat *sb);
 void		 mmclose(mmf_t *mmf);
 char		*mmfgetln(mmf_t *mmf, size_t *l);
 
@@ -111,8 +115,8 @@ char		*mmfgetln(mmf_t *mmf, size_t *l);
 struct file;
 typedef struct file file_t;
 
-file_t		*grep_fdopen(int fd, char *mode);
-file_t		*grep_open(char *path, char *mode);
+file_t		*grep_fdopen(int fd);
+file_t		*grep_open(char *path);
 int		 grep_bin_file(file_t *f);
 char		*grep_fgetln(file_t *f, size_t *l);
 void		 grep_close(file_t *f);

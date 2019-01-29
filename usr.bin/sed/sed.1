@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sed.1,v 1.50 2017/07/19 21:28:19 jmc Exp $
+.\"	$OpenBSD: sed.1,v 1.58 2018/12/10 17:12:24 schwarze Exp $
 .\"
 .\" Copyright (c) 1992, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -32,7 +32,7 @@
 .\"
 .\"	from: @(#)sed.1	8.2 (Berkeley) 12/30/93
 .\"
-.Dd $Mdocdate: July 19 2017 $
+.Dd $Mdocdate: December 10 2018 $
 .Dt SED 1
 .Os
 .Sh NAME
@@ -106,6 +106,9 @@ It is not recommended to give a zero length
 .Ar extension
 when in place editing files, as it risks corruption or partial content
 in situations where disk space is exhausted, etc.
+In
+.Fl i
+mode, the hold space, line numbers, and ranges are reset between files.
 .It Fl r
 An alias for
 .Fl E ,
@@ -155,9 +158,11 @@ An address is not required, but if specified must be a number (that counts
 input lines
 cumulatively across input files), a dollar character
 .Pq Ql $
-that addresses the last line of input, or a context address
-(which consists of a regular expression preceded and followed by a
-delimiter).
+that addresses the last line of input, or a context address,
+which is a regular expression preceded and followed by a delimiter.
+The delimiter can be any character except a newline or a backslash.
+Unless it is a slash, the opening delimiter needs to be escaped with
+a backslash.
 .Pp
 A command line with no addresses selects every pattern space.
 .Pp
@@ -196,20 +201,16 @@ has the following two additions to BREs:
 .Pp
 .Bl -enum -compact
 .It
-In a context address, any character other than a backslash
-.Pq Ql \e
-or newline character may be used to delimit the regular expression.
-The opening delimiter should be preceded by a backslash
-unless it is a slash.
-Putting a backslash character before the delimiting character
-causes the character to be treated literally.
-For example, in the context address \exabc\exdefx, the RE delimiter
+The character delimiting the regular expression
+can be used inside the regular expression by prepending a backslash
+or by including it in a character class.
+For example, in the context address \ex\ex[xy]x, the RE delimiter
 is an
 .Sq x
-and the second
+and the other
 .Sq x
-stands for itself, so that the regular expression is
-.Dq abcxdef .
+characters stand for themselves, so that the regular expression is
+.Dq x[xy] .
 .Pp
 .It
 The escape sequence \en matches a newline character embedded in the
@@ -255,7 +256,7 @@ as well as the
 flag to the
 .Ic s
 function,
-take an optional
+take a
 .Ar file
 parameter,
 which should be separated from the function or flag by whitespace.
@@ -275,6 +276,20 @@ and
 functions all accept additional arguments.
 The synopses below indicate which arguments have to be separated from
 the function letters by whitespace characters.
+.Pp
+The
+.Ic a ,
+.Ic c ,
+.Ic i ,
+.Ic r ,
+and
+.Ic w
+functions cannot be followed by another command separated with a semicolon.
+The
+.Ar text
+and
+.Ar file
+arguments may contain semicolon characters.
 .Pp
 Functions can be combined to form a
 .Em function list ,
@@ -297,11 +312,11 @@ in which case they are applied only to lines that are
 .Em not
 selected by the addresses.
 .Bl -tag -width Ds
-.It [2addr] Ar function-list
+.It [2addr] Ns Ar function-list
 Execute
 .Ar function-list
 only when the pattern space is selected.
-.It Xo [1 addr] Ic a Ns \e
+.It Xo [1addr] Ns Ic a Ns \e
 .br
 .Ar text
 .Xc
@@ -317,7 +332,7 @@ Branch to the
 function with the specified
 .Ar label .
 If the label is not specified, branch to the end of the script.
-.It Xo [2addr] Ic c Ns \e
+.It Xo [2addr] Ns Ic c Ns \e
 .br
 .Ar text
 .Xc
@@ -342,7 +357,7 @@ pattern space.
 .It [2addr] Ns Ic H
 Append a newline character followed by the contents of the pattern space
 to the hold space.
-.It Xo [1addr] Ic i Ns \e
+.It Xo [1addr] Ns Ic i Ns \e
 .br
 .Ar text
 .Xc
@@ -394,7 +409,7 @@ Write the pattern space to standard output.
 Write the pattern space, up to the first newline character,
 to the standard output.
 .It [1addr] Ns Ic q
-Branch to the end of the script and quit without starting a new cycle.
+Branch to the end of the script and quit without starting a new cycle or file.
 .It [1addr] Ns Ic r Ar file
 Copy the contents of
 .Ar file
@@ -412,17 +427,13 @@ string for the first instance of the regular expression
 in the pattern space.
 Any character other than backslash or newline can be used instead of
 a slash to delimit the regular expression and the replacement.
-Within the regular expression and the replacement,
-the regular expression delimiter itself can be used as
-a literal character if it is preceded by a backslash.
+Also see the the section about
+.Sx SED REGULAR EXPRESSIONS .
 .Pp
 An ampersand
 .Pq Ql &
 appearing in the replacement is replaced by the string matching the
 regular expression.
-The special meaning of
-.Ql &
-in this context can be suppressed by preceding it by a backslash.
 The string
 .Ql \e# ,
 where
@@ -431,9 +442,16 @@ is a digit, is replaced by the text matched
 by the corresponding backreference expression (see
 .Xr re_format 7 ) .
 .Pp
-A line can be split by substituting a newline character into it.
-To specify a newline character in the replacement string, precede it with
-a backslash.
+All other instances of a backslash will print the literal character
+following it.
+Using a backslash before any other character other than
+.Ql & ,
+.Ql \e ,
+digit, newline
+.Pq ascii 0x0a ,
+and the delimiter is unspecified and might not be portable to other
+implementations of
+.Nm .
 .Pp
 The value of
 .Ar flags
@@ -482,14 +500,29 @@ in the pattern space with the corresponding characters from
 .Ar string2 .
 Any character other than a backslash or newline can be used instead of
 a slash to delimit the strings.
+.Pp
 Within
 .Ar string1
 and
 .Ar string2 ,
-a backslash followed by any character other than a newline is that literal
-character, and a backslash followed by an
+a backslash followed by another backslash
+is replaced by a single backslash,
+a backslash followed by an
 .Sq n
-is replaced by a newline character.
+is replaced by a newline character,
+and a backslash followed by the delimiting character
+is replaced by that character,
+causing it to be treated literally,
+with the exception of the
+.Sq n
+character,
+which will still be treated like a newline character.
+It is an error for a backslash to not be followed by another backslash,
+.Sq n ,
+or the delimiting character,
+or for
+.Ar string1
+to contain repeating characters.
 .It [0addr] Ns Ic \&: Ns Ar label
 This function does nothing; it bears a
 .Ar label
@@ -522,38 +555,10 @@ output from the
 function is formatted to the given width in columns.
 Otherwise,
 .Nm
-defaults to the terminal with, or 80 columns if the output is not a terminal.
+defaults to the terminal width, or 80 columns if the output is not a terminal.
 .El
 .Sh EXIT STATUS
 .Ex -std sed
-.Sh EXAMPLES
-The following simulates the
-.Xr cat 1
-.Fl s
-command,
-squeezing excess empty lines from standard input:
-.Bd -literal -offset indent
-$ sed -n '
-# Write non-empty lines.
-/./ {
-    p
-    d
-    }
-# Write a single empty line, then look for more empty lines.
-/^$/    p
-# Get the next line, discard the held <newline> (empty line),
-# and look for more empty lines.
-:Empty
-/^$/    {
-    N
-    s/.//
-    b Empty
-    }
-# Write the non-empty line before going back to search
-# for the first in a set of empty lines.
-    p
-\&'
-.Ed
 .Sh SEE ALSO
 .Xr awk 1 ,
 .Xr ed 1 ,
@@ -570,6 +575,14 @@ The flags
 .Op Fl aEiru
 are extensions to that specification.
 .Pp
+Following the
+.Ic b ,
+.Ic t ,
+or
+.Ic \&:
+commands with a semicolon and another command is an extension to the
+specification.
+.Pp
 The use of newlines to separate multiple commands on the command line
 is non-portable;
 the use of newlines to separate multiple commands within a command file
@@ -580,11 +593,3 @@ A
 .Nm
 command appeared in
 .At v7 .
-.Sh CAVEATS
-The use of semicolons to separate multiple commands
-is not permitted for the following commands:
-.Ic a , b , c ,
-.Ic i , r , t ,
-.Ic w , \&: ,
-and
-.Ic # .

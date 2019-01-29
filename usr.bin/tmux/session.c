@@ -1,4 +1,4 @@
-/* $OpenBSD: session.c,v 1.77 2017/07/09 22:33:09 nicm Exp $ */
+/* $OpenBSD: session.c,v 1.82 2018/10/18 08:38:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -29,7 +29,7 @@
 
 struct sessions		sessions;
 static u_int		next_session_id;
-struct session_groups	session_groups;
+struct session_groups	session_groups = RB_INITIALIZER(&session_groups);
 
 static void	session_free(int, short, void *);
 
@@ -39,27 +39,21 @@ static struct winlink *session_next_alert(struct winlink *);
 static struct winlink *session_previous_alert(struct winlink *);
 
 static void	session_group_remove(struct session *);
-static u_int	session_group_count(struct session_group *);
 static void	session_group_synchronize1(struct session *, struct session *);
-
-static u_int	session_group_count(struct session_group *);
-static void	session_group_synchronize1(struct session *, struct session *);
-
-RB_GENERATE(sessions, session, entry, session_cmp);
 
 int
 session_cmp(struct session *s1, struct session *s2)
 {
 	return (strcmp(s1->name, s2->name));
 }
+RB_GENERATE(sessions, session, entry, session_cmp);
 
-RB_GENERATE(session_groups, session_group, entry, session_group_cmp);
-
-int
+static int
 session_group_cmp(struct session_group *s1, struct session_group *s2)
 {
 	return (strcmp(s1->name, s2->name));
 }
+RB_GENERATE_STATIC(session_groups, session_group, entry, session_group_cmp);
 
 /*
  * Find if session is still alive. This is true if it is still on the global
@@ -119,8 +113,8 @@ session_find_by_id(u_int id)
 /* Create a new session. */
 struct session *
 session_create(const char *prefix, const char *name, int argc, char **argv,
-    const char *path, const char *cwd, struct environ *env, struct termios *tio,
-    int idx, u_int sx, u_int sy, char **cause)
+    const char *path, const char *cwd, struct environ *env, struct options *oo,
+    struct termios *tio, int idx, char **cause)
 {
 	struct session	*s;
 	struct winlink	*wl;
@@ -139,7 +133,7 @@ session_create(const char *prefix, const char *name, int argc, char **argv,
 	if (env != NULL)
 		environ_copy(env, s->environ);
 
-	s->options = options_create(global_s_options);
+	s->options = oo;
 	s->hooks = hooks_create(global_hooks);
 
 	status_update_saved(s);
@@ -149,9 +143,6 @@ session_create(const char *prefix, const char *name, int argc, char **argv,
 		s->tio = xmalloc(sizeof *s->tio);
 		memcpy(s->tio, tio, sizeof *s->tio);
 	}
-
-	s->sx = sx;
-	s->sy = sy;
 
 	if (name != NULL) {
 		s->name = xstrdup(name);
@@ -272,7 +263,7 @@ session_lock_timer(__unused int fd, __unused short events, void *arg)
 {
 	struct session	*s = arg;
 
-	if (s->flags & SESSION_UNATTACHED)
+	if (s->attached == 0)
 		return;
 
 	log_debug("session %s locked, activity time %lld", s->name,
@@ -295,16 +286,17 @@ session_update_activity(struct session *s, struct timeval *from)
 	else
 		memcpy(&s->activity_time, from, sizeof s->activity_time);
 
-	log_debug("session %s activity %lld.%06d (last %lld.%06d)", s->name,
-	    (long long)s->activity_time.tv_sec, (int)s->activity_time.tv_usec,
-	    (long long)last->tv_sec, (int)last->tv_usec);
+	log_debug("session $%u %s activity %lld.%06d (last %lld.%06d)", s->id,
+	    s->name, (long long)s->activity_time.tv_sec,
+	    (int)s->activity_time.tv_usec, (long long)last->tv_sec,
+	    (int)last->tv_usec);
 
 	if (evtimer_initialized(&s->lock_timer))
 		evtimer_del(&s->lock_timer);
 	else
 		evtimer_set(&s->lock_timer, session_lock_timer, s);
 
-	if (~s->flags & SESSION_UNATTACHED) {
+	if (s->attached != 0) {
 		timerclear(&tv);
 		tv.tv_sec = options_get_number(s->options, "lock-after-time");
 		if (tv.tv_sec != 0)
@@ -355,7 +347,7 @@ session_new(struct session *s, const char *name, int argc, char **argv,
 	struct winlink	*wl;
 	struct environ	*env;
 	const char	*shell;
-	u_int		 hlimit;
+	u_int		 hlimit, sx, sy;
 
 	if ((wl = winlink_add(&s->windows, idx)) == NULL) {
 		xasprintf(cause, "index in use: %d", idx);
@@ -367,10 +359,11 @@ session_new(struct session *s, const char *name, int argc, char **argv,
 	if (*shell == '\0' || areshell(shell))
 		shell = _PATH_BSHELL;
 
+	default_window_size(s, NULL, &sx, &sy, -1);
 	hlimit = options_get_number(s->options, "history-limit");
 	env = environ_for_session(s, 0);
 	w = window_create_spawn(name, argc, argv, path, shell, cwd, env, s->tio,
-	    s->sx, s->sy, hlimit, cause);
+	    sx, sy, hlimit, cause);
 	if (w == NULL) {
 		winlink_remove(&s->windows, wl);
 		environ_free(env);
@@ -553,6 +546,7 @@ session_set_current(struct session *s, struct winlink *wl)
 	s->curw = wl;
 	winlink_clear_flags(wl);
 	window_update_activity(wl->window);
+	tty_update_window_offset(wl->window);
 	notify_session("session-window-changed", s);
 	return (0);
 }
@@ -624,7 +618,7 @@ session_group_remove(struct session *s)
 }
 
 /* Count number of sessions in session group. */
-static u_int
+u_int
 session_group_count(struct session_group *sg)
 {
 	struct session	*s;

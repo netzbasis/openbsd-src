@@ -1,4 +1,4 @@
-#	$OpenBSD: files.usb,v 1.131 2016/09/12 08:12:06 mpi Exp $
+#	$OpenBSD: files.usb,v 1.136 2018/08/25 20:31:31 jcs Exp $
 #	$NetBSD: files.usb,v 1.16 2000/02/14 20:29:54 augustss Exp $
 #
 # Config file and device description for machine-independent USB code.
@@ -87,6 +87,11 @@ device	ums: hid, hidms, wsmousedev
 attach	ums at uhidbus
 file	dev/usb/ums.c			ums
 
+# HID Multitouch Trackpad
+device	umt: hid, hidmt, wsmousedev
+attach	umt at uhidbus
+file	dev/usb/umt.c			umt
+
 # USB Touchscreen
 device	uts: wsmousedev
 attach	uts at uhub
@@ -167,15 +172,15 @@ attach	uoakv at uhidbus
 file	dev/usb/uoakv.c			uoakv
 
 # Misc
-# Araneus Alea II TRNG
-device	ualea
-attach	ualea at uhub
-file	dev/usb/ualea.c			ualea
-
 # Moonbase Otago OneRNG TRNG
 device	uonerng
 attach	uonerng at uhub
 file	dev/usb/uonerng.c		uonerng
+
+# USB Random Number Generator
+device	urng
+attach	urng at uhub
+file	dev/usb/urng.c			urng
 
 # Gude Expert mouseCLOCK DCF77 time signal station receiver
 device	udcf
@@ -249,6 +254,11 @@ file	dev/usb/if_urndis.c		urndis
 device	mos: ether, ifnet, mii, ifmedia
 attach	mos at uhub
 file	dev/usb/if_mos.c		mos
+
+# Microchip LAN75xx/LAN78xx
+device	mue: ether, ifnet, mii, ifmedia
+attach	mue at uhub
+file	dev/usb/if_mue.c		mue
 
 # Davicom DM9601
 device	udav: ether, ifnet, mii, ifmedia
@@ -440,3 +450,6 @@ file   dev/usb/upd.c			upd
 device	uwacom: hid, hidms, wsmousedev
 attach	uwacom at uhidbus
 file	dev/usb/uwacom.c		uwacom
+
+attach	bwfm at uhub with bwfm_usb: firmload
+file	dev/usb/if_bwfm_usb.c		bwfm_usb

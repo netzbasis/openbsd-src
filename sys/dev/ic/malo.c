@@ -1,4 +1,4 @@
-/*	$OpenBSD: malo.c,v 1.114 2017/04/04 04:38:31 deraadt Exp $ */
+/*	$OpenBSD: malo.c,v 1.118 2018/11/09 14:14:31 claudio Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -20,7 +20,6 @@
 #include "bpfilter.h"
 
 #include <sys/param.h>
-#include <sys/types.h>
 
 #include <sys/device.h>
 #include <sys/kernel.h>
@@ -621,7 +620,7 @@ malo_alloc_rx_ring(struct malo_softc *sc, struct malo_rx_ring *ring, int count)
 			goto fail;
 		}
 
-		desc->status = htole16(1);
+		desc->status = 1;
 		desc->physdata = htole32(data->map->dm_segs->ds_addr);
 		desc->physnext = htole32(ring->physaddr +
 		    (i + 1) % count * sizeof(struct malo_rx_desc));
@@ -934,7 +933,6 @@ malo_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct malo_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifreq *ifr;
 	int s, error = 0;
 	uint8_t chan;
 
@@ -952,16 +950,6 @@ malo_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_flags & IFF_RUNNING)
 				malo_stop(sc);
 		}
-		break;
-        case SIOCADDMULTI:
-        case SIOCDELMULTI:
-		ifr = (struct ifreq *)data;
-		error = (cmd == SIOCADDMULTI) ?
-		    ether_addmulti(ifr, &ic->ic_ac) :
-		    ether_delmulti(ifr, &ic->ic_ac);
-
-		if (error == ENETRESET)
-			error = 0;
 		break;
 	case SIOCS80211CHANNEL:
 		/* allow fast channel switching in monitor mode */
@@ -1423,8 +1411,8 @@ malo_tx_mgt(struct malo_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	 *  6 bytes addr4 (inject)
 	 *  n bytes 802.11 frame body
 	 */
-	if (M_LEADINGSPACE(m0) < 8) {
-		if (M_TRAILINGSPACE(m0) < 8)
+	if (m_leadingspace(m0) < 8) {
+		if (m_trailingspace(m0) < 8)
 			panic("%s: not enough space for mbuf dance",
 			    sc->sc_dev.dv_xname);
 		bcopy(m0->m_data, m0->m_data + 8, m0->m_len);

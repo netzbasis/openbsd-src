@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.80 2017/07/04 17:29:51 tedu Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.90 2018/08/30 06:16:30 anton Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <sys/ioctl.h>
 #include <sys/proc.h>
 #include <sys/tty.h>
+#include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/uio.h>
@@ -160,9 +161,10 @@ ptyarralloc(int nelem)
  * are properly allocated.
  */
 int
-check_pty(int minor)
+check_pty(int dev)
 {
 	struct pt_softc *pti;
+	int minor = minor(dev);
 
 	rw_enter_write(&pt_softc_lock);
 	if (minor >= npty) {
@@ -194,6 +196,7 @@ check_pty(int minor)
 		pti = malloc(sizeof(struct pt_softc), M_DEVBUF,
 		    M_WAITOK|M_ZERO);
 		pti->pt_tty = ttymalloc(1000000);
+		pti->pt_tty->t_dev = dev;
 		ptydevname(minor, pti);
 		pt_softc[minor] = pti;
 	}
@@ -230,14 +233,11 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 	struct tty *tp;
 	int error;
 
-	if ((error = check_pty(minor(dev))))
+	if ((error = check_pty(dev)))
 		return (error);
 
 	pti = pt_softc[minor(dev)];
-	if (!pti->pt_tty) {
-		tp = pti->pt_tty = ttymalloc(1000000);
-	} else
-		tp = pti->pt_tty;
+	tp = pti->pt_tty;
 	if ((tp->t_state & TS_ISOPEN) == 0) {
 		tp->t_state |= TS_WOPEN;
 		ttychars(tp);		/* Set up default chars */
@@ -247,7 +247,7 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 		tp->t_cflag = TTYDEF_CFLAG;
 		tp->t_ispeed = tp->t_ospeed = B115200;
 		ttsetwater(tp);		/* would be done in xxparam() */
-	} else if (tp->t_state & TS_XCLUDE && suser(p, 0) != 0)
+	} else if (tp->t_state & TS_XCLUDE && suser(p) != 0)
 		return (EBUSY);
 	if (tp->t_oproc)			/* Ctrlr still around. */
 		tp->t_state |= TS_CARR_ON;
@@ -407,14 +407,11 @@ ptcopen(dev_t dev, int flag, int devtype, struct proc *p)
 	struct tty *tp;
 	int error;
 
-	if ((error = check_pty(minor(dev))))
+	if ((error = check_pty(dev)))
 		return (error);
 
 	pti = pt_softc[minor(dev)];
-	if (!pti->pt_tty) {
-		tp = pti->pt_tty = ttymalloc(1000000);
-	} else
-		tp = pti->pt_tty;
+	tp = pti->pt_tty;
 	if (tp->t_oproc)
 		return (EIO);
 	tp->t_oproc = ptsstart;
@@ -860,6 +857,20 @@ ptyioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	if (error < 0)
 		 error = ttioctl(tp, cmd, data, flag, p);
 	if (error < 0) {
+		/*
+		 * Translate TIOCSBRK/TIOCCBRK to user mode ioctls to
+		 * let the master interpret BREAK conditions.
+		 */
+		switch (cmd) {
+		case TIOCSBRK:
+			cmd = UIOCCMD(TIOCUCNTL_SBRK);
+			break;
+		case TIOCCBRK:
+			cmd = UIOCCMD(TIOCUCNTL_CBRK);
+			break;
+		default:
+			break;
+		}
 		if (pti->pt_flags & PF_UCNTL &&
 		    (cmd & ~0xff) == UIOCCMD(0)) {
 			if (cmd & 0xff) {
@@ -1055,11 +1066,11 @@ ptmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case PTMGET:
 		fdplock(fdp);
 		/* Grab two filedescriptors. */
-		if ((error = falloc(p, 0, &cfp, &cindx)) != 0) {
+		if ((error = falloc(p, &cfp, &cindx)) != 0) {
 			fdpunlock(fdp);
 			break;
 		}
-		if ((error = falloc(p, 0, &sfp, &sindx)) != 0) {
+		if ((error = falloc(p, &sfp, &sindx)) != 0) {
 			fdremove(fdp, cindx);
 			closef(cfp, p);
 			fdpunlock(fdp);
@@ -1069,7 +1080,7 @@ ptmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 retry:
 		/* Find and open a free master pty. */
 		newdev = pty_getfree();
-		if ((error = check_pty(minor(newdev))))
+		if ((error = check_pty(newdev)))
 			goto bad;
 		pti = pt_softc[minor(newdev)];
 		NDINIT(&cnd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
@@ -1088,7 +1099,7 @@ retry:
 		cfp->f_type = DTYPE_VNODE;
 		cfp->f_ops = &vnops;
 		cfp->f_data = (caddr_t) cnd.ni_vp;
-		VOP_UNLOCK(cnd.ni_vp, p);
+		VOP_UNLOCK(cnd.ni_vp);
 
 		/*
 		 * Open the slave.
@@ -1102,6 +1113,7 @@ retry:
 		NDINIT(&snd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
 		    pti->pty_sn, p);
 		snd.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
+		snd.ni_unveil = UNVEIL_READ | UNVEIL_WRITE;
 		if ((error = namei(&snd)) != 0)
 			goto bad;
 		if ((snd.ni_vp->v_mount->mnt_flag & MNT_RDONLY) == 0) {
@@ -1122,7 +1134,7 @@ retry:
 				goto bad;
 			}
 		}
-		VOP_UNLOCK(snd.ni_vp, p);
+		VOP_UNLOCK(snd.ni_vp);
 		if (snd.ni_vp->v_usecount > 1 ||
 		    (snd.ni_vp->v_flag & (VALIASED)))
 			VOP_REVOKE(snd.ni_vp, REVOKEALL);
@@ -1136,6 +1148,7 @@ retry:
 		NDINIT(&snd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
 		    pti->pty_sn, p);
 		snd.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
+		snd.ni_unveil= UNVEIL_READ | UNVEIL_WRITE;
 		/* now open it */
 		if ((error = ptm_vn_open(&snd)) != 0)
 			goto bad;
@@ -1143,7 +1156,7 @@ retry:
 		sfp->f_type = DTYPE_VNODE;
 		sfp->f_ops = &vnops;
 		sfp->f_data = (caddr_t) snd.ni_vp;
-		VOP_UNLOCK(snd.ni_vp, p);
+		VOP_UNLOCK(snd.ni_vp);
 
 		/* now, put the indexen and names into struct ptmget */
 		ptm->cfd = cindx;
@@ -1151,11 +1164,12 @@ retry:
 		memcpy(ptm->cn, pti->pty_pn, sizeof(pti->pty_pn));
 		memcpy(ptm->sn, pti->pty_sn, sizeof(pti->pty_sn));
 
-		/* mark the files mature now that we've passed all errors */
-		FILE_SET_MATURE(cfp, p);
-		FILE_SET_MATURE(sfp, p);
-
+		/* insert files now that we've passed all errors */
+		fdinsert(fdp, cindx, 0, cfp);
+		fdinsert(fdp, sindx, 0, sfp);
 		fdpunlock(fdp);
+		FRELE(cfp, p);
+		FRELE(sfp, p);
 		break;
 	default:
 		error = EINVAL;

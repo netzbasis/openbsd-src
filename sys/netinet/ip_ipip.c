@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipip.c,v 1.86 2017/07/05 11:34:10 bluhm Exp $ */
+/*	$OpenBSD: ip_ipip.c,v 1.89 2018/11/14 23:55:04 dlg Exp $ */
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -239,16 +239,14 @@ ipip_input_if(struct mbuf **mp, int *offp, int proto, int oaf,
 		itos = ip->ip_tos;
 		mode = m->m_flags & (M_AUTH|M_CONF) ?
 		    ECN_ALLOWED_IPSEC : ECN_ALLOWED;
-		if (!ip_ecn_egress(mode, &otos, &ip->ip_tos)) {
+		if (!ip_ecn_egress(mode, &otos, &itos)) {
 			DPRINTF(("%s: ip_ecn_egress() failed\n", __func__));
 			ipipstat_inc(ipips_pdrops);
 			goto bad;
 		}
 		/* re-calculate the checksum if ip_tos was changed */
-		if (itos != ip->ip_tos) {
-			ip->ip_sum = 0;
-			ip->ip_sum = in_cksum(m, hlen);
-		}
+		if (itos != ip->ip_tos)
+			ip_tos_patch(ip, itos);
 		break;
 #ifdef INET6
     	case IPPROTO_IPV6:
@@ -331,11 +329,9 @@ int
 ipip_output(struct mbuf *m, struct tdb *tdb, struct mbuf **mp, int dummy,
     int dummy2)
 {
-	u_int8_t tp, otos;
-
-	u_int8_t itos;
+	u_int8_t tp, otos, itos;
+	u_int64_t obytes;
 	struct ip *ipo;
-
 #ifdef INET6
 	struct ip6_hdr *ip6, *ip6o;
 #endif /* INET6 */
@@ -525,21 +521,20 @@ ipip_output(struct mbuf *m, struct tdb *tdb, struct mbuf **mp, int dummy,
 	*mp = m;
 
 	if (tdb->tdb_dst.sa.sa_family == AF_INET) {
+		obytes = m->m_pkthdr.len - sizeof(struct ip);
 		if (tdb->tdb_xform->xf_type == XF_IP4)
-			tdb->tdb_cur_bytes +=
-			    m->m_pkthdr.len - sizeof(struct ip);
+			tdb->tdb_cur_bytes += obytes;
 
-		ipipstat_add(ipips_obytes, m->m_pkthdr.len - sizeof(struct ip));
+		ipipstat_add(ipips_obytes, obytes);
 	}
 
 #ifdef INET6
 	if (tdb->tdb_dst.sa.sa_family == AF_INET6) {
+		obytes = m->m_pkthdr.len - sizeof(struct ip6_hdr);
 		if (tdb->tdb_xform->xf_type == XF_IP4)
-			tdb->tdb_cur_bytes +=
-			    m->m_pkthdr.len - sizeof(struct ip6_hdr);
+			tdb->tdb_cur_bytes += obytes;
 
-		ipipstat_add(ipips_obytes,
-		    m->m_pkthdr.len - sizeof(struct ip6_hdr));
+		ipipstat_add(ipips_obytes, obytes);
 	}
 #endif /* INET6 */
 
@@ -592,13 +587,18 @@ int
 ipip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen)
 {
+	int error;
+
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
 		return (ENOTDIR);
 
 	switch (name[0]) {
 	case IPIPCTL_ALLOW:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &ipip_allow));
+		NET_LOCK();
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &ipip_allow);
+		NET_UNLOCK();
+		return (error);
 	case IPIPCTL_STATS:
 		return (ipip_sysctl_ipipstat(oldp, oldlenp, newp));
 	default:

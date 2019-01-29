@@ -1,4 +1,4 @@
-/*	$OpenBSD: archdep.h,v 1.20 2017/01/24 07:48:37 guenther Exp $ */
+/*	$OpenBSD: archdep.h,v 1.22 2018/11/22 21:37:30 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -33,7 +33,7 @@
 
 #define	MACHID	EM_ALPHA_EXP	/* ELF e_machine ID value checked */
 
-#include <elf_abi.h>
+#include <elf.h>
 #include <machine/reloc.h>
 #include "syscall.h"
 #include "util.h"
@@ -42,7 +42,7 @@ static inline void
 RELOC_DYN(Elf64_Rela *r, const Elf64_Sym *s, Elf64_Addr *p, unsigned long v)
 {
 	if (ELF64_R_TYPE(r->r_info) == RELOC_RELATIVE) {
-		/* handled by _reloc_alpha_got */
+		*p += v;
 	} else if (ELF64_R_TYPE(r->r_info) == RELOC_NONE) {
 		/* nothing to do */
 	} else if (ELF64_R_TYPE(r->r_info) == RELOC_JMP_SLOT) {

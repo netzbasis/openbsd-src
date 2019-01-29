@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci_machdep.c,v 1.44 2014/05/10 12:15:19 kettenis Exp $	*/
+/*	$OpenBSD: pci_machdep.c,v 1.46 2018/12/27 11:04:41 claudio Exp $	*/
 /*	$NetBSD: pci_machdep.c,v 1.22 2001/07/20 00:07:13 eeh Exp $	*/
 
 /*
@@ -44,7 +44,6 @@ int sparc_pci_debug = 0x0;
 #define DPRINTF(l, s)	do { } while (0)
 #endif
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/systm.h>
@@ -126,13 +125,12 @@ pci_make_tag(pc, b, d, f)
 	 */
 
 	tag = PCITAG_CREATE(-1, b, d, f);
-	node = pc->rootnode;
 
 	/*
 	 * Traverse all peers until we find the node or we find
 	 * the right bridge. 
 	 */
-	for (node = ((node)); node; node = OF_peer(node)) {
+	for (node = pc->rootnode; node; node = OF_peer(node)) {
 
 #ifdef DEBUG
 		if (sparc_pci_debug & SPDB_PROBE) {

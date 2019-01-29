@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr.h,v 1.14 2017/07/28 14:51:46 visa Exp $ */
+/*	$OpenBSD: intr.h,v 1.18 2018/08/20 15:02:07 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -89,7 +89,7 @@
 
 #ifndef _LOCORE
 
-#include <machine/mutex.h>
+#include <sys/mutex.h>
 #include <sys/queue.h>
 
 struct soft_intrhand {
@@ -126,7 +126,6 @@ void	 softintr_schedule(void *);
 #define splsoftnet()	splsoft()
 #define splstatclock()	splhigh()
 
-#define spllock()	splhigh()
 #define spl0()		spllower(0)
 
 void	splinit(void);
@@ -156,6 +155,7 @@ struct intrhand {
 	int			 ih_flags;
 #define	IH_ALLOCATED		0x01
 #define	IH_MPSAFE		0x02
+	cpuid_t			 ih_cpuid;
 };
 
 void	intr_barrier(void *);
@@ -214,10 +214,6 @@ void	*octeon_intr_establish_fdt(int, int, int (*)(void *),
 void	*octeon_intr_establish_fdt_idx(int, int, int, int (*)(void *),
 	    void *, const char *);
 void	 octeon_intr_disestablish_fdt(void *);
-
-/* XXX Needed by 'MI' code in sys/dev/fdt. */
-#define arm_intr_establish_fdt		octeon_intr_establish_fdt
-#define arm_intr_disestablish_fdt	octeon_intr_disestablish_fdt
 
 #endif /* _LOCORE */
 

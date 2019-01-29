@@ -157,13 +157,13 @@ for my $char ("٠", "٥", "٩") {
 	eval { $_ = '/(?[(\c]) /'; qr/$_/ };
 	like($@, qr/^Syntax error/, '/(?[(\c]) / should not panic');
 	eval { $_ = '(?[\c#]' . "\n])"; qr/$_/ };
-	like($@, qr/^Syntax error/, '/(?[(\c]) / should not panic');
+	like($@, qr/^Unexpected/, '/(?[(\c]) / should not panic');
 	eval { $_ = '(?[(\c])'; qr/$_/ };
 	like($@, qr/^Syntax error/, '/(?[(\c])/ should be a syntax error');
 	eval { $_ = '(?[(\c]) ]\b'; qr/$_/ };
-	like($@, qr/^Syntax error/, '/(?[(\c]) ]\b/ should be a syntax error');
+	like($@, qr/^Unexpected/, '/(?[(\c]) ]\b/ should be a syntax error');
 	eval { $_ = '(?[\c[]](])'; qr/$_/ };
-	like($@, qr/^Syntax error/, '/(?[\c[]](])/ should be a syntax error');
+	like($@, qr/^Unexpected/, '/(?[\c[]](])/ should be a syntax error');
 	like("\c#", qr/(?[\c#])/, '\c# should match itself');
 	like("\c[", qr/(?[\c[])/, '\c[ should match itself');
 	like("\c\ ", qr/(?[\c\])/, '\c\ should match itself');
@@ -180,6 +180,21 @@ for my $char ("٠", "٥", "٩") {
     fresh_perl_like('no warnings "experimental::regex_sets";qr/(?[ ! ( ! (\w)])/',
                     qr/^Unmatched \(/, {},
                     'qr/qr/(?[ ! ( ! (\w)])/');
+}
+
+{   # RT #129122
+    my $pat = '(?[ ( [ABC] - [B] ) + ( [abc] - [b] ) + [def] ])';
+    like("A", qr/$pat/, "'A' matches /$pat/");
+    unlike("B", qr/$pat/, "'B' doesn't match /$pat/");
+    like("C", qr/$pat/, "'C' matches /$pat/");
+    unlike("D", qr/$pat/, "'D' doesn't match /$pat/");
+    like("a", qr/$pat/, "'a' matches /$pat/");
+    unlike("b", qr/$pat/, "'b' doesn't match /$pat/");
+    like("c", qr/$pat/, "'c' matches /$pat/");
+    like("d", qr/$pat/, "'d' matches /$pat/");
+    like("e", qr/$pat/, "'e' matches /$pat/");
+    like("f", qr/$pat/, "'f' matches /$pat/");
+    unlike("g", qr/$pat/, "'g' doesn't match /$pat/");
 }
 
 done_testing();

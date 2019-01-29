@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.19 2017/08/12 11:20:34 goda Exp $ */
+/*	$OpenBSD: parse.y,v 1.22 2018/11/01 00:18:44 sashan Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -1231,7 +1231,8 @@ yylex(void)
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -1329,11 +1330,11 @@ pushfile(const char *name)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		free(nfile);
 		return (NULL);
 	}
@@ -1342,7 +1343,7 @@ pushfile(const char *name)
 #else
 	if ((nfile->stream = priv_fopen(nfile->name)) == NULL) {
 #endif
-		log_warn("%s", nfile->name);
+		log_warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: npppd.c,v 1.47 2017/08/12 11:20:34 goda Exp $ */
+/*	$OpenBSD: npppd.c,v 1.49 2018/12/30 23:09:58 guenther Exp $ */
 
 /*-
  * Copyright (c) 2005-2008,2009 Internet Initiative Japan Inc.
@@ -29,7 +29,7 @@
  * Next pppd(nppd). This file provides a npppd daemon process and operations
  * for npppd instance.
  * @author	Yasuoka Masahiko
- * $Id: npppd.c,v 1.47 2017/08/12 11:20:34 goda Exp $
+ * $Id: npppd.c,v 1.49 2018/12/30 23:09:58 guenther Exp $
  */
 #include "version.h"
 #include <sys/param.h>	/* ALIGNED_POINTER */
@@ -50,7 +50,6 @@
 #include <stdio.h>
 #include <signal.h>
 #include <netdb.h>
-#include <libgen.h>
 #include <fcntl.h>
 #include <event.h>
 #include <errno.h>
@@ -1661,7 +1660,7 @@ npppd_assign_ip_addr(npppd *_this, npppd_ppp *ppp, uint32_t req_ip4)
 			ppp_log(ppp, LOG_NOTICE,
 			    "Requested IP address (%d.%d.%d.%d)/%d "
 			    "is %s", IP_4OCT(req_ip4),
-			    netmask2prefixlen(htonl(ip4mask)), reason);
+			    netmask2prefixlen(ip4mask), reason);
 			if (fallback_dyna)
 				goto dyna_assign;
 			return 1;

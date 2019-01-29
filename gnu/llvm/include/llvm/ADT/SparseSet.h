@@ -1,4 +1,4 @@
-//===--- llvm/ADT/SparseSet.h - Sparse set ----------------------*- C++ -*-===//
+//===- llvm/ADT/SparseSet.h - Sparse set ------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -22,6 +22,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Allocator.h"
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
@@ -125,9 +126,9 @@ class SparseSet {
                 !std::numeric_limits<SparseT>::is_signed,
                 "SparseT must be an unsigned integer type");
 
-  typedef typename KeyFunctorT::argument_type KeyT;
-  typedef SmallVector<ValueT, 8> DenseT;
-  typedef unsigned size_type;
+  using KeyT = typename KeyFunctorT::argument_type;
+  using DenseT = SmallVector<ValueT, 8>;
+  using size_type = unsigned;
   DenseT Dense;
   SparseT *Sparse = nullptr;
   unsigned Universe = 0;
@@ -135,11 +136,11 @@ class SparseSet {
   SparseSetValFunctor<KeyT, ValueT, KeyFunctorT> ValIndexOf;
 
 public:
-  typedef ValueT value_type;
-  typedef ValueT &reference;
-  typedef const ValueT &const_reference;
-  typedef ValueT *pointer;
-  typedef const ValueT *const_pointer;
+  using value_type = ValueT;
+  using reference = ValueT &;
+  using const_reference = const ValueT &;
+  using pointer = ValueT *;
+  using const_pointer = const ValueT *;
 
   SparseSet() = default;
   SparseSet(const SparseSet &) = delete;
@@ -163,13 +164,13 @@ public:
     // The Sparse array doesn't actually need to be initialized, so malloc
     // would be enough here, but that will cause tools like valgrind to
     // complain about branching on uninitialized data.
-    Sparse = reinterpret_cast<SparseT*>(calloc(U, sizeof(SparseT)));
+    Sparse = static_cast<SparseT*>(safe_calloc(U, sizeof(SparseT)));
     Universe = U;
   }
 
   // Import trivial vector stuff from DenseT.
-  typedef typename DenseT::iterator iterator;
-  typedef typename DenseT::const_iterator const_iterator;
+  using iterator = typename DenseT::iterator;
+  using const_iterator = typename DenseT::const_iterator;
 
   const_iterator begin() const { return Dense.begin(); }
   const_iterator end() const { return Dense.end(); }

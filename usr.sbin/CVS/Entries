@@ -1,4 +1,4 @@
-/Makefile/1.201/Sat Jun  3 10:00:29 2017//
+/Makefile/1.204/Sat Jan 26 10:59:30 2019//
 /Makefile.inc/1.3/Mon Dec 28 13:25:45 2015//
 D/ac////
 D/accton////
@@ -50,6 +50,7 @@ D/ldomctl////
 D/ldomd////
 D/ldpctl////
 D/ldpd////
+D/lpd////
 D/lpr////
 D/mailwrapper////
 D/makefs////
@@ -82,6 +83,8 @@ D/pstat////
 D/pwd_mkdb////
 D/quot////
 D/quotaon////
+D/ractl////
+D/rad////
 D/radiusctl////
 D/radiusd////
 D/rarpd////
@@ -99,7 +102,6 @@ D/route6d////
 D/rpc.bootparamd////
 D/rpc.lockd////
 D/rpc.statd////
-D/rtadvd////
 D/sa////
 D/sasyncd////
 D/sensorsd////
@@ -124,6 +126,7 @@ D/tokeninit////
 D/traceroute////
 D/trpt////
 D/unbound////
+D/unwindctl////
 D/usbdevs////
 D/user////
 D/vipw////

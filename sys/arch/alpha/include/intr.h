@@ -1,4 +1,4 @@
-/* $OpenBSD: intr.h,v 1.46 2016/06/13 01:26:14 dlg Exp $ */
+/* $OpenBSD: intr.h,v 1.48 2018/08/20 15:02:07 visa Exp $ */
 /* $NetBSD: intr.h,v 1.26 2000/06/03 20:47:41 thorpej Exp $ */
 
 /*-
@@ -125,6 +125,8 @@ struct scbvec {
 #define	IPL_SOFTNET	2	/* network software interrupts */
 #define	IPL_SOFT	3	/* other software interrupts */
 
+#define	IPL_MPFLOOR	IPL_AUDIO
+
 #define	IPL_MPSAFE	0	/* no "mpsafe" interrupts */
 
 #define	IST_UNUSABLE	-1	/* interrupt cannot be used */
@@ -186,8 +188,6 @@ int splraise(int);
 #define splsched()		splraise(IPL_SCHED)
 #define splipi()		splraise(IPL_IPI)
 #define splhigh()		splraise(IPL_HIGH)
-
-#define spllock()		splhigh()
 
 /*
  * Interprocessor interrupts.  In order how we want them processed.

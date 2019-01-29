@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_rwlock.c,v 1.30 2017/08/12 23:27:44 guenther Exp $	*/
+/*	$OpenBSD: kern_rwlock.c,v 1.37 2018/06/08 15:38:15 guenther Exp $	*/
 
 /*
  * Copyright (c) 2002, 2003 Artur Grabowski <art@openbsd.org>
@@ -96,7 +96,7 @@ _rw_enter_read(struct rwlock *rwl LOCK_FL_VARS)
 	    rw_cas(&rwl->rwl_owner, owner, owner + RWLOCK_READ_INCR)))
 		_rw_enter(rwl, RW_READ LOCK_FL_ARGS);
 	else {
-		membar_enter();
+		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, LOP_NEWORDER, file, line,
 		    NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, 0, file, line);
@@ -112,7 +112,7 @@ _rw_enter_write(struct rwlock *rwl LOCK_FL_VARS)
 	    RW_PROC(p) | RWLOCK_WRLOCK)))
 		_rw_enter(rwl, RW_WRITE LOCK_FL_ARGS);
 	else {
-		membar_enter();
+		membar_enter_after_atomic();
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj,
 		    LOP_EXCLUSIVE | LOP_NEWORDER, file, line, NULL);
 		WITNESS_LOCK(&rwl->rwl_lock_obj, LOP_EXCLUSIVE, file, line);
@@ -126,7 +126,7 @@ _rw_exit_read(struct rwlock *rwl LOCK_FL_VARS)
 
 	rw_assert_rdlock(rwl);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	if (__predict_false((owner & RWLOCK_WAIT) ||
 	    rw_cas(&rwl->rwl_owner, owner, owner - RWLOCK_READ_INCR)))
 		_rw_exit(rwl LOCK_FL_ARGS);
@@ -141,7 +141,7 @@ _rw_exit_write(struct rwlock *rwl LOCK_FL_VARS)
 
 	rw_assert_wrlock(rwl);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	if (__predict_false((owner & RWLOCK_WAIT) ||
 	    rw_cas(&rwl->rwl_owner, owner, 0)))
 		_rw_exit(rwl LOCK_FL_ARGS);
@@ -187,7 +187,7 @@ rw_enter_diag(struct rwlock *rwl, int flags)
 
 static void
 _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	rwl->rwl_owner = 0;
 	rwl->rwl_name = name;
@@ -205,7 +205,7 @@ _rw_init_flags_witness(struct rwlock *rwl, const char *name, int lo_flags,
 
 void
 _rw_init_flags(struct rwlock *rwl, const char *name, int flags,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	_rw_init_flags_witness(rwl, name, RWLOCK_LO_FLAGS(flags), type);
 }
@@ -223,6 +223,8 @@ _rw_enter(struct rwlock *rwl, int flags LOCK_FL_VARS)
 	lop_flags = LOP_NEWORDER;
 	if (flags & RW_WRITE)
 		lop_flags |= LOP_EXCLUSIVE;
+	if (flags & RW_DUPOK)
+		lop_flags |= LOP_DUPOK;
 	if ((flags & RW_NOSLEEP) == 0 && (flags & RW_DOWNGRADE) == 0)
 		WITNESS_CHECKORDER(&rwl->rwl_lock_obj, lop_flags, file, line,
 		    NULL);
@@ -236,8 +238,8 @@ retry:
 		unsigned long set = o | op->wait_set;
 		int do_sleep;
 
-		/* Avoid deadlocks after panic */
-		if (panicstr)
+		/* Avoid deadlocks after panic or in DDB */
+		if (panicstr || db_active)
 			return (0);
 
 		rw_enter_diag(rwl, flags);
@@ -261,7 +263,7 @@ retry:
 
 	if (__predict_false(rw_cas(&rwl->rwl_owner, o, o + inc)))
 		goto retry;
-	membar_enter();
+	membar_enter_after_atomic();
 
 	/*
 	 * If old lock had RWLOCK_WAIT and RWLOCK_WRLOCK set, it means we
@@ -287,6 +289,10 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 	int wrlock = owner & RWLOCK_WRLOCK;
 	unsigned long set;
 
+	/* Avoid deadlocks after panic or in DDB */
+	if (panicstr || db_active)
+		return;
+
 	if (wrlock)
 		rw_assert_wrlock(rwl);
 	else
@@ -295,7 +301,7 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 	WITNESS_UNLOCK(&rwl->rwl_lock_obj, wrlock ? LOP_EXCLUSIVE : 0,
 	    file, line);
 
-	membar_exit();
+	membar_exit_before_atomic();
 	do {
 		owner = rwl->rwl_owner;
 		if (wrlock)
@@ -312,13 +318,15 @@ _rw_exit(struct rwlock *rwl LOCK_FL_VARS)
 int
 rw_status(struct rwlock *rwl)
 {
-	if (rwl->rwl_owner & RWLOCK_WRLOCK) {
-		if (RW_PROC(curproc) == RW_PROC(rwl->rwl_owner))
+	unsigned long owner = rwl->rwl_owner;
+
+	if (owner & RWLOCK_WRLOCK) {
+		if (RW_PROC(curproc) == RW_PROC(owner))
 			return RW_WRITE;
 		else
 			return RW_WRITE_OTHER;
 	}
-	if (rwl->rwl_owner)
+	if (owner)
 		return RW_READ;
 	return (0);
 }
@@ -327,6 +335,9 @@ rw_status(struct rwlock *rwl)
 void
 rw_assert_wrlock(struct rwlock *rwl)
 {
+	if (panicstr || db_active)
+		return;
+
 	if (!(rwl->rwl_owner & RWLOCK_WRLOCK))
 		panic("%s: lock not held", rwl->rwl_name);
 
@@ -337,6 +348,9 @@ rw_assert_wrlock(struct rwlock *rwl)
 void
 rw_assert_rdlock(struct rwlock *rwl)
 {
+	if (panicstr || db_active)
+		return;
+
 	if (!RWLOCK_OWNER(rwl) || (rwl->rwl_owner & RWLOCK_WRLOCK))
 		panic("%s: lock not shared", rwl->rwl_name);
 }
@@ -344,6 +358,9 @@ rw_assert_rdlock(struct rwlock *rwl)
 void
 rw_assert_anylock(struct rwlock *rwl)
 {
+	if (panicstr || db_active)
+		return;
+
 	switch (rw_status(rwl)) {
 	case RW_WRITE_OTHER:
 		panic("%s: lock held by different process", rwl->rwl_name);
@@ -355,6 +372,9 @@ rw_assert_anylock(struct rwlock *rwl)
 void
 rw_assert_unlocked(struct rwlock *rwl)
 {
+	if (panicstr || db_active)
+		return;
+
 	if (rwl->rwl_owner != 0L)
 		panic("%s: lock held", rwl->rwl_name);
 }
@@ -363,7 +383,7 @@ rw_assert_unlocked(struct rwlock *rwl)
 /* recursive rwlocks; */
 void
 _rrw_init_flags(struct rrwlock *rrwl, char *name, int flags,
-    struct lock_type *type)
+    const struct lock_type *type)
 {
 	memset(rrwl, 0, sizeof(struct rrwlock));
 	_rw_init_flags_witness(&rrwl->rrwl_lock, name, RRWLOCK_LO_FLAGS(flags),

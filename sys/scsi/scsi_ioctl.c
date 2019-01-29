@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsi_ioctl.c,v 1.52 2016/03/12 15:16:04 krw Exp $	*/
+/*	$OpenBSD: scsi_ioctl.c,v 1.54 2018/04/27 08:08:06 guenther Exp $	*/
 /*	$NetBSD: scsi_ioctl.c,v 1.23 1996/10/12 23:23:17 christos Exp $	*/
 
 /*
@@ -37,11 +37,9 @@
  * Berkeley style copyright.
  */
 
-#include <sys/types.h>
-#include <sys/errno.h>
 #include <sys/param.h>
+#include <sys/errno.h>
 #include <sys/systm.h>
-#include <sys/file.h>
 #include <sys/pool.h>
 #include <sys/device.h>
 #include <sys/fcntl.h>

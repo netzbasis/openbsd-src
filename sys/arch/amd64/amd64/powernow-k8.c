@@ -1,4 +1,4 @@
-/*	$OpenBSD: powernow-k8.c,v 1.25 2015/03/14 03:38:46 jsg Exp $ */
+/*	$OpenBSD: powernow-k8.c,v 1.28 2018/01/14 00:33:09 bluhm Exp $ */
 /*
  * Copyright (c) 2004 Martin Végiard.
  * Copyright (c) 2004-2005 Bruno Ducrot
@@ -26,7 +26,6 @@
  */
 /* AMD POWERNOW K8 driver */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -232,7 +231,7 @@ k8pnow_transition(struct k8pnow_cpu_state *cstate, int level)
 
 	/* Phase 2: change to requested core frequency */
 	if (cfid != fid) {
-		u_int vco_fid, vco_cfid;
+		int vco_fid, vco_cfid;
 
 		vco_fid = FID_TO_VCO_FID(fid);
 		vco_cfid = FID_TO_VCO_FID(cfid);
@@ -381,7 +380,7 @@ k8pnow_acpi_pss_changed(struct acpicpu_pss * pss, int npss)
 	if (needtran)
 		k8pnow_transition(nstate, curs);
 
-	free(cstate, M_DEVBUF, 0);
+	free(cstate, M_DEVBUF, sizeof(*cstate));
 	k8pnow_current_state = nstate;
 }
 
@@ -511,5 +510,5 @@ k8_powernow_init(struct cpu_info *ci)
 		setperf_prio = 1;
 		return;
 	}
-	free(cstate, M_DEVBUF, 0);
+	free(cstate, M_DEVBUF, sizeof(*cstate));
 }

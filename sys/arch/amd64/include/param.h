@@ -1,4 +1,4 @@
-/*	$OpenBSD: param.h,v 1.23 2016/09/03 14:25:27 bluhm Exp $	*/
+/*	$OpenBSD: param.h,v 1.27 2019/01/24 00:16:15 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -58,24 +58,19 @@
 #ifdef _KERNEL
 
 #define	KERNTEXTOFF	(KERNBASE+0x1000000)	/* start of kernel text */
-#define	KERNTEXTOFF_HI	0xffffffff
-#define	KERNTEXTOFF_LO	0x81000000
-
-#define	KERNBASE_HI	0xffffffff
-#define	KERNBASE_LO	0x80000000
 
 #define	NBPG		PAGE_SIZE		/* bytes/page */
 #define	PGSHIFT		PAGE_SHIFT		/* LOG2(PAGE_SIZE) */
 #define	PGOFSET		PAGE_MASK		/* byte offset into page */
 
-#define	UPAGES		5			/* pages of u-area */
+#define	UPAGES		6			/* pages of u-area */
 #define	USPACE		(UPAGES * PAGE_SIZE)	/* total size of u-area */
 #define	USPACE_ALIGN	0			/* u-area alignment 0-none */
 
 #define	NMBCLUSTERS	(256 * 1024)		/* max cluster allocation */
 
 #ifndef	MSGBUFSIZE
-#define	MSGBUFSIZE	(16 * PAGE_SIZE)	/* default message buffer size */
+#define	MSGBUFSIZE	(24 * PAGE_SIZE)	/* default message buffer size */
 #endif
 
 /*
@@ -83,6 +78,8 @@
  * logical pages.
  */
 #define	NKMEMPAGES_MAX_DEFAULT	((128 * 1024 * 1024) >> PAGE_SHIFT)
+
+#define __HAVE_ACPI
 
 #endif /* _KERNEL */
 

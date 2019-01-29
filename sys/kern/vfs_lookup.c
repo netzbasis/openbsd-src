@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_lookup.c,v 1.64 2017/08/15 02:27:51 tedu Exp $	*/
+/*	$OpenBSD: vfs_lookup.c,v 1.76 2019/01/03 21:52:31 beck Exp $	*/
 /*	$NetBSD: vfs_lookup.c,v 1.17 1996/02/09 19:00:59 christos Exp $	*/
 
 /*
@@ -52,48 +52,14 @@
 #include <sys/pledge.h>
 #include <sys/file.h>
 #include <sys/fcntl.h>
-#include <sys/types.h>
-#include <sys/malloc.h>
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
 #endif
 
-
-void
-push_component(struct nameidata *ndp, char *cp, size_t cplen)
-{
-	KASSERT(cplen < MAXPATHLEN);
-	if (ndp->ni_p_size - ndp->ni_p_length <= cplen) {
-		char *tmp = malloc(ndp->ni_p_size + MAXPATHLEN, M_TEMP, M_WAITOK);
-		memcpy(tmp, ndp->ni_p_path, ndp->ni_p_length);
-		ndp->ni_p_next = tmp + (ndp->ni_p_next - ndp->ni_p_path);
-		ndp->ni_p_prev = tmp + (ndp->ni_p_prev - ndp->ni_p_path);
-		free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
-		ndp->ni_p_path = tmp;
-		ndp->ni_p_size += MAXPATHLEN;
-	}
-	memcpy(ndp->ni_p_next, cp, cplen);
-	ndp->ni_p_prev = ndp->ni_p_next;
-	ndp->ni_p_next += cplen;
-	ndp->ni_p_length += cplen;
-	*ndp->ni_p_next = '\0';
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-	printf("push: ndp->ni_p_path = %s\n", ndp->ni_p_path);
-#endif
-}
-
-void
-pop_symlink(struct nameidata *ndp)
-{
-	KASSERT(ndp->ni_p_next != ndp->ni_p_prev);
-	ndp->ni_p_length = ndp->ni_p_prev - ndp->ni_p_path;
-	ndp->ni_p_next = ndp->ni_p_prev;
-	*ndp->ni_p_next = '\0';
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-	printf("pop: ndp->ni_p_path = %s\n", ndp->ni_p_path);
-#endif
-}
+void unveil_start_relative(struct proc *p, struct nameidata *ni);
+void unveil_check_component(struct proc *p, struct nameidata *ni, struct vnode *dp );
+int unveil_check_final(struct proc *p, struct nameidata *ni);
 
 void
 ndinitat(struct nameidata *ndp, u_long op, u_long flags,
@@ -141,12 +107,6 @@ namei(struct nameidata *ndp)
 	int error, linklen;
 	struct componentname *cnp = &ndp->ni_cnd;
 	struct proc *p = cnp->cn_proc;
-
-	/*
-	 * Should be 0, if not someone didn't init ndp with NDINIT,
-	 * go find and murder the offender messily.
-	 */
-	KASSERT (ndp->ni_p_path == NULL && ndp->ni_p_size == 0);
 
 	ndp->ni_cnd.cn_cred = ndp->ni_cnd.cn_proc->p_ucred;
 #ifdef DIAGNOSTIC
@@ -212,26 +172,16 @@ fail:
 	/*
 	 * Get starting point for the translation.
 	 */
-	if ((ndp->ni_rootdir = fdp->fd_rdir) == NULL)
+	if ((ndp->ni_rootdir = fdp->fd_rdir) == NULL ||
+	    (ndp->ni_cnd.cn_flags & KERNELPATH))
 		ndp->ni_rootdir = rootvnode;
 
-	error = pledge_namei(p, ndp, cnp->cn_pnbuf);
-	if (error)
-		goto fail;
-
-	/*
-	 * Decide if we need to call pledge_namei_wlpath after namei lookup, if
-	 * so give namei a place to store a path for it to look at.
-	 */
-	if (!ISSET(p->p_p->ps_flags, PS_COREDUMP) &&
-	    ISSET(p->p_p->ps_flags, PS_PLEDGE) && p->p_p->ps_pledgepaths) {
-		ndp->ni_p_path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-		ndp->ni_p_next = ndp->ni_p_prev = ndp->ni_p_path;
-		ndp->ni_p_size = MAXPATHLEN;
-		ndp->ni_p_length = 0;
+	if (ndp->ni_cnd.cn_flags & KERNELPATH) {
+		ndp->ni_cnd.cn_flags |= BYPASSUNVEIL;
 	} else {
-		ndp->ni_p_path = NULL;
-		ndp->ni_p_size = 0;
+		error = pledge_namei(p, ndp, cnp->cn_pnbuf);
+		if (error)
+			goto fail;
 	}
 
 	/*
@@ -240,41 +190,38 @@ fail:
 	if (cnp->cn_pnbuf[0] == '/') {
 		dp = ndp->ni_rootdir;
 		vref(dp);
-		if (ndp->ni_p_path != NULL) {
-			*ndp->ni_p_path = '/';
-			ndp->ni_p_next++;
-			*ndp->ni_p_next = '\0';
-			ndp->ni_p_length = 1;
-		}
 	} else if (ndp->ni_dirfd == AT_FDCWD) {
 		dp = fdp->fd_cdir;
 		vref(dp);
+		unveil_start_relative(p, ndp);
+		unveil_check_component(p, ndp, dp);
 	} else {
 		struct file *fp = fd_getfile(fdp, ndp->ni_dirfd);
 		if (fp == NULL) {
-			free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
 			pool_put(&namei_pool, cnp->cn_pnbuf);
 			return (EBADF);
 		}
 		dp = (struct vnode *)fp->f_data;
 		if (fp->f_type != DTYPE_VNODE || dp->v_type != VDIR) {
-			free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
+			FRELE(fp, p);
 			pool_put(&namei_pool, cnp->cn_pnbuf);
 			return (ENOTDIR);
 		}
 		vref(dp);
+		unveil_check_component(p, ndp, dp);
+		FRELE(fp, p);
 	}
 	for (;;) {
 		if (!dp->v_mount) {
 			/* Give up if the directory is no longer mounted */
-			free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
 			pool_put(&namei_pool, cnp->cn_pnbuf);
+			vrele(dp);
+			ndp->ni_vp = NULL;
 			return (ENOENT);
 		}
 		cnp->cn_nameptr = cnp->cn_pnbuf;
 		ndp->ni_startdir = dp;
 		if ((error = vfs_lookup(ndp)) != 0) {
-			free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
 			pool_put(&namei_pool, cnp->cn_pnbuf);
 			return (error);
 		}
@@ -282,19 +229,21 @@ fail:
 		 * If not a symbolic link, return search result.
 		 */
 		if ((cnp->cn_flags & ISSYMLINK) == 0) {
-			error = pledge_namei_wlpath(p, ndp);
-			if (error) {
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-				printf("pledge_namei error %d for path %s\n", error, ndp->ni_p_path);
-#endif
-				free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
+			if ((error = unveil_check_final(p, ndp))) {
 				pool_put(&namei_pool, cnp->cn_pnbuf);
-				if (ndp->ni_vp)
-					vput(ndp->ni_vp);
+				if ((cnp->cn_flags & LOCKPARENT) &&
+				    (cnp->cn_flags & ISLASTCN) &&
+				    (ndp->ni_vp != ndp->ni_dvp))
+					VOP_UNLOCK(ndp->ni_dvp);
+				if (ndp->ni_vp) {
+					if ((cnp->cn_flags & LOCKLEAF))
+						vput(ndp->ni_vp);
+					else
+						vrele(ndp->ni_vp);
+				}
 				ndp->ni_vp = NULL;
-				return(error);
+				return (error);
 			}
-			free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
 			if ((cnp->cn_flags & (SAVENAME | SAVESTART)) == 0)
 				pool_put(&namei_pool, cnp->cn_pnbuf);
 			else
@@ -302,7 +251,7 @@ fail:
 			return(0);
 		}
 		if ((cnp->cn_flags & LOCKPARENT) && (cnp->cn_flags & ISLASTCN))
-			VOP_UNLOCK(ndp->ni_dvp, p);
+			VOP_UNLOCK(ndp->ni_dvp);
 		if (ndp->ni_loopcnt++ >= SYMLOOP_MAX) {
 			error = ELOOP;
 			break;
@@ -352,17 +301,11 @@ badlink:
 			vrele(dp);
 			dp = ndp->ni_rootdir;
 			vref(dp);
-			if (ndp->ni_p_path != NULL) {
-				ndp->ni_p_next = ndp->ni_p_prev = ndp->ni_p_path;
-				*ndp->ni_p_path = '/';
-				ndp->ni_p_next++;
-				*ndp->ni_p_next = '\0';
-				ndp->ni_p_length = 1;
-			}
+			ndp->ni_unveil_match = NULL;
+			unveil_check_component(p, ndp, dp);
 		}
 	}
 	pool_put(&namei_pool, cnp->cn_pnbuf);
-	free(ndp->ni_p_path, M_TEMP, ndp->ni_p_size);
 	vrele(ndp->ni_dvp);
 	vput(ndp->ni_vp);
 	ndp->ni_vp = NULL;
@@ -422,7 +365,6 @@ vfs_lookup(struct nameidata *ndp)
 	int dpunlocked = 0;		/* dp has already been unlocked */
 	int slashes;
 	struct componentname *cnp = &ndp->ni_cnd;
-	struct proc *p = cnp->cn_proc;
 	/*
 	 * Setup: break out flag bits into variables.
 	 */
@@ -436,7 +378,7 @@ vfs_lookup(struct nameidata *ndp)
 	cnp->cn_flags &= ~ISSYMLINK;
 	dp = ndp->ni_startdir;
 	ndp->ni_startdir = NULLVP;
-	vn_lock(dp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(dp, LK_EXCLUSIVE | LK_RETRY);
 
 	/*
 	 * If we have a leading string of slashes, remove them, and just make
@@ -494,17 +436,11 @@ dirloop:
 	}
 
 #ifdef NAMEI_DIAGNOSTIC
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-	if (p && p->p_p && p->p_p->ps_pledgepaths)
-#endif
 	{ char c = *cp;
 	*cp = '\0';
 	printf("{%s}: ", cnp->cn_nameptr);
 	*cp = c; }
 #endif
-	if (ndp->ni_p_path != NULL)
-		push_component(ndp, cnp->cn_nameptr, cnp->cn_namelen);
-
 	ndp->ni_pathlen -= cnp->cn_namelen;
 	ndp->ni_next = cp;
 	/*
@@ -548,6 +484,7 @@ dirloop:
 	 * Handle "..": two special cases.
 	 * 1. If at root directory (e.g. after chroot)
 	 *    or at absolute root directory
+	 *    or we are under unveil restrictions
 	 *    then ignore it so can't get out.
 	 * 2. If this vnode is the root of a mounted
 	 *    filesystem, then replace it with the
@@ -560,6 +497,7 @@ dirloop:
 				ndp->ni_dvp = dp;
 				ndp->ni_vp = dp;
 				vref(dp);
+				ndp->ni_unveil_match = NULL;
 				goto nextname;
 			}
 			if ((dp->v_flag & VROOT) == 0 ||
@@ -569,7 +507,8 @@ dirloop:
 			dp = dp->v_mount->mnt_vnodecovered;
 			vput(tdp);
 			vref(dp);
-			vn_lock(dp, LK_EXCLUSIVE | LK_RETRY, p);
+			unveil_check_component(curproc, ndp, dp);
+			vn_lock(dp, LK_EXCLUSIVE | LK_RETRY);
 		}
 	}
 
@@ -579,6 +518,7 @@ dirloop:
 	ndp->ni_dvp = dp;
 	ndp->ni_vp = NULL;
 	cnp->cn_flags &= ~PDIRUNLOCK;
+	unveil_check_component(curproc, ndp, dp);
 
 	if ((error = VOP_LOOKUP(dp, &ndp->ni_vp, cnp)) != 0) {
 #ifdef DIAGNOSTIC
@@ -586,11 +526,15 @@ dirloop:
 			panic("leaf should be empty");
 #endif
 #ifdef NAMEI_DIAGNOSTIC
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-		if (p && p->p_p && p->p_p->ps_pledgepaths)
+		printf("not found\n");
 #endif
-			printf("not found\n");
-#endif
+		/*
+		 * Allow for unveiling of a file in a directory
+		 * where we don't have access to create it ourselves
+		 */
+		if (ndp->ni_pledge == PLEDGE_UNVEIL && error == EACCES)
+			error = EJUSTRETURN;
+
 		if (error != EJUSTRETURN)
 			goto bad;
 		/*
@@ -603,11 +547,13 @@ dirloop:
 		}
 		/*
 		 * If creating and at end of pathname, then can consider
-		 * allowing file to be created.
+		 * allowing file to be created. Check for a read only
+		 * filesystem and disallow this unless we are unveil'ing
 		 */
-		if (rdonly || (ndp->ni_dvp->v_mount->mnt_flag & MNT_RDONLY)) {
-			error = EROFS;
-			goto bad;
+		if (ndp->ni_pledge != PLEDGE_UNVEIL && (rdonly ||
+		    (ndp->ni_dvp->v_mount->mnt_flag & MNT_RDONLY))) {
+			    error = EROFS;
+			    goto bad;
 		}
 		/*
 		 * We return with ni_vp NULL to indicate that the entry
@@ -621,9 +567,6 @@ dirloop:
 		return (0);
 	}
 #ifdef NAMEI_DIAGNOSTIC
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-	if (p && p->p_p && p->p_p->ps_pledgepaths)
-#endif
 		printf("found\n");
 #endif
 
@@ -653,7 +596,7 @@ dirloop:
 	    (cnp->cn_flags & NOCROSSMOUNT) == 0) {
 		if (vfs_busy(mp, VB_READ|VB_WAIT))
 			continue;
-		VOP_UNLOCK(dp, p);
+		VOP_UNLOCK(dp);
 		error = VFS_ROOT(mp, &tdp);
 		vfs_unbusy(mp);
 		if (error) {
@@ -672,8 +615,6 @@ dirloop:
 		ndp->ni_pathlen += slashes;
 		ndp->ni_next -= slashes;
 		cnp->cn_flags |= ISSYMLINK;
-		if (ndp->ni_p_path != NULL)
-			pop_symlink(ndp);
 		return (0);
 	}
 
@@ -694,8 +635,6 @@ nextname:
 	if (!(cnp->cn_flags & ISLASTCN)) {
 		cnp->cn_nameptr = ndp->ni_next;
 		vrele(ndp->ni_dvp);
-		if (ndp->ni_p_path != NULL)
-			push_component(ndp, "/", 1);
 		goto dirloop;
 	}
 
@@ -724,13 +663,13 @@ terminal:
 			vrele(ndp->ni_dvp);
 	}
 	if ((cnp->cn_flags & LOCKLEAF) == 0)
-		VOP_UNLOCK(dp, p);
+		VOP_UNLOCK(dp);
 	return (0);
 
 bad2:
 	if ((cnp->cn_flags & LOCKPARENT) && (cnp->cn_flags & ISLASTCN) &&
 	    ((cnp->cn_flags & PDIRUNLOCK) == 0))
-		VOP_UNLOCK(ndp->ni_dvp, p);
+		VOP_UNLOCK(ndp->ni_dvp);
 	vrele(ndp->ni_dvp);
 bad:
 	if (dpunlocked)
@@ -747,7 +686,6 @@ bad:
 int
 vfs_relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 {
-	struct proc *p = cnp->cn_proc;
 	struct vnode *dp = 0;		/* the directory we are searching */
 	int wantparent;			/* 1 => wantparent or lockparent flag */
 	int rdonly;			/* lookup read-only flag bit */
@@ -763,7 +701,7 @@ vfs_relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	rdonly = cnp->cn_flags & RDONLY;
 	cnp->cn_flags &= ~ISSYMLINK;
 	dp = dvp;
-	vn_lock(dp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(dp, LK_EXCLUSIVE | LK_RETRY);
 
 /* dirloop: */
 	/*
@@ -776,21 +714,16 @@ vfs_relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	 */
 
 #ifdef NAMEI_DIAGNOSTIC
-#ifdef NAMEI_DIAGNOSTIC_PLEDGE
-	if (p && p->p_p && p->p_p->ps_pledgepaths)
-#endif
-	{
-		/* XXX: Figure out the length of the last component. */
-		cp = cnp->cn_nameptr;
-		while (*cp && (*cp != '/')) {
-			cp++;
-		}
-		if (cnp->cn_namelen != cp - cnp->cn_nameptr)
-			panic("relookup: bad len");
-		if (*cp != 0)
-			panic("relookup: not last component");
-		printf("{%s}: ", cnp->cn_nameptr);
+	/* XXX: Figure out the length of the last component. */
+	cp = cnp->cn_nameptr;
+	while (*cp && (*cp != '/')) {
+		cp++;
 	}
+	if (cnp->cn_namelen != cp - cnp->cn_nameptr)
+		panic("relookup: bad len");
+	if (*cp != 0)
+		panic("relookup: not last component");
+	printf("{%s}: ", cnp->cn_nameptr);
 #endif
 
 	/*
@@ -863,12 +796,12 @@ vfs_relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	if (!wantparent)
 		vrele(dvp);
 	if ((cnp->cn_flags & LOCKLEAF) == 0)
-		VOP_UNLOCK(dp, p);
+		VOP_UNLOCK(dp);
 	return (0);
 
 bad2:
 	if ((cnp->cn_flags & LOCKPARENT) && (cnp->cn_flags & ISLASTCN))
-		VOP_UNLOCK(dvp, p);
+		VOP_UNLOCK(dvp);
 	vrele(dvp);
 bad:
 	vput(dp);

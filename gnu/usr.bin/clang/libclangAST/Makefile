@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.2 2017/07/09 15:28:36 espie Exp $
+# $OpenBSD: Makefile,v 1.6 2019/01/27 16:59:42 patrick Exp $
 
 LIB=	clangAST
 NOPIC=
@@ -13,6 +13,7 @@ SRCS=	APValue.cpp \
 	ASTDiagnostic.cpp \
 	ASTDumper.cpp \
 	ASTImporter.cpp \
+	ASTStructuralEquivalence.cpp \
 	ASTTypeTraits.cpp \
 	AttrImpl.cpp \
 	CXXInheritance.cpp \
@@ -22,6 +23,7 @@ SRCS=	APValue.cpp \
 	CommentLexer.cpp \
 	CommentParser.cpp \
 	CommentSema.cpp \
+	ComparisonCategories.cpp \
 	Decl.cpp \
 	DeclarationName.cpp \
 	DeclBase.cpp \
@@ -38,6 +40,7 @@ SRCS=	APValue.cpp \
 	ExprCXX.cpp \
 	ExprObjC.cpp \
 	ExternalASTSource.cpp \
+	ExternalASTMerger.cpp \
 	InheritViz.cpp \
 	ItaniumCXXABI.cpp \
 	ItaniumMangle.cpp \
@@ -46,8 +49,10 @@ SRCS=	APValue.cpp \
 	MicrosoftMangle.cpp \
 	NestedNameSpecifier.cpp \
 	NSAPI.cpp \
+	ODRHash.cpp \
 	OpenMPClause.cpp \
 	ParentMap.cpp \
+	QualTypeNames.cpp \
 	RawCommentList.cpp \
 	RecordLayout.cpp \
 	RecordLayoutBuilder.cpp \

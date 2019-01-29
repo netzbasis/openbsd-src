@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_bio.c,v 1.184 2017/08/22 00:18:56 sf Exp $	*/
+/*	$OpenBSD: vfs_bio.c,v 1.187 2018/11/21 16:14:43 mpi Exp $	*/
 /*	$NetBSD: vfs_bio.c,v 1.44 1996/06/11 11:15:36 pk Exp $	*/
 
 /*
@@ -538,7 +538,7 @@ bread_cluster_callback(struct buf *bp)
 
 	/* Invalidate read-ahead buffers if read short */
 	if (bp->b_resid > 0) {
-		for (i = 0; xbpp[i] != NULL; i++)
+		for (i = 1; xbpp[i] != NULL; i++)
 			continue;
 		for (i = i - 1; i != 0; i--) {
 			if (xbpp[i]->b_bufsize <= bp->b_resid) {
@@ -558,7 +558,7 @@ bread_cluster_callback(struct buf *bp)
 		biodone(xbpp[i]);
 	}
 
-	free(xbpp, M_TEMP, 0);
+	free(xbpp, M_TEMP, (i + 1) * sizeof(*xbpp));
 
 	if (ISSET(bp->b_flags, B_ASYNC)) {
 		brelse(bp);
@@ -603,7 +603,7 @@ bread_cluster(struct vnode *vp, daddr_t blkno, int size, struct buf **rbpp)
 	if (howmany > maxra)
 		howmany = maxra;
 
-	xbpp = mallocarray(howmany + 1, sizeof(struct buf *), M_TEMP, M_NOWAIT);
+	xbpp = mallocarray(howmany + 1, sizeof(*xbpp), M_TEMP, M_NOWAIT);
 	if (xbpp == NULL)
 		goto out;
 
@@ -622,7 +622,7 @@ bread_cluster(struct vnode *vp, daddr_t blkno, int size, struct buf **rbpp)
 				SET(xbpp[i]->b_flags, B_INVAL);
 				brelse(xbpp[i]);
 			}
-			free(xbpp, M_TEMP, 0);
+			free(xbpp, M_TEMP, (howmany + 1) * sizeof(*xbpp));
 			goto out;
 		}
 	}
@@ -1158,12 +1158,10 @@ buf_get(struct vnode *vp, daddr_t blkno, size_t size)
  * Buffer cleaning daemon.
  */
 void
-buf_daemon(struct proc *p)
+buf_daemon(void *arg)
 {
 	struct buf *bp = NULL;
 	int s, pushed = 0;
-
-	cleanerproc = curproc;
 
 	s = splbio();
 	for (;;) {
@@ -1592,10 +1590,18 @@ chillbufs(struct bufcache *cache, struct bufqueue *queue, int64_t *queuepages)
 	int64_t limit, pages;
 
 	/*
-	 * The warm and hot queues are allowed to be up to one third each.
+	 * We limit the hot queue to be small, with a max of 4096 pages.
+	 * We limit the warm queue to half the cache size.
+	 *
 	 * We impose a minimum size of 96 to prevent too much "wobbling".
 	 */
-	limit = cache->cachepages / 3;
+	if (queue == &cache->hotqueue)
+		limit = min(cache->cachepages / 20, 4096);
+	else if (queue == &cache->warmqueue)
+		limit = (cache->cachepages / 2);
+	else
+		panic("chillbufs: invalid queue");
+
 	if (*queuepages > 96 && *queuepages > limit) {
 		bp = TAILQ_FIRST(queue);
 		if (!bp)

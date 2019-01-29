@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_syscalls.c,v 1.110 2017/08/09 14:22:58 mpi Exp $	*/
+/*	$OpenBSD: nfs_syscalls.c,v 1.114 2018/06/06 06:55:22 mpi Exp $	*/
 /*	$NetBSD: nfs_syscalls.c,v 1.19 1996/02/18 11:53:52 fvdl Exp $	*/
 
 /*
@@ -155,7 +155,7 @@ sys_nfssvc(struct proc *p, void *v, register_t *retval)
 #endif
 
 	/* Must be super user */
-	error = suser(p, 0);
+	error = suser(p);
 	if (error)
 		return (error);
 
@@ -250,7 +250,7 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 	s = solock(so);
 	error = soreserve(so, siz, siz); 
 	if (error) {
-		sounlock(s);
+		sounlock(so, s);
 		m_freem(mynam);
 		return (error);
 	}
@@ -265,6 +265,7 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 		*mtod(m, int32_t *) = 1;
 		m->m_len = sizeof(int32_t);
 		sosetopt(so, SOL_SOCKET, SO_KEEPALIVE, m);
+		m_freem(m);
 	}
 	if (so->so_proto->pr_domain->dom_family == AF_INET &&
 	    so->so_proto->pr_protocol == IPPROTO_TCP) {
@@ -272,12 +273,13 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 		*mtod(m, int32_t *) = 1;
 		m->m_len = sizeof(int32_t);
 		sosetopt(so, IPPROTO_TCP, TCP_NODELAY, m);
+		m_freem(m);
 	}
 	so->so_rcv.sb_flags &= ~SB_NOINTR;
 	so->so_rcv.sb_timeo = 0;
 	so->so_snd.sb_flags &= ~SB_NOINTR;
 	so->so_snd.sb_timeo = 0;
-	sounlock(s);
+	sounlock(so, s);
 	if (tslp)
 		slp = tslp;
 	else {
@@ -286,7 +288,7 @@ nfssvc_addsock(struct file *fp, struct mbuf *mynam)
 	}
 	slp->ns_so = so;
 	slp->ns_nam = mynam;
-	fp->f_count++;
+	FREF(fp);
 	slp->ns_fp = fp;
 	so->so_upcallarg = (caddr_t)slp;
 	so->so_upcall = nfsrv_rcv;

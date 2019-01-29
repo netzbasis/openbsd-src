@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.139 2017/08/13 17:57:32 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.163 2019/01/19 21:07:13 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -47,6 +47,7 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <net/if_media.h>
+#include <net/route.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -71,8 +72,10 @@
 #include "privsep.h"
 
 
-void packethandler(struct interface_info *ifi);
-void flush_unpriv_ibuf(const char *);
+void bpffd_handler(struct interface_info *);
+void dhcp_packet_dispatch(struct interface_info *, struct sockaddr_in *,
+    struct ether_addr *);
+void flush_unpriv_ibuf(void);
 
 /*
  * Loop waiting for packets, timeouts or routing messages.
@@ -85,11 +88,14 @@ dispatch(struct interface_info *ifi, int routefd)
 	time_t			 cur_time, howlong;
 	int			 nfds, to_msec;
 
-	while (quit == 0 || quit == SIGHUP) {
-		if (quit == SIGHUP) {
-			sendhup();
-			to_msec = 100;
-		} else if (ifi->timeout_func != NULL) {
+	while (quit == 0 || quit == RESTART) {
+		if (quit == RESTART) {
+			quit = 0;
+			time(&ifi->startup_time);
+			ifi->state = S_PREBOOT;
+			state_preboot(ifi);
+		}
+		if (ifi->timeout_func != NULL) {
 			time(&cur_time);
 			if (ifi->timeout <= cur_time) {
 				func = ifi->timeout_func;
@@ -105,8 +111,8 @@ dispatch(struct interface_info *ifi, int routefd)
 			 */
 			howlong = ifi->timeout - cur_time;
 			if (howlong > INT_MAX / 1000)
-					howlong = INT_MAX / 1000;
-				to_msec = howlong * 1000;
+				howlong = INT_MAX / 1000;
+			to_msec = howlong * 1000;
 		} else
 			to_msec = -1;
 
@@ -117,7 +123,7 @@ dispatch(struct interface_info *ifi, int routefd)
 		 *  fds[1] == routing socket for incoming RTM messages
 		 *  fds[2] == imsg socket to privileged process
 		 */
-		fds[0].fd = ifi->bfdesc;
+		fds[0].fd = ifi->bpffd;
 		fds[1].fd = routefd;
 		fds[2].fd = unpriv_ibuf->fd;
 		fds[0].events = fds[1].events = fds[2].events = POLLIN;
@@ -129,108 +135,99 @@ dispatch(struct interface_info *ifi, int routefd)
 		if (nfds == -1) {
 			if (errno == EINTR)
 				continue;
-			log_warn("dispatch poll");
-			quit = INTERNALSIG;
-			continue;
+			log_warn("%s: poll(bpffd, routefd, unpriv_ibuf)",
+			    log_procname);
+			break;
 		}
 
 		if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-			log_warnx("bfdesc poll error");
-			quit = INTERNALSIG;
-			continue;
+			log_debug("%s: bpffd: ERR|HUP|NVAL", log_procname);
+			break;
 		}
 		if ((fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-			log_warnx("routefd poll error");
-			quit = INTERNALSIG;
-			continue;
+			log_debug("%s: routefd: ERR|HUP|NVAL", log_procname);
+			break;
 		}
 		if ((fds[2].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-			log_warnx("unpriv_ibuf poll error");
-			quit = INTERNALSIG;
-			continue;
+			log_debug("%s: unpriv_ibuf: ERR|HUP|NVAL", log_procname);
+			break;
 		}
 
 		if (nfds == 0)
 			continue;
 
-		if ((fds[0].revents & POLLIN) != 0) {
-			do {
-				packethandler(ifi);
-			} while (ifi->rbuf_offset < ifi->rbuf_len);
-		}
+		if ((fds[0].revents & POLLIN) != 0)
+			bpffd_handler(ifi);
 		if ((fds[1].revents & POLLIN) != 0)
-			routehandler(ifi, routefd);
+			routefd_handler(ifi, routefd);
 		if ((fds[2].revents & POLLOUT) != 0)
-			flush_unpriv_ibuf("dispatch");
+			flush_unpriv_ibuf();
 		if ((fds[2].revents & POLLIN) != 0)
-			quit = INTERNALSIG;
+			break;
 	}
-
-	if (quit != INTERNALSIG && quit != SIGHUP)
-		fatalx("%s", strsignal(quit));
 }
 
 void
-packethandler(struct interface_info *ifi)
+bpffd_handler(struct interface_info *ifi)
 {
 	struct sockaddr_in	 from;
 	struct ether_addr	 hfrom;
-	struct in_addr		 ifrom;
-	struct dhcp_packet	*packet = &ifi->recv_packet;
-	struct reject_elem	*ap;
-	struct option_data	*options;
-	char			*type, *info;
-	ssize_t			 result;
-	void			(*handler)(struct interface_info *,
-	    struct option_data *, char *);
-	int			 i, rslt;
+	unsigned char		*next, *lim;
+	ssize_t			 n;
 
-	if ((result = receive_packet(ifi, &from, &hfrom)) == -1) {
+	n = read(ifi->bpffd, ifi->rbuf, ifi->rbuf_max);
+	if (n == -1) {
+		log_warn("%s: read(bpffd)", log_procname);
 		ifi->errors++;
 		if (ifi->errors > 20)
-			fatalx("%s too many receive_packet failures",
-			    ifi->name);
-		else
-			log_warn("%s receive_packet failed", ifi->name);
+			fatalx("too many read(bpffd) failures");
 		return;
 	}
 	ifi->errors = 0;
 
-	if (result == 0)
-		return;
+	lim = ifi->rbuf + n;
+	for (next = ifi->rbuf; quit == 0 && n > 0; next += n) {
+		n = receive_packet(next, lim, &from, &hfrom, &ifi->recv_packet);
+		if (n > 0)
+			dhcp_packet_dispatch(ifi, &from, &hfrom);
+	}
+}
 
-	ifrom.s_addr = from.sin_addr.s_addr;
+void
+dhcp_packet_dispatch(struct interface_info *ifi, struct sockaddr_in *from,
+    struct ether_addr *hfrom)
+{
+	struct in_addr		 ifrom;
+	struct dhcp_packet	*packet = &ifi->recv_packet;
+	struct reject_elem	*ap;
+	struct option_data	*options;
+	char			*src;
+	int			 i, rslt;
+
+	ifrom.s_addr = from->sin_addr.s_addr;
 
 	if (packet->hlen != ETHER_ADDR_LEN) {
-#ifdef DEBUG
-		log_debug("Discarding packet with hlen != %s (%u)",
-		    ifi->name, packet->hlen);
-#endif	/* DEBUG */
+		log_debug("%s: discarding packet with hlen == %u", log_procname,
+		    packet->hlen);
 		return;
 	} else if (memcmp(&ifi->hw_address, packet->chaddr,
-	    sizeof(ifi->hw_address))) {
-#ifdef DEBUG
-		log_debug("Discarding packet with chaddr != %s (%s)",
-		    ifi->name,
+	    sizeof(ifi->hw_address)) != 0) {
+		log_debug("%s: discarding packet with chaddr == %s",
+		    log_procname,
 		    ether_ntoa((struct ether_addr *)packet->chaddr));
-#endif	/* DEBUG */
 		return;
 	}
 
 	if (ifi->xid != packet->xid) {
-#ifdef DEBUG
-		log_debug("Discarding packet with XID != %u (%u)", ifi->xid,
-		    packet->xid);
-#endif	/* DEBUG */
+		log_debug("%s: discarding packet with XID != %u (%u)",
+		    log_procname, ifi->xid, packet->xid);
 		return;
 	}
 
 	TAILQ_FOREACH(ap, &config->reject_list, next)
 	    if (ifrom.s_addr == ap->addr.s_addr) {
-#ifdef DEBUG
-		    log_debug("Discarding packet from address on reject "
-			"list (%s)", inet_ntoa(ifrom));
-#endif	/* DEBUG */
+		    log_debug("%s: discarding packet from address on reject "
+			"list (%s)", log_procname, inet_ntoa(ifrom));
 		    return;
 	    }
 
@@ -245,74 +242,58 @@ packethandler(struct interface_info *ifi)
 	    ((options[i].len != config->send_options[i].len) ||
 	    memcmp(options[i].data, config->send_options[i].data,
 	    options[i].len) != 0)) {
-#ifdef DEBUG
-		log_debug("Discarding packet with client-identifier "
-		    "'%s'", pretty_print_option(i, &options[i], 0));
-#endif	/* DEBUG */
+		log_debug("%s: discarding packet with client-identifier %s'",
+		    log_procname, pretty_print_option(i, &options[i], 0));
 		return;
 	}
 
-	type = "<unknown>";
-	handler = NULL;
+	rslt = asprintf(&src, "%s (%s)", inet_ntoa(ifrom), ether_ntoa(hfrom));
+	if (rslt == -1)
+		fatal("src");
 
 	i = DHO_DHCP_MESSAGE_TYPE;
 	if (options[i].data != NULL) {
 		/* Always try a DHCP packet, even if a bad option was seen. */
 		switch (options[i].data[0]) {
 		case DHCPOFFER:
-			handler = dhcpoffer;
-			type = "DHCPOFFER";
+			dhcpoffer(ifi, options, src);
 			break;
 		case DHCPNAK:
-			handler = dhcpnak;
-			type = "DHCPNACK";
+			dhcpnak(ifi, src);
 			break;
 		case DHCPACK:
-			handler = dhcpack;
-			type = "DHCPACK";
+			dhcpack(ifi, options, src);
 			break;
 		default:
-#ifdef DEBUG
-			log_debug("Discarding DHCP packet of unknown type "
-			    "(%d)", options[i].data[0]);
-#endif	/* DEBUG */
-			return;
+			log_debug("%s: discarding DHCP packet of unknown type "
+			    "(%d)", log_procname, options[i].data[0]);
+			break;
 		}
 	} else if (packet->op == BOOTREPLY) {
-		handler = dhcpoffer;
-		type = "BOOTREPLY";
+		bootreply(ifi, options, src);
 	} else {
-#ifdef DEBUG
-		log_debug("Discarding packet which is neither DHCP nor BOOTP");
-#endif	/* DEBUG */
-		return;
+		log_debug("%s: discarding packet which is neither DHCP nor "
+		    "BOOTP", log_procname);
 	}
 
-	rslt = asprintf(&info, "%s from %s (%s)", type, inet_ntoa(ifrom),
-	    ether_ntoa(&hfrom));
-	if (rslt == -1)
-		fatalx("no memory for info string");
-
-	if (handler != NULL)
-		(*handler)(ifi, options, info);
-
-	free(info);
+	free(src);
 }
 
 /*
  * flush_unpriv_ibuf stuffs queued messages into the imsg socket.
  */
 void
-flush_unpriv_ibuf(const char *who)
+flush_unpriv_ibuf(void)
 {
 	while (unpriv_ibuf->w.queued) {
 		if (msgbuf_write(&unpriv_ibuf->w) <= 0) {
 			if (errno == EAGAIN)
 				break;
 			if (quit == 0)
-				quit = INTERNALSIG;
+				quit = TERMINATE;
 			if (errno != EPIPE && errno != 0)
-				log_warn("%s: msgbuf_write", who);
+				log_warn("%s: msgbuf_write(unpriv_ibuf)",
+				    log_procname);
 			break;
 		}
 	}
@@ -323,7 +304,8 @@ set_timeout(struct interface_info *ifi, time_t secs,
     void (*where)(struct interface_info *))
 {
 	time(&ifi->timeout);
-	ifi->timeout += secs;
+	if (secs > 0)
+		ifi->timeout += secs;
 	ifi->timeout_func = where;
 }
 
@@ -332,17 +314,4 @@ cancel_timeout(struct interface_info *ifi)
 {
 	ifi->timeout = 0;
 	ifi->timeout_func = NULL;
-}
-
-/*
- * Inform the [priv] process a HUP was received.
- */
-void
-sendhup(void)
-{
-	int rslt;
-
-	rslt = imsg_compose(unpriv_ibuf, IMSG_HUP, 0, 0, -1, NULL, 0);
-	if (rslt == -1)
-		log_warn("sendhup: imsg_compose");
 }

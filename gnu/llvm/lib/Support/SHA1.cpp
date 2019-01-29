@@ -1,4 +1,4 @@
-//======- SHA1.h - Private copy of the SHA1 implementation ---*- C++ -* ======//
+//====- SHA1.cpp - Private copy of the SHA1 implementation ---*- C++ -* ======//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,9 +15,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/Host.h"
 #include "llvm/Support/SHA1.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/Host.h"
 using namespace llvm;
 
 #include <stdint.h>

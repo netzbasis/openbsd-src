@@ -19,7 +19,7 @@ our %args = (
 	func => sub { write_between2logs(shift, sub {
 	    my $self = shift;
 	    ${$self->{syslogd}}->loggrep($errors, 5)
-		or die "no $errors in syslogd.log";
+		or die ref($self), " no $errors in syslogd.log";
 	})},
     },
     syslogd => {
@@ -32,20 +32,14 @@ our %args = (
     },
     server => {
 	listen => { domain => AF_INET, proto => "tcp", addr => "127.0.0.1" },
-	redo => 0,
-	func => sub { read_between2logs(shift, sub {
+	func => sub { accept_between2logs(shift, sub {
 	    my $self = shift;
-	    if ($self->{redo}) {
-		$self->{redo}--;
-		return;
-	    }
 	    $self->close();
 	    shutdown(\*STDOUT, 1)
-		or die "shutdown write failed: $!";
+		or die ref($self), " shutdown write failed: $!";
 	    ${$self->{syslogd}}->loggrep($errors, 5)
-		or die "no $errors in syslogd.log";
+		or die ref($self), " no $errors in syslogd.log";
 	    $self->listen();
-	    $self->{redo}++;
 	})},
 	loggrep => {
 	    qr/Accepted/ => 2,

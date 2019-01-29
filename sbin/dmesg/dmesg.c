@@ -1,4 +1,4 @@
-/*	$OpenBSD: dmesg.c,v 1.27 2015/10/09 01:37:06 deraadt Exp $	*/
+/*	$OpenBSD: dmesg.c,v 1.30 2018/05/15 15:15:50 cheloha Exp $	*/
 /*	$NetBSD: dmesg.c,v 1.8 1995/03/18 14:54:49 cgd Exp $	*/
 
 /*-
@@ -42,7 +42,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 #include <vis.h>
 
@@ -66,6 +65,7 @@ main(int argc, char *argv[])
 	char *p;
 	struct msgbuf cur;
 	char *memf, *nlistf, *bufdata = NULL;
+	char *allocated = NULL;
 	int startupmsgs = 0;
 	char buf[5];
 
@@ -96,17 +96,19 @@ main(int argc, char *argv[])
 		mib[1] = startupmsgs ? KERN_CONSBUFSIZE : KERN_MSGBUFSIZE;
 		len = sizeof(msgbufsize);
 		if (sysctl(mib, 2, &msgbufsize, &len, NULL, 0))
-			err(1, "sysctl: KERN_MSGBUFSIZE");
+			err(1, "sysctl: %s", startupmsgs ? "KERN_CONSBUFSIZE" :
+			    "KERN_MSGBUFSIZE");
 
 		msgbufsize += sizeof(struct msgbuf) - 1;
-		bufdata = calloc(1, msgbufsize);
+		allocated = bufdata = calloc(1, msgbufsize);
 		if (bufdata == NULL)
 			errx(1, "couldn't allocate space for buffer data");
 
 		mib[1] = startupmsgs ? KERN_CONSBUF : KERN_MSGBUF;
 		len = msgbufsize;
 		if (sysctl(mib, 2, bufdata, &len, NULL, 0))
-			err(1, "sysctl: KERN_MSGBUF");
+			err(1, "sysctl: %s",
+			    startupmsgs ? "KERN_CONSBUF" : "KERN_MSGBUF");
 
 		if (pledge("stdio", NULL) == -1)
 			err(1, "pledge");
@@ -139,7 +141,7 @@ main(int argc, char *argv[])
 			    (unsigned long)bufp);
 		if (cur.msg_magic != MSG_MAGIC)
 			errx(1, "magic number incorrect");
-		bufdata = malloc(cur.msg_bufs);
+		allocated = bufdata = malloc(cur.msg_bufs);
 		if (bufdata == NULL)
 			errx(1, "couldn't allocate space for buffer data");
 		if (kvm_read(kd, (long)&bufp->msg_bufc, bufdata,
@@ -181,6 +183,7 @@ main(int argc, char *argv[])
 	}
 	if (!newl)
 		putchar('\n');
+	free(allocated);
 	return (0);
 }
 

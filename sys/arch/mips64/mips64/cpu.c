@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.68 2017/05/24 13:33:00 visa Exp $ */
+/*	$OpenBSD: cpu.c,v 1.70 2018/12/04 16:24:13 visa Exp $ */
 
 /*
  * Copyright (c) 1997-2004 Opsycon AB (www.opsycon.se)
@@ -231,11 +231,26 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 			printf("CN61xx CPU");
 		fptype = MIPS_SOFT;
 		break;
+	case MIPS_CN63XX:
+		printf("CN62xx/CN63xx CPU");
+		fptype = MIPS_SOFT;
+		break;
+	case MIPS_CN66XX:
+		printf("CN66xx CPU");
+		fptype = MIPS_SOFT;
+		break;
+	case MIPS_CN68XX:
+		printf("CN68xx CPU");
+		fptype = MIPS_SOFT;
+		break;
 	case MIPS_CN71XX:
 		printf("CN70xx/CN71xx CPU");
 		break;
 	case MIPS_CN73XX:
 		printf("CN72xx/CN73xx CPU");
+		break;
+	case MIPS_CN78XX:
+		printf("CN76xx/CN77xx/CN78xx CPU");
 		break;
 	default:
 		printf("Unknown CPU type (0x%x)", ch->type);
@@ -327,6 +342,9 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 		break;
 	case MIPS_CN73XX:
 		printf("CN72xx/CN73xx FPU");
+		break;
+	case MIPS_CN78XX:
+		printf("CN76xx/CN77xx/CN78xx FPU");
 		break;
 	default:
 		printf("Unknown FPU type (0x%x)", fptype);
@@ -421,8 +439,10 @@ cpu_switchto(struct proc *oldproc, struct proc *newproc)
 void
 enable_fpu(struct proc *p)
 {
-#ifndef FPUEMUL
 	struct cpu_info *ci = curcpu();
+
+	if (!CPU_HAS_FPU(ci))
+		return;
 
 	if (p->p_md.md_regs->sr & SR_FR_32)
 		MipsSwitchFPState(ci->ci_fpuproc, p->p_md.md_regs);
@@ -433,15 +453,16 @@ enable_fpu(struct proc *p)
 	ci->ci_fpuproc = p;
 	p->p_md.md_regs->sr |= SR_COP_1_BIT;
 	p->p_md.md_flags |= MDP_FPUSED;
-#endif
 }
 
 void
 save_fpu(void)
 {
-#ifndef FPUEMUL
 	struct cpu_info *ci = curcpu();
 	struct proc *p;
+
+	if (!CPU_HAS_FPU(ci))
+		return;
 
 	KASSERT(ci->ci_fpuproc);
 	p = ci->ci_fpuproc;
@@ -449,7 +470,6 @@ save_fpu(void)
 		MipsSaveCurFPState(p);
 	else
 		MipsSaveCurFPState16(p);
-#endif
 }
 
 #ifdef MULTIPROCESSOR

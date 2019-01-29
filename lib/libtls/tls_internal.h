@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_internal.h,v 1.64 2017/08/10 18:18:30 jsing Exp $ */
+/* $OpenBSD: tls_internal.h,v 1.73 2018/11/06 20:34:54 jsing Exp $ */
 /*
  * Copyright (c) 2014 Jeremie Courreges-Anglas <jca@openbsd.org>
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
@@ -25,8 +25,6 @@
 #include <openssl/ssl.h>
 
 __BEGIN_HIDDEN_DECLS
-
-#define _PATH_SSL_CA_FILE "/etc/ssl/cert.pem"
 
 #define TLS_CIPHERS_DEFAULT	"TLSv1.2+AEAD+ECDHE:TLSv1.2+AEAD+DHE"
 #define TLS_CIPHERS_COMPAT	"HIGH:!aNULL"
@@ -95,6 +93,7 @@ struct tls_config {
 	int ocsp_require_stapling;
 	uint32_t protocols;
 	unsigned char session_id[TLS_MAX_SESSION_ID_LENGTH];
+	int session_fd;
 	int session_lifetime;
 	struct tls_ticket_key ticket_keys[TLS_NUM_TICKETS];
 	uint32_t ticket_keyrev;
@@ -111,6 +110,7 @@ struct tls_conninfo {
 	char *alpn;
 	char *cipher;
 	char *servername;
+	int session_resumed;
 	char *version;
 
 	char *hash;
@@ -157,12 +157,16 @@ struct tls_ocsp {
 struct tls_sni_ctx {
 	struct tls_sni_ctx *next;
 
+	struct tls_keypair *keypair;
+
 	SSL_CTX *ssl_ctx;
 	X509 *ssl_cert;
 };
 
 struct tls {
 	struct tls_config *config;
+	struct tls_keypair *keypair;
+
 	struct tls_error error;
 
 	uint32_t flags;
@@ -188,8 +192,32 @@ struct tls {
 	void *cb_arg;
 };
 
+int tls_set_mem(char **_dest, size_t *_destlen, const void *_src,
+    size_t _srclen);
+int tls_set_string(const char **_dest, const char *_src);
+
+struct tls_keypair *tls_keypair_new(void);
+void tls_keypair_clear_key(struct tls_keypair *_keypair);
+void tls_keypair_free(struct tls_keypair *_keypair);
+int tls_keypair_set_cert_file(struct tls_keypair *_keypair,
+    struct tls_error *_error, const char *_cert_file);
+int tls_keypair_set_cert_mem(struct tls_keypair *_keypair,
+    struct tls_error *_error, const uint8_t *_cert, size_t _len);
+int tls_keypair_set_key_file(struct tls_keypair *_keypair,
+    struct tls_error *_error, const char *_key_file);
+int tls_keypair_set_key_mem(struct tls_keypair *_keypair,
+    struct tls_error *_error, const uint8_t *_key, size_t _len);
+int tls_keypair_set_ocsp_staple_file(struct tls_keypair *_keypair,
+    struct tls_error *_error, const char *_ocsp_file);
+int tls_keypair_set_ocsp_staple_mem(struct tls_keypair *_keypair,
+    struct tls_error *_error, const uint8_t *_staple, size_t _len);
+int tls_keypair_load_cert(struct tls_keypair *_keypair,
+    struct tls_error *_error, X509 **_cert);
+
 struct tls_sni_ctx *tls_sni_ctx_new(void);
 void tls_sni_ctx_free(struct tls_sni_ctx *sni_ctx);
+
+struct tls_config *tls_config_new_internal(void);
 
 struct tls *tls_new(void);
 struct tls *tls_server_conn(struct tls *ctx);
@@ -250,6 +278,7 @@ struct tls_ocsp *tls_ocsp_setup_from_peer(struct tls *ctx);
 int tls_hex_string(const unsigned char *_in, size_t _inlen, char **_out,
     size_t *_outlen);
 int tls_cert_hash(X509 *_cert, char **_hash);
+int tls_cert_pubkey_hash(X509 *_cert, char **_hash);
 
 int tls_password_cb(char *_buf, int _size, int _rwflag, void *_u);
 

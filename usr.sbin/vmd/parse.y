@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.29 2017/05/04 08:26:06 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.49 2018/11/21 12:31:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -39,11 +39,13 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <string.h>
+#include <unistd.h>
 #include <ctype.h>
 #include <netdb.h>
 #include <util.h>
 #include <errno.h>
 #include <err.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <grp.h>
 
@@ -55,6 +57,10 @@ static struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
+	size_t			 ungetpos;
+	size_t			 ungetsize;
+	u_char			*ungetbuf;
+	int			 eof_reached;
 	int			 lineno;
 	int			 errors;
 } *file, *topfile;
@@ -67,8 +73,9 @@ int		 yyerror(const char *, ...)
     __attribute__((__nonnull__ (1)));
 int		 kw_cmp(const void *, const void *);
 int		 lookup(char *);
+int		 igetc(void);
 int		 lgetc(int);
-int		 lungetc(int);
+void		 lungetc(int);
 int		 findeol(void);
 
 TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
@@ -83,14 +90,12 @@ int		 symset(const char *, const char *, int);
 char		*symget(const char *);
 
 ssize_t		 parse_size(char *, int64_t);
-int		 parse_disk(char *);
+int		 parse_disk(char *, int);
+unsigned int	 parse_format(const char *);
 
 static struct vmop_create_params vmc;
 static struct vm_create_params	*vcp;
 static struct vmd_switch	*vsw;
-static struct vmd_if		*vif;
-static struct vmd_vm		*vm;
-static unsigned int		 vsw_unit;
 static char			 vsw_type[IF_NAMESIZE];
 static int			 vcp_disable;
 static size_t			 vcp_nnics;
@@ -115,18 +120,21 @@ typedef struct {
 
 
 %token	INCLUDE ERROR
-%token	ADD BOOT DISABLE DISK DOWN ENABLE GROUP INTERFACE LLADDR LOCAL LOCKED
-%token	MEMORY NIFS OWNER PATH PREFIX RDOMAIN SIZE SWITCH UP VM VMID
+%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE FORMAT GROUP INET6
+%token	INSTANCE INTERFACE LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX
+%token	RDOMAIN SIZE SOCKET SWITCH UP VM VMID
 %token	<v.number>	NUMBER
 %token	<v.string>	STRING
 %type	<v.lladdr>	lladdr
 %type	<v.number>	disable
+%type	<v.number>	image_format
 %type	<v.number>	local
 %type	<v.number>	locked
 %type	<v.number>	updown
 %type	<v.owner>	owner_id
 %type	<v.string>	optstring
 %type	<v.string>	string
+%type	<v.string>	vm_instance
 
 %%
 
@@ -161,6 +169,8 @@ varset		: STRING '=' STRING		{
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -171,10 +181,27 @@ varset		: STRING '=' STRING		{
 		}
 		;
 
-main		: LOCAL PREFIX STRING {
+main		: LOCAL INET6 {
+			env->vmd_cfg.cfg_flags |= VMD_CFG_INET6;
+		}
+		| LOCAL INET6 PREFIX STRING {
 			struct address	 h;
 
-			/* The local prefix is IPv4-only */
+			if (host($4, &h) == -1 ||
+			    h.ss.ss_family != AF_INET6 ||
+			    h.prefixlen > 64 || h.prefixlen < 0) {
+				yyerror("invalid local inet6 prefix: %s", $4);
+				free($4);
+				YYERROR;
+			}
+
+			env->vmd_cfg.cfg_flags |= VMD_CFG_INET6;
+			env->vmd_cfg.cfg_flags &= ~VMD_CFG_AUTOINET6;
+			memcpy(&env->vmd_cfg.cfg_localprefix6, &h, sizeof(h));
+		}
+		| LOCAL PREFIX STRING {
+			struct address	 h;
+
 			if (host($3, &h) == -1 ||
 			    h.ss.ss_family != AF_INET ||
 			    h.prefixlen > 32 || h.prefixlen < 0) {
@@ -185,6 +212,10 @@ main		: LOCAL PREFIX STRING {
 
 			memcpy(&env->vmd_cfg.cfg_localprefix, &h, sizeof(h));
 		}
+		| SOCKET OWNER owner_id {
+			env->vmd_ps.ps_csock.cs_uid = $3.uid;
+			env->vmd_ps.ps_csock.cs_gid = $3.gid == -1 ? 0 : $3.gid;
+		}
 		;
 
 switch		: SWITCH string			{
@@ -194,18 +225,24 @@ switch		: SWITCH string			{
 			vsw->sw_id = env->vmd_nswitches + 1;
 			vsw->sw_name = $2;
 			vsw->sw_flags = VMIFF_UP;
-			snprintf(vsw->sw_ifname, sizeof(vsw->sw_ifname),
-			    "%s%u", vsw_type, vsw_unit++);
-			TAILQ_INIT(&vsw->sw_ifs);
 
 			vcp_disable = 0;
 		} '{' optnl switch_opts_l '}'	{
+			if (strnlen(vsw->sw_ifname,
+			    sizeof(vsw->sw_ifname)) == 0) {
+				yyerror("switch \"%s\" "
+				    "is missing interface name",
+				    vsw->sw_name);
+				YYERROR;
+			}
+
 			if (vcp_disable) {
 				log_debug("%s:%d: switch \"%s\""
 				    " skipped (disabled)",
 				    file->name, yylval.lineno, vsw->sw_name);
 			} else if (!env->vmd_noaction) {
-				TAILQ_INSERT_TAIL(env->vmd_switches, vsw, sw_entry);
+				TAILQ_INSERT_TAIL(env->vmd_switches,
+				    vsw, sw_entry);
 				env->vmd_nswitches++;
 				log_debug("%s:%d: switch \"%s\" registered",
 				    file->name, yylval.lineno, vsw->sw_name);
@@ -220,21 +257,6 @@ switch_opts_l	: switch_opts_l switch_opts nl
 switch_opts	: disable			{
 			vcp_disable = $1;
 		}
-		| ADD string			{
-			char		type[IF_NAMESIZE];
-
-			if ((vif = calloc(1, sizeof(*vif))) == NULL)
-				fatal("could not allocate interface");
-
-			if (priv_getiftype($2, type, NULL) == -1) {
-				yyerror("invalid interface: %s", $2);
-				free($2);
-				YYERROR;
-			}
-			vif->vif_name = $2;
-
-			TAILQ_INSERT_TAIL(&vsw->sw_ifs, vif, vif_entry);
-		}
 		| GROUP string			{
 			if (priv_validgroup($2) == -1) {
 				yyerror("invalid group name: %s", $2);
@@ -244,13 +266,12 @@ switch_opts	: disable			{
 			vsw->sw_group = $2;
 		}
 		| INTERFACE string		{
-			if (priv_getiftype($2, vsw_type, &vsw_unit) == -1 ||
+			if (priv_getiftype($2, vsw_type, NULL) == -1 ||
 			    priv_findname(vsw_type, vmd_descsw) == -1) {
 				yyerror("invalid switch interface: %s", $2);
 				free($2);
 				YYERROR;
 			}
-			vsw_unit++;
 
 			if (strlcpy(vsw->sw_ifname, $2,
 			    sizeof(vsw->sw_ifname)) >= sizeof(vsw->sw_ifname)) {
@@ -279,30 +300,51 @@ switch_opts	: disable			{
 		}
 		;
 
-vm		: VM string			{
+vm		: VM string vm_instance		{
 			unsigned int	 i;
+			char		*name;
 
 			memset(&vmc, 0, sizeof(vmc));
 			vcp = &vmc.vmc_params;
 			vcp_disable = 0;
 			vcp_nnics = 0;
 
+			if ($3 != NULL) {
+				/* This is an instance of a pre-configured VM */
+				if (strlcpy(vmc.vmc_instance, $2,
+				    sizeof(vmc.vmc_instance)) >=
+				    sizeof(vmc.vmc_instance)) {
+					yyerror("vm %s name too long", $2);
+					free($2);
+					free($3);
+					YYERROR;
+				}
+				
+				free($2);
+				name = $3;
+				vmc.vmc_flags |= VMOP_CREATE_INSTANCE;
+			} else
+				name = $2;
+
 			for (i = 0; i < VMM_MAX_NICS_PER_VM; i++) {
 				/* Set the interface to UP by default */
 				vmc.vmc_ifflags[i] |= IFF_UP;
 			}
 
-			if (strlcpy(vcp->vcp_name, $2, sizeof(vcp->vcp_name)) >=
-			    sizeof(vcp->vcp_name)) {
+			if (strlcpy(vcp->vcp_name, name,
+			    sizeof(vcp->vcp_name)) >= sizeof(vcp->vcp_name)) {
 				yyerror("vm name too long");
+				free($2);
+				free($3);
 				YYERROR;
 			}
 
 			/* set default user/group permissions */
-			vmc.vmc_uid = 0;
-			vmc.vmc_gid = -1;
+			vmc.vmc_owner.uid = 0;
+			vmc.vmc_owner.gid = -1;
 		} '{' optnl vm_opts_l '}'	{
-			int ret;
+			struct vmd_vm	*vm;
+			int		 ret;
 
 			/* configured interfaces vs. number of interfaces */
 			if (vcp_nnics > vcp->vcp_nnics)
@@ -318,21 +360,26 @@ vm		: VM string			{
 					    vcp->vcp_name, vm->vm_running ?
 					    "running" : "already exists");
 				} else if (ret == -1) {
-					log_warn("%s:%d: vm \"%s\" failed",
-					    file->name, yylval.lineno,
-					    vcp->vcp_name);
+					yyerror("vm \"%s\" failed: %s",
+					    vcp->vcp_name, strerror(errno));
 					YYERROR;
 				} else {
 					if (vcp_disable)
 						vm->vm_disabled = 1;
-					log_debug("%s:%d: vm \"%s\" registered (%s)",
+					log_debug("%s:%d: vm \"%s\" "
+					    "registered (%s)",
 					    file->name, yylval.lineno,
 					    vcp->vcp_name,
-					    vcp_disable ? "disabled" : "enabled");
+					    vcp_disable ?
+					    "disabled" : "enabled");
 				}
 				vm->vm_from_config = 1;
 			}
 		}
+		;
+
+vm_instance	: /* empty */			{ $$ = NULL; }
+		| INSTANCE string		{ $$ = $2; }
 		;
 
 vm_opts_l	: vm_opts_l vm_opts nl
@@ -342,8 +389,8 @@ vm_opts_l	: vm_opts_l vm_opts nl
 vm_opts		: disable			{
 			vcp_disable = $1;
 		}
-		| DISK string			{
-			if (parse_disk($2) != 0) {
+		| DISK string image_format	{
+			if (parse_disk($2, $3) != 0) {
 				yyerror("failed to parse disks: %s", $2);
 				free($2);
 				YYERROR;
@@ -386,21 +433,45 @@ vm_opts		: disable			{
 			vmc.vmc_flags |= VMOP_CREATE_NETWORK;
 		}
 		| BOOT string			{
+			char	 path[PATH_MAX];
+
 			if (vcp->vcp_kernel[0] != '\0') {
 				yyerror("kernel specified more than once");
 				free($2);
 				YYERROR;
 
 			}
-			if (strlcpy(vcp->vcp_kernel, $2,
-			    sizeof(vcp->vcp_kernel)) >=
-			    sizeof(vcp->vcp_kernel)) {
-				yyerror("kernel name too long");
+			if (realpath($2, path) == NULL) {
+				yyerror("kernel path not found: %s",
+				    strerror(errno));
 				free($2);
 				YYERROR;
 			}
 			free($2);
+			if (strlcpy(vcp->vcp_kernel, path,
+			    sizeof(vcp->vcp_kernel)) >=
+			    sizeof(vcp->vcp_kernel)) {
+				yyerror("kernel name too long");
+				YYERROR;
+			}
 			vmc.vmc_flags |= VMOP_CREATE_KERNEL;
+		}
+		| CDROM string			{
+			if (vcp->vcp_cdrom[0] != '\0') {
+				yyerror("cdrom specified more than once");
+				free($2);
+				YYERROR;
+
+			}
+			if (strlcpy(vcp->vcp_cdrom, $2,
+			    sizeof(vcp->vcp_cdrom)) >=
+			    sizeof(vcp->vcp_cdrom)) {
+				yyerror("cdrom name too long");
+				free($2);
+				YYERROR;
+			}
+			free($2);
+			vmc.vmc_flags |= VMOP_CREATE_CDROM;
 		}
 		| NIFS NUMBER			{
 			if (vcp->vcp_nnics != 0) {
@@ -443,8 +514,29 @@ vm_opts		: disable			{
 			vmc.vmc_flags |= VMOP_CREATE_MEMORY;
 		}
 		| OWNER owner_id		{
-			vmc.vmc_uid = $2.uid;
-			vmc.vmc_gid = $2.gid;
+			vmc.vmc_owner.uid = $2.uid;
+			vmc.vmc_owner.gid = $2.gid;
+		}
+		| instance
+		;
+
+instance	: ALLOW INSTANCE '{' optnl instance_l '}'
+		| ALLOW INSTANCE instance_flags
+		;
+
+instance_l	: instance_flags optcommanl instance_l
+		| instance_flags optnl
+		;
+
+instance_flags	: BOOT		{ vmc.vmc_insflags |= VMOP_CREATE_KERNEL; }
+		| MEMORY	{ vmc.vmc_insflags |= VMOP_CREATE_MEMORY; }
+		| INTERFACE	{ vmc.vmc_insflags |= VMOP_CREATE_NETWORK; }
+		| DISK		{ vmc.vmc_insflags |= VMOP_CREATE_DISK; }
+		| CDROM		{ vmc.vmc_insflags |= VMOP_CREATE_CDROM; }
+		| INSTANCE	{ vmc.vmc_insflags |= VMOP_CREATE_INSTANCE; }
+		| OWNER owner_id {
+			vmc.vmc_insowner.uid = $2.uid;
+			vmc.vmc_insowner.gid = $2.gid;
 		}
 		;
 
@@ -492,6 +584,18 @@ owner_id	: /* none */		{
 			}
 
 			free($1);
+		}
+		;
+
+image_format	: /* none 	*/	{
+			$$ = 0;
+		}
+	     	| FORMAT string		{
+			if (($$ = parse_format($2)) == 0) {
+				yyerror("unrecognized disk format %s", $2);
+				free($2);
+				YYERROR;
+			}
 		}
 		;
 
@@ -607,6 +711,10 @@ optnl		: '\n' optnl
 		|
 		;
 
+optcommanl	: ',' optnl
+		| nl
+		;
+
 nl		: '\n' optnl
 		;
 
@@ -645,14 +753,19 @@ lookup(char *s)
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
 		{ "add",		ADD },
+		{ "allow",		ALLOW },
 		{ "boot",		BOOT },
+		{ "cdrom",		CDROM },
 		{ "disable",		DISABLE },
 		{ "disk",		DISK },
 		{ "down",		DOWN },
 		{ "enable",		ENABLE },
+		{ "format",		FORMAT },
 		{ "group",		GROUP },
 		{ "id",			VMID },
 		{ "include",		INCLUDE },
+		{ "inet6",		INET6 },
+		{ "instance",		INSTANCE },
 		{ "interface",		INTERFACE },
 		{ "interfaces",		NIFS },
 		{ "lladdr",		LLADDR },
@@ -663,6 +776,7 @@ lookup(char *s)
 		{ "prefix",		PREFIX },
 		{ "rdomain",		RDOMAIN },
 		{ "size",		SIZE },
+		{ "socket",		SOCKET },
 		{ "switch",		SWITCH },
 		{ "up",			UP },
 		{ "vm",			VM }
@@ -678,34 +792,39 @@ lookup(char *s)
 		return (STRING);
 }
 
-#define MAXPUSHBACK	128
+#define START_EXPAND	1
+#define DONE_EXPAND	2
 
-u_char	*parsebuf;
-int	 parseindex;
-u_char	 pushback_buffer[MAXPUSHBACK];
-int	 pushback_index = 0;
+static int	expanding;
+
+int
+igetc(void)
+{
+	int	c;
+
+	while (1) {
+		if (file->ungetpos > 0)
+			c = file->ungetbuf[--file->ungetpos];
+		else
+			c = getc(file->stream);
+
+		if (c == START_EXPAND)
+			expanding = 1;
+		else if (c == DONE_EXPAND)
+			expanding = 0;
+		else
+			break;
+	}
+	return (c);
+}
 
 int
 lgetc(int quotec)
 {
 	int		c, next;
 
-	if (parsebuf) {
-		/* Read character from the parsebuffer instead of input. */
-		if (parseindex >= 0) {
-			c = parsebuf[parseindex++];
-			if (c != '\0')
-				return (c);
-			parsebuf = NULL;
-		} else
-			parseindex++;
-	}
-
-	if (pushback_index)
-		return (pushback_buffer[--pushback_index]);
-
 	if (quotec) {
-		if ((c = getc(file->stream)) == EOF) {
+		if ((c = igetc()) == EOF) {
 			yyerror("reached end of file while parsing "
 			    "quoted string");
 			if (file == topfile || popfile() == EOF)
@@ -715,8 +834,8 @@ lgetc(int quotec)
 		return (c);
 	}
 
-	while ((c = getc(file->stream)) == '\\') {
-		next = getc(file->stream);
+	while ((c = igetc()) == '\\') {
+		next = igetc();
 		if (next != '\n') {
 			c = next;
 			break;
@@ -733,28 +852,39 @@ lgetc(int quotec)
 		c = ' ';
 	}
 
-	while (c == EOF) {
-		if (file == topfile || popfile() == EOF)
-			return (EOF);
-		c = getc(file->stream);
+	if (c == EOF) {
+		/*
+		 * Fake EOL when hit EOF for the first time. This gets line
+		 * count right if last line in included file is syntactically
+		 * invalid and has no newline.
+		 */
+		if (file->eof_reached == 0) {
+			file->eof_reached = 1;
+			return ('\n');
+		}
+		while (c == EOF) {
+			if (file == topfile || popfile() == EOF)
+				return (EOF);
+			c = igetc();
+		}
 	}
 	return (c);
 }
 
-int
+void
 lungetc(int c)
 {
 	if (c == EOF)
-		return (EOF);
-	if (parsebuf) {
-		parseindex--;
-		if (parseindex >= 0)
-			return (c);
+		return;
+
+	if (file->ungetpos >= file->ungetsize) {
+		void *p = reallocarray(file->ungetbuf, file->ungetsize, 2);
+		if (p == NULL)
+			err(1, "%s", __func__);
+		file->ungetbuf = p;
+		file->ungetsize *= 2;
 	}
-	if (pushback_index < MAXPUSHBACK-1)
-		return (pushback_buffer[pushback_index++] = c);
-	else
-		return (EOF);
+	file->ungetbuf[file->ungetpos++] = c;
 }
 
 int
@@ -762,14 +892,9 @@ findeol(void)
 {
 	int	c;
 
-	parsebuf = NULL;
-
 	/* skip to either EOF or the first real EOL */
 	while (1) {
-		if (pushback_index)
-			c = pushback_buffer[--pushback_index];
-		else
-			c = lgetc(0);
+		c = lgetc(0);
 		if (c == '\n') {
 			file->lineno++;
 			break;
@@ -797,7 +922,7 @@ top:
 	if (c == '#')
 		while ((c = lgetc(0)) != '\n' && c != EOF)
 			; /* nothing */
-	if (c == '$' && parsebuf == NULL) {
+	if (c == '$' && !expanding) {
 		while (1) {
 			if ((c = lgetc(0)) == EOF)
 				return (0);
@@ -819,8 +944,13 @@ top:
 			yyerror("macro '%s' not defined", buf);
 			return (findeol());
 		}
-		parsebuf = val;
-		parseindex = 0;
+		p = val + strlen(val) - 1;
+		lungetc(DONE_EXPAND);
+		while (p >= val) {
+			lungetc(*p);
+			p--;
+		}
+		lungetc(START_EXPAND);
 		goto top;
 	}
 
@@ -837,7 +967,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -935,11 +1066,11 @@ pushfile(const char *name, int secret)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		free(nfile);
 		return (NULL);
 	}
@@ -948,7 +1079,16 @@ pushfile(const char *name, int secret)
 		free(nfile);
 		return (NULL);
 	}
-	nfile->lineno = 1;
+	nfile->lineno = TAILQ_EMPTY(&files) ? 1 : 0;
+	nfile->ungetsize = 16;
+	nfile->ungetbuf = malloc(nfile->ungetsize);
+	if (nfile->ungetbuf == NULL) {
+		log_warn("%s", __func__);
+		fclose(nfile->stream);
+		free(nfile->name);
+		free(nfile);
+		return (NULL);
+	}
 	TAILQ_INSERT_TAIL(&files, nfile, entry);
 	return (nfile);
 }
@@ -964,6 +1104,7 @@ popfile(void)
 	TAILQ_REMOVE(&files, file, entry);
 	fclose(file->stream);
 	free(file->name);
+	free(file->ungetbuf);
 	free(file);
 	file = prev;
 	return (file ? 0 : EOF);
@@ -1056,17 +1197,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = (val - s) + 1;
-	if ((sym = malloc(len)) == NULL)
-		fatal("cmdline_symset: malloc");
-
-	(void)strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		fatal("%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -1114,21 +1250,58 @@ parse_size(char *word, int64_t val)
 }
 
 int
-parse_disk(char *word)
+parse_disk(char *word, int type)
 {
+	char	 buf[BUFSIZ], path[PATH_MAX];
+	int	 fd;
+	ssize_t	 len;
+
 	if (vcp->vcp_ndisks >= VMM_MAX_DISKS_PER_VM) {
 		log_warnx("too many disks");
 		return (-1);
 	}
 
-	if (strlcpy(vcp->vcp_disks[vcp->vcp_ndisks], word,
+	if (realpath(word, path) == NULL) {
+		log_warn("disk %s", word);
+		return (-1);
+	}
+
+	if (!type) {
+		/* Use raw as the default format */
+		type = VMDF_RAW;
+
+		/* Try to derive the format from the file signature */
+		if ((fd = open(path, O_RDONLY)) != -1) {
+			len = read(fd, buf, sizeof(buf));
+			close(fd);
+			if (len >= (ssize_t)strlen(VM_MAGIC_QCOW) &&
+			    strncmp(buf, VM_MAGIC_QCOW,
+			    strlen(VM_MAGIC_QCOW)) == 0) {
+				/* The qcow version will be checked later */
+				type = VMDF_QCOW2;
+			}
+		}
+	}
+
+	if (strlcpy(vcp->vcp_disks[vcp->vcp_ndisks], path,
 	    VMM_MAX_PATH_DISK) >= VMM_MAX_PATH_DISK) {
 		log_warnx("disk path too long");
 		return (-1);
 	}
+	vmc.vmc_disktypes[vcp->vcp_ndisks] = type;
 
 	vcp->vcp_ndisks++;
 
+	return (0);
+}
+
+unsigned int
+parse_format(const char *word)
+{
+	if (strcasecmp(word, "raw") == 0)
+		return (VMDF_RAW);
+	else if (strcasecmp(word, "qcow2") == 0)
+		return (VMDF_QCOW2);
 	return (0);
 }
 
@@ -1141,7 +1314,7 @@ host(const char *str, struct address *h)
 	const char		*errstr;
 
 	if ((s = strdup(str)) == NULL) {
-		log_warn("strdup");
+		log_warn("%s", __func__);
 		goto fail;
 	}
 

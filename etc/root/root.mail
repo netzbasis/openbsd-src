@@ -1,9 +1,9 @@
-From deraadt@do-not-reply.openbsd.org Sun Oct 15 06:20:00 MDT 2017
+From deraadt@do-not-reply.openbsd.org Sun Nov  1 06:30:00 MDT 2018
 Return-Path: root
-Date: Oct 15 06:20:00 MDT 2017
+Date: Nov 1 06:30:00 MDT 2018
 From: deraadt@do-not-reply.openbsd.org (Theo de Raadt)
 To: root
-Subject: Welcome to OpenBSD 6.2!
+Subject: Welcome to OpenBSD 6.4!
 
 This message attempts to describe the most basic initial questions that a
 system administrator of an OpenBSD box might have.  You are urged to save
@@ -27,11 +27,11 @@ find further information regarding configuration in the file /usr/X11R6/README.
 
 Several popular binary packages (pre-compiled applications) are
 available from mirror sites.  Mirror selection is usually automatic
-during install/upgrade -- a mirror URLs from https://www.openbsd.org/ftp.html
+during install/upgrade -- a mirror URL from https://www.openbsd.org/ftp.html
 is stored into the file /etc/installurl.  Installation of packages is
 as simple as:
 
- # pkg_add -v rsync chromium emacs-25.1p3-no_x11
+ # pkg_add -v rsync chromium emacs-25.2-no_x11
 
 Significant efforts were made to centralize all system configuration in the
 /etc directory.  You should be able to find each of the configuration files

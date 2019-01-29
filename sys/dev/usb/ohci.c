@@ -1,4 +1,4 @@
-/*	$OpenBSD: ohci.c,v 1.152 2017/06/01 09:47:55 mpi Exp $ */
+/*	$OpenBSD: ohci.c,v 1.155 2019/01/07 03:41:06 dlg Exp $ */
 /*	$NetBSD: ohci.c,v 1.139 2003/02/22 05:24:16 tsutsui Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/ohci.c,v 1.22 1999/11/17 22:33:40 n_hibma Exp $	*/
 
@@ -656,9 +656,8 @@ ohci_checkrev(struct ohci_softc *sc)
 {
 	u_int32_t rev;
 
-	printf(",");
 	rev = OREAD4(sc, OHCI_REVISION);
-	printf(" version %d.%d%s\n", OHCI_REV_HI(rev), OHCI_REV_LO(rev),
+	printf("version %d.%d%s\n", OHCI_REV_HI(rev), OHCI_REV_LO(rev),
 	       OHCI_REV_LEGACY(rev) ? ", legacy support" : "");
 
 	if (OHCI_REV_HI(rev) != 1 || OHCI_REV_LO(rev) != 0) {
@@ -1276,13 +1275,15 @@ ohci_softintr(void *v)
 
 		cc = OHCI_TD_GET_CC(letoh32(std->td.td_flags));
 		if (cc == OHCI_CC_NO_ERROR) {
-			if (std->flags & OHCI_CALL_DONE) {
+			int done = (std->flags & OHCI_CALL_DONE);
+
+			ohci_free_std(sc, std);
+			if (done) {
 				xfer->status = USBD_NORMAL_COMPLETION;
 				s = splusb();
 				usb_transfer_complete(xfer);
 				splx(s);
 			}
-			ohci_free_std(sc, std);
 		} else {
 			/*
 			 * Endpoint is halted.  First unlink all the TDs
@@ -1429,7 +1430,7 @@ ohci_device_intr_done(struct usbd_xfer *xfer)
 
 	if (xfer->pipe->repeat) {
 		data = opipe->tail.td;
-		tail = ohci_alloc_std(sc); /* XXX should reuse TD */
+		tail = ohci_alloc_std(sc);
 		if (tail == NULL) {
 			xfer->status = USBD_NOMEM;
 			return;
@@ -2027,9 +2028,6 @@ ohci_close_pipe(struct usbd_pipe *pipe, struct ohci_soft_ed *head)
 		       (int)letoh32(sed->ed.ed_headp),
 		       (int)letoh32(sed->ed.ed_tailp),
 		       pipe, std);
-#ifdef USB_DEBUG
-		usbd_dump_pipe(pipe);
-#endif
 #ifdef OHCI_DEBUG
 		ohci_dump_ed(sed);
 		if (std)

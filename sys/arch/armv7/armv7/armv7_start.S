@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_start.S,v 1.14 2017/06/14 13:12:49 patrick Exp $	*/
+/*	$OpenBSD: armv7_start.S,v 1.16 2018/08/06 18:39:13 kettenis Exp $	*/
 /*	$NetBSD: lubbock_start.S,v 1.1 2003/06/18 10:51:15 bsh Exp $ */
 
 /*
@@ -30,15 +30,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "assym.h"
+
 #include <machine/asm.h>
 #include <arm/sysreg.h>
 #include <arm/armreg.h>
 #include <arm/pte.h>
 
-#undef	DOMAIN_CLIENT	/* XXX */
-#include "assym.h"
-
+#ifdef __clang__
+.arch_extension sec
+.arch_extension virt
+#define HVC	hvc	#0
+#else
 #define HVC	.word	0xe1400070		@ hvc
+#endif
 
 	.text
 

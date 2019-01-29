@@ -1,15 +1,17 @@
-#	$OpenBSD: Makefile,v 1.7 2017/07/10 14:09:59 espie Exp $
+#	$OpenBSD: Makefile,v 1.13 2018/07/25 17:12:35 deraadt Exp $
 
 .PATH:		${.CURDIR}/..
 
+SRCS=	ssh-keyscan.c
+SRCS+=	atomicio.c cleanup.c compat.c hostfile.c ssh_api.c dns.c
+SRCS+=	${SRCS_BASE} ${SRCS_KEX} ${SRCS_KEXC} ${SRCS_KEXS} ${SRCS_KEY} \
+	${SRCS_PKT} ${SRCS_UTL}
 PROG=	ssh-keyscan
-BINOWN=	root
-
-BINMODE?=555
 
 BINDIR=	/usr/bin
 
 .include <bsd.prog.mk>
 
-LDADD+= -lcrypto -lz
-DPADD+= ${LIBCRYPTO} ${LIBZ}
+LDADD+= -lcrypto -lz -lutil
+DPADD+= ${LIBCRYPTO} ${LIBZ} ${LIBUTIL}
+

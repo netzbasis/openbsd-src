@@ -1,4 +1,4 @@
-/*	$OpenBSD: printjob.c,v 1.58 2016/11/22 16:03:57 millert Exp $	*/
+/*	$OpenBSD: printjob.c,v 1.60 2018/04/26 12:42:51 guenther Exp $	*/
 /*	$NetBSD: printjob.c,v 1.31 2002/01/21 14:42:30 wiz Exp $	*/
 
 /*
@@ -38,10 +38,9 @@
  *	it does not need to be removed because file locks are dynamic.
  */
 
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/file.h>
 
 #include <pwd.h>
 #include <unistd.h>
@@ -417,15 +416,13 @@ printit(char *file)
 
 		case 'S':
 			cp = line+1;
-			i = 0;
+			fdev = 0;
 			while (*cp >= '0' && *cp <= '9')
-				i = i * 10 + (*cp++ - '0');
-			fdev = i;
+				fdev = fdev * 10 + (*cp++ - '0');
 			cp++;
-			i = 0;
+			fino = 0;
 			while (*cp >= '0' && *cp <= '9')
-				i = i * 10 + (*cp++ - '0');
-			fino = i;
+				fino = fino * 10 + (*cp++ - '0');
 			continue;
 
 		case 'J':
@@ -826,15 +823,13 @@ sendit(char *file)
 	again:
 		if (line[0] == 'S') {
 			cp = line+1;
-			i = 0;
+			fdev = 0;
 			while (*cp >= '0' && *cp <= '9')
-				i = i * 10 + (*cp++ - '0');
-			fdev = i;
+				fdev = fdev * 10 + (*cp++ - '0');
 			cp++;
-			i = 0;
+			fino = 0;
 			while (*cp >= '0' && *cp <= '9')
-				i = i * 10 + (*cp++ - '0');
-			fino = i;
+				fino = fino * 10 + (*cp++ - '0');
 			continue;
 		}
 		if (line[0] >= 'a' && line[0] <= 'z') {

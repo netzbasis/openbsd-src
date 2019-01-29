@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.181 2017/06/13 01:42:12 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.184 2018/07/10 04:19:59 guenther Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -442,8 +442,7 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
  * Send a signal to process.
  */
 void
-sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
-    union sigval val)
+sendsig(sig_t catcher, int sig, sigset_t mask, const siginfo_t *ksip)
 {
 	struct proc *p = curproc;
 	struct trapframe *tf;
@@ -461,8 +460,8 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	if ((p->p_sigstk.ss_flags & SS_DISABLE) == 0 &&
 	    !sigonstack(tf->fixreg[1]) &&
 	    (psp->ps_sigonstack & sigmask(sig)))
-		fp = (struct sigframe *)(p->p_sigstk.ss_sp
-					 + p->p_sigstk.ss_size);
+		fp = (struct sigframe *)
+		    trunc_page((vaddr_t)p->p_sigstk.ss_sp + p->p_sigstk.ss_size);
 	else
 		fp = (struct sigframe *)tf->fixreg[1];
 
@@ -476,7 +475,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	bcopy(tf, &frame.sf_sc.sc_frame, sizeof *tf);
 	if (psp->ps_siginfo & sigmask(sig)) {
 		frame.sf_sip = &fp->sf_si;
-		initsiginfo(&frame.sf_si, sig, code, type, val);
+		frame.sf_si = *ksip;
 	}
 	frame.sf_sc.sc_cookie = (long)&fp->sf_sc ^ p->p_p->ps_sigcookie;
 	if (copyout(&frame, fp, sizeof frame) != 0)
@@ -743,7 +742,7 @@ boot(int howto)
 	boothowto = howto;
 	if ((howto & RB_NOSYNC) == 0 && !syncing) {
 		syncing = 1;
-		vfs_shutdown();
+		vfs_shutdown(curproc);
 
 		if ((howto & RB_TIMEBAD) == 0) {
 			resettodr();

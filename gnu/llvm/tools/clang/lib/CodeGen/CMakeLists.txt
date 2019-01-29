@@ -7,6 +7,7 @@ set(LLVM_LINK_COMPONENTS
   Coverage
   IPO
   IRReader
+  AggressiveInstCombine
   InstCombine
   Instrumentation
   LTO
@@ -31,12 +32,15 @@ if (CLANG_BUILT_STANDALONE)
   set(codegen_deps)
 endif()
 
+if (MSVC)
+  set_source_files_properties(CodeGenModule.cpp PROPERTIES COMPILE_FLAGS /bigobj)
+endif()
+
 add_clang_library(clangCodeGen
   BackendUtil.cpp
   CGAtomic.cpp
   CGBlocks.cpp
   CGBuiltin.cpp
-  CGCUDABuiltin.cpp
   CGCUDANV.cpp
   CGCUDARuntime.cpp
   CGCXX.cpp
@@ -55,7 +59,9 @@ add_clang_library(clangCodeGen
   CGExprComplex.cpp
   CGExprConstant.cpp
   CGExprScalar.cpp
+  CGGPUBuiltin.cpp
   CGLoopInfo.cpp
+  CGNonTrivialStruct.cpp
   CGObjC.cpp
   CGObjCGNU.cpp
   CGObjCMac.cpp
@@ -75,8 +81,10 @@ add_clang_library(clangCodeGen
   CodeGenPGO.cpp
   CodeGenTBAA.cpp
   CodeGenTypes.cpp
+  ConstantInitBuilder.cpp
   CoverageMappingGen.cpp
   ItaniumCXXABI.cpp
+  MacroPPCallbacks.cpp
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
   ObjectFilePCHContainerOperations.cpp
@@ -91,7 +99,6 @@ add_clang_library(clangCodeGen
   LINK_LIBS
   clangAnalysis
   clangAST
-  clangAnalysis
   clangBasic
   clangFrontend
   clangLex

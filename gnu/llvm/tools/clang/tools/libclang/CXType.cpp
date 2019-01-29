@@ -21,6 +21,7 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/Type.h"
+#include "clang/Basic/AddressSpaces.h"
 #include "clang/Frontend/ASTUnit.h"
 
 using namespace clang;
@@ -48,9 +49,17 @@ static CXTypeKind GetBuiltinTypeKind(const BuiltinType *BT) {
     BTCASE(Long);
     BTCASE(LongLong);
     BTCASE(Int128);
+    BTCASE(Half);
     BTCASE(Float);
     BTCASE(Double);
     BTCASE(LongDouble);
+    BTCASE(ShortAccum);
+    BTCASE(Accum);
+    BTCASE(LongAccum);
+    BTCASE(UShortAccum);
+    BTCASE(UAccum);
+    BTCASE(ULongAccum);
+    BTCASE(Float16);
     BTCASE(Float128);
     BTCASE(NullPtr);
     BTCASE(Overload);
@@ -58,6 +67,13 @@ static CXTypeKind GetBuiltinTypeKind(const BuiltinType *BT) {
     BTCASE(ObjCId);
     BTCASE(ObjCClass);
     BTCASE(ObjCSel);
+#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) BTCASE(Id);
+#include "clang/Basic/OpenCLImageTypes.def"
+#undef IMAGE_TYPE
+    BTCASE(OCLSampler);
+    BTCASE(OCLEvent);
+    BTCASE(OCLQueue);
+    BTCASE(OCLReserveID);
   default:
     return CXType_Unexposed;
   }
@@ -93,6 +109,7 @@ static CXTypeKind GetTypeKind(QualType T) {
     TKCASE(MemberPointer);
     TKCASE(Auto);
     TKCASE(Elaborated);
+    TKCASE(Pipe);
     default:
       return CXType_Unexposed;
   }
@@ -107,6 +124,10 @@ CXType cxtype::MakeCXType(QualType T, CXTranslationUnit TU) {
     // Handle attributed types as the original type
     if (auto *ATT = T->getAs<AttributedType>()) {
       return MakeCXType(ATT->getModifiedType(), TU);
+    }
+    // Handle paren types as the original type
+    if (auto *PTT = T->getAs<ParenType>()) {
+      return MakeCXType(PTT->getInnerType(), TU);
     }
 
     ASTContext &Ctx = cxtu::getASTUnit(TU)->getASTContext();
@@ -385,6 +406,30 @@ unsigned clang_isRestrictQualifiedType(CXType CT) {
   return T.isLocalRestrictQualified();
 }
 
+unsigned clang_getAddressSpace(CXType CT) {
+  QualType T = GetQualType(CT);
+
+  // For non language-specific address space, use separate helper function.
+  if (T.getAddressSpace() >= LangAS::FirstTargetAddressSpace) {
+    return T.getQualifiers().getAddressSpaceAttributePrintValue();
+  }
+  // FIXME: this function returns either a LangAS or a target AS
+  // Those values can overlap which makes this function rather unpredictable
+  // for any caller
+  return (unsigned)T.getAddressSpace();
+}
+
+CXString clang_getTypedefName(CXType CT) {
+  QualType T = GetQualType(CT);
+  const TypedefType *TT = T->getAs<TypedefType>();
+  if (TT) {
+    TypedefNameDecl *TD = TT->getDecl();
+    if (TD)
+      return cxstring::createDup(TD->getNameAsString().c_str());
+  }
+  return cxstring::createEmpty();
+}
+
 CXType clang_getPointeeType(CXType CT) {
   QualType T = GetQualType(CT);
   const Type *TP = T.getTypePtrOrNull();
@@ -452,7 +497,8 @@ try_again:
     break;
 
   case Type::Auto:
-    TP = cast<AutoType>(TP)->getDeducedType().getTypePtrOrNull();
+  case Type::DeducedTemplateSpecialization:
+    TP = cast<DeducedType>(TP)->getDeducedType().getTypePtrOrNull();
     if (TP)
       goto try_again;
     break;
@@ -488,7 +534,7 @@ CXString clang_getTypeKindSpelling(enum CXTypeKind K) {
     TKIND(Char_U);
     TKIND(UChar);
     TKIND(Char16);
-    TKIND(Char32);  
+    TKIND(Char32);
     TKIND(UShort);
     TKIND(UInt);
     TKIND(ULong);
@@ -502,9 +548,17 @@ CXString clang_getTypeKindSpelling(enum CXTypeKind K) {
     TKIND(Long);
     TKIND(LongLong);
     TKIND(Int128);
+    TKIND(Half);
     TKIND(Float);
     TKIND(Double);
     TKIND(LongDouble);
+    TKIND(ShortAccum);
+    TKIND(Accum);
+    TKIND(LongAccum);
+    TKIND(UShortAccum);
+    TKIND(UAccum);
+    TKIND(ULongAccum);
+    TKIND(Float16);
     TKIND(Float128);
     TKIND(NullPtr);
     TKIND(Overload);
@@ -532,6 +586,14 @@ CXString clang_getTypeKindSpelling(enum CXTypeKind K) {
     TKIND(MemberPointer);
     TKIND(Auto);
     TKIND(Elaborated);
+    TKIND(Pipe);
+#define IMAGE_TYPE(ImgType, Id, SingletonId, Access, Suffix) TKIND(Id);
+#include "clang/Basic/OpenCLImageTypes.def"
+#undef IMAGE_TYPE
+    TKIND(OCLSampler);
+    TKIND(OCLEvent);
+    TKIND(OCLQueue);
+    TKIND(OCLReserveID);
   }
 #undef TKIND
   return cxstring::createRef(s);
@@ -570,7 +632,7 @@ CXCallingConv clang_getFunctionTypeCallingConv(CXType X) {
       TCALLINGCONV(X86Pascal);
       TCALLINGCONV(X86RegCall);
       TCALLINGCONV(X86VectorCall);
-      TCALLINGCONV(X86_64Win64);
+      TCALLINGCONV(Win64);
       TCALLINGCONV(X86_64SysV);
       TCALLINGCONV(AAPCS);
       TCALLINGCONV(AAPCS_VFP);
@@ -641,6 +703,52 @@ CXType clang_getCursorResultType(CXCursor C) {
   }
 
   return MakeCXType(QualType(), cxcursor::getCursorTU(C));
+}
+
+// FIXME: We should expose the canThrow(...) result instead of the EST.
+static CXCursor_ExceptionSpecificationKind
+getExternalExceptionSpecificationKind(ExceptionSpecificationType EST) {
+  switch (EST) {
+  case EST_None:
+    return CXCursor_ExceptionSpecificationKind_None;
+  case EST_DynamicNone:
+    return CXCursor_ExceptionSpecificationKind_DynamicNone;
+  case EST_Dynamic:
+    return CXCursor_ExceptionSpecificationKind_Dynamic;
+  case EST_MSAny:
+    return CXCursor_ExceptionSpecificationKind_MSAny;
+  case EST_BasicNoexcept:
+    return CXCursor_ExceptionSpecificationKind_BasicNoexcept;
+  case EST_NoexceptFalse:
+  case EST_NoexceptTrue:
+  case EST_DependentNoexcept:
+    return CXCursor_ExceptionSpecificationKind_ComputedNoexcept;
+  case EST_Unevaluated:
+    return CXCursor_ExceptionSpecificationKind_Unevaluated;
+  case EST_Uninstantiated:
+    return CXCursor_ExceptionSpecificationKind_Uninstantiated;
+  case EST_Unparsed:
+    return CXCursor_ExceptionSpecificationKind_Unparsed;
+  }
+  llvm_unreachable("invalid EST value");
+}
+
+int clang_getExceptionSpecificationType(CXType X) {
+  QualType T = GetQualType(X);
+  if (T.isNull())
+    return -1;
+
+  if (const auto *FD = T->getAs<FunctionProtoType>())
+    return getExternalExceptionSpecificationKind(FD->getExceptionSpecType());
+
+  return -1;
+}
+
+int clang_getCursorExceptionSpecificationType(CXCursor C) {
+  if (clang_isDeclaration(C.kind))
+    return clang_getExceptionSpecificationType(clang_getCursorType(C));
+
+  return -1;
 }
 
 unsigned clang_isPODType(CXType X) {
@@ -1035,4 +1143,13 @@ CXType clang_Type_getNamedType(CXType CT){
     return MakeCXType(cast<ElaboratedType>(TP)->getNamedType(), GetTU(CT));
 
   return MakeCXType(QualType(), GetTU(CT));
+}
+
+unsigned clang_Type_isTransparentTagTypedef(CXType TT){
+  QualType T = GetQualType(TT);
+  if (auto *TT = dyn_cast_or_null<TypedefType>(T.getTypePtrOrNull())) {
+    if (auto *D = TT->getDecl())
+      return D->isTransparentTag();
+  }
+  return false;
 }

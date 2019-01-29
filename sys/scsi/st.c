@@ -1,4 +1,4 @@
-/*	$OpenBSD: st.c,v 1.133 2017/05/29 07:47:13 krw Exp $	*/
+/*	$OpenBSD: st.c,v 1.135 2019/01/20 03:28:19 krw Exp $	*/
 /*	$NetBSD: st.c,v 1.71 1997/02/21 23:03:49 thorpej Exp $	*/
 
 /*
@@ -54,7 +54,6 @@
  * to be depending on whether we expect to retension or not.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/timeout.h>
@@ -884,7 +883,7 @@ ststrategy(struct buf *bp)
 	device_unref(&st->sc_dev);
 	return;
 bad:
-	bp->b_flags |= B_ERROR;
+	SET(bp->b_flags, B_ERROR);
 done:
 	/* Set b_resid to indicate no xfer was done. */
 	bp->b_resid = bp->b_bcount;
@@ -949,7 +948,7 @@ ststart(struct scsi_xfer *xs)
 					 * Back up over filemark
 					 */
 					if (st_space(st, 0, SP_FILEMARKS, 0)) {
-						bp->b_flags |= B_ERROR;
+						SET(bp->b_flags, B_ERROR);
 						bp->b_resid = bp->b_bcount;
 						bp->b_error = EIO;
 						s = splbio();
@@ -960,7 +959,7 @@ ststart(struct scsi_xfer *xs)
 				} else {
 					bp->b_resid = bp->b_bcount;
 					bp->b_error = 0;
-					bp->b_flags &= ~B_ERROR;
+					CLR(bp->b_flags, B_ERROR);
 					st->flags &= ~ST_AT_FILEMARK;
 					s = splbio();
 					biodone(bp);
@@ -978,7 +977,7 @@ ststart(struct scsi_xfer *xs)
 			bp->b_resid = bp->b_bcount;
 			if (st->flags & ST_EIO_PENDING) {
 				bp->b_error = EIO;
-				bp->b_flags |= B_ERROR;
+				SET(bp->b_flags, B_ERROR);
 			}
 			st->flags &= ~(ST_EOM_PENDING | ST_EIO_PENDING);
 			s = splbio();
@@ -1053,6 +1052,7 @@ st_buf_done(struct scsi_xfer *xs)
 	switch (xs->error) {
 	case XS_NOERROR:
 		bp->b_error = 0;
+		CLR(bp->b_flags, B_ERROR);
 		bp->b_resid = xs->resid;
 		break;
 
@@ -1064,6 +1064,7 @@ st_buf_done(struct scsi_xfer *xs)
 		error = st_interpret_sense(xs);
 		if (error == 0) {
 			bp->b_error = 0;
+			CLR(bp->b_flags, B_ERROR);
 			bp->b_resid = xs->resid;
 			break;
 		}
@@ -1088,7 +1089,7 @@ retry:
 
 	default:
 		bp->b_error = EIO;
-		bp->b_flags |= B_ERROR;
+		SET(bp->b_flags, B_ERROR);
 		bp->b_resid = bp->b_bcount;
 		break;
 	}

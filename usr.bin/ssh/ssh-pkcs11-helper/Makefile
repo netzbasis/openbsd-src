@@ -1,18 +1,17 @@
-#	$OpenBSD: Makefile,v 1.2 2010/02/09 08:25:32 markus Exp $
+#	$OpenBSD: Makefile,v 1.8 2018/07/25 17:12:35 deraadt Exp $
 
 .PATH:		${.CURDIR}/..
 
-PROG=	ssh-pkcs11-helper
-BINOWN=	root
+SRCS=	ssh-pkcs11-helper.c ssh-pkcs11.c
+SRCS+=	atomicio.c compat.c fatal.c readpass.c
+SRCS+=	${SRCS_KEY} ${SRCS_UTL} ${SRCS_BASE}
 
-BINMODE?=555
+PROG=	ssh-pkcs11-helper
 
 BINDIR=	/usr/libexec
 MAN=	ssh-pkcs11-helper.8
 
-SRCS=	ssh-pkcs11-helper.c ssh-pkcs11.c
-
 .include <bsd.prog.mk>
 
-LDADD+=	-lcrypto
-DPADD+=	${LIBCRYPTO}
+LDADD+=	-lcrypto -lutil
+DPADD+=	${LIBCRYPTO} ${LIBUTIL}

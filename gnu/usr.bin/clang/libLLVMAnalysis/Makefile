@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2017/07/09 15:28:34 espie Exp $
+# $OpenBSD: Makefile,v 1.7 2019/01/27 16:59:41 patrick Exp $
 
 LIB=	LLVMAnalysis
 NOPIC=
@@ -26,6 +26,7 @@ SRCS=	AliasAnalysis.cpp \
 	CallGraphSCCPass.cpp \
 	CallPrinter.cpp \
 	CaptureTracking.cpp \
+	CmpInstAnalysis.cpp \
 	CostModel.cpp \
 	CodeMetrics.cpp \
 	ConstantFolding.cpp \
@@ -61,14 +62,18 @@ SRCS=	AliasAnalysis.cpp \
 	MemoryBuiltins.cpp \
 	MemoryDependenceAnalysis.cpp \
 	MemoryLocation.cpp \
+	MemorySSA.cpp \
+	MemorySSAUpdater.cpp \
 	ModuleDebugInfoPrinter.cpp \
 	ModuleSummaryAnalysis.cpp \
+	MustExecute.cpp \
 	ObjCARCAliasAnalysis.cpp \
 	ObjCARCAnalysisUtils.cpp \
 	ObjCARCInstKind.cpp \
-	OptimizationDiagnosticInfo.cpp \
+	OptimizationRemarkEmitter.cpp \
 	OrderedBasicBlock.cpp \
 	PHITransAddr.cpp \
+	PhiValues.cpp \
 	PostDominators.cpp \
 	ProfileSummaryInfo.cpp \
 	PtrUseVisitor.cpp \
@@ -79,13 +84,15 @@ SRCS=	AliasAnalysis.cpp \
 	ScalarEvolutionAliasAnalysis.cpp \
 	ScalarEvolutionExpander.cpp \
 	ScalarEvolutionNormalization.cpp \
-	SparsePropagation.cpp \
+	SyntheticCountsUtils.cpp \
 	TargetLibraryInfo.cpp \
 	TargetTransformInfo.cpp \
 	Trace.cpp \
 	TypeBasedAliasAnalysis.cpp \
 	TypeMetadataUtils.cpp \
 	ScopedNoAliasAA.cpp \
+	ValueLattice.cpp \
+	ValueLatticeUtils.cpp \
 	ValueTracking.cpp \
 	VectorUtils.cpp
 

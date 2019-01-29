@@ -11,19 +11,14 @@
 #define LLVM_LIB_TARGET_ARM_ARMTARGETOBJECTFILE_H
 
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/MC/MCExpr.h"
 
 namespace llvm {
 
-class MCContext;
-class TargetMachine;
-
 class ARMElfTargetObjectFile : public TargetLoweringObjectFileELF {
-  mutable bool genExecuteOnly = false;
-protected:
-  const MCSection *AttributesSection;
 public:
   ARMElfTargetObjectFile()
-      : TargetLoweringObjectFileELF(), AttributesSection(nullptr) {
+      : TargetLoweringObjectFileELF() {
     PLTRelativeVariantKind = MCSymbolRefExpr::VK_ARM_PREL31;
   }
 
@@ -35,7 +30,7 @@ public:
                                         MachineModuleInfo *MMI,
                                         MCStreamer &Streamer) const override;
 
-  /// \brief Describe a TLS variable address within debug info.
+  /// Describe a TLS variable address within debug info.
   const MCExpr *getDebugThreadLocalSymbol(const MCSymbol *Sym) const override;
 
   MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
@@ -47,4 +42,4 @@ public:
 
 } // end namespace llvm
 
-#endif
+#endif // LLVM_LIB_TARGET_ARM_ARMTARGETOBJECTFILE_H

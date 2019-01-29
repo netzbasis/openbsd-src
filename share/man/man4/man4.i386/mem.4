@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mem.4,v 1.9 2007/05/31 19:19:55 jmc Exp $
+.\"	$OpenBSD: mem.4,v 1.12 2018/01/12 04:36:44 deraadt Exp $
 .\"
 .\" Copyright (c) 1991 The Regents of the University of California.
 .\" All rights reserved.
@@ -29,7 +29,7 @@
 .\"
 .\"	from: @(#)mem.4	5.3 (Berkeley) 5/2/91
 .\"
-.Dd $Mdocdate: May 31 2007 $
+.Dd $Mdocdate: January 12 2018 $
 .Dt MEM 4 i386
 .Os
 .Sh NAME
@@ -62,14 +62,20 @@ The per-process data size for the current process is
 long, and ends at virtual address
 .Li 0xfe000000 .
 .Pp
-Writeability of these devices is controlled by the system
-.Xr securelevel 7 .
+Even with sufficient file system permissions,
+these devices can only be opened when the
+.Xr securelevel 7
+is insecure or when the
+.Va kern.allowkmem
+.Xr sysctl 2
+variable is set.
 .Sh FILES
 .Bl -tag -width Pa -compact
 .It Pa /dev/mem
 .It Pa /dev/kmem
 .El
 .Sh SEE ALSO
+.Xr mtrr 4 ,
 .Xr securelevel 7
 .Sh HISTORY
 The

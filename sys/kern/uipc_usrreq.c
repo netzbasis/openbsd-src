@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.119 2017/08/11 19:53:02 bluhm Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.137 2018/11/21 17:07:07 claudio Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -126,10 +126,6 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 	switch (req) {
 
-	case PRU_DETACH:
-		unp_detach(unp);
-		break;
-
 	case PRU_BIND:
 		error = unp_bind(unp, nam, p);
 		break;
@@ -174,8 +170,6 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 		case SOCK_STREAM:
 		case SOCK_SEQPACKET:
-#define	rcv (&so->so_rcv)
-#define snd (&so2->so_snd)
 			if (unp->unp_conn == NULL)
 				break;
 			so2 = unp->unp_conn->unp_socket;
@@ -183,11 +177,9 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			 * Adjust backpressure on sender
 			 * and wakeup any waiting to write.
 			 */
-			snd->sb_mbcnt = rcv->sb_mbcnt;
-			snd->sb_cc = rcv->sb_cc;
+			so2->so_snd.sb_mbcnt = so->so_rcv.sb_mbcnt;
+			so2->so_snd.sb_cc = so->so_rcv.sb_cc;
 			sowwakeup(so2);
-#undef snd
-#undef rcv
 			break;
 
 		default:
@@ -235,8 +227,6 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 		case SOCK_STREAM:
 		case SOCK_SEQPACKET:
-#define	rcv (&so2->so_rcv)
-#define	snd (&so->so_snd)
 			if (so->so_state & SS_CANTSENDMORE) {
 				error = EPIPE;
 				break;
@@ -252,22 +242,21 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			 * Wake up readers.
 			 */
 			if (control) {
-				if (sbappendcontrol(so2, rcv, m, control))
+				if (sbappendcontrol(so2, &so2->so_rcv, m,
+				    control)) {
 					control = NULL;
-				else {
+				} else {
 					error = ENOBUFS;
 					break;
 				}
 			} else if (so->so_type == SOCK_SEQPACKET)
-				sbappendrecord(so2, rcv, m);
+				sbappendrecord(so2, &so2->so_rcv, m);
 			else
-				sbappend(so2, rcv, m);
-			snd->sb_mbcnt = rcv->sb_mbcnt;
-			snd->sb_cc = rcv->sb_cc;
+				sbappend(so2, &so2->so_rcv, m);
+			so->so_snd.sb_mbcnt = so2->so_rcv.sb_mbcnt;
+			so->so_snd.sb_cc = so2->so_rcv.sb_cc;
 			sorwakeup(so2);
 			m = NULL;
-#undef snd
-#undef rcv
 			break;
 
 		default:
@@ -318,7 +307,7 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		break;
 
 	default:
-		panic("piusrreq");
+		panic("uipc_usrreq");
 	}
 release:
 	m_freem(control);
@@ -375,6 +364,21 @@ uipc_attach(struct socket *so, int proto)
 	so->so_pcb = unp;
 	getnanotime(&unp->unp_ctime);
 	LIST_INSERT_HEAD(&unp_head, unp, unp_link);
+	return (0);
+}
+
+int
+uipc_detach(struct socket *so)
+{
+	struct unpcb *unp = sotounpcb(so);
+
+	if (unp == NULL)
+		return (EINVAL);
+
+	NET_ASSERT_UNLOCKED();
+
+	unp_detach(unp);
+
 	return (0);
 }
 
@@ -452,6 +456,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	vattr.va_type = VSOCK;
 	vattr.va_mode = ACCESSPERMS &~ p->p_fd->fd_cmask;
 	error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
+	vput(nd.ni_dvp);
 	if (error) {
 		m_freem(nam2);
 		return (error);
@@ -464,7 +469,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	unp->unp_connid.gid = p->p_ucred->cr_gid;
 	unp->unp_connid.pid = p->p_p->ps_pid;
 	unp->unp_flags |= UNP_FEIDSBIND;
-	VOP_UNLOCK(vp, p);
+	VOP_UNLOCK(vp);
 	return (0);
 }
 
@@ -608,11 +613,17 @@ unp_drop(struct unpcb *unp, int errno)
 {
 	struct socket *so = unp->unp_socket;
 
+	KERNEL_ASSERT_LOCKED();
+
 	so->so_error = errno;
 	unp_disconnect(unp);
 	if (so->so_head) {
 		so->so_pcb = NULL;
-		sofree(so);
+		/*
+		 * As long as the KERNEL_LOCK() is the default lock for Unix
+		 * sockets, do not release it.
+		 */
+		sofree(so, SL_NOUNLOCK);
 		m_freem(unp->unp_addr);
 		free(unp, M_PCB, sizeof *unp);
 	}
@@ -646,10 +657,18 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 {
 	struct proc *p = curproc;		/* XXX */
 	struct cmsghdr *cm = mtod(rights, struct cmsghdr *);
-	int i, *fdp = NULL;
+	struct filedesc *fdp = p->p_fd;
+	int i, *fds = NULL;
 	struct fdpass *rp;
 	struct file *fp;
 	int nfds, error = 0;
+
+	/*
+	 * This code only works because SCM_RIGHTS is the only supported
+	 * control message type on unix sockets. Enforce this here.
+	 */
+	if (cm->cmsg_type != SCM_RIGHTS || cm->cmsg_level != SOL_SOCKET)
+		return EINVAL;
 
 	nfds = (cm->cmsg_len - CMSG_ALIGN(sizeof(*cm))) /
 	    sizeof(struct fdpass);
@@ -675,22 +694,22 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 		 * No to block devices.  If passing a directory,
 		 * make sure that it is underneath the root.
 		 */
-		if (p->p_fd->fd_rdir != NULL && fp->f_type == DTYPE_VNODE) {
+		if (fdp->fd_rdir != NULL && fp->f_type == DTYPE_VNODE) {
 			struct vnode *vp = (struct vnode *)fp->f_data;
 
 			if (vp->v_type == VBLK ||
 			    (vp->v_type == VDIR &&
-			    !vn_isunder(vp, p->p_fd->fd_rdir, p))) {
+			    !vn_isunder(vp, fdp->fd_rdir, p))) {
 				error = EPERM;
 				break;
 			}
 		}
 	}
 
-	fdp = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
+	fds = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
 
 restart:
-	fdplock(p->p_fd);
+	fdplock(fdp);
 	if (error != 0) {
 		if (nfds > 0) {
 			rp = ((struct fdpass *)CMSG_DATA(cm));
@@ -705,12 +724,12 @@ restart:
 	 */
 	rp = ((struct fdpass *)CMSG_DATA(cm));
 	for (i = 0; i < nfds; i++) {
-		if ((error = fdalloc(p, 0, &fdp[i])) != 0) {
+		if ((error = fdalloc(p, 0, &fds[i])) != 0) {
 			/*
 			 * Back out what we've done so far.
 			 */
 			for (--i; i >= 0; i--)
-				fdremove(p->p_fd, fdp[i]);
+				fdremove(fdp, fds[i]);
 
 			if (error == ENOSPC) {
 				fdexpand(p);
@@ -723,7 +742,7 @@ restart:
 				 */
 				error = EMSGSIZE;
 			}
-			fdpunlock(p->p_fd);
+			fdpunlock(fdp);
 			goto restart;
 		}
 
@@ -732,12 +751,16 @@ restart:
 		 * fdalloc() works properly.. We finalize it all
 		 * in the loop below.
 		 */
-		p->p_fd->fd_ofiles[fdp[i]] = rp->fp;
-		p->p_fd->fd_ofileflags[fdp[i]] = (rp->flags & UF_PLEDGED);
-		rp++;
+		mtx_enter(&fdp->fd_fplock);
+		KASSERT(fdp->fd_ofiles[fds[i]] == NULL);
+		fdp->fd_ofiles[fds[i]] = rp->fp;
+		mtx_leave(&fdp->fd_fplock);
 
+		fdp->fd_ofileflags[fds[i]] = (rp->flags & UF_PLEDGED);
 		if (flags & MSG_CMSG_CLOEXEC)
-			p->p_fd->fd_ofileflags[fdp[i]] |= UF_EXCLOSE;
+			fdp->fd_ofileflags[fds[i]] |= UF_EXCLOSE;
+
+		rp++;
 	}
 
 	/*
@@ -759,13 +782,13 @@ restart:
 	 * Copy temporary array to message and adjust length, in case of
 	 * transition from large struct file pointers to ints.
 	 */
-	memcpy(CMSG_DATA(cm), fdp, nfds * sizeof(int));
+	memcpy(CMSG_DATA(cm), fds, nfds * sizeof(int));
 	cm->cmsg_len = CMSG_LEN(nfds * sizeof(int));
 	rights->m_len = CMSG_LEN(nfds * sizeof(int));
  out:
-	fdpunlock(p->p_fd);
-	if (fdp)
-		free(fdp, M_TEMP, nfds * sizeof(int));
+	fdpunlock(fdp);
+	if (fds != NULL)
+		free(fds, M_TEMP, nfds * sizeof(int));
 	return (error);
 }
 
@@ -784,6 +807,8 @@ unp_internalize(struct mbuf *control, struct proc *p)
 	 * Check for two potential msg_controllen values because
 	 * IETF stuck their nose in a place it does not belong.
 	 */ 
+	if (control->m_len < CMSG_LEN(0) || cm->cmsg_len < CMSG_LEN(0))
+		return (EINVAL);
 	if (cm->cmsg_type != SCM_RIGHTS || cm->cmsg_level != SOL_SOCKET ||
 	    !(cm->cmsg_len == control->m_len ||
 	    control->m_len == CMSG_ALIGN(cm->cmsg_len)))
@@ -797,7 +822,7 @@ unp_internalize(struct mbuf *control, struct proc *p)
 morespace:
 	neededspace = CMSG_SPACE(nfds * sizeof(struct fdpass)) -
 	    control->m_len;
-	if (neededspace > M_TRAILINGSPACE(control)) {
+	if (neededspace > m_trailingspace(control)) {
 		char *tmp;
 		/* if we already have a cluster, the message is just too big */
 		if (control->m_flags & M_EXT)
@@ -827,6 +852,7 @@ morespace:
 
 	ip = ((int *)CMSG_DATA(cm)) + nfds - 1;
 	rp = ((struct fdpass *)CMSG_DATA(cm)) + nfds - 1;
+	fdplock(fdp);
 	for (i = 0; i < nfds; i++) {
 		memcpy(&fd, ip, sizeof fd);
 		ip--;
@@ -834,14 +860,14 @@ morespace:
 			error = EBADF;
 			goto fail;
 		}
-		if (fp->f_count == LONG_MAX-2) {
+		if (fp->f_count >= FDUP_MAX_COUNT) {
 			error = EDEADLK;
 			goto fail;
 		}
 		error = pledge_sendfd(p, fp);
 		if (error)
 			goto fail;
-		    
+
 		/* kqueue descriptors cannot be copied */
 		if (fp->f_type == DTYPE_KQUEUE) {
 			error = EINVAL;
@@ -850,22 +876,25 @@ morespace:
 		rp->fp = fp;
 		rp->flags = fdp->fd_ofileflags[fd] & UF_PLEDGED;
 		rp--;
-		fp->f_count++;
 		if ((unp = fptounp(fp)) != NULL) {
 			unp->unp_file = fp;
 			unp->unp_msgcount++;
 		}
 		unp_rights++;
 	}
+	fdpunlock(fdp);
 	return (0);
 fail:
+	fdpunlock(fdp);
+	if (fp != NULL)
+		FRELE(fp, p);
 	/* Back out what we just did. */
 	for ( ; i > 0; i--) {
 		rp++;
 		fp = rp->fp;
-		fp->f_count--;
 		if ((unp = fptounp(fp)) != NULL)
 			unp->unp_msgcount--;
+		FRELE(fp, p);
 		unp_rights--;
 	}
 
@@ -894,6 +923,7 @@ unp_gc(void *arg __unused)
 			fp = defer->ud_fp[i].fp;
 			if (fp == NULL)
 				continue;
+			 /* closef() expects a refcount of 2 */
 			FREF(fp);
 			if ((unp = fptounp(fp)) != NULL)
 				unp->unp_msgcount--;
@@ -910,6 +940,7 @@ unp_gc(void *arg __unused)
 	do {
 		nunref = 0;
 		LIST_FOREACH(unp, &unp_head, unp_link) {
+			fp = unp->unp_file;
 			if (unp->unp_flags & UNP_GCDEFER) {
 				/*
 				 * This socket is referenced by another
@@ -921,7 +952,7 @@ unp_gc(void *arg __unused)
 			} else if (unp->unp_flags & UNP_GCMARK) {
 				/* marked as live in previous pass */
 				continue;
-			} else if ((fp = unp->unp_file) == NULL) {
+			} else if (fp == NULL) {
 				/* not being passed, so can't be in loop */
 			} else if (fp->f_count == 0) {
 				/*
@@ -952,22 +983,6 @@ unp_gc(void *arg __unused)
 			unp->unp_flags |= UNP_GCMARK;
 
 			so = unp->unp_socket;
-#ifdef notdef
-			if (so->so_rcv.sb_flags & SB_LOCK) {
-				/*
-				 * This is problematical; it's not clear
-				 * we need to wait for the sockbuf to be
-				 * unlocked (on a uniprocessor, at least),
-				 * and it's also not clear what to do
-				 * if sbwait returns an error due to receipt
-				 * of a signal.  If sbwait does return
-				 * an error, we'll go into an infinite
-				 * loop.  Delete all of this for now.
-				 */
-				(void) sbwait(&so->so_rcv);
-				goto restart;
-			}
-#endif
 			unp_scan(so->so_rcv.sb_mb, unp_mark);
 		}
 	} while (unp_defer);
@@ -1083,7 +1098,7 @@ unp_nam2sun(struct mbuf *nam, struct sockaddr_un **sun, size_t *pathlen)
 	if (len == sizeof((*sun)->sun_path))
 		return EINVAL;
 	if (len == size) {
-		if (M_TRAILINGSPACE(nam) == 0)
+		if (m_trailingspace(nam) == 0)
 			return EINVAL;
 		nam->m_len++;
 		(*sun)->sun_len++;

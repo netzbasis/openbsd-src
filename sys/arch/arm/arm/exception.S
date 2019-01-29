@@ -1,4 +1,4 @@
-/*	$OpenBSD: exception.S,v 1.6 2016/09/21 11:33:05 kettenis Exp $	*/
+/*	$OpenBSD: exception.S,v 1.9 2018/08/06 18:39:13 kettenis Exp $	*/
 /*	$NetBSD: exception.S,v 1.13 2003/10/31 16:30:15 scw Exp $	*/
 
 /*
@@ -46,13 +46,22 @@
  * Based on kate/display/abort.s
  */
 
-#include <machine/asm.h>
-#include <machine/cpu.h>
-#include <machine/frame.h>
 #include "assym.h"
+
+#include <machine/asm.h>
+#include <machine/frame.h>
+#include <arm/armreg.h>
 
 	.text	
 	.align	2
+
+#define RESTOREVFP							 \
+	ldr	r0, [sp]		/* Get the SPSR from stack */	;\
+	and	r0, r0, #(PSR_MODE)	/* Returning to USR mode? */	;\
+	cmp	r0, #(PSR_USR32_MODE)					;\
+	bne	1f							;\
+	bl	_C_LABEL(vfp_enable)                                    ;\
+1:
 
 AST_LOCALS
 
@@ -91,10 +100,6 @@ ASENTRY_NP(swi_entry)
  *	Handler for the Prefetch Abort exception.
  */
 ASENTRY_NP(prefetch_abort_entry)
-#ifdef __XSCALE__
-	nop				/* Make absolutely sure any pending */
-	nop				/* imprecise aborts have occurred. */
-#endif
         sub     lr, lr, #0x00000004     /* Adjust the lr */
 
 	PUSHFRAMEINSVC
@@ -128,10 +133,6 @@ abortprefetchmsg:
  *	Handler for the Data Abort exception.
  */
 ASENTRY_NP(data_abort_entry)
-#ifdef __XSCALE__
-	nop				/* Make absolutely sure any pending */
-	nop				/* imprecise aborts have occurred. */
-#endif
         sub     lr, lr, #0x00000008     /* Adjust the lr */
 
 	PUSHFRAMEINSVC			/* Push trap frame and switch */
@@ -194,6 +195,7 @@ Laddress_exception_msg:
 
 exception_exit:
 	DO_AST
+	RESTOREVFP
 	PULLFRAMEFROMSVCANDEXIT
 
 /*

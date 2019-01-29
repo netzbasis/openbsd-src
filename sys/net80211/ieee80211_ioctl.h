@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.h,v 1.29 2017/07/19 22:04:46 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.h,v 1.36 2019/01/18 20:24:59 phessler Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.h,v 1.7 2004/04/30 22:51:04 dyoung Exp $	*/
 
 /*-
@@ -151,18 +151,9 @@ struct ieee80211_power {
 #define	SIOCS80211POWER		 _IOW('i', 234, struct ieee80211_power)
 #define	SIOCG80211POWER		_IOWR('i', 235, struct ieee80211_power)
 
-/* authentication type */
-struct ieee80211_auth {
-	char		i_name[IFNAMSIZ];	/* if_name, e.g. "wi0" */
-	int		i_authtype;
-};
-
 #define	IEEE80211_AUTH_NONE	0
 #define	IEEE80211_AUTH_OPEN	1
 #define	IEEE80211_AUTH_SHARED	2
-
-#define	SIOCS80211AUTH		 _IOW('i', 236, struct ieee80211_auth)
-#define	SIOCG80211AUTH		_IOWR('i', 237, struct ieee80211_auth)
 
 /* channel request */
 struct ieee80211chanreq {
@@ -264,15 +255,6 @@ struct ieee80211_wpaparams {
 #define SIOCS80211WPAPARMS	 _IOW('i', 247, struct ieee80211_wpaparams)
 #define SIOCG80211WPAPARMS	_IOWR('i', 248, struct ieee80211_wpaparams)
 
-struct ieee80211_wmmparams {
-	char	i_name[IFNAMSIZ];		/* if_name, e.g. "wi0" */
-	int	i_enabled;
-	/* XXX more */
-};
-
-#define SIOCS80211WMMPARMS	 _IOW('i', 249, struct ieee80211_wmmparams)
-#define SIOCG80211WMMPARMS	_IOWR('i', 250, struct ieee80211_wmmparams)
-
 struct ieee80211_keyavail {
 	char		i_name[IFNAMSIZ];	/* if_name, e.g. "wi0" */
 	u_int8_t	i_macaddr[IEEE80211_ADDR_LEN];
@@ -292,6 +274,39 @@ struct ieee80211_keyrun {
 #define IEEE80211_SCAN_TIMEOUT	30	/* timeout in seconds */
 
 #define SIOCS80211SCAN		 _IOW('i', 210, struct ifreq)
+
+#define	SIOCG80211JOINALL	_IOWR('i', 218, struct ieee80211_joinreq_all)
+#define	SIOCS80211JOIN		_IOWR('i', 255, struct ifreq)
+#define	SIOCG80211JOIN		_IOWR('i', 256, struct ifreq)
+
+/* join is pointed at by ifr.ifr_data */
+struct ieee80211_join {
+	u_int8_t	i_len;	/* length of i_nwid */
+	u_int8_t	i_nwid[IEEE80211_NWID_LEN];
+	u_int32_t	i_flags;
+
+	struct ieee80211_wpaparams	 i_wpaparams;
+	struct ieee80211_wpapsk		 i_wpapsk;
+	struct ieee80211_nwkey		 i_nwkey;
+};
+
+struct ieee80211_joinreq_all {
+	char			 ja_ifname[IFNAMSIZ];
+	int			 ja_nodes; /* returned count */
+	size_t			 ja_size;  /* size of node buffer */
+	struct ieee80211_join	*ja_node;  /* allocated node buffer */
+};
+
+
+#define IEEE80211_JOIN_SHOW	0x01
+#define IEEE80211_JOIN_FOUND	0x02
+#define IEEE80211_JOIN_DEL	0x04
+#define IEEE80211_JOIN_NWKEY	0x08
+#define IEEE80211_JOIN_WPA	0x10
+#define IEEE80211_JOIN_WPAPSK	0x20
+#define IEEE80211_JOIN_8021X	0x40
+#define IEEE80211_JOIN_ANY	0x80
+#define IEEE80211_JOIN_DEL_ALL	0x100
 
 /* node and requests */
 struct ieee80211_nodereq {

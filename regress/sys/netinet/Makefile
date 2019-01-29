@@ -1,5 +1,5 @@
-#	$OpenBSD: Makefile,v 1.4 2017/02/06 21:56:19 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.6 2018/07/04 02:18:05 anton Exp $
 
-SUBDIR =	arp autoport ipsec pmtu
+SUBDIR =	arp autoport frag ipsec pmtu recvmsg
 
 .include <bsd.subdir.mk>

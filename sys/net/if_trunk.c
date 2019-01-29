@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_trunk.c,v 1.134 2017/08/14 08:31:00 reyk Exp $	*/
+/*	$OpenBSD: if_trunk.c,v 1.137 2018/08/12 23:50:31 ccardenas Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -157,9 +157,7 @@ trunk_clone_create(struct if_clone *ifc, int unit)
 	struct ifnet *ifp;
 	int i, error = 0;
 
-	if ((tr = malloc(sizeof *tr, M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
-		return (ENOMEM);
-
+	tr = malloc(sizeof(*tr), M_DEVBUF, M_WAITOK|M_ZERO);
 	tr->tr_unit = unit;
 	tr->tr_proto = TRUNK_PROTO_NONE;
 	for (i = 0; trunk_protos[i].ti_proto != TRUNK_PROTO_NONE; i++) {
@@ -606,8 +604,11 @@ trunk_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct trunk_softc *tr = (struct trunk_softc *)ifp->if_softc;
 	struct trunk_reqall *ra = (struct trunk_reqall *)data;
 	struct trunk_reqport *rp = (struct trunk_reqport *)data, rpbuf;
+	struct trunk_opts *tro = (struct trunk_opts *)data;
 	struct ifreq *ifr = (struct ifreq *)data;
+	struct lacp_softc *lsc;
 	struct trunk_port *tp;
+	struct lacp_port *lp;
 	struct ifnet *tpif;
 	int i, error = 0;
 
@@ -633,7 +634,7 @@ trunk_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		break;
 	case SIOCSTRUNK:
-		if ((error = suser(curproc, 0)) != 0) {
+		if ((error = suser(curproc)) != 0) {
 			error = EPERM;
 			break;
 		}
@@ -673,6 +674,94 @@ trunk_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		error = EPROTONOSUPPORT;
 		break;
+	case SIOCGTRUNKOPTS:
+		/* Only LACP trunks have options atm */
+		if (tro->to_proto != TRUNK_PROTO_LACP) {
+			error = EPROTONOSUPPORT;
+			break;
+		}
+		lsc = LACP_SOFTC(tr);
+		tro->to_lacpopts.lacp_mode = lsc->lsc_mode;
+		tro->to_lacpopts.lacp_timeout = lsc->lsc_timeout;
+		tro->to_lacpopts.lacp_prio = lsc->lsc_sys_prio;
+		tro->to_lacpopts.lacp_portprio = lsc->lsc_port_prio;
+		tro->to_lacpopts.lacp_ifqprio = lsc->lsc_ifq_prio;
+		break;
+	case SIOCSTRUNKOPTS:
+		if ((error = suser(curproc)) != 0) {
+			error = EPERM;
+			break;
+		}
+		/* Only LACP trunks have options atm */
+		if (tro->to_proto != TRUNK_PROTO_LACP) {
+			error = EPROTONOSUPPORT;
+			break;
+		}
+		lsc = LACP_SOFTC(tr);
+		switch(tro->to_opts) {
+			case TRUNK_OPT_LACP_MODE:
+				/*
+				 * Ensure mode changes occur immediately
+				 * on all ports
+				 */
+				lsc->lsc_mode = tro->to_lacpopts.lacp_mode;
+				if (lsc->lsc_mode == 0) {
+					LIST_FOREACH(lp, &lsc->lsc_ports,
+					    lp_next)
+						lp->lp_state &=
+						    ~LACP_STATE_ACTIVITY;
+				} else {
+					LIST_FOREACH(lp, &lsc->lsc_ports,
+					    lp_next)
+						lp->lp_state |=
+						    LACP_STATE_ACTIVITY;
+				}
+				break;
+			case TRUNK_OPT_LACP_TIMEOUT:
+				/*
+				 * Ensure timeout changes occur immediately
+				 * on all ports
+				 */
+				lsc->lsc_timeout =
+				    tro->to_lacpopts.lacp_timeout;
+				if (lsc->lsc_timeout == 0) {
+					LIST_FOREACH(lp, &lsc->lsc_ports,
+					    lp_next)
+						lp->lp_state &=
+						    ~LACP_STATE_TIMEOUT;
+				} else {
+					LIST_FOREACH(lp, &lsc->lsc_ports,
+					    lp_next)
+						lp->lp_state |=
+						    LACP_STATE_TIMEOUT;
+				}
+				break;
+			case TRUNK_OPT_LACP_SYS_PRIO:
+				if (tro->to_lacpopts.lacp_prio == 0) {
+					error = EINVAL;	
+					break;
+				}
+				lsc->lsc_sys_prio = tro->to_lacpopts.lacp_prio;
+				break;
+			case TRUNK_OPT_LACP_PORT_PRIO:
+				if (tro->to_lacpopts.lacp_portprio == 0) {
+					error = EINVAL;	
+					break;
+				}
+				lsc->lsc_port_prio =
+				    tro->to_lacpopts.lacp_portprio;
+				break;
+			case TRUNK_OPT_LACP_IFQ_PRIO:
+				if (tro->to_lacpopts.lacp_ifqprio >
+				    IFQ_MAXPRIO) {
+					error = EINVAL;	
+					break;
+				}
+				lsc->lsc_ifq_prio =
+				    tro->to_lacpopts.lacp_ifqprio;
+				break;
+		}
+		break;
 	case SIOCGTRUNKPORT:
 		if (rp->rp_portname[0] == '\0' ||
 		    (tpif = ifunit(rp->rp_portname)) == NULL) {
@@ -690,7 +779,7 @@ trunk_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		trunk_port2req(tp, rp);
 		break;
 	case SIOCSTRUNKPORT:
-		if ((error = suser(curproc, 0)) != 0) {
+		if ((error = suser(curproc)) != 0) {
 			error = EPERM;
 			break;
 		}
@@ -702,7 +791,7 @@ trunk_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = trunk_port_create(tr, tpif);
 		break;
 	case SIOCSTRUNKDELPORT:
-		if ((error = suser(curproc, 0)) != 0) {
+		if ((error = suser(curproc)) != 0) {
 			error = EPERM;
 			break;
 		}

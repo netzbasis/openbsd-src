@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.amd64,v 1.92 2017/08/12 20:26:11 mpi Exp $
+#	$OpenBSD: Makefile.amd64,v 1.109 2019/01/20 09:57:23 anton Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -25,7 +25,6 @@ INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
-		-Wno-address-of-packed-member -Wno-constant-conversion \
 		-Wframe-larger-than=2047
 
 CMACHFLAGS=	-mcmodel=kernel -mno-red-zone -mno-sse2 -mno-sse -mno-3dnow \
@@ -40,9 +39,13 @@ CMACHFLAGS+=	-msave-args
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+.if ${COMPILER_VERSION:Mclang}
+CMACHFLAGS+=	-mno-retpoline
+.endif
 .endif
 .if ${COMPILER_VERSION:Mclang}
-NO_INTEGR_AS=  -no-integrated-as
+NO_INTEGR_AS=	-no-integrated-as
+CWARNFLAGS+=	-Wno-address-of-packed-member -Wno-constant-conversion
 .endif
 
 DEBUG?=		-g
@@ -50,12 +53,6 @@ COPTS?=		-O2
 CFLAGS=		${DEBUG} ${CWARNFLAGS} ${CMACHFLAGS} ${COPTS} ${PIPE}
 AFLAGS=		-D_LOCORE -x assembler-with-cpp ${CWARNFLAGS} ${CMACHFLAGS}
 LINKFLAGS=	-T ld.script -X --warn-common -nopie
-
-.if ${IDENT:M-DDDB_STRUCT}
-DB_STRUCTINFO=	db_structinfo.h
-.else
-DB_STRUCTINFO=
-.endif
 
 HOSTCC?=	${CC}
 HOSTED_CPPFLAGS=${CPPFLAGS:S/^-nostdinc$//}
@@ -97,6 +94,10 @@ SYSTEM_LD_TAIL+=; umask 007; \
 LINKFLAGS+=	-S
 .endif
 
+.if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
+PROF=		-fsanitize-coverage=trace-pc,trace-cmp
+.endif
+
 %LOAD
 
 # cc's -MD puts the source and output paths in the dependency file;
@@ -124,52 +125,61 @@ mcount.o: $S/lib/libkern/mcount.c Makefile
 ioconf.o: ioconf.c
 	${NORMAL_C}
 
+locore.o: assym.h
+	${NORMAL_S}
+	@[[ -n `objdump -D $@ | grep -A1 doreti_iret | sort | uniq -d` ]] || \
+	 { rm -f $@; echo "ERROR: overlaid iretq instructions don't line up"; \
+	   echo "#GP-on-iretq fault handling would be broken"; exit 1; }
+
 ld.script: ${_machdir}/conf/ld.script
 	cp ${_machdir}/conf/ld.script $@
+
+gapdummy.o:
+	echo '__asm(".section .rodata,\"a\"");' > gapdummy.c
+	${CC} -c ${CFLAGS} ${CPPFLAGS} gapdummy.c -o $@
 
 makegap.sh:
 	cp $S/conf/makegap.sh $@
 
-MAKE_GAP = LD="${LD}" sh makegap.sh 0xcccccccc
+MAKE_GAP = LD="${LD}" sh makegap.sh 0xcccccccc gapdummy.o
 
-gap.o:	Makefile makegap.sh vers.o
+gap.o:	Makefile makegap.sh gapdummy.o vers.o
 	${MAKE_GAP}
 
 vers.o: ${SYSTEM_DEP:Ngap.o}
 	sh $S/conf/newvers.sh
 	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c vers.c
 
+.if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
+kcov.o: $S/dev/kcov.c
+	${NORMAL_C} -fno-sanitize-coverage=trace-pc,trace-cmp
+.endif
+
 clean:
-	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* ${DB_STRUCTINFO} \
-	    gap.link ld.script lorder makegap.sh param.c
+	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* \
+	    gap.link gapdummy.c ld.script lorder makegap.sh param.c
 
 cleandir: clean
 	rm -f Makefile *.h ioconf.c options machine ${_mach} vers.c
 
 depend obj:
 
-db_structinfo.h: $S/ddb/db_structinfo.c $S/ddb/parse_structinfo.pl
-	${CC} ${CFLAGS} ${CPPFLAGS} -MT $@ -gstabs -c $S/ddb/db_structinfo.c
-	objdump -g db_structinfo.o | perl $S/ddb/parse_structinfo.pl > $@
-	rm -f db_structinfo.o
-
 locore0.o: ${_machdir}/${_mach}/locore0.S assym.h
-locore.o mutex.o vector.o copy.o spl.o: assym.h
+mutex.o vector.o copy.o spl.o: assym.h
 mptramp.o acpi_wakecode.o vmm_support.o: assym.h
 
+hardlink-obsd:
+	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
+
 newinstall:
-	cmp -s bsd /bsd || ln -f /bsd /obsd
 	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
 	    sha256 -h /var/db/kernel.SHA256 /bsd
 
-install: update-link newinstall
+install: update-link hardlink-obsd newinstall
 
 # pull in the dependency information
-.if !empty(DB_STRUCTINFO) && !exists(${DB_STRUCTINFO})
- ${SYSTEM_OBJ}: ${DB_STRUCTINFO}
-.endif
 .ifnmake clean
-. for o in ${SYSTEM_OBJ:Ngap.o} assym.h ${DB_STRUCTINFO}
+. for o in ${SYSTEM_OBJ:Ngap.o} assym.h
 .  if exists(${o:R}.d)
 .   include "${o:R}.d"
 .  elif exists($o)

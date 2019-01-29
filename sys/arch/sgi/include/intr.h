@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr.h,v 1.49 2017/06/11 10:01:23 visa Exp $ */
+/*	$OpenBSD: intr.h,v 1.51 2018/08/20 15:02:07 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -89,7 +89,7 @@
 
 #ifndef _LOCORE
 
-#include <machine/mutex.h>
+#include <sys/mutex.h>
 #include <sys/queue.h>
 
 struct soft_intrhand {
@@ -126,7 +126,6 @@ void	 softintr_schedule(void *);
 #define splsoftnet()	splsoft()
 #define splstatclock()	splhigh()
 
-#define spllock()	splhigh()
 #define spl0()		spllower(0)
 
 void	splinit(void);

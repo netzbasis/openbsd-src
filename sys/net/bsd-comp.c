@@ -1,4 +1,4 @@
-/*	$OpenBSD: bsd-comp.c,v 1.14 2017/06/19 17:58:49 bluhm Exp $	*/
+/*	$OpenBSD: bsd-comp.c,v 1.16 2018/11/09 14:14:31 claudio Exp $	*/
 /*	$NetBSD: bsd-comp.c,v 1.6 1996/10/13 02:10:58 christos Exp $	*/
 
 /* Because this code is derived from the 4.3BSD compress source:
@@ -41,7 +41,6 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/mbuf.h>
 #include <sys/socket.h>
@@ -500,7 +499,7 @@ bsd_compress(state, mret, mp, slen, maxolen)
 		if (maxolen - olen > MLEN)		\
 		    MCLGET(m, M_DONTWAIT);		\
 		wptr = mtod(m, u_char *);		\
-		cp_end = wptr + M_TRAILINGSPACE(m);	\
+		cp_end = wptr + m_trailingspace(m);	\
 	    } else					\
 		wptr = NULL;				\
 	}						\
@@ -543,7 +542,7 @@ bsd_compress(state, mret, mp, slen, maxolen)
 	    MCLGET(m, M_DONTWAIT);
 	m->m_data += db->hdrlen;
 	wptr = mtod(m, u_char *);
-	cp_end = wptr + M_TRAILINGSPACE(m);
+	cp_end = wptr + m_trailingspace(m);
     } else
 	wptr = cp_end = NULL;
 
@@ -877,7 +876,7 @@ bsd_decompress(state, cmp, dmpp)
     MCLGET(dmp, M_DONTWAIT);
     dmp->m_data += db->hdrlen;
     wptr = mtod(dmp, u_char *);
-    space = M_TRAILINGSPACE(dmp) - PPP_HDRLEN + 1;
+    space = m_trailingspace(dmp) - PPP_HDRLEN + 1;
 
     /*
      * Fill in the ppp header, but not the last byte of the protocol
@@ -989,7 +988,7 @@ bsd_decompress(state, cmp, dmpp)
 	    m->m_next = NULL;
 	    dmp->m_next = m;
 	    MCLGET(m, M_DONTWAIT);
-	    space = M_TRAILINGSPACE(m) - (codelen + extra);
+	    space = m_trailingspace(m) - (codelen + extra);
 	    if (space < 0) {
 		/* now that's what I call *compression*. */
 		m_freem(mret);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_http.c,v 1.66 2017/05/28 10:39:15 benno Exp $	*/
+/*	$OpenBSD: relay_http.c,v 1.71 2018/08/06 17:31:31 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -126,6 +126,9 @@ relay_httpdesc_init(struct ctl_relay_event *cre)
 void
 relay_httpdesc_free(struct http_descriptor *desc)
 {
+	if (desc == NULL)
+		return;
+
 	free(desc->http_path);
 	desc->http_path = NULL;
 	free(desc->http_query);
@@ -162,21 +165,23 @@ relay_read_http(struct bufferevent *bev, void *arg)
 	size = EVBUFFER_LENGTH(src);
 	DPRINTF("%s: session %d: size %lu, to read %lld",
 	    __func__, con->se_id, size, cre->toread);
-	if (!size) {
+	if (size == 0) {
 		if (cre->dir == RELAY_DIR_RESPONSE)
 			return;
 		cre->toread = TOREAD_HTTP_HEADER;
 		goto done;
 	}
 
-	while (!cre->done && (line = evbuffer_readline(src)) != NULL) {
-		linelen = strlen(line);
+	while (!cre->done) {
+		line = evbuffer_readln(src, &linelen, EVBUFFER_EOL_CRLF);
+		if (line == NULL)
+			break;
 
 		/*
 		 * An empty line indicates the end of the request.
 		 * libevent already stripped the \r\n for us.
 		 */
-		if (!linelen) {
+		if (linelen == 0) {
 			cre->done = 1;
 			free(line);
 			break;
@@ -185,9 +190,10 @@ relay_read_http(struct bufferevent *bev, void *arg)
 
 		/* Limit the total header length minus \r\n */
 		cre->headerlen += linelen;
-		if (cre->headerlen > RELAY_MAXHEADERLENGTH) {
+		if (cre->headerlen > proto->httpheaderlen) {
 			free(line);
-			relay_abort_http(con, 413, "request too large", 0);
+			relay_abort_http(con, 413,
+			    "request headers too large", 0);
 			return;
 		}
 
@@ -322,19 +328,6 @@ relay_read_http(struct bufferevent *bev, void *arg)
 				goto abort;
 			}
 			/*
-			 * response with a status code of 1xx
-			 * (Informational) or 204 (No Content) MUST
-			 * not have a Content-Length (rfc 7230 3.3.3)
-			 */
-			if (desc->http_method == HTTP_METHOD_RESPONSE && (
-			    ((desc->http_status >= 100 &&
-			    desc->http_status < 200) ||
-			    desc->http_status == 204))) {
-				relay_abort_http(con, 500,
-				    "Internal Server Error", 0);
-				goto abort;
-			}
-			/*
 			 * Need to read data from the client after the
 			 * HTTP header.
 			 * XXX What about non-standard clients not using
@@ -344,6 +337,23 @@ relay_read_http(struct bufferevent *bev, void *arg)
 			cre->toread = strtonum(value, 0, LLONG_MAX, &errstr);
 			if (errstr) {
 				relay_abort_http(con, 500, errstr, 0);
+				goto abort;
+			}
+			/*
+			 * response with a status code of 1xx
+			 * (Informational) or 204 (No Content) MUST
+			 * not have a Content-Length (rfc 7230 3.3.3)
+			 * Instead we check for value != 0 because there are
+			 * servers that do not follow the rfc and send
+			 * Content-Length: 0.
+			 */
+			if (desc->http_method == HTTP_METHOD_RESPONSE && (
+			    ((desc->http_status >= 100 &&
+			    desc->http_status < 200) ||
+			    desc->http_status == 204)) &&
+			    cre->toread != 0) {
+				relay_abort_http(con, 502,
+				    "Bad Gateway", 0);
 				goto abort;
 			}
 		}
@@ -396,7 +406,7 @@ relay_read_http(struct bufferevent *bev, void *arg)
 		action = relay_test(proto, cre);
 		switch (action) {
 		case RES_FAIL:
-			relay_close(con, "filter rule failed");
+			relay_close(con, "filter rule failed", 1);
 			return;
 		case RES_BAD:
 			relay_abort_http(con, 400, "Bad Request",
@@ -502,12 +512,12 @@ relay_read_http(struct bufferevent *bev, void *arg)
 		}
 	}
 	if (con->se_done) {
-		relay_close(con, "last http read (done)");
+		relay_close(con, "last http read (done)", 0);
 		return;
 	}
 	switch (relay_splice(cre)) {
 	case -1:
-		relay_close(con, strerror(errno));
+		relay_close(con, strerror(errno), 1);
 	case 1:
 		return;
 	case 0:
@@ -579,10 +589,10 @@ relay_read_httpcontent(struct bufferevent *bev, void *arg)
 	/* The callback readcb() might have freed the session. */
 	return;
  done:
-	relay_close(con, "last http content read");
+	relay_close(con, "last http content read", 0);
 	return;
  fail:
-	relay_close(con, strerror(errno));
+	relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -594,7 +604,7 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 	struct evbuffer		*src = EVBUFFER_INPUT(bev);
 	char			*line;
 	long long		 llval;
-	size_t			 size;
+	size_t			 size, linelen;
 
 	getmonotime(&con->se_tv_last);
 	cre->timedout = 0;
@@ -625,13 +635,13 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 	}
 	switch (cre->toread) {
 	case TOREAD_HTTP_CHUNK_LENGTH:
-		line = evbuffer_readline(src);
+		line = evbuffer_readln(src, &linelen, EVBUFFER_EOL_CRLF);
 		if (line == NULL) {
 			/* Ignore empty line, continue */
 			bufferevent_enable(bev, EV_READ);
 			return;
 		}
-		if (strlen(line) == 0) {
+		if (linelen == 0) {
 			free(line);
 			goto next;
 		}
@@ -642,7 +652,7 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 		 */
 		if (sscanf(line, "%llx", &llval) != 1 || llval < 0) {
 			free(line);
-			relay_close(con, "invalid chunk size");
+			relay_close(con, "invalid chunk size", 1);
 			return;
 		}
 
@@ -660,7 +670,7 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 		break;
 	case TOREAD_HTTP_CHUNK_TRAILER:
 		/* Last chunk is 0 bytes followed by trailer and empty line */
-		line = evbuffer_readline(src);
+		line = evbuffer_readln(src, &linelen, EVBUFFER_EOL_CRLF);
 		if (line == NULL) {
 			/* Ignore empty line, continue */
 			bufferevent_enable(bev, EV_READ);
@@ -671,7 +681,7 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 			free(line);
 			goto fail;
 		}
-		if (strlen(line) == 0) {
+		if (linelen == 0) {
 			/* Switch to HTTP header mode */
 			cre->toread = TOREAD_HTTP_HEADER;
 			bev->readcb = relay_read_http;
@@ -680,7 +690,7 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 		break;
 	case 0:
 		/* Chunk is terminated by an empty newline */
-		line = evbuffer_readline(src);
+		line = evbuffer_readln(src, &linelen, EVBUFFER_EOL_CRLF);
 		free(line);
 		if (relay_bufferevent_print(cre->dst, "\r\n") == -1)
 			goto fail;
@@ -703,10 +713,10 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
 	return;
 
  done:
-	relay_close(con, "last http chunk read (done)");
+	relay_close(con, "last http chunk read (done)", 0);
 	return;
  fail:
-	relay_close(con, strerror(errno));
+	relay_close(con, strerror(errno), 1);
 }
 
 void
@@ -981,7 +991,7 @@ relay_abort_http(struct rsession *con, u_int code, const char *msg,
 	/* In some cases this function may be called from generic places */
 	if (rlay->rl_proto->type != RELAY_PROTO_HTTP ||
 	    (rlay->rl_proto->flags & F_RETURN) == 0) {
-		relay_close(con, msg);
+		relay_close(con, msg, 0);
 		return;
 	}
 
@@ -1050,9 +1060,9 @@ relay_abort_http(struct rsession *con, u_int code, const char *msg,
  done:
 	free(body);
 	if (asprintf(&httpmsg, "%s (%03d %s)", msg, code, httperr) == -1)
-		relay_close(con, msg);
+		relay_close(con, msg, 1);
 	else {
-		relay_close(con, httpmsg);
+		relay_close(con, httpmsg, 1);
 		free(httpmsg);
 	}
 }
@@ -1060,17 +1070,10 @@ relay_abort_http(struct rsession *con, u_int code, const char *msg,
 void
 relay_close_http(struct rsession *con)
 {
-	struct http_descriptor	*desc[2] = {
-		con->se_in.desc, con->se_out.desc
-	};
-	int			 i;
-
-	for (i = 0; i < 2; i++) {
-		if (desc[i] == NULL)
-			continue;
-		relay_httpdesc_free(desc[i]);
-		free(desc[i]);
-	}
+	relay_httpdesc_free(con->se_in.desc);
+	free(con->se_in.desc);
+	relay_httpdesc_free(con->se_out.desc);
+	free(con->se_out.desc);
 }
 
 char *

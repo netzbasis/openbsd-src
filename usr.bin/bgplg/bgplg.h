@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgplg.h,v 1.11 2017/08/09 19:15:18 phessler Exp $	*/
+/*	$OpenBSD: bgplg.h,v 1.16 2018/10/24 13:18:52 denis Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006 Reyk Floeter <reyk@openbsd.org>
@@ -20,8 +20,6 @@
 #define _BGPLG_H
 
 #define NAME		"bgplg"
-#define BRIEF		"a looking glass for OpenBGPD"
-#define COPYRIGHT	"2005, 2006 Reyk Floeter (reyk@openbsd.org)"
 
 #define BGPLG_TIMEOUT	60	/* 60 seconds */
 
@@ -49,21 +47,34 @@ struct cmd {
 	    { BGPCTL, "show", "ip", "bgp", "empty-as", NULL } },	\
 	{ "show ip bgp summary", 0, 0, NULL,				\
 	    { BGPCTL, "show", "ip", "bgp", "summary", NULL } },		\
+	{ "show ip bgp community", 1, 1, "&lt;community&gt;",		\
+	    { BGPCTL, "show","ip", "bgp", "community", NULL } },	\
+	{ "show ip bgp detail community", 1, 1, "&lt;community&gt;",	\
+	    { BGPCTL, "show","ip", "bgp", "detail", "community", NULL } },\
+	{ "show ip bgp ext-community", 2, 2, "&lt;ext-community&gt;",	\
+	    { BGPCTL, "show","ip", "bgp", "ext-community", NULL } },	\
+	{ "show ip bgp detail ext-community", 2, 2, "&lt;ext-community&gt;",\
+	    { BGPCTL, "show","ip", "bgp", "detail", "ext-community", NULL } },\
+	{ "show ip bgp large-community", 1, 1, "&lt;large-community&gt;",\
+	    { BGPCTL, "show","ip", "bgp", "large-community", NULL } },	\
+	{ "show ip bgp detail large-community", 1, 1, "&lt;large-community&gt;",\
+	    { BGPCTL, "show","ip", "bgp", "detail", "large-community", NULL } },\
 	{ "show ip bgp detail", 1, 1, "&lt;prefix&gt;",			\
 	    { BGPCTL, "show","ip", "bgp", "detail", NULL } },		\
-	{ "show ip bgp detail as", 1, 1, "&lt;prefix&gt;",		\
+	{ "show ip bgp detail as", 1, 1, "&lt;asnum&gt;",		\
 	    { BGPCTL, "show","ip", "bgp", "detail", "as", NULL } },	\
-	{ "show ip bgp in", 1, 1, "&lt;prefix&gt;",			\
-	    { BGPCTL, "show","ip", "bgp", "in", NULL } },		\
-	{ "show ip bgp out", 1, 1, "&lt;prefix&gt;",			\
-	    { BGPCTL, "show","ip", "bgp", "out", NULL } },		\
+	{ "show ip bgp in", 1, 1, "&lt;neighbor&gt;",			\
+	    { BGPCTL, "show","ip", "bgp", "in", "neighbor", NULL } },	\
+	{ "show ip bgp out", 1, 1, "&lt;neighbor&gt;",			\
+	    { BGPCTL, "show","ip", "bgp", "out", "neighbor", NULL } },	\
+	{ "show ip bgp ovs", 1, 1, "&lt;state&gt;",			\
+	    { BGPCTL, "show","ip", "bgp", "ovs", NULL } },		\
 	{ "show ip bgp memory", 0, 0, NULL,				\
 	    { BGPCTL, "show", "ip", "bgp", "memory", NULL } },		\
 	{ "show neighbor", 0, 1, NULL,					\
 	    { BGPCTL, "show", "neighbor", NULL } },			\
 	{ "show nexthop", 0, 0, NULL,					\
 	    { BGPCTL, "show", "nexthop", NULL } },			\
-	{ "show version", 0, 0, NULL, { NULL }, lg_show_version },	\
 	{ "traceroute", 1, 1, "&lt;address&gt;",			\
 	    { TRACEROUTE, "-ASl", NULL } },				\
 	{ "ping", 1, 1, "&lt;address&gt;",				\
@@ -76,7 +87,6 @@ struct cmd {
 	{ NULL }							\
 }
 
-int	 lg_show_version(struct cmd *, char **);
 int	 lg_help(struct cmd *, char **);
 int	 lg_exec(const char *, char **);
 int	 lg_checkperm(struct cmd *);

@@ -44,19 +44,23 @@ ENTRY(bcopy)
 	xchgq	%rdi,%rsi
 	/* fall into memmove */
 
-ENTRY(memmove)
+NENTRY(memmove)
+	RETGUARD_SETUP(memmove, r10)
 	movq	%rdi,%r11	/* save dest */
 	movq	%rdx,%rcx
 	movq	%rdi,%rax
 	subq	%rsi,%rax
 	cmpq	%rcx,%rax	/* overlapping? */
 	jb	1f
+#ifdef memcpy_in_asm
 	jmp	2f		/* nope */
 
-// ENTRY(memcpy)
+ENTRY(memcpy)
+	RETGUARD_SETUP(memmove, r10)
 	movq	%rdi,%r11	/* save dest */
 	movq	%rdx,%rcx
 2:
+#endif
 	cld			/* copy forwards. */
 	shrq	$3,%rcx		/* copy by words */
 	rep
@@ -66,7 +70,7 @@ ENTRY(memmove)
 	rep
 	movsb
 	movq	%r11,%rax
-	ret
+	jmp 3f
 1:
 	addq	%rcx,%rdi	/* copy backwards. */
 	addq	%rcx,%rsi
@@ -84,7 +88,10 @@ ENTRY(memmove)
 	movsq
 	movq	%r11,%rax
 	cld
+3:	RETGUARD_CHECK(memmove, r10)
 	ret
-// END(memcpy)
-END_STRONG(memmove)
+#ifdef memcpy_in_asm
+END_BUILTIN(memcpy)
+#endif
+END_BUILTIN(memmove)
 END_WEAK(bcopy)

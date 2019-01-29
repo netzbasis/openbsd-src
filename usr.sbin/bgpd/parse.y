@@ -1,12 +1,13 @@
-/*	$OpenBSD: parse.y,v 1.315 2017/08/21 14:41:22 phessler Exp $ */
+/*	$OpenBSD: parse.y,v 1.368 2018/12/30 13:53:07 denis Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
  * Copyright (c) 2001 Daniel Hartmeier.  All rights reserved.
  * Copyright (c) 2001 Theo de Raadt.  All rights reserved.
- * Copyright (c) 2016 Job Snijders <job@instituut.net>
+ * Copyright (c) 2016, 2017 Job Snijders <job@openbsd.org>
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
+ * Copyright (c) 2017, 2018 Sebastian Benoit <benno@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,6 +53,10 @@ static struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
+	size_t	 		 ungetpos;
+	size_t			 ungetsize;
+	u_char			*ungetbuf;
+	int			 eof_reached;
 	int			 lineno;
 	int			 errors;
 } *file, *topfile;
@@ -65,8 +70,9 @@ int		 yyerror(const char *, ...)
     __attribute__((__nonnull__ (1)));
 int		 kw_cmp(const void *, const void *);
 int		 lookup(char *);
+int		 igetc(void);
 int		 lgetc(int);
-int		 lungetc(int);
+void		 lungetc(int);
 int		 findeol(void);
 
 TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
@@ -86,6 +92,8 @@ static struct peer		*peer_l, *peer_l_old;
 static struct peer		*curpeer;
 static struct peer		*curgroup;
 static struct rdomain		*currdom;
+static struct prefixset		*curpset, *curoset;
+static struct prefixset_tree	*curpsitree;
 static struct filter_head	*filter_l;
 static struct filter_head	*peerfilter_l;
 static struct filter_head	*groupfilter_l;
@@ -123,6 +131,7 @@ struct filter_match_l {
 	struct filter_match	 m;
 	struct filter_prefix_l	*prefix_l;
 	struct filter_as_l	*as_l;
+	struct filter_prefixset	*prefixset;
 } fmopts;
 
 struct peer	*alloc_peer(void);
@@ -133,7 +142,7 @@ int		 add_mrtconfig(enum mrt_type, char *, int, struct peer *,
 int		 add_rib(char *, u_int, u_int16_t);
 struct rde_rib	*find_rib(char *);
 int		 get_id(struct peer *);
-int		 merge_prefixspec(struct filter_prefix_l *,
+int		 merge_prefixspec(struct filter_prefix *,
 		    struct filter_prefixlen *);
 int		 expand_rule(struct filter_rule *, struct filter_rib_l *,
 		    struct filter_peers_l *, struct filter_match_l *,
@@ -141,19 +150,18 @@ int		 expand_rule(struct filter_rule *, struct filter_rib_l *,
 int		 str2key(char *, char *, size_t);
 int		 neighbor_consistent(struct peer *);
 int		 merge_filterset(struct filter_set_head *, struct filter_set *);
-void		 copy_filterset(struct filter_set_head *,
-		    struct filter_set_head *);
-void		 merge_filter_lists(struct filter_head *, struct filter_head *);
+void		 optimize_filters(struct filter_head *);
 struct filter_rule	*get_rule(enum action_types);
 
-int		 getcommunity(char *);
-int		 parsecommunity(struct filter_community *, char *);
-int64_t 	 getlargecommunity(char *);
-int		 parselargecommunity(struct filter_largecommunity *, char *);
+int		 parsecommunity(struct filter_community *, int, char *);
 int		 parsesubtype(char *, int *, int *);
-int		 parseextvalue(char *, u_int32_t *);
-int		 parseextcommunity(struct filter_extcommunity *, char *,
+int		 parseextcommunity(struct filter_community *, char *,
 		    char *);
+static int	 new_as_set(char *);
+static void	 add_as_set(u_int32_t);
+static void	 done_as_set(void);
+static struct prefixset	*new_prefix_set(char *, int);
+static void	 add_roa_set(struct prefixset_item *, u_int32_t, u_int8_t);
 
 typedef struct {
 	union {
@@ -164,6 +172,7 @@ typedef struct {
 		struct filter_rib_l	*filter_rib;
 		struct filter_peers_l	*filter_peers;
 		struct filter_match_l	 filter_match;
+		struct filter_prefixset	*filter_prefixset;
 		struct filter_prefix_l	*filter_prefix;
 		struct filter_as_l	*filter_as;
 		struct filter_set	*filter_set;
@@ -173,6 +182,7 @@ typedef struct {
 			u_int8_t		len;
 		}			prefix;
 		struct filter_prefixlen	prefixlen;
+		struct prefixset_item	*prefixset_item;
 		struct {
 			u_int8_t		enc_alg;
 			char			enc_key[IPSEC_ENC_KEY_LEN];
@@ -185,7 +195,7 @@ typedef struct {
 %}
 
 %token	AS ROUTERID HOLDTIME YMIN LISTEN ON FIBUPDATE FIBPRIORITY RTABLE
-%token	RDOMAIN RD EXPORTTRGT IMPORTTRGT
+%token	RDOMAIN RD EXPORT EXPORTTRGT IMPORTTRGT
 %token	RDE RIB EVALUATE IGNORE COMPARE
 %token	GROUP NEIGHBOR NETWORK
 %token	EBGP IBGP
@@ -199,24 +209,27 @@ typedef struct {
 %token	QUICK
 %token	FROM TO ANY
 %token	CONNECTED STATIC
-%token	COMMUNITY EXTCOMMUNITY LARGECOMMUNITY
-%token	PREFIX PREFIXLEN SOURCEAS TRANSITAS PEERAS DELETE MAXASLEN MAXASSEQ
+%token	COMMUNITY EXTCOMMUNITY LARGECOMMUNITY DELETE
+%token	PREFIX PREFIXLEN PREFIXSET
+%token	ROASET ORIGINSET OVS
+%token	ASSET SOURCEAS TRANSITAS PEERAS MAXASLEN MAXASSEQ
 %token	SET LOCALPREF MED METRIC NEXTHOP REJECT BLACKHOLE NOMODIFY SELF
-%token	PREPEND_SELF PREPEND_PEER PFTABLE WEIGHT RTLABEL ORIGIN
+%token	PREPEND_SELF PREPEND_PEER PFTABLE WEIGHT RTLABEL ORIGIN PRIORITY
 %token	ERROR INCLUDE
 %token	IPSEC ESP AH SPI IKE
 %token	IPV4 IPV6
 %token	QUALIFY VIA
-%token	NE LE GE XRANGE LONGER
+%token	NE LE GE XRANGE LONGER MAXLEN
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %type	<v.number>		asnumber as4number as4number_any optnumber
 %type	<v.number>		espah family restart origincode nettype
-%type	<v.number>		yesno inout restricted
+%type	<v.number>		yesno inout restricted validity
 %type	<v.string>		string
 %type	<v.addr>		address
 %type	<v.prefix>		prefix addrspec
-%type	<v.u8>			action quick direction delete
+%type	<v.prefixset_item>	prefixset_item
+%type	<v.u8>			action quick direction delete community
 %type	<v.filter_rib>		filter_rib_h filter_rib_l filter_rib
 %type	<v.filter_peers>	filter_peer filter_peer_l filter_peer_h
 %type	<v.filter_match>	filter_match filter_elm filter_match_h
@@ -233,9 +246,13 @@ typedef struct {
 
 grammar		: /* empty */
 		| grammar '\n'
-		| grammar include '\n'
-		| grammar conf_main '\n'
 		| grammar varset '\n'
+		| grammar include '\n'
+		| grammar as_set '\n'
+		| grammar prefixset '\n'
+		| grammar roa_set '\n'
+		| grammar origin_set '\n'
+		| grammar conf_main '\n'
 		| grammar rdomain '\n'
 		| grammar neighbor '\n'
 		| grammar group '\n'
@@ -279,17 +296,17 @@ as4number	: STRING			{
 				free($1);
 				YYERROR;
 			}
-			if (uvalh == 0 && uval == AS_TRANS) {
+			if (uvalh == 0 && (uval == AS_TRANS || uval == 0)) {
 				yyerror("AS %u is reserved and may not be used",
-				    AS_TRANS);
+				    uval);
 				YYERROR;
 			}
 			$$ = uval | (uvalh << 16);
 		}
 		| asnumber {
-			if ($1 == AS_TRANS) {
+			if ($1 == AS_TRANS || $1 == 0) {
 				yyerror("AS %u is reserved and may not be used",
-				    AS_TRANS);
+				    (u_int32_t)$1);
 				YYERROR;
 			}
 			$$ = $1;
@@ -360,6 +377,8 @@ varset		: STRING '=' string		{
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -382,6 +401,145 @@ include		: INCLUDE STRING		{
 
 			file = nfile;
 			lungetc('\n');
+		}
+		;
+
+as_set		: ASSET STRING '{' optnl	{
+			if (new_as_set($2) != 0) {
+				free($2);
+				YYERROR;
+			}
+			free($2);
+		} as_set_l optnl '}' {
+			done_as_set();
+		}
+		| ASSET STRING '{' optnl '}'	{
+			if (new_as_set($2) != 0) {
+				free($2);
+				YYERROR;
+			}
+			free($2);
+		}
+
+as_set_l	: as4number_any			{ add_as_set($1); }
+		| as_set_l comma as4number_any	{ add_as_set($3); }
+
+prefixset	: PREFIXSET STRING '{' optnl		{
+			if ((curpset = new_prefix_set($2, 0)) == NULL) {
+				free($2);
+				YYERROR;
+			}
+			free($2);
+		} prefixset_l optnl '}'			{
+			SIMPLEQ_INSERT_TAIL(&conf->prefixsets, curpset, entry);
+			curpset = NULL;
+		}
+		| PREFIXSET STRING '{' optnl '}'	{
+			if ((curpset = new_prefix_set($2, 0)) == NULL) {
+				free($2);
+				YYERROR;
+			}
+			free($2);
+			SIMPLEQ_INSERT_TAIL(&conf->prefixsets, curpset, entry);
+			curpset = NULL;
+		}
+
+prefixset_l	: prefixset_item			{
+			struct prefixset_item	*psi;
+			if ($1->p.op != OP_NONE)
+				curpset->sflags |= PREFIXSET_FLAG_OPS;
+			psi = RB_INSERT(prefixset_tree, &curpset->psitems, $1);
+			if (psi != NULL) {
+				if (cmd_opts & BGPD_OPT_VERBOSE2)
+					log_warnx("warning: duplicate entry in "
+					    "prefixset \"%s\" for %s/%u",
+					    curpset->name,
+					    log_addr(&$1->p.addr), $1->p.len);
+				free($1);
+			}
+		}
+		| prefixset_l comma prefixset_item	{
+			struct prefixset_item	*psi;
+			if ($3->p.op != OP_NONE)
+				curpset->sflags |= PREFIXSET_FLAG_OPS;
+			psi = RB_INSERT(prefixset_tree, &curpset->psitems, $3);
+			if (psi != NULL) {
+				if (cmd_opts & BGPD_OPT_VERBOSE2)
+					log_warnx("warning: duplicate entry in "
+					    "prefixset \"%s\" for %s/%u",
+					    curpset->name,
+					    log_addr(&$3->p.addr), $3->p.len);
+				free($3);
+			}
+		}
+		;
+
+prefixset_item	: prefix prefixlenop			{
+			if ($2.op != OP_NONE && $2.op != OP_RANGE) {
+				yyerror("unsupported prefixlen operation in "
+				    "prefix-set");
+				YYERROR;
+			}
+			if (($$ = calloc(1, sizeof(*$$))) == NULL)
+				fatal(NULL);
+			memcpy(&$$->p.addr, &$1.prefix, sizeof($$->p.addr));
+			$$->p.len = $1.len;
+			if (merge_prefixspec(&$$->p, &$2) == -1) {
+				free($$);
+				YYERROR;
+			}
+		}
+		;
+
+roa_set		: ROASET '{' optnl		{
+			curpsitree = &conf->roa;
+		} roa_set_l optnl '}'			{
+			curpsitree = NULL;
+		}
+		| ROASET '{' optnl '}'		/* nothing */
+		;
+
+origin_set	: ORIGINSET STRING '{' optnl		{
+			if ((curoset = new_prefix_set($2, 1)) == NULL) {
+				free($2);
+				YYERROR;
+			}
+			curpsitree = &curoset->psitems;
+			free($2);
+		} roa_set_l optnl '}'			{
+			SIMPLEQ_INSERT_TAIL(&conf->originsets, curoset, entry);
+			curoset = NULL;
+			curpsitree = NULL;
+		}
+		| ORIGINSET STRING '{' optnl '}'		{
+			if ((curoset = new_prefix_set($2, 1)) == NULL) {
+				free($2);
+				YYERROR;
+			}
+			free($2);
+			SIMPLEQ_INSERT_TAIL(&conf->originsets, curoset, entry);
+			curoset = NULL;
+			curpsitree = NULL;
+		}
+		;
+
+roa_set_l	: prefixset_item SOURCEAS as4number_any			{
+			if ($1->p.len_min != $1->p.len) {
+				yyerror("unsupported prefixlen operation in "
+				    "roa-set");
+				free($1);
+				YYERROR;
+			}
+			add_roa_set($1, $3, $1->p.len_max);
+		}
+		| roa_set_l comma prefixset_item SOURCEAS as4number_any	{
+			if ($3->p.len_min != $3->p.len) {
+				yyerror("unsupported prefixlen operation in "
+				    "roa-set");
+				free($3);
+				YYERROR;
+			}
+			add_roa_set($3, $5, $3->p.len_max);
 		}
 		;
 
@@ -475,6 +633,11 @@ conf_main	: AS as4number		{
 			free($3);
 		}
 		| RDE RIB STRING RTABLE NUMBER {
+			if ($5 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $5,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if (add_rib($3, $5, 0)) {
 				free($3);
 				YYERROR;
@@ -483,6 +646,11 @@ conf_main	: AS as4number		{
 		}
 		| RDE RIB STRING RTABLE NUMBER FIBUPDATE yesno {
 			int	flags = 0;
+			if ($5 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $5,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if ($7 == 0)
 				flags = F_RIB_NOFIBSYNC;
 			if (add_rib($3, $5, flags)) {
@@ -616,6 +784,11 @@ conf_main	: AS as4number		{
 		}
 		| RTABLE NUMBER {
 			struct rde_rib *rr;
+			if ($2 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $2,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
 			if (ktable_exists($2, NULL) != 1) {
 				yyerror("rtable id %lld does not exist", $2);
 				YYERROR;
@@ -698,6 +871,35 @@ network		: NETWORK prefix filter_set	{
 
 			TAILQ_INSERT_TAIL(netconf, n, entry);
 		}
+		| NETWORK PREFIXSET STRING filter_set	{
+			struct prefixset *ps;
+			struct network	*n;
+			if ((ps = find_prefixset($3, &conf->prefixsets))
+			    == NULL) {
+				yyerror("prefix-set '%s' not defined", $3);
+				free($3);
+				filterset_free($4);
+				free($4);
+				YYERROR;
+			}
+			if (ps->sflags & PREFIXSET_FLAG_OPS) {
+				yyerror("prefix-set %s has prefixlen operators "
+				    "and cannot be used in network statements.",
+				    ps->name);
+				free($3);
+				filterset_free($4);
+				free($4);
+				YYERROR;
+			}
+			if ((n = calloc(1, sizeof(struct network))) == NULL)
+				fatal("new_network");
+			strlcpy(n->net.psname, ps->name, sizeof(n->net.psname));
+			filterset_move($4, &n->net.attrset);
+			n->net.type = NETWORK_PREFIXSET;
+			TAILQ_INSERT_TAIL(netconf, n, entry);
+			free($3);
+			free($4);
+		}
 		| NETWORK family RTLABEL STRING filter_set	{
 			struct network	*n;
 
@@ -712,6 +914,30 @@ network		: NETWORK prefix filter_set	{
 			}
 			n->net.type = NETWORK_RTLABEL;
 			n->net.rtlabel = rtlabel_name2id($4);
+			filterset_move($5, &n->net.attrset);
+			free($5);
+
+			TAILQ_INSERT_TAIL(netconf, n, entry);
+		}
+		| NETWORK family PRIORITY NUMBER filter_set	{
+			struct network	*n;
+			if ($4 < RTP_LOCAL && $4 > RTP_MAX) {
+				yyerror("priority %lld > max %d or < min %d", $4,
+				    RTP_MAX, RTP_LOCAL);
+				YYERROR;
+			}
+
+			if ((n = calloc(1, sizeof(struct network))) == NULL)
+				fatal("new_network");
+			if (afi2aid($2, SAFI_UNICAST, &n->net.prefix.aid) ==
+			    -1) {
+				yyerror("unknown family");
+				filterset_free($5);
+				free($5);
+				YYERROR;
+			}
+			n->net.type = NETWORK_PRIORITY;
+			n->net.priority = $4;
 			filterset_move($5, &n->net.attrset);
 			free($5);
 
@@ -768,7 +994,6 @@ address		: STRING		{
 
 prefix		: STRING '/' NUMBER	{
 			char	*s;
-
 			if ($3 < 0 || $3 > 128) {
 				yyerror("bad prefixlen %lld", $3);
 				free($1);
@@ -815,19 +1040,18 @@ addrspec	: address	{
 		| prefix
 		;
 
-optnl		: '\n' optnl
-		|
-		;
-
-nl		: '\n' optnl		/* one newline or more */
-		;
-
 optnumber	: /* empty */		{ $$ = 0; }
 		| NUMBER
 		;
 
-rdomain		: RDOMAIN NUMBER optnl '{' optnl	{
-			if (ktable_exists($2, NULL) != 1) {
+rdomain		: RDOMAIN NUMBER			{
+			if ($2 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $2,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
+			if ((cmd_opts & BGPD_OPT_NOACTION) == 0 &&
+			    ktable_exists($2, NULL) != 1) {
 				yyerror("rdomain %lld does not exist", $2);
 				YYERROR;
 			}
@@ -838,24 +1062,23 @@ rdomain		: RDOMAIN NUMBER optnl '{' optnl	{
 			TAILQ_INIT(&currdom->export);
 			TAILQ_INIT(&currdom->net_l);
 			netconf = &currdom->net_l;
-		}
-		    rdomainopts_l '}' {
+		} '{' rdomainopts_l '}'	{
 			/* insert into list */
 			SIMPLEQ_INSERT_TAIL(&conf->rdomains, currdom, entry);
 			currdom = NULL;
 			netconf = &conf->networks;
 		}
-
-rdomainopts_l	: rdomainopts_l rdomainoptsl
-		| rdomainoptsl
 		;
 
-rdomainoptsl	: rdomainopts nl
+rdomainopts_l	: /* empty */
+		| rdomainopts_l '\n'
+		| rdomainopts_l rdomainopts '\n'
+		| rdomainopts_l error '\n'
 		;
 
 rdomainopts	: RD STRING {
-			struct filter_extcommunity	ext;
-			u_int64_t			rd;
+			struct filter_community	ext;
+			u_int64_t		rd;
 
 			if (parseextcommunity(&ext, "rt", $2) == -1) {
 				free($2);
@@ -871,7 +1094,7 @@ rdomainopts	: RD STRING {
 				YYERROR;
 			}
 			rd = betoh64(rd) & 0xffffffffffffULL;
-			switch (ext.type) {
+			switch (ext.c.e.type) {
 			case EXT_COMMUNITY_TRANS_TWO_AS:
 				rd |= (0ULL << 48);
 				break;
@@ -893,8 +1116,8 @@ rdomainopts	: RD STRING {
 			if ((set = calloc(1, sizeof(struct filter_set))) ==
 			    NULL)
 				fatal(NULL);
-			set->type = ACTION_SET_EXT_COMMUNITY;
-			if (parseextcommunity(&set->action.ext_community,
+			set->type = ACTION_SET_COMMUNITY;
+			if (parseextcommunity(&set->action.community,
 			    $2, $3) == -1) {
 				free($3);
 				free($2);
@@ -911,8 +1134,8 @@ rdomainopts	: RD STRING {
 			if ((set = calloc(1, sizeof(struct filter_set))) ==
 			    NULL)
 				fatal(NULL);
-			set->type = ACTION_SET_EXT_COMMUNITY;
-			if (parseextcommunity(&set->action.ext_community,
+			set->type = ACTION_SET_COMMUNITY;
+			if (parseextcommunity(&set->action.community,
 			    $2, $3) == -1) {
 				free($3);
 				free($2);
@@ -943,14 +1166,17 @@ rdomainopts	: RD STRING {
 		| network
 		| DEPEND ON STRING	{
 			/* XXX this is a hack */
-			if (if_nametoindex($3) == 0) {
+			if ((cmd_opts & BGPD_OPT_NOACTION) == 0 &&
+			    if_nametoindex($3) == 0) {
 				yyerror("interface %s does not exist", $3);
 				free($3);
 				YYERROR;
 			}
 			strlcpy(currdom->ifmpe, $3, IFNAMSIZ);
 			free($3);
-			if (get_mpe_label(currdom)) {
+			/* XXX this is in the wrong place */
+			if ((cmd_opts & BGPD_OPT_NOACTION) == 0 &&
+			    get_mpe_label(currdom)) {
 				yyerror("failed to get mpls label from %s",
 				    currdom->ifmpe);
 				YYERROR;
@@ -966,10 +1192,8 @@ neighbor	: {	curpeer = new_peer(); }
 			if (($3.prefix.aid == AID_INET && $3.len != 32) ||
 			    ($3.prefix.aid == AID_INET6 && $3.len != 128))
 				curpeer->conf.template = 1;
-			if (curpeer->conf.capabilities.mp[
-			    curpeer->conf.remote_addr.aid] == -1)
-				curpeer->conf.capabilities.mp[
-				    curpeer->conf.remote_addr.aid] = 1;
+			curpeer->conf.capabilities.mp[
+			    curpeer->conf.remote_addr.aid] = 1;
 			if (get_id(curpeer)) {
 				yyerror("get_id failed");
 				YYERROR;
@@ -993,7 +1217,7 @@ neighbor	: {	curpeer = new_peer(); }
 		}
 		;
 
-group		: GROUP string optnl '{' optnl {
+group		: GROUP string 			{
 			curgroup = curpeer = new_group();
 			if (strlcpy(curgroup->conf.group, $2,
 			    sizeof(curgroup->conf.group)) >=
@@ -1008,8 +1232,7 @@ group		: GROUP string optnl '{' optnl {
 				yyerror("get_id failed");
 				YYERROR;
 			}
-		}
-		    groupopts_l '}' {
+		} '{' groupopts_l '}'		{
 			if (curgroup_filter[0] != NULL)
 				TAILQ_INSERT_TAIL(groupfilter_l,
 				    curgroup_filter[0], entry);
@@ -1024,24 +1247,22 @@ group		: GROUP string optnl '{' optnl {
 		}
 		;
 
-groupopts_l	: groupopts_l groupoptsl
-		| groupoptsl
+groupopts_l	: /* empty */
+		| groupopts_l '\n'
+		| groupopts_l peeropts '\n'
+		| groupopts_l neighbor '\n'
+		| groupopts_l error '\n'
 		;
 
-groupoptsl	: peeropts nl
-		| neighbor nl
-		| error nl
-		;
-
-peeropts_h	: '{' optnl peeropts_l '}'
+peeropts_h	: '{' '\n' peeropts_l '}'
+		| '{' peeropts '}'
 		| /* empty */
 		;
 
-peeropts_l	: peeropts_l peeroptsl
-		| peeroptsl
-		;
-
-peeroptsl	: peeropts nl
+peeropts_l	: /* empty */
+		| peeropts_l '\n'
+		| peeropts_l peeropts '\n'
+		| peeropts_l error '\n'
 		;
 
 peeropts	: REMOTEAS as4number	{
@@ -1167,20 +1388,45 @@ peeropts	: REMOTEAS as4number	{
 			curpeer->conf.capabilities.as4byte = $3;
 		}
 		| ANNOUNCE SELF {
-			curpeer->conf.announce_type = ANNOUNCE_SELF;
+			yyerror("support for the 'announce self' directive has"
+			    " been removed. Urgent configuration review "
+			    "required!");
+			YYERROR;
 		}
 		| ANNOUNCE STRING {
-			if (!strcmp($2, "self"))
-				curpeer->conf.announce_type = ANNOUNCE_SELF;
-			else if (!strcmp($2, "none"))
-				curpeer->conf.announce_type = ANNOUNCE_NONE;
-			else if (!strcmp($2, "all"))
-				curpeer->conf.announce_type = ANNOUNCE_ALL;
+			if (!strcmp($2, "all"))
+				logit(LOG_ERR, "%s:%d: %s", file->name,
+				    yylval.lineno,
+				    "warning: 'announce all' is deprecated");
+			else if (!strcmp($2, "none")) {
+				logit(LOG_ERR, "%s:%d: %s", file->name,
+				    yylval.lineno,
+				    "warning: 'announce none' is deprecated, "
+				    "use 'export none' instead");
+				curpeer->conf.export_type = EXPORT_NONE;
+			} else if (!strcmp($2, "default-route")) {
+				logit(LOG_ERR, "%s:%d: %s", file->name,
+				    yylval.lineno,
+				    "warning: 'announce default-route' is "
+				    "deprecated, use 'export default-route' "
+				    "instead");
+				curpeer->conf.export_type =
+				    EXPORT_DEFAULT_ROUTE;
+			} else {
+				yyerror("syntax error: unknown '%s'", $2);
+				free($2);
+				YYERROR;
+			}
+			free($2);
+		}
+		| EXPORT STRING {
+			if (!strcmp($2, "none"))
+				curpeer->conf.export_type = EXPORT_NONE;
 			else if (!strcmp($2, "default-route"))
-				curpeer->conf.announce_type =
-				    ANNOUNCE_DEFAULT_ROUTE;
+				curpeer->conf.export_type =
+				    EXPORT_DEFAULT_ROUTE;
 			else {
-				yyerror("invalid announce type");
+				yyerror("invalid export type");
 				free($2);
 				YYERROR;
 			}
@@ -1353,17 +1599,17 @@ peeropts	: REMOTEAS as4number	{
 			if (merge_filterset(&r->set, $2) == -1)
 				YYERROR;
 		}
-		| SET optnl "{" optnl filter_set_l optnl "}"	{
+		| SET "{" optnl filter_set_l optnl "}"	{
 			struct filter_rule	*r;
 			struct filter_set	*s;
 
-			while ((s = TAILQ_FIRST($5)) != NULL) {
-				TAILQ_REMOVE($5, s, entry);
+			while ((s = TAILQ_FIRST($4)) != NULL) {
+				TAILQ_REMOVE($4, s, entry);
 				r = get_rule(s->type);
 				if (merge_filterset(&r->set, s) == -1)
 					YYERROR;
 			}
-			free($5);
+			free($4);
 		}
 		| mrtdump
 		| REFLECTOR		{
@@ -1500,7 +1746,8 @@ encspec		: /* nada */	{
 		}
 		;
 
-filterrule	: action quick filter_rib_h direction filter_peer_h filter_match_h filter_set
+filterrule	: action quick filter_rib_h direction filter_peer_h
+				filter_match_h filter_set
 		{
 			struct filter_rule	 r;
 			struct filter_rib_l	 *rb, *rbnext;
@@ -1541,7 +1788,7 @@ direction	: FROM		{ $$ = DIR_IN; }
 
 filter_rib_h	: /* empty */			{ $$ = NULL; }
 		| RIB filter_rib		{ $$ = $2; }
-		| RIB '{' filter_rib_l '}'	{ $$ = $3; }
+		| RIB '{' optnl filter_rib_l optnl '}'	{ $$ = $4; }
 
 filter_rib_l	: filter_rib			{ $$ = $1; }
 		| filter_rib_l comma filter_rib	{
@@ -1573,7 +1820,7 @@ filter_rib	: STRING	{
 		;
 
 filter_peer_h	: filter_peer
-		| '{' filter_peer_l '}'		{ $$ = $2; }
+		| '{' optnl filter_peer_l optnl '}'	{ $$ = $3; }
 		;
 
 filter_peer_l	: filter_peer				{ $$ = $1; }
@@ -1653,25 +1900,31 @@ filter_peer	: ANY		{
 		;
 
 filter_prefix_h	: IPV4 prefixlenop			 {
-			if ($2.op == OP_NONE)
-				$2.op = OP_GE;
+			if ($2.op == OP_NONE) {
+				$2.op = OP_RANGE;
+				$2.len_min = 0;
+				$2.len_max = -1;
+			}
 			if (($$ = calloc(1, sizeof(struct filter_prefix_l))) ==
 			    NULL)
 				fatal(NULL);
 			$$->p.addr.aid = AID_INET;
-			if (merge_prefixspec($$, &$2) == -1) {
+			if (merge_prefixspec(&$$->p, &$2) == -1) {
 				free($$);
 				YYERROR;
 			}
 		}
 		| IPV6 prefixlenop			{
-			if ($2.op == OP_NONE)
-				$2.op = OP_GE;
+			if ($2.op == OP_NONE) {
+				$2.op = OP_RANGE;
+				$2.len_min = 0;
+				$2.len_max = -1;
+			}
 			if (($$ = calloc(1, sizeof(struct filter_prefix_l))) ==
 			    NULL)
 				fatal(NULL);
 			$$->p.addr.aid = AID_INET6;
-			if (merge_prefixspec($$, &$2) == -1) {
+			if (merge_prefixspec(&$$->p, &$2) == -1) {
 				free($$);
 				YYERROR;
 			}
@@ -1692,9 +1945,9 @@ filter_prefix_m	: filter_prefix_l
 			if (p != NULL)
 				p->next = $4;
 			$$ = $2;
-		} 
+		}
 
-filter_prefix_l	: filter_prefix				{ $$ = $1; }
+filter_prefix_l	: filter_prefix			{ $$ = $1; }
 		| filter_prefix_l comma filter_prefix	{
 			$3->next = $1;
 			$$ = $3;
@@ -1709,7 +1962,7 @@ filter_prefix	: prefix prefixlenop			{
 			    sizeof($$->p.addr));
 			$$->p.len = $1.len;
 
-			if (merge_prefixspec($$, &$2) == -1) {
+			if (merge_prefixspec(&$$->p, &$2) == -1) {
 				free($$);
 				YYERROR;
 			}
@@ -1744,6 +1997,27 @@ filter_as_t	: filter_as_type filter_as			{
 			for (a = $$; a != NULL; a = a->next)
 				a->a.type = $1;
 		}
+		| filter_as_type ASSET STRING {
+			if (as_sets_lookup(conf->as_sets, $3) == NULL) {
+				yyerror("as-set \"%s\" not defined", $3);
+				free($3);
+				YYERROR;
+			}
+			if (($$ = calloc(1, sizeof(struct filter_as_l))) ==
+			    NULL)
+				fatal(NULL);
+			$$->a.type = $1;
+			$$->a.flags = AS_FLAG_AS_SET_NAME;
+			if (strlcpy($$->a.name, $3, sizeof($$->a.name)) >=
+			    sizeof($$->a.name)) {
+				yyerror("as-set name \"%s\" too long: "
+				    "max %zu", $3, sizeof($$->a.name) - 1);
+				free($3);
+				free($$);
+				YYERROR;
+			}
+			free($3);
+		}
 		;
 
 filter_as_l_h	: filter_as_l
@@ -1772,7 +2046,8 @@ filter_as	: as4number_any		{
 			if (($$ = calloc(1, sizeof(struct filter_as_l))) ==
 			    NULL)
 				fatal(NULL);
-			$$->a.as = $1;
+			$$->a.as_min = $1;
+			$$->a.as_max = $1;
 			$$->a.op = OP_EQ;
 		}
 		| NEIGHBORAS		{
@@ -1786,7 +2061,8 @@ filter_as	: as4number_any		{
 			    NULL)
 				fatal(NULL);
 			$$->a.op = $1;
-			$$->a.as = $2;
+			$$->a.as_min = $2;
+			$$->a.as_max = $2;
 		}
 		| as4number_any binaryop as4number_any {
 			if (($$ = calloc(1, sizeof(struct filter_as_l))) ==
@@ -1804,13 +2080,9 @@ filter_as	: as4number_any		{
 
 filter_match_h	: /* empty */			{
 			bzero(&$$, sizeof($$));
-			$$.m.community.as = COMMUNITY_UNSET;
-			$$.m.large_community.as = COMMUNITY_UNSET;
 		}
 		| {
 			bzero(&fmopts, sizeof(fmopts));
-			fmopts.m.community.as = COMMUNITY_UNSET;
-			fmopts.m.large_community.as = COMMUNITY_UNSET;
 		}
 		    filter_match		{
 			memcpy(&$$, &fmopts, sizeof($$));
@@ -1824,6 +2096,12 @@ filter_match	: filter_elm
 filter_elm	: filter_prefix_h	{
 			if (fmopts.prefix_l != NULL) {
 				yyerror("\"prefix\" already specified");
+				YYERROR;
+			}
+			if (fmopts.m.prefixset.name[0] != '\0') {
+				yyerror("\"prefix-set\" already specified, "
+				    "cannot be used with \"prefix\" in the "
+				    "same filter rule");
 				YYERROR;
 			}
 			fmopts.prefix_l = $1;
@@ -1859,46 +2137,66 @@ filter_elm	: filter_prefix_h	{
 			fmopts.m.aslen.type = ASLEN_SEQ;
 			fmopts.m.aslen.aslen = $2;
 		}
-		| COMMUNITY STRING	{
-			if (fmopts.m.community.as != COMMUNITY_UNSET) {
-				yyerror("\"community\" already specified");
+		| community STRING	{
+			int i;
+			for (i = 0; i < MAX_COMM_MATCH; i++) {
+				if (fmopts.m.community[i].type ==
+				    COMMUNITY_TYPE_NONE)
+					break;
+			}
+			if (i >= MAX_COMM_MATCH) {
+				yyerror("too many \"community\" filters "
+				    "specified");
 				free($2);
 				YYERROR;
 			}
-			if (parsecommunity(&fmopts.m.community, $2) == -1) {
-				free($2);
-				YYERROR;
-			}
-			free($2);
-		}
-		| LARGECOMMUNITY STRING	{
-			if (fmopts.m.large_community.as != COMMUNITY_UNSET) {
-				yyerror("\"large-community\" already specified");
-				free($2);
-				YYERROR;
-			}
-			if (parselargecommunity(&fmopts.m.large_community, $2) == -1) {
+			if (parsecommunity(&fmopts.m.community[i], $1, $2) == -1) {
 				free($2);
 				YYERROR;
 			}
 			free($2);
 		}
 		| EXTCOMMUNITY STRING STRING {
-			if (fmopts.m.ext_community.flags &
-			    EXT_COMMUNITY_FLAG_VALID) {
-				yyerror("\"ext-community\" already specified");
+			int i;
+			for (i = 0; i < MAX_COMM_MATCH; i++) {
+				if (fmopts.m.community[i].type ==
+				    COMMUNITY_TYPE_NONE)
+					break;
+			}
+			if (i >= MAX_COMM_MATCH) {
+				yyerror("too many \"community\" filters "
+				    "specified");
 				free($2);
 				free($3);
 				YYERROR;
 			}
-
-			if (parseextcommunity(&fmopts.m.ext_community,
+			if (parseextcommunity(&fmopts.m.community[i],
 			    $2, $3) == -1) {
 				free($2);
 				free($3);
 				YYERROR;
 			}
 			free($2);
+			free($3);
+		}
+		| EXTCOMMUNITY OVS STRING {
+			int i;
+			for (i = 0; i < MAX_COMM_MATCH; i++) {
+				if (fmopts.m.community[i].type ==
+				    COMMUNITY_TYPE_NONE)
+					break;
+			}
+			if (i >= MAX_COMM_MATCH) {
+				yyerror("too many \"community\" filters "
+				    "specified");
+				free($3);
+				YYERROR;
+			}
+			if (parseextcommunity(&fmopts.m.community[i],
+			    "ovs", $3) == -1) {
+				free($3);
+				YYERROR;
+			}
 			free($3);
 		}
 		| NEXTHOP address 	{
@@ -1916,26 +2214,145 @@ filter_elm	: filter_prefix_h	{
 			}
 			fmopts.m.nexthop.flags = FILTER_NEXTHOP_NEIGHBOR;
 		}
+		| PREFIXSET STRING prefixlenop {
+			struct prefixset *ps;
+			if (fmopts.prefix_l != NULL) {
+				yyerror("\"prefix\" already specified, cannot "
+				    "be used with \"prefix-set\" in the same "
+				    "filter rule");
+				free($2);
+				YYERROR;
+			}
+			if (fmopts.m.prefixset.name[0] != '\0') {
+				yyerror("prefix-set filter already specified");
+				free($2);
+				YYERROR;
+			}
+			if ((ps = find_prefixset($2, &conf->prefixsets))
+			    == NULL) {
+				yyerror("prefix-set '%s' not defined", $2);
+				free($2);
+				YYERROR;
+			}
+			if (strlcpy(fmopts.m.prefixset.name, $2,
+			    sizeof(fmopts.m.prefixset.name)) >=
+			    sizeof(fmopts.m.prefixset.name)) {
+				yyerror("prefix-set name too long");
+				free($2);
+				YYERROR;
+			}
+			if (!($3.op == OP_NONE ||
+			    ($3.op == OP_RANGE &&
+			     $3.len_min == -1 && $3.len_max == -1))) {
+				yyerror("prefix-sets can only use option "
+				    "or-longer");
+				free($2);
+				YYERROR;
+			}
+			if ($3.op == OP_RANGE && ps->sflags & PREFIXSET_FLAG_OPS) {
+				yyerror("prefix-set %s contains prefixlen "
+				    "operators and cannot be used with an "
+				    "or-longer filter", $2);
+				free($2);
+				YYERROR;
+			}
+			if ($3.op == OP_RANGE && $3.len_min == -1 &&
+			    $3.len_min == -1)
+				fmopts.m.prefixset.flags |=
+				    PREFIXSET_FLAG_LONGER;
+			fmopts.m.prefixset.flags |= PREFIXSET_FLAG_FILTER;
+			free($2);
+		}
+		| ORIGINSET STRING {
+			if (fmopts.m.originset.name[0] != '\0') {
+				yyerror("origin-set filter already specified");
+				free($2);
+				YYERROR;
+			}
+			if (find_prefixset($2, &conf->originsets) == NULL) {
+				yyerror("origin-set '%s' not defined", $2);
+				free($2);
+				YYERROR;
+			}
+			if (strlcpy(fmopts.m.originset.name, $2,
+			    sizeof(fmopts.m.originset.name)) >=
+			    sizeof(fmopts.m.originset.name)) {
+				yyerror("origin-set name too long");
+				free($2);
+				YYERROR;
+			}
+			free($2);
+		}
+		| OVS validity		{
+			if (fmopts.m.ovs.is_set) {
+				yyerror("ovs filter already specified");
+				YYERROR;
+			}
+			fmopts.m.ovs.validity = $2;
+			fmopts.m.ovs.is_set = 1;
+		}
 		;
 
 prefixlenop	: /* empty */			{ bzero(&$$, sizeof($$)); }
 		| LONGER				{
 			bzero(&$$, sizeof($$));
-			$$.op = OP_GE;
+			$$.op = OP_RANGE;
 			$$.len_min = -1;
+			$$.len_max = -1;
+		}
+		| MAXLEN NUMBER				{
+			bzero(&$$, sizeof($$));
+			if ($2 < 0 || $2 > 128) {
+				yyerror("prefixlen must be >= 0 and <= 128");
+				YYERROR;
+			}
+
+			$$.op = OP_RANGE;
+			$$.len_min = -1;
+			$$.len_max = $2;
 		}
 		| PREFIXLEN unaryop NUMBER		{
+			int min, max;
+
 			bzero(&$$, sizeof($$));
 			if ($3 < 0 || $3 > 128) {
 				yyerror("prefixlen must be >= 0 and <= 128");
 				YYERROR;
 			}
-			if ($2 == OP_GT && $3 == 0) {
-				yyerror("prefixlen must be > 0");
+			/*
+			 * convert the unary operation into the equivalent
+			 * range check
+			 */
+			$$.op = OP_RANGE;
+
+			switch ($2) {
+			case OP_NE:
+				$$.op = $2;
+			case OP_EQ:
+				min = max = $3;
+				break;
+			case OP_LT:
+				if ($3 == 0) {
+					yyerror("prefixlen must be > 0");
+					YYERROR;
+				}
+				$3 -= 1;
+			case OP_LE:
+				min = -1;
+				max = $3;
+				break;
+			case OP_GT:
+				$3 += 1;
+			case OP_GE:
+				min = $3;
+				max = -1;
+				break;
+			default:
+				yyerror("unknown prefixlen operation");
 				YYERROR;
 			}
-			$$.op = $2;
-			$$.len_min = $3;
+			$$.len_min = min;
+			$$.len_max = max;
 		}
 		| PREFIXLEN NUMBER binaryop NUMBER	{
 			bzero(&$$, sizeof($$));
@@ -1943,7 +2360,7 @@ prefixlenop	: /* empty */			{ bzero(&$$, sizeof($$)); }
 				yyerror("prefixlen must be < 128");
 				YYERROR;
 			}
-			if ($2 >= $4) {
+			if ($2 > $4) {
 				yyerror("start prefixlen is bigger than end");
 				YYERROR;
 			}
@@ -1967,7 +2384,7 @@ filter_set	: /* empty */					{ $$ = NULL; }
 			TAILQ_INIT($$);
 			TAILQ_INSERT_TAIL($$, $2, entry);
 		}
-		| SET optnl "{" optnl filter_set_l optnl "}"	{ $$ = $5; }
+		| SET "{" optnl filter_set_l optnl "}"	{ $$ = $4; }
 		;
 
 filter_set_l	: filter_set_l comma filter_set_opt	{
@@ -1982,6 +2399,10 @@ filter_set_l	: filter_set_l comma filter_set_opt	{
 			TAILQ_INIT($$);
 			TAILQ_INSERT_TAIL($$, $1, entry);
 		}
+		;
+
+community	: COMMUNITY		{ $$ = COMMUNITY_TYPE_BASIC; }
+		| LARGECOMMUNITY	{ $$ = COMMUNITY_TYPE_LARGE; }
 		;
 
 delete		: /* empty */	{ $$ = 0; }
@@ -2216,7 +2637,7 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			}
 			free($2);
 		}
-		| COMMUNITY delete STRING	{
+		| community delete STRING	{
 			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
 			if ($2)
@@ -2224,30 +2645,8 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			else
 				$$->type = ACTION_SET_COMMUNITY;
 
-			if (parsecommunity(&$$->action.community, $3) == -1) {
-				free($3);
-				free($$);
-				YYERROR;
-			}
-			free($3);
-			/* Don't allow setting of any match */
-			if (!$2 && ($$->action.community.as == COMMUNITY_ANY ||
-			    $$->action.community.type == COMMUNITY_ANY)) {
-				yyerror("'*' is not allowed in set community");
-				free($$);
-				YYERROR;
-			}
-		}
-		| LARGECOMMUNITY delete STRING	{
-			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
-				fatal(NULL);
-			if ($2)
-				$$->type = ACTION_DEL_LARGE_COMMUNITY;
-			else
-				$$->type = ACTION_SET_LARGE_COMMUNITY;
-
-			if (parselargecommunity(&$$->action.large_community,
-			    $3) == -1) {
+			if (parsecommunity(&$$->action.community, $1, $3) ==
+			    -1) {
 				free($3);
 				free($$);
 				YYERROR;
@@ -2255,9 +2654,9 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			free($3);
 			/* Don't allow setting of any match */
 			if (!$2 &&
-			    ($$->action.large_community.as == COMMUNITY_ANY ||
-			    $$->action.large_community.ld1 == COMMUNITY_ANY ||
-			    $$->action.large_community.ld2 == COMMUNITY_ANY)) {
+			    ($$->action.community.dflag1 == COMMUNITY_ANY ||
+			    $$->action.community.dflag2 == COMMUNITY_ANY ||
+			    $$->action.community.dflag3 == COMMUNITY_ANY)) {
 				yyerror("'*' is not allowed in set community");
 				free($$);
 				YYERROR;
@@ -2267,11 +2666,11 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
 			if ($2)
-				$$->type = ACTION_DEL_EXT_COMMUNITY;
+				$$->type = ACTION_DEL_COMMUNITY;
 			else
-				$$->type = ACTION_SET_EXT_COMMUNITY;
+				$$->type = ACTION_SET_COMMUNITY;
 
-			if (parseextcommunity(&$$->action.ext_community,
+			if (parseextcommunity(&$$->action.community,
 			    $3, $4) == -1) {
 				free($3);
 				free($4);
@@ -2279,6 +2678,22 @@ filter_set_opt	: LOCALPREF NUMBER		{
 				YYERROR;
 			}
 			free($3);
+			free($4);
+		}
+		| EXTCOMMUNITY delete OVS STRING {
+			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
+				fatal(NULL);
+			if ($2)
+				$$->type = ACTION_DEL_COMMUNITY;
+			else
+				$$->type = ACTION_SET_COMMUNITY;
+
+			if (parseextcommunity(&$$->action.community,
+			    "ovs", $4) == -1) {
+				free($4);
+				free($$);
+				YYERROR;
+			}
 			free($4);
 		}
 		| ORIGIN origincode {
@@ -2289,7 +2704,7 @@ filter_set_opt	: LOCALPREF NUMBER		{
 		}
 		;
 
-origincode	: string {
+origincode	: STRING	{
 			if (!strcmp($1, "egp"))
 				$$ = ORIGIN_EGP;
 			else if (!strcmp($1, "igp"))
@@ -2304,8 +2719,29 @@ origincode	: string {
 			free($1);
 		};
 
-comma		: ","
-		| /* empty */
+validity	: STRING	{
+			if (!strcmp($1, "not-found"))
+				$$ = ROA_NOTFOUND;
+			else if (!strcmp($1, "invalid"))
+				$$ = ROA_INVALID;
+			else if (!strcmp($1, "valid"))
+				$$ = ROA_VALID;
+			else {
+				yyerror("unknown validity \"%s\"", $1);
+				free($1);
+				YYERROR;
+			}
+			free($1);
+		};
+
+optnl		: /* empty */
+		| '\n' optnl
+		;
+
+comma		: /* empty */
+		| ','
+		| '\n' optnl
+		| ',' '\n' optnl
 		;
 
 unaryop		: '='		{ $$ = OP_EQ; }
@@ -2366,6 +2802,7 @@ lookup(char *s)
 		{ "announce",		ANNOUNCE},
 		{ "any",		ANY},
 		{ "as-4byte",		AS4BYTE },
+		{ "as-set",		ASSET },
 		{ "blackhole",		BLACKHOLE},
 		{ "capabilities",	CAPABILITIES},
 		{ "community",		COMMUNITY},
@@ -2383,6 +2820,7 @@ lookup(char *s)
 		{ "enforce",		ENFORCE},
 		{ "esp",		ESP},
 		{ "evaluate",		EVALUATE},
+		{ "export",		EXPORT},
 		{ "export-target",	EXPORTTRGT},
 		{ "ext-community",	EXTCOMMUNITY},
 		{ "fib-priority",	FIBPRIORITY},
@@ -2410,6 +2848,7 @@ lookup(char *s)
 		{ "max-as-len",		MAXASLEN},
 		{ "max-as-seq",		MAXASSEQ},
 		{ "max-prefix",		MAXPREFIX},
+		{ "maxlen",		MAXLEN},
 		{ "md5sig",		MD5SIG},
 		{ "med",		MED},
 		{ "metric",		METRIC},
@@ -2423,15 +2862,19 @@ lookup(char *s)
 		{ "on",			ON},
 		{ "or-longer",		LONGER},
 		{ "origin",		ORIGIN},
+		{ "origin-set",		ORIGINSET},
 		{ "out",		OUT},
+		{ "ovs",		OVS},
 		{ "passive",		PASSIVE},
 		{ "password",		PASSWORD},
 		{ "peer-as",		PEERAS},
 		{ "pftable",		PFTABLE},
 		{ "prefix",		PREFIX},
+		{ "prefix-set",		PREFIXSET},
 		{ "prefixlen",		PREFIXLEN},
 		{ "prepend-neighbor",	PREPEND_PEER},
 		{ "prepend-self",	PREPEND_SELF},
+		{ "priority",		PRIORITY},
 		{ "qualify",		QUALIFY},
 		{ "quick",		QUICK},
 		{ "rd",			RD},
@@ -2443,6 +2886,7 @@ lookup(char *s)
 		{ "restart",		RESTART},
 		{ "restricted",		RESTRICTED},
 		{ "rib",		RIB},
+		{ "roa-set",		ROASET },
 		{ "route-collector",	ROUTECOLL},
 		{ "route-reflector",	REFLECTOR},
 		{ "router-id",		ROUTERID},
@@ -2473,34 +2917,39 @@ lookup(char *s)
 		return (STRING);
 }
 
-#define MAXPUSHBACK	128
+#define START_EXPAND	1
+#define DONE_EXPAND	2
 
-u_char	*parsebuf;
-int	 parseindex;
-u_char	 pushback_buffer[MAXPUSHBACK];
-int	 pushback_index = 0;
+static int	expanding;
+
+int
+igetc(void)
+{
+	int	c;
+
+	while (1) {
+		if (file->ungetpos > 0)
+			c = file->ungetbuf[--file->ungetpos];
+		else
+			c = getc(file->stream);
+
+		if (c == START_EXPAND)
+			expanding = 1;
+		else if (c == DONE_EXPAND)
+			expanding = 0;
+		else
+			break;
+	}
+	return (c);
+}
 
 int
 lgetc(int quotec)
 {
 	int		c, next;
 
-	if (parsebuf) {
-		/* Read character from the parsebuffer instead of input. */
-		if (parseindex >= 0) {
-			c = parsebuf[parseindex++];
-			if (c != '\0')
-				return (c);
-			parsebuf = NULL;
-		} else
-			parseindex++;
-	}
-
-	if (pushback_index)
-		return (pushback_buffer[--pushback_index]);
-
 	if (quotec) {
-		if ((c = getc(file->stream)) == EOF) {
+		if ((c = igetc()) == EOF) {
 			yyerror("reached end of file while parsing "
 			    "quoted string");
 			if (file == topfile || popfile() == EOF)
@@ -2510,8 +2959,8 @@ lgetc(int quotec)
 		return (c);
 	}
 
-	while ((c = getc(file->stream)) == '\\') {
-		next = getc(file->stream);
+	while ((c = igetc()) == '\\') {
+		next = igetc();
 		if (next != '\n') {
 			c = next;
 			break;
@@ -2520,28 +2969,39 @@ lgetc(int quotec)
 		file->lineno++;
 	}
 
-	while (c == EOF) {
-		if (file == topfile || popfile() == EOF)
-			return (EOF);
-		c = getc(file->stream);
+	if (c == EOF) {
+		/*
+		 * Fake EOL when hit EOF for the first time. This gets line
+		 * count right if last line in included file is syntactically
+		 * invalid and has no newline.
+		 */
+		if (file->eof_reached == 0) {
+			file->eof_reached = 1;
+			return ('\n');
+		}
+		while (c == EOF) {
+			if (file == topfile || popfile() == EOF)
+				return (EOF);
+			c = igetc();
+		}
 	}
 	return (c);
 }
 
-int
+void
 lungetc(int c)
 {
 	if (c == EOF)
-		return (EOF);
-	if (parsebuf) {
-		parseindex--;
-		if (parseindex >= 0)
-			return (c);
+		return;
+
+	if (file->ungetpos >= file->ungetsize) {
+		void *p = reallocarray(file->ungetbuf, file->ungetsize, 2);
+		if (p == NULL)
+			err(1, "lungetc");
+		file->ungetbuf = p;
+		file->ungetsize *= 2;
 	}
-	if (pushback_index < MAXPUSHBACK-1)
-		return (pushback_buffer[pushback_index++] = c);
-	else
-		return (EOF);
+	file->ungetbuf[file->ungetpos++] = c;
 }
 
 int
@@ -2549,14 +3009,9 @@ findeol(void)
 {
 	int	c;
 
-	parsebuf = NULL;
-
 	/* skip to either EOF or the first real EOL */
 	while (1) {
-		if (pushback_index)
-			c = pushback_buffer[--pushback_index];
-		else
-			c = lgetc(0);
+		c = lgetc(0);
 		if (c == '\n') {
 			file->lineno++;
 			break;
@@ -2584,7 +3039,7 @@ top:
 	if (c == '#')
 		while ((c = lgetc(0)) != '\n' && c != EOF)
 			; /* nothing */
-	if (c == '$' && parsebuf == NULL) {
+	if (c == '$' && !expanding) {
 		while (1) {
 			if ((c = lgetc(0)) == EOF)
 				return (0);
@@ -2606,8 +3061,13 @@ top:
 			yyerror("macro '%s' not defined", buf);
 			return (findeol());
 		}
-		parsebuf = val;
-		parseindex = 0;
+		p = val + strlen(val) - 1;
+		lungetc(DONE_EXPAND);
+		while (p >= val) {
+			lungetc(*p);
+			p--;
+		}
+		lungetc(START_EXPAND);
 		goto top;
 	}
 
@@ -2624,7 +3084,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -2635,7 +3096,7 @@ top:
 				*p = '\0';
 				break;
 			} else if (c == '\0') {
-				yyerror("syntax error");
+				yyerror("syntax error: unterminated quote");
 				return (findeol());
 			}
 			if (p + 1 >= buf + sizeof(buf) - 1) {
@@ -2754,16 +3215,16 @@ pushfile(const char *name, int secret)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		log_warn("malloc");
+		log_warn("%s", __func__);
 		free(nfile);
 		return (NULL);
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		log_warn("%s", nfile->name);
+		log_warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -2775,7 +3236,16 @@ pushfile(const char *name, int secret)
 		free(nfile);
 		return (NULL);
 	}
-	nfile->lineno = 1;
+	nfile->lineno = TAILQ_EMPTY(&files) ? 1 : 0;
+	nfile->ungetsize = 16;
+	nfile->ungetbuf = malloc(nfile->ungetsize);
+	if (nfile->ungetbuf == NULL) {
+		log_warn("%s", __func__);
+		fclose(nfile->stream);
+		free(nfile->name);
+		free(nfile);
+		return (NULL);
+	}
 	TAILQ_INSERT_TAIL(&files, nfile, entry);
 	return (nfile);
 }
@@ -2791,6 +3261,7 @@ popfile(void)
 	TAILQ_REMOVE(&files, file, entry);
 	fclose(file->stream);
 	free(file->name);
+	free(file->ungetbuf);
 	free(file);
 	file = prev;
 	return (file ? 0 : EOF);
@@ -2802,6 +3273,7 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 	struct sym		*sym, *next;
 	struct peer		*p, *pnext;
 	struct rde_rib		*rr;
+	struct network	       	*n;
 	int			 errors = 0;
 
 	conf = new_config();
@@ -2826,6 +3298,8 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 
 	add_rib("Adj-RIB-In", conf->default_tableid,
 	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
+	add_rib("Adj-RIB-Out", conf->default_tableid,
+	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
 	add_rib("Loc-RIB", conf->default_tableid, F_RIB_LOCAL);
 
 	if ((file = pushfile(filename, 1)) == NULL) {
@@ -2838,6 +3312,15 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 	errors = file->errors;
 	popfile();
 
+	/* check that we dont try to announce our own routes */
+	TAILQ_FOREACH(n, netconf, entry)
+	    if (n->net.priority == conf->fib_priority) {
+		    errors++;
+		    logit(LOG_CRIT, "network priority %d == fib-priority "
+			"%d is not allowed.",
+			n->net.priority, conf->fib_priority);
+	    }
+	
 	/* Free macros and check which have not been used. */
 	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		if ((cmd_opts & BGPD_OPT_VERBOSE2) && !sym->used)
@@ -2869,13 +3352,15 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 		free_config(conf);
 	} else {
 		/*
-		 * Move filter list and static group and peer filtersets
+		 * Concatenate filter list and static group and peer filtersets
 		 * together. Static group sets come first then peer sets
 		 * last normal filter rules.
 		 */
-		merge_filter_lists(conf->filters, groupfilter_l);
-		merge_filter_lists(conf->filters, peerfilter_l);
-		merge_filter_lists(conf->filters, filter_l);
+		TAILQ_CONCAT(conf->filters, groupfilter_l, entry);
+		TAILQ_CONCAT(conf->filters, peerfilter_l, entry);
+		TAILQ_CONCAT(conf->filters, filter_l, entry);
+
+		optimize_filters(conf->filters);
 
 		errors += mrt_mergeconfig(xconf->mrt, conf->mrt);
 		errors += merge_config(xconf, conf, peer_l);
@@ -2939,17 +3424,12 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
-
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		fatal("cmdline_symset: malloc");
-
-	strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		fatal("%s: strndup", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -2970,103 +3450,50 @@ symget(const char *nam)
 	return (NULL);
 }
 
-int
-getcommunity(char *s)
+static int
+getcommunity(char *s, int large, u_int32_t *val, u_int8_t *flag)
 {
-	int		 val;
+	int64_t		 max = USHRT_MAX;
 	const char	*errstr;
 
-	if (strcmp(s, "*") == 0)
-		return (COMMUNITY_ANY);
-	if (strcmp(s, "neighbor-as") == 0)
-		return (COMMUNITY_NEIGHBOR_AS);
-	if (strcmp(s, "local-as") == 0)
-		return (COMMUNITY_LOCAL_AS);
-	val = strtonum(s, 0, USHRT_MAX, &errstr);
+	*flag = 0;
+	*val = 0;
+	if (strcmp(s, "*") == 0) {
+		*flag = COMMUNITY_ANY;
+		return 0;
+	} else if (strcmp(s, "neighbor-as") == 0) {
+		*flag = COMMUNITY_NEIGHBOR_AS;
+		return 0;
+	} else if (strcmp(s, "local-as") == 0) {
+		*flag =  COMMUNITY_LOCAL_AS;
+		return 0;
+	}
+	if (large)
+		max = UINT_MAX;
+	*val = strtonum(s, 0, max, &errstr);
 	if (errstr) {
-		yyerror("Community %s is %s (max: %u)", s, errstr, USHRT_MAX);
-		return (COMMUNITY_ERROR);
+		yyerror("Community %s is %s (max: %llu)", s, errstr, max);
+		return -1;
 	}
-	return (val);
+	return 0;
 }
 
-int
-parsecommunity(struct filter_community *c, char *s)
+static void
+setcommunity(struct filter_community *c, u_int32_t as, u_int32_t data,
+    u_int8_t asflag, u_int8_t dataflag)
 {
-	char *p;
-	int i, as;
-
-	/* Well-known communities */
-	if (strcasecmp(s, "GRACEFUL_SHUTDOWN") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_GRACEFUL_SHUTDOWN;
-		return (0);
-	} else if (strcasecmp(s, "NO_EXPORT") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_NO_EXPORT;
-		return (0);
-	} else if (strcasecmp(s, "NO_ADVERTISE") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_NO_ADVERTISE;
-		return (0);
-	} else if (strcasecmp(s, "NO_EXPORT_SUBCONFED") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_NO_EXPSUBCONFED;
-		return (0);
-	} else if (strcasecmp(s, "NO_PEER") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_NO_PEER;
-		return (0);
-	} else if (strcasecmp(s, "BLACKHOLE") == 0) {
-		c->as = COMMUNITY_WELLKNOWN;
-		c->type = COMMUNITY_BLACKHOLE;
-		return (0);
-	}
-
-	if ((p = strchr(s, ':')) == NULL) {
-		yyerror("Bad community syntax");
-		return (-1);
-	}
-	*p++ = 0;
-
-	if ((i = getcommunity(s)) == COMMUNITY_ERROR)
-		return (-1);
-	as = i;
-
-	if ((i = getcommunity(p)) == COMMUNITY_ERROR)
-		return (-1);
-	c->as = as;
-	c->type = i;
-
-	return (0);
+	memset(c, 0, sizeof(*c));
+	c->type = COMMUNITY_TYPE_BASIC;
+	c->dflag1 = asflag;
+	c->dflag2 = dataflag;
+	c->c.b.data1 = as;
+	c->c.b.data2 = data;
 }
 
-int64_t
-getlargecommunity(char *s)
-{
-	u_int		 val;
-	const char	*errstr;
-
-	if (strcmp(s, "*") == 0)
-		return (COMMUNITY_ANY);
-	if (strcmp(s, "neighbor-as") == 0)
-		return (COMMUNITY_NEIGHBOR_AS);
-	if (strcmp(s, "local-as") == 0)
-		return (COMMUNITY_LOCAL_AS);
-	val = strtonum(s, 0, UINT_MAX, &errstr);
-	if (errstr) {
-		yyerror("Large Community %s is %s (max: %u)",
-		    s, errstr, UINT_MAX);
-		return (COMMUNITY_ERROR);
-	}
-	return (val);
-}
-
-int
-parselargecommunity(struct filter_largecommunity *c, char *s)
+static int
+parselargecommunity(struct filter_community *c, char *s)
 {
 	char *p, *q;
-	int64_t as, ld1, ld2;
 
 	if ((p = strchr(s, ':')) == NULL) {
 		yyerror("Bad community syntax");
@@ -3080,19 +3507,61 @@ parselargecommunity(struct filter_largecommunity *c, char *s)
 	}
 	*q++ = 0;
 
-	if ((as = getlargecommunity(s)) == COMMUNITY_ERROR)
+	if (getcommunity(s, 1, &c->c.l.data1, &c->dflag1) == -1 ||
+	    getcommunity(p, 1, &c->c.l.data2, &c->dflag2) == -1 ||
+	    getcommunity(q, 1, &c->c.l.data3, &c->dflag3) == -1)
 		return (-1);
+	c->type = COMMUNITY_TYPE_LARGE;
+	return (0);
+}
 
-	if ((ld1 = getlargecommunity(p)) == COMMUNITY_ERROR)
+int
+parsecommunity(struct filter_community *c, int type, char *s)
+{
+	char *p;
+	u_int32_t as, data;
+	u_int8_t asflag, dataflag;
+
+	if (type == COMMUNITY_TYPE_LARGE)
+		return parselargecommunity(c, s);
+
+	/* Well-known communities */
+	if (strcasecmp(s, "GRACEFUL_SHUTDOWN") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_GRACEFUL_SHUTDOWN, 0, 0);
+		return (0);
+	} else if (strcasecmp(s, "NO_EXPORT") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_NO_EXPORT, 0, 0);
+		return (0);
+	} else if (strcasecmp(s, "NO_ADVERTISE") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_NO_ADVERTISE, 0, 0);
+		return (0);
+	} else if (strcasecmp(s, "NO_EXPORT_SUBCONFED") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_NO_EXPSUBCONFED, 0, 0);
+		return (0);
+	} else if (strcasecmp(s, "NO_PEER") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_NO_PEER, 0, 0);
+		return (0);
+	} else if (strcasecmp(s, "BLACKHOLE") == 0) {
+		setcommunity(c, COMMUNITY_WELLKNOWN,
+		    COMMUNITY_BLACKHOLE, 0, 0);
+		return (0);
+	}
+
+	if ((p = strchr(s, ':')) == NULL) {
+		yyerror("Bad community syntax");
 		return (-1);
+	}
+	*p++ = 0;
 
-	if ((ld2 = getlargecommunity(q)) == COMMUNITY_ERROR)
+	if (getcommunity(s, 0, &as, &asflag) == -1 ||
+	    getcommunity(p, 0, &data, &dataflag) == -1)
 		return (-1);
-
-	c->as = as;
-	c->ld1 = ld1;
-	c->ld2 = ld2;
-
+	setcommunity(c, as, data, asflag, dataflag);
 	return (0);
 }
 
@@ -3116,28 +3585,51 @@ parsesubtype(char *name, int *type, int *subtype)
 	return (found);
 }
 
-int
-parseextvalue(char *s, u_int32_t *v)
+static int
+parseextvalue(int type, char *s, u_int32_t *v)
 {
 	const char 	*errstr;
 	char		*p;
 	struct in_addr	 ip;
-	u_int32_t	 uvalh = 0, uval;
+	u_int32_t	 uvalh, uval;
 
-	if ((p = strchr(s, '.')) == NULL) {
+	if (type != -1) {
+		/* nothing */
+	} else if ((p = strchr(s, '.')) == NULL) {
 		/* AS_PLAIN number (4 or 2 byte) */
-		uval = strtonum(s, 0, UINT_MAX, &errstr);
+		strtonum(s, 0, USHRT_MAX, &errstr);
+		if (errstr == NULL)
+			type = EXT_COMMUNITY_TRANS_TWO_AS;
+		else
+			type = EXT_COMMUNITY_TRANS_FOUR_AS;
+	} else if (strchr(p + 1, '.') == NULL) {
+		/* AS_DOT number (4-byte) */
+		type = EXT_COMMUNITY_TRANS_FOUR_AS;
+	} else {
+		/* more than one dot -> IP address */
+		type = EXT_COMMUNITY_TRANS_IPV4;
+	}
+
+	switch (type) {
+	case EXT_COMMUNITY_TRANS_TWO_AS:
+		uval = strtonum(s, 0, USHRT_MAX, &errstr);
 		if (errstr) {
 			yyerror("Bad ext-community %s is %s", s, errstr);
 			return (-1);
 		}
 		*v = uval;
-		if (uval <= USHRT_MAX)
-			return (EXT_COMMUNITY_TRANS_TWO_AS);
-		else
-			return (EXT_COMMUNITY_TRANS_FOUR_AS);
-	} else if (strchr(p + 1, '.') == NULL) {
-		/* AS_DOT number (4-byte) */
+		break;
+	case EXT_COMMUNITY_TRANS_FOUR_AS:
+		if ((p = strchr(s, '.')) == NULL) {
+			uval = strtonum(s, 0, UINT_MAX, &errstr);
+			if (errstr) {
+				yyerror("Bad ext-community %s is %s", s,
+				    errstr);
+				return (-1);
+			}
+			*v = uval;
+			break;
+		}
 		*p++ = '\0';
 		uvalh = strtonum(s, 0, USHRT_MAX, &errstr);
 		if (errstr) {
@@ -3150,21 +3642,22 @@ parseextvalue(char *s, u_int32_t *v)
 			return (-1);
 		}
 		*v = uval | (uvalh << 16);
-		return (EXT_COMMUNITY_TRANS_FOUR_AS);
-	} else {
-		/* more than one dot -> IP address */
+		break;
+	case EXT_COMMUNITY_TRANS_IPV4:
 		if (inet_aton(s, &ip) == 0) {
 			yyerror("Bad ext-community %s not parseable", s);
 			return (-1);
 		}
-		*v = ip.s_addr;
-		return (EXT_COMMUNITY_TRANS_IPV4);
+		*v = ntohl(ip.s_addr);
+		break;
+	default:
+		fatalx("%s: unexpected type %d", __func__, type);
 	}
-	return (-1);
+	return (type);
 }
 
 int
-parseextcommunity(struct filter_extcommunity *c, char *t, char *s)
+parseextcommunity(struct filter_community *c, char *t, char *s)
 {
 	const struct ext_comm_pairs *cp;
 	const char 	*errstr;
@@ -3179,13 +3672,16 @@ parseextcommunity(struct filter_extcommunity *c, char *t, char *s)
 	}
 
 	switch (type) {
+	case EXT_COMMUNITY_TRANS_TWO_AS:
+	case EXT_COMMUNITY_TRANS_FOUR_AS:
+	case EXT_COMMUNITY_TRANS_IPV4:
 	case -1:
 		if ((p = strchr(s, ':')) == NULL) {
-			yyerror("Bad ext-community %s is %s", s, errstr);
+			yyerror("Bad ext-community %s", s);
 			return (-1);
 		}
 		*p++ = '\0';
-		if ((type = parseextvalue(s, &uval)) == -1)
+		if ((type = parseextvalue(type, s, &uval)) == -1)
 			return (-1);
 		switch (type) {
 		case EXT_COMMUNITY_TRANS_TWO_AS:
@@ -3202,20 +3698,8 @@ parseextcommunity(struct filter_extcommunity *c, char *t, char *s)
 			yyerror("Bad ext-community %s is %s", p, errstr);
 			return (-1);
 		}
-		switch (type) {
-		case EXT_COMMUNITY_TRANS_TWO_AS:
-			c->data.ext_as.as = uval;
-			c->data.ext_as.val = ullval;
-			break;
-		case EXT_COMMUNITY_TRANS_IPV4:
-			c->data.ext_ip.addr.s_addr = uval;
-			c->data.ext_ip.val = ullval;
-			break;
-		case EXT_COMMUNITY_TRANS_FOUR_AS:
-			c->data.ext_as4.as4 = uval;
-			c->data.ext_as4.val = ullval;
-			break;
-		}
+		c->c.e.data1 = uval;
+		c->c.e.data2 = ullval;
 		break;
 	case EXT_COMMUNITY_TRANS_OPAQUE:
 	case EXT_COMMUNITY_TRANS_EVPN:
@@ -3229,28 +3713,28 @@ parseextcommunity(struct filter_extcommunity *c, char *t, char *s)
 			yyerror("Bad ext-community value too big");
 			return (-1);
 		}
-		c->data.ext_opaq = ullval;
+		c->c.e.data2 = ullval;
 		break;
 	case EXT_COMMUNITY_NON_TRANS_OPAQUE:
 		if (strcmp(s, "valid") == 0)
-			c->data.ext_opaq = EXT_COMMUNITY_OVS_VALID;
+			c->c.e.data2 = EXT_COMMUNITY_OVS_VALID;
 		else if (strcmp(s, "invalid") == 0)
-			c->data.ext_opaq = EXT_COMMUNITY_OVS_INVALID;
+			c->c.e.data2 = EXT_COMMUNITY_OVS_INVALID;
 		else if (strcmp(s, "not-found") == 0)
-			c->data.ext_opaq = EXT_COMMUNITY_OVS_NOTFOUND;
+			c->c.e.data2 = EXT_COMMUNITY_OVS_NOTFOUND;
 		else {
-			yyerror("Bad ext-community %s is %s", s, errstr);
+			yyerror("Bad ext-community %s", s);
 			return (-1);
 		}
 		break;
 	}
-	c->type = type;
-	c->subtype = subtype;
+	c->c.e.type = type;
+	c->c.e.subtype = subtype;
 
 	/* verify type/subtype combo */
 	for (cp = iana_ext_comms; cp->subname != NULL; cp++) {
 		if (cp->type == type && cp->subtype == subtype) {
-			c->flags |= EXT_COMMUNITY_FLAG_VALID;
+			c->type = COMMUNITY_TYPE_EXT;
 			return (0);
 		}
 	}
@@ -3272,10 +3756,10 @@ alloc_peer(void)
 	p->state = STATE_NONE;
 	p->next = NULL;
 	p->conf.distance = 1;
-	p->conf.announce_type = ANNOUNCE_UNDEF;
+	p->conf.export_type = EXPORT_UNSET;
 	p->conf.announce_capa = 1;
 	for (i = 0; i < AID_MAX; i++)
-		p->conf.capabilities.mp[i] = -1;
+		p->conf.capabilities.mp[i] = 0;
 	p->conf.capabilities.refresh = 1;
 	p->conf.capabilities.grestart.restart = 1;
 	p->conf.capabilities.as4byte = 1;
@@ -3415,8 +3899,8 @@ add_rib(char *name, u_int rtableid, u_int16_t flags)
 			free(rr);
 			return (-1);
 		}
-		rr->rtableid = rtableid;
 	}
+	rr->rtableid = rtableid;
 	SIMPLEQ_INSERT_TAIL(&ribnames, rr, entry);
 	return (0);
 }
@@ -3429,6 +3913,18 @@ find_rib(char *name)
 	SIMPLEQ_FOREACH(rr, &ribnames, entry) {
 		if (!strcmp(rr->name, name))
 			return (rr);
+	}
+	return (NULL);
+}
+
+struct prefixset *
+find_prefixset(char *name, struct prefixset_head *p)
+{
+	struct prefixset *ps;
+
+	SIMPLEQ_FOREACH(ps, p, entry) {
+		if (!strcmp(ps->name, name))
+			return (ps);
 	}
 	return (NULL);
 }
@@ -3468,74 +3964,50 @@ get_id(struct peer *newpeer)
 }
 
 int
-merge_prefixspec(struct filter_prefix_l *p, struct filter_prefixlen *pl)
+merge_prefixspec(struct filter_prefix *p, struct filter_prefixlen *pl)
 {
 	u_int8_t max_len = 0;
 
-	switch (p->p.addr.aid) {
+	switch (p->addr.aid) {
 	case AID_INET:
 	case AID_VPN_IPv4:
 		max_len = 32;
 		break;
 	case AID_INET6:
+	case AID_VPN_IPv6:
 		max_len = 128;
 		break;
 	}
 
-	switch (pl->op) {
-	case OP_NONE:
+	if (pl->op == OP_NONE) {
+		p->len_min = p->len_max = p->len;
 		return (0);
-	case OP_RANGE:
-	case OP_XRANGE:
-		if (pl->len_min > max_len || pl->len_max > max_len) {
-			yyerror("prefixlen %d too big for AF, limit %d",
-			    pl->len_min > max_len ? pl->len_min : pl->len_max,
-			    max_len);
-			return (-1);
-		}
-		if (pl->len_min < p->p.len) {
-			yyerror("prefixlen %d smaller than prefix, limit %d",
-			    pl->len_min, p->p.len);
-			return (-1);
-		}
-		p->p.len_max = pl->len_max;
-		break;
-	case OP_GE:
-		/* fix up the "or-longer" case */
-		if (pl->len_min == -1)
-			pl->len_min = p->p.len;
-		/* FALLTHROUGH */
-	case OP_EQ:
-	case OP_NE:
-	case OP_LE:
-	case OP_GT:
-		if (pl->len_min > max_len) {
-			yyerror("prefixlen %d too big for AF, limit %d",
-			    pl->len_min, max_len);
-			return (-1);
-		}
-		if (pl->len_min < p->p.len) {
-			yyerror("prefixlen %d smaller than prefix, limit %d",
-			    pl->len_min, p->p.len);
-			return (-1);
-		}
-		break;
-	case OP_LT:
-		if (pl->len_min > max_len - 1) {
-			yyerror("prefixlen %d too big for AF, limit %d",
-			    pl->len_min, max_len - 1);
-			return (-1);
-		}
-		if (pl->len_min < p->p.len + 1) {
-			yyerror("prefixlen %d too small for prefix, limit %d",
-			    pl->len_min, p->p.len + 1);
-			return (-1);
-		}
-		break;
 	}
 
-	p->p.op = pl->op;
-	p->p.len_min = pl->len_min;
+	if (pl->len_min == -1)
+		pl->len_min = p->len;
+	if (pl->len_max == -1)
+		pl->len_max = max_len;
+
+	if (pl->len_max > max_len) {
+		yyerror("prefixlen %d too big, limit %d",
+		    pl->len_max, max_len);
+		return (-1);
+	}
+	if (pl->len_min > pl->len_max) {
+		yyerror("prefixlen %d too big, limit %d",
+		    pl->len_min, pl->len_max);
+		return (-1);
+	}
+	if (pl->len_min < p->len) {
+		yyerror("prefixlen %d smaller than prefix, limit %d",
+		    pl->len_min, p->len);
+		return (-1);
+	}
+
+	p->op = pl->op;
+	p->len_min = pl->len_min;
+	p->len_max = pl->len_max;
 	return (0);
 }
 
@@ -3670,8 +4142,6 @@ str2key(char *s, char *dest, size_t max_len)
 int
 neighbor_consistent(struct peer *p)
 {
-	u_int8_t	i;
-
 	/* local-address and peer's address: same address family */
 	if (p->conf.local_addr.aid &&
 	    p->conf.local_addr.aid != p->conf.remote_addr.aid) {
@@ -3707,9 +4177,6 @@ neighbor_consistent(struct peer *p)
 
 	/* set default values if they where undefined */
 	p->conf.ebgp = (p->conf.remote_as != conf->as);
-	if (p->conf.announce_type == ANNOUNCE_UNDEF)
-		p->conf.announce_type = p->conf.ebgp ?
-		    ANNOUNCE_SELF : ANNOUNCE_ALL;
 	if (p->conf.enforce_as == ENFORCE_AS_UNDEF)
 		p->conf.enforce_as = p->conf.ebgp ?
 		    ENFORCE_AS_ON : ENFORCE_AS_OFF;
@@ -3728,12 +4195,86 @@ neighbor_consistent(struct peer *p)
 		return (-1);
 	}
 
-	/* the default MP capability is NONE */
-	for (i = 0; i < AID_MAX; i++)
-		if (p->conf.capabilities.mp[i] == -1)
-			p->conf.capabilities.mp[i] = 0;
-
 	return (0);
+}
+
+static void
+filterset_add(struct filter_set_head *sh, struct filter_set *s)
+{
+	struct filter_set	*t;
+
+	TAILQ_FOREACH(t, sh, entry) {
+		if (s->type < t->type) {
+			TAILQ_INSERT_BEFORE(t, s, entry);
+			return;
+		}
+		if (s->type == t->type) {
+			switch (s->type) {
+			case ACTION_SET_COMMUNITY:
+			case ACTION_DEL_COMMUNITY:
+				if (memcmp(&s->action.community,
+				    &t->action.community,
+				    sizeof(s->action.community)) < 0) {
+					TAILQ_INSERT_BEFORE(t, s, entry);
+					return;
+				} else if (memcmp(&s->action.community,
+				    &t->action.community,
+				    sizeof(s->action.community)) == 0)
+					break;
+				continue;
+			case ACTION_SET_NEXTHOP:
+				/* only last nexthop per AF matters */
+				if (s->action.nexthop.aid <
+				    t->action.nexthop.aid) {
+					TAILQ_INSERT_BEFORE(t, s, entry);
+					return;
+				} else if (s->action.nexthop.aid ==
+				    t->action.nexthop.aid) {
+					t->action.nexthop = s->action.nexthop;
+					break;
+				}
+				continue;
+			case ACTION_SET_NEXTHOP_BLACKHOLE:
+			case ACTION_SET_NEXTHOP_REJECT:
+			case ACTION_SET_NEXTHOP_NOMODIFY:
+			case ACTION_SET_NEXTHOP_SELF:
+				/* set it only once */
+				break;
+			case ACTION_SET_LOCALPREF:
+			case ACTION_SET_MED:
+			case ACTION_SET_WEIGHT:
+				/* only last set matters */
+				t->action.metric = s->action.metric;
+				break;
+			case ACTION_SET_RELATIVE_LOCALPREF:
+			case ACTION_SET_RELATIVE_MED:
+			case ACTION_SET_RELATIVE_WEIGHT:
+				/* sum all relative numbers */
+				t->action.relative += s->action.relative;
+				break;
+			case ACTION_SET_ORIGIN:
+				/* only last set matters */
+				t->action.origin = s->action.origin;
+				break;
+			case ACTION_PFTABLE:
+				/* only last set matters */
+				strlcpy(t->action.pftable, s->action.pftable,
+				    sizeof(t->action.pftable));
+				break;
+			case ACTION_RTLABEL:
+				/* only last set matters */
+				strlcpy(t->action.rtlabel, s->action.rtlabel,
+				    sizeof(t->action.rtlabel));
+				break;
+			default:
+				break;
+			}
+			free(s);
+			return;
+		}
+	}
+
+	TAILQ_INSERT_TAIL(sh, s, entry);
 }
 
 int
@@ -3751,15 +4292,6 @@ merge_filterset(struct filter_set_head *sh, struct filter_set *s)
 				yyerror("community is already set");
 			else if (s->type == ACTION_DEL_COMMUNITY)
 				yyerror("community will already be deleted");
-			else if (s->type == ACTION_SET_LARGE_COMMUNITY)
-				yyerror("large-community is already set");
-			else if (s->type == ACTION_DEL_LARGE_COMMUNITY)
-				yyerror("large-community will already be deleted");
-			else if (s->type == ACTION_SET_EXT_COMMUNITY)
-				yyerror("ext-community is already set");
-			else if (s->type == ACTION_DEL_EXT_COMMUNITY)
-				yyerror(
-				    "ext-community will already be deleted");
 			else
 				yyerror("redefining set parameter %s",
 				    filterset_name(s->type));
@@ -3767,86 +4299,45 @@ merge_filterset(struct filter_set_head *sh, struct filter_set *s)
 		}
 	}
 
-	TAILQ_FOREACH(t, sh, entry) {
-		if (s->type < t->type) {
-			TAILQ_INSERT_BEFORE(t, s, entry);
-			return (0);
-		}
-		if (s->type == t->type)
-			switch (s->type) {
-			case ACTION_SET_COMMUNITY:
-			case ACTION_DEL_COMMUNITY:
-				if (s->action.community.as <
-				    t->action.community.as ||
-				    (s->action.community.as ==
-				    t->action.community.as &&
-				    s->action.community.type <
-				    t->action.community.type)) {
-					TAILQ_INSERT_BEFORE(t, s, entry);
-					return (0);
-				}
-				break;
-			case ACTION_SET_LARGE_COMMUNITY:
-			case ACTION_DEL_LARGE_COMMUNITY:
-				if (s->action.large_community.as <
-				    t->action.large_community.as ||
-				    (s->action.large_community.as ==
-				    t->action.large_community.as &&
-				    s->action.large_community.ld1 <
-				    t->action.large_community.ld2 )) {
-					TAILQ_INSERT_BEFORE(t, s, entry);
-					return (0);
-				}
-				break;
-			case ACTION_SET_EXT_COMMUNITY:
-			case ACTION_DEL_EXT_COMMUNITY:
-				if (memcmp(&s->action.ext_community,
-				    &t->action.ext_community,
-				    sizeof(s->action.ext_community)) < 0) {
-					TAILQ_INSERT_BEFORE(t, s, entry);
-					return (0);
-				}
-				break;
-			case ACTION_SET_NEXTHOP:
-				if (s->action.nexthop.aid <
-				    t->action.nexthop.aid) {
-					TAILQ_INSERT_BEFORE(t, s, entry);
-					return (0);
-				}
-				break;
-			default:
-				break;
-			}
-	}
-
-	TAILQ_INSERT_TAIL(sh, s, entry);
+	filterset_add(sh, s);
 	return (0);
 }
 
-void
-copy_filterset(struct filter_set_head *source, struct filter_set_head *dest)
+static int
+filter_equal(struct filter_rule *fa, struct filter_rule *fb)
 {
-	struct filter_set	*s, *t;
+	if (fa == NULL || fb == NULL)
+		return 0;
+	if (fa->action != fb->action || fa->quick != fb->quick ||
+	    fa->dir != fb->dir)
+		return 0;
+	if (memcmp(&fa->peer, &fb->peer, sizeof(fa->peer)))
+		return 0;
+	if (memcmp(&fa->match, &fb->match, sizeof(fa->match)))
+		return 0;
 
-	if (source == NULL)
-		return;
-
-	TAILQ_FOREACH(s, source, entry) {
-		if ((t = malloc(sizeof(struct filter_set))) == NULL)
-			fatal(NULL);
-		memcpy(t, s, sizeof(struct filter_set));
-		TAILQ_INSERT_TAIL(dest, t, entry);
-	}
+	return 1;
 }
 
+/* do a basic optimization by folding equal rules together */
 void
-merge_filter_lists(struct filter_head *dst, struct filter_head *src)
+optimize_filters(struct filter_head *fh)
 {
-	struct filter_rule *r;
+	struct filter_rule *r, *nr;
 
-	while ((r = TAILQ_FIRST(src)) != NULL) {
-		TAILQ_REMOVE(src, r, entry);
-		TAILQ_INSERT_TAIL(dst, r, entry);
+	TAILQ_FOREACH_SAFE(r, fh, entry, nr) {
+		while (filter_equal(r, nr)) {
+			struct filter_set	*t;
+
+			while((t = TAILQ_FIRST(&nr->set)) != NULL) {
+				TAILQ_REMOVE(&nr->set, t, entry);
+				filterset_add(&r->set, t);
+			}
+
+			TAILQ_REMOVE(fh, nr, entry);
+			free(nr);
+			nr = TAILQ_NEXT(r, entry);
+		}
 	}
 }
 
@@ -3873,8 +4364,6 @@ get_rule(enum action_types type)
 		r->quick = 0;
 		r->dir = out ? DIR_OUT : DIR_IN;
 		r->action = ACTION_NONE;
-		r->match.community.as = COMMUNITY_UNSET;
-		r->match.large_community.as = COMMUNITY_UNSET;
 		TAILQ_INIT(&r->set);
 		if (curpeer == curgroup) {
 			/* group */
@@ -3887,4 +4376,90 @@ get_rule(enum action_types type)
 		}
 	}
 	return (r);
+}
+
+struct set_table *curset;
+static int
+new_as_set(char *name)
+{
+	struct as_set *aset;
+
+	if (as_sets_lookup(conf->as_sets, name) != NULL) {
+		yyerror("as-set \"%s\" already exists", name);
+		return -1;
+	}
+
+	aset = as_sets_new(conf->as_sets, name, 0, sizeof(u_int32_t));
+	if (aset == NULL)
+		fatal(NULL);
+
+	curset = aset->set;
+	return 0;
+}
+
+static void
+add_as_set(u_int32_t as)
+{
+	if (curset == NULL)
+		fatalx("%s: bad mojo jojo", __func__);
+
+	if (set_add(curset, &as, 1) != 0)
+		fatal(NULL);
+}
+
+static void
+done_as_set(void)
+{
+	curset = NULL;
+}
+
+static struct prefixset *
+new_prefix_set(char *name, int is_roa)
+{
+	const char *type = "prefix-set";
+	struct prefixset_head *sets = &conf->prefixsets;
+	struct prefixset *pset;
+
+	if (is_roa) {
+		type = "roa-set";
+		sets = &conf->originsets;
+	}
+
+	if (find_prefixset(name, sets) != NULL)  {
+		yyerror("%s \"%s\" already exists", type, name);
+		return NULL;
+	}
+	if ((pset = calloc(1, sizeof(*pset))) == NULL)
+		fatal("prefixset");
+	if (strlcpy(pset->name, name, sizeof(pset->name)) >=
+	    sizeof(pset->name)) {
+		yyerror("%s \"%s\" too long: max %zu", type,
+		    name, sizeof(pset->name) - 1);
+		free(pset);
+		return NULL;
+	}
+	RB_INIT(&pset->psitems);
+	return pset;
+}
+
+static void
+add_roa_set(struct prefixset_item *npsi, u_int32_t as, u_int8_t max)
+{
+	struct prefixset_item	*psi;
+	struct roa_set rs;
+
+	/* no prefixlen option in this tree */
+	npsi->p.op = OP_NONE;
+	npsi->p.len_max = npsi->p.len_min = npsi->p.len;
+	psi = RB_INSERT(prefixset_tree, curpsitree, npsi);
+	if (psi == NULL)
+		psi = npsi;
+
+	if (psi->set == NULL)
+		if ((psi->set = set_new(1, sizeof(rs))) == NULL)
+			fatal("set_new");
+	rs.as = as;
+	rs.maxlen = max;
+	if (set_add(psi->set, &rs, 1) != 0)
+		fatal("as_set_new");
 }

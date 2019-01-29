@@ -1,4 +1,4 @@
-/*	$OpenBSD: intrdefs.h,v 1.15 2016/10/21 06:20:58 mlarkin Exp $	*/
+/*	$OpenBSD: intrdefs.h,v 1.17 2019/01/18 01:34:50 pd Exp $	*/
 /*	$NetBSD: intrdefs.h,v 1.2 2003/05/04 22:01:56 fvdl Exp $	*/
 
 #ifndef _I386_INTRDEFS_H
@@ -70,6 +70,7 @@
 #define	IPL_HIGH	MAKEIPL(10)	/* everything */
 #define	IPL_IPI		MAKEIPL(11)	/* interprocessor interrupt */
 
+#define	IPL_MPFLOOR	IPL_TTY
 #define	IPL_MPSAFE	0x100
 
 /* Interrupt sharing types. */
@@ -115,16 +116,13 @@
 #define I386_IPI_GDT		0x00000020
 #define I386_IPI_DDB		0x00000040	/* synchronize while in ddb */
 #define I386_IPI_SETPERF	0x00000080
-#define I386_IPI_START_VMM	0x00000100
-#define I386_IPI_STOP_VMM	0x00000200
 
-#define I386_NIPI	10
+#define I386_NIPI	8
 
 #define I386_IPI_NAMES { "halt IPI", "nop IPI", "FPU flush IPI", \
 			 "FPU synch IPI", \
 			 "MTRR update IPI", "GDT update IPI", \
-			 "DDB IPI", "setperf IPI", "VMM start IPI", \
-			 "VMM stop IPI" }
+			 "DDB IPI", "setperf IPI" }
 
 #define IREENT_MAGIC	0x18041969
 

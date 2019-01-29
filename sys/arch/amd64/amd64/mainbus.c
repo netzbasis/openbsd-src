@@ -1,4 +1,4 @@
-/*	$OpenBSD: mainbus.c,v 1.39 2017/03/25 22:24:01 deraadt Exp $	*/
+/*	$OpenBSD: mainbus.c,v 1.45 2018/09/22 17:41:52 kettenis Exp $	*/
 /*	$NetBSD: mainbus.c,v 1.1 2003/04/26 18:39:29 fvdl Exp $	*/
 
 /*
@@ -37,11 +37,10 @@
 
 #include <machine/bus.h>
 #include <machine/specialreg.h>
+#include <machine/codepatch.h>
 
 #include <dev/isa/isavar.h>
 #include <dev/pci/pcivar.h>
-
-#include <dev/isa/isareg.h>
 
 #include "pci.h"
 #include "isa.h"
@@ -172,6 +171,10 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 		pvbus_identify();
 #endif
 
+#if NEFIFB > 0
+	efifb_cnremap();
+#endif
+
 #if NBIOS > 0
 	{
 		mba.mba_bios.ba_name = "bios";
@@ -261,7 +264,22 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 		config_found(self, &mba, mainbus_print);
 	}
 #endif
+	codepatch_disable();
 }
+
+#if NEFIFB > 0
+void
+mainbus_efifb_reattach(void)
+{
+	union mainbus_attach_args mba;
+	struct device *self = device_mainbus();
+	if (bios_efiinfo != NULL || efifb_cb_found()) {
+		efifb_cnreattach();
+		mba.mba_eaa.eaa_name = "efifb";
+		config_found(self, &mba, mainbus_print);
+	}
+}
+#endif
 
 int
 mainbus_print(void *aux, const char *pnp)

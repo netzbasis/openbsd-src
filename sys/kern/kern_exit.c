@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exit.c,v 1.160 2017/04/20 12:59:36 visa Exp $	*/
+/*	$OpenBSD: kern_exit.c,v 1.173 2019/01/23 22:39:47 tedu Exp $	*/
 /*	$NetBSD: kern_exit.c,v 1.39 1996/04/22 01:38:25 christos Exp $	*/
 
 /*
@@ -47,7 +47,6 @@
 #include <sys/kernel.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
-#include <sys/file.h>
 #include <sys/vnode.h>
 #include <sys/syslog.h>
 #include <sys/malloc.h>
@@ -71,9 +70,15 @@
 
 #include <uvm/uvm_extern.h>
 
+#include "kcov.h"
+#if NKCOV > 0
+#include <sys/kcov.h>
+#endif
+
 void	proc_finish_wait(struct proc *, struct proc *);
 void	process_zap(struct process *);
 void	proc_free(struct proc *);
+void	unveil_destroy(struct process *ps);
 
 /*
  * exit --
@@ -118,8 +123,7 @@ exit1(struct proc *p, int rv, int flags)
 {
 	struct process *pr, *qr, *nqr;
 	struct rusage *rup;
-	struct vnode *ovp;
-	
+
 	atomic_setbits_int(&p->p_flag, P_WEXIT);
 
 	pr = p->p_p;
@@ -177,52 +181,22 @@ exit1(struct proc *p, int rv, int flags)
 	}
 	p->p_siglist = 0;
 
+#if NKCOV > 0
+	kcov_exit(p);
+#endif
+
 	if ((p->p_flag & P_THREAD) == 0) {
+		sigio_freelist(&pr->ps_sigiolst);
+
 		/* close open files and release open-file table */
 		fdfree(p);
 
 		timeout_del(&pr->ps_realit_to);
+		timeout_del(&pr->ps_rucheck_to);
 #ifdef SYSVSEM
 		semexit(pr);
 #endif
-		if (SESS_LEADER(pr)) {
-			struct session *sp = pr->ps_session;
-
-			if (sp->s_ttyvp) {
-				/*
-				 * Controlling process.
-				 * Signal foreground pgrp,
-				 * drain controlling terminal
-				 * and revoke access to controlling terminal.
-				 */
-				if (sp->s_ttyp->t_session == sp) {
-					if (sp->s_ttyp->t_pgrp)
-						pgsignal(sp->s_ttyp->t_pgrp,
-						    SIGHUP, 1);
-					ttywait(sp->s_ttyp);
-					/*
-					 * The tty could have been revoked
-					 * if we blocked.
-					 */
-					if (sp->s_ttyvp)
-						VOP_REVOKE(sp->s_ttyvp,
-						    REVOKEALL);
-				}
-				ovp = sp->s_ttyvp;
-				sp->s_ttyvp = NULL;
-				if (ovp)
-					vrele(ovp);
-				/*
-				 * s_ttyp is not zero'd; we use this to
-				 * indicate that the session once had a
-				 * controlling terminal.  (for logging and
-				 * informational purposes)
-				 */
-			}
-			sp->s_leader = NULL;
-		}
-		fixjobc(pr, pr->ps_pgrp, 0);
-
+		killjobc(pr);
 #ifdef ACCOUNTING
 		acct_process(p);
 #endif
@@ -232,6 +206,8 @@ exit1(struct proc *p, int rv, int flags)
 		if (pr->ps_tracevp)
 			ktrcleartrace(pr);
 #endif
+
+		unveil_destroy(pr);
 
 		/*
 		 * If parent has the SAS_NOCLDWAIT flag set, we're not
@@ -375,7 +351,8 @@ exit1(struct proc *p, int rv, int flags)
  * modify interrupt state.  We use a simple spin lock for this
  * proclist.  We use the p_hash member to linkup to deadproc.
  */
-struct mutex deadproc_mutex = MUTEX_INITIALIZER(IPL_NONE);
+struct mutex deadproc_mutex =
+    MUTEX_INITIALIZER_FLAGS(IPL_NONE, "deadproc", MTX_NOWITNESS);
 struct proclist deadproc = LIST_HEAD_INITIALIZER(deadproc);
 
 /*
@@ -413,7 +390,7 @@ proc_free(struct proc *p)
  * a zombie, and the parent is allowed to read the undead's status.
  */
 void
-reaper(void)
+reaper(void *arg)
 {
 	struct proc *p;
 
@@ -643,8 +620,6 @@ process_zap(struct process *pr)
 	 * Decrement the count of procs running with this uid.
 	 */
 	(void)chgproccnt(pr->ps_ucred->cr_ruid, -1);
-
-	pledge_dropwpaths(pr);
 
 	/*
 	 * Release reference to text vnode

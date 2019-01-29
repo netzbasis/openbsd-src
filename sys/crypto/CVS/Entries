@@ -13,9 +13,9 @@
 /cmac.c/1.3/Tue May  2 17:07:06 2017//
 /cmac.h/1.3/Tue May  2 17:07:06 2017//
 /criov.c/1.20/Sat Mar 14 03:38:46 2015//
-/crypto.c/1.79/Tue Feb  7 17:25:46 2017//
+/crypto.c/1.80/Thu Nov 30 16:31:12 2017//
 /cryptodev.h/1.71/Thu Aug 10 18:57:20 2017//
-/cryptosoft.c/1.83/Tue May  2 11:44:32 2017//
+/cryptosoft.c/1.85/Wed Jan  9 12:11:38 2019//
 /cryptosoft.h/1.14/Fri Dec  7 17:03:22 2012//
 /des_locl.h/1.7/Thu Dec 10 21:00:51 2015//
 /ecb3_enc.c/1.3/Mon Nov 18 18:49:53 2013//
@@ -44,11 +44,11 @@
 /sha1.h/1.6/Sun Nov 16 17:39:09 2014//
 /sha2.c/1.18/Sat Mar 14 03:38:46 2015//
 /sha2.h/1.5/Sun Nov 16 17:39:09 2014//
-/siphash.c/1.4/Wed Apr 12 18:35:50 2017//
+/siphash.c/1.5/Fri Jan  5 19:05:09 2018//
 /siphash.h/1.5/Fri Feb 20 11:51:03 2015//
 /sk.h/1.2/Sun Oct 27 13:24:26 2002//
 /spr.h/1.2/Sun Oct 27 13:24:26 2002//
-/xform.c/1.58/Wed May 31 00:34:33 2017//
-/xform.h/1.29/Tue May  2 11:44:32 2017//
-/xform_ipcomp.c/1.7/Mon Mar 16 20:26:24 2015//
+/xform.c/1.59/Mon Apr  9 04:34:56 2018//
+/xform.h/1.30/Mon Apr  9 04:34:56 2018//
+/xform_ipcomp.c/1.8/Wed Jan  9 12:11:38 2019//
 D

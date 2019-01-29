@@ -1,8 +1,10 @@
-/Makefile/1.24/Sun Jun 18 17:35:40 2017//
+/Makefile/1.28/Fri Jan  4 01:06:44 2019//
 /Makefile.inc/1.4/Wed Mar  8 22:53:36 2017//
 D/args////
 D/br////
 D/cc////
+D/ce////
+D/char////
 D/cond////
 D/de////
 D/ds////
@@ -15,11 +17,14 @@ D/na////
 D/nr////
 D/po////
 D/ps////
+D/return////
 D/rm////
 D/rn////
 D/scale////
+D/shift////
 D/sp////
 D/string////
 D/ta////
 D/ti////
 D/tr////
+D/while////

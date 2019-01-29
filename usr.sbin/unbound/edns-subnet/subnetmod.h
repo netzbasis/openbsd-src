@@ -61,6 +61,10 @@ struct subnet_env {
 	/** allocation service */
 	struct alloc_cache alloc;
 	lock_rw_type biglock;
+	/** number of messages from cache */
+	size_t num_msg_cache;
+	/** number of messages not from cache */
+	size_t num_msg_nocache;
 };
 
 struct subnet_msg_cache_data {
@@ -79,6 +83,8 @@ struct subnet_qstate {
 	struct ecs_data	ecs_server_out;
 	int subnet_downstream;
 	int subnet_sent;
+	/** has the subnet module been started with no_cache_store? */
+	int started_no_cache_store;
 };
 
 void subnet_data_delete(void* d, void* ATTR_UNUSED(arg));
@@ -119,12 +125,15 @@ int ecs_whitelist_check(struct query_info* qinfo, uint16_t flags,
 	socklen_t addrlen, uint8_t* zone, size_t zonelen,
 	struct regional* region, int id, void* cbargs);
 
-/** Check whether reponse from server contains ECS record, if so, skip cache
+/** Check whether response from server contains ECS record, if so, skip cache
  * store. Called just after parsing EDNS data from server. */
 int ecs_edns_back_parsed(struct module_qstate* qstate, int id, void* cbargs);
 
 /** Remove ECS record from back_out when query resulted in REFUSED response. */
 int ecs_query_response(struct module_qstate* qstate, struct dns_msg* response,
 	int id, void* cbargs);
+
+/** mark subnet msg to be deleted */
+void subnet_markdel(void* key);
 
 #endif /* SUBNETMOD_H */

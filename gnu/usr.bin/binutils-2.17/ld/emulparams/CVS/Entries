@@ -14,7 +14,7 @@
 /armelf_linux.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /armelf_linux_eabi.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /armelf_nbsd.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
-/armelf_obsd.sh/1.3/Sat Jul  1 18:00:01 2017//
+/armelf_obsd.sh/1.4/Tue Dec 18 21:14:22 2018//
 /armelf_vxworks.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /armelfb.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /armelfb_linux.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
@@ -79,7 +79,7 @@
 /elf32ltsmipn32.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf32m32c.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf32m88k.sh/1.1/Mon May 25 14:56:28 2015//
-/elf32m88k_obsd.sh/1.1/Mon May 25 14:56:28 2015//
+/elf32m88k_obsd.sh/1.2/Tue Dec 18 21:15:21 2018//
 /elf32mcore.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf32mipswindiss.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf32mt.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
@@ -161,7 +161,7 @@
 /hppaelf.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /hppalinux.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /hppanbsd.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
-/hppaobsd.sh/1.5/Sat Jul  1 18:00:01 2017//
+/hppaobsd.sh/1.6/Tue Dec 18 21:14:22 2018//
 /i386aout.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /i386beos.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /i386bsd.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
@@ -235,7 +235,7 @@
 /shelf_linux.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//
 /shelf_nbsd.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//
 /shelf_nto.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//
-/shelf_obsd.sh/1.4/Sat Jul  1 18:00:01 2017//
+/shelf_obsd.sh/1.5/Tue Dec 18 21:14:22 2018//
 /shl.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//
 /shlelf.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//
 /shlelf32.sh/1.1.1.1/Sun Apr 24 20:14:50 2011//

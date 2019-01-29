@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.5 2018/04/06 14:44:04 patrick Exp $
 
 LIB=	LLVMPowerPCCodeGen
 NOPIC=
@@ -10,9 +10,11 @@ CPPFLAGS+=	-I${.OBJDIR}/../include/llvm/PowerPC \
 .include <bsd.own.mk>
 SRCS=	PPCBoolRetToInt.cpp \
 	PPCAsmPrinter.cpp \
+	PPCBranchCoalescing.cpp \
 	PPCBranchSelector.cpp \
 	PPCCCState.cpp \
 	PPCCTRLoops.cpp \
+	PPCExpandISEL.cpp \
 	PPCHazardRecognizers.cpp \
 	PPCInstrInfo.cpp \
 	PPCISelDAGToDAG.cpp \
@@ -24,7 +26,9 @@ SRCS=	PPCBoolRetToInt.cpp \
 	PPCMCInstLower.cpp \
 	PPCMachineFunctionInfo.cpp \
 	PPCMIPeephole.cpp \
+	PPCPreEmitPeephole.cpp \
 	PPCQPXLoadSplat.cpp \
+	PPCReduceCRLogicals.cpp \
 	PPCRegisterInfo.cpp \
 	PPCSubtarget.cpp \
 	PPCTargetMachine.cpp \

@@ -1,7 +1,7 @@
-/*	$OpenBSD: crc.h,v 1.2 2014/03/20 22:03:56 tedu Exp $	*/
+/*	$OpenBSD: crc.h,v 1.4 2019/01/25 00:19:25 millert Exp $	*/
 
 /*
- * Copyright (c) 2004 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 2004 Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,7 +17,7 @@
  */
 
 #define	CKSUM_DIGEST_LENGTH		4
-#define	CKSUM_DIGEST_STRING_LENGTH	(10 + 1 + 19)
+#define	CKSUM_DIGEST_STRING_LENGTH	(10 + 1 + 20 + 1)
 
 typedef struct CKSUMContext {
 	u_int32_t crc;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vio.c,v 1.4 2017/08/10 18:03:51 reyk Exp $	*/
+/*	$OpenBSD: if_vio.c,v 1.8 2019/01/19 16:23:46 sf Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch, Alexander Fiveg.
@@ -96,6 +96,7 @@
 #define CONFFLAG_QEMU_VLAN_BUG		(1<<8)
 
 static const struct virtio_feature_name virtio_net_feature_names[] = {
+#if VIRTIO_DEBUG
 	{ VIRTIO_NET_F_CSUM,		"CSum" },
 	{ VIRTIO_NET_F_GUEST_CSUM,	"GuestCSum" },
 	{ VIRTIO_NET_F_MAC,		"MAC" },
@@ -115,6 +116,7 @@ static const struct virtio_feature_name virtio_net_feature_names[] = {
 	{ VIRTIO_NET_F_CTRL_VLAN,	"CtrlVLAN" },
 	{ VIRTIO_NET_F_CTRL_RX_EXTRA,	"CtrlRXExtra" },
 	{ VIRTIO_NET_F_GUEST_ANNOUNCE,	"GuestAnnounce" },
+#endif
 	{ 0, 				NULL }
 };
 
@@ -529,8 +531,8 @@ vio_attach(struct device *parent, struct device *self, void *aux)
 	 * VIRTIO_F_RING_EVENT_IDX can be switched off by setting bit 2 in the
 	 * driver flags, see config(8)
 	 */
-	if (!(sc->sc_dev.dv_cfdata->cf_flags & 2) &&
-	    !(vsc->sc_dev.dv_cfdata->cf_flags & 2))
+	if (!(sc->sc_dev.dv_cfdata->cf_flags & VIRTIO_CF_NO_EVENT_IDX) &&
+	    !(vsc->sc_dev.dv_cfdata->cf_flags & VIRTIO_CF_NO_EVENT_IDX))
 		features |= VIRTIO_F_RING_EVENT_IDX;
 	else
 		printf(": RingEventIdx disabled by UKC");
@@ -1270,13 +1272,28 @@ out:
 	return r;
 }
 
+/*
+ * XXXSMP As long as some per-ifp ioctl(2)s are executed with the
+ * NET_LOCK() deadlocks are possible.  So release it here.
+ */
+static inline int
+vio_sleep(struct vio_softc *sc, const char *wmesg)
+{
+	int status = rw_status(&netlock);
+
+	if (status != RW_WRITE && status != RW_READ)
+		return tsleep(&sc->sc_ctrl_inuse, PRIBIO|PCATCH, wmesg, 0);
+
+	return rwsleep(&sc->sc_ctrl_inuse, &netlock, PRIBIO|PCATCH, wmesg, 0);
+}
+
 int
 vio_wait_ctrl(struct vio_softc *sc)
 {
 	int r = 0;
 
 	while (sc->sc_ctrl_inuse != FREE) {
-		r = tsleep(&sc->sc_ctrl_inuse, PRIBIO|PCATCH, "viowait", 0);
+		r = vio_sleep(sc, "viowait");
 		if (r == EINTR)
 			return r;
 	}
@@ -1295,7 +1312,7 @@ vio_wait_ctrl_done(struct vio_softc *sc)
 			r = 1;
 			break;
 		}
-		r = tsleep(&sc->sc_ctrl_inuse, PRIBIO|PCATCH, "viodone", 0);
+		r = vio_sleep(sc, "viodone");
 		if (r == EINTR)
 			break;
 	}

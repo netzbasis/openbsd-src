@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.5 2019/01/27 16:59:41 patrick Exp $
 
 LIB=	LLVMCore
 NOPIC=
@@ -21,11 +21,12 @@ SRCS=	AsmWriter.cpp \
 	DebugInfo.cpp \
 	DebugInfoMetadata.cpp \
 	DebugLoc.cpp \
+	DiagnosticHandler.cpp \
 	DiagnosticInfo.cpp \
 	DiagnosticPrinter.cpp \
+	DomTreeUpdater.cpp \
 	Dominators.cpp \
 	Function.cpp \
-	GCOV.cpp \
 	GVMaterializer.cpp \
 	Globals.cpp \
 	IRBuilder.cpp \
@@ -55,7 +56,6 @@ SRCS=	AsmWriter.cpp \
 	User.cpp \
 	Value.cpp \
 	ValueSymbolTable.cpp \
-	ValueTypes.cpp \
 	Verifier.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/IR

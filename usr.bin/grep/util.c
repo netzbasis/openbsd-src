@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.57 2017/04/03 16:18:35 tedu Exp $	*/
+/*	$OpenBSD: util.c,v 1.59 2019/01/23 23:00:54 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -77,6 +77,7 @@ grep_tree(char **argv)
 			if(!sflag)
 				warnc(p->fts_errno, "%s", p->fts_path);
 			break;
+		case FTS_D:
 		case FTS_DP:
 			break;
 		default:
@@ -97,13 +98,17 @@ procfile(char *fn)
 	file_t *f;
 	int c, t, z, nottext;
 
+	mcount = mlimit;
+
 	if (fn == NULL) {
 		fn = "(standard input)";
-		f = grep_fdopen(STDIN_FILENO, "r");
+		f = grep_fdopen(STDIN_FILENO);
 	} else {
-		f = grep_open(fn, "r");
+		f = grep_open(fn);
 	}
 	if (f == NULL) {
+		if (errno == EISDIR)
+			return 0;
 		file_err = 1;
 		if (!sflag)
 			warn("%s", fn);
@@ -126,6 +131,8 @@ procfile(char *fn)
 	if (Bflag > 0)
 		initqueue();
 	for (c = 0;  c == 0 || !(lflag || qflag); ) {
+		if (mflag && mlimit == 0)
+			break;
 		ln.off += ln.len + 1;
 		if ((ln.dat = grep_fgetln(f, &ln.len)) == NULL)
 			break;
@@ -140,6 +147,8 @@ procfile(char *fn)
 			linesqueued++;
 		}
 		c += t;
+		if (mflag && mcount <= 0)
+			break;
 	}
 	if (Bflag > 0)
 		clearqueue();
@@ -223,6 +232,10 @@ redo:
 print:
 	if (vflag)
 		c = !c;
+
+	/* Count the matches if we have a match limit */
+	if (mflag)
+		mcount -= c;
 
 	if (c && binbehave == BIN_FILE_BIN && nottext)
 		return c; /* Binary file */

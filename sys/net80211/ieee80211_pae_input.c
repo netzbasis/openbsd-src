@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_pae_input.c,v 1.30 2017/08/17 06:01:05 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_pae_input.c,v 1.32 2018/11/02 14:40:24 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007,2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -340,6 +340,12 @@ ieee80211_recv_4way_msg2(struct ieee80211com *ic,
 }
 #endif	/* IEEE80211_STA_ONLY */
 
+/* 
+ * Check if a group key must be updated with a new GTK from an EAPOL frame.
+ * Manipulated group key handshake messages could trick clients into
+ * reinstalling an already used group key and hence lower or reset the
+ * associated replay counter. This check prevents such attacks.
+ */
 int
 ieee80211_must_update_group_key(struct ieee80211_key *k, const uint8_t *gtk,
     int len)
@@ -528,6 +534,17 @@ ieee80211_recv_4way_msg3(struct ieee80211com *ic,
 	if (ieee80211_send_4way_msg4(ic, ni) != 0)
 		return;	/* ..authenticator will retry */
 
+	/* 
+	 * Only install a new pairwise key if we are still expecting a new key,
+	 * as indicated by the NODE_RSN_NEW_PTK flag. An adversary could be
+	 * sending manipulated retransmissions of message 3 of the 4-way
+	 * handshake in an attempt to trick us into reinstalling an already
+	 * used pairwise key. If this attack succeeded, the incremental nonce
+	 * and replay counter associated with the key would be reset.
+	 * Against CCMP, the adversary could abuse this to replay and decrypt
+	 * packets. Against TKIP, it would become possible to replay, decrypt,
+	 * and forge packets.
+	 */
 	if (ni->ni_rsncipher != IEEE80211_CIPHER_USEGROUP &&
 	    (ni->ni_flags & IEEE80211_NODE_RSN_NEW_PTK)) {
 		u_int64_t prsc;
@@ -586,9 +603,7 @@ ieee80211_recv_4way_msg3(struct ieee80211com *ic,
 				reason = IEEE80211_REASON_AUTH_LEAVE;
 				goto deauth;
 			}
-		} else
-			printf("%s: reused group key update received from %s\n",
-			    ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
+		}
 	}
 	if (igtk != NULL) {	/* implies MFP && gtk != NULL */
 		u_int16_t kid;
@@ -619,9 +634,7 @@ ieee80211_recv_4way_msg3(struct ieee80211com *ic,
 				reason = IEEE80211_REASON_AUTH_LEAVE;
 				goto deauth;
 			}
-		} else
-			printf("%s: reused group key update received from %s\n",
-			    ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
+		}
 	}
 	if (info & EAPOL_KEY_INSTALL)
 		ni->ni_flags |= IEEE80211_NODE_TXRXPROT;
@@ -862,9 +875,7 @@ ieee80211_recv_rsn_group_msg1(struct ieee80211com *ic,
 			reason = IEEE80211_REASON_AUTH_LEAVE;
 			goto deauth;
 		}
-	} else
-		printf("%s: reused group key update received from %s\n",
-		    ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
+	}
 	if (igtk != NULL) {	/* implies MFP */
 		/* check that the IGTK KDE is valid */
 		if (igtk[1] != 4 + 24) {
@@ -892,9 +903,7 @@ ieee80211_recv_rsn_group_msg1(struct ieee80211com *ic,
 				reason = IEEE80211_REASON_AUTH_LEAVE;
 				goto deauth;
 			}
-		} else
-			printf("%s: reused group key update received from %s\n",
-			    ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
+		}
 	}
 	if (info & EAPOL_KEY_SECURE) {
 #ifndef IEEE80211_STA_ONLY
@@ -999,9 +1008,7 @@ ieee80211_recv_wpa_group_msg1(struct ieee80211com *ic,
 			ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 			return;
 		}
-	} else
-		printf("%s: reused group key update received from %s\n",
-		    ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
+	}
 	if (info & EAPOL_KEY_SECURE) {
 #ifndef IEEE80211_STA_ONLY
 		if (ic->ic_opmode != IEEE80211_M_IBSS ||

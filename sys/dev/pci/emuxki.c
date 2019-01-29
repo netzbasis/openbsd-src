@@ -1,4 +1,4 @@
-/*	$OpenBSD: emuxki.c,v 1.51 2016/09/19 06:46:44 ratchov Exp $	*/
+/*	$OpenBSD: emuxki.c,v 1.53 2018/09/13 04:07:20 miko Exp $	*/
 /*	$NetBSD: emuxki.c,v 1.1 2001/10/17 18:39:41 jdolecek Exp $	*/
 
 /*-
@@ -49,13 +49,12 @@
  * - DSP FX patches (to make fx like chipmunk)
  */
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/device.h>
 #include <sys/errno.h>
 #include <sys/fcntl.h>
 #include <sys/malloc.h>
 #include <sys/systm.h>
-#include <sys/param.h>
 #include <sys/audioio.h>
 
 #include <dev/pci/pcireg.h>
@@ -507,19 +506,16 @@ int
 emuxki_activate(struct device *self, int act)
 {
 	struct emuxki_softc *sc = (struct emuxki_softc *)self;
-	int rv = 0;
 
 	switch (act) {
 	case DVACT_RESUME:
 		emuxki_scinit(sc, 1);
 		ac97_resume(&sc->hostif, sc->codecif);
-		rv = config_activate_children(self, act);
 		break;
 	default:
-		rv = config_activate_children(self, act);
 		break;
 	}
-	return (rv);
+	return (config_activate_children(self, act));
 }
 
 /* Misc stuff relative to emu10k1 */

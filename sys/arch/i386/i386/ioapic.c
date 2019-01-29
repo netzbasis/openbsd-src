@@ -1,4 +1,4 @@
-/*	$OpenBSD: ioapic.c,v 1.39 2017/08/08 15:53:55 visa Exp $	*/
+/*	$OpenBSD: ioapic.c,v 1.41 2018/08/25 16:09:29 kettenis Exp $	*/
 /* 	$NetBSD: ioapic.c,v 1.7 2003/07/14 22:32:40 lukem Exp $	*/
 
 /*-
@@ -270,9 +270,9 @@ ioapic_set_id(struct ioapic_softc *sc)
 	    IOAPIC_ID_SHIFT;
 
 	if (apic_id != sc->sc_apicid)
-		printf(", can't remap to apid %d\n", sc->sc_apicid);
+		printf(", can't remap");
 	else
-		printf(", remapped to apid %d\n", sc->sc_apicid);
+		printf(", remapped");
 }
 
 /*
@@ -330,7 +330,7 @@ ioapic_attach(struct device *parent, struct device *self, void *aux)
 		    aaa->flags & IOAPIC_PICMODE ? "PIC" : "virtual wire");
 	}
 
-	printf(", version %x, %d pins\n", sc->sc_apic_vers, sc->sc_apic_sz);
+	printf(", version %x, %d pins", sc->sc_apic_vers, sc->sc_apic_sz);
 
 	apic_id = (ioapic_read(sc, IOAPIC_ID) & IOAPIC_ID_MASK) >>
 	    IOAPIC_ID_SHIFT;
@@ -352,11 +352,15 @@ ioapic_attach(struct device *parent, struct device *self, void *aux)
 	 * In case the APIC is not initialized to the correct ID
 	 * do it now.
 	 */
-	if (mp_verbose && apic_id != sc->sc_apicid) {
-		printf("%s: misconfigured as apic %d",
-		    sc->sc_pic.pic_name, apic_id);
+	if (apic_id != sc->sc_apicid) {
+		if (mp_verbose)
+			printf("\n%s: misconfigured as apic %d",
+			    sc->sc_pic.pic_name, apic_id);
 		ioapic_set_id(sc);
 	}
+
+	printf("\n");
+
 #if 0
 	/* output of this was boring. */
 	if (mp_verbose)

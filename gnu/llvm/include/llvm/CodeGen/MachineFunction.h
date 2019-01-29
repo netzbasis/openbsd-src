@@ -1,4 +1,4 @@
-//===-- llvm/CodeGen/MachineFunction.h --------------------------*- C++ -*-===//
+//===- llvm/CodeGen/MachineFunction.h ---------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -18,38 +18,62 @@
 #ifndef LLVM_CODEGEN_MACHINEFUNCTION_H
 #define LLVM_CODEGEN_MACHINEFUNCTION_H
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/ilist.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/ilist.h"
+#include "llvm/ADT/iterator.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/IR/DebugLoc.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/ArrayRecycler.h"
+#include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Recycler.h"
+#include <cassert>
+#include <cstdint>
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace llvm {
 
-class Value;
+class BasicBlock;
+class BlockAddress;
+class DataLayout;
+class DIExpression;
+class DILocalVariable;
+class DILocation;
 class Function;
-class GCModuleInfo;
-class MachineRegisterInfo;
-class MachineFrameInfo;
+class GlobalValue;
 class MachineConstantPool;
+class MachineFrameInfo;
+class MachineFunction;
 class MachineJumpTableInfo;
 class MachineModuleInfo;
+class MachineRegisterInfo;
 class MCContext;
+class MCInstrDesc;
 class Pass;
 class PseudoSourceValueManager;
+class raw_ostream;
+class SlotIndexes;
 class TargetMachine;
-class TargetSubtargetInfo;
 class TargetRegisterClass;
-struct MachinePointerInfo;
+class TargetSubtargetInfo;
+struct WasmEHFuncInfo;
 struct WinEHFuncInfo;
 
 template <> struct ilist_alloc_traits<MachineBasicBlock> {
@@ -57,8 +81,8 @@ template <> struct ilist_alloc_traits<MachineBasicBlock> {
 };
 
 template <> struct ilist_callback_traits<MachineBasicBlock> {
-  void addNodeToList(MachineBasicBlock* MBB);
-  void removeNodeFromList(MachineBasicBlock* MBB);
+  void addNodeToList(MachineBasicBlock* N);
+  void removeNodeFromList(MachineBasicBlock* N);
 
   template <class Iterator>
   void transferNodesFromList(ilist_callback_traits &OldList, Iterator, Iterator) {
@@ -73,7 +97,7 @@ template <> struct ilist_callback_traits<MachineBasicBlock> {
 struct MachineFunctionInfo {
   virtual ~MachineFunctionInfo();
 
-  /// \brief Factory function: default behavior is to call new using the
+  /// Factory function: default behavior is to call new using the
   /// supplied allocator.
   ///
   /// This function can be overridden in a derive class.
@@ -137,27 +161,33 @@ public:
   bool hasProperty(Property P) const {
     return Properties[static_cast<unsigned>(P)];
   }
+
   MachineFunctionProperties &set(Property P) {
     Properties.set(static_cast<unsigned>(P));
     return *this;
   }
+
   MachineFunctionProperties &reset(Property P) {
     Properties.reset(static_cast<unsigned>(P));
     return *this;
   }
+
   /// Reset all the properties.
   MachineFunctionProperties &reset() {
     Properties.reset();
     return *this;
   }
+
   MachineFunctionProperties &set(const MachineFunctionProperties &MFP) {
     Properties |= MFP.Properties;
     return *this;
   }
+
   MachineFunctionProperties &reset(const MachineFunctionProperties &MFP) {
     Properties.reset(MFP.Properties);
     return *this;
   }
+
   // Returns true if all properties set in V (i.e. required by a pass) are set
   // in this.
   bool verifyRequiredProperties(const MachineFunctionProperties &V) const {
@@ -180,22 +210,21 @@ struct SEHHandler {
   const BlockAddress *RecoverBA;
 };
 
-
 /// This structure is used to retain landing pad info for the current function.
 struct LandingPadInfo {
   MachineBasicBlock *LandingPadBlock;      // Landing pad block.
   SmallVector<MCSymbol *, 1> BeginLabels;  // Labels prior to invoke.
   SmallVector<MCSymbol *, 1> EndLabels;    // Labels after invoke.
   SmallVector<SEHHandler, 1> SEHHandlers;  // SEH handlers active at this lpad.
-  MCSymbol *LandingPadLabel;               // Label at beginning of landing pad.
-  std::vector<int> TypeIds;               // List of type ids (filters negative).
+  MCSymbol *LandingPadLabel = nullptr;     // Label at beginning of landing pad.
+  std::vector<int> TypeIds;                // List of type ids (filters negative).
 
   explicit LandingPadInfo(MachineBasicBlock *MBB)
-      : LandingPadBlock(MBB), LandingPadLabel(nullptr) {}
+      : LandingPadBlock(MBB) {}
 };
 
 class MachineFunction {
-  const Function *Fn;
+  const Function &F;
   const TargetMachine &Target;
   const TargetSubtargetInfo *STI;
   MCContext &Ctx;
@@ -216,6 +245,10 @@ class MachineFunction {
 
   // Keep track of jump tables for switch instructions
   MachineJumpTableInfo *JumpTableInfo;
+
+  // Keeps track of Wasm exception handling related data. This will be null for
+  // functions that aren't using a wasm EH personality.
+  WasmEHFuncInfo *WasmEHInfo = nullptr;
 
   // Keeps track of Windows exception handling related data. This will be null
   // for functions that aren't using a funclet-based EH personality.
@@ -239,7 +272,7 @@ class MachineFunction {
   Recycler<MachineBasicBlock> BasicBlockRecycler;
 
   // List of machine basic blocks in function
-  typedef ilist<MachineBasicBlock> BasicBlockListType;
+  using BasicBlockListType = ilist<MachineBasicBlock>;
   BasicBlockListType BasicBlocks;
 
   /// FunctionNumber - This provides a unique ID for each function emitted in
@@ -281,13 +314,17 @@ class MachineFunction {
   std::vector<LandingPadInfo> LandingPads;
 
   /// Map a landing pad's EH symbol to the call site indexes.
-  DenseMap<MCSymbol*, SmallVector<unsigned, 4> > LPadToCallSiteMap;
+  DenseMap<MCSymbol*, SmallVector<unsigned, 4>> LPadToCallSiteMap;
 
   /// Map of invoke call site index values to associated begin EH_LABEL.
   DenseMap<MCSymbol*, unsigned> CallSiteMap;
 
+  /// CodeView label annotations.
+  std::vector<std::pair<MCSymbol *, MDNode *>> CodeViewAnnotations;
+
   bool CallsEHReturn = false;
   bool CallsUnwindInit = false;
+  bool HasEHScopes = false;
   bool HasEHFunclets = false;
 
   /// List of C++ TypeInfo used.
@@ -303,9 +340,6 @@ class MachineFunction {
 
   /// \}
 
-  MachineFunction(const MachineFunction &) = delete;
-  void operator=(const MachineFunction&) = delete;
-
   /// Clear all the members of this MachineFunction, but the ones used
   /// to initialize again the MachineFunction.
   /// More specifically, this deallocates all the dynamically allocated
@@ -316,23 +350,27 @@ class MachineFunction {
   /// In particular, the XXXInfo data structure.
   /// \pre Fn, Target, MMI, and FunctionNumber are properly set.
   void init();
-public:
 
+public:
   struct VariableDbgInfo {
     const DILocalVariable *Var;
     const DIExpression *Expr;
-    unsigned Slot;
+    // The Slot can be negative for fixed stack objects.
+    int Slot;
     const DILocation *Loc;
 
     VariableDbgInfo(const DILocalVariable *Var, const DIExpression *Expr,
-                    unsigned Slot, const DILocation *Loc)
+                    int Slot, const DILocation *Loc)
         : Var(Var), Expr(Expr), Slot(Slot), Loc(Loc) {}
   };
-  typedef SmallVector<VariableDbgInfo, 4> VariableDbgInfoMapTy;
+  using VariableDbgInfoMapTy = SmallVector<VariableDbgInfo, 4>;
   VariableDbgInfoMapTy VariableDbgInfos;
 
-  MachineFunction(const Function *Fn, const TargetMachine &TM,
-                  unsigned FunctionNum, MachineModuleInfo &MMI);
+  MachineFunction(const Function &F, const TargetMachine &Target,
+                  const TargetSubtargetInfo &STI, unsigned FunctionNum,
+                  MachineModuleInfo &MMI);
+  MachineFunction(const MachineFunction &) = delete;
+  MachineFunction &operator=(const MachineFunction &) = delete;
   ~MachineFunction();
 
   /// Reset the instance as if it was just created.
@@ -349,20 +387,16 @@ public:
   /// Return the DataLayout attached to the Module associated to this MF.
   const DataLayout &getDataLayout() const;
 
-  /// getFunction - Return the LLVM function that this machine code represents
-  ///
-  const Function *getFunction() const { return Fn; }
+  /// Return the LLVM function that this machine code represents
+  const Function &getFunction() const { return F; }
 
   /// getName - Return the name of the corresponding LLVM function.
-  ///
   StringRef getName() const;
 
   /// getFunctionNumber - Return a unique ID for the current function.
-  ///
   unsigned getFunctionNumber() const { return FunctionNumber; }
 
   /// getTarget - Return the target machine this machine code is compiled with
-  ///
   const TargetMachine &getTarget() const { return Target; }
 
   /// getSubtarget - Return the subtarget for which this machine code is being
@@ -378,14 +412,12 @@ public:
   }
 
   /// getRegInfo - Return information about the registers currently in use.
-  ///
   MachineRegisterInfo &getRegInfo() { return *RegInfo; }
   const MachineRegisterInfo &getRegInfo() const { return *RegInfo; }
 
   /// getFrameInfo - Return the frame info object for the current function.
   /// This object contains information about objects allocated on the stack
   /// frame of the current function in an abstract way.
-  ///
   MachineFrameInfo &getFrameInfo() { return *FrameInfo; }
   const MachineFrameInfo &getFrameInfo() const { return *FrameInfo; }
 
@@ -402,9 +434,14 @@ public:
 
   /// getConstantPool - Return the constant pool object for the current
   /// function.
-  ///
   MachineConstantPool *getConstantPool() { return ConstantPool; }
   const MachineConstantPool *getConstantPool() const { return ConstantPool; }
+
+  /// getWasmEHFuncInfo - Return information about how the current function uses
+  /// Wasm exception handling. Returns null for functions that don't use wasm
+  /// exception handling.
+  const WasmEHFuncInfo *getWasmEHFuncInfo() const { return WasmEHInfo; }
+  WasmEHFuncInfo *getWasmEHFuncInfo() { return WasmEHInfo; }
 
   /// getWinEHFuncInfo - Return information about how the current function uses
   /// Windows exception handling. Returns null for functions that don't use
@@ -413,11 +450,9 @@ public:
   WinEHFuncInfo *getWinEHFuncInfo() { return WinEHInfo; }
 
   /// getAlignment - Return the alignment (log2, not bytes) of the function.
-  ///
   unsigned getAlignment() const { return Alignment; }
 
   /// setAlignment - Set the alignment (log2, not bytes) of the function.
-  ///
   void setAlignment(unsigned A) { Alignment = A; }
 
   /// ensureAlignment - Make sure the function is at least 1 << A bytes aligned.
@@ -475,9 +510,8 @@ public:
 
   /// getBlockNumbered - MachineBasicBlocks are automatically numbered when they
   /// are inserted into the machine function.  The block number for a machine
-  /// basic block can be found by using the MBB::getBlockNumber method, this
-  /// method provides the inverse mapping.
-  ///
+  /// basic block can be found by using the MBB::getNumber method, this method
+  /// provides the inverse mapping.
   MachineBasicBlock *getBlockNumbered(unsigned N) const {
     assert(N < MBBNumbering.size() && "Illegal block number");
     assert(MBBNumbering[N] && "Block was removed from the machine function!");
@@ -488,7 +522,6 @@ public:
   bool shouldSplitStack() const;
 
   /// getNumBlockIDs - Return the number of MBB ID's allocated.
-  ///
   unsigned getNumBlockIDs() const { return (unsigned)MBBNumbering.size(); }
 
   /// RenumberBlocks - This discards all of the MachineBasicBlock numbers and
@@ -500,7 +533,6 @@ public:
 
   /// print - Print out the MachineFunction in a format suitable for debugging
   /// to the specified stream.
-  ///
   void print(raw_ostream &OS, const SlotIndexes* = nullptr) const;
 
   /// viewCFG - This function is meant for use from the debugger.  You can just
@@ -508,7 +540,6 @@ public:
   /// program, displaying the CFG of the current function with the code for each
   /// basic block inside.  This depends on there being a 'dot' and 'gv' program
   /// in your path.
-  ///
   void viewCFG() const;
 
   /// viewCFGOnly - This function is meant for use from the debugger.  It works
@@ -519,7 +550,6 @@ public:
   void viewCFGOnly() const;
 
   /// dump - Print the current MachineFunction to cerr, useful for debugger use.
-  ///
   void dump() const;
 
   /// Run the current MachineFunction through the machine code verifier, useful
@@ -529,10 +559,10 @@ public:
               bool AbortOnError = true) const;
 
   // Provide accessors for the MachineBasicBlock list...
-  typedef BasicBlockListType::iterator iterator;
-  typedef BasicBlockListType::const_iterator const_iterator;
-  typedef BasicBlockListType::const_reverse_iterator const_reverse_iterator;
-  typedef BasicBlockListType::reverse_iterator reverse_iterator;
+  using iterator = BasicBlockListType::iterator;
+  using const_iterator = BasicBlockListType::const_iterator;
+  using const_reverse_iterator = BasicBlockListType::const_reverse_iterator;
+  using reverse_iterator = BasicBlockListType::reverse_iterator;
 
   /// Support for MachineBasicBlock::getNextNode().
   static BasicBlockListType MachineFunction::*
@@ -591,11 +621,9 @@ public:
 
   //===--------------------------------------------------------------------===//
   // Internal functions used to automatically number MachineBasicBlocks
-  //
 
-  /// \brief Adds the MBB to the internal numbering. Returns the unique number
+  /// Adds the MBB to the internal numbering. Returns the unique number
   /// assigned to the MBB.
-  ///
   unsigned addToMBBNumbering(MachineBasicBlock *MBB) {
     MBBNumbering.push_back(MBB);
     return (unsigned)MBBNumbering.size()-1;
@@ -611,29 +639,34 @@ public:
 
   /// CreateMachineInstr - Allocate a new MachineInstr. Use this instead
   /// of `new MachineInstr'.
-  ///
   MachineInstr *CreateMachineInstr(const MCInstrDesc &MCID, const DebugLoc &DL,
                                    bool NoImp = false);
 
-  /// CloneMachineInstr - Create a new MachineInstr which is a copy of the
-  /// 'Orig' instruction, identical in all ways except the instruction
-  /// has no parent, prev, or next.
+  /// Create a new MachineInstr which is a copy of \p Orig, identical in all
+  /// ways except the instruction has no parent, prev, or next. Bundling flags
+  /// are reset.
   ///
-  /// See also TargetInstrInfo::duplicate() for target-specific fixes to cloned
-  /// instructions.
+  /// Note: Clones a single instruction, not whole instruction bundles.
+  /// Does not perform target specific adjustments; consider using
+  /// TargetInstrInfo::duplicate() instead.
   MachineInstr *CloneMachineInstr(const MachineInstr *Orig);
 
-  /// DeleteMachineInstr - Delete the given MachineInstr.
+  /// Clones instruction or the whole instruction bundle \p Orig and insert
+  /// into \p MBB before \p InsertBefore.
   ///
+  /// Note: Does not perform target specific adjustments; consider using
+  /// TargetInstrInfo::duplicate() intead.
+  MachineInstr &CloneMachineInstrBundle(MachineBasicBlock &MBB,
+      MachineBasicBlock::iterator InsertBefore, const MachineInstr &Orig);
+
+  /// DeleteMachineInstr - Delete the given MachineInstr.
   void DeleteMachineInstr(MachineInstr *MI);
 
   /// CreateMachineBasicBlock - Allocate a new MachineBasicBlock. Use this
   /// instead of `new MachineBasicBlock'.
-  ///
   MachineBasicBlock *CreateMachineBasicBlock(const BasicBlock *bb = nullptr);
 
   /// DeleteMachineBasicBlock - Delete the given MachineBasicBlock.
-  ///
   void DeleteMachineBasicBlock(MachineBasicBlock *MBB);
 
   /// getMachineMemOperand - Allocate a new MachineMemOperand.
@@ -643,7 +676,7 @@ public:
       MachinePointerInfo PtrInfo, MachineMemOperand::Flags f, uint64_t s,
       unsigned base_alignment, const AAMDNodes &AAInfo = AAMDNodes(),
       const MDNode *Ranges = nullptr,
-      SynchronizationScope SynchScope = CrossThread,
+      SyncScope::ID SSID = SyncScope::System,
       AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
       AtomicOrdering FailureOrdering = AtomicOrdering::NotAtomic);
 
@@ -654,7 +687,13 @@ public:
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           int64_t Offset, uint64_t Size);
 
-  typedef ArrayRecycler<MachineOperand>::Capacity OperandCapacity;
+  /// Allocate a new MachineMemOperand by copying an existing one,
+  /// replacing only AliasAnalysis information. MachineMemOperands are owned
+  /// by the MachineFunction and need not be explicitly deallocated.
+  MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
+                                          const AAMDNodes &AAInfo);
+
+  using OperandCapacity = ArrayRecycler<MachineOperand>::Capacity;
 
   /// Allocate an array of MachineOperands. This is only intended for use by
   /// internal MachineInstr functions.
@@ -669,14 +708,8 @@ public:
     OperandRecycler.deallocate(Cap, Array);
   }
 
-  /// \brief Allocate and initialize a register mask with @p NumRegister bits.
-  uint32_t *allocateRegisterMask(unsigned NumRegister) {
-    unsigned Size = (NumRegister + 31) / 32;
-    uint32_t *Mask = Allocator.Allocate<uint32_t>(Size);
-    for (unsigned i = 0; i != Size; ++i)
-      Mask[i] = 0;
-    return Mask;
-  }
+  /// Allocate and initialize a register mask with @p NumRegister bits.
+  uint32_t *allocateRegMask();
 
   /// allocateMemRefsArray - Allocate an array to hold MachineMemOperand
   /// pointers.  This array is owned by the MachineFunction.
@@ -701,7 +734,6 @@ public:
 
   //===--------------------------------------------------------------------===//
   // Label Manipulation.
-  //
 
   /// getJTISymbol - Return the MCSymbol for the specified non-empty jump table.
   /// If isLinkerPrivate is specified, an 'l' label is returned, otherwise a
@@ -733,6 +765,9 @@ public:
 
   bool callsUnwindInit() const { return CallsUnwindInit; }
   void setCallsUnwindInit(bool b) { CallsUnwindInit = b; }
+
+  bool hasEHScopes() const { return HasEHScopes; }
+  void setHasEHScopes(bool V) { HasEHScopes = V; }
 
   bool hasEHFunclets() const { return HasEHFunclets; }
   void setHasEHFunclets(bool V) { HasEHFunclets = V; }
@@ -768,7 +803,7 @@ public:
   void addCleanup(MachineBasicBlock *LandingPad);
 
   void addSEHCatchHandler(MachineBasicBlock *LandingPad, const Function *Filter,
-                          const BlockAddress *RecoverLabel);
+                          const BlockAddress *RecoverBA);
 
   void addSEHCleanupHandler(MachineBasicBlock *LandingPad,
                             const Function *Cleanup);
@@ -811,6 +846,15 @@ public:
     return CallSiteMap.count(BeginLabel);
   }
 
+  /// Record annotations associated with a particular label.
+  void addCodeViewAnnotation(MCSymbol *Label, MDNode *MD) {
+    CodeViewAnnotations.push_back({Label, MD});
+  }
+
+  ArrayRef<std::pair<MCSymbol *, MDNode *>> getCodeViewAnnotations() const {
+    return CodeViewAnnotations;
+  }
+
   /// Return a reference to the C++ typeinfo for the current function.
   const std::vector<const GlobalValue *> &getTypeInfos() const {
     return TypeInfos;
@@ -826,7 +870,7 @@ public:
 
   /// Collect information used to emit debugging information of a variable.
   void setVariableDbgInfo(const DILocalVariable *Var, const DIExpression *Expr,
-                          unsigned Slot, const DILocation *Loc) {
+                          int Slot, const DILocation *Loc) {
     VariableDbgInfos.emplace_back(Var, Expr, Slot, Loc);
   }
 
@@ -859,13 +903,16 @@ template <> struct GraphTraits<MachineFunction*> :
   static NodeRef getEntryNode(MachineFunction *F) { return &F->front(); }
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-  typedef pointer_iterator<MachineFunction::iterator> nodes_iterator;
+  using nodes_iterator = pointer_iterator<MachineFunction::iterator>;
+
   static nodes_iterator nodes_begin(MachineFunction *F) {
     return nodes_iterator(F->begin());
   }
+
   static nodes_iterator nodes_end(MachineFunction *F) {
     return nodes_iterator(F->end());
   }
+
   static unsigned       size       (MachineFunction *F) { return F->size(); }
 };
 template <> struct GraphTraits<const MachineFunction*> :
@@ -873,37 +920,39 @@ template <> struct GraphTraits<const MachineFunction*> :
   static NodeRef getEntryNode(const MachineFunction *F) { return &F->front(); }
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-  typedef pointer_iterator<MachineFunction::const_iterator> nodes_iterator;
+  using nodes_iterator = pointer_iterator<MachineFunction::const_iterator>;
+
   static nodes_iterator nodes_begin(const MachineFunction *F) {
     return nodes_iterator(F->begin());
   }
+
   static nodes_iterator nodes_end  (const MachineFunction *F) {
     return nodes_iterator(F->end());
   }
+
   static unsigned       size       (const MachineFunction *F)  {
     return F->size();
   }
 };
-
 
 // Provide specializations of GraphTraits to be able to treat a function as a
 // graph of basic blocks... and to walk it in inverse order.  Inverse order for
 // a function is considered to be when traversing the predecessor edges of a BB
 // instead of the successor edges.
 //
-template <> struct GraphTraits<Inverse<MachineFunction*> > :
-  public GraphTraits<Inverse<MachineBasicBlock*> > {
+template <> struct GraphTraits<Inverse<MachineFunction*>> :
+  public GraphTraits<Inverse<MachineBasicBlock*>> {
   static NodeRef getEntryNode(Inverse<MachineFunction *> G) {
     return &G.Graph->front();
   }
 };
-template <> struct GraphTraits<Inverse<const MachineFunction*> > :
-  public GraphTraits<Inverse<const MachineBasicBlock*> > {
+template <> struct GraphTraits<Inverse<const MachineFunction*>> :
+  public GraphTraits<Inverse<const MachineBasicBlock*>> {
   static NodeRef getEntryNode(Inverse<const MachineFunction *> G) {
     return &G.Graph->front();
   }
 };
 
-} // End llvm namespace
+} // end namespace llvm
 
-#endif
+#endif // LLVM_CODEGEN_MACHINEFUNCTION_H

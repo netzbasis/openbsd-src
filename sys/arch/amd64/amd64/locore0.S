@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore0.S,v 1.2 2017/07/06 06:17:04 deraadt Exp $	*/
+/*	$OpenBSD: locore0.S,v 1.16 2019/01/24 00:57:14 mlarkin Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -107,27 +107,15 @@
 #include "assym.h"
 #include "lapic.h"
 #include "ksyms.h"
-#include "xen.h"
-#include "hyperv.h"
-
-#include <sys/syscall.h>
 
 #include <machine/param.h>
 #include <machine/segments.h>
 #include <machine/specialreg.h>
-#include <machine/trap.h>
-#include <machine/frameasm.h>
-
-#if NLAPIC > 0
-#include <machine/i82489reg.h>
-#endif
 
 /*
  * override user-land alignment before including asm.h
  */
 #define	ALIGN_DATA	.align	8,0xcc
-#define ALIGN_TEXT	.align 16,0x90
-#define _ALIGN_TEXT	ALIGN_TEXT
 
 #include <machine/asm.h>
 
@@ -154,7 +142,7 @@ start:	movw	$0x1234,0x472			# warm boot
 
 	/*
 	 * Load parameters from stack
-	 * (howto, bootdev, bootapiver, esym, extmem, cnvmem, ac, av)
+	 * (howto, bootdev, bootapiver, esym, extmem (unused), cnvmem, ac, av)
 	 */
 	movl	4(%esp),%eax
 	movl	%eax, RELOC(boothowto)
@@ -166,15 +154,13 @@ start:	movw	$0x1234,0x472			# warm boot
 	 * XXX Boot ignores 2MB roundup of _end, so esyms can be < _end.
 	 */
 	movl	16(%esp), %eax
-	testl   %eax,%eax
-	jz      1f
-	addl    $KERNBASE_LO,%eax
-	movl    $RELOC(esym),%ebp
-	movl    %eax,(%ebp)
-	movl    $KERNBASE_HI,4(%ebp)
+	testl	%eax,%eax
+	jz	1f
+	addl	$(KERNBASE & 0xffffffff),%eax
+	movl	$RELOC(esym),%ebp
+	movl	%eax,(%ebp)
+	movl	$(KERNBASE >> 32),4(%ebp)
 1:
-	movl	20(%esp), %eax
-	movl	%eax, RELOC(biosextmem)
 	movl	24(%esp), %eax
 	movl	%eax, RELOC(biosbasemem)
 
@@ -191,14 +177,14 @@ start:	movw	$0x1234,0x472			# warm boot
 	 * machdep.c can then take action if bootinfo_size >= bootinfo[]
 	 * (which would meant that we may have been passed too much data).
 	 */
- 	movl	28(%esp), %eax
+	movl	28(%esp), %eax
 	movl	%eax, %ecx
 	cmpl	RELOC(bootinfo_size), %ecx	/* Too much? */
 	jb	bi_size_ok
 	movl	RELOC(bootinfo_size), %ecx	/* Only copy this much */
 bi_size_ok:
 	movl	%eax, RELOC(bootinfo_size)	/* Report full amount */
- 
+
 	movl	$RELOC(bootinfo), %edi		/* Destination */
 	movl	32(%esp), %esi			/* Source */
 	rep movsb				/* Copy this many bytes */
@@ -214,8 +200,49 @@ bi_size_ok:
 	movl	%ebx,(%ebp)
 	movl	%edx,4(%ebp)
 	movl	%ecx,8(%ebp)
-	movl	$0,  12(%ebp)
+	movl	$0, 12(%ebp)
 
+	/*
+	 * Determine if CPU has meltdown. Certain Intel CPUs do not properly
+	 * respect page permissions when speculatively loading data into
+	 * the cache ("Meltdown" CVE). These CPUs must utilize a secondary
+	 * sanitized page table lacking kernel mappings when executing user
+	 * processes, and may not use PG_G global PTEs for kernel VAs.
+	 */
+	movl	$0x1, RELOC(cpu_meltdown)	/* assume insecure at first */
+	movl	$0x0, RELOC(pg_g_kern)
+
+	cmpl	$0x756e6547, %ebx	# "Genu"
+	jne	.Lcpu_secure
+	cmpl	$0x6c65746e, %ecx	# "ntel"
+	jne	.Lcpu_secure
+	cmpl	$0x49656e69, %edx	# "ineI"
+	jne	.Lcpu_secure
+
+	/*
+	 * Intel CPU, now check if IA32_ARCH_CAPABILITIES is supported and
+	 * if it says this CPU is safe.
+	 */
+	cmpl	$0x7,	%eax
+	jl	.Lcpu_check_finished
+
+	movl	$0x7,	%eax
+	xorl	%ecx,%ecx
+	cpuid
+	testl	$SEFF0EDX_ARCH_CAP, %edx
+	jz	.Lcpu_check_finished
+
+	/* IA32_ARCH_CAPABILITIES MSR avaialble, use it to check CPU security */
+	movl	$MSR_ARCH_CAPABILITIES, %ecx
+	rdmsr
+	testl	$ARCH_CAPABILITIES_RDCL_NO, %eax
+	jz	.Lcpu_check_finished
+
+.Lcpu_secure:
+	movl	$0x0, RELOC(cpu_meltdown)
+	movl	$PG_G, RELOC(pg_g_kern)
+
+.Lcpu_check_finished:
 	movl	$1,%eax
 	cpuid
 	movl	%eax,RELOC(cpu_id)
@@ -225,9 +252,9 @@ bi_size_ok:
 
 	movl	$0x0a,%eax
 	cpuid
-	movl	%eax,RELOC(_C_LABEL(cpu_perf_eax))
-	movl	%ebx,RELOC(_C_LABEL(cpu_perf_ebx))
-	movl	%edx,RELOC(_C_LABEL(cpu_perf_edx))
+	movl	%eax,RELOC(cpu_perf_eax)
+	movl	%ebx,RELOC(cpu_perf_ebx)
+	movl	%edx,RELOC(cpu_perf_edx)
 
 	movl	$0x80000001, %eax
 	cpuid
@@ -241,15 +268,15 @@ bi_size_ok:
 	 */
 	pushl	%edx
 	movl	RELOC((pg_nx + 4)), %edx	/* Second dword */
-	orl	$0x80000000, %edx 		/* Bit 31 (really 63) */
+	orl	$0x80000000, %edx		/* Bit 31 (really 63) */
 	movl	%edx, RELOC((pg_nx + 4))
 	popl	%edx
 cont:
-	orl     %edx, RELOC(cpu_feature)
+	orl	%edx, RELOC(cpu_feature)
 
 	movl	$0x80000007,%eax
 	cpuid
-	movl	%edx,RELOC(_C_LABEL(cpu_apmi_edx))
+	movl	%edx,RELOC(cpu_apmi_edx)
 
 	/*
 	 * Finished with old stack; load new %esp now instead of later so we
@@ -268,7 +295,7 @@ cont:
 /*
  * Virtual address space of kernel:
  *
- * text | data | bss | [syms] | page dir | proc0 kstack | L1 ptp | L2 ptp | L3 
+ * text | data | bss | [syms] | page dir | proc0 kstack | L1 ptp | L2 ptp | L3
  *			      0          1       2      3
  */
 
@@ -297,20 +324,20 @@ cont:
 	NDML3_ENTRIES + NDML2_ENTRIES) * NBPG)
 
 #define fillkpt \
-1:	movl	%eax,(%ebx)	; 	/* store phys addr */ \
-	movl	$0,4(%ebx)	; 	/* upper 32 bits 0 */ \
-	addl	$8,%ebx		; 	/* next pte/pde */ \
-	addl	$NBPG,%eax	; 	/* next phys page */ \
+1:	movl	%eax,(%ebx)	;	/* store phys addr */ \
+	movl	$0,4(%ebx)	;	/* upper 32 bits 0 */ \
+	addl	$8,%ebx		;	/* next pte/pde */ \
+	addl	$NBPG,%eax	;	/* next phys page */ \
 	loop	1b		;	/* till finished */
 
 
 #define fillkpt_nx \
 	pushl	%ebp				;	/* save */ \
-1:	movl	%eax,(%ebx)			; 	/* store phys addr */ \
+1:	movl	%eax,(%ebx)			;	/* store phys addr */ \
 	movl	RELOC((pg_nx + 4)), %ebp	;	/* NX bit? */ \
-	movl	%ebp,4(%ebx)			; 	/* upper 32 bits */ \
-	addl	$8,%ebx				; 	/* next pte/pde */ \
-	addl	$NBPG,%eax			; 	/* next phys page */ \
+	movl	%ebp,4(%ebx)			;	/* upper 32 bits */ \
+	addl	$8,%ebx				;	/* next pte/pde */ \
+	addl	$NBPG,%eax			;	/* next phys page */ \
 	loop	1b				;	/* till finished */ \
 	popl	%ebp
 
@@ -321,7 +348,7 @@ cont:
 	movl	RELOC(esym),%eax
 	testl	%eax,%eax
 	jz	1f
-	subl	$KERNBASE_LO,%eax	/* XXX */
+	subl	$(KERNBASE & 0xffffffff),%eax	/* XXX */
 	/* Page tables must be after symbols and after kernel image. */
 	cmpl	%eax,%edi
 	jg	1f
@@ -353,9 +380,9 @@ cont:
 	andl	$~PGOFSET,%edx
 
 	/*
-	 * Skip the first MB.
+	 * Skip the first 16 MB.
 	 */
-	movl	$(KERNTEXTOFF_LO - KERNBASE_LO),%eax
+	movl	$(KERNTEXTOFF - KERNBASE),%eax
 	movl	%eax,%ecx
 	shrl	$(PGSHIFT-3),%ecx	/* ((n >> PGSHIFT) << 3) for # pdes */
 	addl	%ecx,%ebx
@@ -364,7 +391,7 @@ cont:
 	movl	%edx,%ecx
 	subl	%eax,%ecx
 	shrl	$PGSHIFT,%ecx
-	orl     $(PG_V|PG_KR),%eax
+	orl	$(PG_V|PG_KR),%eax
 	fillkpt
 
 	/* Map .rodata RO, NX */
@@ -426,7 +453,7 @@ map_tables:
 	fillkpt_nx
 
 	/* Set up level 2 pages (RWX) */
-	leal    (PROC0_PTP2_OFF)(%esi),%ebx
+	leal	(PROC0_PTP2_OFF)(%esi),%ebx
 	leal	(PROC0_PTP1_OFF)(%esi),%eax
 	orl	$(PG_V|PG_KW), %eax
 	movl	$(NKL2_KIMG_ENTRIES+1),%ecx
@@ -435,14 +462,14 @@ map_tables:
 #if L2_SLOT_KERNBASE > 0
 	/* If needed, set up L2 entries for actual kernel mapping (RWX) */
 	leal	(PROC0_PTP2_OFF+ L2_SLOT_KERNBASE*8)(%esi),%ebx
-	leal    (PROC0_PTP1_OFF)(%esi),%eax
-	orl     $(PG_V|PG_KW), %eax
-	movl    $(NKL2_KIMG_ENTRIES+1),%ecx
+	leal	(PROC0_PTP1_OFF)(%esi),%eax
+	orl	$(PG_V|PG_KW), %eax
+	movl	$(NKL2_KIMG_ENTRIES+1),%ecx
 	fillkpt
 #endif
 
 	/* Set up level 3 pages (RWX) */
-	leal    (PROC0_PTP3_OFF)(%esi),%ebx
+	leal	(PROC0_PTP3_OFF)(%esi),%ebx
 	leal	(PROC0_PTP2_OFF)(%esi),%eax
 	orl	$(PG_V|PG_KW), %eax
 	movl	$NKL3_KIMG_ENTRIES,%ecx
@@ -451,21 +478,21 @@ map_tables:
 #if L3_SLOT_KERNBASE > 0
 	/* If needed, set up L3 entries for actual kernel mapping (RWX) */
 	leal	(PROC0_PTP3_OFF+ L3_SLOT_KERNBASE*8)(%esi),%ebx
-	leal    (PROC0_PTP2_OFF)(%esi),%eax
-	orl     $(PG_V|PG_KW), %eax
-	movl    $NKL3_KIMG_ENTRIES,%ecx
+	leal	(PROC0_PTP2_OFF)(%esi),%eax
+	orl	$(PG_V|PG_KW), %eax
+	movl	$NKL3_KIMG_ENTRIES,%ecx
 	fillkpt
 #endif
 
 	/* Set up top level entries for identity mapping (RWX) */
-	leal    (PROC0_PML4_OFF)(%esi),%ebx
+	leal	(PROC0_PML4_OFF)(%esi),%ebx
 	leal	(PROC0_PTP3_OFF)(%esi),%eax
 	orl	$(PG_V|PG_KW), %eax
 	movl	$NKL4_KIMG_ENTRIES,%ecx
 	fillkpt
 
 	/* Set up top level entries for actual kernel mapping (RWX) */
-	leal    (PROC0_PML4_OFF + L4_SLOT_KERNBASE*8)(%esi),%ebx
+	leal	(PROC0_PML4_OFF + L4_SLOT_KERNBASE*8)(%esi),%ebx
 	leal	(PROC0_PTP3_OFF)(%esi),%eax
 	orl	$(PG_V|PG_KW), %eax
 	movl	$NKL4_KIMG_ENTRIES,%ecx
@@ -482,7 +509,8 @@ map_tables:
 	leal	(PROC0_DMP2_OFF)(%esi), %ebx
 	xorl	%eax, %eax
 	movl	$(NDML2_ENTRIES * NPDPG), %ecx
-1:	orl	$(PG_V|PG_KW|PG_PS|PG_G), %eax
+1:	orl	$(PG_V|PG_KW|PG_PS), %eax
+	orl	RELOC(pg_g_kern), %eax
 	cmpl	$__kernel_base_phys, %eax
 	jl	store_pte
 	cmpl	$__kernel_end_phys, %eax
@@ -518,7 +546,7 @@ store_pte:
 	pushl	%ebp
 	movl	RELOC((pg_nx + 4)), %ebp
 	movl	%ebp, 4(%ebx)
-	popl 	%ebp
+	popl	%ebp
 
 	/* Save phys. addr of PTD, for libkvm. */
 	movl	$RELOC(PTDpaddr),%ebp
@@ -537,15 +565,15 @@ store_pte:
 	 * 2. Set Long Mode Enable in EFER. Also enable the
 	 *    syscall extensions and NX (if available).
 	 */
-	movl    $MSR_EFER,%ecx
+	movl	$MSR_EFER,%ecx
 	rdmsr
 	xorl	%eax,%eax	/* XXX */
 	orl	$(EFER_LME|EFER_SCE),%eax
 	movl	RELOC((pg_nx + 4)), %ebx
 	cmpl	$0, %ebx
-	je 	write_efer
+	je	write_efer
 	orl	$(EFER_NXE), %eax
-write_efer:	
+write_efer:
 	wrmsr
 
 	/*
@@ -558,7 +586,7 @@ write_efer:
 	 * 4. Enable paging and the rest of it.
 	 */
 	movl	%cr0,%eax
-	orl	$(CR0_PE|CR0_PG|CR0_NE|CR0_TS|CR0_MP|CR0_WP),%eax
+	orl	$CR0_DEFAULT,%eax
 	movl	%eax,%cr0
 	jmp	compat
 compat:
@@ -614,7 +642,7 @@ longmode_hi:
 #endif
 
 	movq	$NKL4_KIMG_ENTRIES,%rcx
-	leaq	(PROC0_PML4_OFF)(%rsi),%rbx	# old, phys  address of PML4
+	leaq	(PROC0_PML4_OFF)(%rsi),%rbx	# old, phys address of PML4
 	addq	%r8, %rbx			# new, virtual address of PML4
 1:	movq	$0, (%rbx)
 	addq	$8,%rbx
@@ -633,8 +661,14 @@ longmode_hi:
 	addq	%r8,%rax
 	movq	%rax,_C_LABEL(proc0paddr)(%rip)
 	leaq	(USPACE-FRAMESIZE)(%rax),%rsp
+
+	/*
+	 * Set proc0's %cr3 to bootstrap page tables. Will be overwritten when
+	 * pmap_randomize is called later.
+	 */
 	movq	%rsi,PCB_CR3(%rax)	# pcb->pcb_cr3
-	xorq	%rbp,%rbp               # mark end of frames
+
+	xorq	%rbp,%rbp		# mark end of frames
 
 	xorw	%ax,%ax
 	movw	%ax,%gs
@@ -644,10 +678,10 @@ longmode_hi:
 	leaq	TABLESIZE(%rsi),%rdi
 	call	_C_LABEL(init_x86_64)
 
-	call 	_C_LABEL(main)
+	call	_C_LABEL(main)
 
 	.section .codepatch,"a"
-	.align  8, 0xcc
+	.align	8, 0xcc
 	.globl _C_LABEL(codepatch_begin)
 _C_LABEL(codepatch_begin):
 	.previous
@@ -658,15 +692,23 @@ _C_LABEL(codepatch_end):
 	.previous
 
 	.data
+	.globl	gdt64
+gdt64:
+	.word	gdt64_end-gdt64_start-1
+	.quad	_RELOC(gdt64_start)
+	.align 64, 0xcc
+
+gdt64_start:
+	.quad 0x0000000000000000	/* always empty */
+	.quad 0x00af9a000000ffff	/* kernel CS */
+	.quad 0x00cf92000000ffff	/* kernel DS */
+gdt64_end:
 
 farjmp64:
 	.long	longmode-KERNBASE
 	.word	GSEL(GCODE_SEL, SEL_KPL)
 
-	.globl _C_LABEL(cpu_private)
-	.comm _C_LABEL(cpu_private),NBPG,NBPG
-
-/* XXX we want some guard here */
+	.align 8, 0xcc
 	.space 512
 tmpstk:
 

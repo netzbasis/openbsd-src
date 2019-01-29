@@ -1,4 +1,4 @@
-/*	$OpenBSD: pledge.h,v 1.31 2017/04/20 15:21:51 deraadt Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.39 2019/01/21 20:09:37 landry Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -59,6 +59,10 @@
 #define PLEDGE_CHOWN	0x0000000080000000ULL	/* chown(2) family */
 #define PLEDGE_CHOWNUID	0x0000000100000000ULL	/* allow owner/group changes */
 #define PLEDGE_BPF	0x0000000200000000ULL	/* bpf ioctl */
+#define PLEDGE_ERROR	0x0000000400000000ULL	/* ENOSYS instead of kill */
+#define PLEDGE_WROUTE	0x0000000800000000ULL	/* interface address ioctls */
+#define PLEDGE_UNVEIL	0x0000001000000000ULL	/* allow unveil() */
+#define PLEDGE_VIDEO	0x0000002000000000ULL	/* video ioctls */
 
 /*
  * Bits outside PLEDGE_USERSET are used by the kernel itself
@@ -88,7 +92,7 @@ static struct {
 	{ PLEDGE_PROC,		"proc" },
 	{ PLEDGE_SETTIME,	"settime" },
 	{ PLEDGE_FATTR,		"fattr" },
-	{ PLEDGE_PROTEXEC,	"protexec" },
+	{ PLEDGE_PROTEXEC,	"prot_exec" },
 	{ PLEDGE_TTY,		"tty" },
 	{ PLEDGE_SENDFD,	"sendfd" },
 	{ PLEDGE_RECVFD,	"recvfd" },
@@ -105,6 +109,10 @@ static struct {
 	{ PLEDGE_VMM,		"vmm" },
 	{ PLEDGE_CHOWNUID,	"chown" },
 	{ PLEDGE_BPF,		"bpf" },
+	{ PLEDGE_ERROR,		"error" },
+	{ PLEDGE_WROUTE,	"wroute" },
+	{ PLEDGE_UNVEIL,	"unveil" },
+	{ PLEDGE_VIDEO,		"video" },
 	{ 0, NULL },
 };
 #endif
@@ -117,7 +125,6 @@ int	pledge_fail(struct proc *, int, uint64_t);
 struct mbuf;
 struct nameidata;
 int	pledge_namei(struct proc *, struct nameidata *, char *);
-int	pledge_namei_wlpath(struct proc *, struct nameidata *);
 int	pledge_sendfd(struct proc *p, struct file *);
 int	pledge_recvfd(struct proc *p, struct file *);
 int	pledge_sysctl(struct proc *p, int namelen, int *name, void *new);
@@ -125,7 +132,7 @@ int	pledge_chown(struct proc *p, uid_t, gid_t);
 int	pledge_adjtime(struct proc *p, const void *v);
 int	pledge_sendit(struct proc *p, const void *to);
 int	pledge_sockopt(struct proc *p, int set, int level, int optname);
-int	pledge_socket(struct proc *p, int domain, int state);
+int	pledge_socket(struct proc *p, int domain, unsigned int state);
 int	pledge_ioctl(struct proc *p, long com, struct file *);
 int	pledge_ioctl_drm(struct proc *p, long com, dev_t device);
 int	pledge_ioctl_vmm(struct proc *p, long com);
@@ -134,19 +141,7 @@ int	pledge_fcntl(struct proc *p, int cmd);
 int	pledge_swapctl(struct proc *p);
 int	pledge_kill(struct proc *p, pid_t pid);
 int	pledge_protexec(struct proc *p, int prot);
-
-#define PLEDGE_MAXPATHS	8192
-
-struct whitepaths {
-	size_t	wl_size;
-	int	wl_count;
-	int	wl_ref;
-	struct whitepath {
-		char		*name;
-		size_t		len;
-	} wl_paths[0];
-};
-void	pledge_dropwpaths(struct process *);
+void	ppath_destroy(struct process *ps);
 
 #endif /* _KERNEL */
 

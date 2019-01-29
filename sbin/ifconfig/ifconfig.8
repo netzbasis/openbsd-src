@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ifconfig.8,v 1.287 2017/06/09 01:36:05 dlg Exp $
+.\"	$OpenBSD: ifconfig.8,v 1.325 2019/01/18 20:25:35 phessler Exp $
 .\"	$NetBSD: ifconfig.8,v 1.11 1996/01/04 21:27:29 pk Exp $
 .\"     $FreeBSD: ifconfig.8,v 1.16 1998/02/01 07:03:29 steve Exp $
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"     @(#)ifconfig.8	8.4 (Berkeley) 6/1/94
 .\"
-.Dd $Mdocdate: June 9 2017 $
+.Dd $Mdocdate: January 18 2019 $
 .Dt IFCONFIG 8
 .Os
 .Sh NAME
@@ -122,7 +122,7 @@ a host name present in the host name database,
 .Xr hosts 5 ;
 .Dq dot
 notation (IPv4);
-colon separated (IPv6);
+colon-separated (IPv6);
 or CIDR notation.
 .It Ar dest_address
 Specify the address of the correspondent on the other end
@@ -147,8 +147,6 @@ Use of this option is discouraged in favour of
 Enable the use of the Address Resolution Protocol (ARP)
 in mapping
 between network level addresses and link level addresses (default).
-This is currently implemented for mapping between
-DARPA Internet addresses and Ethernet addresses.
 .It Cm -arp
 Disable the use of ARP.
 .It Cm broadcast Ar addr
@@ -162,13 +160,17 @@ At least the following devices can be created on demand:
 .Pp
 .Xr bridge 4 ,
 .Xr carp 4 ,
+.Xr egre 4 ,
 .Xr enc 4 ,
+.Xr eoip 4 ,
 .Xr etherip 4 ,
 .Xr gif 4 ,
 .Xr gre 4 ,
 .Xr lo 4 ,
+.Xr mgre 4 ,
 .Xr mpe 4 ,
 .Xr mpw 4 ,
+.Xr nvgre 4 ,
 .Xr pair 4 ,
 .Xr pflog 4 ,
 .Xr pflow 4 ,
@@ -295,7 +297,11 @@ on the given interface and remove all configured
 .Xr inet6 4
 addresses, including the link-local ones.
 This is the default.
-To turn inet6 on, use eui64, use autoconf or assign any inet6 address.
+To turn inet6 on, use
+.Cm eui64
+or
+.Cm autoconf ,
+or assign any inet6 address.
 .It Cm instance Ar minst
 Set the media instance to
 .Ar minst .
@@ -406,9 +412,7 @@ networks into subnetworks.
 The mask includes the network part of the local address
 and the subnet part, which is taken from the host field of the address.
 The mask can be specified as a single hexadecimal number
-with a leading 0x, with a dot-notation Internet address,
-or with a pseudo-network name listed in the network table
-.Xr networks 5 .
+with a leading 0x, or with a dot-notation Internet address.
 The mask contains 1's for the bit positions in the 32-bit address
 which are to be used for the network and subnet parts,
 and 0's for the host part.
@@ -423,10 +427,17 @@ but you can specify prefix length by digits.
 .It Cm priority Ar n
 Set the interface routing priority to
 .Ar n .
-This will influence the default routing priority of new static routes added to
-the kernel.
 .Ar n
 is in the range of 0 to 15 with smaller numbers being better.
+The default priority of an interface is 0,
+except for IEEE 802.11 wireless interfaces (priority 4) and
+.Xr carp 4
+interfaces (priority 15).
+The default priority of newly connected routes (routes created by
+configuring an IP address on an interface) is calculated by adding 4
+(RTP_CONNECTED) to the interface priority.
+The default priority of new static routes added to the kernel is
+calculated by adding 8 (RTP_STATIC) to the interface priority.
 .It Cm rdomain Ar rdomainid
 Attach the interface to the routing domain with the specified
 .Ar rdomainid .
@@ -437,6 +448,10 @@ domains.
 If the specified rdomain does not yet exist it will be created, including
 a routing table with the same id.
 By default all interfaces belong to routing domain 0.
+.It Cm -rdomain
+Remove the interface from the routing domain and return it to routing
+domain 0.
+Any inet and inet6 addresses on the interface will also be removed.
 .It Cm rtlabel Ar route-label
 (inet)
 Attach
@@ -450,6 +465,12 @@ and
 .Xr pf.conf 5 .
 .It Cm -rtlabel
 Clear the route label.
+.It Cm staticarp
+If ARP is enabled, the host will only reply to requests for its addresses,
+and will never send any requests.
+.It Cm -staticarp
+If ARP is enabled, the host will perform normally,
+sending out requests and listening for replies.
 .It Cm up
 Mark an interface
 .Dq up .
@@ -654,6 +675,20 @@ The default is 100 entries.
 .It Cm maxage Ar time
 Set the time (in seconds) that a spanning tree protocol configuration is valid.
 Defaults to 20 seconds, minimum of 6, maximum of 40.
+.It Cm protected Ar interface ids
+Put
+.Ar interface
+in protected domains.
+.Ar ids
+is a comma delimited list of domain IDs, between 1 and 31, to put the
+interface in.
+Interfaces that are part of a protected domain cannot forward traffic to any
+other interface in that domain.
+Interfaces do not belong to any protected domain by default.
+.It Cm -protected Ar interface
+Remove
+.Ar interface
+from all protected domains.
 .It Cm proto Ar value
 Force the spanning tree protocol version.
 The available values are
@@ -681,20 +716,55 @@ like a hub or a wireless network.
 .Cm block Ns | Ns Cm pass
 .Op Cm in | out
 .Cm on Ar interface
-.Op Cm src Ar address
-.Op Cm dst Ar address
+.Op Cm src Ar lladdr
+.Op Cm dst Ar lladdr
+.Bk -words
 .Op Cm tag Ar tagname
+.Oo
+.Cm arp | rarp Op Ar request | reply
+.Op Cm sha Ar lladdr
+.Op Cm spa Ar ipaddr
+.Op Cm tha Ar lladdr
+.Op Cm tpa Ar ipaddr
+.Oc
+.Ek
 .Xc
 Add a filtering rule to an interface.
 Rules have a similar syntax to those in
 .Xr pf.conf 5 .
-Rules can be used to selectively block or pass frames based on Ethernet
-MAC addresses.
-They can also tag packets for
+Rules can be used to selectively
+.Cm block
+or
+.Cm pass
+frames based on Ethernet
+MAC addresses or to
+.Cm tag
+packets for
 .Xr pf 4
 to filter on.
-Rules are processed in the order in which they were added
-to the interface, and the first rule matched takes the action (block or pass)
+.Pp
+.Xr arp 4
+packets can be matched with the
+.Cm arp
+keyword for regular packets and
+.Cm rarp
+for reverse arp.
+.Ar request
+and
+.Ar reply
+limit matches to requests or replies.
+The source and target host addresses can be matched with the
+.Cm sha
+and
+.Cm tha
+keywords,
+and the protocol addresses with
+.Cm spa
+and
+.Cm tpa .
+.Pp
+Rules are processed in the order in which they were added to the interface.
+The first rule matched takes the action (block or pass)
 and, if given, the tag of the rule.
 If no source or destination address is specified, the
 rule will match all frames (good for creating a catchall policy).
@@ -764,16 +834,15 @@ Acceptable values are 0 to 254; the default value is 0.
 Set the load balancing mode to
 .Ar mode .
 Valid modes are
-.Ar arp ,
-.Ar ip ,
-.Ar ip-stealth ,
+.Cm ip ,
+.Cm ip-stealth ,
 and
-.Ar ip-unicast .
+.Cm ip-unicast .
 .It Cm carpnodes Ar vhid:advskew,vhid:advskew,...
 Create a load balancing group consisting of up to 32 nodes.
 Each node is specified as a
 .Ar vhid:advskew
-tuple in a comma separated list.
+tuple in a comma-separated list.
 .It Cm carpdev Ar iface
 Attach to parent interface
 .Ar iface .
@@ -830,6 +899,8 @@ will begin advertising as master.
 .Ar wireless-interface
 .Op Oo Fl Oc Ns Cm bssid Ar bssid
 .Op Oo Fl Oc Ns Cm chan Op Ar n
+.Op Oo Fl Oc Ns Cm join Ar id
+.Op Oo Fl Oc Ns Cm joinlist
 .Op Oo Fl Oc Ns Cm nwflag Ar flag
 .Op Oo Fl Oc Ns Cm nwid Ar id
 .Op Oo Fl Oc Ns Cm nwkey Ar key
@@ -861,6 +932,35 @@ show the list of channels supported by the device.
 .It Cm -chan
 Unset the desired channel.
 It doesn't affect the channel to be created for IBSS or Host AP mode.
+.It Cm join Ar id
+Add the network with NWID/ESSID
+.Ar id
+to the list of auto-join networks.
+Information about such networks is retained,
+such that configured interfaces can automatically switch to such networks
+as necessary.
+.Pp
+The
+.Ar id
+can either be any text string up to 32 characters in length,
+or a series of hexadecimal digits up to 64 digits.
+Any necessary
+.Cm wpakey
+or
+.Cm nwkey
+arguments should be specified on the same line.
+The empty string allows the interface to automatically connect to any
+available access points if no known access points are found.
+May not be used with
+.Cm nwid .
+.It Cm -join Ar id
+Remove the network with NWID
+.Ar id ,
+from the list of auto-join networks.
+.It Cm joinlist
+Show the list of currently configured auto-join networks.
+.It Cm -joinlist
+Remove all networks in the list of auto-join networks.
 .It Cm nwflag Ar flag
 Set specified flag.
 The flag name can be either
@@ -893,16 +993,16 @@ and
 .It Cm -nwflag Ar flag
 Remove specified flag.
 .It Cm nwid Ar id
-Configure network ID.
-The
-.Ar id
-can either be any text string up to 32 characters in length,
-or a series of hexadecimal digits up to 64 digits.
+Connect to the network with NWID
+.Ar id .
+Unlike auto-join networks,
+information about the network is not retained.
 The empty string allows the interface to connect to any available
 access points.
-Note that network ID is synonymous with Extended Service Set ID (ESSID).
+May not be used with
+.Cm join .
 .It Cm -nwid
-Set the network ID to the empty string to allow the interface to connect
+Set the NWID to the empty string to allow the interface to connect
 to any available access point.
 .It Cm nwkey Ar key
 Enable WEP encryption using the specified
@@ -1033,9 +1133,9 @@ The key can be given using either a passphrase or a full length hex key,
 starting with 0x.
 If a passphrase is used the
 .Cm nwid
-option must be set prior to specifying the
-.Cm wpakey
-option, since
+or
+.Cm join
+option must first be specified, since
 .Nm
 will hash the nwid along with the passphrase to create the key.
 .It Cm -wpakey
@@ -1070,6 +1170,7 @@ protocol when supported by the access point.
 .Op Oo Fl Oc Ns Cm autoconfprivacy
 .Op Cm eui64
 .Op Cm pltime Ar n
+.Op Oo Fl Oc Ns Cm soii
 .Op Oo Fl Oc Ns Cm tentative
 .Op Cm vltime Ar n
 .Ek
@@ -1084,13 +1185,16 @@ Set the IPv6 anycast address bit.
 .It Cm -anycast
 Clear the IPv6 anycast address bit.
 .It Cm autoconf
-Enable stateless autoconfiguration (SLAAC),
-automatically configuring IPv6 addresses.
-In this mode,
-router advertisements are accepted
-and periodic router solicitations are sent.
+Set the
+.Sy AUTOCONF6
+flag on the interface.
+The address autoconfiguration daemon
+.Xr slaacd 8
+automatically configures IPv6 addresses for interfaces with this flag.
 .It Cm -autoconf
-Disable autoconfiguration.
+Unset the
+.Sy AUTOCONF6
+flag on the interface.
 .It Cm autoconfprivacy
 Enable privacy extensions for stateless IPv6 address autoconfiguration
 (RFC 4941) on the interface.
@@ -1123,16 +1227,32 @@ Currently configured addresses will not be removed until they become
 invalid.
 .It Cm eui64
 Fill the interface index
-.Pq the lowermost 64th bit of an IPv6 address
+.Pq the lowermost 64 bits of an IPv6 address
 automatically.
 .It Cm pltime Ar n
-Set preferred lifetime for the address.
+Set preferred lifetime for the address, in seconds.
+.It Cm soii
+Enable persistent Semantically Opaque Interface Identifiers (SOIIs),
+as per RFC 7217, for link local and SLAAC addresses on the interface.
+The purpose of these identifiers is to make discovery of hosts by
+scanning a whole prefix more difficult.
+SOIIs use the whole 64 bits of the host part while SLAAC addresses are
+formed from MAC addresses which can lower the entropy to 24 bits if
+the host is running in a virtualization environment or the hardware
+manufacturer is known.
+See RFC 8064 for details.
+SOIIs are enabled by default.
+.It Cm -soii
+Disable IPv6 persistent Semantically Opaque Interface Identifiers on the
+interface.
+Currently configured addresses will not be removed until they become
+invalid.
 .It Cm tentative
 Set the IPv6 tentative address bit.
 .It Cm -tentative
 Clear the IPv6 tentative address bit.
 .It Cm vltime Ar n
-Set valid lifetime for the address.
+Set valid lifetime for the address, in seconds.
 .El
 .Sh INTERFACE GROUPS
 .Nm ifconfig
@@ -1506,6 +1626,16 @@ The following options are available for a
 .Xr trunk 4
 interface:
 .Bl -tag -width Ds
+.It Cm lacpmode Cm active Ns | Ns Cm passive
+Set the LACP trunk mode to either
+.Cm active
+or
+.Cm passive .
+.It Cm lacptimeout Cm fast Ns | Ns Cm slow
+Set the LACP timeout speed to either
+.Cm fast
+or
+.Cm slow .
 .It Cm trunkport Ar child-iface
 Add
 .Ar child-iface
@@ -1524,24 +1654,29 @@ for a complete list of the available protocols.
 .Bk -words
 .Nm ifconfig
 .Ar tunnel-interface
-.Op Cm deletetunnel Ar src_address dest_address
 .Op Oo Fl Oc Ns Cm keepalive Ar period count
-.Op Cm tunnel Ar src_address dest_address
-.Op Cm tunneldomain Ar tableid
+.Op Oo Fl Oc Ns Cm tunnel Ar src_address dest_address
+.Op Oo Fl Oc Ns Cm tunneldf
+.Op Oo Fl Oc Ns Cm tunneldomain Ar rtable
+.Op Cm tunnelttl Ar ttl
+.Op Cm txprio Ar prio
+.Op Oo Fl Oc Ns Cm vnetflowid
 .Op Oo Fl Oc Ns Cm vnetid Ar network-id
 .Ek
 .nr nS 0
 .Pp
+.Xr egre 4 ,
+.Xr eoip 4 ,
 .Xr etherip 4 ,
 .Xr gif 4 ,
 .Xr gre 4 ,
+.Xr mgre 4 ,
+.Xr nvgre 4 ,
 and
 .Xr vxlan 4
 are all tunnel interfaces.
 The following options are available:
 .Bl -tag -width Ds
-.It Cm deletetunnel Ar src_address dest_address
-Remove the source and destination tunnel addresses.
 .It Cm keepalive Ar period count
 Enable
 .Xr gre 4
@@ -1569,24 +1704,57 @@ Both addresses must be of the same family.
 The optional destination port can be specified for interfaces such as
 .Xr vxlan 4 ,
 which further encapsulate the packets in UDP datagrams.
-.It Cm tunneldomain Ar tableid
+.It Cm -tunnel
+Remove the source and destination tunnel addresses.
+.It Cm tunneldf
+Do not allow fragmentation of encapsulated packets.
+.It Cm -tunneldf
+Allow fragmentation of encapsulated packets.
+.It Cm tunneldomain Ar rtable
 Use routing table
-.Ar tableid
+.Ar rtable
 instead of the default table.
 The tunnel does not need to terminate in the same routing domain as the
 interface itself.
-.Ar tableid
+.Ar rtable
 can be set to any valid routing table ID;
 the corresponding routing domain is derived from this table.
+.It Cm -tunneldomain
+Use the default routing table and routing domain 0.
 .It Cm tunnelttl Ar ttl
 Set the IP or multicast TTL of the tunnel packets.
+If supported by the tunnel protocol,
+the value can also be set to
+.Ar copy
+to have the TTL copied between the encapsulated protocol headers
+and the tunnel protocol headers.
+.It Cm txprio Ar prio
+Configure the value used for the priority field in the tunnel
+protocol headers.
+The value can be a priority number from 0 to 7, or
+.Ar packet
+to use the priority currently set on the packet.
+If supported by the interface, the value can also be set to
+.Ar payload
+to have the priority field copied from the encapsulated protocol headers
+to the tunnel protocol headers.
+.It Cm vnetflowid
+Use a portion of the virtual network identifier space for a flow identifier.
+This allows load balancing of the encapsulated traffic over multiple
+links.
+.It Cm -vnetflowid
+Disable the use of a flow identifier in the virtual network identifier.
 .It Cm vnetid Ar network-id
 Set the virtual network identifier.
 This is a number which is used by tunnel protocols such as
+.Xr eoip 4
+and
 .Xr vxlan 4
 to identify packets with a virtual network.
 The accepted size of the number depends on the individual tunnel protocol;
-it is a 24-bit number for
+it is a 16-bit number for
+.Xr eoip 4 ,
+and a 24-bit number for
 .Xr vxlan 4 .
 If supported by the tunnel protocol,
 the value can also be set to
@@ -1664,6 +1832,7 @@ device will try to establish a data connection with the service provider.
 .Nm ifconfig
 .Ar vlan-interface
 .Op Oo Fl Oc Ns Cm parent Ar parent-interface
+.Op Cm txprio Ar prio
 .Op Oo Fl Oc Ns Cm vnetid Ar vlan-tag
 .Ek
 .nr nS 0
@@ -1691,6 +1860,12 @@ it will inherit a copy of the parent interface's Ethernet address.
 .It Cm -parent
 Disassociate from the parent interface.
 This breaks the link between the VLAN interface and its parent.
+.It Cm txprio Ar prio
+Set the value used for the priority field in the 802.1Q or 802.1ad
+headers.
+Values may be from 0 to 7, or
+.Ar packet
+to use the priority of packets transmitted on the interface.
 .It Cm vnetid Ar vlan-tag
 Set the VLAN tag value to
 .Ar vlan-tag .
@@ -1700,7 +1875,7 @@ headers in packets handled by
 or
 .Xr svlan 4
 interfaces respectively.
-Valid tag values are from 1 to 4095 inclusive.
+Valid tag values are from 1 to 4094 inclusive.
 .It Cm -vnetid
 Clear the tag value.
 Packets on a VLAN interface without a tag set will use a value of
@@ -1738,10 +1913,11 @@ tried to alter an interface's configuration.
 .Xr inet 4 ,
 .Xr intro 4 ,
 .Xr netintro 4 ,
+.Xr route 4 ,
 .Xr hostname.if 5 ,
 .Xr hosts 5 ,
-.Xr networks 5 ,
 .Xr rc 8 ,
+.Xr slaacd 8 ,
 .Xr tcpdump 8
 .Sh HISTORY
 The

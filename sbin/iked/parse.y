@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.65 2017/04/24 07:07:25 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.77 2018/11/07 08:10:45 miko Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -59,6 +59,10 @@ static struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
+	size_t			 ungetpos;
+	size_t			 ungetsize;
+	u_char			*ungetbuf;
+	int			 eof_reached;
 	int			 lineno;
 	int			 errors;
 } *file;
@@ -77,8 +81,9 @@ int		 yyerror(const char *, ...)
     __attribute__((__nonnull__ (1)));
 int		 kw_cmp(const void *, const void *);
 int		 lookup(char *);
+int		 igetc(void);
 int		 lgetc(int);
-int		 lungetc(int);
+void		 lungetc(int);
 int		 findeol(void);
 
 TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
@@ -99,6 +104,7 @@ static int		 debug = 0;
 static int		 rules = 0;
 static int		 passive = 0;
 static int		 decouple = 0;
+static int		 mobike = 1;
 static char		*ocsp_url = NULL;
 
 struct ipsec_xf {
@@ -111,16 +117,19 @@ struct ipsec_xf {
 };
 
 struct ipsec_transforms {
-	const struct ipsec_xf *authxf;
-	const struct ipsec_xf *prfxf;
-	const struct ipsec_xf *encxf;
-	const struct ipsec_xf *groupxf;
-	const struct ipsec_xf *esnxf;
+	const struct ipsec_xf	**authxf;
+	unsigned int		  nauthxf;
+	const struct ipsec_xf	**prfxf;
+	unsigned int		  nprfxf;
+	const struct ipsec_xf	**encxf;
+	unsigned int		  nencxf;
+	const struct ipsec_xf	**groupxf;
+	unsigned int		  ngroupxf;
 };
 
 struct ipsec_mode {
-	struct ipsec_transforms	*xfs;
-	uint8_t			 ike_exch;
+	struct ipsec_transforms	**xfs;
+	unsigned int		  nxfs;
 };
 
 struct iked_transform ikev2_default_ike_transforms[] = {
@@ -327,10 +336,10 @@ const struct ipsec_xf	*parse_xf(const char *, unsigned int,
 			    const struct ipsec_xf *);
 const char		*print_xf(unsigned int, unsigned int,
 			    const struct ipsec_xf *);
-void			 copy_transforms(unsigned int, const struct ipsec_xf *,
-			    const struct ipsec_xf *,
-			    struct iked_transform *, size_t,
-			    unsigned int *, struct iked_transform *, size_t);
+void			 copy_transforms(unsigned int,
+			    const struct ipsec_xf **, unsigned int,
+			    struct iked_transform **, unsigned int *,
+			    struct iked_transform *, size_t);
 int			 create_ike(char *, int, uint8_t, struct ipsec_hosts *,
 			    struct ipsec_hosts *, struct ipsec_mode *,
 			    struct ipsec_mode *, uint8_t,
@@ -346,6 +355,7 @@ int			 parsekeyfile(char *, struct iked_auth *);
 
 struct ipsec_transforms *ipsec_transforms;
 struct ipsec_filters *ipsec_filters;
+struct ipsec_mode *ipsec_mode;
 
 typedef struct {
 	union {
@@ -384,7 +394,7 @@ typedef struct {
 %token	PASSIVE ACTIVE ANY TAG TAP PROTO LOCAL GROUP NAME CONFIG EAP USER
 %token	IKEV1 FLOW SA TCPMD5 TUNNEL TRANSPORT COUPLE DECOUPLE SET
 %token	INCLUDE LIFETIME BYTES INET INET6 QUICK SKIP DEFAULT
-%token	IPCOMP OCSP IKELIFETIME
+%token	IPCOMP OCSP IKELIFETIME MOBIKE NOMOBIKE
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %type	<v.string>		string
@@ -404,7 +414,7 @@ typedef struct {
 %type	<v.ikemode>		ikeflags ikematch ikemode ipcomp
 %type	<v.ikeauth>		ikeauth
 %type	<v.ikekey>		keyspec
-%type	<v.mode>		ike_sa child_sa
+%type	<v.mode>		ike_sas child_sas
 %type	<v.lifetime>		lifetime
 %type	<v.number>		byte_spec time_spec ikelifetime
 %type	<v.string>		name
@@ -429,7 +439,7 @@ comma		: ','
 include		: INCLUDE STRING		{
 			struct file	*nfile;
 
-			if ((nfile = pushfile($2, 0)) == NULL) {
+			if ((nfile = pushfile($2, 1)) == NULL) {
 				yyerror("failed to include file %s", $2);
 				free($2);
 				YYERROR;
@@ -445,6 +455,8 @@ set		: SET ACTIVE	{ passive = 0; }
 		| SET PASSIVE	{ passive = 1; }
 		| SET COUPLE	{ decouple = 0; }
 		| SET DECOUPLE	{ decouple = 1; }
+		| SET MOBIKE	{ mobike = 1; }
+		| SET NOMOBIKE	{ mobike = 0; }
 		| SET OCSP STRING		{
 			if ((ocsp_url = strdup($3)) == NULL) {
 				yyerror("cannot set ocsp_url");
@@ -460,7 +472,7 @@ user		: USER STRING STRING		{
 		;
 
 ikev2rule	: IKEV2 name ikeflags satype af proto hosts_list peers
-		    ike_sa child_sa ids ikelifetime lifetime ikeauth ikecfg
+		    ike_sas child_sas ids ikelifetime lifetime ikeauth ikecfg
 		    filters {
 			if (create_ike($2, $5, $6, $7, &$8, $9, $10, $4, $3,
 			    $11.srcid, $11.dstid, $12, &$13, &$14,
@@ -727,71 +739,110 @@ transforms_l	: transforms_l transform
 		;
 
 transform	: AUTHXF STRING			{
-			if (ipsec_transforms->authxf)
-				yyerror("auth already set");
-			else {
-				ipsec_transforms->authxf = parse_xf($2, 0,
-				    authxfs);
-				if (!ipsec_transforms->authxf)
-					yyerror("%s not a valid transform", $2);
-			}
+			const struct ipsec_xf **xfs = ipsec_transforms->authxf;
+			size_t nxfs = ipsec_transforms->nauthxf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, authxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			ipsec_transforms->authxf = xfs;
+			ipsec_transforms->nauthxf++;
 		}
 		| ENCXF STRING			{
-			if (ipsec_transforms->encxf)
-				yyerror("enc already set");
-			else {
-				ipsec_transforms->encxf = parse_xf($2, 0,
-				    encxfs);
-				if (!ipsec_transforms->encxf)
-					yyerror("%s not a valid transform",
-					    $2);
-			}
+			const struct ipsec_xf **xfs = ipsec_transforms->encxf;
+			size_t nxfs = ipsec_transforms->nencxf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, encxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			ipsec_transforms->encxf = xfs;
+			ipsec_transforms->nencxf++;
 		}
 		| PRFXF STRING			{
-			if (ipsec_transforms->prfxf)
-				yyerror("prf already set");
-			else {
-				ipsec_transforms->prfxf = parse_xf($2, 0,
-				    prfxfs);
-				if (!ipsec_transforms->prfxf)
-					yyerror("%s not a valid transform",
-					    $2);
-			}
+			const struct ipsec_xf **xfs = ipsec_transforms->prfxf;
+			size_t nxfs = ipsec_transforms->nprfxf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, prfxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			ipsec_transforms->prfxf = xfs;
+			ipsec_transforms->nprfxf++;
 		}
 		| GROUP STRING			{
-			if (ipsec_transforms->groupxf)
-				yyerror("group already set");
-			else {
-				ipsec_transforms->groupxf = parse_xf($2, 0,
-				    groupxfs);
-				if (!ipsec_transforms->groupxf)
-					yyerror("%s not a valid transform",
-					    $2);
-			}
+			const struct ipsec_xf **xfs = ipsec_transforms->groupxf;
+			size_t nxfs = ipsec_transforms->ngroupxf;
+			xfs = recallocarray(xfs, nxfs, nxfs + 1,
+			    sizeof(struct ipsec_xf *));
+			if (xfs == NULL)
+				err(1, "transform: recallocarray");
+			if ((xfs[nxfs] = parse_xf($2, 0, groupxfs)) == NULL)
+				yyerror("%s not a valid transform", $2);
+			ipsec_transforms->groupxf = xfs;
+			ipsec_transforms->ngroupxf++;
 		}
 		;
 
-ike_sa		: /* empty */	{
+ike_sas		:					{
+			if ((ipsec_mode = calloc(1,
+			    sizeof(struct ipsec_mode))) == NULL)
+				err(1, "ike_sas: calloc");
+		}
+		    ike_sas_l				{
+			$$ = ipsec_mode;
+		}
+		| /* empty */				{
 			$$ = NULL;
 		}
-		| IKESA		{
+		;
+
+ike_sas_l	: ike_sas_l ike_sa
+		| ike_sa
+		;
+
+ike_sa		: IKESA		{
+			if ((ipsec_mode->xfs = recallocarray(ipsec_mode->xfs,
+			    ipsec_mode->nxfs, ipsec_mode->nxfs + 1,
+			    sizeof(struct ipsec_transforms *))) == NULL)
+				err(1, "ike_sa: recallocarray");
+			ipsec_mode->nxfs++;
 			encxfs = ikeencxfs;
 		} transforms	{
-			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				err(1, "ike_sa: calloc");
-			$$->xfs = $3;
+			ipsec_mode->xfs[ipsec_mode->nxfs - 1] = $3;
 		}
 		;
 
-child_sa	: /* empty */	{
+child_sas	:					{
+			if ((ipsec_mode = calloc(1,
+			    sizeof(struct ipsec_mode))) == NULL)
+				err(1, "child_sas: calloc");
+		}
+		    child_sas_l				{
+			$$ = ipsec_mode;
+		}
+		| /* empty */				{
 			$$ = NULL;
 		}
-		| CHILDSA	{
+		;
+
+child_sas_l	: child_sas_l child_sa
+		| child_sa
+		;
+
+child_sa	: CHILDSA	{
+			if ((ipsec_mode->xfs = recallocarray(ipsec_mode->xfs,
+			    ipsec_mode->nxfs, ipsec_mode->nxfs + 1,
+			    sizeof(struct ipsec_transforms *))) == NULL)
+				err(1, "child_sa: recallocarray");
+			ipsec_mode->nxfs++;
 			encxfs = ipsecencxfs;
 		} transforms	{
-			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				err(1, "child_sa: calloc");
-			$$->xfs = $3;
+			ipsec_mode->xfs[ipsec_mode->nxfs - 1] = $3;
 		}
 		;
 
@@ -1028,6 +1079,8 @@ varset		: STRING '=' string
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -1126,7 +1179,9 @@ lookup(char *s)
 		{ "ipcomp",		IPCOMP },
 		{ "lifetime",		LIFETIME },
 		{ "local",		LOCAL },
+		{ "mobike",		MOBIKE },
 		{ "name",		NAME },
+		{ "nomobike",		NOMOBIKE },
 		{ "ocsp",		OCSP },
 		{ "passive",		PASSIVE },
 		{ "peer",		PEER },
@@ -1163,34 +1218,39 @@ lookup(char *s)
 	}
 }
 
-#define MAXPUSHBACK	128
+#define START_EXPAND	1
+#define DONE_EXPAND	2
 
-unsigned char	*parsebuf;
-int		 parseindex;
-unsigned char	 pushback_buffer[MAXPUSHBACK];
-int		 pushback_index = 0;
+static int	expanding;
+
+int
+igetc(void)
+{
+	int	c;
+
+	while (1) {
+		if (file->ungetpos > 0)
+			c = file->ungetbuf[--file->ungetpos];
+		else
+			c = getc(file->stream);
+
+		if (c == START_EXPAND)
+			expanding = 1;
+		else if (c == DONE_EXPAND)
+			expanding = 0;
+		else
+			break;
+	}
+	return (c);
+}
 
 int
 lgetc(int quotec)
 {
 	int		c, next;
 
-	if (parsebuf) {
-		/* Read character from the parsebuffer instead of input. */
-		if (parseindex >= 0) {
-			c = parsebuf[parseindex++];
-			if (c != '\0')
-				return (c);
-			parsebuf = NULL;
-		} else
-			parseindex++;
-	}
-
-	if (pushback_index)
-		return (pushback_buffer[--pushback_index]);
-
 	if (quotec) {
-		if ((c = getc(file->stream)) == EOF) {
+		if ((c = igetc()) == EOF) {
 			yyerror("reached end of file while parsing "
 			    "quoted string");
 			if (popfile() == EOF)
@@ -1200,8 +1260,8 @@ lgetc(int quotec)
 		return (c);
 	}
 
-	while ((c = getc(file->stream)) == '\\') {
-		next = getc(file->stream);
+	while ((c = igetc()) == '\\') {
+		next = igetc();
 		if (next != '\n') {
 			c = next;
 			break;
@@ -1211,27 +1271,38 @@ lgetc(int quotec)
 	}
 
 	while (c == EOF) {
-		if (popfile() == EOF)
-			return (EOF);
-		c = getc(file->stream);
+		/*
+		 * Fake EOL when hit EOF for the first time. This gets line
+		 * count right if last line in included file is syntactically
+		 * invalid and has no newline.
+		 */
+		if (file->eof_reached == 0) {
+			file->eof_reached = 1;
+			return ('\n');
+		}
+		while (c == EOF) {
+			if (popfile() == EOF)
+				return (EOF);
+			c = igetc();
+		}
 	}
 	return (c);
 }
 
-int
+void
 lungetc(int c)
 {
 	if (c == EOF)
-		return (EOF);
-	if (parsebuf) {
-		parseindex--;
-		if (parseindex >= 0)
-			return (c);
+		return;
+
+	if (file->ungetpos >= file->ungetsize) {
+		void *p = reallocarray(file->ungetbuf, file->ungetsize, 2);
+		if (p == NULL)
+			err(1, "lungetc");
+		file->ungetbuf = p;
+		file->ungetsize *= 2;
 	}
-	if (pushback_index < MAXPUSHBACK-1)
-		return (pushback_buffer[pushback_index++] = c);
-	else
-		return (EOF);
+	file->ungetbuf[file->ungetpos++] = c;
 }
 
 int
@@ -1239,14 +1310,9 @@ findeol(void)
 {
 	int	c;
 
-	parsebuf = NULL;
-
 	/* skip to either EOF or the first real EOL */
 	while (1) {
-		if (pushback_index)
-			c = pushback_buffer[--pushback_index];
-		else
-			c = lgetc(0);
+		c = lgetc(0);
 		if (c == '\n') {
 			file->lineno++;
 			break;
@@ -1274,7 +1340,7 @@ top:
 	if (c == '#')
 		while ((c = lgetc(0)) != '\n' && c != EOF)
 			; /* nothing */
-	if (c == '$' && parsebuf == NULL) {
+	if (c == '$' && !expanding) {
 		while (1) {
 			if ((c = lgetc(0)) == EOF)
 				return (0);
@@ -1296,8 +1362,13 @@ top:
 			yyerror("macro '%s' not defined", buf);
 			return (findeol());
 		}
-		parsebuf = val;
-		parseindex = 0;
+		p = val + strlen(val) - 1;
+		lungetc(DONE_EXPAND);
+		while (p >= val) {
+			lungetc(*p);
+			p--;
+		}
+		lungetc(START_EXPAND);
 		goto top;
 	}
 
@@ -1314,7 +1385,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -1336,7 +1408,7 @@ top:
 		}
 		yylval.v.string = strdup(buf);
 		if (yylval.v.string == NULL)
-			err(1, "yylex: strdup");
+			err(1, "%s", __func__);
 		return (STRING);
 	}
 
@@ -1394,7 +1466,7 @@ nodigits:
 		*p = '\0';
 		if ((token = lookup(buf)) == STRING)
 			if ((yylval.v.string = strdup(buf)) == NULL)
-				err(1, "yylex: strdup");
+				err(1, "%s", __func__);
 		return (token);
 	}
 	if (c == '\n') {
@@ -1432,11 +1504,11 @@ pushfile(const char *name, int secret)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		warn("malloc");
+		warn("%s", __func__);
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		warn("malloc");
+		warn("%s", __func__);
 		free(nfile);
 		return (NULL);
 	}
@@ -1444,12 +1516,12 @@ pushfile(const char *name, int secret)
 		nfile->stream = stdin;
 		free(nfile->name);
 		if ((nfile->name = strdup("stdin")) == NULL) {
-			warn("strdup");
+			warn("%s", __func__);
 			free(nfile);
 			return (NULL);
 		}
 	} else if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		warn("%s", nfile->name);
+		warn("%s: %s", __func__, nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -1460,7 +1532,16 @@ pushfile(const char *name, int secret)
 		free(nfile);
 		return (NULL);
 	}
-	nfile->lineno = 1;
+	nfile->lineno = TAILQ_EMPTY(&files) ? 1 : 0;
+	nfile->ungetsize = 16;
+	nfile->ungetbuf = malloc(nfile->ungetsize);
+	if (nfile->ungetbuf == NULL) {
+		warn("%s", __func__);
+		fclose(nfile->stream);
+		free(nfile->name);
+		free(nfile);
+		return (NULL);
+	}
 	TAILQ_INSERT_TAIL(&files, nfile, entry);
 	return (nfile);
 }
@@ -1475,6 +1556,7 @@ popfile(void)
 		TAILQ_REMOVE(&files, file, entry);
 		fclose(file->stream);
 		free(file->name);
+		free(file->ungetbuf);
 		free(file);
 		file = prev;
 		return (0);
@@ -1494,7 +1576,11 @@ parse_config(const char *filename, struct iked *x_env)
 	if ((file = pushfile(filename, 1)) == NULL)
 		return (-1);
 
+	free(ocsp_url);
+
+	mobike = 1;
 	decouple = passive = 0;
+	ocsp_url = NULL;
 
 	if (env->sc_opts & IKED_OPT_PASSIVE)
 		passive = 1;
@@ -1505,6 +1591,7 @@ parse_config(const char *filename, struct iked *x_env)
 
 	env->sc_passive = passive ? 1 : 0;
 	env->sc_decoupled = decouple ? 1 : 0;
+	env->sc_mobike = mobike;
 	env->sc_ocsp_url = ocsp_url;
 
 	if (!rules)
@@ -1573,17 +1660,13 @@ cmdline_symset(char *s)
 {
 	char	*sym, *val;
 	int	ret;
-	size_t	len;
 
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
 
-	len = strlen(s) - strlen(val) + 1;
-	if ((sym = malloc(len)) == NULL)
-		err(1, "cmdline_symset: malloc");
-
-	strlcpy(sym, s, len);
-
+	sym = strndup(s, val - s);
+	if (sym == NULL)
+		err(1, "%s", __func__);
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -1873,11 +1956,11 @@ host(const char *s)
 		if (errno == ERANGE || !q || *q || mask > 128 || q == (p + 1))
 			errx(1, "host: invalid netmask '%s'", p);
 		if ((ps = malloc(strlen(s) - strlen(p) + 1)) == NULL)
-			err(1, "host: calloc");
+			err(1, "%s", __func__);
 		strlcpy(ps, s, strlen(s) - strlen(p) + 1);
 	} else {
 		if ((ps = strdup(s)) == NULL)
-			err(1, "host: strdup");
+			err(1, "%s", __func__);
 		mask = -1;
 	}
 
@@ -1923,7 +2006,7 @@ host_v6(const char *s, int prefixlen)
 
 	ipa = calloc(1, sizeof(struct ipsec_addr_wrap));
 	if (ipa == NULL)
-		err(1, "host_v6: calloc");
+		err(1, "%s", __func__);
 	ipa->af = res->ai_family;
 	memcpy(&ipa->address, res->ai_addr, sizeof(struct sockaddr_in6));
 	if (prefixlen > 128)
@@ -1940,10 +2023,10 @@ host_v6(const char *s, int prefixlen)
 	if (prefixlen != 128) {
 		ipa->netaddress = 1;
 		if (asprintf(&ipa->name, "%s/%d", hbuf, prefixlen) == -1)
-			err(1, "host_v6: asprintf");
+			err(1, "%s", __func__);
 	} else {
 		if ((ipa->name = strdup(hbuf)) == NULL)
-			err(1, "host_v6: strdup");
+			err(1, "%s", __func__);
 	}
 
 	freeaddrinfo(res);
@@ -1970,7 +2053,7 @@ host_v4(const char *s, int mask)
 
 	ipa = calloc(1, sizeof(struct ipsec_addr_wrap));
 	if (ipa == NULL)
-		err(1, "host_v4: calloc");
+		err(1, "%s", __func__);
 
 	ina.sin_family = AF_INET;
 	ina.sin_len = sizeof(ina);
@@ -1978,7 +2061,7 @@ host_v4(const char *s, int mask)
 
 	ipa->name = strdup(s);
 	if (ipa->name == NULL)
-		err(1, "host_v4: strdup");
+		err(1, "%s", __func__);
 	ipa->af = AF_INET;
 	ipa->next = NULL;
 	ipa->tail = ipa;
@@ -2012,7 +2095,7 @@ host_dns(const char *s, int mask)
 
 		ipa = calloc(1, sizeof(struct ipsec_addr_wrap));
 		if (ipa == NULL)
-			err(1, "host_dns: calloc");
+			err(1, "%s", __func__);
 		switch (res->ai_family) {
 		case AF_INET:
 			memcpy(&ipa->address, res->ai_addr,
@@ -2029,7 +2112,7 @@ host_dns(const char *s, int mask)
 			err(1, "host_dns: getnameinfo");
 		ipa->name = strdup(hbuf);
 		if (ipa->name == NULL)
-			err(1, "host_dns: strdup");
+			err(1, "%s", __func__);
 		ipa->af = res->ai_family;
 		ipa->next = NULL;
 		ipa->tail = ipa;
@@ -2076,7 +2159,7 @@ host_any(void)
 
 	ipa = calloc(1, sizeof(struct ipsec_addr_wrap));
 	if (ipa == NULL)
-		err(1, "host_any: calloc");
+		err(1, "%s", __func__);
 	ipa->af = AF_UNSPEC;
 	ipa->netaddress = 1;
 	ipa->tail = ipa;
@@ -2105,10 +2188,10 @@ ifa_load(void)
 			continue;
 		n = calloc(1, sizeof(struct ipsec_addr_wrap));
 		if (n == NULL)
-			err(1, "ifa_load: calloc");
+			err(1, "%s", __func__);
 		n->af = ifa->ifa_addr->sa_family;
 		if ((n->name = strdup(ifa->ifa_name)) == NULL)
-			err(1, "ifa_load: strdup");
+			err(1, "%s", __func__);
 		if (n->af == AF_INET) {
 			sa_in = (struct sockaddr_in *)ifa->ifa_addr;
 			memcpy(&n->address, sa_in, sizeof(*sa_in));
@@ -2184,7 +2267,7 @@ ifa_grouplookup(const char *ifa_name)
 
 	len = ifgr.ifgr_len;
 	if ((ifgr.ifgr_groups = calloc(1, len)) == NULL)
-		err(1, "calloc");
+		err(1, "%s", __func__);
 	if (ioctl(s, SIOCGIFGMEMB, (caddr_t)&ifgr) == -1)
 		err(1, "ioctl");
 
@@ -2228,10 +2311,10 @@ ifa_lookup(const char *ifa_name)
 			continue;
 		n = calloc(1, sizeof(struct ipsec_addr_wrap));
 		if (n == NULL)
-			err(1, "ifa_lookup: calloc");
+			err(1, "%s", __func__);
 		memcpy(n, p, sizeof(struct ipsec_addr_wrap));
 		if ((n->name = strdup(p->name)) == NULL)
-			err(1, "ifa_lookup: strdup");
+			err(1, "%s", __func__);
 		switch (n->af) {
 		case AF_INET:
 			set_ipmask(n, 32);
@@ -2533,23 +2616,29 @@ print_policy(struct iked_policy *pol)
 }
 
 void
-copy_transforms(unsigned int type, const struct ipsec_xf *xf,
-    const struct ipsec_xf *xfs,
-    struct iked_transform *dst, size_t ndst,
-    unsigned int *n, struct iked_transform *src, size_t nsrc)
+copy_transforms(unsigned int type,
+    const struct ipsec_xf **xfs, unsigned int nxfs,
+    struct iked_transform **dst, unsigned int *ndst,
+    struct iked_transform *src, size_t nsrc)
 {
 	unsigned int		 i;
 	struct iked_transform	*a, *b;
+	const struct ipsec_xf	*xf;
 
-	if (xf != NULL) {
-		if (*n >= ndst)
-			return;
-		b = dst + (*n)++;
+	if (nxfs) {
+		for (i = 0; i < nxfs; i++) {
+			xf = xfs[i];
+			*dst = recallocarray(*dst, *ndst,
+			    *ndst + 1, sizeof(struct iked_transform));
+			if (*dst == NULL)
+				err(1, "%s", __func__);
+			b = *dst + (*ndst)++;
 
-		b->xform_type = type;
-		b->xform_id = xf->id;
-		b->xform_keylength = xf->length * 8;
-		b->xform_length = xf->keylength * 8;
+			b->xform_type = type;
+			b->xform_id = xf->id;
+			b->xform_keylength = xf->length * 8;
+			b->xform_length = xf->keylength * 8;
+		}
 		return;
 	}
 
@@ -2557,9 +2646,11 @@ copy_transforms(unsigned int type, const struct ipsec_xf *xf,
 		a = src + i;
 		if (a->xform_type != type)
 			continue;
-		if (*n >= ndst)
-			return;
-		b = dst + (*n)++;
+		*dst = recallocarray(*dst, *ndst,
+		    *ndst + 1, sizeof(struct iked_transform));
+		if (*dst == NULL)
+			err(1, "%s", __func__);
+		b = *dst + (*ndst)++;
 		memcpy(b, a, sizeof(*b));
 	}
 }
@@ -2577,17 +2668,16 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 	unsigned int		 idtype = IKEV2_ID_NONE;
 	struct ipsec_addr_wrap	*ipa, *ipb, *ippn;
 	struct iked_policy	 pol;
-	struct iked_proposal	 prop[2];
-	unsigned int		 j;
-	struct iked_transform	 ikexforms[64], ipsecxforms[64];
+	struct iked_proposal	*p, *ptmp;
+	struct iked_transform	*xf;
+	unsigned int		 i, j, xfi, noauth;
+	unsigned int		 ikepropid = 1, ipsecpropid = 1;
 	struct iked_flow	 flows[64];
 	static unsigned int	 policy_id = 0;
 	struct iked_cfg		*cfg;
+	int			 ret = -1;
 
 	bzero(&pol, sizeof(pol));
-	bzero(&prop, sizeof(prop));
-	bzero(&ikexforms, sizeof(ikexforms));
-	bzero(&ipsecxforms, sizeof(ipsecxforms));
 	bzero(&flows, sizeof(flows));
 	bzero(idstr, sizeof(idstr));
 
@@ -2709,77 +2799,113 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 	TAILQ_INIT(&pol.pol_proposals);
 	RB_INIT(&pol.pol_flows);
 
-	prop[0].prop_id = ++pol.pol_nproposals;
-	prop[0].prop_protoid = IKEV2_SAPROTO_IKE;
-	if (ike_sa == NULL || ike_sa->xfs == NULL) {
-		prop[0].prop_nxforms = ikev2_default_nike_transforms;
-		prop[0].prop_xforms = ikev2_default_ike_transforms;
+	if (ike_sa == NULL || ike_sa->nxfs == 0) {
+		if ((p = calloc(1, sizeof(*p))) == NULL)
+			err(1, "%s", __func__);
+		p->prop_id = ikepropid++;
+		p->prop_protoid = IKEV2_SAPROTO_IKE;
+		p->prop_nxforms = ikev2_default_nike_transforms;
+		p->prop_xforms = ikev2_default_ike_transforms;
+		TAILQ_INSERT_TAIL(&pol.pol_proposals, p, prop_entry);
+		pol.pol_nproposals++;
 	} else {
-		j = 0;
-		copy_transforms(IKEV2_XFORMTYPE_INTEGR,
-		    ike_sa->xfs->authxf, authxfs,
-		    ikexforms, nitems(ikexforms), &j,
-		    ikev2_default_ike_transforms,
-		    ikev2_default_nike_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_ENCR,
-		    ike_sa->xfs->encxf, ikeencxfs,
-		    ikexforms, nitems(ikexforms), &j,
-		    ikev2_default_ike_transforms,
-		    ikev2_default_nike_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_DH,
-		    ike_sa->xfs->groupxf, groupxfs,
-		    ikexforms, nitems(ikexforms), &j,
-		    ikev2_default_ike_transforms,
-		    ikev2_default_nike_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_PRF,
-		    ike_sa->xfs->prfxf, prfxfs,
-		    ikexforms, nitems(ikexforms), &j,
-		    ikev2_default_ike_transforms,
-		    ikev2_default_nike_transforms);
-		prop[0].prop_nxforms = j;
-		prop[0].prop_xforms = ikexforms;
-	}
-	TAILQ_INSERT_TAIL(&pol.pol_proposals, &prop[0], prop_entry);
+		for (i = 0; i < ike_sa->nxfs; i++) {
+			if ((p = calloc(1, sizeof(*p))) == NULL)
+				err(1, "%s", __func__);
 
-	prop[1].prop_id = ++pol.pol_nproposals;
-	prop[1].prop_protoid = saproto;
-	if (ipsec_sa == NULL || ipsec_sa->xfs == NULL) {
-		prop[1].prop_nxforms = ikev2_default_nesp_transforms;
-		prop[1].prop_xforms = ikev2_default_esp_transforms;
-	} else {
-		j = 0;
-		if (ipsec_sa->xfs->encxf && ipsec_sa->xfs->encxf->noauth &&
-		    ipsec_sa->xfs->authxf) {
-			yyerror("authentication is implicit for %s",
-			    ipsec_sa->xfs->encxf->name);
-			return (-1);
-		}
-		if (ipsec_sa->xfs->encxf == NULL ||
-		    (ipsec_sa->xfs->encxf && !ipsec_sa->xfs->encxf->noauth))
+			xf = NULL;
+			xfi = 0;
 			copy_transforms(IKEV2_XFORMTYPE_INTEGR,
-			    ipsec_sa->xfs->authxf, authxfs,
-			    ipsecxforms, nitems(ipsecxforms), &j,
+			    ike_sa->xfs[i]->authxf,
+			    ike_sa->xfs[i]->nauthxf, &xf, &xfi,
+			    ikev2_default_ike_transforms,
+			    ikev2_default_nike_transforms);
+			copy_transforms(IKEV2_XFORMTYPE_ENCR,
+			    ike_sa->xfs[i]->encxf,
+			    ike_sa->xfs[i]->nencxf, &xf, &xfi,
+			    ikev2_default_ike_transforms,
+			    ikev2_default_nike_transforms);
+			copy_transforms(IKEV2_XFORMTYPE_DH,
+			    ike_sa->xfs[i]->groupxf,
+			    ike_sa->xfs[i]->ngroupxf, &xf, &xfi,
+			    ikev2_default_ike_transforms,
+			    ikev2_default_nike_transforms);
+			copy_transforms(IKEV2_XFORMTYPE_PRF,
+			    ike_sa->xfs[i]->prfxf,
+			    ike_sa->xfs[i]->nprfxf, &xf, &xfi,
+			    ikev2_default_ike_transforms,
+			    ikev2_default_nike_transforms);
+
+			p->prop_id = ikepropid++;
+			p->prop_protoid = IKEV2_SAPROTO_IKE;
+			p->prop_xforms = xf;
+			p->prop_nxforms = xfi;
+			TAILQ_INSERT_TAIL(&pol.pol_proposals, p, prop_entry);
+			pol.pol_nproposals++;
+		}
+	}
+
+	if (ipsec_sa == NULL || ipsec_sa->nxfs == 0) {
+		if ((p = calloc(1, sizeof(*p))) == NULL)
+			err(1, "%s", __func__);
+		p->prop_id = ipsecpropid++;
+		p->prop_protoid = saproto;
+		p->prop_nxforms = ikev2_default_nesp_transforms;
+		p->prop_xforms = ikev2_default_esp_transforms;
+		TAILQ_INSERT_TAIL(&pol.pol_proposals, p, prop_entry);
+		pol.pol_nproposals++;
+	} else {
+		for (i = 0; i < ipsec_sa->nxfs; i++) {
+			noauth = 0;
+			for (j = 0; j < ipsec_sa->xfs[i]->nencxf; j++) {
+				if (ipsec_sa->xfs[i]->encxf[j]->noauth)
+					noauth++;
+			}
+			if (noauth && noauth != ipsec_sa->xfs[i]->nencxf) {
+				yyerror("cannot mix encryption transforms with "
+				    "implicit and non-implicit authentication");
+				goto done;
+			}
+			if (noauth && ipsec_sa->xfs[i]->nauthxf) {
+				yyerror("authentication is implicit for given"
+				    "encryption transforms");
+				goto done;
+			}
+
+			if ((p = calloc(1, sizeof(*p))) == NULL)
+				err(1, "%s", __func__);
+
+			xf = NULL;
+			xfi = 0;
+			if (!ipsec_sa->xfs[i]->nencxf || !noauth)
+				copy_transforms(IKEV2_XFORMTYPE_INTEGR,
+				    ipsec_sa->xfs[i]->authxf,
+				    ipsec_sa->xfs[i]->nauthxf, &xf, &xfi,
+				    ikev2_default_esp_transforms,
+				    ikev2_default_nesp_transforms);
+			copy_transforms(IKEV2_XFORMTYPE_ENCR,
+			    ipsec_sa->xfs[i]->encxf,
+			    ipsec_sa->xfs[i]->nencxf, &xf, &xfi,
 			    ikev2_default_esp_transforms,
 			    ikev2_default_nesp_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_ENCR,
-		    ipsec_sa->xfs->encxf, ipsecencxfs,
-		    ipsecxforms, nitems(ipsecxforms), &j,
-		    ikev2_default_esp_transforms,
-		    ikev2_default_nesp_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_DH,
-		    ipsec_sa->xfs->groupxf, groupxfs,
-		    ipsecxforms, nitems(ipsecxforms), &j,
-		    ikev2_default_esp_transforms,
-		    ikev2_default_nesp_transforms);
-		copy_transforms(IKEV2_XFORMTYPE_ESN,
-		    NULL, NULL,
-		    ipsecxforms, nitems(ipsecxforms), &j,
-		    ikev2_default_esp_transforms,
-		    ikev2_default_nesp_transforms);
-		prop[1].prop_nxforms = j;
-		prop[1].prop_xforms = ipsecxforms;
+			copy_transforms(IKEV2_XFORMTYPE_DH,
+			    ipsec_sa->xfs[i]->groupxf,
+			    ipsec_sa->xfs[i]->ngroupxf, &xf, &xfi,
+			    ikev2_default_esp_transforms,
+			    ikev2_default_nesp_transforms);
+			copy_transforms(IKEV2_XFORMTYPE_ESN,
+			    NULL, 0, &xf, &xfi,
+			    ikev2_default_esp_transforms,
+			    ikev2_default_nesp_transforms);
+
+			p->prop_id = ipsecpropid++;
+			p->prop_protoid = saproto;
+			p->prop_xforms = xf;
+			p->prop_nxforms = xfi;
+			TAILQ_INSERT_TAIL(&pol.pol_proposals, p, prop_entry);
+			pol.pol_nproposals++;
+		}
 	}
-	TAILQ_INSERT_TAIL(&pol.pol_proposals, &prop[1], prop_entry);
 
 	if (hosts == NULL || hosts->src == NULL || hosts->dst == NULL)
 		fatalx("create_ike: no traffic selectors/flows");
@@ -2858,14 +2984,46 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 	/* Make sure that we know how to authenticate this peer */
 	if (idtype && set_policy(idstr, idtype, &pol) < 0) {
 		log_debug("%s: set_policy failed", __func__);
-		return (-1);
+		goto done;
 	}
 
 	config_setpolicy(env, &pol, PROC_IKEV2);
 	config_setflow(env, &pol, PROC_IKEV2);
 
 	rules++;
-	return (0);
+	ret = 0;
+
+done:
+	if (ike_sa) {
+		for (i = 0; i < ike_sa->nxfs; i++) {
+			free(ike_sa->xfs[i]->authxf);
+			free(ike_sa->xfs[i]->encxf);
+			free(ike_sa->xfs[i]->groupxf);
+			free(ike_sa->xfs[i]->prfxf);
+			free(ike_sa->xfs[i]);
+		}
+		free(ike_sa->xfs);
+		free(ike_sa);
+	}
+	if (ipsec_sa) {
+		for (i = 0; i < ipsec_sa->nxfs; i++) {
+			free(ipsec_sa->xfs[i]->authxf);
+			free(ipsec_sa->xfs[i]->encxf);
+			free(ipsec_sa->xfs[i]->groupxf);
+			free(ipsec_sa->xfs[i]->prfxf);
+			free(ipsec_sa->xfs[i]);
+		}
+		free(ipsec_sa->xfs);
+		free(ipsec_sa);
+	}
+	TAILQ_FOREACH_SAFE(p, &pol.pol_proposals, prop_entry, ptmp) {
+		if (p->prop_xforms != ikev2_default_ike_transforms &&
+		    p->prop_xforms != ikev2_default_esp_transforms)
+			free(p->prop_xforms);
+		free(p);
+	}
+
+	return (ret);
 }
 
 int

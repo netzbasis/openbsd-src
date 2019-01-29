@@ -1,4 +1,4 @@
-/*	$OpenBSD: malloc.h,v 1.114 2016/11/14 03:20:33 dlg Exp $	*/
+/*	$OpenBSD: malloc.h,v 1.117 2018/11/12 15:09:17 visa Exp $	*/
 /*	$NetBSD: malloc.h,v 1.39 1998/07/12 19:52:01 augustss Exp $	*/
 
 /*
@@ -65,11 +65,11 @@
 #define	M_FREE		0	/* should be on free list */
 /* 1 - free */
 #define	M_DEVBUF	2	/* device driver memory */
-#define M_DEBUG		3	/* debug chunk */
+/* 3 - free */
 #define	M_PCB		4	/* protocol control block */
 #define	M_RTABLE	5	/* routing tables */
 /* 6 - free */
-#define	M_FTABLE	7	/* fragment reassembly header */
+/* 7 - free */
 /* 8 - free */
 #define	M_IFADDR	9	/* interface address */
 #define	M_SOOPTS	10	/* socket options */
@@ -97,7 +97,7 @@
 /* 35-37 - free */
 #define	M_FILE		38	/* Open file structure */
 #define	M_FILEDESC	39	/* Open file descriptor table */
-/* 40 - free */
+#define	M_SIGIO		40	/* Sigio structures */
 #define	M_PROC		41	/* Proc structures */
 #define	M_SUBPROC	42	/* Proc sub-structures */
 #define	M_VCLUSTER	43	/* Cluster for VFS */
@@ -187,11 +187,11 @@
 	"free",		/* 0 M_FREE */ \
 	NULL, \
 	"devbuf",	/* 2 M_DEVBUF */ \
-	"debug", 	/* 3 M_DEBUG */ \
+	NULL, \
 	"pcb",		/* 4 M_PCB */ \
 	"rtable",	/* 5 M_RTABLE */ \
 	NULL,		/* 6 */ \
-	"fragtbl",	/* 7 M_FTABLE */ \
+	NULL, \
 	NULL, \
 	"ifaddr",	/* 9 M_IFADDR */ \
 	"soopts",	/* 10 M_SOOPTS */ \
@@ -224,7 +224,7 @@
 	NULL,	/* 37 */ \
 	"file",		/* 38 M_FILE */ \
 	"file desc",	/* 39 M_FILEDESC */ \
-	NULL,	/* 40 */ \
+	"sigio",	/* 40 M_SIGIO */ \
 	"proc",		/* 41 M_PROC */ \
 	"subproc",	/* 42 M_SUBPROC */ \
 	"VFS cluster",	/* 43 M_VCLUSTER */ \
@@ -403,16 +403,5 @@ void	poison_mem(void *, size_t);
 int	poison_check(void *, size_t, size_t *, uint32_t *);
 uint32_t poison_value(void *);
 
-#ifdef MALLOC_DEBUG
-int	debug_malloc(unsigned long, int, int, void **);
-int	debug_free(void *, int);
-void	debug_malloc_init(void);
-void	debug_malloc_assert_allocated(void *, const char *);
-#define DEBUG_MALLOC_ASSERT_ALLOCATED(addr) 			\
-	debug_malloc_assert_allocated(addr, __func__)
-
-void	debug_malloc_print(void);
-void	debug_malloc_printit(int (*)(const char *, ...), vaddr_t);
-#endif /* MALLOC_DEBUG */
 #endif /* _KERNEL */
 #endif /* !_SYS_MALLOC_H_ */

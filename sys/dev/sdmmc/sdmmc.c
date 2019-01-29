@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc.c,v 1.47 2017/04/06 07:07:28 jsg Exp $	*/
+/*	$OpenBSD: sdmmc.c,v 1.52 2018/12/29 11:37:30 patrick Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -115,13 +115,17 @@ sdmmc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sct = saa->sct;
 	sc->sch = saa->sch;
 	sc->sc_dmat = saa->dmat;
+	sc->sc_dmap = saa->dmap;
 	sc->sc_flags = saa->flags;
 	sc->sc_caps = saa->caps;
+	sc->sc_max_seg = saa->max_seg ? saa->max_seg : MAXPHYS;
 	sc->sc_max_xfer = saa->max_xfer;
+	memcpy(&sc->sc_cookies, &saa->cookies, sizeof(sc->sc_cookies));
 
-	if (ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
+	if (ISSET(sc->sc_caps, SMC_CAPS_DMA) && sc->sc_dmap == NULL) {
 		error = bus_dmamap_create(sc->sc_dmat, MAXPHYS, SDMMC_MAXNSEGS,
-		    MAXPHYS, 0, BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW, &sc->sc_dmap);
+		    sc->sc_max_seg, 0, BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW,
+		    &sc->sc_dmap);
 		if (error) {
 			printf("%s: can't create DMA map\n", DEVNAME(sc));
 			return;
@@ -502,6 +506,7 @@ sdmmc_function_alloc(struct sdmmc_softc *sc)
 	sf->cis.manufacturer = SDMMC_VENDOR_INVALID;
 	sf->cis.product = SDMMC_PRODUCT_INVALID;
 	sf->cis.function = SDMMC_FUNCTION_INVALID;
+	sf->cur_blklen = sdmmc_chip_host_maxblklen(sc->sct, sc->sch);
 	return sf;
 }
 
@@ -628,7 +633,8 @@ sdmmc_mmc_command(struct sdmmc_softc *sc, struct sdmmc_command *cmd)
 #endif
 
 	error = cmd->c_error;
-	wakeup(cmd);
+	if (!cold)
+		wakeup(cmd);
 
 	return error;
 }

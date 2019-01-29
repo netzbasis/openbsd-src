@@ -1,4 +1,4 @@
-/* $OpenBSD: auixp.c,v 1.38 2016/09/19 06:46:44 ratchov Exp $ */
+/* $OpenBSD: auixp.c,v 1.40 2018/09/03 05:37:32 miko Exp $ */
 /* $NetBSD: auixp.c,v 1.9 2005/06/27 21:13:09 thorpej Exp $ */
 
 /*
@@ -50,9 +50,8 @@
 
 /*#define DEBUG_AUIXP*/
 
-#include <sys/types.h>
-#include <sys/errno.h>
 #include <sys/param.h>
+#include <sys/errno.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
 #include <sys/device.h>
@@ -125,7 +124,6 @@ int	auixp_get_port(void *, mixer_ctrl_t *);
 int	auixp_query_devinfo(void *, mixer_devinfo_t *);
 void *	auixp_malloc(void *, int, size_t, int, int);
 void	auixp_free(void *, void *, int);
-size_t	auixp_round_buffersize(void *, int, size_t);
 int	auixp_get_props(void *);
 int	auixp_intr(void *);
 int	auixp_allocmem(struct auixp_softc *, size_t, size_t,
@@ -182,7 +180,7 @@ struct audio_hw_if auixp_hw_if = {
 	auixp_query_devinfo,
 	auixp_malloc,
 	auixp_free,
-	auixp_round_buffersize,
+	NULL,			/* round_buffersize */
 	auixp_get_props,
 	auixp_trigger_output,
 	auixp_trigger_input
@@ -453,16 +451,6 @@ auixp_query_devinfo(void *hdl, mixer_devinfo_t *di)
 	co = (struct auixp_codec *) hdl;
 	return co->codec_if->vtbl->query_devinfo(co->codec_if, di);
 }
-
-
-size_t
-auixp_round_buffersize(void *hdl, int direction, size_t bufsize)
-{
-
-	/* XXX force maximum? i.e. 256 kb? */
-	return bufsize;
-}
-
 
 int
 auixp_get_props(void *hdl)

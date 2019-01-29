@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.1 2017/06/03 10:00:29 florian Exp $	*/
+/*	$OpenBSD: control.c,v 1.4 2018/08/04 09:36:49 florian Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -85,9 +85,7 @@ control_init(char *path)
 		return (-1);
 	}
 
-	control_state.fd = fd;
-
-	return (0);
+	return (fd);
 }
 
 int
@@ -105,16 +103,6 @@ control_listen(void)
 	evtimer_set(&control_state.evt, control_accept, NULL);
 
 	return (0);
-}
-
-void
-control_cleanup(char *path)
-{
-	if (path == NULL)
-		return;
-	event_del(&control_state.ev);
-	event_del(&control_state.evt);
-	unlink(path);
 }
 
 void

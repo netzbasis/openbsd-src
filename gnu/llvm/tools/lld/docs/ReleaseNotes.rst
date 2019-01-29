@@ -1,5 +1,5 @@
 =======================
-LLD 4.0.0 Release Notes
+LLD 7.0.0 Release Notes
 =======================
 
 .. contents::
@@ -8,94 +8,107 @@ LLD 4.0.0 Release Notes
 Introduction
 ============
 
-LLD is a linker which supports ELF (Unix), COFF (Windows) and Mach-O
-(macOS). It is generally faster than the GNU BFD/gold linkers or the
-MSVC linker.
+lld is a high-performance linker that supports ELF (Unix), COFF (Windows),
+Mach-O (macOS), MinGW and WebAssembly. lld is command-line-compatible with GNU
+linkers and Microsoft link.exe, and is significantly faster than the system
+default linkers.
 
-LLD is designed to be a drop-in replacement for the system linkers, so
-that users don't need to change their build systems other than swapping
-the linker command.
+lld 7 for ELF, COFF and MinGW are production-ready.
 
-This document contains the release notes for LLD 4.0.0.
-Here we describe the status of LLD, including major improvements
-from the previous release. All LLD releases may be downloaded
-from the `LLVM releases web site <http://llvm.org/releases/>`_.
+* lld/ELF can build the entire FreeBSD/{AMD64,ARMv7} and will be the default
+  linker of the next version of the operating system.
 
+* lld/COFF is being used to create official builds of large popular programs
+  such as Chrome and Firefox.
 
-What's New in LLD 4.0?
-======================
+* lld/MinGW is being used by Firefox for their MinGW builds. lld/MinGW still
+  needs a sysroot specifically built for lld, with llvm-dlltool, though.
+
+* lld/WebAssembly is used as the default (only) linker in Emscripten when using
+  the upstream LLVM compiler.
+
+* lld/Mach-O is still experimental.
+
+Non-comprehensive list of changes in this release
+=================================================
 
 ELF Improvements
 ----------------
 
-LLD provides much better compatibility with the GNU linker than before.
-Now it is able to link the entire FreeBSD base system including the kernel
-out of the box. We are working closely with the FreeBSD project to
-make it usable as the system linker in a future release of the operating
-system.
+* Fixed a lot of long-tail compatibility issues with GNU linkers.
 
-Multi-threading performance has been improved, and multi-threading
-is now enabled by default. Combined with other optimizations, LLD 4.0
-is about 1.5 times faster than LLD 3.9 when linking large programs
-in our test environment.
+* Added ``-z retpolineplt`` to emit a PLT entry that doesn't contain an indirect
+  jump instruction to mitigate Spectre v2 vulnerability.
 
-Other notable changes are listed below:
+* Added experimental support for `SHT_RELR sections
+  <https://groups.google.com/forum/#!topic/generic-abi/bX460iggiKg>`_ to create a
+  compact dynamic relocation table.
 
-* Error messages contain more information than before. If debug info
-  is available, the linker prints out not only the object file name
-  but the source location of unresolved symbols.
+* Added support for `split stacks <https://gcc.gnu.org/wiki/SplitStacks>`_.
 
-* Error messages are printed in red just like Clang by default. You
-  can disable it by passing ``-no-color-diagnostics``.
+* Added support for address significance table (section with type
+  SHT_LLVM_ADDRSIG) to improve Identical Code Folding (ICF). Combined with the
+  ``-faddrsig`` compiler option added to Clang 7, lld's ``--icf=all`` can now
+  safely merge functions and data to generate smaller outputs than before.
 
-* LLD's version string is now embedded in a .comment section in the
-  result output file. You can dump it with this command: ``objdump -j -s
-  .comment <file>``.
+* Improved ``--gdb-index`` so that it is faster (`r336790
+  <https://reviews.llvm.org/rL336790>`_) and uses less memory (`r336672
+  <https://reviews.llvm.org/rL336672>`_).
 
-* The ``-Map`` option is supported. With that, you can print out section
-  and symbol information to a specified file. This feature is useful
-  for analyzing link results.
+* Reduced memory usage of ``--compress-debug-sections`` (`r338913
+  <https://reviews.llvm.org/rL338913>`_).
 
-* The file format for the ``-reproduce`` option has changed from cpio to
-  tar.
+* Added linker script OVERLAY support (`r335714 <https://reviews.llvm.org/rL335714>`_).
 
-* When creating a copy relocation for a symbol, LLD now scans the
-  DSO's header to see if the symbol is in a read-only segment. If so,
-  space for the copy relocation is reserved in .bss.rel.ro instead of
-  .bss. This fixes a security issue that read-only data in a DSO
-  becomes writable if it is copied by a copy relocation. This issue
-  was disclosed originally on the
-  `binutils mailing list <https://sourceware.org/ml/libc-alpha/2016-12/msg00914.html>`_.
+* Added ``--warn-backref`` to make it easy to identify command line option order
+  that doesn't work with GNU linkers (`r329636 <https://reviews.llvm.org/rL329636>`_)
 
-* Compressed input sections are supported.
+* Added ld.lld.1 man page (`r324512 <https://reviews.llvm.org/rL324512>`_).
 
-* ``--oformat binary``, ``--section-start``, ``-Tbss``, ``-Tdata``,
-  ``-Ttext``, ``-b binary``, ``-build-id=uuid``, ``-no-rosegment``,
-  ``-nopie``, ``-nostdlib``, ``-omagic``, ``-retain-symbols-file``,
-  ``-sort-section``, ``-z max-page-size`` and ``-z wxneeded`` are
-  supported.
+* Added support for multi-GOT.
 
-* A lot of linker script directives have been added.
+* Added support for MIPS position-independent executable (PIE).
 
-* Default image base address for x86-64 has changed from 0x10000 to
-  0x200000 to make it huge-page friendly.
+* Fixed MIPS TLS GOT entries for local symbols in shared libraries.
 
-* ARM port now supports GNU ifunc, the ARM C++ exceptions ABI, TLS
-  relocations and static linking. Problems with ``dlopen()`` on systems
-  using eglibc fixed.
+* Fixed calculation of MIPS GP relative relocations in case of relocatable
+  output.
 
-* MIPS port now supports input files in new R6 revision of MIPS ABIs
-  or N32 ABI. Generated file now contains .MIPS.abiflags section and
-  complete set of ELF headers flags.
+* Added support for PPCv2 ABI.
 
-* Relocations produced by the ``-mxgot`` compiler flag is supported
-  for MIPS. Now it is possible to generate "large" GOT that exceeds the 64K
-  limit.
+* Removed an incomplete support of PPCv1 ABI.
+
+* Added support for Qualcomm Hexagon ISA.
+
+* Added the following flags: ``--apply-dynamic-relocs``, ``--check-sections``,
+  ``--cref``, ``--just-symbols``, ``--keep-unique``,
+  ``--no-allow-multiple-definition``, ``--no-apply-dynamic-relocs``,
+  ``--no-check-sections``, ``--no-gnu-unique, ``--no-pic-executable``,
+  ``--no-undefined-version``, ``--no-warn-common``, ``--pack-dyn-relocs=relr``,
+  ``--pop-state``, ``--print-icf-sections``, ``--push-state``,
+  ``--thinlto-index-only``, ``--thinlto-object-suffix-replace``,
+  ``--thinlto-prefix-replace``, ``--warn-backref``, ``-z combreloc``, ``-z
+  copyreloc``, ``-z initfirst``, ``-z keep-text-section-prefix``, ``-z lazy``,
+  ``-z noexecstack``, ``-z relro``, ``-z retpolineplt``, ``-z text``
 
 COFF Improvements
 -----------------
 
-* Performance on Windows has been improved by parallelizing parts of the
-  linker and optimizing file system operations. As a result of these
-  improvements, LLD 4.0 has been measured to be about 2.5 times faster
-  than LLD 3.9 when linking a large Chromium DLL.
+* Improved correctness of exporting mangled stdcall symbols.
+
+* Completed support for ARM64 relocations.
+
+* Added support for outputting PDB debug info for MinGW targets.
+
+* Improved compatibility of output binaries with GNU binutils objcopy/strip.
+
+* Sped up PDB file creation.
+
+* Changed section layout to improve compatibility with link.exe.
+
+* `/subsystem` inference is improved to cover more corner cases.
+
+* Added the following flags: ``--color-diagnostics={always,never,auto}``,
+  ``--no-color-diagnostics``, ``/brepro``, ``/debug:full``, ``/debug:ghash``,
+  ``/guard:cf``, ``/guard:longjmp``, ``/guard:nolongjmp``, ``/integritycheck``,
+  ``/order``, ``/pdbsourcepath``, ``/timestamp``

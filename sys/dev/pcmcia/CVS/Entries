@@ -2,15 +2,15 @@
 /aic_pcmcia.c/1.17/Sat Mar 14 03:38:49 2015//
 /cfxga.c/1.29/Sat Dec 13 21:05:33 2014//
 /cfxgareg.h/1.5/Tue Nov 28 12:01:27 2006//
-/com_pcmcia.c/1.55/Sat Mar 14 03:38:49 2015//
+/com_pcmcia.c/1.57/Sat Dec 30 20:46:59 2017//
 /devlist2h.awk/1.4/Tue Feb  1 16:54:41 2000//
 /esp_pcmcia.c/1.11/Sat Jan 18 22:33:59 2014//
-/files.pcmcia/1.46/Sat Sep  3 16:18:21 2016//
-/gpr.c/1.17/Mon Mar 14 23:08:06 2016//
+/files.pcmcia/1.47/Wed Feb 14 23:51:49 2018//
+/gpr.c/1.18/Sat Dec 30 23:08:29 2017//
 /gprio.h/1.4/Mon Jun  2 19:39:13 2003//
 /if_an_pcmcia.c/1.26/Tue Nov 24 17:11:40 2015//
 /if_ep_pcmcia.c/1.48/Wed Nov 25 11:20:38 2015//
-/if_malo.c/1.92/Sun Jan 22 10:17:39 2017//
+/if_malo.c/1.93/Thu Oct 26 15:00:28 2017//
 /if_maloreg.h/1.15/Mon Oct  8 22:08:12 2007//
 /if_malovar.h/1.30/Fri Dec  6 21:03:04 2013//
 /if_ne_pcmcia.c/1.99/Tue Nov 24 13:33:18 2015//
@@ -18,13 +18,13 @@
 /if_wi_pcmcia.c/1.74/Tue Nov 24 17:11:40 2015//
 /if_xe.c/1.59/Sun Jan 22 10:17:39 2017//
 /if_xereg.h/1.4/Wed Oct 22 09:58:46 2003//
-/pcmcia.c/1.47/Mon Jun  6 07:09:44 2016//
-/pcmcia_cis.c/1.20/Sat Jul 12 18:48:52 2014//
-/pcmcia_cis_quirks.c/1.12/Sat Mar 14 03:38:49 2015//
+/pcmcia.c/1.48/Fri Sep  8 05:36:52 2017//
+/pcmcia_cis.c/1.21/Fri Sep  8 05:36:52 2017//
+/pcmcia_cis_quirks.c/1.14/Fri Sep  8 05:36:52 2017//
 /pcmciachip.h/1.8/Wed Nov 23 11:39:37 2005//
 /pcmciadevs/1.133/Tue May 26 19:37:22 2009//
 /pcmciadevs.h/1.136/Tue May 26 19:37:35 2009//
 /pcmciareg.h/1.7/Sat Sep  4 12:59:27 2010//
 /pcmciavar.h/1.21/Sat Sep  4 12:59:27 2010//
-/wdc_pcmcia.c/1.31/Sun Sep 14 14:17:25 2014//
+/wdc_pcmcia.c/1.32/Sat Dec 30 20:46:59 2017//
 D

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.7 2019/01/27 16:59:41 patrick Exp $
 
 LIB=	LLVMScalarOpts
 NOPIC=
@@ -11,23 +11,26 @@ CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/Transforms/Scalar
 SRCS=	ADCE.cpp \
 	AlignmentFromAssumptions.cpp \
 	BDCE.cpp \
+	CallSiteSplitting.cpp \
 	ConstantHoisting.cpp \
 	ConstantProp.cpp \
 	CorrelatedValuePropagation.cpp \
 	DCE.cpp \
 	DeadStoreElimination.cpp \
+	DivRemPairs.cpp \
 	EarlyCSE.cpp \
 	FlattenCFGPass.cpp \
 	Float2Int.cpp \
 	GVN.cpp \
 	GVNHoist.cpp \
+	GVNSink.cpp \
 	GuardWidening.cpp \
 	IVUsersPrinter.cpp \
 	InductiveRangeCheckElimination.cpp \
 	IndVarSimplify.cpp \
+	InstSimplifyPass.cpp \
 	JumpThreading.cpp \
 	LICM.cpp \
-	LoadCombine.cpp \
 	LoopAccessAnalysisPrinter.cpp \
 	LoopDataPrefetch.cpp \
 	LoopDeletion.cpp \
@@ -37,11 +40,13 @@ SRCS=	ADCE.cpp \
 	LoopInterchange.cpp \
 	LoopLoadElimination.cpp \
 	LoopPassManager.cpp \
+	LoopPredication.cpp \
 	LoopRerollPass.cpp \
 	LoopRotation.cpp \
 	LoopSimplifyCFG.cpp \
 	LoopSink.cpp \
 	LoopStrengthReduce.cpp \
+	LoopUnrollAndJamPass.cpp \
 	LoopUnrollPass.cpp \
 	LoopUnswitch.cpp \
 	LoopVersioningLICM.cpp \
@@ -49,6 +54,7 @@ SRCS=	ADCE.cpp \
 	LowerExpectIntrinsic.cpp \
 	LowerGuardIntrinsic.cpp \
 	MemCpyOptimizer.cpp \
+	MergeICmps.cpp \
 	MergedLoadStoreMotion.cpp \
 	NaryReassociate.cpp \
 	NewGVN.cpp \
@@ -62,8 +68,10 @@ SRCS=	ADCE.cpp \
 	Scalar.cpp \
 	Scalarizer.cpp \
 	SeparateConstOffsetFromGEP.cpp \
+	SimpleLoopUnswitch.cpp \
 	SimplifyCFGPass.cpp \
 	Sink.cpp \
+	SpeculateAroundPHIs.cpp \
 	SpeculativeExecution.cpp \
 	StraightLineStrengthReduce.cpp \
 	StructurizeCFG.cpp \

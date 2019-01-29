@@ -1,4 +1,4 @@
-/* $OpenBSD: auth.h,v 1.93 2017/08/18 05:36:45 djm Exp $ */
+/* $OpenBSD: auth.h,v 1.99 2019/01/19 21:43:56 djm Exp $ */
 
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
@@ -37,8 +37,11 @@
 #include <krb5.h>
 #endif
 
+struct passwd;
 struct ssh;
+struct sshbuf;
 struct sshkey;
+struct sshauthopt;
 
 typedef struct Authctxt Authctxt;
 typedef struct Authmethod Authmethod;
@@ -77,7 +80,7 @@ struct Authctxt {
 	struct sshkey	**prev_keys;
 	u_int		 nprev_keys;
 
-	/* Last used key and ancilliary information from active auth method */
+	/* Last used key and ancillary information from active auth method */
 	struct sshkey	*auth_method_key;
 	char		*auth_method_info;
 
@@ -118,11 +121,12 @@ struct KbdintDevice
 int
 auth_rhosts2(struct passwd *, const char *, const char *, const char *);
 
-int      auth_password(Authctxt *, const char *);
+int      auth_password(struct ssh *, const char *);
 
-int	 hostbased_key_allowed(struct passwd *, const char *, char *,
-	    struct sshkey *);
-int	 user_key_allowed(struct passwd *, struct sshkey *, int);
+int	 hostbased_key_allowed(struct ssh *, struct passwd *,
+	    const char *, char *, struct sshkey *);
+int	 user_key_allowed(struct ssh *, struct passwd *, struct sshkey *, int,
+    struct sshauthopt **);
 int	 auth2_key_already_used(Authctxt *, const struct sshkey *);
 
 /*
@@ -143,12 +147,12 @@ int	auth_krb5_password(Authctxt *authctxt, const char *password);
 void	krb5_cleanup_proc(Authctxt *authctxt);
 #endif /* KRB5 */
 
-void	do_authentication2(Authctxt *);
+void	do_authentication2(struct ssh *);
 
-void	auth_log(Authctxt *, int, int, const char *, const char *);
-void	auth_maxtries_exceeded(Authctxt *) __attribute__((noreturn));
+void	auth_log(struct ssh *, int, int, const char *, const char *);
+void	auth_maxtries_exceeded(struct ssh *) __attribute__((noreturn));
 void	userauth_finish(struct ssh *, int, const char *, const char *);
-int	auth_root_allowed(const char *);
+int	auth_root_allowed(struct ssh *, const char *);
 
 char	*auth2_read_banner(void);
 int	 auth2_methods_valid(const char *, int);
@@ -163,8 +167,8 @@ void	auth2_challenge_stop(struct ssh *);
 int	bsdauth_query(void *, char **, char **, u_int *, char ***, u_int **);
 int	bsdauth_respond(void *, u_int, char **);
 
-int	allowed_user(struct passwd *);
-struct passwd * getpwnamallow(const char *user);
+int	allowed_user(struct ssh *, struct passwd *);
+struct passwd * getpwnamallow(struct ssh *, const char *user);
 
 char	*expand_authorized_keys(const char *, struct passwd *pw);
 char	*authorized_principals_file(struct passwd *);
@@ -185,14 +189,29 @@ struct sshkey	*get_hostkey_public_by_index(int, struct ssh *);
 struct sshkey	*get_hostkey_public_by_type(int, int, struct ssh *);
 struct sshkey	*get_hostkey_private_by_type(int, int, struct ssh *);
 int	 get_hostkey_index(struct sshkey *, int, struct ssh *);
-int	 sshd_hostkey_sign(struct sshkey *, struct sshkey *, u_char **,
-	     size_t *, const u_char *, size_t, const char *, u_int);
+int	 sshd_hostkey_sign(struct ssh *, struct sshkey *, struct sshkey *,
+    u_char **, size_t *, const u_char *, size_t, const char *);
+
+/* Key / cert options linkage to auth layer */
+const struct sshauthopt *auth_options(struct ssh *);
+int	 auth_activate_options(struct ssh *, struct sshauthopt *);
+void	 auth_restrict_session(struct ssh *);
+int	 auth_authorise_keyopts(struct ssh *, struct passwd *pw,
+    struct sshauthopt *, int, const char *);
+void	 auth_log_authopts(const char *, const struct sshauthopt *, int);
 
 /* debug messages during authentication */
-void	 auth_debug_add(const char *fmt,...) __attribute__((format(printf, 1, 2)));
-void	 auth_debug_send(void);
+void	 auth_debug_add(const char *fmt,...)
+    __attribute__((format(printf, 1, 2)));
+void	 auth_debug_send(struct ssh *);
 void	 auth_debug_reset(void);
 
 struct passwd *fakepw(void);
+
+#define	SSH_SUBPROCESS_STDOUT_DISCARD  (1)     /* Discard stdout */
+#define	SSH_SUBPROCESS_STDOUT_CAPTURE  (1<<1)  /* Redirect stdout */
+#define	SSH_SUBPROCESS_STDERR_DISCARD  (1<<2)  /* Discard stderr */
+pid_t	subprocess(const char *, struct passwd *,
+    const char *, int, char **, FILE **, u_int flags);
 
 #endif

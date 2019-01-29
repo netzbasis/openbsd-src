@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_task.c,v 1.19 2017/02/14 10:31:15 mpi Exp $ */
+/*	$OpenBSD: kern_task.c,v 1.23 2018/12/16 03:36:02 dlg Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -22,8 +22,7 @@
 #include <sys/mutex.h>
 #include <sys/kthread.h>
 #include <sys/task.h>
-
-#define TASK_ONQUEUE	1
+#include <sys/proc.h>
 
 struct taskq {
 	enum {
@@ -68,6 +67,7 @@ struct taskq *const systqmp = &taskq_sys_mp;
 
 void	taskq_init(void); /* called in init_main.c */
 void	taskq_create_thread(void *);
+void	taskq_barrier_task(void *);
 int	taskq_sleep(const volatile void *, struct mutex *, int,
 	    const char *, int);
 int	taskq_next_work(struct taskq *, struct task *, sleepfn);
@@ -96,7 +96,7 @@ taskq_create(const char *name, unsigned int nthreads, int ipl,
 	tq->tq_name = name;
 	tq->tq_flags = flags;
 
-	mtx_init(&tq->tq_mtx, ipl);
+	mtx_init_flags(&tq->tq_mtx, ipl, name, 0);
 	TAILQ_INIT(&tq->tq_worklist);
 
 	/* try to create a thread to guarantee that tasks will be serviced */
@@ -176,6 +176,24 @@ taskq_create_thread(void *arg)
 	} while (tq->tq_running < tq->tq_nthreads);
 
 	mtx_leave(&tq->tq_mtx);
+}
+
+void
+taskq_barrier(struct taskq *tq)
+{
+	struct cond c = COND_INITIALIZER();
+	struct task t = TASK_INITIALIZER(taskq_barrier_task, &c);
+
+	task_add(tq, &t);
+
+	cond_wait(&c, "tqbar");
+}
+
+void
+taskq_barrier_task(void *p)
+{
+	struct cond *c = p;
+	cond_signal(c);
 }
 
 void

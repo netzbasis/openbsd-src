@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchctl.c,v 1.12 2017/08/11 21:24:19 mpi Exp $	*/
+/*	$OpenBSD: switchctl.c,v 1.14 2018/12/28 14:32:47 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -226,7 +226,7 @@ switchwrite(dev_t dev, struct uio *uio, int ioflag)
 		}
 		mhead = m;
 
-		/* M_TRAILINGSPACE() uses this to calculate space. */
+		/* m_trailingspace() uses this to calculate space. */
 		m->m_len = 0;
 	} else {
 		/* Recover the mbuf from the last write and get its tail. */
@@ -236,10 +236,12 @@ switchwrite(dev_t dev, struct uio *uio, int ioflag)
 
 		sc->sc_swdev->swdev_inputm = NULL;
 	}
+	KASSERT(mhead->m_flags & M_PKTHDR);
 
 	while (len) {
-		trailing = ulmin(M_TRAILINGSPACE(m), len);
-		if ((error = uiomove(mtod(m, caddr_t), trailing, uio)) != 0)
+		trailing = ulmin(m_trailingspace(m), len);
+		if ((error = uiomove(mtod(m, caddr_t) + m->m_len, trailing,
+		    uio)) != 0)
 			goto save_return;
 
 		len -= trailing;

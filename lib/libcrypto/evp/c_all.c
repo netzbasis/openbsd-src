@@ -1,4 +1,4 @@
-/* $OpenBSD: c_all.c,v 1.21 2017/03/01 13:53:58 jsing Exp $ */
+/* $OpenBSD: c_all.c,v 1.24 2018/12/26 15:11:04 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -57,6 +57,7 @@
  */
 
 #include <stdio.h>
+#include <pthread.h>
 
 #include <openssl/opensslconf.h>
 
@@ -66,8 +67,8 @@
 
 #include "cryptlib.h"
 
-void
-OpenSSL_add_all_ciphers(void)
+static void
+OpenSSL_add_all_ciphers_internal(void)
 {
 #ifndef OPENSSL_NO_DES
 	EVP_add_cipher(EVP_des_cfb());
@@ -151,6 +152,7 @@ OpenSSL_add_all_ciphers(void)
 #ifndef OPENSSL_NO_AES
 	EVP_add_cipher(EVP_aes_128_ecb());
 	EVP_add_cipher(EVP_aes_128_cbc());
+	EVP_add_cipher(EVP_aes_128_ccm());
 	EVP_add_cipher(EVP_aes_128_cfb());
 	EVP_add_cipher(EVP_aes_128_cfb1());
 	EVP_add_cipher(EVP_aes_128_cfb8());
@@ -162,6 +164,7 @@ OpenSSL_add_all_ciphers(void)
 	EVP_add_cipher_alias(SN_aes_128_cbc, "aes128");
 	EVP_add_cipher(EVP_aes_192_ecb());
 	EVP_add_cipher(EVP_aes_192_cbc());
+	EVP_add_cipher(EVP_aes_192_ccm());
 	EVP_add_cipher(EVP_aes_192_cfb());
 	EVP_add_cipher(EVP_aes_192_cfb1());
 	EVP_add_cipher(EVP_aes_192_cfb8());
@@ -172,6 +175,7 @@ OpenSSL_add_all_ciphers(void)
 	EVP_add_cipher_alias(SN_aes_192_cbc, "aes192");
 	EVP_add_cipher(EVP_aes_256_ecb());
 	EVP_add_cipher(EVP_aes_256_cbc());
+	EVP_add_cipher(EVP_aes_256_ccm());
 	EVP_add_cipher(EVP_aes_256_cfb());
 	EVP_add_cipher(EVP_aes_256_cfb1());
 	EVP_add_cipher(EVP_aes_256_cfb8());
@@ -226,7 +230,14 @@ OpenSSL_add_all_ciphers(void)
 }
 
 void
-OpenSSL_add_all_digests(void)
+OpenSSL_add_all_ciphers(void)
+{
+	static pthread_once_t add_all_ciphers_once = PTHREAD_ONCE_INIT;
+	(void) pthread_once(&add_all_ciphers_once, OpenSSL_add_all_ciphers_internal);
+}
+
+static void
+OpenSSL_add_all_digests_internal(void)
 {
 #ifndef OPENSSL_NO_MD4
 	EVP_add_digest(EVP_md4());
@@ -278,9 +289,19 @@ OpenSSL_add_all_digests(void)
 	EVP_add_digest(EVP_sha384());
 	EVP_add_digest(EVP_sha512());
 #endif
+#ifndef OPENSSL_NO_SM3
+	EVP_add_digest(EVP_sm3());
+#endif
 #ifndef OPENSSL_NO_WHIRLPOOL
 	EVP_add_digest(EVP_whirlpool());
 #endif
+}
+
+void
+OpenSSL_add_all_digests(void)
+{
+	static pthread_once_t add_all_digests_once = PTHREAD_ONCE_INIT;
+	(void) pthread_once(&add_all_digests_once, OpenSSL_add_all_digests_internal);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ipifuncs.c,v 1.28 2015/11/23 22:57:12 deraadt Exp $	*/
+/*	$OpenBSD: ipifuncs.c,v 1.32 2018/07/27 21:11:31 kettenis Exp $	*/
 /*	$NetBSD: ipifuncs.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $ */
 
 /*-
@@ -47,7 +47,6 @@
 #include <machine/atomic.h>
 #include <machine/cpuvar.h>
 #include <machine/i82093var.h>
-#include <machine/i82489reg.h>
 #include <machine/i82489var.h>
 #include <machine/fpu.h>
 #include <machine/mplock.h>
@@ -61,9 +60,6 @@
 
 void x86_64_ipi_nop(struct cpu_info *);
 void x86_64_ipi_halt(struct cpu_info *);
-
-void x86_64_ipi_synch_fpu(struct cpu_info *);
-void x86_64_ipi_flush_fpu(struct cpu_info *);
 
 #if NVMM > 0
 void x86_64_ipi_start_vmm(struct cpu_info *);
@@ -85,8 +81,8 @@ void (*ipifunc[X86_NIPI])(struct cpu_info *) =
 {
 	x86_64_ipi_halt,
 	x86_64_ipi_nop,
-	x86_64_ipi_flush_fpu,
-	x86_64_ipi_synch_fpu,
+	NULL,
+	NULL,
 	NULL,
 	x86_64_ipi_reload_mtrr,
 	x86_setperf_ipi,
@@ -113,10 +109,9 @@ void
 x86_64_ipi_halt(struct cpu_info *ci)
 {
 	SCHED_ASSERT_UNLOCKED();
-	KASSERT(!__mp_lock_held(&kernel_lock));
-	
-	fpusave_cpu(ci, 1);
-	disable_intr();
+	KASSERT(!_kernel_lock_held());
+
+	intr_disable();
 	lapic_disable();
 	wbinvd();
 	ci->ci_flags &= ~CPUF_RUNNING;
@@ -125,20 +120,6 @@ x86_64_ipi_halt(struct cpu_info *ci)
 	for(;;) {
 		__asm volatile("hlt");
 	}
-}
-
-void
-x86_64_ipi_flush_fpu(struct cpu_info *ci)
-{
-	if (ci->ci_fpsaveproc == ci->ci_fpcurproc)
-		fpusave_cpu(ci, 0);
-}
-
-void
-x86_64_ipi_synch_fpu(struct cpu_info *ci)
-{
-	if (ci->ci_fpsaveproc == ci->ci_fpcurproc)
-		fpusave_cpu(ci, 1);
 }
 
 #ifdef MTRR

@@ -1,4 +1,4 @@
-#	$OpenBSD: airport,v 1.66 2017/08/05 13:22:57 fcambus Exp $
+#	$OpenBSD: airport,v 1.70 2019/01/09 01:03:41 danj Exp $
 #	@(#)airport	8.1 (Berkeley) 6/8/93
 #
 # Some of this information from the Airport Search Engine at
@@ -134,10 +134,10 @@ AYQ:Connellan, Ayers Rock, Northern Territory, Australia
 AYT:Antalya, Antalya, Turkey
 AZO:Kalamazoo/Battle Creek International, Kalamazoo, Michigan, USA
 BAH:Bahrain International, Bahrain, Bahrain
-BAK:Heydar Aliyev, Baku, Azerbaijan
 BAL:Batman, Batman, Turkey
 BAQ:Ernesto Cortissoz International, Barranquilla, Colombia
 BAX:Barnaul, Russia
+BBA:Balmaceda, Aysen, Chile
 BBI:Biju Patnaik, Bhubaneswar, India
 BBK:Kasane, Kasane, Botswana
 BBU:Bucharest Aurel Vlaicu/Baneasa, Bucharest, Romania
@@ -642,6 +642,7 @@ GWD:Gwadar, Pakistan
 GWT:Westerland, Germany
 GWY:Carnmore, Galway, Ireland
 GXQ:Teniente Vidal, Coyhaique, Chile
+GYD:Heydar Aliyev, Baku, Azerbaijan
 GYE:Simon Bolivar, Guayaquil, Ecuador
 GYM:Guaymas, Sonora, Mexico
 GYY:Gary, Indiana, USA
@@ -999,6 +1000,7 @@ LRH:Laleu, La Rochelle, France
 LRM:Casa De Campo, Dominican Republic
 LRS:Leros, Greece
 LRU:Las Cruces, New Mexico, USA
+LRV:El Gran Roque, Los Roques, Venezuela
 LSC:La Serena, Chile
 LSE:La Crosse Municipal, Wisconsin, USA
 LSI:Shetland Islands /Shetland Isd, Scotland, United Kingdom
@@ -1181,6 +1183,7 @@ NDJ:N'djamena, N Djamena, Chad
 NEC:Necochea, Buenos Aires, Argentina
 NER:Chulman, Neryungri, Russia
 NEV:Nevis, Leeward Islands, Saint Kitts And Nevis
+NGD:Anegada, Virgin Islands (British)
 NGO:Komaki, Nagoya, Japan
 NGS:Nagasaki, Japan
 NJC:Nizhnevartovsk, Russia
@@ -1218,7 +1221,7 @@ ODS:Odessa International, Odessa, Ukraine
 ODW:Oak Harbor, Washington, USA
 OER:Ornskoldsvik, Sweden
 OFK:Norfolk Karl Stefan Memorial, Nebraska, USA
-OGG:Kahului, HI
+OGG:Kahului, Hawaii, USA
 OGS:Ogdensburg, New York, USA
 OHD:Ohrid, Ohrid, Macedonia
 OIT:Oita, Japan
@@ -1226,7 +1229,7 @@ OKA:Naha Field, Okinawa, Ryukyu Islands, Japan
 OKC:Oklahoma City Will Rogers World, Oklahoma, USA
 OKJ:Okayama, Japan
 OLF:Wolf Point, Montana, USA
-OLM:Olympia, WA
+OLM:Olympia, Washington, USA
 OMA:Omaha Eppley Airfield, Nebraska, USA
 OME:Nome, Alaska, USA
 OMR:Oradea, Romania
@@ -1347,7 +1350,7 @@ POG:Port Gentil, Gabon
 POM:Jackson, Port Moresby, Papua New Guinea
 POP:La Union, Puerto Plata, Dominican Republic
 POR:Pori, Finland
-POS:Port Of Spain, Trinidad
+POS:Port of Spain, Trinidad and Tobago
 POU:Dutchess County, Poughkeepsie, New York, USA
 POZ:Lawica, Poznan, Poland
 PPG:Pago Pago International, American Samoa
@@ -1452,7 +1455,7 @@ RSA:Santa Rosa, La Pampa, Argentina
 RSD:Rock Sound, Bahamas
 RST:Rochester Municipal, Minnesota, USA
 RSU:Yosu, South Korea
-RSW:Ft. Meyers Southwest Florida Regional, USA
+RSW:Southwest Florida International, Florida, USA
 RTB:Roatan, Roatan, Honduras
 RTM:Rotterdam The Hague, Rotterdam, Netherlands
 RUH:King Khaled Intl, Riyadh, Saudi Arabia
@@ -1750,6 +1753,7 @@ ULN:Ulan Bator, Mongolia
 ULY:Ulyanovsk, Russia
 UME:Umea-Alvik, Sweden
 UMR:Woomera, South Australia, Australia
+UNI:Union Island, St. Vincent And The Grenadines
 UNT:Unst Shetland Islands, Scotland, United Kingdom
 UPG:Hasanudin, Ujung Pandang, Indonesia
 UPN:Uruapan, Michoacan, Mexico

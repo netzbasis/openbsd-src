@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcpdump.c,v 1.79 2016/11/16 13:47:27 reyk Exp $	*/
+/*	$OpenBSD: tcpdump.c,v 1.88 2018/11/08 14:06:09 brynet Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -115,6 +115,7 @@ static struct printer printers[] = {
 	{ sl_if_print,			DLT_SLIP },
 	{ sl_bsdos_if_print,		DLT_SLIP_BSDOS },
 	{ ppp_if_print,			DLT_PPP },
+	{ ppp_hdlc_if_print,		DLT_PPP_SERIAL },
 	{ fddi_if_print,		DLT_FDDI },
 	{ null_if_print,		DLT_NULL },
 	{ raw_if_print,			DLT_RAW },
@@ -127,6 +128,7 @@ static struct printer printers[] = {
 	{ ieee802_11_if_print,		DLT_IEEE802_11 },
 	{ ieee802_11_radio_if_print,	DLT_IEEE802_11_RADIO },
 	{ ofp_if_print,			DLT_OPENFLOW },
+	{ usbpcap_if_print,		DLT_USBPCAP },
 	{ NULL,				0 },
 };
 
@@ -217,6 +219,10 @@ main(int argc, char **argv)
 		program_name = cp + 1;
 	else
 		program_name = argv[0];
+
+	/* '-P' used internally, exec privileged portion */
+	if (argc >= 2 && strcmp("-P", argv[1]) == 0)
+		priv_exec(argc, argv);
 
 	if (priv_init(argc, argv))
 		error("Failed to setup privsep");
@@ -341,6 +347,14 @@ main(int argc, char **argv)
 				packettype = PT_VRRP;
 			else if (strcasecmp(optarg, "tcp") == 0)
 				packettype = PT_TCP;
+			else if (strcasecmp(optarg, "gre") == 0)
+				packettype = PT_GRE;
+			else if (strcasecmp(optarg, "vxlan") == 0)
+				packettype = PT_VXLAN;
+			else if (strcasecmp(optarg, "mpls") == 0)
+				packettype = PT_MPLS;
+			else if (strcasecmp(optarg, "tftp") == 0)
+				packettype = PT_TFTP;
 			else if (strcasecmp(optarg, "sack") == 0)
 				/*
 				 * kept for compatibility; DEFAULT_SNAPLEN
@@ -457,6 +471,8 @@ main(int argc, char **argv)
 		bpf_dump(fcode, dflag);
 		exit(0);
 	}
+	if (oflag)
+		oflag = init_pfosfp();
 	init_addrtoname(localnet, netmask);
 
 	if (WFileName) {
@@ -486,8 +502,6 @@ main(int argc, char **argv)
 		(void)fflush(stderr);
 	}
 
-	if (oflag)
-		oflag = init_pfosfp();
 	if (tflag > 0)
 		thiszone = gmt2local(0);
 
@@ -509,25 +523,21 @@ cleanup(int signo)
 {
 	struct pcap_stat stat;
 	sigset_t allsigs;
-	char buf[1024];
 
 	sigfillset(&allsigs);
 	sigprocmask(SIG_BLOCK, &allsigs, NULL);
 
 	/* Can't print the summary if reading from a savefile */
-	(void)write(STDERR_FILENO, "\n", 1);
+	dprintf(STDERR_FILENO, "\n");
 	if (pd != NULL && pcap_file(pd) == NULL) {
 		if (priv_pcap_stats(&stat) < 0) {
-			(void)snprintf(buf, sizeof buf,
+			dprintf(STDERR_FILENO,
 			    "pcap_stats: %s\n", pcap_geterr(pd));
-			write(STDERR_FILENO, buf, strlen(buf));
 		} else {
-			(void)snprintf(buf, sizeof buf,
+			dprintf(STDERR_FILENO,
 			    "%u packets received by filter\n", stat.ps_recv);
-			write(STDERR_FILENO, buf, strlen(buf));
-			(void)snprintf(buf, sizeof buf,
+			dprintf(STDERR_FILENO,
 			    "%u packets dropped by kernel\n", stat.ps_drop);
-			write(STDERR_FILENO, buf, strlen(buf));
 		}
 	}
 	_exit(0);

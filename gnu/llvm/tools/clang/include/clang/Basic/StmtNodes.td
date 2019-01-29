@@ -43,7 +43,7 @@ def ObjCAtSynchronizedStmt : Stmt;
 def ObjCForCollectionStmt : Stmt;
 def ObjCAutoreleasePoolStmt : Stmt;
 
-// C++ statments
+// C++ statements
 def CXXCatchStmt : Stmt;
 def CXXTryStmt : Stmt;
 def CXXForRangeStmt : Stmt;
@@ -57,6 +57,7 @@ def Expr : Stmt<1>;
 def PredefinedExpr : DStmt<Expr>;
 def DeclRefExpr : DStmt<Expr>;
 def IntegerLiteral : DStmt<Expr>;
+def FixedPointLiteral : DStmt<Expr>;
 def FloatingLiteral : DStmt<Expr>;
 def ImaginaryLiteral : DStmt<Expr>;
 def StringLiteral : DStmt<Expr>;
@@ -150,6 +151,7 @@ def CXXFoldExpr : DStmt<Expr>;
 // C++ Coroutines TS expressions
 def CoroutineSuspendExpr : DStmt<Expr, 1>;
 def CoawaitExpr : DStmt<CoroutineSuspendExpr>;
+def DependentCoawaitExpr : DStmt<Expr>;
 def CoyieldExpr : DStmt<CoroutineSuspendExpr>;
 
 // Obj-C Expressions.
@@ -185,7 +187,7 @@ def TypoExpr : DStmt<Expr>;
 // Microsoft Extensions.
 def MSPropertyRefExpr : DStmt<Expr>;
 def MSPropertySubscriptExpr : DStmt<Expr>;
-def CXXUuidofExpr : DStmt<Expr>; 
+def CXXUuidofExpr : DStmt<Expr>;
 def SEHTryStmt : Stmt;
 def SEHExceptStmt : Stmt;
 def SEHFinallyStmt : Stmt;

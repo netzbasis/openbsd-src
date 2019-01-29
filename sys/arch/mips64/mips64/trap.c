@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.127 2017/07/22 18:33:51 visa Exp $	*/
+/*	$OpenBSD: trap.c,v 1.133 2018/06/13 14:38:42 visa Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -73,6 +73,7 @@
 
 #ifdef DDB
 #include <mips64/db_machdep.h>
+#include <ddb/db_access.h>
 #include <ddb/db_output.h>
 #include <ddb/db_sym.h>
 #endif
@@ -251,8 +252,29 @@ trap(struct trapframe *trapframe)
 	}
 #endif
 
-	if (type & T_USER)
+	if (type & T_USER) {
+		vaddr_t sp;
+
 		refreshcreds(p);
+
+		sp = trapframe->sp;
+		if (p->p_vmspace->vm_map.serial != p->p_spserial ||
+		    p->p_spstart == 0 || sp < p->p_spstart ||
+		    sp >= p->p_spend) {
+			KERNEL_LOCK();
+			if (!uvm_map_check_stack_range(p, sp)) {
+				union sigval sv;
+
+				printf("trap [%s]%d/%d type %d: sp %lx not inside %lx-%lx\n",
+				    p->p_p->ps_comm, p->p_p->ps_pid, p->p_tid, type,
+				    sp, p->p_spstart, p->p_spend);
+
+				sv.sival_ptr = (void *)trapframe->pc;
+				trapsignal(p, SIGSEGV, 0, SEGV_ACCERR, sv);
+			}
+			KERNEL_UNLOCK();
+		}
+	}
 
 	itsa(trapframe, ci, p, type);
 
@@ -465,6 +487,7 @@ fault_common_no_miss:
 		struct sysent *callp;
 		unsigned int code;
 		register_t tpc;
+		uint32_t branch = 0;
 		int error, numarg, numsys;
 		struct args {
 			register_t i[8];
@@ -475,10 +498,17 @@ fault_common_no_miss:
 
 		/* compute next PC after syscall instruction */
 		tpc = trapframe->pc; /* Remember if restart */
-		if (trapframe->cause & CR_BR_DELAY)
+		if (trapframe->cause & CR_BR_DELAY) {
+			/* Get the branch instruction. */
+			if (copyin32((const void *)locr0->pc, &branch) != 0) {
+				signal = SIGBUS;
+				sicode = BUS_OBJERR;
+				break;
+			}
+
 			locr0->pc = MipsEmulateBranch(locr0,
-			    trapframe->pc, 0, 0);
-		else
+			    trapframe->pc, 0, branch);
+		} else
 			locr0->pc += 4;
 		callp = p->p_p->ps_emul->e_sysent;
 		numsys = p->p_p->ps_emul->e_nsysent;
@@ -578,17 +608,31 @@ fault_common_no_miss:
 
 	case T_BREAK+T_USER:
 	    {
-		caddr_t va;
-		u_int32_t instr;
 		struct trapframe *locr0 = p->p_md.md_regs;
+		caddr_t va;
+		uint32_t branch = 0;
+		uint32_t instr;
 
 		/* compute address of break instruction */
 		va = (caddr_t)trapframe->pc;
-		if (trapframe->cause & CR_BR_DELAY)
+		if (trapframe->cause & CR_BR_DELAY) {
 			va += 4;
 
+			/* Read branch instruction. */
+			if (copyin32((const void *)trapframe->pc,
+			    &branch) != 0) {
+				signal = SIGBUS;
+				sicode = BUS_OBJERR;
+				break;
+			}
+		}
+
 		/* read break instruction */
-		copyin(va, &instr, sizeof(int32_t));
+		if (copyin32((const void *)va, &instr) != 0) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+			break;
+		}
 
 		switch ((instr & BREAK_VAL_MASK) >> BREAK_VAL_SHIFT) {
 		case 6:	/* gcc range error */
@@ -597,7 +641,7 @@ fault_common_no_miss:
 			/* skip instruction */
 			if (trapframe->cause & CR_BR_DELAY)
 				locr0->pc = MipsEmulateBranch(locr0,
-				    trapframe->pc, 0, 0);
+				    trapframe->pc, 0, branch);
 			else
 				locr0->pc += 4;
 			break;
@@ -607,7 +651,7 @@ fault_common_no_miss:
 			/* skip instruction */
 			if (trapframe->cause & CR_BR_DELAY)
 				locr0->pc = MipsEmulateBranch(locr0,
-				    trapframe->pc, 0, 0);
+				    trapframe->pc, 0, branch);
 			else
 				locr0->pc += 4;
 			break;
@@ -639,7 +683,8 @@ fault_common_no_miss:
 			 * If this is a genuine FP emulation break,
 			 * resume execution to our branch destination.
 			 */
-			if ((p->p_md.md_flags & MDP_FPUSED) != 0 &&
+			if (!CPU_HAS_FPU(ci) &&
+			    (p->p_md.md_flags & MDP_FPUSED) != 0 &&
 			    p->p_md.md_fppgva + 4 == (vaddr_t)va) {
 				struct vm_map *map = &p->p_vmspace->vm_map;
 
@@ -685,20 +730,35 @@ fault_common_no_miss:
 
 	case T_TRAP+T_USER:
 	    {
-		caddr_t va;
-		u_int32_t instr;
 		struct trapframe *locr0 = p->p_md.md_regs;
+		caddr_t va;
+		uint32_t branch = 0;
+		uint32_t instr;
 
 		/* compute address of trap instruction */
 		va = (caddr_t)trapframe->pc;
-		if (trapframe->cause & CR_BR_DELAY)
+		if (trapframe->cause & CR_BR_DELAY) {
 			va += 4;
+
+			/* Read branch instruction. */
+			if (copyin32((const void *)trapframe->pc,
+			    &branch) != 0) {
+				signal = SIGBUS;
+				sicode = BUS_OBJERR;
+				break;
+			}
+		}
+
 		/* read break instruction */
-		copyin(va, &instr, sizeof(int32_t));
+		if (copyin32((const void *)va, &instr) != 0) {
+			signal = SIGBUS;
+			sicode = BUS_OBJERR;
+			break;
+		}
 
 		if (trapframe->cause & CR_BR_DELAY)
 			locr0->pc = MipsEmulateBranch(locr0,
-			    trapframe->pc, 0, 0);
+			    trapframe->pc, 0, branch);
 		else
 			locr0->pc += 4;
 		/*
@@ -721,15 +781,25 @@ fault_common_no_miss:
 	    {
 		register_t *regs = (register_t *)trapframe;
 		caddr_t va;
+		uint32_t branch = 0;
 		InstFmt inst;
 
 		/* Compute the instruction's address. */
 		va = (caddr_t)trapframe->pc;
-		if (trapframe->cause & CR_BR_DELAY)
+		if (trapframe->cause & CR_BR_DELAY) {
 			va += 4;
 
+			/* Get the branch instruction. */
+			if (copyin32((const void *)trapframe->pc,
+			    &branch) != 0) {
+				signal = SIGBUS;
+				sicode = BUS_OBJERR;
+				break;
+			}
+		}
+
 		/* Get the faulting instruction. */
-		if (copyin32((void *)va, &inst.word) != 0) {
+		if (copyin32((const void *)va, &inst.word) != 0) {
 			signal = SIGBUS;
 			sicode = BUS_OBJERR;
 			break;
@@ -746,7 +816,7 @@ fault_common_no_miss:
 			/* Figure out where to continue. */
 			if (trapframe->cause & CR_BR_DELAY)
 				trapframe->pc = MipsEmulateBranch(trapframe,
-				    trapframe->pc, 0, 0);
+				    trapframe->pc, 0, branch);
 			else
 				trapframe->pc += 4;
 			return;
@@ -768,11 +838,10 @@ fault_common_no_miss:
 			sicode = ILL_ILLOPC;
 			break;
 		}
-#ifdef FPUEMUL
-		MipsFPTrap(trapframe);
-#else
-		enable_fpu(p);
-#endif
+		if (CPU_HAS_FPU(ci))
+			enable_fpu(p);
+		else
+			MipsFPTrap(trapframe);
 		return;
 
 	case T_FPE:
@@ -848,7 +917,7 @@ fault_common_no_miss:
 	 * original delay slot address - userland is not supposed to
 	 * know anything about emulation bowels.
 	 */
-	if ((p->p_md.md_flags & MDP_FPUSED) != 0 &&
+	if (!CPU_HAS_FPU(ci) && (p->p_md.md_flags & MDP_FPUSED) != 0 &&
 	    trapframe->badvaddr == p->p_md.md_fppgva)
 		trapframe->badvaddr = p->p_md.md_fpslotva;
 #endif
@@ -951,10 +1020,7 @@ MipsEmulateBranch(struct trapframe *tf, vaddr_t instPC, uint32_t fsr,
 #define	GetBranchDest(InstPtr, inst) \
 	    (InstPtr + 4 + ((short)inst.IType.imm << 2))
 
-	if (curinst != 0)
-		inst = *(InstFmt *)&curinst;
-	else
-		inst = *(InstFmt *)instPC;
+	inst.word = curinst;
 
 	regsPtr[ZERO] = 0;	/* Make sure zero is 0x0 */
 
@@ -1416,6 +1482,104 @@ end:
 	}
 }
 
+#ifdef DDB
+void
+db_save_stack_trace(struct db_stack_trace *st)
+{
+	extern char k_general[];
+	extern char u_general[];
+	extern char k_intr[];
+	extern char u_intr[];
+	db_expr_t diff;
+	char *name;
+	Elf_Sym *sym;
+	struct trapframe *tf;
+	vaddr_t pc, ra, sp, subr, va;
+	InstFmt inst;
+	int first = 1;
+	int done, framesize;
+
+	/* Get a pc that comes after the prologue in this subroutine. */
+	__asm__ volatile ("1: dla %0, 1b" : "=r" (pc));
+
+	ra = (vaddr_t)__builtin_return_address(0);
+	sp = (vaddr_t)__builtin_frame_address(0);
+
+	st->st_count = 0;
+	while (st->st_count < DB_STACK_TRACE_MAX && pc != 0) {
+		if (!VALID_ADDRESS(pc) || !VALID_ADDRESS(sp))
+			break;
+
+		if (!first)
+			st->st_pc[st->st_count++] = pc;
+		first = 0;
+
+		/* Determine the start address of the current subroutine. */
+		sym = db_search_symbol(pc, DB_STGY_ANY, &diff);
+		if (sym == NULL)
+			break;
+		db_symbol_values(sym, &name, NULL);
+		subr = pc - (vaddr_t)diff;
+
+		if (subr == (vaddr_t)k_general || subr == (vaddr_t)k_intr ||
+		    subr == (vaddr_t)u_general || subr == (vaddr_t)u_intr) {
+			tf = (struct trapframe *)*(register_t *)sp;
+			pc = tf->pc;
+			ra = tf->ra;
+			sp = tf->sp;
+			continue;
+		}
+
+		/*
+		 * Figure out the return address and the size of the current
+		 * stack frame by analyzing the subroutine's prologue.
+		 */
+		done = 0;
+		framesize = 0;
+		for (va = subr; va < pc && !done; va += 4) {
+			inst.word = kdbpeek(va);
+			if (inst_branch(inst.word) || inst_call(inst.word) ||
+			    inst_return(inst.word)) {
+				/* Check the delay slot and stop. */
+				va += 4;
+				inst.word = kdbpeek(va);
+				done = 1;
+			}
+			switch (inst.JType.op) {
+			case OP_SPECIAL:
+				switch (inst.RType.func) {
+				case OP_SYSCALL:
+				case OP_BREAK:
+					done = 1;
+				}
+				break;
+			case OP_SD:
+				if (inst.IType.rs == SP &&
+				    inst.IType.rt == RA && ra == 0)
+					ra = kdbpeekd(sp +
+					    (int16_t)inst.IType.imm);
+				break;
+			case OP_DADDI:
+			case OP_DADDIU:
+				if (inst.IType.rs == SP &&
+				    inst.IType.rt == SP &&
+				    (int16_t)inst.IType.imm < 0 &&
+				    framesize == 0)
+					framesize = -(int16_t)inst.IType.imm;
+				break;
+			}
+
+			if (framesize != 0 && ra != 0)
+				break;
+		}
+
+		pc = ra;
+		ra = 0;
+		sp += framesize;
+	}
+}
+#endif
+
 #undef	VALID_ADDRESS
 
 #if !defined(DDB)
@@ -1444,7 +1608,7 @@ fn_name(vaddr_t addr)
 	for (i = 0; names[i].name != NULL; i++)
 		if (names[i].addr == (void*)addr)
 			return (names[i].name);
-	snprintf(buf, sizeof(buf), "%p", addr);
+	snprintf(buf, sizeof(buf), "%p", (void *)addr);
 	return (buf);
 }
 #endif	/* !DDB */

@@ -1,4 +1,20 @@
-/*	$OpenBSD: syslogd.c,v 1.245 2017/08/08 14:23:23 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.259 2019/01/18 15:44:14 bluhm Exp $	*/
+
+/*
+ * Copyright (c) 2014-2017 Alexander Bluhm <bluhm@genua.de>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -82,6 +98,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <limits.h>
 #include <paths.h>
 #include <signal.h>
@@ -142,7 +159,6 @@ struct filed {
 			struct tls		*f_ctx;
 			char			*f_host;
 			int			 f_reconnectwait;
-			int			 f_dropped;
 		} f_forw;		/* forwarding address */
 		char	f_fname[PATH_MAX];
 		struct {
@@ -161,6 +177,7 @@ struct filed {
 	int	f_prevcount;			/* repetition cnt of prevline */
 	unsigned int f_repeatcount;		/* number of "repeated" msgs */
 	int	f_quick;			/* abort when matched */
+	int	f_dropped;			/* warn, dropped message */
 	time_t	f_lasterrtime;			/* last error was reported */
 };
 
@@ -226,6 +243,8 @@ const char *ClientCertfile = NULL;
 const char *ClientKeyfile = NULL;
 const char *ServerCAfile = NULL;
 int	tcpbuf_dropped = 0;	/* count messages dropped from TCP or TLS */
+int	file_dropped = 0;	/* messages dropped due to file system full */
+int	init_dropped = 0;	/* messages dropped during initialization */
 
 #define CTL_READING_CMD		1
 #define CTL_WRITING_REPLY	2
@@ -274,7 +293,7 @@ size_t	ctl_reply_offset = 0;	/* Number of bytes of reply written so far */
 char	*linebuf;
 int	 linesize;
 
-int		 fd_ctlconn, fd_udp, fd_udp6;
+int		 fd_ctlconn, fd_udp, fd_udp6, send_udp, send_udp6;
 struct event	*ev_ctlaccept, *ev_ctlread, *ev_ctlwrite;
 
 struct peer {
@@ -320,6 +339,7 @@ void	cvthname(struct sockaddr *, char *, size_t);
 int	decode(const char *, const CODE *);
 void	markit(void);
 void	fprintlog(struct filed *, int, char *);
+void	dropped_warn(int *, const char *);
 void	init(void);
 void	logevent(int, const char *);
 void	logline(int, int, char *, char *);
@@ -335,7 +355,7 @@ void	address_alloc(const char *, const char *, char ***, char ***, int *);
 int	socket_bind(const char *, const char *, const char *, int,
     int *, int *);
 int	unix_socket(char *, int, mode_t);
-void	double_sockbuf(int, int);
+void	double_sockbuf(int, int, int);
 void	set_sockbuf(int);
 void	tailify_replytext(char *, int);
 
@@ -483,6 +503,10 @@ main(int argc, char *argv[])
 	consfile.f_type = F_CONSOLE;
 	(void)strlcpy(consfile.f_un.f_fname, ctty,
 	    sizeof(consfile.f_un.f_fname));
+	consfile.f_file = open(consfile.f_un.f_fname, O_WRONLY|O_NONBLOCK, 0);
+	if (consfile.f_file == -1)
+		log_warn("open %s", consfile.f_un.f_fname);
+
 	(void)gethostname(LocalHostName, sizeof(LocalHostName));
 	if ((p = strchr(LocalHostName, '.')) != NULL) {
 		*p++ = '\0';
@@ -533,15 +557,19 @@ main(int argc, char *argv[])
 				log_warnx("log socket %s failed", path_unix[i]);
 			continue;
 		}
-		double_sockbuf(fd_unix[i], SO_RCVBUF);
+		double_sockbuf(fd_unix[i], SO_RCVBUF, 0);
 	}
 
 	if (socketpair(AF_UNIX, SOCK_DGRAM, PF_UNSPEC, pair) == -1) {
 		log_warn("socketpair sendsyslog");
 		fd_sendsys = -1;
 	} else {
-		double_sockbuf(pair[0], SO_RCVBUF);
-		double_sockbuf(pair[1], SO_SNDBUF);
+		/*
+		 * Avoid to lose messages from sendsyslog(2).  A larger
+		 * 1 MB socket buffer compensates bursts.
+		 */
+		double_sockbuf(pair[0], SO_RCVBUF, 1<<20);
+		double_sockbuf(pair[1], SO_SNDBUF, 1<<20);
 		fd_sendsys = pair[0];
 	}
 
@@ -562,6 +590,7 @@ main(int argc, char *argv[])
 	if ((fd_klog = open(_PATH_KLOG, O_RDONLY, 0)) == -1) {
 		log_warn("open %s", _PATH_KLOG);
 	} else if (fd_sendsys != -1) {
+		/* Use /dev/klog to register sendsyslog(2) receiver. */
 		if (ioctl(fd_klog, LIOCSFD, &pair[1]) == -1)
 			log_warn("ioctl klog LIOCSFD sendsyslog");
 	}
@@ -825,6 +854,20 @@ main(int argc, char *argv[])
 			event_add(ev_udp, NULL);
 		if (fd_udp6 != -1)
 			event_add(ev_udp6, NULL);
+	} else {
+		/*
+		 * If generic UDP file descriptors are used neither
+		 * for receiving nor for sending, close them.  Then
+		 * there is no useless *.514 in netstat.
+		 */
+		if (fd_udp != -1 && !send_udp) {
+			close(fd_udp);
+			fd_udp = -1;
+		}
+		if (fd_udp6 != -1 && !send_udp6) {
+			close(fd_udp6);
+			fd_udp6 = -1;
+		}
 	}
 	for (i = 0; i < nbind; i++)
 		if (fd_bind[i] != -1)
@@ -841,7 +884,7 @@ main(int argc, char *argv[])
 
 	signal_add(ev_hup, NULL);
 	signal_add(ev_term, NULL);
-	if (Debug) {
+	if (Debug || Foreground) {
 		signal_add(ev_int, NULL);
 		signal_add(ev_quit, NULL);
 	} else {
@@ -950,7 +993,7 @@ socket_bind(const char *proto, const char *host, const char *port,
 			continue;
 		}
 		if (!shutread && res->ai_protocol == IPPROTO_UDP)
-			double_sockbuf(*fdp, SO_RCVBUF);
+			double_sockbuf(*fdp, SO_RCVBUF, 0);
 		else if (res->ai_protocol == IPPROTO_TCP)
 			set_sockbuf(*fdp);
 		reuseaddr = 1;
@@ -1343,6 +1386,7 @@ void
 tcp_writecb(struct bufferevent *bufev, void *arg)
 {
 	struct filed	*f = arg;
+	char		 ebuf[ERRBUFSIZE];
 
 	/*
 	 * Successful write, connection to server is good, reset wait time.
@@ -1350,13 +1394,11 @@ tcp_writecb(struct bufferevent *bufev, void *arg)
 	log_debug("loghost \"%s\" successful write", f->f_un.f_forw.f_loghost);
 	f->f_un.f_forw.f_reconnectwait = 0;
 
-	if (f->f_un.f_forw.f_dropped > 0 &&
+	if (f->f_dropped > 0 &&
 	    EVBUFFER_LENGTH(f->f_un.f_forw.f_bufev->output) < MAX_TCPBUF) {
-		log_info(LOG_WARNING, "dropped %d message%s to loghost \"%s\"",
-		    f->f_un.f_forw.f_dropped,
-		    f->f_un.f_forw.f_dropped == 1 ? "" : "s",
+		snprintf(ebuf, sizeof(ebuf), "to loghost \"%s\"",
 		    f->f_un.f_forw.f_loghost);
-		f->f_un.f_forw.f_dropped = 0;
+		dropped_warn(&f->f_dropped, ebuf);
 	}
 }
 
@@ -1407,7 +1449,7 @@ tcp_errorcb(struct bufferevent *bufev, short event, void *arg)
 			evbuffer_drain(bufev->output, -1);
 		log_debug("loghost \"%s\" dropped partial message",
 		    f->f_un.f_forw.f_loghost);
-		f->f_un.f_forw.f_dropped++;
+		f->f_dropped++;
 	}
 
 	tcp_connect_retry(bufev, f);
@@ -1631,6 +1673,7 @@ vlogmsg(int pri, const char *proc, const char *fmt, va_list ap)
 		vsnprintf(msg + l, sizeof(msg) - l, fmt, ap);
 	if (!Started) {
 		fprintf(stderr, "%s\n", msg);
+		init_dropped++;
 		return;
 	}
 	logline(pri, ADDDATE, LocalHostName, msg);
@@ -1757,7 +1800,8 @@ logline(int pri, int flags, char *from, char *msg)
 		msglen--;
 	}
 	for (i = 0; i < NAME_MAX; i++) {
-		if (!isalnum((unsigned char)msg[i]) && msg[i] != '-')
+		if (!isalnum((unsigned char)msg[i]) &&
+		    msg[i] != '-' && msg[i] != '.' && msg[i] != '_')
 			break;
 		prog[i] = msg[i];
 	}
@@ -1766,17 +1810,16 @@ logline(int pri, int flags, char *from, char *msg)
 	/* log the message to the particular outputs */
 	if (!Initialized) {
 		f = &consfile;
-		f->f_file = priv_open_tty(ctty);
-
-		if (f->f_file >= 0) {
+		if (f->f_type == F_CONSOLE) {
 			strlcpy(f->f_lasttime, timestamp,
 			    sizeof(f->f_lasttime));
 			strlcpy(f->f_prevhost, from,
 			    sizeof(f->f_prevhost));
 			fprintlog(f, flags, msg);
-			(void)close(f->f_file);
-			f->f_file = -1;
+			/* May be set to F_UNUSED, try again next time. */
+			f->f_type = F_CONSOLE;
 		}
+		init_dropped++;
 		return;
 	}
 	SIMPLEQ_FOREACH(f, &Files, f_next) {
@@ -1786,9 +1829,9 @@ logline(int pri, int flags, char *from, char *msg)
 			continue;
 
 		/* skip messages with the incorrect program or hostname */
-		if (f->f_program && strcmp(prog, f->f_program) != 0)
+		if (f->f_program && fnmatch(f->f_program, prog, 0) != 0)
 			continue;
-		if (f->f_hostname && strcmp(from, f->f_hostname) != 0)
+		if (f->f_hostname && fnmatch(f->f_hostname, from, 0) != 0)
 			continue;
 
 		if (f->f_type == F_CONSOLE && (flags & IGN_CONS))
@@ -1858,6 +1901,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 	struct iovec *v;
 	int l, retryonce;
 	char line[LOG_MAXLINE + 1], repbuf[80], greetings[500];
+	char ebuf[ERRBUFSIZE];
 
 	v = iov;
 	if (f->f_type == F_WALL) {
@@ -1940,6 +1984,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 		    (struct sockaddr *)&f->f_un.f_forw.f_addr,
 		    f->f_un.f_forw.f_addr.ss_len) != l) {
 			switch (errno) {
+			case EADDRNOTAVAIL:
 			case EHOSTDOWN:
 			case EHOSTUNREACH:
 			case ENETDOWN:
@@ -1963,7 +2008,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 		if (EVBUFFER_LENGTH(f->f_un.f_forw.f_bufev->output) >=
 		    MAX_TCPBUF) {
 			log_debug(" (dropped)");
-			f->f_un.f_forw.f_dropped++;
+			f->f_dropped++;
 			break;
 		}
 		/*
@@ -1979,7 +2024,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 		    IncludeHostname ? " " : "");
 		if (l < 0) {
 			log_debug(" (dropped snprintf)");
-			f->f_un.f_forw.f_dropped++;
+			f->f_dropped++;
 			break;
 		}
 		l = evbuffer_add_printf(f->f_un.f_forw.f_bufev->output,
@@ -1991,7 +2036,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 		    (char *)iov[4].iov_base);
 		if (l < 0) {
 			log_debug(" (dropped evbuffer_add_printf)");
-			f->f_un.f_forw.f_dropped++;
+			f->f_dropped++;
 			break;
 		}
 		bufferevent_enable(f->f_un.f_forw.f_bufev, EV_WRITE);
@@ -2021,17 +2066,28 @@ fprintlog(struct filed *f, int flags, char *msg)
 		if (writev(f->f_file, iov, 6) < 0) {
 			int e = errno;
 
+			/* allow to recover from file system full */
+			if (e == ENOSPC && f->f_type == F_FILE) {
+				if (f->f_dropped++ == 0) {
+					f->f_type = F_UNUSED;
+					errno = e;
+					log_warn("write to file \"%s\"",
+					    f->f_un.f_fname);
+					f->f_type = F_FILE;
+				}
+				break;
+			}
+
 			/* pipe is non-blocking. log and drop message if full */
 			if (e == EAGAIN && f->f_type == F_PIPE) {
 				if (now.tv_sec - f->f_lasterrtime > 120) {
 					f->f_lasterrtime = now.tv_sec;
-					log_warn("writev \"%s\"",
+					log_warn("write to pipe \"%s\"",
 					    f->f_un.f_fname);
 				}
 				break;
 			}
 
-			(void)close(f->f_file);
 			/*
 			 * Check for errors on TTY's or program pipes.
 			 * Errors happen due to loss of tty or died programs.
@@ -2042,7 +2098,10 @@ fprintlog(struct filed *f, int flags, char *msg)
 				 * This can happen when logging to a locked tty.
 				 */
 				break;
-			} else if ((e == EIO || e == EBADF) &&
+			}
+
+			(void)close(f->f_file);
+			if ((e == EIO || e == EBADF) &&
 			    f->f_type != F_FILE && f->f_type != F_PIPE &&
 			    !retryonce) {
 				f->f_file = priv_open_tty(f->f_un.f_fname);
@@ -2069,8 +2128,15 @@ fprintlog(struct filed *f, int flags, char *msg)
 				errno = e;
 				log_warn("writev \"%s\"", f->f_un.f_fname);
 			}
-		} else if (flags & SYNC_FILE)
-			(void)fsync(f->f_file);
+		} else {
+			if (flags & SYNC_FILE)
+				(void)fsync(f->f_file);
+			if (f->f_dropped && f->f_type == F_FILE) {
+				snprintf(ebuf, sizeof(ebuf), "to file \"%s\"",
+				    f->f_un.f_fname);
+				dropped_warn(&f->f_dropped, ebuf);
+			}
+		}
 		break;
 
 	case F_USERS:
@@ -2187,11 +2253,8 @@ init_signalcb(int signum, short event, void *arg)
 	init();
 	log_info(LOG_INFO, "restart");
 
-	if (tcpbuf_dropped > 0) {
-		log_info(LOG_WARNING, "dropped %d message%s to remote loghost",
-		    tcpbuf_dropped, tcpbuf_dropped == 1 ? "" : "s");
-		tcpbuf_dropped = 0;
-	}
+	dropped_warn(&file_dropped, "to file");
+	dropped_warn(&tcpbuf_dropped, "to remote loghost");
 	log_debug("syslogd: restarted");
 }
 
@@ -2201,30 +2264,42 @@ logevent(int severity, const char *msg)
 	log_debug("libevent: [%d] %s", severity, msg);
 }
 
+void
+dropped_warn(int *count, const char *what)
+{
+	int dropped;
+
+	if (*count == 0)
+		return;
+
+	dropped = *count;
+	*count = 0;
+	log_info(LOG_WARNING, "dropped %d message%s %s",
+	    dropped, dropped == 1 ? "" : "s", what);
+}
+
 __dead void
 die(int signo)
 {
 	struct filed *f;
-	int was_initialized = Initialized;
 
-	Initialized = 0;		/* Don't log SIGCHLDs */
 	SIMPLEQ_FOREACH(f, &Files, f_next) {
 		/* flush any pending output */
 		if (f->f_prevcount)
 			fprintlog(f, 0, (char *)NULL);
 		if (f->f_type == F_FORWTLS || f->f_type == F_FORWTCP) {
-			tcpbuf_dropped += f->f_un.f_forw.f_dropped +
+			tcpbuf_dropped += f->f_dropped +
 			    tcpbuf_countmsg(f->f_un.f_forw.f_bufev);
-			f->f_un.f_forw.f_dropped = 0;
+			f->f_dropped = 0;
+		}
+		if (f->f_type == F_FILE) {
+			file_dropped += f->f_dropped;
+			f->f_dropped = 0;
 		}
 	}
-	Initialized = was_initialized;
-
-	if (tcpbuf_dropped > 0) {
-		log_info(LOG_WARNING, "dropped %d message%s to remote loghost",
-		    tcpbuf_dropped, tcpbuf_dropped == 1 ? "" : "s");
-		tcpbuf_dropped = 0;
-	}
+	dropped_warn(&init_dropped, "during initialization");
+	dropped_warn(&file_dropped, "to file");
+	dropped_warn(&tcpbuf_dropped, "to remote loghost");
 
 	if (signo)
 		log_info(LOG_ERR, "exiting on signal %d", signo);
@@ -2274,11 +2349,15 @@ init(void)
 			free(f->f_un.f_forw.f_host);
 			/* FALLTHROUGH */
 		case F_FORWTCP:
-			tcpbuf_dropped += f->f_un.f_forw.f_dropped +
+			tcpbuf_dropped += f->f_dropped +
 			     tcpbuf_countmsg(f->f_un.f_forw.f_bufev);
 			bufferevent_free(f->f_un.f_forw.f_bufev);
 			/* FALLTHROUGH */
 		case F_FILE:
+			if (f->f_type == F_FILE) {
+				file_dropped += f->f_dropped;
+				f->f_dropped = 0;
+			}
 		case F_TTY:
 		case F_CONSOLE:
 		case F_PIPE:
@@ -2305,6 +2384,7 @@ init(void)
 		SIMPLEQ_INSERT_TAIL(&Files,
 		    cfline("*.PANIC\t*", "*", "*"), f_next);
 		Initialized = 1;
+		dropped_warn(&init_dropped, "during initialization");
 		return;
 	}
 
@@ -2405,6 +2485,7 @@ init(void)
 	(void)fclose(cf);
 
 	Initialized = 1;
+	dropped_warn(&init_dropped, "during initialization");
 
 	if (Debug) {
 		SIMPLEQ_FOREACH(f, &Files, f_next) {
@@ -2659,9 +2740,11 @@ cfline(char *line, char *progblock, char *hostblock)
 		if (strncmp(proto, "udp", 3) == 0) {
 			switch (f->f_un.f_forw.f_addr.ss_family) {
 			case AF_INET:
+				send_udp = 1;
 				f->f_file = fd_udp;
 				break;
 			case AF_INET6:
+				send_udp6 = 1;
 				f->f_file = fd_udp6;
 				break;
 			}
@@ -2956,8 +3039,12 @@ unix_socket(char *path, int type, mode_t mode)
 	return (fd);
 }
 
+/*
+ * Increase socket buffer size in small steps to get partial success
+ * if we hit a kernel limit.  Allow an optional final step.
+ */
 void
-double_sockbuf(int fd, int optname)
+double_sockbuf(int fd, int optname, int bigsize)
 {
 	socklen_t len;
 	int i, newsize, oldsize = 0;
@@ -2967,12 +3054,18 @@ double_sockbuf(int fd, int optname)
 		log_warn("getsockopt bufsize");
 	len = sizeof(newsize);
 	newsize =  LOG_MAXLINE + 128;  /* data + control */
-	/* allow 8 full length messages */
+	/* allow 8 full length messages, that is 66560 bytes */
 	for (i = 0; i < 4; i++, newsize *= 2) {
 		if (newsize <= oldsize)
 			continue;
 		if (setsockopt(fd, SOL_SOCKET, optname, &newsize, len) == -1)
 			log_warn("setsockopt bufsize %d", newsize);
+		else
+			oldsize = newsize;
+	}
+	if (bigsize && bigsize > oldsize) {
+		if (setsockopt(fd, SOL_SOCKET, optname, &bigsize, len) == -1)
+			log_warn("setsockopt bufsize %d", bigsize);
 	}
 }
 

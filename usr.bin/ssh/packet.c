@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.263 2017/07/23 23:37:02 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.282 2019/01/21 10:35:09 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -52,13 +52,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <poll.h>
 #include <signal.h>
 #include <time.h>
 
 #include <zlib.h>
-
-#include "buffer.h"	/* typedefs XXX */
-#include "key.h"	/* typedefs XXX */
 
 #include "xmalloc.h"
 #include "crc32.h"
@@ -141,12 +139,6 @@ struct session_state {
 	int compression_in_failures;
 	int compression_out_failures;
 
-	/*
-	 * Flag indicating whether packet compression/decompression is
-	 * enabled.
-	 */
-	int packet_compression;
-
 	/* default maximum packet size */
 	u_int max_packet_size;
 
@@ -219,6 +211,7 @@ ssh_alloc_session_state(void)
 
 	if ((ssh = calloc(1, sizeof(*ssh))) == NULL ||
 	    (state = calloc(1, sizeof(*state))) == NULL ||
+	    (ssh->kex = kex_new()) == NULL ||
 	    (state->input = sshbuf_new()) == NULL ||
 	    (state->output = sshbuf_new()) == NULL ||
 	    (state->outgoing_packet = sshbuf_new()) == NULL ||
@@ -241,6 +234,10 @@ ssh_alloc_session_state(void)
 	ssh->state = state;
 	return ssh;
  fail:
+	if (ssh) {
+		kex_free(ssh->kex);
+		free(ssh);
+	}
 	if (state) {
 		sshbuf_free(state->input);
 		sshbuf_free(state->output);
@@ -248,7 +245,6 @@ ssh_alloc_session_state(void)
 		sshbuf_free(state->outgoing_packet);
 		free(state);
 	}
-	free(ssh);
 	return NULL;
 }
 
@@ -263,8 +259,7 @@ ssh_packet_set_input_hook(struct ssh *ssh, ssh_packet_hook_fn *hook, void *ctx)
 int
 ssh_packet_is_rekeying(struct ssh *ssh)
 {
-	return ssh->state->rekeying ||
-	    (ssh->kex != NULL && ssh->kex->done == 0);
+	return ssh->state->rekeying || ssh->kex->done == 0;
 }
 
 /*
@@ -412,13 +407,16 @@ ssh_packet_start_discard(struct ssh *ssh, struct sshenc *enc,
 int
 ssh_packet_connection_is_on_socket(struct ssh *ssh)
 {
-	struct session_state *state = ssh->state;
+	struct session_state *state;
 	struct sockaddr_storage from, to;
 	socklen_t fromlen, tolen;
 
-	if (state->connection_in == -1 || state->connection_out == -1)
+	if (ssh == NULL || ssh->state == NULL)
 		return 0;
 
+	state = ssh->state;
+	if (state->connection_in == -1 || state->connection_out == -1)
+		return 0;
 	/* filedescriptors in and out are the same, so it's a socket */
 	if (state->connection_in == state->connection_out)
 		return 1;
@@ -497,11 +495,12 @@ ssh_packet_get_connection_out(struct ssh *ssh)
 const char *
 ssh_remote_ipaddr(struct ssh *ssh)
 {
-	const int sock = ssh->state->connection_in;
+	int sock;
 
 	/* Check whether we have cached the ipaddr. */
 	if (ssh->remote_ipaddr == NULL) {
 		if (ssh_packet_connection_is_on_socket(ssh)) {
+			sock = ssh->state->connection_in;
 			ssh->remote_ipaddr = get_peer_ipaddr(sock);
 			ssh->remote_port = get_peer_port(sock);
 			ssh->local_ipaddr = get_local_ipaddr(sock);
@@ -544,6 +543,18 @@ ssh_local_port(struct ssh *ssh)
 {
 	(void)ssh_remote_ipaddr(ssh); /* Will lookup and cache. */
 	return ssh->local_port;
+}
+
+/* Returns the routing domain of the input socket, or NULL if unavailable */
+const char *
+ssh_packet_rdomain_in(struct ssh *ssh)
+{
+	if (ssh->rdomain_in != NULL)
+		return ssh->rdomain_in;
+	if (!ssh_packet_connection_is_on_socket(ssh))
+		return NULL;
+	ssh->rdomain_in = get_rdomain(ssh->state->connection_in);
+	return ssh->rdomain_in;
 }
 
 /* Closes the connection and clears and frees internal data structures. */
@@ -604,6 +615,8 @@ ssh_packet_close_internal(struct ssh *ssh, int do_close)
 	cipher_free(state->receive_context);
 	state->send_context = state->receive_context = NULL;
 	if (do_close) {
+		free(ssh->local_ipaddr);
+		ssh->local_ipaddr = NULL;
 		free(ssh->remote_ipaddr);
 		ssh->remote_ipaddr = NULL;
 		free(ssh->state);
@@ -687,21 +700,6 @@ start_compression_in(struct ssh *ssh)
 	default:
 		return SSH_ERR_INTERNAL_ERROR;
 	}
-	return 0;
-}
-
-int
-ssh_packet_start_compression(struct ssh *ssh, int level)
-{
-	int r;
-
-	if (ssh->state->packet_compression)
-		return SSH_ERR_INTERNAL_ERROR;
-	ssh->state->packet_compression = 1;
-	if ((r = ssh_packet_init_compression(ssh)) != 0 ||
-	    (r = start_compression_in(ssh)) != 0 ||
-	    (r = start_compression_out(ssh, level)) != 0)
-		return r;
 	return 0;
 }
 
@@ -841,8 +839,6 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 		   (unsigned long long)state->p_read.blocks,
 		   (unsigned long long)state->p_send.bytes,
 		   (unsigned long long)state->p_send.blocks);
-		cipher_free(*ccp);
-		*ccp = NULL;
 		kex_free_newkeys(state->newkeys[mode]);
 		state->newkeys[mode] = NULL;
 	}
@@ -861,6 +857,8 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 	}
 	mac->enabled = 1;
 	DBG(debug("cipher_init_context: %d", mode));
+	cipher_free(*ccp);
+	*ccp = NULL;
 	if ((r = cipher_init(ccp, enc->cipher, enc->key, enc->key_len,
 	    enc->iv, enc->iv_len, crypt_type)) != 0)
 		return r;
@@ -915,7 +913,7 @@ ssh_packet_need_rekeying(struct ssh *ssh, u_int outbound_packet_len)
 		return 0;
 
 	/* Haven't keyed yet or KEX in progress. */
-	if (ssh->kex == NULL || ssh_packet_is_rekeying(ssh))
+	if (ssh_packet_is_rekeying(ssh))
 		return 0;
 
 	/* Peer can't rekey */
@@ -1309,13 +1307,15 @@ ssh_packet_read_seqnr(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 		for (;;) {
 			if (state->packet_timeout_ms != -1) {
 				ms_to_timeval(&timeout, ms_remain);
-				gettimeofday(&start, NULL);
+				monotime_tv(&start);
 			}
 			if ((r = select(state->connection_in + 1, setp,
 			    NULL, NULL, timeoutp)) >= 0)
 				break;
-			if (errno != EAGAIN && errno != EINTR)
-				break;
+			if (errno != EAGAIN && errno != EINTR) {
+				r = SSH_ERR_SYSTEM_ERROR;
+				goto out;
+			}
 			if (state->packet_timeout_ms == -1)
 				continue;
 			ms_subtract_diff(&start, &ms_remain);
@@ -1762,6 +1762,8 @@ ssh_packet_send_debug(struct ssh *ssh, const char *fmt,...)
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 
+	debug3("sending debug message: %s", buf);
+
 	if ((r = sshpkt_start(ssh, SSH2_MSG_DEBUG)) != 0 ||
 	    (r = sshpkt_put_u8(ssh, 0)) != 0 || /* always display */
 	    (r = sshpkt_put_cstring(ssh, buf)) != 0 ||
@@ -1771,8 +1773,8 @@ ssh_packet_send_debug(struct ssh *ssh, const char *fmt,...)
 		fatal("%s: %s", __func__, ssh_err(r));
 }
 
-static void
-fmt_connection_id(struct ssh *ssh, char *s, size_t l)
+void
+sshpkt_fmt_connection_id(struct ssh *ssh, char *s, size_t l)
 {
 	snprintf(s, l, "%.200s%s%s port %d",
 	    ssh->log_preamble ? ssh->log_preamble : "",
@@ -1783,12 +1785,12 @@ fmt_connection_id(struct ssh *ssh, char *s, size_t l)
 /*
  * Pretty-print connection-terminating errors and exit.
  */
-void
-sshpkt_fatal(struct ssh *ssh, const char *tag, int r)
+static void
+sshpkt_vfatal(struct ssh *ssh, int r, const char *fmt, va_list ap)
 {
-	char remote_id[512];
+	char *tag = NULL, remote_id[512];
 
-	fmt_connection_id(ssh, remote_id, sizeof(remote_id));
+	sshpkt_fmt_connection_id(ssh, remote_id, sizeof(remote_id));
 
 	switch (r) {
 	case SSH_ERR_CONN_CLOSED:
@@ -1820,12 +1822,29 @@ sshpkt_fatal(struct ssh *ssh, const char *tag, int r)
 		}
 		/* FALLTHROUGH */
 	default:
+		if (vasprintf(&tag, fmt, ap) == -1) {
+			ssh_packet_clear_keys(ssh);
+			logdie("%s: could not allocate failure message",
+			    __func__);
+		}
 		ssh_packet_clear_keys(ssh);
 		logdie("%s%sConnection %s %s: %s",
 		    tag != NULL ? tag : "", tag != NULL ? ": " : "",
 		    ssh->state->server_side ? "from" : "to",
 		    remote_id, ssh_err(r));
 	}
+}
+
+void
+sshpkt_fatal(struct ssh *ssh, int r, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	sshpkt_vfatal(ssh, r, fmt, ap);
+	/* NOTREACHED */
+	va_end(ap);
+	logdie("%s: should have exited", __func__);
 }
 
 /*
@@ -1850,7 +1869,7 @@ ssh_packet_disconnect(struct ssh *ssh, const char *fmt,...)
 	 * Format the message.  Note that the caller must make sure the
 	 * message is of limited size.
 	 */
-	fmt_connection_id(ssh, remote_id, sizeof(remote_id));
+	sshpkt_fmt_connection_id(ssh, remote_id, sizeof(remote_id));
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
@@ -1863,10 +1882,10 @@ ssh_packet_disconnect(struct ssh *ssh, const char *fmt,...)
 	 * for it to get sent.
 	 */
 	if ((r = sshpkt_disconnect(ssh, "%s", buf)) != 0)
-		sshpkt_fatal(ssh, __func__, r);
+		sshpkt_fatal(ssh, r, "%s", __func__);
 
 	if ((r = ssh_packet_write_wait(ssh)) != 0)
-		sshpkt_fatal(ssh, __func__, r);
+		sshpkt_fatal(ssh, r, "%s", __func__);
 
 	/* Close the connection. */
 	ssh_packet_close(ssh);
@@ -1932,7 +1951,7 @@ ssh_packet_write_wait(struct ssh *ssh)
 		for (;;) {
 			if (state->packet_timeout_ms != -1) {
 				ms_to_timeval(&timeout, ms_remain);
-				gettimeofday(&start, NULL);
+				monotime_tv(&start);
 			}
 			if ((ret = select(state->connection_out + 1,
 			    NULL, setp, NULL, timeoutp)) >= 0)
@@ -2070,35 +2089,6 @@ ssh_packet_get_maxsize(struct ssh *ssh)
 	return ssh->state->max_packet_size;
 }
 
-/*
- * 9.2.  Ignored Data Message
- *
- *   byte      SSH_MSG_IGNORE
- *   string    data
- *
- * All implementations MUST understand (and ignore) this message at any
- * time (after receiving the protocol version). No implementation is
- * required to send them. This message can be used as an additional
- * protection measure against advanced traffic analysis techniques.
- */
-void
-ssh_packet_send_ignore(struct ssh *ssh, int nbytes)
-{
-	u_int32_t rnd = 0;
-	int r, i;
-
-	if ((r = sshpkt_start(ssh, SSH2_MSG_IGNORE)) != 0 ||
-	    (r = sshpkt_put_u32(ssh, nbytes)) != 0)
-		fatal("%s: %s", __func__, ssh_err(r));
-	for (i = 0; i < nbytes; i++) {
-		if (i % 4 == 0)
-			rnd = arc4random();
-		if ((r = sshpkt_put_u8(ssh, (u_char)rnd & 0xff)) != 0)
-			fatal("%s: %s", __func__, ssh_err(r));
-		rnd >>= 8;
-	}
-}
-
 void
 ssh_packet_set_rekey_limits(struct ssh *ssh, u_int64_t bytes, u_int32_t seconds)
 {
@@ -2122,6 +2112,7 @@ void
 ssh_packet_set_server(struct ssh *ssh)
 {
 	ssh->state->server_side = 1;
+	ssh->kex->server = 1; /* XXX unify? */
 }
 
 void
@@ -2168,13 +2159,15 @@ kex_to_blob(struct sshbuf *m, struct kex *kex)
 	if ((r = sshbuf_put_string(m, kex->session_id,
 	    kex->session_id_len)) != 0 ||
 	    (r = sshbuf_put_u32(m, kex->we_need)) != 0 ||
+	    (r = sshbuf_put_cstring(m, kex->hostkey_alg)) != 0 ||
 	    (r = sshbuf_put_u32(m, kex->hostkey_type)) != 0 ||
+	    (r = sshbuf_put_u32(m, kex->hostkey_nid)) != 0 ||
 	    (r = sshbuf_put_u32(m, kex->kex_type)) != 0 ||
 	    (r = sshbuf_put_stringb(m, kex->my)) != 0 ||
 	    (r = sshbuf_put_stringb(m, kex->peer)) != 0 ||
-	    (r = sshbuf_put_u32(m, kex->flags)) != 0 ||
-	    (r = sshbuf_put_cstring(m, kex->client_version_string)) != 0 ||
-	    (r = sshbuf_put_cstring(m, kex->server_version_string)) != 0)
+	    (r = sshbuf_put_stringb(m, kex->client_version)) != 0 ||
+	    (r = sshbuf_put_stringb(m, kex->server_version)) != 0 ||
+	    (r = sshbuf_put_u32(m, kex->flags)) != 0)
 		return r;
 	return 0;
 }
@@ -2324,35 +2317,30 @@ kex_from_blob(struct sshbuf *m, struct kex **kexp)
 	struct kex *kex;
 	int r;
 
-	if ((kex = calloc(1, sizeof(struct kex))) == NULL ||
-	    (kex->my = sshbuf_new()) == NULL ||
-	    (kex->peer = sshbuf_new()) == NULL) {
-		r = SSH_ERR_ALLOC_FAIL;
-		goto out;
-	}
+	if ((kex = kex_new()) == NULL)
+		return SSH_ERR_ALLOC_FAIL;
 	if ((r = sshbuf_get_string(m, &kex->session_id, &kex->session_id_len)) != 0 ||
 	    (r = sshbuf_get_u32(m, &kex->we_need)) != 0 ||
+	    (r = sshbuf_get_cstring(m, &kex->hostkey_alg, NULL)) != 0 ||
 	    (r = sshbuf_get_u32(m, (u_int *)&kex->hostkey_type)) != 0 ||
+	    (r = sshbuf_get_u32(m, (u_int *)&kex->hostkey_nid)) != 0 ||
 	    (r = sshbuf_get_u32(m, &kex->kex_type)) != 0 ||
 	    (r = sshbuf_get_stringb(m, kex->my)) != 0 ||
 	    (r = sshbuf_get_stringb(m, kex->peer)) != 0 ||
-	    (r = sshbuf_get_u32(m, &kex->flags)) != 0 ||
-	    (r = sshbuf_get_cstring(m, &kex->client_version_string, NULL)) != 0 ||
-	    (r = sshbuf_get_cstring(m, &kex->server_version_string, NULL)) != 0)
+	    (r = sshbuf_get_stringb(m, kex->client_version)) != 0 ||
+	    (r = sshbuf_get_stringb(m, kex->server_version)) != 0 ||
+	    (r = sshbuf_get_u32(m, &kex->flags)) != 0)
 		goto out;
 	kex->server = 1;
 	kex->done = 1;
 	r = 0;
  out:
 	if (r != 0 || kexp == NULL) {
-		if (kex != NULL) {
-			sshbuf_free(kex->my);
-			sshbuf_free(kex->peer);
-			free(kex);
-		}
+		kex_free(kex);
 		if (kexp != NULL)
 			*kexp = NULL;
 	} else {
+		kex_free(*kexp);
 		*kexp = kex;
 	}
 	return r;
@@ -2517,9 +2505,21 @@ sshpkt_get_string_direct(struct ssh *ssh, const u_char **valp, size_t *lenp)
 }
 
 int
+sshpkt_peek_string_direct(struct ssh *ssh, const u_char **valp, size_t *lenp)
+{
+	return sshbuf_peek_string_direct(ssh->state->incoming_packet, valp, lenp);
+}
+
+int
 sshpkt_get_cstring(struct ssh *ssh, char **valp, size_t *lenp)
 {
 	return sshbuf_get_cstring(ssh->state->incoming_packet, valp, lenp);
+}
+
+int
+sshpkt_getb_froms(struct ssh *ssh, struct sshbuf **valp)
+{
+	return sshbuf_froms(ssh->state->incoming_packet, valp);
 }
 
 #ifdef WITH_OPENSSL
@@ -2529,11 +2529,10 @@ sshpkt_get_ec(struct ssh *ssh, EC_POINT *v, const EC_GROUP *g)
 	return sshbuf_get_ec(ssh->state->incoming_packet, v, g);
 }
 
-
 int
-sshpkt_get_bignum2(struct ssh *ssh, BIGNUM *v)
+sshpkt_get_bignum2(struct ssh *ssh, BIGNUM **valp)
 {
-	return sshbuf_get_bignum2(ssh->state->incoming_packet, v);
+	return sshbuf_get_bignum2(ssh->state->incoming_packet, valp);
 }
 #endif /* WITH_OPENSSL */
 
@@ -2594,6 +2593,37 @@ ssh_packet_send_mux(struct ssh *ssh)
 		/* sshbuf_dump(state->output, stderr); */
 	}
 	sshbuf_reset(state->outgoing_packet);
+	return 0;
+}
+
+/*
+ * 9.2.  Ignored Data Message
+ *
+ *   byte      SSH_MSG_IGNORE
+ *   string    data
+ *
+ * All implementations MUST understand (and ignore) this message at any
+ * time (after receiving the protocol version). No implementation is
+ * required to send them. This message can be used as an additional
+ * protection measure against advanced traffic analysis techniques.
+ */
+int
+sshpkt_msg_ignore(struct ssh *ssh, u_int nbytes)
+{
+	u_int32_t rnd = 0;
+	int r;
+	u_int i;
+
+	if ((r = sshpkt_start(ssh, SSH2_MSG_IGNORE)) != 0 ||
+	    (r = sshpkt_put_u32(ssh, nbytes)) != 0)
+		return r;
+	for (i = 0; i < nbytes; i++) {
+		if (i % 4 == 0)
+			rnd = arc4random();
+		if ((r = sshpkt_put_u8(ssh, (u_char)rnd & 0xff)) != 0)
+			return r;
+		rnd >>= 8;
+	}
 	return 0;
 }
 

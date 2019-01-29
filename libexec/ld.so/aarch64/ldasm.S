@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.3 2017/06/04 14:26:27 patrick Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.7 2018/10/01 22:53:48 mortimer Exp $ */
 
 /*
  * Copyright (c) 2016 Dale Rahn
@@ -29,7 +29,6 @@
 #define DL_DATA_SIZE	(16 * 8)	/* XXX */
 #include <machine/asm.h>
 #include <sys/syscall.h>
-#include <SYS.h>
 
 ENTRY(_dl_start)
 	mov	x29, sp
@@ -42,7 +41,7 @@ ENTRY(_dl_start)
 	mov	x0, x29				// original stack
 	mov	x1, x20				// dl_data
 
-	adrp	x2, :got:_DYNAMIC		/* &_DYNAMIC */
+	adrp	x2, _DYNAMIC			/* &_DYNAMIC */
 	add	x2, x2, #:lo12:_DYNAMIC
 
 	bl	_dl_boot_bind
@@ -66,102 +65,47 @@ ENTRY(_dl_start)
 
 ENTRY(_dl_bind_start)
 	/*
-	 * ip is pointer to got entry for this relocation
-	 * lr is pointer to pltgot[2], which is entry -1 of got plt reloc.
-	 * return address is on stack
+	 * x16 is pointer to pltgot[2]
+	 * x17 is available as scratch register
+	 * return address and pointer to pltgot entry for this
+	 * relocation are on the stack
 	 */
-	stp	x29, x30, [sp, #-160]!
-	stp	 x0,  x1, [sp,#16]
-	stp	 x2,  x3, [sp,#32]
-	stp	 x4,  x5, [sp,#48]
-	stp	 x6,  x7, [sp,#64]
-	stp	 x8,  x9, [sp,#80]
-	stp	x10, x11, [sp,#96]
-	stp	x12, x13, [sp,#112]
-	stp	x14, x15, [sp,#128]
-	str	x18,      [sp,#144]
+	mov x17, sp
 
-	mov	x1, x16		// reladdr
+	// save parameter/result registers
+	stp	x0, x1, [sp, #-16]!
+	stp	x2, x3, [sp, #-16]!
+	stp	x4, x5, [sp, #-16]!
+	stp	x6, x7, [sp, #-16]!
+	stp	x8, xzr, [sp, #-16]!
 
+	/*
+	 * no need to save v0-v9 as ld.so is compiled with
+	 * -march=armv8-a+nofp+nosimd and therefore doesn't touch the
+	 * SIMD and Floating-Point registers
+	 */
 
-	ldp	 x0,  x1, [sp,#16]
-	ldp	 x2,  x3, [sp,#32]
-	ldp	 x4,  x5, [sp,#48]
-	ldp	 x6,  x7, [sp,#64]
-	ldp	 x8,  x9, [sp,#80]
-	ldp	x10, x11, [sp,#96]
-	ldp	x12, x13, [sp,#112]
-	ldp	x14, x15, [sp,#128]
-	ldr	x18,      [sp,#144]
-	ldp	x29, x30, [sp], #-160
-	br x16
-
-
-#if 0
-	stmdb	sp!, {r0-r4,sl,fp}
-
-	sub	r1, ip, lr		/* r1 = 4 * (n + 1) */
-	sub	r1, r1, #4		/* r1 = 4 * n */
-	mov	r1, r1, lsr #2		/* r1 = n */
-
-	ldr	r0, [lr, #-4]
+	ldr	x0, [x16, #-8]		// object
+	ldr	x2, [x17]
+	sub	x1, x2, x16
+	sub	x1, x1, #8
+	lsr	x1, x1, #3		// relidx
 	bl	_dl_bind
-	mov	ip, r0
-	ldmia	sp!, {r0-r4,sl,fp,lr}
-	mov	pc, ip
-#endif
+	mov	x17, x0
 
-	/* STUB */
+	// restore parameter/result registers
+	ldp	x8, xzr, [sp], #16
+	ldp	x6, x7, [sp], #16
+	ldp	x4, x5, [sp], #16
+	ldp	x2, x3, [sp], #16
+	ldp	x0, x1, [sp], #16
 
-
-/* ld.so SYSCALLS */
-
-#define DL_SYSCALL(n) DL_SYSCALL2(n,n)
-#define DL_SYSCALL2(n,c)					\
-	.global		__CONCAT(_dl_,n)		;\
-	.type		__CONCAT(_dl_,n)%function	;\
-__CONCAT(_dl_,n):					;\
-	SYSTRAP(c)					;\
-	bcs	.L_cerr					;\
-	ret
-
-	.section	".text"
-	.align		4
-DL_SYSCALL(close)
-
-
-	.global		_dl_exit
-	.type		_dl_exit%function
-_dl_exit:
-	SYSTRAP(exit)
-	1:
-		b 1b
-
-DL_SYSCALL(issetugid)
-DL_SYSCALL(getthrid)
-DL_SYSCALL2(_syscall,__syscall)
-DL_SYSCALL(munmap)
-DL_SYSCALL(mprotect)
-DL_SYSCALL(open)
-DL_SYSCALL(read)
-DL_SYSCALL(write)
-DL_SYSCALL(fstat)
-DL_SYSCALL(readlink)
-DL_SYSCALL(utrace)
-DL_SYSCALL(getentropy)
-DL_SYSCALL(sendsyslog)
-DL_SYSCALL(pledge)
-DL_SYSCALL2(getcwd,__getcwd)
-DL_SYSCALL(sysctl)
-DL_SYSCALL2(set_tcb,__set_tcb)
-DL_SYSCALL(thrkill)
-
-DL_SYSCALL(getdents)
-
-.L_cerr:
-	neg	w0, w0		/* r0 = -errno */
-	ret
+	// restore LR saved by PLT stub	
+	ldp	xzr, x30, [sp], #16
+	br	x17
 
 ENTRY(_rtld_tlsdesc)
+	RETGUARD_SETUP(_rtld_tlsdesc, x15)
 	ldr	x0, [x0, #8]
+	RETGUARD_CHECK(_rtld_tlsdesc, x15)
 	ret

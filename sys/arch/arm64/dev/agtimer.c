@@ -1,4 +1,4 @@
-/* $OpenBSD: agtimer.c,v 1.8 2017/03/26 18:27:55 drahn Exp $ */
+/* $OpenBSD: agtimer.c,v 1.10 2018/08/11 10:41:08 kettenis Exp $ */
 /*
  * Copyright (c) 2011 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
@@ -46,8 +46,6 @@ static struct timecounter agtimer_timecounter = {
 	agtimer_get_timecount, NULL, 0x7fffffff, 0, "agtimer", 0, NULL
 };
 
-#define MAX_ARM_CPUS	8
-
 struct agtimer_pcpu_softc {
 	uint64_t 		pc_nexttickevent;
 	uint64_t 		pc_nextstatevent;
@@ -58,7 +56,7 @@ struct agtimer_softc {
 	struct device		sc_dev;
 	int			sc_node;
 
-	struct agtimer_pcpu_softc sc_pstat[MAX_ARM_CPUS];
+	struct agtimer_pcpu_softc sc_pstat[MAXCPUS];
 
 	u_int32_t		sc_ticks_err_cnt;
 	u_int32_t		sc_ticks_per_second;
@@ -70,6 +68,7 @@ struct agtimer_softc {
 	struct evcount		sc_clk_count;
 	struct evcount		sc_stat_count;
 #endif
+	void			*sc_ih;
 };
 
 int		agtimer_match(struct device *, void *, void *);
@@ -297,8 +296,8 @@ agtimer_cpu_initclocks()
 	pc->pc_ticks_err_sum = 0;
 
 	/* configure virtual timer interupt */
-	arm_intr_establish_fdt_idx(sc->sc_node, 2, IPL_CLOCK,
-	    agtimer_intr, NULL, "tick");
+	sc->sc_ih = arm_intr_establish_fdt_idx(sc->sc_node, 2,
+	    IPL_CLOCK|IPL_MPSAFE, agtimer_intr, NULL, "tick");
 
 	next = agtimer_readcnt64() + sc->sc_ticks_per_intr;
 	pc->pc_nexttickevent = pc->pc_nextstatevent = next;
@@ -377,6 +376,8 @@ agtimer_startclock(void)
 
 	nextevent = agtimer_readcnt64() + sc->sc_ticks_per_intr;
 	pc->pc_nexttickevent = pc->pc_nextstatevent = nextevent;
+
+	arm_intr_route(sc->sc_ih, 1, curcpu());
 
 	reg = agtimer_get_ctrl();
 	reg &= ~GTIMER_CNTV_CTL_IMASK;

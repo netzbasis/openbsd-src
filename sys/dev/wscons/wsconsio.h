@@ -1,4 +1,4 @@
-/* $OpenBSD: wsconsio.h,v 1.85 2017/08/18 21:29:59 deraadt Exp $ */
+/* $OpenBSD: wsconsio.h,v 1.90 2018/11/10 14:27:51 bru Exp $ */
 /* $NetBSD: wsconsio.h,v 1.74 2005/04/28 07:15:44 martin Exp $ */
 
 /*
@@ -238,21 +238,13 @@ struct wskbd_encoding_data {
 #define		WSMOUSE_TYPE_SGI	17	/* SGI serial mouse */
 #define		WSMOUSE_TYPE_ELANTECH	18	/* Elantech touchpad */
 #define		WSMOUSE_TYPE_SYNAP_SBTN	19	/* Synaptics soft buttons */
+#define		WSMOUSE_TYPE_TOUCHPAD	20	/* Generic touchpad */
 
 /* Set resolution.  Not applicable to all mouse types. */
 #define	WSMOUSEIO_SRES		_IOW('W', 33, u_int)
 #define		WSMOUSE_RES_MIN		0
 #define		WSMOUSE_RES_DEFAULT	75
 #define		WSMOUSE_RES_MAX		100
-
-/* Set scale factor (num / den).  Not applicable to all mouse types. */
-#define	WSMOUSEIO_SSCALE	_IOW('W', 34, u_int[2])
-
-/* Set sample rate.  Not applicable to all mouse types. */
-#define	WSMOUSEIO_SRATE		_IOW('W', 35, u_int)
-#define		WSMOUSE_RATE_MIN	0
-#define		WSMOUSE_RATE_DEFAULT	50
-#define		WSMOUSE_RATE_MAX	100
 
 /* Set/get sample coordinates for calibration */
 #define	WSMOUSE_CALIBCOORDS_MAX		16
@@ -303,7 +295,8 @@ enum wsmousecfg {
 	WSMOUSECFG_X_HYSTERESIS,/* retard value for X coordinates */
 	WSMOUSECFG_Y_HYSTERESIS,/* retard value for Y coordinates */
 	WSMOUSECFG_DECELERATION,/* threshold (distance) for deceleration */
-	WSMOUSECFG_STRONG_HYSTERESIS,	/* apply the filter continuously */
+	WSMOUSECFG_STRONG_HYSTERESIS,	/* FALSE and read-only, the fea-
+					   ture is not supported anymore. */
 	WSMOUSECFG_SMOOTHING,	/* smoothing factor (0-7) */
 
 	/*
@@ -337,8 +330,14 @@ enum wsmousecfg {
 					   the button-up-event (ms) */
 	WSMOUSECFG_TAP_LOCKTIME,	/* time between a tap-and-drag action
 					   and the button-up-event (ms) */
+
+	/*
+	 * Enable/Disable debug output.
+	 */
+	WSMOUSECFG_LOG_INPUT = 256,
+	WSMOUSECFG_LOG_EVENTS,
 };
-#define WSMOUSECFG_MAX	36	/* max size of param array per ioctl */
+#define WSMOUSECFG_MAX	38	/* max size of param array per ioctl */
 
 struct wsmouse_param {
 	enum wsmousecfg key;
@@ -621,7 +620,6 @@ struct wsdisplay_emultype {
  */
 
 #define WSMUXIO_INJECTEVENT	_IOW('W', 96, struct wscons_event)
-#define	WSMUX_INJECTEVENT	WSMUXIO_INJECTEVENT	/* XXX compat */
 
 struct wsmux_device {
 	int type;
@@ -631,9 +629,7 @@ struct wsmux_device {
 	int idx;
 };
 #define WSMUXIO_ADD_DEVICE	_IOW('W', 97, struct wsmux_device)
-#define	WSMUX_ADD_DEVICE	WSMUXIO_ADD_DEVICE	/* XXX compat */
 #define WSMUXIO_REMOVE_DEVICE	_IOW('W', 98, struct wsmux_device)
-#define	WSMUX_REMOVE_DEVICE	WSMUXIO_REMOVE_DEVICE	/* XXX compat */
 
 #define WSMUX_MAXDEV 32
 struct wsmux_device_list {
@@ -641,6 +637,5 @@ struct wsmux_device_list {
 	struct wsmux_device devices[WSMUX_MAXDEV];
 };
 #define WSMUXIO_LIST_DEVICES	_IOWR('W', 99, struct wsmux_device_list)
-#define	WSMUX_LIST_DEVICES	WSMUXIO_LIST_DEVICES	/* XXX compat */
 
 #endif /* _DEV_WSCONS_WSCONSIO_H_ */

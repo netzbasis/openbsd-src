@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkeyv2_convert.c,v 1.61 2017/06/06 11:39:55 mpi Exp $	*/
+/*	$OpenBSD: pfkeyv2_convert.c,v 1.65 2019/01/13 14:31:55 mpi Exp $	*/
 /*
  * The author of this code is Angelos D. Keromytis (angelos@keromytis.org)
  *
@@ -93,7 +93,6 @@
 
 #include "pf.h"
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/mbuf.h>
@@ -544,7 +543,7 @@ export_encap(void **p, struct sockaddr_encap *encap, int type)
 		}
 		*p += PADUP(sizeof(struct sockaddr_in));
 		break;
-        case SENT_IP6:
+	case SENT_IP6:
 		saddr->sadb_address_len = (sizeof(struct sadb_address)
 		    + PADUP(sizeof(struct sockaddr_in6))) / sizeof(uint64_t);
 		sunion->sa.sa_len = sizeof(struct sockaddr_in6);
@@ -897,4 +896,23 @@ export_satype(void **p, struct tdb *tdb)
 	sab->sadb_protocol_len = sizeof(struct sadb_protocol) /
 	    sizeof(uint64_t);
 	sab->sadb_protocol_proto = tdb->tdb_satype;
+	*p += sizeof(struct sadb_protocol);
+}
+
+void
+export_counter(void **p, struct tdb *tdb)
+{
+	struct sadb_x_counter *scnt = (struct sadb_x_counter *)*p;
+
+	scnt->sadb_x_counter_len = sizeof(struct sadb_x_counter) /
+	    sizeof(uint64_t);
+	scnt->sadb_x_counter_ipackets = tdb->tdb_ipackets;
+	scnt->sadb_x_counter_opackets = tdb->tdb_opackets;
+	scnt->sadb_x_counter_ibytes = tdb->tdb_ibytes;
+	scnt->sadb_x_counter_obytes = tdb->tdb_obytes;
+	scnt->sadb_x_counter_idrops = tdb->tdb_idrops;
+	scnt->sadb_x_counter_odrops = tdb->tdb_odrops;
+	scnt->sadb_x_counter_idecompbytes = tdb->tdb_idecompbytes;
+	scnt->sadb_x_counter_ouncompbytes = tdb->tdb_ouncompbytes;
+	*p += sizeof(struct sadb_x_counter);
 }

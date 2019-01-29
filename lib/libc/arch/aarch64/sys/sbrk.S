@@ -1,4 +1,4 @@
-/*	$OpenBSD: sbrk.S,v 1.2 2017/03/18 12:50:14 kettenis Exp $	*/
+/*	$OpenBSD: sbrk.S,v 1.4 2018/08/12 17:15:10 mortimer Exp $	*/
 /*	$NetBSD: sbrk.S,v 1.7 2003/08/07 16:42:05 agc Exp $	*/
 
 /*-
@@ -37,7 +37,7 @@
 	.globl	_C_LABEL(_end)
 
 	.data
-	.align	0
+	.align	3
 	.globl	__curbrk
 	.type	__curbrk,#object
 	.hidden	__curbrk
@@ -49,6 +49,7 @@ __curbrk:
  * Change the data segment size
  */
 ENTRY(sbrk)
+	RETGUARD_SETUP(sbrk, x15)
 #ifdef __PIC__
 	/* Setup the GOT */
 	adrp	x3, :got:__curbrk
@@ -71,12 +72,13 @@ ENTRY(sbrk)
 	str	x1, [x2]
 
 	/* Return old curbrk value */
+	RETGUARD_CHECK(sbrk, x15)
 	ret
 
-	.align	0
+	.align	3
 #if !defined(__PIC__)
 .Lcurbrk:
-	.word	__curbrk
+	.quad	__curbrk
 #endif
 END(sbrk)
 	.weak	sbrk

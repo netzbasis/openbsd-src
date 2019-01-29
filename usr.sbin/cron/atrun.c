@@ -1,7 +1,7 @@
-/*	$OpenBSD: atrun.c,v 1.46 2017/06/08 16:23:39 millert Exp $	*/
+/*	$OpenBSD: atrun.c,v 1.49 2019/01/25 00:19:27 millert Exp $	*/
 
 /*
- * Copyright (c) 2002-2003 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 2002-2003 Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -83,7 +83,8 @@ scan_atjobs(at_db **db, struct timespec *ts)
 	struct dirent *file;
 	struct stat sb;
 
-	if ((dfd = open(_PATH_AT_SPOOL, O_RDONLY|O_DIRECTORY)) == -1) {
+	dfd = open(_PATH_AT_SPOOL, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+	if (dfd == -1) {
 		syslog(LOG_ERR, "(CRON) OPEN FAILED (%s)", _PATH_AT_SPOOL);
 		return (0);
 	}
@@ -175,7 +176,8 @@ atrun(at_db *db, double batch_maxload, time_t now)
 	if (db == NULL)
 		return;
 
-	if ((dfd = open(_PATH_AT_SPOOL, O_RDONLY|O_DIRECTORY)) == -1) {
+	dfd = open(_PATH_AT_SPOOL, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+	if (dfd == -1) {
 		syslog(LOG_ERR, "(CRON) OPEN FAILED (%s)", _PATH_AT_SPOOL);
 		return;
 	}
@@ -282,6 +284,10 @@ run_job(const atjob *job, int dfd, const char *atfile)
 		close(fd);
 		return;
 	}
+
+	/* Close fds opened by the parent. */
+	close(cronSock);
+	close(dfd);
 
 	/*
 	 * We don't want the main cron daemon to wait for our children--

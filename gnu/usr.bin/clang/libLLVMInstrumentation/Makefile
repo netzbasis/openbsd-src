@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.6 2019/01/27 16:59:41 patrick Exp $
 
 LIB=	LLVMInstrumentation
 NOPIC=
@@ -9,14 +9,17 @@ CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/Transforms
 .include <bsd.own.mk>
 SRCS=	AddressSanitizer.cpp \
 	BoundsChecking.cpp \
+	CGProfile.cpp \
 	DataFlowSanitizer.cpp \
 	EfficiencySanitizer.cpp \
 	GCOVProfiling.cpp \
-	MemorySanitizer.cpp \
+	HWAddressSanitizer.cpp \
 	IndirectCallPromotion.cpp \
 	Instrumentation.cpp \
 	InstrProfiling.cpp \
+	MemorySanitizer.cpp \
 	PGOInstrumentation.cpp \
+	PGOMemOPSizeOpt.cpp \
 	SanitizerCoverage.cpp \
 	ThreadSanitizer.cpp
 

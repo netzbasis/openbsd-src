@@ -1,4 +1,4 @@
-/* $OpenBSD: pmsreg.h,v 1.13 2015/09/05 14:02:21 bru Exp $ */
+/* $OpenBSD: pmsreg.h,v 1.16 2018/05/13 14:48:19 bru Exp $ */
 /* $NetBSD: psmreg.h,v 1.1 1998/03/22 15:41:28 drochner Exp $ */
 
 #ifndef SYS_DEV_PCKBC_PMSREG_H
@@ -73,7 +73,8 @@
 #define SYNAPTICS_QUE_RESOLUTION		0x08
 #define SYNAPTICS_QUE_EXT_MODEL			0x09
 #define SYNAPTICS_QUE_EXT_CAPABILITIES		0x0c
-#define SYNAPTICS_QUE_EXT_DIMENSIONS		0x0d
+#define SYNAPTICS_QUE_EXT_MAX_COORDS		0x0d
+#define SYNAPTICS_QUE_EXT_MIN_COORDS		0x0f
 #define SYNAPTICS_QUE_EXT2_CAPABILITIES		0x10
 
 #define SYNAPTICS_CMD_SET_MODE			0x14
@@ -137,13 +138,14 @@
 /* Extended Capability bits */
 #define SYNAPTICS_EXT_CAP_CLICKPAD		(1 << 20)
 #define SYNAPTICS_EXT_CAP_ADV_GESTURE		(1 << 19)
-#define SYNAPTICS_EXT_CAP_MAX_DIMENSIONS	(1 << 17)
+#define SYNAPTICS_EXT_CAP_MAX_COORDS		(1 << 17)
+#define SYNAPTICS_EXT_CAP_MIN_COORDS		(1 << 13)
 #define SYNAPTICS_EXT_CAP_CLICKPAD_2BTN		(1 << 8)
 
-/* Extended Dimensions */
-#define SYNAPTICS_DIM_X(d)			((((d) & 0xff0000) >> 11) | \
+/* Coordinate Limits */
+#define SYNAPTICS_X_LIMIT(d)			((((d) & 0xff0000) >> 11) | \
 						 (((d) & 0xf00) >> 7))
-#define SYNAPTICS_DIM_Y(d)			((((d) & 0xff) << 5) | \
+#define SYNAPTICS_Y_LIMIT(d)			((((d) & 0xff) << 5) | \
 						 (((d) & 0xf000) >> 11))
 
 /* Extended Capability 2 */
@@ -155,10 +157,10 @@
 #define SYNAPTICS_YMIN_BEZEL			1408
 #define SYNAPTICS_YMAX_BEZEL			4448
 
-#define ALPS_XMIN_BEZEL				130
-#define ALPS_XMAX_BEZEL				840
-#define ALPS_YMIN_BEZEL				130
-#define ALPS_YMAX_BEZEL				640
+#define ALPS_XMIN_BEZEL				0
+#define ALPS_XMAX_BEZEL				1023
+#define ALPS_YMIN_BEZEL				0
+#define ALPS_YMAX_BEZEL				767
 
 #define ALPS_XSEC_BEZEL				768
 #define ALPS_YSEC_BEZEL				512
@@ -178,6 +180,7 @@
 
 /* Elantech capabilities */
 #define ELANTECH_CAP_HAS_ROCKER			4
+#define ELANTECH_CAP_TRACKPOINT			0x80
 
 #define ELANTECH_PS2_CUSTOM_COMMAND		0xf8
 
@@ -207,5 +210,8 @@
 #define ELANTECH_V4_PKT_STATUS			0x10
 #define ELANTECH_V4_PKT_HEAD			0x11
 #define ELANTECH_V4_PKT_MOTION			0x12
+
+/* V3 and V4 may be coupled with trackpoints, pms supports them for V4. */
+#define ELANTECH_PKT_TRACKPOINT			0x06
 
 #endif /* SYS_DEV_PCKBC_PMSREG_H */

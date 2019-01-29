@@ -7,7 +7,7 @@
 /cardslotvar.h/1.6/Wed Oct 30 08:47:20 2013//
 /com_cardbus.c/1.43/Sat Nov 14 14:47:56 2015//
 /ehci_cardbus.c/1.22/Wed Nov 11 02:29:14 2015//
-/files.cardbus/1.30/Mon Nov 24 02:03:37 2014//
+/files.cardbus/1.31/Wed Feb 14 23:51:49 2018//
 /if_acx_cardbus.c/1.22/Tue Nov 24 17:11:39 2015//
 /if_ath_cardbus.c/1.19/Tue Nov 24 17:11:39 2015//
 /if_athn_cardbus.c/1.15/Thu Jan 12 16:32:28 2017//
@@ -22,7 +22,7 @@
 /if_rl_cardbus.c/1.30/Tue Nov 24 17:11:39 2015//
 /if_rtw_cardbus.c/1.26/Tue Nov 24 17:11:39 2015//
 /if_xl_cardbus.c/1.33/Tue Nov 24 17:11:39 2015//
-/ohci_cardbus.c/1.21/Sat Mar 14 03:38:47 2015//
+/ohci_cardbus.c/1.22/Mon Jan  7 03:41:06 2019//
 /puc_cardbus.c/1.8/Tue Nov 15 22:27:53 2011//
 /rbus.c/1.16/Wed Sep 22 02:28:37 2010//
 /rbus.h/1.10/Wed Sep 22 02:28:37 2010//

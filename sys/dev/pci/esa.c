@@ -1,4 +1,4 @@
-/*	$OpenBSD: esa.c,v 1.32 2016/12/12 06:47:22 ratchov Exp $	*/
+/*	$OpenBSD: esa.c,v 1.35 2018/09/14 08:37:34 miko Exp $	*/
 /* $NetBSD: esa.c,v 1.12 2002/03/24 14:17:35 jmcneill Exp $ */
 
 /*
@@ -43,7 +43,6 @@
  * driver.
  */
 
-#include <sys/types.h>
 #include <sys/errno.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -149,8 +148,8 @@ int		esa_add_list(struct esa_voice *, struct esa_list *, u_int16_t,
 void		esa_remove_list(struct esa_voice *, struct esa_list *, int);
 
 /* power management */
-int		esa_suspend(struct esa_softc *);
-int		esa_resume(struct esa_softc *);
+void		esa_suspend(struct esa_softc *);
+void		esa_resume(struct esa_softc *);
 
 struct audio_hw_if esa_hw_if = {
 	esa_open,
@@ -1515,13 +1514,12 @@ esa_activate(struct device *self, int act)
 		break;
 	case DVACT_RESUME:
 		esa_resume(sc);
-		(sc->codec_if->vtbl->restore_ports)(sc->codec_if);
 		break;
 	}
 	return 0;
 }
 
-int
+void
 esa_suspend(struct esa_softc *sc)
 {
 	bus_space_tag_t iot = sc->sc_iot;
@@ -1544,12 +1542,11 @@ esa_suspend(struct esa_softc *sc)
 	    i++)
 		sc->savemem[index++] = esa_read_assp(sc,
 		    ESA_MEMTYPE_INTERNAL_DATA, i);
-
-	return (0);
 }
 
-int
-esa_resume(struct esa_softc *sc) {
+void
+esa_resume(struct esa_softc *sc)
+{
 	bus_space_tag_t iot = sc->sc_iot;
 	bus_space_handle_t ioh = sc->sc_ioh;
 	int i, index;
@@ -1579,8 +1576,6 @@ esa_resume(struct esa_softc *sc) {
 
 	esa_enable_interrupts(sc);
 	esa_amp_enable(sc);
-
-	return (0);
 }
 
 u_int32_t

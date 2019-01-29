@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.132 2017/07/20 18:22:25 bluhm Exp $	*/
+/*	$OpenBSD: trap.c,v 1.138 2018/07/09 19:20:30 guenther Exp $	*/
 /*	$NetBSD: trap.c,v 1.95 1996/05/05 06:50:02 mycroft Exp $	*/
 
 /*-
@@ -120,7 +120,7 @@ trap(struct trapframe *frame)
 	    resume_pop_fs[], resume_pop_gs[];
 	struct trapframe *vframe;
 	int resume;
-	vm_prot_t vftype, ftype;
+	vm_prot_t ftype;
 	union sigval sv;
 	caddr_t onfault;
 	uint32_t cr2;
@@ -129,12 +129,11 @@ trap(struct trapframe *frame)
 
 	/* SIGSEGV and SIGBUS need this */
 	if (frame->tf_err & PGEX_W) {
-		vftype = PROT_WRITE;
-		ftype = PROT_READ | PROT_WRITE;
+		ftype = PROT_WRITE;
 	} else if (frame->tf_err & PGEX_I) {
-		ftype = vftype = PROT_EXEC;
+		ftype = PROT_EXEC;
 	} else
-		ftype = vftype = PROT_READ;
+		ftype = PROT_READ;
 
 #ifdef DEBUG
 	if (trapdebug) {
@@ -144,11 +143,38 @@ trap(struct trapframe *frame)
 		printf("curproc %p\n", curproc);
 	}
 #endif
+#ifdef DIAGNOSTIC
+	if (curcpu()->ci_feature_sefflags_ebx & SEFF0EBX_SMAP) {
+		u_int ef = read_eflags();
+		if (ef & PSL_AC) {
+			write_eflags(ef & ~PSL_AC);
+			panic("%s: AC set on entry", "trap");
+		}
+	}
+#endif
 
 	if (!KERNELMODE(frame->tf_cs, frame->tf_eflags)) {
+		vaddr_t sp;
+
 		type |= T_USER;
 		p->p_md.md_regs = frame;
 		refreshcreds(p);
+
+		sp = PROC_STACK(p);
+		if (p->p_vmspace->vm_map.serial != p->p_spserial ||
+		    p->p_spstart == 0 || sp < p->p_spstart ||
+		    sp >= p->p_spend) {
+			KERNEL_LOCK();
+			if (!uvm_map_check_stack_range(p, sp)) {
+				printf("trap [%s]%d/%d type %d: sp %lx not inside %lx-%lx\n",
+				    p->p_p->ps_comm, p->p_p->ps_pid, p->p_tid,
+				    (int)frame->tf_trapno, sp, p->p_spstart, p->p_spend);
+				sv.sival_ptr = (void *)PROC_PC(p);
+				trapsignal(p, SIGSEGV, type & ~T_USER,
+				    SEGV_ACCERR, sv);
+			}
+			KERNEL_UNLOCK();
+		}
 	}
 
 	switch (type) {
@@ -173,7 +199,8 @@ trap(struct trapframe *frame)
 			printf("unknown trap %d", frame->tf_trapno);
 		printf(" in %s mode\n", (type & T_USER) ? "user" : "supervisor");
 		printf("trap type %d code %x eip %x cs %x eflags %x cr2 %x cpl %x\n",
-		    type, frame->tf_err, frame->tf_eip, frame->tf_cs, frame->tf_eflags, rcr2(), lapic_tpr);
+		    type, frame->tf_err, frame->tf_eip, frame->tf_cs,
+		    frame->tf_eflags, rcr2(), lapic_tpr);
 
 		panic("trap type %d, code=%x, pc=%x",
 		    type, frame->tf_err, frame->tf_eip);
@@ -256,13 +283,7 @@ trap(struct trapframe *frame)
 
 	case T_PROTFLT|T_USER:		/* protection fault */
 		KERNEL_LOCK();
-#ifdef VM86
-		if (frame->tf_eflags & PSL_VM) {
-			vm86_gpfault(p, type & ~T_USER);
-			KERNEL_UNLOCK();
-			goto out;
-		}
-#endif
+
 		/* If pmap_exec_fixup does something, let's retry the trap. */
 		if (pmap_exec_fixup(&p->p_vmspace->vm_map, frame,
 		    &p->p_addr->u_pcb)) {
@@ -271,14 +292,14 @@ trap(struct trapframe *frame)
 		}
 
 		sv.sival_int = frame->tf_eip;
-		trapsignal(p, SIGSEGV, vftype, SEGV_MAPERR, sv);
+		trapsignal(p, SIGSEGV, type &~ T_USER, SEGV_MAPERR, sv);
 		KERNEL_UNLOCK();
 		goto out;
 
 	case T_TSSFLT|T_USER:
 		sv.sival_int = frame->tf_eip;
 		KERNEL_LOCK();
-		trapsignal(p, SIGBUS, vftype, BUS_OBJERR, sv);
+		trapsignal(p, SIGBUS, type &~ T_USER, BUS_OBJERR, sv);
 		KERNEL_UNLOCK();
 		goto out;
 
@@ -286,14 +307,14 @@ trap(struct trapframe *frame)
 	case T_STKFLT|T_USER:
 		sv.sival_int = frame->tf_eip;
 		KERNEL_LOCK();
-		trapsignal(p, SIGSEGV, vftype, SEGV_MAPERR, sv);
+		trapsignal(p, SIGSEGV, type &~ T_USER, SEGV_MAPERR, sv);
 		KERNEL_UNLOCK();
 		goto out;
 
 	case T_ALIGNFLT|T_USER:
 		sv.sival_int = frame->tf_eip;
 		KERNEL_LOCK();
-		trapsignal(p, SIGBUS, vftype, BUS_ADRALN, sv);
+		trapsignal(p, SIGBUS, type &~ T_USER, BUS_ADRALN, sv);
 		KERNEL_UNLOCK();
 		goto out;
 
@@ -442,7 +463,7 @@ trap(struct trapframe *frame)
 			sicode = BUS_OBJERR;
 		}
 		sv.sival_int = fa;
-		trapsignal(p, signal, vftype, sicode, sv);
+		trapsignal(p, signal, type &~ T_USER, sicode, sv);
 		KERNEL_UNLOCK();
 		break;
 	}
@@ -536,6 +557,16 @@ syscall(struct trapframe *frame)
 	if (!USERMODE(frame->tf_cs, frame->tf_eflags))
 		panic("syscall");
 #endif
+#ifdef DIAGNOSTIC
+	if (curcpu()->ci_feature_sefflags_ebx & SEFF0EBX_SMAP) {
+		u_int ef = read_eflags();
+		if (ef & PSL_AC) {
+			write_eflags(ef & ~PSL_AC);
+			panic("%s: AC set on entry", "syscall");
+		}
+	}
+#endif
+
 	p = curproc;
 	p->p_md.md_regs = frame;
 	code = frame->tf_eax;
@@ -544,17 +575,6 @@ syscall(struct trapframe *frame)
 	callp = p->p_p->ps_emul->e_sysent;
 
 	params = (caddr_t)frame->tf_esp + sizeof(int);
-
-#ifdef VM86
-	/*
-	 * VM86 mode application found our syscall trap gate by accident; let
-	 * it get a SIGSYS and have the VM86 handler in the process take care
-	 * of it.
-	 */
-	if (frame->tf_eflags & PSL_VM)
-		code = -1;
-	else
-#endif
 
 	switch (code) {
 	case SYS_syscall:

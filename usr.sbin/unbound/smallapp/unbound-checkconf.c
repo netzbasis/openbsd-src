@@ -43,6 +43,7 @@
  */
 
 #include "config.h"
+#include <ctype.h>
 #include "util/log.h"
 #include "util/config_file.h"
 #include "util/module.h"
@@ -54,6 +55,7 @@
 #include "validator/validator.h"
 #include "services/localzone.h"
 #include "services/view.h"
+#include "services/authzone.h"
 #include "respip/respip.h"
 #include "sldns/sbuffer.h"
 #ifdef HAVE_GETOPT_H
@@ -70,6 +72,9 @@
 #endif
 #ifdef WITH_PYTHONMODULE
 #include "pythonmod/pythonmod.h"
+#endif
+#ifdef CLIENT_SUBNET
+#include "edns-subnet/subnet-whitelist.h"
 #endif
 
 /** Give checkconf usage, and exit (1). */
@@ -103,6 +108,16 @@ print_option(struct config_file* cfg, const char* opt, int final)
 		if(!p) fatal_exit("out of memory");
 		printf("%s\n", p);
 		free(p);
+		return;
+	}
+	if(strcmp(opt, "auto-trust-anchor-file") == 0 && final) {
+		struct config_strlist* s = cfg->auto_trust_anchor_file_list;
+		for(; s; s=s->next) {
+			char *p = fname_after_chroot(s->str, cfg, 1);
+			if(!p) fatal_exit("out of memory");
+			printf("%s\n", p);
+			free(p);
+		}
 		return;
 	}
 	if(!config_get_option(cfg, opt, config_print_func, stdout))
@@ -238,6 +253,23 @@ aclchecks(struct config_file* cfg)
 	}
 }
 
+/** check tcp connection limit ips */
+static void
+tcpconnlimitchecks(struct config_file* cfg)
+{
+	int d;
+	struct sockaddr_storage a;
+	socklen_t alen;
+	struct config_str2list* tcl;
+	for(tcl=cfg->tcp_connection_limits; tcl; tcl = tcl->next) {
+		if(!netblockstrtoaddr(tcl->str, UNBOUND_DNS_PORT, &a, &alen,
+			&d)) {
+			fatal_exit("cannot parse tcp connection limit address %s %s",
+				tcl->str, tcl->str2);
+		}
+	}
+}
+
 /** true if fname is a file */
 static int
 is_file(const char* fname)
@@ -345,6 +377,58 @@ check_chroot_filelist_wild(const char* desc, struct config_strlist* list,
 	}
 }
 
+#ifdef CLIENT_SUBNET
+/** check ECS configuration */
+static void
+ecs_conf_checks(struct config_file* cfg)
+{
+	struct ecs_whitelist* whitelist = NULL;
+	if(!(whitelist = ecs_whitelist_create()))
+		fatal_exit("Could not create ednssubnet whitelist: out of memory");
+        if(!ecs_whitelist_apply_cfg(whitelist, cfg))
+		fatal_exit("Could not setup ednssubnet whitelist");
+	ecs_whitelist_delete(whitelist);
+}
+#endif /* CLIENT_SUBNET */
+
+/** check that the modules exist, are compiled in */
+static void
+check_modules_exist(const char* module_conf)
+{
+	const char** names = module_list_avail();
+	const char* s = module_conf;
+	while(*s) {
+		int i = 0;
+		int is_ok = 0;
+		while(*s && isspace((unsigned char)*s))
+			s++;
+		if(!*s) break;
+		while(names[i]) {
+			if(strncmp(names[i], s, strlen(names[i])) == 0) {
+				is_ok = 1;
+				break;
+			}
+			i++;
+		}
+		if(is_ok == 0) {
+			char n[64];
+			size_t j;
+			n[0]=0;
+			n[sizeof(n)-1]=0;
+			for(j=0; j<sizeof(n)-1; j++) {
+				if(!s[j] || isspace((unsigned char)s[j])) {
+					n[j] = 0;
+					break;
+				}
+				n[j] = s[j];
+			}
+			fatal_exit("module_conf lists module '%s' but that "
+				"module is not available.", n);
+		}
+		s += strlen(names[i]);
+	}
+}
+
 /** check configuration for errors */
 static void
 morechecks(struct config_file* cfg, const char* fname)
@@ -353,6 +437,7 @@ morechecks(struct config_file* cfg, const char* fname)
 	warn_hosts("forward-host", cfg->forwards);
 	interfacechecks(cfg);
 	aclchecks(cfg);
+	tcpconnlimitchecks(cfg);
 
 	if(cfg->verbosity < 0)
 		fatal_exit("verbosity value < 0");
@@ -427,12 +512,18 @@ morechecks(struct config_file* cfg, const char* fname)
 	check_chroot_string("dlv-anchor-file", &cfg->dlv_anchor_file,
 		cfg->chrootdir, cfg);
 #ifdef USE_IPSECMOD
-	check_chroot_string("ipsecmod-hook", &cfg->ipsecmod_hook, cfg->chrootdir,
-		cfg);
+	if(cfg->ipsecmod_enabled && strstr(cfg->module_conf, "ipsecmod")) {
+		/* only check hook if enabled */
+		check_chroot_string("ipsecmod-hook", &cfg->ipsecmod_hook,
+			cfg->chrootdir, cfg);
+	}
 #endif
 	/* remove chroot setting so that modules are not stripping pathnames*/
 	free(cfg->chrootdir);
 	cfg->chrootdir = NULL;
+
+	/* check that the modules listed in module_conf exist */
+	check_modules_exist(cfg->module_conf);
 
 	/* There should be no reason for 'respip' module not to work with
 	 * dns64, but it's not explicitly confirmed,  so the combination is
@@ -474,11 +565,12 @@ morechecks(struct config_file* cfg, const char* fname)
 #ifdef CLIENT_SUBNET
 		&& strcmp(cfg->module_conf, "subnetcache iterator") != 0
 		&& strcmp(cfg->module_conf, "subnetcache validator iterator") != 0
+		&& strcmp(cfg->module_conf, "dns64 subnetcache iterator") != 0
+		&& strcmp(cfg->module_conf, "dns64 subnetcache validator iterator") != 0
 #endif
 #if defined(WITH_PYTHONMODULE) && defined(CLIENT_SUBNET)
 		&& strcmp(cfg->module_conf, "python subnetcache iterator") != 0
 		&& strcmp(cfg->module_conf, "subnetcache python iterator") != 0
-		&& strcmp(cfg->module_conf, "subnetcache validator iterator") != 0
 		&& strcmp(cfg->module_conf, "python subnetcache validator iterator") != 0
 		&& strcmp(cfg->module_conf, "subnetcache python validator iterator") != 0
 		&& strcmp(cfg->module_conf, "subnetcache validator python iterator") != 0
@@ -509,7 +601,8 @@ morechecks(struct config_file* cfg, const char* fname)
 #  endif
 	}
 #endif
-	if(cfg->remote_control_enable && cfg->remote_control_use_cert) {
+	if(cfg->remote_control_enable && options_remote_is_address(cfg)
+		&& cfg->control_use_cert) {
 		check_chroot_string("server-key-file", &cfg->server_key_file,
 			cfg->chrootdir, cfg);
 		check_chroot_string("server-cert-file", &cfg->server_cert_file,
@@ -524,6 +617,9 @@ morechecks(struct config_file* cfg, const char* fname)
 
 	localzonechecks(cfg);
 	view_and_respipchecks(cfg);
+#ifdef CLIENT_SUBNET
+	ecs_conf_checks(cfg);
+#endif
 }
 
 /** check forwards */
@@ -546,6 +642,17 @@ check_hints(struct config_file* cfg)
 		fatal_exit("Could not set root or stub hints");
 	}
 	hints_delete(hints);
+}
+
+/** check auth zones */
+static void
+check_auth(struct config_file* cfg)
+{
+	struct auth_zones* az = auth_zones_create();
+	if(!az || !auth_zones_apply_cfg(az, cfg, 0)) {
+		fatal_exit("Could not setup authority zones");
+	}
+	auth_zones_delete(az);
 }
 
 /** check config file */
@@ -582,6 +689,7 @@ checkconf(const char* cfgfile, const char* opt, int final)
 #endif
 	check_fwd(cfg);
 	check_hints(cfg);
+	check_auth(cfg);
 	printf("unbound-checkconf: no errors in %s\n", cfgfile);
 	config_delete(cfg);
 }

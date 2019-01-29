@@ -1,16 +1,16 @@
 /Makefile.inc/1.1/Wed Jan 11 18:09:24 2017//
-/_atomic_lock.c/1.1/Tue Aug 15 06:16:37 2017//
-/_setjmp.S/1.2/Sun Apr 16 13:35:14 2017//
-/byte_swap_2.S/1.1/Wed Jan 11 18:09:24 2017//
-/byte_swap_4.S/1.1/Wed Jan 11 18:09:24 2017//
+/_atomic_lock.c/1.2/Thu May 17 20:28:32 2018//
+/_setjmp.S/1.3/Mon Oct  1 22:49:50 2018//
+/byte_swap_2.S/1.2/Sun Aug 12 17:15:10 2018//
+/byte_swap_4.S/1.2/Sun Aug 12 17:15:10 2018//
 /clz_tab.c/1.1/Wed Jan 11 18:09:24 2017//
 /fabs.c/1.1/Wed Jan 11 18:09:24 2017//
 /flt_rounds.c/1.1/Wed Jan 11 18:09:24 2017//
 /fpclassifyl.c/1.1/Wed Jan 11 18:09:24 2017//
-/fpgetmask.c/1.1/Wed Jan 11 18:09:24 2017//
+/fpgetmask.c/1.2/Fri Mar 16 10:22:52 2018//
 /fpgetround.c/1.2/Wed Mar 22 07:32:34 2017//
 /fpgetsticky.c/1.1/Wed Jan 11 18:09:24 2017//
-/fpsetmask.c/1.1/Wed Jan 11 18:09:24 2017//
+/fpsetmask.c/1.2/Fri Mar 16 10:22:52 2018//
 /fpsetround.c/1.2/Wed Mar 22 07:32:34 2017//
 /fpsetsticky.c/1.1/Wed Jan 11 18:09:24 2017//
 /infinity.c/1.1/Wed Jan 11 18:09:24 2017//
@@ -19,7 +19,7 @@
 /isnanl.c/1.1/Wed Jan 11 18:09:24 2017//
 /isnormall.c/1.1/Wed Jan 11 18:09:24 2017//
 /nan.c/1.1/Wed Jan 11 18:09:24 2017//
-/setjmp.S/1.2/Wed Mar  8 06:28:12 2017//
+/setjmp.S/1.3/Mon Oct  1 22:49:50 2018//
 /signbitl.c/1.1/Wed Jan 11 18:09:24 2017//
 /sigsetjmp.S/1.2/Wed Mar 22 07:31:35 2017//
 D

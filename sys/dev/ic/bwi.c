@@ -1,4 +1,4 @@
-/*	$OpenBSD: bwi.c,v 1.125 2017/07/03 09:21:09 kevlo Exp $	*/
+/*	$OpenBSD: bwi.c,v 1.127 2017/10/26 15:00:28 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 The DragonFly Project.  All rights reserved.
@@ -39,7 +39,6 @@
 #include "bpfilter.h"
 
 #include <sys/param.h>
-#include <sys/types.h>
 
 #include <sys/device.h>
 #include <sys/kernel.h>
@@ -7108,7 +7107,6 @@ bwi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct bwi_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifreq *ifr;
 	int s, error = 0;
 	uint8_t chan;
 
@@ -7126,16 +7124,6 @@ bwi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_flags & IFF_RUNNING)
 				bwi_stop(sc, 1);
 		}
-		break;
-        case SIOCADDMULTI:
-        case SIOCDELMULTI:
-		ifr = (struct ifreq *)data;
-		error = (cmd == SIOCADDMULTI) ?
-		    ether_addmulti(ifr, &ic->ic_ac) :
-		    ether_delmulti(ifr, &ic->ic_ac);
-
-		if (error == ENETRESET)
-			error = 0;
 		break;
 	case SIOCS80211CHANNEL:
 		/* allow fast channel switching in monitor mode */

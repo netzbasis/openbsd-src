@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file a TargetTransformInfo::Concept conforming object specific
+/// This file a TargetTransformInfo::Concept conforming object specific
 /// to the WebAssembly target machine.
 ///
 /// It uses the target's detailed information to provide more precise answers to
@@ -55,7 +55,7 @@ public:
   /// @{
 
   unsigned getNumberOfRegisters(bool Vector);
-  unsigned getRegisterBitWidth(bool Vector);
+  unsigned getRegisterBitWidth(bool Vector) const;
   unsigned getArithmeticInstrCost(
       unsigned Opcode, Type *Ty,
       TTI::OperandValueKind Opd1Info = TTI::OK_AnyValue,

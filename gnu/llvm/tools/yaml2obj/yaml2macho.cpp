@@ -8,15 +8,16 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief The Mach component of yaml2obj.
+/// The Mach component of yaml2obj.
 ///
 //===----------------------------------------------------------------------===//
 
 #include "yaml2obj.h"
+#include "llvm/BinaryFormat/MachO.h"
+#include "llvm/ObjectYAML/DWARFEmitter.h"
 #include "llvm/ObjectYAML/ObjectYAML.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/LEB128.h"
-#include "llvm/Support/MachO.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -179,6 +180,21 @@ size_t writeLoadCommandData<MachO::rpath_command>(MachOYAML::LoadCommand &LC,
   return writePayloadString(LC, OS);
 }
 
+template <>
+size_t writeLoadCommandData<MachO::build_version_command>(
+    MachOYAML::LoadCommand &LC, raw_ostream &OS, bool IsLittleEndian) {
+  size_t BytesWritten = 0;
+  for (const auto &T : LC.Tools) {
+    struct MachO::build_tool_version tool = T;
+    if (IsLittleEndian != sys::IsLittleEndianHost)
+      MachO::swapStruct(tool);
+    OS.write(reinterpret_cast<const char *>(&tool),
+             sizeof(MachO::build_tool_version));
+    BytesWritten += sizeof(MachO::build_tool_version);
+  }
+  return BytesWritten;
+}
+
 void ZeroFillBytes(raw_ostream &OS, size_t Size) {
   std::vector<uint8_t> FillData;
   FillData.insert(FillData.begin(), Size, 0);
@@ -223,7 +239,7 @@ Error MachOWriter::writeLoadCommands(raw_ostream &OS) {
       BytesWritten +=
           writeLoadCommandData<MachO::load_command>(LC, OS, Obj.IsLittleEndian);
       break;
-#include "llvm/Support/MachO.def"
+#include "llvm/BinaryFormat/MachO.def"
     }
 
     if (LC.PayloadBytes.size() > 0) {
@@ -269,19 +285,21 @@ Error MachOWriter::writeSectionData(raw_ostream &OS) {
                "Wrote too much data somewhere, section offsets don't line up.");
         if (0 == strncmp(&Sec.segname[0], "__DWARF", 16)) {
           if (0 == strncmp(&Sec.sectname[0], "__debug_str", 16)) {
-            yaml2debug_str(OS, Obj.DWARF);
+            DWARFYAML::EmitDebugStr(OS, Obj.DWARF);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_abbrev", 16)) {
-            yaml2debug_abbrev(OS, Obj.DWARF);
+            DWARFYAML::EmitDebugAbbrev(OS, Obj.DWARF);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_aranges", 16)) {
-            yaml2debug_aranges(OS, Obj.DWARF);
+            DWARFYAML::EmitDebugAranges(OS, Obj.DWARF);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_pubnames", 16)) {
-            yaml2pubsection(OS, Obj.DWARF.PubNames, Obj.IsLittleEndian);
+            DWARFYAML::EmitPubSection(OS, Obj.DWARF.PubNames,
+                                      Obj.IsLittleEndian);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_pubtypes", 16)) {
-            yaml2pubsection(OS, Obj.DWARF.PubTypes, Obj.IsLittleEndian);
+            DWARFYAML::EmitPubSection(OS, Obj.DWARF.PubTypes,
+                                      Obj.IsLittleEndian);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_info", 16)) {
-            yaml2debug_info(OS, Obj.DWARF);
+            DWARFYAML::EmitDebugInfo(OS, Obj.DWARF);
           } else if (0 == strncmp(&Sec.sectname[0], "__debug_line", 16)) {
-            yaml2debug_line(OS, Obj.DWARF);
+            DWARFYAML::EmitDebugLine(OS, Obj.DWARF);
           }
         } else {
           // Fills section data with 0xDEADBEEF
@@ -399,10 +417,10 @@ Error MachOWriter::writeLinkEditData(raw_ostream &OS) {
     }
   }
 
-  std::sort(WriteQueue.begin(), WriteQueue.end(),
-            [](const writeOperation &a, const writeOperation &b) {
-              return a.first < b.first;
-            });
+  llvm::sort(WriteQueue.begin(), WriteQueue.end(),
+             [](const writeOperation &a, const writeOperation &b) {
+               return a.first < b.first;
+             });
 
   for (auto writeOp : WriteQueue) {
     ZeroToOffset(OS, writeOp.first);

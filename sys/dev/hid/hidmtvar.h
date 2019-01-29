@@ -1,4 +1,4 @@
-/* $OpenBSD: hidmtvar.h,v 1.1 2016/01/20 01:26:00 jcs Exp $ */
+/* $OpenBSD: hidmtvar.h,v 1.7 2018/08/25 20:31:31 jcs Exp $ */
 /*
  * Copyright (c) 2016 joshua stein <jcs@openbsd.org>
  *
@@ -15,10 +15,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-struct hidmt_input {
+struct hidmt_data {
 	int32_t			usage;
 	struct hid_location	loc;
-	SIMPLEQ_ENTRY(hidmt_input) entry;
+	SIMPLEQ_ENTRY(hidmt_data) entry;
 };
 
 struct hidmt_contact {
@@ -39,6 +39,7 @@ struct hidmt {
 #define HIDMT_REVY	0x0001	/* Y-axis is reversed ("natural" scrolling) */
 
 	struct device	*sc_device;
+	int		(*hidev_report_type_conv)(int);
 	int		(*hidev_get_report)(struct device *, int, int, void *,
 			    int);
 	int		(*hidev_set_report)(struct device *, int, int, void *,
@@ -49,25 +50,25 @@ struct hidmt {
 	int		sc_rep_config;
 	int		sc_rep_cap;
 
-	SIMPLEQ_HEAD(, hidmt_input) sc_inputs;
+	SIMPLEQ_HEAD(, hidmt_data) sc_inputs;
 
 	struct device	*sc_wsmousedev;
-	int		sc_wsmode;
 
 	int		sc_clickpad;
 	int		sc_num_contacts;
 #define HIDMT_MAX_CONTACTS	5
 	int		sc_minx, sc_maxx;
 	int		sc_miny, sc_maxy;
+	int		sc_resx, sc_resy;
 
 	struct hidmt_contact sc_contacts[HIDMT_MAX_CONTACTS];
+	int		sc_cur_contactcount;
 	int		sc_button;
-
-	int		last_x, last_y;
 };
 
-int	hidmt_set_input_mode(struct hidmt *, int);
-#define HIDMT_INPUT_MODE_MT	0x3
+int	hidmt_set_input_mode(struct hidmt *, uint16_t);
+#define HIDMT_INPUT_MODE_MT_TOUCHSCREEN	0x2
+#define HIDMT_INPUT_MODE_MT_TOUCHPAD	0x3
 
 void	hidmt_attach(struct hidmt *, const struct wsmouse_accessops *);
 int	hidmt_detach(struct hidmt *, int);

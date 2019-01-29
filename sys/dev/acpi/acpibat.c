@@ -1,4 +1,4 @@
-/* $OpenBSD: acpibat.c,v 1.65 2017/07/25 21:32:07 jcs Exp $ */
+/* $OpenBSD: acpibat.c,v 1.67 2018/07/01 19:40:49 mlarkin Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  *
@@ -40,7 +40,10 @@ struct cfdriver acpibat_cd = {
 	NULL, "acpibat", DV_DULL
 };
 
-const char *acpibat_hids[] = { ACPI_DEV_CMB, 0 };
+const char *acpibat_hids[] = {
+	ACPI_DEV_CMB,
+	NULL
+};
 
 void	acpibat_monitor(struct acpibat_softc *);
 void	acpibat_refresh(void *);
@@ -332,10 +335,10 @@ acpibat_getbix(struct acpibat_softc *sc)
 
 	if (aml_evalname(sc->sc_acpi, sc->sc_devnode, "_BIX", 0, NULL,
 	    &res) == 0) {
-		if (res.length == 20)
+		if (res.length >= 20)
 			sc->sc_use_bif = 0;
 		else
-			dnprintf(10, "%s: invalid _BIX (%d != 20)\n",
+			dnprintf(10, "%s: invalid _BIX (%d < 20)\n",
 			    DEVNAME(sc), res.length);
 	}
 

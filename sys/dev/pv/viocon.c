@@ -1,4 +1,4 @@
-/*	$OpenBSD: viocon.c,v 1.2 2017/05/30 17:47:11 krw Exp $	*/
+/*	$OpenBSD: viocon.c,v 1.5 2019/01/08 16:24:09 sf Exp $	*/
 
 /*
  * Copyright (c) 2013-2015 Stefan Fritsch <sf@sfritsch.de>
@@ -49,9 +49,11 @@
 #endif
 
 struct virtio_feature_name viocon_feature_names[] = {
+#if VIRTIO_DEBUG
 	{ VIRTIO_CONSOLE_F_SIZE,	"Size" },
 	{ VIRTIO_CONSOLE_F_MULTIPORT,	"MultiPort" },
 	{ VIRTIO_CONSOLE_F_EMERG_WRITE,	"EmergWrite" },
+#endif
 	{ 0, 				NULL },
 };
 
@@ -178,7 +180,6 @@ viocon_attach(struct device *parent, struct device *self, void *aux)
 		panic("already attached to something else");
 	vsc->sc_child = self;
 	vsc->sc_ipl = IPL_TTY;
-	vsc->sc_intrhand = virtio_vq_intr;
 	vsc->sc_config_change = 0;
 	sc->sc_virtio = vsc;
 	sc->sc_max_ports = maxports;
@@ -528,7 +529,7 @@ vioconopen(dev_t dev, int flag, int mode, struct proc *p)
 		ttsetwater(tp);
 		splx(s);
 	}
-	else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p, 0) != 0) {
+	else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p) != 0) {
 		return (EBUSY);
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacctl.c,v 1.12 2017/08/22 13:56:49 florian Exp $	*/
+/*	$OpenBSD: slaacctl.c,v 1.15 2018/07/27 06:26:38 bket Exp $	*/
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -85,6 +85,9 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
+
+	if (pledge("stdio unix", NULL) == -1)
+		err(1, "pledge");
 
 	/* Parse command line. */
 	if ((res = parse(argc, argv)) == NULL)
@@ -225,6 +228,8 @@ show_interface_msg(struct imsg *imsg)
 		printf("\t\tDefault Router Preference: %s\n", cei_ra->rpref);
 		printf("\t\tReachable Time: %9ums, Retrans Timer: %9ums\n",
 		    cei_ra->reachable_time, cei_ra->retrans_time);
+		if (cei_ra->mtu)
+			printf("\t\tMTU: %u bytes\n", cei_ra->mtu);
 		break;
 	case IMSG_CTL_SHOW_INTERFACE_INFO_RA_PREFIX:
 		cei_ra_prefix = imsg->data;
@@ -306,9 +311,9 @@ show_interface_msg(struct imsg *imsg)
 		    NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV))
 			err(1, "cannot get router IP");
 
-		printf("\t\trouter: %s\n", hbuf);
 		printf("\t\tid: %4lld, state: %15s\n",
 		    cei_dfr_proposal->id, cei_dfr_proposal->state);
+		printf("\t\trouter: %s\n", hbuf);
 		printf("\t\trouter lifetime: %10u\n",
 		    cei_dfr_proposal->router_lifetime);
 		printf("\t\tPreference: %s\n", cei_dfr_proposal->rpref);

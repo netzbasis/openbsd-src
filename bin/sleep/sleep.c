@@ -1,4 +1,4 @@
-/*	$OpenBSD: sleep.c,v 1.24 2015/10/11 20:17:49 guenther Exp $	*/
+/*	$OpenBSD: sleep.c,v 1.27 2019/01/10 16:41:10 cheloha Exp $	*/
 /*	$NetBSD: sleep.c,v 1.8 1995/03/21 09:11:11 cgd Exp $	*/
 
 /*
@@ -30,8 +30,9 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/time.h>
+
 #include <ctype.h>
-#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,10 +74,10 @@ main(int argc, char *argv[])
 	cp = *argv;
 	while ((*cp != '\0') && (*cp != '.')) {
 		if (!isdigit((unsigned char)*cp))
-			usage();
+			errx(1, "seconds is invalid: %s", *argv);
 		t = (secs * 10) + (*cp++ - '0');
 		if (t / 10 != secs)	/* oflow */
-			return (EINVAL);
+			errx(1, "seconds is too large: %s", *argv);
 		secs = t;
 	}
 
@@ -87,7 +88,7 @@ main(int argc, char *argv[])
 			if (*cp == '\0')
 				break;
 			if (!isdigit((unsigned char)*cp))
-				usage();
+				errx(1, "seconds is invalid: %s", *argv);
 			nsecs += (*cp++ - '0') * i;
 		}
 
@@ -98,16 +99,18 @@ main(int argc, char *argv[])
 		 */
 		while (*cp != '\0') {
 			if (!isdigit((unsigned char)*cp++))
-				usage();
+				errx(1, "seconds is invalid: %s", *argv);
 		}
 	}
 
 	rqtp.tv_sec = secs;
 	rqtp.tv_nsec = nsecs;
 
-	if ((secs > 0) || (nsecs > 0))
-		if (nanosleep(&rqtp, NULL))
+	if (timespecisset(&rqtp)) {
+		if (nanosleep(&rqtp, NULL) == -1)
 			err(1, NULL);
+	}
+
 	return (0);
 }
 

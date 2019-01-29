@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.lib.mk,v 1.90 2017/08/09 06:15:29 robert Exp $
+#	$OpenBSD: bsd.lib.mk,v 1.95 2018/12/30 21:55:07 guenther Exp $
 #	$NetBSD: bsd.lib.mk,v 1.67 1996/01/17 20:39:26 mycroft Exp $
 #	@(#)bsd.lib.mk	5.26 (Berkeley) 5/2/91
 
@@ -33,8 +33,6 @@ CFLAGS+=	${NOPIE_FLAGS}
 CXXFLAGS+=	${NOPIE_FLAGS}
 AFLAGS+=	${NOPIE_FLAGS}
 .endif
-
-DIST_CFLAGS+=	-Oz
 
 .c.o:
 	@echo "${COMPILE.c} ${.IMPSRC} -o ${.TARGET}"
@@ -125,9 +123,9 @@ DIST_CFLAGS+=	-Oz
 	@rm -f ${.TARGET}.o
 
 .S.so .s.so:
-	@echo "${COMPILE.S} ${PICFLAG} ${CFLAGS:M-[ID]*} ${AINC} ${.IMPSRC} \
+	@echo "${COMPILE.S} ${PICFLAG} -DSOLIB ${CFLAGS:M-[ID]*} ${AINC} ${.IMPSRC} \
 	    -o ${.TARGET}"
-	@${COMPILE.S} ${DFLAGS} -MF $@.d ${PICFLAG} ${CFLAGS:M-[IDM]*} \
+	@${COMPILE.S} ${DFLAGS} -MF $@.d ${PICFLAG} -DSOLIB ${CFLAGS:M-[IDM]*} \
 	    ${AINC} ${.IMPSRC} -o ${.TARGET}.o
 	@-mv $@.d $*.d
 	@${LD} -X -r ${.TARGET}.o -o ${.TARGET}
@@ -211,19 +209,19 @@ ${FULLSHLIBNAME}: ${SOBJS} ${DPADD}
 	@echo building shared ${LIB} library \(version ${SHLIB_MAJOR}.${SHLIB_MINOR}\)
 	@rm -f ${.TARGET}
 .if defined(SYSPATCH_PATH)
-	${CC} -shared ${PICFLAG} -o ${.TARGET} \
+	${CC} -shared -Wl,-soname,${FULLSHLIBNAME} ${PICFLAG} -o ${.TARGET} \
 	    `readelf -Ws ${SYSPATCH_PATH}${LIBDIR}/${.TARGET} | \
 	    awk '/ FILE/{sub(".*/", "", $$NF); gsub(/\..*/, ".so", $$NF); print $$NF}' | \
 	    egrep -v "(cmll-586|libgcc2|unwind-dw2|mul(d|s|x)c3)" | awk '!x[$$0]++'` ${LDADD}
 .else
-	${CC} -shared ${PICFLAG} -o ${.TARGET} \
+	${CC} -shared -Wl,-soname,${FULLSHLIBNAME} ${PICFLAG} -o ${.TARGET} \
 	    `echo ${SOBJS} | tr ' ' '\n' | sort -R` ${LDADD}
 .endif
 
 ${FULLSHLIBNAME}.a: ${SOBJS}
 	@echo building shared ${LIB} library \(version ${SHLIB_MAJOR}.${SHLIB_MINOR}\) ar
 	@rm -f ${.TARGET}
-	@echo ${PICFLAG} ${LDADD} > .ldadd
+	@echo -Wl,-soname,${FULLSHLIBNAME} ${PICFLAG} ${LDADD} > .ldadd
 	ar cqD ${FULLSHLIBNAME}.a ${SOBJS} .ldadd ${SYMBOLSMAP}
 
 # all .do files...
@@ -288,8 +286,10 @@ realinstall:
 	${INSTALL} ${INSTALL_COPY} -S -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${FULLSHLIBNAME} ${DESTDIR}${LIBDIR}
 .if defined(LIBREBUILD)
+	${INSTALL} -d -o ${LIBOWN} -g ${LIBGRP} -m 755 \
+	   ${DESTDIR}/usr/share/relink/${LIBDIR}
 	${INSTALL} ${INSTALL_COPY} -S -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
-	    ${FULLSHLIBNAME}.a ${DESTDIR}${LIBDIR}
+	    ${FULLSHLIBNAME}.a ${DESTDIR}/usr/share/relink/${LIBDIR}
 .endif
 .endif
 .if defined(LINKS) && !empty(LINKS)

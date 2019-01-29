@@ -1,4 +1,4 @@
-/* $OpenBSD: wsconscfg.c,v 1.14 2015/02/09 23:00:15 deraadt Exp $ */
+/* $OpenBSD: wsconscfg.c,v 1.16 2017/10/31 17:59:30 anton Exp $ */
 /* $NetBSD: wsconscfg.c,v 1.4 1999/07/29 18:24:10 augustss Exp $ */
 
 /*
@@ -13,12 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed for the NetBSD Project
- *	by Matthias Drochner.
- * 4. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -131,13 +125,13 @@ main(int argc, char *argv[])
 			wmd.type = WSMUX_KBD;
 		wmd.idx = idx;
 		if (delete) {
-			res = ioctl(wsfd, WSMUX_REMOVE_DEVICE, &wmd);
+			res = ioctl(wsfd, WSMUXIO_REMOVE_DEVICE, &wmd);
 			if (res < 0)
-				err(3, "WSMUX_REMOVE_DEVICE");
+				err(3, "WSMUXIO_REMOVE_DEVICE");
 		} else {
-			res = ioctl(wsfd, WSMUX_ADD_DEVICE, &wmd);
+			res = ioctl(wsfd, WSMUXIO_ADD_DEVICE, &wmd);
 			if (res < 0)
-				err(3, "WSMUX_ADD_DEVICE");
+				err(3, "WSMUXIO_ADD_DEVICE");
 		}
 	} else if (delete) {
 		dsd.idx = idx;

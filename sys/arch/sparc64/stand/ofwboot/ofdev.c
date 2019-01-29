@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofdev.c,v 1.25 2015/10/01 16:08:20 krw Exp $	*/
+/*	$OpenBSD: ofdev.c,v 1.27 2018/12/31 11:44:57 claudio Exp $	*/
 /*	$NetBSD: ofdev.c,v 1.1 2000/08/20 14:58:41 mrg Exp $	*/
 
 /*
@@ -40,6 +40,7 @@
 #include <netinet/in.h>
 #endif
 
+#include <lib/libkern/funcs.h>
 #include <lib/libsa/stand.h>
 #include <lib/libsa/ufs.h>
 #include <lib/libsa/cd9660.h>
@@ -50,11 +51,16 @@
 #ifdef SOFTRAID
 #include <sys/queue.h>
 #include <dev/softraidvar.h>
+#include "softraid_sparc64.h"
 #include "disk.h"
 #endif
 
 #include <dev/sun/disklabel.h>
+#include "openfirm.h"
 #include "ofdev.h"
+
+/* needed for DISKLABELV1_FFS_FRAGBLOCK */
+int	 ffs(int);
 
 extern char bootdev[];
 
@@ -125,8 +131,8 @@ strategy(void *devdata, int rw, daddr32_t blk, size_t size, void *buf,
 #ifdef SOFTRAID
 	/* Intercept strategy for softraid volumes. */
 	if (dev->type == OFDEV_SOFTRAID)
-		return sr_strategy(bootdev_dip->sr_vol, rw,
-		    blk, size, buf, rsize);
+		return sr_strategy(bootdev_dip->sr_vol, bootdev_dip->sr_handle,
+		    rw, blk, size, buf, rsize);
 #endif
 	if (dev->type != OFDEV_DISK)
 		panic("strategy");
@@ -687,7 +693,7 @@ devopen(struct open_file *of, const char *name, char **file)
 		of->f_devdata = &ofdev;
 		bcopy(&file_system_nfs, file_system, sizeof file_system[0]);
 		nfsys = 1;
-		if (error = net_open(&ofdev))
+		if ((error = net_open(&ofdev)))
 			goto bad;
 		return 0;
 	}

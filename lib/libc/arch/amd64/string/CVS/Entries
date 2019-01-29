@@ -1,12 +1,12 @@
 /Makefile.inc/1.8/Tue Dec  9 15:10:39 2014//
-/bcmp.S/1.6/Sat Nov 14 21:53:03 2015//
-/bzero.S/1.6/Sat Nov 14 21:53:03 2015//
-/ffs.S/1.4/Sat Nov 14 21:53:03 2015//
-/memchr.S/1.6/Sat Nov 14 21:53:03 2015//
-/memmove.S/1.6/Sat Nov 14 21:53:03 2015//
-/memset.S/1.6/Sat Nov 14 21:53:03 2015//
-/strchr.S/1.8/Sat Nov 14 21:53:03 2015//
-/strcmp.S/1.7/Sat Nov 14 21:53:03 2015//
-/strlen.S/1.7/Fri Dec 11 00:05:46 2015//
-/strrchr.S/1.8/Sat Nov 14 21:53:03 2015//
+/bcmp.S/1.7/Tue Jul  3 23:14:05 2018//
+/bzero.S/1.7/Tue Jul  3 23:14:05 2018//
+/ffs.S/1.6/Tue Jul  3 23:14:05 2018//
+/memchr.S/1.7/Tue Jul  3 23:14:05 2018//
+/memmove.S/1.9/Tue Jul 10 16:01:26 2018//
+/memset.S/1.8/Tue Jul  3 23:14:05 2018//
+/strchr.S/1.9/Tue Jul  3 23:14:05 2018//
+/strcmp.S/1.8/Tue Jul  3 23:14:05 2018//
+/strlen.S/1.8/Tue Jul  3 23:14:05 2018//
+/strrchr.S/1.9/Tue Jul  3 23:14:05 2018//
 D

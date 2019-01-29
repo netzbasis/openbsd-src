@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifstated.c,v 1.60 2017/08/20 17:49:29 rob Exp $	*/
+/*	$OpenBSD: ifstated.c,v 1.63 2019/01/22 09:25:29 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Marco Pfatschbacher <mpf@openbsd.org>
@@ -31,6 +31,7 @@
 #include <net/route.h>
 #include <netinet/in.h>
 
+#include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +61,7 @@ void		rt_msg_handler(int, short, void *);
 void		external_handler(int, short, void *);
 void		external_exec(struct ifsd_external *, int);
 void		check_external_status(struct ifsd_state *);
+void		check_ifdeparture(void);
 void		external_evtimer_setup(struct ifsd_state *, int);
 void		scan_ifstate(const char *, int, int);
 int		scan_ifstate_single(const char *, int, struct ifsd_state *);
@@ -146,19 +148,23 @@ main(int argc, char *argv[])
 	log_init(debug, LOG_DAEMON);
 	log_setverbose(opts & IFSD_OPT_VERBOSE);
 
-	if ((rt_fd = socket(PF_ROUTE, SOCK_RAW, 0)) < 0)
+	if ((rt_fd = socket(AF_ROUTE, SOCK_RAW, 0)) < 0)
 		fatal("no routing socket");
 
-	rtfilter = ROUTE_FILTER(RTM_IFINFO);
-	if (setsockopt(rt_fd, PF_ROUTE, ROUTE_MSGFILTER,
+	rtfilter = ROUTE_FILTER(RTM_IFINFO) | ROUTE_FILTER(RTM_IFANNOUNCE);
+	if (setsockopt(rt_fd, AF_ROUTE, ROUTE_MSGFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)	/* not fatal */
 		log_warn("%s: setsockopt msgfilter", __func__);
 
 	rtfilter = RTABLE_ANY;
-	if (setsockopt(rt_fd, PF_ROUTE, ROUTE_TABLEFILTER,
+	if (setsockopt(rt_fd, AF_ROUTE, ROUTE_TABLEFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)	/* not fatal */
 		log_warn("%s: setsockopt tablefilter", __func__);
 
+	if (unveil(configfile, "r") == -1)
+		fatal("unveil");
+	if (unveil(_PATH_BSHELL, "x") == -1)
+		fatal("unveil");
 	if (pledge("stdio rpath route proc exec", NULL) == -1)
 		fatal("pledge");
 
@@ -233,6 +239,7 @@ rt_msg_handler(int fd, short event, void *arg)
 	char msg[2048];
 	struct rt_msghdr *rtm = (struct rt_msghdr *)&msg;
 	struct if_msghdr ifm;
+	struct if_announcemsghdr ifan;
 	char ifnamebuf[IFNAMSIZ];
 	char *ifname;
 	ssize_t len;
@@ -257,10 +264,23 @@ rt_msg_handler(int fd, short event, void *arg)
 		if (ifname != NULL)
 			scan_ifstate(ifname, ifm.ifm_data.ifi_link_state, 1);
 		break;
-	case RTM_DESYNC:
-		fetch_ifstate(1);
+	case RTM_IFANNOUNCE:
+		memcpy(&ifan, rtm, sizeof(ifan));
+		switch (ifan.ifan_what) {
+		case IFAN_DEPARTURE:
+			log_warnx("interface %s departed", ifan.ifan_name);
+			check_ifdeparture();
+			break;
+		case IFAN_ARRIVAL:
+			log_warnx("interface %s arrived", ifan.ifan_name);
+			fetch_ifstate(1);
+			break;
+		}
 		break;
-	default:
+	case RTM_DESYNC:
+		/* we lost some routing messages so rescan interfaces */
+		check_ifdeparture();
+		fetch_ifstate(1);
 		break;
 	}
 	return;
@@ -311,7 +331,7 @@ external_exec(struct ifsd_external *external, int async)
 	if (pid < 0) {
 		log_warn("fork error");
 	} else if (pid == 0) {
-		execv("/bin/sh", argp);
+		execv(_PATH_BSHELL, argp);
 		_exit(1);
 		/* NOTREACHED */
 	} else {
@@ -630,6 +650,21 @@ fetch_ifstate(int do_eval)
 	}
 
 	freeifaddrs(ifap);
+}
+
+void
+check_ifdeparture(void)
+{
+	struct ifsd_state *state;
+	struct ifsd_ifstate *ifstate;
+
+	TAILQ_FOREACH(state, &conf->states, entries) {
+		TAILQ_FOREACH(ifstate, &state->interface_states, entries) {
+			if (if_nametoindex(ifstate->ifname) == 0)
+				scan_ifstate(ifstate->ifname,
+				    LINK_STATE_DOWN, 1);
+		}
+	}
 }
 
 void

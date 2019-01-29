@@ -1,11 +1,13 @@
 /README.txt/1.1/Fri Jun 30 14:43:26 2017//
-/chardata.c/1.2/Fri Aug  4 16:24:03 2017//
-/chardata.h/1.2/Fri Aug  4 16:24:03 2017//
-/memcheck.c/1.2/Wed Jul 19 20:24:07 2017//
-/memcheck.h/1.1/Fri Jun 30 14:43:26 2017//
-/minicheck.c/1.2/Fri Aug  4 16:24:03 2017//
-/minicheck.h/1.2/Wed Jul 19 20:24:07 2017//
-/runtests.c/1.4/Fri Aug  4 16:24:03 2017//
-/runtestspp.cpp/1.1/Fri Jun 30 14:43:26 2017//
-/xmltest.sh/1.1/Fri Jun 30 14:43:26 2017//
+/chardata.c/1.4/Thu Nov  2 13:40:57 2017//
+/chardata.h/1.4/Thu Nov  2 13:40:57 2017//
+/memcheck.c/1.3/Wed Aug 23 14:53:52 2017//
+/memcheck.h/1.2/Wed Aug 23 14:53:52 2017//
+/minicheck.c/1.3/Wed Aug 23 14:53:52 2017//
+/minicheck.h/1.3/Wed Aug 23 14:53:52 2017//
+/runtests.c/1.7/Wed Aug 22 13:32:12 2018//
+/runtestspp.cpp/1.2/Wed Aug 23 14:53:52 2017//
+/structdata.c/1.2/Wed Aug 22 13:32:12 2018//
+/structdata.h/1.1/Thu Nov  2 13:40:57 2017//
+/xmltest.sh/1.2/Thu Nov  2 13:40:57 2017//
 D/benchmark////

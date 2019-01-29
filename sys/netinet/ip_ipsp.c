@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipsp.c,v 1.226 2017/08/11 21:24:20 mpi Exp $	*/
+/*	$OpenBSD: ip_ipsp.c,v 1.233 2018/10/22 15:32:19 cheloha Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
@@ -79,24 +79,23 @@ void tdb_hashstats(void);
 #endif
 
 void		tdb_rehash(void);
-void		tdb_timeout(void *v);
-void		tdb_firstuse(void *v);
-void		tdb_soft_timeout(void *v);
-void		tdb_soft_firstuse(void *v);
+void		tdb_reaper(void *);
+void		tdb_timeout(void *);
+void		tdb_firstuse(void *);
+void		tdb_soft_timeout(void *);
+void		tdb_soft_firstuse(void *);
 int		tdb_hash(u_int, u_int32_t, union sockaddr_union *, u_int8_t);
 
 int ipsec_in_use = 0;
 u_int64_t ipsec_last_added = 0;
-
-struct ipsec_policy_head ipsec_policy_head =
-    TAILQ_HEAD_INITIALIZER(ipsec_policy_head);
-struct ipsec_acquire_head ipsec_acquire_head =
-    TAILQ_HEAD_INITIALIZER(ipsec_acquire_head);
-
-u_int32_t ipsec_ids_next_flow = 1;	/* may not be zero */
 int ipsec_ids_idle = 100;		/* keep free ids for 100s */
+
+/* Protected by the NET_LOCK(). */
+u_int32_t ipsec_ids_next_flow = 1;	/* may not be zero */
 struct ipsec_ids_tree ipsec_ids_tree;
 struct ipsec_ids_flows ipsec_ids_flows;
+struct ipsec_policy_head ipsec_policy_head =
+    TAILQ_HEAD_INITIALIZER(ipsec_policy_head);
 
 void ipsp_ids_timeout(void *);
 static inline int ipsp_ids_cmp(const struct ipsec_ids *,
@@ -173,6 +172,7 @@ struct xformsw *xformswNXFORMSW = &xformsw[nitems(xformsw)];
 
 #define	TDB_HASHSIZE_INIT	32
 
+/* Protected by the NET_LOCK(). */
 static SIPHASH_KEY tdbkey;
 static struct tdb **tdbh = NULL;
 static struct tdb **tdbdst = NULL;
@@ -189,6 +189,8 @@ tdb_hash(u_int rdomain, u_int32_t spi, union sockaddr_union *dst,
     u_int8_t proto)
 {
 	SIPHASH_CTX ctx;
+
+	NET_ASSERT_LOCKED();
 
 	SipHash24_Init(&ctx, &tdbkey);
 	SipHash24_Update(&ctx, &rdomain, sizeof(rdomain));
@@ -278,6 +280,7 @@ reserve_spi(u_int rdomain, u_int32_t sspi, u_int32_t tspi,
 		tdbp->tdb_satype = SADB_SATYPE_UNSPEC;
 		puttdb(tdbp);
 
+#ifdef IPSEC
 		/* Setup a "silent" expiration (since TDBF_INVALID's set). */
 		if (ipsec_keep_invalid > 0) {
 			tdbp->tdb_flags |= TDBF_TIMER;
@@ -285,6 +288,7 @@ reserve_spi(u_int rdomain, u_int32_t sspi, u_int32_t tspi,
 			timeout_add_sec(&tdbp->tdb_timer_tmo,
 			    ipsec_keep_invalid);
 		}
+#endif
 
 		return spi;
 	}
@@ -335,6 +339,8 @@ gettdbbysrcdst(u_int rdomain, u_int32_t spi, union sockaddr_union *src,
 	u_int32_t hashval;
 	struct tdb *tdbp;
 	union sockaddr_union su_null;
+
+	NET_ASSERT_LOCKED();
 
 	if (tdbsrc == NULL)
 		return (struct tdb *) NULL;
@@ -420,6 +426,8 @@ gettdbbydst(u_int rdomain, union sockaddr_union *dst, u_int8_t sproto,
 	u_int32_t hashval;
 	struct tdb *tdbp;
 
+	NET_ASSERT_LOCKED();
+
 	if (tdbdst == NULL)
 		return (struct tdb *) NULL;
 
@@ -450,6 +458,8 @@ gettdbbysrc(u_int rdomain, union sockaddr_union *src, u_int8_t sproto,
 {
 	u_int32_t hashval;
 	struct tdb *tdbp;
+
+	NET_ASSERT_LOCKED();
 
 	if (tdbsrc == NULL)
 		return (struct tdb *) NULL;
@@ -529,22 +539,18 @@ tdb_walk(u_int rdomain, int (*walker)(struct tdb *, void *, int), void *arg)
 	return rval;
 }
 
-/*
- * Called at splsoftclock().
- */
 void
 tdb_timeout(void *v)
 {
 	struct tdb *tdb = v;
 
-	if (!(tdb->tdb_flags & TDBF_TIMER))
-		return;
-
 	NET_LOCK();
-	/* If it's an "invalid" TDB do a silent expiration. */
-	if (!(tdb->tdb_flags & TDBF_INVALID))
-		pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_HARD);
-	tdb_delete(tdb);
+	if (tdb->tdb_flags & TDBF_TIMER) {
+		/* If it's an "invalid" TDB do a silent expiration. */
+		if (!(tdb->tdb_flags & TDBF_INVALID))
+			pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_HARD);
+		tdb_delete(tdb);
+	}
 	NET_UNLOCK();
 }
 
@@ -553,14 +559,13 @@ tdb_firstuse(void *v)
 {
 	struct tdb *tdb = v;
 
-	if (!(tdb->tdb_flags & TDBF_SOFT_FIRSTUSE))
-		return;
-
 	NET_LOCK();
-	/* If the TDB hasn't been used, don't renew it. */
-	if (tdb->tdb_first_use != 0)
-		pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_HARD);
-	tdb_delete(tdb);
+	if (tdb->tdb_flags & TDBF_SOFT_FIRSTUSE) {
+		/* If the TDB hasn't been used, don't renew it. */
+		if (tdb->tdb_first_use != 0)
+			pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_HARD);
+		tdb_delete(tdb);
+	}
 	NET_UNLOCK();
 }
 
@@ -569,13 +574,12 @@ tdb_soft_timeout(void *v)
 {
 	struct tdb *tdb = v;
 
-	if (!(tdb->tdb_flags & TDBF_SOFT_TIMER))
-		return;
-
 	NET_LOCK();
-	/* Soft expirations. */
-	pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_SOFT);
-	tdb->tdb_flags &= ~TDBF_SOFT_TIMER;
+	if (tdb->tdb_flags & TDBF_SOFT_TIMER) {
+		/* Soft expirations. */
+		pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_SOFT);
+		tdb->tdb_flags &= ~TDBF_SOFT_TIMER;
+	}
 	NET_UNLOCK();
 }
 
@@ -584,14 +588,13 @@ tdb_soft_firstuse(void *v)
 {
 	struct tdb *tdb = v;
 
-	if (!(tdb->tdb_flags & TDBF_SOFT_FIRSTUSE))
-		return;
-
 	NET_LOCK();
-	/* If the TDB hasn't been used, don't renew it. */
-	if (tdb->tdb_first_use != 0)
-		pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_SOFT);
-	tdb->tdb_flags &= ~TDBF_SOFT_FIRSTUSE;
+	if (tdb->tdb_flags & TDBF_SOFT_FIRSTUSE) {
+		/* If the TDB hasn't been used, don't renew it. */
+		if (tdb->tdb_first_use != 0)
+			pfkeyv2_expire(tdb, SADB_EXT_LIFETIME_SOFT);
+		tdb->tdb_flags &= ~TDBF_SOFT_FIRSTUSE;
+	}
 	NET_UNLOCK();
 }
 
@@ -705,8 +708,10 @@ puttdb(struct tdb *tdbp)
 	tdbsrc[hashval] = tdbp;
 
 	tdb_count++;
+	if ((tdbp->tdb_flags & (TDBF_INVALID|TDBF_TUNNELING)) == TDBF_TUNNELING)
+		ipsecstat_inc(ipsec_tunnels);
 
-	ipsec_last_added = time_second;
+	ipsec_last_added = time_uptime;
 }
 
 void
@@ -772,6 +777,11 @@ tdb_unlink(struct tdb *tdbp)
 
 	tdbp->tdb_snext = NULL;
 	tdb_count--;
+	if ((tdbp->tdb_flags & (TDBF_INVALID|TDBF_TUNNELING)) ==
+	    TDBF_TUNNELING) {
+		ipsecstat_dec(ipsec_tunnels);
+		ipsecstat_inc(ipsec_prevtunnels);
+	}
 }
 
 void
@@ -790,6 +800,8 @@ struct tdb *
 tdb_alloc(u_int rdomain)
 {
 	struct tdb *tdbp;
+
+	NET_ASSERT_LOCKED();
 
 	tdbp = malloc(sizeof(*tdbp), M_TDB, M_WAITOK | M_ZERO);
 
@@ -815,6 +827,8 @@ tdb_free(struct tdb *tdbp)
 {
 	struct ipsec_policy *ipo;
 
+	NET_ASSERT_LOCKED();
+
 	if (tdbp->tdb_xform) {
 		(*(tdbp->tdb_xform->xf_zeroize))(tdbp);
 		tdbp->tdb_xform = NULL;
@@ -833,14 +847,6 @@ tdb_free(struct tdb *tdbp)
 		ipo->ipo_last_searched = 0; /* Force a re-search. */
 	}
 
-	/* Remove expiration timeouts. */
-	tdbp->tdb_flags &= ~(TDBF_FIRSTUSE | TDBF_SOFT_FIRSTUSE | TDBF_TIMER |
-	    TDBF_SOFT_TIMER);
-	timeout_del(&tdbp->tdb_timer_tmo);
-	timeout_del(&tdbp->tdb_first_tmo);
-	timeout_del(&tdbp->tdb_stimer_tmo);
-	timeout_del(&tdbp->tdb_sfirst_tmo);
-
 	if (tdbp->tdb_ids) {
 		ipsp_ids_free(tdbp->tdb_ids);
 		tdbp->tdb_ids = NULL;
@@ -858,6 +864,23 @@ tdb_free(struct tdb *tdbp)
 
 	if ((tdbp->tdb_inext) && (tdbp->tdb_inext->tdb_onext == tdbp))
 		tdbp->tdb_inext->tdb_onext = NULL;
+
+	/* Remove expiration timeouts. */
+	tdbp->tdb_flags &= ~(TDBF_FIRSTUSE | TDBF_SOFT_FIRSTUSE | TDBF_TIMER |
+	    TDBF_SOFT_TIMER);
+	timeout_del(&tdbp->tdb_timer_tmo);
+	timeout_del(&tdbp->tdb_first_tmo);
+	timeout_del(&tdbp->tdb_stimer_tmo);
+	timeout_del(&tdbp->tdb_sfirst_tmo);
+
+	timeout_set_proc(&tdbp->tdb_timer_tmo, tdb_reaper, tdbp);
+	timeout_add(&tdbp->tdb_timer_tmo, 0);
+}
+
+void
+tdb_reaper(void *xtdbp)
+{
+	struct tdb *tdbp = xtdbp;
 
 	free(tdbp, M_TDB, 0);
 }
@@ -881,7 +904,7 @@ tdb_init(struct tdb *tdbp, u_int16_t alg, struct ipsecinit *ii)
 		}
 	}
 
-	DPRINTF(("tdb_init(): no alg %d for spi %08x, addr %s, proto %d\n",
+	DPRINTF(("%s: no alg %d for spi %08x, addr %s, proto %d\n", __func__,
 	    alg, ntohl(tdbp->tdb_spi), ipsp_address(&tdbp->tdb_dst, buf,
 	    sizeof(buf)), tdbp->tdb_sproto));
 
@@ -947,6 +970,8 @@ ipsp_ids_insert(struct ipsec_ids *ids)
 	struct ipsec_ids *found;
 	u_int32_t start_flow;
 
+	NET_ASSERT_LOCKED();
+
 	found = RBT_INSERT(ipsec_ids_tree, &ipsec_ids_tree, ids);
 	if (found) {
 		/* if refcount was zero, then timeout is running */
@@ -979,6 +1004,8 @@ struct ipsec_ids *
 ipsp_ids_lookup(u_int32_t ipsecflowinfo)
 {
 	struct ipsec_ids	key;
+
+	NET_ASSERT_LOCKED();
 
 	key.id_flow = ipsecflowinfo;
 	return RBT_FIND(ipsec_ids_flows, &ipsec_ids_flows, &key);

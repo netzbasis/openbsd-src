@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_switch.c,v 1.20 2017/05/31 05:59:09 mpi Exp $	*/
+/*	$OpenBSD: if_switch.c,v 1.25 2018/12/28 14:32:47 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -151,7 +151,6 @@ switch_clone_create(struct if_clone *ifc, int unit)
 
 	sc = malloc(sizeof(struct switch_softc), M_DEVBUF, M_WAITOK|M_ZERO);
 	ifp = &sc->sc_if;
-
 	snprintf(ifp->if_xname, sizeof ifp->if_xname, "switch%d", unit);
 	ifp->if_softc = sc;
 	ifp->if_mtu = ETHERMTU;
@@ -159,7 +158,6 @@ switch_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_output = NULL;
 	ifp->if_start = NULL;
 	ifp->if_type = IFT_BRIDGE;
-	ifp->if_addrlen = 0;
 	ifp->if_hdrlen = ETHER_HDR_LEN;
 	TAILQ_INIT(&sc->sc_swpo_list);
 
@@ -223,6 +221,7 @@ switchintr(void)
 		return;
 
 	while ((m = ml_dequeue(&ml)) != NULL) {
+		KASSERT(m->m_flags & M_PKTHDR);
 		ifp = if_get(m->m_pkthdr.ph_ifidx);
 		if (ifp == NULL) {
 			m_freem(m);
@@ -392,12 +391,12 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 
 	switch (cmd) {
 	case SIOCBRDGADD:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_add(sc, (struct ifbreq *)data);
 		break;
 	case SIOCBRDGDEL:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_del(sc, (struct ifbreq *)data);
 		break;
@@ -405,7 +404,7 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		error = switch_port_list(sc, (struct ifbifconf *)data);
 		break;
 	case SIOCBRDGADDL:
-		if ((error = suser(curproc, 0)) != 0)
+		if ((error = suser(curproc)) != 0)
 			break;
 		error = switch_port_add(sc, (struct ifbreq *)data);
 		if (error && error != EEXIST)
@@ -488,7 +487,6 @@ switch_port_add(struct switch_softc *sc, struct ifbreq *req)
 {
 	struct ifnet		*ifs;
 	struct switch_port	*swpo;
-	struct ifreq		 ifreq;
 	int			 error;
 
 	if ((ifs = ifunit(req->ifbr_ifsname)) == NULL)
@@ -506,32 +504,8 @@ switch_port_add(struct switch_softc *sc, struct ifbreq *req)
 	}
 
 	if (ifs->if_type == IFT_ETHER) {
-		if ((ifs->if_flags & IFF_UP) == 0) {
-			/*
-			 * Bring interface up long enough to set
-			 * promiscuous flag, then shut it down again.
-			 */
-			strlcpy(ifreq.ifr_name, req->ifbr_ifsname, IFNAMSIZ);
-			ifs->if_flags |= IFF_UP;
-			ifreq.ifr_flags = ifs->if_flags;
-			if ((error = (*ifs->if_ioctl)(ifs, SIOCSIFFLAGS,
-			    (caddr_t)&ifreq)) != 0)
-				return (error);
-
-			if ((error = ifpromisc(ifs, 1)) != 0)
-				return (error);
-			strlcpy(ifreq.ifr_name, req->ifbr_ifsname, IFNAMSIZ);
-			ifs->if_flags &= ~IFF_UP;
-			ifreq.ifr_flags = ifs->if_flags;
-			if ((error = (*ifs->if_ioctl)(ifs, SIOCSIFFLAGS,
-			    (caddr_t)&ifreq)) != 0) {
-				ifpromisc(ifs, 0);
-				return (error);
-			}
-		} else {
-			if ((error = ifpromisc(ifs, 1)) != 0)
-				return (error);
-		}
+		if ((error = ifpromisc(ifs, 1)) != 0)
+			return (error);
 	}
 
 	swpo = malloc(sizeof(*swpo), M_DEVBUF, M_NOWAIT|M_ZERO);
@@ -745,8 +719,7 @@ switch_port_egress(struct switch_softc *sc, struct switch_fwdp_queue *fwdp_q,
 		 */
 		if (!(swpo->swpo_flags & IFBIF_LOCAL) &&
 		    ((len - ETHER_HDR_LEN) > dst_if->if_mtu))
-			bridge_fragment((struct bridge_softc *)sc,
-			    dst_if, &eh, mc);
+			bridge_fragment(&sc->sc_if, dst_if, &eh, mc);
 		else
 			switch_ifenqueue(sc, dst_if, mc,
 			    (swpo->swpo_flags & IFBIF_LOCAL));
@@ -769,6 +742,7 @@ switch_ifenqueue(struct switch_softc *sc, struct ifnet *ifp,
 	/* Loop prevention. */
 	m->m_flags |= M_PROTO1;
 
+	KASSERT(m->m_flags & M_PKTHDR);
 	len = m->m_pkthdr.len;
 
 	if (local) {
@@ -1515,22 +1489,23 @@ switch_mtap(caddr_t arg, struct mbuf *m, int dir, uint64_t datapath_id)
 int
 ofp_split_mbuf(struct mbuf *m, struct mbuf **mtail)
 {
-	struct ofp_header	*oh;
 	uint16_t		 ohlen;
 
 	*mtail = NULL;
 
  again:
 	/* We need more data. */
-	if (m->m_pkthdr.len < sizeof(*oh))
+	KASSERT(m->m_flags & M_PKTHDR);
+	if (m->m_pkthdr.len < sizeof(struct ofp_header))
 		return (-1);
 
-	oh = mtod(m, struct ofp_header *);
-	ohlen = ntohs(oh->oh_length);
+	m_copydata(m, offsetof(struct ofp_header, oh_length), sizeof(ohlen),
+	    (caddr_t)&ohlen);
+	ohlen = ntohs(ohlen);
 
 	/* We got an invalid packet header, skip it. */
-	if (ohlen < sizeof(*oh)) {
-		m_adj(m, sizeof(*oh));
+	if (ohlen < sizeof(struct ofp_header)) {
+		m_adj(m, sizeof(struct ofp_header));
 		goto again;
 	}
 

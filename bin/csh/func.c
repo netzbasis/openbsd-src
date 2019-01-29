@@ -1,4 +1,4 @@
-/*    $OpenBSD: func.c,v 1.34 2017/07/26 19:15:09 anton Exp $       */
+/*    $OpenBSD: func.c,v 1.38 2018/09/08 01:28:39 miko Exp $       */
 /*    $NetBSD: func.c,v 1.11 1996/02/09 02:28:29 christos Exp $       */
 
 /*-
@@ -589,7 +589,8 @@ search(int type, int level, Char *goal)
 	bseek(&a);
     }
     do {
-	if (intty && !filec && fseekp == feobp && aret == F_SEEK)
+	needprompt = intty && fseekp == feobp && aret == F_SEEK;
+	if (!filec && needprompt)
 	    (void) fprintf(cshout, "? "), (void) fflush(cshout);
 	aword[0] = 0;
 	(void) getword(aword);
@@ -821,10 +822,8 @@ wfree(void)
 	    }
 	}
 
-	if (wp->w_fe0)
-	    blkfree(wp->w_fe0);
-	if (wp->w_fename)
-	    free(wp->w_fename);
+	blkfree(wp->w_fe0);
+	free(wp->w_fename);
 	free(wp);
     }
 }
@@ -886,8 +885,8 @@ xecho(int sep, Char **v)
 	(void) fflush(cshout);
     if (setintr)
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
-    if (gargv)
-	blkfree(gargv), gargv = 0;
+	blkfree(gargv);
+	gargv = NULL;
 }
 
 void
@@ -924,12 +923,9 @@ void
 /*ARGSUSED*/
 dounsetenv(Char **v, struct command *t)
 {
-    Char  **ep, *p, *n;
+    Char  **ep, *p, *n, *name;
     int     i, maxi;
-    static Char *name = NULL;
 
-    if (name)
-	free(name);
     /*
      * Find the longest environment variable
      */
@@ -958,7 +954,6 @@ dounsetenv(Char **v, struct command *t)
 		break;
 	    }
     free(name);
-    name = NULL;
 }
 
 void
@@ -1377,8 +1372,8 @@ doeval(Char **v, struct command *t)
     SHIN = dmove(saveIN, oSHIN);
     SHOUT = dmove(saveOUT, oSHOUT);
     SHERR = dmove(saveERR, oSHERR);
-    if (gv)
-	blkfree(gv), gv = NULL;
+    blkfree(gv);
+    gv = NULL;
     resexit(osetexit);
     gv = savegv;
     if (my_reenter)

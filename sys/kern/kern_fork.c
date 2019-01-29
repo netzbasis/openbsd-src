@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.197 2017/04/20 12:59:36 visa Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.209 2019/01/06 12:59:45 visa Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -49,7 +49,6 @@
 #include <sys/signalvar.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
-#include <sys/file.h>
 #include <sys/acct.h>
 #include <sys/ktrace.h>
 #include <sys/sched.h>
@@ -66,6 +65,8 @@
 #include <uvm/uvm.h>
 #include <machine/tcb.h>
 
+#include "kcov.h"
+
 int	nprocesses = 1;		/* process 0 */
 int	nthreads = 1;		/* proc 0 */
 int	randompid;		/* when set to 1, pid's go random */
@@ -75,6 +76,8 @@ void fork_return(void *);
 pid_t alloctid(void);
 pid_t allocpid(void);
 int ispidtaken(pid_t);
+
+void unveil_copy(struct process *parent, struct process *child);
 
 struct proc *thread_new(struct proc *_parent, vaddr_t _uaddr);
 struct process *process_new(struct proc *, struct process *, int);
@@ -128,6 +131,10 @@ sys___tfork(struct proc *p, void *v, register_t *retval)
 	if (KTRPOINT(p, KTR_STRUCT))
 		ktrstruct(p, "tfork", &param, sizeof(param));
 #endif
+#ifdef TCB_INVALID
+	if (TCB_INVALID(param.tf_tcb))
+		return EINVAL;
+#endif /* TCB_INVALID */
 
 	return thread_fork(p, param.tf_stack, param.tf_tcb, param.tf_tid,
 	    retval);
@@ -173,6 +180,10 @@ thread_new(struct proc *parent, vaddr_t uaddr)
 	p->p_sleeplocks = NULL;
 #endif
 
+#if NKCOV > 0
+	p->p_kd = NULL;
+#endif
+
 	return p;
 }
 
@@ -195,8 +206,12 @@ process_initialize(struct process *pr, struct proc *p)
 	KASSERT(p->p_ucred->cr_ref >= 2);	/* new thread and new process */
 
 	LIST_INIT(&pr->ps_children);
+	LIST_INIT(&pr->ps_ftlist);
+	LIST_INIT(&pr->ps_kqlist);
+	LIST_INIT(&pr->ps_sigiolst);
 
 	timeout_set(&pr->ps_realit_to, realitexpire, pr);
+	timeout_set(&pr->ps_rucheck_to, rucheck, pr);
 }
 
 
@@ -226,14 +241,19 @@ process_new(struct proc *p, struct process *parent, int flags)
 	/* post-copy fixups */
 	pr->ps_pptr = parent;
 	pr->ps_limit->p_refcnt++;
+	if (pr->ps_limit->pl_rlimit[RLIMIT_CPU].rlim_cur != RLIM_INFINITY)
+		timeout_add_msec(&pr->ps_rucheck_to, RUCHECK_INTERVAL);
 
 	/* bump references to the text vnode (for sysctl) */
 	pr->ps_textvp = parent->ps_textvp;
 	if (pr->ps_textvp)
 		vref(pr->ps_textvp);
 
+	/* copy unveil if unveil is active */
+	unveil_copy(parent, pr);
+
 	pr->ps_flags = parent->ps_flags &
-	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_WXNEEDED);
+	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_EXECPLEDGE | PS_WXNEEDED);
 	if (parent->ps_session->s_ttyvp != NULL)
 		pr->ps_flags |= parent->ps_flags & PS_CONTROLT;
 
@@ -253,9 +273,6 @@ process_new(struct proc *p, struct process *parent, int flags)
 		pr->ps_vmspace = uvmspace_share(parent);
 	else
 		pr->ps_vmspace = uvmspace_fork(parent);
-
-	if (pr->ps_pledgepaths)
-		pr->ps_pledgepaths->wl_ref++;
 
 	if (parent->ps_flags & PS_PROFIL)
 		startprofclock(pr);

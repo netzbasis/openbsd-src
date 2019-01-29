@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp.c,v 1.156 2017/05/22 13:43:15 gilles Exp $	*/
+/*	$OpenBSD: smtp.c,v 1.164 2018/12/23 16:37:53 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -51,6 +51,9 @@ static int smtp_can_accept(void);
 static void smtp_setup_listeners(void);
 static int smtp_sni_callback(SSL *, int *, void *);
 
+static void smtp_accepted(struct listener *, int, const struct sockaddr_storage *, struct io *);
+
+
 #define	SMTP_FD_RESERVE	5
 static size_t	sessions;
 static size_t	maxsessions;
@@ -58,57 +61,45 @@ static size_t	maxsessions;
 void
 smtp_imsg(struct mproc *p, struct imsg *imsg)
 {
-	if (p->proc == PROC_LKA) {
-		switch (imsg->hdr.type) {
-		case IMSG_SMTP_DNS_PTR:
-		case IMSG_SMTP_CHECK_SENDER:
-		case IMSG_SMTP_EXPAND_RCPT:
-		case IMSG_SMTP_LOOKUP_HELO:
-		case IMSG_SMTP_AUTHENTICATE:
-		case IMSG_SMTP_TLS_INIT:
-		case IMSG_SMTP_TLS_VERIFY:
-			smtp_session_imsg(p, imsg);
-			return;
-		}
-	}
+	switch (imsg->hdr.type) {
+	case IMSG_SMTP_CHECK_SENDER:
+	case IMSG_SMTP_EXPAND_RCPT:
+	case IMSG_SMTP_LOOKUP_HELO:
+	case IMSG_SMTP_AUTHENTICATE:
+	case IMSG_FILTER_SMTP_PROTOCOL:
+	case IMSG_FILTER_SMTP_DATA_BEGIN:
+		smtp_session_imsg(p, imsg);
+		return;
 
-	if (p->proc == PROC_QUEUE) {
-		switch (imsg->hdr.type) {
-		case IMSG_SMTP_MESSAGE_COMMIT:
-		case IMSG_SMTP_MESSAGE_CREATE:
-		case IMSG_SMTP_MESSAGE_OPEN:
-		case IMSG_QUEUE_ENVELOPE_SUBMIT:
-		case IMSG_QUEUE_ENVELOPE_COMMIT:
-			smtp_session_imsg(p, imsg);
-			return;
+	case IMSG_SMTP_MESSAGE_COMMIT:
+	case IMSG_SMTP_MESSAGE_CREATE:
+	case IMSG_SMTP_MESSAGE_OPEN:
+	case IMSG_QUEUE_ENVELOPE_SUBMIT:
+	case IMSG_QUEUE_ENVELOPE_COMMIT:
+		smtp_session_imsg(p, imsg);
+		return;
 
-		case IMSG_QUEUE_SMTP_SESSION:
-			m_compose(p, IMSG_QUEUE_SMTP_SESSION, 0, 0,
-			    smtp_enqueue(), imsg->data,
-			    imsg->hdr.len - sizeof imsg->hdr);
-			return;
-		}
-	}
+	case IMSG_QUEUE_SMTP_SESSION:
+		m_compose(p, IMSG_QUEUE_SMTP_SESSION, 0, 0, smtp_enqueue(),
+		    imsg->data, imsg->hdr.len - sizeof imsg->hdr);
+		return;
 
-	if (p->proc == PROC_CONTROL) {
-		switch (imsg->hdr.type) {
-		case IMSG_CTL_SMTP_SESSION:
-			m_compose(p, IMSG_CTL_SMTP_SESSION, imsg->hdr.peerid, 0,
-			    smtp_enqueue(), NULL, 0);
-			return;
+	case IMSG_CTL_SMTP_SESSION:
+		m_compose(p, IMSG_CTL_SMTP_SESSION, imsg->hdr.peerid, 0,
+		    smtp_enqueue(), NULL, 0);
+		return;
 
-		case IMSG_CTL_PAUSE_SMTP:
-			log_debug("debug: smtp: pausing listening sockets");
-			smtp_pause();
-			env->sc_flags |= SMTPD_SMTP_PAUSED;
-			return;
+	case IMSG_CTL_PAUSE_SMTP:
+		log_debug("debug: smtp: pausing listening sockets");
+		smtp_pause();
+		env->sc_flags |= SMTPD_SMTP_PAUSED;
+		return;
 
-		case IMSG_CTL_RESUME_SMTP:
-			log_debug("debug: smtp: resuming listening sockets");
-			env->sc_flags &= ~SMTPD_SMTP_PAUSED;
-			smtp_resume();
-			return;
-		}
+	case IMSG_CTL_RESUME_SMTP:
+		log_debug("debug: smtp: resuming listening sockets");
+		env->sc_flags &= ~SMTPD_SMTP_PAUSED;
+		smtp_resume();
+		return;
 	}
 
 	errx(1, "smtp_imsg: unexpected %s imsg", imsg_to_str(imsg->hdr.type));
@@ -233,7 +224,7 @@ smtp_enqueue(void)
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fd))
 		return (-1);
 
-	if ((smtp_session(listener, fd[0], &listener->ss, env->sc_hostname)) == -1) {
+	if ((smtp_session(listener, fd[0], &listener->ss, env->sc_hostname, NULL)) == -1) {
 		close(fd[0]);
 		close(fd[1]);
 		return (-1);
@@ -253,7 +244,6 @@ smtp_accept(int fd, short event, void *p)
 	struct sockaddr_storage	 ss;
 	socklen_t		 len;
 	int			 sock;
-	int			 ret;
 
 	if (env->sc_flags & SMTPD_SMTP_PAUSED)
 		fatalx("smtp_session: unexpected client");
@@ -276,26 +266,7 @@ smtp_accept(int fd, short event, void *p)
 		fatal("smtp_accept");
 	}
 
-	if (listener->filter[0])
-		ret = smtpf_session(listener, sock, &ss, NULL);
-	else
-		ret = smtp_session(listener, sock, &ss, NULL);
-
-	if (ret == -1) {
-		log_warn("warn: Failed to create SMTP session");
-		close(sock);
-		return;
-	}
-	io_set_nonblocking(sock);
-
-	sessions++;
-	stat_increment("smtp.session", 1);
-	if (listener->ss.ss_family == AF_LOCAL)
-		stat_increment("smtp.session.local", 1);
-	if (listener->ss.ss_family == AF_INET)
-		stat_increment("smtp.session.inet4", 1);
-	if (listener->ss.ss_family == AF_INET6)
-		stat_increment("smtp.session.inet6", 1);
+	smtp_accepted(listener, sock, &ss, NULL);
 	return;
 
 pause:
@@ -343,4 +314,27 @@ smtp_sni_callback(SSL *ssl, int *ad, void *arg)
 		return SSL_TLSEXT_ERR_NOACK;
 	SSL_set_SSL_CTX(ssl, ssl_ctx);
 	return SSL_TLSEXT_ERR_OK;
+}
+
+static void
+smtp_accepted(struct listener *listener, int sock, const struct sockaddr_storage *ss, struct io *io)
+{
+	int     ret;
+
+	ret = smtp_session(listener, sock, ss, NULL, io);
+	if (ret == -1) {
+		log_warn("warn: Failed to create SMTP session");
+		close(sock);
+		return;
+	}
+	io_set_nonblocking(sock);
+
+	sessions++;
+	stat_increment("smtp.session", 1);
+	if (listener->ss.ss_family == AF_LOCAL)
+		stat_increment("smtp.session.local", 1);
+	if (listener->ss.ss_family == AF_INET)
+		stat_increment("smtp.session.inet4", 1);
+	if (listener->ss.ss_family == AF_INET6)
+		stat_increment("smtp.session.inet6", 1);
 }

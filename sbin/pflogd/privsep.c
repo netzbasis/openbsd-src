@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.27 2017/08/12 16:31:09 florian Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.32 2018/08/26 18:26:51 brynet Exp $	*/
 
 /*
  * Copyright (c) 2003 Can Erkin Acar
@@ -40,52 +40,41 @@
 #include "pflogd.h"
 
 enum cmd_types {
+	PRIV_INIT_PCAP,		/* init pcap fdpass bpf */
 	PRIV_SET_SNAPLEN,	/* set the snaplength */
-	PRIV_MOVE_LOG,		/* move logfile away */
 	PRIV_OPEN_LOG,		/* open logfile for appending */
 };
 
 static int priv_fd = -1;
 static volatile pid_t child_pid = -1;
 
-volatile sig_atomic_t gotsig_chld = 0;
-
 static void sig_pass_to_chld(int);
-static void sig_chld(int);
 static int  may_read(int, void *, size_t);
 static void must_read(int, void *, size_t);
 static void must_write(int, void *, size_t);
 static int  set_snaplen(int snap);
-static int  move_log(const char *name);
 
 extern char *filename;
+extern char *interface;
+extern char errbuf[PCAP_ERRBUF_SIZE];
 extern pcap_t *hpcap;
 
 /* based on syslogd privsep */
-int
-priv_init(void)
+void
+priv_init(int Pflag, int argc, char *argv[])
 {
-	int i, bpfd = -1, socks[2], cmd;
+	int i, fd = -1, bpfd = -1, nargc, socks[2], cmd;
 	int snaplen, ret, olderrno;
 	struct passwd *pw;
-
-	for (i = 1; i < _NSIG; i++)
-		signal(i, SIG_DFL);
-
-	/* Create sockets */
-	if (socketpair(AF_LOCAL, SOCK_STREAM, PF_UNSPEC, socks) == -1)
-		err(1, "socketpair() failed");
+	char **nargv;
+	unsigned int buflen;
 
 	pw = getpwnam("_pflogd");
 	if (pw == NULL)
 		errx(1, "unknown user _pflogd");
 	endpwent();
 
-	child_pid = fork();
-	if (child_pid < 0)
-		err(1, "fork() failed");
-
-	if (!child_pid) {
+	if (Pflag) {
 		gid_t gidset[1];
 
 		/* Child - drop privileges and return */
@@ -101,22 +90,59 @@ priv_init(void)
 			err(1, "setgroups() failed");
 		if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1)
 			err(1, "setresuid() failed");
-		close(socks[0]);
-		priv_fd = socks[1];
-		return 0;
+		priv_fd = 3;
+		return;
 	}
 
+	/* Create sockets */
+	if (socketpair(AF_LOCAL, SOCK_STREAM, PF_UNSPEC, socks) == -1)
+		err(1, "socketpair() failed");
+
+	child_pid = fork();
+	if (child_pid < 0)
+		err(1, "fork() failed");
+
+	if (!child_pid) {
+		close(socks[0]);
+		if (dup2(socks[1], 3) == -1)
+			err(1, "dup2 unpriv sock failed");
+		close(socks[1]);
+		if ((nargv = reallocarray(NULL, argc + 2,
+		    sizeof(char *))) == NULL)
+			err(1, "alloc unpriv argv failed");
+		nargc = 0;
+		nargv[nargc++] = argv[0];
+		nargv[nargc++] = "-P";
+		for (i = 1; i < argc; i++)
+			nargv[nargc++] = argv[i];
+		nargv[nargc] = NULL;
+		execvp(nargv[0], nargv);
+		err(1, "exec unpriv '%s' failed", nargv[0]);
+	}
+	close(socks[1]);
+
 	/* Father */
-	/* Pass ALRM/TERM/HUP/INT/QUIT through to child, and accept CHLD */
+	/* Pass ALRM/TERM/HUP/INT/QUIT through to child */
 	signal(SIGALRM, sig_pass_to_chld);
 	signal(SIGTERM, sig_pass_to_chld);
 	signal(SIGHUP,  sig_pass_to_chld);
 	signal(SIGINT,  sig_pass_to_chld);
 	signal(SIGQUIT, sig_pass_to_chld);
-	signal(SIGCHLD, sig_chld);
 
 	setproctitle("[priv]");
-	close(socks[1]);
+
+	if (unveil("/etc/resolv.conf", "r") == -1)
+		err(1, "unveil");
+	if (unveil("/etc/hosts", "r") == -1)
+		err(1, "unveil");
+	if (unveil("/etc/services", "r") == -1)
+		err(1, "unveil");
+	if (unveil("/dev/bpf", "r") == -1)
+		err(1, "unveil");
+	if (unveil(filename, "rwc") == -1)
+		err(1, "unveil");
+	if (unveil(NULL, NULL) == -1)
+		err(1, "unveil");
 
 #if 0
 	/* This needs to do bpf ioctl */
@@ -124,10 +150,28 @@ BROKEN	if (pledge("stdio rpath wpath cpath sendfd proc bpf", NULL) == -1)
 		err(1, "pledge");
 #endif
 
-	while (!gotsig_chld) {
+	while (1) {
 		if (may_read(socks[0], &cmd, sizeof(int)))
 			break;
 		switch (cmd) {
+		case PRIV_INIT_PCAP:
+			logmsg(LOG_DEBUG,
+			    "[priv]: msg PRIV_INIT_PCAP received");
+			/* initialize pcap */
+			if (hpcap != NULL || init_pcap()) {
+				logmsg(LOG_ERR, "[priv]: Exiting, init failed");
+				_exit(1);
+			}
+			buflen = hpcap->bufsize; /* BIOCGBLEN for unpriv proc */
+			must_write(socks[0], &buflen, sizeof(unsigned int));
+			fd = pcap_fileno(hpcap);
+			send_fd(socks[0], fd);
+			if (fd < 0) {
+				logmsg(LOG_ERR, "[priv]: Exiting, init failed");
+				_exit(1);
+			}
+			break;
+
 		case PRIV_SET_SNAPLEN:
 			logmsg(LOG_DEBUG,
 			    "[priv]: msg PRIV_SET_SNAPLENGTH received");
@@ -162,13 +206,6 @@ BROKEN	if (pledge("stdio rpath wpath cpath sendfd proc bpf", NULL) == -1)
 				    filename, strerror(olderrno));
 			break;
 
-		case PRIV_MOVE_LOG:
-			logmsg(LOG_DEBUG,
-			    "[priv]: msg PRIV_MOVE_LOG received");
-			ret = move_log(filename);
-			must_write(socks[0], &ret, sizeof(int));
-			break;
-
 		default:
 			logmsg(LOG_ERR, "[priv]: unknown command %d", cmd);
 			_exit(1);
@@ -176,7 +213,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath sendfd proc bpf", NULL) == -1)
 		}
 	}
 
-	_exit(1);
+	exit(1);
 }
 
 /* this is called from parent */
@@ -192,43 +229,41 @@ set_snaplen(int snap)
 	return 0;
 }
 
-static int
-move_log(const char *name)
+/* receive bpf fd from privileged process using fdpass and init pcap */
+int
+priv_init_pcap(int snaplen)
 {
-	char ren[PATH_MAX];
-	int len;
+	int cmd, fd;
+	unsigned int buflen;
 
-	for (;;) {
-		int fd;
+	if (priv_fd < 0)
+		errx(1, "%s: called from privileged portion", __func__);
 
-		len = snprintf(ren, sizeof(ren), "%s.bad.XXXXXXXX", name);
-		if (len >= sizeof(ren)) {
-			logmsg(LOG_ERR, "[priv] new name too long");
-			return (1);
-		}
+	cmd = PRIV_INIT_PCAP;
 
-		/* lock destination */
-		fd = mkstemp(ren);
-		if (fd >= 0) {
-			close(fd);
-			break;
-		}
-		if (errno != EINTR) {
-			logmsg(LOG_ERR, "[priv] failed to create new name: %s",
-			    strerror(errno));
-			return (1);			
-		}
-	}
+	must_write(priv_fd, &cmd, sizeof(int));
+	must_read(priv_fd, &buflen, sizeof(unsigned int));
+	fd = receive_fd(priv_fd);
+	if (fd < 0)
+		return (-1);
 
-	if (rename(name, ren)) {
-		logmsg(LOG_ERR, "[priv] failed to rename %s to %s: %s",
-		    name, ren, strerror(errno));
-		unlink(ren);
-		return (1);
-	}
+	/* XXX temporary until pcap_open_live_fd API */
+	hpcap = pcap_create(interface, errbuf);
+	if (hpcap == NULL)
+		return (-1);
 
-	logmsg(LOG_NOTICE,
-	       "[priv]: log file %s moved to %s", name, ren);
+	/* XXX copies from pcap_open_live/pcap_activate */
+	hpcap->fd = fd;
+	pcap_set_snaplen(hpcap, snaplen);
+	pcap_set_promisc(hpcap, 1);
+	pcap_set_timeout(hpcap, PCAP_TO_MS);
+	hpcap->oldstyle = 1;
+	hpcap->linktype = DLT_PFLOG;
+	hpcap->bufsize = buflen; /* XXX bpf BIOCGBLEN */
+	hpcap->buffer = malloc(hpcap->bufsize);
+	if (hpcap->buffer == NULL)
+		return (-1);
+	hpcap->activated = 1;
 
 	return (0);
 }
@@ -274,22 +309,6 @@ priv_open_log(void)
 	return (fd);
 }
 
-/* Move-away and reopen log-file */
-int
-priv_move_log(void)
-{
-	int cmd, ret;
-
-	if (priv_fd < 0)
-		errx(1, "%s: called from privileged portion", __func__);
-
-	cmd = PRIV_MOVE_LOG;
-	must_write(priv_fd, &cmd, sizeof(int));
-	must_read(priv_fd, &ret, sizeof(int));
-
-	return (ret);
-}
-
 /* If priv parent gets a TERM or HUP, pass it through to child instead */
 static void
 sig_pass_to_chld(int sig)
@@ -299,13 +318,6 @@ sig_pass_to_chld(int sig)
 	if (child_pid != -1)
 		kill(child_pid, sig);
 	errno = oerrno;
-}
-
-/* if parent gets a SIGCHLD, it will exit */
-static void
-sig_chld(int sig)
-{
-	gotsig_chld = 1;
 }
 
 /* Read all data or return 1 for error.  */

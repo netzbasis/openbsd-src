@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6ctl.c,v 1.46 2017/08/12 22:09:54 benno Exp $ */
+/*	$OpenBSD: ospf6ctl.c,v 1.49 2018/07/12 13:45:03 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -90,13 +90,16 @@ main(int argc, char *argv[])
 	struct parse_result	*res;
 	struct imsg		 imsg;
 	unsigned int		 ifidx = 0;
-	int			 ctl_sock;
+	int			 ctl_sock, r;
 	int			 done = 0, verbose = 0;
 	int			 n;
 	int			 ch;
 	char			*sockname;
 
-	sockname = OSPF6D_SOCKET;
+	r = getrtable();
+	if (asprintf(&sockname, "%s.%d", OSPF6D_SOCKET, r) == -1)
+		err(1, "asprintf");
+
 	while ((ch = getopt(argc, argv, "s:")) != -1) {
 		switch (ch) {
 		case 's':
@@ -232,10 +235,14 @@ main(int argc, char *argv[])
 		done = 1;
 		break;
 	case RELOAD:
+#ifdef notyet
 		imsg_compose(ibuf, IMSG_CTL_RELOAD, 0, 0, -1, NULL, 0);
 		printf("reload request sent.\n");
 		done = 1;
 		break;
+#else
+		errx(1, "reload not supported");
+#endif
 	}
 
 	while (ibuf->w.queued)
@@ -940,9 +947,10 @@ show_db_msg_detail(struct imsg *imsg)
 			bcopy(prefix + 1, &ia6,
 			    LSA_PREFIXSIZE(prefix->prefixlen));
 
-			printf("    Prefix: %s/%d%s\n", log_in6addr(&ia6),
-			    prefix->prefixlen,
-			    print_prefix_opt(prefix->options));
+			printf("    Prefix: %s/%d%s Metric: %d\n",
+			    log_in6addr(&ia6), prefix->prefixlen,
+			    print_prefix_opt(prefix->options),
+			    ntohs(prefix->metric));
 
 			off += sizeof(struct lsa_prefix)
 			    + LSA_PREFIXSIZE(prefix->prefixlen);

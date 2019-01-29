@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.h,v 1.29 2017/07/22 09:37:21 anton Exp $	*/
+/*	$OpenBSD: csh.h,v 1.33 2018/09/18 17:48:22 millert Exp $	*/
 /*	$NetBSD: csh.h,v 1.9 1995/03/21 09:02:40 cgd Exp $	*/
 
 /*-
@@ -69,10 +69,6 @@ typedef void *ioctl_t;		/* Third arg of ioctl */
 #include "char.h"
 #include "error.h"
 
-#define xmalloc(i)	Malloc(i)
-#define xreallocarray(p, i, j)	Reallocarray(p, i, j)
-#define xcalloc(n, s)	Calloc(n, s)
-
 #include <stdio.h>
 FILE *cshin, *cshout, *csherr;
 
@@ -108,6 +104,7 @@ bool    timflg;			/* Time the next waited for command */
 bool    havhash;		/* path hashing is available */
 
 bool    filec;			/* doing filename expansion */
+bool    needprompt;		/* print prompt, used by filec */
 
 /*
  * Global i/o info

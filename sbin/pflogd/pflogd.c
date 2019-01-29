@@ -1,4 +1,4 @@
-/*	$OpenBSD: pflogd.c,v 1.54 2017/07/23 14:28:22 jca Exp $	*/
+/*	$OpenBSD: pflogd.c,v 1.59 2018/08/26 18:24:46 brynet Exp $	*/
 
 /*
  * Copyright (c) 2001 Theo de Raadt
@@ -73,10 +73,9 @@ void  dump_packet(u_char *, const struct pcap_pkthdr *, const u_char *);
 void  dump_packet_nobuf(u_char *, const struct pcap_pkthdr *, const u_char *);
 int   flush_buffer(FILE *);
 int   if_exists(char *);
-int   init_pcap(void);
 void  logmsg(int, const char *, ...);
 void  purge_buffer(void);
-int   reset_dump(int);
+int   reset_dump(void);
 int   scan_dump(FILE *, off_t);
 int   set_snaplen(int);
 void  set_suspended(int);
@@ -84,8 +83,6 @@ void  sig_alrm(int);
 void  sig_close(int);
 void  sig_hup(int);
 void  usage(void);
-
-static int try_reset_dump(int);
 
 /* buffer must always be greater than snaplen */
 static int    bufpkt = 0;	/* number of packets in buffer */
@@ -215,8 +212,6 @@ init_pcap(void)
 
 	set_pcap_filter();
 
-	cur_snaplen = snaplen = pcap_snapshot(hpcap);
-
 	/* lock */
 	if (ioctl(pcap_fileno(hpcap), BIOCLOCK) < 0) {
 		logmsg(LOG_ERR, "BIOCLOCK: %s", strerror(errno));
@@ -241,25 +236,7 @@ set_snaplen(int snap)
 }
 
 int
-reset_dump(int nomove)
-{
-	int ret;
-
-	for (;;) {
-		ret = try_reset_dump(nomove);
-		if (ret <= 0)
-			break;
-	}
-
-	return (ret);
-}
-
-/*
- * tries to (re)open log file, nomove flag is used with -x switch
- * returns 0: success, 1: retry (log moved), -1: error
- */
-int
-try_reset_dump(int nomove)
+reset_dump(void)
 {
 	struct pcap_file_header hdr;
 	struct stat st;
@@ -326,12 +303,9 @@ try_reset_dump(int nomove)
 		}
 	} else if (scan_dump(fp, st.st_size)) {
 		fclose(fp);
-		if (nomove || priv_move_log()) {
-			logmsg(LOG_ERR,
-			    "Invalid/incompatible log file, move it away");
-			return (-1);
-		}
-		return (1);
+		logmsg(LOG_ERR,
+		    "Invalid/incompatible log file, move it away");
+		return (-1);
 	}
 
 	dpcap = fp;
@@ -536,15 +510,13 @@ dump_packet(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 int
 main(int argc, char **argv)
 {
-	int ch, np, ret, Xflag = 0;
+	int ch, np, ret, Pflag = 0, Xflag = 0;
 	pcap_handler phandler = dump_packet;
 	const char *errstr = NULL;
 
 	ret = 0;
 
-	closefrom(STDERR_FILENO + 1);
-
-	while ((ch = getopt(argc, argv, "Dxd:f:i:s:")) != -1) {
+	while ((ch = getopt(argc, argv, "Dxd:f:i:Ps:")) != -1) {
 		switch (ch) {
 		case 'D':
 			Debug = 1;
@@ -560,6 +532,10 @@ main(int argc, char **argv)
 		case 'i':
 			interface = optarg;
 			break;
+		case 'P': /* used internally, exec the child */
+			if (strcmp("-P", argv[1]) == 0)
+				Pflag = 1;
+			break;
 		case 's':
 			snaplen = strtonum(optarg, 0, PFLOGD_MAXSNAPLEN,
 			    &errstr);
@@ -567,6 +543,7 @@ main(int argc, char **argv)
 				snaplen = DEF_SNAPLEN;
 			if (errstr)
 				snaplen = PFLOGD_MAXSNAPLEN;
+			cur_snaplen = snaplen;
 			break;
 		case 'x':
 			Xflag = 1;
@@ -590,10 +567,13 @@ main(int argc, char **argv)
 	}
 
 	if (!Debug) {
-		openlog("pflogd", LOG_PID | LOG_CONS, LOG_DAEMON);
-		if (daemon(0, 0)) {
-			logmsg(LOG_WARNING, "Failed to become daemon: %s",
-			    strerror(errno));
+		openlog("pflogd", LOG_PID, LOG_DAEMON);
+		if (!Pflag) {
+			if (daemon(0, 0)) {
+				logmsg(LOG_WARNING,
+				    "Failed to become daemon: %s",
+				    strerror(errno));
+			}
 		}
 	}
 
@@ -606,23 +586,13 @@ main(int argc, char **argv)
 		if (filter == NULL)
 			logmsg(LOG_NOTICE, "Failed to form filter expression");
 	}
-
-	/* initialize pcap before dropping privileges */
-	if (init_pcap()) {
-		logmsg(LOG_ERR, "Exiting, init failure");
-		exit(1);
-	}
+	argc += optind;
+	argv -= optind;
 
 	/* Privilege separation begins here */
-	if (priv_init()) {
-		logmsg(LOG_ERR, "unable to privsep");
-		exit(1);
-	}
+	priv_init(Pflag, argc, argv);
 
-	/*
-	 * XXX needs wpath cpath rpath, for try_reset_dump() ?
-	 */
-	if (pledge("stdio rpath wpath cpath unix recvfd", NULL) == -1)
+	if (pledge("stdio recvfd", NULL) == -1)
 		err(1, "pledge");
 
 	setproctitle("[initializing]");
@@ -633,6 +603,9 @@ main(int argc, char **argv)
 	signal(SIGALRM, sig_alrm);
 	signal(SIGHUP, sig_hup);
 	alarm(delay);
+
+	if (priv_init_pcap(snaplen))
+		errx(1, "priv_init_pcap failed");
 
 	buffer = malloc(PFLOGD_BUFSIZE);
 
@@ -645,7 +618,7 @@ main(int argc, char **argv)
 		bufpkt = 0;
 	}
 
-	if (reset_dump(Xflag) < 0) {
+	if (reset_dump() < 0) {
 		if (Xflag)
 			return (1);
 
@@ -670,10 +643,14 @@ main(int argc, char **argv)
 		if (gotsig_close)
 			break;
 		if (gotsig_hup) {
-			if (reset_dump(0)) {
+			int was_suspended = suspended;
+			if (reset_dump()) {
 				logmsg(LOG_ERR,
 				    "Logging suspended: open error");
 				set_suspended(1);
+			} else {
+				if (was_suspended)
+					logmsg(LOG_NOTICE, "Logging resumed");
 			}
 			gotsig_hup = 0;
 		}

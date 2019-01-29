@@ -1,4 +1,4 @@
-/* $OpenBSD: ldapclient.c,v 1.39 2017/05/30 09:33:31 jmatthew Exp $ */
+/* $OpenBSD: ldapclient.c,v 1.42 2018/11/27 12:06:39 martijn Exp $ */
 
 /*
  * Copyright (c) 2008 Alexander Schrijver <aschrijver@openbsd.org>
@@ -54,7 +54,7 @@ int	client_build_req(struct idm *, struct idm_req *, struct aldap_message *,
 int	client_search_idm(struct env *, struct idm *, struct aldap *,
 	    char **, char *, int, int, enum imsg_type);
 int	client_try_idm(struct env *, struct idm *);
-int	client_addr_init(struct idm *);
+void	client_addr_init(struct idm *);
 int	client_addr_free(struct idm *);
 
 struct aldap	*client_aldap_open(struct ypldap_addr_list *);
@@ -66,7 +66,8 @@ struct aldap *
 client_aldap_open(struct ypldap_addr_list *addr)
 {
 	int			 fd = -1;
-	struct ypldap_addr	 *p;
+	struct ypldap_addr	*p;
+	struct aldap		*al;
 
 	TAILQ_FOREACH(p, addr, next) {
 		char			 hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
@@ -90,10 +91,13 @@ client_aldap_open(struct ypldap_addr_list *addr)
 	if (fd == -1)
 		return NULL;
 
-	return aldap_init(fd);
+	al = aldap_init(fd);
+	if (al == NULL)
+		close(fd);
+	return al;
 }
 
-int
+void
 client_addr_init(struct idm *idm)
 {
         struct sockaddr_in      *sa_in;
@@ -127,8 +131,6 @@ client_addr_init(struct idm *idm)
                         /* not reached */
                 }
         }
-
-        return (0);
 }
 
 int
@@ -447,8 +449,9 @@ int
 client_build_req(struct idm *idm, struct idm_req *ir, struct aldap_message *m,
     int min_attr, int max_attr)
 {
-	char	**ldap_attrs;
-	int	 i, k;
+	struct aldap_stringset	*ldap_attrs;
+	int	 i;
+	size_t	 k;
 
 	memset(ir, 0, sizeof(*ir));
 	for (i = min_attr; i < max_attr; i++) {
@@ -471,12 +474,13 @@ client_build_req(struct idm *idm, struct idm_req *ir, struct aldap_message *m,
 			}
 		} else if (idm->idm_list & F_LIST(i)) {
 			aldap_match_attr(m, idm->idm_attrs[i], &ldap_attrs);
-			for (k = 0; k >= 0 && ldap_attrs && ldap_attrs[k] != NULL; k++) {
+			for (k = 0; k >= 0 && ldap_attrs && k < ldap_attrs->len; k++) {
 				/* XXX: Fail when attributes have illegal characters e.g. ',' */
-				if (strlcat(ir->ir_line, ldap_attrs[k],
+				if (strlcat(ir->ir_line,
+				    ldap_attrs->str[k].ostr_val,
 				    sizeof(ir->ir_line)) >= sizeof(ir->ir_line))
 					continue;
-				if (ldap_attrs[k+1] != NULL)
+				if (k + 1 < ldap_attrs->len)
 					if (strlcat(ir->ir_line, ",",
 						    sizeof(ir->ir_line))
 					    >= sizeof(ir->ir_line)) {
@@ -488,19 +492,19 @@ client_build_req(struct idm *idm, struct idm_req *ir, struct aldap_message *m,
 		} else {
 			if (aldap_match_attr(m, idm->idm_attrs[i], &ldap_attrs) == -1)
 				return (-1);
-			if (ldap_attrs[0] == NULL)
-				return (-1);
-			if (strlcat(ir->ir_line, ldap_attrs[0],
+			if (strlcat(ir->ir_line, ldap_attrs->str[0].ostr_val,
 			    sizeof(ir->ir_line)) >= sizeof(ir->ir_line)) {
 				aldap_free_attr(ldap_attrs);
 				return (-1);
 			}
 			if (i == ATTR_UID) {
 				ir->ir_key.ik_uid = strtonum(
-				    ldap_attrs[0], 0, UID_MAX, NULL);
+				    ldap_attrs->str[0].ostr_val, 0, UID_MAX,
+				    NULL);
 			} else if (i == ATTR_GR_GID) {
 				ir->ir_key.ik_uid = strtonum(
-				    ldap_attrs[0], 0, GID_MAX, NULL);
+				    ldap_attrs->str[0].ostr_val, 0, GID_MAX,
+				    NULL);
 			}
 			aldap_free_attr(ldap_attrs);
 		}

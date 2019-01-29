@@ -1,4 +1,4 @@
-/*	$OpenBSD: login.c,v 1.68 2016/08/21 03:26:04 beck Exp $	*/
+/*	$OpenBSD: login.c,v 1.70 2018/08/15 19:38:47 fcambus Exp $	*/
 /*	$NetBSD: login.c,v 1.13 1996/05/15 23:50:16 jtc Exp $	*/
 
 /*-
@@ -405,9 +405,8 @@ main(int argc, char *argv[])
 		if ((instance = strchr(username, '/')) != NULL) {
 			if (strncmp(instance + 1, "root", 4) == 0)
 				rootlogin = 1;
-			*instance++ = '\0';
-		} else
-			instance = "";
+			*instance = '\0';
+		}
 
 		if (strlen(username) > UT_NAMESIZE)
 			username[UT_NAMESIZE] = '\0';
@@ -825,11 +824,8 @@ sigint(int signo)
 void
 timedout(int signo)
 {
-	char warn[1024];
-
-	snprintf(warn, sizeof warn,
+	dprintf(STDERR_FILENO,
 	    "Login timed out after %d seconds\n", timeout);
-	write(STDERR_FILENO, warn, strlen(warn));
 	if (username)
 		badlogin(username);
 	_exit(0);

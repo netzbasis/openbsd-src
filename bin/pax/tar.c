@@ -1,4 +1,4 @@
-/*	$OpenBSD: tar.c,v 1.63 2016/08/26 04:11:16 guenther Exp $	*/
+/*	$OpenBSD: tar.c,v 1.67 2018/09/13 12:33:43 millert Exp $	*/
 /*	$NetBSD: tar.c,v 1.5 1995/03/21 09:07:49 cgd Exp $	*/
 
 /*-
@@ -410,7 +410,7 @@ tar_rd(ARCHD *arcn, char *buf)
 	arcn->sb.st_gid = (gid_t)asc_ul(hd->gid, sizeof(hd->gid), OCT);
 	arcn->sb.st_size = (off_t)asc_ull(hd->size, sizeof(hd->size), OCT);
 	val = asc_ull(hd->mtime, sizeof(hd->mtime), OCT);
-	if ((time_t)val < 0 || (time_t)val != val)
+	if (val > MAX_TIME_T)
 		arcn->sb.st_mtime = INT_MAX;                    /* XXX 2038 */
 	else
 		arcn->sb.st_mtime = val;
@@ -550,7 +550,7 @@ tar_wr(ARCHD *arcn)
 	case PAX_SLK:
 	case PAX_HLK:
 	case PAX_HRG:
-		if (arcn->ln_nlen > sizeof(hd->linkname)) {
+		if ((size_t)arcn->ln_nlen > sizeof(hd->linkname)) {
 			paxwarn(1, "Link name too long for tar %s",
 			    arcn->ln_name);
 			return(1);
@@ -568,7 +568,7 @@ tar_wr(ARCHD *arcn)
 	len = arcn->nlen;
 	if (arcn->type == PAX_DIR)
 		++len;
-	if (len > sizeof(hd->name)) {
+	if ((size_t)len > sizeof(hd->name)) {
 		paxwarn(1, "File name too long for tar %s", arcn->name);
 		return(1);
 	}
@@ -664,21 +664,6 @@ tar_wr(ARCHD *arcn)
 /*
  * Routines for POSIX ustar
  */
-
-/*
- * ustar_strd()
- *	initialization for ustar read
- * Return:
- *	0 if ok, -1 otherwise
- */
-
-int
-ustar_strd(void)
-{
-	if ((usrtb_start() < 0) || (grptb_start() < 0))
-		return(-1);
-	return(0);
-}
 
 /*
  * ustar_id()
@@ -800,7 +785,7 @@ reset:
 	    0xfff);
 	arcn->sb.st_size = (off_t)asc_ull(hd->size, sizeof(hd->size), OCT);
 	val = asc_ull(hd->mtime, sizeof(hd->mtime), OCT);
-	if ((time_t)val < 0 || (time_t)val != val)
+	if (val > MAX_TIME_T)
 		arcn->sb.st_mtime = INT_MAX;                    /* XXX 2038 */
 	else
 		arcn->sb.st_mtime = val;
@@ -813,10 +798,10 @@ reset:
 	 * the posix spec wants).
 	 */
 	hd->gname[sizeof(hd->gname) - 1] = '\0';
-	if (Nflag || gid_name(hd->gname, &(arcn->sb.st_gid)) < 0)
+	if (Nflag || gid_from_group(hd->gname, &(arcn->sb.st_gid)) < 0)
 		arcn->sb.st_gid = (gid_t)asc_ul(hd->gid, sizeof(hd->gid), OCT);
 	hd->uname[sizeof(hd->uname) - 1] = '\0';
-	if (Nflag || uid_name(hd->uname, &(arcn->sb.st_uid)) < 0)
+	if (Nflag || uid_from_user(hd->uname, &(arcn->sb.st_uid)) < 0)
 		arcn->sb.st_uid = (uid_t)asc_ul(hd->uid, sizeof(hd->uid), OCT);
 
 	/*
@@ -921,8 +906,8 @@ int
 ustar_wr(ARCHD *arcn)
 {
 	HD_USTAR *hd;
-	char *pt, *name;
-	char hdblk[sizeof(HD_USTAR)];
+	const char *name;
+	char *pt, hdblk[sizeof(HD_USTAR)];
 
 	/*
 	 * check for those file system types ustar cannot store
@@ -941,7 +926,8 @@ ustar_wr(ARCHD *arcn)
 	/*
 	 * check the length of the linkname
 	 */
-	if (PAX_IS_LINK(arcn->type) && (arcn->ln_nlen > sizeof(hd->linkname))) {
+	if (PAX_IS_LINK(arcn->type) &&
+	    ((size_t)arcn->ln_nlen > sizeof(hd->linkname))) {
 		paxwarn(1, "Link name too long for ustar %s", arcn->ln_name);
 		return(1);
 	}
@@ -1050,7 +1036,7 @@ ustar_wr(ARCHD *arcn)
 	 */
 	if (ul_oct(arcn->sb.st_uid, hd->uid, sizeof(hd->uid), 3)) {
 		if (uid_nobody == 0) {
-			if (uid_name("nobody", &uid_nobody) == -1)
+			if (uid_from_user("nobody", &uid_nobody) == -1)
 				goto out;
 		}
 		if (uid_warn != arcn->sb.st_uid) {
@@ -1064,7 +1050,7 @@ ustar_wr(ARCHD *arcn)
 	}
 	if (ul_oct(arcn->sb.st_gid, hd->gid, sizeof(hd->gid), 3)) {
 		if (gid_nobody == 0) {
-			if (gid_name("nobody", &gid_nobody) == -1)
+			if (gid_from_group("nobody", &gid_nobody) == -1)
 				goto out;
 		}
 		if (gid_warn != arcn->sb.st_gid) {
@@ -1209,7 +1195,7 @@ static int
 rd_xheader(ARCHD *arcn, int global, off_t size)
 {
 	char buf[MAXXHDRSZ];
-	unsigned long len;
+	long len;
 	char *delim, *keyword;
 	char *nextp, *p, *end;
 	int pad, ret = 0;
@@ -1247,8 +1233,8 @@ rd_xheader(ARCHD *arcn, int global, off_t size)
 			break;
 		}
 		errno = 0;
-		len = strtoul(p, &delim, 10);
-		if (*delim != ' ' || (errno == ERANGE && len == ULONG_MAX) ||
+		len = strtol(p, &delim, 10);
+		if (*delim != ' ' || (errno == ERANGE && len == LONG_MAX) ||
 		    len < MINXHDRSZ) {
 			paxwarn(1, "Invalid extended header record length");
 			ret = -1;

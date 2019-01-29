@@ -1,4 +1,4 @@
-/*	$OpenBSD: powernow-k8.c,v 1.29 2015/09/08 07:12:56 deraadt Exp $ */
+/*	$OpenBSD: powernow-k8.c,v 1.34 2018/07/04 02:06:15 mlarkin Exp $ */
 
 /*
  * Copyright (c) 2004 Martin Végiard.
@@ -27,7 +27,6 @@
  */
 /* AMD POWERNOW K8 driver */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -321,9 +320,15 @@ k8pnow_states(struct k8pnow_cpu_state *cstate, uint32_t cpusig,
 	uint8_t *p;
 	int i;
 
+	/*
+	 * Look in the 0xe0000 - 0x100000 physical address
+	 * range for the pst tables; 16 byte blocks. End 10 bytes
+	 * before the end of the range to avoid memcmp across a
+	 * page boundary into unmapped memory.
+	 */
 	for (p = (u_int8_t *)ISA_HOLE_VADDR(BIOS_START);
-	    p < (u_int8_t *)ISA_HOLE_VADDR(BIOS_START + BIOS_LEN); p +=
-	    BIOS_STEP) {
+	    p < (u_int8_t *)ISA_HOLE_VADDR(BIOS_START + BIOS_LEN) - 10;
+	    p += BIOS_STEP) {
 		if (memcmp(p, "AMDK7PNOW!", 10) == 0) {
 			psb = (struct psb_s *)p;
 			if (psb->version != PN8_PSB_VERSION)
@@ -500,7 +505,7 @@ k8_powernow_init(void)
 	}
 	if (cstate->n_states) {
 		printf("%s: %s %d MHz: speeds:",
-		    ci->ci_dev.dv_xname, techname, cpuspeed);
+		    ci->ci_dev->dv_xname, techname, cpuspeed);
 		for (i = cstate->n_states; i > 0; i--) {
 			state = &cstate->state_table[i-1];
 			printf(" %d", state->freq);

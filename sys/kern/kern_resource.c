@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_resource.c,v 1.57 2016/09/15 02:00:16 dlg Exp $	*/
+/*	$OpenBSD: kern_resource.c,v 1.59 2019/01/06 12:59:45 visa Exp $	*/
 /*	$NetBSD: kern_resource.c,v 1.38 1996/10/23 07:19:38 matthias Exp $	*/
 
 /*-
@@ -46,6 +46,7 @@
 #include <sys/proc.h>
 #include <sys/ktrace.h>
 #include <sys/sched.h>
+#include <sys/signalvar.h>
 
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
@@ -190,7 +191,7 @@ donice(struct proc *curp, struct process *chgpr, int n)
 	if (n < PRIO_MIN)
 		n = PRIO_MIN;
 	n += NZERO;
-	if (n < chgpr->ps_nice && suser(curp, 0))
+	if (n < chgpr->ps_nice && suser(curp))
 		return (EACCES);
 	chgpr->ps_nice = n;
 	SCHED_LOCK(s);
@@ -233,7 +234,7 @@ dosetrlimit(struct proc *p, u_int which, struct rlimit *limp)
 
 	alimp = &p->p_rlimit[which];
 	if (limp->rlim_max > alimp->rlim_max)
-		if ((error = suser(p, 0)) != 0)
+		if ((error = suser(p)) != 0)
 			return (error);
 	if (p->p_p->ps_limit->p_refcnt > 1) {
 		struct plimit *l = p->p_p->ps_limit;
@@ -266,6 +267,10 @@ dosetrlimit(struct proc *p, u_int which, struct rlimit *limp)
 		limp->rlim_max = maxlim;
 	if (limp->rlim_cur > limp->rlim_max)
 		limp->rlim_cur = limp->rlim_max;
+
+	if (which == RLIMIT_CPU && limp->rlim_cur != RLIM_INFINITY &&
+	    alimp->rlim_cur == RLIM_INFINITY)
+		timeout_add_msec(&p->p_p->ps_rucheck_to, RUCHECK_INTERVAL);
 
 	if (which == RLIMIT_STACK) {
 		/*
@@ -490,6 +495,39 @@ ruadd(struct rusage *ru, struct rusage *ru2)
 	ip = &ru->ru_first; ip2 = &ru2->ru_first;
 	for (i = &ru->ru_last - &ru->ru_first; i >= 0; i--)
 		*ip++ += *ip2++;
+}
+
+/*
+ * Check if the process exceeds its cpu resource allocation.
+ * If over max, kill it.
+ */
+void
+rucheck(void *arg)
+{
+	struct process *pr = arg;
+	struct rlimit *rlim;
+	rlim_t runtime;
+	int s;
+
+	KERNEL_ASSERT_LOCKED();
+
+	SCHED_LOCK(s);
+	runtime = pr->ps_tu.tu_runtime.tv_sec;
+	SCHED_UNLOCK(s);
+
+	rlim = &pr->ps_limit->pl_rlimit[RLIMIT_CPU];
+	if (runtime >= rlim->rlim_cur) {
+		if (runtime >= rlim->rlim_max) {
+			prsignal(pr, SIGKILL);
+		} else {
+			prsignal(pr, SIGXCPU);
+			if (rlim->rlim_cur < rlim->rlim_max)
+				rlim->rlim_cur = MIN(rlim->rlim_cur + 5,
+				    rlim->rlim_max);
+		}
+	}
+
+	timeout_add_msec(&pr->ps_rucheck_to, RUCHECK_INTERVAL);
 }
 
 struct pool plimit_pool;

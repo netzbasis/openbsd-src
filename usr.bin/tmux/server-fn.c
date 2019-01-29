@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.110 2017/07/12 09:07:52 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.118 2018/11/30 08:44:40 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 #include <sys/queue.h>
+#include <sys/wait.h>
 #include <sys/uio.h>
 
 #include <imsg.h>
@@ -34,13 +35,13 @@ static void		 server_destroy_session_group(struct session *);
 void
 server_redraw_client(struct client *c)
 {
-	c->flags |= CLIENT_REDRAW;
+	c->flags |= CLIENT_ALLREDRAWFLAGS;
 }
 
 void
 server_status_client(struct client *c)
 {
-	c->flags |= CLIENT_STATUS;
+	c->flags |= CLIENT_REDRAWSTATUS;
 }
 
 void
@@ -109,7 +110,7 @@ server_redraw_window_borders(struct window *w)
 
 	TAILQ_FOREACH(c, &clients, entry) {
 		if (c->session != NULL && c->session->curw->window == w)
-			c->flags |= CLIENT_BORDERS;
+			c->flags |= CLIENT_REDRAWBORDERS;
 	}
 }
 
@@ -164,7 +165,7 @@ server_lock_client(struct client *c)
 		return;
 
 	cmd = options_get_string(c->session->options, "lock-command");
-	if (strlen(cmd) + 1 > MAX_IMSGSIZE - IMSG_HEADER_SIZE)
+	if (*cmd == '\0' || strlen(cmd) + 1 > MAX_IMSGSIZE - IMSG_HEADER_SIZE)
 		return;
 
 	tty_stop_tty(&c->tty);
@@ -174,6 +175,22 @@ server_lock_client(struct client *c)
 
 	c->flags |= CLIENT_SUSPENDED;
 	proc_send(c->peer, MSG_LOCK, -1, cmd, strlen(cmd) + 1);
+}
+
+void
+server_kill_pane(struct window_pane *wp)
+{
+	struct window	*w = wp->window;
+
+	if (window_count_panes(w) == 1) {
+		server_kill_window(w);
+		recalculate_sizes();
+	} else {
+		server_unzoom_window(w);
+		layout_close_pane(wp);
+		window_remove_pane(w, wp);
+		server_redraw_window(w);
+	}
 }
 
 void
@@ -278,20 +295,25 @@ void
 server_destroy_pane(struct window_pane *wp, int notify)
 {
 	struct window		*w = wp->window;
-	int			 old_fd;
 	struct screen_write_ctx	 ctx;
 	struct grid_cell	 gc;
+	time_t			 t;
+	char			 tim[26];
 
-	old_fd = wp->fd;
 	if (wp->fd != -1) {
 		bufferevent_free(wp->event);
+		wp->event = NULL;
 		close(wp->fd);
 		wp->fd = -1;
 	}
 
 	if (options_get_number(w->options, "remain-on-exit")) {
-		if (old_fd == -1)
+		if (~wp->flags & PANE_STATUSREADY)
 			return;
+
+		if (wp->flags & PANE_STATUSDRAWN)
+			return;
+		wp->flags |= PANE_STATUSDRAWN;
 
 		if (notify)
 			notify_pane("pane-died", wp);
@@ -301,11 +323,24 @@ server_destroy_pane(struct window_pane *wp, int notify)
 		screen_write_cursormove(&ctx, 0, screen_size_y(ctx.s) - 1);
 		screen_write_linefeed(&ctx, 1, 8);
 		memcpy(&gc, &grid_default_cell, sizeof gc);
-		gc.attr |= GRID_ATTR_BRIGHT;
-		screen_write_puts(&ctx, &gc, "Pane is dead");
+
+		time(&t);
+		ctime_r(&t, tim);
+
+		if (WIFEXITED(wp->status)) {
+			screen_write_nputs(&ctx, -1, &gc,
+			    "Pane is dead (status %d, %s)",
+			    WEXITSTATUS(wp->status),
+			    tim);
+		} else if (WIFSIGNALED(wp->status)) {
+			screen_write_nputs(&ctx, -1, &gc,
+			    "Pane is dead (signal %d, %s)",
+			    WTERMSIG(wp->status),
+			    tim);
+		}
+
 		screen_write_stop(&ctx);
 		wp->flags |= PANE_REDRAW;
-
 		return;
 	}
 
@@ -375,6 +410,7 @@ server_destroy_session(struct session *s)
 			c->last_session = NULL;
 			c->session = s_new;
 			server_client_set_key_table(c, NULL);
+			tty_update_client_offset(c);
 			status_timer_start(c);
 			notify_client("client-session-changed", c);
 			session_update_activity(s_new, NULL);
@@ -396,7 +432,7 @@ server_check_unattached(void)
 	 * set, collect them.
 	 */
 	RB_FOREACH(s, sessions, &sessions) {
-		if (!(s->flags & SESSION_UNATTACHED))
+		if (s->attached != 0)
 			continue;
 		if (options_get_number (s->options, "destroy-unattached"))
 			session_destroy(s, __func__);
@@ -437,8 +473,6 @@ server_set_stdin_callback(struct client *c, void (*cb)(struct client *, int,
 void
 server_unzoom_window(struct window *w)
 {
-	if (window_unzoom(w) == 0) {
+	if (window_unzoom(w) == 0)
 		server_redraw_window(w);
-		server_status_window(w);
-	}
 }

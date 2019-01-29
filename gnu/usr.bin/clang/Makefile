@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.5 2017/01/25 07:29:30 patrick Exp $
+# $OpenBSD: Makefile,v 1.9 2019/01/27 16:59:41 patrick Exp $
 
 .include <bsd.own.mk>
 
@@ -10,6 +10,7 @@ SUBDIR+=libLLVMSupport
 SUBDIR+=libLLVMTableGen
 SUBDIR+=llvm-tblgen
 SUBDIR+=include/llvm/IR
+SUBDIR+=include/llvm/Transforms/InstCombine
 
 # these need Intrinsics.gen
 SUBDIR+=libLLVMCore
@@ -19,6 +20,7 @@ SUBDIR+=libLLVMSelectionDAG
 SUBDIR+=libLLVMAsmPrinter
 # only required by llc
 #SUBDIR+=libLLVMMIRParser
+SUBDIR+=libLLVMBinaryFormat
 SUBDIR+=libLLVMBitReader
 SUBDIR+=libLLVMBitWriter
 SUBDIR+=libLLVMTransformUtils
@@ -42,6 +44,8 @@ SUBDIR+=libLLVMCoverage
 SUBDIR+=libLLVMDebugInfoCodeView
 SUBDIR+=libLLVMDebugInfoDWARF
 SUBDIR+=libLLVMDebugInfoMSF
+SUBDIR+=libLLVMDebugInfoPDB
+SUBDIR+=libLLVMExecutionEngine
 SUBDIR+=libLLVMGlobalISel
 SUBDIR+=libLLVMLTO
 SUBDIR+=libLLVMPasses
@@ -62,6 +66,7 @@ SUBDIR+=clang-tblgen
 SUBDIR+=include/clang
 
 SUBDIR+=libclangBasic
+SUBDIR+=libclangBasicTargets
 SUBDIR+=libclangLex
 SUBDIR+=libclangParse
 SUBDIR+=libclangAST
@@ -71,6 +76,7 @@ SUBDIR+=libclangAnalysis
 SUBDIR+=libclangEdit
 SUBDIR+=libclangRewrite
 SUBDIR+=libclangDriver
+SUBDIR+=libclangDriverArch
 SUBDIR+=libclangSerialization
 SUBDIR+=libclangFrontend
 SUBDIR+=libclangRewriteFrontend
@@ -78,11 +84,50 @@ SUBDIR+=libclangFrontendTool
 
 SUBDIR+=clang
 
-SUBDIR+=liblldConfig
+SUBDIR+=liblldCommon
 SUBDIR+=liblldCore
 SUBDIR+=liblldELF
 
 SUBDIR+=lld
+
+SUBDIR+=liblldbABI
+SUBDIR+=liblldbAPI
+SUBDIR+=liblldbBreakpoint
+SUBDIR+=liblldbCommands
+SUBDIR+=liblldbCore
+SUBDIR+=liblldbDataFormatters
+SUBDIR+=liblldbExpression
+SUBDIR+=liblldbHostCommon
+SUBDIR+=liblldbHostOpenBSD
+SUBDIR+=liblldbHostPOSIX
+SUBDIR+=liblldbInitialization
+SUBDIR+=liblldbInterpreter
+SUBDIR+=liblldbPluginArchitecture
+SUBDIR+=liblldbPluginDisassembler
+SUBDIR+=liblldbPluginDynamicLoader
+SUBDIR+=liblldbPluginExpressionParser
+SUBDIR+=liblldbPluginInstruction
+SUBDIR+=liblldbPluginInstrumentationRuntime
+SUBDIR+=liblldbPluginJITLoader
+SUBDIR+=liblldbPluginLanguage
+SUBDIR+=liblldbPluginLanguageRuntime
+SUBDIR+=liblldbPluginMemoryHistory
+SUBDIR+=liblldbPluginObjectContainer
+SUBDIR+=liblldbPluginObjectFile
+SUBDIR+=liblldbPluginOperatingSystem
+SUBDIR+=liblldbPluginPlatform
+SUBDIR+=liblldbPluginProcess
+SUBDIR+=liblldbPluginScriptInterpreter
+SUBDIR+=liblldbPluginStructuredData
+SUBDIR+=liblldbPluginSymbolFile
+SUBDIR+=liblldbPluginSymbolVendor
+SUBDIR+=liblldbPluginSystemRuntime
+SUBDIR+=liblldbPluginUnwindAssembly
+SUBDIR+=liblldbSymbol
+SUBDIR+=liblldbTarget
+SUBDIR+=liblldbUtility
+
+SUBDIR+=lldb
 
 .include <bsd.obj.mk>
 .include <bsd.subdir.mk>

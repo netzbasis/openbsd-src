@@ -1,4 +1,4 @@
-/*	$OpenBSD: mld6.c,v 1.54 2017/05/16 12:24:02 mpi Exp $	*/
+/*	$OpenBSD: mld6.c,v 1.56 2018/11/30 09:28:34 claudio Exp $	*/
 /*	$KAME: mld6.c,v 1.26 2001/02/16 14:50:35 itojun Exp $	*/
 
 /*
@@ -327,16 +327,21 @@ mld6_fasttimeo(void)
 {
 	struct ifnet *ifp;
 
+	NET_LOCK();
+
 	/*
 	 * Quick check to see if any work needs to be done, in order
 	 * to minimize the overhead of fasttimo processing.
 	 */
 	if (!mld_timers_are_running)
-		return;
+		goto out;
 
 	mld_timers_are_running = 0;
 	TAILQ_FOREACH(ifp, &ifnet, if_list)
 		mld6_checktimer(ifp);
+
+out:
+	NET_UNLOCK();
 }
 
 void
@@ -413,7 +418,7 @@ mld6_sendpkt(struct in6_multi *in6m, int type, const struct in6_addr *dst)
 	mh->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 	mh->m_pkthdr.len = sizeof(struct ip6_hdr) + sizeof(struct mld_hdr);
 	mh->m_len = sizeof(struct ip6_hdr);
-	MH_ALIGN(mh, sizeof(struct ip6_hdr));
+	m_align(mh, sizeof(struct ip6_hdr));
 
 	/* fill in the ip6 header */
 	ip6 = mtod(mh, struct ip6_hdr *);

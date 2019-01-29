@@ -1,4 +1,4 @@
-/*	$OpenBSD: mips_cpu.h,v 1.6 2017/06/11 03:35:30 visa Exp $	*/
+/*	$OpenBSD: mips_cpu.h,v 1.8 2018/04/09 13:46:15 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -54,6 +54,7 @@
 #define	SR_COP_USABILITY	0x30000000	/* CP0 and CP1 only */
 #define	SR_COP_0_BIT		0x10000000
 #define	SR_COP_1_BIT		0x20000000
+#define	SR_COP_2_BIT		0x40000000
 #define	SR_RP			0x08000000
 #define	SR_FR_32		0x04000000
 #define	SR_RE			0x02000000
@@ -291,6 +292,32 @@
  */
 #define	FPC_ID			$0
 #define	FPC_CSR			$31
+
+/*
+ * Config1 register
+ */
+#define	CONFIG1_M		0x80000000u
+#define	CONFIG1_MMUSize1	0x7e000000u
+#define	CONFIG1_MMUSize1_SHIFT	25
+#define	CONFIG1_IS		0x01c00000u
+#define	CONFIG1_IS_SHIFT	22
+#define	CONFIG1_IL		0x00380000u
+#define	CONFIG1_IL_SHIFT	19
+#define	CONFIG1_IA		0x00070000u
+#define	CONFIG1_IA_SHIFT	16
+#define	CONFIG1_DS		0x0000e000u
+#define	CONFIG1_DS_SHIFT	13
+#define	CONFIG1_DL		0x00001c00u
+#define	CONFIG1_DL_SHIFT	10
+#define	CONFIG1_DA		0x00000380u
+#define	CONFIG1_DA_SHIFT	7
+#define	CONFIG1_C2		0x00000040u
+#define	CONFIG1_MD		0x00000020u
+#define	CONFIG1_PC		0x00000010u
+#define	CONFIG1_WR		0x00000008u
+#define	CONFIG1_CA		0x00000004u
+#define	CONFIG1_EP		0x00000002u
+#define	CONFIG1_FP		0x00000001u
 
 /*
  * Config3 register

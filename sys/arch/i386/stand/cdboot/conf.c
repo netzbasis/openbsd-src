@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.30 2016/09/18 16:36:09 jsing Exp $	*/
+/*	$OpenBSD: conf.c,v 1.33 2018/08/23 14:47:52 jsg Exp $	*/
 
 /*
  * Copyright (c) 2004 Tom Cosgrove
@@ -28,7 +28,6 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <libsa.h>
 #include <lib/libsa/ufs.h>
@@ -43,7 +42,7 @@
 #include <dev/cons.h>
 #include "debug.h"
 
-const char version[] = "3.28";
+const char version[] = "3.30";
 int	debug = 1;
 
 void (*sa_cleanup)(void) = NULL;

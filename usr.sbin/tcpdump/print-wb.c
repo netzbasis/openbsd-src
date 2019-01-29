@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-wb.c,v 1.9 2015/11/16 00:16:39 mmcc Exp $	*/
+/*	$OpenBSD: print-wb.c,v 1.11 2018/07/06 05:47:22 dlg Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996
@@ -178,9 +178,9 @@ wb_id(const struct pkt_id *id, u_int len)
 	char c;
 	int nid;
 
-	printf(" wb-id:");
+	printf("wb-id:");
 	len -= sizeof(*id);
-	if (len < 0 || (u_char *)(id + 1) > snapend)
+	if ((u_char *)(id + 1) > snapend)
 		return (-1);
 
 	printf(" %u/%s:%u (max %u/%s:%u) ",
@@ -217,7 +217,7 @@ wb_id(const struct pkt_id *id, u_int len)
 static int
 wb_rreq(const struct pkt_rreq *rreq, u_int len)
 {
-	printf(" wb-rreq:");
+	printf("wb-rreq:");
 	if (len < sizeof(*rreq) || (u_char *)(rreq + 1) > snapend)
 		return (-1);
 
@@ -233,7 +233,7 @@ wb_rreq(const struct pkt_rreq *rreq, u_int len)
 static int
 wb_preq(const struct pkt_preq *preq, u_int len)
 {
-	printf(" wb-preq:");
+	printf("wb-preq:");
 	if (len < sizeof(*preq) || (u_char *)(preq + 1) > snapend)
 		return (-1);
 
@@ -251,7 +251,7 @@ wb_prep(const struct pkt_prep *prep, u_int len)
 	const struct pgstate *ps;
 	const u_char *ep = snapend;
 
-	printf(" wb-prep:");
+	printf("wb-prep:");
 	if (len < sizeof(*prep)) {
 		return (-1);
 	}
@@ -334,9 +334,9 @@ wb_rrep(const struct pkt_rrep *rrep, u_int len)
 {
 	const struct pkt_dop *dop = &rrep->pr_dop;
 
-	printf(" wb-rrep:");
+	printf("wb-rrep:");
 	len -= sizeof(*rrep);
-	if (len < 0 || (u_char *)(rrep + 1) > snapend)
+	if ((u_char *)(rrep + 1) > snapend)
 		return (-1);
 
 	printf(" for %s %s:%u<%u:%u>",
@@ -355,9 +355,9 @@ wb_rrep(const struct pkt_rrep *rrep, u_int len)
 static int
 wb_drawop(const struct pkt_dop *dop, u_int len)
 {
-	printf(" wb-dop:");
+	printf("wb-dop:");
 	len -= sizeof(*dop);
-	if (len < 0 || (u_char *)(dop + 1) > snapend)
+	if ((u_char *)(dop + 1) > snapend)
 		return (-1);
 
 	printf(" %s:%u<%u:%u>",
@@ -382,13 +382,13 @@ wb_print(const void *hdr, u_int len)
 
 	ph = (const struct pkt_hdr *)hdr;
 	len -= sizeof(*ph);
-	if (len < 0 || (u_char *)(ph + 1) <= snapend) {
+	if ((u_char *)(ph + 1) <= snapend) {
 		if (ph->ph_flags)
 			printf("*");
 		switch (ph->ph_type) {
 
 		case PT_KILL:
-			printf(" wb-kill");
+			printf("wb-kill");
 			return;
 
 		case PT_ID:
@@ -422,7 +422,7 @@ wb_print(const void *hdr, u_int len)
 			break;
 
 		default:
-			printf(" wb-%d!", ph->ph_type);
+			printf("wb-%d!", ph->ph_type);
 			return;
 		}
 	}

@@ -1,3 +1,4 @@
+/* $OpenBSD: amdisplay.c,v 1.8 2018/09/19 08:12:39 claudio Exp $ */
 /*
  * Copyright (c) 2016 Ian Sutton <ians@openbsd.org>
  *
@@ -73,7 +74,7 @@ struct amdisplay_softc {
 #define LCD_MODE_COMPAT		(1 << 1)
 #define LCD_MODE_ALLOC		(1 << 2)
 
-	struct edid_info	*sc_edid;
+	struct edid_info	sc_edid;
 	struct videomode	*sc_active_mode;
 	int			sc_active_depth;
 
@@ -178,8 +179,7 @@ amdisplay_attach(struct device *parent, struct device *self, void *args)
 	struct amdisplay_softc	*sc = (struct amdisplay_softc *) self;
 	struct fdt_attach_args	*faa = args;
 	struct wsemuldisplaydev_attach_args wsaa;
-	struct edid_info edid;
-	uint64_t pel_clk;
+	uint64_t pel_clk = 0;
 	uint32_t reg;
 	uint8_t *edid_buf;
 	int stride, i = 0;
@@ -212,25 +212,25 @@ amdisplay_attach(struct device *parent, struct device *self, void *args)
 	sc->sc_flags |= LCD_MODE_ALLOC;
 
 	if (nxphdmi_get_edid(edid_buf, EDID_LENGTH) ||
-	    edid_parse(edid_buf, &edid)) {
+	    edid_parse(edid_buf, &sc->sc_edid)) {
 		printf("%s: no display attached.\n", DEVNAME(sc));
 		free(edid_buf, M_DEVBUF, EDID_LENGTH);
 		amdisplay_detach(self, 0);
 		return;
 	}
 
-	sc->sc_edid = &edid;
+	free(edid_buf, M_DEVBUF, EDID_LENGTH);
 
 #ifdef LCD_DEBUG
-	edid_print(&edid);
+	edid_print(&sc->sc_edid);
 #endif
 
 	/* determine max supported resolution our clock signal can handle */
-	for (; i < edid.edid_nmodes - 1; i++) {
-		if (edid.edid_modes[i].dot_clock < LCD_MAX_PELCLK &&
-		    edid.edid_modes[i].dot_clock > pel_clk) {
-			pel_clk = edid.edid_modes[i].dot_clock;
-			memcpy(sc->sc_active_mode, &edid.edid_modes[i],
+	for (; i < sc->sc_edid.edid_nmodes - 1; i++) {
+		if (sc->sc_edid.edid_modes[i].dot_clock < LCD_MAX_PELCLK &&
+		    sc->sc_edid.edid_modes[i].dot_clock > pel_clk) {
+			pel_clk = sc->sc_edid.edid_modes[i].dot_clock;
+			memcpy(sc->sc_active_mode, &sc->sc_edid.edid_modes[i],
 			    sizeof(struct videomode));
 		}
 	}
@@ -248,7 +248,6 @@ amdisplay_attach(struct device *parent, struct device *self, void *args)
 	/* configure DMA framebuffer */
 	if (amdisplay_setup_dma(sc)) {
 		printf("%s: couldn't allocate DMA framebuffer\n", DEVNAME(sc));
-		free(edid_buf, M_DEVBUF, EDID_LENGTH);
 		amdisplay_detach(self, 0);
 		return;
 	}
@@ -375,9 +374,6 @@ int
 amdisplay_detach(struct device *self, int flags)
 {
 	struct amdisplay_softc *sc = (struct amdisplay_softc *)self;
-
-	if (sc->sc_edid)
-		free(sc->sc_edid, M_DEVBUF, sizeof(struct edid_info));
 
 	if (ISSET(sc->sc_flags, LCD_MODE_ALLOC))
 		free(sc->sc_active_mode, M_DEVBUF, sizeof(struct videomode));

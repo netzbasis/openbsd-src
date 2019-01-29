@@ -1,4 +1,4 @@
-/*	$OpenBSD: psl.h,v 1.32 2017/05/25 03:19:39 dlg Exp $	*/
+/*	$OpenBSD: psl.h,v 1.34 2018/08/20 15:02:07 visa Exp $	*/
 /*	$NetBSD: psl.h,v 1.20 2001/04/13 23:30:05 thorpej Exp $ */
 
 /*
@@ -58,7 +58,6 @@
 #define PIL_STATCLOCK	14
 #define PIL_HIGH	15
 #define PIL_SCHED	PIL_STATCLOCK
-#define PIL_LOCK	PIL_HIGH
 
 /* 
  * SPARC V9 CCR register
@@ -229,9 +228,6 @@
 #if defined(_KERNEL) && !defined(_LOCORE)
 
 extern u_int64_t ver;	/* Copy of v9 version register.  We need to read this only once, in locore.s. */
-#ifndef SPLDEBUG
-extern __inline void splx(int);
-#endif
 
 #ifdef DIAGNOSTIC
 /*
@@ -255,42 +251,42 @@ void splassert_check(int, const char *);
 /*
  * GCC pseudo-functions for manipulating privileged registers
  */
-extern __inline u_int64_t getpstate(void);
-extern __inline
+static inline u_int64_t getpstate(void);
+static inline
 u_int64_t getpstate(void)
 {
 	return (sparc_rdpr(pstate));
 }
 
-extern __inline void setpstate(u_int64_t);
-extern __inline void setpstate(u_int64_t newpstate)
+static inline void setpstate(u_int64_t);
+static inline void setpstate(u_int64_t newpstate)
 {
 	sparc_wrpr(pstate, newpstate, 0);
 }
 
-extern __inline int getcwp(void);
-extern __inline
+static inline int getcwp(void);
+static inline
 int getcwp(void)
 {
 	return (sparc_rdpr(cwp));
 }
 
-extern __inline void setcwp(u_int64_t);
-extern __inline void
+static inline void setcwp(u_int64_t);
+static inline void
 setcwp(u_int64_t newcwp)
 {
 	sparc_wrpr(cwp, newcwp, 0);
 }
 
-extern __inline u_int64_t getver(void);
-extern __inline
+static inline u_int64_t getver(void);
+static inline
 u_int64_t getver(void)
 {
 	return (sparc_rdpr(ver));
 }
 
-extern __inline u_int64_t intr_disable(void);
-extern __inline u_int64_t
+static inline u_int64_t intr_disable(void);
+static inline u_int64_t
 intr_disable(void)
 {
 	u_int64_t s;
@@ -300,15 +296,15 @@ intr_disable(void)
 	return (s);
 }
 
-extern __inline void intr_restore(u_int64_t);
-extern __inline void
+static inline void intr_restore(u_int64_t);
+static inline void
 intr_restore(u_int64_t s)
 {
 	sparc_wrpr(pstate, s, 0);
 }
 
-extern __inline void stxa_sync(u_int64_t, u_int64_t, u_int64_t);
-extern __inline void
+static inline void stxa_sync(u_int64_t, u_int64_t, u_int64_t);
+static inline void
 stxa_sync(u_int64_t va, u_int64_t asi, u_int64_t val)
 {
 	u_int64_t s = intr_disable();

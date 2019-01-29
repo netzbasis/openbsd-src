@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief CodeEmitter interface for R600 and SI codegen.
+/// CodeEmitter interface for R600 and SI codegen.
 //
 //===----------------------------------------------------------------------===//
 
@@ -49,6 +49,18 @@ public:
   virtual unsigned getSOPPBrEncoding(const MCInst &MI, unsigned OpNo,
                                      SmallVectorImpl<MCFixup> &Fixups,
                                      const MCSubtargetInfo &STI) const {
+    return 0;
+  }
+
+  virtual unsigned getSDWASrcEncoding(const MCInst &MI, unsigned OpNo,
+                                      SmallVectorImpl<MCFixup> &Fixups,
+                                      const MCSubtargetInfo &STI) const {
+    return 0;
+  }
+
+  virtual unsigned getSDWAVopcDstEncoding(const MCInst &MI, unsigned OpNo,
+                                          SmallVectorImpl<MCFixup> &Fixups,
+                                          const MCSubtargetInfo &STI) const {
     return 0;
   }
 

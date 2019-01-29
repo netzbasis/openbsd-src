@@ -1,4 +1,4 @@
-/* $Id: main.c,v 1.66 2016/10/13 11:22:46 otto Exp $	 */
+/* $OpenBSD: main.c,v 1.69 2019/01/17 05:56:29 tedu Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -251,6 +251,31 @@ show_help(void)
 }
 
 void
+add_order_tb(order_type *o)
+{
+	if (curr_view->mgr->order_curr == o)
+		tbprintf("[%s%s(%c)] ", o->name,
+		    o->func != NULL && sortdir == -1 ? "^" : "",
+		    (char) o->hotkey);
+	else
+		tbprintf("%s(%c) ", o->name, (char) o->hotkey);
+}
+
+void
+show_order(void)
+{
+	if (rawmode)
+		return;
+
+	tb_start();
+	if (foreach_order(add_order_tb) == -1) {
+		tbprintf("No orders available");
+	}
+	tb_end();
+	message_set(tmp_buf);
+}
+
+void
 cmd_compat(const char *buf)
 {
 	const char *s;
@@ -273,6 +298,11 @@ cmd_compat(const char *buf)
 		paused = 0;
 		gotsig_alarm = 1;
 		cmd_delay(buf + 5);
+		return;
+	}
+	if (strncasecmp(buf, "order", 5) == 0) {
+		show_order();
+		need_update = 1;
 		return;
 	}
 
@@ -362,6 +392,7 @@ initialize(void)
 	initmalloc();
 	initnfs();
 	initcpu();
+	inituvm();
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: grdc.c,v 1.27 2017/07/13 02:57:52 tb Exp $	*/
+/*	$OpenBSD: grdc.c,v 1.30 2019/01/06 18:27:14 tedu Exp $	*/
 /*
  *
  * Copyright 2002 Amos Shapir.  Public domain.
@@ -18,6 +18,9 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <poll.h>
 #include <unistd.h>
 
 #define XLENGTH 58
@@ -58,11 +61,11 @@ int
 main(int argc, char *argv[])
 {
 	long t, a;
-	int i, j, s, k;
+	int i, j, s, k, rv;
 	int scrol;
 	int n = 0;
-	struct timeval nowtv, endtv;
-	struct timespec delay;
+	struct timespec delay, end;
+	struct pollfd pfd;
 	const char *errstr;
 	long scroldelay = 50000000;
 	int xbase;
@@ -97,11 +100,17 @@ main(int argc, char *argv[])
 
 	initscr();
 
+	if (pledge("stdio tty", NULL) == -1)
+		err(1, "pledge");
+
 	signal(SIGINT,sighndl);
 	signal(SIGTERM,sighndl);
 	signal(SIGHUP,sighndl);
 	signal(SIGWINCH, sigresize);
 	signal(SIGCONT, sigresize);	/* for resizes during suspend */
+
+	pfd.fd = STDIN_FILENO;
+	pfd.events = POLLIN;
 
 	cbreak();
 	noecho();
@@ -119,10 +128,9 @@ main(int argc, char *argv[])
 	curs_set(0);
 	sigwinched = 1;	/* force initial sizing */
 
-	gettimeofday(&nowtv, NULL);
-	TIMEVAL_TO_TIMESPEC(&nowtv, &now);
+	clock_gettime(CLOCK_REALTIME, &now);
 	if (n)
-		endtv.tv_sec = nowtv.tv_sec + n - 1;
+		end.tv_sec = now.tv_sec + n - 1;
 	do {
 		if (sigwinched) {
 			sigwinched = 0;
@@ -205,8 +213,7 @@ main(int argc, char *argv[])
 				}
 			}
 			if (scrol && k <= 4) {
-				gettimeofday(&nowtv, NULL);
-				TIMEVAL_TO_TIMESPEC(&nowtv, &now);
+				clock_gettime(CLOCK_REALTIME, &now);
 				delay.tv_sec = 0;
 				delay.tv_nsec = 1000000000 - now.tv_nsec
 				    - (4-k) * scroldelay;
@@ -217,14 +224,21 @@ main(int argc, char *argv[])
 		}
 		move(6, 0);
 		refresh();
-		gettimeofday(&nowtv, NULL);
-		TIMEVAL_TO_TIMESPEC(&nowtv, &now);
+		clock_gettime(CLOCK_REALTIME, &now);
 		delay.tv_sec = 0;
 		delay.tv_nsec = (1000000000 - now.tv_nsec);
 		/* want scrolling to END on the second */
 		if (scrol && !wintoosmall)
 			delay.tv_nsec -= 5 * scroldelay;
-		nanosleep(&delay, NULL);
+		rv = ppoll(&pfd, 1, &delay, NULL);
+		if (rv == 1) {
+			char q = 0;
+			read(STDIN_FILENO, &q, 1);
+			if (q == 'q') {
+				n = 1;
+				end.tv_sec = now.tv_sec;
+			}
+		}
 		now.tv_sec++;
 
 		if (sigtermed) {
@@ -234,7 +248,7 @@ main(int argc, char *argv[])
 			endwin();
 			errx(1, "terminated by signal %d", sigtermed);
 		}
-	} while (n == 0 || nowtv.tv_sec < endtv.tv_sec);
+	} while (n == 0 || now.tv_sec < end.tv_sec);
 	standend();
 	clear();
 	refresh();

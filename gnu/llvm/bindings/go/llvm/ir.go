@@ -15,6 +15,7 @@ package llvm
 
 /*
 #include "llvm-c/Core.h"
+#include "llvm-c/Comdat.h"
 #include "IRBindings.h"
 #include <stdlib.h>
 */
@@ -36,6 +37,9 @@ type (
 	}
 	Value struct {
 		C C.LLVMValueRef
+	}
+	Comdat struct {
+		C C.LLVMComdatRef
 	}
 	BasicBlock struct {
 		C C.LLVMBasicBlockRef
@@ -61,14 +65,15 @@ type (
 	Attribute struct {
 		C C.LLVMAttributeRef
 	}
-	Opcode           C.LLVMOpcode
-	TypeKind         C.LLVMTypeKind
-	Linkage          C.LLVMLinkage
-	Visibility       C.LLVMVisibility
-	CallConv         C.LLVMCallConv
-	IntPredicate     C.LLVMIntPredicate
-	FloatPredicate   C.LLVMRealPredicate
-	LandingPadClause C.LLVMLandingPadClauseTy
+	Opcode              C.LLVMOpcode
+	TypeKind            C.LLVMTypeKind
+	Linkage             C.LLVMLinkage
+	Visibility          C.LLVMVisibility
+	CallConv            C.LLVMCallConv
+	ComdatSelectionKind C.LLVMComdatSelectionKind
+	IntPredicate        C.LLVMIntPredicate
+	FloatPredicate      C.LLVMRealPredicate
+	LandingPadClause    C.LLVMLandingPadClauseTy
 )
 
 func (c Context) IsNil() bool        { return c.C == nil }
@@ -246,6 +251,18 @@ const (
 	ColdCallConv        CallConv = C.LLVMColdCallConv
 	X86StdcallCallConv  CallConv = C.LLVMX86StdcallCallConv
 	X86FastcallCallConv CallConv = C.LLVMX86FastcallCallConv
+)
+
+//-------------------------------------------------------------------------
+// llvm.ComdatSelectionKind
+//-------------------------------------------------------------------------
+
+const (
+	AnyComdatSelectionKind          ComdatSelectionKind = C.LLVMAnyComdatSelectionKind
+	ExactMatchComdatSelectionKind   ComdatSelectionKind = C.LLVMExactMatchComdatSelectionKind
+	LargestComdatSelectionKind      ComdatSelectionKind = C.LLVMLargestComdatSelectionKind
+	NoDuplicatesComdatSelectionKind ComdatSelectionKind = C.LLVMNoDuplicatesComdatSelectionKind
+	SameSizeComdatSelectionKind     ComdatSelectionKind = C.LLVMSameSizeComdatSelectionKind
 )
 
 //-------------------------------------------------------------------------
@@ -611,6 +628,12 @@ func (t Type) StructElementTypes() []Type {
 }
 
 // Operations on array, pointer, and vector types (sequence types)
+func (t Type) Subtypes() (ret []Type) {
+	ret = make([]Type, C.LLVMGetNumContainedTypes(t.C))
+	C.LLVMGetSubtypes(t.C, llvmTypeRefPtr(&ret[0]))
+	return
+}
+
 func ArrayType(elementType Type, elementCount int) (t Type) {
 	t.C = C.LLVMArrayType(elementType.C, C.unsigned(elementCount))
 	return
@@ -759,11 +782,6 @@ func (c Context) MDString(str string) (md Metadata) {
 func (c Context) MDNode(mds []Metadata) (md Metadata) {
 	ptr, nvals := llvmMetadataRefs(mds)
 	md.C = C.LLVMMDNode2(c.C, ptr, nvals)
-	return
-}
-func (c Context) TemporaryMDNode(mds []Metadata) (md Metadata) {
-	ptr, nvals := llvmMetadataRefs(mds)
-	md.C = C.LLVMTemporaryMDNode(c.C, ptr, nvals)
 	return
 }
 func (v Value) ConstantAsMetadata() (md Metadata) {
@@ -1014,6 +1032,8 @@ func (v Value) IsThreadLocal() bool       { return C.LLVMIsThreadLocal(v.C) != 0
 func (v Value) SetThreadLocal(tl bool)    { C.LLVMSetThreadLocal(v.C, boolToLLVMBool(tl)) }
 func (v Value) IsGlobalConstant() bool    { return C.LLVMIsGlobalConstant(v.C) != 0 }
 func (v Value) SetGlobalConstant(gc bool) { C.LLVMSetGlobalConstant(v.C, boolToLLVMBool(gc)) }
+func (v Value) IsVolatile() bool          { return C.LLVMGetVolatile(v.C) != 0 }
+func (v Value) SetVolatile(volatile bool) { C.LLVMSetVolatile(v.C, boolToLLVMBool(volatile)) }
 
 // Operations on aliases
 func AddAlias(m Module, t Type, aliasee Value, name string) (v Value) {
@@ -1021,6 +1041,25 @@ func AddAlias(m Module, t Type, aliasee Value, name string) (v Value) {
 	defer C.free(unsafe.Pointer(cname))
 	v.C = C.LLVMAddAlias(m.C, t.C, aliasee.C, cname)
 	return
+}
+
+// Operations on comdat
+func (m Module) Comdat(name string) (c Comdat) {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+	c.C = C.LLVMGetOrInsertComdat(m.C, cname)
+	return
+}
+
+func (v Value) Comdat() (c Comdat) { c.C = C.LLVMGetComdat(v.C); return }
+func (v Value) SetComdat(c Comdat) { C.LLVMSetComdat(v.C, c.C) }
+
+func (c Comdat) SelectionKind() ComdatSelectionKind {
+	return ComdatSelectionKind(C.LLVMGetComdatSelectionKind(c.C))
+}
+
+func (c Comdat) SetSelectionKind(k ComdatSelectionKind) {
+	C.LLVMSetComdatSelectionKind(c.C, (C.LLVMComdatSelectionKind)(k))
 }
 
 // Operations on functions
@@ -1095,9 +1134,6 @@ func (v Value) AddTargetDependentFunctionAttr(attr, value string) {
 }
 func (v Value) SetPersonality(p Value) {
 	C.LLVMSetPersonalityFn(v.C, p.C)
-}
-func (v Value) SetSubprogram(sp Metadata) {
-	C.LLVMSetSubprogram(v.C, sp.C)
 }
 
 // Operations on parameters
@@ -1226,8 +1262,22 @@ func (b Builder) InsertWithName(instr Value, name string) {
 func (b Builder) Dispose() { C.LLVMDisposeBuilder(b.C) }
 
 // Metadata
+type DebugLoc struct {
+	Line, Col      uint
+	Scope          Metadata
+	InlinedAt      Metadata
+}
 func (b Builder) SetCurrentDebugLocation(line, col uint, scope, inlinedAt Metadata) {
 	C.LLVMSetCurrentDebugLocation2(b.C, C.unsigned(line), C.unsigned(col), scope.C, inlinedAt.C)
+}
+// Get current debug location. Please do not call this function until setting debug location with SetCurrentDebugLocation()
+func (b Builder) GetCurrentDebugLocation() (loc DebugLoc) {
+	md := C.LLVMGetCurrentDebugLocation2(b.C)
+	loc.Line = uint(md.Line)
+	loc.Col = uint(md.Col)
+	loc.Scope = Metadata{C: md.Scope}
+	loc.InlinedAt = Metadata{C: md.InlinedAt}
+	return
 }
 func (b Builder) SetInstDebugLocation(v Value) { C.LLVMSetInstDebugLocation(b.C, v.C) }
 func (b Builder) InsertDeclare(module Module, storage Value, md Value) Value {
@@ -1852,7 +1902,7 @@ func (pm PassManager) InitializeFunc() bool { return C.LLVMInitializeFunctionPas
 // See llvm::FunctionPassManager::run(Function&).
 func (pm PassManager) RunFunc(f Value) bool { return C.LLVMRunFunctionPassManager(pm.C, f.C) != 0 }
 
-// Finalizes all of the function passes scheduled in in the function pass
+// Finalizes all of the function passes scheduled in the function pass
 // manager. Returns 1 if any of the passes modified the module, 0 otherwise.
 // See llvm::FunctionPassManager::doFinalization.
 func (pm PassManager) FinalizeFunc() bool { return C.LLVMFinalizeFunctionPassManager(pm.C) != 0 }
@@ -1861,11 +1911,3 @@ func (pm PassManager) FinalizeFunc() bool { return C.LLVMFinalizeFunctionPassMan
 // the module provider.
 // See llvm::PassManagerBase::~PassManagerBase.
 func (pm PassManager) Dispose() { C.LLVMDisposePassManager(pm.C) }
-
-//-------------------------------------------------------------------------
-// llvm.Metadata
-//-------------------------------------------------------------------------
-
-func (md Metadata) ReplaceAllUsesWith(new Metadata) {
-	C.LLVMMetadataReplaceAllUsesWith(md.C, new.C)
-}

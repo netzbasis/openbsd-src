@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.2 2017/07/09 15:28:36 espie Exp $
+# $OpenBSD: Makefile,v 1.4 2019/01/27 16:59:42 patrick Exp $
 
 LIB=	clangFrontend
 NOPIC=
@@ -23,6 +23,7 @@ SRCS=	ASTConsumers.cpp \
 	FrontendAction.cpp \
 	FrontendActions.cpp \
 	FrontendOptions.cpp \
+	FrontendTiming.cpp \
 	HeaderIncludeGen.cpp \
 	InitHeaderSearch.cpp \
 	InitPreprocessor.cpp \
@@ -32,6 +33,7 @@ SRCS=	ASTConsumers.cpp \
 	ModuleDependencyCollector.cpp \
 	MultiplexConsumer.cpp \
 	PCHContainerOperations.cpp \
+	PrecompiledPreamble.cpp \
 	PrintPreprocessedOutput.cpp \
 	SerializedDiagnosticPrinter.cpp \
 	SerializedDiagnosticReader.cpp \

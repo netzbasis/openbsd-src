@@ -1,4 +1,4 @@
-//===-- RegisterPressure.cpp - Dynamic Register Pressure ------------------===//
+//===- RegisterPressure.cpp - Dynamic Register Pressure -------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,12 +13,37 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/RegisterPressure.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/LiveInterval.h"
-#include "llvm/CodeGen/LiveIntervalAnalysis.h"
+#include "llvm/CodeGen/LiveIntervals.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineInstrBundle.h"
+#include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
+#include "llvm/CodeGen/SlotIndexes.h"
+#include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/Config/llvm-config.h"
+#include "llvm/MC/LaneBitmask.h"
+#include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+#include <limits>
+#include <utility>
+#include <vector>
 
 using namespace llvm;
 
@@ -52,6 +77,7 @@ static void decreaseSetPressure(std::vector<unsigned> &CurrSetPressure,
   }
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD
 void llvm::dumpRegSetPressure(ArrayRef<unsigned> SetPressure,
                               const TargetRegisterInfo *TRI) {
@@ -72,7 +98,7 @@ void RegisterPressure::dump(const TargetRegisterInfo *TRI) const {
   dumpRegSetPressure(MaxSetPressure, TRI);
   dbgs() << "Live In: ";
   for (const RegisterMaskPair &P : LiveInRegs) {
-    dbgs() << PrintVRegOrUnit(P.RegUnit, TRI);
+    dbgs() << printVRegOrUnit(P.RegUnit, TRI);
     if (!P.LaneMask.all())
       dbgs() << ':' << PrintLaneMask(P.LaneMask);
     dbgs() << ' ';
@@ -80,7 +106,7 @@ void RegisterPressure::dump(const TargetRegisterInfo *TRI) const {
   dbgs() << '\n';
   dbgs() << "Live Out: ";
   for (const RegisterMaskPair &P : LiveOutRegs) {
-    dbgs() << PrintVRegOrUnit(P.RegUnit, TRI);
+    dbgs() << printVRegOrUnit(P.RegUnit, TRI);
     if (!P.LaneMask.all())
       dbgs() << ':' << PrintLaneMask(P.LaneMask);
     dbgs() << ' ';
@@ -97,6 +123,7 @@ void RegPressureTracker::dump() const {
   P.dump(TRI);
 }
 
+LLVM_DUMP_METHOD
 void PressureDiff::dump(const TargetRegisterInfo &TRI) const {
   const char *sep = "";
   for (const PressureChange &Change : *this) {
@@ -108,6 +135,7 @@ void PressureDiff::dump(const TargetRegisterInfo &TRI) const {
   }
   dbgs() << '\n';
 }
+#endif
 
 void RegPressureTracker::increaseRegPressure(unsigned RegUnit,
                                              LaneBitmask PreviousMask,
@@ -264,7 +292,6 @@ bool RegPressureTracker::isBottomClosed() const {
           MachineBasicBlock::const_iterator());
 }
 
-
 SlotIndex RegPressureTracker::getCurrSlot() const {
   MachineBasicBlock::const_iterator IdxPos =
     skipDebugInstructionsForward(CurrPos, MBB->end());
@@ -328,7 +355,7 @@ void RegPressureTracker::initLiveThru(const RegPressureTracker &RPTracker) {
 
 static LaneBitmask getRegLanes(ArrayRef<RegisterMaskPair> RegUnits,
                                unsigned RegUnit) {
-  auto I = find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
+  auto I = llvm::find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
     return Other.RegUnit == RegUnit;
   });
   if (I == RegUnits.end())
@@ -340,7 +367,7 @@ static void addRegLanes(SmallVectorImpl<RegisterMaskPair> &RegUnits,
                         RegisterMaskPair Pair) {
   unsigned RegUnit = Pair.RegUnit;
   assert(Pair.LaneMask.any());
-  auto I = find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
+  auto I = llvm::find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
     return Other.RegUnit == RegUnit;
   });
   if (I == RegUnits.end()) {
@@ -352,7 +379,7 @@ static void addRegLanes(SmallVectorImpl<RegisterMaskPair> &RegUnits,
 
 static void setRegZero(SmallVectorImpl<RegisterMaskPair> &RegUnits,
                        unsigned RegUnit) {
-  auto I = find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
+  auto I = llvm::find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
     return Other.RegUnit == RegUnit;
   });
   if (I == RegUnits.end()) {
@@ -366,7 +393,7 @@ static void removeRegLanes(SmallVectorImpl<RegisterMaskPair> &RegUnits,
                            RegisterMaskPair Pair) {
   unsigned RegUnit = Pair.RegUnit;
   assert(Pair.LaneMask.any());
-  auto I = find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
+  auto I = llvm::find_if(RegUnits, [RegUnit](const RegisterMaskPair Other) {
     return Other.RegUnit == RegUnit;
   });
   if (I != RegUnits.end()) {
@@ -423,6 +450,8 @@ namespace {
 ///
 /// FIXME: always ignore tied opers
 class RegisterOperandsCollector {
+  friend class llvm::RegisterOperands;
+
   RegisterOperands &RegOpers;
   const TargetRegisterInfo &TRI;
   const MachineRegisterInfo &MRI;
@@ -517,11 +546,9 @@ class RegisterOperandsCollector {
         addRegLanes(RegUnits, RegisterMaskPair(*Units, LaneBitmask::getAll()));
     }
   }
-
-  friend class llvm::RegisterOperands;
 };
 
-} // namespace
+} // end anonymous namespace
 
 void RegisterOperands::collect(const MachineInstr &MI,
                                const TargetRegisterInfo &TRI,
@@ -561,7 +588,7 @@ void RegisterOperands::adjustLaneLiveness(const LiveIntervals &LIS,
   for (auto I = Defs.begin(); I != Defs.end(); ) {
     LaneBitmask LiveAfter = getLiveLanesAt(LIS, MRI, true, I->RegUnit,
                                            Pos.getDeadSlot());
-    // If the the def is all that is live after the instruction, then in case
+    // If the def is all that is live after the instruction, then in case
     // of a subregister def we need a read-undef flag.
     unsigned RegUnit = I->RegUnit;
     if (TargetRegisterInfo::isVirtualRegister(RegUnit) &&
@@ -609,7 +636,7 @@ void PressureDiffs::init(unsigned N) {
   }
   Max = Size;
   free(PDiffArray);
-  PDiffArray = reinterpret_cast<PressureDiff*>(calloc(N, sizeof(PressureDiff)));
+  PDiffArray = static_cast<PressureDiff*>(safe_calloc(N, sizeof(PressureDiff)));
 }
 
 void PressureDiffs::addInstruction(unsigned Idx,
@@ -674,7 +701,7 @@ void RegPressureTracker::discoverLiveInOrOut(RegisterMaskPair Pair,
   assert(Pair.LaneMask.any());
 
   unsigned RegUnit = Pair.RegUnit;
-  auto I = find_if(LiveInOrOut, [RegUnit](const RegisterMaskPair &Other) {
+  auto I = llvm::find_if(LiveInOrOut, [RegUnit](const RegisterMaskPair &Other) {
     return Other.RegUnit == RegUnit;
   });
   LaneBitmask PrevMask;
@@ -721,7 +748,7 @@ void RegPressureTracker::bumpDeadDefs(ArrayRef<RegisterMaskPair> DeadDefs) {
 /// instruction independent of liveness.
 void RegPressureTracker::recede(const RegisterOperands &RegOpers,
                                 SmallVectorImpl<RegisterMaskPair> *LiveUses) {
-  assert(!CurrPos->isDebugValue());
+  assert(!CurrPos->isDebugInstr());
 
   // Boost pressure for all dead defs together.
   bumpDeadDefs(RegOpers.DeadDefs);
@@ -772,9 +799,10 @@ void RegPressureTracker::recede(const RegisterOperands &RegOpers,
         if (!TrackLaneMasks) {
           addRegLanes(*LiveUses, RegisterMaskPair(Reg, NewMask));
         } else {
-          auto I = find_if(*LiveUses, [Reg](const RegisterMaskPair Other) {
-            return Other.RegUnit == Reg;
-          });
+          auto I =
+              llvm::find_if(*LiveUses, [Reg](const RegisterMaskPair Other) {
+                return Other.RegUnit == Reg;
+              });
           bool IsRedef = I != LiveUses->end();
           if (IsRedef) {
             // ignore re-defs here...
@@ -991,7 +1019,7 @@ static void computeMaxPressureDelta(ArrayRef<unsigned> OldMaxPressureVec,
 /// This is intended for speculative queries. It leaves pressure inconsistent
 /// with the current position, so must be restored by the caller.
 void RegPressureTracker::bumpUpwardPressure(const MachineInstr *MI) {
-  assert(!MI->isDebugValue() && "Expect a nondebug instruction.");
+  assert(!MI->isDebugInstr() && "Expect a nondebug instruction.");
 
   SlotIndex SlotIdx;
   if (RequireIntervals)
@@ -1154,7 +1182,7 @@ getUpwardPressureDelta(const MachineInstr *MI, /*const*/ PressureDiff &PDiff,
 
       if (CritIdx != CritEnd && CriticalPSets[CritIdx].getPSet() == PSetID) {
         int CritInc = (int)MNew - (int)CriticalPSets[CritIdx].getUnitInc();
-        if (CritInc > 0 && CritInc <= INT16_MAX) {
+        if (CritInc > 0 && CritInc <= std::numeric_limits<int16_t>::max()) {
           Delta.CriticalMax = PressureChange(PSetID);
           Delta.CriticalMax.setUnitInc(CritInc);
         }
@@ -1232,7 +1260,7 @@ LaneBitmask RegPressureTracker::getLiveThroughAt(unsigned RegUnit,
 /// This is intended for speculative queries. It leaves pressure inconsistent
 /// with the current position, so must be restored by the caller.
 void RegPressureTracker::bumpDownwardPressure(const MachineInstr *MI) {
-  assert(!MI->isDebugValue() && "Expect a nondebug instruction.");
+  assert(!MI->isDebugInstr() && "Expect a nondebug instruction.");
 
   SlotIndex SlotIdx;
   if (RequireIntervals)

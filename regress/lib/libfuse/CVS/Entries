@@ -1,7 +1,11 @@
-/Makefile/1.1/Fri Aug  9 16:20:10 2013//
-/fuse-opt-add-arg.c/1.3/Thu Jan 12 17:30:30 2017//
-/fuse-opt-add-opt-escaped.c/1.2/Tue Nov 22 13:39:46 2016//
-/fuse-opt-add-opt.c/1.2/Tue Nov 22 13:39:46 2016//
-/fuse-opt-insert-arg.c/1.3/Thu Jan 12 17:30:30 2017//
-/fuse-opt-match.c/1.3/Wed Jan  4 11:55:31 2017//
+/Makefile/1.3/Tue Jul 17 13:12:08 2018//
+/fuse-mount.c/1.2/Fri Jul 20 12:05:08 2018//
+/fuse-null-check.c/1.2/Fri Jul 20 12:05:08 2018//
+/fuse-opt-add-arg.c/1.4/Fri Jul 20 12:05:08 2018//
+/fuse-opt-add-opt-escaped.c/1.3/Fri Jul 20 12:05:08 2018//
+/fuse-opt-add-opt.c/1.3/Fri Jul 20 12:05:08 2018//
+/fuse-opt-insert-arg.c/1.4/Fri Jul 20 12:05:08 2018//
+/fuse-opt-match.c/1.5/Fri Jul 20 12:05:08 2018//
+/fuse-opt-parse.c/1.4/Fri Jul 20 12:05:08 2018//
+/fuse-parse-cmdline.c/1.3/Fri Jul 20 12:05:08 2018//
 D

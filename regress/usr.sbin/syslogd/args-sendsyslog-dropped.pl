@@ -11,7 +11,7 @@ use warnings;
 use Errno ':POSIX';
 
 my $errno = ENOTCONN;
-my $kerngrep = qr/sendsyslog: dropped \d+ messages?, error $errno$/;
+my $kerngrep = qr/sendsyslog: dropped \d+ messages?, error $errno, pid \d+$/;
 
 our %args = (
     client => {
@@ -19,7 +19,7 @@ our %args = (
 	func => sub { write_between2logs(shift, sub {
 	    my $self = shift;
 	    ${$self->{syslogd}}->loggrep(qr/syslogd: started/, 5)
-		or die "syslogd started not in syslogd.log";
+		or die ref($self), " syslogd started not in syslogd.log";
 	})},
 	ktrace => {
 	    qr/CALL  sendsyslog\(/ => '>=2',

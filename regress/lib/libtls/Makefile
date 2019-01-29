@@ -1,9 +1,10 @@
-#	$OpenBSD: Makefile,v 1.3 2017/01/12 15:50:16 jsing Exp $
+#	$OpenBSD: Makefile,v 1.6 2018/11/09 19:24:50 tb Exp $
 
-SUBDIR= \
-	gotls \
-	tls \
-	verify
+SUBDIR += config
+SUBDIR += keypair
+SUBDIR += gotls
+SUBDIR += tls
+SUBDIR += verify
 
 install:
 

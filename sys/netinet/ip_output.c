@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.340 2017/05/29 14:36:22 mpi Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.353 2019/01/18 20:46:03 claudio Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -72,6 +72,8 @@
 #endif
 #endif /* IPSEC */
 
+int ip_pcbopts(struct mbuf **, struct mbuf *);
+int ip_setmoptions(int, struct ip_moptions **, struct mbuf *, u_int);
 void ip_mloopback(struct ifnet *, struct mbuf *, struct sockaddr_in *);
 static __inline u_int16_t __attribute__((__unused__))
     in_cksum_phdr(u_int32_t, u_int32_t, u_int32_t);
@@ -82,8 +84,7 @@ struct tdb *
 ip_output_ipsec_lookup(struct mbuf *m, int hlen, int *error, struct inpcb *inp,
     int ipsecflowinfo);
 int
-ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct ifnet *ifp,
-    struct route *ro);
+ip_output_ipsec_send(struct tdb *, struct mbuf *, struct route *, int);
 #endif /* IPSEC */
 
 /*
@@ -214,7 +215,14 @@ reroute:
 			ifp = if_get(rtable_loindex(m->m_pkthdr.ph_rtableid));
 		else
 			ifp = if_get(ro->ro_rt->rt_ifidx);
+		/*
+		 * We aren't using rtisvalid() here because the UP/DOWN state
+		 * machine is broken with some Ethernet drivers like em(4).
+		 * As a result we might try to use an invalid cached route
+		 * entry while an interface is being detached.
+		 */
 		if (ifp == NULL) {
+			ipstat_inc(ips_noroute);
 			error = EHOSTUNREACH;
 			goto bad;
 		}
@@ -231,7 +239,6 @@ reroute:
 
 #ifdef IPSEC
 	if (ipsec_in_use || inp != NULL) {
-		KERNEL_ASSERT_LOCKED();
 		/* Do we have any pending SAs to apply ? */
 		tdb = ip_output_ipsec_lookup(m, hlen, &error, inp,
 		    ipsecflowinfo);
@@ -402,9 +409,9 @@ sendit:
 	 * Check if the packet needs encapsulation.
 	 */
 	if (tdb != NULL) {
-		KERNEL_ASSERT_LOCKED();
 		/* Callee frees mbuf */
-		error = ip_output_ipsec_send(tdb, m, ifp, ro);
+		error = ip_output_ipsec_send(tdb, m, ro,
+		    (flags & IP_FORWARDING) ? 1 : 0);
 		goto done;
 	}
 #endif /* IPSEC */
@@ -413,7 +420,8 @@ sendit:
 	 * Packet filter
 	 */
 #if NPF > 0
-	if (pf_test(AF_INET, PF_OUT, ifp, &m) != PF_PASS) {
+	if (pf_test(AF_INET, (flags & IP_FORWARDING) ? PF_FWD : PF_OUT,
+	    ifp, &m) != PF_PASS) {
 		error = EACCES;
 		m_freem(m);
 		goto done;
@@ -550,20 +558,20 @@ ip_output_ipsec_lookup(struct mbuf *m, int hlen, int *error, struct inpcb *inp,
 }
 
 int
-ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct ifnet *ifp,
-    struct route *ro)
+ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct route *ro, int fwd)
 {
 #if NPF > 0
 	struct ifnet *encif;
 #endif
 	struct ip *ip;
+	int error;
 
 #if NPF > 0
 	/*
 	 * Packet filter
 	 */
 	if ((encif = enc_getif(tdb->tdb_rdomain, tdb->tdb_tap)) == NULL ||
-	    pf_test(AF_INET, PF_OUT, encif, &m) != PF_PASS) {
+	    pf_test(AF_INET, fwd ? PF_FWD : PF_OUT, encif, &m) != PF_PASS) {
 		m_freem(m);
 		return EACCES;
 	}
@@ -626,7 +634,12 @@ ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct ifnet *ifp,
 	m->m_flags &= ~(M_MCAST | M_BCAST);
 
 	/* Callee frees mbuf */
-	return ipsp_process_packet(m, tdb, AF_INET, 0);
+	error = ipsp_process_packet(m, tdb, AF_INET, 0);
+	if (error) {
+		ipsecstat_inc(ipsec_odrops);
+		tdb->tdb_odrops++;
+	}
+	return error;
 }
 #endif /* IPSEC */
 
@@ -847,11 +860,10 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 	int error = 0;
 	u_int rtid = 0;
 
-	if (level != IPPROTO_IP) {
-		error = EINVAL;
-		if (op == PRCO_SETOPT)
-			(void) m_free(m);
-	} else switch (op) {
+	if (level != IPPROTO_IP)
+		return (EINVAL);
+
+	switch (op) {
 	case PRCO_SETOPT:
 		switch (optname) {
 		case IP_OPTIONS:
@@ -991,7 +1003,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 			switch (optname) {
 			case IP_AUTH_LEVEL:
 				if (optval < IPSEC_AUTH_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1000,7 +1012,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 
 			case IP_ESP_TRANS_LEVEL:
 				if (optval < IPSEC_ESP_TRANS_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1009,7 +1021,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 
 			case IP_ESP_NETWORK_LEVEL:
 				if (optval < IPSEC_ESP_NETWORK_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1017,7 +1029,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 				break;
 			case IP_IPCOMP_LEVEL:
 				if (optval < IPSEC_IPCOMP_LEVEL_DEFAULT &&
-				    suser(p, 0)) {
+				    suser(p)) {
 					error = EACCES;
 					break;
 				}
@@ -1042,7 +1054,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 			/* needs privileges to switch when already set */
 			if (p->p_p->ps_rtableid != rtid &&
 			    p->p_p->ps_rtableid != 0 &&
-			    (error = suser(p, 0)) != 0)
+			    (error = suser(p)) != 0)
 				break;
 			/* table must exist */
 			if (!rtable_exists(rtid)) {
@@ -1067,7 +1079,6 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 			error = ENOPROTOOPT;
 			break;
 		}
-		m_free(m);
 		break;
 
 	case PRCO_GETOPT:
@@ -1223,44 +1234,43 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 int
 ip_pcbopts(struct mbuf **pcbopt, struct mbuf *m)
 {
-	int cnt, optlen;
+	struct mbuf *n;
+	struct ipoption *p;
+	int cnt, off, optlen;
 	u_char *cp;
 	u_char opt;
 
 	/* turn off any old options */
-	m_free(*pcbopt);
-	*pcbopt = 0;
+	m_freem(*pcbopt);
+	*pcbopt = NULL;
 	if (m == NULL || m->m_len == 0) {
 		/*
 		 * Only turning off any previous options.
 		 */
-		m_free(m);
 		return (0);
 	}
 
-	if (m->m_len % sizeof(int32_t))
-		goto bad;
+	if (m->m_len % sizeof(int32_t) ||
+	    m->m_len > MAX_IPOPTLEN + sizeof(struct in_addr))
+		return (EINVAL);
 
-	/*
-	 * IP first-hop destination address will be stored before
-	 * actual options; move other options back
-	 * and clear it when none present.
-	 */
-	if (m->m_data + m->m_len + sizeof(struct in_addr) >= &m->m_dat[MLEN])
-		goto bad;
+	/* Don't sleep because NET_LOCK() is hold. */
+	if ((n = m_get(M_NOWAIT, MT_SOOPTS)) == NULL)
+		return (ENOBUFS);
+	p = mtod(n, struct ipoption *);
+	memset(p, 0, sizeof (*p));	/* 0 = IPOPT_EOL, needed for padding */
+	n->m_len = sizeof(struct in_addr);
+
+	off = 0;
 	cnt = m->m_len;
-	m->m_len += sizeof(struct in_addr);
-	cp = mtod(m, u_char *) + sizeof(struct in_addr);
-	memmove((caddr_t)cp, mtod(m, caddr_t), (unsigned)cnt);
-	memset(mtod(m, caddr_t), 0, sizeof(struct in_addr));
+	cp = mtod(m, u_char *);
 
-	for (; cnt > 0; cnt -= optlen, cp += optlen) {
+	while (cnt > 0) {
 		opt = cp[IPOPT_OPTVAL];
-		if (opt == IPOPT_EOL)
-			break;
-		if (opt == IPOPT_NOP)
+
+		if (opt == IPOPT_NOP || opt == IPOPT_EOL) {
 			optlen = 1;
-		else {
+		} else {
 			if (cnt < IPOPT_OLEN + sizeof(*cp))
 				goto bad;
 			optlen = cp[IPOPT_OLEN];
@@ -1268,8 +1278,8 @@ ip_pcbopts(struct mbuf **pcbopt, struct mbuf *m)
 				goto bad;
 		}
 		switch (opt) {
-
 		default:
+			memcpy(p->ipopt_list + off, cp, optlen);
 			break;
 
 		case IPOPT_LSRR:
@@ -1284,34 +1294,48 @@ ip_pcbopts(struct mbuf **pcbopt, struct mbuf *m)
 			 */
 			if (optlen < IPOPT_MINOFF - 1 + sizeof(struct in_addr))
 				goto bad;
-			m->m_len -= sizeof(struct in_addr);
-			cnt -= sizeof(struct in_addr);
+
+			/*
+			 * Optlen is smaller because first address is popped.
+			 * Cnt and cp will be adjusted a bit later to reflect
+			 * this.
+			 */
 			optlen -= sizeof(struct in_addr);
-			cp[IPOPT_OLEN] = optlen;
+			p->ipopt_list[off + IPOPT_OPTVAL] = opt;
+			p->ipopt_list[off + IPOPT_OLEN] = optlen;
+
 			/*
 			 * Move first hop before start of options.
 			 */
-			memcpy(mtod(m, caddr_t), &cp[IPOPT_OFFSET+1],
+			memcpy(&p->ipopt_dst, cp + IPOPT_OFFSET,
 			    sizeof(struct in_addr));
+			cp += sizeof(struct in_addr);
+			cnt -= sizeof(struct in_addr);
 			/*
-			 * Then copy rest of options back
-			 * to close up the deleted entry.
+			 * Then copy rest of options
 			 */
-			memmove((caddr_t)&cp[IPOPT_OFFSET+1],
-			    (caddr_t)(&cp[IPOPT_OFFSET+1] +
-			    sizeof(struct in_addr)),
-			    (unsigned)cnt - (IPOPT_OFFSET+1));
+			memcpy(p->ipopt_list + off + IPOPT_OFFSET,
+			    cp + IPOPT_OFFSET, optlen - IPOPT_OFFSET);
 			break;
 		}
-	}
-	if (m->m_len > MAX_IPOPTLEN + sizeof(struct in_addr))
-		goto bad;
-	*pcbopt = m;
-	return (0);
+		off += optlen;
+		cp += optlen;
+		cnt -= optlen;
 
-bad:
-	(void)m_free(m);
-	return (EINVAL);
+		if (opt == IPOPT_EOL)
+			break;
+	}
+	/* pad options to next word, since p was zeroed just adjust off */
+	off = (off + sizeof(int32_t) - 1) & ~(sizeof(int32_t) - 1);
+	n->m_len += off;
+	if (n->m_len > sizeof(*p)) {
+ bad:
+		m_freem(n);
+		return (EINVAL);
+	}
+
+	*pcbopt = n;
+	return (0);
 }
 
 /*

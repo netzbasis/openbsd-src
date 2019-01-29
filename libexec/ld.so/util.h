@@ -1,7 +1,7 @@
-/*	$OpenBSD: util.h,v 1.30 2017/01/24 07:48:37 guenther Exp $	*/
+/*	$OpenBSD: util.h,v 1.34 2019/01/25 00:19:26 millert Exp $	*/
 
 /*
- * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 1998 Todd C. Miller <millert@openbsd.org>
  * All rights reserved.
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
  *
@@ -36,17 +36,19 @@
 #include <stddef.h>		/* for NULL */
 
 __BEGIN_HIDDEN_DECLS
+void _dl_malloc_init(void);
 void *_dl_malloc(size_t size);
 void *_dl_calloc(size_t nmemb, const size_t size);
 void *_dl_realloc(void *, size_t size);
 void *_dl_reallocarray(void *, size_t nmemb, size_t size);
 void _dl_free(void *);
+void *_dl_aligned_alloc(size_t _alignment, size_t _size);
 char *_dl_strdup(const char *);
 size_t _dl_strlen(const char *);
 size_t _dl_strlcat(char *dst, const char *src, size_t siz);
 void _dl_printf(const char *fmt, ...);
 void _dl_vprintf(const char *fmt, va_list ap);
-void _dl_fdprintf(int, const char *fmt, ...);
+void _dl_dprintf(int, const char *fmt, ...);
 void _dl_show_objects(void);
 void _dl_arc4randombuf(void *, size_t);
 u_int32_t _dl_arc4random(void);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.c,v 1.15 2017/07/12 20:12:19 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.c,v 1.32 2018/09/11 20:25:58 kettenis Exp $	*/
 /*
  * Copyright (c) 2013 Jonathan Gray <jsg@openbsd.org>
  * Copyright (c) 2015, 2016 Mark Kettenis <kettenis@openbsd.org>
@@ -18,6 +18,15 @@
 
 #include <dev/pci/drm/drmP.h>
 #include <dev/pci/ppbreg.h>
+#include <sys/event.h>
+#include <sys/file.h>
+#include <sys/filedesc.h>
+#include <sys/stat.h>
+#include <sys/unistd.h>
+
+struct mutex sch_mtx = MUTEX_INITIALIZER(IPL_SCHED);
+void *sch_ident;
+int sch_priority;
 
 void
 flush_barrier(void *arg)
@@ -78,7 +87,7 @@ flush_delayed_work(struct delayed_work *dwork)
 		tsleep(&barrier, PWAIT, "fldwto", 1);
 
 	task_set(&task, flush_barrier, &barrier);
-	task_add(dwork->tq, &task);
+	task_add(dwork->tq ? dwork->tq : systq, &task);
 	while (!barrier) {
 		sleep_setup(&sls, &barrier, PWAIT, "fldwbar");
 		sleep_finish(&sls, !barrier);
@@ -142,7 +151,37 @@ timeval_to_us(const struct timeval *tv)
 	return ((int64_t)tv->tv_sec * 1000000) + tv->tv_usec;
 }
 
-extern char *hw_vendor, *hw_prod;
+extern char *hw_vendor, *hw_prod, *hw_ver;
+
+bool
+dmi_match(int slot, const char *str)
+{
+	switch (slot) {
+	case DMI_SYS_VENDOR:
+	case DMI_BOARD_VENDOR:
+		if (hw_vendor != NULL &&
+		    !strcmp(hw_vendor, str))
+			return true;
+		break;
+	case DMI_PRODUCT_NAME:
+	case DMI_BOARD_NAME:
+		if (hw_prod != NULL &&
+		    !strcmp(hw_prod, str))
+			return true;
+		break;
+	case DMI_PRODUCT_VERSION:
+	case DMI_BOARD_VERSION:
+		if (hw_ver != NULL &&
+		    !strcmp(hw_ver, str))
+			return true;
+		break;
+	case DMI_NONE:
+	default:
+		return false;
+	}
+
+	return false;
+}
 
 static bool
 dmi_found(const struct dmi_system_id *dsi)
@@ -151,26 +190,10 @@ dmi_found(const struct dmi_system_id *dsi)
 
 	for (i = 0; i < nitems(dsi->matches); i++) {
 		slot = dsi->matches[i].slot;
-		switch (slot) {
-		case DMI_NONE:
+		if (slot == DMI_NONE)
 			break;
-		case DMI_SYS_VENDOR:
-		case DMI_BOARD_VENDOR:
-			if (hw_vendor != NULL &&
-			    !strcmp(hw_vendor, dsi->matches[i].substr))
-				break;
-			else
-				return false;
-		case DMI_PRODUCT_NAME:
-		case DMI_BOARD_NAME:
-			if (hw_prod != NULL &&
-			    !strcmp(hw_prod, dsi->matches[i].substr))
-				break;
-			else
-				return false;
-		default:
+		if (!dmi_match(slot, dsi->matches[i].substr))
 			return false;
-		}
 	}
 
 	return true;
@@ -204,8 +227,8 @@ alloc_pages(unsigned int gfp_mask, unsigned int order)
 		flags |= UVM_PLA_ZERO;
 
 	TAILQ_INIT(&mlist);
-	if (uvm_pglistalloc(PAGE_SIZE << order, 0, -1, PAGE_SIZE, 0,
-	    &mlist, 1, flags))
+	if (uvm_pglistalloc(PAGE_SIZE << order, dma_constraint.ucr_low,
+	    dma_constraint.ucr_high, PAGE_SIZE, 0, &mlist, 1, flags))
 		return NULL;
 	return TAILQ_FIRST(&mlist);
 }
@@ -551,15 +574,12 @@ sg_copy_from_buffer(struct scatterlist *sgl, unsigned int nents,
 }
 
 int
-i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
 	void *cmd = NULL;
 	int cmdlen = 0;
 	int err, ret = 0;
 	int op;
-
-	if (adap->algo)
-		return adap->algo->master_xfer(adap, msgs, num);
 
 	iic_acquire_bus(&adap->ic, 0);
 
@@ -584,8 +604,10 @@ i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 		ret++;
 	}
 
-	op = (msgs->flags & I2C_M_RD) ? I2C_OP_READ_WITH_STOP : I2C_OP_WRITE_WITH_STOP;
-	err = iic_exec(&adap->ic, op, msgs->addr, cmd, cmdlen, msgs->buf, msgs->len, 0);
+	op = (msgs->flags & I2C_M_RD) ?
+	    I2C_OP_READ_WITH_STOP : I2C_OP_WRITE_WITH_STOP;
+	err = iic_exec(&adap->ic, op, msgs->addr, cmd, cmdlen,
+	    msgs->buf, msgs->len, 0);
 	if (err) {
 		ret = -err;
 		goto fail;
@@ -597,6 +619,47 @@ fail:
 	iic_release_bus(&adap->ic, 0);
 
 	return ret;
+}
+
+int
+i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+{
+	if (adap->algo)
+		return adap->algo->master_xfer(adap, msgs, num);
+
+	return i2c_master_xfer(adap, msgs, num);
+}
+
+int
+i2c_bb_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
+{
+	struct i2c_algo_bit_data *algo = adap->algo_data;
+	struct i2c_adapter bb;
+
+	memset(&bb, 0, sizeof(bb));
+	bb.ic = algo->ic;
+	bb.retries = adap->retries;
+	return i2c_master_xfer(&bb, msgs, num);
+}
+
+uint32_t
+i2c_bb_functionality(struct i2c_adapter *adap)
+{
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+}
+
+struct i2c_algorithm i2c_bit_algo = {
+	.master_xfer = i2c_bb_master_xfer,
+	.functionality = i2c_bb_functionality
+};
+
+int
+i2c_bit_add_bus(struct i2c_adapter *adap)
+{
+	adap->algo = &i2c_bit_algo;
+	adap->retries = 3;
+
+	return 0;
 }
 
 #if defined(__amd64__) || defined(__i386__)
@@ -666,7 +729,7 @@ vga_put(struct pci_dev *pdev, int rsrc)
  * ACPI types and interfaces.
  */
 
-#if defined(__amd64__) || defined(__i386__)
+#ifdef __HAVE_ACPI
 #include "acpi.h"
 #endif
 
@@ -683,6 +746,9 @@ acpi_get_table_with_size(const char *sig, int instance,
 	struct acpi_q *entry;
 
 	KASSERT(instance == 1);
+
+	if (sc == NULL)
+		return AE_NOT_FOUND;
 
 	SIMPLEQ_FOREACH(entry, &sc->sc_tables, q_next) {
 		if (memcmp(entry->q_table, sig, strlen(sig)) == 0) {
@@ -729,4 +795,187 @@ void
 backlight_schedule_update_status(struct backlight_device *bd)
 {
 	task_add(systq, &bd->task);
+}
+
+void
+drm_sysfs_hotplug_event(struct drm_device *dev)
+{
+	KNOTE(&dev->note, NOTE_CHANGE);
+}
+
+unsigned int drm_fence_count;
+
+unsigned int
+fence_context_alloc(unsigned int num)
+{
+	return __sync_add_and_fetch(&drm_fence_count, num) - num;
+}
+
+int
+dmabuf_read(struct file *fp, struct uio *uio, int fflags)
+{
+	return (ENXIO);
+}
+
+int
+dmabuf_write(struct file *fp, struct uio *uio, int fflags)
+{
+	return (ENXIO);
+}
+
+int
+dmabuf_ioctl(struct file *fp, u_long com, caddr_t data, struct proc *p)
+{
+	return (ENOTTY);
+}
+
+int
+dmabuf_poll(struct file *fp, int events, struct proc *p)
+{
+	return (0);
+}
+
+int
+dmabuf_kqfilter(struct file *fp, struct knote *kn)
+{
+	return (EINVAL);
+}
+
+int
+dmabuf_stat(struct file *fp, struct stat *st, struct proc *p)
+{
+	struct dma_buf *dmabuf = fp->f_data;
+
+	memset(st, 0, sizeof(*st));
+	st->st_size = dmabuf->size;
+	st->st_mode = S_IFIFO;	/* XXX */
+	return (0);
+}
+
+int
+dmabuf_close(struct file *fp, struct proc *p)
+{
+	struct dma_buf *dmabuf = fp->f_data;
+
+	fp->f_data = NULL;
+	KERNEL_LOCK();
+	dmabuf->ops->release(dmabuf);
+	KERNEL_UNLOCK();
+	free(dmabuf, M_DRM, sizeof(struct dma_buf));
+	return (0);
+}
+
+int
+dmabuf_seek(struct file *fp, off_t *offset, int whence, struct proc *p)
+{
+	struct dma_buf *dmabuf = fp->f_data;
+	off_t newoff;
+
+	if (*offset != 0)
+		return (EINVAL);
+
+	switch (whence) {
+	case SEEK_SET:
+		newoff = 0;
+		break;
+	case SEEK_END:
+		newoff = dmabuf->size;
+		break;
+	default:
+		return (EINVAL);
+	}
+	fp->f_offset = *offset = newoff;
+	return (0);
+}
+
+struct fileops dmabufops = {
+	.fo_read	= dmabuf_read,
+	.fo_write	= dmabuf_write,
+	.fo_ioctl	= dmabuf_ioctl,
+	.fo_poll	= dmabuf_poll,
+	.fo_kqfilter	= dmabuf_kqfilter,
+	.fo_stat	= dmabuf_stat,
+	.fo_close	= dmabuf_close,
+	.fo_seek	= dmabuf_seek,
+};
+
+struct dma_buf *
+dma_buf_export(const struct dma_buf_export_info *info)
+{
+	struct proc *p = curproc;
+	struct dma_buf *dmabuf;
+	struct file *fp;
+
+	fp = fnew(p);
+	if (fp == NULL)
+		return ERR_PTR(-ENFILE);
+	fp->f_type = DTYPE_DMABUF;
+	fp->f_ops = &dmabufops;
+	dmabuf = malloc(sizeof(struct dma_buf), M_DRM, M_WAITOK | M_ZERO);
+	dmabuf->priv = info->priv;
+	dmabuf->ops = info->ops;
+	dmabuf->size = info->size;
+	dmabuf->file = fp;
+	fp->f_data = dmabuf;
+	return dmabuf;
+}
+
+struct dma_buf *
+dma_buf_get(int fd)
+{
+	struct proc *p = curproc;
+	struct filedesc *fdp = p->p_fd;
+	struct file *fp;
+
+	if ((fp = fd_getfile(fdp, fd)) == NULL)
+		return ERR_PTR(-EBADF);
+
+	if (fp->f_type != DTYPE_DMABUF) {
+		FRELE(fp, p);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return fp->f_data;
+}
+
+void
+dma_buf_put(struct dma_buf *dmabuf)
+{
+	KASSERT(dmabuf);
+	KASSERT(dmabuf->file);
+
+	FRELE(dmabuf->file, curproc);
+}
+
+int
+dma_buf_fd(struct dma_buf *dmabuf, int flags)
+{
+	struct proc *p = curproc;
+	struct filedesc *fdp = p->p_fd;
+	struct file *fp = dmabuf->file;
+	int fd, cloexec, error;
+
+	cloexec = (flags & O_CLOEXEC) ? UF_EXCLOSE : 0;
+
+	fdplock(fdp);
+restart:
+	if ((error = fdalloc(p, 0, &fd)) != 0) {
+		if (error == ENOSPC) {
+			fdexpand(p);
+			goto restart;
+		}
+		fdpunlock(fdp);
+		return -error;
+	}
+
+	fdinsert(fdp, fd, cloexec, fp);
+	fdpunlock(fdp);
+
+	return fd;
+}
+
+void
+get_dma_buf(struct dma_buf *dmabuf)
+{
+	FREF(dmabuf->file);
 }

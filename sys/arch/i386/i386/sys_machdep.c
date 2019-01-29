@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_machdep.c,v 1.37 2016/03/24 04:56:08 guenther Exp $	*/
+/*	$OpenBSD: sys_machdep.c,v 1.40 2018/07/09 19:20:29 guenther Exp $	*/
 /*	$NetBSD: sys_machdep.c,v 1.28 1996/05/03 19:42:29 christos Exp $	*/
 
 /*-
@@ -39,7 +39,6 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/ioctl.h>
-#include <sys/file.h>
 #include <sys/time.h>
 #include <sys/proc.h>
 #include <sys/signalvar.h>
@@ -63,10 +62,6 @@
 #include <machine/reg.h>
 #include <machine/sysarch.h>
 
-#ifdef VM86
-#include <machine/vm86.h>
-#endif
-
 extern struct vm_map *kernel_map;
 
 int i386_iopl(struct proc *, void *, register_t *);
@@ -82,7 +77,7 @@ i386_iopl(struct proc *p, void *args, register_t *retval)
 	struct trapframe *tf = p->p_md.md_regs;
 	struct i386_iopl_args ua;
 
-	if ((error = suser(p, 0)) != 0)
+	if ((error = suser(p)) != 0)
 		return error;
 #ifdef APERTURE
 	if (!allowaperture && securelevel > 0)
@@ -148,12 +143,6 @@ sys_sysarch(struct proc *p, void *v, register_t *retval)
 	case I386_IOPL:
 		error = i386_iopl(p, SCARG(uap, parms), retval);
 		break;
-
-#ifdef VM86
-	case I386_VM86:
-		error = i386_vm86(p, SCARG(uap, parms), retval);
-		break;
-#endif
 
 	case I386_GET_FSBASE:
 	      {

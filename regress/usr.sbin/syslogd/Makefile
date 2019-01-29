@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.19 2017/01/02 16:58:28 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.24 2018/10/06 10:52:24 bluhm Exp $
 
 # The following ports must be installed for the regression tests:
 # p5-IO-Socket-INET6	object interface for AF_INET and AF_INET6 domain sockets
@@ -27,29 +27,33 @@ regress:
 
 # Automatically generate regress targets from test cases in directory.
 
+PROGS =			ttylog
+PERLS =			Client.pm Proc.pm RSyslogd.pm Server.pm \
+			Syslogc.pm   Syslogd.pm funcs.pl syslogd.pl
 ARGS !=			cd ${.CURDIR} && ls args-*.pl
 .if exists (/usr/local/sbin/rsyslogd)
 TARGETS ?=		${ARGS}
 .else
 TARGETS ?=		${ARGS:Nargs-rsyslog*}
 .endif
-REGRESS_TARGETS =	${TARGETS:S/^/run-regress-/}
+REGRESS_TARGETS =	${TARGETS:S/^/run-/}
 LDFLAGS +=		-lutil
 CLEANFILES +=		*.log *.log.? *.conf ktrace.out stamp-*
 CLEANFILES +=		*.out *.sock *.ktrace *.fstat ttylog *.ph */*.ph
-CLEANFILES +=		*.pem *.req *.key *.crt *.srl empty toobig
+CLEANFILES +=		*.pem *.req *.key *.crt *.srl empty toobig diskimage
 
 .MAIN: all
 
-.if make (regress) || make (all)
-.BEGIN:
-	@echo
+REGRESS_SETUP_ONCE +=	setup
+setup:
+	@echo '\n======== $@ ========'
 	[ -z "${SUDO}" ] || ${SUDO} true
 	${SUDO} /etc/rc.d/syslogd stop
-.END:
-	@echo
-	${SUDO} /etc/rc.d/syslogd restart
-.endif
+
+REGRESS_CLEANUP +=	cleanup
+cleanup:
+	@echo '\n======== $@ ========'
+	-${SUDO} /etc/rc.d/syslogd restart
 
 # Set variables so that make runs with and without obj directory.
 # Only do that if necessary to keep visible output short.
@@ -66,7 +70,7 @@ PERLPATH =	${.CURDIR}/
 # test parameters.  Generally they consist of client, syslogd, server.
 
 .for a in ${ARGS}
-run-regress-$a: $a
+run-$a: $a
 	@echo '\n======== $@ ========'
 	time SUDO=${SUDO} KTRACE=${KTRACE} SYSLOGD=${SYSLOGD} perl ${PERLINC} ${PERLPATH}syslogd.pl ${PERLPATH}$a
 .endfor
@@ -104,6 +108,38 @@ toobig:
 sys/syscall.ph: /usr/include/sys/syscall.h
 	cd /usr/include && h2ph -h -d ${.OBJDIR} ${@:R:S/$/.h/}
 
+# Create a full file system on vnd to trigger ENOSPC error.
+
+.PHONY: disk mount unconfig
+
+disk: unconfig
+	dd if=/dev/zero of=diskimage bs=512 count=4k
+	vnconfig vnd0 diskimage
+	newfs -b 4096 -f 2048 -m 0 vnd0c
+
+mount: disk
+	mkdir -p /mnt/regress-syslogd
+	mount /dev/vnd0c /mnt/regress-syslogd
+
+unconfig:
+	-umount -f /dev/vnd0c 2>/dev/null || true
+	-rmdir /mnt/regress-syslogd 2>/dev/null || true
+	-vnconfig -u vnd0 2>/dev/null || true
+
+stamp-filesystem:
+	@echo '\n======== $@ ========'
+	${SUDO} ${.MAKE} -C ${.CURDIR} mount
+	${SUDO} chmod 1777 /mnt/regress-syslogd
+	date >$@
+
+REGRESS_CLEANUP +=	cleanup-filesystem
+cleanup-filesystem:
+	@echo '\n======== $@ ========'
+	rm -f stamp-filesystem
+	-${SUDO} umount /mnt/regress-syslogd
+	-${SUDO} ${.MAKE} -C ${.CURDIR} unconfig
+
+${REGRESS_TARGETS:M*filesystem*}: stamp-filesystem
 ${REGRESS_TARGETS:M*tls*}: client.crt server.crt 127.0.0.1.crt
 ${REGRESS_TARGETS:M*multilisten*}: 127.0.0.1.crt
 ${REGRESS_TARGETS:M*empty*}: empty
@@ -118,7 +154,10 @@ ${REGRESS_TARGETS}: ttylog
 
 syntax: stamp-syntax
 
-stamp-syntax: ${ARGS}
+stamp-syntax: ${PERLS} ${ARGS}
+.for p in ${PERLS}
+	@perl -c ${PERLINC} ${PERLPATH}$p
+.endfor
 .for a in ${ARGS}
 	@perl -c ${PERLPATH}$a
 .endfor

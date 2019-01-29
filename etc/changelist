@@ -1,4 +1,4 @@
-#	$OpenBSD: changelist,v 1.117 2017/05/03 11:55:36 gsoares Exp $
+#	$OpenBSD: changelist,v 1.122 2018/07/23 11:57:17 florian Exp $
 #
 # List of files which the security script backs up and checks
 # for modifications.
@@ -80,7 +80,6 @@
 /etc/myname
 /etc/netgroup
 /etc/netstart
-/etc/networks
 /etc/newsyslog.conf
 /etc/npppd/npppd.conf
 +/etc/npppd/npppd-users
@@ -94,6 +93,7 @@
 /etc/profile
 /etc/protocols
 +/etc/pwd.db
+/etc/rad.conf
 +/etc/radiusd.conf
 /etc/rbootd.conf
 /etc/rc
@@ -109,12 +109,12 @@
 /etc/resolv.conf.tail
 /etc/ripd.conf
 /etc/rpc
-/etc/rtadvd.conf
 /etc/sasyncd.conf
 /etc/sensorsd.conf
 /etc/services
 /etc/shells
-/etc/snmpd.conf
++/etc/snmpd.conf
++/etc/soii.key
 +/etc/spwd.db
 /etc/ssh/ssh_config
 +/etc/ssh/ssh_host_dsa_key

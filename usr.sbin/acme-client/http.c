@@ -1,4 +1,4 @@
-/*	$Id: http.c,v 1.20 2017/03/26 18:41:02 deraadt Exp $ */
+/*	$Id: http.c,v 1.24 2018/11/29 14:25:07 tedu Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -34,8 +34,6 @@
 
 #include "http.h"
 #include "extern.h"
-
-#define DEFAULT_CA_FILE "/etc/ssl/cert.pem"
 
 /*
  * A buffer for transferring HTTP/S data.
@@ -137,7 +135,7 @@ http_init()
 		goto err;
 	}
 
-	if (tls_config_set_ca_file(tlscfg, DEFAULT_CA_FILE) == -1) {
+	if (tls_config_set_ca_file(tlscfg, tls_default_ca_cert_file()) == -1) {
 		warn("tls_config_set_ca_file: %s", tls_config_error(tlscfg));
 		goto err;
 	}
@@ -736,49 +734,3 @@ http_get(const struct source *addrs, size_t addrsz, const char *domain,
 	g->http = h;
 	return g;
 }
-
-#if 0
-int
-main(void)
-{
-	struct httpget	*g;
-	struct httphead	*httph;
-	size_t		 i, httphsz;
-	struct source	 addrs[2];
-	size_t		 addrsz;
-
-#if 0
-	addrs[0].ip = "127.0.0.1";
-	addrs[0].family = 4;
-	addrsz = 1;
-#else
-	addrs[0].ip = "2a00:1450:400a:806::2004";
-	addrs[0].family = 6;
-	addrs[1].ip = "193.135.3.123";
-	addrs[1].family = 4;
-	addrsz = 2;
-#endif
-
-	if (http_init() == -1)
-		errx(EXIT_FAILURE, "http_init");
-
-#if 0
-	g = http_get(addrs, addrsz, "localhost", 80, "/index.html");
-#else
-	g = http_get(addrs, addrsz, "www.google.ch", 80, "/index.html",
-	    NULL, 0);
-#endif
-
-	if (g == NULL)
-		errx(EXIT_FAILURE, "http_get");
-
-	httph = http_head_parse(g->http, g->xfer, &httphsz);
-	warnx("code: %d", g->code);
-
-	for (i = 0; i < httphsz; i++)
-		warnx("head: [%s]=[%s]", httph[i].key, httph[i].val);
-
-	http_get_free(g);
-	return (EXIT_SUCCESS);
-}
-#endif

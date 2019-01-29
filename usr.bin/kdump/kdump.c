@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.130 2017/04/28 13:53:05 mpi Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.137 2019/01/11 18:46:30 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -208,14 +208,18 @@ main(int argc, char *argv[])
 	if (argc > optind)
 		usage();
 
+	if (strcmp(tracefile, "-") != 0)
+		if (unveil(tracefile, "r") == -1)
+			err(1, "unveil");
 	if (pledge("stdio rpath getpw", NULL) == -1)
 		err(1, "pledge");
 
 	m = malloc(size = 1025);
 	if (m == NULL)
 		err(1, NULL);
-	if (!freopen(tracefile, "r", stdin))
-		err(1, "%s", tracefile);
+	if (strcmp(tracefile, "-") != 0)
+		if (!freopen(tracefile, "r", stdin))
+			err(1, "%s", tracefile);
 
 	if (fread_tail(&ktr_header, sizeof(struct ktr_header), 1) == 0 ||
 	    ktr_header.ktr_type != htobe32(KTR_START))
@@ -246,19 +250,19 @@ main(int argc, char *argv[])
 			continue;
 		switch (ktr_header.ktr_type) {
 		case KTR_SYSCALL:
-			ktrsyscall((struct ktr_syscall *)m, ktrlen);
+			ktrsyscall(m, ktrlen);
 			break;
 		case KTR_SYSRET:
-			ktrsysret((struct ktr_sysret *)m, ktrlen);
+			ktrsysret(m, ktrlen);
 			break;
 		case KTR_NAMEI:
 			ktrnamei(m, ktrlen);
 			break;
 		case KTR_GENIO:
-			ktrgenio((struct ktr_genio *)m, ktrlen);
+			ktrgenio(m, ktrlen);
 			break;
 		case KTR_PSIG:
-			ktrpsig((struct ktr_psig *)m);
+			ktrpsig(m);
 			break;
 		case KTR_STRUCT:
 			ktrstruct(m, ktrlen);
@@ -271,7 +275,7 @@ main(int argc, char *argv[])
 			ktrexec(m, ktrlen);
 			break;
 		case KTR_PLEDGE:
-			ktrpledge((struct ktr_pledge *)m, ktrlen);
+			ktrpledge(m, ktrlen);
 			break;
 		default:
 			printf("\n");
@@ -728,7 +732,6 @@ static const formatter scargs[][8] = {
     [SYS_utimes]	= { Ppath, Pptr },
     [SYS_futimes]	= { Pfd, Pptr },
     [SYS_kbind]		= { Pptr, Psize, Phexlonglong },
-    [SYS_mincore]	= { Pptr, Pbigsize, Pptr },
     [SYS_getgroups]	= { Pcount, Pptr },
     [SYS_setgroups]	= { Pcount, Pptr },
     [SYS_setpgid]	= { Ppid_t, Ppid_t },
@@ -1110,6 +1113,7 @@ doerr:
 			/* syscalls that return errno values */
 			case SYS_getlogin_r:
 			case SYS___thrsleep:
+			case SYS_futex:
 				if ((error = ret) != 0)
 					goto doerr;
 				/* FALLTHROUGH */

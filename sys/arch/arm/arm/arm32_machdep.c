@@ -1,4 +1,4 @@
-/*	$OpenBSD: arm32_machdep.c,v 1.54 2017/08/12 13:18:48 tedu Exp $	*/
+/*	$OpenBSD: arm32_machdep.c,v 1.56 2018/08/06 18:39:13 kettenis Exp $	*/
 /*	$NetBSD: arm32_machdep.c,v 1.42 2003/12/30 12:33:15 pk Exp $	*/
 
 /*
@@ -202,11 +202,11 @@ bootsync(int howto)
 		 * did not come from a user process e.g. shutdown, but must
 		 * have come from somewhere in the kernel.
 		 */
-		IRQenable;
+		__set_cpsr_c(PSR_I, 0);
 		printf("Warning IRQ's disabled during boot()\n");
 	}
 
-	vfs_shutdown();
+	vfs_shutdown(curproc);
 
 	if ((howto & RB_TIMEBAD) == 0) {
 		resettodr();

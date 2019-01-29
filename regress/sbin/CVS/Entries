@@ -1,4 +1,4 @@
-/Makefile/1.10/Tue May 30 12:03:11 2017//
+/Makefile/1.11/Fri Aug 25 20:16:56 2017//
 D/disklabel////
 D/iked////
 D/ipsecctl////
@@ -6,3 +6,4 @@ D/isakmpd////
 D/newfs////
 D/pfctl////
 D/route////
+D/slaacd////

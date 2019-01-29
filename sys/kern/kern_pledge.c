@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.218 2017/08/21 14:40:07 florian Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.250 2019/01/22 00:59:31 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -18,7 +18,6 @@
  */
 
 #include <sys/param.h>
-#include <sys/types.h>
 
 #include <sys/mount.h>
 #include <sys/proc.h>
@@ -26,6 +25,7 @@
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/namei.h>
+#include <sys/pool.h>
 #include <sys/socketvar.h>
 #include <sys/vnode.h>
 #include <sys/mbuf.h>
@@ -43,6 +43,7 @@
 #include <sys/dkio.h>
 #include <sys/mtio.h>
 #include <sys/audioio.h>
+#include <sys/videoio.h>
 #include <net/bpf.h>
 #include <net/route.h>
 #include <net/if.h>
@@ -69,27 +70,27 @@
 #include "audio.h"
 #include "bpfilter.h"
 #include "pf.h"
+#include "video.h"
 #include "pty.h"
 
-#if defined(__amd64__) || defined(__i386__)
+#if defined(__amd64__)
 #include "vmm.h"
 #if NVMM > 0
 #include <machine/conf.h>
 #endif
 #endif
 
-#if defined(__amd64__) || defined(__i386__) || \
-    defined(__loongson__) || defined(__macppc__) || \
-    defined(__sparc64__)
+#if defined(__amd64__) || defined(__arm64__) || \
+    defined(__i386__) || defined(__loongson__) || \
+    defined(__macppc__) || defined(__sparc64__)
 #include "drm.h"
 #endif
 
 uint64_t pledgereq_flags(const char *req);
-int canonpath(const char *input, char *buf, size_t bufsize);
-int substrcmp(const char *p1, size_t s1, const char *p2, size_t s2);
-int resolvpath(struct proc *p, char **rdir, size_t *rdirlen, char **cwd,
-    size_t *cwdlen, char *path, size_t pathlen, char **resolved,
-    size_t *resolvedlen);
+int	 parsepledges(struct proc *p, const char *kname,
+	    const char *promises, u_int64_t *fp);
+int	 canonpath(const char *input, char *buf, size_t bufsize);
+void	 unveil_destroy(struct process *ps);
 
 /* #define DEBUG_PLEDGE */
 #ifdef DEBUG_PLEDGE
@@ -111,6 +112,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_exit] = PLEDGE_ALWAYS,
 	[SYS_kbind] = PLEDGE_ALWAYS,
 	[SYS___get_tcb] = PLEDGE_ALWAYS,
+	[SYS___set_tcb] = PLEDGE_ALWAYS,
 	[SYS_pledge] = PLEDGE_ALWAYS,
 	[SYS_sendsyslog] = PLEDGE_ALWAYS,	/* stack protector reporting */
 	[SYS_thrkill] = PLEDGE_ALWAYS,		/* raise, abort, stack pro */
@@ -245,7 +247,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	/*
 	 * Path access/creation calls encounter many extensive
-	 * checks are done during namei()
+	 * checks done during pledge_namei()
 	 */
 	[SYS_open] = PLEDGE_STDIO,
 	[SYS_stat] = PLEDGE_STDIO,
@@ -288,6 +290,8 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setresgid] = PLEDGE_ID,
 	[SYS_setgroups] = PLEDGE_ID,
 	[SYS_setlogin] = PLEDGE_ID,
+
+	[SYS_unveil] = PLEDGE_UNVEIL,
 
 	[SYS_execve] = PLEDGE_EXEC,
 
@@ -371,6 +375,7 @@ static const struct {
 	{ "dns",		PLEDGE_DNS },
 	{ "dpath",		PLEDGE_DPATH },
 	{ "drm",		PLEDGE_DRM },
+	{ "error",		PLEDGE_ERROR },
 	{ "exec",		PLEDGE_EXEC },
 	{ "fattr",		PLEDGE_FATTR | PLEDGE_CHOWN },
 	{ "flock",		PLEDGE_FLOCK },
@@ -392,160 +397,107 @@ static const struct {
 	{ "tmppath",		PLEDGE_TMPPATH },
 	{ "tty",		PLEDGE_TTY },
 	{ "unix",		PLEDGE_UNIX },
+	{ "unveil",		PLEDGE_UNVEIL },
+	{ "video",		PLEDGE_VIDEO },
 	{ "vminfo",		PLEDGE_VMINFO },
 	{ "vmm",		PLEDGE_VMM },
 	{ "wpath",		PLEDGE_WPATH },
+	{ "wroute",		PLEDGE_WROUTE },
 };
+
+int
+parsepledges(struct proc *p, const char *kname, const char *promises, u_int64_t *fp)
+{
+	size_t rbuflen;
+	char *rbuf, *rp, *pn;
+	u_int64_t flags = 0, f;
+	int error;
+
+	rbuf = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+	error = copyinstr(promises, rbuf, MAXPATHLEN,
+	    &rbuflen);
+	if (error) {
+		free(rbuf, M_TEMP, MAXPATHLEN);
+		return (error);
+	}
+#ifdef KTRACE
+	if (KTRPOINT(p, KTR_STRUCT))
+		ktrstruct(p, kname, rbuf, rbuflen-1);
+#endif
+
+	for (rp = rbuf; rp && *rp; rp = pn) {
+		pn = strchr(rp, ' ');	/* find terminator */
+		if (pn) {
+			while (*pn == ' ')
+				*pn++ = '\0';
+		}
+		if ((f = pledgereq_flags(rp)) == 0) {
+			free(rbuf, M_TEMP, MAXPATHLEN);
+			return (EINVAL);
+		}
+		flags |= f;
+	}
+	free(rbuf, M_TEMP, MAXPATHLEN);
+	*fp = flags;
+	return 0;
+}
 
 int
 sys_pledge(struct proc *p, void *v, register_t *retval)
 {
 	struct sys_pledge_args /* {
-		syscallarg(const char *)request;
-		syscallarg(const char **)paths;
+		syscallarg(const char *)promises;
+		syscallarg(const char *)execpromises;
 	} */	*uap = v;
 	struct process *pr = p->p_p;
-	uint64_t flags = 0;
+	uint64_t promises, execpromises;
 	int error;
 
-	if (SCARG(uap, request)) {
-		size_t rbuflen;
-		char *rbuf, *rp, *pn;
-		uint64_t f;
-
-		rbuf = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-		error = copyinstr(SCARG(uap, request), rbuf, MAXPATHLEN,
-		    &rbuflen);
-		if (error) {
-			free(rbuf, M_TEMP, MAXPATHLEN);
+	if (SCARG(uap, promises)) {
+		error = parsepledges(p, "pledgereq",
+		    SCARG(uap, promises), &promises);
+		if (error)
 			return (error);
-		}
-#ifdef KTRACE
-		if (KTRPOINT(p, KTR_STRUCT))
-			ktrstruct(p, "pledgereq", rbuf, rbuflen-1);
-#endif
 
-		for (rp = rbuf; rp && *rp && error == 0; rp = pn) {
-			pn = strchr(rp, ' ');	/* find terminator */
-			if (pn) {
-				while (*pn == ' ')
-					*pn++ = '\0';
-			}
-
-			if ((f = pledgereq_flags(rp)) == 0) {
-				free(rbuf, M_TEMP, MAXPATHLEN);
-				return (EINVAL);
-			}
-			flags |= f;
-		}
-		free(rbuf, M_TEMP, MAXPATHLEN);
-
-		/*
-		 * if we are already pledged, allow only promises reductions.
-		 * flags doesn't contain flags outside _USERSET: they will be
-		 * relearned.
-		 */
+		/* In "error" mode, ignore promise increase requests,
+		 * but accept promise decrease requests */
 		if (ISSET(pr->ps_flags, PS_PLEDGE) &&
-		    (((flags | pr->ps_pledge) != pr->ps_pledge)))
+		    (pr->ps_pledge & PLEDGE_ERROR))
+			promises &= (pr->ps_pledge & PLEDGE_USERSET);
+
+		/* Only permit reductions */
+		if (ISSET(pr->ps_flags, PS_PLEDGE) &&
+		    (((promises | pr->ps_pledge) != pr->ps_pledge)))
 			return (EPERM);
 	}
-
-	if (SCARG(uap, paths)) {
-#if 1
-		return (EINVAL);
-#else
-		const char **u = SCARG(uap, paths), *sp;
-		struct whitepaths *wl;
-		char *path, *rdir = NULL, *cwd = NULL;
-		size_t pathlen, rdirlen, cwdlen;
-
-		size_t maxargs = 0;
-		int i, error;
-
-		if (pr->ps_pledgepaths)
-			return (EPERM);
-
-		/* Count paths */
-		for (i = 0; i < PLEDGE_MAXPATHS; i++) {
-			if ((error = copyin(u + i, &sp, sizeof(sp))) != 0)
-				return (error);
-			if (sp == NULL)
-				break;
-		}
-		if (i == PLEDGE_MAXPATHS)
-			return (E2BIG);
-
-		wl = malloc(sizeof *wl + sizeof(struct whitepath) * (i+1),
-		    M_TEMP, M_WAITOK | M_ZERO);
-		wl->wl_size = sizeof *wl + sizeof(struct whitepath) * (i+1);
-		wl->wl_count = i;
-		wl->wl_ref = 1;
-
-		path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-
-		/* Copy in */
-		for (i = 0; i < wl->wl_count; i++) {
-			char *resolved = NULL;
-			size_t resolvedlen;
-
-			if ((error = copyin(u + i, &sp, sizeof(sp))) != 0)
-				break;
-			if (sp == NULL)
-				break;
-			if ((error = copyinstr(sp, path, MAXPATHLEN, &pathlen)) != 0)
-				break;
-#ifdef KTRACE
-			if (KTRPOINT(p, KTR_STRUCT))
-				ktrstruct(p, "pledgepath", path, pathlen-1);
-#endif
-
-			error = resolvpath(p, &rdir, &rdirlen, &cwd, &cwdlen,
-			    path, pathlen, &resolved, &resolvedlen);
-
-			if (error != 0)
-				/* resolved is allocated only if !error */
-				break;
-
-			maxargs += resolvedlen;
-			if (maxargs > ARG_MAX) {
-				error = E2BIG;
-				free(resolved, M_TEMP, resolvedlen);
-				break;
-			}
-			wl->wl_paths[i].name = resolved;
-			wl->wl_paths[i].len = resolvedlen;
-		}
-		free(rdir, M_TEMP, rdirlen);
-		free(cwd, M_TEMP, cwdlen);
-		free(path, M_TEMP, MAXPATHLEN);
-
-		if (error) {
-			for (i = 0; i < wl->wl_count; i++)
-				free(wl->wl_paths[i].name,
-				    M_TEMP, wl->wl_paths[i].len);
-			free(wl, M_TEMP, wl->wl_size);
+	if (SCARG(uap, execpromises)) {
+		error = parsepledges(p, "pledgeexecreq",
+		    SCARG(uap, execpromises), &execpromises);
+		if (error)
 			return (error);
-		}
-		pr->ps_pledgepaths = wl;
 
-#ifdef DEBUG_PLEDGE
-		/* print paths registered as whilelisted (viewed as without chroot) */
-		DNPRINTF(1, "pledge: %s(%d): paths loaded:\n", pr->ps_comm,
-		    pr->ps_pid);
-		for (i = 0; i < wl->wl_count; i++)
-			if (wl->wl_paths[i].name)
-				DNPRINTF(1, "pledge: %d=\"%s\" [%lld]\n", i,
-				    wl->wl_paths[i].name,
-				    (long long)wl->wl_paths[i].len);
-#endif
-#endif
+		/* Only permit reductions */
+		if (ISSET(pr->ps_flags, PS_EXECPLEDGE) &&
+		    (((execpromises | pr->ps_execpledge) != pr->ps_execpledge)))
+			return (EPERM);
 	}
 
-	if (SCARG(uap, request)) {
-		pr->ps_pledge = flags;
+	if (SCARG(uap, promises)) {
+		pr->ps_pledge = promises;
 		pr->ps_flags |= PS_PLEDGE;
+		/*
+		 * Kill off unveil and drop unveil vnode refs if we no
+		 * longer are holding any path-accessing pledge
+		 */
+		if ((pr->ps_pledge & (PLEDGE_RPATH | PLEDGE_WPATH |
+		    PLEDGE_CPATH | PLEDGE_DPATH | PLEDGE_TMPPATH | PLEDGE_EXEC |
+		    PLEDGE_UNIX | PLEDGE_UNVEIL)) == 0)
+			unveil_destroy(pr);
 	}
-
+	if (SCARG(uap, execpromises)) {
+		pr->ps_execpledge = execpromises;
+		pr->ps_flags |= PS_EXECPLEDGE;
+	}
 	return (0);
 }
 
@@ -581,20 +533,27 @@ pledge_fail(struct proc *p, int error, uint64_t code)
 			codes = pledgenames[i].name;
 			break;
 		}
-	log(LOG_ERR, "%s(%d): syscall %d \"%s\"\n",
-	    p->p_p->ps_comm, p->p_p->ps_pid, p->p_pledge_syscall, codes);
-	p->p_p->ps_acflag |= APLEDGE;
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_PLEDGE))
 		ktrpledge(p, error, code, p->p_pledge_syscall);
 #endif
+	if (p->p_p->ps_pledge & PLEDGE_ERROR)
+		return (ENOSYS);
+
+	KERNEL_LOCK();
+	log(LOG_ERR, "%s[%d]: pledge \"%s\", syscall %d\n",
+	    p->p_p->ps_comm, p->p_p->ps_pid, codes, p->p_pledge_syscall);
+	p->p_p->ps_acflag |= APLEDGE;
+
 	/* Send uncatchable SIGABRT for coredump */
 	memset(&sa, 0, sizeof sa);
 	sa.sa_handler = SIG_DFL;
 	setsigvec(p, SIGABRT, &sa);
+	atomic_clearbits_int(&p->p_sigmask, sigmask(SIGABRT));
 	psignal(p, SIGABRT);
 
 	p->p_p->ps_pledge = 0;		/* Disable all PLEDGE_ flags */
+	KERNEL_UNLOCK();
 	return (error);
 }
 
@@ -612,8 +571,13 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	    (p->p_p->ps_flags & PS_COREDUMP))
 		return (0);
 
-	if (!ni || (ni->ni_pledge == 0))
-		panic("ni_pledge");
+	if (ni->ni_pledge == 0)
+		panic("pledge_namei: ni_pledge");
+
+	/*
+	 * We set the BYPASSUNVEIL flag to skip unveil checks
+	 * as necessary
+	 */
 
 	/* Doing a permitted execve() */
 	if ((ni->ni_pledge & PLEDGE_EXEC) &&
@@ -629,6 +593,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	    (p->p_pledge_syscall == SYS_open) &&
 	    (ni->ni_pledge & PLEDGE_CPATH) &&
 	    strncmp(path, "/tmp/", sizeof("/tmp/") - 1) == 0) {
+		ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 		return (0);
 	}
 
@@ -638,6 +603,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	if ((p->p_p->ps_pledge & PLEDGE_TMPPATH) &&
 	    (p->p_pledge_syscall == SYS_unlink) &&
 	    strncmp(path, "/tmp/", sizeof("/tmp/") - 1) == 0) {
+		ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 		return (0);
 	}
 
@@ -645,16 +611,20 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	switch (p->p_pledge_syscall) {
 	case SYS_access:
 		/* tzset() needs this. */
-		if ((ni->ni_pledge == PLEDGE_RPATH) &&
-		    strcmp(path, "/etc/localtime") == 0)
+		if (ni->ni_pledge == PLEDGE_RPATH &&
+		    strcmp(path, "/etc/localtime") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
+		}
 
 		/* when avoiding YP mode, getpw* functions touch this */
 		if (ni->ni_pledge == PLEDGE_RPATH &&
 		    strcmp(path, "/var/run/ypbind.lock") == 0) {
-			if (p->p_p->ps_pledge & PLEDGE_GETPW)
+			if ((p->p_p->ps_pledge & PLEDGE_GETPW) ||
+			    (ni->ni_unveil == UNVEIL_INSPECT)) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
-			else
+			} else
 				return (pledge_fail(p, error, PLEDGE_GETPW));
 		}
 		break;
@@ -662,6 +632,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 		/* daemon(3) or other such functions */
 		if ((ni->ni_pledge & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
 		    strcmp(path, "/dev/null") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
 		}
 
@@ -669,6 +640,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 		if ((p->p_p->ps_pledge & PLEDGE_TTY) &&
 		    (ni->ni_pledge & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
 		    strcmp(path, "/dev/tty") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
 		}
 
@@ -677,23 +649,35 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 		    (p->p_p->ps_pledge & PLEDGE_GETPW)) {
 			if (strcmp(path, "/etc/spwd.db") == 0)
 				return (EPERM); /* don't call pledge_fail */
-			if (strcmp(path, "/etc/pwd.db") == 0)
+			if (strcmp(path, "/etc/pwd.db") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
-			if (strcmp(path, "/etc/group") == 0)
+			}
+			if (strcmp(path, "/etc/group") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
-			if (strcmp(path, "/etc/netid") == 0)
+			}
+			if (strcmp(path, "/etc/netid") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
+			}
 		}
 
 		/* DNS needs /etc/{resolv.conf,hosts,services}. */
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
 		    (p->p_p->ps_pledge & PLEDGE_DNS)) {
-			if (strcmp(path, "/etc/resolv.conf") == 0)
+			if (strcmp(path, "/etc/resolv.conf") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
-			if (strcmp(path, "/etc/hosts") == 0)
+			}
+			if (strcmp(path, "/etc/hosts") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
-			if (strcmp(path, "/etc/services") == 0)
+			}
+			if (strcmp(path, "/etc/services") == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
+			}
 		}
 
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
@@ -708,133 +692,58 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 				 * progress, needing a clever design.
 				 */
 				p->p_p->ps_pledge |= PLEDGE_YPACTIVE;
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
 			}
 			if (strncmp(path, "/var/yp/binding/",
-			    sizeof("/var/yp/binding/") - 1) == 0)
+			    sizeof("/var/yp/binding/") - 1) == 0) {
+				ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 				return (0);
+			}
 		}
 
 		/* tzset() needs these. */
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
 		    strncmp(path, "/usr/share/zoneinfo/",
-		    sizeof("/usr/share/zoneinfo/") - 1) == 0)
+		    sizeof("/usr/share/zoneinfo/") - 1) == 0)  {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
+		}
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
-		    strcmp(path, "/etc/localtime") == 0)
+		    strcmp(path, "/etc/localtime") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
+		}
 
 		break;
 	case SYS_readlink:
 		/* Allow /etc/malloc.conf for malloc(3). */
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
-		    strcmp(path, "/etc/malloc.conf") == 0)
+		    strcmp(path, "/etc/malloc.conf") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
+		}
 		break;
 	case SYS_stat:
 		/* DNS needs /etc/resolv.conf. */
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
 		    (p->p_p->ps_pledge & PLEDGE_DNS) &&
-		    strcmp(path, "/etc/resolv.conf") == 0)
+		    strcmp(path, "/etc/resolv.conf") == 0) {
+			ni->ni_cnd.cn_flags |= BYPASSUNVEIL;
 			return (0);
+		}
 		break;
 	}
 
 	/*
-	 * Ensure each flag of p_pledgenote has counterpart allowing it in
-	 * ps_pledge
+	 * Ensure each flag of ni_pledge has counterpart allowing it in
+	 * ps_pledge.
 	 */
 	if (ni->ni_pledge & ~p->p_p->ps_pledge)
 		return (pledge_fail(p, EPERM, (ni->ni_pledge & ~p->p_p->ps_pledge)));
 
+	/* continue, and check unveil if present */
 	return (0);
-}
-
-/*
- * wlpath lookup - only done after namei lookup has succeeded on the last compoent of
- * a namei lookup, with a possibly non-canonicalized path given in "origpath" from namei.
- */
-int
-pledge_namei_wlpath(struct proc *p, struct nameidata *ni)
-{
-	struct whitepaths *wl = p->p_p->ps_pledgepaths;
-	char *rdir = NULL, *cwd = NULL, *resolved = NULL;
-	size_t rdirlen = 0, cwdlen = 0, resolvedlen = 0;
-	int i, error, pardir_found;
-
-	/*
-	 * If a whitelist is set, compare canonical paths.  Anything
-	 * not on the whitelist gets ENOENT.
-	 */
-	if (ni->ni_p_path == NULL)
-		return(0);
-
-	KASSERT(wl != NULL);
-
-	// XXX change later or more help from namei?
-	error = resolvpath(p, &rdir, &rdirlen, &cwd, &cwdlen,
-	    ni->ni_p_path, ni->ni_p_length+1, &resolved, &resolvedlen);
-
-	free(rdir, M_TEMP, rdirlen);
-	free(cwd, M_TEMP, cwdlen);
-
-	if (error != 0)
-		/* resolved is allocated only if !error */
-		return (error);
-
-	/* print resolved path (viewed as without chroot) */
-	DNPRINTF(2, "pledge_namei: resolved=\"%s\" [%lld] strlen=%lld\n",
-	    resolved, (long long)resolvedlen,
-	    (long long)strlen(resolved));
-
-	error = ENOENT;
-	pardir_found = 0;
-	for (i = 0; i < wl->wl_count && wl->wl_paths[i].name && error; i++) {
-		int substr = substrcmp(wl->wl_paths[i].name,
-		    wl->wl_paths[i].len - 1, resolved, resolvedlen - 1);
-
-		/* print check between registered wl_path and resolved */
-		DNPRINTF(3,
-		    "pledge: check: \"%s\" (%ld) \"%s\" (%ld) = %d\n",
-		    wl->wl_paths[i].name, wl->wl_paths[i].len - 1,
-		    resolved, resolvedlen - 1,
-		    substr);
-
-		/* wl_paths[i].name is a substring of resolved */
-		if (substr == 1) {
-			u_char term = resolved[wl->wl_paths[i].len - 1];
-
-			if (term == '\0' || term == '/' ||
-			    wl->wl_paths[i].name[1] == '\0')
-				error = 0;
-
-			/* resolved is a substring of wl_paths[i].name */
-		} else if (substr == 2) {
-			u_char term = wl->wl_paths[i].name[resolvedlen - 1];
-
-			if (resolved[1] == '\0' || term == '/')
-				pardir_found = 1;
-		}
-	}
-	if (pardir_found)
-		switch (p->p_pledge_syscall) {
-		case SYS_stat:
-		case SYS_lstat:
-		case SYS_fstatat:
-		case SYS_fstat:
-			ni->ni_pledge |= PLEDGE_STATLIE;
-			error = 0;
-		}
-
-#ifdef DEBUG_PLEDGE
-	if (error == ENOENT)
-		/* print the path that is reported as ENOENT */
-		DNPRINTF(1, "pledge: %s(%d): wl_path ENOENT: \"%s\"\n",
-		    p->p_p->ps_comm, p->p_p->ps_pid, resolved);
-#endif
-
-	free(resolved, M_TEMP, resolvedlen);
-	return (error);			/* Don't hint why it failed */
 }
 
 /*
@@ -853,13 +762,13 @@ pledge_recvfd(struct proc *p, struct file *fp)
 	switch (fp->f_type) {
 	case DTYPE_SOCKET:
 	case DTYPE_PIPE:
+	case DTYPE_DMABUF:
 		return (0);
 	case DTYPE_VNODE:
 		vp = fp->f_data;
 
 		if (vp->v_type != VDIR)
 			return (0);
-		break;
 	}
 	return pledge_fail(p, EINVAL, PLEDGE_RECVFD);
 }
@@ -880,6 +789,7 @@ pledge_sendfd(struct proc *p, struct file *fp)
 	switch (fp->f_type) {
 	case DTYPE_SOCKET:
 	case DTYPE_PIPE:
+	case DTYPE_DMABUF:
 		return (0);
 	case DTYPE_VNODE:
 		vp = fp->f_data;
@@ -926,6 +836,13 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 			return (0);
 	}
 
+	if ((p->p_p->ps_pledge & PLEDGE_WROUTE)) {
+		if (miblen == 4 &&
+		    mib[0] == CTL_NET && mib[1] == PF_INET6 &&
+		    mib[2] == IPPROTO_IPV6 && mib[3] == IPV6CTL_SOIIKEY)
+			return (0);
+	}
+
 	if (p->p_p->ps_pledge & (PLEDGE_PS | PLEDGE_VMINFO)) {
 		if (miblen == 2 &&		/* kern.fscale */
 		    mib[0] == CTL_KERN && mib[1] == KERN_FSCALE)
@@ -941,6 +858,9 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 			return (0);
 		if (miblen == 3 &&			/* kern.cptime2 */
 		    mib[0] == CTL_KERN && mib[1] == KERN_CPTIME2)
+			return (0);
+		if (miblen == 3 &&			/* kern.cpustats */
+		    mib[0] == CTL_KERN && mib[1] == KERN_CPUSTATS)
 			return (0);
 	}
 
@@ -1005,61 +925,59 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 	if (miblen >= 3 &&			/* ntpd(8) to read sensors */
 	    mib[0] == CTL_HW && mib[1] == HW_SENSORS)
 		return (0);
-
-	if (miblen == 2 &&		/* getdomainname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_DOMAINNAME)
-		return (0);
-	if (miblen == 2 &&		/* gethostname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_HOSTNAME)
-		return (0);
+	
 	if (miblen == 6 &&		/* if_nameindex() */
 	    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 	    mib[2] == 0 && mib[3] == 0 && mib[4] == NET_RT_IFNAMES)
 		return (0);
-	if (miblen == 2 &&		/* uname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_OSTYPE)
-		return (0);
-	if (miblen == 2 &&		/* uname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_OSRELEASE)
-		return (0);
-	if (miblen == 2 &&		/* uname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_OSVERSION)
-		return (0);
-	if (miblen == 2 &&		/* uname() */
-	    mib[0] == CTL_KERN && mib[1] == KERN_VERSION)
-		return (0);
-	if (miblen == 2 &&		/* kern.clockrate */
-	    mib[0] == CTL_KERN && mib[1] == KERN_CLOCKRATE)
-		return (0);
-	if (miblen == 2 &&		/* kern.argmax */
-	    mib[0] == CTL_KERN && mib[1] == KERN_ARGMAX)
-		return (0);
-	if (miblen == 2 &&		/* kern.ngroups */
-	    mib[0] == CTL_KERN && mib[1] == KERN_NGROUPS)
-		return (0);
-	if (miblen == 2 &&		/* kern.sysvshm */
-	    mib[0] == CTL_KERN && mib[1] == KERN_SYSVSHM)
-		return (0);
-	if (miblen == 2 &&		/* kern.posix1version */
-	    mib[0] == CTL_KERN && mib[1] == KERN_POSIX1)
-		return (0);
-	if (miblen == 2 &&		/* uname() */
-	    mib[0] == CTL_HW && mib[1] == HW_MACHINE)
-		return (0);
-	if (miblen == 2 &&		/* getpagesize() */
-	    mib[0] == CTL_HW && mib[1] == HW_PAGESIZE)
-		return (0);
-	if (miblen == 2 &&		/* setproctitle() */
-	    mib[0] == CTL_VM && mib[1] == VM_PSSTRINGS)
-		return (0);
-	if (miblen == 2 &&		/* hw.ncpu */
-	    mib[0] == CTL_HW && mib[1] == HW_NCPU)
-		return (0);
-	if (miblen == 2 &&		/* vm.loadavg / getloadavg(3) */
-	    mib[0] == CTL_VM && mib[1] == VM_LOADAVG)
-		return (0);
 
-	snprintf(buf, sizeof(buf), "%s(%d): sysctl %d:",
+	if (miblen == 2) {
+		switch (mib[0]) {
+		case CTL_KERN:
+			switch (mib[1]) {
+			case KERN_DOMAINNAME:	/* getdomainname() */
+			case KERN_HOSTNAME:	/* gethostname() */
+			case KERN_OSTYPE:	/* uname() */
+			case KERN_OSRELEASE:	/* uname() */
+			case KERN_OSVERSION:	/* uname() */
+			case KERN_VERSION:	/* uname() */
+			case KERN_CLOCKRATE:	/* kern.clockrate */
+			case KERN_ARGMAX:	/* kern.argmax */
+			case KERN_NGROUPS:	/* kern.ngroups */
+			case KERN_SYSVSHM:	/* kern.sysvshm */
+			case KERN_POSIX1:	/* kern.posix1version */
+				return (0);
+			}
+			break;
+		case CTL_HW:
+			switch (mib[1]) {
+			case HW_MACHINE: 	/* uname() */
+			case HW_PAGESIZE: 	/* getpagesize() */
+			case HW_NCPU:		/* hw.ncpu */
+			case HW_NCPUONLINE:	/* hw.ncpuonline */
+				return (0);
+			}
+			break;
+		case CTL_VM:
+			switch (mib[1]) {
+			case VM_PSSTRINGS:	/* setproctitle() */
+			case VM_LOADAVG:	/* vm.loadavg / getloadavg(3) */
+			case VM_MALLOC_CONF:	/* vm.malloc_conf */
+				return (0);
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+#ifdef CPU_SSE
+	if (miblen == 2 &&		/* i386 libm tests for SSE */
+	    mib[0] == CTL_MACHDEP && mib[1] == CPU_SSE)
+		return (0);
+#endif /* CPU_SSE */
+
+	snprintf(buf, sizeof(buf), "%s(%d): pledge sysctl %d:",
 	    p->p_p->ps_comm, p->p_p->ps_pid, miblen);
 	for (i = 0; i < miblen; i++) {
 		char *p = buf + strlen(buf);
@@ -1235,6 +1153,35 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
+#if NVIDEO > 0
+	if ((p->p_p->ps_pledge & PLEDGE_VIDEO)) {
+		switch (com) {
+		case VIDIOC_QUERYCAP:
+		case VIDIOC_TRY_FMT:
+		case VIDIOC_ENUM_FMT:
+		case VIDIOC_S_FMT:
+		case VIDIOC_QUERYCTRL:
+		case VIDIOC_G_CTRL:
+		case VIDIOC_S_CTRL:
+		case VIDIOC_G_PARM:
+		case VIDIOC_S_PARM:
+		case VIDIOC_REQBUFS:
+		case VIDIOC_QBUF:
+		case VIDIOC_DQBUF:
+		case VIDIOC_QUERYBUF:
+		case VIDIOC_STREAMON:
+		case VIDIOC_STREAMOFF:
+		case VIDIOC_ENUM_FRAMESIZES:
+		case VIDIOC_ENUM_FRAMEINTERVALS:
+			if (fp->f_type == DTYPE_VNODE &&
+			    vp->v_type == VCHR &&
+			    cdevsw[major(vp->v_rdev)].d_open == videoopen)
+				return (0);
+			break;
+		}
+	}
+#endif
+
 #if NPF > 0
 	if ((p->p_p->ps_pledge & PLEDGE_PF)) {
 		switch (com) {
@@ -1272,12 +1219,21 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 			if (cdevsw[major(vp->v_rdev)].d_open != ptmopen)
 				break;
 			return (0);
+		case TIOCUCNTL:		/* vmd */
+			if ((p->p_p->ps_pledge & PLEDGE_RPATH) == 0)
+				break;
+			if ((p->p_p->ps_pledge & PLEDGE_WPATH) == 0)
+				break;
+			if (cdevsw[major(vp->v_rdev)].d_open != ptcopen)
+				break;
+			return (0);
 #endif /* NPTY > 0 */
 		case TIOCSPGRP:
 			if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0)
 				break;
 			/* FALLTHROUGH */
 		case TIOCFLUSH:		/* getty, telnet */
+		case TIOCSTART:		/* emacs, etc */
 		case TIOCGPGRP:
 		case TIOCGETA:
 		case TIOCGWINSZ:	/* ENOTTY return for non-tty */
@@ -1318,6 +1274,19 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case SIOCGNBRINFO_IN6:
 		case SIOCGIFINFO_IN6:
 		case SIOCGIFMEDIA:
+			if (fp->f_type == DTYPE_SOCKET)
+				return (0);
+			break;
+		}
+	}
+
+	if ((p->p_p->ps_pledge & PLEDGE_WROUTE)) {
+		switch (com) {
+		case SIOCAIFADDR_IN6:
+			if (fp->f_type == DTYPE_SOCKET)
+				return (0);
+			break;
+		case SIOCSIFMTU:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
@@ -1458,9 +1427,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		case IPV6_PORTRANGE:
 		case IPV6_RECVPKTINFO:
 		case IPV6_RECVDSTPORT:
-#ifdef notyet
 		case IPV6_V6ONLY:
-#endif
 			return (0);
 		case IPV6_MULTICAST_IF:
 		case IPV6_MULTICAST_HOPS:
@@ -1479,7 +1446,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 }
 
 int
-pledge_socket(struct proc *p, int domain, int state)
+pledge_socket(struct proc *p, int domain, unsigned int state)
 {
 	if (! ISSET(p->p_p->ps_flags, PS_PLEDGE))
 		return 0;
@@ -1574,23 +1541,12 @@ pledge_protexec(struct proc *p, int prot)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return 0;
+	/* Before kbind(2) call, ld.so and crt may create EXEC mappings */
+	if (p->p_p->ps_kbind_addr == 0 && p->p_p->ps_kbind_cookie == 0)
+		return 0;
 	if (!(p->p_p->ps_pledge & PLEDGE_PROTEXEC) && (prot & PROT_EXEC))
 		return pledge_fail(p, EPERM, PLEDGE_PROTEXEC);
 	return 0;
-}
-
-void
-pledge_dropwpaths(struct process *pr)
-{
-	if (pr->ps_pledgepaths && --pr->ps_pledgepaths->wl_ref == 0) {
-		struct whitepaths *wl = pr->ps_pledgepaths;
-		int i;
-
-		for (i = 0; i < wl->wl_count; i++)
-			free(wl->wl_paths[i].name, M_TEMP, wl->wl_paths[i].len);
-		free(wl, M_TEMP, wl->wl_size);
-	}
-	pr->ps_pledgepaths = NULL;
 }
 
 int
@@ -1632,144 +1588,4 @@ canonpath(const char *input, char *buf, size_t bufsize)
 		return 0;
 	} else
 		return ENAMETOOLONG;
-}
-
-int
-substrcmp(const char *p1, size_t s1, const char *p2, size_t s2)
-{
-	size_t i;
-	for (i = 0; i < s1 || i < s2; i++) {
-		if (p1[i] != p2[i])
-			break;
-	}
-	if (i == s1) {
-		return (1);	/* string1 is a subpath of string2 */
-	} else if (i == s2)
-		return (2);	/* string2 is a subpath of string1 */
-	else
-		return (0);	/* no subpath */
-}
-
-int
-resolvpath(struct proc *p,
-    char **rdir, size_t *rdirlen,
-    char **cwd, size_t *cwdlen,
-    char *path, size_t pathlen,
-    char **resolved, size_t *resolvedlen)
-{
-	int error;
-	char *abspath = NULL, *canopath = NULL, *fullpath = NULL;
-	size_t abspathlen, canopathlen = 0, fullpathlen = 0, canopathlen_exact;
-
-	/* 1. get an absolute path (inside any chroot) : path -> abspath */
-	if (path[0] != '/') {
-		/* path is relative: prepend cwd */
-
-		/* get cwd first (if needed) */
-		if (*cwd == NULL) {
-			char *rawcwd, *bp, *bpend;
-			size_t rawcwdlen = MAXPATHLEN * 4;
-
-			rawcwd = malloc(rawcwdlen, M_TEMP, M_WAITOK);
-			bp = &rawcwd[rawcwdlen];
-			bpend = bp;
-			*(--bp) = '\0';
-
-			error = vfs_getcwd_common(p->p_fd->fd_cdir,
-			    NULL, &bp, rawcwd, rawcwdlen/2,
-			    GETCWD_CHECK_ACCESS, p);
-			if (error) {
-				free(rawcwd, M_TEMP, rawcwdlen);
-				goto out;
-			}
-
-			/* NUL is included */
-			*cwdlen = (bpend - bp);
-			*cwd = malloc(*cwdlen, M_TEMP, M_WAITOK);
-			memcpy(*cwd, bp, *cwdlen);
-
-			free(rawcwd, M_TEMP, rawcwdlen);
-		}
-
-		/* NUL included in *cwdlen and pathlen */
-		abspathlen = *cwdlen + pathlen;
-		abspath = malloc(abspathlen, M_TEMP, M_WAITOK);
-		snprintf(abspath, abspathlen, "%s/%s", *cwd, path);
-
-	} else {
-		/* path is absolute */
-		abspathlen = pathlen;
-		abspath = malloc(abspathlen, M_TEMP, M_WAITOK);
-		memcpy(abspath, path, pathlen);
-	}
-
-	/* 2. canonization: abspath -> canopath */
-	canopathlen = abspathlen;
-	canopath = malloc(canopathlen, M_TEMP, M_WAITOK);
-	error = canonpath(abspath, canopath, canopathlen);
-
-	/* free abspath now as we don't need it after */
-	free(abspath, M_TEMP, abspathlen);
-
-	/* error in canonpath() call (should not happen, but keep safe) */
-	if (error != 0)
-		goto out;
-
-	/* check the canopath size */
-	canopathlen_exact = strlen(canopath) + 1;
-	if (canopathlen_exact > MAXPATHLEN) {
-		error = ENAMETOOLONG;
-		goto out;
-	}
-
-	/* 3. preprend *rdir if chrooted : canonpath -> fullpath */
-	if (p->p_fd->fd_rdir != NULL) {
-		if (*rdir == NULL) {
-			char *rawrdir, *bp, *bpend;
-			size_t rawrdirlen = MAXPATHLEN * 4;
-
-			rawrdir = malloc(rawrdirlen, M_TEMP, M_WAITOK);
-			bp = &rawrdir[rawrdirlen];
-			bpend = bp;
-			*(--bp) = '\0';
-
-			error = vfs_getcwd_common(p->p_fd->fd_rdir,
-			    rootvnode, &bp, rawrdir, rawrdirlen/2,
-			    GETCWD_CHECK_ACCESS, p);
-			if (error) {
-				free(rawrdir, M_TEMP, rawrdirlen);
-				goto out;
-			}
-
-			/* NUL is included */
-			*rdirlen = (bpend - bp);
-			*rdir = malloc(*rdirlen, M_TEMP, M_WAITOK);
-			memcpy(*rdir, bp, *rdirlen);
-
-			free(rawrdir, M_TEMP, rawrdirlen);
-		}
-
-		/*
-		 * NUL is included in *rdirlen and canopathlen_exact.
-		 * doesn't add "/" between them, as canopath is absolute.
-		 */
-		fullpathlen = *rdirlen + canopathlen_exact - 1;
-		fullpath = malloc(fullpathlen, M_TEMP, M_WAITOK);
-		snprintf(fullpath, fullpathlen, "%s%s", *rdir, canopath);
-
-	} else {
-		/* not chrooted: only reduce canopath to exact length */
-		fullpathlen = canopathlen_exact;
-		fullpath = malloc(fullpathlen, M_TEMP, M_WAITOK);
-		memcpy(fullpath, canopath, fullpathlen);
-	}
-
-	*resolvedlen = fullpathlen;
-	*resolved = fullpath;
-
-out:
-	free(canopath, M_TEMP, canopathlen);
-	if (error != 0)
-		free(fullpath, M_TEMP, fullpathlen);
-	return error;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: syscon.c,v 1.1 2017/03/09 20:04:21 kettenis Exp $	*/
+/*	$OpenBSD: syscon.c,v 1.4 2018/03/17 18:04:15 kettenis Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis
  *
@@ -26,14 +26,22 @@
 #include <dev/ofw/ofw_misc.h>
 #include <dev/ofw/fdt.h>
 
+#ifdef __armv7__
+#include <arm/simplebus/simplebusvar.h>
+#else
+#include <arm64/dev/simplebusvar.h>
+#endif
+
 extern void (*cpuresetfn)(void);
 extern void (*powerdownfn)(void);
 
 struct syscon_softc {
-	struct device	sc_dev;
-	uint32_t	sc_regmap;
-	bus_size_t	sc_offset;
-	uint32_t	sc_mask;
+	struct simplebus_softc	sc_sbus;
+	bus_space_tag_t		sc_iot;
+	bus_space_handle_t	sc_ioh;
+	uint32_t		sc_regmap;
+	bus_size_t		sc_offset;
+	uint32_t		sc_mask;
 };
 
 struct syscon_softc *syscon_reboot_sc;
@@ -58,8 +66,9 @@ syscon_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
-	return (OF_is_compatible(faa->fa_node, "syscon-reboot") ||
-	    OF_is_compatible(faa->fa_node, "syscon-poweroff"));
+	return OF_is_compatible(faa->fa_node, "syscon") ||
+	    OF_is_compatible(faa->fa_node, "syscon-reboot") ||
+	    OF_is_compatible(faa->fa_node, "syscon-poweroff");
 }
 
 void
@@ -67,26 +76,54 @@ syscon_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct syscon_softc *sc = (struct syscon_softc *)self;
 	struct fdt_attach_args *faa = aux;
+	char name[32];
 
-	printf("\n");
+	OF_getprop(faa->fa_node, "name", name, sizeof(name));
+	name[sizeof(name) - 1] = 0;
 
-	sc->sc_regmap = OF_getpropint(faa->fa_node, "regmap", 0);
-	if (sc->sc_regmap == 0)
-		return;
+	if (OF_is_compatible(faa->fa_node, "syscon")) {
+		if (faa->fa_nreg < 1) {
+			printf(": no registers\n");
+			return;
+		}
 
-	if (OF_getproplen(faa->fa_node, "offset") != sizeof(uint32_t) ||
-	    OF_getproplen(faa->fa_node, "mask") != sizeof(uint32_t))
-		return;
+		sc->sc_iot = faa->fa_iot;
 
-	sc->sc_offset = OF_getpropint(faa->fa_node, "offset", 0);
-	sc->sc_mask = OF_getpropint(faa->fa_node, "mask", 0);
+		if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+		    faa->fa_reg[0].size, 0, &sc->sc_ioh)) {
+			printf(": can't map registers\n");
+			return;
+		}
 
-	if (OF_is_compatible(faa->fa_node, "syscon-reboot")) {
-		syscon_reboot_sc = sc;
-		cpuresetfn = syscon_reset;
-	} else {
-		syscon_poweroff_sc = sc;
-		powerdownfn = syscon_powerdown;
+		regmap_register(faa->fa_node, sc->sc_iot, sc->sc_ioh,
+		    faa->fa_reg[0].size);
+	}
+
+	if (OF_is_compatible(faa->fa_node, "simple-mfd"))
+		simplebus_attach(parent, &sc->sc_sbus.sc_dev, faa);
+	else
+		printf(": \"%s\"\n", name);
+
+	if (OF_is_compatible(faa->fa_node, "syscon-reboot") ||
+	    OF_is_compatible(faa->fa_node, "syscon-poweroff")) {
+		sc->sc_regmap = OF_getpropint(faa->fa_node, "regmap", 0);
+		if (sc->sc_regmap == 0)
+			return;
+
+		if (OF_getproplen(faa->fa_node, "offset") != sizeof(uint32_t) ||
+		    OF_getproplen(faa->fa_node, "mask") != sizeof(uint32_t))
+			return;
+
+		sc->sc_offset = OF_getpropint(faa->fa_node, "offset", 0);
+		sc->sc_mask = OF_getpropint(faa->fa_node, "mask", 0);
+
+		if (OF_is_compatible(faa->fa_node, "syscon-reboot")) {
+			syscon_reboot_sc = sc;
+			cpuresetfn = syscon_reset;
+		} else if (OF_is_compatible(faa->fa_node, "syscon-poweroff")) {
+			syscon_poweroff_sc = sc;
+			powerdownfn = syscon_powerdown;
+		}
 	}
 }
 

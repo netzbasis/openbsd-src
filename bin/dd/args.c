@@ -1,4 +1,4 @@
-/*	$OpenBSD: args.c,v 1.28 2016/08/16 16:44:55 krw Exp $	*/
+/*	$OpenBSD: args.c,v 1.30 2018/07/25 15:09:48 cheloha Exp $	*/
 /*	$NetBSD: args.c,v 1.7 1996/03/01 01:18:58 jtc Exp $	*/
 
 /*-
@@ -95,9 +95,9 @@ jcl(char **argv)
 
 	in.dbsz = out.dbsz = 512;
 
-	while ((oper = *++argv) != NULL) {
-		if ((oper = strdup(oper)) == NULL)
-			errx(1, "out of memory");
+	while (*++argv != NULL) {
+		if ((oper = strdup(*argv)) == NULL)
+			err(1, NULL);
 		if ((arg = strchr(oper, '=')) == NULL)
 			errx(1, "unknown operand %s", oper);
 		*arg++ = '\0';
@@ -113,6 +113,7 @@ jcl(char **argv)
 			    tmp.name);
 		ddflags |= ap->set;
 		ap->f(arg);
+		free(oper);
 	}
 
 	/* Final sanity checks. */
@@ -218,8 +219,8 @@ f_ibs(char *arg)
 static void
 f_if(char *arg)
 {
-
-	in.name = arg;
+	if ((in.name = strdup(arg)) == NULL)
+		err(1, NULL);
 }
 
 static void
@@ -233,8 +234,8 @@ f_obs(char *arg)
 static void
 f_of(char *arg)
 {
-
-	out.name = arg;
+	if ((out.name = strdup(arg)) == NULL)
+		err(1, NULL);
 }
 
 static void
@@ -406,8 +407,9 @@ get_off(char *val)
 	off_t num, t;
 	char *expr;
 
+	errno = 0;
 	num = strtoll(val, &expr, 0);
-	if (num == LLONG_MAX)			/* Overflow. */
+	if (num == LLONG_MAX && errno == ERANGE)	/* Overflow. */
 		err(1, "%s", oper);
 	if (expr == val)			/* No digits. */
 		errx(1, "%s: illegal numeric value", oper);

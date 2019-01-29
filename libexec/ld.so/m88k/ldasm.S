@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.24 2017/01/24 07:48:37 guenther Exp $	*/
+/*	$OpenBSD: ldasm.S,v 1.28 2018/11/09 06:16:37 guenther Exp $	*/
 
 /*
  * Copyright (c) 2013 Miodrag Vallat.
@@ -43,8 +43,9 @@
 
 #include <machine/asm.h>
 #include <sys/syscall.h>
-#define __cerror	_dl_cerror
-#include <SYS.h>
+
+#define	AUX_base	7
+#define	AUX_entry	9
 
 /*
  * ld.so entry point.
@@ -52,7 +53,6 @@
  * The environment pointers list is followed by an array of AuxInfo
  * structs filled by the kernel.
  */
-#define DL_DATA_SIZE	(4 * 16)	 /* 16 * sizeof(ELF_Addr) */
 ENTRY(_dl_start)
 	/*
 	 * Two nop because execution may skip up to two instructions.
@@ -68,7 +68,12 @@ ENTRY(_dl_start)
 	 * Get some room for the contiguous AUX pointers array.
 	  */
 	or	%r30, %r31, 0
-	subu	%r31, %r31, DL_DATA_SIZE
+	subu	%r31, %r31, (4 * (AUX_entry + 1))
+
+	/*
+	 * Align the stack to a 16 byte boundary.
+	 */
+	clr	%r31, %r31, 4<0>
 
 	/*
 	 * Invoke _dl_boot_bind
@@ -85,15 +90,15 @@ ENTRY(_dl_start)
 	ld	%r2,  %r30, 0		| argc
 	addu	%r6,  %r30, 4 + 4
 	lda	%r3,  %r6[%r2]		| envp
-	ld	%r4,  %r31, 4 * 7	| ldoff
+	ld	%r4,  %r31, 4 * AUX_base| ldoff
 	or	%r5,  %r31, 0		| array base
 	bsr.n	_dl_boot
 	 addu	%r2,  %r30, 4		| argv
 
-	addu	%r31, %r31, DL_DATA_SIZE
+	or	%r31, %r30, 0
 	bsr	1f			| the following instruction is skipped
 	bcnd	eq0, %r0, _dl_dtors	| but gives us the pc-relative offset
-1:	ld.hu	%r5, %r1, 2		| fetch branch offset (low 16 bits)
+1:	ld.h	%r5, %r1, 2		| fetch branch offset (low 16 bits)
 	jmp.n	%r2
 	 lda	%r5, %r1[%r5]		| cleanup
 END(_dl_start)
@@ -147,50 +152,10 @@ ENTRY(_dl_bind_start)
 	ld.d	%r4,  %r31, 4 * 2
 	ld.d	%r2,  %r31, 4 * 0
 	ld	%r1,  %r31, REG_SIZE + R1_OFFSET
-	
+
 	jmp.n	%r11
 	 addu	%r31, %r31, REG_SIZE + PLT_FRAME_SIZE
 END(_dl_bind_start)
-
-/* ld.so SYSCALLS */
-
-/*
- * m88k syscall return ABI requires the same amount of ASM
- * whether or not the syscall can possibly fail, so there's
- * no benefit to a DL_SYSCALL_NOERR() macro.
- */
-#define DL_SYSCALL(n)	DL_SYSCALL2(n,n)
-#define DL_SYSCALL2(n,c)				\
-	__ENTRY(_dl_,n);				\
-	__DO_SYSCALL(c);				\
-	br	_dl_cerror;				\
-	jmp	%r1;					\
-	END(_dl_##n)
-
-ENTRY(_dl_exit)
-	__DO_SYSCALL(exit)
-1:	br	1b
-END(_dl_exit)
-
-DL_SYSCALL(close)
-DL_SYSCALL(issetugid)
-DL_SYSCALL(getthrid)
-DL_SYSCALL2(_syscall,__syscall)
-DL_SYSCALL(munmap)
-DL_SYSCALL(mprotect)
-DL_SYSCALL(open)
-DL_SYSCALL(read)
-DL_SYSCALL(write)
-DL_SYSCALL(fstat)
-DL_SYSCALL(readlink)
-DL_SYSCALL(utrace)
-DL_SYSCALL(getentropy)
-DL_SYSCALL(sendsyslog)
-DL_SYSCALL(pledge)
-DL_SYSCALL2(getcwd,__getcwd)
-DL_SYSCALL(sysctl)
-DL_SYSCALL(getdents)
-DL_SYSCALL(thrkill)
 
 ENTRY(_dl_cerror)
 	jmp.n	%r1

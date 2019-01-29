@@ -1,3 +1,10 @@
-D/gen_link_script////
-D/not////
-D/sym_check////
+/cat_files.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/gen_link_script.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/merge_archives.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/not.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/sym_diff.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/sym_extract.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+/sym_match.py/1.1.1.1/Tue Sep 11 18:19:30 2018/-ko/
+D/google-benchmark////
+D/libcxx////
+D/symcheck-blacklists////

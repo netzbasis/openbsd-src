@@ -1,4 +1,4 @@
-#	$OpenBSD: 4.4BSD.dist,v 1.299 2017/08/21 20:52:06 rpe Exp $
+#	$OpenBSD: 4.4BSD.dist,v 1.306 2019/01/27 16:11:55 florian Exp $
 
 /set type=dir uname=root gname=wheel mode=0755
 
@@ -106,6 +106,13 @@ etc
         lib
         ..
     ..
+
+    # ./etc/unwind
+    unwind
+        trustanchor		gname=_unwind uname=root mode=0775
+        ..
+    ..
+
 ..
 
 # ./home
@@ -414,10 +421,6 @@ usr
         calendar
         ..
 
-        # ./usr/share/compile
-        compile
-        ..
-
         # ./usr/share/dict
         dict
             papers
@@ -475,6 +478,8 @@ usr
             man3
                 loongson
                 ..
+                octeon
+                ..
                 sgi
                 ..
             ..
@@ -488,6 +493,8 @@ usr
                 alpha
                 ..
                 amd64
+                ..
+                arm64
                 ..
                 armv7
                 ..
@@ -563,6 +570,14 @@ usr
         ..
         mk
         ..
+
+        # ./usr/share/relink
+        relink
+
+            # ./usr/share/relink/kernel
+            kernel
+            ..
+        ..
         snmp
             mibs
             ..
@@ -571,18 +586,18 @@ usr
         ..
 
         # ./usr/share/zoneinfo
-        zoneinfo		gname=bin uname=root mode=0555
-            Australia		gname=bin uname=root mode=0555
+        zoneinfo		gname=bin uname=root mode=0755
+            Australia		gname=bin uname=root mode=0755
             ..
-            Brazil		gname=bin uname=root mode=0555
+            Brazil		gname=bin uname=root mode=0755
             ..
-            Canada		gname=bin uname=root mode=0555
+            Canada		gname=bin uname=root mode=0755
             ..
-            Chile		gname=bin uname=root mode=0555
+            Chile		gname=bin uname=root mode=0755
             ..
-            Mexico		gname=bin uname=root mode=0555
+            Mexico		gname=bin uname=root mode=0755
             ..
-            US			gname=bin uname=root mode=0555
+            US			gname=bin uname=root mode=0755
             ..
         ..
    ..

@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.h,v 1.123 2017/05/28 12:21:36 claudio Exp $ */
+/*	$OpenBSD: session.h,v 1.128 2019/01/20 23:27:48 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -143,6 +143,7 @@ struct ctl_conn {
 	struct imsgbuf		ibuf;
 	int			restricted;
 	int			throttled;
+	int			terminate;
 };
 
 TAILQ_HEAD(ctl_conns, ctl_conn)	ctl_conns;
@@ -246,10 +247,11 @@ int	 carp_demote_set(char *, int);
 /* config.c */
 int	 merge_config(struct bgpd_config *, struct bgpd_config *,
 	    struct peer *);
-void	 prepare_listeners(struct bgpd_config *);
+int	 prepare_listeners(struct bgpd_config *);
 int	 get_mpe_label(struct rdomain *);
 
 /* control.c */
+int	control_check(char *);
 int	control_init(int, char *);
 int	control_listen(int);
 void	control_shutdown(int);
@@ -269,7 +271,7 @@ void		 mrt_dump_bgp_msg(struct mrt *, void *, u_int16_t,
 		     struct peer *);
 void		 mrt_dump_state(struct mrt *, u_int16_t, u_int16_t,
 		     struct peer *);
-void		 mrt_done(void *);
+void		 mrt_done(struct mrt *);
 
 /* parse.y */
 int	 parse_config(char *, struct bgpd_config *, struct peer **);
@@ -294,9 +296,10 @@ void		 bgp_fsm(struct peer *, enum session_events);
 int		 session_neighbor_rrefresh(struct peer *p);
 struct peer	*getpeerbyaddr(struct bgpd_addr *);
 struct peer	*getpeerbydesc(const char *);
+int		 peer_matched(struct peer *, struct ctl_neighbor *);
 int		 imsg_ctl_parent(int, u_int32_t, pid_t, void *, u_int16_t);
 int		 imsg_ctl_rde(int, pid_t, void *, u_int16_t);
-void	 	 session_stop(struct peer *, u_int8_t);
+void		 session_stop(struct peer *, u_int8_t);
 
 /* timer.c */
 time_t			 getmonotime(void);

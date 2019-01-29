@@ -1,4 +1,4 @@
-/*	$OpenBSD: sched_bsd.c,v 1.46 2017/02/14 10:31:15 mpi Exp $	*/
+/*	$OpenBSD: sched_bsd.c,v 1.49 2019/01/28 11:48:13 mpi Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*-
@@ -218,6 +218,13 @@ schedcpu(void *arg)
 
 	LIST_FOREACH(p, &allproc, p_list) {
 		/*
+		 * Idle threads are never placed on the runqueue,
+		 * therefore computing their priority is pointless.
+		 */
+		if (p->p_cpu != NULL &&
+		    p->p_cpu->ci_schedstate.spc_idleproc == p)
+			continue;
+		/*
 		 * Increment sleep time (if sleeping). We ignore overflow.
 		 */
 		if (p->p_stat == SSLEEP || p->p_stat == SSTOP)
@@ -336,8 +343,6 @@ mi_switch(void)
 	struct proc *p = curproc;
 	struct proc *nextproc;
 	struct process *pr = p->p_p;
-	struct rlimit *rlim;
-	rlim_t secs;
 	struct timespec ts;
 #ifdef MULTIPROCESSOR
 	int hold_count;
@@ -354,7 +359,7 @@ mi_switch(void)
 	 * Release the kernel_lock, as we are about to yield the CPU.
 	 */
 	sched_count = __mp_release_all_but_one(&sched_lock);
-	if (__mp_lock_held(&kernel_lock))
+	if (_kernel_lock_held())
 		hold_count = __mp_release_all(&kernel_lock);
 	else
 		hold_count = 0;
@@ -380,22 +385,6 @@ mi_switch(void)
 
 	/* add the time counts for this thread to the process's total */
 	tuagg_unlocked(pr, p);
-
-	/*
-	 * Check if the process exceeds its cpu resource allocation.
-	 * If over max, kill it.
-	 */
-	rlim = &pr->ps_limit->pl_rlimit[RLIMIT_CPU];
-	secs = pr->ps_tu.tu_runtime.tv_sec;
-	if (secs >= rlim->rlim_cur) {
-		if (secs >= rlim->rlim_max) {
-			psignal(p, SIGKILL);
-		} else {
-			psignal(p, SIGXCPU);
-			if (rlim->rlim_cur < rlim->rlim_max)
-				rlim->rlim_cur += 5;
-		}
-	}
 
 	/*
 	 * Process is about to yield the CPU; clear the appropriate
@@ -546,7 +535,12 @@ resetpriority(struct proc *p)
 void
 schedclock(struct proc *p)
 {
+	struct cpu_info *ci = curcpu();
+	struct schedstate_percpu *spc = &ci->ci_schedstate;
 	int s;
+
+	if (p == spc->spc_idleproc)
+		return;
 
 	SCHED_LOCK(s);
 	p->p_estcpu = ESTCPULIM(p->p_estcpu + 1);

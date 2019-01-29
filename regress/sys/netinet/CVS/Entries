@@ -1,9 +1,11 @@
-/Makefile/1.4/Mon Feb  6 21:56:19 2017//
+/Makefile/1.6/Wed Jul  4 02:18:05 2018//
 D/arp////
 D/autoport////
 D/broadcast_bind////
 D/carp////
+D/frag////
 D/in_pcbbind////
 D/ipsec////
 D/pmtu////
+D/recvmsg////
 D/sendsrcaddr////

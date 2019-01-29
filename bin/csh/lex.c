@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.24 2017/01/23 04:53:15 deraadt Exp $	*/
+/*	$OpenBSD: lex.c,v 1.30 2018/10/24 06:01:03 martijn Exp $	*/
 /*	$NetBSD: lex.c,v 1.9 1995/09/27 00:38:46 jtc Exp $	*/
 
 /*-
@@ -1287,7 +1287,7 @@ top:
 	}
     }
     if (alvec) {
-	if ((alvecp = *alvec) != '\0') {
+	if ((alvecp = *alvec) != NULL) {
 	    alvec++;
 	    goto top;
 	}
@@ -1310,7 +1310,7 @@ top:
 	    doneinp = 1;
 	    reset();
 	}
-	if ((evalp = *evalvec) != '\0') {
+	if ((evalp = *evalvec) != NULL) {
 	    evalvec++;
 	    goto top;
 	}
@@ -1408,8 +1408,7 @@ bgetc(void)
 again:
     buf = (int) fseekp / BUFSIZ;
     if (buf >= fblocks) {
-	Char **nfbuf = xcalloc((size_t) (fblocks + 2),
-			  sizeof(Char **));
+	Char **nfbuf = xcalloc(fblocks + 2, sizeof(*nfbuf));
 
 	if (fbuf) {
 	    (void) blkcpy(nfbuf, fbuf);
@@ -1426,7 +1425,6 @@ again:
 	off = (int) feobp % BUFSIZ;
 	roomleft = BUFSIZ - off;
 
-	roomleft = BUFSIZ - off;
 	for (;;) {
 	    if (filec && intty) {
 		c = numleft ? numleft : tenex(ttyline, BUFSIZ);
@@ -1557,7 +1555,7 @@ settell(void)
 	return;
     if (lseek(SHIN, (off_t) 0, SEEK_CUR) < 0 || errno == ESPIPE)
 	return;
-    fbuf = xcalloc(2, sizeof(Char **));
+    fbuf = xcalloc(2, sizeof(*fbuf));
     fblocks = 1;
     fbuf[0] = xcalloc(BUFSIZ, sizeof(Char));
     fseekp = fbobp = feobp = lseek(SHIN, (off_t) 0, SEEK_CUR);

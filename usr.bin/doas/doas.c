@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.72 2017/05/27 09:51:07 tedu Exp $ */
+/* $OpenBSD: doas.c,v 1.74 2019/01/17 05:35:35 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -226,6 +226,7 @@ authuser(char *myname, char *login_style, int persist)
 		errx(1, "a tty is required");
 	}
 	if (!auth_userresponse(as, response, 0)) {
+		explicit_bzero(rbuf, sizeof(rbuf));
 		syslog(LOG_AUTHPRIV | LOG_NOTICE,
 		    "failed auth for %s", myname);
 		errx(1, "Authorization failed");
@@ -237,6 +238,44 @@ good:
 		ioctl(fd, TIOCSETVERAUTH, &secs);
 		close(fd);
 	}
+}
+
+int
+unveilcommands(const char *ipath, const char *cmd)
+{
+	char *path = NULL, *p;
+	int unveils = 0;
+
+	if (strchr(cmd, '/') != NULL) {
+		if (unveil(cmd, "x") != -1)
+			unveils++;
+		goto done;
+	}
+
+	if (!ipath) {
+		errno = ENOENT;
+		goto done;
+	}
+	path = strdup(ipath);
+	if (!path) {
+		errno = ENOENT;
+		goto done;
+	}
+	for (p = path; p && *p; ) {
+		char buf[PATH_MAX];
+		char *cp = strsep(&p, ":");
+
+		if (cp) {
+			int r = snprintf(buf, sizeof buf, "%s/%s", cp, cmd);
+			if (r != -1 && r < sizeof buf) {
+				if (unveil(buf, "x") != -1)
+					unveils++;
+			}
+		}
+	}
+done:
+	free(path);
+	return (unveils);
 }
 
 int
@@ -364,6 +403,15 @@ main(int argc, char **argv)
 		authuser(myname, login_style, rule->options & PERSIST);
 	}
 
+	if (unveil(_PATH_LOGIN_CONF, "r") == -1)
+		err(1, "unveil");
+	if (rule->cmd) {
+		if (setenv("PATH", safepath, 1) == -1)
+			err(1, "failed to set PATH '%s'", safepath);
+	}
+	if (unveilcommands(getenv("PATH"), cmd) == 0)
+		goto fail;
+
 	if (pledge("stdio rpath getpw exec id", NULL) == -1)
 		err(1, "pledge");
 
@@ -392,11 +440,8 @@ main(int argc, char **argv)
 
 	envp = prepenv(rule);
 
-	if (rule->cmd) {
-		if (setenv("PATH", safepath, 1) == -1)
-			err(1, "failed to set PATH '%s'", safepath);
-	}
 	execvpe(cmd, argv, envp);
+fail:
 	if (errno == ENOENT)
 		errx(1, "%s: command not found", cmd);
 	err(1, "%s", cmd);

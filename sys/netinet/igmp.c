@@ -1,4 +1,4 @@
-/*	$OpenBSD: igmp.c,v 1.69 2017/06/19 17:58:49 bluhm Exp $	*/
+/*	$OpenBSD: igmp.c,v 1.74 2018/10/18 15:46:28 cheloha Exp $	*/
 /*	$NetBSD: igmp.c,v 1.15 1996/02/13 23:41:25 christos Exp $	*/
 
 /*
@@ -99,7 +99,7 @@
 int *igmpctl_vars[IGMPCTL_MAXID] = IGMPCTL_VARS;
 
 int		igmp_timers_are_running;
-static struct router_info *rti_head;
+static LIST_HEAD(, router_info) rti_head;
 static struct mbuf *router_alert;
 struct cpumem *igmpcounters;
 
@@ -116,7 +116,7 @@ igmp_init(void)
 	struct ipoption *ra;
 
 	igmp_timers_are_running = 0;
-	rti_head = 0;
+	LIST_INIT(&rti_head);
 
 	igmpcounters = counters_alloc(igps_ncounters);
 	router_alert = m_get(M_DONTWAIT, MT_DATA);
@@ -150,7 +150,7 @@ rti_fill(struct in_multi *inm)
 {
 	struct router_info *rti;
 
-	for (rti = rti_head; rti != 0; rti = rti->rti_next) {
+	LIST_FOREACH(rti, &rti_head, rti_list) {
 		if (rti->rti_ifidx == inm->inm_ifidx) {
 			inm->inm_rti = rti;
 			if (rti->rti_type == IGMP_v1_ROUTER)
@@ -160,14 +160,12 @@ rti_fill(struct in_multi *inm)
 		}
 	}
 
-	rti = (struct router_info *)malloc(sizeof(struct router_info),
-					   M_MRTABLE, M_NOWAIT);
+	rti = malloc(sizeof(*rti), M_MRTABLE, M_NOWAIT);
 	if (rti == NULL)
 		return (-1);
 	rti->rti_ifidx = inm->inm_ifidx;
 	rti->rti_type = IGMP_v2_ROUTER;
-	rti->rti_next = rti_head;
-	rti_head = rti;
+	LIST_INSERT_HEAD(&rti_head, rti, rti_list);
 	inm->inm_rti = rti;
 	return (IGMP_v2_HOST_MEMBERSHIP_REPORT);
 }
@@ -177,34 +175,32 @@ rti_find(struct ifnet *ifp)
 {
 	struct router_info *rti;
 
-	for (rti = rti_head; rti != 0; rti = rti->rti_next) {
+	KERNEL_ASSERT_LOCKED();
+	LIST_FOREACH(rti, &rti_head, rti_list) {
 		if (rti->rti_ifidx == ifp->if_index)
 			return (rti);
 	}
 
-	rti = (struct router_info *)malloc(sizeof(struct router_info),
-					   M_MRTABLE, M_NOWAIT);
+	rti = malloc(sizeof(*rti), M_MRTABLE, M_NOWAIT);
 	if (rti == NULL)
 		return (NULL);
 	rti->rti_ifidx = ifp->if_index;
 	rti->rti_type = IGMP_v2_ROUTER;
-	rti->rti_next = rti_head;
-	rti_head = rti;
+	LIST_INSERT_HEAD(&rti_head, rti, rti_list);
 	return (rti);
 }
 
 void
 rti_delete(struct ifnet *ifp)
 {
-	struct router_info *rti, **prti = &rti_head;
+	struct router_info *rti, *trti;
 
-	for (rti = rti_head; rti != 0; rti = rti->rti_next) {
+	LIST_FOREACH_SAFE(rti, &rti_head, rti_list, trti) {
 		if (rti->rti_ifidx == ifp->if_index) {
-			*prti = rti->rti_next;
+			LIST_REMOVE(rti, rti_list);
 			free(rti, M_MRTABLE, sizeof(*rti));
 			break;
 		}
-		prti = &rti->rti_next;
 	}
 }
 
@@ -221,7 +217,9 @@ igmp_input(struct mbuf **mp, int *offp, int proto, int af)
 		return IPPROTO_DONE;
 	}
 
+	KERNEL_LOCK();
 	proto = igmp_input_if(ifp, mp, offp, proto, af);
+	KERNEL_UNLOCK();
 	if_put(ifp);
 	return proto;
 }
@@ -550,18 +548,21 @@ igmp_fasttimo(void)
 {
 	struct ifnet *ifp;
 
-	NET_ASSERT_LOCKED();
+	NET_LOCK();
 
 	/*
 	 * Quick check to see if any work needs to be done, in order
 	 * to minimize the overhead of fasttimo processing.
 	 */
 	if (!igmp_timers_are_running)
-		return;
+		goto out;
 
 	igmp_timers_are_running = 0;
 	TAILQ_FOREACH(ifp, &ifnet, if_list)
 		igmp_checktimer(ifp);
+
+out:
+	NET_UNLOCK();
 }
 
 
@@ -600,14 +601,16 @@ igmp_slowtimo(void)
 {
 	struct router_info *rti;
 
-	NET_ASSERT_LOCKED();
+	NET_LOCK();
 
-	for (rti = rti_head; rti != 0; rti = rti->rti_next) {
+	LIST_FOREACH(rti, &rti_head, rti_list) {
 		if (rti->rti_type == IGMP_v1_ROUTER &&
 		    ++rti->rti_age >= IGMP_AGE_THRESHOLD) {
 			rti->rti_type = IGMP_v2_ROUTER;
 		}
 	}
+
+	NET_UNLOCK();
 }
 
 void
@@ -680,6 +683,8 @@ int
 igmp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen)
 {
+	int error;
+
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
 		return (ENOTDIR);
@@ -690,9 +695,13 @@ igmp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 			return (EPERM);
 		return (igmp_sysctl_igmpstat(oldp, oldlenp, newp));
 	default:
-		if (name[0] < IGMPCTL_MAXID)
-			return (sysctl_int_arr(igmpctl_vars, name, namelen,
-			    oldp, oldlenp, newp, newlen));
+		if (name[0] < IGMPCTL_MAXID) {
+			NET_LOCK();
+			error = sysctl_int_arr(igmpctl_vars, name, namelen,
+			    oldp, oldlenp, newp, newlen);
+			NET_UNLOCK();
+			return (error);
+		}
 		return (ENOPROTOOPT);
 	}
 	/* NOTREACHED */

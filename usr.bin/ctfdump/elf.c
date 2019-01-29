@@ -1,4 +1,4 @@
-/*	$OpenBSD: elf.c,v 1.2 2017/08/11 15:00:00 jasper Exp $ */
+/*	$OpenBSD: elf.c,v 1.8 2017/11/14 09:14:50 mpi Exp $ */
 
 /*
  * Copyright (c) 2016 Martin Pieuchot <mpi@openbsd.org>
@@ -16,18 +16,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
-#include <sys/exec_elf.h>
+#include <sys/types.h>
 
 #include <machine/reloc.h>
 
 #include <assert.h>
+#include <elf.h>
 #include <err.h>
 #include <string.h>
 
 static int	elf_reloc_size(unsigned long);
-static void	elf_reloc_apply(const char *, const char *, size_t, ssize_t,
-		    char *, size_t);
+static void	elf_reloc_apply(const char *, size_t, const char *, size_t,
+		    ssize_t, char *, size_t);
 
 int
 iself(const char *p, size_t filesize)
@@ -80,8 +80,15 @@ elf_getshstab(const char *p, size_t filesize, const char **shstab,
 {
 	Elf_Ehdr		*eh = (Elf_Ehdr *)p;
 	Elf_Shdr		*sh;
+	size_t			 shoff;
 
-	sh = (Elf_Shdr *)(p + eh->e_shoff + eh->e_shstrndx * eh->e_shentsize);
+	shoff = eh->e_shoff + eh->e_shstrndx * eh->e_shentsize;
+	if (shoff > (filesize - sizeof(*sh))) {
+		warnx("unexpected string table size");
+		return -1;
+	}
+
+	sh = (Elf_Shdr *)(p + shoff);
 	if (sh->sh_type != SHT_STRTAB) {
 		warnx("unexpected string table type");
 		return -1;
@@ -103,23 +110,37 @@ elf_getshstab(const char *p, size_t filesize, const char **shstab,
 }
 
 ssize_t
-elf_getsymtab(const char *p, const char *shstab, size_t shstabsz,
-    const Elf_Sym **symtab, size_t *nsymb)
+elf_getsymtab(const char *p, size_t filesize, const char *shstab,
+    size_t shstabsz, const Elf_Sym **symtab, size_t *nsymb, const char **strtab,
+    size_t *strtabsz)
 {
 	Elf_Ehdr	*eh = (Elf_Ehdr *)p;
-	Elf_Shdr	*sh;
-	size_t		 snlen;
+	Elf_Shdr	*sh, *symsh;
+	size_t		 snlen, shoff;
 	ssize_t		 i;
 
 	snlen = strlen(ELF_SYMTAB);
+	symsh = NULL;
 
 	for (i = 0; i < eh->e_shnum; i++) {
-		sh = (Elf_Shdr *)(p + eh->e_shoff + i * eh->e_shentsize);
+		shoff = eh->e_shoff + i * eh->e_shentsize;
+		if (shoff > (filesize - sizeof(*sh)))
+			continue;
 
+		sh = (Elf_Shdr *)(p + shoff);
 		if (sh->sh_type != SHT_SYMTAB)
 			continue;
 
 		if ((sh->sh_link >= eh->e_shnum) || (sh->sh_name >= shstabsz))
+			continue;
+
+		if (sh->sh_offset > filesize)
+			continue;
+
+		if (sh->sh_size > (filesize - sh->sh_offset))
+			continue;
+
+		if (sh->sh_entsize == 0)
 			continue;
 
 		if (strncmp(shstab + sh->sh_name, ELF_SYMTAB, snlen) == 0) {
@@ -127,22 +148,39 @@ elf_getsymtab(const char *p, const char *shstab, size_t shstabsz,
 				*symtab = (Elf_Sym *)(p + sh->sh_offset);
 			if (nsymb != NULL)
 				*nsymb = (sh->sh_size / sh->sh_entsize);
+			symsh = sh;
 
-			return i;
+			break;
 		}
 	}
 
-	return -1;
+	if (symsh == NULL || (symsh->sh_link >= eh->e_shnum))
+		return -1;
+
+	shoff = eh->e_shoff + symsh->sh_link * eh->e_shentsize;
+	if (shoff > (filesize - sizeof(*sh)))
+		return -1;
+
+	sh = (Elf_Shdr *)(p + shoff);
+	if ((sh->sh_offset + sh->sh_size) > filesize)
+		return -1;
+
+	if (strtab != NULL)
+		*strtab = p + sh->sh_offset;
+	if (strtabsz != NULL)
+		*strtabsz = sh->sh_size;
+
+	return i;
 }
 
 ssize_t
-elf_getsection(char *p, const char *sname, const char *shstab,
+elf_getsection(char *p, size_t filesize, const char *sname, const char *shstab,
     size_t shstabsz, const char **psdata, size_t *pssz)
 {
 	Elf_Ehdr	*eh = (Elf_Ehdr *)p;
 	Elf_Shdr	*sh;
 	char		*sdata = NULL;
-	size_t		 snlen, ssz = 0;
+	size_t		 snlen, shoff, ssz = 0;
 	ssize_t		 sidx, i;
 
 	snlen = strlen(sname);
@@ -151,16 +189,26 @@ elf_getsection(char *p, const char *sname, const char *shstab,
 
 	/* Find the given section. */
 	for (i = 0; i < eh->e_shnum; i++) {
-		sh = (Elf_Shdr *)(p + eh->e_shoff + i * eh->e_shentsize);
+		shoff = eh->e_shoff + i * eh->e_shentsize;
+		if (shoff > (filesize - sizeof(*sh)))
+			continue;
 
+		sh = (Elf_Shdr *)(p + shoff);
 		if ((sh->sh_link >= eh->e_shnum) || (sh->sh_name >= shstabsz))
+			continue;
+
+		if (sh->sh_offset > filesize)
+			continue;
+
+		if (sh->sh_size > (filesize - sh->sh_offset))
 			continue;
 
 		if (strncmp(shstab + sh->sh_name, sname, snlen) == 0) {
 			sidx = i;
 			sdata = p + sh->sh_offset;
 			ssz = sh->sh_size;
-			elf_reloc_apply(p, shstab, shstabsz, sidx, sdata, ssz);
+			elf_reloc_apply(p, filesize, shstab, shstabsz, sidx,
+			    sdata, ssz);
 			break;
 		}
 	}
@@ -211,8 +259,8 @@ do {									\
 } while (0)
 
 static void
-elf_reloc_apply(const char *p, const char *shstab, size_t shstabsz,
-    ssize_t sidx, char *sdata, size_t ssz)
+elf_reloc_apply(const char *p, size_t filesize, const char *shstab,
+    size_t shstabsz, ssize_t sidx, char *sdata, size_t ssz)
 {
 	Elf_Ehdr	*eh = (Elf_Ehdr *)p;
 	Elf_Shdr	*sh;
@@ -221,12 +269,13 @@ elf_reloc_apply(const char *p, const char *shstab, size_t shstabsz,
 	const Elf_Sym	*symtab, *sym;
 	ssize_t		 symtabidx;
 	size_t		 nsymb, rsym, rtyp, roff;
-	size_t		 i, j;
+	size_t		 shoff, i, j;
 	uint64_t	 value;
 	int		 rsize;
 
 	/* Find symbol table location and number of symbols. */
-	symtabidx = elf_getsymtab(p, shstab, shstabsz, &symtab, &nsymb);
+	symtabidx = elf_getsymtab(p, filesize, shstab, shstabsz, &symtab,
+	    &nsymb, NULL, NULL);
 	if (symtabidx == -1) {
 		warnx("symbol table not found");
 		return;
@@ -234,12 +283,21 @@ elf_reloc_apply(const char *p, const char *shstab, size_t shstabsz,
 
 	/* Apply possible relocation. */
 	for (i = 0; i < eh->e_shnum; i++) {
-		sh = (Elf_Shdr *)(p + eh->e_shoff + i * eh->e_shentsize);
+		shoff = eh->e_shoff + i * eh->e_shentsize;
+		if (shoff > (filesize - sizeof(*sh)))
+			continue;
 
+		sh = (Elf_Shdr *)(p + shoff);
 		if (sh->sh_size == 0)
 			continue;
 
 		if ((sh->sh_info != sidx) || (sh->sh_link != symtabidx))
+			continue;
+
+		if (sh->sh_offset > filesize)
+			continue;
+
+		if (sh->sh_size > (filesize - sh->sh_offset))
 			continue;
 
 		switch (sh->sh_type) {
@@ -250,6 +308,8 @@ elf_reloc_apply(const char *p, const char *shstab, size_t shstabsz,
 				rtyp = ELF_R_TYPE(rela[j].r_info);
 				roff = rela[j].r_offset;
 				if (rsym >= nsymb)
+					continue;
+				if (roff >= filesize)
 					continue;
 				sym = &symtab[rsym];
 				value = sym->st_value + rela[j].r_addend;
@@ -268,6 +328,8 @@ elf_reloc_apply(const char *p, const char *shstab, size_t shstabsz,
 				rtyp = ELF_R_TYPE(rel[j].r_info);
 				roff = rel[j].r_offset;
 				if (rsym >= nsymb)
+					continue;
+				if (roff >= filesize)
 					continue;
 				sym = &symtab[rsym];
 				value = sym->st_value;

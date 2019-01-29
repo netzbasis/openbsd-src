@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.15 2016/05/27 09:18:11 martijn Exp $	*/
+/*	$OpenBSD: util.c,v 1.17 2018/07/11 06:39:23 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -45,10 +45,6 @@ binc(SCR *sp, void *bp, size_t *bsizep, size_t min)
 	REALLOC(sp, bp, csize);
 
 	if (bp == NULL) {
-		/*
-		 * Theoretically, realloc is supposed to leave any already
-		 * held memory alone if it can't get more.  Don't trust it.
-		 */
 		*bsizep = 0;
 		return (NULL);
 	}
@@ -174,6 +170,7 @@ TRACE(SCR *sp, const char *fmt, ...)
 		return;
 	va_start(ap, fmt);
 	(void)vfprintf(tfp, fmt, ap);
+	fflush(tfp);
 	va_end(ap);
 
 	(void)fflush(tfp);

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2017/07/09 15:28:35 espie Exp $
+# $OpenBSD: Makefile,v 1.6 2018/10/04 11:43:29 patrick Exp $
 
 LIB=	LLVMDebugInfoCodeView
 NOPIC=
@@ -7,22 +7,44 @@ NOPROFILE=
 CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/DebugInfo/CodeView
 
 .include <bsd.own.mk>
-SRCS=	CVTypeDumper.cpp \
-	CVTypeVisitor.cpp \
+SRCS=	AppendingTypeTableBuilder.cpp \
 	CodeViewError.cpp \
 	CodeViewRecordIO.cpp \
+	ContinuationRecordBuilder.cpp \
+	CVSymbolVisitor.cpp \
+	CVTypeVisitor.cpp \
+	DebugChecksumsSubsection.cpp \
+	DebugCrossExSubsection.cpp \
+	DebugCrossImpSubsection.cpp \
+	DebugFrameDataSubsection.cpp \
+	DebugInlineeLinesSubsection.cpp \
+	DebugLinesSubsection.cpp \
+	DebugStringTableSubsection.cpp \
+	DebugSubsection.cpp \
+	DebugSubsectionRecord.cpp \
+	DebugSubsectionVisitor.cpp \
+	DebugSymbolRVASubsection.cpp \
+	DebugSymbolsSubsection.cpp \
+	EnumTables.cpp \
+	Formatters.cpp \
+	GlobalTypeTableBuilder.cpp \
+	LazyRandomTypeCollection.cpp \
 	Line.cpp \
-	ModuleSubstream.cpp \
-	ModuleSubstreamVisitor.cpp \
+	MergingTypeTableBuilder.cpp \
+	RecordName.cpp \
 	RecordSerialization.cpp \
+	SimpleTypeSerializer.cpp \
+	StringsAndChecksums.cpp \
+	SymbolRecordMapping.cpp \
 	SymbolDumper.cpp \
-	TypeDatabase.cpp \
-	TypeDatabaseVisitor.cpp \
+	SymbolSerializer.cpp \
 	TypeDumpVisitor.cpp \
-	TypeRecord.cpp \
+	TypeIndex.cpp \
+	TypeIndexDiscovery.cpp \
+	TypeHashing.cpp \
 	TypeRecordMapping.cpp \
-	TypeSerializer.cpp \
-	TypeStreamMerger.cpp
+	TypeStreamMerger.cpp \
+	TypeTableCollection.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/DebugInfo/CodeView
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: k1x-pstate.c,v 1.8 2015/09/08 07:12:56 deraadt Exp $ */
+/*	$OpenBSD: k1x-pstate.c,v 1.12 2018/03/31 13:45:03 bluhm Exp $ */
 /*
  * Copyright (c) 2011 Bryan Steele <brynet@gmail.com>
  *
@@ -24,7 +24,6 @@
  */
 /* AMD K10/K11 pstate driver */
 
-#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -188,7 +187,7 @@ k1x_init(struct cpu_info *ci)
 #endif
 	if (cstate->n_states) {
 		printf("%s: %d MHz: speeds:",
-		    ci->ci_dev.dv_xname, cpuspeed);
+		    ci->ci_dev->dv_xname, cpuspeed);
 		for (i = cstate->n_states; i > 0; i--) {
 			state = &cstate->state_table[i-1];
 			printf(" %d", state->freq);

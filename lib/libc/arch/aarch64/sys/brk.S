@@ -1,4 +1,4 @@
-/*	$OpenBSD: brk.S,v 1.2 2017/03/18 12:50:13 kettenis Exp $	*/
+/*	$OpenBSD: brk.S,v 1.5 2018/08/12 17:15:10 mortimer Exp $	*/
 /*	$NetBSD: brk.S,v 1.7 2003/12/26 11:23:44 martin Exp $	*/
 
 /*-
@@ -34,11 +34,11 @@
 
 #include "SYS.h"
 
-	.globl	_C_LABEL(end)
+	.globl	_C_LABEL(_end)
 	.globl	__curbrk
 
 	.data
-	.align	0
+	.align	3
 	.type	__minbrk,#object
 __minbrk:
 	.quad	_C_LABEL(_end)
@@ -48,6 +48,7 @@ __minbrk:
  * Change the data segment size
  */
 ENTRY(brk)
+	RETGUARD_SETUP(brk, x15)
 #ifdef __PIC__
 	/* Setup the GOT */
 	adrp	x3, :got:__minbrk
@@ -81,6 +82,7 @@ ENTRY(brk)
 
 	/* Return 0 for success */
 	mov	x0, #0x00000000
+	RETGUARD_CHECK(brk, x15)
 	ret
 
 	.align	3

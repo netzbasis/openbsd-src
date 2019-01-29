@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysconf.c,v 1.24 2016/03/20 02:32:40 guenther Exp $ */
+/*	$OpenBSD: sysconf.c,v 1.26 2018/07/12 01:23:38 cheloha Exp $ */
 /*-
  * Copyright (c) 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -241,7 +241,7 @@ sysconf(int name)
 		value = socket(PF_INET6, SOCK_DGRAM, 0);
 		errno = sverrno;
 		if (value >= 0) {
-			close(value);
+			HIDDEN(close)(value);
 			return (200112L);
 		} else
 			return (0);
@@ -461,7 +461,7 @@ sysconf(int name)
 		break;
 	case _SC_NPROCESSORS_ONLN:
 		mib[0] = CTL_HW;
-		mib[1] = HW_NCPU;
+		mib[1] = HW_NCPUONLINE;
 		break;
 
 	default:

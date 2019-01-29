@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.35 2017/04/13 03:52:25 guenther Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.37 2017/09/02 15:56:29 visa Exp $	*/
 /*
  * Copyright (c) 1988 University of Utah.
  * Copyright (c) 1992, 1993
@@ -96,8 +96,10 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 
 	p2->p_md.md_flags = p1->p_md.md_flags & MDP_FORKSAVE;
 #ifdef FPUEMUL
-	p2->p_md.md_fppgva = p1->p_md.md_fppgva;
-	KASSERT((p2->p_md.md_flags & MDP_FPUSED) == 0);
+	if (!CPU_HAS_FPU(ci)) {
+		p2->p_md.md_fppgva = p1->p_md.md_fppgva;
+		KASSERT((p2->p_md.md_flags & MDP_FPUSED) == 0);
+	}
 #endif
 
 	/* Copy pcb from p1 to p2 */
@@ -142,8 +144,7 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
  * cpu_exit is called as the last action during exit.
  */
 void
-cpu_exit(p)
-	struct proc *p;
+cpu_exit(struct proc *p)
 {
 	struct cpu_info *ci = curcpu();
 
@@ -165,9 +166,7 @@ extern vm_map_t phys_map;
  */
 
 void
-vmapbuf(bp, len)
-	struct buf *bp;
-	vsize_t len;
+vmapbuf(struct buf *bp, vsize_t len)
 {
 	vaddr_t uva, kva;
 	vsize_t sz, off;
@@ -207,9 +206,7 @@ vmapbuf(bp, len)
  * We also invalidate the TLB entries and restore the original b_addr.
  */
 void
-vunmapbuf(bp, len)
-	struct buf *bp;
-	vsize_t len;
+vunmapbuf(struct buf *bp, vsize_t len)
 {
 	vsize_t sz;
 	vaddr_t addr;

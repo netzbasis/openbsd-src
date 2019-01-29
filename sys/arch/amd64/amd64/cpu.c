@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.106 2017/06/22 06:21:12 jmatthew Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.132 2019/01/20 23:07:51 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -70,6 +70,7 @@
 #include "pvbus.h"
 
 #include <sys/param.h>
+#include <sys/proc.h>
 #include <sys/timeout.h>
 #include <sys/systm.h>
 #include <sys/device.h>
@@ -77,11 +78,12 @@
 #include <sys/memrange.h>
 #include <dev/rndvar.h>
 #include <sys/atomic.h>
+#include <sys/user.h>
 
 #include <uvm/uvm_extern.h>
 
 #include <machine/codepatch.h>
-#include <machine/cpu.h>
+#include <machine/cpu_full.h>
 #include <machine/cpufunc.h>
 #include <machine/cpuvar.h>
 #include <machine/pmap.h>
@@ -95,7 +97,6 @@
 #include <machine/vmmvar.h>
 
 #if NLAPIC > 0
-#include <machine/apicvar.h>
 #include <machine/i82489reg.h>
 #include <machine/i82489var.h>
 #endif
@@ -117,6 +118,14 @@
 #include <machine/hibernate.h>
 #endif /* HIBERNATE */
 
+/* #define CPU_DEBUG */
+
+#ifdef CPU_DEBUG
+#define DPRINTF(x...)	do { printf(x); } while(0)
+#else
+#define DPRINTF(x...)
+#endif /* CPU_DEBUG */
+
 int     cpu_match(struct device *, void *, void *);
 void    cpu_attach(struct device *, struct device *, void *);
 int     cpu_activate(struct device *, int);
@@ -131,6 +140,7 @@ struct cpu_softc {
 };
 
 void	replacesmap(void);
+void	replacemeltdown(void);
 
 extern long _stac;
 extern long _clac;
@@ -150,6 +160,28 @@ replacesmap(void)
 	codepatch_replace(CPTAG_STAC, &_stac, 3);
 	codepatch_replace(CPTAG_CLAC, &_clac, 3);
 
+	splx(s);
+}
+
+void
+replacemeltdown(void)
+{
+	static int replacedone = 0;
+	int s;
+
+	if (replacedone)
+		return;
+	replacedone = 1;
+
+	s = splhigh();
+	if (!cpu_meltdown)
+		codepatch_nop(CPTAG_MELTDOWN_NOP);
+	else if (pmap_use_pcid) {
+		extern long _pcid_set_reuse;
+		DPRINTF("%s: codepatching PCID use", __func__);
+		codepatch_replace(CPTAG_PCID_SET_REUSE, &_pcid_set_reuse,
+		    PCID_SET_REUSE_SIZE);
+	}
 	splx(s);
 }
 
@@ -173,7 +205,7 @@ struct cfdriver cpu_cd = {
  * CPU, on uniprocessors).  The CPU info list is initialized to
  * point at it.
  */
-struct cpu_info cpu_info_primary = { 0, &cpu_info_primary };
+struct cpu_info_full cpu_info_full_primary = { .cif_cpu = { .ci_self = &cpu_info_primary } };
 
 struct cpu_info *cpu_info_list = &cpu_info_primary;
 
@@ -339,8 +371,15 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	 * structure, otherwise use the primary's.
 	 */
 	if (caa->cpu_role == CPU_ROLE_AP) {
-		ci = malloc(sizeof(*ci), M_DEVBUF, M_WAITOK|M_ZERO);
+		struct cpu_info_full *cif;
+		
+		cif = km_alloc(sizeof *cif, &kv_any, &kp_zero, &kd_waitok);
+		ci = &cif->cif_cpu;
 #if defined(MULTIPROCESSOR)
+		ci->ci_tss = &cif->cif_tss;
+		ci->ci_gdt = &cif->cif_gdt;
+		memcpy(ci->ci_gdt, cpu_info_primary.ci_gdt, GDT_SIZE);
+		cpu_enter_pages(cif);
 		if (cpu_info[cpunum] != NULL)
 			panic("cpu at apic id %d already attached?", cpunum);
 		cpu_info[cpunum] = ci;
@@ -378,7 +417,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * Allocate UPAGES contiguous pages for the idle PCB and stack.
 	 */
-	kstack = uvm_km_alloc (kernel_map, USPACE);
+	kstack = (vaddr_t)km_alloc(USPACE, &kv_any, &kp_dirty, &kd_nowait);
 	if (kstack == 0) {
 		if (caa->cpu_role != CPU_ROLE_AP) {
 			panic("cpu_attach: unable to allocate idle stack for"
@@ -394,7 +433,6 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	pcb->pcb_kstack = kstack + USPACE - 16;
 	pcb->pcb_rbp = pcb->pcb_rsp = kstack + USPACE - 16;
 	pcb->pcb_pmap = pmap_kernel();
-	pcb->pcb_cr0 = rcr0();
 	pcb->pcb_cr3 = pcb->pcb_pmap->pm_pdirpa;
 #endif
 
@@ -407,6 +445,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		printf("(uniprocessor)\n");
 		ci->ci_flags |= CPUF_PRESENT | CPUF_SP | CPUF_PRIMARY;
 		cpu_intr_init(ci);
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -419,6 +460,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		printf("apid %d (boot processor)\n", caa->cpu_apicid);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_BSP | CPUF_PRIMARY;
 		cpu_intr_init(ci);
+#ifndef SMALL_KERNEL
+		cpu_ucode_apply(ci);
+#endif
 		identifycpu(ci);
 #ifdef MTRR
 		mem_range_attach();
@@ -446,9 +490,8 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 
 #if defined(MULTIPROCESSOR)
 		cpu_intr_init(ci);
-		gdt_alloc_cpu(ci);
-		sched_init_cpu(ci);
 		cpu_start_secondary(ci);
+		sched_init_cpu(ci);
 		ncpus++;
 		if (ci->ci_flags & CPUF_PRESENT) {
 			ci->ci_next = cpu_info_list->ci_next;
@@ -477,6 +520,28 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 #endif /* NVMM > 0 */
 }
 
+static void
+replacexsave(void)
+{
+	extern long _xrstor, _xsave, _xsaveopt;
+	u_int32_t eax, ebx, ecx, edx;
+	static int replacedone = 0;
+	int s;
+
+	if (replacedone)
+		return;
+	replacedone = 1;
+
+	/* find out whether xsaveopt is supported */
+	CPUID_LEAF(0xd, 1, eax, ebx, ecx, edx);
+	s = splhigh();
+	codepatch_replace(CPTAG_XRSTOR, &_xrstor, 4);
+	codepatch_replace(CPTAG_XSAVE,
+	    (eax & XSAVE_XSAVEOPT) ? &_xsaveopt : &_xsave, 4);
+	splx(s);
+}
+
+
 /*
  * Initialize the processor appropriately.
  */
@@ -484,29 +549,24 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 void
 cpu_init(struct cpu_info *ci)
 {
+	struct savefpu *sfp;
 	u_int cr4;
 
 	/* configure the CPU if needed */
 	if (ci->cpu_setup != NULL)
 		(*ci->cpu_setup)(ci);
-	/*
-	 * We do this here after identifycpu() because errata may affect
-	 * what we do.
-	 */
-	patinit(ci);
 
-	lcr0(rcr0() | CR0_WP);
 	cr4 = rcr4() | CR4_DEFAULT;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
 		cr4 |= CR4_SMEP;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
-	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_FSGSBASE)
-		cr4 |= CR4_FSGSBASE;
 	if (ci->ci_feature_sefflags_ecx & SEFF0ECX_UMIP)
 		cr4 |= CR4_UMIP;
-	if (cpu_ecxfeature & CPUIDECX_XSAVE)
+	if ((cpu_ecxfeature & CPUIDECX_XSAVE) && cpuid_level >= 0xd)
 		cr4 |= CR4_OSXSAVE;
+	if (pmap_use_pcid)
+		cr4 |= CR4_PCIDE;
 	lcr4(cr4);
 
 	if ((cpu_ecxfeature & CPUIDECX_XSAVE) && cpuid_level >= 0xd) {
@@ -518,8 +578,27 @@ cpu_init(struct cpu_info *ci)
 			xsave_mask |= XCR0_AVX;
 		xsetbv(0, xsave_mask);
 		CPUID_LEAF(0xd, 0, eax, ebx, ecx, edx);
-		fpu_save_len = ebx;
+		if (CPU_IS_PRIMARY(ci)) {
+			fpu_save_len = ebx;
+			KASSERT(fpu_save_len <= sizeof(struct savefpu));
+		} else {
+			KASSERT(ebx == fpu_save_len);
+		}
+
+		replacexsave();
 	}
+
+	/* Give proc0 a clean FPU save area */
+	sfp = &proc0.p_addr->u_pcb.pcb_savefpu;
+	memset(sfp, 0, fpu_save_len);
+	sfp->fp_fxsave.fx_fcw = __INITIAL_NPXCW__;
+	sfp->fp_fxsave.fx_mxcsr = __INITIAL_MXCSR__;
+	fpureset();
+	if (xsave_mask) {
+		/* must not use xsaveopt here */
+		xsave(sfp, xsave_mask);
+	} else
+		fxsave(sfp);
 
 #if NVMM > 0
 	/* Re-enable VMM if needed */
@@ -530,7 +609,7 @@ cpu_init(struct cpu_info *ci)
 #ifdef MULTIPROCESSOR
 	ci->ci_flags |= CPUF_RUNNING;
 	/*
-	 * Big hammer: flush all TLB entries, including ones from PTE's
+	 * Big hammer: flush all TLB entries, including ones from PTEs
 	 * with the G bit set.  This should only be necessary if TLB
 	 * shootdown falls far behind.
 	 */
@@ -588,24 +667,6 @@ cpu_boot_secondary_processors(void)
 }
 
 void
-cpu_init_idle_pcbs(void)
-{
-	struct cpu_info *ci;
-	u_long i;
-
-	for (i=0; i < MAXCPUS; i++) {
-		ci = cpu_info[i];
-		if (ci == NULL)
-			continue;
-		if (ci->ci_idle_pcb == NULL)
-			continue;
-		if ((ci->ci_flags & CPUF_PRESENT) == 0)
-			continue;
-		x86_64_init_pcb_tss_ldt(ci);
-	}
-}
-
-void
 cpu_start_secondary(struct cpu_info *ci)
 {
 	int i;
@@ -635,7 +696,7 @@ cpu_start_secondary(struct cpu_info *ci)
 		atomic_setbits_int(&ci->ci_flags, CPUF_IDENTIFY);
 
 		/* wait for it to identify */
-		for (i = 100000; (ci->ci_flags & CPUF_IDENTIFY) && i > 0; i--)
+		for (i = 2000000; (ci->ci_flags & CPUF_IDENTIFY) && i > 0; i--)
 			delay(10);
 
 		if (ci->ci_flags & CPUF_IDENTIFY)
@@ -693,6 +754,7 @@ cpu_hatch(void *v)
 
 	lapic_enable();
 	lapic_startclock();
+	cpu_ucode_apply(ci);
 
 	if ((ci->ci_flags & CPUF_IDENTIFIED) == 0) {
 		/*
@@ -724,7 +786,6 @@ cpu_hatch(void *v)
 		panic("%s: already running!?", ci->ci_dev->dv_xname);
 #endif
 
-	lcr0(ci->ci_idle_pcb->pcb_cr0);
 	cpu_init_idt();
 	lapic_set_lvt();
 	gdt_init_cpu(ci);
@@ -743,7 +804,7 @@ cpu_hatch(void *v)
 
 	s = splhigh();
 	lcr8(0);
-	enable_intr();
+	intr_enable();
 
 	nanouptime(&ci->ci_schedstate.spc_runtime);
 	splx(s);
@@ -766,15 +827,14 @@ cpu_debug_dump(void)
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 
-	db_printf("addr		dev	id	flags	ipis	curproc		fpcurproc\n");
+	db_printf("addr		dev	id	flags	ipis	curproc\n");
 	CPU_INFO_FOREACH(cii, ci) {
-		db_printf("%p	%s	%u	%x	%x	%10p	%10p\n",
+		db_printf("%p	%s	%u	%x	%x	%10p\n",
 		    ci,
 		    ci->ci_dev == NULL ? "BOOT" : ci->ci_dev->dv_xname,
 		    ci->ci_cpuid,
 		    ci->ci_flags, ci->ci_ipis,
-		    ci->ci_curproc,
-		    ci->ci_fpcurproc);
+		    ci->ci_curproc);
 	}
 }
 #endif
@@ -840,7 +900,7 @@ mp_cpu_start_cleanup(struct cpu_info *ci)
 #endif	/* MULTIPROCESSOR */
 
 typedef void (vector)(void);
-extern vector Xsyscall, Xsyscall32;
+extern vector Xsyscall_meltdown, Xsyscall, Xsyscall32;
 
 void
 cpu_init_msrs(struct cpu_info *ci)
@@ -848,13 +908,16 @@ cpu_init_msrs(struct cpu_info *ci)
 	wrmsr(MSR_STAR,
 	    ((uint64_t)GSEL(GCODE_SEL, SEL_KPL) << 32) |
 	    ((uint64_t)GSEL(GUCODE32_SEL, SEL_UPL) << 48));
-	wrmsr(MSR_LSTAR, (uint64_t)Xsyscall);
+	wrmsr(MSR_LSTAR, cpu_meltdown ? (uint64_t)Xsyscall_meltdown :
+	    (uint64_t)Xsyscall);
 	wrmsr(MSR_CSTAR, (uint64_t)Xsyscall32);
-	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D);
+	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D|PSL_AC);
 
 	wrmsr(MSR_FSBASE, 0);
 	wrmsr(MSR_GSBASE, (u_int64_t)ci);
 	wrmsr(MSR_KERNELGSBASE, 0);
+
+	patinit(ci);
 }
 
 void
@@ -863,14 +926,14 @@ patinit(struct cpu_info *ci)
 	extern int	pmap_pg_wc;
 	u_int64_t	reg;
 
-	if ((ci->ci_feature_flags & CPUID_PAT) == 0)
+	if ((cpu_feature & CPUID_PAT) == 0)
 		return;
 	/*
 	 * Set up PAT bits.
 	 * The default pat table is the following:
-	 * WB, WT, UC- UC, WB, WT, UC-, UC
+	 * WB, WT, UC-, UC, WB, WT, UC-, UC
 	 * We change it to:
-	 * WB, WC, UC-, UC, WB, WC, UC-, UC.
+	 * WB, WC, UC-, UC, WB, WC, UC-, UC
 	 * i.e change the WT bit to be WC.
 	 */
 	reg = PATENTRY(0, PAT_WB) | PATENTRY(1, PAT_WC) |
@@ -911,8 +974,8 @@ rdrand(void *v)
 
 	if (valid)
 		t.u64 ^= r.u64;
-	add_true_randomness(t.u32[0]);
-	add_true_randomness(t.u32[1]);
+	enqueue_randomness(t.u32[0]);
+	enqueue_randomness(t.u32[1]);
 
 	if (tmo)
 		timeout_add_msec(tmo, 10);
@@ -931,4 +994,63 @@ cpu_activate(struct device *self, int act)
 	}
 
 	return (0);
+}
+
+/*
+ * cpu_enter_pages
+ *
+ * Requests mapping of various special pages required in the Intel Meltdown
+ * case (to be entered into the U-K page table):
+ *
+ *  1 tss+gdt page for each CPU
+ *  1 trampoline stack page for each CPU
+ *
+ * The cpu_info_full struct for each CPU straddles these pages. The offset into
+ * 'cif' is calculated below, for each page. For more information, consult
+ * the definition of struct cpu_info_full in cpu_full.h
+ *
+ * On CPUs unaffected by Meltdown, this function still configures 'cif' but
+ * the calls to pmap_enter_special become no-ops.
+ *
+ * Parameters:
+ *  cif : the cpu_info_full structure describing a CPU whose pages are to be
+ *    entered into the special meltdown U-K page table.
+ */ 
+void
+cpu_enter_pages(struct cpu_info_full *cif)
+{
+	vaddr_t va;
+	paddr_t pa;
+
+	/* The TSS+GDT need to be readable */
+	va = (vaddr_t)cif;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ);
+	DPRINTF("%s: entered tss+gdt page at va 0x%llx pa 0x%llx\n", __func__,
+	   (uint64_t)va, (uint64_t)pa);
+
+	/* The trampoline stack page needs to be read/write */
+	va = (vaddr_t)&cif->cif_tramp_stack;
+	pmap_extract(pmap_kernel(), va, &pa);
+	pmap_enter_special(va, pa, PROT_READ | PROT_WRITE);
+	DPRINTF("%s: entered t.stack page at va 0x%llx pa 0x%llx\n", __func__,
+	   (uint64_t)va, (uint64_t)pa);
+
+	cif->cif_tss.tss_rsp0 = va + sizeof(cif->cif_tramp_stack) - 16;
+	DPRINTF("%s: cif_tss.tss_rsp0 = 0x%llx\n" ,__func__,
+	    (uint64_t)cif->cif_tss.tss_rsp0);
+	cif->cif_cpu.ci_intr_rsp = cif->cif_tss.tss_rsp0 -
+	    sizeof(struct iretq_frame);
+
+#define	SETUP_IST_SPECIAL_STACK(ist, cif, member) do {			\
+	(cif)->cif_tss.tss_ist[(ist)] = (vaddr_t)&(cif)->member +	\
+	    sizeof((cif)->member) - 16;					\
+	(cif)->member[nitems((cif)->member) - 2] = (int64_t)&(cif)->cif_cpu; \
+} while (0)
+
+	SETUP_IST_SPECIAL_STACK(0, cif, cif_dblflt_stack);
+	SETUP_IST_SPECIAL_STACK(1, cif, cif_nmi_stack);
+
+	/* an empty iomap, by setting its offset to the TSS limit */
+	cif->cif_tss.tss_iobase = sizeof(cif->cif_tss);
 }
