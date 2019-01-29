@@ -11,6 +11,12 @@ D/libLLVMAArch64Desc////
 D/libLLVMAArch64Disassembler////
 D/libLLVMAArch64Info////
 D/libLLVMAArch64Utils////
+D/libLLVMAMDGPUAsmParser////
+D/libLLVMAMDGPUAsmPrinter////
+D/libLLVMAMDGPUDesc////
+D/libLLVMAMDGPUDisassembler////
+D/libLLVMAMDGPUInfo////
+D/libLLVMAMDGPUUtils////
 D/libLLVMARMAsmParser////
 D/libLLVMARMAsmPrinter////
 D/libLLVMARMCodeGen////

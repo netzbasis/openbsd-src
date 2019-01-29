@@ -38,7 +38,7 @@
 /imxrtc.c/1.1/Sat Jun 16 14:11:35 2018//
 /imxspi.c/1.1/Thu Jul 26 10:59:07 2018//
 /imxsrc.c/1.1/Fri Jan 11 08:02:19 2019//
-/imxuart.c/1.4/Mon Aug  6 10:52:30 2018//
+/imxuart.c/1.5/Mon Jan 28 10:29:35 2019//
 /imxuartreg.h/1.1/Thu Mar 29 20:33:53 2018//
 /imxuartvar.h/1.1/Thu Mar 29 20:33:53 2018//
 /mvclock.c/1.2/Tue Jul 24 21:52:38 2018//

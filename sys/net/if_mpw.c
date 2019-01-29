@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mpw.c,v 1.28 2019/01/27 02:40:47 dlg Exp $ */
+/*	$OpenBSD: if_mpw.c,v 1.30 2019/01/29 03:12:12 dlg Exp $ */
 
 /*
  * Copyright (c) 2015 Rafael Zalamena <rzalamena@openbsd.org>
@@ -339,10 +339,13 @@ mpw_start(struct ifnet *ifp)
 {
 	struct mpw_softc *sc = ifp->if_softc;
 	struct rtentry *rt;
-	struct ifnet *p;
+	struct ifnet *ifp0;
 	struct mbuf *m, *m0;
 	struct shim_hdr *shim;
-	struct sockaddr_storage ss;
+	struct sockaddr_mpls smpls = {
+		.smpls_len = sizeof(smpls),
+		.smpls_family = AF_MPLS,
+	};
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
 	    sc->sc_rshim.shim_label == 0 ||
@@ -357,18 +360,11 @@ mpw_start(struct ifnet *ifp)
 		goto rtfree;
 	}
 
-	p = if_get(rt->rt_ifidx);
-	if (p == NULL) {
+	ifp0 = if_get(rt->rt_ifidx);
+	if (ifp0 == NULL) {
 		IFQ_PURGE(&ifp->if_snd);
 		goto rtfree;
 	}
-
-	/*
-	 * XXX: lie about being MPLS, so mpls_output() get the TTL from
-	 * the right place.
-	 */
-	memcpy(&ss, &sc->sc_nexthop, sizeof(sc->sc_nexthop));
-	ss.ss_family = AF_MPLS;
 
 	while ((m = ifq_dequeue(&ifp->if_snd)) != NULL) {
 #if NBPFILTER > 0
@@ -406,10 +402,10 @@ mpw_start(struct ifnet *ifp)
 
 		m0->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 
-		mpls_output(p, m0, sstosa(&ss), rt);
+		mpls_output(ifp0, m0, (struct sockaddr *)&smpls, rt);
 	}
 
-	if_put(p);
+	if_put(ifp0);
 rtfree:
 	rtfree(rt);
 }
