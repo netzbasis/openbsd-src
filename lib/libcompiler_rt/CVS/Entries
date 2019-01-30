@@ -1,5 +1,5 @@
-/CMakeLists.txt/1.3/Tue Sep 18 20:21:40 2018//
-/LICENSE.TXT/1.1.1.1/Mon Sep  5 11:36:10 2016//
+/CMakeLists.txt/1.4/Tue Jan 29 22:35:43 2019//
+/LICENSE.TXT/1.2/Tue Jan 29 22:35:43 2019//
 /Makefile/1.14/Tue Dec 25 09:20:49 2018//
 /README.txt/1.2/Tue Dec 26 20:59:44 2017//
 /absvdi2.c/1.1.1.1/Mon Sep  5 11:36:11 2016//
@@ -26,8 +26,8 @@
 /atomic_thread_fence.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
 /bswapdi2.c/1.1/Tue Dec 26 20:59:44 2017//
 /bswapsi2.c/1.1/Tue Dec 26 20:59:44 2017//
-/clear_cache.c/1.3/Tue Sep 18 20:21:40 2018//
-/clzdi2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
+/clear_cache.c/1.4/Tue Jan 29 22:35:43 2019//
+/clzdi2.c/1.2/Tue Jan 29 22:35:43 2019//
 /clzsi2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
 /clzti2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
 /cmpdi2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
@@ -35,8 +35,8 @@
 /comparedf2.c/1.3/Tue Sep 18 20:21:40 2018//
 /comparesf2.c/1.3/Tue Sep 18 20:21:40 2018//
 /comparetf2.c/1.1.1.1/Mon Sep  5 11:36:13 2016//
-/cpu_model.c/1.3/Tue Sep 18 20:21:40 2018//
-/ctzdi2.c/1.1.1.1/Mon Sep  5 11:36:13 2016//
+/cpu_model.c/1.4/Tue Jan 29 22:35:43 2019//
+/ctzdi2.c/1.2/Tue Jan 29 22:35:43 2019//
 /ctzsi2.c/1.1.1.1/Mon Sep  5 11:36:13 2016//
 /ctzti2.c/1.1.1.1/Mon Sep  5 11:36:13 2016//
 /divdc3.c/1.1.1.1/Mon Sep  5 11:36:13 2016//
@@ -51,7 +51,7 @@
 /divtf3.c/1.1.1.1/Mon Sep  5 11:36:14 2016//
 /divti3.c/1.1.1.1/Mon Sep  5 11:36:14 2016//
 /divxc3.c/1.1.1.1/Mon Sep  5 11:36:14 2016//
-/emutls.c/1.3/Tue Sep 18 20:21:40 2018//
+/emutls.c/1.4/Tue Jan 29 22:35:43 2019//
 /enable_execute_stack.c/1.2/Tue Sep 18 20:21:40 2018//
 /eprintf.c/1.1.1.1/Mon Sep  5 11:36:14 2016//
 /extenddftf2.c/1.1.1.1/Mon Sep  5 11:36:14 2016//
@@ -119,7 +119,7 @@
 /int_endianness.h/1.2/Tue Sep 18 20:21:40 2018//
 /int_lib.h/1.3/Tue Sep 18 20:21:40 2018//
 /int_math.h/1.1.1.1/Mon Sep  5 11:36:17 2016//
-/int_types.h/1.2/Tue Dec 26 20:59:45 2017//
+/int_types.h/1.3/Tue Jan 29 22:35:43 2019//
 /int_util.c/1.2/Tue Dec 26 20:59:45 2017//
 /int_util.h/1.1.1.1/Mon Sep  5 11:36:17 2016//
 /lshrdi3.c/1.3/Tue Sep 18 20:21:40 2018//
@@ -190,4 +190,5 @@ D/arm////
 D/i386////
 D/macho_embedded////
 D/ppc////
+D/riscv////
 D/x86_64////

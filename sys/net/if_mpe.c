@@ -1,4 +1,4 @@
-/* $OpenBSD: if_mpe.c,v 1.74 2019/01/28 06:50:11 dlg Exp $ */
+/* $OpenBSD: if_mpe.c,v 1.76 2019/01/30 01:09:36 dlg Exp $ */
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@spootnik.org>
@@ -56,7 +56,6 @@
 struct mpe_softc {
 	struct ifnet		sc_if;		/* the interface */
 	struct ifaddr		sc_ifa;
-	int			sc_unit;
 	struct sockaddr_mpls	sc_smpls;
 	LIST_ENTRY(mpe_softc)	sc_list;
 };
@@ -98,7 +97,6 @@ mpe_clone_create(struct if_clone *ifc, int unit)
 	struct ifnet		*ifp;
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK|M_ZERO);
-	sc->sc_unit = unit;
 	ifp = &sc->sc_if;
 	snprintf(ifp->if_xname, sizeof ifp->if_xname, "mpe%d", unit);
 	ifp->if_flags = IFF_POINTOPOINT;
@@ -306,9 +304,7 @@ mpe_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 	case SIOCGETLABEL:
 		ifm = ifp->if_softc;
-		shim.shim_label =
-		    ((ntohl(ifm->sc_smpls.smpls_label & MPLS_LABEL_MASK)) >>
-		    MPLS_LABEL_OFFSET);
+		shim.shim_label = MPLS_SHIM2LABEL(ifm->sc_smpls.smpls_label);
 		error = copyout(&shim, ifr->ifr_data, sizeof(shim));
 		break;
 	case SIOCSETLABEL:
@@ -320,7 +316,7 @@ mpe_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = EINVAL;
 			break;
 		}
-		shim.shim_label = htonl(shim.shim_label << MPLS_LABEL_OFFSET);
+		shim.shim_label = MPLS_LABEL2SHIM(shim.shim_label);
 		if (ifm->sc_smpls.smpls_label == shim.shim_label)
 			break;
 		LIST_FOREACH(ifm, &mpeif_list, sc_list) {

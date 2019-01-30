@@ -1,4 +1,4 @@
-/*	$OpenBSD: uw_parse.y,v 1.3 2019/01/27 12:40:54 florian Exp $	*/
+/*	$OpenBSD: uw_parse.y,v 1.6 2019/01/29 21:34:37 benno Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -194,7 +194,7 @@ forwarder_block		: '{' optnl forwarderopts_l '}'
 			| forwarderoptsl
 			;
 
-forwarderopts_l		: forwarderopts_l forwarderoptsl nl
+forwarderopts_l		: forwarderopts_l forwarderoptsl optnl
 			| forwarderoptsl optnl
 
 forwarderoptsl		: STRING {
@@ -204,8 +204,12 @@ forwarderoptsl		: STRING {
 
 				if(strlcpy(unwind_forwarder->name, $1,
 				    sizeof(unwind_forwarder->name)) >=
-				    sizeof(unwind_forwarder->name))
-					err(1, "%s too long", $1);
+				    sizeof(unwind_forwarder->name)) {
+					free(unwind_forwarder);
+					yyerror("forwarder %s too long", $1);
+					free($1);
+					YYERROR;
+				}
 
 				SIMPLEQ_INSERT_TAIL(
 				    &conf->unwind_forwarder_list,
@@ -216,6 +220,7 @@ forwarderoptsl		: STRING {
 
 				if ($3 <= 0 || $3 > (int)USHRT_MAX) {
 					yyerror("invalid port: %lld", $3);
+					free($1);
 					YYERROR;
 				}
 
@@ -227,8 +232,12 @@ forwarderoptsl		: STRING {
 				    sizeof(unwind_forwarder->name), "%s@%d", $1,
 				    (int)$3);
 				if (ret == -1 || (size_t)ret >=
-				    sizeof(unwind_forwarder->name))
-					err(1, "%s too long", $1);
+				    sizeof(unwind_forwarder->name)) {
+					free(unwind_forwarder);
+					yyerror("forwarder %s too long", $1);
+					free($1);
+					YYERROR;
+				}
 
 				SIMPLEQ_INSERT_TAIL(
 				    &conf->unwind_forwarder_list,
@@ -241,8 +250,12 @@ forwarderoptsl		: STRING {
 
 				if(strlcpy(unwind_forwarder->name, $1,
 				    sizeof(unwind_forwarder->name)) >=
-				    sizeof(unwind_forwarder->name))
-					err(1, "%s too long", $1);
+				    sizeof(unwind_forwarder->name)) {
+					free(unwind_forwarder);
+					yyerror("forwarder %s too long", $1);
+					free($1);
+					YYERROR;
+				}
 
 				SIMPLEQ_INSERT_TAIL(
 				    &conf->unwind_dot_forwarder_list,
@@ -253,6 +266,7 @@ forwarderoptsl		: STRING {
 
 				if ($3 <= 0 || $3 > (int)USHRT_MAX) {
 					yyerror("invalid port: %lld", $3);
+					free($1);
 					YYERROR;
 				}
 
@@ -264,8 +278,12 @@ forwarderoptsl		: STRING {
 				    sizeof(unwind_forwarder->name), "%s@%d", $1,
 				    (int)$3);
 				if (ret == -1 || (size_t)ret >=
-				    sizeof(unwind_forwarder->name))
-					err(1, "%s too long", $1);
+				    sizeof(unwind_forwarder->name)) {
+					free(unwind_forwarder);
+					yyerror("forwarder %s too long", $1);
+					free($1);
+					YYERROR;
+				}
 
 				SIMPLEQ_INSERT_TAIL(
 				    &conf->unwind_dot_forwarder_list,
@@ -622,7 +640,6 @@ pushfile(const char *name, int secret)
 		return (NULL);
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		log_warn("%s", nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -673,6 +690,9 @@ parse_config(char *filename)
 
 	file = pushfile(filename, 0);
 	if (file == NULL) {
+		if (errno == ENOENT)	/* no config file is fine */
+			return (conf);
+		log_warn("%s", filename);
 		free(conf);
 		return (NULL);
 	}

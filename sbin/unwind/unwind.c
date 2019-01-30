@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwind.c,v 1.5 2019/01/27 12:40:54 florian Exp $	*/
+/*	$OpenBSD: unwind.c,v 1.8 2019/01/29 20:03:49 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -77,8 +77,6 @@ uint32_t cmd_opts;
 void
 main_sig_handler(int sig, short event, void *arg)
 {
-	struct unwind_conf	empty_conf;
-
 	/*
 	 * Normal signal handler rules don't apply because libevent
 	 * decouples for us.
@@ -87,9 +85,7 @@ main_sig_handler(int sig, short event, void *arg)
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		memset(&empty_conf, 0, sizeof(empty_conf));
-		(void)main_imsg_send_config(&empty_conf);
-		(void)main_imsg_compose_frontend(IMSG_SHUTDOWN, 0, NULL, 0);
+		main_shutdown();
 		break;
 	case SIGHUP:
 		if (main_reload() == -1)
@@ -175,14 +171,8 @@ main(int argc, char *argv[])
 	else if (frontend_flag)
 		frontend(debug, cmd_opts & (OPT_VERBOSE | OPT_VERBOSE2));
 
-	if (access(conffile, R_OK) == -1 && errno == ENOENT) {
-		main_conf = config_new_empty();
-	} else {
-		/* parse config file */
-		if ((main_conf = parse_config(conffile)) == NULL) {
-			exit(1);
-		}
-	}
+	if ((main_conf = parse_config(conffile)) == NULL)
+		exit(1);
 
 	if (cmd_opts & OPT_NOACTION) {
 		if (cmd_opts & OPT_VERBOSE)
@@ -406,14 +396,18 @@ main_dispatch_frontend(int fd, short event, void *bula)
 				log_warnx("configuration reloaded");
 			break;
 		case IMSG_CTL_LOG_VERBOSE:
-			/* Already checked by frontend. */
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(verbose))
+				fatalx("%s: IMSG_CTL_LOG_VERBOSE wrong length: "
+				    "%d", __func__, imsg.hdr.len);
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
 			break;
-		case IMSG_SHUTDOWN:
-			shut = 1;
-			break;
 		case IMSG_OPEN_DHCP_LEASE:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(rtm_index))
+				fatalx("%s: IMSG_OPEN_DHCP_LEASE wrong length: "
+				    "%d", __func__, imsg.hdr.len);
 			memcpy(&rtm_index, imsg.data, sizeof(rtm_index));
 			open_dhcp_lease(rtm_index);
 			break;
