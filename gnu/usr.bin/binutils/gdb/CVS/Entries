@@ -49,7 +49,7 @@
 /amd64-linux-tdep.c/1.1.1.2/Mon Dec 27 13:06:16 2004//
 /amd64-nat.c/1.1.1.2/Mon Dec 27 13:09:38 2004//
 /amd64-nat.h/1.1.1.2/Mon Dec 27 13:07:56 2004//
-/amd64-tdep.c/1.1.1.2/Mon Dec 27 13:05:33 2004//
+/amd64-tdep.c/1.2/Fri Feb  1 03:35:02 2019//
 /amd64-tdep.h/1.1.1.2/Mon Dec 27 13:06:49 2004//
 /amd64bsd-nat.c/1.2/Fri Apr  6 20:33:44 2012//
 /amd64fbsd-nat.c/1.1.1.2/Mon Dec 27 13:05:48 2004//
@@ -57,7 +57,7 @@
 /amd64nbsd-nat.c/1.1.1.2/Mon Dec 27 13:08:56 2004//
 /amd64nbsd-tdep.c/1.1.1.2/Mon Dec 27 13:07:16 2004//
 /amd64obsd-nat.c/1.6/Fri Apr 13 17:43:25 2012//
-/amd64obsd-tdep.c/1.11/Tue Jul 10 08:57:44 2018//
+/amd64obsd-tdep.c/1.12/Fri Feb  1 03:35:02 2019//
 /annotate.c/1.4/Mon Dec 27 14:00:32 2004//
 /annotate.h/1.4/Mon Dec 27 14:00:32 2004//
 /arch-utils.c/1.1.1.2/Mon Dec 27 13:05:10 2004//
