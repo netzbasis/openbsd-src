@@ -164,8 +164,8 @@
 /efi-app-ia32.c/1.1.1.1/Sun Apr 24 20:14:41 2011//
 /efi-app-ia64.c/1.1.1.1/Sun Apr 24 20:14:41 2011//
 /efi-app-x86_64.c/1.1/Mon Apr  6 18:30:22 2015//
-/elf-bfd.h/1.7/Mon Dec  3 02:59:51 2018//
-/elf-eh-frame.c/1.1.1.1/Sun Apr 24 20:14:41 2011//
+/elf-bfd.h/1.8/Sun Feb  3 12:38:39 2019//
+/elf-eh-frame.c/1.2/Sun Feb  3 12:38:39 2019//
 /elf-hppa.h/1.1.1.1/Sun Apr 24 20:14:41 2011//
 /elf-m10200.c/1.1.1.1/Sun Apr 24 20:14:41 2011//
 /elf-m10300.c/1.1.1.1/Sun Apr 24 20:14:41 2011//
