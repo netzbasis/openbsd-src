@@ -88,8 +88,8 @@
 /getttyent.c/1.15/Sun Sep 13 11:47:54 2015//
 /getusershell.3/1.14/Wed Jun  5 03:39:22 2013//
 /getusershell.c/1.17/Tue Dec  8 16:28:26 2015//
-/glob.3/1.35/Thu Jul  6 15:42:04 2017//
-/glob.c/1.47/Mon May  8 14:53:27 2017//
+/glob.3/1.36/Mon Feb  4 16:45:40 2019//
+/glob.c/1.48/Mon Feb  4 16:45:40 2019//
 /initgroups.3/1.16/Thu Feb  5 02:33:09 2015//
 /initgroups.c/1.10/Sat Sep 12 14:56:50 2015//
 /isalnum.3/1.12/Tue Sep  5 03:16:13 2017//

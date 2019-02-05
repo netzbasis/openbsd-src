@@ -23,7 +23,7 @@
 /genrsa.c/1.12/Sun Dec  9 19:30:34 2018//
 /nseq.c/1.8/Wed Feb  7 05:47:55 2018//
 /ocsp.c/1.15/Wed Feb  7 05:49:36 2018//
-/openssl.1/1.99/Mon Jan 28 21:17:25 2019//
+/openssl.1/1.100/Mon Feb  4 11:21:05 2019//
 /openssl.c/1.28/Sun Nov 11 07:10:57 2018//
 /passwd.c/1.9/Wed Feb  7 05:47:55 2018//
 /pkcs12.c/1.10/Wed Feb  7 05:47:55 2018//
@@ -37,7 +37,7 @@
 /rand.c/1.13/Wed Feb  7 05:47:55 2018//
 /req.c/1.15/Wed Feb  7 05:47:55 2018//
 /rsa.c/1.10/Wed Feb  7 05:47:55 2018//
-/rsautl.c/1.16/Sun Feb  3 15:40:32 2019//
+/rsautl.c/1.17/Mon Feb  4 11:21:05 2019//
 /s_apps.h/1.5/Wed Apr 25 07:12:33 2018//
 /s_cb.c/1.11/Tue Nov  6 05:45:50 2018//
 /s_client.c/1.37/Wed Nov 14 06:24:21 2018//
