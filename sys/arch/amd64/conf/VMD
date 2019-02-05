@@ -32,6 +32,8 @@ mpbios0		at bios0
 
 option		PCIVERBOSE
 
+pchb*	at pci?				# PCI-Host bridges
+
 isadma0	at isa?
 
 option	WSDISPLAY_COMPAT_USL		# VT handling
