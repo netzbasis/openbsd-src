@@ -15,10 +15,7 @@ maxusers	80			# estimated number of users
 
 option		USER_PCICONF	# user-space PCI configuration
 
-option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
-
-option		NTFS		# NTFS support
 
 config		bsd	swap generic
 
@@ -28,56 +25,21 @@ bios0	at mainbus?
 cpu0	at mainbus?
 ioapic*	at mainbus?
 isa0	at mainbus0
-isa0	at pcib?
-isa0	at amdpcib?
-isa0	at tcpcib?
 pci*	at mainbus0
 pvbus0	at mainbus0
 
 mpbios0		at bios0
 
 option		PCIVERBOSE
-option		USBVERBOSE
-
-pchb*	at pci?			# PCI-Host bridges
-aapic*	at pci?			# AMD 8131 IO apic
-ppb*	at pci?			# PCI-PCI bridges
-pci*	at ppb?
-pci*	at pchb?
-pcib*	at pci?			# PCI-ISA bridge
-amdpcib* at pci?		# AMD 8111 LPC bridge
-tcpcib*	at pci?			# Intel Atom E600 LPC bridge
-kate*	at pci?			# AMD K8 temperature sensor
-km*	at pci?			# AMD K10 temperature sensor
-amas*	at pci? disable		# AMD memory configuration
-pchtemp* at pci?		# Intel C610 termperature sensor
-ccp*	at pci?			# AMD Cryptographic Co-processor
 
 isadma0	at isa?
 
 option	WSDISPLAY_COMPAT_USL		# VT handling
-option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-
-pckbc0		at isa? flags 0x00	# PC keyboard controller
-pckbd*		at pckbc?		# PC keyboard
-pms*		at pckbc?		# PS/2 mouse for wsmouse
-vga0		at isa?
-option		X86EMU			# to POST video cards
-vga*		at pci?
-wsdisplay0	at vga? console 1
-wskbd*		at pckbd? mux 1
-wsmouse*	at pms? mux 0
-
-pcppi0		at isa?
 
 com0	at isa? port 0x3f8 irq 4	# standard PC serial ports
 com1	at isa? port 0x2f8 irq 3
 com2	at isa? port 0x3e8 irq 5
-com3	at isa? disable port 0x2e8 irq 9 # (conflicts with some video cards)
-
-efifb0		at mainbus?		# EFI Framebuffer
-wsdisplay0	at efifb? console ?
 
 scsibus* at scsi?
 sd*	at scsibus?			# SCSI disk drives
@@ -90,26 +52,9 @@ uk*	at scsibus?			# unknown SCSI
 
 mpath0	at root
 
-# IDE controllers
-pciide* at pci? flags 0x0000
-
-wdc0	at isa? disable port 0x1f0 irq 14 flags 0x00
-wdc1	at isa? disable port 0x170 irq 15 flags 0x00
-
-# IDE hard drives
-wd*	at wdc? flags 0x0000
-wd*	at pciide? flags 0x0000
-
-# ATAPI<->SCSI
-atapiscsi* at wdc?
-atapiscsi* at pciide?
-
 pseudo-device	pctr		1
 pseudo-device	nvram		1
 pseudo-device	hotplug		1	# devices hot plugging
-
-# mouse & keyboard multiplexor pseudo-devices
-pseudo-device	wsmux		2
 
 # Virtio devices
 virtio*		at pci?		# Virtio PCI device
