@@ -15,7 +15,6 @@ maxusers	80			# estimated number of users
 
 option		USER_PCICONF	# user-space PCI configuration
 
-#option		VM86		# Virtual 8086 emulation
 option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
 
@@ -350,22 +349,6 @@ wsdisplay0	at vga? console 1
 wskbd*		at pckbd? mux 1
 wsmouse*	at pms? mux 0
 
-#mmuagp*	at pchb?	# amd64 mmu agp.
-#agp*		at mmuagp?
-
-inteldrm*	at pci? 	# Intel i915, i945 DRM driver
-intagp*		at inteldrm?
-agp*		at intagp?
-drm0		at inteldrm? console 1
-drm*		at inteldrm?
-wsdisplay0	at inteldrm? console 1
-wsdisplay*	at inteldrm? mux -1
-radeondrm*	at pci? 	# ATI Radeon DRM driver
-drm0		at radeondrm? console 1
-drm*		at radeondrm?
-wsdisplay0	at radeondrm? console 1
-wsdisplay*	at radeondrm? mux -1
-
 pcppi0		at isa?
 
 com0	at isa? port 0x3f8 irq 4	# standard PC serial ports
@@ -635,20 +618,6 @@ audio*	at yds?
 audio*	at emu?
 
 bktr0	at pci?
-
-# FM-Radio devices
-#gtp*	at pci?			# Gemtek/Guillemot Radio PCI Radio Card
-
-# FM-Radio support
-#radio*	at gtp?
-radio*	at bktr?
-
-#wdt0	at pci?			# Ind Computer Source PCI-WDT50x driver
-
-# crypto support
-hifn*	at pci?			# Hi/fn 7751 crypto card
-ubsec*	at pci?			# Bluesteel Networks 5xxx crypto card
-safe*	at pci?			# SafeNet SafeXcel 1141/1741
 
 xspd0	at pci?			# XenSource Platform Device
 
