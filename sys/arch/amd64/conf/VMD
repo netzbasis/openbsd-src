@@ -19,7 +19,6 @@ option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
 
 option		NTFS		# NTFS support
-option		HIBERNATE	# Hibernate support
 
 config		bsd	swap generic
 
@@ -34,40 +33,6 @@ isa0	at amdpcib?
 isa0	at tcpcib?
 pci*	at mainbus0
 pvbus0	at mainbus0
-
-acpi0		at bios0
-acpitimer*	at acpi?
-acpihpet*	at acpi?
-acpiac*		at acpi?
-acpibat*	at acpi?
-acpibtn*	at acpi?
-acpicpu*	at acpi?
-acpicmos*	at acpi?
-acpidock*	at acpi?
-acpiec*		at acpi?
-acpipci*	at acpi?
-acpiprt*	at acpi?
-acpisbs*	at acpi?
-acpitz*		at acpi?
-acpimadt0	at acpi?
-acpimcfg*	at acpi?
-acpiasus*	at acpi?
-acpisony*	at acpi?
-acpithinkpad*	at acpi?
-acpitoshiba*	at acpi?
-acpivideo*	at acpi?
-acpivout*	at acpivideo?
-acpipwrres*	at acpi?
-aibs*		at acpi?
-bytgpio*	at acpi?
-chvgpio*	at acpi?
-sdhc*		at acpi?
-acpicbkbd*	at acpi?
-acpials*	at acpi?
-tpm*		at acpi?
-acpihve*	at acpi?
-acpisurface*	at acpi?
-ipmi0		at acpi? disable
 
 mpbios0		at bios0
 
