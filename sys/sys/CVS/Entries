@@ -52,7 +52,7 @@
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.14/Wed Jan 30 17:04:04 2019//
 /malloc.h/1.118/Thu Feb  7 15:11:38 2019//
-/mbuf.h/1.241/Fri Dec  7 08:37:24 2018//
+/mbuf.h/1.242/Mon Feb 11 00:25:33 2019//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.33/Fri Jan 11 18:46:30 2019//
 /mount.h/1.143/Fri Dec  7 16:21:19 2018//
@@ -68,7 +68,7 @@
 /pipe.h/1.16/Mon Nov 12 16:33:08 2018//
 /pledge.h/1.39/Mon Jan 21 20:09:37 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
-/pool.h/1.74/Sun Aug 13 20:26:33 2017//
+/pool.h/1.76/Sun Feb 10 22:45:58 2019//
 /proc.h/1.263/Sun Jan  6 12:59:45 2019//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//

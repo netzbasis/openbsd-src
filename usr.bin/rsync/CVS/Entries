@@ -1,0 +1,27 @@
+/Makefile/1.2/Sun Feb 10 23:20:45 2019//
+/TODO.md/1.2/Sun Feb 10 23:24:14 2019//
+/blocks.c/1.2/Sun Feb 10 23:24:14 2019//
+/child.c/1.2/Sun Feb 10 23:24:14 2019//
+/client.c/1.2/Sun Feb 10 23:24:14 2019//
+/downloader.c/1.2/Sun Feb 10 23:24:14 2019//
+/extern.h/1.2/Sun Feb 10 23:24:14 2019//
+/fargs.c/1.2/Sun Feb 10 23:24:14 2019//
+/flist.c/1.3/Sun Feb 10 23:56:19 2019//
+/hash.c/1.2/Sun Feb 10 23:24:14 2019//
+/io.c/1.2/Sun Feb 10 23:24:14 2019//
+/log.c/1.2/Sun Feb 10 23:24:14 2019//
+/main.c/1.3/Sun Feb 10 23:43:31 2019//
+/md4.c/1.1/Sun Feb 10 23:18:28 2019//
+/md4.h/1.1/Sun Feb 10 23:18:28 2019//
+/mkpath.c/1.2/Sun Feb 10 23:24:14 2019//
+/receiver.c/1.3/Sun Feb 10 23:43:31 2019//
+/rsync.1/1.2/Sun Feb 10 23:24:14 2019//
+/rsync.5/1.2/Sun Feb 10 23:24:14 2019//
+/rsyncd.5/1.2/Sun Feb 10 23:24:14 2019//
+/sender.c/1.3/Sun Feb 10 23:43:31 2019//
+/server.c/1.2/Sun Feb 10 23:24:14 2019//
+/session.c/1.2/Sun Feb 10 23:24:14 2019//
+/socket.c/1.3/Sun Feb 10 23:43:31 2019//
+/symlinks.c/1.2/Sun Feb 10 23:24:14 2019//
+/uploader.c/1.2/Sun Feb 10 23:24:14 2019//
+D
