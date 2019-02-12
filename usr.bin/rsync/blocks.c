@@ -1,4 +1,4 @@
-/*	$Id: blocks.c,v 1.2 2019/02/10 23:24:14 benno Exp $ */
+/*	$Id: blocks.c,v 1.5 2019/02/11 22:22:52 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -45,17 +45,17 @@ blk_flush(struct sess *sess, int fd,
 	while (i < size) {
 		sz = MAX_CHUNK < (size - i) ?
 			MAX_CHUNK : (size - i);
-		if ( ! io_write_int(sess, fd, sz)) {
+		if (!io_write_int(sess, fd, sz)) {
 			ERRX1(sess, "io_write_int");
 			return 0;
-		} else if ( ! io_write_buf(sess, fd, b + i, sz)) {
+		} else if (!io_write_buf(sess, fd, b + i, sz)) {
 			ERRX1(sess, "io_write_buf");
 			return 0;
 		}
 		i += sz;
 	}
 
-	if ( ! io_write_int(sess, fd, token)) {
+	if (!io_write_int(sess, fd, token)) {
 		ERRX1(sess, "io_write_int");
 		return 0;
 	}
@@ -101,8 +101,7 @@ blk_find(struct sess *sess, const void *buf, off_t size, off_t offs,
 	    (size_t)osz == blks->blks[hint].len) {
 		hash_slow(buf + offs, (size_t)osz, md, sess);
 		have_md = 1;
-		if (0 == memcmp(md,
-		    blks->blks[hint].chksum_long, blks->csum)) {
+		if (memcmp(md, blks->blks[hint].chksum_long, blks->csum) == 0) {
 			LOG4(sess, "%s: found matching hinted match: "
 				"position %jd, block %zu "
 				"(position %jd, size %zu)", path,
@@ -133,7 +132,7 @@ blk_find(struct sess *sess, const void *buf, off_t size, off_t offs,
 
 		/* Compute slow hash on demand. */
 
-		if (0 == have_md) {
+		if (have_md == 0) {
 			hash_slow(buf + offs, (size_t)osz, md, sess);
 			have_md = 1;
 		}
@@ -180,7 +179,7 @@ blk_match_send(struct sess *sess, const char *path, int fd,
 	for (last = offs = 0; offs < end; offs++) {
 		blk = blk_find(sess, buf, size,
 			offs, blks, path, hint);
-		if (NULL == blk)
+		if (blk == NULL)
 			continue;
 
 		sz = offs - last;
@@ -198,7 +197,7 @@ blk_match_send(struct sess *sess, const char *path, int fd,
 		 * it already has in the matching block.
 		 */
 
-		if ( ! blk_flush(sess, fd, buf + last, sz, tok)) {
+		if (!blk_flush(sess, fd, buf + last, sz, tok)) {
 			ERRX1(sess, "blk_flush");
 			return 0;
 		}
@@ -218,7 +217,7 @@ blk_match_send(struct sess *sess, const char *path, int fd,
 
 	LOG4(sess, "%s: flushing remaining %jd B", path, (intmax_t)sz);
 
-	if ( ! blk_flush(sess, fd, buf + last, sz, 0)) {
+	if (!blk_flush(sess, fd, buf + last, sz, 0)) {
 		ERRX1(sess, "blk_flush");
 		return 0;
 	}
@@ -238,7 +237,7 @@ int
 blk_match(struct sess *sess, int fd,
 	const struct blkset *blks, const char *path)
 {
-	int		 nfd, rc = 0, c;
+	int		 nfd = -1, rc = 0, c;
 	struct stat	 st;
 	void		*map = MAP_FAILED;
 	size_t		 mapsz;
@@ -246,13 +245,12 @@ blk_match(struct sess *sess, int fd,
 
 	/* Start by mapping our file into memory. */
 
-	if (-1 == (nfd = open(path, O_RDONLY, 0))) {
+	if ((nfd = open(path, O_RDONLY, 0)) == -1) {
 		ERR(sess, "%s: open", path);
-		return 0;
-	} else if (-1 == fstat(nfd, &st)) {
+		goto out;
+	} else if (fstat(nfd, &st) == -1) {
 		ERR(sess, "%s: fstat", path);
-		close(nfd);
-		return 0;
+		goto out;
 	}
 
 	/*
@@ -262,10 +260,9 @@ blk_match(struct sess *sess, int fd,
 
 	if ((mapsz = st.st_size) > 0) {
 		map = mmap(NULL, mapsz, PROT_READ, MAP_SHARED, nfd, 0);
-		if (MAP_FAILED == map) {
+		if (map == MAP_FAILED) {
 			ERR(sess, "%s: mmap", path);
-			close(nfd);
-			return 0;
+			goto out;
 		}
 	}
 
@@ -278,19 +275,18 @@ blk_match(struct sess *sess, int fd,
 	 */
 
 	if (st.st_size && blks->blksz) {
-		c = blk_match_send(sess, path,
-			fd, map, st.st_size, blks);
-		if ( ! c) {
+		c = blk_match_send(sess, path, fd, map, st.st_size, blks);
+		if (!c) {
 			ERRX1(sess, "blk_match_send");
 			goto out;
 		}
 	} else {
-		if ( ! blk_flush(sess, fd, map, st.st_size, 0)) {
+		if (!blk_flush(sess, fd, map, st.st_size, 0)) {
 			ERRX1(sess, "blk_flush");
-			return 0;
+			goto out;
 		}
-		LOG3(sess, "%s: flushed (un-chunked) %jd B, 100%% "
-			"upload ratio", path, (intmax_t)st.st_size);
+		LOG3(sess, "%s: flushed (un-chunked) %jd B, 100%% upload ratio",
+		    path, (intmax_t)st.st_size);
 	}
 
 	/*
@@ -301,16 +297,17 @@ blk_match(struct sess *sess, int fd,
 
 	hash_file(map, st.st_size, filemd, sess);
 
-	if ( ! io_write_buf(sess, fd, filemd, MD4_DIGEST_LENGTH)) {
+	if (!io_write_buf(sess, fd, filemd, MD4_DIGEST_LENGTH)) {
 		ERRX1(sess, "io_write_buf");
 		goto out;
 	}
 
 	rc = 1;
 out:
-	if (MAP_FAILED != map)
+	if (map != MAP_FAILED)
 		munmap(map, mapsz);
-	close(nfd);
+	if (-1 != nfd)
+		close(nfd);
 	return rc;
 }
 
@@ -319,7 +316,7 @@ void
 blkset_free(struct blkset *p)
 {
 
-	if (NULL == p)
+	if (p == NULL)
 		return;
 	free(p->blks);
 	free(p);
@@ -338,15 +335,15 @@ blk_recv_ack(struct sess *sess,
 
 	/* FIXME: put into static block. */
 
-	if ( ! io_write_int(sess, fd, idx))
+	if (!io_write_int(sess, fd, idx))
 		ERRX1(sess, "io_write_int");
-	else if ( ! io_write_int(sess, fd, blocks->blksz))
+	else if (!io_write_int(sess, fd, blocks->blksz))
 		ERRX1(sess, "io_write_int");
-	else if ( ! io_write_int(sess, fd, blocks->len))
+	else if (!io_write_int(sess, fd, blocks->len))
 		ERRX1(sess, "io_write_int");
-	else if ( ! io_write_int(sess, fd, blocks->csum))
+	else if (!io_write_int(sess, fd, blocks->csum))
 		ERRX1(sess, "io_write_int");
-	else if ( ! io_write_int(sess, fd, blocks->rem))
+	else if (!io_write_int(sess, fd, blocks->rem))
 		ERRX1(sess, "io_write_int");
 	else
 		return 1;
@@ -367,7 +364,7 @@ blk_recv(struct sess *sess, int fd, const char *path)
 	struct blk	*b;
 	off_t		 offs = 0;
 
-	if (NULL == (s = calloc(1, sizeof(struct blkset)))) {
+	if ((s = calloc(1, sizeof(struct blkset))) == NULL) {
 		ERR(sess, "calloc");
 		return NULL;
 	}
@@ -378,16 +375,16 @@ blk_recv(struct sess *sess, int fd, const char *path)
 	 * FIXME: read into buffer and unbuffer.
 	 */
 
-	if ( ! io_read_size(sess, fd, &s->blksz)) {
+	if (!io_read_size(sess, fd, &s->blksz)) {
 		ERRX1(sess, "io_read_size");
 		goto out;
-	} else if ( ! io_read_size(sess, fd, &s->len)) {
+	} else if (!io_read_size(sess, fd, &s->len)) {
 		ERRX1(sess, "io_read_size");
 		goto out;
-	} else if ( ! io_read_size(sess, fd, &s->csum)) {
+	} else if (!io_read_size(sess, fd, &s->csum)) {
 		ERRX1(sess, "io_read_int");
 		goto out;
-	} else if ( ! io_read_size(sess, fd, &s->rem)) {
+	} else if (!io_read_size(sess, fd, &s->rem)) {
 		ERRX1(sess, "io_read_int");
 		goto out;
 	} else if (s->rem && s->rem >= s->len) {
@@ -402,7 +399,7 @@ blk_recv(struct sess *sess, int fd, const char *path)
 
 	if (s->blksz) {
 		s->blks = calloc(s->blksz, sizeof(struct blk));
-		if (NULL == s->blks) {
+		if (s->blks == NULL) {
 			ERR(sess, "calloc");
 			goto out;
 		}
@@ -415,14 +412,14 @@ blk_recv(struct sess *sess, int fd, const char *path)
 
 	for (j = 0; j < s->blksz; j++) {
 		b = &s->blks[j];
-		if ( ! io_read_int(sess, fd, &i)) {
+		if (!io_read_int(sess, fd, &i)) {
 			ERRX1(sess, "io_read_int");
 			goto out;
 		}
 		b->chksum_short = i;
 
 		assert(s->csum <= sizeof(b->chksum_long));
-		if ( ! io_read_buf(sess,
+		if (!io_read_buf(sess,
 		    fd, b->chksum_long, s->csum)) {
 			ERRX1(sess, "io_read_buf");
 			goto out;
@@ -470,22 +467,22 @@ blk_send_ack(struct sess *sess, int fd, struct blkset *p)
 	     sizeof(int32_t); /* block remainder */
 	assert(sz <= sizeof(buf));
 
-	if ( ! io_read_buf(sess, fd, buf, sz)) {
+	if (!io_read_buf(sess, fd, buf, sz)) {
 		ERRX1(sess, "io_read_buf");
 		return 0;
 	}
 
-	if ( ! io_unbuffer_size(sess, buf, &pos, sz, &p->blksz))
+	if (!io_unbuffer_size(sess, buf, &pos, sz, &p->blksz))
 		ERRX1(sess, "io_unbuffer_size");
-	else if ( ! io_unbuffer_size(sess, buf, &pos, sz, &p->len))
+	else if (!io_unbuffer_size(sess, buf, &pos, sz, &p->len))
 		ERRX1(sess, "io_unbuffer_size");
-	else if ( ! io_unbuffer_size(sess, buf, &pos, sz, &p->csum))
+	else if (!io_unbuffer_size(sess, buf, &pos, sz, &p->csum))
 		ERRX1(sess, "io_unbuffer_size");
-	else if ( ! io_unbuffer_size(sess, buf, &pos, sz, &p->rem))
+	else if (!io_unbuffer_size(sess, buf, &pos, sz, &p->rem))
 		ERRX1(sess, "io_unbuffer_size");
 	else if (p->len && p->rem >= p->len)
 		ERRX1(sess, "non-zero length is less than remainder");
-	else if (0 == p->csum || p->csum > 16)
+	else if (p->csum == 0 || p->csum > 16)
 		ERRX1(sess, "inappropriate checksum length");
 	else
 		return 1;
@@ -527,20 +524,20 @@ blk_merge(struct sess *sess, int fd, int ffd,
 		 * <0 for a token indicator.
 		 */
 
-		if ( ! io_read_int(sess, fd, &rawtok)) {
+		if (!io_read_int(sess, fd, &rawtok)) {
 			ERRX1(sess, "io_read_int");
 			goto out;
-		} else if (0 == rawtok)
+		} else if (rawtok == 0)
 			break;
 
 		if (rawtok > 0) {
 			sz = rawtok;
-			if (NULL == (pp = realloc(buf, sz))) {
+			if ((pp = realloc(buf, sz)) == NULL) {
 				ERR(sess, "realloc");
 				goto out;
 			}
 			buf = pp;
-			if ( ! io_read_buf(sess, fd, buf, sz)) {
+			if (!io_read_buf(sess, fd, buf, sz)) {
 				ERRX1(sess, "io_read_int");
 				goto out;
 			}
@@ -574,7 +571,7 @@ blk_merge(struct sess *sess, int fd, int ffd,
 			 * profile from it.
 			 */
 
-			assert(MAP_FAILED != map);
+			assert(map != MAP_FAILED);
 
 			ssz = write(outfd,
 				map + block->blks[tok].offs,
@@ -594,9 +591,8 @@ blk_merge(struct sess *sess, int fd, int ffd,
 				"B total", path, block->blks[tok].len,
 				(intmax_t)total);
 
-			MD4_Update(&ctx,
-				map + block->blks[tok].offs,
-				block->blks[tok].len);
+			MD4_Update(&ctx, map + block->blks[tok].offs,
+			    block->blks[tok].len);
 		}
 	}
 
@@ -605,7 +601,7 @@ blk_merge(struct sess *sess, int fd, int ffd,
 
 	MD4_Final(ourmd, &ctx);
 
-	if ( ! io_read_buf(sess, fd, md, MD4_DIGEST_LENGTH)) {
+	if (!io_read_buf(sess, fd, md, MD4_DIGEST_LENGTH)) {
 		ERRX1(sess, "io_read_buf");
 		goto out;
 	} else if (memcmp(md, ourmd, MD4_DIGEST_LENGTH)) {
@@ -643,7 +639,7 @@ blk_send(struct sess *sess, int fd, size_t idx,
 	    (sizeof(int32_t) + /* short checksum */
 		p->csum); /* long checksum */
 
-	if (NULL == (buf = malloc(sz))) {
+	if ((buf = malloc(sz)) == NULL) {
 		ERR(sess, "malloc");
 		return 0;
 	}
@@ -663,7 +659,7 @@ blk_send(struct sess *sess, int fd, size_t idx,
 
 	assert(pos == sz);
 
-	if ( ! io_write_buf(sess, fd, buf, sz)) {
+	if (!io_write_buf(sess, fd, buf, sz)) {
 		ERRX1(sess, "io_write_buf");
 		goto out;
 	}

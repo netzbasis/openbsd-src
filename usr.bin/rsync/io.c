@@ -1,4 +1,4 @@
-/*	$Id: io.c,v 1.2 2019/02/10 23:24:14 benno Exp $ */
+/*	$Id: io.c,v 1.4 2019/02/11 21:41:22 deraadt Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -56,7 +56,7 @@ io_write_nonblocking(struct sess *sess,
 
 	*sz = 0;
 
-	if (0 == bsz)
+	if (bsz == 0)
 		return 1;
 
 	pfd.fd = fd;
@@ -72,7 +72,7 @@ io_write_nonblocking(struct sess *sess,
 	} else if ((pfd.revents & POLLHUP)) {
 		ERRX(sess, "poll: hangup");
 		return 0;
-	} else if ( ! (pfd.revents & POLLOUT)) {
+	} else if (!(pfd.revents & POLLOUT)) {
 		ERRX(sess, "poll: unknown event");
 		return 0;
 	}
@@ -99,10 +99,10 @@ io_write_blocking(struct sess *sess,
 
 	while (sz > 0) {
 		c = io_write_nonblocking(sess, fd, buf, sz, &wsz);
-		if ( ! c) {
+		if (!c) {
 			ERRX1(sess, "io_write_nonblocking");
 			return 0;
-		} else if (0 == wsz) {
+		} else if (wsz == 0) {
 			ERRX(sess, "io_write_nonblocking: short write");
 			return 0;
 		}
@@ -125,7 +125,7 @@ io_write_buf(struct sess *sess, int fd, const void *buf, size_t sz)
 	size_t	 wsz;
 	int	 c;
 
-	if ( ! sess->mplex_writes) {
+	if (!sess->mplex_writes) {
 		c = io_write_blocking(sess, fd, buf, sz);
 		sess->total_write += sz;
 		return c;
@@ -135,11 +135,11 @@ io_write_buf(struct sess *sess, int fd, const void *buf, size_t sz)
 		wsz = sz & 0xFFFFFF;
 		tag = (7 << 24) + wsz;
 		tagbuf = htole32(tag);
-		if ( ! io_write_blocking(sess, fd, &tagbuf, sizeof(tagbuf))) {
+		if (!io_write_blocking(sess, fd, &tagbuf, sizeof(tagbuf))) {
 			ERRX1(sess, "io_write_blocking");
 			return 0;
 		}
-		if ( ! io_write_blocking(sess, fd, buf, wsz)) {
+		if (!io_write_blocking(sess, fd, buf, wsz)) {
 			ERRX1(sess, "io_write_blocking");
 			return 0;
 		}
@@ -159,9 +159,9 @@ int
 io_write_line(struct sess *sess, int fd, const char *line)
 {
 
-	if ( ! io_write_buf(sess, fd, line, strlen(line)))
+	if (!io_write_buf(sess, fd, line, strlen(line)))
 		ERRX1(sess, "io_write_buf");
-	else if ( ! io_write_byte(sess, fd, '\n'))
+	else if (!io_write_byte(sess, fd, '\n'))
 		ERRX1(sess, "io_write_byte");
 	else
 		return 1;
@@ -182,7 +182,7 @@ io_read_nonblocking(struct sess *sess,
 
 	*sz = 0;
 
-	if (0 == bsz)
+	if (bsz == 0)
 		return 1;
 
 	pfd.fd = fd;
@@ -195,7 +195,7 @@ io_read_nonblocking(struct sess *sess,
 	if ((pfd.revents & (POLLERR|POLLNVAL))) {
 		ERRX(sess, "poll: bad fd");
 		return 0;
-	} else if ( ! (pfd.revents & (POLLIN|POLLHUP))) {
+	} else if (!(pfd.revents & (POLLIN|POLLHUP))) {
 		ERRX(sess, "poll: unknown event");
 		return 0;
 	}
@@ -203,7 +203,7 @@ io_read_nonblocking(struct sess *sess,
 	if ((rsz = read(fd, buf, bsz)) < 0) {
 		ERR(sess, "read");
 		return 0;
-	} else if (0 == rsz) {
+	} else if (rsz == 0) {
 		ERRX(sess, "unexpected end of file");
 		return 0;
 	}
@@ -227,10 +227,10 @@ io_read_blocking(struct sess *sess,
 
 	while (sz > 0) {
 		c = io_read_nonblocking(sess, fd, buf, sz, &rsz);
-		if ( ! c) {
+		if (!c) {
 			ERRX1(sess, "io_read_nonblocking");
 			return 0;
-		} else if (0 == rsz) {
+		} else if (rsz == 0) {
 			ERRX(sess, "io_read_nonblocking: short read");
 			return 0;
 		}
@@ -268,14 +268,14 @@ io_read_flush(struct sess *sess, int fd)
 	 * for the remaining data size.
 	 */
 
-	if ( ! io_read_blocking(sess, fd, &tagbuf, sizeof(tagbuf))) {
+	if (!io_read_blocking(sess, fd, &tagbuf, sizeof(tagbuf))) {
 		ERRX1(sess, "io_read_blocking");
 		return 0;
 	}
 	tag = le32toh(tagbuf);
 	sess->mplex_read_remain = tag & 0xFFFFFF;
 	tag >>= 24;
-	if (7 == tag)
+	if (tag == 7)
 		return 1;
 
 	tag -= 7;
@@ -283,15 +283,15 @@ io_read_flush(struct sess *sess, int fd)
 	if (sess->mplex_read_remain > sizeof(mpbuf)) {
 		ERRX(sess, "multiplex buffer overflow");
 		return 0;
-	} else if (0 == sess->mplex_read_remain)
+	} else if (sess->mplex_read_remain == 0)
 		return 1;
 
-	if ( ! io_read_blocking(sess, fd,
+	if (!io_read_blocking(sess, fd,
 	    mpbuf, sess->mplex_read_remain)) {
 		ERRX1(sess, "io_read_blocking");
 		return 0;
 	}
-	if ('\n' == mpbuf[sess->mplex_read_remain - 1])
+	if (mpbuf[sess->mplex_read_remain - 1] == '\n')
 		mpbuf[--sess->mplex_read_remain] = '\0';
 
 	/*
@@ -307,7 +307,7 @@ io_read_flush(struct sess *sess, int fd)
 	 * This means that we should exit.
 	 */
 
-	if (1 == tag) {
+	if (tag == 1) {
 		ERRX1(sess, "error from remote host");
 		return 0;
 	}
@@ -328,8 +328,8 @@ io_read_buf(struct sess *sess, int fd, void *buf, size_t sz)
 
 	/* If we're not multiplexing, read directly. */
 
-	if ( ! sess->mplex_reads) {
-		assert(0 == sess->mplex_read_remain);
+	if (!sess->mplex_reads) {
+		assert(sess->mplex_read_remain == 0);
 		c = io_read_blocking(sess, fd, buf, sz);
 		sess->total_read += sz;
 		return c;
@@ -346,7 +346,7 @@ io_read_buf(struct sess *sess, int fd, void *buf, size_t sz)
 		if (sess->mplex_read_remain) {
 			rsz = sess->mplex_read_remain < sz ?
 				sess->mplex_read_remain : sz;
-			if ( ! io_read_blocking(sess, fd, buf, rsz)) {
+			if (!io_read_blocking(sess, fd, buf, rsz)) {
 				ERRX1(sess, "io_read_blocking");
 				return 0;
 			}
@@ -357,8 +357,8 @@ io_read_buf(struct sess *sess, int fd, void *buf, size_t sz)
 			continue;
 		}
 
-		assert(0 == sess->mplex_read_remain);
-		if ( ! io_read_flush(sess, fd)) {
+		assert(sess->mplex_read_remain == 0);
+		if (!io_read_flush(sess, fd)) {
 			ERRX1(sess, "io_read_flush");
 			return 0;
 		}
@@ -381,9 +381,9 @@ io_write_long(struct sess *sess, int fd, int64_t val)
 
 	nv = htole64(val);
 
-	if ( ! io_write_int(sess, fd, INT32_MAX))
+	if (!io_write_int(sess, fd, INT32_MAX))
 		ERRX(sess, "io_write_int");
-	else if ( ! io_write_buf(sess, fd, &nv, sizeof(int64_t)))
+	else if (!io_write_buf(sess, fd, &nv, sizeof(int64_t)))
 		ERRX(sess, "io_write_buf");
 	else
 		return 1;
@@ -398,7 +398,7 @@ io_write_int(struct sess *sess, int fd, int32_t val)
 
 	nv = htole32(val);
 
-	if ( ! io_write_buf(sess, fd, &nv, sizeof(int32_t))) {
+	if (!io_write_buf(sess, fd, &nv, sizeof(int32_t))) {
 		ERRX(sess, "io_write_buf");
 		return 0;
 	}
@@ -431,8 +431,7 @@ io_buffer_int(struct sess *sess, void *buf,
 {
 	int32_t	nv = htole32(val);
 
-	io_buffer_buf(sess, buf, bufpos,
-		buflen, &nv, sizeof(int32_t));
+	io_buffer_buf(sess, buf, bufpos, buflen, &nv, sizeof(int32_t));
 }
 
 int
@@ -440,7 +439,7 @@ io_read_ulong(struct sess *sess, int fd, uint64_t *val)
 {
 	int64_t	oval;
 
-	if ( ! io_read_long(sess, fd, &oval)) {
+	if (!io_read_long(sess, fd, &oval)) {
 		ERRX(sess, "io_read_int");
 		return 0;
 	} else if (oval < 0) {
@@ -460,17 +459,17 @@ io_read_long(struct sess *sess, int fd, int64_t *val)
 
 	/* Start with the short-circuit: read as an int. */
 
-	if ( ! io_read_int(sess, fd, &sval)) {
+	if (!io_read_int(sess, fd, &sval)) {
 		ERRX(sess, "io_read_int");
 		return 0;
-	} else if (INT32_MAX != sval) {
+	} else if (sval != INT32_MAX) {
 		*val = sval;
 		return 1;
 	}
 
 	/* If the int is maximal, read as 64 bits. */
 
-	if ( ! io_read_buf(sess, fd, &oval, sizeof(int64_t))) {
+	if (!io_read_buf(sess, fd, &oval, sizeof(int64_t))) {
 		ERRX(sess, "io_read_buf");
 		return 0;
 	}
@@ -490,7 +489,7 @@ io_read_size(struct sess *sess, int fd, size_t *val)
 {
 	int32_t	oval;
 
-	if ( ! io_read_int(sess, fd, &oval)) {
+	if (!io_read_int(sess, fd, &oval)) {
 		ERRX(sess, "io_read_int");
 		return 0;
 	} else if (oval < 0) {
@@ -507,7 +506,7 @@ io_read_int(struct sess *sess, int fd, int32_t *val)
 {
 	int32_t	oval;
 
-	if ( ! io_read_buf(sess, fd, &oval, sizeof(int32_t))) {
+	if (!io_read_buf(sess, fd, &oval, sizeof(int32_t))) {
 		ERRX(sess, "io_read_buf");
 		return 0;
 	}
@@ -565,7 +564,7 @@ int
 io_read_byte(struct sess *sess, int fd, uint8_t *val)
 {
 
-	if ( ! io_read_buf(sess, fd, val, sizeof(uint8_t))) {
+	if (!io_read_buf(sess, fd, val, sizeof(uint8_t))) {
 		ERRX(sess, "io_read_buf");
 		return 0;
 	}
@@ -576,7 +575,7 @@ int
 io_write_byte(struct sess *sess, int fd, uint8_t val)
 {
 
-	if ( ! io_write_buf(sess, fd, &val, sizeof(uint8_t))) {
+	if (!io_write_buf(sess, fd, &val, sizeof(uint8_t))) {
 		ERRX(sess, "io_write_buf");
 		return 0;
 	}
