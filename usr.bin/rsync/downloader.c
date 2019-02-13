@@ -1,4 +1,4 @@
-/*	$Id: downloader.c,v 1.4 2019/02/11 21:41:22 deraadt Exp $ */
+/*	$Id: downloader.c,v 1.7 2019/02/12 19:39:57 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -566,6 +566,27 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 	} else if (memcmp(md, ourmd, MD4_DIGEST_LENGTH)) {
 		ERRX(sess, "%s: hash does not match", p->fname);
 		goto out;
+	}
+
+	/*
+	 * Conditionally adjust group id.
+	 * FIXME: remember the original file's group id and don't
+	 * reassign it if it's the same.
+	 * If we have an EPERM, report it but continue on: this just
+	 * means that we're mapping into an unknown (or disallowed)
+	 * group identifier.
+	 */
+
+	if (sess->opts->preserve_gids) {
+		if (fchown(p->fd, -1, f->st.gid) == -1) {
+			if (errno != EPERM) {
+				ERR(sess, "%s: fchown", p->fname);
+				goto out;
+			}
+			WARNX(sess, "%s: gid unknown or not available "
+				"to user: %u", f->path, f->st.gid);
+		} else
+			LOG4(sess, "%s: updated gid", f->path);
 	}
 
 	/* Conditionally adjust file modification time. */

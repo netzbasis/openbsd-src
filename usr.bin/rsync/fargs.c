@@ -1,4 +1,4 @@
-/*	$Id: fargs.c,v 1.4 2019/02/11 21:44:44 deraadt Exp $ */
+/*	$Id: fargs.c,v 1.8 2019/02/12 19:39:57 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -29,20 +29,22 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 {
 	char		**args;
 	size_t		  i = 0, j, argsz = 0;
-	const char	 *rsync_path;
+	char		 *rsync_path, *ssh_prog;
 
 	assert(f != NULL);
 	assert(f->sourcesz > 0);
 
 	if ((rsync_path = sess->opts->rsync_path) == NULL)
 		rsync_path = RSYNC_PATH;
+	if ((ssh_prog = sess->opts->ssh_prog) == NULL)
+		ssh_prog = "ssh";
 
 	/* Be explicit with array size. */
 
 	argsz += 1;	/* dot separator */
 	argsz += 1;	/* sink file */
 	argsz += 5;	/* per-mode maximum */
-	argsz += 10;	/* shared args */
+	argsz += 11;	/* shared args */
 	argsz += 1;	/* NULL pointer */
 	argsz += f->sourcesz;
 
@@ -54,20 +56,34 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 
 	if (f->host != NULL) {
 		assert(f->host != NULL);
-		
-		args[i++] = "ssh";
+
+		args[i++] = ssh_prog;
 		args[i++] = f->host;
-		args[i++] = (char *)rsync_path;
+		args[i++] = rsync_path;
 		args[i++] = "--server";
 		if (f->mode == FARGS_RECEIVER)
 			args[i++] = "--sender";
 	} else {
-		args[i++] = (char *)rsync_path;
+		args[i++] = rsync_path;
 		args[i++] = "--server";
 	}
 
 	/* Shared arguments. */
 
+	if (sess->opts->del)
+		args[i++] = "--delete";
+	if (sess->opts->preserve_gids)
+		args[i++] = "-g";
+	if (sess->opts->preserve_links)
+		args[i++] = "-l";
+	if (sess->opts->dry_run)
+		args[i++] = "-n";
+	if (sess->opts->preserve_perms)
+		args[i++] = "-p";
+	if (sess->opts->recursive)
+		args[i++] = "-r";
+	if (sess->opts->preserve_times)
+		args[i++] = "-t";
 	if (sess->opts->verbose > 3)
 		args[i++] = "-v";
 	if (sess->opts->verbose > 2)
@@ -76,18 +92,6 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 		args[i++] = "-v";
 	if (sess->opts->verbose > 0)
 		args[i++] = "-v";
-	if (sess->opts->dry_run)
-		args[i++] = "-n";
-	if (sess->opts->preserve_times)
-		args[i++] = "-t";
-	if (sess->opts->preserve_perms)
-		args[i++] = "-p";
-	if (sess->opts->recursive)
-		args[i++] = "-r";
-	if (sess->opts->preserve_links)
-		args[i++] = "-l";
-	if (sess->opts->del)
-		args[i++] = "--delete";
 
 	/* Terminate with a full-stop for reasons unknown. */
 

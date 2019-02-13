@@ -1,4 +1,4 @@
-/*	$Id: flist.c,v 1.5 2019/02/11 21:41:22 deraadt Exp $ */
+/*	$Id: flist.c,v 1.12 2019/02/12 19:39:57 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -20,8 +20,8 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <inttypes.h>
 #include <fts.h>
+#include <inttypes.h>
 #include <search.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +43,7 @@
  * information that affects subsequent transmissions.
  */
 #define FLIST_MODE_SAME  0x0002 /* mode is repeat */
+#define	FLIST_GID_SAME	 0x0010 /* gid is repeat */
 #define	FLIST_NAME_SAME  0x0020 /* name is repeat */
 #define FLIST_NAME_LONG	 0x0040 /* name >255 bytes */
 #define FLIST_TIME_SAME  0x0080 /* time is repeat */
@@ -240,10 +241,12 @@ int
 flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
     size_t flsz)
 {
-	size_t		 i, fnlen;
+	size_t		 i, sz, gidsz = 0;
 	uint8_t		 flag;
 	const struct flist *f;
 	const char	*fn;
+	struct ident	*gids = NULL;
+	int		 rc = 0;
 
 	/* Double-check that we've no pending multiplexed data. */
 
@@ -252,8 +255,8 @@ flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
 	for (i = 0; i < flsz; i++) {
 		f = &fl[i];
 		fn = f->wpath;
-		fnlen = strlen(f->wpath);
-		assert(fnlen > 0);
+		sz = strlen(f->wpath);
+		assert(sz > 0);
 
 		/*
 		 * If applicable, unclog the read buffer.
@@ -266,7 +269,7 @@ flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
 		    io_read_check(sess, fdin) &&
 		     !io_read_flush(sess, fdin)) {
 			ERRX1(sess, "io_read_flush");
-			return 0;
+			goto out;
 		}
 
 		/*
@@ -288,37 +291,50 @@ flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
 
 		if (!io_write_byte(sess, fdout, flag)) {
 			ERRX1(sess, "io_write_byte");
-			return 0;
-		} else if (!io_write_int(sess, fdout, fnlen)) {
+			goto out;
+		} else if (!io_write_int(sess, fdout, sz)) {
 			ERRX1(sess, "io_write_int");
-			return 0;
-		} else if (!io_write_buf(sess, fdout, fn, fnlen)) {
+			goto out;
+		} else if (!io_write_buf(sess, fdout, fn, sz)) {
 			ERRX1(sess, "io_write_buf");
-			return 0;
+			goto out;
 		} else if (!io_write_long(sess, fdout, f->st.size)) {
 			ERRX1(sess, "io_write_long");
-			return 0;
+			goto out;
 		} else if (!io_write_int(sess, fdout, f->st.mtime)) {
 			ERRX1(sess, "io_write_int");
-			return 0;
+			goto out;
 		} else if (!io_write_int(sess, fdout, f->st.mode)) {
 			ERRX1(sess, "io_write_int");
-			return 0;
+			goto out;
 		}
 
-		/* Optional link information. */
+		/* Conditional part: gid. */
+
+		if (sess->opts->preserve_gids) {
+			if (!io_write_int(sess, fdout, f->st.gid)) {
+				ERRX1(sess, "io_write_int");
+				goto out;
+			}
+			if (!idents_gid_add(sess, &gids, &gidsz, f->st.gid)) {
+				ERRX1(sess, "idents_gid_add");
+				goto out;
+			}
+		}
+
+		/* Conditional part: link. */
 
 		if (S_ISLNK(f->st.mode) &&
 		    sess->opts->preserve_links) {
 			fn = f->link;
-			fnlen = strlen(f->link);
-			if (!io_write_int(sess, fdout, fnlen)) {
+			sz = strlen(f->link);
+			if (!io_write_int(sess, fdout, sz)) {
 				ERRX1(sess, "io_write_int");
-				return 0;
+				goto out;
 			}
-			if (!io_write_buf(sess, fdout, fn, fnlen)) {
+			if (!io_write_buf(sess, fdout, fn, sz)) {
 				ERRX1(sess, "io_write_int");
-				return 0;
+				goto out;
 			}
 		}
 
@@ -326,12 +342,27 @@ flist_send(struct sess *sess, int fdin, int fdout, const struct flist *fl,
 			sess->total_size += f->st.size;
 	}
 
+	/* Signal end of file list. */
+
 	if (!io_write_byte(sess, fdout, 0)) {
 		ERRX1(sess, "io_write_byte");
-		return 0;
+		goto out;
 	}
 
-	return 1;
+	/* Conditionally write gid list and terminator. */
+
+	if (sess->opts->preserve_gids) {
+		LOG2(sess, "sending gid list: %zu", gidsz);
+		if (!idents_send(sess, fdout, gids, gidsz)) {
+			ERRX1(sess, "idents_send");
+			goto out;
+		}
+	}
+
+	rc = 1;
+out:
+	idents_free(gids, gidsz);
+	return rc;
 }
 
 /*
@@ -509,11 +540,12 @@ flist_recv(struct sess *sess, int fd, struct flist **flp, size_t *sz)
 	struct flist	*fl = NULL;
 	struct flist	*ff;
 	const struct flist *fflast = NULL;
-	size_t		 flsz = 0, flmax = 0, lsz;
+	size_t		 flsz = 0, flmax = 0, lsz, gidsz = 0;
 	uint8_t		 flag;
 	char		 last[MAXPATHLEN];
 	uint64_t	 lval; /* temporary values... */
 	int32_t		 ival;
+	struct ident	*gids = NULL;
 
 	last[0] = '\0';
 
@@ -575,7 +607,24 @@ flist_recv(struct sess *sess, int fd, struct flist **flp, size_t *sz)
 		} else
 			ff->st.mode = fflast->st.mode;
 
-		/* Optionally read the link information. */
+		/* Conditional part: gid. */
+
+		if (sess->opts->preserve_gids) {
+			if (!(FLIST_GID_SAME & flag)) {
+				if (!io_read_int(sess, fd, &ival)) {
+					ERRX1(sess, "io_read_int");
+					goto out;
+				}
+				ff->st.gid = ival;
+			} else if (fflast == NULL) {
+				ERRX(sess, "same gid "
+					"without last entry");
+				goto out;
+			} else
+				ff->st.gid = fflast->st.gid;
+		}
+
+		/* Conditional part: link. */
 
 		if (S_ISLNK(ff->st.mode) &&
 		    sess->opts->preserve_links) {
@@ -606,6 +655,19 @@ flist_recv(struct sess *sess, int fd, struct flist **flp, size_t *sz)
 			sess->total_size += ff->st.size;
 	}
 
+	/*
+	 * Now conditionally read the group list.
+	 * We then remap all group identifiers to the local ids.
+	 */
+
+	if (sess->opts->preserve_gids) {
+		if (!idents_recv(sess, fd, &gids, &gidsz)) {
+			ERRX1(sess, "idents_recv");
+			goto out;
+		}
+		LOG2(sess, "received gid list: %zu", gidsz);
+	}
+
 	/* Remember to order the received list. */
 
 	LOG2(sess, "received file metadata list: %zu", flsz);
@@ -613,9 +675,19 @@ flist_recv(struct sess *sess, int fd, struct flist **flp, size_t *sz)
 	flist_topdirs(sess, fl, flsz);
 	*sz = flsz;
 	*flp = fl;
+
+	/* Lastly, remap and reassign group identifiers. */
+
+	if (sess->opts->preserve_gids) {
+		idents_gid_remap(sess, gids, gidsz);
+		idents_gid_assign(sess, fl, flsz, gids, gidsz);
+	}
+
+	idents_free(gids, gidsz);
 	return 1;
 out:
 	flist_free(fl, flsz);
+	idents_free(gids, gidsz);
 	*sz = 0;
 	*flp = NULL;
 	return 0;
@@ -661,7 +733,8 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		if (!flist_append(sess, f, &st, root)) {
 			ERRX1(sess, "flist_append");
 			return 0;
-		} else if (unveil(root, "r") == -1) {
+		}
+		if (unveil(root, "r") == -1) {
 			ERR(sess, "%s: unveil", root);
 			return 0;
 		}
@@ -680,7 +753,8 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		if (!flist_append(sess, f, &st, root)) {
 			ERRX1(sess, "flist_append");
 			return 0;
-		} else if (unveil(root, "r") == -1) {
+		}
+		if (unveil(root, "r") == -1) {
 			ERR(sess, "%s: unveil", root);
 			return 0;
 		}
@@ -783,7 +857,8 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 	if (errno) {
 		ERR(sess, "fts_read");
 		goto out;
-	} else if (unveil(root, "r") == -1) {
+	}
+	if (unveil(root, "r") == -1) {
 		ERR(sess, "%s: unveil", root);
 		goto out;
 	}
@@ -883,7 +958,8 @@ flist_gen_files(struct sess *sess, size_t argc, char **argv,
 		if (unveil(argv[i], "r") == -1) {
 			ERR(sess, "%s: unveil", argv[i]);
 			goto out;
-		} else if (!flist_append(sess, f, &st, argv[i])) {
+		}
+		if (!flist_append(sess, f, &st, argv[i])) {
 			ERRX1(sess, "flist_append");
 			goto out;
 		}
@@ -924,7 +1000,8 @@ flist_gen(struct sess *sess, size_t argc, char **argv, struct flist **flp,
 	if (unveil(NULL, NULL) == -1) {
 		ERR(sess, "unveil");
 		return 0;
-	} else if (!rc)
+	}
+	if (!rc)
 		return 0;
 
 	qsort(*flp, *sz, sizeof(struct flist), flist_cmp);

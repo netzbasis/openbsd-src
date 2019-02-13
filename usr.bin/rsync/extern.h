@@ -1,4 +1,4 @@
-/*	$Id: extern.h,v 1.2 2019/02/10 23:24:14 benno Exp $ */
+/*	$Id: extern.h,v 1.8 2019/02/12 19:39:57 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -96,16 +96,18 @@ struct	flist {
  * See struct fargs.
  */
 struct	opts {
-	int		 sender; /* --sender */
-	int		 server; /* --server */
-	int		 recursive; /* -r */
-	int		 verbose; /* -v */
-	int		 dry_run; /* -n */
-	int		 preserve_times; /* -t */
-	int		 preserve_perms; /* -p */
-	int		 preserve_links; /* -l */
-	int		 del; /* --delete */
-	const char	*rsync_path; /* --rsync-path */
+	int		 sender;		/* --sender */
+	int		 server;		/* --server */
+	int		 recursive;		/* -r */
+	int		 verbose;		/* -v */
+	int		 dry_run;		/* -n */
+	int		 preserve_times;	/* -t */
+	int		 preserve_perms;	/* -p */
+	int		 preserve_links;	/* -l */
+	int		 preserve_gids;		/* -g */
+	int		 del;			/* --delete */
+	char		*rsync_path;		/* --rsync-path */
+	char		*ssh_prog;		/* --rsh or -e */
 };
 
 /*
@@ -147,6 +149,15 @@ struct	sess {
 	int		   mplex_reads; /* multiplexing reads? */
 	size_t		   mplex_read_remain; /* remaining bytes */
 	int		   mplex_writes; /* multiplexing writes? */
+};
+
+/*
+ * Combination of name and numeric id for groups and users.
+ */
+struct	ident {
+	int32_t	 id; /* the gid_t or uid_t */
+	int32_t	 mapped; /* if receiving, the mapped gid */
+	char	*name; /* resolved name */
 };
 
 struct	download;
@@ -289,6 +300,15 @@ char		 *symlinkat_read(struct sess *, int, const char *);
 
 int		  sess_stats_send(struct sess *, int);
 int		  sess_stats_recv(struct sess *, int);
+
+void		  idents_free(struct ident *, size_t);
+void		  idents_gid_assign(struct sess *,
+			struct flist *, size_t, const struct ident *, size_t);
+void		  idents_gid_remap(struct sess *, struct ident *, size_t);
+int		  idents_gid_add(struct sess *, struct ident **, size_t *,
+			gid_t);
+int		  idents_recv(struct sess *, int, struct ident **, size_t *);
+int		  idents_send(struct sess *, int, const struct ident *, size_t);
 
 __END_DECLS
 

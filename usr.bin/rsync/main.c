@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.7 2019/02/11 21:44:44 deraadt Exp $ */
+/*	$Id: main.c,v 1.12 2019/02/12 22:19:05 deraadt Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -244,7 +244,7 @@ fargs_parse(size_t argc, char *argv[])
 			/* rsync://path */
 			cp += 8;
 			if (strncmp(cp, f->host, len) ||
-			    (cp[len] != '/' && cp[len] != '\0')) 
+			    (cp[len] != '/' && cp[len] != '\0'))
 				errx(EXIT_FAILURE, "different remote "
 					"host: %s", f->sources[i]);
 			memmove(f->sources[i],
@@ -260,7 +260,8 @@ fargs_parse(size_t argc, char *argv[])
 			    (cp[len] != ':' && cp[len] != '\0'))
 				errx(EXIT_FAILURE, "different remote "
 					"host: %s", f->sources[i]);
-			memmove(f->sources[i], f->sources[i] + len + 2, j - len - 1);
+			memmove(f->sources[i], f->sources[i] + len + 2,
+			    j - len - 1);
 		} else if (cp[0] == ':') {
 			/* :path */
 			memmove(f->sources[i], f->sources[i] + 1, j);
@@ -286,24 +287,36 @@ main(int argc, char *argv[])
 	int		 fds[2], c, st;
 	struct fargs	*fargs;
 	struct option	 lopts[] = {
-		{ "delete",	no_argument,	&opts.del,	1 },
-		{ "rsync-path",	required_argument, NULL,	1 },
-		{ "sender",	no_argument,	&opts.sender,	1 },
-		{ "server",	no_argument,	&opts.server,	1 },
-		{ NULL,		0,		NULL,		0 }};
+		{ "delete",	no_argument,	&opts.del,		1 },
+		{ "rsync-path",	required_argument, NULL,		1 },
+		{ "rsh",	required_argument, NULL,		'e' },
+		{ "sender",	no_argument,	&opts.sender,		1 },
+		{ "server",	no_argument,	&opts.server,		1 },
+		{ "verbose",	no_argument,	&opts.verbose,		1 },
+		{ "links",	no_argument,	&opts.preserve_links,	1 },
+		{ "dry-run",	no_argument,	&opts.dry_run,		1 },
+		{ "perms",	no_argument,	&opts.preserve_perms,	1 },
+		{ "recursive",	no_argument,	&opts.recursive,	1 },
+		{ "times",	no_argument,	&opts.preserve_times,	1 },
+		{ "group",	no_argument,	&opts.preserve_gids,	1 },
+		{ NULL,		0,		NULL,			0 }};
 
 	/* Global pledge. */
 
-	if (pledge("stdio rpath wpath cpath inet fattr dns proc exec unveil",
+	if (pledge("stdio rpath wpath cpath inet fattr dns getpw proc exec unveil",
 	    NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 
 	memset(&opts, 0, sizeof(struct opts));
 
-	while ((c = getopt_long(argc, argv, "e:lnprtv", lopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "e:glnprtv", lopts, NULL)) != -1) {
 		switch (c) {
 		case 'e':
+			opts.ssh_prog = optarg;
 			/* Ignore. */
+			break;
+		case 'g':
+			opts.preserve_gids = 1;
 			break;
 		case 'l':
 			opts.preserve_links = 1;
@@ -376,7 +389,7 @@ main(int argc, char *argv[])
 
 	if (fargs->remote) {
 		assert(fargs->mode == FARGS_RECEIVER);
-		if (pledge("stdio rpath wpath cpath inet fattr dns unveil",
+		if (pledge("stdio rpath wpath cpath inet fattr dns getpw unveil",
 		    NULL) == -1)
 			err(EXIT_FAILURE, "pledge");
 		c = rsync_socket(&opts, fargs);
@@ -386,7 +399,7 @@ main(int argc, char *argv[])
 
 	/* Drop the dns/inet possibility. */
 
-	if (pledge("stdio rpath wpath cpath fattr proc exec unveil",
+	if (pledge("stdio rpath wpath cpath fattr getpw proc exec unveil",
 	    NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 
@@ -403,7 +416,7 @@ main(int argc, char *argv[])
 
 	/* Drop the fork possibility. */
 
-	if (pledge("stdio rpath wpath cpath fattr exec unveil", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath fattr getpw exec unveil", NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 
 	if (child == 0) {
@@ -417,7 +430,7 @@ main(int argc, char *argv[])
 
 	close(fds[1]);
 	fds[1] = -1;
-	if (pledge("stdio rpath wpath cpath fattr unveil", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath fattr getpw unveil", NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 	c = rsync_client(&opts, fds[0], fargs);
 	fargs_free(fargs);
@@ -442,8 +455,8 @@ main(int argc, char *argv[])
 		close(fds[0]);
 	return c ? EXIT_SUCCESS : EXIT_FAILURE;
 usage:
-	fprintf(stderr, "usage: %s [-lnprtv] "
-		"[--delete] [--rsync-path=prog] src ... dst\n",
+	fprintf(stderr, "usage: %s [-glnprtv] "
+		"[-e ssh-prog] [--delete] [--rsync-path=prog] src ... dst\n",
 		getprogname());
 	return EXIT_FAILURE;
 }
