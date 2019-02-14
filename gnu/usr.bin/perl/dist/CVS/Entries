@@ -1,6 +1,7 @@
 D/Attribute-Handlers////
 D/Carp////
 D/Data-Dumper////
+D/Devel-PPPort////
 D/Devel-SelfStubber////
 D/Dumpvalue////
 D/Env////
@@ -27,6 +28,7 @@ D/Thread-Queue////
 D/Thread-Semaphore////
 D/Tie-File////
 D/Time-HiRes////
+D/Unicode-Normalize////
 D/XSLoader////
 D/autouse////
 D/base////

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.623 2019/02/12 16:50:44 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.625 2019/02/13 21:18:32 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -264,6 +264,7 @@ interface_state(struct interface_info *ifi)
 
 	newlinkup = LINK_STATE_IS_UP(ifi->link_state);
 	if (newlinkup != oldlinkup) {
+		tick_msg("", 0, INT64_MAX);
 		log_debug("%s: link %s -> %s", log_procname,
 		    (oldlinkup != 0) ? "up" : "down",
 		    (newlinkup != 0) ? "up" : "down");
@@ -920,7 +921,6 @@ void
 bind_lease(struct interface_info *ifi)
 {
 	struct client_lease	*lease, *pl, *ll;
-	struct proposal		*offered_proposal = NULL;
 	struct proposal		*effective_proposal = NULL;
 	char			*msg = NULL;
 	time_t			 cur_time, renewal;
@@ -1004,12 +1004,12 @@ newlease:
 	write_resolv_conf();
 
 	free_client_lease(lease);
-	free(offered_proposal);
 	free(effective_proposal);
 	free(ifi->offer_src);
 	ifi->offer_src = NULL;
 
 	if (msg != NULL) {
+		tick_msg("", 0, INT64_MAX);
 		if ((cmd_opts & OPT_FOREGROUND) != 0) {
 			/* log msg on console only. */
 			;
