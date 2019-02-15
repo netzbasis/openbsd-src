@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.12 2019/02/12 22:19:05 deraadt Exp $ */
+/*	$Id: main.c,v 1.16 2019/02/14 18:32:00 florian Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -309,7 +309,7 @@ main(int argc, char *argv[])
 
 	memset(&opts, 0, sizeof(struct opts));
 
-	while ((c = getopt_long(argc, argv, "e:glnprtv", lopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "e:glnoprtv", lopts, NULL)) != -1) {
 		switch (c) {
 		case 'e':
 			opts.ssh_prog = optarg;
@@ -323,6 +323,9 @@ main(int argc, char *argv[])
 			break;
 		case 'n':
 			opts.dry_run = 1;
+			break;
+		case 'o':
+			opts.preserve_uids = 1;
 			break;
 		case 'p':
 			opts.preserve_perms = 1;
@@ -362,7 +365,7 @@ main(int argc, char *argv[])
 	 */
 
 	if (opts.server) {
-		if (pledge("stdio rpath wpath cpath fattr unveil", NULL) == -1)
+		if (pledge("stdio rpath wpath cpath fattr getpw unveil", NULL) == -1)
 			err(EXIT_FAILURE, "pledge");
 		c = rsync_server(&opts, (size_t)argc, argv);
 		return c ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -455,7 +458,7 @@ main(int argc, char *argv[])
 		close(fds[0]);
 	return c ? EXIT_SUCCESS : EXIT_FAILURE;
 usage:
-	fprintf(stderr, "usage: %s [-glnprtv] "
+	fprintf(stderr, "usage: %s [-glnoprtv] "
 		"[-e ssh-prog] [--delete] [--rsync-path=prog] src ... dst\n",
 		getprogname());
 	return EXIT_FAILURE;

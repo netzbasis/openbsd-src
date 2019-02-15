@@ -1,4 +1,4 @@
-/*	$Id: fargs.c,v 1.9 2019/02/13 19:13:18 deraadt Exp $ */
+/*	$Id: fargs.c,v 1.11 2019/02/14 18:31:36 florian Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -30,7 +30,7 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 {
 	char		**args = NULL, **new;
 	size_t		  i = 0, n = 1, j, argsz = 0;
-	char		 *rsync_path;
+	char		 *rsync_path, *ap;
 
 	assert(f != NULL);
 	assert(f->sourcesz > 0);
@@ -43,7 +43,7 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 	argsz += 1;	/* dot separator */
 	argsz += 1;	/* sink file */
 	argsz += 5;	/* per-mode maximum */
-	argsz += 11;	/* shared args */
+	argsz += 12;	/* shared args */
 	argsz += 1;	/* NULL pointer */
 	argsz += f->sourcesz;
 
@@ -54,11 +54,18 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 	if (f->host != NULL) {
 		assert(f->host != NULL);
 
-		if (sess->opts->ssh_prog) {
-			char *ap = strdup(sess->opts->ssh_prog);
+		/*
+		 * Splice arguments from -e "foo bar baz" into array
+		 * elements required for execve(2).
+		 * This doesn't do anything fancy: it splits along
+		 * whitespace into the array.
+		 */
 
+		if (sess->opts->ssh_prog) {
+			ap = strdup(sess->opts->ssh_prog);
 			if (ap == NULL)
 				goto out;
+
 			while ((args[i] = strsep(&ap, " \t")) != NULL) {
 				if (args[i][0] == '\0') {
 					ap++;	/* skip seperators */
@@ -66,10 +73,12 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 				}
 
 				/* Grow command-area of array */
+
 				if (i++ < n)
 					continue;
 				n += 10;
-				new = reallocarray(args, argsz + n, sizeof(char *));
+				new = reallocarray(args,
+					argsz + n, sizeof(char *));
 				if (new == NULL)
 					goto out;
 				args = new;
@@ -77,6 +86,7 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 			}
 		} else
 			args[i++] = "ssh";
+
 		args[i++] = f->host;
 		args[i++] = rsync_path;
 		args[i++] = "--server";
@@ -97,6 +107,8 @@ fargs_cmdline(struct sess *sess, const struct fargs *f)
 		args[i++] = "-l";
 	if (sess->opts->dry_run)
 		args[i++] = "-n";
+	if (sess->opts->preserve_uids)
+		args[i++] = "-o";
 	if (sess->opts->preserve_perms)
 		args[i++] = "-p";
 	if (sess->opts->recursive)
