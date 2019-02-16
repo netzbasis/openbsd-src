@@ -1,4 +1,4 @@
-/*	$Id: receiver.c,v 1.8 2019/02/14 18:30:11 florian Exp $ */
+/*	$Id: receiver.c,v 1.11 2019/02/16 05:30:28 deraadt Exp $ */
 
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -75,8 +75,10 @@ rsync_set_metadata(struct sess *sess, int newfile,
 	/* Conditionally adjust file modification time. */
 
 	if (sess->opts->preserve_times) {
-		tv[0].tv_sec = time(NULL);
-		tv[0].tv_nsec = 0;
+		struct timeval now;
+
+		gettimeofday(&now, NULL);
+		TIMEVAL_TO_TIMESPEC(&now, &tv[0]);
 		tv[1].tv_sec = f->st.mtime;
 		tv[1].tv_nsec = 0;
 		if (futimens(fd, tv) == -1) {
@@ -94,8 +96,7 @@ rsync_set_metadata(struct sess *sess, int newfile,
  * Pledges (dry-run): -cpath, -wpath, -fattr.
  */
 int
-rsync_receiver(struct sess *sess,
-	int fdin, int fdout, const char *root)
+rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 {
 	struct flist	*fl = NULL, *dfl = NULL;
 	size_t		 i, flsz = 0, dflsz = 0, excl;
@@ -196,9 +197,6 @@ rsync_receiver(struct sess *sess,
 	/*
 	 * Begin by conditionally getting all files we have currently
 	 * available in our destination.
-	 * XXX: THIS IS A BUG IN OPENBSD 6.4.
-	 * For newer version of OpenBSD, this is safe to put after the
-	 * unveil.
 	 */
 
 	if (sess->opts->del &&
