@@ -1,4 +1,4 @@
-/*	$Id: downloader.c,v 1.9 2019/02/14 18:29:08 florian Exp $ */
+/*	$Id: downloader.c,v 1.13 2019/02/16 16:56:33 florian Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -22,7 +22,6 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <math.h>
-#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -296,12 +295,10 @@ buf_copy(struct sess *sess,
 int
 rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 {
+	int		 c;
 	int32_t		 idx, rawtok;
-	uint32_t	 hash;
 	const struct flist *f;
-	size_t		 sz, dirlen, tok;
-	const char	*cp;
-	mode_t		 perm;
+	size_t		 sz, tok;
 	struct stat	 st;
 	char		*buf = NULL;
 	unsigned char	 ourmd[MD4_DIGEST_LENGTH],
@@ -415,46 +412,15 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 
 		*ofd = -1;
 
-		/*
-		 * Create the temporary file.
-		 * Use a simple scheme of path/.FILE.RANDOM, where we
-		 * fill in RANDOM with an arc4random number.
-		 * The tricky part is getting into the directory if
-		 * we're in recursive mode.
-		 */
+		/* Create the temporary file. */
 
-		hash = arc4random();
-		if (sess->opts->recursive &&
-		    NULL != (cp = strrchr(f->path, '/'))) {
-			dirlen = cp - f->path;
-			if (asprintf(&p->fname, "%.*s/.%s.%" PRIu32,
-			    (int)dirlen, f->path,
-			    f->path + dirlen + 1, hash) < 0)
-				p->fname = NULL;
-		} else {
-			if (asprintf(&p->fname, ".%s.%" PRIu32,
-			    f->path, hash) < 0)
-				p->fname = NULL;
-		}
-		if (p->fname == NULL) {
+		if (mktemplate(&p->fname, f->path, sess->opts->recursive)
+		    == -1) {
 			ERR(sess, "asprintf");
 			goto out;
 		}
 
-		/*
-		 * Inherit permissions from the source file if we're new
-		 * or specifically told with -p.
-		 */
-
-		if (!sess->opts->preserve_perms)
-			perm = -1 == p->ofd ? f->st.mode : st.st_mode;
-		else
-			perm = f->st.mode;
-
-		p->fd = openat(p->rootfd, p->fname,
-			O_APPEND|O_WRONLY|O_CREAT|O_EXCL, perm);
-
-		if (p->fd == -1) {
+		if ((p->fd = mkstempat(p->rootfd, p->fname)) == -1) {
 			ERR(sess, "%s: openat", p->fname);
 			goto out;
 		}
@@ -481,6 +447,7 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 	 * a token indicator.
 	 */
 
+again:
 	assert(p->state == DOWNLOAD_READ_REMOTE);
 	assert(p->fname != NULL);
 	assert(p->fd != -1);
@@ -509,6 +476,15 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 		LOG4(sess, "%s: received %zu B block", p->fname, sz);
 		MD4_Update(&p->ctx, buf, sz);
 		free(buf);
+
+		/* Fast-track more reads as they arrive. */
+
+		if ((c = io_read_check(sess, p->fdin)) < 0) {
+			ERRX1(sess, "io_read_check");
+			goto out;
+		} else if (c > 0)
+			goto again;
+
 		return 1;
 	} else if (rawtok < 0) {
 		tok = -rawtok - 1;
@@ -539,6 +515,15 @@ rsync_downloader(struct download *p, struct sess *sess, int *ofd)
 		p->total += sz;
 		LOG4(sess, "%s: copied %zu B", p->fname, sz);
 		MD4_Update(&p->ctx, buf, sz);
+
+		/* Fast-track more reads as they arrive. */
+
+		if ((c = io_read_check(sess, p->fdin)) < 0) {
+			ERRX1(sess, "io_read_check");
+			goto out;
+		} else if (c > 0)
+			goto again;
+
 		return 1;
 	}
 
