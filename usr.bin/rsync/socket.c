@@ -1,4 +1,4 @@
-/*	$Id: socket.c,v 1.12 2019/02/17 03:16:15 deraadt Exp $ */
+/*	$Id: socket.c,v 1.15 2019/02/17 18:11:50 deraadt Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -116,7 +116,7 @@ inet_resolve(struct sess *sess, const char *host, size_t *sz)
 	hints.ai_family = PF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	error = getaddrinfo(host, "rsync", &hints, &res0);
+	error = getaddrinfo(host, sess->opts->port, &hints, &res0);
 
 	LOG2(sess, "resolving: %s", host);
 
@@ -125,8 +125,8 @@ inet_resolve(struct sess *sess, const char *host, size_t *sz)
 		    host, gai_strerror(error));
 		return NULL;
 	} else if (error == EAI_SERVICE) {
-		ERRX(sess, "Could not resolve service rsync: %s",
-		    gai_strerror(error));
+		ERRX(sess, "Could not resolve service '%s': %s",
+		    sess->opts->port, gai_strerror(error));
 		return NULL;
 	} else if (error) {
 		ERRX(sess, "getaddrinfo: %s: %s", host, gai_strerror(error));
@@ -135,7 +135,7 @@ inet_resolve(struct sess *sess, const char *host, size_t *sz)
 
 	/* Allocate for all available addresses. */
 
-	for (res = res0; NULL != res; res = res->ai_next)
+	for (res = res0; res != NULL; res = res->ai_next)
 		if (res->ai_family == AF_INET ||
 		    res->ai_family == AF_INET6)
 			srcsz++;
@@ -153,7 +153,7 @@ inet_resolve(struct sess *sess, const char *host, size_t *sz)
 		return NULL;
 	}
 
-	for (i = 0, res = res0; NULL != res; res = res->ai_next) {
+	for (i = 0, res = res0; res != NULL; res = res->ai_next) {
 		if (res->ai_family != AF_INET &&
 		    res->ai_family != AF_INET6)
 			continue;
@@ -371,7 +371,7 @@ rsync_socket(const struct opts *opts, const struct fargs *f)
 	else
 		i = 1; /* rsync... */
 
-	for ( ; NULL != args[i]; i++)
+	for ( ; args[i] != NULL; i++)
 		if (!io_write_line(&sess, sd, args[i])) {
 			ERRX1(&sess, "io_write_line");
 			goto out;
@@ -396,10 +396,10 @@ rsync_socket(const struct opts *opts, const struct fargs *f)
 	/* Now we've completed the handshake. */
 
 	if (sess.rver < sess.lver) {
-		ERRX(&sess, "remote protocol is older "
-			"than our own (%" PRId32 " < %" PRId32 "): "
-			"this is not supported",
-			sess.rver, sess.lver);
+		ERRX(&sess,
+		    "remote protocol %d is older than own %d: unsupported\n",
+		    sess.rver, sess.lver);
+		rc = 2;	/* Protocol incompatibility*/		
 		goto out;
 	}
 
