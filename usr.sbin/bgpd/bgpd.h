@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.369 2019/02/15 11:38:06 claudio Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.372 2019/02/18 12:35:08 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -220,11 +220,12 @@ struct bgpd_addr {
 #define	LISTENER_LISTENING	0x02
 
 struct listen_addr {
-	TAILQ_ENTRY(listen_addr)	 entry;
-	struct sockaddr_storage		 sa;
-	int				 fd;
-	enum reconf_action		 reconf;
-	u_int8_t			 flags;
+	TAILQ_ENTRY(listen_addr)	entry;
+	struct sockaddr_storage		sa;
+	int				fd;
+	enum reconf_action		reconf;
+	socklen_t			sa_len;
+	u_int8_t			flags;
 };
 
 TAILQ_HEAD(listen_addrs, listen_addr);
@@ -1181,6 +1182,7 @@ void		 kr_ifinfo(char *);
 void		 kr_net_reload(u_int, u_int64_t, struct network_head *);
 int		 kr_reload(void);
 struct in6_addr	*prefixlen2mask6(u_int8_t prefixlen);
+int		 get_mpe_config(const char *, u_int *, u_int *);
 
 /* log.c */
 void		 log_peer_info(const struct peer_config *, const char *, ...)
@@ -1254,7 +1256,7 @@ int			 set_equal(const struct set_table *,
 /* util.c */
 const char	*log_addr(const struct bgpd_addr *);
 const char	*log_in6addr(const struct in6_addr *);
-const char	*log_sockaddr(struct sockaddr *);
+const char	*log_sockaddr(struct sockaddr *, socklen_t);
 const char	*log_as(u_int32_t);
 const char	*log_rd(u_int64_t);
 const char	*log_ext_subtype(u_int8_t, u_int8_t);
@@ -1288,12 +1290,12 @@ int		 aid2afi(u_int8_t, u_int16_t *, u_int8_t *);
 int		 afi2aid(u_int16_t, u_int8_t, u_int8_t *);
 sa_family_t	 aid2af(u_int8_t);
 int		 af2aid(sa_family_t, u_int8_t, u_int8_t *);
-struct sockaddr	*addr2sa(struct bgpd_addr *, u_int16_t);
+struct sockaddr	*addr2sa(struct bgpd_addr *, u_int16_t, socklen_t *);
 void		 sa2addr(struct sockaddr *, struct bgpd_addr *);
 uint64_t	 ift2ifm(uint8_t);
 const char *	 get_media_descr(uint64_t);
 const char *	 get_linkstate(uint8_t, int);
-const char *	 get_baudrate(u_int64_t, char *);
+const char *	 get_baudrate(unsigned long long, char *);
 
 static const char * const log_procnames[] = {
 	"parent",
