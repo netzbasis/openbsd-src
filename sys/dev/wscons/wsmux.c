@@ -1,4 +1,4 @@
-/*	$OpenBSD: wsmux.c,v 1.39 2019/02/18 17:39:14 anton Exp $	*/
+/*	$OpenBSD: wsmux.c,v 1.41 2019/02/19 07:03:29 anton Exp $	*/
 /*      $NetBSD: wsmux.c,v 1.37 2005/04/30 03:47:12 augustss Exp $      */
 
 /*
@@ -38,7 +38,7 @@
 /*
  * wscons mux device.
  *
- * The mux device is a collection of real mice and keyboards and acts as 
+ * The mux device is a collection of real mice and keyboards and acts as
  * a merge point for all the events from the different real devices.
  */
 
@@ -108,9 +108,12 @@ void	wsmuxattach(int);
 void	wsmux_detach_sc_locked(struct wsmux_softc *, struct wsevsrc *);
 
 struct wssrcops wsmux_srcops = {
-	WSMUX_MUX,
-	wsmux_mux_open, wsmux_mux_close, wsmux_do_ioctl, wsmux_do_displayioctl,
-	wsmux_evsrc_set_display
+	.type		= WSMUX_MUX,
+	.dopen		= wsmux_mux_open,
+	.dclose		= wsmux_mux_close,
+	.dioctl		= wsmux_do_ioctl,
+	.ddispioctl	= wsmux_do_displayioctl,
+	.dsetdisplay	= wsmux_evsrc_set_display,
 };
 
 /* From upper level */
@@ -176,7 +179,7 @@ wsmuxopen(dev_t dev, int flags, int mode, struct proc *p)
 		return (ENXIO);
 
 	DPRINTF(("wsmuxopen: %s: sc=%p p=%p\n", sc->sc_base.me_dv.dv_xname, sc, p));
-	
+
 	if ((flags & (FREAD | FWRITE)) == FWRITE) {
 		/* Not opening for read, only ioctl is available. */
 		return (0);
@@ -824,7 +827,7 @@ wsmux_set_display(struct wsmux_softc *sc, struct device *displaydv)
 	}
 	ok = 0;
 	error = 0;
-	TAILQ_FOREACH(me, &sc->sc_cld,me_next) {
+	TAILQ_FOREACH(me, &sc->sc_cld, me_next) {
 #ifdef DIAGNOSTIC
 		if (me->me_parent != sc) {
 			printf("wsmux_set_display: bad child parent %p\n", me);
