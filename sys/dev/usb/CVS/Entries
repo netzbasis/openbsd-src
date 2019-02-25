@@ -141,9 +141,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.148/Sun Feb 17 15:02:22 2019//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.694/Mon Jan 14 03:28:03 2019//
-/usbdevs.h/1.706/Mon Jan 14 03:28:51 2019//
-/usbdevs_data.h/1.700/Mon Jan 14 03:28:51 2019//
+/usbdevs/1.695/Sun Feb 24 17:35:29 2019//
+/usbdevs.h/1.707/Sun Feb 24 17:35:44 2019//
+/usbdevs_data.h/1.701/Sun Feb 24 17:35:44 2019//
 /usbdi.c/1.100/Sun Nov 18 16:33:26 2018//
 /usbdi.h/1.70/Tue May  1 18:14:46 2018//
 /usbdi_util.c/1.43/Sun Nov 18 16:33:26 2018//
@@ -151,7 +151,7 @@
 /usbdivar.h/1.79/Tue Nov 27 14:56:09 2018//
 /usbhid.h/1.21/Sat Jan  9 04:10:36 2016//
 /usbpcap.h/1.2/Mon Feb 26 13:06:49 2018//
-/uscom.c/1.6/Wed Aug 22 15:32:49 2018//
+/uscom.c/1.7/Sun Feb 24 17:36:28 2019//
 /uslcom.c/1.40/Sat May 20 10:13:42 2017//
 /uslhcom.c/1.6/Sat Apr  8 02:57:25 2017//
 /uslhcomreg.h/1.2/Thu Jan 22 14:33:01 2015//
