@@ -148,13 +148,13 @@ main(int argc, char *argv[])
 
 	if (issetugid()) { /* could later drop privileges */
 		if (pledge("stdio rpath wpath cpath fattr flock getpw proc "
-		    "exec tty id", NULL) == -1) {
+		    "exec tty id unveil", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}
 	} else {
 		if (pledge("stdio rpath wpath cpath fattr flock getpw proc "
-		    "exec tty", NULL) == -1) {
+		    "exec tty unveil", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}

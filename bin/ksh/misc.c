@@ -300,7 +300,7 @@ change_flag(enum sh_flag f,
 		setresuid(ksheuid, ksheuid, ksheuid);
 
 		if (pledge("stdio rpath wpath cpath fattr flock getpw proc "
-		    "exec tty", NULL) == -1)
+		    "exec tty unveil", NULL) == -1)
 			bi_errorf("pledge fail");
 		dropped_privileges = 1;
 	} else if (f == FPOSIX && newval) {
