@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.178 2018/07/30 12:22:14 mpi Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.180 2018/11/19 16:12:06 tedu Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -67,8 +67,6 @@ extern	struct fileops socketops;
 
 int	copyaddrout(struct proc *, struct mbuf *, struct sockaddr *, socklen_t,
 	    socklen_t *);
-
-uint16_t dnsjackport;
 
 int
 sys_socket(struct proc *p, void *v, register_t *retval)
@@ -143,16 +141,6 @@ dns_portcheck(struct proc *p, struct socket *so, void *nam, u_int *namelen)
 			break;
 		if (((struct sockaddr_in *)nam)->sin_port == htons(53))
 			error = 0;
-		if (dnsjackport) {
-			struct sockaddr_in sin;
-			memset(&sin, 0, sizeof(sin));
-			sin.sin_len = sizeof(sin);
-			sin.sin_family = AF_INET;
-			sin.sin_port = htons(dnsjackport);
-			sin.sin_addr.s_addr = INADDR_LOOPBACK;
-			memcpy(nam, &sin, sizeof(sin));
-			*namelen = sizeof(sin);
-		}
 		break;
 #ifdef INET6
 	case AF_INET6:
@@ -160,16 +148,6 @@ dns_portcheck(struct proc *p, struct socket *so, void *nam, u_int *namelen)
 			break;
 		if (((struct sockaddr_in6 *)nam)->sin6_port == htons(53))
 			error = 0;
-		if (dnsjackport) {
-			struct sockaddr_in6 sin6;
-			memset(&sin6, 0, sizeof(sin6));
-			sin6.sin6_len = sizeof(sin6);
-			sin6.sin6_family = AF_INET6;
-			sin6.sin6_port = htons(dnsjackport);
-			sin6.sin6_addr = in6addr_loopback;
-			memcpy(nam, &sin6, sizeof(sin6));
-			*namelen = sizeof(sin6);
-		}
 #endif
 	}
 	if (error && p->p_p->ps_flags & PS_PLEDGE)
@@ -340,6 +318,7 @@ doaccept(struct proc *p, int sock, struct sockaddr *name, socklen_t *anamelen,
 	fp->f_type = DTYPE_SOCKET;
 	fp->f_flag = FREAD | FWRITE | nflag;
 	fp->f_ops = &socketops;
+	fp->f_data = so;
 	error = soaccept(so, nam);
 	if (!error && name != NULL)
 		error = copyaddrout(p, nam, name, namelen, anamelen);
@@ -347,7 +326,6 @@ out:
 	if (!error) {
 		sounlock(head, s);
 		fdplock(fdp);
-		fp->f_data = so;
 		fdinsert(fdp, tmpfd, cloexec, fp);
 		fdpunlock(fdp);
 		FRELE(fp, p);
@@ -356,8 +334,8 @@ out:
 		sounlock(head, s);
 		fdplock(fdp);
 		fdremove(fdp, tmpfd);
-		closef(fp, p);
 		fdpunlock(fdp);
+		closef(fp, p);
 	}
 
 	m_freem(nam);

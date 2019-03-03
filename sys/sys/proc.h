@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.259 2018/08/30 03:30:25 visa Exp $	*/
+/*	$OpenBSD: proc.h,v 1.263 2019/01/06 12:59:45 visa Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -49,6 +49,7 @@
 #include <sys/mutex.h>			/* For struct mutex */
 #include <sys/resource.h>		/* For struct rusage */
 #include <sys/rwlock.h>			/* For struct rwlock */
+#include <sys/sigio.h>			/* For struct sigio */
 #include <sys/tree.h>
 
 #ifdef _KERNEL
@@ -80,6 +81,7 @@ struct	pgrp {
 	LIST_ENTRY(pgrp) pg_hash;	/* Hash chain. */
 	LIST_HEAD(, process) pg_members;/* Pointer to pgrp members. */
 	struct	session *pg_session;	/* Pointer to session. */
+	struct	sigiolst pg_sigiolst;	/* List of sigio structures. */
 	pid_t	pg_id;			/* Pgrp id. */
 	int	pg_jobc;	/* # procs qualifying pgrp for job control */
 };
@@ -170,6 +172,7 @@ struct process {
 	LIST_HEAD(, process) ps_children;/* Pointer to list of children. */
 	LIST_ENTRY(process) ps_hash;    /* Hash chain. */
 
+	struct	sigiolst ps_sigiolst;	/* List of sigio structures. */
 	struct	sigacts *ps_sigacts;	/* Signal actions, state */
 	struct	vnode *ps_textvp;	/* Vnode of executable. */
 	struct	filedesc *ps_fd;	/* Ptr to open files structure */
@@ -199,16 +202,16 @@ struct process {
 	struct	tusage ps_tu;		/* accumulated times. */
 	struct	rusage ps_cru;		/* sum of stats for reaped children */
 	struct	itimerval ps_timer[3];	/* timers, indexed by ITIMER_* */
+	struct	timeout ps_rucheck_to;	/* resource limit check timer */
 
 	u_int64_t ps_wxcounter;
 
 	struct unveil *ps_uvpaths;	/* unveil vnodes and names */
 	struct unveil *ps_uvpcwd;	/* pointer to unveil of cwd, NULL if none */
-	size_t ps_uvvcount;		/* count of unveil vnodes held */
+	ssize_t ps_uvvcount;		/* count of unveil vnodes held */
 	size_t ps_uvncount;		/* count of unveil names allocated */
 	int ps_uvshrink;		/* do we need to shrink vnode list */
 	int ps_uvdone;			/* no more unveil is permitted */
-	int ps_uvpcwdgone;		/* need to reevaluate cwd unveil */
 
 /* End area that is zeroed on creation. */
 #define	ps_endzero	ps_startcopy
@@ -428,6 +431,7 @@ struct proc {
 
 struct unveil {
 	struct vnode		*uv_vp;
+	ssize_t			uv_cover;
 	struct unvname_rbt	uv_names;
 	struct rwlock		uv_lock;
 	u_char			uv_flags;

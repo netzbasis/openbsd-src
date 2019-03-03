@@ -1,4 +1,4 @@
-/Makefile/1.51/Sun Oct 15 12:15:30 2017//
+/Makefile/1.52/Sun Dec 16 15:36:27 2018//
 D/_setjmp////
 D/alloca////
 D/arc4random-fork////
@@ -15,6 +15,7 @@ D/explicit_bzero////
 D/fmemopen////
 D/fnmatch////
 D/fpclassify////
+D/fread////
 D/gcvt////
 D/getaddrinfo////
 D/getcap////

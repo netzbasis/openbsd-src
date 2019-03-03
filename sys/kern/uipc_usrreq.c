@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.134 2018/07/09 10:58:21 claudio Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.139 2019/02/13 11:55:21 martijn Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -108,6 +108,7 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
 	struct unpcb *unp = sotounpcb(so);
+	struct unpcb *unp2;
 	struct socket *so2;
 	int error = 0;
 
@@ -141,6 +142,17 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 	case PRU_CONNECT2:
 		error = unp_connect2(so, (struct socket *)nam);
+		if (!error) {
+			unp->unp_connid.uid = p->p_ucred->cr_uid;
+			unp->unp_connid.gid = p->p_ucred->cr_gid;
+			unp->unp_connid.pid = p->p_p->ps_pid;
+			unp->unp_flags |= UNP_FEIDS;
+			unp2 = sotounpcb((struct socket *)nam);
+			unp2->unp_connid.uid = p->p_ucred->cr_uid;
+			unp2->unp_connid.gid = p->p_ucred->cr_gid;
+			unp2->unp_connid.pid = p->p_p->ps_pid;
+			unp2->unp_flags |= UNP_FEIDS;
+		}
 		break;
 
 	case PRU_DISCONNECT:
@@ -285,12 +297,10 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		    sb->st_mtim.tv_nsec =
 		    sb->st_ctim.tv_nsec = unp->unp_ctime.tv_nsec;
 		sb->st_ino = unp->unp_ino;
-		return (0);
+		break;
 	}
 
 	case PRU_RCVOOB:
-		return (EOPNOTSUPP);
-
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
@@ -310,8 +320,10 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		panic("uipc_usrreq");
 	}
 release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -663,6 +675,13 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 	struct file *fp;
 	int nfds, error = 0;
 
+	/*
+	 * This code only works because SCM_RIGHTS is the only supported
+	 * control message type on unix sockets. Enforce this here.
+	 */
+	if (cm->cmsg_type != SCM_RIGHTS || cm->cmsg_level != SOL_SOCKET)
+		return EINVAL;
+
 	nfds = (cm->cmsg_len - CMSG_ALIGN(sizeof(*cm))) /
 	    sizeof(struct fdpass);
 	if (controllen < CMSG_ALIGN(sizeof(struct cmsghdr)))
@@ -800,6 +819,8 @@ unp_internalize(struct mbuf *control, struct proc *p)
 	 * Check for two potential msg_controllen values because
 	 * IETF stuck their nose in a place it does not belong.
 	 */ 
+	if (control->m_len < CMSG_LEN(0) || cm->cmsg_len < CMSG_LEN(0))
+		return (EINVAL);
 	if (cm->cmsg_type != SCM_RIGHTS || cm->cmsg_level != SOL_SOCKET ||
 	    !(cm->cmsg_len == control->m_len ||
 	    control->m_len == CMSG_ALIGN(cm->cmsg_len)))
@@ -813,7 +834,7 @@ unp_internalize(struct mbuf *control, struct proc *p)
 morespace:
 	neededspace = CMSG_SPACE(nfds * sizeof(struct fdpass)) -
 	    control->m_len;
-	if (neededspace > M_TRAILINGSPACE(control)) {
+	if (neededspace > m_trailingspace(control)) {
 		char *tmp;
 		/* if we already have a cluster, the message is just too big */
 		if (control->m_flags & M_EXT)
@@ -1089,7 +1110,7 @@ unp_nam2sun(struct mbuf *nam, struct sockaddr_un **sun, size_t *pathlen)
 	if (len == sizeof((*sun)->sun_path))
 		return EINVAL;
 	if (len == size) {
-		if (M_TRAILINGSPACE(nam) == 0)
+		if (m_trailingspace(nam) == 0)
 			return EINVAL;
 		nam->m_len++;
 		(*sun)->sun_len++;

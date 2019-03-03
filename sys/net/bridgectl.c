@@ -1,4 +1,4 @@
-/*	$OpenBSD: bridgectl.c,v 1.10 2018/10/22 13:18:23 mpi Exp $	*/
+/*	$OpenBSD: bridgectl.c,v 1.16 2019/02/20 17:11:51 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -55,7 +55,7 @@ int	bridge_rtfind(struct bridge_softc *, struct ifbaconf *);
 int	bridge_rtdaddr(struct bridge_softc *, struct ether_addr *);
 u_int32_t bridge_hash(struct bridge_softc *, struct ether_addr *);
 
-int	bridge_brlconf(struct bridge_softc *, struct ifbrlconf *);
+int	bridge_brlconf(struct bridge_iflist *, struct ifbrlconf *);
 int	bridge_addrule(struct bridge_iflist *, struct ifbrlreq *, int out);
 
 int
@@ -64,6 +64,7 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct bridge_softc *sc = (struct bridge_softc *)ifp->if_softc;
 	struct ifbreq *req = (struct ifbreq *)data;
 	struct ifbrlreq *brlreq = (struct ifbrlreq *)data;
+	struct ifbrlconf *bc = (struct ifbrlconf *)data;
 	struct ifbareq *bareq = (struct ifbareq *)data;
 	struct ifbrparam *bparam = (struct ifbrparam *)data;
 	struct bridge_iflist *bif;
@@ -89,9 +90,8 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 
-		ifs = bridge_rtupdate(sc, &bareq->ifba_dst, ifs, 1,
-		    bareq->ifba_flags, NULL);
-		if (ifs == NULL)
+		if (bridge_rtupdate(sc, &bareq->ifba_dst, ifs, 1,
+		    bareq->ifba_flags, NULL))
 			error = ENOMEM;
 		break;
 	case SIOCBRDGDADDR:
@@ -101,7 +101,9 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		bparam->ifbrp_csize = sc->sc_brtmax;
 		break;
 	case SIOCBRDGSCACHE:
+		mtx_enter(&sc->sc_mtx);
 		sc->sc_brtmax = bparam->ifbrp_csize;
+		mtx_leave(&sc->sc_mtx);
 		break;
 	case SIOCBRDGSTO:
 		if (bparam->ifbrp_ctime < 0 ||
@@ -160,7 +162,17 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		bridge_flushrule(bif);
 		break;
 	case SIOCBRDGGRL:
-		error = bridge_brlconf(sc, (struct ifbrlconf *)data);
+		ifs = ifunit(bc->ifbrl_ifsname);
+		if (ifs == NULL) {
+			error = ENOENT;
+			break;
+		}
+		bif = (struct bridge_iflist *)ifs->if_bridgeport;
+		if (bif == NULL || bif->bridge_sc != sc) {
+			error = ESRCH;
+			break;
+		}
+		error = bridge_brlconf(bif, bc);
 		break;
 	default:
 		break;
@@ -169,14 +181,14 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	return (error);
 }
 
-struct ifnet *
+int
 bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
     struct ifnet *ifp, int setflags, u_int8_t flags, struct mbuf *m)
 {
 	struct bridge_rtnode *p, *q;
 	struct bridge_tunneltag	*brtag = NULL;
 	u_int32_t h;
-	int dir;
+	int dir, error = 0;
 
 	if (m != NULL) {
 		/* Check if the mbuf was tagged with a tunnel endpoint addr */
@@ -184,6 +196,7 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 	}
 
 	h = bridge_hash(sc, ea);
+	mtx_enter(&sc->sc_mtx);
 	p = LIST_FIRST(&sc->sc_rts[h]);
 	if (p == NULL) {
 		if (sc->sc_brtcnt >= sc->sc_brtmax)
@@ -272,28 +285,33 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 	} while (p != NULL);
 
 done:
-	ifp = NULL;
+	error = 1;
 want:
-	return (ifp);
+	mtx_leave(&sc->sc_mtx);
+	return (error);
 }
 
 struct bridge_rtnode *
 bridge_rtlookup(struct bridge_softc *sc, struct ether_addr *ea)
 {
-	struct bridge_rtnode *p;
+	struct bridge_rtnode *p = NULL;
 	u_int32_t h;
 	int dir;
 
 	h = bridge_hash(sc, ea);
+	mtx_enter(&sc->sc_mtx);
 	LIST_FOREACH(p, &sc->sc_rts[h], brt_next) {
 		dir = memcmp(ea, &p->brt_addr, sizeof(p->brt_addr));
 		if (dir == 0)
-			return (p);
-		if (dir > 0)
-			goto fail;
+			break;
+		if (dir > 0) {
+			p = NULL;
+			break;
+		}
 	}
-fail:
-	return (NULL);
+	mtx_leave(&sc->sc_mtx);
+
+	return (p);
 }
 
 u_int32_t
@@ -310,11 +328,14 @@ void
 bridge_rtage(void *vsc)
 {
 	struct bridge_softc *sc = vsc;
+	struct ifnet *ifp = &sc->sc_if;
 	struct bridge_rtnode *n, *p;
 	int i;
 
-	KERNEL_ASSERT_LOCKED();
+	if (!ISSET(ifp->if_flags, IFF_RUNNING))
+		return;
 
+	mtx_enter(&sc->sc_mtx);
 	for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 		n = LIST_FIRST(&sc->sc_rts[i]);
 		while (n != NULL) {
@@ -335,6 +356,7 @@ bridge_rtage(void *vsc)
 			}
 		}
 	}
+	mtx_leave(&sc->sc_mtx);
 
 	if (sc->sc_brttimeout != 0)
 		timeout_add_sec(&sc->sc_brtimeout, sc->sc_brttimeout);
@@ -344,10 +366,14 @@ void
 bridge_rtagenode(struct ifnet *ifp, int age)
 {
 	struct bridge_softc *sc;
+	struct bridge_iflist *bif;
 	struct bridge_rtnode *n;
 	int i;
 
-	sc = ((struct bridge_iflist *)ifp->if_bridgeport)->bridge_sc;
+	bif = (struct bridge_iflist *)ifp->if_bridgeport;
+	if (bif == NULL)
+		return;
+	sc = bif->bridge_sc;
 	if (sc == NULL)
 		return;
 
@@ -358,6 +384,7 @@ bridge_rtagenode(struct ifnet *ifp, int age)
 	if (age == 0)
 		bridge_rtdelete(sc, ifp, 1);
 	else {
+		mtx_enter(&sc->sc_mtx);
 		for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 			LIST_FOREACH(n, &sc->sc_rts[i], brt_next) {
 				/* Cap the expiry time to 'age' */
@@ -367,6 +394,7 @@ bridge_rtagenode(struct ifnet *ifp, int age)
 					n->brt_age = time_uptime + age;
 			}
 		}
+		mtx_leave(&sc->sc_mtx);
 	}
 }
 
@@ -379,6 +407,7 @@ bridge_rtflush(struct bridge_softc *sc, int full)
 	int i;
 	struct bridge_rtnode *p, *n;
 
+	mtx_enter(&sc->sc_mtx);
 	for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 		n = LIST_FIRST(&sc->sc_rts[i]);
 		while (n != NULL) {
@@ -393,6 +422,7 @@ bridge_rtflush(struct bridge_softc *sc, int full)
 				n = LIST_NEXT(n, brt_next);
 		}
 	}
+	mtx_leave(&sc->sc_mtx);
 }
 
 /*
@@ -405,14 +435,17 @@ bridge_rtdaddr(struct bridge_softc *sc, struct ether_addr *ea)
 	struct bridge_rtnode *p;
 
 	h = bridge_hash(sc, ea);
+	mtx_enter(&sc->sc_mtx);
 	LIST_FOREACH(p, &sc->sc_rts[h], brt_next) {
 		if (memcmp(ea, &p->brt_addr, sizeof(p->brt_addr)) == 0) {
 			LIST_REMOVE(p, brt_next);
 			sc->sc_brtcnt--;
+			mtx_leave(&sc->sc_mtx);
 			free(p, M_DEVBUF, sizeof *p);
 			return (0);
 		}
 	}
+	mtx_leave(&sc->sc_mtx);
 
 	return (ENOENT);
 }
@@ -430,6 +463,7 @@ bridge_rtdelete(struct bridge_softc *sc, struct ifnet *ifp, int dynonly)
 	 * Loop through all of the hash buckets and traverse each
 	 * chain looking for routes to this interface.
 	 */
+	mtx_enter(&sc->sc_mtx);
 	for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 		n = LIST_FIRST(&sc->sc_rts[i]);
 		while (n != NULL) {
@@ -451,6 +485,7 @@ bridge_rtdelete(struct bridge_softc *sc, struct ifnet *ifp, int dynonly)
 			n = p;
 		}
 	}
+	mtx_leave(&sc->sc_mtx);
 }
 
 /*
@@ -459,40 +494,53 @@ bridge_rtdelete(struct bridge_softc *sc, struct ifnet *ifp, int dynonly)
 int
 bridge_rtfind(struct bridge_softc *sc, struct ifbaconf *baconf)
 {
-	int i, error = 0, onlycnt = 0;
-	u_int32_t cnt = 0;
+	struct ifbareq *bareq, *bareqs = NULL;
 	struct bridge_rtnode *n;
-	struct ifbareq bareq;
+	u_int32_t i = 0, total = 0;
+	int k, error = 0;
 
-	if (baconf->ifbac_len == 0)
-		onlycnt = 1;
+	mtx_enter(&sc->sc_mtx);
+	for (k = 0; k < BRIDGE_RTABLE_SIZE; k++) {
+		LIST_FOREACH(n, &sc->sc_rts[k], brt_next)
+			total++;
+	}
+	mtx_leave(&sc->sc_mtx);
 
-	for (i = 0, cnt = 0; i < BRIDGE_RTABLE_SIZE; i++) {
-		LIST_FOREACH(n, &sc->sc_rts[i], brt_next) {
-			if (!onlycnt) {
-				if (baconf->ifbac_len < sizeof(struct ifbareq))
-					goto done;
-				bcopy(sc->sc_if.if_xname, bareq.ifba_name,
-				    sizeof(bareq.ifba_name));
-				bcopy(n->brt_if->if_xname, bareq.ifba_ifsname,
-				    sizeof(bareq.ifba_ifsname));
-				bcopy(&n->brt_addr, &bareq.ifba_dst,
-				    sizeof(bareq.ifba_dst));
-				bridge_copyaddr(&n->brt_tunnel.brtag_peer.sa,
-				    sstosa(&bareq.ifba_dstsa));
-				bareq.ifba_age = n->brt_age;
-				bareq.ifba_flags = n->brt_flags;
-				error = copyout((caddr_t)&bareq,
-				    (caddr_t)(baconf->ifbac_req + cnt), sizeof(bareq));
-				if (error)
-					goto done;
-				baconf->ifbac_len -= sizeof(struct ifbareq);
-			}
-			cnt++;
+	if (baconf->ifbac_len == 0) {
+		i = total;
+		goto done;
+	}
+
+	total = MIN(total, baconf->ifbac_len / sizeof(*bareqs));
+	bareqs = mallocarray(total, sizeof(*bareqs), M_TEMP, M_NOWAIT|M_ZERO);
+	if (bareqs == NULL)
+		goto done;
+
+	mtx_enter(&sc->sc_mtx);
+	for (k = 0; k < BRIDGE_RTABLE_SIZE; k++) {
+		LIST_FOREACH(n, &sc->sc_rts[k], brt_next) {
+			if (i >= total)
+				goto done;
+			bareq = &bareqs[i];
+			bcopy(sc->sc_if.if_xname, bareq->ifba_name,
+			    sizeof(bareq->ifba_name));
+			bcopy(n->brt_if->if_xname, bareq->ifba_ifsname,
+			    sizeof(bareq->ifba_ifsname));
+			bcopy(&n->brt_addr, &bareq->ifba_dst,
+			    sizeof(bareq->ifba_dst));
+			bridge_copyaddr(&n->brt_tunnel.brtag_peer.sa,
+			    sstosa(&bareq->ifba_dstsa));
+			bareq->ifba_age = n->brt_age;
+			bareq->ifba_flags = n->brt_flags;
+			i++;
 		}
 	}
+	mtx_leave(&sc->sc_mtx);
+
+	error = copyout(bareqs, baconf->ifbac_req, i * sizeof(*bareqs));
 done:
-	baconf->ifbac_len = cnt * sizeof(struct ifbareq);
+	free(bareqs, M_TEMP, total * sizeof(*bareqs));
+	baconf->ifbac_len = i * sizeof(*bareqs);
 	return (error);
 }
 
@@ -506,7 +554,11 @@ bridge_update(struct ifnet *ifp, struct ether_addr *ea, int delete)
 	addr = (u_int8_t *)ea;
 
 	bif = (struct bridge_iflist *)ifp->if_bridgeport;
+	if (bif == NULL)
+		return;
 	sc = bif->bridge_sc;
+	if (sc == NULL)
+		return;
 
 	/*
 	 * Update the bridge interface if it is in
@@ -535,21 +587,13 @@ bridge_update(struct ifnet *ifp, struct ether_addr *ea, int delete)
  * bridge filter/matching rules
  */
 int
-bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
+bridge_brlconf(struct bridge_iflist *bif, struct ifbrlconf *bc)
 {
-	struct ifnet *ifp;
-	struct bridge_iflist *bif;
+	struct bridge_softc *sc = bif->bridge_sc;
 	struct brl_node *n;
-	struct ifbrlreq req;
+	struct ifbrlreq *req, *reqs = NULL;
 	int error = 0;
 	u_int32_t i = 0, total = 0;
-
-	ifp = ifunit(bc->ifbrl_ifsname);
-	if (ifp == NULL)
-		return (ENOENT);
-	bif = (struct bridge_iflist *)ifp->if_bridgeport;
-	if (bif == NULL || bif->bridge_sc != sc)
-		return (ESRCH);
 
 	SIMPLEQ_FOREACH(n, &bif->bif_brlin, brl_next) {
 		total++;
@@ -563,56 +607,52 @@ bridge_brlconf(struct bridge_softc *sc, struct ifbrlconf *bc)
 		goto done;
 	}
 
+	reqs = mallocarray(total, sizeof(*reqs), M_TEMP, M_NOWAIT|M_ZERO);
+	if (reqs == NULL)
+		goto done;
+
 	SIMPLEQ_FOREACH(n, &bif->bif_brlin, brl_next) {
-		bzero(&req, sizeof req);
-		if (bc->ifbrl_len < sizeof(req))
+		if (bc->ifbrl_len < (i + 1) * sizeof(*reqs))
 			goto done;
-		strlcpy(req.ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
-		strlcpy(req.ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
-		req.ifbr_action = n->brl_action;
-		req.ifbr_flags = n->brl_flags;
-		req.ifbr_src = n->brl_src;
-		req.ifbr_dst = n->brl_dst;
-		req.ifbr_arpf = n->brl_arpf;
+		req = &reqs[i];
+		strlcpy(req->ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
+		strlcpy(req->ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
+		req->ifbr_action = n->brl_action;
+		req->ifbr_flags = n->brl_flags;
+		req->ifbr_src = n->brl_src;
+		req->ifbr_dst = n->brl_dst;
+		req->ifbr_arpf = n->brl_arpf;
 #if NPF > 0
-		req.ifbr_tagname[0] = '\0';
+		req->ifbr_tagname[0] = '\0';
 		if (n->brl_tag)
-			pf_tag2tagname(n->brl_tag, req.ifbr_tagname);
+			pf_tag2tagname(n->brl_tag, req->ifbr_tagname);
 #endif
-		error = copyout((caddr_t)&req,
-		    (caddr_t)(bc->ifbrl_buf + (i * sizeof(req))), sizeof(req));
-		if (error)
-			goto done;
 		i++;
-		bc->ifbrl_len -= sizeof(req);
 	}
 
 	SIMPLEQ_FOREACH(n, &bif->bif_brlout, brl_next) {
-		bzero(&req, sizeof req);
-		if (bc->ifbrl_len < sizeof(req))
+		if (bc->ifbrl_len < (i + 1) * sizeof(*reqs))
 			goto done;
-		strlcpy(req.ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
-		strlcpy(req.ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
-		req.ifbr_action = n->brl_action;
-		req.ifbr_flags = n->brl_flags;
-		req.ifbr_src = n->brl_src;
-		req.ifbr_dst = n->brl_dst;
-		req.ifbr_arpf = n->brl_arpf;
+		req = &reqs[i];
+		strlcpy(req->ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
+		strlcpy(req->ifbr_ifsname, bif->ifp->if_xname, IFNAMSIZ);
+		req->ifbr_action = n->brl_action;
+		req->ifbr_flags = n->brl_flags;
+		req->ifbr_src = n->brl_src;
+		req->ifbr_dst = n->brl_dst;
+		req->ifbr_arpf = n->brl_arpf;
 #if NPF > 0
-		req.ifbr_tagname[0] = '\0';
+		req->ifbr_tagname[0] = '\0';
 		if (n->brl_tag)
-			pf_tag2tagname(n->brl_tag, req.ifbr_tagname);
+			pf_tag2tagname(n->brl_tag, req->ifbr_tagname);
 #endif
-		error = copyout((caddr_t)&req,
-		    (caddr_t)(bc->ifbrl_buf + (i * sizeof(req))), sizeof(req));
-		if (error)
-			goto done;
 		i++;
-		bc->ifbrl_len -= sizeof(req);
 	}
 
+	error = copyout(reqs, bc->ifbrl_buf, i * sizeof(*reqs));
 done:
-	bc->ifbrl_len = i * sizeof(req);
+	free(reqs, M_TEMP, total * sizeof(*reqs));
+	bc->ifbrl_len = i * sizeof(*reqs);
 	return (error);
 }
 

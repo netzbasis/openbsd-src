@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfd.c,v 1.100 2018/08/29 08:43:17 remi Exp $ */
+/*	$OpenBSD: ospfd.c,v 1.105 2019/01/15 22:18:10 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -215,7 +215,7 @@ main(int argc, char *argv[])
 	log_setverbose(ospfd_conf->opts & OSPFD_OPT_VERBOSE);
 
 	if ((control_check(ospfd_conf->csock)) == -1)
-		fatalx("control socket check failed");
+		fatalx("ospfd already running");
 
 	if (!debug)
 		daemon(1, 0);
@@ -278,8 +278,16 @@ main(int argc, char *argv[])
 		fatalx("control socket setup failed");
 	main_imsg_compose_ospfe_fd(IMSG_CONTROLFD, 0, control_fd);
 
+	if (unveil("/", "r") == -1)
+		fatal("unveil");
+	if (unveil(ospfd_conf->csock, "c") == -1)
+		fatal("unveil");
+	if (unveil(NULL, NULL) == -1)
+		fatal("unveil");
+
 	if (kr_init(!(ospfd_conf->flags & OSPFD_FLAG_NO_FIB_UPDATE),
-	    ospfd_conf->rdomain, ospfd_conf->redist_label_or_prefix) == -1)
+	    ospfd_conf->rdomain, ospfd_conf->redist_label_or_prefix,
+	    ospfd_conf->fib_priority) == -1)
 		fatalx("kr_init failed");
 
 	/* remove unneeded stuff from config */
@@ -556,7 +564,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 		switch (r->type & ~REDIST_NO) {
 		case REDIST_LABEL:
 			if (kr->rtlabel == r->label) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -571,7 +580,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			if (kr->flags & F_DYNAMIC)
 				continue;
 			if (kr->flags & F_STATIC) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -581,7 +591,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			if (kr->flags & F_DYNAMIC)
 				continue;
 			if (kr->flags & F_CONNECTED) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -593,7 +604,7 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			    r->mask.s_addr == INADDR_ANY) {
 				if (is_default) {
 					*metric = depend_ok ? r->metric :
-					    MAX_METRIC;
+					    r->metric | MAX_METRIC;
 					return (r->type & REDIST_NO ? 0 : 1);
 				} else
 					return (0);
@@ -602,13 +613,15 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			if ((kr->prefix.s_addr & r->mask.s_addr) ==
 			    (r->addr.s_addr & r->mask.s_addr) &&
 			    kr->prefixlen >= mask2prefixlen(r->mask.s_addr)) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
 		case REDIST_DEFAULT:
 			if (is_default) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -700,6 +713,15 @@ merge_config(struct ospfd_conf *conf, struct ospfd_conf *xconf)
 			SIMPLEQ_REMOVE_HEAD(&xconf->redist_list, entry);
 			SIMPLEQ_INSERT_TAIL(&conf->redist_list, r, entry);
 		}
+
+		/* adjust FIB priority if changed */
+		if (conf->fib_priority != xconf->fib_priority) {
+			kr_fib_decouple();
+			kr_fib_update_prio(xconf->fib_priority);
+			conf->fib_priority = xconf->fib_priority;
+			kr_fib_couple();
+		}
+
 		goto done;
 	}
 
@@ -810,7 +832,7 @@ merge_interfaces(struct area *a, struct area *xa)
 
 	/* problems:
 	 * - new interfaces (easy)
-	 * - deleted interfaces (needs to be done via fsm?)
+	 * - deleted interfaces
 	 * - changing passive (painful?)
 	 */
 	for (i = LIST_FIRST(&a->iface_list); i != NULL; i = ni) {
@@ -825,6 +847,7 @@ merge_interfaces(struct area *a, struct area *xa)
 				rde_nbr_iface_del(i);
 			LIST_REMOVE(i, entry);
 			if_del(i);
+			dirty = 1; /* force rtr LSA update */
 		}
 	}
 

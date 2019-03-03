@@ -1,4 +1,4 @@
-/* $OpenBSD: wsevent.c,v 1.17 2017/04/11 14:43:49 dhill Exp $ */
+/* $OpenBSD: wsevent.c,v 1.19 2019/02/01 17:23:08 anton Exp $ */
 /* $NetBSD: wsevent.c,v 1.16 2003/08/07 16:31:29 agc Exp $ */
 
 /*
@@ -111,6 +111,8 @@ wsevent_init(struct wseventvar *ev)
 	ev->get = ev->put = 0;
 	ev->q = malloc(WSEVENT_QSIZE * sizeof(struct wscons_event),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
+
+	sigio_init(&ev->sigio);
 }
 
 /*
@@ -125,8 +127,10 @@ wsevent_fini(struct wseventvar *ev)
 #endif
 		return;
 	}
-	free(ev->q, M_DEVBUF, 0);
+	free(ev->q, M_DEVBUF, WSEVENT_QSIZE * sizeof(struct wscons_event));
 	ev->q = NULL;
+
+	sigio_free(&ev->sigio);
 }
 
 /*

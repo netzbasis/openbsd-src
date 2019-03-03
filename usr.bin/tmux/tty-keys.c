@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.104 2018/10/18 08:04:14 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.106 2019/02/16 19:04:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -464,6 +464,10 @@ tty_keys_find(struct tty *tty, const char *buf, size_t len, size_t *size)
 static struct tty_key *
 tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 {
+	/* If no data, no match. */
+	if (len == 0)
+		return (NULL);
+
 	/* If the node is NULL, this is the end of the tree. No match. */
 	if (tk == NULL)
 		return (NULL);
@@ -624,7 +628,7 @@ first_key:
 	 * If not a complete key, look for key with an escape prefix (meta
 	 * modifier).
 	 */
-	if (*buf == '\033') {
+	if (*buf == '\033' && len > 1) {
 		/* Look for a key without the escape. */
 		n = tty_keys_next1(tty, buf + 1, len - 1, &key, &size, expired);
 		if (n == 0) {	/* found */

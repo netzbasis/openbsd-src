@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.849 2018/10/18 08:38:01 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.853 2019/02/16 11:42:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -52,6 +52,7 @@ struct options_entry;
 struct session;
 struct tmuxpeer;
 struct tmuxproc;
+struct winlink;
 
 /* Client-server protocol version. */
 #define PROTOCOL_VERSION 8
@@ -543,6 +544,9 @@ enum utf8_state {
 #define COLOUR_FLAG_256 0x01000000
 #define COLOUR_FLAG_RGB 0x02000000
 
+/* Special colours. */
+#define COLOUR_DEFAULT(c) ((c) == 8 || (c) == 9)
+
 /* Grid attributes. Anything above 0xff is stored in an extended cell. */
 #define GRID_ATTR_BRIGHT 0x1
 #define GRID_ATTR_DIM 0x2
@@ -696,11 +700,12 @@ struct window_mode {
 	void		 (*free)(struct window_pane *);
 	void		 (*resize)(struct window_pane *, u_int, u_int);
 	void		 (*key)(struct window_pane *, struct client *,
-			     struct session *, key_code, struct mouse_event *);
+			     struct session *, struct winlink *, key_code,
+			     struct mouse_event *);
 
 	const char	*(*key_table)(struct window_pane *);
 	void		 (*command)(struct window_pane *, struct client *,
-			     struct session *, struct args *,
+			     struct session *, struct winlink *, struct args *,
 			     struct mouse_event *);
 };
 #define WINDOW_MODE_TIMEOUT 180
@@ -1503,6 +1508,7 @@ extern int		 ptm_fd;
 extern const char	*shell_command;
 int		 areshell(const char *);
 void		 setblocking(int, int);
+const char	*find_cwd(void);
 const char	*find_home(void);
 
 /* proc.c */
@@ -1521,6 +1527,7 @@ void	proc_toggle_log(struct tmuxproc *);
 
 /* cfg.c */
 extern int cfg_finished;
+extern struct client *cfg_client;
 void	start_cfg(void);
 int	load_cfg(const char *, struct client *, struct cmdq_item *, int);
 void	set_cfg_file(const char *);
@@ -2189,7 +2196,8 @@ int		 window_pane_set_mode(struct window_pane *,
 		     struct args *);
 void		 window_pane_reset_mode(struct window_pane *);
 void		 window_pane_key(struct window_pane *, struct client *,
-		     struct session *, key_code, struct mouse_event *);
+		     struct session *, struct winlink *, key_code,
+		     struct mouse_event *);
 int		 window_pane_visible(struct window_pane *);
 u_int		 window_pane_search(struct window_pane *, const char *);
 const char	*window_printable_flags(struct winlink *);

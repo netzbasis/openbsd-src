@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6d.c,v 1.39 2018/09/01 19:21:10 remi Exp $ */
+/*	$OpenBSD: ospf6d.c,v 1.43 2019/01/15 22:18:10 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -211,7 +211,7 @@ main(int argc, char *argv[])
 	log_setverbose(ospfd_conf->opts & OSPFD_OPT_VERBOSE);
 
 	if ((control_check(ospfd_conf->csock)) == -1)
-		fatalx("control socket check failed");
+		fatalx("ospf6d already running");
 
 	if (!debug)
 		daemon(1, 0);
@@ -274,8 +274,13 @@ main(int argc, char *argv[])
 		fatalx("control socket setup failed");
 	main_imsg_compose_ospfe_fd(IMSG_CONTROLFD, 0, control_fd);
 
+	if (unveil(ospfd_conf->csock, "c") == -1)
+		fatal("unveil");
+	if (unveil(NULL, NULL) == -1)
+		fatal("unveil");
+
 	if (kr_init(!(ospfd_conf->flags & OSPFD_FLAG_NO_FIB_UPDATE),
-	    ospfd_conf->rdomain) == -1)
+	    ospfd_conf->rdomain, ospfd_conf->fib_priority) == -1)
 		fatalx("kr_init failed");
 
 	event_dispatch();
@@ -529,7 +534,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 		switch (r->type & ~REDIST_NO) {
 		case REDIST_LABEL:
 			if (kr->rtlabel == r->label) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -544,7 +550,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			if (kr->flags & F_DYNAMIC)
 				continue;
 			if (kr->flags & F_STATIC) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -554,7 +561,8 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			if (kr->flags & F_DYNAMIC)
 				continue;
 			if (kr->flags & F_CONNECTED) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
@@ -566,7 +574,7 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			    r->prefixlen == 0) {
 				if (is_default) {
 					*metric = depend_ok ? r->metric :
-					    MAX_METRIC;
+					    r->metric | MAX_METRIC;
 					return (r->type & REDIST_NO ? 0 : 1);
 				} else
 					return (0);
@@ -576,13 +584,15 @@ ospf_redistribute(struct kroute *kr, u_int32_t *metric)
 			inet6applymask(&inb, &r->addr, r->prefixlen);
 			if (IN6_ARE_ADDR_EQUAL(&ina, &inb) &&
 			    kr->prefixlen >= r->prefixlen) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;
 		case REDIST_DEFAULT:
 			if (is_default) {
-				*metric = depend_ok ? r->metric : MAX_METRIC;
+				*metric = depend_ok ? r->metric :
+				    r->metric | MAX_METRIC;
 				return (r->type & REDIST_NO ? 0 : 1);
 			}
 			break;

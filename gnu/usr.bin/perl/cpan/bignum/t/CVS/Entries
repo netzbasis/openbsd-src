@@ -1,5 +1,5 @@
 /big_e_pi.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
-/bigexp.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
+/bigexp.t/1.4/Wed Feb 13 21:15:18 2019/-ko/
 /bigint.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /bignum.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /bigrat.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
@@ -11,13 +11,13 @@
 /br_lite.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /brinfnan.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /in_effect.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
-/infnan.inc/1.3/Sun Feb  5 00:32:06 2017/-ko/
+/infnan.inc/1.4/Wed Feb 13 21:15:18 2019/-ko/
 /option_a.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /option_l.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /option_p.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /overrides.t/1.1/Sun Feb  5 00:32:06 2017/-ko/
 /ratopt_a.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
-/scope_f.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
+/scope_f.t/1.4/Wed Feb 13 21:15:18 2019/-ko/
 /scope_i.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 /scope_r.t/1.3/Sun Feb  5 00:32:06 2017/-ko/
 D

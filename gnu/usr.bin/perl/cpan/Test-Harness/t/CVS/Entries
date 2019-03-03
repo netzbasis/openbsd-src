@@ -3,6 +3,7 @@
 /base.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /callbacks.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /console.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
+/env_opts.t/1.1.1.1/Wed Feb 13 21:11:20 2019/-ko/
 /errors.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /file.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /glob-to-regexp.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
@@ -10,11 +11,11 @@
 /harness-bailout.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /harness-subclass.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /harness.t/1.1.1.4/Mon Nov 17 20:52:59 2014/-ko/
-/iterator_factory.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
+/iterator_factory.t/1.1.1.3/Wed Feb 13 21:11:20 2019/-ko/
 /iterators.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /multiplexer.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /nested.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
-/nofork-mux.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
+/nofork-mux.t/1.1.1.4/Wed Feb 13 21:11:20 2019/-ko/
 /nofork.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /object.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /parse.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
@@ -27,8 +28,9 @@
 /proverc.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /proverun.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
 /proveversion.t/1.2/Sun Feb  5 00:32:04 2017/-ko/
-/regression.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/
+/regression.t/1.1.1.4/Wed Feb 13 21:11:21 2019/-ko/
 /results.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
+/rulesfile.t/1.1.1.1/Wed Feb 13 21:11:21 2019/-ko/
 /scheduler.t/1.1.1.2/Mon Nov 17 20:52:59 2014/-ko/
 /source.t/1.1.1.4/Mon Nov 17 20:52:59 2014/-ko/
 /source_handler.t/1.1.1.3/Mon Nov 17 20:52:59 2014/-ko/

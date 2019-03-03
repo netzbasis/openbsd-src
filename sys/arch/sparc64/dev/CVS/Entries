@@ -6,7 +6,7 @@
 /beeper.c/1.12/Fri Sep  8 05:36:52 2017//
 /cbus.c/1.16/Tue Dec 20 13:40:50 2016//
 /cbusvar.h/1.5/Sun Jan 25 21:42:13 2015//
-/ce4231.c/1.35/Mon Sep 19 06:46:43 2016//
+/ce4231.c/1.36/Thu Dec 27 11:06:38 2018//
 /ce4231var.h/1.11/Mon Jul 26 23:17:19 2010//
 /central.c/1.10/Fri Sep  8 05:36:52 2017//
 /centralvar.h/1.1/Wed Sep 22 21:31:51 2004//
@@ -15,7 +15,7 @@
 /clkbrdvar.h/1.3/Sun Jan 20 16:41:17 2008//
 /cmp.c/1.2/Fri Jul 11 13:47:20 2008//
 /com_ebus.c/1.22/Fri Sep  8 05:36:52 2017//
-/comkbd_ebus.c/1.22/Sat Dec 30 20:46:59 2017//
+/comkbd_ebus.c/1.23/Thu Dec 27 11:06:38 2018//
 /comms_ebus.c/1.2/Wed Jun 17 06:48:38 2009//
 /cons.h/1.4/Sun Apr 30 13:04:49 2017//
 /consinit.c/1.17/Sat Dec 30 20:46:59 2017//
@@ -29,7 +29,7 @@
 /ebusvar.h/1.7/Fri Aug 17 20:41:27 2012//
 /environ.c/1.1/Fri Jan 18 20:12:38 2008//
 /fb.c/1.28/Tue Mar 29 22:06:50 2016//
-/fd.c/1.49/Sat Dec 30 23:08:29 2017//
+/fd.c/1.50/Thu Dec 27 11:06:38 2018//
 /fdreg.h/1.1/Wed Mar  9 18:41:49 2005//
 /fdvar.h/1.3/Thu Jun 26 05:42:13 2008//
 /fhc.c/1.21/Fri Sep  8 05:36:52 2017//
@@ -58,7 +58,7 @@
 /pcf8591_envctrl.c/1.6/Thu Oct 25 21:17:20 2007//
 /pcf8591_ofw.c/1.5/Mon Oct 22 20:53:10 2007//
 /pcfiic_ebus.c/1.13/Sun Jun  8 03:07:40 2008//
-/pci_machdep.c/1.45/Fri Sep  8 05:36:52 2017//
+/pci_machdep.c/1.46/Thu Dec 27 11:04:41 2018//
 /pckbc_ebus.c/1.14/Fri Sep  8 05:36:52 2017//
 /pcons.c/1.24/Mon Feb 19 08:59:52 2018//
 /pmc.c/1.4/Wed Dec 10 12:27:57 2014//
@@ -99,7 +99,7 @@
 /vds.c/1.1/Thu Dec 31 11:58:41 2009//
 /vdsk.c/1.49/Wed Jan 17 15:52:34 2018//
 /vdsp.c/1.45/Wed May  2 02:24:55 2018//
-/vgafb.c/1.65/Mon Aug  7 22:19:10 2017//
+/vgafb.c/1.66/Thu Dec 27 11:06:38 2018//
 /viommu.c/1.19/Thu May 25 03:19:39 2017//
 /viommuvar.h/1.2/Fri Jan  2 20:01:45 2009//
 /viovar.h/1.2/Mon Jan 12 19:52:39 2009//
@@ -111,6 +111,6 @@
 /vrtc.c/1.1/Sat Mar  8 19:19:43 2008//
 /vsw.c/1.1/Sat May 16 10:53:06 2009//
 /wbsd_ebus.c/1.1/Sat Oct  3 19:56:14 2009//
-/z8530kbd.c/1.28/Sat Dec 30 20:46:59 2017//
-/zs.c/1.30/Sat Dec 30 20:46:59 2017//
+/z8530kbd.c/1.29/Thu Dec 27 11:06:38 2018//
+/zs.c/1.31/Thu Dec 27 11:06:38 2018//
 D

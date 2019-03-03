@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.169 2018/06/11 07:40:26 bluhm Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.171 2019/02/06 17:32:16 bluhm Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -145,9 +145,8 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	soassertlocked(so);
 
 	if (control && control->m_len) {
-		m_freem(control);
-		m_freem(m);
-		return (EINVAL);
+		error = EINVAL;
+		goto release;
 	}
 
 	inp = sotoinpcb(so);
@@ -160,18 +159,12 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		error = so->so_error;
 		if (error == 0)
 			error = EINVAL;
-		/*
-		 * The following corrects an mbuf leak under rare
-		 * circumstances
-		 */
-		if (req == PRU_SEND || req == PRU_SENDOOB)
-			m_freem(m);
-		return (error);
+		goto release;
 	}
 	tp = intotcpcb(inp);
 	/* tp might get 0 when using socket splicing */
 	if (tp == NULL)
-		return (0);
+		goto release;
 	if (so->so_options & SO_DEBUG) {
 		otp = tp;
 		ostate = tp->t_state;
@@ -340,7 +333,7 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 	case PRU_SENSE:
 		((struct stat *) m)->st_blksize = so->so_snd.sb_hiwat;
-		return (0);
+		break;
 
 	case PRU_RCVOOB:
 		if ((so->so_oobmark == 0 &&
@@ -404,6 +397,13 @@ tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	}
 	if (otp)
 		tcp_trace(TA_USER, ostate, tp, otp, NULL, req, 0);
+	return (error);
+
+ release:
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -1143,8 +1143,9 @@ tcp_update_sndspace(struct tcpcb *tp)
 	if (sbspace(so, &so->so_snd) >= so->so_snd.sb_lowat) {
 		if (nmax < so->so_snd.sb_cc + so->so_snd.sb_lowat)
 			nmax = so->so_snd.sb_cc + so->so_snd.sb_lowat;
-		if (nmax * 2 < so->so_snd.sb_mbcnt + so->so_snd.sb_lowat)
-			nmax = (so->so_snd.sb_mbcnt+so->so_snd.sb_lowat+1) / 2;
+		/* keep in sync with sbreserve() calculation */
+		if (nmax * 8 < so->so_snd.sb_mbcnt + so->so_snd.sb_lowat)
+			nmax = (so->so_snd.sb_mbcnt+so->so_snd.sb_lowat+7) / 8;
 	}
 
 	/* round to MSS boundary */

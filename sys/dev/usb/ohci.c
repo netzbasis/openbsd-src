@@ -1,4 +1,4 @@
-/*	$OpenBSD: ohci.c,v 1.153 2018/03/05 11:32:05 jmatthew Exp $ */
+/*	$OpenBSD: ohci.c,v 1.155 2019/01/07 03:41:06 dlg Exp $ */
 /*	$NetBSD: ohci.c,v 1.139 2003/02/22 05:24:16 tsutsui Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/ohci.c,v 1.22 1999/11/17 22:33:40 n_hibma Exp $	*/
 
@@ -656,9 +656,8 @@ ohci_checkrev(struct ohci_softc *sc)
 {
 	u_int32_t rev;
 
-	printf(",");
 	rev = OREAD4(sc, OHCI_REVISION);
-	printf(" version %d.%d%s\n", OHCI_REV_HI(rev), OHCI_REV_LO(rev),
+	printf("version %d.%d%s\n", OHCI_REV_HI(rev), OHCI_REV_LO(rev),
 	       OHCI_REV_LEGACY(rev) ? ", legacy support" : "");
 
 	if (OHCI_REV_HI(rev) != 1 || OHCI_REV_LO(rev) != 0) {
@@ -2029,9 +2028,6 @@ ohci_close_pipe(struct usbd_pipe *pipe, struct ohci_soft_ed *head)
 		       (int)letoh32(sed->ed.ed_headp),
 		       (int)letoh32(sed->ed.ed_tailp),
 		       pipe, std);
-#ifdef USB_DEBUG
-		usbd_dump_pipe(pipe);
-#endif
 #ifdef OHCI_DEBUG
 		ohci_dump_ed(sed);
 		if (std)

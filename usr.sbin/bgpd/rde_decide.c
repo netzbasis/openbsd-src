@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_decide.c,v 1.72 2018/09/27 15:53:14 claudio Exp $ */
+/*	$OpenBSD: rde_decide.c,v 1.74 2019/01/21 02:07:56 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -126,9 +126,9 @@ prefix_cmp(struct prefix *p1, struct prefix *p2)
 	peer2 = prefix_peer(p2);
 
 	/* pathes with errors are not eligible */
-	if (asp1->flags & F_ATTR_PARSE_ERR)
+	if (asp1 == NULL || asp1->flags & F_ATTR_PARSE_ERR)
 		return (-1);
-	if (asp2->flags & F_ATTR_PARSE_ERR)
+	if (asp2 == NULL || asp2->flags & F_ATTR_PARSE_ERR)
 		return (1);
 
 	/* only loop free pathes are eligible */
@@ -229,16 +229,7 @@ prefix_cmp(struct prefix *p1, struct prefix *p2)
 		return (-memcmp(&peer1->remote_addr, &peer2->remote_addr,
 		    sizeof(peer1->remote_addr)));
 
-	/* 13. for announced prefixes prefer dynamic routes */
-	if ((asp1->flags & F_ANN_DYNAMIC) != (asp2->flags & F_ANN_DYNAMIC)) {
-		if (asp1->flags & F_ANN_DYNAMIC)
-			return (1);
-		else
-			return (-1);
-	}
-
 	fatalx("Uh, oh a politician in the decision process");
-	/* NOTREACHED */
 }
 
 /*
@@ -280,9 +271,10 @@ prefix_evaluate(struct prefix *p, struct rib_entry *re)
 	xp = LIST_FIRST(&re->prefix_h);
 	if (xp != NULL) {
 		struct rde_aspath *xasp = prefix_aspath(xp);
-		if (xasp->flags & (F_ATTR_LOOP|F_ATTR_PARSE_ERR) ||
-		    (prefix_nexthop(xp) != NULL &&
-		    prefix_nexthop(xp)->state != NEXTHOP_REACH))
+		if (xasp == NULL ||
+		    xasp->flags & (F_ATTR_LOOP|F_ATTR_PARSE_ERR) ||
+		    (prefix_nexthop(xp) != NULL && prefix_nexthop(xp)->state !=
+		    NEXTHOP_REACH))
 			/* xp is ineligible */
 			xp = NULL;
 	}

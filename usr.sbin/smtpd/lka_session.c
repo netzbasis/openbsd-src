@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_session.c,v 1.87 2018/07/25 10:19:28 gilles Exp $	*/
+/*	$OpenBSD: lka_session.c,v 1.92 2018/12/28 11:40:29 eric Exp $	*/
 
 /*
  * Copyright (c) 2011 Gilles Chehade <gilles@poolp.org>
@@ -373,11 +373,13 @@ lka_expand(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 		}
 
 		/* gilles+hackers@ -> gilles@ */
-		if ((tag = strchr(xn->u.user, *env->sc_subaddressing_delim)) != NULL)
+		if ((tag = strchr(xn->u.user, *env->sc_subaddressing_delim)) != NULL) {
 			*tag++ = '\0';
+			(void)strlcpy(xn->subaddress, tag, sizeof xn->subaddress);
+		}
 
-		userbase = table_find(env, dsp->u.local.table_userbase, NULL);
-		r = table_lookup(userbase, NULL, xn->u.user, K_USERINFO, &lk);
+		userbase = table_find(env, dsp->u.local.table_userbase);
+		r = table_lookup(userbase, K_USERINFO, xn->u.user, &lk);
 		if (r == -1) {
 			log_trace(TRACE_EXPAND, "expand: lka_expand: "
 			    "backend error while searching user");
@@ -501,8 +503,10 @@ lka_submit(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 
 		ep->type = D_MDA;
 		ep->dest = lka_find_ancestor(xn, EXPAND_ADDRESS)->u.mailaddr;
-		if (xn->type == EXPAND_USERNAME)
+		if (xn->type == EXPAND_USERNAME) {
 			(void)strlcpy(ep->mda_user, xn->u.user, sizeof(ep->mda_user));
+			(void)strlcpy(ep->mda_subaddress, xn->subaddress, sizeof(ep->mda_subaddress));
+		}
 		else {
 			user = !xn->parent->realuser ?
 			    SMTPD_USER :
@@ -510,8 +514,9 @@ lka_submit(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 			(void)strlcpy(ep->mda_user, user, sizeof (ep->mda_user));
 
 			/* this battle needs to be fought ... */
-			if (strcmp(ep->mda_user, SMTPD_USER) == 0)
-				log_warn("commands executed from aliases "
+			if (xn->type == EXPAND_FILTER &&
+			    strcmp(ep->mda_user, SMTPD_USER) == 0)
+				log_warnx("commands executed from aliases "
 				    "run with %s privileges", SMTPD_USER);
 
 			if (xn->type == EXPAND_FILENAME)

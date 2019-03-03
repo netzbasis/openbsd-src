@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.c,v 1.303 2018/09/04 13:04:42 gilles Exp $	*/
+/*	$OpenBSD: smtpd.c,v 1.317 2019/01/30 21:31:48 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -34,6 +34,7 @@
 #include <event.h>
 #include <fcntl.h>
 #include <fts.h>
+#include <grp.h>
 #include <imsg.h>
 #include <inttypes.h>
 #include <login_cap.h>
@@ -89,9 +90,13 @@ static int	parent_auth_user(const char *, const char *);
 static void	load_pki_tree(void);
 static void	load_pki_keys(void);
 
+static void	fork_processors(void);
+static void	fork_processor(const char *, const char *, const char *, const char *, const char *);
+
 enum child_type {
 	CHILD_DAEMON,
 	CHILD_MDA,
+	CHILD_PROCESSOR,
 	CHILD_ENQUEUE_OFFLINE,
 };
 
@@ -382,6 +387,14 @@ parent_sig_handler(int sig, short event, void *p)
 				goto skip;
 
 			switch (child->type) {
+			case CHILD_PROCESSOR:
+				if (fail) {
+					log_warnx("warn: lost processor: %s %s",
+					    child->title, cause);
+					parent_shutdown();
+				}
+				break;
+
 			case CHILD_DAEMON:
 				if (fail)
 					log_warnx("warn: lost child: %s %s",
@@ -517,9 +530,7 @@ main(int argc, char *argv[])
 				tracing |= TRACE_IO;
 			else if (!strcmp(optarg, "smtp"))
 				tracing |= TRACE_SMTP;
-			else if (!strcmp(optarg, "mfa") ||
-			    !strcmp(optarg, "filter") ||
-			    !strcmp(optarg, "filters"))
+			else if (!strcmp(optarg, "filters"))
 				tracing |= TRACE_FILTERS;
 			else if (!strcmp(optarg, "mta") ||
 			    !strcmp(optarg, "transfer"))
@@ -1053,9 +1064,11 @@ smtpd(void) {
 	offline_timeout.tv_usec = 0;
 	evtimer_add(&offline_ev, &offline_timeout);
 
+	fork_processors();
+
 	purge_task();
 
-	if (pledge("stdio rpath wpath cpath fattr flock tmppath "
+	if (pledge("stdio rpath wpath cpath fattr tmppath "
 	    "getpw sendfd proc exec id inet unix", NULL) == -1)
 		err(1, "pledge");
 
@@ -1226,6 +1239,88 @@ purge_task(void)
 			break;
 		}
 	}
+}
+
+static void
+fork_processors(void)
+{
+	const char	*name;
+	struct processor	*processor;
+	void		*iter;
+
+	iter = NULL;
+	while (dict_iter(env->sc_processors_dict, &iter, &name, (void **)&processor))
+		fork_processor(name, processor->command, processor->user, processor->group, processor->chroot);
+}
+
+static void
+fork_processor(const char *name, const char *command, const char *user, const char *group, const char *chroot_path)
+{
+	pid_t		 pid;
+	int		 sp[2];
+	struct passwd	*pw;
+	struct group	*gr;
+
+	if (user == NULL)
+		user = SMTPD_USER;
+	if ((pw = getpwnam(user)) == NULL)
+		err(1, "getpwnam");
+
+	if (group) {
+		if ((gr = getgrnam(group)) == NULL)
+			err(1, "getgrnam");
+	}
+	else {
+		if ((gr = getgrgid(pw->pw_gid)) == NULL)
+			err(1, "getgrgid");
+	}
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
+		err(1, "socketpair");
+
+	if ((pid = fork()) < 0)
+		err(1, "fork");
+
+	/* parent passes the child fd over to lka */
+	if (pid > 0) {
+		child_add(pid, CHILD_PROCESSOR, name);
+		close(sp[0]);
+		m_create(p_lka, IMSG_LKA_PROCESSOR_FORK, 0, 0, sp[1]);
+		m_add_string(p_lka, name);
+		m_close(p_lka);
+		return;
+	}
+
+	close(sp[1]);
+	dup2(sp[0], STDIN_FILENO);
+	dup2(sp[0], STDOUT_FILENO);
+
+	if (chroot_path) {
+		if (chroot(chroot_path) != 0 || chdir("/") != 0)
+			err(1, "chroot: %s", chroot_path);
+	}
+
+	if (setgroups(1, &gr->gr_gid) ||
+	    setresgid(gr->gr_gid, gr->gr_gid, gr->gr_gid) ||
+	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+		err(1, "fork_processor: cannot drop privileges");
+
+	if (closefrom(STDERR_FILENO + 1) < 0)
+		err(1, "closefrom");
+	if (setsid() < 0)
+		err(1, "setsid");
+	if (signal(SIGPIPE, SIG_DFL) == SIG_ERR ||
+	    signal(SIGINT, SIG_DFL) == SIG_ERR ||
+	    signal(SIGTERM, SIG_DFL) == SIG_ERR ||
+	    signal(SIGCHLD, SIG_DFL) == SIG_ERR ||
+	    signal(SIGHUP, SIG_DFL) == SIG_ERR)
+		err(1, "signal");
+
+	if (system(command) == -1)
+		err(1, NULL);
+
+	/* there's no successful exit from a processor */
+	_exit(1);
 }
 
 static void
@@ -1725,6 +1820,8 @@ proc_title(enum smtp_proc_type proc)
 		return "klondike";
 	case PROC_CLIENT:
 		return "client";
+	case PROC_PROCESSOR:
+		return "processor";
 	}
 	return "unknown";
 }
@@ -1806,6 +1903,10 @@ imsg_to_str(int type)
 	CASE(IMSG_GETADDRINFO_END);
 	CASE(IMSG_GETNAMEINFO);
 
+	CASE(IMSG_CERT_INIT);
+	CASE(IMSG_CERT_CERTIFICATE);
+	CASE(IMSG_CERT_VERIFY);
+
 	CASE(IMSG_SETUP_KEY);
 	CASE(IMSG_SETUP_PEER);
 	CASE(IMSG_SETUP_DONE);
@@ -1869,10 +1970,6 @@ imsg_to_str(int type)
 	CASE(IMSG_MTA_LOOKUP_SMARTHOST);
 	CASE(IMSG_MTA_OPEN_MESSAGE);
 	CASE(IMSG_MTA_SCHEDULE);
-	CASE(IMSG_MTA_TLS_INIT);
-	CASE(IMSG_MTA_TLS_VERIFY_CERT);
-	CASE(IMSG_MTA_TLS_VERIFY_CHAIN);
-	CASE(IMSG_MTA_TLS_VERIFY);
 
 	CASE(IMSG_SCHED_ENVELOPE_BOUNCE);
 	CASE(IMSG_SCHED_ENVELOPE_DELIVER);
@@ -1889,10 +1986,6 @@ imsg_to_str(int type)
 	CASE(IMSG_SMTP_CHECK_SENDER);
 	CASE(IMSG_SMTP_EXPAND_RCPT);
 	CASE(IMSG_SMTP_LOOKUP_HELO);
-	CASE(IMSG_SMTP_TLS_INIT);
-	CASE(IMSG_SMTP_TLS_VERIFY_CERT);
-	CASE(IMSG_SMTP_TLS_VERIFY_CHAIN);
-	CASE(IMSG_SMTP_TLS_VERIFY);
 
 	CASE(IMSG_SMTP_REQ_CONNECT);
 	CASE(IMSG_SMTP_REQ_HELO);
@@ -1904,6 +1997,26 @@ imsg_to_str(int type)
 	CASE(IMSG_SMTP_EVENT_COMMIT);
 	CASE(IMSG_SMTP_EVENT_ROLLBACK);
 	CASE(IMSG_SMTP_EVENT_DISCONNECT);
+
+	CASE(IMSG_LKA_PROCESSOR_FORK);
+
+	CASE(IMSG_REPORT_SMTP_LINK_CONNECT);
+	CASE(IMSG_REPORT_SMTP_LINK_DISCONNECT);
+	CASE(IMSG_REPORT_SMTP_LINK_TLS);
+
+	CASE(IMSG_REPORT_SMTP_TX_BEGIN);
+	CASE(IMSG_REPORT_SMTP_TX_ENVELOPE);
+	CASE(IMSG_REPORT_SMTP_TX_COMMIT);
+	CASE(IMSG_REPORT_SMTP_TX_ROLLBACK);
+
+	CASE(IMSG_REPORT_SMTP_PROTOCOL_CLIENT);
+	CASE(IMSG_REPORT_SMTP_PROTOCOL_SERVER);
+
+	CASE(IMSG_FILTER_SMTP_BEGIN);
+	CASE(IMSG_FILTER_SMTP_END);
+	CASE(IMSG_FILTER_SMTP_PROTOCOL);
+	CASE(IMSG_FILTER_SMTP_DATA_BEGIN);
+	CASE(IMSG_FILTER_SMTP_DATA_END);
 
 	CASE(IMSG_CA_PRIVENC);
 	CASE(IMSG_CA_PRIVDEC);

@@ -1,4 +1,4 @@
-/Makefile/1.157/Tue Jun 19 14:01:16 2018//
+/Makefile/1.159/Fri Nov 30 07:08:24 2018//
 /Makefile.inc/1.3/Fri Jul 11 13:13:04 2014//
 D/apply////
 D/arch////
@@ -94,7 +94,7 @@ D/make////
 D/mandoc////
 D/mesg////
 D/mg////
-D/midiplay////
+D/midicat////
 D/mixerctl////
 D/mkdep////
 D/mklocale////
@@ -129,6 +129,7 @@ D/rev////
 D/rpcgen////
 D/rpcinfo////
 D/rs////
+D/rsync////
 D/rup////
 D/rusers////
 D/rwall////

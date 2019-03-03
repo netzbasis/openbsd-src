@@ -1,4 +1,4 @@
-/*	$OpenBSD: mrt.c,v 1.86 2018/07/24 10:10:58 claudio Exp $ */
+/*	$OpenBSD: mrt.c,v 1.93 2019/02/27 04:31:56 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -221,6 +221,15 @@ mrt_attr_dump(struct ibuf *buf, struct rde_aspath *a, struct bgpd_addr *nexthop,
 			DUMP_NLONG(nhbuf, 0);	/* set RD to 0 */
 			DUMP_NLONG(nhbuf, 0);
 			DUMP_NLONG(nhbuf, nexthop->v4.s_addr);
+			break;
+		case AID_VPN_IPv6:
+			DUMP_BYTE(nhbuf, sizeof(u_int64_t) +
+			    sizeof(struct in6_addr));
+			DUMP_NLONG(nhbuf, 0);	/* set RD to 0 */
+			DUMP_NLONG(nhbuf, 0);
+			if (ibuf_add(nhbuf, &nexthop->v6,
+			    sizeof(struct in6_addr)) == -1) {
+			}
 			break;
 		}
 		if (!v2)
@@ -501,6 +510,10 @@ mrt_dump_entry_v2(struct mrt *mrt, struct rib_entry *re, u_int32_t snum)
 		struct bgpd_addr	*nh;
 		struct ibuf		*tbuf;
 
+		/* skip pending withdraw in Adj-RIB-Out */
+		if (prefix_aspath(p) == NULL)
+			continue;
+
 		nexthop = prefix_nexthop(p);
 		if (nexthop == NULL) {
 			bzero(&addr, sizeof(struct bgpd_addr));
@@ -663,6 +676,9 @@ mrt_dump_upcall(struct rib_entry *re, void *ptr)
 	 * be dumped p should be set to p = pt->active.
 	 */
 	LIST_FOREACH(p, &re->prefix_h, rib_l) {
+		/* skip pending withdraw in Adj-RIB-Out */
+		if (prefix_aspath(p) == NULL)
+			continue;
 		if (mrtbuf->type == MRT_TABLE_DUMP)
 			mrt_dump_entry(mrtbuf, p, mrtbuf->seqnum++,
 			    prefix_peer(p));
@@ -673,10 +689,8 @@ mrt_dump_upcall(struct rib_entry *re, void *ptr)
 }
 
 void
-mrt_done(void *ptr)
+mrt_done(struct mrt *mrtbuf)
 {
-	struct mrt		*mrtbuf = ptr;
-
 	mrtbuf->state = MRT_STATE_REMOVE;
 }
 
@@ -698,15 +712,15 @@ mrt_dump_hdr_se(struct ibuf ** bp, struct peer *peer, u_int16_t type,
 	DUMP_SHORT(*bp, type);
 	DUMP_SHORT(*bp, subtype);
 
-	switch (peer->sa_local.ss_family) {
-	case AF_INET:
+	switch (peer->local.aid) {
+	case AID_INET:
 		if (subtype == BGP4MP_STATE_CHANGE_AS4 ||
 		    subtype == BGP4MP_MESSAGE_AS4)
 			len += MRT_BGP4MP_ET_AS4_IPv4_HEADER_SIZE;
 		else
 			len += MRT_BGP4MP_ET_IPv4_HEADER_SIZE;
 		break;
-	case AF_INET6:
+	case AID_INET6:
 		if (subtype == BGP4MP_STATE_CHANGE_AS4 ||
 		    subtype == BGP4MP_MESSAGE_AS4)
 			len += MRT_BGP4MP_ET_AS4_IPv6_HEADER_SIZE;
@@ -741,36 +755,30 @@ mrt_dump_hdr_se(struct ibuf ** bp, struct peer *peer, u_int16_t type,
 
 	DUMP_SHORT(*bp, /* ifindex */ 0);
 
-	switch (peer->sa_local.ss_family) {
-	case AF_INET:
+	switch (peer->local.aid) {
+	case AID_INET:
 		DUMP_SHORT(*bp, AFI_IPv4);
 		if (!swap)
-			DUMP_NLONG(*bp, ((struct sockaddr_in *)
-			    &peer->sa_local)->sin_addr.s_addr);
-		DUMP_NLONG(*bp,
-		    ((struct sockaddr_in *)&peer->sa_remote)->sin_addr.s_addr);
+			DUMP_NLONG(*bp, peer->local.v4.s_addr);
+		DUMP_NLONG(*bp, peer->remote.v4.s_addr);
 		if (swap)
-			DUMP_NLONG(*bp, ((struct sockaddr_in *)
-			    &peer->sa_local)->sin_addr.s_addr);
+			DUMP_NLONG(*bp, peer->local.v4.s_addr);
 		break;
-	case AF_INET6:
+	case AID_INET6:
 		DUMP_SHORT(*bp, AFI_IPv6);
 		if (!swap)
-			if (ibuf_add(*bp, &((struct sockaddr_in6 *)
-			    &peer->sa_local)->sin6_addr,
+			if (ibuf_add(*bp, &peer->local.v6,
 			    sizeof(struct in6_addr)) == -1) {
 				log_warn("mrt_dump_hdr_se: ibuf_add error");
 				goto fail;
 			}
-		if (ibuf_add(*bp,
-		    &((struct sockaddr_in6 *)&peer->sa_remote)->sin6_addr,
+		if (ibuf_add(*bp, &peer->remote.v6,
 		    sizeof(struct in6_addr)) == -1) {
 			log_warn("mrt_dump_hdr_se: ibuf_add error");
 			goto fail;
 		}
 		if (swap)
-			if (ibuf_add(*bp, &((struct sockaddr_in6 *)
-			    &peer->sa_local)->sin6_addr,
+			if (ibuf_add(*bp, &peer->local.v6,
 			    sizeof(struct in6_addr)) == -1) {
 				log_warn("mrt_dump_hdr_se: ibuf_add error");
 				goto fail;
@@ -895,12 +903,12 @@ mrt_open(struct mrt *mrt, time_t now)
 	return (1);
 }
 
-int
+time_t
 mrt_timeout(struct mrt_head *mrt)
 {
 	struct mrt	*m;
 	time_t		 now;
-	int		 timeout = MRT_MAX_TIMEOUT;
+	time_t		 timeout = -1;
 
 	now = time(NULL);
 	LIST_FOREACH(m, mrt, entry) {
@@ -911,11 +919,12 @@ mrt_timeout(struct mrt_head *mrt)
 				MRT2MC(m)->ReopenTimer =
 				    now + MRT2MC(m)->ReopenTimerInterval;
 			}
-			if (MRT2MC(m)->ReopenTimer - now < timeout)
+			if (timeout == -1 ||
+			    MRT2MC(m)->ReopenTimer - now < timeout)
 				timeout = MRT2MC(m)->ReopenTimer - now;
 		}
 	}
-	return (timeout > 0 ? timeout : 0);
+	return (timeout);
 }
 
 void

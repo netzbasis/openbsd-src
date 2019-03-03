@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.566 2018/10/01 12:38:32 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.573 2019/03/01 04:47:32 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -84,6 +84,7 @@
 #include <sys/domain.h>
 #include <sys/task.h>
 #include <sys/atomic.h>
+#include <sys/percpu.h>
 #include <sys/proc.h>
 
 #include <dev/rndvar.h>
@@ -631,6 +632,8 @@ if_attach_common(struct ifnet *ifp)
 
 	if (ifp->if_rtrequest == NULL)
 		ifp->if_rtrequest = if_rtrequest_dummy;
+	if (ifp->if_enqueue == NULL)
+		ifp->if_enqueue = if_enqueue_ifq;
 	ifp->if_llprio = IFQ_DEFPRIO;
 
 	SRPL_INIT(&ifp->if_inputs);
@@ -682,10 +685,6 @@ if_qstart_compat(struct ifqueue *ifq)
 int
 if_enqueue(struct ifnet *ifp, struct mbuf *m)
 {
-	unsigned int idx;
-	struct ifqueue *ifq;
-	int error;
-
 #if NPF > 0
 	if (m->m_pkthdr.pf.delay > 0)
 		return (pf_delay_pkt(m, ifp->if_index));
@@ -693,6 +692,8 @@ if_enqueue(struct ifnet *ifp, struct mbuf *m)
 
 #if NBRIDGE > 0
 	if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0) {
+		int error;
+
 		KERNEL_LOCK();
 		error = bridge_output(ifp, m, NULL, NULL);
 		KERNEL_UNLOCK();
@@ -704,12 +705,26 @@ if_enqueue(struct ifnet *ifp, struct mbuf *m)
 	pf_pkt_addr_changed(m);
 #endif	/* NPF > 0 */
 
-	/*
-	 * use the operations on the first ifq to pick which of the array
-	 * gets this mbuf.
-	 */
-	idx = ifq_idx(&ifp->if_snd, ifp->if_nifqs, m);
-	ifq = ifp->if_ifqs[idx];
+	return ((*ifp->if_enqueue)(ifp, m));
+}
+
+int
+if_enqueue_ifq(struct ifnet *ifp, struct mbuf *m)
+{
+	struct ifqueue *ifq = &ifp->if_snd;
+	int error;
+
+	if (ifp->if_nifqs > 1) {
+		unsigned int idx;
+
+		/*
+		 * use the operations on the first ifq to pick which of
+		 * the array gets this mbuf.
+		 */
+
+		idx = ifq_idx(&ifp->if_snd, ifp->if_nifqs, m);
+		ifq = ifp->if_ifqs[idx];
+	}
 
 	error = ifq_enqueue(ifq, m);
 	if (error)
@@ -723,7 +738,7 @@ if_enqueue(struct ifnet *ifp, struct mbuf *m)
 void
 if_input(struct ifnet *ifp, struct mbuf_list *ml)
 {
-	ifiq_input(&ifp->if_rcv, ml, 2048);
+	ifiq_input(&ifp->if_rcv, ml);
 }
 
 int
@@ -1102,6 +1117,9 @@ if_detach(struct ifnet *ifp)
 	rtm_ifannounce(ifp, IFAN_DEPARTURE);
 	splx(s);
 	NET_UNLOCK();
+
+	if (ifp->if_counters != NULL)
+		if_counters_free(ifp);
 
 	for (i = 0; i < ifp->if_nifqs; i++)
 		ifq_destroy(ifp->if_ifqs[i]);
@@ -1622,7 +1640,7 @@ if_slowtimo(void *arg)
 	if (ifp->if_watchdog) {
 		if (ifp->if_timer > 0 && --ifp->if_timer == 0)
 			task_add(net_tq(ifp->if_index), &ifp->if_watchdogtask);
-		timeout_add(&ifp->if_slowtimo, hz / IFNET_SLOWHZ);
+		timeout_add_sec(&ifp->if_slowtimo, IFNET_SLOWTIMO);
 	}
 	splx(s);
 }
@@ -2131,14 +2149,23 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCSLIFPHYRTABLE:
 	case SIOCSLIFPHYTTL:
 	case SIOCSLIFPHYDF:
+	case SIOCSLIFPHYECN:
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
 	case SIOCSIFMEDIA:
 	case SIOCSVNETID:
 	case SIOCSVNETFLOWID:
+	case SIOCSTXHPRIO:
 	case SIOCSIFPAIR:
 	case SIOCSIFPARENT:
 	case SIOCDIFPARENT:
+	case SIOCSETMPWCFG:
+	case SIOCSETLABEL:
+	case SIOCDELLABEL:
+	case SIOCSPWE3CTRLWORD:
+	case SIOCSPWE3FAT:
+	case SIOCSPWE3NEIGHBOR:
+	case SIOCDPWE3NEIGHBOR:
 		if ((error = suser(p)) != 0)
 			break;
 		/* FALLTHROUGH */
@@ -2360,11 +2387,47 @@ ifconf(caddr_t data)
 }
 
 void
+if_counters_alloc(struct ifnet *ifp)
+{
+	KASSERT(ifp->if_counters == NULL);
+
+	ifp->if_counters = counters_alloc(ifc_ncounters);
+}
+
+void
+if_counters_free(struct ifnet *ifp)
+{
+	KASSERT(ifp->if_counters != NULL);
+
+	counters_free(ifp->if_counters, ifc_ncounters);
+	ifp->if_counters = NULL;
+}
+
+void
 if_getdata(struct ifnet *ifp, struct if_data *data)
 {
 	unsigned int i;
 
 	*data = ifp->if_data;
+
+	if (ifp->if_counters != NULL) {
+		uint64_t counters[ifc_ncounters];
+
+		counters_read(ifp->if_counters, counters, nitems(counters));
+
+		data->ifi_ipackets += counters[ifc_ipackets];
+		data->ifi_ierrors += counters[ifc_ierrors];
+		data->ifi_opackets += counters[ifc_opackets];
+		data->ifi_oerrors += counters[ifc_oerrors];
+		data->ifi_collisions += counters[ifc_collisions];
+		data->ifi_ibytes += counters[ifc_ibytes];
+		data->ifi_obytes += counters[ifc_obytes];
+		data->ifi_imcasts += counters[ifc_imcasts];
+		data->ifi_omcasts += counters[ifc_omcasts];
+		data->ifi_iqdrops += counters[ifc_iqdrops];
+		data->ifi_oqdrops += counters[ifc_oqdrops];
+		data->ifi_noproto += counters[ifc_noproto];
+	}
 
 	for (i = 0; i < ifp->if_nifqs; i++) {
 		struct ifqueue *ifq = ifp->if_ifqs[i];

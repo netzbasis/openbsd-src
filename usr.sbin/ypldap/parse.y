@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.29 2018/09/07 07:35:31 miko Exp $	*/
+/*	$OpenBSD: parse.y,v 1.33 2019/02/13 22:57:08 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <tls.h>
 #include <unistd.h>
 
 #include "ypldap.h"
@@ -663,7 +664,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -695,7 +697,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -734,7 +736,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -843,7 +845,7 @@ parse_config(struct env *x_conf, const char *filename, int opts)
 	TAILQ_INIT(&conf->sc_idms);
 	conf->sc_conf_tv.tv_sec = DEFAULT_INTERVAL;
 	conf->sc_conf_tv.tv_usec = 0;
-	conf->sc_cafile = strdup(YPLDAP_CERT_FILE);
+	conf->sc_cafile = strdup(tls_default_ca_cert_file());
 	if (conf->sc_cafile == NULL) {
 		log_warn("%s", __func__);
 		return (-1);

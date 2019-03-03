@@ -1,4 +1,4 @@
-/* $OpenBSD: sximmc.c,v 1.5 2018/08/06 10:52:30 patrick Exp $ */
+/* $OpenBSD: sximmc.c,v 1.9 2019/02/10 11:56:26 kettenis Exp $ */
 /* $NetBSD: awin_mmc.c,v 1.23 2015/11/14 10:32:40 bouyer Exp $ */
 
 /*-
@@ -255,7 +255,6 @@ struct sximmc_softc {
 	uint32_t sc_fifo_reg;
 	uint32_t sc_dma_ftrglevel;
 
-	uint32_t sc_idma_xferlen;
 	bus_dma_segment_t sc_idma_segs[1];
 	int sc_idma_nsegs;
 	bus_size_t sc_idma_size;
@@ -298,19 +297,14 @@ sximmc_match(struct device *parent, void *match, void *aux)
 	    OF_is_compatible(faa->fa_node, "allwinner,sun5i-a13-mmc") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun7i-a20-mmc") ||
 	    OF_is_compatible(faa->fa_node, "allwinner,sun9i-a80-mmc") ||
-	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-mmc"));
+	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-mmc") ||
+	    OF_is_compatible(faa->fa_node, "allwinner,sun50i-a64-emmc"));
 }
 
 int
 sximmc_idma_setup(struct sximmc_softc *sc)
 {
 	int error;
-
-	if (OF_is_compatible(sc->sc_node, "allwinner,sun4i-a10-mmc")) {
-		sc->sc_idma_xferlen = 0x2000;
-	} else {
-		sc->sc_idma_xferlen = 0x10000;
-	}
 
 	sc->sc_idma_ndesc = SXIMMC_NDESC;
 	sc->sc_idma_size = sizeof(struct sximmc_idma_descriptor) *
@@ -418,7 +412,7 @@ sximmc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
 	    sximmc_intr, sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
-		printf(": can't to establish interrupt\n");
+		printf(": can't establish interrupt\n");
 		return;
 	}
 
@@ -446,6 +440,13 @@ sximmc_attach(struct device *parent, struct device *self, void *aux)
 	if (sc->sc_use_dma) {
 		saa.dmat = sc->sc_dmat;
 		saa.caps |= SMC_CAPS_DMA;
+	}
+
+	if (OF_is_compatible(sc->sc_node, "allwinner,sun4i-a10-mmc") ||
+	    OF_is_compatible(sc->sc_node, "allwinner,sun50i-a64-emmc")) {
+		saa.max_seg = 0x2000;
+	} else {
+		saa.max_seg = 0x10000;
 	}
 
 	sc->sc_sdmmc_dev = config_found(self, &saa, NULL);
@@ -645,7 +646,9 @@ sximmc_card_detect(sdmmc_chipset_handle_t sch)
 	struct sximmc_softc *sc = sch;
 	int inverted, val;
 
-	if (OF_getproplen(sc->sc_node, "non-removable") == 0)
+	/* XXX treat broken-cd as non-removable */
+	if (OF_getproplen(sc->sc_node, "non-removable") == 0 ||
+	    OF_getproplen(sc->sc_node, "broken-cd") == 0)
 		return 1;
 
 	val = gpio_controller_get_pin(sc->sc_gpio);
@@ -837,51 +840,39 @@ sximmc_dma_prepare(struct sximmc_softc *sc, struct sdmmc_command *cmd)
 {
 	struct sximmc_idma_descriptor *dma = (void *)sc->sc_idma_desc;
 	bus_addr_t desc_paddr = sc->sc_idma_map->dm_segs[0].ds_addr;
-	bus_size_t off;
-	int desc, resid, seg;
 	uint32_t val;
+	int seg;
 
-	desc = 0;
-	for (seg = 0; seg < cmd->c_dmamap->dm_nsegs; seg++) {
-		bus_addr_t paddr = cmd->c_dmamap->dm_segs[seg].ds_addr;
-		bus_size_t len = cmd->c_dmamap->dm_segs[seg].ds_len;
-		resid = min(len, cmd->c_resid);
-		off = 0;
-		while (resid > 0) {
-			if (desc == sc->sc_idma_ndesc)
-				break;
-			len = min(sc->sc_idma_xferlen, resid);
-			dma[desc].dma_buf_size = htole32(len);
-			dma[desc].dma_buf_addr = htole32(paddr + off);
-			dma[desc].dma_config = htole32(SXIMMC_IDMA_CONFIG_CH |
-					       SXIMMC_IDMA_CONFIG_OWN);
-			cmd->c_resid -= len;
-			resid -= len;
-			off += len;
-			if (desc == 0) {
-				dma[desc].dma_config |=
-				    htole32(SXIMMC_IDMA_CONFIG_FD);
-			}
-			if (cmd->c_resid == 0) {
-				dma[desc].dma_config |=
-				    htole32(SXIMMC_IDMA_CONFIG_LD);
-				dma[desc].dma_config |=
-				    htole32(SXIMMC_IDMA_CONFIG_ER);
-				dma[desc].dma_next = 0;
-			} else {
-				dma[desc].dma_config |=
-				    htole32(SXIMMC_IDMA_CONFIG_DIC);
-				dma[desc].dma_next = htole32(
-				    desc_paddr + ((desc+1) *
-				    sizeof(struct sximmc_idma_descriptor)));
-			}
-			++desc;
-		}
-	}
-	if (desc == sc->sc_idma_ndesc) {
+	if (sc->sc_idma_ndesc < cmd->c_dmamap->dm_nsegs) {
 		printf("%s: not enough descriptors for %d byte transfer!\n",
 		    sc->sc_dev.dv_xname, cmd->c_datalen);
 		return EIO;
+	}
+
+	for (seg = 0; seg < cmd->c_dmamap->dm_nsegs; seg++) {
+		bus_addr_t paddr = cmd->c_dmamap->dm_segs[seg].ds_addr;
+		bus_size_t len = cmd->c_dmamap->dm_segs[seg].ds_len;
+		dma[seg].dma_buf_size = htole32(len);
+		dma[seg].dma_buf_addr = htole32(paddr);
+		dma[seg].dma_config = htole32(SXIMMC_IDMA_CONFIG_CH |
+		    SXIMMC_IDMA_CONFIG_OWN);
+		if (seg == 0) {
+			dma[seg].dma_config |=
+			    htole32(SXIMMC_IDMA_CONFIG_FD);
+		}
+		if (seg == cmd->c_dmamap->dm_nsegs - 1) {
+			dma[seg].dma_config |=
+			    htole32(SXIMMC_IDMA_CONFIG_LD);
+			dma[seg].dma_config |=
+			    htole32(SXIMMC_IDMA_CONFIG_ER);
+			dma[seg].dma_next = 0;
+		} else {
+			dma[seg].dma_config |=
+			    htole32(SXIMMC_IDMA_CONFIG_DIC);
+			dma[seg].dma_next = htole32(
+			    desc_paddr + ((seg + 1) *
+			    sizeof(struct sximmc_idma_descriptor)));
+		}
 	}
 
 	bus_dmamap_sync(sc->sc_dmat, sc->sc_idma_map, 0,

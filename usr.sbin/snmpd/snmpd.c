@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpd.c,v 1.39 2018/08/05 09:33:13 mestre Exp $	*/
+/*	$OpenBSD: snmpd.c,v 1.41 2019/01/08 15:38:36 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -230,7 +230,7 @@ main(int argc, char *argv[])
 	pf_init();
 	snmpd_generate_engineid(env);
 
-	proc_init(ps, procs, nitems(procs), argc0, argv0, proc_id);
+	proc_init(ps, procs, nitems(procs), debug, argc0, argv0, proc_id);
 	if (!debug && daemon(0, 0) == -1)
 		err(1, "failed to daemonize");
 
@@ -255,7 +255,7 @@ main(int argc, char *argv[])
 
 	proc_connect(ps);
 
-	if (pledge("stdio rpath dns sendfd proc exec id", NULL) == -1)
+	if (pledge("stdio dns sendfd proc exec id", NULL) == -1)
 		fatal("pledge");
 
 	event_dispatch();

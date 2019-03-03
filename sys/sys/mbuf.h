@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.238 2018/09/10 16:14:08 bluhm Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.242 2019/02/11 00:25:33 bluhm Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -119,8 +119,8 @@ struct pkthdr_pf {
 
 #ifdef _KERNEL
 #define MPF_BITS \
-    ("\20\1GENERATED\3TRANSLATE_LOCALHOST\4DIVERTED\5DIVERTED_PACKET" \
-    "\6REROUTE\7REFRAGMENTED\10PROCESSED")
+    ("\20\1GENERATED\2SYNCOOKIE_RECREATED\3TRANSLATE_LOCALHOST\4DIVERTED" \
+    "\5DIVERTED_PACKET\6REROUTE\7REFRAGMENTED\10PROCESSED")
 #endif
 
 /* record/packet header in first mbuf of chain; valid if M_PKTHDR set */
@@ -345,19 +345,6 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
 } while (/* CONSTCOND */ 0)
 
 /*
- * Set the m_data pointer of a newly-allocated mbuf (m_get/MGET) to place
- * an object of the specified size at the end of the mbuf, longword aligned.
- */
-#define	M_ALIGN(m, len) \
-	(m)->m_data += (MLEN - (len)) &~ (sizeof(long) - 1)
-/*
- * As above, for mbufs allocated with m_gethdr/MGETHDR
- * or initialized by M_MOVE_PKTHDR.
- */
-#define	MH_ALIGN(m, len) \
-	(m)->m_data += (MHLEN - (len)) &~ (sizeof(long) - 1)
-
-/*
  * Determine if an mbuf's data area is read-only. This is true for
  * non-cluster external storage and for clusters that are being
  * referenced by more than one mbuf.
@@ -365,18 +352,6 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
 #define	M_READONLY(m)							\
 	(((m)->m_flags & M_EXT) != 0 &&					\
 	  (((m)->m_flags & M_EXTWR) == 0 || MCLISREFERENCED(m)))
-
-/*
- * Compute the amount of space available
- * before the current start of data in an mbuf.
- */
-#define	M_LEADINGSPACE(m) m_leadingspace(m)
-
-/*
- * Compute the amount of space available
- * after the end of data in an mbuf.
- */
-#define	M_TRAILINGSPACE(m) m_trailingspace(m)
 
 /*
  * Arrange to prepend space of size plen to mbuf m.
@@ -453,6 +428,7 @@ struct	mbuf *m_makespace(struct mbuf *, int, int, int *);
 struct  mbuf *m_getptr(struct mbuf *, int, int *);
 int	m_leadingspace(struct mbuf *);
 int	m_trailingspace(struct mbuf *);
+void	m_align(struct mbuf *, int);
 struct mbuf *m_clget(struct mbuf *, int, u_int);
 void	m_extref(struct mbuf *, struct mbuf *);
 void	m_pool_init(struct pool *, u_int, u_int, const char *);

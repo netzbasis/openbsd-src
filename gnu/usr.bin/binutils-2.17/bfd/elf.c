@@ -206,6 +206,21 @@ bfd_elf_hash (const char *namearg)
   return h & 0xffffffff;
 }
 
+/* DT_GNU_HASH hash function.  Do not change this function; you will
+   cause invalid hash tables to be generated.  */
+
+unsigned long
+bfd_elf_gnu_hash (const char *namearg)
+{
+  const unsigned char *name = (const unsigned char *) namearg;
+  unsigned long h = 5381;
+  unsigned char ch;
+
+  while ((ch = *name++) != '\0')
+    h = (h << 5) + h + ch;
+  return h & 0xffffffff;
+}
+
 bfd_boolean
 bfd_elf_mkobject (bfd *abfd)
 {
@@ -1242,6 +1257,7 @@ _bfd_elf_print_private_bfd_data (bfd *abfd, void *farg)
 	    case DT_AUXILIARY: name = "AUXILIARY"; stringp = TRUE; break;
 	    case DT_USED: name = "USED"; break;
 	    case DT_FILTER: name = "FILTER"; stringp = TRUE; break;
+	    case DT_GNU_HASH: name = "GNU_HASH"; break;
 	    }
 
 	  fprintf (f, "  %-11s ", name);
@@ -2160,6 +2176,10 @@ bfd_section_from_shdr (bfd *abfd, unsigned int shindex)
 	      }
 	}
       break;
+
+    case SHT_LLVM_LINKER_OPTIONS:
+    case SHT_LLVM_ADDRSIG:
+      return TRUE;
 
     default:
       /* Check for any processor-specific section types.  */
@@ -4863,12 +4883,15 @@ assign_file_positions_except_relocs (bfd *abfd,
 	    hdr->sh_offset = hdr->bfd_section->filepos;
 	  else if ((hdr->sh_flags & SHF_ALLOC) != 0)
 	    {
-	      ((*_bfd_error_handler)
-	       (_("%B: warning: allocated section `%s' not in segment"),
-		abfd,
-		(hdr->bfd_section == NULL
-		 ? "*unknown*"
-		 : hdr->bfd_section->name)));
+	      if (hdr->bfd_section->size != 0)
+	        {
+		  ((*_bfd_error_handler)
+		   (_("%B: warning: allocated section `%s' not in segment"),
+		    abfd,
+		    (hdr->bfd_section == NULL
+		     ? "*unknown*"
+		     : hdr->bfd_section->name)));
+		}
 	      if ((abfd->flags & D_PAGED) != 0)
 		off += vma_page_aligned_bias (hdr->sh_addr, off,
 					      bed->maxpagesize);

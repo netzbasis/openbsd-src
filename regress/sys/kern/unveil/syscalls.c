@@ -1,7 +1,7 @@
-/*	$OpenBSD: syscalls.c,v 1.17 2018/08/28 02:49:47 beck Exp $	*/
+/*	$OpenBSD: syscalls.c,v 1.21 2019/02/10 16:42:35 phessler Exp $	*/
 
 /*
- * Copyright (c) 2017-2018 Bob Beck <beck@openbsd.org>
+ * Copyright (c) 2017-2019 Bob Beck <beck@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -456,7 +456,7 @@ test_parent_dir(int do_uv)
 {
 	char filename[255];
 	if (do_uv) {
-		printf("testing chdir\n");
+		printf("testing parent dir\n");
 		do_unveil2();
 	} else {
 		(void) snprintf(filename, sizeof(filename), "/%s/doof", uv_dir1);
@@ -466,23 +466,31 @@ test_parent_dir(int do_uv)
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1", uv_dir1);
 		UV_SHOULD_SUCCEED((mkdir(filename, 0777) == -1), "mkdir");
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
-		UV_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT) == -1), "open");
+		UV_SHOULD_SUCCEED((open(filename, O_RDWR|O_CREAT, 0644) == -1), "open");
 		(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/link", uv_dir1);
 		UV_SHOULD_SUCCEED((symlink("../subdir1/poop", filename) == -1), "symlink");
 	}
 	sleep(1);
-	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
-	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
 	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/link", uv_dir1);
 	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
-	return 0;
+	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1/poop", uv_dir1);
+	UV_SHOULD_SUCCEED((access(filename, R_OK) == -1), "access");
 	UV_SHOULD_SUCCEED((chdir(uv_dir1) == -1), "chdir");
 	(void) snprintf(filename, sizeof(filename), "/%s/doof/subdir1", uv_dir1);
 	UV_SHOULD_SUCCEED((chdir(filename) == -1), "chdir");
+	UV_SHOULD_SUCCEED((access("poop", R_OK) == -1), "access");
 	UV_SHOULD_SUCCEED((chdir("../subdir2") == -1), "chdir");
 	UV_SHOULD_SUCCEED((chdir("../subdir1") == -1), "chdir");
-
-	return 0;
+	UV_SHOULD_SUCCEED((chdir(filename) == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir2") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir1") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir2") == -1), "chdir");
+	UV_SHOULD_SUCCEED((chdir("../../doof/subdir1") == -1), "chdir");
+	UV_SHOULD_SUCCEED((access("poop", R_OK) == -1), "access");
+	UV_SHOULD_SUCCEED((access("../subdir1/poop", R_OK) == -1), "access");
+	UV_SHOULD_EACCES((chdir("../../../") == -1), "chdir");
+	UV_SHOULD_ENOENT((chdir(uv_dir2) == -1), "chdir");
+	return(0);
 }
 
 static int
@@ -597,8 +605,8 @@ static int
 test_stat2(int do_uv)
 {
 	if (do_uv) {
-		printf("testing stat components to nonexistant \"rw\"\n");
-		if (unveil("/usr/share/man/nonexistant", "rw") == -1)
+		printf("testing stat components to nonexistent \"rw\"\n");
+		if (unveil("/usr/share/man/nonexistent", "rw") == -1)
 			err(1, "%s:%d - unveil", __FILE__, __LINE__);
 	}
 	struct stat sb;
@@ -608,7 +616,7 @@ test_stat2(int do_uv)
 	UV_SHOULD_SUCCEED((stat("/usr", &sb) == -1), "stat");
 	UV_SHOULD_SUCCEED((stat("/usr/share", &sb) == -1), "stat");
 	UV_SHOULD_SUCCEED((stat("/usr/share/man", &sb) == -1), "stat");
-	UV_SHOULD_ENOENT((stat("/usr/share/man/nonexistant", &sb) == -1), "stat");
+	UV_SHOULD_ENOENT((stat("/usr/share/man/nonexistent", &sb) == -1), "stat");
 	return 0;
 }
 
@@ -827,6 +835,23 @@ test_dotdotup(int do_uv)
 	return 0;
 }
 
+static int
+test_kn(int do_uv)
+{
+	if (do_uv) {
+		printf("testing read only with one writeable file\n");
+		if (unveil("/", "r") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+		if (unveil("/dev/null", "rw") == -1)
+			err(1, "%s:%d - unveil", __FILE__, __LINE__);
+	}
+	UV_SHOULD_SUCCEED((open("/dev/null", O_RDWR) == -1), "open");
+	UV_SHOULD_SUCCEED((open("/dev/zero", O_RDONLY) == -1), "open");
+	UV_SHOULD_EACCES((open("/dev/zero", O_RDWR) == -1), "open");
+	return 0;
+}
+
+
 int
 main (int argc, char *argv[])
 {
@@ -872,5 +897,6 @@ main (int argc, char *argv[])
 	failures += runcompare(test_bypassunveil);
 	failures += runcompare_internal(test_fork, 0);
 	failures += runcompare(test_dotdotup);
+	failures += runcompare(test_kn);
 	exit(failures);
 }

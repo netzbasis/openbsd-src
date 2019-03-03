@@ -1,10 +1,10 @@
-/ConnectionFileDescriptorPosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
+/ConnectionFileDescriptorPosix.h/1.1.1.2/Sun Jan 27 16:42:58 2019/-ko/
 /DomainSocket.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
 /Fcntl.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
-/HostInfoPosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
+/HostInfoPosix.h/1.1.1.2/Sun Jan 27 16:42:58 2019/-ko/
 /HostProcessPosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
 /HostThreadPosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
 /LockFilePosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
-/PipePosix.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
+/PipePosix.h/1.1.1.2/Sun Jan 27 16:42:58 2019/-ko/
 /ProcessLauncherPosixFork.h/1.1.1.1/Wed Oct  4 20:27:38 2017/-ko/
 D

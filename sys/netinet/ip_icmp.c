@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.177 2018/09/06 03:42:21 miko Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.181 2018/11/28 08:15:29 claudio Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -206,13 +206,14 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	 * according to RFC1812;
 	 */
 
-	KASSERT(ICMP_MINLEN <= MCLBYTES);
+	KASSERT(ICMP_MINLEN + sizeof (struct ip) <= MCLBYTES);
 
-	if (icmplen + ICMP_MINLEN > MCLBYTES)
+	if (sizeof (struct ip) + icmplen + ICMP_MINLEN > MCLBYTES)
 		icmplen = MCLBYTES - ICMP_MINLEN - sizeof (struct ip);
 
 	m = m_gethdr(M_DONTWAIT, MT_HEADER);
-	if (m && (sizeof (struct ip) + icmplen + ICMP_MINLEN > MHLEN)) {
+	if (m && ((sizeof (struct ip) + icmplen + ICMP_MINLEN +
+	    sizeof(long) - 1) &~ (sizeof(long) - 1)) > MHLEN) {
 		MCLGET(m, M_DONTWAIT);
 		if ((m->m_flags & M_EXT) == 0) {
 			m_freem(m);
@@ -221,11 +222,14 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	}
 	if (m == NULL)
 		goto freeit;
-	/* keep in same rtable */
+	/* keep in same rtable and preserve other pkthdr bits */
 	m->m_pkthdr.ph_rtableid = n->m_pkthdr.ph_rtableid;
-	m->m_len = icmplen + ICMP_MINLEN;
-	if ((m->m_flags & M_EXT) == 0)
-		MH_ALIGN(m, m->m_len);
+	m->m_pkthdr.ph_ifidx = n->m_pkthdr.ph_ifidx;
+	/* move PF_GENERATED to new packet, if existent XXX preserve more? */
+	if (n->m_pkthdr.pf.flags & PF_TAG_GENERATED)
+		m->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
+	m->m_pkthdr.len = m->m_len = icmplen + ICMP_MINLEN;
+	m_align(m, m->m_len);
 	icp = mtod(m, struct icmp *);
 	if ((u_int)type > ICMP_MAXTYPE)
 		panic("icmp_error");
@@ -254,13 +258,9 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	 * Now, copy old ip header (without options)
 	 * in front of icmp message.
 	 */
-	if ((m->m_flags & M_EXT) == 0 &&
-	    m->m_data - sizeof(struct ip) < m->m_pktdat)
-		panic("icmp len");
-	m->m_data -= sizeof(struct ip);
-	m->m_len += sizeof(struct ip);
-	m->m_pkthdr.len = m->m_len;
-	m->m_pkthdr.ph_ifidx = n->m_pkthdr.ph_ifidx;
+	m = m_prepend(m, sizeof(struct ip), M_DONTWAIT);
+	if (m == NULL)
+		goto freeit;
 	nip = mtod(m, struct ip *);
 	/* ip_v set in ip_output */
 	nip->ip_hl = sizeof(struct ip) >> 2;
@@ -272,10 +272,6 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	nip->ip_p = IPPROTO_ICMP;
 	nip->ip_src = oip->ip_src;
 	nip->ip_dst = oip->ip_dst;
-
-	/* move PF_GENERATED to new packet, if existent XXX preserve more? */
-	if (n->m_pkthdr.pf.flags & PF_TAG_GENERATED)
-		m->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
 
 	m_freem(n);
 	return (m);
@@ -353,8 +349,8 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 		icmpstat_inc(icps_tooshort);
 		goto freeit;
 	}
-	i = hlen + min(icmplen, ICMP_ADVLENMIN);
-	if (m->m_len < i && (m = *mp = m_pullup(m, i)) == NULL) {
+	i = hlen + min(icmplen, ICMP_ADVLENMAX);
+	if ((m = *mp = m_pullup(m, i)) == NULL) {
 		icmpstat_inc(icps_tooshort);
 		return IPPROTO_DONE;
 	}
@@ -476,15 +472,6 @@ icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 			    icmplen < ICMP_V6ADVLEN(icp)) {
 				icmpstat_inc(icps_badlen);
 				goto freeit;
-			} else {
-				if ((m = *mp = m_pullup(m, (ip->ip_hl << 2) +
-				    ICMP_V6ADVLEN(icp))) == NULL) {
-					icmpstat_inc(icps_tooshort);
-					return IPPROTO_DONE;
-				}
-				ip = mtod(m, struct ip *);
-				icp = (struct icmp *)
-				    (m->m_data + (ip->ip_hl << 2));
 			}
 		}
 #endif /* INET6 */

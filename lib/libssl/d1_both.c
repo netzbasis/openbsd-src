@@ -1,4 +1,4 @@
-/* $OpenBSD: d1_both.c,v 1.55 2018/09/05 16:58:59 jsing Exp $ */
+/* $OpenBSD: d1_both.c,v 1.57 2019/02/10 16:42:35 phessler Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -360,7 +360,7 @@ dtls1_do_write(SSL *s, int type)
 					xlen = ret - DTLS1_HM_HEADER_LENGTH;
 				}
 
-				tls1_finish_mac(s, p, xlen);
+				tls1_transcript_record(s, p, xlen);
 			}
 
 			if (ret == s->internal->init_num) {
@@ -436,7 +436,7 @@ again:
 
 	msg_len += DTLS1_HM_HEADER_LENGTH;
 
-	tls1_finish_mac(s, p, msg_len);
+	tls1_transcript_record(s, p, msg_len);
 	if (s->internal->msg_callback)
 		s->internal->msg_callback(0, s->version, SSL3_RT_HANDSHAKE, p, msg_len,
 		    s, s->internal->msg_callback_arg);
@@ -1046,7 +1046,7 @@ dtls1_retransmit_message(SSL *s, unsigned short seq, unsigned long frag_off,
 	item = pqueue_find(s->d1->sent_messages, seq64be);
 	if (item == NULL) {
 #ifdef DEBUG
-		fprintf(stderr, "retransmit:  message %d non-existant\n", seq);
+		fprintf(stderr, "retransmit:  message %d non-existent\n", seq);
 #endif
 		*found = 0;
 		return 0;

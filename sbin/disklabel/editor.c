@@ -1,7 +1,7 @@
-/*	$OpenBSD: editor.c,v 1.351 2018/09/21 14:07:34 solene Exp $	*/
+/*	$OpenBSD: editor.c,v 1.354 2019/02/21 14:36:42 otto Exp $	*/
 
 /*
- * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 1997-2000 Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -795,10 +795,10 @@ editor_resize(struct disklabel *lp, char *p)
 			DL_SETPOFFSET(pp, off);
 			if (off + DL_GETPSIZE(pp) > ending_sector) {
 				DL_SETPSIZE(pp, ending_sector - off);
-				pp->p_fragblock = 0;
-				if (get_fsize(&label, partno) == 1 ||
-				    get_bsize(&label, partno) == 1 ||
-				    get_cpg(&label, partno) == 1)
+				pp->p_fragblock = DISKLABELV1_FFS_FRAGBLOCK(0, 0);
+				if (get_fsize(&label, i) == 1 ||
+				    get_bsize(&label, i) == 1 ||
+				    get_cpg(&label, i) == 1)
 					return;
 				shrunk = i;
 			}
@@ -1443,7 +1443,6 @@ sort_partitions(struct disklabel *lp)
 
 	for (npartitions = 0, i = 0; i < lp->d_npartitions; i++) {
 		if (lp->d_partitions[i].p_fstype != FS_UNUSED &&
-		    lp->d_partitions[i].p_fstype != FS_BOOT &&
 		    DL_GETPSIZE(&lp->d_partitions[i]) != 0)
 			spp[npartitions++] = &lp->d_partitions[i];
 	}

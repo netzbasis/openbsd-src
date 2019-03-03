@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urereg.h,v 1.3 2017/03/11 13:40:46 kettenis Exp $	*/
+/*	$OpenBSD: if_urereg.h,v 1.5 2018/11/02 21:32:30 jcs Exp $	*/
 /*-
  * Copyright (c) 2015-2016 Kevin Lo <kevlo@FreeBSD.org>
  * All rights reserved.

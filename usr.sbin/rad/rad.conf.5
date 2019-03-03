@@ -1,4 +1,4 @@
-.\"	$OpenBSD: rad.conf.5,v 1.12 2018/09/16 18:58:36 bluhm Exp $
+.\"	$OpenBSD: rad.conf.5,v 1.14 2019/01/02 07:45:17 jmc Exp $
 .\"
 .\" Copyright (c) 2018 Florian Obser <florian@openbsd.org>
 .\" Copyright (c) 2005 Esben Norby <norby@openbsd.org>
@@ -18,7 +18,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 16 2018 $
+.Dd $Mdocdate: January 2 2019 $
 .Dt RAD.CONF 5
 .Os
 .Sh NAME
@@ -109,7 +109,7 @@ The default is 1800 seconds.
 .\" XXX
 .El
 .Sh INTERFACES
-A list of interfaces to send advertisments on:
+A list of interfaces or interface groups to send advertisments on:
 .Bd -unfilled -offset indent
 .Ic interface Ar name Op { prefix list }
 .Ed
@@ -155,12 +155,11 @@ The default is 2592000.
 configuration file
 .El
 .Sh EXAMPLES
-With the following example configuration
+With the following example configuration,
 .Nm
 will pick a prefix from the ix1 interface and send router advertisements on it:
-.Bd -literal -offset indent
-interface ix1
-.Ed
+.Pp
+.Dl interface ix1
 .Sh SEE ALSO
 .Xr ractl 8 ,
 .Xr rad 8 ,

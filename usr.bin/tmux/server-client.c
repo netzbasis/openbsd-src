@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.261 2018/10/18 08:38:01 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.265 2019/02/16 11:42:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -186,8 +186,14 @@ server_client_create(int fd)
 	TAILQ_INIT(&c->queue);
 
 	c->stdin_data = evbuffer_new();
+	if (c->stdin_data == NULL)
+		fatalx("out of memory");
 	c->stdout_data = evbuffer_new();
+	if (c->stdout_data == NULL)
+		fatalx("out of memory");
 	c->stderr_data = evbuffer_new();
+	if (c->stderr_data == NULL)
+		fatalx("out of memory");
 
 	c->tty.fd = -1;
 	c->title = NULL;
@@ -917,6 +923,7 @@ server_client_handle_key(struct client *c, key_code key)
 {
 	struct mouse_event	*m = &c->tty.mouse;
 	struct session		*s = c->session;
+	struct winlink		*wl;
 	struct window		*w;
 	struct window_pane	*wp;
 	struct timeval		 tv;
@@ -929,7 +936,8 @@ server_client_handle_key(struct client *c, key_code key)
 	/* Check the client is good to accept input. */
 	if (s == NULL || (c->flags & (CLIENT_DEAD|CLIENT_SUSPENDED)) != 0)
 		return;
-	w = s->curw->window;
+	wl = s->curw;
+	w = wl->window;
 
 	/* Update the activity timer. */
 	if (gettimeofday(&c->activity_time, NULL) != 0)
@@ -1022,6 +1030,7 @@ table_changed:
 	}
 	flags = c->flags;
 
+try_again:
 	/* Log key table. */
 	if (wp == NULL)
 		log_debug("key table %s (no pane)", table->name);
@@ -1030,7 +1039,6 @@ table_changed:
 	if (c->flags & CLIENT_REPEAT)
 		log_debug("currently repeating");
 
-try_again:
 	/* Try to see if there is a key binding in the current table. */
 	bd = key_bindings_get(table, key0);
 	if (bd != NULL) {
@@ -1041,10 +1049,12 @@ try_again:
 		 */
 		if ((c->flags & CLIENT_REPEAT) &&
 		    (~bd->flags & KEY_BINDING_REPEAT)) {
+			log_debug("found in key table %s (not repeating)",
+			    table->name);
 			server_client_set_key_table(c, NULL);
+			first = table = c->keytable;
 			c->flags &= ~CLIENT_REPEAT;
 			server_status_client(c);
-			table = c->keytable;
 			goto table_changed;
 		}
 		log_debug("found in key table %s", table->name);
@@ -1094,10 +1104,13 @@ try_again:
 	log_debug("not found in key table %s", table->name);
 	if (!server_client_is_default_key_table(c, table) ||
 	    (c->flags & CLIENT_REPEAT)) {
+		log_debug("trying in root table");
 		server_client_set_key_table(c, NULL);
+		table = c->keytable;
+		if (c->flags & CLIENT_REPEAT)
+			first = table;
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
-		table = c->keytable;
 		goto table_changed;
 	}
 
@@ -1115,7 +1128,7 @@ forward_key:
 	if (c->flags & CLIENT_READONLY)
 		return;
 	if (wp != NULL)
-		window_pane_key(wp, c, s, key, m);
+		window_pane_key(wp, c, s, wl, key, m);
 }
 
 /* Client functions that need to happen every loop. */
@@ -1969,6 +1982,8 @@ server_client_get_cwd(struct client *c, struct session *s)
 {
 	const char	*home;
 
+	if (!cfg_finished && cfg_client != NULL)
+		return (cfg_client->cwd);
 	if (c != NULL && c->session == NULL && c->cwd != NULL)
 		return (c->cwd);
 	if (s != NULL && s->cwd != NULL)

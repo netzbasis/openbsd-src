@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_bio.c,v 1.186 2018/08/13 15:26:17 visa Exp $	*/
+/*	$OpenBSD: vfs_bio.c,v 1.188 2019/02/17 22:17:28 tedu Exp $	*/
 /*	$NetBSD: vfs_bio.c,v 1.44 1996/06/11 11:15:36 pk Exp $	*/
 
 /*
@@ -538,7 +538,7 @@ bread_cluster_callback(struct buf *bp)
 
 	/* Invalidate read-ahead buffers if read short */
 	if (bp->b_resid > 0) {
-		for (i = 0; xbpp[i] != NULL; i++)
+		for (i = 1; xbpp[i] != NULL; i++)
 			continue;
 		for (i = i - 1; i != 0; i--) {
 			if (xbpp[i]->b_bufsize <= bp->b_resid) {
@@ -558,7 +558,7 @@ bread_cluster_callback(struct buf *bp)
 		biodone(xbpp[i]);
 	}
 
-	free(xbpp, M_TEMP, 0);
+	free(xbpp, M_TEMP, (i + 1) * sizeof(*xbpp));
 
 	if (ISSET(bp->b_flags, B_ASYNC)) {
 		brelse(bp);
@@ -603,7 +603,7 @@ bread_cluster(struct vnode *vp, daddr_t blkno, int size, struct buf **rbpp)
 	if (howmany > maxra)
 		howmany = maxra;
 
-	xbpp = mallocarray(howmany + 1, sizeof(struct buf *), M_TEMP, M_NOWAIT);
+	xbpp = mallocarray(howmany + 1, sizeof(*xbpp), M_TEMP, M_NOWAIT);
 	if (xbpp == NULL)
 		goto out;
 
@@ -622,7 +622,7 @@ bread_cluster(struct vnode *vp, daddr_t blkno, int size, struct buf **rbpp)
 				SET(xbpp[i]->b_flags, B_INVAL);
 				brelse(xbpp[i]);
 			}
-			free(xbpp, M_TEMP, 0);
+			free(xbpp, M_TEMP, (howmany + 1) * sizeof(*xbpp));
 			goto out;
 		}
 	}
@@ -867,6 +867,11 @@ brelse(struct buf *bp)
 	/* If it's not cacheable, or an error, mark it invalid. */
 	if (ISSET(bp->b_flags, (B_NOCACHE|B_ERROR)))
 		SET(bp->b_flags, B_INVAL);
+	/* If it's a write error, also mark the vnode as damaged. */
+	if (ISSET(bp->b_flags, B_ERROR) && !ISSET(bp->b_flags, B_READ)) {
+		if (bp->b_vp && bp->b_vp->v_type == VREG)
+			SET(bp->b_vp->v_bioflag, VBIOERROR);
+	}
 
 	if (ISSET(bp->b_flags, B_INVAL)) {
 		/*

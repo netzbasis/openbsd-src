@@ -1,9 +1,9 @@
-# $OpenBSD: Makefile,v 1.6 2018/10/06 10:52:24 bluhm Exp $
+# $OpenBSD: Makefile,v 1.8 2019/02/19 16:51:49 bluhm Exp $
 
 # The following ports must be installed for the regression tests:
 # p5-Net-Pcap		Perl interface for libpcap
 # p5-NetPacket		Perl interface for packet encoding/decoding
-# p5-Crypt-Random	To fill payloads with weak random data
+# p5-BSD-arc4random	Perl interface to the arc4 random number generator
 #
 # Check wether all required perl packages are installed.  If some
 # are missing print a warning and skip the tests, but do not fail.
@@ -11,7 +11,7 @@
 PERL_REQUIRE !=	perl -Mstrict -Mwarnings -e ' \
     eval { require NetPacket::Ethernet } or print $@; \
     eval { require Net::Pcap } or print $@; \
-    eval { require Crypt::Random } or print $@; \
+    eval { require BSD::arc4random } or print $@; \
 '
 .if ! empty (PERL_REQUIRE)
 regress:
@@ -34,10 +34,10 @@ OFP_PERLHEADERS =	${OFP_HEADERS:S/.h/.ph/}
 # Only do that if necessary to keep visible output short.
 
 .if ${.CURDIR} == ${.OBJDIR}
-PERLINC =
+PERLINC =	-I${.OBJDIR}
 PERLPATH =
 .else
-PERLINC =	-I${.CURDIR}
+PERLINC =	-I${.CURDIR} -I${.OBJDIR}
 PERLPATH =	${.CURDIR}/
 .endif
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.137 2018/07/02 20:56:22 bluhm Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.139 2018/11/30 09:24:57 claudio Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -583,7 +583,7 @@ nfsm_rpchead(struct nfsreq *req, struct ucred *cr, int auth_type)
 		auth_len = (ngroups << 2) + 5 * NFSX_UNSIGNED;
 		authsiz = nfsm_rndup(auth_len);
 		/* The authorization size + the size of the static part */
-		MH_ALIGN(mb, authsiz + 10 * NFSX_UNSIGNED);
+		m_align(mb, authsiz + 10 * NFSX_UNSIGNED);
 		break;
 	}
 
@@ -713,7 +713,7 @@ nfsm_uiotombuf(struct mbuf **mp, struct uio *uiop, size_t len)
 	uiop->uio_rw = UIO_WRITE;
 
 	while (len) {
-		xfer = ulmin(len, M_TRAILINGSPACE(mb));
+		xfer = ulmin(len, m_trailingspace(mb));
 		uiomove(mb_offset(mb), xfer, uiop);
 		mb->m_len += xfer;
 		len -= xfer;
@@ -728,7 +728,7 @@ nfsm_uiotombuf(struct mbuf **mp, struct uio *uiop, size_t len)
 	}
 
 	if (pad > 0) {
-		if (pad > M_TRAILINGSPACE(mb)) {
+		if (pad > m_trailingspace(mb)) {
 			MGET(mb2, M_WAIT, MT_DATA);
 			mb2->m_len = 0;
 			mb->m_next = mb2;
@@ -1793,7 +1793,7 @@ nfsm_build(struct mbuf **mp, u_int len)
 	mb = *mp;
 	bpos = mb_offset(mb);
 
-	if (len > M_TRAILINGSPACE(mb)) {
+	if (len > m_trailingspace(mb)) {
 		MGET(mb2, M_WAIT, MT_DATA);
 		if (len > MLEN)
 			panic("build > MLEN");

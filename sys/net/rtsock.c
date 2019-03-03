@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.279 2018/07/10 20:28:34 claudio Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.283 2019/02/08 16:52:54 bluhm Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -169,7 +169,7 @@ struct rtptable rtptable;
 #define ROUTECB_FLAG_FLUSH	0x2	/* Wait until socket is empty before
 					   queueing more packets */
 
-#define ROUTE_DESYNC_RESEND_TIMEOUT	(hz / 5)	/* In hz */
+#define ROUTE_DESYNC_RESEND_TIMEOUT	200	/* In ms */
 
 void
 route_prinit(void)
@@ -237,7 +237,7 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		break;
 	case PRU_SENSE:
 		/* stat: don't bother with a blocksize. */
-		return (0);
+		break;
 
 	/* minimal support, just implement a fake peer address */
 	case PRU_SOCKADDR:
@@ -248,8 +248,6 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		nam->m_len = route_src.sa_len;
 		break;
 
-	case PRU_RCVOOB:
-		return (EOPNOTSUPP);
 	case PRU_RCVD:
 		/*
 		 * If we are in a FLUSH state, check if the buffer is
@@ -259,8 +257,9 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		    ((sbspace(rop->rop_socket, &rop->rop_socket->so_rcv) ==
 		    rop->rop_socket->so_rcv.sb_hiwat)))
 			rop->rop_flags &= ~ROUTECB_FLAG_FLUSH;
-		return (0);
+		break;
 
+	case PRU_RCVOOB:
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
@@ -277,8 +276,10 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	}
 
  release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -461,7 +462,7 @@ rtm_senddesync(struct socket *so)
 		m_freem(desync_mbuf);
 	}
 	/* Re-add timeout to try sending msg again */
-	timeout_add(&rop->rop_timeout, ROUTE_DESYNC_RESEND_TIMEOUT);
+	timeout_add_msec(&rop->rop_timeout, ROUTE_DESYNC_RESEND_TIMEOUT);
 }
 
 void
@@ -522,6 +523,7 @@ next:
 		case RTM_NEWADDR:
 		case RTM_DELADDR:
 		case RTM_IFINFO:
+		case RTM_80211INFO:
 		case RTM_BFD:
 			/* check against rdomain id */
 			if (rop->rop_rtableid != RTABLE_ANY &&
@@ -1378,6 +1380,9 @@ rtm_msg1(int type, struct rt_addrinfo *rtinfo)
 		len = sizeof(struct bfd_msghdr);
 		break;
 #endif
+	case RTM_80211INFO:
+		len = sizeof(struct if_ieee80211_msghdr);
+		break;
 	default:
 		len = sizeof(struct rt_msghdr);
 		break;
@@ -1461,7 +1466,8 @@ again:
 		if (w->w_needed <= 0 && w->w_where) {
 			if (w->w_tmemsize < len) {
 				free(w->w_tmem, M_RTABLE, w->w_tmemsize);
-				w->w_tmem = malloc(len, M_RTABLE, M_NOWAIT);
+				w->w_tmem = malloc(len, M_RTABLE,
+				    M_NOWAIT | M_ZERO);
 				if (w->w_tmem)
 					w->w_tmemsize = len;
 			}
@@ -1656,6 +1662,29 @@ rtm_bfd(struct bfd_config *bfd)
 	route_input(m, NULL, info.rti_info[RTAX_DST]->sa_family);
 }
 #endif /* BFD */
+
+/*
+ * This is used to generate routing socket messages indicating
+ * the state of an ieee80211 interface.
+ */
+void
+rtm_80211info(struct ifnet *ifp, struct if_ieee80211_data *ifie)
+{
+	struct if_ieee80211_msghdr	*ifim;
+	struct mbuf			*m;
+
+	if (rtptable.rtp_count == 0)
+		return;
+	m = rtm_msg1(RTM_80211INFO, NULL);
+	if (m == NULL)
+		return;
+	ifim = mtod(m, struct if_ieee80211_msghdr *);
+	ifim->ifim_index = ifp->if_index;
+	ifim->ifim_tableid = ifp->if_rdomain;
+
+	memcpy(&ifim->ifim_ifie, ifie, sizeof(ifim->ifim_ifie));
+	route_input(m, NULL, AF_UNSPEC);
+}
 
 /*
  * This is used in dumping the kernel table via sysctl().

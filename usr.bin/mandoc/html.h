@@ -1,7 +1,7 @@
-/*	$OpenBSD: html.h,v 1.56 2018/10/02 14:56:36 schwarze Exp $ */
+/*	$OpenBSD: html.h,v 1.64 2019/03/01 10:48:58 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2017, 2018, 2019 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,6 +24,7 @@ enum	htmltag {
 	TAG_TITLE,
 	TAG_DIV,
 	TAG_IDIV,
+	TAG_SECTION,
 	TAG_H1,
 	TAG_H2,
 	TAG_SPAN,
@@ -39,6 +40,7 @@ enum	htmltag {
 	TAG_DL,
 	TAG_DT,
 	TAG_DD,
+	TAG_P,
 	TAG_PRE,
 	TAG_VAR,
 	TAG_CITE,
@@ -72,11 +74,14 @@ enum	htmlfont {
 	HTMLFONT_BOLD,
 	HTMLFONT_ITALIC,
 	HTMLFONT_BI,
+	HTMLFONT_CW,
 	HTMLFONT_MAX
 };
 
 struct	tag {
 	struct tag	 *next;
+	int		  refcnt;
+	int		  closed;
 	enum htmltag	  tag;
 };
 
@@ -87,7 +92,6 @@ struct	html {
 #define	HTML_KEEP	 (1 << 2)
 #define	HTML_PREKEEP	 (1 << 3)
 #define	HTML_NONOSPACE	 (1 << 4) /* never add spaces */
-#define	HTML_LITERAL	 (1 << 5) /* literal (e.g., <PRE>) context */
 #define	HTML_SKIPCHAR	 (1 << 6) /* skip the next character */
 #define	HTML_NOSPLIT	 (1 << 7) /* do not break line before .An */
 #define	HTML_SPLIT	 (1 << 8) /* break line before .An */
@@ -124,6 +128,7 @@ void		  roff_html_pre(struct html *, const struct roff_node *);
 void		  print_gen_comment(struct html *, struct roff_node *);
 void		  print_gen_decls(struct html *);
 void		  print_gen_head(struct html *);
+void		  print_metaf(struct html *, enum mandoc_esc);
 struct tag	 *print_otag(struct html *, enum htmltag, const char *, ...);
 void		  print_tagq(struct html *, const struct tag *);
 void		  print_stagq(struct html *, const struct tag *);
@@ -131,7 +136,8 @@ void		  print_text(struct html *, const char *);
 void		  print_tblclose(struct html *);
 void		  print_tbl(struct html *, const struct tbl_span *);
 void		  print_eqn(struct html *, const struct eqn_box *);
-void		  print_paragraph(struct html *);
 void		  print_endline(struct html *);
 
+void		  html_close_paragraph(struct html *);
+enum roff_tok	  html_fillmode(struct html *, enum roff_tok);
 char		 *html_make_id(const struct roff_node *, int);

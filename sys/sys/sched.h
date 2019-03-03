@@ -1,4 +1,4 @@
-/*	$OpenBSD: sched.h,v 1.49 2018/10/05 18:56:57 cheloha Exp $	*/
+/*	$OpenBSD: sched.h,v 1.51 2019/02/26 14:24:21 visa Exp $	*/
 /* $NetBSD: sched.h,v 1.2 1999/02/28 18:14:58 ross Exp $ */
 
 /*-
@@ -90,6 +90,8 @@
 
 #define	SCHED_NQS	32			/* 32 run queues. */
 
+struct smr_entry;
+
 /*
  * Per-CPU scheduler state.
  */
@@ -111,7 +113,23 @@ struct schedstate_percpu {
 
 	volatile uint32_t spc_whichqs;
 	volatile u_int spc_spinning;	/* this cpu is currently spinning */
+
+	SIMPLEQ_HEAD(, smr_entry) spc_deferred; /* deferred smr calls */
+	u_int spc_ndeferred;		/* number of deferred smr calls */
+	u_int spc_smrdepth;		/* level of smr nesting */
+	u_char spc_smrexpedite;		/* if set, dispatch smr entries
+					 * without delay */
+	volatile u_char spc_insmr;	/* if set, CPU entered smr critical
+					 * section from interrupt context
+					 * that preempted idle state */
 };
+
+struct cpustats {
+	uint64_t	cs_time[CPUSTATES];	/* CPU state statistics */
+	uint64_t	cs_flags;		/* see below */
+};
+
+#define CPUSTATS_ONLINE		0x0001	/* CPU is schedulable */
 
 #ifdef	_KERNEL
 
@@ -161,6 +179,7 @@ void sched_stop_secondary_cpus(void);
 #endif
 
 #define cpu_is_idle(ci)	((ci)->ci_schedstate.spc_whichqs == 0)
+int	cpu_is_online(struct cpu_info *);
 
 void sched_init_runqueues(void);
 void setrunqueue(struct proc *);

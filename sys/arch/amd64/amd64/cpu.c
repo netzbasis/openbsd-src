@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.130 2018/10/23 17:51:32 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.132 2019/01/20 23:07:51 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -555,11 +555,6 @@ cpu_init(struct cpu_info *ci)
 	/* configure the CPU if needed */
 	if (ci->cpu_setup != NULL)
 		(*ci->cpu_setup)(ci);
-	/*
-	 * We do this here after identifycpu() because errata may affect
-	 * what we do.
-	 */
-	patinit(ci);
 
 	cr4 = rcr4() | CR4_DEFAULT;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
@@ -921,6 +916,8 @@ cpu_init_msrs(struct cpu_info *ci)
 	wrmsr(MSR_FSBASE, 0);
 	wrmsr(MSR_GSBASE, (u_int64_t)ci);
 	wrmsr(MSR_KERNELGSBASE, 0);
+
+	patinit(ci);
 }
 
 void
@@ -929,14 +926,14 @@ patinit(struct cpu_info *ci)
 	extern int	pmap_pg_wc;
 	u_int64_t	reg;
 
-	if ((ci->ci_feature_flags & CPUID_PAT) == 0)
+	if ((cpu_feature & CPUID_PAT) == 0)
 		return;
 	/*
 	 * Set up PAT bits.
 	 * The default pat table is the following:
-	 * WB, WT, UC- UC, WB, WT, UC-, UC
+	 * WB, WT, UC-, UC, WB, WT, UC-, UC
 	 * We change it to:
-	 * WB, WC, UC-, UC, WB, WC, UC-, UC.
+	 * WB, WC, UC-, UC, WB, WC, UC-, UC
 	 * i.e change the WT bit to be WC.
 	 */
 	reg = PATENTRY(0, PAT_WB) | PATENTRY(1, PAT_WC) |

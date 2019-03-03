@@ -1,4 +1,4 @@
-.\" $OpenBSD: bsd.port.mk.5,v 1.497 2018/10/17 05:44:38 jmc Exp $
+.\" $OpenBSD: bsd.port.mk.5,v 1.505 2019/01/11 15:49:08 espie Exp $
 .\"
 .\" Copyright (c) 2000-2008 Marc Espie
 .\"
@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: October 17 2018 $
+.Dd $Mdocdate: January 11 2019 $
 .Dt BSD.PORT.MK 5
 .Os
 .Sh NAME
@@ -115,6 +115,7 @@ Specialization hooks exist for
 .Cm distpatch ,
 .Cm extract ,
 .Cm fake ,
+.Cm gen ,
 .Cm install ,
 .Cm patch ,
 .Cm test .
@@ -218,9 +219,6 @@ creates the ${WRKBUILD} directory (see
 .Ev SEPARATE_BUILD ) ,
 and runs whatever configuration methods are recorded in
 .Ev CONFIGURE_STYLE .
-.It Cm describe
-Prints a one-line index entry of the port, suitable for
-.Pa ${PORTSDIR}/INDEX .
 .It Cm distclean
 Shorthand for
 .Ql make clean=dist .
@@ -351,6 +349,45 @@ but also fetches
 .Ev SUPDISTFILES ,
 for use with e.g.,
 .Cm makesum .
+.It Cm fix-permissions
+Ensure permissions are correct when using
+.Ev PORTS_PRIVSEP
+and/or
+.Xr dpb 1 .
+.Pp
+If necessary, creates directory
+.Ev DISTDIR
+owned by
+.Ev FETCH_USER ,
+and creates directories
+.Ev LOCKDIR ,
+.Ev PACKAGES_REPOSITORY ,
+.Ev PLIST_REPOSITORY
+and
+.Ev WRKOBJDIR
+owned by
+.Ev BUILD_USER .
+.Pp
+If these directories already exist,
+ownership of their contents is modified to conform to
+.Ev PORTS_PRIVSEP
+and
+.Xr dpb 1
+requirements.
+.It Cm gen
+Generate configure script when needed, either after patching
+input files, or from scratch for some ports,
+generally using automake, autoconf, autogen and similar gnu tools.
+This target only has modules
+.Po Ev MODxxx_gen Pc
+and a
+.Ar do-gen
+hooks.
+Then adjust timestamps to avoid regeneration during build
+.Po
+see
+.Ev REORDER_DEPENDENCIES
+.Pc .
 .It Cm generate-readmes
 Generate READMEs and rc scripts from
 .Pa ${PKGDIR}
@@ -501,11 +538,6 @@ exists, the files described under
 .Ev PATCH_LIST
 will be applied under
 .Ev WRKDIST .
-See also
-.Ev REORDER_DEPENDENCIES
-for possible
-.Cm post-patch
-clean-up.
 .It Cm peek-ftp
 Connect to the first site in
 .Ev MASTER_SITES ,
@@ -653,6 +685,10 @@ and
 so that the packing-list is complete.
 .It Cm rebuild
 Force rebuild of the port.
+.It Cm regen
+Force rebuilding configure scripts using
+.Ar gen
+steps.
 .It Cm reinstall
 Force reinstallation of a port, by first cleaning the old installation.
 Seldom needed, as
@@ -667,6 +703,11 @@ and outputs a list of dependencies suitable for
 .Xr pkg_create 1 ,
 see
 .Cm print-package-args .
+.It Cm reprepare
+Force running the
+.Ar prepare
+target
+again.
 .It Cm show
 Invoked as make show=name, show the contents of ${name}.
 Invoked as make show="name1 name2 ...",
@@ -680,6 +721,15 @@ Used by some options of
 .Xr dpb 1 ,
 suitable for
 .Ev BULK_TARGETS .
+.It Cm show-indexed
+Similar to
+.Cm show .
+Invoked as make show-indexed=name, show the contents of ${name${SUBPACKAGE}},
+or ${name} if the variable
+.Ev name
+is not
+.Ev SUBPACKAGE
+dependent.
 .It Cm show-prepare-results
 Print the list of actual installed packages found out by
 .Cm prepare .
@@ -1542,6 +1592,14 @@ Annotations for the Distributed Ports Builder.
 See
 .Xr dpb 1
 for semantics.
+.It Ev DUMMY_PACKAGE
+If defined,
+.Nm
+will provide dummy values for variables mandatory for a minimally functional
+port.
+Used by various pieces of the ports tree to perform introspection and get to
+.Nm Ns 's
+variables.
 .It Ev ECHO_MSG
 User settings.
 Used to display
@@ -2420,6 +2478,25 @@ and
 .Ev FETCH_USER
 must be able to write into
 .Pa ${DISTDIR} .
+The directories and permissions can be set correctly using
+.Cm fix-permissions .
+.Pp
+The regular user must be allowed to execute commands as
+.Ev BUILD_USER
+and
+.Ev FETCH_USER .
+Running commands as another user can be achieved with
+.Xr doas 1
+by setting
+.Ev SUDO=doas
+in
+.Xr mk.conf 5
+and using the following minimal
+.Xr doas.conf 5 :
+.Bd -literal -offset indent
+permit keepenv nopass solene as _pbuild
+permit keepenv nopass solene as _pfetch
+.Ed
 .Pp
 Note that this also means that
 .Xr doas 1
@@ -3101,7 +3178,7 @@ for more details.
 As a special extension,
 .Ev WANTLIB
 may include absolute paths, e.g.,
-.Pa ${LOCALBASE}/lib/expat.=4
+.Pa ${LOCALBASE}/lib/expat=4
 to distinguish between base libraries and port libraries.
 Use with caution, this is very seldom needed.
 .It Ev wantlib_args
@@ -3902,6 +3979,15 @@ target.
 .It Cm depends-list
 Renamed into
 .Cm full-build-depends .
+.It Cm describe
+Prints a one-line index entry of the port.
+.Cm dump-vars
+provides much more accurate information, and the indexing role
+has been taken over by the
+.Pa sqlports
+and
+.Pa portslist
+packages.
 .It Cm {build,run,lib}-depends
 The dependency mechanism now meshes
 .Ev BUILD_DEPENDS , LIB_DEPENDS , RUN_DEPENDS, WANTLIB

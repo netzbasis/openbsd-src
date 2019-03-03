@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.126 2018/10/15 08:16:17 bentley Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.129 2019/02/10 13:41:27 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2018 Reyk Floeter <reyk@openbsd.org>
@@ -198,7 +198,6 @@ void
 server_read_http(struct bufferevent *bev, void *arg)
 {
 	struct client		*clt = arg;
-	struct server_config	*srv_conf = clt->clt_srv_conf;
 	struct http_descriptor	*desc = clt->clt_descreq;
 	struct evbuffer		*src = EVBUFFER_INPUT(bev);
 	char			*line = NULL, *key, *value;
@@ -220,7 +219,7 @@ server_read_http(struct bufferevent *bev, void *arg)
 		if (!clt->clt_line) {
 			/* Peek into the buffer to see if it looks like HTTP */
 			key = EVBUFFER_DATA(src);
-			if (!isalpha(*key)) {
+			if (!isalpha((unsigned char)*key)) {
 				server_abort_http(clt, 400,
 				    "invalid request line");
 				goto abort;
@@ -355,11 +354,6 @@ server_read_http(struct bufferevent *bev, void *arg)
 			    &errstr);
 			if (errstr) {
 				server_abort_http(clt, 500, errstr);
-				goto abort;
-			}
-			if ((size_t)clt->clt_toread >
-			    srv_conf->maxrequestbody) {
-				server_abort_http(clt, 413, NULL);
 				goto abort;
 			}
 		}
@@ -1334,6 +1328,12 @@ server_response(struct httpd *httpd, struct client *clt)
 		srv_conf = server_getlocation(clt, desc->http_path);
 	}
 
+	if (clt->clt_toread > 0 && (size_t)clt->clt_toread >
+	    srv_conf->maxrequestbody) {
+		server_abort_http(clt, 413, NULL);
+		return (-1);
+	}
+
 	if (srv_conf->flags & SRVFLAG_BLOCK) {
 		server_abort_http(clt, srv_conf->return_code,
 		    srv_conf->return_uri);
@@ -1712,6 +1712,13 @@ server_log_http(struct client *clt, unsigned int code, size_t len)
 		if (clt->clt_remote_user &&
 		    stravis(&user, clt->clt_remote_user, HTTPD_LOGVIS) == -1)
 			goto done;
+		if (clt->clt_remote_user == NULL &&
+		    clt->clt_tls_ctx != NULL &&
+		    (srv_conf->tls_flags & TLSFLAG_CA) &&
+		    tls_peer_cert_subject(clt->clt_tls_ctx) != NULL &&
+		    stravis(&user, tls_peer_cert_subject(clt->clt_tls_ctx),
+				HTTPD_LOGVIS) == -1)
+			goto done;
 		if (desc->http_version &&
 		    stravis(&version, desc->http_version, HTTPD_LOGVIS) == -1)
 			goto done;
@@ -1730,7 +1737,7 @@ server_log_http(struct client *clt, unsigned int code, size_t len)
 		ret = evbuffer_add_printf(clt->clt_log,
 		    "%s %s - %s [%s] \"%s %s%s%s%s%s\""
 		    " %03d %zu \"%s\" \"%s\"\n",
-		    srv_conf->name, ip, clt->clt_remote_user == NULL ? "-" :
+		    srv_conf->name, ip, user == NULL ? "-" :
 		    user, tstamp,
 		    server_httpmethod_byid(desc->http_method),
 		    desc->http_path == NULL ? "" : path,

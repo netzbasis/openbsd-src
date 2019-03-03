@@ -1,8 +1,8 @@
 /Makefile.inc/1.59/Wed Mar 30 06:38:41 2016//
 /base64.c/1.8/Fri Jan 16 16:48:51 2015//
 /byteorder.3/1.22/Tue Nov 10 23:48:18 2015//
-/ethers.3/1.24/Tue Nov 10 23:48:18 2015//
-/ethers.c/1.25/Wed Sep 21 04:38:56 2016//
+/ethers.3/1.25/Fri Nov  9 17:49:32 2018//
+/ethers.c/1.27/Fri Jan 25 00:19:25 2019//
 /freeaddrinfo.c/1.9/Wed Sep 21 04:38:56 2016//
 /gai_strerror.3/1.10/Wed May  3 01:58:33 2017//
 /gai_strerror.c/1.8/Mon Sep 14 07:38:38 2015//
@@ -25,7 +25,7 @@
 /getservent.3/1.21/Wed Jun  5 03:39:23 2013//
 /getservent.c/1.15/Mon Sep 14 07:38:38 2015//
 /herror.c/1.10/Mon Sep 14 07:38:38 2015//
-/htonl.3/1.4/Thu Mar 10 08:42:26 2016//
+/htonl.3/1.5/Wed Feb 13 07:02:09 2019//
 /htonl.c/1.7/Mon Jul 21 01:51:10 2014//
 /htons.c/1.9/Mon Jul 21 01:51:10 2014//
 /if_indextoname.3/1.16/Sat Nov 21 07:48:10 2015//
@@ -63,7 +63,7 @@
 /res_data.c/1.4/Fri Jan 16 16:48:51 2015//
 /res_debug_syms.c/1.2/Mon Oct  5 02:57:16 2015//
 /res_random.c/1.24/Tue Apr  5 04:29:21 2016//
-/resolver.3/1.37/Mon Feb 27 11:38:08 2017//
+/resolver.3/1.38/Mon Jan 14 06:23:06 2019//
 /rresvport.c/1.11/Sat Sep 12 14:56:50 2015//
 /rthdr.c/1.12/Wed Sep 21 04:38:56 2016//
 /ruserok.c/1.12/Mon May 23 00:12:58 2016//

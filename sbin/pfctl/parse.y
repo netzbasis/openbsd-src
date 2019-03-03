@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.684 2018/09/16 02:44:06 millert Exp $	*/
+/*	$OpenBSD: parse.y,v 1.693 2019/02/13 22:57:07 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -307,7 +307,6 @@ struct scrub_opts {
 	int			nodf;
 	int			minttl;
 	int			maxmss;
-	int			settos;
 	int			randomid;
 	int			reassemble_tcp;
 } scrub_opts;
@@ -810,7 +809,27 @@ varset		: STRING '=' varstring	{
 		}
 		;
 
-anchorname	: STRING			{ $$ = $1; }
+anchorname	: STRING			{
+			if ($1[0] == '\0') {
+				free($1);
+				yyerror("anchor name must not be empty");
+				YYERROR;
+			}
+			if (strlen(pf->anchor->path) + 1 +
+			    strlen($1) >= PATH_MAX) {
+				free($1);
+				yyerror("anchor name is longer than %u",
+				    PATH_MAX - 1);
+				YYERROR;
+			}
+			if ($1[0] == '_' || strstr($1, "/_") != NULL) {
+				free($1);
+				yyerror("anchor names beginning with '_' "
+				    "are reserved for internal use");
+				YYERROR;
+			}
+			$$ = $1;
+		}
 		| /* empty */			{ $$ = NULL; }
 		;
 
@@ -857,13 +876,6 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 		{
 			struct pf_rule	r;
 			struct node_proto	*proto;
-
-			if ($2 && ($2[0] == '_' || strstr($2, "/_") != NULL)) {
-				free($2);
-				yyerror("anchor names beginning with '_' "
-				    "are reserved for internal use");
-				YYERROR;
-			}
 
 			memset(&r, 0, sizeof(r));
 			if (pf->astack[pf->asd + 1]) {
@@ -950,14 +962,11 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 		}
 		;
 
-loadrule	: LOAD ANCHOR string FROM string	{
+loadrule	: LOAD ANCHOR anchorname FROM string	{
 			struct loadanchors	*loadanchor;
 
-			if (strlen(pf->anchor->path) + 1 +
-			    strlen($3) >= PATH_MAX) {
-				yyerror("anchorname %s too long, max %u\n",
-				    $3, PATH_MAX - 1);
-				free($3);
+			if ($3 == NULL) {
+				yyerror("anchor name is missing");
 				YYERROR;
 			}
 			loadanchor = calloc(1, sizeof(struct loadanchors));
@@ -1991,7 +2000,7 @@ filter_opt	: USER uids {
 			}
 			filter_opts.divert.type = PF_DIVERT_REPLY;
 		}
-		| DIVERTPACKET PORT number {
+		| DIVERTPACKET PORT portplain {
 			if (filter_opts.divert.type != PF_DIVERT_NONE) {
 				yyerror("more than one divert option");
 				YYERROR;
@@ -2004,11 +2013,11 @@ filter_opt	: USER uids {
 			if (pf->reassemble & PF_REASS_ENABLED)
 				filter_opts.marker |= FOM_SCRUB_TCP;
 
-			if ($3 < 1 || $3 > 65535) {
-				yyerror("invalid divert port");
+			filter_opts.divert.port = $3.a;
+			if (!filter_opts.divert.port) {
+				yyerror("invalid divert port: %u", ntohs($3.a));
 				YYERROR;
 			}
-			filter_opts.divert.port = htons($3);
 		}
 		| SCRUB '(' scrub_opts ')' {
 			filter_opts.nodf = $3.nodf;
@@ -4076,6 +4085,7 @@ process_tabledef(char *name, struct table_opts *opts, int popts)
 	if (pf->opts & PF_OPT_VERBOSE)
 		print_tabledef(name, opts->flags, opts->init_addr,
 		    &opts->init_nodes);
+	warn_duplicate_tables(name, pf->anchor->path);
 	if (!(pf->opts & PF_OPT_NOACTION) &&
 	    pfctl_define_table(name, opts->flags, opts->init_addr,
 	    pf->anchor->path, &ab, pf->anchor->ruleset.tticket)) {
@@ -5279,7 +5289,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -5335,7 +5346,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -5374,7 +5385,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -5563,11 +5574,9 @@ pfctl_cmdline_symset(char *s)
 	if ((val = strrchr(s, '=')) == NULL)
 		return (-1);
 
-	if ((sym = malloc(strlen(s) - strlen(val) + 1)) == NULL)
+	sym = strndup(s, val - s);
+	if (sym == NULL)
 		err(1, "%s", __func__);
-
-	strlcpy(sym, s, strlen(s) - strlen(val) + 1);
-
 	ret = symset(sym, val + 1, 1);
 	free(sym);
 
@@ -5756,6 +5765,7 @@ parseport(char *port, struct range *r, int extensions)
 			r->t = PF_OP_RRG;
 		return (0);
 	}
+	yyerror("port is invalid: %s", port);
 	return (-1);
 }
 

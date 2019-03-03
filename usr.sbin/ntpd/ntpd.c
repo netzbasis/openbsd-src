@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.c,v 1.117 2018/08/31 18:45:02 deraadt Exp $ */
+/*	$OpenBSD: ntpd.c,v 1.120 2019/01/14 16:30:21 florian Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <tls.h>
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -201,6 +202,9 @@ main(int argc, char *argv[])
 			    pname);
 
 		fatalx("%s: process '%s' failed", __func__, pname);
+	} else {
+		if ((control_check(CTLSOCKET)) == -1)
+			fatalx("ntpd already running");
 	}
 
 	if (setpriority(PRIO_PROCESS, 0, -20) == -1)
@@ -247,7 +251,7 @@ main(int argc, char *argv[])
 	 * Constraint processes are forked with certificates in memory,
 	 * then privdrop into chroot before speaking to the outside world.
 	 */
-	if (unveil("/etc/ssl/cert.pem", "r") == -1)
+	if (unveil(tls_default_ca_cert_file(), "r") == -1)
 		err(1, "unveil");
 	if (unveil("/usr/sbin/ntpd", "x") == -1)
 		err(1, "unveil");

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.47 2018/10/22 16:45:24 bluhm Exp $	*/
+/*	$OpenBSD: parse.y,v 1.50 2019/02/13 22:57:08 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -120,9 +120,9 @@ typedef struct {
 
 
 %token	INCLUDE ERROR
-%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE FORMAT GROUP INSTANCE
-%token	INTERFACE LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX RDOMAIN
-%token	SIZE SOCKET SWITCH UP VM VMID
+%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE FORMAT GROUP INET6
+%token	INSTANCE INTERFACE LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX
+%token	RDOMAIN SIZE SOCKET SWITCH UP VM VMID
 %token	<v.number>	NUMBER
 %token	<v.string>	STRING
 %type	<v.lladdr>	lladdr
@@ -181,10 +181,27 @@ varset		: STRING '=' STRING		{
 		}
 		;
 
-main		: LOCAL PREFIX STRING {
+main		: LOCAL INET6 {
+			env->vmd_cfg.cfg_flags |= VMD_CFG_INET6;
+		}
+		| LOCAL INET6 PREFIX STRING {
 			struct address	 h;
 
-			/* The local prefix is IPv4-only */
+			if (host($4, &h) == -1 ||
+			    h.ss.ss_family != AF_INET6 ||
+			    h.prefixlen > 64 || h.prefixlen < 0) {
+				yyerror("invalid local inet6 prefix: %s", $4);
+				free($4);
+				YYERROR;
+			}
+
+			env->vmd_cfg.cfg_flags |= VMD_CFG_INET6;
+			env->vmd_cfg.cfg_flags &= ~VMD_CFG_AUTOINET6;
+			memcpy(&env->vmd_cfg.cfg_localprefix6, &h, sizeof(h));
+		}
+		| LOCAL PREFIX STRING {
+			struct address	 h;
+
 			if (host($3, &h) == -1 ||
 			    h.ss.ss_family != AF_INET ||
 			    h.prefixlen > 32 || h.prefixlen < 0) {
@@ -747,6 +764,7 @@ lookup(char *s)
 		{ "group",		GROUP },
 		{ "id",			VMID },
 		{ "include",		INCLUDE },
+		{ "inet6",		INET6 },
 		{ "instance",		INSTANCE },
 		{ "interface",		INTERFACE },
 		{ "interfaces",		NIFS },
@@ -949,7 +967,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -981,7 +1000,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -1020,7 +1039,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '/') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}

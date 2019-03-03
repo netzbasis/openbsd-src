@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sched.c,v 1.53 2018/10/05 18:56:57 cheloha Exp $	*/
+/*	$OpenBSD: kern_sched.c,v 1.55 2019/02/26 14:24:21 visa Exp $	*/
 /*
  * Copyright (c) 2007, 2008 Artur Grabowski <art@openbsd.org>
  *
@@ -25,6 +25,7 @@
 #include <sys/signalvar.h>
 #include <sys/mutex.h>
 #include <sys/task.h>
+#include <sys/smr.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -105,6 +106,8 @@ sched_init_cpu(struct cpu_info *ci)
 		return;
 #endif
 	cpuset_add(&sched_all_cpus, ci);
+
+	SIMPLEQ_INIT(&spc->spc_deferred);
 }
 
 void
@@ -171,6 +174,8 @@ sched_idle(void *v)
 		}
 
 		splassert(IPL_NONE);
+
+		smr_idle();
 
 		cpuset_add(&sched_idle_cpus, ci);
 		cpu_idle_enter();
@@ -830,6 +835,12 @@ int
 sysctl_hwncpuonline(void)
 {
 	return cpuset_cardinality(&sched_all_cpus);
+}
+
+int
+cpu_is_online(struct cpu_info *ci)
+{
+	return cpuset_isset(&sched_all_cpus, ci);
 }
 
 #ifdef __HAVE_CPU_TOPOLOGY

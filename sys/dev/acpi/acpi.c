@@ -1,4 +1,4 @@
-/* $OpenBSD: acpi.c,v 1.359 2018/08/30 10:11:34 kettenis Exp $ */
+/* $OpenBSD: acpi.c,v 1.362 2019/01/20 00:19:50 jsg Exp $ */
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
@@ -1954,6 +1954,7 @@ void
 acpi_pbtn_task(void *arg0, int dummy)
 {
 	struct acpi_softc *sc = arg0;
+	extern int pwr_action;
 	uint16_t en;
 	int s;
 
@@ -1966,7 +1967,18 @@ acpi_pbtn_task(void *arg0, int dummy)
 	    en | ACPI_PM1_PWRBTN_EN);
 	splx(s);
 
-	acpi_addtask(sc, acpi_powerdown_task, sc, 0);
+	switch (pwr_action) {
+	case 0:
+		break;
+	case 1:
+		acpi_addtask(sc, acpi_powerdown_task, sc, 0);
+		break;
+#ifndef SMALL_KERNEL
+	case 2:
+		acpi_addtask(sc, acpi_sleep_task, sc, ACPI_SLEEP_SUSPEND);
+		break;
+#endif
+	}
 }
 
 void
@@ -2982,10 +2994,6 @@ const char *acpi_skip_hids[] = {
 	"PNP0200",	/* PC-class DMA Controller */
 	"PNP0201",	/* EISA DMA Controller */
 	"PNP0800",	/* Microsoft Sound System Compatible Device */
-#if defined(__amd64__) || defined(__i386__)
-	"PNP0A03",	/* PCI Bus */
-	"PNP0A08",	/* PCI Express Bus */
-#endif
 	"PNP0C01",	/* System Board */
 	"PNP0C02",	/* PNP Motherboard Resources */
 	"PNP0C04",	/* x87-compatible Floating Point Processing Unit */

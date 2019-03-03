@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.139 2018/10/18 08:38:01 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.143 2018/11/13 11:36:37 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -144,8 +144,7 @@ screen_write_reset(struct screen_write_ctx *ctx)
 	screen_reset_tabs(s);
 	screen_write_scrollregion(ctx, 0, screen_size_y(s) - 1);
 
-	s->mode &= ~(MODE_INSERT|MODE_KCURSOR|MODE_KKEYPAD|MODE_FOCUSON);
-	s->mode &= ~(ALL_MOUSE_MODES|MODE_MOUSE_UTF8|MODE_MOUSE_SGR);
+	s->mode = MODE_CURSOR | MODE_WRAP;
 
 	screen_write_clearscreen(ctx, 8);
 	screen_write_cursormove(ctx, 0, 0);
@@ -351,7 +350,6 @@ screen_write_cnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 			ptr = last + 1;
 			continue;
 		}
-
 		if (*ptr > 0x7f && utf8_open(ud, *ptr) == UTF8_MORE) {
 			ptr++;
 
@@ -377,7 +375,9 @@ screen_write_cnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 			if (maxlen > 0 && size + 1 > (size_t)maxlen)
 				break;
 
-			if (*ptr > 0x1f && *ptr < 0x7f) {
+			if (*ptr == '\001')
+				gc.attr ^= GRID_ATTR_CHARSET;
+			else if (*ptr > 0x1f && *ptr < 0x7f) {
 				size++;
 				screen_write_putc(ctx, &gc, *ptr);
 			}
@@ -775,6 +775,8 @@ screen_write_alignmenttest(struct screen_write_ctx *ctx)
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
 
+	screen_write_initctx(ctx, &ttyctx);
+
 	screen_write_collect_clear(ctx, 0, screen_size_y(s) - 1);
 	tty_write(tty_cmd_alignmenttest, &ttyctx);
 }
@@ -965,7 +967,7 @@ screen_write_clearline(struct screen_write_ctx *ctx, u_int bg)
 	u_int			 sx = screen_size_x(s);
 
 	gl = grid_get_line(s->grid, s->grid->hsize + s->cy);
-	if (gl->cellsize == 0 && bg == 8)
+	if (gl->cellsize == 0 && COLOUR_DEFAULT(bg))
 		return;
 
 	screen_write_initctx(ctx, &ttyctx);
@@ -988,7 +990,7 @@ screen_write_clearendofline(struct screen_write_ctx *ctx, u_int bg)
 	u_int			 sx = screen_size_x(s);
 
 	gl = grid_get_line(s->grid, s->grid->hsize + s->cy);
-	if (s->cx > sx - 1 || (s->cx >= gl->cellsize && bg == 8))
+	if (s->cx > sx - 1 || (s->cx >= gl->cellsize && COLOUR_DEFAULT(bg)))
 		return;
 
 	screen_write_initctx(ctx, &ttyctx);

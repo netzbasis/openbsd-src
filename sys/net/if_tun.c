@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.181 2018/02/24 07:20:04 dlg Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.184 2019/02/03 23:04:49 dlg Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -73,6 +73,10 @@
 #if NBPFILTER > 0
 #include <net/bpf.h>
 #endif
+
+#ifdef MPLS
+#include <netmpls/mpls.h>
+#endif /* MPLS */
 
 #include <net/if_tun.h>
 
@@ -192,6 +196,9 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 {
 	struct tun_softc	*tp;
 	struct ifnet		*ifp;
+
+	if (unit > minor(~0U))
+		return (ENXIO);
 
 	tp = malloc(sizeof(*tp), M_DEVBUF, M_WAITOK|M_ZERO);
 	tp->tun_unit = unit;
@@ -667,8 +674,7 @@ tun_dev_ioctl(struct tun_softc *tp, u_long cmd, caddr_t data, int flag,
 			tp->tun_flags &= ~TUN_ASYNC;
 		break;
 	case FIONREAD:
-		*(int *)data = ifq_empty(&tp->tun_if.if_snd) ?
-		    0 : tp->tun_if.if_mtu;
+		*(int *)data = ifq_hdatalen(&tp->tun_if.if_snd);
 		break;
 	case TIOCSPGRP:
 		tp->tun_pgid = *(int *)data;
@@ -931,6 +937,11 @@ tun_dev_write(struct tun_softc *tp, struct uio *uio, int ioflag)
 #ifdef INET6
 	case AF_INET6:
 		ipv6_input(ifp, top);
+		break;
+#endif
+#ifdef MPLS
+	case AF_MPLS:
+		mpls_input(ifp, top);
 		break;
 #endif
 	default:

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.613 2018/10/18 13:03:45 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.616 2019/02/06 07:36:06 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 18 2018 $
+.Dd $Mdocdate: February 6 2019 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1526,6 +1526,7 @@ first.
 This command works only if at least one client is attached.
 .It Xo
 .Ic display-panes
+.Op Fl b
 .Op Fl d Ar duration
 .Op Fl t Ar target-client
 .Op Ar template
@@ -1559,6 +1560,9 @@ substituted by the pane ID.
 The default
 .Ar template
 is "select-pane -t '%%'".
+With
+.Fl b ,
+other commands are not blocked from running until the indicator is closed.
 .It Xo Ic find-window
 .Op Fl CNTZ
 .Op Fl t Ar target-pane
@@ -2750,7 +2754,7 @@ Set status line message command style, where
 .Ar style
 is a comma-separated list of characteristics to be specified.
 .Pp
-These may be
+The style format is shared by many options and may be:
 .Ql bg=colour
 to set the background colour,
 .Ql fg=colour
@@ -2773,8 +2777,13 @@ and so on),
 to
 .Ic colour255
 from the 256-colour set,
-.Ic default ,
-or a hexadecimal RGB string such as
+.Ic default
+for the default colour (inherited from another option in the case of some options, for example
+.Ic window-status-style
+inherits from
+.Ic status-style ) ,
+.Ic terminal
+for the terminal default colour, or a hexadecimal RGB string such as
 .Ql #ffffff .
 .Pp
 The attributes is either
@@ -4425,8 +4434,6 @@ is used, the channel is locked and any clients that try to lock the same
 channel are made to wait until the channel is unlocked with
 .Ic wait-for
 .Fl U .
-This command only works from outside
-.Nm .
 .El
 .Sh TERMINFO EXTENSIONS
 .Nm

@@ -1,4 +1,4 @@
-/* $OpenBSD: wskbd.c,v 1.91 2018/04/18 10:24:32 mpi Exp $ */
+/* $OpenBSD: wskbd.c,v 1.96 2019/02/19 07:01:02 anton Exp $ */
 /* $NetBSD: wskbd.c,v 1.80 2005/05/04 01:52:16 augustss Exp $ */
 
 /*
@@ -279,13 +279,15 @@ struct wskbd_keyrepeat_data wskbd_default_keyrepeat_data = {
 
 #if NWSMUX > 0 || NWSDISPLAY > 0
 struct wssrcops wskbd_srcops = {
-	WSMUX_KBD,
-	wskbd_mux_open, wskbd_mux_close, wskbd_do_ioctl,
-	wskbd_displayioctl,
+	.type		= WSMUX_KBD,
+	.dopen		= wskbd_mux_open,
+	.dclose		= wskbd_mux_close,
+	.dioctl		= wskbd_do_ioctl,
+	.ddispioctl	= wskbd_displayioctl,
 #if NWSDISPLAY > 0
-	wskbd_set_display
+	.dsetdisplay	= wskbd_set_display,
 #else
-	NULL
+	.dsetdisplay	= NULL,
 #endif
 };
 #endif
@@ -603,7 +605,7 @@ wskbd_detach(struct device  *self, int flags)
 	}
 
 	evar = sc->sc_base.me_evp;
-	if (evar != NULL && evar->io != NULL) {
+	if (evar != NULL) {
 		s = spltty();
 		if (--sc->sc_refcnt >= 0) {
 			/* Wake everyone by generating a dummy event. */
@@ -823,7 +825,6 @@ wskbdopen(dev_t dev, int flags, int mode, struct proc *p)
 
 	evar = &sc->sc_base.me_evar;
 	wsevent_init(evar);
-	evar->io = p->p_p;
 
 	error = wskbd_do_open(sc, evar);
 	if (error) {
@@ -851,9 +852,10 @@ wskbdclose(dev_t dev, int flags, int mode, struct proc *p)
 	    (struct wskbd_softc *)wskbd_cd.cd_devs[minor(dev)];
 	struct wseventvar *evar = sc->sc_base.me_evp;
 
-	if (evar == NULL)
+	if ((flags & (FREAD | FWRITE)) == FWRITE) {
 		/* not open for read */
 		return (0);
+	}
 
 	sc->sc_base.me_evp = NULL;
 	sc->sc_translating = 1;
@@ -942,6 +944,7 @@ int
 wskbd_do_ioctl_sc(struct wskbd_softc *sc, u_long cmd, caddr_t data, int flag,
      struct proc *p)
 {
+	struct wseventvar *evar;
 	int error;
 
 	/*      
@@ -957,20 +960,20 @@ wskbd_do_ioctl_sc(struct wskbd_softc *sc, u_long cmd, caddr_t data, int flag,
 		sc->sc_base.me_evp->async = *(int *)data != 0;
 		return (0);
 
-	case FIOSETOWN:
-		if (sc->sc_base.me_evp == NULL)
+	case TIOCGPGRP:
+		evar = sc->sc_base.me_evp;
+		if (evar == NULL)
 			return (EINVAL);
-		if (-*(int *)data != sc->sc_base.me_evp->io->ps_pgid &&
-		    *(int *)data != sc->sc_base.me_evp->io->ps_pid)
-			return (EPERM);
+		*(int *)data = -sigio_getown(&evar->sigio);
 		return (0);
-		   
+
 	case TIOCSPGRP:
-		if (sc->sc_base.me_evp == NULL)
+		if (*(int *)data < 0)
 			return (EINVAL);
-		if (*(int *)data != sc->sc_base.me_evp->io->ps_pgid)
-			return (EPERM);
-		return (0);
+		evar = sc->sc_base.me_evp;
+		if (evar == NULL)
+			return (EINVAL);
+		return (sigio_setown(&evar->sigio, -*(int *)data));
 	}
 
 	/*

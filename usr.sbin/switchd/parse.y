@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.11 2018/09/07 07:35:31 miko Exp $	*/
+/*	$OpenBSD: parse.y,v 1.15 2019/02/13 22:57:08 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -146,6 +146,9 @@ listen		: LISTEN ON STRING opttls port {
 				YYERROR;
 			}
 			free($3);
+			conf->sc_server.srv_tls = $4;
+			((struct sockaddr_in *)&conf->sc_server.srv_addr)
+			    ->sin_port = htons(SWITCHD_CTLR_PORT);
 		}
 		;
 
@@ -475,7 +478,8 @@ top:
 			} else if (c == '\\') {
 				if ((next = lgetc(quotec)) == EOF)
 					return (0);
-				if (next == quotec || c == ' ' || c == '\t')
+				if (next == quotec || next == ' ' ||
+				    next == '\t')
 					c = next;
 				else if (next == '\n') {
 					file->lineno++;
@@ -507,7 +511,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -546,7 +550,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '/') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -626,7 +630,7 @@ parse_config(const char *filename, struct switchd *sc)
 
 	conf = sc;
 
-	/* Set the default 0.0.0.0 6633/tcp */
+	/* Set the default 0.0.0.0 6653/tcp */
 	memset(&conf->sc_server.srv_addr, 0, sizeof(conf->sc_server.srv_addr));
 	sin4 = (struct sockaddr_in *)&conf->sc_server.srv_addr;
 	sin4->sin_family = AF_INET;

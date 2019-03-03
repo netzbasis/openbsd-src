@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.amd64,v 1.105 2018/10/16 16:39:18 naddy Exp $
+#	$OpenBSD: Makefile.amd64,v 1.110 2019/02/03 10:58:51 dlg Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -34,13 +34,14 @@ SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
 CMACHFLAGS+=	-fno-stack-protector
 .endif
-.if ${IDENT:M-DDDB} && !${COMPILER_VERSION:Mclang}
+.if ${IDENT:M-DDDB}
 CMACHFLAGS+=	-msave-args
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
-.elif ${COMPILER_VERSION:Mclang}
-CMACHFLAGS+=	-mretpoline
+.if ${COMPILER_VERSION:Mclang}
+CMACHFLAGS+=	-mno-retpoline
+.endif
 .endif
 .if ${COMPILER_VERSION:Mclang}
 NO_INTEGR_AS=	-no-integrated-as
@@ -94,8 +95,7 @@ LINKFLAGS+=	-S
 .endif
 
 .if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
-CMACHFLAGS+=	-fno-ret-protector
-PROF=		-fsanitize-coverage=trace-pc
+PROF=		-fsanitize-coverage=trace-pc,trace-cmp
 .endif
 
 %LOAD
@@ -135,7 +135,7 @@ ld.script: ${_machdir}/conf/ld.script
 	cp ${_machdir}/conf/ld.script $@
 
 gapdummy.o:
-	echo 'const char gapdummy;' > gapdummy.c
+	echo '__asm(".section .rodata,\"a\"");' > gapdummy.c
 	${CC} -c ${CFLAGS} ${CPPFLAGS} gapdummy.c -o $@
 
 makegap.sh:
@@ -152,7 +152,7 @@ vers.o: ${SYSTEM_DEP:Ngap.o}
 
 .if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
 kcov.o: $S/dev/kcov.c
-	${NORMAL_C} -fno-sanitize-coverage=trace-pc
+	${NORMAL_C} -fno-sanitize-coverage=trace-pc,trace-cmp
 .endif
 
 clean:

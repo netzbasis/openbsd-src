@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.179 2018/07/12 01:23:38 cheloha Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.184 2019/02/07 15:11:38 visa Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -113,7 +113,7 @@ struct ctlname {
 #define	KERN_HOSTNAME		10	/* string: hostname */
 #define	KERN_HOSTID		11	/* int: host identifier */
 #define	KERN_CLOCKRATE		12	/* struct: struct clockinfo */
-#define	KERN_DNSJACKPORT	13	/* hijack dns sockets */
+/* was KERN_DNSJACKPORT		13	*/
 /* was KERN_PROC		14	*/
 /* was KERN_FILE		15	*/
 #define	KERN_PROF		16	/* node: kernel profiling info */
@@ -160,7 +160,7 @@ struct ctlname {
 #define	KERN_TTYCOUNT		57	/* int: number of tty devices */
 #define KERN_NUMVNODES		58	/* int: number of vnodes in use */
 #define	KERN_MBSTAT		59	/* struct: mbuf statistics */
-/* was KERN_USERASYMCRYPTO	60	*/
+#define	KERN_WITNESS		60	/* node: witness */
 #define	KERN_SEMINFO		61	/* struct: SysV struct seminfo */
 #define	KERN_SHMINFO		62	/* struct: SysV struct shminfo */
 #define KERN_INTRCNT		63	/* node: interrupt counters */
@@ -185,7 +185,8 @@ struct ctlname {
 #define	KERN_CONSBUFSIZE	82	/* int: console message buffer size */
 #define	KERN_CONSBUF		83	/* console message buffer */
 #define	KERN_AUDIO		84	/* struct: audio properties */
-#define	KERN_MAXID		85	/* number of valid kern ids */
+#define	KERN_CPUSTATS		85	/* struct: cpu statistics */
+#define	KERN_MAXID		86	/* number of valid kern ids */
 
 #define	CTL_KERN_NAMES { \
 	{ 0, 0 }, \
@@ -201,7 +202,7 @@ struct ctlname {
 	{ "hostname", CTLTYPE_STRING }, \
 	{ "hostid", CTLTYPE_INT }, \
 	{ "clockrate", CTLTYPE_STRUCT }, \
-	{ "dnsjackport", CTLTYPE_INT }, \
+	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "profiling", CTLTYPE_NODE }, \
@@ -248,7 +249,7 @@ struct ctlname {
 	{ "ttycount", CTLTYPE_INT }, \
 	{ "numvnodes", CTLTYPE_INT }, \
 	{ "mbstat", CTLTYPE_STRUCT }, \
-	{ "gap", 0 }, \
+	{ "witness", CTLTYPE_NODE }, \
 	{ "seminfo", CTLTYPE_STRUCT }, \
 	{ "shminfo", CTLTYPE_STRUCT }, \
 	{ "intrcnt", CTLTYPE_NODE }, \
@@ -273,6 +274,7 @@ struct ctlname {
 	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "audio", CTLTYPE_STRUCT }, \
+	{ "cpustats", CTLTYPE_STRUCT }, \
 }
 
 /*
@@ -312,6 +314,19 @@ struct ctlname {
 #define CTL_KERN_AUDIO_NAMES { \
 	{ 0, 0 }, \
 	{ "record", CTLTYPE_INT }, \
+}
+
+/*
+ * KERN_WITNESS
+ */
+#define	KERN_WITNESS_WATCH	1	/* int: operating mode */
+#define	KERN_WITNESS_LOCKTRACE	2	/* int: stack trace saving mode */
+#define	KERN_WITNESS_MAXID	3
+
+#define	CTL_KERN_WITNESS_NAMES { \
+	{ 0, 0 }, \
+	{ "watch", CTLTYPE_INT }, \
+	{ "locktrace", CTLTYPE_INT }, \
 }
 
 /*

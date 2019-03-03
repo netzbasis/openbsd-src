@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.90 2018/09/11 10:23:40 krw Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.93 2019/02/27 06:00:29 stsp Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -48,6 +48,7 @@
 #include <net/if_dl.h>
 #include <net/if_media.h>
 #include <net/if_llc.h>
+#include <net/route.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -89,7 +90,7 @@ ieee80211_proto_attach(struct ifnet *ifp)
 
 	ifp->if_hdrlen = sizeof(struct ieee80211_frame);
 
-	ic->ic_rtsthreshold = IEEE80211_RTS_DEFAULT;
+	ic->ic_rtsthreshold = IEEE80211_RTS_MAX;
 	ic->ic_fragthreshold = 2346;		/* XXX not used yet */
 	ic->ic_fixed_rate = -1;			/* no fixed rate */
 	ic->ic_fixed_mcs = -1;			/* no fixed mcs */
@@ -542,7 +543,8 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	int i;
 
-	ni->ni_flags &= ~IEEE80211_NODE_HT;
+	ni->ni_flags &= ~(IEEE80211_NODE_HT | IEEE80211_NODE_HT_SGI20 |
+	    IEEE80211_NODE_HT_SGI40);
 
 	/* Check if we support HT. */
 	if ((ic->ic_modecaps & (1 << IEEE80211_MODE_11N)) == 0)
@@ -589,6 +591,8 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 	}
 
 	ni->ni_flags |= IEEE80211_NODE_HT;
+
+	/* Flags IEEE8021_NODE_HT_SGI20/40 are set by drivers if supported. */
 }
 
 void
@@ -1198,6 +1202,20 @@ ieee80211_set_link_state(struct ieee80211com *ic, int nstate)
 	}
 	if (nstate != ifp->if_link_state) {
 		ifp->if_link_state = nstate;
+		if (LINK_STATE_IS_UP(nstate)) {
+			struct if_ieee80211_data ifie;
+			memset(&ifie, 0, sizeof(ifie));
+			ifie.ifie_nwid_len = ic->ic_bss->ni_esslen;
+			memcpy(ifie.ifie_nwid, ic->ic_bss->ni_essid,
+			    sizeof(ifie.ifie_nwid));
+			memcpy(ifie.ifie_addr, ic->ic_bss->ni_bssid,
+			    sizeof(ifie.ifie_addr));
+			ifie.ifie_channel = ieee80211_chan2ieee(ic,
+			    ic->ic_bss->ni_chan);
+			ifie.ifie_flags = ic->ic_flags;
+			ifie.ifie_xflags = ic->ic_xflags;
+			rtm_80211info(&ic->ic_if, &ifie);
+		}
 		if_link_state_change(ifp);
 	}
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sysctl.c,v 1.350 2018/10/05 18:56:57 cheloha Exp $	*/
+/*	$OpenBSD: kern_sysctl.c,v 1.354 2019/01/29 14:07:15 visa Exp $	*/
 /*	$NetBSD: kern_sysctl.c,v 1.17 1996/05/20 17:49:05 mrg Exp $	*/
 
 /*-
@@ -142,6 +142,7 @@ int sysctl_cptime2(int *, u_int, void *, size_t *, void *, size_t);
 #if NAUDIO > 0
 int sysctl_audio(int *, u_int, void *, size_t *, void *, size_t);
 #endif
+int sysctl_cpustats(int *, u_int, void *, size_t *, void *, size_t);
 
 void fill_file(struct kinfo_file *, struct file *, struct filedesc *, int,
     struct vnode *, struct process *, struct proc *, struct socket *, int);
@@ -310,7 +311,9 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		case KERN_TIMECOUNTER:
 		case KERN_CPTIME2:
 		case KERN_FILE:
+		case KERN_WITNESS:
 		case KERN_AUDIO:
+		case KERN_CPUSTATS:
 			break;
 		default:
 			return (ENOTDIR);	/* overloaded */
@@ -382,7 +385,7 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case KERN_BOOTTIME: {
 		struct timeval bt;
 		memset(&bt, 0, sizeof bt);
-		TIMESPEC_TO_TIMEVAL(&bt, &boottime);
+		microboottime(&bt);
 		return (sysctl_rdstruct(oldp, oldlenp, newp, &bt, sizeof bt));
 	  }
 #ifndef SMALL_KERNEL
@@ -650,25 +653,21 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return sysctl_int(oldp, oldlenp, newp, newlen, &global_ptrace);
 	}
 #endif
-	case KERN_DNSJACKPORT: {
-		extern uint16_t dnsjackport;
-		int port = dnsjackport;
-		if ((error = sysctl_int(oldp, oldlenp, newp, newlen, &port)))
-			return error;
-		if (port < 0 || port > USHRT_MAX)
-			return EINVAL;
-		dnsjackport = port;
-		return 0;
-	}
 #ifdef WITNESS
 	case KERN_WITNESSWATCH:
 		return witness_sysctl_watch(oldp, oldlenp, newp, newlen);
+	case KERN_WITNESS:
+		return witness_sysctl(name + 1, namelen - 1, oldp, oldlenp,
+		    newp, newlen);
 #endif
 #if NAUDIO > 0
 	case KERN_AUDIO:
 		return (sysctl_audio(name + 1, namelen - 1, oldp, oldlenp,
 		    newp, newlen));
 #endif
+	case KERN_CPUSTATS:
+		return (sysctl_cpustats(name + 1, namelen - 1, oldp, oldlenp,
+		    newp, newlen));
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -2402,3 +2401,32 @@ sysctl_audio(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	return (sysctl_int(oldp, oldlenp, newp, newlen, &audio_record_enable));
 }
 #endif
+
+int
+sysctl_cpustats(int *name, u_int namelen, void *oldp, size_t *oldlenp,
+    void *newp, size_t newlen)
+{
+	CPU_INFO_ITERATOR cii;
+	struct cpustats cs;
+	struct cpu_info *ci;
+	int found = 0;
+
+	if (namelen != 1)
+		return (ENOTDIR);
+
+	CPU_INFO_FOREACH(cii, ci) {
+		if (name[0] == CPU_INFO_UNIT(ci)) {
+			found = 1;
+			break;
+		}
+	}
+	if (!found)
+		return (ENOENT);
+
+	memcpy(&cs.cs_time, &ci->ci_schedstate.spc_cp_time, sizeof(cs.cs_time));
+	cs.cs_flags = 0;
+	if (cpu_is_online(ci))
+		cs.cs_flags |= CPUSTATS_ONLINE;
+
+	return (sysctl_rdstruct(oldp, oldlenp, newp, &cs, sizeof(cs)));
+}

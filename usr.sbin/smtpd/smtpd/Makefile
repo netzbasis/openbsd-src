@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.93 2018/08/31 07:28:27 eric Exp $
+#	$OpenBSD: Makefile,v 1.100 2018/12/11 13:29:52 gilles Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -7,6 +7,7 @@ PROG=		smtpd
 SRCS=	aliases.c
 SRCS+=	bounce.c
 SRCS+=	ca.c
+SRCS+=	cert.c
 SRCS+=	compress_backend.c
 SRCS+=	config.c
 SRCS+=	control.c
@@ -22,6 +23,9 @@ SRCS+=	iobuf.c
 SRCS+=	ioev.c
 SRCS+=	limit.c
 SRCS+=	lka.c
+SRCS+=	lka_filter.c
+SRCS+=	lka_proc.c
+SRCS+=	lka_report.c
 SRCS+=	lka_session.c
 SRCS+=	log.c
 SRCS+=	mailaddr.c
@@ -35,6 +39,7 @@ SRCS+=	parse.y
 SRCS+=	pony.c
 SRCS+=	queue.c
 SRCS+=	queue_backend.c
+SRCS+=	report_smtp.c
 SRCS+=	resolver.c
 SRCS+=	rfc5322.c
 SRCS+=	ruleset.c
@@ -43,7 +48,6 @@ SRCS+=	scheduler.c
 SRCS+=	scheduler_backend.c
 SRCS+=	smtp.c
 SRCS+=	smtp_session.c
-SRCS+=	smtpf_session.c
 SRCS+=	smtpd.c
 SRCS+=	ssl.c
 SRCS+=	ssl_smtpd.c

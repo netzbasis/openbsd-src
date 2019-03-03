@@ -1,4 +1,4 @@
-/*	$OpenBSD: to.c,v 1.33 2018/09/08 10:05:07 eric Exp $	*/
+/*	$OpenBSD: to.c,v 1.35 2018/12/30 23:09:58 guenther Exp $	*/
 
 /*
  * Copyright (c) 2009 Jacek Masiulaniec <jacekm@dobremiasto.net>
@@ -36,7 +36,6 @@
 #include <imsg.h>
 #include <limits.h>
 #include <inttypes.h>
-#include <libgen.h>
 #include <netdb.h>
 #include <pwd.h>
 #include <stdarg.h>
@@ -506,7 +505,7 @@ rule_to_text(struct rule *r)
 	if (r->flag_smtp_starttls) {
 		if (r->flag_smtp_starttls < 0)
 			(void)strlcat(buf, "!", sizeof buf);
-		(void)strlcat(buf, "starttls ", sizeof buf);
+		(void)strlcat(buf, "tls ", sizeof buf);
 		(void)strlcat(buf, " ", sizeof buf);
 	}
 
