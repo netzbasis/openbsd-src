@@ -379,6 +379,7 @@ void *	aresize(void *, size_t, Area *);
 void	afree(void *, Area *);
 /* c_ksh.c */
 int	c_pledge(char **);
+int	c_unveil(char **);
 int	c_cd(char **);
 int	c_pwd(char **);
 int	c_print(char **);

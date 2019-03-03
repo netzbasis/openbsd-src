@@ -30,6 +30,22 @@ c_pledge(char **wp)
 }
 
 int
+c_unveil(char **wp)
+{
+	const char *path;
+	const char *perm;
+
+	wp += 1;
+	path = *wp; /* possible NULL */
+	wp += 1;
+	perm = *wp; /* possible NULL */
+
+	if (unveil(path, perm) == -1)
+		return 1;
+	return 0;
+}
+
+int
 c_cd(char **wp)
 {
 	int optc;
@@ -1435,6 +1451,7 @@ const struct builtin kshbuiltins [] = {
 	{"type", c_type},
 	{"=typeset", c_typeset},
 	{"+unalias", c_unalias},
+	{"+unveil", c_unveil},
 	{"whence", c_whence},
 	{"+bg", c_fgbg},
 	{"+fg", c_fgbg},
