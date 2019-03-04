@@ -130,7 +130,7 @@
 /sigprocmask.2/1.13/Mon May 29 09:40:02 2017//
 /sigreturn.2/1.12/Mon May  9 23:57:10 2016//
 /sigsuspend.2/1.14/Mon May 29 09:40:02 2017//
-/socket.2/1.41/Sat Mar 19 22:10:49 2016//
+/socket.2/1.42/Sun Mar  3 18:18:34 2019//
 /socketpair.2/1.21/Sun Apr  8 18:46:43 2018//
 /stack_protector.c/1.24/Wed Nov 29 05:13:57 2017//
 /stat.2/1.47/Sat Oct 28 15:28:53 2017//
