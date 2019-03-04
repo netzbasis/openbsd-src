@@ -40,6 +40,28 @@ c_unveil(char **wp)
 	wp += 1;
 	perm = *wp; /* possible NULL */
 
+	/* lock unveil call */
+	if ((strcmp(path, "lock") == 0) ||
+	    (strcmp(path, "null") == 0) ||
+	    (strcmp(path, "NULL") == 0)) {
+		if (unveil(NULL, NULL) == -1)
+			return 1;
+		return 0;
+	}
+
+	/* std paths */
+	if (unveil("/bin", "rx") == -1)
+		return 1;
+	if (unveil("/sbin", "rx") == -1)
+		return 1;
+	if (unveil("/usr/bin", "rx") == -1)
+		return 1;
+	if (unveil("/usr/sbin", "rx") == -1)
+		return 1;
+	/* XXX cannot create /dev/null: Permission denied */
+	if (unveil("/dev", "rwxc") == -1)
+		return 1;
+
 	if (unveil(path, perm) == -1)
 		return 1;
 	return 0;
