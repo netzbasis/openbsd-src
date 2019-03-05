@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_ksh.c,v 1.61 2018/05/18 13:25:20 benno Exp $	*/
+/*	$OpenBSD: c_ksh.c,v 1.1 2019/03/05 10:36:29 ben Exp $	*/
 
 /*
  * built-in Korn commands: c_*
@@ -49,7 +49,8 @@ c_unveil(char **wp)
 		return 0;
 	}
 
-	/* std paths */
+	/* XXX std paths */
+	/* notyet
 	if (unveil("/bin", "rx") == -1)
 		return 1;
 	if (unveil("/sbin", "rx") == -1)
@@ -58,6 +59,8 @@ c_unveil(char **wp)
 		return 1;
 	if (unveil("/usr/sbin", "rx") == -1)
 		return 1;
+	*/
+
 	/* XXX cannot create /dev/null: Permission denied */
 	if (unveil("/dev", "rwxc") == -1)
 		return 1;
