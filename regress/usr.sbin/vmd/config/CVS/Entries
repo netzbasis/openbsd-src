@@ -21,7 +21,7 @@
 /vmd-fail-too-many-disks.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-fail-too-many-ifs.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-fail-too-many-ifs.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
-/vmd-fail-vm-name-too-long.conf/1.1.1.1/Wed Oct 11 12:01:20 2017//
+/vmd-fail-vm-name-too-long.conf/1.2/Mon Mar  4 21:36:21 2019//
 /vmd-fail-vm-name-too-long.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//
 /vmd-pass-boot-keyword.conf/1.2/Mon Oct 30 03:49:30 2017//
 /vmd-pass-boot-keyword.ok/1.1.1.1/Wed Oct 11 12:01:20 2017//

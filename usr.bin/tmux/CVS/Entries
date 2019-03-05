@@ -93,7 +93,7 @@
 /paste.c/1.39/Tue Jan 24 13:28:33 2017//
 /proc.c/1.15/Fri Jul 14 18:49:07 2017//
 /procname.c/1.16/Mon Oct 10 21:29:23 2016//
-/resize.c/1.27/Thu Oct 18 08:38:01 2018//
+/resize.c/1.28/Mon Mar  4 09:29:52 2019//
 /screen-redraw.c/1.55/Thu Oct 18 08:38:01 2018//
 /screen-write.c/1.143/Tue Nov 13 11:36:37 2018//
 /screen.c/1.53/Tue Jan 15 09:56:31 2019//
@@ -109,7 +109,7 @@
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.106/Sat Feb 16 19:04:34 2019//
 /tty-term.c/1.60/Thu Oct 18 07:57:57 2018//
-/tty.c/1.313/Sun Jan 20 15:57:27 2019//
+/tty.c/1.314/Mon Mar  4 09:29:40 2019//
 /utf8.c/1.39/Sun Jun  4 09:02:57 2017//
 /window-buffer.c/1.14/Tue Dec 18 13:20:44 2018//
 /window-client.c/1.15/Tue Dec 18 13:20:44 2018//
