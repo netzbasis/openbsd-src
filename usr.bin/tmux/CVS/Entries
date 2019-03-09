@@ -2,7 +2,7 @@
 /alerts.c/1.29/Thu Dec 28 12:10:50 2017//
 /arguments.c/1.20/Wed Aug 23 09:14:21 2017//
 /attributes.c/1.8/Thu Oct 18 07:57:57 2018//
-/cfg.c/1.64/Thu Mar  7 19:34:22 2019//
+/cfg.c/1.65/Fri Mar  8 10:34:20 2019//
 /client.c/1.128/Thu Nov 22 10:36:40 2018//
 /cmd-attach-session.c/1.76/Thu Oct 18 08:38:01 2018//
 /cmd-bind-key.c/1.32/Tue Jan 24 21:50:22 2017//
@@ -11,7 +11,7 @@
 /cmd-choose-tree.c/1.42/Thu Nov 15 10:38:53 2018//
 /cmd-command-prompt.c/1.44/Wed May 17 15:20:23 2017//
 /cmd-confirm-before.c/1.35/Wed May 17 15:20:23 2017//
-/cmd-copy-mode.c/1.35/Thu Mar  7 20:24:21 2019//
+/cmd-copy-mode.c/1.36/Fri Mar  8 10:34:20 2019//
 /cmd-detach-client.c/1.32/Sat Apr 22 10:22:39 2017//
 /cmd-display-message.c/1.44/Mon Apr 23 13:43:08 2018//
 /cmd-display-panes.c/1.23/Wed Feb  6 07:36:06 2019//
@@ -37,7 +37,7 @@
 /cmd-new-window.c/1.76/Sun Jul 15 06:57:13 2018//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.49/Fri Nov 30 08:44:40 2018//
-/cmd-queue.c/1.59/Thu Mar  7 19:34:22 2019//
+/cmd-queue.c/1.60/Fri Mar  8 10:34:20 2019//
 /cmd-refresh-client.c/1.28/Thu Oct 18 08:38:01 2018//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
@@ -46,7 +46,7 @@
 /cmd-respawn-pane.c/1.26/Fri Jul 21 09:17:19 2017//
 /cmd-respawn-window.c/1.36/Fri Jul 21 09:17:19 2017//
 /cmd-rotate-window.c/1.25/Wed Aug 30 10:33:57 2017//
-/cmd-run-shell.c/1.56/Thu Mar  7 19:34:22 2019//
+/cmd-run-shell.c/1.57/Fri Mar  8 10:34:20 2019//
 /cmd-save-buffer.c/1.45/Tue Jul 31 13:06:44 2018//
 /cmd-select-layout.c/1.35/Mon Jul  2 12:39:14 2018//
 /cmd-select-pane.c/1.45/Thu Oct 18 08:38:01 2018//
@@ -105,7 +105,7 @@
 /style.c/1.14/Wed Mar 22 07:16:54 2017//
 /tmux.1/1.616/Wed Feb  6 07:36:06 2019//
 /tmux.c/1.187/Thu Nov 22 10:36:40 2018//
-/tmux.h/1.855/Thu Mar  7 20:24:21 2019//
+/tmux.h/1.856/Fri Mar  8 10:34:20 2019//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.106/Sat Feb 16 19:04:34 2019//
 /tty-term.c/1.60/Thu Oct 18 07:57:57 2018//
@@ -114,7 +114,7 @@
 /window-buffer.c/1.15/Thu Mar  7 20:24:21 2019//
 /window-client.c/1.16/Thu Mar  7 20:24:21 2019//
 /window-clock.c/1.26/Thu Mar  7 20:24:21 2019//
-/window-copy.c/1.208/Thu Mar  7 20:24:21 2019//
+/window-copy.c/1.210/Fri Mar  8 10:34:20 2019//
 /window-tree.c/1.33/Thu Mar  7 20:24:21 2019//
 /window.c/1.217/Thu Mar  7 20:24:21 2019//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
