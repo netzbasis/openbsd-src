@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.865 2019/03/14 23:14:27 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.869 2019/03/15 21:54:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1434,8 +1434,6 @@ struct client {
 	struct session	*session;
 	struct session	*last_session;
 
-	int		 wlmouse;
-
 	int		 references;
 
 	void		*pan_window;
@@ -1499,6 +1497,7 @@ struct options_table_entry {
 
 	const char		 *default_str;
 	long long		  default_num;
+	const char		**default_arr;
 
 	const char		 *separator;
 	const char		 *style;
@@ -1575,6 +1574,7 @@ char		*paste_make_sample(struct paste_buffer *);
 #define FORMAT_STATUS 0x1
 #define FORMAT_FORCE 0x2
 #define FORMAT_NOJOBS 0x4
+#define FORMAT_VERBOSE 0x8
 #define FORMAT_NONE 0
 #define FORMAT_PANE 0x80000000U
 #define FORMAT_WINDOW 0x40000000U
@@ -1971,6 +1971,7 @@ void	 status_update_saved(struct session *);
 int	 status_at_line(struct client *);
 u_int	 status_line_size(struct client *);
 struct window *status_get_window_at(struct client *, u_int);
+void	 status_free(struct client *);
 int	 status_redraw(struct client *);
 void printflike(2, 3) status_message_set(struct client *, const char *, ...);
 void	 status_message_clear(struct client *);
