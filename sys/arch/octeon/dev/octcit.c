@@ -1,7 +1,7 @@
-/*	$OpenBSD: octcit.c,v 1.6 2018/02/24 11:42:31 visa Exp $	*/
+/*	$OpenBSD: octcit.c,v 1.9 2019/03/17 05:25:06 visa Exp $	*/
 
 /*
- * Copyright (c) 2017 Visa Hankala
+ * Copyright (c) 2017, 2019 Visa Hankala
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,6 +27,7 @@
 #include <sys/atomic.h>
 #include <sys/conf.h>
 #include <sys/device.h>
+#include <sys/evcount.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 
@@ -112,6 +113,7 @@ void	*octcit_intr_establish_intsn(int, int, int, int (*)(void *),
 void	*octcit_intr_establish_fdt_idx(void *, int, int, int,
 	    int (*)(void *), void *, const char *);
 void	 octcit_intr_disestablish(void *);
+void	 octcit_intr_barrier(void *);
 void	 octcit_splx(int);
 
 uint32_t octcit_ipi_intr(uint32_t, struct trapframe *);
@@ -178,6 +180,7 @@ octcit_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_establish = octcit_intr_establish;
 	sc->sc_ic.ic_establish_fdt_idx = octcit_intr_establish_fdt_idx;
 	sc->sc_ic.ic_disestablish = octcit_intr_disestablish;
+	sc->sc_ic.ic_intr_barrier = octcit_intr_barrier;
 #ifdef MULTIPROCESSOR
 	sc->sc_ic.ic_ipi_establish = octcit_ipi_establish;
 	sc->sc_ic.ic_ipi_set = octcit_ipi_set;
@@ -376,6 +379,12 @@ octcit_intr_disestablish(void *_ih)
 	free(ih, M_DEVBUF, sizeof(*ih));
 }
 
+void
+octcit_intr_barrier(void *_ih)
+{
+	sched_barrier(NULL);
+}
+
 uint32_t
 octcit_intr(uint32_t hwpend, struct trapframe *frame)
 {
@@ -425,7 +434,7 @@ octcit_intr(uint32_t hwpend, struct trapframe *frame)
 			sr = getsr();
 			ENABLEIPI();
 		}
-		if (ISSET(ih->ih_flags, IH_MPSAFE))
+		if (ISSET(ih->ih_flags, CIH_MPSAFE))
 			need_lock = 0;
 		else
 			need_lock = 1;
