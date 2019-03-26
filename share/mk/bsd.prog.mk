@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.prog.mk,v 1.75 2017/07/21 11:00:24 schwarze Exp $
+#	$OpenBSD: bsd.prog.mk,v 1.78 2019/03/05 11:35:42 jsg Exp $
 #	$NetBSD: bsd.prog.mk,v 1.55 1996/04/08 21:19:26 jtc Exp $
 #	@(#)bsd.prog.mk	5.26 (Berkeley) 6/25/91
 
@@ -32,6 +32,7 @@ LIBC?=		${DESTDIR}/usr/lib/libc.a
 LIBCRYPTO?=	${DESTDIR}/usr/lib/libcrypto.a
 LIBCURSES?=	${DESTDIR}/usr/lib/libcurses.a
 LIBEDIT?=	${DESTDIR}/usr/lib/libedit.a
+LIBELF?=	${DESTDIR}/usr/lib/libelf.a
 LIBEVENT?=	${DESTDIR}/usr/lib/libevent.a
 LIBEXPAT?=	${DESTDIR}/usr/lib/libexpat.a
 LIBFORM?=	${DESTDIR}/usr/lib/libform.a
@@ -39,6 +40,7 @@ LIBFORMW?=	${DESTDIR}/usr/lib/libformw.a
 LIBKEYNOTE?=	${DESTDIR}/usr/lib/libkeynote.a
 LIBKVM?=	${DESTDIR}/usr/lib/libkvm.a
 LIBL?=		${DESTDIR}/usr/lib/libl.a
+LIBLLVM?=	${DESTDIR}/usr/lib/libLLVM.a
 LIBM?=		${DESTDIR}/usr/lib/libm.a
 LIBMENU?=	${DESTDIR}/usr/lib/libmenu.a
 LIBMENUW?=	${DESTDIR}/usr/lib/libmenuw.a
@@ -147,13 +149,13 @@ afterinstall:
 .if !target(realinstall)
 realinstall:
 .  if defined(PROG)
-	${INSTALL} ${INSTALL_COPY} -S ${INSTALL_STRIP} \
+	${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP} \
 	    -o ${BINOWN} -g ${BINGRP} \
 	    -m ${BINMODE} ${PROG} ${DESTDIR}${BINDIR}/${PROG}
 .  endif
 .  if defined(PROGS)
 .    for p in ${PROGS}
-	${INSTALL} ${INSTALL_COPY} -S ${INSTALL_STRIP} \
+	${INSTALL} ${INSTALL_COPY} ${INSTALL_STRIP} \
 	    -o ${BINOWN} -g ${BINGRP} \
 	    -m ${BINMODE} $p ${DESTDIR}${BINDIR}/$p
 .    endfor

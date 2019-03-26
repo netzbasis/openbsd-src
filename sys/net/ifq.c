@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifq.c,v 1.22 2018/01/25 14:04:36 mpi Exp $ */
+/*	$OpenBSD: ifq.c,v 1.28 2019/03/04 21:57:16 dlg Exp $ */
 
 /*
  * Copyright (c) 2015 David Gwynne <dlg@openbsd.org>
@@ -70,8 +70,6 @@ struct priq {
 void	ifq_start_task(void *);
 void	ifq_restart_task(void *);
 void	ifq_barrier_task(void *);
-
-#define TASK_ONQUEUE 0x1
 
 void
 ifq_serialize(struct ifqueue *ifq, struct task *t)
@@ -169,7 +167,6 @@ ifq_init(struct ifqueue *ifq, struct ifnet *ifp, unsigned int idx)
 	ifq->ifq_softc = NULL;
 
 	mtx_init(&ifq->ifq_mtx, IPL_NET);
-	ifq->ifq_qdrops = 0;
 
 	/* default to priq */
 	ifq->ifq_ops = &priq_ops;
@@ -357,6 +354,21 @@ ifq_dequeue(struct ifqueue *ifq)
 	return (m);
 }
 
+int
+ifq_hdatalen(struct ifqueue *ifq)
+{
+	struct mbuf *m;
+	int len = 0;
+
+	m = ifq_deq_begin(ifq);
+	if (m != NULL) {
+		len = m->m_pkthdr.len;
+		ifq_deq_commit(ifq, m);
+	}
+
+	return (len);
+}
+
 unsigned int
 ifq_purge(struct ifqueue *ifq)
 {
@@ -432,8 +444,8 @@ ifiq_init(struct ifiqueue *ifiq, struct ifnet *ifp, unsigned int idx)
 	mtx_init(&ifiq->ifiq_mtx, IPL_NET);
 	ml_init(&ifiq->ifiq_ml);
 	task_set(&ifiq->ifiq_task, ifiq_process, ifiq);
+	ifiq->ifiq_pressure = 0;
 
-	ifiq->ifiq_qdrops = 0;
 	ifiq->ifiq_packets = 0;
 	ifiq->ifiq_bytes = 0;
 	ifiq->ifiq_qdrops = 0;
@@ -454,17 +466,20 @@ ifiq_destroy(struct ifiqueue *ifiq)
 	ml_purge(&ifiq->ifiq_ml);
 }
 
+unsigned int ifiq_maxlen_drop = 2048 * 5;
+unsigned int ifiq_maxlen_return = 2048 * 3;
+
 int
-ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
+ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml)
 {
 	struct ifnet *ifp = ifiq->ifiq_if;
 	struct mbuf *m;
 	uint64_t packets;
 	uint64_t bytes = 0;
+	unsigned int len;
 #if NBPFILTER > 0
 	caddr_t if_bpf;
 #endif
-	int rv = 1;
 
 	if (ml_empty(ml))
 		return (0);
@@ -505,12 +520,11 @@ ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
 	ifiq->ifiq_packets += packets;
 	ifiq->ifiq_bytes += bytes;
 
-	if (ifiq_len(ifiq) >= cwm * 5)
+	len = ml_len(&ifiq->ifiq_ml);
+	if (len > ifiq_maxlen_drop)
 		ifiq->ifiq_qdrops += ml_len(ml);
-	else {
-		rv = (ifiq_len(ifiq) >= cwm * 3);
+	else
 		ml_enlist(&ifiq->ifiq_ml, ml);
-	}
 	mtx_leave(&ifiq->ifiq_mtx);
 
 	if (ml_empty(ml))
@@ -518,7 +532,7 @@ ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
 	else
 		ml_purge(ml);
 
-	return (rv);
+	return (len > ifiq_maxlen_return);
 }
 
 void

@@ -35,7 +35,7 @@
 /i915_reg.h/1.14/Sat Sep 30 07:36:56 2017//
 /i915_suspend.c/1.8/Sat Jul  1 16:14:10 2017//
 /i915_trace.h/1.15/Wed Oct 31 10:35:27 2018//
-/i915_vgpu.c/1.1/Sat Jul  1 16:14:10 2017//
+/i915_vgpu.c/1.2/Thu Jan 31 18:01:14 2019//
 /i915_vgpu.h/1.1/Sat Jul  1 16:14:10 2017//
 /intel_atomic.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_atomic_plane.c/1.1/Sat Jul  1 16:14:10 2017//

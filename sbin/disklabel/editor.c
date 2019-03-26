@@ -1,7 +1,7 @@
-/*	$OpenBSD: editor.c,v 1.352 2018/11/25 17:01:20 krw Exp $	*/
+/*	$OpenBSD: editor.c,v 1.355 2019/03/07 15:12:59 jmc Exp $	*/
 
 /*
- * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 1997-2000 Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -331,7 +331,7 @@ editor(int f)
 		case 'n':
 			if (!fstabfile) {
 				fputs("This option is not valid when run "
-				    "without the -f flag.\n", stderr);
+				    "without the -F or -f flags.\n", stderr);
 				break;
 			}
 			editor_name(&newlab, arg);
@@ -795,10 +795,10 @@ editor_resize(struct disklabel *lp, char *p)
 			DL_SETPOFFSET(pp, off);
 			if (off + DL_GETPSIZE(pp) > ending_sector) {
 				DL_SETPSIZE(pp, ending_sector - off);
-				pp->p_fragblock = 0;
-				if (get_fsize(&label, partno) == 1 ||
-				    get_bsize(&label, partno) == 1 ||
-				    get_cpg(&label, partno) == 1)
+				pp->p_fragblock = DISKLABELV1_FFS_FRAGBLOCK(0, 0);
+				if (get_fsize(&label, i) == 1 ||
+				    get_bsize(&label, i) == 1 ||
+				    get_cpg(&label, i) == 1)
 					return;
 				shrunk = i;
 			}

@@ -1,7 +1,6 @@
 /FilePathTest.pm/1.6/Sun Oct 29 22:38:46 2017/-ko/
-/Path-Class.t/1.1/Mon Aug 14 13:49:44 2017/-ko/
-/Path.t/1.7/Sun Oct 29 22:38:46 2017/-ko/
+/Path.t/1.8/Wed Feb 13 21:15:11 2019/-ko/
 /Path_root.t/1.6/Sun Oct 29 22:38:46 2017/-ko/
-/Path_win32.t/1.6/Sun Oct 29 22:38:46 2017/-ko/
+/Path_win32.t/1.7/Wed Feb 13 21:15:11 2019/-ko/
 /taint.t/1.1.1.1/Fri Sep 24 14:49:03 2010/-ko/
 D

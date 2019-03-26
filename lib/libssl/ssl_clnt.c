@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_clnt.c,v 1.51 2018/11/29 06:21:09 tb Exp $ */
+/* $OpenBSD: ssl_clnt.c,v 1.60 2019/03/25 17:21:18 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -775,7 +775,7 @@ ssl3_send_client_hello(SSL *s)
 			goto err;
 
 		/* TLS extensions */
-		if (!tlsext_clienthello_build(s, &client_hello)) {
+		if (!tlsext_client_build(s, &client_hello, SSL_TLSEXT_MSG_CH)) {
 			SSLerror(s, ERR_R_INTERNAL_ERROR);
 			goto err;
 		}
@@ -979,7 +979,7 @@ ssl3_get_server_hello(SSL *s)
 	}
 	S3I(s)->hs.new_cipher = cipher;
 
-	if (!tls1_handshake_hash_init(s))
+	if (!tls1_transcript_hash_init(s))
 		goto err;
 
 	/*
@@ -999,7 +999,7 @@ ssl3_get_server_hello(SSL *s)
 		goto f_err;
 	}
 
-	if (!tlsext_serverhello_parse(s, &cbs, &al)) {
+	if (!tlsext_client_parse(s, &cbs, &al, SSL_TLSEXT_MSG_SH)) {
 		SSLerror(s, SSL_R_PARSE_TLSEXT);
 		goto f_err;
 	}
@@ -1512,7 +1512,7 @@ ssl3_get_server_key_exchange(SSL *s)
 			if (!CBS_get_u16(&cbs, &sigalg_value))
 				goto truncated;
 			if ((sigalg = ssl_sigalg(sigalg_value, tls12_sigalgs,
-				    tls12_sigalgs_len)) == NULL) {
+			    tls12_sigalgs_len)) == NULL) {
 				SSLerror(s, SSL_R_UNKNOWN_DIGEST);
 				al = SSL_AD_DECODE_ERROR;
 				goto f_err;
@@ -1522,7 +1522,7 @@ ssl3_get_server_key_exchange(SSL *s)
 				al = SSL_AD_DECODE_ERROR;
 				goto f_err;
 			}
-			if (!ssl_sigalg_pkey_ok(sigalg, pkey)) {
+			if (!ssl_sigalg_pkey_ok(sigalg, pkey, 0)) {
 				SSLerror(s, SSL_R_WRONG_SIGNATURE_TYPE);
 				al = SSL_AD_DECODE_ERROR;
 				goto f_err;
@@ -1671,20 +1671,19 @@ ssl3_get_certificate_request(SSL *s)
 			SSLerror(s, SSL_R_DATA_LENGTH_TOO_LONG);
 			goto err;
 		}
-
-		/* Check we have enough room for signature algorithms and
-		 * following length value.
-		 */
 		if (!CBS_get_u16_length_prefixed(&cert_request, &sigalgs)) {
 			ssl3_send_alert(s, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
 			SSLerror(s, SSL_R_DATA_LENGTH_TOO_LONG);
 			goto err;
 		}
-		if (!tls1_process_sigalgs(s, &sigalgs)) {
+		if (CBS_len(&sigalgs) % 2 != 0 || CBS_len(&sigalgs) > 64) {
 			ssl3_send_alert(s, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
 			SSLerror(s, SSL_R_SIGNATURE_ALGORITHMS_ERROR);
 			goto err;
 		}
+		if (!CBS_stow(&sigalgs, &S3I(s)->hs.sigalgs,
+		    &S3I(s)->hs.sigalgs_len))
+			goto err;
 	}
 
 	/* get the CA RDNs */
@@ -2371,6 +2370,7 @@ err:
 static int
 ssl3_send_client_verify_sigalgs(SSL *s, CBB *cert_verify)
 {
+	const struct ssl_sigalg *sigalg;
 	CBB cbb_signature;
 	EVP_PKEY_CTX *pctx = NULL;
 	EVP_PKEY *pkey;
@@ -2386,10 +2386,17 @@ ssl3_send_client_verify_sigalgs(SSL *s, CBB *cert_verify)
 	EVP_MD_CTX_init(&mctx);
 
 	pkey = s->cert->key->privatekey;
-	md = s->cert->key->sigalg->md();
+	if ((sigalg = ssl_sigalg_select(s, pkey)) == NULL) {
+		SSLerror(s, SSL_R_SIGNATURE_ALGORITHMS_ERROR);
+		goto err;
+	}
+	if ((md = sigalg->md()) == NULL) {
+		SSLerror(s, SSL_R_UNKNOWN_DIGEST);
+		goto err;
+	}
 
 	if (!tls1_transcript_data(s, &hdata, &hdatalen) ||
-	    !CBB_add_u16(cert_verify, s->cert->key->sigalg->value)) {
+	    !CBB_add_u16(cert_verify, sigalg->value)) {
 		SSLerror(s, ERR_R_INTERNAL_ERROR);
 		goto err;
 	}
@@ -2397,7 +2404,7 @@ ssl3_send_client_verify_sigalgs(SSL *s, CBB *cert_verify)
 		SSLerror(s, ERR_R_EVP_LIB);
 		goto err;
 	}
-	if ((s->cert->key->sigalg->flags & SIGALG_FLAG_RSA_PSS) &&
+	if ((sigalg->flags & SIGALG_FLAG_RSA_PSS) &&
 	    (!EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) ||
 	    !EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1))) {
 		SSLerror(s, ERR_R_EVP_LIB);
@@ -2445,7 +2452,7 @@ ssl3_send_client_verify_rsa(SSL *s, CBB *cert_verify)
 	unsigned int signature_len = 0;
 	int ret = 0;
 
-	if (!tls1_handshake_hash_value(s, data, sizeof(data), NULL))
+	if (!tls1_transcript_hash_value(s, data, sizeof(data), NULL))
 		goto err;
 
 	pkey = s->cert->key->privatekey;
@@ -2480,7 +2487,7 @@ ssl3_send_client_verify_ec(SSL *s, CBB *cert_verify)
 	unsigned int signature_len = 0;
 	int ret = 0;
 
-	if (!tls1_handshake_hash_value(s, data, sizeof(data), NULL))
+	if (!tls1_transcript_hash_value(s, data, sizeof(data), NULL))
 		goto err;
 
 	pkey = s->cert->key->privatekey;
@@ -2692,7 +2699,7 @@ ssl3_send_client_certificate(SSL *s)
 		    SSL3_MT_CERTIFICATE))
 			goto err;
 		if (!ssl3_output_cert_chain(s, &client_cert,
-		    (S3I(s)->tmp.cert_req == 2) ? NULL : s->cert->key->x509))
+		    (S3I(s)->tmp.cert_req == 2) ? NULL : s->cert->key))
 			goto err;
 		if (!ssl3_handshake_msg_finish(s, &cbb))
 			goto err;

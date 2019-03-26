@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bnxt.c,v 1.17 2018/09/19 10:26:17 jmatthew Exp $	*/
+/*	$OpenBSD: if_bnxt.c,v 1.19 2019/03/15 05:42:38 kevlo Exp $	*/
 /*-
  * Broadcom NetXtreme-C/E network driver.
  *
@@ -62,7 +62,6 @@
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcidevs.h>
 
-#define __FBSDID(x)
 #include <dev/pci/if_bnxtreg.h>
 
 #include <net/if.h>
@@ -83,7 +82,7 @@
 #define BNXT_TX_RING_ID		3
 
 #define BNXT_MAX_QUEUE		8
-#define BNXT_MAX_MTU		9000
+#define BNXT_MAX_MTU		9500
 #define BNXT_AG_BUFFER_SIZE	8192
 
 #define BNXT_CP_PAGES		4

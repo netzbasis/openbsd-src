@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.204 2018/09/29 08:11:11 claudio Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.213 2019/03/07 07:42:36 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -101,14 +101,16 @@ main(int argc, char *argv[])
 {
 	struct bgpd_config	*conf;
 	struct peer		*peer_l, *p;
+	struct rde_rib		*rr;
 	struct pollfd		 pfd[POLL_MAX];
-	pid_t			 io_pid = 0, rde_pid = 0, pid;
+	time_t			 timeout;
+	pid_t			 se_pid = 0, rde_pid = 0, pid;
 	char			*conffile;
 	char			*saved_argv0;
 	int			 debug = 0;
 	int			 rflag = 0, sflag = 0;
 	int			 rfd = -1;
-	int			 ch, timeout, status;
+	int			 ch, status;
 	int			 pipe_m2s[2];
 	int			 pipe_m2r[2];
 
@@ -123,7 +125,6 @@ main(int argc, char *argv[])
 	if (saved_argv0 == NULL)
 		saved_argv0 = "bgpd";
 
-	conf = new_config();
 	peer_l = NULL;
 
 	while ((ch = getopt(argc, argv, "cdD:f:nRSv")) != -1) {
@@ -168,14 +169,25 @@ main(int argc, char *argv[])
 		usage();
 
 	if (cmd_opts & BGPD_OPT_NOACTION) {
+		conf = new_config();
 		if (parse_config(conffile, conf, &peer_l))
 			exit(1);
 
 		if (cmd_opts & BGPD_OPT_VERBOSE)
 			print_config(conf, &ribnames, &conf->networks, peer_l,
-			    conf->filters, conf->mrt, &conf->rdomains);
+			    conf->filters, conf->mrt, &conf->l3vpns);
 		else
 			fprintf(stderr, "configuration OK\n");
+
+		while ((p = peer_l) != NULL) {
+			peer_l = p->next;
+			free(p);
+		}
+		while ((rr = SIMPLEQ_FIRST(&ribnames)) != NULL) {
+			SIMPLEQ_REMOVE_HEAD(&ribnames, entry);
+			free(rr);
+		}
+		free_config(conf);
 		exit(0);
 	}
 
@@ -208,7 +220,7 @@ main(int argc, char *argv[])
 	/* fork children */
 	rde_pid = start_child(PROC_RDE, saved_argv0, pipe_m2r[1], debug,
 	    cmd_opts & BGPD_OPT_VERBOSE);
-	io_pid = start_child(PROC_SE, saved_argv0, pipe_m2s[1], debug,
+	se_pid = start_child(PROC_SE, saved_argv0, pipe_m2s[1], debug,
 	    cmd_opts & BGPD_OPT_VERBOSE);
 
 	signal(SIGTERM, sighdlr);
@@ -248,6 +260,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 
 	if (imsg_send_sockets(ibuf_se, ibuf_rde))
 		fatal("could not establish imsg links");
+	conf = new_config();
 	quit = reconfigure(conffile, conf, &peer_l);
 	if (pftable_clear_all() != 0)
 		quit = 1;
@@ -255,16 +268,16 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 	while (quit == 0) {
 		bzero(pfd, sizeof(pfd));
 
-		set_pollfd(&pfd[PFD_PIPE_SESSION], ibuf_se);
-		set_pollfd(&pfd[PFD_PIPE_ROUTE], ibuf_rde);
+		timeout = mrt_timeout(conf->mrt);
 
 		pfd[PFD_SOCK_ROUTE].fd = rfd;
 		pfd[PFD_SOCK_ROUTE].events = POLLIN;
 
-		timeout = mrt_timeout(conf->mrt);
-		if (timeout > MAX_TIMEOUT)
-			timeout = MAX_TIMEOUT;
+		set_pollfd(&pfd[PFD_PIPE_SESSION], ibuf_se);
+		set_pollfd(&pfd[PFD_PIPE_ROUTE], ibuf_rde);
 
+		if (timeout < 0 || timeout > MAX_TIMEOUT)
+			timeout = MAX_TIMEOUT;
 		if (poll(pfd, POLL_MAX, timeout * 1000) == -1)
 			if (errno != EINTR) {
 				log_warn("poll error");
@@ -336,20 +349,24 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 		msgbuf_clear(&ibuf_se->w);
 		close(ibuf_se->fd);
 		free(ibuf_se);
+		ibuf_se = NULL;
 	}
 	if (ibuf_rde) {
 		msgbuf_clear(&ibuf_rde->w);
 		close(ibuf_rde->fd);
 		free(ibuf_rde);
+		ibuf_rde = NULL;
 	}
 
 	while ((p = peer_l) != NULL) {
 		peer_l = p->next;
 		free(p);
 	}
+	while ((rr = SIMPLEQ_FIRST(&ribnames)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&ribnames, entry);
+		free(rr);
+	}
 
-	control_cleanup(conf->csock);
-	control_cleanup(conf->rcsock);
 	carp_demote_shutdown();
 	kr_shutdown(conf->fib_priority, conf->default_tableid);
 	pftable_clear_all();
@@ -362,10 +379,15 @@ BROKEN	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
 		if (pid == -1) {
 			if (errno != EINTR && errno != ECHILD)
 				fatal("wait");
-		} else if (WIFSIGNALED(status))
-			log_warnx("%s terminated; signal %d",
-			    (pid == rde_pid) ? "route decision engine" :
-			    "session engine", WTERMSIG(status));
+		} else if (WIFSIGNALED(status)) {
+			char *name = "unknown process";
+			if (pid == rde_pid)
+				name = "route decision engine";
+			else if (pid == se_pid)
+				name = "session engine";
+			log_warnx("%s terminated; signal %d", name,
+				WTERMSIG(status));
+		}
 	} while (pid != -1 || (pid == -1 && errno == EINTR));
 
 	free(rcname);
@@ -435,7 +457,7 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 	struct filter_rule	*r;
 	struct listen_addr	*la;
 	struct rde_rib		*rr;
-	struct rdomain		*rd;
+	struct l3vpn		*vpn;
 	struct as_set		*aset;
 	struct prefixset	*ps;
 	struct prefixset_item	*psi, *npsi;
@@ -453,10 +475,20 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 		reconfpending = 0;
 		return (1);
 	}
+
+	if (prepare_listeners(conf) == -1) {
+		reconfpending = 0;
+		return (1);
+	}
+
+	if (control_setup(conf) == -1) {
+		reconfpending = 0;
+		return (1);
+	}
+
 	expand_networks(conf);
 
 	cflags = conf->flags;
-	prepare_listeners(conf);
 
 	/* start reconfiguration */
 	if (imsg_compose(ibuf_se, IMSG_RECONF_CONF, 0, 0, -1,
@@ -473,17 +505,14 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 		la->fd = -1;
 	}
 
-	if (control_setup(conf) == -1)
-		return (-1);
-
 	/* adjust fib syncing on reload */
 	ktable_preload();
 
 	/* RIBs for the RDE */
 	while ((rr = SIMPLEQ_FIRST(&ribnames))) {
 		SIMPLEQ_REMOVE_HEAD(&ribnames, entry);
-		if (ktable_update(rr->rtableid, rr->name, NULL,
-		    rr->flags, conf->fib_priority) == -1) {
+		if (ktable_update(rr->rtableid, rr->name, rr->flags,
+		    conf->fib_priority) == -1) {
 			log_warnx("failed to load rdomain %d",
 			    rr->rtableid);
 			return (-1);
@@ -502,8 +531,7 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 	}
 
 	/* networks go via kroute to the RDE */
-	if (kr_net_reload(conf->default_tableid, &conf->networks))
-		return (-1);
+	kr_net_reload(conf->default_tableid, 0, &conf->networks);
 
 	/* prefixsets for filters in the RDE */
 	while ((ps = SIMPLEQ_FIRST(&conf->prefixsets)) != NULL) {
@@ -600,7 +628,7 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 		if (imsg_compose(ibuf_rde, IMSG_RECONF_AS_SET_DONE, 0, 0, -1,
 		    NULL, 0) == -1)
 			return -1;
-		
+
 		set_free(aset->set);
 		free(aset);
 	}
@@ -617,43 +645,42 @@ reconfigure(char *conffile, struct bgpd_config *conf, struct peer **peer_l)
 		free(r);
 	}
 
-	while ((rd = SIMPLEQ_FIRST(&conf->rdomains)) != NULL) {
-		SIMPLEQ_REMOVE_HEAD(&conf->rdomains, entry);
-		if (ktable_update(rd->rtableid, rd->descr, rd->ifmpe,
-		    rd->flags, conf->fib_priority) == -1) {
+	while ((vpn = SIMPLEQ_FIRST(&conf->l3vpns)) != NULL) {
+		SIMPLEQ_REMOVE_HEAD(&conf->l3vpns, entry);
+		if (ktable_update(vpn->rtableid, vpn->descr, vpn->flags,
+		    conf->fib_priority) == -1) {
 			log_warnx("failed to load rdomain %d",
-			    rd->rtableid);
+			    vpn->rtableid);
 			return (-1);
 		}
 		/* networks go via kroute to the RDE */
-		if (kr_net_reload(rd->rtableid, &rd->net_l))
-			return (-1);
+		kr_net_reload(vpn->rtableid, vpn->rd, &vpn->net_l);
 
-		if (imsg_compose(ibuf_rde, IMSG_RECONF_RDOMAIN, 0, 0, -1,
-		    rd, sizeof(*rd)) == -1)
+		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN, 0, 0, -1,
+		    vpn, sizeof(*vpn)) == -1)
 			return (-1);
 
 		/* export targets */
-		if (imsg_compose(ibuf_rde, IMSG_RECONF_RDOMAIN_EXPORT, 0, 0,
+		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN_EXPORT, 0, 0,
 		    -1, NULL, 0) == -1)
 			return (-1);
-		if (send_filterset(ibuf_rde, &rd->export) == -1)
+		if (send_filterset(ibuf_rde, &vpn->export) == -1)
 			return (-1);
-		filterset_free(&rd->export);
+		filterset_free(&vpn->export);
 
 		/* import targets */
-		if (imsg_compose(ibuf_rde, IMSG_RECONF_RDOMAIN_IMPORT, 0, 0,
+		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN_IMPORT, 0, 0,
 		    -1, NULL, 0) == -1)
 			return (-1);
-		if (send_filterset(ibuf_rde, &rd->import) == -1)
+		if (send_filterset(ibuf_rde, &vpn->import) == -1)
 			return (-1);
-		filterset_free(&rd->import);
+		filterset_free(&vpn->import);
 
-		if (imsg_compose(ibuf_rde, IMSG_RECONF_RDOMAIN_DONE, 0, 0,
+		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN_DONE, 0, 0,
 		    -1, NULL, 0) == -1)
 			return (-1);
 
-		free(rd);
+		free(vpn);
 	}
 
 	/* send a drain message to know when all messages where processed */
@@ -886,6 +913,8 @@ send_imsg_session(int type, pid_t pid, void *data, u_int16_t datalen)
 int
 send_network(int type, struct network_config *net, struct filter_set_head *h)
 {
+	if (quit)
+		return (0);
 	if (imsg_compose(ibuf_rde, type, 0, 0, -1, net,
 	    sizeof(struct network_config)) == -1)
 		return (-1);
@@ -934,11 +963,12 @@ control_setup(struct bgpd_config *conf)
 	/* control socket is outside chroot */
 	if (!cname || strcmp(cname, conf->csock)) {
 		if (cname) {
-			control_cleanup(cname);
 			free(cname);
 		}
 		if ((cname = strdup(conf->csock)) == NULL)
 			fatal("strdup");
+		if (control_check(cname) == -1)
+			return (-1);
 		if ((fd = control_init(0, cname)) == -1)
 			fatalx("control socket setup failed");
 		if (control_listen(fd) == -1)
@@ -950,16 +980,16 @@ control_setup(struct bgpd_config *conf)
 	}
 	if (!conf->rcsock) {
 		/* remove restricted socket */
-		control_cleanup(rcname);
 		free(rcname);
 		rcname = NULL;
 	} else if (!rcname || strcmp(rcname, conf->rcsock)) {
 		if (rcname) {
-			control_cleanup(rcname);
 			free(rcname);
 		}
 		if ((rcname = strdup(conf->rcsock)) == NULL)
 			fatal("strdup");
+		if (control_check(rcname) == -1)
+			return (-1);
 		if ((fd = control_init(1, rcname)) == -1)
 			fatalx("control socket setup failed");
 		if (control_listen(fd) == -1)

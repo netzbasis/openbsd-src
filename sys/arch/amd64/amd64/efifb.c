@@ -1,4 +1,4 @@
-/*	$OpenBSD: efifb.c,v 1.18 2018/09/22 17:41:52 kettenis Exp $	*/
+/*	$OpenBSD: efifb.c,v 1.22 2019/03/25 14:17:58 fcambus Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -219,7 +219,7 @@ efifb_attach(struct device *parent, struct device *self, void *aux)
 		ri->ri_flg &= ~RI_CLEAR;
 		ri->ri_flg |= RI_VCONS | RI_WRONLY;
 
-		rasops_init(ri, efifb_std_descr.nrows, efifb_std_descr.ncols);
+		rasops_init(ri, EFIFB_HEIGHT, EFIFB_WIDTH);
 
 		ri->ri_ops.alloc_attr(ri->ri_active, 0, 0, 0, &defattr);
 		wsdisplay_cnattach(&efifb_std_descr, ri->ri_active, ccol, crow,
@@ -467,7 +467,7 @@ efifb_cnremap(void)
 	ri->ri_flg &= ~RI_CLEAR;
 	ri->ri_flg |= RI_CENTER | RI_WRONLY;
 
-	rasops_init(ri, efifb_std_descr.nrows, efifb_std_descr.ncols);
+	rasops_init(ri, EFIFB_HEIGHT, EFIFB_WIDTH);
 }
 
 int
@@ -593,4 +593,11 @@ cb_find_fb(paddr_t addr)
 	}
 
 	return NULL;
+}
+
+psize_t
+efifb_stolen(void)
+{
+	struct efifb *fb = &efifb_console;
+	return fb->psize;
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: window-buffer.c,v 1.13 2018/02/28 08:55:44 nicm Exp $ */
+/* $OpenBSD: window-buffer.c,v 1.17 2019/03/18 14:10:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2017 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -25,14 +25,14 @@
 
 #include "tmux.h"
 
-static struct screen	*window_buffer_init(struct window_pane *,
+static struct screen	*window_buffer_init(struct window_mode_entry *,
 			     struct cmd_find_state *, struct args *);
-static void		 window_buffer_free(struct window_pane *);
-static void		 window_buffer_resize(struct window_pane *, u_int,
+static void		 window_buffer_free(struct window_mode_entry *);
+static void		 window_buffer_resize(struct window_mode_entry *, u_int,
 			     u_int);
-static void		 window_buffer_key(struct window_pane *,
-			     struct client *, struct session *, key_code,
-			     struct mouse_event *);
+static void		 window_buffer_key(struct window_mode_entry *,
+			     struct client *, struct session *,
+			     struct winlink *, key_code, struct mouse_event *);
 
 #define WINDOW_BUFFER_DEFAULT_COMMAND "paste-buffer -b '%%'"
 
@@ -41,6 +41,7 @@ static void		 window_buffer_key(struct window_pane *,
 
 const struct window_mode window_buffer_mode = {
 	.name = "buffer-mode",
+	.default_format = WINDOW_BUFFER_DEFAULT_FORMAT,
 
 	.init = window_buffer_init,
 	.free = window_buffer_free,
@@ -226,7 +227,7 @@ window_buffer_draw(__unused void *modedata, void *itemdata,
 		line[at] = '\0';
 
 		if (*line != '\0') {
-			screen_write_cursormove(ctx, cx, cy + i);
+			screen_write_cursormove(ctx, cx, cy + i, 0);
 			screen_write_puts(ctx, &grid_default_cell, "%s", line);
 		}
 
@@ -253,13 +254,14 @@ window_buffer_search(__unused void *modedata, void *itemdata, const char *ss)
 }
 
 static struct screen *
-window_buffer_init(struct window_pane *wp, __unused struct cmd_find_state *fs,
-    struct args *args)
+window_buffer_init(struct window_mode_entry *wme,
+    __unused struct cmd_find_state *fs, struct args *args)
 {
+	struct window_pane		*wp = wme->wp;
 	struct window_buffer_modedata	*data;
 	struct screen			*s;
 
-	wp->modedata = data = xcalloc(1, sizeof *data);
+	wme->data = data = xcalloc(1, sizeof *data);
 
 	if (args == NULL || !args_has(args, 'F'))
 		data->format = xstrdup(WINDOW_BUFFER_DEFAULT_FORMAT);
@@ -282,9 +284,9 @@ window_buffer_init(struct window_pane *wp, __unused struct cmd_find_state *fs,
 }
 
 static void
-window_buffer_free(struct window_pane *wp)
+window_buffer_free(struct window_mode_entry *wme)
 {
-	struct window_buffer_modedata	*data = wp->modedata;
+	struct window_buffer_modedata	*data = wme->data;
 	u_int				 i;
 
 	if (data == NULL)
@@ -303,9 +305,9 @@ window_buffer_free(struct window_pane *wp)
 }
 
 static void
-window_buffer_resize(struct window_pane *wp, u_int sx, u_int sy)
+window_buffer_resize(struct window_mode_entry *wme, u_int sx, u_int sy)
 {
-	struct window_buffer_modedata	*data = wp->modedata;
+	struct window_buffer_modedata	*data = wme->data;
 
 	mode_tree_resize(data->data, sx, sy);
 }
@@ -337,10 +339,12 @@ window_buffer_do_paste(void* modedata, void *itemdata, struct client *c,
 }
 
 static void
-window_buffer_key(struct window_pane *wp, struct client *c,
-    __unused struct session *s, key_code key, struct mouse_event *m)
+window_buffer_key(struct window_mode_entry *wme, struct client *c,
+    __unused struct session *s, __unused struct winlink *wl, key_code key,
+    struct mouse_event *m)
 {
-	struct window_buffer_modedata	*data = wp->modedata;
+	struct window_pane		*wp = wme->wp;
+	struct window_buffer_modedata	*data = wme->data;
 	struct mode_tree_data		*mtd = data->data;
 	struct window_buffer_itemdata	*item;
 	int				 finished;

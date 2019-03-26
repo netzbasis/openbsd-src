@@ -1,4 +1,4 @@
-/* $OpenBSD: simplebus.c,v 1.8 2017/06/01 21:19:07 patrick Exp $ */
+/* $OpenBSD: simplebus.c,v 1.10 2019/03/07 07:58:26 patrick Exp $ */
 /*
  * Copyright (c) 2016 Patrick Wildt <patrick@blueri.se>
  *
@@ -149,6 +149,26 @@ simplebus_submatch(struct device *self, void *match, void *aux)
 	return 0;
 }
 
+int
+simplebus_print(void *aux, const char *pnp)
+{
+	struct fdt_attach_args *fa = aux;
+	char name[32];
+
+	if (!pnp)
+		return (QUIET);
+
+	if (OF_getprop(fa->fa_node, "name", name, sizeof(name)) > 0) {
+		name[sizeof(name) - 1] = 0;
+		printf("\"%s\"", name);
+	} else
+		printf("node %u", fa->fa_node);
+
+	printf(" at %s", pnp);
+
+	return (UNCONF);
+}
+
 /*
  * Look for a driver that wants to be attached to this node.
  */
@@ -221,7 +241,8 @@ simplebus_attach_node(struct device *self, int node)
 		fa.fa_dmat->_flags |= BUS_DMA_COHERENT;
 	}
 
-	config_found_sm(self, &fa, NULL, simplebus_submatch);
+	config_found_sm(self, &fa, sc->sc_early ? NULL : simplebus_print,
+	    simplebus_submatch);
 
 	free(fa.fa_reg, M_DEVBUF, fa.fa_nreg * sizeof(struct fdt_reg));
 	free(fa.fa_intr, M_DEVBUF, fa.fa_nintr * sizeof(uint32_t));
@@ -329,7 +350,7 @@ simplebus_dmamap_load_buffer(bus_dma_tag_t t, bus_dmamap_t map, void *buf,
 
 			/* All good, extract to address and translate. */
 			rto = range[0];
-			if (sc->sc_pacells == 2)
+			if (sc->sc_acells == 2)
 				rto = (rto << 32) + range[1];
 
 			map->dm_segs[seg].ds_addr -= rfrom;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gre.c,v 1.141 2018/12/03 17:25:22 claudio Exp $ */
+/*	$OpenBSD: if_gre.c,v 1.145 2019/01/04 11:16:03 benno Exp $ */
 /*	$NetBSD: if_gre.c,v 1.9 1999/10/25 19:18:11 drochner Exp $ */
 
 /*
@@ -297,13 +297,16 @@ static int	gre_input_key(struct mbuf **, int *, int, int, uint8_t,
 static struct mbuf *
 		gre_ipv4_patch(const struct gre_tunnel *, struct mbuf *,
 		    uint8_t);
+#ifdef INET6
 static struct mbuf *
 		gre_ipv6_patch(const struct gre_tunnel *, struct mbuf *,
 		    uint8_t);
+#endif
+#ifdef MPLS
 static struct mbuf *
 		gre_mpls_patch(const struct gre_tunnel *, struct mbuf *,
 		    uint8_t);
-
+#endif
 static void	gre_keepalive_send(void *);
 static void	gre_keepalive_recv(struct ifnet *ifp, struct mbuf *);
 static void	gre_keepalive_hold(void *);
@@ -1205,6 +1208,7 @@ gre_ipv4_patch(const struct gre_tunnel *tunnel, struct mbuf *m, uint8_t otos)
 	return (m);
 }
 
+#ifdef INET6
 static struct mbuf *
 gre_ipv6_patch(const struct gre_tunnel *tunnel, struct mbuf *m, uint8_t otos)
 {
@@ -1231,7 +1235,9 @@ gre_ipv6_patch(const struct gre_tunnel *tunnel, struct mbuf *m, uint8_t otos)
 
 	return (m);
 }
+#endif
 
+#ifdef MPLS
 static struct mbuf *
 gre_mpls_patch(const struct gre_tunnel *tunnel, struct mbuf *m, uint8_t otos)
 {
@@ -1244,6 +1250,7 @@ gre_mpls_patch(const struct gre_tunnel *tunnel, struct mbuf *m, uint8_t otos)
 
 	return (m);
 }
+#endif
 
 static int
 egre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen)
@@ -2644,6 +2651,11 @@ egre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 	}
 
+	if (error == ENETRESET) {
+		/* no hardware to program */
+		error = 0;
+	}
+
 	return (error);
 }
 
@@ -2820,6 +2832,10 @@ nvgre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		nvgre_flush_map(sc);
 		break;
 
+	case SIOCADDMULTI:
+	case SIOCDELMULTI:
+		break;
+
 	default:
 		error = ether_ioctl(ifp, &sc->sc_ac, cmd, data);
 		break;
@@ -2966,9 +2982,18 @@ eoip_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ifr->ifr_hdrprio = sc->sc_tunnel.t_txhprio;
 		break;
 
+	case SIOCADDMULTI:
+	case SIOCDELMULTI:
+		break;
+
 	default:
 		error = ether_ioctl(ifp, &sc->sc_ac, cmd, data);
 		break;
+	}
+
+	if (error == ENETRESET) {
+		/* no hardware to program */
+		error = 0;
 	}
 
 	return (error);

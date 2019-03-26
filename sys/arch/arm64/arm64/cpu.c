@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.24 2018/08/25 20:45:28 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.27 2019/02/23 03:37:50 jsg Exp $	*/
 
 /*
  * Copyright (c) 2016 Dale Rahn <drahn@dalerahn.com>
@@ -49,11 +49,15 @@
 #define CPU_PART_CORTEX_A53	0xd03
 #define CPU_PART_CORTEX_A35	0xd04
 #define CPU_PART_CORTEX_A55	0xd05
+#define CPU_PART_NEOVERSE_E1	0xd06
 #define CPU_PART_CORTEX_A57	0xd07
 #define CPU_PART_CORTEX_A72	0xd08
 #define CPU_PART_CORTEX_A73	0xd09
 #define CPU_PART_CORTEX_A75	0xd0a
 #define CPU_PART_CORTEX_A76	0xd0b
+#define CPU_PART_NEOVERSE_N1	0xd0c
+#define CPU_PART_CORTEX_DEIMOS	0xd0d
+#define CPU_PART_CORTEX_A76AE	0xd0e
 
 #define CPU_PART_THUNDERX_T88	0x0a1
 #define CPU_PART_THUNDERX_T81	0x0a2
@@ -83,6 +87,10 @@ struct cpu_cores cpu_cores_arm[] = {
 	{ CPU_PART_CORTEX_A73, "Cortex-A73" },
 	{ CPU_PART_CORTEX_A75, "Cortex-A75" },
 	{ CPU_PART_CORTEX_A76, "Cortex-A76" },
+	{ CPU_PART_CORTEX_A76AE, "Cortex-A76AE" },
+	{ CPU_PART_CORTEX_DEIMOS, "Cortex-Deimos" },
+	{ CPU_PART_NEOVERSE_E1, "Neoverse E1" },
+	{ CPU_PART_NEOVERSE_N1, "Neoverse N1" },
 	{ 0 },
 };
 
@@ -239,6 +247,11 @@ cpu_identify(struct cpu_info *ci)
 		case CPU_PART_CORTEX_A35:
 		case CPU_PART_CORTEX_A53:
 		case CPU_PART_CORTEX_A55:
+		case CPU_PART_CORTEX_A76:
+		case CPU_PART_CORTEX_A76AE:
+		case CPU_PART_CORTEX_DEIMOS:
+		case CPU_PART_NEOVERSE_E1:
+		case CPU_PART_NEOVERSE_N1:
 			/* Not vulnerable. */
 			ci->ci_flush_bp = cpu_flush_bp_noop;
 			break;
@@ -730,7 +743,7 @@ cpu_opp_mountroot(struct device *self)
 		cpu_setperf = cpu_opp_setperf;
 
 		perflevel = (level > 0) ? level : 0;
-		cpu_setperf(level);
+		cpu_setperf(perflevel);
 	}
 }
 
@@ -786,8 +799,7 @@ cpu_opp_setperf(int level)
 		struct opp_table *ot = ci->ci_opp_table;
 		uint64_t min, max;
 		uint64_t level_hz, opp_hz;
-		uint32_t opp_microvolt;
-		int opp_idx;
+		int opp_idx = -1;
 		int i;
 
 		if (ot == NULL)
@@ -803,10 +815,15 @@ cpu_opp_setperf(int level)
 		opp_hz = min;
 		for (i = 0; i < ot->ot_nopp; i++) {
 			if (ot->ot_opp[i].opp_hz <= level_hz &&
-			    ot->ot_opp[i].opp_hz >= opp_hz) {
+			    ot->ot_opp[i].opp_hz >= opp_hz)
 				opp_hz = ot->ot_opp[i].opp_hz;
-				opp_microvolt = ot->ot_opp[i].opp_microvolt;
+		}
+
+		/* Find index of selected operating point. */
+		for (i = 0; i < ot->ot_nopp; i++) {
+			if (ot->ot_opp[i].opp_hz == opp_hz) {
 				opp_idx = i;
+				break;
 			}
 		}
 		KASSERT(opp_idx >= 0);

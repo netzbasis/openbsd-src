@@ -10,7 +10,6 @@ D/Compress-Raw-Bzip2////
 D/Compress-Raw-Zlib////
 D/Config-Perl-V////
 D/DB_File////
-D/Devel-PPPort////
 D/Digest////
 D/Digest-MD5////
 D/Digest-SHA////
@@ -47,7 +46,6 @@ D/NEXT////
 D/OpenBSD-MkTemp////
 D/OpenBSD-Pledge////
 D/Params-Check////
-D/Parse-CPAN-Meta////
 D/Perl-OSType////
 D/PerlIO-via-QuotedPrint////
 D/Pod-Checker////
@@ -71,7 +69,6 @@ D/Tie-RefHash////
 D/Time-Local////
 D/Time-Piece////
 D/Unicode-Collate////
-D/Unicode-Normalize////
 D/Win32////
 D/Win32API-File////
 D/autodie////

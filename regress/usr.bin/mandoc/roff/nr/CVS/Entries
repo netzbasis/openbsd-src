@@ -1,4 +1,4 @@
-/Makefile/1.11/Tue Apr 10 00:52:21 2018//
+/Makefile/1.12/Wed Feb  6 20:54:28 2019//
 /argc.in/1.2/Tue Jul  4 14:53:27 2017//
 /argc.out_ascii/1.3/Tue Jul  4 14:53:27 2017//
 /divzero.in/1.3/Tue Jul  4 14:53:27 2017//
@@ -19,6 +19,8 @@
 /rr.out_ascii/1.2/Tue Aug 26 11:32:57 2014//
 /scale.in/1.2/Tue Jul  4 14:53:27 2017//
 /scale.out_ascii/1.1/Fri Jan 23 00:38:43 2015//
+/tab.in/1.1/Wed Feb  6 20:54:28 2019//
+/tab.out_ascii/1.1/Wed Feb  6 20:54:28 2019//
 /undef.in/1.1/Mon Apr  9 22:26:25 2018//
 /undef.out_ascii/1.1/Mon Apr  9 22:26:25 2018//
 D

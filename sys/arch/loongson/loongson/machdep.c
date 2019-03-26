@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.83 2018/04/20 14:08:12 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.85 2019/03/17 05:06:36 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010, 2014 Miodrag Vallat.
@@ -116,6 +116,7 @@ int	ncpu = 1;		/* At least one CPU in the system. */
 int	nnodes = 1;		/* Number of NUMA nodes, only on 3A. */
 struct	user *proc0paddr;
 int	lid_action = 1;
+int	pwr_action = 1;
 
 #ifdef MULTIPROCESSOR
 uint64_t cpu_spinup_a0;
@@ -1256,6 +1257,12 @@ pmoncnputc(dev_t dev, int c)
 		pmon_printf("\n");
 	else
 		pmon_printf("%c", c);
+}
+
+void
+intr_barrier(void *cookie)
+{
+	sched_barrier(NULL);
 }
 
 #ifdef MULTIPROCESSOR

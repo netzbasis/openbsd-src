@@ -1,4 +1,4 @@
-/*	$OpenBSD: mutex.h,v 1.15 2018/06/08 15:38:15 guenther Exp $	*/
+/*	$OpenBSD: mutex.h,v 1.17 2019/03/23 05:30:16 visa Exp $	*/
 
 /*
  * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>
@@ -105,14 +105,14 @@ void __mtx_init(struct mutex *, int);
 
 #define MTX_LO_INITIALIZER(name, flags) \
 	{ .lo_type = &(const struct lock_type){ .lt_name = __MTX_NAME }, \
-	  .lo_name = (name) != NULL ? (name) : __MTX_NAME, \
+	  .lo_name = (name), \
 	  .lo_flags = MTX_LO_FLAGS(flags) }
 
 #define MTX_NOWITNESS	0x01
 #define MTX_DUPOK	0x02
 
 #define MUTEX_INITIALIZER(ipl) \
-	MUTEX_INITIALIZER_FLAGS(ipl, NULL, 0)
+	MUTEX_INITIALIZER_FLAGS(ipl, __MTX_NAME, 0)
 
 /*
  * Some architectures need to do magic for the ipl, so they need a macro.
@@ -157,5 +157,19 @@ void	_mtx_leave(struct mutex *, const char *, int);
 #define _mtx_leave(m)			__mtx_leave(m)
 
 #endif /* WITNESS */
+
+#if defined(_KERNEL) && defined(DDB)
+
+struct db_mutex {
+	struct cpu_info	*mtx_owner;
+	unsigned long	 mtx_intr_state;
+};
+
+#define DB_MUTEX_INITIALIZER	{ NULL, 0 }
+
+void	db_mtx_enter(struct db_mutex *);
+void	db_mtx_leave(struct db_mutex *);
+
+#endif /* _KERNEL && DDB */
 
 #endif

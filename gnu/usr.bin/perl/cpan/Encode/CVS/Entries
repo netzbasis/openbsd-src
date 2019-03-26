@@ -1,8 +1,8 @@
-/Encode.pm/1.7/Sun Feb  5 00:31:57 2017/-ko/
-/Encode.xs/1.6/Sun Feb  5 00:31:57 2017/-ko/
-/Makefile.PL/1.5/Sun Feb  5 00:31:57 2017/-ko/
-/encengine.c/1.2/Sun Feb  5 00:31:57 2017/-ko/
-/encoding.pm/1.6/Sun Feb  5 00:31:57 2017/-ko/
+/Encode.pm/1.8/Wed Feb 13 21:15:10 2019/-ko/
+/Encode.xs/1.7/Wed Feb 13 21:15:10 2019/-ko/
+/Makefile.PL/1.6/Wed Feb 13 21:15:10 2019/-ko/
+/encengine.c/1.3/Wed Feb 13 21:15:10 2019/-ko/
+/encoding.pm/1.7/Wed Feb 13 21:15:10 2019/-ko/
 D/Byte////
 D/CN////
 D/EBCDIC////

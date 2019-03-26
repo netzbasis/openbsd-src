@@ -8,40 +8,47 @@
 /abtest.py/1.1.1.1/Wed Oct  4 20:27:51 2017/-ko/
 /bisect/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /bisect-skip-count/1.1.1.1/Wed Oct  4 20:27:51 2017/-ko/
+/bugpoint_gisel_reducer.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
 /check-each-file/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /clang-parse-diagnostics-file/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /codegen-diff/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /countloc.sh/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /create_ladder_graph.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/extract_symbols.py/1.1.1.2/Tue Jan 24 08:33:13 2017/-ko/
+/extract_symbols.py/1.1.1.3/Sun Jan 27 16:42:31 2019/-ko/
 /findmisopt/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /findoptdiff/1.1.1.2/Sat Jan 14 19:55:58 2017//
 /findsym.pl/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /getsrcs.sh/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/lldbDataFormatters.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/indirect_calls.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
+/lldbDataFormatters.py/1.1.1.2/Sun Jan 27 16:42:31 2019//
 /llvm-compilers-check/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvm-gisel-cov.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
 /llvm-native-gxx/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvm.grm/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvmdo/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /llvmgrep/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/makellvm/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /prepare-code-coverage-artifact.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
-/schedcover.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
+/schedcover.py/1.1.1.2/Sun Jan 27 16:42:31 2019//
 /shuffle_fuzz.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 /shuffle_select_fuzz_tester.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
 /sort_includes.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
-/update_llc_test_checks.py/1.1.1.5/Fri Apr  6 14:26:23 2018//
-/update_mir_test_checks.py/1.1.1.1/Fri Apr  6 14:26:23 2018/-ko/
-/update_test_checks.py/1.1.1.3/Wed Oct  4 20:27:51 2017/-ko/
+/unicode-case-fold.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
+/update_analyze_test_checks.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
+/update_cc_test_checks.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
+/update_llc_test_checks.py/1.1.1.6/Sun Jan 27 16:42:31 2019//
+/update_mca_test_checks.py/1.1.1.1/Sun Jan 27 16:42:31 2019/-ko/
+/update_mir_test_checks.py/1.1.1.2/Sun Jan 27 16:42:31 2019/-ko/
+/update_test_checks.py/1.1.1.4/Sun Jan 27 16:42:31 2019/-ko/
 /wciia.py/1.1.1.1/Sat Sep  3 22:46:59 2016//
 D/FileCheck////
 D/KillTheDoctor////
 D/LLVMVisualizers////
 D/Misc////
 D/PerfectShuffle////
+D/Reviewing////
 D/TableGen////
 D/Target////
+D/UpdateTestChecks////
 D/bugpoint////
 D/count////
 D/crosstool////

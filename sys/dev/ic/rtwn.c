@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtwn.c,v 1.43 2018/12/07 01:53:20 kevlo Exp $	*/
+/*	$OpenBSD: rtwn.c,v 1.45 2019/03/11 06:19:33 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -151,7 +151,6 @@ void		rtwn_pa_bias_init(struct rtwn_softc *);
 void		rtwn_rxfilter_init(struct rtwn_softc *);
 void		rtwn_edca_init(struct rtwn_softc *);
 void		rtwn_rate_fallback_init(struct rtwn_softc *);
-void		rtwn_usb_aggr_init(struct rtwn_softc *);
 void		rtwn_write_txpower(struct rtwn_softc *, int, uint16_t[]);
 void		rtwn_get_txpower(struct rtwn_softc *sc, int,
 		    struct ieee80211_channel *, struct ieee80211_channel *,
@@ -580,10 +579,12 @@ rtwn_efuse_switch_power(struct rtwn_softc *sc)
 {
 	uint16_t reg;
 
-	reg = rtwn_read_2(sc, R92C_SYS_ISO_CTRL);
-	if (!(reg & R92C_SYS_ISO_CTRL_PWC_EV12V)) {
-		rtwn_write_2(sc, R92C_SYS_ISO_CTRL,
-		    reg | R92C_SYS_ISO_CTRL_PWC_EV12V);
+	if (!(sc->chip & RTWN_CHIP_92E)) {
+		reg = rtwn_read_2(sc, R92C_SYS_ISO_CTRL);
+		if (!(reg & R92C_SYS_ISO_CTRL_PWC_EV12V)) {
+			rtwn_write_2(sc, R92C_SYS_ISO_CTRL,
+			    reg | R92C_SYS_ISO_CTRL_PWC_EV12V);
+		}
 	}
 	reg = rtwn_read_2(sc, R92C_SYS_FUNC_EN);
 	if (!(reg & R92C_SYS_FUNC_EN_ELDR)) {
@@ -1132,6 +1133,14 @@ rtwn_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 			/* Enable Rx of data frames. */
 			rtwn_write_2(sc, R92C_RXFLTMAP2, 0xffff);
 
+			/* Enable Rx of control frames. */
+			rtwn_write_2(sc, R92C_RXFLTMAP1, 0xffff);
+
+			rtwn_write_4(sc, R92C_RCR,
+			    rtwn_read_4(sc, R92C_RCR) |
+			    R92C_RCR_AAP | R92C_RCR_ADF | R92C_RCR_ACF |
+			    R92C_RCR_AMF);
+
 			/* Turn link LED on. */
 			rtwn_set_led(sc, RTWN_LED_LINK, 1);
 			break;
@@ -1640,14 +1649,28 @@ rtwn_r88e_fw_reset(struct rtwn_softc *sc)
 	uint16_t reg;
 
 	/* Reset MCU IO wrapper. */
-	rtwn_write_2(sc, R92C_RSV_CTRL,
-	    rtwn_read_2(sc, R92C_RSV_CTRL) & ~R88E_RSV_CTRL_MIO_EN);
+	rtwn_write_1(sc, R92C_RSV_CTRL,
+	    rtwn_read_1(sc, R92C_RSV_CTRL) & ~R92C_RSV_CTRL_WLOCK_00);
+	if (sc->chip & RTWN_CHIP_88E) {
+		rtwn_write_2(sc, R92C_RSV_CTRL,
+		    rtwn_read_2(sc, R92C_RSV_CTRL) & ~R88E_RSV_CTRL_MCU_RST);
+	} else {
+		rtwn_write_2(sc, R92C_RSV_CTRL,
+		    rtwn_read_2(sc, R92C_RSV_CTRL) & ~R88E_RSV_CTRL_MIO_EN);
+	}
 	reg = rtwn_read_2(sc, R92C_SYS_FUNC_EN);
 	rtwn_write_2(sc, R92C_SYS_FUNC_EN, reg & ~R92C_SYS_FUNC_EN_CPUEN);
 
 	/* Enable MCU IO wrapper. */
-	rtwn_write_2(sc, R92C_RSV_CTRL,
-	    rtwn_read_2(sc, R92C_RSV_CTRL) | R88E_RSV_CTRL_MIO_EN);
+	rtwn_write_1(sc, R92C_RSV_CTRL,
+	    rtwn_read_1(sc, R92C_RSV_CTRL) & ~R92C_RSV_CTRL_WLOCK_00);
+	if (sc->chip & RTWN_CHIP_88E) {
+		rtwn_write_2(sc, R92C_RSV_CTRL,
+		    rtwn_read_2(sc, R92C_RSV_CTRL) | R88E_RSV_CTRL_MCU_RST);
+	} else {
+		rtwn_write_2(sc, R92C_RSV_CTRL,
+		    rtwn_read_2(sc, R92C_RSV_CTRL) | R88E_RSV_CTRL_MIO_EN);
+	}
 	rtwn_write_2(sc, R92C_SYS_FUNC_EN, reg | R92C_SYS_FUNC_EN_CPUEN);
 }
 
@@ -1905,7 +1928,6 @@ void
 rtwn_rxfilter_init(struct rtwn_softc *sc)
 {
 	/* Initialize Rx filter. */
-	/* TODO: use better filter for monitor mode. */
 	rtwn_write_4(sc, R92C_RCR,
 	    R92C_RCR_AAP | R92C_RCR_APM | R92C_RCR_AM | R92C_RCR_AB |
 	    R92C_RCR_APP_ICV | R92C_RCR_AMF | R92C_RCR_HTC_LOC_CTRL |
@@ -1968,47 +1990,6 @@ rtwn_rate_fallback_init(struct rtwn_softc *sc)
 			rtwn_write_4(sc, R92C_RARFRC + 4, 0x08070605);
 		}
 	}
-}
-
-void
-rtwn_usb_aggr_init(struct rtwn_softc *sc)
-{
-	uint32_t reg;
-	int dmasize, dmatiming, ndesc;
-
-	if (sc->chip & RTWN_CHIP_92E) {
-		dmasize = 0x06;
-		dmatiming = 0x20;
-		ndesc = 3;
-	} else {
-		dmasize = 48;
-		dmatiming = 4;
-		ndesc = (sc->chip & RTWN_CHIP_88E) ? 1 : 6;
-	}
-
-	/* Tx aggregation setting. */
-	if (sc->chip & RTWN_CHIP_92E) {
-		rtwn_write_1(sc, R92E_DWBCN1_CTRL, ndesc << 1);
-	} else {
-		reg = rtwn_read_4(sc, R92C_TDECTRL);
-		reg = RW(reg, R92C_TDECTRL_BLK_DESC_NUM, ndesc);
-		rtwn_write_4(sc, R92C_TDECTRL, reg);
-	}
-
-	/* Rx aggregation setting. */
-	if (sc->chip & RTWN_CHIP_92E) {
-		rtwn_write_1(sc, R92E_RXDMA_PRO,
-		    (rtwn_read_1(sc, R92E_RXDMA_PRO) & ~0x20) | 0x1e);
-	} else {
-		rtwn_write_1(sc, R92C_TRXDMA_CTRL,
-		    rtwn_read_1(sc, R92C_TRXDMA_CTRL) |
-		    R92C_TRXDMA_CTRL_RXDMA_AGG_EN);
-	}
-	rtwn_write_1(sc, R92C_RXDMA_AGG_PG_TH, dmasize);
-	if (sc->chip & (RTWN_CHIP_92C | RTWN_CHIP_88C))
-		rtwn_write_1(sc, R92C_USB_DMA_AGG_TO, dmatiming);
-	else
-		rtwn_write_1(sc, R92C_RXDMA_AGG_PG_TH + 1, dmatiming);
 }
 
 void
@@ -3117,10 +3098,9 @@ rtwn_init(struct ifnet *ifp)
 	/* Set ACK timeout. */
 	rtwn_write_1(sc, R92C_ACKTO, 0x40);
 
-	if (sc->chip & RTWN_CHIP_USB) {
-		/* Setup USB aggregation. */
-		rtwn_usb_aggr_init(sc);
-	}
+	/* Setup USB aggregation. */
+	if (sc->chip & RTWN_CHIP_USB)
+		sc->sc_ops.aggr_init(sc->sc_ops.cookie);
 
 	/* Initialize beacon parameters. */
 	rtwn_write_2(sc, R92C_BCN_CTRL,

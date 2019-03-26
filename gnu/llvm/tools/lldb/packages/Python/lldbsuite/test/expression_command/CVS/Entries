@@ -2,6 +2,7 @@
 D/anonymous-struct////
 D/calculator_mode////
 D/call-function////
+D/call-overridden-method////
 D/call-restarts////
 D/call-throws////
 D/char////
@@ -19,12 +20,15 @@ D/persistent_ptr_update////
 D/persistent_types////
 D/persistent_variables////
 D/po_verbosity////
+D/pr35310////
 D/radar_8638051////
 D/radar_9531204////
 D/radar_9673664////
+D/rdar42038760////
 D/save_jit_objects////
 D/test////
 D/timeout////
 D/top-level////
 D/two-files////
 D/unwind_expression////
+D/xvalue////

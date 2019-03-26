@@ -22,7 +22,7 @@
 /if_rl_cardbus.c/1.30/Tue Nov 24 17:11:39 2015//
 /if_rtw_cardbus.c/1.26/Tue Nov 24 17:11:39 2015//
 /if_xl_cardbus.c/1.33/Tue Nov 24 17:11:39 2015//
-/ohci_cardbus.c/1.21/Sat Mar 14 03:38:47 2015//
+/ohci_cardbus.c/1.22/Mon Jan  7 03:41:06 2019//
 /puc_cardbus.c/1.8/Tue Nov 15 22:27:53 2011//
 /rbus.c/1.16/Wed Sep 22 02:28:37 2010//
 /rbus.h/1.10/Wed Sep 22 02:28:37 2010//

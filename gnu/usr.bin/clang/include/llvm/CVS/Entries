@@ -1,4 +1,5 @@
 D/AArch64////
+D/AMDGPU////
 D/ARM////
 D/Config////
 D/IR////
@@ -6,4 +7,5 @@ D/Mips////
 D/PowerPC////
 D/Sparc////
 D/Support////
+D/Transforms////
 D/X86////
