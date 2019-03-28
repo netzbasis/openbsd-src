@@ -1,4 +1,4 @@
-/* $OpenBSD: ber_test.c,v 1.3 2019/03/27 02:27:41 rob Exp $
+/* $OpenBSD: ber_test.c,v 1.8 2019/03/27 18:15:11 rob Exp $
 */
 /*
  * Copyright (c) Rob Pierce <rob@openbsd.org>
@@ -20,17 +20,15 @@
 
 #include <ber.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-
-#define BER_TAG_MASK	0x1f
 
 #define SUCCEED	0
 #define FAIL	1
 
 struct test_vector {
-	bool		 fail;		/* 1 means test is expected to fail */
+	int		 fail;		/* 1 means test is expected to fail */
+	int		 memcheck;	/* 1 when short forms used */
 	char		 title[128];
 	size_t		 length;
 	unsigned char	 input[1024];
@@ -39,6 +37,7 @@ struct test_vector {
 struct test_vector test_vectors[] = {
 	{
 		SUCCEED,
+		1,
 		"boolean",
 		3,
 		{
@@ -47,6 +46,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"integer (zero)",
 		3,
 		{
@@ -55,6 +55,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"positive integer",
 		3,
 		{
@@ -63,6 +64,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"large positive integer",
 		5,
 		{
@@ -71,6 +73,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"negative integer",
 		4,
 		{
@@ -79,6 +82,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"bit string",
 		6,
 		{
@@ -87,6 +91,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"octet string",
 		10,
 		{
@@ -96,6 +101,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"null",
 		2,
 		{
@@ -104,6 +110,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"object identifier",
 		8,
 		{
@@ -112,6 +119,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"sequence",	/* ldap */
 		14,
 		{
@@ -121,6 +129,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		1,
 		"set with integer and boolean",
 		8,
 		{
@@ -129,7 +138,8 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		FAIL,
-		"indefinite encoding (expected failure - unsupported)",
+		0,
+		"indefinite encoding (expected failure)",
 		4,
 		{
 			0x30, 0x80, 0x00, 0x00
@@ -137,6 +147,7 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		SUCCEED,
+		0,
 		"maximum long form tagging (i.e. 4 byte tag id)",
 		7,
 		{
@@ -145,18 +156,40 @@ struct test_vector test_vectors[] = {
 	},
 	{
 		FAIL,
-		"overflow long form tagging (expected failure - unsupported)",
+		0,
+		"overflow long form tagging (expected failure)",
 		8,
 		{
 			0x1f, 0x80, 0x80, 0x80, 0x80, 0x02, 0x01, 0x01
 		},
 	},
 	{
-		FAIL,
-		"garbage (expected failure - unsupported)",
-		4,
+		SUCCEED,
+		0,
+		"max long form length octets (i.e. 8 bytes)", 
+		12,
 		{
-			0x99, 0x53, 0x22, 0x66
+			0x02, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x01, 0x01
+		},
+	},
+	{
+		FAIL,
+		0,
+		"overflow long form length octets (expected failure)",
+		13,
+		{
+			0x02, 0x89, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x01, 0x01
+		},
+	},
+	{
+		FAIL,
+		0,
+		"incorrect length - not enough data (expected failure)",
+		3,
+		{
+			0x02, 0x02, 0x01
 		}
 	}
 };
@@ -191,24 +224,25 @@ test(int i)
 	ber_set_readbuf(&ber, test_vectors[i].input, test_vectors[i].length);
 
 	elm = ber_read_elements(&ber, elm);
-	if (elm == NULL && test_vectors[i].fail)
+	if (elm == NULL && test_vectors[i].fail &&
+	    (errno == EINVAL || errno == ERANGE || errno == ECANCELED))
 		return 0;
 	else if (elm != NULL && test_vectors[i].fail) {
-		printf("expected failure of ber_read_elements succeeded\n");
+		printf("expected failure of ber_read_elements did not occur\n");
 		return 1;
 	} else if (elm == NULL) {
-		printf("failed ber_read_elements\n");
+		printf("unexpectedly failed ber_read_elements\n");
 		return 1;
 	}
 
 	/*
 	 * short form tagged elements start at the 3rd octet (i.e. position 2).
 	 */
-	if ((test_vectors[i].input[0] & BER_TAG_MASK) != BER_TAG_MASK) {
+	if (test_vectors[i].memcheck) {
 		pos = ber_getpos(elm);
 		if (pos != 2) {
 			printf("unexpected element position within "
-			    "byte stream (1)\n");
+			    "byte stream\n");
 			return 1;
 		}
 	}
@@ -281,7 +315,7 @@ test(int i)
 		break;
 	case BER_TYPE_OBJECT:	/* OID */
 		if (ber_get_oid(elm, &oid) == -1) {
-			printf("failed (object identifier) encoding check\n");
+			printf("failed (oid) encoding check\n");
 			return 1;
 		}
 		if (ber_scanf_elements(elm, "o", &oid) == -1) {
@@ -310,9 +344,9 @@ test(int i)
 	}
 
 	/*
-	 * additional testing on short form tagged encoding
+	 * additional testing on short form encoding
 	 */
-	if ((test_vectors[i].input[0] & BER_TAG_MASK) != BER_TAG_MASK) {
+	if (test_vectors[i].memcheck) {
 		len = ber_calc_len(elm);
 		if (len != test_vectors[i].length) {
 			printf("failed to calculate length\n");
@@ -348,7 +382,7 @@ test_ber_printf_elements_integer(void) {
 
 	elm = ber_printf_elements(elm, "d", val);
 	if (elm == NULL) {
-		printf("failed ber_read_elements\n");
+		printf("failed ber_printf_elements\n");
 		return 1;
 	}
 
@@ -403,7 +437,7 @@ test_ber_printf_elements_ldap_bind(void) {
 	    BER_CLASS_CONTEXT, LDAP_AUTH_SIMPLE);
 
 	if (elm == NULL) {
-		printf("failed ber_read_elements\n");
+		printf("failed ber_printf_elements\n");
 		return 1;
 	}
 
@@ -435,7 +469,7 @@ test_ber_printf_elements_ldap_search(void) {
 	long long		 scope = 0, deref = 0;
 	char			*basedn = "ou=people";
 	char			*filter = "cn";
-	struct ber_element	*root = NULL, *elm = NULL;
+	struct ber_element	*root = NULL, *elm = NULL, *felm = NULL;
 	struct ber		 ber;
 
 	unsigned char		 exp[] = {
@@ -455,14 +489,23 @@ test_ber_printf_elements_ldap_search(void) {
 	elm = ber_printf_elements(root, "d{t", msgid, BER_CLASS_APP,
 	    LDAP_REQ_SEARCH);
 	if (elm == NULL) {
-		printf("failed ber_read_elements\n");
 		return 1;
 	}
 
-	elm = ber_printf_elements(root, "sEEddbs", basedn, scope, deref,
-	    sizelimit, timelimit, typesonly, filter);
+	/*
+	 * put search filter in an element so we can test using embedded
+	 * elements in ber_printf_elements().
+	 */
+	felm = ber_add_string(felm, filter);
+	if (felm == NULL) {
+		printf("failed ber_add_string\n");
+		return 1;
+	}
+
+	elm = ber_printf_elements(root, "sEEddbe", basedn, scope, deref,
+	    sizelimit, timelimit, typesonly, felm);
 	if (elm == NULL) {
-		printf("failed ber_read_elements\n");
+		printf("failed ber_printf_elements\n");
 		return 1;
 	}
 
@@ -506,7 +549,7 @@ test_ber_printf_elements_snmp_v3_encode(void) {
 	elm = ber_printf_elements(elm, "{iixi}", msgid, max_msg_size,
 	    &f, sizeof(f), secmodel);
 	if (elm == NULL) {
-		printf("failed ber_read_elements\n");
+		printf("failed ber_printf_elements\n");
 		return 1;
 	}
 

@@ -9,7 +9,7 @@
 /e_camellia.c/1.8/Sun Jan 29 17:49:23 2017//
 /e_cast.c/1.7/Fri Jul 11 08:44:48 2014//
 /e_chacha.c/1.5/Mon Aug  4 04:16:11 2014//
-/e_chacha20poly1305.c/1.20/Sun Mar 24 12:04:12 2019//
+/e_chacha20poly1305.c/1.21/Wed Mar 27 15:34:01 2019//
 /e_des.c/1.14/Mon Oct 12 06:05:52 2015//
 /e_des3.c/1.19/Mon Oct 12 06:05:52 2015//
 /e_gost2814789.c/1.4/Sun Jan 29 17:49:23 2017//
