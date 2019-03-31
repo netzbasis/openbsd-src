@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.36 2019/03/25 21:09:49 deraadt Exp $ */
+/*	$Id: main.c,v 1.40 2019/03/30 23:48:24 schwarze Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -284,8 +284,8 @@ main(int argc, char *argv[])
 		{ "archive",	no_argument,	NULL,			'a' },
 		{ "help",	no_argument,	NULL,			'h' },
 		{ "compress",	no_argument,	NULL,			'z' },
+		{ "del",	no_argument,	&opts.del,		1 },
 		{ "delete",	no_argument,	&opts.del,		1 },
-		{ "no-delete",	no_argument,	&opts.del,		0 },
 		{ "devices",	no_argument,	&opts.devices,		1 },
 		{ "no-devices",	no_argument,	&opts.devices,		0 },
 		{ "group",	no_argument,	&opts.preserve_gids,	1 },
@@ -459,7 +459,8 @@ main(int argc, char *argv[])
 		if (dup2(fds[1], STDIN_FILENO) == -1) {
 			ERR(&sess, "dup2");
 			_exit(1);
-		} if (dup2(fds[1], STDOUT_FILENO) == -1) {
+		}
+		if (dup2(fds[1], STDOUT_FILENO) == -1) {
 			ERR(&sess, "dup2");
 			_exit(1);
 		}
@@ -498,11 +499,9 @@ main(int argc, char *argv[])
 	exit(rc);
 usage:
 	fprintf(stderr,
-	    "usage: %s [-aDglnoprtvz] [-e program] [--archive] [--compress]\n"
-	    "\t[--delete] [--devices] [--group] [--links] [--dry-run]\n"
-	    "\t[--owner] [--perms] [--port=portnumber] [--recursive]\n"
-	    "\t[--rsh=program][--rsync-path=program] [--specials] [--times]\n"
-	    "\t[--verbose] [--version] source ... directory\n",
+	    "usage: %s [-aDglnoprtv] [-e program] [--del] [--devices]\n"
+	    "\t[--port=portnumber] [--rsync-path=program] [--specials]\n"
+	    "\t[--version] source ... directory\n",
 	    getprogname());
 	exit(1);
 }
