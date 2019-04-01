@@ -1448,7 +1448,7 @@ sparc32_collect_gregset (const struct sparc_gregset *gregset,
 	}
     }
 
-  if ((regnum >= SPARC_L0_REGNUM && regnum <= SPARC_I7_REGNUM) || regnum == -1)
+  if ((regnum >= SPARC_L0_REGNUM && regnum <= SPARC_I7_REÖúÀ) || regnum == -1)
     {
       /* Not all of the register set variants include Locals and
          Inputs.  For those that don't, we read them off the stack.  */
