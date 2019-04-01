@@ -61,7 +61,10 @@ struct cfdriver acpigbtn_cd = {
 	NULL, "acpigbtn", DV_DULL
 };
 
-const char *acpigbtn_hids[] = { ACPI_DEV_GBTN, 0 };
+const char *acpigbtn_hids[] = {
+	ACPI_DEV_GBTN,
+	NULL
+};
 
 int
 acpigbtn_match(struct device *parent, void *match, void *aux)
@@ -88,13 +91,13 @@ acpigbtn_attach(struct device *parent, struct device *self, void *aux)
 
 	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "_STA", 0, NULL, &st))
 		st = STA_PRESENT | STA_ENABLED | STA_DEV_OK;
-	printf("evalinteger done\n");
 	if ((st & (STA_PRESENT | STA_ENABLED | STA_DEV_OK)) !=
 	    (STA_PRESENT | STA_ENABLED | STA_DEV_OK))
 		return;
-	printf("trying to register\n");
+	printf("acpigbtn: device is present, enabled and ok\n");
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev, acpigbtn_notify,
 	    sc, ACPIDEV_NOPOLL);
+	printf("acpigbtn: notify registered\n");
 }
 
 int
