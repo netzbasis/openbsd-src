@@ -8,7 +8,7 @@
 /conf.c/1.6/Wed Jan 23 09:57:36 2019//
 /copy.S/1.5/Sun Aug 12 17:15:10 2018//
 /copystr.S/1.4/Sun Aug 12 17:15:10 2018//
-/cpu.c/1.27/Sat Feb 23 03:37:50 2019//
+/cpu.c/1.28/Sun Mar 31 02:37:05 2019//
 /cpufunc_asm.S/1.6/Fri Mar 15 05:42:38 2019//
 /cpuswitch.S/1.4/Fri Sep  7 01:32:01 2018//
 /db_disasm.c/1.1/Sat Dec 17 23:38:33 2016//
@@ -20,7 +20,7 @@
 /intr.c/1.13/Wed Aug  8 11:06:33 2018//
 /locore.S/1.24/Sun Sep  9 16:41:43 2018//
 /locore0.S/1.4/Sun Jan 21 22:30:41 2018//
-/machdep.c/1.37/Thu Jan 31 14:35:06 2019//
+/machdep.c/1.38/Mon Apr  1 07:00:51 2019//
 /mem.c/1.6/Fri May  4 15:45:11 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.60/Sun Feb 10 22:45:58 2019//

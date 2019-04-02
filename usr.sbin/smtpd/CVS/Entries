@@ -81,7 +81,7 @@
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//
 /smtpd-defines.h/1.10/Thu Dec 27 15:41:50 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
-/smtpd.c/1.317/Wed Jan 30 21:31:48 2019//
+/smtpd.c/1.318/Sun Mar 31 03:36:18 2019//
 /smtpd.conf.5/1.210/Sat Dec 22 08:54:02 2018//
 /smtpd.h/1.620/Thu Feb 28 13:23:32 2019//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//

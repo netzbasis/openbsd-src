@@ -1,4 +1,4 @@
-/*	$Id: extern.h,v 1.24 2019/03/06 18:37:22 deraadt Exp $ */
+/*	$Id: extern.h,v 1.26 2019/03/31 09:26:05 deraadt Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -266,21 +266,24 @@ int		  flist_gen_dels(struct sess *, const char *,
 			struct flist **, size_t *,
 			const struct flist *, size_t);
 
-char		**fargs_cmdline(struct sess *, const struct fargs *);
+char		**fargs_cmdline(struct sess *, const struct fargs *, size_t *);
 
 int		  io_read_buf(struct sess *, int, void *, size_t);
 int		  io_read_byte(struct sess *, int, uint8_t *);
 int		  io_read_check(struct sess *, int);
 int		  io_read_flush(struct sess *, int);
 int		  io_read_int(struct sess *, int, int32_t *);
+int		  io_read_uint(struct sess *, int, uint32_t *);
 int		  io_read_long(struct sess *, int, int64_t *);
 int		  io_read_size(struct sess *, int, size_t *);
 int		  io_read_ulong(struct sess *, int, uint64_t *);
 int		  io_write_buf(struct sess *, int, const void *, size_t);
 int		  io_write_byte(struct sess *, int, uint8_t);
 int		  io_write_int(struct sess *, int, int32_t);
+int		  io_write_uint(struct sess *, int, uint32_t);
 int		  io_write_line(struct sess *, int, const char *);
 int		  io_write_long(struct sess *, int, int64_t);
+int		  io_write_ulong(struct sess *, int, uint64_t);
 
 int		  io_lowbuffer_alloc(struct sess *, void **,
 			size_t *, size_t *, size_t);
@@ -304,7 +307,9 @@ void		  io_unbuffer_buf(struct sess *, const void *,
 int		  rsync_receiver(struct sess *, int, int, const char *);
 int		  rsync_sender(struct sess *, int, int, size_t, char **);
 int		  rsync_client(const struct opts *, int, const struct fargs *);
-int		  rsync_socket(const struct opts *, const struct fargs *);
+int		  rsync_connect(const struct opts *, int *,
+			const struct fargs *);
+int		  rsync_socket(const struct opts *, int, const struct fargs *);
 int		  rsync_server(const struct opts *, size_t, char *[]);
 int		  rsync_downloader(struct download *, struct sess *, int *);
 int		  rsync_set_metadata(struct sess *, int, int,

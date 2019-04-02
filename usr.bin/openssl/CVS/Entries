@@ -15,7 +15,7 @@
 /dsaparam.c/1.10/Wed Feb  7 05:47:55 2018//
 /ec.c/1.13/Sat Feb  9 15:49:21 2019//
 /ecparam.c/1.17/Wed Feb  7 05:47:55 2018//
-/enc.c/1.18/Sat Feb  9 15:49:21 2019//
+/enc.c/1.20/Mon Apr  1 16:06:54 2019//
 /errstr.c/1.6/Sat Oct 17 15:00:11 2015//
 /gendh.c/1.10/Wed Feb  7 05:47:55 2018//
 /gendsa.c/1.10/Wed Feb  7 05:47:55 2018//

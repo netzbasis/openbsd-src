@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.232 2019/03/10 08:27:28 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.235 2019/04/01 12:45:50 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -2045,6 +2045,8 @@ vcpu_reset_regs_svm(struct vcpu *vcpu, struct vcpu_reg_state *vrs)
 	/* xcr0 power on default sets bit 0 (x87 state) */
 	vcpu->vc_gueststate.vg_xcr0 = XCR0_X87 & xsave_mask;
 
+	vcpu->vc_parent->vm_map->pmap->eptp = 0;
+
 exit:
 	return ret;
 }
@@ -2577,6 +2579,8 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_reg_state *vrs)
 			ret = EINVAL;
 			goto exit;
 		}
+
+		vcpu->vc_parent->vm_map->pmap->eptp = eptp;
 	}
 
 	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
@@ -3968,8 +3972,9 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 	struct schedstate_percpu *spc;
 	struct vmx_invvpid_descriptor vid;
 	uint64_t eii, procbased, int_st;
-	uint16_t irq;
+	uint16_t irq, ldt_sel;
 	u_long s;
+	struct region_descriptor gdtr, idtr;
 
 	resume = 0;
 	irq = vrp->vrp_irq;
@@ -4170,10 +4175,18 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 			break;
 		}
 
+		sgdt(&gdtr);
+		sidt(&idtr);
+		sldt(&ldt_sel);
+
 		KERNEL_UNLOCK();
 		ret = vmx_enter_guest(&vcpu->vc_control_pa,
 		    &vcpu->vc_gueststate, resume,
 		    curcpu()->ci_vmm_cap.vcc_vmx.vmx_has_l1_flush_msr);
+
+		bare_lgdt(&gdtr);
+		lidt(&idtr);
+		lldt(ldt_sel);
 
 		/*
 		 * On exit, interrupts are disabled, and we are running with
@@ -6265,6 +6278,7 @@ vmm_handle_cpuid(struct vcpu *vcpu)
 		break;
 	case 0x80000008:	/* Phys bits info and topology (AMD) */
 		CPUID(0x80000008, *rax, *rbx, *rcx, *rdx);
+		*rbx &= VMM_AMDSPEC_EBX_MASK;
 		/* Reset %rcx (topology) */
 		*rcx = 0;
 		break;
