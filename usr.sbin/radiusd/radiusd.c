@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.23 2019/03/31 04:51:45 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.25 2019/04/01 11:05:41 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -237,6 +237,8 @@ radiusd_start(struct radiusd *radiusd)
 	signal_add(&radiusd->ev_sigchld, NULL);
 
 	TAILQ_FOREACH(module, &radiusd->module, next) {
+		if (debug > 0)
+			radiusd_module_set(module, "_debug", 0, NULL);
 		radiusd_module_start(module);
 	}
 
@@ -620,15 +622,11 @@ radiusd_access_request_answer(struct radius_query *q)
 	res_id = radius_get_id(q->res);
 	res_code = radius_get_code(q->res);
 
-	/*
-	 * Reset response authenticator in the following cases:
-	 * - response is modified by decorator
-	 * - server's secret is differ from client's secret.
-	 */
-	if (q->res_modified > 0 ||
-	    (authen_secret != NULL &&
-		    strcmp(q->client->secret, authen_secret) != 0))
-		radius_set_response_authenticator(q->res, q->client->secret);
+	/* Reset response/message authenticator */
+	if (radius_has_attr(q->res, RADIUS_TYPE_MESSAGE_AUTHENTICATOR))
+		radius_del_attr_all(q->res, RADIUS_TYPE_MESSAGE_AUTHENTICATOR);
+	radius_put_message_authenticator(q->res, q->client->secret);
+	radius_set_response_authenticator(q->res, q->client->secret);
 
 	log_info("Sending %s(code=%d) to %s id=%u q=%u",
 	    radius_code_string(res_code), res_code,
@@ -783,18 +781,15 @@ radiusd_access_response_fixup(struct radius_query *q)
 	int		 res_id;
 	size_t		 attrlen;
 	u_char		 req_auth[16], attrbuf[256];
-	const char	*olds, *news;
 	const char	*authen_secret = q->authen->auth->module->secret;
 
-	olds = q->client->secret;
-	news = authen_secret;
-	if (news == NULL)
-		olds = news;
 	radius_get_authenticator(q->req, req_auth);
 
 	if ((authen_secret != NULL &&
 	    strcmp(authen_secret, q->client->secret) != 0) ||
 	    timingsafe_bcmp(q->req_auth, req_auth, 16) != 0) {
+		const char *olds = q->client->secret;
+		const char *news = authen_secret;
 
 		/* RFC 2865 Tunnel-Password */
 		attrlen = sizeof(attrlen);
@@ -809,7 +804,6 @@ radiusd_access_response_fixup(struct radius_query *q)
 			    RADIUS_TYPE_TUNNEL_PASSWORD);
 			radius_put_raw_attr(q->res,
 			    RADIUS_TYPE_TUNNEL_PASSWORD, attrbuf, attrlen);
-			q->res_modified++;
 		}
 
 		/* RFC 2548 Microsoft MPPE-{Send,Recv}-Key */
@@ -827,7 +821,6 @@ radiusd_access_response_fixup(struct radius_query *q)
 			    RADIUS_VTYPE_MPPE_SEND_KEY);
 			radius_put_vs_raw_attr(q->res, RADIUS_VENDOR_MICROSOFT,
 			    RADIUS_VTYPE_MPPE_SEND_KEY, attrbuf, attrlen);
-			q->res_modified++;
 		}
 		attrlen = sizeof(attrlen);
 		if (radius_get_vs_raw_attr(q->res, RADIUS_VENDOR_MICROSOFT,
@@ -843,7 +836,6 @@ radiusd_access_response_fixup(struct radius_query *q)
 			    RADIUS_VTYPE_MPPE_RECV_KEY);
 			radius_put_vs_raw_attr(q->res, RADIUS_VENDOR_MICROSOFT,
 			    RADIUS_VTYPE_MPPE_RECV_KEY, attrbuf, attrlen);
-			q->res_modified++;
 		}
 	}
 
@@ -851,7 +843,6 @@ radiusd_access_response_fixup(struct radius_query *q)
 	if (res_id != q->req_id) {
 		/* authentication server change the id */
 		radius_set_id(q->res, q->req_id);
-		q->res_modified++;
 	}
 
 	return (0);
@@ -1265,7 +1256,6 @@ radiusd_module_imsg(struct radiusd_module *module, struct imsg *imsg)
 		    "ACCSREQ_ANSWER")) != NULL) {
 			q->res = radius_convert_packet(
 			    module->radpkt, module->radpktoff);
-			q->res_modified = ans->modified;
 			radiusd_access_request_answer(q);
 			module->radpktoff = 0;
 		}
