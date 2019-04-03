@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.235 2019/04/01 12:45:50 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.237 2019/04/02 05:06:39 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -5930,7 +5930,7 @@ svm_handle_msr(struct vcpu *vcpu)
 	uint64_t insn_length, msr;
 	uint64_t *rax, *rcx, *rdx;
 	struct vmcb *vmcb = (struct vmcb *)vcpu->vc_control_va;
-	int i;
+	int i, ret;
 
 	/* XXX: Validate RDMSR / WRMSR insn_length */
 	insn_length = 2;
@@ -5951,6 +5951,14 @@ svm_handle_msr(struct vcpu *vcpu)
 #endif /* VMM_DEBUG */
 		}
 	} else {
+                switch (*rcx) {
+			case MSR_LS_CFG:
+			DPRINTF("%s: guest read LS_CFG msr, injecting "
+			    "#GP\n", __func__);
+			ret = vmm_inject_gp(vcpu);
+			return (ret);
+                }
+
 		i = rdmsr_safe(*rcx, &msr);
 		if (i == 0) {
 			*rax = msr & 0xFFFFFFFFULL;
@@ -6392,7 +6400,8 @@ vcpu_run_svm(struct vcpu *vcpu, struct vm_run_params *vrp)
 		if (vcpu->vc_event != 0) {
 			DPRINTF("%s: inject event %d\n", __func__,
 			    vcpu->vc_event);
-			/* Set the "Send error code" flag for certain vectors */
+			vmcb->v_eventinj = 0;
+			/* Set the "Event Valid" flag for certain vectors */
 			switch (vcpu->vc_event & 0xFF) {
 				case VMM_EX_DF:
 				case VMM_EX_TS:
@@ -6401,10 +6410,10 @@ vcpu_run_svm(struct vcpu *vcpu, struct vm_run_params *vrp)
 				case VMM_EX_GP:
 				case VMM_EX_PF:
 				case VMM_EX_AC:
-					vmcb->v_eventinj |= (1ULL << 1);
+					vmcb->v_eventinj |= (1ULL << 11);
 			}
-			vmcb->v_eventinj = (vcpu->vc_event) | (1 << 31);
-			vmcb->v_eventinj |= (3ULL << 8); /* Hardware Exception */
+			vmcb->v_eventinj |= (vcpu->vc_event) | (1 << 31);
+			vmcb->v_eventinj |= (3ULL << 8); /* Exception */
 			vcpu->vc_event = 0;
 		}
 
