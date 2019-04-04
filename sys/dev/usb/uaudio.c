@@ -1,4 +1,4 @@
-/*	$OpenBSD: uaudio.c,v 1.135 2019/03/19 09:19:16 claudio Exp $	*/
+/*	$OpenBSD: uaudio.c,v 1.138 2019/04/03 07:47:20 ratchov Exp $	*/
 /*
  * Copyright (c) 2018 Alexandre Ratchov <alex@caoua.org>
  *
@@ -3030,13 +3030,17 @@ uaudio_pdata_copy(struct uaudio_softc *sc)
 	struct uaudio_stream *s = &sc->pstream;
 	struct uaudio_xfer *xfer;
 	size_t count, avail;
+	int index;
 #ifdef UAUDIO_DEBUG
 	struct timeval tv;
 
 	getmicrotime(&tv);
 #endif
-	xfer = s->data_xfers + s->ubuf_xfer;
-	while (sc->copy_todo > 0) {
+	while (sc->copy_todo > 0 && s->ubuf_xfer < s->nxfers) {
+		index = s->data_nextxfer + s->ubuf_xfer;
+		if (index >= s->nxfers)
+			index -= s->nxfers;
+		xfer = s->data_xfers + index;
 		avail = s->ring_end - s->ring_pos;
 		count = xfer->size - s->ubuf_pos;
 		if (count > avail)
@@ -3061,12 +3065,13 @@ uaudio_pdata_copy(struct uaudio_softc *sc)
 		s->ubuf_pos += count;
 		if (s->ubuf_pos == xfer->size) {
 			s->ubuf_pos = 0;
+#ifdef DIAGNOSTIC
+			if (s->ubuf_xfer == s->nxfers) {
+				printf("%s: overflow\n", __func__);
+				return;
+			}
+#endif
 			s->ubuf_xfer++;
-			if (s->ubuf_xfer == s->nxfers)
-				s->ubuf_xfer = 0;
-			if (s->ubuf_xfer == s->data_nextxfer)
-				break;
-			xfer = s->data_xfers + s->ubuf_xfer;
 		}
 	}
 }
@@ -3178,7 +3183,6 @@ uaudio_pdata_xfer(struct uaudio_softc *sc)
 
 	if (++s->data_nextxfer == s->nxfers)
 		s->data_nextxfer = 0;
-
 }
 
 /*
@@ -3244,6 +3248,14 @@ uaudio_pdata_intr(struct usbd_xfer *usb_xfer, void *arg, usbd_status status)
 
 	uaudio_pdata_calcsizes(sc, xfer);
 	uaudio_pdata_xfer(sc);
+#ifdef DIAGNOSTIC
+	if (s->ubuf_xfer == 0) {
+		printf("%s: underflow\n", __func__);
+		return;
+	}
+#endif
+	s->ubuf_xfer--;
+	uaudio_pdata_copy(sc);
 }
 
 /*
@@ -4031,6 +4043,7 @@ uaudio_underrun(void *self)
 	struct uaudio_softc *sc = (struct uaudio_softc *)self;
 	struct uaudio_stream *s = &sc->pstream;
 	size_t size;
+	int index;
 
 	/* skip one block in audio fifo */
 	s->ring_pos += s->ring_blksz;
@@ -4038,14 +4051,22 @@ uaudio_underrun(void *self)
 		s->ring_pos -= s->ring_end - s->ring_start;
 
 	/* get current transfer size */
-	size = s->data_xfers[s->ubuf_xfer].size;
+	index = s->data_nextxfer + s->ubuf_xfer;
+	if (index >= s->nxfers)
+		index -= s->nxfers;
+	size = s->data_xfers[index].size;
 
 	/* skip one block in usb fifo */
 	s->ubuf_pos += s->ring_blksz;
 	if (s->ubuf_pos >= size) {
 		s->ubuf_pos -= size;
-		if (++s->ubuf_xfer == s->nxfers)
-			s->ubuf_xfer = 0;
+#ifdef DIAGNOSTIC
+		if (s->ubuf_xfer == s->nxfers) {
+			printf("%s: overflow\n", __func__);
+			return;
+		}
+#endif
+		s->ubuf_xfer++;
 	}
 
 #ifdef UAUDIO_DEBUG
