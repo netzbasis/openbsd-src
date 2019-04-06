@@ -1,5 +1,4 @@
-/*	$OpenBSD: elfrdsetroot.c,v 1.26 2018/04/26 12:42:50 guenther Exp $	*/
-/*	$NetBSD: rdsetroot.c,v 1.2 1995/10/13 16:38:39 gwr Exp $	*/
+/*	$OpenBSD: rdsetroot.c,v 1.1 2019/04/05 21:07:11 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1994 Gordon W. Ross
@@ -43,8 +42,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <err.h>
 
-#include "elfrdsetroot.h"
+#include "rdsetroot.h"
 
 struct elfhdr head;
 
@@ -70,9 +70,9 @@ struct elf_fn *elf_fn;
 int
 main(int argc, char *argv[])
 {
-	int ch, fd, n, xflag = 0, fsd;
+	int ch, kfd, n, xflag = 0, fsfd;
 	char *fs = NULL;
-	char *file;
+	char *kernel;
 	u_int32_t *ip;
 
 	while ((ch = getopt(argc, argv, "dx")) != -1) {
@@ -91,61 +91,51 @@ main(int argc, char *argv[])
 	argv += optind;
 
 	if (argc == 1)
-		file = argv[0];
+		kernel = argv[0];
 	else if (argc == 2) {
-		file = argv[0];
+		kernel = argv[0];
 		fs = argv[1];
 	} else
 		usage();
 
-	fd = open(file, xflag ? O_RDONLY : O_RDWR, 0644);
-	if (fd < 0) {
-		perror(file);
-		exit(1);
-	}
+	kfd = open(kernel, xflag ? O_RDONLY : O_RDWR, 0644);
+	if (kfd < 0)
+		err(1, "%s", kernel);
 
 	if (fs) {
 		if (xflag)
-			fsd = open(fs, O_RDWR | O_CREAT | O_TRUNC, 0644);
+			fsfd = open(fs, O_RDWR | O_CREAT | O_TRUNC, 0644);
 		else
-			fsd = open(fs, O_RDONLY, 0644);
+			fsfd = open(fs, O_RDONLY, 0644);
 	} else {
 		if (xflag)
-			fsd = dup(STDOUT_FILENO);
+			fsfd = dup(STDOUT_FILENO);
 		else
-			fsd = dup(STDIN_FILENO);
+			fsfd = dup(STDIN_FILENO);
 	}
-	if (fsd < 0) {
-		perror(fs);
-		exit(1);
-	}
+	if (fsfd < 0)
+		err(1, "%s", fs);
 
-	if (pledge("stdio", NULL) == -1) {
-		perror("pledge");
-		exit(1);
-	}
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
-	n = read(fd, &head, sizeof(head));
-	if (n < sizeof(head)) {
-		fprintf(stderr, "%s: reading header\n", file);
-		exit(1);
-	}
+	n = read(kfd, &head, sizeof(head));
+	if (n < sizeof(head))
+		err(1, "%s: reading header", kernel);
 
-	if (!IS_ELF(head)) {
-		fprintf(stderr, "%s: bad magic number\n", file);
-		exit(1);
-	}
+	if (!IS_ELF(head))
+		err(1, "%s: bad magic number", kernel);
 
 	if (head.e_ident[EI_CLASS] == ELFCLASS32) {
 		elf_fn = &ELF32_fn;
 	} else if (head.e_ident[EI_CLASS] == ELFCLASS64) {
 		elf_fn = &ELF64_fn;
 	} else {
-		fprintf(stderr, "%s: invalid elf, not 32 or 64 bit", file);
+		fprintf(stderr, "%s: invalid elf, not 32 or 64 bit", kernel);
 		exit(1);
 	}
 
-	elf_fn->locate_image(fd, &head, file, &rd_root_size_off,
+	elf_fn->locate_image(kfd, &head, kernel, &rd_root_size_off,
 	    &rd_root_image_off, &mmap_off, &mmap_size);
 
 	/*
@@ -154,12 +144,9 @@ main(int argc, char *argv[])
 	 */
 	dataseg = mmap(NULL, mmap_size,
 	    xflag ? PROT_READ : PROT_READ | PROT_WRITE,
-	    MAP_SHARED, fd, mmap_off);
-	if (dataseg == MAP_FAILED) {
-		fprintf(stderr, "%s: can not map data seg\n", file);
-		perror(file);
-		exit(1);
-	}
+	    MAP_SHARED, kfd, mmap_off);
+	if (dataseg == MAP_FAILED)
+		err(1, "%s: can not map data seg", kernel);
 
 	/*
 	 * Find value in the location: rd_root_size
@@ -178,19 +165,15 @@ main(int argc, char *argv[])
 		fprintf(stderr, "copying root image...\n");
 
 	if (xflag) {
-		n = write(fsd, dataseg + rd_root_image_off,
+		n = write(fsfd, dataseg + rd_root_image_off,
 		    (size_t)rd_root_size_val);
-		if (n != rd_root_size_val) {
-			perror("write");
-			exit(1);
-		}
+		if (n != rd_root_size_val)
+			err(1, "write");
 	} else {
 		struct stat sstat;
 
-		if (fstat(fsd, &sstat) == -1) {
-			perror("fstat");
-			exit(1);
-		}
+		if (fstat(fsfd, &sstat) == -1)
+			err(1, "fstat");
 		if (S_ISREG(sstat.st_mode) &&
 		    sstat.st_size > rd_root_size_val) {
 			fprintf(stderr, "ramdisk too small 0x%llx 0x%llx\n",
@@ -198,12 +181,10 @@ main(int argc, char *argv[])
 			    (unsigned long long)rd_root_size_val);
 			exit(1);
 		}
-		n = read(fsd, dataseg + rd_root_image_off,
+		n = read(fsfd, dataseg + rd_root_image_off,
 		    (size_t)rd_root_size_val);
-		if (n < 0) {
-			perror("read");
-			exit(1);
-		}
+		if (n < 0)
+			err(1, "read");
 
 		msync(dataseg, mmap_size, 0);
 	}

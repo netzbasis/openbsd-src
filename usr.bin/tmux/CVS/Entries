@@ -58,7 +58,7 @@
 /cmd-set-option.c/1.123/Mon Mar 18 21:46:01 2019//
 /cmd-show-environment.c/1.23/Sat Apr 22 10:22:39 2017//
 /cmd-show-messages.c/1.28/Thu Aug 23 15:45:05 2018//
-/cmd-show-options.c/1.44/Mon Mar 18 21:46:02 2019//
+/cmd-show-options.c/1.45/Fri Apr  5 20:32:31 2019//
 /cmd-source-file.c/1.36/Thu May 24 09:42:49 2018//
 /cmd-split-window.c/1.91/Thu Oct 18 08:38:01 2018//
 /cmd-string.c/1.30/Sun Aug 19 19:03:46 2018//
@@ -103,7 +103,7 @@
 /server.c/1.183/Thu Aug 23 15:45:05 2018//
 /session.c/1.83/Sat Mar 16 17:14:07 2019//
 /status.c/1.192/Mon Mar 18 20:53:33 2019//
-/style.c/1.18/Mon Mar 18 20:53:33 2019//
+/style.c/1.19/Fri Apr  5 20:32:31 2019//
 /tmux.1/1.633/Tue Apr  2 09:03:39 2019//
 /tmux.c/1.187/Thu Nov 22 10:36:40 2018//
 /tmux.h/1.879/Tue Apr  2 09:03:39 2019//

@@ -1,4 +1,4 @@
-/* $OpenBSD: elfrdsetroot.h,v 1.3 2017/12/03 19:32:19 tb Exp $ */
+/* $OpenBSD: rdsetroot.h,v 1.1 2019/04/05 21:07:11 deraadt Exp $ */
 
 struct elf_fn {
 	void (*locate_image)(int, struct elfhdr *,  char *, long *, long *,

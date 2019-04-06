@@ -1,4 +1,32 @@
-/* $OpenBSD: elfrd_size.c,v 1.10 2018/06/01 21:20:13 mortimer Exp $ */
+/*	$OpenBSD: elfrd_size.c,v 1.1 2019/04/05 21:07:11 deraadt Exp $	*/
+
+/*
+ * Copyright (c) 1994 Gordon W. Ross
+ * Copyright (c) 1997 Per Fogelstrom. (ELF modifications)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -11,11 +39,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <nlist.h>
+#include <err.h>
 
 #include <errno.h>
 #include <limits.h>
 
-#include "elfrdsetroot.h"
+#include "rdsetroot.h"
 
 void
 ELFNAME(locate_image)(int, struct elfhdr *,  char *, long *, long *, off_t *,
@@ -47,40 +76,31 @@ ELFNAME(locate_image)(int fd, struct elfhdr *ghead,  char *file,
 	/* elfhdr may not have the full header? */
 	lseek(fd, 0, SEEK_SET);
 
-	if (read(fd, &head, sizeof(head)) != sizeof(head)) {
-		fprintf(stderr, "%s: can't read phdr area\n", file);
-		exit(1);
-	}
+	if (read(fd, &head, sizeof(head)) != sizeof(head))
+		err(1, "can't read phdr area");
 
 	phsize = head.e_phnum * sizeof(Elf_Phdr);
-	if ((ph = malloc(phsize)) == NULL) {
-		perror("malloc");
-		exit(1);
-	}
+	if ((ph = malloc(phsize)) == NULL)
+		err(1, "malloc");
 
 	lseek(fd, head.e_phoff, SEEK_SET);
 
-	if (read(fd, ph, phsize) != phsize) {
-		fprintf(stderr, "%s: can't read phdr area\n", file);
-		exit(1);
-	}
+	if (read(fd, ph, phsize) != phsize)
+		err(1, "can't read phdr area");
 
-        for (n = 0; n < head.e_phnum && !found; n++) {
-                if (ph[n].p_type == PT_LOAD)
-                        found = ELFNAME(find_rd_root_image)(file, fd, &ph[n],
-                            n, prd_root_size_off, prd_root_image_off,
+	for (n = 0; n < head.e_phnum && !found; n++) {
+		if (ph[n].p_type == PT_LOAD)
+			found = ELFNAME(find_rd_root_image)(file, fd, &ph[n],
+			    n, prd_root_size_off, prd_root_image_off,
 			    pmmap_off, pmmap_size);
-        }
-        if (!found) {
-                fprintf(stderr, "%s: can't locate space for rd_root_image!\n",
-                    file);
-                exit(1);
-        }
+	}
+	if (!found)
+		errx(1, "can't locate space for rd_root_image!");
 	free(ph);
 }
 
 struct nlist ELFNAME(wantsyms)[] = {
-        { "_rd_root_size", 0 },
+	{ "_rd_root_size", 0 },
 	{ "_rd_root_image", 0 },
 	{ NULL, 0 }
 };
@@ -93,10 +113,8 @@ ELFNAME(find_rd_root_image)(char *file, int fd, Elf_Phdr *ph, int segment,
 	unsigned long kernel_start, kernel_size;
 	uint64_t rd_root_size_off, rd_root_image_off;
 
-	if (ELFNAME(nlist)(fd, ELFNAME(wantsyms))) {
-		fprintf(stderr, "%s: no rd_root_image symbols?\n", file);
-		exit(1);
-	}
+	if (ELFNAME(nlist)(fd, ELFNAME(wantsyms)))
+		errx(1, "no rd_root_image symbols?");
 	kernel_start = ph->p_paddr;
 	kernel_size = ph->p_filesz;
 
@@ -126,11 +144,8 @@ ELFNAME(find_rd_root_image)(char *file, int fd, Elf_Phdr *ph, int segment,
 	 */
 	if (rd_root_image_off >= kernel_size)
 		return (0);
-	if (rd_root_size_off >= kernel_size) {
-		fprintf(stderr, "%s: rd_root_size not in data segment?\n",
-		    file);
-		return (0);
-	}
+	if (rd_root_size_off >= kernel_size)
+		errx(1, "rd_root_size not in data segment?");
 	*pmmap_off = ph->p_offset;
 	*pmmap_size = kernel_size;
 	*prd_root_size_off = rd_root_size_off;
@@ -170,7 +185,7 @@ ELFNAME(__elf_is_okay__)(Elf_Ehdr *ehdr)
 	return retval;
 }
 
-#define ISLAST(p)       (p->n_name == 0 || p->n_name[0] == 0)
+#define ISLAST(p)	(p->n_name == 0 || p->n_name[0] == 0)
 #define MIN(x, y)	((x)<(y)? (x) : (y))
 
 
@@ -337,7 +352,7 @@ ELFNAME(nlist)(int fd, struct nlist *list)
 
 				/* XXX - type conversion */
 				/*	 is pretty rude. */
-				switch(ELF_ST_TYPE(s->st_info)) {
+				switch (ELF_ST_TYPE(s->st_info)) {
 				case STT_NOTYPE:
 					switch (s->st_shndx) {
 					case SHN_UNDEF:
