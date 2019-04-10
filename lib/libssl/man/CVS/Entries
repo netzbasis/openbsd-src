@@ -32,7 +32,7 @@
 /SSL_CTX_set_info_callback.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_set_max_cert_list.3/1.4/Thu Mar 22 21:09:18 2018//
 /SSL_CTX_set_min_proto_version.3/1.3/Sat Mar 24 00:55:37 2018//
-/SSL_CTX_set_mode.3/1.4/Wed Mar 21 21:20:26 2018//
+/SSL_CTX_set_mode.3/1.5/Tue Apr  9 21:06:31 2019//
 /SSL_CTX_set_msg_callback.3/1.4/Thu Mar 22 21:09:18 2018//
 /SSL_CTX_set_options.3/1.12/Wed Apr 11 18:05:49 2018//
 /SSL_CTX_set_quiet_shutdown.3/1.4/Tue Mar 27 17:35:50 2018//
@@ -48,7 +48,7 @@
 /SSL_CTX_set_tmp_dh_callback.3/1.7/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_set_tmp_rsa_callback.3/1.8/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_set_verify.3/1.7/Tue Mar 27 17:35:50 2018//
-/SSL_CTX_use_certificate.3/1.10/Fri Apr  5 18:29:43 2019//
+/SSL_CTX_use_certificate.3/1.11/Tue Apr  9 22:01:50 2019//
 /SSL_SESSION_free.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_SESSION_get0_peer.3/1.2/Fri Mar 23 05:50:30 2018//
 /SSL_SESSION_get_compress_id.3/1.3/Fri Mar 23 05:50:30 2018//

@@ -1,8 +1,8 @@
 /Makefile/1.14/Mon Nov 28 16:42:45 2016//
 /boot.8/1.9/Wed Jan  2 21:20:41 2019//
-/conf.c/1.11/Mon Apr  8 13:56:22 2019//
+/conf.c/1.12/Wed Apr 10 04:19:32 2019//
 /delay.c/1.1/Fri Oct  6 21:48:50 2006//
-/devs.c/1.10/Thu Jul 17 13:14:06 2014//
+/devs.c/1.11/Wed Apr 10 04:17:35 2019//
 /getsecs.c/1.4/Thu Aug 21 14:24:08 2014//
 /libsa.h/1.7/Thu Jul 17 13:14:06 2014//
 /scifcons.c/1.6/Thu Jul 17 13:14:06 2014//
