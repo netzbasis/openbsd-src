@@ -1,7 +1,7 @@
 /am335x.c/1.11/Fri Sep  8 05:36:51 2017//
 /am335x_cm_padconf.c/1.1/Wed Sep  4 14:38:30 2013//
 /am335x_prcmreg.h/1.5/Mon Aug 14 21:46:02 2017//
-/amdisplay.c/1.8/Wed Sep 19 08:12:39 2018//
+/amdisplay.c/1.9/Wed Apr 10 22:18:39 2019//
 /amdisplayreg.h/1.4/Thu Aug 31 21:39:25 2017//
 /dmtimer.c/1.7/Fri Sep  8 05:36:51 2017//
 /edma.c/1.7/Fri Sep  8 05:36:51 2017//
