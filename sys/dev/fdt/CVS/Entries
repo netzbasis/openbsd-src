@@ -45,7 +45,7 @@
 /mvicu.c/1.4/Sun Feb  3 14:03:36 2019//
 /mvmdio.c/1.1/Fri Aug 25 20:09:34 2017//
 /mvmdiovar.h/1.1/Fri Aug 25 20:09:34 2017//
-/mvpinctrl.c/1.4/Wed Mar 21 09:17:21 2018//
+/mvpinctrl.c/1.5/Sat Apr 13 18:12:01 2019//
 /mvpinctrl_pins.h/1.2/Wed Mar 21 09:17:21 2018//
 /mvrng.c/1.2/Sat Apr 28 15:44:59 2018//
 /mvrtc.c/1.1/Thu Mar 29 18:20:52 2018//
