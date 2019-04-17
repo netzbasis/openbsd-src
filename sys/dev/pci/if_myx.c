@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.105 2019/04/15 03:06:12 dlg Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.107 2019/04/16 11:42:56 dlg Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -947,7 +947,7 @@ myx_rxrinfo(struct myx_softc *sc, struct if_rxrinfo *ifri)
 }
 
 static int
-myx_i2c_byte(struct myx_softc *sc, uint8_t off, uint8_t *byte)
+myx_i2c_byte(struct myx_softc *sc, uint8_t addr, uint8_t off, uint8_t *byte)
 {
 	struct myx_cmd		mc;
 	int			result;
@@ -955,8 +955,15 @@ myx_i2c_byte(struct myx_softc *sc, uint8_t off, uint8_t *byte)
 	unsigned int		ms;
 
 	memset(&mc, 0, sizeof(mc));
-	mc.mc_data0 = off;
+	mc.mc_data0 = htobe32(0); /* get 1 byte */
+	mc.mc_data1 = htobe32((addr << 8) | off);
+	result = myx_cmd(sc, MYXCMD_I2C_READ, &mc, NULL);
+	if (result != 0)
+		return (EIO);
+
 	for (ms = 0; ms < 50; ms++) {
+		memset(&mc, 0, sizeof(mc));
+		mc.mc_data0 = htobe32(off);
 		result = myx_cmd(sc, MYXCMD_I2C_BYTE, &mc, &r);
 		switch (result) {
 		case MYXCMD_OK:
@@ -977,30 +984,23 @@ myx_i2c_byte(struct myx_softc *sc, uint8_t off, uint8_t *byte)
 int
 myx_get_sffpage(struct myx_softc *sc, struct if_sffpage *sff)
 {
-	struct myx_cmd		mc;
 	unsigned int		i;
 	int			result;
-
-	memset(&mc, 0, sizeof(mc));
-	mc.mc_data0 = 1; /* get all 256 bytes */
-	mc.mc_data1 = sff->sff_addr << 8;
-	result = myx_cmd(sc, MYXCMD_I2C_READ, &mc, NULL);
-	if (result != 0)
-		return (EIO);
 
 	if (sff->sff_addr == IFSFF_ADDR_EEPROM) {
 		uint8_t page;
 
-		result = myx_i2c_byte(sc, 127, &page);
+		result = myx_i2c_byte(sc, IFSFF_ADDR_EEPROM, 127, &page);
 		if (result != 0)
-			return (EIO);
+			return (result);
 
 		if (page != sff->sff_page)
 			return (ENXIO);
 	}
 
 	for (i = 0; i < sizeof(sff->sff_data); i++) {
-		result = myx_i2c_byte(sc, i, &sff->sff_data[i]);
+		result = myx_i2c_byte(sc, sff->sff_addr,
+		    i, &sff->sff_data[i]);
 		if (result != 0)
 			return (result);
 	}
