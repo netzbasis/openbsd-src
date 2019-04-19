@@ -1,6 +1,6 @@
 /LICENCE/1.20/Sun Apr 30 23:26:16 2017//
 /Makefile/1.16/Sun Dec 10 19:37:57 2017//
-/Makefile.inc/1.66/Mon Jan 21 10:38:54 2019//
+/Makefile.inc/1.67/Thu Apr 18 07:32:56 2019//
 /OVERVIEW/1.15/Tue Oct 23 05:56:35 2018//
 /PROTOCOL/1.36/Tue Oct  2 12:51:58 2018//
 /PROTOCOL.agent/1.12/Fri May 19 21:07:17 2017//
@@ -52,8 +52,6 @@
 /clientloop.h/1.36/Mon Jul  9 21:03:30 2018//
 /compat.c/1.113/Mon Aug 13 02:41:05 2018//
 /compat.h/1.54/Mon Aug 13 02:41:05 2018//
-/crc32.c/1.11/Sat Apr 22 18:29:33 2006//
-/crc32.h/1.15/Sat Mar 25 22:22:43 2006//
 /crypto_api.h/1.5/Mon Jan 21 10:20:12 2019//
 /dh.c/1.69/Fri Nov  9 02:56:22 2018//
 /dh.h/1.17/Sun Jan 20 01:12:40 2019//
@@ -115,7 +113,7 @@
 /nchan.c/1.69/Thu Oct  4 07:47:35 2018//
 /nchan.ms/1.8/Fri Nov 21 11:57:03 2003//
 /nchan2.ms/1.4/Thu May 15 23:52:24 2008//
-/packet.c/1.283/Fri Mar  1 03:29:32 2019//
+/packet.c/1.284/Thu Apr 18 07:32:57 2019//
 /packet.h/1.90/Mon Jan 21 10:35:09 2019//
 /pathnames.h/1.28/Fri Feb 23 15:58:37 2018//
 /pkcs11.h/1.3/Tue Nov 26 19:15:09 2013//
@@ -134,8 +132,8 @@
 /sc25519.h/1.3/Mon Dec  9 11:03:45 2013//
 /scp.1/1.85/Sat Jan 26 22:41:28 2019//
 /scp.c/1.204/Sun Feb 10 11:15:52 2019//
-/servconf.c/1.350/Mon Mar 25 22:33:44 2019//
-/servconf.h/1.139/Sat Jan 19 21:37:48 2019//
+/servconf.c/1.351/Thu Apr 18 18:56:16 2019//
+/servconf.h/1.140/Thu Apr 18 18:56:16 2019//
 /serverloop.c/1.215/Wed Mar 27 09:29:14 2019//
 /serverloop.h/1.8/Tue Sep 12 06:32:07 2017//
 /session.c/1.315/Fri Feb 22 03:37:11 2019//
@@ -193,7 +191,7 @@
 /sshconnect.h/1.37/Sat Jan 19 21:36:38 2019//
 /sshconnect2.c/1.303/Tue Feb 12 23:53:10 2019//
 /sshd.8/1.304/Sun Jul 22 12:16:59 2018//
-/sshd.c/1.533/Fri Mar  1 02:32:39 2019//
+/sshd.c/1.534/Thu Apr 18 18:56:16 2019//
 /sshd_config/1.103/Mon Apr  9 20:41:22 2018//
 /sshd_config.5/1.284/Fri Mar 22 20:58:34 2019//
 /ssherr.c/1.8/Tue Jul  3 11:39:54 2018//
