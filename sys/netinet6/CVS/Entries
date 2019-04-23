@@ -2,8 +2,8 @@
 /frag6.c/1.85/Mon Sep 10 16:14:08 2018//
 /icmp6.c/1.229/Tue Dec 25 19:28:25 2018//
 /in6.c/1.230/Wed Feb 13 23:47:43 2019//
-/in6.h/1.103/Tue Sep 11 21:04:03 2018//
-/in6_cksum.c/1.17/Mon Jun  8 22:19:28 2015//
+/in6.h/1.104/Mon Apr 22 22:47:49 2019//
+/in6_cksum.c/1.18/Mon Apr 22 22:47:49 2019//
 /in6_ifattach.c/1.113/Wed Feb 13 23:47:43 2019//
 /in6_ifattach.h/1.9/Fri Oct  5 07:06:09 2018//
 /in6_pcb.c/1.108/Thu Oct  4 17:33:41 2018//
