@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gre.c,v 1.148 2019/04/22 00:38:05 dlg Exp $ */
+/*	$OpenBSD: if_gre.c,v 1.150 2019/04/23 11:48:55 dlg Exp $ */
 /*	$NetBSD: if_gre.c,v 1.9 1999/10/25 19:18:11 drochner Exp $ */
 
 /*
@@ -608,6 +608,7 @@ gre_clone_create(struct if_clone *ifc, int unit)
 	timeout_set_proc(&sc->sc_ka_hold, gre_keepalive_hold, sc);
 	sc->sc_ka_state = GRE_KA_NONE;
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	if_alloc_sadl(ifp);
 
@@ -672,6 +673,7 @@ mgre_clone_create(struct if_clone *ifc, int unit)
 	sc->sc_tunnel.t_df = htons(0);
 	sc->sc_tunnel.t_ecn = ECN_ALLOWED;
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	if_alloc_sadl(ifp);
 
@@ -729,6 +731,7 @@ egre_clone_create(struct if_clone *ifc, int unit)
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->sc_media, IFM_ETHER | IFM_AUTO);
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
@@ -804,6 +807,7 @@ nvgre_clone_create(struct if_clone *ifc, int unit)
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->sc_media, IFM_ETHER | IFM_AUTO);
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
@@ -866,6 +870,7 @@ eoip_clone_create(struct if_clone *ifc, int unit)
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->sc_media, IFM_ETHER | IFM_AUTO);
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
@@ -1192,8 +1197,8 @@ gre_input_key(struct mbuf **mp, int *offp, int type, int af, uint8_t otos,
 	pf_pkt_addr_changed(m);
 #endif
 
-	ifp->if_ipackets++;
-	ifp->if_ibytes += m->m_pkthdr.len;
+	counters_pkt(ifp->if_counters,
+	    ifc_ipackets, ifc_ibytes, m->m_pkthdr.len);
 
 #if NBPFILTER > 0
 	if (ifp->if_bpf)
@@ -1310,7 +1315,6 @@ static int
 egre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen, uint8_t otos)
 {
 	struct egre_softc *sc;
-	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 
 	NET_ASSERT_LOCKED();
 	sc = RBT_FIND(egre_tree, &egre_tree, (const struct egre_softc *)key);
@@ -1335,8 +1339,7 @@ egre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen, uint8_t otos)
 
 	gre_l2_prio(&sc->sc_tunnel, m, otos);
 
-	ml_enqueue(&ml, m);
-	if_input(&sc->sc_ac.ac_if, &ml);
+	if_vinput(&sc->sc_ac.ac_if, m);
 
 	return (0);
 }
@@ -1559,7 +1562,6 @@ nvgre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen,
     uint8_t otos)
 {
 	struct nvgre_softc *sc;
-	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 
 	if (ISSET(m->m_flags, M_MCAST|M_BCAST))
 		sc = nvgre_mcast_find(key, m->m_pkthdr.ph_ifidx);
@@ -1587,8 +1589,7 @@ nvgre_input(const struct gre_tunnel *key, struct mbuf *m, int hlen,
 	pf_pkt_addr_changed(m);
 #endif
 
-	ml_enqueue(&ml, m);
-	if_input(&sc->sc_ac.ac_if, &ml);
+	if_vinput(&sc->sc_ac.ac_if, m);
 
 	return (0);
 }
@@ -4188,7 +4189,6 @@ static struct mbuf *
 eoip_input(struct gre_tunnel *key, struct mbuf *m,
     const struct gre_header *gh, uint8_t otos, int iphlen)
 {
-	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct eoip_softc *sc;
 	struct gre_h_key_eoip *eoiph;
 	int hlen, len;
@@ -4240,8 +4240,7 @@ eoip_input(struct gre_tunnel *key, struct mbuf *m,
 	pf_pkt_addr_changed(m);
 #endif
 
-	ml_enqueue(&ml, m);
-	if_input(&sc->sc_ac.ac_if, &ml);
+	if_vinput(&sc->sc_ac.ac_if, m);
 
 	return (NULL);
 

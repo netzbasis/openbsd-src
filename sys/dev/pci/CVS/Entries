@@ -263,9 +263,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1883/Tue Apr 23 03:24:22 2019//
-/pcidevs.h/1.1876/Tue Apr 23 03:25:13 2019//
-/pcidevs_data.h/1.1871/Tue Apr 23 03:25:13 2019//
+/pcidevs/1.1885/Wed Apr 24 03:44:50 2019//
+/pcidevs.h/1.1878/Wed Apr 24 03:45:35 2019//
+/pcidevs_data.h/1.1873/Wed Apr 24 03:45:35 2019//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//
@@ -297,7 +297,7 @@
 /piixreg.h/1.4/Sat May 28 14:56:32 2011//
 /plx9060reg.h/1.2/Mon Nov 21 21:52:47 2005//
 /plx9060var.h/1.2/Thu Mar 14 01:26:59 2002//
-/ppb.c/1.67/Tue Apr 16 18:03:07 2019//
+/ppb.c/1.68/Tue Apr 23 19:37:35 2019//
 /ppbreg.h/1.5/Mon Sep 15 14:22:07 2014//
 /puc.c/1.28/Sun Dec  2 21:30:21 2018//
 /pucdata.c/1.109/Wed May  2 19:11:01 2018//

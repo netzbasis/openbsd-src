@@ -1,6 +1,6 @@
-.\"     $OpenBSD: ccp.4,v 1.4 2019/04/23 20:23:36 jmc Exp $
+.\"	$OpenBSD: octiic.4,v 1.1 2019/04/23 13:56:51 visa Exp $
 .\"
-.\" Copyright (c) 2018 David Gwynne <dlg@openbsd.org>
+.\" Copyright (c) 2019 Visa Hankala
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,36 +15,26 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: April 23 2019 $
-.Dt CCP 4
+.Dt OCTIIC 4 octeon
 .Os
 .Sh NAME
-.Nm ccp
-.Nd AMD cryptographic co-processor
+.Nm octiic
+.Nd OCTEON two-wire serial interface
 .Sh SYNOPSIS
-.Cd "ccp* at acpi?"
-.Cd "ccp* at fdt?"
-.Cd "ccp* at pci?"
+.Cd "octiic* at fdt?"
+.Cd "iic* at octiic?"
 .Sh DESCRIPTION
-AMD cryptographic co-processor devices provide offload for various
-cryptographic algorithms, offload of zlib compression and decompression,
-and a random number generator.
-.Pp
 The
 .Nm
-driver supports feeding output of the random number generator into
-the kernel entropy pool.
+driver provides support for the OCTEON two-wire serial interface
+for use with the
+.Xr iic 4
+framework.
 .Sh SEE ALSO
-.Xr intro 4 ,
-.Xr random 4 ,
-.Xr arc4random 9
+.Xr iic 4 ,
+.Xr intro 4
 .Sh HISTORY
 The
 .Nm
 driver first appeared in
-.Ox 6.4 .
-.Sh AUTHORS
-.An -nosplit
-The
-.Nm
-driver was written by
-.An David Gwynne Aq Mt dlg@openbsd.org .
+.Ox 6.6 .
