@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.2 2019/04/25 22:12:11 naddy Exp $
+# $OpenBSD: sysupgrade.sh,v 1.6 2019/04/26 21:52:39 ajacoutot Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>
@@ -33,7 +33,7 @@ ug_err()
 
 usage()
 {
-	ug_err "usage: ${0##*/} [-c] [install URL]"
+	ug_err "usage: ${0##*/} [-c] [installurl]"
 }
 
 unpriv()
@@ -78,7 +78,7 @@ shift $(( OPTIND -1 ))
 
 case $# in
 0)	MIRROR=$(sed 's/#.*//;/^$/d' /etc/installurl) 2>/dev/null ||
-		installurl=https://cdn.openbsd.org/pub/OpenBSD
+		MIRROR=https://cdn.openbsd.org/pub/OpenBSD
 	;;
 1)	MIRROR=$1
 	;;
@@ -87,9 +87,8 @@ esac
 
 if [[ ${#_KERNV[*]} == 2 ]]; then
 	CURRENT=true
-else
-	NEXT_VERSION=$(echo ${_KERNV[0]} + 0.1 | bc -l)
 fi
+NEXT_VERSION=$(echo ${_KERNV[0]} + 0.1 | bc)
 
 if $CURRENT; then
 	URL=${MIRROR}/snapshots/${ARCH}/
@@ -97,35 +96,50 @@ else
 	URL=${MIRROR}/${NEXT_VERSION}/${ARCH}/
 fi
 
-# XXX be more paranoid who owns this directory
+if [[ -e ${SETSDIR} ]]; then
+	eval $(stat -s ${SETSDIR})
+	[[ $st_uid -eq 0 ]] ||
+		 ug_err "${SETSDIR} needs to be owned by root:wheel"
+	[[ $st_gid -eq 0 ]] ||
+		 ug_err "${SETSDIR} needs to be owned by root:wheel"
+	[[ $st_mode -eq 040755 ]] || 
+		ug_err "${SETSDIR} is not a directory with permissions 0755"
+else
+	mkdir -p ${SETSDIR}
+fi
 
-mkdir -p ${SETSDIR}
 cd ${SETSDIR}
 
 unpriv -f SHA256.sig ftp -Vmo SHA256.sig ${URL}SHA256.sig
 
-# XXX run this unpriv?
-SIGNIFY_KEY=/etc/signify/openbsd-$(sed -n \
-	's/^SHA256 (base\([0-9]\{2,3\}\)\.tgz) .*/\1/p' SHA256.sig)-base.pub
+_KEY=openbsd-${_KERNV[0]%.*}${_KERNV[0]#*.}-base.pub
+_NEXTKEY=openbsd-${NEXT_VERSION%.*}${NEXT_VERSION#*.}-base.pub
+
+read _LINE <SHA256.sig
+case ${_LINE} in
+*\ ${_KEY})	SIGNIFY_KEY=/etc/signify/${_KEY} ;;
+*\ ${_NEXTKEY})	SIGNIFY_KEY=/etc/signify/${_NEXTKEY} ;;
+*)		ug_err "invalid signing key" ;;
+esac
 
 [[ -f ${SIGNIFY_KEY} ]] || ug_err "cannot find ${SIGNIFY_KEY}"
 
-unpriv signify -qV -p "${SIGNIFY_KEY}" -x SHA256.sig -e -m /dev/null
+unpriv -f SHA256 signify -Veq -p "${SIGNIFY_KEY}" -x SHA256.sig -m SHA256
 
 # INSTALL.*, bsd*, *.tgz
 SETS=$(sed -n -e 's/^SHA256 (\(.*\)) .*/\1/' \
-    -e "/^INSTALL\./p;/^bsd/p;/\.tgz\$/p" SHA256.sig)
+    -e '/^INSTALL\./p;/^bsd/p;/\.tgz$/p' SHA256)
 
 OLD_FILES=$(ls)
+OLD_FILES=$(rmel SHA256 $OLD_FILES)
 OLD_FILES=$(rmel SHA256.sig $OLD_FILES)
 DL=$SETS
 
 for f in $SETS; do
-	signify -C -p "${SIGNIFY_KEY}" -x SHA256.sig $f \
-	    >/dev/null 2>&1 && {
+	if cksum -C SHA256 $f >/dev/null 2>&1; then
 		DL=$(rmel $f ${DL})
 		OLD_FILES=$(rmel $f ${OLD_FILES})
-	}
+	fi
 done
 
 [[ -n ${OLD_FILES} ]] && rm ${OLD_FILES}
@@ -133,6 +147,7 @@ for f in ${DL}; do
 	unpriv -f $f ftp -Vmo ${f} ${URL}${f}
 done
 
+# re-check signature after downloads
 unpriv signify -C -p "${SIGNIFY_KEY}" -x SHA256.sig ${SETS}
 
 cp bsd.rd /nbsd.upgrade
