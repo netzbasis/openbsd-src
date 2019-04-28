@@ -1,4 +1,4 @@
-/agten.c/1.10/Sun Oct 20 20:07:30 2013//
+/agten.c/1.11/Thu Dec 27 11:09:17 2018//
 /apio.c/1.8/Fri Sep  8 05:36:52 2017//
 /asio.c/1.11/Fri Sep  8 05:36:52 2017//
 /asioreg.h/1.3/Mon Jun  2 18:32:41 2003//
@@ -37,10 +37,10 @@
 /qlw_sbus.c/1.1/Sat Mar 15 21:49:47 2014//
 /rfx.c/1.12/Wed Jan 22 03:03:09 2014//
 /sbusvar.h/1.14/Sun Sep  4 18:20:34 2016//
-/spif.c/1.21/Mon Feb 19 08:59:52 2018//
+/spif.c/1.22/Thu Dec 27 11:09:17 2018//
 /spifreg.h/1.5/Mon Jun  2 18:32:41 2003//
 /spifvar.h/1.4/Fri Jun  2 20:00:56 2006//
-/stp4020.c/1.19/Sat Mar 19 11:34:22 2016//
+/stp4020.c/1.20/Thu Dec 27 11:09:17 2018//
 /stp4020reg.h/1.7/Thu Jun 26 05:42:18 2008//
 /stp4020var.h/1.5/Fri Apr 10 20:54:59 2009//
 /tvtwo.c/1.15/Sun Oct 20 20:07:31 2013//

@@ -1,7 +1,7 @@
-/*	$OpenBSD: html.c,v 1.115 2018/12/04 18:29:18 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.124 2019/03/03 13:01:47 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011-2015, 2017, 2018 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -61,6 +61,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"title",	HTML_NLAROUND},
 	{"div",		HTML_NLAROUND},
 	{"div",		0},
+	{"section",	HTML_NLALL},
 	{"h1",		HTML_NLAROUND},
 	{"h2",		HTML_NLAROUND},
 	{"span",	0},
@@ -76,6 +77,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 	{"dl",		HTML_NLALL | HTML_INDENT},
 	{"dt",		HTML_NLAROUND},
 	{"dd",		HTML_NLAROUND | HTML_INDENT},
+	{"p",		HTML_NLAROUND | HTML_INDENT},
 	{"pre",		HTML_NLALL | HTML_NOINDENT},
 	{"var",		0},
 	{"cite",	0},
@@ -106,6 +108,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 /* Avoid duplicate HTML id= attributes. */
 static	struct ohash	 id_unique;
 
+static	void	 html_reset_internal(struct html *);
 static	void	 print_byte(struct html *, char);
 static	void	 print_endword(struct html *);
 static	void	 print_indent(struct html *);
@@ -115,7 +118,6 @@ static	void	 print_ctag(struct html *, struct tag *);
 static	int	 print_escape(struct html *, char);
 static	int	 print_encode(struct html *, const char *, const char *, int);
 static	void	 print_href(struct html *, const char *, const char *, int);
-static	void	 print_metaf(struct html *, enum mandoc_esc);
 
 
 void *
@@ -142,27 +144,37 @@ html_alloc(const struct manoutput *outopts)
 	return h;
 }
 
-void
-html_free(void *p)
+static void
+html_reset_internal(struct html *h)
 {
 	struct tag	*tag;
-	struct html	*h;
 	char		*cp;
 	unsigned int	 slot;
 
-	h = (struct html *)p;
 	while ((tag = h->tag) != NULL) {
 		h->tag = tag->next;
 		free(tag);
 	}
-	free(h);
-
 	cp = ohash_first(&id_unique, &slot);
 	while (cp != NULL) {
 		free(cp);
 		cp = ohash_next(&id_unique, &slot);
 	}
 	ohash_delete(&id_unique);
+}
+
+void
+html_reset(void *p)
+{
+	html_reset_internal(p);
+	mandoc_ohash_init(&id_unique, 4, 0);
+}
+
+void
+html_free(void *p)
+{
+	html_reset_internal(p);
+	free(p);
 }
 
 void
@@ -208,7 +220,7 @@ print_gen_head(struct html *h)
 	print_tagq(h, t);
 }
 
-static void
+void
 print_metaf(struct html *h, enum mandoc_esc deco)
 {
 	enum htmlfont	 font;
@@ -234,7 +246,7 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 		font = HTMLFONT_NONE;
 		break;
 	default:
-		abort();
+		return;
 	}
 
 	if (h->metaf) {
@@ -262,6 +274,61 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 	default:
 		break;
 	}
+}
+
+void
+html_close_paragraph(struct html *h)
+{
+	struct tag	*t;
+
+	for (t = h->tag; t != NULL && t->closed == 0; t = t->next) {
+		switch(t->tag) {
+		case TAG_P:
+		case TAG_PRE:
+			print_tagq(h, t);
+			break;
+		case TAG_A:
+			print_tagq(h, t);
+			continue;
+		default:
+			continue;
+		}
+		break;
+	}
+}
+
+/*
+ * ROFF_nf switches to no-fill mode, ROFF_fi to fill mode.
+ * TOKEN_NONE does not switch.  The old mode is returned.
+ */
+enum roff_tok
+html_fillmode(struct html *h, enum roff_tok want)
+{
+	struct tag	*t;
+	enum roff_tok	 had;
+
+	for (t = h->tag; t != NULL; t = t->next)
+		if (t->tag == TAG_PRE)
+			break;
+
+	had = t == NULL ? ROFF_fi : ROFF_nf;
+
+	if (want != had) {
+		switch (want) {
+		case ROFF_fi:
+			print_tagq(h, t);
+			break;
+		case ROFF_nf:
+			html_close_paragraph(h);
+			print_otag(h, TAG_PRE, "");
+			break;
+		case TOKEN_NONE:
+			break;
+		default:
+			abort();
+		}
+	}
+	return had;
 }
 
 char *
@@ -400,9 +467,6 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			continue;
 
 		esc = mandoc_escape(&p, &seq, &len);
-		if (ESCAPE_ERROR == esc)
-			break;
-
 		switch (esc) {
 		case ESCAPE_FONT:
 		case ESCAPE_FONTPREV:
@@ -419,6 +483,8 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			continue;
 		case ESCAPE_SKIPCHAR:
 			h->flags |= HTML_SKIPCHAR;
+			continue;
+		case ESCAPE_ERROR:
 			continue;
 		default:
 			break;
@@ -443,6 +509,9 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 			c = mchars_spec2cp(seq, len);
 			if (c <= 0)
 				continue;
+			break;
+		case ESCAPE_UNDEF:
+			c = *seq;
 			break;
 		case ESCAPE_DEVICE:
 			print_word(h, "html");
@@ -528,6 +597,8 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		t = mandoc_malloc(sizeof(struct tag));
 		t->tag = tag;
 		t->next = h->tag;
+		t->refcnt = 0;
+		t->closed = 0;
 		h->tag = t;
 	} else
 		t = NULL;
@@ -606,12 +677,6 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 			print_encode(h, arg1, NULL, 1);
 			fmt++;
 			break;
-		case 'T':
-			print_encode(h, arg1, NULL, 1);
-			print_word(h, "\" title=\"");
-			print_encode(h, arg1, NULL, 1);
-			fmt++;
-			break;
 		default:
 			print_encode(h, arg1, NULL, 1);
 			break;
@@ -666,33 +731,32 @@ print_ctag(struct html *h, struct tag *tag)
 {
 	int	 tflags;
 
-	/*
-	 * Remember to close out and nullify the current
-	 * meta-font and table, if applicable.
-	 */
-	if (tag == h->metaf)
-		h->metaf = NULL;
-	if (tag == h->tblt)
-		h->tblt = NULL;
+	if (tag->closed == 0) {
+		tag->closed = 1;
+		if (tag == h->metaf)
+			h->metaf = NULL;
+		if (tag == h->tblt)
+			h->tblt = NULL;
 
-	tflags = htmltags[tag->tag].flags;
-
-	if (tflags & HTML_INDENT)
-		h->indent--;
-	if (tflags & HTML_NOINDENT)
-		h->noindent--;
-	if (tflags & HTML_NLEND)
-		print_endline(h);
-	print_indent(h);
-	print_byte(h, '<');
-	print_byte(h, '/');
-	print_word(h, htmltags[tag->tag].name);
-	print_byte(h, '>');
-	if (tflags & HTML_NLAFTER)
-		print_endline(h);
-
-	h->tag = tag->next;
-	free(tag);
+		tflags = htmltags[tag->tag].flags;
+		if (tflags & HTML_INDENT)
+			h->indent--;
+		if (tflags & HTML_NOINDENT)
+			h->noindent--;
+		if (tflags & HTML_NLEND)
+			print_endline(h);
+		print_indent(h);
+		print_byte(h, '<');
+		print_byte(h, '/');
+		print_word(h, htmltags[tag->tag].name);
+		print_byte(h, '>');
+		if (tflags & HTML_NLAFTER)
+			print_endline(h);
+	}
+	if (tag->refcnt == 0) {
+		h->tag = tag->next;
+		free(tag);
+	}
 }
 
 void
@@ -779,34 +843,31 @@ print_text(struct html *h, const char *word)
 void
 print_tagq(struct html *h, const struct tag *until)
 {
-	struct tag	*tag;
+	struct tag	*this, *next;
 
-	while ((tag = h->tag) != NULL) {
-		print_ctag(h, tag);
-		if (until && tag == until)
-			return;
+	for (this = h->tag; this != NULL; this = next) {
+		next = this == until ? NULL : this->next;
+		print_ctag(h, this);
 	}
 }
 
+/*
+ * Close out all open elements up to but excluding suntil.
+ * Note that a paragraph just inside stays open together with it
+ * because paragraphs include subsequent phrasing content.
+ */
 void
 print_stagq(struct html *h, const struct tag *suntil)
 {
-	struct tag	*tag;
+	struct tag	*this, *next;
 
-	while ((tag = h->tag) != NULL) {
-		if (suntil && tag == suntil)
-			return;
-		print_ctag(h, tag);
+	for (this = h->tag; this != NULL; this = next) {
+		next = this->next;
+		if (this == suntil || (next == suntil &&
+		    (this->tag == TAG_P || this->tag == TAG_PRE)))
+			break;
+		print_ctag(h, this);
 	}
-}
-
-void
-print_paragraph(struct html *h)
-{
-	struct tag	*t;
-
-	t = print_otag(h, TAG_DIV, "c", "Pp");
-	print_tagq(h, t);
 }
 
 

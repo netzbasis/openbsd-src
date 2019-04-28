@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.17 2017/09/01 04:40:40 jsg Exp $
+#	$OpenBSD: Makefile,v 1.19 2019/04/05 21:08:00 deraadt Exp $
 
 REV=	${OSrev}
 
@@ -40,9 +40,9 @@ bsd:
 	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
 	cp -p ${TOP}/../../sys/arch/armv7/compile/RAMDISK/obj/bsd bsd
 
-${BSD_RD}: ${IMAGE} bsd rdsetroot
+${BSD_RD}: ${IMAGE} bsd
 	cp bsd ${BSD_RD}
-	${.OBJDIR}/rdsetroot ${BSD_RD} ${IMAGE}
+	rdsetroot ${BSD_RD} ${IMAGE}
 
 ${IMAGE}: ${CBIN}
 	rm -rf $@.d
@@ -59,11 +59,6 @@ ${IMAGE}: ${CBIN}
 
 .endif
 
-rdsetroot:	${TOP}/../common/elfrdsetroot.c
-	${HOSTCC} ${HOSTCFLAGS} -o rdsetroot \
-	    ${TOP}/../common/elfrdsetroot.c ${TOP}/../common/elf32.c \
-	    ${TOP}/../common/elf64.c
-
 ${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CRUNCHCONF}
 	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib ${.ALLSRC}
 
@@ -75,14 +70,14 @@ ${CRUNCHCONF}: ${LISTS}
 
 clean cleandir:
 	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}.cache \
-	    lib*.a lib*.olist ${CBIN}.map \
-	    *.o *.lo *.c ${ALLBSD} ${ALLBSDRD} rdsetroot
+	    lib*.a lib*.olist ${CBIN}.map *.o *.lo *.c ${ALLBSD} ${ALLBSDRD}
 	rm -f instbin.conf
 	rm -rf cd-dir ${IMAGE}.d
 
 .ifdef RELEASEDIR
 install:
 	cp ${ALLBSDRD} ${RELEASEDIR}
+	cd ${RELEASEDIR} && chmod a+r ${ALLBSDRD}
 .endif	# RELEASEDIR
 
 .include <bsd.obj.mk>

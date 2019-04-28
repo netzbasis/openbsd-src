@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.10 2018/10/13 19:19:21 kettenis Exp $
+# $OpenBSD: Makefile,v 1.12 2019/03/14 08:45:36 robert Exp $
 
 .include <bsd.own.mk>
 
@@ -23,6 +23,7 @@ LIB=		c++
 SRCS+=		algorithm.cpp \
 		any.cpp \
 		bind.cpp \
+		charconv.cpp \
 		chrono.cpp \
 		condition_variable.cpp \
 		debug.cpp \
@@ -52,7 +53,8 @@ SRCS+=		algorithm.cpp \
 		vector.cpp
 
 CPPFLAGS+=	-Wall -DLIBCXXABI -I${HDRDIR} -D_LIBCPP_BUILDING_LIBRARY \
-		-DLIBCXX_BUILDING_LIBCXXABI -I${AHDRDIR} -I${UHDRDIR}
+		-DLIBCXX_BUILDING_LIBCXXABI -I${AHDRDIR} -I${UHDRDIR} \
+		-DNDEBUG
 CXXFLAGS+=	-nostdlib -nostdinc++
 .if empty(CXXFLAGS:M-std=*)
 CXXFLAGS+=	-std=c++11
@@ -67,6 +69,7 @@ STD_HEADERS=	__bit_reference \
 		__config \
 		__config_site.in \
 		__debug \
+		__errc \
 		__functional_03 \
 		__functional_base \
 		__functional_base_03 \
@@ -74,6 +77,7 @@ STD_HEADERS=	__bit_reference \
 		__libcpp_version \
 		__locale \
 		__mutex_base \
+		__node_handle \
 		__nullptr \
 		__split_buffer \
 		__sso_allocator \
@@ -94,6 +98,7 @@ STD_HEADERS=	__bit_reference \
 		cerrno \
 		cfenv \
 		cfloat \
+		charconv \
 		chrono \
 		cinttypes \
 		ciso646 \
@@ -101,6 +106,7 @@ STD_HEADERS=	__bit_reference \
 		clocale \
 		cmath \
 		codecvt \
+		compare \
 		complex \
 		complex.h \
 		condition_variable \
@@ -121,6 +127,7 @@ STD_HEADERS=	__bit_reference \
 		deque \
 		errno.h \
 		exception \
+		filesystem \
 		float.h \
 		forward_list \
 		fstream \
@@ -156,6 +163,7 @@ STD_HEADERS=	__bit_reference \
 		set \
 		setjmp.h \
 		shared_mutex \
+		span \
 		sstream \
 		stack \
 		stdbool.h \
@@ -182,6 +190,7 @@ STD_HEADERS=	__bit_reference \
 		valarray \
 		variant \
 		vector \
+		version \
 		wchar.h \
 		wctype.h
 
@@ -221,6 +230,7 @@ EXP_HEADERS=	__config \
 		ratio \
 		regex \
 		set \
+		simd \
 		string \
 		string_view \
 		system_error \

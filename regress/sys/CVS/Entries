@@ -1,4 +1,4 @@
-/Makefile/1.25/Mon May 29 11:59:32 2017//
+/Makefile/1.26/Sun Dec 23 11:23:21 2018//
 D/arch////
 D/copy////
 D/crypto////
@@ -8,6 +8,7 @@ D/ffs////
 D/fifofs////
 D/fileops////
 D/kern////
+D/mfs_noperm////
 D/net////
 D/netinet////
 D/netinet6////

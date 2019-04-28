@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.44 2017/08/13 15:41:30 jasper Exp $
+#	$OpenBSD: Makefile.inc,v 1.46 2019/04/14 14:07:07 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -57,22 +57,19 @@ unconfig:
 DISKTYPE?=	rdroot
 MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
 
-COPTS= -Oz -mtune=i486
-
 bsd.gz: bsd.rd
 	cp bsd.rd bsd.strip
 	strip bsd.strip
 	strip -R .comment -R .SUNW_ctf bsd.strip
 	gzip -c9n bsd.strip > bsd.gz
 
-bsd.rd:	${IMAGE} bsd rdsetroot
+bsd.rd:	${IMAGE} bsd
 	cp bsd bsd.rd
-	${.OBJDIR}/rdsetroot bsd.rd ${IMAGE}
-
+	rdsetroot bsd.rd ${IMAGE}
 
 bsd:
 	cd ${.CURDIR}/../../../sys/arch/i386/compile/${RAMDISK} && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS="${COPTS}" ${MAKE}'
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && ${MAKE}'
 	cp -p ${.CURDIR}/../../../sys/arch/i386/compile/${RAMDISK}/obj/bsd bsd
 
 ${IMAGE}: ${CBIN}
@@ -87,11 +84,6 @@ ${IMAGE}: ${CBIN}
 	vnconfig -v -c ${VND} mr.fs
 	df -i /dev/${VND}a
 	vnconfig -u ${VND}
-
-rdsetroot:	${TOP}/../common/elfrdsetroot.c
-	${HOSTCC} ${HOSTCFLAGS} -o rdsetroot \
-	    ${TOP}/../common/elfrdsetroot.c ${TOP}/../common/elf32.c \
-	    ${TOP}/../common/elf64.c
 
 .ifdef RELEASEDIR
 install:
@@ -118,8 +110,7 @@ ${CRUNCHCONF}: ${LISTS}
 clean cleandir:
 	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}*.cache \
 	    *.o *.lo *.c bsd bsd.rd bsd.gz bsd.strip floppy*.fs \
-	    lib*.a lib*.olist ${CBIN}.map \
-	    rdsetroot boot ${CRUNCHCONF} ${FS}
+	    lib*.a lib*.olist ${CBIN}.map boot ${CRUNCHCONF} ${FS}
 	/bin/rm -rf ${IMAGE}.d
 
 .include <bsd.obj.mk>

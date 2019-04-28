@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.283 2018/12/07 16:21:19 mpi Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.288 2019/04/19 09:41:07 visa Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -52,6 +52,7 @@
 #include <sys/conf.h>
 #include <sys/vnode.h>
 #include <sys/lock.h>
+#include <sys/lockf.h>
 #include <sys/stat.h>
 #include <sys/acct.h>
 #include <sys/namei.h>
@@ -183,7 +184,7 @@ vfs_mount_alloc(struct vnode *vp, struct vfsconf *vfsp)
 	atomic_inc_int(&vfsp->vfc_refcount);
 	mp->mnt_vfc = vfsp;
 	mp->mnt_op = vfsp->vfc_vfsops;
-	mp->mnt_flag = vfsp->vfc_flags & MNT_VISFLAGMASK;
+	mp->mnt_flag = vfsp->vfc_flags;
 	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
 
 	return (mp);
@@ -711,6 +712,7 @@ vputonfreelist(struct vnode *vp)
 #endif
 
 	vp->v_bioflag |= VBIOONFREELIST;
+	vp->v_bioflag &= ~VBIOERROR;
 
 	if (vp->v_holdcnt > 0)
 		lst = &vnode_hold_list;
@@ -1150,6 +1152,7 @@ vgonel(struct vnode *vp, struct proc *p)
 				vx->v_flag &= ~VALIASED;
 			vp->v_flag &= ~VALIASED;
 		}
+		lf_purgelocks(&vp->v_speclockf);
 		free(vp->v_specinfo, M_VNODE, sizeof(struct specinfo));
 		vp->v_specinfo = NULL;
 	}
@@ -1609,6 +1612,15 @@ vaccess(enum vtype type, mode_t file_mode, uid_t uid, gid_t gid,
 	if (acc_mode & VWRITE)
 		mask |= S_IWOTH;
 	return (file_mode & mask) == mask ? 0 : EACCES;
+}
+
+int
+vnoperm(struct vnode *vp)
+{
+	if (vp->v_flag & VROOT || vp->v_mount == NULL)
+		return 0;
+
+	return (vp->v_mount->mnt_flag & MNT_NOPERM);
 }
 
 struct rwlock vfs_stall_lock = RWLOCK_INITIALIZER("vfs_stall");

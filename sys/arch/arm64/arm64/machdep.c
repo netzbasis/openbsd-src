@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.36 2018/07/04 22:26:20 drahn Exp $ */
+/* $OpenBSD: machdep.c,v 1.38 2019/04/01 07:00:51 tedu Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -30,6 +30,7 @@
 #include <sys/msgbuf.h>
 #include <sys/buf.h>
 #include <sys/termios.h>
+#include <sys/sensors.h>
 
 #include <net/if.h>
 #include <uvm/uvm.h>
@@ -48,6 +49,11 @@
 #include <ddb/db_extern.h>
 
 #include <dev/acpi/efi.h>
+
+#include "softraid.h"
+#if NSOFTRAID > 0
+#include <dev/softraidvar.h>
+#endif
 
 char *boot_args = NULL;
 char *boot_file = "";
@@ -363,6 +369,9 @@ int	waittime = -1;
 __dead void
 boot(int howto)
 {
+	if ((howto & RB_RESET) != 0)
+		goto doreset;
+
 	if (cold) {
 		if ((howto & RB_USERREQ) == 0)
 			howto |= RB_HALT;
@@ -406,6 +415,7 @@ haltsys:
 		cngetc();
 	}
 
+doreset:
 	printf("rebooting...\n");
 	delay(500000);
 	if (cpuresetfn)
@@ -825,6 +835,22 @@ initarm(struct arm64_bootparams *abp)
 			memcpy(lladdr, prop, sizeof(lladdr));
 			bootmac = lladdr;
 		}
+
+		len = fdt_node_property(node, "openbsd,sr-bootuuid", &prop);
+#if NSOFTRAID > 0
+		if (len == sizeof(sr_bootuuid))
+			memcpy(&sr_bootuuid, prop, sizeof(sr_bootuuid));
+#endif
+		if (len > 0)
+			explicit_bzero(prop, len);
+
+		len = fdt_node_property(node, "openbsd,sr-bootkey", &prop);
+#if NSOFTRAID > 0
+		if (len == sizeof(sr_bootkey))
+			memcpy(&sr_bootkey, prop, sizeof(sr_bootkey));
+#endif
+		if (len > 0)
+			explicit_bzero(prop, len);
 
 		len = fdt_node_property(node, "openbsd,uefi-mmap-start", &prop);
 		if (len == sizeof(mmap_start))

@@ -11,8 +11,11 @@ D/py-config-discovery////
 D/shtest-env////
 D/shtest-format////
 D/shtest-output-printing////
+D/shtest-run-at-line////
 D/shtest-shell////
 D/shtest-timeout////
 D/test-data////
+D/test-data-micro////
 D/testrunner-custom-parsers////
 D/unittest-adaptor////
+D/xunit-output////

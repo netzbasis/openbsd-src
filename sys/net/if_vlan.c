@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan.c,v 1.179 2018/11/16 08:43:08 dlg Exp $	*/
+/*	$OpenBSD: if_vlan.c,v 1.186 2019/04/22 03:29:40 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -47,8 +47,6 @@
  * will not modify the ethernet header.
  */
 
-#include "mpw.h"
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -58,6 +56,7 @@
 #include <sys/sockio.h>
 #include <sys/systm.h>
 #include <sys/rwlock.h>
+#include <sys/percpu.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -85,6 +84,7 @@ int	vlan_clone_create(struct if_clone *, int);
 int	vlan_clone_destroy(struct ifnet *);
 
 int	vlan_input(struct ifnet *, struct mbuf *, void *);
+int	vlan_enqueue(struct ifnet *, struct mbuf *);
 void	vlan_start(struct ifqueue *ifq);
 int	vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr);
 
@@ -174,13 +174,17 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 
 	refcnt_init(&ifv->ifv_refcnt);
 	ifv->ifv_prio = IF_HDRPRIO_PACKET;
+	ifv->ifv_rxprio = IF_HDRPRIO_OUTER;
 
 	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_CLONED|IFXF_MPSAFE;
 	ifp->if_qstart = vlan_start;
+	ifp->if_enqueue = vlan_enqueue;
 	ifp->if_ioctl = vlan_ioctl;
 	ifp->if_hardmtu = 0xffff;
 	ifp->if_link_state = LINK_STATE_DOWN;
+
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 	ifp->if_hdrlen = EVL_ENCAPLEN;
@@ -221,88 +225,90 @@ vlan_clone_destroy(struct ifnet *ifp)
 	return (0);
 }
 
-static inline int
-vlan_mplstunnel(int ifidx)
+void
+vlan_transmit(struct ifvlan *ifv, struct ifnet *ifp0, struct mbuf *m)
 {
-#if NMPW > 0
-	struct ifnet *ifp;
-	int rv = 0;
+	struct ifnet *ifp = &ifv->ifv_if;
+	int txprio = ifv->ifv_prio;
+	uint8_t prio;
 
-	ifp = if_get(ifidx);
-	if (ifp != NULL) {
-		rv = ifp->if_type == IFT_MPLSTUNNEL;
-		if_put(ifp);
+#if NBPFILTER > 0
+	if (ifp->if_bpf)
+		bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+#endif /* NBPFILTER > 0 */
+
+	prio = (txprio == IF_HDRPRIO_PACKET) ?
+	    m->m_pkthdr.pf.prio : txprio;
+
+	/* IEEE 802.1p has prio 0 and 1 swapped */
+	if (prio <= 1)
+		prio = !prio;
+
+	/*
+	 * If the underlying interface cannot do VLAN tag insertion
+	 * itself, create an encapsulation header.
+	 */
+	if ((ifp0->if_capabilities & IFCAP_VLAN_HWTAGGING) &&
+	    (ifv->ifv_type == ETHERTYPE_VLAN)) {
+		m->m_pkthdr.ether_vtag = ifv->ifv_tag +
+		    (prio << EVL_PRIO_BITS);
+		m->m_flags |= M_VLANTAG;
+	} else {
+		m = vlan_inject(m, ifv->ifv_type, ifv->ifv_tag |
+		    (prio << EVL_PRIO_BITS));
+		if (m == NULL) {
+			counters_inc(ifp->if_counters, ifc_oerrors);
+			return;
+		}
 	}
-	return (rv);
-#else
-	return (0);
-#endif
+
+	if (if_enqueue(ifp0, m))
+		counters_inc(ifp->if_counters, ifc_oerrors);
+}
+
+int
+vlan_enqueue(struct ifnet *ifp, struct mbuf *m)
+{
+	struct ifnet *ifp0;
+	struct ifvlan *ifv;
+	int error = 0;
+
+	if (!ifq_is_priq(&ifp->if_snd))
+		return (if_enqueue_ifq(ifp, m));
+
+	ifv = ifp->if_softc;
+	ifp0 = if_get(ifv->ifv_ifidx0);
+
+	if (ifp0 == NULL || !ISSET(ifp0->if_flags, IFF_RUNNING)) {
+		m_freem(m);
+		error = ENETDOWN;
+	} else {
+		counters_pkt(ifp->if_counters,
+		    ifc_opackets, ifc_obytes, m->m_pkthdr.len);
+		vlan_transmit(ifv, ifp0, m);
+	}
+
+	if_put(ifp0);
+
+	return (error);
 }
 
 void
 vlan_start(struct ifqueue *ifq)
 {
 	struct ifnet	*ifp = ifq->ifq_if;
-	struct ifvlan   *ifv;
+	struct ifvlan   *ifv = ifp->if_softc;
 	struct ifnet	*ifp0;
 	struct mbuf	*m;
-	int		 txprio;
-	uint8_t		 prio;
 
-	ifv = ifp->if_softc;
-	ifp0 = if_get(ifv->ifv_ifp0);
-	if (ifp0 == NULL || (ifp0->if_flags & (IFF_UP|IFF_RUNNING)) !=
-	    (IFF_UP|IFF_RUNNING)) {
+	ifp0 = if_get(ifv->ifv_ifidx0);
+	if (ifp0 == NULL || !ISSET(ifp0->if_flags, IFF_RUNNING)) {
 		ifq_purge(ifq);
 		goto leave;
 	}
 
-	txprio = ifv->ifv_prio;
-
-	while ((m = ifq_dequeue(ifq)) != NULL) {
-#if NBPFILTER > 0
-		if (ifp->if_bpf)
-			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
-#endif /* NBPFILTER > 0 */
-
-		prio = (txprio == IF_HDRPRIO_PACKET) ?
-		    m->m_pkthdr.pf.prio : txprio;
-
-		/* IEEE 802.1p has prio 0 and 1 swapped */
-		if (prio <= 1)
-			prio = !prio;
-
-		/*
-		 * If this packet came from a pseudowire it means it already
-		 * has all tags it needs, so just output it.
-		 */
-		if (vlan_mplstunnel(m->m_pkthdr.ph_ifidx)) {
-			/* NOTHING */
-
-		/*
-		 * If the underlying interface cannot do VLAN tag insertion
-		 * itself, create an encapsulation header.
-		 */
-		} else if ((ifp0->if_capabilities & IFCAP_VLAN_HWTAGGING) &&
-		    (ifv->ifv_type == ETHERTYPE_VLAN)) {
-			m->m_pkthdr.ether_vtag = ifv->ifv_tag +
-			    (prio << EVL_PRIO_BITS);
-			m->m_flags |= M_VLANTAG;
-		} else {
-			m = vlan_inject(m, ifv->ifv_type, ifv->ifv_tag |
-			    (prio << EVL_PRIO_BITS));
-			if (m == NULL) {
-				ifp->if_oerrors++;
-				continue;
-			}
-		}
-
-		if (if_enqueue(ifp0, m)) {
-			ifp->if_oerrors++;
-			ifq->ifq_errors++;
-			continue;
-		}
-	}
+	while ((m = ifq_dequeue(ifq)) != NULL)
+		vlan_transmit(ifv, ifp0, m);
 
 leave:
 	if_put(ifp0);
@@ -342,7 +348,6 @@ vlan_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 	SRPL_HEAD(, ifvlan)		*tagh, *list;
 	struct srp_ref			 sr;
 	u_int				 tag;
-	struct mbuf_list		 ml = MBUF_LIST_INITIALIZER();
 	u_int16_t			 etype;
 
 	eh = mtod(m, struct ether_header *);
@@ -368,15 +373,10 @@ vlan_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 
 	/* From now on ether_vtag is fine */
 	tag = EVL_VLANOFTAG(m->m_pkthdr.ether_vtag);
-	m->m_pkthdr.pf.prio = EVL_PRIOFTAG(m->m_pkthdr.ether_vtag);
-
-	/* IEEE 802.1p has prio 0 and 1 swapped */
-	if (m->m_pkthdr.pf.prio <= 1)
-		m->m_pkthdr.pf.prio = !m->m_pkthdr.pf.prio;
 
 	list = &tagh[TAG_HASH(tag)];
 	SRPL_FOREACH(ifv, &sr, list, ifv_list) {
-		if (ifp0->if_index == ifv->ifv_ifp0 && tag == ifv->ifv_tag &&
+		if (ifp0->if_index == ifv->ifv_ifidx0 && tag == ifv->ifv_tag &&
 		    etype == ifv->ifv_type)
 			break;
 	}
@@ -403,8 +403,21 @@ vlan_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 		m_adj(m, EVL_ENCAPLEN);
 	}
 
-	ml_enqueue(&ml, m);
-	if_input(&ifv->ifv_if, &ml);
+	switch (ifv->ifv_rxprio) {
+	case IF_HDRPRIO_PACKET:
+		break;
+	case IF_HDRPRIO_OUTER:
+		m->m_pkthdr.pf.prio = EVL_PRIOFTAG(m->m_pkthdr.ether_vtag);
+		break;
+	default:
+		m->m_pkthdr.pf.prio = ifv->ifv_rxprio;
+		/* IEEE 802.1p has prio 0 and 1 swapped */
+		if (m->m_pkthdr.pf.prio <= 1)
+			m->m_pkthdr.pf.prio = !m->m_pkthdr.pf.prio;
+		break;
+	}
+
+	if_vinput(&ifv->ifv_if, m);
 	SRPL_LEAVE(&sr);
 	return (1);
 
@@ -454,7 +467,7 @@ vlan_up(struct ifvlan *ifv)
 	tagh = ifv->ifv_type == ETHERTYPE_QINQ ? svlan_tagh : vlan_tagh;
 	list = &tagh[TAG_HASH(ifv->ifv_tag)];
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	if (ifp0 == NULL)
 		return (ENXIO);
 
@@ -501,7 +514,7 @@ vlan_up(struct ifvlan *ifv)
 	if (error != 0)
 		goto scrub;
 
-	error = vlan_inuse_locked(ifv->ifv_type, ifv->ifv_ifp0, ifv->ifv_tag);
+	error = vlan_inuse_locked(ifv->ifv_type, ifv->ifv_ifidx0, ifv->ifv_tag);
 	if (error != 0)
 		goto leave;
 
@@ -553,7 +566,7 @@ vlan_down(struct ifvlan *ifv)
 
 	ifq_barrier(&ifp->if_snd);
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	if (ifp0 != NULL) {
 		if_ih_remove(ifp0, vlan_input, NULL);
 		if (ISSET(ifv->ifv_flags, IFVF_PROMISC))
@@ -586,7 +599,7 @@ vlan_ifdetach(void *v)
 		CLR(ifp->if_flags, IFF_UP);
 	}
 
-	ifv->ifv_ifp0 = 0;
+	ifv->ifv_ifidx0 = 0;
 }
 
 void
@@ -598,7 +611,7 @@ vlan_link_hook(void *v)
 	u_char link = LINK_STATE_DOWN;
 	uint64_t baud = 0;
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	if (ifp0 != NULL) {
 		link = ifp0->if_link_state;
 		baud = ifp0->if_baudrate;
@@ -677,7 +690,7 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 
 	case SIOCGIFPARENT:
-		ifp0 = if_get(ifv->ifv_ifp0);
+		ifp0 = if_get(ifv->ifv_ifidx0);
 		if (ifp0 == NULL)
 			error = EADDRNOTAVAIL;
 		else {
@@ -719,18 +732,25 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 
 	case SIOCSTXHPRIO:
-		if (ifr->ifr_hdrprio == IF_HDRPRIO_PACKET)
-			;
-		else if (ifr->ifr_hdrprio > IF_HDRPRIO_MAX ||
-		    ifr->ifr_hdrprio < IF_HDRPRIO_MIN) {
-			error = EINVAL;
+		error = if_txhprio_l2_check(ifr->ifr_hdrprio);
+		if (error != 0)
 			break;
-		}
 
 		ifv->ifv_prio = ifr->ifr_hdrprio;
 		break;
 	case SIOCGTXHPRIO:
 		ifr->ifr_hdrprio = ifv->ifv_prio;
+		break;
+
+	case SIOCSRXHPRIO:
+		error = if_rxhprio_l2_check(ifr->ifr_hdrprio);
+		if (error != 0)
+			break;
+
+		ifv->ifv_rxprio = ifr->ifr_hdrprio;
+		break;
+	case SIOCGRXHPRIO:
+		ifr->ifr_hdrprio = ifv->ifv_rxprio;
 		break;
 
 	default:
@@ -761,7 +781,7 @@ vlan_iff(struct ifvlan *ifv)
 		return (0);
 
 	if (ISSET(ifv->ifv_if.if_flags, IFF_RUNNING)) {
-		ifp0 = if_get(ifv->ifv_ifp0);
+		ifp0 = if_get(ifv->ifv_ifidx0);
 		if (ifp0 != NULL)
 			error = ifpromisc(ifp0, promisc);
 		if_put(ifp0);
@@ -787,7 +807,7 @@ vlan_setlladdr(struct ifvlan *ifv, struct ifreq *ifr)
 
 	/* setting the mac addr to 00:00:00:00:00:00 means reset lladdr */
 	if (memcmp(lladdr, etheranyaddr, sizeof(lladdr)) == 0) {
-		ifp0 = if_get(ifv->ifv_ifp0);
+		ifp0 = if_get(ifv->ifv_ifidx0);
 		if (ifp0 != NULL)
 			memcpy(lladdr, LLADDR(ifp0->if_sadl), sizeof(lladdr));
 		if_put(ifp0);
@@ -828,7 +848,7 @@ vlan_set_vnetid(struct ifvlan *ifv, uint16_t tag)
 	if (error != 0)
 		return (error);
 
-	error = vlan_inuse_locked(ifv->ifv_type, ifv->ifv_ifp0, tag);
+	error = vlan_inuse_locked(ifv->ifv_type, ifv->ifv_ifidx0, tag);
 	if (error != 0)
 		goto unlock;
 
@@ -866,7 +886,7 @@ vlan_set_parent(struct ifvlan *ifv, const char *parent)
 	if (ifp0->if_type != IFT_ETHER)
 		return (EPROTONOSUPPORT);
 
-	if (ifv->ifv_ifp0 == ifp0->if_index) {
+	if (ifv->ifv_ifidx0 == ifp0->if_index) {
 		/* nop */
 		return (0);
 	}
@@ -879,7 +899,7 @@ vlan_set_parent(struct ifvlan *ifv, const char *parent)
 		return (error);
 
 	/* commit */
-	ifv->ifv_ifp0 = ifp0->if_index;
+	ifv->ifv_ifidx0 = ifp0->if_index;
 	if (!ISSET(ifv->ifv_flags, IFVF_LLADDR))
 		if_setlladdr(ifp, LLADDR(ifp0->if_sadl));
 
@@ -895,7 +915,7 @@ vlan_del_parent(struct ifvlan *ifv)
 		return (EBUSY);
 
 	/* commit */
-	ifv->ifv_ifp0 = 0;
+	ifv->ifv_ifidx0 = 0;
 	if (!ISSET(ifv->ifv_flags, IFVF_LLADDR))
 		if_setlladdr(ifp, etheranyaddr);
 
@@ -951,7 +971,7 @@ vlan_get_compat(struct ifnet *ifp, struct ifreq *ifr)
 	struct ifnet *p;
 
 	memset(&vlr, 0, sizeof(vlr));
-	p = if_get(ifv->ifv_ifp0);
+	p = if_get(ifv->ifv_ifidx0);
 	if (p != NULL)
 		memcpy(vlr.vlr_parent, p->if_xname, sizeof(vlr.vlr_parent));
 	if_put(p);
@@ -995,7 +1015,7 @@ vlan_inuse_locked(uint16_t type, unsigned int ifidx, uint16_t tag)
 	SRPL_FOREACH_LOCKED(ifv, list, ifv_list) {
 		if (ifv->ifv_tag == tag &&
 		    ifv->ifv_type == type && /* wat */
-		    ifv->ifv_ifp0 == ifidx)
+		    ifv->ifv_ifidx0 == ifidx)
 			return (EADDRINUSE);
 	}
 
@@ -1033,7 +1053,7 @@ vlan_multi_add(struct ifvlan *ifv, struct ifreq *ifr)
 	memcpy(&mc->mc_addr, &ifr->ifr_addr, ifr->ifr_addr.sa_len);
 	LIST_INSERT_HEAD(&ifv->vlan_mc_listhead, mc, mc_entries);
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	error = (ifp0 == NULL) ? 0 :
 	    (*ifp0->if_ioctl)(ifp0, SIOCADDMULTI, (caddr_t)ifr);
 	if_put(ifp0);
@@ -1087,7 +1107,7 @@ vlan_multi_del(struct ifvlan *ifv, struct ifreq *ifr)
 	if (!ISSET(ifv->ifv_if.if_flags, IFF_RUNNING))
 		goto forget;
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	error = (ifp0 == NULL) ? 0 :
 	    (*ifp0->if_ioctl)(ifp0, SIOCDELMULTI, (caddr_t)ifr);
 	if_put(ifp0);
@@ -1111,7 +1131,7 @@ vlan_media_get(struct ifvlan *ifv, struct ifreq *ifr)
 	struct ifnet		*ifp0;
 	int			 error;
 
-	ifp0 = if_get(ifv->ifv_ifp0);
+	ifp0 = if_get(ifv->ifv_ifidx0);
 	error = (ifp0 == NULL) ? ENOTTY :
 	    (*ifp0->if_ioctl)(ifp0, SIOCGIFMEDIA, (caddr_t)ifr);
 	if_put(ifp0);

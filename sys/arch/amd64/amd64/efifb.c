@@ -1,4 +1,4 @@
-/*	$OpenBSD: efifb.c,v 1.18 2018/09/22 17:41:52 kettenis Exp $	*/
+/*	$OpenBSD: efifb.c,v 1.23 2019/03/28 14:35:29 fcambus Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -593,4 +593,11 @@ cb_find_fb(paddr_t addr)
 	}
 
 	return NULL;
+}
+
+psize_t
+efifb_stolen(void)
+{
+	struct efifb *fb = &efifb_console;
+	return fb->psize;
 }

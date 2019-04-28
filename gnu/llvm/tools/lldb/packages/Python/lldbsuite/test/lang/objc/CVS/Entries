@@ -9,6 +9,7 @@ D/hidden-ivars////
 D/ivar-IMP////
 D/modules////
 D/modules-auto-import////
+D/modules-cache////
 D/modules-incomplete////
 D/modules-inline-functions////
 D/objc++////
@@ -18,6 +19,7 @@ D/objc-checker////
 D/objc-class-method////
 D/objc-dyn-sbtype////
 D/objc-dynamic-value////
+D/objc-foundation-dictionary-empty////
 D/objc-ivar-offsets////
 D/objc-ivar-protocols////
 D/objc-ivar-stripped////
@@ -31,6 +33,7 @@ D/objc-stepping////
 D/objc-struct-argument////
 D/objc-struct-return////
 D/objc-super////
+D/orderedset////
 D/print-obj////
 D/ptr_refs////
 D/radar-9691614////

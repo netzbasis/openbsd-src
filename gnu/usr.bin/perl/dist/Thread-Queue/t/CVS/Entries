@@ -4,9 +4,9 @@
 /04_errs.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
 /05_extract.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
 /06_insert.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
-/07_lock.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
+/07_lock.t/1.1.1.2/Wed Feb 13 21:11:28 2019/-ko/
 /08_nothreads.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
 /09_ended.t/1.1.1.1/Mon Mar 24 14:59:01 2014/-kb/
 /10_timed.t/1.1.1.1/Mon Mar 24 14:59:01 2014/-kb/
-/11_limit.t/1.1/Sun Feb  5 00:32:10 2017/-ko/
+/11_limit.t/1.2/Wed Feb 13 21:15:21 2019/-ko/
 D

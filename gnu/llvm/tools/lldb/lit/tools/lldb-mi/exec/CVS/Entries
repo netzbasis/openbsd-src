@@ -1,0 +1,10 @@
+/exec-continue.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-finish.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-interrupt.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-next-instruction.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-next.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-run-wrong-binary.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-step-instruction.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/exec-step.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/lit.local.cfg/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+D/inputs////
