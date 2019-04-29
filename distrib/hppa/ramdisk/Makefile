@@ -1,6 +1,5 @@
-#	$OpenBSD: Makefile,v 1.36 2019/04/05 21:08:00 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.40 2019/04/29 01:48:40 deraadt Exp $
 
-CBIN=		instbin
 ARCHDIR=	${.CURDIR}/..
 SRCDIR=		${.CURDIR}/../../..
 
@@ -10,22 +9,21 @@ SRCDIR=		${.CURDIR}/../../..
 .include "${ARCHDIR}/Makefile.inc"
 .endif
 
-IMAGE?=		ramdisk${REV}.fs
+IMAGE?=		ramdisk${OSrev}.fs
 CRUNCHGENOPTS?=-E
-KERNEL?=	RAMDISK
+RAMDISK?=	RAMDISK
 UTILS?=		${.CURDIR}/../../miniroot
 
 LISTS=		${ARCHDIR}/list ${.CURDIR}/list.local
 MTREE=		${UTILS}/mtree.conf
 
-LIF?=		lif${REV}.fs
-CDROM?=		cd${REV}.iso
+LIF?=		lif${OSrev}.fs
+CDROM?=		cd${OSrev}.iso
 MKBOOT?=	/usr/mdec/mkboot
 BOOT?=		${DESTDIR}/usr/mdec/boot
 CDBOOT?=	${DESTDIR}/usr/mdec/cdboot
 
 STRIPOPTS?=	-R .SUNW_ctf
-GZIPFLAGS?=	-9n
 
 DISKTYPE=	rdroot
 MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
@@ -48,9 +46,9 @@ ${CDROM}: bsd ${CDBOOT}
 	dd if=/dev/zero bs=64k count=1 >> ${.OBJDIR}/${CDROM}
 
 obsd:
-	cd ${SRCDIR}/sys/arch/${MACHINE}/compile/${KERNEL} && \
+	cd ${SRCDIR}/sys/arch/${MACHINE}/compile/${RAMDISK} && \
 	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
-	cp -p ${SRCDIR}/sys/arch/${MACHINE}/compile/${KERNEL}/obj/bsd obsd
+	cp -p ${SRCDIR}/sys/arch/${MACHINE}/compile/${RAMDISK}/obj/bsd obsd
 
 bsd.rd:	obsd ${IMAGE}
 	cp obsd bsd.rd
@@ -58,35 +56,36 @@ bsd.rd:	obsd ${IMAGE}
 	strip ${STRIPOPTS} bsd.rd
 
 bsd:	bsd.rd
-	(cat bsd.rd ; dd if=/dev/zero count=1) | gzip ${GZIPFLAGS} > bsd
+	(cat bsd.rd ; dd if=/dev/zero count=1) | gzip -9nv > bsd
 
-${IMAGE}: ${CBIN}
+${IMAGE}: instbin
 	rm -rf $@.d
 	install -d -o root -g wheel $@.d
 	mtree -def ${MTREE} -p $@.d -u
-	CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} ARCHDIR=${ARCHDIR} \
+	CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} ARCHDIR=${ARCHDIR} \
 	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
 	    sh ${UTILS}/runlist.sh ${LISTS}
-	rm $@.d/${CBIN}
+	rm $@.d/instbin
 	makefs ${MAKEFSARGS_RD} $@ $@.d
-	vnconfig -v -c vnd0 $@
-	df -i /dev/vnd0a
-	vnconfig -u vnd0
+	vnconfig -v ${IMAGE} > vnd
+	df -i /dev/`cat vnd`a
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
-${CBIN}.conf: ${LISTS}
-	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CBIN}.conf
+instbin.conf: ${LISTS}
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
-${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CBIN}.conf
+instbin.mk instbin.cache instbin.c: instbin.conf
 	crunchgen ${CRUNCHGENOPTS} -D ${SRCDIR} -L ${DESTDIR}/usr/lib \
-	    ${CBIN}.conf
+	    instbin.conf
 
-${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
-	${MAKE} -f ${CBIN}.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
 
 clean cleandir:
-	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}.cache \
-	    lib*.a lib*.olist ${CBIN}.map \
-	    ${CBIN}.conf *.o *.lo *.c obsd bsd bsd.* ${LIF} ${CDROM}
+	/bin/rm -f *.core ${IMAGE} instbin instbin.mk instbin.cache \
+	    lib*.a lib*.olist instbin.map \
+	    instbin.conf *.o *.lo *.c obsd bsd bsd.* ${LIF} ${CDROM}
 	/bin/rm -rf ${IMAGE}.d
 
 .ifdef RELEASEDIR

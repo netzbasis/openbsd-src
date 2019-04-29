@@ -1,13 +1,9 @@
-#	$OpenBSD: Makefile,v 1.5 2019/04/05 21:08:00 deraadt Exp $
-
-REV=	${OSrev}
+#	$OpenBSD: Makefile,v 1.9 2019/04/29 01:48:39 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
-BSD_RD=		bsd.rd
 IMAGE=		mr.fs
-CBIN?=		instbin
-CRUNCHCONF?=	${CBIN}.conf
+CRUNCHCONF?=	instbin.conf
 CRUNCHCONFS?=	${.CURDIR}/../common/crunch.conf
 LISTS=		${.CURDIR}/list
 UTILS?=		${.CURDIR}/../../miniroot
@@ -27,53 +23,51 @@ all ${IMAGE}:
 	@false
 .else
 
-ALLBSD=		bsd
-ALLBSDRD=	${BSD_RD}
-all:	${ALLBSDRD}
+all:	bsd.rd
 
 bsd:
 	cd ${TOP}/../../sys/arch/arm64/compile/RAMDISK && \
 	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
 	cp -p ${TOP}/../../sys/arch/arm64/compile/RAMDISK/obj/bsd bsd
 
-${BSD_RD}: ${IMAGE} bsd
-	cp bsd ${BSD_RD}
-	rdsetroot ${BSD_RD} ${IMAGE}
+bsd.rd: ${IMAGE} bsd
+	cp bsd bsd.rd
+	rdsetroot bsd.rd ${IMAGE}
 
-${IMAGE}: ${CBIN}
+${IMAGE}: instbin
 	rm -rf $@.d
 	install -d -o root -g wheel $@.d
 .for DIR in ${DIRS}
 	mkdir -p $@.d/usr/mdec/${DIR}
 .endfor
 	mtree -def ${MTREE} -p $@.d -u
-	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} \
+	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
 	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
 	    sh ${UTILS}/runlist.sh ${LISTS}
-	rm $@.d/${CBIN}
+	rm $@.d/instbin
 	makefs ${MAKEFSARGS_RD} $@ $@.d
 
 .endif
 
-${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CRUNCHCONF}
+instbin.mk instbin.cache instbin.c: ${CRUNCHCONF}
 	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib ${.ALLSRC}
 
-${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
-	${MAKE} -f ${CBIN}.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
 
 ${CRUNCHCONF}: ${LISTS}
-	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CBIN}.conf
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
 clean cleandir:
-	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}.cache \
-	    lib*.a lib*.olist ${CBIN}.map *.o *.lo *.c ${ALLBSD} ${ALLBSDRD}
+	/bin/rm -f *.core ${IMAGE} instbin instbin.mk instbin.cache \
+	    lib*.a lib*.olist instbin.map *.o *.lo *.c bsd.rd
 	rm -f instbin.conf
 	rm -rf cd-dir ${IMAGE}.d
 
 .ifdef RELEASEDIR
 install:
-	cp ${ALLBSDRD} ${RELEASEDIR}
-	cd ${RELEASEDIR} && chmod a+r ${ALLBSDRD}
+	cp bsd.rd ${RELEASEDIR}
+	cd ${RELEASEDIR} && chmod a+r bsd.rd
 .endif	# RELEASEDIR
 
 .include <bsd.obj.mk>

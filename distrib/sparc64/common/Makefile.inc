@@ -1,11 +1,10 @@
-#	$OpenBSD: Makefile.inc,v 1.18 2019/04/05 21:08:01 deraadt Exp $
+#	$OpenBSD: Makefile.inc,v 1.22 2019/04/29 01:48:41 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
 .include "${TOP}/Makefile.inc"
 IMAGE=		mr.fs
-CBIN?=		instbin
-CRUNCHCONF?=    ${.CURDIR}/../common/${CBIN}.conf
+CRUNCHCONF?=    ${.CURDIR}/../common/instbin.conf
 LISTS?=		${.CURDIR}/list
 UTILS?=		${.CURDIR}/../../miniroot
 
@@ -13,13 +12,7 @@ MOUNT_POINT=	/mnt
 MTREE=		${UTILS}/mtree.conf
 
 XNAME?=		floppy
-FS?=		${XNAME}${REV}.fs
-VND?=		vnd0
-VND_DEV=	/dev/${VND}a
-VND_RDEV=	/dev/r${VND}a
-VND_CRDEV=	/dev/r${VND}c
-PID!=		echo $$$$
-REALIMAGE!=	echo /var/tmp/image.${PID}
+FS?=		${XNAME}${OSrev}.fs
 LISTFLOPPY?=	${.CURDIR}/../common/list_floppy
 FLOPPYSIZE?=	144
 FLOPPYSECS?=	18
@@ -28,49 +21,42 @@ FLOPPYTYPE?=	floppy3
 all:	${FS}
 
 ${FS}:	bsd.rd
-	dd if=/dev/zero of=${REALIMAGE} bs=10k count=${FLOPPYSIZE}
-	vnconfig -v -c ${VND} ${REALIMAGE}
-	disklabel -w ${VND} ${FLOPPYTYPE}
-	newfs -m 0 -o space -i 524288 -c ${FLOPPYSIZE} ${VND_RDEV}
-	mount ${VND_DEV} ${MOUNT_POINT}
+	dd if=/dev/zero of=${FS} bs=10k count=${FLOPPYSIZE}
+	vnconfig -v ${FS} > vnd
+	disklabel -w `cat vnd` ${FLOPPYTYPE}
+	newfs -m 0 -o space -i 524288 -c ${FLOPPYSIZE} /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
 	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} \
 	    TARGDIR=${MOUNT_POINT} UTILS=${UTILS} \
 	    RELEASEDIR=${RELEASEDIR} sh ${UTILS}/runlist.sh ${LISTFLOPPY}
-	installboot -v ${VND}
-	@echo ""
-	@df -i ${MOUNT_POINT}
-	@echo ""
+	installboot -v `cat vnd`
+	df -i ${MOUNT_POINT}
 	umount ${MOUNT_POINT}
-	vnconfig -u ${VND}
-	cp ${REALIMAGE} ${FS}
-	rm ${REALIMAGE}
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
 DISKTYPE?=       rdroot
 NBLKS?=          3510
 # minfree, opt, b/i  trks, sects, cpg
 NEWFSARGS= -m 0 -o space -i 4096
 
-${IMAGE}: ${CBIN} rd_setup do_files rd_teardown
+${IMAGE}: instbin rd_setup do_files rd_teardown
 
-rd_setup: ${CBIN}
-	dd if=/dev/zero of=${REALIMAGE} bs=512 count=${NBLKS}
-	vnconfig -v -c ${VND} ${REALIMAGE}
-	disklabel -w ${VND} ${DISKTYPE}
-	newfs ${NEWFSARGS} ${VND_RDEV}
-	fsck ${VND_RDEV}
-	mount ${VND_DEV} ${MOUNT_POINT}
+rd_setup: instbin
+	dd if=/dev/zero of=${IMAGE} bs=512 count=${NBLKS}
+	vnconfig -v ${IMAGE} > vnd
+	disklabel -w `cat vnd` ${DISKTYPE}
+	newfs ${NEWFSARGS} /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
 
 rd_teardown:
-	@df -i ${MOUNT_POINT}
+	df -i ${MOUNT_POINT}
 	-umount ${MOUNT_POINT}
-	-vnconfig -u ${VND}
-	cp ${REALIMAGE} ${IMAGE}
-	rm ${REALIMAGE}
+	-vnconfig -u `cat vnd`
 
 unconfig:
 	-umount -f ${MOUNT_POINT}
-	-vnconfig -u ${VND}
-	-/bin/rm -f ${IMAGE}
+	-[ -f vnd ] && vnconfig -u `cat vnd` && rm -f vnd
 
 .PRECIOUS:	${IMAGE}
 
@@ -83,23 +69,23 @@ install:
 	cp ${FS} ${RELEASEDIR}
 .endif
 
-${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CRUNCHCONF}
+instbin.mk instbin.cache instbin.c: ${CRUNCHCONF}
 	crunchgen -E -D ${BSDSRCDIR} -L ${DESTDIR}/usr/lib \
-	-c ${CBIN}.c -e ${CBIN} -m ${CBIN}.mk ${CRUNCHCONF}
+	-c instbin.c -e instbin -m instbin.mk ${CRUNCHCONF}
 
-${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
-	${MAKE} -f ${CBIN}.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
 
 do_files:
 	mtree -def ${MTREE} -p ${MOUNT_POINT}/ -u
 	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} \
-	    REV=${REV} TARGDIR=${MOUNT_POINT} UTILS=${UTILS} \
+	    OSrev=${OSrev} TARGDIR=${MOUNT_POINT} UTILS=${UTILS} \
 	    RELEASEDIR=${RELEASEDIR} sh ${UTILS}/runlist.sh ${LISTS}
-	rm ${MOUNT_POINT}/${CBIN}
+	rm ${MOUNT_POINT}/instbin
 
 clean cleandir:
-	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}*.cache \
-	    lib*.a lib*.olist ${CBIN}.map \
+	/bin/rm -f *.core ${IMAGE} instbin instbin.mk instbin*.cache \
+	    lib*.a lib*.olist instbin.map \
 	    *.o *.lo *.c bsd bsd.rd bsd.gz bsd.strip floppy*.fs
 
 .include <bsd.subdir.mk>

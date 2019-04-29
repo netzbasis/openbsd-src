@@ -1,16 +1,14 @@
-#	$OpenBSD: Makefile,v 1.15 2019/03/05 23:26:53 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.20 2019/04/29 01:48:40 deraadt Exp $
 
 TOP=	${.CURDIR}/..
 
 .include "${TOP}/Makefile.inc"
 
-CDROM=		install${REV}.iso
+CDROM=		install${OSrev}.iso
 
-FS=		install${REV}.fs
+FS=		install${OSrev}.fs
 FSSIZE=		921600
 FSTYPE=		install360
-
-RAMDISK=	RAMDISK_CD
 
 MOUNT_POINT=	/mnt
 MTREE=		${UTILS}/mtree.conf
@@ -26,27 +24,21 @@ BASE=		${RELDIR}/base${OSrev}.tgz ${RELDIR}/comp${OSrev}.tgz \
 XBASE=		${RELXDIR}/xbase${OSrev}.tgz ${RELXDIR}/xfont${OSrev}.tgz \
 		${RELXDIR}/xshare${OSrev}.tgz ${RELXDIR}/xserv${OSrev}.tgz
 
-VND?=		vnd0
-VND_DEV=	/dev/${VND}a
-VND_RDEV=	/dev/r${VND}a
-VND_CRDEV=	/dev/r${VND}c
 BOOT?=		${DESTDIR}/usr/mdec/boot
-PID!=		echo $$$$
-REALIMAGE!=	echo /var/tmp/image.${PID}
 
 all: ${CDROM} ${FS}
 
 ${FS}: ${BASE} ${XBASE} bsd.gz
-	dd if=/dev/zero of=${REALIMAGE} bs=512 count=${FSSIZE}
-	vnconfig -v -c ${VND} ${REALIMAGE}
-	fdisk -yi -l ${FSSIZE} -f ${DESTDIR}/usr/mdec/mbr ${VND}
-	disklabel -w ${VND} ${FSTYPE}
-	newfs -m 0 -o space -i 524288 -c ${FSSIZE} ${VND_RDEV}
-	mount ${VND_DEV} ${MOUNT_POINT}
+	dd if=/dev/zero of=${FS} bs=512 count=${FSSIZE}
+	vnconfig -v ${FS} > vnd
+	fdisk -yi -l ${FSSIZE} -f ${DESTDIR}/usr/mdec/mbr `cat vnd`
+	disklabel -w `cat vnd` ${FSTYPE}
+	newfs -m 0 -o space -i 524288 -c ${FSSIZE} /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
 	cp ${BOOT} ${MOUNT_POINT}/boot
 	strip -R .comment -R .SUNW_ctf ${MOUNT_POINT}/boot
 	dd if=bsd.gz of=${MOUNT_POINT}/bsd bs=512
-	installboot -v -r ${MOUNT_POINT} ${VND_CRDEV} \
+	installboot -v -r ${MOUNT_POINT} `cat vnd` \
 	    ${DESTDIR}/usr/mdec/biosboot ${MOUNT_POINT}/boot
 	mkdir -p ${MOUNT_POINT}/${OSREV}/${MACHINE}
 	mkdir -p ${MOUNT_POINT}/etc
@@ -59,13 +51,10 @@ ${FS}: ${BASE} ${XBASE} bsd.gz
 	    ${MOUNT_POINT}/${OSREV}/${MACHINE}/SHA256
 	# XXX no SHA256.sig
 
-	@echo ""
-	@df -i ${MOUNT_POINT}
-	@echo ""
+	df -i ${MOUNT_POINT}
 	umount ${MOUNT_POINT}
-	vnconfig -u ${VND}
-	cp ${REALIMAGE} ${FS}
-	rm ${REALIMAGE}
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
 ${CDROM}: ${BASE} ${XBASE}
 	-rm -rf ${.OBJDIR}/cd-dir
@@ -99,12 +88,13 @@ clean cleandir:
 	rm -rf cd-dir
 
 bsd.gz: bsd.rd
-	cp ${BSDRD} bsd.strip
+	cp bsd.rd bsd.strip
 	strip bsd.strip
 	strip -R .comment -R .SUNW_ctf bsd.strip
 	gzip -c9n bsd.strip > bsd.gz
 
 bsd.rd: ${BSDRD}
+	cp ${BSDRD} bsd.rd
 
 .include <bsd.obj.mk>
 .include <bsd.subdir.mk>

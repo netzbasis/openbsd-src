@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.9 2019/04/14 14:07:07 deraadt Exp $
+#	$OpenBSD: Makefile.inc,v 1.13 2019/04/29 01:48:39 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -9,15 +9,7 @@ UTILS?=		${.CURDIR}/../../miniroot
 MOUNT_POINT=	/mnt
 MTREE=		${UTILS}/mtree.conf
 
-FS?=		floppy${REV}.fs
-VND?=		vnd0
-VND_DEV=	/dev/${VND}a
-VND_RDEV=	/dev/r${VND}a
-VND_CRDEV=	/dev/r${VND}c
-VND_IDEV=	/dev/${VND}i
-VND_IRDEV=	/dev/r${VND}i
-PID!=		echo $$$$
-REALIMAGE!=	echo /var/tmp/image.${PID}
+FS?=		floppy${OSrev}.fs
 BOOT?=		${DESTDIR}/usr/mdec/boot
 EFIBOOT?=	${DESTDIR}/usr/mdec/BOOTX64.EFI ${DESTDIR}/usr/mdec/BOOTIA32.EFI
 FLOPPYSIZE?=	2880
@@ -26,38 +18,34 @@ FLOPPYTYPE?=	floppy3
 all:	${FS}
 
 ${FS}:	bsd.gz
-	dd if=/dev/zero of=${REALIMAGE} bs=512 count=${FLOPPYSIZE}
-	vnconfig -v -c ${VND} ${REALIMAGE}
+	dd if=/dev/zero of=${FS} bs=512 count=${FLOPPYSIZE}
+	vnconfig -v ${FS} > vnd
 .ifdef TEMPLATE
-	disklabel -wAT ${TEMPLATE} ${VND}
-	newfs -t msdos ${VND_IRDEV}
-	mount ${VND_IDEV} ${MOUNT_POINT}
+	disklabel -wAT ${TEMPLATE} `cat vnd`
+	newfs -t msdos /dev/r`cat vnd`i
+	mount /dev/`cat vnd`i ${MOUNT_POINT}
 	mkdir -p ${MOUNT_POINT}/efi/boot
 	cp ${EFIBOOT} ${MOUNT_POINT}/efi/boot
 	umount ${MOUNT_POINT}
 .else
-	disklabel -w ${VND} ${FLOPPYTYPE}
+	disklabel -w `cat vnd` ${FLOPPYTYPE}
 .endif
-	newfs -m 0 -o space -i 524288 -c ${FLOPPYSIZE} ${VND_RDEV}
-	mount ${VND_DEV} ${MOUNT_POINT}
+	newfs -m 0 -o space -i 524288 -c ${FLOPPYSIZE} /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
 	cp ${BOOT} ${.OBJDIR}/boot
 	strip ${.OBJDIR}/boot
 	strip -R .comment -R .SUNW_ctf ${.OBJDIR}/boot
-	installboot -v -r ${MOUNT_POINT} ${VND_CRDEV} \
+	installboot -v -r ${MOUNT_POINT} `cat vnd` \
 	    ${DESTDIR}/usr/mdec/biosboot ${.OBJDIR}/boot
 	dd if=bsd.gz of=${MOUNT_POINT}/bsd bs=512
-	@echo ""
-	@df -i ${MOUNT_POINT}
-	@echo ""
+	df -i ${MOUNT_POINT}
 	umount ${MOUNT_POINT}
-	vnconfig -u ${VND}
-	cp ${REALIMAGE} ${FS}
-	rm ${REALIMAGE}
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
 unconfig:
 	-umount -f ${MOUNT_POINT}
-	-vnconfig -u ${VND}
-
+	-[ -f vnd ] && vnconfig -u `cat vnd` && rm -f vnd
 
 DISKTYPE=	rdroot
 MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
@@ -81,7 +69,7 @@ mr.fs: instbin
 	rm -rf $@.d
 	install -d -o root -g wheel $@.d
 	mtree -def ${MTREE} -p $@.d -u
-	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} \
+	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
 	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
 	    sh ${UTILS}/runlist.sh ${LISTS}
 	rm $@.d/instbin
@@ -107,7 +95,7 @@ instbin: instbin.mk instbin.cache instbin.c
 	strip -R .comment -R .SUNW_ctf instbin
 
 instbin.conf: ${LISTS}
-	awk -f ${UTILS}/makeconf.awk CBIN=instbin ${LISTS} > instbin.conf
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
 clean cleandir:
 	/bin/rm -f *.core mr.fs instbin instbin.mk instbin*.cache \

@@ -1,11 +1,10 @@
-#	$OpenBSD: Makefile,v 1.8 2014/03/06 02:35:12 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.10 2019/04/29 01:48:39 deraadt Exp $
 
 TOP=	${.CURDIR}/..
 
 .include "${TOP}/Makefile.inc"
 
-BSDRD=	bsd.rd
-CDROM=	cd${REV}.iso
+CDROM=	cd${OSrev}.iso
 
 all: ${CDROM}
 
@@ -14,7 +13,7 @@ ${CDROM}:
 	mkdir -p ${.OBJDIR}/cd-dir/${OSREV}/amd64
 	mkdir -p ${.OBJDIR}/cd-dir/etc
 	echo "set image /${OSREV}/amd64/bsd.rd" > ${.OBJDIR}/cd-dir/etc/boot.conf
-	cp ${.OBJDIR}/../ramdisk_cd/${BSDRD} ${.OBJDIR}/cd-dir/${OSREV}/amd64
+	cp ${.OBJDIR}/../ramdisk_cd/bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/amd64
 	cp ${DESTDIR}/usr/mdec/cdbr ${.OBJDIR}/cd-dir/${OSREV}/amd64
 	cp ${DESTDIR}/usr/mdec/cdboot ${.OBJDIR}/cd-dir/${OSREV}/amd64/cdboot
 	mkhybrid -a -R -T -L -l -d -D -N -o ${.OBJDIR}/${CDROM} -v -v \

@@ -1,13 +1,9 @@
-#	$OpenBSD: Makefile,v 1.35 2019/04/05 21:08:00 deraadt Exp $
-
-REV=	${OSrev}
+#	$OpenBSD: Makefile,v 1.39 2019/04/29 01:48:40 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
-BSD_RD=		bsd.rd
 IMAGE=		mr.fs
-CBIN?=		instbin
-CRUNCHCONF?=	${CBIN}.conf
+CRUNCHCONF?=	instbin.conf
 CRUNCHCONFS?=	${.CURDIR}/../common/crunch.conf
 LISTS=		${.CURDIR}/list
 UTILS?=		${.CURDIR}/../../miniroot
@@ -24,13 +20,13 @@ all ${IMAGE}:
 .else
 
 # mix config is not needed.
-all:	${BSD_RD} cd
+all:	bsd.rd cd
 
-${BSD_RD}: ${IMAGE} bsd
-	cp bsd ${BSD_RD}
-	rdsetroot ${BSD_RD} ${IMAGE}
+bsd.rd: ${IMAGE} bsd
+	cp bsd bsd.rd
+	rdsetroot bsd.rd ${IMAGE}
 
-cd: ${BSD_RD}
+cd: bsd.rd
 	-rm -rf ${.OBJDIR}/cd-dir/
 	-@mkdir -p ${.OBJDIR}/cd-dir/${OSREV}/macppc/
 	cp bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/macppc/bsd.rd
@@ -53,18 +49,19 @@ cd: ${BSD_RD}
 	    -V "OpenBSD/macppc  ${OSREV} boot-only CD" \
 	    -o ${.OBJDIR}/cd${OSrev}.iso ${.OBJDIR}/cd-dir
 
-${IMAGE}: ${CBIN}
+${IMAGE}: instbin
 	rm -rf $@.d
 	install -d -o root -g wheel $@.d
 	mtree -def ${MTREE} -p $@.d -u
-	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} \
+	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
 	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
 	    sh ${UTILS}/runlist.sh ${LISTS}
-	rm $@.d/${CBIN}
+	rm $@.d/instbin
 	makefs ${MAKEFSARGS_RD} $@ $@.d
-	vnconfig -v -c vnd0 mr.fs
-	df -i /dev/vnd0a
-	vnconfig -u vnd0
+	vnconfig -v mr.fs > vnd
+	df -i /dev/`cat vnd`a
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
 .endif
 
@@ -73,23 +70,23 @@ bsd:
 	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
 	cp -p ${TOP}/../../sys/arch/macppc/compile/RAMDISK/obj/bsd bsd
 
-${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CRUNCHCONF}
+instbin.mk instbin.cache instbin.c: ${CRUNCHCONF}
 	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib ${.ALLSRC}
 
-${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
-	${MAKE} -f ${CBIN}.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
 
 ${CRUNCHCONF}: ${LISTS}
-	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CBIN}.conf
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
 clean cleandir:
-	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}.cache \
-	    lib*.a lib*.olist ${CBIN}.map *.o *.lo *.c bsd ${BSD_RD} cd${REV}.iso
+	/bin/rm -f *.core ${IMAGE} instbin instbin.mk instbin.cache \
+	    lib*.a lib*.olist instbin.map *.o *.lo *.c bsd bsd.rd cd${OSrev}.iso
 	rm -rf cd-dir ${IMAGE}.d
 
 .ifdef RELEASEDIR
 install:
-	cp ${BSD_RD} cd${REV}.iso ${RELEASEDIR}
+	cp bsd.rd cd${OSrev}.iso ${RELEASEDIR}
 .endif
 
 .include <bsd.obj.mk>
