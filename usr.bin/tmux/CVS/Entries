@@ -78,7 +78,7 @@
 /input-keys.c/1.63/Thu Oct 18 08:38:01 2018//
 /input.c/1.150/Tue Apr  2 09:03:39 2019//
 /job.c/1.54/Mon Nov 19 13:35:41 2018//
-/key-bindings.c/1.88/Thu Oct 18 08:38:01 2018//
+/key-bindings.c/1.89/Mon Apr 29 06:55:21 2019//
 /key-string.c/1.50/Thu Oct 18 08:38:01 2018//
 /layout-custom.c/1.12/Thu Oct 18 08:38:01 2018//
 /layout-set.c/1.25/Fri Apr 26 10:15:40 2019//
@@ -114,7 +114,7 @@
 /window-buffer.c/1.18/Thu Mar 28 21:05:15 2019//
 /window-client.c/1.21/Mon Mar 18 20:53:33 2019//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
-/window-copy.c/1.217/Thu Apr 25 06:34:57 2019//
+/window-copy.c/1.218/Mon Apr 29 06:55:21 2019//
 /window-tree.c/1.36/Wed Apr 17 14:37:48 2019//
 /window.c/1.227/Fri Apr 26 10:24:26 2019//
 /xmalloc.c/1.11/Thu Nov 17 10:06:08 2016//
