@@ -65,9 +65,9 @@
 /emuxki.c/1.53/Thu Sep 13 04:07:20 2018//
 /emuxkireg.h/1.6/Thu Jun 26 05:42:17 2008//
 /emuxkivar.h/1.11/Mon Sep 19 06:46:44 2016//
-/envy.c/1.73/Mon Sep  3 05:37:32 2018//
-/envyreg.h/1.17/Wed Apr 27 07:01:33 2011//
-/envyvar.h/1.19/Sun Aug 30 08:52:26 2015//
+/envy.c/1.78/Tue Apr 30 20:44:15 2019//
+/envyreg.h/1.19/Tue Apr 30 20:38:04 2019//
+/envyvar.h/1.20/Tue Apr 30 20:29:46 2019//
 /esa.c/1.35/Fri Sep 14 08:37:34 2018//
 /esareg.h/1.2/Thu Oct 18 21:44:21 2012//
 /esavar.h/1.2/Tue Sep  7 16:21:44 2010//

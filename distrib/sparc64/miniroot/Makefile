@@ -1,49 +1,97 @@
-#	$OpenBSD: Makefile,v 1.12 2019/04/29 15:56:26 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.17 2019/04/30 23:37:32 deraadt Exp $
 
-TARGET=		miniroot${OSrev}.fs
+FS=		miniroot${OSrev}.fs
+FSSIZE=		5760
+FSDISKTYPE=	fakeramdisk
+CDROM=		cd${OSrev}.iso
 MOUNT_POINT=	/mnt
+MTREE=		${UTILS}/mtree.conf
 
-.ifndef DESTDIR
-all ${TARGET}:
-	@echo setenv DESTDIR before making a ramdisk!
-	@false
-.else
+LISTS=		${.CURDIR}/list
+UTILS=		${.CURDIR}/../../miniroot
 
-all: ${TARGET}
+STRIPOPTS=	-R .SUNW_ctf
 
-${TARGET}: vn_up install_files installboot showit vn_down
+MRDISKTYPE=	rdroot
+MRMAKEFSARGS=	-o disklabel=${MRDISKTYPE},minfree=0,density=4096
 
-vn_up: blank_filesystem
-	vnconfig -v ${TARGET} > vnd
-	disklabel -w `cat vnd` fakeramdisk
+all: ${FS} ${CDROM}
+
+${FS}: bsd.gz
+	dd if=/dev/zero of=${FS} bs=512 count=${FSSIZE}
+	vnconfig -v ${FS} > vnd
+	disklabel -w `cat vnd` ${FSDISKTYPE}
 	newfs -m 0 /dev/r`cat vnd`a
 	mount /dev/`cat vnd`a ${MOUNT_POINT}
-
-showit:
+	install -c -m 555 -o root -g wheel bsd.gz ${MOUNT_POINT}/bsd
+	install -c -m 555 -o root -g wheel \
+	    ${DESTDIR}/usr/mdec/ofwbootfd ${MOUNT_POINT}/ofwboot
+	installboot -v -r ${MOUNT_POINT} `cat vnd` \
+	    ${DESTDIR}/usr/mdec/bootblk ${MOUNT_POINT}/ofwboot
 	df -i ${MOUNT_POINT}
-
-vn_down:
 	umount ${MOUNT_POINT}
 	vnconfig -u `cat vnd`
 	rm -f vnd
 
-install_files: bsd.rd ofwboot
+${CDROM}: bsd.rd
+	rm -rf ${.OBJDIR}/cd-dir
+	mkdir -p ${.OBJDIR}/cd-dir/${OSREV}/sparc64
+	cp ${.OBJDIR}/bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/sparc64
+	ln ${.OBJDIR}/cd-dir/${OSREV}/sparc64/bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/sparc64/bsd
+	cp ${DESTDIR}/usr/mdec/ofwboot ${.OBJDIR}/cd-dir/${OSREV}/sparc64
 
-bsd.rd:
-	install -c -m 555 -o root -g wheel \
-	    ${.OBJDIR}/../bsd.rd/bsd.rd ${MOUNT_POINT}/bsd
+	echo 'm 1	sun4' > ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 2	sun4c' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 3	sun4m' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 4	sun4d' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 5	sun4u' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 5	sun4us' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	echo 'm 6	sun4v' >> ${.OBJDIR}/cd-dir/.slicemapfile
+	mkhybrid -a -R -r -T -L -d -D -N \
+	    -A "OpenBSD ${OSREV} sparc64 bootonly CD" \
+	    -P "Copyright (c) `date +%Y` Theo de Raadt, The OpenBSD project" \
+	    -p "Theo de Raadt <deraadt@openbsd.org>" \
+	    -V "OpenBSD/sparc64 ${OSREV} boot-only CD" \
+	    -o ${.OBJDIR}/${CDROM} ${.OBJDIR}/cd-dir
+	vnconfig -v ${CDROM} > vnd
+	disklabel -w `cat vnd` fakecdrom "OpenBSD${OSrev}sparc64"
+	vnconfig -u `cat vnd`
+	rm -f vnd
+	mksuncd f ${CDROM} ${.OBJDIR}/../miniroot/miniroot${OSrev}.fs
 
-ofwboot:
-	install -c -m 555 -o root -g wheel \
-	    ${DESTDIR}/usr/mdec/ofwbootfd ${MOUNT_POINT}/ofwboot
+bsd.gz: bsd.rd
+	gzip -c -9nv < bsd.rd > bsd.gz
 
-installboot:
-	installboot -v `cat vnd`
+bsd.rd: bsd mr.fs
+	cp bsd bsd.rd_unz
+	rdsetroot bsd.rd_unz mr.fs
+	objcopy -Sg -R .comment bsd.rd_unz bsd.rd
+	strip ${STRIPOPTS} bsd.rd
 
-blank_filesystem:
-	dd if=/dev/zero of=${TARGET} bs=512 count=5760
+bsd:
+	cd ${.CURDIR}/../../../sys/arch/sparc64/compile/RAMDISK && \
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
+	cp -p ${.CURDIR}/../../../sys/arch/sparc64/compile/RAMDISK/obj/bsd bsd
 
-.endif
+mr.fs: instbin
+	rm -rf $@.d
+	install -d -o root -g wheel $@.d
+	mtree -def ${MTREE} -p $@.d -u
+	CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
+	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
+	    sh ${UTILS}/runlist.sh ${LISTS}
+	rm $@.d/instbin
+	makefs ${MRMAKEFSARGS} $@ $@.d
+
+instbin.mk instbin.cache instbin.c: instbin.conf
+	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib \
+	    -c instbin.c -e instbin -m instbin.mk instbin.conf
+
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+
+instbin.conf: ${LISTS}
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
 unconfig:
 	-umount -f ${MOUNT_POINT}
@@ -51,12 +99,17 @@ unconfig:
 
 .ifdef RELEASEDIR
 install:
-	cp ${TARGET} ${RELEASEDIR}
+	cp bsd.rd ${RELEASEDIR}/bsd.rd
+	chmod a+r ${RELEASEDIR}/bsd.rd
+	cp ${FS} ${RELEASEDIR}
+	cp ${CDROM} ${RELEASEDIR}
 .endif
 
-clean:
-	rm -f ${TARGET}
+clean cleandir:
+	rm -f *.core mr.fs instbin instbin.mk instbin*.cache \
+	    lib*.a lib*.olist instbin.map \
+	    *.o *.lo *.c bsd bsd.rd{,_unz} bsd.gz bsd.strip ${FS}
+	rm -rf mr.fs.d
+	rm -rf ${CDROM} ${.OBJDIR}/cd-dir
 
-.include <bsd.own.mk>
 .include <bsd.obj.mk>
-.include <bsd.subdir.mk>
