@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.21 2019/04/30 23:25:19 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.23 2019/05/01 22:55:58 deraadt Exp $
 
 FS=		miniroot${OSrev}.fs
 FSSIZE=		18432
@@ -22,7 +22,7 @@ ${FS}: bsd.rd
 	echo 'w\ny\nq\n' | disklabel -E `cat vnd` > /dev/null
 	newfs_ext2fs /dev/r`cat vnd`i
 	mount /dev/`cat vnd`i ${MOUNT_POINT}
-	cp ${.OBJDIR}/../ramdisk/bsd.rd ${MOUNT_POINT}/bsd.rd
+	cp ${.OBJDIR}/bsd.rd ${MOUNT_POINT}/bsd.rd
 	df -i ${MOUNT_POINT}
 	-umount ${MOUNT_POINT}
 	vnconfig -u `cat vnd`
@@ -34,7 +34,7 @@ ${CDROM}: bsd.rd
 	mkdir -p ${.OBJDIR}/cd-dir/etc
 	echo "set image /${OSREV}/loongson/bsd.rd" > ${.OBJDIR}/cd-dir/etc/boot.conf
 	cp ${.OBJDIR}/bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/loongson
-	mkhybrid -a -R -T -L -l -d -D -N -o ${.OBJDIR}/${CDROM} -v -v \
+	mkhybrid -a -R -T -L -l -d -D -N -o ${.OBJDIR}/${CDROM} \
 	    -A "OpenBSD ${OSREV} loongson bootonly CD" \
 	    -P "Copyright (c) `date +%Y` Theo de Raadt, The OpenBSD project" \
 	    -p "Theo de Raadt <deraadt@openbsd.org>" \

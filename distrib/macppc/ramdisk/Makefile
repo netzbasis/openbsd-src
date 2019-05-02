@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.43 2019/04/30 23:25:19 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.45 2019/05/02 02:59:29 deraadt Exp $
 
 CDROM=		cd${OSrev}.iso
 MTREE=		${UTILS}/mtree.conf
@@ -16,10 +16,10 @@ ${CDROM}: bsd.gz
 	# we skip doing so.
 	# ln ${.OBJDIR}/cd-dir/${OSREV}/macppc/bsd.rd ${.OBJDIR}/cd-dir/bsd.rd
 	# ln ${.OBJDIR}/cd-dir/bsd.rd ${.OBJDIR}/cd-dir/bsd
-	cp ${.CURDIR}/../../../sys/arch/macppc/stand/tbxidata/bsd.tbxi \
+	cp ${DESTDIR}/usr/mdec/tbxidata/bsd.tbxi \
 	    ${.OBJDIR}/cd-dir/${OSREV}/macppc
 	cp ${DESTDIR}/usr/mdec/ofwboot ${.OBJDIR}/cd-dir/
-	mkhybrid -v -v -r -part -hfs \
+	mkhybrid -r -part -hfs \
 	    -hfs-bless ${.OBJDIR}/cd-dir/${OSREV}/macppc \
 	    -map ${.CURDIR}/../../../gnu/usr.sbin/mkhybrid/src/more.mapping \
 	    -A "OpenBSD ${OSREV} macppc bootonly CD" \
