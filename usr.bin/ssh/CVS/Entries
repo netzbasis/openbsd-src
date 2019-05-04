@@ -119,7 +119,7 @@
 /pkcs11.h/1.3/Tue Nov 26 19:15:09 2013//
 /poly1305.c/1.3/Thu Dec 19 22:57:13 2013//
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
-/progressmeter.c/1.47/Thu Jan 24 16:52:17 2019//
+/progressmeter.c/1.48/Fri May  3 06:06:30 2019//
 /progressmeter.h/1.5/Thu Jan 24 16:52:17 2019//
 /readconf.c/1.304/Fri Mar  1 02:08:50 2019//
 /readconf.h/1.129/Fri Nov 23 05:08:07 2018//
