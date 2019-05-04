@@ -49,20 +49,8 @@ c_unveil(char **wp)
 		return 0;
 	}
 
-	/* XXX std paths */
-	/* notyet
-	if (unveil("/bin", "rx") == -1)
-		return 1;
-	if (unveil("/sbin", "rx") == -1)
-		return 1;
-	if (unveil("/usr/bin", "rx") == -1)
-		return 1;
-	if (unveil("/usr/sbin", "rx") == -1)
-		return 1;
-	*/
-
 	/* XXX cannot create /dev/null: Permission denied */
-	if (unveil("/dev", "rwxc") == -1)
+	if (unveil("/dev/null", "rwc") == -1)
 		return 1;
 
 	if (unveil(path, perm) == -1)
