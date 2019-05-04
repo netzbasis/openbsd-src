@@ -1,4 +1,4 @@
-/*	$OpenBSD: efifb.c,v 1.19 2019/01/10 01:16:29 jsg Exp $	*/
+/*	$OpenBSD: efifb.c,v 1.23 2019/03/28 14:35:29 fcambus Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>

@@ -1,4 +1,4 @@
-/MAKEDEV.common/1.101/Fri Aug 31 02:32:29 2018//
+/MAKEDEV.common/1.102/Sun Apr 14 10:23:36 2019//
 /MAKEDEV.man/1.9/Tue Jun  6 08:11:23 2017//
 /MAKEDEV.mansub/1.2/Fri Feb 20 19:13:01 2004//
 /MAKEDEV.mi/1.83/Sun Sep 11 03:06:31 2016//
@@ -11,14 +11,14 @@
 /fbtab.head/1.2/Wed May  5 06:56:34 1999//
 /fbtab.tail/1.2/Sat Aug 24 21:07:30 1996//
 /ftpusers/1.50/Mon Mar 17 21:01:02 2014//
-/gettytab/1.6/Wed May  2 21:06:14 2018//
+/gettytab/1.7/Tue Mar 12 11:01:25 2019//
 /group/1.91/Sat Jan 26 10:58:05 2019//
 /ksh.kshrc/1.32/Wed May 16 14:01:41 2018//
 /locate.rc/1.7/Fri Aug 14 03:02:07 2015//
 /mailer.conf/1.7/Mon Dec  7 12:32:06 2015//
 /master.passwd/1.100/Sat Jan 26 10:58:05 2019//
 /minfree/1.1/Mon Dec 18 15:18:15 1995//
-/moduli/1.23/Wed Oct 31 11:20:04 2018//
+/moduli/1.24/Fri Apr 26 08:37:16 2019//
 /monthly/1.13/Wed Jan 19 06:18:05 2011//
 /motd/1.8/Sun Jan 11 14:08:38 1998//
 /netstart/1.200/Wed Aug 29 11:30:48 2018//
@@ -28,7 +28,7 @@
 /pf.conf/1.55/Sun Dec  3 20:40:04 2017//
 /pf.os/1.27/Sat Sep  3 17:08:57 2016//
 /protocols/1.24/Sat Jul 12 14:38:38 2014//
-/rc/1.534/Sun Feb 24 12:57:14 2019//
+/rc/1.536/Mon Apr  1 11:39:46 2019//
 /rc.conf/1.219/Sat Jan 26 10:59:07 2019//
 /rpc/1.6/Thu Mar 13 15:22:21 2014//
 /services/1.96/Sun Jan 27 20:35:06 2019//

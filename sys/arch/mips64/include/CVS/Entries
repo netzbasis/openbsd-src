@@ -9,7 +9,7 @@
 /cdefs.h/1.6/Thu Mar 28 17:30:45 2013//
 /cpu.h/1.126/Wed Dec  5 10:28:21 2018//
 /cpustate.h/1.11/Sun Sep 27 18:17:08 2015//
-/db_machdep.h/1.17/Wed Apr 27 11:10:48 2016//
+/db_machdep.h/1.18/Sat Mar 23 05:47:23 2019//
 /endian.h/1.9/Sat Jul 12 16:25:08 2014//
 /exec.h/1.9/Sun Aug 13 14:56:09 2017//
 /fenv.h/1.3/Wed May 25 21:46:49 2011//
@@ -31,8 +31,8 @@
 /pcb.h/1.8/Sun Mar  6 19:42:27 2016//
 /pmap.h/1.47/Mon Oct 22 17:31:25 2018//
 /proc.h/1.11/Thu Apr 13 03:52:25 2017//
-/profile.h/1.4/Wed Mar 23 16:54:36 2011//
-/pte.h/1.21/Sun Oct  9 03:29:53 2016//
+/profile.h/1.5/Fri Apr 19 09:19:22 2019//
+/pte.h/1.22/Fri Apr 26 16:27:36 2019//
 /ptrace.h/1.3/Wed Mar 23 16:54:36 2011//
 /reg.h/1.3/Wed Mar 23 16:54:36 2011//
 /regdef.h/1.5/Mon Mar 10 21:10:36 2014//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.381 2019/02/27 04:16:02 claudio Exp $ */
+/*	$OpenBSD: parse.y,v 1.386 2019/04/10 15:21:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 
 #include <ctype.h>
+#include <endian.h>
 #include <err.h>
 #include <unistd.h>
 #include <errno.h>
@@ -88,7 +89,7 @@ char		*symget(const char *);
 
 static struct bgpd_config	*conf;
 static struct network_head	*netconf;
-static struct peer		*peer_l, *peer_l_old;
+static struct peer_head		*new_peers, *cur_peers;
 static struct peer		*curpeer;
 static struct peer		*curgroup;
 static struct l3vpn		*curvpn;
@@ -99,7 +100,6 @@ static struct filter_head	*peerfilter_l;
 static struct filter_head	*groupfilter_l;
 static struct filter_rule	*curpeer_filter[2];
 static struct filter_rule	*curgroup_filter[2];
-static u_int32_t		 id;
 
 struct filter_rib_l {
 	struct filter_rib_l	*next;
@@ -1203,8 +1203,7 @@ neighbor	: {	curpeer = new_peer(); }
 
 			if (neighbor_consistent(curpeer) == -1)
 				YYERROR;
-			curpeer->next = peer_l;
-			peer_l = curpeer;
+			TAILQ_INSERT_TAIL(new_peers, curpeer, entry);
 			curpeer = curgroup;
 		}
 		;
@@ -1348,7 +1347,8 @@ peeropts	: REMOTEAS as4number	{
 
 			if ($3 == SAFI_NONE) {
 				for (aid = 0; aid < AID_MAX; aid++) {
-					if (aid2afi(aid, &afi, &safi) == -1)
+					if (aid2afi(aid, &afi, &safi) == -1 ||
+					    afi != $2)
 						continue;
 					curpeer->conf.capabilities.mp[aid] = 0;
 				}	
@@ -1811,7 +1811,7 @@ filter_peer	: ANY		{
 				fatal(NULL);
 			$$->p.remote_as = $$->p.groupid = $$->p.peerid = 0;
 			$$->next = NULL;
-			for (p = peer_l; p != NULL; p = p->next)
+			TAILQ_FOREACH(p, new_peers, entry)
 				if (!memcmp(&p->conf.remote_addr,
 				    &$1, sizeof(p->conf.remote_addr))) {
 					$$->p.peerid = p->conf.id;
@@ -1838,7 +1838,7 @@ filter_peer	: ANY		{
 				fatal(NULL);
 			$$->p.remote_as = $$->p.peerid = 0;
 			$$->next = NULL;
-			for (p = peer_l; p != NULL; p = p->next)
+			TAILQ_FOREACH(p, new_peers, entry)
 				if (!strcmp(p->conf.group, $2)) {
 					$$->p.groupid = p->conf.groupid;
 					break;
@@ -3242,16 +3242,36 @@ popfile(void)
 	return (file ? 0 : EOF);
 }
 
-int
-parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
+static void
+init_config(struct bgpd_config *c)
+{
+	u_int rdomid;
+
+	c->min_holdtime = MIN_HOLDTIME;
+	c->holdtime = INTERVAL_HOLD;
+	c->connectretry = INTERVAL_CONNECTRETRY;
+	c->bgpid = get_bgpid();
+	c->fib_priority = RTP_BGP;
+	c->default_tableid = getrtable();
+	ktable_exists(c->default_tableid, &rdomid);
+	if (rdomid != c->default_tableid)
+		fatalx("current routing table %u is not a routing domain",
+		    c->default_tableid);
+
+	if (asprintf(&c->csock, "%s.%d", SOCKET_NAME, c->default_tableid) == -1)
+		fatal(NULL);
+}
+
+struct bgpd_config *
+parse_config(char *filename, struct peer_head *ph)
 {
 	struct sym		*sym, *next;
-	struct peer		*p, *pnext;
 	struct rde_rib		*rr;
 	struct network	       	*n;
 	int			 errors = 0;
 
 	conf = new_config();
+	init_config(conf);
 
 	if ((filter_l = calloc(1, sizeof(struct filter_head))) == NULL)
 		fatal(NULL);
@@ -3263,12 +3283,11 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 	TAILQ_INIT(peerfilter_l);
 	TAILQ_INIT(groupfilter_l);
 
-	peer_l = NULL;
-	peer_l_old = *xpeers;
 	curpeer = NULL;
 	curgroup = NULL;
-	id = 1;
 
+	cur_peers = ph;
+	new_peers = &conf->peers;
 	netconf = &conf->networks;
 
 	add_rib("Adj-RIB-In", conf->default_tableid,
@@ -3277,10 +3296,8 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
 	add_rib("Loc-RIB", conf->default_tableid, F_RIB_LOCAL);
 
-	if ((file = pushfile(filename, 1)) == NULL) {
-		free(conf);
-		return (-1);
-	}
+	if ((file = pushfile(filename, 1)) == NULL)
+		goto errors;
 	topfile = file;
 
 	yyparse();
@@ -3309,12 +3326,20 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 		}
 	}
 
-	if (errors) {
-		for (p = peer_l; p != NULL; p = pnext) {
-			pnext = p->next;
-			free(p);
-		}
+	if (!conf->as) {
+		log_warnx("configuration error: AS not given");
+		errors++;
+	}
 
+	/* clear the globals */
+	curpeer = NULL;
+	curgroup = NULL;
+	cur_peers = NULL;
+	new_peers = NULL;
+	netconf = NULL;
+
+	if (errors) {
+errors:
 		while ((rr = SIMPLEQ_FIRST(&ribnames)) != NULL) {
 			SIMPLEQ_REMOVE_HEAD(&ribnames, entry);
 			free(rr);
@@ -3325,6 +3350,7 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 		filterlist_free(groupfilter_l);
 
 		free_config(conf);
+		return (NULL);
 	} else {
 		/*
 		 * Concatenate filter list and static group and peer filtersets
@@ -3337,21 +3363,12 @@ parse_config(char *filename, struct bgpd_config *xconf, struct peer **xpeers)
 
 		optimize_filters(conf->filters);
 
-		errors += mrt_mergeconfig(xconf->mrt, conf->mrt);
-		errors += merge_config(xconf, conf, peer_l);
-		*xpeers = peer_l;
-
-		for (p = peer_l_old; p != NULL; p = pnext) {
-			pnext = p->next;
-			free(p);
-		}
-
 		free(filter_l);
 		free(peerfilter_l);
 		free(groupfilter_l);
-	}
 
-	return (errors ? -1 : 0);
+		return (conf);
+	}
 }
 
 int
@@ -3759,7 +3776,6 @@ alloc_peer(void)
 
 	/* some sane defaults */
 	p->state = STATE_NONE;
-	p->next = NULL;
 	p->conf.distance = 1;
 	p->conf.export_type = EXPORT_UNSET;
 	p->conf.announce_capa = 1;
@@ -3770,6 +3786,9 @@ alloc_peer(void)
 	p->conf.capabilities.as4byte = 1;
 	p->conf.local_as = conf->as;
 	p->conf.local_short_as = conf->short_as;
+
+	if (conf->flags & BGPD_FLAG_DECISION_TRANS_AS)
+		p->conf.flags |= PEERFLAG_TRANS_AS;
 
 	return (p);
 }
@@ -3793,9 +3812,6 @@ new_peer(void)
 		p->conf.local_as = curgroup->conf.local_as;
 		p->conf.local_short_as = curgroup->conf.local_short_as;
 	}
-	p->next = NULL;
-	if (conf->flags & BGPD_FLAG_DECISION_TRANS_AS)
-		p->conf.flags |= PEERFLAG_TRANS_AS;
 	return (p);
 }
 
@@ -3937,32 +3953,39 @@ find_prefixset(char *name, struct prefixset_head *p)
 int
 get_id(struct peer *newpeer)
 {
-	struct peer	*p;
+	static u_int32_t id = 1;
+	struct peer	*p = NULL;
 
-	for (p = peer_l_old; p != NULL; p = p->next)
-		if (newpeer->conf.remote_addr.aid) {
-			if (!memcmp(&p->conf.remote_addr,
-			    &newpeer->conf.remote_addr,
-			    sizeof(p->conf.remote_addr))) {
-				newpeer->conf.id = p->conf.id;
-				return (0);
-			}
-		} else {	/* newpeer is a group */
-			if (strcmp(newpeer->conf.group, p->conf.group) == 0) {
-				newpeer->conf.id = p->conf.groupid;
-				return (0);
-			}
-		}
-
-	/* new one */
-	for (; id < UINT_MAX / 2; id++) {
-		for (p = peer_l_old; p != NULL &&
-		    p->conf.id != id && p->conf.groupid != id; p = p->next)
-			;	/* nothing */
-		if (p == NULL) {	/* we found a free id */
-			newpeer->conf.id = id++;
+	/* check if the peer already existed before */
+	if (newpeer->conf.remote_addr.aid) {
+		/* neighbor */
+		if (cur_peers)
+			TAILQ_FOREACH(p, cur_peers, entry)
+				if (memcmp(&p->conf.remote_addr,
+				    &newpeer->conf.remote_addr,
+				    sizeof(p->conf.remote_addr)) == 0)
+					break;
+		if (p) {
+			newpeer->conf.id = p->conf.id;
 			return (0);
 		}
+	} else {
+		/* group */
+		if (cur_peers)
+			TAILQ_FOREACH(p, cur_peers, entry)
+				if (strcmp(p->conf.group,
+				    newpeer->conf.group) == 0)
+					break;
+		if (p) {
+			newpeer->conf.id = p->conf.groupid;
+			return (0);
+		}
+	}
+
+	/* else new one */
+	if (id < UINT_MAX / 2) {
+		newpeer->conf.id = id++;
+		return (0);
 	}
 
 	return (-1);

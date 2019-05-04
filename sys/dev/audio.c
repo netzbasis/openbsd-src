@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.175 2018/12/31 17:12:34 kettenis Exp $	*/
+/*	$OpenBSD: audio.c,v 1.178 2019/04/05 06:14:13 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -387,7 +387,7 @@ audio_pintr(void *addr)
 	 * check if record pointer wrapped, see explanation
 	 * in audio_rintr()
 	 */
-	if (sc->mode & AUMODE_RECORD) {
+	if ((sc->mode & AUMODE_RECORD) && sc->ops->underrun == NULL) {
 		sc->offs--;
 		nblk = sc->rec.len / sc->rec.blksz;
 		todo = -sc->offs;
@@ -401,12 +401,17 @@ audio_pintr(void *addr)
 	}
 
 	sc->play.pos += sc->play.blksz;
-	audio_fill_sil(sc, sc->play.data + sc->play.start, sc->play.blksz);
+	if (!sc->ops->underrun) {
+		audio_fill_sil(sc, sc->play.data + sc->play.start,
+		    sc->play.blksz);
+	}
 	audio_buf_rdiscard(&sc->play, sc->play.blksz);
 	if (sc->play.used < sc->play.blksz) {
 		DPRINTFN(1, "%s: play underrun\n", DEVNAME(sc));
 		sc->play.xrun += sc->play.blksz;
 		audio_buf_wcommit(&sc->play, sc->play.blksz);
+		if (sc->ops->underrun)
+			sc->ops->underrun(sc->arg);
 	}
 
 	DPRINTFN(1, "%s: play intr, used -> %zu, start -> %zu\n",
@@ -465,7 +470,7 @@ audio_rintr(void *addr)
 	 * We fix this by advancing play position by an integer count of
 	 * full buffers, so it reaches the record position.
 	 */
-	if (sc->mode & AUMODE_PLAY) {
+	if ((sc->mode & AUMODE_PLAY) && sc->ops->underrun == NULL) {
 		sc->offs++;
 		nblk = sc->play.len / sc->play.blksz;
 		todo = sc->offs;
@@ -1469,7 +1474,6 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		ptr = audio_buf_rgetblk(&sc->rec, &count);
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
-		audio_buf_rdiscard(&sc->rec, count);
 		mtx_leave(&audio_lock);
 		DPRINTFN(1, "%s: read: start = %zu, count = %zu\n",
 		    DEVNAME(sc), ptr - sc->rec.data, count);
@@ -1479,6 +1483,7 @@ audio_read(struct audio_softc *sc, struct uio *uio, int ioflag)
 		if (error)
 			return error;
 		mtx_enter(&audio_lock);
+		audio_buf_rdiscard(&sc->rec, count);
 	}
 	mtx_leave(&audio_lock);
 	return 0;
@@ -1538,7 +1543,6 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 		}
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
-		audio_buf_wcommit(&sc->play, count);
 		mtx_leave(&audio_lock);
 		error = uiomove(ptr, count, uio);
 		if (error)
@@ -1548,14 +1552,20 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 			DPRINTFN(1, "audio_write: converted count = %zu\n",
 			    count);
 		}
+		if (sc->ops->copy_output)
+			sc->ops->copy_output(sc->arg, count);
+
+		mtx_enter(&audio_lock);
+		audio_buf_wcommit(&sc->play, count);
 
 		/* start automatically if audio_ioc_start() was never called */
 		if (audio_canstart(sc)) {
+			mtx_leave(&audio_lock);
 			error = audio_start(sc);
 			if (error)
 				return error;
+			mtx_enter(&audio_lock);
 		}
-		mtx_enter(&audio_lock);
 	}
 	mtx_leave(&audio_lock);
 	return 0;

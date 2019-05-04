@@ -1,4 +1,4 @@
-/*	$OpenBSD: rad.c,v 1.18 2019/01/29 15:43:33 florian Exp $	*/
+/*	$OpenBSD: rad.c,v 1.20 2019/03/31 03:36:18 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -36,6 +36,7 @@
 #include <err.h>
 #include <errno.h>
 #include <event.h>
+#include <fcntl.h>
 #include <imsg.h>
 #include <netdb.h>
 #include <pwd.h>
@@ -361,7 +362,10 @@ start_child(int p, char *argv0, int fd, int debug, int verbose)
 		return (pid);
 	}
 
-	if (dup2(fd, 3) == -1)
+	if (fd != 3) {
+		if (dup2(fd, 3) == -1)
+			fatal("cannot setup imsg fd");
+	} else if (fcntl(fd, F_SETFD, 0) == -1)
 		fatal("cannot setup imsg fd");
 
 	argv[argc++] = argv0;
@@ -427,7 +431,9 @@ main_dispatch_frontend(int fd, short event, void *bula)
 				log_warnx("configuration reloaded");
 			break;
 		case IMSG_CTL_LOG_VERBOSE:
-			/* Already checked by frontend. */
+			if (IMSG_DATA_SIZE(imsg) != sizeof(verbose))
+				fatalx("%s: IMSG_CTL_LOG_VERBOSE wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));	
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
 			break;

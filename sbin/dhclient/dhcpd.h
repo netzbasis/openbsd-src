@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.273 2019/02/12 16:50:44 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.277 2019/04/02 02:59:43 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -159,13 +159,13 @@ int			 pack_options(unsigned char *, int,
 struct option_data	*unpack_options(struct dhcp_packet *);
 char			*pretty_print_option(unsigned int, struct option_data *,
     int);
-char			*pretty_print_domain_search(unsigned char *, size_t);
 char			*pretty_print_string(unsigned char *, size_t, int);
-void			 pretty_print_classless_routes(unsigned char *, size_t,
-    unsigned char *, size_t);
 char			*code_to_name(int);
 char			*code_to_format(int);
+int			 code_to_action(int, int);
 int			 name_to_code(char *);
+void			 merge_option_data(struct option_data *,
+    struct option_data *, struct option_data *);
 
 /* conflex.c */
 extern int	 lexline, lexchar;
@@ -223,6 +223,7 @@ void		 bootreply(struct interface_info *, struct option_data *,
 void		 free_client_lease(struct client_lease *);
 void		 routefd_handler(struct interface_info *, int);
 void		 state_preboot(struct interface_info *);
+char		*rfc1035_as_string(unsigned char *, size_t);
 
 /* packet.c */
 void		 assemble_eh_header(struct ether_addr, struct ether_header *);

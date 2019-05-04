@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_time.c,v 1.110 2019/01/31 18:23:27 tedu Exp $	*/
+/*	$OpenBSD: kern_time.c,v 1.114 2019/03/26 16:43:56 cheloha Exp $	*/
 /*	$NetBSD: kern_time.c,v 1.20 1996/02/18 11:57:06 fvdl Exp $	*/
 
 /*
@@ -36,10 +36,12 @@
 #include <sys/resourcevar.h>
 #include <sys/kernel.h>
 #include <sys/systm.h>
+#include <sys/rwlock.h>
 #include <sys/proc.h>
 #include <sys/ktrace.h>
 #include <sys/vnode.h>
 #include <sys/signalvar.h>
+#include <sys/stdint.h>
 #include <sys/pledge.h>
 #include <sys/task.h>
 #include <sys/timeout.h>
@@ -47,9 +49,6 @@
 
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
-
-
-int64_t adjtimedelta;		/* unapplied time correction (microseconds) */
 
 /* 
  * Time of day and interval timer support.
@@ -96,11 +95,6 @@ settime(const struct timespec *ts)
 		return (EPERM);
 	}
 
-	/*
-	 * Adjtime in progress is meaningless or harmful after
-	 * setting the clock. Cancel adjtime and then set new time.
-	 */
-	adjtimedelta = 0;
 	tc_setrealtimeclock(ts);
 	resettodr();
 
@@ -397,21 +391,25 @@ sys_adjfreq(struct proc *p, void *v, register_t *retval)
 	int64_t f;
 	const int64_t *freq = SCARG(uap, freq);
 	int64_t *oldfreq = SCARG(uap, oldfreq);
-	if (oldfreq) {
-		if ((error = tc_adjfreq(&f, NULL)))
-			return (error);
-		if ((error = copyout(&f, oldfreq, sizeof(f))))
-			return (error);
-	}
+
 	if (freq) {
 		if ((error = suser(p)))
 			return (error);
 		if ((error = copyin(freq, &f, sizeof(f))))
 			return (error);
-		if ((error = tc_adjfreq(NULL, &f)))
-			return (error);
 	}
-	return (0);
+
+	rw_enter(&tc_lock, (freq == NULL) ? RW_READ : RW_WRITE);
+	if (oldfreq) {
+		tc_adjfreq(&f, NULL);
+		if ((error = copyout(&f, oldfreq, sizeof(f))))
+			goto out;
+	}
+	if (freq)
+		tc_adjfreq(NULL, &f);
+out:
+	rw_exit(&tc_lock);
+	return (error);
 }
 
 int
@@ -421,43 +419,60 @@ sys_adjtime(struct proc *p, void *v, register_t *retval)
 		syscallarg(const struct timeval *) delta;
 		syscallarg(struct timeval *) olddelta;
 	} */ *uap = v;
+	struct timeval atv;
 	const struct timeval *delta = SCARG(uap, delta);
 	struct timeval *olddelta = SCARG(uap, olddelta);
-	struct timeval atv;
+	int64_t adjustment, remaining;	
 	int error;
 
 	error = pledge_adjtime(p, delta);
 	if (error)
 		return error;
 
+	if (delta) {
+		if ((error = suser(p)))
+			return (error);
+		if ((error = copyin(delta, &atv, sizeof(struct timeval))))
+			return (error);
+		if (!timerisvalid(&atv))
+			return (EINVAL);
+
+		if (atv.tv_sec >= 0) {
+			if (atv.tv_sec > INT64_MAX / 1000000)
+				return EINVAL;
+			adjustment = atv.tv_sec * 1000000;
+			if (atv.tv_usec > INT64_MAX - adjustment)
+				return EINVAL;
+			adjustment += atv.tv_usec;
+		} else {
+			if (atv.tv_sec < INT64_MIN / 1000000)
+				return EINVAL;
+			adjustment = atv.tv_sec * 1000000 + atv.tv_usec;
+		}
+
+		rw_enter_write(&tc_lock);
+	}
+
 	if (olddelta) {
+		tc_adjtime(&remaining, NULL);
 		memset(&atv, 0, sizeof(atv));
-		atv.tv_sec = adjtimedelta / 1000000;
-		atv.tv_usec = adjtimedelta % 1000000;
+		atv.tv_sec =  remaining / 1000000;
+		atv.tv_usec = remaining % 1000000;
 		if (atv.tv_usec < 0) {
 			atv.tv_usec += 1000000;
 			atv.tv_sec--;
 		}
 
 		if ((error = copyout(&atv, olddelta, sizeof(struct timeval))))
-			return (error);
+			goto out;
 	}
 
-	if (delta) {
-		if ((error = suser(p)))
-			return (error);
-
-		if ((error = copyin(delta, &atv, sizeof(struct timeval))))
-			return (error);
-
-		if (!timerisvalid(&atv))
-			return (EINVAL);
-
-		/* XXX Check for overflow? */
-		adjtimedelta = (int64_t)atv.tv_sec * 1000000 + atv.tv_usec;
-	}
-
-	return (0);
+	if (delta)
+		tc_adjtime(NULL, &adjustment);
+out:
+	if (delta)
+		rw_exit_write(&tc_lock);
+	return (error);
 }
 
 

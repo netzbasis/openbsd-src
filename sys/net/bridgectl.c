@@ -1,4 +1,4 @@
-/*	$OpenBSD: bridgectl.c,v 1.16 2019/02/20 17:11:51 mpi Exp $	*/
+/*	$OpenBSD: bridgectl.c,v 1.18 2019/04/28 22:15:57 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -84,8 +84,7 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		bif = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (bif == NULL || bif->bridge_sc != sc) {
+		if (ifs->if_bridgeidx != ifp->if_index) {
 			error = ESRCH;
 			break;
 		}
@@ -126,8 +125,7 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		bif = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (bif == NULL || bif->bridge_sc != sc) {
+		if (ifs->if_bridgeidx != ifp->if_index) {
 			error = ESRCH;
 			break;
 		}
@@ -137,6 +135,7 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = EINVAL;
 			break;
 		}
+		bif = bridge_getbif(ifs);
 		if (brlreq->ifbr_flags & BRL_FLAG_IN) {
 			error = bridge_addrule(bif, brlreq, 0);
 			if (error)
@@ -154,11 +153,11 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		bif = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (bif == NULL || bif->bridge_sc != sc) {
+		if (ifs->if_bridgeidx != ifp->if_index) {
 			error = ESRCH;
 			break;
 		}
+		bif = bridge_getbif(ifs);
 		bridge_flushrule(bif);
 		break;
 	case SIOCBRDGGRL:
@@ -167,11 +166,11 @@ bridgectl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = ENOENT;
 			break;
 		}
-		bif = (struct bridge_iflist *)ifs->if_bridgeport;
-		if (bif == NULL || bif->bridge_sc != sc) {
+		if (ifs->if_bridgeidx != ifp->if_index) {
 			error = ESRCH;
 			break;
 		}
+		bif = bridge_getbif(ifs);
 		error = bridge_brlconf(bif, bc);
 		break;
 	default:
@@ -206,7 +205,7 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 			goto done;
 
 		bcopy(ea, &p->brt_addr, sizeof(p->brt_addr));
-		p->brt_if = ifp;
+		p->brt_ifidx = ifp->if_index;
 		p->brt_age = 1;
 		bridge_copytag(brtag, &p->brt_tunnel);
 
@@ -227,16 +226,14 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 		dir = memcmp(ea, &q->brt_addr, sizeof(q->brt_addr));
 		if (dir == 0) {
 			if (setflags) {
-				q->brt_if = ifp;
+				q->brt_ifidx = ifp->if_index;
 				q->brt_flags = flags;
 			} else if (!(q->brt_flags & IFBAF_STATIC))
-				q->brt_if = ifp;
+				q->brt_ifidx = ifp->if_index;
 
-			if (q->brt_if == ifp)
+			if (q->brt_ifidx == ifp->if_index)
 				q->brt_age = 1;
-			ifp = q->brt_if;
 			bridge_copytag(brtag, &q->brt_tunnel);
-
 			goto want;
 		}
 
@@ -248,7 +245,7 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 				goto done;
 
 			bcopy(ea, &p->brt_addr, sizeof(p->brt_addr));
-			p->brt_if = ifp;
+			p->brt_ifidx = ifp->if_index;
 			p->brt_age = 1;
 			bridge_copytag(brtag, &p->brt_tunnel);
 
@@ -270,7 +267,7 @@ bridge_rtupdate(struct bridge_softc *sc, struct ether_addr *ea,
 				goto done;
 
 			bcopy(ea, &p->brt_addr, sizeof(p->brt_addr));
-			p->brt_if = ifp;
+			p->brt_ifidx = ifp->if_index;
 			p->brt_age = 1;
 			bridge_copytag(brtag, &p->brt_tunnel);
 
@@ -291,10 +288,12 @@ want:
 	return (error);
 }
 
-struct bridge_rtnode *
-bridge_rtlookup(struct bridge_softc *sc, struct ether_addr *ea)
+unsigned int
+bridge_rtlookup(struct ifnet *brifp, struct ether_addr *ea, struct mbuf *m)
 {
+	struct bridge_softc *sc = brifp->if_softc;
 	struct bridge_rtnode *p = NULL;
+	unsigned int ifidx = 0;
 	u_int32_t h;
 	int dir;
 
@@ -309,9 +308,20 @@ bridge_rtlookup(struct bridge_softc *sc, struct ether_addr *ea)
 			break;
 		}
 	}
+	if (p != NULL) {
+		ifidx = p->brt_ifidx;
+
+		if (p->brt_family != AF_UNSPEC && m != NULL) {
+			struct bridge_tunneltag *brtag;
+
+			brtag = bridge_tunneltag(m);
+			if (brtag != NULL)
+				bridge_copytag(&p->brt_tunnel, brtag);
+		}
+	}
 	mtx_leave(&sc->sc_mtx);
 
-	return (p);
+	return (ifidx);
 }
 
 u_int32_t
@@ -366,16 +376,14 @@ void
 bridge_rtagenode(struct ifnet *ifp, int age)
 {
 	struct bridge_softc *sc;
-	struct bridge_iflist *bif;
 	struct bridge_rtnode *n;
+	struct ifnet *bifp;
 	int i;
 
-	bif = (struct bridge_iflist *)ifp->if_bridgeport;
-	if (bif == NULL)
+	bifp = if_get(ifp->if_bridgeidx);
+	if (bifp == NULL)
 		return;
-	sc = bif->bridge_sc;
-	if (sc == NULL)
-		return;
+	sc = bifp->if_softc;
 
 	/*
 	 * If the age is zero then flush, otherwise set all the expiry times to
@@ -388,7 +396,7 @@ bridge_rtagenode(struct ifnet *ifp, int age)
 		for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 			LIST_FOREACH(n, &sc->sc_rts[i], brt_next) {
 				/* Cap the expiry time to 'age' */
-				if (n->brt_if == ifp &&
+				if (n->brt_ifidx == ifp->if_index &&
 				    n->brt_age > time_uptime + age &&
 				    (n->brt_flags & IFBAF_TYPEMASK) == IFBAF_DYNAMIC)
 					n->brt_age = time_uptime + age;
@@ -396,6 +404,8 @@ bridge_rtagenode(struct ifnet *ifp, int age)
 		}
 		mtx_leave(&sc->sc_mtx);
 	}
+
+	if_put(bifp);
 }
 
 /*
@@ -467,7 +477,7 @@ bridge_rtdelete(struct bridge_softc *sc, struct ifnet *ifp, int dynonly)
 	for (i = 0; i < BRIDGE_RTABLE_SIZE; i++) {
 		n = LIST_FIRST(&sc->sc_rts[i]);
 		while (n != NULL) {
-			if (n->brt_if != ifp) {
+			if (n->brt_ifidx != ifp->if_index) {
 				/* Not ours */
 				n = LIST_NEXT(n, brt_next);
 				continue;
@@ -519,13 +529,21 @@ bridge_rtfind(struct bridge_softc *sc, struct ifbaconf *baconf)
 	mtx_enter(&sc->sc_mtx);
 	for (k = 0; k < BRIDGE_RTABLE_SIZE; k++) {
 		LIST_FOREACH(n, &sc->sc_rts[k], brt_next) {
+			struct ifnet *ifp;
+
 			if (i >= total)
 				goto done;
 			bareq = &bareqs[i];
+
+			ifp = if_get(n->brt_ifidx);
+			if (ifp == NULL)
+				continue;
+			bcopy(ifp->if_xname, bareq->ifba_ifsname,
+			    sizeof(bareq->ifba_ifsname));
+			if_put(ifp);
+
 			bcopy(sc->sc_if.if_xname, bareq->ifba_name,
 			    sizeof(bareq->ifba_name));
-			bcopy(n->brt_if->if_xname, bareq->ifba_ifsname,
-			    sizeof(bareq->ifba_ifsname));
 			bcopy(&n->brt_addr, &bareq->ifba_dst,
 			    sizeof(bareq->ifba_dst));
 			bridge_copyaddr(&n->brt_tunnel.brtag_peer.sa,
@@ -553,7 +571,7 @@ bridge_update(struct ifnet *ifp, struct ether_addr *ea, int delete)
 
 	addr = (u_int8_t *)ea;
 
-	bif = (struct bridge_iflist *)ifp->if_bridgeport;
+	bif = bridge_getbif(ifp);
 	if (bif == NULL)
 		return;
 	sc = bif->bridge_sc;
@@ -795,5 +813,64 @@ bridge_flushrule(struct bridge_iflist *bif)
 		pf_tag_unref(p->brl_tag);
 #endif
 		free(p, M_DEVBUF, sizeof *p);
+	}
+}
+
+struct bridge_tunneltag *
+bridge_tunnel(struct mbuf *m)
+{
+	struct m_tag    *mtag;
+
+	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) == NULL)
+		return (NULL);
+
+	return ((struct bridge_tunneltag *)(mtag + 1));
+}
+
+struct bridge_tunneltag *
+bridge_tunneltag(struct mbuf *m)
+{
+	struct m_tag	*mtag;
+
+	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) == NULL) {
+		mtag = m_tag_get(PACKET_TAG_TUNNEL,
+		    sizeof(struct bridge_tunneltag), M_NOWAIT);
+		if (mtag == NULL)
+			return (NULL);
+		bzero(mtag + 1, sizeof(struct bridge_tunneltag));
+		m_tag_prepend(m, mtag);
+	}
+
+	return ((struct bridge_tunneltag *)(mtag + 1));
+}
+
+void
+bridge_tunneluntag(struct mbuf *m)
+{
+	struct m_tag    *mtag;
+	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) != NULL)
+		m_tag_delete(m, mtag);
+}
+
+void
+bridge_copyaddr(struct sockaddr *src, struct sockaddr *dst)
+{
+	if (src != NULL && src->sa_family != AF_UNSPEC)
+		memcpy(dst, src, src->sa_len);
+	else {
+		dst->sa_family = AF_UNSPEC;
+		dst->sa_len = 0;
+	}
+}
+
+void
+bridge_copytag(struct bridge_tunneltag *src, struct bridge_tunneltag *dst)
+{
+	if (src == NULL) {
+		memset(dst, 0, sizeof(*dst));
+	} else {
+		bridge_copyaddr(&src->brtag_peer.sa, &dst->brtag_peer.sa);
+		bridge_copyaddr(&src->brtag_local.sa, &dst->brtag_local.sa);
+		dst->brtag_id = src->brtag_id;
 	}
 }

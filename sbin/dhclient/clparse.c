@@ -1,4 +1,4 @@
-/*	$OpenBSD: clparse.c,v 1.183 2019/02/12 16:50:44 krw Exp $	*/
+/*	$OpenBSD: clparse.c,v 1.185 2019/04/02 02:59:43 krw Exp $	*/
 
 /* Parser for dhclient config and lease files. */
 
@@ -69,6 +69,7 @@
 
 void	parse_conf_decl(FILE *, char *);
 int	parse_hex_octets(FILE *, unsigned int *, uint8_t **);
+int	parse_domain_list(FILE *, int *, char **);
 int	parse_option_list(FILE *, int *, uint8_t *);
 int	parse_interface(FILE *, char *);
 int	parse_lease(FILE *, char *, struct client_lease **);
@@ -257,7 +258,7 @@ parse_conf_decl(FILE *cfile, char *name)
 {
 	uint8_t			 list[DHO_COUNT];
 	char			*val;
-	int			 i, count, token;
+	int			 action, count, i, token;
 	uint32_t		 t;
 
 	token = next_token(NULL, cfile);
@@ -265,7 +266,10 @@ parse_conf_decl(FILE *cfile, char *name)
 	switch (token) {
 	case TOK_APPEND:
 		if (parse_option(cfile, &i, config->defaults) == 1) {
-			config->default_actions[i] = ACTION_APPEND;
+			action = code_to_action(i, ACTION_APPEND);
+			if (action == ACTION_DEFAULT)
+				parse_warn("'append' treated as 'default'");
+			config->default_actions[i] = action;
 			parse_semi(cfile);
 		}
 		break;
@@ -356,7 +360,10 @@ parse_conf_decl(FILE *cfile, char *name)
 		break;
 	case TOK_PREPEND:
 		if (parse_option(cfile, &i, config->defaults) == 1) {
-			config->default_actions[i] = ACTION_PREPEND;
+			action = code_to_action(i, ACTION_PREPEND);
+			if (action == ACTION_SUPERSEDE)
+				parse_warn("'prepend' treated as 'supersede'");
+			config->default_actions[i] = action;
 			parse_semi(cfile);
 		}
 		break;
@@ -458,6 +465,53 @@ parse_hex_octets(FILE *cfile, unsigned int *len, uint8_t **buf)
 	} while (token == ':');
 
 	parse_warn("expecting colon delimited list of hex octets.");
+
+	if (token != ';')
+		skip_to_semi(cfile);
+
+	return 0;
+}
+
+int
+parse_domain_list(FILE *cfile, int *len, char **dp)
+{
+	uint8_t		 buf[DHCP_DOMAIN_SEARCH_LEN];
+	char		*domain;
+	int		 count, token;
+
+	memset(buf, 0, sizeof(buf));
+	count = 0;
+
+	do {
+		if (parse_string(cfile, NULL, &domain) == 0)
+			return 0;
+
+		count++;
+		if (count > DHCP_DOMAIN_SEARCH_CNT) {
+			parse_warn("more than 6 search domains");
+			break;
+		}
+
+		if (count > 1)
+			strlcat(buf, " ", sizeof(buf));
+		if (strlcat(buf, domain, sizeof(buf)) >= sizeof(buf)) {
+			parse_warn("domain list too long");
+			break;
+		}
+
+		token = peek_token(NULL, cfile);
+		if (token == ';') {
+			*dp = strdup(buf);
+			if (*dp == NULL)
+				fatal("domain name list");
+			*len = strlen(buf) + 1;
+			memcpy(*dp, buf, *len);
+			return 1;
+		}
+		token = next_token(NULL, cfile);
+		if (token != ',')
+			parse_warn("';' or ',' expected");
+	} while (token == ',');
 
 	if (token != ';')
 		skip_to_semi(cfile);
@@ -817,6 +871,24 @@ parse_option(FILE *cfile, int *code, struct option_data *options)
 					return 0;
 				len = 1 + (cidr[0] + 7) / 8;
 				dp = cidr;
+				break;
+			case 'D':
+				if (peek_token(NULL, cfile) == TOK_STRING) {
+					if (parse_domain_list(cfile, &len,
+					    (char **)&dp) == 0)
+						return 0;
+				} else if (parse_hex_octets(cfile, &len, &dp)
+				    == 0) {
+					return 0;
+				} else {
+					val = rfc1035_as_string(dp, len);
+					free(dp);
+					dp = strdup(val);
+					if (dp == NULL)
+						fatal("RFC1035 hex octets");
+					len = strlen(dp) + 1;
+				}
+				freedp = 1;
 				break;
 			default:
 				log_warnx("%s: bad format %c in "

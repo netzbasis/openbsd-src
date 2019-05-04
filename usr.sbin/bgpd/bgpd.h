@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.376 2019/02/27 04:31:56 claudio Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.379 2019/04/25 12:12:16 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -38,7 +38,7 @@
 #define	CONFFILE			"/etc/bgpd.conf"
 #define	BGPD_USER			"_bgpd"
 #define	PEER_DESCR_LEN			32
-#define	SHUT_COMM_LEN			129
+#define	SHUT_COMM_LEN			256	/* includes NUL terminator */
 #define	PFTABLE_LEN			32
 #define	TCP_MD5_KEY_LEN			80
 #define	IPSEC_ENC_KEY_LEN		32
@@ -231,6 +231,9 @@ struct listen_addr {
 TAILQ_HEAD(listen_addrs, listen_addr);
 TAILQ_HEAD(filter_set_head, filter_set);
 
+struct peer;
+TAILQ_HEAD(peer_head, peer);
+
 struct l3vpn;
 SIMPLEQ_HEAD(l3vpn_head, l3vpn);
 
@@ -267,6 +270,7 @@ struct filter_rule;
 TAILQ_HEAD(filter_head, filter_rule);
 
 struct bgpd_config {
+	struct peer_head			 peers;
 	struct l3vpn_head			 l3vpns;
 	struct network_head			 networks;
 	struct filter_head			*filters;
@@ -376,7 +380,6 @@ struct peer_config {
 	enum export_type	 export_type;
 	enum enforce_as		 enforce_as;
 	enum enforce_as		 enforce_local_as;
-	enum reconf_action	 reconf_action;
 	u_int16_t		 max_prefix_restart;
 	u_int16_t		 holdtime;
 	u_int16_t		 min_holdtime;
@@ -1160,14 +1163,18 @@ int	control_imsg_relay(struct imsg *);
 
 /* config.c */
 struct bgpd_config	*new_config(void);
-void			 free_config(struct bgpd_config *);
-void	free_prefixsets(struct prefixset_head *);
-void	free_prefixtree(struct prefixset_tree *);
-void	filterlist_free(struct filter_head *);
-int	host(const char *, struct bgpd_addr *, u_int8_t *);
-void	copy_filterset(struct filter_set_head *, struct filter_set_head *);
-void	expand_networks(struct bgpd_config *);
-int	prefixset_cmp(struct prefixset_item *, struct prefixset_item *);
+void		copy_config(struct bgpd_config *, struct bgpd_config *);
+void		free_config(struct bgpd_config *);
+void		free_prefixsets(struct prefixset_head *);
+void		free_rde_prefixsets(struct rde_prefixset_head *);
+void		free_prefixtree(struct prefixset_tree *);
+void		filterlist_free(struct filter_head *);
+int		host(const char *, struct bgpd_addr *, u_int8_t *);
+u_int32_t	get_bgpid(void);
+void		copy_filterset(struct filter_set_head *,
+		    struct filter_set_head *);
+void		expand_networks(struct bgpd_config *);
+int		prefixset_cmp(struct prefixset_item *, struct prefixset_item *);
 RB_PROTOTYPE(prefixset_tree, prefixset_item, entry, prefixset_cmp);
 
 /* kroute.c */
@@ -1213,7 +1220,7 @@ time_t		 mrt_timeout(struct mrt_head *);
 void		 mrt_reconfigure(struct mrt_head *);
 void		 mrt_handler(struct mrt_head *);
 struct mrt	*mrt_get(struct mrt_head *, struct mrt *);
-int		 mrt_mergeconfig(struct mrt_head *, struct mrt_head *);
+void		 mrt_mergeconfig(struct mrt_head *, struct mrt_head *);
 
 /* name2id.c */
 u_int16_t	 rib_name2id(const char *);
@@ -1264,6 +1271,18 @@ void			 set_prep(struct set_table *);
 void			*set_match(const struct set_table *, u_int32_t);
 int			 set_equal(const struct set_table *,
 			    const struct set_table *);
+
+/* rde_trie.c */
+int	trie_add(struct trie_head *, struct bgpd_addr *, u_int8_t, u_int8_t,
+	    u_int8_t);
+int	trie_roa_add(struct trie_head *, struct bgpd_addr *, u_int8_t,
+	    struct set_table *);
+void	trie_free(struct trie_head *);
+int	trie_match(struct trie_head *, struct bgpd_addr *, u_int8_t, int);
+int	trie_roa_check(struct trie_head *, struct bgpd_addr *, u_int8_t,
+	    u_int32_t);
+void	trie_dump(struct trie_head *);
+int	trie_equal(struct trie_head *, struct trie_head *);
 
 /* util.c */
 const char	*log_addr(const struct bgpd_addr *);

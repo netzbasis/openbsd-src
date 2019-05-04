@@ -1,64 +1,119 @@
-#	$OpenBSD: Makefile,v 1.3 2015/09/19 10:44:43 miod Exp $
+#	$OpenBSD: Makefile,v 1.13 2019/05/01 20:53:35 deraadt Exp $
 
-TOP=	${.CURDIR}/..
+FS=		miniroot${OSrev}.fs
+FSSIZE=		5760
+FSDISKTYPE=	fakeramdisk
+CDROM=		cd${OSrev}.iso
+MOUNT_POINT=	/mnt
+MTREE=		${UTILS}/mtree.conf
 
-.include "${TOP}/Makefile.inc"
+LISTS=		${.CURDIR}/list
+UTILS=		${.CURDIR}/../../miniroot
 
-TARGET=miniroot${REV}.fs
+STRIPOPTS=	-R .eh_frame -R .SUNW_ctf -R .shstrtab
 
-.ifndef DESTDIR
-all ${TARGET}:
-	@echo setenv DESTDIR before making a ramdisk!
-	@false
-.else
+MRDISKTYPE=	rdroot
+MRMAKEFSARGS=	-o disklabel=${MRDISKTYPE},minfree=0,density=8192
 
-all: ${TARGET}
+all: ${FS} ${CDROM}
 
-${TARGET}: vn_up install_files installboot showit vn_down
-
-vn_up: blank_filesystem
-	vnconfig vnd0 ${TARGET}
-	disklabel -w vnd0 fakeramdisk
-	newfs -m 0 /dev/rvnd0a
-	mount /dev/vnd0a /mnt
-
-showit:
-	df -ki /mnt
-
-vn_down:
-	-umount /mnt
-	-vnconfig -u vnd0
-
-install_files: bsd.rd boot
-
-bsd.rd:
+${FS}: bsd.rd
+	dd if=/dev/zero of=${FS} bs=512 count=${FSSIZE}
+	vnconfig -v ${FS} > vnd
+	disklabel -w `cat vnd` ${FSDISKTYPE}
+	newfs -m 0 /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
+	install -c -m 555 -o root -g wheel bsd.rd ${MOUNT_POINT}/bsd
 	install -c -m 555 -o root -g wheel \
-	    ${.OBJDIR}/../bsd.rd/bsd.rd /mnt/bsd
+	    ${DESTDIR}/usr/mdec/boot ${MOUNT_POINT}/boot
+	/usr/mdec/installboot -v \
+	    ${MOUNT_POINT}/boot ${DESTDRIR}/usr/mdec/bootxx `cat vnd`
+	df -i ${MOUNT_POINT}
+	umount ${MOUNT_POINT}
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
-boot:
-	install -c -m 555 -o root -g wheel \
-	    ${DESTDIR}/usr/mdec/boot /mnt/boot
+${CDROM}: bsd.rd
+	rm -rf ${.OBJDIR}/cd-dir
+	mkdir -p ${.OBJDIR}/cd-dir/${OSREV}/${MACHINE}
 
-installboot:
-	/usr/mdec/installboot -v /mnt/boot ${DESTDRIR}/usr/mdec/bootxx /dev/rvnd0c
+	cp bsd.rd ${.OBJDIR}/cd-dir/${OSREV}/${MACHINE}
 
-blank_filesystem:
-	dd if=/dev/zero of=${TARGET} bs=512 count=5760
+	# make sure right kernel is in /
+	ln ${.OBJDIR}/cd-dir/${OSREV}/${MACHINE}/bsd.rd ${.OBJDIR}/cd-dir/bsd.rd
+	ln ${.OBJDIR}/cd-dir/bsd.rd ${.OBJDIR}/cd-dir/bsd
 
-.endif
+	cp ${DESTDIR}/usr/mdec/boot ${.OBJDIR}/cd-dir/${OSREV}/${MACHINE}
+	cp ${DESTDIR}/usr/mdec/bootxx ${.OBJDIR}/cd-dir/${OSREV}/${MACHINE}
+
+	(mkhybrid -a -R -T -L -d -D -N -o ${.OBJDIR}/${CDROM} -v -v -v \
+	    -A "OpenBSD ${OSREV} ${MACHINE} bootonly CD" \
+	    -P "Copyright (c) `date +%Y` Theo de Raadt, The OpenBSD project" \
+	    -p "Theo de Raadt <deraadt@openbsd.org>" \
+	    -V "OpenBSD/${MACHINE}   ${OSREV} boot-only CD" \
+	    ${.OBJDIR}/cd-dir 2>&1) | tee log
+	vnconfig -v ${CDROM} > vnd
+	mount -t cd9660 /dev/`cat vnd`a ${MOUNT_POINT}
+	/usr/mdec/installboot -v \
+	    -s `cat log | grep -v 'Name' | egrep "/cd-dir/${OSREV}/${MACHINE}/boot$$" | cut -d' ' -f1` \
+	    -e `cat log | grep -v 'Name' | egrep "/cd-dir/${OSREV}/${MACHINE}/boot$$" | cut -d' ' -f2` \
+	    ${MOUNT_POINT}/${OSREV}/${MACHINE}/boot /usr/mdec/bootxx `cat vnd`
+	umount ${MOUNT_POINT}
+	vnconfig -u `cat vnd`
+	rm -f vnd
+
+bsd.rd: bsd.rd_unz
+	objcopy -Sg -R .comment bsd.rd_unz bsd.strip
+	strip ${STRIPOPTS} bsd.strip
+	gzip -c -9nv bsd.strip > bsd.rd
+
+bsd.rd_unz: bsd mr.fs
+	cp bsd bsd.rd_unz
+	rdsetroot bsd.rd_unz mr.fs
+	strip -R .SUNW_ctf -R .shstrtab bsd.rd_unz
+
+bsd:
+	cd ${.CURDIR}/../../../sys/arch/alpha/compile/RAMDISKBIG && \
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
+	cp -p ${.CURDIR}/../../../sys/arch/alpha/compile/RAMDISKBIG/obj/bsd bsd
+
+mr.fs: instbin
+	rm -rf $@.d
+	install -d -o root -g wheel $@.d
+	mtree -def ${MTREE} -p $@.d -u
+	CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
+	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
+	    sh ${UTILS}/runlist.sh ${LISTS}
+	rm $@.d/instbin
+	makefs ${MRMAKEFSARGS} $@ $@.d
+
+instbin.mk instbin.cache instbin.c: instbin.conf
+	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib \
+	    -c instbin.c -e instbin -m instbin.mk instbin.conf
+
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+	strip ${STRIPOPTS} instbin
+
+instbin.conf: ${LISTS}
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
 unconfig:
-	-umount -f /mnt
-	-vnconfig -u /dev/vnd0a
+	-umount -f ${MOUNT_POINT}
+	-[ -f vnd ] && vnconfig -u `cat vnd` && rm -f vnd
 
 .ifdef RELEASEDIR
 install:
-	cp ${TARGET} ${RELEASEDIR}
+	cp bsd.rd ${RELEASEDIR}/bsd.rd
+	chmod a+r ${RELEASEDIR}/bsd.rd
+	cp ${FS} ${RELEASEDIR}
+	cp ${CDROM} ${RELEASEDIR}
 .endif
 
-clean:
-	rm -f ${TARGET}
+clean cleandir:
+	rm -f *.core mr.fs instbin instbin.mk instbin.cache \
+	    *.o *.lo *.c \
+	    lib*.a lib*.olist instbin.map ${CLEANFILES}
+	rm -rf mr.fs.d
 
-.include <bsd.own.mk>
 .include <bsd.obj.mk>
-.include <bsd.subdir.mk>

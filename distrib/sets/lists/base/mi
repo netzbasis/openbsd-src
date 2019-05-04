@@ -214,10 +214,6 @@
 ./etc/rpc
 ./etc/services
 ./etc/signify
-./etc/signify/openbsd-63-base.pub
-./etc/signify/openbsd-63-fw.pub
-./etc/signify/openbsd-63-pkg.pub
-./etc/signify/openbsd-63-syspatch.pub
 ./etc/signify/openbsd-64-base.pub
 ./etc/signify/openbsd-64-fw.pub
 ./etc/signify/openbsd-64-pkg.pub
@@ -229,11 +225,11 @@
 ./etc/signify/openbsd-66-base.pub
 ./etc/signify/openbsd-66-fw.pub
 ./etc/signify/openbsd-66-pkg.pub
+./etc/signify/openbsd-66-syspatch.pub
 ./etc/skel
 ./etc/skel/.ssh
 ./etc/ssh
 ./etc/ssl
-./etc/ssl/lib
 ./etc/ssl/private
 ./etc/termcap
 ./etc/weekly
@@ -476,6 +472,7 @@
 ./usr/bin/nohup
 ./usr/bin/od
 ./usr/bin/opencvs
+./usr/bin/openrsync
 ./usr/bin/openssl
 ./usr/bin/otp-md5
 ./usr/bin/otp-rmd160
@@ -626,7 +623,7 @@
 ./usr/include
 ./usr/lib
 ./usr/lib/libc.so.95.0
-./usr/lib/libcrypto.so.45.3
+./usr/lib/libcrypto.so.45.4
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.2
 ./usr/lib/libelf.so.2.0
@@ -653,10 +650,10 @@
 ./usr/lib/librpcsvc.so.2.0
 ./usr/lib/libskey.so.6.0
 ./usr/lib/libsndio.so.7.0
-./usr/lib/libssl.so.47.3
+./usr/lib/libssl.so.47.5
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.19.4
+./usr/lib/libtls.so.19.6
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.13.0
 ./usr/lib/libz.so.5.0
@@ -2577,6 +2574,7 @@
 ./usr/sbin/rbootd
 ./usr/sbin/rcctl
 ./usr/sbin/rdate
+./usr/sbin/rdsetroot
 ./usr/sbin/rebound
 ./usr/sbin/relayctl
 ./usr/sbin/relayd
@@ -2612,6 +2610,7 @@
 ./usr/sbin/syslogd
 ./usr/sbin/sysmerge
 ./usr/sbin/syspatch
+./usr/sbin/sysupgrade
 ./usr/sbin/tcpdrop
 ./usr/sbin/tcpdump
 ./usr/sbin/tftp-proxy
@@ -2823,7 +2822,7 @@
 ./usr/share/relink/usr
 ./usr/share/relink/usr/lib
 ./usr/share/relink/usr/lib/libc.so.95.0.a
-./usr/share/relink/usr/lib/libcrypto.so.45.3.a
+./usr/share/relink/usr/lib/libcrypto.so.45.4.a
 ./usr/share/relink/usr/libexec
 ./usr/share/relink/usr/libexec/ld.so.a
 ./usr/share/snmp

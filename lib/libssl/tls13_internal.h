@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.25 2019/02/28 17:56:43 jsing Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.28 2019/04/05 20:23:38 tb Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -35,9 +35,9 @@ __BEGIN_HIDDEN_DECLS
 #define TLS13_IO_FAILURE	-1
 #define TLS13_IO_WANT_POLLIN	-2
 #define TLS13_IO_WANT_POLLOUT	-3
+#define TLS13_IO_USE_LEGACY	-4
 
-typedef void (*tls13_alert_cb)(uint8_t _alert_level, uint8_t _alert_desc,
-    void *_cb_arg);
+typedef void (*tls13_alert_cb)(uint8_t _alert_desc, void *_cb_arg);
 typedef int (*tls13_post_handshake_cb)(void *_cb_arg);
 typedef ssize_t (*tls13_read_cb)(void *_buf, size_t _buflen, void *_cb_arg);
 typedef ssize_t (*tls13_write_cb)(const void *_buf, size_t _buflen,
@@ -229,6 +229,8 @@ int tls13_client_key_update_send(struct tls13_ctx *ctx);
 int tls13_client_key_update_recv(struct tls13_ctx *ctx);
 int tls13_server_hello_recv(struct tls13_ctx *ctx);
 int tls13_server_hello_send(struct tls13_ctx *ctx);
+int tls13_server_hello_retry_recv(struct tls13_ctx *ctx);
+int tls13_server_hello_retry_send(struct tls13_ctx *ctx);
 int tls13_server_encrypted_extensions_recv(struct tls13_ctx *ctx);
 int tls13_server_encrypted_extensions_send(struct tls13_ctx *ctx);
 int tls13_server_certificate_recv(struct tls13_ctx *ctx);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.221 2019/01/11 17:03:43 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.225 2019/04/30 18:48:26 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/param.h>	/* MACHINE */
-#include <sys/termios.h>
 #include <sys/wait.h>
 
 #include <assert.h>
@@ -34,6 +33,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -383,6 +383,7 @@ main(int argc, char *argv[])
 				res[sz].file = mandoc_strdup(argv[c]);
 				res[sz].names = NULL;
 				res[sz].output = NULL;
+				res[sz].bits = 0;
 				res[sz].ipath = SIZE_MAX;
 				res[sz].sec = 10;
 				res[sz].form = FORM_SRC;
@@ -731,6 +732,7 @@ found:
 	page->file = file;
 	page->names = NULL;
 	page->output = NULL;
+	page->bits = NAME_FILE & NAME_MASK;
 	page->ipath = ipath;
 	page->sec = (*sec >= '1' && *sec <= '9') ? *sec - '1' + 1 : 10;
 	page->form = form;
@@ -767,7 +769,11 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 		}
 		if (res != NULL && *ressz == lastsz &&
 		    strchr(*argv, '/') == NULL) {
-			if (cfg->sec == NULL)
+			if (cfg->arch != NULL &&
+			    arch_valid(cfg->arch, MANDOC_OS_OPENBSD) == 0)
+				warnx("Unknown architecture \"%s\".",
+				    cfg->arch);
+			else if (cfg->sec == NULL)
 				warnx("No entry for %s in the manual.",
 				    *argv);
 			else
@@ -805,6 +811,8 @@ parse(struct curparse *curp, int fd, const char *file)
 
 	if (curp->outdata == NULL)
 		outdata_alloc(curp);
+	else if (curp->outtype == OUTT_HTML)
+		html_reset(curp);
 
 	mandoc_xr_reset();
 	meta = mparse_result(curp->mp);

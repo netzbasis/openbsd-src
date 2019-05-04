@@ -1,80 +1,84 @@
-#	$OpenBSD: Makefile,v 1.17 2017/07/25 13:32:14 robert Exp $
+#	$OpenBSD: Makefile,v 1.26 2019/04/30 23:25:19 deraadt Exp $
 
-REV=	${OSrev}
-
-TOP=		${.CURDIR}/..
-
-BSD_RD=		bsd.rd
-BSD_BIN=	bsd.bin
-IMAGE=		mr.fs
-CBIN?=		instbin
-CRUNCHCONF?=	${CBIN}.conf
-CRUNCHCONFS?=	${.CURDIR}/../common/crunch.conf
-LISTS=		${.CURDIR}/list
-UTILS?=		${.CURDIR}/../../miniroot
-
+FS=		miniroot${OSrev}.fs
+FSSIZE=		8064
+FSDISKTYPE=	miniroot
+MOUNT_POINT=	/mnt
 MTREE=		${UTILS}/mtree.conf
 
-DISKTYPE=	rdroot
-MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
+# minfree, opt, b/i  trks, sects, cpg
+NEWFSARGS= -m 0 -o space -i 4096
 
-.ifndef DESTDIR
-all ${IMAGE}:
-	@echo setenv DESTDIR before making a ramdisk!
-	@false
-.else
+LISTS=		${.CURDIR}/list
+UTILS=		${.CURDIR}/../../miniroot
 
-# mix config is not needed.
-all:	${BSD_RD} ${BSD_BIN}
+MRDISKTYPE=	rdroot
+MRMAKEFSARGS=	-o disklabel=${MRDISKTYPE},minfree=0,density=4096
 
-${BSD_RD}: ${IMAGE} bsd rdsetroot
-	cp bsd ${BSD_RD}
-	${.OBJDIR}/rdsetroot ${BSD_RD} ${IMAGE}
+all: ${FS} bsd.bin
 
-${BSD_BIN}: ${BSD_RD}
-	objcopy -O binary ${BSD_RD} ${BSD_BIN}
+${FS}: mr.fs
+	dd if=/dev/zero of=${FS} bs=512 count=${FSSIZE}
+	vnconfig -v -t ${FSDISKTYPE} ${FS} > vnd
+	fdisk -i -y `cat vnd`
+	disklabel -w `cat vnd` ${FSDISKTYPE}
+	newfs ${NEWFSARGS} /dev/r`cat vnd`a
+	mount /dev/`cat vnd`a ${MOUNT_POINT}
+	dd if=${DESTDIR}/usr/mdec/boot.elf of=/dev/r`cat vnd`i conv=osync
+	gzip -c < bsd.rd > ${MOUNT_POINT}/bsd.rd
+	ln ${MOUNT_POINT}/bsd.rd ${MOUNT_POINT}/bsd
+	df -i ${MOUNT_POINT}
+	umount ${MOUNT_POINT}
+	vnconfig -u `cat vnd`
+	rm -f vnd
 
-${IMAGE}: ${CBIN}
+mr.fs: instbin
 	rm -rf $@.d
 	install -d -o root -g wheel $@.d
 	mtree -def ${MTREE} -p $@.d -u
-	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} \
+	CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} OSrev=${OSrev} \
 	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
 	    sh ${UTILS}/runlist.sh ${LISTS}
-	rm $@.d/${CBIN}
-	makefs ${MAKEFSARGS_RD} $@ $@.d
+	rm $@.d/instbin
+	makefs ${MRMAKEFSARGS} $@ $@.d
 
-.endif
+bsd.bin: bsd.rd
+	objcopy -O binary bsd.rd bsd.bin
+
+bsd.rd: mr.fs bsd
+	cp bsd bsd.rd
+	rdsetroot bsd.rd mr.fs
 
 bsd:
-	cd ${TOP}/../../sys/arch/socppc/compile/RAMDISK && \
-	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS=-Oz ${MAKE}'
-	cp -p ${TOP}/../../sys/arch/socppc/compile/RAMDISK/obj/bsd bsd
+	cd ${.CURDIR}/../../../sys/arch/socppc/compile/RAMDISK && \
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && exec ${MAKE}'
+	cp -p ${.CURDIR}/../../../sys/arch/socppc/compile/RAMDISK/obj/bsd bsd
 
-rdsetroot:	${TOP}/../common/elfrdsetroot.c
-	${HOSTCC} ${HOSTCFLAGS} -o rdsetroot \
-	    ${TOP}/../common/elfrdsetroot.c ${TOP}/../common/elf32.c \
-	    ${TOP}/../common/elf64.c
+instbin.mk instbin.cache instbin.c: instbin.conf
+	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib \
+	    -c instbin.c -e instbin -m instbin.mk instbin.conf
 
-${CBIN}.mk ${CBIN}.cache ${CBIN}.c: ${CRUNCHCONF}
-	crunchgen -E -D ${.CURDIR}/../../.. -L ${DESTDIR}/usr/lib ${.ALLSRC}
+instbin: instbin.mk instbin.cache instbin.c
+	${MAKE} -f instbin.mk SRCLIBDIR=${.CURDIR}/../../../lib all
 
-${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
-	${MAKE} -f ${CBIN}.mk SRCLIBDIR=${.CURDIR}/../../../lib all
+instbin.conf: ${LISTS}
+	awk -f ${UTILS}/makeconf.awk  ${LISTS} > instbin.conf
 
-${CRUNCHCONF}: ${LISTS}
-	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CBIN}.conf
-
-clean cleandir:
-	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}.cache \
-	    lib*.a lib*.olist ${CBIN}.map \
-	    *.o *.lo *.c bsd ${BSD_RD} cd${REV}.iso rdsetroot
-	rm -rf cd-dir ${IMAGE}.d
+unconfig:
+	-umount -f ${MOUNT_POINT}
+	-[ -f vnd ] && vnconfig -u `cat vnd` && rm -f vnd
 
 .ifdef RELEASEDIR
 install:
-	cp ${BSD_RD} ${BSD_BIN} ${RELEASEDIR}
+	cp bsd.rd ${RELEASEDIR}/bsd.rd
+	chmod a+r ${RELEASEDIR}/bsd.rd
+	cp ${FS} ${RELEASEDIR}
+	cp bsd.bin ${RELEASEDIR}
 .endif
 
+clean cleandir:
+	rm -f *.core mr.fs instbin instbin.mk instbin.cache \
+	    lib*.a lib*.olist instbin.map *.o *.lo *.c bsd bsd.rd cd${OSrev}.iso
+	rm -rf cd-dir mr.fs.d
+
 .include <bsd.obj.mk>
-.include <bsd.subdir.mk>

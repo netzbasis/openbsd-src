@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.106 2019/02/16 19:04:34 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.110 2019/04/25 19:36:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -398,9 +398,11 @@ tty_keys_build(struct tty *tty)
 {
 	const struct tty_default_key_raw	*tdkr;
 	const struct tty_default_key_code	*tdkc;
-	u_int		 			 i, size;
-	const char				*s, *value;
+	u_int		 			 i;
+	const char				*s;
 	struct options_entry			*o;
+	struct options_array_item		*a;
+	union options_value			*ov;
 
 	if (tty->key_tree != NULL)
 		tty_keys_free(tty);
@@ -423,11 +425,12 @@ tty_keys_build(struct tty *tty)
 	}
 
 	o = options_get(global_options, "user-keys");
-	if (o != NULL && options_array_size(o, &size) != -1) {
-		for (i = 0; i < size; i++) {
-			value = options_array_get(o, i);
-			if (value != NULL)
-				tty_keys_add(tty, value, KEYC_USER + i);
+	if (o != NULL) {
+		a = options_array_first(o);
+		while (a != NULL) {
+			ov = options_array_item_value(a);
+			tty_keys_add(tty, ov->string, KEYC_USER + i);
+			a = options_array_next(a);
 		}
 	}
 }
@@ -973,7 +976,7 @@ tty_keys_clipboard(__unused struct tty *tty, const char *buf, size_t len,
 
 	/* Create a new paste buffer. */
 	log_debug("%s: %.*s", __func__, outlen, out);
-	paste_add(out, outlen);
+	paste_add(NULL, out, outlen);
 
 	return (0);
 }

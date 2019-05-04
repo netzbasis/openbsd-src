@@ -43,6 +43,7 @@ D/pty////
 D/pwrite////
 D/pwritev////
 D/rcvtimeo////
+D/realpath////
 D/recvwait////
 D/rlimit-file////
 D/setuid////

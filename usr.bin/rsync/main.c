@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.31 2019/02/21 22:06:26 benno Exp $ */
+/*	$Id: main.c,v 1.44 2019/04/04 04:19:54 bket Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -28,24 +28,6 @@
 #include <unistd.h>
 
 #include "extern.h"
-
-static void
-fargs_free(struct fargs *p)
-{
-	size_t	 i;
-
-	if (p == NULL)
-		return;
-
-	if (p->sources != NULL)
-		for (i = 0; i < p->sourcesz; i++)
-			free(p->sources[i]);
-
-	free(p->sources);
-	free(p->sink);
-	free(p->host);
-	free(p);
-}
 
 /*
  * A remote host is has a colon before the first path separator.
@@ -129,8 +111,7 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 
 	if (fargs_is_remote(f->sources[0])) {
 		if (f->host != NULL)
-			errx(1, "both source and "
-				"destination cannot be remote files");
+			errx(1, "both source and destination cannot be remote files");
 		f->mode = FARGS_RECEIVER;
 		if ((f->host = strdup(f->sources[0])) == NULL)
 			err(1, "strdup");
@@ -143,8 +124,7 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 			len = strlen(f->host) - 8 + 1;
 			memmove(f->host, f->host + 8, len);
 			if ((cp = strchr(f->host, '/')) == NULL)
-				errx(1, "rsync protocol requires a module "
-				    "name");
+				errx(1, "rsync protocol requires a module name");
 			*cp++ = '\0';
 			f->module = cp;
 			if ((cp = strchr(f->module, '/')) != NULL)
@@ -181,9 +161,9 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 			for (i = 0; i < f->sourcesz; i++) {
 				if (!fargs_is_remote(f->sources[i]))
 					continue;
-				errx(1, "remote file in "
-					"list of local sources: %s",
-					f->sources[i]);
+				errx(1,
+				    "remote file in list of local sources: %s",
+				    f->sources[i]);
 			}
 		if (f->mode == FARGS_RECEIVER)
 			for (i = 0; i < f->sourcesz; i++) {
@@ -191,13 +171,11 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 				    !fargs_is_daemon(f->sources[i]))
 					continue;
 				if (fargs_is_daemon(f->sources[i]))
-					errx(1, "remote "
-						"daemon in list of "
-						"remote sources: %s",
-						f->sources[i]);
-				errx(1, "local file in "
-					"list of remote sources: %s",
-					f->sources[i]);
+					errx(1, "remote daemon in list of "
+					    "remote sources: %s",
+					    f->sources[i]);
+				errx(1, "local file in list of remote sources: %s",
+				    f->sources[i]);
 			}
 	} else {
 		if (f->mode != FARGS_RECEIVER)
@@ -252,8 +230,8 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 				*ccp = '\0';
 			if (strncmp(cp, f->host, len) ||
 			    (cp[len] != '/' && cp[len] != '\0'))
-				errx(1, "different remote "
-					"host: %s", f->sources[i]);
+				errx(1, "different remote host: %s",
+				    f->sources[i]);
 			memmove(f->sources[i],
 				f->sources[i] + len + 8 + 1,
 				j - len - 8);
@@ -265,8 +243,8 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 			/* host::path */
 			if (strncmp(cp, f->host, len) ||
 			    (cp[len] != ':' && cp[len] != '\0'))
-				errx(1, "different remote "
-					"host: %s", f->sources[i]);
+				errx(1, "different remote host: %s",
+				    f->sources[i]);
 			memmove(f->sources[i], f->sources[i] + len + 2,
 			    j - len - 1);
 		} else if (cp[0] == ':') {
@@ -276,8 +254,8 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 			/* host:path */
 			if (strncmp(cp, f->host, len) ||
 			    (cp[len] != ':' && cp[len] != '\0'))
-				errx(1, "different remote "
-					"host: %s", f->sources[i]);
+				errx(1, "different remote host: %s",
+				    f->sources[i]);
 			memmove(f->sources[i],
 				f->sources[i] + len + 1, j - len);
 		}
@@ -291,8 +269,10 @@ main(int argc, char *argv[])
 {
 	struct opts	 opts;
 	pid_t		 child;
-	int		 fds[2], rc = 0, c, st;
+	int		 fds[2], sd, rc, c, st, i;
+	struct sess	  sess;
 	struct fargs	*fargs;
+	char		**args;
 	struct option	 lopts[] = {
 		{ "port",	required_argument, NULL,		3 },
 		{ "rsh",	required_argument, NULL,		'e' },
@@ -303,8 +283,9 @@ main(int argc, char *argv[])
 		{ "version",	no_argument,	NULL,			2 },
 		{ "archive",	no_argument,	NULL,			'a' },
 		{ "help",	no_argument,	NULL,			'h' },
+		{ "compress",	no_argument,	NULL,			'z' },
+		{ "del",	no_argument,	&opts.del,		1 },
 		{ "delete",	no_argument,	&opts.del,		1 },
-		{ "no-delete",	no_argument,	&opts.del,		0 },
 		{ "devices",	no_argument,	&opts.devices,		1 },
 		{ "no-devices",	no_argument,	&opts.devices,		0 },
 		{ "group",	no_argument,	&opts.preserve_gids,	1 },
@@ -334,7 +315,7 @@ main(int argc, char *argv[])
 
 	memset(&opts, 0, sizeof(struct opts));
 
-	while ((c = getopt_long(argc, argv, "Dae:ghlnoprtv", lopts, NULL))
+	while ((c = getopt_long(argc, argv, "Dae:ghlnoprtvxz", lopts, NULL))
 	    != -1) {
 		switch (c) {
 		case 'D':
@@ -378,6 +359,12 @@ main(int argc, char *argv[])
 		case 'v':
 			opts.verbose++;
 			break;
+		case 'x':
+			opts.one_file_system++;
+			break;
+		case 'z':
+			fprintf(stderr, "%s: -z not supported yet\n", getprogname());
+			break;
 		case 0:
 			/* Non-NULL flag values (e.g., --sender). */
 			break;
@@ -414,11 +401,8 @@ main(int argc, char *argv[])
 	 * host by the parent.
 	 */
 
-	if (opts.server) {
-		if (pledge("stdio unix rpath wpath cpath dpath fattr chown getpw unveil", NULL) == -1)
-			err(1, "pledge");
-		return rsync_server(&opts, (size_t)argc, argv);
-	}
+	if (opts.server)
+		exit(rsync_server(&opts, (size_t)argc, argv));
 
 	/*
 	 * Now we know that we're the client on the local machine
@@ -436,17 +420,15 @@ main(int argc, char *argv[])
 	/*
 	 * If we're contacting an rsync:// daemon, then we don't need to
 	 * fork, because we won't start a server ourselves.
-	 * Route directly into the socket code, in that case.
+	 * Route directly into the socket code, unless a remote shell
+	 * has explicitly been specified.
 	 */
 
-	if (fargs->remote) {
+	if (fargs->remote && opts.ssh_prog == NULL) {
 		assert(fargs->mode == FARGS_RECEIVER);
-		if (pledge("stdio unix rpath wpath cpath dpath inet fattr chown dns getpw unveil",
-		    NULL) == -1)
-			err(1, "pledge");
-		rc = rsync_socket(&opts, fargs);
-		fargs_free(fargs);
-		return rc;
+		if ((rc = rsync_connect(&opts, &sd, fargs)) == 0)
+			rc = rsync_socket(&opts, sd, fargs);
+		exit(rc);
 	}
 
 	/* Drop the dns/inet possibility. */
@@ -460,32 +442,45 @@ main(int argc, char *argv[])
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) == -1)
 		err(1, "socketpair");
 
-	if ((child = fork()) == -1) {
-		close(fds[0]);
-		close(fds[1]);
+	switch ((child = fork())) {
+	case -1:
 		err(1, "fork");
-	}
-
-	/* Drop the fork possibility. */
-
-	if (pledge("stdio unix rpath wpath cpath dpath fattr chown getpw exec unveil", NULL) == -1)
-		err(1, "pledge");
-
-	if (child == 0) {
+	case 0:
 		close(fds[0]);
-		fds[0] = -1;
 		if (pledge("stdio exec", NULL) == -1)
 			err(1, "pledge");
-		rsync_child(&opts, fds[1], fargs);
-		/* NOTREACHED */
-	}
 
-	close(fds[1]);
-	fds[1] = -1;
-	if (pledge("stdio unix rpath wpath cpath dpath fattr chown getpw unveil", NULL) == -1)
-		err(1, "pledge");
-	rc = rsync_client(&opts, fds[0], fargs);
-	fargs_free(fargs);
+		memset(&sess, 0, sizeof(struct sess));
+		sess.opts = &opts;
+
+		if ((args = fargs_cmdline(&sess, fargs, NULL)) == NULL) {
+			ERRX1(&sess, "fargs_cmdline");
+			_exit(1);
+		}
+
+		for (i = 0; args[i] != NULL; i++)
+			LOG2(&sess, "exec[%d] = %s", i, args[i]);
+
+		/* Make sure the child's stdin is from the sender. */
+		if (dup2(fds[1], STDIN_FILENO) == -1) {
+			ERR(&sess, "dup2");
+			_exit(1);
+		}
+		if (dup2(fds[1], STDOUT_FILENO) == -1) {
+			ERR(&sess, "dup2");
+			_exit(1);
+		}
+		execvp(args[0], args);
+		_exit(1);
+		/* NOTREACHED */
+	default:
+		close(fds[1]);
+		if (!fargs->remote)
+			rc = rsync_client(&opts, fds[0], fargs);
+		else
+			rc = rsync_socket(&opts, fds[0], fargs);
+		break;
+	}
 
 	/*
 	 * If the client has an error and exits, the server may be
@@ -493,22 +488,29 @@ main(int argc, char *argv[])
 	 * So close the connection here so that they don't hang.
 	 */
 
-	if (!rc) {
+	if (rc)
 		close(fds[0]);
-		fds[0] = -1;
-	}
 
 	if (waitpid(child, &st, 0) == -1)
 		err(1, "waitpid");
-	if (!(WIFEXITED(st) && WEXITSTATUS(st) == 0))
-		rc = 0;
 
-	if (fds[0] != -1)
-		close(fds[0]);
-	return rc;
+	/*
+	 * If we don't already have an error (rc == 0), then inherit the
+	 * error code of rsync_server() if it has exited.
+	 * If it hasn't exited, it overrides our return value.
+	 */
+
+	if (WIFEXITED(st) && rc == 0)
+		rc = WEXITSTATUS(st);
+	else if (!WIFEXITED(st))
+		rc = 1;
+
+	exit(rc);
 usage:
-	fprintf(stderr, "usage: %s [-Daglnoprtv] "
-		"[-e ssh-prog] [--delete] [--rsync-path=prog] src ... dst\n",
-		getprogname());
-	return 1;
+	fprintf(stderr, "usage: %s"
+	    " [-aDglnoprtvx] [-e program] [--del] [--numeric-ids]\n"
+	    "\t[--port=portnumber] [--rsync-path=program] [--version]\n"
+	    "\tsource ... directory\n",
+	    getprogname());
+	exit(1);
 }

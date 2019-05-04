@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.84 2019/02/27 04:31:56 claudio Exp $ */
+/*	$OpenBSD: config.c,v 1.87 2019/03/31 16:57:38 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004, 2005 Henning Brauer <henning@openbsd.org>
@@ -31,7 +31,6 @@
 #include "session.h"
 #include "log.h"
 
-u_int32_t	get_bgpid(void);
 int		host_ip(const char *, struct bgpd_addr *, u_int8_t *);
 void		free_networks(struct network_head *);
 void		free_l3vpns(struct l3vpn_head *);
@@ -40,22 +39,8 @@ struct bgpd_config *
 new_config(void)
 {
 	struct bgpd_config	*conf;
-	u_int			 rdomid;
 
 	if ((conf = calloc(1, sizeof(struct bgpd_config))) == NULL)
-		fatal(NULL);
-
-	conf->min_holdtime = MIN_HOLDTIME;
-	conf->bgpid = get_bgpid();
-	conf->fib_priority = RTP_BGP;
-	conf->default_tableid = getrtable();
-	ktable_exists(conf->default_tableid, &rdomid);
-	if (rdomid != conf->default_tableid)
-		fatalx("current routing table %u is not a routing domain",
-		    conf->default_tableid);
-
-	if (asprintf(&conf->csock, "%s.%d", SOCKET_NAME,
-	    conf->default_tableid) == -1)
 		fatal(NULL);
 
 	if ((conf->as_sets = calloc(1, sizeof(struct as_set_head))) == NULL)
@@ -69,10 +54,13 @@ new_config(void)
 		fatal(NULL);
 
 	/* init the various list for later */
+	TAILQ_INIT(&conf->peers);
 	TAILQ_INIT(&conf->networks);
 	SIMPLEQ_INIT(&conf->l3vpns);
 	SIMPLEQ_INIT(&conf->prefixsets);
 	SIMPLEQ_INIT(&conf->originsets);
+	SIMPLEQ_INIT(&conf->rde_prefixsets);
+	SIMPLEQ_INIT(&conf->rde_originsets);
 	RB_INIT(&conf->roa);
 	SIMPLEQ_INIT(conf->as_sets);
 
@@ -81,6 +69,22 @@ new_config(void)
 	LIST_INIT(conf->mrt);
 
 	return (conf);
+}
+
+void
+copy_config(struct bgpd_config *to, struct bgpd_config *from)
+{
+	to->flags = from->flags;
+	to->log = from->log;
+	to->default_tableid = from->default_tableid;
+	to->bgpid = from->bgpid;
+	to->clusterid = from->clusterid;
+	to->as = from->as;
+	to->short_as = from->short_as;
+	to->holdtime = from->holdtime;
+	to->min_holdtime = from->min_holdtime;
+	to->connectretry = from->connectretry;
+	to->fib_priority = from->fib_priority;
 }
 
 void
@@ -123,6 +127,22 @@ free_prefixsets(struct prefixset_head *psh)
 }
 
 void
+free_rde_prefixsets(struct rde_prefixset_head *psh)
+{
+	struct rde_prefixset	*ps;
+
+	if (psh == NULL)
+		return;
+
+	while (!SIMPLEQ_EMPTY(psh)) {
+		ps = SIMPLEQ_FIRST(psh);
+		trie_free(&ps->th);
+		SIMPLEQ_REMOVE_HEAD(psh, entry);
+		free(ps);
+	}
+}
+
+void
 free_prefixtree(struct prefixset_tree *p)
 {
 	struct prefixset_item	*psi, *npsi;
@@ -137,6 +157,7 @@ free_prefixtree(struct prefixset_tree *p)
 void
 free_config(struct bgpd_config *conf)
 {
+	struct peer		*p;
 	struct listen_addr	*la;
 	struct mrt		*m;
 
@@ -145,6 +166,8 @@ free_config(struct bgpd_config *conf)
 	filterlist_free(conf->filters);
 	free_prefixsets(&conf->prefixsets);
 	free_prefixsets(&conf->originsets);
+	free_rde_prefixsets(&conf->rde_prefixsets);
+	free_rde_prefixsets(&conf->rde_originsets);
 	free_prefixtree(&conf->roa);
 	as_sets_free(conf->as_sets);
 
@@ -160,30 +183,29 @@ free_config(struct bgpd_config *conf)
 	}
 	free(conf->mrt);
 
+	while ((p = TAILQ_FIRST(&conf->peers)) != NULL) {
+		TAILQ_REMOVE(&conf->peers, p, entry);
+		free(p);
+	}
+
 	free(conf->csock);
 	free(conf->rcsock);
 
 	free(conf);
 }
 
-int
-merge_config(struct bgpd_config *xconf, struct bgpd_config *conf,
-    struct peer *peer_l)
+void
+merge_config(struct bgpd_config *xconf, struct bgpd_config *conf)
 {
 	struct listen_addr	*nla, *ola, *next;
 	struct network		*n;
+	struct peer		*p, *np;
 
 	/*
 	 * merge the freshly parsed conf into the running xconf
 	 */
-	if (!conf->as) {
-		log_warnx("configuration error: AS not given");
-		return (1);
-	}
-
 	if ((conf->flags & BGPD_FLAG_REFLECTOR) && conf->clusterid == 0)
 		conf->clusterid = conf->bgpid;
-
 
 	/* adjust FIB priority if changed */
 	/* if xconf is uninitialized we get RTP_NONE */
@@ -194,16 +216,7 @@ merge_config(struct bgpd_config *xconf, struct bgpd_config *conf,
 	}
 
 	/* take over the easy config changes */
-	xconf->flags = conf->flags;
-	xconf->log = conf->log;
-	xconf->bgpid = conf->bgpid;
-	xconf->clusterid = conf->clusterid;
-	xconf->as = conf->as;
-	xconf->short_as = conf->short_as;
-	xconf->holdtime = conf->holdtime;
-	xconf->min_holdtime = conf->min_holdtime;
-	xconf->connectretry = conf->connectretry;
-	xconf->fib_priority = conf->fib_priority;
+	copy_config(xconf, conf);
 
 	/* clear old control sockets and use new */
 	free(xconf->csock);
@@ -218,6 +231,9 @@ merge_config(struct bgpd_config *xconf, struct bgpd_config *conf,
 	filterlist_free(xconf->filters);
 	xconf->filters = conf->filters;
 	conf->filters = NULL;
+
+	/* merge mrt config */
+	mrt_mergeconfig(xconf->mrt, conf->mrt);
 
 	/* switch the roa, first remove the old one */
 	free_prefixtree(&xconf->roa);
@@ -290,10 +306,28 @@ merge_config(struct bgpd_config *xconf, struct bgpd_config *conf,
 		}
 	}
 
+	/*
+	 * merge peers:
+	 * - need to know which peers are new, replaced and removed
+	 * - first mark all new peers as RECONF_REINIT
+	 * - walk over old peers and check if there is a corresponding new
+	 *   peer if so mark it RECONF_KEEP. Remove all old peers.
+	 * - swap lists (old peer list is actually empty).
+	 */
+	TAILQ_FOREACH(p, &conf->peers, entry)
+		p->reconf_action = RECONF_REINIT;
+	while ((p = TAILQ_FIRST(&xconf->peers)) != NULL) {
+		np = getpeerbyid(conf, p->conf.id);
+		if (np != NULL)
+			np->reconf_action = RECONF_KEEP;
+
+		TAILQ_REMOVE(&xconf->peers, p, entry);
+		free(p);
+	}
+	TAILQ_CONCAT(&xconf->peers, &conf->peers, entry);
+
 	/* conf is merged so free it */
 	free_config(conf);
-
-	return (0);
 }
 
 u_int32_t

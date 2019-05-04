@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.123 2019/03/01 10:48:58 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.125 2019/04/30 15:52:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -108,6 +108,7 @@ static	const struct htmldata htmltags[TAG_MAX] = {
 /* Avoid duplicate HTML id= attributes. */
 static	struct ohash	 id_unique;
 
+static	void	 html_reset_internal(struct html *);
 static	void	 print_byte(struct html *, char);
 static	void	 print_endword(struct html *);
 static	void	 print_indent(struct html *);
@@ -117,6 +118,7 @@ static	void	 print_ctag(struct html *, struct tag *);
 static	int	 print_escape(struct html *, char);
 static	int	 print_encode(struct html *, const char *, const char *, int);
 static	void	 print_href(struct html *, const char *, const char *, int);
+static	void	 print_metaf(struct html *);
 
 
 void *
@@ -143,27 +145,37 @@ html_alloc(const struct manoutput *outopts)
 	return h;
 }
 
-void
-html_free(void *p)
+static void
+html_reset_internal(struct html *h)
 {
 	struct tag	*tag;
-	struct html	*h;
 	char		*cp;
 	unsigned int	 slot;
 
-	h = (struct html *)p;
 	while ((tag = h->tag) != NULL) {
 		h->tag = tag->next;
 		free(tag);
 	}
-	free(h);
-
 	cp = ohash_first(&id_unique, &slot);
 	while (cp != NULL) {
 		free(cp);
 		cp = ohash_next(&id_unique, &slot);
 	}
 	ohash_delete(&id_unique);
+}
+
+void
+html_reset(void *p)
+{
+	html_reset_internal(p);
+	mandoc_ohash_init(&id_unique, 4, 0);
+}
+
+void
+html_free(void *p)
+{
+	html_reset_internal(p);
+	free(p);
 }
 
 void
@@ -209,55 +221,49 @@ print_gen_head(struct html *h)
 	print_tagq(h, t);
 }
 
-void
-print_metaf(struct html *h, enum mandoc_esc deco)
+int
+html_setfont(struct html *h, enum mandoc_esc font)
 {
-	enum htmlfont	 font;
-
-	switch (deco) {
+	switch (font) {
 	case ESCAPE_FONTPREV:
 		font = h->metal;
 		break;
 	case ESCAPE_FONTITALIC:
-		font = HTMLFONT_ITALIC;
-		break;
 	case ESCAPE_FONTBOLD:
-		font = HTMLFONT_BOLD;
-		break;
 	case ESCAPE_FONTBI:
-		font = HTMLFONT_BI;
-		break;
 	case ESCAPE_FONTCW:
-		font = HTMLFONT_CW;
+	case ESCAPE_FONTROMAN:
 		break;
 	case ESCAPE_FONT:
-	case ESCAPE_FONTROMAN:
-		font = HTMLFONT_NONE;
+		font = ESCAPE_FONTROMAN;
 		break;
 	default:
-		return;
+		return 0;
 	}
+	h->metal = h->metac;
+	h->metac = font;
+	return 1;
+}
 
+static void
+print_metaf(struct html *h)
+{
 	if (h->metaf) {
 		print_tagq(h, h->metaf);
 		h->metaf = NULL;
 	}
-
-	h->metal = h->metac;
-	h->metac = font;
-
-	switch (font) {
-	case HTMLFONT_ITALIC:
+	switch (h->metac) {
+	case ESCAPE_FONTITALIC:
 		h->metaf = print_otag(h, TAG_I, "");
 		break;
-	case HTMLFONT_BOLD:
+	case ESCAPE_FONTBOLD:
 		h->metaf = print_otag(h, TAG_B, "");
 		break;
-	case HTMLFONT_BI:
+	case ESCAPE_FONTBI:
 		h->metaf = print_otag(h, TAG_B, "");
 		print_otag(h, TAG_I, "");
 		break;
-	case HTMLFONT_CW:
+	case ESCAPE_FONTCW:
 		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
 		break;
 	default:
@@ -466,7 +472,8 @@ print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 		case ESCAPE_FONTROMAN:
 			if (0 == norecurse) {
 				h->flags |= HTML_NOSPACE;
-				print_metaf(h, esc);
+				if (html_setfont(h, esc))
+					print_metaf(h);
 				h->flags &= ~HTML_NOSPACE;
 			}
 			continue;
@@ -793,27 +800,9 @@ print_text(struct html *h, const char *word)
 			print_word(h, "&#x00A0;");
 	}
 
-	assert(NULL == h->metaf);
-	switch (h->metac) {
-	case HTMLFONT_ITALIC:
-		h->metaf = print_otag(h, TAG_I, "");
-		break;
-	case HTMLFONT_BOLD:
-		h->metaf = print_otag(h, TAG_B, "");
-		break;
-	case HTMLFONT_BI:
-		h->metaf = print_otag(h, TAG_B, "");
-		print_otag(h, TAG_I, "");
-		break;
-	case HTMLFONT_CW:
-		h->metaf = print_otag(h, TAG_SPAN, "c", "Li");
-		break;
-	default:
-		print_indent(h);
-		break;
-	}
-
-	assert(word);
+	assert(h->metaf == NULL);
+	print_metaf(h);
+	print_indent(h);
 	if ( ! print_encode(h, word, NULL, 0)) {
 		if ( ! (h->flags & HTML_NONOSPACE))
 			h->flags &= ~HTML_NOSPACE;
@@ -821,7 +810,7 @@ print_text(struct html *h, const char *word)
 	} else
 		h->flags |= HTML_NOSPACE | HTML_NONEWLINE;
 
-	if (h->metaf) {
+	if (h->metaf != NULL) {
 		print_tagq(h, h->metaf);
 		h->metaf = NULL;
 	}
