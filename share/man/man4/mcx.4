@@ -1,4 +1,4 @@
-.\" $OpenBSD: ixl.4,v 1.4 2019/05/04 15:57:20 jmc Exp $
+.\" $OpenBSD: mcx.4,v 1.2 2019/05/04 15:57:20 jmc Exp $
 .\"
 .\" Copyright (c) 2019 David Gwynne <dlg@openbsd.org>
 .\"
@@ -15,18 +15,29 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: May 4 2019 $
-.Dt IXL 4
+.Dt MCX 4
 .Os
 .Sh NAME
-.Nm ixl
-.Nd Intel Ethernet 700 series Ethernet device
+.Nm mcx
+.Nd Mellanox 5th generation Ethernet device
 .Sh SYNOPSIS
-.Cd "ixl* at pci?"
+.Cd "mcx* at pci?"
 .Sh DESCRIPTION
 The
 .Nm
-driver supports Intel 700 series controllers based on the
-Intel X710, XXV710, XL710, and X722 Ethernet chipsets.
+driver supports Mellanox 5th generation Ethernet devices.
+Chipsets and cards in this group include:
+.Pp
+.Bl -bullet -offset indent -compact
+.It
+ConnectX-4 Lx EN
+.It
+ConnectX-4 EN
+.It
+ConnectX-5 EN
+.It
+ConnectX-6 EN
+.El
 .Sh SEE ALSO
 .Xr arp 4 ,
 .Xr ifmedia 4 ,
@@ -39,11 +50,11 @@ Intel X710, XXV710, XL710, and X722 Ethernet chipsets.
 The
 .Nm
 driver first appeared in
-.Ox 6.5 .
+.Ox 6.6 .
 .Sh AUTHORS
 The
 .Nm
 driver was written by
-.An David Gwynne Aq Mt dlg@openbsd.org
+.An Jonathan Matthew Aq Mt jmatthew@openbsd.org
 and
-.An Jonathan Matthew Aq Mt jmatthew@openbsd.org .
+.An David Gwynne Aq Mt dlg@openbsd.org .

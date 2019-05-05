@@ -16,7 +16,7 @@
 /cpuvar.h/1.9/Fri Oct  6 13:33:53 2017//
 /db_machdep.h/1.17/Sat Mar 23 05:47:22 2019//
 /disklabel.h/1.11/Wed Sep 30 14:57:03 2015//
-/efifbvar.h/1.9/Thu Jan 10 01:16:29 2019//
+/efifbvar.h/1.10/Sat May  4 11:34:47 2019//
 /endian.h/1.7/Tue Oct  2 21:30:44 2018//
 /exec.h/1.7/Wed Feb  8 05:09:25 2017//
 /fenv.h/1.4/Wed May 25 21:46:49 2011//

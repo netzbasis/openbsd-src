@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.12 2019/05/03 15:18:14 florian Exp $
+# $OpenBSD: sysupgrade.sh,v 1.15 2019/05/04 20:18:39 naddy Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>
@@ -38,16 +38,23 @@ usage()
 
 unpriv()
 {
-	local _file=$2 _user=_syspatch
+	local _file _rc=0 _user=_syspatch
 
-	if [[ $1 == -f && -n ${_file} ]]; then
+	if [[ $1 == -f ]]; then
+		_file=$2
+		shift 2
+	fi
+ 	if [[ -n ${_file} ]]; then
 		>${_file}
 		chown "${_user}" "${_file}"
-		shift 2
 	fi
 	(($# >= 1))
 
-	eval su -s /bin/sh ${_user} -c "'$@'"
+	eval su -s /bin/sh ${_user} -c "'$@'" || _rc=$?
+
+	[[ -n ${_file} ]] && chown root "${_file}"
+
+	return ${_rc}
 }
 
 # Remove all occurrences of first argument from list formed by the remaining
@@ -76,6 +83,8 @@ while getopts fnrs arg; do
 	*)	usage;;
 	esac
 done
+
+(($(id -u) != 0)) && ug_err "${0##*/}: need root privileges"
 
 if $RELEASE && $SNAP; then
 	usage
@@ -139,7 +148,7 @@ esac
 
 [[ -f ${SIGNIFY_KEY} ]] || ug_err "cannot find ${SIGNIFY_KEY}"
 
-unpriv -f SHA256 signify -Veq -p "${SIGNIFY_KEY}" -x SHA256.sig -m SHA256
+unpriv -f SHA256 signify -Ve -p "${SIGNIFY_KEY}" -x SHA256.sig -m SHA256
 
 # INSTALL.*, bsd*, *.tgz
 SETS=$(sed -n -e 's/^SHA256 (\(.*\)) .*/\1/' \
@@ -162,9 +171,8 @@ for f in ${DL}; do
 	unpriv -f $f ftp -Vmo ${f} ${URL}${f}
 done
 
-# re-check signature after downloads
 echo Verifying sets.
-unpriv signify -qC -p "${SIGNIFY_KEY}" -x SHA256.sig ${SETS}
+[[ -n ${DL} ]] && unpriv cksum -qC SHA256 ${DL}
 
 cp bsd.rd /nbsd.upgrade
 ln -f /nbsd.upgrade /bsd.upgrade

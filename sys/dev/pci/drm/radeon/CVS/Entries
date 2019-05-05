@@ -86,10 +86,10 @@
 /r600_reg.h/1.4/Wed Apr 25 01:27:46 2018//
 /r600_reg_safe.h/1.2/Wed Jan 28 05:29:30 2015//
 /r600d.h/1.7/Sun Apr 14 10:14:54 2019//
-/radeon.h/1.22/Sun Apr 14 10:14:54 2019//
+/radeon.h/1.23/Sat May  4 11:34:48 2019//
 /radeon_acpi.c/1.6/Sun Apr 14 10:14:54 2019//
 /radeon_acpi.h/1.5/Sun Apr 14 10:14:54 2019//
-/radeon_agp.c/1.9/Sun Apr 14 10:14:54 2019//
+/radeon_agp.c/1.10/Sat May  4 17:14:12 2019//
 /radeon_asic.c/1.5/Sun Apr 14 10:14:54 2019//
 /radeon_asic.h/1.5/Sun Apr 14 10:14:54 2019//
 /radeon_atombios.c/1.11/Sun Apr 14 10:14:54 2019//
@@ -121,7 +121,7 @@
 /radeon_irq_kms.c/1.14/Sun Apr 14 10:14:54 2019//
 /radeon_kfd.c/1.2/Sun Apr 14 10:14:54 2019//
 /radeon_kfd.h/1.1/Wed Apr 25 01:27:46 2018//
-/radeon_kms.c/1.60/Sat Apr 20 03:10:53 2019//
+/radeon_kms.c/1.61/Sat May  4 11:34:48 2019//
 /radeon_legacy_crtc.c/1.8/Sun Apr 14 10:14:54 2019//
 /radeon_legacy_encoders.c/1.10/Sun Apr 14 10:14:54 2019//
 /radeon_legacy_tv.c/1.6/Sun Apr 14 10:14:54 2019//

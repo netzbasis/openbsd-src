@@ -9,8 +9,8 @@
 /dvo_tfp410.c/1.8/Sun Apr 14 10:14:51 2019//
 /i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_devlist.h/1.9/Sun Apr 14 10:14:51 2019//
-/i915_drv.c/1.116/Thu Apr 25 09:33:47 2019//
-/i915_drv.h/1.81/Sun Apr 14 10:14:51 2019//
+/i915_drv.c/1.117/Sat May  4 11:34:47 2019//
+/i915_drv.h/1.82/Sat May  4 11:34:47 2019//
 /i915_gem.c/1.116/Tue Apr 23 11:44:54 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.c/1.2/Sun Apr 14 10:14:51 2019//
@@ -72,7 +72,7 @@
 /intel_atomic.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_atomic_plane.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_audio.c/1.2/Sun Apr 14 10:14:52 2019//
-/intel_bios.c/1.15/Sun Apr 14 10:14:52 2019//
+/intel_bios.c/1.16/Sat May  4 13:37:47 2019//
 /intel_bios.h/1.6/Sun Apr 14 10:14:52 2019//
 /intel_breadcrumbs.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_cdclk.c/1.1/Sun Apr 14 10:14:52 2019//
