@@ -5,9 +5,9 @@
 /conf.c/1.20/Sun Sep  4 10:51:24 2016//
 /disksubr.c/1.10/Tue Feb 28 10:49:37 2017//
 /genassym.cf/1.1/Mon Sep 20 06:32:30 2010//
-/locore.S/1.17/Sun Feb 18 14:50:08 2018//
+/locore.S/1.18/Sun May  5 15:43:24 2019//
 /locore0.S/1.2/Thu Jun  8 12:11:46 2017//
-/machdep.c/1.109/Mon Apr  1 07:00:52 2019//
+/machdep.c/1.110/Sun May  5 15:43:24 2019//
 /openprom.c/1.2/Tue Jul  5 13:41:46 2016//
 /pciide_machdep.c/1.1/Thu Oct 28 22:52:10 2010//
 D
