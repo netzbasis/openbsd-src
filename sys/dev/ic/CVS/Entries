@@ -234,7 +234,7 @@
 /ncr5380reg.h/1.3/Thu Oct 31 01:01:35 1996//
 /ncr5380sbc.c/1.34/Fri Sep  8 05:36:52 2017//
 /ncr5380var.h/1.13/Sat Jan 18 07:36:35 2014//
-/ncr53c9x.c/1.64/Fri Sep  8 05:36:52 2017//
+/ncr53c9x.c/1.65/Tue May  7 14:22:06 2019//
 /ncr53c9xreg.h/1.9/Tue Oct 21 18:58:49 2003//
 /ncr53c9xvar.h/1.23/Sat Jan 18 23:09:04 2014//
 /ne2000.c/1.27/Tue Nov 24 17:11:39 2015//
