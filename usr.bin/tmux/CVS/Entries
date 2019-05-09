@@ -14,9 +14,9 @@
 /cmd-copy-mode.c/1.38/Tue May  7 11:24:03 2019//
 /cmd-detach-client.c/1.32/Sat Apr 22 10:22:39 2017//
 /cmd-display-message.c/1.49/Fri May  3 20:44:24 2019//
-/cmd-display-panes.c/1.24/Tue May  7 20:01:41 2019//
+/cmd-display-panes.c/1.25/Wed May  8 18:07:12 2019//
 /cmd-find-window.c/1.45/Mon Aug 20 15:00:42 2018//
-/cmd-find.c/1.71/Fri Mar 15 15:20:00 2019//
+/cmd-find.c/1.72/Wed May  8 18:05:03 2019//
 /cmd-if-shell.c/1.60/Mon Aug 27 11:03:34 2018//
 /cmd-join-pane.c/1.34/Wed Apr 17 14:37:48 2019//
 /cmd-kill-pane.c/1.26/Tue Apr 10 10:48:44 2018//
@@ -66,7 +66,7 @@
 /cmd-switch-client.c/1.57/Wed Apr 17 14:39:37 2019//
 /cmd-unbind-key.c/1.30/Tue Jan 24 21:50:22 2017//
 /cmd-wait-for.c/1.17/Wed Nov  7 07:58:16 2018//
-/cmd.c/1.146/Fri May  3 18:42:40 2019//
+/cmd.c/1.147/Wed May  8 18:05:03 2019//
 /colour.c/1.17/Wed Mar 13 21:39:21 2019//
 /control-notify.c/1.23/Tue May  7 10:25:15 2019//
 /control.c/1.20/Sun Jan 15 22:00:56 2017//
@@ -93,10 +93,10 @@
 /proc.c/1.15/Fri Jul 14 18:49:07 2017//
 /procname.c/1.16/Mon Oct 10 21:29:23 2016//
 /resize.c/1.31/Wed Apr 17 14:43:49 2019//
-/screen-redraw.c/1.61/Tue May  7 20:01:41 2019//
+/screen-redraw.c/1.62/Wed May  8 18:07:12 2019//
 /screen-write.c/1.151/Thu Apr 18 11:07:28 2019//
 /screen.c/1.55/Tue Apr  2 08:45:32 2019//
-/server-client.c/1.281/Tue May  7 20:01:41 2019//
+/server-client.c/1.282/Wed May  8 18:07:12 2019//
 /server-fn.c/1.121/Fri May  3 20:44:24 2019//
 /server.c/1.184/Wed Apr 17 14:37:48 2019//
 /session.c/1.85/Fri Apr 26 11:38:51 2019//
@@ -105,7 +105,7 @@
 /style.c/1.19/Fri Apr  5 20:32:31 2019//
 /tmux.1/1.644/Tue May  7 14:01:39 2019//
 /tmux.c/1.188/Fri Apr 26 11:38:51 2019//
-/tmux.h/1.890/Tue May  7 20:01:41 2019//
+/tmux.h/1.891/Wed May  8 18:07:12 2019//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.113/Tue May  7 11:24:03 2019//
 /tty-term.c/1.63/Thu Apr 25 19:36:59 2019//

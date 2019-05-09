@@ -9,8 +9,8 @@
 /v3_akey.c/1.22/Mon Apr 22 17:10:01 2019//
 /v3_akeya.c/1.7/Sat Jul 25 16:00:14 2015//
 /v3_alt.c/1.30/Mon Apr 22 17:10:01 2019//
-/v3_bcons.c/1.16/Mon Apr 22 17:21:01 2019//
-/v3_bitst.c/1.15/Mon Apr 22 17:23:55 2019//
+/v3_bcons.c/1.17/Wed May  8 21:53:10 2019//
+/v3_bitst.c/1.16/Wed May  8 21:53:10 2019//
 /v3_conf.c/1.23/Fri May 18 19:34:37 2018//
 /v3_cpols.c/1.26/Sun Apr 21 16:25:40 2019//
 /v3_crld.c/1.23/Sun Apr 21 16:25:40 2019//
@@ -27,7 +27,7 @@
 /v3_pcia.c/1.6/Sat Jul 25 16:00:14 2015//
 /v3_pcons.c/1.12/Mon Apr 22 17:29:13 2019//
 /v3_pku.c/1.14/Sun Apr 21 16:38:01 2019//
-/v3_pmaps.c/1.12/Mon Apr 22 17:32:09 2019//
+/v3_pmaps.c/1.13/Wed May  8 21:53:10 2019//
 /v3_prn.c/1.20/Sat May 19 10:41:53 2018//
 /v3_purp.c/1.31/Fri May 18 18:30:03 2018//
 /v3_skey.c/1.16/Sat May 19 10:37:02 2018//
