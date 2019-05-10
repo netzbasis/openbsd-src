@@ -35,7 +35,7 @@
 /autrivar.h/1.4/Fri Aug 27 18:50:56 2010//
 /auvia.c/1.59/Fri Sep 14 08:37:34 2018//
 /auviavar.h/1.12/Sun Sep 12 02:03:35 2010//
-/azalia.c/1.248/Sun May  5 09:09:59 2019//
+/azalia.c/1.249/Thu May  9 14:50:46 2019//
 /azalia.h/1.66/Sun Mar 24 14:37:44 2019//
 /azalia_codec.c/1.174/Wed May  8 15:33:41 2019//
 /berkwdt.c/1.9/Fri Sep  8 05:36:52 2017//
@@ -65,7 +65,7 @@
 /emuxki.c/1.53/Thu Sep 13 04:07:20 2018//
 /emuxkireg.h/1.6/Thu Jun 26 05:42:17 2008//
 /emuxkivar.h/1.11/Mon Sep 19 06:46:44 2016//
-/envy.c/1.78/Tue Apr 30 20:44:15 2019//
+/envy.c/1.79/Thu May  9 05:17:45 2019//
 /envyreg.h/1.19/Tue Apr 30 20:38:04 2019//
 /envyvar.h/1.20/Tue Apr 30 20:29:46 2019//
 /esa.c/1.35/Fri Sep 14 08:37:34 2018//
@@ -143,7 +143,7 @@
 /if_iwi.c/1.139/Thu Apr 25 01:52:13 2019//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.239/Mon Apr  1 10:47:13 2019//
+/if_iwm.c/1.241/Thu May  9 16:14:14 2019//
 /if_iwmreg.h/1.28/Wed Feb 28 14:39:35 2018//
 /if_iwmvar.h/1.38/Sun Feb 24 09:37:18 2019//
 /if_iwn.c/1.210/Mon Apr 29 09:00:16 2019//

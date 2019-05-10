@@ -16,7 +16,7 @@
 /npppd-users/1.1/Thu Sep 20 12:51:43 2012//
 /npppd-users.5/1.8/Wed Feb 20 17:47:12 2019//
 /npppd.8/1.6/Mon Nov  9 01:14:22 2015//
-/npppd.c/1.49/Sun Dec 30 23:09:58 2018//
+/npppd.c/1.50/Fri May 10 01:29:31 2019//
 /npppd.conf/1.2/Sat Mar 22 04:32:39 2014//
 /npppd.conf.5/1.24/Mon Apr  8 18:02:48 2019//
 /npppd.h/1.19/Sat Aug 12 11:20:34 2017//
@@ -34,7 +34,7 @@
 /npppd_pool.h/1.4/Tue May  8 13:15:12 2012//
 /npppd_radius.c/1.8/Thu Jul 23 09:04:06 2015//
 /npppd_radius.h/1.1/Wed Jul  6 20:52:28 2011//
-/npppd_subr.c/1.19/Tue Jan 22 09:25:29 2019//
+/npppd_subr.c/1.20/Fri May 10 01:29:31 2019//
 /npppd_subr.h/1.4/Thu Mar 14 10:21:07 2013//
 /pap.c/1.11/Wed Feb 27 04:52:19 2019//
 /parse.y/1.24/Wed Feb 27 04:52:19 2019//

@@ -1,5 +1,5 @@
 #!/bin/ksh
-#	$OpenBSD: install.sub,v 1.1122 2019/05/08 23:23:06 krw Exp $
+#	$OpenBSD: install.sub,v 1.1129 2019/05/09 22:38:42 krw Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -1005,7 +1005,7 @@ vlan_config() {
 # hostname.if file $3. Ask the user for the IPv4 address and network mask if the
 # address was not in specified in CIDR notation, unless he chooses 'dhcp'.
 v4_config() {
-	local _if=$1 _name=$2 _hn=$3 _prompt _addr _mask
+	local _if=$1 _name=$2 _hn=$3 _prompt _addr _newaddr _mask
 
 	# Preset the default answers by preserving possibly existing
 	# configuration from previous runs.
@@ -1026,8 +1026,12 @@ v4_config() {
 	fi
 	_prompt="IPv4 address for $_if? (${_prompt}or 'none')"
 
+	# Nuke existing inet configuration.
+	ifconfig $_if -inet
+	ifconfig $_if -group dhcp >/dev/null 2>&1
+
 	while :; do
-		ask_until "$_prompt" "$_addr"
+		ask_until "$_prompt" "${_addr:-none}"
 		case $resp in
 		none)	return
 			;;
@@ -1040,28 +1044,26 @@ v4_config() {
 				return
 			fi
 			;;
-		*)	_addr=$resp
-			ifconfig $_if -group dhcp >/dev/null 2>&1
-			;;
 		esac
 
+		_newaddr=$resp
+
 		# Ask for the netmask if the user did not use CIDR notation.
-		if [[ $_addr == */* ]]; then
-			_mask=
+		if [[ $_newaddr == */* ]]; then
+			ifconfig $_if $_newaddr up
 		else
-			ask_until "Netmask for $_if?" "${_mask:=255.255.255.0}"
-			_mask=$resp
+			ask_until "Netmask for $_if?" "${_mask:-255.255.255.0}"
+			ifconfig $_if $_newaddr netmask $resp
 		fi
 
-		if ifconfig $_if inet $_addr ${_mask:+netmask $_mask} up; then
-			echo "inet $_addr $_mask" >>$_hn
-			add_hostent "${_addr%%/*}" "$_name"
-			break
-		else
-			_addr=
-			_mask=
-			$AI && exit 1
+		set -- $(v4_info $_if)
+		if [[ -n $2 ]]; then
+			echo "inet $2 $3" >>$_hn
+			add_hostent "$2" "$_name"
+			return
 		fi
+
+		$AI && exit 1
 	done
 }
 
@@ -1113,7 +1115,7 @@ v6_defroute() {
 # and prefix length if the address was not specified in CIDR notation,
 # unless he chooses 'autoconf'.
 v6_config() {
-	local _if=$1 _name=$2 _hn=$3 _addr _prefixlen _prompt
+	local _if=$1 _name=$2 _hn=$3 _addr _newaddr _prefixlen _prompt
 
 	ifconfig lo0 inet6 >/dev/null 2>&1 || return
 
@@ -1129,34 +1131,35 @@ v6_config() {
 
 	_prompt="IPv6 address for $_if? (or 'autoconf' or 'none')"
 
+	# Nuke existing inet6 configuration.
+	ifconfig $_if -inet6
+
 	while :; do
 		ask_until "$_prompt" "${_addr:-none}"
 		case $resp in
-		none)	ifconfig $_if -inet6
-			return
+		none)	return
 			;;
 		autoconf)
-			# Nuke any existing address before enabling autoconf.
-			ifconfig $_if -inet6
 			ifconfig $_if inet6 autoconf up
 			echo "inet6 autoconf" >>$_hn
 			return
 			;;
-		*)	ifconfig $_if inet6 -autoconf
-			_addr=${resp%%/*}
-			if [[ $resp == */* ]]; then
-				_prefixlen=${resp##$_addr/}
-			else
-				ask_until "IPv6 prefix length for $_if?" "64"
-				_prefixlen=$resp
-			fi
-			if ifconfig $_if inet6 $_addr/$_prefixlen up; then
-				echo "inet6 $_addr $_prefixlen" >>$_hn
-				add_hostent "$_addr" "$_name"
-				return
-			fi
-			;;
 		esac
+
+		_newaddr=$resp
+		if [[ $_newaddr == */* ]]; then
+			ifconfig $_if inet6 $_newaddr up
+		else
+			ask_until "IPv6 prefix length for $_if?" "${_prefixlen:-64}"
+			ifconfig $_if inet6 $_newaddr/$resp up
+		fi
+
+		set -- $(v6_info $_if)
+		if [[ -n $2 ]]; then
+			echo "inet6 $2 $3" >>$_hn
+			add_hostent "$2" "$_name"
+			return
+		fi
 
 		$AI && exit 1
 	done
@@ -1687,6 +1690,13 @@ install_files() {
 		[[ -d $_tmpsrc ]] && rm -f "$_tmpsrc/$_f"
 	done
 	[[ -d $_tmpsrc ]] && rm -rf "$_tmpsrc" || true
+
+	# Keep SHA256 from installed sets for sysupgrade(8).
+	if [[ -f $_cfile ]]; then
+		cp $_cfile /mnt/var/db/installed.SHA256
+	elif $_srclocal && [[ -f ${_src#file://}/SHA256 ]]; then
+		cp ${_src#file://}/SHA256 /mnt/var/db/installed.SHA256
+	fi
 }
 
 # Fetch install sets from an HTTP server possibly using a proxy.
@@ -2772,11 +2782,6 @@ finish_up() {
 	# ensure it references the kernel as /bsd.
 	sha256 /mnt/bsd | (umask 077; sed 's,/mnt,,' >/mnt/var/db/kernel.SHA256)
 
-	# Keep SHA256.sig from installed sets for sysupgrade(8).
-	if [[ -f /tmp/SHA256.sig ]]; then
-		cp /tmp/SHA256.sig /mnt/var/db/installed.SHA256.sig
-	fi
-
 	if [[ -f $_kernel_dir.tgz ]]; then
 		echo -n "Relinking to create unique kernel..."
 		(
@@ -3273,13 +3278,6 @@ done
 cd /
 umount -af >/dev/null 2>&1
 
-# Make sure only successful dhcp requests retain their state.
-for _if in $(get_ifs dhcp); do
-	set -- $(v4_info $_if)
-	[[ $1 == @(UP,*) && -n $2 ]] && continue
-	ifconfig $_if delete down -group dhcp 2>/dev/null
-done
-
 # Include machine-dependent functions and definitions.
 #
 # The following functions must be provided:
@@ -3391,6 +3389,7 @@ elif $UU; then
 Location of sets = disk
 Pathname to the sets = /home/_sysupgrade/
 Set name(s) = done
+Directory does not contain SHA256.sig. Continue without verification = yes
 __EOT
 	get_responsefile
 	do_autoinstall

@@ -10,7 +10,7 @@
 /uvm_ddb.h/1.14/Thu Feb  5 23:51:06 2015//
 /uvm_device.c/1.55/Mon Aug 20 10:00:04 2018//
 /uvm_device.h/1.11/Fri Jul 11 16:35:40 2014//
-/uvm_extern.h/1.145/Fri Mar  1 01:46:18 2019//
+/uvm_extern.h/1.146/Thu May  9 20:36:44 2019//
 /uvm_fault.c/1.95/Sun Feb  3 05:33:48 2019//
 /uvm_fault.h/1.15/Fri Jul 11 16:35:40 2014//
 /uvm_glue.c/1.74/Thu Jan 10 20:26:34 2019//
@@ -30,9 +30,9 @@
 /uvm_pager.c/1.71/Wed Dec 17 19:42:15 2014//
 /uvm_pager.h/1.29/Fri Jul 11 16:35:40 2014//
 /uvm_param.h/1.18/Sat Feb  7 08:21:24 2015//
-/uvm_pdaemon.c/1.79/Thu Jan 18 18:08:51 2018//
+/uvm_pdaemon.c/1.82/Fri May 10 02:33:57 2019//
 /uvm_pmap.h/1.28/Wed Oct 31 08:50:25 2018//
-/uvm_pmemrange.c/1.53/Fri Sep 16 02:52:24 2016//
+/uvm_pmemrange.c/1.54/Thu May  9 20:36:44 2019//
 /uvm_pmemrange.h/1.14/Fri Sep 16 02:47:09 2016//
 /uvm_stat.c/1.30/Tue Jun 19 22:35:07 2018//
 /uvm_swap.c/1.144/Tue Apr  2 13:07:28 2019//
