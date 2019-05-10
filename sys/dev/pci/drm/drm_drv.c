@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.159 2019/04/14 10:14:51 jsg Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.161 2019/05/02 09:47:16 kettenis Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -589,14 +589,11 @@ drmopen(dev_t kdev, int flags, int fmt, struct proc *p)
 	}
 
 	mutex_lock(&dev->struct_mutex);
-	/* first opener automatically becomes master if root */
-	if (SPLAY_EMPTY(&dev->files) && !DRM_SUSER(p)) {
-		mutex_unlock(&dev->struct_mutex);
-		ret = EPERM;
-		goto out_prime_destroy;
-	}
-
-	file_priv->is_master = SPLAY_EMPTY(&dev->files);
+	/* first opener automatically becomes master */
+	if (drm_is_primary_client(file_priv))
+		file_priv->is_master = SPLAY_EMPTY(&dev->files);
+	if (file_priv->is_master)
+		file_priv->authenticated = 1;
 
 	SPLAY_INSERT(drm_file_tree, &dev->files, file_priv);
 	mutex_unlock(&dev->struct_mutex);
