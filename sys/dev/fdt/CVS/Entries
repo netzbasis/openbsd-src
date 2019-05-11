@@ -10,7 +10,7 @@
 /dwdog.c/1.1/Tue Jul 25 20:20:09 2017//
 /dwmmc.c/1.20/Mon Dec 31 21:24:37 2018//
 /dwpcie.c/1.12/Fri Jan 11 08:03:24 2019//
-/ehci_fdt.c/1.4/Mon Aug  6 10:52:30 2018//
+/ehci_fdt.c/1.5/Fri May 10 18:20:41 2019//
 /exrtc.c/1.2/Sat Mar 11 00:18:43 2017//
 /fanpwr.c/1.2/Tue Jul 31 10:07:13 2018//
 /files.fdt/1.79/Tue Apr 30 20:04:31 2019//

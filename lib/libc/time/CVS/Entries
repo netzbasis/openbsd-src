@@ -9,8 +9,8 @@
 /strftime.3/1.37/Tue Sep  5 03:16:14 2017//
 /strftime.c/1.30/Wed Sep 21 04:38:57 2016//
 /strftime_l.c/1.1/Tue Sep  5 03:16:14 2017//
-/strptime.3/1.27/Thu Feb 21 19:10:32 2019//
-/strptime.c/1.25/Thu Feb 21 19:10:32 2019//
+/strptime.3/1.28/Fri May 10 12:49:16 2019//
+/strptime.c/1.29/Fri May 10 21:39:05 2019//
 /time2posix.3/1.20/Mon Feb 23 19:05:36 2015//
 /tzfile.5/1.15/Sat Mar 14 22:15:09 2015//
 /tzfile.h/1.9/Thu Sep 13 11:14:20 2012//

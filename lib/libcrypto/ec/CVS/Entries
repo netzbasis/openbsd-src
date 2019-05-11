@@ -9,7 +9,7 @@
 /ec_cvt.c/1.6/Thu Jul 10 22:45:57 2014//
 /ec_err.c/1.10/Sun Jan 29 17:49:23 2017//
 /ec_key.c/1.24/Sat Jan 19 01:12:48 2019//
-/ec_kmeth.c/1.4/Sat Jan 19 01:18:56 2019//
+/ec_kmeth.c/1.5/Fri May 10 19:15:06 2019//
 /ec_lcl.h/1.13/Sat Jan 19 01:12:48 2019//
 /ec_lib.c/1.31/Tue Nov  6 07:02:33 2018//
 /ec_mult.c/1.24/Sun Jul 15 16:27:39 2018//

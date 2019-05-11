@@ -1,4 +1,4 @@
-/*	$OpenBSD: strptime.c,v 1.25 2019/02/21 19:10:32 kn Exp $ */
+/*	$OpenBSD: strptime.c,v 1.29 2019/05/10 21:39:05 schwarze Exp $ */
 /*	$NetBSD: strptime.c,v 1.12 1998/01/20 21:39:40 mycroft Exp $	*/
 /*-
  * Copyright (c) 1997, 1998, 2005, 2008 The NetBSD Foundation, Inc.
@@ -116,7 +116,7 @@ _strptime(const char *buf, const char *fmt, struct tm *tm, int initialize)
 			fmt++;
 			continue;
 		}
-				
+
 		if ((c = *fmt++) != '%')
 			goto literal;
 
@@ -142,7 +142,7 @@ literal:
 			_LEGAL_ALT(0);
 			alt_format |= _ALT_O;
 			goto again;
-			
+
 		/*
 		 * "Complex" conversion rules, implemented through recursion.
 		 */
@@ -380,7 +380,7 @@ literal:
 				 * number but without the century.
 				 */
 			if (!(_conv_num(&bp, &i, 0, 99)))
-				return (NULL);				
+				return (NULL);
 			continue;
 
 		case 'G':	/* The year corresponding to the ISO week
@@ -434,8 +434,8 @@ literal:
 				bp += 3;
 			} else {
 				ep = _find_string(bp, &i,
-					       	 (const char * const *)tzname,
-					       	  NULL, 2);
+						 (const char * const *)tzname,
+						  NULL, 2);
 				if (ep == NULL)
 					return (NULL);
 
@@ -464,9 +464,6 @@ literal:
 			 * C[DS]T = Central : -5 | -6
 			 * M[DS]T = Mountain: -6 | -7
 			 * P[DS]T = Pacific : -7 | -8
-			 *          Military
-			 * [A-IL-M] = -1 ... -9 (J not used)
-			 * [N-Y]  = +1 ... +12
 			 */
 			while (isspace(*bp))
 				bp++;
@@ -500,7 +497,7 @@ literal:
 				ep = _find_string(bp, &i, nast, NULL, 4);
 				if (ep != NULL) {
 #ifdef TM_GMTOFF
-					tm->TM_GMTOFF = -5 - i;
+					tm->TM_GMTOFF = (-5 - i) * SECSPERHOUR;
 #endif
 #ifdef TM_ZONE
 					tm->TM_ZONE = (char *)nast[i];
@@ -512,7 +509,7 @@ literal:
 				if (ep != NULL) {
 					tm->tm_isdst = 1;
 #ifdef TM_GMTOFF
-					tm->TM_GMTOFF = -4 - i;
+					tm->TM_GMTOFF = (-4 - i) * SECSPERHOUR;
 #endif
 #ifdef TM_ZONE
 					tm->TM_ZONE = (char *)nadt[i];
@@ -520,53 +517,19 @@ literal:
 					bp = ep;
 					continue;
 				}
-
-				if ((*bp >= 'A' && *bp <= 'I') ||
-				    (*bp >= 'L' && *bp <= 'Y')) {
-#ifdef TM_GMTOFF
-					/* Argh! No 'J'! */
-					if (*bp >= 'A' && *bp <= 'I')
-						tm->TM_GMTOFF =
-						    ('A' - 1) - (int)*bp;
-					else if (*bp >= 'L' && *bp <= 'M')
-						tm->TM_GMTOFF = 'A' - (int)*bp;
-					else if (*bp >= 'N' && *bp <= 'Y')
-						tm->TM_GMTOFF = (int)*bp - 'M';
-#endif
-#ifdef TM_ZONE
-					tm->TM_ZONE = NULL; /* XXX */
-#endif
-					bp++;
-					continue;
-				}
 				return NULL;
 			}
-			offs = 0;
-			for (i = 0; i < 4; ) {
-				if (isdigit(*bp)) {
-					offs = offs * 10 + (*bp++ - '0');
-					i++;
-					continue;
-				}
-				if (i == 2 && *bp == ':') {
-					bp++;
-					continue;
-				}
-				break;
-			}
-			switch (i) {
-			case 2:
-				offs *= 100;
-				break;
-			case 4:
-				i = offs % 100;
-				if (i >= 60)
+			if (!isdigit(bp[0]) || !isdigit(bp[1]))
+				return NULL;
+			offs = ((bp[0]-'0') * 10 + (bp[1]-'0')) * SECSPERHOUR;
+			bp += 2;
+			if (*bp == ':')
+				bp++;
+			if (isdigit(*bp)) {
+				offs += (*bp++ - '0') * 10 * SECSPERMIN;
+				if (!isdigit(*bp))
 					return NULL;
-				/* Convert minutes into decimal */
-				offs = (offs / 100) * 100 + (i * 50) / 30;
-				break;
-			default:
-				return NULL;
+				offs += (*bp++ - '0') * SECSPERMIN;
 			}
 			if (neg)
 				offs = -offs;
@@ -719,7 +682,7 @@ _find_string(const u_char *bp, int *tgt, const char * const *n1,
 	return NULL;
 }
 
-static int              
+static int
 leaps_thru_end_of(const int y)
 {
 	return (y >= 0) ? (y / 4 - y / 100 + y / 400) :
