@@ -33,7 +33,7 @@
 /softraid_crypto.c/1.137/Mon Jun 12 16:39:51 2017//
 /softraid_raid0.c/1.52/Tue Apr 12 16:26:54 2016//
 /softraid_raid1.c/1.65/Tue Apr 12 16:26:54 2016//
-/softraid_raid5.c/1.27/Fri Oct  7 19:17:50 2016//
+/softraid_raid5.c/1.28/Sat May 11 20:31:53 2019//
 /softraid_raid6.c/1.71/Tue Apr 12 16:26:54 2016//
 /softraidvar.h/1.168/Sun Jan  6 14:59:56 2019//
 /spdmem.c/1.5/Sun Jan 25 11:38:49 2015//

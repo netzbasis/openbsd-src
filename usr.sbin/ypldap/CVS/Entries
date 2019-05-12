@@ -1,8 +1,6 @@
-/Makefile/1.10/Mon Jul  3 22:21:47 2017//
+/Makefile/1.11/Sat May 11 17:46:02 2019//
 /aldap.c/1.45/Thu Jan 17 06:22:54 2019//
-/aldap.h/1.13/Thu Jan 17 06:22:54 2019//
-/ber.c/1.34/Sat Apr 27 14:58:15 2019//
-/ber.h/1.10/Tue Nov 27 12:06:39 2018//
+/aldap.h/1.14/Sat May 11 17:46:02 2019//
 /entries.c/1.4/Wed Jul 12 23:18:24 2017//
 /ldapclient.c/1.42/Tue Nov 27 12:06:39 2018//
 /log.c/1.4/Tue Mar 21 12:06:56 2017//

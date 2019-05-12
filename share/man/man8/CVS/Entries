@@ -1,4 +1,4 @@
-/Makefile/1.98/Tue Jun 26 05:38:49 2018//
+/Makefile/1.99/Sat May 11 07:18:15 2019//
 /afterboot.8/1.164/Fri Sep 28 18:21:31 2018//
 /autoinstall.8/1.22/Sat Apr 27 22:30:39 2019//
 /boot_config.8/1.30/Thu Mar 10 09:04:11 2016//
@@ -32,5 +32,4 @@ D/man8.luna88k////
 D/man8.macppc////
 D/man8.octeon////
 D/man8.sgi////
-D/man8.socppc////
 D/man8.sparc64////

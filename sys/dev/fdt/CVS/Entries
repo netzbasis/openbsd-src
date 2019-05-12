@@ -13,7 +13,8 @@
 /ehci_fdt.c/1.5/Fri May 10 18:20:41 2019//
 /exrtc.c/1.2/Sat Mar 11 00:18:43 2017//
 /fanpwr.c/1.2/Tue Jul 31 10:07:13 2018//
-/files.fdt/1.79/Tue Apr 30 20:04:31 2019//
+/files.fdt/1.80/Sat May 11 14:43:27 2019//
+/fusbtc.c/1.1/Sat May 11 14:43:27 2019//
 /hiclock.c/1.2/Mon Apr 22 12:43:13 2019//
 /hidwusb.c/1.1/Mon Aug 27 13:56:11 2018//
 /hireset.c/1.1/Mon Aug 27 14:12:59 2018//
@@ -61,7 +62,7 @@
 /rkclock.c/1.41/Tue Jan  1 17:12:58 2019//
 /rkclock_clocks.h/1.25/Tue Jan  1 17:12:58 2019//
 /rkdwusb.c/1.2/Sun Apr  8 13:33:01 2018//
-/rkgpio.c/1.1/Sat May  6 18:25:43 2017//
+/rkgpio.c/1.2/Sat May 11 14:56:12 2019//
 /rkgrf.c/1.2/Sun Jul 23 17:07:18 2017//
 /rkiic.c/1.4/Mon Dec 31 21:59:44 2018//
 /rkpcie.c/1.6/Tue Aug 28 09:33:18 2018//
