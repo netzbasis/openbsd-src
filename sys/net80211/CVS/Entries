@@ -8,14 +8,14 @@
 /ieee80211_crypto_ccmp.c/1.21/Fri Nov  9 14:14:31 2018//
 /ieee80211_crypto_tkip.c/1.30/Fri Nov  9 14:14:31 2018//
 /ieee80211_crypto_wep.c/1.17/Fri Nov  9 14:14:31 2018//
-/ieee80211_input.c/1.205/Fri Mar 29 11:05:46 2019//
-/ieee80211_ioctl.c/1.73/Tue Feb 19 08:12:30 2019//
-/ieee80211_ioctl.h/1.37/Tue Feb 19 08:12:30 2019//
+/ieee80211_input.c/1.206/Sun May 12 18:12:38 2019//
+/ieee80211_ioctl.c/1.74/Sun May 12 18:12:38 2019//
+/ieee80211_ioctl.h/1.38/Sun May 12 18:12:38 2019//
 /ieee80211_mira.c/1.14/Wed Feb 27 04:10:40 2019//
 /ieee80211_mira.h/1.5/Wed Feb 27 04:10:40 2019//
 /ieee80211_node.c/1.165/Sat May 11 23:27:08 2019//
 /ieee80211_node.h/1.80/Fri Mar  1 08:13:11 2019//
-/ieee80211_output.c/1.124/Fri May 10 18:30:15 2019//
+/ieee80211_output.c/1.125/Sun May 12 18:12:38 2019//
 /ieee80211_pae_input.c/1.32/Fri Nov  2 14:40:24 2018//
 /ieee80211_pae_output.c/1.30/Thu Dec 21 12:09:38 2017//
 /ieee80211_priv.h/1.5/Mon Jan 26 19:09:41 2009//
@@ -26,5 +26,5 @@
 /ieee80211_regdomain.h/1.9/Tue Jan 12 09:28:09 2016//
 /ieee80211_rssadapt.c/1.11/Tue Dec 23 03:24:08 2014//
 /ieee80211_rssadapt.h/1.5/Sat Jul 17 16:25:09 2010//
-/ieee80211_var.h/1.95/Fri Mar  1 08:13:11 2019//
+/ieee80211_var.h/1.96/Sun May 12 18:12:38 2019//
 D
