@@ -1,4 +1,4 @@
-/Makefile/1.79/Wed Dec 19 21:21:59 2018//
+/Makefile/1.80/Mon May 13 19:42:28 2019//
 D/__syscall////
 D/accept////
 D/access////
@@ -54,6 +54,7 @@ D/signal////
 D/signal-stress////
 D/sigpending////
 D/sigprof////
+D/sigpthread////
 D/sigsuspend////
 D/sosplice////
 D/stackjmp////
