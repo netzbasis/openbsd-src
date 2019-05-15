@@ -1,4 +1,4 @@
-/*	$OpenBSD: http.c,v 1.7 2019/05/14 02:30:00 sunil Exp $ */
+/*	$OpenBSD: http.c,v 1.9 2019/05/14 18:51:07 deraadt Exp $ */
 
 /*
  * Copyright (c) 2015 Sunil Nimmagadda <sunil@openbsd.org>
@@ -441,7 +441,7 @@ http_close(struct url *url)
 
 	if (url->scheme == S_HTTPS) {
 		if (tls_session_fd != -1)
-			dprintf(STDERR_FILENO, "tls session resumed: %s\n",
+			fprintf(stderr, "tls session resumed: %s\n",
 			    tls_conn_session_resumed(ctx) ? "yes" : "no");
 
 		do {
@@ -657,6 +657,10 @@ https_init(char *tls_options)
 
 	if ((tls_config = tls_config_new()) == NULL)
 		errx(1, "tls_config_new failed");
+
+	if (tls_config_set_protocols(tls_config, TLS_PROTOCOLS_ALL) != 0)
+		errx(1, "tls set protocols failed: %s",
+		    tls_config_error(tls_config));
 
 	if (tls_config_set_ciphers(tls_config, "legacy") != 0)
 		errx(1, "tls set ciphers failed: %s",
