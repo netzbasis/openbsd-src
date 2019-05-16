@@ -74,8 +74,8 @@
 /smtp.c/1.164/Sun Dec 23 16:37:53 2018//
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.9/Tue May 14 12:08:54 2019//
-/smtp_session.c/1.389/Wed Feb 20 11:56:27 2019//
-/smtpc.c/1.4/Thu Sep 20 11:42:28 2018//
+/smtp_session.c/1.390/Wed May 15 11:56:19 2019//
+/smtpc.c/1.5/Wed May 15 05:02:43 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.163/Mon Jan 14 09:37:40 2019//
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//

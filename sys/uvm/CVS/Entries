@@ -1,8 +1,8 @@
 /uvm.h/1.64/Fri Mar  1 01:46:18 2019//
 /uvm_addr.c/1.27/Wed May 16 09:02:11 2018//
 /uvm_addr.h/1.7/Tue Jan 17 17:19:21 2017//
-/uvm_amap.c/1.79/Tue Jan 31 17:08:51 2017//
-/uvm_amap.h/1.30/Sun Feb  5 01:11:50 2017//
+/uvm_amap.c/1.80/Wed May 15 06:12:19 2019//
+/uvm_amap.h/1.31/Wed May 15 06:12:19 2019//
 /uvm_anon.c/1.48/Thu Sep 15 02:00:18 2016//
 /uvm_anon.h/1.20/Sun May  8 11:52:32 2016//
 /uvm_aobj.c/1.85/Tue Jan 31 17:08:51 2017//
@@ -19,7 +19,7 @@
 /uvm_io.c/1.26/Sat Jan  9 11:34:27 2016//
 /uvm_km.c/1.131/Fri Feb 22 07:53:56 2019//
 /uvm_km.h/1.15/Thu May 11 00:42:05 2017//
-/uvm_map.c/1.243/Tue Apr 23 13:35:12 2019//
+/uvm_map.c/1.244/Thu May 16 04:24:14 2019//
 /uvm_map.h/1.60/Thu Apr 12 17:13:44 2018//
 /uvm_meter.c/1.38/Tue Nov  6 07:49:38 2018//
 /uvm_mmap.c/1.156/Sat May 11 20:02:00 2019//
