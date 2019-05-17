@@ -45,7 +45,7 @@
 /strcspn.c/1.6/Mon Aug 31 02:53:57 2015//
 /strdup.3/1.22/Tue Dec  1 01:32:48 2015//
 /strdup.c/1.7/Mon Aug 31 02:53:57 2015//
-/strerror.3/1.15/Tue Sep  5 03:16:13 2017//
+/strerror.3/1.16/Thu May 16 13:35:16 2019//
 /strerror.c/1.8/Mon Aug 31 02:53:57 2015//
 /strerror_l.c/1.1/Tue Sep  5 03:16:13 2017//
 /strerror_r.c/1.13/Wed Oct 19 16:26:16 2016//
@@ -69,7 +69,7 @@
 /strrchr.c/1.4/Mon Oct  1 06:37:37 2018//
 /strsep.3/1.14/Wed Jun  5 03:39:23 2013//
 /strsep.c/1.8/Mon Aug 31 02:53:57 2015//
-/strsignal.3/1.8/Wed Jun  5 03:39:23 2013//
+/strsignal.3/1.9/Thu May 16 13:35:16 2019//
 /strsignal.c/1.8/Sat Sep 12 16:48:26 2015//
 /strspn.3/1.11/Wed Jun  5 03:39:23 2013//
 /strspn.c/1.6/Mon Aug 31 02:53:57 2015//

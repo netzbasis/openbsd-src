@@ -6,10 +6,10 @@
 /difftime.c/1.12/Tue Feb 10 01:24:28 2015//
 /localtime.c/1.60/Sun May 12 12:49:52 2019//
 /private.h/1.39/Sun May 12 12:49:52 2019//
-/strftime.3/1.37/Tue Sep  5 03:16:14 2017//
+/strftime.3/1.38/Thu May 16 13:35:17 2019//
 /strftime.c/1.31/Sun May 12 12:49:52 2019//
 /strftime_l.c/1.1/Tue Sep  5 03:16:14 2017//
-/strptime.3/1.28/Fri May 10 12:49:16 2019//
+/strptime.3/1.29/Thu May 16 13:35:17 2019//
 /strptime.c/1.30/Sun May 12 12:49:52 2019//
 /time2posix.3/1.20/Mon Feb 23 19:05:36 2015//
 /tzfile.5/1.15/Sat Mar 14 22:15:09 2015//

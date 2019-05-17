@@ -29,7 +29,7 @@
 /kern_sched.c/1.56/Tue Mar 26 04:24:22 2019//
 /kern_sensors.c/1.38/Sun Apr  9 15:47:18 2017//
 /kern_sig.c/1.230/Mon May 13 19:21:31 2019//
-/kern_smr.c/1.2/Tue May 14 03:27:43 2019//
+/kern_smr.c/1.4/Fri May 17 03:53:08 2019//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
 /kern_synch.c/1.148/Tue Apr 23 13:35:12 2019//
@@ -60,7 +60,7 @@
 /subr_tree.c/1.10/Tue Oct  9 08:28:43 2018//
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
 /subr_witness.c/1.31/Tue Apr 23 13:35:12 2019//
-/subr_xxx.c/1.16/Tue Apr  3 08:58:05 2018//
+/subr_xxx.c/1.17/Fri May 17 03:53:08 2019//
 /sys_futex.c/1.12/Wed Feb  6 15:11:20 2019//
 /sys_generic.c/1.123/Mon Jan 21 23:41:26 2019//
 /sys_pipe.c/1.87/Tue Nov 13 13:02:20 2018//
