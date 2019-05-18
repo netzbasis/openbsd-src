@@ -5,7 +5,7 @@
 /ber.c/1.7/Thu May 16 21:12:33 2019//
 /ber.h/1.1/Sat May 11 17:46:02 2019//
 /ber_add_string.3/1.2/Wed May 15 18:25:29 2019//
-/ber_get_string.3/1.3/Thu May 16 17:39:21 2019//
+/ber_get_string.3/1.4/Fri May 17 14:40:59 2019//
 /ber_oid_cmp.3/1.1/Wed May 15 03:11:52 2019//
 /ber_read_elements.3/1.4/Thu May 16 17:39:21 2019//
 /ber_set_header.3/1.1/Wed May 15 03:11:52 2019//
