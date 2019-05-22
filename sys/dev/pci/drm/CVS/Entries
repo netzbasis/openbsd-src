@@ -52,12 +52,14 @@
 /drm_trace.h/1.2/Wed Oct 31 10:35:27 2018//
 /drm_vblank.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_vma_manager.c/1.4/Sun Apr 14 10:14:51 2019//
-/files.drm/1.44/Sat May  4 11:34:47 2019//
+/files.drm/1.45/Tue May 21 22:40:06 2019//
 /linux_hdmi.c/1.2/Sun Apr 14 10:14:51 2019//
 /linux_list_sort.c/1.2/Sun Apr 14 10:14:51 2019//
 /linux_radix.c/1.1/Sun Apr 14 10:14:51 2019//
 /linux_reservation.c/1.2/Sun Apr 14 10:14:51 2019//
+D/amd////
 D/i915////
 D/include////
 D/radeon////
+D/scheduler////
 D/ttm////
