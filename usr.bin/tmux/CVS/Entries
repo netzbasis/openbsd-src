@@ -58,7 +58,7 @@
 /cmd-set-option.c/1.125/Fri Apr 26 11:38:51 2019//
 /cmd-show-environment.c/1.23/Sat Apr 22 10:22:39 2017//
 /cmd-show-messages.c/1.28/Thu Aug 23 15:45:05 2018//
-/cmd-show-options.c/1.51/Sun May 12 18:18:30 2019//
+/cmd-show-options.c/1.52/Wed May 22 18:58:31 2019//
 /cmd-source-file.c/1.37/Mon May 20 13:23:32 2019//
 /cmd-split-window.c/1.95/Fri May  3 20:44:24 2019//
 /cmd-string.c/1.31/Fri Apr 26 11:38:51 2019//
