@@ -9,7 +9,7 @@
 /log.h/1.1/Fri Mar  1 08:02:25 2019//
 /parse.y/1.6/Mon May 13 23:13:24 2019//
 /printconf.c/1.10/Mon May 13 23:13:24 2019//
-/resolver.c/1.40/Tue May 14 14:51:31 2019//
+/resolver.c/1.42/Thu May 23 15:11:58 2019//
 /resolver.h/1.6/Tue Apr  2 07:47:23 2019//
 /unwind.8/1.5/Mon Feb 11 13:38:53 2019//
 /unwind.c/1.28/Tue May 14 14:51:31 2019//

@@ -22,7 +22,7 @@
 /amdgpu_atomfirmware.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_benchmark.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_bios.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_bo_list.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_bo_list.c/1.2/Thu May 23 09:19:41 2019//
 /amdgpu_bo_list.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_cgs.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ci_dpm.c/1.1/Tue May 21 22:40:06 2019//
@@ -31,7 +31,7 @@
 /amdgpu_cik_sdma.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_connectors.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_connectors.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_cs.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_cs.c/1.2/Thu May 23 09:19:41 2019//
 /amdgpu_ctx.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_debugfs.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_debugfs.h/1.1/Tue May 21 22:40:06 2019//
