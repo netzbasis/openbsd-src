@@ -50,7 +50,7 @@
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
 /subr_extent.c/1.60/Wed Nov 14 17:52:48 2018//
 /subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
-/subr_kubsan.c/1.2/Tue Mar 19 20:13:54 2019//
+/subr_kubsan.c/1.6/Fri May 24 18:51:05 2019//
 /subr_log.c/1.56/Mon Jul 30 12:22:14 2018//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
@@ -88,7 +88,7 @@
 /uipc_socket.c/1.231/Mon Dec 17 16:46:59 2018//
 /uipc_socket2.c/1.101/Tue Apr 16 13:15:32 2019//
 /uipc_syscalls.c/1.181/Mon Mar  4 07:09:54 2019//
-/uipc_usrreq.c/1.139/Wed Feb 13 11:55:21 2019//
+/uipc_usrreq.c/1.140/Fri May 24 15:17:29 2019//
 /vfs_bio.c/1.190/Thu May  9 15:09:40 2019//
 /vfs_biomem.c/1.41/Thu May  9 20:36:44 2019//
 /vfs_cache.c/1.57/Mon Jun  4 19:42:54 2018//

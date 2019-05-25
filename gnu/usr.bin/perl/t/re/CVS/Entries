@@ -50,10 +50,10 @@
 /regexp_unicode_prop_thr.t/1.1.1.2/Mon Mar 25 20:09:38 2013/-ko/
 /rt122747.t/1.3/Wed Feb 13 21:15:32 2019/-kb/
 /rxcode.t/1.3/Wed Feb 13 21:15:32 2019/-ko/
-/script_run.t/1.1.1.1/Wed Feb 13 21:11:42 2019/-ko/
+/script_run.t/1.2/Fri May 24 21:33:56 2019/-ko/
 /speed.t/1.8/Wed Feb 13 21:17:19 2019/-ko/
 /speed_thr.t/1.1/Sun Feb  5 00:32:21 2017/-ko/
-/subst.t/1.4/Wed Feb 13 21:15:32 2019/-ko/
+/subst.t/1.5/Fri May 24 21:33:56 2019/-ko/
 /substT.t/1.1.1.1/Fri Sep 24 14:49:19 2010/-ko/
 /subst_amp.t/1.1.1.3/Wed Feb 13 21:11:42 2019/-ko/
 /subst_wamp.t/1.1.1.1/Fri Sep 24 14:49:19 2010/-ko/

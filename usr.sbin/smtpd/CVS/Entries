@@ -2,13 +2,13 @@
 /aliases.5/1.15/Thu May 24 11:38:24 2018//
 /aliases.c/1.77/Fri Dec 28 12:47:28 2018//
 /bounce.c/1.80/Sat Dec  8 08:01:15 2018//
-/ca.c/1.29/Thu May 24 11:38:24 2018//
+/ca.c/1.32/Fri May 24 15:34:05 2019//
 /cert.c/1.2/Tue Dec 11 07:25:57 2018//
 /compress_backend.c/1.9/Tue Jan 20 17:37:54 2015//
 /compress_gzip.c/1.10/Mon Dec 28 22:08:30 2015//
 /config.c/1.49/Fri Dec 28 14:21:02 2018//
 /control.c/1.123/Thu May 31 21:06:12 2018//
-/crypto.c/1.6/Sat Sep  3 14:42:08 2016//
+/crypto.c/1.7/Fri May 24 18:01:52 2019//
 /dict.c/1.6/Sun Dec 23 16:06:24 2018//
 /dict.h/1.1/Sun Dec 23 16:06:24 2018//
 /dns.c/1.88/Wed Sep 26 16:28:34 2018//
@@ -44,7 +44,7 @@
 /mda.c/1.137/Sat Jan  5 10:20:21 2019//
 /mda_unpriv.c/1.5/Thu Dec 27 15:41:50 2018//
 /mda_variables.c/1.5/Thu Dec  6 12:32:11 2018//
-/mproc.c/1.32/Mon Dec 17 08:56:31 2018//
+/mproc.c/1.33/Fri May 24 14:31:30 2019//
 /mta.c/1.227/Sun Dec 23 16:37:53 2018//
 /mta_session.c/1.115/Sun Dec 23 16:37:53 2018//
 /newaliases.8/1.12/Fri Jul 20 15:35:33 2018//
@@ -85,7 +85,7 @@
 /smtpd.conf.5/1.210/Sat Dec 22 08:54:02 2018//
 /smtpd.h/1.621/Mon Apr  8 08:22:32 2019//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//
-/ssl.c/1.91/Tue May 21 06:38:44 2019//
+/ssl.c/1.92/Fri May 24 16:29:41 2019//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
 /ssl_smtpd.c/1.13/Wed Dec 30 16:02:08 2015//
 /stat_backend.c/1.11/Thu Dec 27 10:35:26 2018//

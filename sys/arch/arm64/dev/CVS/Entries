@@ -1,4 +1,4 @@
-/acpipci.c/1.7/Sun Aug 19 08:23:47 2018//
+/acpipci.c/1.8/Fri May 24 08:24:01 2019//
 /agintc.c/1.18/Mon May 13 20:55:22 2019//
 /agtimer.c/1.10/Sat Aug 11 10:41:08 2018//
 /ampintc.c/1.15/Fri Dec  7 21:33:28 2018//
@@ -9,7 +9,7 @@
 /efi.c/1.6/Mon Jul  2 07:25:29 2018//
 /mainbus.c/1.13/Thu May 23 13:41:53 2019//
 /mainbus.h/1.2/Thu Apr 27 10:23:19 2017//
-/pciecam.c/1.6/Thu Aug  9 12:25:38 2018//
+/pciecam.c/1.7/Fri May 24 08:24:01 2019//
 /simplebus.c/1.11/Tue Apr 16 13:15:31 2019//
 /simplebusvar.h/1.3/Tue Apr 16 13:15:31 2019//
 D
