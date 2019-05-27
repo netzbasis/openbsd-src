@@ -19,12 +19,12 @@
 /ospf6.h/1.21/Mon Mar 25 14:29:35 2013//
 /ospf6d.8/1.18/Mon Jul 27 17:28:39 2015//
 /ospf6d.c/1.44/Mon Mar 25 20:53:33 2019//
-/ospf6d.conf.5/1.18/Sat Dec 29 16:04:31 2018//
+/ospf6d.conf.5/1.19/Sun May 26 09:27:09 2019//
 /ospf6d.h/1.39/Sat Dec 29 16:04:31 2018//
 /ospfe.c/1.55/Sat Sep  1 19:21:10 2018//
 /ospfe.h/1.19/Sat Oct 25 03:23:49 2014//
 /packet.c/1.15/Fri May 10 01:29:31 2019//
-/parse.y/1.43/Mon Apr 29 05:14:38 2019//
+/parse.y/1.44/Sun May 26 09:27:09 2019//
 /printconf.c/1.8/Sat Dec 29 16:04:31 2018//
 /rde.c/1.79/Thu Jul 12 13:45:03 2018//
 /rde.h/1.22/Thu Jul  1 19:47:04 2010//

@@ -3,7 +3,7 @@
 /__thrsigdivert.2/1.5/Sun Aug 21 13:31:21 2016//
 /__thrsleep.2/1.7/Tue Apr 24 16:28:42 2018//
 /_exit.2/1.22/Thu Sep 10 17:55:21 2015//
-/accept.2/1.28/Tue Sep  9 03:50:43 2014//
+/accept.2/1.29/Sun May 26 09:47:28 2019//
 /access.2/1.25/Mon Jan 19 15:54:11 2015//
 /acct.2/1.18/Thu Sep 10 17:55:21 2015//
 /adjfreq.2/1.7/Thu Sep 10 17:55:21 2015//
@@ -130,7 +130,7 @@
 /sigprocmask.2/1.13/Mon May 29 09:40:02 2017//
 /sigreturn.2/1.12/Mon May  9 23:57:10 2016//
 /sigsuspend.2/1.14/Mon May 29 09:40:02 2017//
-/socket.2/1.42/Sun Mar  3 18:18:34 2019//
+/socket.2/1.43/Sun May 26 09:47:28 2019//
 /socketpair.2/1.21/Sun Apr  8 18:46:43 2018//
 /stack_protector.c/1.24/Wed Nov 29 05:13:57 2017//
 /stat.2/1.47/Sat Oct 28 15:28:53 2017//

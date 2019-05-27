@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.195 2019/05/25 16:51:10 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.198 2019/05/26 18:43:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -84,6 +84,12 @@ static void	 format_defaults_winlink(struct format_tree *, struct winlink *);
 	"New After,w,new-window -a|" \
 	"New At End,W,new-window"
 #define DEFAULT_PANE_MENU \
+	"#{?mouse_word,Search For #[underscore]#{=/9/...:mouse_word},},C-r,copy-mode -t=; send -Xt= search-backward \"#{q:mouse_word}\"|" \
+	"#{?mouse_word,Type #[underscore]#{=/9/...:mouse_word},},C-y,send-keys -l \"#{q:mouse_word}\"|" \
+	"|" \
+	"#{?mouse_word,Copy #[underscore]#{=/9/...:mouse_word},},c,set-buffer \"#{q:mouse_word}\"|" \
+	"#{?mouse_line,Copy Line,},l,set-buffer \"#{q:mouse_line}\"|" \
+	"|" \
 	"Horizontal Split,h,split-window -h|" \
 	"Vertical Split,v,split-window -v|" \
 	"|" \
@@ -169,6 +175,8 @@ struct format_tree {
 	int			 flags;
 	time_t			 time;
 	u_int			 loop;
+
+	struct mouse_event	 m;
 
 	RB_HEAD(format_entry_tree, format_entry) tree;
 };
@@ -743,6 +751,121 @@ format_cb_cursor_character(struct format_tree *ft, struct format_entry *fe)
 		xasprintf(&fe->value, "%.*s", (int)gc.data.size, gc.data.data);
 }
 
+/* Callback for mouse_word. */
+static void
+format_cb_mouse_word(struct format_tree *ft, struct format_entry *fe)
+{
+	struct window_pane	*wp;
+	u_int			 x, y, end;
+	struct grid		*gd;
+	struct grid_line	*gl;
+	struct grid_cell	 gc;
+	const char		*ws;
+	struct utf8_data	*ud = NULL;
+	size_t			 size = 0;
+	int			 found = 0;
+
+	if (!ft->m.valid)
+		return;
+	wp = cmd_mouse_pane(&ft->m, NULL, NULL);
+	if (wp == NULL)
+		return;
+	if (cmd_mouse_at(wp, &ft->m, &x, &y, 0) != 0)
+		return;
+	gd = wp->base.grid;
+	ws = options_get_string(global_s_options, "word-separators");
+
+	y = gd->hsize + y;
+	for (;;) {
+		grid_get_cell(gd, x, y, &gc);
+		if (gc.flags & GRID_FLAG_PADDING)
+			break;
+		if (utf8_cstrhas(ws, &gc.data)) {
+			found = 1;
+			break;
+		}
+
+		if (x == 0) {
+			if (y == 0)
+				break;
+			gl = &gd->linedata[y - 1];
+			if (~gl->flags & GRID_LINE_WRAPPED)
+				break;
+			y--;
+			x = grid_line_length(gd, y);
+			if (x == 0)
+				break;
+		}
+		x--;
+	}
+	for (;;) {
+		if (found) {
+			end = grid_line_length(gd, y);
+			if (end == 0 || x == end - 1) {
+				if (y == gd->hsize + gd->sy - 1)
+					break;
+				gl = &gd->linedata[y];
+				if (~gl->flags & GRID_LINE_WRAPPED)
+					break;
+				y++;
+				x = 0;
+			} else
+				x++;
+		}
+		found = 1;
+
+		grid_get_cell(gd, x, y, &gc);
+		if (gc.flags & GRID_FLAG_PADDING)
+			break;
+		if (utf8_cstrhas(ws, &gc.data))
+			break;
+
+		ud = xreallocarray(ud, size + 2, sizeof *ud);
+		memcpy(&ud[size++], &gc.data, sizeof *ud);
+	}
+	if (size != 0) {
+		ud[size].size = 0;
+		fe->value = utf8_tocstr(ud);
+		free(ud);
+	}
+}
+
+/* Callback for mouse_line. */
+static void
+format_cb_mouse_line(struct format_tree *ft, struct format_entry *fe)
+{
+	struct window_pane	*wp;
+	u_int			 x, y;
+	struct grid		*gd;
+	struct grid_cell	 gc;
+	struct utf8_data	*ud = NULL;
+	size_t			 size = 0;
+
+	if (!ft->m.valid)
+		return;
+	wp = cmd_mouse_pane(&ft->m, NULL, NULL);
+	if (wp == NULL)
+		return;
+	if (cmd_mouse_at(wp, &ft->m, &x, &y, 0) != 0)
+		return;
+	gd = wp->base.grid;
+
+	y = gd->hsize + y;
+	for (x = 0; x < grid_line_length(gd, y); x++) {
+		grid_get_cell(gd, x, y, &gc);
+		if (gc.flags & GRID_FLAG_PADDING)
+			break;
+
+		ud = xreallocarray(ud, size + 2, sizeof *ud);
+		memcpy(&ud[size++], &gc.data, sizeof *ud);
+	}
+	if (size != 0) {
+		ud[size].size = 0;
+		fe->value = utf8_tocstr(ud);
+		free(ud);
+	}
+}
+
 /* Merge a format tree. */
 static void
 format_merge(struct format_tree *ft, struct format_tree *from)
@@ -753,6 +876,35 @@ format_merge(struct format_tree *ft, struct format_tree *from)
 		if (fe->value != NULL)
 			format_add(ft, fe->key, "%s", fe->value);
 	}
+}
+
+/* Add item bits to tree. */
+static void
+format_create_add_item(struct format_tree *ft, struct cmdq_item *item)
+{
+	struct mouse_event	*m;
+	struct window_pane	*wp;
+	u_int			 x, y;
+
+	if (item->cmd != NULL)
+		format_add(ft, "command", "%s", item->cmd->entry->name);
+
+	if (item->shared == NULL)
+		return;
+	if (item->shared->formats != NULL)
+		format_merge(ft, item->shared->formats);
+
+	m = &item->shared->mouse;
+	if (m->valid && ((wp = cmd_mouse_pane(m, NULL, NULL)) != NULL)) {
+		format_add(ft, "mouse_pane", "%%%u", wp->id);
+		if (cmd_mouse_at(wp, m, &x, &y, 0) == 0) {
+			format_add(ft, "mouse_x", "%u", x);
+			format_add(ft, "mouse_y", "%u", y);
+			format_add_cb(ft, "mouse_word", format_cb_mouse_word);
+			format_add_cb(ft, "mouse_line", format_cb_mouse_line);
+		}
+	}
+	memcpy(&ft->m, m, sizeof ft->m);
 }
 
 /* Create a new tree. */
@@ -800,12 +952,8 @@ format_create(struct client *c, struct cmdq_item *item, int tag, int flags)
 	format_add(ft, "window_menu", "%s", DEFAULT_WINDOW_MENU);
 	format_add(ft, "pane_menu", "%s", DEFAULT_PANE_MENU);
 
-	if (item != NULL) {
-		if (item->cmd != NULL)
-			format_add(ft, "command", "%s", item->cmd->entry->name);
-		if (item->shared != NULL && item->shared->formats != NULL)
-			format_merge(ft, item->shared->formats);
-	}
+	if (item != NULL)
+		format_create_add_item(ft, item);
 
 	return (ft);
 }
@@ -1408,7 +1556,7 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
     char **buf, size_t *len, size_t *off)
 {
 	struct window_pane	*wp = ft->wp;
-	const char		*errptr, *copy, *cp;
+	const char		*errptr, *copy, *cp, *marker;
 	char			*copy0, *condition, *found, *new;
 	char			*value, *left, *right;
 	size_t			 valuelen;
@@ -1448,12 +1596,16 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 				sub = fm;
 				break;
 			case '=':
-				if (fm->argc != 1)
+				if (fm->argc != 1 && fm->argc != 2)
 					break;
 				limit = strtonum(fm->argv[0], INT_MIN, INT_MAX,
 				    &errptr);
 				if (errptr != NULL)
 					limit = 0;
+				if (fm->argc == 2 && fm->argv[1] != NULL)
+					marker = fm->argv[1];
+				else
+					marker = NULL;
 				break;
 			case 'l':
 				modifiers |= FORMAT_LITERAL;
@@ -1668,14 +1820,24 @@ done:
 	/* Truncate the value if needed. */
 	if (limit > 0) {
 		new = format_trim_left(value, limit);
-		format_log(ft, "applied length limit %d: %s", limit, new);
-		free(value);
-		value = new;
+		if (marker != NULL && strcmp(new, value) != 0) {
+			free(value);
+			xasprintf(&value, "%s%s", new, marker);
+		} else {
+			free(value);
+			value = new;
+		}
+		format_log(ft, "applied length limit %d: %s", limit, value);
 	} else if (limit < 0) {
 		new = format_trim_right(value, -limit);
-		format_log(ft, "applied length limit %d: %s", limit, new);
-		free(value);
-		value = new;
+		if (marker != NULL && strcmp(new, value) != 0) {
+			free(value);
+			xasprintf(&value, "%s%s", marker, new);
+		} else {
+			free(value);
+			value = new;
+		}
+		format_log(ft, "applied length limit %d: %s", limit, value);
 	}
 
 	/* Expand the buffer and copy in the value. */
