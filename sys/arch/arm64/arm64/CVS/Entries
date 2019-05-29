@@ -18,12 +18,12 @@
 /exception.S/1.9/Fri Mar 15 05:42:38 2019//
 /genassym.cf/1.6/Thu Mar 29 19:25:39 2018//
 /intr.c/1.14/Mon May 13 20:55:22 2019//
-/locore.S/1.24/Sun Sep  9 16:41:43 2018//
-/locore0.S/1.4/Sun Jan 21 22:30:41 2018//
-/machdep.c/1.39/Tue Apr 30 20:04:31 2019//
+/locore.S/1.25/Tue May 28 20:32:30 2019//
+/locore0.S/1.5/Tue May 28 20:32:30 2019//
+/machdep.c/1.40/Tue May 28 20:32:30 2019//
 /mem.c/1.6/Fri May  4 15:45:11 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
-/pmap.c/1.61/Tue Apr 16 14:32:44 2019//
+/pmap.c/1.62/Tue May 28 20:32:30 2019//
 /process_machdep.c/1.5/Fri Aug  3 18:36:01 2018//
 /sig_machdep.c/1.6/Tue Jul 10 04:19:59 2018//
 /softintr.c/1.1/Sat Dec 17 23:38:33 2016//
