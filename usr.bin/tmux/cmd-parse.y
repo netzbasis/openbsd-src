@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-parse.y,v 1.6 2019/05/27 12:16:27 nicm Exp $ */
+/* $OpenBSD: cmd-parse.y,v 1.9 2019/05/29 20:05:14 nicm Exp $ */
 
 /*
  * Copyright (c) 2019 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -58,6 +58,7 @@ struct cmd_parse_state {
 	size_t				 len;
 	size_t				 off;
 
+	int				 eol;
 	int				 eof;
 	struct cmd_parse_input		*input;
 	u_int				 escapes;
@@ -933,6 +934,10 @@ yylex(void)
 	char			*token, *cp;
 	int			 ch, next;
 
+	if (ps->eol)
+		ps->input->line++;
+	ps->eol = 0;
+
 	for (;;) {
 		ch = yylex_getc();
 
@@ -959,7 +964,7 @@ yylex(void)
 			/*
 			 * End of line. Update the line number.
 			 */
-			ps->input->line++;
+			ps->eol = 1;
 			return ('\n');
 		}
 
@@ -1083,16 +1088,53 @@ error:
 static int
 yylex_token_escape(char **buf, size_t *len)
 {
-	int			 ch, type;
+	int			 ch, type, o2, o3;
 	u_int			 size, i, tmp;
 	char			 s[9];
 	struct utf8_data	 ud;
 
-	switch (ch = yylex_getc()) {
+	ch = yylex_getc();
+
+	if (ch >= '4' && ch <= '7') {
+		yyerror("invalid octal escape");
+		return (0);
+	}
+	if (ch >= '0' && ch <= '3') {
+		o2 = yylex_getc();
+		if (o2 >= '0' && o2 <= '7') {
+			o3 = yylex_getc();
+			if (o3 >= '0' && o3 <= '7') {
+				ch = 64 * (ch - '0') +
+				      8 * (o2 - '0') +
+				          (o3 - '0');
+				yylex_append1(buf, len, ch);
+				return (1);
+			}
+		}
+		yyerror("invalid octal escape");
+		return (0);
+	}
+
+	switch (ch) {
 	case EOF:
 		return (0);
+	case 'a':
+		ch = '\a';
+		break;
+	case 'b':
+		ch = '\b';
+		break;
 	case 'e':
 		ch = '\033';
+		break;
+	case 'f':
+		ch = '\f';
+		break;
+	case 's':
+		ch = ' ';
+		break;
+	case 'v':
+		ch = '\v';
 		break;
 	case 'r':
 		ch = '\r';
