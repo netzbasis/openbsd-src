@@ -2,7 +2,7 @@
 /acpipci.c/1.1/Fri Oct 26 20:26:19 2018//
 /agp_machdep.c/1.14/Sat Mar 14 03:38:46 2015//
 /pchb.c/1.43/Sat Apr 28 15:44:59 2018//
-/pci_machdep.c/1.69/Sun Aug 19 08:23:47 2018//
+/pci_machdep.c/1.70/Thu May 30 22:03:14 2019//
 /pcib.c/1.6/Thu May 30 16:15:01 2013//
 /pciide_machdep.c/1.4/Sat Oct 14 04:44:43 2017//
 /vga_post.c/1.10/Fri Aug 28 00:03:53 2015//

@@ -189,7 +189,7 @@
 /sshbuf.h/1.13/Mon Jan 21 09:54:11 2019//
 /sshconnect.c/1.315/Fri May  3 03:27:38 2019//
 /sshconnect.h/1.37/Sat Jan 19 21:36:38 2019//
-/sshconnect2.c/1.304/Wed May 15 04:43:31 2019//
+/sshconnect2.c/1.305/Fri May 31 03:20:07 2019//
 /sshd.8/1.304/Sun Jul 22 12:16:59 2018//
 /sshd.c/1.534/Thu Apr 18 18:56:16 2019//
 /sshd_config/1.103/Mon Apr  9 20:41:22 2018//
