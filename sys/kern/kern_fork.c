@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.209 2019/01/06 12:59:45 visa Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.211 2019/05/31 19:51:09 mpi Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -55,6 +55,7 @@
 #include <sys/sysctl.h>
 #include <sys/pool.h>
 #include <sys/mman.h>
+#include <sys/mutex.h>
 #include <sys/ptrace.h>
 #include <sys/atomic.h>
 #include <sys/pledge.h>
@@ -210,6 +211,8 @@ process_initialize(struct process *pr, struct proc *p)
 	LIST_INIT(&pr->ps_kqlist);
 	LIST_INIT(&pr->ps_sigiolst);
 
+	mtx_init(&pr->ps_mtx, IPL_MPFLOOR);
+
 	timeout_set(&pr->ps_realit_to, realitexpire, pr);
 	timeout_set(&pr->ps_rucheck_to, rucheck, pr);
 }
@@ -240,7 +243,7 @@ process_new(struct proc *p, struct process *parent, int flags)
 
 	/* post-copy fixups */
 	pr->ps_pptr = parent;
-	pr->ps_limit->p_refcnt++;
+	pr->ps_limit->pl_refcnt++;
 	if (pr->ps_limit->pl_rlimit[RLIMIT_CPU].rlim_cur != RLIM_INFINITY)
 		timeout_add_msec(&pr->ps_rucheck_to, RUCHECK_INTERVAL);
 

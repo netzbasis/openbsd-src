@@ -1,4 +1,4 @@
-/*	$OpenBSD: resourcevar.h,v 1.19 2019/01/06 12:59:45 visa Exp $	*/
+/*	$OpenBSD: resourcevar.h,v 1.21 2019/05/31 19:51:10 mpi Exp $	*/
 /*	$NetBSD: resourcevar.h,v 1.12 1995/11/22 23:01:53 cgd Exp $	*/
 
 /*
@@ -44,7 +44,7 @@
  */
 struct plimit {
 	struct	rlimit pl_rlimit[RLIM_NLIMITS];
-	int	p_refcnt;		/* number of references */
+	u_int	pl_refcnt;		/* number of references */
 };
 
 /* add user profiling from AST */
@@ -58,8 +58,7 @@ do {									\
 #ifdef _KERNEL
 void	 addupc_intr(struct proc *, u_long);
 void	 addupc_task(struct proc *, u_long, u_int);
-void	 tuagg_unlocked(struct process *, struct proc *);
-void	 tuagg(struct process *, struct proc *);
+void	 tuagg(struct proc *, struct timespec *);
 struct tusage;
 void	 calctsru(struct tusage *, struct timespec *, struct timespec *,
 	    struct timespec *);

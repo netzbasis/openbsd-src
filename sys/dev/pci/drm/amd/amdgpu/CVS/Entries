@@ -44,7 +44,7 @@
 /amdgpu_drv.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_encoders.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_fb.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_fence.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_fence.c/1.2/Fri May 31 23:50:49 2019//
 /amdgpu_gart.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_gart.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_gds.h/1.1/Tue May 21 22:40:06 2019//
@@ -95,7 +95,7 @@
 /amdgpu_test.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_trace.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_trace_points.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_ttm.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_ttm.c/1.2/Fri May 31 10:55:01 2019//
 /amdgpu_ttm.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ucode.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ucode.h/1.1/Tue May 21 22:40:06 2019//

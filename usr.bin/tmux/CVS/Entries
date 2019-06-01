@@ -35,10 +35,10 @@
 /cmd-move-window.c/1.29/Sat Apr 22 10:22:39 2017//
 /cmd-new-session.c/1.118/Fri May 17 05:47:31 2019//
 /cmd-new-window.c/1.79/Sun Apr 28 20:05:50 2019//
-/cmd-parse.y/1.10/Thu May 30 10:04:33 2019//
+/cmd-parse.y/1.11/Fri May 31 11:34:09 2019//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
-/cmd-queue.c/1.72/Wed May 29 19:34:42 2019//
+/cmd-queue.c/1.73/Fri May 31 21:41:17 2019//
 /cmd-refresh-client.c/1.28/Thu Oct 18 08:38:01 2018//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
@@ -69,10 +69,10 @@
 /cmd.c/1.152/Sat May 25 10:44:09 2019//
 /colour.c/1.17/Wed Mar 13 21:39:21 2019//
 /control-notify.c/1.23/Tue May  7 10:25:15 2019//
-/control.c/1.22/Thu May 23 11:13:30 2019//
+/control.c/1.23/Fri May 31 11:34:09 2019//
 /environ.c/1.23/Thu Apr 25 19:36:59 2019//
 /format-draw.c/1.9/Thu May 23 14:44:33 2019//
-/format.c/1.200/Tue May 28 07:18:42 2019//
+/format.c/1.201/Fri May 31 21:41:17 2019//
 /grid-view.c/1.31/Wed Jul  4 09:44:07 2018//
 /grid.c/1.95/Sun May 26 17:34:45 2019//
 /input-keys.c/1.63/Thu Oct 18 08:38:01 2018//
