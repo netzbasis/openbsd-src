@@ -33,9 +33,9 @@
 /cmd-load-buffer.c/1.54/Mon Aug 27 11:03:34 2018//
 /cmd-lock-server.c/1.26/Sat Apr 22 10:22:39 2017//
 /cmd-move-window.c/1.29/Sat Apr 22 10:22:39 2017//
-/cmd-new-session.c/1.118/Fri May 17 05:47:31 2019//
+/cmd-new-session.c/1.119/Sat Jun  1 16:21:37 2019//
 /cmd-new-window.c/1.79/Sun Apr 28 20:05:50 2019//
-/cmd-parse.y/1.11/Fri May 31 11:34:09 2019//
+/cmd-parse.y/1.12/Sat Jun  1 06:20:22 2019//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
 /cmd-queue.c/1.73/Fri May 31 21:41:17 2019//

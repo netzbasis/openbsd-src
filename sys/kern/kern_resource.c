@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_resource.c,v 1.61 2019/05/31 19:51:09 mpi Exp $	*/
+/*	$OpenBSD: kern_resource.c,v 1.63 2019/06/02 03:58:28 visa Exp $	*/
 /*	$NetBSD: kern_resource.c,v 1.38 1996/10/23 07:19:38 matthias Exp $	*/
 
 /*-
@@ -47,13 +47,13 @@
 #include <sys/ktrace.h>
 #include <sys/sched.h>
 #include <sys/signalvar.h>
-#include <sys/mutex.h>
+
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
 
 #include <uvm/uvm_extern.h>
 
-void	tuagg_sub(struct tusage *, struct tusage *);
+void	tuagg_sub(struct tusage *, struct proc *);
 
 /*
  * Patchable maximum data and stack limits.
@@ -338,12 +338,12 @@ sys_getrlimit(struct proc *p, void *v, register_t *retval)
 }
 
 void
-tuagg_sub(struct tusage *ttup, struct tusage *ftup)
+tuagg_sub(struct tusage *tup, struct proc *p)
 {
-	timespecadd(&ttup->tu_runtime, &ftup->tu_runtime, &ttup->tu_runtime);
-	ttup->tu_uticks += ftup->tu_uticks;
-	ttup->tu_sticks += ftup->tu_sticks;
-	ttup->tu_iticks += ftup->tu_iticks;
+	timespecadd(&tup->tu_runtime, &p->p_rtime, &tup->tu_runtime);
+	tup->tu_uticks += p->p_uticks;
+	tup->tu_sticks += p->p_sticks;
+	tup->tu_iticks += p->p_iticks;
 }
 
 /*
@@ -351,26 +351,24 @@ tuagg_sub(struct tusage *ttup, struct tusage *ftup)
  * totals for the thread and process
  */
 void
-tuagg(struct proc *p, struct timespec *tsp)
+tuagg_unlocked(struct process *pr, struct proc *p)
 {
-	struct process *pr = p->p_p;
-	struct tusage tu;
-
-	mtx_enter(&pr->ps_mtx);
-	tu.tu_uticks = p->p_uticks;
-	tu.tu_sticks = p->p_sticks;
-	tu.tu_iticks = p->p_iticks;
+	tuagg_sub(&pr->ps_tu, p);
+	tuagg_sub(&p->p_tu, p);
+	timespecclear(&p->p_rtime);
 	p->p_uticks = 0;
 	p->p_sticks = 0;
 	p->p_iticks = 0;
-	if (tsp != NULL)
-		timespecadd(&p->p_rtime, tsp, &p->p_rtime);
-	tu.tu_runtime = p->p_rtime;
-	timespecclear(&p->p_rtime);
-	tuagg_sub(&pr->ps_tu, &tu);
-	tuagg_sub(&p->p_tu, &tu);
-	mtx_leave(&pr->ps_mtx);
+}
 
+void
+tuagg(struct process *pr, struct proc *p)
+{
+	int s;
+
+	SCHED_LOCK(s);
+	tuagg_unlocked(pr, p);
+	SCHED_UNLOCK(s);
 }
 
 /*
@@ -463,19 +461,15 @@ dogetrusage(struct proc *p, int who, struct rusage *rup)
 		/* add on all living threads */
 		TAILQ_FOREACH(q, &pr->ps_threads, p_thr_link) {
 			ruadd(rup, &q->p_ru);
-			tuagg(q, NULL);
+			tuagg(pr, q);
 		}
 
-		mtx_enter(&pr->ps_mtx);
 		calcru(&pr->ps_tu, &rup->ru_utime, &rup->ru_stime, NULL);
-		mtx_leave(&pr->ps_mtx);
 		break;
 
 	case RUSAGE_THREAD:
 		*rup = p->p_ru;
-		mtx_enter(&pr->ps_mtx);
 		calcru(&p->p_tu, &rup->ru_utime, &rup->ru_stime, NULL);
-		mtx_leave(&pr->ps_mtx);
 		break;
 
 	case RUSAGE_CHILDREN:
@@ -513,12 +507,13 @@ rucheck(void *arg)
 	struct process *pr = arg;
 	struct rlimit *rlim;
 	rlim_t runtime;
+	int s;
 
 	KERNEL_ASSERT_LOCKED();
 
-	mtx_enter(&pr->ps_mtx);
+	SCHED_LOCK(s);
 	runtime = pr->ps_tu.tu_runtime.tv_sec;
-	mtx_leave(&pr->ps_mtx);
+	SCHED_UNLOCK(s);
 
 	rlim = &pr->ps_limit->pl_rlimit[RLIMIT_CPU];
 	if (runtime >= rlim->rlim_cur) {
@@ -537,6 +532,29 @@ rucheck(void *arg)
 
 struct pool plimit_pool;
 
+void
+lim_startup(struct plimit *limit0)
+{
+	rlim_t lim;
+	int i;
+
+	pool_init(&plimit_pool, sizeof(struct plimit), 0, IPL_MPFLOOR,
+	    PR_WAITOK, "plimitpl", NULL);
+
+	for (i = 0; i < nitems(limit0->pl_rlimit); i++)
+		limit0->pl_rlimit[i].rlim_cur =
+		    limit0->pl_rlimit[i].rlim_max = RLIM_INFINITY;
+	limit0->pl_rlimit[RLIMIT_NOFILE].rlim_cur = NOFILE;
+	limit0->pl_rlimit[RLIMIT_NOFILE].rlim_max = MIN(NOFILE_MAX,
+	    (maxfiles - NOFILE > NOFILE) ? maxfiles - NOFILE : NOFILE);
+	limit0->pl_rlimit[RLIMIT_NPROC].rlim_cur = MAXUPRC;
+	lim = ptoa(uvmexp.free);
+	limit0->pl_rlimit[RLIMIT_RSS].rlim_max = lim;
+	limit0->pl_rlimit[RLIMIT_MEMLOCK].rlim_max = lim;
+	limit0->pl_rlimit[RLIMIT_MEMLOCK].rlim_cur = lim / 3;
+	limit0->pl_refcnt = 1;
+}
+
 /*
  * Make a copy of the plimit structure.
  * We share these structures copy-on-write after fork,
@@ -546,13 +564,6 @@ struct plimit *
 limcopy(struct plimit *lim)
 {
 	struct plimit *newlim;
-	static int initialized;
-
-	if (!initialized) {
-		pool_init(&plimit_pool, sizeof(struct plimit), 0, IPL_NONE,
-		    PR_WAITOK, "plimitpl", NULL);
-		initialized = 1;
-	}
 
 	newlim = pool_get(&plimit_pool, PR_WAITOK);
 	memcpy(newlim->pl_rlimit, lim->pl_rlimit,

@@ -7,7 +7,7 @@
 /check_script.c/1.21/Sun May 28 10:39:15 2017//
 /check_tcp.c/1.56/Sat Apr 14 20:42:41 2018//
 /check_tls.c/1.1/Sat May 27 08:33:25 2017//
-/config.c/1.38/Fri May 31 15:25:57 2019//
+/config.c/1.39/Sat Jun  1 09:54:19 2019//
 /control.c/1.56/Mon Jan  9 14:49:21 2017//
 /hce.c/1.79/Mon Aug  6 17:31:31 2018//
 /http.h/1.11/Wed May  8 23:22:19 2019//
