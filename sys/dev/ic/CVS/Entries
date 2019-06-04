@@ -259,7 +259,7 @@
 /pcdisplayvar.h/1.12/Tue May 30 08:24:56 2017//
 /pcf8584.c/1.11/Sun Aug  1 18:48:41 2010//
 /pcf8584var.h/1.5/Sat Oct 20 18:46:21 2007//
-/pckbc.c/1.51/Tue Jan 29 18:25:26 2019//
+/pckbc.c/1.52/Mon Jun  3 16:46:49 2019//
 /pckbcvar.h/1.16/Sat Mar 11 11:55:03 2017//
 /pgt.c/1.93/Sat Apr 28 16:05:56 2018//
 /pgtreg.h/1.7/Wed Oct 11 12:10:19 2006//

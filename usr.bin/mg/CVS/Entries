@@ -1,7 +1,7 @@
 /Makefile/1.33/Fri Sep 16 17:17:40 2016//
 /README/1.14/Thu Nov 12 09:30:45 2015//
 /autoexec.c/1.17/Sat Sep 26 21:51:58 2015//
-/basic.c/1.47/Sat Oct 10 09:13:14 2015//
+/basic.c/1.48/Mon Jun  3 16:26:30 2019//
 /bell.c/1.4/Sun Jan  3 19:37:08 2016//
 /buffer.c/1.105/Thu Dec 13 14:59:16 2018//
 /chrdef.h/1.10/Wed Mar 25 12:29:03 2015//
@@ -29,7 +29,7 @@
 /macro.h/1.7/Fri Nov 18 20:56:53 2005//
 /main.c/1.85/Thu Dec 13 14:59:16 2018//
 /match.c/1.19/Wed Jun  3 23:40:01 2015//
-/mg.1/1.112/Wed Dec 26 07:01:22 2018//
+/mg.1/1.113/Mon Jun  3 16:26:30 2019//
 /modes.c/1.21/Tue May 30 07:05:22 2017//
 /paragraph.c/1.46/Sat Nov 17 09:52:34 2018//
 /pathnames.h/1.1/Mon Jun 18 07:14:55 2012//
