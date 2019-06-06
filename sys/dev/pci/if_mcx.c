@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mcx.c,v 1.16 2019/06/04 05:29:30 dlg Exp $ */
+/*	$OpenBSD: if_mcx.c,v 1.19 2019/06/06 03:17:49 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2017 David Gwynne <dlg@openbsd.org>
@@ -100,10 +100,6 @@
 #define MCX_UAR_EQ_DOORBELL_ARM	 0x40
 #define MCX_UAR_EQ_DOORBELL	 0x48
 #define MCX_UAR_BF		 0x800
-
-/* syndromes */
-#define MCX_SYNDROME_ENTRY_NOT_FOUND \
-				0x4EFC3D
 
 #define MCX_CMDQ_ADDR_HI		 0x0010
 #define MCX_CMDQ_ADDR_LO		 0x0014
@@ -2091,6 +2087,8 @@ struct cfattach mcx_ca = {
 static const struct pci_matchid mcx_devices[] = {
 	{ PCI_VENDOR_MELLANOX,	PCI_PRODUCT_MELLANOX_MT27700 },
 	{ PCI_VENDOR_MELLANOX,	PCI_PRODUCT_MELLANOX_MT27710 },
+	{ PCI_VENDOR_MELLANOX,	PCI_PRODUCT_MELLANOX_MT27800 },
+	{ PCI_VENDOR_MELLANOX,	PCI_PRODUCT_MELLANOX_MT28800 },
 };
 
 static const uint64_t mcx_eth_cap_map[] = {
@@ -2275,6 +2273,26 @@ mcx_attach(struct device *parent, struct device *self, void *aux)
 		goto teardown;
 	}
 
+	/*
+	 * PRM makes no mention of msi interrupts, just legacy and msi-x.
+	 * mellanox support tells me legacy interrupts are not supported,
+	 * so we're stuck with just msi-x.
+	 */
+	if (pci_intr_map_msix(pa, 0, &sc->sc_ih) != 0) {
+		printf(": unable to map interrupt\n");
+		goto teardown;
+	}
+	intrstr = pci_intr_string(sc->sc_pc, sc->sc_ih);
+	sc->sc_ihc = pci_intr_establish(sc->sc_pc, sc->sc_ih,
+	    IPL_NET | IPL_MPSAFE, mcx_intr, sc, DEVNAME(sc));
+	if (sc->sc_ihc == NULL) {
+		printf(": unable to establish interrupt");
+		if (intrstr != NULL)
+			printf(" at %s", intrstr);
+		printf("\n");
+		goto teardown;
+	}
+
 	if (mcx_create_eq(sc) != 0) {
 		/* error printed by mcx_create_eq */
 		goto teardown;
@@ -2295,25 +2313,6 @@ mcx_attach(struct device *parent, struct device *self, void *aux)
 		goto teardown;
 	}
 
-	/*
-	 * PRM makes no mention of msi interrupts, just legacy and msi-x.
-	 * mellanox support tells me legacy interrupts are not supported,
-	 * so we're stuck with just msi-x.
-	 */
-	if (pci_intr_map_msix(pa, 0, &sc->sc_ih) != 0) {
-		printf(": unable to map interrupt\n");
-		goto teardown;
-	}
-	intrstr = pci_intr_string(sc->sc_pc, sc->sc_ih);
-	sc->sc_ihc = pci_intr_establish(sc->sc_pc, sc->sc_ih,
-	    IPL_NET | IPL_MPSAFE, mcx_intr, sc, DEVNAME(sc));
-	if (sc->sc_ihc == NULL) {
-		printf(": unable to establish interrupt");
-		if (intrstr != NULL)
-			printf(" at %s", intrstr);
-		printf("\n");
-		goto teardown;
-	}
 	printf(", %s, address %s\n", intrstr,
 	    ether_sprintf(sc->sc_ac.ac_enaddr));
 
@@ -4933,9 +4932,7 @@ mcx_delete_flow_table_entry(struct mcx_softc *sc, int group, int index)
 	}
 
 	out = mcx_cmdq_out(cqe);
-	/* don't complain if the entry didn't exist */
-	if (out->cmd_status != MCX_CQ_STATUS_OK &&
-	    (betoh32(out->cmd_syndrome) != MCX_SYNDROME_ENTRY_NOT_FOUND)) {
+	if (out->cmd_status != MCX_CQ_STATUS_OK) {
 		printf("%s: delete flow table entry %d failed (%x, %x)\n",
 		    DEVNAME(sc), index, out->cmd_status,
 		    betoh32(out->cmd_syndrome));
@@ -5914,9 +5911,17 @@ mcx_down(struct mcx_softc *sc)
 	 * delete flow table entries first, so no packets can arrive
 	 * after the barriers
 	 */
-	for (group = 0; group < MCX_NUM_FLOW_GROUPS; group++) {
-		for (i = 0; i < sc->sc_flow_group_size[group]; i++)
-			mcx_delete_flow_table_entry(sc, group, i);
+	if (sc->sc_promisc_flow_enabled)
+		mcx_delete_flow_table_entry(sc, MCX_FLOW_GROUP_PROMISC, 0);
+	if (sc->sc_allmulti_flow_enabled)
+		mcx_delete_flow_table_entry(sc, MCX_FLOW_GROUP_ALLMULTI, 0);
+	mcx_delete_flow_table_entry(sc, MCX_FLOW_GROUP_MAC, 0);
+	mcx_delete_flow_table_entry(sc, MCX_FLOW_GROUP_MAC, 1);
+	for (i = 0; i < MCX_NUM_MCAST_FLOWS; i++) {
+		if (sc->sc_mcast_flows[i][0] != 0) {
+			mcx_delete_flow_table_entry(sc, MCX_FLOW_GROUP_MAC,
+			    sc->sc_first_mcast_flow_entry + i);
+		}
 	}
 
 	intr_barrier(&sc->sc_ih);

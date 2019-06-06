@@ -2,7 +2,7 @@
 /aliases.5/1.15/Thu May 24 11:38:24 2018//
 /aliases.c/1.77/Fri Dec 28 12:47:28 2018//
 /bounce.c/1.80/Sat Dec  8 08:01:15 2018//
-/ca.c/1.32/Fri May 24 15:34:05 2019//
+/ca.c/1.34/Wed Jun  5 16:24:54 2019//
 /cert.c/1.2/Tue Dec 11 07:25:57 2018//
 /compress_backend.c/1.9/Tue Jan 20 17:37:54 2015//
 /compress_gzip.c/1.10/Mon Dec 28 22:08:30 2015//
@@ -81,11 +81,11 @@
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//
 /smtpd-defines.h/1.10/Thu Dec 27 15:41:50 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
-/smtpd.c/1.318/Sun Mar 31 03:36:18 2019//
+/smtpd.c/1.319/Wed Jun  5 06:40:13 2019//
 /smtpd.conf.5/1.210/Sat Dec 22 08:54:02 2018//
-/smtpd.h/1.621/Mon Apr  8 08:22:32 2019//
+/smtpd.h/1.622/Wed Jun  5 06:40:13 2019//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//
-/ssl.c/1.92/Fri May 24 16:29:41 2019//
+/ssl.c/1.93/Wed Jun  5 06:40:13 2019//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
 /ssl_smtpd.c/1.13/Wed Dec 30 16:02:08 2015//
 /stat_backend.c/1.11/Thu Dec 27 10:35:26 2018//
