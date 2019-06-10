@@ -7,7 +7,7 @@
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
 /autoconf.c/1.53/Fri Jan 11 06:25:06 2019//
 /bios.c/1.37/Tue Oct 23 17:51:32 2018//
-/bus_dma.c/1.50/Sat Oct 14 04:44:43 2017//
+/bus_dma.c/1.51/Sun Jun  9 12:52:04 2019//
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
 /cacheinfo.c/1.8/Wed Feb  3 03:25:07 2016//
 /codepatch.c/1.7/Fri Jul 13 08:30:34 2018//
