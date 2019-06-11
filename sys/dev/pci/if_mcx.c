@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mcx.c,v 1.24 2019/06/11 03:55:16 jmatthew Exp $ */
+/*	$OpenBSD: if_mcx.c,v 1.26 2019/06/11 06:28:09 dlg Exp $ */
 
 /*
  * Copyright (c) 2017 David Gwynne <dlg@openbsd.org>
@@ -5758,10 +5758,11 @@ mcx_process_cq(struct mcx_softc *sc, struct mcx_cq *cq)
 
 	if (rxfree > 0) {
 		if_rxr_put(&sc->sc_rxr, rxfree);
+		if (ifiq_input(&sc->sc_ac.ac_if.if_rcv, &ml))
+			if_rxr_livelocked(&sc->sc_rxr);
+
 		mcx_rx_fill(sc);
 		/* timeout if full somehow */
-
-		if_input(&sc->sc_ac.ac_if, &ml);
 	}
 	if (txfree > 0) {
 		sc->sc_tx_cons += txfree;
@@ -6027,7 +6028,7 @@ mcx_down(struct mcx_softc *sc)
 		}
 	}
 
-	intr_barrier(&sc->sc_ih);
+	intr_barrier(sc->sc_ihc);
 	ifq_barrier(&ifp->if_snd);
 
 	timeout_del_barrier(&sc->sc_calibrate);

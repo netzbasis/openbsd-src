@@ -1,6 +1,6 @@
 /drm_agpsupport.c/1.27/Sun Apr 14 10:14:51 2019//
 /drm_atomic.c/1.4/Sun Apr 14 10:14:51 2019//
-/drm_atomic_helper.c/1.2/Sun Apr 14 10:14:51 2019//
+/drm_atomic_helper.c/1.3/Tue Jun 11 11:56:25 2019//
 /drm_blend.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_bridge.c/1.2/Sun Apr 14 10:14:51 2019//
 /drm_cache.c/1.7/Sun Apr 14 10:14:51 2019//
@@ -15,7 +15,7 @@
 /drm_dp_mst_topology.c/1.7/Sun Apr 14 10:14:51 2019//
 /drm_drv.c/1.162/Sat May  4 11:34:47 2019//
 /drm_dumb_buffers.c/1.1/Sun Apr 14 10:14:51 2019//
-/drm_edid.c/1.19/Sun Apr 14 10:14:51 2019//
+/drm_edid.c/1.21/Tue Jun 11 11:41:02 2019//
 /drm_encoder.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_fb_helper.c/1.15/Tue Apr 30 01:45:04 2019//
 /drm_file.c/1.3/Sat Jun  1 00:02:28 2019//

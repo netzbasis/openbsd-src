@@ -5,7 +5,7 @@
 /disksubr.c/1.89/Tue Feb 28 10:49:37 2017//
 /fpemu.S/1.15/Thu Nov 15 21:27:31 2018//
 /fpu.c/1.5/Sat Aug  7 03:50:01 2010//
-/genassym.cf/1.47/Mon Feb  9 08:20:13 2015//
+/genassym.cf/1.48/Tue Jun 11 15:23:41 2019//
 /in_cksum.c/1.4/Mon Apr 26 19:43:23 2010//
 /intr.c/1.50/Mon May 14 13:54:39 2018//
 /ipi.c/1.5/Fri Sep  8 05:36:51 2017//

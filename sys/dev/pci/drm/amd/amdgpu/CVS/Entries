@@ -2,7 +2,7 @@
 /amdgpu.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_acp.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_acp.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_acpi.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_acpi.c/1.2/Tue Jun 11 11:47:24 2019//
 /amdgpu_afmt.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_amdkfd.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_amdkfd.h/1.1/Tue May 21 22:40:06 2019//
@@ -78,7 +78,7 @@
 /amdgpu_pm.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_pm.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_prime.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_psp.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_psp.c/1.2/Tue Jun 11 11:42:58 2019//
 /amdgpu_psp.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_queue_mgr.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ring.c/1.1/Tue May 21 22:40:06 2019//
