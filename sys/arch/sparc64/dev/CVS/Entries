@@ -58,7 +58,7 @@
 /pcf8591_envctrl.c/1.6/Thu Oct 25 21:17:20 2007//
 /pcf8591_ofw.c/1.5/Mon Oct 22 20:53:10 2007//
 /pcfiic_ebus.c/1.13/Sun Jun  8 03:07:40 2008//
-/pci_machdep.c/1.46/Thu Dec 27 11:04:41 2018//
+/pci_machdep.c/1.47/Tue Jun 11 00:45:31 2019//
 /pckbc_ebus.c/1.14/Fri Sep  8 05:36:52 2017//
 /pcons.c/1.24/Mon Feb 19 08:59:52 2018//
 /pmc.c/1.4/Wed Dec 10 12:27:57 2014//
@@ -68,7 +68,7 @@
 /psycho.c/1.75/Thu May 25 03:19:39 2017//
 /psychoreg.h/1.13/Sun Jul 20 10:37:43 2008//
 /psychovar.h/1.7/Sat May 24 23:31:37 2008//
-/pyro.c/1.31/Thu May 25 03:19:39 2017//
+/pyro.c/1.32/Tue Jun 11 00:45:31 2019//
 /pyrovar.h/1.4/Wed Jul  6 05:48:57 2011//
 /radeonfb.c/1.5/Sun Oct 20 20:07:27 2013//
 /raptor.c/1.8/Sun Oct 20 20:07:27 2013//
@@ -106,7 +106,7 @@
 /vldc.c/1.1/Sat Mar 17 20:07:18 2012//
 /vldcp.c/1.17/Thu Mar 22 11:24:27 2018//
 /vnet.c/1.60/Sat Jan 27 13:44:03 2018//
-/vpci.c/1.24/Fri Dec 22 15:52:36 2017//
+/vpci.c/1.25/Tue Jun 11 00:45:31 2019//
 /vrng.c/1.5/Sat Apr 28 15:44:59 2018//
 /vrtc.c/1.1/Sat Mar  8 19:19:43 2008//
 /vsw.c/1.1/Sat May 16 10:53:06 2009//
