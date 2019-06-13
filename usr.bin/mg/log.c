@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.3 2019/06/10 18:55:15 lum Exp $	*/
+/*	$OpenBSD: log.c,v 1.5 2019/06/12 18:21:07 lum Exp $	*/
 
 /* 
  * This file is in the public domain.
@@ -11,6 +11,16 @@
  * Record a history of an mg session for temporal debugging.
  * Sometimes pressing a key will set the scene for a bug only visible 
  * dozens of keystrokes later. gdb has its limitations in this scenario.
+ *
+ * Note this file is not compiled into mg by default, you will need to
+ * amend the 'Makefile' for that to happen. Because of this, the code
+ * is subjet to bit-rot. However, I know myself and others have 
+ * written similar functionally often enough, that recording the below 
+ * in a code repository could aid the developement efforts of mg, even
+ * if it requires a bit of effort to get working. The current code is
+ * written in the spirit of debugging (quickly and perhaps not ideal,
+ * but it does what is required well enough). Should debugging become
+ * more formalised within mg, then I would expect that to change.
  */
 
 #include <sys/queue.h>
@@ -114,7 +124,7 @@ mglog_lines(PF funct)
 {
 	struct line     *lp;
 	struct stat      sb;
-	char		*curline;
+	char		*curline, *tmp, o;
 	FILE            *fd;
 	int		 i;
 
@@ -133,11 +143,22 @@ mglog_lines(PF funct)
 	for(;;) {
 		i++;
 		curline = " ";
-		if (i == curwp->w_dotline)
+		o = ' ';
+		if (i == curwp->w_dotline) {
 			curline = ">";
-		if (fprintf(fd, "%s%p b^%p f.%p %d %d\t|%s\n", curline,
+			if (lp->l_used > 0 && curwp->w_doto < lp->l_used)
+				o = lp->l_text[curwp->w_doto];
+			else
+				o = '-';
+		}
+		if (lp->l_size == 0)
+			tmp = " ";
+		else
+			tmp = lp->l_text;
+
+		if (fprintf(fd, "%s%p b^%p f.%p %d %d\t%c|%s\n", curline,
 		    lp, lp->l_bp, lp->l_fp,
-		    lp->l_size, lp->l_used, lp->l_text) == -1) {
+		    lp->l_size, lp->l_used, o, tmp) == -1) {
 			fclose(fd);
 			return (FALSE);
 		}

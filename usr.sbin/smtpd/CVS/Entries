@@ -18,10 +18,10 @@
 /expand.c/1.31/Thu May 31 21:06:12 2018//
 /forward.5/1.9/Fri Mar 13 22:41:54 2015//
 /forward.c/1.39/Mon Dec 28 22:08:30 2015//
-/iobuf.c/1.10/Fri Mar 17 20:56:04 2017//
-/iobuf.h/1.4/Tue Jan 20 17:37:54 2015//
-/ioev.c/1.41/Wed May 17 14:00:06 2017//
-/ioev.h/1.16/Wed Nov 30 17:43:32 2016//
+/iobuf.c/1.11/Wed Jun 12 17:42:53 2019//
+/iobuf.h/1.5/Wed Jun 12 17:42:53 2019//
+/ioev.c/1.42/Wed Jun 12 17:42:53 2019//
+/ioev.h/1.17/Wed Jun 12 17:42:53 2019//
 /limit.c/1.5/Wed Jun 15 19:59:03 2016//
 /lka.c/1.233/Sat Jan  5 09:43:39 2019//
 /lka_filter.c/1.36/Thu May  2 11:39:45 2019//
@@ -46,7 +46,7 @@
 /mda_variables.c/1.5/Thu Dec  6 12:32:11 2018//
 /mproc.c/1.33/Fri May 24 14:31:30 2019//
 /mta.c/1.227/Sun Dec 23 16:37:53 2018//
-/mta_session.c/1.115/Sun Dec 23 16:37:53 2018//
+/mta_session.c/1.116/Wed Jun 12 17:42:53 2019//
 /newaliases.8/1.12/Fri Jul 20 15:35:33 2018//
 /parse.y/1.252/Mon May 20 07:04:13 2019//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
@@ -73,8 +73,8 @@
 /smtp.1/1.7/Wed Jul  4 08:23:43 2018//
 /smtp.c/1.164/Sun Dec 23 16:37:53 2018//
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
-/smtp_client.c/1.9/Tue May 14 12:08:54 2019//
-/smtp_session.c/1.390/Wed May 15 11:56:19 2019//
+/smtp_client.c/1.10/Wed Jun 12 17:42:53 2019//
+/smtp_session.c/1.391/Wed Jun 12 17:42:53 2019//
 /smtpc.c/1.5/Wed May 15 05:02:43 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.163/Mon Jan 14 09:37:40 2019//
