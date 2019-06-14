@@ -7,7 +7,7 @@
 /in6_ifattach.c/1.113/Wed Feb 13 23:47:43 2019//
 /in6_ifattach.h/1.9/Fri Oct  5 07:06:09 2018//
 /in6_pcb.c/1.108/Thu Oct  4 17:33:41 2018//
-/in6_proto.c/1.103/Mon Nov 19 10:15:04 2018//
+/in6_proto.c/1.104/Thu Jun 13 08:12:11 2019//
 /in6_src.c/1.81/Fri Dec  2 11:16:04 2016//
 /in6_var.h/1.72/Sun May  6 15:21:25 2018//
 /ip6_divert.c/1.59/Mon Feb  4 21:40:52 2019//
@@ -23,7 +23,7 @@
 /mld6.c/1.56/Fri Nov 30 09:28:34 2018//
 /mld6.h/1.2/Mon Mar 22 21:29:22 2010//
 /mld6_var.h/1.6/Fri Apr 18 06:42:20 2008//
-/nd6.c/1.226/Fri Aug  3 09:11:56 2018//
+/nd6.c/1.227/Thu Jun 13 08:15:26 2019//
 /nd6.h/1.74/Mon Nov 27 15:41:30 2017//
 /nd6_nbr.c/1.127/Thu Dec 20 10:28:58 2018//
 /nd6_rtr.c/1.166/Tue Jan 23 22:06:42 2018//
