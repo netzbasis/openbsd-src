@@ -45,8 +45,8 @@
 /mda_unpriv.c/1.5/Thu Dec 27 15:41:50 2018//
 /mda_variables.c/1.5/Thu Dec  6 12:32:11 2018//
 /mproc.c/1.33/Fri May 24 14:31:30 2019//
-/mta.c/1.227/Sun Dec 23 16:37:53 2018//
-/mta_session.c/1.116/Wed Jun 12 17:42:53 2019//
+/mta.c/1.228/Fri Jun 14 19:55:25 2019//
+/mta_session.c/1.117/Fri Jun 14 19:55:25 2019//
 /newaliases.8/1.12/Fri Jul 20 15:35:33 2018//
 /parse.y/1.252/Mon May 20 07:04:13 2019//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
@@ -63,7 +63,7 @@
 /rfc5322.c/1.2/Wed Oct 24 18:59:29 2018//
 /rfc5322.h/1.1/Thu Aug 23 10:07:06 2018//
 /ruleset.c/1.42/Fri Dec 28 11:40:29 2018//
-/runq.c/1.2/Tue Jan 20 17:37:54 2015//
+/runq.c/1.3/Fri Jun 14 19:55:25 2019//
 /scheduler.c/1.60/Sun Dec 30 23:09:58 2018//
 /scheduler_backend.c/1.16/Thu May 24 11:38:24 2018//
 /scheduler_null.c/1.9/Tue Jan 20 17:37:54 2015//
@@ -83,7 +83,7 @@
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.320/Thu Jun 13 11:45:35 2019//
 /smtpd.conf.5/1.210/Sat Dec 22 08:54:02 2018//
-/smtpd.h/1.623/Thu Jun 13 11:45:35 2019//
+/smtpd.h/1.624/Fri Jun 14 19:55:25 2019//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//
 /ssl.c/1.93/Wed Jun  5 06:40:13 2019//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//

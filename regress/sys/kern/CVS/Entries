@@ -1,8 +1,9 @@
-/Makefile/1.81/Fri May 17 20:08:38 2019//
+/Makefile/1.82/Fri Jun 14 19:23:53 2019//
 D/__syscall////
 D/accept////
 D/access////
 D/bind////
+D/clock_gettime////
 D/cmsgsize////
 D/descrip////
 D/dup2////
