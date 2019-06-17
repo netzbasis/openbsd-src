@@ -21,7 +21,7 @@
 /kern_lock.c/1.70/Tue Jun  4 15:41:02 2019//
 /kern_malloc.c/1.139/Wed May 15 21:25:50 2019//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.252/Mon May 13 22:55:27 2019//
+/kern_pledge.c/1.253/Sun Jun 16 21:00:42 2019//
 /kern_proc.c/1.85/Mon Nov 12 15:09:17 2018//
 /kern_prot.c/1.75/Fri Jun 22 13:33:30 2018//
 /kern_resource.c/1.64/Mon Jun 10 03:15:53 2019//
@@ -51,7 +51,7 @@
 /subr_extent.c/1.60/Wed Nov 14 17:52:48 2018//
 /subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
 /subr_kubsan.c/1.7/Mon Jun  3 19:39:16 2019//
-/subr_log.c/1.56/Mon Jul 30 12:22:14 2018//
+/subr_log.c/1.57/Mon Jun 17 00:21:28 2019//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
 /subr_pool.c/1.227/Tue Apr 23 13:35:12 2019//

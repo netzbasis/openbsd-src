@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.49 2019/06/14 19:55:08 florian Exp $ */
+/*	$Id: main.c,v 1.51 2019/06/16 19:49:13 florian Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -36,9 +36,7 @@ int
 main(int argc, char *argv[])
 {
 	const char	 **alts = NULL;
-	char		 *certdir = NULL, *certfile = NULL;
-	char		 *chainfile = NULL, *fullchainfile = NULL;
-	char		 *acctkey = NULL;
+	char		 *certdir = NULL;
 	char		 *chngdir = NULL, *auth = NULL;
 	char		 *conffile = CONF_FILE;
 	char		 *tmps, *tmpsd;
@@ -98,7 +96,10 @@ main(int argc, char *argv[])
 	argc--;
 	argv++;
 
-	/* the parser enforces that at least cert or fullchain is set */
+	/*
+	 * The parser enforces that at least cert or fullchain is set.
+	 * XXX Test if cert, chain and fullchain have the same dirname?
+	 */
 	tmps = domain->cert ? domain->cert : domain->fullchain;
 	if ((tmps = strdup(tmps)) == NULL)
 		err(EXIT_FAILURE, "strdup");
@@ -109,31 +110,21 @@ main(int argc, char *argv[])
 	free(tmps);
 	tmps = tmpsd = NULL;
 
-	if (domain->cert != NULL) {
-		if ((tmps = strdup(domain->cert)) == NULL)
-			err(EXIT_FAILURE, "strdup");
-		if ((certfile = basename(tmps)) == NULL)
-			err(EXIT_FAILURE, "basename");
-		if ((certfile = strdup(certfile)) == NULL)
-			err(EXIT_FAILURE, "strdup");
-	}
 
-	if (domain->chain != NULL) {
-		if ((tmps = strdup(domain->chain)) == NULL)
-			err(EXIT_FAILURE, "strdup");
-		if ((chainfile = basename(tmps)) == NULL)
-			err(EXIT_FAILURE, "basename");
-		if ((chainfile = strdup(chainfile)) == NULL)
-			err(EXIT_FAILURE, "strdup");
+	/* chain or fullchain can be relative paths according */
+	if (domain->chain && domain->chain[0] != '/') {
+		if (asprintf(&tmps, "%s/%s", certdir, domain->chain) == -1)
+			err(EXIT_FAILURE, "asprintf");
+		free(domain->chain);
+		domain->chain = tmps;
+		tmps = NULL;
 	}
-
-	if (domain->fullchain != NULL) {
-		if ((tmps = strdup(domain->fullchain)) == NULL)
-			err(EXIT_FAILURE, "strdup");
-		if ((fullchainfile = basename(tmps)) == NULL)
-			err(EXIT_FAILURE, "basename");
-		if ((fullchainfile = strdup(fullchainfile)) == NULL)
-			err(EXIT_FAILURE, "strdup");
+	if (domain->fullchain && domain->fullchain[0] != '/') {
+		if (asprintf(&tmps, "%s/%s", certdir, domain->fullchain) == -1)
+			err(EXIT_FAILURE, "asprintf");
+		free(domain->fullchain);
+		domain->fullchain = tmps;
+		tmps = NULL;
 	}
 
 	if ((auth = domain->auth) == NULL) {
@@ -146,8 +137,6 @@ main(int argc, char *argv[])
 		if (authority == NULL)
 			errx(EXIT_FAILURE, "authority %s not found", auth);
 	}
-
-	acctkey = authority->account;
 
 	if ((chngdir = domain->challengedir) == NULL)
 		if ((chngdir = strdup(WWW_DIR)) == NULL)
@@ -273,7 +262,7 @@ main(int argc, char *argv[])
 		close(chng_fds[0]);
 		close(file_fds[0]);
 		close(file_fds[1]);
-		c = acctproc(acct_fds[0], acctkey);
+		c = acctproc(acct_fds[0], authority->account);
 		exit(c ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
 
@@ -323,8 +312,8 @@ main(int argc, char *argv[])
 		proccomp = COMP_FILE;
 		close(dns_fds[0]);
 		close(rvk_fds[0]);
-		c = fileproc(file_fds[1], certdir, certfile, chainfile,
-		    fullchainfile);
+		c = fileproc(file_fds[1], certdir, domain->cert, domain->chain,
+		    domain->fullchain);
 		/*
 		 * This is different from the other processes in that it
 		 * can return 2 if the certificates were updated.
@@ -355,9 +344,8 @@ main(int argc, char *argv[])
 
 	if (pids[COMP_REVOKE] == 0) {
 		proccomp = COMP_REVOKE;
-		c = revokeproc(rvk_fds[0], certdir,
-		    certfile != NULL ? certfile : fullchainfile,
-		    force, revocate,
+		c = revokeproc(rvk_fds[0], domain->cert != NULL ? domain->cert :
+		    domain->fullchain, force, revocate,
 		    (const char *const *)alts, altsz);
 		exit(c ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
