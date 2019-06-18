@@ -103,6 +103,7 @@ D/route6d////
 D/rpc.bootparamd////
 D/rpc.lockd////
 D/rpc.statd////
+D/rpki-client////
 D/sa////
 D/sasyncd////
 D/sensorsd////

@@ -1,4 +1,4 @@
-/* $OpenBSD: env.c,v 1.7 2019/06/16 18:16:34 tedu Exp $ */
+/* $OpenBSD: env.c,v 1.9 2019/06/17 19:51:23 tedu Exp $ */
 /*
  * Copyright (c) 2016 Ted Unangst <tedu@openbsd.org>
  *
@@ -27,6 +27,8 @@
 #include <pwd.h>
 
 #include "doas.h"
+
+const char *formerpath;
 
 struct envnode {
 	RB_ENTRY(envnode) node;
@@ -85,6 +87,10 @@ static struct env *
 createenv(const struct rule *rule, const struct passwd *mypw,
     const struct passwd *targpw)
 {
+	static const char *copyset[] = {
+		"DISPLAY", "TERM",
+		NULL
+	};
 	struct env *env;
 	u_int i;
 
@@ -95,6 +101,13 @@ createenv(const struct rule *rule, const struct passwd *mypw,
 	env->count = 0;
 
 	addnode(env, "DOAS_USER", mypw->pw_name);
+	addnode(env, "HOME", targpw->pw_dir);
+	addnode(env, "LOGNAME", targpw->pw_name);
+	addnode(env, "PATH", getenv("PATH"));
+	addnode(env, "SHELL", targpw->pw_shell);
+	addnode(env, "USER", targpw->pw_name);
+
+	fillenv(env, copyset);
 
 	if (rule->options & KEEPENV) {
 		extern const char **environ;
@@ -124,19 +137,6 @@ createenv(const struct rule *rule, const struct passwd *mypw,
 				env->count++;
 			}
 		}
-	} else {
-		static const char *copyset[] = {
-			"DISPLAY", "TERM",
-			NULL
-		};
-
-		addnode(env, "HOME", targpw->pw_dir);
-		addnode(env, "LOGNAME", targpw->pw_name);
-		addnode(env, "PATH", getenv("PATH"));
-		addnode(env, "SHELL", targpw->pw_shell);
-		addnode(env, "USER", targpw->pw_name);
-
-		fillenv(env, copyset);
 	}
 
 	return env;
@@ -200,8 +200,12 @@ fillenv(struct env *env, const char **envlist)
 		/* assign value or inherit from environ */
 		if (eq) {
 			val = eq + 1;
-			if (*val == '$')
-				val = getenv(val + 1);
+			if (*val == '$') {
+				if (strcmp(val + 1, "PATH") == 0)
+					val = formerpath;
+				else
+					val = getenv(val + 1);
+			}
 		} else {
 			val = getenv(name);
 		}
