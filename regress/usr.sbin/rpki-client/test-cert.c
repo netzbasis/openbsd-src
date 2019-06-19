@@ -1,4 +1,4 @@
-/*	$Id: test-cert.c,v 1.3 2019/06/17 15:08:08 deraadt Exp $ */
+/*	$Id: test-cert.c,v 1.1 2019/06/18 12:09:07 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -86,8 +86,7 @@ cert_print(const struct cert *p)
 int
 main(int argc, char *argv[])
 {
-	int		 c, verb = 0, ta = 0;
-	size_t		 i;
+	int		 c, i, verb = 0, ta = 0;
 	X509		*xp = NULL;
 	struct cert	*p;
 
@@ -103,13 +102,16 @@ main(int argc, char *argv[])
 			verb++;
 			break;
 		default:
-			return EXIT_FAILURE;
+			errx(1, "bad argument %c", c);
 		}
 
 	argv += optind;
 	argc -= optind;
 
-	for (i = 0; i < (size_t)argc; i++) {
+	if (argc == 0)
+		errx(1, "argument missing");
+
+	for (i = 0; i < argc; i++) {
 		p = ta ?
 			ta_parse(&xp, argv[i], NULL, 0) :
 			cert_parse(&xp, argv[i], NULL);
@@ -125,5 +127,10 @@ main(int argc, char *argv[])
 	CRYPTO_cleanup_all_ex_data();
 	ERR_remove_state(0);
 	ERR_free_strings();
-	return i < (size_t)argc ? EXIT_FAILURE : EXIT_SUCCESS;
+
+	if (i < argc)
+		errx(1, "test failed for %s", argv[i]);
+
+	printf("OK\n");
+	return 0;
 }

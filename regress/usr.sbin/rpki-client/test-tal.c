@@ -1,4 +1,4 @@
-/*	$Id: test-tal.c,v 1.2 2019/06/17 15:04:59 deraadt Exp $ */
+/*	$Id: test-tal.c,v 1.1 2019/06/18 12:09:07 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -42,9 +42,8 @@ tal_print(const struct tal *p)
 int
 main(int argc, char *argv[])
 {
-	int		 c, verb = 0;
+	int		 c, i, verb = 0;
 	struct tal	*tal;
-	size_t		 i;
 
 	SSL_library_init();
 	SSL_load_error_strings();
@@ -55,13 +54,16 @@ main(int argc, char *argv[])
 			verb++;
 			break;
 		default:
-			return EXIT_FAILURE;
+			errx(1, "bad argument %c", c);
 		}
 
 	argv += optind;
 	argc -= optind;
 
-	for (i = 0; i < (size_t)argc; i++) {
+	if (argc == 0)
+		errx(1, "argument missing");
+
+	for (i = 0; i < argc; i++) {
 		if ((tal = tal_parse(argv[i])) == NULL)
 			break;
 		if (verb)
@@ -73,5 +75,10 @@ main(int argc, char *argv[])
 	CRYPTO_cleanup_all_ex_data();
 	ERR_remove_state(0);
 	ERR_free_strings();
-	return i < (size_t)argc ? EXIT_FAILURE : EXIT_SUCCESS;
+
+	if (i < argc)
+		errx(1, "test failed for %s", argv[i]);
+
+	printf("OK\n");
+	return 0;
 }

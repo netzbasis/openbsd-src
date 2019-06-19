@@ -1,4 +1,4 @@
-/*	$Id: test-ip.c,v 1.3 2019/06/17 15:08:08 deraadt Exp $ */
+/*	$Id: test-ip.c,v 1.1 2019/06/18 12:09:07 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -80,13 +80,13 @@ main(int argc, char *argv[])
 	SSL_library_init();
 	SSL_load_error_strings();
 
-	test("10.5.0.4",
+	test("10.5.0.4/32",
 	     1, 0x05, 0x00, 0x0a, 0x05, 0x00, 0x04);
 
 	test("10.5.0.0/23",
 	     1, 0x04, 0x01, 0x0a, 0x05, 0x00);
 
-	test("2001:0:200:3:0:0:0:1",
+	test("2001:0:200:3:0:0:0:1/128",
 	     2, 0x11, 0x00, 0x20, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x03,
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01);
 
@@ -122,5 +122,7 @@ main(int argc, char *argv[])
 	     1, 0x02, 0x04, 0x80);
 
 	ERR_free_strings();
-	return EXIT_SUCCESS;
+
+	printf("OK\n");
+	return 0;
 }

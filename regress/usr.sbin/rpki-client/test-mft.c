@@ -1,4 +1,4 @@
-/*	$Id: test-roa.c,v 1.2 2019/06/17 15:04:59 deraadt Exp $ */
+/*	$Id: test-mft.c,v 1.1 2019/06/18 12:09:07 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -17,8 +17,8 @@
 
 #include <assert.h>
 #include <err.h>
-#include <inttypes.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -29,53 +29,53 @@
 #include "extern.h"
 
 static void
-roa_print(const struct roa *p)
+mft_print(const struct mft *p)
 {
-	char	 buf[128];
 	size_t	 i;
 
 	assert(p != NULL);
 
 	printf("Subject key identifier: %s\n", p->ski);
 	printf("Authority key identifier: %s\n", p->aki);
-	printf("asID: %" PRIu32 "\n", p->asid);
-	for (i = 0; i < p->ipsz; i++) {
-		ip_addr_print(&p->ips[i].addr,
-			p->ips[i].afi, buf, sizeof(buf));
-		printf("%5zu: %s (max: %zu)\n", i + 1,
-			buf, p->ips[i].maxlength);
-	}
+	for (i = 0; i < p->filesz; i++)
+		printf("%5zu: %s\n", i + 1, p->files[i].file);
 }
+
 
 int
 main(int argc, char *argv[])
 {
-	int		 c, verb = 0;
-	size_t		 i;
+	int		 c, i, verb = 0, force = 0;
+	struct mft	*p;
 	X509		*xp = NULL;
-	struct roa	*p;
 
 	SSL_library_init();
 	SSL_load_error_strings();
 
-	while ((c = getopt(argc, argv, "v")) != -1)
+	while (-1 != (c = getopt(argc, argv, "fv")))
 		switch (c) {
+		case 'f':
+			force = 1;
+			break;
 		case 'v':
 			verb++;
 			break;
 		default:
-			return EXIT_FAILURE;
+			errx(1, "bad argument %c", c);
 		}
 
 	argv += optind;
 	argc -= optind;
 
-	for (i = 0; i < (size_t)argc; i++) {
-		if ((p = roa_parse(&xp, argv[i], NULL)) == NULL)
+	if (argc == 0)
+		errx(1, "argument missing");
+
+	for (i = 0; i < argc; i++) {
+		if ((p = mft_parse(&xp, argv[i], force)) == NULL)
 			break;
 		if (verb)
-			roa_print(p);
-		roa_free(p);
+			mft_print(p);
+		mft_free(p);
 		X509_free(xp);
 	}
 
@@ -83,5 +83,10 @@ main(int argc, char *argv[])
 	CRYPTO_cleanup_all_ex_data();
 	ERR_remove_state(0);
 	ERR_free_strings();
-	return i < (size_t)argc ? EXIT_FAILURE : EXIT_SUCCESS;
+
+	if (i < argc)
+		errx(1, "test failed for %s", argv[i]);
+
+	printf("OK\n");
+	return 0;
 }
