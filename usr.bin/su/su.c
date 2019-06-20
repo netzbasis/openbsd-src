@@ -1,4 +1,4 @@
-/*	$OpenBSD: su.c,v 1.73 2019/01/28 01:38:06 deraadt Exp $	*/
+/*	$OpenBSD: su.c,v 1.75 2019/06/20 00:41:18 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1988 The Regents of the University of California.
@@ -229,8 +229,8 @@ main(int argc, char **argv)
 
 	if (!altshell) {
 		if (asme) {
-			/* if asme and non-std target shell, must be root */
-			if (ruid && !chshell(shell))
+			/* must be root to override non-std target shell */
+			if (ruid && !chshell(pwd->pw_shell))
 				auth_errx(as, 1, "permission denied (shell).");
 		} else if (pwd->pw_shell && *pwd->pw_shell) {
 			if ((shell = strdup(pwd->pw_shell)) == NULL)
@@ -351,7 +351,7 @@ main(int argc, char **argv)
 	if (pledge("stdio rpath exec", NULL) == -1)
 		err(1, "pledge");
 
-	if (pwd->pw_uid && auth_approval(as, lc, pwd->pw_name, "su") <= 0)
+	if (pwd->pw_uid && auth_approval(as, lc, pwd->pw_name, "su") == 0)
 		auth_err(as, 1, "approval failure");
 	auth_close(as);
 

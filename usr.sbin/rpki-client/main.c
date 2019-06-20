@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.5 2019/06/19 04:21:43 deraadt Exp $ */
+/*	$OpenBSD: main.c,v 1.10 2019/06/19 16:39:02 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -53,7 +53,7 @@ struct	stats {
 	size_t	 certs; /* certificates */
 	size_t	 certs_fail; /* failing syntactic parse */
 	size_t	 certs_invalid; /* invalid resources */
-	size_t	 roas; /* route announcements */
+	size_t	 roas; /* route origin authorizations */
 	size_t	 roas_fail; /* failing syntactic parse */
 	size_t	 roas_invalid; /* invalid resources */
 	size_t	 repos; /* repositories */
@@ -466,7 +466,7 @@ queue_add_from_tal(int proc, int rsync, struct entityq *q,
 	uri += 8 + strlen(repo->host) + 1 + strlen(repo->module) + 1;
 
 	if (asprintf(&nfile, "%s/%s/%s/%s",
-	    BASE_DIR, repo->host, repo->module, uri) < 0)
+	    BASE_DIR, repo->host, repo->module, uri) == -1)
 		err(EXIT_FAILURE, "asprintf");
 
 	entityq_add(proc, q, nfile, RTYPE_CER, repo, NULL, tal->pkey,
@@ -495,7 +495,7 @@ queue_add_from_cert(int proc, int rsync, struct entityq *q,
 	uri += 8 + strlen(repo->host) + 1 + strlen(repo->module) + 1;
 
 	if (asprintf(&nfile, "%s/%s/%s/%s",
-	    BASE_DIR, repo->host, repo->module, uri) < 0)
+	    BASE_DIR, repo->host, repo->module, uri) == -1)
 		err(EXIT_FAILURE, "asprintf");
 
 	entityq_add(proc, q, nfile, type, repo, NULL, NULL, 0, eid);
@@ -651,18 +651,18 @@ proc_rsync(const char *prog, int fd, int noop)
 		 * will not build the destination for us.
 		 */
 
-		if (asprintf(&dst, "%s/%s", BASE_DIR, host) < 0)
+		if (asprintf(&dst, "%s/%s", BASE_DIR, host) == -1)
 			err(EXIT_FAILURE, NULL);
-		if (mkdir(dst, 0700) < 0 && EEXIST != errno)
+		if (mkdir(dst, 0700) == -1 && EEXIST != errno)
 			err(EXIT_FAILURE, "%s", dst);
 		free(dst);
 
-		if (asprintf(&dst, "%s/%s/%s", BASE_DIR, host, mod) < 0)
+		if (asprintf(&dst, "%s/%s/%s", BASE_DIR, host, mod) == -1)
 			err(EXIT_FAILURE, NULL);
-		if (mkdir(dst, 0700) < 0 && EEXIST != errno)
+		if (mkdir(dst, 0700) == -1 && EEXIST != errno)
 			err(EXIT_FAILURE, "%s", dst);
 
-		if (asprintf(&uri, "rsync://%s/%s", host, mod) < 0)
+		if (asprintf(&uri, "rsync://%s/%s", host, mod) == -1)
 			err(EXIT_FAILURE, NULL);
 
 		/* Run process itself, wait for exit, check error. */
@@ -993,7 +993,7 @@ proc_parser(int fd, int force, int norev)
 	io_socket_nonblocking(pfd.fd);
 
 	for (;;) {
-		if (poll(&pfd, 1, INFTIM) < 0)
+		if (poll(&pfd, 1, INFTIM) == -1)
 			err(EXIT_FAILURE, "poll");
 		if ((pfd.revents & (POLLERR|POLLNVAL)))
 			errx(EXIT_FAILURE, "poll: bad descriptor");
@@ -1259,7 +1259,7 @@ main(int argc, char *argv[])
 	int		 rc = 0, c, proc, st, rsync,
 			 fl = SOCK_STREAM | SOCK_CLOEXEC, noop = 0,
 			 force = 0, norev = 0, quiet = 0;
-	size_t		 i, j, eid = 1, outsz = 0, routes, uniqs;
+	size_t		 i, j, eid = 1, outsz = 0, vrps, uniqs;
 	pid_t		 procpid, rsyncpid;
 	int		 fd[2];
 	struct entityq	 q;
@@ -1340,6 +1340,7 @@ main(int argc, char *argv[])
 		err(EXIT_FAILURE, "fork");
 
 	if (rsyncpid == 0) {
+		close(proc);
 		close(fd[1]);
 		if (pledge("stdio proc exec rpath cpath unveil", NULL) == -1)
 			err(EXIT_FAILURE, "pledge");
@@ -1385,16 +1386,7 @@ main(int argc, char *argv[])
 	pfd[0].events = pfd[1].events = POLLIN;
 
 	while (!TAILQ_EMPTY(&q)) {
-		/*
-		 * We want to be nonblocking while we wait for the
-		 * ability to read or write, but blocking when we
-		 * actually talk to the subprocesses.
-		 */
-
-		io_socket_nonblocking(pfd[0].fd);
-		io_socket_nonblocking(pfd[1].fd);
-
-		if ((c = poll(pfd, 2, verbose ? 10000 : INFTIM)) < 0)
+		if ((c = poll(pfd, 2, verbose ? 10000 : INFTIM)) == -1)
 			err(EXIT_FAILURE, "poll");
 
 		/* Debugging: print some statistics if we stall. */
@@ -1417,11 +1409,6 @@ main(int argc, char *argv[])
 		if ((pfd[0].revents & POLLHUP) ||
 		    (pfd[1].revents & POLLHUP))
 			errx(EXIT_FAILURE, "poll: hangup");
-
-		/* Reenable blocking. */
-
-		io_socket_blocking(pfd[0].fd);
-		io_socket_blocking(pfd[1].fd);
 
 		/*
 		 * Check the rsync process.
@@ -1485,17 +1472,17 @@ main(int argc, char *argv[])
 	/* Output and statistics. */
 
 	output_bgpd((const struct roa **)out,
-	    outsz, quiet, &routes, &uniqs);
-	logx("Route origins: %zu (%zu failed parse, %zu invalid)",
+	    outsz, quiet, &vrps, &uniqs);
+	logx("Route Origin Authorizations: %zu (%zu failed parse, %zu invalid)",
 	    stats.roas, stats.roas_fail, stats.roas_invalid);
 	logx("Certificates: %zu (%zu failed parse, %zu invalid)",
 	    stats.certs, stats.certs_fail, stats.certs_invalid);
-	logx("Trust anchor locators: %zu", stats.tals);
+	logx("Trust Anchor Locators: %zu", stats.tals);
 	logx("Manifests: %zu (%zu failed parse, %zu stale)",
 	    stats.mfts, stats.mfts_fail, stats.mfts_stale);
 	logx("Certificate revocation lists: %zu", stats.crls);
 	logx("Repositories: %zu", stats.repos);
-	logx("Routes: %zu (%zu unique)", routes, uniqs);
+	logx("VRP Entries: %zu (%zu unique)", vrps, uniqs);
 
 	/* Memory cleanup. */
 
