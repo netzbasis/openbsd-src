@@ -2586,6 +2586,7 @@ void
 print_sensor(struct sensor *s)
 {
 	const char *name;
+	double freq;
 
 	if (s->flags & SENSOR_FUNKNOWN)
 		printf("unknown");
@@ -2676,7 +2677,28 @@ print_sensor(struct sensor *s)
 			printf("%.2f%%", s->value / 1000.0);
 			break;
 		case SENSOR_FREQ:
-			printf("%.2f Hz", s->value / 1000000.0);
+			/* XXX: this breaks stuff, but the only driver
+			 * in the tree that uses SENSOR_FREQ is
+			 * usps(4) and I like my MHz numbers
+			 * to be human readable
+			 */
+			freq = s->value / 1000000.0;
+			if (freq < 10000.00) {
+				printf("%.2f Hz", freq);
+				break;
+			}
+			freq = freq / 1000.00;
+			if (freq < 10000.00) {
+				printf("%.2f kHz", freq);
+				break;
+			}
+			freq = freq / 1000.00;
+			if (freq < 10000.00) {
+				printf("%.2f MHz", freq);
+				break;
+			}
+			freq = freq / 1000.00;
+			printf("%.2f GHz", freq);
 			break;
 		case SENSOR_ANGLE:
 			printf("%3.4f degrees", s->value / 1000000.0);
