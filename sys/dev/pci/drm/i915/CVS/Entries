@@ -122,7 +122,6 @@
 /intel_hangcheck.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_hdcp.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_hdmi.c/1.16/Sun Apr 14 10:14:52 2019//
-/intel_hotplug.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_huc.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_huc.h/1.1/Sun Apr 14 10:14:52 2019//
 /intel_huc_fw.c/1.1/Sun Apr 14 10:14:52 2019//
@@ -141,7 +140,6 @@
 /intel_opregion.h/1.1/Sun Apr 14 10:14:52 2019//
 /intel_overlay.c/1.20/Sun Apr 14 10:14:52 2019//
 /intel_panel.c/1.16/Sun Apr 14 10:14:52 2019//
-/intel_pm.c/1.43/Sun Apr 14 10:14:52 2019//
 /intel_psr.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_renderstate.h/1.2/Sun Apr 14 10:14:52 2019//
 /intel_renderstate_gen6.c/1.1/Sat Jul  1 16:14:10 2017//
@@ -170,4 +168,6 @@
 /intel_workarounds.h/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi.c/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi_pll.c/1.1/Sun Apr 14 10:14:52 2019//
+/intel_hotplug.c/1.2/Fri Jun 21 17:41:18 2019//
+/intel_pm.c/1.43/Fri Jun 21 17:21:26 2019//
 D

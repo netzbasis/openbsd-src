@@ -46,6 +46,8 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/i915_drm.h>
 
+#include <sys/sensors.h>
+
 #include "i915_drv.h"
 #include "i915_trace.h"
 #include "i915_pmu.h"
@@ -3668,11 +3670,45 @@ inteldrm_attachhook(struct device *self)
 
 	config_found_sm(self, &aa, wsemuldisplaydevprint,
 	    wsemuldisplaydevsubmatch);
+
+	strlcpy(dev_priv->sc_sensordev.xname, dev_priv->sc_dev.dv_xname,
+	    sizeof(dev_priv->sc_sensordev.xname));
+
+	strlcpy(dev_priv->sc_sensor[0].desc, "gpu clock speed",
+	    sizeof(dev_priv->sc_sensor[0].desc));
+	dev_priv->sc_sensor[0].type = SENSOR_FREQ;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[0]);
+
+	strlcpy(dev_priv->sc_sensor[1].desc, "mem clock speed",
+	    sizeof(dev_priv->sc_sensor[1].desc));
+	dev_priv->sc_sensor[1].type = SENSOR_FREQ;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
+
+	if (sensor_task_register(dev_priv, inteldrm_refresh_sensor, 2) == NULL) {
+		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[0]);
+		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
+	} else
+		sensordev_install(&dev_priv->sc_sensordev);
+
 	return;
 
 fail:
 	inteldrm_fatal_error = 1;
 	inteldrm_forcedetach(dev_priv);
+}
+
+void
+inteldrm_refresh_sensor(void *arg)
+{
+	struct inteldrm_softc *dev_priv = arg;
+	struct intel_rps *rps = &dev_priv->gt_pm.rps;
+	int64_t freq0, freq1;
+
+	freq0 = intel_gpu_freq(dev_priv, rps->cur_freq);
+	dev_priv->sc_sensor[0].value = freq0 * 1000 * 1000 * 1000 * 1000;
+
+	freq1 = dev_priv->mem_freq;
+	dev_priv->sc_sensor[1].value = freq1 * 1000 * 1000 * 1000 * 1000;
 }
 
 int
