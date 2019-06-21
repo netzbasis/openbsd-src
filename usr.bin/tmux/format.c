@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.204 2019/06/15 06:33:48 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.206 2019/06/20 11:59:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1052,6 +1052,8 @@ format_find(struct format_tree *ft, const char *key, int modifiers)
 
 	if (~modifiers & FORMAT_TIMESTRING) {
 		o = options_parse_get(global_options, key, &idx, 0);
+		if (o == NULL && ft->wp != NULL)
+			o = options_parse_get(ft->wp->options, key, &idx, 0);
 		if (o == NULL && ft->w != NULL)
 			o = options_parse_get(ft->w->options, key, &idx, 0);
 		if (o == NULL)
@@ -2006,10 +2008,10 @@ void
 format_defaults(struct format_tree *ft, struct client *c, struct session *s,
     struct winlink *wl, struct window_pane *wp)
 {
-	if (c != NULL)
+	if (c != NULL && c->name != NULL)
 		log_debug("%s: c=%s", __func__, c->name);
 	else
-		log_debug("%s: s=none", __func__);
+		log_debug("%s: c=none", __func__);
 	if (s != NULL)
 		log_debug("%s: s=$%u", __func__, s->id);
 	else

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.214 2019/06/17 13:35:43 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.216 2019/06/20 13:38:21 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -228,12 +228,15 @@ struct rde_aspath {
 enum nexthop_state {
 	NEXTHOP_LOOKUP,
 	NEXTHOP_UNREACH,
-	NEXTHOP_REACH
+	NEXTHOP_REACH,
+	NEXTHOP_FLAPPED
 };
 
 struct nexthop {
 	LIST_ENTRY(nexthop)	nexthop_l;
+	TAILQ_ENTRY(nexthop)	runner_l;
 	struct prefix_list	prefix_h;
+	struct prefix		*next_prefix;
 	struct bgpd_addr	exit_nexthop;
 	struct bgpd_addr	true_nexthop;
 	struct bgpd_addr	nexthop_net;
@@ -246,6 +249,7 @@ struct nexthop {
 #endif
 	int			refcnt;
 	enum nexthop_state	state;
+	enum nexthop_state	oldstate;
 	u_int8_t		nexthop_netlen;
 	u_int8_t		flags;
 #define NEXTHOP_CONNECTED	0x01
@@ -548,8 +552,6 @@ int		 prefix_withdraw(struct rib *, struct rde_peer *,
 int		 prefix_write(u_char *, int, struct bgpd_addr *, u_int8_t, int);
 int		 prefix_writebuf(struct ibuf *, struct bgpd_addr *, u_int8_t);
 struct prefix	*prefix_bypeer(struct rib_entry *, struct rde_peer *);
-void		 prefix_updateall(struct prefix *, enum nexthop_state,
-		     enum nexthop_state);
 void		 prefix_destroy(struct prefix *);
 void		 prefix_relink(struct prefix *, struct rde_aspath *, int);
 
@@ -593,6 +595,8 @@ prefix_vstate(struct prefix *p)
 
 void		 nexthop_init(u_int32_t);
 void		 nexthop_shutdown(void);
+int		 nexthop_pending(void);
+void		 nexthop_runner(void);
 void		 nexthop_modify(struct nexthop *, enum action_types, u_int8_t,
 		    struct nexthop **, u_int8_t *);
 void		 nexthop_link(struct prefix *);

@@ -69,7 +69,7 @@
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.76/Sun Feb 10 22:45:58 2019//
-/proc.h/1.269/Mon Jun 10 03:15:53 2019//
+/proc.h/1.270/Fri Jun 21 09:39:48 2019//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.45/Thu Jul 12 14:22:54 2018//
@@ -77,7 +77,7 @@
 /reboot.h/1.18/Mon Apr  1 07:00:52 2019//
 /refcnt.h/1.4/Tue Jun  7 07:53:33 2016//
 /resource.h/1.14/Fri Oct 25 04:42:48 2013//
-/resourcevar.h/1.23/Sun Jun  2 03:58:28 2019//
+/resourcevar.h/1.24/Fri Jun 21 09:39:48 2019//
 /rwlock.h/1.25/Tue Apr 23 13:35:12 2019//
 /sched.h/1.52/Thu May 16 13:52:47 2019//
 /scsiio.h/1.10/Wed Sep  5 17:17:47 2012//
@@ -104,7 +104,7 @@
 /syscall.h/1.201/Mon May 13 22:55:27 2019//
 /syscall_mi.h/1.21/Fri Jun 14 05:52:42 2019//
 /syscallargs.h/1.204/Mon May 13 22:55:27 2019//
-/sysctl.h/1.188/Sat Jun  1 14:11:18 2019//
+/sysctl.h/1.189/Fri Jun 21 09:39:48 2019//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
 /systm.h/1.141/Tue Apr 23 13:35:12 2019//
