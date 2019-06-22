@@ -2274,7 +2274,7 @@ struct inteldrm_softc {
 
 	struct i915_pmu pmu;
 
-	struct ksensor sc_sensor[2];
+	struct ksensor sc_sensor[4];
 	struct ksensordev sc_sensordev;
 
 	/*

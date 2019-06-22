@@ -3684,11 +3684,21 @@ inteldrm_attachhook(struct device *self)
 	dev_priv->sc_sensor[1].type = SENSOR_FREQ;
 	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
 
+	strlcpy(dev_priv->sc_sensor[2].desc, "ring clock speed",
+	    sizeof(dev_priv->sc_sensor[2].desc));
+	dev_priv->sc_sensor[2].type = SENSOR_FREQ;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[2]);
+
+	strlcpy(dev_priv->sc_sensor[3].desc, "rps power (low, med, high)",
+	    sizeof(dev_priv->sc_sensor[3].desc));
+	dev_priv->sc_sensor[3].type = SENSOR_INTEGER;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[3]);
+
 	if (sensor_task_register(dev_priv, inteldrm_refresh_sensor, 2) == NULL) {
 		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[0]);
 		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
-	} else
-		sensordev_install(&dev_priv->sc_sensordev);
+	}
+	sensordev_install(&dev_priv->sc_sensordev);
 
 	return;
 
