@@ -26,7 +26,7 @@ struct gpuperf_node {
 
 struct gpuperf_node gpuperf_registered_nodes[GPUPERF_MAX_NODES];
 
-int gpuperf = 80;
+int gpuperf = 100;
 int gpuperf_gpun = 0;
 
 int sysctl_hwgpuperf(void *, size_t *, void *, size_t);
@@ -37,10 +37,8 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
 	int i, err, newperf;
 
-	DPRINTF("hit 1\n");
 	newperf = gpuperf;
 	err = sysctl_int(oldp, oldlenp, newp, newlen, &newperf);
-	DPRINTF("hit 2\n");
 	if (err)
 		return err;
 	if (newperf > 100)
@@ -48,7 +46,6 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 	if (newperf < 0)
 		newperf = 0;
 	gpuperf = newperf;
-	DPRINTF("hit 3\n");
 
 	for (i=0; i < gpuperf_gpun; i++) {
 		DPRINTF("gpuperf: requesting level %d from %s\n",
@@ -57,7 +54,6 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		gpuperf_registered_nodes[i].callback(gpuperf,
 		    gpuperf_registered_nodes[i].arg);
 	}
-	DPRINTF("hit 4\n");
 
 	return (0);
 }
