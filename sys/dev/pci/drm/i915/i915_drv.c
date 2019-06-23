@@ -3750,7 +3750,10 @@ inteldrm_refresh_sensor(void *arg)
 	dev_priv->sc_sensor[0].value = freq0 * 1000 * 1000 * 1000 * 1000;
 
 	freq0 = dev_priv->mem_freq;
-	dev_priv->sc_sensor[1].value = freq0 * 1000 * 1000 * 1000 * 1000;
+	if (freq0 == 0)
+		dev_priv->sc_sensor[1].value = 1234567890;
+	else
+		dev_priv->sc_sensor[1].value = freq0 * 1000 * 1000 * 1000 * 1000;
 
 	freq0 = rps->min_freq_softlimit;
 	dev_priv->sc_sensor[4].value = freq0 * 50;
