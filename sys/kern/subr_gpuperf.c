@@ -37,9 +37,6 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
 	int i, err, newperf;
 
-	if (gpuperf_gpun == 0)
-		return EOPNOTSUPP;
-
 	newperf = gpuperf;
 	err = sysctl_int(oldp, oldlenp, newp, newlen, &newperf);
 	if (err)
