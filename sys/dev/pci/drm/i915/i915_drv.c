@@ -3677,29 +3677,41 @@ inteldrm_attachhook(struct device *self)
 	strlcpy(dev_priv->sc_sensordev.xname, dev_priv->sc_dev.dv_xname,
 	    sizeof(dev_priv->sc_sensordev.xname));
 
-	strlcpy(dev_priv->sc_sensor[0].desc, "gpu clock speed",
+	strlcpy(dev_priv->sc_sensor[0].desc, "gpu clock",
 	    sizeof(dev_priv->sc_sensor[0].desc));
 	dev_priv->sc_sensor[0].type = SENSOR_FREQ;
 	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[0]);
 
-	strlcpy(dev_priv->sc_sensor[1].desc, "mem clock speed",
+	strlcpy(dev_priv->sc_sensor[1].desc, "mem clock",
 	    sizeof(dev_priv->sc_sensor[1].desc));
 	dev_priv->sc_sensor[1].type = SENSOR_FREQ;
 	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
 
-	strlcpy(dev_priv->sc_sensor[2].desc, "ring clock speed",
+	strlcpy(dev_priv->sc_sensor[2].desc, "ring clock",
 	    sizeof(dev_priv->sc_sensor[2].desc));
 	dev_priv->sc_sensor[2].type = SENSOR_FREQ;
 	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[2]);
 
-	strlcpy(dev_priv->sc_sensor[3].desc, "rps power (low, med, high)",
+	strlcpy(dev_priv->sc_sensor[3].desc, "rps level: 0 low, 1 med, 2 high",
 	    sizeof(dev_priv->sc_sensor[3].desc));
 	dev_priv->sc_sensor[3].type = SENSOR_INTEGER;
 	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[3]);
 
-	if (sensor_task_register(dev_priv, inteldrm_refresh_sensor, 2) == NULL) {
+	strlcpy(dev_priv->sc_sensor[4].desc, "min softlimit",
+	    sizeof(dev_priv->sc_sensor[4].desc));
+	dev_priv->sc_sensor[4].type = SENSOR_INTEGER;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[4]);
+
+	strlcpy(dev_priv->sc_sensor[5].desc, "max softlimit",
+	    sizeof(dev_priv->sc_sensor[5].desc));
+	dev_priv->sc_sensor[5].type = SENSOR_INTEGER;
+	sensor_attach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[5]);
+
+	if (sensor_task_register(dev_priv, inteldrm_refresh_sensor, 1) == NULL) {
 		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[0]);
 		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[1]);
+		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[4]);
+		sensor_detach(&dev_priv->sc_sensordev, &dev_priv->sc_sensor[5]);
 	}
 	sensordev_install(&dev_priv->sc_sensordev);
 
@@ -3732,13 +3744,19 @@ inteldrm_refresh_sensor(void *arg)
 {
 	struct inteldrm_softc *dev_priv = arg;
 	struct intel_rps *rps = &dev_priv->gt_pm.rps;
-	int64_t freq0, freq1;
+	int64_t freq0;
 
 	freq0 = intel_gpu_freq(dev_priv, rps->cur_freq);
 	dev_priv->sc_sensor[0].value = freq0 * 1000 * 1000 * 1000 * 1000;
 
-	freq1 = dev_priv->mem_freq;
-	dev_priv->sc_sensor[1].value = freq1 * 1000 * 1000 * 1000 * 1000;
+	freq0 = dev_priv->mem_freq;
+	dev_priv->sc_sensor[1].value = freq0 * 1000 * 1000 * 1000 * 1000;
+
+	freq0 = rps->min_freq_softlimit;
+	dev_priv->sc_sensor[4].value = freq0 * 50;
+
+	freq0 = rps->max_freq_softlimit;
+	dev_priv->sc_sensor[5].value = freq0 * 50;
 }
 
 int
