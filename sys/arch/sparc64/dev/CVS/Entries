@@ -2,8 +2,8 @@
 /auxioreg.h/1.4/Wed Mar  9 18:41:48 2005//
 /auxiovar.h/1.7/Wed Mar  9 18:41:48 2005//
 /bbc.c/1.3/Sun Dec 14 17:10:44 2008//
-/beep.c/1.8/Fri Sep  8 05:36:52 2017//
-/beeper.c/1.12/Fri Sep  8 05:36:52 2017//
+/beep.c/1.9/Sat Jun 22 20:30:42 2019//
+/beeper.c/1.13/Sat Jun 22 20:30:42 2019//
 /cbus.c/1.16/Tue Dec 20 13:40:50 2016//
 /cbusvar.h/1.5/Sun Jan 25 21:42:13 2015//
 /ce4231.c/1.36/Thu Dec 27 11:06:38 2018//
