@@ -7228,7 +7228,7 @@ static void gen6_update_ring_freq(struct drm_i915_private *dev_priv)
 			else
 				ia_freq = max_ia_freq - ((diff * scaling_factor) / 2);
 			ia_freq = DIV_ROUND_CLOSEST(ia_freq, 100);
-			dev_priv->sc_sensor[2].value = 1234567890;
+			dev_priv->sc_sensor[2].value = 0;
 		}
 
 		sandybridge_pcode_write(dev_priv,
