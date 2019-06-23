@@ -892,8 +892,8 @@ struct kinfo_file {
 #define	HW_PERFPOLICY		23	/* set performance policy */
 #define	HW_SMT			24	/* int: enable SMT/HT/CMT */
 #define	HW_NCPUONLINE		25	/* int: number of cpus being used */
-#define	HW_MAXID		26	/* number of valid hw ids */
-#define HW_GPUPERF		27	/* set max GPU performance % */
+#define HW_GPUPERF		26	/* set max GPU performance % */
+#define	HW_MAXID		27	/* number of valid hw ids */
 
 #define	CTL_HW_NAMES { \
 	{ 0, 0 }, \
@@ -910,7 +910,6 @@ struct kinfo_file {
 	{ "sensors", CTLTYPE_NODE}, \
 	{ "cpuspeed", CTLTYPE_INT }, \
 	{ "setperf", CTLTYPE_INT }, \
-	{ "gpuperf", CTLTYPE_INT }, \
 	{ "vendor", CTLTYPE_STRING }, \
 	{ "product", CTLTYPE_STRING }, \
 	{ "version", CTLTYPE_STRING }, \
@@ -923,6 +922,7 @@ struct kinfo_file {
 	{ "perfpolicy", CTLTYPE_STRING }, \
 	{ "smt", CTLTYPE_INT }, \
 	{ "ncpuonline", CTLTYPE_INT }, \
+	{ "gpuperf", CTLTYPE_INT }, \
 }
 
 /*
