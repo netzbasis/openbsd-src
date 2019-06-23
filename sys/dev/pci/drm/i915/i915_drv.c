@@ -61,9 +61,6 @@ static struct drm_driver driver;
 #if IS_ENABLED(CONFIG_DRM_I915_DEBUG)
 static unsigned int i915_load_fail_count;
 
-void inteldrm_set_gpuperf(int, void*);
-extern int gpuperf_register(const char*, void (*)(int, void *));
-
 bool __i915_inject_load_failure(const char *func, int line)
 {
 	if (i915_load_fail_count >= i915_modparams.inject_load_failure)
@@ -3713,6 +3710,9 @@ fail:
 	inteldrm_fatal_error = 1;
 	inteldrm_forcedetach(dev_priv);
 }
+
+void inteldrm_set_gpuperf(int, void*);
+extern int gpuperf_register(const char*, void (*)(int, void *));
 
 void
 inteldrm_set_gpuperf(int level, void *arg)
