@@ -46,6 +46,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/i915_drm.h>
 
+#include <sys/gpuperf.h>
 #include <sys/sensors.h>
 
 #include "i915_drv.h"
@@ -3591,9 +3592,6 @@ inteldrm_forcedetach(struct inteldrm_softc *dev_priv)
 	pci_probe_device(psc, tag, NULL, NULL);
 #endif
 }
-
-void inteldrm_set_gpuperf(int, void *);
-extern int gpuperf_register(const char *, void (*)(int, void*), void *);
 
 void
 inteldrm_attachhook(struct device *self)

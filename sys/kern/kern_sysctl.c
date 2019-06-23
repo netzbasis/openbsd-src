@@ -103,6 +103,9 @@
 #include <ddb/db_var.h>
 #endif
 
+#ifndef SMALL_KERNEL
+#include <sys/gpuperf.h>
+#endif
 #ifdef SYSVMSG
 #include <sys/msg.h>
 #endif
@@ -130,9 +133,6 @@ extern int audio_record_enable;
 int allowkmem;
 
 extern void nmbclust_update(void);
-#ifndef SMALL_KERNEL
-extern int sysctl_hwgpuperf(void *, size_t *, void *, size_t);
-#endif /* SMALL_KERNEL */
 
 int sysctl_diskinit(int, struct proc *);
 int sysctl_proc_args(int *, u_int, void *, size_t *, struct proc *);
