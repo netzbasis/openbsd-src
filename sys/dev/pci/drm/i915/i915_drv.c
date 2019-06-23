@@ -61,6 +61,9 @@ static struct drm_driver driver;
 #if IS_ENABLED(CONFIG_DRM_I915_DEBUG)
 static unsigned int i915_load_fail_count;
 
+void inteldrm_set_gpuperf(int, void*);
+extern int gpuperf_register(const char*, void (*)(int, void *));
+
 bool __i915_inject_load_failure(const char *func, int line)
 {
 	if (i915_load_fail_count >= i915_modparams.inject_load_failure)
@@ -3592,7 +3595,6 @@ inteldrm_forcedetach(struct inteldrm_softc *dev_priv)
 #endif
 }
 
-extern int gpuperf_register(const char*, void (*)(int, void *));
 
 void
 inteldrm_attachhook(struct device *self)
@@ -3717,14 +3719,13 @@ inteldrm_set_gpuperf(int level, void *arg)
 {
 	struct inteldrm_softc *dev_priv = arg;
 	struct intel_rps *rps = &dev_priv->gt_pm.rps;
-	u_int32_t min, max;
+	u_int32_t min = rps->min_freq;
+	u_int32_t max = rps->max_freq;
 
-	if (rps.max_freq <= rps.min_freq)
+	if (max <= min)
 		return;
 
-	min = rps.min_freq;
-	max = rps.max_freq;
-	rps.max_freq_softlimit = (u8)(((max - min) * level) / 100);
+	rps->max_freq_softlimit = (u8)((((max - min) * level) / 100) + min);
 }
 
 void
