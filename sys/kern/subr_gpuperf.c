@@ -22,7 +22,7 @@ struct gpuperf_node {
 	char name[16];			/* gpu driver name */
 	void (*callback)(int, void*);	/* must understand 0 - 100 as % */ 
 	void *arg;			/* arg passthrough */
-}
+};
 
 struct gpuperf_node gpuperf_registered_nodes[GPUPERF_MAX_NODES];
 
@@ -62,7 +62,7 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 }
 
 int
-gpuperf_register(const char *name, void (*callback)(int))
+gpuperf_register(const char *name, void (*callback)(int, void*))
 {
 	if (gpuperf_gpun >= GPUPERF_MAX_NODES)
 		return (-1);
@@ -70,10 +70,12 @@ gpuperf_register(const char *name, void (*callback)(int))
 	strlcpy(gpuperf_registered_nodes[gpuperf_gpun].name, name,
 	    sizeof(gpuperf_registered_nodes[gpuperf_gpun].name));
 	gpuperf_registered_nodes[gpuperf_gpun].callback = callback;
+
+	callback(gpuperf, gpuperf_registered_nodes[gpuperf_gpun].arg);
+
 	gpuperf_gpun += 1;
 	DPRINTF("gpuperf: %s registered callback (total nodes %d)\n",
 	    name, gpuperf_gpun);
 
-	callback(gpuperf, gpuperf_registered_nodes[i].arg);
 }
 #endif	/* SMALL_KERNEL */
