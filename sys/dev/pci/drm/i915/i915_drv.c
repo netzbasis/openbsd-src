@@ -3592,6 +3592,8 @@ inteldrm_forcedetach(struct inteldrm_softc *dev_priv)
 #endif
 }
 
+void inteldrm_set_gpuperf(int, void*);
+extern int gpuperf_register(const char*, void (*)(int, void *));
 
 void
 inteldrm_attachhook(struct device *self)
@@ -3710,9 +3712,6 @@ fail:
 	inteldrm_fatal_error = 1;
 	inteldrm_forcedetach(dev_priv);
 }
-
-void inteldrm_set_gpuperf(int, void*);
-extern int gpuperf_register(const char*, void (*)(int, void *));
 
 void
 inteldrm_set_gpuperf(int level, void *arg)
