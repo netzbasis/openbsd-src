@@ -4018,4 +4018,5 @@ static inline int intel_hws_csb_write_index(struct drm_i915_private *i915)
 
 #endif
 
+void inteldrm_set_gpuperf(int level, void *arg);
 void inteldrm_refresh_sensor(void *);

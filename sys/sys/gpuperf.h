@@ -19,6 +19,13 @@
 #ifndef _SYS_GPUPERF_H_
 #define _SYS_GPUPERF_H_
 
+#include <sys/_types.h>
+
+#ifndef _SIZE_T_DEFINED_
+#define _SIZE_T_DEFINED_
+typedef __size_t        size_t;
+#endif
+
 #define GPUPERF_MAX_NODES 4
 
 int sysctl_hwgpuperf(void *, size_t *, void *, size_t);
