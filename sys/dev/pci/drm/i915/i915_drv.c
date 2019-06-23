@@ -3592,6 +3592,8 @@ inteldrm_forcedetach(struct inteldrm_softc *dev_priv)
 #endif
 }
 
+extern int gpuperf_register(const char*, void (*)(int, void *));
+
 void
 inteldrm_attachhook(struct device *self)
 {
@@ -3700,11 +3702,29 @@ inteldrm_attachhook(struct device *self)
 	}
 	sensordev_install(&dev_priv->sc_sensordev);
 
+	gpuperf_register(dev_priv->sc_dev.dv_xname,
+	    inteldrm_set_gpuperf, dev_priv);
+
 	return;
 
 fail:
 	inteldrm_fatal_error = 1;
 	inteldrm_forcedetach(dev_priv);
+}
+
+void
+inteldrm_set_gpuperf(int level, void *arg)
+{
+	struct inteldrm_softc *dev_priv = arg;
+	struct intel_rps *rps = &dev_priv->gt_pm.rps;
+	u_int32_t min, max;
+
+	if (rps.max_freq <= rps.min_freq)
+		return;
+
+	min = rps.min_freq;
+	max = rps.max_freq;
+	rps.max_freq_softlimit = (u8)(((max - min) * level) / 100);
 }
 
 void
