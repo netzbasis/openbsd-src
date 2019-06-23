@@ -58,7 +58,7 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		    gpuperf_registered_nodes[i].arg);
 	}
 
-	return 0;
+	return (0);
 }
 
 int
@@ -77,5 +77,6 @@ gpuperf_register(const char *name, void (*callback)(int, void*))
 	DPRINTF("gpuperf: %s registered callback (total nodes %d)\n",
 	    name, gpuperf_gpun);
 
+	return (0);
 }
 #endif	/* SMALL_KERNEL */
