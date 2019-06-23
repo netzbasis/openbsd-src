@@ -7202,17 +7202,17 @@ static void gen6_update_ring_freq(struct drm_i915_private *dev_priv)
 			 * No floor required for ring frequency on SKL.
 			 */
 			ring_freq = gpu_freq;
-			dev_priv->sc_sensor[2].value = ring_freq * 100
+			dev_priv->sc_sensor[2].value = ring_freq * 100\
 			    * 1000 * 1000 * 1000 * 1000;
 		} else if (INTEL_GEN(dev_priv) >= 8) {
 			/* max(2 * GT, DDR). NB: GT is 50MHz units */
 			ring_freq = max(min_ring_freq, gpu_freq);
-			dev_priv->sc_sensor[2].value = ring_freq * 50
+			dev_priv->sc_sensor[2].value = ring_freq * 50\
 			    * 1000 * 1000 * 1000 * 1000;
 		} else if (IS_HASWELL(dev_priv)) {
 			ring_freq = mult_frac(gpu_freq, 5, 4);
 			ring_freq = max(min_ring_freq, ring_freq);
-			dev_priv->sc_sensor[2].value = ring_freq * 50
+			dev_priv->sc_sensor[2].value = ring_freq * 50\
 			    * 1000 * 1000 * 1000 * 1000;
 			/* leave ia_freq as the default, chosen by cpufreq */
 		} else {
@@ -7228,7 +7228,7 @@ static void gen6_update_ring_freq(struct drm_i915_private *dev_priv)
 			else
 				ia_freq = max_ia_freq - ((diff * scaling_factor) / 2);
 			ia_freq = DIV_ROUND_CLOSEST(ia_freq, 100);
-			dev_priv->sc_sensor[2].value = 0;
+			dev_priv->sc_sensor[2].value = 1234567890;
 		}
 
 		sandybridge_pcode_write(dev_priv,
