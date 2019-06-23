@@ -30,7 +30,7 @@ int gpuperf = 100;
 int gpuperf_gpun = 0;
 
 int sysctl_hwgpuperf(void *, size_t *, void *, size_t);
-int gpuperf_register(const char*, void (*)(int, void *));
+int gpuperf_register(const char *, void (*)(int, void *), void *);
 
 int
 sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
@@ -62,7 +62,7 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 }
 
 int
-gpuperf_register(const char *name, void (*callback)(int, void*))
+gpuperf_register(const char *name, void (*callback)(int, void *), void *arg)
 {
 	if (gpuperf_gpun >= GPUPERF_MAX_NODES)
 		return (-1);
@@ -70,8 +70,9 @@ gpuperf_register(const char *name, void (*callback)(int, void*))
 	strlcpy(gpuperf_registered_nodes[gpuperf_gpun].name, name,
 	    sizeof(gpuperf_registered_nodes[gpuperf_gpun].name));
 	gpuperf_registered_nodes[gpuperf_gpun].callback = callback;
+	gpuperf_registered_nodes[gpuperf_gpun].arg = arg;
 
-	callback(gpuperf, gpuperf_registered_nodes[gpuperf_gpun].arg);
+	callback(gpuperf, arg);
 
 	gpuperf_gpun += 1;
 	DPRINTF("gpuperf: %s registered callback (total nodes %d)\n",

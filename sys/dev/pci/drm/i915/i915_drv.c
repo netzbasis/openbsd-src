@@ -3592,8 +3592,8 @@ inteldrm_forcedetach(struct inteldrm_softc *dev_priv)
 #endif
 }
 
-void inteldrm_set_gpuperf(int, void*);
-extern int gpuperf_register(const char*, void (*)(int, void *));
+void inteldrm_set_gpuperf(int, void *);
+extern int gpuperf_register(const char *, void (*)(int, void*), void *);
 
 void
 inteldrm_attachhook(struct device *self)
