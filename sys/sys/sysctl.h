@@ -892,7 +892,7 @@ struct kinfo_file {
 #define	HW_PERFPOLICY		23	/* set performance policy */
 #define	HW_SMT			24	/* int: enable SMT/HT/CMT */
 #define	HW_NCPUONLINE		25	/* int: number of cpus being used */
-#define HW_GPUPERF		26	/* set max GPU performance % */
+#define	HW_GPUPERF		26	/* set max GPU performance % */
 #define	HW_MAXID		27	/* number of valid hw ids */
 
 #define	CTL_HW_NAMES { \
