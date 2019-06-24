@@ -105,7 +105,7 @@
 
 #ifndef SMALL_KERNEL
 #include <sys/gpuperf.h>
-#endif
+#endif /* !SMALL_KERNEL */
 #ifdef SYSVMSG
 #include <sys/msg.h>
 #endif
