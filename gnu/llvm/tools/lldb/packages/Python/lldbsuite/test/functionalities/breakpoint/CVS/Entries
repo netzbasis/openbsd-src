@@ -1,5 +1,6 @@
 D/address_breakpoints////
 D/auto_continue////
+D/breakpoint_by_line_and_column////
 D/breakpoint_command////
 D/breakpoint_conditions////
 D/breakpoint_hit_count////
@@ -22,6 +23,8 @@ D/hardware_breakpoints////
 D/inlined_breakpoints////
 D/move_nearest////
 D/objc////
+D/require_hw_breakpoints////
+D/scripted_bkpt////
 D/serialize////
 D/source_regexp////
 D/step_over_breakpoint////
