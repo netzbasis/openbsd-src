@@ -26,7 +26,7 @@
 #include <sys/unistd.h>
 #include <sys/sysctl.h>
 
-/* #define GPUPERF_DEBUG */
+#define GPUPERF_DEBUG
 #ifdef GPUPERF_DEBUG
 #define DPRINTF(x...)	do { printf(x); } while(0)
 #else
@@ -55,7 +55,11 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	gpuperf_registered_nodes[gpuperf_gpun].callback = callback;
 	gpuperf_registered_nodes[gpuperf_gpun].arg = arg;
 
-	callback(gpuperf, arg);
+	/*
+	 * Drivers may take a while to register, even after /etc/sysctl.conf
+	 * was processed. So immediately call back.
+	 */
+	(void) callback(gpuperf, arg);
 
 	gpuperf_gpun += 1;
 	DPRINTF("gpuperf: %s registered (total nodes %d)\n",
