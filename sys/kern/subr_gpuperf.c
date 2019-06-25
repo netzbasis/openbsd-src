@@ -35,7 +35,7 @@
 
 struct gpuperf_node {
 	char name[16];			/* gpu driver name */
-	int (*callback)(int, void *);	/* must understand 0 - 100 as % */ 
+	int (*callback)(int, void *);	/* must understand 0 - 100 as % */
 	void *arg;			/* arg passthrough */
 };
 
