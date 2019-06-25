@@ -2274,9 +2274,6 @@ struct inteldrm_softc {
 
 	struct i915_pmu pmu;
 
-	struct ksensor sc_sensor[6];
-	struct ksensordev sc_sensordev;
-
 	/*
 	 * NOTE: This is the dri1/ums dungeon, don't add stuff here. Your patch
 	 * will be rejected. Instead look for a better place.
@@ -4018,5 +4015,7 @@ static inline int intel_hws_csb_write_index(struct drm_i915_private *i915)
 
 #endif
 
-void inteldrm_set_gpuperf(int level, void *arg);
-void inteldrm_refresh_sensor(void *);
+/* gpuperf callback */
+ifdef __OpenBSD__
+int inteldrm_set_gpuperf(int level, void *arg);
+#endif /* __OpenBSD__ */
