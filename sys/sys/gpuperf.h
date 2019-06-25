@@ -28,6 +28,6 @@ typedef __size_t        size_t;
 #define GPUPERF_MAX_NODES 4
 
 int sysctl_hwgpuperf(void *, size_t *, void *, size_t);
-int gpuperf_register(const char *, void (*)(int, void *), void *);
+int gpuperf_register(const char *, int (*)(int, void *), void *);
 
 #endif /* _SYS_GPUPERF_H_ */

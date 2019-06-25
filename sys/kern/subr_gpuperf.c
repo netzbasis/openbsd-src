@@ -35,7 +35,7 @@
 
 struct gpuperf_node {
 	char name[16];			/* gpu driver name */
-	void (*callback)(int, void *);	/* must understand 0 - 100 as % */ 
+	int (*callback)(int, void *);	/* must understand 0 - 100 as % */ 
 	void *arg;			/* arg passthrough */
 };
 
@@ -45,7 +45,7 @@ int gpuperf = 100;
 int gpuperf_gpun = 0;
 
 int
-gpuperf_register(const char *name, void (*callback)(int, void *), void *arg)
+gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 {
 	if (gpuperf_gpun >= GPUPERF_MAX_NODES)
 		return (-1);
@@ -58,7 +58,7 @@ gpuperf_register(const char *name, void (*callback)(int, void *), void *arg)
 	callback(gpuperf, arg);
 
 	gpuperf_gpun += 1;
-	DPRINTF("gpuperf: %s registered callback (total nodes %d)\n",
+	DPRINTF("gpuperf: %s registered (total nodes %d)\n",
 	    name, gpuperf_gpun);
 
 	return (0);
@@ -67,7 +67,7 @@ gpuperf_register(const char *name, void (*callback)(int, void *), void *arg)
 int
 sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
-	int i, err, newperf;
+	int i, err, newperf, dstatus;
 
 	newperf = gpuperf;
 	err = sysctl_int(oldp, oldlenp, newp, newlen, &newperf);
@@ -80,11 +80,12 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 	gpuperf = newperf;
 
 	for (i=0; i < gpuperf_gpun; i++) {
-		DPRINTF("gpuperf: requesting level %d from %s\n",
-		    gpuperf, gpuperf_registered_nodes[i].name);
-
-		gpuperf_registered_nodes[i].callback(gpuperf,
+		dstatus = gpuperf_registered_nodes[i].callback(gpuperf,
 		    gpuperf_registered_nodes[i].arg);
+
+		DPRINTF("gpuperf: requesting level %d from %s (dstatus %d)\n",
+		    gpuperf, gpuperf_registered_nodes[i].name, dstatus);
+
 	}
 
 	return (0);
