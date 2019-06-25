@@ -140,7 +140,7 @@
 /usb_mem.h/1.15/Wed Nov 30 10:19:18 2016//
 /usb_quirks.c/1.75/Tue Jul 10 09:46:18 2018//
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
-/usb_subr.c/1.148/Sun Feb 17 15:02:22 2019//
+/usb_subr.c/1.149/Mon Jun 24 06:45:06 2019//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
 /usbdevs/1.700/Fri Jun  7 16:05:55 2019//
 /usbdevs.h/1.712/Fri Jun  7 16:06:08 2019//
