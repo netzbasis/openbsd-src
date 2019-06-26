@@ -282,6 +282,7 @@ privileges may change the value.
 .It Dv HW_DISKCOUNT Ta "integer" Ta "no"
 .It Dv HW_DISKNAMES Ta "string" Ta "no"
 .It Dv HW_DISKSTATS Ta "struct" Ta "no"
+.It Dv HW_GPUPERF Ta "integer" Ta "yes"
 .It Dv HW_MACHINE Ta "string" Ta "no"
 .It Dv HW_MODEL Ta "string" Ta "no"
 .It Dv HW_NCPU Ta "integer" Ta "no"
@@ -324,6 +325,10 @@ A comma-separated list of disk names.
 An array of
 .Vt struct diskstats
 structures containing disk statistics.
+.It Dv HW_GPUPERF Pq Va hw.gpuperf
+Maximum GPU performance
+.Pq percentage .
+Only for supported hardware.
 .It Dv HW_MACHINE Pq Va hw.machine
 The machine class.
 .It Dv HW_MODEL Pq Va hw.model
