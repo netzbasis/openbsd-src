@@ -19,11 +19,7 @@
 #ifndef _SYS_GPUPERF_H_
 #define _SYS_GPUPERF_H_
 
-#ifndef _SIZE_T_DEFINED_
-#define _SIZE_T_DEFINED_
-#include <sys/_types.h>
-typedef __size_t        size_t;
-#endif /* _SIZE_T_DEFINED_ */
+#include <sys/types.h>
 
 #define GPUPERF_MAX_NODES 4
 
