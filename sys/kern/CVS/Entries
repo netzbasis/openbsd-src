@@ -11,7 +11,7 @@
 /kern_acct.c/1.38/Sat Jun  1 14:11:17 2019//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.98/Mon Jan 28 11:49:04 2019//
-/kern_descrip.c/1.185/Fri Jun 21 09:39:48 2019//
+/kern_descrip.c/1.186/Tue Jun 25 15:47:28 2019//
 /kern_event.c/1.104/Sat May  4 14:52:45 2019//
 /kern_exec.c/1.206/Fri Jun 21 09:39:48 2019//
 /kern_exit.c/1.178/Fri Jun 21 09:39:48 2019//

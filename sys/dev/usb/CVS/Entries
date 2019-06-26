@@ -101,7 +101,7 @@
 /ukbd.c/1.78/Fri May 12 09:16:55 2017//
 /ukbdmap.c/1.44/Sat May 11 14:20:17 2019//
 /ukbdvar.h/1.5/Sat Jul 31 16:04:50 2010//
-/ukspan.c/1.1/Fri Jun  7 16:06:59 2019//
+/ukspan.c/1.2/Tue Jun 25 12:37:05 2019//
 /ulpt.c/1.55/Fri Sep  8 05:36:52 2017//
 /umass.c/1.74/Mon Jan  9 14:44:28 2017//
 /umass_quirks.c/1.32/Wed Jun 24 11:32:37 2015//
