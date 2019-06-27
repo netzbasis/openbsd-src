@@ -33,7 +33,7 @@
 /drm_memory.c/1.28/Sun Apr 14 10:14:51 2019//
 /drm_mipi_dsi.c/1.2/Sun Apr 14 10:14:51 2019//
 /drm_mm.c/1.9/Sun Apr 14 10:14:51 2019//
-/drm_mode_config.c/1.1/Sun Apr 14 10:14:51 2019//
+/drm_mode_config.c/1.2/Wed Jun 26 09:05:36 2019//
 /drm_mode_object.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_modes.c/1.9/Sun Apr 14 10:14:51 2019//
 /drm_modeset_helper.c/1.1/Sun Apr 14 10:14:51 2019//
