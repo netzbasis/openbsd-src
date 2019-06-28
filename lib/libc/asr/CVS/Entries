@@ -7,7 +7,7 @@
 /getaddrinfo.c/1.9/Thu Oct  8 14:08:44 2015//
 /getaddrinfo_async.c/1.56/Sat Nov  3 09:13:24 2018//
 /gethostnamadr.c/1.13/Mon Sep 14 07:38:37 2015//
-/gethostnamadr_async.c/1.44/Sat Apr 28 15:16:49 2018//
+/gethostnamadr_async.c/1.45/Thu Jun 27 05:26:37 2019//
 /getnameinfo.c/1.8/Fri Oct  2 20:56:14 2015//
 /getnameinfo_async.c/1.13/Thu Feb 23 17:04:02 2017//
 /getnetnamadr.c/1.9/Fri Jan 16 16:48:51 2015//
