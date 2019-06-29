@@ -9,7 +9,7 @@
 /dnsproc.c/1.9/Tue Jan 24 13:32:55 2017//
 /extern.h/1.16/Mon Jun 17 12:42:52 2019//
 /fileproc.c/1.16/Sun Jun 16 19:49:13 2019//
-/http.c/1.26/Fri Jun  7 08:07:52 2019//
+/http.c/1.27/Fri Jun 28 13:32:46 2019//
 /http.h/1.8/Fri Jun  7 08:07:52 2019//
 /jsmn.c/1.1/Wed Aug 31 22:01:42 2016//
 /jsmn.h/1.1/Wed Aug 31 22:01:42 2016//
@@ -22,5 +22,5 @@
 /parse.h/1.13/Mon Jun 17 12:42:52 2019//
 /parse.y/1.38/Mon Jun 17 12:42:52 2019//
 /revokeproc.c/1.15/Sun Jun 16 19:49:13 2019//
-/util.c/1.11/Thu Mar 15 18:26:47 2018//
+/util.c/1.12/Fri Jun 28 13:32:46 2019//
 D

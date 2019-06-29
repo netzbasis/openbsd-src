@@ -40,7 +40,7 @@
 /nl_langinfo.3/1.13/Wed Oct  4 17:59:24 2017//
 /nl_langinfo.c/1.9/Tue Sep  5 03:16:13 2017//
 /nl_langinfo_l.c/1.1/Tue Sep  5 03:16:13 2017//
-/rune.c/1.7/Mon Sep  5 09:47:03 2016//
+/rune.c/1.8/Fri Jun 28 13:32:41 2019//
 /rune.h/1.4/Tue Sep  5 03:16:13 2017//
 /rune_local.h/1.7/Tue Sep  5 03:16:13 2017//
 /runeglue.c/1.5/Sat Aug  5 15:16:32 2017//

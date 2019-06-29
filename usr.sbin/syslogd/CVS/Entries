@@ -1,14 +1,14 @@
 /Makefile/1.8/Thu Mar 16 23:55:19 2017//
-/evbuffer_tls.c/1.11/Tue Jul  4 15:52:26 2017//
+/evbuffer_tls.c/1.12/Fri Jun 28 13:32:51 2019//
 /evbuffer_tls.h/1.5/Fri Oct  9 16:58:25 2015//
 /log.c/1.4/Fri Apr 28 14:52:13 2017//
 /log.h/1.3/Fri Apr 28 14:52:13 2017//
-/privsep.c/1.69/Tue Aug  7 18:36:49 2018//
+/privsep.c/1.70/Fri Jun 28 13:32:51 2019//
 /privsep_fdpass.c/1.11/Thu Jul  9 20:16:04 2015//
 /ringbuf.c/1.10/Sun Oct 16 22:12:50 2016//
 /syslog.conf.5/1.39/Sun Jan 13 11:07:47 2019//
 /syslogd.8/1.60/Thu Sep 27 08:33:25 2018//
-/syslogd.c/1.259/Fri Jan 18 15:44:14 2019//
+/syslogd.c/1.260/Fri Jun 28 13:32:51 2019//
 /syslogd.h/1.32/Thu Oct  5 16:15:24 2017//
-/ttymsg.c/1.17/Thu Oct  5 16:15:24 2017//
+/ttymsg.c/1.18/Fri Jun 28 13:32:51 2019//
 D

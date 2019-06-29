@@ -9,8 +9,8 @@
 /cmode.c/1.16/Sat Sep 26 21:51:58 2015//
 /cscope.c/1.17/Thu Oct 12 14:12:00 2017//
 /def.h/1.160/Wed Jun 26 16:42:30 2019//
-/dir.c/1.30/Tue May 30 07:05:22 2017//
-/dired.c/1.89/Thu Jun 27 16:55:08 2019//
+/dir.c/1.31/Fri Jun 28 13:35:02 2019//
+/dired.c/1.90/Fri Jun 28 13:35:02 2019//
 /display.c/1.48/Thu Jul  6 19:27:37 2017//
 /echo.c/1.66/Mon Oct 24 17:18:42 2016//
 /extend.c/1.65/Sat Jun 22 15:38:15 2019//
@@ -25,7 +25,7 @@
 /key.h/1.6/Sat Jun 22 15:38:15 2019//
 /keymap.c/1.58/Tue Dec 29 19:44:32 2015//
 /line.c/1.61/Wed Aug 29 07:50:16 2018//
-/log.c/1.9/Wed Jun 26 16:54:29 2019//
+/log.c/1.10/Fri Jun 28 13:35:02 2019//
 /log.h/1.4/Wed Jun 26 16:54:29 2019//
 /macro.c/1.16/Thu Mar 19 21:22:15 2015//
 /macro.h/1.7/Fri Nov 18 20:56:53 2005//
@@ -41,7 +41,7 @@
 /spawn.c/1.12/Thu Mar 19 21:22:15 2015//
 /tags.c/1.16/Sun Aug  6 04:39:45 2017//
 /tty.c/1.36/Wed Nov 18 18:44:50 2015//
-/ttyio.c/1.37/Mon Mar 23 12:31:19 2015//
+/ttyio.c/1.38/Fri Jun 28 13:35:02 2019//
 /ttykbd.c/1.19/Sun Dec 17 14:37:57 2017//
 /tutorial/1.18/Mon May 28 01:53:34 2018//
 /undo.c/1.58/Mon Sep  5 08:10:58 2016//
