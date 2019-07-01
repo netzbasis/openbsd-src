@@ -74,7 +74,7 @@
 /intel_audio.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_bios.c/1.16/Sat May  4 13:37:47 2019//
 /intel_bios.h/1.6/Sun Apr 14 10:14:52 2019//
-/intel_breadcrumbs.c/1.1/Sun Apr 14 10:14:52 2019//
+/intel_breadcrumbs.c/1.2/Mon Jul  1 03:28:05 2019//
 /intel_cdclk.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_color.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_crt.c/1.14/Sun Apr 14 10:14:52 2019//
@@ -151,8 +151,8 @@
 /intel_ringbuffer.c/1.35/Sun Apr 14 10:14:52 2019//
 /intel_ringbuffer.h/1.9/Sun Apr 14 10:14:52 2019//
 /intel_runtime_pm.c/1.3/Sun Apr 14 10:14:52 2019//
-/intel_sdvo.c/1.22/Sun Apr 14 10:14:52 2019//
-/intel_sdvo_regs.h/1.4/Sun Apr 14 10:14:52 2019//
+/intel_sdvo.c/1.23/Sun Jun 30 15:51:11 2019//
+/intel_sdvo_regs.h/1.5/Sun Jun 30 15:51:11 2019//
 /intel_sideband.c/1.3/Sun Apr 14 10:14:52 2019//
 /intel_sprite.c/1.13/Sun Apr 14 10:14:52 2019//
 /intel_stolen.c/1.1/Sun Apr 14 10:14:52 2019//

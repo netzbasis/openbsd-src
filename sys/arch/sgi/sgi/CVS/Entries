@@ -15,7 +15,7 @@
 /ip32_machdep.c/1.23/Thu Dec 13 16:35:07 2018//
 /l1.c/1.11/Sat Sep 19 21:07:04 2015//
 /l1.h/1.6/Tue Nov 25 19:08:42 2014//
-/locore.S/1.18/Thu Jun  8 11:47:25 2017//
+/locore.S/1.19/Sun Jun 30 07:37:47 2019//
 /locore0.S/1.1/Thu Jun  8 11:47:25 2017//
 /machdep.c/1.160/Mon Apr  1 07:00:52 2019//
 /mainbus.c/1.13/Sat Sep 29 21:46:02 2012//
