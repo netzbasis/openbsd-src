@@ -1,4 +1,4 @@
-/*	$OpenBSD: funmap.c,v 1.55 2018/12/13 14:59:16 lum Exp $	*/
+/*	$OpenBSD: funmap.c,v 1.57 2019/07/02 16:25:39 lum Exp $	*/
 
 /* This file is in the public domain */
 

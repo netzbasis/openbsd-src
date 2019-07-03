@@ -1,4 +1,4 @@
-/* $OpenBSD: sshkey.c,v 1.76 2019/06/21 04:21:05 djm Exp $ */
+/* $OpenBSD: sshkey.c,v 1.78 2019/06/27 06:29:35 djm Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Alexander von Gernler.  All rights reserved.
@@ -1943,9 +1943,9 @@ sshkey_shield_private(struct sshkey *k)
  out:
 	/* XXX behaviour on error - invalidate original private key? */
 	cipher_free(cctx);
-	explicit_bzero(enc, enclen);
 	explicit_bzero(keyiv, sizeof(keyiv));
 	explicit_bzero(&tmp, sizeof(tmp));
+	freezero(enc, enclen);
 	freezero(prekey, SSHKEY_SHIELD_PREKEY_LEN);
 	sshkey_free(kswap);
 	sshbuf_free(prvbuf);
@@ -4235,7 +4235,7 @@ sshkey_parse_private_fileblob(struct sshbuf *buffer, const char *passphrase,
  * maxsign times.
  */
 int
-sshkey_private_serialize_maxsign(const struct sshkey *k, struct sshbuf *b,
+sshkey_private_serialize_maxsign(struct sshkey *k, struct sshbuf *b,
     u_int32_t maxsign, sshkey_printfn *pr)
 {
 	int r, rupdate;

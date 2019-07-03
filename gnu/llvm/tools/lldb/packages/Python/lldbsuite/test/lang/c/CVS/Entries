@@ -10,6 +10,7 @@ D/forward////
 D/function_types////
 D/global_variables////
 D/inlines////
+D/local_variables////
 D/modules////
 D/recurse////
 D/register_variables////
@@ -24,3 +25,4 @@ D/tls_globals////
 D/typedef////
 D/unicode////
 D/unions////
+D/vla////

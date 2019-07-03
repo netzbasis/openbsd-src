@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.914 2019/06/20 11:59:59 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.918 2019/07/01 06:56:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -427,6 +427,7 @@ enum tty_code_code {
 	TTYC_SETAF,
 	TTYC_SETRGBB,
 	TTYC_SETRGBF,
+	TTYC_SETULC,
 	TTYC_SGR0,
 	TTYC_SITM,
 	TTYC_SMACS,
@@ -599,6 +600,7 @@ struct grid_cell {
 	u_short			attr;
 	int			fg;
 	int			bg;
+	int			us;
 	struct utf8_data	data;
 };
 struct grid_cell_entry {
@@ -680,6 +682,7 @@ TAILQ_HEAD(style_ranges, style_range);
 struct style {
 	struct grid_cell	gc;
 
+	int			fill;
 	enum style_align	align;
 	enum style_list		list;
 
@@ -954,6 +957,11 @@ TAILQ_HEAD(winlink_stack, winlink);
 #define WINDOW_SIZE_LARGEST 0
 #define WINDOW_SIZE_SMALLEST 1
 #define WINDOW_SIZE_MANUAL 2
+
+/* Pane border status option. */
+#define PANE_STATUS_OFF 0
+#define PANE_STATUS_TOP 1
+#define PANE_STATUS_BOTTOM 2
 
 /* Layout direction. */
 enum layout_type {
@@ -2189,7 +2197,8 @@ int	 colour_join_rgb(u_char, u_char, u_char);
 void	 colour_split_rgb(int, u_char *, u_char *, u_char *);
 const char *colour_tostring(int);
 int	 colour_fromstring(const char *s);
-u_char	 colour_256to16(u_char);
+int	 colour_256toRGB(int);
+int	 colour_256to16(int);
 
 /* attributes.c */
 const char *attributes_tostring(int);
@@ -2354,7 +2363,6 @@ struct window	*window_find_by_id_str(const char *);
 struct window	*window_find_by_id(u_int);
 void		 window_update_activity(struct window *);
 struct window	*window_create(u_int, u_int);
-void		 window_destroy(struct window *);
 void		 window_pane_set_event(struct window_pane *);
 struct window_pane *window_get_active_at(struct window *, u_int, u_int);
 struct window_pane *window_find_string(struct window *, const char *);

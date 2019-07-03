@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.259 2019/01/18 15:44:14 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.261 2019/07/02 13:17:27 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2014-2017 Alexander Bluhm <bluhm@genua.de>
@@ -1040,7 +1040,7 @@ klog_readcb(int fd, short event, void *arg)
 	if (n > 0) {
 		linebuf[n] = '\0';
 		printsys(linebuf);
-	} else if (n < 0 && errno != EINTR) {
+	} else if (n == -1 && errno != EINTR) {
 		log_warn("read klog");
 		event_del(ev);
 	}
@@ -1063,7 +1063,7 @@ udp_readcb(int fd, short event, void *arg)
 		cvthname((struct sockaddr *)&sa, resolve, sizeof(resolve));
 		log_debug("cvthname res: %s", resolve);
 		printline(resolve, linebuf);
-	} else if (n < 0 && errno != EINTR && errno != EWOULDBLOCK)
+	} else if (n == -1 && errno != EINTR && errno != EWOULDBLOCK)
 		log_warn("recvfrom udp");
 }
 
@@ -1080,7 +1080,7 @@ unix_readcb(int fd, short event, void *arg)
 	if (n > 0) {
 		linebuf[n] = '\0';
 		printline(LocalHostName, linebuf);
-	} else if (n < 0 && errno != EINTR && errno != EWOULDBLOCK)
+	} else if (n == -1 && errno != EINTR && errno != EWOULDBLOCK)
 		log_warn("recvfrom unix");
 }
 
@@ -1180,7 +1180,7 @@ acceptcb(int lfd, short event, void *arg, int usetls)
 	}
 	p->p_ctx = NULL;
 	if (usetls) {
-		if (tls_accept_socket(server_ctx, &p->p_ctx, fd) < 0) {
+		if (tls_accept_socket(server_ctx, &p->p_ctx, fd) == -1) {
 			log_warnx("tls_accept_socket \"%s\": %s",
 			    peername, tls_error(server_ctx));
 			bufferevent_free(p->p_bufev);
@@ -1639,9 +1639,14 @@ printsys(char *msg)
 	int c, pri, flags;
 	char *lp, *p, *q, line[LOG_MAXLINE + 1];
 	size_t prilen;
+	int l;
 
-	(void)snprintf(line, sizeof line, "%s: ", _PATH_UNIX);
-	lp = line + strlen(line);
+	l = snprintf(line, sizeof(line), "%s: ", _PATH_UNIX);
+	if (l < 0 || l >= sizeof(line)) {
+		line[0] = '\0';
+		l = 0;
+	}
+	lp = line + l;
 	for (p = msg; *p != '\0'; ) {
 		flags = SYNC_FILE | ADDDATE;	/* fsync file after write */
 		pri = DEFSPRI;
@@ -1666,11 +1671,15 @@ void
 vlogmsg(int pri, const char *proc, const char *fmt, va_list ap)
 {
 	char	msg[ERRBUFSIZE];
-	size_t	l;
+	int	l;
 
 	l = snprintf(msg, sizeof(msg), "%s[%d]: ", proc, getpid());
-	if (l < sizeof(msg))
-		vsnprintf(msg + l, sizeof(msg) - l, fmt, ap);
+	if (l < 0 || l >= sizeof(msg))
+		l = 0;
+	l = vsnprintf(msg + l, sizeof(msg) - l, fmt, ap);
+	if (l < 0)
+		strlcpy(msg, fmt, sizeof(msg));
+
 	if (!Started) {
 		fprintf(stderr, "%s\n", msg);
 		init_dropped++;
@@ -1908,8 +1917,12 @@ fprintlog(struct filed *f, int flags, char *msg)
 		l = snprintf(greetings, sizeof(greetings),
 		    "\r\n\7Message from syslogd@%s at %.24s ...\r\n",
 		    f->f_prevhost, ctime(&now.tv_sec));
-		if (l < 0 || (size_t)l >= sizeof(greetings))
-			l = strlen(greetings);
+		if (l < 0)
+			l = strlcpy(greetings,
+			    "\r\n\7Message from syslogd ...\r\n",
+			    sizeof(greetings));
+		if (l >= sizeof(greetings))
+			l = sizeof(greetings) - 1;
 		v->iov_base = greetings;
 		v->iov_len = l;
 		v++;
@@ -1953,8 +1966,11 @@ fprintlog(struct filed *f, int flags, char *msg)
 	} else if (f->f_prevcount > 1) {
 		l = snprintf(repbuf, sizeof(repbuf),
 		    "last message repeated %d times", f->f_prevcount);
-		if (l < 0 || (size_t)l >= sizeof(repbuf))
-			l = strlen(repbuf);
+		if (l < 0)
+			l = strlcpy(repbuf, "last message repeated",
+			    sizeof(repbuf));
+		if (l >= sizeof(repbuf))
+			l = sizeof(repbuf) - 1;
 		v->iov_base = repbuf;
 		v->iov_len = l;
 	} else {
@@ -1978,8 +1994,12 @@ fprintlog(struct filed *f, int flags, char *msg)
 		    IncludeHostname ? LocalHostName : "",
 		    IncludeHostname ? " " : "",
 		    (char *)iov[4].iov_base);
-		if (l < 0 || (size_t)l > MINIMUM(MAX_UDPMSG, sizeof(line)))
-			l = MINIMUM(MAX_UDPMSG, sizeof(line));
+		if (l < 0)
+			l = strlcpy(line, iov[4].iov_base, sizeof(line));
+		if (l >= sizeof(line))
+			l = sizeof(line) - 1;
+		if (l >= MAX_UDPMSG + 1)
+			l = MAX_UDPMSG;
 		if (sendto(f->f_file, line, l, 0,
 		    (struct sockaddr *)&f->f_un.f_forw.f_addr,
 		    f->f_un.f_forw.f_addr.ss_len) != l) {
@@ -2063,7 +2083,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 		}
 		retryonce = 0;
 	again:
-		if (writev(f->f_file, iov, 6) < 0) {
+		if (writev(f->f_file, iov, 6) == -1) {
 			int e = errno;
 
 			/* allow to recover from file system full */
@@ -2149,9 +2169,11 @@ fprintlog(struct filed *f, int flags, char *msg)
 
 	case F_MEMBUF:
 		log_debug("%s", "");
-		snprintf(line, sizeof(line), "%.32s %s %s",
+		l = snprintf(line, sizeof(line), "%.32s %s %s",
 		    (char *)iov[0].iov_base, (char *)iov[2].iov_base,
 		    (char *)iov[4].iov_base);
+		if (l < 0)
+			l = strlcpy(line, iov[4].iov_base, sizeof(line));
 		if (ringbuf_append_line(f->f_un.f_mb.f_rb, line) == 1)
 			f->f_un.f_mb.f_overflow = 1;
 		if (f->f_un.f_mb.f_attached)

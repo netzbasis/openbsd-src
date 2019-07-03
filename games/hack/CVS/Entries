@@ -27,10 +27,10 @@
 /hack.6/1.22/Mon Apr  8 17:49:07 2019//
 /hack.Decl.c/1.7/Sat Jan  9 18:33:15 2016//
 /hack.apply.c/1.8/Sat Jan  9 21:54:11 2016//
-/hack.bones.c/1.10/Sat Jan  9 18:33:15 2016//
+/hack.bones.c/1.11/Fri Jun 28 13:32:52 2019//
 /hack.c/1.11/Sun Jan 10 15:12:20 2016//
 /hack.cmd.c/1.9/Sat Jan  9 18:33:15 2016//
-/hack.do.c/1.10/Sat Jan  9 18:33:15 2016//
+/hack.do.c/1.11/Fri Jun 28 13:32:52 2019//
 /hack.do_name.c/1.11/Sat Jan  9 18:33:15 2016//
 /hack.do_wear.c/1.8/Sat Jan  9 18:33:15 2016//
 /hack.dog.c/1.9/Sat Jan  9 18:33:15 2016//
@@ -43,7 +43,7 @@
 /hack.invent.c/1.14/Sat Jan  9 21:54:11 2016//
 /hack.ioctl.c/1.10/Sat Jan  9 21:54:11 2016//
 /hack.lev.c/1.10/Sat Jan  9 18:33:15 2016//
-/hack.main.c/1.23/Fri Apr  5 09:02:27 2019//
+/hack.main.c/1.24/Fri Jun 28 13:32:52 2019//
 /hack.makemon.c/1.8/Sat Jan  9 18:33:15 2016//
 /hack.mfndpos.h/1.3/Sun Mar 16 21:22:35 2003//
 /hack.mhitu.c/1.8/Sat Jan  9 18:33:15 2016//
@@ -56,13 +56,13 @@
 /hack.o_init.c/1.9/Fri Apr  5 09:02:27 2019//
 /hack.objnam.c/1.11/Sat Jan  9 18:33:15 2016//
 /hack.options.c/1.12/Sat Jan  9 18:33:15 2016//
-/hack.pager.c/1.24/Tue Mar 15 19:56:20 2016//
+/hack.pager.c/1.25/Fri Jun 28 13:32:52 2019//
 /hack.potion.c/1.7/Sat Jan  9 18:33:15 2016//
 /hack.pri.c/1.13/Sat Jan  9 18:33:15 2016//
 /hack.read.c/1.9/Sat Jan  9 18:33:15 2016//
 /hack.rip.c/1.9/Sat Jan  9 18:33:15 2016//
 /hack.rumors.c/1.10/Wed Mar 16 15:00:35 2016//
-/hack.save.c/1.13/Sat Jan  9 18:33:15 2016//
+/hack.save.c/1.14/Fri Jun 28 13:32:52 2019//
 /hack.search.c/1.6/Sat Jan  9 18:33:15 2016//
 /hack.shk.c/1.13/Sat Jan  9 18:33:15 2016//
 /hack.shknam.c/1.8/Tue Oct 27 23:59:25 2009//
@@ -72,7 +72,7 @@
 /hack.topl.c/1.12/Sat Jan  9 18:33:15 2016//
 /hack.track.c/1.6/Sat Jan  9 18:33:15 2016//
 /hack.trap.c/1.9/Sat Jan  9 18:33:15 2016//
-/hack.tty.c/1.15/Sat Jan  9 18:33:15 2016//
+/hack.tty.c/1.16/Fri Jun 28 13:32:52 2019//
 /hack.u_init.c/1.11/Sat Jan  9 18:33:15 2016//
 /hack.unix.c/1.20/Sun Sep 11 14:21:17 2016//
 /hack.vault.c/1.8/Sat Jan  9 18:33:15 2016//
@@ -84,7 +84,7 @@
 /hack.zap.c/1.11/Sat Jan  9 18:33:15 2016//
 /help/1.1.1.1/Wed Oct 18 08:49:02 1995//
 /hh/1.2/Fri Oct 16 07:37:46 2015//
-/makedefs.c/1.11/Fri Aug 24 11:14:49 2018//
+/makedefs.c/1.12/Fri Jun 28 13:32:52 2019//
 /pathnames.h/1.4/Wed Mar 16 18:11:37 2011//
 /rnd.c/1.5/Tue Oct 27 23:59:25 2009//
 /rumors/1.1.1.1/Wed Oct 18 08:49:03 1995//

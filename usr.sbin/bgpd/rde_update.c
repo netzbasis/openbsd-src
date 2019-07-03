@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_update.c,v 1.117 2019/06/19 08:15:07 claudio Exp $ */
+/*	$OpenBSD: rde_update.c,v 1.119 2019/07/02 12:07:00 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -70,7 +70,7 @@ up_test_update(struct rde_peer *peer, struct prefix *p)
 	if (asp->flags & F_ATTR_LOOP)
 		fatalx("try to send out a looped path");
 
-	pt_getaddr(p->re->prefix, &addr);
+	pt_getaddr(p->pt, &addr);
 	if (peer->capa.mp[addr.aid] == 0)
 		return (-1);
 
@@ -142,9 +142,9 @@ withdraw:
 			return;
 
 		/* withdraw prefix */
-		pt_getaddr(old->re->prefix, &addr);
+		pt_getaddr(old->pt, &addr);
 		if (prefix_withdraw(&ribs[RIB_ADJ_OUT].rib, peer, &addr,
-		    old->re->prefix->prefixlen) == 1)
+		    old->pt->prefixlen) == 1)
 			peer->up_wcnt++;
 	} else {
 		switch (up_test_update(peer, new)) {
@@ -164,12 +164,12 @@ withdraw:
 			goto withdraw;
 		}
 
-		pt_getaddr(new->re->prefix, &addr);
+		pt_getaddr(new->pt, &addr);
 		if (path_update(&ribs[RIB_ADJ_OUT].rib, peer, &state, &addr,
-		    new->re->prefix->prefixlen, prefix_vstate(new)) != 2) {
+		    new->pt->prefixlen, prefix_vstate(new)) != 2) {
 			/* only send update if path changed */
 			prefix_update(&ribs[RIB_ADJ_OUT].rib, peer, &addr,
-			    new->re->prefix->prefixlen);
+			    new->pt->prefixlen);
 			peer->up_nlricnt++;
 		}
 
@@ -189,7 +189,7 @@ up_generate_default(struct filter_head *rules, struct rde_peer *peer,
 	struct filterstate	 state;
 	struct rde_aspath	*asp;
 	struct prefix		 p;
-	struct rib_entry	*re;
+	struct pt_entry		*pte;
 	struct bgpd_addr	 addr;
 
 	if (peer->capa.mp[aid] == 0)
@@ -210,18 +210,20 @@ up_generate_default(struct filter_head *rules, struct rde_peer *peer,
 	/*
 	 * XXX this is ugly because we need to have a prefix for rde_filter()
 	 * but it will be added after filtering. So fake it till we make it.
+	 * rde_filter() only accesses prefix_peer(), prefix_vstate() and the
+	 * pt pointer.
 	 */
 	bzero(&p, sizeof(p));
 	bzero(&addr, sizeof(addr));
 	addr.aid = aid;
-	re = rib_get(rib_byid(peer->loc_rib_id), &addr, 0);
-	if (re == NULL)
-		re = rib_add(rib_byid(peer->loc_rib_id), &addr, 0);
-	p.re = re;
-	p.aspath = asp;
-	p.peer = peer; /* XXX should be peerself */
+	pte = pt_get(&addr, 0);
+	if (pte == NULL)
+		pte = pt_add(&addr, 0);
+	p.pt = pt_ref(pte);
+	p.validation_state = ROA_NOTFOUND;
+	p.peer = peer;		/* XXX should be peerself */
 
-	/* filter as usual */
+	/* outbound filter as usual */
 	if (rde_filter(rules, peer, &p, &state) == ACTION_DENY) {
 		rde_filterstate_clean(&state);
 		return;
@@ -236,8 +238,7 @@ up_generate_default(struct filter_head *rules, struct rde_peer *peer,
 	/* no longer needed */
 	rde_filterstate_clean(&state);
 
-	if (rib_empty(re))
-		rib_remove(re);
+	pt_unref(pte);
 }
 
 /* only for IPv4 */
@@ -598,9 +599,9 @@ up_dump_prefix(u_char *buf, int len, struct prefix_tree *prefix_head,
 	int		 r, wpos = 0, done = 0;
 
 	RB_FOREACH_SAFE(p, prefix_tree, prefix_head, np) {
-		pt_getaddr(p->re->prefix, &addr);
+		pt_getaddr(p->pt, &addr);
 		if ((r = prefix_write(buf + wpos, len - wpos,
-		    &addr, p->re->prefix->prefixlen, withdraw)) == -1)
+		    &addr, p->pt->prefixlen, withdraw)) == -1)
 			break;
 		wpos += r;
 

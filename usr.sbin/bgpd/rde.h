@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.216 2019/06/20 13:38:21 claudio Exp $ */
+/*	$OpenBSD: rde.h,v 1.219 2019/07/01 07:07:08 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -308,6 +308,7 @@ struct pt_entry_vpn6 {
 struct prefix {
 	LIST_ENTRY(prefix)		 rib_l, nexthop_l;
 	RB_ENTRY(prefix)		 entry;
+	struct pt_entry			*pt;
 	struct rib_entry		*re;
 	struct rde_aspath		*aspath;
 	struct rde_community		*communities;
@@ -394,20 +395,21 @@ u_char		*aspath_override(struct aspath *, u_int32_t, u_int32_t,
 		    u_int16_t *);
 int		 aspath_lenmatch(struct aspath *, enum aslen_spec, u_int);
 
-int	 community_match(struct rde_community *, struct community *,
+int	community_match(struct rde_community *, struct community *,
 	    struct rde_peer *);
-int	 community_set(struct rde_community *, struct community *,
+int	community_set(struct rde_community *, struct community *,
 	    struct rde_peer *);
-void	 community_delete(struct rde_community *, struct community *,
+void	community_delete(struct rde_community *, struct community *,
 	    struct rde_peer *);
 
-int	 community_add(struct rde_community *, int, void *, size_t);
-int	 community_large_add(struct rde_community *, int, void *, size_t);
-int	 community_ext_add(struct rde_community *, int, void *, size_t);
+int	community_add(struct rde_community *, int, void *, size_t);
+int	community_large_add(struct rde_community *, int, void *, size_t);
+int	community_ext_add(struct rde_community *, int, void *, size_t);
 
-int	 community_write(struct rde_community *, void *, u_int16_t);
-int	 community_large_write(struct rde_community *, void *, u_int16_t);
-int	 community_ext_write(struct rde_community *, int, void *, u_int16_t);
+int	community_write(struct rde_community *, void *, u_int16_t);
+int	community_large_write(struct rde_community *, void *, u_int16_t);
+int	community_ext_write(struct rde_community *, int, void *, u_int16_t);
+int	community_writebuf(struct ibuf *, struct rde_community *);
 
 void			 communities_init(u_int32_t);
 void			 communities_shutdown(void);
@@ -421,7 +423,7 @@ void	 communities_copy(struct rde_community *, struct rde_community *);
 void	 communities_clean(struct rde_community *);
 
 static inline struct rde_community *
-communities_get(struct rde_community *comm)
+communities_ref(struct rde_community *comm)
 {
 	if (comm->refcnt == 0)
 		fatalx("%s: not-referenced community", __func__);
@@ -431,12 +433,12 @@ communities_get(struct rde_community *comm)
 }
 
 static inline void
-communities_put(struct rde_community *comm)
+communities_unref(struct rde_community *comm)
 {
 	if (comm == NULL)
 		return;
 	rdemem.comm_refs--;
-	if (--comm->refcnt == 1)
+	if (--comm->refcnt == 1)	/* last ref is hold internally */
 		communities_unlink(comm);
 }
 
@@ -458,28 +460,6 @@ int		 rde_filter_equal(struct filter_head *, struct filter_head *,
 void		 rde_filter_calc_skip_steps(struct filter_head *);
 
 /* rde_prefix.c */
-static inline int
-pt_empty(struct pt_entry *pt)
-{
-	return (pt->refcnt == 0);
-}
-
-static inline void
-pt_ref(struct pt_entry *pt)
-{
-	++pt->refcnt;
-	if (pt->refcnt == 0)
-		fatalx("pt_ref: overflow");
-}
-
-static inline void
-pt_unref(struct pt_entry *pt)
-{
-	if (pt->refcnt == 0)
-		fatalx("pt_unref: underflow");
-	--pt->refcnt;
-}
-
 void	 pt_init(void);
 void	 pt_shutdown(void);
 void	 pt_getaddr(struct pt_entry *, struct bgpd_addr *);
@@ -489,6 +469,24 @@ struct pt_entry *pt_add(struct bgpd_addr *, int);
 void	 pt_remove(struct pt_entry *);
 struct pt_entry	*pt_lookup(struct bgpd_addr *);
 int	 pt_prefix_cmp(const struct pt_entry *, const struct pt_entry *);
+
+static inline struct pt_entry *
+pt_ref(struct pt_entry *pt)
+{
+	++pt->refcnt;
+	if (pt->refcnt == 0)
+		fatalx("pt_ref: overflow");
+	return pt;
+}
+
+static inline void
+pt_unref(struct pt_entry *pt)
+{
+	if (pt->refcnt == 0)
+		fatalx("pt_unref: underflow");
+	if (--pt->refcnt == 0)
+		pt_remove(pt);
+}
 
 /* rde_rib.c */
 extern u_int16_t	 rib_size;
@@ -604,7 +602,7 @@ void		 nexthop_unlink(struct prefix *);
 void		 nexthop_update(struct kroute_nexthop *);
 struct nexthop	*nexthop_get(struct bgpd_addr *);
 struct nexthop	*nexthop_ref(struct nexthop *);
-int		 nexthop_put(struct nexthop *);
+int		 nexthop_unref(struct nexthop *);
 int		 nexthop_compare(struct nexthop *, struct nexthop *);
 
 /* rde_update.c */

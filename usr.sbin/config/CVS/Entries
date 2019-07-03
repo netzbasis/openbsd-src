@@ -4,7 +4,7 @@
 /config.8/1.67/Tue May 14 13:44:25 2019//
 /config.h/1.30/Thu Jun 22 15:57:16 2017//
 /exec.h/1.4/Mon Jun  2 21:19:03 2003//
-/exec_elf.c/1.16/Sun Oct 29 08:45:53 2017//
+/exec_elf.c/1.17/Fri Jun 28 13:32:47 2019//
 /files.c/1.20/Fri Jan 16 06:40:16 2015//
 /gram.y/1.24/Fri Jan 16 06:40:16 2015//
 /hash.c/1.18/Sat Jan 17 07:37:14 2015//
@@ -12,9 +12,9 @@
 /misc.c/1.10/Tue May 14 13:44:25 2019//
 /misc.h/1.5/Tue May 14 13:44:25 2019//
 /mkheaders.c/1.22/Sun Oct 16 17:50:00 2016//
-/mkioconf.c/1.37/Wed Sep 27 15:14:51 2017//
-/mkmakefile.c/1.46/Mon Apr  1 07:04:38 2019//
-/mkswap.c/1.17/Tue Feb  5 02:17:32 2019//
+/mkioconf.c/1.38/Fri Jun 28 13:33:55 2019//
+/mkmakefile.c/1.47/Fri Jun 28 13:33:55 2019//
+/mkswap.c/1.18/Fri Jun 28 13:33:55 2019//
 /pack.c/1.18/Fri Jan 16 06:40:16 2015//
 /scan.l/1.24/Sun Jul  9 14:04:50 2017//
 /sem.c/1.37/Tue Feb  5 02:17:32 2019//

@@ -1,10 +1,10 @@
 /Makefile/1.17/Sat Sep 22 16:50:35 2018//
 /boolean.h/1.2/Mon Jul 15 17:20:36 2002//
 /commands.c/1.32/Wed Mar 15 04:24:14 2017//
-/display.c/1.58/Wed Nov 28 22:00:30 2018//
+/display.c/1.59/Wed Jul  3 03:24:02 2019//
 /display.h/1.15/Sat Nov 17 23:10:08 2018//
 /layout.h/1.5/Fri Mar 30 19:21:19 2007//
-/machine.c/1.96/Wed Nov 28 22:00:30 2018//
+/machine.c/1.97/Fri Jun 28 13:35:05 2019//
 /machine.h/1.25/Sat Nov 17 23:10:08 2018//
 /screen.c/1.21/Wed Mar 15 04:24:14 2017//
 /screen.h/1.6/Wed Sep 24 18:53:55 2008//

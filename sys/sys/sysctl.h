@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.189 2019/06/21 09:39:48 visa Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.192 2019/06/25 14:08:57 deraadt Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -363,6 +363,8 @@ struct kinfo_proc {
 	int32_t	p_eflag;		/* LONG: extra kinfo_proc flags */
 #define	EPROC_CTTY	0x01	/* controlling tty vnode active */
 #define	EPROC_SLEADER	0x02	/* session leader */
+#define	EPROC_UNVEIL	0x04	/* has unveil settings */
+#define	EPROC_LKUNVEIL	0x08	/* unveil is locked */
 	int32_t	p_exitsig;		/* unused, always zero. */
 	int32_t	p_flag;			/* INT: P_* flags. */
 
@@ -464,6 +466,8 @@ struct kinfo_proc {
 	u_int64_t p_vm_map_size;	/* VSIZE_T: virtual size */
 	int32_t   p_tid;		/* PID_T: Thread identifier. */
 	u_int32_t p_rtableid;		/* U_INT: Routing table identifier. */
+
+	u_int64_t p_pledge;		/* U_INT64_T: Pledge flags. */
 };
 
 /*
@@ -613,6 +617,7 @@ do {									\
 									\
 	(kp)->p_xstat = (p)->p_xstat;					\
 	(kp)->p_acflag = (pr)->ps_acflag;				\
+	(kp)->p_pledge = (pr)->ps_pledge;				\
 									\
 	/* XXX depends on e_name being an array and not a pointer */	\
 	copy_str((kp)->p_emul, (char *)(pr)->ps_emul +			\
@@ -623,8 +628,12 @@ do {									\
 									\
 	if ((sess)->s_ttyvp)						\
 		(kp)->p_eflag |= EPROC_CTTY;				\
-	if ((sess)->s_leader == (praddr))				\
-		(kp)->p_eflag |= EPROC_SLEADER;				\
+	if ((pr)->ps_uvpaths)						\
+		(kp)->p_eflag |= EPROC_UNVEIL;				\
+	if ((pr)->ps_uvdone ||						\
+	    (((pr)->ps_flags & PS_PLEDGE) &&				\
+	     ((pr)->ps_pledge & PLEDGE_UNVEIL) == 0))			\
+		(kp)->p_eflag |= EPROC_LKUNVEIL;			\
 									\
 	if (((pr)->ps_flags & (PS_EMBRYO | PS_ZOMBIE)) == 0) {		\
 		if ((vm) != NULL) {					\

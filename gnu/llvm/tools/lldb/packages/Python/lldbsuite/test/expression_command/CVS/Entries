@@ -6,6 +6,8 @@ D/call-overridden-method////
 D/call-restarts////
 D/call-throws////
 D/char////
+D/completion////
+D/dont_allow_jit////
 D/expr-in-syscall////
 D/fixits////
 D/formatters////
@@ -13,7 +15,6 @@ D/ir-interpreter////
 D/ir-interpreter-phi-nodes////
 D/issue_11588////
 D/macros////
-D/multiline////
 D/options////
 D/persist_objc_pointeetype////
 D/persistent_ptr_update////
@@ -21,10 +22,12 @@ D/persistent_types////
 D/persistent_variables////
 D/po_verbosity////
 D/pr35310////
+D/radar_43822994////
 D/radar_8638051////
 D/radar_9531204////
 D/radar_9673664////
 D/rdar42038760////
+D/rdar44436068////
 D/save_jit_objects////
 D/test////
 D/timeout////
