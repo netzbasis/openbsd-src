@@ -40,7 +40,7 @@
 /inet_lnaof.c/1.7/Fri Jan 16 16:48:51 2015//
 /inet_makeaddr.c/1.7/Fri Jan 16 16:48:51 2015//
 /inet_net.3/1.19/Sat Apr 28 20:29:18 2018//
-/inet_net_ntop.c/1.8/Thu May 14 11:52:43 2015//
+/inet_net_ntop.c/1.9/Wed Jul  3 03:24:04 2019//
 /inet_net_pton.c/1.10/Mon Mar  6 18:16:27 2017//
 /inet_neta.c/1.7/Sat Aug  6 20:30:03 2005//
 /inet_netof.c/1.7/Fri Jan 16 16:48:51 2015//

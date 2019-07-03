@@ -8,7 +8,7 @@
 /bindresvport.3/1.25/Wed Jun  5 03:39:23 2013//
 /bindresvport.c/1.19/Fri Jun 28 13:32:42 2019//
 /clnt_generic.c/1.7/Wed Sep  1 14:43:34 2010//
-/clnt_perror.c/1.24/Sun Sep 13 15:36:56 2015//
+/clnt_perror.c/1.25/Wed Jul  3 03:24:04 2019//
 /clnt_raw.c/1.20/Sun Nov  1 03:45:29 2015//
 /clnt_simple.c/1.18/Thu Aug 20 21:49:29 2015//
 /clnt_tcp.c/1.33/Fri Jun 28 13:32:42 2019//

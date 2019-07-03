@@ -1,6 +1,6 @@
 /fdt.c/1.22/Wed Dec 27 11:40:14 2017//
 /fdt.h/1.5/Tue Jul 26 22:10:10 2016//
-/files.ofw/1.6/Fri May  4 16:12:12 2018//
+/files.ofw/1.7/Tue Jul  2 20:12:11 2019//
 /ofw_clock.c/1.11/Sun Aug  5 21:05:17 2018//
 /ofw_clock.h/1.6/Thu May  3 10:56:14 2018//
 /ofw_gpio.c/1.2/Wed Jul 27 21:13:49 2016//
@@ -14,5 +14,7 @@
 /ofw_power.h/1.1/Wed May  2 15:16:31 2018//
 /ofw_regulator.c/1.13/Tue Apr 30 19:53:27 2019//
 /ofw_regulator.h/1.7/Wed Feb 20 07:36:37 2019//
+/ofw_thermal.c/1.1/Tue Jul  2 20:12:11 2019//
+/ofw_thermal.h/1.1/Tue Jul  2 20:12:11 2019//
 /openfirm.h/1.15/Wed Dec 27 11:40:14 2017//
 D

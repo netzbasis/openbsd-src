@@ -12,8 +12,8 @@
 /dict.c/1.6/Sun Dec 23 16:06:24 2018//
 /dict.h/1.1/Sun Dec 23 16:06:24 2018//
 /dns.c/1.88/Wed Sep 26 16:28:34 2018//
-/enqueue.c/1.115/Thu May 31 21:06:12 2018//
-/envelope.c/1.42/Sun Dec 30 23:09:58 2018//
+/enqueue.c/1.116/Tue Jul  2 09:36:20 2019//
+/envelope.c/1.43/Wed Jul  3 03:24:03 2019//
 /esc.c/1.5/Sat Sep  3 22:16:39 2016//
 /expand.c/1.31/Thu May 31 21:06:12 2018//
 /forward.5/1.9/Fri Mar 13 22:41:54 2015//
@@ -33,7 +33,7 @@
 /mail.lmtp.8/1.1/Tue Feb 14 15:16:34 2017//
 /mail.lmtp.c/1.7/Wed Jan 30 05:49:47 2019//
 /mail.maildir.8/1.5/Wed May 30 12:37:57 2018//
-/mail.maildir.c/1.11/Fri Jun 28 13:32:50 2019//
+/mail.maildir.c/1.12/Wed Jul  3 03:24:03 2019//
 /mail.mboxfile.8/1.1/Wed Jul 25 10:19:28 2018//
 /mail.mboxfile.c/1.2/Fri Jun 28 13:32:50 2019//
 /mail.mda.8/1.1/Wed Aug  9 07:56:10 2017//
@@ -74,10 +74,10 @@
 /smtp.c/1.165/Fri Jun 28 13:32:51 2019//
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.10/Wed Jun 12 17:42:53 2019//
-/smtp_session.c/1.394/Fri Jun 28 13:32:51 2019//
-/smtpc.c/1.5/Wed May 15 05:02:43 2019//
+/smtp_session.c/1.395/Wed Jul  3 03:24:03 2019//
+/smtpc.c/1.6/Tue Jul  2 09:36:20 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
-/smtpctl.c/1.163/Mon Jan 14 09:37:40 2019//
+/smtpctl.c/1.164/Tue Jul  2 09:36:20 2019//
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//
 /smtpd-defines.h/1.10/Thu Dec 27 15:41:50 2018//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
@@ -101,7 +101,7 @@
 /tree.h/1.1/Sun Dec 23 16:06:24 2018//
 /unpack_dns.c/1.1/Sat Jan  6 07:57:53 2018//
 /unpack_dns.h/1.1/Sat Jan  6 07:57:53 2018//
-/util.c/1.141/Fri Jun 28 13:32:51 2019//
+/util.c/1.142/Wed Jul  3 03:24:03 2019//
 /waitq.c/1.6/Thu May 31 21:06:12 2018//
 D/mail////
 D/smtp////
