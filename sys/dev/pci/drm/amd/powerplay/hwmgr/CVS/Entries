@@ -1,5 +1,5 @@
 /hardwaremanager.c/1.1/Tue May 21 22:40:14 2019//
-/hwmgr.c/1.1/Tue May 21 22:40:14 2019//
+/hwmgr.c/1.3/Thu Jul  4 03:41:35 2019//
 /hwmgr_ppt.h/1.1/Tue May 21 22:40:14 2019//
 /pp_overdriver.c/1.1/Tue May 21 22:40:14 2019//
 /pp_overdriver.h/1.1/Tue May 21 22:40:14 2019//
@@ -15,7 +15,7 @@
 /pptable_v1_0.h/1.1/Tue May 21 22:40:14 2019//
 /process_pptables_v1_0.c/1.1/Tue May 21 22:40:14 2019//
 /process_pptables_v1_0.h/1.1/Tue May 21 22:40:14 2019//
-/processpptables.c/1.1/Tue May 21 22:40:14 2019//
+/processpptables.c/1.3/Thu Jul  4 03:41:35 2019//
 /processpptables.h/1.1/Tue May 21 22:40:14 2019//
 /smu10_hwmgr.c/1.1/Tue May 21 22:40:14 2019//
 /smu10_hwmgr.h/1.1/Tue May 21 22:40:14 2019//
