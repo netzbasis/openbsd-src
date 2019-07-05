@@ -28,14 +28,14 @@
 /rnd.c/1.199/Sat Apr 28 15:44:59 2018//
 /rndis.h/1.2/Tue Sep 20 10:34:41 2016//
 /rndvar.h/1.39/Sat Apr 28 15:44:59 2018//
-/softraid.c/1.394/Sat May 18 14:02:27 2019//
+/softraid.c/1.395/Thu Jul  4 18:09:17 2019//
 /softraid_concat.c/1.26/Fri Apr 28 23:33:07 2017//
-/softraid_crypto.c/1.137/Mon Jun 12 16:39:51 2017//
+/softraid_crypto.c/1.138/Thu Jul  4 18:09:17 2019//
 /softraid_raid0.c/1.52/Tue Apr 12 16:26:54 2016//
 /softraid_raid1.c/1.65/Tue Apr 12 16:26:54 2016//
 /softraid_raid5.c/1.28/Sat May 11 20:31:53 2019//
 /softraid_raid6.c/1.71/Tue Apr 12 16:26:54 2016//
-/softraidvar.h/1.168/Sun Jan  6 14:59:56 2019//
+/softraidvar.h/1.169/Thu Jul  4 18:09:17 2019//
 /spdmem.c/1.5/Sun Jan 25 11:38:49 2015//
 /spdmemvar.h/1.1/Mon Mar 22 21:20:56 2010//
 /video.c/1.41/Wed Oct 11 08:08:50 2017//
