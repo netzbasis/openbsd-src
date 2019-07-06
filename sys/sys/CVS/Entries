@@ -91,7 +91,7 @@
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
 /signalvar.h/1.36/Mon May 13 19:21:31 2019//
 /smr.h/1.2/Sat Mar  9 06:15:48 2019//
-/socket.h/1.96/Sun Apr  8 18:57:39 2018//
+/socket.h/1.97/Wed Jul  3 10:08:10 2019//
 /socketvar.h/1.89/Fri Feb 15 05:55:21 2019//
 /sockio.h/1.82/Fri Apr 19 04:21:33 2019//
 /specdev.h/1.38/Mon Jan 21 18:09:21 2019//
@@ -104,13 +104,13 @@
 /syscall.h/1.203/Mon Jun 24 12:51:05 2019//
 /syscall_mi.h/1.21/Fri Jun 14 05:52:42 2019//
 /syscallargs.h/1.206/Mon Jun 24 12:51:05 2019//
-/sysctl.h/1.192/Tue Jun 25 14:08:57 2019//
+/sysctl.h/1.193/Wed Jul  3 10:19:45 2019//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
-/systm.h/1.141/Tue Apr 23 13:35:12 2019//
+/systm.h/1.142/Wed Jul  3 22:39:33 2019//
 /task.h/1.16/Sun Jun 23 12:56:10 2019//
 /termios.h/1.13/Tue Sep 20 21:10:22 2016//
-/time.h/1.43/Tue Jul  2 14:54:36 2019//
+/time.h/1.44/Wed Jul  3 22:39:33 2019//
 /timeout.h/1.28/Sun Apr 14 08:51:31 2019//
 /times.h/1.6/Sat Jul  6 18:44:21 2013//
 /timetc.h/1.9/Wed May 22 19:59:37 2019//
