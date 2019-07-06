@@ -1,4 +1,4 @@
-/*	$OpenBSD */
+/*	$OpenBSD: if_aggr.c,v 1.9 2019/07/05 07:18:12 dlg Exp $ */
 
 /*
  * Copyright (c) 2019 The University of Queensland
@@ -515,7 +515,7 @@ aggr_clone_create(struct if_clone *ifc, int unit)
 	sc->sc_map = NULL; /* no links yet */
 
 	sc->sc_lacp_mode = AGGR_LACP_MODE_ACTIVE;
-	sc->sc_lacp_timeout = 0; /* passive */
+	sc->sc_lacp_timeout = AGGR_LACP_TIMEOUT_SLOW;
 	sc->sc_lacp_prio = 0x8000; /* medium */
 	sc->sc_lacp_port_prio = 0x8000; /* medium */
 
@@ -784,6 +784,19 @@ aggr_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = aggr_set_lladdr(sc, ifr);
 		break;
 
+	case SIOCSTRUNK:
+		error = suser(curproc);
+		if (error != 0)
+			break;
+ 
+		if (((struct trunk_reqall *)data)->ra_proto !=
+		    TRUNK_PROTO_LACP) {
+			error = EPROTONOSUPPORT;
+			break;
+		}
+
+		/* nop */
+		break;
 	case SIOCGTRUNK:
 		error = aggr_get_trunk(sc, (struct trunk_reqall *)data);
 		break;
@@ -1003,6 +1016,8 @@ aggr_add_port(struct aggr_softc *sc, const struct trunk_reqport *rp)
 	struct aggr_port *p;
 	struct aggr_multiaddr *ma;
 	uint32_t hardmtu;
+	int past = ticks - (hz * LACP_TIMEOUT_FACTOR);
+	int i;
 	int error;
 
 	NET_ASSERT_LOCKED();
@@ -1039,6 +1054,9 @@ aggr_add_port(struct aggr_softc *sc, const struct trunk_reqport *rp)
 		error = ENOMEM;
 		goto put;
 	}
+
+	for (i = 0; i < nitems(p->p_txm_log); i++)
+		p->p_txm_log[i] = past;
 
 	p->p_ifp0 = ifp0;
 	p->p_aggr = sc;
@@ -1413,7 +1431,7 @@ aggr_map(struct aggr_softc *sc)
 		for (i = 0; i < nitems(map->m_ifp0s); i++) {
 			map->m_ifp0s[i] = p->p_ifp0;
 
-			p = TAILQ_NEXT(p, p_entry);
+			p = TAILQ_NEXT(p, p_entry_distributing);
 			if (p == NULL)
 				p = TAILQ_FIRST(&sc->sc_distributing);
 		}

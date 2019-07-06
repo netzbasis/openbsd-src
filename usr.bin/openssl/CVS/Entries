@@ -23,7 +23,7 @@
 /genrsa.c/1.13/Wed Jun 19 01:51:14 2019//
 /nseq.c/1.8/Wed Feb  7 05:47:55 2018//
 /ocsp.c/1.15/Wed Feb  7 05:49:36 2018//
-/openssl.1/1.104/Thu Jul  4 13:55:20 2019//
+/openssl.1/1.106/Fri Jul  5 14:33:10 2019//
 /openssl.c/1.29/Sun Mar 17 17:46:00 2019//
 /passwd.c/1.9/Wed Feb  7 05:47:55 2018//
 /pkcs12.c/1.10/Wed Feb  7 05:47:55 2018//
