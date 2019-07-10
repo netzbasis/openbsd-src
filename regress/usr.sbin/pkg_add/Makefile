@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.65 2019/07/04 09:48:24 espie Exp $
+# $OpenBSD: Makefile,v 1.68 2019/07/09 14:40:43 espie Exp $
 
 REGRESS_TARGETS=pkgnames pkgpaths signatures depends-check longnames pkgcfl \
 	collision-check1 collision-check2 collision-check3 \
@@ -10,23 +10,26 @@ REGRESS_TARGETS=pkgnames pkgpaths signatures depends-check longnames pkgcfl \
 	lib-report4 lib-report5 lib-report6 lib-report7 \
 	qttest gstest exotest inter1 manual1 oldlib1 \
 	usertest-1 usertest-2 usertest-3 cups-bug nettle-bug \
-	tying-1 tying-2 tag-delete setsprint
+	tying-1 tying-2 tag-delete setsprint temp-error1 \
+	temp-error2 temp-error2-as-root
+
+REGRESS_ROOT_TARGETS = temp-error2-as-root
 
 # lots of tests that really require a vstat overhaul
 REGRESS_EXPECTED_FAILURES = collision-check1 collision-check2 \
 	collision-check5 collision-check6 collision-check7 \
 	exotest tying-2
 
-ADD_PKG=perl ${.CURDIR}/my add
-DELETE_PKG=perl ${.CURDIR}/my delete
-INFO_PKG=perl ${.CURDIR}/my info
-CREATE_PKG=perl ${.CURDIR}/mycreate
+ADD_PKG=perl -I${.CURDIR} ${.CURDIR}/my add
+DELETE_PKG=perl -I${.CURDIR} ${.CURDIR}/my delete
+INFO_PKG=perl -I${.CURDIR} ${.CURDIR}/my info
+CREATE_PKG=perl -I${.CURDIR} ${.CURDIR}/mycreate
 LONG1=iamareallongfilenamethatcantberepresentedcorrectlyinatararchivebutwewantittohappenanywaysohmygodaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa42
 LONG2=iamanotherreallygfilenamethatcantberepresentedcorrectlyinatararchivebutwewantittohappenanywaysohmygodaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa42
 LONG3=iamanotherreallylonglinkthatcantberepresentedcorrectlyinatararchivebutwewantittohappenanywaysohmygodaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa42
 LONG4=iamanotherreallylonghardlinkthatcantberepresentedcorrectlyinatararchivebutwewantittohappenanywaysohmygodaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa42
 
-NUMBERS != jot 40
+NUMBERS != jot 50
 .for i in ${NUMBERS}
 S$i ?= ${.OBJDIR}/src$i
 SRC$i ?= ${S$i}/usr/local
@@ -34,7 +37,7 @@ D$i ?= ${.OBJDIR}/dest$i
 DEST$i ?= ${D$i}/usr/local
 .endfor
 
-# current maxes (used): D39, SRC26, plist24, rep5
+# current maxes (used): D41, SRC26, plist24, rep5
 pkgnames:
 	perl ${.CURDIR}/check-name
 
@@ -640,8 +643,8 @@ rep3/$n.tgz: ${.CURDIR}/newcups/$n/+CONTENTS
 cups-bug: ${CUPS_FILES}
 	rm -rf ${D36}
 	mkdir -p ${D36}/vardbpkg ${D36}/usr/local
-	PKG_DBDIR=${D36}/vardbpkg PKG_PATH=${.OBJDIR}/rep2 perl ${.CURDIR}/injectadd -Dstub -Dunsigned -Dnonroot -B ${D36} cups
-	PKG_DBDIR=${D36}/vardbpkg PKG_PATH=${.OBJDIR}/rep3 perl ${.CURDIR}/injectadd -Dstub -Dunsigned -Dnonroot -B ${D36} -u
+	ROOT=${D36} PKG_PATH=${.OBJDIR}/rep2 INJECT=inject-order ${ADD_PKG} -Dstub cups
+	ROOT=${D36} PKG_PATH=${.OBJDIR}/rep3 INJECT=inject-order ${ADD_PKG} -Dstub -u
 
 usertest-1:
 	@if ${CREATE_PKG} -u ${.CURDIR}/baduser1 \
@@ -763,9 +766,36 @@ tag-delete: rep1/d-0.tgz
 	echo "@depend graphics/zoinx:zoinx-*:zoinx-2" >> ${D40}/pkgdb/d-0/+CONTENTS
 	@ROOT=${D40} ${DELETE_PKG} d
 
+temp1.ref:
+	@echo "Fatal error: User `whoami` couldn't create temp dir as /nonexistent/pkginfo.XXXXXXXXXX: No such file or directory" >$@
+	@echo " at /usr/libdata/perl5/OpenBSD/PackageLocation.pm" >>$@
+	@echo okay >>$@
+
+XXXBASE = temp2
+XXXD = D40
+${XXXBASE}.ref:
+	@u=`whoami`; case $$u in root) u=_pkgfetch;; esac; echo "Fatal error: User $$u couldn't create temp file as /nonexistent/session.XXXXXXXXXX: No such file or directory" >$@
+	@echo " at /usr/libdata/perl5/OpenBSD/PackageRepository.pm" >>$@
+	@echo okay >>$@
+
+temp-error1: rep0/a-0.tgz rep0/b-0.tgz temp1.ref
+	@-rm -rf ${D40}
+	@{ INJECT=inject-temp1 ROOT=${D40} SILENT=1 ${ADD_PKG} rep0/a-0.tgz 1>/dev/null|| echo okay ; } 2>&1|sed -e 's/ line .*//' >temp1.out
+	@diff -u temp1.out temp1.ref
+
+temp-error2: ${XXXBASE}.ref
+	@-rm -rf ${XXXD}
+	@{ INJECT=inject-temp2 ROOT=${XXXD} SILENT=1 PKG_PATH=https://www.google.com/ ${ADD_PKG} rep0/a-0.tgz 1>/dev/null|| echo okay ; } 2>&1|sed -e 's/ line .*//' >${XXXBASE}.out
+	@diff -u ${XXXBASE}.out ${XXXBASE}.ref
+
+temp-error2-as-root: 
+	@# XXX thx tedu for not allowing env thru
+	@${SUDO} make -C ${.CURDIR} temp-error2 XXXBASE=temp2bis XXXD=D41
+
 .PHONY: ${REGRESS_TARGETS}
 
 clean:
-	-rm -rf rep* dest* plist* src* signatures.out
+	-rm -rf rep* dest* plist* src* signatures.out *.ref *.out
+	-${SUDO} rm -rf rep* dest* plist* src* signatures.out *.ref *.out
 
 .include <bsd.regress.mk>

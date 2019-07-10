@@ -31,7 +31,7 @@
 /amdgpu_cik_sdma.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_connectors.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_connectors.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_cs.c/1.2/Thu May 23 09:19:41 2019//
+/amdgpu_cs.c/1.3/Tue Jul  9 09:59:18 2019//
 /amdgpu_ctx.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_debugfs.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_debugfs.h/1.1/Tue May 21 22:40:06 2019//
@@ -83,7 +83,7 @@
 /amdgpu_queue_mgr.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ring.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_ring.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_sa.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_sa.c/1.2/Tue Jul  9 10:00:30 2019//
 /amdgpu_sched.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_sched.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_si.c/1.1/Tue May 21 22:40:06 2019//
