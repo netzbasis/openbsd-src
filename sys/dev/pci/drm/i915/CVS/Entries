@@ -74,11 +74,11 @@
 /intel_audio.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_bios.c/1.16/Sat May  4 13:37:47 2019//
 /intel_bios.h/1.6/Sun Apr 14 10:14:52 2019//
-/intel_breadcrumbs.c/1.3/Tue Jul  2 02:09:59 2019//
+/intel_breadcrumbs.c/1.4/Wed Jul 10 07:56:30 2019//
 /intel_cdclk.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_color.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_crt.c/1.14/Sun Apr 14 10:14:52 2019//
-/intel_csr.c/1.3/Sun Apr 14 10:14:52 2019//
+/intel_csr.c/1.4/Thu Jul 11 01:43:20 2019//
 /intel_ddi.c/1.18/Sun Apr 14 10:14:52 2019//
 /intel_device_info.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_device_info.h/1.1/Sun Apr 14 10:14:52 2019//

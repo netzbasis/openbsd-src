@@ -4,7 +4,7 @@
 /async.h/1.1/Sun Apr 14 10:14:53 2019//
 /atomic.h/1.2/Wed May  8 22:01:19 2019//
 /backlight.h/1.1/Sun Apr 14 10:14:53 2019//
-/bitmap.h/1.1/Sun Apr 14 10:14:53 2019//
+/bitmap.h/1.2/Thu Jul 11 04:26:37 2019//
 /bitops.h/1.1/Sun Apr 14 10:14:53 2019//
 /bottom_half.h/1.1/Sun Apr 14 10:14:53 2019//
 /bug.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -74,7 +74,7 @@
 /kgdb.h/1.1/Sun Apr 14 10:14:53 2019//
 /kobject.h/1.1/Sun Apr 14 10:14:53 2019//
 /kref.h/1.1/Sun Apr 14 10:14:53 2019//
-/kthread.h/1.1/Sun Apr 14 10:14:53 2019//
+/kthread.h/1.2/Wed Jul 10 07:56:30 2019//
 /ktime.h/1.1/Sun Apr 14 10:14:53 2019//
 /linkage.h/1.1/Sun Apr 14 10:14:53 2019//
 /list.h/1.1/Sun Apr 14 10:14:53 2019//
