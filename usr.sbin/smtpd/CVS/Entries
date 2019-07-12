@@ -23,10 +23,10 @@
 /ioev.c/1.42/Wed Jun 12 17:42:53 2019//
 /ioev.h/1.17/Wed Jun 12 17:42:53 2019//
 /limit.c/1.5/Wed Jun 15 19:59:03 2016//
-/lka.c/1.235/Thu Jun 27 05:14:49 2019//
+/lka.c/1.238/Thu Jul 11 21:40:03 2019//
 /lka_filter.c/1.38/Mon Jul  1 07:40:43 2019//
 /lka_proc.c/1.7/Thu Jun 27 05:14:49 2019//
-/lka_report.c/1.18/Tue Jul  9 15:43:24 2019//
+/lka_report.c/1.21/Thu Jul 11 21:40:03 2019//
 /lka_session.c/1.92/Fri Dec 28 11:40:29 2018//
 /log.c/1.20/Tue Mar 21 12:06:56 2017//
 /log.h/1.8/Thu Apr 26 20:57:59 2018//
@@ -58,7 +58,7 @@
 /queue_null.c/1.8/Sun Dec 30 23:09:58 2018//
 /queue_proc.c/1.8/Sun Dec 30 23:09:58 2018//
 /queue_ram.c/1.9/Sun Dec 30 23:09:58 2018//
-/report_smtp.c/1.4/Sat Jan  5 09:43:39 2019//
+/report_smtp.c/1.7/Thu Jul 11 21:40:03 2019//
 /resolver.c/1.5/Thu Jun 13 11:45:35 2019//
 /rfc5322.c/1.2/Wed Oct 24 18:59:29 2018//
 /rfc5322.h/1.1/Thu Aug 23 10:07:06 2018//
@@ -74,7 +74,7 @@
 /smtp.c/1.165/Fri Jun 28 13:32:51 2019//
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.10/Wed Jun 12 17:42:53 2019//
-/smtp_session.c/1.396/Wed Jul 10 19:53:52 2019//
+/smtp_session.c/1.400/Thu Jul 11 21:40:03 2019//
 /smtpc.c/1.6/Tue Jul  2 09:36:20 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.164/Tue Jul  2 09:36:20 2019//
@@ -83,7 +83,7 @@
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.323/Fri Jun 28 13:32:51 2019//
 /smtpd.conf.5/1.210/Sat Dec 22 08:54:02 2018//
-/smtpd.h/1.625/Thu Jun 27 05:14:49 2019//
+/smtpd.h/1.628/Thu Jul 11 21:40:03 2019//
 /spfwalk.c/1.11/Mon Oct 15 20:03:59 2018//
 /ssl.c/1.93/Wed Jun  5 06:40:13 2019//
 /ssl.h/1.20/Thu Apr 21 14:27:41 2016//
