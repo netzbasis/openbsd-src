@@ -1,7 +1,7 @@
 /arc4random_aix.h/1.2/Thu Jun 30 12:19:51 2016//
 /arc4random_freebsd.h/1.4/Thu Jun 30 12:19:51 2016//
 /arc4random_hpux.h/1.3/Thu Jun 30 12:19:51 2016//
-/arc4random_linux.h/1.11/Thu Jun 30 12:19:51 2016//
+/arc4random_linux.h/1.12/Thu Jul 11 10:37:28 2019//
 /arc4random_netbsd.h/1.3/Thu Jun 30 12:19:51 2016//
 /arc4random_osx.h/1.11/Thu Jun 30 12:19:51 2016//
 /arc4random_solaris.h/1.10/Thu Jun 30 12:19:51 2016//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_pipe.c,v 1.88 2019/06/22 06:48:25 semarie Exp $	*/
+/*	$OpenBSD: sys_pipe.c,v 1.91 2019/07/13 06:51:59 semarie Exp $	*/
 
 /*
  * Copyright (c) 1996 John S. Dyson
@@ -460,7 +460,8 @@ pipe_write(struct file *fp, struct uio *uio, int fflags)
 		npipe = atomic_inc_int_nv(&nbigpipe);
 		if ((npipe <= LIMITBIGPIPES) &&
 		    (error = pipelock(wpipe)) == 0) {
-			if (pipespace(wpipe, BIG_PIPE_SIZE) != 0)
+			if ((wpipe->pipe_buffer.cnt != 0) ||
+			    (pipespace(wpipe, BIG_PIPE_SIZE) != 0))
 				atomic_dec_int(&nbigpipe);
 			pipeunlock(wpipe);
 		} else

@@ -45,6 +45,7 @@ D/Module-Metadata////
 D/NEXT////
 D/OpenBSD-MkTemp////
 D/OpenBSD-Pledge////
+D/OpenBSD-Unveil////
 D/Params-Check////
 D/Perl-OSType////
 D/PerlIO-via-QuotedPrint////
