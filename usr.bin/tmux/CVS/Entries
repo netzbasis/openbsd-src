@@ -18,7 +18,7 @@
 /cmd-display-panes.c/1.29/Wed Jun 26 18:28:31 2019//
 /cmd-find-window.c/1.46/Thu Jun 20 20:31:04 2019//
 /cmd-find.c/1.73/Wed Jun 12 09:10:29 2019//
-/cmd-if-shell.c/1.64/Tue Jun 18 11:08:42 2019//
+/cmd-if-shell.c/1.65/Wed Jul 17 17:49:23 2019//
 /cmd-join-pane.c/1.35/Thu Jun 20 11:59:59 2019//
 /cmd-kill-pane.c/1.26/Tue Apr 10 10:48:44 2018//
 /cmd-kill-server.c/1.18/Sun Oct 16 19:04:05 2016//
@@ -98,7 +98,7 @@
 /screen-redraw.c/1.64/Wed Jun 26 13:03:47 2019//
 /screen-write.c/1.156/Mon Jul  8 11:38:14 2019//
 /screen.c/1.55/Tue Apr  2 08:45:32 2019//
-/server-client.c/1.292/Sat Jul  6 20:56:34 2019//
+/server-client.c/1.293/Wed Jul 17 17:46:51 2019//
 /server-fn.c/1.122/Thu Jun 20 11:59:59 2019//
 /server.c/1.187/Thu Jun 20 06:51:36 2019//
 /session.c/1.85/Fri Apr 26 11:38:51 2019//
