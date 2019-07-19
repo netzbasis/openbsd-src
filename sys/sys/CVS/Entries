@@ -7,7 +7,7 @@
 /ataio.h/1.5/Fri Sep 26 21:43:32 2003//
 /atomic.h/1.6/Sat Mar  9 06:14:21 2019//
 /audioio.h/1.27/Wed Sep 14 06:12:20 2016//
-/buf.h/1.108/Mon Mar  4 01:06:48 2019//
+/buf.h/1.109/Fri Jul 19 00:24:31 2019//
 /cdefs.h/1.43/Mon Oct 29 17:10:40 2018//
 /cdio.h/1.17/Tue Oct 24 09:36:13 2017//
 /chio.h/1.7/Wed May 31 03:01:44 2006//
@@ -116,7 +116,7 @@
 /timetc.h/1.9/Wed May 22 19:59:37 2019//
 /tprintf.h/1.6/Sun Aug 24 01:27:07 2003//
 /tree.h/1.29/Sun Jul 30 19:27:20 2017//
-/tty.h/1.37/Tue May 24 16:09:07 2016//
+/tty.h/1.38/Fri Jul 19 00:17:16 2019//
 /ttycom.h/1.17/Sat Jun 16 13:55:03 2018//
 /ttydefaults.h/1.7/Tue Mar 12 11:01:25 2019//
 /types.h/1.48/Sat Feb  9 04:54:11 2019//
@@ -131,7 +131,7 @@
 /varargs.h/1.2/Sat Jan  3 14:55:34 2004//
 /videoio.h/1.16/Fri Feb 17 06:48:33 2017//
 /vmmeter.h/1.15/Wed Jul 27 14:44:59 2016//
-/vnode.h/1.150/Sun Feb 17 22:17:28 2019//
+/vnode.h/1.151/Fri Jul 19 00:54:59 2019//
 /wait.h/1.17/Fri Jun 13 22:40:31 2014//
 /witness.h/1.5/Tue Apr 23 13:35:12 2019//
 D
