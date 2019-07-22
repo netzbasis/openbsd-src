@@ -1,4 +1,4 @@
-/*	$OpenBSD: lock.c,v 1.43 2019/07/19 18:32:19 cheloha Exp $	*/
+/*	$OpenBSD: lock.c,v 1.45 2019/07/21 22:44:44 jca Exp $	*/
 /*	$NetBSD: lock.c,v 1.8 1996/05/07 18:32:31 jtc Exp $	*/
 
 /*
@@ -34,8 +34,8 @@
  */
 
 /*
- * Lock a terminal up until the given key is entered, until the root
- * password is entered, or the given interval times out.
+ * Lock a terminal up until the given key or user password is entered,
+ * or the given interval times out.
  */
 
 #include <sys/stat.h>
@@ -97,7 +97,7 @@ main(int argc, char *argv[])
 		backoff = login_getcapnum(lc, "login-backoff", 3, 3);
 	}
 
-	while ((ch = getopt(argc, argv, "a:pt:")) != -1) {
+	while ((ch = getopt(argc, argv, "a:npt:")) != -1) {
 		switch (ch) {
 		case 'a':
 			if (lc) {
@@ -117,6 +117,9 @@ main(int argc, char *argv[])
 			break;
 		case 'p':
 			usemine = 1;
+			break;
+		case 'n':
+			/* backward compatibility, -n meant "lock forever" */
 			break;
 		default:
 			usage();
