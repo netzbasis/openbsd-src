@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.323 2019/07/15 15:05:21 beck Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.325 2019/07/22 16:43:10 anton Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -3004,15 +3004,11 @@ sys_getdents(struct proc *p, void *v, register_t *retval)
 	buflen = SCARG(uap, buflen);
 
 	if (buflen > INT_MAX)
-		return EINVAL;
+		return (EINVAL);
 	if ((error = getvnode(p, SCARG(uap, fd), &fp)) != 0)
 		return (error);
 	if ((fp->f_flag & FREAD) == 0) {
 		error = EBADF;
-		goto bad;
-	}
-	if (fp->f_offset < 0) {
-		error = EINVAL;
 		goto bad;
 	}
 	vp = fp->f_data;
@@ -3020,6 +3016,15 @@ sys_getdents(struct proc *p, void *v, register_t *retval)
 		error = EINVAL;
 		goto bad;
 	}
+
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+
+	if (fp->f_offset < 0) {
+		VOP_UNLOCK(vp);
+		error = EINVAL;
+		goto bad;
+	}
+
 	aiov.iov_base = SCARG(uap, buf);
 	aiov.iov_len = buflen;
 	auio.uio_iov = &aiov;
@@ -3028,7 +3033,6 @@ sys_getdents(struct proc *p, void *v, register_t *retval)
 	auio.uio_segflg = UIO_USERSPACE;
 	auio.uio_procp = p;
 	auio.uio_resid = buflen;
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 	auio.uio_offset = fp->f_offset;
 	error = VOP_READDIR(vp, &auio, fp->f_cred, &eofflag);
 	fp->f_offset = auio.uio_offset;
