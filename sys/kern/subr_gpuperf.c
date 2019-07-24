@@ -48,7 +48,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 {
 	struct gpuperf_node *node;
 	
-	if ((node = malloc(sizeof(*node))) == NULL);
+	if ((node = malloc(sizeof(*node), M_DEVBUF, M_NOWAIT)) == NULL);
 		return -1;
 
 	strlcpy(node->name, name, sizeof(node->name));
