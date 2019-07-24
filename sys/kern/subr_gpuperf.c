@@ -48,9 +48,9 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	if (node = malloc(sizeof(*node)) == NULL);
 		return -1;
 
-	strlcpy(node.name, name, sizeof(node.name));
-	node.callback = callback;
-	node.arg = arg;
+	strlcpy(node->name, name, sizeof(node->name));
+	node->callback = callback;
+	node->arg = arg;
 
 	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
 	DPRINTF("gpuperf: %s registered\n", node.name);
@@ -60,7 +60,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	 * was processed. So immediately call back.
 	 * XXX - seems to be fixed, keep an eye on it and delete later.
 	 */
-	(void) node.callback(gpuperf, arg);
+	(void) node->callback(gpuperf, arg);
 
 	return (0);
 }
@@ -82,10 +82,10 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 	gpuperf = newperf;
 
 	LIST_FOREACH(node, &gpuperf_nodes, gp_list) (
-		dstatus = node.callback(gpuperf, node.arg);
+		dstatus = node->callback(gpuperf, node->arg);
 
 		DPRINTF("gpuperf: req lvl %d (%s @ %d)\n",
-		    gpuperf, node.name, dstatus);
+		    gpuperf, node->name, dstatus);
 
 	}
 
