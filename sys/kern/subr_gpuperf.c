@@ -45,7 +45,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 {
 	struct gpuperf_node *node;
 	
-	if (node = malloc(sizeof(*node)) == NULL);
+	if ((node = malloc(sizeof(*node))) == NULL);
 		return -1;
 
 	strlcpy(node->name, name, sizeof(node->name));
@@ -53,7 +53,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	node->arg = arg;
 
 	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
-	DPRINTF("gpuperf: %s registered\n", node.name);
+	DPRINTF("gpuperf: %s registered\n", node->name);
 
 	/*
 	 * Drivers may take a while to register, even after /etc/sysctl.conf
@@ -81,7 +81,7 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		newperf = 0;
 	gpuperf = newperf;
 
-	LIST_FOREACH(node, &gpuperf_nodes, gp_list) (
+	LIST_FOREACH(node, &gpuperf_nodes, gp_list) {
 		dstatus = node->callback(gpuperf, node->arg);
 
 		DPRINTF("gpuperf: req lvl %d (%s @ %d)\n",
