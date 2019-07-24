@@ -6,7 +6,7 @@
 /amd64errata.c/1.9/Fri Sep  8 05:36:51 2017//
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
 /autoconf.c/1.53/Fri Jan 11 06:25:06 2019//
-/bios.c/1.38/Mon Jul 15 00:35:10 2019//
+/bios.c/1.39/Wed Jul 24 04:04:44 2019//
 /bus_dma.c/1.51/Sun Jun  9 12:52:04 2019//
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
 /cacheinfo.c/1.8/Wed Feb  3 03:25:07 2016//
