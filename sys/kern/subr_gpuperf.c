@@ -32,33 +32,35 @@ struct gpuperf_node {
 	char name[16];			/* gpu driver name */
 	int (*callback)(int, void *);	/* must understand 0 - 100 as % */
 	void *arg;			/* arg passthrough */
+	LIST_ENTRY(gpuperf_node) gp_list;
 };
 
-struct gpuperf_node gpuperf_registered_nodes[GPUPERF_MAX_NODES];
+LIST_HEAD(, gpuperf_node) gpuperf_nodes =
+	LIST_HEAD_INITIALIZER(gpuperf_nodes);
 
 int gpuperf = 100;
-int gpuperf_gpun = 0;
 
 int
 gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 {
-	if (gpuperf_gpun >= GPUPERF_MAX_NODES)
-		return (-1);
+	struct gpuperf_node *node;
+	
+	if (node = malloc(sizeof(*node)) == NULL);
+		return -1;
 
-	strlcpy(gpuperf_registered_nodes[gpuperf_gpun].name, name,
-	    sizeof(gpuperf_registered_nodes[gpuperf_gpun].name));
-	gpuperf_registered_nodes[gpuperf_gpun].callback = callback;
-	gpuperf_registered_nodes[gpuperf_gpun].arg = arg;
+	strlcpy(node.name, name, sizeof(node.name));
+	node.callback = callback;
+	node.arg = arg;
+
+	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
+	DPRINTF("gpuperf: %s registered\n", node.name);
 
 	/*
 	 * Drivers may take a while to register, even after /etc/sysctl.conf
 	 * was processed. So immediately call back.
+	 * XXX - seems to be fixed, keep an eye on it and delete later.
 	 */
-	(void) callback(gpuperf, arg);
-
-	gpuperf_gpun += 1;
-	DPRINTF("gpuperf: %s registered (total nodes %d)\n",
-	    name, gpuperf_gpun);
+	(void) node.callback(gpuperf, arg);
 
 	return (0);
 }
@@ -66,6 +68,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 int
 sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
+	struct gpuperf_node *node;
 	int i, err, newperf, dstatus;
 
 	newperf = gpuperf;
@@ -78,12 +81,11 @@ sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		newperf = 0;
 	gpuperf = newperf;
 
-	for (i=0; i < gpuperf_gpun; i++) {
-		dstatus = gpuperf_registered_nodes[i].callback(gpuperf,
-		    gpuperf_registered_nodes[i].arg);
+	LIST_FOREACH(node, &gpuperf_nodes, gp_list) (
+		dstatus = node.callback(gpuperf, node.arg);
 
-		DPRINTF("gpuperf: requesting level %d from %s (dstatus %d)\n",
-		    gpuperf, gpuperf_registered_nodes[i].name, dstatus);
+		DPRINTF("gpuperf: req lvl %d (%s @ %d)\n",
+		    gpuperf, node.name, dstatus);
 
 	}
 
