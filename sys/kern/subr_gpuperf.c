@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdlib.h>
 #include <sys/gpuperf.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -69,7 +70,7 @@ int
 sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 {
 	struct gpuperf_node *node;
-	int i, err, newperf, dstatus;
+	int err, newperf, dstatus;
 
 	newperf = gpuperf;
 	err = sysctl_int(oldp, oldlenp, newp, newlen, &newperf);
