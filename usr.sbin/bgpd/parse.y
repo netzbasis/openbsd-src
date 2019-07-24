@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.392 2019/06/22 05:36:40 claudio Exp $ */
+/*	$OpenBSD: parse.y,v 1.394 2019/07/23 06:26:44 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -3282,8 +3282,6 @@ parse_config(char *filename, struct peer_head *ph)
 
 	add_rib("Adj-RIB-In", conf->default_tableid,
 	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
-	add_rib("Adj-RIB-Out", conf->default_tableid,
-	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
 	add_rib("Loc-RIB", conf->default_tableid, F_RIB_LOCAL);
 
 	if ((file = pushfile(filename, 1)) == NULL)
@@ -3904,7 +3902,7 @@ add_rib(char *name, u_int rtableid, u_int16_t flags)
 		return (-1);
 	}
 	rr->flags |= flags;
-	if ((rr->flags & F_RIB_HASNOFIB) == 0) {
+	if ((rr->flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) == 0) {
 		if (ktable_exists(rtableid, &rdom) != 1) {
 			yyerror("rtable id %u does not exist", rtableid);
 			free(rr);
