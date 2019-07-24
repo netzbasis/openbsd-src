@@ -16,11 +16,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
 #include <sys/gpuperf.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
+#include <sys/malloc.h>
+
 
 #define GPUPERF_DEBUG
 #ifdef GPUPERF_DEBUG
