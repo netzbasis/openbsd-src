@@ -44,7 +44,7 @@
 /kern_xxx.c/1.36/Tue Apr  2 11:00:22 2019//
 /makesyscalls.sh/1.13/Mon Sep 26 16:42:34 2016//
 /sched_bsd.c/1.55/Mon Jul 15 20:44:48 2019//
-/spec_vnops.c/1.96/Fri Jul 19 00:54:59 2019//
+/spec_vnops.c/1.97/Thu Jul 25 01:43:21 2019//
 /subr_autoconf.c/1.93/Wed Dec  5 15:44:22 2018//
 /subr_disk.c/1.234/Sat Apr 28 15:44:59 2018//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
@@ -97,9 +97,9 @@
 /vfs_init.c/1.42/Tue Apr  2 13:07:28 2019//
 /vfs_lockf.c/1.43/Sun May 12 19:43:34 2019//
 /vfs_lookup.c/1.80/Thu Jul 18 18:06:17 2019//
-/vfs_subr.c/1.291/Fri Jul 19 00:54:59 2019//
+/vfs_subr.c/1.292/Thu Jul 25 01:43:21 2019//
 /vfs_sync.c/1.60/Mon Aug 13 15:26:17 2018//
-/vfs_syscalls.c/1.326/Tue Jul 23 11:01:32 2019//
+/vfs_syscalls.c/1.327/Thu Jul 25 01:43:21 2019//
 /vfs_vnops.c/1.103/Tue Jul 23 19:07:31 2019//
 /vfs_vops.c/1.21/Fri May  3 14:24:13 2019//
 D
