@@ -8,7 +8,7 @@
 /ciphers.c/1.10/Sun Jul 14 03:30:45 2019//
 /crl.c/1.13/Sun Jul 14 03:30:45 2019//
 /crl2p7.c/1.9/Sun Jul 14 03:30:45 2019//
-/dgst.c/1.13/Fri Jan 18 23:33:57 2019//
+/dgst.c/1.14/Mon Jul 29 10:06:55 2019//
 /dh.c/1.12/Sun Jul 14 03:30:45 2019//
 /dhparam.c/1.12/Sun Jul 14 03:30:45 2019//
 /dsa.c/1.15/Sun Jul 14 03:30:45 2019//
