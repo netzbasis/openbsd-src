@@ -58,7 +58,7 @@
 /czreg.h/1.2/Sun Nov 16 20:30:06 2003//
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
 /dpt_pci.c/1.9/Fri Dec 19 22:44:58 2014//
-/dwiic_pci.c/1.8/Tue Jul 16 19:12:32 2019//
+/dwiic_pci.c/1.9/Wed Jul 31 16:04:16 2019//
 /eap.c/1.56/Fri Sep 14 08:37:34 2018//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.31/Thu May  2 20:28:46 2019//
