@@ -45,7 +45,7 @@
 /ipc.h/1.13/Sat Nov 15 21:42:50 2014//
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
 /kcov.h/1.4/Sun Jan 20 09:57:23 2019//
-/kernel.h/1.19/Sun Mar 10 21:16:15 2019//
+/kernel.h/1.20/Fri Aug  2 02:17:35 2019//
 /kthread.h/1.6/Mon Nov 18 20:21:51 2013//
 /ktrace.h/1.38/Tue Feb 26 22:24:41 2019//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
@@ -69,7 +69,7 @@
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
-/proc.h/1.272/Mon Jul  8 18:53:18 2019//
+/proc.h/1.273/Fri Aug  2 02:17:35 2019//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.45/Thu Jul 12 14:22:54 2018//
@@ -110,7 +110,7 @@
 /systm.h/1.142/Wed Jul  3 22:39:33 2019//
 /task.h/1.16/Sun Jun 23 12:56:10 2019//
 /termios.h/1.13/Tue Sep 20 21:10:22 2016//
-/time.h/1.44/Wed Jul  3 22:39:33 2019//
+/time.h/1.45/Fri Aug  2 03:33:15 2019//
 /timeout.h/1.29/Fri Jul 12 00:04:59 2019//
 /times.h/1.6/Sat Jul  6 18:44:21 2013//
 /timetc.h/1.9/Wed May 22 19:59:37 2019//

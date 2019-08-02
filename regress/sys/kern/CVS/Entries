@@ -1,4 +1,4 @@
-/Makefile/1.82/Fri Jun 14 19:23:53 2019//
+/Makefile/1.83/Thu Aug  1 15:56:59 2019//
 D/__syscall////
 D/accept////
 D/access////
@@ -68,4 +68,5 @@ D/unalign////
 D/unfdpass////
 D/unixsock////
 D/unveil////
+D/unveil-unmount////
 D/wait////
