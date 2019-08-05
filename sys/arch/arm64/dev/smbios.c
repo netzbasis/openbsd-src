@@ -1,6 +1,7 @@
-/*	$OpenBSD: bios.c,v 1.40 2019/08/04 14:28:58 kettenis Exp $	*/
+/*	$OpenBSD: smbios.c,v 1.3 2019/08/04 14:28:58 kettenis Exp $	*/
 /*
  * Copyright (c) 2006 Gordon Willem Klok <gklok@cogeco.ca>
+ * Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,43 +17,16 @@
  */
 
 #include <sys/param.h>
-#include <sys/systm.h>
 #include <sys/device.h>
 #include <sys/malloc.h>
+#include <sys/systm.h>
 
-#include <uvm/uvm_extern.h>
-
-#include <machine/biosvar.h>
-#include <machine/mpbiosvar.h>
+#include <machine/bus.h>
+#include <machine/fdt.h>
 #include <machine/smbiosvar.h>
 
-#include <dev/isa/isareg.h>
-#include <amd64/include/isa_machdep.h>
-
+#include <dev/ofw/fdt.h>
 #include <dev/rndvar.h>
-
-#include "acpi.h"
-#include "mpbios.h"
-#include "pci.h"
-
-struct bios_softc {
-	struct device sc_dev;
-};
-
-struct smbhdr *smbios_find(uint8_t *);
-void smbios_info(char *);
-int bios_match(struct device *, void *, void *);
-void bios_attach(struct device *, struct device *, void *);
-int bios_print(void *, const char *);
-char *fixstring(char *);
-
-struct cfattach bios_ca = {
-	sizeof(struct bios_softc), bios_match, bios_attach
-};
-
-struct cfdriver bios_cd = {
-	NULL, "bios", DV_DULL
-};
 
 struct smbios_entry smbios_entry;
 /*
@@ -69,184 +43,118 @@ const char *smbios_uninfo[] = {
 
 char smbios_bios_date[64];
 
-int
-bios_match(struct device *parent, void *match , void *aux)
-{
-	struct bios_attach_args *bia = aux;
+void smbios_info(char *);
+char *fixstring(char *);
 
-	/* only one */
-	if (bios_cd.cd_ndevs || strcmp(bia->ba_name, bios_cd.cd_name))
-		return 0;
-	return 1;
+struct smbios_softc {
+	struct device	sc_dev;
+	bus_space_tag_t	sc_iot;
+};
+
+int	smbios_match(struct device *, void *, void *);
+void	smbios_attach(struct device *, struct device *, void *);
+
+struct cfattach smbios_ca = {
+	sizeof(struct device), smbios_match, smbios_attach
+};
+
+struct cfdriver smbios_cd = {
+	NULL, "smbios", DV_DULL
+};
+
+int
+smbios_match(struct device *parent, void *match, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return (strcmp(faa->fa_name, "smbios") == 0);
 }
 
 void
-bios_attach(struct device *parent, struct device *self, void *aux)
+smbios_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct bios_softc *sc = (struct bios_softc *)self;
+	struct smbios_softc *sc = (struct smbios_softc *)self;
+	struct fdt_attach_args *faa = aux;
 	struct smbios_struct_bios *sb;
 	struct smbtable bios;
 	char scratch[64];
-	vaddr_t va;
-	paddr_t pa, end;
-	uint8_t *p;
-	int smbiosrev = 0;
-	struct smbhdr *hdr = NULL;
 	char *sminfop;
+	bus_addr_t addr;
+	bus_size_t size;
+	bus_space_handle_t ioh;
+	struct smb3hdr *hdr;
+	uint8_t *p, checksum = 0;
+	int i;
 
-	if (bios_efiinfo != NULL && bios_efiinfo->config_smbios != 0)
-		hdr = smbios_find(PMAP_DIRECT_MAP(
-		    (uint8_t *)bios_efiinfo->config_smbios));
-
-	if (hdr == NULL) {
-		/* see if we have SMBIOS extentions */
-		for (p = ISA_HOLE_VADDR(SMBIOS_START);
-		    p < (uint8_t *)ISA_HOLE_VADDR(SMBIOS_END); p+= 16) {
-			hdr = smbios_find(p);
-			if (hdr != NULL)
-				break;
-		}
+	sc->sc_iot = faa->fa_iot;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr, sizeof(*hdr),
+	    BUS_SPACE_MAP_LINEAR | BUS_SPACE_MAP_PREFETCHABLE, &ioh)) {
+		printf(": can't map SMBIOS entry point structure\n");
+		return;
 	}
 
-	if (hdr != NULL) {
-		pa = trunc_page(hdr->addr);
-		end = round_page(hdr->addr + hdr->size);
-		va = (vaddr_t)km_alloc(end - pa, &kv_any, &kp_none, &kd_nowait);
-		if (va == 0)
-			goto out;
+	hdr = bus_space_vaddr(sc->sc_iot, ioh);
+	if (strncmp(hdr->sig, "_SM3_", sizeof(hdr->sig)) != 0)
+		goto fail;
+	if (hdr->len != sizeof(*hdr) || hdr->epr != 0x01)
+		goto fail;
+	for (i = 0, p = (uint8_t *)hdr; i < hdr->len; i++)
+		checksum += p[i];
+	if (checksum != 0)
+		goto fail;
 
-		smbios_entry.addr = (uint8_t *)(va + (hdr->addr & PGOFSET));
-		smbios_entry.len = hdr->size;
-		smbios_entry.mjr = hdr->majrev;
-		smbios_entry.min = hdr->minrev;
-		smbios_entry.count = hdr->count;
+	printf(": SMBIOS %d.%d.%d", hdr->majrev, hdr->minrev, hdr->docrev);
 
-		for (; pa < end; pa+= NBPG, va+= NBPG)
-			pmap_kenter_pa(va, pa, PROT_READ);
+	smbios_entry.len = hdr->size;
+	smbios_entry.mjr = hdr->majrev;
+	smbios_entry.min = hdr->minrev;
+	smbios_entry.count = -1;
 
-		printf(": SMBIOS rev. %d.%d @ 0x%x (%d entries)",
-		    hdr->majrev, hdr->minrev, hdr->addr, hdr->count);
+	addr = hdr->addr;
+	size = hdr->size;
 
-		smbiosrev = hdr->majrev * 100 + hdr->minrev;
-		if (hdr->minrev < 10)
-			smbiosrev = hdr->majrev * 100 + hdr->minrev * 10;
+	bus_space_unmap(sc->sc_iot, ioh, sizeof(*hdr));
 
-		bios.cookie = 0;
-		if (smbios_find_table(SMBIOS_TYPE_BIOS, &bios)) {
-			sb = bios.tblhdr;
-			printf("\n%s:", sc->sc_dev.dv_xname);
-			if ((smbios_get_string(&bios, sb->vendor,
-			    scratch, sizeof(scratch))) != NULL)
-				printf(" vendor %s",
-				    fixstring(scratch));
-			if ((smbios_get_string(&bios, sb->version,
-			    scratch, sizeof(scratch))) != NULL)
-				printf(" version \"%s\"",
-				    fixstring(scratch));
-			if ((smbios_get_string(&bios, sb->release,
-			    scratch, sizeof(scratch))) != NULL) {
-				sminfop = fixstring(scratch);
-				if (sminfop != NULL) {
-					strlcpy(smbios_bios_date,
-					    sminfop,
-					    sizeof(smbios_bios_date));
-					printf(" date %s", sminfop);
-				}
+	if (bus_space_map(sc->sc_iot, addr, size,
+	    BUS_SPACE_MAP_LINEAR | BUS_SPACE_MAP_PREFETCHABLE, &ioh)) {
+		printf(": can't map SMBIOS structure table\n");
+		return;
+	}
+	smbios_entry.addr = bus_space_vaddr(sc->sc_iot, ioh);
+
+	bios.cookie = 0;
+	if (smbios_find_table(SMBIOS_TYPE_BIOS, &bios)) {
+		sb = bios.tblhdr;
+		printf("\n%s:", sc->sc_dev.dv_xname);
+		if ((smbios_get_string(&bios, sb->vendor,
+		    scratch, sizeof(scratch))) != NULL)
+			printf(" vendor %s",
+			    fixstring(scratch));
+		if ((smbios_get_string(&bios, sb->version,
+		    scratch, sizeof(scratch))) != NULL)
+			printf(" version \"%s\"",
+			    fixstring(scratch));
+		if ((smbios_get_string(&bios, sb->release,
+		    scratch, sizeof(scratch))) != NULL) {
+			sminfop = fixstring(scratch);
+			if (sminfop != NULL) {
+				strlcpy(smbios_bios_date,
+				    sminfop,
+				    sizeof(smbios_bios_date));
+				printf(" date %s", sminfop);
 			}
 		}
 
 		smbios_info(sc->sc_dev.dv_xname);
 	}
-out:
+
+	bus_space_unmap(sc->sc_iot, ioh, size);
+
 	printf("\n");
+	return;
 
-	/* No SMBIOS extensions, go looking for Soekris comBIOS */
-	if (smbiosrev == 0) {
-		const char *signature = "Soekris Engineering";
-
-		for (p = ISA_HOLE_VADDR(SMBIOS_START);
-		    p <= (uint8_t *)ISA_HOLE_VADDR(SMBIOS_END -
-		    (strlen(signature) - 1)); p++)
-			if (!memcmp(p, signature, strlen(signature))) {
-				hw_vendor = malloc(strlen(signature) + 1,
-				    M_DEVBUF, M_NOWAIT);
-				if (hw_vendor)
-					strlcpy(hw_vendor, signature,
-					    strlen(signature) + 1);
-				p += strlen(signature);
-				break;
-			}
-
-		for (; hw_vendor &&
-		    p <= (uint8_t *)ISA_HOLE_VADDR(SMBIOS_END - 6); p++)
-			/*
-			 * Search only for "net6501" in the comBIOS as that's
-			 * the only Soekris platform that can run amd64
-			 */
-			if (!memcmp(p, "net6501", 7)) {
-				hw_prod = malloc(8, M_DEVBUF, M_NOWAIT);
-				if (hw_prod) {
-					memcpy(hw_prod, p, 7);
-					hw_prod[7] = '\0';
-				}
-				break;
-			}
-	}
-
-#if NACPI > 0
-	{
-		struct bios_attach_args ba;
-
-		memset(&ba, 0, sizeof(ba));
-		ba.ba_name = "acpi";
-		ba.ba_iot = X86_BUS_SPACE_IO;
-		ba.ba_memt = X86_BUS_SPACE_MEM;
-
-		if (bios_efiinfo != NULL)
-			ba.ba_acpipbase = bios_efiinfo->config_acpi;
-
-		config_found(self, &ba, bios_print);
-	}
-#endif
-
-#if NMPBIOS > 0
-	if (mpbios_probe(self)) {
-		struct bios_attach_args ba;
-
-		memset(&ba, 0, sizeof(ba));
-		ba.ba_name = "mpbios";
-		ba.ba_iot = X86_BUS_SPACE_IO;
-		ba.ba_memt = X86_BUS_SPACE_MEM;
-
-		config_found(self, &ba, bios_print);
-	}
-#endif
-}
-
-struct smbhdr *
-smbios_find(uint8_t *p)
-{
-	struct smbhdr *hdr = (struct smbhdr *)p;
-	uint8_t chksum;
-	int i;
-
-	if (hdr->sig != SMBIOS_SIGNATURE)
-		return (NULL);
-	i = hdr->len;
-	for (chksum = 0; i--; chksum += p[i])
-		;
-	if (chksum != 0)
-		return (NULL);
-	p += 0x10;
-	if (!(p[0] == '_' && p[1] == 'D' && p[2] == 'M' && p[3] == 'I' &&
-	    p[4] == '_'))
-		return (NULL);
-	for (chksum = 0, i = 0xf; i--; chksum += p[i])
-		;
-	if (chksum != 0)
-		return (NULL);
-
-	return (hdr);
+fail:
+	bus_space_unmap(sc->sc_iot, ioh, sizeof(*hdr));
 }
 
 /*
@@ -488,14 +396,4 @@ smbios_info(char *str)
 			}
 		}
 	}
-}
-
-int
-bios_print(void *aux, const char *pnp)
-{
-        struct bios_attach_args *ba = aux;
-
-        if (pnp)
-                printf("%s at %s", ba->ba_name, pnp);
-        return (UNCONF);
 }

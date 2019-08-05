@@ -6,7 +6,7 @@
 /apmvar.h/1.22/Tue Jan 22 02:36:30 2019//
 /asm.h/1.16/Wed Apr 11 15:44:08 2018//
 /atomic.h/1.18/Sun May 28 01:33:26 2017//
-/biosvar.h/1.67/Thu Aug 23 14:47:52 2018//
+/biosvar.h/1.68/Sun Aug  4 14:28:58 2019//
 /bus.h/1.67/Mon May  8 00:27:45 2017//
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /codepatch.h/1.2/Sat Jul  1 19:42:59 2017//
@@ -64,7 +64,7 @@
 /segments.h/1.26/Mon Jul  9 19:20:30 2018//
 /setjmp.h/1.2/Sat Aug  5 22:07:32 2000//
 /signal.h/1.11/Tue May 10 18:39:45 2016//
-/smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
+/smbiosvar.h/1.11/Sun Aug  4 16:15:58 2019//
 /specialreg.h/1.74/Fri Jun 14 18:13:55 2019//
 /spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.16/Tue Mar 11 19:45:27 2014//

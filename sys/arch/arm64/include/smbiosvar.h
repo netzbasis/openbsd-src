@@ -1,4 +1,4 @@
-/*	$OpenBSD: smbiosvar.h,v 1.11 2019/08/04 16:15:57 kmos Exp $	*/
+/*	$OpenBSD: smbiosvar.h,v 1.3 2019/08/04 16:15:58 kmos Exp $	*/
 /*
  * Copyright (c) 2006 Gordon Willem Klok <gklok@cogeco.ca>
  * Copyright (c) 2005 Jordan Hargrave
@@ -28,9 +28,6 @@
 
 #ifndef _MACHINE_SMBIOSVAR_
 #define _MACHINE_SMBIOSVAR_
-
-#define SMBIOS_START			0xf0000
-#define SMBIOS_END			0xfffff
 
 #define SMBIOS_UUID_NPRESENT		0x1
 #define SMBIOS_UUID_NSET		0x2

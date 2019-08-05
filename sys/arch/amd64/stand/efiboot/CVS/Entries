@@ -2,7 +2,7 @@
 /Makefile.common/1.17/Sat Aug  3 15:22:20 2019//
 /Makefile.inc/1.1/Wed Sep  2 01:52:25 2015//
 /cmd_i386.c/1.1/Fri May 10 21:20:42 2019//
-/conf.c/1.21/Sat Aug  3 15:22:20 2019//
+/conf.c/1.22/Sun Aug  4 13:45:14 2019//
 /dev_i386.c/1.1/Fri May 10 21:20:42 2019//
 /diskprobe.c/1.1/Fri May 10 21:20:42 2019//
 /efiboot.c/1.33/Fri Mar 15 06:53:37 2019//
