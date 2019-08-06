@@ -31,8 +31,8 @@
 /auth2.c/1.156/Fri Jun 28 05:44:09 2019//
 /authfd.c/1.115/Fri Jun 28 13:35:04 2019//
 /authfd.h/1.45/Fri Jun 21 04:21:04 2019//
-/authfile.c/1.133/Mon Jul 15 13:16:29 2019//
-/authfile.h/1.21/Thu Jan  8 10:14:08 2015//
+/authfile.c/1.134/Mon Aug  5 11:50:33 2019//
+/authfile.h/1.22/Mon Aug  5 11:50:33 2019//
 /bitmap.c/1.9/Fri Oct 20 01:56:39 2017//
 /bitmap.h/1.2/Fri Oct 20 01:56:39 2017//
 /canohost.c/1.74/Fri Jun 28 13:35:04 2019//
@@ -162,7 +162,7 @@
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
 /ssh-keygen.1/1.162/Fri Jul 19 03:38:01 2019//
-/ssh-keygen.c/1.338/Fri Jul 19 03:38:01 2019//
+/ssh-keygen.c/1.339/Mon Aug  5 21:45:27 2019//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.129/Fri Jul 12 04:08:39 2019//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
@@ -190,7 +190,7 @@
 /sshbuf.h/1.17/Tue Jul 30 05:04:49 2019//
 /sshconnect.c/1.317/Fri Jun 28 13:35:04 2019//
 /sshconnect.h/1.38/Fri Jun 21 04:21:05 2019//
-/sshconnect2.c/1.307/Sun Jul  7 01:05:00 2019//
+/sshconnect2.c/1.308/Mon Aug  5 11:50:33 2019//
 /sshd.8/1.304/Sun Jul 22 12:16:59 2018//
 /sshd.c/1.537/Fri Jun 28 13:35:04 2019//
 /sshd_config/1.103/Mon Apr  9 20:41:22 2018//

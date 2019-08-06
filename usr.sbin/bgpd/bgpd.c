@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.222 2019/07/24 20:25:27 benno Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.224 2019/08/05 08:46:55 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -610,12 +610,12 @@ reconfigure(char *conffile, struct bgpd_config *conf)
 	}
 
 	/* as-sets for filters in the RDE */
-	while ((aset = SIMPLEQ_FIRST(conf->as_sets)) != NULL) {
+	while ((aset = SIMPLEQ_FIRST(&conf->as_sets)) != NULL) {
 		struct ibuf *wbuf;
 		u_int32_t *as;
 		size_t i, l, n;
 
-		SIMPLEQ_REMOVE_HEAD(conf->as_sets, entry);
+		SIMPLEQ_REMOVE_HEAD(&conf->as_sets, entry);
 
 		as = set_get(aset->set, &n);
 		if ((wbuf = imsg_create(ibuf_rde, IMSG_RECONF_AS_SET, 0, 0,
@@ -644,10 +644,10 @@ reconfigure(char *conffile, struct bgpd_config *conf)
 	/* filters for the RDE */
 	while ((r = TAILQ_FIRST(conf->filters)) != NULL) {
 		TAILQ_REMOVE(conf->filters, r, entry);
+		if (send_filterset(ibuf_rde, &r->set) == -1)
+			return (-1);
 		if (imsg_compose(ibuf_rde, IMSG_RECONF_FILTER, 0, 0, -1,
 		    r, sizeof(struct filter_rule)) == -1)
-			return (-1);
-		if (send_filterset(ibuf_rde, &r->set) == -1)
 			return (-1);
 		filterset_free(&r->set);
 		free(r);
@@ -669,18 +669,18 @@ reconfigure(char *conffile, struct bgpd_config *conf)
 			return (-1);
 
 		/* export targets */
+		if (send_filterset(ibuf_rde, &vpn->export) == -1)
+			return (-1);
 		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN_EXPORT, 0, 0,
 		    -1, NULL, 0) == -1)
-			return (-1);
-		if (send_filterset(ibuf_rde, &vpn->export) == -1)
 			return (-1);
 		filterset_free(&vpn->export);
 
 		/* import targets */
+		if (send_filterset(ibuf_rde, &vpn->import) == -1)
+			return (-1);
 		if (imsg_compose(ibuf_rde, IMSG_RECONF_VPN_IMPORT, 0, 0,
 		    -1, NULL, 0) == -1)
-			return (-1);
-		if (send_filterset(ibuf_rde, &vpn->import) == -1)
 			return (-1);
 		filterset_free(&vpn->import);
 
