@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iavf.c,v 1.4 2019/07/31 01:27:34 jmatthew Exp $	*/
+/*	$OpenBSD: if_iavf.c,v 1.6 2019/08/07 22:34:25 jmatthew Exp $	*/
 
 /*
  * Copyright (c) 2013-2015, Intel Corporation
@@ -84,6 +84,8 @@
 
 #define I40E_MASK(mask, shift)		((mask) << (shift))
 #define I40E_AQ_LARGE_BUF		512
+
+#define IAVF_REG_VFR			0xdeadbeef
 
 #define IAVF_VFR_INPROGRESS		0
 #define IAVF_VFR_COMPLETED		1
@@ -595,14 +597,14 @@ struct iavf_softc {
 	unsigned int		 sc_atq_cons;
 
 	struct iavf_dmamem	 sc_arq;
-	struct task		 sc_arq_task;
 	struct iavf_aq_bufs	 sc_arq_idle;
 	struct iavf_aq_bufs	 sc_arq_live;
 	struct if_rxring	 sc_arq_ring;
 	unsigned int		 sc_arq_prod;
 	unsigned int		 sc_arq_cons;
 
-	struct task		 sc_link_state_task;
+	struct task		 sc_reset_task;
+	int			 sc_resetting;
 
 	unsigned int		 sc_tx_ring_ndescs;
 	unsigned int		 sc_rx_ring_ndescs;
@@ -621,7 +623,7 @@ static int	iavf_dmamem_alloc(struct iavf_softc *, struct iavf_dmamem *,
 		    bus_size_t, u_int);
 static void	iavf_dmamem_free(struct iavf_softc *, struct iavf_dmamem *);
 
-static int	iavf_arq_fill(struct iavf_softc *);
+static int	iavf_arq_fill(struct iavf_softc *, int);
 static void	iavf_arq_unfill(struct iavf_softc *);
 static void	iavf_arq_timeout(void *);
 static int	iavf_arq_wait(struct iavf_softc *, int);
@@ -629,13 +631,14 @@ static int	iavf_arq_wait(struct iavf_softc *, int);
 static int	iavf_atq_post(struct iavf_softc *, struct iavf_aq_desc *);
 static void	iavf_atq_done(struct iavf_softc *);
 
+static void	iavf_init_admin_queue(struct iavf_softc *);
+
 static int	iavf_get_version(struct iavf_softc *);
 static int	iavf_get_vf_resources(struct iavf_softc *);
 static int	iavf_config_irq_map(struct iavf_softc *);
 
 static int	iavf_add_del_addr(struct iavf_softc *, uint8_t *, int);
-static int	iavf_process_arq(struct iavf_softc *);
-static void	iavf_arq_task(void *);
+static int	iavf_process_arq(struct iavf_softc *, int);
 
 static int	iavf_match(struct device *, void *, void *);
 static void	iavf_attach(struct device *, struct device *, void *);
@@ -649,6 +652,7 @@ static int	iavf_intr(void *);
 static int	iavf_up(struct iavf_softc *);
 static int	iavf_down(struct iavf_softc *);
 static int	iavf_iff(struct iavf_softc *);
+static void	iavf_reset(void *);
 
 static struct iavf_tx_ring *
 		iavf_txr_alloc(struct iavf_softc *, unsigned int);
@@ -791,6 +795,7 @@ iavf_attach(struct device *parent, struct device *self, void *aux)
 		printf(": VF reset timed out\n");
 		return;
 	}
+	task_set(&sc->sc_reset_task, iavf_reset, sc);
 
 	mtx_init(&sc->sc_atq_mtx, IPL_NET);
 
@@ -803,7 +808,6 @@ iavf_attach(struct device *parent, struct device *self, void *aux)
 	SIMPLEQ_INIT(&sc->sc_arq_idle);
 	SIMPLEQ_INIT(&sc->sc_arq_live);
 	if_rxr_init(&sc->sc_arq_ring, 2, IAVF_AQ_NUM - 1);
-	task_set(&sc->sc_arq_task, iavf_arq_task, sc);
 	sc->sc_arq_cons = 0;
 	sc->sc_arq_prod = 0;
 
@@ -813,7 +817,7 @@ iavf_attach(struct device *parent, struct device *self, void *aux)
 		goto free_atq;
 	}
 
-	if (!iavf_arq_fill(sc)) {
+	if (!iavf_arq_fill(sc, 0)) {
 		printf("\n" "%s: unable to fill arq descriptors\n",
 		    DEVNAME(sc));
 		goto free_arq;
@@ -833,27 +837,7 @@ iavf_attach(struct device *parent, struct device *self, void *aux)
 	    0, IAVF_DMA_LEN(&sc->sc_arq),
 	    BUS_DMASYNC_PREREAD|BUS_DMASYNC_PREWRITE);
 
-	iavf_wr(sc, sc->sc_aq_regs->atq_head, 0);
-	iavf_wr(sc, sc->sc_aq_regs->arq_head, 0);
-	iavf_wr(sc, sc->sc_aq_regs->atq_tail, 0);
-
-	iavf_barrier(sc, 0, sc->sc_mems, BUS_SPACE_BARRIER_WRITE);
-
-	iavf_wr(sc, sc->sc_aq_regs->atq_bal,
-	    iavf_dmamem_lo(&sc->sc_atq));
-	iavf_wr(sc, sc->sc_aq_regs->atq_bah,
-	    iavf_dmamem_hi(&sc->sc_atq));
-	iavf_wr(sc, sc->sc_aq_regs->atq_len,
-	    sc->sc_aq_regs->atq_len_enable | IAVF_AQ_NUM);
-
-	iavf_wr(sc, sc->sc_aq_regs->arq_bal,
-	    iavf_dmamem_lo(&sc->sc_arq));
-	iavf_wr(sc, sc->sc_aq_regs->arq_bah,
-	    iavf_dmamem_hi(&sc->sc_arq));
-	iavf_wr(sc, sc->sc_aq_regs->arq_len,
-	    sc->sc_aq_regs->arq_len_enable | IAVF_AQ_NUM);
-
-	iavf_wr(sc, sc->sc_aq_regs->arq_tail, sc->sc_arq_prod);
+	iavf_init_admin_queue(sc);
 
 	if (iavf_get_version(sc) != 0) {
 		printf(", unable to get VF interface version\n");
@@ -861,12 +845,12 @@ iavf_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	if (iavf_get_vf_resources(sc) != 0) {
-		/* error printed by iavf_get_vf_resources */
+		printf(", timed out waiting for VF resources\n");
 		goto free_scratch;
 	}
 
 	if (iavf_config_irq_map(sc) != 0) {
-		/* error printed by iavf_config_irq_map */
+		printf(", timeout waiting for IRQ map response");
 		goto free_scratch;
 	}
 
@@ -1385,9 +1369,11 @@ iavf_down(struct iavf_softc *sc)
 
 	NET_UNLOCK();
 
-	/* disable queues */
-	if (iavf_queue_select(sc, IAVF_VC_OP_DISABLE_QUEUES) != 0)
-		goto die;
+	if (sc->sc_resetting == 0) {
+		/* disable queues */
+		if (iavf_queue_select(sc, IAVF_VC_OP_DISABLE_QUEUES) != 0)
+			goto die;
+	}
 
 	/* mask interrupts */
 	reg = iavf_rd(sc, I40E_VFINT_DYN_CTL01);
@@ -1434,6 +1420,118 @@ die:
 	log(LOG_CRIT, "%s: failed to shut down rings", DEVNAME(sc));
 	error = ETIMEDOUT;
 	goto out;
+}
+
+static void
+iavf_reset(void *xsc)
+{
+	struct iavf_softc *sc = xsc;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
+	int tries, up, link_state;
+
+	NET_LOCK();
+
+	/* treat the reset as a loss of link */
+	link_state = ifp->if_link_state;
+	if (ifp->if_link_state != LINK_STATE_DOWN) {
+		ifp->if_link_state = LINK_STATE_DOWN;
+		if_link_state_change(ifp);
+	}
+
+	up = 0;
+	if (ISSET(ifp->if_flags, IFF_RUNNING)) {
+		iavf_down(sc);
+		up = 1;
+	}
+
+	rw_enter_write(&sc->sc_cfg_lock);
+
+	sc->sc_major_ver = UINT_MAX;
+	sc->sc_minor_ver = UINT_MAX;
+	sc->sc_got_vf_resources = 0;
+	sc->sc_got_irq_map = 0;
+
+	for (tries = 0; tries < 100; tries++) {
+		uint32_t reg;
+		reg = iavf_rd(sc, I40E_VFGEN_RSTAT) &
+		    I40E_VFGEN_RSTAT_VFR_STATE_MASK;
+		if (reg == IAVF_VFR_VFACTIVE ||
+		    reg == IAVF_VFR_COMPLETED)
+			break;
+
+		delay(10000);
+	}
+	if (tries == 100) {
+		printf("%s: VF reset timed out\n", DEVNAME(sc));
+		goto failed;
+	}
+
+	iavf_arq_unfill(sc);
+	sc->sc_arq_cons = 0;
+	sc->sc_arq_prod = 0;
+	if (!iavf_arq_fill(sc, 0)) {
+		printf("\n" "%s: unable to fill arq descriptors\n",
+		    DEVNAME(sc));
+		goto failed;
+	}
+
+	iavf_init_admin_queue(sc);
+
+	if (iavf_get_version(sc) != 0) {
+		printf("%s: unable to get VF interface version\n",
+		    DEVNAME(sc));
+		goto failed;
+	}
+
+	if (iavf_get_vf_resources(sc) != 0) {
+		printf("%s: timed out waiting for VF resources\n",
+		    DEVNAME(sc));
+		goto failed;
+	}
+
+	if (iavf_config_irq_map(sc) != 0) {
+		printf("%s: timed out configuring IRQ map\n", DEVNAME(sc));
+		goto failed;
+	}
+
+	/* do we need to re-add mac addresses here? */
+
+	sc->sc_resetting = 0;
+	iavf_intr_enable(sc);
+	rw_exit_write(&sc->sc_cfg_lock);
+
+	/* the PF-assigned MAC address might have changed */
+	if ((memcmp(sc->sc_ac.ac_enaddr, etheranyaddr, ETHER_ADDR_LEN) != 0) &&
+	    (memcmp(sc->sc_ac.ac_enaddr, sc->sc_enaddr, ETHER_ADDR_LEN) != 0)) {
+		memcpy(sc->sc_enaddr, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN);
+		if_setlladdr(ifp, sc->sc_ac.ac_enaddr);
+		ifnewlladdr(ifp);
+	}
+
+	/* restore link state */
+	if (link_state != LINK_STATE_DOWN) {
+		ifp->if_link_state = link_state;
+		if_link_state_change(ifp);
+	}
+
+	if (up) {
+		int i;
+
+		iavf_up(sc);
+
+		for (i = 0; i < iavf_nqueues(sc); i++) {
+			if (ifq_is_oactive(ifp->if_ifqs[i]))
+				ifq_restart(ifp->if_ifqs[i]);
+		}
+	}
+
+	NET_UNLOCK();
+	return;
+failed:
+	sc->sc_dead = 1;
+	sc->sc_resetting = 0;
+	rw_exit_write(&sc->sc_cfg_lock);
+	NET_UNLOCK();
 }
 
 static struct iavf_tx_ring *
@@ -2037,9 +2135,16 @@ iavf_intr(void *xsc)
 	iavf_intr_enable(sc);
 	icr = iavf_rd(sc, I40E_VFINT_ICR01);
 
+	if (icr == IAVF_REG_VFR) {
+		printf("%s: VF reset in progress\n", DEVNAME(sc));
+		sc->sc_resetting = 1;
+		task_add(systq, &sc->sc_reset_task);
+		return (1);
+	}
+
 	if (ISSET(icr, I40E_VFINT_ICR01_ADMINQ_MASK)) {
 		iavf_atq_done(sc);
-		task_add(systq, &sc->sc_arq_task);
+		iavf_process_arq(sc, 0);
 		rv = 1;
 	}
 
@@ -2087,7 +2192,9 @@ iavf_process_vf_resources(struct iavf_softc *sc, struct iavf_aq_desc *desc,
 	sc->sc_vf_id = letoh32(desc->iaq_param[0]);
 
 	memcpy(sc->sc_ac.ac_enaddr, vsi_res->default_mac, ETHER_ADDR_LEN);
-	printf(", VF %d VSI %d", sc->sc_vf_id, sc->sc_vsi_id);
+
+	if (sc->sc_resetting == 0)
+		printf(", VF %d VSI %d", sc->sc_vf_id, sc->sc_vsi_id);
 }
 
 static const struct iavf_link_speed *
@@ -2149,8 +2256,34 @@ iavf_process_irq_map(struct iavf_softc *sc, struct iavf_aq_desc *desc)
 	sc->sc_got_irq_map = 1;
 }
 
+static void
+iavf_init_admin_queue(struct iavf_softc *sc)
+{
+	iavf_wr(sc, sc->sc_aq_regs->atq_head, 0);
+	iavf_wr(sc, sc->sc_aq_regs->arq_head, 0);
+	iavf_wr(sc, sc->sc_aq_regs->atq_tail, 0);
+
+	iavf_barrier(sc, 0, sc->sc_mems, BUS_SPACE_BARRIER_WRITE);
+
+	iavf_wr(sc, sc->sc_aq_regs->atq_bal,
+	    iavf_dmamem_lo(&sc->sc_atq));
+	iavf_wr(sc, sc->sc_aq_regs->atq_bah,
+	    iavf_dmamem_hi(&sc->sc_atq));
+	iavf_wr(sc, sc->sc_aq_regs->atq_len,
+	    sc->sc_aq_regs->atq_len_enable | IAVF_AQ_NUM);
+
+	iavf_wr(sc, sc->sc_aq_regs->arq_bal,
+	    iavf_dmamem_lo(&sc->sc_arq));
+	iavf_wr(sc, sc->sc_aq_regs->arq_bah,
+	    iavf_dmamem_hi(&sc->sc_arq));
+	iavf_wr(sc, sc->sc_aq_regs->arq_len,
+	    sc->sc_aq_regs->arq_len_enable | IAVF_AQ_NUM);
+
+	iavf_wr(sc, sc->sc_aq_regs->arq_tail, sc->sc_arq_prod);
+}
+
 static int
-iavf_process_arq(struct iavf_softc *sc)
+iavf_process_arq(struct iavf_softc *sc, int fill)
 {
 	struct iavf_aq_desc *arq, *iaq;
 	struct iavf_aq_buf *aqb;
@@ -2223,8 +2356,8 @@ iavf_process_arq(struct iavf_softc *sc)
 		done = 1;
 	} while (cons != prod);
 
-	if (done && iavf_arq_fill(sc))
-		iavf_wr(sc, sc->sc_aq_regs->arq_tail, sc->sc_arq_prod);
+	if (fill)
+		iavf_arq_fill(sc, 1);
 
 	bus_dmamap_sync(sc->sc_dmat, IAVF_DMA_MAP(&sc->sc_arq),
 	    0, IAVF_DMA_LEN(&sc->sc_arq),
@@ -2232,15 +2365,6 @@ iavf_process_arq(struct iavf_softc *sc)
 
 	sc->sc_arq_cons = cons;
 	return (done);
-}
-
-static void
-iavf_arq_task(void *xsc)
-{
-	struct iavf_softc *sc = xsc;
-
-	iavf_process_arq(sc);
-	iavf_intr_enable(sc);
 }
 
 static void
@@ -2333,7 +2457,7 @@ iavf_get_version(struct iavf_softc *sc)
 	iavf_atq_post(sc, &iaq);
 
 	for (tries = 0; tries < 100; tries++) {
-		iavf_process_arq(sc);
+		iavf_process_arq(sc, 1);
 		if (sc->sc_major_ver != -1)
 			break;
 
@@ -2349,8 +2473,11 @@ iavf_get_version(struct iavf_softc *sc)
 		return (1);
 	}
 
-	printf(", VF version %d.%d%s", sc->sc_major_ver, sc->sc_minor_ver,
-	    (sc->sc_minor_ver > IAVF_VF_MINOR) ? " (minor mismatch)" : "");
+	if (sc->sc_resetting == 0) {
+		printf(", VF version %d.%d%s", sc->sc_major_ver,
+		    sc->sc_minor_ver,
+		    (sc->sc_minor_ver > IAVF_VF_MINOR) ? " (minor mismatch)" : "");
+	}
 
 	return (0);
 }
@@ -2382,18 +2509,14 @@ iavf_get_vf_resources(struct iavf_softc *sc)
 	iavf_atq_post(sc, &iaq);
 
 	for (tries = 0; tries < 100; tries++) {
-		iavf_process_arq(sc);
+		iavf_process_arq(sc, 1);
 		if (sc->sc_got_vf_resources != 0)
-			break;
+			return (0);
 
 		delaymsec(1);
 	}
-	if (tries == 100) {
-		printf(", timeout waiting for VF resources");
-		return (1);
-	}
 
-	return (0);
+	return (1);
 }
 
 static int
@@ -2429,18 +2552,14 @@ iavf_config_irq_map(struct iavf_softc *sc)
 	iavf_atq_post(sc, &iaq);
 
 	for (tries = 0; tries < 100; tries++) {
-		iavf_process_arq(sc);
+		iavf_process_arq(sc, 1);
 		if (sc->sc_got_irq_map != 0)
-			break;
+			return (0);
 
 		delaymsec(1);
 	}
-	if (tries == 100) {
-		printf(", timeout waiting for IRQ map response");
-		return (1);
-	}
 
-	return (0);
+	return (1);
 }
 
 static struct iavf_aq_buf *
@@ -2488,13 +2607,13 @@ iavf_aqb_free(struct iavf_softc *sc, struct iavf_aq_buf *aqb)
 }
 
 static int
-iavf_arq_fill(struct iavf_softc *sc)
+iavf_arq_fill(struct iavf_softc *sc, int post)
 {
 	struct iavf_aq_buf *aqb;
 	struct iavf_aq_desc *arq, *iaq;
 	unsigned int prod = sc->sc_arq_prod;
 	unsigned int n;
-	int post = 0;
+	int filled = 0;
 
 	n = if_rxr_get(&sc->sc_arq_ring, IAVF_AQ_NUM);
 	arq = IAVF_DMA_KVA(&sc->sc_arq);
@@ -2528,7 +2647,7 @@ iavf_arq_fill(struct iavf_softc *sc)
 		prod++;
 		prod &= IAVF_AQ_MASK;
 
-		post = 1;
+		filled = 1;
 
 		n--;
 	}
@@ -2536,7 +2655,10 @@ iavf_arq_fill(struct iavf_softc *sc)
 	if_rxr_put(&sc->sc_arq_ring, n);
 	sc->sc_arq_prod = prod;
 
-	return (post);
+	if (filled && post)
+		iavf_wr(sc, sc->sc_aq_regs->arq_tail, sc->sc_arq_prod);
+
+	return (filled);
 }
 
 static void
@@ -2550,6 +2672,7 @@ iavf_arq_unfill(struct iavf_softc *sc)
 		bus_dmamap_sync(sc->sc_dmat, aqb->aqb_map, 0, IAVF_AQ_BUFLEN,
 		    BUS_DMASYNC_POSTREAD);
 		iavf_aqb_free(sc, aqb);
+		if_rxr_put(&sc->sc_arq_ring, 1);
 	}
 }
 
@@ -2572,6 +2695,7 @@ iavf_arq_wait(struct iavf_softc *sc, int msec)
 	cond_wait(&sc->sc_admin_cond, "iavfarq");
 	timeout_del(&sc->sc_admin_timeout);
 
+	iavf_arq_fill(sc, 1);
 	return sc->sc_admin_result;
 }
 
