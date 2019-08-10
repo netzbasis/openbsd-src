@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_rib.c,v 1.202 2019/08/07 10:26:41 claudio Exp $ */
+/*	$OpenBSD: rde_rib.c,v 1.204 2019/08/09 14:12:21 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -64,13 +64,6 @@ struct rib_context {
 };
 LIST_HEAD(, rib_context) rib_dumps = LIST_HEAD_INITIALIZER(rib_dumps);
 
-static int	prefix_add(struct bgpd_addr *, int, struct rib *,
-		    struct rde_peer *, struct rde_aspath *,
-		    struct rde_community *, struct nexthop *,
-		    u_int8_t, u_int8_t);
-static int	prefix_move(struct prefix *, struct rde_peer *,
-		    struct rde_aspath *, struct rde_community *,
-		    struct nexthop *, u_int8_t, u_int8_t);
 static void	prefix_dump_r(struct rib_context *);
 
 static inline struct rib_entry *
@@ -654,64 +647,6 @@ path_hash_stats(struct rde_hashstats *hs)
 	}
 }
 
-/*
- * Update a prefix belonging to a possible new aspath.
- * Return 1 if prefix was newly added, 0 if it was just changed or 2 if no
- * change happened at all.
- */
-int
-path_update(struct rib *rib, struct rde_peer *peer, struct filterstate *state,
-    struct bgpd_addr *prefix, int prefixlen, u_int8_t vstate)
-{
-	struct rde_aspath	*asp, *nasp = &state->aspath;
-	struct rde_community	*comm, *ncomm = &state->communities;
-	struct prefix		*p;
-
-	if (nasp->pftableid) {
-		rde_send_pftable(nasp->pftableid, prefix, prefixlen, 0);
-		rde_send_pftable_commit();
-	}
-
-	/*
-	 * First try to find a prefix in the specified RIB.
-	 */
-	if ((p = prefix_get(rib, peer, prefix, prefixlen)) != NULL) {
-		if (prefix_nexthop(p) == state->nexthop &&
-		    prefix_nhflags(p) == state->nhflags &&
-		    communities_equal(ncomm, prefix_communities(p)) &&
-		    path_compare(nasp, prefix_aspath(p)) == 0) {
-			/* no change, update last change */
-			p->lastchange = time(NULL);
-			p->validation_state = vstate;
-			return (2);
-		}
-	}
-
-	/*
-	 * Either the prefix does not exist or the path changed.
-	 * In both cases lookup the new aspath to make sure it is not
-	 * already in the RIB.
-	 */
-	if ((asp = path_lookup(nasp)) == NULL) {
-		/* Path not available, create and link a new one. */
-		asp = path_copy(path_get(), nasp);
-		path_link(asp);
-	}
-
-	if ((comm = communities_lookup(ncomm)) == NULL) {
-		/* Communities not available, create and link a new one. */
-		comm = communities_link(ncomm);
-	}
-
-	/* If the prefix was found move it else add it to the aspath. */
-	if (p != NULL)
-		return (prefix_move(p, peer, asp, comm, state->nexthop,
-		    state->nhflags, vstate));
-	else
-		return (prefix_add(prefix, prefixlen, rib, peer, asp, comm,
-		    state->nexthop, state->nhflags, vstate));
-}
-
 int
 path_compare(struct rde_aspath *a, struct rde_aspath *b)
 {
@@ -918,11 +853,20 @@ path_put(struct rde_aspath *asp)
 
 /* prefix specific functions */
 
-static void		 prefix_link(struct prefix *, struct rib_entry *,
-			     struct rde_peer *, struct rde_aspath *,
-			     struct rde_community *, struct nexthop *,
-			     u_int8_t, u_int8_t);
-static void		 prefix_unlink(struct prefix *);
+static int	prefix_add(struct bgpd_addr *, int, struct rib *,
+		    struct rde_peer *, struct rde_aspath *,
+		    struct rde_community *, struct nexthop *,
+		    u_int8_t, u_int8_t);
+static int	prefix_move(struct prefix *, struct rde_peer *,
+		    struct rde_aspath *, struct rde_community *,
+		    struct nexthop *, u_int8_t, u_int8_t);
+
+static void	prefix_link(struct prefix *, struct rib_entry *,
+		     struct rde_peer *, struct rde_aspath *,
+		     struct rde_community *, struct nexthop *,
+		     u_int8_t, u_int8_t);
+static void	prefix_unlink(struct prefix *);
+
 static struct prefix	*prefix_alloc(void);
 static void		 prefix_free(struct prefix *);
 
@@ -1018,6 +962,63 @@ prefix_match(struct rde_peer *peer, struct bgpd_addr *addr)
 }
 
 /*
+ * Update a prefix.
+ * Return 1 if prefix was newly added, 0 if it was just changed.
+ */
+int
+prefix_update(struct rib *rib, struct rde_peer *peer, struct filterstate *state,
+    struct bgpd_addr *prefix, int prefixlen, u_int8_t vstate)
+{
+	struct rde_aspath	*asp, *nasp = &state->aspath;
+	struct rde_community	*comm, *ncomm = &state->communities;
+	struct prefix		*p;
+
+	if (nasp->pftableid) {
+		rde_send_pftable(nasp->pftableid, prefix, prefixlen, 0);
+		rde_send_pftable_commit();
+	}
+
+	/*
+	 * First try to find a prefix in the specified RIB.
+	 */
+	if ((p = prefix_get(rib, peer, prefix, prefixlen)) != NULL) {
+		if (prefix_nexthop(p) == state->nexthop &&
+		    prefix_nhflags(p) == state->nhflags &&
+		    communities_equal(ncomm, prefix_communities(p)) &&
+		    path_compare(nasp, prefix_aspath(p)) == 0) {
+			/* no change, update last change */
+			p->lastchange = time(NULL);
+			p->validation_state = vstate;
+			return (0);
+		}
+	}
+
+	/*
+	 * Either the prefix does not exist or the path changed.
+	 * In both cases lookup the new aspath to make sure it is not
+	 * already in the RIB.
+	 */
+	if ((asp = path_lookup(nasp)) == NULL) {
+		/* Path not available, create and link a new one. */
+		asp = path_copy(path_get(), nasp);
+		path_link(asp);
+	}
+
+	if ((comm = communities_lookup(ncomm)) == NULL) {
+		/* Communities not available, create and link a new one. */
+		comm = communities_link(ncomm);
+	}
+
+	/* If the prefix was found move it else add it to the aspath. */
+	if (p != NULL)
+		return (prefix_move(p, peer, asp, comm, state->nexthop,
+		    state->nhflags, vstate));
+	else
+		return (prefix_add(prefix, prefixlen, rib, peer, asp, comm,
+		    state->nexthop, state->nhflags, vstate));
+}
+
+/*
  * Adds or updates a prefix.
  */
 static int
@@ -1099,12 +1100,12 @@ prefix_move(struct prefix *p, struct rde_peer *peer,
 }
 
 /*
- * Removes a prefix from all lists. If the parent objects -- path or
- * pt_entry -- become empty remove them too.
+ * Removes a prefix from the specified RIB. If the parent objects -- rib_entry
+ * or pt_entry -- become empty remove them too.
  */
 int
-prefix_remove(struct rib *rib, struct rde_peer *peer, struct bgpd_addr *prefix,
-    int prefixlen)
+prefix_withdraw(struct rib *rib, struct rde_peer *peer,
+    struct bgpd_addr *prefix, int prefixlen)
 {
 	struct prefix		*p;
 	struct rde_aspath	*asp;
@@ -1146,7 +1147,7 @@ prefix_add_eor(struct rde_peer *peer, u_int8_t aid)
  * Put a prefix from the Adj-RIB-Out onto the update queue.
  */
 int
-prefix_update(struct rde_peer *peer, struct filterstate *state,
+prefix_adjout_update(struct rde_peer *peer, struct filterstate *state,
     struct bgpd_addr *prefix, int prefixlen, u_int8_t vstate)
 {
 	struct prefix_tree *prefix_head = NULL;
@@ -1237,7 +1238,8 @@ prefix_update(struct rde_peer *peer, struct filterstate *state,
  * the prefix in the RIB linked to the peer withdraw list.
  */
 int
-prefix_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix, int prefixlen)
+prefix_adjout_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix,
+    int prefixlen)
 {
 	struct prefix		*p;
 
@@ -1531,7 +1533,7 @@ prefix_bypeer(struct rib_entry *re, struct rde_peer *peer)
 }
 
 static void
-prefix_updateall(struct prefix *p, enum nexthop_state state,
+prefix_evaluate_all(struct prefix *p, enum nexthop_state state,
     enum nexthop_state oldstate)
 {
 	/* Skip non local-RIBs or RIBs that are flagged as noeval. */
@@ -1745,7 +1747,7 @@ nexthop_runner(void)
 
 	p = nh->next_prefix;
 	for (j = 0; p != NULL && j < RDE_RUNNER_ROUNDS; j++) {
-		prefix_updateall(p, nh->state, nh->oldstate);
+		prefix_evaluate_all(p, nh->state, nh->oldstate);
 		p = LIST_NEXT(p, entry.list.nexthop);
 	}
 

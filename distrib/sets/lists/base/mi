@@ -232,6 +232,7 @@
 ./etc/signify/openbsd-66-pkg.pub
 ./etc/signify/openbsd-66-syspatch.pub
 ./etc/signify/openbsd-67-base.pub
+./etc/signify/openbsd-67-fw.pub
 ./etc/signify/openbsd-67-pkg.pub
 ./etc/skel
 ./etc/skel/.ssh
@@ -544,6 +545,7 @@
 ./usr/bin/skeyprune
 ./usr/bin/smtp
 ./usr/bin/sndiod
+./usr/bin/snmp
 ./usr/bin/sort
 ./usr/bin/spell
 ./usr/bin/splain
