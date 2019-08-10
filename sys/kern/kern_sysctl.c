@@ -103,9 +103,6 @@
 #include <ddb/db_var.h>
 #endif
 
-#ifndef SMALL_KERNEL
-#include <sys/gpuperf.h>
-#endif /* !SMALL_KERNEL */
 #ifdef SYSVMSG
 #include <sys/msg.h>
 #endif
@@ -754,8 +751,6 @@ hw_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (sysctl_hwsetperf(oldp, oldlenp, newp, newlen));
 	case HW_PERFPOLICY:
 		return (sysctl_hwperfpolicy(oldp, oldlenp, newp, newlen));
-	case HW_GPUPERF:
-		return (sysctl_hwgpuperf(oldp, oldlenp, newp, newlen));
 #endif /* !SMALL_KERNEL */
 	case HW_VENDOR:
 		if (hw_vendor)
