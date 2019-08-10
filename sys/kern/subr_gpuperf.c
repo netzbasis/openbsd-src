@@ -69,20 +69,14 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 }
 
 int
-sysctl_hwgpuperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
+gpuperf_from_cpuperf(int level)
 {
 	struct gpuperf_node *node;
-	int err, newperf, dstatus;
 
-	newperf = gpuperf;
-	err = sysctl_int(oldp, oldlenp, newp, newlen, &newperf);
-	if (err)
-		return err;
-	if (newperf > 100)
-		newperf = 100;
-	if (newperf < 0)
-		newperf = 0;
-	gpuperf = newperf;
+	if (level == 100)
+		gpuperf = 100;
+	else
+		gpuperf = 0;
 
 	LIST_FOREACH(node, &gpuperf_nodes, gp_list) {
 		dstatus = node->callback(gpuperf, node->arg);
