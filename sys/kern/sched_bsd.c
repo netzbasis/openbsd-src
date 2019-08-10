@@ -48,6 +48,7 @@
 #include <sys/sched.h>
 #include <sys/timeout.h>
 #include <sys/smr.h>
+#include <sys/gpuperf.h>
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
