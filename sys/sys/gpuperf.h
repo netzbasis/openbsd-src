@@ -19,7 +19,7 @@
 #ifndef _SYS_GPUPERF_H_
 #define _SYS_GPUPERF_H_
 
-int gpuperf_from_cpuperf(int);
+int gpuperf_set(int);
 int gpuperf_register(const char *, int (*)(int, void *), void *);
 
 #endif /* _SYS_GPUPERF_H_ */
