@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.405 2019/07/24 01:48:53 dlg Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.409 2019/08/08 16:48:48 mestre Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -723,6 +723,7 @@ main(int argc, char *argv[])
 
 	/* If no args at all, print all interfaces.  */
 	if (argc < 2) {
+		/* no filesystem visibility */
 		if (unveil("/", "") == -1)
 			err(1, "unveil");
 		if (unveil(NULL, NULL) == -1)
@@ -1518,6 +1519,9 @@ void
 setautoconf(const char *cmd, int val)
 {
 	switch (afp->af_af) {
+	case AF_INET:
+		setifxflags("inet", val * IFXF_AUTOCONF4);
+		break;
 	case AF_INET6:
 		setifxflags("inet6", val * IFXF_AUTOCONF6);
 		break;
@@ -4509,12 +4513,7 @@ trunk_status(void)
 		for (i = 0; i < ra.ra_ports; i++) {
 			lp = (struct lacp_opreq *)&(rpbuf[i].rp_lacpreq);
 			if (ra.ra_proto == TRUNK_PROTO_LACP) {
-				printf("\t\ttrunkport %s lacp_state actor ",
-				    rpbuf[i].rp_portname);
-				printb_status(lp->actor_state,
-				    LACP_STATE_BITS);
-				putchar('\n');
-				printf("\t\ttrunkport %s lacp_state actor "
+				printf("\t\t%s lacp actor "
 				    "system pri 0x%x mac %s, key 0x%x, "
 				    "port pri 0x%x number 0x%x\n",
 				    rpbuf[i].rp_portname,
@@ -4523,12 +4522,13 @@ trunk_status(void)
 				     lp->actor_mac),
 				    lp->actor_key,
 				    lp->actor_portprio, lp->actor_portno);
-				printf("\t\ttrunkport %s lacp_state partner ",
+				printf("\t\t%s lacp actor state ",
 				    rpbuf[i].rp_portname);
-				printb_status(lp->partner_state,
+				printb_status(lp->actor_state,
 				    LACP_STATE_BITS);
 				putchar('\n');
-				printf("\t\ttrunkport %s lacp_state partner "
+
+				printf("\t\t%s lacp partner "
 				    "system pri 0x%x mac %s, key 0x%x, "
 				    "port pri 0x%x number 0x%x\n",
 				    rpbuf[i].rp_portname,
@@ -4537,9 +4537,14 @@ trunk_status(void)
 				     lp->partner_mac),
 				    lp->partner_key,
 				    lp->partner_portprio, lp->partner_portno);
+				printf("\t\t%s lacp partner state ",
+				    rpbuf[i].rp_portname);
+				printb_status(lp->partner_state,
+				    LACP_STATE_BITS);
+				putchar('\n');
 			}
 
-			printf("\t\ttrunkport %s ", rpbuf[i].rp_portname);
+			printf("\t\t%s port ", rpbuf[i].rp_portname);
 			printb_status(rpbuf[i].rp_flags, TRUNK_PORT_BITS);
 			putchar('\n');
 		}

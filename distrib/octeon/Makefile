@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.3 2019/04/30 17:46:05 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.5 2019/08/04 08:53:14 visa Exp $
 
 SUBDIR= ramdisk
 

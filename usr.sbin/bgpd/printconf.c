@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.137 2019/06/17 13:35:43 claudio Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.140 2019/08/07 10:26:41 claudio Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -24,7 +24,6 @@
 #include <string.h>
 
 #include "bgpd.h"
-#include "mrt.h"
 #include "session.h"
 #include "rde.h"
 #include "log.h"
@@ -386,9 +385,6 @@ print_mainconf(struct bgpd_config *conf)
 		printf("holdtime min %u\n", conf->min_holdtime);
 	if (conf->connectretry != INTERVAL_CONNECTRETRY)
 		printf("connect-retry %u\n", conf->connectretry);
-
-	if (conf->flags & BGPD_FLAG_NO_EVALUATE)
-		printf("route-collector yes\n");
 
 	if (conf->flags & BGPD_FLAG_DECISION_ROUTEAGE)
 		printf("rde route-age evaluate\n");
@@ -997,7 +993,7 @@ print_config(struct bgpd_config *conf, struct rib_names *rib_l)
 
 	print_mainconf(conf);
 	print_roa(&conf->roa);
-	print_as_sets(conf->as_sets);
+	print_as_sets(&conf->as_sets);
 	print_prefixsets(&conf->prefixsets);
 	print_originsets(&conf->originsets);
 	TAILQ_FOREACH(n, &conf->networks, entry)

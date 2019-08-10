@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.1 2019/07/17 14:36:32 visa Exp $
+#	$OpenBSD: Makefile,v 1.3 2019/08/04 08:53:14 visa Exp $
 
 NOMAN=
 

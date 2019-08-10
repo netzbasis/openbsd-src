@@ -1,4 +1,4 @@
-/Makefile/1.73/Thu Jul 11 07:15:02 2019//
+/Makefile/1.74/Fri Aug  2 14:57:53 2019//
 /Wrapper.pm/1.1/Tue Jul  9 13:49:47 2019//
 /baduser1/1.1/Wed Jun  6 10:33:07 2018//
 /baduser2/1.1/Wed Jun  6 10:33:07 2018//
@@ -10,6 +10,7 @@
 /check-sig/1.4/Thu May  9 20:26:33 2019//
 /empty/1.1/Fri Aug 18 13:14:34 2006//
 /extract_chunks/1.2/Sat Sep 20 09:35:54 2014//
+/inject-badsum/1.1/Fri Aug  2 14:57:53 2019//
 /inject-order/1.1/Tue Jul  9 10:48:30 2019//
 /inject-temp1/1.2/Wed Jul 10 11:55:40 2019//
 /inject-temp2/1.2/Wed Jul 10 11:55:40 2019//

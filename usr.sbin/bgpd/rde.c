@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.478 2019/07/23 13:07:32 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.484 2019/08/09 13:44:27 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -37,7 +37,6 @@
 #include <err.h>
 
 #include "bgpd.h"
-#include "mrt.h"
 #include "rde.h"
 #include "session.h"
 #include "log.h"
@@ -82,6 +81,9 @@ static void	 rde_softreconfig_out_done(void *, u_int8_t);
 static void	 rde_softreconfig_done(void);
 static void	 rde_softreconfig_out(struct rib_entry *, void *);
 static void	 rde_softreconfig_in(struct rib_entry *, void *);
+static void	 rde_softreconfig_sync_reeval(struct rib_entry *, void *);
+static void	 rde_softreconfig_sync_fib(struct rib_entry *, void *);
+static void	 rde_softreconfig_sync_done(void *, u_int8_t);
 int		 rde_update_queue_pending(void);
 void		 rde_update_queue_runner(void);
 void		 rde_update6_queue_runner(u_int8_t);
@@ -118,12 +120,7 @@ struct bgpd_config	*conf, *nconf;
 time_t			 reloadtime;
 struct rde_peer_head	 peerlist;
 struct rde_peer		*peerself;
-struct rde_prefixset_head prefixsets_old;
-struct rde_prefixset_head originsets_old;
-struct rde_prefixset	 roa_old;
-struct as_set_head	*as_sets_tmp, *as_sets_old;
 struct filter_head	*out_rules, *out_rules_tmp;
-struct l3vpn_head	*l3vpns_l, *newdomains;
 struct imsgbuf		*ibuf_se;
 struct imsgbuf		*ibuf_se_ctl;
 struct imsgbuf		*ibuf_main;
@@ -225,11 +222,6 @@ rde_main(int debug, int verbose)
 	if (out_rules == NULL)
 		fatal(NULL);
 	TAILQ_INIT(out_rules);
-
-	l3vpns_l = calloc(1, sizeof(struct l3vpn_head));
-	if (l3vpns_l == NULL)
-		fatal(NULL);
-	SIMPLEQ_INIT(l3vpns_l);
 
 	conf = new_config();
 	log_info("route decision engine ready");
@@ -355,9 +347,10 @@ rde_main(int debug, int verbose)
 	exit(0);
 }
 
-struct network_config	 netconf_s, netconf_p;
-struct filterstate	 netconf_state;
-struct filter_set_head	*session_set, *parent_set;
+struct network_config	netconf_s, netconf_p;
+struct filterstate	netconf_state;
+struct filter_set_head	session_set = TAILQ_HEAD_INITIALIZER(session_set);
+struct filter_set_head	parent_set = TAILQ_HEAD_INITIALIZER(parent_set);
 
 void
 rde_dispatch_imsg_session(struct imsgbuf *ibuf)
@@ -462,7 +455,6 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 			}
 			memcpy(&netconf_s, imsg.data, sizeof(netconf_s));
 			TAILQ_INIT(&netconf_s.attrset);
-			session_set = &netconf_s.attrset;
 			rde_filterstate_prep(&netconf_state, NULL, NULL, NULL,
 			    0);
 			asp = &netconf_state.aspath;
@@ -519,7 +511,7 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 				log_warnx("rde_dispatch: wrong imsg len");
 				break;
 			}
-			session_set = NULL;
+			TAILQ_CONCAT(&netconf_s.attrset, &session_set, entry);
 			switch (netconf_s.prefix.aid) {
 			case AID_INET:
 				if (netconf_s.prefixlen > 32)
@@ -583,17 +575,12 @@ badnetdel:
 				log_warnx("rde_dispatch: wrong imsg len");
 				break;
 			}
-			if (session_set == NULL) {
-				log_warnx("rde_dispatch: "
-				    "IMSG_FILTER_SET unexpected");
-				break;
-			}
 			if ((s = malloc(sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
 			memcpy(s, imsg.data, sizeof(struct filter_set));
 			if (s->type == ACTION_SET_NEXTHOP)
 				s->action.nh = nexthop_get(&s->action.nexthop);
-			TAILQ_INSERT_TAIL(session_set, s, entry);
+			TAILQ_INSERT_TAIL(&session_set, s, entry);
 			break;
 		case IMSG_CTL_SHOW_NETWORK:
 		case IMSG_CTL_SHOW_RIB:
@@ -753,10 +740,9 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			}
 			memcpy(&netconf_p, imsg.data, sizeof(netconf_p));
 			TAILQ_INIT(&netconf_p.attrset);
-			parent_set = &netconf_p.attrset;
 			break;
 		case IMSG_NETWORK_DONE:
-			parent_set = NULL;
+			TAILQ_CONCAT(&netconf_p.attrset, &parent_set, entry);
 
 			rde_filterstate_prep(&state, NULL, NULL, NULL, 0);
 			asp = &state.aspath;
@@ -783,19 +769,10 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			    sizeof(struct bgpd_config))
 				fatalx("IMSG_RECONF_CONF bad len");
 			reloadtime = time(NULL);
-			as_sets_tmp = calloc(1,
-			    sizeof(struct as_set_head));
-			if (as_sets_tmp == NULL)
-				fatal(NULL);
-			SIMPLEQ_INIT(as_sets_tmp);
 			out_rules_tmp = calloc(1, sizeof(struct filter_head));
 			if (out_rules_tmp == NULL)
 				fatal(NULL);
 			TAILQ_INIT(out_rules_tmp);
-			newdomains = calloc(1, sizeof(struct l3vpn_head));
-			if (newdomains == NULL)
-				fatal(NULL);
-			SIMPLEQ_INIT(newdomains);
 			nconf = new_config();
 			copy_config(nconf, imsg.data);
 
@@ -803,6 +780,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				if (!rib_valid(rid))
 					continue;
 				ribs[rid].state = RECONF_DELETE;
+				ribs[rid].fibstate = RECONF_NONE;
 			}
 			break;
 		case IMSG_RECONF_RIB:
@@ -811,29 +789,18 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				fatalx("IMSG_RECONF_RIB bad len");
 			memcpy(&rn, imsg.data, sizeof(rn));
 			rib = rib_byid(rib_find(rn.name));
-			if (rib == NULL)
+			if (rib == NULL) {
 				rib = rib_new(rn.name, rn.rtableid, rn.flags);
-			else if (
-			    (rib->flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) !=
-			    (rn.flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) ||
-			    (rib->rtableid != rn.rtableid &&
-			    !(rn.flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)))) {
-				struct filter_head	*in_rules;
-				struct rib_desc		*ribd = rib_desc(rib);
-				/*
-				 * Big hammer in the F_RIB_NOFIB case but
-				 * not often enough used to optimise it more.
-				 * Need to save the filters so that they're not
-				 * lost. If the rtableid changes but there is
-				 * no FIB no action is needed.
-				 */
-				in_rules = ribd->in_rules;
-				ribd->in_rules = NULL;
-				rib_free(rib);
-				rib = rib_new(rn.name, rn.rtableid, rn.flags);
-				ribd->in_rules = in_rules;
-			} else
+			} else if (rib->flags == rn.flags &&
+			    rib->rtableid == rn.rtableid) {
+				/* no change to rib apart from filters */
 				rib_desc(rib)->state = RECONF_KEEP;
+			} else {
+				/* reload rib because somehing changed */
+				rib->flags_tmp = rn.flags;
+				rib->rtableid_tmp = rn.rtableid;
+				rib_desc(rib)->state = RECONF_RELOAD;
+			}
 			break;
 		case IMSG_RECONF_FILTER:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE !=
@@ -861,7 +828,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			if (r->match.as.flags & AS_FLAG_AS_SET_NAME) {
 				struct as_set * aset;
 
-				aset = as_sets_lookup(as_sets_tmp,
+				aset = as_sets_lookup(&nconf->as_sets,
 				    r->match.as.name);
 				if (aset == NULL) {
 					log_warnx("%s: no as-set for %s",
@@ -872,15 +839,14 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				}
 			}
 			TAILQ_INIT(&r->set);
+			TAILQ_CONCAT(&r->set, &parent_set, entry);
 			if ((rib = rib_byid(rib_find(r->rib))) == NULL) {
 				log_warnx("IMSG_RECONF_FILTER: filter rule "
 				    "for nonexistent rib %s", r->rib);
-				parent_set = NULL;
 				free(r);
 				break;
 			}
 			r->peer.ribid = rib->id;
-			parent_set = &r->set;
 			if (r->dir == DIR_IN) {
 				nr = rib_desc(rib)->in_rules_tmp;
 				if (nr == NULL) {
@@ -959,9 +925,9 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				fatalx("IMSG_RECONF_AS_SET bad len");
 			memcpy(&nmemb, imsg.data, sizeof(nmemb));
 			name = (char *)imsg.data + sizeof(nmemb);
-			if (as_sets_lookup(as_sets_tmp, name) != NULL)
+			if (as_sets_lookup(&nconf->as_sets, name) != NULL)
 				fatalx("duplicate as-set %s", name);
-			last_as_set = as_sets_new(as_sets_tmp, name, nmemb,
+			last_as_set = as_sets_new(&nconf->as_sets, name, nmemb,
 			    sizeof(u_int32_t));
 			break;
 		case IMSG_RECONF_AS_SET_ITEMS:
@@ -983,7 +949,8 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			memcpy(vpn, imsg.data, sizeof(struct l3vpn));
 			TAILQ_INIT(&vpn->import);
 			TAILQ_INIT(&vpn->export);
-			SIMPLEQ_INSERT_TAIL(newdomains, vpn, entry);
+			TAILQ_INIT(&vpn->net_l);
+			SIMPLEQ_INSERT_TAIL(&nconf->l3vpns, vpn, entry);
 			break;
 		case IMSG_RECONF_VPN_EXPORT:
 			if (vpn == NULL) {
@@ -991,7 +958,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				    "IMSG_RECONF_VPN_EXPORT unexpected");
 				break;
 			}
-			parent_set = &vpn->export;
+			TAILQ_CONCAT(&vpn->export, &parent_set, entry);
 			break;
 		case IMSG_RECONF_VPN_IMPORT:
 			if (vpn == NULL) {
@@ -999,10 +966,9 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				    "IMSG_RECONF_VPN_IMPORT unexpected");
 				break;
 			}
-			parent_set = &vpn->import;
+			TAILQ_CONCAT(&vpn->import, &parent_set, entry);
 			break;
 		case IMSG_RECONF_VPN_DONE:
-			parent_set = NULL;
 			break;
 		case IMSG_RECONF_DRAIN:
 			imsg_compose(ibuf_main, IMSG_RECONF_DRAIN, 0, 0,
@@ -1011,7 +977,6 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 		case IMSG_RECONF_DONE:
 			if (nconf == NULL)
 				fatalx("got IMSG_RECONF_DONE but no config");
-			parent_set = NULL;
 			last_prefixset = NULL;
 
 			rde_reload_done();
@@ -1023,17 +988,12 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			if (imsg.hdr.len > IMSG_HEADER_SIZE +
 			    sizeof(struct filter_set))
 				fatalx("IMSG_FILTER_SET bad len");
-			if (parent_set == NULL) {
-				log_warnx("rde_dispatch_imsg_parent: "
-				    "IMSG_FILTER_SET unexpected");
-				break;
-			}
 			if ((s = malloc(sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
 			memcpy(s, imsg.data, sizeof(struct filter_set));
 			if (s->type == ACTION_SET_NEXTHOP)
 				s->action.nh = nexthop_get(&s->action.nexthop);
-			TAILQ_INSERT_TAIL(parent_set, s, entry);
+			TAILQ_INSERT_TAIL(&parent_set, s, entry);
 			break;
 		case IMSG_MRT_OPEN:
 		case IMSG_MRT_REOPEN:
@@ -1453,7 +1413,7 @@ rde_update_update(struct rde_peer *peer, struct filterstate *in,
 	    aspath_origin(in->aspath.aspath));
 
 	/* add original path to the Adj-RIB-In */
-	if (path_update(&ribs[RIB_ADJ_IN].rib, peer, in, prefix, prefixlen,
+	if (prefix_update(&ribs[RIB_ADJ_IN].rib, peer, in, prefix, prefixlen,
 	    vstate) == 1)
 		peer->prefix_cnt++;
 
@@ -1484,9 +1444,9 @@ rde_update_update(struct rde_peer *peer, struct filterstate *in,
 			rde_update_log("update", i, peer,
 			    &state.nexthop->exit_nexthop, prefix,
 			    prefixlen);
-			path_update(&ribs[i].rib, peer, &state, prefix,
+			prefix_update(&ribs[i].rib, peer, &state, prefix,
 			    prefixlen, vstate);
-		} else if (prefix_remove(&ribs[i].rib, peer, prefix,
+		} else if (prefix_withdraw(&ribs[i].rib, peer, prefix,
 		    prefixlen)) {
 			rde_update_log(wmsg, i, peer,
 			    NULL, prefix, prefixlen);
@@ -1507,13 +1467,13 @@ rde_update_withdraw(struct rde_peer *peer, struct bgpd_addr *prefix,
 	for (i = RIB_LOC_START; i < rib_size; i++) {
 		if (!rib_valid(i))
 			continue;
-		if (prefix_remove(&ribs[i].rib, peer, prefix, prefixlen))
+		if (prefix_withdraw(&ribs[i].rib, peer, prefix, prefixlen))
 			rde_update_log("withdraw", i, peer, NULL, prefix,
 			    prefixlen);
 	}
 
 	/* remove original path form the Adj-RIB-In */
-	if (prefix_remove(&ribs[RIB_ADJ_IN].rib, peer, prefix, prefixlen))
+	if (prefix_withdraw(&ribs[RIB_ADJ_IN].rib, peer, prefix, prefixlen))
 		peer->prefix_cnt--;
 
 	peer->prefix_rcvd_withdraw++;
@@ -1541,7 +1501,7 @@ rde_attr_parse(u_char *p, u_int16_t len, struct rde_peer *peer,
 	struct bgpd_addr nexthop;
 	struct rde_aspath *a = &state->aspath;
 	u_char		*op = p, *npath;
-	u_int32_t	 tmp32;
+	u_int32_t	 tmp32, zero = 0;
 	int		 error;
 	u_int16_t	 attr_len, nlen;
 	u_int16_t	 plen = 0;
@@ -1715,12 +1675,25 @@ bad_flags:
 			t[0] = t[1] = 0;
 			UPD_READ(&t[2], p, plen, 2);
 			UPD_READ(&t[4], p, plen, 4);
+			if (memcmp(t, &zero, sizeof(u_int32_t)) == 0) {
+				/* As per RFC7606 use "attribute discard". */
+				log_peer_warnx(&peer->conf, "bad AGGREGATOR, "
+				    "AS 0 not allowed, attribute discarded");
+				break;
+			}
 			if (attr_optadd(a, flags, type, t,
 			    sizeof(t)) == -1)
 				goto bad_list;
 			break;
 		}
 		/* 4-byte ready server take the default route */
+		if (memcmp(p, &zero, sizeof(u_int32_t)) == 0) {
+			/* As per RFC7606 use "attribute discard" here. */
+			log_peer_warnx(&peer->conf, "bad AGGREGATOR, "
+			    "AS 0 not allowed, attribute discarded");
+			plen += attr_len;
+			break;
+		}
 		goto optattr;
 	case ATTR_COMMUNITIES:
 		if (!CHECK_FLAGS(flags, ATTR_OPTIONAL|ATTR_TRANSITIVE,
@@ -1826,6 +1799,13 @@ bad_flags:
 		if (!CHECK_FLAGS(flags, ATTR_OPTIONAL|ATTR_TRANSITIVE,
 		    ATTR_PARTIAL))
 			goto bad_flags;
+		if (memcmp(p, &zero, sizeof(u_int32_t)) == 0) {
+			/* As per RFC6793 use "attribute discard" here. */
+			log_peer_warnx(&peer->conf, "bad AS4_AGGREGATOR, "
+			    "AS 0 not allowed, attribute discarded");
+			plen += attr_len;
+			break;
+		}
 		a->flags |= F_ATTR_AS4BYTE_NEW;
 		goto optattr;
 	case ATTR_AS4_PATH:
@@ -2699,6 +2679,14 @@ rde_l3vpn_import(struct rde_community *comm, struct l3vpn *rd)
 }
 
 void
+rde_send_kroute_flush(struct rib *rib)
+{
+	if (imsg_compose(ibuf_main, IMSG_KROUTE_FLUSH, rib->rtableid, 0, -1,
+	    NULL, 0) == -1)
+		fatal("%s %d imsg_compose error", __func__, __LINE__);
+}
+
+void
 rde_send_kroute(struct rib *rib, struct prefix *new, struct prefix *old)
 {
 	struct kroute_full	 kr;
@@ -2745,7 +2733,7 @@ rde_send_kroute(struct rib *rib, struct prefix *new, struct prefix *old)
 			/* not Loc-RIB, no update for VPNs */
 			break;
 
-		SIMPLEQ_FOREACH(vpn, l3vpns_l, entry) {
+		SIMPLEQ_FOREACH(vpn, &conf->l3vpns, entry) {
 			if (!rde_l3vpn_import(prefix_communities(p), vpn))
 				continue;
 			/* must send exit_nexthop so that correct MPLS tunnel
@@ -3011,11 +2999,11 @@ rde_send_pftable_commit(void)
  * nexthop specific functions
  */
 void
-rde_send_nexthop(struct bgpd_addr *next, int valid)
+rde_send_nexthop(struct bgpd_addr *next, int insert)
 {
 	int			 type;
 
-	if (valid)
+	if (insert)
 		type = IMSG_NEXTHOP_ADD;
 	else
 		type = IMSG_NEXTHOP_REMOVE;
@@ -3031,36 +3019,40 @@ rde_send_nexthop(struct bgpd_addr *next, int valid)
 void
 rde_reload_done(void)
 {
-	struct l3vpn		*vpn;
 	struct rde_peer		*peer;
 	struct filter_head	*fh;
+	struct rde_prefixset_head prefixsets_old;
+	struct rde_prefixset_head originsets_old;
+	struct rde_prefixset	 roa_old;
+	struct as_set_head	 as_sets_old;
 	u_int16_t		 rid;
 	int			 reload = 0;
 
 	softreconfig = 0;
 
-	/* first merge the main config */
-	if ((conf->flags & BGPD_FLAG_NO_EVALUATE) &&
-	    (nconf->flags & BGPD_FLAG_NO_EVALUATE) == 0) {
-		log_warnx("disabling of route-collector mode ignored");
-		nconf->flags |= BGPD_FLAG_NO_EVALUATE;
-	}
-
 	SIMPLEQ_INIT(&prefixsets_old);
 	SIMPLEQ_INIT(&originsets_old);
+	SIMPLEQ_INIT(&as_sets_old);
 	SIMPLEQ_CONCAT(&prefixsets_old, &conf->rde_prefixsets);
 	SIMPLEQ_CONCAT(&originsets_old, &conf->rde_originsets);
+	SIMPLEQ_CONCAT(&as_sets_old, &conf->as_sets);
 	roa_old = conf->rde_roa;
-	as_sets_old = conf->as_sets;
 
+	/* merge the main config */
 	copy_config(conf, nconf);
+
 	/* need to copy the sets and roa table and clear them in nconf */
 	SIMPLEQ_CONCAT(&conf->rde_prefixsets, &nconf->rde_prefixsets);
 	SIMPLEQ_CONCAT(&conf->rde_originsets, &nconf->rde_originsets);
+	SIMPLEQ_CONCAT(&conf->as_sets, &nconf->as_sets);
+
 	conf->rde_roa = nconf->rde_roa;
-	conf->as_sets = nconf->as_sets;
 	memset(&nconf->rde_roa, 0, sizeof(nconf->rde_roa));
-	nconf->as_sets = NULL;
+
+	/* apply new set of l3vpn, sync will be done later */
+	free_l3vpns(&conf->l3vpns);
+	SIMPLEQ_CONCAT(&conf->l3vpns, &nconf->l3vpns);
+	/* XXX WHERE IS THE SYNC ??? */
 
 	free_config(nconf);
 	nconf = NULL;
@@ -3074,17 +3066,6 @@ rde_reload_done(void)
 	peerself->conf.remote_masklen = 32;
 	peerself->short_as = conf->short_as;
 
-	/* apply new set of l3vpn, sync will be done later */
-	while ((vpn = SIMPLEQ_FIRST(l3vpns_l)) != NULL) {
-		SIMPLEQ_REMOVE_HEAD(l3vpns_l, entry);
-		filterset_free(&vpn->import);
-		filterset_free(&vpn->export);
-		free(vpn);
-	}
-	free(l3vpns_l);
-	l3vpns_l = newdomains;
-	/* XXX WHERE IS THE SYNC ??? */
-
 	/* check if roa changed */
 	if (trie_equal(&conf->rde_roa.th, &roa_old.th) == 0) {
 		log_debug("roa change: reloading Adj-RIB-In");
@@ -3095,11 +3076,7 @@ rde_reload_done(void)
 
 	rde_mark_prefixsets_dirty(&prefixsets_old, &conf->rde_prefixsets);
 	rde_mark_prefixsets_dirty(&originsets_old, &conf->rde_originsets);
-	as_sets_mark_dirty(as_sets_old, as_sets_tmp);
-
-	/* swap the as_sets */
-	conf->as_sets = as_sets_tmp;
-	as_sets_tmp = NULL;
+	as_sets_mark_dirty(&as_sets_old, &conf->as_sets);
 
 	/*
 	 * make the new filter rules the active one but keep the old for
@@ -3130,6 +3107,7 @@ rde_reload_done(void)
 			    rde_softreconfig_in_done, NULL) == -1)
 				fatal("%s: prefix_dump_new", __func__);
 			log_peer_info(&peer->conf, "flushing Adj-RIB-Out");
+			softreconfig++;	/* account for the running flush */
 			continue;
 		}
 		if (!rde_filter_equal(out_rules, out_rules_tmp, peer)) {
@@ -3154,6 +3132,10 @@ rde_reload_done(void)
 		case RECONF_DELETE:
 			rib_free(&ribs[rid].rib);
 			break;
+		case RECONF_RELOAD:
+			rib_update(&ribs[rid].rib);
+			ribs[rid].state = RECONF_KEEP;
+			/* FALLTHROUGH */
 		case RECONF_KEEP:
 			if (rde_filter_equal(ribs[rid].in_rules,
 			    ribs[rid].in_rules_tmp, NULL))
@@ -3165,18 +3147,24 @@ rde_reload_done(void)
 			reload++;
 			break;
 		case RECONF_REINIT:
+			/* new rib */
 			ribs[rid].state = RECONF_RELOAD;
 			reload++;
 			break;
-		case RECONF_RELOAD:
-			log_warnx("Bad rib reload state");
-			/* FALLTHROUGH */
 		case RECONF_NONE:
 			break;
 		}
 		filterlist_free(ribs[rid].in_rules_tmp);
 		ribs[rid].in_rules_tmp = NULL;
 	}
+
+	filterlist_free(out_rules_tmp);
+	out_rules_tmp = NULL;
+	/* old filters removed, free all sets */
+	free_rde_prefixsets(&prefixsets_old);
+	free_rde_prefixsets(&originsets_old);
+	as_sets_free(&as_sets_old);
+
 	log_info("RDE reconfigured");
 
 	if (reload > 0) {
@@ -3206,12 +3194,29 @@ rde_softreconfig_in_done(void *arg, u_int8_t aid)
 		log_info("softreconfig in done");
 	}
 
-	/* now do the Adj-RIB-Out sync */
+	/* now do the Adj-RIB-Out sync and a possible FIB sync */
 	softreconfig = 0;
 	for (rid = 0; rid < rib_size; rid++) {
 		if (!rib_valid(rid))
 			continue;
 		ribs[rid].state = RECONF_NONE;
+		if (ribs[rid].fibstate == RECONF_RELOAD) {
+			if (rib_dump_new(rid, AID_UNSPEC, RDE_RUNNER_ROUNDS,
+			    &ribs[rid], rde_softreconfig_sync_fib,
+			    rde_softreconfig_sync_done, NULL) == -1)
+				fatal("%s: rib_dump_new", __func__);
+			softreconfig++;
+			log_info("starting fib sync for rib %s",
+			    ribs[rid].name);
+		} else if (ribs[rid].fibstate == RECONF_REINIT) {
+			if (rib_dump_new(rid, AID_UNSPEC, RDE_RUNNER_ROUNDS,
+			    &ribs[rid], rde_softreconfig_sync_reeval,
+			    rde_softreconfig_sync_done, NULL) == -1)
+				fatal("%s: rib_dump_new", __func__);
+			softreconfig++;
+			log_info("starting re-evaluation of rib %s",
+			    ribs[rid].name);
+		}
 	}
 
 	LIST_FOREACH(peer, &peerlist, peer_l) {
@@ -3253,14 +3258,11 @@ rde_softreconfig_out_done(void *arg, u_int8_t aid)
 	struct rib_desc		*rib = arg;
 
 	/* this RIB dump is done */
-	softreconfig--;
 	log_info("softreconfig out done for %s", rib->name);
 
-	/* but other dumps are still running */
-	if (softreconfig > 0)
-		return;
-
-	rde_softreconfig_done();
+	/* check if other dumps are still running */
+	if (--softreconfig == 0)
+		rde_softreconfig_done();
 }
 
 static void
@@ -3268,18 +3270,11 @@ rde_softreconfig_done(void)
 {
 	u_int16_t	rid;
 
-	filterlist_free(out_rules_tmp);
-	out_rules_tmp = NULL;
 	for (rid = 0; rid < rib_size; rid++) {
 		if (!rib_valid(rid))
 			continue;
 		ribs[rid].state = RECONF_NONE;
 	}
-
-	free_rde_prefixsets(&prefixsets_old);
-	free_rde_prefixsets(&originsets_old);
-	as_sets_free(as_sets_old);
-	as_sets_old = NULL;
 
 	log_info("RDE soft reconfiguration done");
 	imsg_compose(ibuf_main, IMSG_RECONF_DONE, 0, 0,
@@ -3336,11 +3331,11 @@ rde_softreconfig_in(struct rib_entry *re, void *bula)
 
 			if (action == ACTION_ALLOW) {
 				/* update Local-RIB */
-				path_update(&rib->rib, peer, &state, &prefix,
+				prefix_update(&rib->rib, peer, &state, &prefix,
 				    pt->prefixlen, p->validation_state);
 			} else if (action == ACTION_DENY) {
 				/* remove from Local-RIB */
-				prefix_remove(&rib->rib, peer, &prefix,
+				prefix_withdraw(&rib->rib, peer, &prefix,
 				    pt->prefixlen);
 			}
 
@@ -3365,6 +3360,68 @@ rde_softreconfig_out(struct rib_entry *re, void *bula)
 	}
 }
 
+static void
+rde_softreconfig_sync_reeval(struct rib_entry *re, void *arg)
+{
+	struct prefix_list	prefixes;
+	struct prefix		*p, *next;
+	struct rib_desc		*rd = arg;
+
+	if (rd->rib.flags & F_RIB_NOEVALUATE) {
+		/*
+		 * evaluation process is turned off
+		 * so remove all prefixes from adj-rib-out
+		 * also unlink nexthop if it was linked
+		 */
+		LIST_FOREACH(p, &re->prefix_h, entry.list.rib) {
+			if (p->flags & PREFIX_NEXTHOP_LINKED)
+				nexthop_unlink(p);
+		}
+		if (re->active) {
+			rde_generate_updates(re_rib(re), NULL, re->active);
+			re->active = NULL;
+		}
+		return;
+	}
+
+	/* evaluation process is turned on, so evaluate all prefixes again */
+	re->active = NULL;
+	prefixes = re->prefix_h;
+	LIST_INIT(&re->prefix_h);
+
+	LIST_FOREACH_SAFE(p, &prefixes, entry.list.rib, next) {
+		/* need to re-link the nexthop if not already linked */
+		if ((p->flags & PREFIX_NEXTHOP_LINKED) == 0)
+			nexthop_link(p);
+		LIST_REMOVE(p, entry.list.rib);
+		prefix_evaluate(p, re);
+	}
+}
+
+static void
+rde_softreconfig_sync_fib(struct rib_entry *re, void *bula)
+{
+	if (re->active)
+		rde_send_kroute(re_rib(re), re->active, NULL);
+}
+
+static void
+rde_softreconfig_sync_done(void *arg, u_int8_t aid)
+{
+	struct rib_desc		*rd = arg;
+
+	/* this RIB dump is done */
+	if (rd->fibstate == RECONF_RELOAD)
+		log_info("fib sync done for %s", rd->name);
+	else
+		log_info("re-evaluation done for %s", rd->name);
+	rd->fibstate = RECONF_NONE;
+
+	/* check if other dumps are still running */
+	if (--softreconfig == 0)
+		rde_softreconfig_done();
+}
+
 /*
  * generic helper function
  */
@@ -3372,16 +3429,6 @@ u_int32_t
 rde_local_as(void)
 {
 	return (conf->as);
-}
-
-int
-rde_noevaluate(void)
-{
-	/* do not run while cleaning up */
-	if (rde_quit)
-		return (1);
-
-	return (conf->flags & BGPD_FLAG_NO_EVALUATE);
 }
 
 int
@@ -3619,13 +3666,6 @@ peer_up(u_int32_t id, struct session_up *sup)
 	}
 
 	peer->state = PEER_UP;
-
-	if (rde_noevaluate())
-		/*
-		 * no need to dump the table to the peer, there are no active
-		 * prefixes anyway. This is a speed up hack.
-		 */
-		return;
 
 	for (i = 0; i < AID_MAX; i++) {
 		if (peer->capa.mp[i])
@@ -3865,7 +3905,7 @@ network_add(struct network_config *nc, struct filterstate *state)
 	u_int16_t		 i;
 
 	if (nc->rd != 0) {
-		SIMPLEQ_FOREACH(vpn, l3vpns_l, entry) {
+		SIMPLEQ_FOREACH(vpn, &conf->l3vpns, entry) {
 			if (vpn->rd != nc->rd)
 				continue;
 			switch (nc->prefix.aid) {
@@ -3926,7 +3966,7 @@ network_add(struct network_config *nc, struct filterstate *state)
 
 	vstate = rde_roa_validity(&conf->rde_roa, &nc->prefix,
 	    nc->prefixlen, aspath_origin(state->aspath.aspath));
-	if (path_update(&ribs[RIB_ADJ_IN].rib, peerself, state, &nc->prefix,
+	if (prefix_update(&ribs[RIB_ADJ_IN].rib, peerself, state, &nc->prefix,
 	    nc->prefixlen, vstate) == 1)
 		peerself->prefix_cnt++;
 	for (i = RIB_LOC_START; i < rib_size; i++) {
@@ -3935,7 +3975,7 @@ network_add(struct network_config *nc, struct filterstate *state)
 		rde_update_log("announce", i, peerself,
 		    state->nexthop ? &state->nexthop->exit_nexthop : NULL,
 		    &nc->prefix, nc->prefixlen);
-		path_update(&ribs[i].rib, peerself, state, &nc->prefix,
+		prefix_update(&ribs[i].rib, peerself, state, &nc->prefix,
 		    nc->prefixlen, vstate);
 	}
 	filterset_free(&nc->attrset);
@@ -3950,7 +3990,7 @@ network_delete(struct network_config *nc)
 	u_int32_t	 i;
 
 	if (nc->rd) {
-		SIMPLEQ_FOREACH(vpn, l3vpns_l, entry) {
+		SIMPLEQ_FOREACH(vpn, &conf->l3vpns, entry) {
 			if (vpn->rd != nc->rd)
 				continue;
 			switch (nc->prefix.aid) {
@@ -3996,12 +4036,12 @@ network_delete(struct network_config *nc)
 	for (i = RIB_LOC_START; i < rib_size; i++) {
 		if (!rib_valid(i))
 			continue;
-		if (prefix_remove(&ribs[i].rib, peerself, &nc->prefix,
+		if (prefix_withdraw(&ribs[i].rib, peerself, &nc->prefix,
 		    nc->prefixlen))
 			rde_update_log("withdraw announce", i, peerself,
 			    NULL, &nc->prefix, nc->prefixlen);
 	}
-	if (prefix_remove(&ribs[RIB_ADJ_IN].rib, peerself, &nc->prefix,
+	if (prefix_withdraw(&ribs[RIB_ADJ_IN].rib, peerself, &nc->prefix,
 	    nc->prefixlen))
 		peerself->prefix_cnt--;
 }
@@ -4079,7 +4119,6 @@ network_flush_upcall(struct rib_entry *re, void *ptr)
 void
 rde_shutdown(void)
 {
-	struct l3vpn		*vpn;
 	struct rde_peer		*p;
 	u_int32_t		 i;
 
@@ -4098,13 +4137,7 @@ rde_shutdown(void)
 	filterlist_free(out_rules_tmp);
 
 	/* kill the VPN configs */
-	while ((vpn = SIMPLEQ_FIRST(l3vpns_l)) != NULL) {
-		SIMPLEQ_REMOVE_HEAD(l3vpns_l, entry);
-		filterset_free(&vpn->import);
-		filterset_free(&vpn->export);
-		free(vpn);
-	}
-	free(l3vpns_l);
+	free_l3vpns(&conf->l3vpns);
 
 	/* now check everything */
 	rib_shutdown();

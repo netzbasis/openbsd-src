@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.162 2019/05/04 11:34:47 kettenis Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.164 2019/07/30 05:50:20 jsg Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -61,6 +61,7 @@
 #include "drm_internal.h"
 #include "drm_crtc_internal.h"
 #include <drm/drm_vblank.h>
+#include <drm/drm_print.h>
 
 struct drm_softc {
 	struct device		sc_dev;
@@ -68,8 +69,14 @@ struct drm_softc {
 	int			sc_allocated;
 };
 
+/*
+ * drm_debug: Enable debug output.
+ * Bitmask of DRM_UT_x. See include/drm/drm_print.h for details.
+ */
 #ifdef DRMDEBUG
-int drm_debug_flag = 1;
+unsigned int drm_debug = DRM_UT_DRIVER | DRM_UT_KMS;
+#else
+unsigned int drm_debug = 0;
 #endif
 
 int	 drm_firstopen(struct drm_device *);

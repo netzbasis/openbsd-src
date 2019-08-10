@@ -1,7 +1,7 @@
-/*	$OpenBSD: clock.c,v 1.3 2014/07/12 19:47:38 jasper Exp $	*/
-
+/*	$OpenBSD: realpath-chroot.c,v 1.1.1.1 2019/08/05 15:16:39 bluhm Exp $	*/
 /*
- * Copyright (c) 2013 Jasper Lievisse Adriaanse <jasper@openbsd.org>
+ * Copyright (c) 2019 Alexander Bluhm <bluhm@openbsd.org>
+ * Copyright (c) 2019 Moritz Buhl <mbuhl@moritzbuhl.de>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,17 +16,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
+#include <err.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-#include "libsa.h"
-
-/* Arbitrarily chosen value, needs talking to cp0 for a delay loop. */
-#define DELAY_MULTIPLIER 10000
-
-void
-delay(int ms)
+int
+main(int argc, char *argv[])
 {
-	volatile int i = ms * DELAY_MULTIPLIER;
-	for (; --i;)
-		;
+	char *root, *dir, *path = NULL;
+	char res[PATH_MAX];
+
+	if (argc != 3)
+		errx(2, "usage: realpath-chroot root dir");
+
+	root = argv[1];
+	dir = argv[2];
+
+	if (chroot(root) == -1)
+		err(1, "chroot %s", root);
+
+	if (realpath(dir, res) == NULL)
+		err(1, "realpath %s", dir);
+
+	return 0;
 }

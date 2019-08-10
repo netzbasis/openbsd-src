@@ -13,7 +13,7 @@
 /kfd_dbgmgr.h/1.1/Tue May 21 22:40:07 2019//
 /kfd_debugfs.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_device.c/1.1/Tue May 21 22:40:07 2019//
-/kfd_device_queue_manager.c/1.1/Tue May 21 22:40:07 2019//
+/kfd_device_queue_manager.c/1.2/Wed Jul 31 10:44:30 2019//
 /kfd_device_queue_manager.h/1.1/Tue May 21 22:40:07 2019//
 /kfd_device_queue_manager_cik.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_device_queue_manager_v9.c/1.1/Tue May 21 22:40:07 2019//
@@ -35,7 +35,7 @@
 /kfd_mqd_manager.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_mqd_manager.h/1.1/Tue May 21 22:40:07 2019//
 /kfd_mqd_manager_cik.c/1.1/Tue May 21 22:40:07 2019//
-/kfd_mqd_manager_v9.c/1.1/Tue May 21 22:40:07 2019//
+/kfd_mqd_manager_v9.c/1.2/Wed Jul 31 10:41:57 2019//
 /kfd_mqd_manager_vi.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_packet_manager.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_pasid.c/1.1/Tue May 21 22:40:07 2019//

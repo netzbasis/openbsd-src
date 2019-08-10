@@ -432,6 +432,7 @@
 ./usr/share/man/man1/skeyinit.1
 ./usr/share/man/man1/sleep.1
 ./usr/share/man/man1/smtp.1
+./usr/share/man/man1/snmp.1
 ./usr/share/man/man1/sort.1
 ./usr/share/man/man1/sparc64/fdformat.1
 ./usr/share/man/man1/sparc64/mksuncd.1
@@ -1223,6 +1224,7 @@
 ./usr/share/man/man4/arm64/apm.4
 ./usr/share/man/man4/arm64/efi.4
 ./usr/share/man/man4/arm64/intro.4
+./usr/share/man/man4/arm64/smbios.4
 ./usr/share/man/man4/armv7/agtimer.4
 ./usr/share/man/man4/armv7/amdisplay.4
 ./usr/share/man/man4/armv7/ampintc.4
@@ -1455,6 +1457,7 @@
 ./usr/share/man/man4/i386/wds.4
 ./usr/share/man/man4/i386/wdt.4
 ./usr/share/man/man4/iatp.4
+./usr/share/man/man4/iavf.4
 ./usr/share/man/man4/ichiic.4
 ./usr/share/man/man4/ichwdt.4
 ./usr/share/man/man4/icmp.4
@@ -1903,6 +1906,7 @@
 ./usr/share/man/man4/tl.4
 ./usr/share/man/man4/tlphy.4
 ./usr/share/man/man4/tpm.4
+./usr/share/man/man4/tpmr.4
 ./usr/share/man/man4/tqphy.4
 ./usr/share/man/man4/trm.4
 ./usr/share/man/man4/trunk.4
@@ -2142,6 +2146,7 @@
 ./usr/share/man/man5/smtpd.conf.5
 ./usr/share/man/man5/snmpd.conf.5
 ./usr/share/man/man5/spamd.conf.5
+./usr/share/man/man5/sparc64/ldom.conf.5
 ./usr/share/man/man5/ssh_config.5
 ./usr/share/man/man5/sshd_config.5
 ./usr/share/man/man5/switchd.conf.5

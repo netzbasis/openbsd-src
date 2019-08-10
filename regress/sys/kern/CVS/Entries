@@ -1,4 +1,4 @@
-/Makefile/1.82/Fri Jun 14 19:23:53 2019//
+/Makefile/1.84/Mon Aug  5 15:18:34 2019//
 D/__syscall////
 D/accept////
 D/access////
@@ -45,6 +45,7 @@ D/pwrite////
 D/pwritev////
 D/rcvtimeo////
 D/realpath////
+D/realpath-unmount////
 D/recvwait////
 D/rlimit-file////
 D/setuid////
@@ -68,4 +69,5 @@ D/unalign////
 D/unfdpass////
 D/unixsock////
 D/unveil////
+D/unveil-unmount////
 D/wait////

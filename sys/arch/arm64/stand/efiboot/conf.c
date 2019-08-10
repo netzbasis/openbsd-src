@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.19 2019/04/10 04:19:31 deraadt Exp $	*/
+/*	$OpenBSD: conf.c,v 1.21 2019/08/04 13:45:14 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -45,7 +45,7 @@
 #include "efipxe.h"
 #include "softraid_arm64.h"
 
-const char version[] = "0.16";
+const char version[] = "0.17";
 int	debug = 0;
 
 struct fs_ops file_system[] = {
@@ -54,7 +54,7 @@ struct fs_ops file_system[] = {
 	{ efitftp_open,tftp_close,   tftp_read,   tftp_write,   tftp_seek,
 	  tftp_stat,   tftp_readdir   },
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 };
 int nfsys = nitems(file_system);
 

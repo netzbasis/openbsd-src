@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1890 2019/06/14 11:40:36 jsg Exp 
+ *	OpenBSD: pcidevs,v 1.1893 2019/08/02 21:45:16 kettenis Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -12532,6 +12532,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "HD Graphics",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_ADAPTIVE_VF,
+	    "Adaptive VF",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_H_HB_D,
 	    "Core 6G Host",
 	},
@@ -16130,6 +16134,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X722_10G_KX,
 	    "X722 KX",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X722_VF,
+	    "X722 VF",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X722_10G_QSFP,
@@ -26772,6 +26780,14 @@ static const struct pci_known_product pci_known_products[] = {
 	    "SBBC",
 	},
 	{
+	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SDIO,
+	    "SDIO",
+	},
+	{
+	    PCI_VENDOR_SUN, PCI_PRODUCT_SUN_SDIO_PCIE,
+	    "SDIO PCIE",
+	},
+	{
 	    PCI_VENDOR_SUNDANCE, PCI_PRODUCT_SUNDANCE_ST201_1,
 	    "ST201",
 	},
@@ -26862,6 +26878,38 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_TECHSAN, PCI_PRODUCT_TECHSAN_B2C2_SKY2PC_2,
 	    "B2C2 Sky2PC",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_1,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_2,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_3,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_4,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_5,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_6,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_7,
+	    "eMAG PCIE",
+	},
+	{
+	    PCI_VENDOR_AMPERE, PCI_PRODUCT_AMPERE_EMAG_PCIE_8,
+	    "eMAG PCIE",
 	},
 	{
 	    PCI_VENDOR_TEHUTI, PCI_PRODUCT_TEHUTI_TN3009,
@@ -30358,6 +30406,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_TEKRAM2,
 	    "Tekram",
+	},
+	{
+	    PCI_VENDOR_AMPERE,
+	    "Ampere",
 	},
 	{
 	    PCI_VENDOR_TEHUTI,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.164 2019/06/30 19:19:08 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.167 2019/08/01 15:52:15 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -919,7 +919,16 @@ priv_propose(char *name, int ioctlfd, struct imsg_propose *imsg,
     char **resolv_conf, int routefd, int rdomain, int index)
 {
 	struct proposal		*proposal = &imsg->proposal;
+	struct ifreq		 ifr;
 
+	memset(&ifr, 0, sizeof(ifr));
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+	if (ioctl(ioctlfd, SIOCGIFXFLAGS, (caddr_t)&ifr) < 0)
+		fatal("SIOGIFXFLAGS");
+	if ((ifr.ifr_flags & IFXF_AUTOCONF4) == 0)
+		return;
+
+	free(*resolv_conf);
 	*resolv_conf = set_resolv_conf(name,
 	    proposal->rtsearch,
 	    proposal->rtsearch_len,
@@ -936,9 +945,10 @@ priv_propose(char *name, int ioctlfd, struct imsg_propose *imsg,
 
 	set_address(name, ioctlfd, proposal->ifa, proposal->netmask);
 
-	set_routes(name, index, rdomain, routefd, proposal->ifa, proposal->netmask,
-	    proposal->rtstatic, proposal->rtstatic_len);
+	set_routes(name, index, rdomain, routefd, proposal->ifa,
+	    proposal->netmask, proposal->rtstatic, proposal->rtstatic_len);
 }
+
 /*
  * [priv_]revoke_proposal de-configures a proposal.
  */

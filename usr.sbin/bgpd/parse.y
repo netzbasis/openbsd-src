@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.394 2019/07/23 06:26:44 claudio Exp $ */
+/*	$OpenBSD: parse.y,v 1.400 2019/08/08 11:30:46 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -44,7 +44,6 @@
 #include <syslog.h>
 
 #include "bgpd.h"
-#include "mrt.h"
 #include "session.h"
 #include "rde.h"
 #include "log.h"
@@ -92,6 +91,7 @@ static struct network_head	*netconf;
 static struct peer_head		*new_peers, *cur_peers;
 static struct peer		*curpeer;
 static struct peer		*curgroup;
+static struct rde_rib		*currib;
 static struct l3vpn		*curvpn;
 static struct prefixset		*curpset, *curoset;
 static struct prefixset_tree	*curpsitree;
@@ -139,8 +139,9 @@ struct peer	*new_peer(void);
 struct peer	*new_group(void);
 int		 add_mrtconfig(enum mrt_type, char *, int, struct peer *,
 		    char *);
-int		 add_rib(char *, u_int, u_int16_t);
+struct rde_rib	*add_rib(char *);
 struct rde_rib	*find_rib(char *);
+int		 rib_add_fib(struct rde_rib *, u_int);
 int		 get_id(struct peer *);
 int		 merge_prefixspec(struct filter_prefix *,
 		    struct filter_prefixlen *);
@@ -202,7 +203,7 @@ typedef struct {
 %token	ANNOUNCE CAPABILITIES REFRESH AS4BYTE CONNECTRETRY
 %token	DEMOTE ENFORCE NEIGHBORAS ASOVERRIDE REFLECTOR DEPEND DOWN
 %token	DUMP IN OUT SOCKET RESTRICTED
-%token	LOG ROUTECOLL TRANSPARENT
+%token	LOG TRANSPARENT
 %token	TCP MD5SIG PASSWORD KEY TTLSECURITY
 %token	ALLOW DENY MATCH
 %token	QUICK
@@ -251,6 +252,7 @@ grammar		: /* empty */
 		| grammar prefixset '\n'
 		| grammar roa_set '\n'
 		| grammar origin_set '\n'
+		| grammar rib '\n'
 		| grammar conf_main '\n'
 		| grammar l3vpn '\n'
 		| grammar neighbor '\n'
@@ -590,6 +592,7 @@ conf_main	: AS as4number		{
 				fatal("parse conf_main listen on calloc");
 
 			la->fd = -1;
+			la->reconf = RECONF_REINIT;
 			sa = addr2sa(&$3, BGP_PORT, &la->sa_len);
 			memcpy(&la->sa, sa, la->sa_len);
 			TAILQ_INSERT_TAIL(conf->listen_addrs, la, entry);
@@ -611,59 +614,6 @@ conf_main	: AS as4number		{
 				rr->flags |= F_RIB_NOFIBSYNC;
 			else
 				rr->flags &= ~F_RIB_NOFIBSYNC;
-		}
-		| ROUTECOLL yesno	{
-			if ($2 == 1)
-				conf->flags |= BGPD_FLAG_NO_EVALUATE;
-			else
-				conf->flags &= ~BGPD_FLAG_NO_EVALUATE;
-		}
-		| RDE RIB STRING {
-			if (add_rib($3, conf->default_tableid, F_RIB_NOFIB)) {
-				free($3);
-				YYERROR;
-			}
-			free($3);
-		}
-		| RDE RIB STRING yesno EVALUATE {
-			if ($4) {
-				free($3);
-				yyerror("bad rde rib definition");
-				YYERROR;
-			}
-			if (add_rib($3, conf->default_tableid,
-			    F_RIB_NOFIB | F_RIB_NOEVALUATE)) {
-				free($3);
-				YYERROR;
-			}
-			free($3);
-		}
-		| RDE RIB STRING RTABLE NUMBER {
-			if ($5 > RT_TABLEID_MAX) {
-				yyerror("rtable %llu too big: max %u", $5,
-				    RT_TABLEID_MAX);
-				YYERROR;
-			}
-			if (add_rib($3, $5, 0)) {
-				free($3);
-				YYERROR;
-			}
-			free($3);
-		}
-		| RDE RIB STRING RTABLE NUMBER FIBUPDATE yesno {
-			int	flags = 0;
-			if ($5 > RT_TABLEID_MAX) {
-				yyerror("rtable %llu too big: max %u", $5,
-				    RT_TABLEID_MAX);
-				YYERROR;
-			}
-			if ($7 == 0)
-				flags = F_RIB_NOFIBSYNC;
-			if (add_rib($3, $5, flags)) {
-				free($3);
-				YYERROR;
-			}
-			free($3);
 		}
 		| TRANSPARENT yesno	{
 			if ($2 == 1)
@@ -824,6 +774,44 @@ conf_main	: AS as4number		{
 				free(conf->csock);
 				conf->csock = $2;
 			}
+		}
+		;
+
+rib		: RDE RIB STRING {
+			if ((currib = add_rib($3)) == NULL) {
+				free($3);
+				YYERROR;
+			}
+			free($3);
+		} ribopts {
+			currib = NULL;
+		}
+
+ribopts		: fibupdate
+		| RTABLE NUMBER fibupdate {
+			if ($2 > RT_TABLEID_MAX) {
+				yyerror("rtable %llu too big: max %u", $2,
+				    RT_TABLEID_MAX);
+				YYERROR;
+			}
+			if (rib_add_fib(currib, $2) == -1)
+				YYERROR;
+		}
+		| yesno EVALUATE {
+			if ($1) {
+				yyerror("bad rde rib definition");
+				YYERROR;
+			}
+			currib->flags |= F_RIB_NOEVALUATE;
+		}
+		;
+
+fibupdate	: /* empty */
+		| FIBUPDATE yesno {
+			if ($2 == 0)
+				currib->flags |= F_RIB_NOFIBSYNC;
+			else
+				currib->flags &= ~F_RIB_NOFIBSYNC;
 		}
 		;
 
@@ -1954,7 +1942,7 @@ filter_as_t	: filter_as_type filter_as			{
 				a->a.type = $1;
 		}
 		| filter_as_type ASSET STRING {
-			if (as_sets_lookup(conf->as_sets, $3) == NULL) {
+			if (as_sets_lookup(&conf->as_sets, $3) == NULL) {
 				yyerror("as-set \"%s\" not defined", $3);
 				free($3);
 				YYERROR;
@@ -2850,7 +2838,6 @@ lookup(char *s)
 		{ "restricted",		RESTRICTED},
 		{ "rib",		RIB},
 		{ "roa-set",		ROASET },
-		{ "route-collector",	ROUTECOLL},
 		{ "route-reflector",	REFLECTOR},
 		{ "router-id",		ROUTERID},
 		{ "rtable",		RTABLE},
@@ -3280,9 +3267,13 @@ parse_config(char *filename, struct peer_head *ph)
 	new_peers = &conf->peers;
 	netconf = &conf->networks;
 
-	add_rib("Adj-RIB-In", conf->default_tableid,
-	    F_RIB_NOFIB | F_RIB_NOEVALUATE);
-	add_rib("Loc-RIB", conf->default_tableid, F_RIB_LOCAL);
+	if ((rr = add_rib("Adj-RIB-In")) == NULL)
+		fatal("add_rib failed");
+	rr->flags = F_RIB_NOFIB | F_RIB_NOEVALUATE;
+	if ((rr = add_rib("Loc-RIB")) == NULL)
+		fatal("add_rib failed");
+	rib_add_fib(rr, conf->default_tableid);
+	rr->flags = F_RIB_LOCAL;
 
 	if ((file = pushfile(filename, 1)) == NULL)
 		goto errors;
@@ -3883,44 +3874,27 @@ add_mrtconfig(enum mrt_type type, char *name, int timeout, struct peer *p,
 	return (0);
 }
 
-int
-add_rib(char *name, u_int rtableid, u_int16_t flags)
+struct rde_rib *
+add_rib(char *name)
 {
 	struct rde_rib	*rr;
-	u_int		 rdom, default_rdom;
 
 	if ((rr = find_rib(name)) == NULL) {
 		if ((rr = calloc(1, sizeof(*rr))) == NULL) {
 			log_warn("add_rib");
-			return (-1);
+			return (NULL);
 		}
-	}
-	if (strlcpy(rr->name, name, sizeof(rr->name)) >= sizeof(rr->name)) {
-		yyerror("rib name \"%s\" too long: max %zu",
-		    name, sizeof(rr->name) - 1);
-		free(rr);
-		return (-1);
-	}
-	rr->flags |= flags;
-	if ((rr->flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) == 0) {
-		if (ktable_exists(rtableid, &rdom) != 1) {
-			yyerror("rtable id %u does not exist", rtableid);
+		if (strlcpy(rr->name, name, sizeof(rr->name)) >=
+		    sizeof(rr->name)) {
+			yyerror("rib name \"%s\" too long: max %zu",
+			    name, sizeof(rr->name) - 1);
 			free(rr);
-			return (-1);
+			return (NULL);
 		}
-		if (ktable_exists(conf->default_tableid, &default_rdom) != 1)
-			fatal("default rtable %u does not exist",
-			    conf->default_tableid);
-		if (rdom != default_rdom) {
-			log_warnx("rtable %u does not belong to rdomain %u",
-			    rtableid, default_rdom);
-			free(rr);
-			return (-1);
-		}
+		rr->flags = F_RIB_NOFIB;
+		SIMPLEQ_INSERT_TAIL(&ribnames, rr, entry);
 	}
-	rr->rtableid = rtableid;
-	SIMPLEQ_INSERT_TAIL(&ribnames, rr, entry);
-	return (0);
+	return (rr);
 }
 
 struct rde_rib *
@@ -3933,6 +3907,29 @@ find_rib(char *name)
 			return (rr);
 	}
 	return (NULL);
+}
+
+int
+rib_add_fib(struct rde_rib *rr, u_int rtableid)
+{
+	u_int	rdom;
+
+	if (ktable_exists(rtableid, &rdom) != 1) {
+		yyerror("rtable id %u does not exist", rtableid);
+		return (-1);
+	}
+	/*
+	 * conf->default_tableid is also a rdomain because that is checked
+	 * in init_config()
+	 */
+	if (rdom != conf->default_tableid) {
+		log_warnx("rtable %u does not belong to rdomain %u",
+		    rtableid, conf->default_tableid);
+		return (-1);
+	}
+	rr->rtableid = rtableid;
+	rr->flags &= ~F_RIB_NOFIB;
+	return (0);
 }
 
 struct prefixset *
@@ -4208,7 +4205,7 @@ neighbor_consistent(struct peer *p)
 	if (p->conf.enforce_local_as == ENFORCE_AS_UNDEF)
 		p->conf.enforce_local_as = ENFORCE_AS_ON;
 
-	if (p->conf.remote_as == 0 && p->conf.enforce_as != ENFORCE_AS_OFF) {
+	if (p->conf.remote_as == 0 && !p->conf.template) {
 		yyerror("peer AS may not be zero");
 		return (-1);
 	}
@@ -4409,12 +4406,12 @@ new_as_set(char *name)
 {
 	struct as_set *aset;
 
-	if (as_sets_lookup(conf->as_sets, name) != NULL) {
+	if (as_sets_lookup(&conf->as_sets, name) != NULL) {
 		yyerror("as-set \"%s\" already exists", name);
 		return -1;
 	}
 
-	aset = as_sets_new(conf->as_sets, name, 0, sizeof(u_int32_t));
+	aset = as_sets_new(&conf->as_sets, name, 0, sizeof(u_int32_t));
 	if (aset == NULL)
 		fatal(NULL);
 

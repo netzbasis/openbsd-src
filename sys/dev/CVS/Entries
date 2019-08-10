@@ -6,7 +6,7 @@
 /cninit.c/1.15/Sat Dec 30 20:46:59 2017//
 /cons.c/1.28/Mon Feb 19 08:59:52 2018//
 /cons.h/1.18/Tue May 17 23:43:47 2016//
-/diskmap.c/1.24/Mon Aug 20 14:59:02 2018//
+/diskmap.c/1.26/Tue Aug  6 07:16:48 2019//
 /firmload.c/1.16/Mon Aug 13 23:12:39 2018//
 /flash.c/1.32/Thu May  4 22:47:27 2017//
 /flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
@@ -28,12 +28,12 @@
 /rnd.c/1.199/Sat Apr 28 15:44:59 2018//
 /rndis.h/1.2/Tue Sep 20 10:34:41 2016//
 /rndvar.h/1.39/Sat Apr 28 15:44:59 2018//
-/softraid.c/1.395/Thu Jul  4 18:09:17 2019//
+/softraid.c/1.396/Thu Aug  8 02:19:55 2019//
 /softraid_concat.c/1.26/Fri Apr 28 23:33:07 2017//
 /softraid_crypto.c/1.138/Thu Jul  4 18:09:17 2019//
 /softraid_raid0.c/1.52/Tue Apr 12 16:26:54 2016//
 /softraid_raid1.c/1.65/Tue Apr 12 16:26:54 2016//
-/softraid_raid5.c/1.28/Sat May 11 20:31:53 2019//
+/softraid_raid5.c/1.29/Thu Aug  8 02:19:55 2019//
 /softraid_raid6.c/1.71/Tue Apr 12 16:26:54 2016//
 /softraidvar.h/1.169/Thu Jul  4 18:09:17 2019//
 /spdmem.c/1.5/Sun Jan 25 11:38:49 2015//

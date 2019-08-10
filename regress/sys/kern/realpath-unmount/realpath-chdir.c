@@ -1,7 +1,7 @@
-/*	$OpenBSD: libsa.h,v 1.5 2019/04/10 04:17:36 deraadt Exp $	*/
-
+/*	$OpenBSD: realpath-chdir.c,v 1.1.1.1 2019/08/05 15:16:39 bluhm Exp $	*/
 /*
- * Copyright (c) 2013 Jasper Lievisse Adriaanse <jasper@openbsd.org>
+ * Copyright (c) 2019 Alexander Bluhm <bluhm@openbsd.org>
+ * Copyright (c) 2019 Moritz Buhl <mbuhl@moritzbuhl.de>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,29 +16,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <lib/libsa/stand.h>
+#include <err.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-#define DEFAULT_KERNEL_ADDRESS	0
+int
+main(int argc, char *argv[])
+{
+	char *cwd, *dir, *path = NULL;
+	char res[PATH_MAX];
 
-extern char *kernelfile;
+	if (argc != 3)
+		errx(2, "usage: realpath-chdir cwd dir");
 
-/*
- * MD interfaces for MI boot(9)
- */
-void    devboot(dev_t, char *);
-void    machdep(void);
-void    run_loadfile(uint64_t *, int);
+	cwd = argv[1];
+	dir = argv[2];
 
-/*
- * CN30XX UART
- */
-void	cn30xxuartcnprobe(struct consdev *);
-void	cn30xxuartcninit(struct consdev *);
-void	cn30xxuartcnputc(dev_t, int);
-int	cn30xxuartcngetc(dev_t);
+	if (chdir(cwd) == -1)
+		err(1, "chdir %s", cwd);
 
-/*
- * clock
- */
-void	delay(int);
-u_int	cp0_get_count(void);
+	if (realpath(dir, res) == NULL)
+		err(1, "realpath %s", dir);
+
+	return 0;
+}

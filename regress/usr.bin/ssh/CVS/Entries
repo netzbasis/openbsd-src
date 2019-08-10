@@ -11,8 +11,8 @@
 /broken-pipe.sh/1.6/Sun Apr 30 23:34:55 2017//
 /brokenkeys.sh/1.2/Sun Apr 30 23:34:55 2017//
 /cert-file.sh/1.7/Tue Apr 10 00:14:10 2018//
-/cert-hostkey.sh/1.17/Wed Oct 31 11:09:27 2018//
-/cert-userkey.sh/1.20/Wed Oct 31 11:09:27 2018//
+/cert-hostkey.sh/1.18/Thu Jul 25 08:28:15 2019//
+/cert-userkey.sh/1.21/Thu Jul 25 08:28:15 2019//
 /cfginclude.sh/1.2/Tue May  3 15:30:46 2016//
 /cfgmatch.sh/1.12/Thu Apr 18 18:57:16 2019//
 /cfgmatchlisten.sh/1.3/Mon Jul  2 14:13:30 2018//
@@ -41,11 +41,11 @@
 /keygen-convert.sh/1.2/Tue Jul 23 07:55:29 2019//
 /keygen-knownhosts.sh/1.4/Fri Jun  1 03:52:37 2018//
 /keygen-moduli.sh/1.3/Tue Jul 23 08:19:29 2019//
-/keys-command.sh/1.5/Thu Nov 22 08:48:32 2018//
+/keys-command.sh/1.6/Thu Jul 25 08:48:11 2019//
 /keyscan.sh/1.9/Mon Jan 28 03:50:39 2019//
 /keytype.sh/1.8/Tue Jul 23 13:49:14 2019//
-/krl.sh/1.7/Wed Sep 12 01:23:48 2018//
-/limit-keytype.sh/1.5/Mon Mar 12 00:52:57 2018//
+/krl.sh/1.8/Thu Jul 25 09:17:35 2019//
+/limit-keytype.sh/1.6/Fri Jul 26 04:22:21 2019//
 /localcommand.sh/1.4/Sun Apr 30 23:34:55 2017//
 /login-timeout.sh/1.9/Mon Aug  7 00:53:51 2017//
 /modpipe.c/1.6/Thu Nov 21 03:16:47 2013//
