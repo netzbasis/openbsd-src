@@ -69,7 +69,7 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 }
 
 int
-gpuperf_from_cpuperf(int level)
+gpuperf_set(int level)
 {
 	struct gpuperf_node *node;
 
