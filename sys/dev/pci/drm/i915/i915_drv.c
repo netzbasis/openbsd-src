@@ -3686,6 +3686,7 @@ fail:
 #else
 #define PPRINTF(x...)
 #endif /* GPUPERF_DEBUG */
+
 int
 inteldrm_set_gpuperf(int level, void *arg)
 {
@@ -3697,15 +3698,10 @@ inteldrm_set_gpuperf(int level, void *arg)
 	if (max <= min)
 		return (-1);
 
-	PPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
-	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
-	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
-
-	if (rps->min_freq_softlimit > min) {
-		PPRINTF("inteldrm: override min_s (%u > %u). haswell or broadwell\n",
-		    rps->min_freq_softlimit, min);
-	}
-
+	/*
+	 * On haswell & broadwell min_freq_softlimit is higher than
+	 * min_freq by default, this will override the drivers defaults
+	 */
 	if (level == GP_LOW) {
 		rps->max_freq_softlimit = min;
 		rps->boost_freq = min;
@@ -3719,6 +3715,10 @@ inteldrm_set_gpuperf(int level, void *arg)
 		rps->boost_freq = max;
 		rps->min_freq_softlimit = max;
 	}
+
+	PPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
+	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
+	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
 
 	return 0;
 }
