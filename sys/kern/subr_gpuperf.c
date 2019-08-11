@@ -72,6 +72,7 @@ int
 gpuperf_set(int level)
 {
 	struct gpuperf_node *node;
+	int dstatus;
 
 	if (level == 100)
 		gpuperf = 100;

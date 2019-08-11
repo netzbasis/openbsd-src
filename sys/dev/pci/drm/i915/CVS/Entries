@@ -11,7 +11,6 @@
 /i915_devlist.h/1.9/Sun Apr 14 10:14:51 2019//
 /i915_drv.c/1.120/Wed Jul 17 07:54:18 2019//
 /i915_drv.h/1.82/Sat May  4 11:34:47 2019//
-/i915_gem.c/1.117/Sat Jul 27 04:47:59 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.h/1.2/Sun Apr 14 10:14:51 2019//
@@ -122,7 +121,6 @@
 /intel_hangcheck.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_hdcp.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_hdmi.c/1.16/Sun Apr 14 10:14:52 2019//
-/intel_hotplug.c/1.3/Fri Jul  5 12:10:10 2019//
 /intel_huc.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_huc.h/1.1/Sun Apr 14 10:14:52 2019//
 /intel_huc_fw.c/1.1/Sun Apr 14 10:14:52 2019//
@@ -169,6 +167,7 @@
 /intel_workarounds.h/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi.c/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi_pll.c/1.1/Sun Apr 14 10:14:52 2019//
-/intel_hotplug.c/1.2/Fri Jun 21 17:41:18 2019//
-/intel_pm.c/1.43/Fri Jun 21 17:21:26 2019//
+/i915_gem.c/1.117/Sat Aug 10 15:12:44 2019//
+/intel_hotplug.c/1.3/Sat Aug 10 16:07:30 2019//
+/intel_pm.c/1.43/Sun Apr 14 10:14:52 2019//
 D
