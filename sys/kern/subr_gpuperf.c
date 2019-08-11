@@ -56,6 +56,8 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
 	DPRINTF("gpuperf: %s registered\n", node->name);
 
+	node->callback(GP_AUTO, node->arg);
+
 	return (0);
 }
 
@@ -63,16 +65,16 @@ int
 gpuperf_set(int level)
 {
 	struct gpuperf_node *node;
-	int dstatus;
+	int status = 0;
 
 	if ((level < GP_LOW) || (level > GP_HIGH))
-		return -1
+		return -1;
 
 	LIST_FOREACH(node, &gpuperf_nodes, gp_list) {
-		dstatus = node->callback(level, node->arg);
+		status = node->callback(level, node->arg);
 
-		DPRINTF("gpuperf: req lvl %d (%s @ %d)\n",
-		    level, node->name, dstatus);
+		DPRINTF("gpuperf: req lvl %d (%s ret %d)\n",
+		    level, node->name, status);
 
 	}
 

@@ -3701,17 +3701,26 @@ inteldrm_set_gpuperf(int level, void *arg)
 	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
 	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
 
-	rps->max_freq_softlimit = (u8)((((max - min) * level) / 100) + min);
-	rps->boost_freq = rps->max_freq_softlimit;
-
 	if (rps->min_freq_softlimit > min) {
 		PPRINTF("inteldrm: override min_s (%u > %u). haswell or broadwell\n",
 		    rps->min_freq_softlimit, min);
-		rps->min_freq_softlimit = min;
 	}
 
-	/* returning gpu freq, before new performance setting takes effect */
-	return (intel_gpu_freq(dev_priv, rps->cur_freq));
+	if (level == GP_LOW) {
+		rps->max_freq_softlimit = min;
+		rps->boost_freq = min;
+		rps->min_freq_softlimit = min;
+	} else if (level == GP_AUTO) {
+		rps->max_freq_softlimit = max;
+		rps->boost_freq = max;
+		rps->min_freq_softlimit = min;
+	} else if (level == GP_HIGH) {
+		rps->max_freq_softlimit = max;
+		rps->boost_freq = max;
+		rps->min_freq_softlimit = max;
+	}
+
+	return 0;
 }
 #endif /* __OpenBSD__ */
 
