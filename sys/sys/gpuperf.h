@@ -19,6 +19,10 @@
 #ifndef _SYS_GPUPERF_H_
 #define _SYS_GPUPERF_H_
 
+#define GP_LOW 	1
+#define GP_AUTO	2
+#define GP_HIGH	3
+
 int gpuperf_set(int);
 int gpuperf_register(const char *, int (*)(int, void *), void *);
 
