@@ -33,15 +33,13 @@
 
 struct gpuperf_node {
 	char name[16];			/* gpu driver name */
-	int (*callback)(int, void *);	/* must understand 0 - 100 as % */
+	int (*callback)(int, void *);	/* called with GP_LOW, GP_AUTO, GP_HIGH */
 	void *arg;			/* arg passthrough */
 	LIST_ENTRY(gpuperf_node) gp_list;
 };
 
 LIST_HEAD(, gpuperf_node) gpuperf_nodes =
 	LIST_HEAD_INITIALIZER(gpuperf_nodes);
-
-int gpuperf = 100;
 
 int
 gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
@@ -58,13 +56,6 @@ gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
 	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
 	DPRINTF("gpuperf: %s registered\n", node->name);
 
-	/*
-	 * Drivers may take a while to register, even after /etc/sysctl.conf
-	 * was processed. So immediately call back.
-	 * XXX - seems to be fixed, keep an eye on it and delete later.
-	 */
-	(void) node->callback(gpuperf, arg);
-
 	return (0);
 }
 
@@ -74,16 +65,14 @@ gpuperf_set(int level)
 	struct gpuperf_node *node;
 	int dstatus;
 
-	if (level == 100)
-		gpuperf = 100;
-	else
-		gpuperf = 0;
+	if ((level < GP_LOW) || (level > GP_HIGH))
+		return -1
 
 	LIST_FOREACH(node, &gpuperf_nodes, gp_list) {
-		dstatus = node->callback(gpuperf, node->arg);
+		dstatus = node->callback(level, node->arg);
 
 		DPRINTF("gpuperf: req lvl %d (%s @ %d)\n",
-		    gpuperf, node->name, dstatus);
+		    level, node->name, dstatus);
 
 	}
 
