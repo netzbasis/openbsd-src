@@ -656,7 +656,11 @@ sysctl_hwsetperf(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		newperf = 0;
 	perflevel = newperf;
 	cpu_setperf(perflevel);
-	gpuperf_set(perflevel);
+
+	if (perflevel == 100)
+		gpuperf_set(GP_HIGH);
+	else
+		gpuperf_set(GP_LOW);
 
 	return 0;
 }
@@ -702,11 +706,11 @@ sysctl_hwperfpolicy(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 
 	if (perfpolicy == PERFPOL_AUTO) {
 		timeout_add_msec(&setperf_to, 200);
-		gpuperf_set(100);
+		gpuperf_set(GP_AUTO);
 	} else if (perfpolicy == PERFPOL_HIGH) {
 		perflevel = 100;
 		cpu_setperf(perflevel);
-		gpuperf_set(perflevel);
+		gpuperf_set(GP_HIGH);
 	}
 	return 0;
 }
