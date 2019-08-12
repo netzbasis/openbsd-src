@@ -1,4 +1,4 @@
-/* $OpenBSD: cms_pwri.c,v 1.17 2019/08/10 18:15:52 jsing Exp $ */
+/* $OpenBSD: cms_pwri.c,v 1.25 2019/08/11 11:04:18 jsing Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -52,6 +52,8 @@
  * ====================================================================
  */
 
+#include <string.h>
+
 #include "cryptlib.h"
 #include <openssl/asn1t.h>
 #include <openssl/pem.h>
@@ -65,12 +67,12 @@
 
 int
 CMS_RecipientInfo_set0_password(CMS_RecipientInfo *ri, unsigned char *pass,
-    ossl_ssize_t passlen)
+    ssize_t passlen)
 {
 	CMS_PasswordRecipientInfo *pwri;
 
 	if (ri->type != CMS_RECIPINFO_PASS) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_SET0_PASSWORD, CMS_R_NOT_PWRI);
+		CMSerror(CMS_R_NOT_PWRI);
 		return 0;
 	}
 
@@ -85,7 +87,7 @@ CMS_RecipientInfo_set0_password(CMS_RecipientInfo *ri, unsigned char *pass,
 
 CMS_RecipientInfo *
 CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
-    int pbe_nid, unsigned char *pass, ossl_ssize_t passlen,
+    int pbe_nid, unsigned char *pass, ssize_t passlen,
     const EVP_CIPHER *kekciph)
 {
 	CMS_RecipientInfo *ri = NULL;
@@ -111,12 +113,11 @@ CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
 		kekciph = env->encryptedContentInfo->cipher;
 
 	if (kekciph == NULL) {
-		CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD, CMS_R_NO_CIPHER);
+		CMSerror(CMS_R_NO_CIPHER);
 		return NULL;
 	}
 	if (wrap_nid != NID_id_alg_PWRI_KEK) {
-		CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD,
-		   CMS_R_UNSUPPORTED_KEY_ENCRYPTION_ALGORITHM);
+		CMSerror(CMS_R_UNSUPPORTED_KEY_ENCRYPTION_ALGORITHM);
 		return NULL;
 	}
 
@@ -128,27 +129,25 @@ CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
 	ctx = EVP_CIPHER_CTX_new();
 
 	if (EVP_EncryptInit_ex(ctx, kekciph, NULL, NULL, NULL) <= 0) {
-		CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD, ERR_R_EVP_LIB);
+		CMSerror(ERR_R_EVP_LIB);
 		goto err;
 	}
 
 	ivlen = EVP_CIPHER_CTX_iv_length(ctx);
 
 	if (ivlen > 0) {
-		if (RAND_bytes(iv, ivlen) <= 0)
-			goto err;
+		arc4random_buf(iv, ivlen);
 		if (EVP_EncryptInit_ex(ctx, NULL, NULL, NULL, iv) <= 0) {
-			CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD, ERR_R_EVP_LIB);
+			CMSerror(ERR_R_EVP_LIB);
 			goto err;
 		}
 		encalg->parameter = ASN1_TYPE_new();
 		if (!encalg->parameter) {
-			CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD, ERR_R_MALLOC_FAILURE);
+			CMSerror(ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 		if (EVP_CIPHER_param_to_asn1(ctx, encalg->parameter) <= 0) {
-			CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD,
-			   CMS_R_CIPHER_PARAMETER_INITIALISATION_ERROR);
+			CMSerror(CMS_R_CIPHER_PARAMETER_INITIALISATION_ERROR);
 			goto err;
 		}
 	}
@@ -159,11 +158,11 @@ CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
 	ctx = NULL;
 
 	/* Initialize recipient info */
-	ri = M_ASN1_new_of(CMS_RecipientInfo);
+	ri = (CMS_RecipientInfo *)ASN1_item_new(&CMS_RecipientInfo_it);
 	if (ri == NULL)
 		goto merr;
 
-	ri->d.pwri = M_ASN1_new_of(CMS_PasswordRecipientInfo);
+	ri->d.pwri = (CMS_PasswordRecipientInfo *)ASN1_item_new(&CMS_PasswordRecipientInfo_it);
 	if (ri->d.pwri == NULL)
 		goto merr;
 	ri->type = CMS_RECIPINFO_PASS;
@@ -179,7 +178,7 @@ CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
 	if (pwri->keyEncryptionAlgorithm->parameter == NULL)
 		goto merr;
 
-	if (!ASN1_item_pack(encalg, ASN1_ITEM_rptr(X509_ALGOR),
+	if (!ASN1_item_pack(encalg, &X509_ALGOR_it,
 	    &pwri->keyEncryptionAlgorithm->parameter->value.sequence))
 		 goto merr;
 	pwri->keyEncryptionAlgorithm->parameter->type = V_ASN1_SEQUENCE;
@@ -203,11 +202,11 @@ CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter, int wrap_nid,
 	return ri;
 
  merr:
-	CMSerr(CMS_F_CMS_ADD0_RECIPIENT_PASSWORD, ERR_R_MALLOC_FAILURE);
+	CMSerror(ERR_R_MALLOC_FAILURE);
  err:
 	EVP_CIPHER_CTX_free(ctx);
 	if (ri)
-		M_ASN1_free_of(ri, CMS_RecipientInfo);
+		ASN1_item_free((ASN1_VALUE *)ri, &CMS_RecipientInfo_it);
 	X509_ALGOR_free(encalg);
 
 	return NULL;
@@ -234,8 +233,8 @@ kek_unwrap_key(unsigned char *out, size_t *outlen, const unsigned char *in,
 		/* Invalid size */
 		return 0;
 	}
-	if ((tmp = OPENSSL_malloc(inlen)) == NULL) {
-		CMSerr(CMS_F_KEK_UNWRAP_KEY, ERR_R_MALLOC_FAILURE);
+	if ((tmp = malloc(inlen)) == NULL) {
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		return 0;
 	}
 
@@ -270,7 +269,7 @@ kek_unwrap_key(unsigned char *out, size_t *outlen, const unsigned char *in,
 	rv = 1;
 
  err:
-	OPENSSL_clear_free(tmp, inlen);
+	freezero(tmp, inlen);
 
 	return rv;
 }
@@ -305,9 +304,8 @@ kek_wrap_key(unsigned char *out, size_t *outlen, const unsigned char *in,
 		out[3] = in[2] ^ 0xFF;
 		memcpy(out + 4, in, inlen);
 		/* Add random padding to end */
-		if (olen > inlen + 4 &&
-		    RAND_bytes(out + 4 + inlen, olen - 4 - inlen) <= 0)
-			return 0;
+		if (olen > inlen + 4)
+			arc4random_buf(out + 4 + inlen, olen - 4 - inlen);
 		/* Encrypt twice */
 		if (!EVP_EncryptUpdate(ctx, out, &dummy, out, olen) ||
 		    !EVP_EncryptUpdate(ctx, out, &dummy, out, olen))
@@ -339,35 +337,33 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 	pwri = ri->d.pwri;
 
 	if (!pwri->pass) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, CMS_R_NO_PASSWORD);
+		CMSerror(CMS_R_NO_PASSWORD);
 		return 0;
 	}
 	algtmp = pwri->keyEncryptionAlgorithm;
 
 	if (!algtmp || OBJ_obj2nid(algtmp->algorithm) != NID_id_alg_PWRI_KEK) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT,
-		   CMS_R_UNSUPPORTED_KEY_ENCRYPTION_ALGORITHM);
+		CMSerror(CMS_R_UNSUPPORTED_KEY_ENCRYPTION_ALGORITHM);
 		return 0;
 	}
 
-	kekalg = ASN1_TYPE_unpack_sequence(ASN1_ITEM_rptr(X509_ALGOR),
+	kekalg = ASN1_TYPE_unpack_sequence(&X509_ALGOR_it,
 	    algtmp->parameter);
 
 	if (kekalg == NULL) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT,
-		   CMS_R_INVALID_KEY_ENCRYPTION_PARAMETER);
+		CMSerror(CMS_R_INVALID_KEY_ENCRYPTION_PARAMETER);
 		return 0;
 	}
 
 	kekcipher = EVP_get_cipherbyobj(kekalg->algorithm);
 	if (!kekcipher) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, CMS_R_UNKNOWN_CIPHER);
+		CMSerror(CMS_R_UNKNOWN_CIPHER);
 		return 0;
 	}
 
 	kekctx = EVP_CIPHER_CTX_new();
 	if (kekctx == NULL) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		return 0;
 	}
 	/* Fixup cipher based on AlgorithmIdentifier to set IV etc */
@@ -375,8 +371,7 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 		goto err;
 	EVP_CIPHER_CTX_set_padding(kekctx, 0);
 	if (EVP_CIPHER_asn1_to_param(kekctx, kekalg->parameter) <= 0) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT,
-		   CMS_R_CIPHER_PARAMETER_INITIALISATION_ERROR);
+		CMSerror(CMS_R_CIPHER_PARAMETER_INITIALISATION_ERROR);
 		goto err;
 	}
 
@@ -386,7 +381,7 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 
 	if (EVP_PBE_CipherInit(algtmp->algorithm, (char *)pwri->pass,
 	    pwri->passlen, algtmp->parameter, kekctx, en_de) < 0) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, ERR_R_EVP_LIB);
+		CMSerror(ERR_R_EVP_LIB);
 		goto err;
 	}
 
@@ -396,7 +391,7 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 		if (!kek_wrap_key(NULL, &keylen, ec->key, ec->keylen, kekctx))
 			goto err;
 
-		key = OPENSSL_malloc(keylen);
+		key = malloc(keylen);
 		if (key == NULL)
 			goto err;
 
@@ -405,18 +400,18 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 		pwri->encryptedKey->data = key;
 		pwri->encryptedKey->length = keylen;
 	} else {
-		key = OPENSSL_malloc(pwri->encryptedKey->length);
+		key = malloc(pwri->encryptedKey->length);
 		if (key == NULL) {
-			CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, ERR_R_MALLOC_FAILURE);
+			CMSerror(ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 		if (!kek_unwrap_key(key, &keylen, pwri->encryptedKey->data,
 		    pwri->encryptedKey->length, kekctx)) {
-			CMSerr(CMS_F_CMS_RECIPIENTINFO_PWRI_CRYPT, CMS_R_UNWRAP_FAILURE);
+			CMSerror(CMS_R_UNWRAP_FAILURE);
 			goto err;
 		}
 
-		OPENSSL_clear_free(ec->key, ec->keylen);
+		freezero(ec->key, ec->keylen);
 		ec->key = key;
 		ec->keylen = keylen;
 	}
@@ -426,7 +421,7 @@ cms_RecipientInfo_pwri_crypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
  err:
 	EVP_CIPHER_CTX_free(kekctx);
 	if (!r)
-		OPENSSL_free(key);
+		free(key);
 	X509_ALGOR_free(kekalg);
 
 	return r;

@@ -1,4 +1,4 @@
-/* $OpenBSD: cms_sd.c,v 1.17 2019/08/10 18:15:52 jsing Exp $ */
+/* $OpenBSD: cms_sd.c,v 1.23 2019/08/11 14:35:57 jsing Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -52,6 +52,8 @@
  * ====================================================================
  */
 
+#include <string.h>
+
 #include "cryptlib.h"
 #include <openssl/asn1t.h>
 #include <openssl/pem.h>
@@ -69,7 +71,7 @@ static CMS_SignedData *
 cms_get0_signed(CMS_ContentInfo *cms)
 {
 	if (OBJ_obj2nid(cms->contentType) != NID_pkcs7_signed) {
-		CMSerr(CMS_F_CMS_GET0_SIGNED, CMS_R_CONTENT_TYPE_NOT_SIGNED_DATA);
+		CMSerror(CMS_R_CONTENT_TYPE_NOT_SIGNED_DATA);
 		return NULL;
 	}
 	return cms->d.signedData;
@@ -79,9 +81,9 @@ static CMS_SignedData *
 cms_signed_data_init(CMS_ContentInfo *cms)
 {
 	if (cms->d.other == NULL) {
-		cms->d.signedData = M_ASN1_new_of(CMS_SignedData);
+		cms->d.signedData = (CMS_SignedData *)ASN1_item_new(&CMS_SignedData_it);
 		if (!cms->d.signedData) {
-			CMSerr(CMS_F_CMS_SIGNED_DATA_INIT, ERR_R_MALLOC_FAILURE);
+			CMSerror(ERR_R_MALLOC_FAILURE);
 			return NULL;
 		}
 		cms->d.signedData->version = 1;
@@ -180,8 +182,7 @@ cms_copy_messageDigest(CMS_ContentInfo *cms, CMS_SignerInfo *si)
 		messageDigest = CMS_signed_get0_data_by_OBJ(sitmp,
 		    OBJ_nid2obj(NID_pkcs9_messageDigest), -3, V_ASN1_OCTET_STRING);
 		if (!messageDigest) {
-			CMSerr(CMS_F_CMS_COPY_MESSAGEDIGEST,
-			    CMS_R_ERROR_READING_MESSAGEDIGEST_ATTRIBUTE);
+			CMSerror(CMS_R_ERROR_READING_MESSAGEDIGEST_ATTRIBUTE);
 			return 0;
 		}
 
@@ -192,7 +193,7 @@ cms_copy_messageDigest(CMS_ContentInfo *cms, CMS_SignerInfo *si)
 			return 0;
 	}
 
-	CMSerr(CMS_F_CMS_COPY_MESSAGEDIGEST, CMS_R_NO_MATCHING_DIGEST);
+	CMSerror(CMS_R_NO_MATCHING_DIGEST);
 
 	return 0;
 }
@@ -212,7 +213,7 @@ cms_set1_SignerIdentifier(CMS_SignerIdentifier *sid, X509 *cert, int type)
 		break;
 
 	default:
-		CMSerr(CMS_F_CMS_SET1_SIGNERIDENTIFIER, CMS_R_UNKNOWN_ID);
+		CMSerror(CMS_R_UNKNOWN_ID);
 		return 0;
 	}
 
@@ -260,11 +261,11 @@ cms_sd_asn1_ctrl(CMS_SignerInfo *si, int cmd)
 		return 1;
 	i = pkey->ameth->pkey_ctrl(pkey, ASN1_PKEY_CTRL_CMS_SIGN, cmd, si);
 	if (i == -2) {
-		CMSerr(CMS_F_CMS_SD_ASN1_CTRL, CMS_R_NOT_SUPPORTED_FOR_THIS_KEY_TYPE);
+		CMSerror(CMS_R_NOT_SUPPORTED_FOR_THIS_KEY_TYPE);
 		return 0;
 	}
 	if (i <= 0) {
-		CMSerr(CMS_F_CMS_SD_ASN1_CTRL, CMS_R_CTRL_FAILURE);
+		CMSerror(CMS_R_CTRL_FAILURE);
 		return 0;
 	}
 
@@ -281,14 +282,13 @@ CMS_add1_signer(CMS_ContentInfo *cms, X509 *signer, EVP_PKEY *pk,
 	int i, type;
 
 	if (!X509_check_private_key(signer, pk)) {
-		CMSerr(CMS_F_CMS_ADD1_SIGNER,
-		   CMS_R_PRIVATE_KEY_DOES_NOT_MATCH_CERTIFICATE);
+		CMSerror(CMS_R_PRIVATE_KEY_DOES_NOT_MATCH_CERTIFICATE);
 		return NULL;
 	}
 	sd = cms_signed_data_init(cms);
 	if (!sd)
 		goto err;
-	si = M_ASN1_new_of(CMS_SignerInfo);
+	si = (CMS_SignerInfo *)ASN1_item_new(&CMS_SignerInfo_it);
 	if (!si)
 		goto merr;
 	/* Call for side-effect of computing hash and caching extensions */
@@ -303,7 +303,7 @@ CMS_add1_signer(CMS_ContentInfo *cms, X509 *signer, EVP_PKEY *pk,
 	si->pctx = NULL;
 
 	if (si->mctx == NULL) {
-		CMSerr(CMS_F_CMS_ADD1_SIGNER, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 
@@ -326,13 +326,13 @@ CMS_add1_signer(CMS_ContentInfo *cms, X509 *signer, EVP_PKEY *pk,
 			goto err;
 		md = EVP_get_digestbynid(def_nid);
 		if (md == NULL) {
-			CMSerr(CMS_F_CMS_ADD1_SIGNER, CMS_R_NO_DEFAULT_DIGEST);
+			CMSerror(CMS_R_NO_DEFAULT_DIGEST);
 			goto err;
 		}
 	}
 
 	if (!md) {
-		CMSerr(CMS_F_CMS_ADD1_SIGNER, CMS_R_NO_DIGEST_SET);
+		CMSerror(CMS_R_NO_DIGEST_SET);
 		goto err;
 	}
 
@@ -418,9 +418,9 @@ CMS_add1_signer(CMS_ContentInfo *cms, X509 *signer, EVP_PKEY *pk,
 	return si;
 
  merr:
-	CMSerr(CMS_F_CMS_ADD1_SIGNER, ERR_R_MALLOC_FAILURE);
+	CMSerror(ERR_R_MALLOC_FAILURE);
  err:
-	M_ASN1_free_of(si, CMS_SignerInfo);
+	ASN1_item_free((ASN1_VALUE *)si, &CMS_SignerInfo_it);
 
 	return NULL;
 }
@@ -449,7 +449,7 @@ cms_add1_signingTime(CMS_SignerInfo *si, ASN1_TIME *t)
 	if (!t)
 		ASN1_TIME_free(tt);
 	if (!r)
-		CMSerr(CMS_F_CMS_ADD1_SIGNINGTIME, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 
 	return r;
 }
@@ -606,12 +606,12 @@ cms_SignerInfo_content_sign(CMS_ContentInfo *cms, CMS_SignerInfo *si, BIO *chain
 	EVP_PKEY_CTX *pctx = NULL;
 
 	if (mctx == NULL) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_CONTENT_SIGN, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		return 0;
 	}
 
 	if (!si->pkey) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_CONTENT_SIGN, CMS_R_NO_PRIVATE_KEY);
+		CMSerror(CMS_R_NO_PRIVATE_KEY);
 		goto err;
 	}
 
@@ -652,13 +652,13 @@ cms_SignerInfo_content_sign(CMS_ContentInfo *cms, CMS_SignerInfo *si, BIO *chain
 		if (!EVP_DigestFinal_ex(mctx, md, &mdlen))
 			goto err;
 		siglen = EVP_PKEY_size(si->pkey);
-		sig = OPENSSL_malloc(siglen);
+		sig = malloc(siglen);
 		if (sig == NULL) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_CONTENT_SIGN, ERR_R_MALLOC_FAILURE);
+			CMSerror(ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 		if (EVP_PKEY_sign(pctx, sig, &siglen, md, mdlen) <= 0) {
-			OPENSSL_free(sig);
+			free(sig);
 			goto err;
 		}
 		ASN1_STRING_set0(si->signature, sig, siglen);
@@ -666,14 +666,14 @@ cms_SignerInfo_content_sign(CMS_ContentInfo *cms, CMS_SignerInfo *si, BIO *chain
 		unsigned char *sig;
 		unsigned int siglen;
 
-		sig = OPENSSL_malloc(EVP_PKEY_size(si->pkey));
+		sig = malloc(EVP_PKEY_size(si->pkey));
 		if (sig == NULL) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_CONTENT_SIGN, ERR_R_MALLOC_FAILURE);
+			CMSerror(ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 		if (!EVP_SignFinal(mctx, sig, &siglen, si->pkey)) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_CONTENT_SIGN, CMS_R_SIGNFINAL_ERROR);
-			OPENSSL_free(sig);
+			CMSerror(CMS_R_SIGNFINAL_ERROR);
+			free(sig);
 			goto err;
 		}
 		ASN1_STRING_set0(si->signature, sig, siglen);
@@ -736,20 +736,20 @@ CMS_SignerInfo_sign(CMS_SignerInfo *si)
 
 	if (EVP_PKEY_CTX_ctrl(pctx, -1, EVP_PKEY_OP_SIGN,
 	    EVP_PKEY_CTRL_CMS_SIGN, 0, si) <= 0) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_SIGN, CMS_R_CTRL_ERROR);
+		CMSerror(CMS_R_CTRL_ERROR);
 		goto err;
 	}
 
 	alen = ASN1_item_i2d((ASN1_VALUE *)si->signedAttrs, &abuf,
-	    ASN1_ITEM_rptr(CMS_Attributes_Sign));
+	    &CMS_Attributes_Sign_it);
 	if (!abuf)
 		goto err;
 	if (EVP_DigestSignUpdate(mctx, abuf, alen) <= 0)
 		goto err;
 	if (EVP_DigestSignFinal(mctx, NULL, &siglen) <= 0)
 		goto err;
-	OPENSSL_free(abuf);
-	abuf = OPENSSL_malloc(siglen);
+	free(abuf);
+	abuf = malloc(siglen);
 	if (abuf == NULL)
 		goto err;
 	if (EVP_DigestSignFinal(mctx, abuf, &siglen) <= 0)
@@ -757,7 +757,7 @@ CMS_SignerInfo_sign(CMS_SignerInfo *si)
 
 	if (EVP_PKEY_CTX_ctrl(pctx, -1, EVP_PKEY_OP_SIGN,
 	    EVP_PKEY_CTRL_CMS_SIGN, 1, si) <= 0) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_SIGN, CMS_R_CTRL_ERROR);
+		CMSerror(CMS_R_CTRL_ERROR);
 		goto err;
 	}
 
@@ -768,7 +768,7 @@ CMS_SignerInfo_sign(CMS_SignerInfo *si)
 	return 1;
 
  err:
-	OPENSSL_free(abuf);
+	free(abuf);
 	EVP_MD_CTX_reset(mctx);
 
 	return 0;
@@ -783,7 +783,7 @@ CMS_SignerInfo_verify(CMS_SignerInfo *si)
 	const EVP_MD *md = NULL;
 
 	if (!si->pkey) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY, CMS_R_NO_PUBLIC_KEY);
+		CMSerror(CMS_R_NO_PUBLIC_KEY);
 		return -1;
 	}
 
@@ -791,7 +791,7 @@ CMS_SignerInfo_verify(CMS_SignerInfo *si)
 	if (md == NULL)
 		return -1;
 	if (si->mctx == NULL && (si->mctx = EVP_MD_CTX_new()) == NULL) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		return -1;
 	}
 	mctx = si->mctx;
@@ -802,11 +802,11 @@ CMS_SignerInfo_verify(CMS_SignerInfo *si)
 		goto err;
 
 	alen = ASN1_item_i2d((ASN1_VALUE *)si->signedAttrs, &abuf,
-	    ASN1_ITEM_rptr(CMS_Attributes_Verify));
+	    &CMS_Attributes_Verify_it);
 	if (!abuf)
 		goto err;
 	r = EVP_DigestVerifyUpdate(mctx, abuf, alen);
-	OPENSSL_free(abuf);
+	free(abuf);
 	if (r <= 0) {
 		r = -1;
 		goto err;
@@ -815,7 +815,7 @@ CMS_SignerInfo_verify(CMS_SignerInfo *si)
 	r = EVP_DigestVerifyFinal(mctx, si->signature->data,
 	    si->signature->length);
 	if (r <= 0)
-		CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY, CMS_R_VERIFICATION_FAILURE);
+		CMSerror(CMS_R_VERIFICATION_FAILURE);
 
  err:
 	EVP_MD_CTX_reset(mctx);
@@ -869,7 +869,7 @@ CMS_SignerInfo_verify_content(CMS_SignerInfo *si, BIO *chain)
 	unsigned int mlen;
 
 	if (mctx == NULL) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 	/* If we have any signed attributes look for messageDigest value */
@@ -878,8 +878,7 @@ CMS_SignerInfo_verify_content(CMS_SignerInfo *si, BIO *chain)
 		    OBJ_nid2obj(NID_pkcs9_messageDigest), -3,
 		    V_ASN1_OCTET_STRING);
 		if (!os) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT,
-			    CMS_R_ERROR_READING_MESSAGEDIGEST_ATTRIBUTE);
+			CMSerror(CMS_R_ERROR_READING_MESSAGEDIGEST_ATTRIBUTE);
 			goto err;
 		}
 	}
@@ -888,8 +887,7 @@ CMS_SignerInfo_verify_content(CMS_SignerInfo *si, BIO *chain)
 		goto err;
 
 	if (EVP_DigestFinal_ex(mctx, mval, &mlen) <= 0) {
-		CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT,
-		   CMS_R_UNABLE_TO_FINALIZE_CONTEXT);
+		CMSerror(CMS_R_UNABLE_TO_FINALIZE_CONTEXT);
 		goto err;
 	}
 
@@ -897,14 +895,12 @@ CMS_SignerInfo_verify_content(CMS_SignerInfo *si, BIO *chain)
 
 	if (os) {
 		if (mlen != (unsigned int)os->length) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT,
-			    CMS_R_MESSAGEDIGEST_ATTRIBUTE_WRONG_LENGTH);
+			CMSerror(CMS_R_MESSAGEDIGEST_ATTRIBUTE_WRONG_LENGTH);
 			goto err;
 		}
 
 		if (memcmp(mval, os->data, mlen)) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT,
-			    CMS_R_VERIFICATION_FAILURE);
+			CMSerror(CMS_R_VERIFICATION_FAILURE);
 			r = 0;
 		} else
 			r = 1;
@@ -924,8 +920,7 @@ CMS_SignerInfo_verify_content(CMS_SignerInfo *si, BIO *chain)
 		r = EVP_PKEY_verify(pkctx, si->signature->data,
 			                si->signature->length, mval, mlen);
 		if (r <= 0) {
-			CMSerr(CMS_F_CMS_SIGNERINFO_VERIFY_CONTENT,
-			       CMS_R_VERIFICATION_FAILURE);
+			CMSerror(CMS_R_VERIFICATION_FAILURE);
 			r = 0;
 		}
 	}
@@ -948,7 +943,7 @@ CMS_add_smimecap(CMS_SignerInfo *si, STACK_OF(X509_ALGOR) *algs)
 		return 0;
 	r = CMS_signed_add1_attr_by_NID(si, NID_SMIMECapabilities,
 	    V_ASN1_SEQUENCE, smder, smderlen);
-	OPENSSL_free(smder);
+	free(smder);
 
 	return r;
 }
@@ -1004,8 +999,6 @@ int
 CMS_add_standard_smimecap(STACK_OF(X509_ALGOR) **smcap)
 {
 	if (!cms_add_cipher_smcap(smcap, NID_aes_256_cbc, -1) ||
-	    !cms_add_digest_smcap(smcap, NID_id_GostR3411_2012_256, -1) ||
-	    !cms_add_digest_smcap(smcap, NID_id_GostR3411_2012_512, -1) ||
 	    !cms_add_digest_smcap(smcap, NID_id_GostR3411_94, -1) ||
 	    !cms_add_cipher_smcap(smcap, NID_id_Gost28147_89, -1) ||
 	    !cms_add_cipher_smcap(smcap, NID_aes_192_cbc, -1) ||

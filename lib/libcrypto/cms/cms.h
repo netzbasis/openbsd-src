@@ -1,4 +1,4 @@
-/* $OpenBSD: cms.h,v 1.12 2019/08/10 18:24:33 jsing Exp $ */
+/* $OpenBSD: cms.h,v 1.15 2019/08/11 10:15:30 jsing Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -74,13 +74,21 @@ typedef struct CMS_Receipt_st CMS_Receipt;
 typedef struct CMS_RecipientEncryptedKey_st CMS_RecipientEncryptedKey;
 typedef struct CMS_OtherKeyAttribute_st CMS_OtherKeyAttribute;
 
-DEFINE_STACK_OF(CMS_SignerInfo)
-DEFINE_STACK_OF(CMS_RecipientEncryptedKey)
-DEFINE_STACK_OF(CMS_RecipientInfo)
-DEFINE_STACK_OF(CMS_RevocationInfoChoice)
-DECLARE_ASN1_FUNCTIONS(CMS_ContentInfo)
-DECLARE_ASN1_FUNCTIONS(CMS_ReceiptRequest)
-DECLARE_ASN1_PRINT_FUNCTION(CMS_ContentInfo)
+DECLARE_STACK_OF(CMS_SignerInfo)
+DECLARE_STACK_OF(CMS_RecipientEncryptedKey)
+DECLARE_STACK_OF(CMS_RecipientInfo)
+DECLARE_STACK_OF(CMS_RevocationInfoChoice)
+CMS_ContentInfo *CMS_ContentInfo_new(void);
+void CMS_ContentInfo_free(CMS_ContentInfo *a);
+CMS_ContentInfo *d2i_CMS_ContentInfo(CMS_ContentInfo **a, const unsigned char **in, long len);
+int i2d_CMS_ContentInfo(CMS_ContentInfo *a, unsigned char **out);
+extern const ASN1_ITEM CMS_ContentInfo_it;
+CMS_ReceiptRequest *CMS_ReceiptRequest_new(void);
+void CMS_ReceiptRequest_free(CMS_ReceiptRequest *a);
+CMS_ReceiptRequest *d2i_CMS_ReceiptRequest(CMS_ReceiptRequest **a, const unsigned char **in, long len);
+int i2d_CMS_ReceiptRequest(CMS_ReceiptRequest *a, unsigned char **out);
+extern const ASN1_ITEM CMS_ReceiptRequest_it;
+int CMS_ContentInfo_print_ctx(BIO *out, CMS_ContentInfo *x, int indent, const ASN1_PCTX *pctx);
 
 #define CMS_SIGNERINFO_ISSUER_SERIAL    0
 #define CMS_SIGNERINFO_KEYIDENTIFIER    1
@@ -128,7 +136,12 @@ int CMS_is_detached(CMS_ContentInfo *cms);
 int CMS_set_detached(CMS_ContentInfo *cms, int detached);
 
 #ifdef HEADER_PEM_H
-DECLARE_PEM_rw_const(CMS, CMS_ContentInfo)
+CMS_ContentInfo *PEM_read_bio_CMS(BIO *bp, CMS_ContentInfo **x,
+    pem_password_cb *cb, void *u);
+CMS_ContentInfo *PEM_read_CMS(FILE *fp, CMS_ContentInfo **x,
+    pem_password_cb *cb, void *u);
+int PEM_write_bio_CMS(BIO *bp, const CMS_ContentInfo *x);
+int PEM_write_CMS(FILE *fp, const CMS_ContentInfo *x);
 #endif
 int CMS_stream(unsigned char ***boundary, CMS_ContentInfo *cms);
 CMS_ContentInfo *d2i_CMS_bio(BIO *bp, CMS_ContentInfo **cms);
@@ -184,7 +197,7 @@ int CMS_decrypt_set1_pkey(CMS_ContentInfo *cms, EVP_PKEY *pk, X509 *cert);
 int CMS_decrypt_set1_key(CMS_ContentInfo *cms, unsigned char *key,
     size_t keylen, const unsigned char *id, size_t idlen);
 int CMS_decrypt_set1_password(CMS_ContentInfo *cms, unsigned char *pass,
-    ossl_ssize_t passlen);
+    ssize_t passlen);
 
 STACK_OF(CMS_RecipientInfo) *CMS_get0_RecipientInfos(CMS_ContentInfo *cms);
 int CMS_RecipientInfo_type(CMS_RecipientInfo *ri);
@@ -214,10 +227,10 @@ int CMS_RecipientInfo_kekri_id_cmp(CMS_RecipientInfo *ri,
     const unsigned char *id, size_t idlen);
 
 int CMS_RecipientInfo_set0_password(CMS_RecipientInfo *ri, unsigned char *pass,
-    ossl_ssize_t passlen);
+    ssize_t passlen);
 
 CMS_RecipientInfo *CMS_add0_recipient_password(CMS_ContentInfo *cms, int iter,
-    int wrap_nid, int pbe_nid, unsigned char *pass, ossl_ssize_t passlen,
+    int wrap_nid, int pbe_nid, unsigned char *pass, ssize_t passlen,
     const EVP_CIPHER *kekciph);
 
 int CMS_RecipientInfo_decrypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri);
