@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_rib.c,v 1.204 2019/08/09 14:12:21 claudio Exp $ */
+/*	$OpenBSD: rde_rib.c,v 1.206 2019/08/14 11:57:21 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -37,7 +37,7 @@
  * This is achieved by heavily linking the different parts together.
  */
 u_int16_t rib_size;
-struct rib_desc *ribs;
+struct rib **ribs;
 
 struct rib_entry *rib_add(struct rib *, struct bgpd_addr *, int);
 static inline int rib_compare(const struct rib_entry *,
@@ -136,39 +136,40 @@ rib_compare(const struct rib_entry *a, const struct rib_entry *b)
 struct rib *
 rib_new(char *name, u_int rtableid, u_int16_t flags)
 {
-	struct rib_desc	*xribs;
-	u_int16_t	id;
+	struct rib *new;
+	u_int16_t id;
 
 	for (id = 0; id < rib_size; id++) {
-		if (!rib_valid(id))
+		if (ribs[id] == NULL)
 			break;
 	}
 
 	if (id >= rib_size) {
-		if ((xribs = reallocarray(ribs, id + 1,
-		    sizeof(struct rib_desc))) == NULL) {
-			/* XXX this is not clever */
+		if ((ribs = recallocarray(ribs, id, id + 8,
+		    sizeof(struct rib))) == NULL)
 			fatal(NULL);
-		}
-		ribs = xribs;
-		rib_size = id + 1;
+		rib_size = id + 8;
 	}
 
-	memset(&ribs[id], 0, sizeof(struct rib_desc));
-	strlcpy(ribs[id].name, name, sizeof(ribs[id].name));
-	RB_INIT(rib_tree(&ribs[id].rib));
-	ribs[id].state = RECONF_REINIT;
-	ribs[id].rib.id = id;
-	ribs[id].rib.flags = flags;
-	ribs[id].rib.rtableid = rtableid;
-
-	ribs[id].in_rules = calloc(1, sizeof(struct filter_head));
-	if (ribs[id].in_rules == NULL)
+	if ((new = calloc(1, sizeof(*new))) == NULL)
 		fatal(NULL);
-	TAILQ_INIT(ribs[id].in_rules);
+
+	strlcpy(new->name, name, sizeof(new->name));
+	RB_INIT(rib_tree(new));
+	new->state = RECONF_REINIT;
+	new->id = id;
+	new->flags = flags;
+	new->rtableid = rtableid;
+
+	new->in_rules = calloc(1, sizeof(struct filter_head));
+	if (new->in_rules == NULL)
+		fatal(NULL);
+	TAILQ_INIT(new->in_rules);
+
+	ribs[id] = new;
 
 	log_debug("%s: %s -> %u", __func__, name, id);
-	return (&ribs[id].rib);
+	return (new);
 }
 
 /*
@@ -181,8 +182,6 @@ rib_new(char *name, u_int rtableid, u_int16_t flags)
 void
 rib_update(struct rib *rib)
 {
-	struct rib_desc *rd = rib_desc(rib);
-
 	/* flush fib first if there was one */
 	if ((rib->flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) == 0)
 		rde_send_kroute_flush(rib);
@@ -190,23 +189,23 @@ rib_update(struct rib *rib)
 	/* if no evaluate changes then a full reinit is needed */
 	if ((rib->flags & F_RIB_NOEVALUATE) !=
 	    (rib->flags_tmp & F_RIB_NOEVALUATE))
-		rd->fibstate = RECONF_REINIT;
+		rib->fibstate = RECONF_REINIT;
 
 	rib->flags = rib->flags_tmp;
 	rib->rtableid = rib->rtableid_tmp;
 
 	/* reload fib if there is no reinit pending and there will be a fib */
-	if (rd->fibstate != RECONF_REINIT &&
+	if (rib->fibstate != RECONF_REINIT &&
 	    (rib->flags & (F_RIB_NOFIB | F_RIB_NOEVALUATE)) == 0)
-		rd->fibstate = RECONF_RELOAD;
+		rib->fibstate = RECONF_RELOAD;
 }
 
 struct rib *
-rib_byid(u_int16_t rid)
+rib_byid(u_int16_t id)
 {
-	if (rib_valid(rid))
-		return &ribs[rid].rib;
-	return NULL;
+	if (id == RIB_NOTFOUND || id >= rib_size || ribs[id] == NULL)
+		return NULL;
+	return ribs[id];
 }
 
 u_int16_t
@@ -219,23 +218,16 @@ rib_find(char *name)
 		return RIB_LOC_START;
 
 	for (id = 0; id < rib_size; id++) {
-		if (!strcmp(ribs[id].name, name))
+		if (ribs[id] != NULL && !strcmp(ribs[id]->name, name))
 			return id;
 	}
 
 	return RIB_NOTFOUND;
 }
 
-struct rib_desc *
-rib_desc(struct rib *rib)
-{
-	return (&ribs[rib->id]);
-}
-
 void
 rib_free(struct rib *rib)
 {
-	struct rib_desc *rd = rib_desc(rib);
 	struct rib_entry *re, *xre;
 	struct prefix *p;
 
@@ -273,30 +265,36 @@ rib_free(struct rib *rib)
 	}
 	if (rib->id <= RIB_LOC_START)
 		return; /* never remove the default ribs */
-	filterlist_free(rd->in_rules_tmp);
-	filterlist_free(rd->in_rules);
-	memset(rd, 0, sizeof(struct rib_desc));
+	filterlist_free(rib->in_rules_tmp);
+	filterlist_free(rib->in_rules);
+	ribs[rib->id] = NULL;
+	free(rib);
 }
 
 void
 rib_shutdown(void)
 {
+	struct rib *rib;
 	u_int16_t id;
 
 	for (id = 0; id < rib_size; id++) {
-		if (!rib_valid(id))
+		rib = rib_byid(id);
+		if (rib == NULL)
 			continue;
-		if (!RB_EMPTY(rib_tree(&ribs[id].rib))) {
+		if (!RB_EMPTY(rib_tree(ribs[id]))) {
 			log_warnx("%s: rib %s is not empty", __func__,
-			    ribs[id].name);
+			    ribs[id]->name);
 		}
-		rib_free(&ribs[id].rib);
+		rib_free(ribs[id]);
 	}
 	for (id = 0; id <= RIB_LOC_START; id++) {
-		struct rib_desc *rd = &ribs[id];
-		filterlist_free(rd->in_rules_tmp);
-		filterlist_free(rd->in_rules);
-		memset(rd, 0, sizeof(struct rib_desc));
+		rib = rib_byid(id);
+		if (rib == NULL)
+			continue;
+		filterlist_free(rib->in_rules_tmp);
+		filterlist_free(rib->in_rules);
+		ribs[id] = NULL;
+		free(rib);
 	}
 	free(ribs);
 }

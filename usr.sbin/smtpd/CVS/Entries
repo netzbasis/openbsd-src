@@ -13,7 +13,7 @@
 /dict.h/1.1/Sun Dec 23 16:06:24 2018//
 /dns.c/1.88/Wed Sep 26 16:28:34 2018//
 /enqueue.c/1.116/Tue Jul  2 09:36:20 2019//
-/envelope.c/1.44/Tue Aug 13 16:02:33 2019//
+/envelope.c/1.45/Wed Aug 14 21:11:25 2019//
 /esc.c/1.5/Sat Sep  3 22:16:39 2016//
 /expand.c/1.31/Thu May 31 21:06:12 2018//
 /forward.5/1.9/Fri Mar 13 22:41:54 2015//
@@ -75,7 +75,7 @@
 /smtp.c/1.166/Sat Aug 10 16:07:01 2019//
 /smtp.h/1.2/Thu Sep 20 11:42:28 2018//
 /smtp_client.c/1.10/Wed Jun 12 17:42:53 2019//
-/smtp_session.c/1.406/Tue Aug 13 16:02:33 2019//
+/smtp_session.c/1.407/Wed Aug 14 21:11:25 2019//
 /smtpc.c/1.6/Tue Jul  2 09:36:20 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.165/Tue Jul 23 08:11:10 2019//
@@ -97,7 +97,7 @@
 /table_getpwnam.c/1.12/Thu Dec 27 14:23:41 2018//
 /table_proc.c/1.15/Thu Dec 27 14:23:41 2018//
 /table_static.c/1.32/Fri Dec 28 14:21:02 2018//
-/to.c/1.40/Tue Aug 13 16:02:33 2019//
+/to.c/1.41/Wed Aug 14 21:11:25 2019//
 /tree.c/1.6/Sun Dec 23 16:06:24 2018//
 /tree.h/1.1/Sun Dec 23 16:06:24 2018//
 /unpack_dns.c/1.1/Sat Jan  6 07:57:53 2018//
