@@ -8,7 +8,7 @@
 /genassym.sh/1.13/Tue Aug 15 01:53:06 2017//
 /init_main.c/1.290/Fri Jun 21 09:39:48 2019//
 /init_sysent.c/1.208/Tue Aug 13 07:10:30 2019//
-/kern_acct.c/1.39/Wed Jul  3 22:39:33 2019//
+/kern_acct.c/1.40/Thu Aug 15 07:29:21 2019//
 /kern_bufq.c/1.32/Wed Aug 16 17:52:17 2017//
 /kern_clock.c/1.99/Fri Aug  2 02:17:35 2019//
 /kern_descrip.c/1.192/Mon Aug  5 08:35:59 2019//
@@ -77,7 +77,7 @@
 /tty_conf.c/1.23/Tue Dec 22 20:31:51 2015//
 /tty_endrun.c/1.8/Mon Feb 19 08:59:52 2018//
 /tty_msts.c/1.21/Mon Feb 19 08:59:52 2018//
-/tty_nmea.c/1.48/Sat Jan 26 22:51:13 2019//
+/tty_nmea.c/1.49/Thu Aug 15 15:08:14 2019//
 /tty_pty.c/1.94/Fri Jul 19 00:17:16 2019//
 /tty_subr.c/1.33/Mon Mar 14 23:08:06 2016//
 /tty_tty.c/1.24/Wed May  2 02:24:56 2018//
