@@ -1,4 +1,4 @@
-/Makefile/1.206/Thu Apr 25 20:25:27 2019//
+/Makefile/1.207/Fri Aug 16 17:03:55 2019//
 /Makefile.inc/1.3/Mon Dec 28 13:25:45 2015//
 D/ac////
 D/accton////
@@ -110,7 +110,6 @@ D/sensorsd////
 D/slaacctl////
 D/slowcgi////
 D/smtpd////
-D/snmpctl////
 D/snmpd////
 D/spamdb////
 D/switchctl////

@@ -2,8 +2,8 @@
 /ieee80211.h/1.62/Tue Feb 19 08:12:30 2019//
 /ieee80211_amrr.c/1.12/Sun Feb 24 09:36:28 2019//
 /ieee80211_amrr.h/1.4/Sat Jun 16 13:17:05 2007//
-/ieee80211_crypto.c/1.74/Mon Sep 24 20:14:59 2018//
-/ieee80211_crypto.h/1.25/Fri Aug 18 17:30:12 2017//
+/ieee80211_crypto.c/1.75/Fri Aug 16 19:53:32 2019//
+/ieee80211_crypto.h/1.26/Fri Aug 16 19:53:32 2019//
 /ieee80211_crypto_bip.c/1.10/Fri Nov  9 14:14:31 2018//
 /ieee80211_crypto_ccmp.c/1.21/Fri Nov  9 14:14:31 2018//
 /ieee80211_crypto_tkip.c/1.30/Fri Nov  9 14:14:31 2018//
