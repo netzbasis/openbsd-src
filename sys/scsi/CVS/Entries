@@ -1,13 +1,13 @@
-/cd.c/1.224/Sun Jan 20 20:28:37 2019//
+/cd.c/1.225/Sat Aug 17 15:31:41 2019//
 /cd.h/1.25/Wed Dec 16 10:51:28 2009//
 /ch.c/1.53/Sun Jan 20 20:28:37 2019//
 /files.scsi/1.25/Wed Apr 27 11:36:20 2011//
 /iscsi.h/1.8/Tue Apr 26 21:30:14 2011//
 /mpath.c/1.42/Sun Feb 10 16:42:35 2019//
-/mpath_emc.c/1.21/Sat Mar 14 03:38:52 2015//
-/mpath_hds.c/1.21/Thu Aug  9 01:41:48 2018//
-/mpath_rdac.c/1.23/Sat Mar 14 03:38:52 2015//
-/mpath_sym.c/1.23/Sat Mar 14 03:38:52 2015//
+/mpath_emc.c/1.22/Sat Aug 17 15:31:41 2019//
+/mpath_hds.c/1.22/Sat Aug 17 15:31:41 2019//
+/mpath_rdac.c/1.24/Sat Aug 17 15:31:41 2019//
+/mpath_sym.c/1.24/Sat Aug 17 15:31:41 2019//
 /mpathvar.h/1.9/Tue Aug 27 00:53:10 2013//
 /safte.c/1.53/Sun Aug 23 01:55:39 2015//
 /safte.h/1.6/Sun Jan  8 06:28:42 2006//
@@ -20,12 +20,12 @@
 /scsi_message.h/1.9/Sun Nov  1 23:06:03 2009//
 /scsi_scanner.h/1.10/Sat Dec 10 01:30:13 2005//
 /scsi_tape.h/1.9/Sun Jun  7 19:13:27 2015//
-/scsiconf.c/1.199/Wed Aug 14 21:02:02 2019//
-/scsiconf.h/1.167/Wed Aug 14 21:02:02 2019//
+/scsiconf.c/1.202/Sun Aug 18 02:43:52 2019//
+/scsiconf.h/1.168/Sun Aug 18 00:58:54 2019//
 /sd.c/1.277/Sun Jan 20 20:28:37 2019//
 /sdvar.h/1.42/Wed Oct  2 18:59:04 2013//
 /ses.c/1.55/Sun Aug 23 01:55:39 2015//
 /ses.h/1.10/Thu May 11 00:45:59 2006//
-/st.c/1.135/Sun Jan 20 03:28:19 2019//
+/st.c/1.136/Sat Aug 17 15:31:41 2019//
 /uk.c/1.19/Fri Sep  8 05:36:53 2017//
 D
