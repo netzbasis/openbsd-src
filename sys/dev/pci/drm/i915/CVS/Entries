@@ -10,7 +10,7 @@
 /i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_devlist.h/1.9/Sun Apr 14 10:14:51 2019//
 /i915_drv.c/1.120/Wed Jul 17 07:54:18 2019//
-/i915_drv.h/1.82/Sat May  4 11:34:47 2019//
+/i915_drv.h/1.83/Sun Aug 18 13:11:47 2019//
 /i915_gem.c/1.117/Sat Jul 27 04:47:59 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.c/1.2/Sun Apr 14 10:14:51 2019//

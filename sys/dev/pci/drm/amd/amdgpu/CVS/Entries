@@ -21,7 +21,7 @@
 /amdgpu_atomfirmware.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_atomfirmware.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_benchmark.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_bios.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_bios.c/1.2/Sun Aug 18 13:11:47 2019//
 /amdgpu_bo_list.c/1.2/Thu May 23 09:19:41 2019//
 /amdgpu_bo_list.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_cgs.c/1.1/Tue May 21 22:40:06 2019//

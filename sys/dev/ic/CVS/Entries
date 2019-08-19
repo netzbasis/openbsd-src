@@ -147,7 +147,7 @@
 /dwc_gmac.c/1.11/Sun Dec 30 20:11:59 2018//
 /dwc_gmac_reg.h/1.1/Sat Aug 13 20:35:57 2016//
 /dwc_gmac_var.h/1.4/Sun May 21 11:52:04 2017//
-/dwiic.c/1.6/Tue Aug  6 06:56:29 2019//
+/dwiic.c/1.8/Sun Aug 18 15:52:45 2019//
 /dwiicreg.h/1.2/Tue Aug  6 06:56:29 2019//
 /dwiicvar.h/1.3/Sat Mar 16 02:40:43 2019//
 /elink3.c/1.96/Fri Nov  9 14:14:31 2018//

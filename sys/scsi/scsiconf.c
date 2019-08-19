@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsiconf.c,v 1.202 2019/08/18 02:43:52 krw Exp $	*/
+/*	$OpenBSD: scsiconf.c,v 1.204 2019/08/18 23:58:24 krw Exp $	*/
 /*	$NetBSD: scsiconf.c,v 1.57 1996/05/02 01:09:01 neil Exp $	*/
 
 /*
@@ -344,24 +344,24 @@ int
 scsi_probe_target(struct scsibus_softc *sb, int target)
 {
 	struct scsi_link *alink = sb->adapter_link;
-	struct scsi_link *link;
+	struct scsi_link *link0;
 	struct scsi_report_luns_data *report;
 	int i, nluns, lun;
 
 	if (scsi_probe_lun(sb, target, 0) == EINVAL)
 		return (EINVAL);
 
-	link = scsi_get_link(sb, target, 0);
-	if (link == NULL)
+	link0 = scsi_get_link(sb, target, 0);
+	if (link0 == NULL)
 		return (ENXIO);
 
-	if ((link->flags & (SDEV_UMASS | SDEV_ATAPI)) == 0 &&
-	    SCSISPC(link->inqdata.version) > 2) {
+	if ((link0->flags & (SDEV_UMASS | SDEV_ATAPI)) == 0 &&
+	    SCSISPC(link0->inqdata.version) > 2) {
 		report = dma_alloc(sizeof(*report), PR_WAITOK);
 		if (report == NULL)
 			goto dumbscan;
 
-		if (scsi_report_luns(link, REPORT_NORMAL, report,
+		if (scsi_report_luns(link0, REPORT_NORMAL, report,
 		    sizeof(*report), scsi_autoconf | SCSI_SILENT |
 		    SCSI_IGNORE_ILLEGAL_REQUEST | SCSI_IGNORE_NOT_READY |
 		    SCSI_IGNORE_MEDIA_CHANGE, 10000) != 0) {
@@ -384,9 +384,9 @@ scsi_probe_target(struct scsibus_softc *sb, int target)
 				continue;
 
 			/* Probe the provided LUN. Don't check LUN 0. */
-			scsi_remove_link(sb, link);
+			scsi_remove_link(sb, link0);
 			scsi_probe_lun(sb, target, lun);
-			scsi_add_link(sb, link);
+			scsi_add_link(sb, link0);
 		}
 
 		dma_free(report, sizeof(*report));
@@ -881,8 +881,11 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 		return (0);
 
 	link = malloc(sizeof(*link), M_DEVBUF, M_NOWAIT);
-	if (link == NULL)
+	if (link == NULL) {
+		SC_DEBUG(link, SDEV_DB2, ("Bad LUN. can't allocate "
+		    "scsi_link.\n"));
 		return (EINVAL);
+	}
 
 	*link = *sb->adapter_link;
 	link->target = target;
@@ -896,8 +899,11 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 	/* ask the adapter if this will be a valid device */
 	if (sb->adapter_link->adapter->dev_probe != NULL &&
 	    sb->adapter_link->adapter->dev_probe(link) != 0) {
-		if (lun == 0)
+		if (lun == 0) {
+			SC_DEBUG(link, SDEV_DB2, ("Bad LUN 0. dev_probe() "
+			    "failed.\n"));
 			rslt = EINVAL;
+		}
 		goto free;
 	}
 
@@ -909,6 +915,8 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 		link->pool = malloc(sizeof(*link->pool),
 		    M_DEVBUF, M_NOWAIT);
 		if (link->pool == NULL) {
+			SC_DEBUG(link, SDEV_DB2, ("Bad LUN. can't allocate "
+			    "link->pool.\n"));
 			rslt = ENOMEM;
 			goto bad;
 		}
@@ -947,6 +955,7 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 	/* Now go ask the device all about itself. */
 	inqbuf = dma_alloc(sizeof(*inqbuf), PR_NOWAIT | PR_ZERO);
 	if (inqbuf == NULL) {
+		SC_DEBUG(link, SDEV_DB2, ("Bad LUN. can't allocate inqbuf.\n"));
 		rslt = ENOMEM;
 		goto bad;
 	}
@@ -956,9 +965,11 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 	dma_free(inqbuf, sizeof(*inqbuf));
 
 	if (rslt != 0) {
-		SC_DEBUG(link, SDEV_DB2, ("Bad LUN. rslt = %i\n", rslt));
-		if (lun == 0)
+		if (lun == 0) {
+			SC_DEBUG(link, SDEV_DB2, ("Bad LUN 0. inquiry rslt = "
+			    "%i\n", rslt));
 			rslt = EINVAL;
+		}
 		goto bad;
 	}
 	inqbuf = &link->inqdata;
@@ -994,7 +1005,7 @@ scsi_probedev(struct scsibus_softc *sb, int target, int lun)
 		;
 	else if (memcmp(inqbuf, &link0->inqdata, sizeof(*inqbuf)) == 0) {
 		/* The device doesn't distinguish between LUNs. */
-		SC_DEBUG(link, SDEV_DB1, ("IDENTIFY not supported.\n"));
+		SC_DEBUG(link, SDEV_DB1, ("Bad LUN. IDENTIFY not supported.\n"));
 		rslt = EINVAL;
 		goto free_devid;
 	}
