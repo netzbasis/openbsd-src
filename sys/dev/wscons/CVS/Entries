@@ -3,7 +3,7 @@
 /unicode.h/1.1/Tue May 16 23:49:10 2000//
 /wscons_callbacks.h/1.9/Fri Oct 18 22:06:40 2013//
 /wscons_features.h/1.3/Fri Oct 18 22:06:40 2013//
-/wsconsio.h/1.91/Sun Mar 24 17:55:39 2019//
+/wsconsio.h/1.92/Mon Aug 19 21:19:38 2019//
 /wsdisplay.c/1.133/Mon Jul  1 19:38:40 2019//
 /wsdisplay_compat_usl.c/1.32/Mon Jan 23 04:43:46 2017//
 /wsdisplay_usl_io.h/1.4/Sun Apr 24 17:30:31 2016//
@@ -26,9 +26,9 @@
 /wskbdvar.h/1.3/Fri May 12 09:16:55 2017//
 /wsksymdef.h/1.38/Sat May 11 14:19:16 2019//
 /wsksymvar.h/1.8/Sun Jan 26 17:48:08 2014//
-/wsmouse.c/1.56/Thu Aug  8 02:19:18 2019//
+/wsmouse.c/1.57/Mon Aug 19 21:19:38 2019//
 /wsmoused.h/1.10/Mon Oct 27 13:55:05 2014//
-/wsmouseinput.h/1.13/Sun Mar 24 18:04:02 2019//
+/wsmouseinput.h/1.14/Mon Aug 19 21:19:38 2019//
 /wsmousevar.h/1.15/Sun Jun 18 13:21:48 2017//
 /wsmux.c/1.48/Wed May 22 19:13:34 2019//
 /wsmuxvar.h/1.11/Mon Feb 18 17:39:14 2019//

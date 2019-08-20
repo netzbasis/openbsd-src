@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.149 2019/08/16 16:15:50 schwarze Exp $
+# $OpenBSD: Makefile,v 1.151 2019/08/19 13:52:53 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -91,6 +91,7 @@ MAN=	\
 	DSA_set_method.3 \
 	DSA_sign.3 \
 	DSA_size.3 \
+	ECDH_compute_key.3 \
 	ECDSA_SIG_new.3 \
 	EC_GFp_simple_method.3 \
 	EC_GROUP_copy.3 \
@@ -239,6 +240,7 @@ MAN=	\
 	X509_CRL_get0_by_serial.3 \
 	X509_CRL_new.3 \
 	X509_EXTENSION_set_object.3 \
+	X509_INFO_new.3 \
 	X509_LOOKUP_hash_dir.3 \
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
