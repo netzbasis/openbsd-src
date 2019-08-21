@@ -18,7 +18,7 @@
 /ifile.c/1.12/Sat Sep 17 15:06:41 2016//
 /input.c/1.10/Fri Nov  6 15:50:33 2015//
 /jump.c/1.11/Sat Sep 17 15:06:41 2016//
-/less.1/1.55/Sat Jul 20 13:21:09 2019//
+/less.1/1.56/Tue Aug 20 11:34:18 2019//
 /less.h/1.29/Tue Feb 26 11:01:54 2019//
 /less.hlp/1.5/Fri Apr 25 13:38:21 2014//
 /lesskey.1/1.16/Sun Jun  2 06:53:11 2019//
@@ -29,7 +29,7 @@
 /lsystem.c/1.19/Fri Jun 28 13:35:01 2019//
 /main.c/1.37/Fri Jun 28 05:44:09 2019//
 /mark.c/1.13/Sat Sep 17 15:06:41 2016//
-/more.1/1.17/Fri Apr 25 22:28:42 2014//
+/more.1/1.18/Tue Aug 20 11:34:18 2019//
 /more.hlp/1.2/Sun May 11 11:00:55 2014//
 /optfunc.c/1.17/Sat Mar 17 13:29:12 2018//
 /option.c/1.17/Sat Mar 17 14:03:36 2018//

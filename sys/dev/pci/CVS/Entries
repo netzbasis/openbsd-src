@@ -247,10 +247,10 @@
 /maestro.c/1.43/Wed Apr 11 04:48:31 2018//
 /mbg.c/1.30/Fri Sep  8 05:36:52 2017//
 /mfi_pci.c/1.29/Tue Sep  9 03:08:30 2014//
-/mfii.c/1.60/Tue Mar  5 01:43:07 2019//
+/mfii.c/1.61/Tue Aug 20 23:55:41 2019//
 /mmuagp.c/1.5/Tue Jul  8 17:19:25 2014//
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
-/mpii.c/1.118/Sun Jul  7 11:17:36 2019//
+/mpii.c/1.119/Tue Aug 20 23:55:41 2019//
 /mpiireg.h/1.13/Tue Jun 19 10:32:41 2018//
 /neo.c/1.33/Wed Apr 11 04:48:31 2018//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//
@@ -306,7 +306,7 @@
 /pucvar.h/1.16/Wed May  2 19:11:01 2018//
 /pwdog.c/1.10/Fri Sep  8 05:36:52 2017//
 /qla_pci.c/1.8/Thu Apr  3 20:01:47 2014//
-/qle.c/1.45/Mon Jul 30 07:34:37 2018//
+/qle.c/1.46/Tue Aug 20 22:31:28 2019//
 /qlereg.h/1.9/Sun Apr 20 09:49:23 2014//
 /qlw_pci.c/1.10/Thu Aug 17 12:21:31 2017//
 /rtsx_pci.c/1.14/Wed Sep  6 13:07:38 2017//
@@ -333,7 +333,7 @@
 /ubsecvar.h/1.40/Fri Aug 15 15:37:51 2014//
 /uhci_pci.c/1.33/Fri May 16 18:17:03 2014//
 /vga_pci.c/1.87/Thu Oct 29 07:47:03 2015//
-/vga_pci_common.c/1.8/Thu Oct 29 07:47:03 2015//
+/vga_pci_common.c/1.9/Wed Aug 21 02:18:33 2019//
 /vga_pcivar.h/1.20/Thu Oct 29 07:47:03 2015//
 /viapm.c/1.17/Thu Jul  5 10:09:11 2018//
 /virtio_pci.c/1.28/Mon May 27 15:55:01 2019//

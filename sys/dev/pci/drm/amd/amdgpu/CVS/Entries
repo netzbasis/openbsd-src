@@ -36,6 +36,7 @@
 /amdgpu_debugfs.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_debugfs.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_device.c/1.7/Thu Jul  4 03:41:35 2019//
+/amdgpu_devlist.h/1.1/Wed Aug 21 02:18:33 2019//
 /amdgpu_display.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_display.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_dpm.c/1.1/Tue May 21 22:40:06 2019//
