@@ -20,7 +20,7 @@
 /scsi_message.h/1.9/Sun Nov  1 23:06:03 2009//
 /scsi_scanner.h/1.10/Sat Dec 10 01:30:13 2005//
 /scsi_tape.h/1.9/Sun Jun  7 19:13:27 2015//
-/scsiconf.c/1.205/Tue Aug 20 13:40:37 2019//
+/scsiconf.c/1.206/Thu Aug 22 22:35:29 2019//
 /scsiconf.h/1.169/Tue Aug 20 13:40:37 2019//
 /sd.c/1.277/Sun Jan 20 20:28:37 2019//
 /sdvar.h/1.42/Wed Oct  2 18:59:04 2013//

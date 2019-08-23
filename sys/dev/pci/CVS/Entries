@@ -26,7 +26,7 @@
 /auacer.c/1.21/Mon Dec 12 06:43:01 2016//
 /auacerreg.h/1.1/Thu Aug 28 10:21:23 2008//
 /auglx.c/1.16/Tue Dec 20 15:45:29 2016//
-/auich.c/1.111/Thu Aug 15 09:38:56 2019//
+/auich.c/1.112/Thu Aug 22 09:47:29 2019//
 /auixp.c/1.40/Mon Sep  3 05:37:32 2018//
 /auixpreg.h/1.1/Sun Aug  7 20:08:45 2005//
 /auixpvar.h/1.4/Mon Sep 19 06:46:44 2016//
@@ -265,9 +265,9 @@
 /pci_map.c/1.32/Mon Jun 17 11:04:06 2019//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1894/Tue Aug 13 03:17:11 2019//
-/pcidevs.h/1.1887/Tue Aug 13 03:18:38 2019//
-/pcidevs_data.h/1.1882/Tue Aug 13 03:18:38 2019//
+/pcidevs/1.1895/Fri Aug 23 01:18:08 2019//
+/pcidevs.h/1.1888/Fri Aug 23 01:19:24 2019//
+/pcidevs_data.h/1.1883/Fri Aug 23 01:19:24 2019//
 /pciide.c/1.358/Wed Jul 12 13:40:59 2017//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//
