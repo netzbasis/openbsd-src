@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.144 2019/08/10 15:46:22 gilles Exp $	*/
+/*	$OpenBSD: util.c,v 1.146 2019/08/23 12:09:41 eric Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -546,6 +546,42 @@ valid_domainpart(const char *s)
 		return 0;
 
 	return res_hnok(s);
+}
+
+#define charok(c) ((c) == '-' || (c) == '_' || isalpha((int)(c)) || isdigit((int)(c)))
+
+#define MAXLABELSIZE 64
+#define MAXDNAMESIZE 254
+
+int
+valid_domainname(const char *dname)
+{
+	const char *label, *s = dname;
+
+	/* read a sequence of dot-separated label */
+	for (;;) {
+
+		/* label must have at least one char */
+		if (!charok(*s))
+			return 0;
+		label = s;
+		s++;
+
+		/* read all chars */
+		while (charok(*s))
+			s++;
+		if (s - label >= MAXLABELSIZE)
+			return 0;
+
+		if (*s == '\0') {
+			if (s - dname >= MAXDNAMESIZE)
+				return 0;
+			return 1;
+		}
+		if (*s != '.')
+			return 0;
+		s++;
+	}
 }
 
 int
