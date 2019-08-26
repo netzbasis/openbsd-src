@@ -21,7 +21,7 @@
 /kern_lock.c/1.70/Tue Jun  4 15:41:02 2019//
 /kern_malloc.c/1.139/Wed May 15 21:25:50 2019//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.254/Wed Jun 26 17:04:55 2019//
+/kern_pledge.c/1.255/Sun Aug 25 18:46:40 2019//
 /kern_proc.c/1.85/Mon Nov 12 15:09:17 2018//
 /kern_prot.c/1.76/Tue Jul  9 12:23:25 2019//
 /kern_resource.c/1.68/Mon Jul 15 20:44:48 2019//

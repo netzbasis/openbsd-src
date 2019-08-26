@@ -33,7 +33,7 @@
 /amdgpu_connectors.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_cs.c/1.3/Tue Jul  9 09:59:18 2019//
 /amdgpu_ctx.c/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_debugfs.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_debugfs.c/1.2/Sun Aug 25 12:02:59 2019//
 /amdgpu_debugfs.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_device.c/1.7/Thu Jul  4 03:41:35 2019//
 /amdgpu_devlist.h/1.1/Wed Aug 21 02:18:33 2019//
