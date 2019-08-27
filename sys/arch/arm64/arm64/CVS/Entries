@@ -20,7 +20,7 @@
 /intr.c/1.14/Mon May 13 20:55:22 2019//
 /locore.S/1.25/Tue May 28 20:32:30 2019//
 /locore0.S/1.5/Tue May 28 20:32:30 2019//
-/machdep.c/1.42/Tue Jul 30 18:08:28 2019//
+/machdep.c/1.43/Mon Aug 26 09:10:22 2019//
 /mem.c/1.6/Fri May  4 15:45:11 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.66/Sat Jul 13 21:47:06 2019//

@@ -62,7 +62,7 @@
 /cmd-source-file.c/1.41/Wed Jun  5 20:00:53 2019//
 /cmd-split-window.c/1.95/Fri May  3 20:44:24 2019//
 /cmd-swap-pane.c/1.35/Wed Aug 14 09:58:31 2019//
-/cmd-swap-window.c/1.24/Thu May  9 08:39:09 2019//
+/cmd-swap-window.c/1.25/Mon Aug 26 16:35:41 2019//
 /cmd-switch-client.c/1.58/Wed Aug 14 09:58:31 2019//
 /cmd-unbind-key.c/1.30/Tue Jan 24 21:50:22 2017//
 /cmd-wait-for.c/1.18/Tue Jun 18 11:08:42 2019//
