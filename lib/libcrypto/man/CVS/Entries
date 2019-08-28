@@ -187,9 +187,9 @@
 /OCSP_SERVICELOC_new.3/1.8/Fri Aug 23 12:23:39 2019//
 /OCSP_cert_to_id.3/1.10/Thu Jun  6 01:06:58 2019//
 /OCSP_request_add1_nonce.3/1.4/Thu Mar 22 21:08:22 2018//
-/OCSP_resp_find_status.3/1.9/Fri Mar 15 11:15:33 2019//
-/OCSP_response_status.3/1.7/Thu Jun  6 01:06:58 2019//
-/OCSP_sendreq_new.3/1.8/Fri Aug 23 12:23:39 2019//
+/OCSP_resp_find_status.3/1.10/Tue Aug 27 10:00:41 2019//
+/OCSP_response_status.3/1.8/Tue Aug 27 09:40:29 2019//
+/OCSP_sendreq_new.3/1.9/Tue Aug 27 10:48:41 2019//
 /OPENSSL_VERSION_NUMBER.3/1.12/Thu Jun  6 01:06:58 2019//
 /OPENSSL_cleanse.3/1.4/Mon Jun 10 09:49:48 2019//
 /OPENSSL_config.3/1.15/Fri Jun 14 13:41:31 2019//

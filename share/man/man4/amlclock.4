@@ -1,4 +1,4 @@
-.\"	$OpenBSD: amlreset.4,v 1.2 2019/08/27 08:24:37 kettenis Exp $
+.\"	$OpenBSD: amlclock.4,v 1.1 2019/08/27 09:05:57 kettenis Exp $
 .\"
 .\" Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -15,19 +15,19 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: August 27 2019 $
-.Dt AMLRESET 4
+.Dt AMLCLOCK 4
 .Os
 .Sh NAME
-.Nm amlreset
-.Nd Amlogic reset controller
+.Nm amlclock
+.Nd Amlogic clock controller
 .Sh SYNOPSIS
-.Cd "amlreset* at fdt?"
+.Cd "amlclock* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver controls the reset signals for integrated components of Amlogic SoCs.
+driver controls the clock signals for integrated components of Amlogic SoCs.
 .Sh SEE ALSO
-.Xr amlclock 4 ,
+.Xr amlreset 4 ,
 .Xr intro 4
 .Sh HISTORY
 The

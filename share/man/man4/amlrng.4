@@ -1,4 +1,4 @@
-.\"	$OpenBSD: amlreset.4,v 1.2 2019/08/27 08:24:37 kettenis Exp $
+.\"	$OpenBSD: amlrng.4,v 1.1 2019/08/27 22:27:08 kettenis Exp $
 .\"
 .\" Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -15,24 +15,29 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: August 27 2019 $
-.Dt AMLRESET 4
+.Dt AMLRNG 4
 .Os
 .Sh NAME
-.Nm amlreset
-.Nd Amlogic reset controller
+.Nm amlrng
+.Nd Amlogic random number generator
 .Sh SYNOPSIS
-.Cd "amlreset* at fdt?"
+.Cd "amlrng* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver controls the reset signals for integrated components of Amlogic SoCs.
+driver provides support for the random number generator found on the
+Amlogoc SoCs.
+.Pp
+It feeds the random subsystem's entropy pool with 32 bits of random
+data every second.
 .Sh SEE ALSO
-.Xr amlclock 4 ,
-.Xr intro 4
+.Xr intro 4 ,
+.Xr random 4 ,
+.Xr arc4random 9
 .Sh HISTORY
 The
 .Nm
-device driver first appeared in
+driver first appeared in
 .Ox 6.6 .
 .Sh AUTHORS
 .An -nosplit

@@ -1,4 +1,4 @@
-/Makefile/1.721/Mon Aug 26 09:44:26 2019//
+/Makefile/1.724/Tue Aug 27 22:27:08 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -59,7 +59,9 @@
 /amdiic.4/1.4/Tue Jul 16 16:05:48 2013//
 /amdpm.4/1.10/Thu May 31 19:19:49 2007//
 /ami.4/1.44/Mon Nov  4 14:07:15 2013//
-/amlreset.4/1.1/Mon Aug 26 09:44:26 2019//
+/amlclock.4/1.1/Tue Aug 27 09:05:57 2019//
+/amlreset.4/1.2/Tue Aug 27 08:24:37 2019//
+/amlrng.4/1.1/Tue Aug 27 22:27:08 2019//
 /amluart.4/1.1/Mon Aug 26 09:16:39 2019//
 /amphy.4/1.10/Thu May 31 19:19:49 2007//
 /ams.4/1.3/Thu Feb 13 08:35:00 2014//
@@ -234,6 +236,7 @@
 /imxiic.4/1.3/Sat Jun 16 14:32:22 2018//
 /imxrtc.4/1.2/Mon Jun 18 06:06:52 2018//
 /imxsrc.4/1.2/Fri Jan 11 20:39:46 2019//
+/imxtmu.4/1.1/Tue Aug 27 12:51:57 2019//
 /imxuart.4/1.1/Sun Apr  1 09:03:25 2018//
 /inet.4/1.18/Thu Mar 10 08:56:46 2016//
 /inet6.4/1.45/Tue May 14 12:47:17 2019//

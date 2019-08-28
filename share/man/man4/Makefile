@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.721 2019/08/26 09:44:26 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.724 2019/08/27 22:27:08 kettenis Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -11,7 +11,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	aggr.4 agp.4 \
 	ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
 	akbd.4 alipm.4 amas.4 amdiic.4 amdpm.4 ami.4 \
-	amlreset.4 amluart.4 \
+	amlclock.4 amlreset.4 amlrng.4 amluart.4 \
 	amphy.4 ams.4 an.4 andl.4 aplgpio.4 aps.4 arc.4 arcofi.4 \
 	asbtm.4 asmc.4 ast.4 atapiscsi.4 atphy.4 ath.4 athn.4 atu.4 atw.4 \
 	auacer.4 audio.4 aue.4 auglx.4 auich.4 auixp.4 autri.4 auvia.4 \
@@ -36,8 +36,8 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	hvn.4 hvs.4 hyperv.4 \
 	iatp.4 iavf.4 ichiic.4 ichwdt.4 icmp.4 icmp6.4 icsphy.4 ifmedia.4 \
 	iha.4 ihidev.4 iic.4 ikbd.4 ims.4 imt.4 imxanatop.4 \
-	imxesdhc.4 imxgpc.4 imxgpio.4 imxiic.4 imxrtc.4 imxsrc.4 imxuart.4 \
-	inet.4 inet6.4 inphy.4 iophy.4 \
+	imxesdhc.4 imxgpc.4 imxgpio.4 imxiic.4 imxrtc.4 imxsrc.4 imxtmu.4 \
+	imxuart.4 inet.4 inet6.4 inphy.4 iophy.4 \
 	ip.4 ip6.4 ipcomp.4 ipgphy.4 ipmi.4 ips.4 ipsec.4 ipw.4 \
 	isa.4 isagpio.4 isapnp.4 islrtc.4 it.4 itherm.4 iwi.4 iwn.4 iwm.4 \
 	ix.4 ixgb.4 ixl.4 jmb.4 jme.4 jmphy.4 \

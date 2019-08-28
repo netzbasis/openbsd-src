@@ -11,7 +11,7 @@
 /mpathvar.h/1.9/Tue Aug 27 00:53:10 2013//
 /safte.c/1.54/Sat Aug 24 02:13:55 2019//
 /safte.h/1.6/Sun Jan  8 06:28:42 2006//
-/scsi_all.h/1.55/Sun Jun  7 19:13:27 2015//
+/scsi_all.h/1.56/Tue Aug 27 14:41:45 2019//
 /scsi_base.c/1.227/Fri Sep  8 05:36:53 2017//
 /scsi_changer.h/1.6/Sun Jun  7 19:13:27 2015//
 /scsi_debug.h/1.13/Sat Nov 11 02:35:16 2017//
@@ -20,7 +20,7 @@
 /scsi_message.h/1.9/Sun Nov  1 23:06:03 2009//
 /scsi_scanner.h/1.10/Sat Dec 10 01:30:13 2005//
 /scsi_tape.h/1.9/Sun Jun  7 19:13:27 2015//
-/scsiconf.c/1.207/Sat Aug 24 13:41:06 2019//
+/scsiconf.c/1.208/Tue Aug 27 14:41:45 2019//
 /scsiconf.h/1.170/Sat Aug 24 13:41:06 2019//
 /sd.c/1.277/Sun Jan 20 20:28:37 2019//
 /sdvar.h/1.42/Wed Oct  2 18:59:04 2013//

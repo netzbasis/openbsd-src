@@ -1,6 +1,6 @@
-.\"	$OpenBSD: amlreset.4,v 1.2 2019/08/27 08:24:37 kettenis Exp $
+.\"	$OpenBSD: imxtmu.4,v 1.1 2019/08/27 12:51:57 patrick Exp $
 .\"
-.\" Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
+.\" Copyright (c) 2019 Patrick Wildt <patrick@blueri.se>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,28 +15,34 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: August 27 2019 $
-.Dt AMLRESET 4
+.Dt IMXTMU 4
 .Os
 .Sh NAME
-.Nm amlreset
-.Nd Amlogic reset controller
+.Nm imxtmu
+.Nd i.MX temperature monitor
 .Sh SYNOPSIS
-.Cd "amlreset* at fdt?"
+.Cd "imxtmu* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver controls the reset signals for integrated components of Amlogic SoCs.
+driver provides support for the temperature sensor found on the
+Freescale i.MX8 processors.
+.Pp
+Sensor values are made available through the
+.Xr sysctl 8
+interface.
 .Sh SEE ALSO
-.Xr amlclock 4 ,
-.Xr intro 4
+.Xr intro 4 ,
+.Xr sensorsd 8 ,
+.Xr sysctl 8
 .Sh HISTORY
 The
 .Nm
-device driver first appeared in
+driver first appeared in
 .Ox 6.6 .
 .Sh AUTHORS
 .An -nosplit
 The
 .Nm
 driver was written by
-.An Mark Kettenis Aq Mt kettenis@openbsd.org .
+.An Patrick Wildt Aq Mt patrick@blueri.se .
