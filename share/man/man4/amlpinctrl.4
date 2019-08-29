@@ -1,4 +1,4 @@
-.\"	$OpenBSD: amlrng.4,v 1.2 2019/08/28 06:11:36 naddy Exp $
+.\"	$OpenBSD: amlpinctrl.4,v 1.1 2019/08/28 09:46:32 kettenis Exp $
 .\"
 .\" Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -15,29 +15,24 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: August 28 2019 $
-.Dt AMLRNG 4
+.Dt AMLPINCTRL 4
 .Os
 .Sh NAME
-.Nm amlrng
-.Nd Amlogic random number generator
+.Nm amlpinctrl
+.Nd Amlogic pin multiplexing
 .Sh SYNOPSIS
-.Cd "amlrng* at fdt?"
+.Cd "amlpinctrl* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the random number generator found on the
-Amlogic SoCs.
-.Pp
-It feeds the random subsystem's entropy pool with 32 bits of random
-data every second.
+driver uses pin control data from the device tree to select one of
+multiple possible roles available for pins on Amlogic SoCs.
 .Sh SEE ALSO
-.Xr intro 4 ,
-.Xr random 4 ,
-.Xr arc4random 9
+.Xr intro 4
 .Sh HISTORY
 The
 .Nm
-driver first appeared in
+device driver first appeared in
 .Ox 6.6 .
 .Sh AUTHORS
 .An -nosplit

@@ -48,7 +48,7 @@
 /subr_autoconf.c/1.93/Wed Dec  5 15:44:22 2018//
 /subr_disk.c/1.234/Sat Apr 28 15:44:59 2018//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
-/subr_extent.c/1.60/Wed Nov 14 17:52:48 2018//
+/subr_extent.c/1.61/Wed Aug 28 22:22:43 2019//
 /subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
 /subr_kubsan.c/1.8/Thu Jun 20 14:55:22 2019//
 /subr_log.c/1.58/Thu Jun 20 04:31:33 2019//
