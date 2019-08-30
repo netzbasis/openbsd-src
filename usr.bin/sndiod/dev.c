@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.54 2019/07/12 06:30:55 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.58 2019/08/29 07:38:15 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -57,7 +57,10 @@ int dev_getpos(struct dev *);
 struct dev *dev_new(char *, struct aparams *, unsigned int, unsigned int,
     unsigned int, unsigned int, unsigned int, unsigned int);
 void dev_adjpar(struct dev *, int, int, int);
+int dev_open_do(struct dev *);
 int dev_open(struct dev *);
+void dev_exitall(struct dev *);
+void dev_close_do(struct dev *);
 void dev_close(struct dev *);
 int dev_ref(struct dev *);
 void dev_unref(struct dev *);
@@ -1028,24 +1031,11 @@ dev_adjpar(struct dev *d, int mode,
  * monitor, midi control, and any necessary conversions.
  */
 int
-dev_open(struct dev *d)
+dev_open_do(struct dev *d)
 {
-	d->mode = d->reqmode;
-	d->round = d->reqround;
-	d->bufsz = d->reqbufsz;
-	d->rate = d->reqrate;
-	d->pchan = d->reqpchan;
-	d->rchan = d->reqrchan;
-	d->par = d->reqpar;
-	if (d->pchan == 0)
-		d->pchan = 2;
-	if (d->rchan == 0)
-		d->rchan = 2;
 	if (!dev_sio_open(d)) {
 		if (log_level >= 1) {
 			dev_log(d);
-			log_puts(": ");
-			log_puts(d->path);
 			log_puts(": failed to open audio device\n");
 		}
 		return 0;
@@ -1108,15 +1098,51 @@ dev_open(struct dev *d)
 }
 
 /*
- * force the device to go in DEV_CFG state, the caller is supposed to
- * ensure buffers are drained
+ * Reset parameters and open the device.
+ */
+int
+dev_open(struct dev *d)
+{
+	d->mode = d->reqmode;
+	d->round = d->reqround;
+	d->bufsz = d->reqbufsz;
+	d->rate = d->reqrate;
+	d->pchan = d->reqpchan;
+	d->rchan = d->reqrchan;
+	d->par = d->reqpar;
+	if (d->pchan == 0)
+		d->pchan = 2;
+	if (d->rchan == 0)
+		d->rchan = 2;
+	if (!dev_open_do(d))
+		return 0;
+	return 1;
+}
+
+/*
+ * Force all slots to exit
  */
 void
-dev_close(struct dev *d)
+dev_exitall(struct dev *d)
 {
 	int i;
 	struct slot *s;
 
+	for (s = d->slot, i = DEV_NSLOT; i > 0; i--, s++) {
+		if (s->ops)
+			s->ops->exit(s->arg);
+		s->ops = NULL;
+	}
+	d->slot_list = NULL;
+}
+
+/*
+ * force the device to go in DEV_CFG state, the caller is supposed to
+ * ensure buffers are drained
+ */
+void
+dev_close_do(struct dev *d)
+{
 #ifdef DEBUG
 	if (log_level >= 3) {
 		dev_log(d);
@@ -1124,12 +1150,6 @@ dev_close(struct dev *d)
 	}
 #endif
 	d->pstate = DEV_CFG;
-	for (s = d->slot, i = DEV_NSLOT; i > 0; i--, s++) {
-		if (s->ops)
-			s->ops->exit(s->arg);
-		s->ops = NULL;
-	}
-	d->slot_list = NULL;
 	dev_sio_close(d);
 	if (d->mode & MODE_PLAY) {
 		if (d->encbuf != NULL)
@@ -1141,6 +1161,16 @@ dev_close(struct dev *d)
 			xfree(d->decbuf);
 		xfree(d->rbuf);
 	}
+}
+
+/*
+ * Close the device and exit all slots
+ */
+void
+dev_close(struct dev *d)
+{
+	dev_exitall(d);
+	dev_close_do(d);
 }
 
 int

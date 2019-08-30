@@ -144,7 +144,7 @@
 /if_iwi.c/1.140/Thu Jul 25 01:46:14 2019//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.245/Tue Aug 27 14:57:48 2019//
+/if_iwm.c/1.247/Thu Aug 29 07:49:15 2019//
 /if_iwmreg.h/1.29/Thu Aug  8 13:56:56 2019//
 /if_iwmvar.h/1.38/Sun Feb 24 09:37:18 2019//
 /if_iwn.c/1.213/Tue Aug 27 14:57:48 2019//
@@ -250,7 +250,7 @@
 /mfii.c/1.62/Wed Aug 28 04:55:51 2019//
 /mmuagp.c/1.5/Tue Jul  8 17:19:25 2014//
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
-/mpii.c/1.119/Tue Aug 20 23:55:41 2019//
+/mpii.c/1.120/Fri Aug 30 00:38:12 2019//
 /mpiireg.h/1.13/Tue Jun 19 10:32:41 2018//
 /neo.c/1.33/Wed Apr 11 04:48:31 2018//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//
