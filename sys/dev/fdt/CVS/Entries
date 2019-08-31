@@ -27,7 +27,7 @@
 /hidwusb.c/1.2/Thu Aug 29 11:51:48 2019//
 /hireset.c/1.1/Mon Aug 27 14:12:59 2018//
 /hitemp.c/1.1/Mon Aug 27 21:09:47 2018//
-/if_dwge_fdt.c/1.9/Tue Dec  4 11:25:48 2018//
+/if_dwge_fdt.c/1.10/Fri Aug 30 19:35:55 2019//
 /if_dwxe.c/1.11/Thu Jan  3 00:59:58 2019//
 /if_fec.c/1.8/Wed Feb  6 22:59:06 2019//
 /if_mvneta.c/1.7/Tue Apr 30 20:26:02 2019//

@@ -1,13 +1,13 @@
-/Makefile.inc/1.24/Sat Sep  3 16:25:03 2016//
-/SipHash24.3/1.5/Mon Sep 14 15:14:55 2015//
+/MD5Init.3/1.1/Fri Aug 30 22:20:43 2019//
+/Makefile.inc/1.25/Fri Aug 30 22:20:43 2019//
+/RMD160Init.3/1.1/Fri Aug 30 22:20:43 2019//
+/SHA1Init.3/1.1/Fri Aug 30 22:20:43 2019//
+/SHA256Init.3/1.1/Fri Aug 30 22:20:43 2019//
+/SipHash24_Init.3/1.1/Fri Aug 30 22:20:43 2019//
 /helper.c/1.18/Fri Jun 28 13:32:41 2019//
-/md5.3/1.7/Tue Jun 13 19:41:55 2017//
 /md5.c/1.11/Fri Sep 11 09:18:27 2015//
-/rmd160.3/1.39/Fri Jan 25 00:19:25 2019//
 /rmd160.c/1.22/Fri Sep 11 09:18:27 2015//
-/sha1.3/1.46/Fri Jan 25 00:19:25 2019//
 /sha1.c/1.27/Fri Jun  7 22:56:36 2019//
-/sha2.3/1.27/Fri Jan 25 00:19:25 2019//
 /sha2.c/1.28/Tue Jul 23 12:35:22 2019//
 /siphash.c/1.8/Sun Jan 20 03:53:47 2019//
 D
