@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_filter.c,v 1.38 2019/07/01 07:40:43 martijn Exp $	*/
+/*	$OpenBSD: lka_filter.c,v 1.44 2019/08/29 08:49:55 gilles Exp $	*/
 
 /*
  * Copyright (c) 2018 Gilles Chehade <gilles@poolp.org>
@@ -35,7 +35,7 @@
 #include "smtpd.h"
 #include "log.h"
 
-#define	PROTOCOL_VERSION	1
+#define	PROTOCOL_VERSION	"0.2"
 
 struct filter;
 struct filter_session;
@@ -61,7 +61,7 @@ static void	filter_result_reject(uint64_t, const char *);
 static void	filter_result_disconnect(uint64_t, const char *);
 
 static void	filter_session_io(struct io *, int, void *);
-int		lka_filter_process_response(const char *, const char *);
+void		lka_filter_process_response(const char *, const char *);
 
 
 struct filter_session {
@@ -218,13 +218,13 @@ lka_filter_register_hook(const char *name, const char *hook)
 		hook += 8;
 	}
 	else
-		return;
+		fatalx("Invalid message direction: %s", hook);
 
 	for (i = 0; i < nitems(filter_execs); i++)
 		if (strcmp(hook, filter_execs[i].phase_name) == 0)
 			break;
 	if (i == nitems(filter_execs))
-		return;
+		fatalx("Unrecognized report name: %s", hook);
 
 	iter = NULL;
 	while (dict_iter(&filters, &iter, &filter_name, (void **)&filter))
@@ -414,7 +414,7 @@ filter_session_io(struct io *io, int evt, void *arg)
 	}
 }
 
-int
+void
 lka_filter_process_response(const char *name, const char *line)
 {
 	uint64_t reqid;
@@ -430,87 +430,68 @@ lka_filter_process_response(const char *name, const char *line)
 
 	(void)strlcpy(buffer, line, sizeof buffer);
 	if ((ep = strchr(buffer, '|')) == NULL)
-		return 0;
-	*ep = 0;
+		fatalx("Missing token: %s", line);
+	ep[0] = '\0';
 
 	kind = buffer;
-	if (strcmp(kind, "register") == 0)
-		return 1;
-
-	if (strcmp(kind, "filter-result") != 0 &&
-	    strcmp(kind, "filter-dataline") != 0)
-		return 0;
 
 	qid = ep+1;
 	if ((ep = strchr(qid, '|')) == NULL)
-		return 0;
-	*ep = 0;
+		fatalx("Missing reqid: %s", line);
+	ep[0] = '\0';
 
 	token = strtoull(qid, &ep, 16);
 	if (qid[0] == '\0' || *ep != '\0')
-		return 0;
-	if (errno == ERANGE && token == ULONG_MAX)
-		return 0;
+		fatalx("Invalid token: %s", line);
+	if (errno == ERANGE && token == ULLONG_MAX)
+		fatal("Invalid token: %s", line);
 
 	qid = ep+1;
 	if ((ep = strchr(qid, '|')) == NULL)
-		return 0;
-	*ep = 0;
+		fatal("Missing directive: %s", line);
+	ep[0] = '\0';
 
 	reqid = strtoull(qid, &ep, 16);
 	if (qid[0] == '\0' || *ep != '\0')
-		return 0;
-	if (errno == ERANGE && reqid == ULONG_MAX)
-		return 0;
+		fatalx("Invalid reqid: %s", line);
+	if (errno == ERANGE && reqid == ULLONG_MAX)
+		fatal("Invalid reqid: %s", line);
 
 	response = ep+1;
 
 	fs = tree_xget(&sessions, reqid);
 	if (strcmp(kind, "filter-dataline") == 0) {
 		if (fs->phase != FILTER_DATA_LINE)
-			fatalx("misbehaving filter");
+			fatalx("filter-dataline out of dataline phase");
 		filter_data_next(token, reqid, response);
-		return 1;
+		return;
 	}
 	if (fs->phase == FILTER_DATA_LINE)
-		fatalx("misbehaving filter");
+		fatalx("filter-result in dataline phase");
 
 	if ((ep = strchr(response, '|'))) {
 		parameter = ep + 1;
-		*ep = 0;
+		ep[0] = '\0';
 	}
 
-	if (strcmp(response, "proceed") != 0 &&
-	    strcmp(response, "reject") != 0 &&
-	    strcmp(response, "disconnect") != 0 &&
-	    strcmp(response, "rewrite") != 0)
-		return 0;
+	if (strcmp(response, "proceed") == 0) {
+		if (parameter != NULL)
+			fatalx("Unexpected parameter after proceed: %s", line);
+		filter_protocol_next(token, reqid, 0);
+		return;
+	} else {
+		if (parameter == NULL)
+			fatalx("Missing parameter: %s", line);
 
-	if (strcmp(response, "proceed") == 0 &&
-	    parameter)
-		return 0;
-
-	if (strcmp(response, "proceed") != 0 &&
-	    parameter == NULL)
-		return 0;
-
-	if (strcmp(response, "rewrite") == 0) {
-		filter_result_rewrite(reqid, parameter);
-		return 1;
+		if (strcmp(response, "rewrite") == 0)
+			filter_result_rewrite(reqid, parameter);
+		else if (strcmp(response, "reject") == 0)
+			filter_result_reject(reqid, parameter);
+		else if (strcmp(response, "disconnect") == 0)
+			filter_result_disconnect(reqid, parameter);
+		else
+			fatalx("Invalid directive: %s", line);
 	}
-
-	if (strcmp(response, "reject") == 0) {
-		filter_result_reject(reqid, parameter);
-		return 1;
-	}
-
-	if (strcmp(response, "disconnect") == 0) {
-		filter_result_disconnect(reqid, parameter);
-		return 1;
-	}
-
-	filter_protocol_next(token, reqid, 0);
-	return 1;
 }
 
 void
@@ -740,13 +721,13 @@ filter_protocol_query(struct filter *filter, uint64_t token, uint64_t reqid, con
 	fs = tree_xget(&sessions, reqid);
 	if (strcmp(phase, "connect") == 0)
 		n = io_printf(lka_proc_get_io(filter->proc),
-		    "filter|%d|%lld.%06ld|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s|%s\n",
+		    "filter|%s|%lld.%06ld|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s|%s\n",
 		    PROTOCOL_VERSION,
 		    tv.tv_sec, tv.tv_usec,
 		    phase, reqid, token, fs->rdns, param);
 	else
 		n = io_printf(lka_proc_get_io(filter->proc),
-		    "filter|%d|%lld.%06ld|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s\n",
+		    "filter|%s|%lld.%06ld|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s\n",
 		    PROTOCOL_VERSION,
 		    tv.tv_sec, tv.tv_usec,
 		    phase, reqid, token, param);
@@ -763,7 +744,7 @@ filter_data_query(struct filter *filter, uint64_t token, uint64_t reqid, const c
 	gettimeofday(&tv, NULL);
 
 	n = io_printf(lka_proc_get_io(filter->proc),
-	    "filter|%d|%lld.%06ld|smtp-in|data-line|"
+	    "filter|%s|%lld.%06ld|smtp-in|data-line|"
 	    "%016"PRIx64"|%016"PRIx64"|%s\n",
 	    PROTOCOL_VERSION,
 	    tv.tv_sec, tv.tv_usec,
@@ -953,7 +934,7 @@ filter_check_fcrdns(struct filter *filter, int fcrdns)
 	if (!filter->config->fcrdns)
 		return 0;
 
-	ret = fcrdns == 0;
+	ret = fcrdns == 1;
 	return filter->config->not_fcrdns < 0 ? !ret : ret;
 }
 
@@ -966,10 +947,15 @@ filter_check_rdns(struct filter *filter, const char *hostname)
 	if (!filter->config->rdns)
 		return 0;
 
+	/* this is a hack until smtp session properly deals with lack of rdns */
+	ret = strcmp("<unknown>", hostname);
+	if (ret == 0)
+		return filter->config->not_rdns < 0 ? !ret : ret;
+
 	/* if text_to_netaddress succeeds,
 	 * we don't have an rDNS so the filter should match
 	 */
-	ret = text_to_netaddr(&netaddr, hostname);
+	ret = !text_to_netaddr(&netaddr, hostname);
 	return filter->config->not_rdns < 0 ? !ret : ret;
 }
 

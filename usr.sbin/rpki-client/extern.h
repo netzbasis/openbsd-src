@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.5 2019/06/19 16:30:37 deraadt Exp $ */
+/*	$OpenBSD: extern.h,v 1.7 2019/08/20 16:01:52 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -200,6 +200,9 @@ enum	rtype {
 	RTYPE_CRL
 };
 
+/* global variables */
+extern int verbose;
+
 /* Routines for RPKI entities. */
 
 void		 tal_buffer(char **, size_t *, size_t *, const struct tal *);
@@ -298,6 +301,7 @@ int		 x509_get_ski_aki(X509 *, const char *, char **, char **);
 
 /* Output! */
 
-void		 output_bgpd(const struct roa **, size_t, int, size_t *, size_t *);
+void		 output_bgpd(FILE *, const struct roa **, size_t,
+			size_t *, size_t *);
 
 #endif /* ! EXTERN_H */

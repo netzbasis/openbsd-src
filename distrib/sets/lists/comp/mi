@@ -1701,6 +1701,7 @@
 ./usr/share/man/man2/wait.2
 ./usr/share/man/man2/write.2
 ./usr/share/man/man3/ACCESS_DESCRIPTION_new.3
+./usr/share/man/man3/AES_encrypt.3
 ./usr/share/man/man3/ASN1_INTEGER_get.3
 ./usr/share/man/man3/ASN1_OBJECT_new.3
 ./usr/share/man/man3/ASN1_STRING_TABLE_add.3
@@ -1712,6 +1713,7 @@
 ./usr/share/man/man3/ASN1_generate_nconf.3
 ./usr/share/man/man3/ASN1_item_d2i.3
 ./usr/share/man/man3/ASN1_item_new.3
+./usr/share/man/man3/ASN1_put_object.3
 ./usr/share/man/man3/ASN1_time_parse.3
 ./usr/share/man/man3/AUTHORITY_KEYID_new.3
 ./usr/share/man/man3/BASIC_CONSTRAINTS_new.3
@@ -1768,6 +1770,7 @@
 ./usr/share/man/man3/CONF_modules_load_file.3
 ./usr/share/man/man3/CRYPTO_get_mem_functions.3
 ./usr/share/man/man3/CRYPTO_lock.3
+./usr/share/man/man3/CRYPTO_memcmp.3
 ./usr/share/man/man3/CRYPTO_set_ex_data.3
 ./usr/share/man/man3/DES_set_key.3
 ./usr/share/man/man3/DH_generate_key.3
@@ -1791,10 +1794,12 @@
 ./usr/share/man/man3/DSA_sign.3
 ./usr/share/man/man3/DSA_size.3
 ./usr/share/man/man3/DTLSv1_listen.3
+./usr/share/man/man3/ECDH_compute_key.3
 ./usr/share/man/man3/ECDSA_SIG_new.3
 ./usr/share/man/man3/EC_GFp_simple_method.3
 ./usr/share/man/man3/EC_GROUP_copy.3
 ./usr/share/man/man3/EC_GROUP_new.3
+./usr/share/man/man3/EC_KEY_METHOD_new.3
 ./usr/share/man/man3/EC_KEY_new.3
 ./usr/share/man/man3/EC_POINT_add.3
 ./usr/share/man/man3/EC_POINT_new.3
@@ -1855,11 +1860,14 @@
 ./usr/share/man/man3/EVP_camellia_128_cbc.3
 ./usr/share/man/man3/EVP_des_cbc.3
 ./usr/share/man/man3/EVP_rc4.3
+./usr/share/man/man3/EVP_sm3.3
 ./usr/share/man/man3/EVP_sm4_cbc.3
+./usr/share/man/man3/EVP_whirlpool.3
 ./usr/share/man/man3/EXTENDED_KEY_USAGE_new.3
 ./usr/share/man/man3/GENERAL_NAME_new.3
 ./usr/share/man/man3/HMAC.3
 ./usr/share/man/man3/MD5.3
+./usr/share/man/man3/MD5Init.3
 ./usr/share/man/man3/NAME_CONSTRAINTS_new.3
 ./usr/share/man/man3/OBJ_nid2obj.3
 ./usr/share/man/man3/OCSP_CRLID_new.3
@@ -1906,6 +1914,7 @@
 ./usr/share/man/man3/RAND_set_rand_method.3
 ./usr/share/man/man3/RC4.3
 ./usr/share/man/man3/RIPEMD160.3
+./usr/share/man/man3/RMD160Init.3
 ./usr/share/man/man3/RSA_PSS_PARAMS_new.3
 ./usr/share/man/man3/RSA_blinding_on.3
 ./usr/share/man/man3/RSA_check_key.3
@@ -1923,6 +1932,8 @@
 ./usr/share/man/man3/RSA_sign_ASN1_OCTET_STRING.3
 ./usr/share/man/man3/RSA_size.3
 ./usr/share/man/man3/SHA1.3
+./usr/share/man/man3/SHA1Init.3
+./usr/share/man/man3/SHA256Init.3
 ./usr/share/man/man3/SMIME_read_PKCS7.3
 ./usr/share/man/man3/SMIME_write_PKCS7.3
 ./usr/share/man/man3/SSL_CIPHER_get_name.3
@@ -2036,7 +2047,7 @@
 ./usr/share/man/man3/SSL_write.3
 ./usr/share/man/man3/STACK_OF.3
 ./usr/share/man/man3/SXNET_new.3
-./usr/share/man/man3/SipHash24.3
+./usr/share/man/man3/SipHash24_Init.3
 ./usr/share/man/man3/TS_REQ_new.3
 ./usr/share/man/man3/UI_UTIL_read_pw.3
 ./usr/share/man/man3/UI_create_method.3
@@ -2050,6 +2061,7 @@
 ./usr/share/man/man3/X509_CRL_get0_by_serial.3
 ./usr/share/man/man3/X509_CRL_new.3
 ./usr/share/man/man3/X509_EXTENSION_set_object.3
+./usr/share/man/man3/X509_INFO_new.3
 ./usr/share/man/man3/X509_LOOKUP_hash_dir.3
 ./usr/share/man/man3/X509_NAME_ENTRY_get_object.3
 ./usr/share/man/man3/X509_NAME_add_entry_by_txt.3
@@ -2074,10 +2086,13 @@
 ./usr/share/man/man3/X509_check_host.3
 ./usr/share/man/man3/X509_check_issued.3
 ./usr/share/man/man3/X509_check_private_key.3
+./usr/share/man/man3/X509_check_purpose.3
+./usr/share/man/man3/X509_cmp.3
 ./usr/share/man/man3/X509_cmp_time.3
 ./usr/share/man/man3/X509_digest.3
 ./usr/share/man/man3/X509_get0_notBefore.3
 ./usr/share/man/man3/X509_get0_signature.3
+./usr/share/man/man3/X509_get1_email.3
 ./usr/share/man/man3/X509_get_pubkey.3
 ./usr/share/man/man3/X509_get_serialNumber.3
 ./usr/share/man/man3/X509_get_subject_name.3
@@ -2120,12 +2135,11 @@
 ./usr/share/man/man3/ber_read_elements.3
 ./usr/share/man/man3/ber_set_header.3
 ./usr/share/man/man3/bindresvport.3
-./usr/share/man/man3/bitstring.3
+./usr/share/man/man3/bit_alloc.3
 ./usr/share/man/man3/blowfish.3
 ./usr/share/man/man3/bsearch.3
 ./usr/share/man/man3/btowc.3
 ./usr/share/man/man3/btree.3
-./usr/share/man/man3/byteorder.3
 ./usr/share/man/man3/bzero.3
 ./usr/share/man/man3/cacos.3
 ./usr/share/man/man3/cacosh.3
@@ -2298,11 +2312,11 @@
 ./usr/share/man/man3/end.3
 ./usr/share/man/man3/erf.3
 ./usr/share/man/man3/err.3
-./usr/share/man/man3/ethers.3
+./usr/share/man/man3/ether_aton.3
 ./usr/share/man/man3/evbuffer_new.3
 ./usr/share/man/man3/event.3
 ./usr/share/man/man3/evp.3
-./usr/share/man/man3/exec.3
+./usr/share/man/man3/execv.3
 ./usr/share/man/man3/exit.3
 ./usr/share/man/man3/exp.3
 ./usr/share/man/man3/fabs.3
@@ -2445,6 +2459,7 @@
 ./usr/share/man/man3/glob.3
 ./usr/share/man/man3/hash.3
 ./usr/share/man/man3/hcreate.3
+./usr/share/man/man3/htobe64.3
 ./usr/share/man/man3/htonl.3
 ./usr/share/man/man3/hypot.3
 ./usr/share/man/man3/i2d_PKCS7_bio_stream.3
@@ -2457,7 +2472,7 @@
 ./usr/share/man/man3/inet6_rth_space.3
 ./usr/share/man/man3/inet_addr.3
 ./usr/share/man/man3/inet_lnaof.3
-./usr/share/man/man3/inet_net.3
+./usr/share/man/man3/inet_net_ntop.3
 ./usr/share/man/man3/inet_ntop.3
 ./usr/share/man/man3/initgroups.3
 ./usr/share/man/man3/insque.3
@@ -2524,7 +2539,6 @@
 ./usr/share/man/man3/mbsrtowcs.3
 ./usr/share/man/man3/mbstowcs.3
 ./usr/share/man/man3/mbtowc.3
-./usr/share/man/man3/md5.3
 ./usr/share/man/man3/memccpy.3
 ./usr/share/man/man3/memchr.3
 ./usr/share/man/man3/memcmp.3
@@ -2579,7 +2593,7 @@
 ./usr/share/man/man3/panel.3
 ./usr/share/man/man3/pause.3
 ./usr/share/man/man3/pcap-filter.3
-./usr/share/man/man3/pcap.3
+./usr/share/man/man3/pcap_open_live.3
 ./usr/share/man/man3/perror.3
 ./usr/share/man/man3/pidfile.3
 ./usr/share/man/man3/pkcs5_pbkdf2.3
@@ -2680,10 +2694,9 @@
 ./usr/share/man/man3/regex.3
 ./usr/share/man/man3/remainder.3
 ./usr/share/man/man3/remove.3
+./usr/share/man/man3/res_init.3
 ./usr/share/man/man3/resizeterm.3
-./usr/share/man/man3/resolver.3
 ./usr/share/man/man3/rint.3
-./usr/share/man/man3/rmd160.3
 ./usr/share/man/man3/round.3
 ./usr/share/man/man3/rpc.3
 ./usr/share/man/man3/scalbn.3
@@ -2704,8 +2717,6 @@
 ./usr/share/man/man3/setvbuf.3
 ./usr/share/man/man3/sgi/cacheflush.3
 ./usr/share/man/man3/sgi/get_fpc_csr.3
-./usr/share/man/man3/sha1.3
-./usr/share/man/man3/sha2.3
 ./usr/share/man/man3/shm_open.3
 ./usr/share/man/man3/sigaddset.3
 ./usr/share/man/man3/sigblock.3
@@ -2725,7 +2736,6 @@
 ./usr/share/man/man3/sqrt.3
 ./usr/share/man/man3/ssl.3
 ./usr/share/man/man3/statvfs.3
-./usr/share/man/man3/stdarg.3
 ./usr/share/man/man3/stdio.3
 ./usr/share/man/man3/stpcpy.3
 ./usr/share/man/man3/strcasecmp.3
@@ -2809,8 +2819,9 @@
 ./usr/share/man/man3/uselocale.3
 ./usr/share/man/man3/usleep.3
 ./usr/share/man/man3/utime.3
-./usr/share/man/man3/uucplock.3
-./usr/share/man/man3/uuid.3
+./usr/share/man/man3/uu_lock.3
+./usr/share/man/man3/uuid_compare.3
+./usr/share/man/man3/va_start.3
 ./usr/share/man/man3/valloc.3
 ./usr/share/man/man3/vis.3
 ./usr/share/man/man3/wcrtomb.3
@@ -2850,7 +2861,7 @@
 ./usr/share/man/man3/wresize.3
 ./usr/share/man/man3/wscanf.3
 ./usr/share/man/man3/xdr.3
-./usr/share/man/man3/ypclnt.3
+./usr/share/man/man3/yp_bind.3
 ./usr/share/man/man9/KASSERT.9
 ./usr/share/man/man9/RBT_INIT.9
 ./usr/share/man/man9/SMR_LIST_INIT.9

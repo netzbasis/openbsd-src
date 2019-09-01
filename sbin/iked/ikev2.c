@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.171 2019/05/11 16:30:23 patrick Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.175 2019/08/29 14:56:23 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -366,6 +366,20 @@ ikev2_dispatch_cert(int fd, struct privsep_proc *p, struct imsg *imsg)
 	return (0);
 }
 
+const char *
+ikev2_ikesa_info(uint64_t spi, const char *msg)
+{
+	static char buf[1024];
+	const char *spistr;
+	
+	spistr = print_spi(spi, 8);
+	if (msg)
+		snprintf(buf, sizeof(buf), "spi=%s: %s", spistr, msg);
+	else
+		snprintf(buf, sizeof(buf), "spi=%s: ", spistr);
+	return buf;
+}
+
 struct iked_sa *
 ikev2_getimsgdata(struct iked *env, struct imsg *imsg, struct iked_sahdr *sh,
     uint8_t *type, uint8_t **buf, size_t *size)
@@ -423,14 +437,15 @@ ikev2_recv(struct iked *env, struct iked_message *msg)
 	if (policy_lookup(env, msg) != 0)
 		return;
 
-	log_info("%s: %s %s from %s %s to %s policy '%s' id %u, %ld bytes",
-	    __func__, print_map(hdr->ike_exchange, ikev2_exchange_map),
-	    msg->msg_response ? "response" : "request",
-	    initiator ? "responder" : "initiator",
+	log_info("%srecv %s %s %u peer %s local %s, %ld bytes, policy '%s'",
+	    SPI_IH(hdr),
+	    print_map(hdr->ike_exchange, ikev2_exchange_map),
+	    msg->msg_response ? "res" : "req",
+	    msg->msg_msgid,
 	    print_host((struct sockaddr *)&msg->msg_peer, NULL, 0),
 	    print_host((struct sockaddr *)&msg->msg_local, NULL, 0),
-	    msg->msg_policy->pol_name, msg->msg_msgid,
-	    ibuf_length(msg->msg_data));
+	    ibuf_length(msg->msg_data),
+	    msg->msg_policy->pol_name);
 	log_debug("%s: ispi %s rspi %s", __func__,
 	    print_spi(betoh64(hdr->ike_ispi), 8),
 	    print_spi(betoh64(hdr->ike_rspi), 8));
@@ -818,9 +833,6 @@ ikev2_init_recv(struct iked *env, struct iked_message *msg,
 		break;
 	case IKEV2_EXCHANGE_IKE_AUTH:
 	case IKEV2_EXCHANGE_CREATE_CHILD_SA:
-		if (ikev2_msg_valid_ike_sa(env, hdr, msg) == -1)
-			return;
-		break;
 	case IKEV2_EXCHANGE_INFORMATIONAL:
 		break;
 	default:
@@ -840,7 +852,7 @@ ikev2_init_recv(struct iked *env, struct iked_message *msg,
 	if (!ikev2_msg_frompeer(msg))
 		return;
 
-	if (sa->sa_udpencap && sa->sa_natt == 0 &&
+	if (sa && msg->msg_nat_detected && sa->sa_natt == 0 &&
 	    (sock = ikev2_msg_getsocket(env,
 	    sa->sa_local.addr_af, 1)) != NULL) {
 		/*
@@ -857,9 +869,10 @@ ikev2_init_recv(struct iked *env, struct iked_message *msg,
 		msg->msg_fd = sa->sa_fd = sock->sock_fd;
 		msg->msg_sock = sock;
 		sa->sa_natt = 1;
+		sa->sa_udpencap = 1;
 
-		log_debug("%s: NAT detected, updated SA to "
-		    "peer %s local %s", __func__,
+		log_debug("%s: detected NAT, enabling UDP encapsulation,"
+		    " updated SA to peer %s local %s", __func__,
 		    print_host((struct sockaddr *)&sa->sa_peer.addr, NULL, 0),
 		    print_host((struct sockaddr *)&sa->sa_local.addr, NULL, 0));
 	}
@@ -2425,6 +2438,11 @@ ikev2_resp_ike_sa_init(struct iked *env, struct iked_message *msg)
 		log_debug("%s: called by initiator", __func__);
 		return (-1);
 	}
+	if (msg->msg_nat_detected && sa->sa_udpencap == 0) {
+		log_debug("%s: detected NAT, enabling UDP encapsulation",
+		    __func__);
+		sa->sa_udpencap = 1;
+	}
 
 	if ((buf = ikev2_msg_init(env, &resp,
 	    &msg->msg_peer, msg->msg_peerlen,
@@ -3719,6 +3737,15 @@ ikev2_resp_create_child_sa(struct iked *env, struct iked_message *msg)
 		    print_map(protoid, ikev2_saproto_map));
 
 	if (protoid == IKEV2_SAPROTO_IKE) {
+		if ((sa->sa_stateflags & IKED_REQ_CHILDSA)
+		    && !(sa->sa_nexti)) {
+			log_debug("%s: Ignore IKE SA rekey: waiting for Child "
+			    "SA response.", __func__);
+			/* Ignore, don't send error */
+			msg->msg_valid = 0;
+			return (0);
+		}
+
 		/* IKE SA rekeying */
 		spi = &msg->msg_prop->prop_peerspi;
 

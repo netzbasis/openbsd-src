@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpii.c,v 1.118 2019/07/07 11:17:36 dlg Exp $	*/
+/*	$OpenBSD: mpii.c,v 1.120 2019/08/30 00:38:12 jmatthew Exp $	*/
 /*
  * Copyright (c) 2010, 2012 Mike Belopuhov
  * Copyright (c) 2009 James Giannoules
@@ -781,7 +781,8 @@ mpii_load_xs_sas3(struct mpii_ccb *ccb)
 		if (nsge == csge) {
 			nsge++;
 			/* offset to the chain sge from the beginning */
-			io->chain_offset = ((caddr_t)csge - (caddr_t)io) / 4;
+			io->chain_offset = ((caddr_t)csge - (caddr_t)io) /
+			    sizeof(*sge);
 			csge->sg_flags = MPII_IEEE_SGE_CHAIN_ELEMENT |
 			    MPII_IEEE_SGE_ADDR_SYSTEM;
 			/* address of the next sge */
@@ -898,7 +899,7 @@ mpii_scsi_probe(struct scsi_link *link)
 	if (ISSET(flags, MPII_DF_VOLUME))
 		return (0);
 
-	memset(&ehdr, 0, sizeof(ehdr));	
+	memset(&ehdr, 0, sizeof(ehdr));
 	ehdr.page_type = MPII_CONFIG_REQ_PAGE_TYPE_EXTENDED;
 	ehdr.page_number = 0;
 	ehdr.page_version = 0;

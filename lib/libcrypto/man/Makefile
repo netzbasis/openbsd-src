@@ -1,9 +1,10 @@
-# $OpenBSD: Makefile,v 1.148 2019/03/21 14:15:13 schwarze Exp $
+# $OpenBSD: Makefile,v 1.158 2019/08/28 10:37:42 schwarze Exp $
 
 .include <bsd.own.mk>
 
 MAN=	\
 	ACCESS_DESCRIPTION_new.3 \
+	AES_encrypt.3 \
 	ASN1_INTEGER_get.3 \
 	ASN1_OBJECT_new.3 \
 	ASN1_STRING_length.3 \
@@ -15,6 +16,7 @@ MAN=	\
 	ASN1_generate_nconf.3 \
 	ASN1_item_d2i.3 \
 	ASN1_item_new.3 \
+	ASN1_put_object.3 \
 	ASN1_time_parse.3 \
 	AUTHORITY_KEYID_new.3 \
 	BASIC_CONSTRAINTS_new.3 \
@@ -69,6 +71,7 @@ MAN=	\
 	CONF_modules_load_file.3 \
 	CRYPTO_get_mem_functions.3 \
 	CRYPTO_lock.3 \
+	CRYPTO_memcmp.3 \
 	CRYPTO_set_ex_data.3 \
 	DES_set_key.3 \
 	DH_generate_key.3 \
@@ -91,10 +94,12 @@ MAN=	\
 	DSA_set_method.3 \
 	DSA_sign.3 \
 	DSA_size.3 \
+	ECDH_compute_key.3 \
 	ECDSA_SIG_new.3 \
 	EC_GFp_simple_method.3 \
 	EC_GROUP_copy.3 \
 	EC_GROUP_new.3 \
+	EC_KEY_METHOD_new.3 \
 	EC_KEY_new.3 \
 	EC_POINT_add.3 \
 	EC_POINT_new.3 \
@@ -155,7 +160,9 @@ MAN=	\
 	EVP_camellia_128_cbc.3 \
 	EVP_des_cbc.3 \
 	EVP_rc4.3 \
+	EVP_sm3.3 \
 	EVP_sm4_cbc.3 \
+	EVP_whirlpool.3 \
 	EXTENDED_KEY_USAGE_new.3 \
 	GENERAL_NAME_new.3 \
 	HMAC.3 \
@@ -238,6 +245,7 @@ MAN=	\
 	X509_CRL_get0_by_serial.3 \
 	X509_CRL_new.3 \
 	X509_EXTENSION_set_object.3 \
+	X509_INFO_new.3 \
 	X509_LOOKUP_hash_dir.3 \
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
@@ -262,6 +270,8 @@ MAN=	\
 	X509_check_host.3 \
 	X509_check_issued.3 \
 	X509_check_private_key.3 \
+	X509_check_purpose.3 \
+	X509_cmp.3 \
 	X509_cmp_time.3 \
 	X509_digest.3 \
 	X509_get_pubkey.3 \
@@ -270,6 +280,7 @@ MAN=	\
 	X509_get_version.3 \
 	X509_get0_notBefore.3 \
 	X509_get0_signature.3 \
+	X509_get1_email.3 \
 	X509_new.3 \
 	X509_sign.3 \
 	X509_verify_cert.3 \

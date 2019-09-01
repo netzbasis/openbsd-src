@@ -1,8 +1,8 @@
 /aapic.c/1.6/Sat Mar 14 03:38:46 2015//
-/acpipci.c/1.1/Fri Oct 26 20:26:19 2018//
+/acpipci.c/1.2/Wed Aug 28 22:39:09 2019//
 /agp_machdep.c/1.14/Sat Mar 14 03:38:46 2015//
 /pchb.c/1.43/Sat Apr 28 15:44:59 2018//
-/pci_machdep.c/1.71/Tue Jun 25 16:46:32 2019//
+/pci_machdep.c/1.72/Wed Aug 28 22:39:09 2019//
 /pcib.c/1.6/Thu May 30 16:15:01 2013//
 /pciide_machdep.c/1.4/Sat Oct 14 04:44:43 2017//
 /vga_post.c/1.10/Fri Aug 28 00:03:53 2015//

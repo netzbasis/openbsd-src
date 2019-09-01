@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.230 2019/03/31 11:30:35 kn Exp $	*/
+/*	$OpenBSD: route.c,v 1.233 2019/08/31 13:46:14 bluhm Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -68,7 +68,7 @@
 const struct if_status_description
 			if_status_descriptions[] = LINK_STATE_DESCRIPTIONS;
 
-union sockunion so_dst, so_gate, so_mask, so_ifa, so_ifp, so_label, so_src;
+union sockunion so_dst, so_gate, so_mask, so_ifa, so_ifp, so_src, so_label;
 
 typedef union sockunion *sup;
 pid_t	pid;
@@ -484,7 +484,7 @@ newroute(int argc, char **argv)
 				break;
 			case K_SA:
 				af = PF_ROUTE;
-				aflen = sizeof(union sockunion);
+				aflen = sizeof(struct sockaddr_storage) - 1;
 				break;
 			case K_MPLS:
 				af = AF_MPLS;
@@ -579,7 +579,7 @@ newroute(int argc, char **argv)
 			case K_IFP:
 				if (!--argc)
 					usage(1+*argv);
-				getaddr(RTA_IFP, af, *++argv, NULL);
+				getaddr(RTA_IFP, AF_LINK, *++argv, NULL);
 				break;
 			case K_GATEWAY:
 				if (!--argc)
@@ -798,7 +798,7 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 {
 	sup su = NULL;
 	struct hostent *hp;
-	int afamily, bits;
+	int aflength, afamily, bits;
 
 	if (af == AF_UNSPEC) {
 		if (strchr(s, ':') != NULL) {
@@ -809,7 +809,9 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 			aflen = sizeof(struct sockaddr_in);
 		}
 	}
-	afamily = af;	/* local copy of af so we can change it */
+	/* local copy of len and af so we can change it */
+	aflength = aflen;
+	afamily = af;
 
 	rtm_addrs |= which;
 	switch (which) {
@@ -824,6 +826,7 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 		break;
 	case RTA_IFP:
 		su = &so_ifp;
+		aflength = sizeof(struct sockaddr_dl);
 		afamily = AF_LINK;
 		break;
 	case RTA_IFA:
@@ -833,7 +836,7 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 		errx(1, "internal error");
 		/* NOTREACHED */
 	}
-	su->sa.sa_len = aflen;
+	su->sa.sa_len = aflength;
 	su->sa.sa_family = afamily;
 
 	if (strcmp(s, "default") == 0) {
@@ -905,7 +908,7 @@ getaddr(int which, int af, char *s, struct hostent **hpp)
 	case AF_MPLS:
 		errx(1, "mpls labels require -in or -out switch");
 	case PF_ROUTE:
-		su->sa.sa_len = sizeof(*su);
+		su->sa.sa_len = sizeof(struct sockaddr_storage) - 1;
 		sockaddr(s, &su->sa);
 		return (1);
 
@@ -1084,13 +1087,14 @@ rtmsg(int cmd, int flags, int fmask, uint8_t prio)
 
 	if (rtm_addrs & RTA_NETMASK)
 		mask_addr(&so_dst, &so_mask, RTA_DST);
+	/* store addresses in ascending order of RTA values */
 	NEXTADDR(RTA_DST, so_dst);
 	NEXTADDR(RTA_GATEWAY, so_gate);
 	NEXTADDR(RTA_NETMASK, so_mask);
 	NEXTADDR(RTA_IFP, so_ifp);
 	NEXTADDR(RTA_IFA, so_ifa);
-	NEXTADDR(RTA_LABEL, so_label);
 	NEXTADDR(RTA_SRC, so_src);
+	NEXTADDR(RTA_LABEL, so_label);
 	rtm.rtm_msglen = l = cp - (char *)&m_rtmsg;
 	if (verbose)
 		print_rtmsg(&rtm, l);

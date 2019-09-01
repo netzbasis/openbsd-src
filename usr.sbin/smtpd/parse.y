@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.254 2019/08/10 16:07:01 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.259 2019/08/25 03:40:45 martijn Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -108,7 +108,6 @@ struct rule		*rule;
 struct processor	*processor;
 struct filter_config	*filter_config;
 static uint32_t		 last_dynchain_id = 1;
-static uint32_t		 last_dynproc_id = 1;
 
 enum listen_options {
 	LO_FAMILY	= 0x000001,
@@ -175,7 +174,7 @@ typedef struct {
 %}
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
-%token	BACKUP BOUNCE BUILTIN
+%token	BACKUP BOUNCE
 %token	CA CERT CHAIN CHROOT CIPHERS COMMIT COMPRESSION CONNECT
 %token	DATA DATA_LINE DHE DISCONNECT DOMAIN
 %token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY 
@@ -189,7 +188,7 @@ typedef struct {
 %token	MAIL_FROM MAILDIR MASK_SRC MASQUERADE MATCH MAX_MESSAGE_SIZE MAX_DEFERRED MBOX MDA MTA MX
 %token	NO_DSN NO_VERIFY NOOP
 %token	ON
-%token	PKI PORT PROC PROC_EXEC PROXY_V2
+%token	PHASE PKI PORT PROC PROC_EXEC PROXY_V2
 %token	QUEUE QUIT
 %token	RCPT_TO RDNS RECIPIENT RECEIVEDAUTH REGEX RELAY REJECT REPORT REWRITE RSET
 %token	SCHEDULER SENDER SENDERS SMTP SMTP_IN SMTP_OUT SMTPS SOCKET SRC SUB_ADDR_DELIM
@@ -1145,7 +1144,14 @@ negation TAG REGEX tables {
 	rule->flag_from_regex = 1;
 	rule->table_from = strdup(t->t_name);
 }
-
+| negation FROM RDNS {
+	if (rule->flag_from) {
+		yyerror("from already specified for this rule");
+		YYERROR;
+	}
+	rule->flag_from = $1 ? -1 : 1;
+	rule->flag_from_rdns = 1;
+}
 | negation FROM RDNS tables {
 	struct table   *t = $4;
 
@@ -1287,6 +1293,9 @@ REJECT STRING {
 }
 | DISCONNECT STRING {
 	filter_config->disconnect = $2;
+}
+| REWRITE STRING {
+	filter_config->rewrite = $2;
 }
 ;
 
@@ -1436,45 +1445,45 @@ filter_phase_global_options;
 filter_phase_connect:
 CONNECT {
 	filter_config->phase = FILTER_CONNECT;
-} filter_phase_connect_options filter_action_builtin
+} MATCH filter_phase_connect_options filter_action_builtin
 ;
 
 
 filter_phase_helo:
 HELO {
 	filter_config->phase = FILTER_HELO;
-} filter_phase_helo_options filter_action_builtin
+} MATCH filter_phase_helo_options filter_action_builtin
 ;
 
 filter_phase_ehlo:
 EHLO {
 	filter_config->phase = FILTER_EHLO;
-} filter_phase_helo_options filter_action_builtin
+} MATCH filter_phase_helo_options filter_action_builtin
 ;
 
 filter_phase_mail_from:
 MAIL_FROM {
 	filter_config->phase = FILTER_MAIL_FROM;
-} filter_phase_mail_from_options filter_action_builtin
+} MATCH filter_phase_mail_from_options filter_action_builtin
 ;
 
 filter_phase_rcpt_to:
 RCPT_TO {
 	filter_config->phase = FILTER_RCPT_TO;
-} filter_phase_rcpt_to_options filter_action_builtin
+} MATCH filter_phase_rcpt_to_options filter_action_builtin
 ;
 
 filter_phase_data:
 DATA {
 	filter_config->phase = FILTER_DATA;
-} filter_phase_data_options filter_action_builtin
+} MATCH filter_phase_data_options filter_action_builtin
 ;
 
 /*
 filter_phase_data_line:
 DATA_LINE {
 	filter_config->phase = FILTER_DATA_LINE;
-} filter_action_builtin
+} MATCH filter_action_builtin
 ;
 
 filter_phase_quit:
@@ -1486,20 +1495,20 @@ QUIT {
 filter_phase_rset:
 RSET {
 	filter_config->phase = FILTER_RSET;
-} filter_phase_rset_options filter_action_builtin
+} MATCH filter_phase_rset_options filter_action_builtin
 ;
 
 filter_phase_noop:
 NOOP {
 	filter_config->phase = FILTER_NOOP;
-} filter_phase_noop_options filter_action_builtin
+} MATCH filter_phase_noop_options filter_action_builtin
 ;
 */
 
 filter_phase_commit:
 COMMIT {
 	filter_config->phase = FILTER_COMMIT;
-} filter_phase_commit_options filter_action_builtin
+} MATCH filter_phase_commit_options filter_action_builtin
 ;
 
 
@@ -1588,12 +1597,6 @@ FILTER STRING PROC STRING {
 }
 |
 FILTER STRING PROC_EXEC STRING {
-	char	buffer[128];
-
-	do {
-		(void)snprintf(buffer, sizeof buffer, "<dynproc:%08x>", last_dynproc_id++);
-	} while (dict_check(conf->sc_processors_dict, buffer));
-
 	if (dict_get(conf->sc_filters_dict, $2)) {
 		yyerror("filter already exists with that name: %s", $2);
 		free($2);
@@ -1607,7 +1610,7 @@ FILTER STRING PROC_EXEC STRING {
 	filter_config = xcalloc(1, sizeof *filter_config);
 	filter_config->filter_type = FILTER_TYPE_PROC;
 	filter_config->name = $2;
-	filter_config->proc = xstrdup(buffer);
+	filter_config->proc = xstrdup($2);
 	dict_set(conf->sc_filters_dict, $2, filter_config);
 } proc_params {
 	dict_set(conf->sc_processors_dict, filter_config->proc, processor);
@@ -1615,7 +1618,7 @@ FILTER STRING PROC_EXEC STRING {
 	filter_config = NULL;
 }
 |
-FILTER STRING BUILTIN {
+FILTER STRING PHASE {
 	if (dict_get(conf->sc_filters_dict, $2)) {
 		yyerror("filter already exists with that name: %s", $2);
 		free($2);
@@ -1858,6 +1861,38 @@ opt_if_listen : INET4 {
 				YYERROR;
 			}
 			free($2);
+			listen_opts.port = ntohs(servent->s_port);
+		}
+		| PORT SMTP			{
+			struct servent *servent;
+
+			if (listen_opts.options & LO_PORT) {
+				yyerror("port already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_PORT;
+
+			servent = getservbyname("smtp", "tcp");
+			if (servent == NULL) {
+				yyerror("invalid port: smtp");
+				YYERROR;
+			}
+			listen_opts.port = ntohs(servent->s_port);
+		}
+		| PORT SMTPS			{
+			struct servent *servent;
+
+			if (listen_opts.options & LO_PORT) {
+				yyerror("port already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_PORT;
+
+			servent = getservbyname("smtps", "tcp");
+			if (servent == NULL) {
+				yyerror("invalid port: smtps");
+				YYERROR;
+			}
 			listen_opts.port = ntohs(servent->s_port);
 		}
 		| PORT NUMBER			{
@@ -2255,7 +2290,6 @@ lookup(char *s)
 		{ "auth-optional",     	AUTH_OPTIONAL },
 		{ "backup",		BACKUP },
 		{ "bounce",		BOUNCE },
-		{ "builtin",		BUILTIN },
 		{ "ca",			CA },
 		{ "cert",		CERT },
 		{ "chain",		CHAIN },
@@ -2307,6 +2341,7 @@ lookup(char *s)
 		{ "no-verify",		NO_VERIFY },
 		{ "noop",		NOOP },
 		{ "on",			ON },
+		{ "phase",		PHASE },
 		{ "pki",		PKI },
 		{ "port",		PORT },
 		{ "proc",		PROC },
@@ -2321,6 +2356,7 @@ lookup(char *s)
 		{ "regex",		REGEX },
 		{ "reject",		REJECT },
 		{ "relay",		RELAY },
+		{ "rewrite",		REWRITE },
 		{ "rset",		RSET },
 		{ "scheduler",		SCHEDULER },
 		{ "senders",   		SENDERS },

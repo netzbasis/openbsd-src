@@ -1,4 +1,4 @@
-/*	$Id: test-ip.c,v 1.2 2019/06/19 15:49:54 claudio Exp $ */
+/*	$Id: test-ip.c,v 1.4 2019/08/22 21:31:48 bluhm Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -26,9 +26,12 @@
 #include <unistd.h>
 
 #include <openssl/err.h>
-#include <openssl/ssl.h>
+#include <openssl/evp.h>
+#include <openssl/x509v3.h>
 
 #include "extern.h"
+
+int verbose;
 
 static void
 test(const char *res, uint16_t afiv, size_t sz, size_t unused, ...)
@@ -75,9 +78,9 @@ test(const char *res, uint16_t afiv, size_t sz, size_t unused, ...)
 int
 main(int argc, char *argv[])
 {
-
-	SSL_library_init();
-	SSL_load_error_strings();
+	ERR_load_crypto_strings();
+	OpenSSL_add_all_ciphers();
+	OpenSSL_add_all_digests();
 
 	test("10.5.0.4/32",
 	     1, 0x04, 0x00, 0x0a, 0x05, 0x00, 0x04);

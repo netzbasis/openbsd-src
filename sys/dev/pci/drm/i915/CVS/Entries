@@ -8,9 +8,10 @@
 /dvo_sil164.c/1.8/Sun Apr 14 10:14:51 2019//
 /dvo_tfp410.c/1.8/Sun Apr 14 10:14:51 2019//
 /i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
-/i915_devlist.h/1.9/Sun Apr 14 10:14:51 2019//
-/i915_drv.c/1.120/Wed Jul 17 07:54:18 2019//
-/i915_drv.h/1.82/Sat May  4 11:34:47 2019//
+/i915_devlist.h/1.10/Sat Aug 24 01:45:59 2019//
+/i915_drv.c/1.121/Sat Aug 24 01:43:12 2019//
+/i915_drv.h/1.84/Sat Aug 24 01:43:12 2019//
+/i915_gem.c/1.117/Sat Jul 27 04:47:59 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.h/1.2/Sun Apr 14 10:14:51 2019//
@@ -43,7 +44,7 @@
 /i915_mm.c/1.1/Sun Apr 14 10:14:51 2019//
 /i915_params.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_params.h/1.1/Sun Apr 14 10:14:51 2019//
-/i915_pci.c/1.1/Sun Apr 14 10:14:52 2019//
+/i915_pci.c/1.2/Sat Aug 24 01:39:55 2019//
 /i915_perf.c/1.2/Tue Jul  2 02:09:59 2019//
 /i915_pmu.h/1.1/Sun Apr 14 10:14:52 2019//
 /i915_pvinfo.h/1.1/Sun Apr 14 10:14:52 2019//
@@ -166,8 +167,12 @@
 /intel_workarounds.c/1.2/Tue Jun 11 11:52:52 2019//
 /intel_workarounds.h/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi.c/1.1/Sun Apr 14 10:14:52 2019//
+<<<<<<< HEAD
 /vlv_dsi_pll.c/1.1/Sun Apr 14 10:14:52 2019//
 /i915_gem.c/1.117/Sat Aug 10 15:12:44 2019//
 /intel_hotplug.c/1.3/Sat Aug 10 16:07:30 2019//
 /intel_pm.c/1.43/Sun Apr 14 10:14:52 2019//
+=======
+/vlv_dsi_pll.c/1.2/Sat Aug 17 08:27:43 2019//
+>>>>>>> master
 D

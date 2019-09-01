@@ -14,7 +14,7 @@
 /kvm_getfiles.3/1.19/Wed May  4 01:32:04 2016//
 /kvm_getloadavg.3/1.11/Wed Jun  5 03:40:26 2013//
 /kvm_getloadavg.c/1.9/Tue Oct 27 23:59:28 2009//
-/kvm_getprocs.3/1.20/Tue Jan 21 03:15:45 2014//
+/kvm_getprocs.3/1.21/Sun Aug 11 15:48:08 2019//
 /kvm_hppa.c/1.10/Sat Dec 19 18:40:30 2015//
 /kvm_i386.c/1.27/Sat Dec 19 18:40:30 2015//
 /kvm_m88k.c/1.6/Sat Dec 19 18:40:30 2015//

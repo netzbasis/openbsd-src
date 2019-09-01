@@ -1,4 +1,4 @@
-/*	$OpenBSD: safte.c,v 1.53 2015/08/23 01:55:39 tedu Exp $ */
+/*	$OpenBSD: safte.c,v 1.56 2019/09/01 15:03:32 krw Exp $ */
 
 /*
  * Copyright (c) 2005 David Gwynne <dlg@openbsd.org>
@@ -120,11 +120,11 @@ safte_match(struct device *parent, void *match, void *aux)
 
 	/* match on dell enclosures */
 	if ((inq->device & SID_TYPE) == T_PROCESSOR &&
-	    SCSISPC(inq->version) == 3)
+	    SID_ANSII_REV(inq) == SCSI_REV_SPC)
 		return (2);
 
 	if ((inq->device & SID_TYPE) != T_PROCESSOR ||
-	    SCSISPC(inq->version) != 2 ||
+	    SID_ANSII_REV(inq) != SCSI_REV_2 ||
 	    (inq->response_format & SID_ANSII) != 2)
 		return (0);
 
@@ -320,7 +320,7 @@ safte_read_config(struct safte_softc *sc)
 	}
 
 	sc->sc_nsensors = config->nfans + config->npwrsup + config->ntemps +
-		(config->doorlock ? 1 : 0) + (config->alarm ? 1 : 0);
+	    (config->doorlock ? 1 : 0) + (config->alarm ? 1 : 0);
 
 	sc->sc_sensors = mallocarray(sc->sc_nsensors, sizeof(struct safte_sensor),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);

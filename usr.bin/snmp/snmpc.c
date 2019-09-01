@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpc.c,v 1.1 2019/08/09 06:17:59 martijn Exp $	*/
+/*	$OpenBSD: snmpc.c,v 1.7 2019/08/14 14:40:23 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2019 Martijn van Duren <martijn@openbsd.org>
@@ -55,17 +55,17 @@ struct snmp_app {
 	const int usecommonopt;
 	const char *optstring;
 	const char *usage;
-        int (*exec)(int, char *[]);
+	int (*exec)(int, char *[]);
 };
 
 struct snmp_app snmp_apps[] = {
-	{"get", 1, NULL, "agent oid ...", snmpc_get},
-	{"getnext", 1, NULL, "agent oid ...", snmpc_get},
-	{"walk", 1, "C:", "[-C cIipt] [-C E OID] agent [oid]", snmpc_walk},
-	{"bulkget", 1, "C:", "[-C n<nonrep>r<maxrep>] agent oid ...", snmpc_get},
-	{"bulkwalk", 1, "C:", "[-C cipn<nonrep>r<maxrep>] agent [oid]", snmpc_walk},
-	{ "trap", 1, NULL, "agent uptime oid [oid type value] ...", snmpc_trap},
-	{"mibtree", 0, "O:", "[-O fnS]", snmpc_mibtree}
+	{ "get", 1, NULL, "agent oid ...", snmpc_get },
+	{ "getnext", 1, NULL, "agent oid ...", snmpc_get },
+	{ "walk", 1, "C:", "[-C cIipt] [-C E endoid] agent [oid]", snmpc_walk },
+	{ "bulkget", 1, "C:", "[-C n<nonrep>r<maxrep>] agent oid ...", snmpc_get },
+	{ "bulkwalk", 1, "C:", "[-C cipn<nonrep>r<maxrep>] agent [oid]", snmpc_walk },
+	{ "trap", 1, NULL, "agent uptime oid [oid type value] ...", snmpc_trap },
+	{ "mibtree", 0, "O:", "[-O fnS]", snmpc_mibtree }
 };
 struct snmp_app *snmp_app = NULL;
 
@@ -99,7 +99,7 @@ main(int argc, char *argv[])
 
 	if (pledge("stdio inet dns", NULL) == -1)
 		err(1, "pledge");
-		
+
 	if (argc <= 1)
 		usage();
 
@@ -266,7 +266,7 @@ main(int argc, char *argv[])
 					smi_print_hint = 0;
 					break;
 				case 'v':
-					print_varbind_only = 1; 
+					print_varbind_only = 1;
 					break;
 				case 'x':
 					output_string = smi_os_hex;
@@ -317,6 +317,8 @@ snmpc_get(int argc, char *argv[])
 	argv++;
 
 	oid = reallocarray(NULL, argc, sizeof(*oid));
+	if (oid == NULL)
+		err(1, "malloc");
 	for (i = 0; i < argc; i++) {
 		if (smi_string2oid(argv[i], &oid[i]) == -1)
 			errx(1, "%s: Unknown object identifier", argv[0]);
@@ -341,7 +343,7 @@ snmpc_get(int argc, char *argv[])
 	    &varbind);
 	if (errorstatus != 0)
 		snmpc_printerror((enum snmp_error) errorstatus,
-		    argv[errorindex]);
+		    argv[errorindex - 1]);
 
 	for (; varbind != NULL; varbind = varbind->be_next) {
 		if (!snmpc_print(varbind))
@@ -392,7 +394,7 @@ snmpc_walk(int argc, char *argv[])
 		    &errorindex, &varbind);
 		if (errorstatus != 0)
 			snmpc_printerror((enum snmp_error) errorstatus,
-			    argv[errorindex]);
+			    argv[errorindex - 1]);
 
 		if (!snmpc_print(varbind))
 			err(1, "Can't print response");
@@ -418,7 +420,7 @@ snmpc_walk(int argc, char *argv[])
 			snmpc_printerror((enum snmp_error) errorstatus, oidstr);
 		}
 
-		for (;varbind != NULL; varbind = varbind->be_next) {
+		for (; varbind != NULL; varbind = varbind->be_next) {
 			(void) ber_scanf_elements(varbind, "{oe}", &noid,
 			    &value);
 			if (value->be_class == BER_CLASS_CONTEXT &&
@@ -449,7 +451,7 @@ snmpc_walk(int argc, char *argv[])
 		    &errorindex, &varbind);
 		if (errorstatus != 0)
 			snmpc_printerror((enum snmp_error) errorstatus,
-			    argv[errorindex]);
+			    argv[errorindex - 1]);
 
 		if (!snmpc_print(varbind))
 			err(1, "Can't print response");
@@ -552,7 +554,7 @@ snmpc_trap(int argc, char *argv[])
 				if (byte >= strl) {
 					if ((str = recallocarray(str, strl,
 					    byte + 1, 1)) == NULL)
-						err(1, NULL);
+						err(1, "malloc");
 					strl = byte + 1;
 				}
 				str[byte] |= 0x80 >> (lval % 8);
@@ -577,7 +579,7 @@ snmpc_trap(int argc, char *argv[])
 		case 'd':
 			/* String always shrinks */
 			if ((str = malloc(strlen(argv[i + 2]))) == NULL)
-				err(1, NULL);
+				err(1, "malloc");
 			tmpstr = argv[i + 2];
 			strl = 0;
 			do {
@@ -646,7 +648,7 @@ pastestring:
 		case 'x':
 			/* String always shrinks */
 			if ((str = malloc(strlen(argv[i + 2]))) == NULL)
-				err(1, NULL);
+				err(1, "malloc");
 			tmpstr = argv[i + 2];
 			strl = 0;
 			do {
@@ -719,15 +721,14 @@ snmpc_print(struct ber_element *elm)
 		printf("%s %s\n", oids, value);
 	}
 	free(value);
-	
+
 	return 1;
 }
 
 __dead void
 snmpc_printerror(enum snmp_error error, char *oid)
 {
-	switch (error)
-	{
+	switch (error) {
 	case SNMP_ERROR_NONE:
 		errx(1, "No error, how did I get here?");
 	case SNMP_ERROR_TOOBIG:
@@ -879,28 +880,27 @@ usage(void)
 {
 	size_t i;
 
-	extern char *__progname;
-
 	if (snmp_app != NULL) {
-		fprintf(stderr, "usage: %s %s%s%s%s\n",
-		    __progname, snmp_app->name,
+		fprintf(stderr, "usage: snmp %s%s%s%s\n",
+		    snmp_app->name,
 		    snmp_app->usecommonopt ?
-		    " [-c community] [-r retries] [-t timeout] "
-		    "[-v protocol version] [-O afnqvxSQ]" : "",
+		    " [-c community] [-r retries] [-t timeout] [-v version]\n"
+		    "            [-O afnqvxSQ]" : "",
 		    snmp_app->usage == NULL ? "" : " ",
 		    snmp_app->usage == NULL ? "" : snmp_app->usage);
 		exit(1);
 	}
-	fprintf(stderr, "usage: \n");
 	for (i = 0; i < (sizeof(snmp_apps)/sizeof(*snmp_apps)); i++) {
-		fprintf(stderr, "%*s %s%s%s%s\n",
-		    (int) (sizeof("usage:") + strlen(__progname)),
-		    __progname, snmp_apps[i].name,
+		if (i == 0)
+			fprintf(stderr, "usage: ");
+		else
+			fprintf(stderr, "       ");
+		fprintf(stderr, "snmp %s%s %s\n",
+		    snmp_apps[i].name,
 		    snmp_apps[i].usecommonopt ?
-		    " [-c community] [-r retries] [-t timeout] "
-		    "[-v protocol version] [-O afnqvxSQ]" : "",
-		    snmp_apps[i].usage == NULL ? "" : " ",
-		    snmp_apps[i].usage == NULL ? "" : snmp_apps[i].usage);
+		    " [-c community] [-r retries] [-t timeout] [-v version]\n"
+	            "            [-O afnqvxSQ]" : "",
+		    snmp_apps[i].usage ? snmp_apps[i].usage : "");
 	}
 	exit(1);
 }

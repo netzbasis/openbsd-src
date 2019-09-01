@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.244 2019/08/08 13:56:56 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.247 2019/08/29 07:49:15 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -3545,16 +3545,12 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 		IC2IFP(ic)->if_ierrors++;
 		return;
 	}
-	if (len > IWM_RBUF_SIZE) {
+	if (len > IWM_RBUF_SIZE - sizeof(*rx_res)) {
 		IC2IFP(ic)->if_ierrors++;
 		return;
 	}
 	rx_pkt_status = le32toh(*(uint32_t *)(pkt->data +
 	    sizeof(*rx_res) + len));
-
-	m = data->m;
-	m->m_data = pkt->data + sizeof(*rx_res);
-	m->m_pkthdr.len = m->m_len = len;
 
 	if (__predict_false(phy_info->cfg_phy_cnt > 20))
 		return;
@@ -3562,6 +3558,12 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	if (!(rx_pkt_status & IWM_RX_MPDU_RES_STATUS_CRC_OK) ||
 	    !(rx_pkt_status & IWM_RX_MPDU_RES_STATUS_OVERRUN_OK))
 		return; /* drop */
+
+	m = data->m;
+	if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur) != 0)
+		return;
+	m->m_data = pkt->data + sizeof(*rx_res);
+	m->m_pkthdr.len = m->m_len = len;
 
 	device_timestamp = le32toh(phy_info->system_timestamp);
 
@@ -3572,9 +3574,6 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	}
 	rssi = (0 - IWM_MIN_DBM) + rssi;	/* normalize */
 	rssi = MIN(rssi, ic->ic_max_rssi);	/* clip to max. 100% */
-
-	if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur) != 0)
-		return;
 
 	chanidx = letoh32(phy_info->channel);
 	if (chanidx < 0 || chanidx >= nitems(ic->ic_channels))	
@@ -5701,7 +5700,7 @@ iwm_scan(struct iwm_softc *sc)
 		    ieee80211_state_name[IEEE80211_S_SCAN]);
 	if ((sc->sc_flags & IWM_FLAG_BGSCAN) == 0) {
 		ieee80211_set_link_state(ic, LINK_STATE_DOWN);
-		ieee80211_free_allnodes(ic, 1);
+		ieee80211_node_cleanup(ic, ic->ic_bss);
 	}
 	ic->ic_state = IEEE80211_S_SCAN;
 	iwm_led_blink_start(sc);

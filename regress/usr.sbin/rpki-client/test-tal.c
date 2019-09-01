@@ -1,4 +1,4 @@
-/*	$Id: test-tal.c,v 1.1 2019/06/18 12:09:07 claudio Exp $ */
+/*	$Id: test-tal.c,v 1.3 2019/08/22 21:31:48 bluhm Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -24,9 +24,12 @@
 #include <unistd.h>
 
 #include <openssl/err.h>
-#include <openssl/ssl.h>
+#include <openssl/evp.h>
+#include <openssl/x509v3.h>
 
 #include "extern.h"
+
+int verbose;
 
 static void
 tal_print(const struct tal *p)
@@ -45,8 +48,9 @@ main(int argc, char *argv[])
 	int		 c, i, verb = 0;
 	struct tal	*tal;
 
-	SSL_library_init();
-	SSL_load_error_strings();
+	ERR_load_crypto_strings();
+	OpenSSL_add_all_ciphers();
+	OpenSSL_add_all_digests();
 
 	while (-1 != (c = getopt(argc, argv, "v")))
 		switch (c) {

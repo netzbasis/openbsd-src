@@ -1,4 +1,4 @@
-/* $OpenBSD: cms_dd.c,v 1.11 2019/08/10 18:15:52 jsing Exp $ */
+/* $OpenBSD: cms_dd.c,v 1.14 2019/08/11 11:04:18 jsing Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -52,6 +52,8 @@
  * ====================================================================
  */
 
+#include <string.h>
+
 #include "cryptlib.h"
 #include <openssl/asn1t.h>
 #include <openssl/pem.h>
@@ -72,7 +74,7 @@ cms_DigestedData_create(const EVP_MD *md)
 	if (cms == NULL)
 		return NULL;
 
-	dd = M_ASN1_new_of(CMS_DigestedData);
+	dd = (CMS_DigestedData *)ASN1_item_new(&CMS_DigestedData_it);
 
 	if (dd == NULL)
 		goto err;
@@ -113,7 +115,7 @@ cms_DigestedData_do_final(CMS_ContentInfo *cms, BIO *chain, int verify)
 	CMS_DigestedData *dd;
 
 	if (mctx == NULL) {
-		CMSerr(CMS_F_CMS_DIGESTEDDATA_DO_FINAL, ERR_R_MALLOC_FAILURE);
+		CMSerror(ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 
@@ -127,14 +129,12 @@ cms_DigestedData_do_final(CMS_ContentInfo *cms, BIO *chain, int verify)
 
 	if (verify) {
 		if (mdlen != (unsigned int)dd->digest->length) {
-			CMSerr(CMS_F_CMS_DIGESTEDDATA_DO_FINAL,
-			       CMS_R_MESSAGEDIGEST_WRONG_LENGTH);
+			CMSerror(CMS_R_MESSAGEDIGEST_WRONG_LENGTH);
 			goto err;
 		}
 
 		if (memcmp(md, dd->digest->data, mdlen))
-			CMSerr(CMS_F_CMS_DIGESTEDDATA_DO_FINAL,
-			       CMS_R_VERIFICATION_FAILURE);
+			CMSerror(CMS_R_VERIFICATION_FAILURE);
 		else
 			r = 1;
 	} else {

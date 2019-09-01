@@ -1210,6 +1210,14 @@
 ./usr/share/man/man4/amdiic.4
 ./usr/share/man/man4/amdpm.4
 ./usr/share/man/man4/ami.4
+./usr/share/man/man4/amlclock.4
+./usr/share/man/man4/amldwusb.4
+./usr/share/man/man4/amlpciephy.4
+./usr/share/man/man4/amlpinctrl.4
+./usr/share/man/man4/amlreset.4
+./usr/share/man/man4/amlrng.4
+./usr/share/man/man4/amluart.4
+./usr/share/man/man4/amlusbphy.4
 ./usr/share/man/man4/amphy.4
 ./usr/share/man/man4/ams.4
 ./usr/share/man/man4/an.4
@@ -1477,6 +1485,7 @@
 ./usr/share/man/man4/imxiic.4
 ./usr/share/man/man4/imxrtc.4
 ./usr/share/man/man4/imxsrc.4
+./usr/share/man/man4/imxtmu.4
 ./usr/share/man/man4/imxuart.4
 ./usr/share/man/man4/inet.4
 ./usr/share/man/man4/inet6.4
@@ -1890,6 +1899,7 @@
 ./usr/share/man/man4/sxipio.4
 ./usr/share/man/man4/sxirsb.4
 ./usr/share/man/man4/sxirtc.4
+./usr/share/man/man4/sxisyscon.4
 ./usr/share/man/man4/sxitemp.4
 ./usr/share/man/man4/sxitwi.4
 ./usr/share/man/man4/sym.4
@@ -2482,7 +2492,6 @@
 ./usr/share/man/man8/smtpctl.8
 ./usr/share/man/man8/smtpd.8
 ./usr/share/man/man8/sndiod.8
-./usr/share/man/man8/snmpctl.8
 ./usr/share/man/man8/snmpd.8
 ./usr/share/man/man8/spamd-setup.8
 ./usr/share/man/man8/spamd.8

@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_report.c,v 1.22 2019/07/26 06:30:13 gilles Exp $	*/
+/*	$OpenBSD: lka_report.c,v 1.27 2019/08/29 07:23:18 martijn Exp $	*/
 
 /*
  * Copyright (c) 2018 Gilles Chehade <gilles@poolp.org>
@@ -35,7 +35,7 @@
 #include "smtpd.h"
 #include "log.h"
 
-#define	PROTOCOL_VERSION	1
+#define	PROTOCOL_VERSION	"0.2"
 
 struct reporter_proc {
 	TAILQ_ENTRY(reporter_proc)	entries;
@@ -51,6 +51,7 @@ static struct smtp_events {
 } smtp_events[] = {
 	{ "link-connect" },
 	{ "link-disconnect" },
+	{ "link-greeting" },
 	{ "link-identify" },
 	{ "link-tls" },
 	{ "link-auth" },
@@ -102,16 +103,19 @@ lka_report_register_hook(const char *name, const char *hook)
 	void *iter;
 	size_t	i;
 
-	if (strncasecmp(hook, "smtp-in|", 8) == 0) {
+	if (strncmp(hook, "smtp-in|", 8) == 0) {
 		subsystem = &smtp_in;
 		hook += 8;
 	}
-	else if (strncasecmp(hook, "smtp-out|", 9) == 0) {
+#if 0
+	/* No smtp-out event has been implemented yet */
+	else if (strncmp(hook, "smtp-out|", 9) == 0) {
 		subsystem = &smtp_out;
 		hook += 9;
 	}
+#endif
 	else
-		return;
+		fatalx("Invalid message direction: %s", hook);
 
 	if (strcmp(hook, "*") == 0) {
 		iter = NULL;
@@ -127,7 +131,7 @@ lka_report_register_hook(const char *name, const char *hook)
 		if (strcmp(hook, smtp_events[i].event) == 0)
 			break;
 	if (i == nitems(smtp_events))
-		return;
+		fatalx("Unrecognized report name: %s", hook);
 
 	tailq = dict_get(subsystem, hook);
 	rp = xcalloc(1, sizeof *rp);
@@ -156,7 +160,7 @@ report_smtp_broadcast(uint64_t reqid, const char *direction, struct timeval *tv,
 			continue;
 
 		va_start(ap, format);
-		if (io_printf(lka_proc_get_io(rp->name), "report|%d|%lld.%06ld|%s|%s|",
+		if (io_printf(lka_proc_get_io(rp->name), "report|%s|%lld.%06ld|%s|%s|",
 			PROTOCOL_VERSION, tv->tv_sec, tv->tv_usec, direction, event) == -1 ||
 		    io_vprintf(lka_proc_get_io(rp->name), format, ap) == -1)
 			fatalx("failed to write to processor");
@@ -216,6 +220,14 @@ lka_report_smtp_link_disconnect(const char *direction, struct timeval *tv, uint6
 {
 	report_smtp_broadcast(reqid, direction, tv, "link-disconnect",
 	    "%016"PRIx64"\n", reqid);
+}
+
+void
+lka_report_smtp_link_greeting(const char *direction, uint64_t reqid,
+    struct timeval *tv, const char *domain)
+{
+	report_smtp_broadcast(reqid, direction, tv, "link-greeting", "%s\n",
+	    domain);
 }
 
 void

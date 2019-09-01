@@ -96,13 +96,13 @@
 /radeon_audio.c/1.2/Sun Apr 14 10:14:54 2019//
 /radeon_audio.h/1.2/Sun Apr 14 10:14:54 2019//
 /radeon_benchmark.c/1.9/Sun Apr 14 10:14:54 2019//
-/radeon_bios.c/1.15/Sun Apr 14 10:14:54 2019//
+/radeon_bios.c/1.16/Sun Aug 18 13:11:47 2019//
 /radeon_clocks.c/1.7/Sun Apr 14 10:14:54 2019//
 /radeon_combios.c/1.15/Sun Apr 14 10:14:54 2019//
 /radeon_connectors.c/1.12/Sun Apr 14 10:14:54 2019//
 /radeon_cs.c/1.8/Sun Apr 14 10:14:54 2019//
 /radeon_cursor.c/1.7/Sun Apr 14 10:14:54 2019//
-/radeon_device.c/1.19/Sun Apr 14 10:14:54 2019//
+/radeon_device.c/1.20/Mon Aug 19 09:34:13 2019//
 /radeon_devlist.h/1.4/Wed Apr 25 01:27:46 2018//
 /radeon_display.c/1.18/Tue Jun 11 11:45:01 2019//
 /radeon_dp_auxch.c/1.2/Sun Apr 14 10:14:54 2019//
@@ -113,7 +113,7 @@
 /radeon_family.h/1.4/Wed Apr 25 01:27:46 2018//
 /radeon_fb.c/1.16/Sun Apr 14 10:14:54 2019//
 /radeon_fence.c/1.14/Sun Apr 14 10:14:54 2019//
-/radeon_gart.c/1.12/Sun Apr 14 10:14:54 2019//
+/radeon_gart.c/1.13/Mon Aug 19 09:34:13 2019//
 /radeon_gem.c/1.12/Sun Apr 14 10:14:54 2019//
 /radeon_i2c.c/1.11/Sun Apr 14 10:14:54 2019//
 /radeon_ib.c/1.2/Sun Apr 14 10:14:54 2019//

@@ -7,7 +7,7 @@
 /exdisplay.c/1.4/Tue Jul 26 22:10:10 2016//
 /exdisplayvar.h/1.1/Mon Jan 26 02:48:24 2015//
 /exdog.c/1.6/Thu Mar  9 20:07:35 2017//
-/exdwusb.c/1.1/Fri Mar 10 12:05:28 2017//
+/exdwusb.c/1.2/Thu Aug 29 14:19:27 2019//
 /exehci.c/1.8/Sat Dec 23 10:23:34 2017//
 /exgpio.c/1.6/Sat Mar 11 17:06:27 2017//
 /exiic.c/1.6/Mon Mar  6 06:50:47 2017//

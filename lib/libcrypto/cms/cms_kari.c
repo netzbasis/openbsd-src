@@ -1,4 +1,4 @@
-/* $OpenBSD: cms_kari.c,v 1.6 2019/08/10 18:15:52 jsing Exp $ */
+/* $OpenBSD: cms_kari.c,v 1.13 2019/08/11 14:27:01 jsing Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -52,6 +52,8 @@
  * ====================================================================
  */
 
+#include <string.h>
+
 #include "cryptlib.h"
 #include <openssl/asn1t.h>
 #include <openssl/pem.h>
@@ -69,8 +71,7 @@ CMS_RecipientInfo_kari_get0_alg(CMS_RecipientInfo *ri, X509_ALGOR **palg,
     ASN1_OCTET_STRING **pukm)
 {
 	if (ri->type != CMS_RECIPINFO_AGREE) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_KARI_GET0_ALG,
-			   CMS_R_NOT_KEY_AGREEMENT);
+		CMSerror(CMS_R_NOT_KEY_AGREEMENT);
 		return 0;
 	}
 	if (palg)
@@ -87,8 +88,7 @@ STACK_OF(CMS_RecipientEncryptedKey) *
 CMS_RecipientInfo_kari_get0_reks(CMS_RecipientInfo *ri)
 {
 	if (ri->type != CMS_RECIPINFO_AGREE) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_KARI_GET0_REKS,
-			   CMS_R_NOT_KEY_AGREEMENT);
+		CMSerror(CMS_R_NOT_KEY_AGREEMENT);
 		return NULL;
 	}
 	return ri->d.kari->recipientEncryptedKeys;
@@ -102,8 +102,7 @@ CMS_RecipientInfo_kari_get0_orig_id(CMS_RecipientInfo *ri, X509_ALGOR **pubalg,
 	CMS_OriginatorIdentifierOrKey *oik;
 
 	if (ri->type != CMS_RECIPINFO_AGREE) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_KARI_GET0_ORIG_ID,
-			   CMS_R_NOT_KEY_AGREEMENT);
+		CMSerror(CMS_R_NOT_KEY_AGREEMENT);
 		return 0;
 	}
 	oik = ri->d.kari->originator;
@@ -142,8 +141,7 @@ CMS_RecipientInfo_kari_orig_id_cmp(CMS_RecipientInfo *ri, X509 *cert)
 	CMS_OriginatorIdentifierOrKey *oik;
 
 	if (ri->type != CMS_RECIPINFO_AGREE) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_KARI_ORIG_ID_CMP,
-		   CMS_R_NOT_KEY_AGREEMENT);
+		CMSerror(CMS_R_NOT_KEY_AGREEMENT);
 		return -2;
 	}
 	oik = ri->d.kari->originator;
@@ -260,7 +258,7 @@ cms_kek_cipher(unsigned char **pout, size_t *poutlen, const unsigned char *in,
 	/* obtain output length of ciphered key */
 	if (!EVP_CipherUpdate(kari->ctx, NULL, &outlen, in, inlen))
 		goto err;
-	out = OPENSSL_malloc(outlen);
+	out = malloc(outlen);
 	if (out == NULL)
 		goto err;
 	if (!EVP_CipherUpdate(kari->ctx, out, &outlen, in, inlen))
@@ -270,9 +268,9 @@ cms_kek_cipher(unsigned char **pout, size_t *poutlen, const unsigned char *in,
 	rv = 1;
 
  err:
-	OPENSSL_cleanse(kek, keklen);
+	explicit_bzero(kek, keklen);
 	if (!rv)
-		OPENSSL_free(out);
+		free(out);
 	EVP_CIPHER_CTX_reset(kari->ctx);
 	/* FIXME: WHY IS kari->pctx freed here?  /RL */
 	EVP_PKEY_CTX_free(kari->pctx);
@@ -300,14 +298,14 @@ CMS_RecipientInfo_kari_decrypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri,
 	if (!cms_kek_cipher(&cek, &ceklen, enckey, enckeylen, ri->d.kari, 0))
 		goto err;
 	ec = cms->d.envelopedData->encryptedContentInfo;
-	OPENSSL_clear_free(ec->key, ec->keylen);
+	freezero(ec->key, ec->keylen);
 	ec->key = cek;
 	ec->keylen = ceklen;
 	cek = NULL;
 	rv = 1;
 
  err:
-	OPENSSL_free(cek);
+	free(cek);
 
 	return rv;
 }
@@ -353,7 +351,7 @@ cms_RecipientInfo_kari_init(CMS_RecipientInfo *ri, X509 *recip, EVP_PKEY *pk,
 	CMS_KeyAgreeRecipientInfo *kari;
 	CMS_RecipientEncryptedKey *rek = NULL;
 
-	ri->d.kari = M_ASN1_new_of(CMS_KeyAgreeRecipientInfo);
+	ri->d.kari = (CMS_KeyAgreeRecipientInfo *)ASN1_item_new(&CMS_KeyAgreeRecipientInfo_it);
 	if (!ri->d.kari)
 		return 0;
 	ri->type = CMS_RECIPINFO_AGREE;
@@ -361,18 +359,18 @@ cms_RecipientInfo_kari_init(CMS_RecipientInfo *ri, X509 *recip, EVP_PKEY *pk,
 	kari = ri->d.kari;
 	kari->version = 3;
 
-	rek = M_ASN1_new_of(CMS_RecipientEncryptedKey);
+	rek = (CMS_RecipientEncryptedKey *)ASN1_item_new(&CMS_RecipientEncryptedKey_it);
 	if (rek == NULL)
 		return 0;
 
 	if (!sk_CMS_RecipientEncryptedKey_push(kari->recipientEncryptedKeys, rek)) {
-		M_ASN1_free_of(rek, CMS_RecipientEncryptedKey);
+		ASN1_item_free((ASN1_VALUE *)rek, &CMS_RecipientEncryptedKey_it);
 		return 0;
 	}
 
 	if (flags & CMS_USE_KEYID) {
 		rek->rid->type = CMS_REK_KEYIDENTIFIER;
-		rek->rid->d.rKeyId = M_ASN1_new_of(CMS_RecipientKeyIdentifier);
+		rek->rid->d.rKeyId = (CMS_RecipientKeyIdentifier *)ASN1_item_new(&CMS_RecipientKeyIdentifier_it);
 		if (rek->rid->d.rKeyId == NULL)
 			return 0;
 		if (!cms_set1_keyid(&rek->rid->d.rKeyId->subjectKeyIdentifier, recip))
@@ -413,9 +411,15 @@ cms_wrap_init(CMS_KeyAgreeRecipientInfo *kari, const EVP_CIPHER *cipher)
 	 * DES3 wrap otherwise use AES wrap similar to key size.
 	 */
 #ifndef OPENSSL_NO_DES
+#if 0
+	/*
+	 * XXX - we do not currently support DES3 wrap and probably should just
+	 * drop this code.
+	 */
 	if (EVP_CIPHER_type(cipher) == NID_des_ede3_cbc)
 		kekcipher = EVP_des_ede3_wrap();
 	else
+#endif
 #endif
 	if (keylen <= 16)
 		kekcipher = EVP_aes_128_wrap();
@@ -439,7 +443,7 @@ cms_RecipientInfo_kari_encrypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri)
 	int i;
 
 	if (ri->type != CMS_RECIPINFO_AGREE) {
-		CMSerr(CMS_F_CMS_RECIPIENTINFO_KARI_ENCRYPT, CMS_R_NOT_KEY_AGREEMENT);
+		CMSerror(CMS_R_NOT_KEY_AGREEMENT);
 		return 0;
 	}
 	kari = ri->d.kari;
@@ -455,7 +459,7 @@ cms_RecipientInfo_kari_encrypt(CMS_ContentInfo *cms, CMS_RecipientInfo *ri)
 	if (kari->originator->type == -1) {
 		CMS_OriginatorIdentifierOrKey *oik = kari->originator;
 		oik->type = CMS_OIK_PUBKEY;
-		oik->d.originatorKey = M_ASN1_new_of(CMS_OriginatorPublicKey);
+		oik->d.originatorKey = (CMS_OriginatorPublicKey *)ASN1_item_new(&CMS_OriginatorPublicKey_it);
 		if (!oik->d.originatorKey)
 			return 0;
 	}

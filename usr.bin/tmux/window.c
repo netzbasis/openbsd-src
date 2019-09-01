@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.240 2019/06/30 19:21:53 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.242 2019/08/28 07:34:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -587,6 +587,28 @@ window_unzoom(struct window *w)
 	return (0);
 }
 
+int
+window_push_zoom(struct window *w, int flag)
+{
+	log_debug("%s: @%u %d", __func__, w->id,
+	    flag && (w->flags & WINDOW_ZOOMED));
+	if (flag && (w->flags & WINDOW_ZOOMED))
+		w->flags |= WINDOW_WASZOOMED;
+	else
+		w->flags &= ~WINDOW_WASZOOMED;
+	return (window_unzoom(w) == 0);
+}
+
+int
+window_pop_zoom(struct window *w)
+{
+	log_debug("%s: @%u %d", __func__, w->id,
+	    !!(w->flags & WINDOW_WASZOOMED));
+	if (w->flags & WINDOW_WASZOOMED)
+		return (window_zoom(w->active) == 0);
+	return (0);
+}
+
 struct window_pane *
 window_add_pane(struct window *w, struct window_pane *other, u_int hlimit,
     int flags)
@@ -931,7 +953,7 @@ window_pane_resize(struct window_pane *wp, u_int sx, u_int sy)
 	if (wme != NULL && wme->mode->resize != NULL)
 		wme->mode->resize(wme, sx, sy);
 
-	wp->flags |= PANE_RESIZE;
+	wp->flags |= (PANE_RESIZE|PANE_RESIZED);
 }
 
 /*

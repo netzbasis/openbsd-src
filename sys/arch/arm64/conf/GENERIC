@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.107 2019/08/04 15:44:17 kettenis Exp $
+# $OpenBSD: GENERIC,v 1.118 2019/08/29 17:20:03 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -50,6 +50,7 @@ ccp*		at acpi?		# AMD Cryptographic Co-processor
 com*		at acpi?
 dwiic*		at acpi?
 iic*		at dwiic?
+ipmi*		at acpi?
 pluart*		at acpi?
 xhci*		at acpi?
 simplebus*	at fdt?
@@ -109,6 +110,9 @@ wsdisplay*	at simplefb?
 radeondrm*	at pci?
 drm*		at radeondrm?
 wsdisplay*	at radeondrm?
+amdgpu*		at pci?
+drm*		at amdgpu?
+wsdisplay*	at amdgpu?
 
 # iMX
 imxccm*		at fdt? early 1
@@ -127,6 +131,7 @@ imxspi*		at fdt?
 ssdfb*		at iic?
 ssdfb*		at spi?
 wsdisplay*	at ssdfb?
+imxtmu*		at fdt?
 
 # Raspberry Pi 3
 bcmaux*		at fdt?
@@ -136,6 +141,16 @@ bcmrng*		at fdt?
 bcmtemp*	at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+
+# Amlogic SoCs
+amlclock*	at fdt? early 1
+amldwusb*	at fdt?
+amlpciephy*	at fdt?
+amlpinctrl*	at fdt? early 1
+amlreset*	at fdt? early 1
+amlrng*		at fdt?
+amluart*	at fdt?
+amlusbphy*	at fdt?
 
 # HiSilicon SoCs
 hiclock*	at fdt? early 1
@@ -176,9 +191,10 @@ gpio*		at sxipio?
 sxiccmu*	at fdt? early 1	# Clock Control Module/Unit
 sxirsb*		at fdt? early 1	# Reduced Serial Bus
 axppmic*	at rsb?
-sxirtc*		at fdt?		# Real Time Clock
+sxirtc*		at fdt? early 1	# Real Time Clock
 sximmc*		at fdt?		# SD/MMC card controller
 sdmmc*		at sximmc?	# SD/MMC bus
+sxisyscon*	at fdt? early 1	# System controller
 sxitemp*	at fdt?		# Temperature sensor
 sxitwi*		at fdt?		# I2C controller
 iic*		at sxitwi?	# I2C bus
@@ -345,6 +361,7 @@ uk*		at scsibus?
 # I2C devices
 abcrtc*		at iic?			# Abracon x80x RTC
 fanpwr*		at iic?			# FAN53555 regulator
+ipmi*		at iic?			# IPMI (SIIF)
 islrtc*		at iic?			# ISL1208 RTC
 rkpmic*		at iic?			# RK808 PMIC
 sypwr*		at iic?			# SY8106A regulator
