@@ -73,10 +73,10 @@
 /sendmail.8/1.4/Fri Oct 23 15:48:16 2015//
 /smtp.1/1.7/Wed Jul  4 08:23:43 2018//
 /smtp.c/1.166/Sat Aug 10 16:07:01 2019//
-/smtp.h/1.2/Thu Sep 20 11:42:28 2018//
-/smtp_client.c/1.10/Wed Jun 12 17:42:53 2019//
+/smtp.h/1.3/Mon Sep  2 20:05:21 2019//
+/smtp_client.c/1.11/Mon Sep  2 20:05:21 2019//
 /smtp_session.c/1.408/Wed Aug 28 15:50:36 2019//
-/smtpc.c/1.6/Tue Jul  2 09:36:20 2019//
+/smtpc.c/1.8/Mon Sep  2 20:05:21 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.165/Tue Jul 23 08:11:10 2019//
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//
@@ -97,7 +97,7 @@
 /table_getpwnam.c/1.12/Thu Dec 27 14:23:41 2018//
 /table_proc.c/1.15/Thu Dec 27 14:23:41 2018//
 /table_static.c/1.32/Fri Dec 28 14:21:02 2018//
-/to.c/1.41/Wed Aug 14 21:11:25 2019//
+/to.c/1.42/Mon Sep  2 21:59:27 2019//
 /tree.c/1.6/Sun Dec 23 16:06:24 2018//
 /tree.h/1.1/Sun Dec 23 16:06:24 2018//
 /unpack_dns.c/1.1/Sat Jan  6 07:57:53 2018//

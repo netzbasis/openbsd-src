@@ -22,7 +22,7 @@
 /hosts.5/1.25/Tue May 28 14:17:56 2019//
 /installurl.5/1.8/Sat Apr 27 22:30:05 2019//
 /intro.5/1.9/Sun Sep 30 13:24:32 2018//
-/login.conf.5/1.65/Sun Jan  6 17:34:08 2019//
+/login.conf.5/1.66/Mon Sep  2 21:18:41 2019//
 /mandoc.db.5/1.4/Mon Aug  1 12:24:37 2016//
 /mixerctl.conf.5/1.7/Mon Jul 30 17:24:24 2018//
 /mk.conf.5/1.38/Thu Aug  8 12:06:50 2019//
@@ -43,7 +43,7 @@
 /ruby-module.5/1.26/Mon Apr 29 00:44:53 2019//
 /services.5/1.13/Sun Mar  3 17:04:17 2019//
 /shells.5/1.8/Thu May 31 19:19:58 2007//
-/spamd.conf.5/1.22/Sun Jul 22 17:09:43 2018//
+/spamd.conf.5/1.23/Mon Sep  2 21:18:41 2019//
 /sysctl.conf.5/1.13/Fri Jan 25 00:19:26 2019//
 /utmp.5/1.25/Thu Sep 10 17:55:21 2015//
 /wsconsctl.conf.5/1.6/Fri Jan 25 00:19:26 2019//

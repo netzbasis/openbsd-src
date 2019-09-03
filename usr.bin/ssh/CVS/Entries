@@ -162,7 +162,7 @@
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
 /ssh-keygen.1/1.162/Fri Jul 19 03:38:01 2019//
-/ssh-keygen.c/1.341/Sun Sep  1 23:47:32 2019//
+/ssh-keygen.c/1.342/Mon Sep  2 23:46:46 2019//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.129/Fri Jul 12 04:08:39 2019//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
