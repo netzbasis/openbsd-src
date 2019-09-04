@@ -1,4 +1,4 @@
-/Makefile/1.726/Thu Aug 29 17:40:57 2019//
+/Makefile/1.727/Tue Sep  3 21:02:51 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -61,6 +61,7 @@
 /ami.4/1.44/Mon Nov  4 14:07:15 2013//
 /amlclock.4/1.1/Tue Aug 27 09:05:57 2019//
 /amldwusb.4/1.1/Thu Aug 29 17:40:57 2019//
+/amlmmc.4/1.1/Tue Sep  3 21:02:51 2019//
 /amlpciephy.4/1.1/Thu Aug 29 17:40:57 2019//
 /amlpinctrl.4/1.1/Wed Aug 28 09:46:32 2019//
 /amlreset.4/1.2/Tue Aug 27 08:24:37 2019//

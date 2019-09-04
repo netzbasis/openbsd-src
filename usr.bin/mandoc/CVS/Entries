@@ -21,7 +21,7 @@
 /eqn_html.c/1.15/Sun Mar 17 18:20:07 2019//
 /eqn_parse.h/1.3/Fri Dec 14 06:33:03 2018//
 /eqn_term.c/1.15/Thu Dec 13 05:13:15 2018//
-/html.c/1.128/Sun Sep  1 15:12:03 2019//
+/html.c/1.131/Tue Sep  3 18:07:57 2019//
 /html.h/1.67/Sun Sep  1 15:12:03 2019//
 /libman.h/1.61/Mon Dec 31 10:03:38 2018//
 /libmandoc.h/1.62/Fri Dec 21 16:58:49 2018//
@@ -58,7 +58,7 @@
 /mdoc.c/1.163/Mon Dec 31 07:45:42 2018//
 /mdoc.h/1.71/Sun Dec 30 00:48:47 2018//
 /mdoc_argv.c/1.76/Thu Jul 11 16:56:52 2019//
-/mdoc_html.c/1.204/Sun Sep  1 15:12:03 2019//
+/mdoc_html.c/1.205/Tue Sep  3 15:09:39 2019//
 /mdoc_macro.c/1.189/Mon Jan  7 06:51:37 2019//
 /mdoc_man.c/1.130/Fri Jan  4 03:17:38 2019//
 /mdoc_markdown.c/1.31/Mon Jul  1 22:43:03 2019//
