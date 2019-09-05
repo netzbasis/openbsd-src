@@ -1,4 +1,4 @@
-/*	$OpenBSD: mcrecv.c,v 1.2 2019/09/05 02:44:36 bluhm Exp $	*/
+/*	$OpenBSD: mc6recv.c,v 1.1.1.1 2019/09/05 01:50:34 bluhm Exp $	*/
 /*
  * Copyright (c) 2019 Alexander Bluhm <bluhm@openbsd.org>
  *
@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
 
 #include <err.h>
@@ -36,25 +37,25 @@ void __dead
 usage(void)
 {
 	fprintf(stderr,
-"mcrecv [-f file] [-g group] [-i ifaddr] [-n timeout] [-p port] [-r timeout]\n"
-"    [mcsend ...]\n"
+"mc6recv [-f file] [-g group] [-i ifname] [-n timeout] [-p port] [-r timeout]\n"
+"    [mc6send ...]\n"
 "    -f file         print message to log file, default stdout\n"
 "    -g group        multicast group, default 224.0.0.123\n"
-"    -i ifaddr       multicast interface address\n"
+"    -i ifname       multicast interface name\n"
 "    -n timeout      expect not to receive any message until timeout\n"
 "    -p port         destination port number, default 12345\n"
 "    -r timeout      receive timeout in seconds\n"
-"    mcsend ...      after setting up receive, fork and exec send command\n");
+"    mc6send ...      after setting up receive, fork and exec send command\n");
 	exit(2);
 }
 
 int
 main(int argc, char *argv[])
 {
-	struct sockaddr_in sin;
-	struct ip_mreq mreq;
+	struct sockaddr_in6 sin6;
+	struct ipv6_mreq mreq6;
 	FILE *log;
-	const char *errstr, *file, *group, *ifaddr;
+	const char *errstr, *file, *group, *ifname;
 	char msg[256];
 	ssize_t n;
 	int ch, s, norecv, port, status;
@@ -63,8 +64,8 @@ main(int argc, char *argv[])
 
 	log = stdout;
 	file = NULL;
-	group = "224.0.1.123";
-	ifaddr = "0.0.0.0";
+	group = "ff04::123";
+	ifname = "lo0";
 	norecv = 0;
 	port = 12345;
 	timeout = 0;
@@ -77,7 +78,7 @@ main(int argc, char *argv[])
 			group = optarg;
 			break;
 		case 'i':
-			ifaddr = optarg;
+			ifname = optarg;
 			break;
 		case 'n':
 			norecv = 1;
@@ -108,25 +109,31 @@ main(int argc, char *argv[])
 			err(1, "fopen %s", file);
 	}
 
-	s = socket(AF_INET, SOCK_DGRAM, 0);
+	s = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (s == -1)
 		err(1, "socket");
-	if (inet_pton(AF_INET, group, &mreq.imr_multiaddr) == -1)
+	if (inet_pton(AF_INET6, group, &mreq6.ipv6mr_multiaddr) == -1)
 		err(1, "inet_pton %s", group);
-	if (inet_pton(AF_INET, ifaddr, &mreq.imr_interface) == -1)
-		err(1, "inet_pton %s", ifaddr);
-	if (setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq,
-	    sizeof(mreq)) == -1)
-		err(1, "setsockopt IP_ADD_MEMBERSHIP %s %s", group, ifaddr);
+	mreq6.ipv6mr_interface = if_nametoindex(ifname);
+	if (mreq6.ipv6mr_interface == 0)
+		err(1, "if_nametoindex %s", ifname);
+	if (setsockopt(s, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq6,
+	    sizeof(mreq6)) == -1)
+		err(1, "setsockopt IPV6_JOIN_GROUP %s %s", group, ifname);
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_len = sizeof(sin);
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(port);
-	if (inet_pton(AF_INET, group, &sin.sin_addr) == -1)
+	memset(&sin6, 0, sizeof(sin6));
+	sin6.sin6_len = sizeof(sin6);
+	sin6.sin6_family = AF_INET6;
+	sin6.sin6_port = htons(port);
+	if (inet_pton(AF_INET6, group, &sin6.sin6_addr) == -1)
 		err(1, "inet_pton %s", group);
-	if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) == -1)
-		err(1, "bind %s:%d", group, port);
+	if (IN6_IS_ADDR_LINKLOCAL(&sin6.sin6_addr) ||
+	    IN6_IS_ADDR_MC_LINKLOCAL(&sin6.sin6_addr) ||
+	    IN6_IS_ADDR_MC_INTFACELOCAL(&sin6.sin6_addr)) {
+		sin6.sin6_scope_id = mreq6.ipv6mr_interface;
+	}
+	if (bind(s, (struct sockaddr *)&sin6, sizeof(sin6)) == -1)
+		err(1, "bind [%s]:%d", group, port);
 
 	if (argc) {
 		pid = fork();

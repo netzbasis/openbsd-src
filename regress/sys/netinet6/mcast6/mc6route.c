@@ -1,4 +1,4 @@
-/*	$OpenBSD: mcroute.c,v 1.2 2019/09/05 02:44:36 bluhm Exp $	*/
+/*	$OpenBSD: mc6route.c,v 1.1.1.1 2019/09/05 01:50:34 bluhm Exp $	*/
 /*
  * Copyright (c) 2019 Alexander Bluhm <bluhm@openbsd.org>
  *
@@ -48,8 +48,9 @@
 #include <sys/sysctl.h>
 
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
-#include <netinet/ip_mroute.h>
+#include <netinet6/ip6_mroute.h>
 
 #include <err.h>
 #include <errno.h>
@@ -70,14 +71,14 @@ void __dead
 usage(void)
 {
 	fprintf(stderr,
-"mcroute [-b] [-f file] [-g group] -i ifaddr [-n timeout] -o outaddr\n"
+"mc6route [-b] [-f file] [-g group] -i ifname [-n timeout] -o outname\n"
 "    [-r timeout]\n"
 "    -b              fork to background after setup\n"
 "    -f file         print message to log file, default stdout\n"
 "    -g group        multicast group, default 224.0.0.123\n"
-"    -i ifaddr       multicast interface address\n"
+"    -i ifname       multicast interface address\n"
 "    -n timeout      expect not to receive any message until timeout\n"
-"    -o outaddr      outgoing interface address\n"
+"    -o outname      outgoing interface address\n"
 "    -r timeout      receive timeout in seconds\n");
 	exit(2);
 }
@@ -85,26 +86,26 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	struct vifctl vif;
-	struct mfcctl mfc;
-	struct vifinfo *vinfo;
+	struct mif6ctl mif;
+	struct mf6cctl mfc;
+	struct mif6info *minfo;
 	FILE *log;
-	const char *errstr, *file, *group, *ifaddr, *outaddr;
+	const char *errstr, *file, *group, *ifname, *outname;
 	char *buf;
 	size_t needed;
-	unsigned long pktin, pktout;
+	u_int64_t pktin, pktout;
 	int value, ch, s, fd, background, norecv;
 	unsigned int timeout;
 	pid_t pid;
-	int mib[] = { CTL_NET, PF_INET, IPPROTO_IP, IPCTL_MRTVIF };
+	int mib[] = { CTL_NET, PF_INET6, IPPROTO_IPV6, IPV6CTL_MRTMIF };
 
 	background = 0;
 	log = stdout;
 	file = NULL;
-	group = "224.0.1.123";
-	ifaddr = NULL;
+	group = "ff04::123";
+	ifname = NULL;
 	norecv = 0;
-	outaddr = NULL;
+	outname = NULL;
 	timeout = 0;
 	while ((ch = getopt(argc, argv, "bf:g:i:n:o:r:")) != -1) {
 		switch (ch) {
@@ -118,7 +119,7 @@ main(int argc, char *argv[])
 			group = optarg;
 			break;
 		case 'i':
-			ifaddr = optarg;
+			ifname = optarg;
 			break;
 		case 'n':
 			norecv = 1;
@@ -127,7 +128,7 @@ main(int argc, char *argv[])
 				errx(1, "no timeout is %s: %s", errstr, optarg);
 			break;
 		case 'o':
-			outaddr = optarg;
+			outname = optarg;
 			break;
 		case 'r':
 			timeout = strtonum(optarg, 1, INT_MAX, &errstr);
@@ -140,10 +141,10 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	if (ifaddr == NULL)
-		errx(2, "no ifaddr");
-	if (outaddr == NULL)
-		errx(2, "no outaddr");
+	if (ifname == NULL)
+		errx(2, "no ifname");
+	if (outname == NULL)
+		errx(2, "no outname");
 	if (argc)
 		usage();
 
@@ -153,35 +154,37 @@ main(int argc, char *argv[])
 			err(1, "fopen %s", file);
 	}
 
-	s = socket(AF_INET, SOCK_RAW, IPPROTO_IGMP);
+	s = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 	if (s == -1)
 		err(1, "socket");
 	value = 1;
-	if (setsockopt(s, IPPROTO_IP, MRT_INIT, &value, sizeof(value)) == -1)
-		err(1, "setsockopt MRT_INIT");
+	if (setsockopt(s, IPPROTO_IPV6, MRT6_INIT, &value, sizeof(value)) == -1)
+		err(1, "setsockopt MRT6_INIT");
 
-	memset(&vif, 0, sizeof(vif));
-	vif.vifc_vifi = 0;
-	if (inet_pton(AF_INET, ifaddr, &vif.vifc_lcl_addr) == -1)
-		err(1, "inet_pton %s", ifaddr);
-	if (setsockopt(s, IPPROTO_IP, MRT_ADD_VIF, &vif, sizeof(vif)) == -1)
-		err(1, "setsockopt MRT_ADD_VIF %s", ifaddr);
+	memset(&mif, 0, sizeof(mif));
+	mif.mif6c_mifi = 0;
+	mif.mif6c_pifi = if_nametoindex(ifname);
+	if (mif.mif6c_pifi == 0)
+		err(1, "if_nametoindex %s", ifname);
+	if (setsockopt(s, IPPROTO_IPV6, MRT6_ADD_MIF, &mif, sizeof(mif)) == -1)
+		err(1, "setsockopt MRT6_ADD_MIF %s", ifname);
 
-	memset(&vif, 0, sizeof(vif));
-	vif.vifc_vifi = 1;
-	if (inet_pton(AF_INET, outaddr, &vif.vifc_lcl_addr) == -1)
-		err(1, "inet_pton %s", outaddr);
-	if (setsockopt(s, IPPROTO_IP, MRT_ADD_VIF, &vif, sizeof(vif)) == -1)
-		err(1, "setsockopt MRT_ADD_VIF %s", outaddr);
+	memset(&mif, 0, sizeof(mif));
+	mif.mif6c_mifi = 1;
+	mif.mif6c_pifi = if_nametoindex(outname);
+	if (mif.mif6c_pifi == 0)
+		err(1, "if_nametoindex %s", outname);
+	if (setsockopt(s, IPPROTO_IPV6, MRT6_ADD_MIF, &mif, sizeof(mif)) == -1)
+		err(1, "setsockopt MRT6_ADD_MIF %s", outname);
 
 	memset(&mfc, 0, sizeof(mfc));
-	if (inet_pton(AF_INET, group, &mfc.mfcc_mcastgrp) == -1)
+	if (inet_pton(AF_INET6, group, &mfc.mf6cc_mcastgrp.sin6_addr) == -1)
 		err(1, "inet_pton %s", group);
-	mfc.mfcc_parent = 0;
-	mfc.mfcc_ttls[1] = 1;
+	mfc.mf6cc_parent = 0;
+	IF_SET(1, &mfc.mf6cc_ifset);
 
-	if (setsockopt(s, IPPROTO_IP, MRT_ADD_MFC, &mfc, sizeof(mfc)) == -1)
-		err(1, "setsockopt MRT_ADD_MFC %s", group);
+	if (setsockopt(s, IPPROTO_IPV6, MRT6_ADD_MFC, &mfc, sizeof(mfc)) == -1)
+		err(1, "setsockopt MRT6_ADD_MFC %s", ifname);
 
 	if (background) {
 		pid = fork();
@@ -221,25 +224,25 @@ main(int argc, char *argv[])
 		if (nanosleep(&sleeptime, NULL) == -1)
 			err(1, "nanosleep");
 		needed = get_sysctl(mib, sizeof(mib) / sizeof(mib[0]), &buf);
-		for (vinfo = (struct vifinfo *)buf;
-		    (char *)vinfo < buf + needed;
-		    vinfo++) {
-			switch (vinfo->v_vifi) {
+		for (minfo = (struct mif6info *)buf;
+		    (char *)minfo < buf + needed;
+		    minfo++) {
+			switch (minfo->m6_ifindex) {
 			case 0:
-				if (pktin != vinfo->v_pkt_in) {
-					fprintf(log, "<<< %lu\n",
-					    vinfo->v_pkt_in);
+				if (pktin != minfo->m6_pkt_in) {
+					fprintf(log, "<<< %llu\n",
+					    minfo->m6_pkt_in);
 					fflush(log);
 				}
-				pktin = vinfo->v_pkt_in;
+				pktin = minfo->m6_pkt_in;
 				break;
 			case 1:
-				if (pktout != vinfo->v_pkt_out) {
-					fprintf(log, ">>> %lu\n",
-					    vinfo->v_pkt_out);
+				if (pktout != minfo->m6_pkt_out) {
+					fprintf(log, ">>> %llu\n",
+					    minfo->m6_pkt_out);
 					fflush(log);
 				}
-				pktout = vinfo->v_pkt_out;
+				pktout = minfo->m6_pkt_out;
 				break;
 			}
 		}
@@ -247,7 +250,7 @@ main(int argc, char *argv[])
 	free(buf);
 
 	if (norecv)
-		errx(1, "pktin %lu, pktout %lu", pktin, pktout);
+		errx(1, "pktin %llu, pktout %llu", pktin, pktout);
 
 	return 0;
 }

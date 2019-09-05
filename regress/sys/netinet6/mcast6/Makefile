@@ -1,19 +1,23 @@
-# $OpenBSD: Makefile,v 1.3 2019/09/05 02:44:36 bluhm Exp $
+# $OpenBSD: Makefile,v 1.2 2019/09/05 02:44:36 bluhm Exp $
 
-PROGS =			mcsend mcrecv mcroute
+PROGS =			mc6send mc6recv mc6route
 WARNINGS =		Yes
 CLEANFILES =		stamp-* *.log
 MSG !!=			echo $$RANDOM
 
-SEND =		${.OBJDIR}/mcsend
-RECV =		${.OBJDIR}/mcrecv
-ROUTE =		${.OBJDIR}/mcroute
-LOCALHOST =	127.0.0.1
-LOCAL =		${LOCAL_ADDR}
-REMOTE =	${REMOTE_ADDR}
-OTHER =		${OTHER_ADDR}
-TARGET =	${TARGET_ADDR}
-GROUP_LOCAL =	224.0.0.123
+SEND =		${.OBJDIR}/mc6send
+RECV =		${.OBJDIR}/mc6recv
+ROUTE =		${.OBJDIR}/mc6route
+LOCALHOST =	lo0
+LOCAL =		${LOCAL_IF}
+REMOTE =	${REMOTE_IF}
+OTHER =		${OTHER_IF}
+TARGET =	${TARGET_IF}
+GROUP_LOCAL =	ff02::123
+
+# Currently receiving link-local packets via loopback does not work
+# due to wrong scope id.  This has to be investigated.
+REGRESS_EXPECTED_FAILURES = run-localhost-local
 
 REGRESS_SETUP_ONCE =	setup-sudo
 setup-sudo:
@@ -220,7 +224,7 @@ REGRESS_SKIP_TARGETS +=	${REGRESS_TARGETS:M*-forward*}
 
 check-setup:
 	! ssh ${REMOTE_SSH} route -n get 224/4
-	ssh ${REMOTE_SSH} sysctl net.inet.ip.mforwarding | fgrep =1
+	ssh ${REMOTE_SSH} sysctl net.inet6.ip6.mforwarding | fgrep =1
 
 .include <bsd.regress.mk>
 
