@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.346 2019/09/03 20:51:49 naddy Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.349 2019/09/06 07:53:40 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -16,9 +16,12 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+#ifdef WITH_OPENSSL
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#endif
 
+#include <stdint.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -2758,7 +2761,9 @@ main(int argc, char **argv)
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
 
+#ifdef WITH_OPENSSL
 	OpenSSL_add_all_algorithms();
+#endif
 	log_init(argv[0], SYSLOG_LEVEL_INFO, SYSLOG_FACILITY_USER, 1);
 
 	setlocale(LC_CTYPE, "");
@@ -3087,7 +3092,10 @@ main(int argc, char **argv)
 		do_convert_to(pw);
 	if (convert_from)
 		do_convert_from(pw);
-#endif
+#else /* WITH_OPENSSL */
+	if (convert_to || convert_from)
+		fatal("key conversion disabled at compile time");
+#endif /* WITH_OPENSSL */
 	if (print_public)
 		do_print_public(pw);
 	if (rr_hostname != NULL) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: st.c,v 1.145 2019/09/05 18:49:03 krw Exp $	*/
+/*	$OpenBSD: st.c,v 1.150 2019/09/07 02:30:40 krw Exp $	*/
 /*	$NetBSD: st.c,v 1.71 1997/02/21 23:03:49 thorpej Exp $	*/
 
 /*
@@ -94,18 +94,17 @@
  * Define various devices that we know mis-behave in some way,
  * and note how they are bad, so we can correct for them
  */
-struct modes {
+struct mode {
 	int blksize;
 	u_int8_t density;
 };
 
 struct quirkdata {
 	u_int quirks;
-#define	ST_Q_FORCE_BLKSIZE	0x0001
-#define	ST_Q_SENSE_HELP		0x0002	/* must do READ for good MODE SENSE */
-#define	ST_Q_IGNORE_LOADS	0x0004
-#define	ST_Q_UNIMODAL		0x0010	/* unimode drive rejects mode select */
-	struct modes modes;
+#define	ST_Q_SENSE_HELP		0x0001	/* must do READ for good MODE SENSE */
+#define	ST_Q_IGNORE_LOADS	0x0002
+#define	ST_Q_UNIMODAL		0x0004	/* unimode drive rejects mode select */
+	struct mode mode;
 };
 
 struct st_quirk_inquiry_pattern {
@@ -115,28 +114,28 @@ struct st_quirk_inquiry_pattern {
 
 const struct st_quirk_inquiry_pattern st_quirk_patterns[] = {
 	{{T_SEQUENTIAL, T_REMOV,
-		 "        ", "                ", "    "}, {ST_Q_FORCE_BLKSIZE,
+		 "        ", "                ", "    "}, {0,
 							   {512, 0}}},
  	{{T_SEQUENTIAL, T_REMOV,
-		 "TANDBERG", " TDC 3800       ", ""},     {ST_Q_FORCE_BLKSIZE,
+		 "TANDBERG", " TDC 3800       ", ""},     {0,
 							   {512, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
 		 "ARCHIVE ", "VIPER 2525 25462", ""},     {ST_Q_SENSE_HELP,
 							   {0, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
-		 "SANKYO  ", "CP525           ", ""},     {ST_Q_FORCE_BLKSIZE,
+		 "SANKYO  ", "CP525           ", ""},     {0,
 							   {512, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
-		 "ANRITSU ", "DMT780          ", ""},     {ST_Q_FORCE_BLKSIZE,
+		 "ANRITSU ", "DMT780          ", ""},     {0,
 							   {512, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
 		 "ARCHIVE ", "VIPER 150  21531", ""},     {ST_Q_SENSE_HELP,
 							   {0, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
-		 "WANGTEK ", "5099ES SCSI",	 ""},     {ST_Q_FORCE_BLKSIZE,
+		 "WANGTEK ", "5099ES SCSI",	 ""},     {0,
 							   {512, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
-		 "WANGTEK ", "5150ES SCSI",	 ""},     {ST_Q_FORCE_BLKSIZE,
+		 "WANGTEK ", "5150ES SCSI",	 ""},     {0,
 							   {512, 0}}},
 	{{T_SEQUENTIAL, T_REMOV,
 		 "HP      ", "T4000s          ", ""},     {ST_Q_UNIMODAL,
@@ -160,7 +159,6 @@ struct st_softc {
 
 	int flags;
 #define	ST_INFO_VALID		0x00000001
-#define	ST_BLOCK_SET		0x00000002
 #define	ST_WRITTEN		0x00000004
 #define	ST_FIXEDBLOCKS		0x00000008
 #define	ST_AT_FILEMARK		0x00000010
@@ -175,10 +173,8 @@ struct st_softc {
 #define	ST_WAITING		0x00002000
 #define	ST_DYING		0x00004000
 #define	ST_BOD_DETECTED		0x00008000
-#define	ST_USER_DENSITY		0x00010000
-#define	ST_QUIRK_DENSITY	0x00020000
-#define	ST_USER_BLKSIZE		0x00040000
-#define	ST_QUIRK_BLKSIZE	0x00080000
+#define	ST_MODE_DENSITY		0x00010000
+#define	ST_MODE_BLKSIZE		0x00040000
 
 	u_int quirks;		/* quirks for the open mode           */
 	int blksize;		/* blksize we are using               */
@@ -197,7 +193,7 @@ struct st_softc {
 	int media_blkno;		/* relative to BOF. -1 means unknown. */
 	int media_eom;			/* relative to BOT. -1 means unknown. */
 
-	struct modes modes;
+	struct mode mode;
 	struct bufq sc_bufq;
 	struct timeout sc_timeout;
 	struct scsi_xshandler sc_xsh;
@@ -358,13 +354,12 @@ st_identify_drive(struct st_softc *st, struct scsi_inquiry_data *inqbuf)
 	    sizeof(st_quirk_patterns[0]), &priority);
 	if (priority != 0) {
 		st->quirks = finger->quirkdata.quirks;
-		st->modes = finger->quirkdata.modes;
-		st->flags &= ~(ST_QUIRK_BLKSIZE | ST_QUIRK_DENSITY |
-		    ST_USER_BLKSIZE | ST_USER_DENSITY);
-		if (st->quirks & ST_Q_FORCE_BLKSIZE)
-			st->flags |= ST_QUIRK_BLKSIZE;
-		if (st->modes.density != 0)
-			st->flags |= ST_QUIRK_DENSITY;
+		st->mode = finger->quirkdata.mode;
+		st->flags &= ~(ST_MODE_BLKSIZE | ST_MODE_DENSITY);
+		if (st->mode.blksize != 0)
+			st->flags |= ST_MODE_BLKSIZE;
+		if (st->mode.density != 0)
+			st->flags |= ST_MODE_DENSITY;
 	}
 }
 
@@ -569,8 +564,8 @@ st_mount_tape(dev_t dev, int flags)
 	 * then use it in preference to the one supplied by
 	 * default by the driver.
 	 */
-	if (st->flags & (ST_QUIRK_DENSITY | ST_USER_DENSITY))
-		st->density = st->modes.density;
+	if (st->flags & ST_MODE_DENSITY)
+		st->density = st->mode.density;
 	else
 		st->density = st->media_density;
 	/*
@@ -579,8 +574,8 @@ st_mount_tape(dev_t dev, int flags)
 	 * default by the driver.
 	 */
 	st->flags &= ~ST_FIXEDBLOCKS;
-	if (st->flags & (ST_QUIRK_BLKSIZE | ST_USER_BLKSIZE)) {
-		st->blksize = st->modes.blksize;
+	if (st->flags & ST_MODE_BLKSIZE) {
+		st->blksize = st->mode.blksize;
 		if (st->blksize)
 			st->flags |= ST_FIXEDBLOCKS;
 	} else {
@@ -1105,8 +1100,8 @@ stioctl(dev_t dev, u_long cmd, caddr_t arg, int flag, struct proc *p)
 		g->mt_type = 0x7;	/* Ultrix compat *//*? */
 		g->mt_blksiz = st->blksize;
 		g->mt_density = st->density;
-		g->mt_mblksiz = st->modes.blksize;
-		g->mt_mdensity = st->modes.density;
+		g->mt_mblksiz = st->mode.blksize;
+		g->mt_mdensity = st->mode.density;
 		if (st->sc_link->flags & SDEV_READONLY)
 			g->mt_dsreg |= MT_DS_RDONLY;
 		if (st->flags & ST_MOUNTED)
@@ -1174,7 +1169,7 @@ stioctl(dev_t dev, u_long cmd, caddr_t arg, int flag, struct proc *p)
 		case MTERASE:	/* erase volume */
 			error = st_erase(st, number, flags);
 			break;
-		case MTSETBSIZ:	/* Set block size for device */
+		case MTSETBSIZ:	/* Set block size for device and mode. */
 			if (number == 0) {
 				st->flags &= ~ST_FIXEDBLOCKS;
 			} else {
@@ -1187,15 +1182,14 @@ stioctl(dev_t dev, u_long cmd, caddr_t arg, int flag, struct proc *p)
 				st->flags |= ST_FIXEDBLOCKS;
 			}
 			st->blksize = number;
-			st->flags |= ST_BLOCK_SET;	/*XXX */
 			goto try_new_value;
 
-		case MTSETDNSTY:	/* Set density for device and mode */
+		case MTSETDNSTY:	/* Set density for device and mode. */
 			if (number < 0 || number > SCSI_MAX_DENSITY_CODE) {
 				error = EINVAL;
 				break;
-			} else
-				st->density = number;
+			}
+			st->density = number;
 			goto try_new_value;
 
 		default:
@@ -1252,12 +1246,12 @@ try_new_value:
 	 */
 	switch (mt->mt_op) {
 	case MTSETBSIZ:
-		st->modes.blksize = st->blksize;
-		st->flags |= ST_USER_BLKSIZE;
+		st->mode.blksize = st->blksize;
+		st->flags |= ST_MODE_BLKSIZE;
 		break;
 	case MTSETDNSTY:
-		st->modes.density = st->density;
-		st->flags |= ST_USER_DENSITY;
+		st->mode.density = st->density;
+		st->flags |= ST_MODE_DENSITY;
 		break;
 	}
 
@@ -1417,7 +1411,7 @@ done:
 
 /*
  * Send a filled out parameter structure to the drive to
- * set it into the desire modes etc.
+ * set it into the desire mode etc.
  */
 int
 st_mode_select(struct st_softc *st, int flags)

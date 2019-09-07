@@ -1,4 +1,4 @@
-/ec.h/1.16/Sat Jan 19 01:17:41 2019//
+/ec.h/1.17/Fri Sep  6 17:59:25 2019//
 /ec2_mult.c/1.13/Mon Jul 23 18:24:22 2018//
 /ec2_oct.c/1.11/Sun Jul 15 16:27:39 2018//
 /ec2_smpl.c/1.21/Mon Nov  5 20:18:21 2018//
@@ -7,14 +7,14 @@
 /ec_check.c/1.9/Sun Jul 15 16:27:39 2018//
 /ec_curve.c/1.19/Sun Jul 15 16:27:39 2018//
 /ec_cvt.c/1.6/Thu Jul 10 22:45:57 2014//
-/ec_err.c/1.10/Sun Jan 29 17:49:23 2017//
+/ec_err.c/1.11/Fri Sep  6 17:59:25 2019//
 /ec_key.c/1.24/Sat Jan 19 01:12:48 2019//
 /ec_kmeth.c/1.5/Fri May 10 19:15:06 2019//
 /ec_lcl.h/1.13/Sat Jan 19 01:12:48 2019//
 /ec_lib.c/1.31/Tue Nov  6 07:02:33 2018//
 /ec_mult.c/1.24/Sun Jul 15 16:27:39 2018//
 /ec_oct.c/1.5/Sun Jan 29 17:49:23 2017//
-/ec_pmeth.c/1.10/Sun Jan 29 17:49:23 2017//
+/ec_pmeth.c/1.11/Fri Sep  6 17:59:25 2019//
 /ec_print.c/1.7/Wed Dec  3 19:53:20 2014//
 /eck_prn.c/1.15/Sun Jul 15 16:27:39 2018//
 /ecp_mont.c/1.17/Mon Nov  5 20:18:21 2018//

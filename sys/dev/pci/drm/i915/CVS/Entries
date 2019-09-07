@@ -9,7 +9,7 @@
 /dvo_tfp410.c/1.8/Sun Apr 14 10:14:51 2019//
 /i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_devlist.h/1.10/Sat Aug 24 01:45:59 2019//
-/i915_drv.c/1.121/Sat Aug 24 01:43:12 2019//
+/i915_drv.c/1.122/Sat Sep  7 00:51:40 2019//
 /i915_drv.h/1.84/Sat Aug 24 01:43:12 2019//
 /i915_gem.c/1.118/Mon Sep  2 11:26:30 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
@@ -64,7 +64,7 @@
 /i915_timeline.h/1.1/Sun Apr 14 10:14:52 2019//
 /i915_trace.h/1.16/Sun Apr 14 10:14:52 2019//
 /i915_utils.h/1.1/Sun Apr 14 10:14:52 2019//
-/i915_vgpu.c/1.3/Sun Apr 14 10:14:52 2019//
+/i915_vgpu.c/1.4/Sat Sep  7 00:43:05 2019//
 /i915_vgpu.h/1.2/Sun Apr 14 10:14:52 2019//
 /i915_vma.c/1.1/Sun Apr 14 10:14:52 2019//
 /i915_vma.h/1.1/Sun Apr 14 10:14:52 2019//
@@ -80,7 +80,7 @@
 /intel_crt.c/1.14/Sun Apr 14 10:14:52 2019//
 /intel_csr.c/1.4/Thu Jul 11 01:43:20 2019//
 /intel_ddi.c/1.18/Sun Apr 14 10:14:52 2019//
-/intel_device_info.c/1.1/Sun Apr 14 10:14:52 2019//
+/intel_device_info.c/1.2/Sat Sep  7 00:39:29 2019//
 /intel_device_info.h/1.1/Sun Apr 14 10:14:52 2019//
 /intel_display.c/1.64/Mon Jul  1 18:39:26 2019//
 /intel_display.h/1.1/Sun Apr 14 10:14:52 2019//
