@@ -87,8 +87,8 @@
 /simplefb.c/1.5/Mon Aug 27 09:30:07 2018//
 /ssdfb.c/1.10/Fri Feb 22 09:39:33 2019//
 /sunxireg.h/1.1/Sat Jan 21 08:26:49 2017//
-/sxiccmu.c/1.23/Mon Sep  2 13:08:49 2019//
-/sxiccmu_clocks.h/1.26/Mon Sep  2 15:24:39 2019//
+/sxiccmu.c/1.24/Sun Sep  8 16:45:21 2019//
+/sxiccmu_clocks.h/1.27/Sun Sep  8 16:45:21 2019//
 /sximmc.c/1.9/Sun Feb 10 11:56:26 2019//
 /sxipio.c/1.11/Thu Sep  5 12:00:09 2019//
 /sxipio_pins.h/1.7/Thu Sep  5 12:00:09 2019//
