@@ -1,4 +1,4 @@
-/* $OpenBSD: ec_ameth.c,v 1.26 2019/09/08 17:00:05 jsing Exp $ */
+/* $OpenBSD: ec_ameth.c,v 1.28 2019/09/09 20:26:16 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2006.
  */
@@ -61,6 +61,7 @@
 #include <openssl/opensslconf.h>
 
 #include <openssl/bn.h>
+#include <openssl/cms.h>
 #include <openssl/ec.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
@@ -68,8 +69,6 @@
 #include "asn1_locl.h"
 
 #ifndef OPENSSL_NO_CMS
-#include <openssl/cms.h>
-
 static int ecdh_cms_decrypt(CMS_RecipientInfo *ri);
 static int ecdh_cms_encrypt(CMS_RecipientInfo *ri);
 #endif
@@ -144,6 +143,7 @@ eckey_pub_encode(X509_PUBKEY * pk, const EVP_PKEY * pkey)
 static EC_KEY *
 eckey_type2param(int ptype, const void *pval)
 {
+	EC_GROUP *group = NULL;
 	EC_KEY *eckey = NULL;
 
 	if (ptype == V_ASN1_SEQUENCE) {
@@ -159,7 +159,6 @@ eckey_type2param(int ptype, const void *pval)
 		}
 	} else if (ptype == V_ASN1_OBJECT) {
 		const ASN1_OBJECT *poid = pval;
-		EC_GROUP *group;
 
 		/*
 		 * type == V_ASN1_OBJECT => the parameters are given by an
@@ -175,17 +174,17 @@ eckey_type2param(int ptype, const void *pval)
 		EC_GROUP_set_asn1_flag(group, OPENSSL_EC_NAMED_CURVE);
 		if (EC_KEY_set_group(eckey, group) == 0)
 			goto ecerr;
-		EC_GROUP_free(group);
 	} else {
 		ECerror(EC_R_DECODE_ERROR);
 		goto ecerr;
 	}
 
+	EC_GROUP_free(group);
 	return eckey;
 
  ecerr:
-	if (eckey)
-		EC_KEY_free(eckey);
+	EC_KEY_free(eckey);
+	EC_GROUP_free(group);
 	return NULL;
 }
 
