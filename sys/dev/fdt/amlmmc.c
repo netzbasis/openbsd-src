@@ -1,4 +1,4 @@
-/*	$OpenBSD: amlmmc.c,v 1.1 2019/09/01 16:01:43 kettenis Exp $	*/
+/*	$OpenBSD: amlmmc.c,v 1.4 2019/09/02 08:21:15 kettenis Exp $	*/
 /*
  * Copyright (c) 2019 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -18,6 +18,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/device.h>
+#include <sys/malloc.h>
 
 #include <machine/intr.h>
 #include <machine/bus.h>
@@ -27,6 +28,7 @@
 #include <dev/ofw/ofw_clock.h>
 #include <dev/ofw/ofw_gpio.h>
 #include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/ofw_regulator.h>
 #include <dev/ofw/fdt.h>
 
 #include <dev/sdmmc/sdmmcvar.h>
@@ -51,8 +53,11 @@
 #define SD_EMMC_DELAY2		0x0008
 #define SD_EMMC_ADJUST		0x000c
 #define SD_EMMC_START		0x0040
+#define  SD_EMMC_START_START		(1 << 1)
+#define  SD_EMMC_START_STOP		(0 << 1)
 #define SD_EMMC_CFG		0x0044
 #define  SD_EMMC_CFG_AUTO_CLK		(1 << 23)
+#define  SD_EMMC_CFG_STOP_CLOCK		(1 << 22)
 #define  SD_EMMC_CFG_SDCLK_ALWAYS_ON	(1 << 18)
 #define  SD_EMMC_CFG_RC_CC_MASK		(0xf << 12)
 #define  SD_EMMC_CFG_RC_CC_16		(0x4 << 12)
@@ -61,16 +66,19 @@
 #define  SD_EMMC_CFG_BL_LEN_MASK	(0xf << 4)
 #define  SD_EMMC_CFG_BL_LEN_SHIFT	4
 #define  SD_EMMC_CFG_BL_LEN_512		(0x9 << 4)
+#define  SD_EMMC_CFG_DDR		(1 << 2)
 #define  SD_EMMC_CFG_BUS_WIDTH_MASK	(0x3 << 0)
 #define  SD_EMMC_CFG_BUS_WIDTH_1	(0x0 << 0)
 #define  SD_EMMC_CFG_BUS_WIDTH_4	(0x1 << 0)
 #define  SD_EMMC_CFG_BUS_WIDTH_8	(0x2 << 0)
 #define SD_EMMC_STATUS		0x0048
 #define  SD_EMMC_STATUS_END_OF_CHAIN	(1 << 13)
+#define  SD_EMMC_STATUS_DESC_TIMEOUT	(1 << 12)
 #define  SD_EMMC_STATUS_RESP_TIMEOUT	(1 << 11)
 #define  SD_EMMC_STATUS_MASK		0x00003fff
-#define  SD_EMMC_STATUS_ERR_MASK	0x000003ff
+#define  SD_EMMC_STATUS_ERR_MASK	0x000007ff
 #define SD_EMMC_IRQ_EN		0x004c
+#define  SD_EMMC_IRQ_EN_MASK		SD_EMMC_STATUS_MASK
 #define SD_EMMC_CMD_CFG		0x0050
 #define  SD_EMMC_CMD_CFG_BLOCK_MODE	(1 << 9)
 #define  SD_EMMC_CMD_CFG_R1B		(1 << 10)
@@ -78,6 +86,7 @@
 #define  SD_EMMC_CMD_CFG_TIMEOUT_1024	(10 << 12)
 #define  SD_EMMC_CMD_CFG_TIMEOUT_4096	(12 << 12)
 #define  SD_EMMC_CMD_CFG_NO_RESP	(1 << 16)
+#define  SD_EMMC_CMD_CFG_NO_CMD		(1 << 17)
 #define  SD_EMMC_CMD_CFG_DATA_IO	(1 << 18)
 #define  SD_EMMC_CMD_CFG_DATA_WR	(1 << 19)
 #define  SD_EMMC_CMD_CFG_RESP_NOCRC	(1 << 20)
@@ -107,7 +116,7 @@ struct amlmmc_desc {
 	uint32_t resp_addr;
 };
 
-#define AMLMMC_NDESC		1
+#define AMLMMC_NDESC		(PAGE_SIZE / sizeof(struct amlmmc_desc))
 #define AMLMMC_MAXSEGSZ		0x20000
 
 struct amlmmc_softc {
@@ -116,6 +125,9 @@ struct amlmmc_softc {
 	bus_space_handle_t	sc_ioh;
 	bus_dma_tag_t		sc_dmat;
 	bus_dmamap_t		sc_dmap;
+
+	void			*sc_ih;
+	uint32_t		sc_status;
 
 	bus_dmamap_t		sc_desc_map;
 	bus_dma_segment_t	sc_desc_segs[1];
@@ -126,6 +138,10 @@ struct amlmmc_softc {
 	uint32_t		sc_clkin0;
 	uint32_t		sc_clkin1;
 	uint32_t		sc_gpio[4];
+	uint32_t		sc_vmmc;
+	uint32_t		sc_vqmmc;
+	uint32_t		sc_pwrseq;
+	uint32_t		sc_vdd;
 
 	int			sc_blklen;
 	struct device		*sc_sdmmc;
@@ -144,7 +160,10 @@ struct cfdriver amlmmc_cd = {
 
 int	amlmmc_alloc_descriptors(struct amlmmc_softc *);
 void	amlmmc_free_descriptors(struct amlmmc_softc *);
-	
+int	amlmmc_intr(void *);
+
+void	amlmmc_pwrseq_reset(uint32_t);
+
 int	amlmmc_host_reset(sdmmc_chipset_handle_t);
 uint32_t amlmmc_host_ocr(sdmmc_chipset_handle_t);
 int	amlmmc_host_maxblklen(sdmmc_chipset_handle_t);
@@ -153,6 +172,7 @@ int	amlmmc_bus_power(sdmmc_chipset_handle_t, uint32_t);
 int	amlmmc_bus_clock(sdmmc_chipset_handle_t, int, int);
 int	amlmmc_bus_width(sdmmc_chipset_handle_t, int);
 void	amlmmc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
+int	amlmmc_signal_voltage(sdmmc_chipset_handle_t, int);
 
 struct sdmmc_chip_functions amlmmc_chip_functions = {
 	.host_reset = amlmmc_host_reset,
@@ -163,6 +183,7 @@ struct sdmmc_chip_functions amlmmc_chip_functions = {
 	.bus_clock = amlmmc_bus_clock,
 	.bus_width = amlmmc_bus_width,
 	.exec_command = amlmmc_exec_command,
+	.signal_voltage = amlmmc_signal_voltage,
 };
 
 int
@@ -207,6 +228,13 @@ amlmmc_attach(struct device *parent, struct device *self, void *aux)
 		goto free;
 	}
 
+	sc->sc_ih = fdt_intr_establish(faa->fa_node, IPL_BIO,
+	    amlmmc_intr, sc, sc->sc_dev.dv_xname);
+	if (sc->sc_ih == NULL) {
+		printf(": can't establish interrupt\n");
+		goto destroy;
+	}
+
 	sc->sc_node = faa->fa_node;
 	printf("\n");
 
@@ -222,12 +250,10 @@ amlmmc_attach(struct device *parent, struct device *self, void *aux)
 	    sizeof(sc->sc_gpio));
 	if (sc->sc_gpio[0])
 		gpio_controller_config_pin(sc->sc_gpio, GPIO_CONFIG_INPUT);
-	
-	/* Clear status bits. */
-	HWRITE4(sc, SD_EMMC_STATUS, SD_EMMC_STATUS_MASK);
 
-	/* Mask interrupts. */
-	HWRITE4(sc, SD_EMMC_IRQ_EN, 0);
+	sc->sc_vmmc = OF_getpropint(sc->sc_node, "vmmc-supply", 0);
+	sc->sc_vqmmc = OF_getpropint(sc->sc_node, "vqmmc-supply", 0);
+	sc->sc_pwrseq = OF_getpropint(sc->sc_node, "mmc-pwrseq", 0);
 
 	/* Configure clock mode. */
 	cfg = HREAD4(sc, SD_EMMC_CFG);
@@ -247,6 +273,14 @@ amlmmc_attach(struct device *parent, struct device *self, void *aux)
 	cfg |= SD_EMMC_CFG_BL_LEN_512;
 	HWRITE4(sc, SD_EMMC_CFG, cfg);
 
+	/* Clear status bits & enable interrupts. */
+	HWRITE4(sc, SD_EMMC_STATUS, SD_EMMC_STATUS_MASK);
+	HWRITE4(sc, SD_EMMC_IRQ_EN, SD_EMMC_IRQ_EN_MASK);
+
+	/* Reset eMMC. */
+	if (sc->sc_pwrseq)
+		amlmmc_pwrseq_reset(sc->sc_pwrseq);
+
 	memset(&saa, 0, sizeof(saa));
 	saa.saa_busname = "sdmmc";
 	saa.sct = &amlmmc_chip_functions;
@@ -260,6 +294,8 @@ amlmmc_attach(struct device *parent, struct device *self, void *aux)
 		saa.caps |= SMC_CAPS_MMC_HIGHSPEED;
 	if (OF_getproplen(sc->sc_node, "cap-sd-highspeed") == 0)
 		saa.caps |= SMC_CAPS_SD_HIGHSPEED;
+	if (OF_getproplen(sc->sc_node, "mmc-ddr-1_8v") == 0)
+		saa.caps |= SMC_CAPS_MMC_DDR52;
 
 	width = OF_getpropint(faa->fa_node, "bus-width", 1);
 	if (width >= 8)
@@ -270,6 +306,8 @@ amlmmc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_sdmmc = config_found(self, &saa, NULL);
 	return;
 
+destroy:
+	bus_dmamap_destroy(sc->sc_dmat, sc->sc_dmap);
 free:
 	amlmmc_free_descriptors(sc);
 unmap:
@@ -322,6 +360,22 @@ amlmmc_free_descriptors(struct amlmmc_softc *sc)
 	bus_dmamem_free(sc->sc_dmat, sc->sc_desc_segs, sc->sc_desc_nsegs);
 }
 
+int
+amlmmc_intr(void *arg)
+{
+	struct amlmmc_softc *sc = arg;
+	uint32_t status;
+
+	status = HREAD4(sc, SD_EMMC_STATUS);
+	if ((status & SD_EMMC_STATUS_MASK) == 0)
+		return 0;
+
+	HWRITE4(sc, SD_EMMC_STATUS, status);
+	sc->sc_status = status & SD_EMMC_STATUS_MASK;
+	wakeup(sc);
+	return 1;
+}
+
 void
 amlmmc_set_blklen(struct amlmmc_softc *sc, int blklen)
 {
@@ -335,6 +389,40 @@ amlmmc_set_blklen(struct amlmmc_softc *sc, int blklen)
 	cfg |= (fls(blklen) - 1) << SD_EMMC_CFG_BL_LEN_SHIFT;
 	HWRITE4(sc, SD_EMMC_CFG, cfg);
 	sc->sc_blklen = blklen;
+}
+
+void
+amlmmc_pwrseq_reset(uint32_t phandle)
+{
+	uint32_t *gpios, *gpio;
+	int node;
+	int len;
+
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return;
+
+	if (!OF_is_compatible(node, "mmc-pwrseq-emmc"))
+		return;
+
+	len = OF_getproplen(node, "reset-gpios");
+	if (len <= 0)
+		return;
+
+	gpios = malloc(len, M_TEMP, M_WAITOK);
+	OF_getpropintarray(node, "reset-gpios", gpios, len);
+
+	gpio = gpios;
+	while (gpio && gpio < gpios + (len / sizeof(uint32_t))) {
+		gpio_controller_config_pin(gpio, GPIO_CONFIG_OUTPUT);
+		gpio_controller_set_pin(gpio, 1);
+		delay(1);
+		gpio_controller_set_pin(gpio, 0);
+		delay(200);
+		gpio = gpio_controller_next_pin(gpio);
+	}
+
+	free(gpios, M_TEMP, len);
 }
 
 int
@@ -379,6 +467,22 @@ amlmmc_card_detect(sdmmc_chipset_handle_t sch)
 int
 amlmmc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 {
+	struct amlmmc_softc *sc = sch;
+	uint32_t vdd = 0;
+
+	if (ISSET(ocr, MMC_OCR_3_2V_3_3V|MMC_OCR_3_3V_3_4V))
+		vdd = 3300000;
+
+	/* enable mmc power */
+	if (sc->sc_vmmc && vdd > 0)
+		regulator_enable(sc->sc_vmmc);
+
+	if (sc->sc_vqmmc && vdd > 0)
+		regulator_enable(sc->sc_vqmmc);
+
+	delay(10000);
+
+	sc->sc_vdd = vdd;
 	return 0;
 }
 
@@ -388,6 +492,8 @@ amlmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 	struct amlmmc_softc *sc = sch;
 	uint32_t div, clock;
 
+	pinctrl_byname(sc->sc_node, "clk-gate");
+	
 	if (freq == 0)
 		return 0;
 
@@ -404,11 +510,22 @@ amlmmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 	if (div > SD_EMMC_CLOCK_DIV_MAX)
 		return EINVAL;
 
+	HSET4(sc, SD_EMMC_CFG, SD_EMMC_CFG_STOP_CLOCK);
+
+	if (timing == SDMMC_TIMING_MMC_DDR52)
+		HSET4(sc, SD_EMMC_CFG, SD_EMMC_CFG_DDR);
+	else
+		HCLR4(sc, SD_EMMC_CFG, SD_EMMC_CFG_DDR);
+
 	clock |= SD_EMMC_CLOCK_CO_PHASE_180;
-	clock |= SD_EMMC_CLOCK_TX_PHASE_180;
+	clock |= SD_EMMC_CLOCK_TX_PHASE_0;
 	clock |= SD_EMMC_CLOCK_RX_PHASE_0;
 	HWRITE4(sc, SD_EMMC_CLOCK, clock);
 
+	HCLR4(sc, SD_EMMC_CFG, SD_EMMC_CFG_STOP_CLOCK);
+
+	pinctrl_byname(sc->sc_node, "default");
+	
 	return 0;
 }
 
@@ -444,23 +561,62 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 	struct amlmmc_softc *sc = sch;
 	uint32_t cmd_cfg, status;
 	uint32_t data_addr = 0;
-	int timeout;
+	int s;
 
+	KASSERT(sc->sc_status == 0);
+
+	/* Setup descriptor flags. */
 	cmd_cfg = cmd->c_opcode << SD_EMMC_CMD_CFG_CMD_INDEX_SHIFT;
-	if ((cmd->c_flags & SCF_RSP_PRESENT) == 0)
+	if (!ISSET(cmd->c_flags, SCF_RSP_PRESENT))
 		cmd_cfg |= SD_EMMC_CMD_CFG_NO_RESP;
-	if (cmd->c_flags & SCF_RSP_136)
+	if (ISSET(cmd->c_flags, SCF_RSP_136))
 		cmd_cfg |= SD_EMMC_CMD_CFG_RESP_128;
-	if (cmd->c_flags & SCF_RSP_BSY)
+	if (ISSET(cmd->c_flags, SCF_RSP_BSY))
 		cmd_cfg |= SD_EMMC_CMD_CFG_R1B;
-	if ((cmd->c_flags & SCF_RSP_CRC) == 0)
+	if (!ISSET(cmd->c_flags, SCF_RSP_CRC))
 		cmd_cfg |= SD_EMMC_CMD_CFG_RESP_NOCRC;
-	if (cmd->c_datalen > 0)
+	if (cmd->c_datalen > 0) {
+		cmd_cfg |= SD_EMMC_CMD_CFG_DATA_IO;
+		if (cmd->c_datalen >= cmd->c_blklen)
+			cmd_cfg |= SD_EMMC_CMD_CFG_BLOCK_MODE;
+		if (!ISSET(cmd->c_flags, SCF_CMD_READ))
+			cmd_cfg |= SD_EMMC_CMD_CFG_DATA_WR;
 		cmd_cfg |= SD_EMMC_CMD_CFG_TIMEOUT_4096;
-	else
+	} else {
 		cmd_cfg |= SD_EMMC_CMD_CFG_TIMEOUT_1024;
-	cmd_cfg |= SD_EMMC_CMD_CFG_END_OF_CHAIN | SD_EMMC_CMD_CFG_OWNER;
+	}
+	cmd_cfg |= SD_EMMC_CMD_CFG_OWNER;
 
+	/* If we have multiple DMA segments we need to use descriptors. */
+	if (cmd->c_datalen > 0 &&
+	    cmd->c_dmamap && cmd->c_dmamap->dm_nsegs > 1) {
+		struct amlmmc_desc *desc = (struct amlmmc_desc *)sc->sc_desc;
+		int seg;
+
+		for (seg = 0; seg < cmd->c_dmamap->dm_nsegs; seg++) {
+			bus_addr_t addr = cmd->c_dmamap->dm_segs[seg].ds_addr;
+			bus_size_t len = cmd->c_dmamap->dm_segs[seg].ds_len;
+
+			if (seg == cmd->c_dmamap->dm_nsegs - 1)
+				cmd_cfg |= SD_EMMC_CMD_CFG_END_OF_CHAIN;
+
+			KASSERT((addr & 0x7) == 0);
+			desc[seg].cmd_cfg = cmd_cfg | (len / cmd->c_blklen);
+			desc[seg].cmd_arg = cmd->c_arg;
+			desc[seg].data_addr = addr;
+			desc[seg].resp_addr = 0;
+			cmd_cfg |= SD_EMMC_CMD_CFG_NO_CMD;
+		}
+
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_desc_map, 0,
+		    cmd->c_dmamap->dm_nsegs * sizeof(struct amlmmc_desc),
+		    BUS_DMASYNC_PREWRITE);
+		HWRITE4(sc, SD_EMMC_START, SD_EMMC_START_START |
+		    sc->sc_desc_map->dm_segs[0].ds_addr);
+		goto wait;
+	}
+
+	/* Bounce if we don't have a DMA map. */
 	if (cmd->c_datalen > 0 && !cmd->c_dmamap) {
 		/* Abuse DMA descriptor memory as bounce buffer. */
 		KASSERT(cmd->c_datalen <= PAGE_SIZE);
@@ -477,15 +633,10 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 	if (cmd->c_datalen > 0) {
 		if (cmd->c_datalen >= cmd->c_blklen) {
 			amlmmc_set_blklen(sc, cmd->c_blklen);
-			cmd_cfg |= SD_EMMC_CMD_CFG_BLOCK_MODE;
 			cmd_cfg |= cmd->c_datalen / cmd->c_blklen;
 		} else {
 			cmd_cfg |= cmd->c_datalen;
 		}
-
-		if (!ISSET(cmd->c_flags, SCF_CMD_READ))
-			cmd_cfg |= SD_EMMC_CMD_CFG_DATA_WR;
-		cmd_cfg |= SD_EMMC_CMD_CFG_DATA_IO;
 
 		if (cmd->c_dmamap)
 			data_addr = cmd->c_dmamap->dm_segs[0].ds_addr;
@@ -493,6 +644,9 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 			data_addr = sc->sc_desc_map->dm_segs[0].ds_addr;
 	}
 
+	cmd_cfg |= SD_EMMC_CMD_CFG_END_OF_CHAIN;
+
+	KASSERT((data_addr & 0x7) == 0);
 	HWRITE4(sc, SD_EMMC_CMD_CFG, cmd_cfg);
 	HWRITE4(sc, SD_EMMC_CMD_DAT, data_addr);
 	HWRITE4(sc, SD_EMMC_CMD_RSP, 0);
@@ -500,28 +654,32 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 	    SD_EMMC_CMD_RSP1 - SD_EMMC_CMD_CFG, BUS_SPACE_BARRIER_WRITE);
 	HWRITE4(sc, SD_EMMC_CMD_ARG, cmd->c_arg);
 
-	for (timeout = 10000; timeout > 0; timeout--) {
-		status = HREAD4(sc, SD_EMMC_STATUS);
-		if (status & SD_EMMC_STATUS_END_OF_CHAIN)
+wait:
+	s = splbio();
+	while (sc->sc_status == 0) {
+		if (tsleep_nsec(sc, PWAIT, "amlmmc", 10000000000))
 			break;
-		delay(1000);
 	}
-	printf("%s: cmd %d status 0x%08x, timeout %d\n", __func__, cmd->c_opcode, status, timeout);
-	HWRITE4(sc, SD_EMMC_STATUS, status);
-	if ((status & SD_EMMC_STATUS_END_OF_CHAIN) == 0)
+	status = sc->sc_status;
+	sc->sc_status = 0;
+	splx(s);
+
+	if (!ISSET(status, SD_EMMC_STATUS_END_OF_CHAIN))
 		cmd->c_error = ETIMEDOUT;
-	else if (status & SD_EMMC_STATUS_RESP_TIMEOUT)
+	else if (ISSET(status, SD_EMMC_STATUS_DESC_TIMEOUT))
 		cmd->c_error = ETIMEDOUT;
-	else if(status & SD_EMMC_STATUS_ERR_MASK)
+	else if (ISSET(status, SD_EMMC_STATUS_RESP_TIMEOUT))
+		cmd->c_error = ETIMEDOUT;
+	else if (ISSET(status, SD_EMMC_STATUS_ERR_MASK))
 		cmd->c_error = EIO;
 
-	if (cmd->c_flags & SCF_RSP_PRESENT) {
-		if (cmd->c_flags & SCF_RSP_136) {
+	if (ISSET(cmd->c_flags, SCF_RSP_PRESENT)) {
+		if (ISSET(cmd->c_flags, SCF_RSP_136)) {
 			cmd->c_resp[0] = HREAD4(sc, SD_EMMC_CMD_RSP);
 			cmd->c_resp[1] = HREAD4(sc, SD_EMMC_CMD_RSP1);
 			cmd->c_resp[2] = HREAD4(sc, SD_EMMC_CMD_RSP2);
 			cmd->c_resp[3] = HREAD4(sc, SD_EMMC_CMD_RSP3);
-			if (cmd->c_flags & SCF_RSP_CRC) {
+			if (ISSET(cmd->c_flags, SCF_RSP_CRC)) {
 				cmd->c_resp[0] = (cmd->c_resp[0] >> 8) |
 				    (cmd->c_resp[1] << 24);
 				cmd->c_resp[1] = (cmd->c_resp[1] >> 8) |
@@ -535,6 +693,7 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 		}
 	}
 
+	/* Unbounce if we don't have a DMA map. */
 	if (cmd->c_datalen > 0 && !cmd->c_dmamap) {
 		if (ISSET(cmd->c_flags, SCF_CMD_READ)) {
 			bus_dmamap_sync(sc->sc_dmat, sc->sc_desc_map, 0,
@@ -546,5 +705,21 @@ amlmmc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 		}
 	}
 
-	cmd->c_flags |= SCF_ITSDONE;
+	/* Cleanup descriptors. */
+	if (cmd->c_datalen > 0 &&
+	    cmd->c_dmamap && cmd->c_dmamap->dm_nsegs > 1) {
+		HWRITE4(sc, SD_EMMC_START, SD_EMMC_START_STOP);
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_desc_map, 0,
+		    cmd->c_dmamap->dm_nsegs * sizeof(struct amlmmc_desc),
+		    BUS_DMASYNC_POSTWRITE);
+	}
+
+	SET(cmd->c_flags, SCF_ITSDONE);
+}
+
+int
+amlmmc_signal_voltage(sdmmc_chipset_handle_t sch, int signal_voltage)
+{
+	/* XXX Check/set signaling voltage. */
+	return 0;
 }

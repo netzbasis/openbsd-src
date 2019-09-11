@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.726 2019/08/29 17:40:57 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.730 2019/09/06 09:38:19 patrick Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -11,7 +11,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	aggr.4 agp.4 \
 	ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
 	akbd.4 alipm.4 amas.4 amdiic.4 amdpm.4 ami.4 \
-	amlclock.4 amldwusb.4 amlpciephy.4 amlpinctrl.4 amlreset.4 \
+	amlclock.4 amldwusb.4 amlmmc.4 amlpciephy.4 amlpinctrl.4 amlreset.4 \
 	amlrng.4 amluart.4 amlusbphy.4 \
 	amphy.4 ams.4 an.4 andl.4 aplgpio.4 aps.4 arc.4 arcofi.4 \
 	asbtm.4 asmc.4 ast.4 atapiscsi.4 atphy.4 ath.4 athn.4 atu.4 atw.4 \
@@ -44,12 +44,12 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	ix.4 ixgb.4 ixl.4 jmb.4 jme.4 jmphy.4 \
 	kate.4 kcov.4 km.4 ksyms.4 kubsan.4 kue.4 lc.4 lge.4 lii.4 lisa.4 \
 	lm.4 lmenv.4 lmn.4 lmtemp.4 lo.4 lpt.4 lxtphy.4 luphy.4 \
-	maestro.4 mainbus.4 malo.4 maxds.4 maxrtc.4 maxtmp.4 mbg.4 mcx.4 \
-	midi.4 mii.4 mfi.4 \
+	maestro.4 mainbus.4 malo.4 maxds.4 maxrtc.4 maxtmp.4 mbg.4 \
+	mcprtc.4 mcx.4 midi.4 mii.4 mfi.4 \
 	mfii.4 mlphy.4 mobileip.4 moscom.4 mos.4 mpe.4 mpath.4 mpi.4 mpii.4 \
 	mpip.4 mpu.4 msk.4 mpw.4 msts.4 mtd.4 mtdphy.4 mtio.4 mue.4 \
-	multicast.4 mvclock.4 mvgicp.4 mvgpio.4 mvicu.4 mvneta.4 \
-	mvpinctrl.4 mvrng.4 mvrtc.4 mvtemp.4 mvuart.4 myx.4 \
+	multicast.4 mvclock.4 mvdog.4 mvgicp.4 mvgpio.4 mvicu.4 mviic.4 \
+	mvneta.4 mvpinctrl.4 mvrng.4 mvrtc.4 mvtemp.4 mvuart.4 myx.4 \
 	ne.4 neo.4 nep.4 netintro.4 nfe.4 nge.4 nmea.4 \
 	nsclpcsio.4 nsgphy.4 nsphy.4 nsphyter.4 null.4 nviic.4 nvme.4 nvt.4 \
 	oce.4 ohci.4 onewire.4 oosiop.4 openprom.4 options.4 osiop.4 otus.4 \

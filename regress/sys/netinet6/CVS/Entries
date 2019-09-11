@@ -1,6 +1,7 @@
-/Makefile/1.4/Thu May  9 15:58:18 2019//
+/Makefile/1.5/Thu Sep  5 02:35:46 2019//
 D/autoport////
 D/frag6////
+D/mcast6////
 D/nd6////
 D/pktinfo_addr////
 D/recvmsg////

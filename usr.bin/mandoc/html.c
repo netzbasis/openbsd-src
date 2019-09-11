@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.128 2019/09/01 15:12:03 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.132 2019/09/05 13:34:55 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -269,21 +269,18 @@ print_metaf(struct html *h)
 void
 html_close_paragraph(struct html *h)
 {
-	struct tag	*t;
+	struct tag	*this, *next;
+	int		 flags;
 
-	for (t = h->tag; t != NULL && t->closed == 0; t = t->next) {
-		switch(t->tag) {
-		case TAG_P:
-		case TAG_PRE:
-			print_tagq(h, t);
+	this = h->tag;
+	for (;;) {
+		next = this->next;
+		flags = htmltags[this->tag].flags;
+		if (flags & (HTML_INPHRASE | HTML_TOPHRASE))
+			print_ctag(h, this);
+		if ((flags & HTML_INPHRASE) == 0)
 			break;
-		case TAG_A:
-			print_tagq(h, t);
-			continue;
-		default:
-			continue;
-		}
-		break;
+		this = next;
 	}
 }
 
@@ -591,7 +588,15 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 			assert((htmltags[t->tag].flags & HTML_TOPHRASE) == 0);
 			break;
 		}
-	}
+
+	/*
+	 * Always wrap phrasing elements in a paragraph
+	 * unless already contained in some flow container;
+	 * never put them directly into a section.
+	 */
+
+	} else if (tflags & HTML_TOPHRASE && h->tag->tag == TAG_SECTION)
+		print_otag(h, TAG_P, "c", "Pp");
 
 	/* Push this tag onto the stack of open scopes. */
 
@@ -797,6 +802,16 @@ print_gen_comment(struct html *h, struct roff_node *n)
 void
 print_text(struct html *h, const char *word)
 {
+	/*
+	 * Always wrap text in a paragraph unless already contained in
+	 * some flow container; never put it directly into a section.
+	 */
+
+	if (h->tag->tag == TAG_SECTION)
+		print_otag(h, TAG_P, "c", "Pp");
+
+	/* Output whitespace before this text? */
+
 	if (h->col && (h->flags & HTML_NOSPACE) == 0) {
 		if ( ! (HTML_KEEP & h->flags)) {
 			if (HTML_PREKEEP & h->flags)
@@ -805,6 +820,11 @@ print_text(struct html *h, const char *word)
 		} else
 			print_word(h, "&#x00A0;");
 	}
+
+	/*
+	 * Print the text, optionally surrounded by HTML whitespace,
+	 * optionally manually switching fonts before and after.
+	 */
 
 	assert(h->metaf == NULL);
 	print_metaf(h);
@@ -946,15 +966,12 @@ print_indent(struct html *h)
 {
 	size_t	 i;
 
-	if (h->col)
+	if (h->col || h->noindent)
 		return;
 
-	if (h->noindent == 0) {
-		h->col = h->indent * 2;
-		for (i = 0; i < h->col; i++)
-			putchar(' ');
-	}
-	h->flags &= ~HTML_NOSPACE;
+	h->col = h->indent * 2;
+	for (i = 0; i < h->col; i++)
+		putchar(' ');
 }
 
 /*

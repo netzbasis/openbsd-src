@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.233 2019/08/14 10:02:24 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.235 2019/09/10 07:50:33 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -820,6 +820,21 @@ window_copy_cmd_cursor_down(struct window_copy_cmd_state *cs)
 }
 
 static enum window_copy_cmd_action
+window_copy_cmd_cursor_down_and_cancel(struct window_copy_cmd_state *cs)
+{
+	struct window_mode_entry	*wme = cs->wme;
+	struct window_copy_mode_data	*data = wme->data;
+	u_int				 np = wme->prefix, cy;
+
+	cy = data->cy;
+	for (; np != 0; np--)
+		window_copy_cursor_down(wme, 0);
+	if (cy == data->cy && data->oy == 0)
+		return (WINDOW_COPY_CMD_CANCEL);
+	return (WINDOW_COPY_CMD_NOTHING);
+}
+
+static enum window_copy_cmd_action
 window_copy_cmd_cursor_left(struct window_copy_cmd_state *cs)
 {
 	struct window_mode_entry	*wme = cs->wme;
@@ -1092,7 +1107,6 @@ window_copy_cmd_previous_matching_bracket(struct window_copy_cmd_state *cs)
 
 	return (WINDOW_COPY_CMD_NOTHING);
 }
-
 
 static enum window_copy_cmd_action
 window_copy_cmd_next_matching_bracket(struct window_copy_cmd_state *cs)
@@ -1810,6 +1824,8 @@ static const struct {
 	  window_copy_cmd_copy_selection_and_cancel },
 	{ "cursor-down", 0, 0,
 	  window_copy_cmd_cursor_down },
+	{ "cursor-down-and-cancel", 0, 0,
+	  window_copy_cmd_cursor_down_and_cancel },
 	{ "cursor-left", 0, 0,
 	  window_copy_cmd_cursor_left },
 	{ "cursor-right", 0, 0,

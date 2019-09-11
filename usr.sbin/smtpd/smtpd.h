@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.633 2019/08/28 15:50:36 martijn Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.635 2019/09/06 08:23:56 martijn Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -1046,6 +1046,8 @@ struct filter_config {
 	char                           *reject;
 	char                           *disconnect;
 	char                           *rewrite;
+	char                           *report;
+	uint8_t				junk;
 	char                           *proc;
 
 	const char		      **chain;
@@ -1095,6 +1097,7 @@ enum filter_status {
 	FILTER_REWRITE,
 	FILTER_REJECT,
 	FILTER_DISCONNECT,
+	FILTER_JUNK,
 };
 
 enum ca_resp_status {
@@ -1351,6 +1354,9 @@ void lka_report_smtp_protocol_server(const char *, struct timeval *, uint64_t, c
 void lka_report_smtp_filter_response(const char *, struct timeval *, uint64_t,
     int, int, const char *);
 void lka_report_smtp_timeout(const char *, struct timeval *, uint64_t);
+void lka_report_filter_report(uint64_t, const char *, int, const char *,
+    struct timeval *, const char *);
+void lka_report_proc(const char *, const char *);
 
 
 /* lka_filter.c */

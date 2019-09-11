@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.118 2019/08/29 17:20:03 kettenis Exp $
+# $OpenBSD: GENERIC,v 1.125 2019/09/09 20:00:27 patrick Exp $
 #
 # GENERIC machine description file
 #
@@ -22,8 +22,6 @@ machine		arm64
 include		"../../../conf/GENERIC"
 maxusers	80
 
-option		TIMEZONE=0	# time zone to adjust RTC time by
-option		DST=0		# daylight saving time used by RTC
 option		PCIVERBOSE
 option		USER_PCICONF	# user-space PCI configuration
 option		USBVERBOSE
@@ -118,6 +116,7 @@ wsdisplay*	at amdgpu?
 imxccm*		at fdt? early 1
 imxiomuxc*	at fdt? early 1
 imxanatop*	at fdt? early 1
+imxsrc*		at fdt? early 1
 imxgpc*		at fdt?
 imxgpio*	at fdt?
 fec*		at fdt?
@@ -126,7 +125,6 @@ imxiic*		at fdt?
 iic*		at imxiic?
 imxesdhc*	at fdt?
 sdmmc*		at imxesdhc?
-imxsrc*		at fdt?
 imxspi*		at fdt?
 ssdfb*		at iic?
 ssdfb*		at spi?
@@ -145,6 +143,8 @@ usb*		at dwctwo?
 # Amlogic SoCs
 amlclock*	at fdt? early 1
 amldwusb*	at fdt?
+amlmmc*		at fdt?
+sdmmc*		at amlmmc?
 amlpciephy*	at fdt?
 amlpinctrl*	at fdt? early 1
 amlreset*	at fdt? early 1
@@ -163,13 +163,17 @@ mvclock*	at fdt? early 1
 mvgicp*		at fdt? early 1
 mvicu*		at fdt? early 1
 mvpinctrl*	at fdt? early 1
+mvdog*		at fdt?
 mvgpio*		at fdt?
+mviic*		at fdt?
+iic*		at mviic?
 mvmdio*		at fdt?
 mvneta*		at fdt?
 mvrng*		at fdt?
 mvrtc*		at fdt?
 mvtemp*		at fdt?
 mvuart*		at fdt?
+sfp*		at fdt?
 
 # Rockchip SoCs
 rkclock*	at fdt? early 1
@@ -363,6 +367,7 @@ abcrtc*		at iic?			# Abracon x80x RTC
 fanpwr*		at iic?			# FAN53555 regulator
 ipmi*		at iic?			# IPMI (SIIF)
 islrtc*		at iic?			# ISL1208 RTC
+mcprtc*		at iic?			# MCP794XX RTC
 rkpmic*		at iic?			# RK808 PMIC
 sypwr*		at iic?			# SY8106A regulator
 fusbtc*		at iic?			# USB Type-C controller

@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.340 2019/08/08 08:02:57 dtucker Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.349 2019/09/06 07:53:40 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -16,9 +16,12 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+#ifdef WITH_OPENSSL
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#endif
 
+#include <stdint.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -48,6 +51,7 @@
 #include "digest.h"
 #include "utf8.h"
 #include "authfd.h"
+#include "sshsig.h"
 
 #ifdef ENABLE_PKCS11
 #include "ssh-pkcs11.h"
@@ -211,6 +215,30 @@ type_bits_valid(int type, const char *name, u_int32_t *bitsp)
 #endif
 }
 
+/*
+ * Checks whether a file exists and, if so, asks the user whether they wish
+ * to overwrite it.
+ * Returns nonzero if the file does not already exist or if the user agrees to
+ * overwrite, or zero otherwise.
+ */
+static int
+confirm_overwrite(const char *filename)
+{
+	char yesno[3];
+	struct stat st;
+
+	if (stat(filename, &st) != 0)
+		return 1;
+	printf("%s already exists.\n", filename);
+	printf("Overwrite (y/n)? ");
+	fflush(stdout);
+	if (fgets(yesno, sizeof(yesno), stdin) == NULL)
+		return 0;
+	if (yesno[0] != 'y' && yesno[0] != 'Y')
+		return 0;
+	return 1;
+}
+
 static void
 ask_filename(struct passwd *pw, const char *prompt)
 {
@@ -258,13 +286,15 @@ ask_filename(struct passwd *pw, const char *prompt)
 }
 
 static struct sshkey *
-load_identity(char *filename)
+load_identity(const char *filename, char **commentp)
 {
 	char *pass;
 	struct sshkey *prv;
 	int r;
 
-	if ((r = sshkey_load_private(filename, "", &prv, NULL)) == 0)
+	if (commentp != NULL)
+		*commentp = NULL;
+	if ((r = sshkey_load_private(filename, "", &prv, commentp)) == 0)
 		return prv;
 	if (r != SSH_ERR_KEY_WRONG_PASSPHRASE)
 		fatal("Load key \"%s\": %s", filename, ssh_err(r));
@@ -272,7 +302,7 @@ load_identity(char *filename)
 		pass = xstrdup(identity_passphrase);
 	else
 		pass = read_passphrase("Enter passphrase: ", RP_ALLOW_STDIN);
-	r = sshkey_load_private(filename, pass, &prv, NULL);
+	r = sshkey_load_private(filename, pass, &prv, commentp);
 	explicit_bzero(pass, strlen(pass));
 	free(pass);
 	if (r != 0)
@@ -364,7 +394,7 @@ do_convert_to(struct passwd *pw)
 	if (stat(identity_file, &st) == -1)
 		fatal("%s: %s: %s", __progname, identity_file, strerror(errno));
 	if ((r = sshkey_load_public(identity_file, &k, NULL)) != 0)
-		k = load_identity(identity_file);
+		k = load_identity(identity_file, NULL);
 	switch (convert_format) {
 	case FMT_RFC4716:
 		do_convert_to_ssh2(pw, k);
@@ -733,16 +763,20 @@ do_print_public(struct passwd *pw)
 	struct sshkey *prv;
 	struct stat st;
 	int r;
+	char *comment = NULL;
 
 	if (!have_identity)
 		ask_filename(pw, "Enter file in which the key is");
 	if (stat(identity_file, &st) == -1)
 		fatal("%s: %s", identity_file, strerror(errno));
-	prv = load_identity(identity_file);
+	prv = load_identity(identity_file, &comment);
 	if ((r = sshkey_write(prv, stdout)) != 0)
 		error("sshkey_write failed: %s", ssh_err(r));
 	sshkey_free(prv);
+	if (comment != NULL && *comment != '\0')
+		fprintf(stdout, " %s", comment);
 	fprintf(stdout, "\n");
+	free(comment);
 	exit(0);
 }
 
@@ -1700,7 +1734,7 @@ do_ca_sign(struct passwd *pw, const char *ca_key_path, int prefer_agent,
 		ca->flags |= SSHKEY_FLAG_EXT;
 	} else {
 		/* CA key is assumed to be a private key on the filesystem */
-		ca = load_identity(tmp);
+		ca = load_identity(tmp, NULL);
 	}
 	free(tmp);
 
@@ -2373,6 +2407,279 @@ do_check_krl(struct passwd *pw, int argc, char **argv)
 }
 #endif
 
+static struct sshkey *
+load_sign_key(const char *keypath, const struct sshkey *pubkey)
+{
+	size_t i, slen, plen = strlen(keypath);
+	char *privpath = xstrdup(keypath);
+	const char *suffixes[] = { "-cert.pub", ".pub", NULL };
+	struct sshkey *ret = NULL, *privkey = NULL;
+	int r;
+
+	/*
+	 * If passed a public key filename, then try to locate the correponding
+	 * private key. This lets us specify certificates on the command-line
+	 * and have ssh-keygen find the appropriate private key.
+	 */
+	for (i = 0; suffixes[i]; i++) {
+		slen = strlen(suffixes[i]);
+		if (plen <= slen ||
+		    strcmp(privpath + plen - slen, suffixes[i]) != 0)
+			continue;
+		privpath[plen - slen] = '\0';
+		debug("%s: %s looks like a public key, using private key "
+		    "path %s instead", __func__, keypath, privpath);
+	}
+	if ((privkey = load_identity(privpath, NULL)) == NULL) {
+		error("Couldn't load identity %s", keypath);
+		goto done;
+	}
+	if (!sshkey_equal_public(pubkey, privkey)) {
+		error("Public key %s doesn't match private %s",
+		    keypath, privpath);
+		goto done;
+	}
+	if (sshkey_is_cert(pubkey) && !sshkey_is_cert(privkey)) {
+		/*
+		 * Graft the certificate onto the private key to make
+		 * it capable of signing.
+		 */
+		if ((r = sshkey_to_certified(privkey)) != 0) {
+			error("%s: sshkey_to_certified: %s", __func__,
+			    ssh_err(r));
+			goto done;
+		}
+		if ((r = sshkey_cert_copy(pubkey, privkey)) != 0) {
+			error("%s: sshkey_cert_copy: %s", __func__, ssh_err(r));
+			goto done;
+		}
+	}
+	/* success */
+	ret = privkey;
+	privkey = NULL;
+ done:
+	sshkey_free(privkey);
+	free(privpath);
+	return ret;
+}
+
+static int
+sign_one(struct sshkey *signkey, const char *filename, int fd,
+    const char *sig_namespace, sshsig_signer *signer, void *signer_ctx)
+{
+	struct sshbuf *sigbuf = NULL, *abuf = NULL;
+	int r = SSH_ERR_INTERNAL_ERROR, wfd = -1, oerrno;
+	char *wfile = NULL;
+	char *asig = NULL;
+
+	if (!quiet) {
+		if (fd == STDIN_FILENO)
+			fprintf(stderr, "Signing data on standard input\n");
+		else
+			fprintf(stderr, "Signing file %s\n", filename);
+	}
+	if ((r = sshsig_sign_fd(signkey, NULL, fd, sig_namespace,
+	    &sigbuf, signer, signer_ctx)) != 0) {
+		error("Signing %s failed: %s", filename, ssh_err(r));
+		goto out;
+	}
+	if ((r = sshsig_armor(sigbuf, &abuf)) != 0) {
+		error("%s: sshsig_armor: %s", __func__, ssh_err(r));
+		goto out;
+	}
+	if ((asig = sshbuf_dup_string(abuf)) == NULL) {
+		error("%s: buffer error", __func__);
+		r = SSH_ERR_ALLOC_FAIL;
+		goto out;
+	}
+
+	if (fd == STDIN_FILENO) {
+		fputs(asig, stdout);
+		fflush(stdout);
+	} else {
+		xasprintf(&wfile, "%s.sig", filename);
+		if (confirm_overwrite(wfile)) {
+			if ((wfd = open(wfile, O_WRONLY|O_CREAT|O_TRUNC,
+			    0666)) == -1) {
+				oerrno = errno;
+				error("Cannot open %s: %s",
+				    wfile, strerror(errno));
+				errno = oerrno;
+				r = SSH_ERR_SYSTEM_ERROR;
+				goto out;
+			}
+			if (atomicio(vwrite, wfd, asig,
+			    strlen(asig)) != strlen(asig)) {
+				oerrno = errno;
+				error("Cannot write to %s: %s",
+				    wfile, strerror(errno));
+				errno = oerrno;
+				r = SSH_ERR_SYSTEM_ERROR;
+				goto out;
+			}
+			if (!quiet) {
+				fprintf(stderr, "Write signature to %s\n",
+				    wfile);
+			}
+		}
+	}
+	/* success */
+	r = 0;
+ out:
+	free(wfile);
+	free(asig);
+	sshbuf_free(abuf);
+	sshbuf_free(sigbuf);
+	if (wfd != -1)
+		close(wfd);
+	return r;
+}
+
+static int
+sign(const char *keypath, const char *sig_namespace, int argc, char **argv)
+{
+	int i, fd = -1, r, ret = -1;
+	int agent_fd = -1;
+	struct sshkey *pubkey = NULL, *privkey = NULL, *signkey = NULL;
+	sshsig_signer *signer = NULL;
+
+	/* Check file arguments. */
+	for (i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "-") != 0)
+			continue;
+		if (i > 0 || argc > 1)
+			fatal("Cannot sign mix of paths and standard input");
+	}
+
+	if ((r = sshkey_load_public(keypath, &pubkey, NULL)) != 0) {
+		error("Couldn't load public key %s: %s", keypath, ssh_err(r));
+		goto done;
+	}
+
+	if ((r = ssh_get_authentication_socket(&agent_fd)) != 0)
+		debug("Couldn't get agent socket: %s", ssh_err(r));
+	else {
+		if ((r = ssh_agent_has_key(agent_fd, pubkey)) == 0)
+			signer = agent_signer;
+		else
+			debug("Couldn't find key in agent: %s", ssh_err(r));
+	}
+
+	if (signer == NULL) {
+		/* Not using agent - try to load private key */
+		if ((privkey = load_sign_key(keypath, pubkey)) == NULL)
+			goto done;
+		signkey = privkey;
+	} else {
+		/* Will use key in agent */
+		signkey = pubkey;
+	}
+
+	if (argc == 0) {
+		if ((r = sign_one(signkey, "(stdin)", STDIN_FILENO,
+		    sig_namespace, signer, &agent_fd)) != 0)
+			goto done;
+	} else {
+		for (i = 0; i < argc; i++) {
+			if (strcmp(argv[i], "-") == 0)
+				fd = STDIN_FILENO;
+			else if ((fd = open(argv[i], O_RDONLY)) == -1) {
+				error("Cannot open %s for signing: %s",
+				    argv[i], strerror(errno));
+				goto done;
+			}
+			if ((r = sign_one(signkey, argv[i], fd, sig_namespace,
+			    signer, &agent_fd)) != 0)
+				goto done;
+			if (fd != STDIN_FILENO)
+				close(fd);
+			fd = -1;
+		}
+	}
+
+	ret = 0;
+done:
+	if (fd != -1 && fd != STDIN_FILENO)
+		close(fd);
+	sshkey_free(pubkey);
+	sshkey_free(privkey);
+	return ret;
+}
+
+static int
+verify(const char *signature, const char *sig_namespace, const char *principal,
+    const char *allowed_keys, const char *revoked_keys)
+{
+	int r, ret = -1, sigfd = -1;
+	struct sshbuf *sigbuf = NULL, *abuf = NULL;
+	struct sshkey *sign_key = NULL;
+	char *fp = NULL;
+
+	if ((abuf = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new() failed", __func__);
+
+	if ((sigfd = open(signature, O_RDONLY)) < 0) {
+		error("Couldn't open signature file %s", signature);
+		goto done;
+	}
+
+	if ((r = sshkey_load_file(sigfd, abuf)) != 0) {
+		error("Couldn't read signature file: %s", ssh_err(r));
+		goto done;
+	}
+	if ((r = sshsig_dearmor(abuf, &sigbuf)) != 0) {
+		error("%s: sshsig_armor: %s", __func__, ssh_err(r));
+		return r;
+	}
+	if ((r = sshsig_verify_fd(sigbuf, STDIN_FILENO, sig_namespace,
+	    &sign_key)) != 0)
+		goto done; /* sshsig_verify() prints error */
+
+	if ((fp = sshkey_fingerprint(sign_key, fingerprint_hash,
+	    SSH_FP_DEFAULT)) == NULL)
+		fatal("%s: sshkey_fingerprint failed", __func__);
+	debug("Valid (unverified) signature from key %s", fp);
+	free(fp);
+	fp = NULL;
+
+	if (revoked_keys != NULL) {
+		if ((r = sshkey_check_revoked(sign_key, revoked_keys)) != 0) {
+			debug3("sshkey_check_revoked failed: %s", ssh_err(r));
+			goto done;
+		}
+	}
+
+	if ((r = sshsig_check_allowed_keys(allowed_keys, sign_key,
+	    principal, sig_namespace)) != 0) {
+		debug3("sshsig_check_allowed_keys failed: %s", ssh_err(r));
+		goto done;
+	}
+	/* success */
+	ret = 0;
+done:
+	if (!quiet) {
+		if (ret == 0) {
+			if ((fp = sshkey_fingerprint(sign_key, fingerprint_hash,
+			    SSH_FP_DEFAULT)) == NULL) {
+				fatal("%s: sshkey_fingerprint failed",
+				    __func__);
+			}
+			printf("Good \"%s\" signature for %s with %s key %s\n",
+			    sig_namespace, principal,
+			    sshkey_type(sign_key), fp);
+		} else {
+			printf("Could not verify signature.\n");
+		}
+	}
+	if (sigfd != -1)
+		close(sigfd);
+	sshbuf_free(sigbuf);
+	sshbuf_free(abuf);
+	sshkey_free(sign_key);
+	free(fp);
+	return ret;
+}
+
 static void
 usage(void)
 {
@@ -2408,7 +2715,10 @@ usage(void)
 	    "       ssh-keygen -A\n"
 	    "       ssh-keygen -k -f krl_file [-u] [-s ca_public] [-z version_number]\n"
 	    "                  file ...\n"
-	    "       ssh-keygen -Q -f krl_file file ...\n");
+	    "       ssh-keygen -Q -f krl_file file ...\n"
+	    "       ssh-keygen -Y sign -f sign_key -n namespace\n"
+	    "       ssh-keygen -Y verify -I signer_identity -s signature_file\n"
+	    "                  -n namespace -f allowed_keys [-r revoked_keys]\n");
 	exit(1);
 }
 
@@ -2435,6 +2745,7 @@ main(int argc, char **argv)
 	FILE *f;
 	const char *errstr;
 	int log_level = SYSLOG_LEVEL_INFO;
+	char *sign_op = NULL;
 #ifdef WITH_OPENSSL
 	/* Moduli generation/screening */
 	char out_file[PATH_MAX], *checkpoint = NULL;
@@ -2450,7 +2761,9 @@ main(int argc, char **argv)
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
 
+#ifdef WITH_OPENSSL
 	OpenSSL_add_all_algorithms();
+#endif
 	log_init(argv[0], SYSLOG_LEVEL_INFO, SYSLOG_FACILITY_USER, 1);
 
 	setlocale(LC_CTYPE, "");
@@ -2462,9 +2775,9 @@ main(int argc, char **argv)
 	if (gethostname(hostname, sizeof(hostname)) == -1)
 		fatal("gethostname: %s", strerror(errno));
 
-	/* Remaining characters: Ydw */
+	/* Remaining characters: dw */
 	while ((opt = getopt(argc, argv, "ABHLQUXceghiklopquvxy"
-	    "C:D:E:F:G:I:J:K:M:N:O:P:R:S:T:V:W:Z:"
+	    "C:D:E:F:G:I:J:K:M:N:O:P:R:S:T:V:W:Y:Z:"
 	    "a:b:f:g:j:m:n:r:s:t:z:")) != -1) {
 		switch (opt) {
 		case 'A':
@@ -2620,6 +2933,9 @@ main(int argc, char **argv)
 		case 'V':
 			parse_cert_times(optarg);
 			break;
+		case 'Y':
+			sign_op = optarg;
+			break;
 		case 'z':
 			errno = 0;
 			if (*optarg == '+') {
@@ -2687,6 +3003,42 @@ main(int argc, char **argv)
 	argv += optind;
 	argc -= optind;
 
+	if (sign_op != NULL) {
+		if (cert_principals == NULL) {
+			error("Too few arguments for sign/verify: "
+			    "missing namespace");
+			exit(1);
+		}
+		if (strncmp(sign_op, "sign", 4) == 0) {
+			if (!have_identity) {
+				error("Too few arguments for sign: "
+				    "missing key");
+				exit(1);
+			}
+			return sign(identity_file, cert_principals, argc, argv);
+		} else if (strncmp(sign_op, "verify", 6) == 0) {
+			if (ca_key_path == NULL) {
+				error("Too few arguments for verify: "
+				    "missing signature file");
+				exit(1);
+			}
+			if (!have_identity) {
+				error("Too few arguments for sign: "
+				    "missing allowed keys file");
+				exit(1);
+			}
+			if (cert_key_id == NULL) {
+				error("Too few arguments for verify: "
+				    "missing principal ID");
+				exit(1);
+			}
+			return verify(ca_key_path, cert_principals,
+			    cert_key_id, identity_file, rr_hostname);
+		}
+		usage();
+		/* NOTREACHED */
+	}
+
 	if (ca_key_path != NULL) {
 		if (argc < 1 && !gen_krl) {
 			error("Too few arguments.");
@@ -2740,7 +3092,10 @@ main(int argc, char **argv)
 		do_convert_to(pw);
 	if (convert_from)
 		do_convert_from(pw);
-#endif
+#else /* WITH_OPENSSL */
+	if (convert_to || convert_from)
+		fatal("key conversion disabled at compile time");
+#endif /* WITH_OPENSSL */
 	if (print_public)
 		do_print_public(pw);
 	if (rr_hostname != NULL) {
@@ -2855,16 +3210,8 @@ main(int argc, char **argv)
 		}
 	}
 	/* If the file already exists, ask the user to confirm. */
-	if (stat(identity_file, &st) >= 0) {
-		char yesno[3];
-		printf("%s already exists.\n", identity_file);
-		printf("Overwrite (y/n)? ");
-		fflush(stdout);
-		if (fgets(yesno, sizeof(yesno), stdin) == NULL)
-			exit(1);
-		if (yesno[0] != 'y' && yesno[0] != 'Y')
-			exit(1);
-	}
+	if (!confirm_overwrite(identity_file))
+		exit(1);
 	/* Ask for a passphrase (twice). */
 	if (identity_passphrase)
 		passphrase1 = xstrdup(identity_passphrase);

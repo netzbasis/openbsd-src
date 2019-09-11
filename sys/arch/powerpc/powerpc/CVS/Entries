@@ -7,11 +7,11 @@
 /in_cksum.c/1.10/Tue Jul 22 10:35:35 2014//
 /intr.c/1.9/Sun Sep 13 14:06:40 2015//
 /lock_machdep.c/1.7/Mon Dec  4 09:51:03 2017//
-/pmap.c/1.169/Wed Jan  2 23:08:35 2019//
+/pmap.c/1.171/Thu Sep  5 03:08:55 2019//
 /process_machdep.c/1.13/Sun Sep  9 20:49:18 2007//
 /setjmp.S/1.9/Wed May 21 19:42:07 2008//
 /softintr.c/1.9/Tue Jul 25 03:46:59 2017//
 /sys_machdep.c/1.4/Wed Oct 15 02:43:09 2003//
-/trap.c/1.110/Sat Jul 20 23:03:55 2019//
+/trap.c/1.114/Fri Sep  6 13:45:04 2019//
 /vm_machdep.c/1.49/Sun Feb 12 04:55:08 2017//
 D

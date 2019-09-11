@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofw_misc.c,v 1.6 2019/08/28 07:03:51 kettenis Exp $	*/
+/*	$OpenBSD: ofw_misc.c,v 1.9 2019/09/07 13:29:08 patrick Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis
  *
@@ -23,6 +23,10 @@
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_misc.h>
+
+/*
+ * Register maps.
+ */
 
 struct regmap {
 	int			rm_node;
@@ -193,4 +197,77 @@ phy_enable(int node, const char *name)
 		return -1;
 
 	return phy_enable_idx(node, idx);
+}
+
+/*
+ * I2C support.
+ */
+
+LIST_HEAD(, i2c_bus) i2c_busses =
+	LIST_HEAD_INITIALIZER(i2c_bus);
+
+void
+i2c_register(struct i2c_bus *ib)
+{
+	ib->ib_phandle = OF_getpropint(ib->ib_node, "phandle", 0);
+	if (ib->ib_phandle == 0)
+		return;
+
+	LIST_INSERT_HEAD(&i2c_busses, ib, ib_list);
+}
+
+struct i2c_controller *
+i2c_bynode(int node)
+{
+	struct i2c_bus *ib;
+
+	LIST_FOREACH(ib, &i2c_busses, ib_list) {
+		if (ib->ib_node == node)
+			return ib->ib_ic;
+	}
+
+	return NULL;
+}
+
+struct i2c_controller *
+i2c_byphandle(uint32_t phandle)
+{
+	struct i2c_bus *ib;
+
+	LIST_FOREACH(ib, &i2c_busses, ib_list) {
+		if (ib->ib_phandle == phandle)
+			return ib->ib_ic;
+	}
+
+	return NULL;
+}
+
+/*
+ * SFP support.
+ */
+
+LIST_HEAD(, sfp_device) sfp_devices =
+	LIST_HEAD_INITIALIZER(sfp_devices);
+
+void
+sfp_register(struct sfp_device *sd)
+{
+	sd->sd_phandle = OF_getpropint(sd->sd_node, "phandle", 0);
+	if (sd->sd_phandle == 0)
+		return;
+
+	LIST_INSERT_HEAD(&sfp_devices, sd, sd_list);
+}
+
+int
+sfp_get_sffpage(uint32_t phandle, struct if_sffpage *sff)
+{
+	struct sfp_device *sd;
+
+	LIST_FOREACH(sd, &sfp_devices, sd_list) {
+		if (sd->sd_phandle == phandle)
+			return sd->sd_get_sffpage(sd->sd_cookie, sff);
+	}
+
+	return ENXIO;
 }

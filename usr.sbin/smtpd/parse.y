@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.259 2019/08/25 03:40:45 martijn Exp $	*/
+/*	$OpenBSD: parse.y,v 1.261 2019/09/06 08:23:56 martijn Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -1288,6 +1288,13 @@ MATCH {
 ;
 
 filter_action_builtin:
+filter_action_builtin_nojunk
+| JUNK {
+	filter_config->junk = 1;
+}
+;
+
+filter_action_builtin_nojunk:
 REJECT STRING {
 	filter_config->reject = $2;
 }
@@ -1296,6 +1303,9 @@ REJECT STRING {
 }
 | REWRITE STRING {
 	filter_config->rewrite = $2;
+}
+| REPORT STRING {
+	filter_config->report = $2;
 }
 ;
 
@@ -1508,7 +1518,7 @@ NOOP {
 filter_phase_commit:
 COMMIT {
 	filter_config->phase = FILTER_COMMIT;
-} MATCH filter_phase_commit_options filter_action_builtin
+} MATCH filter_phase_commit_options filter_action_builtin_nojunk
 ;
 
 
@@ -2356,6 +2366,7 @@ lookup(char *s)
 		{ "regex",		REGEX },
 		{ "reject",		REJECT },
 		{ "relay",		RELAY },
+		{ "report",		REPORT },
 		{ "rewrite",		REWRITE },
 		{ "rset",		RSET },
 		{ "scheduler",		SCHEDULER },

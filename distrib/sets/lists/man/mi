@@ -1212,6 +1212,7 @@
 ./usr/share/man/man4/ami.4
 ./usr/share/man/man4/amlclock.4
 ./usr/share/man/man4/amldwusb.4
+./usr/share/man/man4/amlmmc.4
 ./usr/share/man/man4/amlpciephy.4
 ./usr/share/man/man4/amlpinctrl.4
 ./usr/share/man/man4/amlreset.4
@@ -1606,6 +1607,7 @@
 ./usr/share/man/man4/maxrtc.4
 ./usr/share/man/man4/maxtmp.4
 ./usr/share/man/man4/mbg.4
+./usr/share/man/man4/mcprtc.4
 ./usr/share/man/man4/mcx.4
 ./usr/share/man/man4/mfi.4
 ./usr/share/man/man4/mfii.4
@@ -1630,9 +1632,11 @@
 ./usr/share/man/man4/mue.4
 ./usr/share/man/man4/multicast.4
 ./usr/share/man/man4/mvclock.4
+./usr/share/man/man4/mvdog.4
 ./usr/share/man/man4/mvgicp.4
 ./usr/share/man/man4/mvgpio.4
 ./usr/share/man/man4/mvicu.4
+./usr/share/man/man4/mviic.4
 ./usr/share/man/man4/mvneta.4
 ./usr/share/man/man4/mvpinctrl.4
 ./usr/share/man/man4/mvrng.4
@@ -1666,6 +1670,7 @@
 ./usr/share/man/man4/octeon/octgpio.4
 ./usr/share/man/man4/octeon/octiic.4
 ./usr/share/man/man4/octeon/octmmc.4
+./usr/share/man/man4/octeon/octpcie.4
 ./usr/share/man/man4/octeon/octrng.4
 ./usr/share/man/man4/octeon/octrtc.4
 ./usr/share/man/man4/octeon/octsctl.4
