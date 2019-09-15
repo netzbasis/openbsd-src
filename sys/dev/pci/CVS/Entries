@@ -137,7 +137,7 @@
 /if_fxp_pci.c/1.65/Tue Nov 24 17:11:39 2015//
 /if_gem_pci.c/1.39/Sat Nov 28 09:42:10 2015//
 /if_hme_pci.c/1.21/Tue Nov 24 17:11:39 2015//
-/if_iavf.c/1.6/Wed Aug  7 22:34:25 2019//
+/if_iavf.c/1.7/Sun Sep 15 01:57:19 2019//
 /if_ipw.c/1.124/Thu Sep 12 12:55:07 2019//
 /if_ipwreg.h/1.16/Thu Aug 28 15:08:38 2008//
 /if_ipwvar.h/1.28/Mon Sep  5 10:17:30 2016//
