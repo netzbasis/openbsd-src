@@ -12,7 +12,7 @@
 /kfd_dbgmgr.c/1.1/Tue May 21 22:40:07 2019//
 /kfd_dbgmgr.h/1.1/Tue May 21 22:40:07 2019//
 /kfd_debugfs.c/1.1/Tue May 21 22:40:07 2019//
-/kfd_device.c/1.1/Tue May 21 22:40:07 2019//
+/kfd_device.c/1.2/Mon Sep 16 15:24:29 2019//
 /kfd_device_queue_manager.c/1.2/Wed Jul 31 10:44:30 2019//
 /kfd_device_queue_manager.h/1.1/Tue May 21 22:40:07 2019//
 /kfd_device_queue_manager_cik.c/1.1/Tue May 21 22:40:07 2019//
