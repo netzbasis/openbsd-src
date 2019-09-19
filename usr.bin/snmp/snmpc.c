@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpc.c,v 1.7 2019/08/14 14:40:23 deraadt Exp $	*/
+/*	$OpenBSD: snmpc.c,v 1.11 2019/09/18 09:54:36 martijn Exp $	*/
 
 /*
  * Copyright (c) 2019 Martijn van Duren <martijn@openbsd.org>
@@ -23,8 +23,10 @@
 #include <sys/un.h>
 
 #include <arpa/inet.h>
+#include <openssl/evp.h>
 
 #include <ber.h>
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
 #include <netdb.h>
@@ -38,16 +40,19 @@
 
 #include "smi.h"
 #include "snmp.h"
+#include "usm.h"
 
-#define GETOPT_COMMON		"c:r:t:v:O:"
+#define GETOPT_COMMON		"A:a:c:E:e:K:k:l:n:O:r:t:u:v:X:x:Z:"
 
 int snmpc_get(int, char *[]);
 int snmpc_walk(int, char *[]);
 int snmpc_trap(int, char *[]);
 int snmpc_mibtree(int, char *[]);
+struct snmp_agent *snmpc_connect(char *, char *);
 int snmpc_parseagent(char *, char *);
 int snmpc_print(struct ber_element *);
 __dead void snmpc_printerror(enum snmp_error, char *);
+char *snmpc_hex2bin(char *, size_t *);
 void usage(void);
 
 struct snmp_app {
@@ -70,10 +75,11 @@ struct snmp_app snmp_apps[] = {
 struct snmp_app *snmp_app = NULL;
 
 char *community = "public";
+struct snmp_v3 *v3;
 char *mib = "mib_2";
 int retries = 5;
 int timeout = 1;
-int version = SNMP_V2C;
+enum snmp_version version = SNMP_V2C;
 int print_equals = 1;
 int print_varbind_only = 0;
 int print_summary = 0;
@@ -91,6 +97,22 @@ enum smi_output_string output_string = smi_os_default;
 int
 main(int argc, char *argv[])
 {
+	const EVP_MD *md = NULL;
+	const EVP_CIPHER *cipher = NULL;
+	struct snmp_sec *sec;
+	char *user = NULL;
+	enum usm_key_level authkeylevel;
+	char *authkey = NULL;
+	size_t authkeylen = 0;
+	enum usm_key_level privkeylevel;
+	char *privkey = NULL;
+	size_t privkeylen = 0;
+	int seclevel = SNMP_MSGFLAG_REPORT;
+	char *ctxname = NULL;
+	char *ctxengineid = NULL, *secengineid = NULL;
+	size_t ctxengineidlen, secengineidlen;
+	int zflag = 0;
+	long long boots, time;
 	char optstr[BUFSIZ];
 	const char *errstr;
 	char *strtolp;
@@ -130,8 +152,85 @@ main(int argc, char *argv[])
 
 	while ((ch = getopt(argc, argv, optstr)) != -1) {
 		switch (ch) {
+		case 'A':
+			authkey = optarg;
+			authkeylen = strlen(authkey);
+			authkeylevel = USM_KEY_PASSWORD;
+			break;
+		case 'a':
+			if (strcasecmp(optarg, "MD5") == 0)
+				md = EVP_md5();
+			else if (strcasecmp(optarg, "SHA") == 0)
+				md = EVP_sha1();
+			else if (strcasecmp(optarg, "SHA-224") == 0)
+				md = EVP_sha224();
+			else if (strcasecmp(optarg, "SHA-256") == 0)
+				md = EVP_sha256();
+			else if (strcasecmp(optarg, "SHA-384") == 0)
+				md = EVP_sha384();
+			else if (strcasecmp(optarg, "SHA-512") == 0)
+				md = EVP_sha512();
+			else
+				errx(1, "Invalid authentication protocol "
+				    "specified after -a flag: %s", optarg);
+			break;
 		case 'c':
 			community = optarg;
+			break;
+		case 'E':
+			ctxengineid = snmpc_hex2bin(optarg,
+			    &ctxengineidlen);
+			if (ctxengineid == NULL) {
+				if (errno == EINVAL)
+					errx(1, "Bad engine ID value "
+					    "after -3E flag.");
+				err(1, "-3E");
+			}
+			break;
+		case 'e':
+			secengineid = snmpc_hex2bin(optarg,
+			    &secengineidlen);
+			if (secengineid == NULL) {
+				if (errno == EINVAL)
+					errx(1, "Bad engine ID value "
+					    "after -3e flag.");
+				err(1, "-3e");
+			}
+			break;
+		case 'K':
+			privkey = snmpc_hex2bin(optarg, &privkeylen);
+			if (privkey == NULL) {
+				if (errno == EINVAL)
+					errx(1, "Bad key value after "
+					    "-3K flag.");
+				errx(1, "-3K");
+			}
+			privkeylevel = USM_KEY_LOCALIZED;
+				break;
+		case 'k':
+			authkey = snmpc_hex2bin(optarg, &authkeylen);
+			if (authkey == NULL) {
+				if (errno == EINVAL)
+					errx(1, "Bad key value after -k flag.");
+				err(1, "-k");
+			}
+			authkeylevel = USM_KEY_LOCALIZED;
+			break;
+		case 'l':
+			if (strcasecmp(optarg, "noAuthNoPriv") == 0)
+				seclevel = SNMP_MSGFLAG_REPORT;
+			else if (strcasecmp(optarg, "authNoPriv") == 0)
+				seclevel = SNMP_MSGFLAG_AUTH |
+				    SNMP_MSGFLAG_REPORT;
+			else if (strcasecmp(optarg, "authPriv") == 0)
+				seclevel = SNMP_MSGFLAG_AUTH |
+				    SNMP_MSGFLAG_PRIV | SNMP_MSGFLAG_REPORT;
+			else
+				errx(1, "Invalid security level specified "
+				    "after -l flag: %s", optarg);
+			break;
+		case 'n':
+			ctxname = optarg;
 			break;
 		case 'r':
 			if ((retries = strtonum(optarg, 0, INT_MAX,
@@ -147,11 +246,16 @@ main(int argc, char *argv[])
 					errx(1, "-t: %s argument", errstr);
 			}
 			break;
+		case 'u':
+			user = optarg;
+			break;
 		case 'v':
 			if (strcmp(optarg, "1") == 0)
 				version = SNMP_V1;
 			else if (strcmp(optarg, "2c") == 0)
 				version = SNMP_V2C;
+			else if (strcmp(optarg, "3") == 0)
+				version = SNMP_V3;
 			else
 				errc(1, EINVAL, "-v");
 			break;
@@ -282,12 +386,83 @@ main(int argc, char *argv[])
 				}
 			}
 			break;
+		case 'X':
+			privkey = optarg;
+			privkeylen = strlen(privkey);
+			privkeylevel = USM_KEY_PASSWORD;
+			break;
+		case 'x':
+			if (strcasecmp(optarg, "DES") == 0)
+				cipher = EVP_des_cbc();
+			else if (strcasecmp(optarg, "AES") == 0)
+				cipher = EVP_aes_128_cfb128();
+			else
+				errx(1, "Invalid privacy protocol "
+				    "specified after -3x flag: %s",
+				    optarg);
+			break;
+		case 'Z':
+			boots = strtoll(optarg, &strtolp, 10);
+			if (boots < 0 || strtolp == optarg || strtolp[0] != ',')
+				usage();
+			strtolp++;
+			while (strtolp[0] == ' ' && strtolp[0] == '\t')
+				strtolp++;
+			time = strtoll(strtolp, &strtolp, 10);
+			if (boots < 0 || strtolp == optarg)
+				usage();
+			zflag = 1;
+			break;
 		default:
 			usage();
 		}
 	}
 	argc -= optind;
 	argv += optind;
+
+	if (version == SNMP_V3) {
+		/* Setup USM */
+		if (user == NULL || user[0] == '\0')
+			errx(1, "No securityName specified");
+		if ((sec = usm_init(user, strlen(user))) == NULL)
+			err(1, "usm_init");
+		if (seclevel & SNMP_MSGFLAG_AUTH) {
+			if (md == NULL)
+				md = EVP_md5();
+			if (authkey == NULL)
+				errx(1, "No authKey or authPassword specified");
+			if (usm_setauth(sec, md, authkey, authkeylen,
+			    authkeylevel) == -1)
+				err(1, "Can't set authkey");
+		}
+		if (seclevel & SNMP_MSGFLAG_PRIV) {
+			if (cipher == NULL)
+				cipher = EVP_des_cbc();
+			if (privkey == NULL)
+				errx(1, "No privKey or privPassword specified");
+			if (usm_setpriv(sec, cipher, privkey, privkeylen,
+			    privkeylevel) == -1)
+				err(1, "Can't set authkey");
+		}
+		if (secengineid != NULL) {
+			if (usm_setengineid(sec, secengineid,
+			    secengineidlen) == -1)
+				err(1, "Can't set secengineid");
+		}
+		if (zflag)
+			if (usm_setbootstime(sec, boots, time) == -1)
+				err(1, "Can't set boots/time");
+		v3 = snmp_v3_init(seclevel, ctxname, ctxname == NULL ? 0 :
+		    strlen(ctxname), sec);
+		if (v3 == NULL)
+			err(1, "snmp_v3_init");
+		if (ctxengineid != NULL) {
+			if (snmp_v3_setengineid(v3, ctxengineid,
+			    ctxengineidlen) == -1)
+				err(1, "Can't set ctxengineid");
+		}
+	}
+
 
 	return snmp_app->exec(argc, argv);
 }
@@ -300,13 +475,13 @@ snmpc_get(int argc, char *argv[])
 	struct snmp_agent *agent;
 	int errorstatus, errorindex;
 	int i;
+	int class;
+	unsigned type;
 
 	if (argc < 2)
 		usage();
 
-	agent = snmp_connect_v12(snmpc_parseagent(argv[0], "161"), version,
-	    community);
-	if (agent == NULL)
+	if ((agent = snmpc_connect(argv[0], "161")) == NULL)
 		err(1, "%s", snmp_app->name);
 	agent->timeout = timeout;
 	agent->retries = retries;
@@ -339,12 +514,14 @@ snmpc_get(int argc, char *argv[])
 			err(1, "get");
 	}
 
-	(void) ber_scanf_elements(pdu, "{Sdd{e", &errorstatus, &errorindex,
-	    &varbind);
+	(void) ber_scanf_elements(pdu, "t{Sdd{e", &class, &type, &errorstatus,
+	    &errorindex, &varbind);
 	if (errorstatus != 0)
 		snmpc_printerror((enum snmp_error) errorstatus,
 		    argv[errorindex - 1]);
 
+	if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+		printf("Received report:\n");
 	for (; varbind != NULL; varbind = varbind->be_next) {
 		if (!snmpc_print(varbind))
 			err(1, "Can't print response");
@@ -365,6 +542,8 @@ snmpc_walk(int argc, char *argv[])
 	char oidstr[SNMP_MAX_OID_STRLEN];
 	int n = 0, prev_cmp;
 	int errorstatus, errorindex;
+	int class;
+	unsigned type;
 
 	if (strcmp(snmp_app->name, "bulkwalk") == 0 && version < SNMP_V2C)
 		errx(1, "Cannot send V2 PDU on V1 session");
@@ -372,8 +551,7 @@ snmpc_walk(int argc, char *argv[])
 		usage();
 	oids = argc == 1 ? mib : argv[1];
 
-	agent = snmp_connect_v12(snmpc_parseagent(argv[0], "161"), version, community);
-	if (agent == NULL)
+	if ((agent = snmpc_connect(argv[0], "161"))== NULL)
 		err(1, "%s", snmp_app->name);
 	agent->timeout = timeout;
 	agent->retries = retries;
@@ -390,15 +568,19 @@ snmpc_walk(int argc, char *argv[])
 		if ((pdu = snmp_get(agent, &oid, 1)) == NULL)
 			err(1, "%s", snmp_app->name);
 
-		(void) ber_scanf_elements(pdu, "{Sdd{e", &errorstatus,
-		    &errorindex, &varbind);
+		(void) ber_scanf_elements(pdu, "t{Sdd{e", &class, &type,
+		    &errorstatus, &errorindex, &varbind);
 		if (errorstatus != 0)
 			snmpc_printerror((enum snmp_error) errorstatus,
 			    argv[errorindex - 1]);
 
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			printf("Received report:\n");
 		if (!snmpc_print(varbind))
 			err(1, "Can't print response");
 		ber_free_element(pdu);
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			return 1;
 		n++;
 	}
 	while (1) {
@@ -412,14 +594,16 @@ snmpc_walk(int argc, char *argv[])
 				err(1, "walk");
 		}
 
-		(void) ber_scanf_elements(pdu, "{Sdd{e", &errorstatus,
-		    &errorindex, &varbind);
+		(void) ber_scanf_elements(pdu, "t{Sdd{e", &class, &type,
+		    &errorstatus, &errorindex, &varbind);
 		if (errorstatus != 0) {
 			smi_oid2string(&noid, oidstr, sizeof(oidstr),
 			    oid_lookup);
 			snmpc_printerror((enum snmp_error) errorstatus, oidstr);
 		}
 
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			printf("Received report:\n");
 		for (; varbind != NULL; varbind = varbind->be_next) {
 			(void) ber_scanf_elements(varbind, "{oe}", &noid,
 			    &value);
@@ -440,6 +624,8 @@ snmpc_walk(int argc, char *argv[])
 			n++;
 		}
 		ber_free_elements(pdu);
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			return 1;
 		if (varbind != NULL)
 			break;
 	}
@@ -447,15 +633,19 @@ snmpc_walk(int argc, char *argv[])
 		if ((pdu = snmp_get(agent, &oid, 1)) == NULL)
 			err(1, "%s", snmp_app->name);
 
-		(void) ber_scanf_elements(pdu, "{Sdd{e", &errorstatus,
-		    &errorindex, &varbind);
+		(void) ber_scanf_elements(pdu, "t{Sdd{e", &class, &type,
+		    &errorstatus, &errorindex, &varbind);
 		if (errorstatus != 0)
 			snmpc_printerror((enum snmp_error) errorstatus,
 			    argv[errorindex - 1]);
 
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			printf("Received report:\n");
 		if (!snmpc_print(varbind))
 			err(1, "Can't print response");
 		ber_free_element(pdu);
+		if (class == BER_CLASS_CONTEXT && type == SNMP_C_REPORT)
+			return 1;
 		n++;
 	}
 	if (print_time)
@@ -495,9 +685,7 @@ snmpc_trap(int argc, char *argv[])
 	if (version == SNMP_V1)
 		errx(1, "trap is not supported for snmp v1");
 
-	agent = snmp_connect_v12(snmpc_parseagent(argv[0], "162"),
-	    version, community);
-	if (agent == NULL)
+	if ((agent = snmpc_connect(argv[0], "162")) == NULL)
 		err(1, "%s", snmp_app->name);
 
 	if (pledge("stdio", NULL) == -1)
@@ -693,6 +881,20 @@ snmpc_mibtree(int argc, char *argv[])
 	return 0;
 }
 
+struct snmp_agent *
+snmpc_connect(char *host, char *port)
+{
+	switch (version) {
+	case SNMP_V1:
+	case SNMP_V2C:
+		return snmp_connect_v12(snmpc_parseagent(host, port), version,
+		    community);
+	case SNMP_V3:
+		return snmp_connect_v3(snmpc_parseagent(host, port), v3);
+	}
+	return NULL;
+}
+
 int
 snmpc_print(struct ber_element *elm)
 {
@@ -875,18 +1077,61 @@ snmpc_parseagent(char *agent, char *defaultport)
 	return s;
 }
 
+char *
+snmpc_hex2bin(char *hexstr, size_t *binlen)
+{
+	char *decstr;
+
+	if (hexstr[0] == '0' && hexstr[1] == 'x')
+		hexstr += 2;
+	while (hexstr[0] == ' ' || hexstr[0] == '\t')
+		hexstr++;
+
+	if ((decstr = malloc((strlen(hexstr) / 2) + 1)) == NULL)
+		return NULL;
+
+	for (*binlen = 0; hexstr[0] != '\0'; (*binlen)++) {
+		hexstr[0] = toupper(hexstr[0]);
+		hexstr[1] = toupper(hexstr[1]);
+		if (hexstr[0] >= '0' && hexstr[0] <= '9')
+			decstr[*binlen] = (hexstr[0] - '0') << 4;
+		else if (hexstr[0] >= 'A' && hexstr[0] <= 'F')
+			decstr[*binlen] = ((hexstr[0] - 'A') + 10) << 4;
+		else
+			goto fail;
+		if (hexstr[1] >= '0' && hexstr[1] <= '9')
+			decstr[*binlen] |= (hexstr[1] - '0');
+		else if (hexstr[1] >= 'A' && hexstr[1] <= 'F')
+			decstr[*binlen] |= (hexstr[1] - 'A') + 10;
+		else
+			goto fail;
+
+		hexstr += 2;
+		while (hexstr[0] == ' ' || hexstr[0] == '\t')
+			hexstr++;
+	}
+
+	return decstr;
+fail:
+	errno = EINVAL;
+	free(decstr);
+	return NULL;
+}
+
 __dead void
 usage(void)
 {
 	size_t i;
 
 	if (snmp_app != NULL) {
-		fprintf(stderr, "usage: snmp %s%s%s%s\n",
+		fprintf(stderr, "usage: snmp %s%s%s\n",
 		    snmp_app->name,
 		    snmp_app->usecommonopt ?
-		    " [-c community] [-r retries] [-t timeout] [-v version]\n"
-		    "            [-O afnqvxSQ]" : "",
-		    snmp_app->usage == NULL ? "" : " ",
+		    " [-A authpass] [-a digest] [-c community] [-e secengineid]\n"
+		    "            [-E ctxengineid] [-K localpriv] [-k localauth] [-l seclevel]\n"
+		    "            [-n ctxname] [-O afnqvxSQ] [-r retries] [-t timeout] [-u user]\n"
+		    "            [-v version] [-X privpass] [-x cipher] [-Z boots,time]\n"
+		    "            " : "",
 		    snmp_app->usage == NULL ? "" : snmp_app->usage);
 		exit(1);
 	}
@@ -898,8 +1143,7 @@ usage(void)
 		fprintf(stderr, "snmp %s%s %s\n",
 		    snmp_apps[i].name,
 		    snmp_apps[i].usecommonopt ?
-		    " [-c community] [-r retries] [-t timeout] [-v version]\n"
-	            "            [-O afnqvxSQ]" : "",
+		    " [common options]" : "",
 		    snmp_apps[i].usage ? snmp_apps[i].usage : "");
 	}
 	exit(1);

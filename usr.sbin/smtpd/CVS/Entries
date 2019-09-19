@@ -11,7 +11,7 @@
 /crypto.c/1.8/Fri Jun 28 13:32:50 2019//
 /dict.c/1.6/Sun Dec 23 16:06:24 2018//
 /dict.h/1.1/Sun Dec 23 16:06:24 2018//
-/dns.c/1.88/Wed Sep 26 16:28:34 2018//
+/dns.c/1.89/Wed Sep 18 11:26:30 2019//
 /enqueue.c/1.116/Tue Jul  2 09:36:20 2019//
 /envelope.c/1.45/Wed Aug 14 21:11:25 2019//
 /esc.c/1.5/Sat Sep  3 22:16:39 2016//
@@ -45,8 +45,8 @@
 /mda_unpriv.c/1.5/Thu Dec 27 15:41:50 2018//
 /mda_variables.c/1.5/Thu Dec  6 12:32:11 2018//
 /mproc.c/1.34/Fri Jun 28 13:32:50 2019//
-/mta.c/1.230/Sat Sep 14 06:20:27 2019//
-/mta_session.c/1.120/Sun Aug 11 11:11:02 2019//
+/mta.c/1.231/Wed Sep 18 11:26:30 2019//
+/mta_session.c/1.121/Wed Sep 18 11:26:30 2019//
 /newaliases.8/1.12/Fri Jul 20 15:35:33 2018//
 /parse.y/1.261/Fri Sep  6 08:23:56 2019//
 /parser.c/1.41/Mon Jul 31 16:38:33 2017//
@@ -76,7 +76,7 @@
 /smtp.h/1.3/Mon Sep  2 20:05:21 2019//
 /smtp_client.c/1.12/Tue Sep 10 12:08:26 2019//
 /smtp_session.c/1.410/Wed Sep 11 04:19:19 2019//
-/smtpc.c/1.8/Mon Sep  2 20:05:21 2019//
+/smtpc.c/1.9/Wed Sep 18 11:26:30 2019//
 /smtpctl.8/1.64/Tue Sep 18 06:21:45 2018//
 /smtpctl.c/1.165/Tue Jul 23 08:11:10 2019//
 /smtpd-api.h/1.36/Sun Dec 23 16:06:24 2018//
@@ -84,11 +84,12 @@
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.325/Tue Sep  3 04:48:20 2019//
 /smtpd.conf.5/1.224/Fri Sep  6 08:23:56 2019//
-/smtpd.h/1.636/Wed Sep 11 04:19:19 2019//
+/smtpd.h/1.637/Wed Sep 18 11:26:30 2019//
 /spfwalk.c/1.12/Fri Aug 23 15:39:11 2019//
 /ssl.c/1.93/Wed Jun  5 06:40:13 2019//
-/ssl.h/1.20/Thu Apr 21 14:27:41 2016//
+/ssl.h/1.21/Wed Sep 18 11:26:30 2019//
 /ssl_smtpd.c/1.13/Wed Dec 30 16:02:08 2015//
+/ssl_verify.c/1.1/Wed Sep 18 11:26:30 2019//
 /stat_backend.c/1.11/Thu Dec 27 10:35:26 2018//
 /stat_ramstat.c/1.11/Thu May 31 21:06:12 2018//
 /table.5/1.11/Sun Aug 11 13:00:57 2019//
