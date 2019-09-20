@@ -39,7 +39,7 @@
 /drm_modeset_helper.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_modeset_lock.c/1.2/Sun Apr 14 10:14:51 2019//
 /drm_panel.c/1.3/Sun Apr 14 10:14:51 2019//
-/drm_panel_orientation_quirks.c/1.4/Sun Jul 21 07:06:41 2019//
+/drm_panel_orientation_quirks.c/1.5/Thu Sep 19 11:10:55 2019//
 /drm_plane.c/1.2/Mon Jun 10 04:40:13 2019//
 /drm_plane_helper.c/1.2/Sun Apr 14 10:14:51 2019//
 /drm_prime.c/1.2/Sun Apr 14 10:14:51 2019//
