@@ -18,8 +18,8 @@
 /cn30xxipdreg.h/1.2/Mon Aug 11 18:29:56 2014//
 /cn30xxipdvar.h/1.6/Fri Sep 20 15:01:30 2019//
 /cn30xxnpireg.h/1.1/Thu Jun 16 11:22:30 2011//
-/cn30xxpip.c/1.7/Sun Nov  5 04:57:28 2017//
-/cn30xxpipreg.h/1.6/Sat Aug  6 04:32:24 2016//
+/cn30xxpip.c/1.9/Sun Sep 22 05:16:05 2019//
+/cn30xxpipreg.h/1.7/Sun Sep 22 05:13:59 2019//
 /cn30xxpipvar.h/1.3/Sun Nov  5 04:57:28 2017//
 /cn30xxpko.c/1.6/Sun Nov  5 04:57:28 2017//
 /cn30xxpkoreg.h/1.1/Thu Jun 16 11:22:30 2011//
@@ -57,7 +57,7 @@
 /octmmc.c/1.13/Sun Jan 13 16:45:44 2019//
 /octmmcreg.h/1.3/Mon Oct 16 14:18:47 2017//
 /octohci.c/1.4/Mon Jan  7 03:41:06 2019//
-/octpcie.c/1.1/Sat Sep  7 13:58:58 2019//
+/octpcie.c/1.2/Sun Sep 22 04:43:24 2019//
 /octpip.c/1.1/Sun Sep 15 06:57:05 2019//
 /octrng.c/1.7/Sat Apr 28 15:44:59 2018//
 /octrtc.c/1.11/Mon Nov 20 15:20:03 2017//

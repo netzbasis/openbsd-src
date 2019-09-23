@@ -61,7 +61,7 @@
 /vector.S/1.80/Wed Aug  7 18:53:28 2019//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
 /vm_machdep.c/1.43/Tue Aug 21 13:10:13 2018//
-/vmm.c/1.253/Wed Sep 11 16:55:53 2019//
+/vmm.c/1.254/Sun Sep 22 08:47:54 2019//
 /vmm_support.S/1.16/Fri May 17 19:07:16 2019//
 /wscons_machdep.c/1.14/Sat Oct 14 04:44:43 2017//
 D
