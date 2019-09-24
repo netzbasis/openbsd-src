@@ -43,7 +43,7 @@
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
 /cmd-resize-pane.c/1.38/Sat Jul  6 20:56:34 2019//
-/cmd-resize-window.c/1.1/Thu Oct 18 08:38:01 2018//
+/cmd-resize-window.c/1.2/Mon Sep 23 15:41:11 2019//
 /cmd-respawn-pane.c/1.29/Sun Apr 28 20:05:50 2019//
 /cmd-respawn-window.c/1.40/Thu Sep 19 09:02:30 2019//
 /cmd-rotate-window.c/1.27/Wed Aug 14 09:58:31 2019//
@@ -94,7 +94,7 @@
 /proc.c/1.15/Fri Jul 14 18:49:07 2017//
 /procname.c/1.16/Mon Oct 10 21:29:23 2016//
 /regsub.c/1.2/Thu Jun 20 15:40:14 2019//
-/resize.c/1.33/Thu Sep 19 09:02:30 2019//
+/resize.c/1.34/Mon Sep 23 15:41:11 2019//
 /screen-redraw.c/1.65/Wed Jul 24 21:16:17 2019//
 /screen-write.c/1.157/Mon Aug  5 06:42:02 2019//
 /screen.c/1.55/Tue Apr  2 08:45:32 2019//
@@ -102,12 +102,12 @@
 /server-fn.c/1.122/Thu Jun 20 11:59:59 2019//
 /server.c/1.187/Thu Jun 20 06:51:36 2019//
 /session.c/1.85/Fri Apr 26 11:38:51 2019//
-/spawn.c/1.8/Thu Sep 19 09:02:30 2019//
+/spawn.c/1.9/Mon Sep 23 15:41:11 2019//
 /status.c/1.200/Tue May 28 18:53:36 2019//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
 /tmux.1/1.689/Thu Sep 19 09:02:30 2019//
 /tmux.c/1.189/Thu Jun 20 11:59:59 2019//
-/tmux.h/1.928/Thu Sep 19 09:02:30 2019//
+/tmux.h/1.929/Mon Sep 23 15:41:11 2019//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
 /tty-keys.c/1.114/Thu May  9 14:09:32 2019//
 /tty-term.c/1.67/Mon Aug  5 06:42:02 2019//
