@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.409 2019/09/04 07:28:27 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.412 2019/09/21 09:01:52 semarie Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -215,8 +215,10 @@ static void smtp_filter_fd(struct smtp_tx *, int);
 static int  smtp_message_fd(struct smtp_tx *, int);
 static void smtp_message_begin(struct smtp_tx *);
 static void smtp_message_end(struct smtp_tx *);
-static int  smtp_filter_printf(struct smtp_tx *, const char *, ...);
-static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
+static int  smtp_filter_printf(struct smtp_tx *, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
+static int  smtp_message_printf(struct smtp_tx *, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
 
 static int  smtp_check_rset(struct smtp_session *, const char *);
 static int  smtp_check_helo(struct smtp_session *, const char *);
@@ -296,7 +298,6 @@ header_append_domain_buffer(char *buffer, char *domain, size_t len)
 	int	pos_bracket, pos_component, pos_insert;
 	char	copy[APPEND_DOMAIN_BUFFER_SIZE];
 
-	i = 0;
 	escape = quote = comment = bracket = 0;
 	has_domain = has_bracket = has_group = 0;
 	pos_bracket = pos_insert = pos_component = 0;
@@ -1742,10 +1743,13 @@ smtp_proceed_helo(struct smtp_session *s, const char *args)
 	report_smtp_link_identify("smtp-in", s->id, "HELO", s->helo);
 
 	smtp_enter_state(s, STATE_HELO);
-	smtp_reply(s, "250 %s Hello %s [%s], pleased to meet you",
+
+	smtp_reply(s, "250 %s Hello %s %s%s%s, pleased to meet you",
 	    s->smtpname,
 	    s->helo,
-	    ss_to_text(&s->ss));
+	    s->ss.ss_family == AF_INET6 ? "" : "[",
+	    ss_to_text(&s->ss),
+	    s->ss.ss_family == AF_INET6 ? "" : "]");
 }
 
 static void
@@ -1759,10 +1763,12 @@ smtp_proceed_ehlo(struct smtp_session *s, const char *args)
 	report_smtp_link_identify("smtp-in", s->id, "EHLO", s->helo);
 
 	smtp_enter_state(s, STATE_HELO);
-	smtp_reply(s, "250-%s Hello %s [%s], pleased to meet you",
+	smtp_reply(s, "250-%s Hello %s %s%s%s, pleased to meet you",
 	    s->smtpname,
 	    s->helo,
-	    ss_to_text(&s->ss));
+	    s->ss.ss_family == AF_INET6 ? "" : "[",
+	    ss_to_text(&s->ss),
+	    s->ss.ss_family == AF_INET6 ? "" : "]");
 
 	smtp_reply(s, "250-8BITMIME");
 	smtp_reply(s, "250-ENHANCEDSTATUSCODES");
@@ -2833,10 +2839,12 @@ smtp_message_begin(struct smtp_tx *tx)
 
 	m_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
-		m_printf(tx, "from %s (%s [%s])",
+		m_printf(tx, "from %s (%s %s%s%s)",
 		    s->helo,
 		    s->rdns,
-		    ss_to_text(&s->ss));
+		    s->ss.ss_family == AF_INET6 ? "" : "[",
+		    ss_to_text(&s->ss),
+		    s->ss.ss_family == AF_INET6 ? "" : "]");
 	}
 	m_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
 	    s->smtpname,

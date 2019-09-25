@@ -103,10 +103,10 @@
 /amdgpu_uvd.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_uvd.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_uvd_v4_2.c/1.1/Tue May 21 22:40:07 2019//
-/amdgpu_vce.c/1.1/Tue May 21 22:40:07 2019//
+/amdgpu_vce.c/1.2/Mon Sep 16 15:26:20 2019//
 /amdgpu_vce.h/1.1/Tue May 21 22:40:07 2019//
 /amdgpu_vce_v2_0.c/1.1/Tue May 21 22:40:07 2019//
-/amdgpu_vcn.c/1.3/Thu Jul  4 03:41:35 2019//
+/amdgpu_vcn.c/1.4/Mon Sep 16 15:27:54 2019//
 /amdgpu_vcn.h/1.1/Tue May 21 22:40:07 2019//
 /amdgpu_vf_error.c/1.1/Tue May 21 22:40:07 2019//
 /amdgpu_vf_error.h/1.1/Tue May 21 22:40:07 2019//
@@ -155,7 +155,7 @@
 /gfx_v7_0.h/1.1/Tue May 21 22:40:07 2019//
 /gfx_v8_0.c/1.1/Tue May 21 22:40:07 2019//
 /gfx_v8_0.h/1.1/Tue May 21 22:40:07 2019//
-/gfx_v9_0.c/1.4/Thu Jul 11 01:48:43 2019//
+/gfx_v9_0.c/1.6/Mon Sep 16 15:01:14 2019//
 /gfx_v9_0.h/1.1/Tue May 21 22:40:07 2019//
 /gfxhub_v1_0.c/1.1/Tue May 21 22:40:07 2019//
 /gfxhub_v1_0.h/1.1/Tue May 21 22:40:07 2019//
@@ -213,9 +213,9 @@
 /uvd_v4_2.h/1.1/Tue May 21 22:40:07 2019//
 /uvd_v5_0.c/1.1/Tue May 21 22:40:07 2019//
 /uvd_v5_0.h/1.1/Tue May 21 22:40:07 2019//
-/uvd_v6_0.c/1.1/Tue May 21 22:40:07 2019//
+/uvd_v6_0.c/1.2/Mon Sep 16 15:27:54 2019//
 /uvd_v6_0.h/1.1/Tue May 21 22:40:07 2019//
-/uvd_v7_0.c/1.1/Tue May 21 22:40:07 2019//
+/uvd_v7_0.c/1.2/Mon Sep 16 15:27:54 2019//
 /uvd_v7_0.h/1.1/Tue May 21 22:40:07 2019//
 /vce_v2_0.h/1.1/Tue May 21 22:40:07 2019//
 /vce_v3_0.c/1.1/Tue May 21 22:40:07 2019//

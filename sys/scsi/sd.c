@@ -1,4 +1,4 @@
-/*	$OpenBSD: sd.c,v 1.279 2019/09/01 15:03:32 krw Exp $	*/
+/*	$OpenBSD: sd.c,v 1.282 2019/09/20 15:35:42 krw Exp $	*/
 /*	$NetBSD: sd.c,v 1.111 1997/04/02 02:29:41 mycroft Exp $	*/
 
 /*-
@@ -1462,6 +1462,11 @@ sd_read_cap_10(struct sd_softc *sc, int flags)
 	scsi_xs_put(xs);
 
 	if (rv == 0) {
+#ifdef SCSIDEBUG
+		sc_print_addr(sc->sc_link);
+		printf(" read Capacity 10 data:\n");
+		scsi_show_mem((u_char *)rdcap, sizeof(*rdcap));
+#endif /* SCSIDEBUG */
 		sc->params.disksize = _4btol(rdcap->addr) + 1ll;
 		sc->params.secsize = _4btol(rdcap->length);
 		CLR(sc->flags, SDF_THIN);
@@ -1515,6 +1520,11 @@ sd_read_cap_16(struct sd_softc *sc, int flags)
 			goto done;
 		}
 
+#ifdef SCSIDEBUG
+		sc_print_addr(sc->sc_link);
+		printf(" read Capacity 16 data:\n");
+		scsi_show_mem((u_char *)rdcap, sizeof(*rdcap));
+#endif /* SCSIDEBUG */
 		sc->params.disksize = _8btol(rdcap->addr) + 1;
 		sc->params.secsize = _4btol(rdcap->length);
 		if (ISSET(_2btol(rdcap->lowest_aligned), READ_CAP_16_TPE))
@@ -1537,13 +1547,13 @@ sd_size(struct sd_softc *sc, int flags)
 		return (ENXIO);
 
 	/*
-	 * post-SPC (i.e. post-SCSI-3)) devices can start with 16 byte
-	 * read capacity commands. Older devices start with then 10 byte
+	 * post-SPC2 (i.e. post-SCSI-3) devices can start with 16 byte
+	 * read capacity commands. Older devices start with the 10 byte
 	 * version and move up to the 16 byte version if the device
 	 * says it has more sectors than can be reported via the 10 byte
 	 * read capacity.
 	 */
-	if (SID_ANSII_REV(&sc->sc_link->inqdata) >= SCSI_REV_SPC) {
+	if (SID_ANSII_REV(&sc->sc_link->inqdata) > SCSI_REV_SPC2) {
 		rv = sd_read_cap_16(sc, flags);
 		if (rv != 0)
 			rv = sd_read_cap_10(sc, flags);
@@ -1759,7 +1769,7 @@ sd_get_parms(struct sd_softc *sc, struct disk_parms *dp, int flags)
 	/*
 	 * Many UMASS devices choke when asked about their geometry. Most
 	 * don't have a meaningful geometry anyway, so just fake it if
-	 * scsi_size() worked.
+	 * sd_size() worked.
 	 */
 	if ((link->flags & SDEV_UMASS) && (dp->disksize > 0))
 		goto validate;

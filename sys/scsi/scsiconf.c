@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsiconf.c,v 1.212 2019/09/03 21:28:45 krw Exp $	*/
+/*	$OpenBSD: scsiconf.c,v 1.215 2019/09/24 12:30:00 krw Exp $	*/
 /*	$NetBSD: scsiconf.c,v 1.57 1996/05/02 01:09:01 neil Exp $	*/
 
 /*
@@ -699,6 +699,45 @@ const struct scsi_quirk_inquiry_pattern scsi_quirk_patterns[] = {
          "UJDCD8730", "", "1.14"},              ADEV_NODOORLOCK}, /* Acer */
 };
 
+#ifdef SCSIDEBUG
+const char *flagnames[16] = {
+	"REMOVABLE",
+	"MEDIA LOADED",
+	"READONLY",
+	"OPEN",
+	"DB1",
+	"DB2",
+	"DB3",
+	"DB4",
+	"EJECTING",
+	"ATAPI",
+	"2NDBUS",
+	"UMASS",
+	"VIRTUAL",
+	"OWN",
+	"FLAG0x4000",
+	"FLAG0x8000"
+};
+
+const char *quirknames[16] = {
+	"AUTOSAVE",
+	"NOSYNC",
+	"NOWIDE",
+	"NOTAGS",
+	"QUIRK0x0010",
+	"QUIRK0x0020",
+	"QUIRK0x0040",
+	"QUIRK0x0080",
+	"NOSYNCCACHE",
+	"NOSENSE",
+	"LITTLETOC",
+	"NOCAPACITY",
+	"QUIRK0x1000",
+	"NODOORLOCK",
+	"ONLYBIG",
+	"QUIRK0x8000",
+};
+#endif /* SCSIDEBUG */
 
 void
 scsibus_printlink(struct scsi_link *link)
@@ -733,47 +772,61 @@ scsibus_printlink(struct scsi_link *link)
 	if ((link->flags & SDEV_REMOVABLE) != 0)
 		printf(" removable");
 
-	if (link->id == NULL || link->id->d_type == DEVID_NONE)
-		return;
-
-	id = (u_int8_t *)(link->id + 1);
-	switch (link->id->d_type) {
-	case DEVID_NAA:
-		printf(" naa.");
-		break;
-	case DEVID_EUI:
-		printf(" eui.");
-		break;
-	case DEVID_T10:
-		printf(" t10.");
-		break;
-	case DEVID_SERIAL:
-		printf(" serial.");
-		break;
-	case DEVID_WWN:
-		printf(" wwn.");
-		break;
-	}
-
-	if (ISSET(link->id->d_flags, DEVID_F_PRINT)) {
-		for (i = 0; i < link->id->d_len; i++) {
-			if (id[i] == '\0' || id[i] == ' ') {
-				/* skip leading blanks */
-				/* collapse multiple blanks into one */
-				if (i > 0 && id[i-1] != id[i])
-					printf("_");
-			} else if (id[i] < 0x20 || id[i] >= 0x80) {
-				/* non-printable characters */
-				printf("~");
-			} else {
-				/* normal characters */
-				printf("%c", id[i]);
-			}
+	if (link->id != NULL && link->id->d_type != DEVID_NONE) {
+		id = (u_int8_t *)(link->id + 1);
+		switch (link->id->d_type) {
+		case DEVID_NAA:
+			printf(" naa.");
+			break;
+		case DEVID_EUI:
+			printf(" eui.");
+			break;
+		case DEVID_T10:
+			printf(" t10.");
+			break;
+		case DEVID_SERIAL:
+			printf(" serial.");
+			break;
+		case DEVID_WWN:
+			printf(" wwn.");
+			break;
 		}
-	} else {
-		for (i = 0; i < link->id->d_len; i++)
-			printf("%02x", id[i]);
+
+		if (ISSET(link->id->d_flags, DEVID_F_PRINT)) {
+			for (i = 0; i < link->id->d_len; i++) {
+				if (id[i] == '\0' || id[i] == ' ') {
+					/* skip leading blanks */
+					/* collapse multiple blanks into one */
+					if (i > 0 && id[i-1] != id[i])
+						printf("_");
+				} else if (id[i] < 0x20 || id[i] >= 0x80) {
+					/* non-printable characters */
+					printf("~");
+				} else {
+					/* normal characters */
+					printf("%c", id[i]);
+				}
+			}
+		} else {
+			for (i = 0; i < link->id->d_len; i++)
+				printf("%02x", id[i]);
+		}
 	}
+#ifdef SCSIDEBUG
+	printf("\n");
+	sc_print_addr(link);
+	printf("state %u, luns %u, openings %u\n",
+	    link->state, link->luns, link->openings);
+
+	sc_print_addr(link);
+	printf("flags (0x%04x) ", link->flags);
+	scsi_show_flags(link->flags, flagnames);
+	printf("\n");
+
+	sc_print_addr(link);
+	printf("quirks (0x%04x) ", link->quirks);
+	scsi_show_flags(link->quirks, quirknames);
+#endif /* SCSIDEBUG */
 }
 
 /*
@@ -1062,6 +1115,42 @@ scsi_inqmatch(struct scsi_inquiry_data *inqbuf, const void *_base,
 	const unsigned char		*base = (const unsigned char *)_base;
 	const void			*bestmatch;
 	int				 removable;
+#ifdef SCSIDEBUG
+	static char *device_type[32] = {
+		"T_DIRECT",
+		"T_SEQUENTIAL",
+		"T_PRINTER",
+		"T_PROCESSOR",
+		"T_WORM",
+		"T_CDROM",
+		"T_SCANNER",
+		"T_OPTICAL",
+		"T_CHANGER",
+		"T_COMM",
+		"T_ASC0",
+		"T_ASC1",
+		"T_STROARRAY",
+		"T_ENCLOSURE",
+		"T_RDIRECT",
+		"T_OCRW",
+		"T_BCC",
+		"T_OSD",
+		"T_ADC",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_RESERVED",
+		"T_WELL_KNOWN_LU",
+		"T_NODEVICE"
+	};
+#endif
 
 	/* Include the qualifier to catch vendor-unique types. */
 	removable = inqbuf->dev_qual2 & SID_REMOVABLE ? T_REMOV : T_FIXED;
@@ -1094,53 +1183,10 @@ scsi_inqmatch(struct scsi_inquiry_data *inqbuf, const void *_base,
 			printf(" quirk ");
 		else
 			printf(" match ");
-		printf("priority %d. ", priority);
 
-		switch (match->type & SID_TYPE) {
-		case T_DIRECT:
-			printf("T_DIRECT");
-			break;
-		case T_SEQUENTIAL:
-			printf("T_SEQUENTIAL");
-			break;
-		case T_PRINTER:
-			printf("T_PRINTER");
-			break;
-		case T_PROCESSOR:
-			printf("T_PROCESSOR");
-			break;
-		case T_CDROM:
-			printf("T_CDROM");
-			break;
-		case T_WORM:
-			printf("T_WORM");
-			break;
-		case T_SCANNER:
-			printf("T_SCANNER");
-			break;
-		case T_OPTICAL:
-			printf("T_OPTICAL");
-			break;
-		case T_CHANGER:
-			printf("T_CHANGER");
-			break;
-		case T_COMM:
-			printf("T_COMM");
-			break;
-		case T_ENCLOSURE:
-			printf("T_ENCLOSURE");
-			break;
-		case T_RDIRECT:
-			printf("T_RDIRECT");
-			break;
-		default:
-			printf("%d/<unknown>", match->type & SID_TYPE);
-			break;
-		}
-
-		printf(" %s", (match->removable == T_FIXED) ? "T_FIXED" : "T_REMOV");
-
-		printf(" <\"%s\", \"%s\", \"%s\">",
+		printf("priority %d. %s %s <\"%s\", \"%s\", \"%s\">", priority,
+		    device_type[(match->type & SID_TYPE)],
+		    (match->removable == T_FIXED) ? "T_FIXED" : "T_REMOV",
 		    match->vendor, match->product, match->revision);
 
 		if (_base == &scsi_quirk_patterns)

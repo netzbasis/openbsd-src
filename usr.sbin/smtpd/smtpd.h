@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.635 2019/09/06 08:23:56 martijn Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.639 2019/09/20 17:46:05 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -69,7 +69,7 @@
  * potentially dangerous and need to be escaped.
  */
 #define	MAILADDR_ALLOWED       	"!#$%&'*/?^`{|}~+-=_"
-#define	MAILADDR_ESCAPE		"!#$%&'*/?^`{|}~"
+#define	MAILADDR_ESCAPE		"!#$%&'*?`{|}~"
 
 
 #define F_STARTTLS		0x01
@@ -618,6 +618,10 @@ struct smtpd {
 	char				       *sc_tls_ciphers;
 
 	char				       *sc_subaddressing_delim;
+
+	char				       *sc_srs_key;
+	char				       *sc_srs_key_backup;
+	int				        sc_srs_ttl;
 };
 
 #define	TRACE_DEBUG	0x0001
@@ -679,6 +683,7 @@ struct mta_host {
 struct mta_mx {
 	TAILQ_ENTRY(mta_mx)	 entry;
 	struct mta_host		*host;
+	char			*mxname;
 	int			 preference;
 };
 
@@ -803,6 +808,7 @@ struct mta_relay {
 	char			*helotable;
 	char			*heloname;
 	char			*secret;
+	int			 srs;
 
 	int			 state;
 	size_t			 ntask;
@@ -1161,6 +1167,8 @@ struct dispatcher_remote {
 
 	int	 backup;
 	char	*backupmx;
+
+	int	 srs;
 };
 
 struct dispatcher_bounce {
@@ -1475,7 +1483,7 @@ const char *mta_relay_to_text(struct mta_relay *);
 
 
 /* mta_session.c */
-void mta_session(struct mta_relay *, struct mta_route *);
+void mta_session(struct mta_relay *, struct mta_route *, const char *);
 void mta_session_imsg(struct mproc *, struct imsg *);
 
 
@@ -1586,6 +1594,11 @@ void log_imsg(int, int, struct imsg *);
 int fork_proc_backend(const char *, const char *, const char *);
 
 
+/* srs.c */
+const char *srs_encode(const char *, const char *);
+const char *srs_decode(const char *);
+
+
 /* ssl_smtpd.c */
 void   *ssl_mta_init(void *, char *, off_t, const char *);
 void   *ssl_smtp_init(void *, int);
@@ -1679,14 +1692,16 @@ int rmtree(char *, int);
 int mvpurge(char *, char *);
 int mktmpfile(void);
 const char *parse_smtp_response(char *, size_t, char **, int *);
-int xasprintf(char **, const char *, ...);
+int xasprintf(char **, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
 void *xmalloc(size_t);
 void *xcalloc(size_t, size_t);
 char *xstrdup(const char *);
 void *xmemdup(const void *, size_t);
 char *strip(char *);
 int io_xprint(struct io *, const char *);
-int io_xprintf(struct io *, const char *, ...);
+int io_xprintf(struct io *, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
 void log_envelope(const struct envelope *, const char *, const char *,
     const char *);
 int session_socket_error(int);

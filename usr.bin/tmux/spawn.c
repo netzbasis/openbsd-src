@@ -1,4 +1,4 @@
-/* $OpenBSD: spawn.c,v 1.6 2019/06/30 19:21:53 nicm Exp $ */
+/* $OpenBSD: spawn.c,v 1.9 2019/09/23 15:41:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2019 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -155,7 +155,7 @@ spawn_window(struct spawn_context *sc, char **cause)
 			xasprintf(cause, "couldn't add window %d", idx);
 			return (NULL);
 		}
-		default_window_size(s, NULL, &sx, &sy, -1);
+		default_window_size(sc->c, s, NULL, &sx, &sy, -1);
 		if ((w = window_create(sx, sy)) == NULL) {
 			winlink_remove(&s->windows, sc->wl);
 			xasprintf(cause, "couldn't create window %d", idx);
@@ -164,6 +164,7 @@ spawn_window(struct spawn_context *sc, char **cause)
 		if (s->curw == NULL)
 			s->curw = sc->wl;
 		sc->wl->session = s;
+		w->latest = sc->c;
 		winlink_set_window(sc->wl, w);
 	} else
 		w = NULL;
@@ -332,14 +333,6 @@ spawn_pane(struct spawn_context *sc, char **cause)
 	cmd_log_argv(new_wp->argc, new_wp->argv, "%s", __func__);
 	environ_log(child, "%s: environment ", __func__);
 
-	/* If the command is empty, don't fork a child process. */
-	if (sc->flags & SPAWN_EMPTY) {
-		new_wp->flags |= PANE_EMPTY;
-		new_wp->base.mode &= ~MODE_CURSOR;
-		new_wp->base.mode |= MODE_CRLF;
-		goto complete;
-	}
-
 	/* Initialize the window size. */
 	memset(&ws, 0, sizeof ws);
 	ws.ws_col = screen_size_x(&new_wp->base);
@@ -348,6 +341,14 @@ spawn_pane(struct spawn_context *sc, char **cause)
 	/* Block signals until fork has completed. */
 	sigfillset(&set);
 	sigprocmask(SIG_BLOCK, &set, &oldset);
+
+	/* If the command is empty, don't fork a child process. */
+	if (sc->flags & SPAWN_EMPTY) {
+		new_wp->flags |= PANE_EMPTY;
+		new_wp->base.mode &= ~MODE_CURSOR;
+		new_wp->base.mode |= MODE_CRLF;
+		goto complete;
+	}
 
 	/* Fork the new process. */
 	new_wp->pid = fdforkpty(ptm_fd, &new_wp->fd, new_wp->tty, NULL, &ws);

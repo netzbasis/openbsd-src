@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.686 2019/09/09 11:47:25 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.689 2019/09/19 09:02:30 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 9 2019 $
+.Dd $Mdocdate: September 19 2019 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -3659,7 +3659,7 @@ see the
 section.
 .Pp
 .It Xo Ic window-size
-.Ar largest | Ar smallest | Ar manual
+.Ar largest | Ar smallest | Ar manual | Ar latest
 .Xc
 Configure how
 .Nm
@@ -3674,6 +3674,10 @@ If
 the size of a new window is set from the
 .Ic default-size
 option and windows are resized automatically.
+With
+.Ar latest ,
+.Nm
+uses the size of the client that had the most recent activity.
 See also the
 .Ic resize-window
 command and the
@@ -4305,6 +4309,7 @@ The following variables are available, where appropriate:
 .It Li "window_last_flag" Ta "" Ta "1 if window is the last used"
 .It Li "window_layout" Ta "" Ta "Window layout description, ignoring zoomed window panes"
 .It Li "window_linked" Ta "" Ta "1 if window is linked across sessions"
+.It Li "window_marked_flag" Ta "" Ta "1 if window contains the marked pane"
 .It Li "window_name" Ta "#W" Ta "Name of window"
 .It Li "window_offset_x" Ta "" Ta "X offset into window if larger than client"
 .It Li "window_offset_y" Ta "" Ta "Y offset into window if larger than client"
@@ -4332,7 +4337,9 @@ and
 .Pp
 A style may be the single term
 .Ql default
-to specify the default style (which may inherit from another option) or a space
+to specify the default style (which may come from an option, for example
+.Ic status-style
+in the status line) or a space
 or comma separated list of the following:
 .Bl -tag -width Ds
 .It Ic fg=colour
@@ -4411,6 +4418,20 @@ and
 .Ic list=right-marker
 mark the text to be used to mark that text has been trimmed from the left or
 right of the list if there is not enough space.
+.It Xo Ic push-default ,
+.Ic pop-default
+.Xc
+Store the current colours and attributes as the default or reset to the previous
+default.
+A
+.Ic push-default
+affects any subsequent use of the
+.Ic default
+term until a
+.Ic pop-default .
+Only one default may be pushed (each
+.Ic push-default
+replaces the previous saved default).
 .It Xo Ic range=left ,
 .Ic range=right ,
 .Ic range=window|X ,

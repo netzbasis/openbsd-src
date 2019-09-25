@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsiconf.h,v 1.172 2019/09/01 15:03:32 krw Exp $	*/
+/*	$OpenBSD: scsiconf.h,v 1.174 2019/09/23 15:21:17 krw Exp $	*/
 /*	$NetBSD: scsiconf.h,v 1.35 1997/04/02 02:29:38 mycroft Exp $	*/
 
 /*
@@ -501,9 +501,13 @@ int	scsi_report_luns(struct scsi_link *, int,
 void	scsi_minphys(struct buf *, struct scsi_link *);
 int	scsi_interpret_sense(struct scsi_xfer *);
 
+#ifdef SCSIDEBUG
 void	scsi_xs_show(struct scsi_xfer *);
-void	scsi_print_sense(struct scsi_xfer *);
 void	scsi_show_mem(u_char *, int);
+void	scsi_show_flags(u_int16_t, const char **);
+#endif /* SCSIDEBUG */
+
+void	scsi_print_sense(struct scsi_xfer *);
 void	scsi_strvis(u_char *, u_char *, int);
 int	scsi_delay(struct scsi_xfer *, int);
 
@@ -524,6 +528,7 @@ int	scsi_activate(struct scsibus_softc *, int, int, int);
 struct scsi_link *	scsi_get_link(struct scsibus_softc *, int, int);
 
 #define SID_ANSII_REV(x)	((x)->version & SID_ANSII)
+#define SID_RESPONSE_FORMAT(x)	((x)->response_format & SID_RESPONSE_DATA_FMT)
 
 #define SCSI_REV_0	0x00	/* No conformance to any standard. */
 #define SCSI_REV_1	0x01	/* (Obsolete) SCSI-1 in olden times. */

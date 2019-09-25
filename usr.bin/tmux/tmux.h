@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.926 2019/08/28 07:34:32 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.929 2019/09/23 15:41:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -680,6 +680,13 @@ struct style_range {
 };
 TAILQ_HEAD(style_ranges, style_range);
 
+/* Style default. */
+enum style_default_type {
+	STYLE_DEFAULT_BASE,
+	STYLE_DEFAULT_PUSH,
+	STYLE_DEFAULT_POP
+};
+
 /* Style option. */
 struct style {
 	struct grid_cell	gc;
@@ -690,6 +697,8 @@ struct style {
 
 	enum style_range_type	range_type;
 	u_int			range_argument;
+
+	enum style_default_type	default_type;
 };
 
 /* Virtual screen. */
@@ -896,6 +905,7 @@ RB_HEAD(window_pane_tree, window_pane);
 /* Window structure. */
 struct window {
 	u_int		 id;
+	void		*latest;
 
 	char		*name;
 	struct event	 name_event;
@@ -961,6 +971,7 @@ TAILQ_HEAD(winlink_stack, winlink);
 #define WINDOW_SIZE_LARGEST 0
 #define WINDOW_SIZE_SMALLEST 1
 #define WINDOW_SIZE_MANUAL 2
+#define WINDOW_SIZE_LATEST 3
 
 /* Pane border status option. */
 #define PANE_STATUS_OFF 0
@@ -1661,6 +1672,7 @@ struct spawn_context {
 
 	struct session		 *s;
 	struct winlink		 *wl;
+	struct client		 *c;
 
 	struct window_pane	 *wp0;
 	struct layout_cell	 *lc;
@@ -2184,8 +2196,9 @@ void	 status_prompt_save_history(void);
 
 /* resize.c */
 void	 resize_window(struct window *, u_int, u_int);
-void	 default_window_size(struct session *, struct window *, u_int *,
-	     u_int *, int);
+void	 default_window_size(struct client *, struct session *, struct window *,
+	     u_int *, u_int *, int);
+void	 recalculate_size(struct window *);
 void	 recalculate_sizes(void);
 
 /* input.c */
@@ -2647,8 +2660,6 @@ int		 style_parse(struct style *,const struct grid_cell *,
 		     const char *);
 const char	*style_tostring(struct style *);
 void		 style_apply(struct grid_cell *, struct options *,
-		     const char *);
-void		 style_apply_update(struct grid_cell *, struct options *,
 		     const char *);
 int		 style_equal(struct style *, struct style *);
 void		 style_set(struct style *, const struct grid_cell *);

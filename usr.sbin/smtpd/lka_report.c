@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_report.c,v 1.31 2019/09/10 07:03:16 gilles Exp $	*/
+/*	$OpenBSD: lka_report.c,v 1.33 2019/09/21 08:10:44 semarie Exp $	*/
 
 /*
  * Copyright (c) 2018 Gilles Chehade <gilles@poolp.org>
@@ -74,6 +74,9 @@ static struct smtp_events {
 	{ "timeout" },
 };
 
+static void
+report_smtp_broadcast(uint64_t, const char *, struct timeval *, const char *,
+    const char *, ...) __attribute__((__format__ (printf, 5, 6)));
 
 void
 lka_report_init(void)
@@ -152,8 +155,11 @@ report_smtp_broadcast(uint64_t reqid, const char *direction, struct timeval *tv,
 	if (strcmp("smtp-in", direction) == 0)
 		d = &smtp_in;
 
-	if (strcmp("smtp-out", direction) == 0)
+	else if (strcmp("smtp-out", direction) == 0)
 		d = &smtp_out;
+
+	else
+		fatalx("unexpected direction: %s", direction);
 
 	tailq = dict_xget(d, event);
 	TAILQ_FOREACH(rp, tailq, entries) {
