@@ -160,7 +160,7 @@
 /if_jme.c/1.52/Mon May 27 20:42:00 2019//
 /if_jmereg.h/1.4/Mon Dec  1 09:12:59 2008//
 /if_jmevar.h/1.6/Sat Dec  7 07:22:37 2013//
-/if_lge.c/1.73/Sun Jan 22 10:17:38 2017//
+/if_lge.c/1.74/Wed Sep 25 09:30:28 2019//
 /if_lgereg.h/1.8/Wed Aug 20 01:00:15 2014//
 /if_lii.c/1.44/Sun Jan 22 10:17:38 2017//
 /if_liireg.h/1.4/Mon Sep  1 14:38:31 2008//
@@ -173,10 +173,10 @@
 /if_myxreg.h/1.13/Mon Apr 15 02:59:41 2019//
 /if_ne_pci.c/1.20/Mon Dec 22 02:28:52 2014//
 /if_nep.c/1.31/Fri Nov  9 14:14:31 2018//
-/if_nfe.c/1.120/Fri Sep  8 05:36:52 2017//
+/if_nfe.c/1.121/Wed Sep 25 09:30:28 2019//
 /if_nfereg.h/1.22/Wed Dec  5 08:30:33 2007//
 /if_nfevar.h/1.17/Wed Aug 20 01:02:50 2014//
-/if_nge.c/1.92/Sun Jan 22 10:17:38 2017//
+/if_nge.c/1.93/Wed Sep 25 09:30:28 2019//
 /if_ngereg.h/1.10/Wed Aug 20 00:59:56 2014//
 /if_nxe.c/1.75/Sat Apr  8 02:57:25 2017//
 /if_oce.c/1.100/Mon Nov 27 16:53:04 2017//
