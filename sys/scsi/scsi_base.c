@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsi_base.c,v 1.232 2019/09/23 15:21:17 krw Exp $	*/
+/*	$OpenBSD: scsi_base.c,v 1.234 2019/09/27 17:22:31 krw Exp $	*/
 /*	$NetBSD: scsi_base.c,v 1.43 1997/04/02 02:29:36 mycroft Exp $	*/
 
 /*
@@ -122,7 +122,7 @@ scsi_init(void)
 #if defined(SCSI_DELAY) && SCSI_DELAY > 0
 	/* Historical. Older buses may need a moment to stabilize. */
 	delay(1000000 * SCSI_DELAY);
-#endif
+#endif /* SCSI_DELAY && SCSI_DELAY > 0 */
 
 	/* Initialize the scsi_xfer pool. */
 	pool_init(&scsi_xfer_pool, sizeof(struct scsi_xfer), 0, IPL_BIO, 0,
@@ -274,7 +274,7 @@ scsi_iopool_destroy(struct scsi_iopool *iopl)
 #ifdef DIAGNOSTIC
 		else
 			panic("scsi_iopool_destroy: scsi_iohandler on pool");
-#endif
+#endif /* DIAGNOSTIC */
 	}
 	mtx_leave(&iopl->mtx);
 
@@ -296,7 +296,7 @@ scsi_default_put(void *iocookie, void *io)
 #ifdef DIAGNOSTIC
 	if (io != SCSI_IOPOOL_POISON)
 		panic("unexpected opening returned");
-#endif
+#endif /* DIAGNOSTIC */
 }
 
 /*
@@ -331,7 +331,7 @@ scsi_ioh_add(struct scsi_iohandler *ioh)
 		break;
 	default:
 		panic("scsi_ioh_add: unexpected state %u", ioh->q_state);
-#endif
+#endif /* DIAGNOSTIC */
 	}
 	mtx_leave(&iopl->mtx);
 
@@ -359,7 +359,7 @@ scsi_ioh_del(struct scsi_iohandler *ioh)
 		break;
 	default:
 		panic("scsi_ioh_del: unexpected state %u", ioh->q_state);
-#endif
+#endif /* DIAGNOSTIC */
 	}
 	mtx_leave(&iopl->mtx);
 
@@ -681,7 +681,7 @@ scsi_link_shutdown(struct scsi_link *link)
 #ifdef DIAGNOSTIC
 		else
 			panic("scsi_link_shutdown: scsi_xshandler on link");
-#endif
+#endif /* DIAGNOSTIC */
 	}
 
 	ioh = TAILQ_FIRST(&iopl->queue);
@@ -693,7 +693,7 @@ scsi_link_shutdown(struct scsi_link *link)
 		if (xsh->ioh.handler == scsi_xsh_ioh &&
 		    xsh->link == link)
 			panic("scsi_link_shutdown: scsi_xshandler on pool");
-#endif
+#endif /* DIAGNOSTIC */
 
 		if (xsh->ioh.handler == scsi_xs_get_done &&
 		    xsh->link == link) {
@@ -1307,7 +1307,7 @@ scsi_xs_exec(struct scsi_xfer *xs)
 		if (xs->datalen && (xs->flags & SCSI_DATA_OUT))
 			scsi_show_mem(xs->data, min(64, xs->datalen));
 	}
-#endif
+#endif /* SCSIDEBUG */
 
 	/* The adapter's scsi_cmd() is responsible for calling scsi_done(). */
 	KERNEL_LOCK();
@@ -1345,7 +1345,7 @@ scsi_xs_sync(struct scsi_xfer *xs)
 		panic("xs->cookie != NULL in scsi_xs_sync");
 	if (xs->done != NULL)
 		panic("xs->done != NULL in scsi_xs_sync");
-#endif
+#endif /* DIAGNOSTIC */
 
 	/*
 	 * If we cant sleep while waiting for completion, get the adapter to
@@ -1407,7 +1407,7 @@ scsi_xs_error(struct scsi_xfer *xs)
 	case XS_SHORTSENSE:
 #ifdef SCSIDEBUG
 		scsi_sense_print_debug(xs);
-#endif
+#endif /* SCSIDEBUG */
 		error = xs->sc_link->interpret_sense(xs);
 		SC_DEBUG(xs->sc_link, SDEV_DB3,
 		    ("scsi_interpret_sense returned %#x\n", error));
@@ -1463,33 +1463,6 @@ scsi_delay(struct scsi_xfer *xs, int seconds)
 
 	return (ERESTART);
 }
-
-#ifdef SCSIDEBUG
-/*
- * Print out sense data details.
- */
-void
-scsi_sense_print_debug(struct scsi_xfer *xs)
-{
-	struct scsi_sense_data *sense = &xs->sense;
-	struct scsi_link *link = xs->sc_link;
-
-	SC_DEBUG(link, SDEV_DB1,
-	    ("code:%#x valid:%d key:%#x ili:%d eom:%d fmark:%d extra:%d\n",
-	    sense->error_code & SSD_ERRCODE,
-	    sense->error_code & SSD_ERRCODE_VALID ? 1 : 0,
-	    sense->flags & SSD_KEY,
-	    sense->flags & SSD_ILI ? 1 : 0,
-	    sense->flags & SSD_EOM ? 1 : 0,
-	    sense->flags & SSD_FILEMARK ? 1 : 0,
-	    sense->extra_len));
-
-	if (xs->sc_link->flags & SDEV_DB1)
-		scsi_show_mem((u_char *)&xs->sense, sizeof(xs->sense));
-
-	scsi_print_sense(xs);
-}
-#endif
 
 /*
  * Look at the returned sense and act on the error, determining
@@ -1633,7 +1606,7 @@ scsi_interpret_sense(struct scsi_xfer *xs)
 	/* SCSIDEBUG would mean it has already been printed. */
 	if (skey && (xs->flags & SCSI_SILENT) == 0)
 		scsi_print_sense(xs);
-#endif /* SCSIDEBUG */
+#endif /* ~SCSIDEBUG */
 
 	return (error);
 }
@@ -2503,7 +2476,148 @@ scsi_decode_sense(struct scsi_sense_data *sense, int flag)
 	return (rqsbuf);
 }
 
+void
+scsi_cmd_rw_decode(struct scsi_generic *cmd, u_int64_t *blkno,
+    u_int32_t *nblks)
+{
+	switch (cmd->opcode) {
+	case READ_COMMAND:
+	case WRITE_COMMAND: {
+		struct scsi_rw *rw = (struct scsi_rw *)cmd;
+		*blkno = _3btol(rw->addr) & (SRW_TOPADDR << 16 | 0xffff);
+		*nblks = rw->length ? rw->length : 0x100;
+		break;
+	}
+	case READ_BIG:
+	case WRITE_BIG: {
+		struct scsi_rw_big *rwb = (struct scsi_rw_big *)cmd;
+		*blkno = _4btol(rwb->addr);
+		*nblks = _2btol(rwb->length);
+		break;
+	}
+	case READ_12:
+	case WRITE_12: {
+		struct scsi_rw_12 *rw12 = (struct scsi_rw_12 *)cmd;
+		*blkno = _4btol(rw12->addr);
+		*nblks = _4btol(rw12->length);
+		break;
+	}
+	case READ_16:
+	case WRITE_16: {
+		struct scsi_rw_16 *rw16 = (struct scsi_rw_16 *)cmd;
+		*blkno = _8btol(rw16->addr);
+		*nblks = _4btol(rw16->length);
+		break;
+	}
+	default:
+		panic("scsi_cmd_rw_decode: bad opcode 0x%02x", cmd->opcode);
+	}
+}
+
 #ifdef SCSIDEBUG
+u_int32_t scsidebug_buses = SCSIDEBUG_BUSES;
+u_int32_t scsidebug_targets = SCSIDEBUG_TARGETS;
+u_int32_t scsidebug_luns = SCSIDEBUG_LUNS;
+int scsidebug_level = SCSIDEBUG_LEVEL;
+
+const char *flagnames[16] = {
+	"REMOVABLE",
+	"MEDIA LOADED",
+	"READONLY",
+	"OPEN",
+	"DB1",
+	"DB2",
+	"DB3",
+	"DB4",
+	"EJECTING",
+	"ATAPI",
+	"2NDBUS",
+	"UMASS",
+	"VIRTUAL",
+	"OWN",
+	"FLAG0x4000",
+	"FLAG0x8000"
+};
+
+const char *quirknames[16] = {
+	"AUTOSAVE",
+	"NOSYNC",
+	"NOWIDE",
+	"NOTAGS",
+	"QUIRK0x0010",
+	"QUIRK0x0020",
+	"QUIRK0x0040",
+	"QUIRK0x0080",
+	"NOSYNCCACHE",
+	"NOSENSE",
+	"LITTLETOC",
+	"NOCAPACITY",
+	"QUIRK0x1000",
+	"NODOORLOCK",
+	"ONLYBIG",
+	"QUIRK0x8000",
+};
+
+const char *devicetypenames[32] = {
+	"T_DIRECT",
+	"T_SEQUENTIAL",
+	"T_PRINTER",
+	"T_PROCESSOR",
+	"T_WORM",
+	"T_CDROM",
+	"T_SCANNER",
+	"T_OPTICAL",
+	"T_CHANGER",
+	"T_COMM",
+	"T_ASC0",
+	"T_ASC1",
+	"T_STROARRAY",
+	"T_ENCLOSURE",
+	"T_RDIRECT",
+	"T_OCRW",
+	"T_BCC",
+	"T_OSD",
+	"T_ADC",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_RESERVED",
+	"T_WELL_KNOWN_LU",
+	"T_NODEVICE"
+};
+
+/*
+ * Print out sense data details.
+ */
+void
+scsi_sense_print_debug(struct scsi_xfer *xs)
+{
+	struct scsi_sense_data *sense = &xs->sense;
+	struct scsi_link *link = xs->sc_link;
+
+	SC_DEBUG(link, SDEV_DB1,
+	    ("code:%#x valid:%d key:%#x ili:%d eom:%d fmark:%d extra:%d\n",
+	    sense->error_code & SSD_ERRCODE,
+	    sense->error_code & SSD_ERRCODE_VALID ? 1 : 0,
+	    sense->flags & SSD_KEY,
+	    sense->flags & SSD_ILI ? 1 : 0,
+	    sense->flags & SSD_EOM ? 1 : 0,
+	    sense->flags & SSD_FILEMARK ? 1 : 0,
+	    sense->extra_len));
+
+	if (xs->sc_link->flags & SDEV_DB1)
+		scsi_show_mem((u_char *)&xs->sense, sizeof(xs->sense));
+
+	scsi_print_sense(xs);
+}
+
 /*
  * Given a scsi_xfer, dump the request, in all its glory
  */
@@ -2572,41 +2686,3 @@ scsi_show_flags(u_int16_t flags, const char **names)
 	printf(">");
 }
 #endif /* SCSIDEBUG */
-
-void
-scsi_cmd_rw_decode(struct scsi_generic *cmd, u_int64_t *blkno,
-    u_int32_t *nblks)
-{
-	switch (cmd->opcode) {
-	case READ_COMMAND:
-	case WRITE_COMMAND: {
-		struct scsi_rw *rw = (struct scsi_rw *)cmd;
-		*blkno = _3btol(rw->addr) & (SRW_TOPADDR << 16 | 0xffff);
-		*nblks = rw->length ? rw->length : 0x100;
-		break;
-	}
-	case READ_BIG:
-	case WRITE_BIG: {
-		struct scsi_rw_big *rwb = (struct scsi_rw_big *)cmd;
-		*blkno = _4btol(rwb->addr);
-		*nblks = _2btol(rwb->length);
-		break;
-	}
-	case READ_12:
-	case WRITE_12: {
-		struct scsi_rw_12 *rw12 = (struct scsi_rw_12 *)cmd;
-		*blkno = _4btol(rw12->addr);
-		*nblks = _4btol(rw12->length);
-		break;
-	}
-	case READ_16:
-	case WRITE_16: {
-		struct scsi_rw_16 *rw16 = (struct scsi_rw_16 *)cmd;
-		*blkno = _8btol(rw16->addr);
-		*nblks = _4btol(rw16->length);
-		break;
-	}
-	default:
-		panic("scsi_cmd_rw_decode: bad opcode 0x%02x", cmd->opcode);
-	}
-}
