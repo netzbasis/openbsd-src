@@ -26,7 +26,7 @@
 /atomic_thread_fence.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
 /bswapdi2.c/1.1/Tue Dec 26 20:59:44 2017//
 /bswapsi2.c/1.1/Tue Dec 26 20:59:44 2017//
-/clear_cache.c/1.4/Tue Jan 29 22:35:43 2019//
+/clear_cache.c/1.5/Sat Sep 28 13:19:19 2019//
 /clzdi2.c/1.2/Tue Jan 29 22:35:43 2019//
 /clzsi2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
 /clzti2.c/1.1.1.1/Mon Sep  5 11:36:12 2016//
