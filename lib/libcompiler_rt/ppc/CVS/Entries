@@ -1,8 +1,10 @@
 /DD.h/1.1.1.1/Mon Sep  5 11:36:22 2016//
-/divtc3.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
+/divtc3.c/1.2/Sun Sep 29 17:53:57 2019//
 /fixtfdi.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
 /fixunstfdi.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
+/fixunstfti.c/1.1/Sun Sep 29 17:53:57 2019//
 /floatditf.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
+/floattitf.c/1.1/Sun Sep 29 17:53:57 2019//
 /floatunditf.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
 /gcc_qadd.c/1.1.1.1/Mon Sep  5 11:36:22 2016//
 /gcc_qdiv.c/1.1.1.1/Mon Sep  5 11:36:22 2016//

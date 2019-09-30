@@ -144,9 +144,6 @@
 /dptvar.h/1.11/Thu May 30 16:15:02 2013//
 /ds1286reg.h/1.1/Wed Mar 28 20:44:23 2012//
 /ds1687reg.h/1.2/Mon Mar 31 07:14:00 2008//
-/dwc_gmac.c/1.12/Sun Sep 15 15:52:14 2019//
-/dwc_gmac_reg.h/1.2/Sun Sep 15 15:52:14 2019//
-/dwc_gmac_var.h/1.4/Sun May 21 11:52:04 2017//
 /dwiic.c/1.8/Sun Aug 18 15:52:45 2019//
 /dwiicreg.h/1.2/Tue Aug  6 06:56:29 2019//
 /dwiicvar.h/1.3/Sat Mar 16 02:40:43 2019//

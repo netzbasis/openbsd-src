@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.42 2019/05/23 15:11:58 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.44 2019/09/29 17:52:02 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -654,11 +654,13 @@ resolve_done(void *arg, int rcode, void *answer_packet, int answer_len,
 	ms = elapsed.tv_sec * 1000 + elapsed.tv_nsec / 1000000;
 
 	for (i = 1; i < nitems(histogram_limits); i++) {
-		if (ms > histogram_limits[i - 1] && ms < histogram_limits[i])
+		if (ms > histogram_limits[i - 1] && ms <= histogram_limits[i])
 			break;
 	}
-
-	res->histogram[i]++;
+	if (i == nitems(histogram_limits))
+		log_debug("histogram bucket error");
+	else
+		res->histogram[i]++;
 
 	log_debug("%s: async_id: %d, ref_cnt: %d, elapsed: %lldms, "
 	    "histogram: %lld - %lld", __func__, query_imsg->async_id,
@@ -899,7 +901,7 @@ free_resolver(struct uw_resolver *res)
 		return;
 
 	log_debug("%s: [%p] ref_cnt: %d", __func__, res, res->ref_cnt);
-	
+
 	if (res->ref_cnt > 0)
 		res->stop = 1;
 	else {
