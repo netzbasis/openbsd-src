@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.731 2019/09/26 13:09:55 brynet Exp $
+#	$OpenBSD: Makefile,v 1.733 2019/09/30 21:00:51 kettenis Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -11,8 +11,8 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	aggr.4 agp.4 \
 	ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
 	akbd.4 alipm.4 amas.4 amdiic.4 amdpm.4 ami.4 \
-	amlclock.4 amldwusb.4 amlmmc.4 amlpciephy.4 amlpinctrl.4 amlreset.4 \
-	amlrng.4 amluart.4 amlusbphy.4 \
+	amlclock.4 amldwusb.4 amlmmc.4 amlpciephy.4 amlpinctrl.4 amlpwm.4 \
+	amlreset.4 amlrng.4 amluart.4 amlusbphy.4 \
 	amphy.4 ams.4 an.4 andl.4 aplgpio.4 aps.4 arc.4 arcofi.4 \
 	asbtm.4 asmc.4 ast.4 atapiscsi.4 atphy.4 ath.4 athn.4 atu.4 atw.4 \
 	auacer.4 audio.4 aue.4 auglx.4 auich.4 auixp.4 autri.4 auvia.4 \
@@ -59,7 +59,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	pcmcia.4 pcn.4 pcppi.4 pcscp.4 pf.4 pflog.4 pflow.4 pfsync.4 \
 	pgt.4 piixpm.4 pinctrl.4 pipex.4 plgpio.4 plrtc.4 pluart.4 \
 	pms.4 ppb.4 ppp.4 pppoe.4 pppx.4 psci.4  pty.4 puc.4 pvbus.4 \
-	pvclock.4 pwdog.4 qla.4 qle.4 qlw.4 qsphy.4 radio.4 \
+	pvclock.4 pwdog.4 pwmreg.4 qla.4 qle.4 qlw.4 qsphy.4 radio.4 \
 	ral.4 random.4 rdomain.4 rd.4 rdac.4 re.4 rdcphy.4 rgephy.4 \
 	ricohrtc.4 rkclock.4 rkdwusb.4 rkgpio.4 rkgrf.4 rkiic.4 \
 	rkpcie.4 rkpinctrl.4 rkpmic.4 rktemp.4 \
