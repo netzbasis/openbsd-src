@@ -28,7 +28,7 @@
 /if_etherip.c/1.45/Tue Apr 23 10:53:45 2019//
 /if_etherip.h/1.10/Mon Nov 20 14:21:28 2017//
 /if_ethersubr.c/1.260/Wed Jul 17 16:46:17 2019//
-/if_gif.c/1.127/Fri Apr 19 07:39:37 2019//
+/if_gif.c/1.128/Fri Oct  4 05:00:49 2019//
 /if_gif.h/1.18/Sat Feb 10 08:12:01 2018//
 /if_gre.c/1.152/Mon Jul 29 16:28:25 2019//
 /if_gre.h/1.15/Wed Feb  7 22:30:59 2018//
