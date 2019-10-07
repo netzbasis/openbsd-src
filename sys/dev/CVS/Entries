@@ -38,9 +38,9 @@
 /softraidvar.h/1.169/Thu Jul  4 18:09:17 2019//
 /spdmem.c/1.5/Sun Jan 25 11:38:49 2015//
 /spdmemvar.h/1.1/Mon Mar 22 21:20:56 2010//
-/video.c/1.41/Wed Oct 11 08:08:50 2017//
+/video.c/1.42/Sun Oct  6 17:13:10 2019//
 /video_if.h/1.18/Sat Oct 18 08:01:34 2014//
-/vnd.c/1.168/Sat Apr 28 03:13:04 2018//
+/vnd.c/1.169/Sun Oct  6 16:24:14 2019//
 /vndioctl.h/1.10/Wed Dec 14 18:59:12 2016//
 /vscsi.c/1.41/Sun Feb 12 17:12:37 2017//
 /vscsivar.h/1.5/Tue Apr  5 15:28:49 2011//
