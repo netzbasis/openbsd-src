@@ -1,6 +1,6 @@
-.\"	$OpenBSD: mviic.4,v 1.2 2019/10/07 19:38:11 patrick Exp $
+.\"	$OpenBSD: amliic.4,v 1.1 2019/10/07 18:56:59 kettenis Exp $
 .\"
-.\" Copyright (c) 2019 Patrick Wildt <patrick@blueri.se>
+.\" Copyright (c) 2018 Jonathan Gray <jsg@openbsd.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,19 +15,19 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: October 7 2019 $
-.Dt MVIIC 4
+.Dt AMLIIC 4
 .Os
 .Sh NAME
-.Nm mviic
-.Nd Marvell Armada 3700 onboard I2C controller
+.Nm amliic
+.Nd Amlogic I2C controller
 .Sh SYNOPSIS
-.Cd "mviic* at fdt?"
-.Cd "iic* at mviic?"
+.Cd "amliic* at fdt?"
+.Cd "iic* at amliic?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the I2C controller found on the Marvell
-Armada 3700 SoC.
+driver provides support for the I2C controller integrated in various
+Amlogic SoCs.
 .Sh SEE ALSO
 .Xr iic 4 ,
 .Xr intro 4
@@ -37,7 +37,8 @@ The
 driver first appeared in
 .Ox 6.6 .
 .Sh AUTHORS
+.An -nosplit
 The
 .Nm
 driver was written by
-.An Patrick Wildt Aq Mt patrick@blueri.se .
+.An Mark Kettenis Aq Mt kettenis@openbsd.org .

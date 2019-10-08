@@ -1,4 +1,4 @@
-/Makefile/1.733/Mon Sep 30 21:00:51 2019//
+/Makefile/1.736/Mon Oct  7 20:10:21 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -61,6 +61,7 @@
 /ami.4/1.44/Mon Nov  4 14:07:15 2013//
 /amlclock.4/1.1/Tue Aug 27 09:05:57 2019//
 /amldwusb.4/1.1/Thu Aug 29 17:40:57 2019//
+/amliic.4/1.1/Mon Oct  7 18:56:59 2019//
 /amlmmc.4/1.1/Tue Sep  3 21:02:51 2019//
 /amlpciephy.4/1.1/Thu Aug 29 17:40:57 2019//
 /amlpinctrl.4/1.1/Wed Aug 28 09:46:32 2019//
@@ -231,7 +232,7 @@
 /ifmedia.4/1.24/Sun Feb  4 10:09:02 2018//
 /iha.4/1.18/Thu Jan 15 20:37:36 2015//
 /ihidev.4/1.2/Sat Jul 30 15:44:45 2016//
-/iic.4/1.99/Fri Sep  6 19:18:24 2019//
+/iic.4/1.101/Mon Oct  7 20:13:25 2019//
 /ikbd.4/1.2/Sun Jan 17 07:52:02 2016//
 /ims.4/1.3/Sat Jul 30 15:44:45 2016//
 /imt.4/1.2/Sat Jul 30 15:44:45 2016//
@@ -239,8 +240,9 @@
 /imxesdhc.4/1.3/Sat Jun 16 14:32:22 2018//
 /imxgpc.4/1.2/Fri Jan 11 20:39:46 2019//
 /imxgpio.4/1.1/Sun Apr  1 09:03:25 2018//
-/imxiic.4/1.3/Sat Jun 16 14:32:22 2018//
+/imxiic.4/1.4/Mon Oct  7 19:38:11 2019//
 /imxrtc.4/1.2/Mon Jun 18 06:06:52 2018//
+/imxspi.4/1.1/Mon Oct  7 19:43:00 2019//
 /imxsrc.4/1.2/Fri Jan 11 20:39:46 2019//
 /imxtmu.4/1.1/Tue Aug 27 12:51:57 2019//
 /imxuart.4/1.1/Sun Apr  1 09:03:25 2018//
@@ -326,11 +328,12 @@
 /mvgicp.4/1.1/Tue Apr  2 04:03:48 2019//
 /mvgpio.4/1.2/Sat Mar 31 13:12:50 2018//
 /mvicu.4/1.2/Sat Mar 31 09:56:51 2018//
-/mviic.4/1.1/Fri Sep  6 08:45:37 2019//
+/mviic.4/1.2/Mon Oct  7 19:38:11 2019//
 /mvneta.4/1.1/Sun Apr  1 09:03:25 2018//
 /mvpinctrl.4/1.2/Sat May 11 15:44:23 2019//
 /mvrng.4/1.2/Sat Apr  7 13:30:03 2018//
 /mvrtc.4/1.3/Mon Jun 18 06:06:52 2018//
+/mvspi.4/1.1/Mon Oct  7 19:43:00 2019//
 /mvtemp.4/1.2/Sat Mar 31 17:40:03 2018//
 /mvuart.4/1.1/Sat May 11 15:47:58 2019//
 /myx.4/1.6/Wed Apr 17 02:45:02 2019//
@@ -461,6 +464,7 @@
 /speaker.4/1.9/Sat Nov 21 08:04:20 2015//
 /sppp.4/1.24/Mon Mar 17 17:07:45 2014//
 /sqphy.4/1.11/Thu Jun 26 05:42:07 2008//
+/ssdfb.4/1.3/Mon Oct  7 20:37:16 2019//
 /st.4/1.20/Sun Sep  4 14:42:58 2016//
 /ste.4/1.26/Tue Jul 16 16:05:49 2013//
 /stge.4/1.21/Sat Sep 13 23:49:58 2014//

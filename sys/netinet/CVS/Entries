@@ -28,7 +28,6 @@
 /ip_ecn.h/1.7/Wed Nov 14 23:55:04 2018//
 /ip_esp.c/1.159/Mon Sep 30 01:53:05 2019//
 /ip_esp.h/1.46/Wed Nov  8 16:29:20 2017//
-/ip_ether.c/1.99/Sat Feb 10 08:12:01 2018//
 /ip_ether.h/1.30/Fri Oct  4 05:00:49 2019//
 /ip_gre.c/1.71/Wed Feb  7 22:30:59 2018//
 /ip_gre.h/1.13/Wed Feb  7 22:30:59 2018//

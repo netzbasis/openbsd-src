@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mviic.4,v 1.2 2019/10/07 19:38:11 patrick Exp $
+.\" $OpenBSD: ssdfb.4,v 1.3 2019/10/07 20:37:16 patrick Exp $
 .\"
 .\" Copyright (c) 2019 Patrick Wildt <patrick@blueri.se>
 .\"
@@ -15,27 +15,34 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: October 7 2019 $
-.Dt MVIIC 4
+.Dt SSDFB 4
 .Os
 .Sh NAME
-.Nm mviic
-.Nd Marvell Armada 3700 onboard I2C controller
+.Nm ssdfb
+.Nd Solomon Systech SSD1306/SSD1309 OLED display module
 .Sh SYNOPSIS
-.Cd "mviic* at fdt?"
-.Cd "iic* at mviic?"
+.Cd "ssdfb* at iic?"
+.Cd "ssdfb* at spi?"
+.Cd "wsdisplay* at ssdfb?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the I2C controller found on the Marvell
-Armada 3700 SoC.
+driver supports OLED display modules based on the Solomon Systech SSD1306 or
+SSD1309 chips.
+The support for partial updates in both the chip and the driver improves the
+display's responsiveness.
+Due to the small resolution of about 128x64 the display makes most sense as a
+text-based terminal.
 .Sh SEE ALSO
 .Xr iic 4 ,
-.Xr intro 4
+.Xr intro 4 ,
+.Xr wscons 4 ,
+.Xr wsdisplay 4
 .Sh HISTORY
 The
 .Nm
 driver first appeared in
-.Ox 6.6 .
+.Ox 6.4 .
 .Sh AUTHORS
 The
 .Nm

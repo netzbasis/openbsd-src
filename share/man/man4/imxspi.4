@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mviic.4,v 1.2 2019/10/07 19:38:11 patrick Exp $
+.\"	$OpenBSD: imxspi.4,v 1.1 2019/10/07 19:43:00 patrick Exp $
 .\"
 .\" Copyright (c) 2019 Patrick Wildt <patrick@blueri.se>
 .\"
@@ -15,27 +15,25 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: October 7 2019 $
-.Dt MVIIC 4
+.Dt IMXSPI 4
 .Os
 .Sh NAME
-.Nm mviic
-.Nd Marvell Armada 3700 onboard I2C controller
+.Nm imxspi
+.Nd i.MX onboard SPI controller
 .Sh SYNOPSIS
-.Cd "mviic* at fdt?"
-.Cd "iic* at mviic?"
+.Cd "imxspi* at fdt?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for the I2C controller found on the Marvell
-Armada 3700 SoC.
+driver provides support for the SPI controller found on the Freescale
+i.MX 6, i.MX 7 and i.MX 8 processor families.
 .Sh SEE ALSO
-.Xr iic 4 ,
 .Xr intro 4
 .Sh HISTORY
 The
 .Nm
 driver first appeared in
-.Ox 6.6 .
+.Ox 6.4 .
 .Sh AUTHORS
 The
 .Nm
