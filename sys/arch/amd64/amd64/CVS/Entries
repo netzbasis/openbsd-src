@@ -44,7 +44,7 @@
 /mp_setperf.c/1.6/Sat Mar 14 03:38:46 2015//
 /mpbios.c/1.29/Wed Feb  7 06:19:54 2018//
 /mpbios_intr_fixup.c/1.7/Mon Aug 10 12:12:58 2015//
-/mptramp.S/1.19/Thu Jan 24 00:00:00 2019//
+/mptramp.S/1.20/Tue Oct  8 16:58:09 2019//
 /mtrr.c/1.4/Thu Dec 19 21:30:02 2013//
 /nvram.c/1.7/Wed Aug  3 17:29:18 2016//
 /pctr.c/1.9/Mon Mar 25 18:48:12 2019//
