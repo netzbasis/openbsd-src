@@ -144,7 +144,7 @@
 /if_iwi.c/1.143/Mon Sep 30 01:53:05 2019//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.252/Mon Sep 30 01:53:05 2019//
+/if_iwm.c/1.253/Sat Oct 12 07:03:39 2019//
 /if_iwmreg.h/1.29/Thu Aug  8 13:56:56 2019//
 /if_iwmvar.h/1.38/Sun Feb 24 09:37:18 2019//
 /if_iwn.c/1.219/Wed Oct  9 09:21:45 2019//
