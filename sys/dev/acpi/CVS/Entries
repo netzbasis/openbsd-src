@@ -6,7 +6,7 @@
 /acpibtn.c/1.47/Sun Jan 20 02:45:44 2019//
 /acpicbkbd.c/1.2/Wed Jul 27 02:26:26 2016//
 /acpicmos.c/1.1/Tue Mar 27 21:11:16 2018//
-/acpicpu.c/1.83/Wed Sep 19 05:23:16 2018//
+/acpicpu.c/1.84/Wed Oct 16 01:27:59 2019//
 /acpidebug.c/1.31/Fri Jun 29 17:39:18 2018//
 /acpidebug.h/1.4/Tue Oct 24 19:01:48 2006//
 /acpidev.h/1.44/Fri Jun 29 17:39:18 2018//
@@ -39,7 +39,7 @@
 /ccpmic.c/1.2/Mon May 21 15:00:25 2018//
 /chvgpio.c/1.8/Wed Nov 29 22:51:01 2017//
 /com_acpi.c/1.1/Sun Jul  1 10:29:30 2018//
-/dsdt.c/1.248/Thu Oct 10 04:09:04 2019//
+/dsdt.c/1.249/Wed Oct 16 01:43:50 2019//
 /dsdt.h/1.77/Sun Aug 19 08:23:47 2018//
 /dwiic_acpi.c/1.12/Sun Aug  4 15:44:17 2019//
 /efi.h/1.4/Sun Aug  4 09:27:09 2019//
