@@ -1,4 +1,4 @@
-/Makefile/1.736/Mon Oct  7 20:10:21 2019//
+/Makefile/1.737/Wed Oct 16 22:24:45 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -473,6 +473,7 @@
 /sv.4/1.16/Mon Nov  2 22:31:50 2009//
 /switch.4/1.9/Fri May 10 18:27:50 2019//
 /sxiccmu.4/1.2/Fri Feb  1 01:26:50 2019//
+/sxidog.4/1.1/Wed Oct 16 22:24:45 2019//
 /sximmc.4/1.2/Fri Feb  1 01:41:52 2019//
 /sxipio.4/1.1/Sat Mar 31 03:22:34 2018//
 /sxirsb.4/1.2/Sat Dec 16 18:28:16 2017//

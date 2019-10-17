@@ -1,6 +1,6 @@
-/*	$OpenBSD: output-bgpd.c,v 1.12 2019/10/16 17:38:46 claudio Exp $ */
+/*	$OpenBSD: output-csv.c,v 1.1 2019/10/16 17:43:29 claudio Exp $ */
 /*
- * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2019 Claudio Jeker <claudio@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,22 +21,17 @@
 #include "extern.h"
 
 void
-output_bgpd(FILE *out, struct vrp_tree *vrps)
+output_csv(FILE *out, struct vrp_tree *vrps)
 {
-	char		 buf1[64], buf2[32];
+	char		 buf[64];
 	struct vrp	*v;
+	int		 first = 1;
 
-	fprintf(out, "roa-set {\n");
+	fprintf(out, "ASN,IP Prefix,Max Length,Trust Anchor\n");
 
 	RB_FOREACH(v, vrp_tree, vrps) {
-		ip_addr_print(&v->addr, v->afi, buf1, sizeof(buf1));
-		if (v->maxlength > v->addr.prefixlen)
-			snprintf(buf2, sizeof(buf2), "maxlen %u ",
-			    v->maxlength);
-		else
-			buf2[0] = '\0';
-		fprintf(out, "\t%s %ssource-as %u\n", buf1, buf2, v->asid);
+		ip_addr_print(&v->addr, v->afi, buf, sizeof(buf));
+		fprintf(out, "AS%u,%s,%u,%s\n", v->asid, buf, v->maxlength,
+		    v->tal);
 	}
-
-	fprintf(out, "}\n");
 }

@@ -20,7 +20,7 @@
 /auth-options.h/1.28/Tue Jul  9 04:15:00 2019//
 /auth-passwd.c/1.47/Mon Jul  9 21:26:02 2018//
 /auth-rhosts.c/1.51/Wed Oct  2 00:42:30 2019//
-/auth.c/1.141/Wed Oct  2 00:42:30 2019//
+/auth.c/1.142/Wed Oct 16 06:05:39 2019//
 /auth.h/1.100/Fri Sep  6 05:23:55 2019//
 /auth2-chall.c/1.51/Fri Sep  6 04:53:27 2019//
 /auth2-gss.c/1.29/Tue Jul 31 03:10:27 2018//
@@ -163,7 +163,7 @@
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
 /ssh-keygen.1/1.171/Thu Oct  3 17:07:50 2019//
-/ssh-keygen.c/1.355/Thu Oct  3 17:07:50 2019//
+/ssh-keygen.c/1.356/Wed Oct 16 06:03:30 2019//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.130/Fri Sep  6 05:23:55 2019//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
