@@ -80,7 +80,7 @@
 /job.c/1.55/Fri Jun 28 13:35:05 2019//
 /key-bindings.c/1.101/Wed Sep 18 15:09:05 2019//
 /key-string.c/1.51/Tue Jul  9 14:03:12 2019//
-/layout-custom.c/1.17/Mon Oct 14 09:16:48 2019//
+/layout-custom.c/1.18/Sat Oct 19 12:40:42 2019//
 /layout-set.c/1.27/Mon Jul 15 18:25:07 2019//
 /layout.c/1.47/Mon Jul 15 18:43:32 2019//
 /log.c/1.26/Tue Sep 24 20:44:58 2019//
@@ -105,7 +105,7 @@
 /spawn.c/1.10/Mon Oct  7 07:14:07 2019//
 /status.c/1.200/Tue May 28 18:53:36 2019//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.690/Tue Oct 15 08:25:37 2019//
+/tmux.1/1.691/Sat Oct 19 19:20:14 2019//
 /tmux.c/1.190/Mon Oct 14 08:38:07 2019//
 /tmux.h/1.929/Mon Sep 23 15:41:11 2019//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
@@ -116,7 +116,7 @@
 /window-buffer.c/1.22/Fri Aug 16 11:49:12 2019//
 /window-client.c/1.24/Fri Aug 16 11:49:12 2019//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
-/window-copy.c/1.235/Tue Sep 10 07:50:33 2019//
+/window-copy.c/1.236/Sat Oct 19 19:20:14 2019//
 /window-tree.c/1.42/Tue Oct 15 08:30:36 2019//
 /window.c/1.243/Tue Sep 10 19:35:34 2019//
 /xmalloc.c/1.12/Fri Jun 28 05:44:09 2019//
