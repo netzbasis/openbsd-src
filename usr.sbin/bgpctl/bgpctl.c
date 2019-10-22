@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpctl.c,v 1.244 2019/09/24 14:46:09 sthen Exp $ */
+/*	$OpenBSD: bgpctl.c,v 1.246 2019/09/27 10:34:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
@@ -619,8 +619,8 @@ show_neighbor_terse(struct imsg *imsg)
 			    NULL)
 				err(1, "strdup");
 
-		printf("%llu %llu %llu %llu %llu %llu %llu "
-		    "%llu %llu %llu %u %u %llu %llu %llu %llu %s\n",
+		printf("%llu %llu %llu %llu %llu %llu %llu %llu %llu "
+		    "%llu %u %u %llu %llu %llu %llu %s %s \"%s\"\n",
 		    p->stats.msg_sent_open, p->stats.msg_rcvd_open,
 		    p->stats.msg_sent_notification,
 		    p->stats.msg_rcvd_notification,
@@ -630,7 +630,8 @@ show_neighbor_terse(struct imsg *imsg)
 		    p->stats.prefix_cnt, p->conf.max_prefix,
 		    p->stats.prefix_sent_update, p->stats.prefix_rcvd_update,
 		    p->stats.prefix_sent_withdraw,
-		    p->stats.prefix_rcvd_withdraw, s);
+		    p->stats.prefix_rcvd_withdraw, s,
+		    log_as(p->conf.remote_as), p->conf.descr);
 		free(s);
 		break;
 	case IMSG_CTL_END:
@@ -2131,15 +2132,25 @@ show_mrt_dump(struct mrt_rib *mr, struct mrt_peer *mp, void *arg)
 			return;
 		/* filter by prefix */
 		if (req->prefix.aid != AID_UNSPEC) {
-			if (!prefix_compare(&req->prefix, &ctl.prefix,
-			    req->prefixlen)) {
-				if (req->flags & F_LONGER) {
-					if (req->prefixlen > ctl.prefixlen)
-						return;
-				} else if (req->prefixlen != ctl.prefixlen)
+			if (req->flags & F_LONGER) {
+				if (req->prefixlen > ctl.prefixlen)
 					return;
-			} else
-				return;
+				if (prefix_compare(&req->prefix, &ctl.prefix,
+				    req->prefixlen))
+					return;
+			} else if (req->flags & F_SHORTER) {
+				if (req->prefixlen < ctl.prefixlen)
+					return;
+				if (prefix_compare(&req->prefix, &ctl.prefix,
+				    ctl.prefixlen))
+					return;
+			} else {
+				if (req->prefixlen != ctl.prefixlen)
+					return;
+				if (prefix_compare(&req->prefix, &ctl.prefix,
+				    req->prefixlen))
+					return;
+			}
 		}
 		/* filter by AS */
 		if (req->as.type != AS_UNDEF &&

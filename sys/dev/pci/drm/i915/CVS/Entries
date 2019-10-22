@@ -9,7 +9,7 @@
 /dvo_tfp410.c/1.8/Sun Apr 14 10:14:51 2019//
 /i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_devlist.h/1.10/Sat Aug 24 01:45:59 2019//
-/i915_drv.c/1.122/Sat Sep  7 00:51:40 2019//
+/i915_drv.c/1.123/Sun Oct 13 10:56:31 2019//
 /i915_drv.h/1.84/Sat Aug 24 01:43:12 2019//
 /i915_gem.c/1.122/Mon Sep 16 15:22:46 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
@@ -148,7 +148,7 @@
 /intel_renderstate_gen9.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_ringbuffer.c/1.35/Sun Apr 14 10:14:52 2019//
 /intel_ringbuffer.h/1.9/Sun Apr 14 10:14:52 2019//
-/intel_runtime_pm.c/1.3/Sun Apr 14 10:14:52 2019//
+/intel_runtime_pm.c/1.4/Fri Oct  4 06:33:30 2019//
 /intel_sdvo.c/1.23/Sun Jun 30 15:51:11 2019//
 /intel_sdvo_regs.h/1.5/Sun Jun 30 15:51:11 2019//
 /intel_sideband.c/1.3/Sun Apr 14 10:14:52 2019//

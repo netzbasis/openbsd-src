@@ -1,7 +1,7 @@
-/aac.c/1.70/Tue Apr 11 14:43:49 2017//
+/aac.c/1.71/Sat Oct  5 20:41:27 2019//
 /aac_tables.h/1.5/Fri Mar  6 07:28:10 2009//
 /aacreg.h/1.11/Fri Mar  6 07:28:10 2009//
-/aacvar.h/1.13/Fri Apr  1 04:16:27 2016//
+/aacvar.h/1.14/Sat Oct  5 20:41:27 2019//
 /ac97.c/1.84/Wed Apr 11 04:48:31 2018//
 /ac97.h/1.27/Wed Apr 11 04:48:31 2018//
 /acx.c/1.121/Thu Oct 26 15:00:28 2017//
@@ -105,7 +105,7 @@
 /bt485reg.h/1.2/Sat Apr 21 20:03:55 2001//
 /bt485var.h/1.4/Thu Jun 26 05:42:15 2008//
 /bt8xx.h/1.3/Thu Jun 23 14:57:48 2005//
-/bwfm.c/1.64/Tue Aug 27 14:57:48 2019//
+/bwfm.c/1.65/Wed Oct  9 10:07:50 2019//
 /bwfmreg.h/1.17/Wed Jan 30 09:20:56 2019//
 /bwfmvar.h/1.16/Fri Jul  5 12:35:16 2019//
 /bwi.c/1.128/Thu Sep 12 12:55:07 2019//
@@ -144,9 +144,6 @@
 /dptvar.h/1.11/Thu May 30 16:15:02 2013//
 /ds1286reg.h/1.1/Wed Mar 28 20:44:23 2012//
 /ds1687reg.h/1.2/Mon Mar 31 07:14:00 2008//
-/dwc_gmac.c/1.12/Sun Sep 15 15:52:14 2019//
-/dwc_gmac_reg.h/1.2/Sun Sep 15 15:52:14 2019//
-/dwc_gmac_var.h/1.4/Sun May 21 11:52:04 2017//
 /dwiic.c/1.8/Sun Aug 18 15:52:45 2019//
 /dwiicreg.h/1.2/Tue Aug  6 06:56:29 2019//
 /dwiicvar.h/1.3/Sat Mar 16 02:40:43 2019//
@@ -335,7 +332,7 @@
 /tcic2var.h/1.4/Wed Nov 23 11:39:37 2005//
 /tea5757.c/1.3/Mon Jan  7 18:32:19 2002//
 /tea5757.h/1.3/Mon Jan  7 18:32:19 2002//
-/ti.c/1.25/Sun Jan 22 10:17:38 2017//
+/ti.c/1.26/Wed Sep 25 09:30:28 2019//
 /tireg.h/1.5/Fri Aug 18 09:22:14 2017//
 /tivar.h/1.2/Sat Aug 29 22:55:48 2009//
 /trm.c/1.33/Thu May  7 01:09:56 2015//

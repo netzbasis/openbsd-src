@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.639 2019/09/20 17:46:05 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.641 2019/09/30 08:31:41 martijn Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -1673,7 +1673,6 @@ void addargs(arglist *, char *, ...)
 	__attribute__((format(printf, 2, 3)));
 int bsnprintf(char *, size_t, const char *, ...)
 	__attribute__((format (printf, 3, 4)));
-int mkdirs(char *, mode_t);
 int safe_fclose(FILE *);
 int hostname_match(const char *, const char *);
 int mailaddr_match(const struct mailaddr *, const struct mailaddr *);
@@ -1708,6 +1707,8 @@ int session_socket_error(int);
 int getmailname(char *, size_t);
 int base64_encode(unsigned char const *, size_t, char *, size_t);
 int base64_decode(char const *, unsigned char *, size_t);
+int base64_encode_rfc3548(unsigned char const *, size_t,
+		      char *, size_t);
 
 void log_trace_verbose(int);
 void log_trace(int, const char *, ...)

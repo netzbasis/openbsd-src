@@ -1,4 +1,4 @@
-/*	$OpenBSD: mps.c,v 1.25 2019/05/16 05:00:00 martijn Exp $	*/
+/*	$OpenBSD: mps.c,v 1.27 2019/10/09 06:37:53 martijn Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>

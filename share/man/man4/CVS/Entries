@@ -1,4 +1,4 @@
-/Makefile/1.730/Fri Sep  6 09:38:19 2019//
+/Makefile/1.738/Mon Oct 21 20:53:11 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -61,9 +61,11 @@
 /ami.4/1.44/Mon Nov  4 14:07:15 2013//
 /amlclock.4/1.1/Tue Aug 27 09:05:57 2019//
 /amldwusb.4/1.1/Thu Aug 29 17:40:57 2019//
+/amliic.4/1.1/Mon Oct  7 18:56:59 2019//
 /amlmmc.4/1.1/Tue Sep  3 21:02:51 2019//
 /amlpciephy.4/1.1/Thu Aug 29 17:40:57 2019//
 /amlpinctrl.4/1.1/Wed Aug 28 09:46:32 2019//
+/amlpwm.4/1.2/Mon Sep 30 20:59:22 2019//
 /amlreset.4/1.2/Tue Aug 27 08:24:37 2019//
 /amlrng.4/1.2/Wed Aug 28 06:11:36 2019//
 /amluart.4/1.1/Mon Aug 26 09:16:39 2019//
@@ -149,7 +151,7 @@
 /drm.4/1.11/Wed Aug 28 10:45:25 2019//
 /dwctwo.4/1.4/Fri Feb 17 11:57:16 2017//
 /dwdog.4/1.2/Sun Apr  1 10:22:06 2018//
-/dwge.4/1.3/Fri Aug  4 12:44:50 2017//
+/dwge.4/1.4/Mon Sep 30 11:37:38 2019//
 /dwiic.4/1.4/Thu Nov 16 21:08:42 2017//
 /dwmmc.4/1.1/Fri Aug  4 12:44:50 2017//
 /dwpcie.4/1.2/Sat Apr  7 13:28:33 2018//
@@ -230,7 +232,7 @@
 /ifmedia.4/1.24/Sun Feb  4 10:09:02 2018//
 /iha.4/1.18/Thu Jan 15 20:37:36 2015//
 /ihidev.4/1.2/Sat Jul 30 15:44:45 2016//
-/iic.4/1.99/Fri Sep  6 19:18:24 2019//
+/iic.4/1.101/Mon Oct  7 20:13:25 2019//
 /ikbd.4/1.2/Sun Jan 17 07:52:02 2016//
 /ims.4/1.3/Sat Jul 30 15:44:45 2016//
 /imt.4/1.2/Sat Jul 30 15:44:45 2016//
@@ -238,8 +240,9 @@
 /imxesdhc.4/1.3/Sat Jun 16 14:32:22 2018//
 /imxgpc.4/1.2/Fri Jan 11 20:39:46 2019//
 /imxgpio.4/1.1/Sun Apr  1 09:03:25 2018//
-/imxiic.4/1.3/Sat Jun 16 14:32:22 2018//
+/imxiic.4/1.4/Mon Oct  7 19:38:11 2019//
 /imxrtc.4/1.2/Mon Jun 18 06:06:52 2018//
+/imxspi.4/1.1/Mon Oct  7 19:43:00 2019//
 /imxsrc.4/1.2/Fri Jan 11 20:39:46 2019//
 /imxtmu.4/1.1/Tue Aug 27 12:51:57 2019//
 /imxuart.4/1.1/Sun Apr  1 09:03:25 2018//
@@ -273,6 +276,7 @@
 /kate.4/1.6/Tue Apr 23 18:23:49 2019//
 /kcov.4/1.7/Sun Jan 20 09:57:23 2019//
 /km.4/1.11/Tue Apr 23 18:23:49 2019//
+/ksmn.4/1.1/Thu Sep 26 13:09:55 2019//
 /ksyms.4/1.14/Fri Jan 25 00:19:26 2019//
 /kubsan.4/1.3/Fri May 24 18:53:25 2019//
 /kue.4/1.21/Tue Jul 16 16:05:49 2013//
@@ -324,11 +328,12 @@
 /mvgicp.4/1.1/Tue Apr  2 04:03:48 2019//
 /mvgpio.4/1.2/Sat Mar 31 13:12:50 2018//
 /mvicu.4/1.2/Sat Mar 31 09:56:51 2018//
-/mviic.4/1.1/Fri Sep  6 08:45:37 2019//
+/mviic.4/1.2/Mon Oct  7 19:38:11 2019//
 /mvneta.4/1.1/Sun Apr  1 09:03:25 2018//
 /mvpinctrl.4/1.2/Sat May 11 15:44:23 2019//
 /mvrng.4/1.2/Sat Apr  7 13:30:03 2018//
 /mvrtc.4/1.3/Mon Jun 18 06:06:52 2018//
+/mvspi.4/1.1/Mon Oct  7 19:43:00 2019//
 /mvtemp.4/1.2/Sat Mar 31 17:40:03 2018//
 /mvuart.4/1.1/Sat May 11 15:47:58 2019//
 /myx.4/1.6/Wed Apr 17 02:45:02 2019//
@@ -368,7 +373,7 @@
 /pcfrtc.4/1.3/Tue Nov 20 09:06:08 2018//
 /pchb.4/1.18/Tue Jul 16 16:05:49 2013//
 /pchtemp.4/1.3/Sat Feb  6 12:50:27 2016//
-/pci.4/1.373/Sat Sep  7 14:02:31 2019//
+/pci.4/1.374/Thu Sep 26 13:09:55 2019//
 /pcib.4/1.4/Thu May 31 19:19:51 2007//
 /pciide.4/1.89/Sun Jul 13 23:36:09 2014//
 /pckbc.4/1.18/Sun Sep 26 20:39:08 2010//
@@ -400,13 +405,15 @@
 /pvbus.4/1.14/Wed Jun 14 12:42:09 2017//
 /pvclock.4/1.2/Fri Nov 23 17:21:37 2018//
 /pwdog.4/1.7/Tue Jul 16 16:05:49 2013//
+/pwmbl.4/1.1/Mon Oct 21 20:53:11 2019//
+/pwmreg.4/1.1/Mon Sep 30 21:00:51 2019//
 /qla.4/1.11/Sun Mar 16 08:28:55 2014//
 /qle.4/1.10/Wed Jan 21 22:33:22 2015//
 /qlw.4/1.5/Wed Jan 21 22:33:22 2015//
 /qsphy.4/1.8/Thu Jun 26 05:42:07 2008//
 /radio.4/1.31/Tue Sep 12 14:57:15 2017//
 /ral.4/1.114/Fri Mar 29 07:07:05 2019//
-/random.4/1.33/Fri Nov 10 23:29:09 2017//
+/random.4/1.34/Sat Sep 28 14:57:36 2019//
 /rd.4/1.7/Tue Apr 16 13:58:45 2019//
 /rdac.4/1.3/Tue Jul 16 16:05:49 2013//
 /rdcphy.4/1.1/Sat Jan 15 04:35:34 2011//
@@ -458,6 +465,7 @@
 /speaker.4/1.9/Sat Nov 21 08:04:20 2015//
 /sppp.4/1.24/Mon Mar 17 17:07:45 2014//
 /sqphy.4/1.11/Thu Jun 26 05:42:07 2008//
+/ssdfb.4/1.3/Mon Oct  7 20:37:16 2019//
 /st.4/1.20/Sun Sep  4 14:42:58 2016//
 /ste.4/1.26/Tue Jul 16 16:05:49 2013//
 /stge.4/1.21/Sat Sep 13 23:49:58 2014//
@@ -466,8 +474,10 @@
 /sv.4/1.16/Mon Nov  2 22:31:50 2009//
 /switch.4/1.9/Fri May 10 18:27:50 2019//
 /sxiccmu.4/1.2/Fri Feb  1 01:26:50 2019//
+/sxidog.4/1.1/Wed Oct 16 22:24:45 2019//
 /sximmc.4/1.2/Fri Feb  1 01:41:52 2019//
 /sxipio.4/1.1/Sat Mar 31 03:22:34 2018//
+/sxipwm.4/1.1/Mon Oct 21 20:53:11 2019//
 /sxirsb.4/1.2/Sat Dec 16 18:28:16 2017//
 /sxirtc.4/1.2/Mon Jun 18 06:06:52 2018//
 /sxisyscon.4/1.1/Sun Aug 11 11:23:32 2019//

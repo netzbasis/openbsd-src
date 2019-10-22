@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.170 2019/06/28 13:35:01 deraadt Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.174 2019/10/13 15:09:26 jca Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -76,6 +76,7 @@ char		*recode_credentials(const char *_userinfo);
 int		ftp_printf(FILE *, struct tls *, const char *, ...) __attribute__((format(printf, 3, 4)));
 char		*ftp_readline(FILE *, struct tls *, size_t *);
 size_t		ftp_read(FILE *, struct tls *, char *, size_t);
+void		ftp_close(FILE **fin, struct tls **tls, volatile int *fd);
 #ifndef NOSSL
 int		proxy_connect(int, char *, char *);
 int		SSL_vprintf(struct tls *, const char *, va_list);
@@ -97,6 +98,7 @@ static const char at_encoding_warning[] =
 jmp_buf	httpabort;
 
 static int	redirect_loop;
+static int	retried;
 
 /*
  * Determine whether the character needs encoding, per RFC1738:
@@ -185,6 +187,7 @@ url_get(const char *origline, const char *proxyenv, const char *outfile, int las
 	char *hosttail, *cause = "unknown", *newline, *host, *port, *buf = NULL;
 	char *epath, *redirurl, *loctail, *h, *p;
 	int error, i, isftpurl = 0, isfileurl = 0, isredirect = 0, rval = -1;
+	int isunavail = 0, retryafter = -1;
 	struct addrinfo hints, *res0, *res;
 	const char * volatile savefile;
 	char * volatile proxyurl = NULL;
@@ -782,7 +785,7 @@ noslash:
 		cp++;
 
 	strlcpy(ststr, cp, sizeof(ststr));
-	status = strtonum(ststr, 200, 416, &errstr);
+	status = strtonum(ststr, 200, 503, &errstr);
 	if (errstr) {
 		warnx("Error retrieving file: %s", cp);
 		goto cleanup_url_get;
@@ -821,6 +824,9 @@ noslash:
 		warnx("File is already fully retrieved.");
 		goto cleanup_url_get;
 #endif /* !SMALL */
+	case 503:
+		isunavail = 1;
+		break;
 	default:
 		warnx("Error retrieving file: %s", cp);
 		goto cleanup_url_get;
@@ -914,19 +920,35 @@ noslash:
 				*loctail = '\0';
 			if (verbose)
 				fprintf(ttyout, "Redirected to %s\n", redirurl);
-			if (fin != NULL) {
-				fclose(fin);
-				fin = NULL;
-			}
-			if (fd != -1) {
-				close(fd);
-				fd = -1;
-			}
+			ftp_close(&fin, &tls, &fd);
 			rval = url_get(redirurl, proxyenv, savefile, lastfile);
 			free(redirurl);
 			goto cleanup_url_get;
+#define RETRYAFTER "Retry-After: "
+		} else if (isunavail &&
+		    strncasecmp(cp, RETRYAFTER, sizeof(RETRYAFTER) - 1) == 0) {
+			size_t s;
+			cp += sizeof(RETRYAFTER) - 1;
+			if ((s = strcspn(cp, " \t")))
+				cp[s] = '\0';
+			retryafter = strtonum(cp, 0, 0, &errstr);
+			if (errstr != NULL)
+				retryafter = -1;
 		}
 		free(buf);
+	}
+
+	if (isunavail) {
+		if (retried || retryafter != 0)
+			warnx("Error retrieving file: 503 Service Unavailable");
+		else {
+			if (verbose)
+				fprintf(ttyout, "Retrying %s\n", origline);
+			retried = 1;
+			ftp_close(&fin, &tls, &fd);
+			rval = url_get(origline, proxyenv, savefile, lastfile);
+		}
+		goto cleanup_url_get;
 	}
 
 	/* Open the output file.  */
@@ -1036,26 +1058,10 @@ improper:
 
 cleanup_url_get:
 #ifndef NOSSL
-	if (tls != NULL) {
-		if (tls_session_fd != -1)
-			dprintf(STDERR_FILENO, "tls session resumed: %s\n",
-			    tls_conn_session_resumed(tls) ? "yes" : "no");
-		do {
-			i = tls_close(tls);
-		} while (i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-		tls_free(tls);
-	}
 	free(full_host);
 	free(sslhost);
 #endif /* !NOSSL */
-	if (fin != NULL) {
-		fclose(fin);
-		fin = NULL;
-	}
-	if (fd != -1) {
-		close(fd);
-		fd = -1;
-	}
+	ftp_close(&fin, &tls, &fd);
 	if (out >= 0 && out != fileno(stdout))
 		close(out);
 	free(buf);
@@ -1166,6 +1172,7 @@ auto_fetch(int argc, char *argv[], char *outfile)
 #endif /* !NOSSL */
 		    strncasecmp(url, FILE_URL, sizeof(FILE_URL) - 1) == 0) {
 			redirect_loop = 0;
+			retried = 0;
 			if (url_get(url, httpproxy, outfile, lastfile) == -1)
 				rval = argpos + 1;
 			continue;
@@ -1564,6 +1571,33 @@ ftp_printf(FILE *fp, struct tls *tls, const char *fmt, ...)
 	}
 #endif /* !SMALL */
 	return (ret);
+}
+
+void
+ftp_close(FILE **fin, struct tls **tls, volatile int *fd)
+{
+#ifndef NOSSL
+	int	ret;
+
+	if (*tls != NULL) {
+		if (tls_session_fd != -1)
+			dprintf(STDERR_FILENO, "tls session resumed: %s\n",
+			    tls_conn_session_resumed(*tls) ? "yes" : "no");
+		do {
+			ret = tls_close(*tls);
+		} while (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT);
+		tls_free(*tls);
+		*tls = NULL;
+	}
+#endif
+	if (*fin != NULL) {
+		fclose(*fin);
+		*fin = NULL;
+	}
+	if (*fd != -1) {
+		close(*fd);
+		*fd = -1;
+	}
 }
 
 #ifndef NOSSL

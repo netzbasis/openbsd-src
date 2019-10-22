@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.23 2019/09/24 15:21:26 florian Exp $
+# $OpenBSD: sysupgrade.sh,v 1.28 2019/10/20 09:10:43 ajacoutot Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>
@@ -22,6 +22,7 @@
 
 set -e
 umask 0022
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 ARCH=$(uname -m)
 SETSDIR=/home/_sysupgrade
@@ -50,7 +51,10 @@ unpriv()
 	fi
 	(($# >= 1))
 
+	# XXX ksh(1) bug; send error code to the caller instead of failing hard
+	set +e
 	eval su -s /bin/sh ${_user} -c "'$@'" || _rc=$?
+	set -e
 
 	[[ -n ${_file} ]] && chown root "${_file}"
 
@@ -93,7 +97,7 @@ if $RELEASE && $SNAP; then
 fi
 
 set -A _KERNV -- $(sysctl -n kern.version |
-	sed 's/^OpenBSD \([0-9]\)\.\([0-9]\)\([^ ]*\).*/\1.\2 \3/;q')
+	sed 's/^OpenBSD \([1-9][0-9]*\.[0-9]\)\([^ ]*\).*/\1 \2/;q')
 
 shift $(( OPTIND -1 ))
 
@@ -188,6 +192,13 @@ Pathname to the sets = /home/_sysupgrade/
 Set name(s) = done
 Directory does not contain SHA256.sig. Continue without verification = yes
 __EOT
+
+if ! ${KEEP}; then
+	CLEAN=$(echo SHA256 ${SETS} | sed -e 's/ /,/g')
+	cat <<__EOT > /etc/rc.firsttime
+rm -f /home/_sysupgrade/{${CLEAN}}
+__EOT
+fi
 
 install -F -m 700 bsd.rd /bsd.upgrade
 sync

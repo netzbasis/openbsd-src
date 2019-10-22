@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pflog.c,v 1.84 2019/09/13 01:47:51 dlg Exp $	*/
+/*	$OpenBSD: if_pflog.c,v 1.86 2019/10/17 11:23:49 millert Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -265,7 +265,7 @@ pflog_packet(struct pf_pdesc *pd, u_int8_t reason, struct pf_rule *rm,
 		hdr.uid = pd->lookup.uid;
 		hdr.pid = pd->lookup.pid;
 	} else {
-		hdr.uid = UID_MAX;
+		hdr.uid = -1;
 		hdr.pid = NO_PID;
 	}
 	hdr.rule_uid = rm->cuid;
@@ -418,5 +418,5 @@ pflog_mtap(caddr_t if_bpf, struct pfloghdr *pfloghdr, struct mbuf *m)
 	m = pd.m;
  copy:
 	bpf_mtap_hdr(if_bpf, pfloghdr, sizeof(*pfloghdr), m,
-	    BPF_DIRECTION_OUT, NULL);
+	    BPF_DIRECTION_OUT);
 }

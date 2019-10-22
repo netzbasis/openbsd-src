@@ -1,4 +1,4 @@
-#	$OpenBSD: files.fdt,v 1.92 2019/09/07 13:32:36 patrick Exp $
+#	$OpenBSD: files.fdt,v 1.101 2019/10/21 20:52:33 kettenis Exp $
 #
 # Config file and device description for machine-independent FDT code.
 # Included by ports that need it.
@@ -15,6 +15,10 @@ device	sxiccmu
 attach	sxiccmu at fdt
 file	dev/fdt/sxiccmu.c		sxiccmu
 
+device	sxidog
+attach	sxidog at fdt
+file	dev/fdt/sxidog.c		sxidog
+
 device	sxipio {}: gpiobus
 attach	sxipio at fdt
 file	dev/fdt/sxipio.c		sxipio
@@ -23,6 +27,10 @@ define	rsb {}
 device	sxirsb: rsb
 attach	sxirsb at fdt
 file	dev/fdt/sxirsb.c		sxirsb
+
+device	sxipwm
+attach	sxipwm at fdt
+file	dev/fdt/sxipwm.c		sxipwm
 
 device	sxirtc
 attach	sxirtc at fdt
@@ -107,8 +115,10 @@ file	dev/fdt/virtio_mmio.c		virtio_mmio
 attach	ahci at fdt with ahci_fdt
 file	dev/fdt/ahci_fdt.c		ahci_fdt
 
-attach	dwge at fdt with dwge_fdt
-file	dev/fdt/if_dwge_fdt.c		dwge_fdt
+# Synopsis Designware GMAC core
+device	dwge: ether, ifnet, mii, ifmedia
+attach	dwge at fdt
+file	dev/fdt/if_dwge.c		dwge
 
 attach	ehci at fdt with ehci_fdt
 file	dev/fdt/ehci_fdt.c		ehci_fdt
@@ -126,6 +136,14 @@ device	syscon: fdt
 attach	syscon at fdt
 file	dev/fdt/syscon.c		syscon
 
+device	pwmbl
+attach	pwmbl at fdt
+file	dev/fdt/pwmbl.c			pwmbl
+
+device	pwmreg
+attach	pwmreg at fdt
+file	dev/fdt/pwmreg.c		pwmreg
+
 device	amlclock
 attach	amlclock at fdt
 file	dev/fdt/amlclock.c		amlclock
@@ -133,6 +151,10 @@ file	dev/fdt/amlclock.c		amlclock
 device	amldwusb: fdt
 attach	amldwusb at fdt
 file	dev/fdt/amldwusb.c		amldwusb
+
+device	amliic: i2cbus
+attach	amliic at fdt			
+file	dev/fdt/amliic.c		amliic
 
 device	amlmmc: sdmmcbus
 attach	amlmmc at fdt
@@ -145,6 +167,10 @@ file	dev/fdt/amlpciephy.c		amlpciephy
 device	amlpinctrl
 attach	amlpinctrl at fdt
 file	dev/fdt/amlpinctrl.c		amlpinctrl
+
+device	amlpwm
+attach	amlpwm at fdt
+file	dev/fdt/amlpwm.c		amlpwm
 
 device	amlreset
 attach	amlreset at fdt
@@ -195,7 +221,7 @@ attach	rkgpio at fdt
 file	dev/fdt/rkgpio.c		rkgpio
 
 device	rkiic: i2cbus
-attach	rkiic at fdt			
+attach	rkiic at fdt
 file	dev/fdt/rkiic.c			rkiic
 
 device	rkpmic
@@ -225,6 +251,11 @@ file	dev/fdt/dwdog.c			dwdog
 device	dwpcie: pcibus
 attach	dwpcie at fdt
 file	dev/fdt/dwpcie.c		dwpcie
+
+define	spi {}
+device	moxtet
+attach	moxtet at spi
+file	dev/fdt/moxtet.c		moxtet
 
 device	mvclock
 attach	mvclock at fdt
@@ -269,6 +300,10 @@ file	dev/fdt/mvrng.c			mvrng
 device	mvrtc
 attach	mvrtc at fdt
 file	dev/fdt/mvrtc.c			mvrtc
+
+device	mvspi: spi
+attach	mvspi at fdt
+file	dev/fdt/mvspi.c			mvspi
 
 device	mvtemp
 attach	mvtemp at fdt
@@ -334,7 +369,6 @@ device	fec: ether, ifnet, mii, ifmedia
 attach	fec at fdt
 file	dev/fdt/if_fec.c		fec
 
-define	spi {}
 device	imxspi: spi
 attach	imxspi at fdt
 file	dev/fdt/imxspi.c		imxspi

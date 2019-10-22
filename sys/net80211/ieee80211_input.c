@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.209 2019/09/12 12:55:07 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.212 2019/10/11 15:20:36 patrick Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -535,7 +535,6 @@ ieee80211_inputm(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 		return;
 
 	case IEEE80211_FC0_TYPE_CTL:
-		ic->ic_stats.is_rx_ctl++;
 		switch (subtype) {
 #ifndef IEEE80211_STA_ONLY
 		case IEEE80211_FC0_SUBTYPE_PS_POLL:
@@ -546,6 +545,7 @@ ieee80211_inputm(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 			ieee80211_recv_bar(ic, m, ni);
 			break;
 		default:
+			ic->ic_stats.is_rx_ctl++;
 			break;
 		}
 		goto out;
@@ -1380,8 +1380,9 @@ ieee80211_save_ie(const u_int8_t *frm, u_int8_t **ie)
  */
 void
 ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
-    struct ieee80211_node *ni, struct ieee80211_rxinfo *rxi, int isprobe)
+    struct ieee80211_node *rni, struct ieee80211_rxinfo *rxi, int isprobe)
 {
+	struct ieee80211_node *ni;
 	const struct ieee80211_frame *wh;
 	const u_int8_t *frm, *efrm;
 	const u_int8_t *tstamp, *ssid, *rates, *xrates, *edcaie, *wmmie;
@@ -1553,6 +1554,10 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 			/* we know that ssid[1] <= IEEE80211_NWID_LEN */
 			memcpy(ni->ni_essid, &ssid[2], ssid[1]);
 		}
+
+		/* Update channel in case AP has switched */
+		if (ic->ic_opmode == IEEE80211_M_STA)
+			ni->ni_chan = rni->ni_chan;
 
 		return;
 	}
@@ -1745,7 +1750,7 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 		 * measured RSSI. Some 5GHz APs send beacons with much
 		 * less Tx power than they use for probe responses.
 		 */
-		 if (isprobe)
+		if (isprobe || ni->ni_rssi == 0)
 			ni->ni_rssi = rxi->rxi_rssi;
 		else if (ni->ni_rssi < rxi->rxi_rssi)
 			ni->ni_rssi = rxi->rxi_rssi;

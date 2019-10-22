@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.42 2019/05/23 15:11:58 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.46 2019/10/19 17:42:21 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -67,6 +67,11 @@
 
 #define	TRUST_ANCHOR_RETRY_INTERVAL	8640
 #define	TRUST_ANCHOR_QUERY_INTERVAL	43200
+
+/* in libworker_event_done_cb() enum sec_status gets mapped to 0, 1 and 2 */
+#define	INSECURE	0
+#define	BOGUS		1
+#define	SECURE		2
 
 struct uw_resolver {
 	struct event		 check_ev;
@@ -654,11 +659,13 @@ resolve_done(void *arg, int rcode, void *answer_packet, int answer_len,
 	ms = elapsed.tv_sec * 1000 + elapsed.tv_nsec / 1000000;
 
 	for (i = 1; i < nitems(histogram_limits); i++) {
-		if (ms > histogram_limits[i - 1] && ms < histogram_limits[i])
+		if (ms > histogram_limits[i - 1] && ms <= histogram_limits[i])
 			break;
 	}
-
-	res->histogram[i]++;
+	if (i == nitems(histogram_limits))
+		log_debug("histogram bucket error");
+	else
+		res->histogram[i]++;
 
 	log_debug("%s: async_id: %d, ref_cnt: %d, elapsed: %lldms, "
 	    "histogram: %lld - %lld", __func__, query_imsg->async_id,
@@ -685,7 +692,7 @@ resolve_done(void *arg, int rcode, void *answer_packet, int answer_len,
 	query_imsg->err = 0;
 
 	if (res->state == VALIDATING)
-		query_imsg->bogus = sec == 1;
+		query_imsg->bogus = sec == BOGUS;
 	else
 		query_imsg->bogus = 0;
 	resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0, query_imsg,
@@ -737,8 +744,14 @@ parse_dhcp_forwarders(char *forwarders)
 		new_forwarders();
 		if (resolver_conf->captive_portal_auto)
 			check_captive_portal(1);
-	} else
+	} else {
+		while ((uw_forwarder =
+		    SIMPLEQ_FIRST(&new_forwarder_list)) != NULL) {
+			SIMPLEQ_REMOVE_HEAD(&new_forwarder_list, entry);
+			free(uw_forwarder);
+		}
 		log_debug("%s: forwarders didn't change", __func__);
+	}
 }
 
 void
@@ -899,7 +912,7 @@ free_resolver(struct uw_resolver *res)
 		return;
 
 	log_debug("%s: [%p] ref_cnt: %d", __func__, res, res->ref_cnt);
-	
+
 	if (res->ref_cnt > 0)
 		res->stop = 1;
 	else {
@@ -1000,7 +1013,7 @@ check_resolver_done(void *arg, int rcode, void *answer_packet, int answer_len,
 		free(str);
 	}
 
-	if (sec == 2) {
+	if (sec == SECURE) {
 		data->res->state = VALIDATING;
 		if (!(evtimer_pending(&trust_anchor_timer, NULL)))
 			evtimer_add(&trust_anchor_timer, &tv);
@@ -1420,7 +1433,7 @@ trust_anchor_resolve_done(void *arg, int rcode, void *answer_packet,
 
 	log_debug("%s: rcode: %d", __func__, rcode);
 
-	if (!sec) {
+	if (sec != SECURE) {
 		log_debug("%s: sec: %d", __func__, sec);
 		goto out;
 	}

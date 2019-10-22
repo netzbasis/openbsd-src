@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.125 2019/09/09 20:00:27 patrick Exp $
+# $OpenBSD: GENERIC,v 1.131 2019/10/21 20:52:32 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -88,6 +88,7 @@ plgpio*		at fdt? early 1
 plrtc*		at fdt?
 pluart*		at fdt?
 psci*		at fdt? early 1
+pwmreg*		at fdt? early 1
 syscon*		at fdt? early 1
 
 virtio*		at fdt?
@@ -104,6 +105,7 @@ option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
 
 simplefb*	at fdt?
 wsdisplay*	at simplefb?
+pwmbl*			at fdt?		# PWM backlight
 
 radeondrm*	at pci?
 drm*		at radeondrm?
@@ -143,10 +145,13 @@ usb*		at dwctwo?
 # Amlogic SoCs
 amlclock*	at fdt? early 1
 amldwusb*	at fdt?
+amliic*		at fdt?
+iic*		at amliic?
 amlmmc*		at fdt?
 sdmmc*		at amlmmc?
 amlpciephy*	at fdt?
 amlpinctrl*	at fdt? early 1
+amlpwm*		at fdt?
 amlreset*	at fdt? early 1
 amlrng*		at fdt?
 amluart*	at fdt?
@@ -171,6 +176,8 @@ mvmdio*		at fdt?
 mvneta*		at fdt?
 mvrng*		at fdt?
 mvrtc*		at fdt?
+mvspi*		at fdt?
+moxtet*		at spi?
 mvtemp*		at fdt?
 mvuart*		at fdt?
 sfp*		at fdt?
@@ -193,6 +200,8 @@ sdmmc*		at dwmmc?
 sxipio*		at fdt? early 1	# GPIO pins for leds & PHYs
 gpio*		at sxipio?
 sxiccmu*	at fdt? early 1	# Clock Control Module/Unit
+sxidog*		at fdt?
+sxipwm*		at fdt?
 sxirsb*		at fdt? early 1	# Reduced Serial Bus
 axppmic*	at rsb?
 sxirtc*		at fdt? early 1	# Real Time Clock
@@ -365,12 +374,13 @@ uk*		at scsibus?
 # I2C devices
 abcrtc*		at iic?			# Abracon x80x RTC
 fanpwr*		at iic?			# FAN53555 regulator
+fusbtc*		at iic?			# USB Type-C controller
 ipmi*		at iic?			# IPMI (SIIF)
 islrtc*		at iic?			# ISL1208 RTC
 mcprtc*		at iic?			# MCP794XX RTC
+pcxrtc*		at iic?			# PCF8563 RTC
 rkpmic*		at iic?			# RK808 PMIC
 sypwr*		at iic?			# SY8106A regulator
-fusbtc*		at iic?			# USB Type-C controller
 
 # GPIO "pin bus" drivers
 gpioiic*	at gpio?		# I2C bus bit-banging

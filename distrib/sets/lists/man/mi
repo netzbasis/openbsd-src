@@ -1212,9 +1212,11 @@
 ./usr/share/man/man4/ami.4
 ./usr/share/man/man4/amlclock.4
 ./usr/share/man/man4/amldwusb.4
+./usr/share/man/man4/amliic.4
 ./usr/share/man/man4/amlmmc.4
 ./usr/share/man/man4/amlpciephy.4
 ./usr/share/man/man4/amlpinctrl.4
+./usr/share/man/man4/amlpwm.4
 ./usr/share/man/man4/amlreset.4
 ./usr/share/man/man4/amlrng.4
 ./usr/share/man/man4/amluart.4
@@ -1254,7 +1256,6 @@
 ./usr/share/man/man4/armv7/omwugen.4
 ./usr/share/man/man4/armv7/prcm.4
 ./usr/share/man/man4/armv7/sitaracm.4
-./usr/share/man/man4/armv7/sxidog.4
 ./usr/share/man/man4/armv7/sxie.4
 ./usr/share/man/man4/armv7/sxiintc.4
 ./usr/share/man/man4/armv7/sxitimer.4
@@ -1485,6 +1486,7 @@
 ./usr/share/man/man4/imxgpio.4
 ./usr/share/man/man4/imxiic.4
 ./usr/share/man/man4/imxrtc.4
+./usr/share/man/man4/imxspi.4
 ./usr/share/man/man4/imxsrc.4
 ./usr/share/man/man4/imxtmu.4
 ./usr/share/man/man4/imxuart.4
@@ -1519,6 +1521,7 @@
 ./usr/share/man/man4/kcov.4
 ./usr/share/man/man4/keynote.4
 ./usr/share/man/man4/km.4
+./usr/share/man/man4/ksmn.4
 ./usr/share/man/man4/ksyms.4
 ./usr/share/man/man4/kubsan.4
 ./usr/share/man/man4/kue.4
@@ -1641,6 +1644,7 @@
 ./usr/share/man/man4/mvpinctrl.4
 ./usr/share/man/man4/mvrng.4
 ./usr/share/man/man4/mvrtc.4
+./usr/share/man/man4/mvspi.4
 ./usr/share/man/man4/mvtemp.4
 ./usr/share/man/man4/mvuart.4
 ./usr/share/man/man4/myx.4
@@ -1661,13 +1665,13 @@
 ./usr/share/man/man4/nvt.4
 ./usr/share/man/man4/oce.4
 ./usr/share/man/man4/octeon/amdcf.4
-./usr/share/man/man4/octeon/cn30xxgmx.4
 ./usr/share/man/man4/octeon/cnmac.4
 ./usr/share/man/man4/octeon/octcf.4
 ./usr/share/man/man4/octeon/octcib.4
 ./usr/share/man/man4/octeon/octcit.4
 ./usr/share/man/man4/octeon/octciu.4
 ./usr/share/man/man4/octeon/octcrypto.4
+./usr/share/man/man4/octeon/octgmx.4
 ./usr/share/man/man4/octeon/octgpio.4
 ./usr/share/man/man4/octeon/octiic.4
 ./usr/share/man/man4/octeon/octmmc.4
@@ -1676,6 +1680,7 @@
 ./usr/share/man/man4/octeon/octrng.4
 ./usr/share/man/man4/octeon/octrtc.4
 ./usr/share/man/man4/octeon/octsctl.4
+./usr/share/man/man4/octeon/octsmi.4
 ./usr/share/man/man4/octeon/octuctl.4
 ./usr/share/man/man4/octeon/octxctl.4
 ./usr/share/man/man4/ohci.4
@@ -1730,6 +1735,8 @@
 ./usr/share/man/man4/pvbus.4
 ./usr/share/man/man4/pvclock.4
 ./usr/share/man/man4/pwdog.4
+./usr/share/man/man4/pwmbl.4
+./usr/share/man/man4/pwmreg.4
 ./usr/share/man/man4/qla.4
 ./usr/share/man/man4/qle.4
 ./usr/share/man/man4/qlw.4
@@ -1894,6 +1901,7 @@
 ./usr/share/man/man4/speaker.4
 ./usr/share/man/man4/sppp.4
 ./usr/share/man/man4/sqphy.4
+./usr/share/man/man4/ssdfb.4
 ./usr/share/man/man4/st.4
 ./usr/share/man/man4/ste.4
 ./usr/share/man/man4/stge.4
@@ -1902,8 +1910,10 @@
 ./usr/share/man/man4/sv.4
 ./usr/share/man/man4/switch.4
 ./usr/share/man/man4/sxiccmu.4
+./usr/share/man/man4/sxidog.4
 ./usr/share/man/man4/sximmc.4
 ./usr/share/man/man4/sxipio.4
+./usr/share/man/man4/sxipwm.4
 ./usr/share/man/man4/sxirsb.4
 ./usr/share/man/man4/sxirtc.4
 ./usr/share/man/man4/sxisyscon.4
@@ -2139,6 +2149,7 @@
 ./usr/share/man/man5/ospfd.conf.5
 ./usr/share/man/man5/package.5
 ./usr/share/man/man5/passwd.5
+./usr/share/man/man5/pcap-filter.5
 ./usr/share/man/man5/pf.conf.5
 ./usr/share/man/man5/pf.os.5
 ./usr/share/man/man5/port-modules.5

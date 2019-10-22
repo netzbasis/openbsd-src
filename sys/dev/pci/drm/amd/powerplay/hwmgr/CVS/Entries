@@ -23,13 +23,13 @@
 /smu7_clockpowergating.c/1.1/Tue May 21 22:40:14 2019//
 /smu7_clockpowergating.h/1.1/Tue May 21 22:40:14 2019//
 /smu7_dyn_defaults.h/1.1/Tue May 21 22:40:14 2019//
-/smu7_hwmgr.c/1.1/Tue May 21 22:40:14 2019//
+/smu7_hwmgr.c/1.2/Sun Oct  6 01:04:51 2019//
 /smu7_hwmgr.h/1.1/Tue May 21 22:40:14 2019//
 /smu7_powertune.c/1.1/Tue May 21 22:40:14 2019//
 /smu7_powertune.h/1.1/Tue May 21 22:40:14 2019//
 /smu7_thermal.c/1.1/Tue May 21 22:40:14 2019//
 /smu7_thermal.h/1.1/Tue May 21 22:40:14 2019//
-/smu8_hwmgr.c/1.1/Tue May 21 22:40:14 2019//
+/smu8_hwmgr.c/1.2/Tue Oct  1 08:35:13 2019//
 /smu8_hwmgr.h/1.1/Tue May 21 22:40:14 2019//
 /smu_helper.c/1.4/Mon Sep 16 15:10:56 2019//
 /smu_helper.h/1.1/Tue May 21 22:40:14 2019//
