@@ -22,14 +22,14 @@
 /acpisbs.c/1.8/Thu May  9 18:29:25 2019//
 /acpisony.c/1.7/Tue Feb 28 10:39:07 2017//
 /acpisurface.c/1.1/Sat Jun 30 18:15:12 2018//
-/acpithinkpad.c/1.66/Sun Oct 13 10:56:31 2019//
+/acpithinkpad.c/1.67/Mon Oct 21 16:45:48 2019//
 /acpitimer.c/1.12/Fri Oct  6 13:33:53 2017//
 /acpitoshiba.c/1.12/Sun Oct 13 10:56:31 2019//
 /acpitz.c/1.54/Fri Jun 29 17:39:18 2018//
 /acpiutil.c/1.8/Sat Mar 14 03:38:47 2015//
 /acpivar.h/1.105/Sat Sep  7 13:46:20 2019//
 /acpivideo.c/1.11/Fri Jun 30 06:25:29 2017//
-/acpivout.c/1.13/Sun Oct 13 10:56:31 2019//
+/acpivout.c/1.14/Mon Oct 21 16:32:51 2019//
 /ahci_acpi.c/1.2/Fri Aug  3 22:18:13 2018//
 /amltypes.h/1.48/Thu Jan 10 18:50:32 2019//
 /aplgpio.c/1.1/Mon Jun 17 18:28:18 2019//
