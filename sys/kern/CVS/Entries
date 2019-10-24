@@ -51,7 +51,7 @@
 /subr_extent.c/1.62/Wed Sep 11 12:30:34 2019//
 /subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
 /subr_kubsan.c/1.8/Thu Jun 20 14:55:22 2019//
-/subr_log.c/1.58/Thu Jun 20 04:31:33 2019//
+/subr_log.c/1.59/Thu Oct 24 03:31:49 2019//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
 /subr_pool.c/1.228/Fri Jul 19 09:03:03 2019//

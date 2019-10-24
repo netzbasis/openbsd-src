@@ -8,7 +8,7 @@
 /apm.c/1.120/Sat Oct 12 15:56:17 2019//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.105/Wed Feb  7 18:42:38 2018//
-/bios.c/1.123/Sun Aug  4 14:28:58 2019//
+/bios.c/1.124/Wed Oct 23 10:14:46 2019//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
 /codepatch.c/1.4/Mon Jul 10 00:59:24 2017//
