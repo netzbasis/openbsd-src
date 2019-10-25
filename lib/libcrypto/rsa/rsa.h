@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa.h,v 1.40 2019/06/05 15:41:33 gilles Exp $ */
+/* $OpenBSD: rsa.h,v 1.43 2019/10/24 15:54:29 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -84,6 +84,8 @@ extern "C" {
 /* typedef struct rsa_st RSA; */
 /* typedef struct rsa_meth_st RSA_METHOD; */
 
+typedef struct rsa_pss_params_st RSA_PSS_PARAMS;
+
 struct rsa_meth_st {
 	const char *name;
 	int (*rsa_pub_enc)(int flen, const unsigned char *from,
@@ -127,6 +129,7 @@ struct rsa_st {
 	int pad;
 	long version;
 	const RSA_METHOD *meth;
+
 	/* functional reference if 'meth' is ENGINE-provided */
 	ENGINE *engine;
 	BIGNUM *n;
@@ -137,6 +140,10 @@ struct rsa_st {
 	BIGNUM *dmp1;
 	BIGNUM *dmq1;
 	BIGNUM *iqmp;
+
+	/* Parameter restrictions for PSS only keys. */
+	RSA_PSS_PARAMS *pss;
+
 	/* be careful using this if the RSA structure is shared */
 	CRYPTO_EX_DATA ex_data;
 	int references;
@@ -294,6 +301,8 @@ const RSA_METHOD *RSA_PKCS1_SSLeay(void);
 
 const RSA_METHOD *RSA_null_method(void);
 
+int RSA_pkey_ctx_ctrl(EVP_PKEY_CTX *ctx, int optype, int cmd, int p1, void *p2);
+
 RSA *d2i_RSAPublicKey(RSA **a, const unsigned char **in, long len);
 int i2d_RSAPublicKey(const RSA *a, unsigned char **out);
 extern const ASN1_ITEM RSAPublicKey_it;
@@ -306,6 +315,9 @@ typedef struct rsa_pss_params_st {
 	X509_ALGOR *maskGenAlgorithm;
 	ASN1_INTEGER *saltLength;
 	ASN1_INTEGER *trailerField;
+
+	/* Hash algorithm decoded from maskGenAlgorithm. */
+	X509_ALGOR *maskHash;
 } RSA_PSS_PARAMS;
 
 RSA_PSS_PARAMS *RSA_PSS_PARAMS_new(void);

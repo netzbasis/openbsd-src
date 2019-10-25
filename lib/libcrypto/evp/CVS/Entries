@@ -22,7 +22,7 @@
 /e_sm4.c/1.1/Sun Mar 17 17:42:37 2019//
 /e_xcbc_d.c/1.12/Fri Jul 11 08:44:48 2014//
 /encode.c/1.26/Sat Jan 19 01:24:18 2019//
-/evp.h/1.77/Mon Sep  9 18:06:25 2019//
+/evp.h/1.78/Thu Oct 24 15:43:09 2019//
 /evp_aead.c/1.6/Sun Jan 29 17:49:23 2017//
 /evp_enc.c/1.43/Sun Apr 14 17:16:57 2019//
 /evp_err.c/1.25/Mon Mar 18 05:34:29 2019//
