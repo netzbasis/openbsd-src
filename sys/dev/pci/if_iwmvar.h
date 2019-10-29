@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.39 2019/10/18 07:07:53 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.42 2019/10/28 18:11:10 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -203,6 +203,8 @@ struct iwm_nvm_data {
 
 	uint16_t nvm_version;
 	uint8_t max_tx_pwr_half_dbm;
+
+	int lar_enabled;
 };
 
 /* max bufs per tfd the driver will use */
@@ -445,6 +447,7 @@ struct iwm_softc {
 
 	const char *sc_fwname;
 	bus_size_t sc_fwdmasegsz;
+	size_t sc_nvm_max_section_size;
 	struct iwm_fw_info sc_fw;
 	int sc_fw_phy_config;
 	struct iwm_tlv_calib_ctrl sc_default_calib[IWM_UCODE_TYPE_MAX];
@@ -482,6 +485,7 @@ struct iwm_softc {
 	int sc_noise;
 
 	int host_interrupt_operation_mode;
+	int sc_ltr_enabled;
 
 #if NBPFILTER > 0
 	caddr_t			sc_drvbpf;

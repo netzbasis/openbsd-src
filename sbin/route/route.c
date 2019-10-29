@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.233 2019/08/31 13:46:14 bluhm Exp $	*/
+/*	$OpenBSD: route.c,v 1.235 2019/10/27 12:44:17 krw Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -1180,7 +1180,7 @@ char routeflags[] =
 char ifnetflags[] =
 "\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6STATICARP\7RUNNING\010NOARP\011PPROMISC"
 "\012ALLMULTI\013OACTIVE\014SIMPLEX\015LINK0\016LINK1\017LINK2\020MULTICAST"
-"\23INET6_NOPRIVACY\24MPLS\25WOL\26AUTOCONF6\27INET6_NOSOII";
+"\23INET6_NOPRIVACY\24MPLS\25WOL\26AUTOCONF6\27INET6_NOSOII\30AUTOCONF4";
 char addrnames[] =
 "\1DST\2GATEWAY\3NETMASK\4GENMASK\5IFP\6IFA\7AUTHOR\010BRD\011SRC\012SRCMASK\013LABEL\014BFD\015DNS\016STATIC\017SEARCH";
 
@@ -1229,7 +1229,7 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		ifm = (struct if_msghdr *)rtm;
 		(void) printf(", if# %d, ", ifm->ifm_index);
 		if (if_indextoname(ifm->ifm_index, ifname) != NULL)
-			printf("name: %s, ", ifname);
+			printf("name %s, ", ifname);
 		printf("link: %s, mtu: %u, flags:",
 		    get_linkstate(ifm->ifm_data.ifi_type,
 		        ifm->ifm_data.ifi_link_state),
@@ -1241,14 +1241,17 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 	case RTM_80211INFO:
 		printf(", if# %d, ", rtm->rtm_index);
 		if (if_indextoname(rtm->rtm_index, ifname) != NULL)
-			printf("name: %s, ", ifname);
+			printf("name %s, ", ifname);
 		print_80211info((struct if_ieee80211_msghdr *)rtm);
 		break;
 	case RTM_NEWADDR:
 	case RTM_DELADDR:
 	case RTM_CHGADDRATTR:
 		ifam = (struct ifa_msghdr *)rtm;
-		printf(", metric %d, flags:", ifam->ifam_metric);
+		(void) printf(", if# %d, ", ifam->ifam_index);
+		if (if_indextoname(ifam->ifam_index, ifname) != NULL)
+			printf("name %s, ", ifname);
+		printf("metric %d, flags:", ifam->ifam_metric);
 		bprintf(stdout, ifam->ifam_flags, routeflags);
 		pmsg_addrs((char *)ifam + ifam->ifam_hdrlen, ifam->ifam_addrs);
 		break;

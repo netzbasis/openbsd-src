@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.254 2019/10/18 07:07:53 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.266 2019/10/28 18:11:10 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -310,10 +310,6 @@ int	iwm_send_phy_db_cmd(struct iwm_softc *, uint16_t, uint16_t, void *);
 int	iwm_phy_db_send_all_channel_groups(struct iwm_softc *, uint16_t,
 	    uint8_t);
 int	iwm_send_phy_db_data(struct iwm_softc *);
-void	iwm_te_v2_to_v1(const struct iwm_time_event_cmd_v2 *,
-	    struct iwm_time_event_cmd_v1 *);
-int	iwm_send_time_event_cmd(struct iwm_softc *,
-	    const struct iwm_time_event_cmd_v2 *);
 void	iwm_protect_session(struct iwm_softc *, struct iwm_node *, uint32_t,
 	    uint32_t);
 void	iwm_unprotect_session(struct iwm_softc *, struct iwm_node *);
@@ -363,8 +359,8 @@ int	iwm_send_phy_cfg_cmd(struct iwm_softc *);
 int	iwm_load_ucode_wait_alive(struct iwm_softc *, enum iwm_ucode_type);
 int	iwm_send_dqa_cmd(struct iwm_softc *);
 int	iwm_run_init_mvm_ucode(struct iwm_softc *, int);
+int	iwm_config_ltr(struct iwm_softc *);
 int	iwm_rx_addbuf(struct iwm_softc *, int, int);
-int	iwm_calc_rssi(struct iwm_softc *, struct iwm_rx_phy_info *);
 int	iwm_get_signal_strength(struct iwm_softc *, struct iwm_rx_phy_info *);
 void	iwm_rx_rx_phy_cmd(struct iwm_softc *, struct iwm_rx_packet *,
 	    struct iwm_rx_data *);
@@ -830,11 +826,6 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	if (err) {
 		printf("%s: firmware parse error %d, "
 		    "section type %d\n", DEVNAME(sc), err, tlv_type);
-	}
-
-	if (!(sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_PM_CMD_SUPPORT)) {
-		printf("%s: device uses unsupported power ops\n", DEVNAME(sc));
-		err = ENOTSUP;
 	}
 
  out:
@@ -1434,19 +1425,33 @@ iwm_prepare_card_hw(struct iwm_softc *sc)
 void
 iwm_apm_config(struct iwm_softc *sc)
 {
-	pcireg_t reg;
+	pcireg_t lctl, cap;
 
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
+	/*
+	 * HW bug W/A for instability in PCIe bus L0S->L1 transition.
+	 * Check if BIOS (or OS) enabled L1-ASPM on this device.
+	 * If so (likely), disable L0S, so device moves directly L0->L1;
+	 *    costs negligible amount of power savings.
+	 * If not (unlikely), enable L0S, so there is at least some
+	 *    power savings, even without L1.
+	 */
+	lctl = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
 	    sc->sc_cap_off + PCI_PCIE_LCSR);
-	if (reg & PCI_PCIE_LCSR_ASPM_L1) {
-		/* Um the Linux driver prints "Disabling L0S for this one ... */
+	if (lctl & PCI_PCIE_LCSR_ASPM_L1) {
 		IWM_SETBITS(sc, IWM_CSR_GIO_REG,
 		    IWM_CSR_GIO_REG_VAL_L0S_ENABLED);
 	} else {
-		/* ... and "Enabling" here */
 		IWM_CLRBITS(sc, IWM_CSR_GIO_REG,
 		    IWM_CSR_GIO_REG_VAL_L0S_ENABLED);
 	}
+
+	cap = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
+	    sc->sc_cap_off + PCI_PCIE_DCSR2);
+	sc->sc_ltr_enabled = (cap & PCI_PCIE_DCSR2_LTREN) ? 1 : 0;
+	DPRINTF(("%s: L1 %sabled - LTR %sabled\n",
+	    DEVNAME(sc),
+	    (lctl & PCI_PCIE_LCSR_ASPM_L1) ? "En" : "Dis",
+	    sc->sc_ltr_enabled ? "En" : "Dis"));
 }
 
 /*
@@ -1642,13 +1647,15 @@ iwm_stop_device(struct iwm_softc *sc)
 	for (qid = 0; qid < nitems(sc->txq); qid++)
 		iwm_reset_tx_ring(sc, &sc->txq[qid]);
 
-	if (iwm_nic_lock(sc)) {
-		/* Power-down device's busmaster DMA clocks */
-		iwm_write_prph(sc, IWM_APMG_CLK_DIS_REG,
-		    IWM_APMG_CLK_VAL_DMA_CLK_RQT);
-		iwm_nic_unlock(sc);
+	if (sc->sc_device_family == IWM_DEVICE_FAMILY_7000) {
+		if (iwm_nic_lock(sc)) {
+			/* Power-down device's busmaster DMA clocks */
+			iwm_write_prph(sc, IWM_APMG_CLK_DIS_REG,
+			    IWM_APMG_CLK_VAL_DMA_CLK_RQT);
+			iwm_nic_unlock(sc);
+		}
+		DELAY(5);
 	}
-	DELAY(5);
 
 	/* Make sure (redundant) we've released our request to stay awake */
 	IWM_CLRBITS(sc, IWM_CSR_GP_CNTRL,
@@ -1906,6 +1913,8 @@ iwm_post_alive(struct iwm_softc *sc)
 
 	iwm_ict_reset(sc);
 
+	iwm_nic_unlock(sc);
+
 	/* Clear TX scheduler state in SRAM. */
 	nwords = (IWM_SCD_TRANS_TBL_MEM_UPPER_BOUND -
 	    IWM_SCD_CONTEXT_MEM_LOWER_BOUND)
@@ -1914,7 +1923,10 @@ iwm_post_alive(struct iwm_softc *sc)
 	    sc->sched_base + IWM_SCD_CONTEXT_MEM_LOWER_BOUND,
 	    NULL, nwords);
 	if (err)
-		goto out;
+		return err;
+
+	if (!iwm_nic_lock(sc))
+		return EBUSY;
 
 	/* Set physical address of TX scheduler rings (1KB aligned). */
 	iwm_write_prph(sc, IWM_SCD_DRAM_BASE_ADDR, sc->sched_dma.paddr >> 10);
@@ -1923,8 +1935,10 @@ iwm_post_alive(struct iwm_softc *sc)
 
 	/* enable command channel */
 	err = iwm_enable_ac_txq(sc, sc->cmdqid, IWM_TX_FIFO_CMD);
-	if (err)
-		goto out;
+	if (err) {
+		iwm_nic_unlock(sc);
+		return err;
+	}
 
 	/* Activate TX scheduler. */
 	iwm_write_prph(sc, IWM_SCD_TXFACT, 0xff);
@@ -1939,13 +1953,13 @@ iwm_post_alive(struct iwm_softc *sc)
 	IWM_SETBITS(sc, IWM_FH_TX_CHICKEN_BITS_REG,
 	    IWM_FH_TX_CHICKEN_BITS_SCD_AUTO_RETRY_EN);
 
+	iwm_nic_unlock(sc);
+
 	/* Enable L1-Active */
 	if (sc->sc_device_family != IWM_DEVICE_FAMILY_8000)
 		iwm_clear_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
 		    IWM_APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
 
- out:
- 	iwm_nic_unlock(sc);
 	return err;
 }
 
@@ -2186,57 +2200,10 @@ iwm_send_phy_db_data(struct iwm_softc *sc)
 #define IWM_ROC_TE_TYPE_NORMAL IWM_TE_P2P_DEVICE_DISCOVERABLE
 #define IWM_ROC_TE_TYPE_MGMT_TX IWM_TE_P2P_CLIENT_ASSOC
 
-/* used to convert from time event API v2 to v1 */
-#define IWM_TE_V2_DEP_POLICY_MSK (IWM_TE_V2_DEP_OTHER | IWM_TE_V2_DEP_TSF |\
-			     IWM_TE_V2_EVENT_SOCIOPATHIC)
-static inline uint16_t
-iwm_te_v2_get_notify(uint16_t policy)
-{
-	return le16toh(policy) & IWM_TE_V2_NOTIF_MSK;
-}
-
-static inline uint16_t
-iwm_te_v2_get_dep_policy(uint16_t policy)
-{
-	return (le16toh(policy) & IWM_TE_V2_DEP_POLICY_MSK) >>
-		IWM_TE_V2_PLACEMENT_POS;
-}
-
-static inline uint16_t
-iwm_te_v2_get_absence(uint16_t policy)
-{
-	return (le16toh(policy) & IWM_TE_V2_ABSENCE) >> IWM_TE_V2_ABSENCE_POS;
-}
-
-void
-iwm_te_v2_to_v1(const struct iwm_time_event_cmd_v2 *cmd_v2,
-    struct iwm_time_event_cmd_v1 *cmd_v1)
-{
-	cmd_v1->id_and_color = cmd_v2->id_and_color;
-	cmd_v1->action = cmd_v2->action;
-	cmd_v1->id = cmd_v2->id;
-	cmd_v1->apply_time = cmd_v2->apply_time;
-	cmd_v1->max_delay = cmd_v2->max_delay;
-	cmd_v1->depends_on = cmd_v2->depends_on;
-	cmd_v1->interval = cmd_v2->interval;
-	cmd_v1->duration = cmd_v2->duration;
-	if (cmd_v2->repeat == IWM_TE_V2_REPEAT_ENDLESS)
-		cmd_v1->repeat = htole32(IWM_TE_V1_REPEAT_ENDLESS);
-	else
-		cmd_v1->repeat = htole32(cmd_v2->repeat);
-	cmd_v1->max_frags = htole32(cmd_v2->max_frags);
-	cmd_v1->interval_reciprocal = 0; /* unused */
-
-	cmd_v1->dep_policy = htole32(iwm_te_v2_get_dep_policy(cmd_v2->policy));
-	cmd_v1->is_present = htole32(!iwm_te_v2_get_absence(cmd_v2->policy));
-	cmd_v1->notify = htole32(iwm_te_v2_get_notify(cmd_v2->policy));
-}
-
 int
 iwm_send_time_event_cmd(struct iwm_softc *sc,
-    const struct iwm_time_event_cmd_v2 *cmd)
+    const struct iwm_time_event_cmd *cmd)
 {
-	struct iwm_time_event_cmd_v1 cmd_v1;
 	struct iwm_rx_packet *pkt;
 	struct iwm_time_event_resp *resp;
 	struct iwm_host_cmd hcmd = {
@@ -2247,14 +2214,8 @@ iwm_send_time_event_cmd(struct iwm_softc *sc,
 	uint32_t resp_len;
 	int err;
 
-	if (sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_TIME_EVENT_API_V2) {
-		hcmd.data[0] = cmd;
-		hcmd.len[0] = sizeof(*cmd);
-	} else {
-		iwm_te_v2_to_v1(cmd, &cmd_v1);
-		hcmd.data[0] = &cmd_v1;
-		hcmd.len[0] = sizeof(cmd_v1);
-	}
+	hcmd.data[0] = cmd;
+	hcmd.len[0] = sizeof(*cmd);
 	err = iwm_send_cmd(sc, &hcmd);
 	if (err)
 		return err;
@@ -2285,7 +2246,7 @@ void
 iwm_protect_session(struct iwm_softc *sc, struct iwm_node *in,
     uint32_t duration, uint32_t max_delay)
 {
-	struct iwm_time_event_cmd_v2 time_cmd;
+	struct iwm_time_event_cmd time_cmd;
 
 	/* Do nothing if a time event is already scheduled. */
 	if (sc->sc_flags & IWM_FLAG_TE_ACTIVE)
@@ -2320,7 +2281,7 @@ iwm_protect_session(struct iwm_softc *sc, struct iwm_node *in,
 void
 iwm_unprotect_session(struct iwm_softc *sc, struct iwm_node *in)
 {
-	struct iwm_time_event_cmd_v2 time_cmd;
+	struct iwm_time_event_cmd time_cmd;
 
 	/* Do nothing if the time event has already ended. */
 	if ((sc->sc_flags & IWM_FLAG_TE_ACTIVE) == 0)
@@ -2357,7 +2318,6 @@ const int iwm_nvm_to_read[] = {
 };
 
 #define IWM_NVM_DEFAULT_CHUNK_SIZE	(2*1024)
-#define IWM_MAX_NVM_SECTION_SIZE	8192
 
 #define IWM_NVM_WRITE_OPCODE 1
 #define IWM_NVM_READ_OPCODE 0
@@ -2771,6 +2731,7 @@ iwm_parse_nvm_data(struct iwm_softc *sc, const uint16_t *nvm_hw,
 	struct iwm_nvm_data *data = &sc->sc_nvm;
 	uint8_t hw_addr[ETHER_ADDR_LEN];
 	uint32_t sku;
+	uint16_t lar_config;
 
 	data->nvm_version = le16_to_cpup(nvm_sw + IWM_NVM_VERSION);
 
@@ -2801,6 +2762,16 @@ iwm_parse_nvm_data(struct iwm_softc *sc, const uint16_t *nvm_hw,
 	data->sku_cap_mimo_disable = sku & IWM_NVM_SKU_CAP_MIMO_DISABLE;
 
 	data->n_hw_addrs = le16_to_cpup(nvm_sw + IWM_N_HW_ADDRS);
+
+	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000) {
+		uint16_t lar_offset = data->nvm_version < 0xE39 ?
+				       IWM_NVM_LAR_OFFSET_8000_OLD :
+				       IWM_NVM_LAR_OFFSET_8000;
+
+		lar_config = le16_to_cpup(regulatory + lar_offset);
+		data->lar_enabled = !!(lar_config &
+				       IWM_NVM_LAR_ENABLED_8000);
+	}
 
 	/* The byte order is little endian 16 bit, meaning 214365 */
 	if (sc->sc_device_family == IWM_DEVICE_FAMILY_7000) {
@@ -2889,7 +2860,7 @@ iwm_nvm_init(struct iwm_softc *sc)
 	int i, section, err;
 	uint16_t len;
 	uint8_t *buf;
-	const size_t bufsz = IWM_MAX_NVM_SECTION_SIZE;
+	const size_t bufsz = sc->sc_nvm_max_section_size;
 
 	memset(nvm_sections, 0, sizeof(nvm_sections));
 
@@ -3344,6 +3315,19 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 }
 
 int
+iwm_config_ltr(struct iwm_softc *sc)
+{
+	struct iwm_ltr_config_cmd cmd = {
+		.flags = htole32(IWM_LTR_CFG_FLAG_FEATURE_ENABLE),
+	};
+
+	if (!sc->sc_ltr_enabled)
+		return 0;
+
+	return iwm_send_cmd_pdu(sc, IWM_LTR_CONFIG, 0, sizeof(cmd), &cmd);
+}
+
+int
 iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 {
 	struct iwm_rx_ring *ring = &sc->rxq;
@@ -3390,33 +3374,6 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	    idx * sizeof(uint32_t), sizeof(uint32_t), BUS_DMASYNC_PREWRITE);
 
 	return 0;
-}
-
-#define IWM_RSSI_OFFSET 50
-int
-iwm_calc_rssi(struct iwm_softc *sc, struct iwm_rx_phy_info *phy_info)
-{
-	int rssi_a, rssi_b, rssi_a_dbm, rssi_b_dbm, max_rssi_dbm;
-	uint32_t agc_a, agc_b;
-	uint32_t val;
-
-	val = le32toh(phy_info->non_cfg_phy[IWM_RX_INFO_AGC_IDX]);
-	agc_a = (val & IWM_OFDM_AGC_A_MSK) >> IWM_OFDM_AGC_A_POS;
-	agc_b = (val & IWM_OFDM_AGC_B_MSK) >> IWM_OFDM_AGC_B_POS;
-
-	val = le32toh(phy_info->non_cfg_phy[IWM_RX_INFO_RSSI_AB_IDX]);
-	rssi_a = (val & IWM_OFDM_RSSI_INBAND_A_MSK) >> IWM_OFDM_RSSI_A_POS;
-	rssi_b = (val & IWM_OFDM_RSSI_INBAND_B_MSK) >> IWM_OFDM_RSSI_B_POS;
-
-	/*
-	 * dBm = rssi dB - agc dB - constant.
-	 * Higher AGC (higher radio gain) means lower signal.
-	 */
-	rssi_a_dbm = rssi_a - IWM_RSSI_OFFSET - agc_a;
-	rssi_b_dbm = rssi_b - IWM_RSSI_OFFSET - agc_b;
-	max_rssi_dbm = MAX(rssi_a_dbm, rssi_b_dbm);
-
-	return max_rssi_dbm;
 }
 
 /*
@@ -3531,11 +3488,7 @@ iwm_rx_rx_mpdu(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 
 	device_timestamp = le32toh(phy_info->system_timestamp);
 
-	if (sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_RX_ENERGY_API) {
-		rssi = iwm_get_signal_strength(sc, phy_info);
-	} else {
-		rssi = iwm_calc_rssi(sc, phy_info);
-	}
+	rssi = iwm_get_signal_strength(sc, phy_info);
 	rssi = (0 - IWM_MIN_DBM) + rssi;	/* normalize */
 	rssi = MIN(rssi, ic->ic_max_rssi);	/* clip to max. 100% */
 
@@ -4625,9 +4578,6 @@ iwm_power_update_device(struct iwm_softc *sc)
 		.flags = htole16(IWM_DEVICE_POWER_FLAGS_POWER_SAVE_ENA_MSK),
 	};
 
-	if (!(sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_DEVICE_PS_CMD))
-		return 0;
-
 	return iwm_send_cmd_pdu(sc,
 	    IWM_POWER_TABLE_CMD, 0, sizeof(cmd), &cmd);
 }
@@ -4657,8 +4607,6 @@ iwm_disable_beacon_filter(struct iwm_softc *sc)
 	int err;
 
 	memset(&cmd, 0, sizeof(cmd));
-	if ((sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_BF_UPDATED) == 0)
-		return 0;
 
 	err = iwm_beacon_filter_send_cmd(sc, &cmd);
 	if (err == 0)
@@ -5089,7 +5037,7 @@ iwm_config_umac_scan(struct iwm_softc *sc)
 	size_t cmd_size;
 	struct ieee80211_channel *c;
 	struct iwm_host_cmd hcmd = {
-		.id = iwm_cmd_id(IWM_SCAN_CFG_CMD, IWM_ALWAYS_LONG_GROUP, 0),
+		.id = iwm_cmd_id(IWM_SCAN_CFG_CMD, IWM_LONG_GROUP, 0),
 		.flags = 0,
 	};
 	static const uint32_t rates = (IWM_SCAN_CONFIG_RATE_1M |
@@ -5160,7 +5108,7 @@ iwm_umac_scan(struct iwm_softc *sc, int bgscan)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct iwm_host_cmd hcmd = {
-		.id = iwm_cmd_id(IWM_SCAN_REQ_UMAC, IWM_ALWAYS_LONG_GROUP, 0),
+		.id = iwm_cmd_id(IWM_SCAN_REQ_UMAC, IWM_LONG_GROUP, 0),
 		.len = { 0, },
 		.data = { NULL, },
 		.flags =0,
@@ -5654,7 +5602,7 @@ iwm_umac_scan_abort(struct iwm_softc *sc)
 	struct iwm_umac_scan_abort cmd = { 0 };
 
 	return iwm_send_cmd_pdu(sc,
-	    IWM_WIDE_ID(IWM_ALWAYS_LONG_GROUP, IWM_SCAN_ABORT_UMAC),
+	    IWM_WIDE_ID(IWM_LONG_GROUP, IWM_SCAN_ABORT_UMAC),
 	    0, sizeof(cmd), &cmd);
 }
 
@@ -6309,8 +6257,10 @@ iwm_sf_config(struct iwm_softc *sc, int new_state)
 	};
 	int err = 0;
 
+#if 0	/* only used for models with sdio interface, in iwlwifi */
 	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000)
 		sf_cmd.state |= htole32(IWM_SF_CFG_DUMMY_NOTIF_OFF);
+#endif
 
 	switch (new_state) {
 	case IWM_SF_UNINIT:
@@ -6353,6 +6303,11 @@ iwm_send_update_mcc_cmd(struct iwm_softc *sc, const char *alpha2)
 	int err;
 	int resp_v2 = isset(sc->sc_enabled_capa,
 	    IWM_UCODE_TLV_CAPA_LAR_SUPPORT_V2);
+
+	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000 &&
+	    !sc->sc_nvm.lar_enabled) {
+		return 0;
+	}
 
 	memset(&mcc_cmd, 0, sizeof(mcc_cmd));
 	mcc_cmd.mcc = htole16(alpha2[0] << 8 | alpha2[1]);
@@ -6486,6 +6441,13 @@ iwm_init_hw(struct iwm_softc *sc)
 	/* Initialize tx backoffs to the minimum. */
 	if (sc->sc_device_family == IWM_DEVICE_FAMILY_7000)
 		iwm_tt_tx_backoff(sc, 0);
+
+
+	err = iwm_config_ltr(sc);
+	if (err) {
+		printf("%s: PCIe LTR configuration failed (error %d)\n",
+		    DEVNAME(sc), err);
+	}
 
 	err = iwm_power_update_device(sc);
 	if (err) {
@@ -7202,6 +7164,8 @@ iwm_notif_intr(struct iwm_softc *sc)
 		}
 
 		case IWM_DTS_MEASUREMENT_NOTIFICATION:
+		case IWM_WIDE_ID(IWM_PHY_OPS_GROUP,
+				 IWM_DTS_MEASUREMENT_NOTIF_WIDE):
 			break;
 
 		case IWM_PHY_CONFIGURATION_CMD:
@@ -7210,11 +7174,12 @@ iwm_notif_intr(struct iwm_softc *sc)
 		case IWM_MAC_CONTEXT_CMD:
 		case IWM_REPLY_SF_CFG_CMD:
 		case IWM_POWER_TABLE_CMD:
+		case IWM_LTR_CONFIG:
 		case IWM_PHY_CONTEXT_CMD:
 		case IWM_BINDING_CONTEXT_CMD:
-		case IWM_WIDE_ID(IWM_ALWAYS_LONG_GROUP, IWM_SCAN_CFG_CMD):
-		case IWM_WIDE_ID(IWM_ALWAYS_LONG_GROUP, IWM_SCAN_REQ_UMAC):
-		case IWM_WIDE_ID(IWM_ALWAYS_LONG_GROUP, IWM_SCAN_ABORT_UMAC):
+		case IWM_WIDE_ID(IWM_LONG_GROUP, IWM_SCAN_CFG_CMD):
+		case IWM_WIDE_ID(IWM_LONG_GROUP, IWM_SCAN_REQ_UMAC):
+		case IWM_WIDE_ID(IWM_LONG_GROUP, IWM_SCAN_ABORT_UMAC):
 		case IWM_SCAN_OFFLOAD_REQUEST_CMD:
 		case IWM_SCAN_OFFLOAD_ABORT_CMD:
 		case IWM_REPLY_BEACON_FILTERING_CMD:
@@ -7255,7 +7220,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 		}
 
 		/* ignore */
-		case 0x6c: /* IWM_PHY_DB_CMD */
+		case IWM_PHY_DB_CMD:
 			break;
 
 		case IWM_INIT_COMPLETE_NOTIF:
@@ -7675,6 +7640,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		sc->host_interrupt_operation_mode = 1;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_7000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
+		sc->sc_nvm_max_section_size = 16384;
 		break;
 	case PCI_PRODUCT_INTEL_WL_3165_1:
 	case PCI_PRODUCT_INTEL_WL_3165_2:
@@ -7682,12 +7648,14 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		sc->host_interrupt_operation_mode = 0;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_7000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
+		sc->sc_nvm_max_section_size = 16384;
 		break;
 	case PCI_PRODUCT_INTEL_WL_3168_1:
 		sc->sc_fwname = "iwm-3168-22";
 		sc->host_interrupt_operation_mode = 0;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_7000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
+		sc->sc_nvm_max_section_size = 16384;
 		break;
 	case PCI_PRODUCT_INTEL_WL_7260_1:
 	case PCI_PRODUCT_INTEL_WL_7260_2:
@@ -7695,6 +7663,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		sc->host_interrupt_operation_mode = 1;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_7000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
+		sc->sc_nvm_max_section_size = 16384;
 		break;
 	case PCI_PRODUCT_INTEL_WL_7265_1:
 	case PCI_PRODUCT_INTEL_WL_7265_2:
@@ -7702,6 +7671,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		sc->host_interrupt_operation_mode = 0;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_7000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
+		sc->sc_nvm_max_section_size = 16384;
 		break;
 	case PCI_PRODUCT_INTEL_WL_8260_1:
 	case PCI_PRODUCT_INTEL_WL_8260_2:
@@ -7709,12 +7679,14 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		sc->host_interrupt_operation_mode = 0;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_8000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ_8000;
+		sc->sc_nvm_max_section_size = 32768;
 		break;
 	case PCI_PRODUCT_INTEL_WL_8265_1:
 		sc->sc_fwname = "iwm-8265-22";
 		sc->host_interrupt_operation_mode = 0;
 		sc->sc_device_family = IWM_DEVICE_FAMILY_8000;
 		sc->sc_fwdmasegsz = IWM_FWDMASEGSZ_8000;
+		sc->sc_nvm_max_section_size = 32768;
 		break;
 	default:
 		printf("%s: unknown adapter type\n", DEVNAME(sc));
@@ -7727,17 +7699,17 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	 * "dash" value). To keep hw_rev backwards compatible - we'll store it
 	 * in the old format.
 	 */
-	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000)
+	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000) {
+		uint32_t hw_step;
+
 		sc->sc_hw_rev = (sc->sc_hw_rev & 0xfff0) |
 				(IWM_CSR_HW_REV_STEP(sc->sc_hw_rev << 2) << 2);
 		
-	if (iwm_prepare_card_hw(sc) != 0) {
-		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return;
-	}
-
-	if (sc->sc_device_family == IWM_DEVICE_FAMILY_8000) {
-		uint32_t hw_step;
+		if (iwm_prepare_card_hw(sc) != 0) {
+			printf("%s: could not initialize hardware\n",
+			    DEVNAME(sc));
+			return;
+		}
 
 		/*
 		 * In order to recognize C step the driver should read the

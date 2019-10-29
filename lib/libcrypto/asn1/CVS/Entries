@@ -15,7 +15,7 @@
 /a_strnid.c/1.21/Sun Jan 29 17:49:22 2017//
 /a_time.c/1.27/Mon Oct 19 16:32:37 2015//
 /a_time_tm.c/1.15/Wed Apr 25 11:48:21 2018//
-/a_type.c/1.20/Wed Apr 25 11:48:21 2018//
+/a_type.c/1.21/Thu Oct 24 16:36:10 2019//
 /a_utf8.c/1.8/Fri Jul 11 08:44:47 2014//
 /a_verify.c/1.24/Tue May  2 03:59:44 2017//
 /ameth_lib.c/1.19/Fri Aug 24 20:22:15 2018//
@@ -23,7 +23,7 @@
 /asn1_err.c/1.21/Thu Mar 29 02:29:24 2018//
 /asn1_gen.c/1.17/Wed Apr 25 11:48:21 2018//
 /asn1_lib.c/1.44/Sat Nov 17 09:34:11 2018//
-/asn1_locl.h/1.11/Fri Aug 24 20:22:15 2018//
+/asn1_locl.h/1.12/Thu Oct 24 16:36:10 2019//
 /asn1_par.c/1.27/Sun Mar 24 16:07:25 2019//
 /asn1t.h/1.15/Tue Aug 20 13:10:09 2019//
 /asn_mime.c/1.27/Sun Jan 29 17:49:22 2017//

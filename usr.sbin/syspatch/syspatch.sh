@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.153 2019/10/20 09:10:43 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.157 2019/10/26 08:37:24 ajacoutot Exp $
 #
 # Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -130,8 +130,8 @@ fetch_and_verify()
 	[[ -n ${_tgz} ]]
 
 	[[ -t 0 ]] || echo "${_title} ${_tgz}"
-	unpriv -f "${_TMP}/${_tgz}" ftp -VD "${_title}" -o "${_TMP}/${_tgz}" \
-		"${_MIRROR}/${_tgz}"
+	unpriv -f "${_TMP}/${_tgz}" ftp -N syspatch -VD "${_title}" -o \
+		"${_TMP}/${_tgz}" "${_MIRROR}/${_tgz}"
 
 	(cd ${_TMP} && sha256 -qC ${_TMP}/SHA256 ${_tgz})
 }
@@ -164,9 +164,8 @@ ls_missing()
 	local _c _d _f _cmd _l="$(ls_installed)" _p _r _sha=${_TMP}/SHA256
 
 	# don't output anything on stdout to prevent corrupting the patch list
-	unpriv -f "${_sha}.sig" ftp -MVo "${_sha}.sig" "${_MIRROR}/SHA256.sig" \
-		>/dev/null 2>&1 ||
-		sp_err "failed to fetch ${_MIRROR}/SHA256.sig"
+	unpriv -f "${_sha}.sig" ftp -N syspatch -MVo "${_sha}.sig" \
+		"${_MIRROR}/SHA256.sig" >/dev/null
 	unpriv -f "${_sha}" signify -Veq -x ${_sha}.sig -m ${_sha} -p \
 		/etc/signify/openbsd-${_OSrev}-syspatch.pub >/dev/null
 
@@ -176,7 +175,8 @@ ls_missing()
 		while read _c; do _c=${_c##syspatch${_OSrev}-} &&
 		[[ -n ${_l} ]] && echo ${_c} | grep -qw -- "${_l}" || echo ${_c}
 	done | while read _p; do
-		_cmd="ftp -MVo - ${_MIRROR}/syspatch${_OSrev}-${_p}.tgz"
+		_cmd="ftp -N syspatch -MVo - \
+			${_MIRROR}/syspatch${_OSrev}-${_p}.tgz"
 		{ unpriv ${_cmd} | tar tzf -; } 2>/dev/null | while read _f; do
 			[[ -f /${_f} ]] || continue && echo ${_p} && pkill -u \
 				_syspatch -xf "${_cmd}" || true && break

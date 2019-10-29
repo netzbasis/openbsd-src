@@ -1,8 +1,8 @@
 /Makefile.inc/1.7/Mon Oct 21 02:36:43 2019//
 /SYS.h/1.1/Sun Aug 27 21:59:52 2017//
-/archdep.h/1.14/Fri Oct 27 16:47:08 2017//
+/archdep.h/1.15/Wed Oct 23 19:55:09 2019//
 /boot_md.c/1.1/Sun Oct 20 03:44:49 2019//
 /ldasm.S/1.24/Mon Sep  2 12:43:54 2019//
-/rtld_machine.c/1.31/Tue Aug  6 04:01:42 2019//
+/rtld_machine.c/1.32/Wed Oct 23 19:55:09 2019//
 /syscall.h/1.30/Sun Jul 14 03:23:12 2019//
 D

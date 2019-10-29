@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmreg.h,v 1.30 2019/10/18 07:07:53 stsp Exp $	*/
+/*	$OpenBSD: if_iwmreg.h,v 1.37 2019/10/28 18:11:10 stsp Exp $	*/
 
 /******************************************************************************
  *
@@ -565,21 +565,12 @@
  * @IWM_UCODE_TLV_FLAGS_UAPSD: This uCode image supports uAPSD
  * @IWM_UCODE_TLV_FLAGS_SHORT_BL: 16 entries of black list instead of 64 in scan
  *	offload profile config command.
- * @IWM_UCODE_TLV_FLAGS_RX_ENERGY_API: supports rx signal strength api
- * @IWM_UCODE_TLV_FLAGS_TIME_EVENT_API_V2: using the new time event API.
  * @IWM_UCODE_TLV_FLAGS_D3_6_IPV6_ADDRS: D3 image supports up to six
  *	(rather than two) IPv6 addresses
- * @IWM_UCODE_TLV_FLAGS_BF_UPDATED: new beacon filtering API
  * @IWM_UCODE_TLV_FLAGS_NO_BASIC_SSID: not sending a probe with the SSID element
  *	from the probe request template.
- * @IWM_UCODE_TLV_FLAGS_D3_CONTINUITY_API: modified D3 API to allow keeping
- *	connection when going back to D0
  * @IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_SMALL: new NS offload (small version)
  * @IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_LARGE: new NS offload (large version)
- * @IWM_UCODE_TLV_FLAGS_SCHED_SCAN: this uCode image supports scheduled scan.
- * @IWM_UCODE_TLV_FLAGS_STA_KEY_CMD: new ADD_STA and ADD_STA_KEY command API
- * @IWM_UCODE_TLV_FLAGS_DEVICE_PS_CMD: support device wide power command
- *	containing CAM (Continuous Active Mode) indication.
  * @IWM_UCODE_TLV_FLAGS_P2P_PS: P2P client power save is supported (only on a
  *	single bound interface).
  * @IWM_UCODE_TLV_FLAGS_UAPSD_SUPPORT: General support for uAPSD
@@ -594,20 +585,11 @@
 #define IWM_UCODE_TLV_FLAGS_MFP			(1 << 2)
 #define IWM_UCODE_TLV_FLAGS_P2P			(1 << 3)
 #define IWM_UCODE_TLV_FLAGS_DW_BC_TABLE		(1 << 4)
-#define IWM_UCODE_TLV_FLAGS_NEWBT_COEX		(1 << 5)
-#define IWM_UCODE_TLV_FLAGS_PM_CMD_SUPPORT	(1 << 6)
 #define IWM_UCODE_TLV_FLAGS_SHORT_BL		(1 << 7)
-#define IWM_UCODE_TLV_FLAGS_RX_ENERGY_API	(1 << 8)
-#define IWM_UCODE_TLV_FLAGS_TIME_EVENT_API_V2	(1 << 9)
 #define IWM_UCODE_TLV_FLAGS_D3_6_IPV6_ADDRS	(1 << 10)
-#define IWM_UCODE_TLV_FLAGS_BF_UPDATED		(1 << 11)
 #define IWM_UCODE_TLV_FLAGS_NO_BASIC_SSID	(1 << 12)
-#define IWM_UCODE_TLV_FLAGS_D3_CONTINUITY_API	(1 << 14)
 #define IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_SMALL	(1 << 15)
 #define IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_LARGE	(1 << 16)
-#define IWM_UCODE_TLV_FLAGS_SCHED_SCAN		(1 << 17)
-#define IWM_UCODE_TLV_FLAGS_STA_KEY_CMD		(1 << 19)
-#define IWM_UCODE_TLV_FLAGS_DEVICE_PS_CMD	(1 << 20)
 #define IWM_UCODE_TLV_FLAGS_P2P_PS		(1 << 21)
 #define IWM_UCODE_TLV_FLAGS_BSS_P2P_PS_DCM	(1 << 22)
 #define IWM_UCODE_TLV_FLAGS_BSS_P2P_PS_SCM	(1 << 23)
@@ -1768,11 +1750,12 @@ struct iwm_agn_scd_bc_tbl {
 /* Phy */
 #define IWM_PHY_CONFIGURATION_CMD		0x6a
 #define IWM_CALIB_RES_NOTIF_PHY_DB		0x6b
-/* IWM_PHY_DB_CMD	0x6c */
+#define IWM_PHY_DB_CMD				0x6c
 
 /* Power - legacy power table command */
 #define IWM_POWER_TABLE_CMD				0x77
 #define IWM_PSM_UAPSD_AP_MISBEHAVING_NOTIFICATION	0x78
+#define IWM_LTR_CONFIG					0xee
 
 /* Thermal Throttling*/
 #define IWM_REPLY_THERMAL_MNG_BACKOFF	0x7e
@@ -1852,6 +1835,22 @@ struct iwm_agn_scd_bc_tbl {
 #define IWM_FSEQ_VER_MISMATCH_NOTIFICATION	0xff
 
 #define IWM_REPLY_MAX	0xff
+
+/* PHY_OPS subcommand IDs */
+#define IWM_CMD_DTS_MEASUREMENT_TRIGGER_WIDE	0x0
+#define IWM_CTDP_CONFIG_CMD			0x03
+#define IWM_TEMP_REPORTING_THRESHOLDS_CMD	0x04
+#define IWM_CT_KILL_NOTIFICATION		0xFE
+#define IWM_DTS_MEASUREMENT_NOTIF_WIDE		0xFF
+
+/* command groups */
+#define IWM_LEGACY_GROUP	0x0
+#define IWM_LONG_GROUP		0x1
+#define IWM_SYSTEM_GROUP	0x2
+#define IWM_MAC_CONF_GROUP	0x3
+#define IWM_PHY_OPS_GROUP	0x4
+#define IWM_DATA_PATH_GROUP	0x5
+#define IWM_PROT_OFFLOAD_GROUP	0xb
 
 /* DATA_PATH group subcommand IDs */
 #define IWM_DQA_ENABLE_CMD	0x00
@@ -1959,8 +1958,6 @@ struct iwm_phy_cfg_cmd {
 #define IWM_PHY_DB_CALIB_CHG_TXP	5
 #define IWM_PHY_DB_MAX			6
 
-#define IWM_PHY_DB_CMD 0x6c /* TEMP API - The actual is 0x8c */
-
 /*
  * phy db - configure operational ucode
  */
@@ -2043,8 +2040,6 @@ struct iwm_calib_res_notif_phy_db {
 #define IWM_NVM_RF_CFG_TYPE_MSK_8000(x)		((x >> 12) & 0xFFF)
 #define IWM_NVM_RF_CFG_TX_ANT_MSK_8000(x)	((x >> 24) & 0xF)
 #define IWM_NVM_RF_CFG_RX_ANT_MSK_8000(x)	((x >> 28) & 0xF)
-
-#define DEFAULT_MAX_TX_POWER 16
 
 /*
  * channel flags in NVM
@@ -2380,51 +2375,7 @@ struct iwm_error_resp {
 /* IWM_MAC_EVENT_ACTION_API_E_VER_2 */
 
 
-/**
- * struct iwm_time_event_cmd_api_v1 - configuring Time Events
- * with struct IWM_MAC_TIME_EVENT_DATA_API_S_VER_1 (see also
- * with version 2. determined by IWM_UCODE_TLV_FLAGS)
- * ( IWM_TIME_EVENT_CMD = 0x29 )
- * @id_and_color: ID and color of the relevant MAC
- * @action: action to perform, one of IWM_FW_CTXT_ACTION_*
- * @id: this field has two meanings, depending on the action:
- *	If the action is ADD, then it means the type of event to add.
- *	For all other actions it is the unique event ID assigned when the
- *	event was added by the FW.
- * @apply_time: When to start the Time Event (in GP2)
- * @max_delay: maximum delay to event's start (apply time), in TU
- * @depends_on: the unique ID of the event we depend on (if any)
- * @interval: interval between repetitions, in TU
- * @interval_reciprocal: 2^32 / interval
- * @duration: duration of event in TU
- * @repeat: how many repetitions to do, can be IWM_TE_REPEAT_ENDLESS
- * @dep_policy: one of IWM_TE_V1_INDEPENDENT, IWM_TE_V1_DEP_OTHER, IWM_TE_V1_DEP_TSF
- *	and IWM_TE_V1_EVENT_SOCIOPATHIC
- * @is_present: 0 or 1, are we present or absent during the Time Event
- * @max_frags: maximal number of fragments the Time Event can be divided to
- * @notify: notifications using IWM_TE_V1_NOTIF_* (whom to notify when)
- */
-struct iwm_time_event_cmd_v1 {
-	/* COMMON_INDEX_HDR_API_S_VER_1 */
-	uint32_t id_and_color;
-	uint32_t action;
-	uint32_t id;
-	/* IWM_MAC_TIME_EVENT_DATA_API_S_VER_1 */
-	uint32_t apply_time;
-	uint32_t max_delay;
-	uint32_t dep_policy;
-	uint32_t depends_on;
-	uint32_t is_present;
-	uint32_t max_frags;
-	uint32_t interval;
-	uint32_t interval_reciprocal;
-	uint32_t duration;
-	uint32_t repeat;
-	uint32_t notify;
-} __packed; /* IWM_MAC_TIME_EVENT_CMD_API_S_VER_1 */
-
-
-/* Time event - defines for command API v2 */
+/* Time event - defines for command API */
 
 /**
  * DOC: Time Events - what is it?
@@ -2490,7 +2441,7 @@ struct iwm_time_event_cmd_v1 {
 #define IWM_TE_V2_PLACEMENT_POS	12
 #define IWM_TE_V2_ABSENCE_POS	15
 
-/* Time event policy values (for time event cmd api v2)
+/* Time event policy values
  * A notification (both event and fragment) includes a status indicating weather
  * the FW was able to schedule the event or not. For fragment start/end
  * notification the status is always success. There is no start/end fragment
@@ -2535,7 +2486,7 @@ struct iwm_time_event_cmd_v1 {
 #define IWM_TE_V2_ABSENCE		(1 << IWM_TE_V2_ABSENCE_POS)
 
 /**
- * struct iwm_time_event_cmd_api_v2 - configuring Time Events
+ * struct iwm_time_event_cmd_api - configuring Time Events
  * with struct IWM_MAC_TIME_EVENT_DATA_API_S_VER_2 (see also
  * with version 1. determined by IWM_UCODE_TLV_FLAGS)
  * ( IWM_TIME_EVENT_CMD = 0x29 )
@@ -2558,7 +2509,7 @@ struct iwm_time_event_cmd_v1 {
  *	IWM_TE_EVENT_SOCIOPATHIC
  *	using IWM_TE_ABSENCE and using IWM_TE_NOTIF_*
  */
-struct iwm_time_event_cmd_v2 {
+struct iwm_time_event_cmd {
 	/* COMMON_INDEX_HDR_API_S_VER_1 */
 	uint32_t id_and_color;
 	uint32_t action;
@@ -3597,6 +3548,55 @@ struct iwm_nonqos_seq_query_cmd {
 } __packed; /* IWM_NON_QOS_TX_COUNTER_GET_SET_API_S_VER_1 */
 
 /* Power Management Commands, Responses, Notifications */
+
+/**
+ * masks for LTR config command flags
+ * @IWM_LTR_CFG_FLAG_FEATURE_ENABLE: Feature operational status
+ * @IWM_LTR_CFG_FLAG_HW_DIS_ON_SHADOW_REG_ACCESS: allow LTR change on shadow
+ *      memory access
+ * @IWM_LTR_CFG_FLAG_HW_EN_SHRT_WR_THROUGH: allow LTR msg send on ANY LTR
+ *      reg change
+ * @IWM_LTR_CFG_FLAG_HW_DIS_ON_D0_2_D3: allow LTR msg send on transition from
+ *      D0 to D3
+ * @IWM_LTR_CFG_FLAG_SW_SET_SHORT: fixed static short LTR register
+ * @IWM_LTR_CFG_FLAG_SW_SET_LONG: fixed static short LONG register
+ * @IWM_LTR_CFG_FLAG_DENIE_C10_ON_PD: allow going into C10 on PD
+ */
+#define IWM_LTR_CFG_FLAG_FEATURE_ENABLE			0x00000001
+#define IWM_LTR_CFG_FLAG_HW_DIS_ON_SHADOW_REG_ACCESS	0x00000002
+#define IWM_LTR_CFG_FLAG_HW_EN_SHRT_WR_THROUGH		0x00000004
+#define IWM_LTR_CFG_FLAG_HW_DIS_ON_D0_2_D3		0x00000008
+#define IWM_LTR_CFG_FLAG_SW_SET_SHORT			0x00000010
+#define IWM_LTR_CFG_FLAG_SW_SET_LONG			0x00000020
+#define IWM_LTR_CFG_FLAG_DENIE_C10_ON_PD		0x00000040
+
+/**
+ * struct iwm_ltr_config_cmd_v1 - configures the LTR
+ * @flags: See %enum iwm_ltr_config_flags
+ */
+struct iwm_ltr_config_cmd_v1 {
+	uint32_t flags;
+	uint32_t static_long;
+	uint32_t static_short;
+} __packed; /* LTR_CAPABLE_API_S_VER_1 */
+
+#define IWM_LTR_VALID_STATES_NUM 4
+
+/**
+ * struct iwm_ltr_config_cmd - configures the LTR
+ * @flags: See %enum iwm_ltr_config_flags
+ * @static_long:
+ * @static_short:
+ * @ltr_cfg_values:
+ * @ltr_short_idle_timeout:
+ */
+struct iwm_ltr_config_cmd {
+	uint32_t flags;
+	uint32_t static_long;
+	uint32_t static_short;
+	uint32_t ltr_cfg_values[IWM_LTR_VALID_STATES_NUM];
+	uint32_t ltr_short_idle_timeout;
+} __packed; /* LTR_CAPABLE_API_S_VER_2 */
 
 /* Radio LP RX Energy Threshold measured in dBm */
 #define IWM_POWER_LPRX_RSSI_THRESHOLD	75
@@ -5866,11 +5866,6 @@ iwm_cmd_id(uint8_t opcode, uint8_t groupid, uint8_t version)
 
 /* make uint16_t wide id out of uint8_t group and opcode */
 #define IWM_WIDE_ID(grp, opcode) ((grp << 8) | opcode)
-
-/* due to the conversion, this group is special */
-#define IWM_ALWAYS_LONG_GROUP	1
-#define IWM_SYSTEM_GROUP	4
-#define IWM_DATA_PATH_GROUP	5
 
 struct iwm_cmd_header {
 	uint8_t code;
