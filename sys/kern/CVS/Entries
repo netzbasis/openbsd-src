@@ -44,7 +44,7 @@
 /kern_xxx.c/1.36/Tue Apr  2 11:00:22 2019//
 /makesyscalls.sh/1.13/Mon Sep 26 16:42:34 2016//
 /sched_bsd.c/1.56/Tue Oct 15 10:05:43 2019//
-/spec_vnops.c/1.97/Thu Jul 25 01:43:21 2019//
+/spec_vnops.c/1.98/Tue Oct 29 16:24:42 2019//
 /subr_autoconf.c/1.93/Wed Dec  5 15:44:22 2018//
 /subr_disk.c/1.234/Sat Apr 28 15:44:59 2018//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//

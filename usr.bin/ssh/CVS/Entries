@@ -120,7 +120,7 @@
 /pkcs11.h/1.3/Tue Nov 26 19:15:09 2013//
 /poly1305.c/1.3/Thu Dec 19 22:57:13 2013//
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
-/progressmeter.c/1.48/Fri May  3 06:06:30 2019//
+/progressmeter.c/1.49/Tue Oct 29 07:47:27 2019//
 /progressmeter.h/1.5/Thu Jan 24 16:52:17 2019//
 /readconf.c/1.309/Fri Sep  6 14:45:34 2019//
 /readconf.h/1.129/Fri Nov 23 05:08:07 2018//
@@ -193,7 +193,7 @@
 /sshconnect.h/1.39/Fri Sep 13 04:27:35 2019//
 /sshconnect2.c/1.308/Mon Aug  5 11:50:33 2019//
 /sshd.8/1.304/Sun Jul 22 12:16:59 2018//
-/sshd.c/1.537/Fri Jun 28 13:35:04 2019//
+/sshd.c/1.538/Tue Oct 29 07:47:27 2019//
 /sshd_config/1.103/Mon Apr  9 20:41:22 2018//
 /sshd_config.5/1.290/Fri Sep  6 14:45:34 2019//
 /ssherr.c/1.8/Tue Jul  3 11:39:54 2018//
