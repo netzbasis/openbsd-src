@@ -5,11 +5,11 @@
 /cert.c/1.7/Tue Aug 13 13:27:26 2019//
 /cms.c/1.5/Tue Aug 13 13:27:26 2019//
 /crl.c/1.5/Tue Aug 13 13:27:26 2019//
-/extern.h/1.9/Wed Oct 16 17:43:29 2019//
+/extern.h/1.10/Thu Oct 31 08:36:43 2019//
 /io.c/1.5/Tue Aug 13 13:34:43 2019//
 /ip.c/1.8/Thu Oct  3 07:55:34 2019//
 /log.c/1.4/Wed Jun 19 16:30:37 2019//
-/main.c/1.20/Wed Oct 16 21:43:41 2019//
+/main.c/1.21/Thu Oct 31 08:36:43 2019//
 /mft.c/1.8/Wed Oct 23 07:36:29 2019//
 /output-bgpd.c/1.12/Wed Oct 16 17:38:46 2019//
 /output-bird.c/1.1/Wed Oct 16 17:43:29 2019//
@@ -17,8 +17,8 @@
 /output-json.c/1.2/Wed Oct 16 17:38:46 2019//
 /roa.c/1.6/Wed Oct 16 17:37:46 2019//
 /rpki-client.8/1.7/Wed Oct 16 21:43:41 2019//
-/rsync.c/1.6/Wed Jun 19 16:30:37 2019//
-/tal.c/1.7/Tue Oct  8 10:04:36 2019//
+/rsync.c/1.7/Thu Oct 31 08:36:43 2019//
+/tal.c/1.8/Thu Oct 31 08:36:43 2019//
 /validate.c/1.5/Tue Oct  8 10:04:36 2019//
 /x509.c/1.7/Thu Jun 20 16:09:15 2019//
 D
