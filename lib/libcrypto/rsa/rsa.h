@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa.h,v 1.47 2019/11/01 15:13:05 jsing Exp $ */
+/* $OpenBSD: rsa.h,v 1.50 2019/11/02 13:52:31 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -331,7 +331,7 @@ const RSA_METHOD *RSA_get_default_method(void);
 const RSA_METHOD *RSA_get_method(const RSA *rsa);
 int RSA_set_method(RSA *rsa, const RSA_METHOD *meth);
 
-/* these are the actual SSLeay RSA functions */
+const RSA_METHOD *RSA_PKCS1_OpenSSL(void);
 const RSA_METHOD *RSA_PKCS1_SSLeay(void);
 
 const RSA_METHOD *RSA_null_method(void);
@@ -360,6 +360,21 @@ void RSA_PSS_PARAMS_free(RSA_PSS_PARAMS *a);
 RSA_PSS_PARAMS *d2i_RSA_PSS_PARAMS(RSA_PSS_PARAMS **a, const unsigned char **in, long len);
 int i2d_RSA_PSS_PARAMS(RSA_PSS_PARAMS *a, unsigned char **out);
 extern const ASN1_ITEM RSA_PSS_PARAMS_it;
+
+typedef struct rsa_oaep_params_st {
+	X509_ALGOR *hashFunc;
+	X509_ALGOR *maskGenFunc;
+	X509_ALGOR *pSourceFunc;
+
+	/* Hash algorithm decoded from maskGenFunc. */
+	X509_ALGOR *maskHash;
+} RSA_OAEP_PARAMS;
+
+RSA_OAEP_PARAMS *RSA_OAEP_PARAMS_new(void);
+void RSA_OAEP_PARAMS_free(RSA_OAEP_PARAMS *a);
+RSA_OAEP_PARAMS *d2i_RSA_OAEP_PARAMS(RSA_OAEP_PARAMS **a, const unsigned char **in, long len);
+int i2d_RSA_OAEP_PARAMS(RSA_OAEP_PARAMS *a, unsigned char **out);
+extern const ASN1_ITEM RSA_OAEP_PARAMS_it;
 
 int RSA_print_fp(FILE *fp, const RSA *r, int offset);
 
@@ -415,6 +430,12 @@ int RSA_padding_add_PKCS1_OAEP(unsigned char *to, int tlen,
 int RSA_padding_check_PKCS1_OAEP(unsigned char *to, int tlen,
     const unsigned char *f, int fl, int rsa_len,
     const unsigned char *p, int pl);
+int RSA_padding_add_PKCS1_OAEP_mgf1(unsigned char *to, int tlen,
+    const unsigned char *from, int flen, const unsigned char *param, int plen,
+    const EVP_MD *md, const EVP_MD *mgf1md);
+int RSA_padding_check_PKCS1_OAEP_mgf1(unsigned char *to, int tlen,
+    const unsigned char *from, int flen, int num, const unsigned char *param,
+    int plen, const EVP_MD *md, const EVP_MD *mgf1md);
 int RSA_padding_add_none(unsigned char *to, int tlen,
     const unsigned char *f, int fl);
 int RSA_padding_check_none(unsigned char *to, int tlen,

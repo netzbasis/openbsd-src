@@ -1,4 +1,4 @@
-/Makefile/1.36/Sun Mar 17 17:49:12 2019//
+/Makefile/1.37/Sat Nov  2 15:39:44 2019//
 /Makefile.inc/1.2/Tue Jul 17 17:06:49 2018//
 D/CA////
 D/aead////
@@ -11,6 +11,7 @@ D/bn////
 D/botan////
 D/cast////
 D/chacha////
+D/cms////
 D/cts128////
 D/curve25519////
 D/des////

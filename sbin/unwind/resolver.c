@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.48 2019/10/31 12:54:40 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.50 2019/11/02 20:05:39 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -162,7 +162,6 @@ static struct trust_anchor_head	 trust_anchors, new_trust_anchors;
 
 struct event_base		*ev_base;
 
-enum uw_resolver_state		 global_state = DEAD;
 enum captive_portal_state	 captive_portal_state = PORTAL_UNCHECKED;
 
 void
@@ -1282,7 +1281,8 @@ best_resolver(void)
 
 	if (captive_portal_state == PORTAL_UNKNOWN || captive_portal_state ==
 	    BEHIND) {
-		if (resolvers[UW_RES_ASR] != NULL) {
+		if (resolvers[UW_RES_ASR] != NULL && resolvers[UW_RES_ASR]->
+                    state != DEAD) {
 			res = resolvers[UW_RES_ASR];
 			goto out;
 		}
