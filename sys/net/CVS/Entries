@@ -36,8 +36,6 @@
 /if_loop.c/1.89/Tue Aug  6 22:57:54 2019//
 /if_media.c/1.31/Sun Apr 21 08:28:53 2019//
 /if_media.h/1.41/Sun Feb  4 10:06:51 2018//
-/if_mobileip.c/1.8/Sun Feb 18 23:53:17 2018//
-/if_mobileip.h/1.1/Wed Feb  7 01:09:57 2018//
 /if_mpe.c/1.94/Wed Jun 26 08:13:13 2019//
 /if_mpip.c/1.8/Wed Jun 26 08:13:13 2019//
 /if_mpw.c/1.55/Wed Jun 26 08:13:13 2019//

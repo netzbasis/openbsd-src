@@ -1,4 +1,4 @@
-/Makefile/1.10/Sun Aug 13 19:42:33 2017//
+/Makefile/1.11/Mon Nov  4 15:25:54 2019//
 /apps.c/1.54/Sun Jul 14 03:30:45 2019//
 /apps.h/1.23/Sun Jul 14 03:30:45 2019//
 /apps_posix.c/1.5/Fri Jul 13 18:36:56 2018//
@@ -6,6 +6,7 @@
 /ca.c/1.27/Wed Jul  3 03:24:02 2019//
 /certhash.c/1.17/Sun Jul 14 03:30:45 2019//
 /ciphers.c/1.10/Sun Jul 14 03:30:45 2019//
+/cms.c/1.13/Mon Nov  4 15:34:27 2019//
 /crl.c/1.13/Sun Jul 14 03:30:45 2019//
 /crl2p7.c/1.9/Sun Jul 14 03:30:45 2019//
 /dgst.c/1.18/Fri Aug 30 12:32:14 2019//
@@ -24,7 +25,7 @@
 /nseq.c/1.9/Sun Jul 14 03:30:46 2019//
 /ocsp.c/1.15/Wed Feb  7 05:49:36 2018//
 /openssl.1/1.114/Fri Oct  4 06:22:51 2019//
-/openssl.c/1.29/Sun Mar 17 17:46:00 2019//
+/openssl.c/1.30/Mon Nov  4 15:25:54 2019//
 /passwd.c/1.10/Sun Jul 14 03:30:46 2019//
 /pkcs12.c/1.14/Fri Jul 26 12:35:59 2019//
 /pkcs7.c/1.11/Sun Jul 14 03:30:46 2019//
@@ -33,7 +34,7 @@
 /pkeyparam.c/1.12/Sun Jul 14 03:30:46 2019//
 /pkeyutl.c/1.16/Sun Jul 14 03:30:46 2019//
 /prime.c/1.13/Sun Jul 14 03:30:46 2019//
-/progs.h/1.8/Mon Sep  5 10:45:19 2016//
+/progs.h/1.9/Mon Nov  4 15:25:54 2019//
 /rand.c/1.14/Sun Jul 14 03:30:46 2019//
 /req.c/1.16/Wed Jul  3 03:24:02 2019//
 /rsa.c/1.14/Sun Jul 14 03:30:46 2019//

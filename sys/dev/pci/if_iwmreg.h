@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmreg.h,v 1.37 2019/10/28 18:11:10 stsp Exp $	*/
+/*	$OpenBSD: if_iwmreg.h,v 1.40 2019/11/04 11:59:52 stsp Exp $	*/
 
 /******************************************************************************
  *
@@ -610,21 +610,36 @@
  * @IWM_UCODE_TLV_API_WIFI_MCC_UPDATE: ucode supports MCC updates with source.
  * @IWM_UCODE_TLV_API_WIDE_CMD_HDR: ucode supports wide command header
  * @IWM_UCODE_TLV_API_LQ_SS_PARAMS: Configure STBC/BFER via LQ CMD ss_params
- * @IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY: scan APIs use 8-level priority
- *	instead of 3.
+ * @IWM_UCODE_TLV_API_NEW_VERSION: new versioning format
  * @IWM_UCODE_TLV_API_TX_POWER_CHAIN: TX power API has larger command size
  *	(command version 3) that supports per-chain limits
+ * @IWM_UCODE_TLV_API_SCAN_TSF_REPORT: Scan start time reported in scan
+ *	iteration complete notification, and the timestamp reported for RX
+ *	received during scan, are reported in TSF of the mac specified in the
+ *	scan request.
+ * @IWM_UCODE_TLV_API_TKIP_MIC_KEYS: This ucode supports version 2 of
+ *	ADD_MODIFY_STA_KEY_API_S_VER_2.
+ * @IWM_UCODE_TLV_API_STA_TYPE: This ucode supports station type assignement.
+ * @IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY: scan APIs use 8-level priority
+ *	instead of 3.
+ * @IWM_UCODE_TLV_API_NEW_RX_STATS: should new RX STATISTICS API be used
  *
  * @IWM_NUM_UCODE_TLV_API: number of bits used
  */
-#define IWM_UCODE_TLV_API_FRAGMENTED_SCAN	(1 << 8)
-#define IWM_UCODE_TLV_API_WIFI_MCC_UPDATE	(1 << 9)
-#define IWM_UCODE_TLV_API_WIDE_CMD_HDR		(1 << 14)
-#define IWM_UCODE_TLV_API_LQ_SS_PARAMS		(1 << 18)
-#define IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY	(1 << 24)
-#define IWM_UCODE_TLV_API_TX_POWER_CHAIN	(1 << 27)
-#define IWM_UCODE_TLV_API_TKIP_MIC_KEYS         (1 << 29)
-#define IWM_NUM_UCODE_TLV_API = 32
+#define IWM_UCODE_TLV_API_FRAGMENTED_SCAN	8
+#define IWM_UCODE_TLV_API_WIFI_MCC_UPDATE	9
+#define IWM_UCODE_TLV_API_WIDE_CMD_HDR		14
+#define IWM_UCODE_TLV_API_LQ_SS_PARAMS		18
+#define IWM_UCODE_TLV_API_NEW_VERSION		20
+#define IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY	24
+#define IWM_UCODE_TLV_API_TX_POWER_CHAIN	27
+#define IWM_UCODE_TLV_API_SCAN_TSF_REPORT	28
+#define IWM_UCODE_TLV_API_TKIP_MIC_KEYS         29
+#define IWM_UCODE_TLV_API_STA_TYPE		30
+#define IWM_UCODE_TLV_API_NAN2_VER2		31
+#define IWM_UCODE_TLV_API_ADAPTIVE_DWELL	32
+#define IWM_UCODE_TLV_API_NEW_RX_STATS		35
+#define IWM_NUM_UCODE_TLV_API			128
 
 #define IWM_UCODE_TLV_API_BITS \
 	"\020\10FRAGMENTED_SCAN\11WIFI_MCC_UPDATE\16WIDE_CMD_HDR\22LQ_SS_PARAMS\30EXT_SCAN_PRIO\33TX_POWER_CHAIN\35TKIP_MIC_KEYS"
@@ -1145,14 +1160,14 @@ static inline unsigned int IWM_SCD_QUEUE_RDPTR(unsigned int chnl)
 {
 	if (chnl < 20)
 		return IWM_SCD_BASE + 0x68 + chnl * 4;
-	return IWM_SCD_BASE + 0x2B4 + (chnl - 20) * 4;
+	return IWM_SCD_BASE + 0x2B4 + chnl * 4;
 }
 
 static inline unsigned int IWM_SCD_QUEUE_STATUS_BITS(unsigned int chnl)
 {
 	if (chnl < 20)
 		return IWM_SCD_BASE + 0x10c + chnl * 4;
-	return IWM_SCD_BASE + 0x384 + (chnl - 20) * 4;
+	return IWM_SCD_BASE + 0x334 + chnl * 4;
 }
 
 /*********************** END TX SCHEDULER *************************************/
@@ -1737,6 +1752,9 @@ struct iwm_agn_scd_bc_tbl {
 #define IWM_CALIBRATION_COMPLETE_NOTIFICATION	0x67
 #define IWM_RADIO_VERSION_NOTIFICATION		0x68
 
+/* paging block to FW cpu2 */
+#define IWM_FW_PAGING_BLOCK_CMD	0x4f
+
 /* Scan offload */
 #define IWM_SCAN_OFFLOAD_REQUEST_CMD		0x51
 #define IWM_SCAN_OFFLOAD_ABORT_CMD		0x52
@@ -2099,6 +2117,57 @@ struct iwm_nvm_access_cmd {
 	uint16_t length;
 	uint8_t data[];
 } __packed; /* IWM_NVM_ACCESS_CMD_API_S_VER_2 */
+
+/*
+ * Block paging calculations
+ */
+#define IWM_PAGE_2_EXP_SIZE 12 /* 4K == 2^12 */
+#define IWM_FW_PAGING_SIZE (1 << IWM_PAGE_2_EXP_SIZE) /* page size is 4KB */
+#define IWM_PAGE_PER_GROUP_2_EXP_SIZE 3
+/* 8 pages per group */
+#define IWM_NUM_OF_PAGE_PER_GROUP (1 << IWM_PAGE_PER_GROUP_2_EXP_SIZE)
+/* don't change, support only 32KB size */
+#define IWM_PAGING_BLOCK_SIZE (IWM_NUM_OF_PAGE_PER_GROUP * IWM_FW_PAGING_SIZE)
+/* 32K == 2^15 */
+#define IWM_BLOCK_2_EXP_SIZE (IWM_PAGE_2_EXP_SIZE + IWM_PAGE_PER_GROUP_2_EXP_SIZE)
+
+/*
+ * Image paging calculations
+ */
+#define IWM_BLOCK_PER_IMAGE_2_EXP_SIZE 5
+/* 2^5 == 32 blocks per image */
+#define IWM_NUM_OF_BLOCK_PER_IMAGE (1 << IWM_BLOCK_PER_IMAGE_2_EXP_SIZE)
+/* maximum image size 1024KB */
+#define IWM_MAX_PAGING_IMAGE_SIZE (IWM_NUM_OF_BLOCK_PER_IMAGE * IWM_PAGING_BLOCK_SIZE)
+
+/* Virtual address signature */
+#define IWM_PAGING_ADDR_SIG 0xAA000000
+
+#define IWM_PAGING_CMD_IS_SECURED (1 << 9)
+#define IWM_PAGING_CMD_IS_ENABLED (1 << 8)
+#define IWM_PAGING_CMD_NUM_OF_PAGES_IN_LAST_GRP_POS 0
+#define IWM_PAGING_TLV_SECURE_MASK 1
+
+#define IWM_NUM_OF_FW_PAGING_BLOCKS	33 /* 32 for data and 1 block for CSS */
+
+/*
+ * struct iwm_fw_paging_cmd - paging layout
+ *
+ * (IWM_FW_PAGING_BLOCK_CMD = 0x4f)
+ *
+ * Send to FW the paging layout in the driver.
+ *
+ * @flags: various flags for the command
+ * @block_size: the block size in powers of 2
+ * @block_num: number of blocks specified in the command.
+ * @device_phy_addr: virtual addresses from device side
+*/
+struct iwm_fw_paging_cmd {
+	uint32_t flags;
+	uint32_t block_size;
+	uint32_t block_num;
+	uint32_t device_phy_addr[IWM_NUM_OF_FW_PAGING_BLOCKS];
+} __packed; /* IWM_FW_PAGING_BLOCK_CMD_API_S_VER_1 */
 
 /**
  * struct iwm_nvm_access_resp_ver2 - response to IWM_NVM_ACCESS_CMD
