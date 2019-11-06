@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: appstest.sh,v 1.25 2019/11/03 02:09:35 inoguchi Exp $
+# $OpenBSD: appstest.sh,v 1.27 2019/11/05 12:14:14 inoguchi Exp $
 #
 # Copyright (c) 2016 Kinichiro Inoguchi <inoguchi@openbsd.org>
 #
@@ -71,7 +71,7 @@ function test_usage_lists_others {
 	$openssl_bin -help 2>> $user1_dir/usages.out
 	for c in $cmds ; do
 		$openssl_bin $c -help 2>> $user1_dir/usages.out
-	done 
+	done
 	
 	start_message "check all list-* commands."
 	
@@ -529,7 +529,7 @@ organizationalUnitName  = optional
 commonName              = supplied
 emailAddress            = optional
 [ req ]
-distinguished_name      = req_distinguished_name 
+distinguished_name      = req_distinguished_name
 [ req_distinguished_name ]
 countryName                     = Country Name
 countryName_default             = JP
@@ -541,7 +541,7 @@ organizationName                = Organization Name
 organizationName_default        = TEST_DUMMY_COMPANY
 commonName                      = Common Name
 [ tsa ]
-default_tsa   = tsa_config1 
+default_tsa   = tsa_config1
 [ tsa_config1 ]
 dir           = ./$tsa_dir
 serial        = \$dir/serial
@@ -575,32 +575,32 @@ __EOF__
 	mkdir -p $ca_dir/newcerts
 	chmod 700 $ca_dir/private
 	echo "01" > $ca_dir/serial
-	touch $ca_dir/index.txt 
+	touch $ca_dir/index.txt
 	touch $ca_dir/crlnumber
 	echo "01" > $ca_dir/crlnumber
 	
-	# 
-	# setup test TSA 
+	#
+	# setup test TSA
 	#
 	mkdir -p $tsa_dir/private
 	chmod 700 $tsa_dir/private
 	echo "01" > $tsa_dir/serial
-	touch $tsa_dir/index.txt 
+	touch $tsa_dir/index.txt
 	
-	# 
-	# setup test OCSP 
+	#
+	# setup test OCSP
 	#
 	mkdir -p $ocsp_dir/private
 	chmod 700 $ocsp_dir/private
 	
 	#---------#---------#---------#---------#---------#---------#---------
 	
-	# --- CA initiate (generate CA key and cert) --- 
+	# --- CA initiate (generate CA key and cert) ---
 	
 	start_message "req ... generate CA key and self signed cert"
 	
-	ca_cert=$ca_dir/ca_cert.pem 
-	ca_key=$ca_dir/private/ca_key.pem ca_pass=test-ca-pass 
+	ca_cert=$ca_dir/ca_cert.pem
+	ca_key=$ca_dir/private/ca_key.pem ca_pass=test-ca-pass
 	
 	if [ $mingw = 0 ] ; then
 		subj='/C=JP/ST=Tokyo/O=TEST_DUMMY_COMPANY/CN=testCA.test_dummy.com/'
@@ -657,7 +657,7 @@ __EOF__
 	
 	start_message "req ... generate OCSP key and cert"
 	
-	# generate CSR for OCSP 
+	# generate CSR for OCSP
 	
 	ocsp_csr=$ocsp_dir/ocsp_csr.pem
 	ocsp_key=$ocsp_dir/private/ocsp_key.pem
@@ -679,7 +679,7 @@ __EOF__
 	$openssl_bin ca -batch -cert $ca_cert -keyfile $ca_key -keyform pem \
 		-key $ca_pass -out $ocsp_cert -extensions ocsp_ext \
 		-startdate `date -u '+%y%m%d%H%M%SZ'` -enddate 491223235959Z \
-		-subj $subj -infiles $ocsp_csr 
+		-subj $subj -infiles $ocsp_csr
 	check_exit_status $?
 	
 	#---------#---------#---------#---------#---------#---------#---------
@@ -943,6 +943,61 @@ __EOF__
 	
 	$openssl_bin ts -verify -queryfile $tsa_tsq -in $tsa_tsr \
 		-CAfile $ca_cert -untrusted $tsa_cert
+	check_exit_status $?
+}
+
+function test_cms {
+	# --- CMS operations ---
+	section_message "CMS operations"
+	
+	cms_txt=$user1_dir/cms.txt
+	cms_sig=$user1_dir/cms.sig
+	cms_enc=$user1_dir/cms.enc
+	cms_dec=$user1_dir/cms.dec
+	cms_sgr=$user1_dir/cms.sgr
+	cms_ver=$user1_dir/cms.ver
+	
+	cat << __EOF__ > $cms_txt
+Hello Bob,
+Sincerely yours
+Alice
+__EOF__
+	
+	# sign
+	start_message "cms ... sign to message"
+	
+	$openssl_bin cms -sign -in $cms_txt -text \
+		-out $cms_sig -outform smime \
+		-signer $user1_cert -inkey $user1_key -keyform pem \
+		-passin pass:$user1_pass -md sha256 \
+		-from user1@test_dummy.com -to server@test_dummy.com \
+		-subject "test openssl cms"
+	check_exit_status $?
+	
+	# encrypt
+	start_message "cms ... encrypt message"
+
+	$openssl_bin cms -encrypt -aes256 -binary -in $cms_sig -inform smime \
+		-out $cms_enc $server_cert
+	check_exit_status $?
+
+	# decrypt
+	start_message "cms ... decrypt message"
+
+	$openssl_bin cms -decrypt -in $cms_enc -out $cms_dec \
+		-recip $server_cert -inkey $server_key -passin pass:$server_pass
+	check_exit_status $?
+
+	# verify
+	start_message "cms ... verify message"
+	
+	$openssl_bin cms -verify -in $cms_dec \
+		-CAfile $ca_cert -certfile $user1_cert -nointern \
+		-check_ss_sig -issuer_checks -policy_check -x509_strict \
+		-signer $cms_sgr -text -out $cms_ver
+	check_exit_status $?
+
+	diff -b $cms_ver $cms_txt
 	check_exit_status $?
 }
 
@@ -1411,6 +1466,7 @@ test_encoding_cipher
 test_key
 test_pki
 test_tsa
+test_cms
 test_smime
 test_ocsp
 test_pkcs

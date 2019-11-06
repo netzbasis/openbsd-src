@@ -22,7 +22,7 @@
 /intr.c/1.59/Wed Mar 21 14:25:14 2018//
 /intreg.h/1.3/Mon Jun  2 23:27:56 2003//
 /ipifuncs.c/1.19/Tue Aug  6 18:06:32 2019//
-/locore.s/1.186/Tue May 16 20:53:42 2017//
+/locore.s/1.187/Tue Nov  5 08:17:21 2019//
 /machdep.c/1.191/Mon Apr  1 07:00:52 2019//
 /mdesc.c/1.8/Sun Oct 20 16:27:19 2019//
 /mem.c/1.19/Thu Dec 14 03:30:43 2017//
