@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwind.h,v 1.21 2019/11/03 09:46:11 otto Exp $	*/
+/*	$OpenBSD: unwind.h,v 1.23 2019/11/06 16:26:33 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -28,7 +28,7 @@
 #endif
 
 #define CONF_FILE	"/etc/unwind.conf"
-#define	UNWIND_SOCKET	"/var/run/unwind.sock"
+#define	UNWIND_SOCKET	"/dev/unwind.sock"
 #define UNWIND_USER	"_unwind"
 
 #define OPT_VERBOSE	0x00000001
@@ -66,7 +66,7 @@ enum uw_resolver_type {
 static const char * const	uw_resolver_type_str[] = {
 	"recursor",
 	"dhcp",
-	"asr",
+	"stub",
 	"forwarder",
 	"DoT"
 };

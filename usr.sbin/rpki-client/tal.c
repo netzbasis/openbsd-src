@@ -1,4 +1,4 @@
-/*	$OpenBSD: tal.c,v 1.10 2019/11/04 09:39:06 claudio Exp $ */
+/*	$OpenBSD: tal.c,v 1.13 2019/11/06 08:29:03 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -60,6 +60,12 @@ tal_parse_buffer(const char *fn, char *buf)
 		/* Zero-length line is end of section. */
 		if (*line == '\0')
 			break;
+
+		/* ignore https URI for now. */
+		if (strncasecmp(line, "https://", 8) == 0) {
+			warnx("%s: https schema ignored", line);
+			continue;
+		}
 
 		/* Append to list of URIs. */
 		tal->uri = reallocarray(tal->uri,
@@ -141,6 +147,8 @@ tal_parse(const char *fn, char *buf)
 	size_t		 dlen;
 
 	p = tal_parse_buffer(fn, buf);
+	if (p == NULL)
+		return NULL;
 
 	/* extract the TAL basename (without .tal suffix) */
 	d = basename(fn);
@@ -199,9 +207,12 @@ tal_read_file(const char *file)
 		/* concat line to buf */
 		if ((nbuf = realloc(buf, bsz + n + 1)) == NULL)
 			err(EXIT_FAILURE, NULL);
+		if (buf == NULL)
+			nbuf[0] = '\0';	/* initialize buffer */
 		buf = nbuf;
 		bsz += n + 1;
-		strlcat(buf, line, bsz);
+		if (strlcat(buf, line, bsz) >= bsz)
+			errx(EXIT_FAILURE, "strlcat overflow");
 		/* limit the buffer size */
 		if (bsz > 4096)
 			errx(EXIT_FAILURE, "%s: file too big", file);

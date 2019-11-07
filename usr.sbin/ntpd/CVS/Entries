@@ -12,9 +12,9 @@
 /ntpctl.8/1.8/Wed Mar 11 19:38:48 2015//
 /ntpd.8/1.43/Thu Jun 20 12:20:20 2019//
 /ntpd.c/1.124/Fri Jun 28 13:32:49 2019//
-/ntpd.conf.5/1.37/Thu Aug 10 22:59:42 2017//
+/ntpd.conf.5/1.38/Wed Nov  6 13:35:25 2019//
 /ntpd.h/1.146/Tue Jul 16 14:15:40 2019//
-/parse.y/1.73/Tue Jul 16 14:15:40 2019//
+/parse.y/1.74/Wed Nov  6 13:35:25 2019//
 /sensors.c/1.52/Sat Sep  3 11:52:06 2016//
 /server.c/1.44/Sat Sep  3 11:52:06 2016//
 /util.c/1.24/Wed Mar  1 00:56:30 2017//
