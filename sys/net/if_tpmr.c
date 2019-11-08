@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tpmr.c,v 1.5 2019/11/06 03:51:26 dlg Exp $ */
+/*	$OpenBSD: if_tpmr.c,v 1.7 2019/11/07 08:07:17 dlg Exp $ */
 
 /*
  * Copyright (c) 2019 The University of Queensland
@@ -86,7 +86,7 @@ struct tpmr_port {
 	int (*p_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
 	    struct rtentry *);
 
-	void			*p_lcookie;
+	struct task		 p_ltask;
 	struct task		 p_dtask;
 
 	struct tpmr_softc	*p_tpmr;
@@ -197,6 +197,9 @@ tpmr_clone_destroy(struct ifnet *ifp)
 
 	if (ISSET(ifp->if_flags, IFF_RUNNING))
 		tpmr_down(sc);
+	NET_UNLOCK();
+
+	if_detach(ifp);
 
 	for (i = 0; i < nitems(sc->sc_ports); i++) {
 		struct tpmr_port *p = SMR_PTR_GET_LOCKED(&sc->sc_ports[i]);
@@ -204,9 +207,6 @@ tpmr_clone_destroy(struct ifnet *ifp)
 			continue;
 		tpmr_p_dtor(sc, p, "destroy");
 	}
-	NET_UNLOCK();
-
-	if_detach(ifp);
 
 	free(sc, M_DEVBUF, sizeof(*sc));
 
@@ -563,8 +563,9 @@ tpmr_add_port(struct tpmr_softc *sc, const struct trunk_reqport *rp)
 	if (error != 0)
 		goto free;
 
-	p->p_lcookie = hook_establish(ifp0->if_linkstatehooks, 1,
-	    tpmr_p_linkch, p);
+	task_set(&p->p_ltask, tpmr_p_linkch, p);
+	if_linkstatehook_add(ifp0, &p->p_ltask);
+
 	task_set(&p->p_dtask, tpmr_p_detach, p);
 	if_detachhook_add(ifp0, &p->p_dtask);
 
@@ -725,7 +726,7 @@ tpmr_p_dtor(struct tpmr_softc *sc, struct tpmr_port *p, const char *op)
 	}
 
 	if_detachhook_del(ifp0, &p->p_dtask);
-	hook_disestablish(ifp0->if_linkstatehooks, p->p_lcookie);
+	if_linkstatehook_del(ifp0, &p->p_ltask);
 
 	smr_barrier();
 
