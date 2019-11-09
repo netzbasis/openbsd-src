@@ -22,8 +22,8 @@
 /scsi_tape.h/1.11/Fri Sep 27 23:07:42 2019//
 /scsiconf.c/1.217/Fri Sep 27 17:22:31 2019//
 /scsiconf.h/1.176/Fri Sep 27 23:07:42 2019//
-/sd.c/1.293/Thu Nov  7 17:45:22 2019//
-/sdvar.h/1.44/Wed Oct 23 13:50:50 2019//
+/sd.c/1.294/Fri Nov  8 16:13:28 2019//
+/sdvar.h/1.45/Fri Nov  8 16:13:28 2019//
 /ses.c/1.58/Fri Sep 27 17:22:31 2019//
 /ses.h/1.10/Thu May 11 00:45:59 2006//
 /st.c/1.169/Sun Sep 29 17:57:36 2019//
