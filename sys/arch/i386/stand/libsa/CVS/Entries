@@ -17,7 +17,7 @@
 /elf64.c/1.1/Wed May 30 01:25:43 2007//
 /exec_i386.c/1.50/Sat Jun  8 02:52:20 2019//
 /gateA20.c/1.11/Fri Sep  8 05:36:52 2017//
-/gidt.S/1.36/Wed Oct 31 13:55:58 2012//
+/gidt.S/1.37/Sat Nov  9 17:58:48 2019//
 /gidt.h/1.1/Fri Mar 19 13:48:18 2004//
 /libsa.h/1.45/Fri Jul  2 00:36:52 2010//
 /machdep.c/1.39/Wed Jul 11 18:08:05 2018//

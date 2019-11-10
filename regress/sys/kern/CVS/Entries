@@ -1,4 +1,4 @@
-/Makefile/1.84/Mon Aug  5 15:18:34 2019//
+/Makefile/1.85/Sat Nov  9 21:12:03 2019//
 D/__syscall////
 D/accept////
 D/access////
@@ -35,6 +35,7 @@ D/mount////
 D/nanosleep////
 D/noexec////
 D/open////
+D/pipe////
 D/pledge////
 D/pread////
 D/preadv////
