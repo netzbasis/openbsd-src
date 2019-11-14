@@ -1,9 +1,11 @@
-#	$OpenBSD: Makefile.inc,v 1.73 2019/10/31 21:37:33 djm Exp $
+#	$OpenBSD: Makefile.inc,v 1.75 2019/11/12 19:29:24 markus Exp $
 
 .include <bsd.own.mk>
 
 CFLAGS+=	-I${.CURDIR}/..
+.if ${MACHINE} != "hppa"
 CFLAGS+=	-fstack-protector-all
+.endif
 
 CDIAGFLAGS=	-Wall
 CDIAGFLAGS+=	-Wextra
@@ -78,6 +80,7 @@ SRCS_KEY+=	rijndael.c
 SRCS_KEY+=	digest-libc.c
 .endif
 SRCS_KEY+=	ssh-ed25519.c
+SRCS_KEY+=	ssh-ed25519-sk.c
 # ed25519, from supercop
 SRCS_KEY+=	sc25519.c
 SRCS_KEY+=	ge25519.c

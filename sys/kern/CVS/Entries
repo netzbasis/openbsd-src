@@ -25,14 +25,14 @@
 /kern_proc.c/1.85/Mon Nov 12 15:09:17 2018//
 /kern_prot.c/1.76/Tue Jul  9 12:23:25 2019//
 /kern_resource.c/1.68/Mon Jul 15 20:44:48 2019//
-/kern_rwlock.c/1.40/Tue Jul 16 01:40:49 2019//
+/kern_rwlock.c/1.41/Tue Nov 12 07:51:46 2019//
 /kern_sched.c/1.62/Mon Nov  4 18:06:03 2019//
 /kern_sensors.c/1.38/Sun Apr  9 15:47:18 2017//
 /kern_sig.c/1.235/Sun Oct  6 16:24:14 2019//
 /kern_smr.c/1.5/Wed Jul  3 22:39:33 2019//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
-/kern_synch.c/1.153/Tue Oct 15 10:05:43 2019//
+/kern_synch.c/1.154/Tue Nov 12 04:20:21 2019//
 /kern_sysctl.c/1.367/Tue Oct 22 21:19:22 2019//
 /kern_task.c/1.26/Sun Jun 23 12:56:10 2019//
 /kern_tc.c/1.50/Sat Oct 26 21:16:38 2019//
@@ -63,7 +63,7 @@
 /subr_xxx.c/1.17/Fri May 17 03:53:08 2019//
 /sys_futex.c/1.13/Wed Jul 10 15:52:17 2019//
 /sys_generic.c/1.126/Thu Oct  3 18:47:19 2019//
-/sys_pipe.c/1.96/Sat Nov  9 19:02:31 2019//
+/sys_pipe.c/1.98/Mon Nov 11 16:45:46 2019//
 /sys_process.c/1.80/Mon Feb 19 09:25:13 2018//
 /sys_socket.c/1.42/Mon Nov 19 13:15:37 2018//
 /syscalls.c/1.207/Tue Aug 13 07:10:30 2019//

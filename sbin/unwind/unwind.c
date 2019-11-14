@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwind.c,v 1.34 2019/11/09 16:28:10 florian Exp $	*/
+/*	$OpenBSD: unwind.c,v 1.36 2019/11/14 08:34:17 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -73,8 +73,8 @@ int		main_reload(void);
 int		main_sendall(enum imsg_type, void *, uint16_t);
 void		open_dhcp_lease(int);
 void		open_ports(void);
-void		resolve_captive_portal(void);
-void		resolve_captive_portal_done(struct asr_result *, void *);
+void		solicit_dns_proposals(void);
+void		connect_captive_portal_host(struct in_addr *);
 void		send_blocklist_fd(void);
 
 struct uw_conf	*main_conf;
@@ -88,6 +88,8 @@ pid_t		 resolver_pid;
 pid_t		 captiveportal_pid;
 
 uint32_t	 cmd_opts;
+
+int		 routesock;
 
 void
 main_sig_handler(int sig, short event, void *arg)
@@ -298,6 +300,11 @@ main(int argc, char *argv[])
 	    &rtfilter, sizeof(rtfilter)) == -1)
 		fatal("setsockopt(ROUTE_MSGFILTER)");
 
+	if ((routesock = socket(AF_ROUTE, SOCK_RAW | SOCK_CLOEXEC |
+	    SOCK_NONBLOCK, AF_INET6)) == -1)
+		fatal("route socket");
+	shutdown(SHUT_RD, routesock);
+
 	if ((ta_fd = open(TRUST_ANCHOR_FILE, O_RDWR | O_CREAT, 0644)) == -1)
 		log_warn("%s", TRUST_ANCHOR_FILE);
 
@@ -311,7 +318,7 @@ main(int argc, char *argv[])
 	if (main_conf->blocklist_file != NULL)
 		send_blocklist_fd();
 
-	if (pledge("stdio inet dns rpath sendfd", NULL) == -1)
+	if (pledge("stdio inet rpath sendfd", NULL) == -1)
 		fatal("pledge");
 
 	main_imsg_compose_frontend(IMSG_STARTUP, 0, NULL, 0);
@@ -441,6 +448,7 @@ main_dispatch_frontend(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_STARTUP_DONE:
+			solicit_dns_proposals();
 			open_ports();
 			break;
 		case IMSG_CTL_RELOAD:
@@ -485,6 +493,7 @@ main_dispatch_resolver(int fd, short event, void *bula)
 	struct imsgev		*iev = bula;
 	struct imsgbuf		*ibuf;
 	struct imsg		 imsg;
+	struct in_addr		*in;
 	ssize_t			 n;
 	int			 shut = 0;
 
@@ -510,8 +519,13 @@ main_dispatch_resolver(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
-		case IMSG_RESOLVE_CAPTIVE_PORTAL:
-			resolve_captive_portal();
+		case IMSG_CONNECT_CAPTIVE_PORTAL_HOST:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(*in))
+				fatalx("%s: IMSG_CONNECT_CAPTIVE_PORTAL_HOST "
+				    "wrong length: %lu", __func__,
+				    IMSG_DATA_SIZE(imsg));
+			in = (struct in_addr *)imsg.data;
+			connect_captive_portal_host(in);
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -955,62 +969,59 @@ open_ports(void)
 }
 
 void
-resolve_captive_portal(void)
+solicit_dns_proposals(void)
 {
-	struct addrinfo	 hints;
-	void		*as;
+	struct rt_msghdr		 rtm;
+	struct iovec			 iov[1];
+	int				 iovcnt = 0;
 
-	if (main_conf->captive_portal_host == NULL)
-		return;
+	memset(&rtm, 0, sizeof(rtm));
 
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_INET;
-	hints.ai_socktype = SOCK_STREAM;
+	rtm.rtm_version = RTM_VERSION;
+	rtm.rtm_type = RTM_PROPOSAL;
+	rtm.rtm_msglen = sizeof(rtm);
+	rtm.rtm_tableid = 0;
+	rtm.rtm_index = 0;
+	rtm.rtm_seq = arc4random();
+	rtm.rtm_priority = RTP_PROPOSAL_SOLICIT;
 
-	log_debug("%s: %s", __func__, main_conf->captive_portal_host);
+	iov[iovcnt].iov_base = &rtm;
+	iov[iovcnt++].iov_len = sizeof(rtm);
 
-	if ((as = getaddrinfo_async(main_conf->captive_portal_host, "www",
-	    &hints, NULL)) != NULL)
-		event_asr_run(as, resolve_captive_portal_done, NULL);
-	else
-		log_warn("%s: getaddrinfo_async", __func__);
-
+	if (writev(routesock, iov, iovcnt) == -1)
+		log_warn("failed to send solicitation");
 }
 
 void
-resolve_captive_portal_done(struct asr_result *ar, void *arg)
+connect_captive_portal_host(struct in_addr *in)
 {
-	struct addrinfo	*res;
-	int		 httpsock;
+	struct sockaddr		*sa;
+	struct sockaddr_in	 sin;
+	int			 httpsock;
 
-	if (ar->ar_gai_errno) {
-		log_warnx("%s: %s", __func__, gai_strerror(ar->ar_gai_errno));
+	sa = (struct sockaddr *)&sin;
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_len = sizeof(sin);
+	sin.sin_family = AF_INET;
+	sin.sin_addr = *in;
+	sin.sin_port = htons(80);
+	log_debug("%s: ip_port: %s", __func__, ip_port(sa));
+
+	if ((httpsock = socket(AF_INET, SOCK_STREAM |
+	    SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) == -1) {
+		log_warn("%s: socket", __func__);
 		return;
 	}
-
-	for (res = ar->ar_addrinfo; res; res = res->ai_next) {
-		if (res->ai_family != PF_INET)
-			continue;
-		log_debug("%s: ip_port: %s", __func__,
-		    ip_port(res->ai_addr));
-
-		if ((httpsock = socket(AF_INET, SOCK_STREAM |
-		    SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) == -1) {
-			log_warn("%s: socket", __func__);
-			break;
+	if (connect(httpsock, sa, sizeof(sin)) == -1) {
+		if (errno != EINPROGRESS) {
+			log_warn("%s: connect", __func__);
+			close(httpsock);
+			return;
 		}
-		if (connect(httpsock, res->ai_addr, res->ai_addrlen) == -1) {
-			if (errno != EINPROGRESS) {
-				log_warn("%s: connect", __func__);
-				close(httpsock);
-				break;
-			}
-		}
-		main_imsg_compose_captiveportal_fd(IMSG_HTTPSOCK, 0,
-		    httpsock);
 	}
 
-	freeaddrinfo(ar->ar_addrinfo);
+	main_imsg_compose_captiveportal_fd(IMSG_HTTPSOCK, 0,
+	    httpsock);
 }
 
 void
