@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.164 2019/11/14 08:00:30 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.166 2019/11/15 11:21:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2210,6 +2210,12 @@ input_exit_osc(struct input_ctx *ictx)
 		break;
 	case 4:
 		input_osc_4(ictx, p);
+		break;
+	case 7:
+		if (utf8_isvalid(p)) {
+			screen_set_path(sctx->s, p);
+			server_status_window(ictx->wp->window);
+		}
 		break;
 	case 10:
 		input_osc_10(ictx, p);
