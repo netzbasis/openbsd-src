@@ -25,7 +25,7 @@
 /kern_proc.c/1.85/Mon Nov 12 15:09:17 2018//
 /kern_prot.c/1.76/Tue Jul  9 12:23:25 2019//
 /kern_resource.c/1.68/Mon Jul 15 20:44:48 2019//
-/kern_rwlock.c/1.41/Tue Nov 12 07:51:46 2019//
+/kern_rwlock.c/1.42/Sat Nov 16 16:21:10 2019//
 /kern_sched.c/1.62/Mon Nov  4 18:06:03 2019//
 /kern_sensors.c/1.38/Sun Apr  9 15:47:18 2017//
 /kern_sig.c/1.235/Sun Oct  6 16:24:14 2019//
