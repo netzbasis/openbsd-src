@@ -10,7 +10,7 @@
 /PROTOCOL.krl/1.5/Wed Sep 12 01:21:34 2018//
 /PROTOCOL.mux/1.11/Wed Sep 26 07:30:05 2018//
 /PROTOCOL.sshsig/1.2/Tue Sep  3 08:35:27 2019//
-/PROTOCOL.u2f/1.4/Tue Nov 12 19:34:40 2019//
+/PROTOCOL.u2f/1.7/Mon Nov 18 04:34:47 2019//
 /README/1.7/Sat Apr  1 05:37:46 2006//
 /addrmatch.c/1.14/Tue Jul 31 03:07:24 2018//
 /atomicio.c/1.30/Thu Jan 24 02:42:23 2019//
@@ -167,8 +167,8 @@
 /ssh-ed25519-sk.c/1.2/Tue Nov 12 19:34:40 2019//
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
-/ssh-keygen.1/1.174/Thu Nov 14 21:27:30 2019//
-/ssh-keygen.c/1.364/Thu Nov 14 21:27:30 2019//
+/ssh-keygen.1/1.175/Mon Nov 18 04:50:45 2019//
+/ssh-keygen.c/1.365/Mon Nov 18 01:59:48 2019//
 /ssh-keyscan.1/1.44/Mon Mar  5 07:03:18 2018//
 /ssh-keyscan.c/1.130/Fri Sep  6 05:23:55 2019//
 /ssh-keysign.8/1.15/Wed Feb 17 07:38:19 2016//
@@ -192,7 +192,7 @@
 /ssh_api.c/1.19/Thu Oct 31 21:23:19 2019//
 /ssh_api.h/1.2/Tue Apr 10 00:10:49 2018//
 /ssh_config/1.34/Mon Feb  4 02:39:42 2019//
-/ssh_config.5/1.306/Thu Nov 14 21:27:30 2019//
+/ssh_config.5/1.307/Mon Nov 18 04:55:02 2019//
 /sshbuf-getput-basic.c/1.9/Fri Sep  6 04:53:27 2019//
 /sshbuf-getput-crypto.c/1.8/Fri Nov 15 06:00:20 2019//
 /sshbuf-misc.c/1.11/Tue Jul 30 05:04:49 2019//
@@ -201,10 +201,10 @@
 /sshconnect.c/1.323/Wed Nov 13 04:47:52 2019//
 /sshconnect.h/1.39/Fri Sep 13 04:27:35 2019//
 /sshconnect2.c/1.314/Fri Nov 15 02:37:24 2019//
-/sshd.8/1.305/Thu Nov  7 08:38:38 2019//
+/sshd.8/1.306/Mon Nov 18 04:55:02 2019//
 /sshd.c/1.540/Wed Nov 13 11:25:11 2019//
 /sshd_config/1.103/Mon Apr  9 20:41:22 2018//
-/sshd_config.5/1.291/Thu Nov  7 08:38:38 2019//
+/sshd_config.5/1.292/Mon Nov 18 04:55:02 2019//
 /ssherr.c/1.8/Tue Jul  3 11:39:54 2018//
 /ssherr.h/1.6/Tue Jul  3 11:39:54 2018//
 /sshkey-xmss.c/1.8/Wed Nov 13 07:53:10 2019//

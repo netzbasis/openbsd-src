@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.29 2019/11/17 00:10:47 beck Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.33 2019/11/18 02:44:20 jsing Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -120,6 +120,7 @@ int tls13_record_layer_set_read_traffic_key(struct tls13_record_layer *rl,
     struct tls13_secret *read_key);
 int tls13_record_layer_set_write_traffic_key(struct tls13_record_layer *rl,
     struct tls13_secret *write_key);
+ssize_t tls13_record_layer_phh(struct tls13_record_layer *rl, CBS *cbs);
 
 ssize_t tls13_read_handshake_data(struct tls13_record_layer *rl, uint8_t *buf, size_t n);
 ssize_t tls13_write_handshake_data(struct tls13_record_layer *rl, const uint8_t *buf,
@@ -127,6 +128,8 @@ ssize_t tls13_write_handshake_data(struct tls13_record_layer *rl, const uint8_t 
 ssize_t tls13_read_application_data(struct tls13_record_layer *rl, uint8_t *buf, size_t n);
 ssize_t tls13_write_application_data(struct tls13_record_layer *rl, const uint8_t *buf,
     size_t n);
+
+ssize_t tls13_send_alert(struct tls13_record_layer *rl, uint8_t alert_desc);
 
 /*
  * Handshake Messages.
@@ -176,6 +179,7 @@ const EVP_MD *tls13_cipher_hash(const SSL_CIPHER *cipher);
 /*
  * Legacy interfaces.
  */
+int tls13_legacy_accept(SSL *ssl);
 int tls13_legacy_connect(SSL *ssl);
 int tls13_legacy_return_code(SSL *ssl, ssize_t ret);
 ssize_t tls13_legacy_wire_read_cb(void *buf, size_t n, void *arg);
