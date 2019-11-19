@@ -19,7 +19,7 @@
 /cmd-find-window.c/1.46/Thu Jun 20 20:31:04 2019//
 /cmd-find.c/1.73/Wed Jun 12 09:10:29 2019//
 /cmd-if-shell.c/1.65/Wed Jul 17 17:49:23 2019//
-/cmd-join-pane.c/1.36/Tue Oct 15 08:25:37 2019//
+/cmd-join-pane.c/1.37/Mon Nov 18 09:43:31 2019//
 /cmd-kill-pane.c/1.27/Thu Nov 14 15:37:19 2019//
 /cmd-kill-server.c/1.18/Sun Oct 16 19:04:05 2016//
 /cmd-kill-session.c/1.25/Wed Apr 17 14:37:48 2019//
@@ -75,7 +75,7 @@
 /format.c/1.215/Fri Nov 15 11:21:32 2019//
 /grid-view.c/1.33/Fri Aug 16 08:52:25 2019//
 /grid.c/1.100/Tue Sep 24 20:44:58 2019//
-/input-keys.c/1.65/Thu Nov 14 07:55:01 2019//
+/input-keys.c/1.66/Mon Nov 18 09:42:09 2019//
 /input.c/1.166/Fri Nov 15 11:21:32 2019//
 /job.c/1.55/Fri Jun 28 13:35:05 2019//
 /key-bindings.c/1.101/Wed Sep 18 15:09:05 2019//
@@ -105,7 +105,7 @@
 /spawn.c/1.11/Thu Nov 14 07:55:01 2019//
 /status.c/1.200/Tue May 28 18:53:36 2019//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.696/Fri Nov 15 11:16:53 2019//
+/tmux.1/1.697/Mon Nov 18 09:43:31 2019//
 /tmux.c/1.190/Mon Oct 14 08:38:07 2019//
 /tmux.h/1.932/Fri Nov 15 11:16:53 2019//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
