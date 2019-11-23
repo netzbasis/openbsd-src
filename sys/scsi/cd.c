@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd.c,v 1.232 2019/11/21 23:22:14 krw Exp $	*/
+/*	$OpenBSD: cd.c,v 1.234 2019/11/23 01:16:05 krw Exp $	*/
 /*	$NetBSD: cd.c,v 1.100 1997/04/02 02:29:30 mycroft Exp $	*/
 
 /*
@@ -218,7 +218,7 @@ cdattach(struct device *parent, struct device *self, void *aux)
 	 */
 	if (!(link->flags & SDEV_ATAPI) &&
 	    SID_ANSII_REV(sa->sa_inqbuf) == SCSI_REV_0)
-		sc->sc_flags |= CDF_ANCIENT;
+		SET(sc->sc_flags, CDF_ANCIENT);
 
 	printf("\n");
 
@@ -249,7 +249,7 @@ cdactivate(struct device *self, int act)
 			    SCSI_SILENT | SCSI_AUTOCONF);
 		break;
 	case DVACT_DEACTIVATE:
-		sc->sc_flags |= CDF_DYING;
+		SET(sc->sc_flags, CDF_DYING);
 		scsi_xsh_del(&sc->sc_xsh);
 		break;
 	}
@@ -324,7 +324,7 @@ cdopen(dev_t dev, int flag, int fmt, struct proc *p)
 		 */
 
 		/* Use cd_interpret_sense() now. */
-		link->flags |= SDEV_OPEN;
+		SET(link->flags, SDEV_OPEN);
 
 		error = scsi_test_unit_ready(link, TEST_READY_RETRIES,
 		    (rawopen ? SCSI_SILENT : 0) | SCSI_IGNORE_ILLEGAL_REQUEST |
@@ -352,10 +352,10 @@ cdopen(dev_t dev, int flag, int fmt, struct proc *p)
 			goto bad;
 
 		/* Load the physical device parameters. */
-		link->flags |= SDEV_MEDIA_LOADED;
+		SET(link->flags, SDEV_MEDIA_LOADED);
 		if (cd_get_parms(sc, (rawopen ? SCSI_SILENT : 0) |
 		    SCSI_IGNORE_ILLEGAL_REQUEST | SCSI_IGNORE_MEDIA_CHANGE)) {
-			link->flags &= ~SDEV_MEDIA_LOADED;
+			CLR(link->flags, SDEV_MEDIA_LOADED);
 			error = ENXIO;
 			goto bad;
 		}
@@ -370,7 +370,7 @@ out:
 	if ((error = disk_openpart(&sc->sc_dk, part, fmt, 1)) != 0)
 		goto bad;
 
-	link->flags |= SDEV_OPEN;
+	SET(link->flags, SDEV_OPEN);
 	SC_DEBUG(link, SDEV_DB3, ("open complete\n"));
 
 	/* It's OK to fall through because dk_openmask is now non-zero. */
@@ -379,7 +379,7 @@ bad:
 		scsi_prevent(link, PR_ALLOW,
 		    SCSI_IGNORE_ILLEGAL_REQUEST | SCSI_IGNORE_MEDIA_CHANGE |
 		    SCSI_SILENT);
-		link->flags &= ~(SDEV_OPEN | SDEV_MEDIA_LOADED);
+		CLR(link->flags, SDEV_OPEN | SDEV_MEDIA_LOADED);
 	}
 
 	disk_unlock(&sc->sc_dk);
@@ -415,12 +415,12 @@ cdclose(dev_t dev, int flag, int fmt, struct proc *p)
 		scsi_prevent(sc->sc_link, PR_ALLOW,
 		    SCSI_IGNORE_ILLEGAL_REQUEST | SCSI_IGNORE_NOT_READY |
 		    SCSI_SILENT);
-		sc->sc_link->flags &= ~(SDEV_OPEN | SDEV_MEDIA_LOADED);
+		CLR(sc->sc_link->flags, SDEV_OPEN | SDEV_MEDIA_LOADED);
 
 		if (sc->sc_link->flags & SDEV_EJECTING) {
 			scsi_start(sc->sc_link, SSS_STOP|SSS_LOEJ, 0);
 
-			sc->sc_link->flags &= ~SDEV_EJECTING;
+			CLR(sc->sc_link->flags, SDEV_EJECTING);
 		}
 
 		timeout_del(&sc->sc_timeout);
@@ -1048,7 +1048,7 @@ close_tray:
 		/* FALLTHROUGH */
 	case CDIOCEJECT: /* FALLTHROUGH */
 	case DIOCEJECT:
-		sc->sc_link->flags |= SDEV_EJECTING;
+		SET(sc->sc_link->flags, SDEV_EJECTING);
 		break;
 	case CDIOCALLOW:
 		error = scsi_prevent(sc->sc_link, PR_ALLOW, 0);
@@ -1061,10 +1061,10 @@ close_tray:
 		    (*(int *)addr) ? PR_PREVENT : PR_ALLOW, 0);
 		break;
 	case CDIOCSETDEBUG:
-		sc->sc_link->flags |= (SDEV_DB1 | SDEV_DB2);
+		SET(sc->sc_link->flags, SDEV_DB1 | SDEV_DB2);
 		break;
 	case CDIOCCLRDEBUG:
-		sc->sc_link->flags &= ~(SDEV_DB1 | SDEV_DB2);
+		CLR(sc->sc_link->flags, SDEV_DB1 | SDEV_DB2);
 		break;
 	case CDIOCRESET:
 	case SCIOCRESET:
@@ -1319,8 +1319,8 @@ cd_set_pa_immed(struct cd_softc *sc, int flags)
 
 	if (error == 0) {
 		oflags = audio->flags;
-		audio->flags &= ~CD_PA_SOTC;
-		audio->flags |= CD_PA_IMMED;
+		CLR(audio->flags, CD_PA_SOTC);
+		SET(audio->flags, CD_PA_IMMED);
 		if (audio->flags != oflags) {
 			if (big)
 				error = scsi_mode_select_big(sc->sc_link,
@@ -1522,7 +1522,7 @@ cd_read_subchannel(struct cd_softc *sc, int mode, int format, int track,
 	cmd = (struct scsi_read_subchannel *)xs->cmd;
 	cmd->opcode = READ_SUBCHANNEL;
 	if (mode == CD_MSF_FORMAT)
-		cmd->byte2 |= CD_MSF;
+		SET(cmd->byte2, CD_MSF);
 	cmd->byte3 = SRS_SUBQ;
 	cmd->subchan_format = format;
 	cmd->track = track;
@@ -1560,7 +1560,7 @@ cd_read_toc(struct cd_softc *sc, int mode, int start, void *data, int len,
 	cmd->opcode = READ_TOC;
 
 	if (mode == CD_MSF_FORMAT)
-		cmd->byte2 |= CD_MSF;
+		SET(cmd->byte2, CD_MSF);
 	cmd->from_track = start;
 	_lto2b(len, cmd->data_len);
 	cmd->control = control;
@@ -2229,16 +2229,16 @@ cd_eject(void)
 		return (error);
 
 	if (sc->sc_dk.dk_openmask == 0) {
-		sc->sc_link->flags |= SDEV_EJECTING;
+		SET(sc->sc_link->flags, SDEV_EJECTING);
 
 		scsi_prevent(sc->sc_link, PR_ALLOW,
 		    SCSI_IGNORE_ILLEGAL_REQUEST | SCSI_IGNORE_NOT_READY |
 		    SCSI_SILENT | SCSI_IGNORE_MEDIA_CHANGE);
-		sc->sc_link->flags &= ~SDEV_MEDIA_LOADED;
+		CLR(sc->sc_link->flags, SDEV_MEDIA_LOADED);
 
 		scsi_start(sc->sc_link, SSS_STOP|SSS_LOEJ, 0);
 
-		sc->sc_link->flags &= ~SDEV_EJECTING;
+		CLR(sc->sc_link->flags, SDEV_EJECTING);
 	}
 	disk_unlock(&sc->sc_dk);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.244 2019/11/21 19:26:02 florian Exp $	*/
+/*	$OpenBSD: route.c,v 1.246 2019/11/22 15:28:05 florian Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -1289,6 +1289,9 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		case RTP_PROPOSAL_SLAAC:
 			printf("slaac");
 			break;
+		case RTP_PROPOSAL_UMB:
+			printf("umb");
+			break;
 		case RTP_PROPOSAL_SOLICIT:
 			printf("solicit");
 			break;
@@ -1947,7 +1950,7 @@ print_rtdns(struct sockaddr_rtdns *rtdns)
 	char		 ntopbuf[INET6_ADDRSTRLEN];
 
 	offset = offsetof(struct sockaddr_rtdns, sr_dns);
-	if (rtdns->sr_len <= offset) {
+	if (rtdns->sr_len < offset) {
 		printf("<invalid sr_len (%u <= %zu)>\n", rtdns->sr_len,
 		    offset);
 		return;
