@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd.c,v 1.234 2019/11/23 01:16:05 krw Exp $	*/
+/*	$OpenBSD: cd.c,v 1.236 2019/11/23 17:10:13 krw Exp $	*/
 /*	$NetBSD: cd.c,v 1.100 1997/04/02 02:29:30 mycroft Exp $	*/
 
 /*
@@ -216,7 +216,7 @@ cdattach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * Note if this device is ancient.  This is used in cdminphys().
 	 */
-	if (!(link->flags & SDEV_ATAPI) &&
+	if (!ISSET(link->flags, SDEV_ATAPI) &&
 	    SID_ANSII_REV(sa->sa_inqbuf) == SCSI_REV_0)
 		SET(sc->sc_flags, CDF_ANCIENT);
 
@@ -290,7 +290,7 @@ cdopen(dev_t dev, int flag, int fmt, struct proc *p)
 	sc = cdlookup(unit);
 	if (sc == NULL)
 		return (ENXIO);
-	if (sc->sc_flags & CDF_DYING) {
+	if (ISSET(sc->sc_flags, CDF_DYING)) {
 		device_unref(&sc->sc_dev);
 		return (ENXIO);
 	}
@@ -310,7 +310,7 @@ cdopen(dev_t dev, int flag, int fmt, struct proc *p)
 		 * If any partition is open, but the disk has been invalidated,
 		 * disallow further opens.
 		 */
-		if ((link->flags & SDEV_MEDIA_LOADED) == 0) {
+		if (!ISSET(link->flags, SDEV_MEDIA_LOADED)) {
 			if (rawopen)
 				goto out;
 			error = EIO;
@@ -400,7 +400,7 @@ cdclose(dev_t dev, int flag, int fmt, struct proc *p)
 	sc = cdlookup(DISKUNIT(dev));
 	if (sc == NULL)
 		return ENXIO;
-	if (sc->sc_flags & CDF_DYING) {
+	if (ISSET(sc->sc_flags, CDF_DYING)) {
 		device_unref(&sc->sc_dev);
 		return (ENXIO);
 	}
@@ -417,7 +417,7 @@ cdclose(dev_t dev, int flag, int fmt, struct proc *p)
 		    SCSI_SILENT);
 		CLR(sc->sc_link->flags, SDEV_OPEN | SDEV_MEDIA_LOADED);
 
-		if (sc->sc_link->flags & SDEV_EJECTING) {
+		if (ISSET(sc->sc_link->flags, SDEV_EJECTING)) {
 			scsi_start(sc->sc_link, SSS_STOP|SSS_LOEJ, 0);
 
 			CLR(sc->sc_link->flags, SDEV_EJECTING);
@@ -449,7 +449,7 @@ cdstrategy(struct buf *bp)
 		bp->b_error = ENXIO;
 		goto bad;
 	}
-	if (sc->sc_flags & CDF_DYING) {
+	if (ISSET(sc->sc_flags, CDF_DYING)) {
 		bp->b_error = ENXIO;
 		goto bad;
 	}
@@ -460,7 +460,7 @@ cdstrategy(struct buf *bp)
 	 * If the device has been made invalid, error out
 	 * maybe the media changed, or no media loaded
 	 */
-	if ((sc->sc_link->flags & SDEV_MEDIA_LOADED) == 0) {
+	if (!ISSET(sc->sc_link->flags, SDEV_MEDIA_LOADED)) {
 		bp->b_error = EIO;
 		goto bad;
 	}
@@ -522,7 +522,7 @@ cdstart(struct scsi_xfer *xs)
 
 	SC_DEBUG(link, SDEV_DB2, ("cdstart\n"));
 
-	if (sc->sc_flags & CDF_DYING) {
+	if (ISSET(sc->sc_flags, CDF_DYING)) {
 		scsi_xs_put(xs);
 		return;
 	}
@@ -532,7 +532,7 @@ cdstart(struct scsi_xfer *xs)
 	 * reads and writes until all files have been closed and
 	 * re-opened
 	 */
-	if ((link->flags & SDEV_MEDIA_LOADED) == 0) {
+	if (!ISSET(link->flags, SDEV_MEDIA_LOADED)) {
 		bufq_drain(&sc->sc_bufq);
 		scsi_xs_put(xs);
 		return;
@@ -561,8 +561,8 @@ cdstart(struct scsi_xfer *xs)
 	 *  Fill out the scsi command.  If the transfer will
 	 *  fit in a "small" cdb, use it.
 	 */
-	if (!(link->flags & SDEV_ATAPI) &&
-	    !(link->quirks & SDEV_ONLYBIG) &&
+	if (!ISSET(link->flags, SDEV_ATAPI) &&
+	    !ISSET(link->quirks, SDEV_ONLYBIG) &&
 	    ((secno & 0x1fffff) == secno) &&
 	    ((nsecs & 0xff) == nsecs)) {
 		/*
@@ -685,7 +685,7 @@ cdminphys(struct buf *bp)
 	 * ancient device gets confused by length == 0.  A length of 0
 	 * in a 10-byte read/write actually means 0 blocks.
 	 */
-	if (sc->sc_flags & CDF_ANCIENT) {
+	if (ISSET(sc->sc_flags, CDF_ANCIENT)) {
 		max = sc->sc_dk.dk_label->d_secsize * 0xff;
 
 		if (bp->b_bcount > max)
@@ -726,7 +726,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	sc = cdlookup(DISKUNIT(dev));
 	if (sc == NULL)
 		return ENXIO;
-	if (sc->sc_flags & CDF_DYING) {
+	if (ISSET(sc->sc_flags, CDF_DYING)) {
 		device_unref(&sc->sc_dev);
 		return (ENXIO);
 	}
@@ -736,7 +736,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	/*
 	 * If the device is not valid.. abandon ship
 	 */
-	if ((sc->sc_link->flags & SDEV_MEDIA_LOADED) == 0) {
+	if (!ISSET(sc->sc_link->flags, SDEV_MEDIA_LOADED)) {
 		switch (cmd) {
 		case DIOCLOCK:
 		case DIOCEJECT:
@@ -766,7 +766,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 				break;
 		/* FALLTHROUGH */
 		default:
-			if ((sc->sc_link->flags & SDEV_OPEN) == 0)
+			if (!ISSET(sc->sc_link->flags, SDEV_OPEN))
 				error = ENODEV;
 			else
 				error = EIO;
@@ -798,7 +798,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 
 	case DIOCWDINFO:
 	case DIOCSDINFO:
-		if ((flag & FWRITE) == 0) {
+		if (!ISSET(flag, FWRITE)) {
 			error = EBADF;
 			break;
 		}
@@ -872,7 +872,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 			dma_free(th, sizeof(*th));
 			break;
 		}
-		if (sc->sc_link->quirks & ADEV_LITTLETOC)
+		if (ISSET(sc->sc_link->quirks, ADEV_LITTLETOC))
 			th->len = letoh16(th->len);
 		else
 			th->len = betoh16(th->len);
@@ -914,7 +914,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 			    ntracks >= 0; ntracks--) {
 				cte = &toc->entries[ntracks];
 				cte->addr_type = CD_LBA_FORMAT;
-				if (sc->sc_link->quirks & ADEV_LITTLETOC) {
+				if (ISSET(sc->sc_link->quirks, ADEV_LITTLETOC)) {
 #if BYTE_ORDER == BIG_ENDIAN
 					swap16_multi((u_int16_t *)&cte->addr,
 					    sizeof(cte->addr) / 2);
@@ -922,7 +922,7 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 				} else
 					cte->addr.lba = betoh32(cte->addr.lba);
 			}
-		if (sc->sc_link->quirks & ADEV_LITTLETOC) {
+		if (ISSET(sc->sc_link->quirks, ADEV_LITTLETOC)) {
 			th->len = letoh16(th->len);
 		} else
 			th->len = betoh16(th->len);
@@ -955,14 +955,14 @@ cdioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 		}
 
 		cte = &toc->entries[0];
-		if (sc->sc_link->quirks & ADEV_LITTLETOC) {
+		if (ISSET(sc->sc_link->quirks, ADEV_LITTLETOC)) {
 #if BYTE_ORDER == BIG_ENDIAN
 			swap16_multi((u_int16_t *)&cte->addr,
 			    sizeof(cte->addr) / 2);
 #endif /* BYTE_ORDER == BIG_ENDIAN */
 		} else
 			cte->addr.lba = betoh32(cte->addr.lba);
-		if (sc->sc_link->quirks & ADEV_LITTLETOC)
+		if (ISSET(sc->sc_link->quirks, ADEV_LITTLETOC))
 			toc->header.len = letoh16(toc->header.len);
 		else
 			toc->header.len = betoh16(toc->header.len);
@@ -1120,7 +1120,7 @@ cdgetdisklabel(dev_t dev, struct cd_softc *sc, struct disklabel *lp,
 	lp->d_secpercyl = 100;
 	lp->d_ncylinders = (sc->params.disksize / 100) + 1;
 
-	if (sc->sc_link->flags & SDEV_ATAPI) {
+	if (ISSET(sc->sc_link->flags, SDEV_ATAPI)) {
 		strncpy(lp->d_typename, "ATAPI CD-ROM", sizeof(lp->d_typename));
 		lp->d_type = DTYPE_ATAPI;
 	} else {
@@ -1304,7 +1304,7 @@ cd_set_pa_immed(struct cd_softc *sc, int flags)
 	struct cd_audio_page *audio = NULL;
 	int error, oflags, big;
 
-	if (sc->sc_link->flags & SDEV_ATAPI)
+	if (ISSET(sc->sc_link->flags, SDEV_ATAPI))
 		/* XXX Noop? */
 		return (0);
 
@@ -1602,7 +1602,7 @@ cd_get_parms(struct cd_softc *sc, int flags)
 	sc->params.secsize = 2048;
 	sc->params.disksize = 400000;
 
-	if (sc->sc_link->quirks & ADEV_NOCAPACITY)
+	if (ISSET(sc->sc_link->quirks, ADEV_NOCAPACITY))
 		return (0);
 
 	sc->params.disksize = cd_size(sc->sc_link, flags, &sc->params.secsize);
@@ -2071,7 +2071,7 @@ cd_interpret_sense(struct scsi_xfer *xs)
 	u_int8_t skey = sense->flags & SSD_KEY;
 	u_int8_t serr = sense->error_code & SSD_ERRCODE;
 
-	if (((link->flags & SDEV_OPEN) == 0) ||
+	if (!ISSET(link->flags, SDEV_OPEN) ||
 	    (serr != SSD_ERRCODE_CURRENT && serr != SSD_ERRCODE_DEFERRED))
 		return (scsi_interpret_sense(xs));
 
