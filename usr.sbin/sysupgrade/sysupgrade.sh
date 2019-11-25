@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.33 2019/11/12 08:19:11 sthen Exp $
+# $OpenBSD: sysupgrade.sh,v 1.35 2019/11/24 14:05:39 florian Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>

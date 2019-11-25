@@ -27,7 +27,7 @@
 /if_enc.h/1.12/Mon Dec  8 10:46:14 2014//
 /if_etherip.c/1.45/Tue Apr 23 10:53:45 2019//
 /if_etherip.h/1.10/Mon Nov 20 14:21:28 2017//
-/if_ethersubr.c/1.260/Wed Jul 17 16:46:17 2019//
+/if_ethersubr.c/1.261/Sun Nov 24 07:50:55 2019//
 /if_gif.c/1.128/Fri Oct  4 05:00:49 2019//
 /if_gif.h/1.18/Sat Feb 10 08:12:01 2018//
 /if_gre.c/1.155/Sun Nov 10 11:44:10 2019//
@@ -100,7 +100,7 @@
 /route.h/1.180/Sat Nov 23 19:47:04 2019//
 /rtable.c/1.69/Fri Jun 21 17:11:42 2019//
 /rtable.h/1.24/Fri Jun 21 17:11:42 2019//
-/rtsock.c/1.296/Fri Nov 22 15:28:05 2019//
+/rtsock.c/1.297/Sun Nov 24 07:56:03 2019//
 /slcompress.c/1.12/Thu Dec  3 14:34:48 2015//
 /slcompress.h/1.10/Tue Jan 24 10:08:30 2017//
 /switchctl.c/1.16/Wed Oct 16 10:20:48 2019//
