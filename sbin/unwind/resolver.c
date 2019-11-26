@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.75 2019/11/23 08:57:52 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.77 2019/11/25 18:10:42 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -516,7 +516,7 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 				new_static_dot_forwarders();
 			}
 			break;
-		case IMSG_RECHECK_RESOLVERS:
+		case IMSG_NETWORK_CHANGED:
 			schedule_recheck_all_resolvers();
 			break;
 		case IMSG_REPLACE_DNS:
@@ -827,8 +827,8 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 
 	ms = elapsed.tv_sec * 1000 + elapsed.tv_nsec / 1000000;
 
-	for (i = 1; i < nitems(histogram_limits); i++) {
-		if (ms > histogram_limits[i - 1] && ms <= histogram_limits[i])
+	for (i = 0; i < nitems(histogram_limits); i++) {
+		if (ms < histogram_limits[i])
 			break;
 	}
 	if (i == nitems(histogram_limits))
