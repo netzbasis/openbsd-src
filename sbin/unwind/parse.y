@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.11 2019/10/21 07:16:09 florian Exp $	*/
+/*	$OpenBSD: parse.y,v 1.17 2019/11/26 19:35:13 kn Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -84,7 +84,6 @@ int	 check_pref_uniq(enum uw_resolver_type);
 
 static struct uw_conf		*conf;
 static int			 errors;
-static struct uw_forwarder	*uw_forwarder;
 
 void			 clear_config(struct uw_conf *xconf);
 struct sockaddr_storage	*host_ip(const char *);
@@ -101,7 +100,7 @@ typedef struct {
 
 %token	YES NO INCLUDE ERROR
 %token	FORWARDER DOT PORT CAPTIVE PORTAL URL EXPECTED RESPONSE
-%token	STATUS AUTO AUTHENTICATION NAME PREFERENCE RECURSOR DHCP
+%token	STATUS AUTO AUTHENTICATION NAME PREFERENCE RECURSOR DHCP STUB
 %token	BLOCK LIST LOG
 
 %token	<v.string>	STRING
@@ -271,6 +270,7 @@ prefopt			: DOT		{ $$ = UW_RES_DOT; }
 			| FORWARDER	{ $$ = UW_RES_FORWARDER; }
 			| RECURSOR	{ $$ = UW_RES_RECURSOR; }
 			| DHCP		{ $$ = UW_RES_DHCP; }
+			| STUB		{ $$ = UW_RES_ASR; }
 			;
 
 uw_forwarder		: FORWARDER forwarder_block
@@ -286,7 +286,9 @@ forwarderopts_l		: forwarderopts_l forwarderoptsl optnl
 
 forwarderoptsl		: STRING port authname dot {
 				int ret, port;
+				struct uw_forwarder *uw_fwd;
 				struct sockaddr_storage *ss;
+
 				if ((ss = host_ip($1)) == NULL) {
 					yyerror("%s is not an ip-address", $1);
 					free($1);
@@ -304,37 +306,53 @@ forwarderoptsl		: STRING port authname dot {
 				else
 					port = $2;
 
-				if ((uw_forwarder = calloc(1,
-				    sizeof(*uw_forwarder))) == NULL)
+				if ($3 != NULL && $4 == 0) {
+					yyerror("authentication name can only "
+					    "be used with DoT");
+					free($1);
+					YYERROR;
+				}
+
+
+				if ((uw_fwd = calloc(1,
+				    sizeof(*uw_fwd))) == NULL)
 					err(1, NULL);
 
-				if ($3 == NULL)
-					ret = snprintf(uw_forwarder->name,
-					    sizeof(uw_forwarder->name),
-					    "%s@%d", $1, port);
-				else
-					ret = snprintf(uw_forwarder->name,
-					    sizeof(uw_forwarder->name),
-					    "%s@%d#%s", $1, port, $3);
+				if ($4 == DOT) {
+					if ($3 == NULL)
+						ret = snprintf(uw_fwd->name,
+						    sizeof(uw_fwd->name),
+						    "%s@%d", $1, port);
+					else
+						ret = snprintf(uw_fwd->name,
+						    sizeof(uw_fwd->name),
+						    "%s@%d#%s", $1, port, $3);
+				} else {
+					uw_fwd->port = $2;
+					/* complete string will be done later */
+					ret = snprintf(uw_fwd->name,
+					    sizeof(uw_fwd->name), "%s", $1);
+				}
 				if (ret < 0 || (size_t)ret >=
-				    sizeof(uw_forwarder->name)) {
-					free(uw_forwarder);
+				    sizeof(uw_fwd->name)) {
+					free(uw_fwd);
 					yyerror("forwarder %s too long", $1);
 					free($1);
 					YYERROR;
 				}
-				free($1);
 
 				if ($4 == DOT)
-					SIMPLEQ_INSERT_TAIL(
+					TAILQ_INSERT_TAIL(
 					    &conf->uw_dot_forwarder_list,
-					    uw_forwarder, entry);
-				else
-					SIMPLEQ_INSERT_TAIL(
+					    uw_fwd, entry);
+				else {
+					TAILQ_INSERT_TAIL(
 					    &conf->uw_forwarder_list,
-					    uw_forwarder, entry);
+					    uw_fwd, entry);
+				}
+				free($1);
 			}
-			;
+	;
 
 port	:	PORT NUMBER	{ $$ = $2; }
 	|	/* empty */	{ $$ = 0; }
@@ -405,6 +423,7 @@ lookup(char *s)
 		{"recursor",		RECURSOR},
 		{"response",		RESPONSE},
 		{"status",		STATUS},
+		{"stub",		STUB},
 		{"tls",			DOT},
 		{"url",			URL},
 		{"yes",			YES},
@@ -763,9 +782,10 @@ parse_config(char *filename)
 
 	conf = config_new_empty();
 
-	file = pushfile(filename, 0);
+	file = pushfile(filename != NULL ? filename : CONF_FILE, 0);
 	if (file == NULL) {
-		if (errno == ENOENT)	/* no config file is fine */
+		/* no default config file is fine */
+		if (errno == ENOENT && filename == NULL)
 			return (conf);
 		log_warn("%s", filename);
 		free(conf);
@@ -872,14 +892,17 @@ symget(const char *nam)
 void
 clear_config(struct uw_conf *xconf)
 {
-	while((uw_forwarder = SIMPLEQ_FIRST(&xconf->uw_forwarder_list)) !=
+	struct uw_forwarder	*uw_forwarder;
+
+	while ((uw_forwarder = TAILQ_FIRST(&xconf->uw_forwarder_list)) !=
 	    NULL) {
-		SIMPLEQ_REMOVE_HEAD(&xconf->uw_forwarder_list, entry);
+		TAILQ_REMOVE(&xconf->uw_forwarder_list, uw_forwarder, entry);
 		free(uw_forwarder);
 	}
-	while((uw_forwarder = SIMPLEQ_FIRST(&xconf->uw_dot_forwarder_list)) !=
+	while ((uw_forwarder = TAILQ_FIRST(&xconf->uw_dot_forwarder_list)) !=
 	    NULL) {
-		SIMPLEQ_REMOVE_HEAD(&xconf->uw_dot_forwarder_list, entry);
+		TAILQ_REMOVE(&xconf->uw_dot_forwarder_list, uw_forwarder,
+		    entry);
 		free(uw_forwarder);
 	}
 

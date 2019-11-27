@@ -9,8 +9,8 @@
 /conf.h/1.11/Sat May 21 21:24:36 2016//
 /cpu.h/1.56/Sun Oct 27 10:26:12 2019//
 /cpuconf.h/1.19/Fri Jan  6 00:06:02 2017//
-/cpufunc.h/1.31/Sat Jun 30 15:23:36 2018//
-/db_machdep.h/1.11/Wed Apr 27 11:10:48 2016//
+/cpufunc.h/1.32/Thu Nov  7 21:54:49 2019//
+/db_machdep.h/1.12/Thu Nov  7 14:44:52 2019//
 /disklabel.h/1.15/Wed Sep 30 15:35:30 2015//
 /endian.h/1.11/Tue Oct  2 21:30:44 2018//
 /exec.h/1.6/Wed Feb  8 05:09:25 2017//

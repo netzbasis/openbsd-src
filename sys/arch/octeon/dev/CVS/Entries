@@ -34,6 +34,7 @@
 /cn30xxuartreg.h/1.1/Thu Jun 16 11:22:30 2011//
 /if_cnmac.c/1.75/Sun Jan  7 05:30:03 2018//
 /if_cnmacvar.h/1.18/Sat Nov 18 05:53:02 2017//
+/if_ogx.c/1.1/Mon Nov  4 14:58:40 2019//
 /iobusvar.h/1.3/Sun Jul 19 23:46:50 2015//
 /mainbus.c/1.12/Mon Apr  9 13:46:15 2018//
 /octboot.c/1.1/Wed Jul 17 14:36:32 2019//
@@ -67,6 +68,9 @@
 /octuctlvar.h/1.2/Tue Jul 25 11:01:28 2017//
 /octxctl.c/1.4/Sun Sep 29 04:32:23 2019//
 /octxctlreg.h/1.2/Tue Jan 16 15:50:28 2018//
+/ogxnexus.c/1.1/Mon Nov  4 14:58:40 2019//
+/ogxreg.h/1.1/Mon Nov  4 14:58:40 2019//
+/ogxvar.h/1.1/Mon Nov  4 14:58:40 2019//
 /simplebus.c/1.2/Sat Jan  5 11:59:39 2019//
 /simplebusvar.h/1.1/Thu Dec  8 16:24:51 2016//
 D

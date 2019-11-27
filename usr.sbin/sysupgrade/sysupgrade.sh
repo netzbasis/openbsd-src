@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.29 2019/10/26 04:04:20 deraadt Exp $
+# $OpenBSD: sysupgrade.sh,v 1.35 2019/11/24 14:05:39 florian Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>
@@ -114,7 +114,11 @@ if ! $RELEASE && [[ ${#_KERNV[*]} == 2 ]]; then
 	SNAP=true
 fi
 
-NEXT_VERSION=$(echo ${_KERNV[0]} + 0.1 | bc)
+if $RELEASE && [[ ${_KERNV[1]} == '-beta' ]]; then
+	NEXT_VERSION=${_KERNV[0]}
+else
+	NEXT_VERSION=$(echo ${_KERNV[0]} + 0.1 | bc)
+fi
 
 if $SNAP; then
 	URL=${MIRROR}/snapshots/${ARCH}/
@@ -136,6 +140,7 @@ fi
 
 cd ${SETSDIR}
 
+echo "Fetching from ${URL}"
 unpriv -f SHA256.sig ftp -N sysupgrade -Vmo SHA256.sig ${URL}SHA256.sig
 
 _KEY=openbsd-${_KERNV[0]%.*}${_KERNV[0]#*.}-base.pub
@@ -199,6 +204,9 @@ if ! ${KEEP}; then
 rm -f /home/_sysupgrade/{${CLEAN}}
 __EOT
 fi
+
+echo Fetching updated firmware.
+fw_update || echo "Warning: firmware not updated."
 
 install -F -m 700 bsd.rd /bsd.upgrade
 sync

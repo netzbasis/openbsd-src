@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.739 2019/10/23 20:33:19 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.741 2019/11/18 03:08:38 kevlo Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -46,7 +46,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	lisa.4 lm.4 lmenv.4 lmn.4 lmtemp.4 lo.4 lpt.4 lxtphy.4 luphy.4 \
 	maestro.4 mainbus.4 malo.4 maxds.4 maxrtc.4 maxtmp.4 mbg.4 \
 	mcprtc.4 mcx.4 midi.4 mii.4 mfi.4 \
-	mfii.4 mlphy.4 mobileip.4 moscom.4 mos.4 mpe.4 mpath.4 mpi.4 mpii.4 \
+	mfii.4 mlphy.4 moscom.4 mos.4 mpe.4 mpath.4 mpi.4 mpii.4 \
 	mpip.4 mpu.4 msk.4 mpw.4 msts.4 mtd.4 mtdphy.4 mtio.4 mue.4 \
 	multicast.4 mvclock.4 mvdog.4 mvgicp.4 mvgpio.4 mvicu.4 mviic.4 \
 	mvneta.4 mvpinctrl.4 mvrng.4 mvrtc.4 mvspi.4 mvtemp.4 mvuart.4 myx.4 \
@@ -62,7 +62,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	pvclock.4 pwdog.4 pwmbl.4 pwmreg.4 \
 	qla.4 qle.4 qlw.4 qsphy.4 \
 	radio.4 ral.4 random.4 rdomain.4 rd.4 rdac.4 re.4 rdcphy.4 rgephy.4 \
-	ricohrtc.4 rkclock.4 rkdwusb.4 rkgpio.4 rkgrf.4 rkiic.4 \
+	rge.4 ricohrtc.4 rkclock.4 rkdwusb.4 rkgpio.4 rkgrf.4 rkiic.4 \
 	rkpcie.4 rkpinctrl.4 rkpmic.4 rktemp.4 \
 	rl.4 rlphy.4 route.4 rsu.4 rtsx.4 rum.4 run.4 \
 	rtfps.4 rtw.4 rtwn.4 safe.4 safte.4 sbus.4 schsio.4 \

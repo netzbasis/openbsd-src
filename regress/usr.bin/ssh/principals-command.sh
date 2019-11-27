@@ -1,4 +1,4 @@
-#	$OpenBSD: principals-command.sh,v 1.7 2019/09/06 04:24:06 dtucker Exp $
+#	$OpenBSD: principals-command.sh,v 1.9 2019/11/26 23:43:10 djm Exp $
 #	Placed in the Public Domain.
 
 tid="authorized principals command"

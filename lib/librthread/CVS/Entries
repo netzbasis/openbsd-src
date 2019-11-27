@@ -18,7 +18,7 @@
 /rthread_rwlock_compat.c/1.1/Wed Feb 13 13:15:39 2019//
 /rthread_rwlockattr.c/1.2/Wed Feb 15 04:58:42 2012//
 /rthread_sched.c/1.14/Tue Sep  5 02:40:54 2017//
-/rthread_sem.c/1.30/Tue Jan 29 17:43:23 2019//
+/rthread_sem.c/1.31/Fri Nov  1 16:04:19 2019//
 /rthread_sem_compat.c/1.1/Fri Jun  8 13:53:01 2018//
 /rthread_spin_lock.c/1.4/Sun Sep  4 10:13:35 2016//
 /rthread_stack.c/1.19/Sun Feb 11 04:12:22 2018//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sd.c,v 1.292 2019/10/23 13:50:49 krw Exp $	*/
+/*	$OpenBSD: sd.c,v 1.301 2019/11/26 20:51:20 krw Exp $	*/
 /*	$NetBSD: sd.c,v 1.111 1997/04/02 02:29:41 mycroft Exp $	*/
 
 /*-
@@ -89,7 +89,7 @@ void	sdstart(struct scsi_xfer *);
 int	sd_interpret_sense(struct scsi_xfer *);
 int	sd_read_cap_10(struct sd_softc *, int);
 int	sd_read_cap_16(struct sd_softc *, int);
-int	sd_size(struct sd_softc *, int);
+int	sd_read_cap(struct sd_softc *, int);
 int	sd_thin_pages(struct sd_softc *, int);
 int	sd_vpd_block_limits(struct sd_softc *, int);
 int	sd_vpd_thin(struct sd_softc *, int);
@@ -176,7 +176,7 @@ sdattach(struct device *parent, struct device *self, void *aux)
 	if (ISSET(link->flags, SDEV_ATAPI) && ISSET(link->flags, SDEV_REMOVABLE))
 		SET(link->quirks, SDEV_NOSYNCCACHE);
 
-	if (!(link->inqdata.flags & SID_RelAdr))
+	if (!ISSET(link->inqdata.flags, SID_RelAdr))
 		SET(link->quirks, SDEV_ONLYBIG);
 
 	/*
@@ -218,7 +218,7 @@ sdattach(struct device *parent, struct device *self, void *aux)
 		scsi_prevent(link, PR_ALLOW, sd_autoconf);
 
 	if (error == 0) {
-		printf("%s: %lluMB, %lu bytes/sector, %llu sectors",
+		printf("%s: %lluMB, %u bytes/sector, %llu sectors",
 		    sc->sc_dev.dv_xname,
 		    dp->disksize / (1048576 / dp->secsize), dp->secsize,
 		    dp->disksize);
@@ -494,7 +494,7 @@ sdclose(dev_t dev, int flag, int fmt, struct proc *p)
 
 	disk_closepart(&sc->sc_dk, part, fmt);
 
-	if (((flag & FWRITE) != 0 || sc->sc_dk.dk_openmask == 0) &&
+	if ((ISSET(flag, FWRITE) || sc->sc_dk.dk_openmask == 0) &&
 	    ISSET(sc->flags, SDF_DIRTY))
 		sd_flush(sc, 0);
 
@@ -1325,7 +1325,7 @@ sddump(dev_t dev, daddr_t blkno, caddr_t va, size_t size)
 	 */
 #if 0
 	/* Make sure it was initialized. */
-	if ((sc->sc_link->flags & SDEV_MEDIA_LOADED) != SDEV_MEDIA_LOADED)
+	if (!ISSET(sc->sc_link->flags, SDEV_MEDIA_LOADED))
 		return ENXIO;
 #endif /* 0 */
 
@@ -1411,44 +1411,25 @@ viscpy(u_char *dst, u_char *src, int len)
 int
 sd_read_cap_10(struct sd_softc *sc, int flags)
 {
-	struct scsi_read_capacity cdb;
-	struct scsi_read_cap_data *rdcap;
-	struct scsi_xfer *xs;
-	int rv = ENOMEM;
-
-	CLR(flags, SCSI_IGNORE_ILLEGAL_REQUEST);
+	struct scsi_read_cap_data	*rdcap;
+	int				 rv;
 
 	rdcap = dma_alloc(sizeof(*rdcap), (ISSET(flags, SCSI_NOSLEEP) ?
 	    PR_NOWAIT : PR_WAITOK) | PR_ZERO);
 	if (rdcap == NULL)
-		return (ENOMEM);
+		return -1;
 
 	if (ISSET(sc->flags, SDF_DYING)) {
-		rv = ENXIO;
+		rv = -1;
 		goto done;
 	}
-	xs = scsi_xs_get(sc->sc_link, flags | SCSI_DATA_IN | SCSI_SILENT);
-	if (xs == NULL)
-		goto done;
 
-	bzero(&cdb, sizeof(cdb));
-	cdb.opcode = READ_CAPACITY;
-
-	memcpy(xs->cmd, &cdb, sizeof(cdb));
-	xs->cmdlen = sizeof(cdb);
-	xs->data = (void *)rdcap;
-	xs->datalen = sizeof(*rdcap);
-	xs->timeout = 20000;
-
-	rv = scsi_xs_sync(xs);
-	scsi_xs_put(xs);
-
+	rv = scsi_read_cap_10(sc->sc_link, rdcap, flags);
 	if (rv == 0) {
-#ifdef SCSIDEBUG
-		sc_print_addr(sc->sc_link);
-		printf(" read Capacity 10 data:\n");
-		scsi_show_mem((u_char *)rdcap, sizeof(*rdcap));
-#endif /* SCSIDEBUG */
+		if (_8btol(rdcap->addr) == 0) {
+			rv = -1;
+			goto done;
+		}
 		sc->params.disksize = _4btol(rdcap->addr) + 1ll;
 		sc->params.secsize = _4btol(rdcap->length);
 		CLR(sc->flags, SDF_THIN);
@@ -1456,58 +1437,32 @@ sd_read_cap_10(struct sd_softc *sc, int flags)
 
 done:
 	dma_free(rdcap, sizeof(*rdcap));
-	return (rv);
+	return rv;
 }
 
 int
 sd_read_cap_16(struct sd_softc *sc, int flags)
 {
-	struct scsi_read_capacity_16 cdb;
-	struct scsi_read_cap_data_16 *rdcap;
-	struct scsi_xfer *xs;
-	int rv = ENOMEM;
-
-	CLR(flags, SCSI_IGNORE_ILLEGAL_REQUEST);
+	struct scsi_read_cap_data_16	*rdcap;
+	int				 rv;
 
 	rdcap = dma_alloc(sizeof(*rdcap), (ISSET(flags, SCSI_NOSLEEP) ?
 	    PR_NOWAIT : PR_WAITOK) | PR_ZERO);
 	if (rdcap == NULL)
-		return (ENOMEM);
+		return -1;
 
 	if (ISSET(sc->flags, SDF_DYING)) {
-		rv = ENXIO;
+		rv = -1;
 		goto done;
 	}
-	xs = scsi_xs_get(sc->sc_link, flags | SCSI_DATA_IN | SCSI_SILENT);
-	if (xs == NULL)
-		goto done;
 
-	bzero(&cdb, sizeof(cdb));
-	cdb.opcode = READ_CAPACITY_16;
-	cdb.byte2 = SRC16_SERVICE_ACTION;
-	_lto4b(sizeof(*rdcap), cdb.length);
-
-	memcpy(xs->cmd, &cdb, sizeof(cdb));
-	xs->cmdlen = sizeof(cdb);
-	xs->data = (void *)rdcap;
-	xs->datalen = sizeof(*rdcap);
-	xs->timeout = 20000;
-
-	rv = scsi_xs_sync(xs);
-	scsi_xs_put(xs);
-
+	rv = scsi_read_cap_16(sc->sc_link, rdcap, flags);
 	if (rv == 0) {
 		if (_8btol(rdcap->addr) == 0) {
-			rv = EIO;
+			rv = -1;
 			goto done;
 		}
-
-#ifdef SCSIDEBUG
-		sc_print_addr(sc->sc_link);
-		printf(" read Capacity 16 data:\n");
-		scsi_show_mem((u_char *)rdcap, sizeof(*rdcap));
-#endif /* SCSIDEBUG */
-		sc->params.disksize = _8btol(rdcap->addr) + 1;
+		sc->params.disksize = _8btol(rdcap->addr) + 1ll;
 		sc->params.secsize = _4btol(rdcap->length);
 		if (ISSET(_2btol(rdcap->lowest_aligned), READ_CAP_16_TPE))
 			SET(sc->flags, SDF_THIN);
@@ -1517,16 +1472,15 @@ sd_read_cap_16(struct sd_softc *sc, int flags)
 
 done:
 	dma_free(rdcap, sizeof(*rdcap));
-	return (rv);
+	return rv;
 }
 
 int
-sd_size(struct sd_softc *sc, int flags)
+sd_read_cap(struct sd_softc *sc, int flags)
 {
 	int rv;
 
-	if (ISSET(sc->flags, SDF_DYING))
-		return (ENXIO);
+	CLR(flags, SCSI_IGNORE_ILLEGAL_REQUEST);
 
 	/*
 	 * post-SPC2 (i.e. post-SCSI-3) devices can start with 16 byte
@@ -1545,7 +1499,7 @@ sd_size(struct sd_softc *sc, int flags)
 			rv = sd_read_cap_16(sc, flags);
 	}
 
-	return (rv);
+	return rv;
 }
 
 int
@@ -1707,23 +1661,28 @@ sd_thin_params(struct sd_softc *sc, int flags)
 int
 sd_get_parms(struct sd_softc *sc, int flags)
 {
-	struct disk_parms *dp = &sc->params;
+	struct disk_parms dp;
 	struct scsi_link *link = sc->sc_link;
 	union scsi_mode_sense_buf *buf = NULL;
 	struct page_rigid_geometry *rigid = NULL;
 	struct page_flex_geometry *flex = NULL;
 	struct page_reduced_geometry *reduced = NULL;
 	u_char *page0 = NULL;
-	u_int32_t heads = 0, sectors = 0, cyls = 0, secsize = 0;
 	int err = 0, big;
 
-	if (sd_size(sc, flags) != 0)
+	if (sd_read_cap(sc, flags) != 0)
 		return -1;
 
 	if (ISSET(sc->flags, SDF_THIN) && sd_thin_params(sc, flags) != 0) {
 		/* we dont know the unmap limits, so we cant use thin shizz */
 		CLR(sc->flags, SDF_THIN);
 	}
+
+	/*
+	 * Work on a copy of the values initialized by sd_read_cap() and
+	 * sd_thin_params().
+	 */
+	dp = sc->params;
 
 	buf = dma_alloc(sizeof(*buf), PR_NOWAIT);
 	if (buf == NULL)
@@ -1752,9 +1711,9 @@ sd_get_parms(struct sd_softc *sc, int flags)
 	/*
 	 * Many UMASS devices choke when asked about their geometry. Most
 	 * don't have a meaningful geometry anyway, so just fake it if
-	 * sd_size() worked.
+	 * sd_read_cap() worked.
 	 */
-	if (ISSET(link->flags, SDEV_UMASS) && (dp->disksize > 0))
+	if (ISSET(link->flags, SDEV_UMASS) && dp.disksize > 0)
 		goto validate;
 
 	switch (link->inqdata.device & SID_TYPE) {
@@ -1765,14 +1724,14 @@ sd_get_parms(struct sd_softc *sc, int flags)
 	case T_RDIRECT:
 		/* T_RDIRECT supports only PAGE_REDUCED_GEOMETRY (6). */
 		err = scsi_do_mode_sense(link, PAGE_REDUCED_GEOMETRY,
-		    buf, (void **)&reduced, NULL, NULL, &secsize,
+		    buf, (void **)&reduced, NULL, NULL, &dp.secsize,
 		    sizeof(*reduced), flags | SCSI_SILENT, NULL);
 		if (!err && reduced &&
 		    DISK_PGCODE(reduced, PAGE_REDUCED_GEOMETRY)) {
-			if (dp->disksize == 0)
-				dp->disksize = _5btol(reduced->sectors);
-			if (secsize == 0)
-				secsize = _2btol(reduced->bytes_s);
+			if (dp.disksize == 0)
+				dp.disksize = _5btol(reduced->sectors);
+			if (dp.secsize == 0)
+				dp.secsize = _2btol(reduced->bytes_s);
 		}
 		break;
 
@@ -1784,52 +1743,56 @@ sd_get_parms(struct sd_softc *sc, int flags)
 		 * so accept the page. The extra bytes will be zero and RPM will
 		 * end up with the default value of 3600.
 		 */
+		err = 0;
 		if (!ISSET(link->flags, SDEV_ATAPI) ||
 		    !ISSET(link->flags, SDEV_REMOVABLE))
 			err = scsi_do_mode_sense(link,
 			    PAGE_RIGID_GEOMETRY, buf, (void **)&rigid, NULL,
-			    NULL, &secsize, sizeof(*rigid) - 4,
+			    NULL, &dp.secsize, sizeof(*rigid) - 4,
 			    flags | SCSI_SILENT, NULL);
 		if (!err && rigid && DISK_PGCODE(rigid, PAGE_RIGID_GEOMETRY)) {
-			heads = rigid->nheads;
-			cyls = _3btol(rigid->ncyl);
-			if (heads * cyls > 0)
-				sectors = dp->disksize / (heads * cyls);
+			dp.heads = rigid->nheads;
+			dp.cyls = _3btol(rigid->ncyl);
+			if (dp.heads * dp.cyls > 0)
+				dp.sectors = dp.disksize / (dp.heads * dp.cyls);
 		} else {
 			if (ISSET(sc->flags, SDF_DYING))
 				goto die;
 			err = scsi_do_mode_sense(link,
 			    PAGE_FLEX_GEOMETRY, buf, (void **)&flex, NULL, NULL,
-			    &secsize, sizeof(*flex) - 4,
+			    &dp.secsize, sizeof(*flex) - 4,
 			    flags | SCSI_SILENT, NULL);
 			if (!err && flex &&
 			    DISK_PGCODE(flex, PAGE_FLEX_GEOMETRY)) {
-				sectors = flex->ph_sec_tr;
-				heads = flex->nheads;
-				cyls = _2btol(flex->ncyl);
-				if (secsize == 0)
-					secsize = _2btol(flex->bytes_s);
-				if (dp->disksize == 0)
-					dp->disksize = heads * cyls * sectors;
+				dp.sectors = flex->ph_sec_tr;
+				dp.heads = flex->nheads;
+				dp.cyls = _2btol(flex->ncyl);
+				if (dp.secsize == 0)
+					dp.secsize = _2btol(flex->bytes_s);
+				if (dp.disksize == 0)
+					dp.disksize = (u_int64_t)dp.cyls *
+					    dp.heads * dp.sectors;
 			}
 		}
 		break;
 	}
 
 validate:
-	if (buf)
+	if (buf) {
 		dma_free(buf, sizeof(*buf));
+		buf = NULL;
+	}
 
-	if (dp->disksize == 0)
-		return -1;
-
-	if (dp->secsize == 0)
-		dp->secsize = (secsize == 0) ? 512 : secsize;
+	if (dp.disksize == 0)
+		goto die;
 
 	/*
 	 * Restrict secsize values to powers of two between 512 and 64k.
 	 */
-	switch (dp->secsize) {
+	switch (dp.secsize) {
+	case 0:
+		dp.secsize = DEV_BSIZE;
+		break;
 	case 0x200:	/* == 512, == DEV_BSIZE on all architectures. */
 	case 0x400:
 	case 0x800:
@@ -1841,7 +1804,7 @@ validate:
 		break;
 	default:
 		SC_DEBUG(sc->sc_link, SDEV_DB1,
-		    ("sd_get_parms: bad secsize: %#lx\n", dp->secsize));
+		    ("sd_get_parms: bad secsize: %#x\n", dp.secsize));
 		return -1;
 	}
 
@@ -1851,27 +1814,40 @@ validate:
 	 * careful calculation/validation to make everything work out
 	 * optimally.
 	 */
-	if (dp->disksize > 0xffffffff && (dp->heads * dp->sectors) < 0xffff) {
-		dp->heads = 511;
-		dp->sectors = 255;
-		cyls = 0;
-	} else {
-		/*
-		 * Use standard geometry values for anything we still don't
-		 * know.
-		 */
-		dp->heads = (heads == 0) ? 255 : heads;
-		dp->sectors = (sectors == 0) ? 63 : sectors;
+	if (dp.disksize > 0xffffffff && (dp.heads * dp.sectors) < 0xffff) {
+		dp.heads = 511;
+		dp.sectors = 255;
+		dp.cyls = 0;
 	}
 
-	dp->cyls = (cyls == 0) ? dp->disksize / (dp->heads * dp->sectors) :
-	    cyls;
-
-	if (dp->cyls == 0) {
-		dp->heads = dp->cyls = 1;
-		dp->sectors = dp->disksize;
+	/*
+	 * Use standard geometry values for anything we still don't
+	 * know.
+	 */
+	if (dp.heads == 0)
+		dp.heads = 255;
+	if (dp.sectors == 0)
+		dp.sectors = 63;
+	if (dp.cyls == 0) {
+		dp.cyls = dp.disksize / (dp.heads * dp.sectors);
+		if (dp.cyls == 0) {
+			/* Put everything into one cylinder. */
+			dp.heads = dp.cyls = 1;
+			dp.sectors = dp.disksize;
+		}
 	}
 
+#ifdef SCSIDEBUG
+	if (dp.disksize != (u_int64_t)dp.cyls * dp.heads * dp.sectors) {
+		sc_print_addr(sc->sc_link);
+		printf("disksize (%llu) != cyls (%u) * heads (%u) * "
+		    "sectors/track (%u) (%llu)\n", dp.disksize, dp.cyls,
+		    dp.heads, dp.sectors,
+		    (u_int64_t)dp.cyls * dp.heads * dp.sectors);
+	}
+#endif /* SCSIDEBUG */
+
+	sc->params = dp;
 	return 0;
 
 die:

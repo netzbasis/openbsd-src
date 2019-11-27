@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.42 2019/10/28 18:11:10 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.48 2019/11/26 07:37:50 patrick Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -173,6 +173,7 @@ struct iwm_fw_info {
 		} fw_sect[IWM_UCODE_SECT_MAX];
 		size_t fw_totlen;
 		int fw_count;
+		uint32_t paging_mem_size;
 	} fw_sects[IWM_UCODE_TYPE_MAX];
 };
 
@@ -237,6 +238,16 @@ struct iwm_dma_info {
 	bus_size_t		size;
 };
 
+/**
+ * struct iwm_fw_paging
+ * @fw_paging_block: dma memory info
+ * @fw_paging_size: page size
+ */
+struct iwm_fw_paging {
+	struct iwm_dma_info fw_paging_block;
+	uint32_t fw_paging_size;
+};
+
 #define IWM_TX_RING_COUNT	256
 #define IWM_TX_RING_LOMARK	192
 #define IWM_TX_RING_HIMARK	224
@@ -261,8 +272,8 @@ struct iwm_tx_ring {
 	int			cur;
 };
 
+#define IWM_RX_MQ_RING_COUNT	512
 #define IWM_RX_RING_COUNT	256
-#define IWM_RBUF_COUNT		(IWM_RX_RING_COUNT + 32)
 /* Linux driver optionally uses 8k buffer */
 #define IWM_RBUF_SIZE		4096
 
@@ -272,12 +283,13 @@ struct iwm_rx_data {
 };
 
 struct iwm_rx_ring {
-	struct iwm_dma_info	desc_dma;
+	struct iwm_dma_info	free_desc_dma;
 	struct iwm_dma_info	stat_dma;
+	struct iwm_dma_info	used_desc_dma;
 	struct iwm_dma_info	buf_dma;
-	uint32_t		*desc;
+	void			*desc;
 	struct iwm_rb_status	*stat;
-	struct iwm_rx_data	data[IWM_RX_RING_COUNT];
+	struct iwm_rx_data	data[IWM_RX_MQ_RING_COUNT];
 	int			cur;
 };
 
@@ -370,6 +382,7 @@ struct iwm_softc {
 	int			ba_start;
 	int			ba_tid;
 	uint16_t		ba_ssn;
+	uint16_t		ba_winsize;
 
 	/* Task for HT protection updates. */
 	struct task		htprot_task;
@@ -381,6 +394,7 @@ struct iwm_softc {
 	pci_chipset_tag_t sc_pct;
 	pcitag_t sc_pcitag;
 	const void *sc_ih;
+	int sc_msix;
 
 	/* TX scheduler rings. */
 	struct iwm_dma_info		sched_dma;
@@ -407,6 +421,7 @@ struct iwm_softc {
 	int sc_device_family;
 #define IWM_DEVICE_FAMILY_7000	1
 #define IWM_DEVICE_FAMILY_8000	2
+#define IWM_DEVICE_FAMILY_9000	3
 
 	struct iwm_dma_info kw_dma;
 	struct iwm_dma_info fw_dma;
@@ -423,12 +438,17 @@ struct iwm_softc {
 	int sc_capaflags;
 	int sc_capa_max_probe_len;
 	int sc_capa_n_scan_channels;
-	uint32_t sc_ucode_api;
+	uint8_t sc_ucode_api[howmany(IWM_NUM_UCODE_TLV_API, NBBY)];
 	uint8_t sc_enabled_capa[howmany(IWM_NUM_UCODE_TLV_CAPA, NBBY)];
 	char sc_fw_mcc[3];
 
 	int sc_intmask;
 	int sc_flags;
+
+	uint32_t sc_fh_init_mask;
+	uint32_t sc_hw_init_mask;
+	uint32_t sc_fh_mask;
+	uint32_t sc_hw_mask;
 
 	/*
 	 * So why do we need a separate stopped flag and a generation?
@@ -486,6 +506,18 @@ struct iwm_softc {
 
 	int host_interrupt_operation_mode;
 	int sc_ltr_enabled;
+	enum iwm_nvm_type nvm_type;
+
+	int sc_mqrx_supported;
+	int sc_integrated;
+
+	/*
+	 * Paging parameters - All of the parameters should be set by the
+	 * opmode when paging is enabled
+	 */
+	struct iwm_fw_paging fw_paging_db[IWM_NUM_OF_FW_PAGING_BLOCKS];
+	uint16_t num_of_paging_blk;
+	uint16_t num_of_pages_in_last_blk;
 
 #if NBPFILTER > 0
 	caddr_t			sc_drvbpf;

@@ -1,8 +1,9 @@
-/Makefile/1.75/Mon Feb  4 23:23:18 2019//
+/Makefile/1.76/Thu Nov 14 21:14:35 2019//
 /check_sym/1.10/Sat Oct  5 01:01:23 2019//
 D/csu////
 D/libarch////
 D/libc////
+D/libcbor////
 D/libcompiler_rt////
 D/libcrypto////
 D/libcsi////
@@ -13,6 +14,7 @@ D/libedit////
 D/libelf////
 D/libevent////
 D/libexpat////
+D/libfido2////
 D/libform////
 D/libfuse////
 D/libkeynote////

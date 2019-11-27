@@ -1,9 +1,9 @@
-#	$OpenBSD: keyscan.sh,v 1.9 2019/01/28 03:50:39 dtucker Exp $
+#	$OpenBSD: keyscan.sh,v 1.11 2019/11/26 23:43:10 djm Exp $
 #	Placed in the Public Domain.
 
 tid="keyscan"
 
-KEYTYPES=`${SSH} -Q key-plain`
+KEYTYPES=`${SSH} -Q key-plain | filter_sk`
 for i in $KEYTYPES; do
 	if [ -z "$algs" ]; then
 		algs="$i"

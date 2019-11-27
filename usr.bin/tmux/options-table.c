@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.111 2019/09/19 09:02:30 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.113 2019/11/14 16:23:23 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -147,6 +147,12 @@ static const char *options_table_status_format_default[] = {
 /* Top-level options. */
 const struct options_table_entry options_table[] = {
 	/* Server options. */
+	{ .name = "backspace",
+	  .type = OPTIONS_TABLE_KEY,
+	  .scope = OPTIONS_TABLE_SERVER,
+	  .default_num = '\177',
+	},
+
 	{ .name = "buffer-limit",
 	  .type = OPTIONS_TABLE_NUMBER,
 	  .scope = OPTIONS_TABLE_SERVER,
@@ -724,7 +730,7 @@ const struct options_table_entry options_table[] = {
 	  .type = OPTIONS_TABLE_CHOICE,
 	  .scope = OPTIONS_TABLE_WINDOW,
 	  .choices = options_table_window_size_list,
-	  .default_num = WINDOW_SIZE_SMALLEST
+	  .default_num = WINDOW_SIZE_LATEST
 	},
 
 	{ .name = "window-style",

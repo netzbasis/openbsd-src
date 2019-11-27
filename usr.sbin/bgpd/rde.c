@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.489 2019/09/27 14:50:39 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.491 2019/11/27 01:21:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -367,6 +367,7 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 	struct filter_set	*s;
 	u_int8_t		*asdata;
 	ssize_t			 n;
+	size_t			 aslen;
 	int			 verbose;
 	u_int16_t		 len;
 	u_int8_t		 aid;
@@ -466,20 +467,15 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 			break;
 		case IMSG_NETWORK_ASPATH:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE <
-			    sizeof(struct ctl_show_rib)) {
+			    sizeof(csr)) {
 				log_warnx("rde_dispatch: wrong imsg len");
 				bzero(&netconf_s, sizeof(netconf_s));
 				break;
 			}
+			aslen = imsg.hdr.len - IMSG_HEADER_SIZE - sizeof(csr);
 			asdata = imsg.data;
 			asdata += sizeof(struct ctl_show_rib);
 			memcpy(&csr, imsg.data, sizeof(csr));
-			if (csr.aspath_len + sizeof(csr) > imsg.hdr.len -
-			    IMSG_HEADER_SIZE) {
-				log_warnx("rde_dispatch: wrong aspath len");
-				bzero(&netconf_s, sizeof(netconf_s));
-				break;
-			}
 			asp = &netconf_state.aspath;
 			asp->lpref = csr.local_pref;
 			asp->med = csr.med;
@@ -488,7 +484,7 @@ rde_dispatch_imsg_session(struct imsgbuf *ibuf)
 			asp->origin = csr.origin;
 			asp->flags |= F_PREFIX_ANNOUNCED | F_ANN_DYNAMIC;
 			aspath_put(asp->aspath);
-			asp->aspath = aspath_get(asdata, csr.aspath_len);
+			asp->aspath = aspath_get(asdata, aslen);
 			break;
 		case IMSG_NETWORK_ATTR:
 			if (imsg.hdr.len <= IMSG_HEADER_SIZE) {
@@ -2199,6 +2195,7 @@ rde_dump_rib_as(struct prefix *p, struct rde_aspath *asp, pid_t pid, int flags)
 	struct nexthop		*nexthop;
 	void			*bp;
 	time_t			 staletime;
+	size_t			 aslen;
 	u_int8_t		 l;
 
 	nexthop = prefix_nexthop(p);
@@ -2243,14 +2240,13 @@ rde_dump_rib_as(struct prefix *p, struct rde_aspath *asp, pid_t pid, int flags)
 	staletime = prefix_peer(p)->staletime[p->pt->aid];
 	if (staletime && p->lastchange <= staletime)
 		rib.flags |= F_PREF_STALE;
-	rib.aspath_len = aspath_length(asp->aspath);
+	aslen = aspath_length(asp->aspath);
 
 	if ((wbuf = imsg_create(ibuf_se_ctl, IMSG_CTL_SHOW_RIB, 0, pid,
-	    sizeof(rib) + rib.aspath_len)) == NULL)
+	    sizeof(rib) + aslen)) == NULL)
 		return;
 	if (imsg_add(wbuf, &rib, sizeof(rib)) == -1 ||
-	    imsg_add(wbuf, aspath_dump(asp->aspath),
-	    rib.aspath_len) == -1)
+	    imsg_add(wbuf, aspath_dump(asp->aspath), aslen) == -1)
 		return;
 	imsg_close(ibuf_se_ctl, wbuf);
 
@@ -2828,13 +2824,42 @@ rde_up_flush_upcall(struct prefix *p, void *ptr)
 }
 
 static void
+rde_up_adjout_force_upcall(struct prefix *p, void *ptr)
+{
+	if (p->flags & PREFIX_FLAG_STALE) {
+		/* remove stale entries */
+		prefix_adjout_destroy(p);
+	} else if (p->flags & PREFIX_FLAG_DEAD) {
+		/* ignore dead prefixes, they will go away soon */
+	} else if ((p->flags & PREFIX_FLAG_MASK) == 0) {
+		/* put entries on the update queue if not allready on a queue */
+		p->flags |= PREFIX_FLAG_UPDATE;
+		if (RB_INSERT(prefix_tree, &prefix_peer(p)->updates[p->pt->aid],
+		    p) != NULL)
+			fatalx("%s: RB tree invariant violated", __func__);
+	}
+}
+
+static void
+rde_up_adjout_force_done(void *ptr, u_int8_t aid)
+{
+	struct rde_peer		*peer = ptr;
+
+	/* Adj-RIB-Out ready, unthrottle peer and inject EOR */
+	peer->throttled = 0;
+	if (peer->capa.grestart.restart)
+		prefix_add_eor(peer, aid);
+}
+
+static void
 rde_up_dump_done(void *ptr, u_int8_t aid)
 {
 	struct rde_peer		*peer = ptr;
 
-	peer->throttled = 0;
-	if (peer->capa.grestart.restart)
-		prefix_add_eor(peer, aid);
+	/* force out all updates of Adj-RIB-Out for this peer */
+	if (prefix_dump_new(peer, aid, 0, peer, rde_up_adjout_force_upcall,
+	    rde_up_adjout_force_done, NULL) == -1)
+		fatal("%s: prefix_dump_new", __func__);
 }
 
 u_char	queue_buf[4096];
@@ -3387,16 +3412,17 @@ rde_softreconfig_in(struct rib_entry *re, void *bula)
 static void
 rde_softreconfig_out(struct rib_entry *re, void *bula)
 {
-	struct prefix		*new = re->active;
+	struct prefix		*p = re->active;
 	struct rde_peer		*peer;
 
-	if (new == NULL)
+	if (p == NULL)
+		/* no valid path for prefix */
 		return;
 
 	LIST_FOREACH(peer, &peerlist, peer_l) {
 		if (peer->loc_rib_id == re->rib_id && peer->reconf_out)
 			/* Regenerate all updates. */
-			up_generate_updates(out_rules, peer, new, new);
+			up_generate_updates(out_rules, peer, p, p);
 	}
 }
 
@@ -3668,6 +3694,22 @@ peer_adjout_clear_upcall(struct prefix *p, void *arg)
 	prefix_adjout_destroy(p);
 }
 
+static void
+peer_adjout_stale_upcall(struct prefix *p, void *arg)
+{
+	if (p->flags & PREFIX_FLAG_DEAD) {
+		return;
+	} else if (p->flags & PREFIX_FLAG_WITHDRAW) {
+		/* no need to keep stale withdraws, they miss all attributes */
+		prefix_adjout_destroy(p);
+		return;
+	} else if (p->flags & PREFIX_FLAG_UPDATE) {
+		RB_REMOVE(prefix_tree, &prefix_peer(p)->updates[p->pt->aid], p);
+		p->flags &= ~PREFIX_FLAG_UPDATE;
+	}
+	p->flags |= PREFIX_FLAG_STALE;
+}
+
 void
 peer_up(u_int32_t id, struct session_up *sup)
 {
@@ -3680,8 +3722,7 @@ peer_up(u_int32_t id, struct session_up *sup)
 		return;
 	}
 
-	if (peer->state != PEER_DOWN && peer->state != PEER_NONE &&
-	    peer->state != PEER_UP) {
+	if (peer->state == PEER_ERR) {
 		/*
 		 * There is a race condition when doing PEER_ERR -> PEER_DOWN.
 		 * So just do a full reset of the peer here.
@@ -3831,12 +3872,18 @@ peer_stale(u_int32_t id, u_int8_t aid)
 	/* flush the now even staler routes out */
 	if (peer->staletime[aid])
 		peer_flush(peer, aid, peer->staletime[aid]);
+
 	peer->staletime[aid] = now = time(NULL);
+	peer->state = PEER_DOWN;
+
+	/* mark Adj-RIB-Out stale for this peer */
+	if (prefix_dump_new(peer, AID_UNSPEC, 0, NULL,
+	    peer_adjout_stale_upcall, NULL, NULL) == -1)
+		fatal("%s: prefix_dump_new", __func__);
 
 	/* make sure new prefixes start on a higher timestamp */
-	do {
+	while (now >= time(NULL))
 		sleep(1);
-	} while (now >= time(NULL));
 }
 
 void
@@ -3856,13 +3903,13 @@ peer_dump(u_int32_t id, u_int8_t aid)
 			prefix_add_eor(peer, aid);
 	} else if (peer->conf.export_type == EXPORT_DEFAULT_ROUTE) {
 		up_generate_default(out_rules, peer, aid);
-		if (peer->capa.grestart.restart)
-			prefix_add_eor(peer, aid);
+		rde_up_dump_done(peer, aid);
 	} else {
 		if (rib_dump_new(peer->loc_rib_id, aid, RDE_RUNNER_ROUNDS, peer,
 		    rde_up_dump_upcall, rde_up_dump_done, NULL) == -1)
 			fatal("%s: rib_dump_new", __func__);
-		peer->throttled = 1; /* XXX throttle peer until dump is done */
+		/* throttle peer until dump is done */
+		peer->throttled = 1;
 	}
 }
 

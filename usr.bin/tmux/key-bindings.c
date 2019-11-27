@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.101 2019/09/18 15:09:05 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.103 2019/11/26 15:35:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -402,6 +402,8 @@ key_bindings_init(void)
 		"bind -Tcopy-mode C-Up send -X scroll-up",
 		"bind -Tcopy-mode C-Down send -X scroll-down",
 
+		"bind -Tcopy-mode-vi '#' send -FX search-backward '#{copy_cursor_word}'",
+		"bind -Tcopy-mode-vi * send -FX search-forward '#{copy_cursor_word}'",
 		"bind -Tcopy-mode-vi C-c send -X cancel",
 		"bind -Tcopy-mode-vi C-d send -X halfpage-down",
 		"bind -Tcopy-mode-vi C-e send -X scroll-down",
@@ -508,12 +510,16 @@ key_bindings_dispatch(struct key_binding *bd, struct cmdq_item *item,
 	struct cmdq_item	*new_item;
 	int			 readonly;
 
-	readonly = 1;
-	TAILQ_FOREACH(cmd, &bd->cmdlist->list, qentry) {
-		if (!(cmd->entry->flags & CMD_READONLY))
-			readonly = 0;
+	if (c == NULL || (~c->flags & CLIENT_READONLY))
+		readonly = 1;
+	else {
+		readonly = 1;
+		TAILQ_FOREACH(cmd, &bd->cmdlist->list, qentry) {
+			if (~cmd->entry->flags & CMD_READONLY)
+				readonly = 0;
+		}
 	}
-	if (!readonly && (c->flags & CLIENT_READONLY))
+	if (!readonly)
 		new_item = cmdq_get_callback(key_bindings_read_only, NULL);
 	else {
 		new_item = cmdq_get_command(bd->cmdlist, fs, m, 0);

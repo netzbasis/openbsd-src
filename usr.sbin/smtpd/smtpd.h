@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.641 2019/09/30 08:31:41 martijn Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.643 2019/11/25 14:18:33 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -51,7 +51,7 @@
 #define SMTPD_QUEUE_EXPIRY	 (4 * 24 * 60 * 60)
 #define SMTPD_SOCKET		 "/var/run/smtpd.sock"
 #define	SMTPD_NAME		 "OpenSMTPD"
-#define	SMTPD_VERSION		 "6.6.0"
+#define	SMTPD_VERSION		 "6.6.1"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -489,6 +489,7 @@ struct envelope {
 	char				smtpname[HOST_NAME_MAX+1];
 	char				helo[HOST_NAME_MAX+1];
 	char				hostname[HOST_NAME_MAX+1];
+	char				username[SMTPD_MAXMAILADDRSIZE];
 	char				errorline[LINE_MAX];
 	struct sockaddr_storage		ss;
 

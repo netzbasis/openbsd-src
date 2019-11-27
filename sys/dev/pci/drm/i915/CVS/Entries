@@ -7,24 +7,24 @@
 /dvo_ns2501.c/1.10/Sun Apr 14 10:14:51 2019//
 /dvo_sil164.c/1.8/Sun Apr 14 10:14:51 2019//
 /dvo_tfp410.c/1.8/Sun Apr 14 10:14:51 2019//
-/i915_cmd_parser.c/1.2/Sun Apr 14 10:14:51 2019//
+/i915_cmd_parser.c/1.10/Wed Nov 13 06:44:45 2019//
 /i915_devlist.h/1.10/Sat Aug 24 01:45:59 2019//
-/i915_drv.c/1.123/Sun Oct 13 10:56:31 2019//
-/i915_drv.h/1.84/Sat Aug 24 01:43:12 2019//
-/i915_gem.c/1.122/Mon Sep 16 15:22:46 2019//
+/i915_drv.c/1.125/Wed Nov 13 06:41:55 2019//
+/i915_drv.h/1.89/Wed Nov 13 06:41:55 2019//
+/i915_gem.c/1.124/Wed Nov 13 06:41:55 2019//
 /i915_gem.h/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_batch_pool.h/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_clflush.c/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_clflush.h/1.1/Sun Apr 14 10:14:51 2019//
-/i915_gem_context.c/1.16/Sun Apr 14 10:14:51 2019//
-/i915_gem_context.h/1.1/Sun Apr 14 10:14:51 2019//
+/i915_gem_context.c/1.17/Wed Nov 13 06:33:04 2019//
+/i915_gem_context.h/1.2/Wed Nov 13 06:33:04 2019//
 /i915_gem_dmabuf.c/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_evict.c/1.9/Sun Apr 14 10:14:51 2019//
-/i915_gem_execbuffer.c/1.45/Sun Apr 14 10:14:51 2019//
+/i915_gem_execbuffer.c/1.51/Wed Nov 13 06:33:04 2019//
 /i915_gem_fence_reg.c/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_fence_reg.h/1.1/Sun Apr 14 10:14:51 2019//
-/i915_gem_gtt.c/1.17/Sun Apr 14 10:14:51 2019//
+/i915_gem_gtt.c/1.18/Wed Nov 13 06:28:10 2019//
 /i915_gem_gtt.h/1.2/Sun Apr 14 10:14:51 2019//
 /i915_gem_internal.c/1.1/Sun Apr 14 10:14:51 2019//
 /i915_gem_object.c/1.1/Sun Apr 14 10:14:51 2019//
@@ -50,7 +50,7 @@
 /i915_pvinfo.h/1.1/Sun Apr 14 10:14:52 2019//
 /i915_query.c/1.1/Sun Apr 14 10:14:52 2019//
 /i915_query.h/1.1/Sun Apr 14 10:14:52 2019//
-/i915_reg.h/1.17/Mon Sep 16 15:07:03 2019//
+/i915_reg.h/1.20/Wed Nov 13 06:41:55 2019//
 /i915_request.c/1.1/Sun Apr 14 10:14:52 2019//
 /i915_request.h/1.1/Sun Apr 14 10:14:52 2019//
 /i915_scheduler.h/1.1/Sun Apr 14 10:14:52 2019//
@@ -91,7 +91,7 @@
 /intel_dpio_phy.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_dpll_mgr.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_dpll_mgr.h/1.1/Sun Apr 14 10:14:52 2019//
-/intel_drv.h/1.12/Sun Apr 14 10:14:52 2019//
+/intel_drv.h/1.13/Wed Nov 13 06:41:55 2019//
 /intel_dsi.h/1.3/Sun Apr 14 10:14:52 2019//
 /intel_dsi_dcs_backlight.c/1.1/Sun Apr 14 10:14:52 2019//
 /intel_dsi_vbt.c/1.1/Sun Apr 14 10:14:52 2019//
@@ -140,6 +140,7 @@
 /intel_opregion.h/1.1/Sun Apr 14 10:14:52 2019//
 /intel_overlay.c/1.20/Sun Apr 14 10:14:52 2019//
 /intel_panel.c/1.16/Sun Apr 14 10:14:52 2019//
+/intel_pm.c/1.45/Wed Nov 13 06:41:55 2019//
 /intel_psr.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_renderstate.h/1.2/Sun Apr 14 10:14:52 2019//
 /intel_renderstate_gen6.c/1.1/Sat Jul  1 16:14:10 2017//
@@ -147,7 +148,7 @@
 /intel_renderstate_gen8.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_renderstate_gen9.c/1.2/Sun Apr 14 10:14:52 2019//
 /intel_ringbuffer.c/1.35/Sun Apr 14 10:14:52 2019//
-/intel_ringbuffer.h/1.9/Sun Apr 14 10:14:52 2019//
+/intel_ringbuffer.h/1.10/Wed Nov 13 06:20:18 2019//
 /intel_runtime_pm.c/1.4/Fri Oct  4 06:33:30 2019//
 /intel_sdvo.c/1.23/Sun Jun 30 15:51:11 2019//
 /intel_sdvo_regs.h/1.5/Sun Jun 30 15:51:11 2019//
@@ -167,12 +168,9 @@
 /intel_workarounds.c/1.2/Tue Jun 11 11:52:52 2019//
 /intel_workarounds.h/1.1/Sun Apr 14 10:14:52 2019//
 /vlv_dsi.c/1.1/Sun Apr 14 10:14:52 2019//
-<<<<<<< HEAD
 /vlv_dsi_pll.c/1.1/Sun Apr 14 10:14:52 2019//
 /i915_gem.c/1.117/Sat Aug 10 15:12:44 2019//
 /intel_hotplug.c/1.3/Sat Aug 10 16:07:30 2019//
 /intel_pm.c/1.43/Sun Apr 14 10:14:52 2019//
-=======
 /vlv_dsi_pll.c/1.2/Sat Aug 17 08:27:43 2019//
->>>>>>> master
 D

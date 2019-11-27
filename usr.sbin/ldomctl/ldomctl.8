@@ -1,4 +1,4 @@
-.\"     $OpenBSD: ldomctl.8,v 1.13 2019/07/27 13:59:03 jmc Exp $
+.\"     $OpenBSD: ldomctl.8,v 1.15 2019/11/27 01:25:17 kn Exp $
 .\"
 .\" Copyright (c) 2012 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 27 2019 $
+.Dd $Mdocdate: November 27 2019 $
 .Dt LDOMCTL 8 sparc64
 .Os
 .Sh NAME
@@ -123,18 +123,22 @@ The minirootfs install media can be used to boot guest domains:
 # cp miniroot56.fs /home/salmah/vdisk1
 .Ed
 .Pp
-Enable
-.Xr ldomd 8
-by adding the following
-to
-.Pa /etc/rc.conf.local :
+To have
+.Nm
+enabled at boot time, use
+.Dq rcctl enable ldomd ,
+which sets
 .Pp
-.Dl ldomd_flags=
+.Dl ldomd_flags=\(dq\(dq
 .Pp
-Halt the primary domain and reset the machine from ALOM:
+in
+.Xr rc.conf.local 8 .
+.Pp
+Halt the primary domain reset the hardware:
 .Bd -literal -offset indent
 # halt
-sc> reset -c
+sc> reset -c	# ALOM
+-> reset /SYS	# ILOM
 .Ed
 .Pp
 The machine will now reset and boot into the new configuration.

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.20 2019/10/16 21:43:41 jmc Exp $ */
+/*	$OpenBSD: main.c,v 1.24 2019/11/27 03:39:16 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -40,6 +40,11 @@
 #include <openssl/x509v3.h>
 
 #include "extern.h"
+
+/*
+ * Maximum number of TAL files we'll load.
+ */
+#define	TALSZ_MAX	8
 
 /*
  * Base directory for where we'll look for all media.
@@ -462,14 +467,16 @@ queue_add_from_mft_set(int fd, struct entityq *q, const struct mft *mft,
 static void
 queue_add_tal(int fd, struct entityq *q, const char *file, size_t *eid)
 {
-	char		*nfile;
+	char	*nfile, *buf;
 
 	if ((nfile = strdup(file)) == NULL)
 		err(EXIT_FAILURE, "strdup");
+	buf = tal_read_file(file);
 
 	/* Not in a repository, so directly add to queue. */
-
-	entityq_add(fd, q, nfile, RTYPE_TAL, NULL, NULL, NULL, 0, NULL, eid);
+	entityq_add(fd, q, nfile, RTYPE_TAL, NULL, NULL, NULL, 0, buf, eid);
+	/* entityq_add makes a copy of buf */
+	free(buf);
 }
 
 /*
@@ -983,16 +990,16 @@ static void
 proc_parser_crl(struct entity *entp, int norev, X509_STORE *store,
     X509_STORE_CTX *ctx, const struct auth *auths, size_t authsz)
 {
-	X509_CRL	    *x509;
+	X509_CRL	    *x509_crl;
 	const unsigned char *dgst;
 
 	if (norev)
 		return;
 
 	dgst = entp->has_dgst ? entp->dgst : NULL;
-	if ((x509 = crl_parse(entp->uri, dgst)) != NULL) {
-		X509_STORE_add_crl(store, x509);
-		X509_CRL_free(x509);
+	if ((x509_crl = crl_parse(entp->uri, dgst)) != NULL) {
+		X509_STORE_add_crl(store, x509_crl);
+		X509_CRL_free(x509_crl);
 	}
 }
 
@@ -1020,7 +1027,6 @@ proc_parser(int fd, int force, int norev)
 	X509_STORE	*store;
 	X509_STORE_CTX	*ctx;
 	struct auth	*auths = NULL;
-	int		 first_tals = 1;
 
 	ERR_load_crypto_strings();
 	OpenSSL_add_all_ciphers();
@@ -1102,31 +1108,12 @@ proc_parser(int fd, int force, int norev)
 		entp = TAILQ_FIRST(&q);
 		assert(entp != NULL);
 
-		/*
-		 * Extra security.
-		 * Our TAL files may be anywhere, but the repository
-		 * resources may only be in BASE_DIR.
-		 * When we've finished processing TAL files, make sure
-		 * that we can only see what's under that.
-		 */
-
-		if (entp->type != RTYPE_TAL && first_tals) {
-			if (unveil(BASE_DIR, "r") == -1)
-				err(EXIT_FAILURE, "%s: unveil", BASE_DIR);
-			if (unveil(NULL, NULL) == -1)
-				err(EXIT_FAILURE, "unveil");
-			first_tals = 0;
-		} else if (entp->type != RTYPE_TAL) {
-			assert(!first_tals);
-		} else if (entp->type == RTYPE_TAL)
-			assert(first_tals);
-
 		entity_buffer_resp(&b, &bsz, &bmax, entp);
 
 		switch (entp->type) {
 		case RTYPE_TAL:
 			assert(!entp->has_dgst);
-			if ((tal = tal_parse(entp->uri)) == NULL)
+			if ((tal = tal_parse(entp->uri, entp->descr)) == NULL)
 				goto out;
 			tal_buffer(&b, &bsz, &bmax, tal);
 			tal_free(tal);
@@ -1294,9 +1281,13 @@ entity_process(int proc, int rsync, struct stats *st,
 	}
 }
 
-#define	TALSZ_MAX	8
-
-size_t
+/*
+ * Assign filenames ending in ".tal" in "/etc/rpki" into "tals",
+ * returning the number of files found and filled-in.
+ * This may be zero.
+ * Don't exceded "max" filenames.
+ */
+static size_t
 tal_load_default(const char *tals[], size_t max)
 {
 	static const char *basedir = "/etc/rpki";
@@ -1420,7 +1411,12 @@ main(int argc, char *argv[])
 
 	if (procpid == 0) {
 		close(fd[1]);
-		if (pledge("stdio rpath unveil", NULL) == -1)
+		/* Only allow access to BASE_DIR. */
+		if (unveil(BASE_DIR, "r") == -1)
+			err(EXIT_FAILURE, "%s: unveil", BASE_DIR);
+		if (unveil(NULL, NULL) == -1)
+			err(EXIT_FAILURE, "unveil");
+		if (pledge("stdio rpath", NULL) == -1)
 			err(EXIT_FAILURE, "pledge");
 		proc_parser(fd[0], force, norev);
 		/* NOTREACHED */
@@ -1460,13 +1456,7 @@ main(int argc, char *argv[])
 
 	assert(rsync != proc);
 
-	/*
-	 * The main process drives the top-down scan to leaf ROAs using
-	 * data downloaded by the rsync process and parsed by the
-	 * parsing process.
-	 */
-
-	if (pledge("stdio", NULL) == -1)
+	if (pledge("stdio rpath", NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 
 	/*
@@ -1477,6 +1467,15 @@ main(int argc, char *argv[])
 
 	for (i = 0; i < talsz; i++)
 		queue_add_tal(proc, &q, tals[i], &eid);
+
+	/*
+	 * The main process drives the top-down scan to leaf ROAs using
+	 * data downloaded by the rsync process and parsed by the
+	 * parsing process.
+	 */
+
+	if (pledge("stdio", NULL) == -1)
+		err(EXIT_FAILURE, "pledge");
 
 	pfd[0].fd = rsync;
 	pfd[1].fd = proc;

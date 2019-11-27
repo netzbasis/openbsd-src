@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.930 2019/10/23 07:42:05 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.933 2019/11/25 15:04:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -706,6 +706,7 @@ struct screen_sel;
 struct screen_titles;
 struct screen {
 	char			*title;
+	char			*path;
 	struct screen_titles	*titles;
 
 	struct grid		*grid;		/* grid data */
@@ -1202,6 +1203,7 @@ struct tty {
 		TTY_VT220,
 		TTY_VT320,
 		TTY_VT420,
+		TTY_VT520,
 		TTY_UNKNOWN
 	} term_type;
 
@@ -1218,7 +1220,14 @@ struct tty {
 	struct tty_key	*key_tree;
 };
 #define TTY_TYPES \
-	{ "VT100", "VT101", "VT102", "VT220", "VT320", "VT420", "Unknown" }
+	{ "VT100", \
+	  "VT101", \
+	  "VT102", \
+	  "VT220", \
+	  "VT320", \
+	  "VT420", \
+	  "VT520", \
+	  "Unknown" }
 
 /* TTY command context. */
 struct tty_ctx {
@@ -2351,6 +2360,7 @@ void	 screen_reset_tabs(struct screen *);
 void	 screen_set_cursor_style(struct screen *, u_int);
 void	 screen_set_cursor_colour(struct screen *, const char *);
 void	 screen_set_title(struct screen *, const char *);
+void	 screen_set_path(struct screen *, const char *);
 void	 screen_push_title(struct screen *);
 void	 screen_pop_title(struct screen *);
 void	 screen_resize(struct screen *, u_int, u_int, int);
@@ -2628,6 +2638,7 @@ struct utf8_data *utf8_fromcstr(const char *);
 char		*utf8_tocstr(struct utf8_data *);
 u_int		 utf8_cstrwidth(const char *);
 char		*utf8_padcstr(const char *, u_int);
+char		*utf8_rpadcstr(const char *, u_int);
 int		 utf8_cstrhas(const char *, const struct utf8_data *);
 
 /* procname.c */
