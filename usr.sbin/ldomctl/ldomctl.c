@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldomctl.c,v 1.22 2019/07/15 11:05:10 kn Exp $	*/
+/*	$OpenBSD: ldomctl.c,v 1.24 2019/11/28 04:29:39 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis
@@ -50,6 +50,7 @@ void fetch_pri(void);
 void download(int argc, char **argv);
 void dump(int argc, char **argv);
 void list(int argc, char **argv);
+void list_io(int argc, char **argv);
 void xselect(int argc, char **argv);
 void delete(int argc, char **argv);
 void guest_start(int argc, char **argv);
@@ -62,6 +63,7 @@ struct command commands[] = {
 	{ "download",	download },
 	{ "dump",	dump },
 	{ "list",	list },
+	{ "list-io",	list_io },
 	{ "select",	xselect },
 	{ "delete",	delete },
 	{ "start",	guest_start },
@@ -159,7 +161,7 @@ usage(void)
 {
 	fprintf(stderr, "usage:\t%1$s delete|select configuration\n"
 	    "\t%1$s download directory\n"
-	    "\t%1$s dump|list\n"
+	    "\t%1$s dump|list|list-io\n"
 	    "\t%1$s init-system file\n"
 	    "\t%1$s panic|start|status|stop [domain]\n", getprogname());
 	exit(EXIT_FAILURE);
@@ -283,6 +285,9 @@ list(int argc, char **argv)
 	struct ds_conn *dc;
 	struct mdstore_set *set;
 
+	if (argc != 1)
+		usage();
+
 	dc = ds_conn_open("/dev/spds", NULL);
 	mdstore_register(dc);
 	while (TAILQ_EMPTY(&mdstore_sets))
@@ -299,11 +304,20 @@ list(int argc, char **argv)
 }
 
 void
+list_io(int argc, char **argv)
+{
+	if (argc != 1)
+		usage();
+
+	list_components();
+}
+
+void
 xselect(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	dc = ds_conn_open("/dev/spds", NULL);
@@ -319,7 +333,7 @@ delete(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	if (strcmp(argv[1], "factory-default") == 0)
@@ -338,7 +352,7 @@ download(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	dc = ds_conn_open("/dev/spds", NULL);
@@ -355,7 +369,7 @@ guest_start(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	/*
@@ -381,7 +395,7 @@ guest_stop(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	/*
@@ -407,7 +421,7 @@ guest_panic(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	/*

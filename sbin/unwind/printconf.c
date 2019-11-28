@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.12 2019/11/09 16:28:10 florian Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.14 2019/11/27 17:11:00 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -68,10 +68,11 @@ print_config(struct uw_conf *conf)
 	struct uw_forwarder	*uw_forwarder;
 	int			 i;
 
-	if (conf->res_pref_len > 0) {
+	if (conf->res_pref.len > 0) {
 		printf("preference {");
-		for (i = 0; i < conf->res_pref_len; i++) {
-			printf(" %s", uw_resolver_type_str[conf->res_pref[i]]);
+		for (i = 0; i < conf->res_pref.len; i++) {
+			printf(" %s",
+			    uw_resolver_type_str[conf->res_pref.types[i]]);
 		}
 		printf(" }\n");
 	}
@@ -90,19 +91,6 @@ print_config(struct uw_conf *conf)
 			print_forwarder(uw_forwarder->name);
 			printf(" DoT\n");
 		}
-		printf("}\n");
-	}
-
-	if (conf->captive_portal_host != NULL) {
-		printf("captive portal {\n");
-		printf("\turl \"http://%s%s\"\n", conf->captive_portal_host,
-		    conf->captive_portal_path);
-		printf("\texpected status %d\n",
-		    conf->captive_portal_expected_status);
-		if (conf->captive_portal_expected_response != NULL)
-			printf("\texpected response \"%s\"\n",
-			    conf->captive_portal_expected_response);
-		printf("\tauto %s\n", yesno(conf->captive_portal_auto));
 		printf("}\n");
 	}
 

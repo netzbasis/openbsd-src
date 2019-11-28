@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.12 2019/11/27 04:32:09 benno Exp $ */
+/*	$OpenBSD: extern.h,v 1.15 2019/11/28 03:22:59 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -198,6 +198,20 @@ RB_HEAD(vrp_tree, vrp);
 RB_PROTOTYPE(vrp_tree, vrp, entry, vrpcmp);
 
 /*
+ * A single CRL
+ */
+struct crl {
+	RB_ENTRY(crl)	 entry;
+	char		*uri;
+	X509_CRL	*x509_crl;
+};
+/*
+ * Tree of CRLs sorted by uri
+ */
+RB_HEAD(crl_tree, crl);
+RB_PROTOTYPE(crl_tree, crl, entry, crlcmp);
+
+/*
  * An authentication tuple.
  * This specifies a public key and a subject key identifier used to
  * verify children nodes in the tree of entities.
@@ -231,7 +245,7 @@ extern int verbose;
 void		 tal_buffer(char **, size_t *, size_t *, const struct tal *);
 void		 tal_free(struct tal *);
 struct tal	*tal_parse(const char *, char *);
-char 		*tal_read_file(const char *);
+char		*tal_read_file(const char *);
 struct tal	*tal_read(int);
 
 void		 cert_buffer(char **, size_t *, size_t *, const struct cert *);
@@ -249,15 +263,23 @@ void		 roa_buffer(char **, size_t *, size_t *, const struct roa *);
 void		 roa_free(struct roa *);
 struct roa	*roa_parse(X509 **, const char *, const unsigned char *);
 struct roa	*roa_read(int);
-void		 roa_insert_vrps(struct vrp_tree *, struct roa *, size_t *, size_t *);
+void		 roa_insert_vrps(struct vrp_tree *, struct roa *, size_t *,
+		    size_t *);
 
+/* crl.c */
 X509_CRL	*crl_parse(const char *, const unsigned char *);
+void		 free_crl(struct crl *);
 
 /* Validation of our objects. */
 
-ssize_t		 valid_cert(const char *, const struct auth *, size_t, const struct cert *);
-ssize_t		 valid_roa(const char *, const struct auth *, size_t, const struct roa *);
-ssize_t		 valid_ta(const char *, const struct auth *, size_t, const struct cert *);
+ssize_t		 valid_ski_aki(const char *, const struct auth *, size_t,
+		    const char *, const char *);
+ssize_t		 valid_cert(const char *, const struct auth *, size_t,
+		    const struct cert *);
+ssize_t		 valid_roa(const char *, const struct auth *, size_t,
+		    const struct roa *);
+ssize_t		 valid_ta(const char *, const struct auth *, size_t,
+		    const struct cert *);
 
 /* Working with CMS files. */
 
@@ -266,12 +288,16 @@ unsigned char	*cms_parse_validate(X509 **, const char *,
 
 /* Work with RFC 3779 IP addresses, prefixes, ranges. */
 
-int		 ip_addr_afi_parse(const char *, const ASN1_OCTET_STRING *, enum afi *);
+int		 ip_addr_afi_parse(const char *, const ASN1_OCTET_STRING *,
+			enum afi *);
 int		 ip_addr_parse(const ASN1_BIT_STRING *,
 			enum afi, const char *, struct ip_addr *);
-void		 ip_addr_print(const struct ip_addr *, enum afi, char *, size_t);
-void		 ip_addr_buffer(char **, size_t *, size_t *, const struct ip_addr *);
-void		 ip_addr_range_buffer(char **, size_t *, size_t *, const struct ip_addr_range *);
+void		 ip_addr_print(const struct ip_addr *, enum afi, char *,
+			size_t);
+void		 ip_addr_buffer(char **, size_t *, size_t *,
+			const struct ip_addr *);
+void		 ip_addr_range_buffer(char **, size_t *, size_t *,
+			const struct ip_addr_range *);
 void		 ip_addr_read(int, struct ip_addr *);
 void		 ip_addr_range_read(int, struct ip_addr_range *);
 int		 ip_addr_cmp(const struct ip_addr *, const struct ip_addr *);
@@ -308,10 +334,12 @@ void		 cryptoerrx(const char *, ...)
 
 void		 io_socket_blocking(int);
 void		 io_socket_nonblocking(int);
-void		 io_simple_buffer(char **, size_t *, size_t *, const void *, size_t);
+void		 io_simple_buffer(char **, size_t *, size_t *, const void *,
+			size_t);
 void		 io_simple_read(int, void *, size_t);
 void		 io_simple_write(int, const void *, size_t);
-void		 io_buf_buffer(char **, size_t *, size_t *, const void *, size_t);
+void		 io_buf_buffer(char **, size_t *, size_t *, const void *,
+			size_t);
 void		 io_buf_read_alloc(int, void **, size_t *);
 void		 io_buf_write(int, const void *, size_t);
 void		 io_str_buffer(char **, size_t *, size_t *, const char *);
@@ -323,6 +351,7 @@ void		 io_str_write(int, const char *);
 char		*x509_get_aki_ext(X509_EXTENSION *, const char *);
 char		*x509_get_ski_ext(X509_EXTENSION *, const char *);
 int		 x509_get_ski_aki(X509 *, const char *, char **, char **);
+char		*x509_get_crl(X509 *, const char *);
 
 /* Output! */
 

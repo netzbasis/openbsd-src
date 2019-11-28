@@ -63,6 +63,7 @@ D/sosplice////
 D/stackjmp////
 D/stackpivot////
 D/syscall////
+D/syscall_segment////
 D/sysvmsg////
 D/sysvsem////
 D/sysvshm////
