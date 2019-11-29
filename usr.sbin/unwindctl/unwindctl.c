@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwindctl.c,v 1.16 2019/11/27 17:12:31 florian Exp $	*/
+/*	$OpenBSD: unwindctl.c,v 1.18 2019/11/28 10:40:29 florian Exp $	*/
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -227,16 +227,20 @@ show_status_msg(struct imsg *imsg)
 	switch (imsg->hdr.type) {
 	case IMSG_CTL_RESOLVER_INFO:
 		cri = imsg->data;
-		printf("%-10s %s%s\n", uw_resolver_type_str[cri->type],
+		printf("%-10s %s%s", uw_resolver_type_str[cri->type],
 		    uw_resolver_state_str[cri->state],
 		    cri->oppdot ? " (opportunistic DoT)" : "");
+		if (cri->median != INT64_MAX)
+			printf(" median RTT: %lldms\n", cri->median);
+		else
+			printf(" median RTT: N.A\n");
 		break;
 	case IMSG_CTL_AUTOCONF_RESOLVER_INFO:
 		cfi = imsg->data;
 		if (!autoconf_forwarders++)
 			printf("\nlearned forwarders:\n");
 		if_name = if_indextoname(cfi->if_index, ifnamebuf);
-		printf("%s - %s[%s]\n", cfi->name,
+		printf("%s - %s[%s]\n", cfi->ip,
 		    cfi->src == RTP_PROPOSAL_DHCLIENT ? "DHCP" : "SLAAC",
 		    if_name ? if_name : "unknown");
 		break;

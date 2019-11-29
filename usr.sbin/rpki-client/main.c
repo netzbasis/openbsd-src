@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.26 2019/11/28 03:22:59 benno Exp $ */
+/*	$OpenBSD: main.c,v 1.42 2019/11/29 05:23:55 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -13,6 +13,33 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+/*-
+ * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
+ * Copyright (C) 2012 Oleg Moskalenko <mom040267@gmail.com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
 #include <sys/queue.h>
@@ -30,10 +57,12 @@
 #include <fts.h>
 #include <inttypes.h>
 #include <poll.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <unistd.h>
 
 #include <openssl/err.h>
@@ -41,6 +70,13 @@
 #include <openssl/x509v3.h>
 
 #include "extern.h"
+
+char		*outputname = _PATH_ROA;
+FILE		*output = NULL;
+char 		output_tmpname[PATH_MAX];
+
+void		 sig_handler(int);
+void		 set_signal_handler(void);
 
 /*
  * Maximum number of TAL files we'll load.
@@ -125,16 +161,14 @@ TAILQ_HEAD(entityq, entity);
 /*
  * Mark that our subprocesses will never return.
  */
-static void	 proc_parser(int, int, int)
-			__attribute__((noreturn));
-static void	 proc_rsync(const char *, const char *, int, int)
-			__attribute__((noreturn));
-static void	 logx(const char *fmt, ...)
-			__attribute__((format(printf, 1, 2)));
-static void	build_chain(ssize_t idx, const struct auth *auths,
-		    const size_t authsz,
-		    struct crl_tree *crlt, STACK_OF(X509) **chain,
-		    STACK_OF(X509_CRL) **crls);
+static void	proc_parser(int, int) __attribute__((noreturn));
+static void	proc_rsync(char *, char *, int, int)
+		    __attribute__((noreturn));
+static void	logx(const char *fmt, ...)
+		    __attribute__((format(printf, 1, 2)));
+static void	build_chain(const struct auth *, STACK_OF(X509) **);
+static void	build_crls(const struct auth *, struct crl_tree *,
+		    STACK_OF(X509_CRL) **);
 
 enum output_fmt {
 	BGPD,
@@ -222,7 +256,7 @@ repo_lookup(int fd, struct repotab *rt, const char *uri)
 
 	if (!rsync_uri_parse(&host, &hostsz,
 	    &mod, &modsz, NULL, NULL, NULL, uri))
-		errx(EXIT_FAILURE, "%s: malformed", uri);
+		errx(1, "%s: malformed", uri);
 
 	/* Look up in repository table. */
 
@@ -241,7 +275,7 @@ repo_lookup(int fd, struct repotab *rt, const char *uri)
 	rt->repos = reallocarray(rt->repos,
 		rt->reposz + 1, sizeof(struct repo));
 	if (rt->repos == NULL)
-		err(EXIT_FAILURE, "reallocarray");
+		err(1, "reallocarray");
 
 	rp = &rt->repos[rt->reposz++];
 	memset(rp, 0, sizeof(struct repo));
@@ -249,7 +283,7 @@ repo_lookup(int fd, struct repotab *rt, const char *uri)
 
 	if ((rp->host = strndup(host, hostsz)) == NULL ||
 	    (rp->module = strndup(mod, modsz)) == NULL)
-		err(EXIT_FAILURE, "strndup");
+		err(1, "strndup");
 
 	i = rt->reposz - 1;
 
@@ -355,7 +389,7 @@ entityq_add(int fd, struct entityq *q, char *file, enum rtype type,
 	struct entity	*p;
 
 	if ((p = calloc(1, sizeof(struct entity))) == NULL)
-		err(EXIT_FAILURE, "calloc");
+		err(1, "calloc");
 
 	p->id = (*eid)++;
 	p->type = type;
@@ -369,12 +403,12 @@ entityq_add(int fd, struct entityq *q, char *file, enum rtype type,
 	if (p->has_pkey) {
 		p->pkeysz = pkeysz;
 		if ((p->pkey = malloc(pkeysz)) == NULL)
-			err(EXIT_FAILURE, "malloc");
+			err(1, "malloc");
 		memcpy(p->pkey, pkey, pkeysz);
 	}
 	if (p->has_descr)
 		if ((p->descr = strdup(descr)) == NULL)
-			err(EXIT_FAILURE, "strdup");
+			err(1, "strdup");
 
 	TAILQ_INSERT_TAIL(q, p, entries);
 
@@ -404,7 +438,7 @@ queue_add_from_mft(int fd, struct entityq *q, const char *mft,
 
 	sz = strlen(file->file) + strlen(mft);
 	if ((nfile = calloc(sz + 1, 1)) == NULL)
-		err(EXIT_FAILURE, "calloc");
+		err(1, "calloc");
 
 	/* We know this is BASE_DIR/host/module/... */
 
@@ -475,7 +509,7 @@ queue_add_tal(int fd, struct entityq *q, const char *file, size_t *eid)
 	char	*nfile, *buf;
 
 	if ((nfile = strdup(file)) == NULL)
-		err(EXIT_FAILURE, "strdup");
+		err(1, "strdup");
 	buf = tal_read_file(file);
 
 	/* Not in a repository, so directly add to queue. */
@@ -507,7 +541,7 @@ queue_add_from_tal(int proc, int rsync, struct entityq *q,
 
 	if (asprintf(&nfile, "%s/%s/%s/%s",
 	    BASE_DIR, repo->host, repo->module, uri) == -1)
-		err(EXIT_FAILURE, "asprintf");
+		err(1, "asprintf");
 
 	entityq_add(proc, q, nfile, RTYPE_CER, repo, NULL, tal->pkey,
 	    tal->pkeysz, tal->descr, eid);
@@ -525,9 +559,9 @@ queue_add_from_cert(int proc, int rsync, struct entityq *q,
 	const struct repo	*repo;
 
 	if ((type = rtype_resolve(uri)) == RTYPE_EOF)
-		errx(EXIT_FAILURE, "%s: unknown file type", uri);
+		errx(1, "%s: unknown file type", uri);
 	if (type != RTYPE_MFT && type != RTYPE_CRL)
-		errx(EXIT_FAILURE, "%s: invalid file type", uri);
+		errx(1, "%s: invalid file type", uri);
 
 	/* ignore the CRL since it is already loaded via the MFT */
 	if (type == RTYPE_CRL)
@@ -540,7 +574,7 @@ queue_add_from_cert(int proc, int rsync, struct entityq *q,
 
 	if (asprintf(&nfile, "%s/%s/%s/%s",
 	    BASE_DIR, repo->host, repo->module, uri) == -1)
-		err(EXIT_FAILURE, "asprintf");
+		err(1, "asprintf");
 
 	entityq_add(proc, q, nfile, type, repo, NULL, NULL, 0, NULL, eid);
 }
@@ -565,7 +599,7 @@ proc_child(int signal)
  * repositories and saturate our system.
  */
 static void
-proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
+proc_rsync(char *prog, char *bind_addr, int fd, int noop)
 {
 	size_t			 id, i, idsz = 0;
 	ssize_t			 ssz;
@@ -574,7 +608,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 	const char		*pp;
 	pid_t			 pid;
 	char			*args[32];
-	int			 st, rc = 0;
+	int			 st, rc = 1;
 	struct stat		 stt;
 	struct pollfd		 pfd;
 	sigset_t		 mask, oldmask;
@@ -593,50 +627,50 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 	if (!noop) {
 		if (strchr(prog, '/') == NULL) {
 			if (getenv("PATH") == NULL)
-				errx(EXIT_FAILURE, "PATH is unset");
+				errx(1, "PATH is unset");
 			if ((path = strdup(getenv("PATH"))) == NULL)
-				err(EXIT_FAILURE, "strdup");
+				err(1, "strdup");
 			save = path;
 			while ((pp = strsep(&path, ":")) != NULL) {
 				if (*pp == '\0')
 					continue;
 				if (asprintf(&cmd, "%s/%s", pp, prog) == -1)
-					err(EXIT_FAILURE, "asprintf");
+					err(1, "asprintf");
 				if (lstat(cmd, &stt) == -1) {
 					free(cmd);
 					continue;
 				} else if (unveil(cmd, "x") == -1)
-					err(EXIT_FAILURE, "%s: unveil", cmd);
+					err(1, "%s: unveil", cmd);
 				free(cmd);
 				break;
 			}
 			free(save);
 		} else if (unveil(prog, "x") == -1)
-			err(EXIT_FAILURE, "%s: unveil", prog);
+			err(1, "%s: unveil", prog);
 
 		/* Unveil the repository directory and terminate unveiling. */
 
 		if (unveil(BASE_DIR, "c") == -1)
-			err(EXIT_FAILURE, "%s: unveil", BASE_DIR);
+			err(1, "%s: unveil", BASE_DIR);
 		if (unveil(NULL, NULL) == -1)
-			err(EXIT_FAILURE, "unveil");
+			err(1, "unveil");
 	}
 
 	/* Initialise retriever for children exiting. */
 
 	if (sigemptyset(&mask) == -1)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 	if (signal(SIGCHLD, proc_child) == SIG_ERR)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 	if (sigaddset(&mask, SIGCHLD) == -1)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 	if (sigprocmask(SIG_BLOCK, &mask, &oldmask) == -1)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 
 	for (;;) {
 		if (ppoll(&pfd, 1, NULL, &oldmask) == -1) {
 			if (errno != EINTR)
-				err(EXIT_FAILURE, "ppoll");
+				err(1, "ppoll");
 
 			/*
 			 * If we've received an EINTR, it means that one
@@ -646,7 +680,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 			 */
 
 			if ((pid = waitpid(WAIT_ANY, &st, 0)) == -1)
-				err(EXIT_FAILURE, "waitpid");
+				err(1, "waitpid");
 
 			for (i = 0; i < idsz; i++)
 				if (ids[i].pid == pid)
@@ -656,7 +690,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 			if (!WIFEXITED(st)) {
 				warnx("rsync %s did not exit", ids[i].uri);
 				goto out;
-			} else if (WEXITSTATUS(st) != EXIT_SUCCESS) {
+			} else if (WEXITSTATUS(st) != 0) {
 				warnx("rsync %s failed", ids[i].uri);
 				goto out;
 			}
@@ -675,7 +709,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 		 */
 
 		if ((ssz = read(fd, &id, sizeof(size_t))) == -1)
-			err(EXIT_FAILURE, "read");
+			err(1, "read");
 		if (ssz == 0)
 			break;
 
@@ -698,27 +732,27 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 		 */
 
 		if (asprintf(&dst, "%s/%s", BASE_DIR, host) == -1)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
 		if (mkdir(dst, 0700) == -1 && EEXIST != errno)
-			err(EXIT_FAILURE, "%s", dst);
+			err(1, "%s", dst);
 		free(dst);
 
 		if (asprintf(&dst, "%s/%s/%s", BASE_DIR, host, mod) == -1)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
 		if (mkdir(dst, 0700) == -1 && EEXIST != errno)
-			err(EXIT_FAILURE, "%s", dst);
+			err(1, "%s", dst);
 
 		if (asprintf(&uri, "rsync://%s/%s", host, mod) == -1)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
 
 		/* Run process itself, wait for exit, check error. */
 
 		if ((pid = fork()) == -1)
-			err(EXIT_FAILURE, "fork");
+			err(1, "fork");
 
 		if (pid == 0) {
 			if (pledge("stdio exec", NULL) == -1)
-				err(EXIT_FAILURE, "pledge");
+				err(1, "pledge");
 			i = 0;
 			args[i++] = (char *)prog;
 			args[i++] = "-rlt";
@@ -731,7 +765,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 			args[i++] = dst;
 			args[i] = NULL;
 			execvp(args[0], args);
-			err(EXIT_FAILURE, "%s: execvp", prog);
+			err(1, "%s: execvp", prog);
 		}
 
 		/* Augment the list of running processes. */
@@ -742,7 +776,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 		if (i == idsz) {
 			ids = reallocarray(ids, idsz + 1, sizeof(*ids));
 			if (ids == NULL)
-				err(EXIT_FAILURE, NULL);
+				err(1, NULL);
 			idsz++;
 		}
 
@@ -756,7 +790,7 @@ proc_rsync(const char *prog, const char *bind_addr, int fd, int noop)
 		free(dst);
 		free(host);
 	}
-	rc = 1;
+	rc = 0;
 out:
 
 	/* No need for these to be hanging around. */
@@ -768,61 +802,37 @@ out:
 		}
 
 	free(ids);
-	exit(rc ? EXIT_SUCCESS : EXIT_FAILURE);
+	exit(rc);
 	/* NOTREACHED */
 }
 
-char *
-normalize_name(const char *name)
-{
-	char *s;
-
-	if ((s = strrchr(name, '/')) != NULL) {
-		if (s+1 != '\0') {
-			s = s+1;
-			return s;
-		}
-	}
-	return NULL;
-}
-
 /*
- * Parse and validate a ROA, not parsing the CRL bits of "norev" has
- * been set.
+ * Parse and validate a ROA.
  * This is standard stuff.
  * Returns the roa on success, NULL on failure.
  */
 static struct roa *
-proc_parser_roa(struct entity *entp, int norev,
+proc_parser_roa(struct entity *entp,
     X509_STORE *store, X509_STORE_CTX *ctx,
-    const struct auth *auths, size_t authsz, struct crl_tree *crlt)
+    struct auth_tree *auths, struct crl_tree *crlt)
 {
 	struct roa		*roa;
 	X509			*x509;
 	int			 c;
 	X509_VERIFY_PARAM	*param;
 	unsigned int		fl, nfl;
-	ssize_t			aidx;
-	ssize_t			 idx;
+	struct auth		*a;
 	STACK_OF(X509)		*chain;
 	STACK_OF(X509_CRL)	*crls;
-	struct crl		 find, *found;
-	char			*find_str;
 
 	assert(entp->has_dgst);
 	if ((roa = roa_parse(&x509, entp->uri, entp->dgst)) == NULL)
 		return NULL;
 
-	idx = valid_ski_aki(entp->uri, auths, authsz, roa->ski, roa->aki);
+	a = valid_ski_aki(entp->uri, auths, roa->ski, roa->aki);
 
-	build_chain(idx, auths, authsz, crlt, &chain, &crls);
-	if ((find_str = x509_get_crl(x509, entp->uri)) != NULL) {
-		find.uri = normalize_name(find_str);
-		found = RB_FIND(crl_tree, crlt, &find);
-		if (found && sk_X509_CRL_push(crls, found->x509_crl) == 0)
-			err(EXIT_FAILURE, "sk_X509_CRL_push");
-		free(find_str);
-	}
+	build_chain(a, &chain);
+	build_crls(a, crlt, &crls);
 
 	assert(x509 != NULL);
 	if (!X509_STORE_CTX_init(ctx, store, x509, chain))
@@ -832,8 +842,6 @@ proc_parser_roa(struct entity *entp, int norev,
 		cryptoerrx("X509_STORE_CTX_get0_param");
 	fl = X509_VERIFY_PARAM_get_flags(param);
 	nfl = X509_V_FLAG_IGNORE_CRITICAL;
-	if (!norev)
-		nfl |= X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL;
 	if (!X509_VERIFY_PARAM_set_flags(param, fl | nfl))
 		cryptoerrx("X509_VERIFY_PARAM_set_flags");
 	X509_STORE_CTX_set0_crls(ctx, crls);
@@ -860,12 +868,9 @@ proc_parser_roa(struct entity *entp, int norev,
 	 * the code around roa_read() to check the "valid" field itself.
 	 */
 
-	aidx = valid_roa(entp->uri, auths, authsz, roa);
-	if (aidx != -1) {
+	if (valid_roa(entp->uri, auths, roa))
 		roa->valid = 1;
-		if ((roa->tal = strdup(auths[aidx].tal)) == NULL)
-			err(EXIT_FAILURE, NULL);
-	}
+
 	return roa;
 }
 
@@ -881,15 +886,14 @@ proc_parser_roa(struct entity *entp, int norev,
  */
 static struct mft *
 proc_parser_mft(struct entity *entp, int force, X509_STORE *store,
-    X509_STORE_CTX *ctx, const struct auth *auths, size_t authsz,
-    struct crl_tree *crlt)
+    X509_STORE_CTX *ctx, struct auth_tree *auths, struct crl_tree *crlt)
 {
 	struct mft		*mft;
 	X509			*x509;
 	int			 c;
 	unsigned int		 fl, nfl;
 	X509_VERIFY_PARAM	*param;
-	ssize_t			 idx;
+	struct auth		*a;
 	STACK_OF(X509)		*chain;
 	STACK_OF(X509_CRL)	*crls;
 
@@ -897,8 +901,9 @@ proc_parser_mft(struct entity *entp, int force, X509_STORE *store,
 	if ((mft = mft_parse(&x509, entp->uri, force)) == NULL)
 		return NULL;
 
-	idx = valid_ski_aki(entp->uri, auths, authsz, mft->ski, mft->aki);
-	build_chain(idx, auths, authsz, crlt, &chain, &crls);
+	a = valid_ski_aki(entp->uri, auths, mft->ski, mft->aki);
+	build_chain(a, &chain);
+	build_crls(a, crlt, &crls);
 
 	if (!X509_STORE_CTX_init(ctx, store, x509, chain))
 		cryptoerrx("X509_STORE_CTX_init");
@@ -930,28 +935,26 @@ proc_parser_mft(struct entity *entp, int force, X509_STORE *store,
 }
 
 /*
- * Certificates are from manifests (has a digest and is signed with
- * another certificate) or TALs (has a pkey and is self-signed).
- * Parse the certificate, make sure its signatures are valid (with CRLs
- * unless "norev" has been specified), then validate the RPKI content.
- * This returns a certificate (which must not be freed) or NULL on parse
- * failure.
+ * Certificates are from manifests (has a digest and is signed with another
+ * certificate) or TALs (has a pkey and is self-signed).  Parse the certificate,
+ * make sure its signatures are valid (with CRLs), then validate the RPKI
+ * content.  This returns a certificate (which must not be freed) or NULL on
+ * parse failure.
  */
 static struct cert *
-proc_parser_cert(const struct entity *entp, int norev,
+proc_parser_cert(const struct entity *entp,
     X509_STORE *store, X509_STORE_CTX *ctx,
-    struct auth **auths, size_t *authsz, struct crl_tree *crlt)
+    struct auth_tree *auths, struct crl_tree *crlt)
 {
 	struct cert		*cert;
 	X509			*x509;
 	int			 c;
 	X509_VERIFY_PARAM	*param;
 	unsigned int		 fl, nfl;
-	ssize_t			 id, idx;
+	struct auth		*a = NULL, *na;
 	char			*tal;
 	STACK_OF(X509)		*chain;
 	STACK_OF(X509_CRL)	*crls;
-	struct crl		 find, *found;
 
 	assert(!entp->has_dgst != !entp->has_pkey);
 
@@ -962,19 +965,11 @@ proc_parser_cert(const struct entity *entp, int norev,
 	if (cert == NULL)
 		return NULL;
 
-	/* Validate the cert to get the parent */
-	id = entp->has_pkey ?
-		valid_ta(entp->uri, *auths, *authsz, cert) :
-		valid_cert(entp->uri, *auths, *authsz, cert);
+	if (entp->has_dgst)
+		a = valid_ski_aki(entp->uri, auths, cert->ski, cert->aki);
+	build_chain(a, &chain);
+	build_crls(a, crlt, &crls);
 
-	build_chain(id, *auths, *authsz, crlt, &chain, &crls);
-
-	if (cert->crl) {
-		find.uri = normalize_name(cert->crl);
-		found = RB_FIND(crl_tree, crlt, &find);
-		if (found && sk_X509_CRL_push(crls, found->x509_crl) == 0)
-			err(EXIT_FAILURE, "sk_X509_CRL_push");
-	}
 	/*
 	 * Validate certificate chain w/CRLs.
 	 * Only check the CRLs if specifically asked.
@@ -987,8 +982,6 @@ proc_parser_cert(const struct entity *entp, int norev,
 		cryptoerrx("X509_STORE_CTX_get0_param");
 	fl = X509_VERIFY_PARAM_get_flags(param);
 	nfl = X509_V_FLAG_IGNORE_CRITICAL;
-	if (!norev)
-		nfl |= X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL;
 	if (!X509_VERIFY_PARAM_set_flags(param, fl | nfl))
 		cryptoerrx("X509_VERIFY_PARAM_set_flags");
 	X509_STORE_CTX_set0_crls(ctx, crls);
@@ -1016,7 +1009,10 @@ proc_parser_cert(const struct entity *entp, int norev,
 	sk_X509_free(chain);
 	sk_X509_CRL_free(crls);
 
-	if (id < 0) {
+	/* Validate the cert to get the parent */
+	if (!(entp->has_pkey ?
+		valid_ta(entp->uri, auths, cert) :
+		valid_cert(entp->uri, auths, cert))) {
 		X509_free(x509); // needed? XXX
 		return cert;
 	}
@@ -1027,40 +1023,42 @@ proc_parser_cert(const struct entity *entp, int norev,
 	 */
 
 	cert->valid = 1;
-	*auths = reallocarray(*auths, *authsz + 1, sizeof(struct auth));
-	if (*auths == NULL)
-		err(EXIT_FAILURE, NULL);
+
+	na = malloc(sizeof(*na));
+	if (na == NULL)
+		err(1, NULL);
+
 	if (entp->has_pkey) {
 		if ((tal = strdup(entp->descr)) == NULL)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
 	} else
-		tal = (*auths)[id].tal;
+		tal = a->tal;
 
-	(*auths)[*authsz].id = *authsz;
-	(*auths)[*authsz].parent = id;
-	(*auths)[*authsz].cert = cert;
-	(*auths)[*authsz].tal = tal;
-	(*auths)[*authsz].fn = strdup(entp->uri);
-	if ((*auths)[*authsz].fn == NULL)
-		err(EXIT_FAILURE, NULL);
+	na->parent = a;
+	na->cert = cert;
+	na->tal = tal;
+	na->fn = strdup(entp->uri);
+	if (na->fn == NULL)
+		err(1, NULL);
+
+	if (RB_INSERT(auth_tree, auths, na) != NULL)
+		err(1, "auth tree corrupted");
 
 	/* only a ta goes into the store */
-	if (id == *authsz)
+	if (a == NULL)
 		X509_STORE_add_cert(store, x509);
-	(*authsz)++;
 
 	return cert;
 }
 
 /*
- * Parse a certificate revocation list (unless "norev", in which case
- * this is a noop that returns success).
+ * Parse a certificate revocation list
  * This simply parses the CRL content itself, optionally validating it
  * within the digest if it comes from a manifest, then adds it to the
  * store of CRLs.
  */
 static void
-proc_parser_crl(struct entity *entp, int norev, X509_STORE *store,
+proc_parser_crl(struct entity *entp, X509_STORE *store,
     X509_STORE_CTX *ctx, struct crl_tree *crlt)
 {
 	X509_CRL		*x509_crl;
@@ -1068,24 +1066,60 @@ proc_parser_crl(struct entity *entp, int norev, X509_STORE *store,
 	const unsigned char	*dgst;
 	char			*t;
 
-	if (norev)
-		return;
-
 	dgst = entp->has_dgst ? entp->dgst : NULL;
 	if ((x509_crl = crl_parse(entp->uri, dgst)) != NULL) {
 		if ((crl = malloc(sizeof(*crl))) == NULL)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
 		if ((t = strdup(entp->uri)) == NULL)
-			err(EXIT_FAILURE, NULL);
-		if ((crl->uri = normalize_name(t)) == NULL)
-			err(EXIT_FAILURE, NULL);
+			err(1, NULL);
+		if ((crl->aki = x509_crl_get_aki(x509_crl)) == NULL)
+			errx(1, "x509_crl_get_aki failed");
 		crl->x509_crl = x509_crl;
 
 		if (RB_INSERT(crl_tree, crlt, crl) != NULL) {
-			warnx("%s: dup uri %s", __func__, crl->uri);
+			warnx("%s: dup aki %s", __func__, crl->aki);
 			free_crl(crl);
 		}
 	}
+}
+
+/* use the parent (id) to walk the tree to the root and
+   build a certificate chain from cert->x509 */
+static void
+build_chain(const struct auth *a, STACK_OF(X509) **chain)
+{
+	*chain = NULL;
+
+	if (a == NULL)
+		return;
+
+	if ((*chain = sk_X509_new_null()) == NULL)
+		err(1, "sk_X509_new_null");
+	for (; a != NULL; a = a->parent) {
+		assert(a->cert->x509 != NULL);
+		if (!sk_X509_push(*chain, a->cert->x509))
+			errx(1, "sk_X509_push");
+	}
+}
+
+/* use the parent (id) to walk the tree to the root and
+   build a stack of CRLs */
+static void
+build_crls(const struct auth *a, struct crl_tree *crlt,
+    STACK_OF(X509_CRL) **crls)
+{
+	struct crl	find, *found;
+
+	if ((*crls = sk_X509_CRL_new_null()) == NULL)
+		errx(1, "sk_X509_CRL_new_null");
+
+	if (a == NULL)
+		return;
+
+	find.aki = a->cert->ski;
+	found = RB_FIND(crl_tree, crlt, &find);
+	if (found && !sk_X509_CRL_push(*crls, found->x509_crl))
+		err(1, "sk_X509_CRL_push");
 }
 
 /*
@@ -1096,7 +1130,7 @@ proc_parser_crl(struct entity *entp, int norev, X509_STORE *store,
  * The process will exit cleanly only when fd is closed.
  */
 static void
-proc_parser(int fd, int force, int norev)
+proc_parser(int fd, int force)
 {
 	struct tal	*tal;
 	struct cert	*cert;
@@ -1104,14 +1138,14 @@ proc_parser(int fd, int force, int norev)
 	struct roa	*roa;
 	struct entity	*entp;
 	struct entityq	 q;
-	int		 c, rc = 0;
+	int		 c, rc = 1;
 	struct pollfd	 pfd;
 	char		*b = NULL;
-	size_t		 i, bsz = 0, bmax = 0, bpos = 0, authsz = 0;
+	size_t		 bsz = 0, bmax = 0, bpos = 0;
 	ssize_t		 ssz;
 	X509_STORE	*store;
 	X509_STORE_CTX	*ctx;
-	struct auth	*auths = NULL;
+	struct auth_tree auths = RB_INITIALIZER(&auths);
 	struct crl_tree	 crlt = RB_INITIALIZER(&crlt);
 
 	ERR_load_crypto_strings();
@@ -1132,9 +1166,9 @@ proc_parser(int fd, int force, int norev)
 
 	for (;;) {
 		if (poll(&pfd, 1, INFTIM) == -1)
-			err(EXIT_FAILURE, "poll");
+			err(1, "poll");
 		if ((pfd.revents & (POLLERR|POLLNVAL)))
-			errx(EXIT_FAILURE, "poll: bad descriptor");
+			errx(1, "poll: bad descriptor");
 
 		/* If the parent closes, return immediately. */
 
@@ -1153,7 +1187,7 @@ proc_parser(int fd, int force, int norev)
 			io_socket_blocking(fd);
 			entp = calloc(1, sizeof(struct entity));
 			if (entp == NULL)
-				err(EXIT_FAILURE, NULL);
+				err(1, NULL);
 			entity_read_req(fd, entp);
 			TAILQ_INSERT_TAIL(&q, entp, entries);
 			pfd.events |= POLLOUT;
@@ -1173,7 +1207,7 @@ proc_parser(int fd, int force, int norev)
 		if (bsz) {
 			assert(bpos < bmax);
 			if ((ssz = write(fd, b + bpos, bsz)) == -1)
-				err(EXIT_FAILURE, "write");
+				err(1, "write");
 			bpos += ssz;
 			bsz -= ssz;
 			if (bsz)
@@ -1205,8 +1239,8 @@ proc_parser(int fd, int force, int norev)
 			tal_free(tal);
 			break;
 		case RTYPE_CER:
-			cert = proc_parser_cert(entp, norev,
-			    store, ctx, &auths, &authsz, &crlt);
+			cert = proc_parser_cert(entp, store, ctx,
+			    &auths, &crlt);
 			c = (cert != NULL);
 			io_simple_buffer(&b, &bsz, &bmax, &c, sizeof(int));
 			if (cert != NULL)
@@ -1219,7 +1253,7 @@ proc_parser(int fd, int force, int norev)
 			break;
 		case RTYPE_MFT:
 			mft = proc_parser_mft(entp, force,
-			    store, ctx, auths, authsz, &crlt);
+			    store, ctx, &auths, &crlt);
 			c = (mft != NULL);
 			io_simple_buffer(&b, &bsz, &bmax, &c, sizeof(int));
 			if (mft != NULL)
@@ -1227,12 +1261,11 @@ proc_parser(int fd, int force, int norev)
 			mft_free(mft);
 			break;
 		case RTYPE_CRL:
-			proc_parser_crl(entp, norev, store, ctx, &crlt);
+			proc_parser_crl(entp, store, ctx, &crlt);
 			break;
 		case RTYPE_ROA:
 			assert(entp->has_dgst);
-			roa = proc_parser_roa(entp, norev,
-			    store, ctx, auths, authsz, &crlt);
+			roa = proc_parser_roa(entp, store, ctx, &auths, &crlt);
 			c = (roa != NULL);
 			io_simple_buffer(&b, &bsz, &bmax, &c, sizeof(int));
 			if (roa != NULL)
@@ -1247,23 +1280,17 @@ proc_parser(int fd, int force, int norev)
 		entity_free(entp);
 	}
 
-	rc = 1;
+	rc = 0;
 out:
 	while ((entp = TAILQ_FIRST(&q)) != NULL) {
 		TAILQ_REMOVE(&q, entp, entries);
 		entity_free(entp);
 	}
 
-	for (i = 0; i < authsz; i++) {
-		free(auths[i].fn);
-		if (i == auths[i].parent)
-			free(auths[i].tal);
-		cert_free(auths[i].cert);
-	}
+	/* XXX free auths and crl tree */
 
 	X509_STORE_CTX_free(ctx);
 	X509_STORE_free(store);
-	free(auths);
 
 	free(b);
 
@@ -1272,7 +1299,7 @@ out:
 	ERR_remove_state(0);
 	ERR_free_strings();
 
-	exit(rc ? EXIT_SUCCESS : EXIT_FAILURE);
+	exit(rc);
 }
 
 /*
@@ -1380,15 +1407,15 @@ tal_load_default(const char *tals[], size_t max)
 
 	dirp = opendir(basedir);
 	if (dirp == NULL)
-		err(EXIT_FAILURE, "open %s", basedir);
+		err(1, "open %s", basedir);
 	while ((dp = readdir(dirp)) != NULL) {
 		if (fnmatch("*.tal", dp->d_name, FNM_PERIOD) == FNM_NOMATCH)
 			continue;
 		if (s >= max)
-			err(EXIT_FAILURE, "too many tal files found in %s",
+			err(1, "too many tal files found in %s",
 			    basedir);
 		if (asprintf(&path, "%s/%s", basedir, dp->d_name) == -1)
-			err(EXIT_FAILURE, "asprintf");
+			err(1, "asprintf");
 		tals[s++] = path;
 	}
 	closedir (dirp);
@@ -1398,9 +1425,9 @@ tal_load_default(const char *tals[], size_t max)
 int
 main(int argc, char *argv[])
 {
-	int		 rc = 0, c, proc, st, rsync,
+	int		 rc = 1, c, proc, st, rsync,
 			 fl = SOCK_STREAM | SOCK_CLOEXEC, noop = 0,
-			 force = 0, norev = 0;
+			 force = 0;
 	size_t		 i, j, eid = 1, outsz = 0, talsz = 0;
 	pid_t		 procpid, rsyncpid;
 	int		 fd[2];
@@ -1410,16 +1437,28 @@ main(int argc, char *argv[])
 	struct repotab	 rt;
 	struct stats	 stats;
 	struct roa	**out = NULL;
-	const char	*rsync_prog = "openrsync";
-	const char	*bind_addr = NULL;
+	char		*rsync_prog = "openrsync";
+	char		*bind_addr = NULL;
 	const char	*tals[TALSZ_MAX];
 	const char	*tablename = "roa";
-	FILE		*output = NULL;
 	struct vrp_tree	 v = RB_INITIALIZER(&v);
 	enum output_fmt	 outfmt = BGPD;
 
-	if (pledge("stdio rpath wpath cpath proc exec unveil", NULL) == -1)
-		err(EXIT_FAILURE, "pledge");
+	/* If started as root, priv-drop to _rpki-client */
+	if (getuid() == 0) {
+		struct passwd *pw;
+ 
+		pw = getpwnam("_rpki-client");
+		if (!pw)
+			errx(1, "no _rpki-client user to revoke to");
+		if (setgroups(1, &pw->pw_gid) == -1 ||
+		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1 ||
+		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1)
+			err(1, "unable to revoke privs");
+	}
+
+	if (pledge("stdio rpath wpath cpath fattr proc exec unveil", NULL) == -1)
+		err(1, "pledge");
 
 	while ((c = getopt(argc, argv, "b:Bce:fjnrt:T:v")) != -1)
 		switch (c) {
@@ -1444,12 +1483,9 @@ main(int argc, char *argv[])
 		case 'n':
 			noop = 1;
 			break;
-		case 'r':
-			norev = 1;
-			break;
 		case 't':
 			if (talsz >= TALSZ_MAX)
-				err(EXIT_FAILURE,
+				err(1,
 				    "too many tal files specified");
 			tals[talsz++] = optarg;
 			break;
@@ -1465,16 +1501,15 @@ main(int argc, char *argv[])
 
 	argv += optind;
 	argc -= optind;
-	if (argc != 1)
+	if (argc == 1)
+		outputname = argv[0];
+	else if (argc > 1)
 		goto usage;
-	output = fopen(argv[0], "we");
-	if (output == NULL)
-		err(EXIT_FAILURE, "failed to open %s", argv[0]);
 
 	if (talsz == 0)
 		talsz = tal_load_default(tals, TALSZ_MAX);
 	if (talsz == 0)
-		err(EXIT_FAILURE, "no TAL files found in %s", "/etc/rpki");
+		err(1, "no TAL files found in %s", "/etc/rpki");
 
 	memset(&rt, 0, sizeof(struct repotab));
 	memset(&stats, 0, sizeof(struct stats));
@@ -1487,20 +1522,20 @@ main(int argc, char *argv[])
 	 */
 
 	if (socketpair(AF_UNIX, fl, 0, fd) == -1)
-		err(EXIT_FAILURE, "socketpair");
+		err(1, "socketpair");
 	if ((procpid = fork()) == -1)
-		err(EXIT_FAILURE, "fork");
+		err(1, "fork");
 
 	if (procpid == 0) {
 		close(fd[1]);
 		/* Only allow access to BASE_DIR. */
 		if (unveil(BASE_DIR, "r") == -1)
-			err(EXIT_FAILURE, "%s: unveil", BASE_DIR);
+			err(1, "%s: unveil", BASE_DIR);
 		if (unveil(NULL, NULL) == -1)
-			err(EXIT_FAILURE, "unveil");
+			err(1, "unveil");
 		if (pledge("stdio rpath", NULL) == -1)
-			err(EXIT_FAILURE, "pledge");
-		proc_parser(fd[0], force, norev);
+			err(1, "pledge");
+		proc_parser(fd[0], force);
 		/* NOTREACHED */
 	}
 
@@ -1515,20 +1550,20 @@ main(int argc, char *argv[])
 	 */
 
 	if (socketpair(AF_UNIX, fl, 0, fd) == -1)
-		err(EXIT_FAILURE, "socketpair");
+		err(1, "socketpair");
 	if ((rsyncpid = fork()) == -1)
-		err(EXIT_FAILURE, "fork");
+		err(1, "fork");
 
 	if (rsyncpid == 0) {
 		close(proc);
 		close(fd[1]);
 		if (pledge("stdio rpath cpath proc exec unveil", NULL) == -1)
-			err(EXIT_FAILURE, "pledge");
+			err(1, "pledge");
 
 		/* If -n, we don't exec or mkdir. */
 
 		if (noop && pledge("stdio", NULL) == -1)
-			err(EXIT_FAILURE, "pledge");
+			err(1, "pledge");
 		proc_rsync(rsync_prog, bind_addr, fd[0], noop);
 		/* NOTREACHED */
 	}
@@ -1538,8 +1573,8 @@ main(int argc, char *argv[])
 
 	assert(rsync != proc);
 
-	if (pledge("stdio rpath", NULL) == -1)
-		err(EXIT_FAILURE, "pledge");
+	if (pledge("stdio rpath wpath cpath fattr", NULL) == -1)
+		err(1, "pledge");
 
 	/*
 	 * Prime the process with our TAL file.
@@ -1556,16 +1591,13 @@ main(int argc, char *argv[])
 	 * parsing process.
 	 */
 
-	if (pledge("stdio", NULL) == -1)
-		err(EXIT_FAILURE, "pledge");
-
 	pfd[0].fd = rsync;
 	pfd[1].fd = proc;
 	pfd[0].events = pfd[1].events = POLLIN;
 
 	while (!TAILQ_EMPTY(&q)) {
 		if ((c = poll(pfd, 2, verbose ? 10000 : INFTIM)) == -1)
-			err(EXIT_FAILURE, "poll");
+			err(1, "poll");
 
 		/* Debugging: print some statistics if we stall. */
 
@@ -1583,10 +1615,10 @@ main(int argc, char *argv[])
 
 		if ((pfd[0].revents & (POLLERR|POLLNVAL)) ||
 		    (pfd[1].revents & (POLLERR|POLLNVAL)))
-			errx(EXIT_FAILURE, "poll: bad fd");
+			errx(1, "poll: bad fd");
 		if ((pfd[0].revents & POLLHUP) ||
 		    (pfd[1].revents & POLLHUP))
-			errx(EXIT_FAILURE, "poll: hangup");
+			errx(1, "poll: hangup");
 
 		/*
 		 * Check the rsync process.
@@ -1623,7 +1655,7 @@ main(int argc, char *argv[])
 
 	assert(TAILQ_EMPTY(&q));
 	logx("all files parsed: exiting");
-	rc = 1;
+	rc = 0;
 
 	/*
 	 * For clean-up, close the input for the parser and rsync
@@ -1635,17 +1667,24 @@ main(int argc, char *argv[])
 	close(rsync);
 
 	if (waitpid(procpid, &st, 0) == -1)
-		err(EXIT_FAILURE, "waitpid");
-	if (!WIFEXITED(st) || WEXITSTATUS(st) != EXIT_SUCCESS) {
+		err(1, "waitpid");
+	if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) {
 		warnx("parser process exited abnormally");
-		rc = 0;
+		rc = 1;
 	}
 	if (waitpid(rsyncpid, &st, 0) == -1)
-		err(EXIT_FAILURE, "waitpid");
-	if (!WIFEXITED(st) || WEXITSTATUS(st) != EXIT_SUCCESS) {
+		err(1, "waitpid");
+	if (!WIFEXITED(st) || WEXITSTATUS(st) != 0) {
 		warnx("rsync process exited abnormally");
-		rc = 0;
+		rc = 1;
 	}
+
+	atexit(output_cleantmp);
+	set_signal_handler();
+
+	output = output_createtmp(outputname);
+	if (output == NULL)
+		err(1, "failed to open temp file for %s", outputname);
 
 	switch (outfmt) {
 	case BGPD:
@@ -1660,6 +1699,13 @@ main(int argc, char *argv[])
 	case JSON:
 		output_json(output, &v);
 		break;
+	}
+
+	fclose(output);
+
+	if (rc == 0) {
+		rename(output_tmpname, outputname);
+		output_tmpname[0] = '\0';
 	}
 
 	logx("Route Origin Authorizations: %zu (%zu failed parse, %zu invalid)",
@@ -1685,49 +1731,72 @@ main(int argc, char *argv[])
 		roa_free(out[i]);
 	free(out);
 
-	return rc ? EXIT_SUCCESS : EXIT_FAILURE;
+	return rc;
 
 usage:
 	fprintf(stderr,
-	    "usage: rpki-client [-Bcfjnrv] [-b bind_addr] [-e rsync_prog] "
-	    "[-T table] [-t tal] output\n");
-	return EXIT_FAILURE;
+	    "usage: rpki-client [-Bcfjnv] [-b bind_addr] [-e rsync_prog] "
+	    "[-T table] [-t tal] [output]\n");
+	return 1;
 }
 
-/* use the parent (id) to walk the tree to the root and
-   build a certificate chain from cert->x509 */
-static void
-build_chain(ssize_t idx, const struct auth *auths, const size_t authsz,
-    struct crl_tree *crlt, STACK_OF(X509) **chain,
-    STACK_OF(X509_CRL) **crls)
+FILE *
+output_createtmp(char *name)
 {
-	struct crl	find, *found;
+	FILE *f;
+	int fd, r;
 
-	*chain = NULL;
-	*crls = NULL;
+	r = snprintf(output_tmpname, sizeof output_tmpname,
+	    "%s.XXXXXXXXXXX", name);
+	if (r < 0 || r > (int)sizeof(output_tmpname))
+		err(1, "path too long");
+	fd = mkostemp(output_tmpname, O_CLOEXEC);
+	(void) fchmod(fd, 0644);
+	if (fd == -1)
+		err(1, "mkostemp");
+	f = fdopen(fd, "w");
+	if (f == NULL)
+		err(1, "fdopen");
+	return (f);
+}
 
-	if (idx == -1)
-		return;
-	if (idx == authsz)
-		return;
+void
+output_cleantmp(void)
+{
+	if (*output_tmpname)
+		unlink(output_tmpname);
+	output_tmpname[0] = '\0';
+}
 
-	if ((*chain = sk_X509_new_null()) == NULL)
-		err(EXIT_FAILURE, "sk_X509_new_null");
-	if ((*crls = sk_X509_CRL_new_null()) == NULL)
-		err(EXIT_FAILURE, "sk_X509_CRL_new_null");
-	while (auths[idx].parent != (size_t)idx) {
-		if (auths[idx].cert->x509 == NULL)
-			errx(EXIT_FAILURE, "build_chain");
-		if (sk_X509_push(*chain, auths[idx].cert->x509) == 0)
-			err(EXIT_FAILURE, "sk_X509_push");
+/*
+ * Signal handler that clears the temporary files.
+ */
+void
+sig_handler(int sig __unused)
+{
+	output_cleantmp();
+	_exit(2);
+}
 
-		find.uri = normalize_name(auths[idx].cert->crl);
-		found = RB_FIND(crl_tree, crlt, &find);
-		if (found && sk_X509_CRL_push(*crls, found->x509_crl) == 0)
-			err(EXIT_FAILURE, "sk_X509_CRL_push");
+/*
+ * Set signal handler on panic signals.
+ */
+void
+set_signal_handler(void)
+{
+	struct sigaction sa;
+	int i, signals[] = {SIGTERM, SIGHUP, SIGINT, SIGUSR1, SIGUSR2,
+	    SIGPIPE, SIGXCPU, SIGXFSZ, 0};
 
-		idx = auths[idx].parent;
+	memset(&sa, 0, sizeof(sa));
+	sigfillset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	sa.sa_handler = sig_handler;
+
+	for (i = 0; signals[i] != 0; i++) {
+		if (sigaction(signals[i], &sa, NULL) == -1) {
+			warn("sigaction(%s)", strsignal(signals[i]));
+			continue;
+		}
 	}
-
-	return;
 }

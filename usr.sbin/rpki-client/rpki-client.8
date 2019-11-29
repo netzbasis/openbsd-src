@@ -1,4 +1,4 @@
-.\"	$OpenBSD: rpki-client.8,v 1.7 2019/10/16 21:43:41 jmc Exp $
+.\"	$OpenBSD: rpki-client.8,v 1.10 2019/11/29 05:52:27 benno Exp $
 .\"
 .\" Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 16 2019 $
+.Dd $Mdocdate: November 29 2019 $
 .Dt RPKI-CLIENT 8
 .Os
 .Sh NAME
@@ -27,7 +27,7 @@
 .Op Fl e Ar rsync_prog
 .Op Fl T Ar table
 .Op Fl t Ar tal
-.Ar output
+.Op Ar output
 .Sh DESCRIPTION
 The
 .Nm
@@ -71,9 +71,6 @@ This format is identical to that
 produced by the RIPE NCC RPKI Validator and NLnet Labs routinator.
 .It Fl n
 Assume that all requested repositories exist: don't update.
-.It Fl r
-Don't parse certificate revocation files.
-This additional step can take a long time.
 .It Fl T Ar table
 For BIRD output use
 .Ar table
@@ -94,6 +91,8 @@ The file
 will write the
 .Li roa-set
 to.
+Defaults to
+.Pa /var/db/rpki-client/roa .
 .El
 .Pp
 By default
@@ -105,11 +104,15 @@ statements as specified by
 .\" .Sh ENVIRONMENT
 .\" For sections 1, 6, 7, and 8 only.
 .Sh FILES
-.Bl -tag -width "/etc/rpki/*.talXXX" -compact
+.Bl -tag -width "/var/db/rpki-client/roaXXX" -compact
 .It Pa /etc/rpki/*.tal
 default TAL files used unless
 .Fl t Ar tal
 is specified.
+.It Pa /var/cache/rpki-client
+cached repository data.
+.It Pa /var/db/rpki-client/roa
+default roa-set output file.
 .El
 .Sh EXIT STATUS
 .Ex -std

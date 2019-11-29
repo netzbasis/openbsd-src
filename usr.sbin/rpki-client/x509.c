@@ -1,4 +1,4 @@
-/*	$OpenBSD: x509.c,v 1.9 2019/11/28 03:25:17 benno Exp $ */
+/*	$OpenBSD: x509.c,v 1.13 2019/11/29 05:00:24 benno Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -104,7 +104,7 @@ x509_get_aki_ext(X509_EXTENSION *ext, const char *fn)
 	/* Make room for [hex1, hex2, ":"]*, NUL. */
 
 	if ((res = calloc(plen * 3 + 1, 1)) == NULL)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 
 	for (i = 0; i < plen; i++) {
 		snprintf(buf, sizeof(buf), "%02X:", d[i]);
@@ -157,7 +157,7 @@ x509_get_ski_ext(X509_EXTENSION *ext, const char *fn)
 	/* Make room for [hex1, hex2, ":"]*, NUL. */
 
 	if ((res = calloc(dsz * 3 + 1, 1)) == NULL)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 
 	for (i = 0; i < dsz; i++) {
 		snprintf(buf, sizeof(buf), "%02X:", d[i]);
@@ -221,6 +221,13 @@ x509_get_ski_aki(X509 *x, const char *fn, char **ski, char **aki)
 	return 1;
 }
 
+/*
+ * Parse the very specific subset of information in the CRL distribution
+ * point extension.
+ * See RFC 6487, sectoin 4.8.6 for details.
+ * Returns NULL on failure, the crl URI on success which has to be freed
+ * after use.
+ */
 char *
 x509_get_crl(X509 *x, const char *fn)
 {
@@ -230,6 +237,11 @@ x509_get_crl(X509 *x, const char *fn)
 	char			*crl;
 
 	crldp = X509_get_ext_d2i(x, NID_crl_distribution_points, NULL, NULL);
+	if (crldp == NULL) {
+		warnx("%s: RFC 6487 section 4.8.6: CRL: "
+		    "no CRL distribution point extension", fn);
+		return NULL;
+	}
 
 	if (sk_DIST_POINT_num(crldp) != 1) {
 		warnx("%s: RFC 6487 section 4.8.6: CRL: "
@@ -267,7 +279,23 @@ x509_get_crl(X509 *x, const char *fn)
 	crl = strndup(ASN1_STRING_get0_data(name->d.uniformResourceIdentifier),
 	    ASN1_STRING_length(name->d.uniformResourceIdentifier));
 	if (crl == NULL)
-		err(EXIT_FAILURE, NULL);
+		err(1, NULL);
 
 	return crl;
+}
+
+char *
+x509_crl_get_aki(X509_CRL *crl)
+{
+	X509_EXTENSION *ext;
+	int loc;
+
+	loc = X509_CRL_get_ext_by_NID(crl, NID_authority_key_identifier, -1);
+	if (loc == -1) {
+		warnx("%s: CRL without AKI extension", __func__);
+		return NULL;
+	}
+	ext = X509_CRL_get_ext(crl, loc);
+
+	return x509_get_aki_ext(ext, "x509_crl_get_aki");
 }

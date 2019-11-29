@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.80 2019/11/27 17:12:31 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.83 2019/11/28 20:28:13 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -63,6 +63,9 @@
 #define	UB_LOG_VERBOSE			4
 #define	UB_LOG_BRIEF			0
 
+/* maximum size of a libunbound forwarder definition: IP@PORT#AUTHNAME */
+#define	FWD_MAX				(INET6_ADDRSTRLEN + NI_MAXHOST + 2 + 5)
+
 /*
  * The prefered resolver type can be this many ms slower than the next
  * best and still be picked
@@ -73,6 +76,9 @@
 
 #define	RESOLVER_CHECK_SEC		1
 #define	RESOLVER_CHECK_MAXSEC		1024 /* ~17 minutes */
+#define	DECAY_PERIOD			60
+#define	DECAY_NOMINATOR			9
+#define	DECAY_DENOMINATOR		10
 
 #define	TRUST_ANCHOR_RETRY_INTERVAL	8640
 #define	TRUST_ANCHOR_QUERY_INTERVAL	43200
@@ -145,8 +151,6 @@ void			 new_static_dot_forwarders(void);
 struct uw_resolver	*create_resolver(enum uw_resolver_type, int);
 void			 free_resolver(struct uw_resolver *);
 void			 set_forwarders(struct uw_resolver *,
-			     struct uw_forwarder_head *);
-void			 set_forwarders_oppdot(struct uw_resolver *,
 			     struct uw_forwarder_head *, int);
 void			 resolver_check_timo(int, short, void *);
 void			 resolver_free_timo(int, short, void *);
@@ -174,9 +178,8 @@ void			 trust_anchor_resolve_done(struct uw_resolver *, void *,
 			     int, void *, int, int, char *);
 void			 replace_autoconf_forwarders(struct
 			     imsg_rdns_proposal *);
-struct uw_forwarder	*find_forwarder(struct uw_forwarder_head *,
-    			     const char *);
 int64_t			 histogram_median(int64_t *);
+void			 decay_latest_histograms(int, short, void *);
 
 struct uw_conf			*resolver_conf;
 struct imsgev			*iev_frontend;
@@ -186,6 +189,7 @@ struct uw_resolver		*resolvers[UW_RES_NONE];
 struct timespec			 last_network_change;
 
 struct event			 trust_anchor_timer;
+struct event			 decay_timer;
 
 static struct trust_anchor_head	 trust_anchors, new_trust_anchors;
 
@@ -311,6 +315,7 @@ resolver(int debug, int verbose)
 {
 	struct event	 ev_sigint, ev_sigterm;
 	struct passwd	*pw;
+	struct timeval	 tv = {DECAY_PERIOD, 0};
 
 	resolver_conf = config_new_empty();
 
@@ -359,6 +364,8 @@ resolver(int debug, int verbose)
 	event_add(&iev_main->ev, NULL);
 
 	evtimer_set(&trust_anchor_timer, trust_anchor_timo, NULL);
+	evtimer_set(&decay_timer, decay_latest_histograms, NULL);
+	evtimer_add(&decay_timer, &tv);
 
 	clock_gettime(CLOCK_MONOTONIC, &last_network_change);
 
@@ -657,6 +664,7 @@ void
 setup_query(struct query_imsg *query_imsg)
 {
 	struct running_query	*rq;
+	struct uw_resolver	*res;
 	int			 i;
 
 	if (find_running_query(query_imsg->id) != NULL) {
@@ -682,13 +690,13 @@ setup_query(struct query_imsg *query_imsg)
 	}
 
 	for (i = 0; i < rq->res_pref.len; i++) {
-		if (resolvers[rq->res_pref.types[i]] == NULL)
+		res = resolvers[rq->res_pref.types[i]];
+		if (res == NULL)
 		    continue;
 		log_debug("%s: %s[%s] %lldms", __func__,
 		    uw_resolver_type_str[rq->res_pref.types[i]],
-		    uw_resolver_state_str[resolvers[rq->res_pref.types[i]]
-		    ->state], histogram_median(resolvers[rq->res_pref.types[i]]
-		    ->latest_histogram));
+		    uw_resolver_state_str[res->state],
+		    histogram_median(res->latest_histogram));
 	}
 
 	evtimer_set(&rq->timer_ev, try_resolver_timo, rq);
@@ -861,7 +869,9 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 		log_debug("histogram bucket error");
 	else {
 		res->histogram[i]++;
-		res->latest_histogram[i]++;
+		/* latest_histogram is in units of 1000 to avoid rounding
+		   down when decaying */
+		res->latest_histogram[i] += 1000;
 	}
 
 	if (answer_len < LDNS_HEADER_SIZE) {
@@ -1114,7 +1124,7 @@ create_resolver(enum uw_resolver_type type, int oppdot)
 		TAILQ_FOREACH(uw_forwarder, &autoconf_forwarder_list, entry) {
 			tmp = resolv_conf;
 			if (asprintf(&resolv_conf, "%snameserver %s\n", tmp ==
-			    NULL ? "" : tmp, uw_forwarder->name) == -1) {
+			    NULL ? "" : tmp, uw_forwarder->ip) == -1) {
 				free(tmp);
 				free(res);
 				log_warnx("could not create asr context");
@@ -1196,30 +1206,27 @@ create_resolver(enum uw_resolver_type type, int oppdot)
 	case UW_RES_DHCP:
 		res->oppdot = oppdot;
 		if (oppdot) {
-			set_forwarders_oppdot(res, &autoconf_forwarder_list,
-			    853);
-			ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
-			    TLS_DEFAULT_CA_CERT_FILE);
-			ub_ctx_set_tls(res->ctx, 1);
-		} else {
-			set_forwarders_oppdot(res, &autoconf_forwarder_list,
-			    53);
-		}
-		break;
-	case UW_RES_FORWARDER:
-		res->oppdot = oppdot;
-		if (oppdot) {
-			set_forwarders_oppdot(res,
-			    &resolver_conf->uw_forwarder_list, 853);
+			set_forwarders(res, &autoconf_forwarder_list, 853);
 			ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
 			    TLS_DEFAULT_CA_CERT_FILE);
 			ub_ctx_set_tls(res->ctx, 1);
 		} else
-			set_forwarders_oppdot(res,
-			    &resolver_conf->uw_forwarder_list, 53);
+			set_forwarders(res, &autoconf_forwarder_list, 0);
+		break;
+	case UW_RES_FORWARDER:
+		res->oppdot = oppdot;
+		if (oppdot) {
+			set_forwarders(res, &resolver_conf->uw_forwarder_list,
+			    853);
+			ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
+			    TLS_DEFAULT_CA_CERT_FILE);
+			ub_ctx_set_tls(res->ctx, 1);
+		} else
+			set_forwarders(res, &resolver_conf->uw_forwarder_list,
+			    0);
 		break;
 	case UW_RES_DOT:
-		set_forwarders(res, &resolver_conf->uw_dot_forwarder_list);
+		set_forwarders(res, &resolver_conf->uw_dot_forwarder_list, 0);
 		ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
 		    TLS_DEFAULT_CA_CERT_FILE);
 		ub_ctx_set_tls(res->ctx, 1);
@@ -1273,27 +1280,30 @@ free_resolver(struct uw_resolver *res)
 
 void
 set_forwarders(struct uw_resolver *res, struct uw_forwarder_head
-    *uw_forwarder_list)
+    *uw_forwarder_list, int port_override)
 {
 	struct uw_forwarder	*uw_forwarder;
-
-	TAILQ_FOREACH(uw_forwarder, uw_forwarder_list, entry)
-		ub_ctx_set_fwd(res->ctx, uw_forwarder->name);
-}
-
-void
-set_forwarders_oppdot(struct uw_resolver *res, struct uw_forwarder_head
-    *uw_forwarder_list, int def_port)
-{
-	struct uw_forwarder	*uw_forwarder;
+	int			 ret;
+	char			 fwd[FWD_MAX];
 
 	TAILQ_FOREACH(uw_forwarder, uw_forwarder_list, entry) {
-		char name[1024];
-		int port = uw_forwarder->port;
-		if (port == 0)
-			port = def_port;
-		snprintf(name, sizeof(name), "%s@%d", uw_forwarder->name, port);
-		ub_ctx_set_fwd(res->ctx, name);
+		if (uw_forwarder->auth_name[0] != '\0')
+			ret = snprintf(fwd, sizeof(fwd), "%s@%d#%s",
+			    uw_forwarder->ip, port_override ? port_override :
+			    uw_forwarder->port, uw_forwarder->auth_name);
+		else
+			ret = snprintf(fwd, sizeof(fwd), "%s@%d",
+			    uw_forwarder->ip, port_override ? port_override :
+			    uw_forwarder->port);
+
+		log_debug("%s: %s", __func__, fwd);
+
+		if (ret < 0 || (size_t)ret >= sizeof(fwd)) {
+			log_warnx("forwarder too long");
+			continue;
+		}
+
+		ub_ctx_set_fwd(res->ctx, fwd);
 	}
 }
 
@@ -1524,7 +1534,11 @@ check_forwarders_changed(struct uw_forwarder_head *list_a,
 	b = TAILQ_FIRST(list_b);
 
 	while(a != NULL && b != NULL) {
-		if (strcmp(a->name, b->name) != 0)
+		if (strcmp(a->ip, b->ip) != 0)
+			return 1;
+		if (a->port != b->port)
+			return 1;
+		if (strcmp(a->auth_name, b->auth_name) != 0)
 			return 1;
 		a = TAILQ_NEXT(a, entry);
 		b = TAILQ_NEXT(b, entry);
@@ -1656,8 +1670,7 @@ show_status(enum uw_resolver_type type, pid_t pid)
 			cfi.if_index = uw_forwarder->if_index;
 			cfi.src = uw_forwarder->src;
 			/* no truncation, structs are in sync */
-			strlcpy(cfi.name, uw_forwarder->name,
-			    sizeof(cfi.name));
+			memcpy(cfi.ip, uw_forwarder->ip, sizeof(cfi.ip));
 			resolver_imsg_compose_frontend(
 			    IMSG_CTL_AUTOCONF_RESOLVER_INFO,
 			    pid, &cfi, sizeof(cfi));
@@ -1689,6 +1702,7 @@ send_resolver_info(struct uw_resolver *res, pid_t pid)
 	cri.state = res->state;
 	cri.type = res->type;
 	cri.oppdot = res->oppdot;
+	cri.median = histogram_median(res->latest_histogram);
 	resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_INFO, pid, &cri,
 	    sizeof(cri));
 }
@@ -1896,9 +1910,10 @@ replace_autoconf_forwarders(struct imsg_rdns_proposal *rdns_proposal)
 		if ((uw_forwarder = calloc(1, sizeof(struct uw_forwarder))) ==
 		    NULL)
 			fatal(NULL);
-		if (strlcpy(uw_forwarder->name, ns, sizeof(uw_forwarder->name))
-		    >= sizeof(uw_forwarder->name))
+		if (strlcpy(uw_forwarder->ip, ns, sizeof(uw_forwarder->ip))
+		    >= sizeof(uw_forwarder->ip))
 			fatalx("strlcpy");
+		uw_forwarder->port = 53;
 		uw_forwarder->if_index = rdns_proposal->if_index;
 		uw_forwarder->src = rdns_proposal->src;
 		TAILQ_INSERT_TAIL(&new_forwarder_list, uw_forwarder, entry);
@@ -1913,9 +1928,10 @@ replace_autoconf_forwarders(struct imsg_rdns_proposal *rdns_proposal)
 		if ((uw_forwarder = calloc(1, sizeof(struct uw_forwarder))) ==
 		    NULL)
 			fatal(NULL);
-		if (strlcpy(uw_forwarder->name, tmp->name,
-		    sizeof(uw_forwarder->name)) >= sizeof(uw_forwarder->name))
+		if (strlcpy(uw_forwarder->ip, tmp->ip,
+		    sizeof(uw_forwarder->ip)) >= sizeof(uw_forwarder->ip))
 			fatalx("strlcpy");
+		uw_forwarder->port = tmp->port;
 		uw_forwarder->src = tmp->src;
 		uw_forwarder->if_index = tmp->if_index;
 		TAILQ_INSERT_TAIL(&new_forwarder_list, uw_forwarder, entry);
@@ -1940,17 +1956,6 @@ replace_autoconf_forwarders(struct imsg_rdns_proposal *rdns_proposal)
 	}
 }
 
-struct uw_forwarder *
-find_forwarder(struct uw_forwarder_head *list, const char *name) {
-	struct uw_forwarder	*uw_forwarder;
-
-	TAILQ_FOREACH(uw_forwarder, list, entry) {
-		if (strcmp(uw_forwarder->name, name) == 0)
-			return uw_forwarder;
-	}
-	return NULL;
-}
-
 int64_t
 histogram_median(int64_t *histogram)
 {
@@ -1968,4 +1973,24 @@ histogram_median(int64_t *histogram)
 	}
 
 	return histogram_limits[i];
+}
+
+void
+decay_latest_histograms(int fd, short events, void *arg)
+{
+	enum uw_resolver_type	 i;
+	size_t			 j;
+	struct uw_resolver	*res;
+	struct timeval		 tv = {DECAY_PERIOD, 0};
+
+	for (i = 0; i < UW_RES_NONE; i++) {
+		res = resolvers[i];
+		if (res == NULL)
+			continue;
+		for (j = 0; j < nitems(res->latest_histogram); j++)
+			/* multiply then divide, avoiding truncating to 0 */
+			res->latest_histogram[j] = res->latest_histogram[j] *
+			    DECAY_NOMINATOR / DECAY_DENOMINATOR;
+	}
+	evtimer_add(&decay_timer, &tv);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.15 2019/11/28 03:22:59 benno Exp $ */
+/*	$OpenBSD: extern.h,v 1.19 2019/11/29 04:40:04 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -202,7 +202,7 @@ RB_PROTOTYPE(vrp_tree, vrp, entry, vrpcmp);
  */
 struct crl {
 	RB_ENTRY(crl)	 entry;
-	char		*uri;
+	char		*aki;
 	X509_CRL	*x509_crl;
 };
 /*
@@ -217,12 +217,19 @@ RB_PROTOTYPE(crl_tree, crl, entry, crlcmp);
  * verify children nodes in the tree of entities.
  */
 struct auth {
+	RB_ENTRY(auth)	 entry;
 	struct cert	*cert; /* owner information */
-	size_t		 id; /* self-index */
-	size_t		 parent; /* index of parent pair (or self) */
+	struct auth	*parent; /* pointer to parent or NULL for TA cert */
 	char		*tal; /* basename of TAL for this cert */
 	char		*fn; /* FIXME: debugging */
 };
+/*
+ * Tree of auth sorted by ski
+ */
+RB_HEAD(auth_tree, auth);
+RB_PROTOTYPE(auth_tree, auth, entry, authcmp);
+
+struct auth *auth_find(struct auth_tree *, const char *);
 
 /*
  * Resource types specified by the RPKI profiles.
@@ -272,14 +279,13 @@ void		 free_crl(struct crl *);
 
 /* Validation of our objects. */
 
-ssize_t		 valid_ski_aki(const char *, const struct auth *, size_t,
+struct auth	*valid_ski_aki(const char *, struct auth_tree *,
 		    const char *, const char *);
-ssize_t		 valid_cert(const char *, const struct auth *, size_t,
+int		 valid_ta(const char *, struct auth_tree *,
 		    const struct cert *);
-ssize_t		 valid_roa(const char *, const struct auth *, size_t,
-		    const struct roa *);
-ssize_t		 valid_ta(const char *, const struct auth *, size_t,
+int		 valid_cert(const char *, struct auth_tree *,
 		    const struct cert *);
+int		 valid_roa(const char *, struct auth_tree *, struct roa *);
 
 /* Working with CMS files. */
 
@@ -352,12 +358,17 @@ char		*x509_get_aki_ext(X509_EXTENSION *, const char *);
 char		*x509_get_ski_ext(X509_EXTENSION *, const char *);
 int		 x509_get_ski_aki(X509 *, const char *, char **, char **);
 char		*x509_get_crl(X509 *, const char *);
+char		*x509_crl_get_aki(X509_CRL *);
 
 /* Output! */
 
+FILE		*output_createtmp(char *);
+void		 output_cleantmp(void);
 void		 output_bgpd(FILE *, struct vrp_tree *);
 void		 output_bird(FILE *, struct vrp_tree *, const char *);
 void		 output_csv(FILE *, struct vrp_tree *);
 void		 output_json(FILE *, struct vrp_tree *);
+
+#define		_PATH_ROA	"/var/db/rpki-client/roa"
 
 #endif /* ! EXTERN_H */

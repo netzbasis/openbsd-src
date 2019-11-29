@@ -5,12 +5,12 @@
 /frontend.h/1.6/Wed Nov 27 17:09:12 2019//
 /log.c/1.1/Fri Mar  1 08:02:25 2019//
 /log.h/1.1/Fri Mar  1 08:02:25 2019//
-/parse.y/1.19/Wed Nov 27 17:11:00 2019//
-/printconf.c/1.14/Wed Nov 27 17:11:00 2019//
-/resolver.c/1.80/Wed Nov 27 17:12:31 2019//
-/resolver.h/1.12/Wed Nov 27 17:12:31 2019//
+/parse.y/1.20/Thu Nov 28 10:02:44 2019//
+/printconf.c/1.15/Thu Nov 28 10:02:44 2019//
+/resolver.c/1.83/Thu Nov 28 20:28:13 2019//
+/resolver.h/1.14/Thu Nov 28 10:40:29 2019//
 /unwind.8/1.7/Sun Nov 10 20:51:52 2019//
 /unwind.c/1.41/Wed Nov 27 17:11:00 2019//
-/unwind.conf.5/1.18/Wed Nov 27 17:09:12 2019//
-/unwind.h/1.38/Wed Nov 27 17:11:00 2019//
+/unwind.conf.5/1.19/Thu Nov 28 14:05:17 2019//
+/unwind.h/1.39/Thu Nov 28 10:02:44 2019//
 D/libunbound////

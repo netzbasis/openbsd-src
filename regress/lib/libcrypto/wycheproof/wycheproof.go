@@ -1,4 +1,4 @@
-/* $OpenBSD: wycheproof.go,v 1.99 2019/11/27 21:44:27 tb Exp $ */
+/* $OpenBSD: wycheproof.go,v 1.107 2019/11/28 23:13:34 tb Exp $ */
 /*
  * Copyright (c) 2018 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2018, 2019 Theo Buehler <tb@openbsd.org>
@@ -33,6 +33,7 @@ package main
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/evp.h>
+#include <openssl/hkdf.h>
 #include <openssl/objects.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
@@ -238,6 +239,24 @@ type wycheproofTestGroupECDSAWebCrypto struct {
 	Tests  []*wycheproofTestECDSA `json:"tests"`
 }
 
+type wycheproofTestHkdf struct {
+	TCID    int      `json:"tcId"`
+	Comment string   `json:"comment"`
+	Ikm     string   `json:"ikm"`
+	Salt    string   `json:"salt"`
+	Info    string   `json:"info"`
+	Size    int      `json:"size"`
+	Okm     string   `json:"okm"`
+	Result  string   `json:"result"`
+	Flags   []string `json:"flags"`
+}
+
+type wycheproofTestGroupHkdf struct {
+	Type    string                `json:"type"`
+	KeySize int                   `json:"keySize"`
+	Tests   []*wycheproofTestHkdf `json:"tests"`
+}
+
 type wycheproofTestKW struct {
 	TCID    int      `json:"tcId"`
 	Comment string   `json:"comment"`
@@ -387,6 +406,7 @@ var nids = map[string]int{
 	"brainpoolP320t1": C.NID_brainpoolP320t1,
 	"brainpoolP384t1": C.NID_brainpoolP384t1,
 	"brainpoolP512t1": C.NID_brainpoolP512t1,
+	"secp224k1":       C.NID_secp224k1,
 	"secp224r1":       C.NID_secp224r1,
 	"secp256k1":       C.NID_secp256k1,
 	"P-256K":          C.NID_secp256k1,
@@ -1015,13 +1035,20 @@ func checkAeadOpen(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen
 	maxOutLen := ctLen + tagLen
 
 	opened := make([]byte, maxOutLen)
+	if maxOutLen == 0 {
+		opened = append(opened, 0)
+	}
 	var openedMsgLen C.size_t
 
 	catCtTag := append(ct, tag...)
+	catCtTagLen := len(catCtTag)
+	if catCtTagLen == 0 {
+		catCtTag = append(catCtTag, 0)
+	}
 	openRet := C.EVP_AEAD_CTX_open(ctx, (*C.uint8_t)(unsafe.Pointer(&opened[0])),
 		(*C.size_t)(unsafe.Pointer(&openedMsgLen)), C.size_t(maxOutLen),
 		(*C.uint8_t)(unsafe.Pointer(&iv[0])), C.size_t(ivLen),
-		(*C.uint8_t)(unsafe.Pointer(&catCtTag[0])), C.size_t(len(catCtTag)),
+		(*C.uint8_t)(unsafe.Pointer(&catCtTag[0])), C.size_t(catCtTagLen),
 		(*C.uint8_t)(unsafe.Pointer(&aad[0])), C.size_t(aadLen))
 
 	if openRet != 1 {
@@ -1062,6 +1089,9 @@ func checkAeadSeal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen
 	maxOutLen := msgLen + tagLen
 
 	sealed := make([]byte, maxOutLen)
+	if maxOutLen == 0 {
+		sealed = append(sealed, 0)
+	}
 	var sealedLen C.size_t
 
 	sealRet := C.EVP_AEAD_CTX_seal(ctx, (*C.uint8_t)(unsafe.Pointer(&sealed[0])),
@@ -1071,9 +1101,11 @@ func checkAeadSeal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen
 		(*C.uint8_t)(unsafe.Pointer(&aad[0])), C.size_t(aadLen))
 
 	if sealRet != 1 {
-		fmt.Printf("FAIL: Test case %d (%q) %v - EVP_AEAD_CTX_seal() = %d, want %v\n",
-			wt.TCID, wt.Comment, wt.Flags, int(sealRet), wt.Result)
-		return false
+		success := (wt.Result == "invalid")
+		if !success {
+			fmt.Printf("FAIL: Test case %d (%q) %v - EVP_AEAD_CTX_seal() = %d, want %v\n", wt.TCID, wt.Comment, wt.Flags, int(sealRet), wt.Result)
+		}
+		return success
 	}
 
 	if sealedLen != C.size_t(maxOutLen) {
@@ -1099,8 +1131,14 @@ func checkAeadSeal(ctx *C.EVP_AEAD_CTX, iv []byte, ivLen int, aad []byte, aadLen
 	return success
 }
 
-func runChaCha20Poly1305Test(wt *wycheproofTestAead) bool {
-	aead := C.EVP_aead_chacha20_poly1305()
+func runChaCha20Poly1305Test(algorithm string, wt *wycheproofTestAead) bool {
+	var aead *C.EVP_AEAD
+	switch algorithm {
+	case "CHACHA20-POLY1305":
+		aead = C.EVP_aead_chacha20_poly1305()
+	case "XCHACHA20-POLY1305":
+		aead = C.EVP_aead_xchacha20_poly1305()
+	}
 
 	key, err := hex.DecodeString(wt.Key)
 	if err != nil {
@@ -1138,6 +1176,12 @@ func runChaCha20Poly1305Test(wt *wycheproofTestAead) bool {
 	if msgLen == 0 {
 		msg = append(msg, 0)
 	}
+	if ctLen == 0 {
+		msg = append(ct, 0)
+	}
+	if tagLen == 0 {
+		msg = append(tag, 0)
+	}
 
 	var ctx C.EVP_AEAD_CTX
 	if C.EVP_AEAD_CTX_init(&ctx, aead, (*C.uchar)(unsafe.Pointer(&key[0])), C.size_t(keyLen), C.size_t(tagLen), nil) != 1 {
@@ -1152,8 +1196,8 @@ func runChaCha20Poly1305Test(wt *wycheproofTestAead) bool {
 }
 
 func runChaCha20Poly1305TestGroup(algorithm string, wtg *wycheproofTestGroupAead) bool {
-	// We currently only support nonces of length 12 (96 bits)
-	if wtg.IVSize != 96 {
+	// ChaCha20-Poly1305 currently only supports nonces of length 12 (96 bits)
+	if algorithm == "CHACHA20-POLY1305" && wtg.IVSize != 96 {
 		return true
 	}
 
@@ -1162,7 +1206,7 @@ func runChaCha20Poly1305TestGroup(algorithm string, wtg *wycheproofTestGroupAead
 
 	success := true
 	for _, wt := range wtg.Tests {
-		if !runChaCha20Poly1305Test(wt) {
+		if !runChaCha20Poly1305Test(algorithm, wt) {
 			success = false
 		}
 	}
@@ -1410,6 +1454,12 @@ func runECDHTestGroup(algorithm string, wtg *wycheproofTestGroupECDH) bool {
 	doECpoint := false
 	if wtg.Encoding == "ecpoint" {
 		doECpoint = true
+	}
+
+	// XXX
+	if wtg.Curve == "secp224k1" {
+		fmt.Printf("INFO: skipping %v test group %v with curve %v and %v encoding...\n", algorithm, wtg.Type, wtg.Curve, wtg.Encoding)
+		return true
 	}
 
 	fmt.Printf("Running %v test group %v with curve %v and %v encoding...\n",
@@ -1738,6 +1788,74 @@ func runECDSAWebCryptoTestGroup(algorithm string, wtg *wycheproofTestGroupECDSAW
 	success := true
 	for _, wt := range wtg.Tests {
 		if !runECDSATest(ecKey, nid, h, true, wt) {
+			success = false
+		}
+	}
+	return success
+}
+
+func runHkdfTest(md *C.EVP_MD, wt *wycheproofTestHkdf) bool {
+	ikm, err := hex.DecodeString(wt.Ikm)
+	if err != nil {
+		log.Fatalf("Failed to decode ikm %q: %v", wt.Ikm, err)
+	}
+	salt, err := hex.DecodeString(wt.Salt)
+	if err != nil {
+		log.Fatalf("Failed to decode salt %q: %v", wt.Salt, err)
+	}
+	info, err := hex.DecodeString(wt.Info)
+	if err != nil {
+		log.Fatalf("Failed to decode info %q: %v", wt.Info, err)
+	}
+
+	ikmLen, saltLen, infoLen := len(ikm), len(salt), len(info)
+	if ikmLen == 0 {
+		ikm = append(ikm, 0)
+	}
+	if saltLen == 0 {
+		salt = append(salt, 0)
+	}
+	if infoLen == 0 {
+		info = append(info, 0)
+	}
+
+	outLen := wt.Size
+	out := make([]byte, outLen)
+	if outLen == 0 {
+		out = append(out, 0)
+	}
+
+	ret := C.HKDF((*C.uchar)(unsafe.Pointer(&out[0])), C.size_t(outLen), md, (*C.uchar)(unsafe.Pointer(&ikm[0])), C.size_t(ikmLen), (*C.uchar)(&salt[0]), C.size_t(saltLen), (*C.uchar)(unsafe.Pointer(&info[0])), C.size_t(infoLen))
+
+	if ret != 1 {
+		success := wt.Result == "invalid"
+		if !success {
+			fmt.Printf("FAIL: Test case %d (%q) %v - got %d, want %v\n", wt.TCID, wt.Comment, wt.Flags, ret, wt.Result)
+		}
+		return success
+	}
+
+	okm, err := hex.DecodeString(wt.Okm)
+	if err != nil {
+		log.Fatalf("Failed to decode okm %q: %v", wt.Okm, err)
+	}
+	if !bytes.Equal(out[:outLen], okm) {
+		fmt.Printf("FAIL: Test case %d (%q) %v - expected and computed output don't match: %v", wt.TCID, wt.Comment, wt.Flags, wt.Result)
+	}
+
+	return wt.Result == "valid"
+}
+
+func runHkdfTestGroup(algorithm string, wtg *wycheproofTestGroupHkdf) bool {
+	fmt.Printf("Running %v test group %v with key size %d...\n", algorithm, wtg.Type, wtg.KeySize)
+	md, err := hashEvpMdFromString(strings.TrimPrefix(algorithm, "HKDF-"))
+	if err != nil {
+		log.Fatalf("Failed to get hash: %v", err)
+	}
+
+	success := true
+	for _, wt := range wtg.Tests {
+		if !runHkdfTest(md, wt) {
 			success = false
 		}
 	}
@@ -2296,7 +2414,7 @@ func runTestVectors(path string, webcrypto bool) bool {
 		wtg = &wycheproofTestGroupAesCmac{}
 	case "AES-GCM":
 		wtg = &wycheproofTestGroupAead{}
-	case "CHACHA20-POLY1305":
+	case "CHACHA20-POLY1305", "XCHACHA20-POLY1305":
 		wtg = &wycheproofTestGroupAead{}
 	case "DSA":
 		wtg = &wycheproofTestGroupDSA{}
@@ -2312,6 +2430,8 @@ func runTestVectors(path string, webcrypto bool) bool {
 		} else {
 			wtg = &wycheproofTestGroupECDSA{}
 		}
+	case "HKDF-SHA-1", "HKDF-SHA-256", "HKDF-SHA-384", "HKDF-SHA-512":
+		wtg = &wycheproofTestGroupHkdf{}
 	case "KW":
 		wtg = &wycheproofTestGroupKW{}
 	case "RSAES-OAEP":
@@ -2320,13 +2440,9 @@ func runTestVectors(path string, webcrypto bool) bool {
 		wtg = &wycheproofTestGroupRsaesPkcs1{}
 	case "RSASSA-PSS":
 		wtg = &wycheproofTestGroupRsassa{}
-	case "RSASSA-PKCS1-v1_5":
-		fallthrough
-	case "RSASig":
+	case "RSASSA-PKCS1-v1_5", "RSASig":
 		wtg = &wycheproofTestGroupRSA{}
-	case "XDH":
-		fallthrough
-	case "X25519":
+	case "XDH", "X25519":
 		wtg = &wycheproofTestGroupX25519{}
 	default:
 		log.Printf("INFO: Unknown test vector algorithm %q", wtv.Algorithm)
@@ -2355,7 +2471,7 @@ func runTestVectors(path string, webcrypto bool) bool {
 			if !runAesAeadTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAead)) {
 				success = false
 			}
-		case "CHACHA20-POLY1305":
+		case "CHACHA20-POLY1305", "XCHACHA20-POLY1305":
 			if !runChaCha20Poly1305TestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupAead)) {
 				success = false
 			}
@@ -2383,6 +2499,10 @@ func runTestVectors(path string, webcrypto bool) bool {
 					success = false
 				}
 			}
+		case "HKDF-SHA-1", "HKDF-SHA-256", "HKDF-SHA-384", "HKDF-SHA-512":
+			if !runHkdfTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupHkdf)) {
+				success = false
+			}
 		case "KW":
 			if !runKWTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupKW)) {
 				success = false
@@ -2399,15 +2519,11 @@ func runTestVectors(path string, webcrypto bool) bool {
 			if !runRsassaTestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupRsassa)) {
 				success = false
 			}
-		case "RSASSA-PKCS1-v1_5":
-			fallthrough
-		case "RSASig":
+		case "RSASSA-PKCS1-v1_5", "RSASig":
 			if !runRSATestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupRSA)) {
 				success = false
 			}
-		case "XDH":
-			fallthrough
-		case "X25519":
+		case "XDH", "X25519":
 			if !runX25519TestGroup(wtv.Algorithm, wtg.(*wycheproofTestGroupX25519)) {
 				success = false
 			}
@@ -2432,11 +2548,9 @@ func main() {
 	acceptableFlags = make(map[string]int)
 
 	// TODO: Investigate the following new test vectors:
-	//	hkdf_sha*_test.json
 	//	primality_test.json
 	//	x25519_{asn,jwk,pem}_test.json
-	//	xchacha20_poly1305_test.json
-	// what's up with the *_p1363_tst.json files?
+	// What's up with the *_p1363_test.json files?
 	tests := []struct {
 		name    string
 		pattern string
@@ -2444,13 +2558,17 @@ func main() {
 		{"AES", "aes_[cg]*[^xv]_test.json"}, // Skip AES-EAX, AES-GCM-SIV and AES-SIV-CMAC.
 		{"ChaCha20-Poly1305", "chacha20_poly1305_test.json"},
 		{"DSA", "dsa_*test.json"},
+		{"ECDH", "ecdh_test.json"},
 		{"ECDH", "ecdh_[^w]*test.json"},
-		{"ECDHWebCrypto", "ecdh_w*_test.json"},
+		{"ECDHWebCrypto", "ecdh_webcrypto_test.json"},
 		{"ECDSA", "ecdsa_[^w]*test.json"},
-		{"ECDSAWebCrypto", "ecdsa_w*_test.json"},
+		{"ECDSA", "ecdsa_test.json"},
+		{"ECDSAWebCrypto", "ecdsa_webcrypto_test.json"},
+		{"HKDF", "hkdf_sha*_test.json"},
 		{"KW", "kw_test.json"},
 		{"RSA", "rsa_*test.json"},
 		{"X25519", "x25519_test.json"},
+		{"XCHACHA20-POLY1305", "xchacha20_poly1305_test.json"},
 	}
 
 	success := true
@@ -2463,9 +2581,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to glob %v test vectors: %v", test.name, err)
 		}
-		if len(tvs) == 0 {
-			log.Fatalf("Failed to find %v test vectors at %q\n", test.name, testVectorPath)
-		}
+		// XXX put check back after wycheproof-testvectors update to 20191126
+		// if len(tvs) == 0 {
+		// 	log.Fatalf("Failed to find %v test vectors at %q\n", test.name, testVectorPath)
+		// }
 		for _, tv := range tvs {
 			if skip.Match([]byte(tv)) {
 				fmt.Printf("INFO: Skipping tests from \"%s\"\n", strings.TrimPrefix(tv, testVectorPath+"/"))
