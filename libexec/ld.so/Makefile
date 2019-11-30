@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.77 2019/10/20 03:44:49 guenther Exp $
+#	$OpenBSD: Makefile,v 1.79 2019/11/29 19:30:56 deraadt Exp $
 
 SUBDIR=ldconfig ldd
 MAN=	ld.so.1
@@ -28,7 +28,7 @@ SRCS+=	dl_uname.c dl_dirname.c strlcat.c strlen.c trace.c
 SRCS+=	malloc.c reallocarray.c tib.c ffs.c
 
 syscall=__syscall close exit fstat getdents getentropy getthrid issetugid \
-	mprotect munmap open pledge read __realpath sendsyslog \
+	mprotect munmap msyscall open pledge read __realpath sendsyslog \
 	__set_tcb sysctl thrkill utrace write
 
 GEN_PREFIX=\t.file "${@:R}.c"\n\#include "SYS.h"
@@ -91,6 +91,7 @@ $(PROG): $(test_prog) ${VERSION_SCRIPT} $(OBJS) ${LD_SCRIPT}
 	$(LD) -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
 	    `echo ${OBJS} | tr " " "\n" | sort -R`
 .endif
+	cp /usr/libexec/ld.so ld.so.backup
 .ifdef	CHECK_LDSO
 	${CHECK_LDSO} $(candidate)
 .endif
