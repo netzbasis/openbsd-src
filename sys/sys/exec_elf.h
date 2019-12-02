@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_elf.h,v 1.85 2019/11/29 06:34:46 deraadt Exp $	*/
+/*	$OpenBSD: exec_elf.h,v 1.87 2019/12/01 13:10:51 jsg Exp $	*/
 /*
  * Copyright (c) 1995, 1996 Erik Theisen.  All rights reserved.
  *
@@ -36,8 +36,6 @@
 #include <sys/types.h>
 #include <machine/exec.h>
 
-typedef __uint8_t	Elf_Byte;
-
 typedef __uint32_t	Elf32_Addr;	/* Unsigned program address */
 typedef __uint32_t	Elf32_Off;	/* Unsigned file offset */
 typedef __int32_t	Elf32_Sword;	/* Signed large integer */
@@ -57,7 +55,6 @@ typedef __uint64_t	Elf64_Xword;
 typedef __uint64_t	Elf64_Lword;
 
 typedef __uint16_t	Elf64_Half;
-typedef __uint16_t	Elf64_Quarter;
 
 /*
  * e_ident[] identification indexes
@@ -139,19 +136,19 @@ typedef struct elfhdr {
 
 typedef struct {
 	unsigned char	e_ident[EI_NIDENT];	/* Id bytes */
-	Elf64_Quarter	e_type;			/* file type */
-	Elf64_Quarter	e_machine;		/* machine type */
+	Elf64_Half	e_type;			/* file type */
+	Elf64_Half	e_machine;		/* machine type */
 	Elf64_Word	e_version;		/* version number */
 	Elf64_Addr	e_entry;		/* entry point */
 	Elf64_Off	e_phoff;		/* Program hdr offset */
 	Elf64_Off	e_shoff;		/* Section hdr offset */
 	Elf64_Word	e_flags;		/* Processor flags */
-	Elf64_Quarter	e_ehsize;		/* sizeof ehdr */
-	Elf64_Quarter	e_phentsize;		/* Program header entry size */
-	Elf64_Quarter	e_phnum;		/* Number of program headers */
-	Elf64_Quarter	e_shentsize;		/* Section header entry size */
-	Elf64_Quarter	e_shnum;		/* Number of section headers */
-	Elf64_Quarter	e_shstrndx;		/* String table index */
+	Elf64_Half	e_ehsize;		/* sizeof ehdr */
+	Elf64_Half	e_phentsize;		/* Program header entry size */
+	Elf64_Half	e_phnum;		/* Number of program headers */
+	Elf64_Half	e_shentsize;		/* Section header entry size */
+	Elf64_Half	e_shnum;		/* Number of section headers */
+	Elf64_Half	e_shstrndx;		/* String table index */
 } Elf64_Ehdr;
 
 /* e_type */
@@ -336,10 +333,10 @@ typedef struct elf32_sym {
 
 typedef struct {
 	Elf64_Word	st_name;	/* Symbol name index in str table */
-	Elf_Byte	st_info;	/* type / binding attrs */
-	Elf_Byte	st_other;	/* unused */
-	Elf64_Quarter	st_shndx;	/* section index of symbol */
-	Elf64_Xword	st_value;	/* value of symbol */
+	unsigned char	st_info;	/* type / binding attrs */
+	unsigned char	st_other;	/* unused */
+	Elf64_Half	st_shndx;	/* section index of symbol */
+	Elf64_Addr	st_value;	/* value of symbol */
 	Elf64_Xword	st_size;	/* size of symbol */
 } Elf64_Sym;
 
@@ -402,12 +399,12 @@ typedef struct {
 #define ELF32_R_INFO(s,t) 	(((s) << 8) + (unsigned char)(t))
 
 typedef struct {
-	Elf64_Xword	r_offset;	/* where to do it */
+	Elf64_Addr	r_offset;	/* where to do it */
 	Elf64_Xword	r_info;		/* index & type of relocation */
 } Elf64_Rel;
 
 typedef struct {
-	Elf64_Xword	r_offset;	/* where to do it */
+	Elf64_Addr	r_offset;	/* where to do it */
 	Elf64_Xword	r_info;		/* index & type of relocation */
 	Elf64_Sxword	r_addend;	/* adjustment value */
 } Elf64_Rela;

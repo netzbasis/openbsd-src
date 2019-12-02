@@ -1,6 +1,6 @@
 /cd.c/1.238/Thu Nov 28 16:27:35 2019//
 /cd.h/1.28/Fri Nov 29 14:06:21 2019//
-/ch.c/1.61/Fri Nov 29 14:06:21 2019//
+/ch.c/1.62/Sun Dec  1 15:41:43 2019//
 /files.scsi/1.25/Wed Apr 27 11:36:20 2011//
 /iscsi.h/1.9/Fri Sep 27 23:07:42 2019//
 /mpath.c/1.43/Fri Sep 27 17:22:31 2019//
@@ -12,7 +12,7 @@
 /safte.c/1.60/Sat Nov 23 01:16:05 2019//
 /safte.h/1.8/Fri Sep 27 23:07:42 2019//
 /scsi_all.h/1.61/Mon Nov 25 17:02:56 2019//
-/scsi_base.c/1.248/Thu Nov 28 17:25:59 2019//
+/scsi_base.c/1.250/Sun Dec  1 16:56:26 2019//
 /scsi_changer.h/1.8/Fri Nov 29 14:06:21 2019//
 /scsi_debug.h/1.21/Mon Sep 30 11:27:37 2019//
 /scsi_disk.h/1.39/Mon Nov 25 17:02:57 2019//

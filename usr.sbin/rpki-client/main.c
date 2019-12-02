@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.49 2019/11/30 22:55:22 jmc Exp $ */
+/*	$OpenBSD: main.c,v 1.52 2019/12/02 02:11:13 deraadt Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -1454,7 +1454,7 @@ main(int argc, char *argv[])
 			force = 1;
 			break;
 		case 'j':
-			outformats = FORMAT_JSON;
+			outformats |= FORMAT_JSON;
 			break;
 		case 'n':
 			noop = 1;
@@ -1700,8 +1700,8 @@ main(int argc, char *argv[])
 
 usage:
 	fprintf(stderr,
-	    "usage: rpki-client [-Bcfjnov] [-b bind_addr] [-e rsync_prog] "
-	    "[-T table] [-t tal] [outputdir]\n");
+	    "usage: rpki-client [-Bcfjnov] [-b bind_addr] [-e rsync_prog]\n"
+	    "            [-T table] [-t tal] [outputdir]\n");
 	return 1;
 }
 
@@ -1730,19 +1730,19 @@ output_createtmp(char *name)
 }
 
 void
-output_cleantmp(void)
-{
-	if (*output_tmpname)
-		unlink(output_tmpname);
-	output_tmpname[0] = '\0';
-}
-
-void
-output_finish(FILE *out, char *name)
+output_finish(FILE *out)
 {
 	fclose(out);
 
 	rename(output_tmpname, output_name);
+	output_tmpname[0] = '\0';
+}
+
+void
+output_cleantmp(void)
+{
+	if (*output_tmpname)
+		unlink(output_tmpname);
 	output_tmpname[0] = '\0';
 }
 
