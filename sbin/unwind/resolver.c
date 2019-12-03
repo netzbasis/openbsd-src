@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.87 2019/12/01 14:37:34 otto Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.91 2019/12/02 16:00:13 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -43,14 +43,19 @@
 #include <unistd.h>
 
 #include "libunbound/config.h"
+#include "libunbound/libunbound/context.h"
 #include "libunbound/libunbound/libworker.h"
 #include "libunbound/libunbound/unbound.h"
 #include "libunbound/libunbound/unbound-event.h"
+#include "libunbound/services/cache/rrset.h"
 #include "libunbound/sldns/sbuffer.h"
 #include "libunbound/sldns/rrdef.h"
 #include "libunbound/sldns/pkthdr.h"
 #include "libunbound/sldns/wire2str.h"
+#include "libunbound/util/config_file.h"
+#include "libunbound/util/module.h"
 #include "libunbound/util/regional.h"
+#include "libunbound/util/storage/slabhash.h"
 
 #include <openssl/crypto.h>
 
@@ -101,6 +106,7 @@ struct uw_resolver {
 	int			 oppdot;
 	int			 check_running;
 	char			*why_bogus;
+	int64_t			 median;
 	int64_t			 histogram[nitems(histogram_limits)];
 	int64_t			 latest_histogram[nitems(histogram_limits)];
 };
@@ -149,6 +155,7 @@ void			 new_asr_forwarders(void);
 void			 new_static_forwarders(int);
 void			 new_static_dot_forwarders(void);
 struct uw_resolver	*create_resolver(enum uw_resolver_type, int);
+void			 set_unified_cache(struct uw_resolver *);
 void			 free_resolver(struct uw_resolver *);
 void			 set_forwarders(struct uw_resolver *,
 			     struct uw_forwarder_head *, int);
@@ -198,6 +205,10 @@ static struct trust_anchor_head	 trust_anchors, new_trust_anchors;
 struct event_base		*ev_base;
 
 RB_GENERATE(force_tree, force_tree_entry, entry, force_tree_cmp)
+
+struct alloc_cache		 unified_cache_alloc;
+struct slabhash			*unified_msg_cache;
+struct rrset_cache		*unified_rrset_cache;
 
 static const char * const	 as112_zones[] = {
 	/* RFC1918 */
@@ -317,9 +328,10 @@ resolver_sig_handler(int sig, short event, void *arg)
 void
 resolver(int debug, int verbose)
 {
-	struct event	 ev_sigint, ev_sigterm;
-	struct passwd	*pw;
-	struct timeval	 tv = {DECAY_PERIOD, 0};
+	struct config_file	*ub_cfg;
+	struct event		 ev_sigint, ev_sigterm;
+	struct passwd		*pw;
+	struct timeval		 tv = {DECAY_PERIOD, 0};
 
 	resolver_conf = config_new_empty();
 
@@ -372,6 +384,29 @@ resolver(int debug, int verbose)
 	evtimer_add(&decay_timer, &tv);
 
 	clock_gettime(CLOCK_MONOTONIC, &last_network_change);
+
+	if ((ub_cfg = config_create_forlib()) == NULL)
+		fatal(NULL);
+
+	alloc_init(&unified_cache_alloc, NULL, 0);
+
+	/*
+	 * context_finalize() ensures that the cache is sized according to
+	 * the context's config. If we want to change the cache size we
+	 * need to reflect it in the config as well otherwise these cache
+	 * objects get deleted and re-created.
+	 */
+	if ((unified_msg_cache = slabhash_create(ub_cfg->msg_cache_slabs,
+	    HASH_DEFAULT_STARTARRAY, ub_cfg->msg_cache_size, msgreply_sizefunc,
+	    query_info_compare, query_entry_delete, reply_info_delete, NULL))
+	    == NULL)
+		fatal(NULL);
+
+	if ((unified_rrset_cache = rrset_cache_adjust(NULL, ub_cfg,
+	    &unified_cache_alloc)) == NULL)
+		fatal(NULL);
+
+	config_delete(ub_cfg);
 
 	new_recursor();
 
@@ -517,6 +552,8 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 					continue;
 				memset(resolvers[i]->latest_histogram, 0,
 				    sizeof(resolvers[i]->latest_histogram));
+				resolvers[i]->median = histogram_median(
+				    resolvers[i]->latest_histogram);
 			}
 
 			break;
@@ -706,7 +743,7 @@ setup_query(struct query_imsg *query_imsg)
 		log_debug("%s: %s[%s] %lldms", __func__,
 		    uw_resolver_type_str[rq->res_pref.types[i]],
 		    uw_resolver_state_str[res->state],
-		    histogram_median(res->latest_histogram));
+		    res->median);
 	}
 
 	evtimer_set(&rq->timer_ev, try_resolver_timo, rq);
@@ -768,7 +805,7 @@ try_next_resolver(struct running_query *rq)
 	memcpy(query_imsg, rq->query_imsg, sizeof(*query_imsg));
 	clock_gettime(CLOCK_MONOTONIC, &query_imsg->tp);
 
-	ms = histogram_median(res->latest_histogram);
+	ms = res->median;
 	if (ms == INT64_MAX)
 		ms = 2000;
 	if (res->type == resolver_conf->res_pref.types[0])
@@ -782,10 +819,10 @@ try_next_resolver(struct running_query *rq)
 	}
 	evtimer_add(&rq->timer_ev, &tv);
 
+	rq->running++;
 	if (resolve(res, query_imsg->qname, query_imsg->t,
 	    query_imsg->c, query_imsg, resolve_done) != 0)
 		goto err;
-	rq->running++;
 
 	return 0;
 
@@ -888,6 +925,7 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 		/* latest_histogram is in units of 1000 to avoid rounding
 		   down when decaying */
 		res->latest_histogram[i] += 1000;
+		res->median = histogram_median(res->latest_histogram);
 	}
 
 	if (answer_len < LDNS_HEADER_SIZE) {
@@ -1030,6 +1068,7 @@ new_recursor(void)
 		return;
 
 	resolvers[UW_RES_RECURSOR] = create_resolver(UW_RES_RECURSOR, 0);
+	set_unified_cache(resolvers[UW_RES_RECURSOR]);
 
 	check_resolver(resolvers[UW_RES_RECURSOR]);
 }
@@ -1048,6 +1087,7 @@ new_forwarders(int oppdot)
 
 	log_debug("%s: create_resolver", __func__);
 	resolvers[UW_RES_DHCP] = create_resolver(UW_RES_DHCP, oppdot);
+	set_unified_cache(resolvers[UW_RES_DHCP]);
 
 	check_resolver(resolvers[UW_RES_DHCP]);
 }
@@ -1081,6 +1121,7 @@ new_static_forwarders(int oppdot)
 
 	log_debug("%s: create_resolver", __func__);
 	resolvers[UW_RES_FORWARDER] = create_resolver(UW_RES_FORWARDER, oppdot);
+	set_unified_cache(resolvers[UW_RES_FORWARDER]);
 
 	check_resolver(resolvers[UW_RES_FORWARDER]);
 }
@@ -1099,8 +1140,21 @@ new_static_dot_forwarders(void)
 
 	log_debug("%s: create_resolver", __func__);
 	resolvers[UW_RES_DOT] = create_resolver(UW_RES_DOT, 0);
+	set_unified_cache(resolvers[UW_RES_DOT]);
 
 	check_resolver(resolvers[UW_RES_DOT]);
+}
+
+void
+set_unified_cache(struct uw_resolver *res)
+{
+	if (res == NULL)
+		return;
+
+	res->ctx->env->msg_cache = unified_msg_cache;
+	res->ctx->env->rrset_cache = unified_rrset_cache;
+
+	context_finalize(res->ctx);
 }
 
 static const struct {
@@ -1289,6 +1343,12 @@ free_resolver(struct uw_resolver *res)
 		res->stop = 1;
 	else {
 		evtimer_del(&res->check_ev);
+		if (res->ctx != NULL) {
+			if (res->ctx->env->msg_cache == unified_msg_cache)
+				res->ctx->env->msg_cache = NULL;
+			if (res->ctx->env->rrset_cache == unified_rrset_cache)
+				res->ctx->env->rrset_cache = NULL;
+		}
 		ub_ctx_delete(res->ctx);
 		asr_resolver_free(res->asr_ctx);
 		free(res->why_bogus);
@@ -1639,8 +1699,8 @@ resolver_cmp(const void *_a, const void *_b)
 	else if (resolvers[a]->state > resolvers[b]->state)
 		return -1;
 	else {
-		a_median = histogram_median(resolvers[a]->latest_histogram);
-		b_median = histogram_median(resolvers[b]->latest_histogram);
+		a_median = resolvers[a]->median;
+		b_median = resolvers[b]->median;
 		if (resolvers[a]->type == resolver_conf->res_pref.types[0])
 			a_median -= PREF_RESOLVER_MEDIAN_SKEW;
 		else if (resolvers[b]->type == resolver_conf->res_pref.types[0])
@@ -1703,7 +1763,6 @@ show_status(enum uw_resolver_type type, pid_t pid)
 	case UW_RES_DOT:
 	case UW_RES_ASR:
 		send_resolver_info(resolvers[type], pid);
-		send_detailed_resolver_info(resolvers[type], pid);
 		break;
 	default:
 		fatalx("unknown resolver type %d", type);
@@ -1716,6 +1775,7 @@ void
 send_resolver_info(struct uw_resolver *res, pid_t pid)
 {
 	struct ctl_resolver_info	 cri;
+	size_t				 i;
 
 	if (res == NULL)
 		return;
@@ -1723,36 +1783,17 @@ send_resolver_info(struct uw_resolver *res, pid_t pid)
 	cri.state = res->state;
 	cri.type = res->type;
 	cri.oppdot = res->oppdot;
-	cri.median = histogram_median(res->latest_histogram);
+	cri.median = res->median;
+
+	memcpy(cri.histogram, res->histogram, sizeof(cri.histogram));
+	memcpy(cri.latest_histogram, res->latest_histogram,
+	    sizeof(cri.latest_histogram));
+	for (i = 0; i < nitems(histogram_limits); i++)
+		cri.latest_histogram[i] =
+		    (cri.latest_histogram[i] + 500) / 1000;
+
 	resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_INFO, pid, &cri,
 	    sizeof(cri));
-}
-
-void
-send_detailed_resolver_info(struct uw_resolver *res, pid_t pid)
-{
-	int64_t	 histogram[nitems(histogram_limits)];
-	size_t	 i;
-	char	 buf[1024];
-
-	if (res == NULL)
-		return;
-
-	if (res->state == RESOLVING) {
-		(void)strlcpy(buf, res->why_bogus, sizeof(buf));
-		resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_WHY_BOGUS,
-		    pid, buf, sizeof(buf));
-	}
-
-	memcpy(histogram, res->histogram, sizeof(histogram));
-	resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_HISTOGRAM,
-		    pid, histogram, sizeof(histogram));
-
-	memcpy(histogram, res->latest_histogram, sizeof(histogram));
-	for (i = 0; i < nitems(histogram_limits); i++)
-		histogram[i] /= 1000;
-	resolver_imsg_compose_frontend(IMSG_CTL_RESOLVER_DECAYING_HISTOGRAM,
-		    pid, histogram, sizeof(histogram));
 }
 
 void
@@ -2026,6 +2067,9 @@ histogram_median(int64_t *histogram)
 	for (i = 1; i < nitems(histogram_limits); i++)
 		sample_count += histogram[i];
 
+	if (sample_count == 0)
+		return 0;
+
 	for (i = 1; i < nitems(histogram_limits); i++) {
 		running_count += histogram[i];
 		if (running_count >= sample_count / 2)
@@ -2051,6 +2095,7 @@ decay_latest_histograms(int fd, short events, void *arg)
 			/* multiply then divide, avoiding truncating to 0 */
 			res->latest_histogram[j] = res->latest_histogram[j] *
 			    DECAY_NOMINATOR / DECAY_DENOMINATOR;
+		res->median = histogram_median(res->latest_histogram);
 	}
 	evtimer_add(&decay_timer, &tv);
 }
