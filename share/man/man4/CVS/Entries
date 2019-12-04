@@ -1,4 +1,4 @@
-/Makefile/1.741/Mon Nov 18 03:08:38 2019//
+/Makefile/1.744/Tue Dec  3 09:46:46 2019//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -405,6 +405,7 @@
 /pvclock.4/1.2/Fri Nov 23 17:21:37 2018//
 /pwdog.4/1.7/Tue Jul 16 16:05:49 2013//
 /pwmbl.4/1.2/Tue Oct 22 08:54:29 2019//
+/pwmfan.4/1.1/Tue Dec  3 09:40:56 2019//
 /pwmreg.4/1.1/Mon Sep 30 21:00:51 2019//
 /qla.4/1.11/Sun Mar 16 08:28:55 2014//
 /qle.4/1.10/Wed Jan 21 22:33:22 2015//
@@ -423,12 +424,14 @@
 /ricohrtc.4/1.5/Mon Jun 18 06:06:52 2018//
 /rkclock.4/1.2/Sat Mar 31 09:44:35 2018//
 /rkdwusb.4/1.1/Mon Aug 27 20:09:29 2018//
+/rkemmcphy.4/1.1/Tue Dec  3 09:46:46 2019//
 /rkgpio.4/1.1/Sun Apr  1 09:03:25 2018//
 /rkgrf.4/1.2/Sat Mar 31 09:44:35 2018//
 /rkiic.4/1.1/Sun Apr  1 09:03:25 2018//
 /rkpcie.4/1.2/Wed Jan  3 08:13:16 2018//
 /rkpinctrl.4/1.2/Sat Mar 31 09:44:35 2018//
 /rkpmic.4/1.1/Sun Apr  1 09:03:25 2018//
+/rkpwm.4/1.1/Tue Dec  3 09:37:04 2019//
 /rktemp.4/1.3/Tue Mar 27 07:01:42 2018//
 /rl.4/1.37/Tue Jul 16 16:05:49 2013//
 /rlphy.4/1.15/Fri Jul 31 14:20:29 2009//
@@ -477,7 +480,7 @@
 /sxidog.4/1.1/Wed Oct 16 22:24:45 2019//
 /sximmc.4/1.2/Fri Feb  1 01:41:52 2019//
 /sxipio.4/1.1/Sat Mar 31 03:22:34 2018//
-/sxipwm.4/1.1/Mon Oct 21 20:53:11 2019//
+/sxipwm.4/1.2/Tue Dec  3 09:34:53 2019//
 /sxirsb.4/1.2/Sat Dec 16 18:28:16 2017//
 /sxirtc.4/1.2/Mon Jun 18 06:06:52 2018//
 /sxisid.4/1.2/Thu Oct 24 11:49:13 2019//

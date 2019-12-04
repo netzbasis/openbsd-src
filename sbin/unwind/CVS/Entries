@@ -1,16 +1,16 @@
 /Makefile/1.5/Wed Nov 27 17:09:12 2019//
-/control.c/1.12/Wed Nov 27 17:09:12 2019//
+/control.c/1.13/Tue Dec  3 14:35:04 2019//
 /control.h/1.1/Wed Jan 23 13:11:00 2019//
-/frontend.c/1.43/Mon Dec  2 06:26:52 2019//
+/frontend.c/1.45/Tue Dec  3 16:17:48 2019//
 /frontend.h/1.6/Wed Nov 27 17:09:12 2019//
 /log.c/1.1/Fri Mar  1 08:02:25 2019//
 /log.h/1.1/Fri Mar  1 08:02:25 2019//
 /parse.y/1.21/Sun Dec  1 14:37:34 2019//
 /printconf.c/1.16/Sun Dec  1 14:37:34 2019//
-/resolver.c/1.91/Mon Dec  2 16:00:13 2019//
+/resolver.c/1.97/Tue Dec  3 16:17:48 2019//
 /resolver.h/1.15/Mon Dec  2 06:26:52 2019//
 /unwind.8/1.7/Sun Nov 10 20:51:52 2019//
-/unwind.c/1.43/Sun Dec  1 14:37:34 2019//
+/unwind.c/1.44/Tue Dec  3 16:16:25 2019//
 /unwind.conf.5/1.21/Sun Dec  1 18:19:52 2019//
-/unwind.h/1.42/Mon Dec  2 06:26:52 2019//
+/unwind.h/1.43/Tue Dec  3 16:16:25 2019//
 D/libunbound////
