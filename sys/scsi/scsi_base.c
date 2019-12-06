@@ -1,4 +1,4 @@
-/*	$OpenBSD: scsi_base.c,v 1.255 2019/12/04 10:22:05 mpi Exp $	*/
+/*	$OpenBSD: scsi_base.c,v 1.259 2019/12/05 19:53:05 krw Exp $	*/
 /*	$NetBSD: scsi_base.c,v 1.43 1997/04/02 02:29:36 mycroft Exp $	*/
 
 /*
@@ -87,6 +87,14 @@ void			scsi_link_close(struct scsi_link *);
 
 void *			scsi_iopool_get(struct scsi_iopool *);
 void			scsi_iopool_put(struct scsi_iopool *, void *);
+
+/* Various helper functions for scsi_do_mode_sense() */
+int			scsi_mode_sense(struct scsi_link *, int, struct scsi_mode_header *,
+			    size_t, int, int);
+int			scsi_mode_sense_big(struct scsi_link *, int,
+			    struct scsi_mode_header_big *, size_t, int, int);
+void *			scsi_mode_sense_page(struct scsi_mode_header *, int, int);
+void *			scsi_mode_sense_big_page(struct scsi_mode_header_big *, int, int);
 
 /* ioh/xsh queue state */
 #define RUNQ_IDLE	0
@@ -1052,7 +1060,7 @@ scsi_start(struct scsi_link *link, int type, int flags)
 }
 
 int
-scsi_mode_sense(struct scsi_link *link, int byte2, int pg_code,
+scsi_mode_sense(struct scsi_link *link, int pg_code,
     struct scsi_mode_header *data, size_t len, int flags, int timeout)
 {
 	struct scsi_mode_sense	*cmd;
@@ -1079,7 +1087,6 @@ scsi_mode_sense(struct scsi_link *link, int byte2, int pg_code,
 
 	cmd = (struct scsi_mode_sense *)xs->cmd;
 	cmd->opcode = MODE_SENSE;
-	cmd->byte2 = byte2;
 	cmd->page = pg_code;
 
 	if (len > 0xff)
@@ -1106,7 +1113,7 @@ scsi_mode_sense(struct scsi_link *link, int byte2, int pg_code,
 }
 
 int
-scsi_mode_sense_big(struct scsi_link *link, int byte2, int pg_code,
+scsi_mode_sense_big(struct scsi_link *link, int pg_code,
     struct scsi_mode_header_big *data, size_t len, int flags, int timeout)
 {
 	struct scsi_mode_sense_big	*cmd;
@@ -1133,7 +1140,6 @@ scsi_mode_sense_big(struct scsi_link *link, int byte2, int pg_code,
 
 	cmd = (struct scsi_mode_sense_big *)xs->cmd;
 	cmd->opcode = MODE_SENSE_BIG;
-	cmd->byte2 = byte2;
 	cmd->page = pg_code;
 
 	if (len > 0xffff)
@@ -1247,11 +1253,10 @@ scsi_parse_blkdesc(struct scsi_link *link, union scsi_mode_sense_buf *buf,
 
 int
 scsi_do_mode_sense(struct scsi_link *link, int pg_code,
-    union scsi_mode_sense_buf *buf, void **page_data, u_int32_t *density,
-    u_int64_t *block_count, u_int32_t *block_size, int pg_length, int flags,
-    int *big)
+    union scsi_mode_sense_buf *buf, void **page_data,
+    int pg_length, int flags, int *big)
 {
-	int			error;
+	int			error = 0;
 
 	*page_data = NULL;
 	*big = 0;
@@ -1267,37 +1272,33 @@ scsi_do_mode_sense(struct scsi_link *link, int pg_code,
 		 * data length to ensure that at least a header (3 additional
 		 * bytes) is returned.
 		 */
-		error = scsi_mode_sense(link, 0, pg_code, &buf->hdr,
+		error = scsi_mode_sense(link, pg_code, &buf->hdr,
 		    sizeof(*buf), flags, 20000);
 		if (error == 0) {
+			/*
+			 * Page data may be invalid (e.g. all zeros) but we
+			 * accept the device's word that this is the best it can
+			 * do. Some devices will freak out if their word is not
+			 * accepted and MODE_SENSE_BIG is attempted.
+			 */
 			*page_data = scsi_mode_sense_page(&buf->hdr, pg_code,
 			    pg_length);
-			if (*page_data == NULL) {
-				/*
-				 * XXX
-				 * Page data may be invalid (e.g. all zeros)
-				 * but we accept the device's word that this is
-				 * the best it can do. Some devices will freak
-				 * out if their word is not accepted and
-				 * MODE_SENSE_BIG is attempted.
-				 */
-				return (0);
-			}
-			goto blk_desc;
+			return 0;
 		}
 	}
 
 	/*
-	 * non-ATAPI, non-USB devices that don't support SCSI-2 commands are done.
+	 * non-ATAPI, non-USB devices that don't support SCSI-2 commands
+	 * (i.e. MODE SENSE (10)) are done.
 	 */
 	if ((link->flags & (SDEV_ATAPI | SDEV_UMASS)) == 0 &&
 	    SID_ANSII_REV(&link->inqdata) < SCSI_REV_2)
-		return (0);
+		return error;
 
 	/*
 	 * Try 10 byte mode sense request.
 	 */
-	error = scsi_mode_sense_big(link, 0, pg_code, &buf->hdr_big,
+	error = scsi_mode_sense_big(link, pg_code, &buf->hdr_big,
 	    sizeof(*buf), flags, 20000);
 	if (error != 0)
 		return (error);
@@ -1307,9 +1308,6 @@ scsi_do_mode_sense(struct scsi_link *link, int pg_code,
 	*big = 1;
 	*page_data = scsi_mode_sense_big_page(&buf->hdr_big, pg_code,
 	    pg_length);
-
-blk_desc:
-	scsi_parse_blkdesc(link, buf, *big, density, block_count, block_size);
 
 	return (0);
 }

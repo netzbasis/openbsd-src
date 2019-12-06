@@ -7,10 +7,10 @@
 /log.h/1.1/Fri Mar  1 08:02:25 2019//
 /parse.y/1.21/Sun Dec  1 14:37:34 2019//
 /printconf.c/1.16/Sun Dec  1 14:37:34 2019//
-/resolver.c/1.99/Wed Dec  4 21:02:25 2019//
+/resolver.c/1.100/Thu Dec  5 15:50:20 2019//
 /resolver.h/1.15/Mon Dec  2 06:26:52 2019//
 /unwind.8/1.7/Sun Nov 10 20:51:52 2019//
 /unwind.c/1.44/Tue Dec  3 16:16:25 2019//
-/unwind.conf.5/1.21/Sun Dec  1 18:19:52 2019//
+/unwind.conf.5/1.22/Thu Dec  5 15:07:37 2019//
 /unwind.h/1.44/Wed Dec  4 19:07:14 2019//
 D/libunbound////
