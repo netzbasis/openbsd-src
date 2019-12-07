@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.12 2019/11/27 04:32:09 benno Exp $ */
+/*	$OpenBSD: extern.h,v 1.23 2019/12/06 09:27:12 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -198,17 +198,38 @@ RB_HEAD(vrp_tree, vrp);
 RB_PROTOTYPE(vrp_tree, vrp, entry, vrpcmp);
 
 /*
+ * A single CRL
+ */
+struct crl {
+	RB_ENTRY(crl)	 entry;
+	char		*aki;
+	X509_CRL	*x509_crl;
+};
+/*
+ * Tree of CRLs sorted by uri
+ */
+RB_HEAD(crl_tree, crl);
+RB_PROTOTYPE(crl_tree, crl, entry, crlcmp);
+
+/*
  * An authentication tuple.
  * This specifies a public key and a subject key identifier used to
  * verify children nodes in the tree of entities.
  */
 struct auth {
+	RB_ENTRY(auth)	 entry;
 	struct cert	*cert; /* owner information */
-	size_t		 id; /* self-index */
-	size_t		 parent; /* index of parent pair (or self) */
+	struct auth	*parent; /* pointer to parent or NULL for TA cert */
 	char		*tal; /* basename of TAL for this cert */
 	char		*fn; /* FIXME: debugging */
 };
+/*
+ * Tree of auth sorted by ski
+ */
+RB_HEAD(auth_tree, auth);
+RB_PROTOTYPE(auth_tree, auth, entry, authcmp);
+
+struct auth *auth_find(struct auth_tree *, const char *);
 
 /*
  * Resource types specified by the RPKI profiles.
@@ -231,7 +252,7 @@ extern int verbose;
 void		 tal_buffer(char **, size_t *, size_t *, const struct tal *);
 void		 tal_free(struct tal *);
 struct tal	*tal_parse(const char *, char *);
-char 		*tal_read_file(const char *);
+char		*tal_read_file(const char *);
 struct tal	*tal_read(int);
 
 void		 cert_buffer(char **, size_t *, size_t *, const struct cert *);
@@ -249,15 +270,22 @@ void		 roa_buffer(char **, size_t *, size_t *, const struct roa *);
 void		 roa_free(struct roa *);
 struct roa	*roa_parse(X509 **, const char *, const unsigned char *);
 struct roa	*roa_read(int);
-void		 roa_insert_vrps(struct vrp_tree *, struct roa *, size_t *, size_t *);
+void		 roa_insert_vrps(struct vrp_tree *, struct roa *, size_t *,
+		    size_t *);
 
+/* crl.c */
 X509_CRL	*crl_parse(const char *, const unsigned char *);
+void		 free_crl(struct crl *);
 
 /* Validation of our objects. */
 
-ssize_t		 valid_cert(const char *, const struct auth *, size_t, const struct cert *);
-ssize_t		 valid_roa(const char *, const struct auth *, size_t, const struct roa *);
-ssize_t		 valid_ta(const char *, const struct auth *, size_t, const struct cert *);
+struct auth	*valid_ski_aki(const char *, struct auth_tree *,
+		    const char *, const char *);
+int		 valid_ta(const char *, struct auth_tree *,
+		    const struct cert *);
+int		 valid_cert(const char *, struct auth_tree *,
+		    const struct cert *);
+int		 valid_roa(const char *, struct auth_tree *, struct roa *);
 
 /* Working with CMS files. */
 
@@ -266,12 +294,16 @@ unsigned char	*cms_parse_validate(X509 **, const char *,
 
 /* Work with RFC 3779 IP addresses, prefixes, ranges. */
 
-int		 ip_addr_afi_parse(const char *, const ASN1_OCTET_STRING *, enum afi *);
+int		 ip_addr_afi_parse(const char *, const ASN1_OCTET_STRING *,
+			enum afi *);
 int		 ip_addr_parse(const ASN1_BIT_STRING *,
 			enum afi, const char *, struct ip_addr *);
-void		 ip_addr_print(const struct ip_addr *, enum afi, char *, size_t);
-void		 ip_addr_buffer(char **, size_t *, size_t *, const struct ip_addr *);
-void		 ip_addr_range_buffer(char **, size_t *, size_t *, const struct ip_addr_range *);
+void		 ip_addr_print(const struct ip_addr *, enum afi, char *,
+			size_t);
+void		 ip_addr_buffer(char **, size_t *, size_t *,
+			const struct ip_addr *);
+void		 ip_addr_range_buffer(char **, size_t *, size_t *,
+			const struct ip_addr_range *);
 void		 ip_addr_read(int, struct ip_addr *);
 void		 ip_addr_range_read(int, struct ip_addr_range *);
 int		 ip_addr_cmp(const struct ip_addr *, const struct ip_addr *);
@@ -308,10 +340,12 @@ void		 cryptoerrx(const char *, ...)
 
 void		 io_socket_blocking(int);
 void		 io_socket_nonblocking(int);
-void		 io_simple_buffer(char **, size_t *, size_t *, const void *, size_t);
+void		 io_simple_buffer(char **, size_t *, size_t *, const void *,
+			size_t);
 void		 io_simple_read(int, void *, size_t);
 void		 io_simple_write(int, const void *, size_t);
-void		 io_buf_buffer(char **, size_t *, size_t *, const void *, size_t);
+void		 io_buf_buffer(char **, size_t *, size_t *, const void *,
+			size_t);
 void		 io_buf_read_alloc(int, void **, size_t *);
 void		 io_buf_write(int, const void *, size_t);
 void		 io_str_buffer(char **, size_t *, size_t *, const char *);
@@ -323,12 +357,31 @@ void		 io_str_write(int, const char *);
 char		*x509_get_aki_ext(X509_EXTENSION *, const char *);
 char		*x509_get_ski_ext(X509_EXTENSION *, const char *);
 int		 x509_get_ski_aki(X509 *, const char *, char **, char **);
+char		*x509_get_crl(X509 *, const char *);
+char		*x509_crl_get_aki(X509_CRL *);
 
 /* Output! */
 
-void		 output_bgpd(FILE *, struct vrp_tree *);
-void		 output_bird(FILE *, struct vrp_tree *, const char *);
-void		 output_csv(FILE *, struct vrp_tree *);
-void		 output_json(FILE *, struct vrp_tree *);
+extern int	 outformats;
+#define FORMAT_OPENBGPD	0x01
+#define FORMAT_BIRD	0x02
+#define FORMAT_CSV	0x04
+#define FORMAT_JSON	0x08
+extern char*	 outputdir;
+
+int		 outputfiles(struct vrp_tree *v);
+FILE		*output_createtmp(char *);
+void		 output_cleantmp(void);
+void		 output_finish(FILE *);
+int		 output_bgpd(FILE *, struct vrp_tree *);
+int		 output_bird(FILE *, struct vrp_tree *);
+int		 output_csv(FILE *, struct vrp_tree *);
+int		 output_json(FILE *, struct vrp_tree *);
+
+void	logx(const char *fmt, ...)
+		    __attribute__((format(printf, 1, 2)));
+
+#define		RPKI_PATH_OUT_DIR	"/var/db/rpki-client"
+#define		RPKI_PATH_BASE_DIR	"/var/cache/rpki-client"
 
 #endif /* ! EXTERN_H */

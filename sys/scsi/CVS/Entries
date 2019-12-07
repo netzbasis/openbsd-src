@@ -1,6 +1,6 @@
-/cd.c/1.237/Mon Nov 25 17:48:31 2019//
-/cd.h/1.27/Fri Sep 27 23:07:42 2019//
-/ch.c/1.59/Sat Nov 23 17:10:13 2019//
+/cd.c/1.240/Fri Dec  6 15:13:07 2019//
+/cd.h/1.28/Fri Nov 29 14:06:21 2019//
+/ch.c/1.64/Fri Dec  6 16:57:24 2019//
 /files.scsi/1.25/Wed Apr 27 11:36:20 2011//
 /iscsi.h/1.9/Fri Sep 27 23:07:42 2019//
 /mpath.c/1.43/Fri Sep 27 17:22:31 2019//
@@ -12,19 +12,19 @@
 /safte.c/1.60/Sat Nov 23 01:16:05 2019//
 /safte.h/1.8/Fri Sep 27 23:07:42 2019//
 /scsi_all.h/1.61/Mon Nov 25 17:02:56 2019//
-/scsi_base.c/1.245/Tue Nov 26 20:48:03 2019//
-/scsi_changer.h/1.7/Fri Sep 27 23:07:42 2019//
+/scsi_base.c/1.260/Fri Dec  6 13:53:26 2019//
+/scsi_changer.h/1.8/Fri Nov 29 14:06:21 2019//
 /scsi_debug.h/1.21/Mon Sep 30 11:27:37 2019//
-/scsi_disk.h/1.39/Mon Nov 25 17:02:57 2019//
+/scsi_disk.h/1.40/Tue Dec  3 15:58:28 2019//
 /scsi_ioctl.c/1.62/Sat Nov 23 17:10:13 2019//
 /scsi_message.h/1.10/Fri Sep 27 23:07:42 2019//
 /scsi_tape.h/1.11/Fri Sep 27 23:07:42 2019//
 /scsiconf.c/1.221/Sat Nov 23 17:10:13 2019//
-/scsiconf.h/1.177/Mon Nov 25 17:02:57 2019//
-/sd.c/1.301/Tue Nov 26 20:51:20 2019//
+/scsiconf.h/1.181/Thu Dec  5 18:42:14 2019//
+/sd.c/1.305/Thu Dec  5 18:42:14 2019//
 /sdvar.h/1.45/Fri Nov  8 16:13:28 2019//
 /ses.c/1.59/Sat Nov 23 01:16:05 2019//
 /ses.h/1.10/Thu May 11 00:45:59 2006//
-/st.c/1.171/Tue Nov 26 20:48:03 2019//
-/uk.c/1.22/Sat Nov 23 17:10:13 2019//
+/st.c/1.172/Thu Dec  5 18:42:14 2019//
+/uk.c/1.23/Thu Dec  5 21:32:13 2019//
 D
