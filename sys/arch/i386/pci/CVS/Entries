@@ -29,7 +29,6 @@
 /pciide_gcsc_reg.h/1.2/Tue Nov 26 20:33:13 2013//
 /pciide_machdep.c/1.8/Mon Oct  5 20:37:45 2009//
 /piix.c/1.11/Tue Sep  1 06:01:24 2015//
-/piixpcib.c/1.12/Sun Apr 12 18:37:54 2015//
 /piixreg.h/1.4/Fri Mar 28 23:12:33 2003//
 /piixvar.h/1.6/Thu Jun 26 05:42:11 2008//
 /rccosb4.c/1.6/Tue Sep  1 06:01:24 2015//

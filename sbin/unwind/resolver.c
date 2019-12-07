@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.100 2019/12/05 15:50:20 otto Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.102 2019/12/06 19:39:14 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -76,6 +76,7 @@
  * best and still be picked
  */
 #define	PREF_RESOLVER_MEDIAN_SKEW	200		/* 200 ms */
+#define	NEXT_RES_MAX			2000		/* 2000 ms */
 
 #define	DOUBT_NXDOMAIN_SEC		(5 * 60)	/* 5 minutes */
 
@@ -789,8 +790,8 @@ try_next_resolver(struct running_query *rq)
 	clock_gettime(CLOCK_MONOTONIC, &query_imsg->tp);
 
 	ms = res->median;
-	if (ms == INT64_MAX)
-		ms = 2000;
+	if (ms > NEXT_RES_MAX)
+		ms = NEXT_RES_MAX;
 	if (res->type == resolver_conf->res_pref.types[0])
 		tv.tv_usec = 1000 * (PREF_RESOLVER_MEDIAN_SKEW + ms);
 	else
@@ -997,7 +998,9 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 
 	if (res->state == VALIDATING && sec == BOGUS) {
 		query_imsg->bogus = find_force(&resolver_conf->force,
-				    query_imsg->qname, NULL) == 0;
+		    query_imsg->qname, NULL) == 0;
+		if (query_imsg->bogus && why_bogus != NULL)
+			log_warnx("%s", why_bogus);
 	} else
 		query_imsg->bogus = 0;
 
@@ -1997,7 +2000,9 @@ histogram_median(int64_t *histogram)
 			break;
 	}
 
-	return histogram_limits[i];
+	if (i >= nitems(histogram_limits) - 1)
+		return INT64_MAX;
+	return (histogram_limits[i - 1] + histogram_limits[i]) / 2;
 }
 
 void
