@@ -262,8 +262,6 @@ uvm_pageout(void *arg)
 			size = 16; /* XXX */
 		uvm_unlock_pageq();
 		(void) bufbackoff(&constraint, size * 2);
-		extern void drmbackoff(long);
-		drmbackoff(size * 2);
 		uvm_lock_pageq();
 
 		/* Scan if needed to meet our targets. */
