@@ -7,7 +7,7 @@
 /apicvec.s/1.35/Mon Jun 18 23:15:05 2018//
 /apm.c/1.120/Sat Oct 12 15:56:17 2019//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
-/autoconf.c/1.105/Wed Feb  7 18:42:38 2018//
+/autoconf.c/1.106/Sun Dec  8 12:25:30 2019//
 /bios.c/1.124/Wed Oct 23 10:14:46 2019//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
@@ -34,8 +34,6 @@
 /ipifuncs.c/1.32/Fri Jan 18 01:34:50 2019//
 /k1x-pstate.c/1.12/Sat Mar 31 13:45:03 2018//
 /k6_mem.c/1.13/Mon Jul 30 14:19:12 2018//
-/kvm86.c/1.17/Wed Apr 11 15:44:08 2018//
-/kvm86call.S/1.13/Wed Apr 11 15:44:08 2018//
 /lapic.c/1.47/Mon Jul 30 14:19:12 2018//
 /locore.s/1.190/Mon Jul  9 19:20:29 2018//
 /locore0.S/1.4/Mon May 28 20:52:44 2018//
@@ -60,7 +58,7 @@
 /rbus_machdep.c/1.27/Wed Sep 22 02:28:37 2010//
 /softintr.c/1.7/Tue Sep  1 06:01:26 2015//
 /sys_machdep.c/1.40/Mon Jul  9 19:20:29 2018//
-/trap.c/1.141/Fri Sep  6 12:22:01 2019//
+/trap.c/1.142/Sun Dec  8 12:25:30 2019//
 /ucode.c/1.2/Fri Jun 28 21:54:05 2019//
 /vector.s/1.23/Mon Jun 18 23:15:05 2018//
 /via.c/1.45/Fri Jun  1 14:23:48 2018//

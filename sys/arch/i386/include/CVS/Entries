@@ -37,7 +37,6 @@
 /ioctl_fd.h/1.4/Wed Mar 23 16:54:35 2011//
 /joystick.h/1.6/Wed Mar 23 16:54:35 2011//
 /kcore.h/1.1/Sat Apr 30 15:33:18 2011//
-/kvm86.h/1.2/Wed Mar 23 16:54:35 2011//
 /limits.h/1.14/Thu Apr 30 13:42:08 2015//
 /loadfile_machdep.h/1.8/Wed Apr 10 04:17:35 2019//
 /lock.h/1.13/Mon May 29 14:19:49 2017//

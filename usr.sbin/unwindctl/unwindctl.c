@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwindctl.c,v 1.23 2019/12/06 12:59:48 otto Exp $	*/
+/*	$OpenBSD: unwindctl.c,v 1.25 2019/12/08 12:31:07 otto Exp $	*/
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -45,11 +45,12 @@
 
 __dead void	 usage(void);
 int		 show_status_msg(struct imsg *);
+int		 show_autoconf_msg(struct imsg *);
 void		 histogram_header(void);
 void		 print_histogram(const char *name, int64_t[], size_t);
 
 struct imsgbuf		*ibuf;
-int		 	 histogram_cnt;
+int		 	 info_cnt;
 struct ctl_resolver_info info[UW_RES_NONE];
 
 __dead void
@@ -65,14 +66,15 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	struct sockaddr_un	 sun;
-	struct parse_result	*res;
-	struct imsg		 imsg;
-	int			 ctl_sock;
-	int			 done = 0;
-	int			 i, n, verbose = 0;
-	int			 ch;
-	char			*sockname;
+	struct sockaddr_un		 sun;
+	struct parse_result		*res;
+	struct imsg			 imsg;
+	struct ctl_resolver_info	*cri;
+	int				 ctl_sock;
+	int				 done = 0;
+	int				 i, j, k, n, verbose = 0;
+	int				 ch, column_offset;
+	char				*sockname;
 
 	sockname = UNWIND_SOCKET;
 	while ((ch = getopt(argc, argv, "s:")) != -1) {
@@ -145,6 +147,9 @@ main(int argc, char *argv[])
 	case STATUS:
 		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, NULL, 0);
 		break;
+	case AUTOCONF:
+		imsg_compose(ibuf, IMSG_CTL_AUTOCONF, 0, 0, -1, NULL, 0);
+		break;
 	default:
 		usage();
 	}
@@ -169,6 +174,9 @@ main(int argc, char *argv[])
 			case STATUS:
 				done = show_status_msg(&imsg);
 				break;
+			case AUTOCONF:
+				done = show_autoconf_msg(&imsg);
+				break;
 			default:
 				break;
 			}
@@ -178,13 +186,40 @@ main(int argc, char *argv[])
 	close(ctl_sock);
 	free(ibuf);
 
-	if (histogram_cnt)
+	column_offset = info_cnt / 2;
+	if (info_cnt % 2 == 1)
+		column_offset++;
+
+	for (i = 0; i < column_offset; i++) {
+		for (j = 0; j < 2; j++) {
+			k = i + j * column_offset;
+			if (k >= info_cnt)
+				break;
+
+			cri = &info[k];
+			printf("%d. %-15s %10s, ", k + 1,
+			    uw_resolver_type_str[cri->type],
+			    uw_resolver_state_str[cri->state]);
+			if (cri->median == 0)
+				printf("%5s", "N/A");
+			else if (cri->median == INT64_MAX)
+				printf("%5s", "Inf");
+			else
+				printf("%3lldms", cri->median);
+			if (j == 0)
+				printf("   ");
+		}
+		printf("\n");
+	}
+
+	if (info_cnt)
 		histogram_header();
-	for (i = 0; i < histogram_cnt; i++) {
-		print_histogram(uw_resolver_type_short[info[i].type],
-		    info[i].histogram, nitems(info[i].histogram));
-		print_histogram("", info[i].latest_histogram,
-		    nitems(info[i].latest_histogram));
+	for (i = 0; i < info_cnt; i++) {
+		cri = &info[i];
+		print_histogram(uw_resolver_type_short[cri->type],
+		    cri->histogram, nitems(cri->histogram));
+		print_histogram("", cri->latest_histogram,
+		    nitems(cri->latest_histogram));
 	}
 	return (0);
 }
@@ -192,37 +227,39 @@ main(int argc, char *argv[])
 int
 show_status_msg(struct imsg *imsg)
 {
-	static int			 header, autoconf_forwarders, last_src;
+	static char			 fwd_line[80];
+
+	switch (imsg->hdr.type) {
+	case IMSG_CTL_RESOLVER_INFO:
+		memcpy(&info[info_cnt++], imsg->data, sizeof(info[0]));
+		break;
+	case IMSG_CTL_END:
+		if (fwd_line[0] != '\0')
+			printf("%s\n", fwd_line);
+		return (1);
+	default:
+		break;
+	}
+
+	return (0);
+}
+
+int
+show_autoconf_msg(struct imsg *imsg)
+{
+	static int			 autoconf_forwarders, last_src;
 	static int			 label_len, line_len;
 	static uint32_t			 last_if_index;
 	static char			 fwd_line[80];
-	struct ctl_resolver_info	*cri;
 	struct ctl_forwarder_info	*cfi;
 	char				 ifnamebuf[IFNAMSIZ];
 	char				*if_name;
 
-	if (!header++)
-		printf("preference:\n");
-
 	switch (imsg->hdr.type) {
-	case IMSG_CTL_RESOLVER_INFO:
-		cri = imsg->data;
-		printf("%-10s %s%s, median RTT: ",
-		    uw_resolver_type_str[cri->type],
-		    uw_resolver_state_str[cri->state],
-		    cri->oppdot ? " (opportunistic DoT)" : "");
-		if (cri->median == 0)
-			printf("N/A\n");
-		else if (cri->median == INT64_MAX)
-			printf("Inf\n");
-		else
-			printf("%lldms\n", cri->median);
-		memcpy(&info[histogram_cnt++], cri, sizeof(info[0]));
-		break;
 	case IMSG_CTL_AUTOCONF_RESOLVER_INFO:
 		cfi = imsg->data;
 		if (!autoconf_forwarders++)
-			printf("\nlearned forwarders:\n");
+			printf("autoconfiguration forwarders:\n");
 		if (cfi->if_index != last_if_index || cfi->src != last_src) {
 			if_name = if_indextoname(cfi->if_index, ifnamebuf);
 			if (fwd_line[0] != '\0') {
@@ -264,7 +301,7 @@ histogram_header(void)
 	size_t	 	 i;
 
 	printf("\n%*s%*s\n%*s", 5, "",
-	    (int)(72/2 + (sizeof(head)-1)/2), head, 5, "");
+	    (int)(72/2 + (sizeof(head)-1)/2), head, 6, "");
 	for(i = 0; i < nitems(histogram_limits) - 1; i++) {
 		snprintf(buf, sizeof(buf), "<%lld", histogram_limits[i]);
 		printf("%6s", buf);
@@ -277,7 +314,7 @@ print_histogram(const char *name, int64_t histogram[], size_t n)
 {
 	size_t	 i;
 
-	printf("%4s ", name);
+	printf("%5s ", name);
 	for(i = 0; i < n; i++)
 		printf("%6lld", histogram[i]);
 	printf("\n");
