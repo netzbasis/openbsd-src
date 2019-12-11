@@ -10,7 +10,7 @@
 /PROTOCOL.krl/1.5/Wed Sep 12 01:21:34 2018//
 /PROTOCOL.mux/1.11/Wed Sep 26 07:30:05 2018//
 /PROTOCOL.sshsig/1.2/Tue Sep  3 08:35:27 2019//
-/PROTOCOL.u2f/1.9/Thu Nov 28 05:20:54 2019//
+/PROTOCOL.u2f/1.12/Tue Dec 10 23:37:31 2019//
 /README/1.7/Sat Apr  1 05:37:46 2006//
 /addrmatch.c/1.14/Tue Jul 31 03:07:24 2018//
 /atomicio.c/1.30/Thu Jan 24 02:42:23 2019//
@@ -111,7 +111,7 @@
 /msg.c/1.17/Mon Jul  9 21:59:10 2018//
 /msg.h/1.5/Thu Jan 15 09:40:00 2015//
 /mux.c/1.80/Fri Jun 28 13:35:04 2019//
-/myproposal.h/1.61/Tue Nov 12 19:33:08 2019//
+/myproposal.h/1.62/Tue Dec 10 22:43:19 2019//
 /nchan.c/1.70/Fri Jun 28 13:35:04 2019//
 /nchan.ms/1.8/Fri Nov 21 11:57:03 2003//
 /nchan2.ms/1.4/Thu May 15 23:52:24 2008//
@@ -168,7 +168,7 @@
 /ssh-ed25519.c/1.7/Thu Apr 21 06:08:02 2016//
 /ssh-gss.h/1.14/Tue Jul 10 09:13:30 2018//
 /ssh-keygen.1/1.179/Sat Nov 30 07:07:59 2019//
-/ssh-keygen.c/1.373/Mon Nov 25 00:57:27 2019//
+/ssh-keygen.c/1.374/Tue Dec 10 22:37:20 2019//
 /ssh-keyscan.1/1.45/Sat Nov 30 07:07:59 2019//
 /ssh-keyscan.c/1.130/Fri Sep  6 05:23:55 2019//
 /ssh-keysign.8/1.16/Sat Nov 30 07:07:59 2019//

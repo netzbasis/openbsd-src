@@ -2,7 +2,7 @@
 /alerts.c/1.29/Thu Dec 28 12:10:50 2017//
 /arguments.c/1.27/Tue Jul  9 14:03:12 2019//
 /attributes.c/1.10/Tue Dec  3 10:47:22 2019//
-/cfg.c/1.75/Thu Jun 20 06:51:36 2019//
+/cfg.c/1.76/Tue Dec 10 14:22:15 2019//
 /client.c/1.131/Fri Jul 26 20:08:40 2019//
 /cmd-attach-session.c/1.79/Fri Nov 29 16:04:07 2019//
 /cmd-bind-key.c/1.34/Mon May 27 12:16:27 2019//
@@ -107,7 +107,7 @@
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
 /tmux.1/1.700/Thu Nov 28 09:45:16 2019//
 /tmux.c/1.190/Mon Oct 14 08:38:07 2019//
-/tmux.h/1.936/Thu Nov 28 09:56:25 2019//
+/tmux.h/1.937/Tue Dec 10 14:22:15 2019//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
 /tty-keys.c/1.116/Thu Nov 28 10:17:22 2019//
 /tty-term.c/1.69/Thu Nov 28 09:56:25 2019//
