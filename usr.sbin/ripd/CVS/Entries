@@ -4,7 +4,7 @@
 /control.c/1.26/Sun Nov  4 07:52:55 2018//
 /control.h/1.6/Sun Nov  4 07:52:55 2018//
 /interface.c/1.15/Fri Jun 28 13:32:50 2019//
-/kroute.c/1.33/Mon Dec 31 20:34:16 2018//
+/kroute.c/1.34/Wed Dec 11 21:04:59 2019//
 /log.c/1.7/Tue Mar 21 12:06:56 2017//
 /log.h/1.6/Fri Sep  2 14:07:52 2016//
 /logmsg.c/1.1/Fri Sep  2 14:07:52 2016//
@@ -22,6 +22,6 @@
 /ripd.c/1.33/Thu Aug  8 16:50:15 2019//
 /ripd.conf.5/1.18/Mon Dec 31 20:34:16 2018//
 /ripd.h/1.26/Mon Dec 31 20:34:16 2018//
-/ripe.c/1.24/Mon Dec  9 20:37:54 2019//
+/ripe.c/1.25/Wed Dec 11 21:04:59 2019//
 /ripe.h/1.12/Tue Jan 17 16:30:54 2017//
 D

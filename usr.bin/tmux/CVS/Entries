@@ -111,12 +111,12 @@
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
 /tty-keys.c/1.116/Thu Nov 28 10:17:22 2019//
 /tty-term.c/1.69/Thu Nov 28 09:56:25 2019//
-/tty.c/1.335/Thu Nov 28 09:56:25 2019//
+/tty.c/1.336/Wed Dec 11 12:13:37 2019//
 /utf8.c/1.44/Mon Nov 25 15:04:15 2019//
 /window-buffer.c/1.23/Tue Dec  3 10:47:23 2019//
 /window-client.c/1.25/Tue Dec  3 10:47:23 2019//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
-/window-copy.c/1.241/Mon Nov 25 22:38:36 2019//
+/window-copy.c/1.243/Wed Dec 11 18:30:29 2019//
 /window-tree.c/1.43/Tue Dec  3 10:47:23 2019//
 /window.c/1.245/Thu Nov 28 09:45:16 2019//
 /xmalloc.c/1.13/Thu Nov 28 09:51:58 2019//
