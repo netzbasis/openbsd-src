@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.102 2019/12/06 19:39:14 florian Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.110 2019/12/13 16:18:54 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -104,7 +104,6 @@ struct uw_resolver {
 	int			 stop;
 	enum uw_resolver_state	 state;
 	enum uw_resolver_type	 type;
-	int			 oppdot;
 	int			 check_running;
 	int64_t			 median;
 	int64_t			 histogram[nitems(histogram_limits)];
@@ -149,12 +148,8 @@ void			 resolve_done(struct uw_resolver *, void *, int, void *,
 void			 ub_resolve_done(void *, int, void *, int, int, char *,
 			     int);
 void			 asr_resolve_done(struct asr_result *, void *);
-void			 new_recursor(void);
-void			 new_forwarders(int);
-void			 new_asr_forwarders(void);
-void			 new_static_forwarders(int);
-void			 new_static_dot_forwarders(void);
-struct uw_resolver	*create_resolver(enum uw_resolver_type, int);
+void			 new_resolver(enum uw_resolver_type);
+struct uw_resolver	*create_resolver(enum uw_resolver_type);
 void			 set_unified_cache(struct uw_resolver *);
 void			 free_resolver(struct uw_resolver *);
 void			 set_forwarders(struct uw_resolver *,
@@ -172,8 +167,9 @@ void			 replace_forwarders(struct uw_forwarder_head *,
 void			 resolver_ref(struct uw_resolver *);
 void			 resolver_unref(struct uw_resolver *);
 int			 resolver_cmp(const void *, const void *);
-void			 restart_resolvers(void);
+void			 restart_ub_resolvers(void);
 void			 show_status(pid_t);
+void			 show_autoconf(pid_t);
 void			 send_resolver_info(struct uw_resolver *, pid_t);
 void			 send_detailed_resolver_info(struct uw_resolver *,
 			     pid_t);
@@ -189,12 +185,16 @@ int			 find_force(struct force_tree *, char *,
 			     struct uw_resolver **);
 int64_t			 histogram_median(int64_t *);
 void			 decay_latest_histograms(int, short, void *);
+int			 running_query_cnt(void);
+int			*resolvers_to_restart(struct uw_conf *,
+			     struct uw_conf *);
 
 struct uw_conf			*resolver_conf;
 struct imsgev			*iev_frontend;
 struct imsgev			*iev_main;
 struct uw_forwarder_head	 autoconf_forwarder_list;
 struct uw_resolver		*resolvers[UW_RES_NONE];
+int				 enabled_resolvers[UW_RES_NONE];
 struct timespec			 last_network_change;
 
 struct event			 trust_anchor_timer;
@@ -413,8 +413,6 @@ resolver(int debug, int verbose)
 
 	config_delete(ub_cfg);
 
-	new_recursor();
-
 	TAILQ_INIT(&autoconf_forwarder_list);
 	TAILQ_INIT(&trust_anchors);
 	TAILQ_INIT(&new_trust_anchors);
@@ -465,8 +463,7 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 	struct imsg			 imsg;
 	struct query_imsg		*query_imsg;
 	ssize_t				 n;
-	int				 shut = 0, verbose;
-	int				 update_resolvers, i;
+	int				 shut = 0, verbose, i;
 	char				*ta;
 
 	ibuf = &iev->ibuf;
@@ -497,11 +494,10 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 				    "%lu", __func__,
 				    IMSG_DATA_SIZE(imsg));
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			update_resolvers = (log_getverbose() & OPT_VERBOSE3)
-			    != (verbose & OPT_VERBOSE3);
+			if ((log_getverbose() & OPT_VERBOSE3)
+			    != (verbose & OPT_VERBOSE3))
+				restart_ub_resolvers();
 			log_setverbose(verbose);
-			if (update_resolvers)
-				restart_resolvers();
 			break;
 		case IMSG_QUERY:
 			if (IMSG_DATA_SIZE(imsg) != sizeof(*query_imsg))
@@ -521,6 +517,12 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 				    __func__, IMSG_DATA_SIZE(imsg));
 			show_status(imsg.hdr.pid);
 			break;
+		case IMSG_CTL_AUTOCONF:
+			if (IMSG_DATA_SIZE(imsg) != 0)
+				fatalx("%s: IMSG_CTL_AUTOCONF wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
+			show_autoconf(imsg.hdr.pid);
+			break;
 		case IMSG_NEW_TA:
 			/* make sure this is a string */
 			((char *)imsg.data)[IMSG_DATA_SIZE(imsg) - 1] = '\0';
@@ -531,13 +533,8 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 			free_tas(&new_trust_anchors);
 			break;
 		case IMSG_NEW_TAS_DONE:
-			if (merge_tas(&new_trust_anchors, &trust_anchors)) {
-				new_recursor();
-				new_forwarders(0);
-				new_asr_forwarders();
-				new_static_forwarders(0);
-				new_static_dot_forwarders();
-			}
+			if (merge_tas(&new_trust_anchors, &trust_anchors))
+				restart_ub_resolvers();
 			break;
 		case IMSG_NETWORK_CHANGED:
 			clock_gettime(CLOCK_MONOTONIC, &last_network_change);
@@ -584,8 +581,7 @@ resolver_dispatch_main(int fd, short event, void *bula)
 	struct imsgev		*iev = bula;
 	struct imsgbuf		*ibuf;
 	ssize_t			 n;
-	int			 shut = 0, forwarders_changed;
-	int			 dot_forwarders_changed;
+	int			 shut = 0, i, *restart;
 
 	ibuf = &iev->ibuf;
 
@@ -651,18 +647,16 @@ resolver_dispatch_main(int fd, short event, void *bula)
 			if (nconf == NULL)
 				fatalx("%s: IMSG_RECONF_END without "
 				    "IMSG_RECONF_CONF", __func__);
-			forwarders_changed = check_forwarders_changed(
-			    &resolver_conf->uw_forwarder_list,
-			    &nconf->uw_forwarder_list);
-			dot_forwarders_changed = check_forwarders_changed(
-			    &resolver_conf->uw_dot_forwarder_list,
-			    &nconf->uw_dot_forwarder_list);
+			restart = resolvers_to_restart(resolver_conf, nconf);
 			merge_config(resolver_conf, nconf);
+			memset(enabled_resolvers, 0, sizeof(enabled_resolvers));
+			for (i = 0; i < resolver_conf->res_pref.len; i++)
+				enabled_resolvers[
+				    resolver_conf->res_pref.types[i]] = 1;
 			nconf = NULL;
-			if (forwarders_changed)
-				new_static_forwarders(0);
-			if (dot_forwarders_changed)
-				new_static_dot_forwarders();
+			for (i = 0; i < UW_RES_NONE; i++)
+				if (restart[i])
+					new_resolver(i);
 			break;
 		default:
 			log_debug("%s: unexpected imsg %d", __func__,
@@ -760,9 +754,12 @@ try_next_resolver(struct running_query *rq)
 	struct timespec		 tp, elapsed;
 	struct timeval		 tv = {0, 0};
 	int64_t			 ms;
+	char			 qclass_buf[16];
+	char			 qtype_buf[16];
 
 	while(rq->next_resolver < rq->res_pref.len &&
-	    (res=resolvers[rq->res_pref.types[rq->next_resolver]]) == NULL)
+	    ((res = resolvers[rq->res_pref.types[rq->next_resolver]]) == NULL ||
+	    res->state == DEAD))
 		rq->next_resolver++;
 
 	if (res == NULL) {
@@ -777,10 +774,11 @@ try_next_resolver(struct running_query *rq)
 	timespecsub(&tp, &rq->tp, &elapsed);
 	ms = elapsed.tv_sec * 1000 + elapsed.tv_nsec / 1000000;
 
+	sldns_wire2str_class_buf(rq->query_imsg->c, qclass_buf, sizeof(qclass_buf));
+	sldns_wire2str_type_buf(rq->query_imsg->t, qtype_buf, sizeof(qtype_buf));
 	log_debug("%s[+%lldms]: %s[%s] %s %s %s", __func__, ms,
 	    uw_resolver_type_str[res->type], uw_resolver_state_str[res->state],
-	    rq->query_imsg->qname, sldns_wire2str_class(rq->query_imsg->c),
-	    sldns_wire2str_type(rq->query_imsg->t));
+	    rq->query_imsg->qname, qclass_buf, qtype_buf);
 
 	if ((query_imsg = malloc(sizeof(*query_imsg))) == NULL) {
 		log_warnx("%s", __func__);
@@ -805,8 +803,10 @@ try_next_resolver(struct running_query *rq)
 
 	rq->running++;
 	if (resolve(res, query_imsg->qname, query_imsg->t,
-	    query_imsg->c, query_imsg, resolve_done) != 0)
+	    query_imsg->c, query_imsg, resolve_done) != 0) {
+		rq->running--;
 		goto err;
+	}
 
 	return 0;
 
@@ -851,7 +851,9 @@ resolve(struct uw_resolver *res, const char* name, int rrtype, int rrclass,
 		break;
 	case UW_RES_RECURSOR:
 	case UW_RES_DHCP:
+	case UW_RES_ODOT_DHCP:
 	case UW_RES_FORWARDER:
+	case UW_RES_ODOT_FORWARDER:
 	case UW_RES_DOT:
 		if ((err = ub_resolve_event(res->ctx, name,  rrtype, rrclass,
 		    cb_data, ub_resolve_done, NULL)) != 0) {
@@ -877,6 +879,7 @@ void
 resolve_done(struct uw_resolver *res, void *arg, int rcode,
     void *answer_packet, int answer_len, int sec, char *why_bogus)
 {
+	struct uw_resolver	*tmp_res;
 	struct ub_result	*result = NULL;
 	sldns_buffer		*buf = NULL;
 	struct regional		*region = NULL;
@@ -885,9 +888,11 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	struct timespec		 tp, elapsed;
 	int64_t			 ms;
 	size_t			 i;
-	int			 asr_pref_pos = -1;
+	int			 r, asr_pref_pos = -1, force_acceptbogus = 0;
 	char			*str;
 	char			 rcode_buf[16];
+	char			 qclass_buf[16];
+	char			 qtype_buf[16];
 
 	clock_gettime(CLOCK_MONOTONIC, &tp);
 
@@ -940,20 +945,28 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	result->answer_len = 0;
 
 	sldns_wire2str_rcode_buf(result->rcode, rcode_buf, sizeof(rcode_buf));
-	log_debug("%s[%s]: %s %s %s rcode: %s[%d], elapsed: %lldms", __func__,
-	    uw_resolver_type_str[res->type], query_imsg->qname,
-	    sldns_wire2str_class(query_imsg->c),
-	    sldns_wire2str_type(query_imsg->t), rcode_buf, result->rcode, ms);
+	sldns_wire2str_class_buf(query_imsg->c, qclass_buf, sizeof(qclass_buf));
+	sldns_wire2str_type_buf(query_imsg->t, qtype_buf, sizeof(qtype_buf));
+	log_debug("%s[%s]: %s %s %s rcode: %s[%d], elapsed: %lldms, running: %d",
+	    __func__, uw_resolver_type_str[res->type], query_imsg->qname,
+	    qclass_buf, qtype_buf, rcode_buf, result->rcode, ms,
+	    running_query_cnt());
 
-	if (result->rcode == LDNS_RCODE_NXDOMAIN && res->type != UW_RES_ASR) {
+	force_acceptbogus = find_force(&resolver_conf->force, query_imsg->qname,
+	    &tmp_res);
+	if (tmp_res != NULL && tmp_res->type != res->type)
+		force_acceptbogus = 0;
+
+	if ((result->rcode == LDNS_RCODE_NXDOMAIN || sec == BOGUS) &&
+	    !force_acceptbogus && res->type != UW_RES_ASR) {
 		timespecsub(&tp, &last_network_change, &elapsed);
 		if (elapsed.tv_sec < DOUBT_NXDOMAIN_SEC) {
 			/*
-			 * Doubt NXDOMAIN if we just switched networks,
-			 * we might be behind a captive portal.
+			 * Doubt NXDOMAIN or BOGUS if we just switched
+			 * networks, we might be behind a captive portal.
 			 */
-			log_debug("%s: doubt NXDOMAIN from %s, network change "
-			    "%llds ago", __func__,
+			log_debug("%s: doubt NXDOMAIN or BOGUS from %s, "
+			    "network change %llds ago", __func__,
 			    uw_resolver_type_str[res->type], elapsed.tv_sec);
 			if (rq) {
 				/* search for ASR */
@@ -964,22 +977,20 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 						break;
 					}
 
-				if (asr_pref_pos != -1) {
+				if (asr_pref_pos != -1 &&
+				    resolvers[UW_RES_ASR] != NULL) {
 					/* go to ASR if not yet scheduled */
-					if (asr_pref_pos >= rq->next_resolver &&
-					    resolvers[UW_RES_ASR] != NULL) {
+					if (asr_pref_pos >= rq->next_resolver) {
 						rq->next_resolver =
 						    asr_pref_pos;
 						goto retry;
 					} else
 						goto out;
 				}
-				log_debug("%s: answering NXDOMAIN, couldn't "
-				    "find working ASR", __func__);
+				log_debug("%s: using NXDOMAIN or BOGUS, "
+				    "couldn't find working ASR", __func__);
 			}
-		} else
-			log_debug("%s: answering NXDOMAIN, network change "
-			    "%llds ago", __func__, elapsed.tv_sec);
+		}
 	}
 
 	if (log_getverbose() & OPT_VERBOSE2 && (str =
@@ -997,8 +1008,7 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 		res->state = VALIDATING;
 
 	if (res->state == VALIDATING && sec == BOGUS) {
-		query_imsg->bogus = find_force(&resolver_conf->force,
-		    query_imsg->qname, NULL) == 0;
+		query_imsg->bogus = !force_acceptbogus;
 		if (query_imsg->bogus && why_bogus != NULL)
 			log_warnx("%s", why_bogus);
 	} else
@@ -1019,17 +1029,13 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 		free(rq);
 	}
 
-	free(query_imsg);
-	sldns_buffer_free(buf);
-	regional_destroy(region);
-	ub_resolve_free(result);
-
-	return;
+	goto out;
 
  servfail:
 	if (rq) {
-		rq->running--;
-		if (try_next_resolver(rq) != 0 && rq->running == 0) {
+		/* try_next_resolver() might free rq */
+		r = --rq->running;
+		if (try_next_resolver(rq) != 0 && r == 0) {
 			/* we are the last one, send SERVFAIL */
 			query_imsg->err = -4; /* UB_SERVFAIL */
 			resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0,
@@ -1050,92 +1056,55 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 }
 
 void
-new_recursor(void)
+new_resolver(enum uw_resolver_type type)
 {
-	free_resolver(resolvers[UW_RES_RECURSOR]);
-	resolvers[UW_RES_RECURSOR] = NULL;
+	free_resolver(resolvers[type]);
+	resolvers[type] = NULL;
 
-	if (TAILQ_EMPTY(&trust_anchors))
+	if (!enabled_resolvers[type])
 		return;
 
-	resolvers[UW_RES_RECURSOR] = create_resolver(UW_RES_RECURSOR, 0);
-	set_unified_cache(resolvers[UW_RES_RECURSOR]);
+	switch (type) {
+	case UW_RES_ASR:
+	case UW_RES_DHCP:
+	case UW_RES_ODOT_DHCP:
+		if (TAILQ_EMPTY(&autoconf_forwarder_list))
+			return;
+		break;
+	case UW_RES_RECURSOR:
+	case UW_RES_FORWARDER:
+	case UW_RES_ODOT_FORWARDER:
+	case UW_RES_DOT:
+		break;
+	case UW_RES_NONE:
+		fatalx("cannot create UW_RES_NONE resolver");
+	}
 
-	check_resolver(resolvers[UW_RES_RECURSOR]);
-}
+	switch (type) {
+	case UW_RES_RECURSOR:
+	case UW_RES_DHCP:
+	case UW_RES_ODOT_DHCP:
+	case UW_RES_FORWARDER:
+	case UW_RES_ODOT_FORWARDER:
+	case UW_RES_DOT:
+		if (TAILQ_EMPTY(&trust_anchors))
+			return;
+		break;
+	case UW_RES_ASR:
+		break;
+	case UW_RES_NONE:
+		fatalx("cannot create UW_RES_NONE resolver");
+	}
 
-void
-new_forwarders(int oppdot)
-{
-	free_resolver(resolvers[UW_RES_DHCP]);
-	resolvers[UW_RES_DHCP] = NULL;
-
-	if (TAILQ_EMPTY(&autoconf_forwarder_list))
-		return;
-
-	if (TAILQ_EMPTY(&trust_anchors))
-		return;
-
-	resolvers[UW_RES_DHCP] = create_resolver(UW_RES_DHCP, oppdot);
-	set_unified_cache(resolvers[UW_RES_DHCP]);
-
-	check_resolver(resolvers[UW_RES_DHCP]);
-}
-
-void
-new_asr_forwarders(void)
-{
-	free_resolver(resolvers[UW_RES_ASR]);
-	resolvers[UW_RES_ASR] = NULL;
-
-	if (TAILQ_EMPTY(&autoconf_forwarder_list))
-		return;
-
-	resolvers[UW_RES_ASR] = create_resolver(UW_RES_ASR, 0);
-
-	check_resolver(resolvers[UW_RES_ASR]);
-}
-
-void
-new_static_forwarders(int oppdot)
-{
-	free_resolver(resolvers[UW_RES_FORWARDER]);
-	resolvers[UW_RES_FORWARDER] = NULL;
-
-	if (TAILQ_EMPTY(&resolver_conf->uw_forwarder_list))
-		return;
-
-	if (TAILQ_EMPTY(&trust_anchors))
-		return;
-
-	resolvers[UW_RES_FORWARDER] = create_resolver(UW_RES_FORWARDER, oppdot);
-	set_unified_cache(resolvers[UW_RES_FORWARDER]);
-
-	check_resolver(resolvers[UW_RES_FORWARDER]);
-}
-
-void
-new_static_dot_forwarders(void)
-{
-	free_resolver(resolvers[UW_RES_DOT]);
-	resolvers[UW_RES_DOT] = NULL;
-
-	if (TAILQ_EMPTY(&resolver_conf->uw_dot_forwarder_list))
-		return;
-
-	if (TAILQ_EMPTY(&trust_anchors))
-		return;
-
-	resolvers[UW_RES_DOT] = create_resolver(UW_RES_DOT, 0);
-	set_unified_cache(resolvers[UW_RES_DOT]);
-
-	check_resolver(resolvers[UW_RES_DOT]);
+	resolvers[type] = create_resolver(type);
+	set_unified_cache(resolvers[type]);
+	check_resolver(resolvers[type]);
 }
 
 void
 set_unified_cache(struct uw_resolver *res)
 {
-	if (res == NULL)
+	if (res == NULL || res->ctx == NULL)
 		return;
 
 	res->ctx->env->msg_cache = unified_msg_cache;
@@ -1149,11 +1118,12 @@ static const struct {
 	const char *value;
 } options[] = {
 	{ "aggressive-nsec:", "yes" },
-	{ "fast-server-permil:", "950" }
+	{ "fast-server-permil:", "950" },
+	{ "edns-buffer-size:", "1232" }
 };
 
 struct uw_resolver *
-create_resolver(enum uw_resolver_type type, int oppdot)
+create_resolver(enum uw_resolver_type type)
 {
 	struct uw_resolver	*res;
 	struct trust_anchor	*ta;
@@ -1201,7 +1171,9 @@ create_resolver(enum uw_resolver_type type, int oppdot)
 		break;
 	case UW_RES_RECURSOR:
 	case UW_RES_DHCP:
+	case UW_RES_ODOT_DHCP:
 	case UW_RES_FORWARDER:
+	case UW_RES_ODOT_FORWARDER:
 	case UW_RES_DOT:
 		if ((res->ctx = ub_ctx_create_event(ev_base)) == NULL) {
 			free(res);
@@ -1259,26 +1231,22 @@ create_resolver(enum uw_resolver_type type, int oppdot)
 	case UW_RES_RECURSOR:
 		break;
 	case UW_RES_DHCP:
-		res->oppdot = oppdot;
-		if (oppdot) {
-			set_forwarders(res, &autoconf_forwarder_list, 853);
-			ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
-			    TLS_DEFAULT_CA_CERT_FILE);
-			ub_ctx_set_tls(res->ctx, 1);
-		} else
-			set_forwarders(res, &autoconf_forwarder_list, 0);
+		set_forwarders(res, &autoconf_forwarder_list, 0);
+		break;
+	case UW_RES_ODOT_DHCP:
+		set_forwarders(res, &autoconf_forwarder_list, 853);
+		ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
+		    TLS_DEFAULT_CA_CERT_FILE);
+		ub_ctx_set_tls(res->ctx, 1);
 		break;
 	case UW_RES_FORWARDER:
-		res->oppdot = oppdot;
-		if (oppdot) {
-			set_forwarders(res, &resolver_conf->uw_forwarder_list,
-			    853);
-			ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
-			    TLS_DEFAULT_CA_CERT_FILE);
-			ub_ctx_set_tls(res->ctx, 1);
-		} else
-			set_forwarders(res, &resolver_conf->uw_forwarder_list,
-			    0);
+		set_forwarders(res, &resolver_conf->uw_forwarder_list, 0);
+		break;
+	case UW_RES_ODOT_FORWARDER:
+		set_forwarders(res, &resolver_conf->uw_forwarder_list, 853);
+		ub_ctx_set_option(res->ctx, "tls-cert-bundle:",
+		    TLS_DEFAULT_CA_CERT_FILE);
+		ub_ctx_set_tls(res->ctx, 1);
 		break;
 	case UW_RES_DOT:
 		set_forwarders(res, &resolver_conf->uw_dot_forwarder_list, 0);
@@ -1294,7 +1262,9 @@ create_resolver(enum uw_resolver_type type, int oppdot)
 	/* for the forwarder cases allow AS112 zones */
 	switch(res->type) {
 	case UW_RES_DHCP:
+	case UW_RES_ODOT_DHCP:
 	case UW_RES_FORWARDER:
+	case UW_RES_ODOT_FORWARDER:
 	case UW_RES_DOT:
 		for (i = 0; i < nitems(as112_zones); i++) {
 			if((err = ub_ctx_set_option(res->ctx, "local-zone:",
@@ -1386,40 +1356,23 @@ check_resolver(struct uw_resolver *resolver_to_check)
 	if (resolver_to_check->check_running)
 		return;
 
-	if ((res = create_resolver(resolver_to_check->type, 0)) == NULL)
+	if ((res = create_resolver(resolver_to_check->type)) == NULL)
 		return;
 
 	resolver_ref(resolver_to_check);
 
+	resolver_to_check->check_running++;
 	if (resolve(res, ".", LDNS_RR_TYPE_NS, LDNS_RR_CLASS_IN,
 	    resolver_to_check, check_resolver_done) != 0) {
+		resolver_to_check->check_running--;
 		resolver_to_check->state = UNKNOWN;
 		resolver_unref(resolver_to_check);
 		resolver_to_check->check_tv.tv_sec = RESOLVER_CHECK_SEC;
 		evtimer_add(&resolver_to_check->check_ev,
 		    &resolver_to_check->check_tv);
-	} else
-		resolver_to_check->check_running++;
+	}
 
-	if (!(resolver_to_check->type == UW_RES_DHCP ||
-	    resolver_to_check->type == UW_RES_FORWARDER))
-		return;
 
-	if ((res = create_resolver(resolver_to_check->type, 1)) == NULL)
-		return;
-
-	resolver_ref(resolver_to_check);
-
-	if (resolve(res, ".", LDNS_RR_TYPE_NS, LDNS_RR_CLASS_IN,
-	    resolver_to_check, check_resolver_done) != 0) {
-		/* do not overwrite normal DNS state, it might work */
-		resolver_unref(resolver_to_check);
-
-		resolver_to_check->check_tv.tv_sec = RESOLVER_CHECK_SEC;
-		evtimer_add(&resolver_to_check->check_ev,
-		    &resolver_to_check->check_tv);
-	} else
-		resolver_to_check->check_running++;
 }
 
 void
@@ -1443,41 +1396,11 @@ check_resolver_done(struct uw_resolver *res, void *arg, int rcode,
 	}
 
 	if (rcode == LDNS_RCODE_SERVFAIL) {
-		log_debug("%s: %s%s rcode: SERVFAIL", __func__,
-		    uw_resolver_type_str[checked_resolver->type], res->oppdot ?
-		    " (OppDot)" : "");
+		log_debug("%s: %s rcode: SERVFAIL", __func__,
+		    uw_resolver_type_str[checked_resolver->type]);
 
-		if (res->oppdot == checked_resolver->oppdot) {
-			checked_resolver->state = DEAD;
-			if (checked_resolver->oppdot) {
-				/* downgrade from opportunistic DoT */
-				switch (checked_resolver->type) {
-				case UW_RES_DHCP:
-					new_forwarders(0);
-					break;
-				case UW_RES_FORWARDER:
-					new_static_forwarders(0);
-					break;
-				default:
-					break;
-				}
-			}
-		}
+		checked_resolver->state = DEAD;
 		goto out;
-	}
-
-	if (res->oppdot && !checked_resolver->oppdot) {
-		/* upgrade to opportunistic DoT */
-		switch (checked_resolver->type) {
-		case UW_RES_DHCP:
-			new_forwarders(1);
-			break;
-		case UW_RES_FORWARDER:
-			new_static_forwarders(1);
-			break;
-		default:
-			break;
-		}
 	}
 
 	if (sec == SECURE) {
@@ -1498,9 +1421,9 @@ check_resolver_done(struct uw_resolver *res, void *arg, int rcode,
 	} else
 		checked_resolver->state = DEAD; /* we know the root exists */
 
-	log_debug("%s: %s%s: %s", __func__,
-	    uw_resolver_type_str[checked_resolver->type], res->oppdot ?
-	    " (OppDot)" : "", uw_resolver_state_str[checked_resolver->state]);
+	log_debug("%s: %s: %s", __func__,
+	    uw_resolver_type_str[checked_resolver->type],
+	    uw_resolver_state_str[checked_resolver->state]);
 
 	if (log_getverbose() & OPT_VERBOSE2 && (str =
 	    sldns_wire2str_pkt(answer_packet, answer_len)) != NULL) {
@@ -1676,20 +1599,18 @@ resolver_cmp(const void *_a, const void *_b)
 }
 
 void
-restart_resolvers(void)
+restart_ub_resolvers(void)
 {
-	new_recursor();
-	new_static_forwarders(0);
-	new_static_dot_forwarders();
-	new_forwarders(0);
-	new_asr_forwarders();
+	int	 i;
+
+	for (i = 0; i < UW_RES_NONE; i++)
+		if (i != UW_RES_ASR)
+			new_resolver(i);
 }
 
 void
 show_status(pid_t pid)
 {
-	struct uw_forwarder		*uw_forwarder;
-	struct ctl_forwarder_info	 cfi;
 	struct resolver_preference	 res_pref;
 	int				 i;
 
@@ -1698,6 +1619,15 @@ show_status(pid_t pid)
 
 	for (i = 0; i < resolver_conf->res_pref.len; i++)
 		send_resolver_info(resolvers[res_pref.types[i]], pid);
+
+	resolver_imsg_compose_frontend(IMSG_CTL_END, pid, NULL, 0);
+}
+
+void
+show_autoconf(pid_t pid)
+{
+	struct uw_forwarder		*uw_forwarder;
+	struct ctl_forwarder_info	 cfi;
 
 	TAILQ_FOREACH(uw_forwarder, &autoconf_forwarder_list, entry) {
 		memset(&cfi, 0, sizeof(cfi));
@@ -1724,7 +1654,6 @@ send_resolver_info(struct uw_resolver *res, pid_t pid)
 
 	cri.state = res->state;
 	cri.type = res->type;
-	cri.oppdot = res->oppdot;
 	cri.median = res->median;
 
 	memcpy(cri.histogram, res->histogram, sizeof(cri.histogram));
@@ -1932,8 +1861,9 @@ replace_autoconf_forwarders(struct imsg_rdns_proposal *rdns_proposal)
 	if (changed) {
 		replace_forwarders(&new_forwarder_list,
 		    &autoconf_forwarder_list);
-		new_forwarders(0);
-		new_asr_forwarders();
+		new_resolver(UW_RES_ASR);
+		new_resolver(UW_RES_DHCP);
+		new_resolver(UW_RES_ODOT_DHCP);
 	} else {
 		while ((tmp = TAILQ_FIRST(&new_forwarder_list)) != NULL) {
 			TAILQ_REMOVE(&new_forwarder_list, tmp, entry);
@@ -2024,4 +1954,48 @@ decay_latest_histograms(int fd, short events, void *arg)
 		res->median = histogram_median(res->latest_histogram);
 	}
 	evtimer_add(&decay_timer, &tv);
+}
+
+int
+running_query_cnt(void)
+{
+	struct running_query	*e;
+	int			 cnt = 0;
+
+	TAILQ_FOREACH(e, &running_queries, entry)
+		cnt++;
+	return cnt;
+}
+
+int *
+resolvers_to_restart(struct uw_conf *oconf, struct uw_conf *nconf)
+{
+	static int	 restart[UW_RES_NONE];
+	int		 o_enabled[UW_RES_NONE];
+	int		 n_enabled[UW_RES_NONE];
+	int		 i;
+
+	memset(&restart, 0, sizeof(restart));
+	if (check_forwarders_changed(&oconf->uw_forwarder_list,
+	    &nconf->uw_forwarder_list)) {
+		restart[UW_RES_FORWARDER] = 1;
+		restart[UW_RES_ODOT_FORWARDER] = 1;
+	}
+	if (check_forwarders_changed(&oconf->uw_dot_forwarder_list,
+	    &nconf->uw_dot_forwarder_list)) {
+		restart[UW_RES_DOT] = 1;
+	}
+	memset(o_enabled, 0, sizeof(o_enabled));
+	memset(n_enabled, 0, sizeof(n_enabled));
+	for (i = 0; i < oconf->res_pref.len; i++)
+		o_enabled[oconf->res_pref.types[i]] = 1;
+
+	for (i = 0; i < nconf->res_pref.len; i++)
+		n_enabled[nconf->res_pref.types[i]] = 1;
+
+	for (i = 0; i < UW_RES_NONE; i++) {
+		if (n_enabled[i] != o_enabled[i])
+			restart[i] = 1;
+	}
+	return restart;
 }

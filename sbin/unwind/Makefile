@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.5 2019/11/27 17:09:12 florian Exp $
+#	$OpenBSD: Makefile,v 1.7 2019/12/13 14:38:25 otto Exp $
 
 PROG=	unwind
 SRCS=	control.c resolver.c frontend.c log.c unwind.c parse.y printconf.c

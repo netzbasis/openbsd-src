@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.256 2019/12/04 08:28:29 mlarkin Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.259 2019/12/12 11:12:36 mpi Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -230,7 +230,6 @@ void			 vmspace_validate(struct vm_map*);
 #define PMAP_PREFER(addr, off)	(addr)
 #endif
 
-
 /*
  * The kernel map will initially be VM_MAP_KSIZE_INIT bytes.
  * Every time that gets cramped, we grow by at least VM_MAP_KSIZE_DELTA bytes.
@@ -334,6 +333,14 @@ vaddr_t uvm_maxkaddr;
 				MUTEX_ASSERT_LOCKED(&(_map)->mtx);	\
 		}							\
 	} while (0)
+
+#define	vm_map_modflags(map, set, clear)				\
+	do {								\
+		mtx_enter(&(map)->flags_lock);				\
+		(map)->flags = ((map)->flags | (set)) & ~(clear);	\
+		mtx_leave(&(map)->flags_lock);				\
+	} while (0)
+
 
 /*
  * Tree describing entries by address.
@@ -1807,17 +1814,19 @@ uvm_map_inentry_sp(vm_map_entry_t entry)
 }
 
 /*
- * If a syscall comes from a writeable entry, W^X is violated.
+ * The system call must not come from a writeable entry, W^X is violated.
  * (Would be nice if we can spot aliasing, which is also kind of bad)
- * Ensure system call comes from libc or ld.so's text segment.
+ *
+ * The system call must come from an syscall-labeled entry (which are
+ * the text regions of the main program, sigtramp, ld.so, or libc).
  */
 int
 uvm_map_inentry_pc(vm_map_entry_t entry)
 {
 	if (entry->protection & PROT_WRITE)
 		return (0);	/* not permitted */
-//	if ((entry->etype & UVM_ET_SYSCALL) == 0)
-//		return (0);	/* not permitted */
+	if ((entry->etype & UVM_ET_SYSCALL) == 0)
+		return (0);	/* not permitted */
 	return (1);
 }
 

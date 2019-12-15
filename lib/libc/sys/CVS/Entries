@@ -69,7 +69,7 @@
 /mknod.2/1.21/Thu Sep 10 17:55:21 2015//
 /mlock.2/1.20/Fri Jan 11 18:46:30 2019//
 /mlockall.2/1.10/Fri Jan 11 18:46:30 2019//
-/mmap.2/1.63/Fri Dec  6 19:15:16 2019//
+/mmap.2/1.64/Tue Dec 10 00:39:52 2019//
 /mmap.c/1.16/Fri Sep 11 13:26:20 2015//
 /mount.2/1.49/Mon Jul  8 18:48:30 2019//
 /mprotect.2/1.24/Fri Jan 11 18:46:30 2019//
@@ -79,7 +79,7 @@
 /msgget.2/1.14/Thu Jul 18 13:32:40 2019//
 /msgrcv.2/1.18/Thu Jul 18 13:45:03 2019//
 /msgsnd.2/1.21/Thu Jul 18 13:45:03 2019//
-/msync.2/1.26/Fri Jan 11 18:46:30 2019//
+/msync.2/1.27/Tue Dec 10 00:49:26 2019//
 /msyscall.2/1.2/Wed Nov 27 20:53:05 2019//
 /munmap.2/1.18/Fri Jan 11 18:46:30 2019//
 /nanosleep.2/1.16/Mon Dec 31 18:54:00 2018//
@@ -141,7 +141,7 @@
 /sync.2/1.16/Sat Jan  9 21:27:28 2016//
 /sysarch.2/1.11/Thu Sep 10 17:55:21 2015//
 /syscall.2/1.13/Mon May 30 06:48:21 2016//
-/sysctl.2/1.34/Thu Dec  5 18:42:31 2019//
+/sysctl.2/1.36/Sun Dec  8 14:10:15 2019//
 /thrkill.2/1.2/Sat Mar 19 21:56:12 2016//
 /timer_create.c/1.7/Sat Sep 12 13:13:34 2015//
 /timer_delete.c/1.6/Sat Sep 12 13:13:34 2015//
