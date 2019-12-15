@@ -23,11 +23,11 @@
 /amdpm.c/1.33/Sat Apr 28 15:44:59 2018//
 /ami_pci.c/1.43/Tue Oct 28 11:43:10 2008//
 /arc.c/1.107/Thu Sep 10 18:10:33 2015//
-/auacer.c/1.21/Mon Dec 12 06:43:01 2016//
+/auacer.c/1.22/Sat Dec 14 12:35:19 2019//
 /auacerreg.h/1.1/Thu Aug 28 10:21:23 2008//
-/auglx.c/1.16/Tue Dec 20 15:45:29 2016//
+/auglx.c/1.17/Sat Dec 14 12:37:05 2019//
 /auich.c/1.112/Thu Aug 22 09:47:29 2019//
-/auixp.c/1.40/Mon Sep  3 05:37:32 2018//
+/auixp.c/1.41/Sat Dec 14 12:46:47 2019//
 /auixpreg.h/1.1/Sun Aug  7 20:08:45 2005//
 /auixpvar.h/1.4/Mon Sep 19 06:46:44 2016//
 /autri.c/1.43/Wed Dec  4 20:21:35 2019//
@@ -59,7 +59,7 @@
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
 /dpt_pci.c/1.9/Fri Dec 19 22:44:58 2014//
 /dwiic_pci.c/1.9/Wed Jul 31 16:04:16 2019//
-/eap.c/1.56/Fri Sep 14 08:37:34 2018//
+/eap.c/1.57/Sat Dec 14 12:48:32 2019//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.31/Thu May  2 20:28:46 2019//
 /emuxki.c/1.53/Thu Sep 13 04:07:20 2018//
@@ -71,7 +71,7 @@
 /esa.c/1.35/Fri Sep 14 08:37:34 2018//
 /esareg.h/1.2/Thu Oct 18 21:44:21 2012//
 /esavar.h/1.2/Tue Sep  7 16:21:44 2010//
-/eso.c/1.44/Wed Apr 11 04:37:19 2018//
+/eso.c/1.45/Sat Dec 14 12:49:50 2019//
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.6/Tue Sep 21 20:11:44 2010//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//

@@ -29,7 +29,7 @@
 /acpiutil.c/1.8/Sat Mar 14 03:38:47 2015//
 /acpivar.h/1.105/Sat Sep  7 13:46:20 2019//
 /acpivideo.c/1.11/Fri Jun 30 06:25:29 2017//
-/acpivout.c/1.15/Fri Dec 13 12:39:08 2019//
+/acpivout.c/1.16/Sat Dec 14 10:57:48 2019//
 /ahci_acpi.c/1.2/Fri Aug  3 22:18:13 2018//
 /amltypes.h/1.48/Thu Jan 10 18:50:32 2019//
 /aplgpio.c/1.1/Mon Jun 17 18:28:18 2019//
