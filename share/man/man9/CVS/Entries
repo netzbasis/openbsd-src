@@ -95,8 +95,8 @@
 /pci_intr_map.9/1.13/Tue Jun  4 19:27:10 2013//
 /pci_mapreg_map.9/1.1/Sat Feb 23 04:54:25 2019//
 /physio.9/1.11/Fri Dec  6 19:12:37 2019//
-/pmap.9/1.18/Fri Dec  6 19:15:16 2019//
-/pool.9/1.57/Fri Dec  6 19:15:16 2019//
+/pmap.9/1.19/Mon Dec 16 10:34:04 2019//
+/pool.9/1.58/Mon Dec 16 10:25:22 2019//
 /pool_cache_init.9/1.8/Fri Jan 12 04:36:45 2018//
 /ppsratecheck.9/1.6/Sun Apr  3 06:43:59 2016//
 /printf.9/1.24/Sat Nov  7 03:48:25 2015//
@@ -164,7 +164,7 @@
 /vgone.9/1.8/Wed Jul 17 20:21:55 2013//
 /vhold.9/1.9/Wed Jul 17 20:21:55 2013//
 /vinvalbuf.9/1.12/Thu Jul 25 01:43:20 2019//
-/vnode.9/1.31/Fri Dec  6 19:15:16 2019//
+/vnode.9/1.32/Mon Dec 16 10:28:53 2019//
 /vnsubr.9/1.16/Sun Oct  6 16:32:56 2019//
 /vput.9/1.10/Wed Aug 14 06:32:32 2013//
 /vrecycle.9/1.10/Tue Jun  4 19:27:17 2013//

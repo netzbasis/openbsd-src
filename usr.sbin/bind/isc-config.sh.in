@@ -1,9 +1,8 @@
 #!/bin/sh
 #
-# Copyright (C) 2004  Internet Systems Consortium, Inc. ("ISC")
-# Copyright (C) 2000, 2001, 2003  Internet Software Consortium.
+# Copyright (C) Internet Systems Consortium, Inc. ("ISC")
 #
-# Permission to use, copy, modify, and distribute this software for any
+# Permission to use, copy, modify, and/or distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
 #
@@ -15,11 +14,13 @@
 # OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 # PERFORMANCE OF THIS SOFTWARE.
 
-# $ISC: isc-config.sh.in,v 1.15 2004/03/05 04:56:57 marka Exp $
+# $Id: isc-config.sh.in,v 1.3 2019/12/17 01:46:31 sthen Exp $
 
 prefix=@prefix@
 exec_prefix=@exec_prefix@
 exec_prefix_set=
+includedir=@includedir@
+libdir=@libdir@
 
 usage()
 {
@@ -38,6 +39,7 @@ Libraries:
 	dns
 	lwres
 	bind9
+	irs
 EOF
 	exit $1
 }
@@ -57,6 +59,7 @@ while test $# -gt 0; do
 		prefix=$optarg
 		if test "x$exec_prefix_set" = x ; then
 			exec_prefix=$prefix
+			exec_prefix_set=true
 		fi
 		;;
 	--prefix)
@@ -64,12 +67,13 @@ while test $# -gt 0; do
 		;;
 	--exec-prefix=*)
 		exec_prefix=$optarg
+		exec_prefix_set=true
 		;;
 	--exec-prefix)
 		echo_exec_prefix=true
 		;;
 	--version)
-		echo @BIND9_VERSION@
+		echo VERSION=@BIND9_VERSION@
 		exit 0
 		;;
 	--cflags)
@@ -78,7 +82,13 @@ while test $# -gt 0; do
 	--libs)
 		echo_libs=true;
 		;;
-	isc)
+	irs)
+		libirs=true;
+		libdns=true;
+		libisccfg=true;
+		libisc=true;
+		;;
+	isc) 
 		libisc=true;
 		;;
 	isccc)
@@ -115,14 +125,25 @@ if test x"$echo_exec_prefix" = x"true" ; then
 	echo $exec_prefix
 fi
 if test x"$echo_cflags" = x"true"; then
-	includes="-I${exec_prefix}/include"
+	if test x"${exec_prefix_set}" = x"true"; then
+		includes="-I${exec_prefix}/include"
+	else
+		includes="-I${includedir}"
+	fi
 	if test x"$libisc" = x"true"; then
 		includes="$includes @ALWAYS_DEFINES@ @STD_CINCLUDES@ @STD_CDEFINES@ @CCOPT@"
 	fi
 	echo $includes
 fi
 if test x"$echo_libs" = x"true"; then
-	libs=-L${exec_prefix}/lib
+	if test x"${exec_prefix_set}" = x"true"; then
+		libs="-L${exec_prefix}/lib"
+	else
+		libs="-L${libdir}"
+	fi
+	if test x"$libirs" = x"true" ; then
+		libs="$libs -lirs"
+	fi
 	if test x"$liblwres" = x"true" ; then
 		libs="$libs -llwres"
 	fi
@@ -139,7 +160,7 @@ if test x"$echo_libs" = x"true"; then
 		libs="$libs -lisccc"
 	fi
 	if test x"$libisc" = x"true" ; then
-		libs="$libs -lisc"
+		libs="$libs -lisc @ISC_OPENSSL_LIBS@"
 		needothers=true
 	fi
 	if test x"$needothers" = x"true" ; then

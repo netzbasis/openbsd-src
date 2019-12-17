@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.939 2019/12/12 12:49:36 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.941 2019/12/16 16:39:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -507,13 +507,10 @@ struct msg_command {
 struct msg_read_open {
 	int	stream;
 	int	fd;
-	char	path[PATH_MAX];
-};
+}; /* followed by path */
 
 struct msg_read_data {
 	int	stream;
-	size_t	size;
-	char	data[BUFSIZ];
 };
 
 struct msg_read_done {
@@ -524,15 +521,12 @@ struct msg_read_done {
 struct msg_write_open {
 	int	stream;
 	int	fd;
-	char	path[PATH_MAX];
 	int	flags;
-};
+}; /* followed by path */
 
 struct msg_write_data {
 	int	stream;
-	size_t	size;
-	char	data[BUFSIZ];
-};
+}; /* followed by data */
 
 struct msg_write_ready {
 	int	stream;
@@ -2234,7 +2228,6 @@ void	 server_client_push_stdout(struct client *);
 void	 server_client_push_stderr(struct client *);
 void printflike(2, 3) server_client_add_message(struct client *, const char *,
 	     ...);
-char	*server_client_get_path(struct client *, const char *);
 const char *server_client_get_cwd(struct client *, struct session *);
 
 /* server-fn.c */
