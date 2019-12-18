@@ -38,7 +38,7 @@
 /cmd-parse.y/1.21/Thu Dec 12 15:01:54 2019//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
-/cmd-queue.c/1.76/Thu Dec 12 11:39:56 2019//
+/cmd-queue.c/1.77/Tue Dec 17 11:43:23 2019//
 /cmd-refresh-client.c/1.30/Thu Nov 28 09:05:34 2019//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//

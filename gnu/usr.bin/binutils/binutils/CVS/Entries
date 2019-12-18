@@ -64,7 +64,7 @@
 /nm.c/1.10/Sun Aug 31 13:40:02 2014//
 /not-ranlib.c/1.2/Mon May 17 21:54:26 2004//
 /not-strip.c/1.2/Mon May 17 21:54:26 2004//
-/objcopy.c/1.14/Sun Aug 31 13:40:02 2014//
+/objcopy.c/1.15/Tue Dec 17 17:25:51 2019//
 /objdump.c/1.12/Sun Aug 31 13:40:02 2014//
 /prdbg.c/1.6/Tue Nov  2 20:45:18 2004//
 /ranlib.sh/1.1/Mon Jan  8 11:03:52 1996//

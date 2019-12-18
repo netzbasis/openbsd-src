@@ -1,15 +1,12 @@
 /Makefile.in/1.8/Tue Dec 17 01:46:31 2019//
-/dig.1/1.12/Tue Dec 17 01:46:31 2019//
-/dig.c/1.21/Tue Dec 17 01:52:25 2019//
-/dig.docbook/1.8/Tue Dec 17 01:46:31 2019//
+/dig.1/1.15/Tue Dec 17 18:33:31 2019//
+/dig.c/1.22/Tue Dec 17 18:10:11 2019//
 /dig.html/1.9/Tue Dec 17 01:46:31 2019//
 /dighost.c/1.21/Tue Dec 17 01:52:25 2019//
-/host.1/1.8/Tue Dec 17 01:46:31 2019//
-/host.c/1.13/Tue Dec 17 01:52:25 2019//
-/host.docbook/1.8/Tue Dec 17 01:46:31 2019//
+/host.1/1.9/Tue Dec 17 16:41:26 2019//
+/host.c/1.14/Tue Dec 17 18:10:34 2019//
 /host.html/1.8/Tue Dec 17 01:46:31 2019//
-/nslookup.1/1.11/Tue Dec 17 01:46:31 2019//
-/nslookup.c/1.16/Tue Dec 17 01:52:25 2019//
-/nslookup.docbook/1.3/Tue Dec 17 01:46:31 2019//
+/nslookup.1/1.12/Tue Dec 17 16:41:26 2019//
+/nslookup.c/1.17/Tue Dec 17 18:10:11 2019//
 /nslookup.html/1.3/Tue Dec 17 01:46:31 2019//
 D/include////

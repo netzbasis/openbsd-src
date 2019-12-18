@@ -3,7 +3,8 @@
 /ehci.c/1.205/Tue Oct  8 11:07:16 2019//
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
-/files.usb/1.140/Tue Jul  9 05:43:03 2019//
+/fido.c/1.2/Wed Dec 18 05:09:53 2019//
+/files.usb/1.141/Tue Dec 17 13:08:54 2019//
 /if_athn_usb.c/1.55/Mon Nov 25 11:32:17 2019//
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
 /if_atu.c/1.127/Tue Aug 27 14:57:48 2019//
@@ -92,7 +93,8 @@
 /uhci.c/1.148/Wed Nov 27 11:16:59 2019//
 /uhcireg.h/1.16/Tue Dec 27 14:41:45 2016//
 /uhcivar.h/1.33/Sun May 18 17:10:27 2014//
-/uhid.c/1.72/Wed Nov 27 11:16:59 2019//
+/uhid.c/1.73/Tue Dec 17 13:08:54 2019//
+/uhid.h/1.1/Tue Dec 17 13:08:54 2019//
 /uhid_rdesc.h/1.1/Fri Oct 25 03:09:59 2013//
 /uhidev.c/1.77/Wed Nov 13 10:40:03 2019//
 /uhidev.h/1.25/Sat Aug 25 18:32:05 2018//
