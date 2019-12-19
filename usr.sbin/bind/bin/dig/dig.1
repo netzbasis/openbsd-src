@@ -1,4 +1,4 @@
-.\" $OpenBSD: dig.1,v 1.15 2019/12/17 18:33:31 jmc Exp $
+.\" $OpenBSD: dig.1,v 1.18 2019/12/18 18:07:46 deraadt Exp $
 .\"
 .\" Copyright (C) 2000-2011, 2013-2018 Internet Systems Consortium, Inc. ("ISC")
 .\"
@@ -14,7 +14,7 @@
 .\" OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 .\" PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 17 2019 $
+.Dd $Mdocdate: December 18 2019 $
 .Dt DIG 1
 .Os
 .Sh NAME
@@ -61,9 +61,6 @@ Although
 .Nm
 is normally used with command-line arguments, it also has a batch mode of
 operation for reading lookup requests from a file.
-A brief summary of its command-line arguments and options is printed when the
-.Fl h
-option is given.
 Unlike earlier versions, the BIND 9 implementation of
 .Nm
 allows multiple lookups to be issued from the command line.
@@ -172,14 +169,14 @@ Each line in the file should be organized in the same way they would be
 presented as queries to
 .Nm
 using the command-line interface.
+.It Fl h
+A brief summary of its command-line arguments and options is printed.
 .It Fl i
 Do reverse IPv6 lookups using the obsolete RFC 1886 IP6.INT domain, which is no
 longer in use.
 Obsolete bit string label queries (RFC 2874) are not attempted.
 .It Fl k Ar keyfile
 Sign queries using TSIG using a key read from the given file.
-Key files can be generated using
-.Xr tsig-keygen 8 .
 When using TSIG authentication with
 .Nm ,
 the name server that is queried needs to know the key and algorithm that is
@@ -433,7 +430,7 @@ The default is
 .Cm +cookie
 is automatically set when
 .Cm +trace
-is in use, to better emulate the default queries from a nameserver.
+is in use, to better emulate the default queries from a name server.
 .Pp
 This option was formerly called
 .Xo
@@ -861,7 +858,7 @@ zone name servers.
 .Cm +dnssec
 is also set when
 .Cm +trace
-is set to better emulate the default queries from a nameserver.
+is set to better emulate the default queries from a name server.
 .It Cm +tries= Ns Ar T
 Sets the number of times to try UDP queries to server to
 .Ar T

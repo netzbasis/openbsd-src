@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dig.c,v 1.22 2019/12/17 18:10:11 deraadt Exp $ */
+/* $Id: dig.c,v 1.24 2019/12/18 18:38:49 deraadt Exp $ */
 
 /*! \file */
 
@@ -161,15 +161,13 @@ usage(void) ISC_PLATFORM_NORETURN_POST;
 static void
 usage(void) {
 	print_usage(stderr);
-	fputs("\nUse \"dig -h\" (or \"dig -h | more\") "
-	      "for complete list of options\n", stderr);
 	exit(1);
 }
 
 /*% version */
 static void
 version(void) {
-	fputs("DiG " VERSION "\n", stderr);
+	fputs("dig " VERSION "\n", stderr);
 }
 
 /*% help */
@@ -783,7 +781,7 @@ printgreeting(int argc, char **argv, dig_lookup_t *lookup) {
 
 	if (printcmd) {
 		snprintf(lookup->cmdline, sizeof(lookup->cmdline),
-			 "%s; <<>> DiG " VERSION " <<>>",
+			 "%s; <<>> dig " VERSION " <<>>",
 			 first?"\n":"");
 		i = 1;
 		while (i < argc) {
