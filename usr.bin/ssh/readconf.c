@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.315 2019/12/15 18:57:30 djm Exp $ */
+/* $OpenBSD: readconf.c,v 1.318 2019/12/20 02:42:42 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -107,8 +107,6 @@
      ForwardAgent no
      ForwardX11 no
      PasswordAuthentication yes
-     RSAAuthentication yes
-     RhostsRSAAuthentication yes
      StrictHostKeyChecking yes
      TcpKeepAlive no
      IdentityFile ~/.ssh/identity
@@ -132,15 +130,15 @@ typedef enum {
 	oHost, oMatch, oInclude,
 	oForwardAgent, oForwardX11, oForwardX11Trusted, oForwardX11Timeout,
 	oGatewayPorts, oExitOnForwardFailure,
-	oPasswordAuthentication, oRSAAuthentication,
+	oPasswordAuthentication,
 	oChallengeResponseAuthentication, oXAuthLocation,
-	oIdentityFile, oHostname, oPort, oCipher, oRemoteForward, oLocalForward,
+	oIdentityFile, oHostname, oPort, oRemoteForward, oLocalForward,
 	oCertificateFile, oAddKeysToAgent, oIdentityAgent,
-	oUser, oEscapeChar, oRhostsRSAAuthentication, oProxyCommand,
+	oUser, oEscapeChar, oProxyCommand,
 	oGlobalKnownHostsFile, oUserKnownHostsFile, oConnectionAttempts,
 	oBatchMode, oCheckHostIP, oStrictHostKeyChecking, oCompression,
-	oCompressionLevel, oTCPKeepAlive, oNumberOfPasswordPrompts,
-	oUsePrivilegedPort, oLogFacility, oLogLevel, oCiphers, oMacs,
+	oTCPKeepAlive, oNumberOfPasswordPrompts,
+	oLogFacility, oLogLevel, oCiphers, oMacs,
 	oPubkeyAuthentication,
 	oKbdInteractiveAuthentication, oKbdInteractiveDevices, oHostKeyAlias,
 	oDynamicForward, oPreferredAuthentications, oHostbasedAuthentication,
@@ -185,6 +183,9 @@ static struct {
 	{ "afstokenpassing", oUnsupported },
 	{ "kerberosauthentication", oUnsupported },
 	{ "kerberostgtpassing", oUnsupported },
+	{ "rsaauthentication", oUnsupported },
+	{ "rhostsrsaauthentication", oUnsupported },
+	{ "compressionlevel", oUnsupported },
 
 	/* Sometimes-unsupported options */
 #if defined(GSSAPI)
@@ -201,10 +202,6 @@ static struct {
 	{ "smartcarddevice", oUnsupported },
 	{ "pkcs11provider", oUnsupported },
 #endif
-	{ "securitykeyprovider", oSecurityKeyProvider },
-	{ "rsaauthentication", oUnsupported },
-	{ "rhostsrsaauthentication", oUnsupported },
-	{ "compressionlevel", oUnsupported },
 
 	{ "forwardagent", oForwardAgent },
 	{ "forwardx11", oForwardX11 },
@@ -298,6 +295,7 @@ static struct {
 	{ "pubkeyacceptedkeytypes", oPubkeyAcceptedKeyTypes },
 	{ "ignoreunknown", oIgnoreUnknown },
 	{ "proxyjump", oProxyJump },
+	{ "securitykeyprovider", oSecurityKeyProvider },
 
 	{ NULL, oBadOption }
 };
