@@ -10,7 +10,7 @@
 /PROTOCOL.krl/1.5/Wed Sep 12 01:21:34 2018//
 /PROTOCOL.mux/1.11/Wed Sep 26 07:30:05 2018//
 /PROTOCOL.sshsig/1.2/Tue Sep  3 08:35:27 2019//
-/PROTOCOL.u2f/1.13/Wed Dec 11 22:19:47 2019//
+/PROTOCOL.u2f/1.14/Fri Dec 20 20:28:55 2019//
 /README/1.7/Sat Apr  1 05:37:46 2006//
 /addrmatch.c/1.14/Tue Jul 31 03:07:24 2018//
 /atomicio.c/1.30/Thu Jan 24 02:42:23 2019//
@@ -31,8 +31,8 @@
 /auth2-passwd.c/1.17/Fri Sep  6 04:53:27 2019//
 /auth2-pubkey.c/1.97/Mon Nov 25 00:54:23 2019//
 /auth2.c/1.157/Fri Sep  6 04:53:27 2019//
-/authfd.c/1.120/Wed Nov 13 04:47:52 2019//
-/authfd.h/1.47/Thu Oct 31 21:19:15 2019//
+/authfd.c/1.121/Sat Dec 21 02:19:13 2019//
+/authfd.h/1.48/Sat Dec 21 02:19:13 2019//
 /authfile.c/1.135/Tue Sep  3 08:30:47 2019//
 /authfile.h/1.23/Tue Sep  3 08:30:47 2019//
 /bitmap.c/1.9/Fri Oct 20 01:56:39 2017//
@@ -50,7 +50,7 @@
 /cipher.c/1.113/Fri Sep  6 05:23:55 2019//
 /cipher.h/1.54/Fri Sep  6 05:23:55 2019//
 /cleanup.c/1.5/Thu Aug  3 03:34:42 2006//
-/clientloop.c/1.329/Mon Nov 25 00:51:37 2019//
+/clientloop.c/1.330/Sat Dec 21 02:19:13 2019//
 /clientloop.h/1.36/Mon Jul  9 21:03:30 2018//
 /compat.c/1.113/Mon Aug 13 02:41:05 2018//
 /compat.h/1.54/Mon Aug 13 02:41:05 2018//
@@ -123,8 +123,8 @@
 /poly1305.h/1.4/Fri May  2 03:27:54 2014//
 /progressmeter.c/1.49/Tue Oct 29 07:47:27 2019//
 /progressmeter.h/1.5/Thu Jan 24 16:52:17 2019//
-/readconf.c/1.318/Fri Dec 20 02:42:42 2019//
-/readconf.h/1.130/Thu Oct 31 21:18:28 2019//
+/readconf.c/1.319/Sat Dec 21 02:19:13 2019//
+/readconf.h/1.131/Sat Dec 21 02:19:13 2019//
 /readpass.c/1.60/Fri Dec  6 03:06:08 2019//
 /rijndael.c/1.20/Mon Mar 16 11:09:52 2015//
 /rijndael.h/1.14/Tue Apr 29 15:42:07 2014//
@@ -187,13 +187,13 @@
 /ssh-sk.h/1.6/Fri Dec 13 19:09:10 2019//
 /ssh-xmss.c/1.1/Fri Feb 23 15:58:38 2018//
 /ssh.1/1.408/Sat Nov 30 07:07:59 2019//
-/ssh.c/1.509/Mon Nov 18 16:10:05 2019//
+/ssh.c/1.510/Sat Dec 21 02:19:13 2019//
 /ssh.h/1.89/Thu Dec 27 03:25:25 2018//
 /ssh2.h/1.18/Wed May  4 14:22:33 2016//
 /ssh_api.c/1.19/Thu Oct 31 21:23:19 2019//
 /ssh_api.h/1.2/Tue Apr 10 00:10:49 2018//
 /ssh_config/1.34/Mon Feb  4 02:39:42 2019//
-/ssh_config.5/1.311/Thu Dec 19 15:09:30 2019//
+/ssh_config.5/1.312/Sat Dec 21 02:19:13 2019//
 /sshbuf-getput-basic.c/1.10/Fri Dec 13 19:09:37 2019//
 /sshbuf-getput-crypto.c/1.8/Fri Nov 15 06:00:20 2019//
 /sshbuf-misc.c/1.11/Tue Jul 30 05:04:49 2019//
