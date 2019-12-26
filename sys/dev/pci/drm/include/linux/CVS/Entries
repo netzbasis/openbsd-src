@@ -87,7 +87,7 @@
 /mem_encrypt.h/1.1/Sun Apr 14 10:14:53 2019//
 /mempolicy.h/1.1/Sun Apr 14 10:14:53 2019//
 /miscdevice.h/1.1/Sun Apr 14 10:14:53 2019//
-/mm.h/1.2/Wed May  8 22:44:31 2019//
+/mm.h/1.3/Wed Dec 25 11:31:41 2019//
 /mm_types.h/1.1/Sun Apr 14 10:14:53 2019//
 /mman.h/1.1/Sun Apr 14 10:14:53 2019//
 /mmu_context.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -96,7 +96,7 @@
 /module.h/1.1/Sun Apr 14 10:14:53 2019//
 /moduleparam.h/1.1/Sun Apr 14 10:14:53 2019//
 /mount.h/1.1/Sun Apr 14 10:14:53 2019//
-/mutex.h/1.1/Sun Apr 14 10:14:53 2019//
+/mutex.h/1.2/Wed Dec 25 11:31:41 2019//
 /nospec.h/1.1/Sun Apr 14 10:14:53 2019//
 /notifier.h/1.2/Sun Aug 18 13:11:47 2019//
 /of_device.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -135,6 +135,7 @@
 /seq_file.h/1.1/Sun Apr 14 10:14:53 2019//
 /seqlock.h/1.2/Thu Jul  4 01:53:23 2019//
 /shmem_fs.h/1.1/Sun Apr 14 10:14:53 2019//
+/shrinker.h/1.1/Wed Dec 25 11:31:41 2019//
 /sizes.h/1.1/Sun Apr 14 10:14:53 2019//
 /slab.h/1.2/Wed May  8 22:44:31 2019//
 /smp.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -144,7 +145,7 @@
 /stop_machine.h/1.1/Sun Apr 14 10:14:53 2019//
 /string.h/1.1/Sun Apr 14 10:14:53 2019//
 /stringify.h/1.1/Sun Apr 14 10:14:53 2019//
-/swap.h/1.1/Sun Apr 14 10:14:53 2019//
+/swap.h/1.2/Wed Dec 25 11:31:41 2019//
 /swiotlb.h/1.1/Sun Apr 14 10:14:53 2019//
 /sync_file.h/1.1/Sun Apr 14 10:14:53 2019//
 /sysfs.h/1.1/Sun Apr 14 10:14:53 2019//
