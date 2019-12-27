@@ -3,7 +3,7 @@
 /tmpfs_mem.c/1.8/Fri Dec 11 22:34:34 2015//
 /tmpfs_specops.c/1.5/Wed Jan 21 22:26:52 2015//
 /tmpfs_subr.c/1.23/Thu Oct 17 11:23:49 2019//
-/tmpfs_vfsops.c/1.16/Fri Apr  6 15:14:27 2018//
+/tmpfs_vfsops.c/1.17/Thu Dec 26 13:28:49 2019//
 /tmpfs_vnops.c/1.36/Mon Aug  5 08:35:59 2019//
 /tmpfs_vnops.h/1.5/Wed Dec 25 14:04:50 2013//
 D
