@@ -1,5 +1,5 @@
 /OptreeCheck.pm/1.3/Wed Feb 13 21:15:22 2019/-ko/
-/b.t/1.3/Wed Feb 13 21:15:22 2019/-ko/
+/b.t/1.4/Mon Dec 30 02:13:52 2019/-ko/
 /concise-xs.t/1.2/Sun Feb  5 00:32:11 2017/-ko/
 /concise.t/1.3/Wed Feb 13 21:15:22 2019/-ko/
 /f_map/1.1.1.1/Sat Jan 15 21:16:43 2005/-ko/
@@ -17,7 +17,7 @@
 /optree_varinit.t/1.3/Wed Feb 13 21:15:22 2019/-ko/
 /pragma.t/1.1.1.3/Mon Mar 24 14:59:01 2014/-ko/
 /showlex.t/1.3/Wed Feb 13 21:15:22 2019/-ko/
-/strict.t/1.1.1.1/Wed Feb 13 21:11:30 2019/-ko/
+/strict.t/1.1.1.2/Mon Dec 30 02:10:48 2019/-ko/
 /sv_stash.t/1.1/Sun Feb  5 00:32:11 2017/-ko/
 /terse.t/1.1.1.8/Wed Feb 13 21:11:30 2019/-ko/
 /walkoptree.t/1.1.1.3/Wed Feb 13 21:11:30 2019/-ko/

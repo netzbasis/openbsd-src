@@ -11,9 +11,9 @@
 /big5-hkscs.enc/1.1.1.1/Fri Sep 24 14:49:00 2010/-ko/
 /big5-hkscs.utf/1.1.1.1/Fri Sep 24 14:49:00 2010/-ko/
 /cow.t/1.1.1.2/Wed Feb 13 21:10:51 2019/-kb/
-/decode.t/1.1.1.2/Wed Feb 13 21:10:51 2019/-kb/
+/decode.t/1.1.1.3/Mon Dec 30 02:10:28 2019/-kb/
 /enc_data.t/1.4/Wed Feb 13 21:15:10 2019/-ko/
-/enc_eucjp.t/1.4/Wed Feb 13 21:15:10 2019/-ko/
+/enc_eucjp.t/1.5/Mon Dec 30 02:13:43 2019/-ko/
 /enc_module.enc/1.1.1.1/Fri Sep 24 14:49:00 2010/-ko/
 /enc_module.t/1.4/Wed Feb 13 21:15:10 2019/-ko/
 /enc_utf8.t/1.4/Wed Feb 13 21:15:10 2019/-ko/
@@ -54,10 +54,10 @@
 /undef.t/1.1.1.1/Wed Feb 13 21:10:51 2019/-ko/
 /unibench.pl/1.1.1.1/Fri Sep 24 14:49:00 2010/-ko/
 /use-Encode-Alias.t/1.1.1.1/Wed Feb 13 21:10:51 2019/-ko/
-/utf8messages.t/1.1.1.1/Wed Feb 13 21:10:51 2019/-ko/
 /utf8ref.t/1.1.1.2/Wed Feb 13 21:10:51 2019/-ko/
 /utf8strict.t/1.1.1.3/Wed Feb 13 21:10:51 2019/-ko/
-/utf8warnings.t/1.2/Wed Feb 13 21:15:10 2019/-ko/
+/utf8warnings.t/1.3/Mon Dec 30 02:13:43 2019/-ko/
 /whatwg-aliases.json/1.1.1.1/Wed Feb 13 21:10:51 2019/-ko/
 /whatwg-aliases.t/1.1.1.1/Wed Feb 13 21:10:51 2019/-ko/
+/xml.t/1.1.1.1/Mon Dec 30 02:10:28 2019/-ko/
 D
