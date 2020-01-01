@@ -4,7 +4,7 @@
 /asioreg.h/1.3/Mon Jun  2 18:32:41 2003//
 /be.c/1.42/Sun Jan 22 10:17:39 2017//
 /bereg.h/1.4/Thu Jun 26 05:42:18 2008//
-/bpp.c/1.5/Mon Mar 14 18:01:18 2016//
+/bpp.c/1.6/Tue Dec 31 10:05:33 2019//
 /bppreg.h/1.3/Thu Jun 26 05:42:18 2008//
 /bwtwo.c/1.19/Sun Oct 20 20:07:30 2013//
 /cgsix.c/1.59/Sun Oct 20 20:07:30 2013//
@@ -25,7 +25,7 @@
 /if_ti_sbus.c/1.4/Tue Nov 24 17:11:40 2015//
 /lebuffer.c/1.10/Wed Dec  5 23:20:21 2012//
 /lebuffervar.h/1.4/Thu Jun 26 05:42:18 2008//
-/magma.c/1.29/Fri Jul 19 00:17:15 2019//
+/magma.c/1.30/Tue Dec 31 10:05:33 2019//
 /magmareg.h/1.9/Sat Nov 29 01:55:06 2008//
 /mgx.c/1.13/Sun Oct 20 20:07:31 2013//
 /qe.c/1.40/Sun Jan 22 10:17:39 2017//
@@ -40,7 +40,7 @@
 /spif.c/1.23/Fri Jul 19 00:17:15 2019//
 /spifreg.h/1.5/Mon Jun  2 18:32:41 2003//
 /spifvar.h/1.4/Fri Jun  2 20:00:56 2006//
-/stp4020.c/1.20/Thu Dec 27 11:09:17 2018//
+/stp4020.c/1.21/Tue Dec 31 10:05:33 2019//
 /stp4020reg.h/1.7/Thu Jun 26 05:42:18 2008//
 /stp4020var.h/1.5/Fri Apr 10 20:54:59 2009//
 /tvtwo.c/1.15/Sun Oct 20 20:07:31 2013//

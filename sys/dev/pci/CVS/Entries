@@ -220,7 +220,7 @@
 /if_vtereg.h/1.2/Sat May 28 08:31:51 2011//
 /if_wb.c/1.70/Mon Apr  1 06:01:07 2019//
 /if_wbreg.h/1.9/Thu Oct 18 21:44:21 2012//
-/if_wi_pci.c/1.53/Fri Jan 25 00:19:26 2019//
+/if_wi_pci.c/1.54/Tue Dec 31 10:05:32 2019//
 /if_wpi.c/1.149/Mon Sep 30 01:53:05 2019//
 /if_wpireg.h/1.28/Tue Nov 26 20:33:17 2013//
 /if_wpivar.h/1.27/Sat Apr  8 02:57:25 2017//
@@ -250,10 +250,10 @@
 /maestro.c/1.43/Wed Apr 11 04:48:31 2018//
 /mbg.c/1.30/Fri Sep  8 05:36:52 2017//
 /mfi_pci.c/1.30/Tue Dec 31 00:00:09 2019//
-/mfii.c/1.63/Mon Sep  9 09:38:04 2019//
+/mfii.c/1.64/Tue Dec 31 10:05:32 2019//
 /mmuagp.c/1.5/Tue Jul  8 17:19:25 2014//
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
-/mpii.c/1.123/Sun Dec 29 21:30:21 2019//
+/mpii.c/1.124/Tue Dec 31 10:05:33 2019//
 /mpiireg.h/1.15/Sun Dec 29 09:34:43 2019//
 /neo.c/1.33/Wed Apr 11 04:48:31 2018//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//
@@ -309,7 +309,7 @@
 /pucvar.h/1.16/Wed May  2 19:11:01 2018//
 /pwdog.c/1.10/Fri Sep  8 05:36:52 2017//
 /qla_pci.c/1.8/Thu Apr  3 20:01:47 2014//
-/qle.c/1.47/Wed Oct 16 00:16:35 2019//
+/qle.c/1.48/Tue Dec 31 22:57:07 2019//
 /qlereg.h/1.9/Sun Apr 20 09:49:23 2014//
 /qlw_pci.c/1.10/Thu Aug 17 12:21:31 2017//
 /rtsx_pci.c/1.14/Wed Sep  6 13:07:38 2017//
