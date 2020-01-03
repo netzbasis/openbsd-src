@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1902 2019/11/20 16:33:00 patrick Exp 
+ *	OpenBSD: pcidevs,v 1.1905 2020/01/03 00:51:55 dlg Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -1358,6 +1358,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_17_3X_RC,
 	    "AMD64 17h/3xh Root Complex",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_17_3X_CCP,
+	    "AMD64 17h/3xh Crypto",
 	},
 	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_14_HB,
@@ -26094,6 +26098,18 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM981_NVME,
 	    "SM981/PM981 NVMe",
+	},
+	{
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_NVME_171X,
+	    "NVMe",
+	},
+	{
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_NVME_172X,
+	    "NVMe",
+	},
+	{
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_NVME_172X_A_B,
+	    "NVMe",
 	},
 	{
 	    PCI_VENDOR_SANGOMA, PCI_PRODUCT_SANGOMA_A10X,

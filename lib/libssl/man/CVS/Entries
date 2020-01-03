@@ -6,7 +6,7 @@
 /SSL_CIPHER_get_name.3/1.10/Wed Apr 25 13:51:34 2018//
 /SSL_COMP_add_compression_method.3/1.5/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_add1_chain_cert.3/1.1/Fri Apr  5 18:29:43 2019//
-/SSL_CTX_add_extra_chain_cert.3/1.6/Fri Apr  5 18:29:43 2019//
+/SSL_CTX_add_extra_chain_cert.3/1.7/Thu Jan  2 09:09:16 2020//
 /SSL_CTX_add_session.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_ctrl.3/1.7/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_flush_sessions.3/1.5/Tue Mar 27 17:35:50 2018//

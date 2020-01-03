@@ -19,7 +19,7 @@
 /cmd-find-window.c/1.46/Thu Jun 20 20:31:04 2019//
 /cmd-find.c/1.73/Wed Jun 12 09:10:29 2019//
 /cmd-if-shell.c/1.65/Wed Jul 17 17:49:23 2019//
-/cmd-join-pane.c/1.37/Mon Nov 18 09:43:31 2019//
+/cmd-join-pane.c/1.38/Thu Jan  2 13:44:17 2020//
 /cmd-kill-pane.c/1.27/Thu Nov 14 15:37:19 2019//
 /cmd-kill-server.c/1.18/Sun Oct 16 19:04:05 2016//
 /cmd-kill-session.c/1.25/Wed Apr 17 14:37:48 2019//
