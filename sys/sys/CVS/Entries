@@ -89,7 +89,7 @@
 /siginfo.h/1.12/Fri Apr  7 04:48:44 2017//
 /sigio.h/1.1/Mon Nov 12 15:09:17 2018//
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
-/signalvar.h/1.36/Mon May 13 19:21:31 2019//
+/signalvar.h/1.37/Fri Jan  3 09:46:41 2020//
 /smr.h/1.2/Sat Mar  9 06:15:48 2019//
 /socket.h/1.98/Mon Jul 22 15:34:07 2019//
 /socketvar.h/1.90/Thu Dec 12 16:33:02 2019//
