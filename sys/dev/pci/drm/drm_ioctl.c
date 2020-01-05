@@ -29,7 +29,6 @@
  */
 
 #include <sys/filio.h>
-#include <sys/ttycom.h> /* for TIOCSGRP */
 
 #include <drm/drm_ioctl.h>
 #include <drm/drmP.h>
@@ -699,14 +698,6 @@ drm_do_ioctl(struct drm_device *dev, int minor, u_long cmd, caddr_t data)
 	switch (cmd) {
 	case FIONBIO:
 	case FIOASYNC:
-		return 0;
-
-	case TIOCSPGRP:
-		dev->buf_pgid = *(int *)data;
-		return 0;
-
-	case TIOCGPGRP:
-		*(int *)data = dev->buf_pgid;
 		return 0;
 	}
 

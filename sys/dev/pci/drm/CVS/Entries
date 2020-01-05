@@ -13,7 +13,7 @@
 /drm_dp_dual_mode_helper.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_dp_helper.c/1.9/Sun Apr 14 10:14:51 2019//
 /drm_dp_mst_topology.c/1.7/Sun Apr 14 10:14:51 2019//
-/drm_drv.c/1.167/Tue Dec 31 13:48:31 2019//
+/drm_drv.c/1.169/Sun Jan  5 04:29:11 2020//
 /drm_dumb_buffers.c/1.1/Sun Apr 14 10:14:51 2019//
 /drm_edid.c/1.25/Wed Oct 30 02:23:02 2019//
 /drm_encoder.c/1.1/Sun Apr 14 10:14:51 2019//
@@ -26,7 +26,7 @@
 /drm_global.c/1.4/Sun Apr 14 10:14:51 2019//
 /drm_hashtab.c/1.4/Sun Apr 14 10:14:51 2019//
 /drm_internal.h/1.5/Sun Apr 14 10:14:51 2019//
-/drm_ioctl.c/1.15/Mon Dec 30 09:30:31 2019//
+/drm_ioctl.c/1.17/Sun Jan  5 04:29:11 2020//
 /drm_irq.c/1.72/Sun Apr 14 10:14:51 2019//
 /drm_linux.c/1.54/Mon Dec 30 09:30:31 2019//
 /drm_linux.h/1.93/Sun Apr 14 10:14:51 2019//
