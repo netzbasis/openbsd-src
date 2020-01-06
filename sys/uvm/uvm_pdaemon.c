@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_pdaemon.c,v 1.83 2019/07/03 22:39:33 cheloha Exp $	*/
+/*	$OpenBSD: uvm_pdaemon.c,v 1.85 2019/12/30 23:58:38 jsg Exp $	*/
 /*	$NetBSD: uvm_pdaemon.c,v 1.23 2000/08/20 10:24:14 bjh21 Exp $	*/
 
 /* 
@@ -80,6 +80,16 @@
 #endif
 
 #include <uvm/uvm.h>
+
+#if defined(__amd64__) || defined(__arm64__) || \
+    defined(__i386__) || defined(__loongson__) || \
+    defined(__macppc__) || defined(__sparc64__)
+#include "drm.h"
+#endif
+
+#if NDRM > 0
+extern void drmbackoff(long);
+#endif
 
 /*
  * UVMPD_NUMDIRTYREACTS is how many dirty pages the pagedaemon will reactivate
@@ -217,8 +227,8 @@ uvm_pageout(void *arg)
 
 		uvm_lock_fpageq();
 		if (!uvm_nowait_failed && TAILQ_EMPTY(&uvm.pmr_control.allocs)) {
-			msleep(&uvm.pagedaemon, &uvm.fpageqlock, PVM,
-			    "pgdaemon", 0);
+			msleep_nsec(&uvm.pagedaemon, &uvm.fpageqlock, PVM,
+			    "pgdaemon", INFSLP);
 			uvmexp.pdwoke++;
 		}
 
@@ -262,6 +272,9 @@ uvm_pageout(void *arg)
 			size = 16; /* XXX */
 		uvm_unlock_pageq();
 		(void) bufbackoff(&constraint, size * 2);
+#if NDRM > 0
+		drmbackoff(size * 2);
+#endif
 		uvm_lock_pageq();
 
 		/* Scan if needed to meet our targets. */
@@ -322,8 +335,8 @@ uvm_aiodone_daemon(void *arg)
 		 */
 		mtx_enter(&uvm.aiodoned_lock);
 		while ((bp = TAILQ_FIRST(&uvm.aio_done)) == NULL)
-			msleep(&uvm.aiodoned, &uvm.aiodoned_lock,
-			    PVM, "aiodoned", 0);
+			msleep_nsec(&uvm.aiodoned, &uvm.aiodoned_lock,
+			    PVM, "aiodoned", INFSLP);
 		/* Take the list for ourselves. */
 		TAILQ_INIT(&uvm.aio_done);
 		mtx_leave(&uvm.aiodoned_lock);

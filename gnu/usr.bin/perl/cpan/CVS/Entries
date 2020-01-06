@@ -1,7 +1,6 @@
 /.dir-locals.el/1.1/Sun Feb  5 00:31:54 2017/-ko/
 D/Archive-Tar////
 D/AutoLoader////
-D/B-Debug////
 D/CPAN////
 D/CPAN-Meta////
 D/CPAN-Meta-Requirements////
@@ -30,7 +29,6 @@ D/IO-Zlib////
 D/IPC-Cmd////
 D/IPC-SysV////
 D/JSON-PP////
-D/Locale-Codes////
 D/Locale-Maketext-Simple////
 D/MIME-Base64////
 D/Math-BigInt////

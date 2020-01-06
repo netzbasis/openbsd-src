@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.300 2019/12/12 11:39:56 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.302 2019/12/16 16:39:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2024,10 +2024,10 @@ server_client_dispatch_read_data(struct client *c, struct imsg *imsg)
 	struct msg_read_data	*msg = imsg->data;
 	size_t			 msglen = imsg->hdr.len - IMSG_HEADER_SIZE;
 	struct client_file	 find, *cf;
-	void			*bdata = msg->data;
-	size_t			 bsize = msg->size;
+	void			*bdata = msg + 1;
+	size_t			 bsize = msglen - sizeof *msg;
 
-	if (msglen != sizeof *msg)
+	if (msglen < sizeof *msg)
 		fatalx("bad MSG_READ_DATA size");
 	find.stream = msg->stream;
 	if ((cf = RB_FIND(client_files, &c->files, &find)) == NULL)
@@ -2110,20 +2110,4 @@ server_client_get_cwd(struct client *c, struct session *s)
 	if ((home = find_home()) != NULL)
 		return (home);
 	return ("/");
-}
-
-/* Resolve an absolute path or relative to client working directory. */
-char *
-server_client_get_path(struct client *c, const char *file)
-{
-	char	*path, resolved[PATH_MAX];
-
-	if (*file == '/')
-		path = xstrdup(file);
-	else
-		xasprintf(&path, "%s/%s", server_client_get_cwd(c, NULL), file);
-	if (realpath(path, resolved) == NULL)
-		return (path);
-	free(path);
-	return (xstrdup(resolved));
 }

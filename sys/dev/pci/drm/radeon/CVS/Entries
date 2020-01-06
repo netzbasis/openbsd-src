@@ -59,11 +59,11 @@
 /nislands_smc.h/1.1/Wed Apr 25 01:27:46 2018//
 /ppsmc.h/1.1/Wed Apr 25 01:27:46 2018//
 /pptable.h/1.1/Wed Apr 25 01:27:46 2018//
-/r100.c/1.20/Sun Apr 14 10:14:54 2019//
+/r100.c/1.21/Sun Dec 22 00:07:56 2019//
 /r100_reg_safe.h/1.1/Mon Aug 12 04:11:53 2013//
 /r100_track.h/1.5/Thu Nov  1 10:35:08 2018//
 /r100d.h/1.4/Wed Apr 25 01:27:46 2018//
-/r200.c/1.7/Sun Apr 14 10:14:54 2019//
+/r200.c/1.8/Sun Dec 22 00:07:56 2019//
 /r200_reg_safe.h/1.1/Mon Aug 12 04:11:53 2013//
 /r300.c/1.11/Sun Apr 14 10:14:54 2019//
 /r300_reg.h/1.4/Wed Apr 25 01:27:46 2018//
@@ -121,7 +121,7 @@
 /radeon_irq_kms.c/1.14/Sun Apr 14 10:14:54 2019//
 /radeon_kfd.c/1.2/Sun Apr 14 10:14:54 2019//
 /radeon_kfd.h/1.1/Wed Apr 25 01:27:46 2018//
-/radeon_kms.c/1.62/Sun Oct 13 06:38:40 2019//
+/radeon_kms.c/1.63/Wed Dec 25 11:42:05 2019//
 /radeon_legacy_crtc.c/1.8/Sun Apr 14 10:14:54 2019//
 /radeon_legacy_encoders.c/1.10/Sun Apr 14 10:14:54 2019//
 /radeon_legacy_tv.c/1.6/Sun Apr 14 10:14:54 2019//

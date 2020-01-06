@@ -4,7 +4,7 @@
 /Complete.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /Debug.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /DeferredCode.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
-/Distribution.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
+/Distribution.pm/1.5/Mon Dec 30 02:13:42 2019/-ko/
 /Distroprefs.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /Distrostatus.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /FTP.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
@@ -13,13 +13,13 @@
 /Index.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
 /InfoObj.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /Kwalify.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
-/Mirrors.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
+/Mirrors.pm/1.5/Mon Dec 30 02:13:42 2019/-ko/
 /Module.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
 /Nox.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
-/Plugin.pm/1.2/Wed Feb 13 21:15:07 2019/-ko/
+/Plugin.pm/1.3/Mon Dec 30 02:13:42 2019/-ko/
 /Prompt.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /Queue.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
-/Shell.pm/1.4/Wed Feb 13 21:15:07 2019/-ko/
+/Shell.pm/1.5/Mon Dec 30 02:13:42 2019/-ko/
 /Tarzip.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /URL.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/
 /Version.pm/1.3/Sun Feb  5 00:31:55 2017/-ko/

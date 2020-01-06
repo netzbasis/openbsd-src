@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.259 2019/12/12 11:12:36 mpi Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.262 2019/12/30 23:58:38 jsg Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -2619,7 +2619,8 @@ uvm_map_pageable_all(struct vm_map *map, int flags, vsize_t limit)
  * Allocates sufficient entries to describe the free memory in the map.
  */
 void
-uvm_map_setup(struct vm_map *map, vaddr_t min, vaddr_t max, int flags)
+uvm_map_setup(struct vm_map *map, pmap_t pmap, vaddr_t min, vaddr_t max,
+    int flags)
 {
 	int i;
 
@@ -2646,6 +2647,7 @@ uvm_map_setup(struct vm_map *map, vaddr_t min, vaddr_t max, int flags)
 		map->uaddr_any[i] = NULL;
 	map->uaddr_brk_stack = NULL;
 
+	map->pmap = pmap;
 	map->size = 0;
 	map->ref_count = 0;
 	map->min_offset = min;
@@ -2654,7 +2656,10 @@ uvm_map_setup(struct vm_map *map, vaddr_t min, vaddr_t max, int flags)
 	map->s_start = map->s_end = 0; /* Empty stack area by default. */
 	map->flags = flags;
 	map->timestamp = 0;
-	rw_init_flags(&map->lock, "vmmaplk", RWL_DUPOK);
+	if (flags & VM_MAP_ISVMSPACE)
+		rw_init_flags(&map->lock, "vmmaplk", RWL_DUPOK);
+	else
+		rw_init(&map->lock, "kmmaplk");
 	mtx_init(&map->mtx, IPL_VM);
 	mtx_init(&map->flags_lock, IPL_VM);
 
@@ -3457,9 +3462,8 @@ uvmspace_init(struct vmspace *vm, struct pmap *pmap, vaddr_t min, vaddr_t max,
 		pmap_reference(pmap);
 	else
 		pmap = pmap_create();
-	vm->vm_map.pmap = pmap;
 
-	uvm_map_setup(&vm->vm_map, min, max,
+	uvm_map_setup(&vm->vm_map, pmap, min, max,
 	    (pageable ? VM_MAP_PAGEABLE : 0) | VM_MAP_ISVMSPACE);
 
 	vm->vm_refcnt = 1;
@@ -4227,8 +4231,7 @@ uvm_map_create(pmap_t pmap, vaddr_t min, vaddr_t max, int flags)
 	vm_map_t map;
 
 	map = malloc(sizeof *map, M_VMMAP, M_WAITOK);
-	map->pmap = pmap;
-	uvm_map_setup(map, min, max, flags);
+	uvm_map_setup(map, pmap, min, max, flags);
 	return (map);
 }
 
@@ -5399,8 +5402,8 @@ vm_map_lock_ln(struct vm_map *map, char *file, int line)
 tryagain:
 			while (map->flags & VM_MAP_BUSY) {
 				map->flags |= VM_MAP_WANTLOCK;
-				msleep(&map->flags, &map->flags_lock,
-				    PVM, vmmapbsy, 0);
+				msleep_nsec(&map->flags, &map->flags_lock,
+				    PVM, vmmapbsy, INFSLP);
 			}
 			mtx_leave(&map->flags_lock);
 		} while (rw_enter(&map->lock, RW_WRITE|RW_SLEEPFAIL) != 0);

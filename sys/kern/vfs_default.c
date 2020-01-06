@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_default.c,v 1.44 2019/12/08 12:29:42 mpi Exp $  */
+/*	$OpenBSD: vfs_default.c,v 1.46 2019/12/31 13:48:32 visa Exp $  */
 
 /*
  * Portions of this code are:
@@ -98,7 +98,7 @@ vop_generic_revoke(void *v)
 		 */
 		vp->v_flag |= VXLOCK;
 		while (vp->v_flag & VALIASED) {
-			for (vq = *vp->v_hashchain; vq; vq = vq->v_specnext) {
+			SLIST_FOREACH(vq, vp->v_hashchain, v_specnext) {
 				if (vq->v_rdev != vp->v_rdev ||
 				    vq->v_type != vp->v_type || vp == vq)
 					continue;
@@ -185,8 +185,12 @@ vop_generic_islocked(void *v)
 	return (0);
 }
 
-struct filterops generic_filtops = 
-	{ 1, NULL, filt_generic_detach, filt_generic_readwrite };
+const struct filterops generic_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_generic_detach,
+	.f_event	= filt_generic_readwrite,
+};
 
 int
 vop_generic_kqfilter(void *v)

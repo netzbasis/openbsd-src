@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.c,v 1.51 2019/11/30 11:19:17 visa Exp $	*/
+/*	$OpenBSD: drm_linux.c,v 1.55 2020/01/05 13:46:02 visa Exp $	*/
 /*
  * Copyright (c) 2013 Jonathan Gray <jsg@openbsd.org>
  * Copyright (c) 2015, 2016 Mark Kettenis <kettenis@openbsd.org>
@@ -240,7 +240,7 @@ kthread_parkme(void)
 	while (thread->flags & KTHREAD_SHOULDPARK) {
 		thread->flags |= KTHREAD_PARKED;
 		wakeup(thread);
-		tsleep(thread, PPAUSE | PCATCH, "parkme", 0);
+		tsleep_nsec(thread, PPAUSE | PCATCH, "parkme", INFSLP);
 		thread->flags &= ~KTHREAD_PARKED;
 	}
 }
@@ -253,7 +253,7 @@ kthread_park(struct proc *p)
 	while ((thread->flags & KTHREAD_PARKED) == 0) {
 		thread->flags |= KTHREAD_SHOULDPARK;
 		wake_up_process(thread->proc);
-		tsleep(thread, PPAUSE | PCATCH, "park", 0);
+		tsleep_nsec(thread, PPAUSE | PCATCH, "park", INFSLP);
 	}
 }
 
@@ -281,7 +281,7 @@ kthread_stop(struct proc *p)
 	while ((thread->flags & KTHREAD_STOPPED) == 0) {
 		thread->flags |= KTHREAD_SHOULDSTOP;
 		wake_up_process(thread->proc);
-		tsleep(thread, PPAUSE | PCATCH, "stop", 0);
+		tsleep_nsec(thread, PPAUSE | PCATCH, "stop", INFSLP);
 	}
 	LIST_REMOVE(thread, next);
 	free(thread, M_DRM, sizeof(*thread));
@@ -1549,7 +1549,7 @@ dmabuf_seek(struct file *fp, off_t *offset, int whence, struct proc *p)
 	return (0);
 }
 
-struct fileops dmabufops = {
+const struct fileops dmabufops = {
 	.fo_read	= dmabuf_read,
 	.fo_write	= dmabuf_write,
 	.fo_ioctl	= dmabuf_ioctl,
@@ -1752,7 +1752,8 @@ wait_on_bit(unsigned long *word, int bit, unsigned mode)
 
 	mtx_enter(&wait_bit_mtx);
 	while (test_bit(bit, word)) {
-		err = msleep(word, &wait_bit_mtx, PWAIT | mode, "wtb", 0);
+		err = msleep_nsec(word, &wait_bit_mtx, PWAIT | mode, "wtb",
+		    INFSLP);
 		if (err) {
 			mtx_leave(&wait_bit_mtx);
 			return 1;
@@ -1866,4 +1867,35 @@ pci_resize_resource(struct pci_dev *pdev, int bar, int nsize)
 	pci_conf_write(pdev->pc, pdev->tag, offset + RBCTRL0, reg);
 
 	return 0;
+}
+
+TAILQ_HEAD(, shrinker) shrinkers = TAILQ_HEAD_INITIALIZER(shrinkers);
+
+int
+register_shrinker(struct shrinker *shrinker)
+{
+	TAILQ_INSERT_TAIL(&shrinkers, shrinker, next);
+	return 0;
+}
+
+void
+unregister_shrinker(struct shrinker *shrinker)
+{
+	TAILQ_REMOVE(&shrinkers, shrinker, next);
+}
+
+void
+drmbackoff(long npages)
+{
+	struct shrink_control sc;
+	struct shrinker *shrinker;
+	u_long ret;
+
+	shrinker = TAILQ_FIRST(&shrinkers);
+	while (shrinker && npages > 0) {
+		sc.nr_to_scan = npages;
+		ret = shrinker->scan_objects(shrinker, &sc);
+		npages -= ret;
+		shrinker = TAILQ_NEXT(shrinker, next);
+	}
 }

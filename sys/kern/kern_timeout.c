@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_timeout.c,v 1.66 2019/12/12 18:12:43 cheloha Exp $	*/
+/*	$OpenBSD: kern_timeout.c,v 1.70 2020/01/03 20:11:11 cheloha Exp $	*/
 /*
  * Copyright (c) 2001 Thomas Nordin <nordin@openbsd.org>
  * Copyright (c) 2000-2001 Artur Grabowski <art@openbsd.org>
@@ -224,16 +224,21 @@ timeout_proc_init(void)
 void
 timeout_set(struct timeout *new, void (*fn)(void *), void *arg)
 {
-	new->to_func = fn;
-	new->to_arg = arg;
-	new->to_flags = TIMEOUT_INITIALIZED;
+	timeout_set_flags(new, fn, arg, 0);
+}
+
+void
+timeout_set_flags(struct timeout *to, void (*fn)(void *), void *arg, int flags)
+{
+	to->to_func = fn;
+	to->to_arg = arg;
+	to->to_flags = flags | TIMEOUT_INITIALIZED;
 }
 
 void
 timeout_set_proc(struct timeout *new, void (*fn)(void *), void *arg)
 {
-	timeout_set(new, fn, arg);
-	SET(new->to_flags, TIMEOUT_NEEDPROCCTX);
+	timeout_set_flags(new, fn, arg, TIMEOUT_PROC);
 }
 
 int
@@ -250,7 +255,7 @@ timeout_add(struct timeout *new, int to_ticks)
 	/* Initialize the time here, it won't change. */
 	old_time = new->to_time;
 	new->to_time = to_ticks + ticks;
-	CLR(new->to_flags, TIMEOUT_TRIGGERED);
+	CLR(new->to_flags, TIMEOUT_TRIGGERED | TIMEOUT_SCHEDULED);
 
 	/*
 	 * If this timeout already is scheduled and now is moved
@@ -377,7 +382,7 @@ timeout_del(struct timeout *to)
 		tostat.tos_cancelled++;
 		ret = 1;
 	}
-	CLR(to->to_flags, TIMEOUT_TRIGGERED);
+	CLR(to->to_flags, TIMEOUT_TRIGGERED | TIMEOUT_SCHEDULED);
 	tostat.tos_deleted++;
 	mtx_leave(&timeout_mutex);
 
@@ -389,7 +394,7 @@ timeout_del_barrier(struct timeout *to)
 {
 	int removed;
 
-	timeout_sync_order(ISSET(to->to_flags, TIMEOUT_NEEDPROCCTX));
+	timeout_sync_order(ISSET(to->to_flags, TIMEOUT_PROC));
 
 	removed = timeout_del(to);
 	if (!removed)
@@ -401,7 +406,7 @@ timeout_del_barrier(struct timeout *to)
 void
 timeout_barrier(struct timeout *to)
 {
-	int needsproc = ISSET(to->to_flags, TIMEOUT_NEEDPROCCTX);
+	int needsproc = ISSET(to->to_flags, TIMEOUT_PROC);
 
 	timeout_sync_order(needsproc);
 
@@ -471,12 +476,12 @@ timeout_run(struct timeout *to)
 
 	MUTEX_ASSERT_LOCKED(&timeout_mutex);
 
-	CLR(to->to_flags, TIMEOUT_ONQUEUE);
+	CLR(to->to_flags, TIMEOUT_ONQUEUE | TIMEOUT_SCHEDULED);
 	SET(to->to_flags, TIMEOUT_TRIGGERED);
 
 	fn = to->to_func;
 	arg = to->to_arg;
-	needsproc = ISSET(to->to_flags, TIMEOUT_NEEDPROCCTX);
+	needsproc = ISSET(to->to_flags, TIMEOUT_PROC);
 
 	mtx_leave(&timeout_mutex);
 	timeout_sync_enter(needsproc);
@@ -494,10 +499,9 @@ timeout_run(struct timeout *to)
 void
 softclock(void *arg)
 {
-	int delta;
 	struct circq *bucket;
 	struct timeout *to;
-	int needsproc = 0;
+	int delta, needsproc;
 
 	mtx_enter(&timeout_mutex);
 	while (!CIRCQ_EMPTY(&timeout_todo)) {
@@ -512,20 +516,24 @@ softclock(void *arg)
 		if (delta > 0) {
 			bucket = &BUCKET(delta, to->to_time);
 			CIRCQ_INSERT_TAIL(bucket, &to->to_list);
-			tostat.tos_rescheduled++;
+			if (ISSET(to->to_flags, TIMEOUT_SCHEDULED))
+				tostat.tos_rescheduled++;
+			else
+				SET(to->to_flags, TIMEOUT_SCHEDULED);
+			tostat.tos_scheduled++;
 			continue;
 		}
-		if (delta < 0)
+		if (ISSET(to->to_flags, TIMEOUT_SCHEDULED) && delta < 0)
 			tostat.tos_late++;
-		if (ISSET(to->to_flags, TIMEOUT_NEEDPROCCTX)) {
+		if (ISSET(to->to_flags, TIMEOUT_PROC)) {
 			CIRCQ_INSERT_TAIL(&timeout_proc, &to->to_list);
-			needsproc = 1;
 			continue;
 		}
 		timeout_run(to);
 		tostat.tos_run_softclock++;
 	}
 	tostat.tos_softclocks++;
+	needsproc = !CIRCQ_EMPTY(&timeout_proc);
 	mtx_leave(&timeout_mutex);
 
 	if (needsproc)

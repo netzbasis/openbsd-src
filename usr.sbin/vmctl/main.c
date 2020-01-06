@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.59 2019/10/27 08:59:48 kn Exp $	*/
+/*	$OpenBSD: main.c,v 1.62 2020/01/03 05:32:00 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -265,6 +265,7 @@ vmmaction(struct parse_result *res)
 	case CMD_SEND:
 		send_vm(res->id, res->name);
 		done = 1;
+		ret = 0;
 		break;
 	case CMD_RECEIVE:
 		vm_receive(res->id, res->name);
@@ -407,8 +408,10 @@ parse_network(struct parse_result *res, char *word)
 }
 
 int
-parse_size(struct parse_result *res, char *word, long long val)
+parse_size(struct parse_result *res, char *word)
 {
+	long long val = 0;
+
 	if (word != NULL) {
 		if (scan_scaled(word, &val) != 0) {
 			warn("invalid size: %s", word);
@@ -576,7 +579,7 @@ ctl_create(struct parse_result *res, int argc, char *argv[])
 				err(1, "unveil");
 			break;
 		case 's':
-			if (parse_size(res, optarg, 0) != 0)
+			if (parse_size(res, optarg) != 0)
 				errx(1, "invalid size: %s", optarg);
 			break;
 		default:
@@ -872,7 +875,7 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 		case 'm':
 			if (res->size)
 				errx(1, "memory specified multiple times");
-			if (parse_size(res, optarg, 0) != 0)
+			if (parse_size(res, optarg) != 0)
 				errx(1, "invalid memory size: %s", optarg);
 			break;
 		case 'n':
@@ -1045,6 +1048,7 @@ ctl_openconsole(const char *name)
 	closefrom(STDERR_FILENO + 1);
 	if (unveil(VMCTL_CU, "x") == -1)
 		err(1, "unveil");
-	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "115200", (char *)NULL);
+	execl(VMCTL_CU, VMCTL_CU, "-r", "-l", name, "-s", "115200",
+	    (char *)NULL);
 	err(1, "failed to open the console");
 }

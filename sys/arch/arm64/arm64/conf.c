@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.8 2019/12/13 20:57:54 deraadt Exp $	*/
+/*	$OpenBSD: conf.c,v 1.10 2019/12/22 18:18:02 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995 Charles M. Hannum.  All rights reserved.
@@ -121,6 +121,7 @@ cdev_decl(spkr);
 #include "ksyms.h"
 #include "usb.h"
 #include "uhid.h"
+#include "fido.h"
 #include "ugen.h"
 #include "ulpt.h"
 #include "ucom.h"
@@ -145,6 +146,7 @@ cdev_decl(pci);
 #include "fuse.h"
 #include "openprom.h"
 #include "gpio.h"
+#include "ipmi.h"
 #include "switch.h"
 
 struct cdevsw	cdevsw[] =
@@ -253,8 +255,9 @@ struct cdevsw	cdevsw[] =
 	cdev_tun_init(NTUN,tap),	/* 93: Ethernet network tunnel */
 	cdev_notdef(),			/* 94 */
 	cdev_notdef(),			/* 95 */
-	cdev_notdef(),			/* 96 */
+	cdev_ipmi_init(NIPMI,ipmi),	/* 96: ipmi */
 	cdev_switch_init(NSWITCH,switch), /* 97: switch(4) control interface */
+	cdev_fido_init(NFIDO,fido),	/* 98: FIDO/U2F security key */
 };
 int	nchrdev = nitems(cdevsw);
 

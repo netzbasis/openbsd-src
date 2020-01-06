@@ -8,12 +8,12 @@
 /files.pcmcia/1.48/Fri Dec 13 20:57:54 2019//
 /if_an_pcmcia.c/1.26/Tue Nov 24 17:11:40 2015//
 /if_ep_pcmcia.c/1.48/Wed Nov 25 11:20:38 2015//
-/if_malo.c/1.93/Thu Oct 26 15:00:28 2017//
+/if_malo.c/1.94/Tue Dec 31 10:05:33 2019//
 /if_maloreg.h/1.15/Mon Oct  8 22:08:12 2007//
 /if_malovar.h/1.30/Fri Dec  6 21:03:04 2013//
 /if_ne_pcmcia.c/1.99/Tue Nov 24 13:33:18 2015//
 /if_sm_pcmcia.c/1.37/Tue Nov 24 17:11:40 2015//
-/if_wi_pcmcia.c/1.74/Tue Nov 24 17:11:40 2015//
+/if_wi_pcmcia.c/1.75/Tue Dec 31 10:05:33 2019//
 /if_xe.c/1.59/Sun Jan 22 10:17:39 2017//
 /if_xereg.h/1.4/Wed Oct 22 09:58:46 2003//
 /pcmcia.c/1.48/Fri Sep  8 05:36:52 2017//

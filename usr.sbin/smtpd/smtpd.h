@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.644 2019/12/12 22:10:47 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.649 2019/12/21 10:40:20 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -585,7 +585,7 @@ struct smtpd {
 	size_t				sc_scheduler_max_msg_batch_size;
 	size_t				sc_scheduler_max_schedule;
 
-	struct dict		       *sc_processors_dict;
+	struct dict		       *sc_filter_processes_dict;
 
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
@@ -1039,7 +1039,8 @@ enum filter_type {
 };
 
 enum filter_subsystem {
-	FILTER_SUBSYSTEM_SMTP_IN	= 1
+	FILTER_SUBSYSTEM_SMTP_IN	= 1<<0,
+	FILTER_SUBSYSTEM_SMTP_OUT	= 1<<1,
 };
 
 struct filter_proc {
@@ -1061,6 +1062,7 @@ struct filter_config {
 	char                           *rewrite;
 	char                           *report;
 	uint8_t				junk;
+  	uint8_t				bypass;
 	char                           *proc;
 
 	const char		      **chain;
@@ -1168,12 +1170,16 @@ struct dispatcher_remote {
 	char	*mail_from;
 
 	char	*smarthost;
+	int	 smarthost_domain;
+
 	char	*auth;
 	int	 tls_required;
 	int	 tls_noverify;
 
 	int	 backup;
 	char	*backupmx;
+
+	char	*filtername;
 
 	int	 srs;
 };
@@ -1379,7 +1385,7 @@ void lka_filter_init(void);
 void lka_filter_register_hook(const char *, const char *);
 void lka_filter_ready(void);
 int lka_filter_proc_in_session(uint64_t, const char *);
-void lka_filter_begin(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
+void lka_filter_begin(uint64_t, const char *);
 void lka_filter_end(uint64_t);
 void lka_filter_protocol(uint64_t, enum filter_phase, const char *);
 void lka_filter_data_begin(uint64_t);

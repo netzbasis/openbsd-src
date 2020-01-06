@@ -10,7 +10,7 @@
 /blockhooks.t/1.1.1.2/Wed Feb 13 21:11:31 2019/-ko/
 /bootstrap.t/1.1.1.1/Wed Feb 13 21:11:31 2019/-ko/
 /call.t/1.3/Wed Feb 13 21:15:24 2019/-ko/
-/call_checker.t/1.2/Sun Feb  5 00:32:14 2017/-ko/
+/call_checker.t/1.3/Mon Dec 30 02:13:53 2019/-ko/
 /caller.t/1.1.1.1/Mon Mar 25 20:08:47 2013/-ko/
 /callregexec.t/1.2/Sun Feb  5 00:32:14 2017/-kb/
 /check_warnings.t/1.1.1.1/Mon Mar 25 20:08:47 2013/-ko/
@@ -117,7 +117,7 @@
 /utf8_warn07.t/1.1.1.1/Wed Feb 13 21:11:31 2019/-ko/
 /utf8_warn08.t/1.1.1.1/Wed Feb 13 21:11:31 2019/-ko/
 /utf8_warn09.t/1.1.1.1/Wed Feb 13 21:11:31 2019/-ko/
-/utf8_warn_base.pl/1.1.1.1/Wed Feb 13 21:11:31 2019/-ko/
+/utf8_warn_base.pl/1.1.1.2/Mon Dec 30 02:10:51 2019/-ko/
 /weaken.t/1.1/Sun Feb  5 00:32:14 2017/-ko/
 /whichsig.t/1.1.1.1/Mon Mar 25 20:08:47 2013/-ko/
 /win32.t/1.1/Sun Feb  5 00:32:14 2017/-ko/

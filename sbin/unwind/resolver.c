@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.c,v 1.110 2019/12/13 16:18:54 otto Exp $	*/
+/*	$OpenBSD: resolver.c,v 1.119 2019/12/23 15:03:46 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -56,6 +56,9 @@
 #include "libunbound/util/module.h"
 #include "libunbound/util/regional.h"
 #include "libunbound/util/storage/slabhash.h"
+#include "libunbound/validator/validator.h"
+#include "libunbound/validator/val_kcache.h"
+#include "libunbound/validator/val_neg.h"
 
 #include <openssl/crypto.h>
 
@@ -150,6 +153,7 @@ void			 ub_resolve_done(void *, int, void *, int, int, char *,
 void			 asr_resolve_done(struct asr_result *, void *);
 void			 new_resolver(enum uw_resolver_type);
 struct uw_resolver	*create_resolver(enum uw_resolver_type);
+void			 setup_unified_caches(void);
 void			 set_unified_cache(struct uw_resolver *);
 void			 free_resolver(struct uw_resolver *);
 void			 set_forwarders(struct uw_resolver *,
@@ -170,6 +174,7 @@ int			 resolver_cmp(const void *, const void *);
 void			 restart_ub_resolvers(void);
 void			 show_status(pid_t);
 void			 show_autoconf(pid_t);
+void			 show_mem(pid_t);
 void			 send_resolver_info(struct uw_resolver *, pid_t);
 void			 send_detailed_resolver_info(struct uw_resolver *,
 			     pid_t);
@@ -206,9 +211,11 @@ struct event_base		*ev_base;
 
 RB_GENERATE(force_tree, force_tree_entry, entry, force_tree_cmp)
 
-struct alloc_cache		 unified_cache_alloc;
+int				 val_id = -1;
 struct slabhash			*unified_msg_cache;
 struct rrset_cache		*unified_rrset_cache;
+struct key_cache		*unified_key_cache;
+struct val_neg_cache		*unified_neg_cache;
 
 static const char * const	 as112_zones[] = {
 	/* RFC1918 */
@@ -333,10 +340,10 @@ resolver_sig_handler(int sig, short event, void *arg)
 void
 resolver(int debug, int verbose)
 {
-	struct config_file	*ub_cfg;
 	struct event		 ev_sigint, ev_sigterm;
 	struct passwd		*pw;
 	struct timeval		 tv = {DECAY_PERIOD, 0};
+	struct alloc_cache	 cache_alloc_test;
 
 	resolver_conf = config_new_empty();
 
@@ -390,28 +397,12 @@ resolver(int debug, int verbose)
 
 	clock_gettime(CLOCK_MONOTONIC, &last_network_change);
 
-	if ((ub_cfg = config_create_forlib()) == NULL)
-		fatal(NULL);
+	alloc_init(&cache_alloc_test, NULL, 0);
+	if (cache_alloc_test.max_reg_blocks != 10)
+		fatalx("local libunbound/util/alloc.c diff lost");
+	alloc_clear(&cache_alloc_test);
 
-	alloc_init(&unified_cache_alloc, NULL, 0);
-
-	/*
-	 * context_finalize() ensures that the cache is sized according to
-	 * the context's config. If we want to change the cache size we
-	 * need to reflect it in the config as well otherwise these cache
-	 * objects get deleted and re-created.
-	 */
-	if ((unified_msg_cache = slabhash_create(ub_cfg->msg_cache_slabs,
-	    HASH_DEFAULT_STARTARRAY, ub_cfg->msg_cache_size, msgreply_sizefunc,
-	    query_info_compare, query_entry_delete, reply_info_delete, NULL))
-	    == NULL)
-		fatal(NULL);
-
-	if ((unified_rrset_cache = rrset_cache_adjust(NULL, ub_cfg,
-	    &unified_cache_alloc)) == NULL)
-		fatal(NULL);
-
-	config_delete(ub_cfg);
+	setup_unified_caches();
 
 	TAILQ_INIT(&autoconf_forwarder_list);
 	TAILQ_INIT(&trust_anchors);
@@ -522,6 +513,12 @@ resolver_dispatch_frontend(int fd, short event, void *bula)
 				fatalx("%s: IMSG_CTL_AUTOCONF wrong length: "
 				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
 			show_autoconf(imsg.hdr.pid);
+			break;
+		case IMSG_CTL_MEM:
+			if (IMSG_DATA_SIZE(imsg) != 0)
+				fatalx("%s: IMSG_CTL_AUTOCONF wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
+			show_mem(imsg.hdr.pid);
 			break;
 		case IMSG_NEW_TA:
 			/* make sure this is a string */
@@ -774,8 +771,10 @@ try_next_resolver(struct running_query *rq)
 	timespecsub(&tp, &rq->tp, &elapsed);
 	ms = elapsed.tv_sec * 1000 + elapsed.tv_nsec / 1000000;
 
-	sldns_wire2str_class_buf(rq->query_imsg->c, qclass_buf, sizeof(qclass_buf));
-	sldns_wire2str_type_buf(rq->query_imsg->t, qtype_buf, sizeof(qtype_buf));
+	sldns_wire2str_class_buf(rq->query_imsg->c, qclass_buf,
+	    sizeof(qclass_buf));
+	sldns_wire2str_type_buf(rq->query_imsg->t, qtype_buf,
+	    sizeof(qtype_buf));
 	log_debug("%s[+%lldms]: %s[%s] %s %s %s", __func__, ms,
 	    uw_resolver_type_str[res->type], uw_resolver_state_str[res->state],
 	    rq->query_imsg->qname, qclass_buf, qtype_buf);
@@ -888,7 +887,7 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	struct timespec		 tp, elapsed;
 	int64_t			 ms;
 	size_t			 i;
-	int			 r, asr_pref_pos = -1, force_acceptbogus = 0;
+	int			 running_res, asr_pref_pos, force_acceptbogus;
 	char			*str;
 	char			 rcode_buf[16];
 	char			 qclass_buf[16];
@@ -897,7 +896,6 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	clock_gettime(CLOCK_MONOTONIC, &tp);
 
 	query_imsg = (struct query_imsg *)arg;
-	rq = find_running_query(query_imsg->id);
 
 	timespecsub(&tp, &query_imsg->tp, &elapsed);
 
@@ -916,6 +914,11 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 		res->latest_histogram[i] += 1000;
 		res->median = histogram_median(res->latest_histogram);
 	}
+
+	if ((rq = find_running_query(query_imsg->id)) == NULL)
+		goto out;
+
+	running_res = --rq->running;
 
 	if (answer_len < LDNS_HEADER_SIZE) {
 		log_warnx("bad packet: too short");
@@ -957,40 +960,36 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	if (tmp_res != NULL && tmp_res->type != res->type)
 		force_acceptbogus = 0;
 
+	timespecsub(&tp, &last_network_change, &elapsed);
 	if ((result->rcode == LDNS_RCODE_NXDOMAIN || sec == BOGUS) &&
-	    !force_acceptbogus && res->type != UW_RES_ASR) {
-		timespecsub(&tp, &last_network_change, &elapsed);
-		if (elapsed.tv_sec < DOUBT_NXDOMAIN_SEC) {
-			/*
-			 * Doubt NXDOMAIN or BOGUS if we just switched
-			 * networks, we might be behind a captive portal.
-			 */
-			log_debug("%s: doubt NXDOMAIN or BOGUS from %s, "
-			    "network change %llds ago", __func__,
-			    uw_resolver_type_str[res->type], elapsed.tv_sec);
-			if (rq) {
-				/* search for ASR */
-				for (i = 0; i < (size_t)rq->res_pref.len; i++)
-					if (rq->res_pref.types[i] ==
-					    UW_RES_ASR) {
-						asr_pref_pos = i;
-						break;
-					}
+	    !force_acceptbogus && res->type != UW_RES_ASR && elapsed.tv_sec <
+	    DOUBT_NXDOMAIN_SEC) {
+		/*
+		 * Doubt NXDOMAIN or BOGUS if we just switched networks, we
+		 * might be behind a captive portal.
+		 */
+		log_debug("%s: doubt NXDOMAIN or BOGUS from %s, network change"
+		    " %llds ago", __func__, uw_resolver_type_str[res->type],
+		    elapsed.tv_sec);
 
-				if (asr_pref_pos != -1 &&
-				    resolvers[UW_RES_ASR] != NULL) {
-					/* go to ASR if not yet scheduled */
-					if (asr_pref_pos >= rq->next_resolver) {
-						rq->next_resolver =
-						    asr_pref_pos;
-						goto retry;
-					} else
-						goto out;
-				}
-				log_debug("%s: using NXDOMAIN or BOGUS, "
-				    "couldn't find working ASR", __func__);
+		/* search for ASR */
+		asr_pref_pos = -1;
+		for (i = 0; i < (size_t)rq->res_pref.len; i++)
+			if (rq->res_pref.types[i] == UW_RES_ASR) {
+				asr_pref_pos = i;
+				break;
 			}
+
+		if (asr_pref_pos != -1 && resolvers[UW_RES_ASR] != NULL) {
+			/* go to ASR if not yet scheduled */
+			if (asr_pref_pos >= rq->next_resolver) {
+				rq->next_resolver = asr_pref_pos;
+				try_next_resolver(rq);
+			}
+			goto out;
 		}
+		log_debug("%s: using NXDOMAIN or BOGUS, couldn't find working "
+		    "ASR", __func__);
 	}
 
 	if (log_getverbose() & OPT_VERBOSE2 && (str =
@@ -1014,39 +1013,26 @@ resolve_done(struct uw_resolver *res, void *arg, int rcode,
 	} else
 		query_imsg->bogus = 0;
 
-	if (rq) {
-		rq->running--;
-		resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0,
-		    query_imsg, sizeof(*query_imsg));
+	resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0, query_imsg,
+	    sizeof(*query_imsg));
 
-		/* XXX imsg overflow */
-		resolver_imsg_compose_frontend(IMSG_ANSWER, 0, answer_packet,
-		    answer_len);
+	/* XXX imsg overflow */
+	resolver_imsg_compose_frontend(IMSG_ANSWER, 0, answer_packet,
+	    answer_len);
 
-		TAILQ_REMOVE(&running_queries, rq, entry);
-		evtimer_del(&rq->timer_ev);
-		free(rq->query_imsg);
-		free(rq);
-	}
-
+	TAILQ_REMOVE(&running_queries, rq, entry);
+	evtimer_del(&rq->timer_ev);
+	free(rq->query_imsg);
+	free(rq);
 	goto out;
 
  servfail:
-	if (rq) {
-		/* try_next_resolver() might free rq */
-		r = --rq->running;
-		if (try_next_resolver(rq) != 0 && r == 0) {
-			/* we are the last one, send SERVFAIL */
-			query_imsg->err = -4; /* UB_SERVFAIL */
-			resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0,
-			    query_imsg, sizeof(*query_imsg));
-		}
-	}
-	goto out;
- retry:
-	if (rq) {
-		rq->running--;
-		try_next_resolver(rq);
+	/* try_next_resolver() might free rq */
+	if (try_next_resolver(rq) != 0 && running_res == 0) {
+		/* we are the last one, send SERVFAIL */
+		query_imsg->err = -4; /* UB_SERVFAIL */
+		resolver_imsg_compose_frontend(IMSG_ANSWER_HEADER, 0,
+		    query_imsg, sizeof(*query_imsg));
 	}
  out:
 	free(query_imsg);
@@ -1072,9 +1058,15 @@ new_resolver(enum uw_resolver_type type)
 			return;
 		break;
 	case UW_RES_RECURSOR:
+		break;
 	case UW_RES_FORWARDER:
 	case UW_RES_ODOT_FORWARDER:
+		if (TAILQ_EMPTY(&resolver_conf->uw_forwarder_list))
+			return;
+		break;
 	case UW_RES_DOT:
+		if (TAILQ_EMPTY(&resolver_conf->uw_dot_forwarder_list))
+			return;
 		break;
 	case UW_RES_NONE:
 		fatalx("cannot create UW_RES_NONE resolver");
@@ -1109,8 +1101,17 @@ set_unified_cache(struct uw_resolver *res)
 
 	res->ctx->env->msg_cache = unified_msg_cache;
 	res->ctx->env->rrset_cache = unified_rrset_cache;
+	res->ctx->env->key_cache = unified_key_cache;
+	res->ctx->env->neg_cache = unified_neg_cache;
 
 	context_finalize(res->ctx);
+
+	if (res->ctx->env->msg_cache != unified_msg_cache ||
+	    res->ctx->env->rrset_cache != unified_rrset_cache ||
+	    res->ctx->env->key_cache != unified_key_cache ||
+	    res->ctx->env->neg_cache != unified_neg_cache)
+		fatalx("failed to set unified caches, libunbound/validator/"
+		    "validator.c diff lost");
 }
 
 static const struct {
@@ -1119,7 +1120,9 @@ static const struct {
 } options[] = {
 	{ "aggressive-nsec:", "yes" },
 	{ "fast-server-permil:", "950" },
-	{ "edns-buffer-size:", "1232" }
+	{ "edns-buffer-size:", "1232" },
+	{ "target-fetch-policy:", "0 0 0 0 0" },
+	{ "outgoing-range:", "64" }
 };
 
 struct uw_resolver *
@@ -1287,6 +1290,8 @@ create_resolver(enum uw_resolver_type type)
 void
 free_resolver(struct uw_resolver *res)
 {
+	struct val_env	*val_env;
+
 	if (res == NULL)
 		return;
 
@@ -1295,15 +1300,72 @@ free_resolver(struct uw_resolver *res)
 	else {
 		evtimer_del(&res->check_ev);
 		if (res->ctx != NULL) {
-			if (res->ctx->env->msg_cache == unified_msg_cache)
+			if (res->ctx->env->msg_cache == unified_msg_cache) {
+				val_env = (struct val_env*)
+				    res->ctx->env->modinfo[val_id];
 				res->ctx->env->msg_cache = NULL;
-			if (res->ctx->env->rrset_cache == unified_rrset_cache)
 				res->ctx->env->rrset_cache = NULL;
+				val_env->kcache = NULL;
+				res->ctx->env->key_cache = NULL;
+				val_env->neg_cache = NULL;
+				res->ctx->env->neg_cache = NULL;
+			}
 		}
 		ub_ctx_delete(res->ctx);
 		asr_resolver_free(res->asr_ctx);
 		free(res);
 	}
+}
+
+void
+setup_unified_caches(void)
+{
+	struct ub_ctx	*ctx;
+	struct val_env	*val_env;
+	size_t		 i;
+	int		 err, j;
+
+	if ((ctx = ub_ctx_create_event(ev_base)) == NULL)
+		fatalx("could not create unbound context");
+
+	for (i = 0; i < nitems(options); i++) {
+		if ((err = ub_ctx_set_option(ctx, options[i].name,
+		    options[i].value)) != 0) {
+			fatalx("error setting %s: %s: %s", options[i].name,
+			    options[i].value, ub_strerror(err));
+		}
+	}
+
+	context_finalize(ctx);
+
+	if (ctx->env->msg_cache == NULL || ctx->env->rrset_cache == NULL ||
+	    ctx->env->key_cache == NULL || ctx->env->neg_cache == NULL)
+		fatalx("could not setup unified caches");
+
+	unified_msg_cache = ctx->env->msg_cache;
+	unified_rrset_cache = ctx->env->rrset_cache;
+	unified_key_cache = ctx->env->key_cache;
+	unified_neg_cache = ctx->env->neg_cache;
+
+	if (val_id == -1) {
+		for (j = 0; j < ctx->mods.num; j++) {
+			if (strcmp(ctx->mods.mod[j]->name, "validator") == 0) {
+				val_id = j;
+				break;
+			}
+		}
+		if (val_id == -1)
+			fatalx("cannot find validator module");
+	}
+
+	val_env = (struct val_env*)ctx->env->modinfo[val_id];
+	ctx->env->msg_cache = NULL;
+	ctx->env->rrset_cache = NULL;
+	ctx->env->key_cache = NULL;
+	val_env->kcache = NULL;
+	ctx->env->neg_cache = NULL;
+	val_env->neg_cache = NULL;
+	ub_ctx_delete(ctx);
 }
 
 void
@@ -1641,6 +1703,25 @@ show_autoconf(pid_t pid)
 	}
 
 	resolver_imsg_compose_frontend(IMSG_CTL_END, pid, NULL, 0);
+}
+
+void
+show_mem(pid_t pid)
+{
+	struct ctl_mem_info	 cmi;
+
+	memset(&cmi, 0, sizeof(cmi));
+	cmi.msg_cache_used = slabhash_get_mem(unified_msg_cache);
+	cmi.msg_cache_max = slabhash_get_size(unified_msg_cache);
+	cmi.rrset_cache_used = slabhash_get_mem(&unified_rrset_cache->table);
+	cmi.rrset_cache_max = slabhash_get_size(&unified_rrset_cache->table);
+	cmi.key_cache_used = slabhash_get_mem(unified_key_cache->slab);
+	cmi.key_cache_max = slabhash_get_size(unified_key_cache->slab);
+	cmi.neg_cache_used = unified_neg_cache->use;
+	cmi.neg_cache_max = unified_neg_cache->max;
+	resolver_imsg_compose_frontend(IMSG_CTL_MEM_INFO, pid, &cmi,
+	    sizeof(cmi));
+
 }
 
 void

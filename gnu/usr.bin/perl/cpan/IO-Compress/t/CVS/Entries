@@ -1,4 +1,4 @@
-/000prereq.t/1.3/Wed Feb 13 21:15:12 2019/-ko/
+/000prereq.t/1.4/Mon Dec 30 02:13:44 2019/-ko/
 /001bzip2.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /001zlib-generic-deflate.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /001zlib-generic-gzip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
@@ -9,7 +9,7 @@
 /002any-rawdeflate.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /002any-transparent.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /002any-zip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
-/004gziphdr.t/1.1.1.2/Mon Mar 25 20:07:45 2013/-ko/
+/004gziphdr.t/1.1.1.3/Mon Dec 30 02:10:33 2019/-ko/
 /005defhdr.t/1.1.1.2/Mon Mar 25 20:07:45 2013/-ko/
 /006zip.t/1.1.1.4/Mon Nov 17 20:52:48 2014/-ko/
 /01misc.t/1.1.1.4/Mon Nov 17 20:52:48 2014/-ko/
@@ -20,11 +20,11 @@
 /100generic-gzip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /100generic-rawdeflate.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /100generic-zip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
-/101truncate-bzip2.t/1.2/Sun Feb  5 00:31:59 2017/-ko/
-/101truncate-deflate.t/1.2/Sun Feb  5 00:31:59 2017/-ko/
-/101truncate-gzip.t/1.2/Sun Feb  5 00:31:59 2017/-ko/
+/101truncate-bzip2.t/1.3/Mon Dec 30 02:13:44 2019/-ko/
+/101truncate-deflate.t/1.3/Mon Dec 30 02:13:44 2019/-ko/
+/101truncate-gzip.t/1.3/Mon Dec 30 02:13:44 2019/-ko/
 /101truncate-rawdeflate.t/1.2/Sun Feb  5 00:31:59 2017/-ko/
-/101truncate-zip.t/1.2/Sun Feb  5 00:31:59 2017/-ko/
+/101truncate-zip.t/1.3/Mon Dec 30 02:13:44 2019/-ko/
 /102tied-bzip2.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /102tied-deflate.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /102tied-gzip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
@@ -46,7 +46,7 @@
 /105oneshot-gzip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /105oneshot-rawdeflate.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /105oneshot-zip-bzip2-only.t/1.1.1.2/Mon Mar 25 20:07:45 2013/-ko/
-/105oneshot-zip-only.t/1.1.1.2/Mon Mar 25 20:07:45 2013/-ko/
+/105oneshot-zip-only.t/1.1.1.3/Mon Dec 30 02:10:33 2019/-ko/
 /105oneshot-zip-store-only.t/1.2/Sun Feb  5 00:32:00 2017/-ko/
 /105oneshot-zip.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
 /106prime-bzip2.t/1.1.1.1/Fri Sep 24 14:49:05 2010/-ko/
@@ -83,3 +83,4 @@
 /cz-14gzopen.t/1.1.1.3/Mon Mar 24 14:58:53 2014/-ko/
 /globmapper.t/1.1.1.2/Mon Mar 25 20:07:45 2013/-ko/
 D/compress////
+D/files////

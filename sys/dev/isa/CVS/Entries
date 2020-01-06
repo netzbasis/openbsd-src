@@ -53,7 +53,7 @@
 /if_ep_isapnp.c/1.16/Tue Nov 24 17:11:39 2015//
 /if_ex.c/1.46/Sun Jun  4 20:28:05 2017//
 /if_exreg.h/1.4/Sat May 23 15:35:10 2009//
-/if_ie.c/1.54/Sat Nov  4 10:55:38 2017//
+/if_ie.c/1.55/Thu Dec 19 20:23:25 2019//
 /if_ie507.h/1.2/Fri Nov  7 08:06:56 1997//
 /if_ieatt.h/1.2/Fri Nov  7 08:06:58 1997//
 /if_iee16.h/1.2/Fri Nov  7 08:06:59 1997//
@@ -92,7 +92,7 @@
 /pcdisplay.c/1.12/Sun Oct 20 20:07:29 2013//
 /pcdisplayvar.h/1.4/Fri Apr  2 04:39:51 2004//
 /pckbc_isa.c/1.19/Tue Aug 18 06:54:00 2015//
-/pcppi.c/1.14/Wed Feb 20 07:00:31 2019//
+/pcppi.c/1.15/Tue Dec 31 10:05:32 2019//
 /pcppireg.h/1.1/Sat Jan  2 00:02:44 1999//
 /pcppivar.h/1.3/Thu Mar 14 01:26:56 2002//
 /pnpdevs/1.112/Thu May 24 19:40:51 2012//
@@ -103,7 +103,7 @@
 /sb.c/1.29/Mon Sep 19 06:46:44 2016//
 /sb_isa.c/1.10/Tue May 12 16:35:23 2015//
 /sb_isapnp.c/1.15/Tue May 12 16:35:23 2015//
-/sbdsp.c/1.37/Wed Sep 14 06:12:19 2016//
+/sbdsp.c/1.38/Tue Dec 31 10:05:32 2019//
 /sbdspvar.h/1.18/Wed Sep 14 06:12:19 2016//
 /sbreg.h/1.6/Tue Jul  2 19:38:55 2002//
 /sbvar.h/1.2/Thu Mar 14 01:26:56 2002//
@@ -118,10 +118,10 @@
 /vga_isavar.h/1.4/Thu Mar 14 01:26:56 2002//
 /viasio.c/1.14/Wed Dec 10 12:27:57 2014//
 /viasioreg.h/1.3/Fri Feb 24 11:16:17 2006//
-/wbsio.c/1.10/Sat Mar 14 03:38:47 2015//
-/wbsioreg.h/1.4/Fri Jan  2 23:02:54 2015//
+/wbsio.c/1.11/Tue Dec 17 01:34:59 2019//
+/wbsioreg.h/1.5/Tue Dec 17 01:34:59 2019//
 /wdc_isa.c/1.16/Fri Sep  8 05:36:52 2017//
 /wdc_isapnp.c/1.11/Fri Sep  8 05:36:52 2017//
-/wds.c/1.43/Fri Sep  8 05:36:52 2017//
+/wds.c/1.44/Tue Dec 31 10:05:32 2019//
 /wdsreg.h/1.5/Wed Jun 29 12:17:40 2011//
 D

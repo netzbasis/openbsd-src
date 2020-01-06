@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-queue.c,v 1.76 2019/12/12 11:39:56 nicm Exp $ */
+/* $OpenBSD: cmd-queue.c,v 1.79 2020/01/05 12:51:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2013 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -53,12 +53,16 @@ cmdq_get(struct client *c)
 }
 
 /* Append an item. */
-void
+struct cmdq_item *
 cmdq_append(struct client *c, struct cmdq_item *item)
 {
 	struct cmdq_list	*queue = cmdq_get(c);
 	struct cmdq_item	*next;
 
+	TAILQ_FOREACH(next, queue, entry) {
+		log_debug("%s %s: queue %s (%u)", __func__, cmdq_name(c),
+		    next->name, next->group);
+	}
 	do {
 		next = item->next;
 		item->next = NULL;
@@ -73,16 +77,21 @@ cmdq_append(struct client *c, struct cmdq_item *item)
 
 		item = next;
 	} while (item != NULL);
+	return (TAILQ_LAST(queue, cmdq_list));
 }
 
 /* Insert an item. */
-void
+struct cmdq_item *
 cmdq_insert_after(struct cmdq_item *after, struct cmdq_item *item)
 {
 	struct client		*c = after->client;
 	struct cmdq_list	*queue = after->queue;
 	struct cmdq_item	*next;
 
+	TAILQ_FOREACH(next, queue, entry) {
+		log_debug("%s %s: queue %s (%u)", __func__, cmdq_name(c),
+		    next->name, next->group);
+	}
 	do {
 		next = item->next;
 		item->next = after->next;
@@ -100,6 +109,7 @@ cmdq_insert_after(struct cmdq_item *after, struct cmdq_item *item)
 		after = item;
 		item = next;
 	} while (item != NULL);
+	return (after);
 }
 
 /* Insert a hook. */
@@ -143,11 +153,10 @@ cmdq_insert_hook(struct session *s, struct cmdq_item *item,
 
 		new_item = cmdq_get_command(cmdlist, fs, NULL, CMDQ_NOHOOKS);
 		cmdq_format(new_item, "hook", "%s", name);
-		if (item != NULL) {
-			cmdq_insert_after(item, new_item);
-			item = new_item;
-		} else
-			cmdq_append(NULL, new_item);
+		if (item != NULL)
+			item = cmdq_insert_after(item, new_item);
+		else
+			item = cmdq_append(NULL, new_item);
 
 		a = options_array_next(a);
 	}
@@ -512,7 +521,7 @@ cmdq_print(struct cmdq_item *item, const char *fmt, ...)
 		wme = TAILQ_FIRST(&wp->modes);
 		if (wme == NULL || wme->mode != &window_view_mode)
 			window_pane_set_mode(wp, &window_view_mode, NULL, NULL);
-		window_copy_vadd(wp, fmt, ap);
+		window_copy_add(wp, "%s", msg);
 	}
 
 	free(msg);
@@ -542,7 +551,10 @@ cmdq_error(struct cmdq_item *item, const char *fmt, ...)
 			msg = utf8_sanitize(tmp);
 			free(tmp);
 		}
-		file_error(c, "%s\n", msg);
+		if (c->flags & CLIENT_CONTROL)
+			file_print(c, "%s\n", msg);
+		else
+			file_error(c, "%s\n", msg);
 		c->retval = 1;
 	} else {
 		*msg = toupper((u_char) *msg);

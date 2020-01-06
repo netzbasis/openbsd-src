@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.268 2019/12/12 22:10:47 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.272 2019/12/21 11:07:38 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -174,7 +174,7 @@ typedef struct {
 %}
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
-%token	BACKUP BOUNCE
+%token	BACKUP BOUNCE BYPASS
 %token	CA CERT CHAIN CHROOT CIPHERS COMMIT COMPRESSION CONNECT
 %token	DATA DATA_LINE DHE DISCONNECT DOMAIN
 %token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY 
@@ -434,7 +434,7 @@ pki_params_opt pki_params
 
 proc:
 PROC STRING STRING {
-	if (dict_get(conf->sc_processors_dict, $2)) {
+	if (dict_get(conf->sc_filter_processes_dict, $2)) {
 		yyerror("processor already exists with that name: %s", $2);
 		free($2);
 		free($3);
@@ -443,7 +443,7 @@ PROC STRING STRING {
 	processor = xcalloc(1, sizeof *processor);
 	processor->command = $3;
 } proc_params {
-	dict_set(conf->sc_processors_dict, $2, processor);
+	dict_set(conf->sc_filter_processes_dict, $2, processor);
 	processor = NULL;
 }
 ;
@@ -818,6 +818,27 @@ HELO STRING {
 
 	dispatcher->u.remote.smarthost = strdup(t->t_name);
 }
+| DOMAIN tables {
+	struct table   *t = $2;
+
+	if (dispatcher->u.remote.smarthost) {
+		yyerror("host mapping already specified for this dispatcher");
+		YYERROR;
+	}
+	if (dispatcher->u.remote.backup) {
+		yyerror("backup and domain are mutually exclusive");
+		YYERROR;
+	}
+
+	if (!table_check_use(t, T_DYNAMIC|T_HASH, K_RELAYHOST)) {
+		yyerror("table \"%s\" may not be used for host lookups",
+		    t->t_name);
+		YYERROR;
+	}
+
+	dispatcher->u.remote.smarthost = strdup(t->t_name);
+	dispatcher->u.remote.smarthost_domain = 1;
+}
 | TLS {
 	if (dispatcher->u.remote.tls_required == 1) {
 		yyerror("tls already specified for this dispatcher");
@@ -855,6 +876,45 @@ HELO STRING {
 	}
 
 	dispatcher->u.remote.auth = strdup(t->t_name);
+}
+| FILTER STRING {
+	struct filter_config *fc;
+
+	if (dispatcher->u.remote.filtername) {
+		yyerror("filter already specified for this dispatcher");
+		YYERROR;
+	}
+
+	if ((fc = dict_get(conf->sc_filters_dict, $2)) == NULL) {
+		yyerror("no filter exist with that name: %s", $2);
+		free($2);
+		YYERROR;
+	}
+	fc->filter_subsystem |= FILTER_SUBSYSTEM_SMTP_OUT;
+	dispatcher->u.remote.filtername = $2;
+}
+| FILTER {
+	char	buffer[128];
+	char	*filtername;
+
+	if (dispatcher->u.remote.filtername) {
+		yyerror("filter already specified for this dispatcher");
+		YYERROR;
+	}
+
+	do {
+		(void)snprintf(buffer, sizeof buffer, "<dynchain:%08x>", last_dynchain_id++);
+	} while (dict_check(conf->sc_filters_dict, buffer));
+
+	filtername = xstrdup(buffer);
+	filter_config = xcalloc(1, sizeof *filter_config);
+	filter_config->filter_type = FILTER_TYPE_CHAIN;
+	filter_config->filter_subsystem |= FILTER_SUBSYSTEM_SMTP_OUT;
+	dict_init(&filter_config->chain_procs);
+	dispatcher->u.remote.filtername = filtername;
+} '{' filter_list '}' {
+	dict_set(conf->sc_filters_dict, dispatcher->u.remote.filtername, filter_config);
+	filter_config = NULL;
 }
 | SRS {
 	if (conf->sc_srs_key == NULL) {
@@ -1466,6 +1526,9 @@ filter_action_builtin_nojunk
 | JUNK {
 	filter_config->junk = 1;
 }
+| BYPASS {
+	filter_config->bypass = 1;
+}
 ;
 
 filter_action_builtin_nojunk:
@@ -1770,7 +1833,7 @@ FILTER STRING PROC STRING {
 		free($4);
 		YYERROR;
 	}
-	if ((fp = dict_get(conf->sc_processors_dict, $4)) == NULL) {
+	if ((fp = dict_get(conf->sc_filter_processes_dict, $4)) == NULL) {
 		yyerror("no processor exist with that name: %s", $4);
 		free($4);
 		YYERROR;
@@ -1801,7 +1864,7 @@ FILTER STRING PROC_EXEC STRING {
 	filter_config->proc = xstrdup($2);
 	dict_set(conf->sc_filters_dict, $2, filter_config);
 } proc_params {
-	dict_set(conf->sc_processors_dict, filter_config->proc, processor);
+	dict_set(conf->sc_filter_processes_dict, filter_config->proc, processor);
 	processor = NULL;
 	filter_config = NULL;
 }
@@ -2500,6 +2563,7 @@ lookup(char *s)
 		{ "auth-optional",     	AUTH_OPTIONAL },
 		{ "backup",		BACKUP },
 		{ "bounce",		BOUNCE },
+		{ "bypass",		BYPASS },
 		{ "ca",			CA },
 		{ "cert",		CERT },
 		{ "chain",		CHAIN },

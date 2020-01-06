@@ -14,7 +14,7 @@
 /circ_buf.h/1.1/Sun Apr 14 10:14:53 2019//
 /compat.h/1.1/Sun Apr 14 10:14:53 2019//
 /compiler.h/1.1/Sun Apr 14 10:14:53 2019//
-/completion.h/1.2/Tue Apr 23 13:35:12 2019//
+/completion.h/1.3/Mon Dec 30 09:30:31 2019//
 /component.h/1.1/Sun Apr 14 10:14:53 2019//
 /console.h/1.1/Sun Apr 14 10:14:53 2019//
 /cpufreq.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -87,7 +87,7 @@
 /mem_encrypt.h/1.1/Sun Apr 14 10:14:53 2019//
 /mempolicy.h/1.1/Sun Apr 14 10:14:53 2019//
 /miscdevice.h/1.1/Sun Apr 14 10:14:53 2019//
-/mm.h/1.2/Wed May  8 22:44:31 2019//
+/mm.h/1.3/Wed Dec 25 11:31:41 2019//
 /mm_types.h/1.1/Sun Apr 14 10:14:53 2019//
 /mman.h/1.1/Sun Apr 14 10:14:53 2019//
 /mmu_context.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -96,7 +96,7 @@
 /module.h/1.1/Sun Apr 14 10:14:53 2019//
 /moduleparam.h/1.1/Sun Apr 14 10:14:53 2019//
 /mount.h/1.1/Sun Apr 14 10:14:53 2019//
-/mutex.h/1.1/Sun Apr 14 10:14:53 2019//
+/mutex.h/1.2/Wed Dec 25 11:31:41 2019//
 /nospec.h/1.1/Sun Apr 14 10:14:53 2019//
 /notifier.h/1.2/Sun Aug 18 13:11:47 2019//
 /of_device.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -135,6 +135,7 @@
 /seq_file.h/1.1/Sun Apr 14 10:14:53 2019//
 /seqlock.h/1.2/Thu Jul  4 01:53:23 2019//
 /shmem_fs.h/1.1/Sun Apr 14 10:14:53 2019//
+/shrinker.h/1.2/Thu Dec 26 13:36:16 2019//
 /sizes.h/1.1/Sun Apr 14 10:14:53 2019//
 /slab.h/1.2/Wed May  8 22:44:31 2019//
 /smp.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -144,7 +145,7 @@
 /stop_machine.h/1.1/Sun Apr 14 10:14:53 2019//
 /string.h/1.1/Sun Apr 14 10:14:53 2019//
 /stringify.h/1.1/Sun Apr 14 10:14:53 2019//
-/swap.h/1.1/Sun Apr 14 10:14:53 2019//
+/swap.h/1.2/Wed Dec 25 11:31:41 2019//
 /swiotlb.h/1.1/Sun Apr 14 10:14:53 2019//
 /sync_file.h/1.1/Sun Apr 14 10:14:53 2019//
 /sysfs.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -156,7 +157,7 @@
 /tty.h/1.1/Sun Apr 14 10:14:53 2019//
 /typecheck.h/1.1/Sun Apr 14 10:14:53 2019//
 /types.h/1.1/Sun Apr 14 10:14:53 2019//
-/uaccess.h/1.1/Sun Apr 14 10:14:53 2019//
+/uaccess.h/1.2/Wed Dec 18 08:56:19 2019//
 /uuid.h/1.1/Sun Apr 14 10:14:53 2019//
 /version.h/1.1/Sun Apr 14 10:14:53 2019//
 /vga_switcheroo.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -166,7 +167,7 @@
 /wait.h/1.4/Wed May  8 23:35:23 2019//
 /wait_bit.h/1.1/Sun Apr 14 10:14:53 2019//
 /workqueue.h/1.2/Sat May 11 14:39:13 2019//
-/ww_mutex.h/1.1/Sun Apr 14 10:14:53 2019//
+/ww_mutex.h/1.2/Mon Dec 30 10:09:48 2019//
 /zlib.h/1.1/Sun Apr 14 10:14:53 2019//
 D/gpio////
 D/mfd////

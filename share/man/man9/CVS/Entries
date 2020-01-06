@@ -43,7 +43,7 @@
 /extent.9/1.19/Sun Nov  1 21:26:48 2015//
 /fb_setup.9/1.7/Thu Nov 30 11:29:03 2017//
 /ffs.9/1.1/Mon Apr 23 10:30:39 2018//
-/file.9/1.20/Mon Jul 15 04:20:38 2019//
+/file.9/1.22/Fri Jan  3 05:37:00 2020//
 /fork1.9/1.30/Sun Jun 11 17:06:27 2017//
 /getdevvp.9/1.8/Tue Jun  4 19:27:06 2013//
 /getnewvnode.9/1.9/Wed Aug 14 06:32:32 2013//
@@ -95,8 +95,8 @@
 /pci_intr_map.9/1.13/Tue Jun  4 19:27:10 2013//
 /pci_mapreg_map.9/1.1/Sat Feb 23 04:54:25 2019//
 /physio.9/1.11/Fri Dec  6 19:12:37 2019//
-/pmap.9/1.18/Fri Dec  6 19:15:16 2019//
-/pool.9/1.57/Fri Dec  6 19:15:16 2019//
+/pmap.9/1.19/Mon Dec 16 10:34:04 2019//
+/pool.9/1.58/Mon Dec 16 10:25:22 2019//
 /pool_cache_init.9/1.8/Fri Jan 12 04:36:45 2018//
 /ppsratecheck.9/1.6/Sun Apr  3 06:43:59 2016//
 /printf.9/1.24/Sat Nov  7 03:48:25 2015//
@@ -134,7 +134,7 @@
 /tfind.9/1.1/Tue Jan 24 00:58:55 2017//
 /thread_fork.9/1.2/Wed Feb 15 03:33:13 2017//
 /time_second.9/1.1/Sun Apr  3 06:43:59 2016//
-/timeout.9/1.49/Mon Dec  2 21:47:54 2019//
+/timeout.9/1.50/Fri Jan  3 02:16:38 2020//
 /tsleep.9/1.13/Wed Jul  3 22:39:33 2019//
 /tvtohz.9/1.11/Fri Jan 18 03:34:58 2019//
 /uiomove.9/1.19/Tue Mar 15 06:49:21 2016//
@@ -164,7 +164,7 @@
 /vgone.9/1.8/Wed Jul 17 20:21:55 2013//
 /vhold.9/1.9/Wed Jul 17 20:21:55 2013//
 /vinvalbuf.9/1.12/Thu Jul 25 01:43:20 2019//
-/vnode.9/1.31/Fri Dec  6 19:15:16 2019//
+/vnode.9/1.32/Mon Dec 16 10:28:53 2019//
 /vnsubr.9/1.16/Sun Oct  6 16:32:56 2019//
 /vput.9/1.10/Wed Aug 14 06:32:32 2013//
 /vrecycle.9/1.10/Tue Jun  4 19:27:17 2013//

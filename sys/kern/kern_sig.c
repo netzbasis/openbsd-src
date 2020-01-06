@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sig.c,v 1.236 2019/12/11 07:30:09 guenther Exp $	*/
+/*	$OpenBSD: kern_sig.c,v 1.239 2020/01/03 09:46:41 claudio Exp $	*/
 /*	$NetBSD: kern_sig.c,v 1.54 1996/04/22 01:38:32 christos Exp $	*/
 
 /*
@@ -75,8 +75,12 @@ int	filt_sigattach(struct knote *kn);
 void	filt_sigdetach(struct knote *kn);
 int	filt_signal(struct knote *kn, long hint);
 
-struct filterops sig_filtops =
-	{ 0, filt_sigattach, filt_sigdetach, filt_signal };
+const struct filterops sig_filtops = {
+	.f_isfd		= 0,
+	.f_attach	= filt_sigattach,
+	.f_detach	= filt_sigdetach,
+	.f_event	= filt_signal,
+};
 
 void proc_stop(struct proc *p, int);
 void proc_stop_sweep(void *);
@@ -507,7 +511,7 @@ sys_sigsuspend(struct proc *p, void *v, register_t *retval)
 	struct sigacts *ps = pr->ps_sigacts;
 
 	dosigsuspend(p, SCARG(uap, mask) &~ sigcantmask);
-	while (tsleep(ps, PPAUSE|PCATCH, "pause", 0) == 0)
+	while (tsleep_nsec(ps, PPAUSE|PCATCH, "pause", INFSLP) == 0)
 		/* void */;
 	/* always return EINTR rather than ERESTART... */
 	return (EINTR);
@@ -706,33 +710,6 @@ killpg1(struct proc *cp, int signum, int pgid, int all)
 
 #define CANSIGIO(cr, pr) \
 	CANDELIVER((cr)->cr_ruid, (cr)->cr_uid, (pr))
-
-/*
- * Deliver signum to pgid, but first check uid/euid against each
- * process and see if it is permitted.
- */
-void
-csignal(pid_t pgid, int signum, uid_t uid, uid_t euid)
-{
-	struct pgrp *pgrp;
-	struct process *pr;
-
-	if (pgid == 0)
-		return;
-	if (pgid < 0) {
-		pgid = -pgid;
-		if ((pgrp = pgfind(pgid)) == NULL)
-			return;
-		LIST_FOREACH(pr, &pgrp->pg_members, ps_pglist)
-			if (CANDELIVER(uid, euid, pr))
-				prsignal(pr, signum);
-	} else {
-		if ((pr = prfind(pgid)) == NULL)
-			return;
-		if (CANDELIVER(uid, euid, pr))
-			prsignal(pr, signum);
-	}
-}
 
 /*
  * Send a signal to a process group.  If checktty is 1,
@@ -2055,7 +2032,7 @@ single_thread_wait(struct process *pr)
 {
 	/* wait until they're all suspended */
 	while (pr->ps_singlecount > 0)
-		tsleep(&pr->ps_singlecount, PWAIT, "suspend", 0);
+		tsleep_nsec(&pr->ps_singlecount, PWAIT, "suspend", INFSLP);
 }
 
 void

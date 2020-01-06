@@ -1,4 +1,4 @@
-#	$OpenBSD: cert-hostkey.sh,v 1.21 2019/12/11 18:47:14 djm Exp $
+#	$OpenBSD: cert-hostkey.sh,v 1.23 2020/01/03 03:02:26 djm Exp $
 #	Placed in the Public Domain.
 
 tid="certified host keys"
@@ -9,7 +9,7 @@ rm -f $OBJ/cert_host_key* $OBJ/host_krl_*
 # Allow all hostkey/pubkey types, prefer certs for the client
 rsa=0
 types=""
-for i in `$SSH -Q key | filter_sk`; do
+for i in `$SSH -Q key | maybe_filter_sk`; do
 	if [ -z "$types" ]; then
 		types="$i"
 		continue
@@ -70,7 +70,7 @@ touch $OBJ/host_revoked_plain
 touch $OBJ/host_revoked_cert
 cat $OBJ/host_ca_key.pub $OBJ/host_ca_key2.pub > $OBJ/host_revoked_ca
 
-PLAIN_TYPES=`$SSH -Q key-plain  | filter_sk | sed 's/^ssh-dss/ssh-dsa/g;s/^ssh-//'`
+PLAIN_TYPES=`echo "$SSH_KEYTYPES" | sed 's/^ssh-dss/ssh-dsa/g;s/^ssh-//'`
 
 if echo "$PLAIN_TYPES" | grep '^rsa$' >/dev/null 2>&1 ; then
 	PLAIN_TYPES="$PLAIN_TYPES rsa-sha2-256 rsa-sha2-512"
@@ -252,7 +252,7 @@ test_one() {
 test_one "user-certificate"	failure "-n $HOSTS"
 test_one "empty principals"	success "-h"
 test_one "wrong principals"	failure "-h -n foo"
-test_one "cert not yet valid"	failure "-h -V20200101:20300101"
+test_one "cert not yet valid"	failure "-h -V20300101:20320101"
 test_one "cert expired"		failure "-h -V19800101:19900101"
 test_one "cert valid interval"	success "-h -V-1w:+2w"
 test_one "cert has constraints"	failure "-h -Oforce-command=false"

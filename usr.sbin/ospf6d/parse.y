@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.45 2019/06/11 05:00:09 remi Exp $ */
+/*	$OpenBSD: parse.y,v 1.48 2019/12/26 10:24:18 remi Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Esben Norby <norby@openbsd.org>
@@ -126,7 +126,7 @@ typedef struct {
 
 %token	AREA INTERFACE ROUTERID FIBPRIORITY FIBUPDATE REDISTRIBUTE RTLABEL
 %token	RDOMAIN STUB ROUTER SPFDELAY SPFHOLDTIME EXTTAG
-%token	METRIC PASSIVE
+%token	METRIC P2P PASSIVE
 %token	HELLOINTERVAL TRANSMITDELAY
 %token	RETRANSMITINTERVAL ROUTERDEADTIME ROUTERPRIORITY
 %token	SET TYPE
@@ -289,8 +289,10 @@ redistribute	: no REDISTRIBUTE STRING optlist dependon {
 				r->type = REDIST_STATIC;
 			else if (!strcmp($3, "connected"))
 				r->type = REDIST_CONNECTED;
-			else if (prefix($3, &r->addr, &r->prefixlen))
+			else if (prefix($3, &r->addr, &r->prefixlen)) {
 				r->type = REDIST_ADDR;
+				conf->redist_label_or_prefix = !$1;
+			}
 			else {
 				yyerror("unknown redistribute type");
 				free($3);
@@ -318,6 +320,8 @@ redistribute	: no REDISTRIBUTE STRING optlist dependon {
 			r->label = rtlabel_name2id($4);
 			if ($1)
 				r->type |= REDIST_NO;
+			else
+				conf->redist_label_or_prefix = 1;
 			r->metric = $5;
 			if ($6)
 				strlcpy(r->dependon, $6, sizeof(r->dependon));
@@ -533,7 +537,7 @@ interface	: INTERFACE STRING	{
 				YYERROR;
 			}
 			free($2);
-			iface->area_id.s_addr = area->id.s_addr;
+			iface->area = area;
 			LIST_INSERT_HEAD(&area->iface_list, iface, entry);
 
 			memcpy(&ifacedefs, defs, sizeof(ifacedefs));
@@ -562,6 +566,10 @@ interfaceopts_l	: interfaceopts_l interfaceoptsl nl
 		;
 
 interfaceoptsl	: PASSIVE		{ iface->cflags |= F_IFACE_PASSIVE; }
+		| TYPE P2P		{
+			iface->p2p = 1;
+			iface->type = IF_TYPE_POINTOPOINT;
+		}
 		| DEMOTE STRING		{
 			if (strlcpy(iface->demote_group, $2,
 			    sizeof(iface->demote_group)) >=
@@ -641,6 +649,7 @@ lookup(char *s)
 		{"metric",		METRIC},
 		{"no",			NO},
 		{"on",			ON},
+		{"p2p",			P2P},
 		{"passive",		PASSIVE},
 		{"rdomain",		RDOMAIN},
 		{"redistribute",	REDISTRIBUTE},

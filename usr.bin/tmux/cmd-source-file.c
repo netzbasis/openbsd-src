@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-source-file.c,v 1.42 2019/12/12 12:49:36 nicm Exp $ */
+/* $OpenBSD: cmd-source-file.c,v 1.45 2019/12/21 17:30:48 tim Exp $ */
 
 /*
  * Copyright (c) 2008 Tiago Cunha <me@tiagocunha.org>
@@ -114,6 +114,7 @@ cmd_source_file_done(struct client *c, const char *path, int error,
 static void
 cmd_source_file_add(struct cmd_source_file_data *cdata, const char *path)
 {
+	log_debug("%s: %s", __func__, path);
 	cdata->files = xreallocarray(cdata->files, cdata->nfiles + 1,
 	    sizeof *cdata->files);
 	cdata->files[cdata->nfiles++] = xstrdup(path);
@@ -124,13 +125,12 @@ cmd_source_file_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args			*args = self->args;
 	struct cmd_source_file_data	*cdata;
-	int				 flags = 0;
 	struct client			*c = item->client;
 	enum cmd_retval			 retval = CMD_RETURN_NORMAL;
 	char				*pattern, *cwd;
 	const char			*path, *error;
 	glob_t				 g;
-	int				 i;
+	int				 i, result;
 	u_int				 j;
 
 	cdata = xcalloc(1, sizeof *cdata);
@@ -158,9 +158,15 @@ cmd_source_file_exec(struct cmd *self, struct cmdq_item *item)
 			xasprintf(&pattern, "%s/%s", cwd, path);
 		log_debug("%s: %s", __func__, pattern);
 
-		if (glob(pattern, 0, NULL, &g) != 0) {
-			error = strerror(errno);
-			if (errno != ENOENT || (~flags & CMD_PARSE_QUIET)) {
+		if ((result = glob(pattern, 0, NULL, &g)) != 0) {
+			if (result != GLOB_NOMATCH ||
+			    (~cdata->flags & CMD_PARSE_QUIET)) {
+				if (result == GLOB_NOMATCH)
+					error = strerror(ENOENT);
+				else if (result == GLOB_NOSPACE)
+					error = strerror(ENOMEM);
+				else
+					error = strerror(EINVAL);
 				cmdq_error(item, "%s: %s", path, error);
 				retval = CMD_RETURN_ERROR;
 			}

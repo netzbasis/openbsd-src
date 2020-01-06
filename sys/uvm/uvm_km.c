@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_km.c,v 1.133 2019/12/08 12:37:45 mpi Exp $	*/
+/*	$OpenBSD: uvm_km.c,v 1.135 2019/12/30 23:58:38 jsg Exp $	*/
 /*	$NetBSD: uvm_km.c,v 1.42 2001/01/14 02:10:01 thorpej Exp $	*/
 
 /* 
@@ -168,14 +168,13 @@ uvm_km_init(vaddr_t base, vaddr_t start, vaddr_t end)
 	 * before installing.
 	 */
 
-	uvm_map_setup(&kernel_map_store, base, end,
+	uvm_map_setup(&kernel_map_store, pmap_kernel(), base, end,
 #ifdef KVA_GUARDPAGES
 	    VM_MAP_PAGEABLE | VM_MAP_GUARDPAGES
 #else
 	    VM_MAP_PAGEABLE
 #endif
 	    );
-	kernel_map_store.pmap = pmap_kernel();
 	if (base != start && uvm_map(&kernel_map_store, &base, start - base,
 	    NULL, UVM_UNKNOWN_OFFSET, 0,
 	    UVM_MAPFLAG(PROT_READ | PROT_WRITE, PROT_READ | PROT_WRITE,
@@ -220,8 +219,7 @@ uvm_km_suballoc(struct vm_map *map, vaddr_t *min, vaddr_t *max, vsize_t size,
 		if (submap == NULL)
 			panic("uvm_km_suballoc: unable to create submap");
 	} else {
-		uvm_map_setup(submap, *min, *max, flags);
-		submap->pmap = vm_map_pmap(map);
+		uvm_map_setup(submap, vm_map_pmap(map), *min, *max, flags);
 	}
 
 	/* now let uvm_map_submap plug in it...  */
@@ -717,8 +715,8 @@ uvm_km_thread(void *arg)
 		mtx_enter(&uvm_km_pages.mtx);
 		if (uvm_km_pages.free >= uvm_km_pages.lowat &&
 		    uvm_km_pages.freelist == NULL) {
-			msleep(&uvm_km_pages.km_proc, &uvm_km_pages.mtx,
-			    PVM, "kmalloc", 0);
+			msleep_nsec(&uvm_km_pages.km_proc, &uvm_km_pages.mtx,
+			    PVM, "kmalloc", INFSLP);
 		}
 		allocmore = uvm_km_pages.free < uvm_km_pages.lowat;
 		fp = uvm_km_pages.freelist;
@@ -882,8 +880,8 @@ alloc_va:
 				uvm_pglistfree(&pgl);
 				return NULL;
 			}
-			msleep(&uvm_km_pages.free, &uvm_km_pages.mtx, PVM,
-			    "getpage", 0);
+			msleep_nsec(&uvm_km_pages.free, &uvm_km_pages.mtx,
+			    PVM, "getpage", INFSLP);
 		}
 		va = uvm_km_pages.page[--uvm_km_pages.free];
 		if (uvm_km_pages.free < uvm_km_pages.lowat &&

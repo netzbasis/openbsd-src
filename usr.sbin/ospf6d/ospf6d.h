@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6d.h,v 1.40 2019/06/11 05:00:09 remi Exp $ */
+/*	$OpenBSD: ospf6d.h,v 1.44 2020/01/03 17:45:02 denis Exp $ */
 
 /*
  * Copyright (c) 2004, 2007 Esben Norby <norby@openbsd.org>
@@ -112,6 +112,7 @@ enum imsg_type {
 	IMSG_NEIGHBOR_CHANGE,
 	IMSG_NETWORK_ADD,
 	IMSG_NETWORK_DEL,
+	IMSG_AREA_CHANGE,
 	IMSG_DD,
 	IMSG_DD_END,
 	IMSG_DB_SNAPSHOT,
@@ -304,10 +305,10 @@ struct iface {
 	struct in6_addr		 addr;
 	struct in6_addr		 dst;
 	struct in_addr		 abr_id;
-	struct in_addr		 area_id;
 	struct nbr		*dr;	/* designated router */
 	struct nbr		*bdr;	/* backup designated router */
 	struct nbr		*self;
+	struct area		*area;
 
 	u_int64_t		 baudrate;
 	u_int32_t		 ls_ack_cnt;
@@ -328,6 +329,7 @@ struct iface {
 	u_int8_t		 if_type;
 	u_int8_t		 linkstate;
 	u_int8_t		 priority;
+	u_int8_t		 p2p;
 	u_int8_t		 cflags;
 #define F_IFACE_PASSIVE		0x01
 #define F_IFACE_CONFIGURED	0x02
@@ -385,6 +387,7 @@ struct ospfd_conf {
 	int			spf_state;
 	int			ospf_socket;
 	int			flags;
+	int			redist_label_or_prefix;
 	u_int8_t		border;
 	u_int8_t		redistribute;
 	u_int8_t		fib_priority;
@@ -422,7 +425,6 @@ extern struct n2id_labels rt_labels;
 struct ctl_iface {
 	char			 name[IF_NAMESIZE];
 	struct in6_addr		 addr;
-	struct in6_addr		 mask;
 	struct in_addr		 area;
 	struct in_addr		 rtr_id;
 	struct in_addr		 dr_id;
@@ -510,7 +512,7 @@ struct demote_msg {
 struct area	*area_new(void);
 int		 area_del(struct area *);
 struct area	*area_find(struct ospfd_conf *, struct in_addr);
-void		 area_track(struct area *, int);
+void		 area_track(struct area *);
 int		 area_border_router(struct ospfd_conf *);
 u_int32_t	 area_ospf_options(struct area *);
 
@@ -540,15 +542,16 @@ u_int16_t	 in_cksum(void *, size_t);
 u_int16_t	 iso_cksum(void *, u_int16_t, u_int16_t);
 
 /* kroute.c */
-int		 kr_init(int, u_int, u_int8_t);
+int		 kr_init(int, u_int, int, u_int8_t);
 int		 kr_change(struct kroute *, int);
 int		 kr_delete(struct kroute *);
 void		 kr_shutdown(void);
 void		 kr_fib_couple(void);
 void		 kr_fib_decouple(void);
+void		 kr_fib_update_prio(u_int8_t);
 void		 kr_dispatch_msg(int, short, void *);
 void		 kr_show_route(struct imsg *);
-void		 kr_reload(void);
+void		 kr_reload(int);
 
 void		 embedscope(struct sockaddr_in6 *);
 void		 recoverscope(struct sockaddr_in6 *);

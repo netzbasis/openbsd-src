@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vio.c,v 1.14 2019/10/25 07:13:54 claudio Exp $	*/
+/*	$OpenBSD: if_vio.c,v 1.16 2019/12/31 10:05:33 mpi Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch, Alexander Fiveg.
@@ -482,7 +482,7 @@ err_reqs:
 			bus_dmamap_destroy(vsc->sc_dmat, sc->sc_rx_dmamaps[i]);
 	}
 	if (sc->sc_arrays) {
-		free(sc->sc_arrays, M_DEVBUF, 0);
+		free(sc->sc_arrays, M_DEVBUF, allocsize);
 		sc->sc_arrays = 0;
 	}
 err_hdr:
@@ -1277,9 +1277,11 @@ vio_sleep(struct vio_softc *sc, const char *wmesg)
 	int status = rw_status(&netlock);
 
 	if (status != RW_WRITE && status != RW_READ)
-		return tsleep(&sc->sc_ctrl_inuse, PRIBIO|PCATCH, wmesg, 0);
+		return tsleep_nsec(&sc->sc_ctrl_inuse, PRIBIO|PCATCH, wmesg,
+		    INFSLP);
 
-	return rwsleep(&sc->sc_ctrl_inuse, &netlock, PRIBIO|PCATCH, wmesg, 0);
+	return rwsleep_nsec(&sc->sc_ctrl_inuse, &netlock, PRIBIO|PCATCH, wmesg,
+	    INFSLP);
 }
 
 int
