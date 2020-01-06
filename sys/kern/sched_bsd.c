@@ -48,7 +48,6 @@
 #include <sys/sched.h>
 #include <sys/timeout.h>
 #include <sys/smr.h>
-#include <sys/gpuperf.h>
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
@@ -537,6 +536,7 @@ int perfpolicy = PERFPOL_MANUAL;
 /*
  * The code below handles CPU throttling.
  */
+#include <sys/gpuperf.h>
 #include <sys/sysctl.h>
 
 void setperf_auto(void *);
