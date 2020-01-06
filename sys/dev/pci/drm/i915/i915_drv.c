@@ -3691,7 +3691,6 @@ fail:
 }
 
 #ifdef __OpenBSD__
-#define GPUPERF_DEBUG
 #ifdef GPUPERF_DEBUG
 #define PPRINTF(x...)   do { printf(x); } while(0)
 #else

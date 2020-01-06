@@ -23,8 +23,6 @@
 #include <sys/types.h>
 #include <sys/malloc.h>
 
-
-#define GPUPERF_DEBUG
 #ifdef GPUPERF_DEBUG
 #define DPRINTF(x...)	do { printf(x); } while(0)
 #else
