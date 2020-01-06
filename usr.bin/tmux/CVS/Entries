@@ -38,7 +38,7 @@
 /cmd-parse.y/1.21/Thu Dec 12 15:01:54 2019//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
-/cmd-queue.c/1.78/Thu Dec 19 09:22:33 2019//
+/cmd-queue.c/1.79/Sun Jan  5 12:51:43 2020//
 /cmd-refresh-client.c/1.30/Thu Nov 28 09:05:34 2019//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
@@ -79,7 +79,7 @@
 /input-keys.c/1.66/Mon Nov 18 09:42:09 2019//
 /input.c/1.167/Thu Nov 28 09:50:09 2019//
 /job.c/1.55/Fri Jun 28 13:35:05 2019//
-/key-bindings.c/1.105/Thu Dec 19 09:22:33 2019//
+/key-bindings.c/1.106/Sun Jan  5 20:39:25 2020//
 /key-string.c/1.52/Thu Nov 14 07:55:01 2019//
 /layout-custom.c/1.19/Thu Nov 28 09:45:15 2019//
 /layout-set.c/1.28/Thu Nov 28 09:45:15 2019//
