@@ -11,6 +11,4 @@ get_nr_swap_pages(void)
 	return uvmexp.swpages - uvmexp.swpginuse;
 }
 
-#define current_is_kswapd()	0
-
 #endif
