@@ -1,7 +1,7 @@
 /*	$OpenBSD$	*/
 
 /*
- * Copyright (c) 2019 Benjamin Baier <ben@netzbasis.de>
+ * Copyright (c) 2019, 2020 Benjamin Baier <ben@netzbasis.de>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
