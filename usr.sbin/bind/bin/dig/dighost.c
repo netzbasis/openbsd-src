@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dighost.c,v 1.21 2019/12/17 01:52:25 sthen Exp $ */
+/* $Id: dighost.c,v 1.23 2020/01/06 17:46:59 florian Exp $ */
 
 /*! \file
  *  \note
@@ -97,9 +97,6 @@
 #include <isccfg/namedconf.h>
 
 #include <lwres/lwres.h>
-#include <lwres/net.h>
-
-#include <bind9/getaddresses.h>
 
 #include <dig/dig.h>
 
@@ -115,8 +112,8 @@
 #define NS_IN6ADDRSZ	16
 #endif
 
-static lwres_context_t *lwctx = NULL;
-static lwres_conf_t *lwconf;
+static lwres_conf_t  confdata;
+static lwres_conf_t *lwconf = &confdata;
 
 dig_lookuplist_t lookup_list;
 dig_serverlist_t server_list;
@@ -404,16 +401,6 @@ check_next_lookup(dig_lookup_t *lookup);
 static isc_boolean_t
 next_origin(dig_lookup_t *oldlookup);
 
-static void *
-mem_alloc(void *arg, size_t size) {
-	return (isc_mem_get(arg, size));
-}
-
-static void
-mem_free(void *arg, void *mem, size_t size) {
-	isc_mem_put(arg, mem, size);
-}
-
 char *
 next_token(char **stringp, const char *delim) {
 	char *res;
@@ -660,7 +647,7 @@ copy_server_list(lwres_conf_t *confdata, dig_serverlist_t *dest) {
 		if (af == AF_INET6 && !have_ipv6)
 			continue;
 
-		lwres_net_ntop(af, confdata->nameservers[i].address,
+		inet_ntop(af, confdata->nameservers[i].address,
 				   tmp, sizeof(tmp));
 		if (af == AF_INET6 && confdata->nameservers[i].zone != 0) {
 			char buf[sizeof("%4000000000")];
@@ -688,6 +675,68 @@ flush_server_list(void) {
 	}
 }
 
+/* this used to be bind9_getaddresses from lib/bind9 */
+static isc_result_t
+get_addresses(const char *hostname, in_port_t port,
+		   isc_sockaddr_t *addrs, int addrsize, int *addrcount)
+{
+	struct addrinfo *ai = NULL, *tmpai, hints;
+	int result, i;
+
+	REQUIRE(hostname != NULL);
+	REQUIRE(addrs != NULL);
+	REQUIRE(addrcount != NULL);
+	REQUIRE(addrsize > 0);
+
+	memset(&hints, 0, sizeof(hints));
+	if (!have_ipv6)
+		hints.ai_family = PF_INET;
+	else if (!have_ipv4)
+		hints.ai_family = PF_INET6;
+	else {
+		hints.ai_family = PF_UNSPEC;
+		hints.ai_flags = AI_ADDRCONFIG;
+	}
+	hints.ai_socktype = SOCK_STREAM;
+
+	result = getaddrinfo(hostname, NULL, &hints, &ai);
+	switch (result) {
+	case 0:
+		break;
+	case EAI_NONAME:
+	case EAI_NODATA:
+		return (ISC_R_NOTFOUND);
+	default:
+		return (ISC_R_FAILURE);
+	}
+	for (tmpai = ai, i = 0;
+	     tmpai != NULL && i < addrsize;
+	     tmpai = tmpai->ai_next)
+	{
+		if (tmpai->ai_family != AF_INET &&
+		    tmpai->ai_family != AF_INET6)
+			continue;
+		if (tmpai->ai_family == AF_INET) {
+			struct sockaddr_in *sin;
+			sin = (struct sockaddr_in *)tmpai->ai_addr;
+			isc_sockaddr_fromin(&addrs[i], &sin->sin_addr, port);
+		} else {
+			struct sockaddr_in6 *sin6;
+			sin6 = (struct sockaddr_in6 *)tmpai->ai_addr;
+			isc_sockaddr_fromin6(&addrs[i], &sin6->sin6_addr,
+					     port);
+		}
+		i++;
+
+	}
+	freeaddrinfo(ai);
+	*addrcount = i;
+	if (*addrcount == 0)
+		return (ISC_R_NOTFOUND);
+	else
+		return (ISC_R_SUCCESS);
+}
+
 void
 set_nameserver(char *opt) {
 	isc_result_t result;
@@ -700,7 +749,7 @@ set_nameserver(char *opt) {
 	if (opt == NULL)
 		return;
 
-	result = bind9_getaddresses(opt, 0, sockaddrs,
+	result = get_addresses(opt, 0, sockaddrs,
 				    DIG_MAX_ADDRESSES, &count);
 	if (result != ISC_R_SUCCESS)
 		fatal("couldn't get address for '%s': %s",
@@ -739,7 +788,7 @@ add_nameserver(lwres_conf_t *confdata, const char *addr, int af) {
 		return (ISC_R_FAILURE);
 	}
 
-	if (lwres_net_pton(af, addr, &confdata->nameservers[i].address) == 1) {
+	if (inet_pton(af, addr, &confdata->nameservers[i].address) == 1) {
 		confdata->nsnext++;
 		return (ISC_R_SUCCESS);
 	}
@@ -1424,7 +1473,6 @@ void
 setup_system(isc_boolean_t ipv4only, isc_boolean_t ipv6only) {
 	dig_searchlist_t *domain = NULL;
 	lwres_result_t lwresult;
-	unsigned int lwresflags;
 	isc_result_t result;
 
 	debug("setup_system()");
@@ -1447,22 +1495,10 @@ setup_system(isc_boolean_t ipv4only, isc_boolean_t ipv6only) {
 		}
 	}
 
-	lwresflags = LWRES_CONTEXT_SERVERMODE;
-	if (have_ipv4)
-		lwresflags |= LWRES_CONTEXT_USEIPV4;
-	if (have_ipv6)
-		lwresflags |= LWRES_CONTEXT_USEIPV6;
-
-	lwresult = lwres_context_create(&lwctx, mctx, mem_alloc, mem_free,
-					lwresflags);
-	if (lwresult != LWRES_R_SUCCESS)
-		fatal("lwres_context_create failed");
-
-	lwresult = lwres_conf_parse(lwctx, RESOLV_CONF);
+	lwres_conf_init(lwconf);
+	lwresult = lwres_conf_parse(lwconf, RESOLV_CONF);
 	if (lwresult != LWRES_R_SUCCESS && lwresult != LWRES_R_NOTFOUND)
 		fatal("parse of %s failed", RESOLV_CONF);
-
-	lwconf = lwres_conf_get(lwctx);
 
 	/* Make the search list */
 	if (lwconf->searchnxt > 0)
@@ -4285,7 +4321,7 @@ get_address(char *host, in_port_t myport, isc_sockaddr_t *sockaddr) {
 	is_running = isc_app_isrunning();
 	if (is_running)
 		isc_app_block();
-	result = bind9_getaddresses(host, myport, sockaddr, 1, &count);
+	result = get_addresses(host, myport, sockaddr, 1, &count);
 	if (is_running)
 		isc_app_unblock();
 	if (result != ISC_R_SUCCESS)
@@ -4305,7 +4341,7 @@ getaddresses(dig_lookup_t *lookup, const char *host, isc_result_t *resultp) {
 	dig_server_t *srv;
 	char tmp[ISC_NETADDR_FORMATSIZE];
 
-	result = bind9_getaddresses(host, 0, sockaddrs,
+	result = get_addresses(host, 0, sockaddrs,
 				    DIG_MAX_ADDRESSES, &count);
 	if (resultp != NULL)
 		*resultp = result;
@@ -4454,8 +4490,7 @@ destroy_libs(void) {
 
 	free_now = ISC_TRUE;
 
-	lwres_conf_clear(lwctx);
-	lwres_context_destroy(&lwctx);
+	lwres_conf_clear(lwconf);
 
 	flush_server_list();
 
