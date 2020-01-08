@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: timer.c,v 1.4 2019/12/17 01:46:34 sthen Exp $ */
+/* $Id: timer.c,v 1.6 2020/01/07 19:09:26 florian Exp $ */
 
 /*! \file */
 
@@ -41,11 +41,7 @@
 #endif
 
 /* See task.c about the following definition: */
-#ifdef ISC_PLATFORM_USETHREADS
-#define USE_TIMER_THREAD
-#else
 #define USE_SHARED_MANAGER
-#endif	/* ISC_PLATFORM_USETHREADS */
 
 #ifndef USE_TIMER_THREAD
 #include "timer_p.h"
@@ -783,9 +779,6 @@ dispatch(isc__timermgr_t *manager, isc_time_t *now) {
 
 #ifdef USE_TIMER_THREAD
 static isc_threadresult_t
-#ifdef _WIN32			/* XXXDCL */
-WINAPI
-#endif
 run(void *uap) {
 	isc__timermgr_t *manager = uap;
 	isc_time_t now;
