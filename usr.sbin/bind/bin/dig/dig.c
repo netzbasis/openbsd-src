@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dig.c,v 1.28 2020/01/02 10:27:46 schwarze Exp $ */
+/* $Id: dig.c,v 1.30 2020/01/07 19:09:26 florian Exp $ */
 
 /*! \file */
 
@@ -194,11 +194,7 @@ received(unsigned int bytes, isc_sockaddr_t *from, dig_query_t *query) {
 	isc_uint64_t diff;
 	time_t tnow;
 	struct tm tmnow;
-#ifdef WIN32
-	wchar_t time_str[100];
-#else
 	char time_str[100];
-#endif
 	char fromtext[ISC_SOCKADDR_FORMATSIZE];
 
 	isc_sockaddr_format(from, fromtext, sizeof(fromtext));
@@ -211,25 +207,11 @@ received(unsigned int bytes, isc_sockaddr_t *from, dig_query_t *query) {
 			printf(";; Query time: %ld msec\n", (long) diff / 1000);
 		printf(";; SERVER: %s(%s)\n", fromtext, query->servname);
 		time(&tnow);
-#if defined(ISC_PLATFORM_USETHREADS) && !defined(WIN32)
-		(void)localtime_r(&tnow, &tmnow);
-#else
 		tmnow  = *localtime(&tnow);
-#endif
 
-#ifdef WIN32
-		/*
-		 * On Windows, time zone name ("%Z") may be a localized
-		 * wide-character string, which strftime() handles incorrectly.
-		 */
-		if (wcsftime(time_str, sizeof(time_str)/sizeof(time_str[0]),
-			     L"%a %b %d %H:%M:%S %Z %Y", &tmnow) > 0U)
-			printf(";; WHEN: %ls\n", time_str);
-#else
 		if (strftime(time_str, sizeof(time_str),
 			     "%a %b %d %H:%M:%S %Z %Y", &tmnow) > 0U)
 			printf(";; WHEN: %s\n", time_str);
-#endif
 		if (query->lookup->doing_xfr) {
 			printf(";; XFR size: %u records (messages %u, "
 			       "bytes %" ISC_PRINT_QUADFORMAT "u)\n",

@@ -148,11 +148,6 @@
  */
 @ISC_PLATFORM_HAVEDEVPOLL@
 
-/*! \brief
- * Define if we want to log backtrace
- */
-@ISC_PLATFORM_USEBACKTRACE@
-
 /*
  *** Printing.
  ***/
@@ -219,11 +214,6 @@
 /***
  *** Miscellaneous.
  ***/
-
-/*
- * Defined if we are using threads.
- */
-@ISC_PLATFORM_USETHREADS@
 
 /*
  * Defined if unistd.h does not cause fd_set to be delared.
