@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl_parser.c,v 1.338 2018/09/16 19:36:33 bluhm Exp $ */
+/*	$OpenBSD: pfctl_parser.c,v 1.342 2019/10/17 21:54:28 millert Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -62,10 +62,9 @@
 #include "pfctl_parser.h"
 #include "pfctl.h"
 
-void		 copy_satopfaddr(struct pf_addr *, struct sockaddr *);
 void		 print_op (u_int8_t, const char *, const char *);
 void		 print_port (u_int8_t, u_int16_t, u_int16_t, const char *, int);
-void		 print_ugid (u_int8_t, unsigned, unsigned, const char *, unsigned);
+void		 print_ugid (u_int8_t, id_t, id_t, const char *);
 void		 print_flags (u_int8_t);
 void		 print_fromto(struct pf_rule_addr *, pf_osfp_t,
 		    struct pf_rule_addr *, u_int8_t, u_int8_t, int);
@@ -399,14 +398,14 @@ print_port(u_int8_t op, u_int16_t p1, u_int16_t p2, const char *proto, int opts)
 }
 
 void
-print_ugid(u_int8_t op, unsigned u1, unsigned u2, const char *t, unsigned umax)
+print_ugid(u_int8_t op, id_t i1, id_t i2, const char *t)
 {
 	char	a1[11], a2[11];
 
-	snprintf(a1, sizeof(a1), "%u", u1);
-	snprintf(a2, sizeof(a2), "%u", u2);
+	snprintf(a1, sizeof(a1), "%u", i1);
+	snprintf(a2, sizeof(a2), "%u", i2);
 	printf(" %s", t);
-	if (u1 == umax && (op == PF_OP_EQ || op == PF_OP_NE))
+	if (i1 == -1 && (op == PF_OP_EQ || op == PF_OP_NE))
 		print_op(op, "unknown", a2);
 	else
 		print_op(op, a1, a2);
@@ -838,11 +837,9 @@ print_rule(struct pf_rule *r, const char *anchor_call, int opts)
 		printf(" %sreceived-on %s", r->rcvifnot ? "!" : "",
 		    r->rcv_ifname);
 	if (r->uid.op)
-		print_ugid(r->uid.op, r->uid.uid[0], r->uid.uid[1], "user",
-		    UID_MAX);
+		print_ugid(r->uid.op, r->uid.uid[0], r->uid.uid[1], "user");
 	if (r->gid.op)
-		print_ugid(r->gid.op, r->gid.gid[0], r->gid.gid[1], "group",
-		    GID_MAX);
+		print_ugid(r->gid.op, r->gid.gid[0], r->gid.gid[1], "group");
 	if (r->flags || r->flagset) {
 		printf(" flags ");
 		print_flags(r->flags);
@@ -1351,7 +1348,7 @@ ifa_load(void)
 	struct ifaddrs		*ifap, *ifa;
 	struct node_host	*n = NULL, *h = NULL;
 
-	if (getifaddrs(&ifap) < 0)
+	if (getifaddrs(&ifap) == -1)
 		err(1, "getifaddrs");
 
 	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -1628,7 +1625,7 @@ host(const char *s, int opts)
 		if_name++;
 	}
 
-	if ((p = strrchr(ps, '/')) != NULL) {
+	if ((p = strchr(ps, '/')) != NULL) {
 		mask = strtonum(p+1, 0, 128, &errstr);
 		if (errstr) {
 			fprintf(stderr, "netmask is %s: %s\n", errstr, p);

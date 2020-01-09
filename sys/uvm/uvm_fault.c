@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_fault.c,v 1.94 2018/10/31 08:50:25 kettenis Exp $	*/
+/*	$OpenBSD: uvm_fault.c,v 1.97 2019/12/08 12:37:45 mpi Exp $	*/
 /*	$NetBSD: uvm_fault.c,v 1.51 2000/08/06 00:22:53 thorpej Exp $	*/
 
 /*
@@ -301,7 +301,7 @@ uvmfault_anonget(struct uvm_faultinfo *ufi, struct vm_amap *amap,
 			 * the owner of page
 			 */
 			uvmfault_unlockall(ufi, amap, NULL, NULL);
-			UVM_WAIT(pg, 0, "anonget2", 0);
+			tsleep_nsec(pg, PVM, "anonget2", INFSLP);
 			/* ready to relock and try again */
 		} else {
 			/* no page, we must try and bring it in. */
@@ -1029,7 +1029,7 @@ Case2:
 			KASSERT(result != VM_PAGER_PEND);
 
 			if (result == VM_PAGER_AGAIN) {
-				tsleep(&lbolt, PVM, "fltagain2", 0);
+				tsleep_nsec(&lbolt, PVM, "fltagain2", INFSLP);
 				goto ReFault;
 			}
 
@@ -1069,6 +1069,8 @@ Case2:
 			UVM_PAGE_OWN(uobjpage, NULL);
 			goto ReFault;
 		}
+		if (locked == FALSE)
+			goto ReFault;
 
 		/*
 		 * we have the data in uobjpage which is PG_BUSY

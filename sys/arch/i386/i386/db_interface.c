@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.40 2018/03/31 13:45:03 bluhm Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.42 2019/11/06 07:34:35 mpi Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.22 1996/05/03 19:42:00 christos Exp $	*/
 
 /*
@@ -67,7 +67,7 @@ extern int trap_types;
 
 #ifdef MULTIPROCESSOR
 extern volatile int ddb_state;
-boolean_t	 db_switch_cpu;
+int		 db_switch_cpu;
 long		 db_switch_to_cpu;
 #endif
 
@@ -127,10 +127,10 @@ db_ktrap(int type, int code, db_regs_t *regs)
 	}
 
 #ifdef MULTIPROCESSOR
-	mtx_enter(&ddb_mp_mutex);
+	db_mtx_enter(&ddb_mp_mutex);
 	if (ddb_state == DDB_STATE_EXITING)
 		ddb_state = DDB_STATE_NOT_RUNNING;
-	mtx_leave(&ddb_mp_mutex);
+	db_mtx_leave(&ddb_mp_mutex);
 	while (db_enter_ddb()) {
 #endif /* MULTIPROCESSOR */
 
@@ -153,9 +153,9 @@ db_ktrap(int type, int code, db_regs_t *regs)
 
 	s = splhigh();
 	db_active++;
-	cnpollc(TRUE);
+	cnpollc(1);
 	db_trap(type, code);
-	cnpollc(FALSE);
+	cnpollc(0);
 	db_active--;
 	splx(s);
 

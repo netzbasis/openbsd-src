@@ -6,7 +6,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 684;
+use Test::More tests => 712;
 
 use lib 't';
 
@@ -17,4 +17,4 @@ our ($mbi, $mbf);
 $mbi = 'Math::BigInt::Subclass';
 $mbf = 'Math::BigFloat::Subclass';
 
-require 't/mbimbf.inc';
+require './t/mbimbf.inc';

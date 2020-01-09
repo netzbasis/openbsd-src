@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.50 2018/03/20 15:45:32 mpi Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.54 2019/11/07 14:44:53 mpi Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.61 2001/07/31 06:55:47 eeh Exp $ */
 
 /*
@@ -62,10 +62,10 @@
 #include "tda.h"
 
 #ifdef MULTIPROCESSOR
-struct mutex ddb_mp_mutex = MUTEX_INITIALIZER(IPL_HIGH);
+struct db_mutex ddb_mp_mutex = DB_MUTEX_INITIALIZER;
 volatile int ddb_state = DDB_STATE_NOT_RUNNING;
 volatile cpuid_t ddb_active_cpu;
-boolean_t	 db_switch_cpu;
+int		 db_switch_cpu;
 struct cpu_info *db_switch_to_cpu;
 #endif
 
@@ -280,10 +280,10 @@ db_ktrap(type, tf)
 	}
 
 #ifdef MULTIPROCESSOR
-	mtx_enter(&ddb_mp_mutex);
+	db_mtx_enter(&ddb_mp_mutex);
 	if (ddb_state == DDB_STATE_EXITING)
 		ddb_state = DDB_STATE_NOT_RUNNING;
-	mtx_leave(&ddb_mp_mutex);
+	db_mtx_leave(&ddb_mp_mutex);
 	while (db_enter_ddb()) {
 #endif
 
@@ -299,13 +299,13 @@ db_ktrap(type, tf)
 
 	s = splhigh();
 	db_active++;
-	cnpollc(TRUE);
+	cnpollc(1);
 	/* Need to do spl stuff till cnpollc works */
 	tl = ddb_regs.ddb_tl = savetstate(ts);
 	db_dump_ts(0, 0, 0, 0);
 	db_trap(type, 0/*code*/);
 	restoretstate(tl,ts);
-	cnpollc(FALSE);
+	cnpollc(0);
 	db_active--;
 	splx(s);
 
@@ -435,14 +435,14 @@ db_enter_ddb(void)
 {
 	struct cpu_info *ci;
 
-	mtx_enter(&ddb_mp_mutex);
+	db_mtx_enter(&ddb_mp_mutex);
 
 	/* If we are first in, grab ddb and stop all other CPUs */
 	if (ddb_state == DDB_STATE_NOT_RUNNING) {
 		ddb_active_cpu = cpu_number();
 		ddb_state = DDB_STATE_RUNNING;
 		curcpu()->ci_ddb_paused = CI_DDB_INDDB;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 		for (ci = cpus; ci != NULL; ci = ci->ci_next) {
 			if (ci != curcpu() &&
 			    ci->ci_ddb_paused != CI_DDB_STOPPED) {
@@ -457,7 +457,7 @@ db_enter_ddb(void)
 	if (ddb_active_cpu == cpu_number() && ddb_state == DDB_STATE_EXITING) {
 		for (ci = cpus; ci != NULL; ci = ci->ci_next)
 			ci->ci_ddb_paused = CI_DDB_RUNNING;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 		return (0);
 	}
 
@@ -475,23 +475,23 @@ db_enter_ddb(void)
 	    curcpu()->ci_ddb_paused != CI_DDB_RUNNING) {
 		if (curcpu()->ci_ddb_paused == CI_DDB_SHOULDSTOP)
 			curcpu()->ci_ddb_paused = CI_DDB_STOPPED;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 
 		/* Busy wait without locking, we'll confirm with lock later */
 		while (ddb_active_cpu != cpu_number() &&
 		    curcpu()->ci_ddb_paused != CI_DDB_RUNNING)
 			CPU_BUSY_CYCLE();
 
-		mtx_enter(&ddb_mp_mutex);
+		db_mtx_enter(&ddb_mp_mutex);
 	}
 
 	/* Either enter ddb or exit */
 	if (ddb_active_cpu == cpu_number() && ddb_state == DDB_STATE_RUNNING) {
 		curcpu()->ci_ddb_paused = CI_DDB_INDDB;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 		return (1);
 	} else {
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 		return (0);
 	}
 }
@@ -500,22 +500,22 @@ void
 db_startcpu(struct cpu_info *ci)
 {
 	if (ci != curcpu()) {
-		mtx_enter(&ddb_mp_mutex);
+		db_mtx_enter(&ddb_mp_mutex);
 		ci->ci_ddb_paused = CI_DDB_RUNNING;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 	}
 }
 
 void
 db_stopcpu(struct cpu_info *ci)
 {
-	mtx_enter(&ddb_mp_mutex);
+	db_mtx_enter(&ddb_mp_mutex);
 	if (ci != curcpu() && ci->ci_ddb_paused != CI_DDB_STOPPED) {
 		ci->ci_ddb_paused = CI_DDB_SHOULDSTOP;
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 		sparc64_send_ipi(ci->ci_itid, ipi_db, 0, 0);
 	} else {
-		mtx_leave(&ddb_mp_mutex);
+		db_mtx_leave(&ddb_mp_mutex);
 	}
 }
 
@@ -525,10 +525,7 @@ db_stopcpu(struct cpu_info *ci)
  * Read bytes from kernel address space for debugger.
  */
 void
-db_read_bytes(addr, size, data)
-	vaddr_t	addr;
-	register size_t	size;
-	register char	*data;
+db_read_bytes(vaddr_t addr, size_t size, char *data)
 {
 	register char	*src;
 
@@ -546,10 +543,7 @@ db_read_bytes(addr, size, data)
  * Write bytes to kernel address space for debugger.
  */
 void
-db_write_bytes(addr, size, data)
-	vaddr_t	addr;
-	register size_t	size;
-	register char	*data;
+db_write_bytes(vaddr_t addr, size_t size, char *data)
 {
 	register char	*dst;
 	extern vaddr_t ktext;
@@ -973,7 +967,7 @@ db_proc_cmd(addr, have_addr, count, modif)
 	    (unsigned long long)ptoa(p->p_vmspace->vm_ssize));
 	db_printf("profile timer: %lld sec %ld usec\n",
 	    (long long)p->p_p->ps_timer[ITIMER_PROF].it_value.tv_sec,
-	    p->p_p->ps_timer[ITIMER_PROF].it_value.tv_usec);
+	    p->p_p->ps_timer[ITIMER_PROF].it_value.tv_nsec / 1000);
 	db_printf("pcb: %p tf: %p fpstate: %p\n", &p->p_addr->u_pcb,
 	    p->p_md.md_tf, p->p_md.md_fpstate);
 	return;
@@ -1217,14 +1211,11 @@ struct db_command db_machine_command_table[] = {
  * are backwards, everything will still work, and the logic is
  * much simpler this way.
  */
-db_addr_t
-db_branch_taken(inst, pc, regs)
-	int inst;
-	db_addr_t pc;
-	db_regs_t *regs;
+vaddr_t
+db_branch_taken(int inst, vaddr_t pc, db_regs_t *regs)
 {
     union instr insn;
-    db_addr_t npc = ddb_regs.ddb_tf.tf_npc;
+    vaddr_t npc = ddb_regs.ddb_tf.tf_npc;
 
     insn.i_int = inst;
 
@@ -1269,9 +1260,8 @@ db_branch_taken(inst, pc, regs)
     }
 }
 
-boolean_t
-db_inst_branch(inst)
-	int inst;
+int
+db_inst_branch(int inst)
 {
     union instr insn;
 
@@ -1280,13 +1270,13 @@ db_inst_branch(inst)
     /* the fancy union just gets in the way of this: */
     switch(inst & 0xffc00000) {
     case 0x30400000:	/* branch always, annul, with prediction */
-	return TRUE;
+	return 1;
     case 0x30800000:	/* branch always, annul */
-	return TRUE;
+	return 1;
     }
 
     if (insn.i_any.i_op != IOP_OP2)
-	return FALSE;
+	return 0;
 
     switch (insn.i_op2.i_op2) {
       case IOP2_BPcc:
@@ -1295,17 +1285,16 @@ db_inst_branch(inst)
       case IOP2_FBPfcc:
       case IOP2_FBfcc:
       case IOP2_CBccc:
-	return TRUE;
+	return 1;
 
       default:
-	return FALSE;
+	return 0;
     }
 }
 
 
-boolean_t
-db_inst_call(inst)
-	int inst;
+int
+db_inst_call(int inst)
 {
     union instr insn;
 
@@ -1313,30 +1302,29 @@ db_inst_call(inst)
 
     switch (insn.i_any.i_op) {
       case IOP_CALL:
-	return TRUE;
+	return 1;
 
       case IOP_reg:
 	return (insn.i_op3.i_op3 == IOP3_JMPL) && !db_inst_return(inst);
 
       default:
-	return FALSE;
+	return 0;
     }
 }
 
 
-boolean_t
-db_inst_unconditional_flow_transfer(inst)
-	int inst;
+int
+db_inst_unconditional_flow_transfer(int inst)
 {
     union instr insn;
 
     insn.i_int = inst;
 
     if (db_inst_call(inst))
-	return TRUE;
+	return 1;
 
     if (insn.i_any.i_op != IOP_OP2)
-	return FALSE;
+	return 0;
 
     switch (insn.i_op2.i_op2)
     {
@@ -1348,22 +1336,20 @@ db_inst_unconditional_flow_transfer(inst)
 	return insn.i_branch.i_cond == Icc_A;
 
       default:
-	return FALSE;
+	return 0;
     }
 }
 
 
-boolean_t
-db_inst_return(inst)
-	int inst;
+int
+db_inst_return(int inst)
 {
     return (inst == I_JMPLri(I_G0, I_O7, 8) ||		/* ret */
 	    inst == I_JMPLri(I_G0, I_I7, 8));		/* retl */
 }
 
-boolean_t
-db_inst_trap_return(inst)
-	int inst;
+int
+db_inst_trap_return(int inst)
 {
     union instr insn;
 

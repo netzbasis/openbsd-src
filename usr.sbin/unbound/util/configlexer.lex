@@ -112,8 +112,7 @@ static void config_start_include_glob(const char* filename)
 	/* check for wildcards */
 #ifdef HAVE_GLOB
 	glob_t g;
-	size_t i;
-	int r, flags;
+	int i, r, flags;
 	if(!(!strchr(filename, '*') && !strchr(filename, '?') && !strchr(filename, '[') &&
 		!strchr(filename, '{') && !strchr(filename, '~'))) {
 		flags = 0
@@ -144,7 +143,7 @@ static void config_start_include_glob(const char* filename)
 			return;
 		}
 		/* process files found, if any */
-		for(i=0; i<(size_t)g.gl_pathc; i++) {
+		for(i=(int)g.gl_pathc-1; i>=0; i--) {
 			config_start_include(g.gl_pathv[i]);
 		}
 		globfree(&g);
@@ -245,6 +244,9 @@ additional-ssl-port{COLON}	{ YDVAR(1, VAR_TLS_ADDITIONAL_PORT) }
 additional-tls-port{COLON}	{ YDVAR(1, VAR_TLS_ADDITIONAL_PORT) }
 tls-additional-ports{COLON}	{ YDVAR(1, VAR_TLS_ADDITIONAL_PORT) }
 tls-additional-port{COLON}	{ YDVAR(1, VAR_TLS_ADDITIONAL_PORT) }
+tls-session-ticket-keys{COLON}	{ YDVAR(1, VAR_TLS_SESSION_TICKET_KEYS) }
+tls-ciphers{COLON}		{ YDVAR(1, VAR_TLS_CIPHERS) }
+tls-ciphersuites{COLON}		{ YDVAR(1, VAR_TLS_CIPHERSUITES) }
 use-systemd{COLON}		{ YDVAR(1, VAR_USE_SYSTEMD) }
 do-daemonize{COLON}		{ YDVAR(1, VAR_DO_DAEMONIZE) }
 interface{COLON}		{ YDVAR(1, VAR_INTERFACE) }
@@ -262,6 +264,7 @@ directory{COLON}		{ YDVAR(1, VAR_DIRECTORY) }
 logfile{COLON}			{ YDVAR(1, VAR_LOGFILE) }
 pidfile{COLON}			{ YDVAR(1, VAR_PIDFILE) }
 root-hints{COLON}		{ YDVAR(1, VAR_ROOT_HINTS) }
+stream-wait-size{COLON}		{ YDVAR(1, VAR_STREAM_WAIT_SIZE) }
 edns-buffer-size{COLON}		{ YDVAR(1, VAR_EDNS_BUFFER_SIZE) }
 msg-buffer-size{COLON}		{ YDVAR(1, VAR_MSG_BUFFER_SIZE) }
 msg-cache-size{COLON}		{ YDVAR(1, VAR_MSG_CACHE_SIZE) }
@@ -377,6 +380,7 @@ log-identity{COLON}		{ YDVAR(1, VAR_LOG_IDENTITY) }
 log-time-ascii{COLON}		{ YDVAR(1, VAR_LOG_TIME_ASCII) }
 log-queries{COLON}		{ YDVAR(1, VAR_LOG_QUERIES) }
 log-replies{COLON}		{ YDVAR(1, VAR_LOG_REPLIES) }
+log-tag-queryreply{COLON}	{ YDVAR(1, VAR_LOG_TAG_QUERYREPLY) }
 log-local-actions{COLON}       { YDVAR(1, VAR_LOG_LOCAL_ACTIONS) }
 log-servfail{COLON}		{ YDVAR(1, VAR_LOG_SERVFAIL) }
 local-zone{COLON}		{ YDVAR(2, VAR_LOCAL_ZONE) }
@@ -478,6 +482,9 @@ secret-seed{COLON}		{ YDVAR(1, VAR_CACHEDB_SECRETSEED) }
 redis-server-host{COLON}	{ YDVAR(1, VAR_CACHEDB_REDISHOST) }
 redis-server-port{COLON}	{ YDVAR(1, VAR_CACHEDB_REDISPORT) }
 redis-timeout{COLON}		{ YDVAR(1, VAR_CACHEDB_REDISTIMEOUT) }
+ipset{COLON}			{ YDVAR(0, VAR_IPSET) }
+name-v4{COLON}			{ YDVAR(1, VAR_IPSET_NAME_V4) }
+name-v6{COLON}			{ YDVAR(1, VAR_IPSET_NAME_V6) }
 udp-upstream-without-downstream{COLON} { YDVAR(1, VAR_UDP_UPSTREAM_WITHOUT_DOWNSTREAM) }
 tcp-connection-limit{COLON}	{ YDVAR(2, VAR_TCP_CONNECTION_LIMIT) }
 <INITIAL,val>{NEWLINE}		{ LEXOUT(("NL\n")); cfg_parser->line++; }

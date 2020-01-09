@@ -1,4 +1,4 @@
-/*	$OpenBSD: rad.c,v 1.17 2019/01/22 09:25:29 krw Exp $	*/
+/*	$OpenBSD: rad.c,v 1.21 2019/06/28 13:32:49 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -36,6 +36,7 @@
 #include <err.h>
 #include <errno.h>
 #include <event.h>
+#include <fcntl.h>
 #include <imsg.h>
 #include <netdb.h>
 #include <pwd.h>
@@ -82,8 +83,6 @@ uint32_t cmd_opts;
 void
 main_sig_handler(int sig, short event, void *arg)
 {
-	struct rad_conf	empty_conf;
-
 	/*
 	 * Normal signal handler rules don't apply because libevent
 	 * decouples for us.
@@ -92,9 +91,7 @@ main_sig_handler(int sig, short event, void *arg)
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		memset(&empty_conf, 0, sizeof(empty_conf));
-		(void)main_imsg_send_config(&empty_conf);
-		(void)main_imsg_compose_frontend(IMSG_SHUTDOWN, 0, NULL, 0);
+		main_shutdown();
 		break;
 	case SIGHUP:
 		if (main_reload() == -1)
@@ -263,19 +260,19 @@ main(int argc, char *argv[])
 		fatal("could not establish imsg links");
 
 	if ((icmp6sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC,
-	    IPPROTO_ICMPV6)) < 0)
+	    IPPROTO_ICMPV6)) == -1)
 		fatal("ICMPv6 socket");
 
 	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on,
-	    sizeof(on)) < 0)
+	    sizeof(on)) == -1)
 		fatal("IPV6_RECVPKTINFO");
 
 	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on,
-	    sizeof(on)) < 0)
+	    sizeof(on)) == -1)
 		fatal("IPV6_RECVHOPLIMIT");
 
 	if (setsockopt(icmp6sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &off,
-	    sizeof(off)) < 0)
+	    sizeof(off)) == -1)
 		fatal("IPV6_RECVHOPLIMIT");
 
 	/* only router advertisements and solicitations */
@@ -287,13 +284,13 @@ main(int argc, char *argv[])
 		fatal("ICMP6_FILTER");
 
 	if ((frontend_routesock = socket(AF_ROUTE, SOCK_RAW | SOCK_CLOEXEC,
-	    AF_INET6)) < 0)
+	    AF_INET6)) == -1)
 		fatal("route socket");
 
 	rtfilter = ROUTE_FILTER(RTM_IFINFO) | ROUTE_FILTER(RTM_NEWADDR) |
 	    ROUTE_FILTER(RTM_DELADDR);
 	if (setsockopt(frontend_routesock, AF_ROUTE, ROUTE_MSGFILTER,
-	    &rtfilter, sizeof(rtfilter)) < 0)
+	    &rtfilter, sizeof(rtfilter)) == -1)
 		fatal("setsockopt(ROUTE_MSGFILTER)");
 
 	if ((control_fd = control_init(csock)) == -1)
@@ -365,7 +362,10 @@ start_child(int p, char *argv0, int fd, int debug, int verbose)
 		return (pid);
 	}
 
-	if (dup2(fd, 3) == -1)
+	if (fd != 3) {
+		if (dup2(fd, 3) == -1)
+			fatal("cannot setup imsg fd");
+	} else if (fcntl(fd, F_SETFD, 0) == -1)
 		fatal("cannot setup imsg fd");
 
 	argv[argc++] = argv0;
@@ -431,12 +431,11 @@ main_dispatch_frontend(int fd, short event, void *bula)
 				log_warnx("configuration reloaded");
 			break;
 		case IMSG_CTL_LOG_VERBOSE:
-			/* Already checked by frontend. */
+			if (IMSG_DATA_SIZE(imsg) != sizeof(verbose))
+				fatalx("%s: IMSG_CTL_LOG_VERBOSE wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));	
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
-			break;
-		case IMSG_SHUTDOWN:
-			shut = 1;
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,

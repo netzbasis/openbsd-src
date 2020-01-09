@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.15 2018/04/08 13:27:22 kettenis Exp $	*/
+/*	$OpenBSD: conf.c,v 1.24 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -27,16 +27,25 @@
  */
 
 #include <sys/param.h>
+#include <sys/queue.h>
+#include <sys/disklabel.h>
 #include <lib/libsa/stand.h>
 #include <lib/libsa/tftp.h>
 #include <lib/libsa/ufs.h>
 #include <dev/cons.h>
 
+#include <dev/biovar.h>
+#include <dev/softraidvar.h>
+
+#include <efi.h>
+
+#include "disk.h"
 #include "efiboot.h"
 #include "efidev.h"
 #include "efipxe.h"
+#include "softraid_arm64.h"
 
-const char version[] = "0.13";
+const char version[] = "0.20";
 int	debug = 0;
 
 struct fs_ops file_system[] = {
@@ -45,18 +54,20 @@ struct fs_ops file_system[] = {
 	{ efitftp_open,tftp_close,   tftp_read,   tftp_write,   tftp_seek,
 	  tftp_stat,   tftp_readdir   },
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 };
 int nfsys = nitems(file_system);
 
 struct devsw	devsw[] = {
 	{ "tftp", tftpstrategy, tftpopen, tftpclose, tftpioctl },
 	{ "sd", efistrategy, efiopen, eficlose, efiioctl },
+	{ "sr", srstrategy, sropen, srclose, srioctl },
 };
 int ndevs = nitems(devsw);
 
 struct consdev constab[] = {
 	{ efi_cons_probe, efi_cons_init, efi_cons_getc, efi_cons_putc },
+	{ efi_fb_probe, efi_fb_init, efi_cons_getc, efi_cons_putc },
 	{ NULL }
 };
 struct consdev *cn_tab;

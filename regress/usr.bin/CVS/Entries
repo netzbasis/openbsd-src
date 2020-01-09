@@ -1,4 +1,4 @@
-/Makefile/1.44/Mon Oct 15 08:08:46 2018//
+/Makefile/1.45/Mon Jan  6 23:01:16 2020//
 D/apply////
 D/basename////
 D/bc////
@@ -29,6 +29,8 @@ D/m4////
 D/mail////
 D/make////
 D/mandoc////
+D/nc////
+D/netstat////
 D/openssl////
 D/patch////
 D/pkg-config////

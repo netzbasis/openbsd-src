@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: AddDelete.pm,v 1.83 2018/07/11 16:53:14 espie Exp $
+# $OpenBSD: AddDelete.pm,v 1.92 2019/11/15 18:28:13 espie Exp $
 #
 # Copyright (c) 2007-2010 Marc Espie <espie@openbsd.org>
 #
@@ -23,11 +23,47 @@ use warnings;
 package main;
 our $not;
 
+package OpenBSD::PackingElement::FileObject;
+sub retrieve_fullname
+{
+	my ($self, $state, $pkgname) = @_;
+	return $state->{destdir}.$self->fullname;
+}
+
+package OpenBSD::PackingElement::FileBase;
+sub retrieve_size
+{
+	my $self = shift;
+	return $self->{size};
+}
+
+package OpenBSD::PackingElement::SpecialFile;
+use OpenBSD::PackageInfo;
+sub retrieve_fullname
+{
+	my ($self, $state, $pkgname);
+	return installed_info($pkgname).$self->name;
+}
+
+package OpenBSD::PackingElement::FCONTENTS;
+sub retrieve_size
+{
+	my $self = shift;
+	my $size = 0;
+	my $cname = $self->fullname;
+	if (defined $cname) {
+		$size = (stat $cname)[7];
+	}
+	return $size;
+}
+
+
 package OpenBSD::AddDelete;
 use OpenBSD::Error;
 use OpenBSD::Paths;
 use OpenBSD::PackageInfo;
 use OpenBSD::AddCreateDelete;
+our @ISA = qw(OpenBSD::AddCreateDelete);
 
 sub do_the_main_work
 {
@@ -67,49 +103,32 @@ sub handle_end_tags
 	    });
 }
 
-sub framework
+sub run_command
 {
 	my ($self, $state) = @_;
 
-	my $do = sub {
-		lock_db($state->{not}, $state) unless $state->defines('nolock');
-		$state->check_root;
-		$self->process_parameters($state);
-		my $dielater = $self->do_the_main_work($state);
-		# cleanup various things
-		$self->handle_end_tags($state);
-		$state->{recorder}->cleanup($state);
-		$state->ldconfig->ensure;
-		OpenBSD::PackingElement->finish($state);
-		$state->progress->clear;
-		$state->log->dump;
-		$self->finish_display($state);
-		if ($state->verbose >= 2 || $state->{size_only} ||
-		    $state->defines('tally')) {
-			$state->vstat->tally;
-		}
-		$state->say("Extracted #1 from #2", 
-		    $state->{stats}{donesize},
-		    $state->{stats}{totsize}) 
-			if defined $state->{stats} and $state->verbose;
-		# show any error, and show why we died...
-		rethrow $dielater;
-	};
-	if ($state->defines('debug')) {
-		&$do;
-	} else {
-		try {
-			&$do;
-		} catch {
-			$state->errsay("#1: #2", $0, $_);
-			OpenBSD::Handler->reset;
-			if ($_ =~ m/^Caught SIG(\w+)/o) {
-				kill $1, $$;
-			}
-			$state->{bad}++;
-		};
+	lock_db($state->{not}, $state) unless $state->defines('nolock');
+	$state->check_root;
+	$self->process_parameters($state);
+	my $dielater = $self->do_the_main_work($state);
+	# cleanup various things
+	$self->handle_end_tags($state);
+	$state->{recorder}->cleanup($state);
+	$state->ldconfig->ensure;
+	OpenBSD::PackingElement->finish($state);
+	$state->progress->clear;
+	$state->log->dump;
+	$self->finish_display($state);
+	if ($state->verbose >= 2 || $state->{size_only} ||
+	    $state->defines('tally')) {
+		$state->vstat->tally;
 	}
-
+	$state->say("Extracted #1 from #2", 
+	    $state->{stats}{donesize},
+	    $state->{stats}{totsize}) 
+		if defined $state->{stats} and $state->verbose;
+	# show any error, and show why we died...
+	rethrow $dielater;
 }
 
 sub parse_and_run
@@ -119,32 +138,39 @@ sub parse_and_run
 	my $state = $self->new_state($cmd);
 	$state->handle_options;
 
-	require POSIX;
-
-
-	my $termios = POSIX::Termios->new;
-	my $lflag;
-
-	if (defined $termios->getattr) {
-		$lflag = $termios->getlflag;
-	}
-
-	if (defined $lflag) {
-		my $NOKERNINFO = 0x02000000; # not defined in POSIX
-		$termios->setlflag($lflag | $NOKERNINFO);
-		$termios->setattr;
-		
-	}
-
 	local $SIG{'INFO'} = sub { $state->status->print($state); };
 
-	$self->framework($state);
+	my ($lflag, $termios);
+	if ($self->silence_children($state)) {
+		require POSIX;
+
+		$termios = POSIX::Termios->new;
+
+		if (defined $termios->getattr) {
+			$lflag = $termios->getlflag;
+		}
+
+		if (defined $lflag) {
+			my $NOKERNINFO = 0x02000000; # not defined in POSIX
+			$termios->setlflag($lflag | $NOKERNINFO);
+			$termios->setattr;
+			
+		}
+	}
+
+	$self->try_and_run_command($state);
 
 	if (defined $lflag) {
 		$termios->setlflag($lflag);
 		$termios->setattr;
 	}
+
 	return $state->{bad} != 0;
+}
+
+sub silence_children
+{
+	1
 }
 
 # nothing to do
@@ -227,7 +253,7 @@ sub handle_options
 	$state->{extra} = $state->opt('c');
 	$state->{automatic} = $state->opt('a') // 0;
 	$ENV{'PKG_DELETE_EXTRA'} = $state->{extra} ? "Yes" : "No";
-	if ($state->{not}) {
+	if ($state->{not} || $state->defines('DONTLOG')) {
 		$state->{loglevel} = 0;
 	}
 	$state->{loglevel} //= 1;
@@ -381,7 +407,19 @@ sub choose_location
 	if ($state->is_interactive) {
 		$h{'<None>'} = undef;
 		$state->progress->clear;
-		my $result = $state->ask_list("Ambiguous: choose package for $name", sort keys %h);
+		my $cmp = sub {
+			return -1 if !defined $h{$a};
+			return 1 if !defined $h{$b};
+			my $r = $h{$a}->pkgname->to_pattern cmp
+				    $h{$b}->pkgname->to_pattern;
+			if ($r == 0) {
+				return $h{$a}->pkgname->{version}->
+				    compare($h{$b}->pkgname->{version});
+			} else {
+				return $r;
+			}
+		};
+		my $result = $state->ask_list("Ambiguous: choose package for $name", sort $cmp keys %h);
 		return $h{$result};
 	} else {
 		$state->errsay("Ambiguous: #1 could be #2",

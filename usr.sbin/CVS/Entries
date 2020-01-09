@@ -1,4 +1,4 @@
-/Makefile/1.204/Sat Jan 26 10:59:30 2019//
+/Makefile/1.208/Tue Nov 12 05:36:48 2019//
 /Makefile.inc/1.3/Mon Dec 28 13:25:45 2015//
 D/ac////
 D/accton////
@@ -91,6 +91,7 @@ D/rarpd////
 D/rbootd////
 D/rcctl////
 D/rdate////
+D/rdsetroot////
 D/rebound////
 D/relayctl////
 D/relayd////
@@ -102,13 +103,13 @@ D/route6d////
 D/rpc.bootparamd////
 D/rpc.lockd////
 D/rpc.statd////
+D/rpki-client////
 D/sa////
 D/sasyncd////
 D/sensorsd////
 D/slaacctl////
 D/slowcgi////
 D/smtpd////
-D/snmpctl////
 D/snmpd////
 D/spamdb////
 D/switchctl////
@@ -117,6 +118,7 @@ D/syslogc////
 D/syslogd////
 D/sysmerge////
 D/syspatch////
+D/sysupgrade////
 D/tcpdrop////
 D/tcpdump////
 D/tftp-proxy////

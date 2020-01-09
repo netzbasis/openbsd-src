@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vfsops.c,v 1.90 2018/05/27 06:02:15 visa Exp $	*/
+/*	$OpenBSD: msdosfs_vfsops.c,v 1.92 2019/12/26 13:28:49 bluhm Exp $	*/
 /*	$NetBSD: msdosfs_vfsops.c,v 1.48 1997/10/18 02:54:57 briggs Exp $	*/
 
 /*-
@@ -282,7 +282,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	if (vcount(devvp) > 1 && devvp != rootvp)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
-	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
+	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, INFSLP);
 	VOP_UNLOCK(devvp);
 	if (error)
 		return (error);
@@ -791,17 +791,17 @@ msdosfs_check_export(struct mount *mp, struct mbuf *nam, int *exflagsp,
                                     size_t, struct proc *))eopnotsupp)
 
 const struct vfsops msdosfs_vfsops = {
-	msdosfs_mount,
-	msdosfs_start,
-	msdosfs_unmount,
-	msdosfs_root,
-	msdosfs_quotactl,
-	msdosfs_statfs,
-	msdosfs_sync,
-	msdosfs_vget,
-	msdosfs_fhtovp,
-	msdosfs_vptofh,
-	msdosfs_init,
-	msdosfs_sysctl,
-	msdosfs_check_export
+	.vfs_mount	= msdosfs_mount,
+	.vfs_start	= msdosfs_start,
+	.vfs_unmount	= msdosfs_unmount,
+	.vfs_root	= msdosfs_root,
+	.vfs_quotactl	= msdosfs_quotactl,
+	.vfs_statfs	= msdosfs_statfs,
+	.vfs_sync	= msdosfs_sync,
+	.vfs_vget	= msdosfs_vget,
+	.vfs_fhtovp	= msdosfs_fhtovp,
+	.vfs_vptofh	= msdosfs_vptofh,
+	.vfs_init	= msdosfs_init,
+	.vfs_sysctl	= msdosfs_sysctl,
+	.vfs_checkexp	= msdosfs_check_export,
 };

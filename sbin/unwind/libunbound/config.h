@@ -16,6 +16,9 @@
 /* Do sha512 definitions in config.h */
 /* #undef COMPAT_SHA512 */
 
+/* Command line arguments used with configure */
+#define CONFCMDLINE "--enable-allsymbols --with-ssl=/usr --with-libevent=/usr --with-libexpat=/usr --without-pythonmodule --with-chroot-dir=/var/unbound --with-pidfile= --with-rootkey-file=/var/unbound/db/root.key --with-conf-file=/var/unbound/etc/unbound.conf --with-username=_unbound --disable-shared --without-pthreads"
+
 /* Pathname to the Unbound configuration file */
 #define CONFIGFILE "/var/unbound/etc/unbound.conf"
 
@@ -70,6 +73,9 @@
 /* Define to 1 if you have the `CRYPTO_cleanup_all_ex_data' function. */
 #define HAVE_CRYPTO_CLEANUP_ALL_EX_DATA 1
 
+/* Define to 1 if you have the `CRYPTO_THREADID_set_callback' function. */
+#define HAVE_CRYPTO_THREADID_SET_CALLBACK 1
+
 /* Define to 1 if you have the `ctime_r' function. */
 #define HAVE_CTIME_R 1
 
@@ -83,6 +89,10 @@
 /* Define to 1 if you have the declaration of `arc4random_uniform', and to 0
    if you don't. */
 #define HAVE_DECL_ARC4RANDOM_UNIFORM 1
+
+/* Define to 1 if you have the declaration of `evsignal_assign', and to 0 if
+   you don't. */
+#define HAVE_DECL_EVSIGNAL_ASSIGN 0
 
 /* Define to 1 if you have the declaration of `inet_ntop', and to 0 if you
    don't. */
@@ -164,6 +174,9 @@
 /* Define to 1 if you have the `ERR_load_crypto_strings' function. */
 #define HAVE_ERR_LOAD_CRYPTO_STRINGS 1
 
+/* Define to 1 if you have the `event_assign' function. */
+/* #undef HAVE_EVENT_ASSIGN */
+
 /* Define to 1 if you have the `event_base_free' function. */
 #define HAVE_EVENT_BASE_FREE 1
 
@@ -179,6 +192,9 @@
 /* Define to 1 if you have the <event.h> header file. */
 #define HAVE_EVENT_H 1
 
+/* Define to 1 if you have the `EVP_aes_256_cbc' function. */
+#define HAVE_EVP_AES_256_CBC 1
+
 /* Define to 1 if you have the `EVP_cleanup' function. */
 #define HAVE_EVP_CLEANUP 1
 
@@ -187,6 +203,9 @@
 
 /* Define to 1 if you have the `EVP_dss1' function. */
 #define HAVE_EVP_DSS1 1
+
+/* Define to 1 if you have the `EVP_EncryptInit_ex' function. */
+#define HAVE_EVP_ENCRYPTINIT_EX 1
 
 /* Define to 1 if you have the `EVP_MD_CTX_new' function. */
 #define HAVE_EVP_MD_CTX_NEW 1
@@ -259,6 +278,9 @@
 
 /* Define to 1 if you have the <hiredis/hiredis.h> header file. */
 /* #undef HAVE_HIREDIS_HIREDIS_H */
+
+/* Define to 1 if you have the `HMAC_Init_ex' function. */
+#define HAVE_HMAC_INIT_EX 1
 
 /* If you have HMAC_Update */
 #define HAVE_HMAC_UPDATE 1
@@ -395,7 +417,7 @@
 /* Define to 1 if you have the `RAND_cleanup' function. */
 #define HAVE_RAND_CLEANUP 1
 
-/* Define to 1 if you have the `reallocarray' function. */
+/* If we have reallocarray(3) */
 #define HAVE_REALLOCARRAY 1
 
 /* Define to 1 if you have the `recvmsg' function. */
@@ -452,8 +474,14 @@
 /* Define if you have the SSL libraries installed. */
 #define HAVE_SSL /**/
 
+/* Define to 1 if you have the `SSL_CTX_set_ciphersuites' function. */
+/* #undef HAVE_SSL_CTX_SET_CIPHERSUITES */
+
 /* Define to 1 if you have the `SSL_CTX_set_security_level' function. */
 /* #undef HAVE_SSL_CTX_SET_SECURITY_LEVEL */
+
+/* Define to 1 if you have the `SSL_CTX_set_tlsext_ticket_key_cb' function. */
+/* #undef HAVE_SSL_CTX_SET_TLSEXT_TICKET_KEY_CB */
 
 /* Define to 1 if you have the `SSL_get0_peername' function. */
 /* #undef HAVE_SSL_GET0_PEERNAME */
@@ -587,8 +615,14 @@
 /* Define to 1 if you have the <ws2tcpip.h> header file. */
 /* #undef HAVE_WS2TCPIP_H */
 
+/* Define to 1 if you have the `X509_VERIFY_PARAM_set1_host' function. */
+#define HAVE_X509_VERIFY_PARAM_SET1_HOST 1
+
 /* Define to 1 if you have the `_beginthreadex' function. */
 /* #undef HAVE__BEGINTHREADEX */
+
+/* If HMAC_Init_ex() returns void */
+/* #undef HMAC_INIT_EX_RETURNS_VOID */
 
 /* if lex has yylex_destroy */
 #define LEX_HAS_YYLEX_DESTROY 1
@@ -637,13 +671,13 @@
 /* #undef OMITTED__D__EXTENSIONS__ */
 
 /* Define to the address where bug reports for this package should be sent. */
-#define PACKAGE_BUGREPORT "unbound-bugs@nlnetlabs.nl"
+#define PACKAGE_BUGREPORT "unbound-bugs@nlnetlabs.nl or https://github.com/NLnetLabs/unbound/issues"
 
 /* Define to the full name of this package. */
 #define PACKAGE_NAME "unbound"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "unbound 1.8.3"
+#define PACKAGE_STRING "unbound 1.9.6"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "unbound"
@@ -652,7 +686,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.8.3"
+#define PACKAGE_VERSION "1.9.6"
 
 /* default pidfile location */
 #define PIDFILE ""
@@ -674,13 +708,16 @@
 #define ROOT_CERT_FILE "/var/unbound/etc/icannbundle.pem"
 
 /* version number for resource files */
-#define RSRC_PACKAGE_VERSION 1,8,3,0
+#define RSRC_PACKAGE_VERSION 1,9,6,0
 
 /* Directory to chdir to */
 #define RUN_DIR "/var/unbound/etc"
 
 /* Shared data */
 #define SHARE_DIR "/var/unbound/etc"
+
+/* The size of `size_t', as computed by sizeof. */
+#define SIZEOF_SIZE_T 8
 
 /* The size of `time_t', as computed by sizeof. */
 #define SIZEOF_TIME_T 8
@@ -699,6 +736,9 @@
 
 /* Use win32 resources and API */
 /* #undef UB_ON_WINDOWS */
+
+/* the SYSLOG_FACILITY to use, default LOG_DAEMON */
+#define UB_SYSLOG_FACILITY LOG_DAEMON
 
 /* default username */
 #define UB_USERNAME "_unbound"
@@ -747,6 +787,9 @@
 
 /* Define to 1 to use ipsecmod support. */
 /* #undef USE_IPSECMOD */
+
+/* Define to 1 to use ipset support */
+/* #undef USE_IPSET */
 
 /* Define if you want to use internal select based events */
 /* #undef USE_MINI_EVENT */
@@ -945,8 +988,14 @@
 
 
 
+#ifndef _OPENBSD_SOURCE
+#define _OPENBSD_SOURCE 1
+#endif
+
 #ifndef UNBOUND_DEBUG
+# ifndef NDEBUG
 #  define NDEBUG
+# endif
 #endif
 
 /** Use small-ldns codebase */
@@ -1179,6 +1228,10 @@ struct tm;
 char *strptime(const char *s, const char *format, struct tm *tm);
 #endif
 
+#if !HAVE_DECL_REALLOCARRAY
+void *reallocarray(void *ptr, size_t nmemb, size_t size);
+#endif
+
 #ifdef HAVE_LIBRESSL
 #  if !HAVE_DECL_STRLCPY
 size_t strlcpy(char *dst, const char *src, size_t siz);
@@ -1191,9 +1244,6 @@ uint32_t arc4random(void);
 #  endif
 #  if !HAVE_DECL_ARC4RANDOM_UNIFORM && defined(HAVE_ARC4RANDOM_UNIFORM)
 uint32_t arc4random_uniform(uint32_t upper_bound);
-#  endif
-#  if !HAVE_DECL_REALLOCARRAY
-void *reallocarray(void *ptr, size_t nmemb, size_t size);
 #  endif
 #endif /* HAVE_LIBRESSL */
 #ifndef HAVE_ARC4RANDOM

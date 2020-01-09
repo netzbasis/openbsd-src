@@ -40,6 +40,8 @@ static StringRef sectionTypeToString(uint32_t SectionType) {
     return "MEMORY";
   case WASM_SEC_GLOBAL:
     return "GLOBAL";
+  case WASM_SEC_EVENT:
+    return "EVENT";
   case WASM_SEC_EXPORT:
     return "EXPORT";
   case WASM_SEC_START:
@@ -109,8 +111,8 @@ void CodeSection::writeTo(uint8_t *Buf) {
   memcpy(Buf, CodeSectionHeader.data(), CodeSectionHeader.size());
 
   // Write code section bodies
-  parallelForEach(Functions,
-                  [&](const InputChunk *Chunk) { Chunk->writeTo(Buf); });
+  for (const InputChunk *Chunk : Functions)
+    Chunk->writeTo(Buf);
 }
 
 uint32_t CodeSection::numRelocations() const {
@@ -136,9 +138,17 @@ DataSection::DataSection(ArrayRef<OutputSegment *> Segments)
   for (OutputSegment *Segment : Segments) {
     raw_string_ostream OS(Segment->Header);
     writeUleb128(OS, 0, "memory index");
-    writeUleb128(OS, WASM_OPCODE_I32_CONST, "opcode:i32const");
-    writeSleb128(OS, Segment->StartVA, "memory offset");
-    writeUleb128(OS, WASM_OPCODE_END, "opcode:end");
+    WasmInitExpr InitExpr;
+    if (Config->Pic) {
+      assert(Segments.size() <= 1 &&
+             "Currenly only a single data segment is supported in PIC mode");
+      InitExpr.Opcode = WASM_OPCODE_GLOBAL_GET;
+      InitExpr.Value.Global = WasmSym::MemoryBase->getGlobalIndex();
+    } else {
+      InitExpr.Opcode = WASM_OPCODE_I32_CONST;
+      InitExpr.Value.Int32 = Segment->StartVA;
+    }
+    writeInitExpr(OS, InitExpr);
     writeUleb128(OS, Segment->Size, "segment size");
     OS.flush();
 
@@ -166,7 +176,7 @@ void DataSection::writeTo(uint8_t *Buf) {
   // Write data section headers
   memcpy(Buf, DataSectionHeader.data(), DataSectionHeader.size());
 
-  parallelForEach(Segments, [&](const OutputSegment *Segment) {
+  for (const OutputSegment *Segment : Segments) {
     // Write data segment header
     uint8_t *SegStart = Buf + Segment->SectionOffset;
     memcpy(SegStart, Segment->Header.data(), Segment->Header.size());
@@ -174,7 +184,7 @@ void DataSection::writeTo(uint8_t *Buf) {
     // Write segment data payload
     for (const InputChunk *Chunk : Segment->InputSegments)
       Chunk->writeTo(Buf);
-  });
+  }
 }
 
 uint32_t DataSection::numRelocations() const {
@@ -222,8 +232,8 @@ void CustomSection::writeTo(uint8_t *Buf) {
   Buf += NameData.size();
 
   // Write custom sections payload
-  parallelForEach(InputSections,
-                  [&](const InputSection *Section) { Section->writeTo(Buf); });
+  for (const InputSection *Section : InputSections)
+    Section->writeTo(Buf);
 }
 
 uint32_t CustomSection::numRelocations() const {

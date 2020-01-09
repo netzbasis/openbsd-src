@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bnxt.c,v 1.18 2019/01/22 02:04:30 jmatthew Exp $	*/
+/*	$OpenBSD: if_bnxt.c,v 1.21 2019/09/03 09:00:44 sf Exp $	*/
 /*-
  * Broadcom NetXtreme-C/E network driver.
  *
@@ -62,7 +62,6 @@
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcidevs.h>
 
-#define __FBSDID(x)
 #include <dev/pci/if_bnxtreg.h>
 
 #include <net/if.h>
@@ -103,6 +102,7 @@
 #define BNXT_FLAG_NPAR          0x0002
 #define BNXT_FLAG_WOL_CAP       0x0004
 #define BNXT_FLAG_SHORT_CMD     0x0008
+#define BNXT_FLAG_MSIX          0x0010
 
 /* NVRam stuff has a five minute timeout */
 #define BNXT_NVM_TIMEO	(5 * 60 * 1000)
@@ -348,6 +348,7 @@ int		bnxt_hwrm_nvm_get_dev_info(struct bnxt_softc *, uint16_t *,
 int		bnxt_hwrm_port_phy_qcfg(struct bnxt_softc *,
 		    struct ifmediareq *);
 int		bnxt_hwrm_func_rgtr_async_events(struct bnxt_softc *);
+int		bnxt_get_sffpage(struct bnxt_softc *, struct if_sffpage *);
 
 /* not used yet: */
 #if 0
@@ -507,7 +508,9 @@ bnxt_attach(struct device *parent, struct device *self, void *aux)
 	 * devices advertise msi support, but there's no way to tell a
 	 * completion queue to use msi mode, only legacy or msi-x.
 	 */
-	if (/*pci_intr_map_msi(pa, &ih) != 0 && */ pci_intr_map(pa, &ih) != 0) {
+	if (pci_intr_map_msix(pa, 0, &ih) == 0) {
+		sc->sc_flags |= BNXT_FLAG_MSIX;
+	} else if (pci_intr_map(pa, &ih) != 0) {
 		printf(": unable to map interrupt\n");
 		goto free_resp;
 	}
@@ -1026,6 +1029,10 @@ bnxt_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCGIFRXR:
 		error = bnxt_rxrinfo(sc, (struct if_rxrinfo *)ifr->ifr_data);
+		break;
+
+	case SIOCGIFSFFPAGE:
+		error = bnxt_get_sffpage(sc, (struct if_sffpage *)data);
 		break;
 
 	default:
@@ -2654,7 +2661,9 @@ bnxt_hwrm_ring_alloc(struct bnxt_softc *softc, uint8_t type,
 	req.logical_id = htole16(ring->id);
 	req.cmpl_ring_id = htole16(cmpl_ring_id);
 	req.queue_id = htole16(softc->sc_q_info[0].id);
-	req.int_mode = 0;
+	req.int_mode = (softc->sc_flags & BNXT_FLAG_MSIX) ?
+	    HWRM_RING_ALLOC_INPUT_INT_MODE_MSIX :
+	    HWRM_RING_ALLOC_INPUT_INT_MODE_LEGACY;
 	BNXT_HWRM_LOCK(softc);
 	rc = _hwrm_send_message(softc, &req, sizeof(req));
 	if (rc)
@@ -3141,4 +3150,33 @@ int bnxt_hwrm_func_rgtr_async_events(struct bnxt_softc *softc)
 		_bnxt_hwrm_set_async_event_bit(&req, events[i]);
 
 	return hwrm_send_message(softc, &req, sizeof(req));
+}
+
+int
+bnxt_get_sffpage(struct bnxt_softc *softc, struct if_sffpage *sff)
+{
+	struct hwrm_port_phy_i2c_read_input req;
+	struct hwrm_port_phy_i2c_read_output *out;
+	int offset;
+
+	bnxt_hwrm_cmd_hdr_init(softc, &req, HWRM_PORT_PHY_I2C_READ);
+	req.i2c_slave_addr = sff->sff_addr;
+	req.page_number = htole16(sff->sff_page);
+
+	for (offset = 0; offset < 256; offset += sizeof(out->data)) {
+		req.page_offset = htole16(offset);
+		req.data_length = sizeof(out->data);
+		req.enables = htole32(HWRM_PORT_PHY_I2C_READ_REQ_ENABLES_PAGE_OFFSET);
+		
+		if (hwrm_send_message(softc, &req, sizeof(req))) {
+			printf("%s: failed to read i2c data\n", DEVNAME(softc));
+			return 1;
+		}
+
+		out = (struct hwrm_port_phy_i2c_read_output *)
+		    BNXT_DMA_KVA(softc->sc_cmd_resp);
+		memcpy(sff->sff_data + offset, out->data, sizeof(out->data));
+	}
+
+	return 0;
 }

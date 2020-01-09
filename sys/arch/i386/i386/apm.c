@@ -1,4 +1,4 @@
-/*	$OpenBSD: apm.c,v 1.118 2018/07/30 14:19:12 kettenis Exp $	*/
+/*	$OpenBSD: apm.c,v 1.121 2019/12/31 13:48:31 visa Exp $	*/
 
 /*-
  * Copyright (c) 1998-2001 Michael Shalayeff. All rights reserved.
@@ -103,8 +103,11 @@ struct cfattach apm_ca = {
 void	filt_apmrdetach(struct knote *kn);
 int	filt_apmread(struct knote *kn, long hint);
 
-struct filterops apmread_filtops = {
-	1, NULL, filt_apmrdetach, filt_apmread
+const struct filterops apmread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_apmrdetach,
+	.f_event	= filt_apmread,
 };
 
 #define	APM_RESUME_HOLDOFF	3
@@ -395,7 +398,6 @@ apm_handle_event(struct apm_softc *sc, struct apmregs *regs)
 		break;
 	case APM_UPDATE_TIME:
 		DPRINTF(("update time, please\n"));
-		inittodr(time_second);
 		apm_record_event(sc, regs->bx);
 		break;
 	case APM_CRIT_SUSPEND_REQ:
@@ -908,7 +910,7 @@ apm_thread(void *v)
 		rw_enter_write(&sc->sc_lock);
 		(void) apm_periodic_check(sc);
 		rw_exit_write(&sc->sc_lock);
-		tsleep(&lbolt, PWAIT, "apmev", 0);
+		tsleep_nsec(&lbolt, PWAIT, "apmev", INFSLP);
 	}
 }
 

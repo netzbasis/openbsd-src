@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sched.c,v 1.54 2018/11/17 23:10:08 cheloha Exp $	*/
+/*	$OpenBSD: kern_sched.c,v 1.62 2019/11/04 18:06:03 visa Exp $	*/
 /*
  * Copyright (c) 2007, 2008 Artur Grabowski <art@openbsd.org>
  *
@@ -25,6 +25,7 @@
 #include <sys/signalvar.h>
 #include <sys/mutex.h>
 #include <sys/task.h>
+#include <sys/smr.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -93,6 +94,7 @@ sched_init_cpu(struct cpu_info *ci)
 	kthread_create_deferred(sched_kthreads_create, ci);
 
 	LIST_INIT(&spc->spc_deadproc);
+	SIMPLEQ_INIT(&spc->spc_deferred);
 
 	/*
 	 * Slight hack here until the cpuset code handles cpu_info
@@ -172,6 +174,8 @@ sched_idle(void *v)
 
 		splassert(IPL_NONE);
 
+		smr_idle();
+
 		cpuset_add(&sched_idle_cpus, ci);
 		cpu_idle_enter();
 		while (spc->spc_whichqs == 0) {
@@ -240,12 +244,21 @@ sched_init_runqueues(void)
 }
 
 void
-setrunqueue(struct proc *p)
+setrunqueue(struct cpu_info *ci, struct proc *p, uint8_t prio)
 {
 	struct schedstate_percpu *spc;
-	int queue = p->p_priority >> 2;
+	int queue = prio >> 2;
 
+	if (ci == NULL)
+		ci = sched_choosecpu(p);
+
+	KASSERT(ci != NULL);
 	SCHED_ASSERT_LOCKED();
+
+	p->p_cpu = ci;
+	p->p_stat = SRUN;
+	p->p_priority = prio;
+
 	spc = &p->p_cpu->ci_schedstate;
 	spc->spc_nrun++;
 
@@ -255,6 +268,9 @@ setrunqueue(struct proc *p)
 
 	if (cpuset_isset(&sched_idle_cpus, p->p_cpu))
 		cpu_unidle(p->p_cpu);
+
+	if (prio < spc->spc_curpriority)
+		need_resched(ci);
 }
 
 void
@@ -290,8 +306,7 @@ sched_chooseproc(void)
 			for (queue = 0; queue < SCHED_NQS; queue++) {
 				while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
 					remrunqueue(p);
-					p->p_cpu = sched_choosecpu(p);
-					setrunqueue(p);
+					setrunqueue(NULL, p, p->p_priority);
 					if (p->p_cpu == curcpu()) {
 						KASSERT(p->p_flag & P_CPUPEG);
 						goto again;
@@ -313,7 +328,8 @@ again:
 		p = TAILQ_FIRST(&spc->spc_qs[queue]);
 		remrunqueue(p);
 		sched_noidle++;
-		KASSERT(p->p_stat == SRUN);
+		if (p->p_stat != SRUN)
+			panic("thread %d not in SRUN: %d", p->p_tid, p->p_stat);
 	} else if ((p = sched_steal_proc(curcpu())) == NULL) {
 		p = spc->spc_idleproc;
 		if (p == NULL) {
@@ -606,11 +622,8 @@ sched_peg_curproc(struct cpu_info *ci)
 	int s;
 
 	SCHED_LOCK(s);
-	p->p_priority = p->p_usrpri;
-	p->p_stat = SRUN;
-	p->p_cpu = ci;
 	atomic_setbits_int(&p->p_flag, P_CPUPEG);
-	setrunqueue(p);
+	setrunqueue(ci, p, p->p_usrpri);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);

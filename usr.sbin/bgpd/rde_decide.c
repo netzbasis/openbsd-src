@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_decide.c,v 1.74 2019/01/21 02:07:56 claudio Exp $ */
+/*	$OpenBSD: rde_decide.c,v 1.78 2019/08/09 13:44:27 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -94,8 +94,8 @@ int	prefix_cmp(struct prefix *, struct prefix *);
  * Ineligible routes are flagged as ineligible via nexthop_add().
  * Phase 3 is done together with Phase 2.
  * In following cases a prefix needs to be reevaluated:
- *  - update of a prefix (path_update)
- *  - withdraw of a prefix (prefix_remove)
+ *  - update of a prefix (prefix_update)
+ *  - withdraw of a prefix (prefix_withdraw)
  *  - state change of the nexthop (nexthop-{in}validate)
  *  - state change of session (session down)
  */
@@ -242,26 +242,37 @@ prefix_evaluate(struct prefix *p, struct rib_entry *re)
 {
 	struct prefix	*xp;
 
-	if (re_rib(re)->flags & F_RIB_NOEVALUATE || rde_noevaluate()) {
+	if (re_rib(re)->flags & F_RIB_NOEVALUATE) {
 		/* decision process is turned off */
 		if (p != NULL)
-			LIST_INSERT_HEAD(&re->prefix_h, p, rib_l);
-		if (re->active != NULL)
+			LIST_INSERT_HEAD(&re->prefix_h, p, entry.list.rib);
+		if (re->active) {
+			/*
+			 * During reloads it is possible that the decision
+			 * process is turned off but prefixes are still
+			 * active. Clean up now to ensure that the RIB
+			 * is consistant.
+			 */
+			rde_generate_updates(re_rib(re), NULL, re->active);
 			re->active = NULL;
+		}
 		return;
 	}
 
 	if (p != NULL) {
 		if (LIST_EMPTY(&re->prefix_h))
-			LIST_INSERT_HEAD(&re->prefix_h, p, rib_l);
+			LIST_INSERT_HEAD(&re->prefix_h, p, entry.list.rib);
 		else {
-			LIST_FOREACH(xp, &re->prefix_h, rib_l) {
+			LIST_FOREACH(xp, &re->prefix_h, entry.list.rib) {
 				if (prefix_cmp(p, xp) > 0) {
-					LIST_INSERT_BEFORE(xp, p, rib_l);
+					LIST_INSERT_BEFORE(xp, p,
+					    entry.list.rib);
 					break;
-				} else if (LIST_NEXT(xp, rib_l) == NULL) {
+				} else if (LIST_NEXT(xp, entry.list.rib) ==
+				    NULL) {
 					/* if xp last element ... */
-					LIST_INSERT_AFTER(xp, p, rib_l);
+					LIST_INSERT_AFTER(xp, p,
+					    entry.list.rib);
 					break;
 				}
 			}

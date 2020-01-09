@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.65 2018/11/22 21:37:30 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.70 2019/12/07 22:57:47 guenther Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -55,19 +55,18 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 	long	numrela;
 	long	relrel;
 	int	fails = 0;
-	Elf64_Addr loff;
-	Elf64_Addr prev_value = 0;
+	Elf_Addr loff;
+	Elf_Addr prev_value = 0;
 	const Elf_Sym *prev_sym = NULL;
-	Elf64_Rela  *relas;
-	struct load_list *llist;
+	Elf_RelA  *relas;
 
 	loff = object->obj_base;
-	numrela = object->Dyn.info[relasz] / sizeof(Elf64_Rela);
+	numrela = object->Dyn.info[relasz] / sizeof(Elf_RelA);
 	relrel = rel == DT_RELA ? object->relacount : 0;
-	relas = (Elf64_Rela *)(object->Dyn.info[rel]);
+	relas = (Elf_RelA *)(object->Dyn.info[rel]);
 
 	if (relas == NULL)
-		return(0);
+		return 0;
 
 	if (relrel > numrela)
 		_dl_die("relacount > numrel: %ld > %ld", relrel, numrela);
@@ -75,30 +74,11 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 	if (! object->Dyn.info[DT_PROC(DT_ALPHA_PLTRO)])
 		_dl_die("unsupported insecure PLT object");
 
-	/*
-	 * unprotect some segments if we need it.
-	 * XXX - we unprotect way to much. only the text can have cow
-	 * relocations.
-	 */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list; llist != NULL; llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE)) {
-				_dl_mprotect(llist->start, llist->size,
-				    PROT_READ | PROT_WRITE);
-			}
-		}
-	}
-
 	/* tight loop for leading RELATIVE relocs */
 	for (i = 0; i < relrel; i++, relas++) {
 		Elf_Addr *r_addr;
 
-#ifdef DEBUG
-		if (ELF64_R_TYPE(relas->r_info) != R_TYPE(RELATIVE))
-			_dl_die("RELACOUNT wrong");
-#endif
-
-		r_addr = (Elf64_Addr *)(relas->r_offset + loff);
+		r_addr = (Elf_Addr *)(relas->r_offset + loff);
 
 		/* Handle unaligned RELATIVE relocs */
 		if ((((Elf_Addr)r_addr) & 0x7) != 0) {
@@ -110,31 +90,30 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 			*r_addr += loff;
 	}
 	for (; i < numrela; i++, relas++) {
-		Elf64_Addr *r_addr;
-		Elf64_Addr ooff;
-		const Elf64_Sym *sym, *this;
+		Elf_Addr *r_addr;
+		struct sym_res sr;
+		const Elf_Sym *sym;
 		const char *symn;
 
-		r_addr = (Elf64_Addr *)(relas->r_offset + loff);
+		r_addr = (Elf_Addr *)(relas->r_offset + loff);
 
-		if (ELF64_R_SYM(relas->r_info) == 0xffffffff)
+		if (ELF_R_SYM(relas->r_info) == 0xffffffff)
 			continue;
 
 
 		sym = object->dyn.symtab;
-		sym += ELF64_R_SYM(relas->r_info);
+		sym += ELF_R_SYM(relas->r_info);
 		symn = object->dyn.strtab + sym->st_name;
 
-		this = NULL;
-		switch (ELF64_R_TYPE(relas->r_info)) {
+		switch (ELF_R_TYPE(relas->r_info)) {
 		case R_TYPE(REFQUAD):
-			ooff =  _dl_find_symbol_bysym(object,
-			    ELF64_R_SYM(relas->r_info), &this,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_NOTPLT,
-			    sym, NULL);
-			if (this == NULL)
+			    sym, object);
+			if (sr.sym == NULL)
 				goto resolve_failed;
-			*r_addr += ooff + this->st_value + relas->r_addend;
+			*r_addr += sr.obj->obj_base + sr.sym->st_value +
+			    relas->r_addend;
 			break;
 		case R_TYPE(RELATIVE):
 			/*
@@ -154,26 +133,26 @@ _dl_printf("unaligned RELATIVE: %p type: %d %s 0x%lx -> 0x%lx\n", r_addr,
 				*r_addr += loff;
 			break;
 		case R_TYPE(JMP_SLOT):
-			ooff = _dl_find_symbol(symn, &this,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT,
-			    sym, object, NULL);
-			if (this == NULL)
+			    sym, object);
+			if (sr.sym == NULL)
 				goto resolve_failed;
-			*r_addr = ooff + this->st_value + relas->r_addend;
+			*r_addr = sr.obj->obj_base + sr.sym->st_value +
+			    relas->r_addend;
 			break;
 		case R_TYPE(GLOB_DAT):
 			if (sym == prev_sym) {
 				*r_addr = prev_value + relas->r_addend;
 				break;
 			}
-			ooff =  _dl_find_symbol_bysym(object,
-			    ELF64_R_SYM(relas->r_info), &this,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_NOTPLT,
-			    sym, NULL);
-			if (this == NULL)
+			    sym, object);
+			if (sr.sym == NULL)
 				goto resolve_failed;
 			prev_sym = sym;
-			prev_value = ooff + this->st_value;
+			prev_value = sr.obj->obj_base + sr.sym->st_value;
 			*r_addr = prev_value + relas->r_addend;
 			break;
 		case R_TYPE(NONE):
@@ -181,7 +160,7 @@ _dl_printf("unaligned RELATIVE: %p type: %d %s 0x%lx -> 0x%lx\n", r_addr,
 		default:
 			_dl_die("%s: unsupported relocation '%s' %lld at %p",
 			    object->load_name, symn,
-			    ELF64_R_TYPE(relas->r_info), (void *)r_addr);
+			    ELF_R_TYPE(relas->r_info), (void *)r_addr);
 		}
 		continue;
 resolve_failed:
@@ -190,15 +169,7 @@ resolve_failed:
 	}
 	__asm volatile("imb" : : : "memory");
 
-	/* reprotect the unprotected segments */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list; llist != NULL; llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE))
-				_dl_mprotect(llist->start, llist->size,
-				    llist->prot);
-		}
-	}
-	return (fails);
+	return fails;
 }
 
 /*
@@ -208,10 +179,9 @@ Elf_Addr
 _dl_bind(elf_object_t *object, int reloff)
 {
 	Elf_RelA *rela;
-	Elf_Addr ooff;
-	const Elf_Sym *sym, *this;
+	struct sym_res sr;
+	const Elf_Sym *sym;
 	const char *symn;
-	const elf_object_t *sobj;
 	uint64_t cookie = pcookie;
 	struct {
 		struct __kbind param;
@@ -221,19 +191,18 @@ _dl_bind(elf_object_t *object, int reloff)
 	rela = (Elf_RelA *)(object->Dyn.info[DT_JMPREL] + reloff);
 
 	sym = object->dyn.symtab;
-	sym += ELF64_R_SYM(rela->r_info);
+	sym += ELF_R_SYM(rela->r_info);
 	symn = object->dyn.strtab + sym->st_name;
 
-	this = NULL;
-	ooff = _dl_find_symbol(symn, &this,
-	    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT, sym, object, &sobj);
-	if (this == NULL)
+	sr = _dl_find_symbol(symn, SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT,
+	    sym, object);
+	if (sr.sym == NULL)
 		_dl_die("lazy binding failed!");
 
-	buf.newval = ooff + this->st_value + rela->r_addend;
+	buf.newval = sr.obj->obj_base + sr.sym->st_value + rela->r_addend;
 
-	if (__predict_false(sobj->traced) && _dl_trace_plt(sobj, symn))
-		return (buf.newval);
+	if (__predict_false(sr.obj->traced) && _dl_trace_plt(sr.obj, symn))
+		return buf.newval;
 
 	buf.param.kb_addr = (Elf_Addr *)(object->obj_base + rela->r_offset);
 	buf.param.kb_size = sizeof(Elf_Addr);
@@ -250,7 +219,7 @@ _dl_bind(elf_object_t *object, int reloff)
 		    "r" (arg3) : "$19", "$20", "memory");
 	}
 
-	return (buf.newval);
+	return buf.newval;
 }
 
 void _dl_bind_start(void) __dso_hidden;	/* XXX */
@@ -265,12 +234,9 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	Elf_Addr *pltgot;
 
 	if (object->Dyn.info[DT_PLTREL] != DT_RELA)
-		return (0);
+		return 0;
 
 	pltgot = (Elf_Addr *)object->Dyn.info[DT_PLTGOT];
-
-	if (object->traced)
-		lazy = 1;
 
 	if (!lazy || pltgot == NULL) {
 		fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
@@ -294,5 +260,5 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 		pltgot[1] = (Elf_Addr)object;
 	}
 
-	return (fails);
+	return fails;
 }

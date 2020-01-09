@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.265 2019/01/09 16:37:27 visa Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.273 2019/10/22 18:45:02 bluhm Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -34,11 +34,11 @@
 
 /*
  *	@(#)COPYRIGHT	1.1 (NRL) 17 January 1995
- * 
+ *
  * NRL grants permission for redistribution and use in source and binary
  * forms, with or without modification, of the software and documentation
  * created at NRL provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
@@ -46,14 +46,14 @@
  *    documentation and/or other materials provided with the distribution.
  * 3. All advertising materials mentioning features or use of this software
  *    must display the following acknowledgements:
- * 	This product includes software developed by the University of
- * 	California, Berkeley and its contributors.
- * 	This product includes software developed at the Information
- * 	Technology Division, US Naval Research Laboratory.
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
+ *	This product includes software developed at the Information
+ *	Technology Division, US Naval Research Laboratory.
  * 4. Neither the name of the NRL nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THE SOFTWARE PROVIDED BY NRL IS PROVIDED BY NRL AND CONTRIBUTORS ``AS
  * IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
  * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
@@ -65,7 +65,7 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * 
+ *
  * The views and conclusions contained in the software and documentation
  * are those of the authors and should not be interpreted as representing
  * official policies, either expressed or implied, of the US Naval
@@ -76,6 +76,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
@@ -131,12 +132,10 @@ int max_hdr;			/* largest link+protocol header */
 struct	mutex m_extref_mtx = MUTEX_INITIALIZER(IPL_NET);
 
 void	m_extfree(struct mbuf *);
-void	nmbclust_update(void);
 void	m_zero(struct mbuf *);
 
-struct mutex m_pool_mtx = MUTEX_INITIALIZER(IPL_NET);
-unsigned int mbuf_mem_limit; /* how much memory can be allocated */
-unsigned int mbuf_mem_alloc; /* how much memory has been allocated */
+unsigned long mbuf_mem_limit;	/* how much memory can be allocated */
+unsigned long mbuf_mem_alloc;	/* how much memory has been allocated */
 
 void	*m_pool_alloc(struct pool *, int, int *);
 void	m_pool_free(struct pool *, void *);
@@ -161,14 +160,13 @@ static u_int num_extfree_fns;
 void
 mbinit(void)
 {
-	int i;
+	int i, error;
 	unsigned int lowbits;
 
 	CTASSERT(MSIZE == sizeof(struct mbuf));
 
 	m_pool_allocator.pa_pagesz = pool_allocator_multi.pa_pagesz;
 
-	nmbclust_update();
 	mbuf_mem_alloc = 0;
 
 #if DIAGNOSTIC
@@ -196,6 +194,9 @@ mbinit(void)
 		m_pool_init(&mclpools[i], mclsizes[i], 64, mclnames[i]);
 	}
 
+	error = nmbclust_update(nmbclust);
+	KASSERT(error == 0);
+
 	(void)mextfree_register(m_extfree_pool);
 	KASSERT(num_extfree_fns == 1);
 }
@@ -214,11 +215,22 @@ mbcpuinit()
 		pool_cache_init(&mclpools[i]);
 }
 
-void
-nmbclust_update(void)
+int
+nmbclust_update(long newval)
 {
+	int i;
+
+	if (newval < 0 || newval > LONG_MAX / MCLBYTES)
+		return ERANGE;
 	/* update the global mbuf memory limit */
+	nmbclust = newval;
 	mbuf_mem_limit = nmbclust * MCLBYTES;
+
+	pool_wakeup(&mbpool);
+	for (i = 0; i < nitems(mclsizes); i++)
+		pool_wakeup(&mclpools[i]);
+
+	return 0;
 }
 
 /*
@@ -908,84 +920,105 @@ m_adj(struct mbuf *mp, int req_len)
  * mbuf chain on success, frees it and returns null on failure.
  */
 struct mbuf *
-m_pullup(struct mbuf *n, int len)
+m_pullup(struct mbuf *m0, int len)
 {
 	struct mbuf *m;
 	unsigned int adj;
 	caddr_t head, tail;
 	unsigned int space;
 
-	/* if n is already contig then don't do any work */
-	if (len <= n->m_len)
-		return (n);
+	/* if len is already contig in m0, then don't do any work */
+	if (len <= m0->m_len)
+		return (m0);
 
-	adj = (unsigned long)n->m_data & ALIGNBYTES;
-	head = (caddr_t)ALIGN(mtod(n, caddr_t) - m_leadingspace(n)) + adj;
-	tail = mtod(n, caddr_t) + n->m_len + m_trailingspace(n);
+	/* look for some data */
+	m = m0->m_next;
+	if (m == NULL)
+		goto freem0;
 
-	if (head < tail && len <= tail - head) {
-		/* there's enough space in the first mbuf */
+	head = M_DATABUF(m0);
+	if (m0->m_len == 0) {
+		m0->m_data = head;
 
-		if (len > tail - mtod(n, caddr_t)) {
-			/* need to memmove to make space at the end */
-			memmove(head, mtod(n, caddr_t), n->m_len);
-			n->m_data = head;
+		while (m->m_len == 0) {
+			m = m_free(m);
+			if (m == NULL)
+				goto freem0;
 		}
 
-		len -= n->m_len;
-		m = n;
-		n = m->m_next;
+		adj = mtod(m, unsigned long) & ALIGNBYTES;
+	} else
+		adj = mtod(m0, unsigned long) & ALIGNBYTES;
+
+	tail = head + M_SIZE(m0);
+	head += adj;
+
+	if (len <= tail - head) {
+		/* there's enough space in the first mbuf */
+
+		if (len > tail - mtod(m0, caddr_t)) {
+			/* need to memmove to make space at the end */
+			memmove(head, mtod(m0, caddr_t), m0->m_len);
+			m0->m_data = head;
+		}
+
+		len -= m0->m_len;
 	} else {
-		/* the first mbuf is too small so prepend one with space */
+		/* the first mbuf is too small so make a new one */
 		space = adj + len;
 
 		if (space > MAXMCLBYTES)
 			goto bad;
 
-		MGET(m, M_DONTWAIT, n->m_type);
-		if (m == NULL)
+		m0->m_next = m;
+		m = m0;
+
+		MGET(m0, M_DONTWAIT, m->m_type);
+		if (m0 == NULL)
 			goto bad;
+
 		if (space > MHLEN) {
-			MCLGETI(m, M_DONTWAIT, NULL, space);
-			if ((m->m_flags & M_EXT) == 0) {
-				m_free(m);
+			MCLGETI(m0, M_DONTWAIT, NULL, space);
+			if ((m0->m_flags & M_EXT) == 0)
 				goto bad;
-			}
 		}
 
-		if (n->m_flags & M_PKTHDR)
-			M_MOVE_PKTHDR(m, n);
+		if (m->m_flags & M_PKTHDR)
+			M_MOVE_PKTHDR(m0, m);
 
-		m->m_len = 0;
-		m->m_data += adj;
+		m0->m_len = 0;
+		m0->m_data += adj;
 	}
 
-	KASSERT(m_trailingspace(m) >= len);
+	KDASSERT(m_trailingspace(m0) >= len);
 
-	do {
-		if (n == NULL) {
-			(void)m_free(m);
-			goto bad;
-		}
-
-		space = min(len, n->m_len);
-		memcpy(mtod(m, caddr_t) + m->m_len, mtod(n, caddr_t), space);
+	for (;;) {
+		space = min(len, m->m_len);
+		memcpy(mtod(m0, caddr_t) + m0->m_len, mtod(m, caddr_t), space);
 		len -= space;
-		m->m_len += space;
-		n->m_len -= space;
+		m0->m_len += space;
+		m->m_len -= space;
 
-		if (n->m_len > 0)
-			n->m_data += space;
+		if (m->m_len > 0)
+			m->m_data += space;
 		else
-			n = m_free(n);
-	} while (len > 0);
+			m = m_free(m);
 
-	m->m_next = n;
+		if (len == 0)
+			break;
 
-	return (m);
+		if (m == NULL)
+			goto bad;
+	}
+
+	m0->m_next = m; /* link the chain back up */
+
+	return (m0);
 
 bad:
-	m_freem(n);
+	m_freem(m);
+freem0:
+	m_free(m0);
 	return (NULL);
 }
 
@@ -1424,33 +1457,34 @@ fail:
 	return (NULL);
 }
 
+void
+m_microtime(const struct mbuf *m, struct timeval *tv)
+{
+	if (ISSET(m->m_pkthdr.csum_flags, M_TIMESTAMP)) {
+		struct timeval btv, utv;
+
+		NSEC_TO_TIMEVAL(m->m_pkthdr.ph_timestamp, &utv);
+		microboottime(&btv);
+		timeradd(&btv, &utv, tv);
+	} else
+		microtime(tv);
+}
+
 void *
 m_pool_alloc(struct pool *pp, int flags, int *slowdown)
 {
-	void *v = NULL;
-	int avail = 1;
+	void *v;
 
-	if (mbuf_mem_alloc + pp->pr_pgsize > mbuf_mem_limit)
-		return (NULL);
+	if (atomic_add_long_nv(&mbuf_mem_alloc, pp->pr_pgsize) > mbuf_mem_limit)
+		goto fail;
 
-	mtx_enter(&m_pool_mtx);
-	if (mbuf_mem_alloc + pp->pr_pgsize > mbuf_mem_limit)
-		avail = 0;
-	else
-		mbuf_mem_alloc += pp->pr_pgsize;
-	mtx_leave(&m_pool_mtx);
+	v = (*pool_allocator_multi.pa_alloc)(pp, flags, slowdown);
+	if (v != NULL)
+		return (v);
 
-	if (avail) {
-		v = (*pool_allocator_multi.pa_alloc)(pp, flags, slowdown);
-
-		if (v == NULL) {
-			mtx_enter(&m_pool_mtx);
-			mbuf_mem_alloc -= pp->pr_pgsize;
-			mtx_leave(&m_pool_mtx);
-		}
-	}
-
-	return (v);
+ fail:
+	atomic_sub_long(&mbuf_mem_alloc, pp->pr_pgsize);
+	return (NULL);
 }
 
 void
@@ -1458,9 +1492,7 @@ m_pool_free(struct pool *pp, void *v)
 {
 	(*pool_allocator_multi.pa_free)(pp, v);
 
-	mtx_enter(&m_pool_mtx);
-	mbuf_mem_alloc -= pp->pr_pgsize;
-	mtx_leave(&m_pool_mtx);
+	atomic_sub_long(&mbuf_mem_alloc, pp->pr_pgsize);
 }
 
 void

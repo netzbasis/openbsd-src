@@ -27,7 +27,6 @@
 
 #include "less.h"
 
-extern volatile sig_atomic_t sigs;
 
 /*
  * Like read() system call, but is deliberately interruptible.
@@ -40,7 +39,7 @@ iread(int fd, unsigned char *buf, unsigned int len)
 start:
 	flush(0);
 	n = read(fd, buf, len);
-	if (n < 0) {
+	if (n == -1) {
 		/*
 		 * Certain values of errno indicate we should just retry the
 		 * read.

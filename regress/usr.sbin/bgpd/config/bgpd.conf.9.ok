@@ -1,8 +1,6 @@
 AS 1
 router-id 127.0.0.1
 socket "/var/run/bgpd.sock.0"
-holdtime min 3
-fib-priority 48
 
 roa-set {
 	1.2.3.0/24 source-as 0
@@ -50,7 +48,6 @@ origin-set "test4" {
 
 
 rde rib Adj-RIB-In no evaluate
-rde rib Adj-RIB-Out no evaluate
 rde rib Loc-RIB rtable 0 fib-update yes
 
 match from any ovs not-found 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_msk.c,v 1.131 2018/01/06 03:11:04 dlg Exp $	*/
+/*	$OpenBSD: if_msk.c,v 1.134 2020/01/05 01:07:58 jsg Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -134,7 +134,7 @@ int mskcprint(void *, const char *);
 int msk_intr(void *);
 void msk_intr_yukon(struct sk_if_softc *);
 static inline int msk_rxvalid(struct sk_softc *, u_int32_t, u_int32_t);
-void msk_rxeof(struct sk_if_softc *, uint16_t, uint32_t);
+void msk_rxeof(struct sk_if_softc *, struct mbuf_list *, uint16_t, uint32_t);
 void msk_txeof(struct sk_if_softc *);
 static unsigned int msk_encap(struct sk_if_softc *, struct mbuf *, uint32_t);
 void msk_start(struct ifnet *);
@@ -212,8 +212,8 @@ const struct pci_matchid mskc_devices[] = {
 	{ PCI_VENDOR_MARVELL,		PCI_PRODUCT_MARVELL_YUKON_C034 },
 	{ PCI_VENDOR_MARVELL,		PCI_PRODUCT_MARVELL_YUKON_C036 },
 	{ PCI_VENDOR_MARVELL,		PCI_PRODUCT_MARVELL_YUKON_C042 },
-	{ PCI_VENDOR_SCHNEIDERKOCH,	PCI_PRODUCT_SCHNEIDERKOCH_SK9Exx },
-	{ PCI_VENDOR_SCHNEIDERKOCH,	PCI_PRODUCT_SCHNEIDERKOCH_SK9Sxx }
+	{ PCI_VENDOR_SCHNEIDERKOCH,	PCI_PRODUCT_SCHNEIDERKOCH_SK9EXX },
+	{ PCI_VENDOR_SCHNEIDERKOCH,	PCI_PRODUCT_SCHNEIDERKOCH_SK9SXX }
 };
 
 static inline u_int32_t
@@ -506,7 +506,6 @@ msk_newbuf(struct sk_if_softc *sc_if)
 
 		sc_if->sk_cdata.sk_rx_hiaddr = hiaddr;
 
-//printf("%s: addr64 @%u (%08x)\n", __func__, prod, hiaddr);
 		SK_INC(prod, MSK_RX_RING_CNT);
 	}
 
@@ -515,7 +514,6 @@ msk_newbuf(struct sk_if_softc *sc_if)
 	htolem16(&r->sk_len, map->dm_segs[0].ds_len);
 	r->sk_ctl = 0;
 	r->sk_opcode = SK_Y2_RXOPC_OWN | SK_Y2_RXOPC_PACKET;
-//printf("%s: packet @%u\n", __func__, prod);
 
 	sc_if->sk_cdata.sk_rx_maps[head] = sc_if->sk_cdata.sk_rx_maps[prod];
 	sc_if->sk_cdata.sk_rx_maps[prod] = map;
@@ -523,7 +521,6 @@ msk_newbuf(struct sk_if_softc *sc_if)
 	sc_if->sk_cdata.sk_rx_mbuf[prod] = m;
 
 	SK_INC(prod, MSK_RX_RING_CNT);
-//printf("%s: prod %u\n", __func__, prod);
 	sc_if->sk_cdata.sk_rx_prod = prod;
 
 	return (1);
@@ -1591,19 +1588,17 @@ msk_rxvalid(struct sk_softc *sc, u_int32_t stat, u_int32_t len)
 }
 
 void
-msk_rxeof(struct sk_if_softc *sc_if, uint16_t len, uint32_t rxstat)
+msk_rxeof(struct sk_if_softc *sc_if, struct mbuf_list *ml,
+    uint16_t len, uint32_t rxstat)
 {
 	struct sk_softc		*sc = sc_if->sk_softc;
 	struct ifnet		*ifp = &sc_if->arpcom.ac_if;
-	struct mbuf_list	ml = MBUF_LIST_INITIALIZER();
 	struct mbuf		*m = NULL;
 	int			prod, cons, tail;
 	bus_dmamap_t		map;
 
 	prod = sc_if->sk_cdata.sk_rx_prod;
 	cons = sc_if->sk_cdata.sk_rx_cons;
-
-//printf("%s: prod %u cons %u\n", __func__, prod, cons);
 
 	while (cons != prod) {
 		tail = cons;
@@ -1640,8 +1635,7 @@ msk_rxeof(struct sk_if_softc *sc_if, uint16_t len, uint32_t rxstat)
 
 	m->m_pkthdr.len = m->m_len = len;
 
-	ml_enqueue(&ml, m);
-	if_input(ifp, &ml);
+	ml_enqueue(ml, m);
 }
 
 void
@@ -1770,8 +1764,12 @@ msk_intr(void *xsc)
 	struct sk_if_softc	*sc_if;
 	struct sk_if_softc	*sc_if0 = sc->sk_if[SK_PORT_A];
 	struct sk_if_softc	*sc_if1 = sc->sk_if[SK_PORT_B];
+	struct mbuf_list	ml[2] = {
+					MBUF_LIST_INITIALIZER(),
+					MBUF_LIST_INITIALIZER(),
+				};
 	struct ifnet		*ifp0 = NULL, *ifp1 = NULL;
-	int			claimed = 0, rx[2] = {0, 0};
+	int			claimed = 0;
 	u_int32_t		status;
 	struct msk_status_desc	*cur_st;
 
@@ -1809,8 +1807,8 @@ msk_intr(void *xsc)
 		switch (cur_st->sk_opcode) {
 		case SK_Y2_STOPC_RXSTAT:
 			sc_if = sc->sk_if[cur_st->sk_link & 0x01];
-			rx[cur_st->sk_link & 0x01] = 1;
-			msk_rxeof(sc_if, lemtoh16(&cur_st->sk_len),
+			msk_rxeof(sc_if, &ml[cur_st->sk_link & 0x01],
+			    lemtoh16(&cur_st->sk_len),
 			    lemtoh32(&cur_st->sk_status));
 			break;
 		case SK_Y2_STOPC_TXSTAT:
@@ -1837,12 +1835,16 @@ msk_intr(void *xsc)
 
 	CSR_WRITE_4(sc, SK_Y2_ICR, 2);
 
-	if (rx[0]) {
+	if (!ml_empty(&ml[0])) {
+		if (ifiq_input(&ifp0->if_rcv, &ml[0]))
+			if_rxr_livelocked(&sc_if0->sk_cdata.sk_rx_ring);
 		msk_fill_rx_ring(sc_if0);
 		SK_IF_WRITE_2(sc_if0, 0, SK_RXQ1_Y2_PREF_PUTIDX,
 		    sc_if0->sk_cdata.sk_rx_prod);
 	}
-	if (rx[1]) {
+	if (!ml_empty(&ml[1])) {
+		if (ifiq_input(&ifp1->if_rcv, &ml[1]))
+			if_rxr_livelocked(&sc_if1->sk_cdata.sk_rx_ring);
 		msk_fill_rx_ring(sc_if1);
 		SK_IF_WRITE_2(sc_if1, 0, SK_RXQ1_Y2_PREF_PUTIDX,
 		    sc_if1->sk_cdata.sk_rx_prod);

@@ -34,7 +34,7 @@ CPAN::Mirrors - Get CPAN mirror information and select a fast one
 package CPAN::Mirrors;
 use strict;
 use vars qw($VERSION $urllist $silent);
-$VERSION = "1.9601";
+$VERSION = "2.21";
 
 use Carp;
 use FileHandle;
@@ -82,7 +82,7 @@ Return a list of continents based on those defined in F<MIRRORED.BY>.
 
 sub continents {
     my ($self) = @_;
-    return keys %{$self->{geography}};
+    return sort keys %{$self->{geography}};
 }
 
 =item countries( [CONTINENTS] )
@@ -99,7 +99,7 @@ sub countries {
     @continents = $self->continents unless @continents;
     my @countries;
     for my $c (@continents) {
-        push @countries, keys %{ $self->{geography}{$c} };
+        push @countries, sort keys %{ $self->{geography}{$c} };
     }
     return @countries;
 }
@@ -390,7 +390,7 @@ sub find_best_continents {
         RANDOM: while ( @mirrors && @tests < $n && $tries++ < 15 ) {
             my $m = splice( @mirrors, int(rand(@mirrors)), 1 );
            if( $self->_try_a_ping( $args{seen}, $m, $args{ping_cache_limit} ) ) {
-                $self->get_mirrors_timings( [ $m ], @args{qw(seen callback)} );
+                $self->get_mirrors_timings( [ $m ], $args{seen}, $args{callback} );
                 next RANDOM unless defined $args{seen}{$m->hostname}->rtt;
             }
             printf "\t%s -> %0.2f ms\n",

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ohci.c,v 1.155 2019/01/07 03:41:06 dlg Exp $ */
+/*	$OpenBSD: ohci.c,v 1.157 2019/11/27 11:16:59 mpi Exp $ */
 /*	$NetBSD: ohci.c,v 1.139 2003/02/22 05:24:16 tsutsui Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/ohci.c,v 1.22 1999/11/17 22:33:40 n_hibma Exp $	*/
 
@@ -2105,7 +2105,7 @@ ohci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 	s = splusb();
 	sc->sc_softwake = 1;
 	usb_schedsoftintr(&sc->sc_bus);
-	tsleep(&sc->sc_softwake, PZERO, "ohciab", 0);
+	tsleep_nsec(&sc->sc_softwake, PZERO, "ohciab", INFSLP);
 	splx(s);
 
 	/*
@@ -2187,7 +2187,7 @@ usb_config_descriptor_t ohci_confd = {
 	1,
 	1,
 	0,
-	UC_SELF_POWERED,
+	UC_BUS_POWERED | UC_SELF_POWERED,
 	0			/* max power */
 };
 

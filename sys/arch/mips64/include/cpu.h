@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.126 2018/12/05 10:28:21 jsg Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.128 2019/09/02 02:35:08 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -267,7 +267,7 @@ void	smp_rendezvous_cpus(unsigned long, void (*)(void *), void *arg);
 #define MAXCPUS				1
 #define curcpu()			(&cpu_info_primary)
 #define	CPU_IS_PRIMARY(ci)		1
-#define cpu_number()			0
+#define cpu_number()			0UL
 #define cpu_unidle(ci)
 #define get_cpu_info(i)			(&cpu_info_primary)
 #endif
@@ -300,12 +300,7 @@ void	cp0_calibrate(struct cpu_info *);
  * Preempt the current process if in interrupt from user mode,
  * or after the current trap/syscall if in system mode.
  */
-#define	need_resched(ci) \
-	do { \
-		(ci)->ci_want_resched = 1; \
-		if ((ci)->ci_curproc != NULL) \
-			aston((ci)->ci_curproc); \
-	} while(0)
+void	need_resched(struct cpu_info *);
 #define	clear_resched(ci) 	(ci)->ci_want_resched = 0
 
 /*
@@ -319,11 +314,7 @@ void	cp0_calibrate(struct cpu_info *);
  * Notify the current process (p) that it has a signal pending,
  * process as soon as possible.
  */
-#ifdef MULTIPROCESSOR
-#define	signotify(p)		(aston(p), cpu_unidle((p)->p_cpu))
-#else
-#define	signotify(p)		aston(p)
-#endif
+void	signotify(struct proc *);
 
 #define	aston(p)		((p)->p_md.md_astpending = 1)
 

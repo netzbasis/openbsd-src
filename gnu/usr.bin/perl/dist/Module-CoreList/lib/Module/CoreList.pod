@@ -172,9 +172,6 @@ the Unicode Character Database bundled with Perl.
 
 Available in version 3.00 and above.
 
-C<%Module::CoreList::version> is implemented via C<Module::CoreList::TieHashDelta>
-using this hash of delta changes.
-
 It is a hash of hashes that is keyed on perl version. Each keyed hash will have the
 following keys:
 
@@ -218,10 +215,10 @@ A hash that contains information on the appropriate bug tracker
 for each core module.
 
 BUGS is an email or url to post bug reports.  For modules with
-UPSTREAM => 'blead', use perl5-porters@perl.org.  rt.cpan.org
+UPSTREAM => 'blead', use L<mailto:perl5-porters@perl.org>.  rt.cpan.org
 appears to automatically provide a URL for CPAN modules; any value
 given here overrides the default:
-http://rt.cpan.org/Public/Dist/Display.html?Name=$ModuleName
+L<http://rt.cpan.org/Public/Dist/Display.html?Name=$ModuleName>
 
 =back
 

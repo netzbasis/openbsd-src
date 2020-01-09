@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.21 2016/10/17 02:58:29 lteo Exp $	*/
+/*	$OpenBSD: file.c,v 1.23 2019/12/30 16:07:13 millert Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -387,7 +387,8 @@ check(const char *fn)
 			printf("; cmp1=%d", cmp);
 
 		if (!cmp && sort_opts_vals.complex_sort &&
-		    !(sort_opts_vals.uflag) && !(sort_opts_vals.sflag)) {
+		    !(sort_opts_vals.uflag) && !(sort_opts_vals.sflag) &&
+		    !(sort_opts_vals.kflag)) {
 			cmp = top_level_str_coll(s2, s1);
 			if (debug_sort)
 				printf("; cmp2=%d", cmp);
@@ -1078,7 +1079,8 @@ sort_list_to_file(struct sort_list *list, const char *outfile)
 
 	if (!sm->Mflag && !sm->Rflag && !sm->Vflag &&
 	    !sm->gflag && !sm->hflag && !sm->nflag) {
-		if ((sort_opts_vals.sort_method == SORT_DEFAULT) && byte_sort)
+		if (sort_opts_vals.sort_method == SORT_DEFAULT &&
+		    sort_mb_cur_max == 1)
 			sort_opts_vals.sort_method = SORT_RADIXSORT;
 
 	} else if (sort_opts_vals.sort_method == SORT_RADIXSORT)

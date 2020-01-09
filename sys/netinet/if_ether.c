@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.238 2019/01/20 23:43:13 claudio Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.242 2019/11/07 11:23:23 krw Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -143,7 +143,8 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		timeout_add_sec(&arptimer_to, arpt_prune);
 	}
 
-	if (ISSET(rt->rt_flags, RTF_GATEWAY|RTF_BROADCAST|RTF_MULTICAST))
+	if (ISSET(rt->rt_flags,
+	    RTF_GATEWAY|RTF_BROADCAST|RTF_MULTICAST|RTF_MPLS))
 		return;
 
 	switch (req) {
@@ -206,6 +207,8 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		break;
 
 	case RTM_INVALIDATE:
+		if (la == NULL)
+			break;
 		if (!ISSET(rt->rt_flags, RTF_LOCAL))
 			arpinvalidate(rt);
 		break;
@@ -515,8 +518,8 @@ in_arpinput(struct ifnet *ifp, struct mbuf *m)
 	sin.sin_len = sizeof(sin);
 	sin.sin_family = AF_INET;
 
-	if (ETHER_IS_MULTICAST(&ea->arp_sha[0]) &&
-	    !memcmp(ea->arp_sha, etherbroadcastaddr, sizeof(ea->arp_sha))) {
+	if (ETHER_IS_MULTICAST(ea->arp_sha) &&
+	    ETHER_IS_BROADCAST(ea->arp_sha)) {
 		inet_ntop(AF_INET, &isaddr, addr, sizeof(addr));
 		log(LOG_ERR, "arp: ether address is broadcast for IP address "
 		    "%s!\n", addr);
@@ -913,7 +916,8 @@ revarpwhoarewe(struct ifnet *ifp, struct in_addr *serv_in,
 	revarp_ifidx = ifp->if_index;
 	while (count--) {
 		revarprequest(ifp);
-		result = tsleep((caddr_t)&revarp_myip, PSOCK, "revarp", hz/2);
+		result = tsleep_nsec(&revarp_myip, PSOCK, "revarp",
+		    MSEC_TO_NSEC(500));
 		if (result != EWOULDBLOCK)
 			break;
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tmpfs_vnops.c,v 1.33 2018/10/22 17:31:25 krw Exp $	*/
+/*	$OpenBSD: tmpfs_vnops.c,v 1.37 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: tmpfs_vnops.c,v 1.100 2012/11/05 17:27:39 dholland Exp $	*/
 
 /*
@@ -2587,12 +2587,26 @@ int filt_tmpfsread(struct knote *kn, long hint);
 int filt_tmpfswrite(struct knote *kn, long hint);
 int filt_tmpfsvnode(struct knote *kn, long hint);
 
-struct filterops tmpfsread_filtops = 
-	{ 1, NULL, filt_tmpfsdetach, filt_tmpfsread };
-struct filterops tmpfswrite_filtops = 
-	{ 1, NULL, filt_tmpfsdetach, filt_tmpfswrite };
-struct filterops tmpfsvnode_filtops = 
-	{ 1, NULL, filt_tmpfsdetach, filt_tmpfsvnode };
+const struct filterops tmpfsread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_tmpfsdetach,
+	.f_event	= filt_tmpfsread,
+};
+
+const struct filterops tmpfswrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_tmpfsdetach,
+	.f_event	= filt_tmpfswrite,
+};
+
+const struct filterops tmpfsvnode_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_tmpfsdetach,
+	.f_event	= filt_tmpfsvnode,
+};
 
 int
 tmpfs_kqfilter(void *v)
@@ -2645,7 +2659,7 @@ filt_tmpfsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-	kn->kn_data = node->tn_size - kn->kn_fp->f_offset;
+	kn->kn_data = node->tn_size - foffset(kn->kn_fp);
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ppp_tty.c,v 1.51 2018/11/09 14:14:31 claudio Exp $	*/
+/*	$OpenBSD: ppp_tty.c,v 1.53 2019/11/27 17:59:13 beck Exp $	*/
 /*	$NetBSD: ppp_tty.c,v 1.12 1997/03/24 21:23:10 christos Exp $	*/
 
 /*
@@ -171,7 +171,7 @@ pppopen(dev_t dev, struct tty *tp, struct proc *p)
 
     rw_enter_write(&ppp_pkt_init);
     if (ppp_pkts.pr_size == 0) {
-	extern struct kmem_pa_mode kp_dma_contig;
+	extern const struct kmem_pa_mode kp_dma_contig;
 
 	pool_init(&ppp_pkts, sizeof(struct ppp_pkt), 0,
 	  IPL_TTY, 0, "ppppkts", NULL); /* IPL_SOFTTTY */
@@ -308,7 +308,7 @@ pppread(struct tty *tp, struct uio *uio, int flag)
 	    splx(s);
 	    return (EWOULDBLOCK);
 	}
-	error = ttysleep(tp, (caddr_t)&tp->t_rawq, TTIPRI|PCATCH, ttyin, 0);
+	error = ttysleep(tp, (caddr_t)&tp->t_rawq, TTIPRI|PCATCH, ttyin);
 	if (error) {
 	    splx(s);
 	    return error;

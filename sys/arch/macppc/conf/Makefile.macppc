@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.macppc,v 1.94 2018/02/09 03:59:15 tb Exp $
+#	$OpenBSD: Makefile.macppc,v 1.99 2019/11/07 20:42:28 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -21,22 +21,30 @@ S!=	cd ../../../..; pwd
 _machdir?=	$S/arch/${_mach}
 _archdir?=	$S/arch/${_arch}
 
-INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
+INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch \
+		-I$S/dev/pci/drm/include \
+		-I$S/dev/pci/drm/include/uapi
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -D__${_mach}__ -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-main -Wno-uninitialized -Wno-pointer-sign \
 		-Wframe-larger-than=2047
 
-CMACHFLAGS=	-msoft-float -Wa,-many
-CMACHFLAGS+=	-fno-builtin-printf -fno-builtin-snprintf \
-		-fno-builtin-vsnprintf -fno-builtin-log \
-		-fno-builtin-log2 -fno-builtin-malloc ${NOPIE_FLAGS}
+CMACHFLAGS=	-msoft-float
+.if ${COMPILER_VERSION:Mgcc4}
+CMACHFLAGS+=	-Wa,-many
+.endif
+CMACHFLAGS+=	-ffreestanding ${NOPIE_FLAGS}
 SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
 CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+COPTS?=		-Oz
+.endif
+.if ${COMPILER_VERSION:Mclang}
+NO_INTEGR_AS=	-no-integrated-as
+CWARNFLAGS+=	-Wno-address-of-packed-member -Wno-constant-conversion
 .endif
 
 DEBUG?=		-g
@@ -52,7 +60,7 @@ HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
 NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -95,7 +103,7 @@ LINKFLAGS+=	-S
 assym.h: $S/kern/genassym.sh Makefile \
 	 ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf
 	cat ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf | \
-	    sh $S/kern/genassym.sh ${CC} ${CFLAGS} ${CPPFLAGS} -MF assym.P > assym.h.tmp
+	    sh $S/kern/genassym.sh ${CC} ${NO_INTEGR_AS} ${CFLAGS} ${CPPFLAGS} -MF assym.P > assym.h.tmp
 	sed '1s/.*/assym.h: \\/' assym.P > assym.d
 	sort -u assym.h.tmp > assym.h
 
@@ -144,8 +152,7 @@ hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

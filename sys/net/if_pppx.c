@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pppx.c,v 1.66 2018/07/11 21:18:23 nayden Exp $ */
+/*	$OpenBSD: if_pppx.c,v 1.70 2019/12/31 13:48:32 visa Exp $ */
 
 /*
  * Copyright (c) 2010 Claudio Jeker <claudio@openbsd.org>
@@ -185,21 +185,21 @@ void		pppxattach(int);
 void		filt_pppx_rdetach(struct knote *);
 int		filt_pppx_read(struct knote *, long);
 
-struct filterops pppx_rd_filtops = {
-	1,
-	NULL,
-	filt_pppx_rdetach,
-	filt_pppx_read
+const struct filterops pppx_rd_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_pppx_rdetach,
+	.f_event	= filt_pppx_read,
 };
 
 void		filt_pppx_wdetach(struct knote *);
 int		filt_pppx_write(struct knote *, long);
 
-struct filterops pppx_wr_filtops = {
-	1,
-	NULL,
-	filt_pppx_wdetach,
-	filt_pppx_write
+const struct filterops pppx_wr_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_pppx_wdetach,
+	.f_event	= filt_pppx_write,
 };
 
 struct pppx_dev *
@@ -599,11 +599,11 @@ pppxclose(dev_t dev, int flags, int mode, struct proc *p)
 
 	mq_purge(&pxd->pxd_svcq);
 
-	free(pxd, M_DEVBUF, 0);
+	free(pxd, M_DEVBUF, sizeof(*pxd));
 
 	if (LIST_EMPTY(&pppx_devs)) {
 		pool_destroy(pppx_if_pl);
-		free(pppx_if_pl, M_DEVBUF, 0);
+		free(pppx_if_pl, M_DEVBUF, sizeof(*pppx_if_pl));
 		pppx_if_pl = NULL;
 	}
 
@@ -652,7 +652,7 @@ pppx_if_find(struct pppx_dev *pxd, int session_id, int protocol)
 		p = NULL;
 	rw_exit_read(&pppx_ifs_lk);
 
-	free(s, M_DEVBUF, 0);
+	free(s, M_DEVBUF, sizeof(*s));
 	return (p);
 }
 
@@ -919,7 +919,7 @@ pppx_add_session(struct pppx_dev *pxd, struct pipex_session_req *req)
 		printf("pppx: unable to set addresses for %s, error=%d\n",
 		    ifp->if_xname, error);
 	} else {
-		dohooks(ifp->if_addrhooks, 0);
+		if_addrhooks_run(ifp);
 	}
 	rw_enter_write(&pppx_ifs_lk);
 	pxi->pxi_ready = 1;
@@ -1047,6 +1047,11 @@ pppx_if_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 #endif
 	if (pipex_enable) {
 		switch (dst->sa_family) {
+#ifdef INET6
+		case AF_INET6:
+			proto = PPP_IPV6;
+			break;
+#endif
 		case AF_INET:
 			proto = PPP_IP;
 			break;

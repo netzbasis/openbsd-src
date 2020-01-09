@@ -7,9 +7,13 @@
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
-#define NEED_my_strlcpy
-#define NEED_my_strlcat
-#include "ppport.h"
+#ifndef NO_PPPORT_H
+#  define NEED_croak_xs_usage
+#  define NEED_sv_2pv_flags
+#  define NEED_my_strlcpy
+#  define NEED_my_strlcat
+#  include "ppport.h"
+#endif
 
 #ifdef I_UNISTD
 #   include <unistd.h>
@@ -134,9 +138,9 @@ bsd_realpath(const char *path, char resolved[MAXPATHLEN])
             }
             if (next_token[0] == '\0')
                 continue;
-            else if (strcmp(next_token, ".") == 0)
+            else if (strEQ(next_token, "."))
                 continue;
-            else if (strcmp(next_token, "..") == 0) {
+            else if (strEQ(next_token, "..")) {
                 /*
                  * Strip the last path component except when we have
                  * single "/"
@@ -424,7 +428,7 @@ int Perl_getcwd_sv(pTHX_ SV *sv)
 #endif
 
 #if USE_MY_CXT
-# define MY_CXT_KEY "Cwd::_guts"XS_VERSION
+# define MY_CXT_KEY "Cwd::_guts" XS_VERSION
 typedef struct {
     SV *empty_string_sv, *slash_string_sv;
 } my_cxt_t;

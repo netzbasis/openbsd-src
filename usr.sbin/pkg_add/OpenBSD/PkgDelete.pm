@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgDelete.pm,v 1.45 2018/07/10 10:37:59 espie Exp $
+# $OpenBSD: PkgDelete.pm,v 1.47 2019/06/09 09:36:24 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -129,6 +129,13 @@ sub deleteset_from_location
 {
 	my ($self, $location) = @_;
 	return $self->deleteset->add_older(OpenBSD::Handle->from_location($location));
+}
+
+sub solve_dependency
+{
+	my ($self, $solver, $dep, $package) = @_;
+	# simpler dependency solving
+	return $solver->find_dep_in_installed($self, $dep);
 }
 
 package OpenBSD::DeleteSet;
@@ -299,7 +306,7 @@ sub process_set
 			}
 		}
 		if (keys %$bad2 > 0) {
-			$state->errsay("#1 depends on non-existant #2",
+			$state->errsay("#1 depends on non-existent #2",
 			    $set->print, join(' ', sort keys %$bad2));
 			if (fix_bad_dependencies($state)) {
 				for my $pkg (keys %$bad2) {

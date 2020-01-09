@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.342 2018/12/27 16:54:01 kn Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.347 2019/11/26 19:57:52 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -40,6 +40,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/sysctl.h>
 #include <sys/mbuf.h>
 #include <sys/filio.h>
 #include <sys/fcntl.h>
@@ -1194,7 +1195,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pf_rule		*rule, *tail;
 
 		PF_LOCK();
-		pr->anchor[sizeof(pr->anchor) - 1] = 0;
+		pr->anchor[sizeof(pr->anchor) - 1] = '\0';
 		ruleset = pf_find_ruleset(pr->anchor);
 		if (ruleset == NULL) {
 			error = EINVAL;
@@ -1291,7 +1292,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pf_rule		*tail;
 
 		PF_LOCK();
-		pr->anchor[sizeof(pr->anchor) - 1] = 0;
+		pr->anchor[sizeof(pr->anchor) - 1] = '\0';
 		ruleset = pf_find_ruleset(pr->anchor);
 		if (ruleset == NULL) {
 			error = EINVAL;
@@ -1315,7 +1316,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		int			 i;
 
 		PF_LOCK();
-		pr->anchor[sizeof(pr->anchor) - 1] = 0;
+		pr->anchor[sizeof(pr->anchor) - 1] = '\0';
 		ruleset = pf_find_ruleset(pr->anchor);
 		if (ruleset == NULL) {
 			error = EINVAL;
@@ -1732,7 +1733,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		state = TAILQ_FIRST(&state_list);
 		while (state) {
 			if (state->timeout != PFTM_UNLINKED) {
-				if ((nr+1) * sizeof(*p) > (unsigned)ps->ps_len)
+				if ((nr+1) * sizeof(*p) > ps->ps_len)
 					break;
 				pf_state_export(pstore, state);
 				error = copyout(pstore, p, sizeof(*p));
@@ -1938,7 +1939,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pf_anchor	*anchor;
 
 		PF_LOCK();
-		pr->path[sizeof(pr->path) - 1] = 0;
+		pr->path[sizeof(pr->path) - 1] = '\0';
 		if ((ruleset = pf_find_ruleset(pr->path)) == NULL) {
 			error = EINVAL;
 			PF_UNLOCK();
@@ -1966,20 +1967,19 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		u_int32_t		 nr = 0;
 
 		PF_LOCK();
-		pr->path[sizeof(pr->path) - 1] = 0;
+		pr->path[sizeof(pr->path) - 1] = '\0';
 		if ((ruleset = pf_find_ruleset(pr->path)) == NULL) {
 			error = EINVAL;
 			PF_UNLOCK();
 			break;
 		}
-		pr->name[0] = 0;
+		pr->name[0] = '\0';
 		if (ruleset == &pf_main_ruleset) {
 			/* XXX kludge for pf_main_ruleset */
 			RB_FOREACH(anchor, pf_anchor_global, &pf_anchors)
 				if (anchor->parent == NULL && nr++ == pr->nr) {
 					strlcpy(pr->name, anchor->name,
 					    sizeof(pr->name));
-					PF_UNLOCK();
 					break;
 				}
 		} else {
@@ -1988,13 +1988,12 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 				if (nr++ == pr->nr) {
 					strlcpy(pr->name, anchor->name,
 					    sizeof(pr->name));
-					PF_UNLOCK();
 					break;
 				}
 		}
+		PF_UNLOCK();
 		if (!pr->name[0])
 			error = EBUSY;
-		PF_UNLOCK();
 		break;
 	}
 
@@ -2545,7 +2544,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		struct pfioc_src_nodes	*psn = (struct pfioc_src_nodes *)addr;
 		struct pf_src_node	*n, *p, *pstore;
 		u_int32_t		 nr = 0;
-		int			 space = psn->psn_len;
+		size_t			 space = psn->psn_len;
 
 		PF_LOCK();
 		if (space == 0) {
@@ -2562,7 +2561,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		RB_FOREACH(n, pf_src_tree, &tree_src_tracking) {
 			int	secs = time_uptime, diff;
 
-			if ((nr + 1) * sizeof(*p) > (unsigned)psn->psn_len)
+			if ((nr + 1) * sizeof(*p) > psn->psn_len)
 				break;
 
 			memcpy(pstore, n, sizeof(*pstore));
@@ -2862,6 +2861,7 @@ pf_rule_copyin(struct pf_rule *from, struct pf_rule *to,
 		if ((to->match_tag = pf_tagname2tag(to->match_tagname, 1)) == 0)
 			return (EBUSY);
 	to->scrub_flags = from->scrub_flags;
+	to->delay = from->delay;
 	to->uid = from->uid;
 	to->gid = from->gid;
 	to->rule_flag = from->rule_flag;
@@ -2902,4 +2902,19 @@ pf_rule_copyin(struct pf_rule *from, struct pf_rule *to,
 	to->set_prio[1] = from->set_prio[1];
 
 	return (0);
+}
+
+int
+pf_sysctl(void *oldp, size_t *oldlenp, void *newp, size_t newlen)
+{
+	struct pf_status	pfs;
+
+	NET_RLOCK();
+	PF_LOCK();
+	memcpy(&pfs, &pf_status, sizeof(struct pf_status));
+	pfi_update_status(pfs.ifname, &pfs);
+	PF_UNLOCK();
+	NET_RUNLOCK();
+
+	return sysctl_rdstruct(oldp, oldlenp, newp, &pfs, sizeof(pfs));
 }

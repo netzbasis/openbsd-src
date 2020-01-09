@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.11 2018/10/12 18:37:22 kettenis Exp $
+#	$OpenBSD: install.md,v 1.14 2019/11/17 06:03:39 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -40,7 +40,7 @@ md_installboot() {
 	local _disk=/dev/$1 _mdec _plat
 
 	case $(sysctl -n hw.product) in
-	*Pine64*)			_plat=pine64;;
+	Pine64*(+))			_plat=pine64;;
 	*'Raspberry Pi'*)		_plat=rpi;;
 	esac
 
@@ -60,10 +60,12 @@ md_installboot() {
 	rpi)
 		cp $_mdec/{bootcode.bin,start.elf,fixup.dat,*.dtb} /mnt/mnt/
 		cp $_mdec/u-boot.bin /mnt/mnt/
+		mkdir -p /mnt/mnt/overlays
+		cp $_mdec/disable-bt.dtbo /mnt/mnt/overlays
 		cat > /mnt/mnt/config.txt<<-__EOT
 			arm_64bit=1
 			enable_uart=1
-			device_tree_address=0x02600000
+			dtoverlay=disable-bt
 			kernel=u-boot.bin
 		__EOT
 		;;
@@ -74,7 +76,7 @@ md_prep_fdisk() {
 	local _disk=$1 _d
 
 	local bootparttype="C"
-	local bootsectorstart="8192"
+	local bootsectorstart="32768"
 	local bootsectorsize="32768"
 	local bootsectorend=$(($bootsectorstart + $bootsectorsize))
 	local bootfstype="msdos"

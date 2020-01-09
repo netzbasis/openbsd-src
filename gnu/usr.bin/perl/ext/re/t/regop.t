@@ -23,7 +23,7 @@ shift @tests
 plan( @tests + 2 + ( @strs - grep { !$_ or /^---/ } @strs ));
 
 is( scalar @tests, $NUM_SECTS,
-    "Expecting output for $NUM_SECTS patterns" );
+    "Expecting output for $NUM_SECTS patterns, got ". scalar(@tests) );
 ok( defined $out, 'regop.pl returned something defined' );
 
 $out ||= "";
@@ -241,7 +241,7 @@ floating ""$ at 3..4 (checking floating)
 #Matching stclass EXACTF <.> against ".exe"
 ---
 #Compiling REx "[q]"
-#size 3 nodes Got 28 bytes for offset annotations.
+#size 3 nodes Got 7 bytes for offset annotations.
 #first at 1
 #Final program:
 #   1: EXACT <q>(3)
@@ -254,7 +254,7 @@ floating ""$ at 3..4 (checking floating)
 #Guessed: match at offset 0
 #%MATCHED%
 #Freeing REx: "[q]"
-Got 28 bytes for offset annotations.
+Got 7 bytes for offset annotations.
 Offsets: [3]
 1:1[3] 3:4[0]
 %MATCHED%        

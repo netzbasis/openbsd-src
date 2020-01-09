@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_kq.c,v 1.22 2014/11/15 00:03:12 tedu Exp $ */
+/*	$OpenBSD: nfs_kq.c,v 1.27 2019/12/31 13:48:32 visa Exp $ */
 /*	$NetBSD: nfs_kq.c,v 1.7 2003/10/30 01:43:10 simonb Exp $	*/
 
 /*-
@@ -193,7 +193,7 @@ filt_nfsdetach(struct knote *kn)
 			while (ke->flags & KEVQ_BUSY) {
 				ke->flags |= KEVQ_WANT;
 				rw_exit_write(&nfskevq_lock);
-				(void) tsleep(ke, PSOCK, "nfskqdet", 0);
+				tsleep_nsec(ke, PSOCK, "nfskqdet", INFSLP);
 				rw_enter_write(&nfskevq_lock);
 			}
 
@@ -226,7 +226,7 @@ filt_nfsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-	kn->kn_data = np->n_size - kn->kn_fp->f_offset;
+	kn->kn_data = np->n_size - foffset(kn->kn_fp);
 #ifdef DEBUG
 	printf("nfsread event. %lld\n", kn->kn_data);
 #endif
@@ -249,10 +249,19 @@ filt_nfsvnode(struct knote *kn, long hint)
 	return (kn->kn_fflags != 0);
 }
 
-static const struct filterops nfsread_filtops = 
-	{ 1, NULL, filt_nfsdetach, filt_nfsread };
-static const struct filterops nfsvnode_filtops = 
-	{ 1, NULL, filt_nfsdetach, filt_nfsvnode };
+static const struct filterops nfsread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_nfsdetach,
+	.f_event	= filt_nfsread,
+};
+
+static const struct filterops nfsvnode_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_nfsdetach,
+	.f_event	= filt_nfsvnode,
+};
 
 int
 nfs_kqfilter(void *v)

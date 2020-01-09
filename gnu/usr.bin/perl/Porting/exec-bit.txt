@@ -14,6 +14,11 @@ cpan/autodie/t/chmod.t
 cpan/CPAN-Meta-YAML/t/tml
 cpan/Test-Harness/t/source_tests/source.sh
 cpan/Test-Harness/t/source_tests/source_args.sh
+dist/Devel-PPPort/devel/mkapidoc.sh
+dist/Devel-PPPort/devel/mktodo
+dist/Devel-PPPort/devel/regenerate
+dist/Devel-PPPort/devel/scanprov
+dist/Devel-PPPort/soak
 installperl
 installman
 makedepend.SH
@@ -47,10 +52,12 @@ Porting/corecpan.pl
 Porting/corelist-perldelta.pl
 Porting/corelist.pl
 Porting/expand-macro.pl
+Porting/harness-timer-report.pl
 Porting/findrfuncs
 Porting/makerel
 Porting/make_dot_patch.pl
 Porting/make_snapshot.pl
+Porting/mksample
 Porting/newtests-perldelta.pl
 Porting/perlhist_calculate.pl
 Porting/sort_perldiag.pl

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_vnops.c,v 1.97 2018/08/20 16:00:22 mpi Exp $	*/
+/*	$OpenBSD: vfs_vnops.c,v 1.111 2020/01/05 13:46:02 visa Exp $	*/
 /*	$NetBSD: vfs_vnops.c,v 1.20 1996/02/04 02:18:41 christos Exp $	*/
 
 /*
@@ -66,7 +66,7 @@ int vn_kqfilter(struct file *, struct knote *);
 int vn_closefile(struct file *, struct proc *);
 int vn_seek(struct file *, off_t *, int, struct proc *);
 
-struct 	fileops vnops = {
+const struct fileops vnops = {
 	.fo_read	= vn_read,
 	.fo_write	= vn_write,
 	.fo_ioctl	= vn_ioctl,
@@ -91,13 +91,23 @@ vn_open(struct nameidata *ndp, int fmode, int cmode)
 	struct cloneinfo *cip;
 	int error;
 
-	if ((fmode & (FREAD|FWRITE)) == 0)
+	/*
+	 * The only valid flag to pass in here from NDINIT is
+	 * KERNELPATH, This function will override the nameiop based
+	 * on the fmode and cmode flags, So validate that our caller
+	 * has not set other flags or operations in the nameidata
+	 * structure.
+	 */
+	KASSERT(ndp->ni_cnd.cn_flags == 0 || ndp->ni_cnd.cn_flags == KERNELPATH);
+	KASSERT(ndp->ni_cnd.cn_nameiop == 0);
+
+        if ((fmode & (FREAD|FWRITE)) == 0)
 		return (EINVAL);
 	if ((fmode & (O_TRUNC | FWRITE)) == O_TRUNC)
 		return (EINVAL);
 	if (fmode & O_CREAT) {
 		ndp->ni_cnd.cn_nameiop = CREATE;
-		ndp->ni_cnd.cn_flags = LOCKPARENT | LOCKLEAF;
+		ndp->ni_cnd.cn_flags |= LOCKPARENT | LOCKLEAF;
 		if ((fmode & O_EXCL) == 0 && (fmode & O_NOFOLLOW) == 0)
 			ndp->ni_cnd.cn_flags |= FOLLOW;
 		if ((error = namei(ndp)) != 0)
@@ -132,8 +142,7 @@ vn_open(struct nameidata *ndp, int fmode, int cmode)
 		}
 	} else {
 		ndp->ni_cnd.cn_nameiop = LOOKUP;
-		ndp->ni_cnd.cn_flags =
-		    ((fmode & O_NOFOLLOW) ? NOFOLLOW : FOLLOW) | LOCKLEAF;
+		ndp->ni_cnd.cn_flags |= ((fmode & O_NOFOLLOW) ? NOFOLLOW : FOLLOW) | LOCKLEAF;
 		if ((error = namei(ndp)) != 0)
 			return (error);
 		vp = ndp->ni_vp;
@@ -247,7 +256,7 @@ vn_fsizechk(struct vnode *vp, struct uio *uio, int ioflag, ssize_t *overrun)
 
 	*overrun = 0;
 	if (vp->v_type == VREG && p != NULL && !(ioflag & IO_NOLIMIT)) {
-		rlim_t limit = p->p_rlimit[RLIMIT_FSIZE].rlim_cur;
+		rlim_t limit = lim_cur_proc(p, RLIMIT_FSIZE);
 
 		/* if already at or over the limit, send the signal and fail */
 		if (uio->uio_offset >= limit) {
@@ -343,30 +352,36 @@ vn_read(struct file *fp, struct uio *uio, int fflags)
 	off_t offset;
 	int error;
 
-	/*
-	 * Check below can race.  We can block on the vnode lock
-	 * and resume with a different `fp->f_offset' value.
-	 */
+	KERNEL_LOCK();
+
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+
 	if ((fflags & FO_POSITION) == 0)
-		offset = fp->f_offset;
+		offset = uio->uio_offset = fp->f_offset;
 	else
 		offset = uio->uio_offset;
 
 	/* no wrap around of offsets except on character devices */
-	if (vp->v_type != VCHR && count > LLONG_MAX - offset)
-		return (EINVAL);
+	if (vp->v_type != VCHR && count > LLONG_MAX - offset) {
+		error = EINVAL;
+		goto done;
+	}
 
-	if (vp->v_type == VDIR)
-		return (EISDIR);
+	if (vp->v_type == VDIR) {
+		error = EISDIR;
+		goto done;
+	}
 
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-	if ((fflags & FO_POSITION) == 0)
-		uio->uio_offset = fp->f_offset;
 	error = VOP_READ(vp, uio, (fp->f_flag & FNONBLOCK) ? IO_NDELAY : 0,
 	    cred);
-	if ((fflags & FO_POSITION) == 0)
+	if ((fflags & FO_POSITION) == 0) {
+		mtx_enter(&fp->f_mtx);
 		fp->f_offset += count - uio->uio_resid;
+		mtx_leave(&fp->f_mtx);
+	}
+done:
 	VOP_UNLOCK(vp);
+	KERNEL_UNLOCK();
 	return (error);
 }
 
@@ -380,6 +395,8 @@ vn_write(struct file *fp, struct uio *uio, int fflags)
 	struct ucred *cred = fp->f_cred;
 	int error, ioflag = IO_UNIT;
 	size_t count;
+
+	KERNEL_LOCK();
 
 	/* note: pwrite/pwritev are unaffected by O_APPEND */
 	if (vp->v_type == VREG && (fp->f_flag & O_APPEND) &&
@@ -396,12 +413,16 @@ vn_write(struct file *fp, struct uio *uio, int fflags)
 	count = uio->uio_resid;
 	error = VOP_WRITE(vp, uio, ioflag, cred);
 	if ((fflags & FO_POSITION) == 0) {
+		mtx_enter(&fp->f_mtx);
 		if (ioflag & IO_APPEND)
 			fp->f_offset = uio->uio_offset;
 		else
 			fp->f_offset += count - uio->uio_resid;
+		mtx_leave(&fp->f_mtx);
 	}
 	VOP_UNLOCK(vp);
+
+	KERNEL_UNLOCK();
 	return (error);
 }
 
@@ -497,7 +518,7 @@ vn_ioctl(struct file *fp, u_long com, caddr_t data, struct proc *p)
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
 				return (error);
-			*(int *)data = vattr.va_size - fp->f_offset;
+			*(int *)data = vattr.va_size - foffset(fp);
 			return (0);
 		}
 		if (com == FIONBIO || com == FIOASYNC)  /* XXX */
@@ -543,12 +564,26 @@ vn_lock(struct vnode *vp, int flags)
 	do {
 		if (vp->v_flag & VXLOCK) {
 			vp->v_flag |= VXWANT;
-			tsleep(vp, PINOD, "vn_lock", 0);
+			tsleep_nsec(vp, PINOD, "vn_lock", INFSLP);
 			error = ENOENT;
 		} else {
+			vp->v_lockcount++;
 			error = VOP_LOCK(vp, flags);
-			if (error == 0)
-				return (error);
+			vp->v_lockcount--;
+			if (error == 0) {
+				if ((vp->v_flag & VXLOCK) == 0)
+					return (0);
+
+				/*
+				 * The vnode was exclusively locked while
+				 * acquiring the requested lock. Release it and
+				 * try again.
+				 */
+				error = ENOENT;
+				VOP_UNLOCK(vp);
+				if (vp->v_lockcount == 0)
+					wakeup_one(&vp->v_lockcount);
+			}
 		}
 	} while (flags & LK_RETRY);
 	return (error);
@@ -590,10 +625,14 @@ vn_seek(struct file *fp, off_t *offset, int whence, struct proc *p)
 	struct vnode *vp = fp->f_data;
 	struct vattr vattr;
 	off_t newoff;
-	int error, special;
+	int error = 0;
+	int special;
 
 	if (vp->v_type == VFIFO)
 		return (ESPIPE);
+
+	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+
 	if (vp->v_type == VCHR)
 		special = 1;
 	else
@@ -606,21 +645,28 @@ vn_seek(struct file *fp, off_t *offset, int whence, struct proc *p)
 	case SEEK_END:
 		error = VOP_GETATTR(vp, &vattr, cred, p);
 		if (error)
-			return (error);
+			goto out;
 		newoff = *offset + (off_t)vattr.va_size;
 		break;
 	case SEEK_SET:
 		newoff = *offset;
 		break;
 	default:
-		return (EINVAL);
+		error = EINVAL;
+		goto out;
 	}
-	if (!special) {
-		if (newoff < 0)
-			return(EINVAL);
+	if (!special && newoff < 0) {
+		error = EINVAL;
+		goto out;
 	}
-	fp->f_offset = *offset = newoff;
-	return (0);
+	mtx_enter(&fp->f_mtx);
+	fp->f_offset = newoff;
+	mtx_leave(&fp->f_mtx);
+	*offset = newoff;
+
+out:
+	VOP_UNLOCK(vp);
+	return (error);
 }
 
 /*

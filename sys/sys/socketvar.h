@@ -1,4 +1,4 @@
-/*	$OpenBSD: socketvar.h,v 1.88 2018/11/19 13:15:37 visa Exp $	*/
+/*	$OpenBSD: socketvar.h,v 1.90 2019/12/12 16:33:02 visa Exp $	*/
 /*	$NetBSD: socketvar.h,v 1.18 1996/02/09 18:25:38 christos Exp $	*/
 
 /*-
@@ -194,6 +194,7 @@ static inline long
 sbspace(struct socket *so, struct sockbuf *sb)
 {
 	KASSERT(sb == &so->so_rcv || sb == &so->so_snd);
+	soassertlocked(so);
 	return lmin(sb->sb_hiwat - sb->sb_cc, sb->sb_mbmax - sb->sb_mbcnt);
 }
 
@@ -290,7 +291,7 @@ int	sbappendcontrol(struct socket *, struct sockbuf *, struct mbuf *,
 void	sbappendrecord(struct socket *, struct sockbuf *, struct mbuf *);
 void	sbcompress(struct sockbuf *sb, struct mbuf *m, struct mbuf *n);
 struct mbuf *
-	sbcreatecontrol(caddr_t p, int size, int type, int level);
+	sbcreatecontrol(const void *, size_t, int type, int level);
 void	sbdrop(struct socket *, struct sockbuf *, int);
 void	sbdroprecord(struct sockbuf *sb);
 void	sbflush(struct socket *, struct sockbuf *);

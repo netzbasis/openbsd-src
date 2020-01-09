@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_init.c,v 1.41 2018/09/17 14:56:37 visa Exp $	*/
+/*	$OpenBSD: vfs_init.c,v 1.43 2019/12/26 13:30:54 bluhm Exp $	*/
 /*	$NetBSD: vfs_init.c,v 1.6 1996/02/09 19:00:58 christos Exp $	*/
 
 /*
@@ -50,50 +50,9 @@ struct pool namei_pool;
 struct vnode *rootvnode;
 
 /* Set up the filesystem operations for vnodes. */
-#ifdef FFS
-extern	const struct vfsops ffs_vfsops;
-#endif
-
-#ifdef MFS
-extern	const struct vfsops mfs_vfsops;
-#endif
-
-#ifdef MSDOSFS
-extern	const struct vfsops msdosfs_vfsops;
-#endif
-
-#ifdef NFSCLIENT
-extern	const struct vfsops nfs_vfsops;
-#endif
-
-#ifdef CD9660
-extern	const struct vfsops cd9660_vfsops;
-#endif
-
-#ifdef EXT2FS
-extern	const struct vfsops ext2fs_vfsops;
-#endif
-
-#ifdef NTFS
-extern  const struct vfsops ntfs_vfsops;
-#endif
-
-#ifdef UDF
-extern  const struct vfsops udf_vfsops;
-#endif
-
-#ifdef FUSE
-extern const struct vfsops fusefs_vfsops;
-#endif
-
-#ifdef TMPFS
-extern  const struct vfsops tmpfs_vfsops;
-#endif
-
-/* Set up the filesystem operations for vnodes. */
 static struct vfsconf vfsconflist[] = {
 #ifdef FFS
-        { &ffs_vfsops, MOUNT_FFS, 1, 0, MNT_LOCAL,
+        { &ffs_vfsops, MOUNT_FFS, 1, 0, MNT_LOCAL | MNT_SWAPPABLE,
 	    sizeof(struct ufs_args) },
 #endif
 
@@ -103,7 +62,7 @@ static struct vfsconf vfsconflist[] = {
 #endif
 
 #ifdef EXT2FS
-	{ &ext2fs_vfsops, MOUNT_EXT2FS, 17, 0, MNT_LOCAL,
+	{ &ext2fs_vfsops, MOUNT_EXT2FS, 17, 0, MNT_LOCAL | MNT_SWAPPABLE,
 	    sizeof(struct ufs_args) },
 #endif
 
@@ -113,12 +72,12 @@ static struct vfsconf vfsconflist[] = {
 #endif
 
 #ifdef MSDOSFS
-        { &msdosfs_vfsops, MOUNT_MSDOS, 4, 0, MNT_LOCAL,
+        { &msdosfs_vfsops, MOUNT_MSDOS, 4, 0, MNT_LOCAL | MNT_SWAPPABLE,
 	    sizeof(struct msdosfs_args) },
 #endif
 
 #ifdef NFSCLIENT
-        { &nfs_vfsops, MOUNT_NFS, 2, 0, 0,
+        { &nfs_vfsops, MOUNT_NFS, 2, 0, MNT_SWAPPABLE,
 	    sizeof(struct nfs_args) },
 #endif
 

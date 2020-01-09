@@ -38,7 +38,11 @@
     #define _LIBUNWIND_SUPPORT_DWARF_UNWIND   1
   #endif
 #elif defined(_WIN32)
-  #define _LIBUNWIND_SUPPORT_DWARF_UNWIND 1
+  #ifdef __SEH__
+    #define _LIBUNWIND_SUPPORT_SEH_UNWIND 1
+  #else
+    #define _LIBUNWIND_SUPPORT_DWARF_UNWIND 1
+  #endif
 #else
   #if defined(__ARM_DWARF_EH__) || !defined(__arm__)
     #define _LIBUNWIND_SUPPORT_DWARF_UNWIND 1
@@ -72,7 +76,13 @@
     (!defined(__APPLE__) && defined(__arm__)) ||                               \
     (defined(__arm64__) || defined(__aarch64__)) ||                            \
     defined(__mips__)
+#if !defined(_LIBUNWIND_BUILD_SJLJ_APIS)
 #define _LIBUNWIND_BUILD_ZERO_COST_APIS
+#endif
+#endif
+
+#if defined(__powerpc64__) && defined(_ARCH_PWR8)
+#define PPC64_HAS_VMX
 #endif
 
 #if defined(NDEBUG) && defined(_LIBUNWIND_IS_BAREMETAL)

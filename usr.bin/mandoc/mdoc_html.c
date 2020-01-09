@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.202 2019/01/18 14:36:16 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.207 2019/12/10 10:49:04 bentley Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -349,26 +349,34 @@ print_mdoc_node(MDOC_ARGS)
 	if (n->type == ROFFT_COMMENT || n->flags & NODE_NOPRT)
 		return;
 
-	html_fillmode(h, n->flags & NODE_NOFILL ? ROFF_nf : ROFF_fi);
+	if (n->flags & NODE_NOFILL) {
+		html_fillmode(h, ROFF_nf);
+		if (n->flags & NODE_LINE)
+			print_endline(h);
+	} else
+		html_fillmode(h, ROFF_fi);
 
 	child = 1;
 	n->flags &= ~NODE_ENDED;
 	switch (n->type) {
 	case ROFFT_TEXT:
+		if (n->flags & NODE_LINE) {
+			switch (*n->string) {
+			case '\0':
+				h->col = 1;
+				print_endline(h);
+				return;
+			case ' ':
+				if ((h->flags & HTML_NONEWLINE) == 0 &&
+				    (n->flags & NODE_NOFILL) == 0)
+					print_otag(h, TAG_BR, "");
+				break;
+			default:
+				break;
+			}
+		}
 		t = h->tag;
 		t->refcnt++;
-
-		/* No tables in this mode... */
-		assert(NULL == h->tblt);
-
-		/*
-		 * Make sure that if we're in a literal mode already
-		 * (i.e., within a <PRE>) don't print the newline.
-		 */
-		if (*n->string == ' ' && n->flags & NODE_LINE &&
-		    (h->flags & HTML_NONEWLINE) == 0 &&
-		    (n->flags & NODE_NOFILL) == 0)
-			print_otag(h, TAG_BR, "");
 		if (NODE_DELIMC & n->flags)
 			h->flags |= HTML_NOSPACE;
 		print_text(h, n->string);
@@ -436,12 +444,6 @@ print_mdoc_node(MDOC_ARGS)
 		if (n->end != ENDBODY_NOT)
 			n->body->flags |= NODE_ENDED;
 		break;
-	}
-
-	if (n->flags & NODE_NOFILL &&
-	    (n->next == NULL || n->next->flags & NODE_LINE)) {
-		h->col++;
-		print_endline(h);
 	}
 }
 
@@ -529,8 +531,10 @@ mdoc_sh_pre(MDOC_ARGS)
 		html_close_paragraph(h);
 		if ((h->oflags & HTML_TOC) == 0 ||
 		    h->flags & HTML_TOCDONE ||
-		    n->sec <= SEC_SYNOPSIS)
+		    n->sec <= SEC_SYNOPSIS) {
+			print_otag(h, TAG_SECTION, "c", "Sh");
 			break;
+		}
 		h->flags |= HTML_TOCDONE;
 		sc = 0;
 		for (sn = n->next; sn != NULL; sn = sn->next)
@@ -571,6 +575,7 @@ mdoc_sh_pre(MDOC_ARGS)
 			print_tagq(h, tsec);
 		}
 		print_tagq(h, t);
+		print_otag(h, TAG_SECTION, "c", "Sh");
 		break;
 	case ROFFT_HEAD:
 		id = html_make_id(n, 1);
@@ -596,6 +601,7 @@ mdoc_ss_pre(MDOC_ARGS)
 	switch (n->type) {
 	case ROFFT_BLOCK:
 		html_close_paragraph(h);
+		print_otag(h, TAG_SECTION, "c", "Ss");
 		return 1;
 	case ROFFT_HEAD:
 		break;
@@ -647,7 +653,6 @@ mdoc_nd_pre(MDOC_ARGS)
 {
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		html_close_paragraph(h);
 		return 1;
 	case ROFFT_HEAD:
 		return 0;
@@ -657,8 +662,7 @@ mdoc_nd_pre(MDOC_ARGS)
 		abort();
 	}
 	print_text(h, "\\(em");
-	/* Cannot use TAG_SPAN because it may contain blocks. */
-	print_otag(h, TAG_DIV, "c", "Nd");
+	print_otag(h, TAG_SPAN, "c", "Nd");
 	return 1;
 }
 
@@ -1266,7 +1270,11 @@ mdoc_skip_pre(MDOC_ARGS)
 static int
 mdoc_pp_pre(MDOC_ARGS)
 {
-	if ((n->flags & NODE_NOFILL) == 0) {
+	if (n->flags & NODE_NOFILL) {
+		print_endline(h);
+		h->col = 1;
+		print_endline(h);
+	} else {
 		html_close_paragraph(h);
 		print_otag(h, TAG_P, "c", "Pp");
 	}
@@ -1694,7 +1702,7 @@ mdoc_quote_pre(MDOC_ARGS)
 		/*
 		 * Give up on semantic markup for now.
 		 * We cannot use TAG_SPAN because .Oo may contain blocks.
-		 * We cannot use TAG_IDIV because we might be in a
+		 * We cannot use TAG_DIV because we might be in a
 		 * phrasing context (like .Dl or .Pp); we cannot
 		 * close out a .Pp at this point either because
 		 * that would break the line.
@@ -1709,9 +1717,11 @@ mdoc_quote_pre(MDOC_ARGS)
 		break;
 	case MDOC_Do:
 	case MDOC_Dq:
+		print_text(h, "\\(lq");
+		break;
 	case MDOC_Qo:
 	case MDOC_Qq:
-		print_text(h, "\\(lq");
+		print_text(h, "\"");
 		break;
 	case MDOC_Po:
 	case MDOC_Pq:
@@ -1767,11 +1777,13 @@ mdoc_quote_post(MDOC_ARGS)
 		else
 			print_text(h, n->norm->Es->child->next->string);
 		break;
-	case MDOC_Qo:
-	case MDOC_Qq:
 	case MDOC_Do:
 	case MDOC_Dq:
 		print_text(h, "\\(rq");
+		break;
+	case MDOC_Qo:
+	case MDOC_Qq:
+		print_text(h, "\"");
 		break;
 	case MDOC_Po:
 	case MDOC_Pq:

@@ -98,10 +98,15 @@ private:
   bool push_extended_pattern_p();
   bool push_misc_reg_p();
   bool mov_rsp_rbp_pattern_p();
+  bool mov_rsp_rbx_pattern_p();
+  bool mov_rbp_rsp_pattern_p();
+  bool mov_rbx_rsp_pattern_p();
   bool sub_rsp_pattern_p(int &amount);
   bool add_rsp_pattern_p(int &amount);
   bool lea_rsp_pattern_p(int &amount);
   bool lea_rbp_rsp_pattern_p(int &amount);
+  bool lea_rbx_rsp_pattern_p(int &amount);
+  bool and_rsp_pattern_p();
   bool push_reg_p(int &regno);
   bool pop_reg_p(int &regno);
   bool pop_rbp_pattern_p();
@@ -110,6 +115,7 @@ private:
   bool call_next_insn_pattern_p();
   bool mov_reg_to_local_stack_frame_p(int &regno, int &rbp_offset);
   bool ret_pattern_p();
+  bool retguard_prologue_p(size_t offset, int insn_len);
   uint32_t extract_4(uint8_t *b);
 
   bool instruction_length(uint8_t *insn, int &length, uint32_t buffer_remaining_bytes);
@@ -157,9 +163,11 @@ private:
   uint32_t m_machine_ip_regnum;
   uint32_t m_machine_sp_regnum;
   uint32_t m_machine_fp_regnum;
+  uint32_t m_machine_alt_fp_regnum;
   uint32_t m_lldb_ip_regnum;
   uint32_t m_lldb_sp_regnum;
   uint32_t m_lldb_fp_regnum;
+  uint32_t m_lldb_alt_fp_regnum;
 
   typedef std::map<uint32_t, lldb_reg_info> MachineRegnumToNameAndLLDBRegnum;
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_methods.c,v 1.1 2018/11/05 05:45:15 jsing Exp $ */
+/* $OpenBSD: ssl_methods.c,v 1.5 2019/11/17 19:07:07 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -57,6 +57,7 @@
  */
 
 #include "ssl_locl.h"
+#include "tls13_internal.h"
 
 static const SSL_METHOD_INTERNAL DTLSv1_client_method_internal_data = {
 	.version = DTLS1_VERSION,
@@ -67,6 +68,7 @@ static const SSL_METHOD_INTERNAL DTLSv1_client_method_internal_data = {
 	.ssl_free = dtls1_free,
 	.ssl_accept = ssl_undefined_function,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = dtls1_get_client_method,
 	.get_timeout = dtls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -94,6 +96,12 @@ DTLSv1_client_method(void)
 }
 
 const SSL_METHOD *
+DTLS_client_method(void)
+{
+	return DTLSv1_client_method();
+}
+
+const SSL_METHOD *
 dtls1_get_client_method(int ver)
 {
 	if (ver == DTLS1_VERSION)
@@ -112,6 +120,7 @@ static const SSL_METHOD_INTERNAL DTLSv1_method_internal_data = {
 	.ssl_free = dtls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = dtls1_get_method,
 	.get_timeout = dtls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -138,6 +147,12 @@ DTLSv1_method(void)
 	return &DTLSv1_method_data;
 }
 
+const SSL_METHOD *
+DTLS_method(void)
+{
+	return DTLSv1_method();
+}
+
 static const SSL_METHOD *
 dtls1_get_method(int ver)
 {
@@ -155,6 +170,7 @@ static const SSL_METHOD_INTERNAL DTLSv1_server_method_internal_data = {
 	.ssl_free = dtls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl_undefined_function,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = dtls1_get_server_method,
 	.get_timeout = dtls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -182,6 +198,12 @@ DTLSv1_server_method(void)
 }
 
 const SSL_METHOD *
+DTLS_server_method(void)
+{
+	return DTLSv1_server_method();
+}
+
+const SSL_METHOD *
 dtls1_get_server_method(int ver)
 {
 	if (ver == DTLS1_VERSION)
@@ -189,23 +211,25 @@ dtls1_get_server_method(int ver)
 	return (NULL);
 }
 
+#ifdef LIBRESSL_HAS_TLS1_3
 static const SSL_METHOD_INTERNAL TLS_client_method_internal_data = {
-	.version = TLS1_2_VERSION,
+	.version = TLS1_3_VERSION,
 	.min_version = TLS1_VERSION,
-	.max_version = TLS1_2_VERSION,
+	.max_version = TLS1_3_VERSION,
 	.ssl_new = tls1_new,
 	.ssl_clear = tls1_clear,
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl_undefined_function,
-	.ssl_connect = ssl3_connect,
+	.ssl_connect = tls13_legacy_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_client_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
 	.ssl_renegotiate = ssl_undefined_function,
 	.ssl_renegotiate_check = ssl_ok,
 	.ssl_get_message = ssl3_get_message,
-	.ssl_read_bytes = ssl3_read_bytes,
-	.ssl_write_bytes = ssl3_write_bytes,
+	.ssl_read_bytes = tls13_legacy_read_bytes,
+	.ssl_write_bytes = tls13_legacy_write_bytes,
 	.ssl3_enc = &TLSv1_2_enc_data,
 };
 
@@ -217,6 +241,37 @@ static const SSL_METHOD TLS_client_method_data = {
 	.put_cipher_by_char = ssl3_put_cipher_by_char,
 	.internal = &TLS_client_method_internal_data,
 };
+#endif
+
+static const SSL_METHOD_INTERNAL TLS_legacy_client_method_internal_data = {
+	.version = TLS1_2_VERSION,
+	.min_version = TLS1_VERSION,
+	.max_version = TLS1_2_VERSION,
+	.ssl_new = tls1_new,
+	.ssl_clear = tls1_clear,
+	.ssl_free = tls1_free,
+	.ssl_accept = ssl_undefined_function,
+	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
+	.get_ssl_method = tls1_get_client_method,
+	.get_timeout = tls1_default_timeout,
+	.ssl_version = ssl_undefined_void_function,
+	.ssl_renegotiate = ssl_undefined_function,
+	.ssl_renegotiate_check = ssl_ok,
+	.ssl_get_message = ssl3_get_message,
+	.ssl_read_bytes = ssl3_read_bytes,
+	.ssl_write_bytes = ssl3_write_bytes,
+	.ssl3_enc = &TLSv1_2_enc_data,
+};
+
+static const SSL_METHOD TLS_legacy_client_method_data = {
+	.ssl_dispatch_alert = ssl3_dispatch_alert,
+	.num_ciphers = ssl3_num_ciphers,
+	.get_cipher = ssl3_get_cipher,
+	.get_cipher_by_char = ssl3_get_cipher_by_char,
+	.put_cipher_by_char = ssl3_put_cipher_by_char,
+	.internal = &TLS_legacy_client_method_internal_data,
+};
 
 static const SSL_METHOD_INTERNAL TLSv1_client_method_internal_data = {
 	.version = TLS1_VERSION,
@@ -227,6 +282,7 @@ static const SSL_METHOD_INTERNAL TLSv1_client_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl_undefined_function,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_client_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -256,6 +312,7 @@ static const SSL_METHOD_INTERNAL TLSv1_1_client_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl_undefined_function,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_client_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -285,6 +342,7 @@ static const SSL_METHOD_INTERNAL TLSv1_2_client_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl_undefined_function,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_client_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -326,7 +384,17 @@ SSLv23_client_method(void)
 const SSL_METHOD *
 TLS_client_method(void)
 {
+#ifdef LIBRESSL_HAS_TLS1_3
 	return (&TLS_client_method_data);
+#else
+	return tls_legacy_client_method();
+#endif
+}
+
+const SSL_METHOD *
+tls_legacy_client_method(void)
+{
+	return (&TLS_legacy_client_method_data);
 }
 
 const SSL_METHOD *
@@ -358,6 +426,7 @@ static const SSL_METHOD_INTERNAL TLS_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -387,6 +456,7 @@ static const SSL_METHOD_INTERNAL TLSv1_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -416,6 +486,7 @@ static const SSL_METHOD_INTERNAL TLSv1_1_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -445,6 +516,7 @@ static const SSL_METHOD_INTERNAL TLSv1_2_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl3_connect,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -516,6 +588,7 @@ static const SSL_METHOD_INTERNAL TLS_server_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl_undefined_function,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_server_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -545,6 +618,7 @@ static const SSL_METHOD_INTERNAL TLSv1_server_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl_undefined_function,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_server_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -574,6 +648,7 @@ static const SSL_METHOD_INTERNAL TLSv1_1_server_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl_undefined_function,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_server_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -603,6 +678,7 @@ static const SSL_METHOD_INTERNAL TLSv1_2_server_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl3_accept,
 	.ssl_connect = ssl_undefined_function,
+	.ssl_shutdown = ssl3_shutdown,
 	.get_ssl_method = tls1_get_server_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,

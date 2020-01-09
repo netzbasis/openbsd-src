@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl_optimize.c,v 1.40 2019/01/03 22:49:00 kn Exp $ */
+/*	$OpenBSD: pfctl_optimize.c,v 1.43 2019/12/12 21:00:51 kn Exp $ */
 
 /*
  * Copyright (c) 2004 Mike Frantzen <frantzen@openbsd.org>
@@ -270,7 +270,10 @@ pfctl_optimize_ruleset(struct pfctl *pf, struct pf_ruleset *rs)
 	struct pf_rule *r;
 	struct pf_rulequeue *old_rules;
 
-	DEBUG("optimizing ruleset");
+	if (TAILQ_EMPTY(rs->rules.active.ptr))
+		return (0);
+
+	DEBUG("optimizing ruleset \"%s\"", rs->anchor->path);
 	memset(&table_buffer, 0, sizeof(table_buffer));
 	skip_init();
 	TAILQ_INIT(&opt_queue);
@@ -869,7 +872,7 @@ load_feedback_profile(struct pfctl *pf, struct superblocks *superblocks)
 
 	memset(&pr, 0, sizeof(pr));
 	pr.rule.action = PF_PASS;
-	if (ioctl(pf->dev, DIOCGETRULES, &pr)) {
+	if (ioctl(pf->dev, DIOCGETRULES, &pr) == -1) {
 		warn("DIOCGETRULES");
 		return (1);
 	}
@@ -883,7 +886,7 @@ load_feedback_profile(struct pfctl *pf, struct superblocks *superblocks)
 			return (1);
 		}
 		pr.nr = nr;
-		if (ioctl(pf->dev, DIOCGETRULE, &pr)) {
+		if (ioctl(pf->dev, DIOCGETRULE, &pr) == -1) {
 			warn("DIOCGETRULES");
 			free(por);
 			return (1);
@@ -892,11 +895,6 @@ load_feedback_profile(struct pfctl *pf, struct superblocks *superblocks)
 		rs = pf_find_or_create_ruleset(pr.anchor_call);
 		por->por_rule.anchor = rs->anchor;
 		TAILQ_INSERT_TAIL(&queue, por, por_entry);
-
-		/* XXX pfctl_get_pool(pf->dev, &pr.rule.rpool, nr, pr.ticket,
-		 *         PF_PASS, pf->anchor) ???
-		 * ... pfctl_clear_pool(&pr.rule.rpool)
-		 */
 	}
 
 	if (construct_superblocks(pf, &queue, &prof_superblocks))

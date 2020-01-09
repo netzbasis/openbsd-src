@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Dependencies.pm,v 1.171 2018/06/26 09:40:33 espie Exp $
+# $OpenBSD: Dependencies.pm,v 1.173 2019/10/13 16:22:58 espie Exp $
 #
 # Copyright (c) 2005-2010 Marc Espie <espie@openbsd.org>
 #
@@ -192,6 +192,8 @@ sub find_dep_in_repositories
 
 	return unless $dep->spec->is_valid;
 
+	my $default = $dep->{def};
+
 	my $candidates = $self->{set}->match_locations($dep->spec);
 	if (!$state->defines('allversions')) {
 		require OpenBSD::Search;
@@ -200,19 +202,20 @@ sub find_dep_in_repositories
 	}
 	# XXX not really efficient, but hey
 	my %c = map {($_->name, $_)} @$candidates;
+
 	my @pkgs = keys %c;
 	if (@pkgs == 1) {
 		return $candidates->[0];
 	} elsif (@pkgs > 1) {
 		# unless -ii, we return the def if available
 		if ($state->is_interactive < 2) {
-			if (defined(my $d = $c{$dep->{def}})) {
+			if (defined(my $d = $c{$default})) {
 				return $d;
 			}
 		}
 		# put default first if available
-		@pkgs = ((grep {$_ eq $dep->{def}} @pkgs),
-		    (sort (grep {$_ ne $dep->{def}} @pkgs)));
+		@pkgs = ((grep {$_ eq $default} @pkgs),
+		    (sort (grep {$_ ne $default} @pkgs)));
 		my $good = $state->ask_list(
 		    'Ambiguous: choose dependency for '.$self->{set}->print.': ',
 		    @pkgs);
@@ -403,9 +406,9 @@ sub solve_handle_tags
 	my $okay = 1;
 	$solver->{tag_finder} //= OpenBSD::lookup::tag->new($solver, $state);
 	for my $tag (@{$plist->{tags}}) {
+		$solver->find_in_self($plist, $state, $tag) ||
 		$solver->{tag_finder}->lookup($solver,
-		    $solver->{to_register}{$h}, $state, $tag)
-		 || $solver->find_in_self($plist, $state, $tag);
+		    $solver->{to_register}{$h}, $state, $tag);
 		if (!$solver->verify_tag($tag, $state, $plist, $h->{is_old})) {
 			$okay = 0;
 		}

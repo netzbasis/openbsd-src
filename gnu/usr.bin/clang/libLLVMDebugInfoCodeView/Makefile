@@ -1,13 +1,11 @@
-# $OpenBSD: Makefile,v 1.6 2018/10/04 11:43:29 patrick Exp $
+# $OpenBSD: Makefile,v 1.9 2019/06/23 22:07:40 patrick Exp $
 
 LIB=	LLVMDebugInfoCodeView
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/DebugInfo/CodeView
 
-.include <bsd.own.mk>
-SRCS=	AppendingTypeTableBuilder.cpp \
+SRCS+=	AppendingTypeTableBuilder.cpp \
 	CodeViewError.cpp \
 	CodeViewRecordIO.cpp \
 	ContinuationRecordBuilder.cpp \
@@ -25,7 +23,7 @@ SRCS=	AppendingTypeTableBuilder.cpp \
 	DebugSubsectionVisitor.cpp \
 	DebugSymbolRVASubsection.cpp \
 	DebugSymbolsSubsection.cpp \
-	EnumTables.cpp \
+	DebugInfoCodeViewEnumTables.cpp \
 	Formatters.cpp \
 	GlobalTypeTableBuilder.cpp \
 	LazyRandomTypeCollection.cpp \
@@ -35,20 +33,22 @@ SRCS=	AppendingTypeTableBuilder.cpp \
 	RecordSerialization.cpp \
 	SimpleTypeSerializer.cpp \
 	StringsAndChecksums.cpp \
-	SymbolRecordMapping.cpp \
 	SymbolDumper.cpp \
+	SymbolRecordHelpers.cpp \
+	SymbolRecordMapping.cpp \
 	SymbolSerializer.cpp \
 	TypeDumpVisitor.cpp \
 	TypeIndex.cpp \
 	TypeIndexDiscovery.cpp \
 	TypeHashing.cpp \
+	TypeRecordHelpers.cpp \
 	TypeRecordMapping.cpp \
 	TypeStreamMerger.cpp \
 	TypeTableCollection.cpp
 
+DebugInfoCodeViewEnumTables.cpp:
+	ln -s ${LLVM_SRCS}/lib/DebugInfo/CodeView/EnumTables.cpp $@
+
 .PATH:	${.CURDIR}/../../../llvm/lib/DebugInfo/CodeView
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= DebugInfoCodeViewEnumTables.cpp

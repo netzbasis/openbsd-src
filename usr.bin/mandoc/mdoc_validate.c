@@ -1,7 +1,7 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.284 2018/12/31 08:38:17 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.290 2019/09/13 19:18:48 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2018 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2019 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -62,7 +62,7 @@ static	size_t		macro2len(enum roff_tok);
 static	void	 rewrite_macro2len(struct roff_man *, char **);
 static	int	 similar(const char *, const char *);
 
-static	void	 post_abort(POST_ARGS);
+static	void	 post_abort(POST_ARGS) __attribute__((__noreturn__));
 static	void	 post_an(POST_ARGS);
 static	void	 post_an_norm(POST_ARGS);
 static	void	 post_at(POST_ARGS);
@@ -1171,11 +1171,17 @@ post_fname(POST_ARGS)
 	size_t			 pos;
 
 	n = mdoc->last->child;
-	pos = strcspn(n->string, "()");
-	cp = n->string + pos;
-	if ( ! (cp[0] == '\0' || (cp[0] == '(' && cp[1] == '*')))
-		mandoc_msg(MANDOCERR_FN_PAREN, n->line, n->pos + pos,
-		    "%s", n->string);
+	cp = n->string;
+	if (*cp == '(') {
+		if (cp[strlen(cp + 1)] == ')')
+			return;
+		pos = 0;
+	} else {
+		pos = strcspn(cp, "()");
+		if (cp[pos] == '\0')
+			return;
+	}
+	mandoc_msg(MANDOCERR_FN_PAREN, n->line, n->pos + pos, "%s", cp);
 }
 
 static void
@@ -1566,7 +1572,7 @@ post_it(POST_ARGS)
 			mandoc_msg(MANDOCERR_BL_COL, nit->line, nit->pos,
 			    "%d columns, %d cells", cols, i);
 		else if (nit->head->next->child != NULL &&
-		    nit->head->next->child->line > nit->line)
+		    nit->head->next->child->flags & NODE_LINE)
 			mandoc_msg(MANDOCERR_IT_NOARG,
 			    nit->line, nit->pos, "Bl -column It");
 		break;
@@ -1883,35 +1889,12 @@ post_sm(POST_ARGS)
 static void
 post_root(POST_ARGS)
 {
-	const char *openbsd_arch[] = {
-		"alpha", "amd64", "arm64", "armv7", "hppa", "i386",
-		"landisk", "loongson", "luna88k", "macppc", "mips64",
-		"octeon", "sgi", "socppc", "sparc64", NULL
-	};
-	const char *netbsd_arch[] = {
-		"acorn26", "acorn32", "algor", "alpha", "amiga",
-		"arc", "atari",
-		"bebox", "cats", "cesfic", "cobalt", "dreamcast",
-		"emips", "evbarm", "evbmips", "evbppc", "evbsh3", "evbsh5",
-		"hp300", "hpcarm", "hpcmips", "hpcsh", "hppa",
-		"i386", "ibmnws", "luna68k",
-		"mac68k", "macppc", "mipsco", "mmeye", "mvme68k", "mvmeppc",
-		"netwinder", "news68k", "newsmips", "next68k",
-		"pc532", "playstation2", "pmax", "pmppc", "prep",
-		"sandpoint", "sbmips", "sgimips", "shark",
-		"sparc", "sparc64", "sun2", "sun3",
-		"vax", "walnut", "x68k", "x86", "x86_64", "xen", NULL
-        };
-	const char **arches[] = { NULL, netbsd_arch, openbsd_arch };
-
 	struct roff_node *n;
-	const char **arch;
 
 	/* Add missing prologue data. */
 
 	if (mdoc->meta.date == NULL)
-		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
-		    mandoc_normdate(mdoc, NULL, 0, 0);
+		mdoc->meta.date = mandoc_normdate(mdoc, NULL, 0, 0);
 
 	if (mdoc->meta.title == NULL) {
 		mandoc_msg(MANDOCERR_DT_NOTITLE, 0, 0, "EOF");
@@ -1931,22 +1914,18 @@ post_root(POST_ARGS)
 		    "(OpenBSD)" : "(NetBSD)");
 
 	if (mdoc->meta.arch != NULL &&
-	    (arch = arches[mdoc->meta.os_e]) != NULL) {
-		while (*arch != NULL && strcmp(*arch, mdoc->meta.arch))
-			arch++;
-		if (*arch == NULL) {
-			n = mdoc->meta.first->child;
-			while (n->tok != MDOC_Dt ||
-			    n->child == NULL ||
-			    n->child->next == NULL ||
-			    n->child->next->next == NULL)
-				n = n->next;
-			n = n->child->next->next;
-			mandoc_msg(MANDOCERR_ARCH_BAD, n->line, n->pos,
-			    "Dt ... %s %s", mdoc->meta.arch,
-			    mdoc->meta.os_e == MANDOC_OS_OPENBSD ?
-			    "(OpenBSD)" : "(NetBSD)");
-		}
+	    arch_valid(mdoc->meta.arch, mdoc->meta.os_e) == 0) {
+		n = mdoc->meta.first->child;
+		while (n->tok != MDOC_Dt ||
+		    n->child == NULL ||
+		    n->child->next == NULL ||
+		    n->child->next->next == NULL)
+			n = n->next;
+		n = n->child->next->next;
+		mandoc_msg(MANDOCERR_ARCH_BAD, n->line, n->pos,
+		    "Dt ... %s %s", mdoc->meta.arch,
+		    mdoc->meta.os_e == MANDOC_OS_OPENBSD ?
+		    "(OpenBSD)" : "(NetBSD)");
 	}
 
 	/* Check that we begin with a proper `Sh'. */
@@ -2530,21 +2509,10 @@ post_dd(POST_ARGS)
 		mandoc_msg(MANDOCERR_PROLOG_ORDER,
 		    n->line, n->pos, "Dd after Os");
 
-	if (n->child == NULL || n->child->string[0] == '\0') {
-		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
-		    mandoc_normdate(mdoc, NULL, n->line, n->pos);
-		return;
-	}
-
 	datestr = NULL;
 	deroff(&datestr, n);
-	if (mdoc->quick)
-		mdoc->meta.date = datestr;
-	else {
-		mdoc->meta.date = mandoc_normdate(mdoc,
-		    datestr, n->line, n->pos);
-		free(datestr);
-	}
+	mdoc->meta.date = mandoc_normdate(mdoc, datestr, n->line, n->pos);
+	free(datestr);
 }
 
 static void

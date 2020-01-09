@@ -1,7 +1,5 @@
-#! perl
-
-# copied over from JSON::PP::PC and modified to use JSON::PP
-# copied over from JSON::PP::XS and modified to use JSON::PP
+# copied over from JSON::PC and modified to use JSON::PP
+# copied over from JSON::XS and modified to use JSON::PP
 
 use strict;
 use Test::More;
@@ -58,7 +56,7 @@ is($js,q|{"foo":[{"a":"b"},0,1,2]}|);
 
 
 $obj = {foo => "bar"};
-$pc->indent(3); # original -- $pc->indent(1);
+$pc->indent(1);
 is($pc->encode($obj), qq|{\n   "foo":"bar"\n}\n|, "nospace");
 $pc->space_after(1);
 is($pc->encode($obj), qq|{\n   "foo": "bar"\n}\n|, "after");

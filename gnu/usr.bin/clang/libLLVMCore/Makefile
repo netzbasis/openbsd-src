@@ -1,13 +1,11 @@
-# $OpenBSD: Makefile,v 1.5 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.9 2019/06/23 22:07:39 patrick Exp $
 
 LIB=	LLVMCore
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/IR
 
-.include <bsd.own.mk>
-SRCS=	AsmWriter.cpp \
+SRCS+=	AsmWriter.cpp \
 	Attributes.cpp \
 	AutoUpgrade.cpp \
 	BasicBlock.cpp \
@@ -15,7 +13,7 @@ SRCS=	AsmWriter.cpp \
 	ConstantFold.cpp \
 	ConstantRange.cpp \
 	Constants.cpp \
-	Core.cpp \
+	CoreCore.cpp \
 	DIBuilder.cpp \
 	DataLayout.cpp \
 	DebugInfo.cpp \
@@ -46,9 +44,12 @@ SRCS=	AsmWriter.cpp \
 	Operator.cpp \
 	OptBisect.cpp \
 	Pass.cpp \
+	PassInstrumentation.cpp \
 	PassManager.cpp \
 	PassRegistry.cpp \
+	PassTimingInfo.cpp \
 	ProfileSummary.cpp \
+	SafepointIRVerifier.cpp \
 	Statepoint.cpp \
 	Type.cpp \
 	TypeFinder.cpp \
@@ -57,6 +58,9 @@ SRCS=	AsmWriter.cpp \
 	Value.cpp \
 	ValueSymbolTable.cpp \
 	Verifier.cpp
+
+CoreCore.cpp:
+	ln -s ${LLVM_SRCS}/lib/IR/Core.cpp $@
 
 .PATH:	${.CURDIR}/../../../llvm/lib/IR
 
@@ -68,7 +72,4 @@ AttributesCompatFunc.inc: AttributesCompatFunc.td
 		-I${LLVM_SRCS}/include \
 		-o ${.TARGET} ${.ALLSRC}
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= CoreCore.cpp

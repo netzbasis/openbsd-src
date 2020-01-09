@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.467 2019/01/26 10:59:07 florian Exp $
+#	$OpenBSD: Makefile,v 1.476 2019/12/21 21:40:00 espie Exp $
 
 .include <bsd.own.mk>
 
@@ -68,7 +68,7 @@ RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dhcrelay6 dvmrpd \
 
 MISETS=	base${OSrev}.tgz comp${OSrev}.tgz man${OSrev}.tgz game${OSrev}.tgz
 
-all clean cleandir depend etc install:
+all clean cleandir etc install:
 
 install-mtree:
 	${INSTALL} -c -o root -g wheel -m 600 mtree/special \
@@ -153,6 +153,10 @@ distribution-etc-root-var: distrib-dirs
 		    ${DESTDIR}/etc/ppp; \
 		${INSTALL} -c -o root -g wheel -m 600 pap-secrets \
 		    ${DESTDIR}/etc/ppp
+	cd rpki; \
+		${INSTALL} -c -o root -g wheel -m 644 \
+		    afrinic.tal apnic.tal lacnic.tal ripe.tal \
+		    ${DESTDIR}/etc/rpki
 	cd examples; \
 		${INSTALL} -c -o root -g wheel -m 644 ${EXAMPLES} \
 		    ${DESTDIR}/etc/examples; \
@@ -178,6 +182,8 @@ distribution-etc-root-var: distrib-dirs
 	    ${DESTDIR}/var/cron/log
 	${INSTALL} -c -o root -g wheel -m 444 /dev/null \
 	    ${DESTDIR}/var/db/locate.database
+	${INSTALL} -c -o _rpki-client -g wheel -m 644 /dev/null \
+	    ${DESTDIR}/var/db/rpki-client/openbgpd
 	${INSTALL} -c -o ${BINOWN} -g wheel -m 640 /dev/null \
 	    ${DESTDIR}/var/log/authlog
 	${INSTALL} -c -o ${BINOWN} -g wheel -m 640 /dev/null \
@@ -298,7 +304,7 @@ distrib:
 SUBDIR+= etc.alpha etc.amd64 etc.arm64 etc.armv7
 SUBDIR+= etc.hppa etc.i386 etc.landisk etc.loongson etc.luna88k
 SUBDIR+= etc.macppc etc.octeon
-SUBDIR+= etc.sgi etc.socppc etc.sparc64
+SUBDIR+= etc.sgi etc.sparc64
 
 .include <bsd.subdir.mk>
 .include <bsd.prog.mk>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.h,v 1.30 2018/12/06 09:23:15 claudio Exp $	*/
+/*	$OpenBSD: vmctl.h,v 1.33 2019/12/17 09:43:00 kn Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -77,7 +77,7 @@ struct imsgbuf	*ibuf;
 int	 vmmaction(struct parse_result *);
 int	 parse_ifs(struct parse_result *, char *, int);
 int	 parse_network(struct parse_result *, char *);
-int	 parse_size(struct parse_result *, char *, long long);
+int	 parse_size(struct parse_result *, char *);
 int	 parse_disktype(const char *, const char **);
 int	 parse_disk(struct parse_result *, char *, int);
 int	 parse_vmid(struct parse_result *, char *, int);
@@ -105,10 +105,11 @@ void	 unpause_vm(uint32_t, const char *);
 int	 unpause_vm_complete(struct imsg *, int *);
 void	 send_vm(uint32_t, const char *);
 void	 vm_receive(uint32_t, const char *);
-int	 receive_vm_complete(struct imsg *, int *);
 int	 check_info_id(const char *, uint32_t);
 void	 get_info_vm(uint32_t, const char *, enum actions, unsigned int);
 int	 add_info(struct imsg *, int *);
+const char
+	*vm_state(unsigned int);
 void	 print_vm_info(struct vmop_info_result *, size_t);
 void	 terminate_all(struct vmop_info_result *, size_t, unsigned int);
 __dead void

@@ -1,20 +1,20 @@
-# $OpenBSD: Makefile,v 1.11 2019/01/27 16:59:42 patrick Exp $
+# $OpenBSD: Makefile,v 1.13 2019/06/23 22:07:41 patrick Exp $
 
 LIB=	LLVMX86CodeGen
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${.OBJDIR}/../include/llvm/X86 -I${LLVM_SRCS}/lib/Target/X86
 
-.include <bsd.own.mk>
-SRCS=	ShadowCallStack.cpp\
+SRCS+=	ShadowCallStack.cpp\
 	X86AsmPrinter.cpp \
 	X86AvoidStoreForwardingBlocks.cpp \
 	X86CallFrameOptimization.cpp \
 	X86CallLowering.cpp \
 	X86CallingConv.cpp \
 	X86CmovConversion.cpp \
+	X86CondBrFolding.cpp \
 	X86DomainReassignment.cpp \
+	X86DiscriminateMemOps.cpp \
 	X86EvexToVex.cpp \
 	X86ExpandPseudo.cpp \
 	X86FastISel.cpp \
@@ -33,6 +33,7 @@ SRCS=	ShadowCallStack.cpp\
 	X86InstrInfo.cpp \
 	X86InstructionSelector.cpp \
 	X86InterleavedAccess.cpp \
+	X86InsertPrefetch.cpp \
 	X86LegalizerInfo.cpp \
 	X86MCInstLower.cpp \
 	X86MachineFunctionInfo.cpp \
@@ -55,8 +56,3 @@ SRCS=	ShadowCallStack.cpp\
 	X86OptimizeLEAs.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/Target/X86
-
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>

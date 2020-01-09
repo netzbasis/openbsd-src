@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntfs_vfsops.c,v 1.61 2018/05/27 06:02:15 visa Exp $	*/
+/*	$OpenBSD: ntfs_vfsops.c,v 1.63 2019/12/26 13:28:49 bluhm Exp $	*/
 /*	$NetBSD: ntfs_vfsops.c,v 1.7 2003/04/24 07:50:19 christos Exp $	*/
 
 /*-
@@ -279,7 +279,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 	if (ncount > 1 && devvp != rootvp)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
-	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
+	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, INFSLP);
 	VOP_UNLOCK(devvp);
 	if (error)
 		return (error);
@@ -503,7 +503,7 @@ ntfs_unmount(struct mount *mp, int mntflags, struct proc *p)
 
 	/* lock the device vnode before calling VOP_CLOSE() */
 	vn_lock(ntmp->ntm_devvp, LK_EXCLUSIVE | LK_RETRY);
-	vinvalbuf(ntmp->ntm_devvp, V_SAVE, NOCRED, p, 0, 0);
+	vinvalbuf(ntmp->ntm_devvp, V_SAVE, NOCRED, p, 0, INFSLP);
 	(void)VOP_CLOSE(ntmp->ntm_devvp, FREAD, NOCRED, p);
 	vput(ntmp->ntm_devvp);
 
@@ -782,17 +782,17 @@ ntfs_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 }
 
 const struct vfsops ntfs_vfsops = {
-	ntfs_mount,
-	ntfs_start,
-	ntfs_unmount,
-	ntfs_root,
-	ntfs_quotactl,
-	ntfs_statfs,
-	ntfs_sync,
-	ntfs_vget,
-	ntfs_fhtovp,
-	ntfs_vptofh,
-	ntfs_init,
-	ntfs_sysctl,
-	ntfs_checkexp,
+	.vfs_mount	= ntfs_mount,
+	.vfs_start	= ntfs_start,
+	.vfs_unmount	= ntfs_unmount,
+	.vfs_root	= ntfs_root,
+	.vfs_quotactl	= ntfs_quotactl,
+	.vfs_statfs	= ntfs_statfs,
+	.vfs_sync	= ntfs_sync,
+	.vfs_vget	= ntfs_vget,
+	.vfs_fhtovp	= ntfs_fhtovp,
+	.vfs_vptofh	= ntfs_vptofh,
+	.vfs_init	= ntfs_init,
+	.vfs_sysctl	= ntfs_sysctl,
+	.vfs_checkexp	= ntfs_checkexp,
 };

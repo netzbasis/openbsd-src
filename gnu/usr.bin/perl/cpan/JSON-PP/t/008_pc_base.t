@@ -1,11 +1,10 @@
 use Test::More;
 
-# copied over from JSON::PP::PC and modified to use JSON::PP
-# copied over from JSON::PP::XS and modified to use JSON::PP
+# copied over from JSON::PC and modified to use JSON::PP
+# copied over from JSON::XS and modified to use JSON::PP
 
 use strict;
 BEGIN { plan tests => 20 };
-
 BEGIN { $ENV{PERL_JSON_BACKEND} = 0; }
 
 use JSON::PP;
@@ -91,7 +90,7 @@ like($@, qr/JSON can only/i, 'invalid value (coderef)');
 
 #$obj = { foo => bless {}, "Hoge" };
 #eval q{ $js = $pc->encode($obj) };
-#like($@, qr/JSON::PP can only/i, 'invalid value (blessd object)');
+#like($@, qr/JSON can only/i, 'invalid value (blessd object)');
 
 $obj = { foo => \$js };
 eval q{ $js = $pc->encode($obj) };

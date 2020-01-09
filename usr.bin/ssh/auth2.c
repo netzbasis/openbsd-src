@@ -1,4 +1,4 @@
-/* $OpenBSD: auth2.c,v 1.154 2019/01/19 21:41:18 djm Exp $ */
+/* $OpenBSD: auth2.c,v 1.157 2019/09/06 04:53:27 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -23,7 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -36,6 +35,7 @@
 #include <unistd.h>
 #include <time.h>
 
+#include "stdlib.h"
 #include "atomicio.h"
 #include "xmalloc.h"
 #include "ssh2.h"
@@ -528,6 +528,14 @@ auth2_setup_methods_lists(Authctxt *authctxt)
 {
 	u_int i;
 
+	/* First, normalise away the "any" pseudo-method */
+	if (options.num_auth_methods == 1 &&
+	    strcmp(options.auth_methods[0], "any") == 0) {
+		free(options.auth_methods[0]);
+		options.auth_methods[0] = NULL;
+		options.num_auth_methods = 0;
+	}
+
 	if (options.num_auth_methods == 0)
 		return 0;
 	debug3("%s: checking methods", __func__);
@@ -660,7 +668,7 @@ auth2_record_info(Authctxt *authctxt, const char *fmt, ...)
 	i = vasprintf(&authctxt->auth_method_info, fmt, ap);
 	va_end(ap);
 
-	if (i < 0 || authctxt->auth_method_info == NULL)
+	if (i == -1)
 		fatal("%s: vasprintf failed", __func__);
 }
 

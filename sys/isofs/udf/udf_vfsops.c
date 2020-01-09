@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.65 2018/05/02 02:24:55 visa Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.67 2019/12/26 13:28:49 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -83,19 +83,19 @@ int udf_get_mpartmap(struct umount *, struct part_map_meta *);
 int udf_mountfs(struct vnode *, struct mount *, uint32_t, struct proc *);
 
 const struct vfsops udf_vfsops = {
-	.vfs_fhtovp =		udf_fhtovp,
-	.vfs_init =		udf_init,
-	.vfs_mount =		udf_mount,
-	.vfs_start =		udf_start,
-	.vfs_root =		udf_root,
-	.vfs_quotactl =		udf_quotactl,
-	.vfs_statfs =		udf_statfs,
-	.vfs_sync =		udf_sync,
-	.vfs_unmount =		udf_unmount,
-	.vfs_vget =		udf_vget,
-	.vfs_vptofh =		udf_vptofh,
-	.vfs_sysctl =		udf_sysctl,
-	.vfs_checkexp =		udf_checkexp,
+	.vfs_mount	= udf_mount,
+	.vfs_start	= udf_start,
+	.vfs_unmount	= udf_unmount,
+	.vfs_root	= udf_root,
+	.vfs_quotactl	= udf_quotactl,
+	.vfs_statfs	= udf_statfs,
+	.vfs_sync	= udf_sync,
+	.vfs_vget	= udf_vget,
+	.vfs_fhtovp	= udf_fhtovp,
+	.vfs_vptofh	= udf_vptofh,
+	.vfs_init	= udf_init,
+	.vfs_sysctl	= udf_sysctl,
+	.vfs_checkexp	= udf_checkexp,
 };
 
 int
@@ -239,7 +239,7 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 	if (vcount(devvp) > 1 && devvp != rootvp)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
-	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
+	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, INFSLP);
 	VOP_UNLOCK(devvp);
 	if (error)
 		return (error);
@@ -465,7 +465,7 @@ udf_unmount(struct mount *mp, int mntflags, struct proc *p)
 		return (error);
 
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
-	vinvalbuf(devvp, V_SAVE, NOCRED, p, 0, 0);
+	vinvalbuf(devvp, V_SAVE, NOCRED, p, 0, INFSLP);
 	(void)VOP_CLOSE(devvp, FREAD, NOCRED, p);
 	VOP_UNLOCK(devvp);
 

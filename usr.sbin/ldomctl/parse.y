@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.9 2018/11/01 00:18:44 sashan Exp $	*/
+/*	$OpenBSD: parse.y,v 1.13 2019/11/28 18:40:42 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis <kettenis@openbsd.org>
@@ -37,9 +37,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util.h>
 
 #include "ldomctl.h"
-#include "util.h"
+#include "ldom_util.h"
 
 TAILQ_HEAD(files, file)		 files = TAILQ_HEAD_INITIALIZER(files);
 static struct file {
@@ -64,17 +65,25 @@ int		 findeol(void);
 
 struct ldom_config		*conf;
 
-struct opts {
+struct vcpu_opts {
+	uint64_t	count;
+	uint64_t	stride;
+} vcpu_opts;
+
+struct vnet_opts {
 	uint64_t	mac_addr;
 	uint64_t	mtu;
-} opts;
-void		opts_default(void);
+} vnet_opts;
+
+void		vcput_opts_default(void);
+void		vnet_opts_default(void);
 
 typedef struct {
 	union {
 		int64_t			 number;
 		char			*string;
-		struct opts		 opts;
+		struct vcpu_opts	 vcpu_opts;
+		struct vnet_opts	 vnet_opts;
 	} v;
 	int lineno;
 } YYSTYPE;
@@ -82,15 +91,16 @@ typedef struct {
 %}
 
 %token	DOMAIN
-%token	VCPU MEMORY VDISK VNET VARIABLE
+%token	VCPU MEMORY VDISK VNET VARIABLE IODEVICE
 %token	MAC_ADDR MTU
 %token	ERROR
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %type	<v.number>		memory
-%type	<v.opts>		vnet_opts vnet_opts_l vnet_opt
-%type	<v.opts>		mac_addr
-%type	<v.opts>		mtu
+%type	<v.vcpu_opts>		vcpu
+%type	<v.vnet_opts>		vnet_opts vnet_opts_l vnet_opt
+%type	<v.vnet_opts>		mac_addr
+%type	<v.vnet_opts>		mtu
 %%
 
 grammar		: /* empty */
@@ -105,6 +115,7 @@ domain		: DOMAIN STRING optnl '{' optnl	{
 			SIMPLEQ_INIT(&domain->vdisk_list);
 			SIMPLEQ_INIT(&domain->vnet_list);
 			SIMPLEQ_INIT(&domain->var_list);
+			SIMPLEQ_INIT(&domain->iodev_list);
 		}
 		    domainopts_l '}' {
 			/* domain names need to be unique. */
@@ -126,8 +137,9 @@ domainopts_l	: domainopts_l domainoptsl
 domainoptsl	: domainopts nl
 		;
 
-domainopts	: VCPU NUMBER {
-			domain->vcpu = $2;
+domainopts	: VCPU vcpu {
+			domain->vcpu = $2.count;
+			domain->vcpu_stride = $2.stride;
 		}
 		| MEMORY memory {
 			domain->memory = $2;
@@ -149,12 +161,17 @@ domainopts	: VCPU NUMBER {
 			var->str = $4;
 			SIMPLEQ_INSERT_TAIL(&domain->var_list, var, entry);
 		}
+		| IODEVICE STRING {
+			struct iodev *iodev = xmalloc(sizeof(struct iodev));
+			iodev->path = $2;
+			SIMPLEQ_INSERT_TAIL(&domain->iodev_list, iodev, entry);
+		    }
 		;
 
-vnet_opts	:	{ opts_default(); }
+vnet_opts	:	{ vnet_opts_default(); }
 		  vnet_opts_l
-			{ $$ = opts; }
-		|	{ opts_default(); $$ = opts; }
+			{ $$ = vnet_opts; }
+		|	{ vnet_opts_default(); $$ = vnet_opts; }
 		;
 vnet_opts_l	: vnet_opts_l vnet_opt
 		| vnet_opt
@@ -171,7 +188,7 @@ mac_addr	: MAC_ADDR '=' STRING {
 				YYERROR;
 			}
 
-			opts.mac_addr =
+			vnet_opts.mac_addr =
 			    (uint64_t)ea->ether_addr_octet[0] << 40 |
 			    (uint64_t)ea->ether_addr_octet[1] << 32 |
 			    ea->ether_addr_octet[2] << 24 |
@@ -182,7 +199,37 @@ mac_addr	: MAC_ADDR '=' STRING {
 		;
 
 mtu		: MTU '=' NUMBER {
-			opts.mtu = $3;
+			vnet_opts.mtu = $3;
+		}
+		;
+
+vcpu		: STRING {
+			const char *errstr;
+			char *colon;
+
+			vcpu_opts_default();
+			colon = strchr($1, ':');
+			if (colon == NULL) {
+				yyerror("bogus stride in %s", $1);
+				YYERROR;
+			}
+			*colon++ = '\0';
+			vcpu_opts.count = strtonum($1, 0, INT_MAX, &errstr);
+			if (errstr) {
+				yyerror("number %s is %s", $1, errstr);
+				YYERROR;
+			}
+			vcpu_opts.stride = strtonum(colon, 0, INT_MAX, &errstr);
+			if (errstr) {
+				yyerror("number %s is %s", colon, errstr);
+				YYERROR;
+			}
+			$$ = vcpu_opts;
+		}
+		| NUMBER {
+			vcpu_opts_default();
+			vcpu_opts.count = $1;
+			$$ = vcpu_opts;
 		}
 		;
 
@@ -190,23 +237,10 @@ memory		: NUMBER {
 			$$ = $1;
 		}
 		| STRING {
-			uint64_t size;
-			char *cp;
-
-			size = strtoll($1, &cp, 10);
-			if (cp != NULL) {
-				if (strcmp(cp, "K") == 0)
-					size *= 1024;
-				else if (strcmp(cp, "M") == 0)
-					size *= 1024 * 1024;
-				else if (strcmp(cp, "G") == 0)
-					size *= 1024 * 1024 * 1024;
-				else {
-                                        yyerror("unknown unit %s", cp);
-                                        YYERROR;
-				}
+			if (scan_scaled($1, &$$) == -1) {
+				yyerror("invalid size: %s", $1);
+				YYERROR;
 			}
-			$$ = size;
 		}
 		;
 
@@ -220,10 +254,17 @@ nl		: '\n' optnl		/* one newline or more */
 %%
 
 void
-opts_default(void)
+vcpu_opts_default(void)
 {
-	opts.mac_addr = -1;
-	opts.mtu = 1500;
+	vcpu_opts.count = -1;
+	vcpu_opts.stride = 1;
+}
+
+void
+vnet_opts_default(void)
+{
+	vnet_opts.mac_addr = -1;
+	vnet_opts.mtu = 1500;
 }
 
 struct keywords {
@@ -257,6 +298,7 @@ lookup(char *s)
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
 		{ "domain",		DOMAIN},
+		{ "iodevice",		IODEVICE},
 		{ "mac-addr",		MAC_ADDR},
 		{ "memory",		MEMORY},
 		{ "mtu",		MTU},
@@ -431,7 +473,7 @@ yylex(void)
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -470,7 +512,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '*') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}

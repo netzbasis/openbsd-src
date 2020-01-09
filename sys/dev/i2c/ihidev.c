@@ -1,4 +1,4 @@
-/* $OpenBSD: ihidev.c,v 1.18 2018/09/20 01:19:56 jsg Exp $ */
+/* $OpenBSD: ihidev.c,v 1.21 2019/07/31 16:09:12 jcs Exp $ */
 /*
  * HID-over-i2c driver
  *
@@ -63,6 +63,7 @@ static int I2C_HID_POWER_OFF	= 0x1;
 int	ihidev_match(struct device *, void *, void *);
 void	ihidev_attach(struct device *, struct device *, void *);
 int	ihidev_detach(struct device *, int);
+int	ihidev_activate(struct device *, int);
 
 int	ihidev_hid_command(struct ihidev_softc *, int, void *);
 int	ihidev_intr(void *);
@@ -80,7 +81,7 @@ struct cfattach ihidev_ca = {
 	ihidev_match,
 	ihidev_attach,
 	ihidev_detach,
-	NULL
+	ihidev_activate,
 };
 
 struct cfdriver ihidev_cd = {
@@ -128,7 +129,7 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 			printf(", can't establish interrupt");
 	}
 
-	if (sc->sc_ih == NULL) {
+	if (ia->ia_poll || !sc->sc_ih) {
 		printf(" (polling)");
 		sc->sc_poll = 1;
 		sc->sc_fastpoll = 1;
@@ -225,6 +226,39 @@ ihidev_detach(struct device *self, int flags)
 		free(sc->sc_report, M_DEVBUF, sc->sc_reportlen);
 
 	return (0);
+}
+
+int
+ihidev_activate(struct device *self, int act)
+{
+	struct ihidev_softc *sc = (struct ihidev_softc *)self;
+
+	DPRINTF(("%s(%d)\n", __func__, act));
+
+	switch (act) {
+	case DVACT_QUIESCE:
+		sc->sc_dying = 1;
+		if (sc->sc_poll && timeout_initialized(&sc->sc_timer)) {
+			DPRINTF(("%s: canceling polling\n",
+			    sc->sc_dev.dv_xname));
+			timeout_del_barrier(&sc->sc_timer);
+		}
+		if (ihidev_hid_command(sc, I2C_HID_CMD_SET_POWER,
+		    &I2C_HID_POWER_OFF))
+			printf("%s: failed to power down\n",
+			    sc->sc_dev.dv_xname);
+		break;
+	case DVACT_WAKEUP:
+		ihidev_reset(sc);
+		sc->sc_dying = 0;
+		if (sc->sc_poll && timeout_initialized(&sc->sc_timer))
+			timeout_add(&sc->sc_timer, 2000);
+		break;
+	}
+
+	config_activate_children(self, act);
+
+	return 0;
 }
 
 void
@@ -580,15 +614,34 @@ ihidev_hid_desc_parse(struct ihidev_softc *sc)
 	return (0);
 }
 
+void
+ihidev_poll(void *arg)
+{
+	struct ihidev_softc *sc = arg;
+
+	sc->sc_frompoll = 1;
+	ihidev_intr(sc);
+	sc->sc_frompoll = 0;
+}
+
 int
 ihidev_intr(void *arg)
 {
 	struct ihidev_softc *sc = arg;
 	struct ihidev *scd;
-	u_int psize;
-	int res, i, fast = 0;
+	int psize, res, i, fast = 0;
 	u_char *p;
 	u_int rep = 0;
+
+	if (sc->sc_dying)
+		return 1;
+
+	if (sc->sc_poll && !sc->sc_frompoll) {
+		DPRINTF(("%s: received interrupt while polling, disabling "
+		    "polling\n", sc->sc_dev.dv_xname));
+		sc->sc_poll = 0;
+		timeout_del_barrier(&sc->sc_timer);
+	}
 
 	/*
 	 * XXX: force I2C_F_POLL for now to avoid dwiic interrupting
@@ -605,7 +658,7 @@ ihidev_intr(void *arg)
 	 * than or equal to wMaxInputLength
 	 */
 	psize = sc->sc_ibuf[0] | sc->sc_ibuf[1] << 8;
-	if (!psize || psize > sc->sc_isize) {
+	if (psize <= 2 || psize > sc->sc_isize) {
 		if (sc->sc_poll) {
 			/*
 			 * TODO: all fingers are up, should we pass to hid
@@ -661,7 +714,7 @@ ihidev_intr(void *arg)
 
 	scd->sc_intr(scd, p, psize);
 
-	if (sc->sc_poll && fast != sc->sc_fastpoll) {
+	if (sc->sc_poll && (fast != sc->sc_fastpoll)) {
 		DPRINTF(("%s: %s->%s polling\n", sc->sc_dev.dv_xname,
 		    sc->sc_fastpoll ? "fast" : "slow",
 		    fast ? "fast" : "slow"));
@@ -669,7 +722,8 @@ ihidev_intr(void *arg)
 	}
 
 more_polling:
-	if (sc->sc_poll && sc->sc_refcnt && !timeout_pending(&sc->sc_timer))
+	if (sc->sc_poll && sc->sc_refcnt && !sc->sc_dying &&
+	    !timeout_pending(&sc->sc_timer))
 		timeout_add_msec(&sc->sc_timer,
 		    sc->sc_fastpoll ? FAST_POLL_MS : SLOW_POLL_MS);
 
@@ -741,7 +795,7 @@ ihidev_open(struct ihidev *scd)
 
 	if (sc->sc_poll) {
 		if (!timeout_initialized(&sc->sc_timer))
-			timeout_set(&sc->sc_timer, (void *)ihidev_intr, sc);
+			timeout_set(&sc->sc_timer, (void *)ihidev_poll, sc);
 		if (!timeout_pending(&sc->sc_timer))
 			timeout_add(&sc->sc_timer, FAST_POLL_MS);
 	}
@@ -767,7 +821,7 @@ ihidev_close(struct ihidev *scd)
 
 	/* no sub-devices open, conserve power */
 
-	if (sc->sc_poll)
+	if (sc->sc_poll && timeout_pending(&sc->sc_timer))
 		timeout_del(&sc->sc_timer);
 
 	if (ihidev_hid_command(sc, I2C_HID_CMD_SET_POWER, &I2C_HID_POWER_OFF))

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipe.h,v 1.16 2018/11/12 16:33:08 visa Exp $	*/
+/*	$OpenBSD: pipe.h,v 1.21 2019/12/25 09:32:01 anton Exp $	*/
 
 /*
  * Copyright (c) 1996 John S. Dyson
@@ -61,26 +61,32 @@ struct pipebuf {
 #define PIPE_ASYNC	0x004	/* Async? I/O. */
 #define PIPE_WANTR	0x008	/* Reader wants some characters. */
 #define PIPE_WANTW	0x010	/* Writer wants space to put characters. */
-#define PIPE_WANT	0x020	/* Pipe is wanted to be run-down. */
+#define PIPE_WANTD	0x020	/* Pipe is wanted to be run-down. */
 #define PIPE_SEL	0x040	/* Pipe has a select active. */
 #define PIPE_EOF	0x080	/* Pipe is in EOF condition. */
-#define PIPE_LOCK	0x100	/* Process has exclusive access to pointers/data. */
-#define PIPE_LWANT	0x200	/* Process wants exclusive access to pointers/data. */
+#define PIPE_LOCK	0x100	/* Thread has exclusive I/O access. */
+#define PIPE_LWANT	0x200	/* Thread wants exclusive I/O access. */
 
 /*
  * Per-pipe data structure.
  * Two of these are linked together to produce bi-directional pipes.
+ *
+ *  Locks used to protect struct members in this file:
+ *	I	immutable after creation
+ *	K	kernel lock
+ *	P	pipe_lock
+ *	S	sigio_lock
  */
 struct pipe {
-	struct	pipebuf pipe_buffer;	/* data storage */
-	struct	selinfo pipe_sel;	/* for compat with select */
-	struct	timespec pipe_atime;	/* time of last access */
-	struct	timespec pipe_mtime;	/* time of last modify */
-	struct	timespec pipe_ctime;	/* time of status change */
-	struct	sigio_ref pipe_sigio;	/* async I/O registration */
-	struct	pipe *pipe_peer;	/* link with other direction */
-	u_int	pipe_state;		/* pipe status info */
-	int	pipe_busy;		/* busy flag, mostly to handle rundown sanely */
+	struct	pipebuf pipe_buffer;	/* [P] data storage */
+	struct	selinfo pipe_sel;	/* [P] for compat with select */
+	struct	timespec pipe_atime;	/* [P] time of last access */
+	struct	timespec pipe_mtime;	/* [P] time of last modify */
+	struct	timespec pipe_ctime;	/* [I] time of status change */
+	struct	sigio_ref pipe_sigio;	/* [S] async I/O registration */
+	struct	pipe *pipe_peer;	/* [P] link with other direction */
+	u_int	pipe_state;		/* [P] pipe status info */
+	int	pipe_busy;		/* [P] # readers/writers */
 };
 
 #ifdef _KERNEL

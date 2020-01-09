@@ -7,13 +7,13 @@
 /exdisplay.c/1.4/Tue Jul 26 22:10:10 2016//
 /exdisplayvar.h/1.1/Mon Jan 26 02:48:24 2015//
 /exdog.c/1.6/Thu Mar  9 20:07:35 2017//
-/exdwusb.c/1.1/Fri Mar 10 12:05:28 2017//
+/exdwusb.c/1.2/Thu Aug 29 14:19:27 2019//
 /exehci.c/1.8/Sat Dec 23 10:23:34 2017//
 /exgpio.c/1.6/Sat Mar 11 17:06:27 2017//
 /exiic.c/1.6/Mon Mar  6 06:50:47 2017//
 /exmct.c/1.5/Sat Mar  4 18:17:24 2017//
 /expower.c/1.7/Fri Mar 10 21:26:19 2017//
-/exuart.c/1.15/Thu May 31 10:30:10 2018//
+/exuart.c/1.16/Fri Jul 19 00:17:15 2019//
 /exuartreg.h/1.1/Mon Jan 26 02:48:24 2015//
 /exuartvar.h/1.1/Mon Jan 26 02:48:24 2015//
 /files.exynos/1.12/Sat Dec 23 10:23:34 2017//

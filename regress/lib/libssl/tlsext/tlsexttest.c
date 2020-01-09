@@ -1,4 +1,4 @@
-/* $OpenBSD: tlsexttest.c,v 1.27 2019/01/24 02:56:41 beck Exp $ */
+/* $OpenBSD: tlsexttest.c,v 1.30 2019/11/10 17:32:47 beck Exp $ */
 /*
  * Copyright (c) 2017 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
@@ -1579,22 +1579,6 @@ test_tlsext_sigalgs_client(void)
 	}
 	if (CBS_len(&cbs) != 0) {
 		FAIL("extension data remaining");
-		goto done;
-	}
-
-	if (ssl->cert->pkeys[SSL_PKEY_RSA_SIGN].sigalg->md() != EVP_sha512()) {
-		fprintf(stderr, "FAIL: RSA sign digest mismatch\n");
-		failure = 1;
-		goto done;
-	}
-	if (ssl->cert->pkeys[SSL_PKEY_RSA_ENC].sigalg->md() != EVP_sha512()) {
-		fprintf(stderr, "FAIL: RSA enc digest mismatch\n");
-		failure = 1;
-		goto done;
-	}
-	if (ssl->cert->pkeys[SSL_PKEY_ECC].sigalg->md() != EVP_sha512()) {
-		fprintf(stderr, "FAIL: ECC digest mismatch\n");
-		failure = 1;
 		goto done;
 	}
 
@@ -3269,13 +3253,16 @@ test_tlsext_keyshare_server(void)
 		goto done;
 	}
 
-	S3I(ssl)->hs_tls13.x25519_peer_public = bogokey;
+	if ((S3I(ssl)->hs_tls13.x25519_peer_public =
+	    malloc(sizeof(bogokey))) == NULL)
+		errx(1, "malloc failed");
+	memcpy(S3I(ssl)->hs_tls13.x25519_peer_public, bogokey, sizeof(bogokey));
+
 	if (!tlsext_keyshare_server_build(ssl, &cbb)) {
 		FAIL("server should be able to build a keyshare response");
 		failure = 1;
 		goto done;
 	}
-	S3I(ssl)->hs_tls13.x25519_peer_public = NULL;
 
 	if (!CBB_finish(&cbb, &data, &dlen)) {
 		FAIL("failed to finish CBB");
@@ -3315,22 +3302,12 @@ done:
 
 /* One day I hope to be the only Muppet in this codebase */
 const uint8_t cookie[] = "\n"
-    "                .---. .---.                           \n"
-    "               :     : o   :    me want cookie!       \n"
-    "           _..-:   o :     :-.._    /                 \n"
-    "       .-''  '  `---' `---' '   ``-.                  \n"
-    "     .'   '   '  '  .    '  . '  '  `.                \n"
-    "    :   '.---.,,.,...,.,.,.,..---.  ' ;               \n"
-    "    `. ' `.                     .' ' .'               \n"
-    "     `.  '`.                   .' ' .'                \n"
-    "      `.    `-._           _.-' '  .'  .----.         \n"
-    "        `. '    ''--...--''  . ' .'  .'  o   `.       \n"
-    "        .'`-._'    ' .     ' _.-'`. :       o  :      \n"
-    "  jgs .'      ```--.....--'''    ' `:_ o       :      \n"
-    "    .'    '     '         '     '   ; `.;';';';'      \n"
-    "   ;         '       '       '     . ; .' ; ; ;       \n"
-    "  ;     '         '       '   '    .'      .-'        \n"
-    "  '  '     '   '      '           '    _.-'           \n";
+    "        (o)(o)        \n"
+    "      m'      'm      \n"
+    "     M  -****-  M     \n"
+    "      'm      m'      \n"
+    "     m''''''''''m     \n"
+    "    M            M BB \n";
 
 static int
 test_tlsext_cookie_client(void)

@@ -1,4 +1,4 @@
-.\" $OpenBSD: zyd.4,v 1.44 2018/07/15 10:44:49 phessler Exp $
+.\" $OpenBSD: zyd.4,v 1.46 2019/11/10 14:10:41 sthen Exp $
 .\"
 .\" Copyright (c) 1997, 1998, 1999
 .\" Bill Paul <wpaul@ctr.columbia.edu>. All rights reserved.
@@ -30,7 +30,7 @@
 .\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 .\" THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: July 15 2018 $
+.Dd $Mdocdate: November 10 2019 $
 .Dt ZYD 4
 .Os
 .Sh NAME
@@ -66,12 +66,18 @@ The
 .Nm
 driver can be configured to use
 Wired Equivalent Privacy (WEP) or
-Wi-Fi Protected Access (WPA-PSK and WPA2-PSK).
-WPA is the current encryption standard for wireless networks.
-It is strongly recommended that WEP
-not be used as the sole mechanism
-to secure wireless communication,
-due to serious weaknesses in it.
+Wi-Fi Protected Access (WPA1 and WPA2).
+WPA2 is the current encryption standard for wireless networks.
+It is strongly recommended that neither WEP nor WPA1
+are used as the sole mechanism to secure wireless communication,
+due to serious weaknesses.
+WPA1 is disabled by default and may be enabled using the option
+.Qq Cm wpaprotos Ar wpa1,wpa2 .
+For standard WPA networks which use pre-shared keys (PSK),
+keys are configured using the
+.Qq Cm wpakey
+option.
+WPA-Enterprise networks require use of the wpa_supplicant package.
 The
 .Nm
 driver relies on the software 802.11 stack for both encryption and decryption
@@ -83,6 +89,14 @@ driver can be configured at runtime with
 .Xr ifconfig 8
 or on boot with
 .Xr hostname.if 5 .
+.Sh FILES
+The adapter needs some firmware files, which are loaded on demand by the
+driver when a device is attached:
+.Pp
+.Bl -tag -width Ds -offset indent -compact
+.It Pa /etc/firmware/zd1211
+.It Pa /etc/firmware/zd1211b
+.El
 .Sh HARDWARE
 The following devices are known to be supported by the
 .Nm
@@ -137,14 +151,6 @@ driver:
 .It ZyXEL G-200 v2
 .It ZyXEL G-202
 .It ZyXEL G-220
-.El
-.Sh FILES
-The adapter needs some firmware files, which are loaded on demand by the
-driver when a device is attached:
-.Pp
-.Bl -tag -width Ds -offset indent -compact
-.It Pa /etc/firmware/zd1211
-.It Pa /etc/firmware/zd1211b
 .El
 .Sh EXAMPLES
 The following example scans for available networks:

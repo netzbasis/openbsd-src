@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_pdaemon.c,v 1.79 2018/01/18 18:08:51 bluhm Exp $	*/
+/*	$OpenBSD: uvm_pdaemon.c,v 1.85 2019/12/30 23:58:38 jsg Exp $	*/
 /*	$NetBSD: uvm_pdaemon.c,v 1.23 2000/08/20 10:24:14 bjh21 Exp $	*/
 
 /* 
@@ -81,6 +81,16 @@
 
 #include <uvm/uvm.h>
 
+#if defined(__amd64__) || defined(__arm64__) || \
+    defined(__i386__) || defined(__loongson__) || \
+    defined(__macppc__) || defined(__sparc64__)
+#include "drm.h"
+#endif
+
+#if NDRM > 0
+extern void drmbackoff(long);
+#endif
+
 /*
  * UVMPD_NUMDIRTYREACTS is how many dirty pages the pagedaemon will reactivate
  * in a pass thru the inactive list when swap is full.  the value should be
@@ -110,7 +120,7 @@ void		uvmpd_drop(struct pglist *);
 void
 uvm_wait(const char *wmsg)
 {
-	int	timo = 0;
+	uint64_t timo = INFSLP;
 
 #ifdef DIAGNOSTIC
 	if (curproc == &proc0)
@@ -140,7 +150,7 @@ uvm_wait(const char *wmsg)
 		 */
 
 		printf("pagedaemon: deadlock detected!\n");
-		timo = hz >> 3;		/* set timeout */
+		timo = MSEC_TO_NSEC(125);	/* set timeout */
 #if defined(DEBUG)
 		/* DEBUG: panic so we can debug it */
 		panic("pagedaemon deadlock");
@@ -149,7 +159,7 @@ uvm_wait(const char *wmsg)
 
 	uvm_lock_fpageq();
 	wakeup(&uvm.pagedaemon);		/* wake the daemon! */
-	msleep(&uvmexp.free, &uvm.fpageqlock, PVM | PNORELOCK, wmsg, timo);
+	msleep_nsec(&uvmexp.free, &uvm.fpageqlock, PVM | PNORELOCK, wmsg, timo);
 }
 
 /*
@@ -186,6 +196,13 @@ uvmpd_tune(void)
 }
 
 /*
+ * Indicate to the page daemon that a nowait call failed and it should
+ * recover at least some memory in the most restricted region (assumed
+ * to be dma_constraint).
+ */
+volatile int uvm_nowait_failed;
+
+/*
  * uvm_pageout: the main loop for the pagedaemon
  */
 void
@@ -209,18 +226,26 @@ uvm_pageout(void *arg)
 	  	work_done = 0; /* No work done this iteration. */
 
 		uvm_lock_fpageq();
-
-		if (TAILQ_EMPTY(&uvm.pmr_control.allocs)) {
-			msleep(&uvm.pagedaemon, &uvm.fpageqlock, PVM,
-			    "pgdaemon", 0);
+		if (!uvm_nowait_failed && TAILQ_EMPTY(&uvm.pmr_control.allocs)) {
+			msleep_nsec(&uvm.pagedaemon, &uvm.fpageqlock, PVM,
+			    "pgdaemon", INFSLP);
 			uvmexp.pdwoke++;
 		}
 
 		if ((pma = TAILQ_FIRST(&uvm.pmr_control.allocs)) != NULL) {
 			pma->pm_flags |= UVM_PMA_BUSY;
 			constraint = pma->pm_constraint;
-		} else
-			constraint = no_constraint;
+		} else {
+			if (uvm_nowait_failed) {
+				/*
+				 * XXX realisticly, this is what our
+				 * nowait callers probably care about
+				 */
+				constraint = dma_constraint;
+				uvm_nowait_failed = 0;
+			} else
+				constraint = no_constraint;
+		}
 
 		uvm_unlock_fpageq();
 
@@ -243,8 +268,13 @@ uvm_pageout(void *arg)
 		if (uvmexp.free - BUFPAGES_DEFICIT < uvmexp.freetarg)
 			size += uvmexp.freetarg - (uvmexp.free -
 			    BUFPAGES_DEFICIT);
+		if (size == 0)
+			size = 16; /* XXX */
 		uvm_unlock_pageq();
 		(void) bufbackoff(&constraint, size * 2);
+#if NDRM > 0
+		drmbackoff(size * 2);
+#endif
 		uvm_lock_pageq();
 
 		/* Scan if needed to meet our targets. */
@@ -305,8 +335,8 @@ uvm_aiodone_daemon(void *arg)
 		 */
 		mtx_enter(&uvm.aiodoned_lock);
 		while ((bp = TAILQ_FIRST(&uvm.aio_done)) == NULL)
-			msleep(&uvm.aiodoned, &uvm.aiodoned_lock,
-			    PVM, "aiodoned", 0);
+			msleep_nsec(&uvm.aiodoned, &uvm.aiodoned_lock,
+			    PVM, "aiodoned", INFSLP);
 		/* Take the list for ourselves. */
 		TAILQ_INIT(&uvm.aio_done);
 		mtx_leave(&uvm.aiodoned_lock);

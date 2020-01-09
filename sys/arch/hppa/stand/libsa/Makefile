@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.20 2015/11/16 19:33:52 miod Exp $
+#	$OpenBSD: Makefile,v 1.22 2019/10/29 02:55:51 deraadt Exp $
 
 .include "${.CURDIR}/../Makefile.inc"
 
@@ -17,15 +17,15 @@ NOPIC=nopic
 
 # hppa stuff
 SRCS=	machdep.c pdc.c itecons.c dev_hppa.c time.c \
-	ct.c dk.c lf.c lif.c cmd_hppa.c loadfile.c elf32.c elf64.c
+	ct.c dk.c lf.c lif.c cmd_hppa.c loadfile.c arc4.c elf32.c elf64.c
 
 # stand routines
 SRCS+=	alloc.c exit.c getfile.c getln.c getchar.c globals.c \
 	printf.c putchar.c strerror.c strtol.c strchr.c ctime.c snprintf.c
 
 # io routines
-SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fstat.c ioctl.c lseek.c \
-	open.c read.c stat.c write.c cread.c readdir.c cons.c
+SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fchmod.c fstat.c \
+	ioctl.c lseek.c open.c read.c stat.c write.c cread.c readdir.c cons.c
 
 # boot filesystems
 SRCS+=	ufs.c cd9660.c

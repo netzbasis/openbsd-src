@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2005, 2006  Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $ISC: sha2.c,v 1.2.2.12 2006/08/16 03:18:14 marka Exp $ */
+/* $Id: sha2.c,v 1.5 2020/01/07 19:09:26 florian Exp $ */
 
 /*	$FreeBSD: src/sys/crypto/sha2/sha2.c,v 1.2.2.2 2002/03/05 08:36:47 ume Exp $	*/
 /*	$KAME: sha2.c,v 1.8 2001/11/08 01:07:52 itojun Exp $	*/
@@ -39,7 +39,7 @@
  * 3. Neither the name of the copyright holder nor the names of contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) AND CONTRIBUTOR(S) ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -58,9 +58,481 @@
 #include <config.h>
 
 #include <isc/assertions.h>
+#include <isc/platform.h>
+#include <isc/safe.h>
 #include <isc/sha2.h>
 #include <isc/string.h>
 #include <isc/util.h>
+
+#if PKCS11CRYPTO
+#include <pk11/internal.h>
+#include <pk11/pk11.h>
+#endif
+
+#if defined(ISC_PLATFORM_OPENSSLHASH) && !defined(LIBRESSL_VERSION_NUMBER)
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#define EVP_MD_CTX_new() &(context->_ctx)
+#define EVP_MD_CTX_free(ptr) EVP_MD_CTX_cleanup(ptr)
+#define EVP_MD_CTX_reset(c) EVP_MD_CTX_cleanup(c)
+#endif
+
+void
+isc_sha224_init(isc_sha224_t *context) {
+	if (context == (isc_sha224_t *)0) {
+		return;
+	}
+	context->ctx = EVP_MD_CTX_new();
+	RUNTIME_CHECK(context->ctx != NULL);
+	if (EVP_DigestInit(context->ctx, EVP_sha224()) != 1) {
+		FATAL_ERROR(__FILE__, __LINE__, "Cannot initialize SHA224.");
+	}
+}
+
+void
+isc_sha224_invalidate(isc_sha224_t *context) {
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha224_update(isc_sha224_t *context, const isc_uint8_t* data, size_t len) {
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha224_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+	REQUIRE(data != (isc_uint8_t*)0);
+
+	RUNTIME_CHECK(EVP_DigestUpdate(context->ctx,
+				       (const void *) data, len) == 1);
+}
+
+void
+isc_sha224_final(isc_uint8_t digest[], isc_sha224_t *context) {
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha224_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0)
+		RUNTIME_CHECK(EVP_DigestFinal(context->ctx,
+					      digest, NULL) == 1);
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha256_init(isc_sha256_t *context) {
+	if (context == (isc_sha256_t *)0) {
+		return;
+	}
+	context->ctx = EVP_MD_CTX_new();
+	RUNTIME_CHECK(context->ctx != NULL);
+	if (EVP_DigestInit(context->ctx, EVP_sha256()) != 1) {
+		FATAL_ERROR(__FILE__, __LINE__, "Cannot initialize SHA256.");
+	}
+}
+
+void
+isc_sha256_invalidate(isc_sha256_t *context) {
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha256_update(isc_sha256_t *context, const isc_uint8_t *data, size_t len) {
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha256_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+	REQUIRE(data != (isc_uint8_t*)0);
+
+	RUNTIME_CHECK(EVP_DigestUpdate(context->ctx,
+				       (const void *) data, len) == 1);
+}
+
+void
+isc_sha256_final(isc_uint8_t digest[], isc_sha256_t *context) {
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha256_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0)
+		RUNTIME_CHECK(EVP_DigestFinal(context->ctx,
+					      digest, NULL) == 1);
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha512_init(isc_sha512_t *context) {
+	if (context == (isc_sha512_t *)0) {
+		return;
+	}
+	context->ctx = EVP_MD_CTX_new();
+	RUNTIME_CHECK(context->ctx != NULL);
+	if (EVP_DigestInit(context->ctx, EVP_sha512()) != 1) {
+		FATAL_ERROR(__FILE__, __LINE__, "Cannot initialize SHA512.");
+	}
+}
+
+void
+isc_sha512_invalidate(isc_sha512_t *context) {
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void isc_sha512_update(isc_sha512_t *context, const isc_uint8_t *data, size_t len) {
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+	REQUIRE(data != (isc_uint8_t*)0);
+
+	RUNTIME_CHECK(EVP_DigestUpdate(context->ctx,
+				       (const void *) data, len) == 1);
+}
+
+void isc_sha512_final(isc_uint8_t digest[], isc_sha512_t *context) {
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0)
+		RUNTIME_CHECK(EVP_DigestFinal(context->ctx,
+					      digest, NULL) == 1);
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha384_init(isc_sha384_t *context) {
+	if (context == (isc_sha384_t *)0) {
+		return;
+	}
+	context->ctx = EVP_MD_CTX_new();
+	RUNTIME_CHECK(context->ctx != NULL);
+	if (EVP_DigestInit(context->ctx, EVP_sha384()) != 1) {
+		FATAL_ERROR(__FILE__, __LINE__, "Cannot initialize SHA384.");
+	}
+}
+
+void
+isc_sha384_invalidate(isc_sha384_t *context) {
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+void
+isc_sha384_update(isc_sha384_t *context, const isc_uint8_t* data, size_t len) {
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+	REQUIRE(data != (isc_uint8_t*)0);
+
+	RUNTIME_CHECK(EVP_DigestUpdate(context->ctx,
+				       (const void *) data, len) == 1);
+}
+
+void
+isc_sha384_final(isc_uint8_t digest[], isc_sha384_t *context) {
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha384_t *)0);
+	REQUIRE(context->ctx != (EVP_MD_CTX *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0)
+		RUNTIME_CHECK(EVP_DigestFinal(context->ctx,
+					      digest, NULL) == 1);
+	EVP_MD_CTX_free(context->ctx);
+	context->ctx = NULL;
+}
+
+#elif PKCS11CRYPTO
+
+void
+isc_sha224_init(isc_sha224_t *context) {
+	CK_RV rv;
+	CK_MECHANISM mech = { CKM_SHA224, NULL, 0 };
+
+	if (context == (isc_sha224_t *)0) {
+		return;
+	}
+	RUNTIME_CHECK(pk11_get_session(context, OP_DIGEST, ISC_TRUE, ISC_FALSE,
+				       ISC_FALSE, NULL, 0) == ISC_R_SUCCESS);
+	PK11_FATALCHECK(pkcs_C_DigestInit, (context->session, &mech));
+}
+
+void
+isc_sha224_invalidate(isc_sha224_t *context) {
+	CK_BYTE garbage[ISC_SHA224_DIGESTLENGTH];
+	CK_ULONG len = ISC_SHA224_DIGESTLENGTH;
+
+	if (context->handle == NULL)
+		return;
+	(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+	isc_safe_memwipe(garbage, sizeof(garbage));
+	pk11_return_session(context);
+}
+
+void
+isc_sha224_update(isc_sha224_t *context, const isc_uint8_t* data, size_t len) {
+	CK_RV rv;
+	CK_BYTE_PTR pPart;
+
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha224_t *)0 && data != (isc_uint8_t*)0);
+
+	DE_CONST(data, pPart);
+	PK11_FATALCHECK(pkcs_C_DigestUpdate,
+			(context->session, pPart, (CK_ULONG) len));
+}
+
+void
+isc_sha224_final(isc_uint8_t digest[], isc_sha224_t *context) {
+	CK_RV rv;
+	CK_ULONG len = ISC_SHA224_DIGESTLENGTH;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha224_t *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0) {
+		PK11_FATALCHECK(pkcs_C_DigestFinal,
+				(context->session,
+				 (CK_BYTE_PTR) digest,
+				 &len));
+	} else {
+		CK_BYTE garbage[ISC_SHA224_DIGESTLENGTH];
+
+		(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+		isc_safe_memwipe(garbage, sizeof(garbage));
+	}
+	pk11_return_session(context);
+}
+
+void
+isc_sha256_init(isc_sha256_t *context) {
+	CK_RV rv;
+	CK_MECHANISM mech = { CKM_SHA256, NULL, 0 };
+
+	if (context == (isc_sha256_t *)0) {
+		return;
+	}
+	RUNTIME_CHECK(pk11_get_session(context, OP_DIGEST, ISC_TRUE, ISC_FALSE,
+				       ISC_FALSE, NULL, 0) == ISC_R_SUCCESS);
+	PK11_FATALCHECK(pkcs_C_DigestInit, (context->session, &mech));
+}
+
+void
+isc_sha256_invalidate(isc_sha256_t *context) {
+	CK_BYTE garbage[ISC_SHA256_DIGESTLENGTH];
+	CK_ULONG len = ISC_SHA256_DIGESTLENGTH;
+
+	if (context->handle == NULL)
+		return;
+	(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+	isc_safe_memwipe(garbage, sizeof(garbage));
+	pk11_return_session(context);
+}
+
+void
+isc_sha256_update(isc_sha256_t *context, const isc_uint8_t* data, size_t len) {
+	CK_RV rv;
+	CK_BYTE_PTR pPart;
+
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha256_t *)0 && data != (isc_uint8_t*)0);
+
+	DE_CONST(data, pPart);
+	PK11_FATALCHECK(pkcs_C_DigestUpdate,
+			(context->session, pPart, (CK_ULONG) len));
+}
+
+void
+isc_sha256_final(isc_uint8_t digest[], isc_sha256_t *context) {
+	CK_RV rv;
+	CK_ULONG len = ISC_SHA256_DIGESTLENGTH;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha256_t *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0) {
+		PK11_FATALCHECK(pkcs_C_DigestFinal,
+				(context->session,
+				 (CK_BYTE_PTR) digest,
+				 &len));
+	} else {
+		CK_BYTE garbage[ISC_SHA256_DIGESTLENGTH];
+
+		(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+		isc_safe_memwipe(garbage, sizeof(garbage));
+	}
+	pk11_return_session(context);
+}
+
+void
+isc_sha512_init(isc_sha512_t *context) {
+	CK_RV rv;
+	CK_MECHANISM mech = { CKM_SHA512, NULL, 0 };
+
+	if (context == (isc_sha512_t *)0) {
+		return;
+	}
+	RUNTIME_CHECK(pk11_get_session(context, OP_DIGEST, ISC_TRUE, ISC_FALSE,
+				       ISC_FALSE, NULL, 0) == ISC_R_SUCCESS);
+	PK11_FATALCHECK(pkcs_C_DigestInit, (context->session, &mech));
+}
+
+void
+isc_sha512_invalidate(isc_sha512_t *context) {
+	CK_BYTE garbage[ISC_SHA512_DIGESTLENGTH];
+	CK_ULONG len = ISC_SHA512_DIGESTLENGTH;
+
+	if (context->handle == NULL)
+		return;
+	(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+	isc_safe_memwipe(garbage, sizeof(garbage));
+	pk11_return_session(context);
+}
+
+void
+isc_sha512_update(isc_sha512_t *context, const isc_uint8_t* data, size_t len) {
+	CK_RV rv;
+	CK_BYTE_PTR pPart;
+
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0 && data != (isc_uint8_t*)0);
+
+	DE_CONST(data, pPart);
+	PK11_FATALCHECK(pkcs_C_DigestUpdate,
+			(context->session, pPart, (CK_ULONG) len));
+}
+
+void
+isc_sha512_final(isc_uint8_t digest[], isc_sha512_t *context) {
+	CK_RV rv;
+	CK_ULONG len = ISC_SHA512_DIGESTLENGTH;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0) {
+		PK11_FATALCHECK(pkcs_C_DigestFinal,
+				(context->session,
+				 (CK_BYTE_PTR) digest,
+				 &len));
+	} else {
+		CK_BYTE garbage[ISC_SHA512_DIGESTLENGTH];
+
+		(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+		isc_safe_memwipe(garbage, sizeof(garbage));
+	}
+	pk11_return_session(context);
+}
+
+void
+isc_sha384_init(isc_sha384_t *context) {
+	CK_RV rv;
+	CK_MECHANISM mech = { CKM_SHA384, NULL, 0 };
+
+	if (context == (isc_sha384_t *)0) {
+		return;
+	}
+	RUNTIME_CHECK(pk11_get_session(context, OP_DIGEST, ISC_TRUE, ISC_FALSE,
+				       ISC_FALSE, NULL, 0) == ISC_R_SUCCESS);
+	PK11_FATALCHECK(pkcs_C_DigestInit, (context->session, &mech));
+}
+
+void
+isc_sha384_invalidate(isc_sha384_t *context) {
+	CK_BYTE garbage[ISC_SHA384_DIGESTLENGTH];
+	CK_ULONG len = ISC_SHA384_DIGESTLENGTH;
+
+	if (context->handle == NULL)
+		return;
+	(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+	isc_safe_memwipe(garbage, sizeof(garbage));
+	pk11_return_session(context);
+}
+
+void
+isc_sha384_update(isc_sha384_t *context, const isc_uint8_t* data, size_t len) {
+	CK_RV rv;
+	CK_BYTE_PTR pPart;
+
+	if (len == 0U) {
+		/* Calling with no data is valid - we do nothing */
+		return;
+	}
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha384_t *)0 && data != (isc_uint8_t*)0);
+
+	DE_CONST(data, pPart);
+	PK11_FATALCHECK(pkcs_C_DigestUpdate,
+			(context->session, pPart, (CK_ULONG) len));
+}
+
+void
+isc_sha384_final(isc_uint8_t digest[], isc_sha384_t *context) {
+	CK_RV rv;
+	CK_ULONG len = ISC_SHA384_DIGESTLENGTH;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha384_t *)0);
+
+	/* If no digest buffer is passed, we don't bother doing this: */
+	if (digest != (isc_uint8_t*)0) {
+		PK11_FATALCHECK(pkcs_C_DigestFinal,
+				(context->session,
+				 (CK_BYTE_PTR) digest,
+				 &len));
+	} else {
+		CK_BYTE garbage[ISC_SHA384_DIGESTLENGTH];
+
+		(void) pkcs_C_DigestFinal(context->session, garbage, &len);
+		isc_safe_memwipe(garbage, sizeof(garbage));
+	}
+	pk11_return_session(context);
+}
+
+#else
 
 /*
  * UNROLLED TRANSFORM LOOP NOTE:
@@ -72,7 +544,7 @@
  *
  * or define below:
  *
- *   #define ISC_SHA2_UNROLL_TRANSFORM
+ *   \#define ISC_SHA2_UNROLL_TRANSFORM
  *
  */
 
@@ -83,21 +555,21 @@
  * Please make sure that your system defines BYTE_ORDER.  If your
  * architecture is little-endian, make sure it also defines
  * LITTLE_ENDIAN and that the two (BYTE_ORDER and LITTLE_ENDIAN) are
- * equivilent.
+ * equivalent.
  *
  * If your system does not define the above, then you can do so by
  * hand like this:
  *
- *   #define LITTLE_ENDIAN 1234
- *   #define BIG_ENDIAN    4321
+ *   \#define LITTLE_ENDIAN 1234
+ *   \#define BIG_ENDIAN    4321
  *
  * And for little-endian machines, add:
  *
- *   #define BYTE_ORDER LITTLE_ENDIAN 
+ *   \#define BYTE_ORDER LITTLE_ENDIAN
  *
  * Or for big-endian machines:
  *
- *   #define BYTE_ORDER BIG_ENDIAN
+ *   \#define BYTE_ORDER BIG_ENDIAN
  *
  * The FreeBSD machine this was written on defines BYTE_ORDER
  * appropriately by including <sys/types.h> (which in turn includes
@@ -136,16 +608,6 @@
 	tmp = (tmp >> 16) | (tmp << 16); \
 	(x) = ((tmp & 0xff00ff00UL) >> 8) | ((tmp & 0x00ff00ffUL) << 8); \
 }
-#ifdef WIN32
-#define REVERSE64(w,x)	{ \
-	isc_uint64_t tmp = (w); \
-	tmp = (tmp >> 32) | (tmp << 32); \
-	tmp = ((tmp & 0xff00ff00ff00ff00UL) >> 8) | \
-	      ((tmp & 0x00ff00ff00ff00ffUL) << 8); \
-	(x) = ((tmp & 0xffff0000ffff0000UL) >> 16) | \
-	      ((tmp & 0x0000ffff0000ffffUL) << 16); \
-}
-#else
 #define REVERSE64(w,x)	{ \
 	isc_uint64_t tmp = (w); \
 	tmp = (tmp >> 32) | (tmp << 32); \
@@ -154,7 +616,6 @@
 	(x) = ((tmp & 0xffff0000ffff0000ULL) >> 16) | \
 	      ((tmp & 0x0000ffff0000ffffULL) << 16); \
 }
-#endif
 #endif /* BYTE_ORDER == LITTLE_ENDIAN */
 
 /*
@@ -256,75 +717,6 @@ static const isc_uint32_t sha256_initial_hash_value[8] = {
 	0x5be0cd19UL
 };
 
-#ifdef WIN32
-/* Hash constant words K for SHA-384 and SHA-512: */
-static const isc_uint64_t K512[80] = {
-	0x428a2f98d728ae22UL, 0x7137449123ef65cdUL,
-	0xb5c0fbcfec4d3b2fUL, 0xe9b5dba58189dbbcUL,
-	0x3956c25bf348b538UL, 0x59f111f1b605d019UL,
-	0x923f82a4af194f9bUL, 0xab1c5ed5da6d8118UL,
-	0xd807aa98a3030242UL, 0x12835b0145706fbeUL,
-	0x243185be4ee4b28cUL, 0x550c7dc3d5ffb4e2UL,
-	0x72be5d74f27b896fUL, 0x80deb1fe3b1696b1UL,
-	0x9bdc06a725c71235UL, 0xc19bf174cf692694UL,
-	0xe49b69c19ef14ad2UL, 0xefbe4786384f25e3UL,
-	0x0fc19dc68b8cd5b5UL, 0x240ca1cc77ac9c65UL,
-	0x2de92c6f592b0275UL, 0x4a7484aa6ea6e483UL,
-	0x5cb0a9dcbd41fbd4UL, 0x76f988da831153b5UL,
-	0x983e5152ee66dfabUL, 0xa831c66d2db43210UL,
-	0xb00327c898fb213fUL, 0xbf597fc7beef0ee4UL,
-	0xc6e00bf33da88fc2UL, 0xd5a79147930aa725UL,
-	0x06ca6351e003826fUL, 0x142929670a0e6e70UL,
-	0x27b70a8546d22ffcUL, 0x2e1b21385c26c926UL,
-	0x4d2c6dfc5ac42aedUL, 0x53380d139d95b3dfUL,
-	0x650a73548baf63deUL, 0x766a0abb3c77b2a8UL,
-	0x81c2c92e47edaee6UL, 0x92722c851482353bUL,
-	0xa2bfe8a14cf10364UL, 0xa81a664bbc423001UL,
-	0xc24b8b70d0f89791UL, 0xc76c51a30654be30UL,
-	0xd192e819d6ef5218UL, 0xd69906245565a910UL,
-	0xf40e35855771202aUL, 0x106aa07032bbd1b8UL,
-	0x19a4c116b8d2d0c8UL, 0x1e376c085141ab53UL,
-	0x2748774cdf8eeb99UL, 0x34b0bcb5e19b48a8UL,
-	0x391c0cb3c5c95a63UL, 0x4ed8aa4ae3418acbUL,
-	0x5b9cca4f7763e373UL, 0x682e6ff3d6b2b8a3UL,
-	0x748f82ee5defb2fcUL, 0x78a5636f43172f60UL,
-	0x84c87814a1f0ab72UL, 0x8cc702081a6439ecUL,
-	0x90befffa23631e28UL, 0xa4506cebde82bde9UL,
-	0xbef9a3f7b2c67915UL, 0xc67178f2e372532bUL,
-	0xca273eceea26619cUL, 0xd186b8c721c0c207UL,
-	0xeada7dd6cde0eb1eUL, 0xf57d4f7fee6ed178UL,
-	0x06f067aa72176fbaUL, 0x0a637dc5a2c898a6UL,
-	0x113f9804bef90daeUL, 0x1b710b35131c471bUL,
-	0x28db77f523047d84UL, 0x32caab7b40c72493UL,
-	0x3c9ebe0a15c9bebcUL, 0x431d67c49c100d4cUL,
-	0x4cc5d4becb3e42b6UL, 0x597f299cfc657e2aUL,
-	0x5fcb6fab3ad6faecUL, 0x6c44198c4a475817UL
-};
-
-/* Initial hash value H for SHA-384: */
-static const isc_uint64_t sha384_initial_hash_value[8] = {
-	0xcbbb9d5dc1059ed8UL,
-	0x629a292a367cd507UL,
-	0x9159015a3070dd17UL,
-	0x152fecd8f70e5939UL,
-	0x67332667ffc00b31UL,
-	0x8eb44a8768581511UL,
-	0xdb0c2e0d64f98fa7UL,
-	0x47b5481dbefa4fa4UL
-};
-
-/* Initial hash value H for SHA-512: */
-static const isc_uint64_t sha512_initial_hash_value[8] = {
-	0x6a09e667f3bcc908U,
-	0xbb67ae8584caa73bUL,
-	0x3c6ef372fe94f82bUL,
-	0xa54ff53a5f1d36f1UL,
-	0x510e527fade682d1UL,
-	0x9b05688c2b3e6c1fUL,
-	0x1f83d9abfb41bd6bUL,
-	0x5be0cd19137e2179UL
-};
-#else
 /* Hash constant words K for SHA-384 and SHA-512: */
 static const isc_uint64_t K512[80] = {
 	0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL,
@@ -392,14 +784,6 @@ static const isc_uint64_t sha512_initial_hash_value[8] = {
 	0x1f83d9abfb41bd6bULL,
 	0x5be0cd19137e2179ULL
 };
-#endif
-
-/*
- * Constant used by SHA256/384/512_End() functions for converting the
- * digest to a readable hexadecimal character string:
- */
-static const char *sha2_hex_digits = "0123456789abcdef";
-
 
 
 /*** SHA-224: *********************************************************/
@@ -408,58 +792,28 @@ isc_sha224_init(isc_sha224_t *context) {
 	if (context == (isc_sha256_t *)0) {
 		return;
 	}
-	memcpy(context->state, sha224_initial_hash_value,
-	       ISC_SHA256_DIGESTLENGTH);
+	memmove(context->state, sha224_initial_hash_value,
+		ISC_SHA256_DIGESTLENGTH);
 	memset(context->buffer, 0, ISC_SHA256_BLOCK_LENGTH);
 	context->bitcount = 0;
 }
 
-void 
+void
+isc_sha224_invalidate(isc_sha224_t *context) {
+	isc_safe_memwipe(context, sizeof(*context));
+}
+
+void
 isc_sha224_update(isc_sha224_t *context, const isc_uint8_t* data, size_t len) {
 	isc_sha256_update((isc_sha256_t *)context, data, len);
 }
 
-void 
+void
 isc_sha224_final(isc_uint8_t digest[], isc_sha224_t *context) {
 	isc_uint8_t sha256_digest[ISC_SHA256_DIGESTLENGTH];
 	isc_sha256_final(sha256_digest, (isc_sha256_t *)context);
-	memcpy(digest, sha256_digest, ISC_SHA224_DIGESTLENGTH);
-	memset(sha256_digest, 0, ISC_SHA256_DIGESTLENGTH);
-}
-
-char *
-isc_sha224_end(isc_sha224_t *context, char buffer[]) {
-	isc_uint8_t	digest[ISC_SHA224_DIGESTLENGTH], *d = digest;
-	unsigned int	i;
-
-	/* Sanity check: */
-	REQUIRE(context != (isc_sha224_t *)0);
-
-	if (buffer != (char*)0) {
-		isc_sha224_final(digest, context);
-
-		for (i = 0; i < ISC_SHA224_DIGESTLENGTH; i++) {
-			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
-			*buffer++ = sha2_hex_digits[*d & 0x0f];
-			d++;
-		}
-		*buffer = (char)0;
-	} else {
-		memset(context, 0, sizeof(*context));
-	}
-	memset(digest, 0, ISC_SHA224_DIGESTLENGTH);
-	return buffer;
-}
-
-char*
-isc_sha224_data(const isc_uint8_t *data, size_t len,
-	        char digest[ISC_SHA224_DIGESTSTRINGLENGTH])
-{
-	isc_sha224_t context;
-
-	isc_sha224_init(&context);
-	isc_sha224_update(&context, data, len);
-	return (isc_sha224_end(&context, digest));
+	memmove(digest, sha256_digest, ISC_SHA224_DIGESTLENGTH);
+	isc_safe_memwipe(sha256_digest, sizeof(sha256_digest));
 }
 
 /*** SHA-256: *********************************************************/
@@ -468,10 +822,15 @@ isc_sha256_init(isc_sha256_t *context) {
 	if (context == (isc_sha256_t *)0) {
 		return;
 	}
-	memcpy(context->state, sha256_initial_hash_value,
+	memmove(context->state, sha256_initial_hash_value,
 	       ISC_SHA256_DIGESTLENGTH);
 	memset(context->buffer, 0, ISC_SHA256_BLOCK_LENGTH);
 	context->bitcount = 0;
+}
+
+void
+isc_sha256_invalidate(isc_sha256_t *context) {
+	isc_safe_memwipe(context, sizeof(*context));
 }
 
 #ifdef ISC_SHA2_UNROLL_TRANSFORM
@@ -483,7 +842,7 @@ isc_sha256_init(isc_sha256_t *context) {
 #define ROUND256_0_TO_15(a,b,c,d,e,f,g,h)	\
 	REVERSE32(*data++, W256[j]); \
 	T1 = (h) + Sigma1_256(e) + Ch((e), (f), (g)) + \
-             K256[j] + W256[j]; \
+	     K256[j] + W256[j]; \
 	(d) += T1; \
 	(h) = T1 + Sigma0_256(a) + Maj((a), (b), (c)); \
 	j++
@@ -565,6 +924,9 @@ void isc_sha256_transform(isc_sha256_t *context, const isc_uint32_t* data) {
 
 	/* Clean up */
 	a = b = c = d = e = f = g = h = T1 = 0;
+	/* Avoid compiler warnings */
+	POST(a); POST(b); POST(c); POST(d); POST(e); POST(f);
+	POST(g); POST(h); POST(T1);
 }
 
 #else /* ISC_SHA2_UNROLL_TRANSFORM */
@@ -615,11 +977,11 @@ isc_sha256_transform(isc_sha256_t *context, const isc_uint32_t* data) {
 		/* Part of the message block expansion: */
 		s0 = W256[(j+1)&0x0f];
 		s0 = sigma0_256(s0);
-		s1 = W256[(j+14)&0x0f];	
+		s1 = W256[(j+14)&0x0f];
 		s1 = sigma1_256(s1);
 
 		/* Apply the SHA-256 compression function to update a..h */
-		T1 = h + Sigma1_256(e) + Ch(e, f, g) + K256[j] + 
+		T1 = h + Sigma1_256(e) + Ch(e, f, g) + K256[j] +
 		     (W256[j&0x0f] += s1 + W256[(j+9)&0x0f] + s0);
 		T2 = Sigma0_256(a) + Maj(a, b, c);
 		h = g;
@@ -646,6 +1008,9 @@ isc_sha256_transform(isc_sha256_t *context, const isc_uint32_t* data) {
 
 	/* Clean up */
 	a = b = c = d = e = f = g = h = T1 = T2 = 0;
+	/* Avoid compiler warnings */
+	POST(a); POST(b); POST(c); POST(d); POST(e); POST(f);
+	POST(g); POST(h); POST(T1); POST(T2);
 }
 
 #endif /* ISC_SHA2_UNROLL_TRANSFORM */
@@ -670,7 +1035,7 @@ isc_sha256_update(isc_sha256_t *context, const isc_uint8_t *data, size_t len) {
 
 		if (len >= freespace) {
 			/* Fill the buffer completely and process it */
-			memcpy(&context->buffer[usedspace], data, freespace);
+			memmove(&context->buffer[usedspace], data, freespace);
 			context->bitcount += freespace << 3;
 			len -= freespace;
 			data += freespace;
@@ -678,16 +1043,18 @@ isc_sha256_update(isc_sha256_t *context, const isc_uint8_t *data, size_t len) {
 					     (isc_uint32_t*)context->buffer);
 		} else {
 			/* The buffer is not yet full */
-			memcpy(&context->buffer[usedspace], data, len);
+			memmove(&context->buffer[usedspace], data, len);
 			context->bitcount += len << 3;
 			/* Clean up: */
 			usedspace = freespace = 0;
+			/* Avoid compiler warnings: */
+			POST(usedspace); POST(freespace);
 			return;
 		}
 	}
 	while (len >= ISC_SHA256_BLOCK_LENGTH) {
 		/* Process as many complete blocks as we can */
-		memcpy(context->buffer, data, ISC_SHA256_BLOCK_LENGTH);
+		memmove(context->buffer, data, ISC_SHA256_BLOCK_LENGTH);
 		isc_sha256_transform(context, (isc_uint32_t*)context->buffer);
 		context->bitcount += ISC_SHA256_BLOCK_LENGTH << 3;
 		len -= ISC_SHA256_BLOCK_LENGTH;
@@ -695,11 +1062,13 @@ isc_sha256_update(isc_sha256_t *context, const isc_uint8_t *data, size_t len) {
 	}
 	if (len > 0U) {
 		/* There's left-overs, so save 'em */
-		memcpy(context->buffer, data, len);
+		memmove(context->buffer, data, len);
 		context->bitcount += len << 3;
 	}
 	/* Clean up: */
 	usedspace = freespace = 0;
+	/* Avoid compiler warnings: */
+	POST(usedspace); POST(freespace);
 }
 
 void
@@ -763,50 +1132,15 @@ isc_sha256_final(isc_uint8_t digest[], isc_sha256_t *context) {
 			}
 		}
 #else
-		memcpy(d, context->state, ISC_SHA256_DIGESTLENGTH);
+		memmove(d, context->state, ISC_SHA256_DIGESTLENGTH);
 #endif
 	}
 
 	/* Clean up state data: */
-	memset(context, 0, sizeof(*context));
+	isc_safe_memwipe(context, sizeof(*context));
 	usedspace = 0;
+	POST(usedspace);
 }
-
-char *
-isc_sha256_end(isc_sha256_t *context, char buffer[]) {
-	isc_uint8_t	digest[ISC_SHA256_DIGESTLENGTH], *d = digest;
-	unsigned int	i;
-
-	/* Sanity check: */
-	REQUIRE(context != (isc_sha256_t *)0);
-
-	if (buffer != (char*)0) {
-		isc_sha256_final(digest, context);
-
-		for (i = 0; i < ISC_SHA256_DIGESTLENGTH; i++) {
-			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
-			*buffer++ = sha2_hex_digits[*d & 0x0f];
-			d++;
-		}
-		*buffer = (char)0;
-	} else {
-		memset(context, 0, sizeof(*context));
-	}
-	memset(digest, 0, ISC_SHA256_DIGESTLENGTH);
-	return buffer;
-}
-
-char *
-isc_sha256_data(const isc_uint8_t* data, size_t len,
-		char digest[ISC_SHA256_DIGESTSTRINGLENGTH])
-{
-	isc_sha256_t context;
-
-	isc_sha256_init(&context);
-	isc_sha256_update(&context, data, len);
-	return (isc_sha256_end(&context, digest));
-}
-
 
 /*** SHA-512: *********************************************************/
 void
@@ -814,10 +1148,15 @@ isc_sha512_init(isc_sha512_t *context) {
 	if (context == (isc_sha512_t *)0) {
 		return;
 	}
-	memcpy(context->state, sha512_initial_hash_value,
-	       ISC_SHA512_DIGESTLENGTH);
+	memmove(context->state, sha512_initial_hash_value,
+		ISC_SHA512_DIGESTLENGTH);
 	memset(context->buffer, 0, ISC_SHA512_BLOCK_LENGTH);
 	context->bitcount[0] = context->bitcount[1] =  0;
+}
+
+void
+isc_sha512_invalidate(isc_sha512_t *context) {
+	isc_safe_memwipe(context, sizeof(*context));
 }
 
 #ifdef ISC_SHA2_UNROLL_TRANSFORM
@@ -828,7 +1167,7 @@ isc_sha512_init(isc_sha512_t *context) {
 #define ROUND512_0_TO_15(a,b,c,d,e,f,g,h)	\
 	REVERSE64(*data++, W512[j]); \
 	T1 = (h) + Sigma1_512(e) + Ch((e), (f), (g)) + \
-             K512[j] + W512[j]; \
+	     K512[j] + W512[j]; \
 	(d) += T1, \
 	(h) = T1 + Sigma0_512(a) + Maj((a), (b), (c)), \
 	j++
@@ -838,7 +1177,7 @@ isc_sha512_init(isc_sha512_t *context) {
 
 #define ROUND512_0_TO_15(a,b,c,d,e,f,g,h)	\
 	T1 = (h) + Sigma1_512(e) + Ch((e), (f), (g)) + \
-             K512[j] + (W512[j] = *data++); \
+	     K512[j] + (W512[j] = *data++); \
 	(d) += T1; \
 	(h) = T1 + Sigma0_512(a) + Maj((a), (b), (c)); \
 	j++
@@ -851,7 +1190,7 @@ isc_sha512_init(isc_sha512_t *context) {
 	s1 = W512[(j+14)&0x0f]; \
 	s1 = sigma1_512(s1); \
 	T1 = (h) + Sigma1_512(e) + Ch((e), (f), (g)) + K512[j] + \
-             (W512[j&0x0f] += s1 + W512[(j+9)&0x0f] + s0); \
+	     (W512[j&0x0f] += s1 + W512[(j+9)&0x0f] + s0); \
 	(d) += T1; \
 	(h) = T1 + Sigma0_512(a) + Maj((a), (b), (c)); \
 	j++
@@ -907,6 +1246,9 @@ void isc_sha512_transform(isc_sha512_t *context, const isc_uint64_t* data) {
 
 	/* Clean up */
 	a = b = c = d = e = f = g = h = T1 = 0;
+	/* Avoid compiler warnings */
+	POST(a); POST(b); POST(c); POST(d); POST(e); POST(f);
+	POST(g); POST(h); POST(T1);
 }
 
 #else /* ISC_SHA2_UNROLL_TRANSFORM */
@@ -986,6 +1328,9 @@ isc_sha512_transform(isc_sha512_t *context, const isc_uint64_t* data) {
 
 	/* Clean up */
 	a = b = c = d = e = f = g = h = T1 = T2 = 0;
+	/* Avoid compiler warnings */
+	POST(a); POST(b); POST(c); POST(d); POST(e); POST(f);
+	POST(g); POST(h); POST(T1); POST(T2);
 }
 
 #endif /* ISC_SHA2_UNROLL_TRANSFORM */
@@ -1009,7 +1354,7 @@ void isc_sha512_update(isc_sha512_t *context, const isc_uint8_t *data, size_t le
 
 		if (len >= freespace) {
 			/* Fill the buffer completely and process it */
-			memcpy(&context->buffer[usedspace], data, freespace);
+			memmove(&context->buffer[usedspace], data, freespace);
 			ADDINC128(context->bitcount, freespace << 3);
 			len -= freespace;
 			data += freespace;
@@ -1017,16 +1362,18 @@ void isc_sha512_update(isc_sha512_t *context, const isc_uint8_t *data, size_t le
 					     (isc_uint64_t*)context->buffer);
 		} else {
 			/* The buffer is not yet full */
-			memcpy(&context->buffer[usedspace], data, len);
+			memmove(&context->buffer[usedspace], data, len);
 			ADDINC128(context->bitcount, len << 3);
 			/* Clean up: */
 			usedspace = freespace = 0;
+			/* Avoid compiler warnings: */
+			POST(usedspace); POST(freespace);
 			return;
 		}
 	}
 	while (len >= ISC_SHA512_BLOCK_LENGTH) {
 		/* Process as many complete blocks as we can */
-		memcpy(context->buffer, data, ISC_SHA512_BLOCK_LENGTH);
+		memmove(context->buffer, data, ISC_SHA512_BLOCK_LENGTH);
 		isc_sha512_transform(context, (isc_uint64_t*)context->buffer);
 		ADDINC128(context->bitcount, ISC_SHA512_BLOCK_LENGTH << 3);
 		len -= ISC_SHA512_BLOCK_LENGTH;
@@ -1034,11 +1381,13 @@ void isc_sha512_update(isc_sha512_t *context, const isc_uint8_t *data, size_t le
 	}
 	if (len > 0U) {
 		/* There's left-overs, so save 'em */
-		memcpy(context->buffer, data, len);
+		memmove(context->buffer, data, len);
 		ADDINC128(context->bitcount, len << 3);
 	}
 	/* Clean up: */
 	usedspace = freespace = 0;
+	/* Avoid compiler warnings: */
+	POST(usedspace); POST(freespace);
 }
 
 void isc_sha512_last(isc_sha512_t *context) {
@@ -1107,47 +1456,12 @@ void isc_sha512_final(isc_uint8_t digest[], isc_sha512_t *context) {
 			}
 		}
 #else
-		memcpy(d, context->state, ISC_SHA512_DIGESTLENGTH);
+		memmove(d, context->state, ISC_SHA512_DIGESTLENGTH);
 #endif
 	}
 
 	/* Zero out state data */
-	memset(context, 0, sizeof(*context));
-}
-
-char *
-isc_sha512_end(isc_sha512_t *context, char buffer[]) {
-	isc_uint8_t	digest[ISC_SHA512_DIGESTLENGTH], *d = digest;
-	unsigned int	i;
-
-	/* Sanity check: */
-	REQUIRE(context != (isc_sha512_t *)0);
-
-	if (buffer != (char*)0) {
-		isc_sha512_final(digest, context);
-
-		for (i = 0; i < ISC_SHA512_DIGESTLENGTH; i++) {
-			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
-			*buffer++ = sha2_hex_digits[*d & 0x0f];
-			d++;
-		}
-		*buffer = (char)0;
-	} else {
-		memset(context, 0, sizeof(*context));
-	}
-	memset(digest, 0, ISC_SHA512_DIGESTLENGTH);
-	return buffer;
-}
-
-char *
-isc_sha512_data(const isc_uint8_t *data, size_t len,
-		char digest[ISC_SHA512_DIGESTSTRINGLENGTH])
-{
-	isc_sha512_t 	context;
-
-	isc_sha512_init(&context);
-	isc_sha512_update(&context, data, len);
-	return (isc_sha512_end(&context, digest));
+	isc_safe_memwipe(context, sizeof(*context));
 }
 
 
@@ -1157,18 +1471,23 @@ isc_sha384_init(isc_sha384_t *context) {
 	if (context == (isc_sha384_t *)0) {
 		return;
 	}
-	memcpy(context->state, sha384_initial_hash_value,
-	       ISC_SHA512_DIGESTLENGTH);
+	memmove(context->state, sha384_initial_hash_value,
+		ISC_SHA512_DIGESTLENGTH);
 	memset(context->buffer, 0, ISC_SHA384_BLOCK_LENGTH);
 	context->bitcount[0] = context->bitcount[1] = 0;
 }
 
-void 
+void
+isc_sha384_invalidate(isc_sha384_t *context) {
+	isc_safe_memwipe(context, sizeof(*context));
+}
+
+void
 isc_sha384_update(isc_sha384_t *context, const isc_uint8_t* data, size_t len) {
 	isc_sha512_update((isc_sha512_t *)context, data, len);
 }
 
-void 
+void
 isc_sha384_final(isc_uint8_t digest[], isc_sha384_t *context) {
 	isc_uint64_t	*d = (isc_uint64_t*)digest;
 
@@ -1190,12 +1509,142 @@ isc_sha384_final(isc_uint8_t digest[], isc_sha384_t *context) {
 			}
 		}
 #else
-		memcpy(d, context->state, ISC_SHA384_DIGESTLENGTH);
+		memmove(d, context->state, ISC_SHA384_DIGESTLENGTH);
 #endif
 	}
 
 	/* Zero out state data */
-	memset(context, 0, sizeof(*context));
+	isc_safe_memwipe(context, sizeof(*context));
+}
+#endif /* !ISC_PLATFORM_OPENSSLHASH */
+
+/*
+ * Constant used by SHA256/384/512_End() functions for converting the
+ * digest to a readable hexadecimal character string:
+ */
+static const char *sha2_hex_digits = "0123456789abcdef";
+
+char *
+isc_sha224_end(isc_sha224_t *context, char buffer[]) {
+	isc_uint8_t	digest[ISC_SHA224_DIGESTLENGTH], *d = digest;
+	unsigned int	i;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha224_t *)0);
+
+	if (buffer != (char*)0) {
+		isc_sha224_final(digest, context);
+
+		for (i = 0; i < ISC_SHA224_DIGESTLENGTH; i++) {
+			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
+			*buffer++ = sha2_hex_digits[*d & 0x0f];
+			d++;
+		}
+		*buffer = (char)0;
+	} else {
+#if defined(ISC_PLATFORM_OPENSSLHASH) && !defined(LIBRESSL_VERSION_NUMBER)
+		EVP_MD_CTX_reset(context->ctx);
+#elif PKCS11CRYPTO
+		pk11_return_session(context);
+#else
+		isc_safe_memwipe(context, sizeof(*context));
+#endif
+	}
+	isc_safe_memwipe(digest, sizeof(digest));
+	return buffer;
+}
+
+char *
+isc_sha224_data(const isc_uint8_t *data, size_t len,
+		char digest[ISC_SHA224_DIGESTSTRINGLENGTH])
+{
+	isc_sha224_t context;
+
+	isc_sha224_init(&context);
+	isc_sha224_update(&context, data, len);
+	return (isc_sha224_end(&context, digest));
+}
+
+char *
+isc_sha256_end(isc_sha256_t *context, char buffer[]) {
+	isc_uint8_t	digest[ISC_SHA256_DIGESTLENGTH], *d = digest;
+	unsigned int	i;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha256_t *)0);
+
+	if (buffer != (char*)0) {
+		isc_sha256_final(digest, context);
+
+		for (i = 0; i < ISC_SHA256_DIGESTLENGTH; i++) {
+			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
+			*buffer++ = sha2_hex_digits[*d & 0x0f];
+			d++;
+		}
+		*buffer = (char)0;
+	} else {
+#if defined(ISC_PLATFORM_OPENSSLHASH) && !defined(LIBRESSL_VERSION_NUMBER)
+		EVP_MD_CTX_reset(context->ctx);
+#elif PKCS11CRYPTO
+		pk11_return_session(context);
+#else
+		isc_safe_memwipe(context, sizeof(*context));
+#endif
+	}
+	isc_safe_memwipe(digest, sizeof(digest));
+	return buffer;
+}
+
+char *
+isc_sha256_data(const isc_uint8_t* data, size_t len,
+		char digest[ISC_SHA256_DIGESTSTRINGLENGTH])
+{
+	isc_sha256_t context;
+
+	isc_sha256_init(&context);
+	isc_sha256_update(&context, data, len);
+	return (isc_sha256_end(&context, digest));
+}
+
+char *
+isc_sha512_end(isc_sha512_t *context, char buffer[]) {
+	isc_uint8_t	digest[ISC_SHA512_DIGESTLENGTH], *d = digest;
+	unsigned int	i;
+
+	/* Sanity check: */
+	REQUIRE(context != (isc_sha512_t *)0);
+
+	if (buffer != (char*)0) {
+		isc_sha512_final(digest, context);
+
+		for (i = 0; i < ISC_SHA512_DIGESTLENGTH; i++) {
+			*buffer++ = sha2_hex_digits[(*d & 0xf0) >> 4];
+			*buffer++ = sha2_hex_digits[*d & 0x0f];
+			d++;
+		}
+		*buffer = (char)0;
+	} else {
+#if defined(ISC_PLATFORM_OPENSSLHASH) && !defined(LIBRESSL_VERSION_NUMBER)
+		EVP_MD_CTX_reset(context->ctx);
+#elif PKCS11CRYPTO
+		pk11_return_session(context);
+#else
+		isc_safe_memwipe(context, sizeof(*context));
+#endif
+	}
+	isc_safe_memwipe(digest, sizeof(digest));
+	return buffer;
+}
+
+char *
+isc_sha512_data(const isc_uint8_t *data, size_t len,
+		char digest[ISC_SHA512_DIGESTSTRINGLENGTH])
+{
+	isc_sha512_t 	context;
+
+	isc_sha512_init(&context);
+	isc_sha512_update(&context, data, len);
+	return (isc_sha512_end(&context, digest));
 }
 
 char *
@@ -1216,15 +1665,21 @@ isc_sha384_end(isc_sha384_t *context, char buffer[]) {
 		}
 		*buffer = (char)0;
 	} else {
-		memset(context, 0, sizeof(*context));
+#if defined(ISC_PLATFORM_OPENSSLHASH) && !defined(LIBRESSL_VERSION_NUMBER)
+		EVP_MD_CTX_reset(context->ctx);
+#elif PKCS11CRYPTO
+		pk11_return_session(context);
+#else
+		isc_safe_memwipe(context, sizeof(*context));
+#endif
 	}
-	memset(digest, 0, ISC_SHA384_DIGESTLENGTH);
+	isc_safe_memwipe(digest, sizeof(digest));
 	return buffer;
 }
 
-char*
+char *
 isc_sha384_data(const isc_uint8_t *data, size_t len,
-	        char digest[ISC_SHA384_DIGESTSTRINGLENGTH])
+		char digest[ISC_SHA384_DIGESTSTRINGLENGTH])
 {
 	isc_sha384_t context;
 

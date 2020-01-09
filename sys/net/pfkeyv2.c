@@ -1,4 +1,4 @@
-/* $OpenBSD: pfkeyv2.c,v 1.194 2019/01/13 14:31:55 mpi Exp $ */
+/* $OpenBSD: pfkeyv2.c,v 1.198 2019/07/17 18:52:46 bluhm Exp $ */
 
 /*
  *	@(#)COPYRIGHT	1.1 (NRL) 17 January 1995
@@ -129,6 +129,7 @@ extern struct pool ipsec_policy_pool;
 
 extern struct radix_node_head **spd_tables;
 
+struct pool pkpcb_pool;
 #define PFKEY_MSG_MAXSZ 4096
 const struct sockaddr pfkey_addr = { 2, PF_KEY, };
 struct domain pfkeydomain;
@@ -251,6 +252,8 @@ pfkey_init(void)
 	srpl_rc_init(&pkptable.pkp_rc, keycb_ref, keycb_unref, NULL);
 	rw_init(&pkptable.pkp_lk, "pfkey");
 	SRPL_INIT(&pkptable.pkp_list);
+	pool_init(&pkpcb_pool, sizeof(struct pkpcb), 0,
+	    IPL_NONE, PR_WAITOK, "pkpcb", NULL);
 }
 
 
@@ -266,13 +269,13 @@ pfkeyv2_attach(struct socket *so, int proto)
 	if ((so->so_state & SS_PRIV) == 0)
 		return EACCES;
 
-	kp = malloc(sizeof(struct pkpcb), M_PCB, M_WAITOK | M_ZERO);
+	kp = pool_get(&pkpcb_pool, PR_WAITOK|PR_ZERO);
 	so->so_pcb = kp;
 	refcnt_init(&kp->kcb_refcnt);
 
 	error = soreserve(so, PFKEYSNDQ, PFKEYRCVQ);
 	if (error) {
-		free(kp, M_PCB, sizeof(struct pkpcb));
+		pool_put(&pkpcb_pool, kp);
 		return (error);
 	}
 
@@ -326,7 +329,7 @@ pfkeyv2_detach(struct socket *so)
 
 	so->so_pcb = NULL;
 	KASSERT((so->so_state & SS_NOFDREF) == 0);
-	free(kp, M_PCB, sizeof(struct pkpcb));
+	pool_put(&pkpcb_pool, kp);
 
 	return (0);
 }
@@ -373,7 +376,7 @@ pfkeyv2_usrreq(struct socket *so, int req, struct mbuf *m,
 		break;
 	case PRU_SENSE:
 		/* stat: don't bother with a blocksize. */
-		return (0);
+		break;
 
 	/* minimal support, just implement a fake peer address */
 	case PRU_SOCKADDR:
@@ -386,8 +389,6 @@ pfkeyv2_usrreq(struct socket *so, int req, struct mbuf *m,
 
 	case PRU_RCVOOB:
 	case PRU_RCVD:
-		return (EOPNOTSUPP);
-
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
@@ -404,8 +405,10 @@ pfkeyv2_usrreq(struct socket *so, int req, struct mbuf *m,
 	}
 
  release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -793,7 +796,8 @@ pfkeyv2_get(struct tdb *tdb, void **headers, void **buffer, int *lenp)
 	void *p;
 
 	/* Find how much space we need */
-	i = sizeof(struct sadb_sa) + sizeof(struct sadb_lifetime);
+	i = sizeof(struct sadb_sa) + sizeof(struct sadb_lifetime) +
+	    sizeof(struct sadb_x_counter);
 
 	if (tdb->tdb_soft_allocations || tdb->tdb_soft_bytes ||
 	    tdb->tdb_soft_timeout || tdb->tdb_soft_first_use)
@@ -954,6 +958,9 @@ pfkeyv2_get(struct tdb *tdb, void **headers, void **buffer, int *lenp)
 		export_tap(&p, tdb);
 	}
 #endif
+
+	headers[SADB_X_EXT_COUNTER] = p;
+	export_counter(&p, tdb);
 
 	rval = 0;
 
@@ -2041,12 +2048,16 @@ ret:
 				seen |= (1LL << i);
 
 		if ((seen & sadb_exts_allowed_out[smsg->sadb_msg_type])
-		    != seen)
+		    != seen) {
+		    	rval = EPERM;
 			goto realret;
+		}
 
 		if ((seen & sadb_exts_required_out[smsg->sadb_msg_type]) !=
-		    sadb_exts_required_out[smsg->sadb_msg_type])
+		    sadb_exts_required_out[smsg->sadb_msg_type]) {
+		    	rval = EPERM;
 			goto realret;
+		}
 	}
 
 	rval = pfkeyv2_sendmessage(headers, mode, so, 0, 0, rdomain);

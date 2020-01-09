@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.49 2018/11/21 12:31:47 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.54 2019/12/12 19:52:10 kn Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -120,12 +120,14 @@ typedef struct {
 
 
 %token	INCLUDE ERROR
-%token	ADD ALLOW BOOT CDROM DISABLE DISK DOWN ENABLE FORMAT GROUP INET6
-%token	INSTANCE INTERFACE LLADDR LOCAL LOCKED MEMORY NIFS OWNER PATH PREFIX
-%token	RDOMAIN SIZE SOCKET SWITCH UP VM VMID
+%token	ADD ALLOW BOOT CDROM DEVICE DISABLE DISK DOWN ENABLE FORMAT GROUP
+%token	INET6 INSTANCE INTERFACE LLADDR LOCAL LOCKED MEMORY NET NIFS OWNER
+%token	PATH PREFIX RDOMAIN SIZE SOCKET SWITCH UP VM VMID STAGGERED START
+%token  PARALLEL DELAY
 %token	<v.number>	NUMBER
 %token	<v.string>	STRING
 %type	<v.lladdr>	lladdr
+%type	<v.number>	bootdevice
 %type	<v.number>	disable
 %type	<v.number>	image_format
 %type	<v.number>	local
@@ -215,6 +217,11 @@ main		: LOCAL INET6 {
 		| SOCKET OWNER owner_id {
 			env->vmd_ps.ps_csock.cs_uid = $3.uid;
 			env->vmd_ps.ps_csock.cs_gid = $3.gid == -1 ? 0 : $3.gid;
+		}
+		| STAGGERED START PARALLEL NUMBER DELAY NUMBER {
+			env->vmd_cfg.cfg_flags |= VMD_CFG_STAGGERED_START;
+			env->vmd_cfg.delay.tv_sec = $6;
+			env->vmd_cfg.parallelism = $4;
 		}
 		;
 
@@ -357,7 +364,8 @@ vm		: VM string vm_instance		{
 					log_debug("%s:%d: vm \"%s\""
 					    " skipped (%s)",
 					    file->name, yylval.lineno,
-					    vcp->vcp_name, vm->vm_running ?
+					    vcp->vcp_name,
+					    (vm->vm_state & VM_STATE_RUNNING) ?
 					    "running" : "already exists");
 				} else if (ret == -1) {
 					yyerror("vm \"%s\" failed: %s",
@@ -365,7 +373,9 @@ vm		: VM string vm_instance		{
 					YYERROR;
 				} else {
 					if (vcp_disable)
-						vm->vm_disabled = 1;
+						vm->vm_state |= VM_STATE_DISABLED;
+					else
+						vm->vm_state |= VM_STATE_WAITING;
 					log_debug("%s:%d: vm \"%s\" "
 					    "registered (%s)",
 					    file->name, yylval.lineno,
@@ -456,6 +466,9 @@ vm_opts		: disable			{
 			}
 			vmc.vmc_flags |= VMOP_CREATE_KERNEL;
 		}
+		| BOOT DEVICE bootdevice	{
+			vmc.vmc_bootdevice = $3;
+		}
 		| CDROM string			{
 			if (vcp->vcp_cdrom[0] != '\0') {
 				yyerror("cdrom specified more than once");
@@ -540,11 +553,7 @@ instance_flags	: BOOT		{ vmc.vmc_insflags |= VMOP_CREATE_KERNEL; }
 		}
 		;
 
-owner_id	: /* none */		{
-			$$.uid = 0;
-			$$.gid = -1;
-		}
-		| NUMBER		{
+owner_id	: NUMBER		{
 			$$.uid = $1;
 			$$.gid = -1;
 		}
@@ -703,6 +712,11 @@ disable		: ENABLE			{ $$ = 0; }
 		| DISABLE			{ $$ = 1; }
 		;
 
+bootdevice	: CDROM				{ $$ = VMBOOTDEV_CDROM; }
+		| DISK				{ $$ = VMBOOTDEV_DISK; }
+		| NET				{ $$ = VMBOOTDEV_NET; }
+		;
+
 optcomma	: ','
 		|
 		;
@@ -756,6 +770,8 @@ lookup(char *s)
 		{ "allow",		ALLOW },
 		{ "boot",		BOOT },
 		{ "cdrom",		CDROM },
+		{ "delay",		DELAY },
+		{ "device",		DEVICE },
 		{ "disable",		DISABLE },
 		{ "disk",		DISK },
 		{ "down",		DOWN },
@@ -772,11 +788,15 @@ lookup(char *s)
 		{ "local",		LOCAL },
 		{ "locked",		LOCKED },
 		{ "memory",		MEMORY },
+		{ "net",		NET },
 		{ "owner",		OWNER },
+		{ "parallel",		PARALLEL },
 		{ "prefix",		PREFIX },
 		{ "rdomain",		RDOMAIN },
 		{ "size",		SIZE },
 		{ "socket",		SOCKET },
+		{ "staggered",		STAGGERED },
+		{ "start",		START  },
 		{ "switch",		SWITCH },
 		{ "up",			UP },
 		{ "vm",			VM }
@@ -1000,7 +1020,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -1039,7 +1059,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '/') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}

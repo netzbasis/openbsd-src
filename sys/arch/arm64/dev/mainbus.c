@@ -1,4 +1,4 @@
-/* $OpenBSD: mainbus.c,v 1.11 2019/01/23 09:57:36 phessler Exp $ */
+/* $OpenBSD: mainbus.c,v 1.15 2019/10/23 09:27:43 patrick Exp $ */
 /*
  * Copyright (c) 2016 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2017 Mark Kettenis <kettenis@openbsd.org>
@@ -25,6 +25,7 @@
 #include <machine/fdt.h>
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/fdt.h>
+#include <dev/ofw/ofw_thermal.h>
 
 #include <arm64/arm64/arm64var.h>
 #include <arm64/dev/mainbus.h>
@@ -51,6 +52,7 @@ struct mainbus_softc {
 	int			*sc_ranges;
 	int			 sc_rangeslen;
 	int			 sc_early;
+	int			 sc_early_nodes[64];
 };
 
 struct cfattach mainbus_ca = {
@@ -92,13 +94,14 @@ mainbus_match(struct device *parent, void *cfdata, void *aux)
 }
 
 extern char *hw_prod;
+extern char *hw_serial;
 void agtimer_init(void);
 
 void
 mainbus_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct mainbus_softc *sc = (struct mainbus_softc *)self;
-	char model[128];
+	char prop[128];
 	int node, len;
 
 	arm_intr_init_fdt();
@@ -110,14 +113,21 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_acells = OF_getpropint(OF_peer(0), "#address-cells", 1);
 	sc->sc_scells = OF_getpropint(OF_peer(0), "#size-cells", 1);
 
-	len = OF_getprop(sc->sc_node, "model", model, sizeof(model));
+	len = OF_getprop(sc->sc_node, "model", prop, sizeof(prop));
 	if (len > 0) {
-		printf(": %s\n", model);
+		printf(": %s\n", prop);
 		hw_prod = malloc(len, M_DEVBUF, M_NOWAIT);
 		if (hw_prod)
-			strlcpy(hw_prod, model, len);
+			strlcpy(hw_prod, prop, len);
 	} else
 		printf(": unknown model\n");
+
+	len = OF_getprop(sc->sc_node, "serial-number", prop, sizeof(prop));
+	if (len > 0) {
+		hw_serial = malloc(len, M_DEVBUF, M_NOWAIT);
+		if (hw_serial)
+			strlcpy(hw_serial, prop, len);
+	}
 
 	/* Attach primary CPU first. */
 	mainbus_attach_cpus(self, mainbus_match_primary);
@@ -146,6 +156,37 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 
 	/* Attach secondary CPUs. */
 	mainbus_attach_cpus(self, mainbus_match_secondary);
+
+	thermal_init();
+}
+
+int
+mainbus_print(void *aux, const char *pnp)
+{
+	struct fdt_attach_args *fa = aux;
+	char buf[32];
+
+	if (!pnp)
+		return (QUIET);
+
+	if (OF_getprop(fa->fa_node, "status", buf, sizeof(buf)) > 0 &&
+	    strcmp(buf, "disabled") == 0)
+		return (QUIET);
+
+	if (OF_getprop(fa->fa_node, "name", buf, sizeof(buf)) > 0) {
+		buf[sizeof(buf) - 1] = 0;
+		if (strcmp(buf, "aliases") == 0 ||
+		    strcmp(buf, "chosen") == 0 ||
+		    strcmp(buf, "cpus") == 0 ||
+		    strcmp(buf, "memory") == 0)
+			return (QUIET);
+		printf("\"%s\"", buf);
+	} else
+		printf("node %u", fa->fa_node);
+
+	printf(" at %s", pnp);
+
+	return (UNCONF);
 }
 
 /*
@@ -158,6 +199,16 @@ mainbus_attach_node(struct device *self, int node, cfmatch_t submatch)
 	struct fdt_attach_args	 fa;
 	int			 i, len, line;
 	uint32_t		*cell, *reg;
+	struct device		*child;
+	cfprint_t		 print = NULL;
+
+	/* Skip if already attached early. */
+	for (i = 0; i < nitems(sc->sc_early_nodes); i++) {
+		if (sc->sc_early_nodes[i] == node)
+			return;
+		if (sc->sc_early_nodes[i] == 0)
+			break;
+	}
 
 	memset(&fa, 0, sizeof(fa));
 	fa.fa_name = "";
@@ -212,9 +263,22 @@ mainbus_attach_node(struct device *self, int node, cfmatch_t submatch)
 		fa.fa_dmat->_flags |= BUS_DMA_COHERENT;
 	}
 
+	if (submatch == NULL && sc->sc_early == 0)
+		print = mainbus_print;
 	if (submatch == NULL)
 		submatch = mainbus_match_status;
-	config_found_sm(self, &fa, NULL, submatch);
+
+	child = config_found_sm(self, &fa, print, submatch);
+
+	/* Record nodes that we attach early. */
+	if (child && sc->sc_early) {
+		for (i = 0; i < nitems(sc->sc_early_nodes); i++) {
+			if (sc->sc_early_nodes[i] != 0)
+				continue;
+			sc->sc_early_nodes[i] = node;
+			break;
+		}
+	}
 
 	free(fa.fa_reg, M_DEVBUF, fa.fa_nreg * sizeof(struct fdt_reg));
 	free(fa.fa_intr, M_DEVBUF, fa.fa_nintr * sizeof(uint32_t));
@@ -228,15 +292,13 @@ mainbus_match_status(struct device *parent, void *match, void *aux)
 	struct cfdata *cf = match;
 	char buf[32];
 
-	if (fa->fa_node == 0)
-		return 0;
-
 	if (OF_getprop(fa->fa_node, "status", buf, sizeof(buf)) > 0 &&
 	    strcmp(buf, "disabled") == 0)
 		return 0;
 
 	if (cf->cf_loc[0] == sc->sc_early)
 		return (*cf->cf_attach->ca_match)(parent, match, aux);
+
 	return 0;
 }
 
@@ -321,7 +383,6 @@ mainbus_attach_apm(struct device *self)
 	fa.fa_name = "apm";
 
 	config_found(self, &fa, NULL);
-
 }
 
 void

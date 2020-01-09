@@ -5,12 +5,12 @@
 /ashrdi3.c/1.7/Thu Oct  1 02:32:07 2015//
 /cmpdi2.c/1.5/Mon Aug  8 08:05:35 2005//
 /divdi3.c/1.6/Mon Aug  8 08:05:35 2005//
-/fixdfdi.c/1.6/Tue Dec 26 15:11:17 2017//
-/fixsfdi.c/1.7/Tue Dec 26 15:11:17 2017//
-/fixunsdfdi.c/1.8/Tue Dec 26 15:11:17 2017//
-/fixunssfdi.c/1.6/Tue Dec 26 15:11:17 2017//
-/floatdidf.c/1.7/Tue Dec 26 15:11:17 2017//
-/floatdisf.c/1.7/Tue Dec 26 15:11:17 2017//
+/fixdfdi.c/1.7/Sun Nov 10 22:23:28 2019//
+/fixsfdi.c/1.8/Sun Nov 10 22:23:28 2019//
+/fixunsdfdi.c/1.9/Sun Nov 10 22:23:28 2019//
+/fixunssfdi.c/1.7/Sun Nov 10 22:23:28 2019//
+/floatdidf.c/1.8/Sun Nov 10 22:23:28 2019//
+/floatdisf.c/1.8/Sun Nov 10 22:23:28 2019//
 /floatunsdidf.c/1.6/Mon Aug  8 08:05:35 2005//
 /iordi3.c/1.5/Mon Aug  8 08:05:35 2005//
 /lshldi3.c/1.6/Mon Aug  8 08:05:35 2005//
@@ -20,7 +20,7 @@
 /negdi2.c/1.5/Mon Aug  8 08:05:35 2005//
 /notdi2.c/1.5/Mon Aug  8 08:05:35 2005//
 /qdivrem.c/1.8/Sat Jun  7 15:28:21 2014//
-/quad.h/1.8/Tue Jun 10 04:17:37 2014//
+/quad.h/1.9/Sun Nov 10 22:23:28 2019//
 /subdi3.c/1.6/Mon Aug  8 08:05:35 2005//
 /ucmpdi2.c/1.5/Mon Aug  8 08:05:35 2005//
 /udivdi3.c/1.5/Mon Aug  8 08:05:35 2005//

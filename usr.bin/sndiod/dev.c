@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.47 2018/06/26 07:49:44 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.62 2019/09/21 04:42:46 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -57,7 +57,10 @@ int dev_getpos(struct dev *);
 struct dev *dev_new(char *, struct aparams *, unsigned int, unsigned int,
     unsigned int, unsigned int, unsigned int, unsigned int);
 void dev_adjpar(struct dev *, int, int, int);
+int dev_allocbufs(struct dev *);
 int dev_open(struct dev *);
+void dev_exitall(struct dev *);
+void dev_freebufs(struct dev *);
 void dev_close(struct dev *);
 int dev_ref(struct dev *);
 void dev_unref(struct dev *);
@@ -79,6 +82,7 @@ void slot_attach(struct slot *);
 void slot_ready(struct slot *);
 void slot_allocbufs(struct slot *);
 void slot_freebufs(struct slot *);
+void slot_initconv(struct slot *);
 void slot_start(struct slot *);
 void slot_detach(struct slot *);
 void slot_stop(struct slot *);
@@ -473,8 +477,7 @@ dev_midi_omsg(void *arg, unsigned char *msg, int len)
 			    (x->u.loc.hr & 0x1f) * 3600 * MTC_SEC +
 			     x->u.loc.min * 60 * MTC_SEC +
 			     x->u.loc.sec * MTC_SEC +
-			     x->u.loc.fr * (MTC_SEC / fps) +
-			     x->u.loc.cent * (MTC_SEC / 100 / fps));
+			     x->u.loc.fr * (MTC_SEC / fps));
 			break;
 		}
 		break;
@@ -966,7 +969,8 @@ dev_new(char *path, struct aparams *par,
 		return NULL;
 	}
 	d = xmalloc(sizeof(struct dev));
-	d->path = xstrdup(path);
+	d->path_list = NULL;
+	namelist_add(&d->path_list, path);
 	d->num = dev_sndnum++;
 	d->opt_list = NULL;
 
@@ -1029,28 +1033,8 @@ dev_adjpar(struct dev *d, int mode,
  * monitor, midi control, and any necessary conversions.
  */
 int
-dev_open(struct dev *d)
+dev_allocbufs(struct dev *d)
 {
-	d->mode = d->reqmode;
-	d->round = d->reqround;
-	d->bufsz = d->reqbufsz;
-	d->rate = d->reqrate;
-	d->pchan = d->reqpchan;
-	d->rchan = d->reqrchan;
-	d->par = d->reqpar;
-	if (d->pchan == 0)
-		d->pchan = 2;
-	if (d->rchan == 0)
-		d->rchan = 2;
-	if (!dev_sio_open(d)) {
-		if (log_level >= 1) {
-			dev_log(d);
-			log_puts(": ");
-			log_puts(d->path);
-			log_puts(": failed to open audio device\n");
-		}
-		return 0;
-	}
 	if (d->mode & MODE_REC) {
 		/*
 		 * Create device <-> demuxer buffer
@@ -1084,7 +1068,6 @@ dev_open(struct dev *d)
 		} else
 			d->encbuf = NULL;
 	}
-	d->pstate = DEV_INIT;
 	if (log_level >= 2) {
 		dev_log(d);
 		log_puts(": ");
@@ -1109,29 +1092,65 @@ dev_open(struct dev *d)
 }
 
 /*
- * force the device to go in DEV_CFG state, the caller is supposed to
- * ensure buffers are drained
+ * Reset parameters and open the device.
+ */
+int
+dev_open(struct dev *d)
+{
+	d->mode = d->reqmode;
+	d->round = d->reqround;
+	d->bufsz = d->reqbufsz;
+	d->rate = d->reqrate;
+	d->pchan = d->reqpchan;
+	d->rchan = d->reqrchan;
+	d->par = d->reqpar;
+	if (d->pchan == 0)
+		d->pchan = 2;
+	if (d->rchan == 0)
+		d->rchan = 2;
+	if (!dev_sio_open(d)) {
+		if (log_level >= 1) {
+			dev_log(d);
+			log_puts(": failed to open audio device\n");
+		}
+		return 0;
+	}
+	if (!dev_allocbufs(d))
+		return 0;
+	d->pstate = DEV_INIT;
+	return 1;
+}
+
+/*
+ * Force all slots to exit
  */
 void
-dev_close(struct dev *d)
+dev_exitall(struct dev *d)
 {
 	int i;
 	struct slot *s;
 
-#ifdef DEBUG
-	if (log_level >= 3) {
-		dev_log(d);
-		log_puts(": closing\n");
-	}
-#endif
-	d->pstate = DEV_CFG;
 	for (s = d->slot, i = DEV_NSLOT; i > 0; i--, s++) {
 		if (s->ops)
 			s->ops->exit(s->arg);
 		s->ops = NULL;
 	}
 	d->slot_list = NULL;
-	dev_sio_close(d);
+}
+
+/*
+ * force the device to go in DEV_CFG state, the caller is supposed to
+ * ensure buffers are drained
+ */
+void
+dev_freebufs(struct dev *d)
+{
+#ifdef DEBUG
+	if (log_level >= 3) {
+		dev_log(d);
+		log_puts(": closing\n");
+	}
+#endif
 	if (d->mode & MODE_PLAY) {
 		if (d->encbuf != NULL)
 			xfree(d->encbuf);
@@ -1142,6 +1161,86 @@ dev_close(struct dev *d)
 			xfree(d->decbuf);
 		xfree(d->rbuf);
 	}
+}
+
+/*
+ * Close the device and exit all slots
+ */
+void
+dev_close(struct dev *d)
+{
+	dev_exitall(d);
+	d->pstate = DEV_CFG;
+	dev_sio_close(d);
+	dev_freebufs(d);
+}
+
+/*
+ * Close the device, but attempt to migrate everything to a new sndio
+ * device.
+ */
+int
+dev_reopen(struct dev *d)
+{
+	struct slot *s;
+	long long pos;
+	unsigned int pstate;
+	int delta;
+
+	/* not opened */
+	if (d->pstate == DEV_CFG)
+		return 1;
+
+	/* save state */
+	delta = d->delta;
+	pstate = d->pstate;
+
+	if (!dev_sio_reopen(d))
+		return 0;
+
+	/* reopen returns a stopped device */
+	d->pstate = DEV_INIT;
+
+	/* reallocate new buffers, with new parameters */
+	dev_freebufs(d);
+	dev_allocbufs(d);
+
+	/*
+	 * adjust time positions, make anything go back delta ticks, so
+	 * that the new device can start at zero
+	 */
+	for (s = d->slot_list; s != NULL; s = s->next) {
+		pos = (long long)s->delta * d->round + s->delta_rem;
+		pos -= (long long)delta * s->round;
+		s->delta_rem = pos % (int)d->round;
+		s->delta = pos / (int)d->round;
+		if (log_level >= 3) {
+			slot_log(s);
+			log_puts(": adjusted: delta -> ");
+			log_puti(s->delta);
+			log_puts(", delta_rem -> ");
+			log_puti(s->delta_rem);
+			log_puts("\n");
+		}
+
+		/* reinitilize the format conversion chain */
+		slot_initconv(s);
+	}
+	if (d->tstate == MMC_RUN) {
+		d->mtc.delta -= delta * MTC_SEC;
+		if (log_level >= 2) {
+			dev_log(d);
+			log_puts(": adjusted mtc: delta ->");
+			log_puti(d->mtc.delta);
+			log_puts("\n");
+		}
+	}
+
+	/* start the device if needed */
+	if (pstate == DEV_RUN)
+		dev_wakeup(d);
+
+	return 1;
 }
 
 int
@@ -1250,7 +1349,7 @@ dev_del(struct dev *d)
 	}
 	midi_del(d->midi);
 	*p = d->next;
-	xfree(d->path);
+	namelist_clear(&d->path_list);
 	xfree(d);
 }
 
@@ -1396,31 +1495,15 @@ dev_mmcloc(struct dev *d, unsigned int origin)
 		dev_mmcstart(d);
 }
 
-
 /*
  * allocate buffers & conversion chain
  */
 void
-slot_allocbufs(struct slot *s)
+slot_initconv(struct slot *s)
 {
-	unsigned int dev_nch;
 	struct dev *d = s->dev;
 
 	if (s->mode & MODE_PLAY) {
-		s->mix.bpf = s->par.bps * s->mix.nch;
-		abuf_init(&s->mix.buf, s->appbufsz * s->mix.bpf);
-
-		dev_nch = s->opt->pmax - s->opt->pmin + 1;
-		s->mix.decbuf = NULL;
-		s->mix.resampbuf = NULL;
-		s->mix.join = 1;
-		s->mix.expand = 1;
-		if (s->opt->dup) {
-			if (dev_nch > s->mix.nch)
-				s->mix.expand = dev_nch / s->mix.nch;
-			else if (dev_nch < s->mix.nch)
-				s->mix.join = s->mix.nch / dev_nch;
-		}
 		cmap_init(&s->mix.cmap,
 		    s->opt->pmin, s->opt->pmin + s->mix.nch - 1,
 		    s->opt->pmin, s->opt->pmin + s->mix.nch - 1,
@@ -1428,32 +1511,22 @@ slot_allocbufs(struct slot *s)
 		    s->opt->pmin, s->opt->pmax);
 		if (!aparams_native(&s->par)) {
 			dec_init(&s->mix.dec, &s->par, s->mix.nch);
-			s->mix.decbuf =
-			    xmalloc(s->round * s->mix.nch * sizeof(adata_t));
 		}
 		if (s->rate != d->rate) {
 			resamp_init(&s->mix.resamp, s->round, d->round,
 			    s->mix.nch);
-			s->mix.resampbuf =
-			    xmalloc(d->round * s->mix.nch * sizeof(adata_t));
+		}
+		s->mix.join = 1;
+		s->mix.expand = 1;
+		if (s->opt->dup) {
+			if (s->mix.cmap.nch > s->mix.nch)
+				s->mix.expand = s->mix.cmap.nch / s->mix.nch;
+			else if (s->mix.cmap.nch > 0)
+				s->mix.join = s->mix.nch / s->mix.cmap.nch;
 		}
 	}
 
 	if (s->mode & MODE_RECMASK) {
-		s->sub.bpf = s->par.bps * s->sub.nch;
-		abuf_init(&s->sub.buf, s->appbufsz * s->sub.bpf);
-
-		dev_nch = s->opt->rmax - s->opt->rmin + 1;
-		s->sub.encbuf = NULL;
-		s->sub.resampbuf = NULL;
-		s->sub.join = 1;
-		s->sub.expand = 1;
-		if (s->opt->dup) {
-			if (dev_nch > s->sub.nch)
-				s->sub.join = dev_nch / s->sub.nch;
-			else if (dev_nch < s->sub.nch)
-				s->sub.expand = s->sub.nch / dev_nch;
-		}
 		cmap_init(&s->sub.cmap,
 		    0, ((s->mode & MODE_MON) ? d->pchan : d->rchan) - 1,
 		    s->opt->rmin, s->opt->rmax,
@@ -1462,13 +1535,17 @@ slot_allocbufs(struct slot *s)
 		if (s->rate != d->rate) {
 			resamp_init(&s->sub.resamp, d->round, s->round,
 			    s->sub.nch);
-			s->sub.resampbuf =
-			    xmalloc(d->round * s->sub.nch * sizeof(adata_t));
 		}
 		if (!aparams_native(&s->par)) {
 			enc_init(&s->sub.enc, &s->par, s->sub.nch);
-			s->sub.encbuf =
-			    xmalloc(s->round * s->sub.nch * sizeof(adata_t));
+		}
+		s->sub.join = 1;
+		s->sub.expand = 1;
+		if (s->opt->dup) {
+			if (s->sub.cmap.nch > s->sub.nch)
+				s->sub.join = s->sub.cmap.nch / s->sub.nch;
+			else if (s->sub.cmap.nch > 0)
+				s->sub.expand = s->sub.nch / s->sub.cmap.nch;
 		}
 
 		/*
@@ -1488,6 +1565,49 @@ slot_allocbufs(struct slot *s)
 			    s->appbufsz * s->sub.nch * sizeof(adata_t));
 		}
 	}
+}
+
+/*
+ * allocate buffers & conversion chain
+ */
+void
+slot_allocbufs(struct slot *s)
+{
+	struct dev *d = s->dev;
+
+	if (s->mode & MODE_PLAY) {
+		s->mix.bpf = s->par.bps * s->mix.nch;
+		abuf_init(&s->mix.buf, s->appbufsz * s->mix.bpf);
+
+		s->mix.decbuf = NULL;
+		s->mix.resampbuf = NULL;
+		if (!aparams_native(&s->par)) {
+			s->mix.decbuf =
+			    xmalloc(s->round * s->mix.nch * sizeof(adata_t));
+		}
+		if (s->rate != d->rate) {
+			s->mix.resampbuf =
+			    xmalloc(d->round * s->mix.nch * sizeof(adata_t));
+		}
+	}
+
+	if (s->mode & MODE_RECMASK) {
+		s->sub.bpf = s->par.bps * s->sub.nch;
+		abuf_init(&s->sub.buf, s->appbufsz * s->sub.bpf);
+
+		s->sub.encbuf = NULL;
+		s->sub.resampbuf = NULL;
+		if (s->rate != d->rate) {
+			s->sub.resampbuf =
+			    xmalloc(d->round * s->sub.nch * sizeof(adata_t));
+		}
+		if (!aparams_native(&s->par)) {
+			s->sub.encbuf =
+			    xmalloc(s->round * s->sub.nch * sizeof(adata_t));
+		}
+	}
+
+	slot_initconv(s);
 
 #ifdef DEBUG
 	if (log_level >= 3) {
@@ -1528,13 +1648,13 @@ slot_freebufs(struct slot *s)
  * allocate a new slot and register the given call-backs
  */
 struct slot *
-slot_new(struct dev *d, struct opt *opt, char *who,
+slot_new(struct dev *d, struct opt *opt, unsigned int id, char *who,
     struct slotops *ops, void *arg, int mode)
 {
 	char *p;
 	char name[SLOT_NAMEMAX];
-	unsigned int i, unit, umap = 0;
-	unsigned int ser, bestser, bestidx;
+	unsigned int i, ser, bestser, bestidx;
+	struct slot *unit[DEV_NSLOT];
 	struct slot *s;
 
 	/*
@@ -1553,33 +1673,32 @@ slot_new(struct dev *d, struct opt *opt, char *who,
 		strlcpy(name, "noname", SLOT_NAMEMAX);
 
 	/*
-	 * find the first unused "unit" number for this name
+	 * build a unit-to-slot map for this name
 	 */
-	for (i = 0, s = d->slot; i < DEV_NSLOT; i++, s++) {
-		if (s->ops == NULL)
-			continue;
+	for (i = 0; i < DEV_NSLOT; i++)
+		unit[i] = NULL;
+	for (i = 0; i < DEV_NSLOT; i++) {
+		s = d->slot + i;
 		if (strcmp(s->name, name) == 0)
-			umap |= (1 << s->unit);
-	}
-	for (unit = 0; ; unit++) {
-		if ((umap & (1 << unit)) == 0)
-			break;
+			unit[s->unit] = s;
 	}
 
 	/*
-	 * find a free controller slot with the same name/unit
+	 * find the free slot with the least unit number and same id
 	 */
-	for (i = 0, s = d->slot; i < DEV_NSLOT; i++, s++) {
-		if (s->ops == NULL &&
-		    strcmp(s->name, name) == 0 &&
-		    s->unit == unit) {
-#ifdef DEBUG
-			if (log_level >= 3) {
-				log_puts(name);
-				log_putu(unit);
-				log_puts(": reused\n");
-			}
-#endif
+	for (i = 0; i < DEV_NSLOT; i++) {
+		s = unit[i];
+		if (s != NULL && s->ops == NULL && s->id == id)
+			goto found;
+	}
+
+	/*
+	 * find the free slot with the least unit number
+	 */
+	for (i = 0; i < DEV_NSLOT; i++) {
+		s = unit[i];
+		if (s != NULL && s->ops == NULL) {
+			s->id = id;
 			goto found;
 		}
 	}
@@ -1599,29 +1718,23 @@ slot_new(struct dev *d, struct opt *opt, char *who,
 			bestidx = i;
 		}
 	}
-	if (bestidx == DEV_NSLOT) {
-		if (log_level >= 1) {
-			log_puts(name);
-			log_putu(unit);
-			log_puts(": out of sub-device slots\n");
-		}
-		return NULL;
-	}
-	s = d->slot + bestidx;
-	if (s->name[0] != '\0')
+	if (bestidx != DEV_NSLOT) {
+		s = d->slot + bestidx;
 		s->vol = MIDI_MAXCTL;
-	strlcpy(s->name, name, SLOT_NAMEMAX);
-	s->serial = d->serial++;
-	s->unit = unit;
-#ifdef DEBUG
-	if (log_level >= 3) {
-		log_puts(name);
-		log_putu(unit);
-		log_puts(": overwritten slot ");
-		log_putu(bestidx);
-		log_puts("\n");
+		strlcpy(s->name, name, SLOT_NAMEMAX);
+		s->serial = d->serial++;
+		for (i = 0; unit[i] != NULL; i++)
+			; /* nothing */
+		s->unit = i;
+		s->id = id;
+		goto found;
 	}
-#endif
+
+	if (log_level >= 1) {
+		log_puts(name);
+		log_puts(": out of sub-device slots\n");
+	}
+	return NULL;
 
 found:
 	if ((mode & MODE_REC) && (opt->mode & MODE_MON)) {
@@ -1643,7 +1756,7 @@ found:
 			log_puts(": requested mode not supported\n");
 		}
 		dev_unref(d);
-		return 0;
+		return NULL;
 	}
 	s->dev = d;
 	s->opt = opt;

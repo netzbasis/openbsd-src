@@ -16,7 +16,6 @@
 #include "less.h"
 
 int tty;
-extern volatile sig_atomic_t sigs;
 extern int utf_mode;
 
 /*
@@ -32,7 +31,7 @@ open_getchr(void)
 	 * but also usually lets you read from the keyboard.
 	 */
 	tty = open("/dev/tty", O_RDONLY);
-	if (tty < 0)
+	if (tty == -1)
 		tty = STDERR_FILENO;
 }
 

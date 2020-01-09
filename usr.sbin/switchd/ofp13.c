@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp13.c,v 1.44 2018/09/09 14:21:32 akoshibe Exp $	*/
+/*	$OpenBSD: ofp13.c,v 1.47 2019/11/27 17:37:32 akoshibe Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -780,7 +780,7 @@ ofp13_validate_action(struct switchd *sc, struct ofp_header *oh,
 		    print_map(type, ofp_action_map), len, ant->ant_ttl);
 		break;
 	case OFP_ACTION_SET_FIELD:
-		if (len < sizeof(*asf))
+		if (len < sizeof(*asf) || len != OFP_ALIGN(len))
 			return (-1);
 		if ((asf = ibuf_seek(ibuf, *off, sizeof(*asf))) == NULL)
 			return (-1);
@@ -791,16 +791,14 @@ ofp13_validate_action(struct switchd *sc, struct ofp_header *oh,
 		    print_map(type, ofp_action_map), len);
 
 		len -= sizeof(*asf) - sizeof(asf->asf_field);
-		while (len > 0) {
-			if ((oxm = ibuf_seek(ibuf, moff, sizeof(*oxm)))
-			    == NULL)
-				return (-1);
-			if (ofp13_validate_oxm(sc, oxm, oh, ibuf, moff) == -1)
-				return (-1);
+		if ((oxm = ibuf_seek(ibuf, moff, sizeof(*oxm))) == NULL)
+			return (-1);
+		if (ofp13_validate_oxm(sc, oxm, oh, ibuf, moff) == -1)
+			return (-1);
 
-			len -= sizeof(*oxm) + oxm->oxm_length;
-			moff += sizeof(*oxm) + oxm->oxm_length;
-		}
+		len -= sizeof(*oxm) + oxm->oxm_length;
+		if (len >= OFP_ALIGNMENT)
+			return (-1);
 		break;
 
 	default:
@@ -1029,7 +1027,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 	if (pin->pin_reason != OFP_PKTIN_REASON_NO_MATCH)
 		return (-1);
 
-	bzero(&pkt, sizeof(pkt));
+	memset(&pkt, 0, sizeof(pkt));
 	len = ntohs(pin->pin_total_len);
 
 	/* very basic way of getting the source port */
@@ -1070,8 +1068,12 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 	if (ibuf_getdata(ibuf, off) == NULL)
 		return (-1);
 
+	if (packet_ether_input(ibuf, len, &pkt) == -1 &&
+	    pin->pin_buffer_id == htonl(OFP_PKTOUT_NO_BUFFER))
+		return(-1);
+
 	if (packet_input(sc, con->con_switch,
-	    srcport, &dstport, ibuf, len, &pkt) == -1 ||
+	    srcport, &dstport, &pkt) == -1 ||
 	    (dstport > OFP_PORT_MAX &&
 	    dstport != OFP_PORT_LOCAL &&
 	    dstport != OFP_PORT_CONTROLLER)) {
@@ -2145,8 +2147,7 @@ ofp13_setconfig(struct switchd *sc, struct switch_connection *con,
  */
 struct ofp_flow_mod *
 ofp13_flowmod(struct switch_connection *con, struct ibuf *ibuf,
-    uint8_t cmd, uint8_t table, uint16_t idleto, uint16_t hardto,
-    uint16_t prio)
+    uint8_t cmd)
 {
 	struct ofp_flow_mod		*fm;
 

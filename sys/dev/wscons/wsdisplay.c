@@ -1,4 +1,4 @@
-/* $OpenBSD: wsdisplay.c,v 1.131 2018/02/19 08:59:52 mpi Exp $ */
+/* $OpenBSD: wsdisplay.c,v 1.135 2019/10/13 19:49:21 fcambus Exp $ */
 /* $NetBSD: wsdisplay.c,v 1.82 2005/02/27 00:27:52 perry Exp $ */
 
 /*
@@ -162,9 +162,9 @@ struct wsdisplay_softc {
 
 #ifdef HAVE_BURNER_SUPPORT
 	struct timeout sc_burner;
-	int	sc_burnoutintvl;	/* delay before blanking */
-	int	sc_burninintvl;		/* delay before unblanking */
-	int	sc_burnout;		/* current sc_burner delay */
+	int	sc_burnoutintvl;	/* delay before blanking (ms) */
+	int	sc_burninintvl;		/* delay before unblanking (ms) */
+	int	sc_burnout;		/* current sc_burner delay (ms) */
 	int	sc_burnman;		/* nonzero if screen blanked */
 	int	sc_burnflags;
 #endif
@@ -244,6 +244,14 @@ struct consdev wsdisplay_cons = {
 	NULL, NULL, wsdisplay_getc_dummy, wsdisplay_cnputc,
 	    wsdisplay_pollc, NULL, NODEV, CN_LOWPRI
 };
+
+/*
+ * Function pointers for wsconsctl parameter handling.
+ * These are used for firmware-provided display brightness control.
+ */
+int	(*ws_get_param)(struct wsdisplay_param *);
+int	(*ws_set_param)(struct wsdisplay_param *);
+
 
 #ifndef WSDISPLAY_DEFAULTSCREENS
 #define WSDISPLAY_DEFAULTSCREENS	1
@@ -529,7 +537,18 @@ wsdisplay_emul_match(struct device *parent, void *match, void *aux)
 			return (0);
 	}
 
-	/* If console-ness unspecified, it wins. */
+	if (cf->wsemuldisplaydevcf_primary != WSEMULDISPLAYDEVCF_PRIMARY_UNK) {
+		/*
+		 * If primary-ness of device specified, either match
+		 * exactly (at high priority), or fail.
+		 */
+		if (cf->wsemuldisplaydevcf_primary != 0 && ap->primary != 0)
+			return (10);
+		else
+			return (0);
+	}
+
+	/* If console-ness and primary-ness unspecified, it wins. */
 	return (1);
 }
 
@@ -755,8 +774,8 @@ wsdisplay_common_attach(struct wsdisplay_softc *sc, int console, int kbdmux,
 		wsdisplay_addscreen_print(sc, start, i-start);
 
 #ifdef HAVE_BURNER_SUPPORT
-	sc->sc_burnoutintvl = (hz * WSDISPLAY_DEFBURNOUT) / 1000;
-	sc->sc_burninintvl = (hz * WSDISPLAY_DEFBURNIN) / 1000;
+	sc->sc_burnoutintvl = WSDISPLAY_DEFBURNOUT_MSEC;
+	sc->sc_burninintvl = WSDISPLAY_DEFBURNIN_MSEC;
 	sc->sc_burnflags = WSDISPLAY_BURN_OUTPUT | WSDISPLAY_BURN_KBD |
 	    WSDISPLAY_BURN_MOUSE;
 	timeout_set(&sc->sc_burner, wsdisplay_burner, sc);
@@ -1185,8 +1204,8 @@ wsdisplay_internal_ioctl(struct wsdisplay_softc *sc, struct wsscreen *scr,
 
 	case WSDISPLAYIO_GBURNER:
 #define d ((struct wsdisplay_burner *)data)
-		d->on  = sc->sc_burninintvl  * 1000 / hz;
-		d->off = sc->sc_burnoutintvl * 1000 / hz;
+		d->on  = sc->sc_burninintvl;
+		d->off = sc->sc_burnoutintvl;
 		d->flags = sc->sc_burnflags;
 		return (0);
 
@@ -1212,7 +1231,7 @@ wsdisplay_internal_ioctl(struct wsdisplay_softc *sc, struct wsscreen *scr,
 			active = scr;
 
 		if (d->on) {
-			sc->sc_burninintvl = hz * d->on / 1000;
+			sc->sc_burninintvl = d->on;
 			if (sc->sc_burnman) {
 				sc->sc_burnout = sc->sc_burninintvl;
 				/* reinit timeout if changed */
@@ -1221,7 +1240,7 @@ wsdisplay_internal_ioctl(struct wsdisplay_softc *sc, struct wsscreen *scr,
 			}
 		}
 		if (d->off) {
-			sc->sc_burnoutintvl = hz * d->off / 1000;
+			sc->sc_burnoutintvl = d->off;
 			if (!sc->sc_burnman) {
 				sc->sc_burnout = sc->sc_burnoutintvl;
 				/* reinit timeout if changed */
@@ -1819,7 +1838,8 @@ wsdisplay_switch(struct device *dev, int no, int waitok)
 	s = spltty();
 
 	while (sc->sc_resumescreen != WSDISPLAY_NULLSCREEN && res == 0)
-		res = tsleep(&sc->sc_resumescreen, PCATCH, "wsrestore", 0);
+		res = tsleep_nsec(&sc->sc_resumescreen, PCATCH, "wsrestore",
+		    INFSLP);
 	if (res) {
 		splx(s);
 		return (res);
@@ -1969,7 +1989,7 @@ wsscreen_switchwait(struct wsdisplay_softc *sc, int no)
 	if (no == WSDISPLAY_NULLSCREEN) {
 		s = spltty();
 		while (sc->sc_focus && res == 0) {
-			res = tsleep(sc, PCATCH, "wswait", 0);
+			res = tsleep_nsec(sc, PCATCH, "wswait", INFSLP);
 		}
 		splx(s);
 		return (res);
@@ -1984,7 +2004,7 @@ wsscreen_switchwait(struct wsdisplay_softc *sc, int no)
 	s = spltty();
 	if (scr != sc->sc_focus) {
 		scr->scr_flags |= SCR_WAITACTIVE;
-		res = tsleep(scr, PCATCH, "wswait2", 0);
+		res = tsleep_nsec(scr, PCATCH, "wswait2", INFSLP);
 		if (scr != sc->sc_scr[no])
 			res = ENXIO; /* disappeared in the meantime */
 		else
@@ -2321,7 +2341,7 @@ wsdisplay_burn(void *v, u_int flags)
 	    WSDISPLAY_BURN_KBD | WSDISPLAY_BURN_MOUSE)) &&
 	    sc->sc_accessops->burn_screen) {
 		if (sc->sc_burnout)
-			timeout_add(&sc->sc_burner, sc->sc_burnout);
+			timeout_add_msec(&sc->sc_burner, sc->sc_burnout);
 		if (sc->sc_burnman)
 			sc->sc_burnout = 0;
 	}
@@ -2339,7 +2359,7 @@ wsdisplay_burner(void *v)
 		s = spltty();
 		if (sc->sc_burnman) {
 			sc->sc_burnout = sc->sc_burnoutintvl;
-			timeout_add(&sc->sc_burner, sc->sc_burnout);
+			timeout_add_msec(&sc->sc_burner, sc->sc_burnout);
 		} else
 			sc->sc_burnout = sc->sc_burninintvl;
 		sc->sc_burnman = !sc->sc_burnman;

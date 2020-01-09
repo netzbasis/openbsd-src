@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.43 2017/07/19 22:23:54 kettenis Exp $	*/
+/*	$OpenBSD: midi.c,v 1.45 2019/12/31 13:48:31 visa Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Alexandre Ratchov
@@ -66,15 +66,21 @@ struct cfdriver midi_cd = {
 void filt_midiwdetach(struct knote *);
 int filt_midiwrite(struct knote *, long);
 
-struct filterops midiwrite_filtops = {
-	1, NULL, filt_midiwdetach, filt_midiwrite
+const struct filterops midiwrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_midiwdetach,
+	.f_event	= filt_midiwrite,
 };
 
 void filt_midirdetach(struct knote *);
 int filt_midiread(struct knote *, long);
 
-struct filterops midiread_filtops = {
-	1, NULL, filt_midirdetach, filt_midiread
+const struct filterops midiread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_midirdetach,
+	.f_event	= filt_midiread,
 };
 
 void
@@ -126,7 +132,8 @@ midiread(dev_t dev, struct uio *uio, int ioflag)
 			goto done_mtx;
 		}
 		sc->rchan = 1;
-		error = msleep(&sc->rchan, &audio_lock, PWAIT | PCATCH, "mid_rd", 0);
+		error = msleep_nsec(&sc->rchan, &audio_lock, PWAIT | PCATCH,
+		    "mid_rd", INFSLP);
 		if (!(sc->dev.dv_flags & DVF_ACTIVE))
 			error = EIO;
 		if (error)
@@ -270,8 +277,8 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 				goto done_mtx;
 			}
 			sc->wchan = 1;
-			error = msleep(&sc->wchan, &audio_lock,
-			    PWAIT | PCATCH, "mid_wr", 0);
+			error = msleep_nsec(&sc->wchan, &audio_lock,
+			    PWAIT | PCATCH, "mid_wr", INFSLP);
 			if (!(sc->dev.dv_flags & DVF_ACTIVE))
 				error = EIO;
 			if (error)
@@ -476,8 +483,8 @@ midiclose(dev_t dev, int fflag, int devtype, struct proc *p)
 		midi_out_start(sc);
 	while (sc->isbusy) {
 		sc->wchan = 1;
-		error = msleep(&sc->wchan, &audio_lock,
-		    PWAIT, "mid_dr", 5 * hz);
+		error = msleep_nsec(&sc->wchan, &audio_lock,
+		    PWAIT, "mid_dr", SEC_TO_NSEC(5));
 		if (!(sc->dev.dv_flags & DVF_ACTIVE))
 			error = EIO;
 		if (error)
@@ -492,7 +499,7 @@ midiclose(dev_t dev, int fflag, int devtype, struct proc *p)
 	 * sleep 20ms (around 64 bytes) to give the time to the
 	 * uart to drain its internal buffers.
 	 */
-	tsleep(&sc->wchan, PWAIT, "mid_cl", hz * MIDI_MAXWRITE / MIDI_RATE);
+	tsleep_nsec(&sc->wchan, PWAIT, "mid_cl", MSEC_TO_NSEC(20));
 	sc->hw_if->close(sc->hw_hdl);
 	sc->flags = 0;
 	device_unref(&sc->dev);

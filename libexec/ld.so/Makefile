@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.73 2018/08/29 15:56:46 robert Exp $
+#	$OpenBSD: Makefile,v 1.80 2019/12/02 17:19:25 deraadt Exp $
 
 SUBDIR=ldconfig ldd
 MAN=	ld.so.1
@@ -16,13 +16,19 @@ ELF_LDFLAGS+=--version-script=${VERSION_SCRIPT}
 
 VPATH=${.CURDIR}/../../lib/libc/string
 
-SRCS=	ldasm.S boot.c loader.c resolve.c dlfcn.c dl_printf.c rtld_machine.c
+.if exists(${.CURDIR}/${MACHINE_CPU}/boot_md.c)
+BOOT = boot_md.c
+.else
+BOOT = boot.c
+.endif
+
+SRCS=	ldasm.S ${BOOT} loader.c resolve.c dlfcn.c dl_printf.c rtld_machine.c
 SRCS+=	path.c util.c sod.c strsep.c strtol.c dir.c library_subr.c
-SRCS+=	dl_realpath.c dl_uname.c dl_dirname.c strlcat.c strlen.c trace.c
+SRCS+=	dl_uname.c dl_dirname.c strlcat.c strlen.c trace.c
 SRCS+=	malloc.c reallocarray.c tib.c ffs.c
 
-syscall=__syscall close exit fstat __getcwd getdents getentropy getthrid \
-	issetugid mprotect munmap open pledge read readlink sendsyslog \
+syscall=__syscall close exit fstat getdents getentropy getthrid issetugid \
+	mprotect munmap msyscall open pledge read __realpath sendsyslog \
 	__set_tcb sysctl thrkill utrace write
 
 GEN_PREFIX=\t.file "${@:R}.c"\n\#include "SYS.h"
@@ -43,6 +49,11 @@ SRCS+=	library.c
 .include "${.CURDIR}/${MACHINE_CPU}/Makefile.inc"
 .PATH:	${.CURDIR}/${MACHINE_CPU}
 
+.ifdef LD_SCRIPT
+ ELF_LDFLAGS+=-T ${LD_SCRIPT}
+ CFLAGS	+= -DDO_CLEAN_BOOT
+.endif
+
 DEBUG?=	-g
 CFLAGS += -fno-builtin
 CFLAGS += -Wall -Werror
@@ -54,24 +65,34 @@ INSTALL_STRIP=
 
 ELF_LDFLAGS+=--shared -Bsymbolic --no-undefined
 
+.ifdef	RELATIVE_RELOC
+CHECK_LDSO=c() {					\
+	! readelf -Wr $$1 |				\
+	  egrep -qv '^($$|[ R])| (${RELATIVE_RELOC}) ';	\
+	}; c
+.endif
+
 test_prog=	test-$(PROG)
 CLEANFILES+=	test-$(PROG)
 candidate=	$(PROG).test
 CLEANFILES+=	${candidate}
 
 $(test_prog):
-	printf '#include <stdio.h>\nint main(int argc, char **argv){ printf("%%s: ", argv[0]); printf("%%s!\\n", argv[1] ? argv[1] : "foo"); }\n' | \
-	$(CC) -P -x c - -Wl,-dynamic-linker,./$(candidate) -o $@
+	printf '#include <stdio.h>\n#include <pthread.h>\nint main(int argc, char **argv){ pthread_attr_t attr; printf("%%s: ", argv[0]); pthread_attr_init(&attr); printf("%%s!\\n", argv[1] ? argv[1] : "foo"); }\n' | \
+	$(CC) -P -x c - -Wl,-dynamic-linker,./$(candidate) -o $@ -lpthread
 
-$(PROG): $(test_prog) ${VERSION_SCRIPT} $(OBJS)
+$(PROG): $(test_prog) ${VERSION_SCRIPT} $(OBJS) ${LD_SCRIPT}
 .if defined(SYSPATCH_PATH)
-	$(LD) ${DEBUG} -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
+	$(LD) -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
             `readelf -Ws ${SYSPATCH_PATH}/usr/libexec/${.TARGET} | \
             awk '/ FILE/{sub(".*/", "", $$NF); gsub(/\..*/, ".o", $$NF); print $$NF}' | \
             awk '!x[$$0]++'`
 .else
-	$(LD) ${DEBUG} -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
+	$(LD) -e _dl_start $(ELF_LDFLAGS) -o $(candidate) \
 	    `echo ${OBJS} | tr " " "\n" | sort -R`
+.endif
+.ifdef	CHECK_LDSO
+	${CHECK_LDSO} $(candidate)
 .endif
 .ifndef CROSSDIR
 	ulimit -c 0; [ "`${.OBJDIR}/$(test_prog) ok`" = "${.OBJDIR}/$(test_prog): ok!" ]
@@ -81,14 +102,14 @@ $(PROG): $(test_prog) ${VERSION_SCRIPT} $(OBJS)
 
 .include <bsd.prog.mk>
 
-boot.o: boot.c
+${BOOT:R}.o: ${BOOT}
 	${COMPILE.c} -fno-stack-protector ${.IMPSRC}
 
 CLEANFILES+=	ld.so.a
 
 all: ld.so.a
 
-ld.so.a: ${OBJS} ${.CURDIR}/Symbols.map ${test_prog}
+ld.so.a: ${OBJS} ${.CURDIR}/Symbols.map ${test_prog} ${LD_SCRIPT}
 	ar cqD $@ $?
 
 afterinstall: ld.so.a

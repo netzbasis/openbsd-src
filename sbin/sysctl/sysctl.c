@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.c,v 1.239 2018/12/10 13:35:54 landry Exp $	*/
+/*	$OpenBSD: sysctl.c,v 1.250 2019/12/25 00:15:36 cheloha Exp $	*/
 /*	$NetBSD: sysctl.c,v 1.9 1995/09/30 07:12:50 thorpej Exp $	*/
 
 /*
@@ -94,13 +94,14 @@
 #include <ddb/db_var.h>
 #include <dev/rndvar.h>
 
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#include <limits.h>
+#include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <limits.h>
 #include <unistd.h>
 
 #include <machine/cpu.h>
@@ -130,6 +131,7 @@ struct ctlname machdepname[] = CTL_MACHDEP_NAMES;
 #endif
 struct ctlname ddbname[] = CTL_DDB_NAMES;
 struct ctlname audioname[] = CTL_KERN_AUDIO_NAMES;
+struct ctlname witnessname[] = CTL_KERN_WITNESS_NAMES;
 char names[BUFSIZ];
 int lastused;
 
@@ -161,6 +163,8 @@ struct list secondlevel[] = {
 
 int	Aflag, aflag, nflag, qflag;
 
+time_t boottime;
+
 /*
  * Variables requiring special processing.
  */
@@ -179,6 +183,7 @@ int	Aflag, aflag, nflag, qflag;
 #define	SENSORS		0x00002000
 #define	SMALLBUF	0x00004000
 #define	HEX		0x00008000
+#define	TIMEOUT		0x00010000
 
 /* prototypes */
 void debuginit(void);
@@ -191,6 +196,7 @@ void usage(void);
 int findname(char *, char *, char **, struct list *);
 int sysctl_inet(char *, char **, int *, int, int *);
 int sysctl_inet6(char *, char **, int *, int, int *);
+int sysctl_link(char *, char **, int *, int, int *);
 int sysctl_bpf(char *, char **, int *, int, int *);
 int sysctl_mpls(char *, char **, int *, int, int *);
 int sysctl_pipex(char *, char **, int *, int, int *);
@@ -214,6 +220,7 @@ void print_sensor(struct sensor *);
 int sysctl_chipset(char *, char **, int *, int, int *);
 #endif
 int sysctl_audio(char *, char **, int *, int, int *);
+int sysctl_witness(char *, char **, int *, int, int *);
 void vfsinit(void);
 
 char *equ = "=";
@@ -252,6 +259,15 @@ main(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
+
+	ctime(&boottime); /* satisfy potential $TZ expansion before unveil() */
+
+	if (unveil(_PATH_DEVDB, "r") == -1 && errno != ENOENT)
+		err(1,"unveil");
+	if (unveil("/dev", "r") == -1 && errno != ENOENT)
+		err(1, "unveil");
+	if (unveil(NULL, NULL) == -1)
+		err(1, "unveil");
 
 	if (argc == 0 || (Aflag || aflag)) {
 		debuginit();
@@ -502,6 +518,19 @@ parse(char *string, int flags)
 			if (len < 0)
 				return;
 			break;
+		case KERN_WITNESS:
+			len = sysctl_witness(string, &bufp, mib, flags, &type);
+			if (len < 0)
+				return;
+			break;
+		case KERN_PFSTATUS:
+			if (flags == 0)
+				return;
+			warnx("use pfctl to view %s information", string);
+			return;
+		case KERN_TIMEOUT_STATS:
+			special |= TIMEOUT;
+			break;
 		}
 		break;
 
@@ -638,6 +667,12 @@ parse(char *string, int flags)
 				    string);
 				return;
 			}
+			break;
+		}
+		if (mib[1] == PF_LINK) {
+			len = sysctl_link(string, &bufp, mib, flags, &type);
+			if (len < 0)
+				return;
 			break;
 		}
 		if (mib[1] == PF_BPF) {
@@ -849,11 +884,11 @@ parse(char *string, int flags)
 		if (!nflag)
 			(void)printf("%s%s", string, equ);
 		(void)printf("(inuse = %ld, calls = %ld, memuse = %ldK, "
-		    "limblocks = %d, mapblocks = %d, maxused = %ldK, "
+		    "limblocks = %d, maxused = %ldK, "
 		    "limit = %ldK, spare = %ld, sizes = (",
 		    km->ks_inuse, km->ks_calls,
 		    (km->ks_memuse + 1023) / 1024, km->ks_limblocks,
-		    km->ks_mapblocks, (km->ks_maxused + 1023) / 1024,
+		    (km->ks_maxused + 1023) / 1024,
 		    (km->ks_limit + 1023) / 1024, km->ks_spare);
 		for (j = 1 << MINBUCKET; j < 1 << (MINBUCKET + 16); j <<= 1) {
 			if ((km->ks_size & j ) == 0)
@@ -881,7 +916,6 @@ parse(char *string, int flags)
 	}
 	if (special & BOOTTIME) {
 		struct timeval *btp = (struct timeval *)buf;
-		time_t boottime;
 
 		if (!nflag) {
 			boottime = btp->tv_sec;
@@ -995,6 +1029,23 @@ parse(char *string, int flags)
 			print_sensor(s);
 			printf("\n");
 		}
+		return;
+	}
+	if (special & TIMEOUT) {
+		struct timeoutstat *tstat = (struct timeoutstat *)buf;
+
+		if (!nflag)
+			printf("%s%s", string, equ);
+		printf("added = %llu, cancelled = %llu, deleted = %llu, "
+		    "late = %llu, pending = %llu, readded = %llu, "
+		    "scheduled = %llu, rescheduled = %llu, "
+		    "run_softclock = %llu, run_thread = %llu, "
+		    "softclocks = %llu, thread_wakeups = %llu\n",
+		    tstat->tos_added, tstat->tos_cancelled, tstat->tos_deleted,
+		    tstat->tos_late, tstat->tos_pending, tstat->tos_readded,
+		    tstat->tos_scheduled, tstat->tos_rescheduled,
+		    tstat->tos_run_softclock, tstat->tos_run_thread,
+		    tstat->tos_softclocks, tstat->tos_thread_wakeups);
 		return;
 	}
 	switch (type) {
@@ -1205,7 +1256,7 @@ vfsinit(void)
 	mib[1] = VFS_GENERIC;
 	mib[2] = VFS_MAXTYPENUM;
 	buflen = 4;
-	if (sysctl(mib, 3, &maxtypenum, &buflen, NULL, 0) < 0)
+	if (sysctl(mib, 3, &maxtypenum, &buflen, NULL, 0) == -1)
 		return;
 	/*
          * We need to do 0..maxtypenum so add one, and then we offset them
@@ -1227,7 +1278,7 @@ vfsinit(void)
 	buflen = sizeof vfc;
 	for (loc = lastused, cnt = 1; cnt < maxtypenum; cnt++) {
 		mib[3] = cnt - 1;
-		if (sysctl(mib, 4, &vfc, &buflen, NULL, 0) < 0) {
+		if (sysctl(mib, 4, &vfc, &buflen, NULL, 0) == -1) {
 			if (errno == EOPNOTSUPP)
 				continue;
 			warn("vfsinit");
@@ -1286,7 +1337,7 @@ sysctl_vfsgen(char *string, char **bufpp, int mib[], int flags, int *typep)
 	mib[2] = VFS_CONF;
 	mib[3] = indx;
 	size = sizeof vfc;
-	if (sysctl(mib, 4, &vfc, &size, NULL, 0) < 0) {
+	if (sysctl(mib, 4, &vfc, &size, NULL, 0) == -1) {
 		if (errno != EOPNOTSUPP)
 			warn("vfs print");
 		return -1;
@@ -1434,7 +1485,6 @@ struct ctlname espname[] = ESPCTL_NAMES;
 struct ctlname ahname[] = AHCTL_NAMES;
 struct ctlname etheripname[] = ETHERIPCTL_NAMES;
 struct ctlname grename[] = GRECTL_NAMES;
-struct ctlname mobileipname[] = MOBILEIPCTL_NAMES;
 struct ctlname ipcompname[] = IPCOMPCTL_NAMES;
 struct ctlname carpname[] = CARPCTL_NAMES;
 struct ctlname pfsyncname[] = PFSYNCCTL_NAMES;
@@ -1499,7 +1549,7 @@ struct list inetvars[] = {
 	{ 0, 0 },
 	{ 0, 0 },
 	{ 0, 0 },
-	{ mobileipname, MOBILEIPCTL_MAXID }, /* mobileip */
+	{ 0, 0 },
 	{ 0, 0 },
 	{ 0, 0 },
 	{ 0, 0 },
@@ -1717,6 +1767,7 @@ struct list shmlist = { shmname, KERN_SHMINFO_MAXID };
 struct list watchdoglist = { watchdogname, KERN_WATCHDOG_MAXID };
 struct list tclist = { tcname, KERN_TIMECOUNTER_MAXID };
 struct list audiolist = { audioname, KERN_AUDIO_MAXID };
+struct list witnesslist = { witnessname, KERN_WITNESS_MAXID };
 
 /*
  * handle vfs namei cache statistics
@@ -1743,7 +1794,7 @@ sysctl_nchstats(char *string, char **bufpp, int mib[], int flags, int *typep)
 	}
 	if (keepvalue == 0) {
 		size = sizeof(struct nchstats);
-		if (sysctl(mib, 2, &nch, &size, NULL, 0) < 0)
+		if (sysctl(mib, 2, &nch, &size, NULL, 0) == -1)
 			return (-1);
 		keepvalue = 1;
 	}
@@ -1839,7 +1890,7 @@ sysctl_forkstat(char *string, char **bufpp, int mib[], int flags, int *typep)
 	}
 	if (keepvalue == 0) {
 		size = sizeof(struct forkstat);
-		if (sysctl(mib, 2, &fks, &size, NULL, 0) < 0)
+		if (sysctl(mib, 2, &fks, &size, NULL, 0) == -1)
 			return (-1);
 		keepvalue = 1;
 	}
@@ -1899,7 +1950,7 @@ sysctl_malloc(char *string, char **bufpp, int mib[], int flags, int *typep)
 			stor = mib[2];
 			mib[2] = KERN_MALLOC_BUCKETS;
 			buf = bufp;
-			if (sysctl(mib, 3, buf, &size, NULL, 0) < 0)
+			if (sysctl(mib, 3, buf, &size, NULL, 0) == -1)
 				return (-1);
 			mib[2] = stor;
 			for (stor = 0, i = 0; i < size; i++)
@@ -1929,7 +1980,7 @@ sysctl_malloc(char *string, char **bufpp, int mib[], int flags, int *typep)
 		stor = mib[2];
 		mib[2] = KERN_MALLOC_KMEMNAMES;
 		buf = bufp;
-		if (sysctl(mib, 3, buf, &size, NULL, 0) < 0)
+		if (sysctl(mib, 3, buf, &size, NULL, 0) == -1)
 			return (-1);
 		mib[2] = stor;
 		if ((name = strsep(bufpp, ".")) == NULL) {
@@ -2010,23 +2061,23 @@ sysctl_chipset(char *string, char **bufpp, int mib[], int flags, int *typep)
 	case CPU_CHIPSET_PORTS:
 	case CPU_CHIPSET_HAE_MASK:
 		len = sizeof(void *);
-		if (sysctl(mib, 3, &q, &len, NULL, 0) < 0)
+		if (sysctl(mib, 3, &q, &len, NULL, 0) == -1)
 			goto done;
 		printf("%p", q);
 		break;
 	case CPU_CHIPSET_BWX:
 		len = sizeof(int);
-		if (sysctl(mib, 3, &bwx, &len, NULL, 0) < 0)
+		if (sysctl(mib, 3, &bwx, &len, NULL, 0) == -1)
 			goto done;
 		printf("%d", bwx);
 		break;
 	case CPU_CHIPSET_TYPE:
-		if (sysctl(mib, 3, NULL, &len, NULL, 0) < 0)
+		if (sysctl(mib, 3, NULL, &len, NULL, 0) == -1)
 			goto done;
 		p = malloc(len + 1);
 		if (p == NULL)
 			goto done;
-		if (sysctl(mib, 3, p, &len, NULL, 0) < 0) {
+		if (sysctl(mib, 3, p, &len, NULL, 0) == -1) {
 			free(p);
 			goto done;
 		}
@@ -2225,6 +2276,46 @@ sysctl_inet6(char *string, char **bufpp, int mib[], int flags, int *typep)
 	return (4);
 }
 
+/* handle net.link requests */
+struct ctlname netlinkname[] = CTL_NET_LINK_NAMES;
+struct ctlname ifrxqname[] = CTL_NET_LINK_IFRXQ_NAMES;
+struct list netlinklist = { netlinkname, NET_LINK_MAXID };
+struct list netlinkvars[] = {
+	[NET_LINK_IFRXQ] = { ifrxqname, NET_LINK_IFRXQ_MAXID },
+};
+
+int
+sysctl_link(char *string, char **bufpp, int mib[], int flags, int *typep)
+{
+	struct list *lp;
+	int indx;
+
+	if (*bufpp == NULL) {
+		listall(string, &netlinklist);
+		return (-1);
+	}
+	if ((indx = findname(string, "third", bufpp, &netlinklist)) == -1)
+		return (-1);
+	mib[2] = indx;
+	if (indx < NET_LINK_MAXID && netlinkvars[indx].list != NULL)
+		lp = &netlinkvars[indx];
+	else if (!flags)
+		return (-1);
+	else {
+		warnx("%s: no variables defined for this protocol", string);
+		return (-1);
+	}
+	if (*bufpp == NULL) {
+		listall(string, lp);
+		return (-1);
+	}
+	if ((indx = findname(string, "fourth", bufpp, lp)) == -1)
+		return (-1);
+	mib[3] = indx;
+	*typep = lp->list[indx].ctl_type;
+	return (4);
+}
+
 /* handle bpf requests */
 int
 sysctl_bpf(char *string, char **bufpp, int mib[], int flags, int *typep)
@@ -2410,6 +2501,8 @@ sysctl_sensors(char *string, char **bufpp, int mib[], int flags, int *typep)
 					continue;
 				if (errno == ENOENT)
 					break;
+				warn("sensors dev %d", dev);
+				return (-1);
 			}
 			snprintf(buf, sizeof(buf), "%s.%s",
 			    string, snsrdev.xname);
@@ -2435,6 +2528,8 @@ sysctl_sensors(char *string, char **bufpp, int mib[], int flags, int *typep)
 				continue;
 			if (errno == ENOENT)
 				break;
+			warn("sensors dev %d", dev);
+			return (-1);
 		}
 		if (strcmp(devname, snsrdev.xname) == 0)
 			break;
@@ -2716,6 +2811,25 @@ sysctl_audio(char *string, char **bufpp, int mib[], int flags, int *typep)
 		return (-1);
 	mib[2] = indx;
 	*typep = audiolist.list[indx].ctl_type;
+	return (3);
+}
+
+/*
+ * Handle witness support
+ */
+int
+sysctl_witness(char *string, char **bufpp, int mib[], int flags, int *typep)
+{
+	int indx;
+
+	if (*bufpp == NULL) {
+		listall(string, &witnesslist);
+		return (-1);
+	}
+	if ((indx = findname(string, "third", bufpp, &witnesslist)) == -1)
+		return (-1);
+	mib[2] = indx;
+	*typep = witnesslist.list[indx].ctl_type;
 	return (3);
 }
 

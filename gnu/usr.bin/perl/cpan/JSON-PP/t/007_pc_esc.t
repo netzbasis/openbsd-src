@@ -2,23 +2,15 @@
 # このファイルのエンコーディングはUTF-8
 #
 
-# copied over from JSON::PP::PC and modified to use JSON::PP
-# copied over from JSON::PP::XS and modified to use JSON::PP
+# copied over from JSON::PC and modified to use JSON::PP
+# copied over from JSON::XS and modified to use JSON::PP
 
 use Test::More;
 use strict;
-
+use utf8;
 BEGIN { plan tests => 17 };
-
 BEGIN { $ENV{PERL_JSON_BACKEND} = 0; }
 
-BEGIN {
-    use lib qw(t);
-    use _unicode_handling;
-}
-
-
-use utf8;
 use JSON::PP;
 
 #########################
@@ -72,7 +64,6 @@ $obj = {test => "abc\\def"};
 $str = $pc->encode($obj);
 is($str,q|{"test":"abc\\\\def"}|);
 
-
 $obj = {test => "あいうえお"};
 $str = $pc->encode($obj);
 is($str,q|{"test":"あいうえお"}|);
@@ -80,7 +71,6 @@ is($str,q|{"test":"あいうえお"}|);
 $obj = {"あいうえお" => "かきくけこ"};
 $str = $pc->encode($obj);
 is($str,q|{"あいうえお":"かきくけこ"}|);
-
 
 $obj = $pc->decode(q|{"id":"abc\ndef"}|);
 is($obj->{id},"abc\ndef",q|{"id":"abc\ndef"}|);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_swap.c,v 1.143 2018/02/19 08:59:53 mpi Exp $	*/
+/*	$OpenBSD: uvm_swap.c,v 1.145 2019/12/05 12:46:54 mpi Exp $	*/
 /*	$NetBSD: uvm_swap.c,v 1.40 2000/11/17 11:39:39 mrg Exp $	*/
 
 /*
@@ -13,8 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -713,6 +711,16 @@ sys_swapctl(struct proc *p, void *v, register_t *retval)
 			free(spp, M_VMSWAP, sizeof(*spp));
 		break;
 	case SWAP_ON:
+		/*
+		 * If the device is a regular file, make sure the filesystem
+		 * can be used for swapping.
+		 */
+		if (vp->v_type == VREG &&
+		    (vp->v_mount->mnt_flag & MNT_SWAPPABLE) == 0) {
+			error = ENOTSUP;
+			break;
+		}
+
 		/*
 		 * check for duplicates.   if none found, then insert a
 		 * dummy entry on the list to prevent someone else from

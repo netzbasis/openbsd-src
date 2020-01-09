@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.c,v 1.131 2018/01/27 22:55:23 naddy Exp $	*/
+/*	$OpenBSD: autoconf.c,v 1.134 2020/01/04 23:43:54 kn Exp $	*/
 /*	$NetBSD: autoconf.c,v 1.51 2001/07/24 19:32:11 eeh Exp $ */
 
 /*
@@ -172,6 +172,7 @@ char sun4v_soft_state_booting[] __align32 = "OpenBSD booting";
 char sun4v_soft_state_running[] __align32 = "OpenBSD running";
 
 void	sun4v_interrupt_init(void);
+void	sun4v_sdio_init(void);
 #endif
 
 #ifdef DEBUG
@@ -439,6 +440,7 @@ bootstrap(int nctx)
 		sun4v_soft_state_init();
 		sun4v_set_soft_state(SIS_TRANSITION, sun4v_soft_state_booting);
 		sun4v_interrupt_init();
+		sun4v_sdio_init();
 	}
 #endif
 }
@@ -736,8 +738,9 @@ cpu_configure(void)
 
 #ifdef SUN4V
 
-#define HSVC_GROUP_INTERRUPT  0x002
-#define HSVC_GROUP_SOFT_STATE 0x003
+#define HSVC_GROUP_INTERRUPT	0x002
+#define HSVC_GROUP_SOFT_STATE	0x003
+#define HSVC_GROUP_SDIO		0x108
 
 int sun4v_soft_state_initialized = 0;
 
@@ -777,8 +780,19 @@ sun4v_interrupt_init(void)
 
 	if (prom_set_sun4v_api_version(HSVC_GROUP_INTERRUPT, 3, 0, &minor))
 		return;
-	
+
 	sun4v_group_interrupt_major = 3;
+}
+
+void
+sun4v_sdio_init(void)
+{
+	uint64_t minor;
+
+	if (prom_set_sun4v_api_version(HSVC_GROUP_SDIO, 1, 0, &minor))
+		return;
+
+	sun4v_group_sdio_major = 1;
 }
 
 #endif
@@ -1441,10 +1455,19 @@ device_register(struct device *dev, void *aux)
 		u_int lun = bp->val[1];
 
 		if (bp->val[0] & 0xffffffff00000000 && bp->val[0] != -1) {
-			/* Fibre channel? */
+			/* Hardware RAID or Fibre channel? */
 			if (bp->val[0] == sl->port_wwn && lun == sl->lun) {
 				nail_bootdev(dev, bp);
 			}
+
+			/*
+			 * sata devices on some controllers don't get
+			 * port_wwn filled in, so look at devid too.
+			 */
+			if (sl->id && sl->id->d_len == 8 &&
+			    sl->id->d_type == DEVID_NAA &&
+			    memcmp(sl->id + 1, &bp->val[0], 8) == 0)
+				nail_bootdev(dev, bp);
 			return;
 		}
 

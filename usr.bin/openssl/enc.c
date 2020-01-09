@@ -1,4 +1,4 @@
-/* $OpenBSD: enc.c,v 1.16 2019/01/18 22:47:34 naddy Exp $ */
+/* $OpenBSD: enc.c,v 1.23 2019/07/25 11:42:12 bcook Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -56,7 +56,6 @@
  * [including the GNU Public Licence.]
  */
 
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,6 +88,7 @@ static struct {
 	char *hkey;
 	char *hsalt;
 	char *inf;
+	int iter;
 	char *keyfile;
 	char *keystr;
 	char *md;
@@ -97,10 +97,9 @@ static struct {
 	int olb64;
 	char *outf;
 	char *passarg;
+	int pbkdf2;
 	int printkey;
 	int verbose;
-	int iter;
-	int pbkdf2;
 } enc_config;
 
 static int
@@ -125,7 +124,7 @@ enc_opt_cipher(int argc, char **argv, int *argsused)
 	return (1);
 }
 
-static struct option enc_options[] = {
+static const struct option enc_options[] = {
 	{
 		.name = "A",
 		.desc = "Process base64 data on one line (requires -a)",
@@ -181,7 +180,7 @@ static struct option enc_options[] = {
 		.name = "iter",
 		.argname = "iterations",
 		.desc = "Specify iteration count and force use of PBKDF2",
-		.type = OPTION_VALUE,
+		.type = OPTION_ARG_INT,
 		.opt.value = &enc_config.iter,
 	},
 	{
@@ -305,19 +304,10 @@ static struct option enc_options[] = {
 };
 
 static void
-show_ciphers(const OBJ_NAME *name, void *arg)
-{
-	static int n;
-
-	if (!islower((unsigned char)*name->name))
-		return;
-
-	fprintf(stderr, " -%-24s%s", name->name, (++n % 3 ? "" : "\n"));
-}
-
-static void
 enc_usage(void)
 {
+	int n = 0;
+
 	fprintf(stderr, "usage: enc -ciphername [-AadePp] [-base64] "
 	    "[-bufsize number] [-debug]\n"
 	    "    [-in file] [-iter iterations] [-iv IV] [-K key] "
@@ -328,7 +318,7 @@ enc_usage(void)
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Valid ciphername values:\n\n");
-	OBJ_NAME_do_all_sorted(OBJ_NAME_TYPE_CIPHER_METH, show_ciphers, NULL);
+	OBJ_NAME_do_all_sorted(OBJ_NAME_TYPE_CIPHER_METH, show_cipher, &n);
 	fprintf(stderr, "\n");
 }
 
@@ -642,7 +632,8 @@ enc_main(int argc, char **argv)
 				}
 				/* split and move data back to global buffer */
 				memcpy(key, tmpkeyiv, iklen);
-				memcpy(iv, tmpkeyiv+iklen, ivlen);
+				memcpy(iv, tmpkeyiv + iklen, ivlen);
+				explicit_bzero(tmpkeyiv, sizeof tmpkeyiv);
 			} else {
 				EVP_BytesToKey(enc_config.cipher, dgst, sptr,
 				    (unsigned char *)enc_config.keystr,

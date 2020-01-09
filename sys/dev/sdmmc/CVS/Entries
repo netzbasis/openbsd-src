@@ -1,14 +1,14 @@
 /Makefile/1.1/Thu Jun  1 21:15:40 2006//
 /devlist2h.awk/1.2/Fri Jun  2 21:16:44 2006//
 /files.sdmmc/1.6/Tue Mar 20 04:18:40 2018//
-/if_bwfm_sdio.c/1.27/Sat Dec 22 14:42:29 2018//
+/if_bwfm_sdio.c/1.29/Thu Feb  7 07:39:56 2019//
 /if_bwfm_sdio.h/1.2/Sat May 19 10:43:10 2018//
-/sdhc.c/1.61/Thu Sep  6 10:15:17 2018//
+/sdhc.c/1.62/Tue Apr  2 07:08:40 2019//
 /sdhcreg.h/1.9/Thu Sep  6 10:15:17 2018//
-/sdhcvar.h/1.11/Mon Mar 19 21:40:32 2018//
-/sdmmc.c/1.52/Sat Dec 29 11:37:30 2018//
+/sdhcvar.h/1.12/Tue Apr  2 07:08:40 2019//
+/sdmmc.c/1.54/Tue Dec 31 10:05:33 2019//
 /sdmmc_cis.c/1.7/Sat Apr 23 14:15:59 2016//
-/sdmmc_io.c/1.40/Thu Aug  9 13:52:36 2018//
+/sdmmc_io.c/1.41/Tue Dec 31 10:05:33 2019//
 /sdmmc_ioreg.h/1.11/Thu Aug  9 13:50:15 2018//
 /sdmmc_mem.c/1.33/Mon Jun  4 13:33:10 2018//
 /sdmmc_scsi.c/1.42/Fri Mar 30 07:18:39 2018//
@@ -17,5 +17,5 @@
 /sdmmcdevs/1.8/Fri May 11 17:16:16 2007//
 /sdmmcdevs.h/1.8/Fri May 11 17:16:35 2007//
 /sdmmcreg.h/1.11/Thu May  5 11:01:08 2016//
-/sdmmcvar.h/1.31/Sat Dec 29 11:37:30 2018//
+/sdmmcvar.h/1.32/Tue Apr  2 07:08:40 2019//
 D

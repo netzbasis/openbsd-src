@@ -6,6 +6,7 @@
 
 use strict;
 use warnings;
+no warnings 'experimental::vlb';
 use 5.010;
 
 sub run_tests;
@@ -15,15 +16,16 @@ $| = 1;
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = ('../lib','.','../ext/re');
     require Config; import Config;
     require './test.pl'; require './charset_tools.pl';
     require './loc_tools.pl';
-    skip_all('no re module') unless defined &DynaLoader::boot_DynaLoader;
-    skip_all_without_unicode_tables();
+    set_up_inc('../lib', '.', '../ext/re');
 }
 
-plan tests => 789;  # Update this when adding/deleting tests.
+skip_all('no re module') unless defined &DynaLoader::boot_DynaLoader;
+skip_all_without_unicode_tables();
+
+plan tests => 864;  # Update this when adding/deleting tests.
 
 run_tests() unless caller;
 
@@ -31,6 +33,7 @@ run_tests() unless caller;
 # Tests start here.
 #
 sub run_tests {
+    my $sharp_s = uni_to_native("\xdf");
 
     {
         my $x = "abc\ndef\n";
@@ -138,6 +141,21 @@ sub run_tests {
         $null = "";
         $xyz =~ /$null/;
         is($&, $xyz, $message);
+
+        # each entry: regexp, match string, $&, //o match success
+        my @tests =
+          (
+           [ "", "xy", "x", 1 ],
+           [ "y", "yz", "y", !1 ],
+          );
+        for my $test (@tests) {
+            my ($re, $str, $matched, $omatch) = @$test;
+            $xyz =~ /x/o;
+            ok($str =~ /$re/, "$str matches /$re/");
+            is($&, $matched, "on $matched");
+            $xyz =~ /x/o;
+            is($str =~ /$re/o, $omatch, "$str matches /$re/o (or not)");
+        }
     }
 
     {
@@ -302,7 +320,7 @@ sub run_tests {
 
 	#  Defaults assumed if this fails
 	eval { require Config; };
-        $::reg_infty   = $Config::Config{reg_infty} // 32767;
+        $::reg_infty   = $Config::Config{reg_infty} // 65535;
         $::reg_infty_m = $::reg_infty - 1;
         $::reg_infty_p = $::reg_infty + 1;
         $::reg_infty_m = $::reg_infty_m;   # Suppress warning.
@@ -322,6 +340,11 @@ sub run_tests {
         like($@, qr/^\QQuantifier in {,} bigger than/, $message);
         eval "'aaa' =~ /a{1,$::reg_infty_p}/";
         like($@, qr/^\QQuantifier in {,} bigger than/, $message);
+
+        # It should be 'a' x 2147483647, but that exhausts memory on
+        # reasonably sized modern machines
+        like('a' x $::reg_infty_p, qr/a{1,}/,
+             "{1,} matches more times than REG_INFTY");
     }
 
     {
@@ -372,7 +395,7 @@ sub run_tests {
         $_ = " a (bla()) and x(y b((l)u((e))) and b(l(e)e)e";
         my $expect = "(bla()) ((l)u((e))) (l(e)e)";
 
-        use vars '$c';
+        our $c;
         sub matchit {
           m/
              (
@@ -638,9 +661,11 @@ sub run_tests {
     }
 
     {
-        my $message = '@- and @+ tests';
+        my $message = '@- and @+ and @{^CAPTURE} tests';
 
-        /a(?=.$)/;
+        $_= "ace";
+        /c(?=.$)/;
+        is($#{^CAPTURE}, -1, $message);
         is($#+, 0, $message);
         is($#-, 0, $message);
         is($+ [0], 2, $message);
@@ -648,66 +673,87 @@ sub run_tests {
         ok(!defined $+ [1] && !defined $- [1] &&
            !defined $+ [2] && !defined $- [2], $message);
 
-        /a(a)(a)/;
+        /a(c)(e)/;
+        is($#{^CAPTURE}, 1, $message); # one less than $#-
         is($#+, 2, $message);
         is($#-, 2, $message);
         is($+ [0], 3, $message);
         is($- [0], 0, $message);
+        is(${^CAPTURE}[0], "c", $message);
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
+        is(${^CAPTURE}[1], "e", $message);
         is($+ [2], 3, $message);
         is($- [2], 2, $message);
         ok(!defined $+ [3] && !defined $- [3] &&
+           !defined ${^CAPTURE}[2] && !defined ${^CAPTURE}[3] &&
            !defined $+ [4] && !defined $- [4], $message);
 
         # Exists has a special check for @-/@+ - bug 45147
         ok(exists $-[0], $message);
         ok(exists $+[0], $message);
+        ok(exists ${^CAPTURE}[0], $message);
+        ok(exists ${^CAPTURE}[1], $message);
         ok(exists $-[2], $message);
         ok(exists $+[2], $message);
+        ok(!exists ${^CAPTURE}[2], $message);
         ok(!exists $-[3], $message);
         ok(!exists $+[3], $message);
+        ok(exists ${^CAPTURE}[-1], $message);
+        ok(exists ${^CAPTURE}[-2], $message);
         ok(exists $-[-1], $message);
         ok(exists $+[-1], $message);
         ok(exists $-[-3], $message);
         ok(exists $+[-3], $message);
         ok(!exists $-[-4], $message);
         ok(!exists $+[-4], $message);
+        ok(!exists ${^CAPTURE}[-3], $message);
 
-        /.(a)(b)?(a)/;
+
+        /.(c)(b)?(e)/;
+        is($#{^CAPTURE}, 2, $message); # one less than $#-
         is($#+, 3, $message);
         is($#-, 3, $message);
+        is(${^CAPTURE}[0], "c", $message);
+        is(${^CAPTURE}[2], "e", $message . "[$1 $3]");
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
         is($+ [3], 3, $message);
         is($- [3], 2, $message);
         ok(!defined $+ [2] && !defined $- [2] &&
-           !defined $+ [4] && !defined $- [4], $message);
+           !defined $+ [4] && !defined $- [4] &&
+           !defined ${^CAPTURE}[1], $message);
 
-        /.(a)/;
+        /.(c)/;
+        is($#{^CAPTURE}, 0, $message); # one less than $#-
         is($#+, 1, $message);
         is($#-, 1, $message);
+        is(${^CAPTURE}[0], "c", $message);
         is($+ [0], 2, $message);
         is($- [0], 0, $message);
         is($+ [1], 2, $message);
         is($- [1], 1, $message);
         ok(!defined $+ [2] && !defined $- [2] &&
-           !defined $+ [3] && !defined $- [3], $message);
+           !defined $+ [3] && !defined $- [3] &&
+           !defined ${^CAPTURE}[1], $message);
 
-        /.(a)(ba*)?/;
+        /.(c)(ba*)?/;
+        is($#{^CAPTURE}, 0, $message); # one less than $#-
         is($#+, 2, $message);
         is($#-, 1, $message);
 
         # Check that values don’t stick
         "     "=~/()()()(.)(..)/;
-        my($m,$p) = (\$-[5], \$+[5]);
-        () = "$$_" for $m, $p; # FETCH (or eqv.)
+        my($m,$p,$q) = (\$-[5], \$+[5], \${^CAPTURE}[4]);
+        () = "$$_" for $m, $p, $q; # FETCH (or eqv.)
         " " =~ /()/;
         is $$m, undef, 'values do not stick to @- elements';
         is $$p, undef, 'values do not stick to @+ elements';
+        is $$q, undef, 'values do not stick to @{^CAPTURE} elements';
     }
 
     foreach ('$+[0] = 13', '$-[0] = 13', '@+ = (7, 6, 5)',
+             '${^CAPTURE}[0] = 13',
 	     '@- = qw (foo bar)', '$^N = 42') {
 	is(eval $_, undef);
         like($@, qr/^Modification of a read-only value attempted/,
@@ -973,6 +1019,19 @@ sub run_tests {
         @b = grep /\s/, @a;
         @c = grep /[\s]/, @a;
         is("@b", "@c", $message);
+
+        # Test an inverted posix class with a char also in the class.
+        my $nbsp = chr utf8::unicode_to_native(0xA0);
+        my $non_s = chr utf8::unicode_to_native(0xA1);
+        my $pat_string = "[^\\S ]";
+        unlike(" ", qr/$pat_string/, "Verify ' ' !~ /$pat_string/");
+        like("\t", qr/$pat_string/, "Verify '\\t =~ /$pat_string/");
+        unlike($nbsp, qr/$pat_string/, "Verify non-utf8-NBSP !~ /$pat_string/");
+        utf8::upgrade($nbsp);
+        like($nbsp, qr/$pat_string/, "Verify utf8-NBSP =~ /$pat_string/");
+        unlike($non_s, qr/$pat_string/, "Verify non-utf8-inverted-bang !~ /$pat_string/");
+        utf8::upgrade($non_s);
+        unlike($non_s, qr/$pat_string/, "Verify utf8-inverted-bang !~ /$pat_string/");
     }
     {
         my $message = '\D, [\D], \d, [\d]';
@@ -1294,6 +1353,7 @@ EOP
         unlike "\x{100}", qr/(?i:\w)/, "(?i: shouldn't lose the passed in /a";
         use re '/aa';
         unlike 'k', qr/(?i:\N{KELVIN SIGN})/, "(?i: shouldn't lose the passed in /aa";
+        unlike 'k', qr'(?i:\N{KELVIN SIGN})', "(?i: shouldn't lose the passed in /aa";
     }
 
     {
@@ -1358,9 +1418,6 @@ EOP
 
     {   # Various flags weren't being set when a [] is optimized into an
         # EXACTish node
-        ;
-        ;
-        my $sharp_s = uni_to_native("\xdf");
         ok("\x{017F}\x{017F}" =~ qr/^[$sharp_s]?$/i, "[] to EXACTish optimization");
     }
 
@@ -1412,7 +1469,17 @@ EOP
         # test that this is true for 1..100
         # Note that this test causes the engine to recurse at runtime, and
         # hence use a lot of C stack.
+
+        # Compiling for all 100 nested captures blows the stack under
+        # clang and ASan; reduce.
+        my $max_captures = $Config{ccflags} =~ /sanitize/ ? 20 : 100;
+
         for my $i (1..100) {
+            if ($i > $max_captures) {
+                pass("skipping $i buffers under ASan aa");
+                pass("skipping $i buffers under ASan aba");
+                next;
+            }
             my $capture= "a";
             $capture= "($capture)" for 1 .. $i;
             for my $mid ("","b") {
@@ -1594,7 +1661,8 @@ EOP
         like("X", qr/$x/, "UTF-8 of /[x]/i matches upper case");
     }
 
-    {   # make sure we get an error when \p{} cannot load Unicode tables
+SKIP: {   # make sure we get an error when \p{} cannot load Unicode tables
+        skip("Unicode tables always now loaded", 1);
         fresh_perl_like(<<'        prog that cannot load uni tables',
             BEGIN {
                 @INC = '../lib';
@@ -1663,7 +1731,7 @@ EOP
             # NOTE - Do not put quotes in the code!
             # NOTE - We have to triple escape the backref in the pattern below.
             my $code='
-                BEGIN{require q(test.pl);}
+                BEGIN{require q(./test.pl);}
                 watchdog(3);
                 for my $len (1 .. 20) {
                     my $eights= q(8) x $len;
@@ -1679,7 +1747,7 @@ EOP
             # #123562]
 
             my $code='
-                BEGIN{require q(test.pl);}
+                BEGIN{require q(./test.pl);}
                 use Encode qw(_utf8_on);
                 # \x80 and \x41 are continuation bytes in their respective
                 # character sets
@@ -1747,7 +1815,7 @@ EOP
                 my ($expr, $expect, $test_name, $cap1)= @$tuple;
                 # avoid quotes in this code!
                 my $code='
-                    BEGIN{require q(test.pl);}
+                    BEGIN{require q(./test.pl);}
                     watchdog(3);
                     my $status= eval(q{ !(' . $expr . ') ? q(failed) : ' .
                         ($cap1 ? '($1 ne q['.$cap1.']) ? qq(badmatch:$1) : ' : '') .
@@ -1758,6 +1826,299 @@ EOP
                 fresh_perl_is($code, $expect, {}, "$bug - $test_name" );
             }
         }
+        {
+            fresh_perl_is('
+                BEGIN{require q(test.pl);}
+                watchdog(3);
+                $SIG{ALRM} = sub {print "Timeout\n"; exit(1)};
+                alarm 1;
+                $_ = "a" x 1000 . "b" x 1000 . "c" x 1000;
+                /.*a.*b.*c.*[de]/;
+            ',"Timeout",{},"Test Perl 73464")
+        }
+
+        {   # [perl #128686], crashed the the interpreter
+            my $AE = chr utf8::unicode_to_native(0xC6);
+            my $ae = chr utf8::unicode_to_native(0xE6);
+            my $re = qr/[$ae\s]/i;
+            ok($AE !~ $re, '/[\xE6\s]/i doesn\'t match \xC6 when not in UTF-8');
+            utf8::upgrade $AE;
+            ok($AE =~ $re, '/[\xE6\s]/i matches \xC6 when in UTF-8');
+        }
+
+        {
+            is(0+("\n" =~ m'\n'), 1, q|m'\n' should interpolate escapes|);
+        }
+
+        {
+            my $str = "a\xB6";
+            ok( $str =~ m{^(a|a\x{b6})$}, "fix [perl #129950] - latin1 case" );
+            utf8::upgrade($str);
+            ok( $str =~ m{^(a|a\x{b6})$}, "fix [perl #129950] - utf8 case" );
+        }
+        {
+            my $got= run_perl( switches => [ '-l' ], prog => <<'EOF_CODE' );
+            my $died= !eval {
+                $_=qq(ab);
+                print;
+                my $p=qr/(?{ s!!x! })/;
+                /$p/;
+                print;
+                /a/;
+                /$p/;
+                print;
+                /b/;
+                /$p/;
+                print;
+                //;
+                1;
+            };
+            $error = $died ? ($@ || qq(Zombie)) : qq(none);
+            print $died ? qq(died) : qq(lived);
+            print qq(Error: $@);
+EOF_CODE
+            my @got= split /\n/, $got;
+            is($got[0],"ab","empty pattern in regex codeblock: got expected start string");
+            is($got[1],"xab",
+                "empty pattern in regex codeblock: first subst with no last-match worked right");
+            is($got[2],"xxb","empty pattern in regex codeblock: second subst worked right");
+            is($got[3],"xxx","empty pattern in regex codeblock: third subst worked right");
+            is($got[4],"died","empty pattern in regex codeblock: died as expected");
+            like($got[5],qr/Error: Infinite recursion via empty pattern/,
+           "empty pattern in regex codeblock: produced the right exception message" );
+        }
+
+    # This test is based on the one directly above, which happened to
+    # leak. Repeat the test, but stripped down to the bare essentials
+    # of the leak, which is to die while executing a regex which is
+    # already the current regex, thus causing the saved outer set of
+    # capture offsets to leak. The test itself doesn't do anything
+    # except sit around hoping not to be triggered by ASan
+    {
+        eval {
+            my $s = "abcd";
+            $s =~ m{([abcd]) (?{ die if $1 eq 'd'; })}gx;
+            $s =~ //g;
+            $s =~ //g;
+            $s =~ //g;
+        };
+        pass("call to current regex doesn't leak");
+    }
+
+
+
+    {
+        # [perl #130495] /x comment skipping stopped a byte short, leading
+        # to assertion failure or 'malformed utf-8 character" warning
+        fresh_perl_is(
+            "use utf8; m{a#\x{124}}x", '', {wide_chars => 1},
+            '[perl #130495] utf-8 character at end of /x comment should not misparse',
+        );
+    }
+    {
+        # [perl #130522] causes out-of-bounds read detected by clang with
+        # address=sanitized when length of the STCLASS string is greater than
+        # length of target string.
+        my $re = qr{(?=\0z)\0?z?$}i;
+        my($yes, $no) = (1, "");
+        for my $test (
+            [ $no,  undef,   '<undef>' ],
+            [ $no,  '',      '' ],
+            [ $no,  "\0",    '\0' ],
+            [ $yes, "\0z",   '\0z' ],
+            [ $no,  "\0z\0", '\0z\0' ],
+            [ $yes, "\0z\n", '\0z\n' ],
+        ) {
+            my($result, $target, $disp) = @$test;
+            no warnings qw/uninitialized/;
+            is($target =~ $re, $result, "[perl #130522] with target '$disp'");
+        }
+    }
+    {
+	# [perl #129377] backref to an unmatched capture should not cause
+	# reading before start of string.
+	SKIP: {
+	    skip "no re-debug under miniperl" if is_miniperl;
+	    my $prog = <<'EOP';
+use re qw(Debug EXECUTE);
+"x" =~ m{ () y | () \1 }x;
+EOP
+	    fresh_perl_like($prog, qr{
+		\A (?! .* ^ \s+ - )
+	    }msx, { stderr => 1 }, "Offsets in debug output are not negative");
+	}
+    }
+    {
+        # buffer overflow
+
+        # This test also used to leak - fixed by the commit which added
+        # this line.
+
+        fresh_perl_is("BEGIN{\$^H=0x200000}\ns/[(?{//xx",
+                      "Unmatched [ in regex; marked by <-- HERE in m/[ <-- HERE (?{/ at (eval 1) line 1.\n",
+                      {}, "buffer overflow for regexp component");
+    }
+    {
+        # [perl #129281] buffer write overflow, detected by ASAN, valgrind
+        fresh_perl_is('/0(?0)|^*0(?0)|^*(^*())0|/', '', {}, "don't bump whilem_c too much");
+    }
+    {
+        # RT #131893 - fails with ASAN -fsanitize=undefined
+        fresh_perl_is('qr/0(0?(0||00*))|/', '', {}, "integer overflow during compilation");
+    }
+
+    {
+        # RT #131575 intuit skipping back from the end to find the highest
+        # possible start point, was potentially hopping back beyond pos()
+        # and crashing by calling fbm_instr with a negative length
+
+        my $text = "=t=\x{5000}";
+        pos($text) = 3;
+        ok(scalar($text !~ m{(~*=[a-z]=)}g), "RT #131575");
+    }
+    {
+        fresh_perl_is('"AA" =~ m/AA{1,0}/','',{},"handle OPFAIL insert properly");
+    }
+    {
+        fresh_perl_is('$_="0\x{1000000}";/^000?\0000/','',{},"dont throw assert errors trying to fbm past end of string");
+    }
+    {   # [perl $132227]
+        fresh_perl_is("('0ba' . ('ss' x 300)) =~ m/0B\\N{U+41}" . $sharp_s x 150 . '/i and print "1\n"',  1,{},"Use of sharp s under /di that changes to /ui");
+
+        # A variation, but as far as khw knows not part of 132227
+        fresh_perl_is("'0bssa' =~ m/0B" . $sharp_s . "\\N{U+41}" . '/i and print "1\n"',  1,{},"Use of sharp s under /di that changes to /ui");
+    }
+    {   # [perl $132164]
+        fresh_perl_is('m m0*0+\Rm', "",{},"Undefined behavior in address sanitizer");
+    }
+    {   # [perl #133642]
+        fresh_perl_is('no warnings "experimental::vlb";
+                      m/((?<=(0?)))/', "",{},"Was getting 'Double free'");
+    }
+    {   # [perl #133782]
+        # this would panic on DEBUGGING builds
+        fresh_perl_is(<<'CODE', "ok\nok\n",{}, 'Bad length magic was left on $^R');
+while( "\N{U+100}bc" =~ /(..?)(?{$^N})/g ) {
+  print "ok\n" if length($^R)==length("$^R");
+}
+CODE
+    }
+    {   # [perl #133871], ASAN/valgrind out-of-bounds access
+        fresh_perl_like('qr/(?|(())|())|//', qr/syntax error/, {}, "[perl #133871]");
+    }
+    {   # [perl #133921], segfault
+        fresh_perl_is('qr0||ß+p00000F00000ù\Q00000ÿ00000x00000x0c0e0\Qx0\Qx0\x{0c!}\;\;î0\x ÿÿÿþ   ù\Q`\Qx` {0c!}e;   ù\ò`\Qm`\x{0c!}\;\;îçÿ  ç   ! F  /;îçÿù\Q   xÿÿÿÿ   ù   `x{0c!}e;   ù\Q`\Qx`\x{c!}\;\;îç!}\;îçÿù\Q \x ÿÿÿÿ  >=\Qx`\Qx`  ù\ò`\Qx`\x{0c!};\;îçÿ  F n0t0 c  d;t    ù  ç  !00000000000000000000000m/0000000000000000000000000000000m/\x{){} )|i', "", {}, "[perl #133921]");
+        fresh_perl_is('|ß+W0ü0r0\Qx0\Qx0x0c0G00000000000000000O000000000x0x0x0c!}\;îçÿù\Q0 \x ÿÿÿÿ   ù\Q`\Qx` {0d ;   ù\ò`\Qm`\x{0c!}\;\;îçÿ  ç   ! F  /;îçÿù\Q   xÿÿÿÿ   ù   `x{0c!};   ù\Q`\Qq`\x{c!}\;\;îç!}\;îçÿù\Q \x ÿÿÿÿ  >=\Qx`\Qx`  ù\ò`\Qx`\x{0c!};\;îçÿ  0000000F m0t0 c  d;t    ù  ç  !00000000000000000000000m/0000000000000000000000000000000m/\x{){} )|i', "", {}, "[perl #133921]");
+
+fresh_perl_is('s|ß+W0ü0f0\Qx0\Qx0x0c0G0xgive0000000000000O0h000x0 \xòÿÿÿ  ù\Q`\Q
+
+
+
+
+	ç
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+x{0c!}\;\;çÿ  q0/i0/! F  /;îçÿù\Q   xÿÿÿÿ   ù   `x{0c!}e;   ù\Q`\Qx`\x{0c!}\;ÿÿÿÿ!}\;îçÿù\Q\x ÿÿÿÿ  >=\Qx`\Qx`  ù\ò`ÿ  >=\Qx`\Qx`  ù\ò`\Qx`\x{0c!};\;îçÿ  u00000F 000t0 p  d?    ù  ç  !00000000000000000000000m/0000000000000000000000000000000m/0 \   } )|i', "", {}, "[perl #133921]");
+
+        fresh_perl_is('a aú  úv sWtrt \ó||ß+Wüef ù\Qx`\Qx`\x{1c!gGnuc given1111111111111O1111each111\jx` \x òÿÿÿ   ù\Qx`\Q
+
+
+
+
+
+	ç
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+x{1c!}\;\;îçÿp  qr/elsif/! eF  /;îçÿù\Q   xÿÿÿÿ   ùHQx   `Lx{1c!}e;   ù\Qx`\Qx`\x{1c!}\;ÿÿÿÿc!}\;îçÿù\Qx\x ÿÿÿÿ  >=\Qx`\Qx`  ù\òx`ÿ  >=\Qx`\Qx`  ù\òx`\Qx`\x{1c!}8;\;îçÿp  unshifteF normat0 cmp  d?not    ùp  ç  !0000000000000000000000000m/00000000000000000000000000000000m/0R \   } )|\aï||K??p¿ÿÿfúd{\{gri{\x{1x/}  ð¹NuntiÀh', "", {}, "[perl #133921]");
+
+    fresh_perl_is('s|ß+W0ü0f0\Qx0\Qx0x0c0g0c 000n0000000000000O0h000x0 \xòÿÿÿ  ù\Q`\Q
+
+
+
+
+
+	ç
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+x{0c!}\;\;îçÿ  /0f/! F  /;îçÿù\Q   xÿÿÿÿ   ù   `x{0c!};   ù\Q`\Qx`\x{0c!}\;ÿÿÿÿ!}\;îçÿù\Q\x ÿÿÿÿ  >=\Qx`\Qx`  ù\ò`ÿ  >=\Qx`\Qx`  ù\ò`\Qx`\x{0c!};\;îçÿ  000t0F 000t0 p  d?n    ù  ç  !00000000000000000000000m/0000000000000000000000000000000m/ \   } )|i', "", {}, "[perl #133933]");
+    }
+
+    {   # perl #133998]
+        fresh_perl_is('print "\x{110000}" =~ qr/(?l)|[^\S\pC\s]/', 1, {},
+        '/[\S\s]/l works');
+    }
+
+    {   # perl #133995]
+        use utf8;
+        fresh_perl_is('"έδωσαν ελληνικήვე" =~ m/[^0](?=0)0?/', "",
+                      {wide_chars => 1},
+                      '[^0] doesnt crash on UTF-8 target string');
+    }
+
+    {   # [perl #133992]  This is a tokenizer bug of parsing a pattern
+        fresh_perl_is(q:$z = do {
+                                use utf8;
+                                "q!ÑÐµÑÑ! =~ m'"
+                        };
+                        $z .= 'è(?#';
+                        $z .= "'";
+                        eval $z;:, "", {}, 'foo');
+    }
+
+    {   # [perl #134325]
+        my $quote="\\Q";
+        my $back="\\\\";
+        my $ff="\xff";
+        my $s = sprintf "/\\1|(|%s)%s%s   /i",
+                        $quote x 8 . $back x 69,
+                        $quote x 5 . $back x 4,
+                        $ff x 48;
+        like(runperl(prog => "$s", stderr => 1), qr/Unmatched \(/);
+   }
+
 } # End of sub run_tests
 
 1;
+
+#
+# ex: set ts=8 sts=4 sw=4 et:
+#

@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchofp.c,v 1.72 2018/12/28 14:32:47 bluhm Exp $	*/
+/*	$OpenBSD: switchofp.c,v 1.76 2019/11/27 17:37:32 akoshibe Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -449,7 +449,6 @@ int	swofp_mp_recv_port_stats(struct switch_softc *, struct mbuf *);
 int	swofp_mp_recv_port_desc(struct switch_softc *, struct mbuf *);
 int	swofp_mp_recv_group_desc(struct switch_softc *, struct mbuf *);
 
-#define OFP_ALIGNMENT 8
 /*
  * OXM (OpenFlow Extensible Match) structures appear in ofp_match structure
  * and ofp_instruction_{apply|write}_action structure.
@@ -586,7 +585,7 @@ struct ofp_mpmsg_class ofp_mpmsg_table[] = {
 
 struct ofp_oxm_class {
 	uint8_t	 oxm_field;
-	uint8_t	 oxm_len; /* This length defined by speficication */
+	uint8_t	 oxm_len; /* This length defined by specification */
 	uint8_t	 oxm_flags;
 	int	(*oxm_match)(struct switch_flow_classify *,
 		    struct ofp_ox_match *);
@@ -2175,7 +2174,8 @@ swofp_validate_action(struct switch_softc *sc, struct ofp_action_header *ah,
 		}
 		break;
 	case OFP_ACTION_SET_FIELD:
-		if (ahlen < sizeof(struct ofp_action_set_field)) {
+		if (ahlen < sizeof(struct ofp_action_set_field) ||
+		    ahlen != OFP_ALIGN(ahlen)) {
 			*err = OFP_ERRACTION_LEN;
 			return (-1);
 		}
@@ -2190,22 +2190,37 @@ swofp_validate_action(struct switch_softc *sc, struct ofp_action_header *ah,
 		dptr = (uint8_t *)ah;
 		dptr += sizeof(struct ofp_action_set_field) -
 		    offsetof(struct ofp_action_set_field, asf_field);
-		while (oxmlen > 0) {
-			oxm = (struct ofp_ox_match *)dptr;
-			if (swofp_validate_oxm(oxm, err)) {
-				if (*err == OFP_ERRMATCH_BAD_LEN)
-					*err = OFP_ERRACTION_SET_LEN;
-				else
-					*err = OFP_ERRACTION_SET_TYPE;
+		oxm = (struct ofp_ox_match *)dptr;
+		oxmlen -= sizeof(struct ofp_ox_match);
+		if (oxmlen < oxm->oxm_length) {
+			*err = OFP_ERRACTION_SET_LEN;
+			return (-1);
+		}
+		/* Remainder is padding. */
+		oxmlen -= oxm->oxm_length;
+		if (oxmlen >= OFP_ALIGNMENT) {
+			*err = OFP_ERRACTION_SET_LEN;
+			return (-1);
+		}
 
+		if (swofp_validate_oxm(oxm, err)) {
+			if (*err == OFP_ERRMATCH_BAD_LEN)
+				*err = OFP_ERRACTION_SET_LEN;
+			else
+				*err = OFP_ERRACTION_SET_TYPE;
+			return (-1);
+		}
+
+	 	dptr += sizeof(struct ofp_ox_match) + oxm->oxm_length;
+		while (oxmlen > 0) {
+			if (*dptr != 0) {
+				*err = OFP_ERRACTION_SET_ARGUMENT;
 				return (-1);
 			}
-
-			dptr += sizeof(*oxm) + oxm->oxm_length;
-			oxmlen -= sizeof(*oxm) + oxm->oxm_length;
+			oxmlen--;
+			dptr++;
 		}
 		break;
-
 	default:
 		/* Unknown/unsupported action. */
 		*err = OFP_ERRACTION_TYPE;
@@ -3492,6 +3507,7 @@ swofp_action_output(struct switch_softc *sc, struct mbuf *m,
 	struct ofp_action_output	*oao;
 	struct switch_port		*swpo;
 	struct mbuf			*mc;
+	uint32_t			protected = 0;
 
 	m->m_pkthdr.csum_flags = 0;
 
@@ -3509,6 +3525,14 @@ swofp_action_output(struct switch_softc *sc, struct mbuf *m,
 		}
 	}
 
+	TAILQ_FOREACH(swpo, &sc->sc_swpo_list, swpo_list_next) {
+		if (swpo->swpo_port_no ==
+		    swpld->swpld_swfcl->swfcl_in_port) {
+			protected = swpo->swpo_protected;
+			break;
+		}
+	}
+
 	switch (ntohl(oao->ao_port)) {
 	case OFP_PORT_CONTROLLER:
 		swofp_action_output_controller(sc, mc, swpld,
@@ -3521,7 +3545,8 @@ swofp_action_output(struct switch_softc *sc, struct mbuf *m,
 	case OFP_PORT_FLOOD:
 		TAILQ_FOREACH(swpo, &sc->sc_swpo_list, swpo_list_next) {
 			if (swpo->swpo_port_no !=
-			    swpld->swpld_swfcl->swfcl_in_port)
+			    swpld->swpld_swfcl->swfcl_in_port &&
+			    (protected & swpo->swpo_protected) == 0)
 				TAILQ_INSERT_HEAD(&swpld->swpld_fwdp_q, swpo,
 				    swpo_fwdp_next);
 		}
@@ -3543,7 +3568,8 @@ swofp_action_output(struct switch_softc *sc, struct mbuf *m,
 		break;
 	case OFP_PORT_LOCAL:
 		TAILQ_FOREACH(swpo, &sc->sc_swpo_list, swpo_list_next) {
-			if (swpo->swpo_flags & IFBIF_LOCAL) {
+			if ((swpo->swpo_flags & IFBIF_LOCAL) &&
+			    (protected & swpo->swpo_protected) == 0) {
 				TAILQ_INSERT_HEAD(&swpld->swpld_fwdp_q, swpo,
 				    swpo_fwdp_next);
 				break;
@@ -3552,7 +3578,8 @@ swofp_action_output(struct switch_softc *sc, struct mbuf *m,
 		break;
 	default:
 		TAILQ_FOREACH(swpo, &sc->sc_swpo_list, swpo_list_next) {
-			if (swpo->swpo_port_no == ntohl(oao->ao_port))
+			if (swpo->swpo_port_no == ntohl(oao->ao_port) &&
+			    (protected & swpo->swpo_protected) == 0)
 				TAILQ_INSERT_HEAD(&swpld->swpld_fwdp_q, swpo,
 				    swpo_fwdp_next);
 		}

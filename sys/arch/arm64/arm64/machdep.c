@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.36 2018/07/04 22:26:20 drahn Exp $ */
+/* $OpenBSD: machdep.c,v 1.43 2019/08/26 09:10:22 kettenis Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -30,6 +30,7 @@
 #include <sys/msgbuf.h>
 #include <sys/buf.h>
 #include <sys/termios.h>
+#include <sys/sensors.h>
 
 #include <net/if.h>
 #include <uvm/uvm.h>
@@ -48,6 +49,11 @@
 #include <ddb/db_extern.h>
 
 #include <dev/acpi/efi.h>
+
+#include "softraid.h"
+#if NSOFTRAID > 0
+#include <dev/softraidvar.h>
+#endif
 
 char *boot_args = NULL;
 char *boot_file = "";
@@ -223,8 +229,10 @@ fdt_find_cons(const char *name)
 	return (NULL);
 }
 
+extern void	amluart_init_cons(void);
 extern void	com_fdt_init_cons(void);
 extern void	imxuart_init_cons(void);
+extern void	mvuart_init_cons(void);
 extern void	pluart_init_cons(void);
 extern void	simplefb_init_cons(bus_space_tag_t);
 
@@ -238,8 +246,10 @@ consinit(void)
 
 	consinit_called = 1;
 
+	amluart_init_cons();
 	com_fdt_init_cons();
 	imxuart_init_cons();
+	mvuart_init_cons();
 	pluart_init_cons();
 	simplefb_init_cons(&arm64_bs_tag);
 }
@@ -363,6 +373,9 @@ int	waittime = -1;
 __dead void
 boot(int howto)
 {
+	if ((howto & RB_RESET) != 0)
+		goto doreset;
+
 	if (cold) {
 		if ((howto & RB_USERREQ) == 0)
 			howto |= RB_HALT;
@@ -406,6 +419,7 @@ haltsys:
 		cngetc();
 	}
 
+doreset:
 	printf("rebooting...\n");
 	delay(500000);
 	if (cpuresetfn)
@@ -800,8 +814,10 @@ initarm(struct arm64_bootparams *abp)
 	// NOTE that 1GB of ram is mapped in by default in
 	// the bootstrap memory config, so nothing is necessary
 	// until pmap_bootstrap_finalize is called??
+	pmap_map_early((paddr_t)config, PAGE_SIZE);
 	if (!fdt_init(config) || fdt_get_size(config) == 0)
 		panic("initarm: no FDT");
+	pmap_map_early((paddr_t)config, round_page(fdt_get_size(config)));
 
 	struct fdt_reg reg;
 	void *node;
@@ -825,6 +841,22 @@ initarm(struct arm64_bootparams *abp)
 			memcpy(lladdr, prop, sizeof(lladdr));
 			bootmac = lladdr;
 		}
+
+		len = fdt_node_property(node, "openbsd,sr-bootuuid", &prop);
+#if NSOFTRAID > 0
+		if (len == sizeof(sr_bootuuid))
+			memcpy(&sr_bootuuid, prop, sizeof(sr_bootuuid));
+#endif
+		if (len > 0)
+			explicit_bzero(prop, len);
+
+		len = fdt_node_property(node, "openbsd,sr-bootkey", &prop);
+#if NSOFTRAID > 0
+		if (len == sizeof(sr_bootkey))
+			memcpy(&sr_bootkey, prop, sizeof(sr_bootkey));
+#endif
+		if (len > 0)
+			explicit_bzero(prop, len);
 
 		len = fdt_node_property(node, "openbsd,uefi-mmap-start", &prop);
 		if (len == sizeof(mmap_start))
@@ -1036,6 +1068,14 @@ initarm(struct arm64_bootparams *abp)
 		}
 	}
 
+	/*
+	 * Make sure that we have enough KVA to initialize UVM.  In
+	 * particular, we need enough KVA to be able to allocate the
+	 * vm_page structures.
+	 */
+	pmap_growkernel(VM_MIN_KERNEL_ADDRESS + 1024 * 1024 * 1024 +
+	    physmem * sizeof(struct vm_page));
+
 #ifdef DDB
 	db_machine_init();
 
@@ -1122,6 +1162,8 @@ remap_efi_runtime(EFI_PHYSICAL_ADDRESS system_table)
 				     (phys_end - phys_start);
 				phys_end += src->NumberOfPages * PAGE_SIZE;
 			}
+			/* Mask address to make sure it fits in our pmap. */
+			src->VirtualStart &= ((1ULL << USER_SPACE_BITS) - 1);
 			memcpy(dst, src, mmap_desc_size);
 			dst = NextMemoryDescriptor(dst, mmap_desc_size);
 		}

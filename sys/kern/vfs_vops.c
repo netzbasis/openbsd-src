@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_vops.c,v 1.19 2018/06/21 14:17:23 visa Exp $	*/
+/*	$OpenBSD: vfs_vops.c,v 1.23 2019/12/08 12:29:42 mpi Exp $	*/
 /*
  * Copyright (c) 2010 Thordur I. Bjornsson <thib@openbsd.org> 
  *
@@ -46,6 +46,7 @@
 #include <sys/vnode.h>
 #include <sys/unistd.h>
 #include <sys/systm.h>
+#include <sys/lock.h>	/* LK_DRAIN */
 
 #ifdef VFSLCKDEBUG
 #include <sys/systm.h>		/* for panic() */
@@ -336,7 +337,7 @@ int
 VOP_FSYNC(struct vnode *vp, struct ucred *cred, int waitfor, 
     struct proc *p)
 {
-	int r;
+	int r, s;
 	struct vop_fsync_args a;
 	a.a_vp = vp;
 	a.a_cred = cred;
@@ -351,6 +352,10 @@ VOP_FSYNC(struct vnode *vp, struct ucred *cred, int waitfor,
 	vp->v_inflight++;
 	r = (vp->v_op->vop_fsync)(&a);
 	vp->v_inflight--;
+	s = splbio();
+	if (r == 0 && vp->v_bioflag & VBIOERROR)
+		r = EIO;
+	splx(s);
 	return r;
 }
 
@@ -595,6 +600,17 @@ VOP_LOCK(struct vnode *vp, int flags)
 	if (vp->v_op->vop_lock == NULL)
 		return (EOPNOTSUPP);
 
+	if ((flags & LK_DRAIN) && vp->v_lockcount > 0) {
+		/*
+		 * Ensure that any thread currently waiting on the same lock has
+		 * observed that the vnode is about to be exclusively locked
+		 * before continuing.
+		 */
+		KASSERT(vp->v_flag & VXLOCK);
+		tsleep_nsec(&vp->v_lockcount, PINOD, "vop_lock", INFSLP);
+		KASSERT(vp->v_lockcount == 0);
+	}
+
 	return ((vp->v_op->vop_lock)(&a));
 }
 
@@ -683,7 +699,6 @@ VOP_PATHCONF(struct vnode *vp, int name, register_t *retval)
 int
 VOP_ADVLOCK(struct vnode *vp, void *id, int op, struct flock *fl, int flags)
 {
-	int r;
 	struct vop_advlock_args a;
 	a.a_vp = vp;
 	a.a_id = id;
@@ -694,10 +709,7 @@ VOP_ADVLOCK(struct vnode *vp, void *id, int op, struct flock *fl, int flags)
 	if (vp->v_op->vop_advlock == NULL)
 		return (EOPNOTSUPP);
 
-	vp->v_inflight++;
-	r = (vp->v_op->vop_advlock)(&a);
-	vp->v_inflight--;
-	return r;
+	return (vp->v_op->vop_advlock)(&a);
 }
 
 int

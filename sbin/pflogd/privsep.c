@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.32 2018/08/26 18:26:51 brynet Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.34 2019/11/27 17:49:09 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003 Can Erkin Acar
@@ -37,6 +37,8 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <resolv.h>
 #include "pflogd.h"
 
 enum cmd_types {
@@ -99,7 +101,7 @@ priv_init(int Pflag, int argc, char *argv[])
 		err(1, "socketpair() failed");
 
 	child_pid = fork();
-	if (child_pid < 0)
+	if (child_pid == -1)
 		err(1, "fork() failed");
 
 	if (!child_pid) {
@@ -131,11 +133,11 @@ priv_init(int Pflag, int argc, char *argv[])
 
 	setproctitle("[priv]");
 
-	if (unveil("/etc/resolv.conf", "r") == -1)
+	if (unveil(_PATH_RESCONF, "r") == -1)
 		err(1, "unveil");
-	if (unveil("/etc/hosts", "r") == -1)
+	if (unveil(_PATH_HOSTS, "r") == -1)
 		err(1, "unveil");
-	if (unveil("/etc/services", "r") == -1)
+	if (unveil(_PATH_SERVICES, "r") == -1)
 		err(1, "unveil");
 	if (unveil("/dev/bpf", "r") == -1)
 		err(1, "unveil");
@@ -200,7 +202,7 @@ BROKEN	if (pledge("stdio rpath wpath cpath sendfd proc bpf", NULL) == -1)
 			    0600);
 			olderrno = errno;
 			send_fd(socks[0], bpfd);
-			if (bpfd < 0)
+			if (bpfd == -1)
 				logmsg(LOG_NOTICE,
 				    "[priv]: failed to open %s: %s",
 				    filename, strerror(olderrno));

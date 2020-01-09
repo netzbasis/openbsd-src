@@ -1,4 +1,4 @@
-/*	$OpenBSD: database.c,v 1.15 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: database.c,v 1.19 2020/01/03 17:26:16 denis Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -20,7 +20,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
+#include <netinet/ip6.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,10 +43,9 @@ send_db_description(struct nbr *nbr)
 	struct db_dscrp_hdr	 dd_hdr;
 	struct lsa_entry	*le, *nle;
 	struct ibuf		*buf;
-	int			 ret = 0;
 	u_int8_t		 bits = 0;
 
-	if ((buf = ibuf_open(nbr->iface->mtu - sizeof(struct ip))) == NULL)
+	if ((buf = ibuf_open(nbr->iface->mtu - sizeof(struct ip6_hdr))) == NULL)
 		fatal("send_db_description");
 
 	/* OSPF header */
@@ -63,11 +62,10 @@ send_db_description(struct nbr *nbr)
 	case NBR_STA_INIT:
 	case NBR_STA_2_WAY:
 	case NBR_STA_SNAP:
-		log_debug("send_db_description: cannot send packet in state %s,"
-		    " neighbor ID %s", nbr_state_name(nbr->state),
-		    inet_ntoa(nbr->id));
-		ret = -1;
-		goto done;
+		log_debug("send_db_description: neighbor ID %s: "
+		    "cannot send packet in state %s", inet_ntoa(nbr->id),
+		    nbr_state_name(nbr->state));
+		goto fail;
 	case NBR_STA_XSTRT:
 		bits |= OSPF_DBD_MS | OSPF_DBD_M | OSPF_DBD_I;
 		nbr->dd_more = 1;
@@ -90,7 +88,7 @@ send_db_description(struct nbr *nbr)
 
 		/* build LSA list */
 		for (le = TAILQ_FIRST(&nbr->db_sum_list); le != NULL &&
-		    buf->wpos + sizeof(struct lsa_hdr) < buf->max; le = nle) {
+		    ibuf_left(buf) >=  sizeof(struct lsa_hdr); le = nle) {
 			nbr->dd_end = nle = TAILQ_NEXT(le, entry);
 			if (ibuf_add(buf, le->le_lsa, sizeof(struct lsa_hdr)))
 				goto fail;
@@ -134,8 +132,7 @@ send_db_description(struct nbr *nbr)
 		fatalx("send_db_description: unknown interface type");
 	}
 
-	dd_hdr.opts = htonl(area_ospf_options(area_find(oeconf,
-	    nbr->iface->area_id)));
+	dd_hdr.opts = htonl(area_ospf_options(nbr->iface->area));
 	dd_hdr.bits = bits;
 	dd_hdr.dd_seq_num = htonl(nbr->dd_seq_num);
 
@@ -147,10 +144,11 @@ send_db_description(struct nbr *nbr)
 		goto fail;
 
 	/* transmit packet */
-	ret = send_packet(nbr->iface, buf->buf, buf->wpos, &dst);
-done:
+	if (send_packet(nbr->iface, buf, &dst) == -1)
+		goto fail;
+
 	ibuf_free(buf);
-	return (ret);
+	return (0);
 fail:
 	log_warn("send_db_description");
 	ibuf_free(buf);
@@ -164,8 +162,8 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 	int			 dupe = 0;
 
 	if (len < sizeof(dd_hdr)) {
-		log_warnx("recv_db_description: "
-		    "bad packet size, neighbor ID %s", inet_ntoa(nbr->id));
+		log_warnx("recv_db_description: neighbor ID %s: "
+		    "bad packet size", inet_ntoa(nbr->id));
 		return;
 	}
 	memcpy(&dd_hdr, buf, sizeof(dd_hdr));
@@ -174,9 +172,9 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 
 	/* db description packet sanity checks */
 	if (ntohs(dd_hdr.iface_mtu) > nbr->iface->mtu) {
-		log_warnx("recv_db_description: invalid MTU %d sent by "
-		    "neighbor ID %s, expected %d", ntohs(dd_hdr.iface_mtu),
-		    inet_ntoa(nbr->id), nbr->iface->mtu);
+		log_warnx("recv_db_description: neighbor ID %s: "
+		    "invalid MTU %d expected %d", inet_ntoa(nbr->id),
+		    ntohs(dd_hdr.iface_mtu), nbr->iface->mtu);
 		return;
 	}
 
@@ -184,7 +182,7 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 	    nbr->last_rx_bits == dd_hdr.bits &&
 	    ntohl(dd_hdr.dd_seq_num) == nbr->dd_seq_num - nbr->dd_master ?
 	    1 : 0) {
-		log_debug("recv_db_description: dupe from ID %s",
+		log_debug("recv_db_description: dupe from neighbor ID %s",
 		    inet_ntoa(nbr->id));
 		dupe = 1;
 	}
@@ -194,9 +192,9 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 	case NBR_STA_ATTEMPT:
 	case NBR_STA_2_WAY:
 	case NBR_STA_SNAP:
-		log_debug("recv_db_description: packet ignored in state %s, "
-		    "neighbor ID %s", nbr_state_name(nbr->state),
-		    inet_ntoa(nbr->id));
+		log_debug("recv_db_description: neighbor ID %s: "
+		    "packet ignored in state %s", inet_ntoa(nbr->id),
+		    nbr_state_name(nbr->state));
 		return;
 	case NBR_STA_INIT:
 		/* evaluate dr and bdr after issuing a 2-Way event */
@@ -225,9 +223,11 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 		} else if (!(dd_hdr.bits & (OSPF_DBD_I | OSPF_DBD_MS))) {
 			/* M only case: we are master */
 			if (ntohl(dd_hdr.dd_seq_num) != nbr->dd_seq_num) {
-				log_warnx("recv_db_description: invalid "
-				    "seq num, mine %x his %x",
-				    nbr->dd_seq_num, ntohl(dd_hdr.dd_seq_num));
+				log_warnx("recv_db_description: "
+				    "neighbor ID %s: "
+				    "invalid seq num, mine %x his %x",
+				    inet_ntoa(nbr->id), nbr->dd_seq_num,
+				    ntohl(dd_hdr.dd_seq_num));
 				return;
 			}
 			nbr->dd_seq_num++;
@@ -243,9 +243,9 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 			}
 		} else {
 			/* ignore packet */
-			log_debug("recv_db_description: packet ignored in "
-			    "state %s (bad flags), neighbor ID %s",
-			    nbr_state_name(nbr->state), inet_ntoa(nbr->id));
+			log_debug("recv_db_description: neighbor ID %s: "
+			    "packet ignored in state %s (bad flags)",
+			    inet_ntoa(nbr->id), nbr_state_name(nbr->state));
 		}
 		break;
 	case NBR_STA_XCHNG:
@@ -253,15 +253,16 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 	case NBR_STA_FULL:
 		if (dd_hdr.bits & OSPF_DBD_I ||
 		    !(dd_hdr.bits & OSPF_DBD_MS) == !nbr->dd_master) {
-			log_warnx("recv_db_description: seq num mismatch, "
-			    "bad flags");
+			log_warnx("recv_db_description: neighbor ID %s: "
+			    "seq num mismatch, bad flags", inet_ntoa(nbr->id));
 			nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
 			return;
 		}
 
 		if (nbr->last_rx_options != dd_hdr.opts) {
-			log_warnx("recv_db_description: seq num mismatch, "
-			    "bad options");
+			log_warnx("recv_db_description: neighbor ID %s: "
+			    "seq num mismatch, bad options",
+			    inet_ntoa(nbr->id));
 			nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
 			return;
 		}
@@ -274,9 +275,10 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 		}
 
 		if (nbr->state != NBR_STA_XCHNG) {
-			log_warnx("recv_db_description: invalid "
-			    "seq num, mine %x his %x",
-			    nbr->dd_seq_num, ntohl(dd_hdr.dd_seq_num));
+			log_warnx("recv_db_description: neighbor ID %s: "
+			    "invalid seq num, mine %x his %x",
+			    inet_ntoa(nbr->id), nbr->dd_seq_num,
+			    ntohl(dd_hdr.dd_seq_num));
 			nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
 			return;
 		}
@@ -285,9 +287,11 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 		if (nbr->dd_master) {
 			/* master */
 			if (ntohl(dd_hdr.dd_seq_num) != nbr->dd_seq_num) {
-				log_warnx("recv_db_description: invalid "
-				    "seq num, mine %x his %x",
-				    nbr->dd_seq_num, ntohl(dd_hdr.dd_seq_num));
+				log_warnx("recv_db_description: "
+				    "neighbor ID %s: "
+				    "invalid seq num, mine %x his %x, master",
+				    inet_ntoa(nbr->id), nbr->dd_seq_num,
+				    ntohl(dd_hdr.dd_seq_num));
 				nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
 				return;
 			}
@@ -295,9 +299,11 @@ recv_db_description(struct nbr *nbr, char *buf, u_int16_t len)
 		} else {
 			/* slave */
 			if (ntohl(dd_hdr.dd_seq_num) != nbr->dd_seq_num + 1) {
-				log_warnx("recv_db_description: invalid "
-				    "seq num, mine %x his %x",
-				    nbr->dd_seq_num, ntohl(dd_hdr.dd_seq_num));
+				log_warnx("recv_db_description: "
+				    "neighbor ID %s: "
+				    "invalid seq num, mine %x his %x, slave",
+				    inet_ntoa(nbr->id), nbr->dd_seq_num,
+				    ntohl(dd_hdr.dd_seq_num));
 				nbr_fsm(nbr, NBR_EVT_SEQ_NUM_MIS);
 				return;
 			}
@@ -381,8 +387,8 @@ db_tx_timer(int fd, short event, void *arg)
 		send_db_description(nbr);
 		break;
 	default:
-		log_debug("db_tx_timer: unknown neighbor state, "
-		    "neighbor ID %s", inet_ntoa(nbr->id));
+		log_debug("db_tx_timer: neighbor ID %s: unknown neighbor state",
+		    inet_ntoa(nbr->id));
 		break;
 	}
 

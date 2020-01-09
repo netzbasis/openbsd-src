@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.37 2017/11/16 19:22:33 anton Exp $	*/
+/*	$OpenBSD: file.c,v 1.39 2019/11/29 05:28:32 nayden Exp $	*/
 /*	$NetBSD: file.c,v 1.11 1996/11/08 19:34:37 christos Exp $	*/
 
 /*-
@@ -472,7 +472,7 @@ print_by_column(Char *dir, Char *items[], int count)
     struct winsize win;
     int i, rows, r, c, maxwidth = 0, columns;
 
-    if (ioctl(SHOUT, TIOCGWINSZ, (ioctl_t) & win) < 0 || win.ws_col == 0)
+    if (ioctl(SHOUT, TIOCGWINSZ, (ioctl_t) & win) == -1 || win.ws_col == 0)
 	win.ws_col = 80;
     for (i = 0; i < count; i++)
 	maxwidth = maxwidth > (r = Strlen(items[i])) ? maxwidth : r;
@@ -726,7 +726,7 @@ is_prefix(Char *check, Char *template)
 
 /*
  *  Return true if the Chars in template appear at the
- *  end of check, I.e., are it's suffix.
+ *  end of check, I.e., are its suffix.
  */
 static int
 is_suffix(Char *check, Char *template)

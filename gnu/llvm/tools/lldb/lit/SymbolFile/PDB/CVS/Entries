@@ -1,11 +1,17 @@
-/compilands.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/enums-layout.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/func-symbols.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/function-level-linking.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/function-nested-block.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/lit.local.cfg/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/type-quals.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/typedefs.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/variables-locations.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
-/variables.test/1.1.1.1/Sun Jan 27 16:42:58 2019/-ko/
+/ast-restore.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/calling-conventions.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/class-layout.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/compilands.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/enums-layout.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/expressions.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/func-symbols.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/function-level-linking.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/function-nested-block.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/pointers.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/type-quals.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/typedefs.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/udt-layout.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
+/variables-locations.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/variables.test/1.1.1.2/Sun Jun 23 21:37:18 2019/-ko/
+/vbases.test/1.1.1.1/Sun Jun 23 21:37:18 2019/-ko/
 D/Inputs////

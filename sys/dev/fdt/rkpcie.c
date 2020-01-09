@@ -1,4 +1,4 @@
-/*	$OpenBSD: rkpcie.c,v 1.6 2018/08/28 09:33:18 jsg Exp $	*/
+/*	$OpenBSD: rkpcie.c,v 1.9 2019/12/14 17:42:48 kurt Exp $	*/
 /*
  * Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -41,6 +41,9 @@
 #define  PCIE_CLIENT_MODE_SELECT_RC	(((1 << 6) << 16) | (1 << 6))
 #define  PCIE_CLIENT_LINK_TRAIN_EN	(((1 << 1) << 16) | (1 << 1))
 #define  PCIE_CLIENT_CONF_EN		(((1 << 0) << 16) | (1 << 0))
+#define PCIE_CLIENT_DEBUG_OUT_0		0x003c
+#define  PCIE_CLIENT_DEBUG_LTSSM_MASK	0x0000001f
+#define  PCIE_CLIENT_DEBUG_LTSSM_L0	0x00000010
 #define PCIE_CLIENT_BASIC_STATUS1	0x0048
 #define  PCIE_CLIENT_LINK_ST		(0x3 << 20)
 #define  PCIE_CLIENT_LINK_ST_UP		(0x3 << 20)
@@ -65,6 +68,8 @@
 #define PCIE_RC_BASE			0xa00000
 #define PCIE_RC_PCIE_LCAP		(PCIE_RC_BASE + 0x0cc)
 #define  PCIE_RC_PCIE_LCAP_APMS_L0S	(1 << 10)
+#define PCIE_RC_LCSR			(PCIE_RC_BASE + 0x0d0)
+#define PCIE_RC_LCSR2			(PCIE_RC_BASE + 0x0f0)
 
 #define PCIE_ATR_BASE			0xc00000
 #define PCIE_ATR_OB_ADDR0(i)		(PCIE_ATR_BASE + 0x000 + (i) * 0x20)
@@ -137,13 +142,48 @@ pcireg_t rkpcie_conf_read(void *, pcitag_t, int);
 void	rkpcie_conf_write(void *, pcitag_t, int, pcireg_t);
 
 int	rkpcie_intr_map(struct pci_attach_args *, pci_intr_handle_t *);
-int	rkpcie_intr_map_msi(struct pci_attach_args *, pci_intr_handle_t *);
-int	rkpcie_intr_map_msix(struct pci_attach_args *, int,
-	    pci_intr_handle_t *);
 const char *rkpcie_intr_string(void *, pci_intr_handle_t);
 void	*rkpcie_intr_establish(void *, pci_intr_handle_t, int,
 	    int (*)(void *), void *, char *);
 void	rkpcie_intr_disestablish(void *, void *);
+
+/*
+ * When link training, the LTSSM configuration state exits to L0 state upon
+ * success. Wait for L0 state before proceeding after link training has been
+ * initiated either by PCIE_CLIENT_LINK_TRAIN_EN or when triggered via
+ * LCSR Retrain Link bit. See PCIE 2.0 Base Specification, 4.2.6.3.6 
+ * Configuration.Idle.
+ *
+ * Checking link up alone is not sufficient for checking for L0 state. LTSSM
+ * state L0 can be detected when link up is set and link training is cleared.
+ * See PCIE 2.0 Base Specification, 4.2.6 Link Training and Status State Rules,
+ * Table 4-8 Link Status Mapped to the LTSSM.
+ *
+ * However, RC doesn't set the link training bit when initially training via
+ * PCIE_CLIENT_LINK_TRAIN_EN. Fortunately, RC has provided a debug register
+ * that has the LTSSM state which can be checked instead.
+ *
+ * It is important to have reached L0 state before beginning Gen 2 training,
+ * as it is documented that setting the Retrain Link bit while currently
+ * in Recovery or Configuration states is a race condition that may result
+ * in missing the retraining. See See PCIE 2.0 Base Specification, 7.8.7
+ * Link Control Register implementation notes on Retrain Link bit.
+ */
+
+static int
+rkpcie_link_training_wait(struct rkpcie_softc *sc)
+{
+	uint32_t status;
+	int timo;
+	for (timo = 500; timo > 0; timo--) {
+		status = HREAD4(sc, PCIE_CLIENT_DEBUG_OUT_0);
+		if ((status & PCIE_CLIENT_DEBUG_LTSSM_MASK) ==
+		    PCIE_CLIENT_DEBUG_LTSSM_L0)
+			break;
+		delay(1000);
+	}
+	return timo == 0;
+}
 
 void
 rkpcie_attach(struct device *parent, struct device *self, void *aux)
@@ -154,7 +194,8 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 	uint32_t *ep_gpio;
 	uint32_t bus_range[2];
 	uint32_t status;
-	int len, timo;
+	uint32_t max_link_speed;
+	int len;
 
 	if (faa->fa_nreg < 2) {
 		printf(": no registers\n");
@@ -188,6 +229,8 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 	ep_gpio = malloc(len, M_TEMP, M_WAITOK);
 	OF_getpropintarray(sc->sc_node, "ep-gpios", ep_gpio, len);
 
+	max_link_speed = OF_getpropint(sc->sc_node, "max-link-speed", 1);
+
 	clock_enable_all(sc->sc_node);
 
 	gpio_controller_config_pin(ep_gpio, GPIO_CONFIG_OUTPUT);
@@ -210,12 +253,14 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 	reset_deassert(sc->sc_node, "aclk");
 	reset_deassert(sc->sc_node, "pclk");
 
-	/* Only advertise Gen 1 support for now. */
-	HWRITE4(sc, PCIE_CLIENT_BASIC_STRAP_CONF, PCIE_CLIENT_PCIE_GEN_SEL_1);
+	if (max_link_speed > 1)
+		status = PCIE_CLIENT_PCIE_GEN_SEL_2;
+	else
+		status = PCIE_CLIENT_PCIE_GEN_SEL_1;
 
 	/* Switch into Root Complex mode. */
-	HWRITE4(sc, PCIE_CLIENT_BASIC_STRAP_CONF,
-	    PCIE_CLIENT_MODE_SELECT_RC | PCIE_CLIENT_CONF_EN);
+	HWRITE4(sc, PCIE_CLIENT_BASIC_STRAP_CONF, PCIE_CLIENT_MODE_SELECT_RC
+	    | PCIE_CLIENT_CONF_EN | status);
 
 	rkpcie_phy_poweron(sc);
 
@@ -223,6 +268,16 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 	reset_deassert(sc->sc_node, "mgmt");
 	reset_deassert(sc->sc_node, "mgmt-sticky");
 	reset_deassert(sc->sc_node, "pipe");
+
+	/*
+	 * Workaround RC bug where Target Link Speed is not set by GEN_SEL_2
+	 */
+	if (max_link_speed > 1) {
+		status = HREAD4(sc, PCIE_RC_LCSR2);
+		status &= ~PCI_PCIE_LCSR2_TLS;
+		status |= PCI_PCIE_LCSR2_TLS_5;
+		HWRITE4(sc, PCIE_RC_LCSR2, status);
+	}
 
 	/* Start link training. */
 	HWRITE4(sc, PCIE_CLIENT_BASIC_STRAP_CONF, PCIE_CLIENT_LINK_TRAIN_EN);
@@ -232,15 +287,24 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 	gpio_controller_set_pin(ep_gpio, 1);
 	free(ep_gpio, M_TEMP, len);
 
-	for (timo = 500; timo > 0; timo--) {
-		status = HREAD4(sc, PCIE_CLIENT_BASIC_STATUS1);
-		if ((status & PCIE_CLIENT_LINK_ST) == PCIE_CLIENT_LINK_ST_UP)
-			break;
-		delay(1000);
-	}
-	if (timo == 0) {
+	if (rkpcie_link_training_wait(sc)) {
 		printf("%s: link training timeout\n", sc->sc_dev.dv_xname);
 		return;
+	}
+
+	if (max_link_speed > 1) {
+		status = HREAD4(sc, PCIE_RC_LCSR);
+		if ((status & PCI_PCIE_LCSR_CLS) == PCI_PCIE_LCSR_CLS_2_5) {
+			HWRITE4(sc, PCIE_RC_LCSR, HREAD4(sc, PCIE_RC_LCSR) | 
+			    PCI_PCIE_LCSR_RL);
+
+			if (rkpcie_link_training_wait(sc)) {
+				/* didn't make it back to L0 state */
+				printf("%s: gen2 link training timeout\n",
+				    sc->sc_dev.dv_xname);
+				return;
+			}
+		}
 	}
 
 	/* Initialize Root Complex registers. */
@@ -289,8 +353,8 @@ rkpcie_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_pc.pc_intr_v = sc;
 	sc->sc_pc.pc_intr_map = rkpcie_intr_map;
-	sc->sc_pc.pc_intr_map_msi = rkpcie_intr_map_msi;
-	sc->sc_pc.pc_intr_map_msix = rkpcie_intr_map_msix;
+	sc->sc_pc.pc_intr_map_msi = _pci_intr_map_msi;
+	sc->sc_pc.pc_intr_map_msix = _pci_intr_map_msix;
 	sc->sc_pc.pc_intr_string = rkpcie_intr_string;
 	sc->sc_pc.pc_intr_establish = rkpcie_intr_establish;
 	sc->sc_pc.pc_intr_disestablish = rkpcie_intr_disestablish;
@@ -475,17 +539,9 @@ rkpcie_conf_write(void *v, pcitag_t tag, int reg, pcireg_t data)
 	}
 }
 
-struct rkpcie_intr_handle {
-	pci_chipset_tag_t	ih_pc;
-	pcitag_t		ih_tag;
-	int			ih_intrpin;
-	int			ih_msi;
-};
-
 int
 rkpcie_intr_map(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 {
-	struct rkpcie_intr_handle *ih;
 	int pin = pa->pa_rawintrpin;
 
 	if (pin == 0 || pin > PCI_INTERRUPT_PIN_MAX)
@@ -494,70 +550,41 @@ rkpcie_intr_map(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 	if (pa->pa_tag == 0)
 		return -1;
 
-	ih = malloc(sizeof(struct rkpcie_intr_handle), M_DEVBUF, M_WAITOK);
-	ih->ih_pc = pa->pa_pc;
-	ih->ih_tag = pa->pa_intrtag;
-	ih->ih_intrpin = pa->pa_intrpin;
-	ih->ih_msi = 0;
-	*ihp = (pci_intr_handle_t)ih;
+	ihp->ih_pc = pa->pa_pc;
+	ihp->ih_tag = pa->pa_intrtag;
+	ihp->ih_intrpin = pa->pa_intrpin;
+	ihp->ih_type = PCI_INTX;
 
 	return 0;
-}
-
-int
-rkpcie_intr_map_msi(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
-{
-	pci_chipset_tag_t pc = pa->pa_pc;
-	pcitag_t tag = pa->pa_tag;
-	struct rkpcie_intr_handle *ih;
-
-	if ((pa->pa_flags & PCI_FLAGS_MSI_ENABLED) == 0 ||
-	    pci_get_capability(pc, tag, PCI_CAP_MSI, NULL, NULL) == 0)
-		return -1;
-
-	ih = malloc(sizeof(struct rkpcie_intr_handle), M_DEVBUF, M_WAITOK);
-	ih->ih_pc = pa->pa_pc;
-	ih->ih_tag = pa->pa_tag;
-	ih->ih_intrpin = pa->pa_intrpin;
-	ih->ih_msi = 1;
-	*ihp = (pci_intr_handle_t)ih;
-
-	return 0;
-}
-
-int
-rkpcie_intr_map_msix(struct pci_attach_args *pa, int vec,
-    pci_intr_handle_t *ihp)
-{
-	return -1;
 }
 
 const char *
-rkpcie_intr_string(void *v, pci_intr_handle_t ihp)
+rkpcie_intr_string(void *v, pci_intr_handle_t ih)
 {
-	struct rkpcie_intr_handle *ih = (struct rkpcie_intr_handle *)ihp;
-
-	if (ih->ih_msi)
+	switch (ih.ih_type) {
+	case PCI_MSI:
 		return "msi";
+	case PCI_MSIX:
+		return "msix";
+	}
 
 	return "intx";
 }
 
 void *
-rkpcie_intr_establish(void *v, pci_intr_handle_t ihp, int level,
+rkpcie_intr_establish(void *v, pci_intr_handle_t ih, int level,
     int (*func)(void *), void *arg, char *name)
 {
 	struct rkpcie_softc *sc = v;
-	struct rkpcie_intr_handle *ih = (struct rkpcie_intr_handle *)ihp;
 	void *cookie;
 
-	if (ih->ih_msi) {
+	KASSERT(ih.ih_type != PCI_NONE);
+
+	if (ih.ih_type != PCI_INTX) {
 		uint64_t addr, data;
-		pcireg_t reg;
-		int off;
 
 		/* Assume hardware passes Requester ID as sideband data. */
-		data = pci_requester_id(ih->ih_pc, ih->ih_tag);
+		data = pci_requester_id(ih.ih_pc, ih.ih_tag);
 		cookie = fdt_intr_establish_msi(sc->sc_node, &addr,
 		    &data, level, func, arg, name);
 		if (cookie == NULL)
@@ -565,25 +592,11 @@ rkpcie_intr_establish(void *v, pci_intr_handle_t ihp, int level,
 
 		/* TODO: translate address to the PCI device's view */
 
-		if (pci_get_capability(ih->ih_pc, ih->ih_tag, PCI_CAP_MSI,
-		    &off, &reg) == 0)
-			panic("%s: no msi capability", __func__);
-
-		if (reg & PCI_MSI_MC_C64) {
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MA, addr);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MAU32, addr >> 32);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MD64, data);
-		} else {
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MA, addr);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MD32, data);
-		}
-		pci_conf_write(ih->ih_pc, ih->ih_tag,
-		    off, reg | PCI_MSI_MC_MSIE);
+		if (ih.ih_type == PCI_MSIX) {
+			pci_msix_enable(ih.ih_pc, ih.ih_tag,
+			    sc->sc_iot, ih.ih_intrpin, addr, data);
+		} else
+			pci_msi_enable(ih.ih_pc, ih.ih_tag, addr, data);
 	} else {
 		/* Unmask legacy interrupts. */
 		HWRITE4(sc, PCIE_CLIENT_INT_MASK,
@@ -594,7 +607,6 @@ rkpcie_intr_establish(void *v, pci_intr_handle_t ihp, int level,
 		    func, arg, name);
 	}
 
-	free(ih, M_DEVBUF, sizeof(struct rkpcie_intr_handle));
 	return cookie;
 }
 

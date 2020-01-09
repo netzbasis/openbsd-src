@@ -1,9 +1,12 @@
+/TestArmRegisterDefinition.py/1.1.1.1/Sun Jun 23 21:37:30 2019/-ko/
 /TestGDBRemoteClient.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
 /TestGDBRemoteLoad.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
+/TestNoWatchpointSupportInfo.py/1.1.1.1/Sun Jun 23 21:37:30 2019/-ko/
 /TestRestartBug.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
-/TestTargetXMLArch.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
+/TestStopPCs.py/1.1.1.1/Sun Jun 23 21:37:30 2019/-ko/
+/TestTargetXMLArch.py/1.1.1.2/Sun Jun 23 21:37:30 2019/-ko/
 /TestThreadSelectionBug.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
 /a.yaml/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
-/gdbclientutils.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
+/gdbclientutils.py/1.1.1.2/Sun Jun 23 21:37:30 2019/-ko/
 /operating_system.py/1.1.1.1/Sun Jan 27 16:42:46 2019/-ko/
 D

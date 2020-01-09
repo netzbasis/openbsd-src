@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.181 2018/11/19 16:12:06 tedu Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.199 2019/12/24 13:13:54 bluhm Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -160,7 +160,7 @@ struct ctlname {
 #define	KERN_TTYCOUNT		57	/* int: number of tty devices */
 #define KERN_NUMVNODES		58	/* int: number of vnodes in use */
 #define	KERN_MBSTAT		59	/* struct: mbuf statistics */
-/* was KERN_USERASYMCRYPTO	60	*/
+#define	KERN_WITNESS		60	/* node: witness */
 #define	KERN_SEMINFO		61	/* struct: SysV struct seminfo */
 #define	KERN_SHMINFO		62	/* struct: SysV struct shminfo */
 #define KERN_INTRCNT		63	/* node: interrupt counters */
@@ -186,7 +186,10 @@ struct ctlname {
 #define	KERN_CONSBUF		83	/* console message buffer */
 #define	KERN_AUDIO		84	/* struct: audio properties */
 #define	KERN_CPUSTATS		85	/* struct: cpu statistics */
-#define	KERN_MAXID		86	/* number of valid kern ids */
+#define	KERN_PFSTATUS		86	/* struct: pf status and stats */
+#define	KERN_TIMEOUT_STATS	87	/* struct: timeout status and stats */
+#define	KERN_UTC_OFFSET		88	/* int: adjust RTC time to UTC */
+#define	KERN_MAXID		89	/* number of valid kern ids */
 
 #define	CTL_KERN_NAMES { \
 	{ 0, 0 }, \
@@ -202,7 +205,7 @@ struct ctlname {
 	{ "hostname", CTLTYPE_STRING }, \
 	{ "hostid", CTLTYPE_INT }, \
 	{ "clockrate", CTLTYPE_STRUCT }, \
-	{ "dnsjackport", CTLTYPE_INT }, \
+	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "profiling", CTLTYPE_NODE }, \
@@ -249,7 +252,7 @@ struct ctlname {
 	{ "ttycount", CTLTYPE_INT }, \
 	{ "numvnodes", CTLTYPE_INT }, \
 	{ "mbstat", CTLTYPE_STRUCT }, \
-	{ "gap", 0 }, \
+	{ "witness", CTLTYPE_NODE }, \
 	{ "seminfo", CTLTYPE_STRUCT }, \
 	{ "shminfo", CTLTYPE_STRUCT }, \
 	{ "intrcnt", CTLTYPE_NODE }, \
@@ -271,10 +274,13 @@ struct ctlname {
 	{ "proc_nobroadcastkill", CTLTYPE_NODE }, \
 	{ "proc_vmmap", CTLTYPE_NODE }, \
 	{ "global_ptrace", CTLTYPE_INT }, \
-	{ "gap", 0 }, \
-	{ "gap", 0 }, \
+	{ "consbufsize", CTLTYPE_INT }, \
+	{ "consbuf", CTLTYPE_STRUCT }, \
 	{ "audio", CTLTYPE_STRUCT }, \
 	{ "cpustats", CTLTYPE_STRUCT }, \
+	{ "pfstatus", CTLTYPE_STRUCT }, \
+	{ "timeout_stats", CTLTYPE_STRUCT }, \
+	{ "utc_offset", CTLTYPE_INT }, \
 }
 
 /*
@@ -317,6 +323,19 @@ struct ctlname {
 }
 
 /*
+ * KERN_WITNESS
+ */
+#define	KERN_WITNESS_WATCH	1	/* int: operating mode */
+#define	KERN_WITNESS_LOCKTRACE	2	/* int: stack trace saving mode */
+#define	KERN_WITNESS_MAXID	3
+
+#define	CTL_KERN_WITNESS_NAMES { \
+	{ 0, 0 }, \
+	{ "watch", CTLTYPE_INT }, \
+	{ "locktrace", CTLTYPE_INT }, \
+}
+
+/*
  * KERN_PROC subtype ops return arrays of relatively fixed size
  * structures of process info.   Use 8 byte alignment, and new
  * elements should only be added to the end of this structure so
@@ -348,6 +367,8 @@ struct kinfo_proc {
 	int32_t	p_eflag;		/* LONG: extra kinfo_proc flags */
 #define	EPROC_CTTY	0x01	/* controlling tty vnode active */
 #define	EPROC_SLEADER	0x02	/* session leader */
+#define	EPROC_UNVEIL	0x04	/* has unveil settings */
+#define	EPROC_LKUNVEIL	0x08	/* unveil is locked */
 	int32_t	p_exitsig;		/* unused, always zero. */
 	int32_t	p_flag;			/* INT: P_* flags. */
 
@@ -449,6 +470,8 @@ struct kinfo_proc {
 	u_int64_t p_vm_map_size;	/* VSIZE_T: virtual size */
 	int32_t   p_tid;		/* PID_T: Thread identifier. */
 	u_int32_t p_rtableid;		/* U_INT: Routing table identifier. */
+
+	u_int64_t p_pledge;		/* U_INT64_T: Pledge flags. */
 };
 
 /*
@@ -474,24 +497,33 @@ struct kinfo_vmentry {
 	u_int8_t kve_flags;		/* u_int8_t */
 };
 
+/* keep in sync with UVM_ET_* */
 #define KVE_ET_OBJ		0x00000001
 #define KVE_ET_SUBMAP		0x00000002
 #define KVE_ET_COPYONWRITE 	0x00000004
 #define KVE_ET_NEEDSCOPY	0x00000008
 #define KVE_ET_HOLE		0x00000010
 #define KVE_ET_NOFAULT		0x00000020
-#define KVE_ET_FREEMAPPED	0x00000080
+#define KVE_ET_STACK		0x00000040
+#define KVE_ET_WC		0x00000080
+#define KVE_ET_CONCEAL		0x00000100
+#define KVE_ET_SYSCALL		0x00000200
+#define KVE_ET_FREEMAPPED	0x00000800
+
 #define KVE_PROT_NONE		0x00000000
 #define KVE_PROT_READ		0x00000001
 #define KVE_PROT_WRITE		0x00000002
 #define KVE_PROT_EXEC		0x00000004
+
 #define KVE_ADV_NORMAL		0x00000000
 #define KVE_ADV_RANDOM		0x00000001
 #define KVE_ADV_SEQUENTIAL	0x00000002
+
 #define KVE_INH_SHARE		0x00000000
 #define KVE_INH_COPY		0x00000010
 #define KVE_INH_NONE		0x00000020
 #define KVE_INH_ZERO		0x00000030
+
 #define KVE_F_STATIC		0x01
 #define KVE_F_KMEM		0x02
 
@@ -520,6 +552,14 @@ struct kinfo_vmentry {
  * because they're too painful to generalize: p_ppid, p_sid, p_tdev,
  * p_tpgid, p_tsess, p_vm_rssize, p_u[us]time_{sec,usec}, p_cpuid
  */
+
+#if defined(_KERNEL)
+#define PR_LOCK(pr)	mtx_enter(&(pr)->ps_mtx)
+#define PR_UNLOCK(pr)	mtx_leave(&(pr)->ps_mtx)
+#else
+#define PR_LOCK(pr)	/* nothing */
+#define PR_UNLOCK(pr)	/* nothing */
+#endif
 
 #define PTRTOINT64(_x)	((u_int64_t)(u_long)(_x))
 
@@ -580,7 +620,7 @@ do {									\
 		(kp)->p_tracep = PTRTOINT64((pr)->ps_tracevp);		\
 	(kp)->p_traceflag = (pr)->ps_traceflag;				\
 									\
-	(kp)->p_siglist = (p)->p_siglist;				\
+	(kp)->p_siglist = (p)->p_siglist | (pr)->ps_siglist;		\
 	(kp)->p_sigmask = (p)->p_sigmask;				\
 	(kp)->p_sigignore = (sa) ? (sa)->ps_sigignore : 0;		\
 	(kp)->p_sigcatch = (sa) ? (sa)->ps_sigcatch : 0;		\
@@ -588,8 +628,9 @@ do {									\
 	(kp)->p_stat = (p)->p_stat;					\
 	(kp)->p_nice = (pr)->ps_nice;					\
 									\
-	(kp)->p_xstat = (p)->p_xstat;					\
+	(kp)->p_xstat = W_EXITCODE((pr)->ps_xexit, (pr)->ps_xsig);	\
 	(kp)->p_acflag = (pr)->ps_acflag;				\
+	(kp)->p_pledge = (pr)->ps_pledge;				\
 									\
 	/* XXX depends on e_name being an array and not a pointer */	\
 	copy_str((kp)->p_emul, (char *)(pr)->ps_emul +			\
@@ -600,8 +641,12 @@ do {									\
 									\
 	if ((sess)->s_ttyvp)						\
 		(kp)->p_eflag |= EPROC_CTTY;				\
-	if ((sess)->s_leader == (praddr))				\
-		(kp)->p_eflag |= EPROC_SLEADER;				\
+	if ((pr)->ps_uvpaths)						\
+		(kp)->p_eflag |= EPROC_UNVEIL;				\
+	if ((pr)->ps_uvdone ||						\
+	    (((pr)->ps_flags & PS_PLEDGE) &&				\
+	     ((pr)->ps_pledge & PLEDGE_UNVEIL) == 0))			\
+		(kp)->p_eflag |= EPROC_LKUNVEIL;			\
 									\
 	if (((pr)->ps_flags & (PS_EMBRYO | PS_ZOMBIE)) == 0) {		\
 		if ((vm) != NULL) {					\
@@ -623,17 +668,16 @@ do {									\
 			(kp)->p_wchan = PTRTOINT64((p)->p_wchan);	\
 	}								\
 									\
+	PR_LOCK(pr);							\
 	if (lim)							\
 		(kp)->p_rlim_rss_cur =					\
 		    (lim)->pl_rlimit[RLIMIT_RSS].rlim_cur;		\
+	PR_UNLOCK(pr);							\
 									\
 	if (((pr)->ps_flags & PS_ZOMBIE) == 0) {			\
 		struct timeval tv;					\
 									\
 		(kp)->p_uvalid = 1;					\
-									\
-		(kp)->p_ustart_sec = (pr)->ps_start.tv_sec;		\
-		(kp)->p_ustart_usec = (pr)->ps_start.tv_nsec/1000;	\
 									\
 		(kp)->p_uru_maxrss = (p)->p_ru.ru_maxrss;		\
 		(kp)->p_uru_ixrss = (p)->p_ru.ru_ixrss;			\
@@ -997,10 +1041,12 @@ int sysctl_wdog(int *, u_int, void *, size_t *, void *, size_t);
 extern int (*cpu_cpuspeed)(int *);
 extern void (*cpu_setperf)(int);
 
+int net_ifiq_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int bpf_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int pflow_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int pipex_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int mpls_sysctl(int *, u_int, void *, size_t *, void *, size_t);
+int pf_sysctl(void *, size_t *, void *, size_t);
 
 #else	/* !_KERNEL */
 

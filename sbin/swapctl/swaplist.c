@@ -1,4 +1,4 @@
-/*	$OpenBSD: swaplist.c,v 1.12 2015/12/10 17:27:00 mmcc Exp $	*/
+/*	$OpenBSD: swaplist.c,v 1.14 2019/12/05 12:46:54 mpi Exp $	*/
 /*	$NetBSD: swaplist.c,v 1.8 1998/10/08 10:00:31 mrg Exp $	*/
 
 /*
@@ -13,8 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -62,7 +60,7 @@ list_swap(int pri, int kflag, int pflag, int dolong)
 	if (sep == NULL)
 		err(1, "calloc");
 	rnswap = swapctl(SWAP_STATS, (void *)sep, nswap);
-	if (rnswap < 0)
+	if (rnswap == -1)
 		err(1, "SWAP_STATS");
 	if (nswap != rnswap)
 		warnx("SWAP_STATS different to SWAP_NSWAP (%d != %d)",

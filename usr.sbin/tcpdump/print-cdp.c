@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-cdp.c,v 1.6 2016/03/29 04:07:50 canacar Exp $	*/
+/*	$OpenBSD: print-cdp.c,v 1.8 2019/09/11 15:20:30 martijn Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993, 1994, 1995, 1996, 1997
@@ -46,20 +46,17 @@ void cdp_print_prefixes(const u_char * p, int l);
  * Returns non-zero IFF it succeeds in printing the header
  */
 void
-cdp_print(const u_char *p, u_int length, u_int caplen,
-	  const u_char *esrc, const u_char *edst)
+cdp_print(const u_char *p, u_int length, u_int caplen, int i)
 {
-	int i;
 	int type, len;
 
 	/* Cisco Discovery Protocol */
 
-	if (caplen < 12) {
+	if (caplen < i + 4) {
 		printf("[|cdp]");
 		return;
 	}
 
-	i=8;		/* CDP data starts at offset 8 */
 	printf("CDP v%d, ttl=%ds", p[i], p[i+1]);
 	i+=4;		/* skip version, TTL and chksum */
 
@@ -83,6 +80,7 @@ cdp_print(const u_char *p, u_int length, u_int caplen,
 			return;
 		}
 
+		/* http://www.cisco.com/c/en/us/support/docs/switches/catalyst-4500-series-switches/13414-103.html#cdp */
 		switch(type) {
 		case 0x01:
 			printf(" DevID '%.*s'", len - 4, p + i + 4);
@@ -112,15 +110,15 @@ cdp_print(const u_char *p, u_int length, u_int caplen,
 		case 0x07:
 			cdp_print_prefixes(p+i+4, len-4);
 			break;
-		case 0x09:		/* guess - not documented */
+		case 0x09:
 			printf(" VTP-Management-Domain '%.*s'", len-4, p+i+4 );
 			break;
-		case 0x0a:		/* guess - not documented */
+		case 0x0a:
 			if (len < 6)
 				goto error;
-			printf(" Native-VLAN-ID %d", (p[i+4]<<8) + p[i+4+1] - 1 );
+			printf(" Native-VLAN-ID %d", (p[i+4]<<8) + p[i+4+1]);
 			break;
-		case 0x0b:		/* guess - not documented */
+		case 0x0b:
 			if (len < 5)
 				goto error;
 			printf(" Duplex %s", p[i+4] ? "full": "half" );

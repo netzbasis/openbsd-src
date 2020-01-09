@@ -7,7 +7,7 @@ BEGIN {
     require './test.pl';
 }
 
-plan(tests => 32);
+plan(tests => 37);
 
 sub r {
     return qr/Good/;
@@ -110,3 +110,60 @@ sub {
     is $_[0], "$str ", 'stringifying regexpvlv in place';
 }
  ->((\my%hash)->{key});
+
+# utf8::upgrade on an SVt_REGEXP should be a NOOP.
+# RT #131821
+
+{
+    my $r1 = qr/X/i;
+    utf8::upgrade($$r1);
+    like "xxx", $r1, "RT #131821 utf8::upgrade: case insensitive";
+}
+
+# after v5.27.2-30-gdf6b4bd, this was double-freeing the PVX buffer
+# and would crash under valgrind or similar. The eval ensures that the
+# regex any children are freed.
+
+{
+    my %h;
+    eval q{
+        sub {
+           my $r = qr/abc/;
+           $_[0] = $$r;
+        }->($h{foo});
+        1;
+    };
+}
+pass("PVLV-as-REGEXP double-free of PVX");
+
+# a non-cow SVPV leaked it's string buffer when a REGEXP was assigned to
+# it. Give valgrind/ASan something to work on
+{
+    my $s = substr("ab",0,1); # generate a non-COW string
+    my $r1 = qr/x/;
+    $s = $$r1; # make sure "a" isn't leaked
+    pass("REGEXP leak");
+
+    my $dest = 0;
+    sub Foo99::DESTROY { $dest++ }
+
+    # ditto but make sure we don't leak a reference
+    {
+        my $ref = bless [], "Foo99";
+        my $r2 = qr/x/;
+        $ref = $$r2;
+    }
+    is($dest, 1, "REGEXP RV leak");
+
+    # and worse, assigning a REGEXP to an PVLV that had a string value
+    # caused an assert failure. Same code, but using $_[0] which is an
+    # lvalue, rather than $s.
+
+    my %h;
+    sub {
+        $_[0] = substr("ab",0,1); # generate a non-COW string
+        my $r = qr/x/;
+        $_[0] = $$r; # make sure "a" isn't leaked
+    }->($h{foo}); # passes PVLV to sub
+    is($h{foo}, "(?^:x)", "REGEXP PVLV leak");
+}

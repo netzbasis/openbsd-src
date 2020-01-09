@@ -1,4 +1,4 @@
-/*	$OpenBSD: hello.c,v 1.18 2018/02/22 07:43:29 claudio Exp $ */
+/*	$OpenBSD: hello.c,v 1.22 2020/01/03 17:25:48 denis Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -41,8 +41,6 @@ send_hello(struct iface *iface)
 	struct hello_hdr	 hello;
 	struct nbr		*nbr;
 	struct ibuf		*buf;
-	int			 ret;
-	u_int32_t		 opts;
 
 	switch (iface->type) {
 	case IF_TYPE_POINTOPOINT:
@@ -72,10 +70,8 @@ send_hello(struct iface *iface)
 	/* hello header */
 	hello.iface_id = htonl(iface->ifindex);
 	LSA_24_SETHI(hello.opts, iface->priority);
-	opts = area_ospf_options(area_find(oeconf, iface->area_id));
-	LSA_24_SETLO(hello.opts, opts);
+	LSA_24_SETLO(hello.opts, area_ospf_options(iface->area));
 	hello.opts = htonl(hello.opts);
-
 	hello.hello_interval = htons(iface->hello_interval);
 	hello.rtr_dead_interval = htons(iface->dead_interval);
 
@@ -104,10 +100,11 @@ send_hello(struct iface *iface)
 	if (upd_ospf_hdr(buf, iface))
 		goto fail;
 
-	ret = send_packet(iface, buf->buf, buf->wpos, &dst);
+	if (send_packet(iface, buf, &dst) == -1)
+		goto fail;
 
 	ibuf_free(buf);
-	return (ret);
+	return (0);
 fail:
 	log_warn("send_hello");
 	ibuf_free(buf);
@@ -120,7 +117,6 @@ recv_hello(struct iface *iface, struct in6_addr *src, u_int32_t rtr_id,
 {
 	struct hello_hdr	 hello;
 	struct nbr		*nbr = NULL, *dr;
-	struct area		*area;
 	u_int32_t		 nbr_id, opts;
 	int			 nbr_change = 0;
 
@@ -148,12 +144,9 @@ recv_hello(struct iface *iface, struct in6_addr *src, u_int32_t rtr_id,
 		return;
 	}
 
-	if ((area = area_find(oeconf, iface->area_id)) == NULL)
-		fatalx("interface lost area");
-
 	opts = LSA_24_GETLO(ntohl(hello.opts));
-	if ((opts & OSPF_OPTION_E && area->stub) ||
-	    ((opts & OSPF_OPTION_E) == 0 && !area->stub)) {
+	if ((opts & OSPF_OPTION_E && iface->area->stub) ||
+	    ((opts & OSPF_OPTION_E) == 0 && !iface->area->stub)) {
 		log_warnx("recv_hello: ExternalRoutingCapability mismatch, "
 		    "interface %s", iface->name);
 		return;
@@ -161,8 +154,15 @@ recv_hello(struct iface *iface, struct in6_addr *src, u_int32_t rtr_id,
 
 	/* match router-id */
 	LIST_FOREACH(nbr, &iface->nbr_list, entry) {
-		if (nbr == iface->self)
+		if (nbr == iface->self) {
+			if (nbr->id.s_addr == rtr_id) {
+				log_warnx("recv_hello: Router-ID collision on "
+				    "interface %s neighbor IP %s", iface->name,
+				    log_in6addr(src));
+				return;
+			}
 			continue;
+		}
 		if (nbr->id.s_addr == rtr_id)
 			break;
 	}
@@ -173,10 +173,16 @@ recv_hello(struct iface *iface, struct in6_addr *src, u_int32_t rtr_id,
 		nbr->dr.s_addr = hello.d_rtr;
 		nbr->bdr.s_addr = hello.bd_rtr;
 		nbr->priority = LSA_24_GETHI(ntohl(hello.opts));
+		/* XXX neighbor address shouldn't be stored on virtual links */
+		nbr->addr = *src;
 	}
 
-	/* actually the neighbor address shouldn't be stored on virtual links */
-	nbr->addr = *src;
+	if (!IN6_ARE_ADDR_EQUAL(&nbr->addr, src)) {
+		log_warnx("%s: neighbor ID %s changed its address to %s",
+		    __func__, inet_ntoa(nbr->id), log_in6addr(src));
+		nbr->addr = *src;
+	}
+
 	nbr->options = opts;
 
 	nbr_fsm(nbr, NBR_EVT_HELLO_RCVD);

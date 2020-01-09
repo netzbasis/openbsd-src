@@ -1,4 +1,4 @@
-/*	$OpenBSD: buf.h,v 1.107 2018/08/13 15:26:17 visa Exp $	*/
+/*	$OpenBSD: buf.h,v 1.112 2019/11/29 01:04:08 beck Exp $	*/
 /*	$NetBSD: buf.h,v 1.25 1997/04/09 21:12:17 mycroft Exp $	*/
 
 /*
@@ -42,6 +42,7 @@
 #include <sys/queue.h>
 #include <sys/tree.h>
 #include <sys/mutex.h>
+#include <uvm/uvm_extern.h>
 
 #define NOLIST ((struct buf *)0x87654321)
 
@@ -157,7 +158,8 @@ struct buf {
 	union	bufq_data b_bufq;
 	struct	bufq	  *b_bq;	/* What bufq this buf is on */
 
-	struct uvm_object *b_pobj;	/* Object containing the pages */
+	struct uvm_object *b_pobj;
+	struct uvm_object b_uobj;	/* Object containing the pages */
 	off_t	b_poffs;		/* Offset within object */
 
 	daddr_t	b_lblkno;		/* Logical block number. */
@@ -229,7 +231,7 @@ struct bufcache {
  * Zero out the buffer's data area.
  */
 #define	clrbuf(bp) {							\
-	bzero((bp)->b_data, (u_int)(bp)->b_bcount);			\
+	bzero((bp)->b_data, (bp)->b_bcount);				\
 	(bp)->b_resid = 0;						\
 }
 
@@ -277,7 +279,7 @@ void	buf_dirty(struct buf *);
 void    buf_undirty(struct buf *);
 void	buf_adjcnt(struct buf *, long);
 int	bwrite(struct buf *);
-struct buf *getblk(struct vnode *, daddr_t, int, int, int);
+struct buf *getblk(struct vnode *, daddr_t, int, int, uint64_t);
 struct buf *geteblk(size_t);
 struct buf *incore(struct vnode *, daddr_t);
 

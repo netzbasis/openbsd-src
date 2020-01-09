@@ -1,11 +1,11 @@
 /files.hid/1.2/Wed Jan 20 01:26:00 2016//
 /hid.c/1.2/Wed Jan 20 01:11:50 2016//
-/hid.h/1.5/Mon Sep 12 09:10:05 2016//
+/hid.h/1.6/Tue Dec 17 13:08:54 2019//
 /hidkbd.c/1.5/Tue May 30 07:40:24 2017//
 /hidkbdsc.h/1.1/Fri Jan  8 15:54:13 2016//
 /hidkbdvar.h/1.1/Fri Jan  8 15:54:13 2016//
 /hidms.c/1.5/Wed Sep  5 16:34:58 2018//
 /hidmsvar.h/1.1/Fri Jan  8 15:54:13 2016//
-/hidmt.c/1.9/Sat Aug 25 20:31:31 2018//
-/hidmtvar.h/1.7/Sat Aug 25 20:31:31 2018//
+/hidmt.c/1.10/Fri Nov  8 01:20:22 2019//
+/hidmtvar.h/1.8/Fri Nov  8 01:20:22 2019//
 D

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.25 2018/12/31 18:00:53 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.37 2019/10/01 03:53:26 jsg Exp $	*/
 
 /*
  * Copyright (c) 2016 Dale Rahn <drahn@dalerahn.com>
@@ -32,6 +32,7 @@
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
 #include <dev/ofw/ofw_regulator.h>
+#include <dev/ofw/ofw_thermal.h>
 #include <dev/ofw/fdt.h>
 
 #include <machine/cpufunc.h>
@@ -45,20 +46,30 @@
 /* CPU Identification */
 #define CPU_IMPL_ARM		0x41
 #define CPU_IMPL_CAVIUM		0x43
+#define CPU_IMPL_AMCC		0x50
 
+#define CPU_PART_CORTEX_A34	0xd02
 #define CPU_PART_CORTEX_A53	0xd03
 #define CPU_PART_CORTEX_A35	0xd04
 #define CPU_PART_CORTEX_A55	0xd05
+#define CPU_PART_CORTEX_A65	0xd06
 #define CPU_PART_CORTEX_A57	0xd07
 #define CPU_PART_CORTEX_A72	0xd08
 #define CPU_PART_CORTEX_A73	0xd09
 #define CPU_PART_CORTEX_A75	0xd0a
 #define CPU_PART_CORTEX_A76	0xd0b
+#define CPU_PART_NEOVERSE_N1	0xd0c
+#define CPU_PART_CORTEX_A77	0xd0d
+#define CPU_PART_CORTEX_A76AE	0xd0e
+#define CPU_PART_CORTEX_A65AE	0xd43
+#define CPU_PART_NEOVERSE_E1	0xd4a
 
 #define CPU_PART_THUNDERX_T88	0x0a1
 #define CPU_PART_THUNDERX_T81	0x0a2
 #define CPU_PART_THUNDERX_T83	0x0a3
 #define CPU_PART_THUNDERX2_T99	0x0af
+
+#define CPU_PART_X_GENE		0x000
 
 #define CPU_IMPL(midr)  (((midr) >> 24) & 0xff)
 #define CPU_PART(midr)  (((midr) >> 4) & 0xfff)
@@ -75,15 +86,22 @@ struct cpu_cores cpu_cores_none[] = {
 };
 
 struct cpu_cores cpu_cores_arm[] = {
+	{ CPU_PART_CORTEX_A34, "Cortex-A34" },
 	{ CPU_PART_CORTEX_A35, "Cortex-A35" },
 	{ CPU_PART_CORTEX_A53, "Cortex-A53" },
 	{ CPU_PART_CORTEX_A55, "Cortex-A55" },
 	{ CPU_PART_CORTEX_A57, "Cortex-A57" },
+	{ CPU_PART_CORTEX_A65, "Cortex-A65" },
+	{ CPU_PART_CORTEX_A65AE, "Cortex-A65AE" },
 	{ CPU_PART_CORTEX_A72, "Cortex-A72" },
 	{ CPU_PART_CORTEX_A73, "Cortex-A73" },
 	{ CPU_PART_CORTEX_A75, "Cortex-A75" },
 	{ CPU_PART_CORTEX_A76, "Cortex-A76" },
-	{ 0 },
+	{ CPU_PART_CORTEX_A76AE, "Cortex-A76AE" },
+	{ CPU_PART_CORTEX_A77, "Cortex-A77" },
+	{ CPU_PART_NEOVERSE_E1, "Neoverse E1" },
+	{ CPU_PART_NEOVERSE_N1, "Neoverse N1" },
+	{ 0, NULL },
 };
 
 struct cpu_cores cpu_cores_cavium[] = {
@@ -91,7 +109,12 @@ struct cpu_cores cpu_cores_cavium[] = {
 	{ CPU_PART_THUNDERX_T81, "ThunderX T81" },
 	{ CPU_PART_THUNDERX_T83, "ThunderX T83" },
 	{ CPU_PART_THUNDERX2_T99, "ThunderX2 T99" },
-	{ 0 },
+	{ 0, NULL },
+};
+
+struct cpu_cores cpu_cores_amcc[] = {
+	{ CPU_PART_X_GENE, "X-Gene" },
+	{ 0, NULL },
 };
 
 /* arm cores makers */
@@ -102,7 +125,8 @@ const struct implementers {
 } cpu_implementers[] = {
 	{ CPU_IMPL_ARM,	"ARM", cpu_cores_arm },
 	{ CPU_IMPL_CAVIUM, "Cavium", cpu_cores_cavium },
-	{ 0 },
+	{ CPU_IMPL_AMCC, "Applied Micro", cpu_cores_amcc },
+	{ 0, NULL },
 };
 
 char cpu_model[64];
@@ -130,7 +154,7 @@ void
 cpu_identify(struct cpu_info *ci)
 {
 	uint64_t midr, impl, part;
-	uint64_t clidr;
+	uint64_t clidr, id_aa64pfr0;
 	uint32_t ctr, ccsidr, sets, ways, line;
 	const char *impl_name = NULL;
 	const char *part_name = NULL;
@@ -143,7 +167,7 @@ cpu_identify(struct cpu_info *ci)
 	impl = CPU_IMPL(midr);
 	part = CPU_PART(midr);
 
-	for (i = 0; cpu_implementers[i].id != 0; i++) {
+	for (i = 0; cpu_implementers[i].name; i++) {
 		if (impl == cpu_implementers[i].id) {
 			impl_name = cpu_implementers[i].name;
 			coreselecter = cpu_implementers[i].corelist;
@@ -151,7 +175,7 @@ cpu_identify(struct cpu_info *ci)
 		}
 	}
 
-	for (i = 0; coreselecter[i].id != 0; i++) {
+	for (i = 0; coreselecter[i].name; i++) {
 		if (part == coreselecter[i].id) {
 			part_name = coreselecter[i].name;
 			break;
@@ -242,16 +266,12 @@ cpu_identify(struct cpu_info *ci)
 			/* Not vulnerable. */
 			ci->ci_flush_bp = cpu_flush_bp_noop;
 			break;
-		case CPU_PART_CORTEX_A57:
-		case CPU_PART_CORTEX_A72:
-		case CPU_PART_CORTEX_A73:
-		case CPU_PART_CORTEX_A75:
 		default:
 			/*
-			 * Vulnerable; call into the firmware and hope
-			 * we're running on top of Arm Trusted
-			 * Firmware with a fix for Security Advisory
-			 * TFV 6.
+			 * Potentially vulnerable; call into the
+			 * firmware and hope we're running on top of
+			 * Arm Trusted Firmware with a fix for
+			 * Security Advisory TFV 6.
 			 */
 			ci->ci_flush_bp = cpu_flush_bp_psci;
 			break;
@@ -262,6 +282,15 @@ cpu_identify(struct cpu_info *ci)
 		ci->ci_flush_bp = cpu_flush_bp_noop;
 		break;
 	}
+
+	/*
+	 * The architecture has been updated to explicitly tell us if
+	 * we're not vulnerable.
+	 */
+	id_aa64pfr0 = READ_SPECIALREG(id_aa64pfr0_el1);
+	if (ID_AA64PFR0_CSV2(id_aa64pfr0) == ID_AA64PFR0_CSV2_IMPL ||
+	    ID_AA64PFR0_CSV2(id_aa64pfr0) == ID_AA64PFR0_CSV2_SCXT)
+		ci->ci_flush_bp = cpu_flush_bp_noop;
 }
 
 int	cpu_hatch_secondary(struct cpu_info *ci, int, uint64_t);
@@ -584,13 +613,18 @@ void	cpu_opp_mountroot(struct device *);
 void	cpu_opp_dotask(void *);
 void	cpu_opp_setperf(int);
 
+uint32_t cpu_opp_get_cooling_level(void *, uint32_t *);
+void	cpu_opp_set_cooling_level(void *, uint32_t *, uint32_t);
+
 void
 cpu_opp_init(struct cpu_info *ci, uint32_t phandle)
 {
 	struct opp_table *ot;
+	struct cooling_device *cd;
 	int count, node, child;
+	uint32_t opp_hz, opp_microvolt;
 	uint32_t values[3];
-	int i, len;
+	int i, j, len;
 
 	LIST_FOREACH(ot, &opp_tables, ot_list) {
 		if (ot->ot_phandle == phandle) {
@@ -625,23 +659,27 @@ cpu_opp_init(struct cpu_info *ci, uint32_t phandle)
 	for (child = OF_child(node); child != 0; child = OF_peer(child)) {
 		if (OF_getproplen(child, "turbo-mode") == 0)
 			continue;
-		ot->ot_opp[count].opp_hz =
-		    OF_getpropint64(child, "opp-hz", 0);
+		opp_hz = OF_getpropint64(child, "opp-hz", 0);
 		len = OF_getpropintarray(child, "opp-microvolt",
 		    values, sizeof(values));
+		opp_microvolt = 0;
 		if (len == sizeof(uint32_t) || len == 3 * sizeof(uint32_t))
-			ot->ot_opp[count].opp_microvolt = values[0];
+			opp_microvolt = values[0];
+
+		/* Insert into the array, keeping things sorted. */
+		for (i = 0; i < count; i++) {
+			if (opp_hz < ot->ot_opp[i].opp_hz)
+				break;
+		}
+		for (j = count; j > i; j--)
+			ot->ot_opp[j] = ot->ot_opp[j - 1];
+		ot->ot_opp[i].opp_hz = opp_hz;
+		ot->ot_opp[i].opp_microvolt = opp_microvolt;
 		count++;
 	}
 
 	ot->ot_opp_hz_min = ot->ot_opp[0].opp_hz;
-	ot->ot_opp_hz_max = ot->ot_opp[0].opp_hz;
-	for (i = 1; i < ot->ot_nopp; i++) {
-		if (ot->ot_opp[i].opp_hz < ot->ot_opp_hz_min)
-			ot->ot_opp_hz_min = ot->ot_opp[i].opp_hz;
-		if (ot->ot_opp[i].opp_hz > ot->ot_opp_hz_max)
-			ot->ot_opp_hz_max = ot->ot_opp[i].opp_hz;
-	}
+	ot->ot_opp_hz_max = ot->ot_opp[count - 1].opp_hz;
 
 	if (OF_getproplen(node, "opp-shared") == 0)
 		ot->ot_master = ci;
@@ -649,7 +687,15 @@ cpu_opp_init(struct cpu_info *ci, uint32_t phandle)
 	LIST_INSERT_HEAD(&opp_tables, ot, ot_list);
 
 	ci->ci_opp_table = ot;
+	ci->ci_opp_max = ot->ot_nopp - 1;
 	ci->ci_cpu_supply = OF_getpropint(ci->ci_node, "cpu-supply", 0);
+
+	cd = malloc(sizeof(struct cooling_device), M_DEVBUF, M_ZERO | M_WAITOK);
+	cd->cd_node = ci->ci_node;
+	cd->cd_cookie = ci;
+	cd->cd_get_level = cpu_opp_get_cooling_level;
+	cd->cd_set_level = cpu_opp_set_cooling_level;
+	cooling_device_register(cd);
 
 	/*
 	 * Do addional checks at mountroot when all the clocks and
@@ -682,6 +728,9 @@ cpu_opp_mountroot(struct device *self)
 		if (ot->ot_master && ot->ot_master != ci)
 			continue;
 
+		/* PWM regulators may need to be explicitly enabled. */
+		regulator_enable(ci->ci_cpu_supply);
+
 		curr_hz = clock_get_frequency(ci->ci_node, NULL);
 		curr_microvolt = regulator_get_voltage(ci->ci_cpu_supply);
 
@@ -697,8 +746,8 @@ cpu_opp_mountroot(struct device *self)
 		}
 
 		/* Disable if regulator isn't implemented. */
-		error = ENODEV;
-		if (curr_microvolt != 0)
+		error = ci->ci_cpu_supply ? ENODEV : 0;
+		if (ci->ci_cpu_supply && curr_microvolt != 0)
 			error = regulator_set_voltage(ci->ci_cpu_supply,
 			    curr_microvolt);
 		if (error) {
@@ -754,7 +803,7 @@ cpu_opp_dotask(void *arg)
 		if (ot->ot_master && ot->ot_master != ci)
 			continue;
 
-		opp_idx = ci->ci_opp_idx;
+		opp_idx = MIN(ci->ci_opp_idx, ci->ci_opp_max);
 		opp_hz = ot->ot_opp[opp_idx].opp_hz;
 		opp_microvolt = ot->ot_opp[opp_idx].opp_microvolt;
 
@@ -763,8 +812,8 @@ cpu_opp_dotask(void *arg)
 
 		if (error == 0 && opp_hz < curr_hz)
 			error = clock_set_frequency(ci->ci_node, NULL, opp_hz);
-		if (error == 0 && opp_microvolt != 0 &&
-		    opp_microvolt != curr_microvolt) {
+		if (error == 0 && ci->ci_cpu_supply &&
+		    opp_microvolt != 0 && opp_microvolt != curr_microvolt) {
 			error = regulator_set_voltage(ci->ci_cpu_supply,
 			    opp_microvolt);
 		}
@@ -823,4 +872,30 @@ cpu_opp_setperf(int level)
 	 * regulators might need process context.
 	 */
 	task_add(systq, &cpu_opp_task);
+}
+
+uint32_t
+cpu_opp_get_cooling_level(void *cookie, uint32_t *cells)
+{
+	struct cpu_info *ci = cookie;
+	struct opp_table *ot = ci->ci_opp_table;
+	
+	return ot->ot_nopp - ci->ci_opp_max - 1;
+}
+
+void
+cpu_opp_set_cooling_level(void *cookie, uint32_t *cells, uint32_t level)
+{
+	struct cpu_info *ci = cookie;
+	struct opp_table *ot = ci->ci_opp_table;
+	int opp_max;
+
+	if (level > (ot->ot_nopp - 1))
+		level = ot->ot_nopp - 1;
+
+	opp_max = (ot->ot_nopp - level - 1);
+	if (ci->ci_opp_max != opp_max) {
+		ci->ci_opp_max = opp_max;
+		task_add(systq, &cpu_opp_task);
+	}
 }

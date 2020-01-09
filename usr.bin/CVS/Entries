@@ -1,4 +1,4 @@
-/Makefile/1.159/Fri Nov 30 07:08:24 2018//
+/Makefile/1.161/Fri Aug  9 06:18:25 2019//
 /Makefile.inc/1.3/Fri Jul 11 13:13:04 2014//
 D/apply////
 D/arch////
@@ -129,6 +129,7 @@ D/rev////
 D/rpcgen////
 D/rpcinfo////
 D/rs////
+D/rsync////
 D/rup////
 D/rusers////
 D/rwall////
@@ -144,6 +145,7 @@ D/skeyaudit////
 D/skeyinfo////
 D/skeyinit////
 D/sndiod////
+D/snmp////
 D/sort////
 D/spell////
 D/split////

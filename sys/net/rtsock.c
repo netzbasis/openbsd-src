@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.281 2018/12/20 10:27:37 claudio Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.297 2019/11/24 07:56:03 claudio Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -69,6 +69,7 @@
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/domain.h>
+#include <sys/pool.h>
 #include <sys/protosw.h>
 #include <sys/srp.h>
 
@@ -126,7 +127,7 @@ struct rt_msghdr *rtm_report(struct rtentry *, u_char, int, int);
 struct mbuf	*rtm_msg1(int, struct rt_addrinfo *);
 int		 rtm_msg2(int, int, struct rt_addrinfo *, caddr_t,
 		     struct walkarg *);
-void		 rtm_xaddrs(caddr_t, caddr_t, struct rt_addrinfo *);
+int		 rtm_xaddrs(caddr_t, caddr_t, struct rt_addrinfo *);
 int		 rtm_validate_proposal(struct rt_addrinfo *);
 void		 rtm_setmetrics(u_long, const struct rt_metrics *,
 		     struct rt_kmetrics *);
@@ -158,6 +159,7 @@ struct rtptable {
 	unsigned int		rtp_count;
 };
 
+struct pool rtpcb_pool;
 struct rtptable rtptable;
 
 /*
@@ -177,6 +179,8 @@ route_prinit(void)
 	srpl_rc_init(&rtptable.rtp_rc, rcb_ref, rcb_unref, NULL);
 	rw_init(&rtptable.rtp_lk, "rtsock");
 	SRPL_INIT(&rtptable.rtp_list);
+	pool_init(&rtpcb_pool, sizeof(struct rtpcb), 0,
+	    IPL_NONE, PR_WAITOK, "rtpcb", NULL);
 }
 
 void
@@ -237,7 +241,7 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		break;
 	case PRU_SENSE:
 		/* stat: don't bother with a blocksize. */
-		return (0);
+		break;
 
 	/* minimal support, just implement a fake peer address */
 	case PRU_SOCKADDR:
@@ -248,8 +252,6 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		nam->m_len = route_src.sa_len;
 		break;
 
-	case PRU_RCVOOB:
-		return (EOPNOTSUPP);
 	case PRU_RCVD:
 		/*
 		 * If we are in a FLUSH state, check if the buffer is
@@ -259,8 +261,9 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		    ((sbspace(rop->rop_socket, &rop->rop_socket->so_rcv) ==
 		    rop->rop_socket->so_rcv.sb_hiwat)))
 			rop->rop_flags &= ~ROUTECB_FLAG_FLUSH;
-		return (0);
+		break;
 
+	case PRU_RCVOOB:
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
@@ -277,8 +280,10 @@ route_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	}
 
  release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -293,7 +298,7 @@ route_attach(struct socket *so, int proto)
 	 * code does not care about the additional fields
 	 * and works directly on the raw socket.
 	 */
-	rop = malloc(sizeof(struct rtpcb), M_PCB, M_WAITOK|M_ZERO);
+	rop = pool_get(&rtpcb_pool, PR_WAITOK|PR_ZERO);
 	so->so_pcb = rop;
 	/* Init the timeout structure */
 	timeout_set(&rop->rop_timeout, rtm_senddesync_timer, so);
@@ -304,7 +309,7 @@ route_attach(struct socket *so, int proto)
 	else
 		error = soreserve(so, ROUTESNDQ, ROUTERCVQ);
 	if (error) {
-		free(rop, M_PCB, sizeof(struct rtpcb));
+		pool_put(&rtpcb_pool, rop);
 		return (error);
 	}
 
@@ -317,7 +322,8 @@ route_attach(struct socket *so, int proto)
 	so->so_options |= SO_USELOOPBACK;
 
 	rw_enter(&rtptable.rtp_lk, RW_WRITE);
-	SRPL_INSERT_HEAD_LOCKED(&rtptable.rtp_rc, &rtptable.rtp_list, rop, rop_list);
+	SRPL_INSERT_HEAD_LOCKED(&rtptable.rtp_rc, &rtptable.rtp_list, rop,
+	    rop_list);
 	rtptable.rtp_count++;
 	rw_exit(&rtptable.rtp_lk);
 
@@ -349,7 +355,7 @@ route_detach(struct socket *so)
 
 	so->so_pcb = NULL;
 	KASSERT((so->so_state & SS_NOFDREF) == 0);
-	free(rop, M_PCB, sizeof(struct rtpcb));
+	pool_put(&rtpcb_pool, rop);
 
 	return (0);
 }
@@ -427,7 +433,7 @@ void
 rtm_senddesync_timer(void *xso)
 {
 	struct socket	*so = xso;
-	int 		 s;
+	int		 s;
 
 	s = solock(so);
 	rtm_senddesync(so);
@@ -681,7 +687,7 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 	if ((m->m_flags & M_PKTHDR) == 0)
 		panic("route_output");
 	len = m->m_pkthdr.len;
-	if (len < offsetof(struct rt_msghdr, rtm_type) + 1 ||
+	if (len < offsetof(struct rt_msghdr, rtm_hdrlen) + 1 ||
 	    len != mtod(m, struct rt_msghdr *)->rtm_msglen) {
 		error = EINVAL;
 		goto fail;
@@ -704,13 +710,6 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 		error = EPROTONOSUPPORT;
 		goto fail;
 	}
-	rtm->rtm_pid = curproc->p_p->ps_pid;
-	if (rtm->rtm_hdrlen == 0)	/* old client */
-		rtm->rtm_hdrlen = sizeof(struct rt_msghdr);
-	if (len < rtm->rtm_hdrlen) {
-		error = EINVAL;
-		goto fail;
-	}
 
 	/* Verify that the caller is sending an appropriate message early */
 	switch (rtm->rtm_type) {
@@ -724,6 +723,19 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 		error = EOPNOTSUPP;
 		goto fail;
 	}
+	/*
+	 * Verify that the header length is valid.
+	 * All messages from userland start with a struct rt_msghdr.
+	 */
+	if (rtm->rtm_hdrlen == 0)	/* old client */
+		rtm->rtm_hdrlen = sizeof(struct rt_msghdr);
+	if (rtm->rtm_hdrlen < sizeof(struct rt_msghdr) ||
+	    len < rtm->rtm_hdrlen) {
+		error = EINVAL;
+		goto fail;
+	}
+
+	rtm->rtm_pid = curproc->p_p->ps_pid;
 
 	/*
 	 * Verify that the caller has the appropriate privilege; RTM_GET
@@ -772,7 +784,9 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 
 	bzero(&info, sizeof(info));
 	info.rti_addrs = rtm->rtm_addrs;
-	rtm_xaddrs(rtm->rtm_hdrlen + (caddr_t)rtm, len + (caddr_t)rtm, &info);
+	if ((error = rtm_xaddrs(rtm->rtm_hdrlen + (caddr_t)rtm,
+	    len + (caddr_t)rtm, &info)) != 0)
+		goto fail;
 	info.rti_flags = rtm->rtm_flags;
 	if (rtm->rtm_type != RTM_PROPOSAL &&
 	   (info.rti_info[RTAX_DST] == NULL ||
@@ -800,6 +814,19 @@ route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 		if (rtm_validate_proposal(&info) == -1) {
 			error = EINVAL;
 			goto fail;
+		}
+		/*
+		 * If this is a solicitation proposal forward request to
+		 * all interfaces. Most handlers will ignore it but at least
+		 * umb(4) will send a response to this event.
+		 */
+		if (rtm->rtm_priority == RTP_PROPOSAL_SOLICIT) {
+			struct ifnet *ifp;
+			NET_LOCK();
+			TAILQ_FOREACH(ifp, &ifnet, if_list) {
+				ifp->if_rtrequest(ifp, RTM_PROPOSAL, NULL);
+			}
+			NET_UNLOCK();
 		}
 	} else {
 		error = rtm_output(rtm, &rt, &info, prio, tableid);
@@ -922,7 +949,7 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 			NET_LOCK();
 			ifp->if_rtrequest(ifp, RTM_INVALIDATE, rt);
 			/* Reset the MTU of the gateway route. */
-			rtable_walk(tableid, rt_key(rt)->sa_family,
+			rtable_walk(tableid, rt_key(rt)->sa_family, NULL,
 			    route_cleargateway, rt);
 			NET_UNLOCK();
 			if_put(ifp);
@@ -964,8 +991,7 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 		 * If RTAX_GATEWAY is the argument we're trying to
 		 * change, try to find a compatible route.
 		 */
-		if ((rt == NULL) && (info->rti_info[RTAX_GATEWAY] != NULL) &&
-		    (rtm->rtm_type == RTM_CHANGE)) {
+		if ((rt == NULL) && (info->rti_info[RTAX_GATEWAY] != NULL)) {
 			rt = rtable_lookup(tableid, info->rti_info[RTAX_DST],
 			    info->rti_info[RTAX_NETMASK], NULL, prio);
 			/* Ensure we don't pick a multipath one. */
@@ -990,7 +1016,7 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 		}
 
 		/*
-		 * RTM_CHANGE/LOCK need a perfect match.
+		 * RTM_CHANGE needs a perfect match.
 		 */
 		plen = rtable_satoplen(info->rti_info[RTAX_DST]->sa_family,
 		    info->rti_info[RTAX_NETMASK]);
@@ -999,123 +1025,115 @@ rtm_output(struct rt_msghdr *rtm, struct rtentry **prt,
 			break;
 		}
 
-		switch (rtm->rtm_type) {
-		case RTM_CHANGE:
-			if (info->rti_info[RTAX_GATEWAY] != NULL)
-				if (rt->rt_gateway == NULL ||
-				    bcmp(rt->rt_gateway,
-				    info->rti_info[RTAX_GATEWAY],
-				    info->rti_info[RTAX_GATEWAY]->sa_len)) {
-					newgate = 1;
-				}
-			/*
-			 * Check reachable gateway before changing the route.
-			 * New gateway could require new ifaddr, ifp;
-			 * flags may also be different; ifp may be specified
-			 * by ll sockaddr when protocol address is ambiguous.
-			 */
-			if (newgate || info->rti_info[RTAX_IFP] != NULL ||
-			    info->rti_info[RTAX_IFA] != NULL) {
-				struct ifaddr	*ifa = NULL;
-
-				NET_LOCK();
-				if ((error = rtm_getifa(info, tableid)) != 0) {
-					NET_UNLOCK();
-					break;
-				}
-				ifa = info->rti_ifa;
-				if (rt->rt_ifa != ifa) {
-					ifp = if_get(rt->rt_ifidx);
-					KASSERT(ifp != NULL);
-					ifp->if_rtrequest(ifp, RTM_DELETE, rt);
-					ifafree(rt->rt_ifa);
-					if_put(ifp);
-
-					ifa->ifa_refcnt++;
-					rt->rt_ifa = ifa;
-					rt->rt_ifidx = ifa->ifa_ifp->if_index;
-					/* recheck link state after ifp change*/
-					rt_if_linkstate_change(rt, ifa->ifa_ifp,
-					    tableid);
-				}
-				NET_UNLOCK();
+		if (info->rti_info[RTAX_GATEWAY] != NULL)
+			if (rt->rt_gateway == NULL ||
+			    bcmp(rt->rt_gateway,
+			    info->rti_info[RTAX_GATEWAY],
+			    info->rti_info[RTAX_GATEWAY]->sa_len)) {
+				newgate = 1;
 			}
+		/*
+		 * Check reachable gateway before changing the route.
+		 * New gateway could require new ifaddr, ifp;
+		 * flags may also be different; ifp may be specified
+		 * by ll sockaddr when protocol address is ambiguous.
+		 */
+		if (newgate || info->rti_info[RTAX_IFP] != NULL ||
+		    info->rti_info[RTAX_IFA] != NULL) {
+			struct ifaddr	*ifa = NULL;
+
+			NET_LOCK();
+			if ((error = rtm_getifa(info, tableid)) != 0) {
+				NET_UNLOCK();
+				break;
+			}
+			ifa = info->rti_ifa;
+			if (rt->rt_ifa != ifa) {
+				ifp = if_get(rt->rt_ifidx);
+				KASSERT(ifp != NULL);
+				ifp->if_rtrequest(ifp, RTM_DELETE, rt);
+				ifafree(rt->rt_ifa);
+				if_put(ifp);
+
+				ifa->ifa_refcnt++;
+				rt->rt_ifa = ifa;
+				rt->rt_ifidx = ifa->ifa_ifp->if_index;
+				/* recheck link state after ifp change */
+				rt_if_linkstate_change(rt, ifa->ifa_ifp,
+				    tableid);
+			}
+			NET_UNLOCK();
+		}
 change:
-			if (info->rti_info[RTAX_GATEWAY] != NULL) {
-				/*
-				 * When updating the gateway, make sure it's
-				 * valid.
-				 */
-				if (!newgate && rt->rt_gateway->sa_family !=
-				    info->rti_info[RTAX_GATEWAY]->sa_family) {
-					error = EINVAL;
-					break;
-				}
+		if (info->rti_info[RTAX_GATEWAY] != NULL) {
+			/* When updating the gateway, make sure it is valid. */
+			if (!newgate && rt->rt_gateway->sa_family !=
+			    info->rti_info[RTAX_GATEWAY]->sa_family) {
+				error = EINVAL;
+				break;
+			}
 
-				NET_LOCK();
-				error = rt_setgate(rt,
-				    info->rti_info[RTAX_GATEWAY], tableid);
-				NET_UNLOCK();
-				if (error)
-					break;
-			}
+			NET_LOCK();
+			error = rt_setgate(rt,
+			    info->rti_info[RTAX_GATEWAY], tableid);
+			NET_UNLOCK();
+			if (error)
+				break;
+		}
 #ifdef MPLS
-			if ((rtm->rtm_flags & RTF_MPLS) &&
-			    info->rti_info[RTAX_SRC] != NULL) {
-				NET_LOCK();
-				error = rt_mpls_set(rt,
-				    info->rti_info[RTAX_SRC], info->rti_mpls);
-				NET_UNLOCK();
-				if (error)
-					break;
-			} else if (newgate || ((rtm->rtm_fmask & RTF_MPLS) &&
-			    !(rtm->rtm_flags & RTF_MPLS))) {
-				NET_LOCK();
-				/* if gateway changed remove MPLS information */
-				rt_mpls_clear(rt);
-				NET_UNLOCK();
-			}
+		if (rtm->rtm_flags & RTF_MPLS) {
+			NET_LOCK();
+			error = rt_mpls_set(rt,
+			    info->rti_info[RTAX_SRC], info->rti_mpls);
+			NET_UNLOCK();
+			if (error)
+				break;
+		} else if (newgate || (rtm->rtm_fmask & RTF_MPLS)) {
+			NET_LOCK();
+			/* if gateway changed remove MPLS information */
+			rt_mpls_clear(rt);
+			NET_UNLOCK();
+		}
 #endif
 
 #ifdef BFD
-			if (ISSET(rtm->rtm_flags, RTF_BFD)) {
-				if ((error = bfdset(rt)))
-					break;
-			} else if (!ISSET(rtm->rtm_flags, RTF_BFD) &&
-			    ISSET(rtm->rtm_fmask, RTF_BFD)) {
-				bfdclear(rt);
-			}
+		if (ISSET(rtm->rtm_flags, RTF_BFD)) {
+			if ((error = bfdset(rt)))
+				break;
+		} else if (!ISSET(rtm->rtm_flags, RTF_BFD) &&
+		    ISSET(rtm->rtm_fmask, RTF_BFD)) {
+			bfdclear(rt);
+		}
 #endif
 
-			NET_LOCK();
-			/* Hack to allow some flags to be toggled */
-			if (rtm->rtm_fmask)
-				rt->rt_flags =
-				    (rt->rt_flags & ~rtm->rtm_fmask) |
-				    (rtm->rtm_flags & rtm->rtm_fmask);
-
-			rtm_setmetrics(rtm->rtm_inits, &rtm->rtm_rmx,
-			    &rt->rt_rmx);
-
-			ifp = if_get(rt->rt_ifidx);
-			KASSERT(ifp != NULL);
-			ifp->if_rtrequest(ifp, RTM_ADD, rt);
-			if_put(ifp);
-
-			if (info->rti_info[RTAX_LABEL] != NULL) {
-				char *rtlabel = ((struct sockaddr_rtlabel *)
-				    info->rti_info[RTAX_LABEL])->sr_label;
-				rtlabel_unref(rt->rt_labelid);
-				rt->rt_labelid = rtlabel_name2id(rtlabel);
-			}
-			if_group_routechange(info->rti_info[RTAX_DST],
-			    info->rti_info[RTAX_NETMASK]);
-			rt->rt_locks &= ~(rtm->rtm_inits);
-			rt->rt_locks |=
-			    (rtm->rtm_inits & rtm->rtm_rmx.rmx_locks);
-			NET_UNLOCK();
-			break;
+		NET_LOCK();
+		/* Hack to allow some flags to be toggled */
+		if (rtm->rtm_fmask) {
+			/* MPLS flag it is set by rt_mpls_set() */
+			rtm->rtm_fmask &= ~RTF_MPLS;
+			rtm->rtm_flags &= ~RTF_MPLS;
+			rt->rt_flags =
+			    (rt->rt_flags & ~rtm->rtm_fmask) |
+			    (rtm->rtm_flags & rtm->rtm_fmask);
 		}
+		rtm_setmetrics(rtm->rtm_inits, &rtm->rtm_rmx, &rt->rt_rmx);
+
+		ifp = if_get(rt->rt_ifidx);
+		KASSERT(ifp != NULL);
+		ifp->if_rtrequest(ifp, RTM_ADD, rt);
+		if_put(ifp);
+
+		if (info->rti_info[RTAX_LABEL] != NULL) {
+			char *rtlabel = ((struct sockaddr_rtlabel *)
+			    info->rti_info[RTAX_LABEL])->sr_label;
+			rtlabel_unref(rt->rt_labelid);
+			rt->rt_labelid = rtlabel_name2id(rtlabel);
+		}
+		if_group_routechange(info->rti_info[RTAX_DST],
+		    info->rti_info[RTAX_NETMASK]);
+		rt->rt_locks &= ~(rtm->rtm_inits);
+		rt->rt_locks |= (rtm->rtm_inits & rtm->rtm_rmx.rmx_locks);
+		NET_UNLOCK();
 		break;
 	case RTM_GET:
 		rt = rtable_lookup(tableid, info->rti_info[RTAX_DST],
@@ -1339,19 +1357,145 @@ rtm_getmetrics(const struct rt_kmetrics *in, struct rt_metrics *out)
 	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
 #define ADVANCE(x, n) (x += ROUNDUP((n)->sa_len))
 
-void
+int
 rtm_xaddrs(caddr_t cp, caddr_t cplim, struct rt_addrinfo *rtinfo)
 {
 	struct sockaddr	*sa;
 	int		 i;
 
+	/*
+	 * Parse address bits, split address storage in chunks, and
+	 * set info pointers.  Use sa_len for traversing the memory
+	 * and check that we stay within in the limit.
+	 */
 	bzero(rtinfo->rti_info, sizeof(rtinfo->rti_info));
-	for (i = 0; (i < RTAX_MAX) && (cp < cplim); i++) {
+	for (i = 0; i < sizeof(rtinfo->rti_addrs) * 8; i++) {
 		if ((rtinfo->rti_addrs & (1 << i)) == 0)
 			continue;
-		rtinfo->rti_info[i] = sa = (struct sockaddr *)cp;
+		if (i >= RTAX_MAX || cp + sizeof(socklen_t) > cplim)
+			return (EINVAL);
+		sa = (struct sockaddr *)cp;
+		if (cp + sa->sa_len > cplim)
+			return (EINVAL);
+		rtinfo->rti_info[i] = sa;
 		ADVANCE(cp, sa);
 	}
+	/*
+	 * Check that the address family is suitable for the route address
+	 * type.  Check that each address has a size that fits its family
+	 * and its length is within the size.  Strings within addresses must
+	 * be NUL terminated.
+	 */
+	for (i = 0; i < RTAX_MAX; i++) {
+		size_t len, maxlen, size;
+
+		sa = rtinfo->rti_info[i];
+		if (sa == NULL)
+			continue;
+		maxlen = size = 0;
+		switch (i) {
+		case RTAX_DST:
+		case RTAX_GATEWAY:
+		case RTAX_SRC:
+			switch (sa->sa_family) {
+			case AF_INET:
+				size = sizeof(struct sockaddr_in);
+				break;
+			case AF_LINK:
+				size = sizeof(struct sockaddr_dl);
+				break;
+#ifdef INET6
+			case AF_INET6:
+				size = sizeof(struct sockaddr_in6);
+				break;
+#endif
+#ifdef MPLS
+			case AF_MPLS:
+				size = sizeof(struct sockaddr_mpls);
+				break;
+#endif
+			}
+			break;
+		case RTAX_IFP:
+			if (sa->sa_family != AF_LINK)
+				return (EAFNOSUPPORT);
+			/*
+			 * XXX Should be sizeof(struct sockaddr_dl), but
+			 * route(8) has a bug and provides less memory.
+			 * arp(8) has another bug and uses sizeof pointer.
+			 */
+			size = 4;
+			break;
+		case RTAX_IFA:
+			switch (sa->sa_family) {
+			case AF_INET:
+				size = sizeof(struct sockaddr_in);
+				break;
+#ifdef INET6
+			case AF_INET6:
+				size = sizeof(struct sockaddr_in6);
+				break;
+#endif
+			default:
+				return (EAFNOSUPPORT);
+			}
+			break;
+		case RTAX_LABEL:
+			sa->sa_family = AF_UNSPEC;
+			maxlen = RTLABEL_LEN;
+			size = sizeof(struct sockaddr_rtlabel);
+			break;
+#ifdef BFD
+		case RTAX_BFD:
+			sa->sa_family = AF_UNSPEC;
+			size = sizeof(struct sockaddr_bfd);
+			break;
+#endif
+		case RTAX_DNS:
+			/* more validation in rtm_validate_proposal */
+			if (sa->sa_len > sizeof(struct sockaddr_rtdns))
+				return (EINVAL);
+			if (sa->sa_len < offsetof(struct sockaddr_rtdns,
+			    sr_dns))
+				return (EINVAL);
+			switch (sa->sa_family) {
+			case AF_INET:
+#ifdef INET6
+			case AF_INET6:
+#endif
+				break;
+			default:
+				return (EAFNOSUPPORT);
+			}
+			break;
+		case RTAX_STATIC:
+			sa->sa_family = AF_UNSPEC;
+			maxlen = RTSTATIC_LEN;
+			size = sizeof(struct sockaddr_rtstatic);
+			break;
+		case RTAX_SEARCH:
+			sa->sa_family = AF_UNSPEC;
+			maxlen = RTSEARCH_LEN;
+			size = sizeof(struct sockaddr_rtsearch);
+			break;
+		}
+		if (size) {
+			/* memory for the full struct must be provided */
+			if (sa->sa_len < size)
+				return (EINVAL);
+		}
+		if (maxlen) {
+			/* this should not happen */
+			if (2 + maxlen > size)
+				return (EINVAL);
+			/* strings must be NUL terminated within the struct */
+			len = strnlen(sa->sa_data, maxlen);
+			if (len >= maxlen || 2 + len >= sa->sa_len)
+				return (EINVAL);
+			break;
+		}
+	}
+	return (0);
 }
 
 struct mbuf *
@@ -1465,7 +1609,8 @@ again:
 		if (w->w_needed <= 0 && w->w_where) {
 			if (w->w_tmemsize < len) {
 				free(w->w_tmem, M_RTABLE, w->w_tmemsize);
-				w->w_tmem = malloc(len, M_RTABLE, M_NOWAIT);
+				w->w_tmem = malloc(len, M_RTABLE,
+				    M_NOWAIT | M_ZERO);
 				if (w->w_tmem)
 					w->w_tmemsize = len;
 			}
@@ -1685,6 +1830,30 @@ rtm_80211info(struct ifnet *ifp, struct if_ieee80211_data *ifie)
 }
 
 /*
+ * This is used to generate routing socket messages indicating
+ * the address selection proposal from an interface.
+ */
+void
+rtm_proposal(struct ifnet *ifp, struct rt_addrinfo *rtinfo, int flags,
+    uint8_t prio)
+{
+	struct rt_msghdr	*rtm;
+	struct mbuf		*m;
+
+	m = rtm_msg1(RTM_PROPOSAL, rtinfo);
+	if (m == NULL)
+		return;
+	rtm = mtod(m, struct rt_msghdr *);
+	rtm->rtm_flags = RTF_DONE | flags;
+	rtm->rtm_priority = prio;
+	rtm->rtm_tableid = ifp->if_rdomain;
+	rtm->rtm_index = ifp->if_index;
+	rtm->rtm_addrs = rtinfo->rti_addrs;
+	
+	route_input(m, NULL, rtinfo->rti_info[RTAX_DNS]->sa_family);
+}
+
+/*
  * This is used in dumping the kernel table via sysctl().
  */
 int
@@ -1894,7 +2063,8 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 			if (af != 0 && af != i)
 				continue;
 
-			error = rtable_walk(tableid, i, sysctl_dumpentry, &w);
+			error = rtable_walk(tableid, i, NULL, sysctl_dumpentry,
+			    &w);
 			if (error == EAFNOSUPPORT)
 				error = 0;
 			if (error)
@@ -2009,9 +2179,24 @@ rtm_validate_proposal(struct rt_addrinfo *info)
 			return -1;
 		if (rtdns->sr_len > sizeof(*rtdns))
 			return -1;
-		if (rtdns->sr_len <=
-		    offsetof(struct sockaddr_rtdns, sr_dns))
+		if (rtdns->sr_len < offsetof(struct sockaddr_rtdns, sr_dns))
 			return -1;
+		switch (rtdns->sr_family) {
+		case AF_INET:
+			if ((rtdns->sr_len - offsetof(struct sockaddr_rtdns,
+			    sr_dns)) % sizeof(struct in_addr) != 0)
+				return -1;
+			break;
+#ifdef INET6
+		case AF_INET6:
+			if ((rtdns->sr_len - offsetof(struct sockaddr_rtdns,
+			    sr_dns)) % sizeof(struct in6_addr) != 0)
+				return -1;
+			break;
+#endif
+		default:
+			return -1;
+		}
 	}
 
 	if (ISSET(info->rti_addrs, RTA_STATIC)) {

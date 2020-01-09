@@ -1,4 +1,4 @@
-/* $OpenBSD: xhcireg.h,v 1.14 2018/04/28 08:19:35 mpi Exp $ */
+/* $OpenBSD: xhcireg.h,v 1.17 2019/10/15 03:31:35 visa Exp $ */
 
 /*-
  * Copyright (c) 2014 Martin Pieuchot. All rights reserved.
@@ -93,8 +93,8 @@
 #define  XHCI_HCC_NSS(x)	(((x) >> 7) & 0x1) /* No secondary sid */
 #define  XHCI_HCC_PAE(x)	(((x) >> 8) & 0x1) /* Pase All Event Data */
 #define  XHCI_HCC_SPC(x)	(((x) >> 9) & 0x1) /* Short packet */
-#define  XHCI_HCC_SEC(x)	(((x) >> 10) & 0xf) /* Stopped EDTLA */
-#define  XHCI_HCC_CFC(x)	(((x) >> 11) & 0xf) /* Configuous Frame ID */
+#define  XHCI_HCC_SEC(x)	(((x) >> 10) & 0x1) /* Stopped EDTLA */
+#define  XHCI_HCC_CFC(x)	(((x) >> 11) & 0x1) /* Configuous Frame ID */
 #define  XHCI_HCC_MAX_PSA_SZ(x)	(((x) >> 12) & 0xf) /* Max pri. stream arr. */
 #define  XHCI_HCC_XECP(x)	(((x) >> 16) & 0xffff) /* Ext. capabilities */
 
@@ -251,7 +251,7 @@ struct xhci_erseg {
 	uint64_t		 er_addr;
 	uint32_t		 er_size;
 	uint32_t		 er_rsvd;
-} __packed;
+};
 
 
 struct xhci_sctx {
@@ -279,7 +279,7 @@ struct xhci_sctx {
 #define XHCI_SCTX_SLOT_STATE(x)		(((x) >> 27) & 0x1f)
 
 	 uint32_t		rsvd[4];
-} __packed;
+};
 
 struct xhci_epctx {
 	 uint32_t		info_lo;
@@ -321,7 +321,7 @@ struct xhci_epctx {
 #define XHCI_EPCTX_MAX_ESIT_PAYLOAD(x)	(((x) & 0xffff) << 16)
 
 	 uint32_t		rsvd[3];
-} __packed;
+};
 
 
 struct xhci_inctx {
@@ -330,7 +330,7 @@ struct xhci_inctx {
 #define XHCI_INCTX_MASK_DCI(n)	(0x1 << (n))
 
 	 uint32_t		rsvd[6];
-} __packed;
+};
 
 
 struct xhci_trb {
@@ -367,10 +367,11 @@ struct xhci_trb {
 #define XHCI_TRB_GET_SLOT(x)	(((x) >> 24) & 0xff)
 #define XHCI_TRB_SET_SLOT(x)	(((x) & 0xff) << 24)
 #define XHCI_TRB_SIA		(1U << 31)
-} __packed;
+};
 
 #define XHCI_TRB_FLAGS_BITMASK						\
-    "\20\007IDT\006IOC\005CHAIN\004NOSNOOP\003ISP\002LINKSEG\001CYCLE"
+    "\20" "\040SIA" "\022TRT_OUT" "\021DIR_IN" "\012BSR" "\007IDT" 	\
+    "\006IOC" "\005CHAIN" "\004NOSNOOP" "\003ISP" "\002LINKSEG" "\001CYCLE"
 
 #define XHCI_TRB_TYPE_MASK	0xfc00
 #define XHCI_TRB_TYPE(x)	(((x) & XHCI_TRB_TYPE_MASK) >> 10)

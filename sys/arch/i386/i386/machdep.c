@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.629 2019/01/19 20:45:06 tedu Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.631 2019/06/14 18:13:55 kettenis Exp $	*/
 /*	$NetBSD: machdep.c,v 1.214 1996/11/10 03:16:17 thorpej Exp $	*/
 
 /*-
@@ -1059,6 +1059,7 @@ const struct cpu_cpuid_feature i386_ecpuid_ecxfeatures[] = {
 
 const struct cpu_cpuid_feature cpu_seff0_ebxfeatures[] = {
 	{ SEFF0EBX_FSGSBASE,	"FSGSBASE" },
+	{ SEFF0EBX_TSC_ADJUST,	"TSC_ADJUST" },
 	{ SEFF0EBX_SGX,		"SGX" },
 	{ SEFF0EBX_BMI1,	"BMI1" },
 	{ SEFF0EBX_HLE,		"HLE" },
@@ -2682,6 +2683,9 @@ boot(int howto)
 	if ((howto & RB_POWERDOWN) != 0)
 		lid_action = 0;
 
+	if ((howto & RB_RESET) != 0)
+		goto doreset;
+
 	if (cold) {
 		if ((howto & RB_USERREQ) == 0)
 			howto |= RB_HALT;
@@ -2758,6 +2762,7 @@ haltsys:
 		cnpollc(0);
 	}
 
+doreset:
 	printf("rebooting...\n");
 	cpu_reset();
 	for (;;)

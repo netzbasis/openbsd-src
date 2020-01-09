@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.y,v 1.19 2017/04/09 02:40:24 jsg Exp $	*/
+/*	$OpenBSD: conf.y,v 1.21 2019/06/28 13:32:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2005 Håkan Olsson.  All rights reserved.
@@ -325,7 +325,7 @@ yylex(void)
 	/* Numerical token? */
 	if (isdigit(*confptr)) {
 		for (p = confptr; *p; p++)
-			if (*p == '.') /* IP address, or bad input */
+			if (*p == '.' || *p == ':') /* IP address, or bad input */
 				goto is_string;
 		v = (int)strtol(confptr, (char **)NULL, 10);
 		yylval.val = v;
@@ -370,7 +370,7 @@ conf_parse_file(char *cfgfile)
 	}
 
 	fd = open(cfgfile, O_RDONLY, 0);
-	if (fd < 0)
+	if (fd == -1)
 		goto bad;
 
 	conflen = st.st_size;
@@ -397,6 +397,9 @@ conf_parse_file(char *cfgfile)
 		if (*s == '#') {
 			while (*s != '\n' && s < buf + conflen)
 				s++;
+			while (*s == '\n' && s < buf + conflen)
+				s++;
+			s--;
 			continue;
 		}
 		if (d == buf && isspace(*s))

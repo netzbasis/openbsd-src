@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.h,v 1.79 2018/10/22 16:12:45 kn Exp $	*/
+/*	$OpenBSD: interface.h,v 1.83 2019/12/03 01:43:33 dlg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -20,7 +20,7 @@
  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  *
- * @(#) $Id: interface.h,v 1.79 2018/10/22 16:12:45 kn Exp $ (LBL)
+ * @(#) $Id: interface.h,v 1.83 2019/12/03 01:43:33 dlg Exp $ (LBL)
  */
 
 #ifndef tcpdump_interface_h
@@ -64,6 +64,7 @@ extern char *device;		/* as specified by -i  */
 #define PT_MPLS		10	/* MPLS (over UDP) */
 #define PT_TFTP		11	/* Trivial File Transfer Protocol */
 #define PT_VXLAN	12	/* Virtual eXtensible Local Area Network */
+#define PT_ERSPAN	13	/* GRE ERSPAN Type I or II */
 
 #ifndef min
 #define min(a,b) ((a)>(b)?(b):(a))
@@ -215,6 +216,7 @@ extern void ppp_ether_if_print(u_char *, const struct pcap_pkthdr *,
 	const u_char *);
 extern void gre_print(const u_char *, u_int);
 extern void vxlan_print(const u_char *, u_int);
+extern void nsh_print(const u_char *, u_int);
 extern void icmp_print(const u_char *, u_int, const u_char *);
 extern void ieee802_11_if_print(u_char *, const struct pcap_pkthdr *,
     const u_char *);
@@ -270,8 +272,7 @@ extern void ike_print(const u_char *, u_int);
 extern void udpencap_print(const u_char *, u_int, const u_char *);
 extern void ah_print(const u_char *, u_int, const u_char *);
 extern void esp_print(const u_char *, u_int, const u_char *);
-extern void cdp_print(const u_char *, u_int, u_int, const u_char *,
-	const u_char *);
+extern void cdp_print(const u_char *, u_int, u_int, int);
 extern void stp_print(const u_char *, u_int);
 extern void radius_print(const u_char *, u_int);
 extern void lwres_print(const u_char *, u_int);
@@ -296,7 +297,7 @@ extern void icmp6_print(const u_char *, u_int, const u_char *);
 extern void ripng_print(const u_char *, int);
 extern int rt6_print(const u_char *, const u_char *);
 extern void ospf6_print(const u_char *, u_int);
-extern void dhcp6_print(const u_char *, u_int, u_short, u_short);
+extern void dhcp6_print(const u_char *, u_int);
 
 extern uint32_t in_cksum_add(const void *, size_t, uint32_t);
 extern uint16_t in_cksum_fini(uint32_t);

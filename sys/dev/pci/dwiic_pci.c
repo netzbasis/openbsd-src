@@ -1,4 +1,4 @@
-/* $OpenBSD: dwiic_pci.c,v 1.3 2018/01/12 08:11:48 mlarkin Exp $ */
+/* $OpenBSD: dwiic_pci.c,v 1.9 2019/07/31 16:04:16 jcs Exp $ */
 /*
  * Synopsys DesignWare I2C controller
  * PCI attachment
@@ -62,6 +62,22 @@ struct cfattach dwiic_pci_ca = {
 const struct pci_matchid dwiic_pci_ids[] = {
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_LP_I2C_1 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_LP_I2C_2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_I2C0 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_I2C1 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_1 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_3 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_4 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_5 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_300SERIES_U_I2C_6 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_1 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_3 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_4 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_5 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_6 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_7 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_APOLLOLAKE_I2C_8 },
 };
 
 int
@@ -75,6 +91,9 @@ dwiic_pci_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct dwiic_softc *sc = (struct dwiic_softc *)self;
 	struct pci_attach_args *pa = aux;
+#if NACPI > 0
+	struct aml_node *node;
+#endif
 	bus_size_t iosize;
 	pci_intr_handle_t ih;
 	const char *intrstr = NULL;
@@ -102,12 +121,18 @@ dwiic_pci_attach(struct device *parent, struct device *self, void *aux)
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, LPSS_RESETS,
 	    (LPSS_RESETS_I2C | LPSS_RESETS_IDMA));
 
-	/* fetch timing parameters */
-	sc->ss_hcnt = dwiic_read(sc, DW_IC_SS_SCL_HCNT);
-	sc->ss_lcnt = dwiic_read(sc, DW_IC_SS_SCL_LCNT);
-	sc->fs_hcnt = dwiic_read(sc, DW_IC_FS_SCL_HCNT);
-	sc->fs_lcnt = dwiic_read(sc, DW_IC_FS_SCL_LCNT);
-	sc->sda_hold_time = dwiic_read(sc, DW_IC_SDA_HOLD);
+#if NACPI > 0
+	/* fetch timing parameters from ACPI, if possible */
+	node = acpi_pci_match(self, &sc->sc_paa);
+	if (node != NULL) {
+		sc->sc_devnode = node;
+
+		dwiic_acpi_get_params(sc, "SSCN", &sc->ss_hcnt, &sc->ss_lcnt,
+		    NULL);
+		dwiic_acpi_get_params(sc, "FMCN", &sc->fs_hcnt, &sc->fs_lcnt,
+		    &sc->sda_hold_time);
+	}
+#endif
 
 	if (dwiic_init(sc)) {
 		printf(": failed initializing\n");
@@ -165,9 +190,6 @@ dwiic_pci_activate(struct device *self, int act)
 	case DVACT_WAKEUP:
 		bus_space_write_4(sc->sc_iot, sc->sc_ioh, LPSS_RESETS,
 		    (LPSS_RESETS_I2C | LPSS_RESETS_IDMA));
-
-		dwiic_init(sc);
-
 		break;
 	}
 
@@ -185,19 +207,7 @@ dwiic_pci_bus_scan(struct device *iic, struct i2cbus_attach_args *iba,
 	sc->sc_iic = iic;
 
 #if NACPI > 0
-	{
-		struct aml_node *node = acpi_pci_match(aux, &sc->sc_paa);
-		if (node == NULL)
-			return;
-
-		/*
-		 * XXX: until we can figure out why interrupts don't arrive for
-		 * i2c slave devices on intel 100 series and newer, force
-		 * polling for ihidev.
-		 */
-		sc->sc_poll_ihidev = 1;
-
-		aml_find_node(node, "_HID", dwiic_acpi_found_hid, sc);
-	}
+	if (sc->sc_devnode != NULL)
+		aml_find_node(sc->sc_devnode, "_HID", dwiic_acpi_found_hid, sc);
 #endif
 }

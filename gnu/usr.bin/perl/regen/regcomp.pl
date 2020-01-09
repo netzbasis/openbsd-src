@@ -20,7 +20,7 @@
 
 BEGIN {
     # Get function prototypes
-    require 'regen/regen_lib.pl';
+    require './regen/regen_lib.pl';
 }
 use strict;
 
@@ -54,7 +54,7 @@ use strict;
 # code          Op      what code is associated with this node (???)
 # args          Op      what type of args the node has (which regnode struct)
 # flags         Op      (???)
-# longj         Op      Whether this node is a longjump
+# longj         Op      Boolean as to if this node is a longjump
 # comment       Both    Comment about node, if any
 # pod_comment   Both    Special comments for pod output (preceding lines in def)
 
@@ -89,6 +89,11 @@ sub register_node {
     $node->{id}= 0 + @all;
     push @all, $node;
     $all{ $node->{name} }= $node;
+
+    if ($node->{longj} && $node->{longj} != 1) {
+        die "longj field must be in [01] if present in ", Dumper($node);
+    }
+
 }
 
 # Parse and add an opcode definition to the global state.
@@ -126,7 +131,8 @@ sub parse_opcode_def {
     # the content of the "desc" field from the first step is extracted here:
     @{$node}{qw(type code args flags longj)}= split /[,\s]\s*/, $node->{desc};
 
-    $node->{$_} //= "" for qw(type code args flags longj);
+    defined $node->{$_} or $node->{$_} = ""
+        for qw(type code args flags longj);
 
     register_node($node); # has to be before the type_alias code below
 
@@ -612,7 +618,7 @@ format GuTS =
  ^*~~
  \$node->{pod_comment}
  ^$name_fmt ^<<<<<<<<< ^$descr_fmt~~
- \$node->{name}, \$code, \$node->{comment}//''
+ \$node->{name}, \$code, defined \$node->{comment} ? \$node->{comment} : ''
 .
 1;
 EOD
@@ -620,7 +626,7 @@ EOD
     my $old_fh= select($guts);
     $~= "GuTS";
 
-    open my $oldguts, "pod/perldebguts.pod"
+    open my $oldguts, '<', 'pod/perldebguts.pod'
         or die "$0 cannot open pod/perldebguts.pod for reading: $!";
     while (<$oldguts>) {
         print;
@@ -648,7 +654,8 @@ END_OF_DESCR
     while (<$oldguts>) {
         last if /=for regcomp.pl end/;
     }
-    do { print } while <$oldguts>;
+    do { print } while <$oldguts>; #win32 can't unlink an open FH
+    close $oldguts or die "Error closing pod/perldebguts.pod: $!";
     select $old_fh;
     close_and_rename($guts);
 }

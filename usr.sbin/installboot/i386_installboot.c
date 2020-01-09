@@ -1,9 +1,8 @@
-/*	$OpenBSD: i386_installboot.c,v 1.31 2017/10/27 16:47:08 mpi Exp $	*/
+/*	$OpenBSD: i386_installboot.c,v 1.33 2019/09/02 16:36:12 otto Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*
  * Copyright (c) 2011 Joel Sing <jsing@openbsd.org>
- * Copyright (c) 2010 Otto Moerbeek <otto@openbsd.org>
  * Copyright (c) 2003 Tom Cosgrove <tom.cosgrove@arches-consulting.com>
  * Copyright (c) 1997 Michael Shalayeff
  * Copyright (c) 1994 Paul Kranenburg
@@ -130,7 +129,7 @@ md_installboot(int devfd, char *dev)
 	int part;
 
 	/* Get and check disklabel. */
-	if (ioctl(devfd, DIOCGDINFO, &dl) != 0)
+	if (ioctl(devfd, DIOCGDINFO, &dl) == -1)
 		err(1, "disklabel: %s", dev);
 	if (dl.d_magic != DISKMAGIC)
 		errx(1, "bad disklabel magic=0x%08x", dl.d_magic);
@@ -171,7 +170,7 @@ write_bootblocks(int devfd, char *dev, struct disklabel *dl)
 	u_int		start = 0;
 
 	/* Write patched proto bootblock(s) into the superblock. */
-	if (fstat(devfd, &sb) < 0)
+	if (fstat(devfd, &sb) == -1)
 		err(1, "fstat: %s", dev);
 
 	if (!S_ISCHR(sb.st_mode))
@@ -592,7 +591,7 @@ loadproto(char *fname, long *size)
 	Elf_Word phsize;
 	Elf_Phdr *ph;
 
-	if ((fd = open(fname, O_RDONLY)) < 0)
+	if ((fd = open(fname, O_RDONLY)) == -1)
 		err(1, "%s", fname);
 
 	if (read(fd, &eh, sizeof(eh)) != sizeof(eh))
@@ -680,10 +679,10 @@ getbootparams(char *boot, int devfd, struct disklabel *dl)
 	/* Make sure the (probably new) boot file is on disk. */
 	sync(); sleep(1);
 
-	if ((fd = open(boot, O_RDONLY)) < 0)
+	if ((fd = open(boot, O_RDONLY)) == -1)
 		err(1, "open: %s", boot);
 
-	if (fstatfs(fd, &fssb) != 0)
+	if (fstatfs(fd, &fssb) == -1)
 		err(1, "statfs: %s", boot);
 
 	if (strncmp(fssb.f_fstypename, "ffs", MFSNAMELEN) &&

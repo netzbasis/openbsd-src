@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.armv7,v 1.43 2018/10/30 11:10:03 kettenis Exp $
+#	$OpenBSD: Makefile.armv7,v 1.48 2019/11/09 19:59:53 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -25,14 +25,10 @@ INCLUDES=	-nostdinc -I$S -I. -I$S/arch
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -D__${_mach}__ -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
+		-Wno-constant-conversion -Wno-address-of-packed-member \
 		-Wframe-larger-than=2047
 
-CMACHFLAGS=	-msoft-float
-.if ${COMPILER_VERSION:Mgcc4}
-CMACHFLAGS+=	-march=armv6 -Wa,-march=armv7a
-.else
-CMACHFLAGS+=	-march=armv7a
-.endif
+CMACHFLAGS=	-msoft-float -march=armv7a
 CMACHFLAGS+=	-ffreestanding ${NOPIE_FLAGS}
 SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
@@ -40,10 +36,7 @@ CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
-.endif
-.if ${COMPILER_VERSION:Mclang}
-NO_INTEGR_AS=	-no-integrated-as
-CWARNFLAGS+=	-Wno-address-of-packed-member -Wno-constant-conversion
+COPTS?=		-Oz
 .endif
 
 DEBUG?=		-g
@@ -59,7 +52,7 @@ HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
 NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -102,7 +95,7 @@ LINKFLAGS+=	-S
 assym.h: $S/kern/genassym.sh Makefile \
 	 ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf
 	cat ${_archdir}/${_arch}/genassym.cf ${_machdir}/${_mach}/genassym.cf | \
-	    sh $S/kern/genassym.sh ${CC} ${NO_INTEGR_AS} ${CFLAGS} ${CPPFLAGS} -MF assym.P > assym.h.tmp
+	    sh $S/kern/genassym.sh ${CC} ${CFLAGS} ${CPPFLAGS} -no-integrated-as -MF assym.P > assym.h.tmp
 	sed '1s/.*/assym.h: \\/' assym.P > assym.d
 	sort -u assym.h.tmp > assym.h
 
@@ -114,7 +107,7 @@ param.o: param.c Makefile
 	${NORMAL_C}
 
 mcount.o: $S/lib/libkern/mcount.c Makefile
-	${NORMAL_C_NOP}
+	${NORMAL_C_NOP} -Wno-inline-asm
 
 ioconf.o: ioconf.c
 	${NORMAL_C}
@@ -159,8 +152,7 @@ hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

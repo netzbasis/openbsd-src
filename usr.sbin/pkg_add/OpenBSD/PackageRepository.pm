@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.160 2018/04/22 09:16:15 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.171 2019/11/08 14:50:58 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -37,8 +37,7 @@ sub make_error_file
 	my ($self, $object) = @_;
 	$object->{errors} = OpenBSD::Temp->file;
 	if (!defined $object->{errors}) {
-		$self->{state}->fatal("#1 not writable",
-		    $OpenBSD::Temp::tempbase);
+		$self->{state}->fatal(OpenBSD::Temp->last_error);
 	}
 }
 
@@ -83,16 +82,12 @@ sub unique
 	return $o;
 }
 
-my $cleanup = sub {
+OpenBSD::Handler->atend(
+    sub {
 	for my $repo (values %$cache) {
 		$repo->cleanup;
 	}
-};
-END {
-	&$cleanup;
-}
-
-OpenBSD::Handler->register($cleanup);
+    });
 
 sub parse_fullurl
 {
@@ -272,6 +267,7 @@ sub find
 	if ($self->contents) {
 		return $self;
 	}
+	return undef;
 }
 
 sub grabPlist
@@ -286,8 +282,12 @@ sub parse_problems
 {
 	my ($self, $filename, $hint, $object) = @_;
 	CORE::open(my $fh, '<', $filename) or return;
-
 	my $baseurl = $self->url;
+	my $objecturl = $baseurl;
+	if (defined $object) {
+		$objecturl = $object->url;
+		$object->{error_reported} = 1;
+	}
 	my $notyet = 1;
 	my $broken = 0;
 	my $signify_error = 0;
@@ -311,7 +311,9 @@ sub parse_problems
 		next if m/^(?:200|220|221|226|229|230|227|250|331|500|150)[\s\-]/o;
 		next if m/^EPSV command not understood/o;
 		next if m/^Trying [\da-f\.\:]+\.\.\./o;
-		next if m/^Requesting \Q$baseurl\E/;
+		# XXX make_room may call close_now on objects of the right
+		# type, but from a different repository
+		next if m/^Requesting (?:\Q$baseurl\E|\Q$objecturl\E)/;
 		next if m/^Remote system type is\s+/o;
 		next if m/^Connected to\s+/o;
 		next if m/^remote\:\s+/o;
@@ -339,12 +341,11 @@ sub parse_problems
 			next;
 		}
 		# http error
-		if (m/^ftp: Error retrieving file: 404/o) {
+		if (m/^ftp: Error retrieving .*: 404/o) {
+			$self->{lasterror} = 404;
 			if (!defined $object) {
 				$self->{no_such_dir} = 1;
 				next;
-			} else {
-				$self->{lasterror} = 404;
 			}
 			# ignore errors for stable packages
 			next if $self->can_be_empty;
@@ -359,17 +360,12 @@ sub parse_problems
 		# so it's superfluous
 		next if m/^signify:/ && $self->{lasterror};
 		if ($notyet) {
-			my $url = $baseurl;
-			if (defined $object) {
-				$url = $object->url;
-				$object->{error_reported} = 1;
-			}
-			$self->{state}->errprint("#1: ", $url);
+			$self->{state}->errprint("#1: ", $objecturl);
 			$notyet = 0;
 		}
 		if (m/^signify:/) {
 			$signify_error = 1;
-			s/.*unsigned .*archive.*/unsigned package (signify(1) doesn't see old-style signatures)/;
+			s/.*unsigned .*archive.*/unsigned package/;
 		}
 		if (m/^421\s+/o ||
 		    m/^ftp: connect: Connection timed out/o ||
@@ -641,7 +637,8 @@ sub pkg_copy
 	my $name = $object->{name};
 	my $dir = $object->{cache_dir};
 
-	my ($copy, $filename) = OpenBSD::Temp::permanent_file($dir, $name) or die "Can't write copy to cache";
+	my ($copy, $filename) = OpenBSD::Temp::permanent_file($dir, $name) or
+		$self->{state}->fatal(OpenBSD::Temp->last_error);
 	chmod((0666 & ~umask), $filename);
 	$object->{tempname} = $filename;
 	my $handler = sub {
@@ -956,8 +953,7 @@ sub list
 		$self->make_room;
 		my $error = OpenBSD::Temp->file;
 		if (!defined $error) {
-			$self->{state}->fatal("#1 not writable",
-			    $OpenBSD::Temp::tempbase);
+			$self->{state}->fatal(OpenBSD::Temp->last_error);
 		}
 		$self->{list} = $self->obtain_list($error);
 		$self->parse_problems($error);
@@ -1023,7 +1019,7 @@ sub setup_session
 	my ($fh, undef) = OpenBSD::Temp::fh_file("session",
 		sub { unlink(shift); });
 	if (!defined $fh) {
-		$self->{state}->fatal("Can't write session into tmp directory");
+		$self->{state}->fatal(OpenBSD::Temp->last_error);
 	}
 	$self->{fh} = $fh; # XXX store the full fh and not the fileno
 }

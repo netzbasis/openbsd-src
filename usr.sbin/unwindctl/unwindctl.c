@@ -1,4 +1,4 @@
-/*	$OpenBSD: unwindctl.c,v 1.2 2019/01/27 12:41:39 florian Exp $	*/
+/*	$OpenBSD: unwindctl.c,v 1.26 2019/12/18 09:18:28 florian Exp $	*/
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -27,6 +27,7 @@
 #include <net/if.h>
 #include <net/if_media.h>
 #include <net/if_types.h>
+#include <net/route.h>
 
 #include <err.h>
 #include <errno.h>
@@ -44,10 +45,14 @@
 
 __dead void	 usage(void);
 int		 show_status_msg(struct imsg *);
-void		 print_indented_str(char *);
-void		 print_histogram(void*, size_t len);
+int		 show_autoconf_msg(struct imsg *);
+int		 show_mem_msg(struct imsg *);
+void		 histogram_header(void);
+void		 print_histogram(const char *name, int64_t[], size_t);
 
-struct imsgbuf	*ibuf;
+struct imsgbuf		*ibuf;
+int		 	 info_cnt;
+struct ctl_resolver_info info[UW_RES_NONE];
 
 __dead void
 usage(void)
@@ -62,15 +67,15 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	struct sockaddr_un	 sun;
-	struct parse_result	*res;
-	struct imsg		 imsg;
-	int			 ctl_sock;
-	int			 done = 0;
-	int			 n, verbose = 0;
-	int			 ch;
-	int			 type;
-	char			*sockname;
+	struct sockaddr_un		 sun;
+	struct parse_result		*res;
+	struct imsg			 imsg;
+	struct ctl_resolver_info	*cri;
+	int				 ctl_sock;
+	int				 done = 0;
+	int				 i, j, k, n, verbose = 0;
+	int				 ch, column_offset;
+	char				*sockname;
 
 	sockname = UNWIND_SOCKET;
 	while ((ch = getopt(argc, argv, "s:")) != -1) {
@@ -95,8 +100,8 @@ main(int argc, char *argv[])
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
-
 	strlcpy(sun.sun_path, sockname, sizeof(sun.sun_path));
+
 	if (connect(ctl_sock, (struct sockaddr *)&sun, sizeof(sun)) == -1)
 		err(1, "connect: %s", sockname);
 
@@ -107,6 +112,19 @@ main(int argc, char *argv[])
 		err(1, NULL);
 	imsg_init(ibuf, ctl_sock);
 	done = 0;
+
+	/* Check for root-only actions */
+	switch (res->action) {
+	case LOG_DEBUG:
+	case LOG_VERBOSE:
+	case LOG_BRIEF:
+	case RELOAD:
+		if (geteuid() != 0)
+			errx(1, "need root privileges");
+		break;
+	default:
+		break;
+	}
 
 	/* Process user request. */
 	switch (res->action) {
@@ -127,30 +145,14 @@ main(int argc, char *argv[])
 		printf("reload request sent.\n");
 		done = 1;
 		break;
-	case STATUS_RECURSOR:
-		type = RECURSOR;
-		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, &type,
-		    sizeof(type));
-		break;
-	case STATUS_DHCP:
-		type = FORWARDER;
-		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, &type,
-		    sizeof(type));
-		break;
-	case STATUS_STATIC:
-		type = STATIC_FORWARDER;
-		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, &type,
-		    sizeof(type));
-		break;
-	case STATUS_DOT:
-		type = STATIC_DOT_FORWARDER;
-		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, &type,
-		    sizeof(type));
-		break;
 	case STATUS:
-		type = RESOLVER_NONE;
-		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, &type,
-		    sizeof(type));
+		imsg_compose(ibuf, IMSG_CTL_STATUS, 0, 0, -1, NULL, 0);
+		break;
+	case AUTOCONF:
+		imsg_compose(ibuf, IMSG_CTL_AUTOCONF, 0, 0, -1, NULL, 0);
+		break;
+	case MEM:
+		imsg_compose(ibuf, IMSG_CTL_MEM, 0, 0, -1, NULL, 0);
 		break;
 	default:
 		usage();
@@ -174,11 +176,13 @@ main(int argc, char *argv[])
 
 			switch (res->action) {
 			case STATUS:
-			case STATUS_RECURSOR:
-			case STATUS_DHCP:
-			case STATUS_STATIC:
-			case STATUS_DOT:
 				done = show_status_msg(&imsg);
+				break;
+			case AUTOCONF:
+				done = show_autoconf_msg(&imsg);
+				break;
+			case MEM:
+				done = show_mem_msg(&imsg);
 				break;
 			default:
 				break;
@@ -189,36 +193,105 @@ main(int argc, char *argv[])
 	close(ctl_sock);
 	free(ibuf);
 
+	column_offset = info_cnt / 2;
+	if (info_cnt % 2 == 1)
+		column_offset++;
+
+	for (i = 0; i < column_offset; i++) {
+		for (j = 0; j < 2; j++) {
+			k = i + j * column_offset;
+			if (k >= info_cnt)
+				break;
+
+			cri = &info[k];
+			printf("%d. %-15s %10s, ", k + 1,
+			    uw_resolver_type_str[cri->type],
+			    uw_resolver_state_str[cri->state]);
+			if (cri->median == 0)
+				printf("%5s", "N/A");
+			else if (cri->median == INT64_MAX)
+				printf("%5s", "Inf");
+			else
+				printf("%3lldms", cri->median);
+			if (j == 0)
+				printf("   ");
+		}
+		printf("\n");
+	}
+
+	if (info_cnt)
+		histogram_header();
+	for (i = 0; i < info_cnt; i++) {
+		cri = &info[i];
+		print_histogram(uw_resolver_type_short[cri->type],
+		    cri->histogram, nitems(cri->histogram));
+		print_histogram("", cri->latest_histogram,
+		    nitems(cri->latest_histogram));
+	}
 	return (0);
 }
 
 int
 show_status_msg(struct imsg *imsg)
 {
-	static int			 header;
-	struct ctl_resolver_info	*cri;
-
-	if (!header++)
-		printf("%8s %16s %s\n", "selected", "type", "status");
+	static char			 fwd_line[80];
 
 	switch (imsg->hdr.type) {
 	case IMSG_CTL_RESOLVER_INFO:
-		cri = imsg->data;
-		printf("%8s %16s %s\n", cri->selected ? "*" : " ",
-		    unwind_resolver_type_str[cri->type],
-		    unwind_resolver_state_str[cri->state]);
-		break;
-	case IMSG_CTL_RESOLVER_WHY_BOGUS:
-		/* make sure this is a string */
-		((char *)imsg->data)[imsg->hdr.len - IMSG_HEADER_SIZE -1] =
-		    '\0';
-		printf("\nReason for not validating:\n");
-		print_indented_str(imsg->data);
-		break;
-	case IMSG_CTL_RESOLVER_HISTOGRAM:
-		print_histogram(imsg->data, imsg->hdr.len - IMSG_HEADER_SIZE);
+		memcpy(&info[info_cnt++], imsg->data, sizeof(info[0]));
 		break;
 	case IMSG_CTL_END:
+		if (fwd_line[0] != '\0')
+			printf("%s\n", fwd_line);
+		return (1);
+	default:
+		break;
+	}
+
+	return (0);
+}
+
+int
+show_autoconf_msg(struct imsg *imsg)
+{
+	static int			 autoconf_forwarders, last_src;
+	static int			 label_len, line_len;
+	static uint32_t			 last_if_index;
+	static char			 fwd_line[80];
+	struct ctl_forwarder_info	*cfi;
+	char				 ifnamebuf[IFNAMSIZ];
+	char				*if_name;
+
+	switch (imsg->hdr.type) {
+	case IMSG_CTL_AUTOCONF_RESOLVER_INFO:
+		cfi = imsg->data;
+		if (!autoconf_forwarders++)
+			printf("autoconfiguration forwarders:\n");
+		if (cfi->if_index != last_if_index || cfi->src != last_src) {
+			if_name = if_indextoname(cfi->if_index, ifnamebuf);
+			if (fwd_line[0] != '\0') {
+				printf("%s\n", fwd_line);
+				fwd_line[0] = '\0';
+			}
+			label_len = snprintf(fwd_line, sizeof(fwd_line),
+			    "%s[%s]:", cfi->src == RTP_PROPOSAL_DHCLIENT ?
+			    " DHCP" : "SLAAC", if_name ? if_name : "unknown");
+			line_len = label_len;
+			last_if_index = cfi->if_index;
+			last_src = cfi->src;
+		}
+
+		if (line_len + 1 + strlen(cfi->ip) > sizeof(fwd_line)) {
+			printf("%s\n", fwd_line);
+			snprintf(fwd_line, sizeof(fwd_line), "%*s", label_len,
+			    " ");
+		}
+		strlcat(fwd_line, " ", sizeof(fwd_line));
+		line_len = strlcat(fwd_line, cfi->ip, sizeof(fwd_line));
+		break;
+	case IMSG_CTL_END:
+		if (fwd_line[0] != '\0')
+			printf("%s\n", fwd_line);
 		return (1);
 	default:
 		break;
@@ -228,55 +301,56 @@ show_status_msg(struct imsg *imsg)
 }
 
 void
-print_indented_str(char * str)
+histogram_header(void)
 {
-	int	 i;
-	char	*cur;
+	const char	 head[] = "histograms: lifetime[ms], decaying[ms]";
+	char	 	 buf[10];
+	size_t	 	 i;
 
-	if (strlen(str) <= 72) {
-		printf("\t%s\n", str);
-		return;
-	}
-	
-	for (i = 71; i >= 0; i--)
-		if (str[i] == ' ')
-			break;
-
-	if (i < 0)
-		cur = strchr(str, ' ');
-	else
-		cur = &str[i];
-
-
-	if (cur == NULL)
-		printf("\t%s\n", str);
-	else {
-		*cur = '\0';
-		printf("\t%s\n", str);
-		print_indented_str(cur + 1);
-	}
-}
-
-void
-print_histogram(void* data, size_t len)
-{
-	int64_t	 histogram[nitems(histogram_limits)];
-	size_t	 i;
-	char	 buf[10];
-
-	if (len != sizeof(histogram))
-		errx(1, "invalid histogram size");
-
-	printf("\n%40s\n", "histogram[ms]");
-
-	memcpy(histogram, data, len);
-
-	for(i = 1; i < nitems(histogram_limits) - 1; i++) {
+	printf("\n%*s%*s\n%*s", 5, "",
+	    (int)(72/2 + (sizeof(head)-1)/2), head, 6, "");
+	for(i = 0; i < nitems(histogram_limits) - 1; i++) {
 		snprintf(buf, sizeof(buf), "<%lld", histogram_limits[i]);
 		printf("%6s", buf);
 	}
 	printf("%6s\n", ">");
-	for(i = 1; i < nitems(histogram); i++)
+}
+
+void
+print_histogram(const char *name, int64_t histogram[], size_t n)
+{
+	size_t	 i;
+
+	printf("%5s ", name);
+	for(i = 0; i < n; i++)
 		printf("%6lld", histogram[i]);
 	printf("\n");
+}
+
+int
+show_mem_msg(struct imsg *imsg)
+{
+	struct ctl_mem_info	*cmi;
+
+	switch (imsg->hdr.type) {
+	case IMSG_CTL_MEM_INFO:
+		cmi = imsg->data;
+		printf("msg-cache:   %zu / %zu (%.2f%%)\n", cmi->msg_cache_used,
+		    cmi->msg_cache_max, 100.0 * cmi->msg_cache_used /
+		    cmi->msg_cache_max);
+		printf("rrset-cache: %zu / %zu (%.2f%%)\n",
+		    cmi->rrset_cache_used, cmi->rrset_cache_max, 100.0 *
+		    cmi->rrset_cache_used / cmi->rrset_cache_max);
+		printf("key-cache: %zu / %zu (%.2f%%)\n", cmi->key_cache_used,
+		    cmi->key_cache_max, 100.0 * cmi->key_cache_used /
+		    cmi->key_cache_max);
+		printf("neg-cache: %zu / %zu (%.2f%%)\n", cmi->neg_cache_used,
+		    cmi->neg_cache_max, 100.0 * cmi->neg_cache_used /
+		    cmi->neg_cache_max);
+		break;
+	default:
+		break;
+	}
+
+	return 1;
 }

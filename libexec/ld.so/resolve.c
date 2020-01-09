@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.c,v 1.87 2018/11/28 03:18:00 guenther Exp $ */
+/*	$OpenBSD: resolve.c,v 1.94 2019/10/04 17:42:16 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -45,17 +45,16 @@ typedef enum {
 
 struct symlookup {
 	const char		*sl_name;
-	const elf_object_t	*sl_obj_out;
-	const Elf_Sym		*sl_sym_out;
-	const elf_object_t	*sl_weak_obj_out;
-	const Elf_Sym		*sl_weak_sym_out;
+	struct sym_res		sl_out;
+	struct sym_res		sl_weak_out;
 	unsigned long		sl_elf_hash;
 	uint32_t		sl_gnu_hash;
 	int			sl_flags;
 };
 
 elf_object_t *_dl_objects;
-elf_object_t *_dl_last_object;
+int object_count;
+static elf_object_t *_dl_last_object;
 elf_object_t *_dl_loading_object;
 
 /*
@@ -89,10 +88,13 @@ _dl_add_object(elf_object_t *object)
 
 	if (_dl_objects == NULL) {			/* First object ? */
 		_dl_last_object = _dl_objects = object;
+		object_count = 2;			/* count ld.so early */
 	} else {
 		_dl_last_object->next = object;
 		object->prev = _dl_last_object;
 		_dl_last_object = object;
+		if (object->obj_type != OBJTYPE_LDR)	/* see above */
+			object_count++;
 	}
 }
 
@@ -225,7 +227,8 @@ _dl_origin_path(elf_object_t *object, char *origin_path)
 	if (dirname_path == NULL)
 		return -1;
 
-	if (_dl_realpath(dirname_path, origin_path) == NULL)
+	/* syscall in ld.so returns 0/-errno, where libc returns char* */
+	if (_dl___realpath(dirname_path, origin_path) < 0)
 		return -1;
 
 	return 0;
@@ -361,13 +364,13 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 		object->Dyn.info[DT_PREINIT_ARRAY] += obase;
 
 	if (gnu_hash) {
-		Elf32_Word *hashtab = (Elf32_Word *)(gnu_hash + obase);
-		Elf32_Word nbuckets = hashtab[0];
-		Elf32_Word nmaskwords = hashtab[2];
+		Elf_Word *hashtab = (Elf_Word *)(gnu_hash + obase);
+		Elf_Word nbuckets = hashtab[0];
+		Elf_Word nmaskwords = hashtab[2];
 
 		/* validity check */
 		if (nbuckets > 0 && (nmaskwords & (nmaskwords - 1)) == 0) {
-			Elf32_Word symndx = hashtab[1];
+			Elf_Word symndx = hashtab[1];
 			int bloom_size32 = (ELFSIZE / 32) * nmaskwords;
 
 			object->nbuckets = nbuckets;
@@ -385,11 +388,11 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 			 * the entries in the GNU hash chain.
 			 */
 			if (object->Dyn.info[DT_HASH] == 0) {
-				Elf32_Word n;
+				Elf_Word n;
 
 				for (n = 0; n < nbuckets; n++) {
 					Elf_Word bkt = object->buckets_gnu[n];
-					const Elf32_Word *hashval;
+					const Elf_Word *hashval;
 					if (bkt == 0)
 						continue;
 					hashval = &object->chains_gnu[bkt];
@@ -403,8 +406,8 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 		}
 	}
 	if (object->Dyn.info[DT_HASH] != 0) {
-		Elf_Word *hashtab = (Elf_Word *)(object->Dyn.info[DT_HASH]
-		    + obase);
+		Elf_Hash_Word *hashtab =
+		    (Elf_Hash_Word *)(object->Dyn.info[DT_HASH] + obase);
 
 		object->nchains = hashtab[1];
 		if (object->nbuckets == 0) {
@@ -428,14 +431,12 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 	DL_DEB(("obj %s has %s as head\n", object->load_name,
 	    _dl_loading_object->load_name ));
 	object->refcount = 0;
-	TAILQ_INIT(&object->child_list);
 	object->opencount = 0;	/* # dlopen() & exe */
 	object->grprefcount = 0;
 	/* default dev, inode for dlopen-able objects. */
 	object->dev = 0;
 	object->inode = 0;
 	object->grpsym_gen = 0;
-	TAILQ_INIT(&object->grpsym_list);
 	TAILQ_INIT(&object->grpref_list);
 
 	if (object->dyn.runpath)
@@ -493,8 +494,8 @@ _dl_cleanup_objects()
 		_dl_free((char *)head->sod.sod_name);
 		_dl_free_path(head->runpath);
 		_dl_free_path(head->rpath);
-		_dl_tailq_free(TAILQ_FIRST(&head->grpsym_list));
-		_dl_tailq_free(TAILQ_FIRST(&head->child_list));
+		_dl_free(head->grpsym_vec.vec);
+		_dl_free(head->child_vec.vec);
 		_dl_tailq_free(TAILQ_FIRST(&head->grpref_list));
 		nobj = head->next;
 		_dl_free(head);
@@ -511,66 +512,10 @@ _dl_remove_object(elf_object_t *object)
 
 	if (_dl_last_object == object)
 		_dl_last_object = object->prev;
+	object_count--;
 
 	object->next = free_objects;
 	free_objects = object;
-}
-
-
-sym_cache *_dl_symcache;
-int _dl_symcachestat_hits;
-int _dl_symcachestat_lookups;
-
-
-Elf_Addr
-_dl_find_symbol_bysym(elf_object_t *req_obj, unsigned int symidx,
-    const Elf_Sym **this, int flags, const Elf_Sym *ref_sym, const elf_object_t **pobj)
-{
-	Elf_Addr ret;
-	const Elf_Sym *sym;
-	const char *symn;
-	const elf_object_t *sobj;
-
-	_dl_symcachestat_lookups ++;
-	if (_dl_symcache != NULL &&
-	    symidx < req_obj->nchains &&
-	    _dl_symcache[symidx].obj != NULL &&
-	    _dl_symcache[symidx].sym != NULL &&
-	    _dl_symcache[symidx].flags == flags) {
-
-		_dl_symcachestat_hits++;
-		sobj = _dl_symcache[symidx].obj;
-		*this = _dl_symcache[symidx].sym;
-		if (pobj)
-			*pobj = sobj;
-		return sobj->obj_base;
-	}
-
-	sym = req_obj->dyn.symtab;
-	sym += symidx;
-	symn = req_obj->dyn.strtab + sym->st_name;
-
-	ret = _dl_find_symbol(symn, this, flags, ref_sym, req_obj, &sobj);
-
-	if (pobj)
-		*pobj = sobj;
-
-	if (_dl_symcache != NULL && symidx < req_obj->nchains) {
-#if 0
-		DL_DEB(("cache miss %d %p %p, %p %p %s %s %d %d %s\n",
-		    symidx,
-		    _dl_symcache[symidx].sym, *this,
-		    _dl_symcache[symidx].obj, sobj, sobj->load_name,
-		    sobj->dyn.strtab + (*this)->st_name,
-		    _dl_symcache[symidx].flags, flags, req_obj->load_name));
-#endif
-
-		_dl_symcache[symidx].sym = *this;
-		_dl_symcache[symidx].obj = sobj;
-		_dl_symcache[symidx].flags = flags;
-	}
-
-	return ret;
 }
 
 static int
@@ -604,18 +549,18 @@ matched_symbol(elf_object_t *obj, const Elf_Sym *sym, struct symlookup *sl)
 		return 0;
 	}
 
-	if (sym != sl->sl_sym_out &&
+	if (sym != sl->sl_out.sym &&
 	    _dl_strcmp(sl->sl_name, obj->dyn.strtab + sym->st_name))
 		return 0;
 
 	if (ELF_ST_BIND(sym->st_info) == STB_GLOBAL) {
-		sl->sl_sym_out = sym;
-		sl->sl_obj_out = obj;
+		sl->sl_out.sym = sym;
+		sl->sl_out.obj = obj;
 		return 1;
 	} else if (ELF_ST_BIND(sym->st_info) == STB_WEAK) {
-		if (sl->sl_weak_sym_out == NULL) {
-			sl->sl_weak_sym_out = sym;
-			sl->sl_weak_obj_out = obj;
+		if (sl->sl_weak_out.sym == NULL) {
+			sl->sl_weak_out.sym = sym;
+			sl->sl_weak_out.obj = obj;
 		}
 		/* done with this object, but need to check other objects */
 		return -1;
@@ -633,8 +578,8 @@ _dl_find_symbol_obj(elf_object_t *obj, struct symlookup *sl)
 		Elf_Addr bloom_word;
 		unsigned int h1;
 		unsigned int h2;
-		Elf32_Word bucket;
-		const Elf32_Word *hashval;
+		Elf_Word bucket;
+		const Elf_Word *hashval;
 
 		/* pick right bitmask word from Bloom filter array */
 		bloom_word = obj->bloom_gnu[(hash / ELFSIZE) &
@@ -678,19 +623,16 @@ _dl_find_symbol_obj(elf_object_t *obj, struct symlookup *sl)
 	return 0;
 }
 
-Elf_Addr
-_dl_find_symbol(const char *name, const Elf_Sym **this,
-    int flags, const Elf_Sym *ref_sym, elf_object_t *req_obj,
-    const elf_object_t **pobj)
+struct sym_res
+_dl_find_symbol(const char *name, int flags, const Elf_Sym *ref_sym,
+    elf_object_t *req_obj)
 {
 	const unsigned char *p;
 	unsigned char c;
-	struct dep_node *n, *m;
 	struct symlookup sl = {
 		.sl_name = name,
-		.sl_obj_out = NULL,
-		.sl_weak_obj_out = NULL,
-		.sl_weak_sym_out = NULL,
+		.sl_out = { .sym = NULL },
+		.sl_weak_out = { .sym = NULL },
 		.sl_elf_hash = 0,
 		.sl_gnu_hash = 5381,
 		.sl_flags = flags,
@@ -711,36 +653,45 @@ _dl_find_symbol(const char *name, const Elf_Sym **this,
 			goto found;
 
 	if (flags & SYM_DLSYM) {
+		struct object_vector vec;
+		int i;
+
 		if (_dl_find_symbol_obj(req_obj, &sl))
 			goto found;
 
 		/* weak definition in the specified object is good enough */
-		if (sl.sl_weak_obj_out != NULL)
+		if (sl.sl_weak_out.sym != NULL)
 			goto found;
 
 		/* search dlopened obj and all children */
-		TAILQ_FOREACH(n, &req_obj->load_object->grpsym_list, next_sib) {
-			if (_dl_find_symbol_obj(n->data, &sl))
+		vec = req_obj->load_object->grpsym_vec;
+		for (i = 0; i < vec.len; i++) {
+			if (vec.vec[i] == req_obj)
+				continue;		/* already searched */
+			if (_dl_find_symbol_obj(vec.vec[i], &sl))
 				goto found;
 		}
 	} else {
-		int skip = 0;
+		struct dep_node *n;
+		struct object_vector vec;
+		int i, skip = 0;
 
 		if ((flags & SYM_SEARCH_SELF) || (flags & SYM_SEARCH_NEXT))
 			skip = 1;
 
 		/*
 		 * search dlopened objects: global or req_obj == dlopened_obj
-		 * and and it's children
+		 * and its children
 		 */
 		TAILQ_FOREACH(n, &_dlopened_child_list, next_sib) {
 			if (((n->data->obj_flags & DF_1_GLOBAL) == 0) &&
 			    (n->data != req_obj->load_object))
 				continue;
 
-			TAILQ_FOREACH(m, &n->data->grpsym_list, next_sib) {
+			vec = n->data->grpsym_vec;
+			for (i = 0; i < vec.len; i++) {
 				if (skip == 1) {
-					if (m->data == req_obj) {
+					if (vec.vec[i] == req_obj) {
 						skip = 0;
 						if (flags & SYM_SEARCH_NEXT)
 							continue;
@@ -748,42 +699,38 @@ _dl_find_symbol(const char *name, const Elf_Sym **this,
 						continue;
 				}
 				if ((flags & SYM_SEARCH_OTHER) &&
-				    (m->data == req_obj))
+				    (vec.vec[i] == req_obj))
 					continue;
-				if (_dl_find_symbol_obj(m->data, &sl))
+				if (_dl_find_symbol_obj(vec.vec[i], &sl))
 					goto found;
 			}
 		}
 	}
 
 found:
-	if (sl.sl_sym_out != NULL) {
-		*this = sl.sl_sym_out;
-	} else if (sl.sl_weak_obj_out != NULL) {
-		sl.sl_obj_out = sl.sl_weak_obj_out;
-		*this = sl.sl_weak_sym_out;
-	} else {
-		if ((ref_sym == NULL ||
-		    (ELF_ST_BIND(ref_sym->st_info) != STB_WEAK)) &&
-		    (flags & SYM_WARNNOTFOUND))
-			_dl_printf("%s:%s: undefined symbol '%s'\n",
-			    __progname, req_obj->load_name, name);
-		return (0);
+	if (sl.sl_out.sym == NULL) {
+		if (sl.sl_weak_out.sym != NULL)
+			sl.sl_out = sl.sl_weak_out;
+		else {
+			if ((ref_sym == NULL ||
+			    (ELF_ST_BIND(ref_sym->st_info) != STB_WEAK)) &&
+			    (flags & SYM_WARNNOTFOUND))
+				_dl_printf("%s:%s: undefined symbol '%s'\n",
+				    __progname, req_obj->load_name, name);
+			return (struct sym_res){ NULL, NULL };
+		}
 	}
 
 	if (ref_sym != NULL && ref_sym->st_size != 0 &&
-	    (ref_sym->st_size != (*this)->st_size)  &&
-	    (ELF_ST_TYPE((*this)->st_info) != STT_FUNC) ) {
+	    (ref_sym->st_size != sl.sl_out.sym->st_size) &&
+	    (ELF_ST_TYPE(sl.sl_out.sym->st_info) != STT_FUNC) ) {
 		_dl_printf("%s:%s: %s : WARNING: "
 		    "symbol(%s) size mismatch, relink your program\n",
-		    __progname, req_obj->load_name, sl.sl_obj_out->load_name,
+		    __progname, req_obj->load_name, sl.sl_out.obj->load_name,
 		    name);
 	}
 
-	if (pobj != NULL)
-		*pobj = sl.sl_obj_out;
-
-	return sl.sl_obj_out->obj_base;
+	return sl.sl_out;
 }
 
 void

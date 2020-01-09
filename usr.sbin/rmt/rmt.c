@@ -1,4 +1,4 @@
-/*	$OpenBSD: rmt.c,v 1.21 2018/04/26 12:42:51 guenther Exp $	*/
+/*	$OpenBSD: rmt.c,v 1.23 2019/06/28 13:32:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -169,7 +169,7 @@ top:
 			f &= ~O_CREAT;
 		} else if (wflag) {
 			/*
-			 * Require, and force creation of, a nonexistant file,
+			 * Require, and force creation of, a nonexistent file,
 			 * unless we are reopening the last opened file again,
 			 * in which case it is opened read-only.
 			 */
@@ -228,7 +228,7 @@ top:
 			}
 		}
 		rval = write(tape, record, n);
-		if (rval < 0)
+		if (rval == -1)
 			goto ioerror;
 		goto respond;
 
@@ -238,7 +238,7 @@ top:
 		n = atoi(count);
 		record = checkbuf(record, n);
 		rval = read(tape, record, n);
-		if (rval < 0)
+		if (rval == -1)
 			goto ioerror;
 		(void) snprintf(resp, sizeof resp, "A%d\n", rval);
 		(void) write(STDOUT_FILENO, resp, strlen(resp));

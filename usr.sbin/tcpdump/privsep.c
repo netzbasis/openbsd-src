@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.52 2018/11/17 16:52:02 brynet Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.54 2019/06/28 13:32:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003 Can Erkin Acar
@@ -172,7 +172,7 @@ priv_init(int argc, char **argv)
 	sigprocmask(SIG_BLOCK, &allsigs, &oset);
 
 	child_pid = fork();
-	if (child_pid < 0)
+	if (child_pid == -1)
 		err(1, "fork() failed");
 
 	if (child_pid) {
@@ -224,7 +224,7 @@ priv_exec(int argc, char *argv[])
 	/* parse the arguments for required options */
 	opterr = 0;
 	while ((i = getopt(argc, argv,
-	    "ac:D:deE:fF:i:lLnNOopPqr:s:StT:vw:xXy:Y")) != -1) {
+	    "aB:c:D:deE:fF:i:lLnNOopPqr:s:StT:vw:xXy:Y")) != -1) {
 		switch (i) {
 		case 'n':
 			nflag++;
@@ -366,7 +366,7 @@ static void
 impl_open_bpf(int fd, int *bpfd)
 {
 	int snaplen, promisc, err;
-	u_int dlt, dirfilt;
+	u_int dlt, dirfilt, fildrop;
 	char device[IFNAMSIZ];
 	size_t iflen;
 
@@ -376,10 +376,11 @@ impl_open_bpf(int fd, int *bpfd)
 	must_read(fd, &promisc, sizeof(int));
 	must_read(fd, &dlt, sizeof(u_int));
 	must_read(fd, &dirfilt, sizeof(u_int));
+	must_read(fd, &fildrop, sizeof(fildrop));
 	iflen = read_string(fd, device, sizeof(device), __func__);
 	if (iflen == 0)
 		errx(1, "Invalid interface size specified");
-	*bpfd = pcap_live(device, snaplen, promisc, dlt, dirfilt);
+	*bpfd = pcap_live(device, snaplen, promisc, dlt, dirfilt, fildrop);
 	err = errno;
 	if (*bpfd < 0)
 		logmsg(LOG_DEBUG,
@@ -403,7 +404,7 @@ impl_open_dump(int fd, const char *RFileName)
 	} else {
 		file = open(RFileName, O_RDONLY, 0);
 		err = errno;
-		if (file < 0)
+		if (file == -1)
 			logmsg(LOG_DEBUG, "[priv]: failed to open %s: %s",
 			    RFileName, strerror(errno));
 	}
@@ -422,7 +423,7 @@ impl_open_pfosfp(int fd)
 
 	file = open(PF_OSFP_FILE, O_RDONLY, 0);
 	err = errno;
-	if (file < 0)
+	if (file == -1)
 		logmsg(LOG_DEBUG, "[priv]: failed to open %s: %s",
 		    PF_OSFP_FILE, strerror(errno));
 	send_fd(fd, file);
@@ -442,7 +443,7 @@ impl_open_output(int fd, const char *WFileName)
 	err = errno;
 	send_fd(fd, file);
 	must_write(fd, &err, sizeof(int));
-	if (file < 0)
+	if (file == -1)
 		logmsg(LOG_DEBUG, "[priv]: failed to open %s: %s",
 		    WFileName, strerror(err));
 	else

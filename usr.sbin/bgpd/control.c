@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.94 2019/01/20 23:27:48 claudio Exp $ */
+/*	$OpenBSD: control.c,v 1.99 2019/08/12 15:02:05 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -47,7 +47,7 @@ control_check(char *path)
 	sun.sun_family = AF_UNIX;
 	strlcpy(sun.sun_path, path, sizeof(sun.sun_path));
 
-	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) == -1) {
 		log_warn("%s: socket", __func__);
 		return (-1);
 	}
@@ -220,7 +220,8 @@ control_close(int fd)
 }
 
 int
-control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
+control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt,
+    struct peer_head *peers)
 {
 	struct imsg		 imsg;
 	struct ctl_conn		*c;
@@ -294,7 +295,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			    0, NULL, 0);
 			break;
 		case IMSG_CTL_SHOW_TERSE:
-			for (p = peers; p != NULL; p = p->next)
+			RB_FOREACH(p, peer_head, peers)
 				imsg_compose(&c->ibuf, IMSG_CTL_SHOW_NEIGHBOR,
 				    0, 0, -1, p, sizeof(struct peer));
 			imsg_compose(&c->ibuf, IMSG_CTL_END, 0, 0, -1, NULL, 0);
@@ -309,7 +310,8 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			} else {
 				neighbor = NULL;
 			}
-			for (matched = 0, p = peers; p != NULL; p = p->next) {
+			matched = 0;
+			RB_FOREACH(p, peer_head, peers) {
 				if (!peer_matched(p, neighbor))
 					continue;
 
@@ -337,7 +339,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 					}
 				}
 			}
-			if (!matched) {
+			if (!matched && RB_EMPTY(peers)) {
 				control_result(c, CTL_RES_NOSUCHPEER);
 			} else if (!neighbor || !neighbor->show_timers) {
 				imsg_ctl_rde(IMSG_CTL_END, imsg.hdr.pid,
@@ -362,7 +364,8 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			neighbor = imsg.data;
 			neighbor->descr[PEER_DESCR_LEN - 1] = 0;
 
-			for (matched = 0, p = peers; p != NULL; p = p->next) {
+			matched = 0;
+			RB_FOREACH(p, peer_head, peers) {
 				if (!peer_matched(p, neighbor))
 					continue;
 
@@ -373,6 +376,9 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 					bgp_fsm(p, EVNT_START);
 					p->conf.down = 0;
 					p->conf.shutcomm[0] = '\0';
+					p->IdleHoldTime =
+					    INTERVAL_IDLE_HOLD_INITIAL;
+					p->errcnt = 0;
 					control_result(c, CTL_RES_OK);
 					break;
 				case IMSG_CTL_NEIGHBOR_DOWN:
@@ -387,6 +393,9 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 					strlcpy(p->conf.shutcomm,
 					    neighbor->shutcomm,
 					    sizeof(neighbor->shutcomm));
+					p->IdleHoldTime =
+					    INTERVAL_IDLE_HOLD_INITIAL;
+					p->errcnt = 0;
 					if (!p->conf.down) {
 						session_stop(p,
 						    ERR_CEASE_ADMIN_RESET);
@@ -417,7 +426,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 						 * Mark as deleted, will be
 						 * collected on next poll loop.
 						 */
-						p->conf.reconf_action =
+						p->reconf_action =
 						    RECONF_DELETE;
 						control_result(c, CTL_RES_OK);
 					}
@@ -458,10 +467,10 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			neighbor->descr[PEER_DESCR_LEN - 1] = 0;
 
 			/* check if at least one neighbor exists */
-			for (p = peers; p != NULL; p = p->next)
+			RB_FOREACH(p, peer_head, peers)
 				if (peer_matched(p, neighbor))
 					break;
-			if (p == NULL) {
+			if (p == NULL && RB_EMPTY(peers)) {
 				control_result(c, CTL_RES_NOSUCHPEER);
 				break;
 			}

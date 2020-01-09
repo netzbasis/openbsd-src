@@ -1,4 +1,4 @@
-#	$OpenBSD: files,v 1.666 2018/12/20 23:00:55 dlg Exp $
+#	$OpenBSD: files,v 1.678 2019/12/05 15:19:33 mpi Exp $
 #	$NetBSD: files,v 1.87 1996/05/19 17:17:50 jonathan Exp $
 
 #	@(#)files.newconf	7.5 (Berkeley) 5/10/93
@@ -59,6 +59,7 @@ define	onewire_bitbang
 # net device attributes - we have generic code for ether(net)
 define	crypto
 define	ether
+define	mpls
 define	sppp
 define	wlan
 
@@ -73,7 +74,7 @@ define	ax88190		# AX88190-family Ethernet controllers
 # a wscons output device; used later, but needs to be near the top for
 # common file (e.g. vga) definitions.
 define	wsdisplaydev		{[mux = 1]}
-define	wsemuldisplaydev	{[console = -1], [mux = 1]}
+define	wsemuldisplaydev	{[console = -1], [primary = -1], [mux = 1]}
 define	wskbddev		{[console = -1], [mux = 1]}
 define	wsmousedev		{[mux = 0]}
 
@@ -310,11 +311,6 @@ file	dev/ic/i82596.c			ie & (ie_pci | ie_eisa | ie_gsc)
 # Sun GEM Ethernet controllers
 device	gem: ether, ifnet, ifmedia, mii
 file	dev/ic/gem.c			gem
-
-# Synopsis Designware GMAC core, as found on Allwinner A20
-# and other SoCs
-device	dwge: ether, ifnet, ifmedia, mii
-file	dev/ic/dwc_gmac.c		dwge
 
 device	ti: ether, ifnet, ifmedia, mii, firmload
 file	dev/ic/ti.c			ti
@@ -558,11 +554,13 @@ pseudo-device carp: ifnet, ether
 pseudo-device sppp: ifnet
 pseudo-device gif: ifnet
 pseudo-device gre: ifnet
-pseudo-device mobileip: ifnet
 pseudo-device crypto: ifnet
 pseudo-device trunk: ifnet, ether, ifmedia
-pseudo-device mpe: ifnet, ether
-pseudo-device mpw: ifnet, ether
+pseudo-device aggr: ifnet, ether, ifmedia
+pseudo-device tpmr: ifnet, ether, ifmedia
+pseudo-device mpe: ifnet, mpls
+pseudo-device mpw: ifnet, mpls, ether
+pseudo-device mpip: ifnet, mpls
 pseudo-device bpe: ifnet, ether, ifmedia
 pseudo-device vether: ifnet, ether
 pseudo-device pppx: ifnet
@@ -691,6 +689,7 @@ file kern/kern_unveil.c
 file kern/kern_sched.c
 file kern/kern_sensors.c
 file kern/kern_sig.c
+file kern/kern_smr.c
 file kern/kern_subr.c
 file kern/kern_sysctl.c
 file kern/kern_synch.c
@@ -708,6 +707,7 @@ file kern/subr_disk.c
 file kern/subr_evcount.c
 file kern/subr_extent.c
 file kern/subr_hibernate.c		hibernate
+file kern/subr_kubsan.c			kubsan
 file kern/subr_log.c
 file kern/subr_percpu.c
 file kern/subr_poison.c			diagnostic
@@ -809,11 +809,13 @@ file net/rtsock.c
 file net/slcompress.c			ppp
 file net/if_enc.c			enc			needs-count
 file net/if_gre.c			gre			needs-count
-file net/if_mobileip.c			mobileip		needs-count
 file net/if_trunk.c			trunk			needs-count
 file net/trunklacp.c			trunk
+file net/if_aggr.c			aggr
+file net/if_tpmr.c			tpmr
 file net/if_mpe.c			mpe			needs-count
-file net/if_mpw.c			mpw & bridge		needs-count
+file net/if_mpw.c			mpw			needs-count
+file net/if_mpip.c			mpip
 file net/if_bpe.c			bpe			needs-count
 file net/if_vether.c			vether			needs-count
 file net/if_pair.c			pair			needs-count
@@ -862,7 +864,6 @@ file netinet/ip_gre.c
 file netinet/ip_ipsp.c			ipsec | tcp_signature
 file netinet/ip_spd.c			ipsec | tcp_signature
 file netinet/ip_ipip.c
-file netinet/ip_ether.c			gif
 file netinet/ipsec_input.c		ipsec
 file netinet/ipsec_output.c		ipsec
 file netinet/ip_esp.c			ipsec
@@ -963,11 +964,9 @@ file uvm/uvm_page.c
 file uvm/uvm_pager.c
 file uvm/uvm_pdaemon.c
 file uvm/uvm_pmemrange.c
-file uvm/uvm_stat.c
 file uvm/uvm_swap.c
 file uvm/uvm_swap_encrypt.c		uvm_swap_encrypt
 file uvm/uvm_unix.c
-file uvm/uvm_user.c
 file uvm/uvm_vnode.c
 
 # IPv6

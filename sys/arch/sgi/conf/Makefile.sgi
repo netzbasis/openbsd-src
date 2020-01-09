@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.sgi,v 1.97 2019/01/14 16:27:19 visa Exp $
+#	$OpenBSD: Makefile.sgi,v 1.100 2019/11/07 20:42:28 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -42,6 +42,7 @@ CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+COPTS?=		-Oz
 .endif
 
 DEBUG?=		-g
@@ -57,7 +58,7 @@ HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
 NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -155,8 +156,7 @@ hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -m 700 -F bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

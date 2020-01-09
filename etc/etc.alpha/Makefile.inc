@@ -1,6 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.26 2017/04/04 00:03:12 deraadt Exp $
-
-KERNELS += GENERIC.MP bsd.mp
+#	$OpenBSD: Makefile.inc,v 1.28 2019/10/12 05:22:48 deraadt Exp $
 
 KERNELS += GENERIC.MP bsd.mp
 
@@ -12,5 +10,4 @@ bootblocks:
 
 MDEXT=	bsd.rd cd${OSrev}.iso \
 	miniroot${OSrev}.fs \
-	floppy${OSrev}.fs floppyB${OSrev}.fs floppyC${OSrev}.fs \
 	boot bootxx netboot netboot.mop

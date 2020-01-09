@@ -1,4 +1,4 @@
-/*	$OpenBSD: cdboot.c,v 1.13 2013/12/28 02:51:07 deraadt Exp $	*/
+/*	$OpenBSD: cdboot.c,v 1.15 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003 Michael Shalayeff
@@ -32,6 +32,7 @@
 #include <libsa.h>
 #include <lib/libsa/cd9660.h>
 #include <lib/libsa/loadfile.h>
+#include <lib/libsa/arc4.h>
 #include <dev/cons.h>
 #include <machine/pdc.h>
 #include <machine/cpu.h>
@@ -64,11 +65,12 @@ typedef void (*startfuncp)(int, int, int, int, int, int, caddr_t)
     __attribute__ ((noreturn));
 
 char   rnddata[BOOTRANDOM_MAX];		/* XXX dummy */
+struct rc4_ctx randomctx;
 
 void
 boot(dev_t dev)
 {
-	u_long marks[MARK_MAX];
+	uint64_t marks[MARK_MAX];
 	char path[128];
 
 	pdc_init();
@@ -78,6 +80,10 @@ boot(dev_t dev)
 	printf(">> OpenBSD/" MACHINE " CDBOOT 0.2\n"
 	    "booting %s: ", path);
 
+	/* XXX note that rnddata is not initialized */
+	rc4_keysetup(&randomctx, rnddata, sizeof rnddata);
+	rc4_skip(&randomctx, 1536);
+
 	marks[MARK_START] = (u_long)DEFAULT_KERNEL_ADDRESS;
 	if (!loadfile(path, marks, LOAD_KERNEL)) {
 		marks[MARK_END] = ALIGN(marks[MARK_END] -
@@ -86,8 +92,8 @@ boot(dev_t dev)
 
 		__asm("mtctl %r0, %cr17");
 		__asm("mtctl %r0, %cr17");
-		(*(startfuncp)(marks[MARK_ENTRY]))((int)pdc, 0, bootdev,
-		    marks[MARK_END], BOOTARG_APIVER, BOOTARG_LEN,
+		(*(startfuncp)((u_long)marks[MARK_ENTRY]))((int)pdc, 0, bootdev,
+		    (u_long)marks[MARK_END], BOOTARG_APIVER, BOOTARG_LEN,
 		    (caddr_t)BOOTARG_OFF);
 		/* not reached */
 	}

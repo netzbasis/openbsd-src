@@ -1,4 +1,4 @@
-/*	$OpenBSD: viocon.c,v 1.5 2019/01/08 16:24:09 sf Exp $	*/
+/*	$OpenBSD: viocon.c,v 1.7 2019/05/26 15:20:04 sf Exp $	*/
 
 /*
  * Copyright (c) 2013-2015 Stefan Fritsch <sf@sfritsch.de>
@@ -30,9 +30,9 @@
 
 
 /* features */
-#define	VIRTIO_CONSOLE_F_SIZE		(1<<0)
-#define	VIRTIO_CONSOLE_F_MULTIPORT	(1<<1)
-#define	VIRTIO_CONSOLE_F_EMERG_WRITE 	(1<<2)
+#define	VIRTIO_CONSOLE_F_SIZE		(1ULL<<0)
+#define	VIRTIO_CONSOLE_F_MULTIPORT	(1ULL<<1)
+#define	VIRTIO_CONSOLE_F_EMERG_WRITE 	(1ULL<<2)
 
 /* config space */
 #define VIRTIO_CONSOLE_COLS		0	/* 16 bits */
@@ -193,8 +193,8 @@ viocon_attach(struct device *parent, struct device *self, void *aux)
 		goto err;
 	}
 
-	virtio_negotiate_features(vsc, VIRTIO_CONSOLE_F_SIZE,
-	    viocon_feature_names);
+	vsc->sc_driver_features = VIRTIO_CONSOLE_F_SIZE;
+	virtio_negotiate_features(vsc, viocon_feature_names);
 
 	printf("\n");
 	DPRINTF("%s: softc: %p\n", __func__, sc);
@@ -277,7 +277,7 @@ viocon_port_create(struct viocon_softc *sc, int portidx)
 	 */
 	vp->vp_tx_buf = vp->vp_rx_buf + vp->vp_rx->vq_num * BUFSIZE;
 
-	if (vsc->sc_features & VIRTIO_CONSOLE_F_SIZE) {
+	if (virtio_has_feature(vsc, VIRTIO_CONSOLE_F_SIZE)) {
 		vp->vp_cols = virtio_read_device_config_2(vsc,
 		    VIRTIO_CONSOLE_COLS);
 		vp->vp_rows = virtio_read_device_config_2(vsc,

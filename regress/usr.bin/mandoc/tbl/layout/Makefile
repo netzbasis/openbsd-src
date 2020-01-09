@@ -1,7 +1,7 @@
-# $OpenBSD: Makefile,v 1.3 2017/06/16 20:00:41 schwarze Exp $
+# $OpenBSD: Makefile,v 1.5 2019/12/31 22:49:17 schwarze Exp $
 
-REGRESS_TARGETS	 = center complex empty emptyline
-REGRESS_TARGETS	+= lines lines-nogroff numbers span
+REGRESS_TARGETS	 = center complex empty emptycol emptyline
+REGRESS_TARGETS	+= lines lines-nogroff numbers shortlines span
 LINT_TARGETS	 = complex empty
 
 # groff-1.22.3 defects:

@@ -176,7 +176,8 @@ XS_unpack_anotherstructPtrPtr(SV *in)
         if (SvROK(tmp) && SvTYPE(SvRV(tmp)) == SVt_PVHV)
             inhash = (HV*)SvRV(tmp);
         else
-            Perl_croak(aTHX_ "Array element %"UVuf" is not a HASH reference", i);
+            Perl_croak(aTHX_ "Array element %" UVuf
+                             " is not a HASH reference", i);
 
         elem = hv_fetchs(inhash, "a", 0);
         if (elem == NULL)
@@ -202,9 +203,9 @@ XS_unpack_anotherstructPtrPtr(SV *in)
 void
 XS_release_anotherstructPtrPtr(anotherstruct **in)
 {
-    unsigned int i = 0;
-    while (in[i] != NULL)
-        Safefree(in[i++]);
+    unsigned int i;
+    for (i = 0; in[i] != NULL; i++)
+        Safefree(in[i]);
     Safefree(in);
 }
 

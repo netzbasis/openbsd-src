@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $OpenBSD: krl.c,v 1.42 2018/09/12 01:21:34 djm Exp $ */
+/* $OpenBSD: krl.c,v 1.46 2019/11/25 00:51:37 djm Exp $ */
 
 #include <sys/types.h>
 #include <sys/tree.h>
@@ -26,6 +26,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include "sshbuf.h"
 #include "ssherr.h"
@@ -730,7 +731,7 @@ revoked_certs_generate(struct revoked_certs *rc, struct sshbuf *buf)
 
 int
 ssh_krl_to_blob(struct ssh_krl *krl, struct sshbuf *buf,
-    const struct sshkey **sign_keys, u_int nsign_keys)
+    struct sshkey **sign_keys, u_int nsign_keys)
 {
 	int r = SSH_ERR_INTERNAL_ERROR;
 	struct revoked_certs *rc;
@@ -810,7 +811,7 @@ ssh_krl_to_blob(struct ssh_krl *krl, struct sshbuf *buf,
 			goto out;
 
 		if ((r = sshkey_sign(sign_keys[i], &sblob, &slen,
-		    sshbuf_ptr(buf), sshbuf_len(buf), NULL, 0)) != 0)
+		    sshbuf_ptr(buf), sshbuf_len(buf), NULL, NULL, 0)) != 0)
 			goto out;
 		KRL_DBG(("%s: signature sig len %zu", __func__, slen));
 		if ((r = sshbuf_put_string(buf, sblob, slen)) != 0)
@@ -1076,7 +1077,7 @@ ssh_krl_from_blob(struct sshbuf *buf, struct ssh_krl **krlp,
 		}
 		/* Check signature over entire KRL up to this point */
 		if ((r = sshkey_verify(key, blob, blen,
-		    sshbuf_ptr(buf), sig_off, NULL, 0)) != 0)
+		    sshbuf_ptr(buf), sig_off, NULL, 0, NULL)) != 0)
 			goto out;
 		/* Check if this key has already signed this KRL */
 		for (i = 0; i < nca_used; i++) {

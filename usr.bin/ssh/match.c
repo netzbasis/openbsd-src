@@ -1,4 +1,4 @@
-/* $OpenBSD: match.c,v 1.38 2018/07/04 13:49:31 djm Exp $ */
+/* $OpenBSD: match.c,v 1.41 2019/11/13 04:47:52 deraadt Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -40,6 +40,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <stdio.h>
 
 #include "xmalloc.h"
@@ -168,6 +169,14 @@ match_pattern_list(const char *string, const char *pattern, int dolower)
 	return got_positive;
 }
 
+/* Match a list representing users or groups. */
+int
+match_usergroup_pattern_list(const char *string, const char *pattern)
+{
+	/* Case sensitive match */
+	return match_pattern_list(string, pattern, 0);
+}
+
 /*
  * Tries to match the host name (which must be in all lowercase) against the
  * comma-separated sequence of subpatterns (each possibly preceded by ! to
@@ -231,7 +240,7 @@ match_user(const char *user, const char *host, const char *ipaddr,
 		return 0;
 	}
 
-	if ((p = strchr(pattern,'@')) == NULL)
+	if ((p = strchr(pattern, '@')) == NULL)
 		return match_pattern(user, pattern);
 
 	pat = xstrdup(pattern);

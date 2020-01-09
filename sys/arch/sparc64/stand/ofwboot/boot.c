@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.c,v 1.30 2018/12/31 11:44:57 claudio Exp $	*/
+/*	$OpenBSD: boot.c,v 1.33 2020/01/04 18:32:15 kettenis Exp $	*/
 /*	$NetBSD: boot.c,v 1.3 2001/05/31 08:55:19 mrg Exp $	*/
 /*
  * Copyright (c) 1997, 1999 Eduardo E. Horvath.  All rights reserved.
@@ -53,9 +53,9 @@
 #include <sys/exec_elf.h>
 #include <sys/reboot.h>
 #include <sys/disklabel.h>
-#include <machine/boot_flag.h>
 
 #include <machine/cpu.h>
+#include <lib/libsa/arc4.h>
 
 #ifdef SOFTRAID
 #include <sys/param.h>
@@ -95,6 +95,7 @@ int boothowto;
 int debug;
 
 char rnddata[BOOTRANDOM_MAX];
+struct rc4_ctx randomctx;
 
 int	elf64_exec(int, Elf64_Ehdr *, u_int64_t *, void **, void **);
 
@@ -122,10 +123,18 @@ parseargs(char *str, int *howtop)
 		while (*cp == ' ')
 			++cp;
 	}
+	/*
+	 * Note that, if only options have been passed, without a kernel
+	 * name, str == cp and options will be ignored at the boot blocks
+	 * level.
+	 * This a feature intended to make `boot -a' behave as intended.
+	 * If you want the bootblocks to handle arguments explicitly, a
+	 * kernel filename needs to be provided (as in `boot bsd -a').
+	 */
 	*str = 0;
-	switch(*cp) {
+	switch (*cp) {
 	default:
-		printf ("boot options string <%s> must start with -\n", cp);
+		printf("boot options string <%s> must start with -\n", cp);
 		return -1;
 	case 0:
 		return 0;
@@ -135,9 +144,10 @@ parseargs(char *str, int *howtop)
 
 	++cp;
 	while (*cp) {
-		BOOT_FLAG(*cp, *howtop);
-		/* handle specialties */
 		switch (*cp++) {
+		case 'a':
+			*howtop |= RB_ASKNAME;
+			break;
 		case 'd':
 			if (!debug) debug = 1;
 			break;
@@ -261,6 +271,16 @@ loadfile(int fd, char *args)
 	return (rval);
 }
 
+static int
+upgrade(void)
+{
+	struct stat sb;
+
+	if (stat("/bsd.upgrade", &sb) < 0)
+		return 0;
+	return 1;
+}
+
 int
 loadrandom(char *path, char *buf, size_t buflen)
 {
@@ -367,7 +387,7 @@ main(void)
 	int chosen;
 	char bootline[512];		/* Should check size? */
 	char *cp;
-	int i, fd, len;
+	int i, fd;
 #ifdef SOFTRAID
 	int err;
 #endif
@@ -414,6 +434,12 @@ main(void)
 		just_bootline[1] = 0;
 		bootlp = just_bootline;
 	}
+	if (bootlp == kernels && upgrade()) {
+		just_bootline[0] = "/bsd.upgrade";
+		just_bootline[1] = 0;
+		bootlp = just_bootline;
+		printf("upgrade detected: switching to %s\n", *bootlp);
+	}
 	for (;;) {
 		if (bootlp) {
 			cp = *bootlp++;
@@ -446,26 +472,21 @@ main(void)
 			}
 		}
 		if (loadrandom(BOOTRANDOM, rnddata, sizeof(rnddata)))
-			printf("open %s: %s\n", opened_name, strerror(errno));
+			printf("open %s: %s\n", BOOTRANDOM, strerror(errno));
+
+		rc4_keysetup(&randomctx, rnddata, sizeof rnddata);
+		rc4_skip(&randomctx, 1536);
+
 		if ((fd = open(bootline, 0)) < 0) {
 			printf("open %s: %s\n", opened_name, strerror(errno));
 			continue;
 		}
-		len = snprintf(bootline, sizeof bootline, "%s%s%s%s",
-		    opened_name,
-		    (boothowto & RB_ASKNAME) ? " -a" : "",
-		    (boothowto & RB_SINGLE) ? " -s" : "",
-		    (boothowto & RB_KDB) ? " -d" : "");
-		if (len >= sizeof bootline) {
-			printf("bootargs too long: %s\n", bootline);
-			_rtt();
-		}
 		/* XXX void, for now */
 #ifdef DEBUG
 		if (debug)
-			printf("main: Calling loadfile(fd, %s)\n", bootline);
+			printf("main: Calling loadfile(fd, %s)\n", opened_name);
 #endif
-		(void)loadfile(fd, bootline);
+		(void)loadfile(fd, opened_name);
 	}
 	return 0;
 }

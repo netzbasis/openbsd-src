@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.h,v 1.63 2019/01/18 14:36:16 schwarze Exp $ */
+/*	$OpenBSD: html.h,v 1.67 2019/09/01 15:12:03 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2017, 2018, 2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -19,17 +19,13 @@
 enum	htmltag {
 	TAG_HTML,
 	TAG_HEAD,
-	TAG_BODY,
 	TAG_META,
-	TAG_TITLE,
-	TAG_DIV,
-	TAG_IDIV,
-	TAG_H1,
-	TAG_H2,
-	TAG_SPAN,
 	TAG_LINK,
-	TAG_BR,
-	TAG_A,
+	TAG_STYLE,
+	TAG_TITLE,
+	TAG_BODY,
+	TAG_DIV,
+	TAG_SECTION,
 	TAG_TABLE,
 	TAG_TR,
 	TAG_TD,
@@ -39,15 +35,19 @@ enum	htmltag {
 	TAG_DL,
 	TAG_DT,
 	TAG_DD,
+	TAG_H1,
+	TAG_H2,
 	TAG_P,
 	TAG_PRE,
-	TAG_VAR,
-	TAG_CITE,
+	TAG_A,
 	TAG_B,
-	TAG_I,
+	TAG_CITE,
 	TAG_CODE,
+	TAG_I,
 	TAG_SMALL,
-	TAG_STYLE,
+	TAG_SPAN,
+	TAG_VAR,
+	TAG_BR,
 	TAG_MATH,
 	TAG_MROW,
 	TAG_MI,
@@ -66,15 +66,6 @@ enum	htmltag {
 	TAG_MUNDER,
 	TAG_MOVER,
 	TAG_MAX
-};
-
-enum	htmlfont {
-	HTMLFONT_NONE = 0,
-	HTMLFONT_BOLD,
-	HTMLFONT_ITALIC,
-	HTMLFONT_BI,
-	HTMLFONT_CW,
-	HTMLFONT_MAX
 };
 
 struct	tag {
@@ -110,8 +101,8 @@ struct	html {
 	char		 *base_includes; /* base for include href */
 	char		 *style; /* style-sheet URI */
 	struct tag	 *metaf; /* current open font scope */
-	enum htmlfont	  metal; /* last used font */
-	enum htmlfont	  metac; /* current font mode */
+	enum mandoc_esc	  metal; /* last used font */
+	enum mandoc_esc	  metac; /* current font mode */
 	int		  oflags; /* output options */
 #define	HTML_FRAGMENT	 (1 << 0) /* don't emit HTML/HEAD/BODY */
 #define	HTML_TOC	 (1 << 1) /* emit a table of contents */
@@ -127,7 +118,6 @@ void		  roff_html_pre(struct html *, const struct roff_node *);
 void		  print_gen_comment(struct html *, struct roff_node *);
 void		  print_gen_decls(struct html *);
 void		  print_gen_head(struct html *);
-void		  print_metaf(struct html *, enum mandoc_esc);
 struct tag	 *print_otag(struct html *, enum htmltag, const char *, ...);
 void		  print_tagq(struct html *, const struct tag *);
 void		  print_stagq(struct html *, const struct tag *);
@@ -140,3 +130,4 @@ void		  print_endline(struct html *);
 void		  html_close_paragraph(struct html *);
 enum roff_tok	  html_fillmode(struct html *, enum roff_tok);
 char		 *html_make_id(const struct roff_node *, int);
+int		  html_setfont(struct html *, enum mandoc_esc);

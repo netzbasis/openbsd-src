@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.32 2018/11/20 03:10:47 yasuoka Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.34 2019/11/29 16:16:19 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -20,9 +20,11 @@
 #include <sys/queue.h>
 #include <dev/cons.h>
 #include <dev/isa/isareg.h>
+#include <dev/ic/comreg.h>
 #include <sys/disklabel.h>
 #include <cmd.h>
 #include <stand/boot/bootarg.h>
+#include <machine/pio.h>
 
 #include "libsa.h"
 #include "disk.h"
@@ -280,6 +282,7 @@ efi_device_path_ncmp(EFI_DEVICE_PATH *dpa, EFI_DEVICE_PATH *dpb, int deptn)
  * Memory
  ***********************************************************************/
 bios_memmap_t		 bios_memmap[64];
+bios_efiinfo_t		 bios_efiinfo;
 
 static void
 efi_heap_init(void)
@@ -335,6 +338,9 @@ efi_memprobe_internal(void)
 
 	cnvmem = extmem = 0;
 	bios_memmap[0].type = BIOS_MAP_END;
+
+	if (bios_efiinfo.mmap_start != 0)
+		free((void *)bios_efiinfo.mmap_start, bios_efiinfo.mmap_size);
 
 	siz = 0;
 	status = EFI_CALL(BS->GetMemoryMap, &siz, NULL, &mapkey, &mmsiz,
@@ -401,7 +407,11 @@ efi_memprobe_internal(void)
 		    bm->addr / 1024 == extmem + 1024)
 			extmem += bm->size / 1024;
 	}
-	free(mm0, siz);
+
+	bios_efiinfo.mmap_desc_ver = mmver;
+	bios_efiinfo.mmap_desc_size = mmsiz;
+	bios_efiinfo.mmap_size = siz;
+	bios_efiinfo.mmap_start = (uintptr_t)mm0;
 }
 
 /***********************************************************************
@@ -533,6 +543,87 @@ int com_addr = -1;
 int com_speed = -1;
 
 static SERIAL_IO_INTERFACE	*serios[4];
+const int comports[4] = { 0x3f8, 0x2f8, 0x3e8, 0x2e8 };
+
+/* call with sp == 0 to query the current speed */
+int
+pio_comspeed(dev_t dev, int sp)
+{
+	int port = (com_addr == -1) ? comports[minor(dev)] : com_addr;
+	int i, newsp;
+	int err;
+
+	if (sp <= 0)
+		return com_speed;
+	/* valid baud rate? */
+	if (115200 < sp || sp < 75)
+		return -1;
+
+	/*
+	 * Accepted speeds:
+	 *   75 150 300 600 1200 2400 4800 9600 19200 38400 76800 and
+	 *   14400 28800 57600 115200
+	 */
+	for (i = sp; i != 75 && i != 14400; i >>= 1)
+		if (i & 1)
+			return -1;
+
+/* ripped screaming from dev/ic/com.c */
+#define divrnd(n, q)    (((n)*2/(q)+1)/2)       /* divide and round off */
+	newsp = divrnd((COM_FREQ / 16), sp);
+	if (newsp <= 0)
+		return -1;
+	err = divrnd((COM_FREQ / 16) * 1000, sp * newsp) - 1000;
+	if (err < 0)
+		err = -err;
+	if (err > COM_TOLERANCE)
+		return -1;
+#undef  divrnd
+
+	if (com_speed != -1 && cn_tab && cn_tab->cn_dev == dev &&
+	    com_speed != sp) {
+		printf("com%d: changing speed to %d baud in 5 seconds, "
+		    "change your terminal to match!\n\a",
+		    minor(dev), sp);
+		sleep(5);
+	}
+
+	outb(port + com_cfcr, LCR_DLAB);
+	outb(port + com_dlbl, newsp);
+	outb(port + com_dlbh, newsp>>8);
+	outb(port + com_cfcr, LCR_8BITS);
+	if (com_speed != -1)
+		printf("\ncom%d: %d baud\n", minor(dev), sp);
+
+	newsp = com_speed;
+	com_speed = sp;
+	return newsp;
+}
+
+int
+pio_com_getc(dev_t dev)
+{
+	int port = (com_addr == -1) ? comports[minor(dev & 0x7f)] : com_addr;
+
+	if (dev & 0x80)
+		return (inb(port + com_lsr) & LSR_RXRDY);
+
+	while ((inb(port + com_lsr) & LSR_RXRDY) == 0)
+		;
+
+	return (inb(port + com_data) & 0xff);
+}
+
+void
+pio_com_putc(dev_t dev, int c)
+{
+	int port = (com_addr == -1) ? comports[minor(dev)] : com_addr;
+
+	while ((inb(port + com_lsr) & LSR_TXRDY) == 0)
+		;
+
+	outb(port + com_data, c);
+}
 
 void
 efi_com_probe(struct consdev *cn)
@@ -544,6 +635,9 @@ efi_com_probe(struct consdev *cn)
 	EFI_DEV_PATH_PTR	 dpp;
 	UINTN			 sz;
 	int			 i, uid = -1;
+
+	cn->cn_pri = CN_LOWPRI;
+	cn->cn_dev = makedev(8, 0);
 
 	sz = 0;
 	status = EFI_CALL(BS->LocateHandle, ByProtocol, &serio_guid, 0, &sz, 0);
@@ -594,8 +688,6 @@ efi_com_probe(struct consdev *cn)
 		if (serios[i] != NULL)
 			printf(" com%d", i);
 	}
-	cn->cn_pri = CN_LOWPRI;
-	cn->cn_dev = makedev(8, 0);
 }
 
 int
@@ -615,7 +707,7 @@ comspeed(dev_t dev, int sp)
 		return com_speed;
 
 	if (!efi_valid_com(dev))
-		return (-1);
+		return pio_comspeed(dev, sp);
 
 	if (serio->Mode->BaudRate != sp) {
 		status = EFI_CALL(serio->SetAttributes, serio,
@@ -659,7 +751,7 @@ efi_com_getc(dev_t dev)
 	static u_char		 lastchar = 0;
 
 	if (!efi_valid_com(dev & 0x7f))
-		return (0) ;
+		return pio_com_getc(dev);
 	serio = serios[minor(dev & 0x7f)];
 
 	if (lastchar != 0) {
@@ -693,8 +785,10 @@ efi_com_putc(dev_t dev, int c)
 	UINTN			 sz = 1;
 	u_char			 buf;
 
-	if (!efi_valid_com(dev))
+	if (!efi_valid_com(dev)) {
+		pio_com_putc(dev, c);
 		return;
+	}
 	serio = serios[minor(dev)];
 	buf = c;
 	EFI_CALL(serio->Write, serio, &sz, &buf);
@@ -734,22 +828,21 @@ efi_makebootargs(void)
 	EFI_STATUS		 status;
 	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION
 				*gopi;
-	bios_efiinfo_t		 ei;
+	bios_efiinfo_t		*ei = &bios_efiinfo;
 	int			 curmode;
 	UINTN			 sz, gopsiz, bestsiz = 0;
 
-	memset(&ei, 0, sizeof(ei));
 	/*
 	 * ACPI, BIOS configuration table
 	 */
 	for (i = 0; i < ST->NumberOfTableEntries; i++) {
 		if (efi_guidcmp(&acpi_guid,
 		    &ST->ConfigurationTable[i].VendorGuid) == 0)
-			ei.config_acpi = (intptr_t)
+			ei->config_acpi = (uintptr_t)
 			    ST->ConfigurationTable[i].VendorTable;
 		else if (efi_guidcmp(&smbios_guid,
 		    &ST->ConfigurationTable[i].VendorGuid) == 0)
-			ei.config_smbios = (intptr_t)
+			ei->config_smbios = (uintptr_t)
 			    ST->ConfigurationTable[i].VendorTable;
 	}
 
@@ -782,35 +875,44 @@ efi_makebootargs(void)
 		gopi = gop->Mode->Info;
 		switch (gopi->PixelFormat) {
 		case PixelBlueGreenRedReserved8BitPerColor:
-			ei.fb_red_mask      = 0x00ff0000;
-			ei.fb_green_mask    = 0x0000ff00;
-			ei.fb_blue_mask     = 0x000000ff;
-			ei.fb_reserved_mask = 0xff000000;
+			ei->fb_red_mask      = 0x00ff0000;
+			ei->fb_green_mask    = 0x0000ff00;
+			ei->fb_blue_mask     = 0x000000ff;
+			ei->fb_reserved_mask = 0xff000000;
 			break;
 		case PixelRedGreenBlueReserved8BitPerColor:
-			ei.fb_red_mask      = 0x000000ff;
-			ei.fb_green_mask    = 0x0000ff00;
-			ei.fb_blue_mask     = 0x00ff0000;
-			ei.fb_reserved_mask = 0xff000000;
+			ei->fb_red_mask      = 0x000000ff;
+			ei->fb_green_mask    = 0x0000ff00;
+			ei->fb_blue_mask     = 0x00ff0000;
+			ei->fb_reserved_mask = 0xff000000;
 			break;
 		case PixelBitMask:
-			ei.fb_red_mask = gopi->PixelInformation.RedMask;
-			ei.fb_green_mask = gopi->PixelInformation.GreenMask;
-			ei.fb_blue_mask = gopi->PixelInformation.BlueMask;
-			ei.fb_reserved_mask =
+			ei->fb_red_mask = gopi->PixelInformation.RedMask;
+			ei->fb_green_mask = gopi->PixelInformation.GreenMask;
+			ei->fb_blue_mask = gopi->PixelInformation.BlueMask;
+			ei->fb_reserved_mask =
 			    gopi->PixelInformation.ReservedMask;
 			break;
 		default:
 			break;
 		}
-		ei.fb_addr = gop->Mode->FrameBufferBase;
-		ei.fb_size = gop->Mode->FrameBufferSize;
-		ei.fb_height = gopi->VerticalResolution;
-		ei.fb_width = gopi->HorizontalResolution;
-		ei.fb_pixpsl = gopi->PixelsPerScanLine;
+		ei->fb_addr = gop->Mode->FrameBufferBase;
+		ei->fb_size = gop->Mode->FrameBufferSize;
+		ei->fb_height = gopi->VerticalResolution;
+		ei->fb_width = gopi->HorizontalResolution;
+		ei->fb_pixpsl = gopi->PixelsPerScanLine;
 	}
 
-	addbootarg(BOOTARG_EFIINFO, sizeof(ei), &ei);
+	/*
+	 * EFI system table
+	 */
+	ei->system_table = (uintptr_t)ST;
+
+#ifdef __amd64__
+	ei->flags |= BEI_64BIT;
+#endif
+
+	addbootarg(BOOTARG_EFIINFO, sizeof(bios_efiinfo), &bios_efiinfo);
 }
 
 void
@@ -854,6 +956,21 @@ getsecs(void)
 		r += t.TimeZone * 60;
 
 	return (r);
+}
+
+u_int
+sleep(u_int i)
+{
+	time_t t;
+
+	/*
+	 * Loop for the requested number of seconds, polling,
+	 * so that it may handle interrupts.
+	 */
+	for (t = getsecs() + i; getsecs() < t; cnischar())
+		;
+
+	return 0;
 }
 
 /***********************************************************************

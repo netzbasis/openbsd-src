@@ -1,4 +1,4 @@
-/*	$OpenBSD: sendsig.c,v 1.30 2018/07/10 04:19:59 guenther Exp $ */
+/*	$OpenBSD: sendsig.c,v 1.33 2019/08/02 07:41:57 visa Exp $ */
 
 /*
  * Copyright (c) 1990 The Regents of the University of California.
@@ -95,7 +95,7 @@ void
 sendsig(sig_t catcher, int sig, sigset_t mask, const siginfo_t *ksip)
 {
 	struct cpu_info *ci = curcpu();
-	struct proc *p = curproc;
+	struct proc *p = ci->ci_curproc;
 	struct sigframe *fp;
 	struct trapframe *regs;
 	struct sigacts *psp = p->p_p->ps_sigacts;
@@ -228,4 +228,17 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 		bcopy((caddr_t)ksc.sc_fpregs, (caddr_t)&p->p_md.md_regs->f0,
 			sizeof(ksc.sc_fpregs));
 	return (EJUSTRETURN);
+}
+
+void
+signotify(struct proc *p)
+{
+	/*
+	 * Ensure that preceding stores are visible to other CPUs
+	 * before setting the AST flag.
+	 */
+	membar_producer();
+
+	aston(p);
+	cpu_unidle(p->p_cpu);
 }

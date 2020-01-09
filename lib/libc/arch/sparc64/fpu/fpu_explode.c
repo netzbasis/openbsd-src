@@ -1,4 +1,4 @@
-/*	$OpenBSD: fpu_explode.c,v 1.8 2016/05/08 18:41:17 guenther Exp $	*/
+/*	$OpenBSD: fpu_explode.c,v 1.10 2019/06/21 17:00:58 jca Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993
@@ -44,10 +44,6 @@
  *	@(#)fpu_explode.c	8.1 (Berkeley) 6/11/93
  *	$NetBSD: fpu_explode.c,v 1.5 2000/08/03 18:32:08 eeh Exp $
  */
-
-#if 0
-__FBSDID("$FreeBSD: src/lib/libc/sparc64/fpu/fpu_explode.c,v 1.5 2002/05/11 21:20:04 jake Exp $");
-#endif
 
 /*
  * FPU subroutines: `explode' the machine's `packed binary' format numbers
@@ -103,7 +99,7 @@ __fpu_itof(fp, i)
 	 * fpu_norm()'s handling of `supernormals'; see fpu_subr.c.
 	 */
 	fp->fp_exp = FP_LG;
-	fp->fp_mant[0] = (int)i < 0 ? -i : i;
+	fp->fp_mant[0] = (fp->fp_sign && (int)i < 0) ? -i : i;
 	fp->fp_mant[1] = 0;
 	fp->fp_mant[2] = 0;
 	fp->fp_mant[3] = 0;
@@ -155,7 +151,7 @@ __fpu_xtof(fp, i)
 	 * fpu_norm()'s handling of `supernormals'; see fpu_subr.c.
 	 */
 	fp->fp_exp = FP_LG2;
-	i = ((int64_t)i < 0) ? -i : i;
+	i = (fp->fp_sign && (int64_t)i < 0) ? -i : i;
 	fp->fp_mant[0] = (i >> 32) & 0xffffffff;
 	fp->fp_mant[1] = (i >> 0)  & 0xffffffff;
 	fp->fp_mant[2] = 0;

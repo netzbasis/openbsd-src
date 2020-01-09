@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.137 2019/01/11 18:46:30 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.140 2019/11/27 16:50:21 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -211,6 +211,8 @@ main(int argc, char *argv[])
 	if (strcmp(tracefile, "-") != 0)
 		if (unveil(tracefile, "r") == -1)
 			err(1, "unveil");
+	if (unveil(_PATH_PROTOCOLS, "r") == -1)
+		err(1, "unveil");
 	if (pledge("stdio rpath getpw", NULL) == -1)
 		err(1, "pledge");
 
@@ -1390,9 +1392,8 @@ usage(void)
 
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
-	    "[-dHlnRTXx] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [cinpstuxX+]]\n",
-	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
+	    "[-dHlnRTXx] [-f file] [-m maxdata] [-p pid] [-t trstr]\n",
+	    __progname);
 	exit(1);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.c,v 1.24 2014/02/22 20:27:21 miod Exp $ */
+/*	$OpenBSD: boot.c,v 1.27 2019/10/29 02:55:52 deraadt Exp $ */
 
 /*
  * Copyright (c) 2004 Opsycon AB, www.opsycon.se.
@@ -33,6 +33,7 @@
 #undef _KERNEL
 
 #include <lib/libkern/libkern.h>
+#include <lib/libsa/arc4.h>
 #include <stand.h>
 
 #include <mips64/arcbios.h>
@@ -59,8 +60,7 @@ char *OSLoadFilename = NULL;
 int	IP;
 
 char   rnddata[BOOTRANDOM_MAX];
-
-#include "version"
+struct rc4_ctx randomctx;
 
 /*
  * OpenBSD/sgi Boot Loader.
@@ -68,12 +68,13 @@ char   rnddata[BOOTRANDOM_MAX];
 void
 boot_main(int argc, char *argv[])
 {
-	u_long marks[MARK_MAX];
+	uint64_t marks[MARK_MAX];
 	u_int64_t *esym;
 	char line[1024];
 	u_long entry;
 	int fd;
 	extern int arcbios_init(void);
+	extern char version[];
 
 	IP = arcbios_init();
 	printf("\nOpenBSD/sgi-IP%d ARCBios boot version %s\n", IP, version);
@@ -109,6 +110,9 @@ boot_main(int argc, char *argv[])
 		loadrandom(OSLoadPartition, BOOTRANDOM, rnddata,
 		    sizeof(rnddata));
 	}
+
+	rc4_keysetup(&randomctx, rnddata, sizeof rnddata);
+	rc4_skip(&randomctx, 1536);
 
 	/*
 	 * Load the kernel and symbol table.

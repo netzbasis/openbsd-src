@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka.c,v 1.233 2019/01/05 09:43:39 gilles Exp $	*/
+/*	$OpenBSD: lka.c,v 1.243 2019/12/21 10:23:37 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -80,16 +80,21 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	struct timeval		 tv;
 	const char		*direction;
 	const char		*rdns;
-	const char		*command, *response;
+	const char		*command;
+	const char		*response;
 	const char		*ciphers;
 	const char		*address;
+	const char		*domain;
+	const char		*helomethod;
 	const char		*heloname;
 	const char		*filter_name;
+	const char		*result;
 	struct sockaddr_storage	ss_src, ss_dest;
 	int                      filter_response;
 	int                      filter_phase;
 	const char              *filter_param;
 	uint32_t		 msgid;
+	uint32_t		 subsystems;
 	uint64_t		 evpid;
 	size_t			 msgsz;
 	int			 ok;
@@ -102,6 +107,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 	case IMSG_GETADDRINFO:
 	case IMSG_GETNAMEINFO:
+	case IMSG_RES_QUERY:
 		resolver_dispatch_request(p, imsg);
 		return;
 
@@ -269,6 +275,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_MTA_LOOKUP_SMARTHOST:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
+		m_get_string(&m, &domain);
 		m_get_string(&m, &tablename);
 		m_end(&m);
 
@@ -282,7 +289,11 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			m_add_int(p, LKA_TEMPFAIL);
 		}
 		else {
-			ret = table_fetch(table, K_RELAYHOST, &lk);
+			if (domain == NULL)
+				ret = table_fetch(table, K_RELAYHOST, &lk);
+			else
+				ret = table_lookup(table, K_RELAYHOST, domain, &lk);
+
 			if (ret == -1)
 				m_add_int(p, LKA_TEMPFAIL);
 			else if (ret == 0)
@@ -357,11 +368,24 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_LKA_PROCESSOR_FORK:
 		m_msg(&m, imsg);
 		m_get_string(&m, &procname);
+		m_get_u32(&m, &subsystems);
 		m_end(&m);
 
-		lka_proc_forked(procname, imsg->fd);
+		m_create(p, IMSG_LKA_PROCESSOR_ERRFD, 0, 0, -1);
+		m_add_string(p, procname);
+		m_close(p);
+
+		lka_proc_forked(procname, subsystems, imsg->fd);
 		return;
 
+	case IMSG_LKA_PROCESSOR_ERRFD:
+		m_msg(&m, imsg);
+		m_get_string(&m, &procname);
+		m_end(&m);
+
+		lka_proc_errfd(procname, imsg->fd);
+		shutdown(imsg->fd, SHUT_WR);
+		return;
 
 	case IMSG_REPORT_SMTP_LINK_CONNECT:
 		m_msg(&m, imsg);
@@ -375,6 +399,17 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_end(&m);
 
 		lka_report_smtp_link_connect(direction, &tv, reqid, rdns, fcrdns, &ss_src, &ss_dest);
+		return;
+
+	case IMSG_REPORT_SMTP_LINK_GREETING:
+		m_msg(&m, imsg);
+		m_get_string(&m, &direction);
+		m_get_timeval(&m, &tv);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &domain);
+		m_end(&m);
+
+		lka_report_smtp_link_greeting(direction, reqid, &tv, domain);
 		return;
 
 	case IMSG_REPORT_SMTP_LINK_DISCONNECT:
@@ -392,10 +427,11 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &direction);
 		m_get_timeval(&m, &tv);
 		m_get_id(&m, &reqid);
+		m_get_string(&m, &helomethod);
 		m_get_string(&m, &heloname);
 		m_end(&m);
 
-		lka_report_smtp_link_identify(direction, &tv, reqid, heloname);
+		lka_report_smtp_link_identify(direction, &tv, reqid, helomethod, heloname);
 		return;
 
 	case IMSG_REPORT_SMTP_LINK_TLS:
@@ -407,6 +443,29 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_end(&m);
 
 		lka_report_smtp_link_tls(direction, &tv, reqid, ciphers);
+		return;
+
+	case IMSG_REPORT_SMTP_LINK_AUTH:
+		m_msg(&m, imsg);
+		m_get_string(&m, &direction);
+		m_get_timeval(&m, &tv);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &username);
+		m_get_string(&m, &result);
+		m_end(&m);
+
+		lka_report_smtp_link_auth(direction, &tv, reqid, username, result);
+		return;
+
+	case IMSG_REPORT_SMTP_TX_RESET:
+		m_msg(&m, imsg);
+		m_get_string(&m, &direction);
+		m_get_timeval(&m, &tv);
+		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
+		m_end(&m);
+
+		lka_report_smtp_tx_reset(direction, &tv, reqid, msgid);
 		return;
 
 	case IMSG_REPORT_SMTP_TX_BEGIN:
@@ -553,13 +612,9 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
 		m_get_string(&m, &filter_name);
-		m_get_sockaddr(&m, (struct sockaddr *)&ss_src);
-		m_get_sockaddr(&m, (struct sockaddr *)&ss_dest);
-		m_get_string(&m, &rdns);
-		m_get_int(&m, &fcrdns);
 		m_end(&m);
 
-		lka_filter_begin(reqid, filter_name, &ss_src, &ss_dest, rdns, fcrdns);
+		lka_filter_begin(reqid, filter_name);
 		return;
 
 	case IMSG_FILTER_SMTP_END:

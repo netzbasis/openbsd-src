@@ -1,4 +1,4 @@
-/* $OpenBSD: ns8250.c,v 1.19 2018/10/04 16:21:59 mlarkin Exp $ */
+/* $OpenBSD: ns8250.c,v 1.25 2019/12/11 06:45:16 pd Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -74,6 +74,7 @@ ns8250_init(int fd, uint32_t vmid)
 	}
 	com1_dev.fd = fd;
 	com1_dev.irq = 4;
+	com1_dev.portid = NS8250_COM1;
 	com1_dev.rcv_pending = 0;
 	com1_dev.vmid = vmid;
 	com1_dev.byte_out = 0;
@@ -97,7 +98,15 @@ ns8250_init(int fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_add(&com1_dev.event, NULL);
+
+	/*
+	 * Whenever fd is writable implies that the pty slave is connected.
+	 * Until then, avoid waiting for read events since EOF would constantly
+	 * be reached.
+	 */
+	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
+	    com_rcv_event, (void *)(intptr_t)vmid);
+	event_add(&com1_dev.wake, NULL);
 
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
@@ -109,6 +118,12 @@ static void
 com_rcv_event(int fd, short kind, void *arg)
 {
 	mutex_lock(&com1_dev.mutex);
+
+	if (kind == EV_WRITE) {
+		event_add(&com1_dev.event, NULL);
+		mutex_unlock(&com1_dev.mutex);
+		return;
+	}
 
 	/*
 	 * We already have other data pending to be received. The data that
@@ -185,6 +200,10 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 		 */
 		if (errno != EAGAIN)
 			log_warn("unexpected read error on com device");
+	} else if (sz == 0) {
+		event_del(&com->event);
+		event_add(&com->wake, NULL);
+		return;
 	} else if (sz != 1 && sz != 2)
 		log_warnx("unexpected read return value %zd on com device", sz);
 	else {
@@ -491,10 +510,10 @@ vcpu_process_com_scr(struct vm_exit *vei)
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
 	 *
-	 * Write to SCR
+	 * The 8250 does not have a scratch register.
 	 */
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
-		com1_dev.regs.scr = vei->vei.vei_data;
+		com1_dev.regs.scr = 0xFF;
 	} else {
 		/*
 		 * vei_dir == VEI_DIR_IN : in instruction
@@ -629,6 +648,7 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 	}
 	com1_dev.fd = con_fd;
 	com1_dev.irq = 4;
+	com1_dev.portid = NS8250_COM1;
 	com1_dev.rcv_pending = 0;
 	com1_dev.vmid = vmid;
 	com1_dev.byte_out = 0;
@@ -640,6 +660,25 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_add(&com1_dev.event, NULL);
+
+	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
+	    com_rcv_event, (void *)(intptr_t)vmid);
+
 	return (0);
+}
+
+void
+ns8250_stop()
+{
+	if(event_del(&com1_dev.event))
+		log_warn("could not delete ns8250 event handler");
+	evtimer_del(&com1_dev.rate);
+}
+
+void
+ns8250_start()
+{
+	event_add(&com1_dev.event, NULL);
+	event_add(&com1_dev.wake, NULL);
+	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 }

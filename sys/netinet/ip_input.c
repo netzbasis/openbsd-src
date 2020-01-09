@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_input.c,v 1.342 2018/10/13 18:36:01 florian Exp $	*/
+/*	$OpenBSD: ip_input.c,v 1.347 2019/12/23 22:33:57 sashan Exp $	*/
 /*	$NetBSD: ip_input.c,v 1.30 1996/03/16 23:53:58 christos Exp $	*/
 
 /*
@@ -61,6 +61,7 @@
 #include <netinet/in_var.h>
 #include <netinet/ip_var.h>
 #include <netinet/ip_icmp.h>
+#include <net/if_types.h>
 
 #ifdef INET6
 #include <netinet6/ip6protosw.h>
@@ -80,7 +81,6 @@
 #endif /* IPSEC */
 
 #if NCARP > 0
-#include <net/if_types.h>
 #include <netinet/ip_carp.h>
 #endif
 
@@ -109,8 +109,6 @@ int	ip_frags = 0;
 
 int *ipctl_vars[IPCTL_MAXID] = IPCTL_VARS;
 
-struct niqueue ipintrq = NIQUEUE_INITIALIZER(IPQ_MAXLEN, NETISR_IP);
-
 struct pool ipqent_pool;
 struct pool ipq_pool;
 
@@ -123,7 +121,6 @@ static struct mbuf_queue	ipsend_mq;
 extern struct niqueue		arpinq;
 
 int	ip_ours(struct mbuf **, int *, int, int);
-int	ip_local(struct mbuf **, int *, int, int);
 int	ip_dooptions(struct mbuf *, struct ifnet *);
 int	in_ouraddr(struct mbuf *, struct ifnet *, struct rtentry **);
 
@@ -202,43 +199,6 @@ ip_init(void)
 #ifdef IPSEC
 	ipsec_init();
 #endif
-}
-
-/*
- * Enqueue packet for local delivery.  Queuing is used as a boundary
- * between the network layer (input/forward path) running without
- * KERNEL_LOCK() and the transport layer still needing it.
- */
-int
-ip_ours(struct mbuf **mp, int *offp, int nxt, int af)
-{
-	/* We are already in a IPv4/IPv6 local deliver loop. */
-	if (af != AF_UNSPEC)
-		return ip_local(mp, offp, nxt, af);
-
-	niq_enqueue(&ipintrq, *mp);
-	*mp = NULL;
-	return IPPROTO_DONE;
-}
-
-/*
- * Dequeue and process locally delivered packets.
- */
-void
-ipintr(void)
-{
-	struct mbuf *m;
-	int off, nxt;
-
-	while ((m = niq_dequeue(&ipintrq)) != NULL) {
-#ifdef DIAGNOSTIC
-		if ((m->m_flags & M_PKTHDR) == 0)
-			panic("ipintr no HDR");
-#endif
-		off = 0;
-		nxt = ip_local(&m, &off, IPPROTO_IPV4, AF_UNSPEC);
-		KASSERT(nxt == IPPROTO_DONE);
-	}
 }
 
 /*
@@ -381,7 +341,10 @@ ip_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
 		goto out;
 	}
 
-	if (in_ouraddr(m, ifp, &rt)) {
+	switch(in_ouraddr(m, ifp, &rt)) {
+	case 2:
+		goto bad;
+	case 1:
 		nxt = ip_ours(mp, offp, nxt, af);
 		goto out;
 	}
@@ -497,7 +460,7 @@ ip_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
  * If fragmented try to reassemble.  Pass to next level.
  */
 int
-ip_local(struct mbuf **mp, int *offp, int nxt, int af)
+ip_ours(struct mbuf **mp, int *offp, int nxt, int af)
 {
 	struct mbuf *m = *mp;
 	struct ip *ip = mtod(m, struct ip *);
@@ -789,6 +752,28 @@ in_ouraddr(struct mbuf *m, struct ifnet *ifp, struct rtentry **prt)
 				break;
 			}
 		}
+	} else if (ipforwarding == 0 && rt->rt_ifidx != ifp->if_index &&
+	    !((ifp->if_flags & IFF_LOOPBACK) || (ifp->if_type == IFT_ENC) ||
+	    (m->m_pkthdr.pf.flags & PF_TAG_TRANSLATE_LOCALHOST))) {
+		/* received on wrong interface. */
+#if NCARP > 0
+		struct ifnet *out_if;
+
+		/*
+		 * Virtual IPs on carp interfaces need to be checked also
+		 * against the parent interface and other carp interfaces
+		 * sharing the same parent.
+		 */
+		out_if = if_get(rt->rt_ifidx);
+		if (!(out_if && carp_strict_addr_chk(out_if, ifp))) {
+			ipstat_inc(ips_wrongif);
+			match = 2;
+		}
+		if_put(out_if);
+#else
+		ipstat_inc(ips_wrongif);
+		match = 2;
+#endif
 	}
 
 	return (match);
@@ -1640,8 +1625,7 @@ ip_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		    newlen));
 #endif
 	case IPCTL_IFQUEUE:
-		return (sysctl_niq(name + 1, namelen - 1,
-		    oldp, oldlenp, newp, newlen, &ipintrq));
+		return (EOPNOTSUPP);
 	case IPCTL_ARPQUEUE:
 		return (sysctl_niq(name + 1, namelen - 1,
 		    oldp, oldlenp, newp, newlen, &arpinq));
@@ -1712,7 +1696,7 @@ ip_savecontrol(struct inpcb *inp, struct mbuf **mp, struct ip *ip,
 	if (inp->inp_socket->so_options & SO_TIMESTAMP) {
 		struct timeval tv;
 
-		microtime(&tv);
+		m_microtime(m, &tv);
 		*mp = sbcreatecontrol((caddr_t) &tv, sizeof(tv),
 		    SCM_TIMESTAMP, SOL_SOCKET);
 		if (*mp)

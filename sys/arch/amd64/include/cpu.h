@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.129 2019/01/19 20:45:06 tedu Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.133 2019/12/20 07:49:31 jsg Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -117,6 +117,10 @@ struct cpu_info {
 	u_int64_t ci_intr_rsp;	/* U<-->K trampoline stack */
 	u_int64_t ci_user_cr3;	/* U-K page table */
 
+	/* bits for mitigating Micro-architectural Data Sampling */
+	char		ci_mds_tmp[32];		/* 32byte aligned */
+	void		*ci_mds_buf;
+
 	struct pcb *ci_curpcb;
 	struct pcb *ci_idle_pcb;
 
@@ -202,6 +206,8 @@ struct cpu_info {
 	union		vmm_cpu_cap ci_vmm_cap;
 	paddr_t		ci_vmxon_region_pa;
 	struct vmxon_region *ci_vmxon_region;
+
+	int64_t		ci_tsc_skew;		/* counter skew vs cpu0 */
 };
 
 #define CPUF_BSP	0x0001		/* CPU is the original BSP */
@@ -217,6 +223,7 @@ struct cpu_info {
 #define CPUF_INVAR_TSC	0x0100		/* CPU has invariant TSC */
 #define CPUF_USERXSTATE	0x0200		/* CPU has curproc's xsave state */
 
+#define CPUF_SYNCTSC	0x0800		/* Synchronize TSC */
 #define CPUF_PRESENT	0x1000		/* CPU is present */
 #define CPUF_RUNNING	0x2000		/* CPU is running */
 #define CPUF_PAUSE	0x4000		/* CPU is paused in DDB */
@@ -371,9 +378,7 @@ void	x86_64_proc0_tss_ldt_init(void);
 void	x86_64_bufinit(void);
 void	cpu_proc_fork(struct proc *, struct proc *);
 int	amd64_pa_used(paddr_t);
-extern void (*cpu_idle_enter_fcn)(void);
 extern void (*cpu_idle_cycle_fcn)(void);
-extern void (*cpu_idle_leave_fcn)(void);
 
 struct region_descriptor;
 void	lgdt(struct region_descriptor *);
@@ -397,9 +402,8 @@ void	i8254_inittimecounter_simple(void);
 /* i8259.c */
 void	i8259_default_setup(void);
 
-
 void cpu_init_msrs(struct cpu_info *);
-
+void cpu_tsx_disable(struct cpu_info *);
 
 /* dkcsum.c */
 void	dkcsumattach(void);

@@ -1,14 +1,14 @@
-/Makefile/1.40/Fri Oct 15 08:44:12 2010//
-/buf.c/1.27/Sun Oct 16 13:35:51 2016//
+/Makefile/1.41/Wed Apr 24 11:57:54 2019//
+/buf.c/1.28/Fri Jun 28 13:35:03 2019//
 /buf.h/1.13/Wed Jul  6 15:36:52 2011//
 /ci.1/1.38/Mon Aug 12 14:19:53 2013//
 /ci.c/1.224/Mon Jul  4 01:39:12 2016//
 /co.1/1.29/Fri Sep  3 11:09:29 2010//
-/co.c/1.124/Wed Jan  9 18:00:45 2019//
+/co.c/1.126/Fri Jun 28 13:35:03 2019//
 /date.y/1.14/Fri Aug 26 09:02:54 2016//
-/diff.c/1.39/Sun Oct 16 13:35:51 2016//
+/diff.c/1.40/Fri Jun 28 13:35:03 2019//
 /diff.h/1.9/Fri Jul 23 21:46:05 2010//
-/diff3.c/1.41/Tue Oct 18 21:06:52 2016//
+/diff3.c/1.43/Sat Aug 10 16:39:33 2019//
 /ident.1/1.12/Sat Jun 29 09:08:41 2013//
 /ident.c/1.32/Fri Aug 26 09:02:54 2016//
 /merge.1/1.4/Thu Jun  7 11:37:21 2018//
@@ -19,7 +19,8 @@
 /rcsclean.1/1.22/Fri Sep  3 11:09:29 2010//
 /rcsclean.c/1.56/Fri Aug 26 09:02:54 2016//
 /rcsdiff.1/1.30/Fri Sep  3 11:09:29 2010//
-/rcsdiff.c/1.84/Mon Nov  2 16:45:21 2015//
+/rcsdiff.c/1.85/Fri Jun 28 13:35:03 2019//
+/rcsfile.5/1.1/Wed Apr 24 11:57:54 2019//
 /rcsmerge.1/1.15/Fri Sep  3 11:09:29 2010//
 /rcsmerge.c/1.57/Fri Aug 26 09:02:54 2016//
 /rcsnum.c/1.20/Tue Aug 29 16:47:33 2017//
@@ -34,6 +35,6 @@
 /rlog.c/1.74/Sun Oct 16 13:35:51 2016//
 /worklist.c/1.4/Sat Jun 13 20:15:21 2015//
 /worklist.h/1.4/Fri Jan 16 06:40:11 2015//
-/xmalloc.c/1.11/Tue Nov 17 18:25:03 2015//
+/xmalloc.c/1.12/Fri Jun 28 05:44:09 2019//
 /xmalloc.h/1.4/Tue Nov 17 18:25:03 2015//
 D

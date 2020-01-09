@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_var.h,v 1.93 2019/01/18 20:28:40 phessler Exp $	*/
+/*	$OpenBSD: ieee80211_var.h,v 1.101 2019/11/09 13:21:04 stsp Exp $	*/
 /*	$NetBSD: ieee80211_var.h,v 1.7 2004/05/06 03:07:10 dyoung Exp $	*/
 
 /*-
@@ -62,7 +62,20 @@
 #define IEEE80211_RSSI_THRES_RATIO_2GHZ		60	/* in percent */
 #define IEEE80211_RSSI_THRES_RATIO_5GHZ		50	/* in percent */
 
-#define IEEE80211_BGSCAN_FAIL_MAX		360	/* units of 500 msec */
+#define IEEE80211_BGSCAN_FAIL_MAX		512	/* units of 500 msec */
+
+/*
+ * Missed beacon threshold: An access point has disappeared if this amount
+ * of consecutive beacons have been missed.
+ * This value needs to be high enough to avoid frequent re-connects to APs
+ * which suffer from occasional packet loss, and low enough to avoid a long
+ * delay before we start scanning when an AP has actually disappeared.
+ *
+ * The beacon interval is variable, but generally in the order of 100ms.
+ * So 30 beacons implies a grace period of about 3 seconds before we start
+ * searching for a new AP.
+ */
+#define IEEE80211_BEACON_MISS_THRES		30	/* units of beacons */
 
 enum ieee80211_phytype {
 	IEEE80211_T_DS,			/* direct sequence spread spectrum */
@@ -77,9 +90,10 @@ enum ieee80211_phymode {
 	IEEE80211_MODE_11A	= 1,	/* 5GHz, OFDM */
 	IEEE80211_MODE_11B	= 2,	/* 2GHz, CCK */
 	IEEE80211_MODE_11G	= 3,	/* 2GHz, OFDM */
-	IEEE80211_MODE_11N	= 4,	/* 11n, 2GHz/5GHz */
+	IEEE80211_MODE_11N	= 4,	/* 2GHz/5GHz, OFDM/HT */
+	IEEE80211_MODE_11AC	= 5,	/* 5GHz, OFDM/VHT */
 };
-#define	IEEE80211_MODE_MAX	(IEEE80211_MODE_11N+1)
+#define	IEEE80211_MODE_MAX	(IEEE80211_MODE_11AC+1)
 
 enum ieee80211_opmode {
 	IEEE80211_M_STA		= 1,	/* infrastructure station */
@@ -119,6 +133,7 @@ struct ieee80211_channel {
 #define IEEE80211_CHAN_DYN	0x0400	/* Dynamic CCK-OFDM channel */
 #define IEEE80211_CHAN_XR	0x1000	/* Extended range OFDM channel */
 #define IEEE80211_CHAN_HT	0x2000	/* 11n/HT channel */
+#define IEEE80211_CHAN_VHT	0x4000	/* 11ac/VHT channel */
 
 /*
  * Useful combinations of channel characteristics.
@@ -142,6 +157,8 @@ struct ieee80211_channel {
 	(((_c)->ic_flags & IEEE80211_CHAN_G) == IEEE80211_CHAN_G)
 #define	IEEE80211_IS_CHAN_N(_c) \
 	(((_c)->ic_flags & IEEE80211_CHAN_HT) == IEEE80211_CHAN_HT)
+#define	IEEE80211_IS_CHAN_AC(_c) \
+	(((_c)->ic_flags & IEEE80211_CHAN_VHT) == IEEE80211_CHAN_VHT)
 
 #define	IEEE80211_IS_CHAN_2GHZ(_c) \
 	(((_c)->ic_flags & IEEE80211_CHAN_2GHZ) != 0)
@@ -243,6 +260,7 @@ struct ieee80211com {
 	u_int8_t		ic_scan_count;	/* count scans */
 	u_int32_t		ic_flags;	/* state flags */
 	u_int32_t		ic_xflags;	/* more flags */
+	u_int32_t		ic_userflags;	/* yet more flags */
 	u_int32_t		ic_caps;	/* capabilities */
 	u_int16_t		ic_modecaps;	/* set of mode capabilities */
 	u_int16_t		ic_curmode;	/* current mode */
@@ -251,7 +269,7 @@ struct ieee80211com {
 	enum ieee80211_state	ic_state;	/* 802.11 state */
 	u_int32_t		*ic_aid_bitmap;
 	u_int16_t		ic_max_aid;
-	enum ieee80211_protmode	ic_protmode;	/* 802.11g protection mode */
+	enum ieee80211_protmode	ic_protmode;	/* 802.11g/n protection mode */
 	struct ifmedia		ic_media;	/* interface media config */
 	caddr_t			ic_rawbpf;	/* packet filter structure */
 	struct ieee80211_node	*ic_bss;	/* information for this node */
@@ -390,7 +408,7 @@ struct ieee80211_ess {
 #define	IEEE80211_F_PBAR	0x04000000	/* CONF: PBAC required */
 #define	IEEE80211_F_BGSCAN	0x08000000	/* STATUS: background scan */
 #define IEEE80211_F_AUTO_JOIN	0x10000000	/* CONF: auto-join active */
-#define IEEE80211_F_USERMASK	0xe0000000	/* CONF: ioctl flag mask */
+#define	IEEE80211_F_VHTON	0x20000000	/* CONF: VHT enabled */
 
 /* ic_xflags */
 #define	IEEE80211_F_TX_MGMT_ONLY 0x00000001	/* leave data frames on ifq */
@@ -412,6 +430,7 @@ struct ieee80211_ess {
 #define IEEE80211_C_MFP		0x00002000	/* CAPABILITY: MFP avail */
 #define IEEE80211_C_RAWCTL	0x00004000	/* CAPABILITY: raw ctl */
 #define IEEE80211_C_SCANALLBAND	0x00008000	/* CAPABILITY: scan all bands */
+#define IEEE80211_C_TX_AMPDU	0x00010000	/* CAPABILITY: send A-MPDU */
 
 /* flags for ieee80211_fix_rate() */
 #define	IEEE80211_F_DOSORT	0x00000001	/* sort rate list */
@@ -453,7 +472,9 @@ int	ieee80211_add_ess(struct ieee80211com *, struct ieee80211_join *);
 void	ieee80211_del_ess(struct ieee80211com *, char *, int, int);
 void	ieee80211_set_ess(struct ieee80211com *, struct ieee80211_ess *,
 	    struct ieee80211_node *);
+void	ieee80211_deselect_ess(struct ieee80211com *);
 struct ieee80211_ess *ieee80211_get_ess(struct ieee80211com *, const char *, int);
+void	ieee80211_begin_bgscan(struct ifnet *);
 
 extern	int ieee80211_cache_size;
 

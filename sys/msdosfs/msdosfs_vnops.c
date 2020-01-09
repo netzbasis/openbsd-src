@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vnops.c,v 1.122 2018/06/21 14:17:23 visa Exp $	*/
+/*	$OpenBSD: msdosfs_vnops.c,v 1.127 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: msdosfs_vnops.c,v 1.63 1997/10/17 11:24:19 ws Exp $	*/
 
 /*-
@@ -680,7 +680,7 @@ msdosfs_write(void *v)
 			 * or we write the cluster from its start beyond EOF,
 			 * then no need to read data from disk.
 			 */
-			bp = getblk(thisvp, cn, pmp->pm_bpcluster, 0, 0);
+			bp = getblk(thisvp, cn, pmp->pm_bpcluster, 0, INFSLP);
 			clrbuf(bp);
 			/*
 			 * Do the bmap now, since pcbmap needs buffers
@@ -1307,7 +1307,7 @@ msdosfs_mkdir(void *v)
 	 */
 	bn = cntobn(pmp, newcluster);
 	/* always succeeds */
-	bp = getblk(pmp->pm_devvp, bn, pmp->pm_bpcluster, 0, 0);
+	bp = getblk(pmp->pm_devvp, bn, pmp->pm_bpcluster, 0, INFSLP);
 	bzero(bp->b_data, pmp->pm_bpcluster);
 	bcopy(&dosdirtemplate, bp->b_data, sizeof dosdirtemplate);
 	denp = (struct direntry *)bp->b_data;
@@ -1959,12 +1959,26 @@ struct vops msdosfs_vops = {
 	.vop_revoke	= vop_generic_revoke,
 };
 
-struct filterops msdosfsread_filtops =
-	{ 1, NULL, filt_msdosfsdetach, filt_msdosfsread };
-struct filterops msdosfswrite_filtops =
-	{ 1, NULL, filt_msdosfsdetach, filt_msdosfswrite };
-struct filterops msdosfsvnode_filtops =
-	{ 1, NULL, filt_msdosfsdetach, filt_msdosfsvnode };
+const struct filterops msdosfsread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_msdosfsdetach,
+	.f_event	= filt_msdosfsread,
+};
+
+const struct filterops msdosfswrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_msdosfsdetach,
+	.f_event	= filt_msdosfswrite,
+};
+
+const struct filterops msdosfsvnode_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_msdosfsdetach,
+	.f_event	= filt_msdosfsvnode,
+};
 
 int
 msdosfs_kqfilter(void *v)
@@ -2017,7 +2031,7 @@ filt_msdosfsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-	kn->kn_data = dep->de_FileSize - kn->kn_fp->f_offset;
+	kn->kn_data = dep->de_FileSize - foffset(kn->kn_fp);
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);

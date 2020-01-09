@@ -1,4 +1,4 @@
-/*	$OpenBSD: ukc.h,v 1.14 2017/09/27 15:14:52 deraadt Exp $ */
+/*	$OpenBSD: ukc.h,v 1.17 2019/09/06 21:30:31 cheloha Exp $ */
 
 /*
  * Copyright (c) 1999-2001 Mats O Jansson.  All rights reserved.
@@ -41,14 +41,11 @@
 #define I_TEXTRALOC	11
 #define	I_HISTLEN	12
 #define	CA_HISTORY	13
-#define TZ_TZ		14
-#define P_PDEVNAMES	15
-#define I_PDEVSIZE	16
-#define S_PDEVINIT	17
-#define I_NMBCLUSTERS	18
-#define I_BUFCACHEPCT	19
-#define I_NKMEMPG	20
-#define NLENTRIES	21
+#define P_PDEVNAMES	14
+#define I_PDEVSIZE	15
+#define S_PDEVINIT	16
+#define I_NKMEMPG	17
+#define NLENTRIES	18
 
 #ifdef UKC_MAIN
 struct nlist nl[] = {
@@ -66,36 +63,9 @@ struct nlist nl[] = {
 	{ "_textraloc" },
 	{ "_userconf_histlen" },
 	{ "_userconf_history" },
-	{ "_tz" },
 	{ "_pdevnames" },
 	{ "_pdevnames_size" },
 	{ "_pdevinit" },
-	{ "_nmbclust" },
-	{ "_bufcachepercent" },
-	{ "_nkmempages" },
-	{ NULL },
-};
-struct nlist knl[] = {
-	{ "_locnames" },
-	{ "_locnamp" },
-	{ "_cfroots" },
-	{ "_cfroots_size" },
-	{ "_pv_size" },
-	{ "_pv" },
-	{ "_cfdata" },
-	{ "_kernel_text" },
-	{ "_version" },
-	{ "_extraloc" },
-	{ "_rextraloc" },
-	{ "_textraloc" },
-	{ "_userconf_histlen" },
-	{ "_userconf_history" },
-	{ "_tz" },
-	{ "_pdevnames" },
-	{ "_pdevnames_size" },
-	{ "_pdevinit" },
-	{ "_nmbclust" },
-	{ "_bufcachepercent" },
 	{ "_nkmempages" },
 	{ NULL },
 };

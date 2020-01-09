@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcpdump.c,v 1.88 2018/11/08 14:06:09 brynet Exp $	*/
+/*	$OpenBSD: tcpdump.c,v 1.91 2019/06/28 13:32:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -61,6 +61,7 @@
 
 int Aflag;			/* dump ascii */
 int aflag;			/* translate network and broadcast addresses */
+int Bflag;			/* BPF fildrop setting */
 int dflag;			/* print filter code */
 int eflag;			/* print ethernet header */
 int fflag;			/* don't translate "foreign" IP address */
@@ -187,7 +188,7 @@ pcap_list_linktypes(pcap_t *p)
 	if (fd < 0)
 		error("Invalid bpf descriptor");
 
-	if (ioctl(fd, BIOCGDLTLIST, &dl) < 0)
+	if (ioctl(fd, BIOCGDLTLIST, &dl) == -1)
 		err(1, "BIOCGDLTLIST");
 
 	if (dl.bfl_len > MAXDLT)
@@ -231,7 +232,7 @@ main(int argc, char **argv)
 
 	opterr = 0;
 	while ((op = getopt(argc, argv,
-	    "Aac:D:deE:fF:i:IlLnNOopqr:s:StT:vw:xXy:Y")) != -1)
+	    "AaB:c:D:deE:fF:i:IlLnNOopqr:s:StT:vw:xXy:Y")) != -1)
 		switch (op) {
 
 		case 'A':
@@ -241,6 +242,19 @@ main(int argc, char **argv)
 
 		case 'a':
 			aflag = 1;
+			break;
+
+		case 'B':
+			if (strcasecmp(optarg, "pass") == 0)
+				Bflag = BPF_FILDROP_PASS;
+			else if (strcasecmp(optarg, "capture") == 0)
+				Bflag = BPF_FILDROP_CAPTURE;
+			else if (strcasecmp(optarg, "drop") == 0)
+				Bflag = BPF_FILDROP_DROP;
+			else {
+				error("invalid BPF fildrop option: %s",
+				    optarg);
+			}
 			break;
 
 		case 'c':
@@ -351,6 +365,8 @@ main(int argc, char **argv)
 				packettype = PT_GRE;
 			else if (strcasecmp(optarg, "vxlan") == 0)
 				packettype = PT_VXLAN;
+			else if (strcasecmp(optarg, "erspan") == 0)
+				packettype = PT_ERSPAN;
 			else if (strcasecmp(optarg, "mpls") == 0)
 				packettype = PT_MPLS;
 			else if (strcasecmp(optarg, "tftp") == 0)
@@ -440,7 +456,7 @@ main(int argc, char **argv)
 				error("%s", ebuf);
 		}
 		pd = priv_pcap_live(device, snaplen, !pflag, 1000, ebuf,
-		    dlt, dirfilt);
+		    dlt, dirfilt, Bflag);
 		if (pd == NULL)
 			error("%s", ebuf);
 
@@ -700,7 +716,7 @@ __dead void
 usage(void)
 {
 	(void)fprintf(stderr,
-"Usage: %s [-AadefILlNnOopqStvXx] [-c count] [-D direction]\n",
+"Usage: %s [-AadefILlNnOopqStvXx] [-B fildrop] [-c count] [-D direction]\n",
 	    program_name);
 	(void)fprintf(stderr,
 "\t       [-E [espalg:]espkey] [-F file] [-i interface] [-r file]\n");

@@ -1,10 +1,8 @@
-#	$OpenBSD: RAMDISK_CD,v 1.177 2019/01/25 23:16:52 jsg Exp $
+#	$OpenBSD: RAMDISK_CD,v 1.187 2019/12/23 08:05:42 kettenis Exp $
 
 machine		amd64
 maxusers	4
 
-option		TIMEZONE=0
-option		DST=0
 option		SMALL_KERNEL
 option		NO_PROPOLICE
 option		BOOT_CONFIG
@@ -37,14 +35,18 @@ acpi0		at bios?
 #acpibat*	at acpi?
 #acpibtn*	at acpi?
 #acpicpu*	at acpi?
+acpicmos*	at acpi?
 acpiec*		at acpi?
 acpiprt*	at acpi?
 acpimadt0	at acpi?
 #acpitz*	at acpi?
+amdgpio*	at acpi?
+aplgpio*	at acpi?
 bytgpio*	at acpi?
 sdhc*		at acpi?
 acpihve*	at acpi?
 chvgpio*        at acpi?
+glkgpio*	at acpi?
 
 mpbios0		at bios0
 
@@ -227,6 +229,7 @@ bge*		at pci?			# Broadcom BCM57xx (aka Tigon3)
 bnx*		at pci?			# Broadcom BCM5706/5708 GigE
 re*		at pci?			# Realtek 8169/8169S/8110S
 re*		at cardbus?		# Realtek 8169/8169S/8110S
+rge*		at pci?			# Realtek 8125
 stge*		at pci?			# Sundance TC9021 GigE
 hme*		at pci?			# Sun Happy Meal
 vge*		at pci?			# VIA VT612x
@@ -244,6 +247,8 @@ jme*		at pci?			# JMicron JMC250/JMC260 Ethernet
 bnxt*		at pci?			# Broadcom BCM573xx, BCM574xx
 bwfm*		at pci?			# Broadcom FullMAC
 ixl*		at pci?			# Intel Ethernet 700 Series
+mcx*		at pci?			# Mellanox ConnectX-4
+iavf*		at pci?			# Intel Ethernet Adaptive VF
 
 acx*		at pci?			# TI ACX100/ACX111 (802.11b/g)
 acx*		at cardbus?		# TI ACX100/ACX111 (802.11b/g)

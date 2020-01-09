@@ -1,4 +1,4 @@
-/* $OpenBSD: machine.h,v 1.25 2018/11/17 23:10:08 cheloha Exp $	 */
+/* $OpenBSD: machine.h,v 1.28 2020/01/06 20:05:10 zhuk Exp $	 */
 
 /*
  *  Top users/processes display for Unix
@@ -85,12 +85,14 @@ extern int      display_init(struct statics *);
 
 /* machine.c */
 extern int      machine_init(struct statics *);
-extern char    *format_header(char *, int);
+extern char    *format_header(char *);
 extern void     get_system_info(struct system_info *);
-extern caddr_t
-get_process_info(struct system_info *, struct process_select *,
+extern struct handle
+*get_process_info(struct system_info *, struct process_select *,
 		 int (*) (const void *, const void *));
-extern char    *format_next_process(caddr_t, const char *(*)(uid_t, int), pid_t *, int);
+extern void     skip_next_process(struct handle *);
+extern char    *format_next_process(struct handle *,
+		 const char *(*)(uid_t, int), pid_t *);
 extern uid_t    proc_owner(pid_t);
 
 extern struct kinfo_proc	*getprocs(int, int, int *);

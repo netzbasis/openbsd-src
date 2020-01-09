@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolver.h,v 1.2 2019/01/27 12:40:54 florian Exp $	*/
+/*	$OpenBSD: resolver.h,v 1.17 2019/12/18 09:18:27 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -17,37 +17,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-enum unwind_resolver_state {
+enum uw_resolver_state {
 	DEAD,
 	UNKNOWN,
 	RESOLVING,
 	VALIDATING
 };
 
-static const char * const	unwind_resolver_state_str[] = {
+static const char * const	uw_resolver_state_str[] = {
 	"dead",
 	"unknown",
 	"resolving",
 	"validating"
 };
 
-enum unwind_resolver_type {
-	RECURSOR,
-	FORWARDER,
-	STATIC_FORWARDER,
-	STATIC_DOT_FORWARDER,
-	RESOLVER_NONE = -1
-};
-
-static const char * const	unwind_resolver_type_str[] = {
-	"recursor",
-	"dhcp forwarder",
-	"static forwarder",
-	"DoT forwarder"
-};
-
 static const int64_t		histogram_limits[] = {
-	-1,
 	10,
 	20,
 	40,
@@ -63,10 +47,30 @@ static const int64_t		histogram_limits[] = {
 };
 
 struct ctl_resolver_info {
-	enum unwind_resolver_state	 state;
-	enum unwind_resolver_type	 type;
-	int				 selected;
+	enum uw_resolver_state	 state;
+	enum uw_resolver_type	 type;
+	int64_t			 median;
+	int64_t			 histogram[nitems(histogram_limits)];
+	int64_t			 latest_histogram[nitems(histogram_limits)];
 };
 
-void		 resolver(int, int);
-int		 resolver_imsg_compose_frontend(int, pid_t, void *, uint16_t);
+struct ctl_forwarder_info {
+	char		 ip[INET6_ADDRSTRLEN];
+	uint32_t	 if_index;
+	int		 src;
+};
+
+struct ctl_mem_info {
+	size_t		 msg_cache_used;
+	size_t		 msg_cache_max;
+	size_t		 rrset_cache_used;
+	size_t		 rrset_cache_max;
+	size_t		 key_cache_used;
+	size_t		 key_cache_max;
+	size_t		 neg_cache_used;
+	size_t		 neg_cache_max;
+};
+
+void	 resolver(int, int);
+int	 resolver_imsg_compose_main(int, pid_t, void *, uint16_t);
+int	 resolver_imsg_compose_frontend(int, pid_t, void *, uint16_t);

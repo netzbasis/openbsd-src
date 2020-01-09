@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vxlan.c,v 1.70 2018/12/03 17:25:22 claudio Exp $	*/
+/*	$OpenBSD: if_vxlan.c,v 1.76 2019/11/08 07:16:29 dlg Exp $	*/
 
 /*
  * Copyright (c) 2013 Reyk Floeter <reyk@openbsd.org>
@@ -62,9 +62,9 @@ struct vxlan_softc {
 	struct ifmedia		 sc_media;
 
 	struct ip_moptions	 sc_imo;
-	void			*sc_ahcookie;
-	void			*sc_lhcookie;
-	void			*sc_dhcookie;
+	struct task		 sc_atask;
+	struct task		 sc_ltask;
+	struct task		 sc_dtask;
 
 	struct sockaddr_storage	 sc_src;
 	struct sockaddr_storage	 sc_dst;
@@ -131,14 +131,16 @@ vxlan_clone_create(struct if_clone *ifc, int unit)
 	struct vxlan_softc	*sc;
 
 	sc = malloc(sizeof(*sc), M_DEVBUF, M_WAITOK|M_ZERO);
-	sc->sc_imo.imo_membership = malloc(
-	    (sizeof(struct in_multi *) * IP_MIN_MEMBERSHIPS), M_IPMOPTS,
-	    M_WAITOK|M_ZERO);
+	sc->sc_imo.imo_membership = mallocarray(IP_MIN_MEMBERSHIPS,
+	    sizeof(struct in_multi *), M_IPMOPTS, M_WAITOK|M_ZERO);
 	sc->sc_imo.imo_max_memberships = IP_MIN_MEMBERSHIPS;
 	sc->sc_dstport = htons(VXLAN_PORT);
 	sc->sc_vnetid = VXLAN_VNI_UNSET;
 	sc->sc_txhprio = IFQ_TOS2PRIO(IPTOS_PREC_ROUTINE); /* 0 */
 	sc->sc_df = htons(0);
+	task_set(&sc->sc_atask, vxlan_addr_change, sc);
+	task_set(&sc->sc_ltask, vxlan_link_change, sc);
+	task_set(&sc->sc_dtask, vxlan_if_change, sc);
 	task_set(&sc->sc_sendtask, vxlan_send_dispatch, sc);
 
 	ifp = &sc->sc_ac.ac_if;
@@ -159,6 +161,7 @@ vxlan_clone_create(struct if_clone *ifc, int unit)
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->sc_media, IFM_ETHER | IFM_AUTO);
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
@@ -198,7 +201,8 @@ vxlan_clone_destroy(struct ifnet *ifp)
 	if (!task_del(net_tq(ifp->if_index), &sc->sc_sendtask))
 		taskq_barrier(net_tq(ifp->if_index));
 
-	free(sc->sc_imo.imo_membership, M_IPMOPTS, 0);
+	free(sc->sc_imo.imo_membership, M_IPMOPTS,
+	    sc->sc_imo.imo_max_memberships * sizeof(struct in_multi *));
 	free(sc, M_DEVBUF, sizeof(*sc));
 
 	return (0);
@@ -213,20 +217,9 @@ vxlan_multicast_cleanup(struct ifnet *ifp)
 
 	mifp = if_get(imo->imo_ifidx);
 	if (mifp != NULL) {
-		if (sc->sc_ahcookie != NULL) {
-			hook_disestablish(mifp->if_addrhooks, sc->sc_ahcookie);
-			sc->sc_ahcookie = NULL;
-		}
-		if (sc->sc_lhcookie != NULL) {
-			hook_disestablish(mifp->if_linkstatehooks,
-			    sc->sc_lhcookie);
-			sc->sc_lhcookie = NULL;
-		}
-		if (sc->sc_dhcookie != NULL) {
-			hook_disestablish(mifp->if_detachhooks,
-			    sc->sc_dhcookie);
-			sc->sc_dhcookie = NULL;
-		}
+		if_addrhook_del(mifp, &sc->sc_atask);
+		if_linkstatehook_del(mifp, &sc->sc_ltask);
+		if_detachhook_del(mifp, &sc->sc_dtask);
 
 		if_put(mifp);
 	}
@@ -296,14 +289,9 @@ vxlan_multicast_join(struct ifnet *ifp, struct sockaddr *src,
 	 * Use interface hooks to track any changes on the interface
 	 * that is used to send out the tunnel traffic as multicast.
 	 */
-	if ((sc->sc_ahcookie = hook_establish(mifp->if_addrhooks,
-	    0, vxlan_addr_change, sc)) == NULL ||
-	    (sc->sc_lhcookie = hook_establish(mifp->if_linkstatehooks,
-	    0, vxlan_link_change, sc)) == NULL ||
-	    (sc->sc_dhcookie = hook_establish(mifp->if_detachhooks,
-	    0, vxlan_if_change, sc)) == NULL)
-		panic("%s: cannot allocate interface hook",
-		    mifp->if_xname);
+	if_addrhook_add(mifp, &sc->sc_atask);
+	if_linkstatehook_add(mifp, &sc->sc_ltask);
+	if_detachhook_add(mifp, &sc->sc_dtask);
 
 	return (0);
 }
@@ -634,7 +622,6 @@ int
 vxlan_lookup(struct mbuf *m, struct udphdr *uh, int iphlen,
     struct sockaddr *srcsa, struct sockaddr *dstsa)
 {
-	struct mbuf_list	 ml = MBUF_LIST_INITIALIZER();
 	struct vxlan_softc	*sc = NULL, *sc_cand = NULL;
 	struct vxlan_header	 v;
 	int			 vni;
@@ -711,7 +698,7 @@ vxlan_lookup(struct mbuf *m, struct udphdr *uh, int iphlen,
 
 #if NBRIDGE > 0
 	/* Store the tunnel src/dst IP and vni for the bridge or switch */
-	if ((ifp->if_bridgeport != NULL || ifp->if_switchport != NULL) &&
+	if ((ifp->if_bridgeidx != 0 || ifp->if_switchport != NULL) &&
 	    srcsa->sa_family != AF_UNSPEC &&
 	    ((brtag = bridge_tunneltag(m)) != NULL)) {
 		memcpy(&brtag->brtag_peer.sa, srcsa, srcsa->sa_len);
@@ -743,8 +730,7 @@ vxlan_lookup(struct mbuf *m, struct udphdr *uh, int iphlen,
 		m = n;
 	}
 
-	ml_enqueue(&ml, m);
-	if_input(ifp, &ml);
+	if_vinput(ifp, m);
 
 	/* success */
 	return (1);

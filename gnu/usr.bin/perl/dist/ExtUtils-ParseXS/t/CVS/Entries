@@ -1,6 +1,6 @@
-/001-basic.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
-/002-more.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
-/003-usage.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
+/001-basic.t/1.1.1.3/Wed Feb 13 21:11:26 2019/-ko/
+/002-more.t/1.1.1.4/Mon Dec 30 02:10:45 2019/-ko/
+/003-usage.t/1.1.1.3/Wed Feb 13 21:11:26 2019/-ko/
 /101-standard_typemap_locations.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
 /102-trim_whitespace.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
 /103-tidy_type.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
@@ -28,9 +28,9 @@
 /XSInclude.xsh/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
 /XSMore.xs/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
 /XSTest.pm/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
-/XSTest.xs/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
+/XSTest.xs/1.1.1.3/Wed Feb 13 21:11:27 2019/-ko/
 /XSUsage.pm/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
-/XSUsage.xs/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
+/XSUsage.xs/1.1.1.2/Wed Feb 13 21:11:27 2019/-ko/
 /XSWarn.xs/1.1.1.1/Mon Mar 24 14:59:00 2014/-kb/
 /pseudotypemap1/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
 /typemap/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/

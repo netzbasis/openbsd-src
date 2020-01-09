@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.24 2018/10/06 10:52:24 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.30 2019/12/28 16:03:48 bluhm Exp $
 
 # The following ports must be installed for the regression tests:
 # p5-IO-Socket-INET6	object interface for AF_INET and AF_INET6 domain sockets
@@ -31,16 +31,20 @@ PROGS =			ttylog
 PERLS =			Client.pm Proc.pm RSyslogd.pm Server.pm \
 			Syslogc.pm   Syslogd.pm funcs.pl syslogd.pl
 ARGS !=			cd ${.CURDIR} && ls args-*.pl
-.if exists (/usr/local/sbin/rsyslogd)
-TARGETS ?=		${ARGS}
-.else
-TARGETS ?=		${ARGS:Nargs-rsyslog*}
+REGRESS_TARGETS =	${ARGS:S/^/run-/}
+.if ! exists(/usr/local/sbin/rsyslogd)
+REGRESS_SKIP_TARGETS =	${REGRESS_TARGETS:Mrun-args-rsyslog*}
 .endif
-REGRESS_TARGETS =	${TARGETS:S/^/run-/}
 LDFLAGS +=		-lutil
-CLEANFILES +=		*.log *.log.? *.conf ktrace.out stamp-*
+CLEANFILES +=		*.log *.log.? *.conf ktrace.out stamp-* *.pid
 CLEANFILES +=		*.out *.sock *.ktrace *.fstat ttylog *.ph */*.ph
 CLEANFILES +=		*.pem *.req *.key *.crt *.srl empty toobig diskimage
+
+run-args-rsyslog-client-tls.pl run-args-rsyslog-tls.pl:
+	@echo '\n======== $@ ========'
+	# rsyslogd TLS client side is totally unreliable.  Startup of
+	# GnuTLS may take a long time on slow machines.  Disable test.
+	@echo DISABLED
 
 .MAIN: all
 
@@ -59,10 +63,10 @@ cleanup:
 # Only do that if necessary to keep visible output short.
 
 .if ${.CURDIR} == ${.OBJDIR}
-PERLINC =
+PERLINC =	-I.
 PERLPATH =
 .else
-PERLINC =	-I${.CURDIR}
+PERLINC =	-I${.CURDIR} -I${.OBJDIR}
 PERLPATH =	${.CURDIR}/
 .endif
 

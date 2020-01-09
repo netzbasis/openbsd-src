@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.233 2019/01/24 02:56:41 beck Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.248 2019/11/17 19:07:07 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -376,6 +376,7 @@ typedef struct ssl_method_internal_st {
 
 	int (*ssl_accept)(SSL *s);
 	int (*ssl_connect)(SSL *s);
+	int (*ssl_shutdown)(SSL *s);
 
 	int (*ssl_renegotiate)(SSL *s);
 	int (*ssl_renegotiate_check)(SSL *s);
@@ -432,6 +433,10 @@ typedef struct ssl_handshake_st {
 
 	/* Extensions seen in this handshake. */
 	uint32_t extensions_seen;
+
+	/* sigalgs offered in this handshake in wire form */
+	size_t sigalgs_len;
+	uint8_t *sigalgs;
 } SSL_HANDSHAKE;
 
 typedef struct ssl_handshake_tls13_st {
@@ -451,6 +456,10 @@ typedef struct ssl_handshake_tls13_st {
 
 	uint8_t *cookie;
 	size_t cookie_len;
+
+	/* Preserved transcript hash. */
+	uint8_t transcript_hash[EVP_MAX_MD_SIZE];
+	size_t transcript_hash_len;
 } SSL_HANDSHAKE_TLS13;
 
 typedef struct ssl_ctx_internal_st {
@@ -957,8 +966,7 @@ typedef struct dtls1_state_internal_st {
 typedef struct cert_pkey_st {
 	X509 *x509;
 	EVP_PKEY *privatekey;
-	/* sigalg to use when signing */
-	const struct ssl_sigalg *sigalg;
+	STACK_OF(X509) *chain;
 } CERT_PKEY;
 
 typedef struct cert_st {
@@ -1061,6 +1069,8 @@ uint16_t ssl_max_server_version(SSL *s);
 int ssl_cipher_is_permitted(const SSL_CIPHER *cipher, uint16_t min_ver,
     uint16_t max_ver);
 
+const SSL_METHOD *tls_legacy_client_method(void);
+
 const SSL_METHOD *dtls1_get_client_method(int ver);
 const SSL_METHOD *dtls1_get_server_method(int ver);
 const SSL_METHOD *tls1_get_client_method(int ver);
@@ -1075,14 +1085,19 @@ void ssl_clear_cipher_state(SSL *s);
 void ssl_clear_cipher_read_state(SSL *s);
 void ssl_clear_cipher_write_state(SSL *s);
 int ssl_clear_bad_session(SSL *s);
+
 CERT *ssl_cert_new(void);
 CERT *ssl_cert_dup(CERT *cert);
 void ssl_cert_free(CERT *c);
+int ssl_cert_set0_chain(CERT *c, STACK_OF(X509) *chain);
+int ssl_cert_set1_chain(CERT *c, STACK_OF(X509) *chain);
+int ssl_cert_add0_chain_cert(CERT *c, X509 *cert);
+int ssl_cert_add1_chain_cert(CERT *c, X509 *cert);
+
 SESS_CERT *ssl_sess_cert_new(void);
 void ssl_sess_cert_free(SESS_CERT *sc);
 int ssl_get_new_session(SSL *s, int session);
-int ssl_get_prev_session(SSL *s, const unsigned char *session_id,
-    int session_id_len, CBS *ext_block);
+int ssl_get_prev_session(SSL *s, CBS *session_id, CBS *ext_block);
 int ssl_cipher_id_cmp(const SSL_CIPHER *a, const SSL_CIPHER *b);
 SSL_CIPHER *OBJ_bsearch_ssl_cipher_id(SSL_CIPHER *key, SSL_CIPHER const *base,
     int num);
@@ -1104,7 +1119,6 @@ int ssl_undefined_function(SSL *s);
 int ssl_undefined_void_function(void);
 int ssl_undefined_const_function(const SSL *s);
 CERT_PKEY *ssl_get_server_send_pkey(const SSL *s);
-X509 *ssl_get_server_send_cert(const SSL *);
 EVP_PKEY *ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *c, const EVP_MD **pmd,
     const struct ssl_sigalg **sap);
 DH *ssl_get_auto_dh(SSL *s);
@@ -1113,7 +1127,6 @@ void ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher);
 STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *s);
 int ssl_has_ecc_ciphers(SSL *s);
 int ssl_verify_alarm_type(long type);
-void ssl_load_ciphers(void);
 
 int SSL_SESSION_ticket(SSL_SESSION *ss, unsigned char **out, size_t *out_len);
 
@@ -1141,7 +1154,7 @@ int ssl3_renegotiate_check(SSL *ssl);
 int ssl3_dispatch_alert(SSL *s);
 int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek);
 int ssl3_write_bytes(SSL *s, int type, const void *buf, int len);
-int ssl3_output_cert_chain(SSL *s, CBB *cbb, X509 *x);
+int ssl3_output_cert_chain(SSL *s, CBB *cbb, CERT_PKEY *cpk);
 SSL_CIPHER *ssl3_choose_cipher(SSL *ssl, STACK_OF(SSL_CIPHER) *clnt,
     STACK_OF(SSL_CIPHER) *srvr);
 int	ssl3_setup_buffers(SSL *s);
@@ -1262,11 +1275,11 @@ int dtls1_enc(SSL *s, int snd);
 int ssl_init_wbio_buffer(SSL *s, int push);
 void ssl_free_wbio_buffer(SSL *s);
 
-int tls1_handshake_hash_init(SSL *s);
-int tls1_handshake_hash_update(SSL *s, const unsigned char *buf, size_t len);
-int tls1_handshake_hash_value(SSL *s, const unsigned char *out, size_t len,
+int tls1_transcript_hash_init(SSL *s);
+int tls1_transcript_hash_update(SSL *s, const unsigned char *buf, size_t len);
+int tls1_transcript_hash_value(SSL *s, const unsigned char *out, size_t len,
     size_t *outlen);
-void tls1_handshake_hash_free(SSL *s);
+void tls1_transcript_hash_free(SSL *s);
 
 int tls1_transcript_init(SSL *s);
 void tls1_transcript_free(SSL *s);
@@ -1314,12 +1327,10 @@ int ssl_check_clienthello_tlsext_early(SSL *s);
 int ssl_check_clienthello_tlsext_late(SSL *s);
 int ssl_check_serverhello_tlsext(SSL *s);
 
-#define tlsext_tick_md	EVP_sha256
-int tls1_process_ticket(SSL *s, const unsigned char *session_id,
-    int session_id_len, CBS *ext_block, SSL_SESSION **ret);
+int tls1_process_ticket(SSL *s, CBS *session_id, CBS *ext_block,
+    SSL_SESSION **ret);
 
 long ssl_get_algorithm2(SSL *s);
-int tls1_process_sigalgs(SSL *s, CBS *cbs, uint16_t *, size_t);
 
 int tls1_check_ec_server_key(SSL *s);
 

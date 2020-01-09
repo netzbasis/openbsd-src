@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.h,v 1.28 2016/12/22 15:31:43 rzalamena Exp $	*/
+/*	$OpenBSD: switchd.h,v 1.30 2019/11/21 06:22:57 akoshibe Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -211,9 +211,9 @@ struct switch_connection *
 		 switchd_connbyaddr(struct switchd *, struct sockaddr *);
 
 /* packet.c */
+int		 packet_ether_input(struct ibuf *, size_t, struct packet *);
 int		 packet_input(struct switchd *, struct switch_control *,
-		    uint32_t, uint32_t *, struct ibuf *, size_t,
-		    struct packet *);
+		    uint32_t, uint32_t *, struct packet *);
 
 /* switch.c */
 void		 switch_init(struct switchd *);
@@ -307,7 +307,7 @@ int		 ofp13_featuresrequest(struct switchd *,
 		    struct switch_connection *);
 struct ofp_flow_mod *
 		 ofp13_flowmod(struct switch_connection *, struct ibuf *,
-		    uint8_t, uint8_t, uint16_t, uint16_t, uint16_t);
+		    uint8_t);
 int		 ofp13_setconfig(struct switchd *, struct switch_connection *,
 		    uint16_t, uint16_t);
 int		 ofp13_tablemiss_sendctrl(struct switchd *,

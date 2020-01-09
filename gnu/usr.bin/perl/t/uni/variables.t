@@ -6,7 +6,6 @@
 BEGIN {
     chdir 't' if -d 't';
     require './test.pl';
-    skip_all_if_miniperl("miniperl, no arybase");
     skip_all_without_unicode_tables();
 }
 
@@ -15,7 +14,7 @@ use utf8;
 use open qw( :utf8 :std );
 no warnings qw(misc reserved);
 
-plan (tests => 66894);
+plan (tests => 66880);
 
 # ${single:colon} should not be treated as a simple variable, but as a
 # block with a label inside.
@@ -56,9 +55,8 @@ plan (tests => 66894);
 }
 
 # Checking that at least some of the special variables work
-for my $v (qw( ^V ; < > ( ) {^GLOBAL_PHASE} ^W _ 1 4 0 [ ] ! @ / \ = )) {
+for my $v (qw( ^V ; < > ( ) {^GLOBAL_PHASE} ^W _ 1 4 0 ] ! @ / \ = )) {
   SKIP: {
-    skip_if_miniperl('No $[ under miniperl', 2) if $v eq '[';
     local $@;
     evalbytes "\$$v;";
     is $@, '', "No syntax error for \$$v";
@@ -106,7 +104,7 @@ for ( 0x0 .. 0xff ) {
         else {
             $name = sprintf "\\x%02x, a C1 control", $ord;
         }
-        $syntax_error = $::IS_EBCDIC;
+        $syntax_error = 1;
         $deprecated = ! $syntax_error;
     }
     elsif ($chr =~ /\p{XIDStart}/) {
@@ -114,7 +112,7 @@ for ( 0x0 .. 0xff ) {
     }
     elsif ($chr =~ /\p{XPosixSpace}/) {
         $name = sprintf "\\x%02x, a non-ASCII space character", $ord;
-        $syntax_error = $::IS_EBCDIC;
+        $syntax_error = 1;
         $deprecated = ! $syntax_error;
     }
     else {
@@ -130,12 +128,13 @@ for ( 0x0 .. 0xff ) {
                      "$name as a length-1 variable generates a syntax error");
             $tests++;
             utf8::upgrade($chr);
-            evalbytes "no strict; use utf8; \$$chr = 4;",
+            eval "no strict; \$$chr = 4;",
             like($@, qr/ syntax\ error | Unrecognized\ character /x,
                      "  ... and the same under 'use utf8'");
             $tests++;
         }
         elsif ($chr =~ /[[:punct:][:digit:]]/a) {
+            next if ($chr eq '#' or $chr eq '*'); # RT 133583
 
             # Unlike other variables, we dare not try setting the length-1
             # variables that are ASCII punctuation and digits.  This is

@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb_subr.c,v 1.147 2019/01/22 14:25:56 mpi Exp $ */
+/*	$OpenBSD: usb_subr.c,v 1.150 2019/10/06 17:11:51 mpi Exp $ */
 /*	$NetBSD: usb_subr.c,v 1.103 2003/01/10 11:19:13 augustss Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usb_subr.c,v 1.18 1999/11/17 22:33:47 n_hibma Exp $	*/
 
@@ -343,12 +343,11 @@ usb_delay_ms(struct usbd_bus *bus, u_int ms)
 {
 	static int usb_delay_wchan;
 
-	/* Wait at least two clock ticks so we know the time has passed. */
 	if (bus->use_polling || cold)
 		delay((ms+1) * 1000);
 	else
-		tsleep(&usb_delay_wchan, PRIBIO, "usbdly",
-		    (ms*hz+999)/1000 + 1);
+		tsleep_nsec(&usb_delay_wchan, PRIBIO, "usbdly",
+		    MSEC_TO_NSEC(ms));
 }
 
 /* Delay given a device handle. */
@@ -1128,6 +1127,8 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 		err = usbd_get_desc(dev, UDESC_DEVICE, 0, USB_MAX_IPACKET, dd);
 		if (!err)
 			break;
+		if (err == USBD_TIMEOUT)
+			goto fail;
 		usbd_delay_ms(dev, 100+50*i);
 	}
 
@@ -1141,6 +1142,8 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 				USB_DEVICE_DESCRIPTOR_SIZE, dd);
 			if (!err)
 				break;
+			if (err == USBD_TIMEOUT)
+				goto fail;
 			usbd_delay_ms(dev, 100+50*i);
 		}
 	}
@@ -1155,6 +1158,7 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 	}
 
 	if (err) {
+fail:
 		usb_free_device(dev);
 		up->device = NULL;
 		return (err);
@@ -1208,7 +1212,6 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 	 * address does not correspond to the hardware one.
 	 */
 	dev->address = addr;
-	bus->devices[addr] = dev;
 
 	err = usbd_reload_device_desc(dev);
 	if (err) {
@@ -1244,6 +1247,8 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 		up->device = NULL;
 		return (err);
   	}
+
+	bus->devices[addr] = dev;
 
 	err = usbd_probe_and_attach(parent, dev, port, addr);
 	if (err) {

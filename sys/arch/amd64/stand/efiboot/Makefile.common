@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.common,v 1.13 2018/10/13 19:56:56 kettenis Exp $
+#	$OpenBSD: Makefile.common,v 1.19 2019/11/28 00:17:11 bluhm Exp $
 
 S=		${.CURDIR}/../../../../..
 SADIR=		${.CURDIR}/../..
@@ -11,7 +11,7 @@ EFI_HEAP_LIMIT=	0xc00000
 
 LDFLAGS+=	-nostdlib -T${.CURDIR}/../${LDSCRIPT} -Bsymbolic -shared
 
-COPTS+=		-DEFIBOOT -DNEEDS_HEAP_H -I${.CURDIR}/..
+COPTS+=		-DEFIBOOT -DFWRANDOM -DNEEDS_HEAP_H -I${.CURDIR}/..
 COPTS+=		-I${EFIDIR}/include -I${S}/stand/boot
 COPTS+=		-ffreestanding -std=gnu99
 COPTS+=		-fshort-wchar -fPIC -mno-red-zone
@@ -24,18 +24,20 @@ AFLAGS+=	-pipe -fPIC
 
 .PATH:	${.CURDIR}/..
 SRCS+=	self_reloc.c
-SRCS+=	efiboot.c efidev.c efipxe.c
-SRCS+=	conf.c
+SRCS+=	efiboot.c efidev.c efipxe.c efirng.c
+SRCS+=	conf.c dev_i386.c cmd_i386.c diskprobe.c exec_i386.c machdep.c
+SRCS+=	memprobe.c
 
 .PATH:	${S}/stand/boot
 SRCS+=	boot.c bootarg.c cmd.c vars.c
 
 .PATH:	${S}/lib/libsa
-SRCS+=	alloc.c ctime.c exit.c getchar.c memcmp.c memcpy.c memset.c printf.c \
+SRCS+=	alloc.c ctime.c exit.c getchar.c hexdump.c \
+	memcmp.c memcpy.c memmove.c memset.c printf.c \
 	putchar.c snprintf.c strcmp.c strerror.c strlen.c strncmp.c strncpy.c \
 	strtol.c strtoll.c
-SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
-	lseek.c open.c read.c readdir.c stat.c
+SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c \
+	fchmod.c fstat.c lseek.c open.c read.c readdir.c stat.c
 SRCS+=	ufs.c cd9660.c
 .if ${SOFTRAID:L} == "yes"
 SRCS+=	aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c hmac_sha1.c \
@@ -50,8 +52,7 @@ SRCS+=	divdi3.c moddi3.c qdivrem.c
 SRCS+=	strlcpy.c
 
 .PATH:	${SADIR}/libsa
-SRCS+=	loadfile.c elf64.c elf32.c memprobe.c cmd_i386.c dev_i386.c exec_i386.c
-SRCS+=	machdep.c diskprobe.c
+SRCS+=	loadfile.c arc4.c elf64.c elf32.c
 
 .if ${SOFTRAID:L} == "yes"
 SRCS+=	softraid_amd64.c

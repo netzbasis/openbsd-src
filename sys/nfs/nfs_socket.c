@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_socket.c,v 1.132 2018/11/09 14:14:32 claudio Exp $	*/
+/*	$OpenBSD: nfs_socket.c,v 1.134 2019/12/05 10:41:57 mpi Exp $	*/
 /*	$NetBSD: nfs_socket.c,v 1.27 1996/04/15 20:20:00 thorpej Exp $	*/
 
 /*
@@ -407,7 +407,7 @@ nfs_reconnect(struct nfsreq *rep)
 	while ((error = nfs_connect(nmp, rep)) != 0) {
 		if (error == EINTR || error == ERESTART)
 			return (EINTR);
-		(void)tsleep((caddr_t)&lbolt, PSOCK, "nfsrecon", 0);
+		tsleep_nsec(&lbolt, PSOCK, "nfsrecon", INFSLP);
 	}
 
 	/*
@@ -1225,9 +1225,8 @@ nfs_sigintr(struct nfsmount *nmp, struct nfsreq *rep, struct proc *p)
 		return (EINTR);
 	if (!(nmp->nm_flag & NFSMNT_INT))
 		return (0);
-	if (p && p->p_siglist &&
-	    (((p->p_siglist & ~p->p_sigmask) &
-	    ~p->p_p->ps_sigacts->ps_sigignore) & NFSINT_SIGMASK))
+	if (p && (SIGPENDING(p) & ~p->p_p->ps_sigacts->ps_sigignore &
+	    NFSINT_SIGMASK))
 		return (EINTR);
 	return (0);
 }

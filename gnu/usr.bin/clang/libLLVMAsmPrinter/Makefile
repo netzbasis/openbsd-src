@@ -1,18 +1,16 @@
-# $OpenBSD: Makefile,v 1.4 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.6 2019/06/23 22:07:39 patrick Exp $
 
 LIB=	LLVMAsmPrinter
-NOPIC=
 NOPROFILE=
 
-.include <bsd.own.mk>
-SRCS=	ARMException.cpp \
+SRCS+=	ARMException.cpp \
 	AccelTable.cpp \
 	AddressPool.cpp \
 	AsmPrinter.cpp \
 	AsmPrinterDwarf.cpp \
 	AsmPrinterInlineAsm.cpp \
 	CodeViewDebug.cpp \
-	DbgValueHistoryCalculator.cpp \
+	DbgEntityHistoryCalculator.cpp \
 	DebugHandlerBase.cpp \
 	DebugLocStream.cpp \
 	DIE.cpp \
@@ -27,12 +25,8 @@ SRCS=	ARMException.cpp \
 	EHStreamer.cpp \
 	ErlangGCPrinter.cpp \
 	OcamlGCPrinter.cpp \
+	WasmException.cpp \
 	WinCFGuard.cpp \
 	WinException.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/CodeGen/AsmPrinter
-
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>

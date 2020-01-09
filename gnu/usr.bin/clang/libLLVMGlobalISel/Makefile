@@ -1,12 +1,15 @@
-# $OpenBSD: Makefile,v 1.4 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.7 2019/06/23 22:07:40 patrick Exp $
 
 LIB=	LLVMGlobalISel
-NOPIC=
 NOPROFILE=
 
-.include <bsd.own.mk>
-SRCS=	CallLowering.cpp \
+SRCS+=	CSEInfo.cpp \
+	CSEMIRBuilder.cpp \
+	CallLowering.cpp \
 	GlobalISel.cpp \
+	GISelChangeObserver.cpp \
+	Combiner.cpp \
+	CombinerHelper.cpp \
 	IRTranslator.cpp \
 	InstructionSelect.cpp \
 	InstructionSelector.cpp \
@@ -20,11 +23,11 @@ SRCS=	CallLowering.cpp \
 	RegBankSelect.cpp \
 	RegisterBank.cpp \
 	RegisterBankInfo.cpp \
-	Utils.cpp
+	GlobalISelUtils.cpp
+
+GlobalISelUtils.cpp:
+	ln -s ${LLVM_SRCS}/lib/CodeGen/GlobalISel/Utils.cpp $@
 
 .PATH:	${.CURDIR}/../../../llvm/lib/CodeGen/GlobalISel
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= GlobalISelUtils.cpp

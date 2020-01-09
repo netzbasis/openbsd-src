@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.c,v 1.261 2018/10/03 01:24:14 visa Exp $	*/
+/*	$OpenBSD: if_pfsync.c,v 1.267 2019/11/07 11:46:42 dlg Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff
@@ -235,8 +235,8 @@ struct pfsync_softc {
 
 	TAILQ_HEAD(, tdb)	 sc_tdb_q;
 
-	void			*sc_lhcookie;
-	void			*sc_dhcookie;
+	struct task		 sc_ltask;
+	struct task		 sc_dtask;
 
 	struct timeout		 sc_tmo;
 };
@@ -321,6 +321,8 @@ pfsync_clone_create(struct if_clone *ifc, int unit)
 	    NULL);
 	TAILQ_INIT(&sc->sc_upd_req_list);
 	TAILQ_INIT(&sc->sc_deferrals);
+	task_set(&sc->sc_ltask, pfsync_syncdev_state, sc);
+	task_set(&sc->sc_dtask, pfsync_ifdetach, sc);
 	sc->sc_deferred = 0;
 
 	TAILQ_INIT(&sc->sc_tdb_q);
@@ -328,9 +330,8 @@ pfsync_clone_create(struct if_clone *ifc, int unit)
 	sc->sc_len = PFSYNC_MINPKT;
 	sc->sc_maxupdates = 128;
 
-	sc->sc_imo.imo_membership = (struct in_multi **)malloc(
-	    (sizeof(struct in_multi *) * IP_MIN_MEMBERSHIPS), M_IPMOPTS,
-	    M_WAITOK | M_ZERO);
+	sc->sc_imo.imo_membership = mallocarray(IP_MIN_MEMBERSHIPS,
+	    sizeof(struct in_multi *), M_IPMOPTS, M_WAITOK|M_ZERO);
 	sc->sc_imo.imo_max_memberships = IP_MIN_MEMBERSHIPS;
 
 	ifp = &sc->sc_if;
@@ -379,11 +380,8 @@ pfsync_clone_destroy(struct ifnet *ifp)
 		carp_group_demote_adj(&sc->sc_if, -1, "pfsync destroy");
 #endif
 	if (sc->sc_sync_if) {
-		hook_disestablish(
-		    sc->sc_sync_if->if_linkstatehooks,
-		    sc->sc_lhcookie);
-		hook_disestablish(sc->sc_sync_if->if_detachhooks,
-		    sc->sc_dhcookie);
+		if_linkstatehook_del(sc->sc_sync_if, &sc->sc_ltask);
+		if_detachhook_del(sc->sc_sync_if, &sc->sc_dtask);
 	}
 
 	/* XXXSMP breaks atomicity */
@@ -407,7 +405,8 @@ pfsync_clone_destroy(struct ifnet *ifp)
 	NET_UNLOCK();
 
 	pool_destroy(&sc->sc_pool);
-	free(sc->sc_imo.imo_membership, M_IPMOPTS, 0);
+	free(sc->sc_imo.imo_membership, M_IPMOPTS,
+	    sc->sc_imo.imo_max_memberships * sizeof(struct in_multi *));
 	free(sc, M_DEVBUF, sizeof(*sc));
 
 	return (0);
@@ -456,6 +455,9 @@ void
 pfsync_ifdetach(void *arg)
 {
 	struct pfsync_softc *sc = arg;
+
+	if_linkstatehook_del(sc->sc_sync_if, &sc->sc_ltask);
+	if_detachhook_del(sc->sc_sync_if, &sc->sc_dtask);
 
 	sc->sc_sync_if = NULL;
 }
@@ -1347,12 +1349,10 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 		if (pfsyncr.pfsyncr_syncdev[0] == 0) {
 			if (sc->sc_sync_if) {
-				hook_disestablish(
-				    sc->sc_sync_if->if_linkstatehooks,
-				    sc->sc_lhcookie);
-				hook_disestablish(
-				    sc->sc_sync_if->if_detachhooks,
-				    sc->sc_dhcookie);
+				if_linkstatehook_del(sc->sc_sync_if,
+				    &sc->sc_ltask);
+				if_detachhook_del(sc->sc_sync_if,
+				    &sc->sc_dtask);
 			}
 			sc->sc_sync_if = NULL;
 			if (imo->imo_num_memberships > 0) {
@@ -1373,12 +1373,8 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			pfsync_sendout();
 
 		if (sc->sc_sync_if) {
-			hook_disestablish(
-			    sc->sc_sync_if->if_linkstatehooks,
-			    sc->sc_lhcookie);
-			hook_disestablish(
-			    sc->sc_sync_if->if_detachhooks,
-			    sc->sc_dhcookie);
+			if_linkstatehook_del(sc->sc_sync_if, &sc->sc_ltask);
+			if_detachhook_del(sc->sc_sync_if, &sc->sc_dtask);
 		}
 		sc->sc_sync_if = sifp;
 
@@ -1421,11 +1417,8 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ip->ip_src.s_addr = INADDR_ANY;
 		ip->ip_dst.s_addr = sc->sc_sync_peer.s_addr;
 
-		sc->sc_lhcookie =
-		    hook_establish(sc->sc_sync_if->if_linkstatehooks, 1,
-		    pfsync_syncdev_state, sc);
-		sc->sc_dhcookie = hook_establish(sc->sc_sync_if->if_detachhooks,
-		    0, pfsync_ifdetach, sc);
+		if_linkstatehook_add(sc->sc_sync_if, &sc->sc_ltask);
+		if_detachhook_add(sc->sc_sync_if, &sc->sc_dtask);
 
 		pfsync_request_full_update(sc);
 
@@ -1580,6 +1573,8 @@ pfsync_sendout(void)
 
 	int offset;
 	int q, count = 0;
+
+	PF_ASSERT_LOCKED();
 
 	if (sc == NULL || sc->sc_len == PFSYNC_MINPKT)
 		return;
@@ -2062,7 +2057,7 @@ pfsync_update_state_req(struct pf_state *st)
 	struct pfsync_softc *sc = pfsyncif;
 
 	if (sc == NULL)
-		panic("pfsync_update_state_req: nonexistant instance");
+		panic("pfsync_update_state_req: nonexistent instance");
 
 	if (ISSET(st->state_flags, PFSTATE_NOSYNC)) {
 		if (st->sync_state != PFSYNC_S_NONE)
@@ -2472,7 +2467,9 @@ void
 pfsync_timeout(void *arg)
 {
 	NET_LOCK();
+	PF_LOCK();
 	pfsync_sendout();
+	PF_UNLOCK();
 	NET_UNLOCK();
 }
 
@@ -2480,7 +2477,9 @@ pfsync_timeout(void *arg)
 void
 pfsyncintr(void)
 {
+	PF_LOCK();
 	pfsync_sendout();
+	PF_UNLOCK();
 }
 
 int

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ifconfig.8,v 1.325 2019/01/18 20:25:35 phessler Exp $
+.\"	$OpenBSD: ifconfig.8,v 1.343 2019/11/10 09:10:44 stsp Exp $
 .\"	$NetBSD: ifconfig.8,v 1.11 1996/01/04 21:27:29 pk Exp $
 .\"     $FreeBSD: ifconfig.8,v 1.16 1998/02/01 07:03:29 steve Exp $
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"     @(#)ifconfig.8	8.4 (Berkeley) 6/1/94
 .\"
-.Dd $Mdocdate: January 18 2019 $
+.Dd $Mdocdate: November 10 2019 $
 .Dt IFCONFIG 8
 .Os
 .Sh NAME
@@ -149,6 +149,29 @@ in mapping
 between network level addresses and link level addresses (default).
 .It Cm -arp
 Disable the use of ARP.
+.It Cm autoconf
+Set the
+.Sy AUTOCONF4
+or
+.Sy AUTOCONF6
+flag on the interface, depending on
+.Ar address_family .
+.Xr slaacd 8
+automatically configures IPv6 addresses for interfaces with
+.Sy AUTOCONF6
+set.
+.Pp
+.Xr dhclient 8
+only configures interfaces with
+.Sy AUTOCONF4
+set.
+.It Cm -autoconf
+Unset the
+.Sy AUTOCONF4
+or
+.Sy AUTOCONF6
+flag on the interface, depending on
+.Ar address_family .
 .It Cm broadcast Ar addr
 (inet only)
 Specify the address to use to represent broadcasts to the
@@ -471,6 +494,12 @@ and will never send any requests.
 .It Cm -staticarp
 If ARP is enabled, the host will perform normally,
 sending out requests and listening for replies.
+.It Cm transceiver
+Query and display information and diagnostics from GBIC and SFP
+.\", or QSFP
+modules installed in an interface.
+It is only supported by drivers implementing the necessary functionality
+on hardware which supports it.
 .It Cm up
 Mark an interface
 .Dq up .
@@ -933,52 +962,105 @@ show the list of channels supported by the device.
 Unset the desired channel.
 It doesn't affect the channel to be created for IBSS or Host AP mode.
 .It Cm join Ar id
-Add the network with NWID/ESSID
+Add the network with ESSID
 .Ar id
-to the list of auto-join networks.
-Information about such networks is retained,
-such that configured interfaces can automatically switch to such networks
-as necessary.
+to the
+.Cm join
+list.
+The interface will automatically attempt to connect to networks on this
+list if they are found during a scan.
 .Pp
 The
 .Ar id
 can either be any text string up to 32 characters in length,
 or a series of hexadecimal digits up to 64 digits.
-Any necessary
-.Cm wpakey
+If
+.Ar id
+is the empty string
+.Pq Qq
+and none of the networks on the
+.Cm join
+list are found during a scan, the interface will automatically
+connect to any available networks, provided they do not require
+WEP or WPA authentication.
+.Pp
+Apart from the
+.Ar id ,
+the
+.Cm join
+list will record
+.Cm wpakey ,
+.Cm wpaprotos ,
 or
 .Cm nwkey
-arguments should be specified on the same line.
-The empty string allows the interface to automatically connect to any
-available access points if no known access points are found.
-May not be used with
-.Cm nwid .
+parameters for the network, provided they are passed in the same invocation of
+.Nm .
+Because multiple access points may exist in a given network, the
+.Cm mode
+(11a/11b/11g/11n),
+.Cm chan ,
+and
+.Cm bssid
+parameters cannot be stored with
+.Cm join .
+However, they may be used separately to force the selection of a
+particular access point when the automatic access point selection
+turns out to be suboptimal.
+.Pp
+.Cm join
+and
+.Cm nwid
+cannot be used together in the same invocation of
+.Nm .
 .It Cm -join Ar id
-Remove the network with NWID
-.Ar id ,
-from the list of auto-join networks.
+Remove the network with ESSID
+.Ar id
+from the
+.Cm join
+list and disconnect the interface from the access point if it is currently
+connected to this network.
+The interface will keep scanning for access points as long as it remains
+marked as
+.Dq up .
+A new connection will be established either if a network on the
+.Cm join
+list is found during the scan or if a network ID is configured with
+.Cm nwid .
 .It Cm joinlist
-Show the list of currently configured auto-join networks.
+Show the list of networks stored on the
+.Cm join
+list.
 .It Cm -joinlist
-Remove all networks in the list of auto-join networks.
+Remove all networks from the
+.Cm join
+list.
 .It Cm nwflag Ar flag
 Set specified flag.
-The flag name can be either
-.Ql hidenwid
-or
-.Ql nobridge .
+The flag name can be:
+.Bl -tag -width tenletters
+.It hidenwid
 The
 .Ql hidenwid
 flag will hide the network ID (ESSID) in beacon frames when operating
 in Host AP mode.
 It will also prevent responses to probe requests with an unspecified
 network ID.
+.It nobridge
 The
 .Ql nobridge
 flag will disable the direct bridging of frames between associated
 nodes when operating in Host AP mode.
 Setting this flag will block and filter direct inter-station
 communications.
+.It stayauth
+The
+.Ql stayauth
+flag will cause the interface to ignore deauth frames.
+This flag should only be used on wifi networks which are being
+attacked with spoofed deauth frames.
+It breaks interoperability with spectrum management solutions and access
+points that perform band-steering of clients.
+.El
 .Pp
 Note that the
 .Ql hidenwid
@@ -993,17 +1075,35 @@ and
 .It Cm -nwflag Ar flag
 Remove specified flag.
 .It Cm nwid Ar id
-Connect to the network with NWID
+Connect to the network with NWID/ESSID
 .Ar id .
-Unlike auto-join networks,
-information about the network is not retained.
-The empty string allows the interface to connect to any available
-access points.
-May not be used with
-.Cm join .
+Unlike
+.Cm join ,
+the
+.Cm nwid
+option only allows one network to be configured at a time.
+The
+.Cm nwid
+option may not be used together with
+.Cm join
+in the same invocation of
+.Nm
+but may be used to momentarily override the automatic selection of
+networks stored in the
+.Cm join
+list.
 .It Cm -nwid
-Set the NWID to the empty string to allow the interface to connect
-to any available access point.
+Clear the network ID configured with
+.Cm nwid
+and disconnect the interface from the access point if it is currently
+connected to this network.
+The interface will keep scanning for access points as long as it remains
+marked as
+.Dq up .
+A new connection will be established either if a network on the
+.Cm join
+list is found during the scan or if a network ID is configured with
+.Cm nwid .
 .It Cm nwkey Ar key
 Enable WEP encryption using the specified
 .Ar key .
@@ -1044,14 +1144,44 @@ Write
 to the persistent memory of the network card, and
 enable WEP encryption using that
 .Ar key .
-.It Cm powersave Op Ar duration
+.It Cm powersave
 Enable 802.11 power saving mode.
-Optionally set the receiver sleep duration (in milliseconds).
+Power saving is disabled by default.
+See driver specific manual pages
+to see details of the implementation relevant to that device.
+.\" XXX
+.\" Undocumented because optional sleep period
+.\" only configurable on legacy an(4) and atw(4) devices.
+.\" XXX
+.\" Op Ar duration
+.\" If enabled, the receiver sleep period is set to 100ms,
+.\" though some drivers allow this to be altered via the
+.\" .Ar duration
+.\" argument.
 .It Cm -powersave
 Disable 802.11 power saving mode.
 .It Cm scan
 Show the results of an access point scan.
 In Host AP mode, this will dump the list of known nodes without scanning.
+In station mode, this will list each access point's SSID, channel,
+MAC address (BSSID), received signal strength indicator, maximum data
+transfer rate, and supported feature flags.
+If an access point cannot be selected due to incompatibilities with the
+interface configuration,
+.Nm
+indicates mismatching configuration items with an exclamation mark.
+.Pp
+Because the list of access points is continuously updated while a scan
+is in progress,
+.Cm scan
+may sometimes show incomplete scan results.
+.Pp
+Some interfaces support scanning in the background while remaining
+associated to the current access point.
+The superuser may use
+.Cm scan
+to trigger a background scan while associated, which will update the scan
+result list and also trigger a search for a better access point to roam to.
 .It Cm wpa
 Enable Wi-Fi Protected Access.
 WPA is a Wi-Fi Alliance protocol based on the IEEE 802.11i standard.
@@ -1166,7 +1296,6 @@ protocol when supported by the access point.
 .Ar interface
 .Cm inet6
 .Op Oo Fl Oc Ns Cm anycast
-.Op Oo Fl Oc Ns Cm autoconf
 .Op Oo Fl Oc Ns Cm autoconfprivacy
 .Op Cm eui64
 .Op Cm pltime Ar n
@@ -1184,17 +1313,6 @@ interface:
 Set the IPv6 anycast address bit.
 .It Cm -anycast
 Clear the IPv6 anycast address bit.
-.It Cm autoconf
-Set the
-.Sy AUTOCONF6
-flag on the interface.
-The address autoconfiguration daemon
-.Xr slaacd 8
-automatically configures IPv6 addresses for interfaces with this flag.
-.It Cm -autoconf
-Unset the
-.Sy AUTOCONF6
-flag on the interface.
 .It Cm autoconfprivacy
 Enable privacy extensions for stateless IPv6 address autoconfiguration
 (RFC 4941) on the interface.
@@ -1233,14 +1351,14 @@ automatically.
 Set preferred lifetime for the address, in seconds.
 .It Cm soii
 Enable persistent Semantically Opaque Interface Identifiers (SOIIs),
-as per RFC 7217, for link local and SLAAC addresses on the interface.
+as per RFC 7217, for SLAAC addresses on the interface.
 The purpose of these identifiers is to make discovery of hosts by
 scanning a whole prefix more difficult.
 SOIIs use the whole 64 bits of the host part while SLAAC addresses are
 formed from MAC addresses which can lower the entropy to 24 bits if
 the host is running in a virtualization environment or the hardware
 manufacturer is known.
-See RFC 8064 for details.
+See RFC 7721 and RFC 8064 for details.
 SOIIs are enabled by default.
 .It Cm -soii
 Disable IPv6 persistent Semantically Opaque Interface Identifiers on the
@@ -1287,67 +1405,63 @@ If
 .Ar number
 is omitted, it is decreased by 1.
 .El
-.Sh MPE
-.Nm ifconfig
-.Ar mpe-interface
-.Op Cm mplslabel Ar mpls-label
-.Pp
-The following options are available for an
-.Xr mpe 4
-interface:
-.Bl -tag -width Ds
-.It Cm mplslabel Ar mpls-label
-Set the MPLS label to
-.Ar mpls-label .
-This value is a 20-bit number which will be used as the MPLS header for
-packets entering the MPLS domain.
-.El
-.Sh MPW
+.Sh MPLS
 .nr nS 1
 .Bk -words
 .Nm ifconfig
-.Ar mpw-interface
-.Op Oo Fl Oc Ns Cm controlword
-.Op Cm encap Ar encapsulation
-.Op Cm mpwlabel Ar local-label remote-label Cm neighbor Ar dest-address
+.Ar mpls-interface
+.Op Cm mplslabel Ar mpls-label
+.Op Oo Fl Oc Ns Cm pwecw
+.Op Oo Fl Oc Ns Cm pwefat
+.Op Cm pweneighbor Ar mpls-label Ar neighbor
+.Op Cm tunneldomain Ar rdomain
 .Ek
-.nr Ns 0
+.nr nS 0
 .Pp
-The following options are available for an
+The following options are available for
+.Xr mpe 4 ,
+.Xr mpip 4 ,
+and
 .Xr mpw 4
-interface:
+interfaces:
 .Bl -tag -width Ds
-.It Cm controlword
-Configure the mpw interface to use control-word.
-.It Cm -controlword
-Remove control-word configuration from the interface.
-.It Cm encap Ar encapsulation
-Configures the mpw encapsulation type with value
-.Ar encapsulation
-which can be
-.Cm ethernet
-or
-.Cm ethernet-tagged .
-By default it's assumed to be
-.Cm ethernet
-mode.
-.It Cm mpwlabel Ar local-label remote-label
-Set mpw local label to
-.Ar local-label
-and remote label to
-.Ar remote-label .
-The
-.Ar local-label
-is a 20-bit number which will be used to create a local label route to
-the mpw interface and the
-.Ar remote-label
-is another 20-bit number which will be used to create the output label header.
-.It Cm neighbor Ar dest-address
-Sets the destination address where this mpw should output.
-The
-.Ar dest-address
-is an IPv4 address that will be used to find the nexthop in the MPLS
-network.
+.It Cm mplslabel Ar mpls-label
+Set the local MPLS label to
+.Ar mpls-label .
+MPLS packets sent to this label on the local system will be
+decapsulated for input.
+An MPLS label is a 20-bit number.
+Labels 0 to 15 inclusive are reserved labels and cannot be used.
+.It Cm tunneldomain Ar rdomain
+Use the route domain
+.Ar rdomain
+for MPLS transit.
+The MPLS encapsulated traffic does not need to terminate in the same
+routing domain as the interface itself.
+.El
+.Pp
+The following options are available for the
+.Xr mpip 4
+and
+.Xr mpw 4
+interfaces that provide MPLS Pseudowire Emulation Edge-to-Edge (PWE3)
+functionality:
+.Bl -tag -width Ds
+.It Cm pwecw
+Enable the use of the PWE3 Control Word.
+.It Fl Ns Cm pwecw
+Disable the use of the PWE3 Control Word.
+.It Cm pwefat
+Enable the use of the Flow-Aware Transport (FAT) flow label.
+.It Fl Ns Cm pwefat
+Disable the use of the Flow-Aware Transport (FAT) flow label.
+.It Cm pweneighbor Ar mpls-label Ar neighbor
+Use
+.Ar mpls-label
+and
+.Ar neighbor
+as the remote MPLS label and neighbor respectively.
+Remote MPLS labels have the same restrictions on values as local MPLS labels.
 .El
 .Sh PAIR
 .nr nS 1
@@ -1613,6 +1727,20 @@ Set the port number for the port named
 .Ar interface .
 The default value is the interface index of the
 .Ar interface .
+.It Cm protected Ar interface ids
+Put
+.Ar interface
+in protected domains.
+.Ar ids
+is a comma delimited list of domain IDs, between 1 and 31, to put the
+interface in.
+Interfaces that are part of a protected domain cannot forward traffic to any
+other interface in that domain.
+Interfaces do not belong to any protected domain by default.
+.It Cm -protected Ar interface
+Remove
+.Ar interface
+from all protected domains.
 .It Cm up
 Start the switch processing packets.
 .El
@@ -1655,6 +1783,7 @@ for a complete list of the available protocols.
 .Nm ifconfig
 .Ar tunnel-interface
 .Op Oo Fl Oc Ns Cm keepalive Ar period count
+.Op Cm rxprio Ar prio
 .Op Oo Fl Oc Ns Cm tunnel Ar src_address dest_address
 .Op Oo Fl Oc Ns Cm tunneldf
 .Op Oo Fl Oc Ns Cm tunneldomain Ar rtable
@@ -1696,6 +1825,16 @@ is 2 since the round-trip time of keepalive packets needs to be accounted for.
 Disable the
 .Xr gre 4
 keepalive mechanism.
+.It Cm rxprio Ar prio
+Configure the source used for the packet priority when decapsulating a packet.
+The value can be a priority number from 0 to 7, or
+.Ar packet
+to use the priority currently set on the packet.
+If supported by the interface, the value may also be set to
+.Ar outer
+to have the priority field copied from the tunnel protocol headers, or
+.Ar payload
+to have the priority field copied from the encapsulated protocol headers.
 .It Cm tunnel Ar src_address dest_address Ns Op : Ns Ar dest_port
 Set the source and destination tunnel addresses on a tunnel interface.
 Packets routed to this interface will be encapsulated in
@@ -1832,6 +1971,7 @@ device will try to establish a data connection with the service provider.
 .Nm ifconfig
 .Ar vlan-interface
 .Op Oo Fl Oc Ns Cm parent Ar parent-interface
+.Op Cm rxprio Ar prio
 .Op Cm txprio Ar prio
 .Op Oo Fl Oc Ns Cm vnetid Ar vlan-tag
 .Ek
@@ -1860,6 +2000,13 @@ it will inherit a copy of the parent interface's Ethernet address.
 .It Cm -parent
 Disassociate from the parent interface.
 This breaks the link between the VLAN interface and its parent.
+.It Cm rxprio Ar prio
+Set the value used for the packet priority field.
+Values may be from 0 to 7,
+.Ar packet
+to maintain the current packet priority, or
+.Ar outer
+to use the priority field in the 802.1Q or 802.1ad headers.
 .It Cm txprio Ar prio
 Set the value used for the priority field in the 802.1Q or 802.1ad
 headers.

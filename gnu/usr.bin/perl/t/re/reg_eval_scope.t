@@ -6,9 +6,13 @@ BEGIN {
     chdir 't' if -d 't';
     require './test.pl';
     set_up_inc(qw(lib ../lib));
+    if (is_miniperl()) {
+        eval 'require re';
+        if ($@) { skip_all("miniperl, no 're'") }
+    }
 }
 
-plan 48;
+plan 49;
 
 fresh_perl_is <<'CODE', '781745', {}, '(?{}) has its own lexical scope';
  my $x = 7; my $a = 4; my $b = 5;
@@ -367,3 +371,15 @@ SKIP: {
     f3();
     is ($s, \&f3, '__SUB__ qr multi');
 }
+
+# RT #133879
+# ensure scope is properly restored when there's an error compiling a
+# "looks a bit like it has (?{}) but doesn't" qr//
+
+fresh_perl_like <<'CODE',
+    BEGIN {$^H = 0x10000 }; # HINT_NEW_RE
+    qr/\(?{/
+CODE
+    qr/Constant\(qq\) unknown/,
+    { stderr => 1 },
+    'qr/\(?{';

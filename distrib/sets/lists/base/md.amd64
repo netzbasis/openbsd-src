@@ -76,13 +76,14 @@
 ./usr/lib/crtbeginS.o
 ./usr/lib/crtend.o
 ./usr/lib/crtendS.o
-./usr/lib/gcc-lib/amd64-unknown-openbsd6.4
-./usr/lib/gcc-lib/amd64-unknown-openbsd6.4/4.2.1
-./usr/lib/gcc-lib/amd64-unknown-openbsd6.4/4.2.1/collect2
-./usr/lib/gcc-lib/amd64-unknown-openbsd6.4/4.2.1/libgcc.a
-./usr/lib/gcc-lib/amd64-unknown-openbsd6.4/4.2.1/specs
-./usr/lib/libc++.so.2.0
-./usr/lib/libc++abi.so.0.1
+./usr/lib/gcc-lib/amd64-unknown-openbsd6.6
+./usr/lib/gcc-lib/amd64-unknown-openbsd6.6/4.2.1
+./usr/lib/gcc-lib/amd64-unknown-openbsd6.6/4.2.1/collect2
+./usr/lib/gcc-lib/amd64-unknown-openbsd6.6/4.2.1/libgcc.a
+./usr/lib/gcc-lib/amd64-unknown-openbsd6.6/4.2.1/specs
+./usr/lib/libLLVM.so.1.0
+./usr/lib/libc++.so.3.0
+./usr/lib/libc++abi.so.1.0
 ./usr/lib/libcompiler_rt.a
 ./usr/lib/libstdc++.so.57.0
 ./usr/libdata/perl5/amd64-openbsd
@@ -116,6 +117,7 @@
 ./usr/libdata/perl5/amd64-openbsd/CORE/handy.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/hv.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/hv_func.h
+./usr/libdata/perl5/amd64-openbsd/CORE/hv_macro.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/inline.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/intrpvar.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/invlist_inline.h
@@ -142,6 +144,8 @@
 ./usr/libdata/perl5/amd64-openbsd/CORE/parser.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/patchlevel.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/perl.h
+./usr/libdata/perl5/amd64-openbsd/CORE/perl_inc_macro.h
+./usr/libdata/perl5/amd64-openbsd/CORE/perl_langinfo.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/perlapi.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/perlio.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/perliol.h
@@ -156,12 +160,15 @@
 ./usr/libdata/perl5/amd64-openbsd/CORE/regcomp.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/regexp.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/regnodes.h
+./usr/libdata/perl5/amd64-openbsd/CORE/sbox32_hash.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/scope.h
+./usr/libdata/perl5/amd64-openbsd/CORE/stadtx_hash.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/sv.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/thread.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/time64.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/time64_config.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/uconfig.h
+./usr/libdata/perl5/amd64-openbsd/CORE/uni_keywords.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/unicode_constants.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/unixish.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/utf8.h
@@ -171,6 +178,7 @@
 ./usr/libdata/perl5/amd64-openbsd/CORE/vutil.h
 ./usr/libdata/perl5/amd64-openbsd/CORE/vxs.inc
 ./usr/libdata/perl5/amd64-openbsd/CORE/warnings.h
+./usr/libdata/perl5/amd64-openbsd/CORE/zaphod32_hash.h
 ./usr/libdata/perl5/amd64-openbsd/Compress
 ./usr/libdata/perl5/amd64-openbsd/Compress/Raw
 ./usr/libdata/perl5/amd64-openbsd/Compress/Raw/Bzip2.pm
@@ -315,6 +323,7 @@
 ./usr/libdata/perl5/amd64-openbsd/OpenBSD
 ./usr/libdata/perl5/amd64-openbsd/OpenBSD/MkTemp.pm
 ./usr/libdata/perl5/amd64-openbsd/OpenBSD/Pledge.pm
+./usr/libdata/perl5/amd64-openbsd/OpenBSD/Unveil.pm
 ./usr/libdata/perl5/amd64-openbsd/POSIX.pm
 ./usr/libdata/perl5/amd64-openbsd/POSIX.pod
 ./usr/libdata/perl5/amd64-openbsd/PerlIO
@@ -346,7 +355,6 @@
 ./usr/libdata/perl5/amd64-openbsd/Unicode/Collate.pm
 ./usr/libdata/perl5/amd64-openbsd/Unicode/Collate/Locale.pm
 ./usr/libdata/perl5/amd64-openbsd/Unicode/Normalize.pm
-./usr/libdata/perl5/amd64-openbsd/arybase.pm
 ./usr/libdata/perl5/amd64-openbsd/attributes.pm
 ./usr/libdata/perl5/amd64-openbsd/auto
 ./usr/libdata/perl5/amd64-openbsd/auto/B
@@ -433,6 +441,8 @@
 ./usr/libdata/perl5/amd64-openbsd/auto/OpenBSD/MkTemp/MkTemp.so
 ./usr/libdata/perl5/amd64-openbsd/auto/OpenBSD/Pledge
 ./usr/libdata/perl5/amd64-openbsd/auto/OpenBSD/Pledge/Pledge.so
+./usr/libdata/perl5/amd64-openbsd/auto/OpenBSD/Unveil
+./usr/libdata/perl5/amd64-openbsd/auto/OpenBSD/Unveil/Unveil.so
 ./usr/libdata/perl5/amd64-openbsd/auto/POSIX
 ./usr/libdata/perl5/amd64-openbsd/auto/POSIX/POSIX.so
 ./usr/libdata/perl5/amd64-openbsd/auto/PerlIO
@@ -473,8 +483,6 @@
 ./usr/libdata/perl5/amd64-openbsd/auto/Unicode/Collate/Collate.so
 ./usr/libdata/perl5/amd64-openbsd/auto/Unicode/Normalize
 ./usr/libdata/perl5/amd64-openbsd/auto/Unicode/Normalize/Normalize.so
-./usr/libdata/perl5/amd64-openbsd/auto/arybase
-./usr/libdata/perl5/amd64-openbsd/auto/arybase/arybase.so
 ./usr/libdata/perl5/amd64-openbsd/auto/attributes
 ./usr/libdata/perl5/amd64-openbsd/auto/attributes/attributes.so
 ./usr/libdata/perl5/amd64-openbsd/auto/mro

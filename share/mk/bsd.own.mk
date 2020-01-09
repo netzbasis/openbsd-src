@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.194 2019/01/28 17:42:38 naddy Exp $
+#	$OpenBSD: bsd.own.mk,v 1.200 2019/09/06 15:07:19 naddy Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -15,14 +15,18 @@ SKEY?=		yes
 # Set `YP' to `yes' to build with support for NIS/YP.
 YP?=		yes
 
-CLANG_ARCH=aarch64 amd64 arm i386 mips64 mips64el sparc64
-GCC4_ARCH=alpha hppa mips64 mips64el powerpc sh sparc64
+CLANG_ARCH=aarch64 amd64 arm i386 mips64 mips64el powerpc sparc64
+GCC4_ARCH=alpha hppa mips64el powerpc sh sparc64
 GCC3_ARCH=m88k
 LLD_ARCH=aarch64 amd64 arm i386
 
+.if ${MACHINE} == "sgi"
+GCC4_ARCH+=mips64
+.endif
+
 # m88k: ?
-PIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
-STATICPIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
+PIE_ARCH=aarch64 alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
+STATICPIE_ARCH=aarch64 alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
 
 .for _arch in ${MACHINE_ARCH}
 .if !empty(GCC3_ARCH:M${_arch})
@@ -39,7 +43,7 @@ BUILD_GCC3?=yes
 BUILD_GCC3?=no
 .endif
 .if !empty(GCC4_ARCH:M${_arch}) || ${MACHINE_ARCH} == "amd64" || \
-    ${MACHINE_ARCH} == "arm" || ${MACHINE_ARCH} == "i386"
+    ${MACHINE_ARCH} == "mips64"
 BUILD_GCC4?=yes
 .else
 BUILD_GCC4?=no
@@ -137,7 +141,8 @@ STATIC?=	-static ${STATICPIE}
 #SYS_INCLUDE= 	symlinks
 
 # pic relocation flags.
-.if (${MACHINE_ARCH} == "alpha") || (${MACHINE_ARCH} == "sparc64")
+.if ${MACHINE_ARCH} == "alpha" || ${MACHINE_ARCH} == "powerpc" || \
+    ${MACHINE_ARCH} == "sparc64"
 PICFLAG?=-fPIC
 .else
 PICFLAG?=-fpic

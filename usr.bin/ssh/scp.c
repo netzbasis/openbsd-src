@@ -1,4 +1,4 @@
-/* $OpenBSD: scp.c,v 1.203 2019/01/27 07:14:11 jmc Exp $ */
+/* $OpenBSD: scp.c,v 1.206 2019/09/09 02:31:19 dtucker Exp $ */
 /*
  * scp - secure remote copy.  This is basically patched BSD rcp which
  * uses ssh to do the data transfer (instead of using rcmd).
@@ -235,13 +235,13 @@ do_cmd(char *host, char *remuser, int port, char *cmd, int *fdin, int *fdout)
 	 * Reserve two descriptors so that the real pipes won't get
 	 * descriptors 0 and 1 because that will screw up dup2 below.
 	 */
-	if (pipe(reserved) < 0)
+	if (pipe(reserved) == -1)
 		fatal("pipe: %s", strerror(errno));
 
 	/* Create a socket pair for communicating with ssh. */
-	if (pipe(pin) < 0)
+	if (pipe(pin) == -1)
 		fatal("pipe: %s", strerror(errno));
-	if (pipe(pout) < 0)
+	if (pipe(pout) == -1)
 		fatal("pipe: %s", strerror(errno));
 
 	/* Free the reserved descriptors. */
@@ -605,6 +605,253 @@ parse_scp_uri(const char *uri, char **userp, char **hostp, int *portp,
 	return r;
 }
 
+/* Appends a string to an array; returns 0 on success, -1 on alloc failure */
+static int
+append(char *cp, char ***ap, size_t *np)
+{
+	char **tmp;
+
+	if ((tmp = reallocarray(*ap, *np + 1, sizeof(*tmp))) == NULL)
+		return -1;
+	tmp[(*np)] = cp;
+	(*np)++;
+	*ap = tmp;
+	return 0;
+}
+
+/*
+ * Finds the start and end of the first brace pair in the pattern.
+ * returns 0 on success or -1 for invalid patterns.
+ */
+static int
+find_brace(const char *pattern, int *startp, int *endp)
+{
+	int i;
+	int in_bracket, brace_level;
+
+	*startp = *endp = -1;
+	in_bracket = brace_level = 0;
+	for (i = 0; i < INT_MAX && *endp < 0 && pattern[i] != '\0'; i++) {
+		switch (pattern[i]) {
+		case '\\':
+			/* skip next character */
+			if (pattern[i + 1] != '\0')
+				i++;
+			break;
+		case '[':
+			in_bracket = 1;
+			break;
+		case ']':
+			in_bracket = 0;
+			break;
+		case '{':
+			if (in_bracket)
+				break;
+			if (pattern[i + 1] == '}') {
+				/* Protect a single {}, for find(1), like csh */
+				i++; /* skip */
+				break;
+			}
+			if (*startp == -1)
+				*startp = i;
+			brace_level++;
+			break;
+		case '}':
+			if (in_bracket)
+				break;
+			if (*startp < 0) {
+				/* Unbalanced brace */
+				return -1;
+			}
+			if (--brace_level <= 0)
+				*endp = i;
+			break;
+		}
+	}
+	/* unbalanced brackets/braces */
+	if (*endp < 0 && (*startp >= 0 || in_bracket))
+		return -1;
+	return 0;
+}
+
+/*
+ * Assembles and records a successfully-expanded pattern, returns -1 on
+ * alloc failure.
+ */
+static int
+emit_expansion(const char *pattern, int brace_start, int brace_end,
+    int sel_start, int sel_end, char ***patternsp, size_t *npatternsp)
+{
+	char *cp;
+	int o = 0, tail_len = strlen(pattern + brace_end + 1);
+
+	if ((cp = malloc(brace_start + (sel_end - sel_start) +
+	    tail_len + 1)) == NULL)
+		return -1;
+
+	/* Pattern before initial brace */
+	if (brace_start > 0) {
+		memcpy(cp, pattern, brace_start);
+		o = brace_start;
+	}
+	/* Current braced selection */
+	if (sel_end - sel_start > 0) {
+		memcpy(cp + o, pattern + sel_start,
+		    sel_end - sel_start);
+		o += sel_end - sel_start;
+	}
+	/* Remainder of pattern after closing brace */
+	if (tail_len > 0) {
+		memcpy(cp + o, pattern + brace_end + 1, tail_len);
+		o += tail_len;
+	}
+	cp[o] = '\0';
+	if (append(cp, patternsp, npatternsp) != 0) {
+		free(cp);
+		return -1;
+	}
+	return 0;
+}
+
+/*
+ * Expand the first encountered brace in pattern, appending the expanded
+ * patterns it yielded to the *patternsp array.
+ *
+ * Returns 0 on success or -1 on allocation failure.
+ *
+ * Signals whether expansion was performed via *expanded and whether
+ * pattern was invalid via *invalid.
+ */
+static int
+brace_expand_one(const char *pattern, char ***patternsp, size_t *npatternsp,
+    int *expanded, int *invalid)
+{
+	int i;
+	int in_bracket, brace_start, brace_end, brace_level;
+	int sel_start, sel_end;
+
+	*invalid = *expanded = 0;
+
+	if (find_brace(pattern, &brace_start, &brace_end) != 0) {
+		*invalid = 1;
+		return 0;
+	} else if (brace_start == -1)
+		return 0;
+
+	in_bracket = brace_level = 0;
+	for (i = sel_start = brace_start + 1; i < brace_end; i++) {
+		switch (pattern[i]) {
+		case '{':
+			if (in_bracket)
+				break;
+			brace_level++;
+			break;
+		case '}':
+			if (in_bracket)
+				break;
+			brace_level--;
+			break;
+		case '[':
+			in_bracket = 1;
+			break;
+		case ']':
+			in_bracket = 0;
+			break;
+		case '\\':
+			if (i < brace_end - 1)
+				i++; /* skip */
+			break;
+		}
+		if (pattern[i] == ',' || i == brace_end - 1) {
+			if (in_bracket || brace_level > 0)
+				continue;
+			/* End of a selection, emit an expanded pattern */
+
+			/* Adjust end index for last selection */
+			sel_end = (i == brace_end - 1) ? brace_end : i;
+			if (emit_expansion(pattern, brace_start, brace_end,
+			    sel_start, sel_end, patternsp, npatternsp) != 0)
+				return -1;
+			/* move on to the next selection */
+			sel_start = i + 1;
+			continue;
+		}
+	}
+	if (in_bracket || brace_level > 0) {
+		*invalid = 1;
+		return 0;
+	}
+	/* success */
+	*expanded = 1;
+	return 0;
+}
+
+/* Expand braces from pattern. Returns 0 on success, -1 on failure */
+static int
+brace_expand(const char *pattern, char ***patternsp, size_t *npatternsp)
+{
+	char *cp, *cp2, **active = NULL, **done = NULL;
+	size_t i, nactive = 0, ndone = 0;
+	int ret = -1, invalid = 0, expanded = 0;
+
+	*patternsp = NULL;
+	*npatternsp = 0;
+
+	/* Start the worklist with the original pattern */
+	if ((cp = strdup(pattern)) == NULL)
+		return -1;
+	if (append(cp, &active, &nactive) != 0) {
+		free(cp);
+		return -1;
+	}
+	while (nactive > 0) {
+		cp = active[nactive - 1];
+		nactive--;
+		if (brace_expand_one(cp, &active, &nactive,
+		    &expanded, &invalid) == -1) {
+			free(cp);
+			goto fail;
+		}
+		if (invalid)
+			fatal("%s: invalid brace pattern \"%s\"", __func__, cp);
+		if (expanded) {
+			/*
+			 * Current entry expanded to new entries on the
+			 * active list; discard the progenitor pattern.
+			 */
+			free(cp);
+			continue;
+		}
+		/*
+		 * Pattern did not expand; append the finename component to
+		 * the completed list
+		 */
+		if ((cp2 = strrchr(cp, '/')) != NULL)
+			*cp2++ = '\0';
+		else
+			cp2 = cp;
+		if (append(xstrdup(cp2), &done, &ndone) != 0) {
+			free(cp);
+			goto fail;
+		}
+		free(cp);
+	}
+	/* success */
+	*patternsp = done;
+	*npatternsp = ndone;
+	done = NULL;
+	ndone = 0;
+	ret = 0;
+ fail:
+	for (i = 0; i < nactive; i++)
+		free(active[i]);
+	free(active);
+	for (i = 0; i < ndone; i++)
+		free(done[i]);
+	free(done);
+	return ret;
+}
+
 void
 toremote(int argc, char **argv)
 {
@@ -794,7 +1041,7 @@ source(int argc, char **argv)
 	off_t i, statbytes;
 	size_t amt, nr;
 	int fd = -1, haderr, indx;
-	char *last, *name, buf[2048], encname[PATH_MAX];
+	char *last, *name, buf[PATH_MAX + 128], encname[PATH_MAX];
 	int len;
 
 	for (indx = 0; indx < argc; ++indx) {
@@ -803,13 +1050,13 @@ source(int argc, char **argv)
 		len = strlen(name);
 		while (len > 1 && name[len-1] == '/')
 			name[--len] = '\0';
-		if ((fd = open(name, O_RDONLY|O_NONBLOCK, 0)) < 0)
+		if ((fd = open(name, O_RDONLY|O_NONBLOCK, 0)) == -1)
 			goto syserr;
 		if (strchr(name, '\n') != NULL) {
 			strnvis(encname, name, sizeof(encname), VIS_NL);
 			name = encname;
 		}
-		if (fstat(fd, &stb) < 0) {
+		if (fstat(fd, &stb) == -1) {
 syserr:			run_err("%s: %s", name, strerror(errno));
 			goto next;
 		}
@@ -883,7 +1130,7 @@ next:			if (fd != -1) {
 		unset_nonblock(remout);
 
 		if (fd != -1) {
-			if (close(fd) < 0 && !haderr)
+			if (close(fd) == -1 && !haderr)
 				haderr = errno;
 			fd = -1;
 		}
@@ -968,7 +1215,8 @@ sink(int argc, char **argv, const char *src)
 	unsigned long long ull;
 	int setimes, targisdir, wrerrno = 0;
 	char ch, *cp, *np, *targ, *why, *vect[1], buf[2048], visbuf[2048];
-	char *src_copy = NULL, *restrict_pattern = NULL;
+	char **patterns = NULL;
+	size_t n, npatterns = 0;
 	struct timeval tv[2];
 
 #define	atime	tv[0]
@@ -998,16 +1246,13 @@ sink(int argc, char **argv, const char *src)
 		 * Prepare to try to restrict incoming filenames to match
 		 * the requested destination file glob.
 		 */
-		if ((src_copy = strdup(src)) == NULL)
-			fatal("strdup failed");
-		if ((restrict_pattern = strrchr(src_copy, '/')) != NULL) {
-			*restrict_pattern++ = '\0';
-		}
+		if (brace_expand(src, &patterns, &npatterns) != 0)
+			fatal("%s: could not expand pattern", __func__);
 	}
 	for (first = 1;; first = 0) {
 		cp = buf;
 		if (atomicio(read, remin, cp, 1) != 1)
-			return;
+			goto done;
 		if (*cp++ == '\n')
 			SCREWUP("unexpected <newline>");
 		do {
@@ -1033,7 +1278,7 @@ sink(int argc, char **argv, const char *src)
 		}
 		if (buf[0] == 'E') {
 			(void) atomicio(vwrite, remout, "", 1);
-			return;
+			goto done;
 		}
 		if (ch == '\n')
 			*--cp = 0;
@@ -1108,9 +1353,14 @@ sink(int argc, char **argv, const char *src)
 			run_err("error: unexpected filename: %s", cp);
 			exit(1);
 		}
-		if (restrict_pattern != NULL &&
-		    fnmatch(restrict_pattern, cp, 0) != 0)
-			SCREWUP("filename does not match request");
+		if (npatterns > 0) {
+			for (n = 0; n < npatterns; n++) {
+				if (fnmatch(patterns[n], cp, 0) == 0)
+					break;
+			}
+			if (n >= npatterns)
+				SCREWUP("filename does not match request");
+		}
 		if (targisdir) {
 			static char *namebuf;
 			static size_t cursize;
@@ -1144,14 +1394,14 @@ sink(int argc, char **argv, const char *src)
 				/* Handle copying from a read-only
 				   directory */
 				mod_flag = 1;
-				if (mkdir(np, mode | S_IRWXU) < 0)
+				if (mkdir(np, mode | S_IRWXU) == -1)
 					goto bad;
 			}
 			vect[0] = xstrdup(np);
 			sink(1, vect, src);
 			if (setimes) {
 				setimes = 0;
-				if (utimes(vect[0], tv) < 0)
+				if (utimes(vect[0], tv) == -1)
 					run_err("%s: set times: %s",
 					    vect[0], strerror(errno));
 			}
@@ -1162,7 +1412,7 @@ sink(int argc, char **argv, const char *src)
 		}
 		omode = mode;
 		mode |= S_IWUSR;
-		if ((ofd = open(np, O_WRONLY|O_CREAT, mode)) < 0) {
+		if ((ofd = open(np, O_WRONLY|O_CREAT, mode)) == -1) {
 bad:			run_err("%s: %s", np, strerror(errno));
 			continue;
 		}
@@ -1244,7 +1494,7 @@ bad:			run_err("%s: %s", np, strerror(errno));
 			stop_progress_meter();
 		if (setimes && wrerr == NO) {
 			setimes = 0;
-			if (utimes(np, tv) < 0) {
+			if (utimes(np, tv) == -1) {
 				run_err("%s: set times: %s",
 				    np, strerror(errno));
 				wrerr = DISPLAYED;
@@ -1261,7 +1511,15 @@ bad:			run_err("%s: %s", np, strerror(errno));
 			break;
 		}
 	}
+done:
+	for (n = 0; n < npatterns; n++)
+		free(patterns[n]);
+	free(patterns);
+	return;
 screwup:
+	for (n = 0; n < npatterns; n++)
+		free(patterns[n]);
+	free(patterns);
 	run_err("protocol error: %s", why);
 	exit(1);
 }
@@ -1389,7 +1647,7 @@ allocbuf(BUF *bp, int fd, int blksize)
 	size_t size;
 	struct stat stb;
 
-	if (fstat(fd, &stb) < 0) {
+	if (fstat(fd, &stb) == -1) {
 		run_err("fstat: %s", strerror(errno));
 		return (0);
 	}

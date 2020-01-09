@@ -1,4 +1,4 @@
-/*	$OpenBSD: fifo_vnops.c,v 1.68 2018/07/30 12:22:14 mpi Exp $	*/
+/*	$OpenBSD: fifo_vnops.c,v 1.70 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: fifo_vnops.c,v 1.18 1996/03/16 23:52:42 christos Exp $	*/
 
 /*
@@ -107,10 +107,19 @@ int	filt_fiforead(struct knote *kn, long hint);
 void	filt_fifowdetach(struct knote *kn);
 int	filt_fifowrite(struct knote *kn, long hint);
 
-struct filterops fiforead_filtops =
-	{ 1, NULL, filt_fifordetach, filt_fiforead };
-struct filterops fifowrite_filtops =
-	{ 1, NULL, filt_fifowdetach, filt_fifowrite };
+const struct filterops fiforead_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_fifordetach,
+	.f_event	= filt_fiforead,
+};
+
+const struct filterops fifowrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_fifowdetach,
+	.f_event	= filt_fifowrite,
+};
 
 /*
  * Open called to set up a new instance of a fifo or
@@ -536,8 +545,10 @@ int
 filt_fiforead(struct knote *kn, long hint)
 {
 	struct socket *so = (struct socket *)kn->kn_hook;
-	int rv;
+	int s, rv;
 
+	if ((hint & NOTE_SUBMIT) == 0)
+		s = solock(so);
 	kn->kn_data = so->so_rcv.sb_cc;
 	if (so->so_state & SS_CANTRCVMORE) {
 		kn->kn_flags |= EV_EOF;
@@ -546,6 +557,8 @@ filt_fiforead(struct knote *kn, long hint)
 		kn->kn_flags &= ~EV_EOF;
 		rv = (kn->kn_data > 0);
 	}
+	if ((hint & NOTE_SUBMIT) == 0)
+		sounlock(so, s);
 
 	return (rv);
 }
@@ -564,8 +577,10 @@ int
 filt_fifowrite(struct knote *kn, long hint)
 {
 	struct socket *so = (struct socket *)kn->kn_hook;
-	int rv;
+	int s, rv;
 
+	if ((hint & NOTE_SUBMIT) == 0)
+		s = solock(so);
 	kn->kn_data = sbspace(so, &so->so_snd);
 	if (so->so_state & SS_CANTSENDMORE) {
 		kn->kn_flags |= EV_EOF;
@@ -574,6 +589,8 @@ filt_fifowrite(struct knote *kn, long hint)
 		kn->kn_flags &= ~EV_EOF;
 		rv = (kn->kn_data >= so->so_snd.sb_lowat);
 	}
+	if ((hint & NOTE_SUBMIT) == 0)
+		sounlock(so, s);
 
 	return (rv);
 }

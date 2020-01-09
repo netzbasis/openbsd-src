@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfe.h,v 1.19 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: ospfe.h,v 1.23 2020/01/02 10:16:46 denis Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Esben Norby <norby@openbsd.org>
@@ -121,7 +121,7 @@ u_int32_t	 ospfe_router_id(void);
 void		 ospfe_fib_update(int);
 void		 ospfe_iface_ctl(struct ctl_conn *, unsigned int);
 void		 ospfe_nbr_ctl(struct ctl_conn *);
-void		 orig_rtr_lsa(struct iface *);
+void		 orig_rtr_lsa(struct area *);
 void		 orig_net_lsa(struct iface *);
 void		 orig_link_lsa(struct iface *);
 void		 ospfe_demote_area(struct area *, int);
@@ -142,14 +142,14 @@ struct ctl_iface	*if_to_ctl(struct iface *);
 int	 if_join_group(struct iface *, struct in6_addr *);
 int	 if_leave_group(struct iface *, struct in6_addr *);
 int	 if_set_mcast(struct iface *);
-void	 if_set_recvbuf(int);
+void	 if_set_sockbuf(int);
 int	 if_set_mcast_loop(int);
 int	 if_set_ipv6_pktinfo(int, int);
 int	 if_set_ipv6_checksum(int);
 
 /* lsack.c */
 int	 delay_lsa_ack(struct iface *, struct lsa_hdr *);
-int	 send_ls_ack(struct iface *, struct in6_addr, void *, size_t);
+int	 send_direct_ack(struct iface *, struct in6_addr, void *, size_t);
 void	 recv_ls_ack(struct nbr *, char *, u_int16_t);
 int	 lsa_hdr_check(struct nbr *, struct lsa_hdr *);
 void	 ls_ack_list_add(struct iface *, struct lsa_hdr *);
@@ -228,7 +228,7 @@ struct lsa_hdr	*lsa_hdr_new(void);
 /* packet.c */
 int	 gen_ospf_hdr(struct ibuf *, struct iface *, u_int8_t);
 int	 upd_ospf_hdr(struct ibuf *, struct iface *);
-int	 send_packet(struct iface *, void *, size_t, struct in6_addr *);
+int	 send_packet(struct iface *, struct ibuf *, struct in6_addr *);
 void	 recv_packet(int, short, void *);
 
 char	*pkt_ptr;	/* packet buffer */

@@ -1,6 +1,6 @@
 /Makefile/1.18/Mon Jan 15 19:45:51 2018//
 /file.1/1.44/Thu Dec 24 11:45:34 2015//
-/file.c/1.67/Sun Jan  6 18:35:19 2019//
+/file.c/1.69/Sat Nov 30 14:01:45 2019//
 /file.h/1.30/Sun Jun 12 21:10:42 2016//
 /magic-common.c/1.3/Tue Aug 11 22:29:25 2015//
 /magic-dump.c/1.2/Sun May  1 10:56:03 2016//
@@ -9,6 +9,6 @@
 /magic.5/1.18/Wed Sep 20 10:03:34 2017//
 /magic.h/1.15/Sun May  1 20:34:26 2016//
 /text.c/1.3/Tue Apr 18 14:16:48 2017//
-/xmalloc.c/1.3/Tue Nov 17 18:25:03 2015//
+/xmalloc.c/1.4/Fri Jun 28 05:44:09 2019//
 /xmalloc.h/1.3/Tue Nov 17 18:25:03 2015//
 D/magdir////

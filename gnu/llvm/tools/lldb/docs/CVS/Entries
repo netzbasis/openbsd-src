@@ -1,5 +1,5 @@
 /CMakeLists.txt/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
-/building-with-debug-llvm.txt/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
+/building-with-debug-llvm.txt/1.1.1.2/Sun Jun 23 21:37:19 2019/-ko/
 /code-signing.txt/1.1.1.2/Sun Jan 27 16:42:55 2019/-ko/
 /doxygen.cfg.in/1.1.1.2/Sun Jan 27 16:42:55 2019/-ko/
 /doxygen.footer/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
@@ -7,6 +7,7 @@
 /doxygen.intro/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
 /lldb-for-gdb-users.txt/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
 /lldb-gdb-remote.txt/1.1.1.2/Sun Jan 27 16:42:55 2019/-ko/
+/lldb-platform-packets.txt/1.1.1.1/Sun Jun 23 21:37:19 2019/-ko/
 /lldb.1/1.1.1.1/Wed Oct  4 20:27:40 2017/-ko/
 D/structured_data////
 D/testsuite////

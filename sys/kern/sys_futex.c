@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_futex.c,v 1.11 2019/01/23 21:53:42 cheloha Exp $ */
+/*	$OpenBSD: sys_futex.c,v 1.13 2019/07/10 15:52:17 mpi Exp $ */
 
 /*
  * Copyright (c) 2016-2017 Martin Pieuchot
@@ -240,7 +240,7 @@ futex_wait(uint32_t *uaddr, uint32_t val, const struct timespec *timeout,
 			return error;
 #ifdef KTRACE
 		if (KTRPOINT(p, KTR_STRUCT))
-			ktrabstimespec(p, &ts);
+			ktrreltimespec(p, &ts);
 #endif
 		if (ts.tv_sec < 0 || !timespecisvalid(&ts))
 			return EINVAL;
@@ -254,7 +254,7 @@ futex_wait(uint32_t *uaddr, uint32_t val, const struct timespec *timeout,
 	TAILQ_INSERT_TAIL(&f->ft_threads, p, p_fut_link);
 	p->p_futex = f;
 
-	error = rwsleep(p, &ftlock, PUSER|PCATCH, "fsleep", (int)to_ticks);
+	error = rwsleep(p, &ftlock, PWAIT|PCATCH, "fsleep", (int)to_ticks);
 	if (error == ERESTART)
 		error = ECANCELED;
 	else if (error == EWOULDBLOCK) {

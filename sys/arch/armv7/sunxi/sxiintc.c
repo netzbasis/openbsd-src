@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxiintc.c,v 1.4 2018/06/04 09:24:49 kettenis Exp $	*/
+/*	$OpenBSD: sxiintc.c,v 1.6 2019/10/05 15:44:57 kettenis Exp $	*/
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2013 Artturi Alm
@@ -254,7 +254,7 @@ sxiintc_calc_masks(void)
 		for (; i < NIPL; i++)
 			sxiintc_imask[IRQ2REG32(irq)][i] |=
 			    (1 << IRQ2BIT32(irq));
-		/* XXX - set enable/disable, priority */ 
+		/* XXX - set enable/disable, priority */
 	}
 
 	sxiintc_setipl(ci->ci_cpl);
@@ -297,7 +297,7 @@ sxiintc_splraise(int new)
 		new = old;
 
 	sxiintc_setipl(new);
-  
+
 	return (old);
 }
 
@@ -365,7 +365,7 @@ sxiintc_irq_handler(void *frame)
 		else
 			arg = frame;
 
-		if (ih->ih_func(arg)) 
+		if (ih->ih_func(arg))
 			ih->ih_count.ec_count++;
 	}
 	sxiintc_splx(s);
@@ -390,7 +390,7 @@ sxiintc_intr_establish(int irq, int level, int (*func)(void *),
 	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
 	ih->ih_func = func;
 	ih->ih_arg = arg;
-	ih->ih_ipl = level;
+	ih->ih_ipl = level & IPL_IRQMASK;
 	ih->ih_irq = irq;
 	ih->ih_name = name;
 

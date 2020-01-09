@@ -6,8 +6,10 @@
 /30_eval_dollar_at.t/1.1.1.2/Mon Nov 17 20:53:03 2014/-ko/
 /40_super.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
 /50_super.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
-/60_super.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
-/70_fail_auto.t/1.1.1.1/Mon Mar 25 20:08:36 2013/-ko/
+/60_super.t/1.1.1.2/Wed Feb 13 21:11:27 2019/-ko/
+/70_fail_auto.t/1.1.1.2/Wed Feb 13 21:11:27 2019/-ko/
 /90_utf8.t/1.1.1.1/Fri Sep 24 14:48:48 2010/-ko/
 /91_backslash.t/1.1.1.1/Mon Nov 17 20:53:03 2014/-kb/
+/92_blacklist.t/1.1.1.1/Wed Feb 13 21:11:27 2019/-ko/
+/93_whitelist.t/1.1.1.1/Wed Feb 13 21:11:27 2019/-ko/
 D

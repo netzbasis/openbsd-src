@@ -1,4 +1,4 @@
-/*	$OpenBSD: patch.c,v 1.66 2018/06/22 15:37:15 zhuk Exp $	*/
+/*	$OpenBSD: patch.c,v 1.69 2019/12/02 22:17:32 jca Exp $	*/
 
 /*
  * patch - a program to apply diffs to original files
@@ -47,7 +47,8 @@
 
 mode_t		filemode = 0644;
 
-char		buf[MAXLINELEN];	/* general purpose buffer */
+char		*buf;			/* general purpose buffer */
+size_t		 bufsz;			/* general purpose buffer size */
 
 bool		using_plan_a = true;	/* try to keep everything in memory */
 bool		out_of_mem = false;	/* ran out of memory in plan a */
@@ -153,6 +154,11 @@ main(int argc, char *argv[])
 		my_exit(2);
 	}
 
+	bufsz = INITLINELEN;
+	if ((buf = malloc(bufsz)) == NULL)
+		pfatal("allocating input buffer");
+	buf[0] = '\0';
+
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	setvbuf(stderr, NULL, _IOLBF, 0);
 	for (i = 0; i < MAXFILEC; i++)
@@ -166,25 +172,25 @@ main(int argc, char *argv[])
 	i++;
 	if (asprintf(&TMPOUTNAME, "%.*s/patchoXXXXXXXXXX", i, tmpdir) == -1)
 		fatal("cannot allocate memory");
-	if ((fd = mkstemp(TMPOUTNAME)) < 0)
+	if ((fd = mkstemp(TMPOUTNAME)) == -1)
 		pfatal("can't create %s", TMPOUTNAME);
 	close(fd);
 
 	if (asprintf(&TMPINNAME, "%.*s/patchiXXXXXXXXXX", i, tmpdir) == -1)
 		fatal("cannot allocate memory");
-	if ((fd = mkstemp(TMPINNAME)) < 0)
+	if ((fd = mkstemp(TMPINNAME)) == -1)
 		pfatal("can't create %s", TMPINNAME);
 	close(fd);
 
 	if (asprintf(&TMPREJNAME, "%.*s/patchrXXXXXXXXXX", i, tmpdir) == -1)
 		fatal("cannot allocate memory");
-	if ((fd = mkstemp(TMPREJNAME)) < 0)
+	if ((fd = mkstemp(TMPREJNAME)) == -1)
 		pfatal("can't create %s", TMPREJNAME);
 	close(fd);
 
 	if (asprintf(&TMPPATNAME, "%.*s/patchpXXXXXXXXXX", i, tmpdir) == -1)
 		fatal("cannot allocate memory");
-	if ((fd = mkstemp(TMPPATNAME)) < 0)
+	if ((fd = mkstemp(TMPPATNAME)) == -1)
 		pfatal("can't create %s", TMPPATNAME);
 	close(fd);
 
@@ -511,7 +517,7 @@ get_some_switches(void)
 			check_only = true;
 			break;
 		case 'd':
-			if (chdir(optarg) < 0)
+			if (chdir(optarg) == -1)
 				pfatal("can't cd to %s", optarg);
 			break;
 		case 'D':

@@ -27,10 +27,12 @@ like($@, qr/Modification of a read-only value attempted/, '[perl #19566]');
 }
 
 use strict;
-
-open ᕝ, '.' and sysread ᕝ, $_, 1;
-my $err = $! + 0;
-close ᕝ;
+my $err;
+{
+  open ᕝ, '.' and binmode ᕝ and sysread ᕝ, $_, 1;
+  $err = $! + 0;
+  close ᕝ;
+}
 
 SKIP: {
   skip "you can read directories as plain files", 2 unless( $err );

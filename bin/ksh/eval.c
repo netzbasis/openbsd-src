@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.63 2018/07/09 00:20:35 anton Exp $	*/
+/*	$OpenBSD: eval.c,v 1.65 2019/06/28 13:34:59 deraadt Exp $	*/
 
 /*
  * Expansion - quoting, separation, substitution, globbing
@@ -65,6 +65,9 @@ char *
 substitute(const char *cp, int f)
 {
 	struct source *s, *sold;
+
+	if (disable_subst)
+		return str_save(cp, ATEMP);
 
 	sold = source;
 	s = pushs(SWSTR, ATEMP);
@@ -1009,12 +1012,12 @@ globit(XString *xs,	/* dest string */
 		if ((check & GF_EXCHECK) ||
 		    ((check & GF_MARKDIR) && (check & GF_GLOBBED))) {
 #define stat_check()	(stat_done ? stat_done : \
-			    (stat_done = stat(Xstring(*xs, xp), &statb) < 0 \
+			    (stat_done = stat(Xstring(*xs, xp), &statb) == -1 \
 				? -1 : 1))
 			struct stat lstatb, statb;
 			int stat_done = 0;	 /* -1: failed, 1 ok */
 
-			if (lstat(Xstring(*xs, xp), &lstatb) < 0)
+			if (lstat(Xstring(*xs, xp), &lstatb) == -1)
 				return;
 			/* special case for systems which strip trailing
 			 * slashes from regular files (eg, /etc/passwd/).

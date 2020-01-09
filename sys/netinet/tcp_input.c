@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_input.c,v 1.359 2018/09/17 14:07:48 friehm Exp $	*/
+/*	$OpenBSD: tcp_input.c,v 1.364 2019/12/06 14:43:14 tobhe Exp $	*/
 /*	$NetBSD: tcp_input.c,v 1.23 1996/02/13 23:43:44 christos Exp $	*/
 
 /*
@@ -568,11 +568,31 @@ findpcb:
 		 * If the TCB exists but is in CLOSED state, it is embryonic,
 		 * but should either do a listen or a connect soon.
 		 */
-		if (inp == NULL) {
-			tcpstat_inc(tcps_noport);
-			goto dropwithreset_ratelim;
+	}
+#ifdef IPSEC
+	if (ipsec_in_use) {
+		/* Find most recent IPsec tag */
+		mtag = m_tag_find(m, PACKET_TAG_IPSEC_IN_DONE, NULL);
+		if (mtag != NULL) {
+			tdbi = (struct tdb_ident *)(mtag + 1);
+		        tdb = gettdb(tdbi->rdomain, tdbi->spi,
+			    &tdbi->dst, tdbi->proto);
+		} else
+			tdb = NULL;
+		ipsp_spd_lookup(m, af, iphlen, &error, IPSP_DIRECTION_IN,
+		    tdb, inp, 0);
+		if (error) {
+			tcpstat_inc(tcps_rcvnosec);
+			goto drop;
 		}
 	}
+#endif /* IPSEC */
+
+	if (inp == NULL) {
+		tcpstat_inc(tcps_noport);
+		goto dropwithreset_ratelim;
+	}
+
 	KASSERT(sotoinpcb(inp->inp_socket) == inp);
 	KASSERT(intotcpcb(inp) == NULL || intotcpcb(inp)->t_inpcb == inp);
 	soassertlocked(inp->inp_socket);
@@ -829,23 +849,6 @@ findpcb:
 #if NPF > 0
 	pf_inp_link(m, inp);
 #endif
-
-#ifdef IPSEC
-	/* Find most recent IPsec tag */
-	mtag = m_tag_find(m, PACKET_TAG_IPSEC_IN_DONE, NULL);
-	if (mtag != NULL) {
-		tdbi = (struct tdb_ident *)(mtag + 1);
-	        tdb = gettdb(tdbi->rdomain, tdbi->spi,
-		    &tdbi->dst, tdbi->proto);
-	} else
-		tdb = NULL;
-	ipsp_spd_lookup(m, af, iphlen, &error, IPSP_DIRECTION_IN,
-	    tdb, inp, 0);
-	if (error) {
-		tcpstat_inc(tcps_rcvnosec);
-		goto drop;
-	}
-#endif /* IPSEC */
 
 	/*
 	 * Segment received on connection.
@@ -1712,12 +1715,18 @@ trimthenstep6:
 		}
 		ND6_HINT(tp);
 		if (acked > so->so_snd.sb_cc) {
-			tp->snd_wnd -= so->so_snd.sb_cc;
+			if (tp->snd_wnd > so->so_snd.sb_cc)
+				tp->snd_wnd -= so->so_snd.sb_cc;
+			else
+				tp->snd_wnd = 0;
 			sbdrop(so, &so->so_snd, (int)so->so_snd.sb_cc);
 			ourfinisacked = 1;
 		} else {
 			sbdrop(so, &so->so_snd, acked);
-			tp->snd_wnd -= acked;
+			if (tp->snd_wnd > acked)
+				tp->snd_wnd -= acked;
+			else
+				tp->snd_wnd = 0;
 			ourfinisacked = 0;
 		}
 
@@ -2414,8 +2423,8 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 			tp->snd_holes = (struct sackhole *)
 			    pool_get(&sackhl_pool, PR_NOWAIT);
 			if (tp->snd_holes == NULL) {
-				/* ENOBUFS, so ignore SACKed block for now*/
-				goto done;
+				/* ENOBUFS, so ignore SACKed block for now */
+				goto dropped;
 			}
 			cur = tp->snd_holes;
 			cur->start = th->th_ack;
@@ -2492,10 +2501,12 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 				 * ACKs some data in middle of a hole; need to
 				 * split current hole
 				 */
+				if (tp->snd_numholes >= TCP_SACKHOLE_LIMIT)
+					goto dropped;
 				temp = (struct sackhole *)
 				    pool_get(&sackhl_pool, PR_NOWAIT);
 				if (temp == NULL)
-					goto done; /* ENOBUFS */
+					goto dropped; /* ENOBUFS */
 				temp->next = cur->next;
 				temp->start = sack.end;
 				temp->end = cur->end;
@@ -2519,10 +2530,12 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 			 * Need to append new hole at end.
 			 * Last hole is p (and it's not NULL).
 			 */
+			if (tp->snd_numholes >= TCP_SACKHOLE_LIMIT)
+				goto dropped;
 			temp = (struct sackhole *)
 			    pool_get(&sackhl_pool, PR_NOWAIT);
 			if (temp == NULL)
-				goto done; /* ENOBUFS */
+				goto dropped; /* ENOBUFS */
 			temp->start = tp->rcv_lastsack;
 			temp->end = sack.start;
 			temp->dups = min(tcprexmtthresh,
@@ -2536,8 +2549,9 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 			tp->snd_numholes++;
 		}
 	}
-done:
 	return;
+dropped:
+	tcpstat_inc(tcps_sack_drop_opts);
 }
 
 /*

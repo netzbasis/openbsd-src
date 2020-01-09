@@ -44,8 +44,10 @@ add_llvm_target(MipsCodeGen
   MipsModuleISelDAGToDAG.cpp
   MipsOptimizePICCall.cpp
   MipsOs16.cpp
+  MipsPreLegalizerCombiner.cpp
   MipsRegisterBankInfo.cpp
   MipsRegisterInfo.cpp
+  MipsReturnProtectorLowering.cpp
   MipsSEFrameLowering.cpp
   MipsSEInstrInfo.cpp
   MipsSEISelDAGToDAG.cpp

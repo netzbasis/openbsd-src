@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_bio.c,v 1.187 2018/11/21 16:14:43 mpi Exp $	*/
+/*	$OpenBSD: vfs_bio.c,v 1.195 2019/12/30 22:17:14 beck Exp $	*/
 /*	$NetBSD: vfs_bio.c,v 1.44 1996/06/11 11:15:36 pk Exp $	*/
 
 /*
@@ -85,6 +85,7 @@ void buf_put(struct buf *);
 struct buf *bio_doread(struct vnode *, daddr_t, int, int);
 struct buf *buf_get(struct vnode *, daddr_t, size_t);
 void bread_cluster_callback(struct buf *);
+int64_t bufcache_recover_dmapages(int discard, int64_t howmany);
 
 struct bcachestats bcstats;  /* counters */
 long lodirtypages;      /* dirty page count low water mark */
@@ -250,8 +251,8 @@ bufinit(void)
 void
 bufadjust(int newbufpages)
 {
-	struct buf *bp;
 	int s;
+	int64_t npages;
 
 	if (newbufpages < buflowpages)
 		newbufpages = buflowpages;
@@ -264,20 +265,15 @@ bufadjust(int newbufpages)
 	 */
 	targetpages = bufpages - RESERVE_PAGES;
 
+	npages = bcstats.dmapages - targetpages;
+
 	/*
 	 * Shrinking the cache happens here only if someone has manually
 	 * adjusted bufcachepercent - or the pagedaemon has told us
 	 * to give back memory *now* - so we give it all back.
 	 */
-	while ((bp = bufcache_getdmacleanbuf()) &&
-	    (bcstats.dmapages > targetpages)) {
-		bufcache_take(bp);
-		if (bp->b_vp) {
-			RBT_REMOVE(buf_rb_bufs, &bp->b_vp->v_bufs_tree, bp);
-			brelvp(bp);
-		}
-		buf_put(bp);
-	}
+	if (bcstats.dmapages > targetpages)
+		(void) bufcache_recover_dmapages(0, bcstats.dmapages - targetpages);
 	bufcache_adjust();
 
 	/*
@@ -403,7 +399,7 @@ buf_flip_high(struct buf *bp)
 
 /*
  * Flip a buffer to dma reachable memory, when we need it there for
- * I/O. This can sleep since it will wait for memory alloacation in the
+ * I/O. This can sleep since it will wait for memory allocation in the
  * DMA reachable area since we have to have the buffer there to proceed.
  */
 void
@@ -436,7 +432,7 @@ bio_doread(struct vnode *vp, daddr_t blkno, int size, int async)
 	struct buf *bp;
 	struct mount *mp;
 
-	bp = getblk(vp, blkno, size, 0, 0);
+	bp = getblk(vp, blkno, size, 0, INFSLP);
 
 	/*
 	 * If buffer does not have valid data, start a read.
@@ -555,6 +551,24 @@ bread_cluster_callback(struct buf *bp)
 	for (i = 1; xbpp[i] != NULL; i++) {
 		if (ISSET(bp->b_flags, B_ERROR))
 			SET(xbpp[i]->b_flags, B_INVAL | B_ERROR);
+		/*
+		 * Move the pages from the master buffer's uvm object
+		 * into the individual buffer's uvm objects.
+		 */
+		struct uvm_object *newobj = &xbpp[i]->b_uobj;
+		struct uvm_object *oldobj = &bp->b_uobj;
+		int page;
+
+		uvm_objinit(newobj, NULL, 1);
+		for (page = 0; page < atop(xbpp[i]->b_bufsize); page++) {
+			struct vm_page *pg = uvm_pagelookup(oldobj,
+			    xbpp[i]->b_poffs + ptoa(page));
+			KASSERT(pg != NULL);
+			KASSERT(pg->wire_count = 1);
+			uvm_pagerealloc(pg, newobj, xbpp[i]->b_poffs + ptoa(page));
+		}
+		xbpp[i]->b_pobj = newobj;
+
 		biodone(xbpp[i]);
 	}
 
@@ -861,12 +875,24 @@ brelse(struct buf *bp)
 		KASSERT(bp->b_bufsize > 0);
 
 	/*
+	 * softdep is basically incompatible with not cacheing buffers
+	 * that have dependencies, so this buffer must be cached
+	 */
+	if (LIST_FIRST(&bp->b_dep) != NULL)
+		CLR(bp->b_flags, B_NOCACHE);
+
+	/*
 	 * Determine which queue the buffer should be on, then put it there.
 	 */
 
 	/* If it's not cacheable, or an error, mark it invalid. */
 	if (ISSET(bp->b_flags, (B_NOCACHE|B_ERROR)))
 		SET(bp->b_flags, B_INVAL);
+	/* If it's a write error, also mark the vnode as damaged. */
+	if (ISSET(bp->b_flags, B_ERROR) && !ISSET(bp->b_flags, B_READ)) {
+		if (bp->b_vp && bp->b_vp->v_type == VREG)
+			SET(bp->b_vp->v_bioflag, VBIOERROR);
+	}
 
 	if (ISSET(bp->b_flags, B_INVAL)) {
 		/*
@@ -965,7 +991,8 @@ incore(struct vnode *vp, daddr_t blkno)
  * cached blocks be of the correct size.
  */
 struct buf *
-getblk(struct vnode *vp, daddr_t blkno, int size, int slpflag, int slptimeo)
+getblk(struct vnode *vp, daddr_t blkno, int size, int slpflag,
+    uint64_t slptimeo)
 {
 	struct buf *bp;
 	struct buf b;
@@ -988,8 +1015,8 @@ start:
 	if (bp != NULL) {
 		if (ISSET(bp->b_flags, B_BUSY)) {
 			SET(bp->b_flags, B_WANTED);
-			error = tsleep(bp, slpflag | (PRIBIO + 1), "getblk",
-			    slptimeo);
+			error = tsleep_nsec(bp, slpflag | (PRIBIO + 1),
+			    "getblk", slptimeo);
 			splx(s);
 			if (error)
 				return (NULL);
@@ -1066,15 +1093,9 @@ buf_get(struct vnode *vp, daddr_t blkno, size_t size)
 		 * new allocation, free enough buffers first
 		 * to stay at the target with our new allocation.
 		 */
-		while ((bcstats.dmapages + npages > targetpages) &&
-		    (bp = bufcache_getdmacleanbuf())) {
-			bufcache_take(bp);
-			if (bp->b_vp) {
-				RBT_REMOVE(buf_rb_bufs,
-				    &bp->b_vp->v_bufs_tree, bp);
-				brelvp(bp);
-			}
-			buf_put(bp);
+		if (bcstats.dmapages + npages > targetpages) {
+			(void) bufcache_recover_dmapages(0, npages);
+			bufcache_adjust();
 		}
 
 		/*
@@ -1087,14 +1108,14 @@ buf_get(struct vnode *vp, daddr_t blkno, size_t size)
 		    curproc != syncerproc && curproc != cleanerproc) {
 			wakeup(&bd_req);
 			needbuffer++;
-			tsleep(&needbuffer, PRIBIO, "needbuffer", 0);
+			tsleep_nsec(&needbuffer, PRIBIO, "needbuffer", INFSLP);
 			splx(s);
 			return (NULL);
 		}
 		if (bcstats.dmapages + npages > bufpages) {
 			/* cleaner or syncer */
 			nobuffers = 1;
-			tsleep(&nobuffers, PRIBIO, "nobuffers", 0);
+			tsleep_nsec(&nobuffers, PRIBIO, "nobuffers", INFSLP);
 			splx(s);
 			return (NULL);
 		}
@@ -1177,7 +1198,7 @@ buf_daemon(void *arg)
 				needbuffer = 0;
 				wakeup(&needbuffer);
 			}
-			tsleep(&bd_req, PRIBIO - 7, "cleaner", 0);
+			tsleep_nsec(&bd_req, PRIBIO - 7, "cleaner", INFSLP);
 		}
 
 		while ((bp = bufcache_getdirtybuf())) {
@@ -1233,7 +1254,7 @@ biowait(struct buf *bp)
 
 	s = splbio();
 	while (!ISSET(bp->b_flags, B_DONE))
-		tsleep(bp, PRIBIO + 1, "biowait", 0);
+		tsleep_nsec(bp, PRIBIO + 1, "biowait", INFSLP);
 	splx(s);
 
 	/* check for interruption of I/O (e.g. via NFS), then errors. */
@@ -1369,7 +1390,7 @@ buf_adjcnt(struct buf *bp, long ncount)
  * temporarily hot to the long term cache.
  *
  * The objective is to provide scan resistance by making the long term
- * working set ineligible for immediate recycling, even as the current 
+ * working set ineligible for immediate recycling, even as the current
  * working set is rapidly turned over.
  *
  * Implementation
@@ -1450,13 +1471,15 @@ bufcache_getcleanbuf(int cachenum, int discard)
 {
 	struct buf *bp = NULL;
 	struct bufcache *cache = &cleancache[cachenum];
+	struct bufqueue * queue;
 
 	splassert(IPL_BIO);
 
-	/* try  cold queue */
-	while ((bp = TAILQ_FIRST(&cache->coldqueue))) {
-		if ((!discard) &&
-		    cachenum < NUM_CACHES - 1 && ISSET(bp->b_flags, B_WARM)) {
+	/* try cold queue */
+	while ((bp = TAILQ_FIRST(&cache->coldqueue)) ||
+	    (bp = TAILQ_FIRST(&cache->warmqueue)) ||
+	    (bp = TAILQ_FIRST(&cache->hotqueue))) {
+		if ((!discard) && cachenum < NUM_CACHES - 1) {
 			int64_t pages = atop(bp->b_bufsize);
 			struct bufcache *newcache;
 
@@ -1485,7 +1508,17 @@ bufcache_getcleanbuf(int cachenum, int discard)
 			}
 
 			/* Move the buffer to the hot queue in the next cache */
-			TAILQ_REMOVE(&cache->coldqueue, bp, b_freelist);
+			if (ISSET(bp->b_flags, B_COLD)) {
+				queue = &cache->coldqueue;
+			} else if (ISSET(bp->b_flags, B_WARM)) {
+				queue = &cache->warmqueue;
+				cache->warmbufpages -= pages;
+			} else {
+				queue = &cache->hotqueue;
+				cache->hotbufpages -= pages;
+			}
+			TAILQ_REMOVE(queue, bp, b_freelist);
+			cache->cachepages -= pages;
 			CLR(bp->b_flags, B_WARM);
 			CLR(bp->b_flags, B_COLD);
 			bp->cache++;
@@ -1497,14 +1530,103 @@ bufcache_getcleanbuf(int cachenum, int discard)
 			TAILQ_INSERT_TAIL(&newcache->hotqueue, bp, b_freelist);
 		}
 		else
-			/* buffer is cold - give it up */
+			/* Victim selected, give it up */
 			return bp;
 	}
-	if ((bp = TAILQ_FIRST(&cache->warmqueue)))
-		return bp;
-	if ((bp = TAILQ_FIRST(&cache->hotqueue)))
- 		return bp;
 	return bp;
+}
+
+
+void
+discard_buffer(struct buf *bp) {
+	bufcache_take(bp);
+	if (bp->b_vp) {
+		RBT_REMOVE(buf_rb_bufs,
+		    &bp->b_vp->v_bufs_tree, bp);
+		brelvp(bp);
+	}
+	buf_put(bp);
+}
+
+int64_t
+bufcache_recover_dmapages(int discard, int64_t howmany)
+{
+	struct buf *bp = NULL;
+	struct bufcache *cache = &cleancache[DMA_CACHE];
+	struct bufqueue * queue;
+	int64_t recovered = 0;
+
+	splassert(IPL_BIO);
+
+	while ((recovered < howmany) &&
+	    ((bp = TAILQ_FIRST(&cache->coldqueue)) ||
+	    (bp = TAILQ_FIRST(&cache->warmqueue)) ||
+	    (bp = TAILQ_FIRST(&cache->hotqueue)))) {
+		if (!discard && DMA_CACHE < NUM_CACHES - 1) {
+			int64_t pages = atop(bp->b_bufsize);
+			struct bufcache *newcache;
+
+			KASSERT(bp->cache == DMA_CACHE);
+
+			/*
+			 * If this buffer was warm before, move it to
+			 * the hot queue in the next cache
+			 */
+
+			/*
+			 * One way or another, the pages for this
+			 * buffer are leaving DMA memory
+			 */
+			recovered += pages;
+
+			if (fliphigh) {
+				/*
+				 * If we are in the DMA cache, try to flip the
+				 * buffer up high to move it on to the other
+				 * caches. if we can't move the buffer to high
+				 * memory without sleeping, we give it up
+				 * now rather than fight for more memory
+				 * against non buffer cache competitors.
+				 */
+				SET(bp->b_flags, B_BUSY);
+				if (bp->cache == 0 && buf_flip_high(bp) == -1) {
+					CLR(bp->b_flags, B_BUSY);
+					discard_buffer(bp);
+				} else {
+					CLR(bp->b_flags, B_BUSY);
+
+					/*
+					 * Move the buffer to the hot queue in
+					 * the next cache
+					 */
+					if (ISSET(bp->b_flags, B_COLD)) {
+						queue = &cache->coldqueue;
+					} else if (ISSET(bp->b_flags, B_WARM)) {
+						queue = &cache->warmqueue;
+						cache->warmbufpages -= pages;
+					} else {
+						queue = &cache->hotqueue;
+						cache->hotbufpages -= pages;
+					}
+					TAILQ_REMOVE(queue, bp, b_freelist);
+					cache->cachepages -= pages;
+					CLR(bp->b_flags, B_WARM);
+					CLR(bp->b_flags, B_COLD);
+					bp->cache++;
+					newcache= &cleancache[bp->cache];
+					newcache->cachepages += pages;
+					newcache->hotbufpages += pages;
+					chillbufs(newcache, &newcache->hotqueue,
+					    &newcache->hotbufpages);
+					TAILQ_INSERT_TAIL(&newcache->hotqueue,
+					    bp, b_freelist);
+				}
+			} else
+				discard_buffer(bp);
+		} else
+			discard_buffer(bp);
+	}
+	return recovered;
 }
 
 struct buf *
@@ -1535,6 +1657,7 @@ bufcache_gethighcleanbuf(void)
 	return bufcache_getcleanbuf_range(DMA_CACHE + 1, NUM_CACHES - 1, 0);
 }
 
+
 struct buf *
 bufcache_getdmacleanbuf(void)
 {
@@ -1542,6 +1665,7 @@ bufcache_getdmacleanbuf(void)
 		return bufcache_getcleanbuf_range(DMA_CACHE, DMA_CACHE, 0);
 	return bufcache_getcleanbuf_range(DMA_CACHE, NUM_CACHES - 1, 0);
 }
+
 
 struct buf *
 bufcache_getdirtybuf(void)

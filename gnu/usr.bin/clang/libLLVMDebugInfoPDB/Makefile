@@ -1,18 +1,16 @@
-# $OpenBSD: Makefile,v 1.1 2018/10/04 11:43:29 patrick Exp $
+# $OpenBSD: Makefile,v 1.4 2019/06/23 22:07:40 patrick Exp $
 
 LIB=	LLVMDebugInfoPDB
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/DebugInfo/PDB
 
-.include <bsd.own.mk>
-SRCS=	DbiModuleDescriptor.cpp \
+SRCS+=	DbiModuleDescriptor.cpp \
 	DbiModuleDescriptorBuilder.cpp \
 	DbiModuleList.cpp \
 	DbiStream.cpp \
 	DbiStreamBuilder.cpp \
-	EnumTables.cpp \
+	DebugInfoPDBEnumTables.cpp \
 	GSIStreamBuilder.cpp \
 	GenericError.cpp \
 	GlobalsStream.cpp \
@@ -23,13 +21,21 @@ SRCS=	DbiModuleDescriptor.cpp \
 	InfoStreamBuilder.cpp \
 	ModuleDebugStream.cpp \
 	NamedStreamMap.cpp \
-	NativeBuiltinSymbol.cpp \
 	NativeCompilandSymbol.cpp \
+	NativeEnumGlobals.cpp \
 	NativeEnumModules.cpp \
-	NativeEnumSymbol.cpp \
 	NativeEnumTypes.cpp \
 	NativeExeSymbol.cpp \
 	NativeRawSymbol.cpp \
+	NativeSymbolEnumerator.cpp \
+	NativeTypeArray.cpp \
+	NativeTypeBuiltin.cpp \
+	NativeTypeEnum.cpp \
+	NativeTypeFunctionSig.cpp \
+	NativeTypePointer.cpp \
+	NativeTypeTypedef.cpp \
+	NativeTypeUDT.cpp \
+	NativeTypeVTShape.cpp \
 	NativeSession.cpp \
 	PDB.cpp \
 	PDBContext.cpp \
@@ -74,16 +80,17 @@ SRCS=	DbiModuleDescriptor.cpp \
 	PDBSymbolUsingNamespace.cpp \
 	PublicsStream.cpp \
 	RawError.cpp \
+	SymbolCache.cpp \
 	SymbolStream.cpp \
 	TpiHashing.cpp \
 	TpiStream.cpp \
 	TpiStreamBuilder.cpp \
 	UDTLayout.cpp \
 
+DebugInfoPDBEnumTables.cpp:
+	ln -s ${LLVM_SRCS}/lib/DebugInfo/PDB/Native/EnumTables.cpp $@
+
 .PATH:	${.CURDIR}/../../../llvm/lib/DebugInfo/PDB
 .PATH:	${.CURDIR}/../../../llvm/lib/DebugInfo/PDB/Native
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= DebugInfoPDBEnumTables.cpp

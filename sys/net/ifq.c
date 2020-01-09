@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifq.c,v 1.25 2018/12/16 03:36:02 dlg Exp $ */
+/*	$OpenBSD: ifq.c,v 1.35 2019/10/08 04:18:00 dlg Exp $ */
 
 /*
  * Copyright (c) 2015 David Gwynne <dlg@openbsd.org>
@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <sys/mbuf.h>
 #include <sys/proc.h>
+#include <sys/sysctl.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -70,6 +71,13 @@ struct priq {
 void	ifq_start_task(void *);
 void	ifq_restart_task(void *);
 void	ifq_barrier_task(void *);
+void	ifq_bundle_task(void *);
+
+static inline void
+ifq_run_start(struct ifqueue *ifq)
+{
+	ifq_serialize(ifq, &ifq->ifq_start);
+}
 
 void
 ifq_serialize(struct ifqueue *ifq, struct task *t)
@@ -112,6 +120,16 @@ ifq_is_serialized(struct ifqueue *ifq)
 }
 
 void
+ifq_start(struct ifqueue *ifq)
+{
+	if (ifq_len(ifq) >= min(ifq->ifq_if->if_txmit, ifq->ifq_maxlen)) {
+		task_del(ifq->ifq_softnet, &ifq->ifq_bundle);
+		ifq_run_start(ifq);
+	} else
+		task_add(ifq->ifq_softnet, &ifq->ifq_bundle);
+}
+
+void
 ifq_start_task(void *p)
 {
 	struct ifqueue *ifq = p;
@@ -135,10 +153,20 @@ ifq_restart_task(void *p)
 }
 
 void
+ifq_bundle_task(void *p)
+{
+	struct ifqueue *ifq = p;
+
+	ifq_run_start(ifq);
+}
+
+void
 ifq_barrier(struct ifqueue *ifq)
 {
 	struct cond c = COND_INITIALIZER();
 	struct task t = TASK_INITIALIZER(ifq_barrier_task, &c);
+
+	task_del(ifq->ifq_softnet, &ifq->ifq_bundle);
 
 	if (ifq->ifq_serializer == NULL)
 		return;
@@ -164,10 +192,10 @@ void
 ifq_init(struct ifqueue *ifq, struct ifnet *ifp, unsigned int idx)
 {
 	ifq->ifq_if = ifp;
+	ifq->ifq_softnet = net_tq(ifp->if_index); /* + idx */
 	ifq->ifq_softc = NULL;
 
 	mtx_init(&ifq->ifq_mtx, IPL_NET);
-	ifq->ifq_qdrops = 0;
 
 	/* default to priq */
 	ifq->ifq_ops = &priq_ops;
@@ -185,6 +213,7 @@ ifq_init(struct ifqueue *ifq, struct ifnet *ifp, unsigned int idx)
 	mtx_init(&ifq->ifq_task_mtx, IPL_NET);
 	TAILQ_INIT(&ifq->ifq_task_list);
 	ifq->ifq_serializer = NULL;
+	task_set(&ifq->ifq_bundle, ifq_bundle_task, ifq);
 
 	task_set(&ifq->ifq_start, ifq_start_task, ifq);
 	task_set(&ifq->ifq_restart, ifq_restart_task, ifq);
@@ -235,6 +264,10 @@ void
 ifq_destroy(struct ifqueue *ifq)
 {
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
+
+	NET_ASSERT_UNLOCKED();
+	if (!task_del(ifq->ifq_softnet, &ifq->ifq_bundle))
+		taskq_barrier(ifq->ifq_softnet);
 
 	/* don't need to lock because this is the last use of the ifq */
 
@@ -364,7 +397,7 @@ ifq_hdatalen(struct ifqueue *ifq)
 	m = ifq_deq_begin(ifq);
 	if (m != NULL) {
 		len = m->m_pkthdr.len;
-		ifq_deq_commit(ifq, m);
+		ifq_deq_rollback(ifq, m);
 	}
 
 	return (len);
@@ -445,8 +478,8 @@ ifiq_init(struct ifiqueue *ifiq, struct ifnet *ifp, unsigned int idx)
 	mtx_init(&ifiq->ifiq_mtx, IPL_NET);
 	ml_init(&ifiq->ifiq_ml);
 	task_set(&ifiq->ifiq_task, ifiq_process, ifiq);
+	ifiq->ifiq_pressure = 0;
 
-	ifiq->ifiq_qdrops = 0;
 	ifiq->ifiq_packets = 0;
 	ifiq->ifiq_bytes = 0;
 	ifiq->ifiq_qdrops = 0;
@@ -458,26 +491,28 @@ ifiq_init(struct ifiqueue *ifiq, struct ifnet *ifp, unsigned int idx)
 void
 ifiq_destroy(struct ifiqueue *ifiq)
 {
-	if (!task_del(ifiq->ifiq_softnet, &ifiq->ifiq_task)) {
-		NET_ASSERT_UNLOCKED();
+	NET_ASSERT_UNLOCKED();
+	if (!task_del(ifiq->ifiq_softnet, &ifiq->ifiq_task))
 		taskq_barrier(ifiq->ifiq_softnet);
-	}
 
 	/* don't need to lock because this is the last use of the ifiq */
 	ml_purge(&ifiq->ifiq_ml);
 }
 
+unsigned int ifiq_maxlen_drop = 2048 * 5;
+unsigned int ifiq_maxlen_return = 2048 * 3;
+
 int
-ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
+ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml)
 {
 	struct ifnet *ifp = ifiq->ifiq_if;
 	struct mbuf *m;
 	uint64_t packets;
 	uint64_t bytes = 0;
+	unsigned int len;
 #if NBPFILTER > 0
 	caddr_t if_bpf;
 #endif
-	int rv = 1;
 
 	if (ml_empty(ml))
 		return (0);
@@ -518,12 +553,11 @@ ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
 	ifiq->ifiq_packets += packets;
 	ifiq->ifiq_bytes += bytes;
 
-	if (ifiq_len(ifiq) >= cwm * 5)
+	len = ml_len(&ifiq->ifiq_ml);
+	if (len > ifiq_maxlen_drop)
 		ifiq->ifiq_qdrops += ml_len(ml);
-	else {
-		rv = (ifiq_len(ifiq) >= cwm * 3);
+	else
 		ml_enlist(&ifiq->ifiq_ml, ml);
-	}
 	mtx_leave(&ifiq->ifiq_mtx);
 
 	if (ml_empty(ml))
@@ -531,7 +565,7 @@ ifiq_input(struct ifiqueue *ifiq, struct mbuf_list *ml, unsigned int cwm)
 	else
 		ml_purge(ml);
 
-	return (rv);
+	return (len > ifiq_maxlen_return);
 }
 
 void
@@ -542,13 +576,6 @@ ifiq_add_data(struct ifiqueue *ifiq, struct if_data *data)
 	data->ifi_ibytes += ifiq->ifiq_bytes;
 	data->ifi_iqdrops += ifiq->ifiq_qdrops;
 	mtx_leave(&ifiq->ifiq_mtx);
-}
-
-void
-ifiq_barrier(struct ifiqueue *ifiq)
-{
-	if (!task_del(ifiq->ifiq_softnet, &ifiq->ifiq_task))
-		taskq_barrier(ifiq->ifiq_softnet);
 }
 
 int
@@ -578,6 +605,46 @@ ifiq_process(void *arg)
 	mtx_leave(&ifiq->ifiq_mtx);
 
 	if_input_process(ifiq->ifiq_if, &ml);
+}
+
+int
+net_ifiq_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, 
+    void *newp, size_t newlen)
+{
+	int error = EOPNOTSUPP;
+/* pressure is disabled for 6.6-release */
+#if 0
+	int val;
+
+	if (namelen != 1)
+		return (EISDIR);
+
+	switch (name[0]) {
+	case NET_LINK_IFRXQ_PRESSURE_RETURN:
+		val = ifiq_pressure_return;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
+		if (error != 0)
+			return (error);
+		if (val < 1 || val > ifiq_pressure_drop)
+			return (EINVAL);
+		ifiq_pressure_return = val;
+		break;
+	case NET_LINK_IFRXQ_PRESSURE_DROP:
+		val = ifiq_pressure_drop;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
+		if (error != 0)
+			return (error);
+		if (ifiq_pressure_return > val)
+			return (EINVAL);
+		ifiq_pressure_drop = val;
+		break;
+	default:
+		error = EOPNOTSUPP;
+		break;
+	}
+#endif
+
+	return (error);
 }
 
 /*

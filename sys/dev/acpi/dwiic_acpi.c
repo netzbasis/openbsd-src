@@ -1,4 +1,4 @@
-/* $OpenBSD: dwiic_acpi.c,v 1.8 2018/07/01 11:37:11 kettenis Exp $ */
+/* $OpenBSD: dwiic_acpi.c,v 1.12 2019/08/04 15:44:17 kettenis Exp $ */
 /*
  * Synopsys DesignWare I2C controller
  *
@@ -66,6 +66,7 @@ struct cfattach dwiic_acpi_ca = {
 };
 
 const char *dwiic_hids[] = {
+	"APMC0D0F",
 	"INT33C2",
 	"INT33C3",
 	"INT3432",
@@ -143,11 +144,6 @@ dwiic_acpi_attach(struct device *parent, struct device *self, void *aux)
 	dwiic_acpi_power(sc, 1);
 
 	/* fetch timing parameters */
-	sc->ss_hcnt = dwiic_read(sc, DW_IC_SS_SCL_HCNT);
-	sc->ss_lcnt = dwiic_read(sc, DW_IC_SS_SCL_LCNT);
-	sc->fs_hcnt = dwiic_read(sc, DW_IC_FS_SCL_HCNT);
-	sc->fs_lcnt = dwiic_read(sc, DW_IC_FS_SCL_LCNT);
-	sc->sda_hold_time = dwiic_read(sc, DW_IC_SDA_HOLD);
 	dwiic_acpi_get_params(sc, "SSCN", &sc->ss_hcnt, &sc->ss_lcnt, NULL);
 	dwiic_acpi_get_params(sc, "FMCN", &sc->fs_hcnt, &sc->fs_lcnt,
 	    &sc->sda_hold_time);
@@ -303,7 +299,11 @@ dwiic_i2c_intr_establish(void *cookie, void *ih, int level,
 {
 	struct dwiic_crs *crs = ih;
 
-	if (crs->gpio_int_node && crs->gpio_int_node->gpio) {
+	if (crs->gpio_int_node) {
+		if (!crs->gpio_int_node->gpio)
+			/* found ACPI device but no driver for it */
+			return NULL;
+
 		struct acpi_gpio *gpio = crs->gpio_int_node->gpio;
 		gpio->intr_establish(gpio->cookie, crs->gpio_int_pin,
 				     crs->gpio_int_flags, func, arg);
@@ -320,9 +320,11 @@ dwiic_i2c_intr_string(void *cookie, void *ih)
 	struct dwiic_crs *crs = ih;
 	static char irqstr[64];
 
-	if (crs->gpio_int_node && crs->gpio_int_node->gpio)
-		snprintf(irqstr, sizeof(irqstr), "gpio %d", crs->gpio_int_pin);
-	else
+	if (crs->gpio_int_node) {
+		if (crs->gpio_int_node->gpio)
+			snprintf(irqstr, sizeof(irqstr), "gpio %d",
+			    crs->gpio_int_pin);
+	} else
 		snprintf(irqstr, sizeof(irqstr), "irq %d", crs->irq_int);
 
 	return irqstr;
@@ -462,8 +464,9 @@ dwiic_acpi_found_ihidev(struct dwiic_softc *sc, struct aml_node *node,
 
 	aml_freevalue(&res);
 
-	if (!sc->sc_poll_ihidev &&
-	    !(crs.irq_int == 0 && crs.gpio_int_node == NULL))
+	if (sc->sc_poll_ihidev)
+		ia.ia_poll = 1;
+	if (!(crs.irq_int == 0 && crs.gpio_int_node == NULL))
 		ia.ia_intr = &crs;
 
 	if (config_found(sc->sc_iic, &ia, dwiic_i2c_print)) {

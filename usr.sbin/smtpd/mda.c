@@ -1,4 +1,4 @@
-/*	$OpenBSD: mda.c,v 1.137 2019/01/05 10:20:21 gilles Exp $	*/
+/*	$OpenBSD: mda.c,v 1.141 2019/10/03 08:50:08 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -242,8 +242,6 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			return;
 		}
 
-		n = 0;
-
 		/* start queueing delivery headers */
 		if (e->sender[0])
 			/*
@@ -271,9 +269,9 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 
 		/* request parent to fork a helper process */
 		memset(&deliver, 0, sizeof deliver);
-		text_to_mailaddr(&deliver.sender, s->evp->sender);
-		text_to_mailaddr(&deliver.rcpt, s->evp->rcpt);
-		text_to_mailaddr(&deliver.dest, s->evp->dest);
+		(void)text_to_mailaddr(&deliver.sender, s->evp->sender);
+		(void)text_to_mailaddr(&deliver.rcpt, s->evp->rcpt);
+		(void)text_to_mailaddr(&deliver.dest, s->evp->dest);
 		if (s->evp->mda_exec)
 			(void)strlcpy(deliver.mda_exec, s->evp->mda_exec, sizeof deliver.mda_exec);
 		if (s->evp->mda_subaddress)
@@ -348,11 +346,8 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			error = out[0] ? out : parent_error;
 
 		syserror = NULL;
-		if (mda_sysexit) {
+		if (mda_sysexit)
 			syserror = mda_sysexit_to_str(mda_sysexit);
-			if (syserror)
-				error = syserror;
-		}
 		
 		/* update queue entry */
 		switch (mda_status) {
@@ -360,14 +355,20 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			mda_queue_tempfail(e->id, error,
 			    ESC_OTHER_MAIL_SYSTEM_STATUS);
 			(void)snprintf(buf, sizeof buf,
-			    "Error (%s)", error);
+			    "Error (%s%s%s)",
+				       syserror ? syserror : "",
+				       syserror ? ": " : "",
+				       error);
 			mda_log(e, "TempFail", buf);
 			break;
 		case MDA_PERMFAIL:
 			mda_queue_permfail(e->id, error,
 			    ESC_OTHER_MAIL_SYSTEM_STATUS);
 			(void)snprintf(buf, sizeof buf,
-			    "Error (%s)", error);
+			    "Error (%s%s%s)",
+				       syserror ? syserror : "",
+				       syserror ? ": " : "",
+				       error);
 			mda_log(e, "PermFail", buf);
 			break;
 		case MDA_OK:
@@ -521,7 +522,7 @@ mda_getlastline(int fd, char *dst, size_t dstsz)
 	ssize_t	 len;
 	int	 out = 0;
 	
-	if (lseek(fd, 0, SEEK_SET) < 0) {
+	if (lseek(fd, 0, SEEK_SET) == -1) {
 		log_warn("warn: mda: lseek");
 		close(fd);
 		return (-1);

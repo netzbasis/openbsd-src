@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.70 2018/11/01 00:18:44 sashan Exp $ */
+/*	$OpenBSD: parse.y,v 1.76 2019/11/11 06:32:52 otto Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -60,12 +60,14 @@ int		 findeol(void);
 struct ntpd_conf		*conf;
 struct sockaddr_in		 query_addr4;
 struct sockaddr_in6		 query_addr6;
+int				 poolseqnum;
 
 struct opts {
 	int		weight;
 	int		correction;
 	int		stratum;
 	int		rtable;
+	int		trusted;
 	char		*refstr;
 } opts;
 void		opts_default(void);
@@ -82,12 +84,12 @@ typedef struct {
 
 %}
 
-%token	LISTEN ON CONSTRAINT CONSTRAINTS FROM QUERY
+%token	LISTEN ON CONSTRAINT CONSTRAINTS FROM QUERY TRUSTED
 %token	SERVER SERVERS SENSOR CORRECTION RTABLE REFID STRATUM WEIGHT
 %token	ERROR
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
-%type	<v.addr>		address url
+%type	<v.addr>		address url urllist
 %type	<v.opts>		listen_opts listen_opts_l listen_opt
 %type	<v.opts>		server_opts server_opts_l server_opt
 %type	<v.opts>		sensor_opts sensor_opts_l sensor_opt
@@ -96,6 +98,7 @@ typedef struct {
 %type	<v.opts>		refid
 %type	<v.opts>		stratum
 %type	<v.opts>		weight
+%type	<v.opts>		trusted
 %%
 
 grammar		: /* empty */
@@ -109,7 +112,7 @@ main		: LISTEN ON address listen_opts	{
 			struct ntp_addr		*h, *next;
 
 			if ((h = $3->a) == NULL &&
-			    (host_dns($3->name, &h) == -1 || !h)) {
+			    (host_dns($3->name, 0, &h) == -1 || !h)) {
 				yyerror("could not resolve \"%s\"", $3->name);
 				free($3->name);
 				free($3);
@@ -179,11 +182,14 @@ main		: LISTEN ON address listen_opts	{
 
 				p = new_peer();
 				p->weight = $3.weight;
+				p->trusted = $3.trusted;
+				conf->trusted_peers = conf->trusted_peers ||
+				    $3.trusted;
 				p->query_addr4 = query_addr4;
 				p->query_addr6 = query_addr6;
 				p->addr = h;
 				p->addr_head.a = h;
-				p->addr_head.pool = 1;
+				p->addr_head.pool = ++poolseqnum;
 				p->addr_head.name = strdup($2->name);
 				if (p->addr_head.name == NULL)
 					fatal(NULL);
@@ -218,6 +224,9 @@ main		: LISTEN ON address listen_opts	{
 			}
 
 			p->weight = $3.weight;
+			p->trusted = $3.trusted;
+			conf->trusted_peers = conf->trusted_peers ||
+			    $3.trusted;
 			p->query_addr4 = query_addr4;
 			p->query_addr6 = query_addr6;
 			p->addr_head.a = p->addr;
@@ -256,7 +265,7 @@ main		: LISTEN ON address listen_opts	{
 				p = new_constraint();
 				p->addr = h;
 				p->addr_head.a = h;
-				p->addr_head.pool = 1;
+				p->addr_head.pool = ++poolseqnum;
 				p->addr_head.name = strdup($3->name);
 				p->addr_head.path = strdup($3->path);
 				if (p->addr_head.name == NULL ||
@@ -271,7 +280,7 @@ main		: LISTEN ON address listen_opts	{
 			free($3->name);
 			free($3);
 		}
-		| CONSTRAINT FROM url		{
+		| CONSTRAINT FROM urllist		{
 			struct constraint	*p;
 			struct ntp_addr		*h, *next;
 
@@ -314,6 +323,9 @@ main		: LISTEN ON address listen_opts	{
 			s->correction = $3.correction;
 			s->refstr = $3.refstr;
 			s->stratum = $3.stratum;
+			s->trusted = $3.trusted;
+			conf->trusted_sensors = conf->trusted_sensors ||
+			    $3.trusted;
 			free($2);
 			TAILQ_INSERT_TAIL(&conf->ntp_conf_sensors, s, entry);
 		}
@@ -325,6 +337,36 @@ address		: STRING		{
 				fatal(NULL);
 			host($1, &$$->a);
 			$$->name = $1;
+		}
+		;
+
+urllist		: urllist address {
+			struct ntp_addr *p, *q = NULL;
+			struct in_addr ina;
+			struct in6_addr in6a;
+
+			if (inet_pton(AF_INET, $2->name, &ina) != 1 &&
+			    inet_pton(AF_INET6, $2->name, &in6a) != 1) {
+				yyerror("url can only be followed by IP "
+				    "addresses");
+				free($2->name);
+				free($2);
+				YYERROR;
+			}
+			p = $2->a;
+			while (p != NULL) {
+				q = p;
+				p = p->next;
+			}
+			if (q != NULL) {
+				q->next = $1->a;
+				$1->a = $2->a;
+				free($2);
+			}
+			$$ = $1;
+		}
+		| url {
+			$$ = $1;
 		}
 		;
 
@@ -378,6 +420,7 @@ server_opts_l	: server_opts_l server_opt
 		| server_opt
 		;
 server_opt	: weight
+		| trusted
 		;
 
 sensor_opts	:	{ opts_default(); }
@@ -392,6 +435,7 @@ sensor_opt	: correction
 		| refid
 		| stratum
 		| weight
+		| trusted
 		;
 
 correction	: CORRECTION NUMBER {
@@ -442,6 +486,10 @@ rtable		: RTABLE NUMBER {
 			opts.rtable = $2;
 		}
 		;
+
+trusted		: TRUSTED	{
+			opts.trusted = 1;
+		}
 
 %%
 
@@ -498,6 +546,7 @@ lookup(char *s)
 		{ "server",		SERVER},
 		{ "servers",		SERVERS},
 		{ "stratum",		STRATUM},
+		{ "trusted",		TRUSTED},
 		{ "weight",		WEIGHT}
 	};
 	const struct keywords	*p;
@@ -668,7 +717,7 @@ yylex(void)
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -707,7 +756,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '*') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}

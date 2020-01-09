@@ -1,4 +1,4 @@
-/* $OpenBSD: trap.c,v 1.21 2018/10/08 15:57:53 kettenis Exp $ */
+/* $OpenBSD: trap.c,v 1.27 2020/01/06 12:37:30 kettenis Exp $ */
 /*-
  * Copyright (c) 2014 Andrew Turner
  * All rights reserved.
@@ -23,12 +23,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
  */
-
-#if 0
-__FBSDID("$FreeBSD: head/sys/arm64/arm64/trap.c 281654 2015-04-17 12:58:09Z andrew $");
-#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -116,7 +111,8 @@ data_abort(struct trapframe *frame, uint64_t esr, uint64_t far,
 	if (exe)
 		access_type = PROT_EXEC;
 	else
-		access_type = ((esr >> 6) & 1) ? PROT_WRITE : PROT_READ;
+		access_type = (!(esr & ISS_DATA_CM) && (esr & ISS_DATA_WnR)) ?
+		    PROT_WRITE : PROT_READ;
 
 	ftype = VM_FAULT_INVALID; // should check for failed permissions.
 
@@ -165,7 +161,8 @@ data_abort(struct trapframe *frame, uint64_t esr, uint64_t far,
 				frame->tf_elr = (register_t)pcb->pcb_onfault;
 				return;
 			}
-			panic("uvm_fault failed: %lx", frame->tf_elr);
+			panic("uvm_fault failed: %lx esr %llx far %llx",
+			    frame->tf_elr, esr, far);
 		}
 	}
 }
@@ -238,7 +235,6 @@ do_el0_sync(struct trapframe *frame)
 	union sigval sv;
 	uint32_t exception;
 	uint64_t esr, far;
-	vaddr_t sp;
 
 	esr = READ_SPECIALREG(esr_el1);
 	exception = ESR_ELx_EXCEPTION(esr);
@@ -248,23 +244,12 @@ do_el0_sync(struct trapframe *frame)
 
 	p->p_addr->u_pcb.pcb_tf = frame;
 	refreshcreds(p);
+	if (!uvm_map_inentry(p, &p->p_spinentry, PROC_STACK(p),
+	    "[%s]%d/%d sp=%lx inside %lx-%lx: not MAP_STACK\n",
+	    uvm_map_inentry_sp, p->p_vmspace->vm_map.sserial))
+		goto out;
 
-	sp = PROC_STACK(p);
-	if (p->p_vmspace->vm_map.serial != p->p_spserial ||
-	    p->p_spstart == 0 || sp < p->p_spstart ||
-	    sp >= p->p_spend) {
-		KERNEL_LOCK();
-		if (!uvm_map_check_stack_range(p, sp)) {
-			printf("trap [%s]%d/%d type %d: sp %lx not inside %lx-%lx\n",
-			    p->p_p->ps_comm, p->p_p->ps_pid, p->p_tid,
-			    exception, sp, p->p_spstart, p->p_spend);
-			sv.sival_ptr = (void *)PROC_PC(p);
-			trapsignal(p, SIGSEGV, exception, SEGV_ACCERR, sv);
-		}
-		KERNEL_UNLOCK();
-	}
-
-	switch(exception) {
+	switch (exception) {
 	case EXCP_UNKNOWN:
 		vfp_save();
 		curcpu()->ci_flush_bp();
@@ -333,7 +318,7 @@ do_el0_sync(struct trapframe *frame)
 		sigexit(p, SIGILL);
 		KERNEL_UNLOCK();
 	}
-
+out:
 	userret(p);
 }
 

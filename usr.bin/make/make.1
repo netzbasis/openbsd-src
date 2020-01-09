@@ -1,4 +1,4 @@
-.\"	$OpenBSD: make.1,v 1.127 2018/07/04 14:11:49 jmc Exp $
+.\"	$OpenBSD: make.1,v 1.130 2019/12/21 15:25:12 espie Exp $
 .\"	$NetBSD: make.1,v 1.18 1997/03/10 21:19:53 christos Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	from: @(#)make.1	8.4 (Berkeley) 3/19/94
 .\"
-.Dd $Mdocdate: July 4 2018 $
+.Dd $Mdocdate: December 21 2019 $
 .Dt MAKE 1
 .Os
 .Sh NAME
@@ -79,6 +79,17 @@ The handling of
 is a
 .Bx
 extension.
+.Pp
+If a list of
+.Ar target ...
+is specified,
+.Nm
+will build those targets.
+Otherwise a default target will be built:
+either a target explicitly marked with
+.Ic .MAIN
+or the first target encountered in the
+.Em makefile .
 .Pp
 Standard options are as follows:
 .Bl -tag -width Ds
@@ -464,7 +475,7 @@ from sources a.c and b.c, with header file a.h:
 	${CC} ${CFLAGS} -c $<
 
 prog: a.o b.o
-	${CC} ${CFLAGS} -o $@ a.o
+	${CC} ${CFLAGS} -o $@ a.o b.o
 
 a.o b.o: a.h
 
@@ -1495,8 +1506,7 @@ uses the following environment variables, if they exist:
 .Ev MACHINE_ARCH ,
 .Ev MACHINE_CPU ,
 .Ev MAKEFLAGS ,
-.Ev MAKEOBJDIR ,
-.Ev MAKEOBJDIRPREFIX ,
+.Ev MAKEOBJDIR
 and
 .Ev PWD .
 .Nm
@@ -1516,10 +1526,6 @@ does not exist
 system makefile
 .It Pa /usr/share/mk
 system makefile directory
-.It Pa /usr/obj
-default
-.Ev MAKEOBJDIRPREFIX
-directory
 .El
 .Sh EXIT STATUS
 If

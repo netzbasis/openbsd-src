@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.272 2019/01/26 23:26:20 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.284 2019/11/22 22:45:52 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -109,7 +109,6 @@ struct client_config {
 	time_t			 reboot_timeout;
 	time_t			 backoff_cutoff;
 	TAILQ_HEAD(, reject_elem) reject_list;
-	char			*resolv_tail;
 	char			*filename;
 	char			*server_name;
 };
@@ -130,6 +129,8 @@ struct interface_info {
 	int			 rdomain;
 	int			 flags;
 #define IFI_IN_CHARGE		0x01
+#define IFI_AUTOCONF		0x02
+	uint32_t		 mtu;
 	struct dhcp_packet	 recv_packet;
 	struct dhcp_packet	 sent_packet;
 	int			 sent_packet_length;
@@ -148,6 +149,7 @@ struct interface_info {
 	struct client_lease	*offer;
 	char			*offer_src;
 	struct proposal		*configured;
+	struct unwind_info	*unwind_info;
 	struct client_lease_tq	 lease_db;
 };
 
@@ -160,13 +162,13 @@ int			 pack_options(unsigned char *, int,
 struct option_data	*unpack_options(struct dhcp_packet *);
 char			*pretty_print_option(unsigned int, struct option_data *,
     int);
-char			*pretty_print_domain_search(unsigned char *, size_t);
 char			*pretty_print_string(unsigned char *, size_t, int);
-void			 pretty_print_classless_routes(unsigned char *, size_t,
-    unsigned char *, size_t);
 char			*code_to_name(int);
 char			*code_to_format(int);
+int			 code_to_action(int, int);
 int			 name_to_code(char *);
+void			 merge_option_data(struct option_data *,
+    struct option_data *, struct option_data *);
 
 /* conflex.c */
 extern int	 lexline, lexchar;
@@ -179,10 +181,10 @@ int		 peek_token(char **, FILE *);
 /* parse.c */
 void		 skip_to_semi(FILE *);
 int		 parse_semi(FILE *);
-int		 parse_string(FILE *, unsigned int *, char **);
+int		 parse_string(FILE *, char **);
 int		 parse_ip_addr(FILE *, struct in_addr *);
 int		 parse_cidr(FILE *, unsigned char *);
-int		 parse_number(FILE *, unsigned char *, char);
+int		 parse_number(FILE *, long long *, long long, long long);
 int		 parse_boolean(FILE *, unsigned char *);
 void		 parse_warn(char *);
 
@@ -224,6 +226,7 @@ void		 bootreply(struct interface_info *, struct option_data *,
 void		 free_client_lease(struct client_lease *);
 void		 routefd_handler(struct interface_info *, int);
 void		 state_preboot(struct interface_info *);
+char		*rfc1035_as_string(unsigned char *, size_t);
 
 /* packet.c */
 void		 assemble_eh_header(struct ether_addr, struct ether_header *);
@@ -237,16 +240,14 @@ uint32_t	 wrapsum(uint32_t);
 /* clparse.c */
 void		 init_config(void);
 void		 read_conf(char *, char *, struct ether_addr *);
-void		 read_lease_db(char *, struct client_lease_tq *);
+void		 read_lease_db(struct client_lease_tq *);
 
 /* kroute.c */
 unsigned int	 extract_classless_route(uint8_t *, unsigned int,
     in_addr_t *, in_addr_t *, in_addr_t *);
-void		 delete_address(struct in_addr);
-void		 set_resolv_conf(char *, uint8_t *, unsigned int,
-    uint8_t *, unsigned int);
 void		 write_resolv_conf(void);
-void		 set_mtu(int, uint16_t);
-void		 set_address(char *, struct in_addr, struct in_addr);
-void		 set_routes(struct in_addr, struct in_addr, uint8_t *,
-    unsigned int);
+
+void		 propose(struct proposal *);
+void		 revoke_proposal(struct proposal *);
+
+void		 tell_unwind(struct unwind_info *, int);

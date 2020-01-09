@@ -1,16 +1,14 @@
-# $OpenBSD: Makefile,v 1.9 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.12 2019/06/23 22:07:39 patrick Exp $
 
 LIB=	LLVMCodeGen
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=-I${LLVM_SRC}/include/llvm/CodeGen
 CPPFLAGS+=-I${LLVM_SRC}/include/llvm/CodeGen/PBQP
 
-.include <bsd.own.mk>
-SRCS=	AggressiveAntiDepBreaker.cpp \
+SRCS+=	AggressiveAntiDepBreaker.cpp \
 	AllocationOrder.cpp \
-	Analysis.cpp \
+	CodeGenAnalysis.cpp \
 	AtomicExpandPass.cpp \
 	BasicTargetTransformInfo.cpp \
 	BranchFolding.cpp \
@@ -47,6 +45,7 @@ SRCS=	AggressiveAntiDepBreaker.cpp \
 	InlineSpiller.cpp \
 	InterferenceCache.cpp \
 	InterleavedAccessPass.cpp \
+	InterleavedLoadCombinePass.cpp \
 	IntrinsicLowering.cpp \
 	LLVMTargetMachine.cpp \
 	LatencyPriorityQueue.cpp \
@@ -67,7 +66,7 @@ SRCS=	AggressiveAntiDepBreaker.cpp \
 	LiveVariables.cpp \
 	LocalStackSlotAllocation.cpp \
 	LoopTraversal.cpp \
-	LowLevelType.cpp \
+	CodeGenLowLevelType.cpp \
 	LowerEmuTLS.cpp \
 	MachineBasicBlock.cpp \
 	MachineBlockFrequencyInfo.cpp \
@@ -91,7 +90,6 @@ SRCS=	AggressiveAntiDepBreaker.cpp \
 	MachineOperand.cpp \
 	MachineOptimizationRemarkEmitter.cpp \
 	MachineOutliner.cpp \
-	MachinePassRegistry.cpp \
 	MachinePipeliner.cpp \
 	MachinePostDominators.cpp \
 	MachineRegisterInfo.cpp \
@@ -172,9 +170,12 @@ SRCS=	AggressiveAntiDepBreaker.cpp \
 	WinEHPrepare.cpp \
 	XRayInstrumentation.cpp
 
+CodeGenAnalysis.cpp:
+	ln -s ${LLVM_SRCS}/lib/CodeGen/Analysis.cpp $@
+
+CodeGenLowLevelType.cpp:
+	ln -s ${LLVM_SRCS}/lib/CodeGen/LowLevelType.cpp $@
+
 .PATH:	${.CURDIR}/../../../llvm/lib/CodeGen
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= CodeGenAnalysis.cpp CodeGenLowLevelType.cpp

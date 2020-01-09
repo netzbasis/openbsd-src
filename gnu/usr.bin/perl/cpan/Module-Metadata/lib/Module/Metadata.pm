@@ -1,6 +1,6 @@
 # -*- mode: cperl; tab-width: 8; indent-tabs-mode: nil; basic-offset: 2 -*-
-# vim:ts=8:sw=2:et:sta:sts=2
-package Module::Metadata; # git description: v1.000030-2-g52f466c
+# vim:ts=8:sw=2:et:sta:sts=2:tw=78
+package Module::Metadata; # git description: v1.000035-3-gaa51be1
 # ABSTRACT: Gather package and POD information from perl module files
 
 # Adapted from Perl-licensed code originally distributed with
@@ -14,7 +14,7 @@ sub __clean_eval { eval $_[0] }
 use strict;
 use warnings;
 
-our $VERSION = '1.000031'; # TRIAL
+our $VERSION = '1.000036';
 
 use Carp qw/croak/;
 use File::Spec;
@@ -214,7 +214,7 @@ sub new_from_module {
       unless defined $args{version};
 
     croak "provides() does not support version '$args{version}' metadata"
-        unless grep { $args{version} eq $_ } qw/1.4 2/;
+        unless grep $args{version} eq $_, qw/1.4 2/;
 
     $args{prefix} = 'lib' unless defined $args{prefix};
 
@@ -260,8 +260,8 @@ sub new_from_module {
     # separating into primary & alternative candidates
     my( %prime, %alt );
     foreach my $file (@files) {
-      my $mapped_filename = File::Spec::Unix->abs2rel( $file, $dir );
-      my @path = split( /\//, $mapped_filename );
+      my $mapped_filename = File::Spec->abs2rel( $file, $dir );
+      my @path = File::Spec->splitdir( $mapped_filename );
       (my $prime_package = join( '::', @path )) =~ s/\.pm$//;
 
       my $pm_info = $class->new_from_file( $file );
@@ -411,15 +411,29 @@ sub _init {
   }
   $self->_parse_fh($handle);
 
+  @{$self->{packages}} = __uniq(@{$self->{packages}});
+
   unless($self->{module} and length($self->{module})) {
-    my ($v, $d, $f) = File::Spec->splitpath($self->{filename});
-    if($f =~ /\.pm$/) {
+    # CAVEAT (possible TODO): .pmc files not treated the same as .pm
+    if ($self->{filename} =~ /\.pm$/) {
+      my ($v, $d, $f) = File::Spec->splitpath($self->{filename});
       $f =~ s/\..+$//;
-      my @candidates = grep /$f$/, @{$self->{packages}};
-      $self->{module} = shift(@candidates); # punt
+      my @candidates = grep /(^|::)$f$/, @{$self->{packages}};
+      $self->{module} = shift(@candidates); # this may be undef
     }
     else {
-      $self->{module} = 'main';
+      # this seems like an atrocious heuristic, albeit marginally better than
+      # what was here before. It should be rewritten entirely to be more like
+      # "if it's not a .pm file, it's not require()able as a name, therefore
+      # name() should be undef."
+      if ((grep /main/, @{$self->{packages}})
+          or (grep /main/, keys %{$self->{versions}})) {
+        $self->{module} = 'main';
+      }
+      else {
+        # TODO: this should maybe default to undef instead
+        $self->{module} = $self->{packages}[0] || '';
+      }
     }
   }
 
@@ -440,6 +454,7 @@ sub _do_find_module {
     my $testfile = File::Spec->catfile($dir, $file);
     return [ File::Spec->rel2abs( $testfile ), $dir ]
       if -e $testfile and !-d _;  # For stuff like ExtUtils::xsubpp
+    # CAVEAT (possible TODO): .pmc files are not discoverable here
     $testfile .= '.pm';
     return [ File::Spec->rel2abs( $testfile ), $dir ]
       if -e $testfile;
@@ -649,6 +664,12 @@ sub _parse_fh {
   $self->{pod_headings} = \@pod;
 }
 
+sub __uniq (@)
+{
+    my (%seen, $key);
+    grep !$seen{ $key = $_ }++, @_;
+}
+
 {
 my $pn = 0;
 sub _evaluate_version_line {
@@ -797,10 +818,10 @@ sub pod {
 sub is_indexable {
   my ($self, $package) = @_;
 
-  my @indexable_packages = grep { $_ ne 'main' } $self->packages_inside;
+  my @indexable_packages = grep $_ ne 'main', $self->packages_inside;
 
   # check for specific package, if provided
-  return !! grep { $_ eq $package } @indexable_packages if $package;
+  return !! grep $_ eq $package, @indexable_packages if $package;
 
   # otherwise, check for any indexable packages at all
   return !! @indexable_packages;
@@ -820,7 +841,7 @@ Module::Metadata - Gather package and POD information from perl module files
 
 =head1 VERSION
 
-version 1.000031
+version 1.000036
 
 =head1 SYNOPSIS
 
@@ -1037,7 +1058,7 @@ There is also a mailing list available for users of this distribution, at
 L<http://lists.perl.org/list/cpan-workers.html>.
 
 There is also an irc channel available for users of this distribution, at
-L<irc://irc.perl.org/#toolchain>.
+L<C<#toolchain> on C<irc.perl.org>|irc://irc.perl.org/#toolchain>.
 
 =head1 AUTHOR
 
@@ -1049,7 +1070,7 @@ assistance from David Golden (xdg) <dagolden@cpan.org>.
 
 =head1 CONTRIBUTORS
 
-=for stopwords Karen Etheridge David Golden Vincent Pit Matt S Trout Chris Nehren Graham Knop Olivier Mengué Tomas Doran Tatsuhiko Miyagawa tokuhirom Peter Rabbitson Steve Hay Josh Jore Craig A. Berry Mitchell Steinbrunner Edward Zborowski Gareth Harper James Raspass Jerry D. Hedden 'BinGOs' Williams Kent Fredric
+=for stopwords Karen Etheridge David Golden Vincent Pit Matt S Trout Chris Nehren Graham Knop Olivier Mengué Tomas Doran tokuhirom Christian Walde Tatsuhiko Miyagawa Peter Rabbitson Steve Hay Jerry D. Hedden Craig A. Berry Mitchell Steinbrunner Edward Zborowski Gareth Harper James Raspass 'BinGOs' Williams Josh Jore Kent Fredric
 
 =over 4
 
@@ -1087,11 +1108,15 @@ Tomas Doran <bobtfish@bobtfish.net>
 
 =item *
 
-Tatsuhiko Miyagawa <miyagawa@bulknews.net>
+tokuhirom <tokuhirom@gmail.com>
 
 =item *
 
-tokuhirom <tokuhirom@gmail.com>
+Christian Walde <walde.christian@googlemail.com>
+
+=item *
+
+Tatsuhiko Miyagawa <miyagawa@bulknews.net>
 
 =item *
 
@@ -1103,11 +1128,15 @@ Steve Hay <steve.m.hay@googlemail.com>
 
 =item *
 
-Josh Jore <jjore@cpan.org>
+Jerry D. Hedden <jdhedden@cpan.org>
 
 =item *
 
 Craig A. Berry <cberry@cpan.org>
+
+=item *
+
+Craig A. Berry <craigberry@mac.com>
 
 =item *
 
@@ -1131,11 +1160,11 @@ James Raspass <jraspass@gmail.com>
 
 =item *
 
-Jerry D. Hedden <jdhedden@cpan.org>
+Chris 'BinGOs' Williams <chris@bingosnet.co.uk>
 
 =item *
 
-Chris 'BinGOs' Williams <chris@bingosnet.co.uk>
+Josh Jore <jjore@cpan.org>
 
 =item *
 

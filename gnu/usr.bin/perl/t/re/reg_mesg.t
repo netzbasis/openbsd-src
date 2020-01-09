@@ -4,28 +4,38 @@ $|=1;   # outherwise things get mixed up in output
 
 BEGIN {
 	chdir 't' if -d 't';
-	@INC = qw '../lib ../ext/re';
 	require './test.pl';
-	skip_all_without_unicode_tables();
+    set_up_inc( qw '../lib ../ext/re' );
 	eval 'require Config'; # assume defaults if this fails
 }
+
+skip_all_without_unicode_tables();
 
 use strict;
 use open qw(:utf8 :std);
 
-##
+# Kind of a kludge to mark warnings to be expected only if we are testing
+# under "use re 'strict'"
+my $only_strict_marker = ':expected_only_under_strict';
+
 ## If the markers used are changed (search for "MARKER1" in regcomp.c),
 ## update only these two regexs, and leave the {#} in the @death/@warning
 ## arrays below. The {#} is a meta-marker -- it marks where the marker should
 ## go.
-##
-## Returns empty string if that is what is expected.  Otherwise, handles
-## either a scalar, turning it into a single element array; or a ref to an
-## array, adjusting each element.  If called in array context, returns an
-## array, otherwise the join of all elements
 
-sub fixup_expect {
-    my $expect_ref = shift;
+sub fixup_expect ($$) {
+
+    # Fixes up the expected results by inserting the boiler plate text.
+    # Returns empty string if that is what is expected.  Otherwise, handles
+    # either a scalar, turning it into a single element array; or a ref to an
+    # array, adjusting each element.  If called in array context, returns an
+    # array, otherwise the join of all elements.
+
+    # The string $only_strict_marker will be removed from any expect line it
+    # begins, and if $strict is not true, that expect line will be removed
+    # from the output (hence won't be expected)
+
+    my ($expect_ref, $strict) = @_;
     return "" if $expect_ref eq "";
 
     my @expect;
@@ -36,12 +46,23 @@ sub fixup_expect {
         @expect = $expect_ref;
     }
 
+    my @new_expect;
     foreach my $element (@expect) {
-        $element =~ s/{\#}/in regex; marked by <-- HERE in/;
-        $element =~ s/{\#}/ <-- HERE /;
+        $element =~ s/\{\#\}/in regex; marked by <-- HERE in/;
+        $element =~ s/\{\#\}/ <-- HERE /;
         $element .= " at ";
+        next if $element =~ s/ ^ $only_strict_marker \s* //x && ! $strict;
+        push @new_expect, $element;
     }
-    return wantarray ? @expect : join "", @expect;
+    return wantarray ? @new_expect : join "", @new_expect;
+}
+
+sub add_markers {
+    my ($element)= @_;
+    $element =~ s/ at .* line \d+\.?\n$//;
+    $element =~ s/in regex; marked by <-- HERE in/{#}/;
+    $element =~ s/ <-- HERE /{#}/;
+    return $element;
 }
 
 ## Because we don't "use utf8" in this file, we need to do some extra legwork
@@ -81,7 +102,7 @@ sub mark_as_utf8 {
     return @ret;
 }
 
-my $inf_m1 = ($Config::Config{reg_infty} || 32767) - 1;
+my $inf_m1 = ($Config::Config{reg_infty} || 65535) - 1;
 my $inf_p1 = $inf_m1 + 2;
 
 my $B_hex = sprintf("\\x%02X", ord "B");
@@ -93,14 +114,21 @@ my $high_mixed_digit = ('A' lt '0') ? '0' : 'A';
 my $colon_hex = sprintf "%02X", ord(":");
 my $tab_hex = sprintf "%02X", ord("\t");
 
-##
-## Key-value pairs of code/error of code that should have fatal errors.
-##
+# Key-value pairs of strings eval'd as patterns => warn/error messages that
+# they should generate.  In some cases, the value is an array of multiple
+# messages.  Some groups have the message(s) be default on; others, default
+# off.  This can be overridden on an individual key basis by preceding the
+# pattern string with either 'default_on' or 'default_off'
+#
+# The first set are those that should be fatal errors.
+
+my $bug133423 = "(?[(?^:(?[\\\x00]))\\]\x00|2[^^]\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80])R.\\670";
+
 my @death =
 (
  '/[[=foo=]]/' => 'POSIX syntax [= =] is reserved for future extensions {#} m/[[=foo=]{#}]/',
 
- '/(?<= .*)/' =>  'Variable length lookbehind not implemented in regex m/(?<= .*)/',
+ '/(?<= .*)/' =>  'Lookbehind longer than 255 not implemented in regex m/(?<= .*)/',
 
  '/(?<= x{1000})/' => 'Lookbehind longer than 255 not implemented in regex m/(?<= x{1000})/',
 
@@ -200,13 +228,8 @@ my @death =
  '/\b{gc}/' => "'gc' is an unknown bound type {#} m/\\b{gc{#}}/",
  '/\B{gc}/' => "'gc' is an unknown bound type {#} m/\\B{gc{#}}/",
 
-
  '/(?[[[::]]])/' => "Unexpected ']' with no following ')' in (?[... {#} m/(?[[[::]]{#}])/",
  '/(?[[[:w:]]])/' => "Unexpected ']' with no following ')' in (?[... {#} m/(?[[[:w:]]{#}])/",
- '/(?[[:w:]])/' => "",
- '/[][[:alpha:]]' => "",    # [perl #127581]
- '/([.].*)[.]/'   => "",    # [perl #127582]
- '/[.].*[.]/'     => "",    # [perl #127604]
  '/(?[a])/' =>  'Unexpected character {#} m/(?[a{#}])/',
  '/(?[ + \t ])/' => 'Unexpected binary operator \'+\' with no preceding operand {#} m/(?[ +{#} \t ])/',
  '/(?[ \cK - ( + \t ) ])/' => 'Unexpected binary operator \'+\' with no preceding operand {#} m/(?[ \cK - ( +{#} \t ) ])/',
@@ -215,10 +238,10 @@ my @death =
  '/(?[ \0004 ])/' => 'Need exactly 3 octal digits {#} m/(?[ \0004 {#}])/',
  '/(?[ \05 ])/' => 'Need exactly 3 octal digits {#} m/(?[ \05 {#}])/',
  '/(?[ \o{1038} ])/' => 'Non-octal character {#} m/(?[ \o{1038{#}} ])/',
- '/(?[ \o{} ])/' => 'Number with no digits {#} m/(?[ \o{}{#} ])/',
+ '/(?[ \o{} ])/' => 'Empty \o{} {#} m/(?[ \o{}{#} ])/',
  '/(?[ \x{defg} ])/' => 'Non-hex character {#} m/(?[ \x{defg{#}} ])/',
  '/(?[ \xabcdef ])/' => 'Use \\x{...} for more than two hex characters {#} m/(?[ \xabc{#}def ])/',
- '/(?[ \x{} ])/' => 'Number with no digits {#} m/(?[ \x{}{#} ])/',
+ '/(?[ \x{} ])/' => 'Empty \x{} {#} m/(?[ \x{}{#} ])/',
  '/(?[ \cK + ) ])/' => 'Unexpected \')\' {#} m/(?[ \cK + ){#} ])/',
  '/(?[ \cK + ])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[ \cK + {#}])/',
  '/(?[ ( ) ])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[ ( ){#} ])/',
@@ -238,14 +261,14 @@ my @death =
  'm/(?[[a-\pM]])/' => 'False [] range "a-\pM" {#} m/(?[[a-\pM{#}]])/',
  'm/(?[[\pM-x]])/' => 'False [] range "\pM-" {#} m/(?[[\pM-{#}x]])/',
  'm/(?[[^\N{LATIN CAPITAL LETTER A WITH MACRON AND GRAVE}]])/' => '\N{} in inverted character class or as a range end-point is restricted to one character {#} m/(?[[^\N{U+100.300{#}}]])/',
- 'm/(?[ \p{Digit} & (?(?[ \p{Thai} | \p{Lao} ]))])/' => 'Sequence (?(...) not recognized {#} m/(?[ \p{Digit} & (?({#}?[ \p{Thai} | \p{Lao} ]))])/',
- 'm/(?[ \p{Digit} & (?:(?[ \p{Thai} | \p{Lao} ]))])/' => 'Expecting \'(?flags:(?[...\' {#} m/(?[ \p{Digit} & (?{#}:(?[ \p{Thai} | \p{Lao} ]))])/',
+ 'm/(?[ \p{Digit} & (?^(?[ \p{Thai} | \p{Lao} ]))])/' => 'Sequence (?^(...) not recognized {#} m/(?[ \p{Digit} & (?^({#}?[ \p{Thai} | \p{Lao} ]))])/',
+ 'm/(?[ \p{Digit} & (?(?[ \p{Thai} | \p{Lao} ]))])/' => 'Unexpected character {#} m/(?[ \p{Digit} & (?{#}(?[ \p{Thai} | \p{Lao} ]))])/',
  'm/\o{/' => 'Missing right brace on \o{ {#} m/\o{{#}/',
  'm/\o/' => 'Missing braces on \o{} {#} m/\o{#}/',
- 'm/\o{}/' => 'Number with no digits {#} m/\o{}{#}/',
+ 'm/\o{}/' => 'Empty \o{} {#} m/\o{}{#}/',
  'm/[\o{]/' => 'Missing right brace on \o{ {#} m/[\o{{#}]/',
  'm/[\o]/' => 'Missing braces on \o{} {#} m/[\o{#}]/',
- 'm/[\o{}]/' => 'Number with no digits {#} m/[\o{}{#}]/',
+ 'm/[\o{}]/' => 'Empty \o{} {#} m/[\o{}{#}]/',
  'm/(?^-i:foo)/' => 'Sequence (?^-...) not recognized {#} m/(?^-{#}i:foo)/',
  'm/\87/' => 'Reference to nonexistent group {#} m/\87{#}/',
  'm/a\87/' => 'Reference to nonexistent group {#} m/a\87{#}/',
@@ -263,6 +286,17 @@ my @death =
  'm/\cß/' => "Character following \"\\c\" must be printable ASCII",
  '/((?# This is a comment in the middle of a token)?:foo)/' => 'In \'(?...)\', the \'(\' and \'?\' must be adjacent {#} m/((?# This is a comment in the middle of a token)?{#}:foo)/',
  '/((?# This is a comment in the middle of a token)*FAIL)/' => 'In \'(*VERB...)\', the \'(\' and \'*\' must be adjacent {#} m/((?# This is a comment in the middle of a token)*{#}FAIL)/',
+ '/((?# This is a comment in the middle of a token)*script_run:foo)/' => 'In \'(*...)\', the \'(\' and \'*\' must be adjacent {#} m/((?# This is a comment in the middle of a token)*{#}script_run:foo)/',
+
+ '/(*script_runfoo)/' => 'Unknown \'(*...)\' construct \'script_runfoo\' {#} m/(*script_runfoo){#}/',
+ '/(*srfoo)/' => 'Unknown \'(*...)\' construct \'srfoo\' {#} m/(*srfoo){#}/',
+ '/(*script_run)/' => '\'(*script_run\' requires a terminating \':\' {#} m/(*script_run{#})/',
+ '/(*sr)/' => '\'(*sr\' requires a terminating \':\' {#} m/(*sr{#})/',
+ '/(*pla)/' => '\'(*pla\' requires a terminating \':\' {#} m/(*pla{#})/',
+ '/(*script_run/' => 'Unterminated \'(*...\' construct {#} m/(*script_run{#}/',
+ '/(*sr/' => 'Unterminated \'(*...\' construct {#} m/(*sr{#}/',
+ '/(*script_run:foo/' => 'Unterminated \'(*...\' argument {#} m/(*script_run:foo{#}/',
+ '/(*sr:foo/' => 'Unterminated \'(*...\' argument {#} m/(*sr:foo{#}/',
  '/(?[\ &!])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[\ &!{#}])/',    # [perl #126180]
  '/(?[\ +!])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[\ +!{#}])/',    # [perl #126180]
  '/(?[\ -!])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[\ -!{#}])/',    # [perl #126180]
@@ -270,13 +304,27 @@ my @death =
  '/(?[\ |!])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[\ |!{#}])/',    # [perl #126180]
  '/(?[()-!])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[(){#}-!])/',    # [perl #126204]
  '/(?[!()])/' => 'Incomplete expression within \'(?[ ])\' {#} m/(?[!(){#}])/',      # [perl #126404]
+ '/\w{/' => 'Unescaped left brace in regex is illegal here {#} m/\w{{#}/',
+ '/\q{/' => 'Unescaped left brace in regex is illegal here {#} m/\q{{#}/',
+ '/\A{/' => 'Unescaped left brace in regex is illegal here {#} m/\A{{#}/',
+ '/.{, 4 }/' => 'Unescaped left brace in regex is illegal here {#} m/.{{#}, 4 }/',
+ '/[x]{, 4}/'       => 'Unescaped left brace in regex is illegal here {#} m/[x]{{#}, 4}/',
+ '/\p{Latin}{,4 }/' => 'Unescaped left brace in regex is illegal here {#} m/\p{Latin}{{#},4 }/',
  '/(?<=/' => 'Sequence (?... not terminated {#} m/(?<={#}/',                        # [perl #128170]
+ '/\p{vertical  tab}/' => 'Can\'t find Unicode property definition "vertical  tab" {#} m/\\p{vertical  tab}{#}/', # [perl #132055]
+ "/$bug133423/" => "Operand with no preceding operator {#} m/(?[(?^:(?[\\ ]))\\{#}] |2[^^]\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80])R.\\670/",
+ '/[^/' => 'Unmatched [ {#} m/[{#}^/', # [perl #133767]
+ '/\p{Is_Other_Alphabetic=F}/ ' => 'Can\'t find Unicode property definition "Is_Other_Alphabetic=F" {#} m/\p{Is_Other_Alphabetic=F}{#}/',
+ '/\p{Is_Other_Alphabetic=F}/ ' => 'Can\'t find Unicode property definition "Is_Other_Alphabetic=F" {#} m/\p{Is_Other_Alphabetic=F}{#}/',
+ '/\x{100}(?(/' => 'Unknown switch condition (?(...)) {#} m/\\x{100}(?({#}/', # [perl #133896]
+ '/(?[\N{KEYCAP DIGIT NINE}/' => '\N{} in inverted character class or as a range end-point is restricted to one character {#} m/(?[\\N{U+39.FE0F.20E3{#}}/', # [perl #133988]
 );
 
-# These are messages that are warnings when not strict; death under 'use re
-# "strict".  See comment before @warnings as to why some have a \x{100} in
-# them.  This array has 3 elements per construct.  [0] is the regex to use;
-# [1] is the message under no strict, and [2] is under strict.
+# These are messages that are death under 'use re "strict"', and may or may
+# not warn otherwise.  See comment before @warning as to why some have a
+# \x{100} in them.  This array has 3 elements per construct.  [0] is the regex
+# to use; [1] is the message under no strict (empty to not warn), and [2] is
+# under strict.
 my @death_only_under_strict = (
     'm/\xABC/' => "",
                => 'Use \x{...} for more than two hex characters {#} m/\xABC{#}/',
@@ -296,9 +344,9 @@ my @death_only_under_strict = (
     'm/[\o{789}]/' => 'Non-octal character \'8\'.  Resolved as "\o{7}"',
                    => 'Non-octal character {#} m/[\o{78{#}9}]/',
     'm/\x{}/' => "",
-              => 'Number with no digits {#} m/\x{}{#}/',
+              => 'Empty \x{} {#} m/\x{}{#}/',
     'm/[\x{}]/' => "",
-                => 'Number with no digits {#} m/[\x{}{#}]/',
+                => 'Empty \x{} {#} m/[\x{}{#}]/',
     'm/\x{ABCDEFG}/' => 'Illegal hexadecimal digit \'G\' ignored',
                      => 'Non-hex character {#} m/\x{ABCDEFG{#}}/',
     'm/[\x{ABCDEFG}]/' => 'Illegal hexadecimal digit \'G\' ignored',
@@ -351,11 +399,27 @@ my @death_only_under_strict = (
                                      => 'False [] range "[:digit:]-" {#} m/[[:digit:]-{#}[:alpha:]]\x{100}/',
     '/[a\zb]\x{100}/' => 'Unrecognized escape \z in character class passed through {#} m/[a\z{#}b]\x{100}/',
                       => 'Unrecognized escape \z in character class {#} m/[a\z{#}b]\x{100}/',
+    '/[ab]/'          => "",
+                        => 'Literal vertical space in [] is illegal except under /x {#} m/[a{#}b]/',
+    '/:{4,a}/'     => 'Unescaped left brace in regex is passed through {#} m/:{{#}4,a}/',
+                   => 'Unescaped left brace in regex is illegal here {#} m/:{{#}4,a}/',
+    '/xa{3\,4}y/'  => 'Unescaped left brace in regex is passed through {#} m/xa{{#}3\,4}y/',
+                   => 'Unescaped left brace in regex is illegal here {#} m/xa{{#}3\,4}y/',
+    '/\\${[^\\}]*}/' => 'Unescaped left brace in regex is passed through {#} m/\\${{#}[^\\}]*}/',
+                     => 'Unescaped left brace in regex is illegal here {#} m/\\${{#}[^\\}]*}/',
+    '/.{/'         => 'Unescaped left brace in regex is passed through {#} m/.{{#}/',
+                   => 'Unescaped left brace in regex is illegal here {#} m/.{{#}/',
+    '/[x]{/'       => 'Unescaped left brace in regex is passed through {#} m/[x]{{#}/',
+                   => 'Unescaped left brace in regex is illegal here {#} m/[x]{{#}/',
+    '/\p{Latin}{/' => 'Unescaped left brace in regex is passed through {#} m/\p{Latin}{{#}/',
+                   => 'Unescaped left brace in regex is illegal here {#} m/\p{Latin}{{#}/',
+    '/\x{100}\x/'  => "",
+                   => "Empty \\x {#} m/\\x{100}\\x{#}/",
 );
 
 # These need the character 'ネ' as a marker for mark_as_utf8()
 my @death_utf8 = mark_as_utf8(
- '/ネ(?<= .*)/' =>  'Variable length lookbehind not implemented in regex m/ネ(?<= .*)/',
+ '/ネ(?<= .*)/' =>  'Lookbehind longer than 255 not implemented in regex m/ネ(?<= .*)/',
 
  '/(?<= ネ{1000})/' => 'Lookbehind longer than 255 not implemented in regex m/(?<= ネ{1000})/',
 
@@ -401,7 +465,6 @@ my @death_utf8 = mark_as_utf8(
  '/ネ[\x{ネ]/' => 'Missing right brace on \x{} {#} m/ネ[\x{{#}ネ]/',
 
  '/ネ\o{ネ/' => 'Missing right brace on \o{ {#} m/ネ\o{{#}ネ/',
- '/ネ[[:ネ:]]ネ/' => "",
 
  '/[ネ-a]ネ/' => 'Invalid [] range "ネ-a" {#} m/[ネ-a{#}]ネ/',
 
@@ -411,7 +474,6 @@ my @death_utf8 = mark_as_utf8(
  '/ネ(?[[[:ネ: ])ネ/' => "Syntax error in (?[...]) {#} m/ネ(?[[[:ネ: ])ネ{#}/",
  '/ネ(?[[[::]]])ネ/' => "Unexpected ']' with no following ')' in (?[... {#} m/ネ(?[[[::]]{#}])ネ/",
  '/ネ(?[[[:ネ:]]])ネ/' => "Unexpected ']' with no following ')' in (?[... {#} m/ネ(?[[[:ネ:]]{#}])ネ/",
- '/ネ(?[[:ネ:]])ネ/' => "",
  '/ネ(?[ネ])ネ/' =>  'Unexpected character {#} m/ネ(?[ネ{#}])ネ/',
  '/ネ(?[ + [ネ] ])/' => 'Unexpected binary operator \'+\' with no preceding operand {#} m/ネ(?[ +{#} [ネ] ])/',
  '/ネ(?[ \cK - ( + [ネ] ) ])/' => 'Unexpected binary operator \'+\' with no preceding operand {#} m/ネ(?[ \cK - ( +{#} [ネ] ) ])/',
@@ -419,14 +481,14 @@ my @death_utf8 = mark_as_utf8(
  '/ネ(?[ \cK [ネ] ])ネ/' => 'Operand with no preceding operator {#} m/ネ(?[ \cK [ネ{#}] ])ネ/',
  '/ネ(?[ \0004 ])ネ/' => 'Need exactly 3 octal digits {#} m/ネ(?[ \0004 {#}])ネ/',
  '/(?[ \o{ネ} ])ネ/' => 'Non-octal character {#} m/(?[ \o{ネ{#}} ])ネ/',
- '/ネ(?[ \o{} ])ネ/' => 'Number with no digits {#} m/ネ(?[ \o{}{#} ])ネ/',
+ '/ネ(?[ \o{} ])ネ/' => 'Empty \o{} {#} m/ネ(?[ \o{}{#} ])ネ/',
  '/(?[ \x{ネ} ])ネ/' => 'Non-hex character {#} m/(?[ \x{ネ{#}} ])ネ/',
  '/(?[ \p{ネ} ])/' => 'Can\'t find Unicode property definition "ネ" {#} m/(?[ \p{ネ}{#} ])/',
  '/(?[ \p{ ネ = bar } ])/' => 'Can\'t find Unicode property definition "ネ = bar" {#} m/(?[ \p{ ネ = bar }{#} ])/',
  '/ネ(?[ \t ]/' => "Unexpected ']' with no following ')' in (?[... {#} m/ネ(?[ \\t ]{#}/",
  '/(?[ \t + \e # ネ This was supposed to be a comment ])/' =>
     "Syntax error in (?[...]) {#} m/(?[ \\t + \\e # ネ This was supposed to be a comment ]){#}/",
- 'm/(*ネ)ネ/' => q<Unknown verb pattern 'ネ' {#} m/(*ネ){#}ネ/>,
+ 'm/(*ネ)ネ/' => q<Unknown '(*...)' construct 'ネ' {#} m/(*ネ){#}ネ/>,
  '/\cネ/' => "Character following \"\\c\" must be printable ASCII",
  '/\b{ネ}/' => "'ネ' is an unknown bound type {#} m/\\b{ネ{#}}/",
  '/\B{ネ}/' => "'ネ' is an unknown bound type {#} m/\\B{ネ{#}}/",
@@ -476,6 +538,7 @@ my @warning = (
     '/(?=a)*/' => '(?=a)* matches null string many times {#} m/(?=a)*{#}/',
     'my $x = \'\m\'; qr/a$x/' => 'Unrecognized escape \m passed through {#} m/a\m{#}/',
     '/\q/' => 'Unrecognized escape \q passed through {#} m/\q{#}/',
+    '/\q\p{Any}/' => 'Unrecognized escape \q passed through {#} m/\q{#}\p{Any}/',
 
     # These two tests do not include the marker, because regcomp.c no
     # longer knows where it goes by the time this warning is emitted.
@@ -548,6 +611,7 @@ my @warning = (
                                                'Assuming NOT a POSIX class since no blanks are allowed in one {#} m/[[   ^   {#}:   x d i g i t   :   ]   ]\x{100}/',
                                                'Assuming NOT a POSIX class since no blanks are allowed in one {#} m/[[   ^   :   {#}x d i g i t   :   ]   ]\x{100}/',
                                                'Assuming NOT a POSIX class since no blanks are allowed in one {#} m/[[   ^   :   x d i g i t   :   ]{#}   ]\x{100}/',
+                                               $only_strict_marker . 'Unescaped literal \']\' {#} m/[[   ^   :   x d i g i t   :   ]   ]{#}\x{100}/',
                             ],
     '/[foo:lower:]]\x{100}/' => 'Assuming NOT a POSIX class since it doesn\'t start with a \'[\' {#} m/[foo{#}:lower:]]\x{100}/',
     '/[[;upper;]]\x{100}/' => [ 'Assuming NOT a POSIX class since a semi-colon was found instead of a colon {#} m/[[;{#}upper;]]\x{100}/',
@@ -557,6 +621,15 @@ my @warning = (
                                   'Assuming NOT a POSIX class since a semi-colon was found instead of a colon {#} m/[foo;{#}punct;]]\x{100}/',
                                   'Assuming NOT a POSIX class since a semi-colon was found instead of a colon {#} m/[foo;punct;]{#}]\x{100}/',
                                 ],
+   '/[][[:alpha:]]/' => "",        # [perl #127581]
+   '/[][[:alpha:]\\@\\\\^_?]/' => "", # [perl #131522]
+    '/(?[[:w:]])/' => "",
+    '/([.].*)[.]/'   => "",    # [perl #127582]
+    '/[.].*[.]/'     => "",    # [perl #127604]
+    '/abc/xix' => "",
+    '/(?xmsixp:abc)/' => "",
+    '/(?xmsixp)abc/' => "",
+    '/(?xxxx:abc)/' => "",
 
 ); # See comments before this for why '\x{100}' is generally needed
 
@@ -571,6 +644,8 @@ my @warnings_utf8 = mark_as_utf8(
         'Useless (?g) - use /g modifier {#} m/utf8 ネ (?og{#}c) ネ/',
         'Useless (?c) - use /gc modifier {#} m/utf8 ネ (?ogc{#}) ネ/',
     ],
+   '/ネ[[:ネ:]]ネ/' => "",
+   '/ネ(?[[:ネ:]])ネ/' => "",
 
 );
 
@@ -598,6 +673,9 @@ my @warning_only_under_strict = (
     "/[A-$B_hex]/" => "Ranges of ASCII printables should be some subset of \"0-9\", \"A-Z\", or \"a-z\" {#} m/[A-$B_hex\{#}]/",
     "/[$low_mixed_alpha-$high_mixed_alpha]/" => "Ranges of ASCII printables should be some subset of \"0-9\", \"A-Z\", or \"a-z\" {#} m/[$low_mixed_alpha-$high_mixed_alpha\{#}]/",
     "/[$low_mixed_digit-$high_mixed_digit]/" => "Ranges of ASCII printables should be some subset of \"0-9\", \"A-Z\", or \"a-z\" {#} m/[$low_mixed_digit-$high_mixed_digit\{#}]/",
+    '/\b<GCB}/' => 'Unescaped literal \'}\' {#} m/\b<GCB}{#}/',
+    '/[ ]def]/' => 'Unescaped literal \']\' {#} m/[ ]def]{#}/',
+    '/(?)/' => 'Empty (?) without any modifiers {#} m/(?){#}/', # [perl #132851]
 );
 
 my @warning_utf8_only_under_strict = mark_as_utf8(
@@ -605,6 +683,9 @@ my @warning_utf8_only_under_strict = mark_as_utf8(
  '/ネ(?[ [ ᪉ - ᪐ ] ])/; #no latin1' => "Ranges of digits should be from the same group of 10 {#} m/ネ(?[ [ ᪉ - ᪐ {#}] ])/",
  '/ネ[᧙-᧚]/; #no latin1' => "Ranges of digits should be from the same group of 10 {#} m/ネ[᧙-᧚{#}]/",
  '/ネ(?[ [ ᧙ - ᧚ ] ])/; #no latin1' => "Ranges of digits should be from the same group of 10 {#} m/ネ(?[ [ ᧙ - ᧚ {#}] ])/",
+ '/ネ(?[ [ 𝟘 - 𝟡 ] ])/; #no latin1' => "",
+ '/ネ(?[ [ 𝟧 - 𝟱 ] ])/; #no latin1' => "Ranges of digits should be from the same group of 10 {#} m/ネ(?[ [ 𝟧 - 𝟱 {#}] ])/",
+ '/ネ(?[ [ 𝟧 - 𝟰 ] ])/; #no latin1' => "Ranges of digits should be from the same group of 10 {#} m/ネ(?[ [ 𝟧 - 𝟰 {#}] ])/",
 );
 
 push @warning_only_under_strict, @warning_utf8_only_under_strict;
@@ -615,17 +696,20 @@ my @experimental_regex_sets = (
     '/noutf8 ネ (?[ [\tネ] ])/' => 'The regex_sets feature is experimental {#} m/noutf8 ネ (?[{#} [\tネ] ])/',
 );
 
+my @experimental_script_run = (
+    '/(*script_run:paypal.com)/' => 'The script_run feature is experimental {#} m/(*script_run:{#}paypal.com)/',
+    'use utf8; /utf8 ネ (*script_run:ネ)/' => do { use utf8; 'The script_run feature is experimental {#} m/utf8 ネ (*script_run:{#}ネ)/' },
+    '/noutf8 ネ (*script_run:ネ)/' => 'The script_run feature is experimental {#} m/noutf8 ネ (*script_run:{#}ネ)/',
+);
+
 my @deprecated = (
-    '/\w{/' => 'Unescaped left brace in regex is deprecated, passed through {#} m/\w{{#}/',
-    '/\q{/' => [
-                 'Unrecognized escape \q{ passed through {#} m/\q{{#}/',
-                 'Unescaped left brace in regex is deprecated, passed through {#} m/\q{{#}/'
-               ],
-    '/:{4,a}/' => 'Unescaped left brace in regex is deprecated, passed through {#} m/:{{#}4,a}/',
-    '/abc/xix' => 'Having more than one /x regexp modifier is deprecated',
-    '/(?xmsixp:abc)/' => 'Having more than one /x regexp modifier is deprecated',
-    '/(?xmsixp)abc/' => 'Having more than one /x regexp modifier is deprecated',
-    '/(?xxxx:abc)/' => 'Having more than one /x regexp modifier is deprecated',
+ '/^{/'          => "",
+ '/foo|{/'       => "",
+ '/foo|^{/'      => "",
+ '/foo({bar)/'   => 'Unescaped left brace in regex is deprecated here (and will be fatal in Perl 5.32), passed through {#} m/foo({{#}bar)/',
+ '/foo(:?{bar)/' => "",
+ '/\s*{/'        => "",
+ '/a{3,4}{/'     => "",
 );
 
 for my $strict ("", "use re 'strict';") {
@@ -646,17 +730,33 @@ for my $strict ("", "use re 'strict';") {
         }
     }
     for (my $i = 0; $i < @death; $i += 2) {
-        my $regex = $death[$i];
-        my $expect = fixup_expect($death[$i+1]);
-        no warnings 'experimental::regex_sets';
-        no warnings 'experimental::re_strict';
+        my $regex = $death[$i] =~ s/ default_ (on | off) //rx;
+        my $expect = fixup_expect($death[$i+1], $strict);
+        if ($expect eq "") {
+            fail("$0: Internal error: '$death[$i]' should have an error message");
+        }
+        else {
+            no warnings 'experimental::regex_sets';
+            no warnings 'experimental::script_run';
+            no warnings 'experimental::re_strict';
+            no warnings 'experimental::alpha_assertions';
 
-        warning_is(sub {
+            warning_is(sub {
+                    my $meaning_of_life;
                     my $eval_string = "$strict $regex";
                     $_ = "x";
-                    eval $eval_string;
-                    like($@, qr/\Q$expect/, $eval_string);
-                }, undef, "... and died without any other warnings");
+                    eval "$eval_string; \$meaning_of_life = 42";
+                    ok (! defined $meaning_of_life, "$eval_string died");
+                    my $error= $@;
+                    if ($error =~ qr/\Q$expect/) {
+                        ok(1, "... and gave expected message");
+                    } else {
+                        ok(0,$eval_string);
+                        diag("Have: " . _q(add_markers($error)));
+                        diag("Want: " . _q($death[$i+1]));
+                    }
+                }, undef, "... and no other warnings");
+        }
     }
 }
 
@@ -670,6 +770,8 @@ for my $strict ("",  "no warnings 'experimental::re_strict'; use re 'strict';") 
     }
     else {
         for (my $i = 0; $i < @warning_only_under_strict; $i += 2) {
+
+            # (?[ ]) are always under strict
             if ($warning_only_under_strict[$i] =~ /\Q(?[/) {
                 push @warning_tests, $warning_only_under_strict[$i],  # The regex
                                     $warning_only_under_strict[$i+1];
@@ -689,26 +791,43 @@ for my $strict ("",  "no warnings 'experimental::re_strict'; use re 'strict';") 
         }
     }
 
-    foreach my $ref (\@warning_tests, \@experimental_regex_sets, \@deprecated) {
+    foreach my $ref (\@warning_tests,
+                     \@experimental_regex_sets,
+                     \@experimental_script_run,
+                     \@deprecated)
+    {
         my $warning_type;
         my $turn_off_warnings = "";
         my $default_on;
         if ($ref == \@warning_tests) {
             $warning_type = 'regexp, digit';
-            $turn_off_warnings = "no warnings 'experimental::regex_sets';";
+            $turn_off_warnings = "no warnings 'experimental::regex_sets';"
+                               . "no warnings 'experimental::script_run';";
             $default_on = $strict;
         }
         elsif ($ref == \@deprecated) {
             $warning_type = 'regexp, deprecated';
             $default_on = 1;
         }
-        else {
+        elsif ($ref == \@experimental_regex_sets) {
             $warning_type = 'experimental::regex_sets';
             $default_on = 1;
         }
+        elsif ($ref == \@experimental_script_run) {
+            $warning_type = 'experimental::script_run';
+            $default_on = 1;
+        }
+        else {
+            fail("$0: Internal error: Unexpected loop variable");
+        }
+
         for (my $i = 0; $i < @$ref; $i += 2) {
+            my $this_default_on = $default_on;
             my $regex = $ref->[$i];
-            my @expect = fixup_expect($ref->[$i+1]);
+            if ($regex =~ s/ default_ (on | off) //x) {
+                $this_default_on = $1 eq 'on';
+            }
+            my @expect = fixup_expect($ref->[$i+1], $strict);
 
             # A length-1 array with an empty warning means no warning gets
             # generated at all.
@@ -761,7 +880,7 @@ for my $strict ("",  "no warnings 'experimental::re_strict'; use re 'strict';") 
                                                         eval "$strict $regex" });
                         # Warning should be on as well if is testing
                         # '(?[...])' which turns on strict
-                        if ($default_on || grep { $_ =~ /\Q(?[/ } @expect ) {
+                        if ($this_default_on || grep { $_ =~ /\Q(?[/ } @expect ) {
                            ok @warns > 0, "... and the warning is on by default";
                         }
                         else {

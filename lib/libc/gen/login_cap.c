@@ -1,4 +1,4 @@
-/*	$OpenBSD: login_cap.c,v 1.35 2019/01/25 00:19:25 millert Exp $	*/
+/*	$OpenBSD: login_cap.c,v 1.38 2019/10/18 17:14:08 tedu Exp $	*/
 
 /*
  * Copyright (c) 2000-2004 Todd C. Miller <millert@openbsd.org>
@@ -80,20 +80,14 @@ static	int gsetrl(login_cap_t *, int, char *, int);
 login_cap_t *
 login_getclass(char *class)
 {
-	char *classfiles[2] = {NULL, NULL};
+	char *classfiles[2] = {_PATH_LOGIN_CONF, NULL};
 	login_cap_t *lc;
 	int res;
 
-	if (secure_path(_PATH_LOGIN_CONF) == 0)
-		classfiles[0] = _PATH_LOGIN_CONF;
-
-	if ((lc = malloc(sizeof(login_cap_t))) == NULL) {
+	if ((lc = calloc(1, sizeof(login_cap_t))) == NULL) {
 		syslog(LOG_ERR, "%s:%d malloc: %m", __FILE__, __LINE__);
 		return (0);
 	}
-
-	lc->lc_cap = 0;
-	lc->lc_style = 0;
 
 	if (class == NULL || class[0] == '\0')
 		class = LOGIN_DEFCLASS;
@@ -103,14 +97,6 @@ login_getclass(char *class)
 		free(lc);
 		return (0);
 	}
-
-	/*
-	 * Not having a login.conf file is not an error condition.
-	 * The individual routines deal reasonably with missing
-	 * capabilities and use default values.
-	 */
-	if (classfiles[0] == NULL)
-		return(lc);
 
 	if ((res = cgetent(&lc->lc_cap, classfiles, lc->lc_class)) != 0) {
 		lc->lc_cap = 0;
@@ -128,8 +114,15 @@ login_getclass(char *class)
 			syslog(LOG_ERR, "%s: unknown class", lc->lc_class);
 			break;
 		case -2:
+			/*
+			 * A missing login.conf file is not an error condition.
+			 * The individual routines deal reasonably with missing
+			 * capabilities and use default values.
+			 */
+			if (errno == ENOENT)
+				return (lc);
 			syslog(LOG_ERR, "%s: getting class information: %m",
-				lc->lc_class);
+			    lc->lc_class);
 			break;
 		case -3:
 			syslog(LOG_ERR, "%s: 'tc' reference loop",
@@ -596,6 +589,24 @@ setusercontext(login_cap_t *lc, struct passwd *pwd, uid_t uid, u_int flags)
 	if (pwd == NULL)
 		flags &= ~(LOGIN_SETGROUP|LOGIN_SETLOGIN);
 
+	/*
+	 * Verify that we haven't been given invalid values.
+	 */
+	if (flags & LOGIN_SETGROUP) {
+		if (pwd->pw_gid == -1) {
+			syslog(LOG_ERR, "setusercontext with invalid gid");
+			login_close(flc);
+			return (-1);
+		}
+	}
+	if (flags & LOGIN_SETUSER) {
+		if (uid == -1) {
+			syslog(LOG_ERR, "setusercontext with invalid uid");
+			login_close(flc);
+			return (-1);
+		}
+	}
+
 	if (flags & LOGIN_SETRESOURCES)
 		for (i = 0; r_list[i].name; ++i) 
 			if (gsetrl(lc, r_list[i].what, r_list[i].name,
@@ -605,7 +616,7 @@ setusercontext(login_cap_t *lc, struct passwd *pwd, uid_t uid, u_int flags)
 	if (flags & LOGIN_SETPRIORITY) {
 		p = login_getcapnum(lc, "priority", 0, 0);
 
-		if (setpriority(PRIO_PROCESS, 0, (int)p) < 0)
+		if (setpriority(PRIO_PROCESS, 0, (int)p) == -1)
 			syslog(LOG_ERR, "%s: setpriority: %m", lc->lc_class);
 	}
 
@@ -615,14 +626,14 @@ setusercontext(login_cap_t *lc, struct passwd *pwd, uid_t uid, u_int flags)
 	}
 
 	if (flags & LOGIN_SETGROUP) {
-		if (setresgid(pwd->pw_gid, pwd->pw_gid, pwd->pw_gid) < 0) {
+		if (setresgid(pwd->pw_gid, pwd->pw_gid, pwd->pw_gid) == -1) {
 			syslog(LOG_ERR, "setresgid(%u,%u,%u): %m",
 			    pwd->pw_gid, pwd->pw_gid, pwd->pw_gid);
 			login_close(flc);
 			return (-1);
 		}
 
-		if (initgroups(pwd->pw_name, pwd->pw_gid) < 0) {
+		if (initgroups(pwd->pw_name, pwd->pw_gid) == -1) {
 			syslog(LOG_ERR, "initgroups(%s,%u): %m",
 			    pwd->pw_name, pwd->pw_gid);
 			login_close(flc);
@@ -631,7 +642,7 @@ setusercontext(login_cap_t *lc, struct passwd *pwd, uid_t uid, u_int flags)
 	}
 
 	if (flags & LOGIN_SETLOGIN)
-		if (setlogin(pwd->pw_name) < 0) {
+		if (setlogin(pwd->pw_name) == -1) {
 			syslog(LOG_ERR, "setlogin(%s) failure: %m",
 			    pwd->pw_name);
 			login_close(flc);
@@ -639,7 +650,7 @@ setusercontext(login_cap_t *lc, struct passwd *pwd, uid_t uid, u_int flags)
 		}
 
 	if (flags & LOGIN_SETUSER) {
-		if (setresuid(uid, uid, uid) < 0) {
+		if (setresuid(uid, uid, uid) == -1) {
 			syslog(LOG_ERR, "setresuid(%u,%u,%u): %m",
 			    uid, uid, uid);
 			login_close(flc);
@@ -975,7 +986,7 @@ secure_path(char *path)
 	 * If not a regular file, or is owned/writeable by someone
 	 * other than root, quit.
 	 */
-	if (lstat(path, &sb) < 0) {
+	if (lstat(path, &sb) == -1) {
 		syslog(LOG_ERR, "cannot stat %s: %m", path);
 		return (-1);
 	} else if (!S_ISREG(sb.st_mode)) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.137 2018/11/21 17:07:07 claudio Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.142 2019/07/16 21:41:37 bluhm Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -50,6 +50,7 @@
 #include <sys/mbuf.h>
 #include <sys/task.h>
 #include <sys/pledge.h>
+#include <sys/pool.h>
 
 void	uipc_setaddr(const struct unpcb *, struct mbuf *);
 
@@ -72,6 +73,7 @@ void	unp_mark(struct fdpass *, int);
 void	unp_scan(struct mbuf *, void (*)(struct fdpass *, int));
 int	unp_nam2sun(struct mbuf *, struct sockaddr_un **, size_t *);
 
+struct pool unpcb_pool;
 /* list of sets of files that were sent over sockets that are now closed */
 SLIST_HEAD(,unp_deferral) unp_deferred = SLIST_HEAD_INITIALIZER(unp_deferred);
 
@@ -88,6 +90,13 @@ struct task unp_gc_task = TASK_INITIALIZER(unp_gc, NULL);
  */
 struct	sockaddr sun_noname = { sizeof(sun_noname), AF_UNIX };
 ino_t	unp_ino;			/* prototype for fake inode numbers */
+
+void
+unp_init(void)
+{
+	pool_init(&unpcb_pool, sizeof(struct unpcb), 0,
+	    IPL_NONE, 0, "unpcb", NULL);
+}
 
 void
 uipc_setaddr(const struct unpcb *unp, struct mbuf *nam)
@@ -108,6 +117,7 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
 {
 	struct unpcb *unp = sotounpcb(so);
+	struct unpcb *unp2;
 	struct socket *so2;
 	int error = 0;
 
@@ -141,6 +151,17 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 
 	case PRU_CONNECT2:
 		error = unp_connect2(so, (struct socket *)nam);
+		if (!error) {
+			unp->unp_connid.uid = p->p_ucred->cr_uid;
+			unp->unp_connid.gid = p->p_ucred->cr_gid;
+			unp->unp_connid.pid = p->p_p->ps_pid;
+			unp->unp_flags |= UNP_FEIDS;
+			unp2 = sotounpcb((struct socket *)nam);
+			unp2->unp_connid.uid = p->p_ucred->cr_uid;
+			unp2->unp_connid.gid = p->p_ucred->cr_gid;
+			unp2->unp_connid.pid = p->p_p->ps_pid;
+			unp2->unp_flags |= UNP_FEIDS;
+		}
 		break;
 
 	case PRU_DISCONNECT:
@@ -255,7 +276,8 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 				sbappend(so2, &so2->so_rcv, m);
 			so->so_snd.sb_mbcnt = so2->so_rcv.sb_mbcnt;
 			so->so_snd.sb_cc = so2->so_rcv.sb_cc;
-			sorwakeup(so2);
+			if (so2->so_rcv.sb_cc > 0)
+				sorwakeup(so2);
 			m = NULL;
 			break;
 
@@ -285,12 +307,10 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		    sb->st_mtim.tv_nsec =
 		    sb->st_ctim.tv_nsec = unp->unp_ctime.tv_nsec;
 		sb->st_ino = unp->unp_ino;
-		return (0);
+		break;
 	}
 
 	case PRU_RCVOOB:
-		return (EOPNOTSUPP);
-
 	case PRU_SENDOOB:
 		error = EOPNOTSUPP;
 		break;
@@ -310,8 +330,10 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		panic("uipc_usrreq");
 	}
 release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -336,7 +358,7 @@ uipc_attach(struct socket *so, int proto)
 {
 	struct unpcb *unp;
 	int error;
-	
+
 	if (so->so_pcb)
 		return EISCONN;
 	if (so->so_snd.sb_hiwat == 0 || so->so_rcv.sb_hiwat == 0) {
@@ -357,7 +379,7 @@ uipc_attach(struct socket *so, int proto)
 		if (error)
 			return (error);
 	}
-	unp = malloc(sizeof(*unp), M_PCB, M_NOWAIT|M_ZERO);
+	unp = pool_get(&unpcb_pool, PR_NOWAIT|PR_ZERO);
 	if (unp == NULL)
 		return (ENOBUFS);
 	unp->unp_socket = so;
@@ -401,7 +423,7 @@ unp_detach(struct unpcb *unp)
 	soisdisconnected(unp->unp_socket);
 	unp->unp_socket->so_pcb = NULL;
 	m_freem(unp->unp_addr);
-	free(unp, M_PCB, sizeof *unp);
+	pool_put(&unpcb_pool, unp);
 	if (unp_rights)
 		task_add(systq, &unp_gc_task);
 }
@@ -625,7 +647,7 @@ unp_drop(struct unpcb *unp, int errno)
 		 */
 		sofree(so, SL_NOUNLOCK);
 		m_freem(unp->unp_addr);
-		free(unp, M_PCB, sizeof *unp);
+		pool_put(&unpcb_pool, unp);
 	}
 }
 
@@ -806,7 +828,7 @@ unp_internalize(struct mbuf *control, struct proc *p)
 	/*
 	 * Check for two potential msg_controllen values because
 	 * IETF stuck their nose in a place it does not belong.
-	 */ 
+	 */
 	if (control->m_len < CMSG_LEN(0) || cm->cmsg_len < CMSG_LEN(0))
 		return (EINVAL);
 	if (cm->cmsg_type != SCM_RIGHTS || cm->cmsg_level != SOL_SOCKET ||

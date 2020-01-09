@@ -1,9 +1,9 @@
 #!/usr/bin/perl
-# $OpenBSD: pkg-config,v 1.90 2017/08/26 09:03:51 jsg Exp $
+# $OpenBSD: pkg-config,v 1.93 2019/12/08 14:22:14 espie Exp $
 # $CSK: pkgconfig.pl,v 1.39 2006/11/27 16:26:20 ckuethe Exp $
 
 # Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
-# Copyright (c) 2011 Jasper Lievisse Adriaanse <jasper@openbsd.org>
+# Copyright (c) 2011,2019 Jasper Lievisse Adriaanse <jasper@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -46,7 +46,7 @@ my $allow_uninstalled =
 	defined $ENV{PKG_CONFIG_DISABLE_UNINSTALLED} ? 0 : 1;
 my $found_uninstalled = 0;
 
-my $version = '0.27.1'; # pretend to be this version of pkgconfig
+my $version = '0.29.1'; # pretend to be this version of pkgconfig
 
 my %configs = ();
 setup_self();
@@ -99,6 +99,7 @@ GetOptions(	'debug' 		=> \$mode{debug},
 		'libs-only-L' 		=> sub { $mode{libs} |= 2},
 		'libs-only-other' 	=> sub { $mode{libs} |= 4},
 		'exists' 		=> sub { $mode{exists} = 1} ,
+		'validate'		=> sub { $mode{validate} = 1},
 		'static' 		=> sub { $mode{static} = 1},
 		'uninstalled' 		=> sub { $mode{uninstalled} = 1},
 		'atleast-version=s' 	=> \$mode{minversion},
@@ -125,7 +126,8 @@ if (!defined $mode{printerr}) {
 	if (defined $mode{libs}
 	    or defined $mode{cflags}
 	    or defined $mode{version}
-	    or defined $mode{list}) {
+	    or defined $mode{list}
+	    or defined $mode{validate}) {
 		$mode{printerr} = 1;
 	} else {
 		$mode{printerr} = 0;
@@ -163,7 +165,8 @@ if (!@ARGV){
 
 # Return the next module from @ARGV, if it turns out to be a comma separated
 # module list, take the first one and put the rest back to the front.
-sub get_next_module {
+sub get_next_module 
+{
 	my $module = shift @ARGV;
 	my $m;
 	if ($module =~ m/,/) {
@@ -194,7 +197,7 @@ while (@ARGV){
 	push(@$top_config, $p);
 }
 
-if ($mode{exists}) {
+if ($mode{exists} || $mode{validate}) {
 	exit $rc;
 }
 
@@ -286,19 +289,34 @@ sub handle_config
 	}
 
 	my $get_props = sub {
-		my $property = shift;
+	    my $property = shift;
+	    my $pkg;
 
-		my $deps = $cfg->get_property($property, $variables);
-		if (defined $deps) {
-			for my $dep (@$deps) {
-				if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+|[\d\.]+[\w]*[\d]+)$/) {
-					handle_config($1, $2, $3, $list);
-				} else {
-					handle_config($dep, undef, undef, $list);
-				}
-			}
-			say_debug("package $p " . lc($property) . " " . join(',', @$deps));
-		}
+	    # See if there's anything in the environment that we need to 
+	    # take into account.
+	    ($pkg = $p) =~ s/(^.*\/)?(.*?)\.pc$/$2/g;
+	    $pkg = uc($pkg);
+
+	    if (grep {/PKG_CONFIG_${pkg}.*/} keys %ENV) {
+		    # Now that we know we have something to look for, do 
+		    # the inefficient iteration.
+		    while (my ($k, $v) = each %ENV) {
+			    if ($k =~ /^PKG_CONFIG_${pkg}_(\w+)/) {
+				    $variables->{lc($1)} = $v;
+			    }
+		    }
+	    }
+
+	    my $deps = $cfg->get_property($property, $variables);
+	    return unless defined $deps;
+	    for my $dep (@$deps) {
+		    if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+|[\d\.]+[\w]*[\d]+)$/) {
+			    handle_config($1, $2, $3, $list);
+		    } else {
+			    handle_config($dep, undef, undef, $list);
+		    }
+	    }
+	    say_debug("package $p " . lc($property) . " " . join(',', @$deps));
 	};
 
 	if (defined $mode{cflags}
@@ -307,8 +325,10 @@ sub handle_config
     	    or $mode{exists}) {
 		&$get_props("Requires.private");
 	}
-	&$get_props("Requires");
 
+	unless (defined $mode{validate}) {
+		&$get_props("Requires");
+	}
 }
 
 # look for the .pc file in each of the PKGPATH elements. Return the path or
@@ -318,7 +338,7 @@ sub pathresolve
 	my ($p) = @_;
 
 	if ($allow_uninstalled && $p !~ m/\-uninstalled$/) {
-		foreach my $d (@PKGPATH) {
+		for my $d (@PKGPATH) {
 			my $f = "$d/$p-uninstalled.pc";
 			say_debug("pathresolve($p) looking in $f");
 			if (-f $f) {
@@ -328,7 +348,7 @@ sub pathresolve
 		}
 	}
 
-	foreach my $d (@PKGPATH) {
+	for my $d (@PKGPATH) {
 		my $f = "$d/$p.pc";
 		say_debug("pathresolve($p) looking in $f");
 		return $f if -f $f;
@@ -377,11 +397,11 @@ sub validate_config
 		say_error("Package file '$f' appears to be empty");
 	}
 
-	foreach (@required_elems) {
-		my $e = $cfg->get_property($_, $variables);
+	for my $p (@required_elems) {
+		my $e = $cfg->get_property($p, $variables);
 		if (!defined $e) {
-			$f =~ s/(^.*\/)(.*?)\.pc$/$2/g;
-			say_error("Package '$f' has no $_: field");
+			$f =~ s/(^.*\/)?(.*?)\.pc$/$2/g;
+			say_error("Package '$f' has no $p: field");
 			return undef;
 		}
 	}
@@ -474,11 +494,11 @@ sub do_cflags
 
 	my $cflags = [];
 
-	foreach my $pkg (@$list) {
+	for my $pkg (@$list) {
 		my $l = $configs{$pkg}->get_property('Cflags', $variables);
-		foreach (@$l) {
-			unless ($_ =~ /-I\/usr\/include\/*$/) {
-				push(@$cflags, $_);
+		for my $path (@$l) {
+			unless ($path =~ /-I\/usr\/include\/*$/) {
+				push(@$cflags, $path);
 			}
 		}
 	}
@@ -510,18 +530,18 @@ sub do_libs
 	# order, not in search order. Ordering matters for static linking:
 	# Start with Libs (first our own, then dependencies), and append
 	# Libs.private (same order as for Libs).
-	foreach my $pkg (@$list) {
+	for my $pkg (@$list) {
 		my $l = $configs{$pkg}->get_property('Libs', $variables);
-		foreach (@$l) {
-			unless ($_ =~ /-L\/usr\/lib\/*$/) {
-				push(@$libs, $_);
+		for my $path (@$l) {
+			unless ($path =~ /-L\/usr\/lib\/*$/) {
+				push(@$libs, $path);
 			}
 		}
 		if ($mode{static}) {
 			my $lp = $configs{$pkg}->get_property('Libs.private', $variables);
-			foreach (@$lp) {
-				unless ($_ =~ /-L\/usr\/lib\/*/) {
-			   		push(@$libs, $_);
+			for my $path (@$lp) {
+				unless ($path =~ /-L\/usr\/lib\/*/) {
+			   		push(@$libs, $path);
 				}
 			}
 		}
@@ -530,15 +550,15 @@ sub do_libs
 	# Get the linker path directives (-L) and store it in $a.
 	# $b will be the actual libraries.
 	my $a = OpenBSD::PkgConfig->compress($libs,
-		sub {
-			local $_ = shift;
-			if (($mode{libs} & 2) && /^-L/ ||
-			    ($mode{libs} & 4) && !/^-[lL]/) {
-			    return 1;
-			} else {
-			    return 0;
-			}
-		});
+	    sub {
+		local $_ = shift;
+		if (($mode{libs} & 2) && /^-L/ ||
+		    ($mode{libs} & 4) && !/^-[lL]/) {
+		    return 1;
+		} else {
+		    return 0;
+		}
+	    });
 
 	if (defined($variables->{pc_sysrootdir})){
 		$a =~ s/[\w]?-[lL]/$&$variables->{pc_sysrootdir}/g;
@@ -546,7 +566,7 @@ sub do_libs
 
 	if ($mode{libs} & 1) {
 		my $b = OpenBSD::PkgConfig->rcompress($libs,
-			    sub { shift =~ m/^-l/; });
+		    sub { shift =~ m/^-l/; });
 		return ($a, $b);
 	} else {
 		return $a;
@@ -559,21 +579,21 @@ sub do_list
 	my ($p, $x, $y, @files, $fname, $name);
 	my $error = 0;
 
-	foreach my $p (@PKGPATH) {
+	for my $p (@PKGPATH) {
 		push(@files, <$p/*.pc>);
 	}
 
 	# Scan the lengths of the package names so I can make a format
 	# string to line the list up just like the real pkgconfig does.
 	$x = 0;
-	foreach my $f (@files) {
+	for my $f (@files) {
 		$fname = basename($f, '.pc');
 		$y = length $fname;
 		$x = (($y > $x) ? $y : $x);
 	}
 	$x *= -1;
 
-	foreach my $f (@files) {
+	for my $f (@files) {
 		my $cfg = get_config($f);
 		if (!defined $cfg) {
 			say_warning("Problem reading file $f");
@@ -614,6 +634,7 @@ Usage: $0 [options]
 --libs-only-L - only output -Llibpath flags
 --libs-only-other - only output flags that are not -l or -L
 --exists package [versionspec] [package [versionspec]]
+--validate package
 --uninstalled - allow for uninstalled versions to be used
 --static - adjust output for static linking
 --atleast-version [version] - require a certain version of a package
@@ -820,7 +841,7 @@ sub print_requires
 		}
 
 		if (defined($value)) {
-			print "$_\n" foreach (@$value);
+			print "$_\n" for @$value;
 			return undef;
 		}
 	}
@@ -861,5 +882,5 @@ sub say_msg
 		delete($mode{estdout});
 	}
 
-	print STDERR $str . "\n";
+	print STDERR $str, "\n";
 }

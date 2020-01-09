@@ -348,8 +348,8 @@ get_emd_part(SV **prev_pathp, STRLEN *const len, char *trailing_path, ...)
 	if (!ptr || stricmp(ptr+1, strip) != 0) {
 	    /* ... but not if component matches m|5\.$patchlevel.*| */
 	    if (!ptr || !(*strip == '5' && *(ptr+1) == '5'
-			  && strncmp(strip, base, baselen) == 0
-			  && strncmp(ptr+1, base, baselen) == 0))
+			  && strnEQ(strip, base, baselen)
+			  && strnEQ(ptr+1, base, baselen)))
 	    {
 		*optr = '/';
 		ptr = optr;
@@ -438,7 +438,7 @@ win32_get_xlib(const char *pl, WIN32_NO_REGISTRY_M_(const char *xlib)
 	sv1 = sv2;
     } else if (sv2) {
         dTHX;
-	sv_catpv(sv1, ";");
+	sv_catpvs(sv1, ";");
 	sv_catsv(sv1, sv2);
     }
 
@@ -619,6 +619,7 @@ Perl_do_aspawn(pTHX_ SV *really, SV **mark, SV **sp)
     int status;
     int flag = P_WAIT;
     int index = 0;
+    int eno;
 
     PERL_ARGS_ASSERT_DO_ASPAWN;
 
@@ -645,7 +646,7 @@ Perl_do_aspawn(pTHX_ SV *really, SV **mark, SV **sp)
 			   (const char*)(really ? SvPV_nolen(really) : argv[0]),
 			   (const char* const*)argv);
 
-    if (status < 0 && (errno == ENOEXEC || errno == ENOENT)) {
+    if (status < 0 && (eno = errno, (eno == ENOEXEC || eno == ENOENT))) {
 	/* possible shell-builtin, invoke with shell */
 	int sh_items;
 	sh_items = w32_perlshell_items;
@@ -968,8 +969,8 @@ win32_readdir(DIR *dirp)
 		 * new name and its null terminator */
 		while (newsize > dirp->size) {
 		    long curpos = dirp->curr - dirp->start;
+		    Renew(dirp->start, dirp->size * 2, char);
 		    dirp->size *= 2;
-		    Renew(dirp->start, dirp->size, char);
 		    dirp->curr = dirp->start + curpos;
 		}
 		strcpy(dirp->start + endpos, buffer);
@@ -1683,6 +1684,8 @@ win32_longpath(char *path)
 static void
 out_of_memory(void)
 {
+    dVAR;
+
     if (PL_curinterp)
 	croak_no_mem();
     exit(1);
@@ -1832,7 +1835,7 @@ win32_getenv(const char *name)
 		char *end = strchr(cur,'=');
 		if (end && end != cur) {
 		    *end = '\0';
-		    if (!strcmp(cur,name)) {
+		    if (strEQ(cur,name)) {
 			curitem = sv_2mortal(newSVpv(end+1,0));
 			*end = '=';
 			break;
@@ -1849,7 +1852,7 @@ win32_getenv(const char *name)
 	else {
 	    /* last ditch: allow any environment variables that begin with 'PERL'
 	       to be obtained from the registry, if found there */
-	    if (strncmp(name, "PERL", 4) == 0)
+	    if (strBEGINs(name, "PERL"))
 		(void)get_regstr(name, &curitem);
 	}
 #endif
@@ -2452,6 +2455,14 @@ win32_sleep(unsigned int t)
 			"sleep(%lu) too large", t);
     }
     return win32_msgwait(aTHX_ 0, NULL, t * 1000, NULL) / 1000;
+}
+
+DllExport int
+win32_pause(void)
+{
+    dTHX;
+    win32_msgwait(aTHX_ 0, NULL, INFINITE, NULL);
+    return -1;
 }
 
 DllExport unsigned int
@@ -4161,15 +4172,15 @@ win32_fdupopen(FILE *pf)
     int fileno = win32_dup(win32_fileno(pf));
 
     /* open the file in the same mode */
-    if((pf)->_flag & _IOREAD) {
+    if (PERLIO_FILE_flag(pf) & PERLIO_FILE_flag_RD) {
 	mode[0] = 'r';
 	mode[1] = 0;
     }
-    else if((pf)->_flag & _IOWRT) {
+    else if (PERLIO_FILE_flag(pf) & PERLIO_FILE_flag_WR) {
 	mode[0] = 'a';
 	mode[1] = 0;
     }
-    else if((pf)->_flag & _IORW) {
+    else if (PERLIO_FILE_flag(pf) & PERLIO_FILE_flag_RW) {
 	mode[0] = 'r';
 	mode[1] = '+';
 	mode[2] = 0;
@@ -4702,6 +4713,7 @@ win32_csighandler(int sig)
 void
 Perl_sys_intern_init(pTHX)
 {
+    dVAR;
     int i;
 
     w32_perlshell_tokens	= NULL;
@@ -4751,6 +4763,8 @@ Perl_sys_intern_init(pTHX)
 void
 Perl_sys_intern_clear(pTHX)
 {
+    dVAR;
+
     Safefree(w32_perlshell_tokens);
     Safefree(w32_perlshell_vec);
     /* NOTE: w32_fdpid is freed by sv_clean_all() */

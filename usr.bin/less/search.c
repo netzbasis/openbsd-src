@@ -21,7 +21,6 @@
 #define	MINPOS(a, b)	(((a) < (b)) ? (a) : (b))
 #define	MAXPOS(a, b)	(((a) > (b)) ? (a) : (b))
 
-extern volatile sig_atomic_t sigs;
 extern int how_search;
 extern int caseless;
 extern int linenums;
@@ -75,12 +74,14 @@ static struct pattern_info filter_info;
 static int
 is_ucase(char *str)
 {
-	char *str_end = str + strlen(str);
-	LWCHAR ch;
+	wchar_t ch;
+	int len;
 
-	while (str < str_end) {
-		ch = step_char(&str, +1, str_end);
-		if (isupper(ch))
+	for (; *str != '\0'; str += len) {
+		if ((len = mbtowc(&ch, str, MB_CUR_MAX)) == -1) {
+			mbtowc(NULL, NULL, MB_CUR_MAX);
+			len = 1;
+		} else if (iswupper(ch))
 			return (1);
 	}
 	return (0);
@@ -675,7 +676,7 @@ search_range(off_t pos, off_t endpos, int search_type, int matches,
 		 * we hit end-of-file (or beginning-of-file if we're
 		 * going backwards), or until we hit the end position.
 		 */
-		if (ABORT_SIGS()) {
+		if (abort_sigs()) {
 			/*
 			 * A signal aborts the search.
 			 */

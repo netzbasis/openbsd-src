@@ -1,4 +1,4 @@
-/*	$OpenBSD: frameasm.h,v 1.20 2018/07/23 17:54:04 guenther Exp $	*/
+/*	$OpenBSD: frameasm.h,v 1.22 2019/08/07 18:53:28 guenther Exp $	*/
 /*	$NetBSD: frameasm.h,v 1.1 2003/04/26 18:39:40 fvdl Exp $	*/
 
 #ifndef _AMD64_MACHINE_FRAMEASM_H
@@ -35,7 +35,7 @@
 
 /*
  * We clear registers when coming from userspace to prevent
- * user-controlled values from being availible for use in speculative
+ * user-controlled values from being available for use in speculative
  * execution in the kernel.  %rsp and %rbp are the kernel values when
  * this is used, so there are only 14 to clear.  32bit operations clear
  * the register upper-halves automatically.
@@ -63,6 +63,7 @@
 	testb	$SEL_RPL,24(%rsp)	; \
 	je	INTRENTRY_LABEL(label)	; \
 	swapgs				; \
+	FENCE_SWAPGS_MIS_TAKEN 		; \
 	movq	%rax,CPUVAR(SCRATCH)	; \
 	CODEPATCH_START			; \
 	movq	CPUVAR(KERN_CR3),%rax	; \
@@ -73,6 +74,7 @@
 	_ALIGN_TRAPS			; \
 	.global	INTRENTRY_LABEL(label)	; \
 INTRENTRY_LABEL(label):	/* from kernel */ \
+	FENCE_NO_SAFE_SMAP		; \
 	INTR_ENTRY_KERN			; \
 	jmp	99f			; \
 	_ALIGN_TRAPS			; \

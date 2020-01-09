@@ -1,4 +1,4 @@
-.\" $OpenBSD: iked.conf.5,v 1.53 2018/01/31 13:25:55 patrick Exp $
+.\" $OpenBSD: iked.conf.5,v 1.60 2019/12/01 12:11:56 tobhe Exp $
 .\"
 .\" Copyright (c) 2010 - 2014 Reyk Floeter <reyk@openbsd.org>
 .\" Copyright (c) 2004 Mathieu Sauve-Frankel  All rights reserved.
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 31 2018 $
+.Dd $Mdocdate: December 1 2019 $
 .Dt IKED.CONF 5
 .Os
 .Sh NAME
@@ -136,6 +136,12 @@ This is the default.
 .It Ic set decouple
 Don't load the negotiated SAs and flows from the kernel.
 This mode is only useful for testing and debugging.
+.It Ic set fragmentation
+Enable IKEv2 Message Fragmentation (RFC 7383) support.
+This allows IKEv2 to operate in environments that might block IP fragments.
+.It Ic set nofragmentation
+Disables IKEv2 Message Fragmentation support.
+This is the default.
 .It Ic set mobike
 Enable MOBIKE (RFC 4555) support.
 This is the default.
@@ -262,6 +268,9 @@ specifies that
 .Xr ipcomp 4 ,
 the IP Payload Compression protocol, is negotiated in addition to encapsulation.
 The optional compression is applied before packets are encapsulated.
+IPcomp must be enabled in the kernel:
+.Pp
+.Dl # sysctl net.inet.ipcomp.enable=1
 .It Op Ar encap
 .Ar encap
 specifies the encapsulation protocol to be used.
@@ -403,6 +412,7 @@ multiple crypto transforms.
 .Ic auth Ar algorithm
 .Ic enc Ar algorithm
 .Ic group Ar group
+.Ic esn
 .Xc
 These parameters define the cryptographic transforms to be used for
 the Child SA negotiation, also known as phase 2.
@@ -415,6 +425,7 @@ Possible values for
 .Ic auth ,
 .Ic enc ,
 .Ic group ,
+.Ic esn ,
 and the default proposals are described below in
 .Sx CRYPTO TRANSFORMS .
 If omitted,
@@ -572,7 +583,12 @@ This option is provided for compatibility with legacy clients.
 .It Ic dhcp-server Ar address
 The address of an internal DHCP server for further configuration.
 .It Ic protected-subnet Ar address/prefix
-The address of the protected subnet within the internal network.
+The address of an additional IPv4 or IPv6 subnet reachable over the
+gateway.
+This option is used to notify the peer of a subnet behind the gateway (that
+might require a second SA).
+Networks specified in this SA's "from" or "to" options do not need to be
+included.
 .It Ic access-server Ar address
 The address of an internal remote access server.
 .El
@@ -840,6 +856,27 @@ not encryption:
 .It Li null Ta "" Ta "[ESP only]"
 .El
 .Pp
+The Extended Sequence Numbers option can be enabled or disabled with the
+.Ic esn
+or
+.Ic noesn
+keywords:
+.Bl -column "noesn" "[ESP only]" -offset indent
+.It Em ESN Ta ""
+.It Li esn Ta "[ESP only]"
+.It Li noesn Ta "[ESP only]"
+.El
+.Pp
+Transforms followed by
+.Bq IKE only
+can only be used with the
+.Ic ikesa
+keyword, transforms with
+.Bq ESP only
+can only be used with the
+.Ic childsa
+keyword.
+.Pp
 3DES requires 24 bytes to form its 168-bit key.
 This is because the most significant bit of each byte is used for parity.
 .Pp
@@ -883,7 +920,7 @@ The currently supported group types are either
 MODP (exponentiation groups modulo a prime),
 EC2N (elliptic curve groups over GF[2^N]),
 ECP (elliptic curve groups modulo a prime),
-or the non-standard Curve25519.
+or Curve25519.
 Please note that the EC2N groups are considered as insecure and only
 provided for backwards compatibility.
 .Sh EXAMPLES

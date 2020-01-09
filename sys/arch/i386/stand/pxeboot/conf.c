@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.38 2018/08/23 14:47:52 jsg Exp $	*/
+/*	$OpenBSD: conf.c,v 1.44 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2004 Tom Cosgrove
@@ -44,7 +44,7 @@
 #include "pxeboot.h"
 #include "pxe_net.h"
 
-const char version[] = "3.30";
+const char version[] = "3.35";
 int	debug = 1;
 
 void (*sa_cleanup)(void) = pxe_shutdown;
@@ -77,7 +77,7 @@ int nfsname = nitems(fs_name);
 
 struct fs_ops file_system[] = {
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 	{ tftp_open,   tftp_close,   tftp_read,   tftp_write,   tftp_seek,
 	  tftp_stat,   tftp_readdir   },
 	{ nfs_open,    nfs_close,    nfs_read,    nfs_write,    nfs_seek,

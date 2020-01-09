@@ -1,4 +1,4 @@
-/*	$OpenBSD: ufs_vnops.c,v 1.143 2018/12/23 10:46:51 natano Exp $	*/
+/*	$OpenBSD: ufs_vnops.c,v 1.147 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: ufs_vnops.c,v 1.18 1996/05/11 18:28:04 mycroft Exp $	*/
 
 /*
@@ -1892,12 +1892,26 @@ bad:
 	return (error);
 }
 
-struct filterops ufsread_filtops = 
-	{ 1, NULL, filt_ufsdetach, filt_ufsread };
-struct filterops ufswrite_filtops = 
-	{ 1, NULL, filt_ufsdetach, filt_ufswrite };
-struct filterops ufsvnode_filtops = 
-	{ 1, NULL, filt_ufsdetach, filt_ufsvnode };
+const struct filterops ufsread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_ufsdetach,
+	.f_event	= filt_ufsread,
+};
+
+const struct filterops ufswrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_ufsdetach,
+	.f_event	= filt_ufswrite,
+};
+
+const struct filterops ufsvnode_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_ufsdetach,
+	.f_event	= filt_ufsvnode,
+};
 
 int
 ufs_kqfilter(void *v)
@@ -1952,10 +1966,10 @@ filt_ufsread(struct knote *kn, long hint)
 
 #ifdef EXT2FS
 	if (IS_EXT2_VNODE(ip->i_vnode))
-		kn->kn_data = ext2fs_size(ip) - kn->kn_fp->f_offset;
+		kn->kn_data = ext2fs_size(ip) - foffset(kn->kn_fp);
 	else
 #endif
-		kn->kn_data = DIP(ip, size) - kn->kn_fp->f_offset;
+		kn->kn_data = DIP(ip, size) - foffset(kn->kn_fp);
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.h,v 1.103 2018/09/11 21:04:03 bluhm Exp $	*/
+/*	$OpenBSD: in6.h,v 1.105 2019/11/11 17:42:29 bluhm Exp $	*/
 /*	$KAME: in6.h,v 1.83 2001/03/29 02:55:07 jinmei Exp $	*/
 
 /*
@@ -408,18 +408,22 @@ extern const u_char inet6ctlerrmap[];
 extern const struct in6_addr zeroin6_addr;
 
 struct mbuf;
+struct sockaddr;
+struct sockaddr_in6;
+struct ifaddr;
+struct in6_ifaddr;
 struct ifnet;
-struct cmsghdr;
 
 void	ipv6_input(struct ifnet *, struct mbuf *);
 
-int	in6_cksum(struct mbuf *, u_int8_t, u_int32_t, u_int32_t);
+int	in6_cksum(struct mbuf *, uint8_t, uint32_t, uint32_t);
 void	in6_proto_cksum_out(struct mbuf *, struct ifnet *);
 int	in6_localaddr(struct in6_addr *);
 int	in6_addrscope(struct in6_addr *);
 struct	in6_ifaddr *in6_ifawithscope(struct ifnet *, struct in6_addr *, u_int);
 int	in6_mask2len(struct in6_addr *, u_char *);
 int	in6_nam2sin6(const struct mbuf *, struct sockaddr_in6 **);
+int	in6_sa2sin6(struct sockaddr *, struct sockaddr_in6 **);
 
 struct inpcb;
 
@@ -427,11 +431,6 @@ int	in6_embedscope(struct in6_addr *, const struct sockaddr_in6 *,
 	    struct inpcb *);
 void	in6_recoverscope(struct sockaddr_in6 *, const struct in6_addr *);
 void	in6_clearscope(struct in6_addr *);
-
-struct sockaddr;
-struct sockaddr_in6;
-struct ifaddr;
-struct in6_ifaddr;
 
 /*
  * Convert between address family specific and general structs.

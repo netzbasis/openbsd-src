@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_malloc.c,v 1.136 2018/07/10 10:17:42 bluhm Exp $	*/
+/*	$OpenBSD: kern_malloc.c,v 1.141 2019/12/19 17:40:11 mpi Exp $	*/
 /*	$NetBSD: kern_malloc.c,v 1.15.4.2 1996/06/13 17:10:56 cgd Exp $	*/
 
 /*
@@ -44,6 +44,11 @@
 #include <sys/rwlock.h>
 
 #include <uvm/uvm_extern.h>
+
+#if defined(DDB)
+#include <machine/db_machdep.h>
+#include <ddb/db_output.h>
+#endif
 
 static
 #ifndef SMALL_KERNEL
@@ -213,7 +218,7 @@ malloc(size_t size, int type, int flags)
 #endif
 		if (ksp->ks_limblocks < 65535)
 			ksp->ks_limblocks++;
-		msleep(ksp, &malloc_mtx, PSWP+2, memname[type], 0);
+		msleep_nsec(ksp, &malloc_mtx, PSWP+2, memname[type], INFSLP);
 	}
 	ksp->ks_memuse += allocsize; /* account for this early */
 	ksp->ks_size |= 1 << indx;
@@ -392,6 +397,17 @@ free(void *addr, int type, size_t freedsize)
 	if (size > MAXALLOCSAVE)
 		size = kup->ku_pagecnt << PAGE_SHIFT;
 #ifdef DIAGNOSTIC
+#if 0
+	if (freedsize == 0) {
+		static int zerowarnings;
+		if (zerowarnings < 5) {
+			zerowarnings++;
+			printf("free with zero size: (%d)\n", type);
+#ifdef DDB
+			db_stack_dump();
+#endif
+	}
+#endif
 	if (freedsize != 0 && freedsize > size)
 		panic("free: size too large %zu > %ld (%p) type %s",
 		    freedsize, size, addr, memname[type]);
@@ -686,8 +702,6 @@ malloc_roundup(size_t sz)
 }
 
 #if defined(DDB)
-#include <machine/db_machdep.h>
-#include <ddb/db_output.h>
 
 void
 malloc_printit(
@@ -697,17 +711,17 @@ malloc_printit(
 	struct kmemstats *km;
 	int i;
 
-	(*pr)("%15s %5s  %6s  %7s  %6s %9s %8s %8s\n",
+	(*pr)("%15s %5s  %6s  %7s  %6s %9s %8s\n",
 	    "Type", "InUse", "MemUse", "HighUse", "Limit", "Requests",
-	    "Type Lim", "Kern Lim");
+	    "Type Lim");
 	for (i = 0, km = kmemstats; i < M_LAST; i++, km++) {
 		if (!km->ks_calls || !memname[i])
 			continue;
 
-		(*pr)("%15s %5ld %6ldK %7ldK %6ldK %9ld %8d %8d\n",
+		(*pr)("%15s %5ld %6ldK %7ldK %6ldK %9ld %8d\n",
 		    memname[i], km->ks_inuse, km->ks_memuse / 1024,
 		    km->ks_maxused / 1024, km->ks_limit / 1024,
-		    km->ks_calls, km->ks_limblocks, km->ks_mapblocks);
+		    km->ks_calls, km->ks_limblocks);
 	}
 #else
 	(*pr)("No KMEMSTATS compiled in\n");

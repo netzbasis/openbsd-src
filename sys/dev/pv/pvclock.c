@@ -1,4 +1,4 @@
-/*	$OpenBSD: pvclock.c,v 1.3 2018/12/05 18:02:51 reyk Exp $	*/
+/*	$OpenBSD: pvclock.c,v 1.5 2019/12/13 06:43:46 pd Exp $	*/
 
 /*
  * Copyright (c) 2018 Reyk Floeter <reyk@openbsd.org>
@@ -29,10 +29,13 @@
 #include <sys/atomic.h>
 
 #include <machine/cpu.h>
+#include <machine/atomic.h>
 #include <uvm/uvm_extern.h>
 
 #include <dev/pv/pvvar.h>
 #include <dev/pv/pvreg.h>
+
+uint pvclock_lastcount;
 
 struct pvclock_softc {
 	struct device		 sc_dev;
@@ -41,25 +44,6 @@ struct pvclock_softc {
 	struct timecounter	*sc_tc;
 };
 
-struct pvclock_wall_clock {
-	uint32_t		 wc_version;
-	uint32_t		 wc_sec;
-	uint32_t		 wc_nsec;
-} __packed;
-
-struct pvclock_time_info {
-	uint32_t		 ti_version;
-	uint32_t		 ti_pad0;
-	uint64_t		 ti_tsc_timestamp;
-	uint64_t		 ti_system_time;
-	uint32_t		 ti_tsc_to_system_mul;
-	int8_t			 ti_tsc_shift;
-	uint8_t			 ti_flags;
-	uint8_t			 ti_pad[2];
-} __packed;
-
-#define PVCLOCK_FLAG_TSC_STABLE		0x01
-#define PVCLOCK_SYSTEM_TIME_ENABLE	0x01
 #define DEVNAME(_s)			((_s)->sc_dev.dv_xname)
 
 int	 pvclock_match(struct device *, void *, void *);
@@ -104,6 +88,8 @@ pvclock_match(struct device *parent, void *match, void *aux)
 	 * only support the "kvmclock".
 	 */
 	hv = &pva->pva_hv[PVBUS_KVM];
+	if (hv->hv_base == 0)
+		hv = &pva->pva_hv[PVBUS_OPENBSD];
 	if (hv->hv_base != 0) {
 		/*
 		 * We only implement support for the 2nd version of pvclock.
@@ -158,20 +144,21 @@ pvclock_attach(struct device *parent, struct device *self, void *aux)
 		flags = ti->ti_flags;
 	} while (!pvclock_read_done(ti, version));
 
-	if ((flags & PVCLOCK_FLAG_TSC_STABLE) == 0) {
-		wrmsr(KVM_MSR_SYSTEM_TIME, pa & ~PVCLOCK_SYSTEM_TIME_ENABLE);
-		km_free(sc->sc_time, PAGE_SIZE, &kv_any, &kp_zero);
-		printf(": unstable clock\n");
-		return;
-	}
-
 	sc->sc_tc = &pvclock_timecounter;
 	sc->sc_tc->tc_name = DEVNAME(sc);
 	sc->sc_tc->tc_frequency = 1000000000ULL;
 	sc->sc_tc->tc_priv = sc;
 
+	pvclock_lastcount = 0;
+
 	/* Better than HPET but below TSC */
 	sc->sc_tc->tc_quality = 1500;
+
+	if ((flags & PVCLOCK_FLAG_TSC_STABLE) == 0) {
+		/* if tsc is not stable, set a lower priority */
+		/* Better than i8254 but below HPET */
+		sc->sc_tc->tc_quality = 500;
+	}
 
 	tc_init(sc->sc_tc);
 
@@ -233,10 +220,6 @@ pvclock_get_timecount(struct timecounter *tc)
 		flags = ti->ti_flags;
 	} while (!pvclock_read_done(ti, version));
 
-	/* This bit must be set as we attached based on the stable flag */
-	if ((flags & PVCLOCK_FLAG_TSC_STABLE) == 0)
-		panic("%s: unstable result on stable clock", DEVNAME(sc));
-
 	/*
 	 * The algorithm is described in
 	 * linux/Documentation/virtual/kvm/msr.txt
@@ -247,6 +230,14 @@ pvclock_get_timecount(struct timecounter *tc)
 	else
 		delta <<= shift;
 	ctr = ((delta * mul_frac) >> 32) + system_time;
+
+	if ((flags & PVCLOCK_FLAG_TSC_STABLE) != 0)
+		return (ctr);
+
+	if (ctr < pvclock_lastcount)
+		return (pvclock_lastcount);
+
+	atomic_swap_uint(&pvclock_lastcount, ctr);
 
 	return (ctr);
 }

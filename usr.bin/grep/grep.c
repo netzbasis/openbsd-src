@@ -1,4 +1,4 @@
-/*	$OpenBSD: grep.c,v 1.58 2019/01/23 23:00:54 tedu Exp $	*/
+/*	$OpenBSD: grep.c,v 1.64 2019/12/03 09:14:37 jca Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -80,6 +80,7 @@ int	 vflag;		/* -v: only show non-matching lines */
 int	 wflag;		/* -w: pattern must start and end on word boundaries */
 int	 xflag;		/* -x: pattern must match entire line */
 int	 lbflag;	/* --line-buffered */
+const char *labelname;	/* --label=name */
 
 int binbehave = BIN_FILE_BIN;
 
@@ -87,7 +88,8 @@ enum {
 	BIN_OPT = CHAR_MAX + 1,
 	HELP_OPT,
 	MMAP_OPT,
-	LINEBUF_OPT
+	LINEBUF_OPT,
+	LABEL_OPT,
 };
 
 /* Housekeeping */
@@ -114,7 +116,7 @@ usage(void)
 #endif
 	    " [-e pattern]\n"
 	    "\t[-f file] [-m num] [--binary-files=value] [--context[=num]]\n"
-	    "\t[--line-buffered] [--max-count=num] [pattern] [file ...]\n",
+	    "\t[--label=name] [--line-buffered] [pattern] [file ...]\n",
 	    __progname);
 	exit(2);
 }
@@ -130,6 +132,7 @@ static const struct option long_options[] =
 	{"binary-files",	required_argument,	NULL, BIN_OPT},
 	{"help",		no_argument,		NULL, HELP_OPT},
 	{"mmap",		no_argument,		NULL, MMAP_OPT},
+	{"label",		required_argument,	NULL, LABEL_OPT},
 	{"line-buffered",	no_argument,		NULL, LINEBUF_OPT},
 	{"after-context",	required_argument,	NULL, 'A'},
 	{"before-context",	required_argument,	NULL, 'B'},
@@ -222,15 +225,19 @@ read_patterns(const char *fn)
 {
 	FILE *f;
 	char *line;
-	size_t len;
+	ssize_t len;
+	size_t linesize;
 
 	if ((f = fopen(fn, "r")) == NULL)
 		err(2, "%s", fn);
-	while ((line = fgetln(f, &len)) != NULL)
+	line = NULL;
+	linesize = 0;
+	while ((len = getline(&line, &linesize, f)) != -1)
 		add_pattern(line, *line == '\n' ? 0 : len);
 	if (ferror(f))
 		err(2, "%s", fn);
 	fclose(f);
+	free(line);
 }
 
 int
@@ -423,6 +430,9 @@ main(int argc, char *argv[])
 		case MMAP_OPT:
 			/* default, compatibility */
 			break;
+		case LABEL_OPT:
+			labelname = optarg;
+			break;
 		case LINEBUF_OPT:
 			lbflag = 1;
 			break;
@@ -457,9 +467,12 @@ main(int argc, char *argv[])
 		--argc;
 		++argv;
 	}
+	if (argc == 1 && strcmp(*argv, "-") == 0) {
+		/* stdin */
+		--argc;
+		++argv;
+	}
 
-	if (Rflag && argc == 0)
-		warnx("warning: recursive search of stdin");
 	if (Eflag)
 		cflags |= REG_EXTENDED;
 	if (Fflag)
@@ -497,7 +510,7 @@ main(int argc, char *argv[])
 	if ((argc == 0 || argc == 1) && !Rflag && !Hflag)
 		hflag = 1;
 
-	if (argc == 0)
+	if (argc == 0 && !Rflag)
 		exit(!procfile(NULL));
 
 	if (Rflag)

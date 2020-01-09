@@ -1,4 +1,4 @@
-/Makefile/1.107/Sat Jan 26 10:59:30 2019//
+/Makefile/1.108/Thu Apr 25 22:11:35 2019//
 /Makefile.inc/1.6/Fri Jul 11 13:13:04 2014//
 D/atactl////
 D/badsect////
@@ -61,4 +61,5 @@ D/ttyflags////
 D/tunefs////
 D/umount////
 D/unwind////
+D/vnconfig////
 D/wsconsctl////

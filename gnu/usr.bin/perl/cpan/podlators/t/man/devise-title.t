@@ -3,10 +3,12 @@
 # Tests for the automatic determination of the manual page title if not
 # specified via options to pod2man or the Pod::Man constructor.
 #
-# Copyright 2015, 2016 Russ Allbery <rra@cpan.org>
+# Copyright 2015-2016, 2018 Russ Allbery <rra@cpan.org>
 #
 # This program is free software; you may redistribute it and/or modify it
 # under the same terms as Perl itself.
+#
+# SPDX-License-Identifier: GPL-1.0-or-later OR Artistic-1.0-Perl
 
 use 5.006;
 use strict;
@@ -30,11 +32,11 @@ my $output;
 $parser->output_string(\$output);
 $parser->parse_file($handle);
 
-# Check the results of devise_title for this.  We should get back STDIN, and
-# we should have reported an error.
+# Check the results of devise_title for this.  We should get back STDIN and
+# not report an error.
 my ($name, $section) = $parser->devise_title;
 is($name, 'STDIN', 'devise_title uses STDIN for file handle input');
-ok($parser->errors_seen, '...and errors were seen');
+ok(!$parser->errors_seen, '...and no errors were seen');
 
 # Now check handling of a simple file name with no parent directory, which
 # simulates a POD file at the top of a distribution.  In podlators 4.06, this

@@ -3259,6 +3259,10 @@ ppc_elf_check_relocs (bfd *abfd,
 	case R_PPC_EMB_MRKREF:
 	case R_PPC_NONE:
 	case R_PPC_max:
+	case R_PPC_RELAX32:
+	case R_PPC_RELAX32PC:
+	case R_PPC_RELAX32_PLT:
+	case R_PPC_RELAX32PC_PLT:
 	  break;
 
 	  /* These should only appear in dynamic objects.  */
@@ -5235,6 +5239,9 @@ ppc_elf_relax_section (bfd *abfd,
 	  irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
 				       stub_rtype);
 	  irel->r_offset = trampoff + insn_offset;
+	  if (r_type == R_PPC_PLTREL24 &&
+	      (stub_rtype == R_PPC_RELAX32 || stub_rtype == R_PPC_RELAX32PC))
+	    irel->r_addend = 0;
 
 	  /* Record the fixup so we don't do it again this section.  */
 	  f = bfd_malloc (sizeof (*f));

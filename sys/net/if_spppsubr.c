@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.174 2018/02/19 08:59:52 mpi Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.181 2019/11/13 10:15:10 bluhm Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -873,6 +873,8 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 		break;
 
 	case SIOCSSPPPPARAMS:
+		if ((rv = suser(curproc)) != 0)
+			break;
 		rv = sppp_set_params(sp, ifr);
 		break;
 
@@ -1491,7 +1493,7 @@ sppp_increasing_timeout (const struct cp *cp, struct sppp *sp)
 	timo = sp->lcp.max_configure - sp->rst_counter[cp->protoidx];
 	if (timo < 1)
 		timo = 1;
-	timeout_add(&sp->ch[cp->protoidx], timo * sp->lcp.timeout);
+	timeout_add_sec(&sp->ch[cp->protoidx], timo * sp->lcp.timeout);
 }
 
 void
@@ -1608,7 +1610,7 @@ sppp_lcp_init(struct sppp *sp)
 	 * the exponential backoff option.  Note that these values are
 	 * relevant for all control protocols, not just LCP only.
 	 */
-	sp->lcp.timeout = 1 * hz;
+	sp->lcp.timeout = 1;	/* seconds */
 	sp->lcp.max_terminate = 2;
 	sp->lcp.max_configure = 10;
 	sp->lcp.max_failure = 10;
@@ -3566,7 +3568,6 @@ sppp_chap_tlu(struct sppp *sp)
 	STDDCL;
 	int i = 0, x;
 
-	i = 0;
 	sp->rst_counter[IDX_CHAP] = sp->lcp.max_configure;
 
 	/*
@@ -3580,7 +3581,7 @@ sppp_chap_tlu(struct sppp *sp)
 		 * Compute the re-challenge timeout.  This will yield
 		 * a number between 300 and 810 seconds.
 		 */
-		i = 300 + (arc4random() & 0x01fe);
+		i = 300 + arc4random_uniform(1 + 810 - 300);
 
 		timeout_add_sec(&sp->ch[IDX_CHAP], i);
 	}
@@ -3829,7 +3830,7 @@ sppp_pap_open(struct sppp *sp)
 	if (sp->myauth.proto == PPP_PAP) {
 		/* we are peer, send a request, and start a timer */
 		pap.scr(sp);
-		timeout_add(&sp->pap_my_to_ch, sp->lcp.timeout);
+		timeout_add_sec(&sp->pap_my_to_ch, sp->lcp.timeout);
 	}
 }
 
@@ -4167,7 +4168,7 @@ sppp_update_gw(struct ifnet *ifp)
 
 	/* update routing table */
 	for (tid = 0; tid <= RT_TABLEID_MAX; tid++) {
-		rtable_walk(tid, AF_INET, sppp_update_gw_walker, ifp);
+		rtable_walk(tid, AF_INET, NULL, sppp_update_gw_walker, ifp);
 	}
 }
 
@@ -4231,7 +4232,7 @@ sppp_set_ip_addrs(void *arg1)
 			}
 		}
 		if (!(error = in_ifinit(ifp, ifatoia(ifa), &new_sin, 0)))
-			dohooks(ifp->if_addrhooks, 0);
+			if_addrhooks_run(ifp);
 		if (debug && error) {
 			log(LOG_DEBUG, SPP_FMT "sppp_set_ip_addrs: in_ifinit "
 			" failed, error=%d\n", SPP_ARGS(ifp), error);
@@ -4291,7 +4292,7 @@ sppp_clear_ip_addrs(void *arg1)
 			/* replace peer addr in place */
 			dest->sin_addr.s_addr = sp->ipcp.saved_hisaddr;
 		if (!(error = in_ifinit(ifp, ifatoia(ifa), &new_sin, 0)))
-			dohooks(ifp->if_addrhooks, 0);
+			if_addrhooks_run(ifp);
 		if (debug && error) {
 			log(LOG_DEBUG, SPP_FMT "sppp_clear_ip_addrs: in_ifinit "
 			" failed, error=%d\n", SPP_ARGS(ifp), error);

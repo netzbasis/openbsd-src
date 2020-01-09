@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.arm64,v 1.30 2018/10/30 11:10:03 kettenis Exp $
+#	$OpenBSD: Makefile.arm64,v 1.35 2019/11/07 20:42:28 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -21,7 +21,22 @@ S!=	cd ../../../..; pwd
 _machdir?=	$S/arch/${_mach}
 _archdir?=	$S/arch/${_arch}
 
-INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
+INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch \
+		-I$S/dev/pci/drm/include \
+		-I$S/dev/pci/drm/include/uapi \
+		-I$S/dev/pci/drm/amd/include/asic_reg \
+		-I$S/dev/pci/drm/amd/include \
+		-I$S/dev/pci/drm/amd/amdgpu \
+		-I$S/dev/pci/drm/amd/display \
+		-I$S/dev/pci/drm/amd/display/include \
+		-I$S/dev/pci/drm/amd/display/dc \
+		-I$S/dev/pci/drm/amd/display/amdgpu_dm \
+		-I$S/dev/pci/drm/amd/powerplay/inc \
+		-I$S/dev/pci/drm/amd/powerplay/smumgr \
+		-I$S/dev/pci/drm/amd/powerplay/hwmgr \
+		-I$S/dev/pci/drm/amd/display/dc/inc \
+		-I$S/dev/pci/drm/amd/display/dc/inc/hw \
+		-I$S/dev/pci/drm/amd/display/modules/inc
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -D__${_mach}__ -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
@@ -38,6 +53,7 @@ CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+COPTS?=		-Oz
 .endif
 
 DEBUG?=		-g
@@ -51,9 +67,9 @@ HOSTED_CPPFLAGS=${CPPFLAGS:S/^-nostdinc$//}
 HOSTED_CFLAGS=	${CFLAGS}
 HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
-NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
+NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -fno-ret-protector -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -151,8 +167,7 @@ hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

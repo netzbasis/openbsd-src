@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldomctl.c,v 1.21 2018/09/15 13:20:16 kettenis Exp $	*/
+/*	$OpenBSD: ldomctl.c,v 1.34 2020/01/04 17:30:41 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis
@@ -18,18 +18,21 @@
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <util.h>
 
 #include "ds.h"
 #include "hvctl.h"
 #include "mdstore.h"
 #include "mdesc.h"
-#include "util.h"
+#include "ldom_util.h"
 #include "ldomctl.h"
 
 extern struct ds_service pri_service;
@@ -50,30 +53,37 @@ void fetch_pri(void);
 void download(int argc, char **argv);
 void dump(int argc, char **argv);
 void list(int argc, char **argv);
+void list_io(int argc, char **argv);
 void xselect(int argc, char **argv);
 void delete(int argc, char **argv);
+void create_vdisk(int argc, char **argv);
 void guest_start(int argc, char **argv);
 void guest_stop(int argc, char **argv);
 void guest_panic(int argc, char **argv);
 void guest_status(int argc, char **argv);
+void guest_console(int argc, char **argv);
 void init_system(int argc, char **argv);
 
 struct command commands[] = {
 	{ "download",	download },
 	{ "dump",	dump },
 	{ "list",	list },
+	{ "list-io",	list_io },
 	{ "select",	xselect },
 	{ "delete",	delete },
+	{ "create-vdisk", create_vdisk },
 	{ "start",	guest_start },
 	{ "stop",	guest_stop },
 	{ "panic",	guest_panic },
 	{ "status",	guest_status },
+	{ "console",	guest_console },
 	{ "init-system", init_system },
 	{ NULL,		NULL }
 };
 
 void hv_open(void);
 void hv_close(void);
+void hv_config(void);
 void hv_read(uint64_t, void *, size_t);
 void hv_write(uint64_t, void *, size_t);
 
@@ -94,11 +104,6 @@ int
 main(int argc, char **argv)
 {
 	struct command *cmdp;
-	struct hvctl_msg msg;
-	ssize_t nbytes;
-	struct md_header hdr;
-	struct md_node *node;
-	struct md_prop *prop;
 
 	if (argc < 2)
 		usage();
@@ -113,54 +118,20 @@ main(int argc, char **argv)
 	if (cmdp->cmd_name == NULL)
 		usage();
 
-	hv_open();
-
-	/*
-	 * Request config.
-	 */
-	bzero(&msg, sizeof(msg));
-	msg.hdr.op = HVCTL_OP_GET_HVCONFIG;
-	msg.hdr.seq = hvctl_seq++;
-	nbytes = write(hvctl_fd, &msg, sizeof(msg));
-	if (nbytes != sizeof(msg))
-		err(1, "write");
-
-	bzero(&msg, sizeof(msg));
-	nbytes = read(hvctl_fd, &msg, sizeof(msg));
-	if (nbytes != sizeof(msg))
-		err(1, "read");
-
-	hv_membase = msg.msg.hvcnf.hv_membase;
-	hv_memsize = msg.msg.hvcnf.hv_memsize;
-
-	hv_mdpa = msg.msg.hvcnf.hvmdp;
-	hv_read(hv_mdpa, &hdr, sizeof(hdr));
-	hvmd_len = sizeof(hdr) + hdr.node_blk_sz + hdr.name_blk_sz +
-	    hdr.data_blk_sz;
-	hvmd_buf = xmalloc(hvmd_len);
-	hv_read(hv_mdpa, hvmd_buf, hvmd_len);
-
-	hvmd = md_ingest(hvmd_buf, hvmd_len);
-	node = md_find_node(hvmd, "guests");
-	TAILQ_INIT(&guest_list);
-	TAILQ_FOREACH(prop, &node->prop_list, link) {
-		if (prop->tag == MD_PROP_ARC &&
-		    strcmp(prop->name->str, "fwd") == 0)
-			add_guest(prop->d.arc.node);
-	}
-
 	(cmdp->cmd_func)(argc, argv);
 
 	exit(EXIT_SUCCESS);
 }
 
-void
+__dead void
 usage(void)
 {
-	extern char *__progname;
-
-	fprintf(stderr, "usage: %s start|stop|panic domain\n", __progname);
-	fprintf(stderr, "       %s status [domain]\n", __progname);
+	fprintf(stderr, "usage:\t%1$s delete|select configuration\n"
+	    "\t%1$s download directory\n"
+	    "\t%1$s dump|list|list-io\n"
+	    "\t%1$s init-system [-n] file\n"
+	    "\t%1$s create-vdisk -s size file\n"
+	    "\t%1$s console|panic|start|status|stop [domain]\n", getprogname());
 	exit(EXIT_FAILURE);
 }
 
@@ -270,10 +241,27 @@ dump(int argc, char **argv)
 void
 init_system(int argc, char **argv)
 {
-	if (argc != 2)
+	int ch, noaction = 0;
+
+	while ((ch = getopt(argc, argv, "n")) != -1) {
+		switch (ch) {
+		case 'n':
+			noaction = 1;
+			break;
+		default:
+			usage();
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 1)
 		usage();
 
-	build_config(argv[1]);
+	if (!noaction)
+		hv_config();
+
+	build_config(argv[0], noaction);
 }
 
 void
@@ -281,6 +269,11 @@ list(int argc, char **argv)
 {
 	struct ds_conn *dc;
 	struct mdstore_set *set;
+
+	if (argc != 1)
+		usage();
+
+	hv_config();
 
 	dc = ds_conn_open("/dev/spds", NULL);
 	mdstore_register(dc);
@@ -298,12 +291,23 @@ list(int argc, char **argv)
 }
 
 void
+list_io(int argc, char **argv)
+{
+	if (argc != 1)
+		usage();
+
+	list_components();
+}
+
+void
 xselect(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
+
+	hv_config();
 
 	dc = ds_conn_open("/dev/spds", NULL);
 	mdstore_register(dc);
@@ -318,11 +322,13 @@ delete(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
 
 	if (strcmp(argv[1], "factory-default") == 0)
 		errx(1, "\"%s\" should not be deleted", argv[1]);
+
+	hv_config();
 
 	dc = ds_conn_open("/dev/spds", NULL);
 	mdstore_register(dc);
@@ -333,12 +339,56 @@ delete(int argc, char **argv)
 }
 
 void
+create_vdisk(int argc, char **argv)
+{
+	int ch, fd, save_errno;
+	long long imgsize;
+	const char *imgfile_path;
+
+	while ((ch = getopt(argc, argv, "s:")) != -1) {
+		switch (ch) {
+		case 's':
+			if (scan_scaled(optarg, &imgsize) == -1)
+				err(1, "invalid size: %s", optarg);
+			break;
+		default:
+			usage();
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 1)
+		usage();
+
+	imgfile_path = argv[0];
+
+	/* Refuse to overwrite an existing image */
+	if ((fd = open(imgfile_path, O_RDWR | O_CREAT | O_TRUNC | O_EXCL,
+	    S_IRUSR | S_IWUSR)) == -1)
+		err(1, "open");
+
+	/* Extend to desired size */
+	if (ftruncate(fd, (off_t)imgsize) == -1) {
+		save_errno = errno;
+		close(fd);
+		unlink(imgfile_path);
+		errno = save_errno;
+		err(1, "ftruncate");
+	}
+
+	close(fd);
+}
+
+void
 download(int argc, char **argv)
 {
 	struct ds_conn *dc;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
+
+	hv_config();
 
 	dc = ds_conn_open("/dev/spds", NULL);
 	mdstore_register(dc);
@@ -354,8 +404,10 @@ guest_start(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
+
+	hv_config();
 
 	/*
 	 * Start guest domain.
@@ -380,8 +432,10 @@ guest_stop(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
+
+	hv_config();
 
 	/*
 	 * Stop guest domain.
@@ -406,8 +460,10 @@ guest_panic(int argc, char **argv)
 	struct hvctl_msg msg;
 	ssize_t nbytes;
 
-	if (argc < 2)
+	if (argc != 2)
 		usage();
+
+	hv_config();
 
 	/*
 	 * Stop guest domain.
@@ -439,10 +495,14 @@ guest_status(int argc, char **argv)
 	uint64_t total_cycles, yielded_cycles;
 	double utilisation = 0.0;
 	const char *state_str;
-	char buf[64];
+	char buf[32];
+	char console_str[8] = "-";
 
 	if (argc < 1 || argc > 2)
 		usage();
+
+	hv_config();
+
 	if (argc == 2)
 		gid = find_guest(argv[1]);
 
@@ -540,12 +600,44 @@ guest_status(int argc, char **argv)
 			break;
 		}
 
-		if (state.state != GUEST_STATE_NORMAL)
-			printf("%-16s  %-16s\n", guest->name, state_str);
-		else
-			printf("%-16s  %-16s  %-32s  %3.0f%%\n", guest->name,
-			       state_str, softstate.soft_state_str,
-			       utilisation);
+		/* primary has no console */
+		if (guest->gid != 0) {
+			snprintf(console_str, sizeof(console_str),
+			    "ttyV%llu", guest->gid - 1);
+		}
+
+		printf("%-16s %-8s %-16s %-32s %3.0f%%\n", guest->name,
+		    console_str, state_str, state.state == GUEST_STATE_NORMAL ?
+		    softstate.soft_state_str : "-", utilisation);
+	}
+}
+
+void
+guest_console(int argc, char **argv)
+{
+	struct guest *guest;
+	uint64_t gid;
+	char console_str[8];
+
+	if (argc != 2)
+		usage();
+
+	hv_config();
+
+	gid = find_guest(argv[1]);
+	if (gid == 0)
+		errx(1, "no console for primary domain");
+
+	TAILQ_FOREACH(guest, &guest_list, link) {
+		if (guest->gid != gid)
+			continue;
+		snprintf(console_str, sizeof(console_str),
+		    "ttyV%llu", guest->gid - 1);
+
+		closefrom(STDERR_FILENO + 1);
+		execl(LDOMCTL_CU, LDOMCTL_CU, "-r", "-l", console_str,
+		    (char *)NULL);
+		err(1, "failed to open console");
 	}
 }
 
@@ -600,6 +692,52 @@ hv_close(void)
 {
 	close(hvctl_fd);
 	hvctl_fd = -1;
+}
+
+void
+hv_config(void)
+{
+	struct hvctl_msg msg;
+	ssize_t nbytes;
+	struct md_header hdr;
+	struct md_node *node;
+	struct md_prop *prop;
+
+	hv_open();
+
+	/*
+	 * Request config.
+	 */
+	bzero(&msg, sizeof(msg));
+	msg.hdr.op = HVCTL_OP_GET_HVCONFIG;
+	msg.hdr.seq = hvctl_seq++;
+	nbytes = write(hvctl_fd, &msg, sizeof(msg));
+	if (nbytes != sizeof(msg))
+		err(1, "write");
+
+	bzero(&msg, sizeof(msg));
+	nbytes = read(hvctl_fd, &msg, sizeof(msg));
+	if (nbytes != sizeof(msg))
+		err(1, "read");
+
+	hv_membase = msg.msg.hvcnf.hv_membase;
+	hv_memsize = msg.msg.hvcnf.hv_memsize;
+
+	hv_mdpa = msg.msg.hvcnf.hvmdp;
+	hv_read(hv_mdpa, &hdr, sizeof(hdr));
+	hvmd_len = sizeof(hdr) + hdr.node_blk_sz + hdr.name_blk_sz +
+	    hdr.data_blk_sz;
+	hvmd_buf = xmalloc(hvmd_len);
+	hv_read(hv_mdpa, hvmd_buf, hvmd_len);
+
+	hvmd = md_ingest(hvmd_buf, hvmd_len);
+	node = md_find_node(hvmd, "guests");
+	TAILQ_INIT(&guest_list);
+	TAILQ_FOREACH(prop, &node->prop_list, link) {
+		if (prop->tag == MD_PROP_ARC &&
+		    strcmp(prop->name->str, "fwd") == 0)
+			add_guest(prop->d.arc.node);
+	}
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.27 2018/11/16 21:15:47 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.33 2019/12/07 22:57:48 guenther Exp $ */
 
 /*
  * Copyright (c) 2004 Dale Rahn
@@ -50,7 +50,6 @@ Elf_Addr _dl_bind(elf_object_t *object, int reloff);
 #define _RF_P		0x20000000		/* Location relative */
 #define _RF_G		0x10000000		/* GOT offset */
 #define _RF_B		0x08000000		/* Load address relative */
-#define _RF_U		0x04000000		/* Unaligned */
 #define _RF_E		0x02000000		/* ERROR */
 #define _RF_SZ(s)	(((s) & 0xff) << 8)	/* memory target size */
 #define _RF_RS(s)	((s) & 0xff)		/* right shift */
@@ -319,7 +318,6 @@ static const int reloc_target_flags[] = {
 #define RELOC_RESOLVE_SYMBOL(t)		((reloc_target_flags[t] & _RF_S) != 0)
 #define RELOC_PC_RELATIVE(t)		((reloc_target_flags[t] & _RF_P) != 0)
 #define RELOC_BASE_RELATIVE(t)		((reloc_target_flags[t] & _RF_B) != 0)
-#define RELOC_UNALIGNED(t)		((reloc_target_flags[t] & _RF_U) != 0)
 #define RELOC_USE_ADDEND(t)		((reloc_target_flags[t] & _RF_A) != 0)
 #define RELOC_TARGET_SIZE(t)		((reloc_target_flags[t] >> 8) & 0xff)
 #define RELOC_VALUE_RIGHTSHIFT(t)	(reloc_target_flags[t] & 0xff)
@@ -608,7 +606,6 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 	Elf_Addr prev_value = 0;
 	const Elf_Sym *prev_sym = NULL;
 	Elf_RelA *rels;
-	struct load_list *llist;
 
 	loff = object->obj_base;
 	numrela = object->Dyn.info[relasz] / sizeof(Elf_RelA);
@@ -616,39 +613,22 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 	rels = (Elf_RelA *)(object->Dyn.info[rel]);
 
 	if (rels == NULL)
-		return(0);
+		return 0;
 
 	if (relrel > numrela)
 		_dl_die("relacount > numrel: %ld > %ld", relrel, numrela);
-
-	/*
-	 * unprotect some segments if we need it.
-	 */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list;
-		    llist != NULL;
-		    llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE))
-				_dl_mprotect(llist->start, llist->size,
-				    PROT_READ | PROT_WRITE);
-		}
-	}
 
 	/* tight loop for leading RELATIVE relocs */
 	for (i = 0; i < relrel; i++, rels++) {
 		Elf_Addr *where;
 
-#ifdef DEBUG
-		if (ELF_R_TYPE(rels->r_info) != R_TYPE(RELATIVE))
-			_dl_die("RELACOUNT wrong");
-#endif
 		where = (Elf_Addr *)(rels->r_offset + loff);
 		*where = rels->r_addend + loff;
 	}
 	for (; i < numrela; i++, rels++) {
-		Elf_Addr *where, value, ooff, mask;
+		Elf_Addr *where, value, mask;
 		Elf_Word type;
-		const Elf_Sym *sym, *this;
+		const Elf_Sym *sym;
 		const char *symn;
 
 		type = ELF_R_TYPE(rels->r_info);
@@ -688,22 +668,14 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 			} else if (sym == prev_sym) {
 				value += prev_value;
 			} else {
-				this = NULL;
-#if 1
-				ooff = _dl_find_symbol_bysym(object,
-				    ELF_R_SYM(rels->r_info), &this,
+				struct sym_res sr;
+
+				sr = _dl_find_symbol(symn,
 				    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|
 				    ((type == R_TYPE(JMP_SLOT)) ?
 					SYM_PLT : SYM_NOTPLT),
-				    sym, NULL);
-#else
-				ooff = _dl_find_symbol_bysym(object,
-				    ELF_R_SYM(rels->r_info), &this,
-				    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|
-				    SYM_PLT,
-				    sym, NULL);
-#endif
-				if (this == NULL) {
+				    sym, object);
+				if (sr.sym == NULL) {
 resolve_failed:
 					if (ELF_ST_BIND(sym->st_info) !=
 					    STB_WEAK)
@@ -711,7 +683,8 @@ resolve_failed:
 					continue;
 				}
 				prev_sym = sym;
-				prev_value = (Elf_Addr)(ooff + this->st_value);
+				prev_value = (Elf_Addr)(sr.obj->obj_base +
+				    sr.sym->st_value);
 				value += prev_value;
 			}
 		}
@@ -724,16 +697,16 @@ resolve_failed:
 		if (type == R_TYPE(COPY)) {
 			void *dstaddr = where;
 			const void *srcaddr;
-			const Elf_Sym *dstsym = sym, *srcsym = NULL;
-			Elf_Addr soff;
+			const Elf_Sym *dstsym = sym;
+			struct sym_res sr;
 
-			soff = _dl_find_symbol(symn, &srcsym,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_OTHER|SYM_WARNNOTFOUND|SYM_NOTPLT,
-			    dstsym, object, NULL);
-			if (srcsym == NULL)
+			    dstsym, object);
+			if (sr.sym == NULL)
 				goto resolve_failed;
 
-			srcaddr = (void *)(soff + srcsym->st_value);
+			srcaddr = (void *)(sr.obj->obj_base + sr.sym->st_value);
 			_dl_bcopy(srcaddr, dstaddr, dstsym->st_size);
 			continue;
 		}
@@ -747,40 +720,11 @@ resolve_failed:
 		value >>= RELOC_VALUE_RIGHTSHIFT(type);
 		value &= mask;
 
-		if (RELOC_UNALIGNED(type)) {
-			/* Handle unaligned relocations. */
-			Elf_Addr tmp = 0;
-			char *ptr = (char *)where;
-			int i, size = RELOC_TARGET_SIZE(type)/8;
-
-			/* Read it in one byte at a time. */
-			for (i=0; i<size; i++)
-				tmp = (tmp << 8) | ptr[i];
-
-			tmp &= ~mask;
-			tmp |= value;
-
-			/* Write it back out. */
-			for (i=0; i<size; i++)
-				ptr[i] = ((tmp >> (8*i)) & 0xff);
-		} else {
-			*where &= ~mask;
-			*where |= value;
-		}
+		*where &= ~mask;
+		*where |= value;
 	}
 
-	/* reprotect the unprotected segments */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list;
-		    llist != NULL;
-		    llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE))
-				_dl_mprotect(llist->start, llist->size,
-				    llist->prot);
-		}
-	}
-
-	return (fails);
+	return fails;
 }
 
 /*
@@ -797,10 +741,7 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	Elf_RelA *rel;
 
 	if (object->Dyn.info[DT_PLTREL] != DT_RELA)
-		return (0);
-
-	if (object->traced)
-		lazy = 1;
+		return 0;
 
 	if (!lazy) {
 		fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
@@ -825,17 +766,16 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 		pltgot[2] = (Elf_Addr)_dl_bind_start;
 	}
 
-	return (fails);
+	return fails;
 }
 
 Elf_Addr
 _dl_bind(elf_object_t *object, int reloff)
 {
 	Elf_RelA *rel;
-	const Elf_Sym *sym, *this;
+	const Elf_Sym *sym;
 	const char *symn;
-	const elf_object_t *sobj;
-	Elf_Addr ooff;
+	struct sym_res sr;
 	uint64_t cookie = pcookie;
 	struct {
 		struct __kbind param;
@@ -848,16 +788,15 @@ _dl_bind(elf_object_t *object, int reloff)
 	sym += ELF_R_SYM(rel->r_info);
 	symn = object->dyn.strtab + sym->st_name;
 
-	this = NULL;
-	ooff = _dl_find_symbol(symn,  &this,
-	    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT, sym, object, &sobj);
-	if (this == NULL)
+	sr = _dl_find_symbol(symn, SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT,
+	    sym, object);
+	if (sr.sym == NULL)
 		_dl_die("lazy binding failed!");
 
-	buf.newval = ooff + this->st_value;
+	buf.newval = sr.obj->obj_base + sr.sym->st_value;
 
-	if (__predict_false(sobj->traced) && _dl_trace_plt(sobj, symn))
-		return (buf.newval);
+	if (__predict_false(sr.obj->traced) && _dl_trace_plt(sr.obj, symn))
+		return buf.newval;
 
 	buf.param.kb_addr = (Elf_Addr *)(object->obj_base + rel->r_offset);
 	buf.param.kb_size = sizeof(Elf_Addr);
@@ -875,5 +814,5 @@ _dl_bind(elf_object_t *object, int reloff)
 		    : "r1", "cc", "memory");
 	}
 
-	return (buf.newval);
+	return buf.newval;
 }

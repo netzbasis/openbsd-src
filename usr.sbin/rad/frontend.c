@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.c,v 1.19 2018/11/28 06:41:31 florian Exp $	*/
+/*	$OpenBSD: frontend.c,v 1.31 2019/09/07 18:57:47 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -56,7 +56,6 @@
 #include <sys/uio.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/route.h>
 
@@ -105,6 +104,7 @@ struct ra_iface {
 	char				conf_name[IF_NAMESIZE];
 	uint32_t			if_index;
 	int				removed;
+	int				link_state;
 	int				prefix_count;
 	size_t				datalen;
 	uint8_t				data[RA_MAX_SIZE];
@@ -118,6 +118,7 @@ void			 frontend_startup(void);
 void			 icmp6_receive(int, short, void *);
 void			 join_all_routers_mcast_group(struct ra_iface *);
 void			 leave_all_routers_mcast_group(struct ra_iface *);
+int			 get_link_state(char *);
 void			 merge_ra_interface(char *, char *);
 void			 merge_ra_interfaces(void);
 struct ra_iface		*find_ra_iface_by_id(uint32_t);
@@ -145,7 +146,7 @@ struct rad_conf	*frontend_conf;
 struct imsgev		*iev_main;
 struct imsgev		*iev_engine;
 struct event		 ev_route;
-int			 icmp6sock = -1, ioctlsock = -1;
+int			 icmp6sock = -1, ioctlsock = -1, routesock = -1;
 struct ipv6_mreq	 all_routers;
 struct sockaddr_in6	 all_nodes;
 struct msghdr		 sndmhdr;
@@ -201,7 +202,7 @@ frontend(int debug, int verbose)
 		fatal("can't drop privileges");
 
 	/* XXX pass in from main */
-	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
+	if ((ioctlsock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1)
 		fatal("socket");
 
 	if (pledge("stdio inet unix recvfd route mcast", NULL) == -1)
@@ -341,17 +342,13 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			 * Setup pipe and event handler to the engine
 			 * process.
 			 */
-			if (iev_engine) {
-				log_warnx("%s: received unexpected imsg fd "
-				    "to frontend", __func__);
-				break;
-			}
-			if ((fd = imsg.fd) == -1) {
-				log_warnx("%s: expected to receive imsg fd to "
+			if (iev_engine)
+				fatalx("%s: received unexpected imsg fd to "
+				    "frontend", __func__);
+			if ((fd = imsg.fd) == -1)
+				fatalx("%s: expected to receive imsg fd to "
 				   "frontend but didn't receive any",
 				   __func__);
-				break;
-			}
 
 			iev_engine = malloc(sizeof(struct imsgev));
 			if (iev_engine == NULL)
@@ -366,6 +363,12 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			event_add(&iev_engine->ev, NULL);
 			break;
 		case IMSG_RECONF_CONF:
+			if (nconf != NULL)
+				fatalx("%s: IMSG_RECONF_CONF already in "
+				    "progress", __func__);
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct rad_conf))
+				fatalx("%s: IMSG_RECONF_CONF wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
 			if ((nconf = malloc(sizeof(struct rad_conf))) ==
 			    NULL)
 				fatal(NULL);
@@ -376,6 +379,10 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			ra_options = &nconf->ra_options;
 			break;
 		case IMSG_RECONF_RA_IFACE:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct
+			    ra_iface_conf))
+				fatalx("%s: IMSG_RECONF_RA_IFACE wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
 			if ((ra_iface_conf = malloc(sizeof(struct
 			    ra_iface_conf))) == NULL)
 				fatal(NULL);
@@ -390,6 +397,11 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			ra_options = &ra_iface_conf->ra_options;
 			break;
 		case IMSG_RECONF_RA_AUTOPREFIX:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct
+			    ra_prefix_conf))
+				fatalx("%s: IMSG_RECONF_RA_AUTOPREFIX wrong "
+				    "length: %lu", __func__,
+				    IMSG_DATA_SIZE(imsg));
 			if ((ra_iface_conf->autoprefix = malloc(sizeof(struct
 			    ra_prefix_conf))) == NULL)
 				fatal(NULL);
@@ -397,6 +409,11 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    sizeof(struct ra_prefix_conf));
 			break;
 		case IMSG_RECONF_RA_PREFIX:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct
+			    ra_prefix_conf))
+				fatalx("%s: IMSG_RECONF_RA_PREFIX wrong "
+				    "length: %lu", __func__,
+				    IMSG_DATA_SIZE(imsg));	
 			if ((ra_prefix_conf = malloc(sizeof(struct
 			    ra_prefix_conf))) == NULL)
 				fatal(NULL);
@@ -406,6 +423,10 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    ra_prefix_conf, entry);
 			break;
 		case IMSG_RECONF_RA_RDNSS:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct
+			    ra_rdnss_conf))
+				fatalx("%s: IMSG_RECONF_RA_RDNSS wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
 			if ((ra_rdnss_conf = malloc(sizeof(struct
 			    ra_rdnss_conf))) == NULL)
 				fatal(NULL);
@@ -415,6 +436,10 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    ra_rdnss_conf, entry);
 			break;
 		case IMSG_RECONF_RA_DNSSL:
+			if (IMSG_DATA_SIZE(imsg) != sizeof(struct
+			    ra_dnssl_conf))
+				fatalx("%s: IMSG_RECONF_RA_DNSSL wrong length: "
+				    "%lu", __func__, IMSG_DATA_SIZE(imsg));
 			if ((ra_dnssl_conf = malloc(sizeof(struct
 			    ra_dnssl_conf))) == NULL)
 				fatal(NULL);
@@ -424,23 +449,33 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			    ra_dnssl_conf, entry);
 			break;
 		case IMSG_RECONF_END:
+			if (nconf == NULL)
+				fatalx("%s: IMSG_RECONF_END without "
+				    "IMSG_RECONF_CONF", __func__);
 			merge_config(frontend_conf, nconf);
 			merge_ra_interfaces();
 			nconf = NULL;
 			break;
 		case IMSG_ICMP6SOCK:
+			if (icmp6sock != -1)
+				fatalx("%s: received unexpected icmp6 fd",
+				    __func__);
 			if ((icmp6sock = imsg.fd) == -1)
 				fatalx("%s: expected to receive imsg "
 				    "ICMPv6 fd but didn't receive any",
 				    __func__);
 			event_set(&icmp6ev.ev, icmp6sock, EV_READ | EV_PERSIST,
 			    icmp6_receive, NULL);
+			break;
 		case IMSG_ROUTESOCK:
-			if ((fd = imsg.fd) == -1)
+			if (routesock != -1)
+				fatalx("%s: received unexpected routesock fd",
+				    __func__);
+			if ((routesock = imsg.fd) == -1)
 				fatalx("%s: expected to receive imsg "
 				    "routesocket fd but didn't receive any",
 				    __func__);
-			event_set(&ev_route, fd, EV_READ | EV_PERSIST,
+			event_set(&ev_route, routesock, EV_READ | EV_PERSIST,
 			    route_receive, NULL);
 			break;
 		case IMSG_STARTUP:
@@ -449,6 +484,9 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			frontend_startup();
 			break;
 		case IMSG_CONTROLFD:
+			if (control_state.fd != -1)
+				fatalx("%s: received unexpected controlsock",
+				    __func__);
 			if ((fd = imsg.fd) == -1)
 				fatalx("%s: expected to receive imsg "
 				    "control fd but didn't receive any",
@@ -457,9 +495,6 @@ frontend_dispatch_main(int fd, short event, void *bula)
 			/* Listen on control socket. */
 			TAILQ_INIT(&ctl_conns);
 			control_listen();
-			break;
-		case IMSG_SHUTDOWN:
-			frontend_imsg_compose_engine(IMSG_SHUTDOWN, 0, NULL, 0);
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -509,27 +544,24 @@ frontend_dispatch_engine(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_SEND_RA:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(send_ra))
-				fatal("%s: IMSG_SEND_RA wrong length: %d",
-				    __func__, imsg.hdr.len);
+			if (IMSG_DATA_SIZE(imsg) != sizeof(send_ra))
+				fatalx("%s: IMSG_SEND_RA wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
 			memcpy(&send_ra, imsg.data, sizeof(send_ra));
 			ra_iface = find_ra_iface_by_id(send_ra.if_index);
 			if (ra_iface)
 				ra_output(ra_iface, &send_ra.to);
 			break;
 		case IMSG_REMOVE_IF:
-			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(if_index))
-				fatal("%s: IMSG_REMOVE_IF wrong length: %d",
-				    __func__, imsg.hdr.len);
+			if (IMSG_DATA_SIZE(imsg) != sizeof(if_index))
+				fatalx("%s: IMSG_REMOVE_IF wrong length: %lu",
+				    __func__, IMSG_DATA_SIZE(imsg));
 			memcpy(&if_index, imsg.data, sizeof(if_index));
 			ra_iface = find_ra_iface_by_id(if_index);
 			if (ra_iface) {
 				TAILQ_REMOVE(&ra_interfaces, ra_iface, entry);
 				free_ra_iface(ra_iface);
 			}
-			break;
-		case IMSG_SHUTDOWN:
-			frontend_imsg_compose_main(IMSG_SHUTDOWN, 0, NULL, 0);
 			break;
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
@@ -576,7 +608,7 @@ icmp6_receive(int fd, short events, void *arg)
 	int			 if_index = 0, *hlimp = NULL;
 	char			 ntopbuf[INET6_ADDRSTRLEN], ifnamebuf[IFNAMSIZ];
 
-	if ((len = recvmsg(fd, &icmp6ev.rcvmhdr, 0)) < 0) {
+	if ((len = recvmsg(fd, &icmp6ev.rcvmhdr, 0)) == -1) {
 		log_warn("recvmsg");
 		return;
 	}
@@ -690,21 +722,59 @@ find_ra_iface_conf(struct ra_iface_conf_head *head, char *if_name)
 	return (NULL);
 }
 
+int
+get_link_state(char *if_name)
+{
+	struct ifaddrs	*ifap, *ifa;
+	int		 ls = LINK_STATE_UNKNOWN;
+
+	if (getifaddrs(&ifap) != 0) {
+		log_warn("getifaddrs");
+		return LINK_STATE_UNKNOWN;
+	}
+	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr->sa_family != AF_LINK)
+			continue;
+		if (strcmp(if_name, ifa->ifa_name) != 0)
+			continue;
+
+		ls = ((struct if_data*)ifa->ifa_data)->ifi_link_state;
+		break;
+	}
+	freeifaddrs(ifap);
+	return ls;
+}
+
 void
 merge_ra_interface(char *name, char *conf_name)
 {
 	struct ra_iface		*ra_iface;
 	uint32_t		 if_index;
+	int			 link_state;
+
+	link_state = get_link_state(name);
 
 	if ((ra_iface = find_ra_iface_by_name(name)) != NULL) {
-		log_debug("keeping interface %s", name);
-		ra_iface->removed = 0;
+		ra_iface->link_state = link_state;
+		if (!LINK_STATE_IS_UP(link_state)) {
+			log_debug("%s down, ignoring", name);
+			ra_iface->removed = 1;
+		} else {
+			log_debug("keeping interface %s", name);
+			ra_iface->removed = 0;
+		}
+		return;
+	}
+
+	if (!LINK_STATE_IS_UP(link_state)) {
+		log_debug("%s down, ignoring", name);
 		return;
 	}
 
 	log_debug("new interface %s", name);
 	if ((if_index = if_nametoindex(name)) == 0)
 		return;
+
 	log_debug("adding interface %s", name);
 	if ((ra_iface = calloc(1, sizeof(*ra_iface))) == NULL)
 		fatal("%s", __func__);
@@ -877,8 +947,8 @@ get_interface_prefixes(struct ra_iface *ra_iface, struct ra_prefix_conf
 		(void) strlcpy(ifr6.ifr_name, ra_iface->name,
 		    sizeof(ifr6.ifr_name));
 		memcpy(&ifr6.ifr_addr, sin6, sizeof(ifr6.ifr_addr));
-		
-		if (ioctl(ioctlsock, SIOCGIFNETMASK_IN6, (caddr_t)&ifr6) < 0)
+
+		if (ioctl(ioctlsock, SIOCGIFNETMASK_IN6, (caddr_t)&ifr6) == -1)
 			continue; /* addr got deleted while we were looking */
 
 		prefixlen = in6_mask2prefixlen(&((struct sockaddr_in6 *)
@@ -972,7 +1042,7 @@ build_packet(struct ra_iface *ra_iface)
 		    ((ra_iface_conf->ra_options.dnssl_len + 7) & ~7);
 
 	if (len > sizeof(ra_iface->data))
-		fatal("%s: packet too big", __func__); /* XXX send multiple */
+		fatalx("%s: packet too big", __func__); /* XXX send multiple */
 
 	p = buf;
 
@@ -1105,6 +1175,9 @@ ra_output(struct ra_iface *ra_iface, struct sockaddr_in6 *to)
 	ssize_t			 len;
 	int			 hoplimit = 255;
 
+	if (!LINK_STATE_IS_UP(ra_iface->link_state))
+		return;
+
 	sndmhdr.msg_name = to;
 	sndmhdr.msg_iov[0].iov_base = ra_iface->data;
 	sndmhdr.msg_iov[0].iov_len = ra_iface->datalen;
@@ -1128,7 +1201,7 @@ ra_output(struct ra_iface *ra_iface, struct sockaddr_in6 *to)
 	log_debug("send RA on %s", ra_iface->name);
 
 	len = sendmsg(icmp6sock, &sndmhdr, 0);
-	if (len < 0)
+	if (len == -1)
 		log_warn("sendmsg on %s", ra_iface->name);
 
 }

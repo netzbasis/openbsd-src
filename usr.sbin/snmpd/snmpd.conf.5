@@ -1,4 +1,4 @@
-.\" $OpenBSD: snmpd.conf.5,v 1.38 2018/06/18 06:04:25 jmc Exp $
+.\" $OpenBSD: snmpd.conf.5,v 1.41 2020/01/02 10:55:53 florian Exp $
 .\"
 .\" Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 18 2018 $
+.Dd $Mdocdate: January 2 2020 $
 .Dt SNMPD.CONF 5
 .Os
 .Sh NAME
@@ -78,6 +78,15 @@ listen on $ext_addr
 .Sh GLOBAL CONFIGURATION
 The following options can be set globally:
 .Bl -tag -width Ds
+.It Ic filter-pf-addresses Pq Ic yes | no
+If set to
+.Ic yes ,
+.Xr snmpd 8
+will filter out the OPENBSD-PF-MIB::pfTblAddrTable tree.
+Addresses stored in PF tables will not be available, but CPU use will be
+reduced during bulk walks.
+The default is
+.Ic no .
 .It Ic filter-routes Pq Ic yes | no
 If set to
 .Ic yes ,
@@ -241,9 +250,13 @@ for this user account.
 Optionally the HMAC algorithm used for authentication can be specified.
 .Ar hmac
 must be either
-.Ic hmac-md5
+.Ic hmac-md5 ,
+.Ic hmac-sha1 ,
+.Ic hmac-sha224 ,
+.Ic hmac-sha256 ,
+.Ic hmac-sha384 ,
 or
-.Ic hmac-sha1 .
+.Ic hmac-sha512 .
 If omitted the default is
 .Ic hmac-sha1 .
 .Pp
@@ -320,7 +333,7 @@ user "hans" authkey "password123" enc aes enckey "321drowssap"
 user "sophie" authkey "password456" enckey "654drowssap"
 .Ed
 .Sh SEE ALSO
-.Xr snmpctl 8 ,
+.Xr snmp 1 ,
 .Xr snmpd 8
 .Sh HISTORY
 The

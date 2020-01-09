@@ -1,4 +1,4 @@
-/*	$OpenBSD: rstat_proc.c,v 1.35 2017/05/27 07:44:28 tedu Exp $	*/
+/*	$OpenBSD: rstat_proc.c,v 1.37 2019/08/09 21:31:07 cheloha Exp $	*/
 
 /*
  * Copyright (c) 2010, Oracle America, Inc.
@@ -208,7 +208,7 @@ updatestat(void)
 	mib[0] = CTL_KERN;
 	mib[1] = KERN_BOOTTIME;
 	len = sizeof(btm);
-	if (sysctl(mib, 2, &btm, &len, NULL, 0) < 0) {
+	if (sysctl(mib, 2, &btm, &len, NULL, 0) == -1) {
 		syslog(LOG_ERR, "can't sysctl kern.boottime: %m");
 		_exit(1);
 	}
@@ -225,7 +225,7 @@ updatestat(void)
 	mib[0] = CTL_VM;
 	mib[1] = VM_UVMEXP;
 	len = sizeof(uvmexp);
-	if (sysctl(mib, 2, &uvmexp, &len, NULL, 0) < 0) {
+	if (sysctl(mib, 2, &uvmexp, &len, NULL, 0) == -1) {
 		syslog(LOG_ERR, "can't sysctl vm.uvmexp: %m");
 		_exit(1);
 	}
@@ -235,7 +235,7 @@ updatestat(void)
 	stats_all.s1.v_pswpout = 0;
 	stats_all.s1.v_intr = uvmexp.intrs;
 	stats_all.s2.v_swtch = uvmexp.swtch;
-	gettimeofday(&tm, (struct timezone *) 0);
+	gettimeofday(&tm, NULL);
 	stats_all.s1.v_intr -= hz*(tm.tv_sec - btm.tv_sec) +
 	    hz*(tm.tv_usec - btm.tv_usec)/1000000;
 	stats_all.s1.if_ipackets = 0;

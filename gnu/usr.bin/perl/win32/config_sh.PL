@@ -22,7 +22,7 @@ sub loadopts {
 	shift @ARGV;
 	my $optfile = shift @ARGV;
 	local (*OPTF);
-	open OPTF, $optfile or die "Can't open $optfile: $!\n";
+	open OPTF, '<', $optfile or die "Can't open $optfile: $!\n";
 	my @opts;
 	chomp(my $line = <OPTF>);
 	my @vars = split(/\t+~\t+/, $line);
@@ -59,7 +59,7 @@ $opt{known_extensions} = join(' ',FindExt::known_extensions()) || ' ';
 my $pl_h = '../patchlevel.h';
 
 if (-e $pl_h) {
-    open PL, "<$pl_h" or die "Can't open $pl_h: $!";
+    open PL, "<", $pl_h or die "Can't open $pl_h: $!";
     while (<PL>) {
 	if (/^#\s*define\s+(PERL_\w+)\s+([\d.]+)/) {
 	    $opt{$1} = $2;
@@ -84,18 +84,13 @@ $opt{version_patchlevel_string} = "version $opt{PERL_VERSION} subversion $opt{PE
 $opt{version_patchlevel_string} .= " patch $opt{PERL_PATCHLEVEL}" if exists $opt{PERL_PATCHLEVEL};
 
 my $ver = `ver 2>nul`;
-if ($ver =~ /Version (\d+\.\d+)/) {
-    $opt{osvers} = $1;
-}
-else {
-    $opt{osvers} = '4.0';
-}
+$opt{osvers} = $ver =~ /\b(\d+(?:\.\d+)+)\b/ ? $1 : '4.0';
 
 if (exists $opt{cc}) {
     # cl version detection borrowed from Test::Smoke's configsmoke.pl
     if ($opt{cc} =~ /\b(?:cl|icl)/) { #MSVC can come as clarm.exe, icl=Intel C
-        my $output = `$opt{cc} --version 2>&1`;
-        $opt{ccversion} = $output =~ /^.*Version\s+([\d.]+)/ ? $1 : '?';
+        my $output = `$opt{cc} 2>&1`;
+        $opt{ccversion} = $output =~ /\b(\d+(?:\.\d+)+)\b/ ? $1 : '?';
     }
     elsif ($opt{cc} =~ /\bgcc\b/) {
         chomp($opt{gccversion} = `$opt{cc} -dumpversion`);
@@ -217,11 +212,7 @@ if ($opt{uselongdouble} eq 'define') {
     $opt{d_PRIEUldbl} = 'define';
     $opt{d_PRIFUldbl} = 'define';
     $opt{d_PRIGUldbl} = 'define';
-    $opt{d_frexpl} = 'define';
-    $opt{d_isnanl} = 'define';
-    $opt{d_modfl} = 'define';
     $opt{d_modflproto} = 'define';
-    $opt{d_sqrtl} = 'define';
     $opt{d_strtold} = 'define';
     $opt{d_PRIeldbl} = 'define';
     $opt{d_PRIfldbl} = 'define';
@@ -244,11 +235,14 @@ else {
     $opt{d_PRIEUldbl} = 'undef';
     $opt{d_PRIFUldbl} = 'undef';
     $opt{d_PRIGUldbl} = 'undef';
-    $opt{d_frexpl} = 'undef';
-    $opt{d_isnanl} = 'undef';
-    $opt{d_modfl} = 'undef';
-    $opt{d_modflproto} = 'undef';
-    $opt{d_sqrtl} = 'undef';
+
+    if($opt{cc} =~ /\b(?:cl|icl)/) {
+        $opt{d_modflproto} = 'undef';
+    }
+    else {
+        $opt{d_modflproto} = 'define';
+    }
+
     $opt{d_strtold} = 'undef';
     $opt{d_PRIeldbl} = 'undef';
     $opt{d_PRIfldbl} = 'undef';
@@ -265,26 +259,44 @@ else {
     $opt{nvgformat} = '"g"';
 }
 
-# change the s{GM|LOCAL}TIME_{min|max} for VS2005 (aka VC 8) and
-# VS2008 (aka VC 9) or higher (presuming that later versions will have
-# at least the range of that).
+# change some configuration variables based on compiler version
 if ($opt{cc} =~ /\bcl/ and $opt{ccversion} =~ /^(\d+)/) {
     my $ccversion = $1;
-    if ($ccversion >= 14) {
-	$opt{sGMTIME_max} = 32535291599;
-	$opt{sLOCALTIME_max} = 32535244799;
-    }
-    if($ccversion < 13) { #VC6
+    if ($ccversion < 13) { # VC6
 	$opt{ar} ='lib';
     }
-}
-#find out which MSVC this ICC is using
-elsif ($opt{cc} =~ /\bicl/) {
-    my $output = `cl --version 2>&1`;
-    my $num_ver = $output =~ /^.*Version\s+([\d.]+)/ ? $1 : '?';
-    if($num_ver =~ /^(\d+)/ && $1 >= 14) {
+    if ($ccversion >= 14) { # VC8+
 	$opt{sGMTIME_max} = 32535291599;
 	$opt{sLOCALTIME_max} = 32535244799;
+    }
+    if ($ccversion >= 16) { # VC10+
+	$opt{i_stdint} = 'define';
+    }
+    if ($ccversion >= 19) { # VC14+
+	$opt{stdio_base} = 'PERLIO_FILE_base(fp)';
+	$opt{stdio_bufsiz} = '(PERLIO_FILE_cnt(fp) + PERLIO_FILE_ptr(fp) - PERLIO_FILE_base(fp))';
+	$opt{stdio_cnt} = 'PERLIO_FILE_cnt(fp)';
+	$opt{stdio_ptr} = 'PERLIO_FILE_ptr(fp)';
+	$opt{i_stdbool} = 'define';
+    }
+}
+# find out which MSVC this ICC is using
+elsif ($opt{cc} =~ /\bicl/) {
+    my $output = `cl 2>&1`;
+    my $num_ver = $output =~ /\b(\d+(?:\.\d+)+)\b/ ? $1 : '?';
+    if ($num_ver =~ /^(\d+)/ && $1 >= 14) { # VC8+
+	$opt{sGMTIME_max} = 32535291599;
+	$opt{sLOCALTIME_max} = 32535244799;
+    }
+    if ($num_ver =~ /^(\d+)/ && $1 >= 16) { # VC10+
+	$opt{i_stdint} = 'define';
+    }
+    if ($num_ver =~ /^(\d+)/ && $1 >= 19) { # VC14+
+	$opt{stdio_base} = 'PERLIO_FILE_base(fp)';
+	$opt{stdio_bufsiz} = '(PERLIO_FILE_cnt(fp) + PERLIO_FILE_ptr(fp) - PERLIO_FILE_base(fp))';
+	$opt{stdio_cnt} = 'PERLIO_FILE_cnt(fp)';
+	$opt{stdio_ptr} = 'PERLIO_FILE_ptr(fp)';
+	$opt{i_stdbool} = 'define';
     }
     $opt{ar} ='xilib';
 }

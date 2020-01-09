@@ -1,4 +1,4 @@
-/*	$OpenBSD: apm.c,v 1.34 2018/08/14 06:38:33 mestre Exp $	*/
+/*	$OpenBSD: apm.c,v 1.36 2019/06/28 13:32:46 deraadt Exp $	*/
 
 /*
  *  Copyright (c) 1996 John T. Kohl
@@ -158,7 +158,7 @@ main(int argc, char *argv[])
 	int cpuspeed_mib[] = { CTL_HW, HW_CPUSPEED }, cpuspeed;
 	size_t cpuspeed_sz = sizeof(cpuspeed);
 
-	if (sysctl(cpuspeed_mib, 2, &cpuspeed, &cpuspeed_sz, NULL, 0) < 0)
+	if (sysctl(cpuspeed_mib, 2, &cpuspeed, &cpuspeed_sz, NULL, 0) == -1)
 		err(1, "sysctl hw.cpuspeed");
 
 	while ((ch = getopt(argc, argv, "ACHLlmbvaPSzZf:")) != -1) {
@@ -242,6 +242,10 @@ main(int argc, char *argv[])
 				usage();
 		}
 	}
+	argc -= optind;
+	argv += optind;
+	if (argc)
+		usage();
 
 	fd = open_socket(sockname);
 

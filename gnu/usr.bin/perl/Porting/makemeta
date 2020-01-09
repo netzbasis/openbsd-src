@@ -8,6 +8,10 @@ use strict;
 use warnings;
 use Getopt::Std;
 
+# avoid unnecessary churn in x_serialization_backend in META.*
+$ENV{PERL_JSON_BACKEND} = $ENV{CPAN_META_JSON_BACKEND} = 'JSON::PP';
+$ENV{PERL_YAML_BACKEND} = 'CPAN::Meta::YAML';
+
 my $opts = {
   'META.yml'  => { version => '1.4' },
   'META.json' => { version => '2' },
@@ -43,11 +47,11 @@ my $distmeta = {
   'dynamic_config' => 1,
   'resources' => {
     'repository' => {
-      'url' => 'http://perl5.git.perl.org/'
+      'url' => 'https://github.com/Perl/perl5'
     },
     'homepage' => 'http://www.perl.org/',
     'bugtracker' => {
-      'web' => 'https://rt.perl.org/'
+      'web' => 'https://github.com/Perl/perl5/issues'
     },
     'license' => [
       'http://dev.perl.org/licenses/'
@@ -61,7 +65,7 @@ use CPAN::Meta;
 
 BEGIN {
     # Get function prototypes
-    require 'regen/regen_lib.pl';
+    require './regen/regen_lib.pl';
 }
 
 use Maintainers qw(%Modules get_module_files get_module_pat);

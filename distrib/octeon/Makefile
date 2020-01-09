@@ -1,5 +1,8 @@
-#	$OpenBSD: Makefile,v 1.2 2015/06/09 19:20:36 jasper Exp $
+#	$OpenBSD: Makefile,v 1.5 2019/08/04 08:53:14 visa Exp $
 
-SUBDIR= ramdisk miniroot
+SUBDIR= ramdisk
+
+unconfig:
+	cd ramdisk; ${MAKE} unconfig
 
 .include <bsd.subdir.mk>

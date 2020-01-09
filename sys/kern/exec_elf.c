@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_elf.c,v 1.147 2018/12/06 18:59:31 guenther Exp $	*/
+/*	$OpenBSD: exec_elf.c,v 1.153 2019/12/09 18:19:09 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1996 Per Fogelstrom
@@ -456,7 +456,7 @@ elf_load_file(struct proc *p, char *path, struct exec_package *epp,
 				addr = ph[i].p_vaddr - base_ph->p_vaddr;
 			}
 			elf_load_psection(&epp->ep_vmcmds, nd.ni_vp,
-			    &ph[i], &addr, &size, &prot, flags);
+			    &ph[i], &addr, &size, &prot, flags | VMCMD_SYSCALL);
 			/* If entry is within this section it must be text */
 			if (eh.e_entry >= ph[i].p_vaddr &&
 			    eh.e_entry < (ph[i].p_vaddr + size)) {
@@ -621,6 +621,19 @@ exec_elf_makecmds(struct proc *p, struct exec_package *epp)
 				}
 			} else
 				addr = ELF_NO_ADDR;
+			/*
+			 * static binary: main program does system calls
+			 * dynamic binary: regular main program won't do system
+			 * calls, unfortunately go binaries do...
+			 */
+			flags |= VMCMD_SYSCALL;
+			if (interp == NULL) {
+				/*
+				 * static binary: no ld.so, no late request for
+				 * syscalls inside libc.so block msyscall()
+				 */
+				p->p_vmspace->vm_map.flags |= VM_MAP_SYSCALL_ONCE;
+			}
 
 			/*
 			 * Calculates size of text and data segments
@@ -852,7 +865,6 @@ int
 elf_os_pt_note(struct proc *p, struct exec_package *epp, Elf_Ehdr *eh,
     char *os_name, size_t name_size, size_t desc_size)
 {
-	char pathbuf[MAXPATHLEN];
 	Elf_Phdr *hph, *ph;
 	Elf_Note *np = NULL;
 	size_t phsize;
@@ -866,18 +878,6 @@ elf_os_pt_note(struct proc *p, struct exec_package *epp, Elf_Ehdr *eh,
 
 	for (ph = hph;  ph < &hph[eh->e_phnum]; ph++) {
 		if (ph->p_type == PT_OPENBSD_WXNEEDED) {
-			int wxallowed = (epp->ep_vp->v_mount &&
-			    (epp->ep_vp->v_mount->mnt_flag & MNT_WXALLOWED));
-			
-			if (!wxallowed) {
-				error = copyinstr(epp->ep_name, &pathbuf,
-				    sizeof(pathbuf), NULL);
-				log(LOG_NOTICE,
-				    "%s(%d): W^X binary outside wxallowed mountpoint\n",
-				    error ? "" : pathbuf, p->p_p->ps_pid);
-				error = EACCES;
-				goto out1;
-			}
 			epp->ep_flags |= EXEC_WXNEEDED;
 			break;
 		}
@@ -957,7 +957,7 @@ int	coredump_note_elf(struct proc *, void *, size_t *);
 int	coredump_writenote_elf(struct proc *, void *, Elf_Note *,
 	    const char *, void *);
 
-#define	ELFROUNDSIZE	4	/* XXX Should it be sizeof(Elf_Word)? */
+#define	ELFROUNDSIZE	sizeof(Elf_Word)
 #define	elfround(x)	roundup((x), ELFROUNDSIZE)
 
 int
@@ -1143,7 +1143,9 @@ coredump_setup_elf(int segment_count, void *cookie)
 	 * the section sizes and offsets
 	 */
 	ws->psections = mallocarray(ws->npsections, sizeof(Elf_Phdr),
-	    M_TEMP, M_WAITOK|M_ZERO);
+	    M_TEMP, M_WAITOK|M_CANFAIL|M_ZERO);
+	if (ws->psections == NULL)
+		return ENOMEM;
 	ws->psectionslen = ws->npsections * sizeof(Elf_Phdr);
 
 	ws->notestart = ehdr.e_phoff + ws->psectionslen;
@@ -1222,7 +1224,7 @@ coredump_notes_elf(struct proc *p, void *iocookie, size_t *sizep)
 		cpi.cpi_signo = p->p_sisig;
 		cpi.cpi_sigcode = p->p_sicode;
 
-		cpi.cpi_sigpend = p->p_siglist;
+		cpi.cpi_sigpend = p->p_siglist | pr->ps_siglist;
 		cpi.cpi_sigmask = p->p_sigmask;
 		cpi.cpi_sigignore = pr->ps_sigacts->ps_sigignore;
 		cpi.cpi_sigcatch = pr->ps_sigacts->ps_sigcatch;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.231 2018/12/17 16:46:59 bluhm Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.238 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -72,12 +72,26 @@ void	filt_sowdetach(struct knote *kn);
 int	filt_sowrite(struct knote *kn, long hint);
 int	filt_solisten(struct knote *kn, long hint);
 
-struct filterops solisten_filtops =
-	{ 1, NULL, filt_sordetach, filt_solisten };
-struct filterops soread_filtops =
-	{ 1, NULL, filt_sordetach, filt_soread };
-struct filterops sowrite_filtops =
-	{ 1, NULL, filt_sowdetach, filt_sowrite };
+const struct filterops solisten_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_sordetach,
+	.f_event	= filt_solisten,
+};
+
+const struct filterops soread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_sordetach,
+	.f_event	= filt_soread,
+};
+
+const struct filterops sowrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_sowdetach,
+	.f_event	= filt_sowrite,
+};
 
 
 #ifndef SOMINCONN
@@ -172,7 +186,7 @@ solisten(struct socket *so, int backlog)
 	int s, error;
 
 	if (so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING|SS_ISDISCONNECTING))
-		return (EOPNOTSUPP);
+		return (EINVAL);
 #ifdef SOCKET_SPLICE
 	if (isspliced(so) || issplicedback(so))
 		return (EOPNOTSUPP);
@@ -195,6 +209,8 @@ solisten(struct socket *so, int backlog)
 	return (0);
 }
 
+#define SOSP_FREEING_READ	1
+#define SOSP_FREEING_WRITE	2
 void
 sofree(struct socket *so, int s)
 {
@@ -218,11 +234,20 @@ sofree(struct socket *so, int s)
 	sigio_free(&so->so_sigio);
 #ifdef SOCKET_SPLICE
 	if (so->so_sp) {
-		if (issplicedback(so))
-			sounsplice(so->so_sp->ssp_soback, so,
-			    so->so_sp->ssp_soback != so);
-		if (isspliced(so))
-			sounsplice(so, so->so_sp->ssp_socket, 0);
+		if (issplicedback(so)) {
+			int freeing = SOSP_FREEING_WRITE;
+
+			if (so->so_sp->ssp_soback == so)
+				freeing |= SOSP_FREEING_READ;
+			sounsplice(so->so_sp->ssp_soback, so, freeing);
+		}
+		if (isspliced(so)) {
+			int freeing = SOSP_FREEING_READ;
+
+			if (so == so->so_sp->ssp_socket)
+				freeing |= SOSP_FREEING_WRITE;
+			sounsplice(so, so->so_sp->ssp_socket, freeing);
+		}
 	}
 #endif /* SOCKET_SPLICE */
 	sbrelease(so, &so->so_snd);
@@ -233,7 +258,7 @@ sofree(struct socket *so, int s)
 		/* Reuse splice idle, sounsplice() has been called before. */
 		timeout_set_proc(&so->so_sp->ssp_idleto, soreaper, so);
 		timeout_add(&so->so_sp->ssp_idleto, 0);
-	} else 
+	} else
 #endif /* SOCKET_SPLICE */
 	{
 		pool_put(&socket_pool, so);
@@ -1148,7 +1173,7 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 			return (error);
 		}
 		if (so->so_sp->ssp_socket)
-			sounsplice(so, so->so_sp->ssp_socket, 1);
+			sounsplice(so, so->so_sp->ssp_socket, 0);
 		sbunlock(so, &so->so_rcv);
 		return (0);
 	}
@@ -1227,7 +1252,7 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 }
 
 void
-sounsplice(struct socket *so, struct socket *sosp, int wakeup)
+sounsplice(struct socket *so, struct socket *sosp, int freeing)
 {
 	soassertlocked(so);
 
@@ -1236,8 +1261,11 @@ sounsplice(struct socket *so, struct socket *sosp, int wakeup)
 	sosp->so_snd.sb_flags &= ~SB_SPLICE;
 	so->so_rcv.sb_flags &= ~SB_SPLICE;
 	so->so_sp->ssp_socket = sosp->so_sp->ssp_soback = NULL;
-	if (wakeup && soreadable(so))
+	/* Do not wakeup a socket that is about to be freed. */
+	if ((freeing & SOSP_FREEING_READ) == 0 && soreadable(so))
 		sorwakeup(so);
+	if ((freeing & SOSP_FREEING_WRITE) == 0 && sowriteable(sosp))
+		sowwakeup(sosp);
 }
 
 void
@@ -1249,7 +1277,7 @@ soidle(void *arg)
 	s = solock(so);
 	if (so->so_rcv.sb_flags & SB_SPLICE) {
 		so->so_error = ETIMEDOUT;
-		sounsplice(so, so->so_sp->ssp_socket, 1);
+		sounsplice(so, so->so_sp->ssp_socket, 0);
 	}
 	sounlock(so, s);
 }
@@ -1574,7 +1602,7 @@ somove(struct socket *so, int wait)
 		so->so_error = error;
 	if (((so->so_state & SS_CANTRCVMORE) && so->so_rcv.sb_cc == 0) ||
 	    (sosp->so_state & SS_CANTSENDMORE) || maxreached || error) {
-		sounsplice(so, sosp, 1);
+		sounsplice(so, sosp, 0);
 		return (0);
 	}
 	if (timerisset(&so->so_idletv))
@@ -1620,6 +1648,8 @@ sowwakeup(struct socket *so)
 #ifdef SOCKET_SPLICE
 	if (so->so_snd.sb_flags & SB_SPLICE)
 		task_add(sosplice_taskq, &so->so_sp->ssp_soback->so_splicetask);
+	if (issplicedback(so))
+		return;
 #endif
 	sowakeup(so, &so->so_snd);
 }
@@ -1852,6 +1882,14 @@ sogetopt(struct socket *so, int level, int optname, struct mbuf *m)
 			so->so_error = 0;
 			break;
 
+		case SO_DOMAIN:
+			*mtod(m, int *) = so->so_proto->pr_domain->dom_family;
+			break;
+
+		case SO_PROTOCOL:
+			*mtod(m, int *) = so->so_proto->pr_protocol;
+			break;
+
 		case SO_SNDBUF:
 			*mtod(m, int *) = so->so_snd.sb_hiwat;
 			break;
@@ -1986,8 +2024,10 @@ int
 filt_soread(struct knote *kn, long hint)
 {
 	struct socket *so = kn->kn_fp->f_data;
-	int rv;
+	int s, rv;
 
+	if ((hint & NOTE_SUBMIT) == 0)
+		s = solock(so);
 	kn->kn_data = so->so_rcv.sb_cc;
 #ifdef SOCKET_SPLICE
 	if (isspliced(so)) {
@@ -2005,6 +2045,8 @@ filt_soread(struct knote *kn, long hint)
 	} else {
 		rv = (kn->kn_data >= so->so_rcv.sb_lowat);
 	}
+	if ((hint & NOTE_SUBMIT) == 0)
+		sounlock(so, s);
 
 	return rv;
 }
@@ -2025,8 +2067,10 @@ int
 filt_sowrite(struct knote *kn, long hint)
 {
 	struct socket *so = kn->kn_fp->f_data;
-	int rv;
+	int s, rv;
 
+	if ((hint & NOTE_SUBMIT) == 0)
+		s = solock(so);
 	kn->kn_data = sbspace(so, &so->so_snd);
 	if (so->so_state & SS_CANTSENDMORE) {
 		kn->kn_flags |= EV_EOF;
@@ -2042,6 +2086,8 @@ filt_sowrite(struct knote *kn, long hint)
 	} else {
 		rv = (kn->kn_data >= so->so_snd.sb_lowat);
 	}
+	if ((hint & NOTE_SUBMIT) == 0)
+		sounlock(so, s);
 
 	return (rv);
 }
@@ -2050,8 +2096,13 @@ int
 filt_solisten(struct knote *kn, long hint)
 {
 	struct socket *so = kn->kn_fp->f_data;
+	int s;
 
+	if ((hint & NOTE_SUBMIT) == 0)
+		s = solock(so);
 	kn->kn_data = so->so_qlen;
+	if ((hint & NOTE_SUBMIT) == 0)
+		sounlock(so, s);
 
 	return (kn->kn_data != 0);
 }
@@ -2135,4 +2186,3 @@ so_print(void *v,
 	(*pr)("so_cpid: %d\n", so->so_cpid);
 }
 #endif
-

@@ -155,23 +155,30 @@ sub corelist_delta {
     return undef;
   };
 
-  my @unclaimedModules = qw/AnyDBM_File B B::Concise B::Deparse Benchmark Class::Struct Config::Extensions DB DBM_Filter Devel::Peek DirHandle DynaLoader English Errno ExtUtils::Embed ExtUtils::Miniperl ExtUtils::Typemaps ExtUtils::XSSymSet Fcntl File::Basename File::Compare File::Copy File::DosGlob File::Find File::Glob File::stat FileCache FileHandle FindBin GDBM_File Getopt::Std Hash::Util Hash::Util::FieldHash I18N::Langinfo IPC::Open3 NDBM_File ODBM_File Opcode PerlIO PerlIO::encoding PerlIO::mmap PerlIO::scalar PerlIO::via Pod::Functions Pod::Html POSIX SDBM_File SelectSaver Symbol Sys::Hostname Thread Tie::Array Tie::Handle Tie::Hash Tie::Hash::NamedCapture Tie::Memoize Tie::Scalar Tie::StdHandle Tie::SubstrHash Time::gmtime Time::localtime Time::tm Unicode::UCD UNIVERSAL User::grent User::pwent VMS::DCLsym VMS::Filespec VMS::Stdio XS::Typemap Win32CORE/;
+  my @unclaimedModules = qw/AnyDBM_File B B::Concise B::Deparse Benchmark Class::Struct Config::Extensions DB
+                            DBM_Filter Devel::Peek DirHandle DynaLoader English Errno ExtUtils::Embed ExtUtils::Miniperl
+                            ExtUtils::Typemaps ExtUtils::XSSymSet Fcntl File::Basename File::Compare File::Copy File::DosGlob
+                            File::Find File::Glob File::stat FileCache FileHandle FindBin GDBM_File Getopt::Std Hash::Util Hash::Util::FieldHash
+                            I18N::Langinfo IPC::Open3 NDBM_File ODBM_File Opcode PerlIO PerlIO::encoding PerlIO::mmap PerlIO::scalar PerlIO::via
+                            Pod::Functions Pod::Html POSIX SDBM_File SelectSaver Symbol Sys::Hostname Thread Tie::Array Tie::Handle Tie::Hash
+                            Tie::Hash::NamedCapture Tie::Memoize Tie::Scalar Tie::StdHandle Tie::SubstrHash Time::gmtime Time::localtime Time::tm
+                            Unicode::UCD UNIVERSAL User::grent User::pwent VMS::DCLsym VMS::Filespec VMS::Stdio XS::Typemap XS::APItest Win32CORE/;
   my @unclaimedPragmata = qw/arybase attributes blib bytes charnames deprecate diagnostics encoding feature fields filetest inc::latest integer less locale mro open ops overload overloading re sigtrap sort strict subs utf8 vars vmsish/;
   my @unclaimed = (@unclaimedModules, @unclaimedPragmata);
 
   my %distToModules = (
     'IO-Compress' => [
       {
-        'name' => 'IO-Compress',
+        'name'         => 'IO-Compress',
         'modification' => $getModifyType->( $changes{'IO::Compress::Base'} ),
-        'data' => $changes{'IO::Compress::Base'}
+        'data'         => $changes{'IO::Compress::Base'}
       }
     ],
-    'Locale-Codes' => [
+    'libnet' => [
       {
-        'name'         => 'Locale::Codes',
-        'modification' => $getModifyType->( $changes{'Locale::Codes'} ),
-        'data'         => $changes{'Locale::Codes'}
+        'name'         => 'libnet',
+        'modification' => $getModifyType->( $changes{'Net::Cmd'} ),
+        'data'         => $changes{'Net::Cmd'}
       }
     ],
     'PathTools' => [
@@ -179,6 +186,13 @@ sub corelist_delta {
         'name'         => 'File::Spec',
         'modification' => $getModifyType->( $changes{'Cwd'} ),
         'data'         => $changes{'Cwd'}
+      }
+    ],
+    'podlators' => [
+      {
+        'name'         => 'podlators',
+        'modification' => $getModifyType->( $changes{'Pod::Text'} ),
+        'data'         => $changes{'Pod::Text'}
       }
     ],
     'Scalar-List-Utils' => [
@@ -191,6 +205,11 @@ sub corelist_delta {
         'name'         => 'Scalar::Util',
         'modification' => $getModifyType->( $changes{'Scalar::Util'} ),
         'data'         => $changes{'Scalar::Util'}
+      },
+      {
+        'name'         => 'Sub::Util',
+        'modification' => $getModifyType->( $changes{'Sub::Util'} ),
+        'data'         => $changes{'Sub::Util'}
       }
     ],
     'Text-Tabs+Wrap' => [
@@ -270,7 +289,7 @@ sub do_update_existing {
   my ( $existing, $old, $new ) = @_;
 
   my ( $added, $removed, $updated, $manuallyCheck ) = corelist_delta( $old => $new );
-  if ($manuallyCheck) {
+  if (@{$manuallyCheck}) {
     print "It cannot be determined whether the following distributions have changed.\n";
     print "Please check and list accordingly:\n";
     say "\t* $_" for sort @{$manuallyCheck};

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.6 2018/06/25 22:39:14 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.11 2019/11/28 00:17:11 bluhm Exp $
 
 NOMAN=		#
 
@@ -10,6 +10,7 @@ INSTALL_STRIP=
 BINDIR=		/usr/mdec
 SRCS=		start.S self_reloc.c efiboot.c conf.c exec.c efiacpi.c
 SRCS+=		efidev.c efipxe.c efirng.c fdt.c dt_blob.S
+SRCS+=		softraid_arm64.c
 
 S=		${.CURDIR}/../../../..
 EFIDIR=		${S}/stand/efi
@@ -23,17 +24,20 @@ LDFLAGS+=-nostdlib -T ${.CURDIR}/ldscript.arm64 -Bsymbolic -shared
 SRCS+=	boot.c cmd.c vars.c
 
 .PATH:	${S}/lib/libsa
-SRCS+=	alloc.c ctime.c exit.c getchar.c memcmp.c memcpy.c memmove.c memset.c \
+SRCS+=	alloc.c ctime.c exit.c getchar.c hexdump.c \
+	memcmp.c memcpy.c memmove.c memset.c \
 	printf.c putchar.c snprintf.c strchr.c strcmp.c strerror.c strncmp.c \
-	strncpy.c strtol.c
-SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
-	lseek.c open.c read.c readdir.c stat.c
-SRCS+=	loadfile.c
+	strncpy.c strtol.c strtoll.c
+SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fchmod.c \
+	fstat.c lseek.c open.c read.c readdir.c stat.c
+SRCS+=	loadfile.c arc4.c
 SRCS+=	ufs.c
 SRCS+=	arp.c ether.c globals.c in_cksum.c net.c netif.c netudp.c tftp.c
+SRCS+=	aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c hmac_sha1.c \
+	pkcs5_pbkdf2.c rijndael.c sha1.c sha2.c softraid.c
 
 .PATH:	${S}/lib/libkern/arch/arm64 ${S}/lib/libkern
-SRCS+=	divdi3.c moddi3.c qdivrem.c strlcpy.c strlen.c
+SRCS+=	divdi3.c moddi3.c qdivrem.c strlcat.c strlcpy.c strlen.c
 
 .PATH:	${S}/lib/libz
 SRCS+=	adler32.c crc32.c inflate.c inftrees.c

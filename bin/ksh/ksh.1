@@ -1,8 +1,8 @@
-.\"	$OpenBSD: ksh.1,v 1.202 2018/12/16 13:08:35 schwarze Exp $
+.\"	$OpenBSD: ksh.1,v 1.208 2019/11/26 22:49:01 jmc Exp $
 .\"
 .\"	Public Domain
 .\"
-.Dd $Mdocdate: December 16 2018 $
+.Dd $Mdocdate: November 26 2019 $
 .Dt KSH 1
 .Os
 .Sh NAME
@@ -750,12 +750,13 @@ expressions are patterns (e.g. the comparison
 .Ic [[ foobar = f*r ]]
 succeeds).
 .It
-There are two additional binary operators,
+The
 .Ql <
 and
-.Ql > ,
-which return true if their first string operand is less than, or greater than,
-their second string operand, respectively.
+.Ql >
+binary operators do not need to be quoted with the
+.Ql \e
+character.
 .It
 The single argument form of
 .Ic test ,
@@ -1340,7 +1341,7 @@ Note that if
 .Ev CDPATH
 is set and does not contain
 .Sq \&.
-or contains an empty path, the current directory is not searched.
+or an empty path, the current directory is not searched.
 Also, the
 .Ic cd
 built-in command will display the resulting directory when a match is found
@@ -2865,7 +2866,9 @@ is set, it lists the search path for the directory containing
 .Ar dir .
 A
 .Dv NULL
-path means the current directory.
+path or
+.Ql .\&
+means the current directory.
 If
 .Ar dir
 is found in any component of the
@@ -3890,6 +3893,10 @@ Strings are equal.
 Strings are equal.
 .It Ar string No != Ar string
 Strings are not equal.
+.It Ar string No > Ar string
+Strings compare greater than based on the ASCII value of their characters.
+.It Ar string No < Ar string
+Strings compare less than based on the ASCII value of their characters.
 .It Ar number Fl eq Ar number
 Numbers compare equal.
 .It Ar number Fl ne Ar number
@@ -4694,7 +4701,7 @@ Moves the cursor to the beginning of the edited input line.
 Uppercase the first character in the next
 .Ar n
 words, leaving the cursor past the end of the last word.
-.It clear-screen:
+.It clear-screen: ^L
 Clears the screen if the
 .Ev TERM
 parameter is set and the terminal supports clearing the screen, then
@@ -4891,7 +4898,7 @@ The last
 word of the previous command is inserted at the cursor.
 .It quote: ^^
 The following character is taken literally rather than as an editing command.
-.It redraw: ^L
+.It redraw:
 Reprints the prompt string and the current input line.
 .It Xo search-character-backward:
 .Op Ar n
@@ -5540,10 +5547,12 @@ Privileged shell profile.
 .Rs
 .%A Morris Bolsky
 .%A David Korn
-.%B The KornShell Command and Programming Language, 2nd Edition
-.%D 1995
+.%B The KornShell Command and Programming Language
+.%D First Edition 1989
 .%I Prentice Hall
-.%O ISBN 0131827006
+.%O ISBN 0135169720
+.\" The second edition of the above book (1995) is about ksh93,
+.\" but the OpenBSD ksh is a descendant from ksh88 via pdksh.
 .Re
 .Rs
 .%A Stephen G. Kochan

@@ -1,4 +1,4 @@
-#	$OpenBSD: 4.4BSD.dist,v 1.306 2019/01/27 16:11:55 florian Exp $
+#	$OpenBSD: 4.4BSD.dist,v 1.314 2019/11/29 03:28:20 benno Exp $
 
 /set type=dir uname=root gname=wheel mode=0755
 
@@ -90,6 +90,8 @@ etc
     ..
     rc.d
     ..
+    rpki
+    ..
     skel
         .ssh			uname=root mode=0700
         ..
@@ -102,14 +104,6 @@ etc
     # ./etc/ssl
     ssl
         private			uname=root mode=0700
-        ..
-        lib
-        ..
-    ..
-
-    # ./etc/unwind
-    unwind
-        trustanchor		gname=_unwind uname=root mode=0775
         ..
     ..
 
@@ -441,6 +435,8 @@ usr
             ..
             fortune
             ..
+            hack
+            ..
             quiz.db
             ..
         ..
@@ -514,14 +510,14 @@ usr
                 ..
                 sgi
                 ..
-                socppc
-                ..
                 sparc64
                 ..
             ..
 
             # ./usr/share/man/man5
             man5
+                sparc64
+                ..
             ..
             man6
             ..
@@ -553,8 +549,6 @@ usr
                 octeon
                 ..
                 sgi
-                ..
-                socppc
                 ..
                 sparc64
                 ..
@@ -617,6 +611,10 @@ var
     ..
     crash			mode=770
     ..
+    cache			mode=755
+        rpki-client		uname=_rpki-client gname=wheel mode=0755
+        ..
+    ..
 
     # ./var/cron
     cron			mode=0555
@@ -634,6 +632,8 @@ var
         ..
         ns
         ..
+        rpki-client		uname=_rpki-client mode=0755
+        ..
         pkg
         ..
         yubikey			uname=root gname=auth mode=0770
@@ -642,10 +642,6 @@ var
 
     # ./var/games
     games			uname=root gname=games mode=0775
-        hackdir			uname=root gname=games mode=0775
-            save		uname=root gname=games mode=0770
-            ..
-        ..
         save			uname=root gname=games mode=0775
         ..
         phantasia		uname=root gname=games mode=0775

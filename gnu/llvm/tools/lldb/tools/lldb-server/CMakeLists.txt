@@ -22,6 +22,14 @@ include_directories(
   )
 endif ()
 
+if ( CMAKE_SYSTEM_NAME MATCHES "OpenBSD" )
+include_directories(
+  ../../../../llvm/include
+  ../../source/Plugins/Process/OpenBSD
+  ../../source/Plugins/Process/POSIX
+  )
+endif ()
+
 include_directories(../../source)
 
 set(LLDB_PLUGINS)
@@ -34,6 +42,10 @@ if(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
   list(APPEND LLDB_PLUGINS lldbPluginProcessNetBSD)
 endif()
 
+if(CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
+  list(APPEND LLDB_PLUGINS lldbPluginProcessOpenBSD)
+endif()
+
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   list(APPEND LLDB_PLUGINS lldbPluginObjectFileMachO)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
@@ -42,7 +54,7 @@ else()
   list(APPEND LLDB_PLUGINS lldbPluginObjectFileELF)
 endif()
 
-add_lldb_tool(lldb-server INCLUDE_IN_SUITE
+add_lldb_tool(lldb-server
     Acceptor.cpp
     lldb-gdbserver.cpp
     lldb-platform.cpp

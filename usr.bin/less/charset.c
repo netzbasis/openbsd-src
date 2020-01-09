@@ -146,21 +146,30 @@ init_charset(void)
 }
 
 /*
- * Is a given character a "binary" character?
+ * Like mbtowc(3), except that it converts the multibyte character
+ * preceding ps rather than the one starting at ps.
  */
 int
-binary_char(LWCHAR c)
+mbtowc_left(wchar_t *pwc, const char *ps, size_t psz)
 {
-	if (utf_mode)
-		return (is_ubin_char(c));
-	c &= 0377;
-	return (!isprint((unsigned char)c) && !iscntrl((unsigned char)c));
+	size_t sz = 0;
+	int len;
+
+	do {
+		if (++sz > psz)
+			return -1;
+	} while (utf_mode && IS_UTF8_TRAIL(ps[-sz]));
+	if ((len = mbtowc(pwc, ps - sz, sz)) == -1) {
+		(void)mbtowc(NULL, NULL, 0);
+		return -1;
+	}
+	return len == sz || (len == 0 && sz == 1) ? len : -1;
 }
 
 /*
  * Is a given character a "control" character?
  */
-int
+static int
 control_char(LWCHAR c)
 {
 	c &= 0377;
@@ -293,7 +302,7 @@ is_utf8_well_formed(const char *s)
 /*
  * Get the value of a UTF-8 character.
  */
-LWCHAR
+static LWCHAR
 get_wchar(const char *p)
 {
 	switch (utf_len(p[0])) {
@@ -337,48 +346,6 @@ get_wchar(const char *p)
 		    ((p[3] & 0x3F) << 12) |
 		    ((p[4] & 0x3F) << 6) |
 		    (p[5] & 0x3F));
-	}
-}
-
-/*
- * Store a character into a UTF-8 string.
- */
-void
-put_wchar(char **pp, LWCHAR ch)
-{
-	if (!utf_mode || ch < 0x80) {
-		/* 0xxxxxxx */
-		*(*pp)++ = (char)ch;
-	} else if (ch < 0x800) {
-		/* 110xxxxx 10xxxxxx */
-		*(*pp)++ = (char)(0xC0 | ((ch >> 6) & 0x1F));
-		*(*pp)++ = (char)(0x80 | (ch & 0x3F));
-	} else if (ch < 0x10000) {
-		/* 1110xxxx 10xxxxxx 10xxxxxx */
-		*(*pp)++ = (char)(0xE0 | ((ch >> 12) & 0x0F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 6) & 0x3F));
-		*(*pp)++ = (char)(0x80 | (ch & 0x3F));
-	} else if (ch < 0x200000) {
-		/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-		*(*pp)++ = (char)(0xF0 | ((ch >> 18) & 0x07));
-		*(*pp)++ = (char)(0x80 | ((ch >> 12) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 6) & 0x3F));
-		*(*pp)++ = (char)(0x80 | (ch & 0x3F));
-	} else if (ch < 0x4000000) {
-		/* 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
-		*(*pp)++ = (char)(0xF0 | ((ch >> 24) & 0x03));
-		*(*pp)++ = (char)(0x80 | ((ch >> 18) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 12) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 6) & 0x3F));
-		*(*pp)++ = (char)(0x80 | (ch & 0x3F));
-	} else {
-		/* 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
-		*(*pp)++ = (char)(0xF0 | ((ch >> 30) & 0x01));
-		*(*pp)++ = (char)(0x80 | ((ch >> 24) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 18) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 12) & 0x3F));
-		*(*pp)++ = (char)(0x80 | ((ch >> 6) & 0x3F));
-		*(*pp)++ = (char)(0x80 | (ch & 0x3F));
 	}
 }
 
@@ -504,13 +471,6 @@ static struct wchar_range comp_table[] = {
 	{ 0x1D167, 0x1D169} /* Mn */, { 0x1D17B, 0x1D182} /* Mn */,
 	{ 0x1D185, 0x1D18B} /* Mn */, { 0x1D1AA, 0x1D1AD} /* Mn */,
 	{ 0x1D242, 0x1D244} /* Mn */, { 0xE0100, 0xE01EF} /* Mn */,
-};
-
-/*
- * Special pairs, not ranges.
- */
-static struct wchar_range comb_table[] = {
-	{0x0644, 0x0622}, {0x0644, 0x0623}, {0x0644, 0x0625}, {0x0644, 0x0627},
 };
 
 /*
@@ -858,22 +818,4 @@ is_wide_char(LWCHAR ch)
 {
 	return (is_in_table(ch, wide_table,
 	    (sizeof (wide_table) / sizeof (*wide_table))));
-}
-
-/*
- * Is a character a UTF-8 combining character?
- * A combining char acts like an ordinary char, but if it follows
- * a specific char (not any char), the two combine into one glyph.
- */
-int
-is_combining_char(LWCHAR ch1, LWCHAR ch2)
-{
-	/* The table is small; use linear search. */
-	int i;
-	for (i = 0; i < sizeof (comb_table) / sizeof (*comb_table); i++) {
-		if (ch1 == comb_table[i].first &&
-		    ch2 == comb_table[i].last)
-			return (1);
-	}
-	return (0);
 }

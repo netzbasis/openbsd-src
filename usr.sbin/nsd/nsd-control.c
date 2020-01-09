@@ -42,8 +42,8 @@
  */
 
 #include "config.h"
+#include <stdio.h>
 #ifdef HAVE_SSL
-
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
@@ -101,6 +101,11 @@ usage()
 	printf("  zonestatus [<zone>]		print state, serial, activity\n");
 	printf("  serverpid			get pid of server process\n");
 	printf("  verbosity <number>		change logging detail\n");
+	printf("  print_tsig [<key_name>]	print tsig with <name> the secret and algo\n");
+	printf("  update_tsig <name> <secret>	change existing tsig with <name> to a new <secret>\n");
+	printf("  add_tsig <name> <secret> [algo] add new key with the given parameters\n");
+	printf("  assoc_tsig <zone> <key_name>	associate <zone> with given tsig <key_name> name\n");
+	printf("  del_tsig <key_name>		delete tsig <key_name> from configuration\n");
 	exit(1);
 }
 
@@ -158,6 +163,12 @@ setup_ctx(struct nsd_options* cfg)
         if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv3) & SSL_OP_NO_SSLv3)
 		!= SSL_OP_NO_SSLv3)
 		ssl_err("could not set SSL_OP_NO_SSLv3");
+#if defined(SSL_OP_NO_RENEGOTIATION)
+	/* disable client renegotiation */
+	if((SSL_CTX_set_options(ctx, SSL_OP_NO_RENEGOTIATION) &
+		SSL_OP_NO_RENEGOTIATION) != SSL_OP_NO_RENEGOTIATION)
+		ssl_err("could not set SSL_OP_NO_RENEGOTIATION");
+#endif
 	if(!SSL_CTX_use_certificate_file(ctx,c_cert,SSL_FILETYPE_PEM))
 		ssl_path_err("Error setting up SSL_CTX client cert", c_cert);
 	if(!SSL_CTX_use_PrivateKey_file(ctx,c_key,SSL_FILETYPE_PEM))
@@ -224,6 +235,7 @@ contact_server(const char* svr, struct nsd_options* cfg, int statuscmd)
 		addrfamily = AF_LOCAL;
 		port = 0;
 #endif
+#ifdef INET6
 	} else if(strchr(svr, ':')) {
 		struct sockaddr_in6 sa;
 		addrlen = (socklen_t)sizeof(struct sockaddr_in6);
@@ -236,6 +248,7 @@ contact_server(const char* svr, struct nsd_options* cfg, int statuscmd)
 		}
 		memcpy(&addr, &sa, addrlen);
 		addrfamily = AF_INET6;
+#endif
 	} else { /* ip4 */
 		struct sockaddr_in sa;
 		addrlen = (socklen_t)sizeof(struct sockaddr_in);

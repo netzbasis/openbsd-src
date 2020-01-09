@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.16 2018/08/10 16:43:54 jsing Exp $	*/
+/*	$OpenBSD: conf.c,v 1.25 2019/11/29 16:16:19 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -39,7 +39,7 @@
 #include "efidev.h"
 #include "efipxe.h"
 
-const char version[] = "3.40";
+const char version[] = "3.48";
 
 #ifdef EFI_DEBUG
 int	debug = 0;
@@ -66,7 +66,7 @@ struct fs_ops file_system[] = {
 	{ tftp_open,   tftp_close,   tftp_read,   tftp_write,   tftp_seek,
 	  tftp_stat,   tftp_readdir   },
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 	{ cd9660_open, cd9660_close, cd9660_read, cd9660_write, cd9660_seek,
 	  cd9660_stat, cd9660_readdir },
 #ifdef notdef

@@ -1,4 +1,4 @@
-/*	$OpenBSD: malloc.c,v 1.3 2015/01/16 00:03:37 deraadt Exp $	*/
+/*	$OpenBSD: malloc.c,v 1.5 2019/11/28 16:27:25 guenther Exp $	*/
 /*
  * Copyright (c) 2008 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -247,7 +247,7 @@ read_buckets(void)
 	siz = sizeof(buf);
 	num_buckets = 0;
 
-	if (sysctl(mib, 3, buf, &siz, NULL, 0) < 0) {
+	if (sysctl(mib, 3, buf, &siz, NULL, 0) == -1) {
 		error("sysctl(kern.malloc.buckets): %s", strerror(errno));
 		return (-1);
 	}
@@ -266,7 +266,7 @@ read_buckets(void)
 		}
 		mib[3] = bucket_sizes[num_buckets];
 		if (sysctl(mib, 4, &buckets[num_buckets], &siz,
-			   NULL, 0) < 0) {
+			   NULL, 0) == -1) {
 			error("sysctl(kern.malloc.bucket.%d): %s",
 			    mib[3], strerror(errno));
 			return (-1);
@@ -300,7 +300,7 @@ read_types(void)
 		 * Skip errors -- these are presumed to be unallocated
 		 * entries.
 		 */
-		if (sysctl(mib, 4, &ti->stats, &siz, NULL, 0) < 0)
+		if (sysctl(mib, 4, &ti->stats, &siz, NULL, 0) == -1)
 			continue;
 
 		if (ti->stats.ks_calls == 0)
@@ -394,7 +394,6 @@ showtype(int k)
 	print_fld_size(FLD_TYPE_LIMIT, t->stats.ks_limit);
 	print_fld_size(FLD_TYPE_REQUESTS, t->stats.ks_calls);
 	print_fld_size(FLD_TYPE_TLIMIT, t->stats.ks_limblocks);
-	print_fld_size(FLD_TYPE_KLIMIT, t->stats.ks_mapblocks);
 	print_fld_str(FLD_TYPE_SIZES, t->buckets);
 
 	end_line();

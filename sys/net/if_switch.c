@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_switch.c,v 1.25 2018/12/28 14:32:47 bluhm Exp $	*/
+/*	$OpenBSD: if_switch.c,v 1.30 2019/11/06 03:51:26 dlg Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -434,6 +434,7 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		}
 		breq->ifbr_ifsflags = swpo->swpo_flags;
 		breq->ifbr_portno = swpo->swpo_port_no;
+		breq->ifbr_protected = swpo->swpo_protected;
 		break;
 	case SIOCSIFFLAGS:
 		if ((ifp->if_flags & IFF_UP) == IFF_UP)
@@ -467,6 +468,19 @@ switch_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		brop->ifbop_last_tc_time.tv_sec = bs->bs_last_tc_time.tv_sec;
 		brop->ifbop_last_tc_time.tv_usec = bs->bs_last_tc_time.tv_usec;
 		break;
+	case SIOCBRDGSIFPROT:
+		ifs = ifunit(breq->ifbr_ifsname);
+		if (ifs == NULL) {
+			error = ENOENT;
+			break;
+		}
+		swpo = (struct switch_port *)ifs->if_switchport;
+		if (swpo == NULL || swpo->swpo_switch != sc) {
+			error = ESRCH;
+			break;
+		}
+		swpo->swpo_protected = breq->ifbr_protected;
+		break;
 	case SIOCSWGDPID:
 	case SIOCSWSDPID:
 	case SIOCSWGMAXFLOW:
@@ -492,7 +506,7 @@ switch_port_add(struct switch_softc *sc, struct ifbreq *req)
 	if ((ifs = ifunit(req->ifbr_ifsname)) == NULL)
 		return (ENOENT);
 
-	if (ifs->if_bridgeport != NULL)
+	if (ifs->if_bridgeidx != 0)
 		return (EBUSY);
 
 	if (ifs->if_switchport != NULL) {
@@ -519,8 +533,8 @@ switch_port_add(struct switch_softc *sc, struct ifbreq *req)
 	ifs->if_switchport = (caddr_t)swpo;
 	if_ih_insert(ifs, switch_input, NULL);
 	swpo->swpo_port_no = swofp_assign_portno(sc, ifs->if_index);
-	swpo->swpo_dhcookie = hook_establish(ifs->if_detachhooks, 0,
-	    switch_port_detach, ifs);
+	task_set(&swpo->swpo_dtask, switch_port_detach, ifs);
+	if_detachhook_add(ifs, &swpo->swpo_dtask);
 
 	nanouptime(&swpo->swpo_appended);
 
@@ -560,7 +574,7 @@ switch_port_list(struct switch_softc *sc, struct ifbifconf *bifc)
 		strlcpy(breq.ifbr_name, sc->sc_if.if_xname, IFNAMSIZ);
 		breq.ifbr_ifsflags = swpo->swpo_flags;
 		breq.ifbr_portno = swpo->swpo_port_no;
-
+		breq.ifbr_protected = swpo->swpo_protected;
 		if ((error = copyout((caddr_t)&breq,
 		    (caddr_t)(bifc->ifbic_req + n), sizeof(breq))) != 0)
 			goto done;
@@ -587,7 +601,7 @@ switch_port_detach(void *arg)
 		switch_port_unset_local(sc, swpo);
 
 	ifp->if_switchport = NULL;
-	hook_disestablish(ifp->if_detachhooks, swpo->swpo_dhcookie);
+	if_detachhook_del(ifp, &swpo->swpo_dtask);
 	ifpromisc(ifp, 0);
 	if_ih_remove(ifp, switch_input, NULL);
 	TAILQ_REMOVE(&sc->sc_swpo_list, swpo, swpo_list_next);
@@ -639,10 +653,7 @@ struct mbuf *
 switch_port_ingress(struct switch_softc *sc, struct ifnet *src_if,
     struct mbuf *m)
 {
-	struct switch_port	*swpo;
 	struct ether_header	 eh;
-
-	swpo = (struct switch_port *)src_if->if_switchport;
 
 	sc->sc_if.if_ipackets++;
 	sc->sc_if.if_ibytes += m->m_pkthdr.len;
@@ -1483,7 +1494,7 @@ switch_mtap(caddr_t arg, struct mbuf *m, int dir, uint64_t datapath_id)
 	of.of_direction = htonl(dir == BPF_DIRECTION_IN ?
 	    DLT_OPENFLOW_TO_SWITCH : DLT_OPENFLOW_TO_CONTROLLER);
 
-	return (bpf_mtap_hdr(arg, (caddr_t)&of, sizeof(of), m, dir, NULL));
+	return (bpf_mtap_hdr(arg, (caddr_t)&of, sizeof(of), m, dir));
 }
 
 int

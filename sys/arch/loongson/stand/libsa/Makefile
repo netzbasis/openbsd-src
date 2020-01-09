@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.8 2016/11/06 16:42:00 tb Exp $
+#	$OpenBSD: Makefile,v 1.11 2019/10/29 02:55:51 deraadt Exp $
 
 .include "${.CURDIR}/../Makefile.inc"
 
@@ -17,12 +17,12 @@ CFLAGS+= ${CEXTRAFLAGS} ${SAABI} -nostdinc -mno-abicalls -D_NO_ABICALLS \
 
 # stand routines
 SRCS=	alloc.c cons.c ctime.c exit.c getchar.c getfile.c getln.c globals.c \
-	memcmp.c memcpy.c memset.c printf.c putchar.c \
+	memcmp.c memcpy.c memmove.c memset.c printf.c putchar.c \
 	snprintf.c strchr.c strcmp.c strerror.c strncmp.c strncpy.c strtol.c
 
 # io routines
-SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fstat.c ioctl.c \
-	lseek.c open.c read.c readdir.c stat.c write.c
+SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fchmod.c fstat.c \
+	ioctl.c lseek.c open.c read.c readdir.c stat.c write.c
 #SRCS+=	nullfs.c
 
 #SRCS+=	cread.c
@@ -33,7 +33,7 @@ SRCS+=	ufs.c cd9660.c
 
 CFLAGS+=-DNO_NET
 
-SRCS+=	loadfile.c
+SRCS+=	loadfile.c arc4.c
 
 ${OBJS}:	${.CURDIR}/../Makefile.inc
 

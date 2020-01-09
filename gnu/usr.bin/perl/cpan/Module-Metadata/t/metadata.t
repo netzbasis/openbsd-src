@@ -10,9 +10,13 @@ use File::Temp;
 use File::Basename;
 use Cwd ();
 use File::Path;
-use Data::Dumper;
 
-plan tests => 61;
+use lib 't/lib';
+use GeneratePackage;
+
+my $tmpdir = GeneratePackage::tmpdir();
+
+plan tests => 71;
 
 require_ok('Module::Metadata');
 
@@ -25,29 +29,6 @@ require_ok('Module::Metadata');
 
 #########################
 
-BEGIN {
-  my $cwd = File::Spec->rel2abs(Cwd::cwd);
-  sub original_cwd { return $cwd }
-}
-
-# Set up a temp directory
-sub tmpdir {
-  my (@args) = @_;
-  my $dir = $ENV{PERL_CORE} ? original_cwd : File::Spec->tmpdir;
-  return File::Temp::tempdir('MMD-XXXXXXXX', CLEANUP => 0, DIR => $dir, @args);
-}
-
-my $tmp;
-BEGIN { $tmp = tmpdir; note "using temp dir $tmp"; }
-
-END {
-  die "tests failed; leaving temp dir $tmp behind"
-    if $ENV{AUTHOR_TESTING} and not Test::Builder->new->is_passing;
-  note "removing temp dir $tmp";
-  chdir original_cwd;
-  File::Path::rmtree($tmp);
-}
-
 # generates a new distribution:
 # files => { relative filename => $content ... }
 # returns the name of the distribution (not including version),
@@ -58,7 +39,7 @@ END {
     my %opts = @_;
 
     my $distname = 'Simple' . $test_num++;
-    my $distdir = File::Spec->catdir($tmp, $distname);
+    my $distdir = File::Spec->catdir($tmpdir, $distname);
     note "using dist $distname in $distdir";
 
     File::Path::mkpath($distdir) or die "failed to create '$distdir'";
@@ -205,12 +186,18 @@ $::VERSION = 0.01;
 
 my ( $i, $n ) = ( 1, scalar( @scripts ) );
 foreach my $script ( @scripts ) {
+  note '-------';
+  my $errs;
   my $file = File::Spec->catfile('bin', 'simple.plx');
   my ($dist_name, $dist_dir) = new_dist(files => { $file => $script } );
   my $pm_info = Module::Metadata->new_from_file( $file );
 
-  is( $pm_info->version, '0.01', "correct script version ($i of $n)" );
+  is( $pm_info->name, 'main', 'name for script is always main');
+  is( $pm_info->version, '0.01', "correct script version ($i of $n)" ) or $errs++;
   $i++;
+
+  diag 'parsed module: ', explain($pm_info) if $errs and not $ENV{PERL_CORE}
+    and ($ENV{AUTHOR_TESTING} or $ENV{AUTOMATED_TESTING});
 }
 
 {
@@ -324,6 +311,51 @@ our $VERSION = '1.23';
   is( $pm_info->version, '1.23', 'version for default package' );
 }
 
+my $undef;
+my $test_num = 0;
+
+{
+  # and now a real pod file
+  # (this test case is ready to be rolled into a corpus loop, later)
+  my $test_case = {
+    name => 'file only contains pod',
+    filename => 'Simple/Documentation.pod',
+    code => <<'---',
+# PODNAME: Simple::Documentation
+# ABSTRACT: My documentation
+
+=pod
+
+Hello, this is pod.
+
+=cut
+---
+    module => '', # TODO: should probably be $undef actually
+    all_versions => { },
+  };
+
+  note $test_case->{name};
+  my $code = $test_case->{code};
+  my $expected_name = $test_case->{module};
+  local $TODO = $test_case->{TODO};
+
+  my $errs;
+
+  my ($vol, $dir, $basename) = File::Spec->splitpath(File::Spec->catfile($tmpdir, "Simple${test_num}", ($test_case->{filename} || 'Simple.pm')));
+  my $pm_info = Module::Metadata->new_from_file(generate_file($dir, $basename, $code));
+
+  my $got_name = $pm_info->name;
+  is(
+    $got_name,
+    $expected_name,
+    "case '$test_case->{name}': module name matches",
+  )
+  or $errs++;
+
+  diag 'parsed module: ', explain($pm_info) if $errs and not $ENV{PERL_CORE}
+    and ($ENV{AUTHOR_TESTING} or $ENV{AUTOMATED_TESTING});
+}
+
 {
   # Make sure processing stops after __DATA__
   my $file = File::Spec->catfile('lib', 'Simple.pm');
@@ -402,9 +434,16 @@ Simple Simon
     }
   };
 
-  my $got_pvfd = Module::Metadata->package_versions_from_directory('lib');
+  my $dir = "lib";
+  my $got_pvfd = Module::Metadata->package_versions_from_directory($dir);
 
   is_deeply( $got_pvfd, $exp_pvfd, "package_version_from_directory()" )
+    or diag explain $got_pvfd;
+
+  my $absolute_file = File::Spec->rel2abs($exp_pvfd->{Simple}{file}, $dir);
+  my $got_pvfd2 = Module::Metadata->package_versions_from_directory($dir, [$absolute_file]);
+
+  is_deeply( $got_pvfd2, $exp_pvfd, "package_version_from_directory() with provided absolute file path" )
     or diag explain $got_pvfd;
 
 {

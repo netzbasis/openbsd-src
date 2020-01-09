@@ -1,4 +1,4 @@
-/* $OpenBSD: wsmouseinput.h,v 1.12 2018/11/10 14:27:51 bru Exp $ */
+/* $OpenBSD: wsmouseinput.h,v 1.14 2019/08/19 21:19:38 bru Exp $ */
 
 /*
  * Copyright (c) 2015, 2016 Ulf Brosziewski
@@ -161,6 +161,7 @@ struct wsmouseinput {
 #define TPAD_COMPAT_MODE	(1 << 0)
 #define TPAD_NATIVE_MODE	(1 << 1)
 #define MT_TRACKING		(1 << 2)
+#define REVERSE_SCROLLING	(1 << 3)
 #define RESYNC			(1 << 16)
 #define TRACK_INTERVAL		(1 << 17)
 #define CONFIGURED		(1 << 18)
@@ -210,6 +211,8 @@ int wstpad_set_param(struct wsmouseinput *, int, int);
     WSCONS_EVENT_MOUSE_ABSOLUTE_X : WSCONS_EVENT_MOUSE_ABSOLUTE_Y)
 #define DELTA_Z_EV	WSCONS_EVENT_MOUSE_DELTA_Z
 #define DELTA_W_EV	WSCONS_EVENT_MOUSE_DELTA_W
+#define VSCROLL_EV	WSCONS_EVENT_VSCROLL
+#define HSCROLL_EV	WSCONS_EVENT_HSCROLL
 #define ABS_Z_EV	WSCONS_EVENT_TOUCH_PRESSURE
 #define ABS_W_EV	WSCONS_EVENT_TOUCH_CONTACTS
 #define BTN_DOWN_EV	WSCONS_EVENT_MOUSE_DOWN

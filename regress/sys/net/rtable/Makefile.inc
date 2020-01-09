@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.3 2017/07/27 13:34:30 mpi Exp $
+#	$OpenBSD: Makefile.inc,v 1.5 2019/06/24 12:36:15 visa Exp $
 
 TOPDIR=		${.CURDIR}/..
 

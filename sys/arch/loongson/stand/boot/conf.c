@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.8 2018/04/20 14:08:12 visa Exp $	*/
+/*	$OpenBSD: conf.c,v 1.13 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1990, 1993
@@ -39,7 +39,7 @@
 #include <lib/libsa/ufs.h>
 #include <lib/libsa/cd9660.h>
 
-const char version[] = "0.6";
+const char version[] = "1.0";
 #if 0	/* network code not compiled in */
 int	debug = 0;
 #endif
@@ -64,7 +64,7 @@ struct fs_ops file_system[] = {
 		rdfs_seek,	rdfs_stat,	rdfs_readdir	},
 	/* ufs filesystem */
 	{	ufs_open,	ufs_close,	ufs_read,	ufs_write,
-		ufs_seek,	ufs_stat,	ufs_readdir	},
+		ufs_seek,	ufs_stat,	ufs_readdir,	ufs_fchmod },
 	/* cd9660 filesystem - in case a cd image is dd'ed on non USB media */
 	{	cd9660_open,	cd9660_close,	cd9660_read,	cd9660_write,
 		cd9660_seek,	cd9660_stat,	cd9660_readdir	}

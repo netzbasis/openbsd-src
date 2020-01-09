@@ -1,4 +1,4 @@
-/* $OpenBSD: main.c,v 1.69 2019/01/17 05:56:29 tedu Exp $	 */
+/* $OpenBSD: main.c,v 1.71 2019/10/14 19:22:17 deraadt Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -428,7 +428,7 @@ main(int argc, char *argv[])
 	int ch;
 
 	ut = open(_PATH_UTMP, O_RDONLY);
-	if (ut < 0) {
+	if (ut == -1) {
 		warn("No utmp");
 	}
 
@@ -525,6 +525,11 @@ main(int argc, char *argv[])
 	}
 
 	setup_term(maxlines);
+
+	if (unveil("/", "r") == -1)
+		err(1, "unveil");
+	if (unveil(NULL, NULL) == -1)
+		err(1, "unveil");
 
 	if (rawmode && countmax == 0)
 		countmax = 1;

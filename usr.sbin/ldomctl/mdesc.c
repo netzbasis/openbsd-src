@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdesc.c,v 1.11 2018/09/16 12:17:05 kettenis Exp $	*/
+/*	$OpenBSD: mdesc.c,v 1.13 2019/11/28 18:40:42 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis
@@ -25,7 +25,7 @@
 #include <string.h>
 
 #include "mdesc.h"
-#include "util.h"
+#include "ldom_util.h"
 
 struct md_name *
 md_find_name(struct md *md, const char *str)
@@ -298,6 +298,21 @@ md_get_prop_data(struct md *md, struct md_node *node, const char *name,
 
 	*data = prop->d.data->data;
 	*len = prop->d.data->len;
+	return true;
+}
+
+bool
+md_set_prop_data(struct md *md, struct md_node *node, const char *name,
+		 const uint8_t *data, size_t len)
+{
+	struct md_prop *prop;
+
+	prop = md_find_prop(md, node, name);
+	if (prop == NULL || prop->tag != MD_PROP_DATA)
+		return false;
+
+	md_free_data(md, prop->d.data);
+	prop->d.data = md_add_data(md, data, len);
 	return true;
 }
 

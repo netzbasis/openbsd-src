@@ -1,8 +1,8 @@
-/INSTALL/1.52/Sat Mar  4 22:46:19 2017//
-/Makefile/1.47/Wed Jan 25 03:10:40 2017//
-/m4.common/1.127/Wed Aug 23 02:59:45 2017//
+/INSTALL/1.55/Wed Nov 27 23:41:23 2019//
+/Makefile/1.48/Sat May 11 07:18:14 2019//
+/m4.common/1.128/Thu Aug  1 19:42:51 2019//
 /mirrors/1.120/Fri Sep  2 12:17:32 2016//
-/packages/1.50/Sat Mar  4 22:46:19 2017//
+/packages/1.51/Thu Aug  1 19:42:51 2019//
 D/alpha////
 D/amd64////
 D/arm64////
@@ -15,5 +15,4 @@ D/luna88k////
 D/macppc////
 D/octeon////
 D/sgi////
-D/socppc////
 D/sparc64////

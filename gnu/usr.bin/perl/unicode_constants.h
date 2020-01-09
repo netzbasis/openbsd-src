@@ -5,8 +5,8 @@
  */
 
 
-#ifndef H_UNICODE_CONSTANTS   /* Guard against nested #includes */
-#define H_UNICODE_CONSTANTS   1
+#ifndef PERL_UNICODE_CONSTANTS_H_   /* Guard against nested #includes */
+#define PERL_UNICODE_CONSTANTS_H_   1
 
 /* This file contains #defines for the version of Unicode being used and
  * various Unicode code points.  The values the code point macros expand to
@@ -21,8 +21,32 @@
  *  "_TAIL"       if instead it represents all but the first byte.  This, and
  *                with no additional suffix are both string constants */
 
-#define UNICODE_MAJOR_VERSION   8
-#define UNICODE_DOT_VERSION     0
+/*
+=head1 Unicode Support
+
+=for apidoc AmU|placeholder|BOM_UTF8
+
+This is a macro that evaluates to a string constant of the  UTF-8 bytes that
+define the Unicode BYTE ORDER MARK (U+FEFF) for the platform that perl
+is compiled on.  This allows code to use a mnemonic for this character that
+works on both ASCII and EBCDIC platforms.
+S<C<sizeof(BOM_UTF8) - 1>> can be used to get its length in
+bytes.
+
+=for apidoc AmU|placeholder|REPLACEMENT_CHARACTER_UTF8
+
+This is a macro that evaluates to a string constant of the  UTF-8 bytes that
+define the Unicode REPLACEMENT CHARACTER (U+FFFD) for the platform that perl
+is compiled on.  This allows code to use a mnemonic for this character that
+works on both ASCII and EBCDIC platforms.
+S<C<sizeof(REPLACEMENT_CHARACTER_UTF8) - 1>> can be used to get its length in
+bytes.
+
+=cut
+*/
+
+#define UNICODE_MAJOR_VERSION   12
+#define UNICODE_DOT_VERSION     1
 #define UNICODE_DOT_DOT_VERSION 0
 
 
@@ -30,9 +54,7 @@
 #   define LATIN_SMALL_LETTER_LONG_S_UTF8  "\xC5\xBF"    /* U+017F */
 
 #   define COMBINING_GRAVE_ACCENT_UTF8  "\xCC\x80"    /* U+0300 */
-
-#   define GREEK_CAPITAL_LETTER_IOTA_UTF8  "\xCE\x99"    /* U+0399 */
-#   define GREEK_SMALL_LETTER_MU_UTF8  "\xCE\xBC"    /* U+03BC */
+#   define COMBINING_DOT_ABOVE_UTF8  "\xCC\x87"    /* U+0307 */
 
 #   define LATIN_CAPITAL_LETTER_SHARP_S_UTF8  "\xE1\xBA\x9E"    /* U+1E9E */
 
@@ -44,6 +66,12 @@
 #   define HYPHEN_UTF8  "\xE2\x80\x90"    /* U+2010 */
 #   define BOM_UTF8_FIRST_BYTE  0xEF    /* U+FEFF */
 #   define BOM_UTF8_TAIL  "\xBB\xBF"    /* U+FEFF */
+
+#   define BOM_UTF8  "\xEF\xBB\xBF"    /* U+FEFF */
+
+#   define REPLACEMENT_CHARACTER_UTF8  "\xEF\xBF\xBD"    /* U+FFFD */
+
+#   define MAX_UNICODE_UTF8  "\xF4\x8F\xBF\xBF"    /* U+10FFFF */
 
 #   define NBSP_NATIVE  0xA0    /* U+00A0 */
 #   define NBSP_UTF8  "\xC2\xA0"    /* U+00A0 */
@@ -65,13 +93,11 @@
 #if 'A' == 193 /* EBCDIC 1047 */ \
      && '\\' == 224 && '[' == 173 && ']' == 189 && '{' == 192 && '}' == 208 \
      && '^' == 95 && '~' == 161 && '!' == 90 && '#' == 123 && '|' == 79 \
-     && '$' == 91 && '@' == 124 && '`' == 121
+     && '$' == 91 && '@' == 124 && '`' == 121 && '\n' == 21
 #   define LATIN_SMALL_LETTER_LONG_S_UTF8  "\x8F\x73"    /* U+017F */
 
 #   define COMBINING_GRAVE_ACCENT_UTF8  "\xAF\x41"    /* U+0300 */
-
-#   define GREEK_CAPITAL_LETTER_IOTA_UTF8  "\xB3\x68"    /* U+0399 */
-#   define GREEK_SMALL_LETTER_MU_UTF8  "\xB4\x70"    /* U+03BC */
+#   define COMBINING_DOT_ABOVE_UTF8  "\xAF\x48"    /* U+0307 */
 
 #   define LATIN_CAPITAL_LETTER_SHARP_S_UTF8  "\xBF\x63\x72"    /* U+1E9E */
 
@@ -83,6 +109,12 @@
 #   define HYPHEN_UTF8  "\xCA\x41\x57"    /* U+2010 */
 #   define BOM_UTF8_FIRST_BYTE  0xDD    /* U+FEFF */
 #   define BOM_UTF8_TAIL  "\x73\x66\x73"    /* U+FEFF */
+
+#   define BOM_UTF8  "\xDD\x73\x66\x73"    /* U+FEFF */
+
+#   define REPLACEMENT_CHARACTER_UTF8  "\xDD\x73\x73\x71"    /* U+FFFD */
+
+#   define MAX_UNICODE_UTF8  "\xEE\x42\x73\x73\x73"    /* U+10FFFF */
 
 #   define NBSP_NATIVE  0x41    /* U+00A0 */
 #   define NBSP_UTF8  "\x80\x41"    /* U+00A0 */
@@ -104,13 +136,11 @@
 #if 'A' == 193 /* EBCDIC 037 */ \
      && '\\' == 224 && '[' == 186 && ']' == 187 && '{' == 192 && '}' == 208 \
      && '^' == 176 && '~' == 161 && '!' == 90 && '#' == 123 && '|' == 79 \
-     && '$' == 91 && '@' == 124 && '`' == 121
+     && '$' == 91 && '@' == 124 && '`' == 121 && '\n' == 37
 #   define LATIN_SMALL_LETTER_LONG_S_UTF8  "\x8E\x72"    /* U+017F */
 
 #   define COMBINING_GRAVE_ACCENT_UTF8  "\xAD\x41"    /* U+0300 */
-
-#   define GREEK_CAPITAL_LETTER_IOTA_UTF8  "\xB2\x67"    /* U+0399 */
-#   define GREEK_SMALL_LETTER_MU_UTF8  "\xB3\x6A"    /* U+03BC */
+#   define COMBINING_DOT_ABOVE_UTF8  "\xAD\x48"    /* U+0307 */
 
 #   define LATIN_CAPITAL_LETTER_SHARP_S_UTF8  "\xBF\x62\x71"    /* U+1E9E */
 
@@ -122,6 +152,12 @@
 #   define HYPHEN_UTF8  "\xCA\x41\x57"    /* U+2010 */
 #   define BOM_UTF8_FIRST_BYTE  0xDD    /* U+FEFF */
 #   define BOM_UTF8_TAIL  "\x72\x65\x72"    /* U+FEFF */
+
+#   define BOM_UTF8  "\xDD\x72\x65\x72"    /* U+FEFF */
+
+#   define REPLACEMENT_CHARACTER_UTF8  "\xDD\x72\x72\x70"    /* U+FFFD */
+
+#   define MAX_UNICODE_UTF8  "\xEE\x42\x72\x72\x72"    /* U+10FFFF */
 
 #   define NBSP_NATIVE  0x41    /* U+00A0 */
 #   define NBSP_UTF8  "\x78\x41"    /* U+00A0 */
@@ -141,11 +177,11 @@
 #endif	/* EBCDIC 037 */
 
 /* The number of code points not matching \pC */
-#define NON_OTHER_COUNT_FOR_USE_ONLY_BY_REGCOMP_DOT_C  120522
+#define NON_OTHER_COUNT_FOR_USE_ONLY_BY_REGCOMP_DOT_C  137768
 
 /* The highest code point that has any type of case change */
-#define HIGHEST_CASE_CHANGING_CP_FOR_USE_ONLY_BY_UTF8_DOT_C  0x118DF
+#define HIGHEST_CASE_CHANGING_CP_FOR_USE_ONLY_BY_UTF8_DOT_C  0x1E943
 
-#endif /* H_UNICODE_CONSTANTS */
+#endif /* PERL_UNICODE_CONSTANTS_H_ */
 
 /* ex: set ro: */

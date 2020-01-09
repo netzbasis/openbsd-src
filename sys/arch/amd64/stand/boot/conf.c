@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.42 2018/08/10 16:43:54 jsing Exp $	*/
+/*	$OpenBSD: conf.c,v 1.49 2019/10/29 02:55:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -13,8 +13,8 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR 
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
@@ -40,7 +40,7 @@
 #include <biosdev.h>
 #include <dev/cons.h>
 
-const char version[] = "3.41";
+const char version[] = "3.46";
 int	debug = 1;
 
 
@@ -63,7 +63,7 @@ int nibprobes = nitems(probe_list);
 
 struct fs_ops file_system[] = {
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 #ifdef notdef
 	{ fat_open,    fat_close,    fat_read,    fat_write,    fat_seek,
 	  fat_stat,    fat_readdir    },

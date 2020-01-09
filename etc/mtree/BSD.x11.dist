@@ -1,4 +1,4 @@
-#       $OpenBSD: BSD.x11.dist,v 1.49 2019/01/20 17:56:55 matthieu Exp $
+#       $OpenBSD: BSD.x11.dist,v 1.54 2019/05/27 07:03:11 jsg Exp $
 
 /set type=dir uname=root gname=wheel mode=0755
 .
@@ -46,8 +46,6 @@
                 X11
                     ICE
                     ..
-                    PM
-                    ..
                     SM
                     ..
                     Xaw
@@ -88,6 +86,8 @@
                     ..
                 ..
                 pixman-1
+                ..
+                vulkan
                 ..
                 xcb
                 ..
@@ -338,29 +338,9 @@
                 aclocal
                 ..
                 doc
-                    bigreqsproto
-                    ..
-                    compositeproto
-                    ..
-                    damageproto
-                    ..
-                    dri2proto
-                    ..
-                    dri3proto
-                    ..
-                    fixesproto
-                    ..
                     fontconfig
                         fontconfig-devel
                         ..
-                    ..
-                    fontsproto
-                    ..
-                    inputproto
-                    ..
-                    kbproto
-                    ..
-                    libFS
                     ..
                     libICE
                     ..
@@ -386,24 +366,6 @@
                     ..
                     libXvMC
                     ..
-                    randrproto
-                    ..
-                    recordproto
-                    ..
-                    renderproto
-                    ..
-                    resproto
-                    ..
-                    scrnsaverproto
-                    ..
-                    x11proto
-                        SIAddresses
-                        ..
-                    ..
-                    xcmiscproto
-                    ..
-                    xextproto
-                    ..
                     xorgproto
                         inputproto
                         ..
@@ -426,6 +388,10 @@
                 mk
                 ..
                 util-macros
+                ..
+                vulkan
+                    icd.d
+                    ..
                 ..
                 xcb
                 ..

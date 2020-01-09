@@ -1,4 +1,4 @@
-/* $OpenBSD: cpufunc_asm_armv7.S,v 1.16 2018/08/06 18:39:13 kettenis Exp $ */
+/* $OpenBSD: cpufunc_asm_armv7.S,v 1.18 2020/01/06 19:12:39 kettenis Exp $ */
 /*
  * Copyright (c) 2008 Dale Rahn <drahn@openbsd.org>
  *
@@ -43,7 +43,6 @@ ENTRY(armv7_periphbase)
  */
 ENTRY(armv7_setttb)
 	mcr	CP15_ICIALLU		/* Flush I cache */
-	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 
@@ -103,7 +102,6 @@ ENTRY(armv7_tlb_flushD)
 ENTRY(armv7_icache_sync_range)
 	ldr	ip, .Larmv7_icache_line_size
 	ldr	ip, [ip]
-	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
 	and	r2, r0, r3
 	add	r1, r1, r2
@@ -127,14 +125,12 @@ ENTRY(armv7_icache_sync_all)
 	 * into the Dcache cleaning code.
 	 */
 	mcr	CP15_ICIALLU		/* Flush I cache */
-	mcr	CP15_BPIALL		/* Flush BP cache */
 	isb	sy
 	mov	pc, lr
 
 ENTRY(armv7_dcache_wb_range)
 	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
-	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
 	and	r2, r0, r3
 	add	r1, r1, r2
@@ -151,7 +147,6 @@ ENTRY(armv7_dcache_wb_range)
 ENTRY(armv7_idcache_wbinv_range)
 	ldr	ip, .Larmv7_idcache_line_size
 	ldr	ip, [ip]
-	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
 	and	r2, r0, r3
 	add	r1, r1, r2
@@ -171,7 +166,6 @@ ENTRY(armv7_idcache_wbinv_range)
 ENTRY(armv7_dcache_wbinv_range)
 	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
-	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
 	and	r2, r0, r3
 	add	r1, r1, r2
@@ -190,7 +184,6 @@ ENTRY(armv7_dcache_wbinv_range)
 ENTRY(armv7_dcache_inv_range)
 	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
-	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
 	and	r2, r0, r3
 	add	r1, r1, r2
@@ -233,7 +226,6 @@ ENTRY(armv7_context_switch)
 	 * at this point.  So no need to flush them again.
 	 */
 	mcr	CP15_ICIALLU		/* Flush I cache */
-	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 

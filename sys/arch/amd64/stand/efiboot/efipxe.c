@@ -1,4 +1,4 @@
-/*	$OpenBSD: efipxe.c,v 1.3 2018/01/30 20:19:06 naddy Exp $	*/
+/*	$OpenBSD: efipxe.c,v 1.7 2019/11/26 19:08:02 bluhm Exp $	*/
 /*
  * Copyright (c) 2017 Patrick Wildt <patrick@blueri.se>
  *
@@ -66,15 +66,15 @@ efi_pxeprobe(void)
 		return;
 
 	for (i = 0; i < nhandles; i++) {
-		EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp = NULL;
+		EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp;
 
 		status = EFI_CALL(BS->HandleProtocol, handles[i],
 		    &devp_guid, (void **)&dp0);
 		if (status != EFI_SUCCESS)
 			continue;
 
-		depth = efi_device_path_depth(efi_bootdp, MEDIA_DEVICE_PATH);
-		if (efi_device_path_ncmp(efi_bootdp, dp0, depth))
+		depth = efi_device_path_depth(efi_bootdp, MESSAGING_DEVICE_PATH);
+		if (depth == -1 || efi_device_path_ncmp(efi_bootdp, dp0, depth))
 			continue;
 
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &pxe_guid,
@@ -85,23 +85,23 @@ efi_pxeprobe(void)
 		if (pxe->Mode == NULL)
 			continue;
 
-		if (pxe->Mode->DhcpAckReceived) {
-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)
-			    &pxe->Mode->DhcpAck;
-		}
-		if (pxe->Mode->PxeReplyReceived) {
-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)
-			    &pxe->Mode->PxeReply;
-		}
+		dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)&pxe->Mode->DhcpAck;
+		memcpy(&bootip, dhcp->BootpYiAddr, sizeof(bootip));
+		memcpy(&servip, dhcp->BootpSiAddr, sizeof(servip));
+		memcpy(boothw, dhcp->BootpHwAddr, sizeof(boothw));
+		bootmac = boothw;
+		PXE = pxe;
 
-		if (dhcp) {
-			memcpy(&bootip, dhcp->BootpYiAddr, sizeof(bootip));
-			memcpy(&servip, dhcp->BootpSiAddr, sizeof(servip));
-			memcpy(boothw, dhcp->BootpHwAddr, sizeof(boothw));
-			bootmac = boothw;
-			PXE = pxe;
-			break;
-		}
+		/*
+		 * It is expected that bootdev_dip exists.  Usually
+		 * efiopen() sets the pointer.  Create a fake disk
+		 * for the TFTP case.
+		 */
+		bootdev_dip = alloc(sizeof(struct diskinfo));
+		memset(bootdev_dip, 0, sizeof(struct diskinfo));
+		memset(bootdev_dip->disklabel.d_uid, 0xff,
+		    sizeof(bootdev_dip->disklabel.d_uid));
+		break;
 	}
 }
 
@@ -126,6 +126,9 @@ tftp_open(char *path, struct open_file *f)
 	EFI_PHYSICAL_ADDRESS addr;
 	EFI_STATUS status;
 	UINT64 size;
+
+	if (strcmp("TFTP", f->f_dev->dv_name) != 0)
+		return ENXIO;
 
 	if (PXE == NULL)
 		return ENXIO;

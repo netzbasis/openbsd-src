@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpls_input.c,v 1.73 2019/01/27 05:13:04 dlg Exp $	*/
+/*	$OpenBSD: mpls_input.c,v 1.75 2019/02/08 20:28:54 procter Exp $	*/
 
 /*
  * Copyright (c) 2008 Claudio Jeker <claudio@openbsd.org>
@@ -167,7 +167,7 @@ do_v6:
 	ifp = NULL;
 
 	rt = rtalloc(smplstosa(smpls), RT_RESOLVE, m->m_pkthdr.ph_rtableid);
-	if (rt == NULL) {
+	if (!rtisvalid(rt)) {
 		/* no entry for this label */
 #ifdef MPLS_DEBUG
 		printf("MPLS_DEBUG: label not found\n");
@@ -303,7 +303,8 @@ struct mbuf *
 mpls_ip_adjttl(struct mbuf *m, u_int8_t ttl)
 {
 	struct ip *ip;
-	uint16_t old, new, x;
+	uint16_t old, new;
+	uint32_t x;
 
 	if (m->m_len < sizeof(*ip)) {
 		m = m_pullup(m, sizeof(*ip));
@@ -317,6 +318,7 @@ mpls_ip_adjttl(struct mbuf *m, u_int8_t ttl)
 	x = ip->ip_sum + old - new;
 
 	ip->ip_ttl = ttl;
+	/* see pf_cksum_fixup() */
 	ip->ip_sum = (x) + (x >> 16);
 
 	return (m);
@@ -389,7 +391,8 @@ mpls_do_error(struct mbuf *m, int type, int code, int destmtu)
 		smpls->smpls_label = shim->shim_label & MPLS_LABEL_MASK;
 
 		rt = rtalloc(smplstosa(smpls), RT_RESOLVE, 0);
-		if (rt == NULL) {
+		if (!rtisvalid(rt)) {
+			rtfree(rt);
 			/* no entry for this label */
 			m_freem(m);
 			return (NULL);

@@ -1,4 +1,4 @@
-/* $OpenBSD: exception.S,v 1.8 2018/08/03 18:36:01 kettenis Exp $ */
+/* $OpenBSD: exception.S,v 1.10 2019/12/17 22:25:56 deraadt Exp $ */
 /*-
  * Copyright (c) 2014 Andrew Turner
  * All rights reserved.
@@ -23,14 +23,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
  */
 
 #include <machine/asm.h>
-#if 0
-__FBSDID("$FreeBSD: head/sys/arm64/arm64/exception.S 297028 2016-03-18 16:18:29Z andrew $");
-#endif
-
 #include <machine/armreg.h>
 
 #include "assym.h"
@@ -166,6 +161,8 @@ handle_el1h_sync:
 	bl	do_el1h_sync
 	restore_registers 1
 	eret
+	dsb nsh
+	isb
 
 handle_el1h_irq:
 	save_registers 1
@@ -173,6 +170,8 @@ handle_el1h_irq:
 	bl	arm_cpu_intr
 	restore_registers 1
 	eret
+	dsb nsh
+	isb
 
 handle_el1h_error:
 	brk	0xf13

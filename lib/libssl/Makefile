@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.54 2019/01/23 00:50:39 tb Exp $
+# $OpenBSD: Makefile,v 1.57 2019/11/17 06:35:30 jsing Exp $
 
 .include <bsd.own.mk>
 .ifndef NOMAN
@@ -16,6 +16,9 @@ CFLAGS+= -Wall -Wundef
 CFLAGS+= -Werror
 .endif
 CFLAGS+= -DLIBRESSL_INTERNAL
+.ifdef TLS1_3
+CFLAGS+= -DLIBRESSL_HAS_TLS1_3
+.endif
 CFLAGS+= -I${.CURDIR}
 
 LDADD+= -L${BSDOBJDIR}/lib/libcrypto -lcrypto
@@ -57,10 +60,10 @@ SRCS= \
 	ssl_srvr.c \
 	ssl_stat.c \
 	ssl_tlsext.c \
+	ssl_transcript.c \
 	ssl_txt.c \
 	ssl_versions.c \
 	t1_enc.c \
-	t1_hash.c \
 	t1_lib.c \
 	tls13_buffer.c \
 	tls13_client.c \
@@ -69,7 +72,8 @@ SRCS= \
 	tls13_key_schedule.c \
 	tls13_lib.c \
 	tls13_record.c \
-	tls13_record_layer.c
+	tls13_record_layer.c \
+	tls13_server.c
 
 HDRS=	dtls1.h srtp.h ssl.h ssl2.h ssl23.h ssl3.h tls1.h
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.c,v 1.45 2018/04/08 13:24:36 kettenis Exp $	*/
+/*	$OpenBSD: boot.c,v 1.50 2019/10/29 02:55:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003 Dale Rahn
@@ -34,6 +34,7 @@
 #include <libsa.h>
 #include <lib/libsa/loadfile.h>
 #include <lib/libkern/funcs.h>
+#include <lib/libsa/arc4.h>
 
 #include <stand/boot/bootarg.h>
 
@@ -55,13 +56,14 @@ char *kernelfile = KERNEL;		/* can be changed by MD code */
 int boottimeout = 5;			/* can be changed by MD code */
 
 char	rnddata[BOOTRANDOM_MAX];
+struct rc4_ctx randomctx;
 
 void
 boot(dev_t bootdev)
 {
-	int fd;
+	int fd, isupgrade = 0;
 	int try = 0, st;
-	u_long marks[MARK_MAX];
+	uint64_t marks[MARK_MAX];
 
 	machdep();
 
@@ -75,6 +77,12 @@ boot(dev_t bootdev)
 	cmd.conf = "/etc/boot.conf";
 	cmd.addr = (void *)DEFAULT_KERNEL_ADDRESS;
 	cmd.timeout = boottimeout;
+
+	if (upgrade()) {
+		strlcpy(cmd.image, "/bsd.upgrade", sizeof(cmd.image));
+		printf("upgrade detected: switching to %s\n", cmd.image);
+		isupgrade = 1;
+	}
 
 	st = read_conf();
 
@@ -106,6 +114,8 @@ boot(dev_t bootdev)
 #ifdef FWRANDOM
 		fwrandom(rnddata, sizeof(rnddata));
 #endif
+		rc4_keysetup(&randomctx, rnddata, sizeof rnddata);
+		rc4_skip(&randomctx, 1536);
 
 		st = 0;
 		bootprompt = 1;	/* allow reselect should we fail */
@@ -113,6 +123,18 @@ boot(dev_t bootdev)
 		printf("booting %s: ", cmd.path);
 		marks[MARK_START] = (u_long)cmd.addr;
 		if ((fd = loadfile(cmd.path, marks, LOAD_ALL)) != -1) {
+
+		        /* Prevent re-upgrade: chmod a-x bsd.upgrade */
+			if (isupgrade) {
+				struct stat st;
+
+				if (fstat(fd, &st) == 0) {
+					st.st_mode &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
+					if (fchmod(fd, st.st_mode) == -1)
+						printf("fchmod a-x %s: failed\n",
+						    cmd.path);
+				}
+			}
 			close(fd);
 			break;
 		}

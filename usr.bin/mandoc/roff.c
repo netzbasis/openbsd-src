@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.233 2019/01/05 09:10:24 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.240 2019/12/26 19:51:47 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015, 2017-2019 Ingo Schwarze <schwarze@openbsd.org>
@@ -131,15 +131,18 @@ struct	roff {
 	char		 escape; /* escape character */
 };
 
+/*
+ * A macro definition, condition, or ignored block.
+ */
 struct	roffnode {
 	enum roff_tok	 tok; /* type of node */
 	struct roffnode	*parent; /* up one in stack */
 	int		 line; /* parse line */
 	int		 col; /* parse col */
 	char		*name; /* node name, e.g. macro name */
-	char		*end; /* end-rules: custom token */
-	int		 endspan; /* end-rules: next-line or infty */
-	int		 rule; /* current evaluation rule */
+	char		*end; /* custom end macro of the block */
+	int		 endspan; /* scope to: 1=eol 2=next line -1=\} */
+	int		 rule; /* content is: 1=evaluated 0=skipped */
 };
 
 #define	ROFF_ARGS	 struct roff *r, /* parse ctx */ \
@@ -179,6 +182,7 @@ static	int		 roff_als(ROFF_ARGS);
 static	int		 roff_block(ROFF_ARGS);
 static	int		 roff_block_text(ROFF_ARGS);
 static	int		 roff_block_sub(ROFF_ARGS);
+static	int		 roff_break(ROFF_ARGS);
 static	int		 roff_cblock(ROFF_ARGS);
 static	int		 roff_cc(ROFF_ARGS);
 static	int		 roff_ccond(struct roff *, int, int);
@@ -398,7 +402,7 @@ static	struct roffmac	 roffs[TOKEN_NONE] = {
 	{ roff_unsupp, NULL, NULL, 0 },  /* boxa */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* bp */
 	{ roff_unsupp, NULL, NULL, 0 },  /* BP */
-	{ roff_unsupp, NULL, NULL, 0 },  /* break */
+	{ roff_break, NULL, NULL, 0 },  /* break */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* breakchar */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* brnl */
 	{ roff_noarg, NULL, NULL, 0 },  /* brp */
@@ -683,7 +687,7 @@ roffhash_find(struct ohash *htab, const char *name, size_t sz)
 
 /*
  * Pop the current node off of the stack of roff instructions currently
- * pending.
+ * pending.  Return 1 if it is a loop or 0 otherwise.
  */
 static int
 roffnode_pop(struct roff *r)
@@ -765,6 +769,7 @@ void
 roff_reset(struct roff *r)
 {
 	roff_free1(r);
+	r->options |= MPARSE_COMMENT;
 	r->format = r->options & (MPARSE_MDOC | MPARSE_MAN);
 	r->control = '\0';
 	r->escape = '\\';
@@ -777,7 +782,7 @@ roff_reset(struct roff *r)
 void
 roff_free(struct roff *r)
 {
-	int	 	 i;
+	int		 i;
 
 	roff_free1(r);
 	for (i = 0; i < r->mstacksz; i++)
@@ -794,7 +799,7 @@ roff_alloc(int options)
 
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->reqtab = roffhash_alloc(0, ROFF_RENAMED);
-	r->options = options;
+	r->options = options | MPARSE_COMMENT;
 	r->format = options & (MPARSE_MDOC | MPARSE_MAN);
 	r->mstackpos = -1;
 	r->rstackpos = -1;
@@ -1240,7 +1245,7 @@ roff_expand(struct roff *r, struct buf *buf, int ln, int pos, char newesc)
 		 * in the syntax tree.
 		 */
 
-		if (newesc != ASCII_ESC && r->format == 0) {
+		if (newesc != ASCII_ESC && r->options & MPARSE_COMMENT) {
 			while (*ep == ' ' || *ep == '\t')
 				ep--;
 			ep[1] = '\0';
@@ -1584,7 +1589,7 @@ char *
 roff_getarg(struct roff *r, char **cpp, int ln, int *pos)
 {
 	struct buf	 buf;
-	char	 	*cp, *start;
+	char		*cp, *start;
 	int		 newesc, pairs, quoted, white;
 
 	/* Quoting can only start with a new word. */
@@ -1809,8 +1814,10 @@ roff_parseln(struct roff *r, int ln, struct buf *buf, int *offs)
 		roff_addtbl(r->man, ln, r->tbl);
 		return e;
 	}
-	if ( ! ctl)
+	if ( ! ctl) {
+		r->options &= ~MPARSE_COMMENT;
 		return roff_parsetext(r, buf, pos, offs) | e;
+	}
 
 	/* Skip empty request lines. */
 
@@ -1833,6 +1840,7 @@ roff_parseln(struct roff *r, int ln, struct buf *buf, int *offs)
 
 	/* No scope is open.  This is a new request or macro. */
 
+	r->options &= ~MPARSE_COMMENT;
 	spos = pos;
 	t = roff_parse(r, buf->buf, &pos, ln, ppos);
 
@@ -2000,6 +2008,10 @@ roff_cblock(ROFF_ARGS)
 
 }
 
+/*
+ * Pop all nodes ending at the end of the current input line.
+ * Return the number of loops ended.
+ */
 static int
 roffnode_cleanscope(struct roff *r)
 {
@@ -2014,6 +2026,11 @@ roffnode_cleanscope(struct roff *r)
 	return inloop;
 }
 
+/*
+ * Handle the closing \} of a conditional block.
+ * Apart from generating warnings, this only pops nodes.
+ * Return the number of loops ended.
+ */
 static int
 roff_ccond(struct roff *r, int ln, int ppos)
 {
@@ -2233,6 +2250,7 @@ roff_block_text(ROFF_ARGS)
 static int
 roff_cond_sub(ROFF_ARGS)
 {
+	struct roffnode	*bl;
 	char		*ep;
 	int		 endloop, irc, rr;
 	enum roff_tok	 t;
@@ -2274,15 +2292,39 @@ roff_cond_sub(ROFF_ARGS)
 		}
 	}
 
+	t = roff_parse(r, buf->buf, &pos, ln, ppos);
+
+	/* For now, let high level macros abort .ce mode. */
+
+	if (roffce_node != NULL &&
+	    (t == TOKEN_NONE || t == ROFF_Dd || t == ROFF_EQ ||
+             t == ROFF_TH || t == ROFF_TS)) {
+		r->man->last = roffce_node;
+		r->man->next = ROFF_NEXT_SIBLING;
+		roffce_lines = 0;
+		roffce_node = NULL;
+	}
+
 	/*
 	 * Fully handle known macros when they are structurally
 	 * required or when the conditional evaluated to true.
 	 */
 
-	t = roff_parse(r, buf->buf, &pos, ln, ppos);
-	irc |= t != TOKEN_NONE && (rr || roffs[t].flags & ROFFMAC_STRUCT) ?
-	    (*roffs[t].proc)(r, t, buf, ln, ppos, pos, offs) :
-	    rr ? ROFF_CONT : ROFF_IGN;
+	if (t == ROFF_break) {
+		if (irc & ROFF_LOOPMASK)
+			irc = ROFF_IGN | ROFF_LOOPEXIT;
+		else if (rr) {
+			for (bl = r->last; bl != NULL; bl = bl->parent) {
+				bl->rule = 0;
+				if (bl->tok == ROFF_while)
+					break;
+			}
+		}
+	} else if (t != TOKEN_NONE &&
+	    (rr || roffs[t].flags & ROFFMAC_STRUCT))
+		irc |= (*roffs[t].proc)(r, t, buf, ln, ppos, pos, offs);
+	else
+		irc |= rr ? ROFF_CONT : ROFF_IGN;
 	return irc;
 }
 
@@ -2535,7 +2577,7 @@ roff_evalcond(struct roff *r, int ln, char *v, int *pos)
 		        roff_getstrn(r, name, sz, &deftype);
 			istrue = !!deftype;
 		}
-		*pos = cp - v;
+		*pos = (name + sz) - v;
 		return istrue == wanttrue;
 	default:
 		break;
@@ -2681,8 +2723,15 @@ roff_ds(ROFF_ARGS)
 		return ROFF_IGN;
 
 	namesz = roff_getname(r, &string, ln, pos);
-	if (name[namesz] == '\\')
+	switch (name[namesz]) {
+	case '\\':
 		return ROFF_IGN;
+	case '\t':
+		string = buf->buf + pos + namesz;
+		break;
+	default:
+		break;
+	}
 
 	/* Read past the initial double-quote, if any. */
 	if (*string == '"')
@@ -3058,7 +3107,7 @@ roff_nr(ROFF_ARGS)
 		return ROFF_IGN;
 
 	keysz = roff_getname(r, &val, ln, pos);
-	if (key[keysz] == '\\')
+	if (key[keysz] == '\\' || key[keysz] == '\t')
 		return ROFF_IGN;
 
 	sign = *val;
@@ -3122,7 +3171,7 @@ roff_rm(ROFF_ARGS)
 		namesz = roff_getname(r, &cp, ln, (int)(cp - buf->buf));
 		roff_setstrn(&r->strtab, name, namesz, NULL, 0, 0);
 		roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
-		if (name[namesz] == '\\')
+		if (name[namesz] == '\\' || name[namesz] == '\t')
 			break;
 	}
 	return ROFF_IGN;
@@ -3457,7 +3506,7 @@ roff_als(ROFF_ARGS)
 		return ROFF_IGN;
 
 	newsz = roff_getname(r, &oldn, ln, pos);
-	if (newn[newsz] == '\\' || *oldn == '\0')
+	if (newn[newsz] == '\\' || newn[newsz] == '\t' || *oldn == '\0')
 		return ROFF_IGN;
 
 	end = oldn;
@@ -3470,6 +3519,17 @@ roff_als(ROFF_ARGS)
 	roff_setstrn(&r->strtab, newn, newsz, value, valsz, 0);
 	roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 	free(value);
+	return ROFF_IGN;
+}
+
+/*
+ * The .break request only makes sense inside conditionals,
+ * and that case is already handled in roff_cond_sub().
+ */
+static int
+roff_break(ROFF_ARGS)
+{
+	mandoc_msg(MANDOCERR_BLK_NOTOPEN, ln, pos, "break");
 	return ROFF_IGN;
 }
 
@@ -3687,7 +3747,7 @@ roff_rn(ROFF_ARGS)
 		return ROFF_IGN;
 
 	oldsz = roff_getname(r, &newn, ln, pos);
-	if (oldn[oldsz] == '\\' || *newn == '\0')
+	if (oldn[oldsz] == '\\' || oldn[oldsz] == '\t' || *newn == '\0')
 		return ROFF_IGN;
 
 	end = newn;
@@ -3795,6 +3855,11 @@ roff_userdef(ROFF_ARGS)
 	char		 *arg, *ap, *dst, *src;
 	size_t		  sz;
 
+	/* If the macro is empty, ignore it altogether. */
+
+	if (*r->current_string == '\0')
+		return ROFF_IGN;
+
 	/* Initialize a new macro stack context. */
 
 	if (++r->mstackpos == r->mstacksz) {
@@ -3842,7 +3907,7 @@ roff_userdef(ROFF_ARGS)
 	buf->sz = strlen(buf->buf) + 1;
 	*offs = 0;
 
-	return buf->sz > 1 && buf->buf[buf->sz - 2] == '\n' ?
+	return buf->buf[buf->sz - 2] == '\n' ?
 	    ROFF_REPARSE | ROFF_USERCALL : ROFF_IGN | ROFF_APPEND;
 }
 
@@ -3863,6 +3928,10 @@ roff_renamed(ROFF_ARGS)
 	return ROFF_CONT;
 }
 
+/*
+ * Measure the length in bytes of the roff identifier at *cpp
+ * and advance the pointer to the next word.
+ */
 static size_t
 roff_getname(struct roff *r, char **cpp, int ln, int pos)
 {
@@ -3870,22 +3939,24 @@ roff_getname(struct roff *r, char **cpp, int ln, int pos)
 	size_t	  namesz;
 
 	name = *cpp;
-	if ('\0' == *name)
+	if (*name == '\0')
 		return 0;
 
-	/* Read until end of name and terminate it with NUL. */
+	/* Advance cp to the byte after the end of the name. */
+
 	for (cp = name; 1; cp++) {
-		if ('\0' == *cp || ' ' == *cp) {
-			namesz = cp - name;
+		namesz = cp - name;
+		if (*cp == '\0')
+			break;
+		if (*cp == ' ' || *cp == '\t') {
+			cp++;
 			break;
 		}
-		if ('\\' != *cp)
+		if (*cp != '\\')
 			continue;
-		namesz = cp - name;
-		if ('{' == cp[1] || '}' == cp[1])
+		if (cp[1] == '{' || cp[1] == '}')
 			break;
-		cp++;
-		if ('\\' == *cp)
+		if (*++cp == '\\')
 			continue;
 		mandoc_msg(MANDOCERR_NAMESC, ln, pos,
 		    "%.*s", (int)(cp - name + 1), name);
@@ -3894,7 +3965,8 @@ roff_getname(struct roff *r, char **cpp, int ln, int pos)
 	}
 
 	/* Read past spaces. */
-	while (' ' == *cp)
+
+	while (*cp == ' ')
 		cp++;
 
 	*cpp = cp;

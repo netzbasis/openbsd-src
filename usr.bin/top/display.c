@@ -1,4 +1,4 @@
-/* $OpenBSD: display.c,v 1.58 2018/11/28 22:00:30 kn Exp $	 */
+/* $OpenBSD: display.c,v 1.61 2019/10/27 13:52:26 kn Exp $	 */
 
 /*
  *  Top users/processes display for Unix
@@ -57,12 +57,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "screen.h"		/* interface to screen package */
 #include "layout.h"		/* defines for screen position layout */
 #include "display.h"
 #include "top.h"
-#include "boolean.h"
 #include "machine.h"		/* we should eliminate this!!! */
 #include "utils.h"
 
@@ -104,7 +104,7 @@ extern int ncpuonline;
 extern int combine_cpus;
 extern struct process_select ps;
 
-int header_status = Yes;
+int header_status = true;
 
 static int
 empty(void)
@@ -309,10 +309,7 @@ i_procstates(int total, int *states, int threads)
 		move(1, 0);
 		clrtoeol();
 		/* write current number of procs and remember the value */
-		if (threads == Yes)
-			printwp("%d threads: ", total);
-		else
-			printwp("%d processes: ", total);
+		printwp("%d %s: ", total, threads ? "threads" : "processes");
 
 		/* format and print the process state summary */
 		summary_format(procstates_buffer, sizeof(procstates_buffer),
@@ -518,7 +515,7 @@ i_message(void)
 void
 i_header(char *text)
 {
-	if (header_status == Yes && (screen_length > y_header
+	if (header_status && (screen_length > y_header
               || !smart_terminal)) {
 		if (!smart_terminal) {
 			putn();
@@ -728,7 +725,7 @@ static void
 summary_format(char *buf, size_t left, int *numbers, char **names)
 {
 	char *p, *thisname;
-	size_t len;
+	int len;
 	int num;
 
 	/* format each number followed by its string */
@@ -750,7 +747,7 @@ summary_format(char *buf, size_t left, int *numbers, char **names)
 				COPYLEFT(p, thisname + 1);
 			} else if (num > 0) {
 				len = snprintf(p, left, "%d%s", num, thisname);
-				if (len == (size_t)-1 || len >= left)
+				if (len < 0 || len >= left)
 					return;
 				p += len;
 				left -= len;
@@ -806,7 +803,7 @@ show_help(void)
 	    "\n"
 	    "^L           - redraw screen\n"
 	    "<space>      - update screen\n"
-	    "+            - reset any g, p, or u filters\n"
+	    "+            - reset any P highlight, g, p, or u filters\n"
 	    "1            - display CPU statistics on a single line\n"
 	    "C            - toggle the display of command line arguments\n"
 	    "d count      - show `count' displays, then exit\n"

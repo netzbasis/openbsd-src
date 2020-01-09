@@ -1,4 +1,4 @@
-/*	$OpenBSD: pftable.c,v 1.12 2018/11/25 15:31:12 deraadt Exp $ */
+/*	$OpenBSD: pftable.c,v 1.15 2019/10/04 11:40:42 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Damien Miller <djm@openbsd.org>
@@ -63,7 +63,7 @@ pftable_change(struct pf_table *pft)
 	if (pft->naddrs == 0 || pft->what == 0)
 		return (0);
 
-	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR)) == -1))
+	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR|O_CLOEXEC)) == -1))
 		fatal("open(/dev/pf)");
 
 	bzero(&tio, sizeof(tio));
@@ -90,14 +90,14 @@ pftable_clear(const char *name)
 {
 	struct pfioc_table tio;
 
-	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR)) == -1))
+	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR|O_CLOEXEC)) == -1))
 		fatal("open(/dev/pf)");
 
 	bzero(&tio, sizeof(tio));
 	strlcpy(tio.pfrio_table.pfrt_name, name,
 	    sizeof(tio.pfrio_table.pfrt_name));
 
-	if (ioctl(devpf, DIOCRCLRADDRS, &tio) != 0) {
+	if (ioctl(devpf, DIOCRCLRADDRS, &tio) == -1) {
 		log_warn("pftable_clear ioctl");
 		return (-1);
 	}
@@ -111,7 +111,7 @@ pftable_exists(const char *name)
 	struct pfioc_table tio;
 	struct pfr_astats dummy;
 
-	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR)) == -1))
+	if (devpf == -1 && ((devpf = open("/dev/pf", O_RDWR|O_CLOEXEC)) == -1))
 		fatal("open(/dev/pf)");
 
 	bzero(&tio, sizeof(tio));
@@ -121,7 +121,7 @@ pftable_exists(const char *name)
 	tio.pfrio_esize = sizeof(dummy);
 	tio.pfrio_size = 1;
 
-	if (ioctl(devpf, DIOCRGETASTATS, &tio) != 0)
+	if (ioctl(devpf, DIOCRGETASTATS, &tio) == -1)
 		return (-1);
 
 	return (0);
@@ -191,10 +191,13 @@ pftable_add_work(const char *table, struct bgpd_addr *addr,
 		return (-1);
 	}
 
-	/* Only one type of work on the list at a time */
+	/*
+	 * Only one type of work on the list at a time,
+	 * commit pending work first before adding new work
+	 */
 	what = del ? DIOCRDELADDRS : DIOCRADDADDRS;
 	if (pft->naddrs != 0 && pft->what != what)
-		fatal("attempt to mix pf table additions/deletions");
+		pftable_commit();
 
 	if (pft->nalloc <= pft->naddrs)
 		pft->nalloc = pft->nalloc == 0 ? 1 : pft->nalloc * 2;

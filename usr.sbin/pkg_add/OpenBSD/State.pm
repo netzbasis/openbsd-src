@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: State.pm,v 1.54 2018/08/03 06:37:08 espie Exp $
+# $OpenBSD: State.pm,v 1.63 2019/12/04 10:45:19 espie Exp $
 #
 # Copyright (c) 2007-2014 Marc Espie <espie@openbsd.org>
 #
@@ -135,6 +135,7 @@ sub sync_display
 OpenBSD::Auto::cache(installpath,
 	sub {
 		my $self = shift;
+		return undef if $self->defines('NOINSTALLPATH');
 		require OpenBSD::Paths;
 		open(my $fh, '<', OpenBSD::Paths->installurl) or return undef;
 		while (<$fh>) {
@@ -213,7 +214,7 @@ sub _fatal
 	# the way is to eval { croak @_}; and decide what to do with $@.
 	delete $SIG{__DIE__};
 	$self->sync_display;
-	croak "Fatal error: ", @_, "\n";
+	croak @_, "\n";
 }
 
 sub fatal
@@ -290,7 +291,7 @@ sub do_options
 
 	try {
 		&$sub;
-	} catchall {
+	} catch {
 		$state->usage("#1", $_);
 	};
 }
@@ -436,8 +437,8 @@ sub find_signal
 
 sub child_error
 {
-	my $self = shift;
-	my $error = $?;
+	my ($self, $error) = @_;
+	$error //= $?;
 
 	my $extra = "";
 
@@ -471,9 +472,10 @@ sub _system
 	if (!defined $r) {
 		return 1;
 	} elsif ($r == 0) {
+		$DB::inhibit_exit = 0;
 		&$todo;
-		exec {$_[0]} @_;
-		exit 1;
+		exec {$_[0]} @_ or
+		    exit 1;
 	} else {
 		&$todo2;
 		waitpid($r, 0);

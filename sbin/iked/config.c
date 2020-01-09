@@ -1,6 +1,7 @@
-/*	$OpenBSD: config.c,v 1.49 2017/11/27 18:39:35 patrick Exp $	*/
+/*	$OpenBSD: config.c,v 1.52 2020/01/07 15:08:28 tobhe Exp $	*/
 
 /*
+ * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -94,12 +95,29 @@ config_free_kex(struct iked_kex *kex)
 }
 
 void
+config_free_fragments(struct iked_frag *frag)
+{
+	size_t i;
+
+	if (frag && frag->frag_arr) {
+		for (i = 0; i < frag->frag_total; i++) {
+			if (frag->frag_arr[i] != NULL)
+				free(frag->frag_arr[i]->frag_data);
+			free(frag->frag_arr[i]);
+		}
+		free(frag->frag_arr);
+		bzero(frag, sizeof(struct iked_frag));
+	}
+}
+
+void
 config_free_sa(struct iked *env, struct iked_sa *sa)
 {
 	timer_del(env, &sa->sa_timer);
 	timer_del(env, &sa->sa_keepalive);
 	timer_del(env, &sa->sa_rekey);
 
+	config_free_fragments(&sa->sa_fragments);
 	config_free_proposals(&sa->sa_proposals, 0);
 	config_free_childsas(env, &sa->sa_childsas, NULL, NULL);
 	sa_free_flows(env, &sa->sa_flows);
@@ -170,6 +188,8 @@ config_new_policy(struct iked *env)
 	/* XXX caller does this again */
 	TAILQ_INIT(&pol->pol_proposals);
 	TAILQ_INIT(&pol->pol_sapeers);
+	TAILQ_INIT(&pol->pol_tssrc);
+	TAILQ_INIT(&pol->pol_tsdst);
 	RB_INIT(&pol->pol_flows);
 
 	return (pol);
@@ -179,6 +199,7 @@ void
 config_free_policy(struct iked *env, struct iked_policy *pol)
 {
 	struct iked_sa		*sa;
+	struct iked_ts	*tsi;
 
 	if (pol->pol_flags & IKED_POLICY_REFCNT)
 		goto remove;
@@ -198,6 +219,14 @@ config_free_policy(struct iked *env, struct iked_policy *pol)
 		return;
 
  remove:
+	while ((tsi = TAILQ_FIRST(&pol->pol_tssrc))) {
+		TAILQ_REMOVE(&pol->pol_tssrc, tsi, ts_entry);
+		free(tsi);
+	}
+	while ((tsi = TAILQ_FIRST(&pol->pol_tsdst))) {
+		TAILQ_REMOVE(&pol->pol_tsdst, tsi, ts_entry);
+		free(tsi);
+	}
 	config_free_proposals(&pol->pol_proposals, 0);
 	config_free_flows(env, &pol->pol_flows);
 	free(pol);
@@ -264,7 +293,7 @@ void
 config_free_childsas(struct iked *env, struct iked_childsas *head,
     struct iked_spi *peerspi, struct iked_spi *localspi)
 {
-	struct iked_childsa	*csa, *nextcsa;
+	struct iked_childsa	*csa, *nextcsa, *ipcomp;
 
 	if (localspi != NULL)
 		bzero(localspi, sizeof(*localspi));
@@ -288,6 +317,12 @@ config_free_childsas(struct iked *env, struct iked_childsas *head,
 		if (csa->csa_loaded) {
 			RB_REMOVE(iked_activesas, &env->sc_activesas, csa);
 			(void)pfkey_sa_delete(env->sc_pfkey, csa);
+		}
+		if ((ipcomp = csa->csa_bundled) != NULL) {
+			log_debug("%s: free IPCOMP %p", __func__, ipcomp);
+			if (ipcomp->csa_loaded)
+				(void)pfkey_sa_delete(env->sc_pfkey, ipcomp);
+			childsa_free(ipcomp);
 		}
 		childsa_free(csa);
 	}
@@ -714,6 +749,8 @@ config_getpolicy(struct iked *env, struct imsg *imsg)
 	memcpy(pol, buf, sizeof(*pol));
 	offset += sizeof(*pol);
 
+	TAILQ_INIT(&pol->pol_tssrc);
+	TAILQ_INIT(&pol->pol_tsdst);
 	TAILQ_INIT(&pol->pol_proposals);
 	TAILQ_INIT(&pol->pol_sapeers);
 	RB_INIT(&pol->pol_flows);
@@ -834,6 +871,29 @@ config_getmobike(struct iked *env, struct imsg *imsg)
 	memcpy(&boolval, imsg->data, sizeof(boolval));
 	env->sc_mobike = boolval;
 	log_debug("%s: %smobike", __func__, env->sc_mobike ? "" : "no ");
+	return (0);
+}
+
+int
+config_setfragmentation(struct iked *env)
+{
+	unsigned int boolval;
+
+	boolval = env->sc_frag;
+	proc_compose(&env->sc_ps, PROC_IKEV2, IMSG_CTL_FRAGMENTATION,
+	    &boolval, sizeof(boolval));
+	return (0);
+}
+
+int
+config_getfragmentation(struct iked *env, struct imsg *imsg)
+{
+	unsigned int boolval;
+
+	IMSG_SIZE_CHECK(imsg, &boolval);
+	memcpy(&boolval, imsg->data, sizeof(boolval));
+	env->sc_frag = boolval;
+	log_debug("%s: %sfragmentation", __func__, env->sc_frag ? "" : "no ");
 	return (0);
 }
 

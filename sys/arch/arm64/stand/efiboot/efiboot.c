@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.21 2018/08/25 00:12:14 yasuoka Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.26 2019/08/12 20:04:31 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -28,14 +28,21 @@
 #include <efiprot.h>
 #include <eficonsctl.h>
 
+#include <dev/biovar.h>
+#include <dev/softraidvar.h>
+
 #include <lib/libkern/libkern.h>
+#include <lib/libsa/softraid.h>
 #include <stand/boot/cmd.h>
 
+#include "libsa.h"
 #include "disk.h"
+#include "softraid_arm64.h"
+
+#include "efidev.h"
 #include "efiboot.h"
 #include "eficall.h"
 #include "fdt.h"
-#include "libsa.h"
 
 EFI_SYSTEM_TABLE	*ST;
 EFI_BOOT_SERVICES	*BS;
@@ -97,11 +104,19 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 static SIMPLE_TEXT_OUTPUT_INTERFACE *conout;
 static SIMPLE_INPUT_INTERFACE *conin;
 
+/*
+ * The device majors for these don't match the ones used by the
+ * kernel.  That's fine.  They're just used as an index into the cdevs
+ * array and never passed on to the kernel.
+ */
+static dev_t serial = makedev(0, 0);
+static dev_t framebuffer = makedev(1, 0);
+
 void
 efi_cons_probe(struct consdev *cn)
 {
 	cn->cn_pri = CN_MIDPRI;
-	cn->cn_dev = makedev(12, 0);
+	cn->cn_dev = serial;
 }
 
 void
@@ -162,6 +177,32 @@ efi_cons_putc(dev_t dev, int c)
 	conout->OutputString(conout, buf);
 }
 
+void
+efi_fb_probe(struct consdev *cn)
+{
+	cn->cn_pri = CN_LOWPRI;
+	cn->cn_dev = framebuffer;
+}
+
+void
+efi_fb_init(struct consdev *cn)
+{
+	conin = ST->ConIn;
+	conout = ST->ConOut;
+}
+
+int
+efi_fb_getc(dev_t dev)
+{
+	return efi_cons_getc(dev);
+}
+
+void
+efi_fb_putc(dev_t dev, int c)
+{
+	efi_cons_putc(dev, c);
+}
+
 static void
 efi_heap_init(void)
 {
@@ -173,18 +214,22 @@ efi_heap_init(void)
 		panic("BS->AllocatePages()");
 }
 
-EFI_BLOCK_IO	*disk;
+struct disklist_lh disklist;
+struct diskinfo *bootdev_dip;
 
 void
 efi_diskprobe(void)
 {
-	int			 i, depth = -1;
+	int			 i, bootdev = 0, depth = -1;
 	UINTN			 sz;
 	EFI_STATUS		 status;
 	EFI_HANDLE		*handles = NULL;
 	EFI_BLOCK_IO		*blkio;
 	EFI_BLOCK_IO_MEDIA	*media;
+	struct diskinfo		*di;
 	EFI_DEVICE_PATH		*dp;
+
+	TAILQ_INIT(&disklist);
 
 	sz = 0;
 	status = EFI_CALL(BS->LocateHandle, ByProtocol, &blkio_guid, 0, &sz, 0);
@@ -217,20 +262,36 @@ efi_diskprobe(void)
 		media = blkio->Media;
 		if (media->LogicalPartition || !media->MediaPresent)
 			continue;
+		di = alloc(sizeof(struct diskinfo));
+		efid_init(di, blkio);
 
-		if (efi_bootdp == NULL || depth == -1)
-			continue;
+		if (efi_bootdp == NULL || depth == -1 || bootdev != 0)
+			goto next;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &devp_guid,
 		    (void **)&dp);
 		if (EFI_ERROR(status))
-			continue;
+			goto next;
 		if (efi_device_path_ncmp(efi_bootdp, dp, depth) == 0) {
-			disk = blkio;
-			break;
+			TAILQ_INSERT_HEAD(&disklist, di, list);
+			bootdev_dip = di;
+			bootdev = 1;
+			continue;
 		}
+next:
+		TAILQ_INSERT_TAIL(&disklist, di, list);
 	}
 
 	free(handles, sz);
+
+	/* Print available disks and probe for softraid. */
+	i = 0;
+	printf("disks:");
+	TAILQ_FOREACH(di, &disklist, list) {
+		printf(" sd%d%s", i, di == bootdev_dip ? "*" : "");
+		i++;
+	}
+	srprobe();
+	printf("\n");
 }
 
 /*
@@ -283,6 +344,7 @@ efi_framebuffer(void)
 	uint32_t reg[4];
 	uint32_t width, height, stride;
 	char *format;
+	char *prop;
 
 	/*
 	 * Don't create a "simple-framebuffer" node if we already have
@@ -292,13 +354,19 @@ efi_framebuffer(void)
 	node = fdt_find_node("/chosen");
 	for (child = fdt_child_node(node); child;
 	     child = fdt_next_node(child)) {
-		if (fdt_node_is_compatible(child, "simple-framebuffer"))
+		if (!fdt_node_is_compatible(child, "simple-framebuffer"))
+			continue;
+		if (fdt_node_property(child, "status", &prop) &&
+		    strcmp(prop, "okay") == 0)
 			return;
 	}
 	node = fdt_find_node("/");
 	for (child = fdt_child_node(node); child;
 	     child = fdt_next_node(child)) {
-		if (fdt_node_is_compatible(child, "simple-framebuffer"))
+		if (!fdt_node_is_compatible(child, "simple-framebuffer"))
+			continue;
+		if (fdt_node_property(child, "status", &prop) &&
+		    strcmp(prop, "okay") == 0)
 			return;
 	}
 
@@ -313,10 +381,10 @@ efi_framebuffer(void)
 	/* We only support 32-bit pixel modes for now. */
 	switch (gop->Mode->Info->PixelFormat) {
 	case PixelRedGreenBlueReserved8BitPerColor:
-		format = "a8r8g8b8";
+		format = "x8b8g8r8";
 		break;
 	case PixelBlueGreenRedReserved8BitPerColor:
-		format = "a8b8g8r8";
+		format = "x8r8g8b8";
 		break;
 	default:
 		return;
@@ -360,6 +428,35 @@ efi_framebuffer(void)
 	    "simple-framebuffer", strlen("simple-framebuffer") + 1);
 }
 
+void
+efi_console(void)
+{
+	char path[128];
+	void *node, *child;
+	char *prop;
+
+	if (cn_tab->cn_dev != framebuffer)
+		return;
+
+	/* Find the desired framebuffer node. */
+	node = fdt_find_node("/chosen");
+	for (child = fdt_child_node(node); child;
+	     child = fdt_next_node(child)) {
+		if (!fdt_node_is_compatible(child, "simple-framebuffer"))
+			continue;
+		if (fdt_node_property(child, "status", &prop) &&
+		    strcmp(prop, "okay") == 0)
+			break;
+	}
+	if (child == NULL)
+		return;
+
+	/* Point stdout-path at the framebuffer node. */
+	strlcpy(path, "/chosen/", sizeof(path));
+	strlcat(path, fdt_node_name(child), sizeof(path));
+	fdt_node_add_property(node, "stdout-path", path, strlen(path) + 1);
+}
+
 int acpi = 0;
 void *fdt = NULL;
 char *bootmac = NULL;
@@ -370,6 +467,7 @@ static EFI_GUID fdt_guid = FDT_TABLE_GUID;
 void *
 efi_makebootargs(char *bootargs)
 {
+	struct sr_boot_volume *bv;
 	u_char bootduid[8];
 	u_char zero[8] = { 0 };
 	uint64_t uefi_system_table = htobe64((uintptr_t)ST);
@@ -399,11 +497,26 @@ efi_makebootargs(char *bootargs)
 	fdt_node_add_property(node, "bootargs", bootargs, len);
 
 	/* Pass DUID of the boot disk. */
-	memcpy(&bootduid, diskinfo.disklabel.d_uid, sizeof(bootduid));
-	if (memcmp(bootduid, zero, sizeof(bootduid)) != 0) {
-		fdt_node_add_property(node, "openbsd,bootduid", bootduid,
+	if (bootdev_dip) {
+		memcpy(&bootduid, bootdev_dip->disklabel.d_uid,
 		    sizeof(bootduid));
+		if (memcmp(bootduid, zero, sizeof(bootduid)) != 0) {
+			fdt_node_add_property(node, "openbsd,bootduid",
+			    bootduid, sizeof(bootduid));
+		}
+
+		if (bootdev_dip->sr_vol != NULL) {
+			bv = bootdev_dip->sr_vol;
+			fdt_node_add_property(node, "openbsd,sr-bootuuid",
+			    &bv->sbv_uuid, sizeof(bv->sbv_uuid));
+			if (bv->sbv_maskkey != NULL)
+				fdt_node_add_property(node,
+				    "openbsd,sr-bootkey", bv->sbv_maskkey,
+				    SR_CRYPTO_MAXKEYBYTES);
+		}
 	}
+
+	sr_clear_keys();
 
 	/* Pass netboot interface address. */
 	if (bootmac)
@@ -420,6 +533,7 @@ efi_makebootargs(char *bootargs)
 	fdt_node_add_property(node, "openbsd,uefi-mmap-desc-ver", zero, 4);
 
 	efi_framebuffer();
+	efi_console();
 
 	fdt_finalize();
 
@@ -558,11 +672,55 @@ getsecs(void)
 void
 devboot(dev_t dev, char *p)
 {
-	if (disk)
-		strlcpy(p, "sd0a", 5);
-	else
+	struct sr_boot_volume *bv;
+	struct sr_boot_chunk *bc;
+	struct diskinfo *dip;
+	int sd_boot_vol = 0;
+	int sr_boot_vol = -1;
+	int part_type = FS_UNUSED;
+
+	if (bootdev_dip == NULL) {
 		strlcpy(p, "tftp0a", 7);
+		return;
+	}
+
+	TAILQ_FOREACH(dip, &disklist, list) {
+		if (bootdev_dip == dip)
+			break;
+		sd_boot_vol++;
+	}
+
+	/*
+	 * Determine the partition type for the 'a' partition of the
+	 * boot device.
+	 */
+	if ((bootdev_dip->flags & DISKINFO_FLAG_GOODLABEL) != 0)
+		part_type = bootdev_dip->disklabel.d_partitions[0].p_fstype;
+
+	/*
+	 * See if we booted from a disk that is a member of a bootable
+	 * softraid volume.
+	 */
+	SLIST_FOREACH(bv, &sr_volumes, sbv_link) {
+		SLIST_FOREACH(bc, &bv->sbv_chunks, sbc_link)
+			if (bc->sbc_diskinfo == bootdev_dip)
+				sr_boot_vol = bv->sbv_unit;
+		if (sr_boot_vol != -1)
+			break;
+	}
+
+	if (sr_boot_vol != -1 && part_type != FS_BSDFFS) {
+		strlcpy(p, "sr0a", 5);
+		p[2] = '0' + sr_boot_vol;
+		return;
+	}
+
+	strlcpy(p, "sd0a", 5);
+	p[2] = '0' + sd_boot_vol;
 }
+
+const char cdevs[][4] = { "com", "fb" };
+const int ncdevs = nitems(cdevs);
 
 int
 cnspeed(dev_t dev, int sp)
@@ -570,15 +728,30 @@ cnspeed(dev_t dev, int sp)
 	return 115200;
 }
 
+char ttyname_buf[8];
+
 char *
 ttyname(int fd)
 {
-	return "com0";
+	snprintf(ttyname_buf, sizeof ttyname_buf, "%s%d",
+	    cdevs[major(cn_tab->cn_dev)], minor(cn_tab->cn_dev));
+
+	return ttyname_buf;
 }
 
 dev_t
 ttydev(char *name)
 {
+	int i, unit = -1;
+	char *no = name + strlen(name) - 1;
+
+	while (no >= name && *no >= '0' && *no <= '9')
+		unit = (unit < 0 ? 0 : (unit * 10)) + *no-- - '0';
+	if (no < name || unit < 0)
+		return NODEV;
+	for (i = 0; i < ncdevs; i++)
+		if (strncmp(name, cdevs[i], no - name + 1) == 0)
+			return makedev(i, unit);
 	return NODEV;
 }
 
@@ -664,6 +837,14 @@ devopen(struct open_file *f, const char *fname, char **file)
 
 	dp = &devsw[dev];
 	f->f_dev = dp;
+
+	if (strcmp("tftp", dp->dv_name) != 0) {
+		/*
+		 * Clear bootmac, to signal that we loaded this file from a
+		 * non-network device.
+		 */
+		bootmac = NULL;
+	}
 
 	return (*dp->dv_open)(f, unit, part);
 }

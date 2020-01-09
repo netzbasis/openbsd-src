@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.29 2017/09/08 05:36:51 deraadt Exp $	*/
+/*	$OpenBSD: conf.c,v 1.34 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1998-2004 Michael Shalayeff
@@ -32,12 +32,12 @@
 #include <lib/libsa/cd9660.h>
 #include <dev/cons.h>
 
-const char version[] = "1.4";
+const char version[] = "1.8";
 int	debug = 0;
 
 struct fs_ops file_system[] = {
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 	{ cd9660_open, cd9660_close, cd9660_read, cd9660_write, cd9660_seek,
 	  cd9660_stat, cd9660_readdir },
 	{ lif_open,    lif_close,    lif_read,    lif_write,    lif_seek,

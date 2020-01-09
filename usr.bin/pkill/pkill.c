@@ -1,4 +1,4 @@
-/*	$OpenBSD: pkill.c,v 1.40 2018/09/16 02:44:06 millert Exp $	*/
+/*	$OpenBSD: pkill.c,v 1.42 2019/12/16 19:21:17 guenther Exp $	*/
 /*	$NetBSD: pkill.c,v 1.5 2002/10/27 11:49:34 kleink Exp $	*/
 
 /*-
@@ -297,8 +297,7 @@ main(int argc, char **argv)
 		}
 
 		for (i = 0, kp = plist; i < nproc; i++, kp++) {
-			if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
-			     kp->p_pid == mypid)
+			if (kp->p_pid == mypid)
 				continue;
 
 			if (matchargs)
@@ -324,8 +323,7 @@ main(int argc, char **argv)
 	}
 
 	for (i = 0, kp = plist; i < nproc; i++, kp++) {
-		if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
-		     kp->p_pid == mypid)
+		if (kp->p_pid == mypid)
 			continue;
 
 		SLIST_FOREACH(li, &ruidlist, li_chain)
@@ -435,8 +433,7 @@ main(int argc, char **argv)
 	 */
 	rv = STATUS_NOMATCH;
 	for (i = 0, j = 0, kp = plist; i < nproc; i++, kp++) {
-		if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
-		     kp->p_pid == mypid)
+		if (kp->p_pid == mypid)
 			continue;
 		if (selected[i] == inverse)
 			continue;
@@ -613,7 +610,7 @@ makelist(struct listhead *head, enum listtype type, char *src)
 			else
 				snprintf(buf, sizeof(buf), "/dev/%s", p);
 
-			if (stat(buf, &st) < 0) {
+			if (stat(buf, &st) == -1) {
 				if (errno == ENOENT)
 					errx(STATUS_BADUSAGE,
 					    "no such tty: `%s'", sp);

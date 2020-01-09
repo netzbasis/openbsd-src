@@ -1,4 +1,4 @@
-/* $OpenBSD: pcppi.c,v 1.13 2016/01/08 15:54:13 jcs Exp $ */
+/* $OpenBSD: pcppi.c,v 1.15 2019/12/31 10:05:32 mpi Exp $ */
 /* $NetBSD: pcppi.c,v 1.1 1998/04/15 20:26:18 drochner Exp $ */
 
 /*
@@ -192,6 +192,16 @@ pcppi_bell(self, pitch, period, slp)
 	struct pcppi_softc *sc = self;
 	int s1, s2;
 
+	if (pitch < 0)
+		pitch = 0;
+	else if (pitch > INT_MAX - TIMER_FREQ)
+		pitch = INT_MAX - TIMER_FREQ;
+
+	if (period < 0)
+		period = 0;
+	else if (period > INT_MAX / 1000000)
+		period = INT_MAX / 1000000;
+
 	s1 = spltty(); /* ??? */
 	if (sc->sc_bellactive) {
 		if (sc->sc_timeout) {
@@ -233,7 +243,8 @@ pcppi_bell(self, pitch, period, slp)
 		timeout_add(&sc->sc_bell_timeout, period);
 		if (slp & PCPPI_BELL_SLEEP) {
 			sc->sc_slp = 1;
-			tsleep(pcppi_bell_stop, PCPPIPRI | PCATCH, "bell", 0);
+			tsleep_nsec(pcppi_bell_stop, PCPPIPRI | PCATCH, "bell",
+			    INFSLP);
 			sc->sc_slp = 0;
 		}
 	}

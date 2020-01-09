@@ -1,4 +1,4 @@
-/* $OpenBSD: openssl.c,v 1.28 2018/11/11 07:10:57 tb Exp $ */
+/* $OpenBSD: openssl.c,v 1.30 2019/11/04 15:25:54 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -154,6 +154,9 @@ FUNCTION functions[] = {
 	{ FUNC_TYPE_GENERAL, "ca", ca_main },
 	{ FUNC_TYPE_GENERAL, "certhash", certhash_main },
 	{ FUNC_TYPE_GENERAL, "ciphers", ciphers_main },
+#ifndef OPENSSL_NO_CMS
+	{ FUNC_TYPE_GENERAL, "cms", cms_main },
+#endif
 	{ FUNC_TYPE_GENERAL, "crl2pkcs7", crl2pkcs7_main },
 	{ FUNC_TYPE_GENERAL, "crl", crl_main },
 	{ FUNC_TYPE_GENERAL, "dgst", dgst_main },
@@ -321,6 +324,13 @@ FUNCTION functions[] = {
 #ifndef OPENSSL_NO_RC4
 	{ FUNC_TYPE_CIPHER, "rc4", enc_main },
 	{ FUNC_TYPE_CIPHER, "rc4-40", enc_main },
+#endif
+#ifndef OPENSSL_NO_SM4
+	{ FUNC_TYPE_CIPHER, "sm4", enc_main },
+	{ FUNC_TYPE_CIPHER, "sm4-ecb", enc_main },
+	{ FUNC_TYPE_CIPHER, "sm4-cbc", enc_main },
+	{ FUNC_TYPE_CIPHER, "sm4-ofb", enc_main },
+	{ FUNC_TYPE_CIPHER, "sm4-cfb", enc_main },
 #endif
 #ifdef ZLIB
 	{ FUNC_TYPE_CIPHER, "zlib", enc_main },

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.250 2019/01/22 00:59:31 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.256 2019/12/08 23:08:59 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -111,6 +111,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	 */
 	[SYS_exit] = PLEDGE_ALWAYS,
 	[SYS_kbind] = PLEDGE_ALWAYS,
+	[SYS_msyscall] = PLEDGE_ALWAYS,
 	[SYS___get_tcb] = PLEDGE_ALWAYS,
 	[SYS___set_tcb] = PLEDGE_ALWAYS,
 	[SYS_pledge] = PLEDGE_ALWAYS,
@@ -253,6 +254,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_stat] = PLEDGE_STDIO,
 	[SYS_access] = PLEDGE_STDIO,
 	[SYS_readlink] = PLEDGE_STDIO,
+	[SYS___realpath] = PLEDGE_STDIO,
 
 	[SYS_adjtime] = PLEDGE_STDIO,   /* setting requires "settime" */
 	[SYS_adjfreq] = PLEDGE_SETTIME,
@@ -315,7 +317,9 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mkdirat] = PLEDGE_CPATH,
 
 	[SYS_mkfifo] = PLEDGE_DPATH,
+	[SYS_mkfifoat] = PLEDGE_DPATH,
 	[SYS_mknod] = PLEDGE_DPATH,
+	[SYS_mknodat] = PLEDGE_DPATH,
 
 	[SYS_revoke] = PLEDGE_TTY,	/* also requires PLEDGE_RPATH */
 
@@ -1173,6 +1177,19 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case VIDIOC_STREAMOFF:
 		case VIDIOC_ENUM_FRAMESIZES:
 		case VIDIOC_ENUM_FRAMEINTERVALS:
+		case VIDIOC_DQEVENT:
+		case VIDIOC_ENCODER_CMD:
+		case VIDIOC_EXPBUF:
+		case VIDIOC_G_CROP:
+		case VIDIOC_G_EXT_CTRLS:
+		case VIDIOC_G_FMT:
+		case VIDIOC_G_SELECTION:
+		case VIDIOC_QUERYMENU:
+		case VIDIOC_SUBSCRIBE_EVENT:
+		case VIDIOC_S_EXT_CTRLS:
+		case VIDIOC_S_SELECTION:
+		case VIDIOC_TRY_DECODER_CMD:
+		case VIDIOC_TRY_ENCODER_CMD:
 			if (fp->f_type == DTYPE_VNODE &&
 			    vp->v_type == VCHR &&
 			    cdevsw[major(vp->v_rdev)].d_open == videoopen)
@@ -1283,6 +1300,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 	if ((p->p_p->ps_pledge & PLEDGE_WROUTE)) {
 		switch (com) {
 		case SIOCAIFADDR_IN6:
+		case SIOCDIFADDR_IN6:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;

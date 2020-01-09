@@ -1,4 +1,4 @@
-/* $OpenBSD: progressmeter.c,v 1.47 2019/01/24 16:52:17 dtucker Exp $ */
+/* $OpenBSD: progressmeter.c,v 1.49 2019/10/29 07:47:27 dtucker Exp $ */
 /*
  * Copyright (c) 2003 Nils Nordman.  All rights reserved.
  *
@@ -167,8 +167,8 @@ refresh_progress_meter(int force_update)
 	file_len = win_size - 36;
 	if (file_len > 0) {
 		buf[0] = '\r';
-		snmprintf(buf+1, sizeof(buf)-1 , &file_len, "%*s",
-		    file_len * -1, file);
+		snmprintf(buf+1, sizeof(buf)-1, &file_len, "%-*s",
+		    file_len, file);
 	}
 
 	/* percent of transfer done */
@@ -231,7 +231,6 @@ refresh_progress_meter(int force_update)
 static void
 sig_alarm(int ignore)
 {
-	signal(SIGALRM, sig_alarm);
 	alarm_fired = 1;
 	alarm(UPDATE_INTERVAL);
 }
@@ -275,7 +274,6 @@ stop_progress_meter(void)
 static void
 sig_winch(int sig)
 {
-	signal(SIGWINCH, sig_winch);
 	win_resized = 1;
 }
 

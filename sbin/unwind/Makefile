@@ -1,7 +1,7 @@
-#	$OpenBSD: Makefile,v 1.2 2019/01/24 15:33:44 florian Exp $
+#	$OpenBSD: Makefile,v 1.7 2019/12/13 14:38:25 otto Exp $
 
 PROG=	unwind
-SRCS=	control.c resolver.c frontend.c uw_log.c unwind.c uw_parse.y printconf.c
+SRCS=	control.c resolver.c frontend.c log.c unwind.c parse.y printconf.c
 MAN=	unwind.8 unwind.conf.5
 
 .include "${.CURDIR}/libunbound/Makefile.inc"

@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.113 2019/01/24 00:00:50 deraadt Exp $	*/
+/*	$OpenBSD: locore.S,v 1.119 2019/08/07 18:53:28 guenther Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -172,7 +172,7 @@ _C_LABEL(lapic_isr):
 	.globl	_C_LABEL(ssym),_C_LABEL(esym),_C_LABEL(boothowto)
 	.globl	_C_LABEL(bootdev)
 	.globl	_C_LABEL(bootinfo), _C_LABEL(bootinfo_size), _C_LABEL(atdevbase)
-	.globl	_C_LABEL(proc0paddr),_C_LABEL(PTDpaddr)
+	.globl	_C_LABEL(proc0paddr)
 	.globl	_C_LABEL(biosbasemem)
 	.globl	_C_LABEL(bootapiver)
 	.globl	_C_LABEL(pg_nx)
@@ -198,7 +198,6 @@ _C_LABEL(atdevbase):	.quad	0	# location of start of iomem in virtual
 _C_LABEL(bootapiver):	.long	0	# /boot API version
 _C_LABEL(bootdev):	.long	0	# device we booted from
 _C_LABEL(proc0paddr):	.quad	0
-_C_LABEL(PTDpaddr):	.quad	0	# paddr of PTD, for libkvm
 #ifndef REALBASEMEM
 _C_LABEL(biosbasemem):	.long	0	# base memory reported by BIOS
 #else
@@ -272,6 +271,7 @@ NENTRY(lgdt)
 	lretq
 
 ENTRY(setjmp)
+	RETGUARD_SETUP(setjmp, r11)
 	/*
 	 * Only save registers that must be preserved across function
 	 * calls according to the ABI (%rbx, %rsp, %rbp, %r12-%r15)
@@ -288,21 +288,24 @@ ENTRY(setjmp)
 	movq	(%rsp),%rdx
 	movq	%rdx,56(%rax)
 	xorl	%eax,%eax
+	RETGUARD_CHECK(setjmp, r11)
 	ret
 
 ENTRY(longjmp)
 	movq	%rdi,%rax
-	movq	(%rax),%rbx
 	movq	8(%rax),%rsp
+	movq	56(%rax),%rdx
+	movq	%rdx,(%rsp)
+	RETGUARD_SETUP(longjmp, r11)
+	movq	(%rax),%rbx
 	movq	16(%rax),%rbp
 	movq	24(%rax),%r12
 	movq	32(%rax),%r13
 	movq	40(%rax),%r14
 	movq	48(%rax),%r15
-	movq	56(%rax),%rdx
-	movq	%rdx,(%rsp)
 	xorl	%eax,%eax
 	incl	%eax
+	RETGUARD_CHECK(longjmp, r11)
 	ret
 
 /*****************************************************************************/
@@ -487,28 +490,27 @@ switch_restored:
 	ret
 
 ENTRY(cpu_idle_enter)
-	movq	_C_LABEL(cpu_idle_enter_fcn),%rax
-	cmpq	$0,%rax
-	jne	retpoline_rax
 	ret
+END(cpu_idle_enter)
 
 ENTRY(cpu_idle_leave)
-	movq	_C_LABEL(cpu_idle_leave_fcn),%rax
-	cmpq	$0,%rax
-	jne	retpoline_rax
 	ret
+END(cpu_idle_leave)
 
 /* placed here for correct static branch prediction in cpu_idle_* */
 NENTRY(retpoline_rax)
 	JMP_RETPOLINE(rax)
 
 ENTRY(cpu_idle_cycle)
+	RETGUARD_SETUP(cpu_idle_cycle, r11)
 	movq	_C_LABEL(cpu_idle_cycle_fcn),%rax
 	cmpq	$0,%rax
 	jne	retpoline_rax
 	sti
 	hlt
+	RETGUARD_CHECK(cpu_idle_cycle, r11)
 	ret
+END(cpu_idle_cycle)
 
 	.globl	_C_LABEL(panic)
 
@@ -560,7 +562,7 @@ XUsyscall_meltdown:
 	 * (thank you, Intel), at which point we'll continue at the
 	 * "movq CPUVAR(KERN_RSP),%rax" after Xsyscall below.
 	 * In case the CPU speculates past the mov to cr3, we put a
-	 * retpoline-style pause-jmp-to-pause loop.
+	 * retpoline-style pause-lfence-jmp-to-pause loop.
 	 */
 	swapgs
 	movq	%rax,CPUVAR(SCRATCH)
@@ -641,8 +643,6 @@ IDTVEC_NOALIGN(syscall)
 .Lsyscall_restore_registers:
 	RET_STACK_REFILL_WITH_RCX
 
-	movq	TF_RDI(%rsp),%rdi
-	movq	TF_RSI(%rsp),%rsi
 	movq	TF_R8(%rsp),%r8
 	movq	TF_R9(%rsp),%r9
 	movq	TF_R10(%rsp),%r10
@@ -650,6 +650,14 @@ IDTVEC_NOALIGN(syscall)
 	movq	TF_R13(%rsp),%r13
 	movq	TF_R14(%rsp),%r14
 	movq	TF_R15(%rsp),%r15
+
+	CODEPATCH_START
+	movw	%ds,TF_R8(%rsp)
+	verw	TF_R8(%rsp)
+	CODEPATCH_END(CPTAG_MDS)
+
+	movq	TF_RDI(%rsp),%rdi
+	movq	TF_RSI(%rsp),%rsi
 	movq	TF_RBP(%rsp),%rbp
 	movq	TF_RBX(%rsp),%rbx
 
@@ -808,8 +816,6 @@ intr_user_exit_post_ast:
 .Lintr_restore_registers:
 	RET_STACK_REFILL_WITH_RCX
 
-	movq	TF_RDI(%rsp),%rdi
-	movq	TF_RSI(%rsp),%rsi
 	movq	TF_R8(%rsp),%r8
 	movq	TF_R9(%rsp),%r9
 	movq	TF_R10(%rsp),%r10
@@ -817,6 +823,14 @@ intr_user_exit_post_ast:
 	movq	TF_R13(%rsp),%r13
 	movq	TF_R14(%rsp),%r14
 	movq	TF_R15(%rsp),%r15
+
+	CODEPATCH_START
+	movw	%ds,TF_R8(%rsp)
+	verw	TF_R8(%rsp)
+	CODEPATCH_END(CPTAG_MDS)
+
+	movq	TF_RDI(%rsp),%rdi
+	movq	TF_RSI(%rsp),%rsi
 	movq	TF_RBP(%rsp),%rbp
 	movq	TF_RBX(%rsp),%rbx
 
@@ -1124,7 +1138,7 @@ ENTRY(pagezero)
 
 /* int rdmsr_safe(u_int msr, uint64_t *data) */
 ENTRY(rdmsr_safe)
-	RETGUARD_SETUP(rdmsr_safe_return, r10)
+	RETGUARD_SETUP(rdmsr_safe, r10)
 
 	movl	%edi,	%ecx	/* u_int msr */
 	.globl	rdmsr_safe_fault
@@ -1136,12 +1150,12 @@ rdmsr_safe_fault:
 	movq	%rax, (%rsi)	/* *data */
 	xorq	%rax, %rax
 
-	RETGUARD_CHECK(rdmsr_safe_return, r10)
+	RETGUARD_CHECK(rdmsr_safe, r10)
 	ret
 
 NENTRY(rdmsr_resume)
 	movl	$0x1, %eax
-	RETGUARD_CHECK(rdmsr_safe_return, r10)
+	RETGUARD_CHECK(rdmsr_safe, r10)
 	ret
 
 #if NXEN > 0

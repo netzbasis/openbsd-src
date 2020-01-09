@@ -1,4 +1,4 @@
-/* $OpenBSD: wsdisplayvar.h,v 1.31 2017/07/19 14:34:10 kettenis Exp $ */
+/* $OpenBSD: wsdisplayvar.h,v 1.34 2019/10/13 10:56:31 kettenis Exp $ */
 /* $NetBSD: wsdisplayvar.h,v 1.30 2005/02/04 02:10:49 perry Exp $ */
 
 /*
@@ -160,6 +160,7 @@ struct wsscreen_list {
  */
 struct wsemuldisplaydev_attach_args {
 	int	console;				/* is it console? */
+	int	primary;				/* is it primry? */
 	const struct wsscreen_list *scrdata;		/* screen cfg info */
 	const struct wsdisplay_accessops *accessops;	/* access ops */
 	void	*accesscookie;				/* access cookie */
@@ -169,10 +170,13 @@ struct wsemuldisplaydev_attach_args {
 #define	WSEMULDISPLAYDEVCF_CONSOLE	0
 #define	wsemuldisplaydevcf_console	cf_loc[WSEMULDISPLAYDEVCF_CONSOLE]	/* spec'd as console? */
 #define	WSEMULDISPLAYDEVCF_CONSOLE_UNK	-1
+#define WSEMULDISPLAYDEVCF_PRIMARY	1
+#define	wsemuldisplaydevcf_primary	cf_loc[WSEMULDISPLAYDEVCF_PRIMARY]	/* spec'd as primary? */
+#define	WSEMULDISPLAYDEVCF_PRIMARY_UNK	-1
+#define	WSEMULDISPLAYDEVCF_MUX		2
+#define	wsemuldisplaydevcf_mux		cf_loc[WSEMULDISPLAYDEVCF_MUX]
 #define	WSDISPLAYDEVCF_MUX		0
 #define	wsdisplaydevcf_mux		cf_loc[WSDISPLAYDEVCF_MUX]
-#define	WSEMULDISPLAYDEVCF_MUX		1
-#define	wsemuldisplaydevcf_mux		cf_loc[WSEMULDISPLAYDEVCF_MUX]
 
 struct wscons_syncops {
 	int (*detach)(void *, int, void (*)(void *, int, int), void *);
@@ -236,6 +240,10 @@ void wsdisplay_resume(void);
 const struct wsscreen_descr *
     wsdisplay_screentype_pick(const struct wsscreen_list *, const char *);
 
+struct wsdisplay_param;
+extern int (*ws_get_param)(struct wsdisplay_param *);
+extern int (*ws_set_param)(struct wsdisplay_param *);
+
 /*
  * for use by wskbd
  */
@@ -249,6 +257,5 @@ void wsscrollback(void *v, int op);
 /*
  * screen burner
  */
-#define	WSDISPLAY_DEFBURNOUT	0	/* disabled */
-#define	WSDISPLAY_DEFBURNIN	250	/* ms */
-
+#define	WSDISPLAY_DEFBURNOUT_MSEC	0	/* disabled */
+#define	WSDISPLAY_DEFBURNIN_MSEC	250	/* milliseconds */

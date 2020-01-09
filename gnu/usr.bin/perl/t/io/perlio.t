@@ -1,8 +1,8 @@
 BEGIN {
 	chdir 't' if -d 't';
-	@INC = '../lib';
 	require Config; import Config;
-	require './test.pl';
+    require './test.pl';
+    set_up_inc('../lib');
 	skip_all_without_perlio();
 }
 
@@ -97,12 +97,17 @@ ok(close($utffh));
 
       # hardcoded default temp path
       my $perlio_tmp_file_glob = '/tmp/PerlIO_??????';
+      my $filename;
 
-      ok( open(my $x,"+<",undef), 'TMPDIR honored by magic temp file via 3 arg open with undef - works if TMPDIR points to a non-existent dir');
+      SKIP: {
+        skip("No /tmp on this platform to fall back to absent TMPDIR",2)
+          unless (-e '/tmp');
+        ok( open(my $x,"+<",undef), 'TMPDIR honored by magic temp file via 3 arg open with undef - works if TMPDIR points to a non-existent dir');
 
-      my $filename = find_filename($x, $perlio_tmp_file_glob);
-      is($filename, undef, "No tmp files leaked");
-      unlink_all $filename if defined $filename;
+        $filename = find_filename($x, $perlio_tmp_file_glob);
+        is($filename, undef, "No tmp files leaked");
+        unlink_all $filename if defined $filename;
+      }
 
       mkdir $ENV{TMPDIR};
       ok(open(my $x,"+<",undef), 'TMPDIR honored by magic temp file via 3 arg open with undef - works if TMPDIR points to an existent dir');
@@ -189,7 +194,7 @@ SKIP: {
     }
 
 
-    { local $TODO = 'fails well back into 5.8.x';
+    {
 
 	
       sub read_fh_and_return_final_rv {
@@ -234,7 +239,7 @@ require Symbol; # doesn't matter whether it exists or not
 EOP
 		    qr/\ARecursive call to Perl_load_module in PerlIO_find_layer at/s,
 		    {stderr => 1},
-		    'Mutal recursion between Perl_load_module and PerlIO_find_layer croaks');
+		    'Mutual recursion between Perl_load_module and PerlIO_find_layer croaks');
 }
 
 {

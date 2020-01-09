@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bpe.c,v 1.2 2019/01/16 00:26:45 jsg Exp $ */
+/*	$OpenBSD: if_bpe.c,v 1.10 2019/11/07 07:36:31 dlg Exp $ */
 /*
  * Copyright (c) 2018 David Gwynne <dlg@openbsd.org>
  *
@@ -99,10 +99,11 @@ struct bpe_softc {
 	struct arpcom		sc_ac;
 	struct ifmedia		sc_media;
 	int			sc_txhprio;
+	int			sc_rxhprio;
 	uint8_t			sc_group[ETHER_ADDR_LEN];
 
-	void *			sc_lh_cookie;
-	void *			sc_dh_cookie;
+	struct task		sc_ltask;
+	struct task		sc_dtask;
 
 	struct bpe_map		sc_bridge_map;
 	struct rwlock		sc_bridge_lock;
@@ -143,10 +144,6 @@ static struct bpe_tree bpe_interfaces = RBT_INITIALIZER();
 static struct rwlock bpe_lock = RWLOCK_INITIALIZER("bpeifs");
 static struct pool bpe_entry_pool;
 
-#define ether_cmp(_a, _b)	memcmp((_a), (_b), ETHER_ADDR_LEN)
-#define ether_is_eq(_a, _b)	(ether_cmp((_a), (_b)) == 0)
-#define ether_is_bcast(_a)	ether_is_eq((_a), etherbroadcastaddr)
-
 void
 bpeattach(int count)
 {
@@ -175,6 +172,10 @@ bpe_clone_create(struct if_clone *ifc, int unit)
 	bpe_set_group(sc, 0);
 
 	sc->sc_txhprio = IF_HDRPRIO_PACKET;
+	sc->sc_rxhprio = IF_HDRPRIO_OUTER;
+
+	task_set(&sc->sc_ltask, bpe_link_hook, sc);
+	task_set(&sc->sc_dtask, bpe_detach_hook, sc);
 
 	rw_init(&sc->sc_bridge_lock, "bpebr");
 	RBT_INIT(bpe_map, &sc->sc_bridge_map);
@@ -192,6 +193,7 @@ bpe_clone_create(struct if_clone *ifc, int unit)
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 	ether_fakeaddr(ifp);
 
+	if_counters_alloc(ifp);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 
@@ -287,7 +289,7 @@ bpe_start(struct ifnet *ifp)
 
 		beh = mtod(m, struct ether_header *);
 
-		if (ether_is_bcast(ceh->ether_dhost)) {
+		if (ETHER_IS_BROADCAST(ceh->ether_dhost)) {
 			memcpy(beh->ether_dhost, sc->sc_group,
 			    sizeof(beh->ether_dhost));
 		} else {
@@ -465,6 +467,7 @@ bpe_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCSVNETID:
 		error = bpe_set_vnetid(sc, ifr);
+		break;
 	case SIOCGVNETID:
 		ifr->ifr_vnetid = sc->sc_key.k_isid;
 		break;
@@ -480,18 +483,25 @@ bpe_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 
 	case SIOCSTXHPRIO:
-		if (ifr->ifr_hdrprio == IF_HDRPRIO_PACKET) /* use mbuf prio */
-			;
-		else if (ifr->ifr_hdrprio < IF_HDRPRIO_MIN ||
-		    ifr->ifr_hdrprio > IF_HDRPRIO_MAX) {
-			error = EINVAL;
+		error = if_txhprio_l2_check(ifr->ifr_hdrprio);
+		if (error != 0)
 			break;
-		}
 
 		sc->sc_txhprio = ifr->ifr_hdrprio;
 		break;
 	case SIOCGTXHPRIO:
 		ifr->ifr_hdrprio = sc->sc_txhprio;
+		break;
+
+	case SIOCSRXHPRIO:
+		error = if_rxhprio_l2_check(ifr->ifr_hdrprio);
+		if (error != 0)
+			break;
+
+		sc->sc_rxhprio = ifr->ifr_hdrprio;
+		break;
+	case SIOCGRXHPRIO:
+		ifr->ifr_hdrprio = sc->sc_rxhprio;
 		break;
 
 	case SIOCGIFMEDIA:
@@ -625,12 +635,10 @@ bpe_up(struct bpe_softc *sc)
 	}
 
 	/* Register callback for physical link state changes */
-	sc->sc_lh_cookie = hook_establish(ifp0->if_linkstatehooks, 1,
-	    bpe_link_hook, sc);
+	if_linkstatehook_add(ifp0, &sc->sc_ltask);
 
 	/* Register callback if parent wants to unregister */
-	sc->sc_dh_cookie = hook_establish(ifp0->if_detachhooks, 0,
-	    bpe_detach_hook, sc);
+	if_detachhook_add(ifp0, &sc->sc_dtask);
 
 	/* we're running now */
 	SET(ifp->if_flags, IFF_RUNNING);
@@ -667,8 +675,8 @@ bpe_down(struct bpe_softc *sc)
 
 	ifp0 = if_get(sc->sc_key.k_if);
 	if (ifp0 != NULL) {
-		hook_disestablish(ifp0->if_detachhooks, sc->sc_dh_cookie);
-		hook_disestablish(ifp0->if_linkstatehooks, sc->sc_lh_cookie);
+		if_detachhook_del(ifp0, &sc->sc_dtask);
+		if_linkstatehook_del(ifp0, &sc->sc_ltask);
 		bpe_multi(sc, ifp0, SIOCDELMULTI);
 	}
 	if_put(ifp0);
@@ -828,7 +836,7 @@ bpe_input_map(struct bpe_softc *sc, const uint8_t *ba, const uint8_t *ca)
 		be->be_age = time_uptime; /* only a little bit racy */
 
 		if (be->be_type != BPE_ENTRY_DYNAMIC ||
-		    ether_is_eq(ba, &be->be_b_da))
+		    ETHER_IS_EQ(ba, &be->be_b_da))
 			be = NULL;
 		else
 			refcnt_take(&be->be_refs);
@@ -882,7 +890,6 @@ bpe_input_map(struct bpe_softc *sc, const uint8_t *ba, const uint8_t *ca)
 void
 bpe_input(struct ifnet *ifp0, struct mbuf *m)
 {
-	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct bpe_softc *sc;
 	struct ifnet *ifp;
 	struct ether_header *beh, *ceh;
@@ -890,6 +897,7 @@ bpe_input(struct ifnet *ifp0, struct mbuf *m)
 	unsigned int hlen = sizeof(*beh) + sizeof(*itagp) + sizeof(*ceh);
 	struct mbuf *n;
 	int off;
+	int prio;
 
 	if (m->m_len < hlen) {
 		m = m_pullup(m, hlen);
@@ -938,6 +946,19 @@ bpe_input(struct ifnet *ifp0, struct mbuf *m)
 
 	ifp = &sc->sc_ac.ac_if;
 
+	prio = sc->sc_rxhprio;
+	switch (prio) {
+	case IF_HDRPRIO_PACKET:
+		break;
+	case IF_HDRPRIO_OUTER:
+		m->m_pkthdr.pf.prio = (itag & PBB_ITAG_PCP_MASK) >>
+		    PBB_ITAG_PCP_SHIFT;
+		break;
+	default:
+		m->m_pkthdr.pf.prio = prio;
+		break;
+	}
+
 	m->m_flags &= ~(M_BCAST|M_MCAST);
 	m->m_pkthdr.ph_ifidx = ifp->if_index;
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
@@ -946,8 +967,7 @@ bpe_input(struct ifnet *ifp0, struct mbuf *m)
 	pf_pkt_addr_changed(m);
 #endif
 
-	ml_enqueue(&ml, m);
-	if_input(ifp, &ml);
+	if_vinput(ifp, m);
 	return;
 
 drop:

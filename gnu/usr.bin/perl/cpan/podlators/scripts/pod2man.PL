@@ -44,13 +44,11 @@ PREAMBLE
 # In the following, Perl variables are not expanded during extraction.
 print {$out} <<'SCRIPT_BODY' or die "Cannot write to $file: $!\n";
 
-# pod2man -- Convert POD data to formatted *roff input.
+# Convert POD data to formatted *roff input.
 #
-# Copyright 1999, 2000, 2001, 2004, 2006, 2008, 2010, 2012, 2013, 2014, 2015,
-#     2016 Russ Allbery <rra@cpan.org>
+# The driver script for Pod::Man.
 #
-# This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# SPDX-License-Identifier: GPL-1.0-or-later OR Artistic-1.0-Perl
 
 use 5.006;
 use strict;
@@ -77,8 +75,9 @@ $options{utf8} = 1;
 Getopt::Long::config ('bundling_override');
 GetOptions (\%options, 'center|c=s', 'date|d=s', 'errors=s', 'fixed=s',
             'fixedbold=s', 'fixeditalic=s', 'fixedbolditalic=s', 'help|h',
-            'lax|l', 'name|n=s', 'nourls', 'official|o', 'quotes|q=s',
-            'release|r=s', 'section|s=s', 'stderr', 'verbose|v', 'utf8|u!')
+            'lax|l', 'lquote=s', 'name|n=s', 'nourls', 'official|o',
+            'quotes|q=s', 'release|r=s', 'rquote=s', 'section|s=s', 'stderr',
+            'verbose|v', 'utf8|u!')
     or exit 1;
 pod2usage (0) if $options{help};
 
@@ -113,7 +112,11 @@ do {
     $parser->parse_from_file (@files);
     if ($parser->{CONTENTLESS}) {
         $status = 1;
-        warn "$0: unable to format $files[0]\n";
+        if (defined $files[0]) {
+            warn "$0: unable to format $files[0]\n";
+        } else {
+            warn "$0: unable to format standard input\n";
+        }
         if (defined ($files[1]) and $files[1] ne '-') {
             unlink $files[1] unless (-s $files[1]);
         }
@@ -124,9 +127,9 @@ exit $status;
 __END__
 
 =for stopwords
-en em --stderr stderr --no-utf8 UTF-8 overdo markup MT-LEVEL Allbery Solaris
-URL troff troff-specific formatters uppercased Christiansen --nourls UTC
-prepend
+en em --stderr stderr --no-utf8 UTF-8 overdo markup MT-LEVEL Allbery Solaris URL
+troff troff-specific formatters uppercased Christiansen --nourls UTC prepend
+lquote rquote
 
 =head1 NAME
 
@@ -137,9 +140,9 @@ pod2man - Convert POD data to formatted *roff input
 pod2man [B<--center>=I<string>] [B<--date>=I<string>] [B<--errors>=I<style>]
     [B<--fixed>=I<font>] [B<--fixedbold>=I<font>] [B<--fixeditalic>=I<font>]
     [B<--fixedbolditalic>=I<font>] [B<--name>=I<name>] [B<--nourls>]
-    [B<--official>] [B<--quotes>=I<quotes>] [B<--release>=I<version>]
-    [B<--section>=I<manext>] [B<--stderr>] [B<--no-utf8>] [B<--verbose>]
-    [I<input> [I<output>] ...]
+    [B<--official>] [B<--release>=I<version>] [B<--section>=I<manext>]
+    [B<--quotes>=I<quotes>] [B<--lquote>=I<quote>] [B<--rquote>=I<quote>]
+    [B<--stderr>] [B<--no-utf8>] [B<--verbose>] [I<input> [I<output>] ...]
 
 pod2man B<--help>
 
@@ -237,6 +240,20 @@ No longer used.  B<pod2man> used to check its input for validity as a
 manual page, but this should now be done by L<podchecker(1)> instead.
 Accepted for backward compatibility; this option no longer does anything.
 
+=item B<--lquote>=I<quote>
+
+=item B<--rquote>=I<quote>
+
+Sets the quote marks used to surround CE<lt>> text.  B<--lquote> sets the
+left quote mark and B<--rquote> sets the right quote mark.  Either may also
+be set to the special value C<none>, in which case no quote mark is added
+on that side of CE<lt>> text (but the font is still changed for troff
+output).
+
+Also see the B<--quotes> option, which can be used to set both quotes at once.
+If both B<--quotes> and one of the other options is set, B<--lquote> or
+B<--rquote> overrides B<--quotes>.
+
 =item B<-n> I<name>, B<--name>=I<name>
 
 Set the name of the manual page for the C<.TH> macro to I<name>.  Without
@@ -253,9 +270,9 @@ in all-uppercase, even if the command isn't.
 This option is probably not useful when converting multiple POD files at
 once.
 
-When converting POD source from standard input, this option is required,
-since there's otherwise no way to know what to use as the name of the
-manual page.
+When converting POD source from standard input, the name will be set to
+C<STDIN> if this option is not provided.  Providing this option is strongly
+recommended to set a meaningful manual page name.
 
 =item B<--nourls>
 
@@ -287,6 +304,10 @@ is used as the left quote and the second is used as the right quote.
 I<quotes> may also be set to the special value C<none>, in which case no
 quote marks are added around CE<lt>> text (but the font is still changed for
 troff output).
+
+Also see the B<--lquote> and B<--rquote> options, which can be used to set the
+left and right quotes independently.  If both B<--quotes> and one of the other
+options is set, B<--lquote> or B<--rquote> overrides B<--quotes>.
 
 =item B<-r> I<version>, B<--release>=I<version>
 
@@ -381,6 +402,19 @@ L<Pod::Man> for more details.
 
 Lots of this documentation is duplicated from L<Pod::Man>.
 
+=head1 AUTHOR
+
+Russ Allbery <rra@cpan.org>, based I<very> heavily on the original
+B<pod2man> by Larry Wall and Tom Christiansen.
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 1999-2001, 2004, 2006, 2008, 2010, 2012-2018 Russ Allbery
+<rra@cpan.org>
+
+This program is free software; you may redistribute it and/or modify it
+under the same terms as Perl itself.
+
 =head1 SEE ALSO
 
 L<Pod::Man>, L<Pod::Simple>, L<man(1)>, L<nroff(1)>, L<perlpod(1)>,
@@ -390,21 +424,8 @@ The man page documenting the an macro set may be L<man(5)> instead of
 L<man(7)> on your system.
 
 The current version of this script is always available from its web site at
-L<http://www.eyrie.org/~eagle/software/podlators/>.  It is also part of the
+L<https://www.eyrie.org/~eagle/software/podlators/>.  It is also part of the
 Perl core distribution as of 5.6.0.
-
-=head1 AUTHOR
-
-Russ Allbery <rra@cpan.org>, based I<very> heavily on the original
-B<pod2man> by Larry Wall and Tom Christiansen.
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright 1999, 2000, 2001, 2004, 2006, 2008, 2010, 2012, 2013, 2014,
-2015, 2016 Russ Allbery <rra@cpan.org>
-
-This program is free software; you may redistribute it and/or modify it
-under the same terms as Perl itself.
 
 =cut
 SCRIPT_BODY
@@ -415,3 +436,7 @@ chmod(0755, $file) or die "Cannot reset permissions for $file: $!\n";
 if ($Config{'eunicefix'} ne q{:}) {
     exec("$Config{'eunicefix'} $file");
 }
+
+# Local Variables:
+# copyright-at-end-flag: t
+# End:

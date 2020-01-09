@@ -1,4 +1,4 @@
-/*	$OpenBSD: frontend.h,v 1.1 2019/01/23 13:11:00 florian Exp $	*/
+/*	$OpenBSD: frontend.h,v 1.6 2019/11/27 17:09:12 florian Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -19,8 +19,26 @@
 
 TAILQ_HEAD(ctl_conns, ctl_conn)	ctl_conns;
 
+struct trust_anchor {
+	TAILQ_ENTRY(trust_anchor)	 entry;
+	char				*ta;
+};
+
+TAILQ_HEAD(trust_anchor_head, trust_anchor);
+
+struct imsg_rdns_proposal {
+	uint32_t		 if_index;
+	int			 src;
+	struct sockaddr_rtdns	 rtdns;
+};
+
 void		 frontend(int, int);
 void		 frontend_dispatch_main(int, short, void *);
 void		 frontend_dispatch_resolver(int, short, void *);
 int		 frontend_imsg_compose_main(int, pid_t, void *, uint16_t);
 int		 frontend_imsg_compose_resolver(int, pid_t, void *, uint16_t);
+char		*ip_port(struct sockaddr *);
+void		 add_new_ta(struct trust_anchor_head *, char *);
+void		 free_tas(struct trust_anchor_head *);
+int		 merge_tas(struct trust_anchor_head *,
+		    struct trust_anchor_head *);

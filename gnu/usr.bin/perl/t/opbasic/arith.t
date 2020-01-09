@@ -2,7 +2,8 @@
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = '../lib';
+    require './test.pl';
+    set_up_inc('../lib');
 }
 
 # This file has been placed in t/opbasic to indicate that it should not use
@@ -12,28 +13,30 @@ BEGIN {
 print "1..186\n";
 
 sub try ($$$) {
-   print +($_[1] ? "ok" : "not ok"), " $_[0] - $_[2]\n";
+   print +($_[1] ? "ok" : "not ok") . " $_[0] - $_[2]\n";
 }
 sub tryeq ($$$$) {
+  my $status;
   if ($_[1] == $_[2]) {
-    print "ok $_[0]";
+    $status = "ok $_[0]";
   } else {
-    print "not ok $_[0] # $_[1] != $_[2]";
+    $status = "not ok $_[0] # $_[1] != $_[2]";
   }
-  print " - $_[3]\n";
+  print "$status - $_[3]\n";
 }
 sub tryeq_sloppy ($$$$) {
+  my $status;
   if ($_[1] == $_[2]) {
-    print "ok $_[0]";
+    $status = "ok $_[0]";
   } else {
     my $error = abs (($_[1] - $_[2]) / $_[1]);
     if ($error < 1e-9) {
-      print "ok $_[0] # $_[1] is close to $_[2], \$^O eq $^O";
+      $status = "ok $_[0] # $_[1] is close to $_[2], \$^O eq $^O";
     } else {
-      print "not ok $_[0] # $_[1] != $_[2]";
+      $status = "not ok $_[0] # $_[1] != $_[2]";
     }
   }
-  print " - $_[3]\n";
+  print "$status - $_[3]\n";
 }
 
 my $T = 1;
@@ -422,16 +425,15 @@ print "not "x($a ne $b), "ok ", $T++, qq ' - something % \$1 vs "\$1"\n';
 
 my $vms_no_ieee;
 if ($^O eq 'VMS') {
-  use vars '%Config';
-  eval {require Config; import Config};
-  $vms_no_ieee = 1 unless defined($Config{useieee});
+  eval { require Config };
+  $vms_no_ieee = 1 unless defined($Config::Config{useieee});
 }
 
 if ($^O eq 'vos') {
   print "not ok ", $T++, " # TODO VOS raises SIGFPE instead of producing infinity.\n";
 }
-elsif ($vms_no_ieee) {
- print $T++, " # SKIP -- the IEEE infinity model is unavailable in this configuration.\n"
+elsif ($vms_no_ieee || !$Config{d_double_has_inf}) {
+ print "ok ", $T++, " # SKIP -- the IEEE infinity model is unavailable in this configuration.\n"
 }
 elsif ($^O eq 'ultrix') {
   print "not ok ", $T++, " # TODO Ultrix enters deep nirvana instead of producing infinity.\n";
@@ -460,6 +462,9 @@ else {
 # [perl #120426]
 # small numbers shouldn't round to zero if they have extra floating digits
 
+unless ($Config{d_double_style_ieee}) {
+for (1..8) { print "ok ", $T++, " # SKIP -- not IEEE\n" }
+} else {
 try $T++,  0.153e-305 != 0.0,              '0.153e-305';
 try $T++,  0.1530e-305 != 0.0,             '0.1530e-305';
 try $T++,  0.15300e-305 != 0.0,            '0.15300e-305';
@@ -469,6 +474,7 @@ try $T++,  0.1530001e-305 != 0.0,          '0.1530001e-305';
 try $T++,  1.17549435100e-38 != 0.0,       'min single';
 # For flush-to-zero systems this may flush-to-zero, see PERL_SYS_FPU_INIT
 try $T++,  2.2250738585072014e-308 != 0.0, 'min double';
+}
 
 # string-to-nv should equal float literals
 try $T++, "1.23"   + 0 ==  1.23,  '1.23';

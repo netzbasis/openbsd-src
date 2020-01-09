@@ -1,4 +1,4 @@
-/*	$OpenBSD: job.c,v 1.140 2017/12/19 13:51:13 espie Exp $	*/
+/*	$OpenBSD: job.c,v 1.146 2020/01/04 16:16:37 espie Exp $	*/
 /*	$NetBSD: job.c,v 1.16 1996/11/06 17:59:08 christos Exp $	*/
 
 /*
@@ -140,14 +140,15 @@ static sigset_t sigset, emptyset;
 
 static void handle_fatal_signal(int);
 static void handle_siginfo(void);
-static void postprocess_job(Job *, bool);
+static void postprocess_job(Job *);
 static Job *prepare_job(GNode *);
 static void determine_job_next_step(Job *);
-static void remove_job(Job *, bool);
+static void remove_job(Job *);
 static void may_continue_job(Job *);
 static void continue_job(Job *);
 static Job *reap_finished_job(pid_t);
 static bool reap_jobs(void);
+static void may_continue_heldback_jobs();
 
 static void loop_handle_running_jobs(void);
 static bool expensive_job(Job *);
@@ -322,14 +323,18 @@ internal_print_errors()
 	dying = check_dying_signal();
 	if (dying)
 		quick_summary(dying);
+	/* Print errors grouped by file name. */
 	while (errorJobs != NULL) {
+		/* Select the first job. */
 		k = errorJobs;
 		errorJobs = NULL;
 		for (j = k; j != NULL; j = jnext) {
 			jnext = j->next;
 			if (j->location->fname == k->location->fname)
+				/* Print errors with the same filename. */
 				print_error(j);
 			else {
+				/* Keep others for the next iteration. */
 				j->next = errorJobs;
 				errorJobs = j;
 			}
@@ -528,21 +533,21 @@ debug_kill_printf(const char *fmt, ...)
 /*ARGSUSED*/
 
 static void
-postprocess_job(Job *job, bool okay)
+postprocess_job(Job *job)
 {
-	if (okay &&
+	if (job->exit_type == JOB_EXIT_OKAY &&
 	    aborting != ABORT_ERROR &&
 	    aborting != ABORT_INTERRUPT) {
 		/* As long as we aren't aborting and the job didn't return a
 		 * non-zero status that we shouldn't ignore, we call
 		 * Make_Update to update the parents. */
-		job->node->built_status = MADE;
+		job->node->built_status = REBUILT;
 		Make_Update(job->node);
 		free(job);
-	}
+	} else if (job->exit_type != JOB_EXIT_OKAY && keepgoing)
+		free(job);
 
-	if (errorJobs != NULL && !keepgoing &&
-	    aborting != ABORT_INTERRUPT)
+	if (errorJobs != NULL && aborting != ABORT_INTERRUPT)
 		aborting = ABORT_ERROR;
 
 	if (aborting == ABORT_ERROR && DEBUG(QUICKDEATH))
@@ -690,7 +695,7 @@ continue_job(Job *job)
 {
 	bool finished = job_run_next(job);
 	if (finished)
-		remove_job(job, true);
+		remove_job(job);
 	else
 		determine_expensive_job(job);
 }
@@ -731,21 +736,25 @@ determine_job_next_step(Job *job)
 			    job->node->name);
 	}
 
-	okay = job->exit_type == JOB_EXIT_OKAY;
-	if (!okay || job->next_cmd == NULL)
-		remove_job(job, okay);
+	if (job->exit_type != JOB_EXIT_OKAY || job->next_cmd == NULL)
+		remove_job(job);
 	else
 		may_continue_job(job);
 }
 
 static void
-remove_job(Job *job, bool okay)
+remove_job(Job *job)
 {
 	nJobs--;
-	postprocess_job(job, okay);
+	postprocess_job(job);
+}
+
+static void
+may_continue_heldback_jobs()
+{
 	while (!no_new_jobs) {
 		if (heldJobs != NULL) {
-			job = heldJobs;
+			Job *job = heldJobs;
 			heldJobs = heldJobs->next;
 			if (DEBUG(EXPENSIVE))
 				fprintf(stderr, "[%ld] cheap -> release %s\n",
@@ -800,6 +809,7 @@ reap_jobs(void)
 			job_handle_status(job, status);
 			determine_job_next_step(job);
 		}
+		may_continue_heldback_jobs();
 	}
 	/* sanity check, should not happen */
 	if (pid == -1 && errno == ECHILD && runningJobs != NULL)

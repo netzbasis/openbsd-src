@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ospfd.conf.5,v 1.55 2018/12/28 19:25:10 remi Exp $
+.\"	$OpenBSD: ospfd.conf.5,v 1.58 2019/11/19 09:55:55 remi Exp $
 .\"
 .\" Copyright (c) 2005 Esben Norby <norby@openbsd.org>
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
@@ -17,7 +17,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 28 2018 $
+.Dd $Mdocdate: November 19 2019 $
 .Dt OSPFD.CONF 5
 .Os
 .Sh NAME
@@ -191,7 +191,7 @@ redistribute static set { metric 300 type 2 }
 .Ed
 .Pp
 The use of
-.Ic redistribute Ar prefix Ns | Ns Ar rtlabel
+.Ic redistribute Ar prefix | rtlabel
 can result in higher CPU usage, since
 .Xr ospfd 8
 will need to process more route updates.
@@ -257,7 +257,7 @@ Areas are used for grouping interfaces.
 All interface-specific parameters can
 be configured per area, overruling the global settings.
 .Bl -tag -width Ds
-.It Ic area Ar address
+.It Ic area Ar id | address
 Specify an area section, grouping one or more interfaces.
 .Bd -literal -offset indent
 area 0.0.0.0 {
@@ -419,6 +419,9 @@ Router.
 .It Ic transmit-delay Ar seconds
 Set the transmit delay.
 The default value is 1; valid range is 1\-3600 seconds.
+.It Ic type p2p
+Set the interface type to point to point.
+This disables the election of a DR and BDR for the given interface.
 .El
 .Sh FILES
 .Bl -tag -width "/etc/ospfd.conf" -compact

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.163 2019/01/19 21:07:13 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.166 2019/11/19 14:35:08 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -55,10 +55,10 @@
 #include <arpa/inet.h>
 
 #include <errno.h>
-#include <ifaddrs.h>
 #include <imsg.h>
 #include <limits.h>
 #include <poll.h>
+#include <resolv.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -92,6 +92,10 @@ dispatch(struct interface_info *ifi, int routefd)
 		if (quit == RESTART) {
 			quit = 0;
 			time(&ifi->startup_time);
+			free(ifi->configured);
+			ifi->configured = NULL;
+			free(ifi->unwind_info);
+			ifi->unwind_info = NULL;
 			ifi->state = S_PREBOOT;
 			state_preboot(ifi);
 		}

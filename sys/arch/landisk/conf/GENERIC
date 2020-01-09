@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.53 2018/08/22 15:38:46 mpi Exp $
+# $OpenBSD: GENERIC,v 1.55 2019/12/17 13:08:55 reyk Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -106,6 +106,8 @@ uslcom*	at uhub?		# Silicon Laboratories CP210x serial
 ucom*	at uslcom?
 uscom*	at uhub?		# Simple USB serial adapters
 ucom*	at uscom?
+ucrcom*	at uhub?		# Chromebook serial
+ucom*	at ucrcom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 moscom*	at uhub?		# MosChip MCS7703 serial
@@ -134,6 +136,7 @@ ucom*	at ucycom?
 uslhcom* at uhidev?		# Silicon Labs CP2110 USB HID UART
 ucom*	at uslhcom?
 uhid*	at uhidev?		# USB generic HID support
+fido*	at uhidev?		# FIDO/U2F security key support
 upd*	at uhidev?		# USB Power Devices sensors
 aue*	at uhub?		# ADMtek AN986 Pegasus Ethernet
 atu*	at uhub?		# Atmel AT76c50x based 802.11b

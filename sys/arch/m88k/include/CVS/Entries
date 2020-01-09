@@ -5,7 +5,7 @@
 /atomic.h/1.14/Wed Aug 22 11:25:58 2018//
 /cdefs.h/1.6/Thu Mar 28 17:30:45 2013//
 /cmmu.h/1.32/Sat Nov 16 18:45:20 2013//
-/cpu.h/1.66/Wed Dec  5 10:28:21 2018//
+/cpu.h/1.67/Wed Aug 28 13:48:40 2019//
 /db_machdep.h/1.19/Wed Apr 27 11:10:48 2016//
 /endian.h/1.6/Sat Jul 12 16:25:08 2014//
 /exec.h/1.7/Wed Feb  8 05:09:25 2017//
@@ -37,7 +37,7 @@
 /signal.h/1.8/Tue Jun 21 12:31:19 2016//
 /spinlock.h/1.3/Tue Sep  5 02:40:54 2017//
 /stdarg.h/1.3/Wed Mar 23 16:54:35 2011//
-/tcb.h/1.5/Wed Feb 15 21:18:52 2017//
+/tcb.h/1.6/Wed Dec 11 07:21:40 2019//
 /trap.h/1.11/Thu Sep  5 20:40:32 2013//
 /varargs.h/1.2/Fri Jan  6 18:53:05 2006//
 /vmparam.h/1.20/Sun Nov  1 20:10:00 2015//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ethersubr.c,v 1.257 2018/12/26 18:32:38 denis Exp $	*/
+/*	$OpenBSD: if_ethersubr.c,v 1.261 2019/11/24 07:50:55 claudio Exp $	*/
 /*	$NetBSD: if_ethersubr.c,v 1.19 1996/05/07 02:40:30 thorpej Exp $	*/
 
 /*
@@ -170,6 +170,9 @@ ether_ioctl(struct ifnet *ifp, struct arpcom *arp, u_long cmd, caddr_t data)
 void
 ether_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 {
+	if (rt == NULL)
+		return;
+
 	switch (rt_key(rt)->sa_family) {
 	case AF_INET:
 		arp_rtrequest(ifp, req, rt);
@@ -235,19 +238,16 @@ ether_resolve(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 #endif
 #ifdef MPLS
 	case AF_MPLS:
-		if (rt)
-			dst = rt_key(rt);
-		else
+		if (rt == NULL)
 			senderr(EHOSTUNREACH);
 
 		if (!ISSET(ifp->if_xflags, IFXF_MPLS))
 			senderr(ENETUNREACH);
 
-		af = dst->sa_family;
-		if (af == AF_MPLS)
-			af = rt->rt_gateway->sa_family;         
+		dst = ISSET(rt->rt_flags, RTF_GATEWAY) ?
+		    rt->rt_gateway : rt_key(rt);
 
-		switch (af) {
+		switch (dst->sa_family) {
 		case AF_LINK:
 			if (satosdl(dst)->sdl_alen < sizeof(eh->ether_dhost))
 				senderr(EHOSTUNREACH);
@@ -380,8 +380,7 @@ ether_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 				goto dropanyway;
 		}
 
-		if (memcmp(etherbroadcastaddr, eh->ether_dhost,
-		    ETHER_ADDR_LEN) == 0)
+		if (ETHER_IS_BROADCAST(eh->ether_dhost))
 			m->m_flags |= M_BCAST;
 		else
 			m->m_flags |= M_MCAST;

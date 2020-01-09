@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.29 2018/11/16 21:15:47 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.33 2019/12/07 22:57:48 guenther Exp $ */
 
 /*
  * Copyright (c) 1998-2004 Opsycon AB, Sweden.
@@ -41,6 +41,23 @@
 
 int64_t pcookie __attribute__((section(".openbsd.randomdata"))) __dso_hidden;
 
+static inline void
+_dl_reloc_ent(Elf_Addr r_addr, Elf_Addr value)
+{
+	if ((r_addr & 7) == 0)
+		*(u_int64_t *)r_addr += value;
+	else {
+		/*
+		 * XXX Handle non aligned relocs. .eh_frame
+		 * XXX in libstdc++ seems to have them...
+		 */
+		u_int64_t robj;
+
+		_dl_bcopy((char *)r_addr, &robj, sizeof(robj));
+		robj += value;
+		_dl_bcopy(&robj, (char *)r_addr, sizeof(robj));
+	}
+}
 
 int
 _dl_md_reloc(elf_object_t *object, int rel, int relsz)
@@ -48,93 +65,66 @@ _dl_md_reloc(elf_object_t *object, int rel, int relsz)
 	int	i;
 	int	numrel;
 	int	fails = 0;
-	struct load_list *load_list;
-	Elf64_Addr loff;
-	Elf64_Addr ooff;
-	Elf64_Rel  *relocs;
-	const Elf64_Sym *sym, *this;
-	Elf64_Addr prev_value = 0;
-	const Elf64_Sym *prev_sym = NULL;
+	Elf_Addr loff;
+	Elf_Rel  *relocs;
+	const Elf_Sym *sym, *this;
+	Elf_Addr prev_value = 0;
+	const Elf_Sym *prev_sym = NULL;
 
 	loff = object->obj_base;
-	numrel = object->Dyn.info[relsz] / sizeof(Elf64_Rel);
-	relocs = (Elf64_Rel *)(object->Dyn.info[rel]);
+	numrel = object->Dyn.info[relsz] / sizeof(Elf_Rel);
+	relocs = (Elf_Rel *)(object->Dyn.info[rel]);
 
 	if (relocs == NULL)
-		return(0);
-
-	/*
-	 * Change protection of all write protected segments in the
-	 * object so we can do relocations in the .rodata section.
-	 * After relocation restore protection.
-	 */
-	if (object->dyn.textrel) {
-		for (load_list = object->load_list; load_list != NULL; load_list = load_list->next) {
-			if ((load_list->prot & PROT_WRITE) == 0)
-				_dl_mprotect(load_list->start, load_list->size,
-				    PROT_READ | PROT_WRITE);
-		}
-	}
+		return 0;
 
 	DL_DEB(("relocating %d\n", numrel));
 	for (i = 0; i < numrel; i++, relocs++) {
-		Elf64_Addr r_addr = relocs->r_offset + loff;
+		Elf_Addr r_addr = relocs->r_offset + loff;
 		const char *symn;
 		int type;
 
-		if (ELF64_R_SYM(relocs->r_info) == 0xffffff)
+		if (ELF_R_SYM(relocs->r_info) == 0xffffff)
 			continue;
 
-		ooff = 0;
 		sym = object->dyn.symtab;
-		sym += ELF64_R_SYM(relocs->r_info);
+		sym += ELF_R_SYM(relocs->r_info);
 		symn = object->dyn.strtab + sym->st_name;
-		type = ELF64_R_TYPE(relocs->r_info);
+		type = ELF_R_TYPE(relocs->r_info);
 
 		this = NULL;
-		if (ELF64_R_SYM(relocs->r_info)) {
+		if (ELF_R_SYM(relocs->r_info)) {
 			if (sym == prev_sym)
 				this = sym;	/* XXX non-NULL */
-			else if (!(ELF64_ST_BIND(sym->st_info) == STB_LOCAL &&
-			    ELF64_ST_TYPE (sym->st_info) == STT_NOTYPE)) {
-				ooff = _dl_find_symbol(symn, &this,
-				SYM_SEARCH_ALL | SYM_WARNNOTFOUND | SYM_PLT,
-				sym, object, NULL);
+			else if (!(ELF_ST_BIND(sym->st_info) == STB_LOCAL &&
+			    ELF_ST_TYPE (sym->st_info) == STT_NOTYPE)) {
+				struct sym_res sr;
 
-				if (this == NULL) {
+				sr = _dl_find_symbol(symn,
+				    SYM_SEARCH_ALL | SYM_WARNNOTFOUND | SYM_PLT,
+				    sym, object);
+
+				if (sr.sym == NULL) {
 					if (ELF_ST_BIND(sym->st_info) !=
 					    STB_WEAK)
 						fails++;
 					continue;
 				}
 				prev_sym = sym;
-				prev_value = this->st_value + ooff;
+				prev_value = sr.obj->obj_base +
+				    sr.sym->st_value;
+				this = sym;	/* XXX non-NULL */
 			}
 		}
 
-		switch (ELF64_R_TYPE(relocs->r_info)) {
-			/* XXX Handle non aligned relocs. .eh_frame
-			 * XXX in libstdc++ seems to have them... */
-			u_int64_t robj;
-
+		switch (ELF_R_TYPE(relocs->r_info)) {
 		case R_MIPS_REL32_64:
-			if (ELF64_ST_BIND(sym->st_info) == STB_LOCAL &&
-			    (ELF64_ST_TYPE(sym->st_info) == STT_SECTION ||
-			    ELF64_ST_TYPE(sym->st_info) == STT_NOTYPE) ) {
-				if ((long)r_addr & 7) {
-					_dl_bcopy((char *)r_addr, &robj, sizeof(robj));
-					robj += loff + sym->st_value;
-					_dl_bcopy(&robj, (char *)r_addr, sizeof(robj));
-				} else {
-					*(u_int64_t *)r_addr += loff + sym->st_value;
-				}
-			} else if (this && ((long)r_addr & 7)) {
-				_dl_bcopy((char *)r_addr, &robj, sizeof(robj));
-				robj += prev_value;
-				_dl_bcopy(&robj, (char *)r_addr, sizeof(robj));
-			} else if (this) {
-				*(u_int64_t *)r_addr += prev_value;
-			}
+			if (ELF_ST_BIND(sym->st_info) == STB_LOCAL &&
+			    (ELF_ST_TYPE(sym->st_info) == STT_SECTION ||
+			    ELF_ST_TYPE(sym->st_info) == STT_NOTYPE) )
+				_dl_reloc_ent(r_addr, loff + sym->st_value);
+			else if (this)
+				_dl_reloc_ent(r_addr, prev_value);
 			break;
 
 		case R_MIPS_NONE:
@@ -142,18 +132,12 @@ _dl_md_reloc(elf_object_t *object, int rel, int relsz)
 
 		default:
 			_dl_die("unsupported relocation '%llu'",
-			    ELF64_R_TYPE(relocs->r_info));
+			    ELF_R_TYPE(relocs->r_info));
 		}
 	}
+
 	DL_DEB(("done %d fails\n", fails));
-	if (object->dyn.textrel) {
-		for (load_list = object->load_list; load_list != NULL; load_list = load_list->next) {
-			if ((load_list->prot & PROT_WRITE) == 0)
-				_dl_mprotect(load_list->start, load_list->size,
-				    load_list->prot);
-		}
-	}
-	return(fails);
+	return fails;
 }
 
 extern void _dl_bind_start(void);
@@ -171,15 +155,13 @@ int
 _dl_md_reloc_got(elf_object_t *object, int lazy)
 {
 	int	i, n;
-	Elf64_Addr loff;
-	Elf64_Addr ooff;
-	Elf64_Addr *gotp;
-	const Elf64_Sym  *symp;
-	const Elf64_Sym  *this;
+	Elf_Addr loff;
+	Elf_Addr *gotp;
+	const Elf_Sym  *symp;
 	const char *strt;
 
 	if (object->status & STAT_GOT_DONE)
-		return (0);
+		return 0;
 
 	loff = object->obj_base;
 	strt = object->dyn.strtab;
@@ -205,47 +187,42 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	n =  object->Dyn.info[DT_MIPS_SYMTABNO - DT_LOPROC + DT_NUM] -
 	    object->Dyn.info[DT_MIPS_GOTSYM - DT_LOPROC + DT_NUM];
 
-	this = NULL;
-
-	if (object->traced)
-		lazy = 1;
-
 	/*
 	 *  Then do all global references according to the ABI.
 	 *  Quickstart is not yet implemented.
 	 */
 	while (n--) {
+		const char *symn = strt + symp->st_name;
+		struct sym_res sr;
+
 		if (symp->st_shndx == SHN_UNDEF &&
-		    ELF64_ST_TYPE(symp->st_info) == STT_FUNC) {
+		    ELF_ST_TYPE(symp->st_info) == STT_FUNC) {
 			if (symp->st_value == 0 || !lazy) {
-				this = NULL;
-				ooff = _dl_find_symbol(strt + symp->st_name,
-				    &this,
+				sr = _dl_find_symbol(symn,
 				    SYM_SEARCH_ALL|SYM_NOWARNNOTFOUND|SYM_PLT,
-				    symp, object, NULL);
-				if (this)
-					*gotp = this->st_value + ooff;
+				    symp, object);
+				if (sr.sym)
+					*gotp = sr.sym->st_value +
+					    sr.obj->obj_base;
 			} else
 				*gotp = symp->st_value + loff;
 		} else if (symp->st_shndx == SHN_COMMON ||
 			symp->st_shndx == SHN_UNDEF) {
-			this = NULL;
-			ooff = _dl_find_symbol(strt + symp->st_name, &this,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_NOWARNNOTFOUND|SYM_PLT,
-			    symp, object, NULL);
-			if (this)
-				*gotp = this->st_value + ooff;
-		} else if ((ELF64_ST_TYPE(symp->st_info) == STT_FUNC &&
+			    symp, object);
+			if (sr.sym)
+				*gotp = sr.sym->st_value + sr.obj->obj_base;
+		} else if ((ELF_ST_TYPE(symp->st_info) == STT_FUNC &&
 			symp->st_value != *gotp) ||
 			ELF_ST_VISIBILITY(symp->st_other) == STV_PROTECTED) {
 			*gotp += loff;
 		} else {	/* Resolve all others immediately */
-			this = NULL;
-			ooff = _dl_find_symbol(strt + symp->st_name, &this,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_NOWARNNOTFOUND|SYM_PLT,
-			    symp, object, NULL);
-			if (this)
-				*gotp = this->st_value + ooff;
+			    symp, object);
+			if (sr.sym)
+				*gotp = sr.sym->st_value + sr.obj->obj_base;
 			else
 				*gotp = symp->st_value + loff;
 		}
@@ -254,17 +231,16 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	}
 	object->status |= STAT_GOT_DONE;
 
-	return (0);
+	return 0;
 }
 
 Elf_Addr
 _dl_bind(elf_object_t *object, int symidx)
 {
 	Elf_Addr *gotp = object->dyn.pltgot;
-	Elf_Addr ooff;
-	const Elf_Sym *sym, *this;
+	struct sym_res sr;
+	const Elf_Sym *sym;
 	const char *symn;
-	const elf_object_t *sobj;
 	int64_t cookie = pcookie;
 	struct {
 		struct __kbind param;
@@ -278,16 +254,15 @@ _dl_bind(elf_object_t *object, int symidx)
 	n = object->Dyn.info[DT_MIPS_LOCAL_GOTNO - DT_LOPROC + DT_NUM] -
 	    object->Dyn.info[DT_MIPS_GOTSYM - DT_LOPROC + DT_NUM];
 
-	this = NULL;
-	ooff = _dl_find_symbol(symn, &this,
-	    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT, sym, object, &sobj);
-	if (this == NULL)
+	sr = _dl_find_symbol(symn, SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT,
+	    sym, object);
+	if (sr.sym == NULL)
 		_dl_die("lazy binding failed!");
 
-	buf.newval = ooff + this->st_value;
+	buf.newval = sr.obj->obj_base + sr.sym->st_value;
 
-	if (__predict_false(sobj->traced) && _dl_trace_plt(sobj, symn))
-		return (buf.newval);
+	if (__predict_false(sr.obj->traced) && _dl_trace_plt(sr.obj, symn))
+		return buf.newval;
 
 	buf.param.kb_addr = &gotp[n + symidx];
 	buf.param.kb_size = sizeof(Elf_Addr);
@@ -304,5 +279,5 @@ _dl_bind(elf_object_t *object, int symidx)
 		    : "v1", "a3", "memory");
 	}
 
-	return (buf.newval);
+	return buf.newval;
 }

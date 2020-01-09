@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.180 2018/11/19 16:12:06 tedu Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.183 2020/01/05 13:46:02 visa Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -59,11 +59,6 @@
 #include <sys/domain.h>
 #include <netinet/in.h>
 #include <net/route.h>
-
-/*
- * System call interface to the socket abstraction.
- */
-extern	struct fileops socketops;
 
 int	copyaddrout(struct proc *, struct mbuf *, struct sockaddr *, socklen_t,
 	    socklen_t *);
@@ -129,7 +124,7 @@ isdnssocket(struct socket *so)
 	return (so->so_state & SS_DNS);
 }
 
-/* For SS_DNS sockets, only allow port DNS (port 53) */ 
+/* For SS_DNS sockets, only allow port DNS (port 53) */
 static int
 dns_portcheck(struct proc *p, struct socket *so, void *nam, u_int *namelen)
 {
@@ -556,7 +551,7 @@ sys_sendmsg(struct proc *p, void *v, register_t *retval)
 		iov = aiov;
 	if (msg.msg_iovlen &&
 	    (error = copyin(msg.msg_iov, iov,
-		    (unsigned)(msg.msg_iovlen * sizeof (struct iovec)))))
+		    msg.msg_iovlen * sizeof (struct iovec))))
 		goto done;
 #ifdef KTRACE
 	if (msg.msg_iovlen && KTRPOINT(p, KTR_STRUCT))
@@ -630,7 +625,7 @@ sendit(struct proc *p, int s, struct msghdr *mp, int flags, register_t *retsize)
 		}
 #ifdef KTRACE
 		if (KTRPOINT(p, KTR_STRUCT))
-		 	ktrsockaddr(p, mtod(to, caddr_t), mp->msg_namelen);
+			ktrsockaddr(p, mtod(to, caddr_t), mp->msg_namelen);
 #endif
 	}
 	if (mp->msg_control) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: systm.h,v 1.140 2018/05/31 02:16:22 guenther Exp $	*/
+/*	$OpenBSD: systm.h,v 1.144 2019/11/30 11:19:17 visa Exp $	*/
 /*	$NetBSD: systm.h,v 1.50 1996/06/09 04:55:09 briggs Exp $	*/
 
 /*-
@@ -228,7 +228,6 @@ void	realitexpire(void *);
 
 struct clockframe;
 void	hardclock(struct clockframe *);
-void	softclock(void *);
 void	statclock(struct clockframe *);
 
 void	initclocks(void);
@@ -247,7 +246,7 @@ struct sleep_state;
 void	sleep_setup(struct sleep_state *, const volatile void *, int,
 	    const char *);
 void	sleep_setup_timeout(struct sleep_state *, int);
-void	sleep_setup_signal(struct sleep_state *, int);
+void	sleep_setup_signal(struct sleep_state *);
 void	sleep_finish(struct sleep_state *, int);
 int	sleep_finish_timeout(struct sleep_state *);
 int	sleep_finish_signal(struct sleep_state *);
@@ -259,14 +258,21 @@ void	cond_init(struct cond *);
 void	cond_wait(struct cond *, const char *);
 void	cond_signal(struct cond *);
 
+#define	INFSLP	UINT64_MAX
+
 struct mutex;
 struct rwlock;
 void    wakeup_n(const volatile void *, int);
 void    wakeup(const volatile void *);
 #define wakeup_one(c) wakeup_n((c), 1)
 int	tsleep(const volatile void *, int, const char *, int);
+int	tsleep_nsec(const volatile void *, int, const char *, uint64_t);
 int	msleep(const volatile void *, struct mutex *, int,  const char*, int);
+int	msleep_nsec(const volatile void *, struct mutex *, int,  const char*,
+	    uint64_t);
 int	rwsleep(const volatile void *, struct rwlock *, int, const char *, int);
+int	rwsleep_nsec(const volatile void *, struct rwlock *, int, const char *,
+	    uint64_t);
 void	yield(void);
 
 void	wdog_register(int (*)(void *, int), void *);
@@ -379,12 +385,12 @@ void	user_config(void);
 
 #if defined(MULTIPROCESSOR)
 void	_kernel_lock_init(void);
-void	_kernel_lock(const char *, int);
+void	_kernel_lock(void);
 void	_kernel_unlock(void);
 int	_kernel_lock_held(void);
 
 #define	KERNEL_LOCK_INIT()		_kernel_lock_init()
-#define	KERNEL_LOCK()			_kernel_lock(__FILE__, __LINE__)
+#define	KERNEL_LOCK()			_kernel_lock()
 #define	KERNEL_UNLOCK()			_kernel_unlock()
 #define	KERNEL_ASSERT_LOCKED()		KASSERT(_kernel_lock_held())
 #define	KERNEL_ASSERT_UNLOCKED()	KASSERT(!_kernel_lock_held())

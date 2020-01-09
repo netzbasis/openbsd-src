@@ -1,4 +1,4 @@
-/* $OpenBSD: signify.c,v 1.130 2019/01/17 05:40:10 tedu Exp $ */
+/* $OpenBSD: signify.c,v 1.134 2019/12/22 06:37:25 espie Exp $ */
 /*
  * Copyright (c) 2013 Ted Unangst <tedu@openbsd.org>
  *
@@ -80,7 +80,7 @@ usage(const char *error)
 #ifndef VERIFYONLY
 	    "\t%1$s -C [-q] -p pubkey -x sigfile [file ...]\n"
 	    "\t%1$s -G [-n] [-c comment] -p pubkey -s seckey\n"
-	    "\t%1$s -S [-ez] [-x sigfile] -s seckey -m message\n"
+	    "\t%1$s -S [-enz] [-x sigfile] -s seckey -m message\n"
 #endif
 	    "\t%1$s -V [-eqz] [-p pubkey] [-t keytype] [-x sigfile] -m message\n",
 	    getprogname());
@@ -145,6 +145,8 @@ parseb64file(const char *filename, char *b64, void *buf, size_t buflen,
 		errx(1, "unable to parse %s", filename);
 	if (memcmp(buf, PKALG, 2) != 0)
 		errx(1, "unsupported file %s", filename);
+	*commentend = '\n';
+	*b64end = '\n';
 	return b64end - b64 + 1;
 }
 
@@ -330,7 +332,7 @@ generate(const char *pubkeyfile, const char *seckeyfile, int rounds,
 	explicit_bzero(xorkey, sizeof(xorkey));
 
 	nr = snprintf(commentbuf, sizeof(commentbuf), "%s secret key", comment);
-	if (nr == -1 || nr >= sizeof(commentbuf))
+	if (nr < 0 || nr >= sizeof(commentbuf))
 		errx(1, "comment too long");
 	writekeyfile(seckeyfile, commentbuf, &enckey,
 	    sizeof(enckey), O_EXCL, 0600);
@@ -339,7 +341,7 @@ generate(const char *pubkeyfile, const char *seckeyfile, int rounds,
 	memcpy(pubkey.pkalg, PKALG, 2);
 	memcpy(pubkey.keynum, keynum, KEYNUMLEN);
 	nr = snprintf(commentbuf, sizeof(commentbuf), "%s public key", comment);
-	if (nr == -1 || nr >= sizeof(commentbuf))
+	if (nr < 0 || nr >= sizeof(commentbuf))
 		errx(1, "comment too long");
 	writekeyfile(pubkeyfile, commentbuf, &pubkey,
 	    sizeof(pubkey), O_EXCL, 0666);
@@ -403,7 +405,7 @@ createsig(const char *seckeyfile, const char *msgfile, uint8_t *msg,
 		nr = snprintf(sigcomment, sizeof(sigcomment),
 		    VERIFYWITH "%.*s.pub", (int)strlen(keyname) - 4, keyname);
 	}
-	if (nr == -1 || nr >= sizeof(sigcomment))
+	if (nr < 0 || nr >= sizeof(sigcomment))
 		errx(1, "comment too long");
 
 	if (memcmp(enckey.kdfalg, KDFALG, 2) != 0)
@@ -504,7 +506,7 @@ readpubkey(const char *pubkeyfile, struct pubkey *pubkey,
     const char *sigcomment, const char *keytype)
 {
 	const char *safepath = "/etc/signify";
-	char keypath[1024];
+	char keypath[PATH_MAX];
 
 	if (!pubkeyfile) {
 		pubkeyfile = strstr(sigcomment, VERIFYWITH);
@@ -754,7 +756,8 @@ main(int argc, char **argv)
 	char sigfilebuf[PATH_MAX];
 	const char *comment = "signify";
 	char *keytype = NULL;
-	int ch, rounds;
+	int ch;
+	int none = 0;
 	int embedded = 0;
 	int quiet = 0;
 	int gzip = 0;
@@ -768,8 +771,6 @@ main(int argc, char **argv)
 
 	if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
 		err(1, "pledge");
-
-	rounds = 42;
 
 	while ((ch = getopt(argc, argv, "CGSVzc:em:np:qs:t:x:")) != -1) {
 		switch (ch) {
@@ -808,7 +809,7 @@ main(int argc, char **argv)
 			msgfile = optarg;
 			break;
 		case 'n':
-			rounds = 0;
+			none = 1;
 			break;
 		case 'p':
 			pubkeyfile = optarg;
@@ -859,7 +860,7 @@ main(int argc, char **argv)
 			usage("must specify sigfile with - message");
 		nr = snprintf(sigfilebuf, sizeof(sigfilebuf),
 		    "%s.sig", msgfile);
-		if (nr == -1 || nr >= sizeof(sigfilebuf))
+		if (nr < 0 || nr >= sizeof(sigfilebuf))
 			errx(1, "path too long");
 		sigfile = sigfilebuf;
 	}
@@ -871,14 +872,14 @@ main(int argc, char **argv)
 		if (!pubkeyfile || !seckeyfile)
 			usage("must specify pubkey and seckey");
 		check_keyname_compliance(pubkeyfile, seckeyfile);
-		generate(pubkeyfile, seckeyfile, rounds, comment);
+		generate(pubkeyfile, seckeyfile, none ? 0 : 42, comment);
 		break;
 	case SIGN:
 		/* no pledge */
 		if (gzip) {
 			if (!msgfile || !seckeyfile || !sigfile)
 				usage("must specify message sigfile seckey");
-			zsign(seckeyfile, msgfile, sigfile);
+			zsign(seckeyfile, msgfile, sigfile, none);
 		} else {
 			if (!msgfile || !seckeyfile)
 				usage("must specify message and seckey");

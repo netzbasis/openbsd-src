@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.90 2018/08/30 06:16:30 anton Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.95 2019/12/31 13:48:32 visa Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -255,8 +255,7 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 		tp->t_state |= TS_WOPEN;
 		if (flag & FNONBLOCK)
 			break;
-		error = ttysleep(tp, &tp->t_rawq, TTIPRI | PCATCH,
-				 ttopen, 0);
+		error = ttysleep(tp, &tp->t_rawq, TTIPRI | PCATCH, ttopen);
 		if (error)
 			return (error);
 	}
@@ -296,8 +295,7 @@ again:
 			    pr->ps_flags & PS_PPWAIT)
 				return (EIO);
 			pgsignal(pr->ps_pgrp, SIGTTIN, 1);
-			error = ttysleep(tp, &lbolt,
-			    TTIPRI | PCATCH, ttybg, 0);
+			error = ttysleep(tp, &lbolt, TTIPRI | PCATCH, ttybg);
 			if (error)
 				return (error);
 		}
@@ -305,7 +303,7 @@ again:
 			if (flag & IO_NDELAY)
 				return (EWOULDBLOCK);
 			error = ttysleep(tp, &tp->t_canq,
-			    TTIPRI | PCATCH, ttyin, 0);
+			    TTIPRI | PCATCH, ttyin);
 			if (error)
 				return (error);
 			goto again;
@@ -678,6 +676,12 @@ filt_ptcread(struct knote *kn, long hint)
 		    ((pti->pt_flags & PF_UCNTL) && pti->pt_ucntl))
 			kn->kn_data++;
 	}
+
+	if (!ISSET(tp->t_state, TS_CARR_ON)) {
+		kn->kn_flags |= EV_EOF;
+		return (1);
+	}
+
 	return (kn->kn_data > 0);
 }
 
@@ -713,10 +717,19 @@ filt_ptcwrite(struct knote *kn, long hint)
 	return (kn->kn_data > 0);
 }
 
-struct filterops ptcread_filtops =
-	{ 1, NULL, filt_ptcrdetach, filt_ptcread };
-struct filterops ptcwrite_filtops =
-	{ 1, NULL, filt_ptcwdetach, filt_ptcwrite };
+const struct filterops ptcread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_ptcrdetach,
+	.f_event	= filt_ptcread,
+};
+
+const struct filterops ptcwrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_ptcwdetach,
+	.f_event	= filt_ptcwrite,
+};
 
 int
 ptckqfilter(dev_t dev, struct knote *kn)

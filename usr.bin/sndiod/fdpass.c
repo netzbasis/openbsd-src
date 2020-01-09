@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdpass.c,v 1.4 2017/11/20 17:26:39 ratchov Exp $	*/
+/*	$OpenBSD: fdpass.c,v 1.7 2019/09/21 04:42:46 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -105,7 +105,7 @@ fdpass_send(struct fdpass *f, int cmd, int num, int mode, int fd)
 		*(int *)CMSG_DATA(cmsg) = fd;
 	}
 	n = sendmsg(f->fd, &msg, 0);
-	if (n < 0) {
+	if (n == -1) {
 		if (log_level >= 1) {
 			fdpass_log(f);
 			log_puts(": sendmsg failed\n");
@@ -161,7 +161,7 @@ fdpass_recv(struct fdpass *f, int *cmd, int *num, int *mode, int *fd)
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
 	n = recvmsg(f->fd, &msg, MSG_WAITALL);
-	if (n < 0 && errno == EMSGSIZE) {
+	if (n == -1 && errno == EMSGSIZE) {
 		if (log_level >= 1) {
 			fdpass_log(f);
 			log_puts(": out of fds\n");
@@ -172,7 +172,7 @@ fdpass_recv(struct fdpass *f, int *cmd, int *num, int *mode, int *fd)
 		 */
 		n = recvmsg(f->fd, &msg, MSG_WAITALL);
 	}
-	if (n < 0) {
+	if (n == -1) {
 		if (log_level >= 1) {
 			fdpass_log(f);
 			log_puts(": recvmsg failed\n");
@@ -253,6 +253,8 @@ fdpass_sio_open(int num, unsigned int mode)
 {
 	int fd;
 
+	if (fdpass_peer == NULL)
+		return NULL;
 	if (!fdpass_send(fdpass_peer, FDPASS_OPEN_SND, num, mode, -1))
 		return NULL;
 	if (!fdpass_waitret(fdpass_peer, &fd))
@@ -267,6 +269,8 @@ fdpass_mio_open(int num, unsigned int mode)
 {
 	int fd;
 
+	if (fdpass_peer == NULL)
+		return NULL;
 	if (!fdpass_send(fdpass_peer, FDPASS_OPEN_MIDI, num, mode, -1))
 		return NULL;
 	if (!fdpass_waitret(fdpass_peer, &fd))
@@ -296,6 +300,7 @@ fdpass_in_helper(void *arg)
 	struct fdpass *f = arg;
 	struct dev *d;
 	struct port *p;
+	struct name *path;
 
 	if (!fdpass_recv(f, &cmd, &num, &mode, &fd))
 		return;
@@ -310,7 +315,11 @@ fdpass_in_helper(void *arg)
 			fdpass_close(f);
 			return;
 		}
-		fd = sio_sun_getfd(d->path, mode, 1);
+		for (path = d->path_list; path != NULL; path = path->next) {
+			fd = sio_sun_getfd(path->str, mode, 1);
+			if (fd != -1)
+				break;
+		}
 		break;
 	case FDPASS_OPEN_MIDI:
 		p = port_bynum(num);
@@ -322,7 +331,11 @@ fdpass_in_helper(void *arg)
 			fdpass_close(f);
 			return;
 		}
-		fd = mio_rmidi_getfd(p->path, mode, 1);
+		for (path = p->path_list; path != NULL; path = path->next) {
+			fd = mio_rmidi_getfd(path->str, mode, 1);
+			if (fd != -1)
+				break;
+		}
 		break;
 	default:
 		fdpass_close(f);

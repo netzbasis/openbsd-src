@@ -1,4 +1,4 @@
-/* $OpenBSD: wsconsio.h,v 1.90 2018/11/10 14:27:51 bru Exp $ */
+/* $OpenBSD: wsconsio.h,v 1.92 2019/08/19 21:19:38 bru Exp $ */
 /* $NetBSD: wsconsio.h,v 1.74 2005/04/28 07:15:44 martin Exp $ */
 
 /*
@@ -110,6 +110,12 @@ struct wscons_event {
 
 #define	WSCONS_EVENT_TOUCH_WIDTH	24	/* contact width */
 #define	WSCONS_EVENT_TOUCH_RESET	25	/* (no value) */
+
+/*
+ * Precision Scrolling
+ */
+#define WSCONS_EVENT_HSCROLL		26	/* dx * 4096 / scroll_unit */
+#define WSCONS_EVENT_VSCROLL		27	/* dy * 4096 / scroll_unit */
 
 /*
  * Keyboard ioctls (0 - 31)
@@ -286,6 +292,8 @@ enum wsmousecfg {
 	WSMOUSECFG_SWAPXY,	/* swap X- and Y-axis */
 	WSMOUSECFG_X_INV,	/* map absolute coordinate X to (INV - X) */
 	WSMOUSECFG_Y_INV,	/* map absolute coordinate Y to (INV - Y) */
+	WSMOUSECFG_REVERSE_SCROLLING,
+				/* reverse scroll directions */
 
 	/*
 	 * Coordinate handling, applying only in WSMOUSE_COMPAT  mode.
@@ -337,7 +345,7 @@ enum wsmousecfg {
 	WSMOUSECFG_LOG_INPUT = 256,
 	WSMOUSECFG_LOG_EVENTS,
 };
-#define WSMOUSECFG_MAX	38	/* max size of param array per ioctl */
+#define WSMOUSECFG_MAX	39	/* max size of param array per ioctl */
 
 struct wsmouse_param {
 	enum wsmousecfg key;

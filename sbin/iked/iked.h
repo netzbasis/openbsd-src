@@ -1,6 +1,7 @@
-/*	$OpenBSD: iked.h,v 1.119 2018/08/06 06:30:06 mestre Exp $	*/
+/*	$OpenBSD: iked.h,v 1.130 2020/01/07 15:08:28 tobhe Exp $	*/
 
 /*
+ * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -139,6 +140,13 @@ struct iked_addr {
 	in_port_t			 addr_port;
 };
 
+struct iked_ts {
+	struct iked_addr		 ts_addr;
+	uint8_t				 ts_ipproto;
+	TAILQ_ENTRY(iked_ts)		 ts_entry;
+};
+TAILQ_HEAD(iked_tss, iked_ts);
+
 struct iked_flow {
 	struct iked_addr		 flow_src;
 	struct iked_addr		 flow_dst;
@@ -157,9 +165,6 @@ struct iked_flow {
 
 	RB_ENTRY(iked_flow)		 flow_node;
 	TAILQ_ENTRY(iked_flow)		 flow_entry;
-
-	int				 flow_replacing; /* cf flow_replace() */
-	int				 flow_ipcomp;
 };
 RB_HEAD(iked_flows, iked_flow);
 TAILQ_HEAD(iked_saflows, iked_flow);
@@ -191,8 +196,7 @@ struct iked_childsa {
 
 	struct iked_childsa		*csa_peersa;	/* peer */
 
-	struct iked_childsa		*csa_parent;	/* IPCOMP parent */
-	unsigned int			 csa_children;	/* IPCOMP children */
+	struct iked_childsa		*csa_bundled;	/* IPCOMP */
 
 	RB_ENTRY(iked_childsa)		 csa_node;
 	TAILQ_ENTRY(iked_childsa)	 csa_entry;
@@ -276,6 +280,10 @@ struct iked_policy {
 
 	struct iked_flows		 pol_flows;
 	size_t				 pol_nflows;
+	struct iked_tss			 pol_tssrc;	/* Traffic Selectors Initiator*/
+	size_t				 pol_tssrc_count;
+	struct iked_tss			 pol_tsdst;	/* Traffic Selectors Responder*/
+	size_t				 pol_tsdst_count;
 
 	struct iked_cfg			 pol_cfg[IKED_CFG_MAX];
 	unsigned int			 pol_ncfg;
@@ -362,10 +370,32 @@ struct iked_kex {
 	struct ibuf			*kex_dhpeer;	/* pointer to i or r */
 };
 
+struct iked_frag_entry {
+	uint8_t	*frag_data;
+	size_t	 frag_size;
+};
+
+struct iked_frag {
+	struct iked_frag_entry	**frag_arr;	/* list of fragment buffers */
+	size_t			  frag_count;	/* number of fragments received */
+#define IKED_FRAG_TOTAL_MAX	  111		/* upper limit (64kB / 576B) */
+	size_t			  frag_total;	/* total numbe of fragments */
+	size_t			  frag_total_size;
+	uint8_t			  frag_nextpayload;
+
+};
+
+struct iked_ipcomp {
+	uint16_t			 ic_cpi_out;	/* outgoing CPI */
+	uint16_t			 ic_cpi_in;	/* incoming CPI */
+	uint8_t				 ic_transform;	/* transform */
+};
+
 struct iked_sa {
 	struct iked_sahdr		 sa_hdr;
 	uint32_t			 sa_msgid;	/* Last request rcvd */
 	int				 sa_msgid_set;	/* msgid initialized */
+	uint32_t			 sa_msgid_current;	/* Current requested rcvd */
 	uint32_t			 sa_reqid;	/* Next request sent */
 
 	int				 sa_type;
@@ -376,6 +406,8 @@ struct iked_sa {
 	struct iked_addr		 sa_peer_loaded;/* MOBIKE */
 	struct iked_addr		 sa_local;
 	int				 sa_fd;
+
+	struct iked_frag		 sa_fragments;
 
 	int				 sa_natt;	/* for IKE messages */
 	int				 sa_udpencap;	/* for pfkey */
@@ -393,6 +425,7 @@ struct iked_sa {
 	struct timeval			 sa_timeused;
 
 	char				*sa_tag;
+	const char			*sa_reason;	/* reason for close */
 
 	struct iked_kex			 sa_kex;
 /* XXX compat defines until everything is converted */
@@ -436,15 +469,17 @@ struct iked_sa {
 	struct iked_saflows		 sa_flows;	/* IPsec flows */
 
 	struct iked_sa			*sa_nexti;	/* initiated IKE SA */
+	struct iked_sa			*sa_previ;	/* matching back pointer */
 	struct iked_sa			*sa_nextr;	/* simultaneous rekey */
+	struct iked_sa			*sa_prevr;	/* matching back pointer */
 	uint64_t			 sa_rekeyspi;	/* peerspi CSA rekey*/
 	struct ibuf			*sa_simult;	/* simultaneous rekey */
 
-	uint8_t				 sa_ipcomp;	/* IPcomp transform */
-	uint16_t			 sa_cpi_out;	/* IPcomp outgoing */
-	uint16_t			 sa_cpi_in;	/* IPcomp incoming*/
+	struct iked_ipcomp		 sa_ipcompi;	/* IPcomp initator */
+	struct iked_ipcomp		 sa_ipcompr;	/* IPcomp responder */
 
 	int				 sa_mobike;	/* MOBIKE */
+	int				 sa_frag;	/* fragmentation */
 
 	struct iked_timer		 sa_timer;	/* SA timeouts */
 #define IKED_IKE_SA_EXCHANGE_TIMEOUT	 300		/* 5 minutes */
@@ -476,6 +511,13 @@ RB_HEAD(iked_sas, iked_sa);
 RB_HEAD(iked_addrpool, iked_sa);
 RB_HEAD(iked_addrpool6, iked_sa);
 
+struct iked_certreq {
+	struct ibuf			*cr_data;
+	uint8_t				 cr_type;
+	SLIST_ENTRY(iked_certreq)	 cr_entry;
+};
+SLIST_HEAD(iked_certreqs, iked_certreq);
+
 struct iked_message {
 	struct ibuf		*msg_data;
 	size_t			 msg_offset;
@@ -491,8 +533,10 @@ struct iked_message {
 	int			 msg_fd;
 	int			 msg_response;
 	int			 msg_responded;
+	int			 msg_valid;
 	int			 msg_natt;
 	int			 msg_natt_rcvd;
+	int			 msg_nat_detected;
 	int			 msg_error;
 	int			 msg_e;
 	struct iked_message	*msg_parent;
@@ -506,6 +550,7 @@ struct iked_message {
 
 	/* Parsed information */
 	struct iked_proposals	 msg_proposals;
+	struct iked_certreqs	 msg_certreqs;
 	struct iked_spi		 msg_rekey;
 	struct ibuf		*msg_nonce;	/* dh NONCE */
 	uint16_t		 msg_dhgroup;	/* dh group */
@@ -514,6 +559,10 @@ struct iked_message {
 	struct iked_id		 msg_id;
 	struct iked_id		 msg_cert;
 	struct ibuf		*msg_cookie;
+	uint16_t		 msg_group;
+	uint16_t		 msg_cpi;
+	uint8_t			 msg_transform;
+	uint16_t		 msg_flags;
 
 	/* MOBIKE */
 	int			 msg_update_sa_addresses;
@@ -530,6 +579,19 @@ struct iked_message {
 	int			 msg_tries;	/* retransmits sent */
 #define IKED_RETRANSMIT_TRIES	 5		/* try 5 times */
 };
+
+#define IKED_MSG_NAT_SRC_IP				0x01
+#define IKED_MSG_NAT_DST_IP				0x02
+
+#define IKED_MSG_FLAGS_FRAGMENTATION			0x0001
+#define IKED_MSG_FLAGS_MOBIKE				0x0002
+#define IKED_MSG_FLAGS_SIGSHA2				0x0004
+#define IKED_MSG_FLAGS_CHILD_SA_NOT_FOUND		0x0008
+#define IKED_MSG_FLAGS_NO_ADDITIONAL_SAS		0x0010
+#define IKED_MSG_FLAGS_AUTHENTICATION_FAILED		0x0020
+#define IKED_MSG_FLAGS_INVALID_KE			0x0040
+#define IKED_MSG_FLAGS_IPCOMP_SUPPORTED			0x0080
+
 
 struct iked_user {
 	char			 usr_name[LOGIN_NAME_MAX];
@@ -602,6 +664,7 @@ struct iked {
 	uint8_t				 sc_decoupled;
 
 	uint8_t				 sc_mobike;	/* MOBIKE */
+	uint8_t				 sc_frag;	/* fragmentation */
 
 	struct iked_policies		 sc_policies;
 	struct iked_policy		*sc_defaultcon;
@@ -653,6 +716,7 @@ int	 control_listen(struct control_sock *);
 struct iked_policy *
 	 config_new_policy(struct iked *);
 void	 config_free_kex(struct iked_kex *);
+void	 config_free_fragments(struct iked_frag *);
 void	 config_free_sa(struct iked *, struct iked_sa *);
 struct iked_sa *
 	 config_new_sa(struct iked *, int);
@@ -701,12 +765,15 @@ int	 config_setkeys(struct iked *);
 int	 config_getkey(struct iked *, struct imsg *);
 int	 config_setmobike(struct iked *);
 int	 config_getmobike(struct iked *, struct imsg *);
+int	 config_setfragmentation(struct iked *);
+int	 config_getfragmentation(struct iked *, struct imsg *);
 
 /* policy.c */
 void	 policy_init(struct iked *);
 int	 policy_lookup(struct iked *, struct iked_message *);
 struct iked_policy *
 	 policy_test(struct iked *, struct iked_policy *);
+int	 policy_generate_ts(struct iked_policy *);
 void	 policy_calc_skip_steps(struct iked_policies *);
 void	 policy_ref(struct iked *, struct iked_policy *);
 void	 policy_unref(struct iked *, struct iked_policy *);
@@ -725,7 +792,6 @@ struct iked_childsa *
 	 childsa_lookup(struct iked_sa *, uint64_t, uint8_t);
 void	 flow_free(struct iked_flow *);
 int	 flow_equal(struct iked_flow *, struct iked_flow *);
-int	 flow_replace(struct iked *, struct iked_flow *);
 struct iked_sa *
 	 sa_lookup(struct iked *, uint64_t, uint64_t, unsigned int);
 struct iked_user *
@@ -794,6 +860,7 @@ int	 ikev2_childsa_delete(struct iked *, struct iked_sa *,
 	    uint8_t, uint64_t, uint64_t *, int);
 void	 ikev2_ikesa_recv_delete(struct iked *, struct iked_sa *);
 void	 ikev2_ike_sa_timeout(struct iked *env, void *);
+void	 ikev2_ike_sa_setreason(struct iked_sa *, char *);
 
 struct ibuf *
 	 ikev2_prfplus(struct iked_hash *, struct ibuf *, struct ibuf *,
@@ -817,6 +884,11 @@ void	 ikev2_disable_rekeying(struct iked *, struct iked_sa *);
 int	 ikev2_rekey_sa(struct iked *, struct iked_spi *);
 int	 ikev2_drop_sa(struct iked *, struct iked_spi *);
 int	 ikev2_print_id(struct iked_id *, char *, size_t);
+
+const char	*ikev2_ikesa_info(uint64_t, const char *msg);
+#define SPI_IH(hdr)      ikev2_ikesa_info(betoh64((hdr)->ike_ispi), NULL)
+#define SPI_SH(sh, f)    ikev2_ikesa_info((sh)->sh_ispi, (f))
+#define SPI_SA(sa, f)    SPI_SH(&(sa)->sa_hdr, (f))
 
 /* ikev2_msg.c */
 void	 ikev2_msg_cb(int, short, void *);
@@ -859,6 +931,12 @@ void	 ikev2_msg_flushqueue(struct iked *, struct iked_msgqueue *);
 struct iked_message *
 	 ikev2_msg_lookup(struct iked *, struct iked_msgqueue *,
 	    struct iked_message *, struct ike_header *);
+void	 ikev2_msg_lookup_dispose_all(struct iked *env,
+	    struct iked_msgqueue *queue, struct iked_message *msg,
+	    struct ike_header *hdr);
+int	 ikev2_msg_lookup_retransmit_all(struct iked *env,
+	    struct iked_msgqueue *queue, struct iked_message *msg,
+	    struct ike_header *hdr, struct iked_sa *sa);
 
 /* ikev2_pld.c */
 int	 ikev2_pld_parse(struct iked *, struct ike_header *,
@@ -994,6 +1072,8 @@ struct ibuf *
 int	 ibuf_prepend(struct ibuf *, void *, size_t);
 void	*ibuf_advance(struct ibuf *, size_t);
 void	 ibuf_zero(struct ibuf *);
+int	 ibuf_strcat(struct ibuf **, const char *);
+int	 ibuf_strlen(struct ibuf *);
 
 /* log.c */
 void	log_init(int, int);

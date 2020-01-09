@@ -1,4 +1,4 @@
-/*	$OpenBSD: hypervisor.h,v 1.17 2018/03/22 11:24:27 stsp Exp $	*/
+/*	$OpenBSD: hypervisor.h,v 1.20 2019/10/20 16:27:19 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2008 Mark Kettenis
@@ -32,6 +32,7 @@ int64_t	hv_api_get_version(uint64_t api_group,
  */
 
 int64_t hv_mach_desc(paddr_t buffer, psize_t *length);
+int64_t hv_mach_pri(paddr_t buffer, psize_t *length);
 
 /*
  * CPU services
@@ -286,6 +287,20 @@ int64_t hv_ldc_mapin(uint64_t ldc_id, uint64_t cookie, paddr_t *raddr,
 int64_t hv_ldc_unmap(paddr_t raddr, uint64_t *perms);
 
 /*
+ * Static Direct I/O services
+ */
+
+int64_t hv_pci_iov_root_configured(uint64_t devhandle);
+int64_t	hv_pci_real_config_get(uint64_t devhandle, uint64_t pci_device,
+            uint64_t pci_config_offset, uint64_t size,
+	    uint64_t *error_flag, uint64_t *data);
+int64_t	hv_pci_real_config_put(uint64_t devhandle, uint64_t pci_device,
+            uint64_t pci_config_offset, uint64_t size, uint64_t data,
+	    uint64_t *error_flag);
+int64_t hv_pci_error_send(uint64_t devhandle, uint64_t devino,
+	    uint64_t pci_device);
+
+/*
  * Cryptographic services
  */
 
@@ -325,6 +340,7 @@ int64_t	hv_rng_data_read(paddr_t raddr, uint64_t *delta);
 #define H_ECHANNEL	16
 
 extern uint64_t sun4v_group_interrupt_major;
+extern uint64_t sun4v_group_sdio_major;
 
 int64_t sun4v_intr_devino_to_sysino(uint64_t, uint64_t, uint64_t *);
 int64_t sun4v_intr_setcookie(uint64_t, uint64_t, uint64_t);

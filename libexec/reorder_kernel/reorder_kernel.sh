@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: reorder_kernel.sh,v 1.5 2018/05/01 09:45:39 rpe Exp $
+# $OpenBSD: reorder_kernel.sh,v 1.9 2019/09/28 17:30:07 ajacoutot Exp $
 #
 # Copyright (c) 2017 Robert Peichaer <rpe@openbsd.org>
 #
@@ -18,11 +18,10 @@
 
 set -o errexit
 
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 # Skip if /usr/share is on a nfs mounted filesystem.
-DISK_DEV=$(df /usr/share | sed '1d;s/ .*//')
-[[ $(mount | grep "^$DISK_DEV") == *" type nfs "* ]] && exit 1
+df -t nfs /usr/share >/dev/null 2>&1 && exit 1
 
 KERNEL=$(sysctl -n kern.osversion)
 KERNEL=${KERNEL%#*}
@@ -38,7 +37,7 @@ exec 2>&1
 
 # Install trap handlers to inform about success or failure via syslog.
 trap 'trap - EXIT; logger -st $PROGNAME \
-	"kernel relinking failed; see $LOGFILE" >>/dev/console 2>&1' ERR
+	"failed -- see $LOGFILE" >>/dev/console 2>&1' ERR
 trap 'logger -t $PROGNAME "kernel relinking done"' EXIT
 
 if [[ -f $KERNEL_DIR.tgz ]]; then
@@ -65,6 +64,7 @@ fi
 cd $KERNEL_DIR/$KERNEL
 make newbsd
 make newinstall
+sync
 
 echo "\nKernel has been relinked and is active on next reboot.\n"
 cat $SHA256

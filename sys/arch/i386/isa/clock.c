@@ -1,4 +1,4 @@
-/*	$OpenBSD: clock.c,v 1.53 2018/07/30 14:19:12 kettenis Exp $	*/
+/*	$OpenBSD: clock.c,v 1.56 2019/08/22 01:11:19 deraadt Exp $	*/
 /*	$NetBSD: clock.c,v 1.39 1996/05/12 23:11:54 mycroft Exp $	*/
 
 /*-
@@ -190,10 +190,7 @@ rtcdrain(void *v)
 	if (to != NULL)
 		timeout_del(to);
 
-	/*
-	 * Drain any un-acknowledged RTC interrupts.
-	 * See comment in cpu_initclocks().
-	 */
+	/* Drain any un-acknowledged RTC interrupts. */
 	while (mc146818_read(NULL, MC_REGC) & MC_REGC_PF)
 		; /* Nothing. */
 }
@@ -622,9 +619,7 @@ inittodr(time_t base)
 	dt.dt_mon = hexdectodec(rtclk[MC_MONTH]);
 	dt.dt_year = clock_expandyear(hexdectodec(rtclk[MC_YEAR]));
 
-	ts.tv_sec = clock_ymdhms_to_secs(&dt) + tz.tz_minuteswest * 60;
-	if (tz.tz_dsttime)
-		ts.tv_sec -= 3600;
+	ts.tv_sec = clock_ymdhms_to_secs(&dt) - utc_offset;
 
 	if (base < ts.tv_sec - 5*SECYR)
 		printf("WARNING: file system time much less than clock time\n");
@@ -653,7 +648,6 @@ resettodr(void)
 {
 	mc_todregs rtclk;
 	struct clock_ymdhms dt;
-	int diff;
 	int century;
 	int s;
 
@@ -669,10 +663,7 @@ resettodr(void)
 		bzero(&rtclk, sizeof(rtclk));
 	splx(s);
 
-	diff = tz.tz_minuteswest * 60;
-	if (tz.tz_dsttime)
-		diff -= 3600;
-	clock_secs_to_ymdhms(time_second - diff, &dt);
+	clock_secs_to_ymdhms(time_second + utc_offset, &dt);
 
 	rtclk[MC_SEC] = dectohexdec(dt.dt_sec);
 	rtclk[MC_MIN] = dectohexdec(dt.dt_min);

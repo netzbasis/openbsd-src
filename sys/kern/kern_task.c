@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_task.c,v 1.23 2018/12/16 03:36:02 dlg Exp $ */
+/*	$OpenBSD: kern_task.c,v 1.27 2019/12/19 17:40:11 mpi Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -23,6 +23,18 @@
 #include <sys/kthread.h>
 #include <sys/task.h>
 #include <sys/proc.h>
+#include <sys/witness.h>
+
+#ifdef WITNESS
+
+static struct lock_type taskq_lock_type = {
+	.lt_name = "taskq"
+};
+
+#define TASKQ_LOCK_FLAGS LO_WITNESS | LO_INITIALIZED | LO_SLEEPABLE | \
+    (LO_CLASS_RWLOCK << LO_CLASSSHIFT)
+
+#endif /* WITNESS */
 
 struct taskq {
 	enum {
@@ -31,36 +43,55 @@ struct taskq {
 		TQ_S_DESTROYED
 	}			 tq_state;
 	unsigned int		 tq_running;
+	unsigned int		 tq_waiting;
 	unsigned int		 tq_nthreads;
 	unsigned int		 tq_flags;
 	const char		*tq_name;
 
 	struct mutex		 tq_mtx;
 	struct task_list	 tq_worklist;
+#ifdef WITNESS
+	struct lock_object	 tq_lock_object;
+#endif
 };
+
+static const char taskq_sys_name[] = "systq";
 
 struct taskq taskq_sys = {
 	TQ_S_CREATED,
 	0,
+	0,
 	1,
 	0,
-	"systq",
+	taskq_sys_name,
 	MUTEX_INITIALIZER(IPL_HIGH),
-	TAILQ_HEAD_INITIALIZER(taskq_sys.tq_worklist)
+	TAILQ_HEAD_INITIALIZER(taskq_sys.tq_worklist),
+#ifdef WITNESS
+	{
+		.lo_name = taskq_sys_name,
+		.lo_flags = TASKQ_LOCK_FLAGS,
+	},
+#endif
 };
+
+static const char taskq_sys_mp_name[] = "systqmp";
 
 struct taskq taskq_sys_mp = {
 	TQ_S_CREATED,
 	0,
+	0,
 	1,
 	TASKQ_MPSAFE,
-	"systqmp",
+	taskq_sys_mp_name,
 	MUTEX_INITIALIZER(IPL_HIGH),
-	TAILQ_HEAD_INITIALIZER(taskq_sys_mp.tq_worklist)
+	TAILQ_HEAD_INITIALIZER(taskq_sys_mp.tq_worklist),
+#ifdef WITNESS
+	{
+		.lo_name = taskq_sys_mp_name,
+		.lo_flags = TASKQ_LOCK_FLAGS,
+	},
+#endif
 };
-
-typedef int (*sleepfn)(const volatile void *, struct mutex *, int,
-    const char *, int);
 
 struct taskq *const systq = &taskq_sys;
 struct taskq *const systqmp = &taskq_sys_mp;
@@ -70,13 +101,15 @@ void	taskq_create_thread(void *);
 void	taskq_barrier_task(void *);
 int	taskq_sleep(const volatile void *, struct mutex *, int,
 	    const char *, int);
-int	taskq_next_work(struct taskq *, struct task *, sleepfn);
+int	taskq_next_work(struct taskq *, struct task *);
 void	taskq_thread(void *);
 
 void
 taskq_init(void)
 {
+	WITNESS_INIT(&systq->tq_lock_object, &taskq_lock_type);
 	kthread_create_deferred(taskq_create_thread, systq);
+	WITNESS_INIT(&systqmp->tq_lock_object, &taskq_lock_type);
 	kthread_create_deferred(taskq_create_thread, systqmp);
 }
 
@@ -92,12 +125,20 @@ taskq_create(const char *name, unsigned int nthreads, int ipl,
 
 	tq->tq_state = TQ_S_CREATED;
 	tq->tq_running = 0;
+	tq->tq_waiting = 0;
 	tq->tq_nthreads = nthreads;
 	tq->tq_name = name;
 	tq->tq_flags = flags;
 
 	mtx_init_flags(&tq->tq_mtx, ipl, name, 0);
 	TAILQ_INIT(&tq->tq_worklist);
+
+#ifdef WITNESS
+	memset(&tq->tq_lock_object, 0, sizeof(tq->tq_lock_object));
+	tq->tq_lock_object.lo_name = name;
+	tq->tq_lock_object.lo_flags = TASKQ_LOCK_FLAGS;
+	witness_init(&tq->tq_lock_object, &taskq_lock_type);
+#endif
 
 	/* try to create a thread to guarantee that tasks will be serviced */
 	kthread_create_deferred(taskq_create_thread, tq);
@@ -126,7 +167,8 @@ taskq_destroy(struct taskq *tq)
 
 	while (tq->tq_running > 0) {
 		wakeup(tq);
-		msleep(&tq->tq_running, &tq->tq_mtx, PWAIT, "tqdestroy", 0);
+		msleep_nsec(&tq->tq_running, &tq->tq_mtx, PWAIT, "tqdestroy",
+		    INFSLP);
 	}
 	mtx_leave(&tq->tq_mtx);
 
@@ -184,8 +226,26 @@ taskq_barrier(struct taskq *tq)
 	struct cond c = COND_INITIALIZER();
 	struct task t = TASK_INITIALIZER(taskq_barrier_task, &c);
 
-	task_add(tq, &t);
+	WITNESS_CHECKORDER(&tq->tq_lock_object, LOP_NEWORDER, NULL);
 
+	SET(t.t_flags, TASK_BARRIER);
+	task_add(tq, &t);
+	cond_wait(&c, "tqbar");
+}
+
+void
+taskq_del_barrier(struct taskq *tq, struct task *del)
+{
+	struct cond c = COND_INITIALIZER();
+	struct task t = TASK_INITIALIZER(taskq_barrier_task, &c);
+
+	WITNESS_CHECKORDER(&tq->tq_lock_object, LOP_NEWORDER, NULL);
+
+	if (task_del(tq, del))
+		return;
+
+	SET(t.t_flags, TASK_BARRIER);
+	task_add(tq, &t);
 	cond_wait(&c, "tqbar");
 }
 
@@ -246,32 +306,35 @@ task_del(struct taskq *tq, struct task *w)
 }
 
 int
-taskq_sleep(const volatile void *ident, struct mutex *mtx, int priority,
-    const char *wmesg, int tmo)
-{
-	u_int *flags = &curproc->p_flag;
-	int rv;
-
-	atomic_clearbits_int(flags, P_CANTSLEEP);
-	rv = msleep(ident, mtx, priority, wmesg, tmo);
-	atomic_setbits_int(flags, P_CANTSLEEP);
-
-	return (tmo);
-}
-
-int
-taskq_next_work(struct taskq *tq, struct task *work, sleepfn tqsleep)
+taskq_next_work(struct taskq *tq, struct task *work)
 {
 	struct task *next;
 
 	mtx_enter(&tq->tq_mtx);
+retry:
 	while ((next = TAILQ_FIRST(&tq->tq_worklist)) == NULL) {
 		if (tq->tq_state != TQ_S_RUNNING) {
 			mtx_leave(&tq->tq_mtx);
 			return (0);
 		}
 
-		tqsleep(tq, &tq->tq_mtx, PWAIT, "bored", 0);
+		tq->tq_waiting++;
+		msleep_nsec(tq, &tq->tq_mtx, PWAIT, "bored", INFSLP);
+		tq->tq_waiting--;
+	}
+
+	if (ISSET(next->t_flags, TASK_BARRIER)) {
+		/*
+		 * Make sure all other threads are sleeping before we
+		 * proceed and run the barrier task.
+		 */
+		if (++tq->tq_waiting == tq->tq_nthreads) {
+			tq->tq_waiting--;
+		} else {
+			msleep_nsec(tq, &tq->tq_mtx, PWAIT, "tqblk", INFSLP);
+			tq->tq_waiting--;
+			goto retry;
+		}
 	}
 
 	TAILQ_REMOVE(&tq->tq_worklist, next, t_entry);
@@ -291,7 +354,6 @@ taskq_next_work(struct taskq *tq, struct task *work, sleepfn tqsleep)
 void
 taskq_thread(void *xtq)
 {
-	sleepfn tqsleep = msleep;
 	struct taskq *tq = xtq;
 	struct task work;
 	int last;
@@ -299,22 +361,18 @@ taskq_thread(void *xtq)
 	if (ISSET(tq->tq_flags, TASKQ_MPSAFE))
 		KERNEL_UNLOCK();
 
-	if (ISSET(tq->tq_flags, TASKQ_CANTSLEEP)) {
-		tqsleep = taskq_sleep;
-		atomic_setbits_int(&curproc->p_flag, P_CANTSLEEP);
-	}
+	WITNESS_CHECKORDER(&tq->tq_lock_object, LOP_NEWORDER, NULL);
 
-	while (taskq_next_work(tq, &work, tqsleep)) {
+	while (taskq_next_work(tq, &work)) {
+		WITNESS_LOCK(&tq->tq_lock_object, 0);
 		(*work.t_func)(work.t_arg);
+		WITNESS_UNLOCK(&tq->tq_lock_object, 0);
 		sched_pause(yield);
 	}
 
 	mtx_enter(&tq->tq_mtx);
 	last = (--tq->tq_running == 0);
 	mtx_leave(&tq->tq_mtx);
-
-	if (ISSET(tq->tq_flags, TASKQ_CANTSLEEP))
-		atomic_clearbits_int(&curproc->p_flag, P_CANTSLEEP);
 
 	if (ISSET(tq->tq_flags, TASKQ_MPSAFE))
 		KERNEL_LOCK();

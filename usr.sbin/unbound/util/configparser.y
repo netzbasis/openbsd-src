@@ -164,7 +164,10 @@ extern struct config_parser_state* cfg_parser;
 %token VAR_FAST_SERVER_PERMIL VAR_FAST_SERVER_NUM
 %token VAR_ALLOW_NOTIFY VAR_TLS_WIN_CERT VAR_TCP_CONNECTION_LIMIT
 %token VAR_FORWARD_NO_CACHE VAR_STUB_NO_CACHE VAR_LOG_SERVFAIL VAR_DENY_ANY
-%token VAR_UNKNOWN_SERVER_TIME_LIMIT
+%token VAR_UNKNOWN_SERVER_TIME_LIMIT VAR_LOG_TAG_QUERYREPLY
+%token VAR_STREAM_WAIT_SIZE VAR_TLS_CIPHERS VAR_TLS_CIPHERSUITES
+%token VAR_TLS_SESSION_TICKET_KEYS
+%token VAR_IPSET VAR_IPSET_NAME_V4 VAR_IPSET_NAME_V6
 
 %%
 toplevelvars: /* empty */ | toplevelvars toplevelvar ;
@@ -172,7 +175,7 @@ toplevelvar: serverstart contents_server | stubstart contents_stub |
 	forwardstart contents_forward | pythonstart contents_py | 
 	rcstart contents_rc | dtstart contents_dt | viewstart contents_view |
 	dnscstart contents_dnsc | cachedbstart contents_cachedb |
-	authstart contents_auth
+	ipsetstart contents_ipset | authstart contents_auth
 	;
 
 /* server: declaration */
@@ -263,7 +266,9 @@ content_server: server_num_threads | server_verbosity | server_port |
 	server_tls_cert_bundle | server_tls_additional_port | server_low_rtt |
 	server_fast_server_permil | server_fast_server_num  | server_tls_win_cert |
 	server_tcp_connection_limit | server_log_servfail | server_deny_any |
-	server_unknown_server_time_limit
+	server_unknown_server_time_limit | server_log_tag_queryreply |
+	server_stream_wait_size | server_tls_ciphers |
+	server_tls_ciphersuites | server_tls_session_ticket_keys
 	;
 stubstart: VAR_STUB_ZONE
 	{
@@ -818,6 +823,28 @@ server_tls_additional_port: VAR_TLS_ADDITIONAL_PORT STRING_ARG
 			yyerror("out of memory");
 	}
 	;
+server_tls_ciphers: VAR_TLS_CIPHERS STRING_ARG
+	{
+		OUTYY(("P(server_tls_ciphers:%s)\n", $2));
+		free(cfg_parser->cfg->tls_ciphers);
+		cfg_parser->cfg->tls_ciphers = $2;
+	}
+	;
+server_tls_ciphersuites: VAR_TLS_CIPHERSUITES STRING_ARG
+	{
+		OUTYY(("P(server_tls_ciphersuites:%s)\n", $2));
+		free(cfg_parser->cfg->tls_ciphersuites);
+		cfg_parser->cfg->tls_ciphersuites = $2;
+	}
+	;
+server_tls_session_ticket_keys: VAR_TLS_SESSION_TICKET_KEYS STRING_ARG
+	{
+		OUTYY(("P(server_tls_session_ticket_keys:%s)\n", $2));
+		if(!cfg_strlist_append(&cfg_parser->cfg->tls_session_ticket_keys,
+			$2))
+			yyerror("out of memory");
+	}
+	;
 server_use_systemd: VAR_USE_SYSTEMD STRING_ARG
 	{
 		OUTYY(("P(server_use_systemd:%s)\n", $2));
@@ -874,6 +901,15 @@ server_log_replies: VAR_LOG_REPLIES STRING_ARG
   	if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
   		yyerror("expected yes or no.");
   	else cfg_parser->cfg->log_replies = (strcmp($2, "yes")==0);
+  	free($2);
+  }
+  ;
+server_log_tag_queryreply: VAR_LOG_TAG_QUERYREPLY STRING_ARG
+  {
+  	OUTYY(("P(server_log_tag_queryreply:%s)\n", $2));
+  	if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
+  		yyerror("expected yes or no.");
+  	else cfg_parser->cfg->log_tag_queryreply = (strcmp($2, "yes")==0);
   	free($2);
   }
   ;
@@ -1118,6 +1154,14 @@ server_ip_freebind: VAR_IP_FREEBIND STRING_ARG
         free($2);
     }
     ;
+server_stream_wait_size: VAR_STREAM_WAIT_SIZE STRING_ARG
+	{
+		OUTYY(("P(server_stream_wait_size:%s)\n", $2));
+		if(!cfg_parse_memsize($2, &cfg_parser->cfg->stream_wait_size))
+			yyerror("memory size expected");
+		free($2);
+	}
+	;
 server_edns_buffer_size: VAR_EDNS_BUFFER_SIZE STRING_ARG
 	{
 		OUTYY(("P(server_edns_buffer_size:%s)\n", $2));
@@ -1460,6 +1504,8 @@ server_access_control: VAR_ACCESS_CONTROL STRING_ARG STRING_ARG
 			yyerror("expected deny, refuse, deny_non_local, "
 				"refuse_non_local, allow, allow_setrd or "
 				"allow_snoop in access control action");
+			free($2);
+			free($3);
 		} else {
 			if(!cfg_str2list_insert(&cfg_parser->cfg->acls, $2, $3))
 				fatal_exit("out of memory adding acl");
@@ -1738,17 +1784,29 @@ server_local_zone: VAR_LOCAL_ZONE STRING_ARG STRING_ARG
 		   && strcmp($3, "always_refuse")!=0
 		   && strcmp($3, "always_nxdomain")!=0
 		   && strcmp($3, "noview")!=0
-		   && strcmp($3, "inform")!=0 && strcmp($3, "inform_deny")!=0)
+		   && strcmp($3, "inform")!=0 && strcmp($3, "inform_deny")!=0
+		   && strcmp($3, "inform_redirect") != 0
+			 && strcmp($3, "ipset") != 0) {
 			yyerror("local-zone type: expected static, deny, "
 				"refuse, redirect, transparent, "
 				"typetransparent, inform, inform_deny, "
-				"always_transparent, always_refuse, "
-				"always_nxdomain, noview or nodefault");
-		else if(strcmp($3, "nodefault")==0) {
+				"inform_redirect, always_transparent, "
+				"always_refuse, always_nxdomain, noview "
+				", nodefault or ipset");
+			free($2);
+			free($3);
+		} else if(strcmp($3, "nodefault")==0) {
 			if(!cfg_strlist_insert(&cfg_parser->cfg->
 				local_zones_nodefault, $2))
 				fatal_exit("out of memory adding local-zone");
 			free($3);
+#ifdef USE_IPSET
+		} else if(strcmp($3, "ipset")==0) {
+			if(!cfg_strlist_insert(&cfg_parser->cfg->
+				local_zones_ipset, $2))
+				fatal_exit("out of memory adding local-zone");
+			free($3);
+#endif
 		} else {
 			if(!cfg_str2list_insert(&cfg_parser->cfg->local_zones, 
 				$2, $3))
@@ -1857,8 +1915,10 @@ server_local_zone_tag: VAR_LOCAL_ZONE_TAG STRING_ARG STRING_ARG
 			&len);
 		free($3);
 		OUTYY(("P(server_local_zone_tag:%s)\n", $2));
-		if(!bitlist)
+		if(!bitlist) {
 			yyerror("could not parse tags, (define-tag them first)");
+			free($2);
+		}
 		if(bitlist) {
 			if(!cfg_strbytelist_insert(
 				&cfg_parser->cfg->local_zone_tags,
@@ -1876,8 +1936,10 @@ server_access_control_tag: VAR_ACCESS_CONTROL_TAG STRING_ARG STRING_ARG
 			&len);
 		free($3);
 		OUTYY(("P(server_access_control_tag:%s)\n", $2));
-		if(!bitlist)
+		if(!bitlist) {
 			yyerror("could not parse tags, (define-tag them first)");
+			free($2);
+		}
 		if(bitlist) {
 			if(!cfg_strbytelist_insert(
 				&cfg_parser->cfg->acl_tags,
@@ -1930,8 +1992,6 @@ server_access_control_view: VAR_ACCESS_CONTROL_VIEW STRING_ARG STRING_ARG
 		if(!cfg_str2list_insert(&cfg_parser->cfg->acl_view,
 			$2, $3)) {
 			yyerror("out of memory");
-			free($2);
-			free($3);
 		}
 	}
 	;
@@ -1942,8 +2002,10 @@ server_response_ip_tag: VAR_RESPONSE_IP_TAG STRING_ARG STRING_ARG
 			&len);
 		free($3);
 		OUTYY(("P(response_ip_tag:%s)\n", $2));
-		if(!bitlist)
+		if(!bitlist) {
 			yyerror("could not parse tags, (define-tag them first)");
+			free($2);
+		}
 		if(bitlist) {
 			if(!cfg_strbytelist_insert(
 				&cfg_parser->cfg->respip_tags,
@@ -2020,6 +2082,8 @@ server_ratelimit_for_domain: VAR_RATELIMIT_FOR_DOMAIN STRING_ARG STRING_ARG
 		OUTYY(("P(server_ratelimit_for_domain:%s %s)\n", $2, $3));
 		if(atoi($3) == 0 && strcmp($3, "0") != 0) {
 			yyerror("number expected");
+			free($2);
+			free($3);
 		} else {
 			if(!cfg_str2list_insert(&cfg_parser->cfg->
 				ratelimit_for_domain, $2, $3))
@@ -2033,6 +2097,8 @@ server_ratelimit_below_domain: VAR_RATELIMIT_BELOW_DOMAIN STRING_ARG STRING_ARG
 		OUTYY(("P(server_ratelimit_below_domain:%s %s)\n", $2, $3));
 		if(atoi($3) == 0 && strcmp($3, "0") != 0) {
 			yyerror("number expected");
+			free($2);
+			free($3);
 		} else {
 			if(!cfg_str2list_insert(&cfg_parser->cfg->
 				ratelimit_below_domain, $2, $3))
@@ -2110,10 +2176,10 @@ server_ipsecmod_enabled: VAR_IPSECMOD_ENABLED STRING_ARG
 		if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->ipsecmod_enabled = (strcmp($2, "yes")==0);
-		free($2);
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
 	#endif
+		free($2);
 	}
 	;
 server_ipsecmod_ignore_bogus: VAR_IPSECMOD_IGNORE_BOGUS STRING_ARG
@@ -2123,10 +2189,10 @@ server_ipsecmod_ignore_bogus: VAR_IPSECMOD_IGNORE_BOGUS STRING_ARG
 		if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->ipsecmod_ignore_bogus = (strcmp($2, "yes")==0);
-		free($2);
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
 	#endif
+		free($2);
 	}
 	;
 server_ipsecmod_hook: VAR_IPSECMOD_HOOK STRING_ARG
@@ -2137,6 +2203,7 @@ server_ipsecmod_hook: VAR_IPSECMOD_HOOK STRING_ARG
 		cfg_parser->cfg->ipsecmod_hook = $2;
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
+		free($2);
 	#endif
 	}
 	;
@@ -2150,6 +2217,7 @@ server_ipsecmod_max_ttl: VAR_IPSECMOD_MAX_TTL STRING_ARG
 		free($2);
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
+		free($2);
 	#endif
 	}
 	;
@@ -2161,6 +2229,7 @@ server_ipsecmod_whitelist: VAR_IPSECMOD_WHITELIST STRING_ARG
 			yyerror("out of memory");
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
+		free($2);
 	#endif
 	}
 	;
@@ -2174,6 +2243,7 @@ server_ipsecmod_strict: VAR_IPSECMOD_STRICT STRING_ARG
 		free($2);
 	#else
 		OUTYY(("P(Compiled without IPsec module, ignoring)\n"));
+		free($2);
 	#endif
 	}
 	;
@@ -2381,17 +2451,26 @@ view_local_zone: VAR_LOCAL_ZONE STRING_ARG STRING_ARG
 		   && strcmp($3, "always_refuse")!=0
 		   && strcmp($3, "always_nxdomain")!=0
 		   && strcmp($3, "noview")!=0
-		   && strcmp($3, "inform")!=0 && strcmp($3, "inform_deny")!=0)
+		   && strcmp($3, "inform")!=0 && strcmp($3, "inform_deny")!=0) {
 			yyerror("local-zone type: expected static, deny, "
 				"refuse, redirect, transparent, "
 				"typetransparent, inform, inform_deny, "
 				"always_transparent, always_refuse, "
 				"always_nxdomain, noview or nodefault");
-		else if(strcmp($3, "nodefault")==0) {
+			free($2);
+			free($3);
+		} else if(strcmp($3, "nodefault")==0) {
 			if(!cfg_strlist_insert(&cfg_parser->cfg->views->
 				local_zones_nodefault, $2))
 				fatal_exit("out of memory adding local-zone");
 			free($3);
+#ifdef USE_IPSET
+		} else if(strcmp($3, "ipset")==0) {
+			if(!cfg_strlist_insert(&cfg_parser->cfg->views->
+				local_zones_ipset, $2))
+				fatal_exit("out of memory adding local-zone");
+			free($3);
+#endif
 		} else {
 			if(!cfg_str2list_insert(
 				&cfg_parser->cfg->views->local_zones, 
@@ -2423,7 +2502,6 @@ view_local_data: VAR_LOCAL_DATA STRING_ARG
 		OUTYY(("P(view_local_data:%s)\n", $2));
 		if(!cfg_strlist_insert(&cfg_parser->cfg->views->local_data, $2)) {
 			fatal_exit("out of memory adding local-data");
-			free($2);
 		}
 	}
 	;
@@ -2546,6 +2624,7 @@ dt_dnstap_enable: VAR_DNSTAP_ENABLE STRING_ARG
 		if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap = (strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_socket_path: VAR_DNSTAP_SOCKET_PATH STRING_ARG
@@ -2561,6 +2640,7 @@ dt_dnstap_send_identity: VAR_DNSTAP_SEND_IDENTITY STRING_ARG
 		if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_send_identity = (strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_send_version: VAR_DNSTAP_SEND_VERSION STRING_ARG
@@ -2569,6 +2649,7 @@ dt_dnstap_send_version: VAR_DNSTAP_SEND_VERSION STRING_ARG
 		if(strcmp($2, "yes") != 0 && strcmp($2, "no") != 0)
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_send_version = (strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_identity: VAR_DNSTAP_IDENTITY STRING_ARG
@@ -2592,6 +2673,7 @@ dt_dnstap_log_resolver_query_messages: VAR_DNSTAP_LOG_RESOLVER_QUERY_MESSAGES ST
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_resolver_query_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_log_resolver_response_messages: VAR_DNSTAP_LOG_RESOLVER_RESPONSE_MESSAGES STRING_ARG
@@ -2601,6 +2683,7 @@ dt_dnstap_log_resolver_response_messages: VAR_DNSTAP_LOG_RESOLVER_RESPONSE_MESSA
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_resolver_response_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_log_client_query_messages: VAR_DNSTAP_LOG_CLIENT_QUERY_MESSAGES STRING_ARG
@@ -2610,6 +2693,7 @@ dt_dnstap_log_client_query_messages: VAR_DNSTAP_LOG_CLIENT_QUERY_MESSAGES STRING
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_client_query_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_log_client_response_messages: VAR_DNSTAP_LOG_CLIENT_RESPONSE_MESSAGES STRING_ARG
@@ -2619,6 +2703,7 @@ dt_dnstap_log_client_response_messages: VAR_DNSTAP_LOG_CLIENT_RESPONSE_MESSAGES 
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_client_response_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_log_forwarder_query_messages: VAR_DNSTAP_LOG_FORWARDER_QUERY_MESSAGES STRING_ARG
@@ -2628,6 +2713,7 @@ dt_dnstap_log_forwarder_query_messages: VAR_DNSTAP_LOG_FORWARDER_QUERY_MESSAGES 
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_forwarder_query_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 dt_dnstap_log_forwarder_response_messages: VAR_DNSTAP_LOG_FORWARDER_RESPONSE_MESSAGES STRING_ARG
@@ -2637,6 +2723,7 @@ dt_dnstap_log_forwarder_response_messages: VAR_DNSTAP_LOG_FORWARDER_RESPONSE_MES
 			yyerror("expected yes or no.");
 		else cfg_parser->cfg->dnstap_log_forwarder_response_messages =
 			(strcmp($2, "yes")==0);
+		free($2);
 	}
 	;
 pythonstart: VAR_PYTHON
@@ -2651,8 +2738,8 @@ content_py: py_script
 py_script: VAR_PYTHON_SCRIPT STRING_ARG
 	{
 		OUTYY(("P(python-script:%s)\n", $2));
-		free(cfg_parser->cfg->python_script);
-		cfg_parser->cfg->python_script = $2;
+		if(!cfg_strlist_append_ex(&cfg_parser->cfg->python_script, $2))
+			yyerror("out of memory");
 	}
 server_disable_dnssec_lame_check: VAR_DISABLE_DNSSEC_LAME_CHECK STRING_ARG
 	{
@@ -2683,14 +2770,13 @@ server_response_ip: VAR_RESPONSE_IP STRING_ARG STRING_ARG
 server_response_ip_data: VAR_RESPONSE_IP_DATA STRING_ARG STRING_ARG
 	{
 		OUTYY(("P(server_response_ip_data:%s)\n", $2));
-			if(!cfg_str2list_insert(&cfg_parser->cfg->respip_data,
-				$2, $3))
-				fatal_exit("out of memory adding response-ip-data");
+		if(!cfg_str2list_insert(&cfg_parser->cfg->respip_data,
+			$2, $3))
+			fatal_exit("out of memory adding response-ip-data");
 	}
 	;
 dnscstart: VAR_DNSCRYPT
 	{
-		OUTYY(("\nP(dnscrypt:)\n"));
 		OUTYY(("\nP(dnscrypt:)\n"));
 	}
 	;
@@ -2718,7 +2804,6 @@ dnsc_dnscrypt_enable: VAR_DNSCRYPT_ENABLE STRING_ARG
 dnsc_dnscrypt_port: VAR_DNSCRYPT_PORT STRING_ARG
 	{
 		OUTYY(("P(dnsc_dnscrypt_port:%s)\n", $2));
-
 		if(atoi($2) == 0)
 			yyerror("port number expected");
 		else cfg_parser->cfg->dnscrypt_port = atoi($2);
@@ -2820,6 +2905,7 @@ cachedb_backend_name: VAR_CACHEDB_BACKEND STRING_ARG
 		cfg_parser->cfg->cachedb_backend = $2;
 	#else
 		OUTYY(("P(Compiled without cachedb, ignoring)\n"));
+		free($2);
 	#endif
 	}
 	;
@@ -2889,6 +2975,45 @@ server_tcp_connection_limit: VAR_TCP_CONNECTION_LIMIT STRING_ARG STRING_ARG
 		}
 	}
 	;
+	ipsetstart: VAR_IPSET
+		{
+			OUTYY(("\nP(ipset:)\n"));
+		}
+		;
+	contents_ipset: contents_ipset content_ipset
+		| ;
+	content_ipset: ipset_name_v4 | ipset_name_v6
+		;
+	ipset_name_v4: VAR_IPSET_NAME_V4 STRING_ARG
+		{
+		#ifdef USE_IPSET
+			OUTYY(("P(name-v4:%s)\n", $2));
+			if(cfg_parser->cfg->ipset_name_v4)
+				yyerror("ipset name v4 override, there must be one "
+					"name for ip v4");
+			free(cfg_parser->cfg->ipset_name_v4);
+			cfg_parser->cfg->ipset_name_v4 = $2;
+		#else
+			OUTYY(("P(Compiled without ipset, ignoring)\n"));
+			free($2);
+		#endif
+		}
+	;
+	ipset_name_v6: VAR_IPSET_NAME_V6 STRING_ARG
+	{
+		#ifdef USE_IPSET
+			OUTYY(("P(name-v6:%s)\n", $2));
+			if(cfg_parser->cfg->ipset_name_v6)
+				yyerror("ipset name v6 override, there must be one "
+					"name for ip v6");
+			free(cfg_parser->cfg->ipset_name_v6);
+			cfg_parser->cfg->ipset_name_v6 = $2;
+		#else
+			OUTYY(("P(Compiled without ipset, ignoring)\n"));
+			free($2);
+		#endif
+		}
+	;
 %%
 
 /* parse helper routines could be here */
@@ -2908,3 +3033,5 @@ validate_respip_action(const char* action)
 			"always_refuse or always_nxdomain");
 	}
 }
+
+

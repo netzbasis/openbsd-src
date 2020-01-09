@@ -3,7 +3,7 @@
 
 package Devel::Peek;
 
-$VERSION = '1.23';
+$VERSION = '1.28';
 $XS_VERSION = $VERSION;
 $VERSION = eval $VERSION;
 
@@ -133,7 +133,9 @@ means no limit.
 
 If C<use Devel::Peek> directive has a C<:opd=FLAGS> argument,
 this switches on debugging of opcode dispatch.  C<FLAGS> should be a
-combination of C<s>, C<t>, and C<P> (see B<-D> flags in L<perlrun>).
+combination of C<s>, C<t>, and C<P> (see
+L<< B<-D> flags in perlrun|perlrun/B<-D>I<letters> >>).
+
 C<:opd> is a shortcut for C<:opd=st>.
 
 =head2 Runtime debugging
@@ -352,7 +354,6 @@ The output:
             ARRAY = 0xc7e820
             FILL = 0
             MAX = 0
-            ARYLEN = 0x0
             FLAGS = (REAL)
             Elt No. 0
             SV = IV(0xc70f88) at 0xc70f98
@@ -384,7 +385,6 @@ The output:
             ARRAY = 0x1585820
             FILL = 1
             MAX = 1
-            ARYLEN = 0x0
             FLAGS = (REAL)
             Elt No. 0
             SV = IV(0x1577f88) at 0x1577f98
@@ -411,28 +411,25 @@ The following shows the raw form of a reference to a hash.
 
 The output:
 
-	SV = IV(0x8177858) at 0x816a618
-	  REFCNT = 1
-	  FLAGS = (ROK)
-	  RV = 0x814fc10
-	  SV = PVHV(0x8167768) at 0x814fc10
-	    REFCNT = 1
-	    FLAGS = (SHAREKEYS)
-	    ARRAY = 0x816c5b8  (0:7, 1:1)
-	    hash quality = 100.0%
-	    KEYS = 1
-	    FILL = 1
-	    MAX = 7
-	    RITER = -1
-	    EITER = 0x0
-	    Elt "hello" HASH = 0xc8fd181b
-	    SV = IV(0x816c030) at 0x814fcf4
-	      REFCNT = 1
-	      FLAGS = (IOK,pIOK)
-	      IV = 42
+    SV = IV(0x55cb50b50fb0) at 0x55cb50b50fc0
+      REFCNT = 1
+      FLAGS = (ROK)
+      RV = 0x55cb50b2b758
+      SV = PVHV(0x55cb50b319c0) at 0x55cb50b2b758
+        REFCNT = 1
+        FLAGS = (SHAREKEYS)
+        ARRAY = 0x55cb50b941a0  (0:7, 1:1)
+        hash quality = 100.0%
+        KEYS = 1
+        FILL = 1
+        MAX = 7
+        Elt "hello" HASH = 0x3128ece4
+        SV = IV(0x55cb50b464f8) at 0x55cb50b46508
+          REFCNT = 1
+          FLAGS = (IOK,pIOK)
+          IV = 42
 
-This shows C<$a> is a reference pointing to an SV.  That SV is a PVHV, a
-hash. Fields RITER and EITER are used by C<L<perlfunc/each>>.
+This shows C<$a> is a reference pointing to an SV.  That SV is a PVHV, a hash.
 
 The "quality" of a hash is defined as the total number of comparisons needed
 to access every element once, relative to the expected number needed for a
@@ -548,7 +545,7 @@ inside a 5th eval in the program;
 
 =item *
 
-it is not currently executed (see C<DEPTH>);
+it is not currently executed (because C<DEPTH> is 0);
 
 =item *
 

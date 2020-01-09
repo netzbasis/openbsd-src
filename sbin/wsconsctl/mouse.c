@@ -1,4 +1,4 @@
-/*	$OpenBSD: mouse.c,v 1.18 2018/05/07 22:15:36 bru Exp $	*/
+/*	$OpenBSD: mouse.c,v 1.20 2019/08/19 21:42:33 bru Exp $	*/
 /*	$NetBSD: mouse.c,v 1.3 1999/11/15 13:47:30 ad Exp $ */
 
 /*-
@@ -53,7 +53,9 @@ struct field mouse_field_tab[] = {
     { "type",			&mstype,	FMT_MSTYPE,	FLG_RDONLY },
     { "rawmode",		&rawmode,	FMT_UINT,	FLG_MODIFY|FLG_INIT},
     { "scale",			&wmcoords,	FMT_SCALE,	FLG_MODIFY|FLG_INIT},
-    /* touchpad configuration (mousecfg): */
+    /* mouse and touchpad configuration (mousecfg): */
+    { "reverse_scrolling",	&cfg_revscroll, FMT_CFG,	FLG_NORDBACK },
+    /* touchpad-specific options: */
     { "tp.tapping",		&cfg_tapping,	FMT_CFG,	FLG_NORDBACK },
     { "tp.scaling",		&cfg_scaling,	FMT_CFG,	FLG_NORDBACK },
     { "tp.swapsides",		&cfg_swapsides,	FMT_CFG,	FLG_NORDBACK },
@@ -92,7 +94,8 @@ mouse_init(int devfd, int devidx) {
 	} else {
 		for (f = mouse_field_tab; f->name != NULL; f++)
 			if (f->format == FMT_CFG) {
-				if (f->valp != &cfg_param)
+				if (f->valp != &cfg_param
+				    && f->valp != &cfg_revscroll)
 					f->flags |= FLG_DEAD;
 				else
 					f->flags &= ~FLG_DEAD;
@@ -108,11 +111,11 @@ mouse_get_values(int fd)
 	struct field *f;
 
 	if (field_by_value(mouse_field_tab, &mstype)->flags & FLG_GET)
-		if (ioctl(fd, WSMOUSEIO_GTYPE, &mstype) < 0)
+		if (ioctl(fd, WSMOUSEIO_GTYPE, &mstype) == -1)
 			warn("WSMOUSEIO_GTYPE");
 
 	if (field_by_value(mouse_field_tab, &rawmode)->flags & FLG_GET) {
-		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords) < 0) {
+		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords) == -1) {
 			if (errno == ENOTTY)
 				field_by_value(mouse_field_tab,
 				    &rawmode)->flags |= FLG_DEAD;
@@ -123,7 +126,7 @@ mouse_get_values(int fd)
 	}
 
 	if (field_by_value(mouse_field_tab, &wmcoords)->flags & FLG_GET)
-		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords) < 0) {
+		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords) == -1) {
 			if (errno == ENOTTY)
 				field_by_value(mouse_field_tab,
 				    &wmcoords)->flags |= FLG_DEAD;
@@ -148,14 +151,14 @@ mouse_put_values(int fd)
 	struct field *f;
 
 	if (field_by_value(mouse_field_tab, &resolution)->flags & FLG_SET) {
-		if (ioctl(fd, WSMOUSEIO_SRES, &resolution) < 0) {
+		if (ioctl(fd, WSMOUSEIO_SRES, &resolution) == -1) {
 			warn("WSMOUSEIO_SRES");
 			return 1;
 		}
 	}
 	if (field_by_value(mouse_field_tab, &rawmode)->flags & FLG_SET) {
 		wmcoords.samplelen = rawmode;
-		if (ioctl(fd, WSMOUSEIO_SCALIBCOORDS, &wmcoords) < 0) {
+		if (ioctl(fd, WSMOUSEIO_SCALIBCOORDS, &wmcoords) == -1) {
 			if (errno == ENOTTY) {
 				field_by_value(mouse_field_tab,
 				    &rawmode)->flags |= FLG_DEAD;
@@ -166,7 +169,7 @@ mouse_put_values(int fd)
 		}
 	}
 	if (field_by_value(mouse_field_tab, &wmcoords)->flags & FLG_SET) {
-		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords_save) < 0) {
+		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS, &wmcoords_save) == -1) {
 			if (errno == ENOTTY)
 				field_by_value(mouse_field_tab,
 				    &wmcoords)->flags |= FLG_DEAD;
@@ -174,7 +177,7 @@ mouse_put_values(int fd)
 				warn("WSMOUSEIO_GCALIBCOORDS");
 		}
 		wmcoords.samplelen = wmcoords_save.samplelen;
-		if (ioctl(fd, WSMOUSEIO_SCALIBCOORDS, &wmcoords) < 0) {
+		if (ioctl(fd, WSMOUSEIO_SCALIBCOORDS, &wmcoords) == -1) {
 			if (errno == ENOTTY) {
 				field_by_value(mouse_field_tab,
 				    &wmcoords)->flags |= FLG_DEAD;

@@ -1,8 +1,7 @@
 /*
- * Copyright (C) 2004, 2005  Internet Systems Consortium, Inc. ("ISC")
- * Copyright (C) 1998-2001  Internet Software Consortium.
+ * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -15,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $ISC: eventclass.h,v 1.14.18.2 2005/04/29 00:16:54 marka Exp $ */
+/* $Id: eventclass.h,v 1.4 2020/01/06 17:44:17 florian Exp $ */
 
 #ifndef ISC_EVENTCLASS_H
 #define ISC_EVENTCLASS_H 1
@@ -47,7 +46,6 @@
 #define	ISC_EVENTCLASS_APP		ISC_EVENTCLASS(5)
 #define	ISC_EVENTCLASS_OMAPI		ISC_EVENTCLASS(6)
 #define	ISC_EVENTCLASS_RATELIMITER	ISC_EVENTCLASS(7)
-#define	ISC_EVENTCLASS_ISCCC		ISC_EVENTCLASS(8)
 /*@}*/
 
 #endif /* ISC_EVENTCLASS_H */

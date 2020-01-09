@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpctl.8,v 1.85 2019/01/20 23:30:15 claudio Exp $
+.\" $OpenBSD: bgpctl.8,v 1.93 2019/10/19 11:40:26 claudio Exp $
 .\"
 .\" Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 20 2019 $
+.Dd $Mdocdate: October 19 2019 $
 .Dt BGPCTL 8
 .Os
 .Sh NAME
@@ -76,31 +76,6 @@ a.k.a. the kernel routing table.
 .Xc
 Remove the learned routes from the specified Forwarding Information Base
 a.k.a. the kernel routing table.
-.It Xo
-.Cm irrfilter
-.Op Ar options
-.Ar as
-.Op Ar arguments
-.Xc
-Get the
-.Em aut-num
-object from the
-.Em Internet Routing Registry
-and generate bgpd filters from the policy specified therein.
-The aut-num object as well as the associated as-set and route objects
-have to be in RPSL format.
-.Pp
-The options are as follows:
-.Bl -tag -width Ds
-.It Fl o Ar directory
-Use
-.Ar directory
-to write the filter files to.
-.It Fl 4
-Fetch only IPv4 prefixes from the registry.
-.It Fl 6
-Fetch only IPv6 prefixes from the registry.
-.El
 .It Cm log brief
 Disable verbose debug logging.
 .It Cm log verbose
@@ -112,9 +87,6 @@ If a
 is provided, the
 .Ar reason
 is sent as Administrative Shutdown Communication to the neighbor.
-The
-.Ar reason
-cannot exceed 128 octets.
 .Ar peer
 may be the neighbor's address, description or the word
 .Cm group
@@ -133,9 +105,6 @@ If a
 is provided, the
 .Ar reason
 is sent as Administrative Shutdown Communication to the neighbor.
-The
-.Ar reason
-cannot exceed 128 octets.
 .Ar peer
 may be the neighbor's address, description or the word
 .Cm group
@@ -202,6 +171,13 @@ and
 .Em inet6 .
 .It Cm reload
 Reload the configuration file.
+Changes to the following neighbor options in
+.Xr bgpd.conf 5
+only take effect when the session is reset:
+.Ic ipsec ,
+.Ic tcp md5sig ,
+and
+.Ic export Op none | default-route .
 .It Cm show fib Ar filter
 Show routes from
 .Xr bgpd 8 Ns 's
@@ -241,7 +217,7 @@ Show routes from an MRT table dump file.
 .Ar filter
 can be an IP address, a CIDR prefix, an AS filter, a combination or nothing:
 .Pp
-.Bl -tag -width "address/len all" -compact
+.Bl -tag -width "address/len or-shorter" -compact
 .It Ar address
 Show best matching route for address.
 .It Ar address Ns Li / Ns Ar len
@@ -252,6 +228,11 @@ Show RIB entry for this CIDR prefix.
 .Xc
 Show all entries in the specified range.
 .\".It Ar address/len Cm longer-prefixes
+.It Xo
+.Ar address Ns Li / Ns Ar len
+.Cm or-shorter
+.Xc
+Show all entries covering and including the specified prefix.
 .It Cm as Ar as
 Show all entries with
 .Ar as
@@ -285,6 +266,9 @@ Show more detailed output for matching routes.
 Limit the output to the given address family.
 .It Cm file Ar name
 Read the MRT dump from file
+.It Cm peers
+Print the neighbor table of MRT TABLE_DUMP_V2 dumps.
+Using this on other table dumps will only show the neighbor of the first entry.
 .Ar name
 instead of using stdin.
 .El
@@ -304,7 +288,9 @@ Show statistics in an easily parseable terse format.
 The printed numbers are the sent and received open, sent and received
 notifications, sent and received updates, sent and received keepalives, and
 sent and received route refresh messages plus the current and maximum
-prefix count, the number of sent and received updates, and withdraws.
+prefix count, the number of sent and received updates, sent and
+received withdraws, the neighbor's address (or subnet, for a template),
+AS number, and finally description.
 .It Cm timers
 Show the BGP timers.
 .El
@@ -325,7 +311,7 @@ Routing Information Base.
 .Ar filter
 can be an IP address, a CIDR prefix, an AS filter or nothing:
 .Pp
-.Bl -tag -width "address/len all" -compact
+.Bl -tag -width "address/len or-shorter" -compact
 .It Ar address
 Show best matching route for address.
 .It Ar address Ns Li / Ns Ar len
@@ -336,6 +322,11 @@ Show RIB entry for this CIDR prefix.
 .Xc
 Show all entries in the specified range.
 .\".It Ar address/len Cm longer-prefixes
+.It Xo
+.Ar address Ns Li / Ns Ar len
+.Cm or-shorter
+.Xc
+Show all entries covering and including the specified prefix.
 .It Cm as Ar as
 Show all entries with
 .Ar as
@@ -479,5 +470,3 @@ The
 .Nm
 program first appeared in
 .Ox 3.5 .
-irrfilter mode was added in
-.Ox 4.1 .

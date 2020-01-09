@@ -1,4 +1,4 @@
-.\"	$OpenBSD: usb.4,v 1.191 2018/12/04 10:50:08 jmatthew Exp $
+.\"	$OpenBSD: usb.4,v 1.199 2019/12/17 13:08:54 reyk Exp $
 .\"	$NetBSD: usb.4,v 1.15 1999/07/29 14:20:32 augustss Exp $
 .\"
 .\" Copyright (c) 1999 The NetBSD Foundation, Inc.
@@ -28,7 +28,7 @@
 .\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 .\" POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: December 4 2018 $
+.Dd $Mdocdate: December 17 2019 $
 .Dt USB 4
 .Os
 .Sh NAME
@@ -128,7 +128,7 @@ SMSC LAN95xx 10/100 USB Ethernet device
 .It Xr udav 4
 Davicom DM9601 10/100 USB Ethernet device
 .It Xr ure 4
-RealTek RTL8152/RTL8153 10/100/Gigabit USB Ethernet device
+RealTek RTL8152/RTL8153/RTL8153B/RTL8156 10/100/Gigabit/2.5Gb USB Ethernet device
 .It Xr url 4
 Realtek RTL8150L 10/100 USB Ethernet device
 .It Xr urndis 4
@@ -178,12 +178,16 @@ Belkin USB serial adapter
 WinChipHead CH341/340 based USB serial adapter
 .It Xr ucom 4
 USB tty support
+.It Xr ucrcom 4
+Chromebook USB serial console
 .It Xr ucycom 4
 Cypress microcontroller based USB serial adapter
 .It Xr uftdi 4
 FTDI USB serial adapter
 .It Xr uipaq 4
 iPAQ USB units
+.It Xr ukspan 4
+Keyspan USB serial adapter
 .It Xr ulpt 4
 USB printer support
 .It Xr umcs 4
@@ -208,6 +212,8 @@ Texas Instruments TUSB3410 USB serial adapter
 USB Handspring Visor
 .It Xr uvscom 4
 SUNTAC Slipper U VS-10U USB serial adapter
+.It Xr uxrcom 4
+Exar XR21V1410 USB serial adapter
 .El
 .Ss Audio devices
 .Bl -tag -width 12n -offset ind -compact
@@ -239,6 +245,8 @@ D-Link DSB-R100 USB radio device
 .El
 .Ss Human Interface Devices
 .Bl -tag -width 12n -offset ind -compact
+.It Xr fido 4
+FIDO/U2F security keys
 .It Xr ubcmtp 4
 Broadcom trackpad mouse
 .It Xr uhid 4

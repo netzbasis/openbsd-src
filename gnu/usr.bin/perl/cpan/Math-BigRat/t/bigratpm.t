@@ -1,14 +1,14 @@
-#!/usr/bin/perl
+#!perl
 
 use strict;
 use warnings;
 
-use Test::More tests => 703;
+use Test::More tests => 905;
 
 use Math::BigRat lib => 'Calc';
 
-our ($CLASS, $CALC);
+our ($CLASS, $LIB);
 $CLASS = "Math::BigRat";
-$CALC  = "Math::BigInt::Calc";  # backend
+$LIB  = "Math::BigInt::Calc";  # backend
 
-require 't/bigratpm.inc';	# all tests here for sharing
+require './t/bigratpm.inc';     # all tests here for sharing

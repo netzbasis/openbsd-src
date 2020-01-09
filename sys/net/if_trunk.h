@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_trunk.h,v 1.26 2018/08/12 23:50:31 ccardenas Exp $	*/
+/*	$OpenBSD: if_trunk.h,v 1.29 2019/11/07 07:36:32 dlg Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -165,8 +165,8 @@ struct trunk_port {
 	u_char				tp_iftype;	/* interface type */
 	u_int32_t			tp_prio;	/* port priority */
 	u_int32_t			tp_flags;	/* port flags */
-	void				*lh_cookie;	/* if state hook */
-	void				*dh_cookie;	/* if detach hook */
+	struct task			tp_ltask;	/* if state hook */
+	struct task			tp_dtask;	/* if detach hook */
 
 	/* Redirected callbacks */
 	int	(*tp_ioctl)(struct ifnet *, u_long, caddr_t);
@@ -208,7 +208,6 @@ struct trunk_ifreq {
 
 struct trunk_softc {
 	struct arpcom			tr_ac;		/* virtual interface */
-	int				tr_unit;	/* trunk unit */
 	enum trunk_proto		tr_proto;	/* trunk protocol */
 	u_int				tr_count;	/* number of ports */
 	struct trunk_port		*tr_primary;	/* primary port */

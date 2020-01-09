@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.285 2019/01/21 18:09:21 anton Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.297 2019/12/30 13:49:40 bluhm Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -184,7 +184,7 @@ vfs_mount_alloc(struct vnode *vp, struct vfsconf *vfsp)
 	atomic_inc_int(&vfsp->vfc_refcount);
 	mp->mnt_vfc = vfsp;
 	mp->mnt_op = vfsp->vfc_vfsops;
-	mp->mnt_flag = vfsp->vfc_flags & MNT_VISFLAGMASK;
+	mp->mnt_flag = vfsp->vfc_flags;
 	strncpy(mp->mnt_stat.f_fstypename, vfsp->vfc_name, MFSNAMELEN);
 
 	return (mp);
@@ -243,7 +243,7 @@ vfs_unbusy(struct mount *mp)
 }
 
 int
-vfs_isbusy(struct mount *mp) 
+vfs_isbusy(struct mount *mp)
 {
 	if (RWLOCK_OWNER(&mp->mnt_lock) > 0)
 		return (1);
@@ -272,7 +272,7 @@ vfs_rootmountalloc(char *fstypename, char *devname, struct mount **mpp)
 	copystr(devname, mp->mnt_stat.f_mntfromname, MNAMELEN, 0);
 	copystr(devname, mp->mnt_stat.f_mntfromspec, MNAMELEN, 0);
 	*mpp = mp;
- 	return (0);
+	return (0);
  }
 
 /*
@@ -551,14 +551,14 @@ checkalias(struct vnode *nvp, dev_t nvp_rdev, struct mount *mp)
 {
 	struct proc *p = curproc;
 	struct vnode *vp;
-	struct vnode **vpp;
+	struct vnodechain *vchain;
 
 	if (nvp->v_type != VBLK && nvp->v_type != VCHR)
 		return (NULLVP);
 
-	vpp = &speclisth[SPECHASH(nvp_rdev)];
+	vchain = &speclisth[SPECHASH(nvp_rdev)];
 loop:
-	for (vp = *vpp; vp; vp = vp->v_specnext) {
+	SLIST_FOREACH(vp, vchain, v_specnext) {
 		if (nvp_rdev != vp->v_rdev || nvp->v_type != vp->v_type) {
 			continue;
 		}
@@ -582,8 +582,7 @@ loop:
 		nvp->v_specinfo = malloc(sizeof(struct specinfo), M_VNODE,
 			M_WAITOK);
 		nvp->v_rdev = nvp_rdev;
-		nvp->v_hashchain = vpp;
-		nvp->v_specnext = *vpp;
+		nvp->v_hashchain = vchain;
 		nvp->v_specmountpoint = NULL;
 		nvp->v_speclockf = NULL;
 		nvp->v_specbitmap = NULL;
@@ -596,7 +595,7 @@ loop:
 				nvp->v_specbitmap = malloc(CLONE_MAPSZ,
 				    M_VNODE, M_WAITOK | M_ZERO);
 		}
-		*vpp = nvp;
+		SLIST_INSERT_HEAD(vchain, nvp, v_specnext);
 		if (vp != NULLVP) {
 			nvp->v_flag |= VALIASED;
 			vp->v_flag |= VALIASED;
@@ -652,7 +651,7 @@ vget(struct vnode *vp, int flags)
 		}
 
 		vp->v_flag |= VXWANT;
-		tsleep(vp, PINOD, "vget", 0);
+		tsleep_nsec(vp, PINOD, "vget", INFSLP);
 		return (ENOENT);
 	}
 
@@ -667,7 +666,7 @@ vget(struct vnode *vp, int flags)
 		splx(s);
 	}
 
- 	vp->v_usecount++;
+	vp->v_usecount++;
 	if (flags & LK_TYPE_MASK) {
 		if ((error = vn_lock(vp, flags)) != 0) {
 			vp->v_usecount--;
@@ -705,6 +704,9 @@ vputonfreelist(struct vnode *vp)
 	if (vp->v_usecount != 0)
 		panic("Use count is not zero!");
 
+	if (vp->v_lockcount != 0)
+		panic("%s: lock count is not zero", __func__);
+
 	if (vp->v_bioflag & VBIOONFREELIST) {
 		vprint("vnode already on free list: ", vp);
 		panic("vnode already on free list");
@@ -712,6 +714,7 @@ vputonfreelist(struct vnode *vp)
 #endif
 
 	vp->v_bioflag |= VBIOONFREELIST;
+	vp->v_bioflag &= ~VBIOERROR;
 
 	if (vp->v_holdcnt > 0)
 		lst = &vnode_hold_list;
@@ -863,7 +866,7 @@ struct ctldebug debug1 = { "busyprt", &busyprt };
 #endif
 
 int
-vfs_mount_foreach_vnode(struct mount *mp, 
+vfs_mount_foreach_vnode(struct mount *mp,
     int (*func)(struct vnode *, void *), void *arg) {
 	struct vnode *vp, *nvp;
 	int error = 0;
@@ -1010,7 +1013,7 @@ vclean(struct vnode *vp, int flags, struct proc *p)
 	 * Clean out any buffers associated with the vnode.
 	 */
 	if (flags & DOCLOSE)
-		vinvalbuf(vp, V_SAVE, NOCRED, p, 0, 0);
+		vinvalbuf(vp, V_SAVE, NOCRED, p, 0, INFSLP);
 	/*
 	 * If purging an active vnode, it must be closed and
 	 * deactivated before being reclaimed. Note that the
@@ -1100,7 +1103,7 @@ vgonel(struct vnode *vp, struct proc *p)
 	 */
 	if (vp->v_flag & VXLOCK) {
 		vp->v_flag |= VXWANT;
-		tsleep(vp, PINOD, "vgone", 0);
+		tsleep_nsec(vp, PINOD, "vgone", INFSLP);
 		return;
 	}
 
@@ -1123,21 +1126,10 @@ vgonel(struct vnode *vp, struct proc *p)
 		    (minor(vp->v_rdev) >> CLONE_SHIFT == 0)) {
 			free(vp->v_specbitmap, M_VNODE, CLONE_MAPSZ);
 		}
-		if (*vp->v_hashchain == vp) {
-			*vp->v_hashchain = vp->v_specnext;
-		} else {
-			for (vq = *vp->v_hashchain; vq; vq = vq->v_specnext) {
-				if (vq->v_specnext != vp)
-					continue;
-				vq->v_specnext = vp->v_specnext;
-				break;
-			}
-			if (vq == NULL)
-				panic("missing bdev");
-		}
+		SLIST_REMOVE(vp->v_hashchain, vp, vnode, v_specnext);
 		if (vp->v_flag & VALIASED) {
 			vx = NULL;
-			for (vq = *vp->v_hashchain; vq; vq = vq->v_specnext) {
+			SLIST_FOREACH(vq, vp->v_hashchain, v_specnext) {
 				if (vq->v_rdev != vp->v_rdev ||
 				    vq->v_type != vp->v_type)
 					continue;
@@ -1151,7 +1143,7 @@ vgonel(struct vnode *vp, struct proc *p)
 				vx->v_flag &= ~VALIASED;
 			vp->v_flag &= ~VALIASED;
 		}
-		lf_purgelocks(vp->v_speclockf);
+		lf_purgelocks(&vp->v_speclockf);
 		free(vp->v_specinfo, M_VNODE, sizeof(struct specinfo));
 		vp->v_specinfo = NULL;
 	}
@@ -1191,7 +1183,7 @@ vfinddev(dev_t dev, enum vtype type, struct vnode **vpp)
 	struct vnode *vp;
 	int rc =0;
 
-	for (vp = speclisth[SPECHASH(dev)]; vp; vp = vp->v_specnext) {
+	SLIST_FOREACH(vp, &speclisth[SPECHASH(dev)], v_specnext) {
 		if (dev != vp->v_rdev || type != vp->v_type)
 			continue;
 		*vpp = vp;
@@ -1222,14 +1214,14 @@ vdevgone(int maj, int minl, int minh, enum vtype type)
 int
 vcount(struct vnode *vp)
 {
-	struct vnode *vq, *vnext;
+	struct vnode *vq;
 	int count;
 
 loop:
 	if ((vp->v_flag & VALIASED) == 0)
 		return (vp->v_usecount);
-	for (count = 0, vq = *vp->v_hashchain; vq; vq = vnext) {
-		vnext = vq->v_specnext;
+	count = 0;
+	SLIST_FOREACH(vq, vp->v_hashchain, v_specnext) {
 		if (vq->v_rdev != vp->v_rdev || vq->v_type != vp->v_type)
 			continue;
 		/*
@@ -1312,7 +1304,7 @@ printlockedvnodes(void)
 				vprint(NULL, vp);
 		}
 		vfs_unbusy(mp);
- 	}
+	}
 
 }
 #endif
@@ -1379,10 +1371,10 @@ vfs_mountedon(struct vnode *vp)
 	struct vnode *vq;
 	int error = 0;
 
- 	if (vp->v_specmountpoint != NULL)
+	if (vp->v_specmountpoint != NULL)
 		return (EBUSY);
 	if (vp->v_flag & VALIASED) {
-		for (vq = *vp->v_hashchain; vq; vq = vq->v_specnext) {
+		SLIST_FOREACH(vq, vp->v_hashchain, v_specnext) {
 			if (vq->v_rdev != vp->v_rdev ||
 			    vq->v_type != vp->v_type)
 				continue;
@@ -1390,7 +1382,7 @@ vfs_mountedon(struct vnode *vp)
 				error = EBUSY;
 				break;
 			}
- 		}
+		}
 	}
 	return (error);
 }
@@ -1623,6 +1615,7 @@ vnoperm(struct vnode *vp)
 }
 
 struct rwlock vfs_stall_lock = RWLOCK_INITIALIZER("vfs_stall");
+unsigned int vfs_stalling = 0;
 
 int
 vfs_stall(struct proc *p, int stall)
@@ -1630,8 +1623,10 @@ vfs_stall(struct proc *p, int stall)
 	struct mount *mp;
 	int allerror = 0, error;
 
-	if (stall)
+	if (stall) {
+		atomic_inc_int(&vfs_stalling);
 		rw_enter_write(&vfs_stall_lock);
+	}
 
 	/*
 	 * The loop variable mp is protected by vfs_busy() so that it cannot
@@ -1649,7 +1644,8 @@ vfs_stall(struct proc *p, int stall)
 			uvm_vnp_sync(mp);
 			error = VFS_SYNC(mp, MNT_WAIT, stall, p->p_ucred, p);
 			if (error) {
-				printf("%s: failed to sync\n", mp->mnt_stat.f_mntonname);
+				printf("%s: failed to sync\n",
+				    mp->mnt_stat.f_mntonname);
 				vfs_unbusy(mp);
 				allerror = error;
 				continue;
@@ -1663,8 +1659,10 @@ vfs_stall(struct proc *p, int stall)
 		}
 	}
 
-	if (!stall)
+	if (!stall) {
 		rw_exit_write(&vfs_stall_lock);
+		atomic_dec_int(&vfs_stalling);
+	}
 
 	return (allerror);
 }
@@ -1672,8 +1670,10 @@ vfs_stall(struct proc *p, int stall)
 void
 vfs_stall_barrier(void)
 {
-	rw_enter_read(&vfs_stall_lock);
-	rw_exit_read(&vfs_stall_lock);
+	if (__predict_false(vfs_stalling)) {
+		rw_enter_read(&vfs_stall_lock);
+		rw_exit_read(&vfs_stall_lock);
+	}
 }
 
 /*
@@ -1850,7 +1850,7 @@ fs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
  * Manipulates v_numoutput. Must be called at splbio()
  */
 int
-vwaitforio(struct vnode *vp, int slpflag, char *wmesg, int timeo)
+vwaitforio(struct vnode *vp, int slpflag, char *wmesg, uint64_t timeo)
 {
 	int error = 0;
 
@@ -1858,7 +1858,7 @@ vwaitforio(struct vnode *vp, int slpflag, char *wmesg, int timeo)
 
 	while (vp->v_numoutput) {
 		vp->v_bioflag |= VBIOWAIT;
-		error = tsleep(&vp->v_numoutput,
+		error = tsleep_nsec(&vp->v_numoutput,
 		    slpflag | (PRIBIO + 1), wmesg, timeo);
 		if (error)
 			break;
@@ -1893,7 +1893,7 @@ vwakeup(struct vnode *vp)
  */
 int
 vinvalbuf(struct vnode *vp, int flags, struct ucred *cred, struct proc *p,
-    int slpflag, int slptimeo)
+    int slpflag, uint64_t slptimeo)
 {
 	struct buf *bp;
 	struct buf *nbp, *blist;
@@ -1906,7 +1906,7 @@ vinvalbuf(struct vnode *vp, int flags, struct ucred *cred, struct proc *p,
 
 	if (flags & V_SAVE) {
 		s = splbio();
-		vwaitforio(vp, 0, "vinvalbuf", 0);
+		vwaitforio(vp, 0, "vinvalbuf", INFSLP);
 		if (!LIST_EMPTY(&vp->v_dirtyblkhd)) {
 			splx(s);
 			if ((error = VOP_FSYNC(vp, cred, MNT_WAIT, p)) != 0)
@@ -1921,6 +1921,7 @@ vinvalbuf(struct vnode *vp, int flags, struct ucred *cred, struct proc *p,
 loop:
 	s = splbio();
 	for (;;) {
+		int count = 0;
 		if ((blist = LIST_FIRST(&vp->v_cleanblkhd)) &&
 		    (flags & V_SAVEMETA))
 			while (blist && blist->b_lblkno < 0)
@@ -1939,7 +1940,7 @@ loop:
 				continue;
 			if (bp->b_flags & B_BUSY) {
 				bp->b_flags |= B_WANTED;
-				error = tsleep(bp, slpflag | (PRIBIO + 1),
+				error = tsleep_nsec(bp, slpflag | (PRIBIO + 1),
 				    "vinvalbuf", slptimeo);
 				if (error) {
 					splx(s);
@@ -1962,6 +1963,22 @@ loop:
 			buf_acquire_nomap(bp);
 			bp->b_flags |= B_INVAL;
 			brelse(bp);
+			count++;
+			/*
+			 * XXX Temporary workaround XXX
+			 *
+			 * If this is a gigantisch vnode and we are
+			 * trashing a ton of buffers, drop the lock
+			 * and yield every so often. The longer term
+			 * fix is to add a separate list for these
+			 * invalid buffers so we don't have to do the
+			 * work to free these here.
+			 */
+			if (count > 100) {
+				splx(s);
+				sched_pause(yield);
+				goto loop;
+			}
 		}
 	}
 	if (!(flags & V_SAVEMETA) &&
@@ -2001,7 +2018,7 @@ loop:
 		splx(s);
 		return;
 	}
-	vwaitforio(vp, 0, "vflushbuf", 0);
+	vwaitforio(vp, 0, "vflushbuf", INFSLP);
 	if (!LIST_EMPTY(&vp->v_dirtyblkhd)) {
 		splx(s);
 #ifdef DIAGNOSTIC
@@ -2242,10 +2259,11 @@ vfs_mount_print(struct mount *mp, int full,
 	    mp->mnt_vnodecovered, mp->mnt_syncer, mp->mnt_data);
 
 	(*pr)("vfsconf: ops %p name \"%s\" num %d ref %u flags 0x%x\n",
-            vfc->vfc_vfsops, vfc->vfc_name, vfc->vfc_typenum,
+	    vfc->vfc_vfsops, vfc->vfc_name, vfc->vfc_typenum,
 	    vfc->vfc_refcount, vfc->vfc_flags);
 
-	(*pr)("statvfs cache: bsize %x iosize %x\nblocks %llu free %llu avail %lld\n",
+	(*pr)("statvfs cache: bsize %x iosize %x\n"
+	    "blocks %llu free %llu avail %lld\n",
 	    mp->mnt_stat.f_bsize, mp->mnt_stat.f_iosize, mp->mnt_stat.f_blocks,
 	    mp->mnt_stat.f_bfree, mp->mnt_stat.f_bavail);
 
@@ -2256,10 +2274,10 @@ vfs_mount_print(struct mount *mp, int full,
 	    mp->mnt_stat.f_fsid.val[0], mp->mnt_stat.f_fsid.val[1],
 	    mp->mnt_stat.f_owner, mp->mnt_stat.f_ctime);
 
- 	(*pr)("  syncwrites %llu asyncwrites = %llu\n",
+	(*pr)("  syncwrites %llu asyncwrites = %llu\n",
 	    mp->mnt_stat.f_syncwrites, mp->mnt_stat.f_asyncwrites);
 
- 	(*pr)("  syncreads %llu asyncreads = %llu\n",
+	(*pr)("  syncreads %llu asyncreads = %llu\n",
 	    mp->mnt_stat.f_syncreads, mp->mnt_stat.f_asyncreads);
 
 	(*pr)("  fstype \"%s\" mnton \"%s\" mntfrom \"%s\" mntspec \"%s\"\n",

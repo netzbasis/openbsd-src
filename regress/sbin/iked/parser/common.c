@@ -1,4 +1,4 @@
-/*	$OpenBSD: common.c,v 1.1 2017/05/29 20:59:28 markus Exp $ */
+/*	$OpenBSD: common.c,v 1.4 2019/11/14 18:40:23 tobhe Exp $ */
 /*
  * A bunch of stub functions so we can compile and link ikev2_pld.c
  * in a standalone program for testing purposes.
@@ -74,6 +74,12 @@ ikev2_send_ike_e(struct iked *env, struct iked_sa *sa, struct ibuf *buf,
 void
 ikev2_ikesa_recv_delete(struct iked *env, struct iked_sa *sa)
 {
+}
+
+const char *
+ikev2_ikesa_info(uint64_t spi, const char *msg)
+{
+	return "";
 }
 
 struct iked_childsa *
@@ -166,6 +172,11 @@ config_add_proposal(struct iked_proposals *head, u_int id, u_int proto)
 	return (NULL);
 }
 
+void config_free_fragments(struct iked_frag *frag)
+{
+	return;
+}
+
 int
 ikev2_send_informational(struct iked *env, struct iked_message *msg)
 {
@@ -184,4 +195,9 @@ ikev2_msg_decrypt(struct iked *env, struct iked_sa *sa,
 	 */
 	ibuf_free(src);	
 	return (NULL);
+}
+
+void
+ikev2_ike_sa_setreason(struct iked_sa *sa, char *r)
+{
 }

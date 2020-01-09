@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.51 2018/11/17 01:40:51 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.54 2019/06/28 13:32:53 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1993
@@ -170,6 +170,8 @@ main(int argc, char *argv[])
 
 	ioctl(0, FIOASYNC, &off);	/* turn off async mode */
 
+	tname = "default";
+
 	if (unveil(_PATH_GETTYTAB, "r") == -1) {
 		syslog(LOG_ERR, "%s: %m", tname);
 		exit(1);
@@ -185,13 +187,16 @@ main(int argc, char *argv[])
 
 	gettable("default", defent);
 	gendefaults();
-	tname = "default";
 	if (argc > 1)
 		tname = argv[1];
 	gettable(tname, tabent);
 	if (LO == NULL)
 		LO = _PATH_LOGIN;
 	if (unveil(LO, "x") == -1) {
+		syslog(LOG_ERR, "%s: %m", tname);
+		exit(1);
+	}
+	if (unveil(NULL, NULL) == -1) {
 		syslog(LOG_ERR, "%s: %m", tname);
 		exit(1);
 	}
@@ -251,7 +256,7 @@ main(int argc, char *argv[])
 	}
 
 	/* Start with default tty settings */
-	if (tcgetattr(0, &tmode) < 0) {
+	if (tcgetattr(0, &tmode) == -1) {
 		syslog(LOG_ERR, "%s: %m", ttyn);
 		exit(1);
 	}
@@ -281,7 +286,7 @@ main(int argc, char *argv[])
 			cfsetospeed(&tmode, SP);
 		setflags(0);
 		setchars();
-		if (tcsetattr(0, TCSANOW, &tmode) < 0) {
+		if (tcsetattr(0, TCSANOW, &tmode) == -1) {
 			syslog(LOG_ERR, "%s: %m", ttyn);
 			exit(1);
 		}
@@ -329,7 +334,7 @@ main(int argc, char *argv[])
 				tmode.c_oflag &= ~OLCUC;
 				tmode.c_lflag &= ~XCASE;
 			}
-			if (tcsetattr(0, TCSANOW, &tmode) < 0) {
+			if (tcsetattr(0, TCSANOW, &tmode) == -1) {
 				syslog(LOG_ERR, "%s: %m", ttyn);
 				exit(1);
 			}
@@ -371,7 +376,7 @@ getname(void)
 		sleep(PF);
 		PF = 0;
 	}
-	if (tcsetattr(0, TCSANOW, &tmode) < 0) {
+	if (tcsetattr(0, TCSANOW, &tmode) == -1) {
 		syslog(LOG_ERR, "%s: %m", ttyn);
 		exit(1);
 	}

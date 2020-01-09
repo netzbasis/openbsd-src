@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_page.c,v 1.147 2018/05/12 17:17:27 krw Exp $	*/
+/*	$OpenBSD: uvm_page.c,v 1.149 2019/11/29 18:32:40 kettenis Exp $	*/
 /*	$NetBSD: uvm_page.c,v 1.44 2000/11/27 08:40:04 chs Exp $	*/
 
 /*
@@ -72,6 +72,7 @@
 #include <sys/vnode.h>
 #include <sys/mount.h>
 #include <sys/proc.h>
+#include <sys/smr.h>
 
 #include <uvm/uvm.h>
 
@@ -669,6 +670,7 @@ uvm_shutdown(void)
 #ifdef UVM_SWAP_ENCRYPT
 	uvm_swap_finicrypt_all();
 #endif
+	smr_flush();
 }
 
 /*
@@ -959,17 +961,15 @@ uvm_pagerealloc(struct vm_page *pg, struct uvm_object *newobj, voff_t newoff)
 	}
 }
 
-
 /*
- * uvm_pagefree: free page
+ * uvm_pageclean: clean page
  *
  * => erase page's identity (i.e. remove from object)
- * => put page on free list
  * => caller must lock page queues
  * => assumes all valid mappings of pg are gone
  */
 void
-uvm_pagefree(struct vm_page *pg)
+uvm_pageclean(struct vm_page *pg)
 {
 	u_int flags_to_clear = 0;
 
@@ -1019,13 +1019,25 @@ uvm_pagefree(struct vm_page *pg)
 	    PG_RELEASED|PG_CLEAN|PG_CLEANCHK;
 	atomic_clearbits_int(&pg->pg_flags, flags_to_clear);
 
-	/* and put on free queue */
 #ifdef DEBUG
 	pg->uobject = (void *)0xdeadbeef;
 	pg->offset = 0xdeadbeef;
 	pg->uanon = (void *)0xdeadbeef;
 #endif
+}
 
+/*
+ * uvm_pagefree: free page
+ *
+ * => erase page's identity (i.e. remove from object)
+ * => put page on free list
+ * => caller must lock page queues
+ * => assumes all valid mappings of pg are gone
+ */
+void
+uvm_pagefree(struct vm_page *pg)
+{
+	uvm_pageclean(pg);
 	uvm_pmr_freepages(pg, 1);
 }
 

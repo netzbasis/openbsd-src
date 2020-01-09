@@ -18,7 +18,9 @@ extern "C" {
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
-#include "ppport.h"
+#ifdef USE_PPPORT_H
+#  include "ppport.h"
+#endif
 #if defined(__CYGWIN__) && defined(HAS_W32API_WINDOWS_H)
 # include <w32api/windows.h>
 # define CYGWIN_WITH_W32API
@@ -45,6 +47,15 @@ extern "C" {
 	PERL_VERSION_DECIMAL(PERL_REVISION,PERL_VERSION,PERL_SUBVERSION)
 #define PERL_VERSION_GE(r,v,s) \
 	(PERL_DECIMAL_VERSION >= PERL_VERSION_DECIMAL(r,v,s))
+
+#ifndef GCC_DIAG_IGNORE
+# define GCC_DIAG_IGNORE(x)
+# define GCC_DIAG_RESTORE
+#endif
+#ifndef GCC_DIAG_IGNORE_STMT
+# define GCC_DIAG_IGNORE_STMT(x) GCC_DIAG_IGNORE(x) NOOP
+# define GCC_DIAG_RESTORE_STMT GCC_DIAG_RESTORE NOOP
+#endif
 
 /* At least ppport.h 3.13 gets this wrong: one really cannot
  * have NVgf as anything else than "g" under Perl 5.6.x. */
@@ -913,6 +924,40 @@ static int th_clock_nanosleep(clockid_t clock_id, int flags,
 
 #endif /* PERL_DARWIN */
 
+/* The macOS headers warn about using certain interfaces in
+ * OS-release-ignorant manner, for example:
+ *
+ * warning: 'futimens' is only available on macOS 10.13 or newer
+ *       [-Wunguarded-availability-new]
+ *
+ * (ditto for utimensat)
+ *
+ * There is clang __builtin_available() *runtime* check for this.
+ * The gotchas are that neither __builtin_available() nor __has_builtin()
+ * are always available.
+ */
+#ifndef __has_builtin
+# define __has_builtin(x) 0 /* non-clang */
+#endif
+#ifdef HAS_FUTIMENS
+# if defined(PERL_DARWIN) && __has_builtin(__builtin_available)
+#  define FUTIMENS_AVAILABLE __builtin_available(macOS 10.13, *)
+# else
+#  define FUTIMENS_AVAILABLE 1
+# endif
+#else
+# define FUTIMENS_AVAILABLE 0
+#endif
+#ifdef HAS_UTIMENSAT
+# if defined(PERL_DARWIN) && __has_builtin(__builtin_available)
+#  define UTIMENSAT_AVAILABLE __builtin_available(macOS 10.13, *)
+# else
+#  define UTIMENSAT_AVAILABLE 1
+# endif
+#else
+# define UTIMENSAT_AVAILABLE 0
+#endif
+
 #include "const-c.inc"
 
 #if (defined(TIME_HIRES_NANOSLEEP)) || \
@@ -1338,9 +1383,7 @@ setitimer(which, seconds, interval = 0)
         /* on some platforms the 1st arg to setitimer is an enum, which
          * causes -Wc++-compat to complain about passing an int instead
          */
-#ifdef GCC_DIAG_IGNORE
-        GCC_DIAG_IGNORE(-Wc++-compat);
-#endif
+        GCC_DIAG_IGNORE_STMT(-Wc++-compat);
 	if (setitimer(which, &newit, &oldit) == 0) {
 	  EXTEND(sp, 1);
 	  PUSHs(sv_2mortal(newSVnv(TV2NV(oldit.it_value))));
@@ -1349,9 +1392,7 @@ setitimer(which, seconds, interval = 0)
 	    PUSHs(sv_2mortal(newSVnv(TV2NV(oldit.it_interval))));
 	  }
 	}
-#ifdef GCC_DIAG_RESTORE
-        GCC_DIAG_RESTORE;
-#endif
+        GCC_DIAG_RESTORE_STMT;
 
 void
 getitimer(which)
@@ -1362,9 +1403,7 @@ getitimer(which)
         /* on some platforms the 1st arg to getitimer is an enum, which
          * causes -Wc++-compat to complain about passing an int instead
          */
-#ifdef GCC_DIAG_IGNORE
-        GCC_DIAG_IGNORE(-Wc++-compat);
-#endif
+        GCC_DIAG_IGNORE_STMT(-Wc++-compat);
 	if (getitimer(which, &nowit) == 0) {
 	  EXTEND(sp, 1);
 	  PUSHs(sv_2mortal(newSVnv(TV2NV(nowit.it_value))));
@@ -1373,9 +1412,7 @@ getitimer(which)
 	    PUSHs(sv_2mortal(newSVnv(TV2NV(nowit.it_interval))));
 	  }
 	}
-#ifdef GCC_DIAG_RESTORE
-        GCC_DIAG_RESTORE;
-#endif
+        GCC_DIAG_RESTORE_STMT;
 
 #endif /* #if defined(HAS_GETITIMER) && defined(HAS_SETITIMER) */
 
@@ -1407,10 +1444,16 @@ PROTOTYPE: $$@
                           "): negative time not invented yet",
                               SvNV(accessed), SvNV(modified));
 		Zero(&utbuf, sizeof utbuf, char);
+
 		utbuf[0].tv_sec = (Time_t)SvNV(accessed);  /* time accessed */
-		utbuf[0].tv_nsec = (long)( ( SvNV(accessed) - utbuf[0].tv_sec ) * 1e9 );
+		utbuf[0].tv_nsec = (long)(
+                        (SvNV(accessed) - (NV)utbuf[0].tv_sec)
+                        * NV_1E9 + (NV)0.5);
+
 		utbuf[1].tv_sec = (Time_t)SvNV(modified);  /* time modified */
-		utbuf[1].tv_nsec = (long)( ( SvNV(modified) - utbuf[1].tv_sec ) * 1e9 );
+		utbuf[1].tv_nsec = (long)(
+                        (SvNV(modified) - (NV)utbuf[1].tv_sec)
+                        * NV_1E9 + (NV)0.5);
 	}
 
 	while (items > 0) {
@@ -1418,25 +1461,36 @@ PROTOTYPE: $$@
 
 		if (SvROK(file) && GvIO(SvRV(file)) && IoIFP(sv_2io(SvRV(file)))) {
 			int fd =  PerlIO_fileno(IoIFP(sv_2io(file)));
-			if (fd < 0)
+			if (fd < 0) {
 				SETERRNO(EBADF,RMS_IFI);
-			else 
+	                } else {
 #ifdef HAS_FUTIMENS
-			if (futimens(fd, utbufp) == 0)
-				tot++;
-#else  /* HAS_FUTIMES */
-				croak("futimens unimplemented in this platform");
-#endif /* HAS_FUTIMES */
+                          if (FUTIMENS_AVAILABLE) {
+                            if (futimens(fd, utbufp) == 0) {
+                              tot++;
+                            }
+                          } else {
+                            croak("futimens unimplemented in this platform");
+                          }
+#else  /* HAS_FUTIMENS */
+			  croak("futimens unimplemented in this platform");
+#endif /* HAS_FUTIMENS */
+                        }
 		}
 		else {
 #ifdef HAS_UTIMENSAT
-			STRLEN len;
-			char * name = SvPV(file, len);
-			if (IS_SAFE_PATHNAME(name, len, "utime") &&
-			    utimensat(AT_FDCWD, name, utbufp, 0) == 0)
-				tot++;
+	          if (UTIMENSAT_AVAILABLE) {
+                    STRLEN len;
+                    char * name = SvPV(file, len);
+                    if (IS_SAFE_PATHNAME(name, len, "utime") &&
+                        utimensat(AT_FDCWD, name, utbufp, 0) == 0) {
+                      tot++;
+                    }
+                  } else {
+                    croak("utimensat unimplemented in this platform");
+                  }
 #else  /* HAS_UTIMENSAT */
-			croak("utimensat unimplemented in this platform");
+	          croak("utimensat unimplemented in this platform");
 #endif /* HAS_UTIMENSAT */
 		}
 	} /* while items */

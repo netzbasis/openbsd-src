@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_run.c,v 1.125 2018/01/30 20:56:38 zhuk Exp $	*/
+/*	$OpenBSD: if_run.c,v 1.128 2020/01/05 08:58:25 jsg Exp $	*/
 
 /*-
  * Copyright (c) 2008-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -137,7 +137,6 @@ static const struct usb_devno run_devs[] = {
 	USB_ID(CONCEPTRONIC2,	RT2870_1),
 	USB_ID(CONCEPTRONIC2,	RT2870_2),
 	USB_ID(CONCEPTRONIC2,	RT2870_3),
-	USB_ID(CONCEPTRONIC2,	RT2870_4),
 	USB_ID(CONCEPTRONIC2,	RT2870_5),
 	USB_ID(CONCEPTRONIC2,	RT2870_6),
 	USB_ID(CONCEPTRONIC2,	RT2870_7),
@@ -376,7 +375,8 @@ void		run_calibrate_to(void *);
 void		run_calibrate_cb(struct run_softc *, void *);
 void		run_newassoc(struct ieee80211com *, struct ieee80211_node *,
 		    int);
-void		run_rx_frame(struct run_softc *, uint8_t *, int);
+void		run_rx_frame(struct run_softc *, uint8_t *, int,
+		    struct mbuf_list *);
 void		run_rxeof(struct usbd_xfer *, void *, usbd_status);
 void		run_txeof(struct usbd_xfer *, void *, usbd_status);
 int		run_tx(struct run_softc *, struct mbuf *,
@@ -1693,10 +1693,10 @@ run_media_change(struct ifnet *ifp)
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) ==
 	    (IFF_UP | IFF_RUNNING)) {
 		run_stop(ifp, 0);
-		run_init(ifp);
+		error = run_init(ifp);
 	}
 
-	return 0;
+	return error;
 }
 
 void
@@ -2158,7 +2158,8 @@ run_maxrssi_chain(struct run_softc *sc, const struct rt2860_rxwi *rxwi)
 }
 
 void
-run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen)
+run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen,
+    struct mbuf_list *ml)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
@@ -2295,7 +2296,7 @@ run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen)
 	ni = ieee80211_find_rxnode(ic, wh);
 	rxi.rxi_rssi = rssi;
 	rxi.rxi_tstamp = 0;	/* unused */
-	ieee80211_input(ifp, m, ni, &rxi);
+	ieee80211_inputm(ifp, m, ni, &rxi, ml);
 
 	/* node is no longer needed */
 	ieee80211_release_node(ic, ni);
@@ -2305,6 +2306,7 @@ run_rx_frame(struct run_softc *sc, uint8_t *buf, int dmalen)
 void
 run_rxeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 {
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct run_rx_data *data = priv;
 	struct run_softc *sc = data->sc;
 	uint8_t *buf;
@@ -2348,10 +2350,11 @@ run_rxeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 			    dmalen + 8, xferlen));
 			break;
 		}
-		run_rx_frame(sc, buf + sizeof (uint32_t), dmalen);
+		run_rx_frame(sc, buf + sizeof (uint32_t), dmalen, &ml);
 		buf += dmalen + 8;
 		xferlen -= dmalen + 8;
 	}
+	if_input(&sc->sc_ic.ic_if, &ml);
 
 skip:	/* setup a new transfer */
 	usbd_setup_xfer(xfer, sc->rxq.pipeh, data, data->buf, RUN_MAX_RXSZ,

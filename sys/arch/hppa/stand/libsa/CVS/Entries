@@ -1,4 +1,4 @@
-/Makefile/1.20/Mon Nov 16 19:33:52 2015//
+/Makefile/1.22/Tue Oct 29 02:55:51 2019//
 /cmd_hppa.c/1.12/Mon Dec  6 22:51:45 2010//
 /ct.c/1.9/Wed Apr  7 18:24:20 2004//
 /dev_hppa.c/1.17/Sun Jul 13 09:26:08 2014//
@@ -8,7 +8,7 @@
 /elf64.c/1.1/Wed Dec 26 18:52:59 2007//
 /itecons.c/1.12/Thu Jul 17 12:37:46 2014//
 /lf.c/1.10/Sat Jul 12 21:03:38 2014//
-/libsa.h/1.14/Sun Mar 13 00:13:52 2011//
+/libsa.h/1.15/Wed Apr 10 04:17:35 2019//
 /lif.c/1.10/Mon Nov 22 18:41:41 2004//
 /machdep.c/1.9/Wed Apr  7 18:24:20 2004//
 /pdc.c/1.21/Sat Mar 23 16:08:28 2013//

@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.348 2019/01/24 02:34:52 dtucker Exp $ */
+/* $OpenBSD: servconf.c,v 1.357 2019/12/15 20:59:23 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -104,6 +104,7 @@ initialize_server_options(ServerOptions *options)
 	options->hostbased_key_types = NULL;
 	options->hostkeyalgorithms = NULL;
 	options->pubkey_authentication = -1;
+	options->pubkey_auth_options = -1;
 	options->pubkey_key_types = NULL;
 	options->kerberos_authentication = -1;
 	options->kerberos_or_local_passwd = -1;
@@ -156,6 +157,7 @@ initialize_server_options(ServerOptions *options)
 	options->authorized_keys_command = NULL;
 	options->authorized_keys_command_user = NULL;
 	options->revoked_keys_file = NULL;
+	options->sk_provider = NULL;
 	options->trusted_user_ca_keys = NULL;
 	options->authorized_principals_file = NULL;
 	options->authorized_principals_command = NULL;
@@ -320,6 +322,8 @@ fill_default_server_options(ServerOptions *options)
 		options->hostbased_uses_name_from_packet_only = 0;
 	if (options->pubkey_authentication == -1)
 		options->pubkey_authentication = 1;
+	if (options->pubkey_auth_options == -1)
+		options->pubkey_auth_options = 0;
 	if (options->kerberos_authentication == -1)
 		options->kerberos_authentication = 0;
 	if (options->kerberos_or_local_passwd == -1)
@@ -404,6 +408,8 @@ fill_default_server_options(ServerOptions *options)
 		options->disable_forwarding = 0;
 	if (options->expose_userauth_info == -1)
 		options->expose_userauth_info = 0;
+	if (options->sk_provider == NULL)
+		options->sk_provider = xstrdup("internal");
 
 	assemble_algorithms(options);
 
@@ -423,10 +429,12 @@ fill_default_server_options(ServerOptions *options)
 	CLEAR_ON_NONE(options->banner);
 	CLEAR_ON_NONE(options->trusted_user_ca_keys);
 	CLEAR_ON_NONE(options->revoked_keys_file);
+	CLEAR_ON_NONE(options->sk_provider);
 	CLEAR_ON_NONE(options->authorized_principals_file);
 	CLEAR_ON_NONE(options->adm_forced_command);
 	CLEAR_ON_NONE(options->chroot_directory);
 	CLEAR_ON_NONE(options->routing_domain);
+	CLEAR_ON_NONE(options->host_key_agent);
 	for (i = 0; i < options->num_host_key_files; i++)
 		CLEAR_ON_NONE(options->host_key_files[i]);
 	for (i = 0; i < options->num_host_cert_files; i++)
@@ -440,7 +448,6 @@ fill_default_server_options(ServerOptions *options)
 		options->auth_methods[0] = NULL;
 		options->num_auth_methods = 0;
 	}
-
 }
 
 /* Keyword tokens. */
@@ -476,7 +483,7 @@ typedef enum {
 	sAuthenticationMethods, sHostKeyAgent, sPermitUserRC,
 	sStreamLocalBindMask, sStreamLocalBindUnlink,
 	sAllowStreamLocalForwarding, sFingerprintHash, sDisableForwarding,
-	sExposeAuthInfo, sRDomain,
+	sExposeAuthInfo, sRDomain, sPubkeyAuthOptions, sSecurityKeyProvider,
 	sDeprecated, sIgnore, sUnsupported
 } ServerOpCodes;
 
@@ -510,6 +517,7 @@ static struct {
 	{ "rsaauthentication", sDeprecated, SSHCFG_ALL },
 	{ "pubkeyauthentication", sPubkeyAuthentication, SSHCFG_ALL },
 	{ "pubkeyacceptedkeytypes", sPubkeyAcceptedKeyTypes, SSHCFG_ALL },
+	{ "pubkeyauthoptions", sPubkeyAuthOptions, SSHCFG_ALL },
 	{ "dsaauthentication", sPubkeyAuthentication, SSHCFG_GLOBAL }, /* alias */
 #ifdef KRB5
 	{ "kerberosauthentication", sKerberosAuthentication, SSHCFG_ALL },
@@ -609,6 +617,7 @@ static struct {
 	{ "exposeauthinfo", sExposeAuthInfo, SSHCFG_ALL },
 	{ "rdomain", sRDomain, SSHCFG_ALL },
 	{ "casignaturealgorithms", sCASignatureAlgorithms, SSHCFG_ALL },
+	{ "securitykeyprovider", sSecurityKeyProvider, SSHCFG_GLOBAL },
 	{ NULL, sBadOption, 0 }
 };
 
@@ -986,19 +995,19 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 			return -1;
 		}
 		if (strcasecmp(attrib, "user") == 0) {
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->user == NULL)) {
 				result = 0;
 				continue;
 			}
 			if (ci->user == NULL)
 				match_test_missing_fatal("User", "user");
-			if (match_pattern_list(ci->user, arg, 0) != 1)
+			if (match_usergroup_pattern_list(ci->user, arg) != 1)
 				result = 0;
 			else
 				debug("user %.100s matched 'User %.100s' at "
 				    "line %d", ci->user, arg, line);
 		} else if (strcasecmp(attrib, "group") == 0) {
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->user == NULL)) {
 				result = 0;
 				continue;
 			}
@@ -1011,7 +1020,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 				result = 0;
 			}
 		} else if (strcasecmp(attrib, "host") == 0) {
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->host == NULL)) {
 				result = 0;
 				continue;
 			}
@@ -1023,7 +1032,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 				debug("connection from %.100s matched 'Host "
 				    "%.100s' at line %d", ci->host, arg, line);
 		} else if (strcasecmp(attrib, "address") == 0) {
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->address == NULL)) {
 				result = 0;
 				continue;
 			}
@@ -1042,7 +1051,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 				return -1;
 			}
 		} else if (strcasecmp(attrib, "localaddress") == 0){
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->laddress == NULL)) {
 				result = 0;
 				continue;
 			}
@@ -1068,7 +1077,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 				    arg);
 				return -1;
 			}
-			if (ci == NULL) {
+			if (ci == NULL || (ci->test && ci->lport == -1)) {
 				result = 0;
 				continue;
 			}
@@ -1082,10 +1091,12 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 			else
 				result = 0;
 		} else if (strcasecmp(attrib, "rdomain") == 0) {
-			if (ci == NULL || ci->rdomain == NULL) {
+			if (ci == NULL || (ci->test && ci->rdomain == NULL)) {
 				result = 0;
 				continue;
 			}
+			if (ci->rdomain == NULL)
+				match_test_missing_fatal("RDomain", "rdomain");
 			if (match_pattern_list(ci->rdomain, arg, 0) != 1)
 				result = 0;
 			else
@@ -1380,7 +1391,8 @@ process_server_config_line(ServerOptions *options, char *line,
 			fatal("%s line %d: Missing argument.",
 			    filename, linenum);
 		if (*arg != '-' &&
-		    !sshkey_names_valid2(*arg == '+' ? arg + 1 : arg, 1))
+		    !sshkey_names_valid2(*arg == '+' || *arg == '^' ?
+		    arg + 1 : arg, 1))
 			fatal("%s line %d: Bad key types '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (*activep && *charptr == NULL)
@@ -1402,6 +1414,24 @@ process_server_config_line(ServerOptions *options, char *line,
 	case sPubkeyAcceptedKeyTypes:
 		charptr = &options->pubkey_key_types;
 		goto parse_keytypes;
+
+	case sPubkeyAuthOptions:
+		intptr = &options->pubkey_auth_options;
+		value = 0;
+		while ((arg = strdelim(&cp)) && *arg != '\0') {
+			if (strcasecmp(arg, "none") == 0)
+				continue;
+			if (strcasecmp(arg, "touch-required") == 0)
+				value |= PUBKEYAUTH_TOUCH_REQUIRED;
+			else {
+				fatal("%s line %d: unsupported "
+				    "PubkeyAuthOptions option %s",
+				    filename, linenum, arg);
+			}
+		}
+		if (*activep && *intptr == -1)
+			*intptr = value;
+		break;
 
 	case sKerberosAuthentication:
 		intptr = &options->kerberos_authentication;
@@ -1651,7 +1681,8 @@ process_server_config_line(ServerOptions *options, char *line,
 		arg = strdelim(&cp);
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.", filename, linenum);
-		if (*arg != '-' && !ciphers_valid(*arg == '+' ? arg + 1 : arg))
+		if (*arg != '-' &&
+		    !ciphers_valid(*arg == '+' || *arg == '^' ? arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 cipher spec '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->ciphers == NULL)
@@ -1662,7 +1693,8 @@ process_server_config_line(ServerOptions *options, char *line,
 		arg = strdelim(&cp);
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.", filename, linenum);
-		if (*arg != '-' && !mac_valid(*arg == '+' ? arg + 1 : arg))
+		if (*arg != '-' &&
+		    !mac_valid(*arg == '+' || *arg == '^' ? arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 mac spec '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->macs == NULL)
@@ -1675,7 +1707,8 @@ process_server_config_line(ServerOptions *options, char *line,
 			fatal("%s line %d: Missing argument.",
 			    filename, linenum);
 		if (*arg != '-' &&
-		    !kex_names_valid(*arg == '+' ? arg + 1 : arg))
+		    !kex_names_valid(*arg == '+' || *arg == '^' ?
+		    arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 KexAlgorithms '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->kex_algorithms == NULL)
@@ -1934,6 +1967,21 @@ process_server_config_line(ServerOptions *options, char *line,
 	case sRevokedKeys:
 		charptr = &options->revoked_keys_file;
 		goto parse_filename;
+
+	case sSecurityKeyProvider:
+		charptr = &options->sk_provider;
+		arg = strdelim(&cp);
+		if (!arg || *arg == '\0')
+			fatal("%s line %d: missing file name.",
+			    filename, linenum);
+		if (*activep && *charptr == NULL) {
+			*charptr = strcasecmp(arg, "internal") == 0 ?
+			    xstrdup(arg) : derelativise_path(arg);
+			/* increase optional counter */
+			if (intptr != NULL)
+				*intptr = *intptr + 1;
+		}
+		break;
 
 	case sIPQoS:
 		arg = strdelim(&cp);
@@ -2222,6 +2270,7 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(password_authentication);
 	M_CP_INTOPT(gss_authentication);
 	M_CP_INTOPT(pubkey_authentication);
+	M_CP_INTOPT(pubkey_auth_options);
 	M_CP_INTOPT(kerberos_authentication);
 	M_CP_INTOPT(hostbased_authentication);
 	M_CP_INTOPT(hostbased_uses_name_from_packet_only);
@@ -2548,6 +2597,7 @@ dump_config(ServerOptions *o)
 	dump_cfg_string(sChrootDirectory, o->chroot_directory);
 	dump_cfg_string(sTrustedUserCAKeys, o->trusted_user_ca_keys);
 	dump_cfg_string(sRevokedKeys, o->revoked_keys_file);
+	dump_cfg_string(sSecurityKeyProvider, o->sk_provider);
 	dump_cfg_string(sAuthorizedPrincipalsFile,
 	    o->authorized_principals_file);
 	dump_cfg_string(sVersionAddendum, *o->version_addendum == '\0'
@@ -2636,4 +2686,10 @@ dump_config(ServerOptions *o)
 		    o->permit_user_env_whitelist);
 	}
 
+	printf("pubkeyauthoptions");
+	if (o->pubkey_auth_options == 0)
+		printf(" none");
+	if (o->pubkey_auth_options & PUBKEYAUTH_TOUCH_REQUIRED)
+		printf(" touch-required");
+	printf("\n");
 }

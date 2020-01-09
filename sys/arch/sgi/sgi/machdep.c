@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.158 2017/12/30 20:46:59 guenther Exp $ */
+/*	$OpenBSD: machdep.c,v 1.161 2019/12/20 13:34:41 visa Exp $ */
 
 /*
  * Copyright (c) 2003-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -125,7 +125,7 @@ void	dumpconf(void);
 
 static void dobootopts(int, void *);
 
-boolean_t is_memory_range(paddr_t, psize_t, psize_t);
+int	is_memory_range(paddr_t, psize_t, psize_t);
 
 void	(*md_halt)(int) = arcbios_halt;
 
@@ -822,6 +822,9 @@ int	waittime = -1;
 __dead void
 boot(int howto)
 {
+	if ((howto & RB_RESET) != 0)
+		goto doreset;
+
 	if (curproc)
 		savectx(curproc->p_addr, 0);
 
@@ -859,8 +862,10 @@ haltsys:
 			printf("System Power Down.\n");
 		else
 			printf("System Halt.\n");
-	} else
+	} else {
+doreset:
 		printf("System restart.\n");
+	}
 
 	delay(1000000);
 	md_halt(howto);
@@ -987,7 +992,7 @@ dumpsys()
 #endif
 }
 
-boolean_t
+int
 is_memory_range(paddr_t pa, psize_t len, psize_t limit)
 {
 	struct phys_mem_desc *seg;
@@ -998,11 +1003,17 @@ is_memory_range(paddr_t pa, psize_t len, psize_t limit)
 	lp = atop(round_page(pa + len));
 
 	if (limit != 0 && lp > atop(limit))
-		return FALSE;
+		return 0;
 
 	for (i = 0, seg = mem_layout; i < MAXMEMSEGS; i++, seg++)
 		if (fp >= seg->mem_first_page && lp <= seg->mem_last_page)
-			return TRUE;
+			return 1;
 
-	return FALSE;
+	return 0;
+}
+
+void
+intr_barrier(void *cookie)
+{
+	sched_barrier(NULL);
 }

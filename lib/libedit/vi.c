@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi.c,v 1.25 2016/05/06 13:12:52 schwarze Exp $	*/
+/*	$OpenBSD: vi.c,v 1.28 2019/09/04 00:00:49 asou Exp $	*/
 /*	$NetBSD: vi.c,v 1.33 2011/02/17 16:44:48 joerg Exp $	*/
 
 /*-
@@ -1017,7 +1017,7 @@ vi_histedit(EditLine *el, wint_t c __attribute__((__unused__)))
 	}
 
 	fd = mkstemp(tempfile);
-	if (fd < 0)
+	if (fd == -1)
 		return CC_ERROR;
 	len = (size_t)(el->el_line.lastchar - el->el_line.buffer);
 #define TMP_BUFSIZ (EL_BUFSIZ * MB_LEN_MAX)
@@ -1027,7 +1027,7 @@ vi_histedit(EditLine *el, wint_t c __attribute__((__unused__)))
 		unlink(tempfile);
 		return CC_ERROR;
 	}
-	line = reallocarray(NULL, len, sizeof(*line));
+	line = reallocarray(NULL, len + 1, sizeof(*line));
 	if (line == NULL) {
 		close(fd);
 		unlink(tempfile);
@@ -1058,12 +1058,12 @@ vi_histedit(EditLine *el, wint_t c __attribute__((__unused__)))
 		while (waitpid(pid, &status, 0) != pid)
 			continue;
 		lseek(fd, (off_t)0, SEEK_SET);
-		st = read(fd, cp, TMP_BUFSIZ);
+		st = read(fd, cp, TMP_BUFSIZ - 1);
 		if (st > 0) {
-			len = (size_t)(el->el_line.lastchar -
-			    el->el_line.buffer);
+			cp[st] = '\0';
+			len = (size_t)(el->el_line.limit - el->el_line.buffer);
 			len = mbstowcs(el->el_line.buffer, cp, len);
-			if (len > 0 && el->el_line.buffer[len -1] == '\n')
+			if (len > 0 && el->el_line.buffer[len - 1] == '\n')
 				--len;
 		}
 		else

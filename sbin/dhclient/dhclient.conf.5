@@ -1,4 +1,4 @@
-.\"	$OpenBSD: dhclient.conf.5,v 1.45 2019/01/26 22:55:10 krw Exp $
+.\"	$OpenBSD: dhclient.conf.5,v 1.49 2019/12/17 14:21:54 krw Exp $
 .\"
 .\" Copyright (c) 1997 The Internet Software Consortium.
 .\" All rights reserved.
@@ -36,7 +36,7 @@
 .\" see ``http://www.isc.org/isc''.  To learn more about Vixie
 .\" Enterprises, see ``http://www.vix.com''.
 .\"
-.Dd $Mdocdate: January 26 2019 $
+.Dd $Mdocdate: December 17 2019 $
 .Dt DHCLIENT.CONF 5
 .Os
 .Sh NAME
@@ -112,6 +112,12 @@ or
 .Ic supersede
 for
 .Ar option .
+.Pp
+If the option's data cannot be appended to, i.e. it has a fixed size,
+then
+.Ic append
+will be treated as
+.Ic default .
 .It Ic default Ar option option-value ;
 If no value for
 .Ar option
@@ -166,6 +172,12 @@ or
 .Ic supersede
 for
 .Ar option .
+.Pp
+If the option's data cannot be prepended to, i.e. it has a fixed size,
+then
+.Ic prepend
+will be treated as
+.Ic supersede .
 .It Ic request Op Ar option , ... ;
 Ask that any lease contain values
 for the listed options.
@@ -173,7 +185,7 @@ for the listed options.
 statements are cumulative, except that an empty
 list will remove all previously specified options.
 The default is to request the options
-bootfile-name
+bootfile-name,
 broadcast-address,
 classless-static-routes,
 host-name,
@@ -190,6 +202,7 @@ Discard leases that do not contain the listed options.
 .Ic require
 statements are cumulative, except that an empty
 list will remove all previously specified options.
+The default is to require the option subnet-mask.
 .It Ic send Ar option option-value ;
 Include
 .Ar option-value

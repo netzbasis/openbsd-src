@@ -1,4 +1,4 @@
-/*	$OpenBSD: ruleset.c,v 1.42 2018/12/28 11:40:29 eric Exp $ */
+/*	$OpenBSD: ruleset.c,v 1.47 2019/11/25 14:18:33 gilles Exp $ */
 
 /*
  * Copyright (c) 2009 Gilles Chehade <gilles@poolp.org>
@@ -58,6 +58,7 @@ static int
 ruleset_match_from(struct rule *r, const struct envelope *evp)
 {
 	int		ret;
+	int		has_rdns;
 	const char	*key;
 	struct table	*table;
 	enum table_service service = K_NETADDR;
@@ -65,21 +66,31 @@ ruleset_match_from(struct rule *r, const struct envelope *evp)
 	if (!r->flag_from)
 		return 1;
 
-	if (r->flag_from_socket) {
-		/* XXX - socket needs to be distinguished from "local" */
-		return -1;
-	}
-
-	if (evp->flags & EF_INTERNAL)
+	if (evp->flags & EF_INTERNAL) {
+		/* if expanded from an empty table_from, skip rule
+		 * if no table 
+		 */
+		if (r->table_from == NULL)
+			return 0;
 		key = "local";
+	}
 	else if (r->flag_from_rdns) {
-		if (strcmp(evp->hostname, "<unknown>") == 0)
+		has_rdns = strcmp(evp->hostname, "<unknown>") != 0;
+		if (r->table_from == NULL)
+		  	return MATCH_RESULT(has_rdns, r->flag_from);
+		if (!has_rdns)
 			return 0;
 		key = evp->hostname;
 	}
-	else
+	else {
 		key = ss_to_text(&evp->ss);
-
+		if (r->flag_from_socket) {
+			if (strcmp(key, "local") == 0)
+				return MATCH_RESULT(1, r->flag_from);
+			else
+				return r->flag_from < 0 ? 1 : 0;
+		}
+	}
 	if (r->flag_from_regex)
 		service = K_REGEX;
 
@@ -141,6 +152,8 @@ static int
 ruleset_match_smtp_auth(struct rule *r, const struct envelope *evp)
 {
 	int	ret;
+	struct table	*table;
+	enum table_service service;
 
 	if (!r->flag_smtp_auth)
 		return 1;
@@ -148,14 +161,14 @@ ruleset_match_smtp_auth(struct rule *r, const struct envelope *evp)
 	if (!(evp->flags & EF_AUTHENTICATED))
 		ret = 0;
 	else if (r->table_smtp_auth) {
-		/* XXX - not until smtp_session->username is added to envelope */
-		/*
-		 * table = table_find(m->from_table);
-		 * key = evp->username;
-		 * return table_match(table, K_CREDENTIALS, key);
-		 */
-		return -1;
 
+		if (r->flag_smtp_auth_regex)
+			service = K_REGEX;
+		else
+			service = strchr(evp->username, '@') ?
+				K_MAILADDR : K_STRING;
+		table = table_find(env, r->table_smtp_auth);
+		ret = table_match(table, service, evp->username);
 	}
 	else
 		ret = 1;

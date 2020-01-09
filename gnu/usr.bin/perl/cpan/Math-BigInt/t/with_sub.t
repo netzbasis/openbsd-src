@@ -5,18 +5,18 @@
 use strict;
 use warnings;
 
-use Test::More tests => 2409            # tests in require'd file
+use Test::More tests => 2818            # tests in require'd file
                          + 1;           # tests in this file
 
 use Math::BigFloat with => 'Math::BigInt::Subclass',
                    lib  => 'Calc';
 
-our ($CLASS, $CALC);
+our ($CLASS, $LIB);
 $CLASS = "Math::BigFloat";
-$CALC  = "Math::BigInt::Calc";          # backend
+$LIB   = "Math::BigInt::Calc";          # backend
 
-# the with argument is ignored
-is(Math::BigFloat->config()->{with}, 'Math::BigInt::Calc',
-   'Math::BigFloat->config()->{with}');
+# the "with" argument should be ignored
+is(Math::BigFloat->config("with"), 'Math::BigInt::Calc',
+   qq|Math::BigFloat->config("with")|);
 
-require 't/bigfltpm.inc';	# all tests here for sharing
+require './t/bigfltpm.inc';     # all tests here for sharing

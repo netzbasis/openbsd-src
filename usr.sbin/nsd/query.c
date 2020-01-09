@@ -530,13 +530,17 @@ answer_chaos(struct nsd *nsd, query_type *q)
 		    (q->qname->name_size ==  15
 		     && memcmp(dname_name(q->qname), "\010hostname\004bind", 15) == 0))
 		{
-			/* Add ID */
-			query_addtxt(q,
+			if(!nsd->options->hide_identity) {
+				/* Add ID */
+				query_addtxt(q,
 				     buffer_begin(q->packet) + QHEADERSZ,
 				     CLASS_CH,
 				     0,
 				     nsd->identity);
-			ANCOUNT_SET(q->packet, ANCOUNT(q->packet) + 1);
+				ANCOUNT_SET(q->packet, ANCOUNT(q->packet) + 1);
+			} else {
+				RCODE_SET(q->packet, RCODE_REFUSE);
+			}
 		} else if ((q->qname->name_size == 16
 			    && memcmp(dname_name(q->qname), "\007version\006server", 16) == 0) ||
 			   (q->qname->name_size == 14
@@ -693,7 +697,8 @@ answer_needs_ns(struct query* query)
 	assert(query);
 	/* Currently, only troublesome for DNSKEY and DS,
          * cuz their RRSETs are quite large. */
-	return (query->qtype != TYPE_DNSKEY && query->qtype != TYPE_DS);
+	return (query->qtype != TYPE_DNSKEY && query->qtype != TYPE_DS
+		&& query->qtype != TYPE_ANY);
 }
 
 static int
@@ -969,6 +974,11 @@ answer_domain(struct nsd* nsd, struct query *q, answer_type *answer,
 			{
 				add_rrset(q, answer, ANSWER_SECTION, domain, rrset);
 				++added;
+#ifdef NOTYET
+				/* minimize response size with one RR,
+				 * according to RFC 8482(4.1). */
+				break;
+#endif
 			}
 		}
 		if (added == 0) {
@@ -1182,8 +1192,10 @@ answer_authoritative(struct nsd   *nsd,
 			 * No match and no wildcard.  Include NSEC
 			 * proving there is no wildcard.
 			 */
-			nsec_domain = find_covering_nsec(closest_encloser->wildcard_child_closest_match, q->zone, &nsec_rrset);
-			if (nsec_domain) {
+			if(closest_encloser && (nsec_domain =
+				find_covering_nsec(closest_encloser->
+					wildcard_child_closest_match, q->zone,
+					&nsec_rrset)) != NULL) {
 				add_rrset(q, answer, AUTHORITY_SECTION, nsec_domain, nsec_rrset);
 			}
 		}
@@ -1209,6 +1221,7 @@ answer_lookup_zone(struct nsd *nsd, struct query *q, answer_type *answer,
 	size_t domain_number, int exact, domain_type *closest_match,
 	domain_type *closest_encloser, const dname_type *qname)
 {
+	zone_type* origzone = q->zone;
 	q->zone = domain_find_zone(nsd->db, closest_encloser);
 	if (!q->zone) {
 		/* no zone for this */
@@ -1223,6 +1236,16 @@ answer_lookup_zone(struct nsd *nsd, struct query *q, answer_type *answer,
 			RCODE_SET(q->packet, RCODE_SERVFAIL);
 		return;
 	}
+
+	/*
+	 * If confine-to-zone is set to yes do not return additional
+	 * information for a zone with a different apex from the query zone.
+	*/
+	if (nsd->options->confine_to_zone &&
+	   (origzone != NULL && dname_compare(domain_dname(origzone->apex), domain_dname(q->zone->apex)) != 0)) {
+		return;
+	}
+
 	/* now move up the closest encloser until it exists, previous
 	 * (possibly empty) closest encloser was useful to finding the zone
 	 * (for empty zones too), but now we want actual data nodes */

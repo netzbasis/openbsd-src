@@ -3,7 +3,7 @@ package CPAN::Plugin;
 use strict;
 use warnings;
 
-our $VERSION = '0.95';
+our $VERSION = '0.97';
 
 require CPAN;
 
@@ -94,8 +94,8 @@ CPAN::Plugin - Base class for CPAN shell extensions
 
 =head1 SYNOPSIS
 
-   package My::Plugin;
-   use base 'CPAN::Plugin';
+   package CPAN::Plugin::Flurb;
+   use parent 'CPAN::Plugin';
 
    sub post_test {
      my ($self, $distribution_object) = @_;
@@ -119,7 +119,7 @@ See L<CPAN/"Plugin support">.
 =head2 plugin_requires
 
 returns list of packages given plugin requires for functionality.
-This list is evaluated using C<CPAN->use_inst> method.
+This list is evaluated using C<< CPAN->use_inst >> method.
 
 =head2 distribution_object
 

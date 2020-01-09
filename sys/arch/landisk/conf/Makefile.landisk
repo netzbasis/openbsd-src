@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.landisk,v 1.77 2018/02/09 03:59:15 tb Exp $
+#	$OpenBSD: Makefile.landisk,v 1.81 2019/11/07 20:42:28 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -37,6 +37,7 @@ CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+#COPTS?=	-Oz # locks up during boot
 .endif
 
 DEBUG?=		-g
@@ -52,7 +53,7 @@ HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
 NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -144,8 +145,7 @@ hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.14 2015/05/05 01:26:37 jsg Exp $ */
+/*	$OpenBSD: packet.c,v 1.17 2019/12/23 07:33:49 denis Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Esben Norby <norby@openbsd.org>
@@ -24,7 +24,6 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <arpa/inet.h>
-#include <net/if_dl.h>
 
 #include <errno.h>
 #include <event.h>
@@ -53,7 +52,7 @@ gen_ospf_hdr(struct ibuf *buf, struct iface *iface, u_int8_t type)
 	ospf_hdr.type = type;
 	ospf_hdr.rtr_id = ospfe_router_id();
 	if (iface->type != IF_TYPE_VIRTUALLINK)
-		ospf_hdr.area_id = iface->area_id.s_addr;
+		ospf_hdr.area_id = iface->area->id.s_addr;
 	ospf_hdr.instance = DEFAULT_INSTANCE_ID;
 	ospf_hdr.zero = 0;		/* must be zero */
 
@@ -79,10 +78,12 @@ upd_ospf_hdr(struct ibuf *buf, struct iface *iface)
 
 /* send and receive packets */
 int
-send_packet(struct iface *iface, void *pkt, size_t len,
+send_packet(struct iface *iface, struct ibuf *buf,
     struct in6_addr *dst)
 {
-	struct sockaddr_in6	 sa6;
+	struct sockaddr_in6	sa6;
+	struct msghdr		msg;
+	struct iovec		iov[1];
 
 	/* setup buffer */
 	bzero(&sa6, sizeof(sa6));
@@ -103,8 +104,15 @@ send_packet(struct iface *iface, void *pkt, size_t len,
 			return (-1);
 		}
 
-	if (sendto(iface->fd, pkt, len, 0, (struct sockaddr *)&sa6,
-	    sizeof(sa6)) == -1) {
+	bzero(&msg, sizeof(msg));
+	msg.msg_name = &sa6;
+	msg.msg_namelen = sizeof(sa6);
+	iov[0].iov_base = buf->buf;
+	iov[0].iov_len = ibuf_size(buf);
+	msg.msg_iov = iov;
+	msg.msg_iovlen = 1;
+
+	if (sendmsg(iface->fd, &msg, 0) == -1) {
 		log_warn("send_packet: error sending packet on interface %s",
 		    iface->name);
 		return (-1);
@@ -262,7 +270,7 @@ ospf_hdr_sanity_check(struct ospf_hdr *ospf_hdr, u_int16_t len,
 	}
 
 	if (iface->type != IF_TYPE_VIRTUALLINK) {
-		if (ospf_hdr->area_id != iface->area_id.s_addr) {
+		if (ospf_hdr->area_id != iface->area->id.s_addr) {
 			id.s_addr = ospf_hdr->area_id;
 			log_debug("recv_packet: invalid area ID %s, "
 			    "interface %s", inet_ntoa(id), iface->name);

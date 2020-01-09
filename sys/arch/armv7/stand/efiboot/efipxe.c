@@ -1,4 +1,4 @@
-/*	$OpenBSD: efipxe.c,v 1.1 2018/03/31 18:19:12 patrick Exp $	*/
+/*	$OpenBSD: efipxe.c,v 1.4 2019/08/20 23:38:19 patrick Exp $	*/
 /*
  * Copyright (c) 2017 Patrick Wildt <patrick@blueri.se>
  *
@@ -89,15 +89,15 @@ efi_pxeprobe(void)
 		return;
 
 	for (i = 0; i < nhandles; i++) {
-		EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp = NULL;
+		EFI_PXE_BASE_CODE_DHCPV4_PACKET *dhcp;
 
 		status = EFI_CALL(BS->HandleProtocol, handles[i],
 		    &devp_guid, (void **)&dp0);
 		if (status != EFI_SUCCESS)
 			continue;
 
-		depth = efi_device_path_depth(efi_bootdp, MEDIA_DEVICE_PATH);
-		if (efi_device_path_ncmp(efi_bootdp, dp0, depth))
+		depth = efi_device_path_depth(efi_bootdp, MESSAGING_DEVICE_PATH);
+		if (depth == -1 || efi_device_path_ncmp(efi_bootdp, dp0, depth))
 			continue;
 
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &net_guid,
@@ -113,21 +113,10 @@ efi_pxeprobe(void)
 		if (pxe->Mode == NULL)
 			continue;
 
-		if (pxe->Mode->DhcpAckReceived) {
-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)
-			    &pxe->Mode->DhcpAck;
-		}
-		if (pxe->Mode->PxeReplyReceived) {
-			dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)
-			    &pxe->Mode->PxeReply;
-		}
-
-		if (!dhcp)
-			continue;
-
 		if (pxe->Mtftp != NULL)
 			use_mtftp = 1;
 
+		dhcp = (EFI_PXE_BASE_CODE_DHCPV4_PACKET *)&pxe->Mode->DhcpAck;
 		memcpy(&bootip, dhcp->BootpYiAddr, sizeof(bootip));
 		memcpy(&servip, dhcp->BootpSiAddr, sizeof(servip));
 		memcpy(&gateip, dhcp->BootpSiAddr, sizeof(gateip));
@@ -156,6 +145,9 @@ mtftp_open(char *path, struct open_file *f)
 	EFI_IP_ADDRESS dstip;
 	EFI_STATUS status;
 	UINT64 size;
+
+	if (strcmp("tftp", f->f_dev->dv_name) != 0)
+		return ENXIO;
 
 	if (PXE == NULL)
 		return ENXIO;
@@ -295,6 +287,9 @@ mtftp_readdir(struct open_file *f, char *name)
 int
 efitftp_open(char *path, struct open_file *f)
 {
+	if (strcmp("tftp", f->f_dev->dv_name) != 0)
+		return ENXIO;
+
 	if (NET == NULL || PXE == NULL)
 		return ENXIO;
 

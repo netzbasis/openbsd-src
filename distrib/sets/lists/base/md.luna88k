@@ -6,10 +6,10 @@
 ./usr/lib/crtbeginS.o
 ./usr/lib/crtend.o
 ./usr/lib/crtendS.o
-./usr/lib/gcc-lib/m88k-unknown-openbsd6.4
-./usr/lib/gcc-lib/m88k-unknown-openbsd6.4/3.3.6/fPIC/libgcc.a
-./usr/lib/gcc-lib/m88k-unknown-openbsd6.4/3.3.6/fpic/libgcc.a
-./usr/lib/gcc-lib/m88k-unknown-openbsd6.4/3.3.6/libgcc.a
+./usr/lib/gcc-lib/m88k-unknown-openbsd6.6
+./usr/lib/gcc-lib/m88k-unknown-openbsd6.6/3.3.6/fPIC/libgcc.a
+./usr/lib/gcc-lib/m88k-unknown-openbsd6.6/3.3.6/fpic/libgcc.a
+./usr/lib/gcc-lib/m88k-unknown-openbsd6.6/3.3.6/libgcc.a
 ./usr/lib/libstdc++.so.57.0
 ./usr/libdata/perl5/m88k-openbsd
 ./usr/libdata/perl5/m88k-openbsd/.packlist
@@ -42,6 +42,7 @@
 ./usr/libdata/perl5/m88k-openbsd/CORE/handy.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/hv.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/hv_func.h
+./usr/libdata/perl5/m88k-openbsd/CORE/hv_macro.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/inline.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/intrpvar.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/invlist_inline.h
@@ -68,6 +69,8 @@
 ./usr/libdata/perl5/m88k-openbsd/CORE/parser.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/patchlevel.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/perl.h
+./usr/libdata/perl5/m88k-openbsd/CORE/perl_inc_macro.h
+./usr/libdata/perl5/m88k-openbsd/CORE/perl_langinfo.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/perlapi.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/perlio.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/perliol.h
@@ -82,12 +85,15 @@
 ./usr/libdata/perl5/m88k-openbsd/CORE/regcomp.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/regexp.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/regnodes.h
+./usr/libdata/perl5/m88k-openbsd/CORE/sbox32_hash.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/scope.h
+./usr/libdata/perl5/m88k-openbsd/CORE/stadtx_hash.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/sv.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/thread.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/time64.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/time64_config.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/uconfig.h
+./usr/libdata/perl5/m88k-openbsd/CORE/uni_keywords.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/unicode_constants.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/unixish.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/utf8.h
@@ -97,6 +103,7 @@
 ./usr/libdata/perl5/m88k-openbsd/CORE/vutil.h
 ./usr/libdata/perl5/m88k-openbsd/CORE/vxs.inc
 ./usr/libdata/perl5/m88k-openbsd/CORE/warnings.h
+./usr/libdata/perl5/m88k-openbsd/CORE/zaphod32_hash.h
 ./usr/libdata/perl5/m88k-openbsd/Compress
 ./usr/libdata/perl5/m88k-openbsd/Compress/Raw
 ./usr/libdata/perl5/m88k-openbsd/Compress/Raw/Bzip2.pm
@@ -241,6 +248,7 @@
 ./usr/libdata/perl5/m88k-openbsd/OpenBSD
 ./usr/libdata/perl5/m88k-openbsd/OpenBSD/MkTemp.pm
 ./usr/libdata/perl5/m88k-openbsd/OpenBSD/Pledge.pm
+./usr/libdata/perl5/m88k-openbsd/OpenBSD/Unveil.pm
 ./usr/libdata/perl5/m88k-openbsd/POSIX.pm
 ./usr/libdata/perl5/m88k-openbsd/POSIX.pod
 ./usr/libdata/perl5/m88k-openbsd/PerlIO
@@ -272,7 +280,6 @@
 ./usr/libdata/perl5/m88k-openbsd/Unicode/Collate.pm
 ./usr/libdata/perl5/m88k-openbsd/Unicode/Collate/Locale.pm
 ./usr/libdata/perl5/m88k-openbsd/Unicode/Normalize.pm
-./usr/libdata/perl5/m88k-openbsd/arybase.pm
 ./usr/libdata/perl5/m88k-openbsd/attributes.pm
 ./usr/libdata/perl5/m88k-openbsd/auto
 ./usr/libdata/perl5/m88k-openbsd/auto/B
@@ -359,6 +366,8 @@
 ./usr/libdata/perl5/m88k-openbsd/auto/OpenBSD/MkTemp/MkTemp.so
 ./usr/libdata/perl5/m88k-openbsd/auto/OpenBSD/Pledge
 ./usr/libdata/perl5/m88k-openbsd/auto/OpenBSD/Pledge/Pledge.so
+./usr/libdata/perl5/m88k-openbsd/auto/OpenBSD/Unveil
+./usr/libdata/perl5/m88k-openbsd/auto/OpenBSD/Unveil/Unveil.so
 ./usr/libdata/perl5/m88k-openbsd/auto/POSIX
 ./usr/libdata/perl5/m88k-openbsd/auto/POSIX/POSIX.so
 ./usr/libdata/perl5/m88k-openbsd/auto/PerlIO
@@ -399,8 +408,6 @@
 ./usr/libdata/perl5/m88k-openbsd/auto/Unicode/Collate/Collate.so
 ./usr/libdata/perl5/m88k-openbsd/auto/Unicode/Normalize
 ./usr/libdata/perl5/m88k-openbsd/auto/Unicode/Normalize/Normalize.so
-./usr/libdata/perl5/m88k-openbsd/auto/arybase
-./usr/libdata/perl5/m88k-openbsd/auto/arybase/arybase.so
 ./usr/libdata/perl5/m88k-openbsd/auto/attributes
 ./usr/libdata/perl5/m88k-openbsd/auto/attributes/attributes.so
 ./usr/libdata/perl5/m88k-openbsd/auto/mro

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_atu.c,v 1.126 2018/04/28 16:05:56 phessler Exp $ */
+/*	$OpenBSD: if_atu.c,v 1.128 2020/01/05 08:58:25 jsg Exp $ */
 /*
  * Copyright (c) 2003, 2004
  *	Daan Vreeken <Danovitsch@Vitsch.net>.  All rights reserved.
@@ -178,8 +178,6 @@ struct atu_type atu_devs[] = {
 	  RadioRFMD,		ATU_NO_QUIRK },
 	{ USB_VENDOR_LINKSYS,	USB_PRODUCT_LINKSYS_WUSB11,
 	  RadioIntersil,	ATU_NO_QUIRK },
-	{ USB_VENDOR_LINKSYS2,	USB_PRODUCT_LINKSYS2_WUSB11,
-	  RadioRFMD,		ATU_NO_QUIRK },
 	{ USB_VENDOR_LINKSYS2,	USB_PRODUCT_LINKSYS2_NWU11B,
 	  RadioRFMD,		ATU_NO_QUIRK },
 	{ USB_VENDOR_LINKSYS3,	USB_PRODUCT_LINKSYS3_WUSB11V28,
@@ -1210,7 +1208,7 @@ atu_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 	case IEEE80211_S_SCAN:
 		memcpy(ic->ic_chan_scan, ic->ic_chan_active,
 		    sizeof(ic->ic_chan_active));
-		ieee80211_free_allnodes(ic, 1);
+		ieee80211_node_cleanup(ic, ic->ic_bss);
 
 		/* tell the event thread that we want a scan */
 		sc->sc_cmd = ATU_C_SCAN;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_amap.c,v 1.79 2017/01/31 17:08:51 dhill Exp $	*/
+/*	$OpenBSD: uvm_amap.c,v 1.82 2020/01/04 16:17:29 beck Exp $	*/
 /*	$NetBSD: uvm_amap.c,v 1.27 2000/11/25 06:27:59 chs Exp $	*/
 
 /*
@@ -342,6 +342,7 @@ amap_alloc1(int slots, int waitf, int lazyalloc)
 	    M_UVMAMAP, waitf | (lazyalloc ? M_ZERO : 0));
 	if (amap->am_buckets == NULL)
 		goto fail1;
+	amap->am_nbuckets = buckets;
 
 	if (!lazyalloc) {
 		for (i = 0; i < buckets; i++) {
@@ -422,7 +423,8 @@ amap_free(struct vm_amap *amap)
 	else {
 		TAILQ_FOREACH_SAFE(chunk, &amap->am_chunks, ac_list, tmp)
 		    pool_put(&uvm_amap_chunk_pool, chunk);
-		free(amap->am_buckets, M_UVMAMAP, 0);
+		free(amap->am_buckets, M_UVMAMAP,
+		    amap->am_nbuckets * sizeof(*amap->am_buckets));
 		pool_put(&uvm_amap_pool, amap);
 	}
 }
@@ -440,6 +442,7 @@ amap_wipeout(struct vm_amap *amap)
 	int slot;
 	struct vm_anon *anon;
 	struct vm_amap_chunk *chunk;
+	struct pglist pgl;
 
 	KASSERT(amap->am_ref == 0);
 
@@ -447,6 +450,9 @@ amap_wipeout(struct vm_amap *amap)
 		/* amap_swap_off will call us again. */
 		return;
 	}
+
+	TAILQ_INIT(&pgl);
+
 	amap_list_remove(amap);
 
 	AMAP_CHUNK_FOREACH(chunk, amap) {
@@ -466,10 +472,12 @@ amap_wipeout(struct vm_amap *amap)
 				 * we had the last reference to a vm_anon.
 				 * free it.
 				 */
-				uvm_anfree(anon);
+				uvm_anfree_list(anon, &pgl);
 			}
 		}
 	}
+	/* free the pages */
+	uvm_pglistfree(&pgl);
 
 	/* now we free the map */
 	amap->am_ref = 0;	/* ... was one */
@@ -681,7 +689,7 @@ ReStart:
 			 */
 			if (pg->pg_flags & PG_BUSY) {
 				atomic_setbits_int(&pg->pg_flags, PG_WANTED);
-				UVM_WAIT(pg, FALSE, "cownow", 0);
+				tsleep_nsec(pg, PVM, "cownow", INFSLP);
 				goto ReStart;
 			}
 

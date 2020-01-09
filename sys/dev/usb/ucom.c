@@ -1,4 +1,4 @@
-/*	$OpenBSD: ucom.c,v 1.67 2018/02/19 08:59:52 mpi Exp $ */
+/*	$OpenBSD: ucom.c,v 1.69 2019/11/12 07:47:30 mpi Exp $ */
 /*	$NetBSD: ucom.c,v 1.49 2003/01/01 00:10:25 thorpej Exp $	*/
 
 /*
@@ -291,7 +291,7 @@ ucom_shutdown(struct ucom_softc *sc)
 	 */
 	if (ISSET(tp->t_cflag, HUPCL)) {
 		ucom_dtr(sc, 0);
-		(void)tsleep(sc, TTIPRI, ttclos, hz);
+		tsleep_nsec(sc, TTIPRI, ttclos, SEC_TO_NSEC(1));
 	}
 }
 
@@ -493,7 +493,7 @@ ucom_do_open(dev_t dev, int flag, int mode, struct proc *p)
 			    !ISSET(tp->t_state, TS_CARR_ON))) {
 				SET(tp->t_state, TS_WOPEN);
 				error = ttysleep(tp, &tp->t_rawq,
-				    TTIPRI | PCATCH, ttopen, 0);
+				    TTIPRI | PCATCH, ttopen);
 
 				if (usbd_is_dying(sc->sc_uparent)) {
 					splx(s);

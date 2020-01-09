@@ -1,4 +1,4 @@
-/*	$OpenBSD: envy.c,v 1.73 2018/09/03 05:37:32 miko Exp $	*/
+/*	$OpenBSD: envy.c,v 1.81 2020/01/05 01:07:58 jsg Exp $	*/
 /*
  * Copyright (c) 2007 Alexandre Ratchov <alex@caoua.org>
  *
@@ -132,6 +132,7 @@ void delta_codec_write(struct envy_softc *, int, int, int);
 
 void ap192k_init(struct envy_softc *);
 void ap192k_codec_write(struct envy_softc *, int, int, int);
+void ap192k_set_rate(struct envy_softc *, int);
 
 void ewx_codec_write(struct envy_softc *, int, int, int);
 
@@ -143,6 +144,7 @@ void dynex_sc51_init(struct envy_softc *);
 
 void julia_init(struct envy_softc *);
 void julia_codec_write(struct envy_softc *, int, int, int);
+void julia_set_rate(struct envy_softc *, int);
 
 void unkenvy_init(struct envy_softc *);
 void unkenvy_codec_write(struct envy_softc *, int, int, int);
@@ -161,6 +163,7 @@ int ak4358_dac_ndev(struct envy_softc *);
 void ak4358_dac_devinfo(struct envy_softc *, struct mixer_devinfo *, int);
 void ak4358_dac_get(struct envy_softc *, struct mixer_ctrl *, int);
 int ak4358_dac_set(struct envy_softc *, struct mixer_ctrl *, int);
+void ak4358_set_rate(struct envy_softc *, int);
 
 int ak5365_adc_ndev(struct envy_softc *);
 void ak5365_adc_devinfo(struct envy_softc *, struct mixer_devinfo *, int);
@@ -214,7 +217,7 @@ struct midi_hw_if envy_midi_hw_if = {
 
 struct pci_matchid envy_matchids[] = {
 	{ PCI_VENDOR_ICENSEMBLE, PCI_PRODUCT_ICENSEMBLE_ICE1712 },
-	{ PCI_VENDOR_ICENSEMBLE, PCI_PRODUCT_ICENSEMBLE_VT172x }
+	{ PCI_VENDOR_ICENSEMBLE, PCI_PRODUCT_ICENSEMBLE_VT172X }
 };
 
 /*
@@ -226,7 +229,9 @@ struct {
 } envy_rates[] = {
 	{ 8000, 0x6}, { 9600, 0x3}, {11025, 0xa}, {12000, 2}, {16000, 5},
 	{22050, 0x9}, {24000, 0x1}, {32000, 0x4}, {44100, 8}, {48000, 0},
-	{64000, 0xf}, {88200, 0xb}, {96000, 0x7}, {-1, -1}
+	{64000, 0xf}, {88200, 0xb}, {96000, 0x7},
+	{176400, 0xc}, {192000, 0xe},
+	{-1, -1}
 };
 
 /*
@@ -237,8 +242,8 @@ static unsigned char julia_eeprom[ENVY_EEPROM_MAXSZ] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x20, 0x80, 0xf8, 0xc3,
 	0x9f, 0xff, 0x7f,
-	0x90, 0xff, 0x7f,
-	0x66, 0x00, 0x00
+	0x60, 0x00, 0x7f,
+	0x0a, 0x00, 0x00
 };
 
 struct envy_codec ak4524_dac = {
@@ -263,14 +268,12 @@ struct envy_card envy_cards[] = {
 		8, &ak4524_adc, 8, &ak4524_dac, 1,
 		delta_init,
 		delta_codec_write,
-		NULL
 	}, {
 		PCI_ID_CODE(0x1412, 0xd632),
 		"M-Audio Delta 66",
 		4, &ak4524_adc, 4, &ak4524_dac, 0,
 		delta_init,
 		delta_codec_write,
-		NULL
 	}, {
 #define ENVY_SUBID_DELTA44	(PCI_ID_CODE(0x1412, 0xd633))
 		PCI_ID_CODE(0x1412, 0xd633),
@@ -278,28 +281,24 @@ struct envy_card envy_cards[] = {
 		4, &ak4524_adc, 4, &ak4524_dac, 0,
 		delta_init,
 		delta_codec_write,
-		NULL
 	}, {
 		PCI_ID_CODE(0x1412, 0xd63b),
 		"M-Audio Delta 1010LT",
 		8, &ak4524_adc, 8, &ak4524_dac, 1,
 		delta_init,
 		delta_codec_write,
-		NULL
 	}, {
 		PCI_ID_CODE(0x1412, 0xd634),
 		"M-Audio Audiophile 2496",
 		2, &ak4524_adc, 2, &ak4524_dac, 1,
 		delta_init,
 		delta_codec_write,
-		NULL
 	}, {
 		PCI_ID_CODE(0x153b, 0x1130),
 		"Terratec EWX 24/96",
 		2, &ak4524_adc, 2, &ak4524_dac, 1,
 		delta_init,
 		ewx_codec_write,
-		NULL
 	}, {
 		0,
 		"unknown 1712-based card",
@@ -314,13 +313,15 @@ struct envy_card envy_cards[] = {
 		2, &unkenvy_codec, 2, &ak4358_dac, 1,
 		julia_init,
 		julia_codec_write,
+		julia_set_rate,
 		julia_eeprom
 	}, {
 		PCI_ID_CODE(0x1412, 0x3632),
 		"M-Audio Audiophile 192k",
 		2, &unkenvy_codec, 2, &ak4358_dac, 1,
 		ap192k_init,
-		ap192k_codec_write
+		ap192k_codec_write,
+		ap192k_set_rate
 	}, {
 		PCI_ID_CODE(0x1412, 0x3631),
 		"M-Audio Revolution 5.1",
@@ -429,10 +430,12 @@ delta_codec_write(struct envy_softc *sc, int dev, int addr, int data)
 #define AP192K_GPIO_DOUT	0x8
 #define AP192K_GPIO_CSMASK	0x30
 #define AP192K_GPIO_CS(dev)	((dev) << 4)
-#define AP192K_GPIO_ADC_PWR	0x800
-#define AP192K_GPIO_ADC_DFSMASK	(3 << 9)
-#define AP192K_GPIO_ADC_DFS(v)	((v) << 9)
-#define AP192K_GPIO_MUTE	0x400000
+
+#define AP192K_AK5385_CKS0	(1 << 8)
+#define AP192K_AK5385_DFS0	(1 << 9)
+#define AP192K_AK5385_DFS1	(1 << 10)
+#define AP192K_AK5385_PWR	(1 << 11)
+#define AP192K_AK5385_SPD_MASK	0x700
 
 void
 ap192k_init(struct envy_softc *sc)
@@ -451,10 +454,9 @@ ap192k_init(struct envy_softc *sc)
 	/* AK5385 */
 	delay(1);
 	reg = envy_gpio_getstate(sc);
-	reg &= ~(AP192K_GPIO_ADC_PWR | AP192K_GPIO_ADC_DFSMASK);
-	reg |= AP192K_GPIO_ADC_DFS(0);
+	reg &= ~(AP192K_AK5385_PWR | AP192K_AK5385_SPD_MASK);
 	envy_gpio_setstate(sc, reg);
-	reg |= AP192K_GPIO_ADC_PWR;
+	reg |= AP192K_AK5385_PWR;
 	envy_gpio_setstate(sc, reg);
 }
 
@@ -485,6 +487,22 @@ ap192k_codec_write(struct envy_softc *sc, int dev, int addr, int data)
 	reg |= AP192K_GPIO_CSMASK;
 	envy_gpio_setstate(sc, reg);
 	delay(1);
+}
+
+void
+ap192k_set_rate(struct envy_softc *sc, int rate)
+{
+	int reg;
+
+	/* set AK5385 clock params */
+	reg = envy_gpio_getstate(sc) & ~(AP192K_AK5385_SPD_MASK);
+	if (rate > 96000)
+		reg |= AP192K_AK5385_CKS0 | AP192K_AK5385_DFS1;
+	else if (rate > 48000)
+		reg |= AP192K_AK5385_DFS0;
+	envy_gpio_setstate(sc, reg);
+
+	ak4358_set_rate(sc, rate);
 }
 
 /*
@@ -666,6 +684,12 @@ dynex_sc51_init(struct envy_softc *sc)
  * ESI Julia specific code
  */
 
+#define JULIA_AK5385_CKS0	(1 << 8)
+#define JULIA_AK5385_DFS1	(1 << 9)
+#define JULIA_AK5385_DFS0	(1 << 10)
+#define JULIA_AK5385_CKS1	(1 << 14)
+#define JULIA_AK5385_MASK	0x4700
+
 void
 julia_init(struct envy_softc *sc)
 {
@@ -684,6 +708,22 @@ julia_codec_write(struct envy_softc *sc, int dev, int addr, int data)
 {
 #define JULIA_AK4358_ADDR	0x11
 	envy_i2c_write(sc, JULIA_AK4358_ADDR, addr, data);
+}
+
+void
+julia_set_rate(struct envy_softc *sc, int rate)
+{
+	int reg;
+
+	/* set AK5385 clock params */
+	reg = envy_gpio_getstate(sc) & ~(JULIA_AK5385_MASK);
+	if (rate > 96000)
+		reg |= JULIA_AK5385_CKS0 | JULIA_AK5385_DFS1;
+	else if (rate > 48000)
+		reg |= JULIA_AK5385_DFS0;
+	envy_gpio_setstate(sc, reg);
+
+	ak4358_set_rate(sc, rate);
 }
 
 /*
@@ -750,6 +790,26 @@ ak4358_dac_set(struct envy_softc *sc, struct mixer_ctrl *ctl, int idx)
 	val = ctl->un.value.level[0] / 2;
 	envy_codec_write(sc, 0, AK4358_ATT(idx), val | AK4358_ATT_EN);
 	return 0;
+}
+
+void
+ak4358_set_rate(struct envy_softc *sc, int rate)
+{
+	int reg;
+
+	reg = AK4358_SPEED_DEFAULT & ~(AK4358_SPEED_DFS0 | AK4358_SPEED_DFS1);
+	if (rate > 96000)
+		reg |= AK4358_SPEED_DFS1;
+	else if (rate > 48000)
+		reg |= AK4358_SPEED_DFS0;
+
+	/* put in reset state */
+	reg &= ~AK4358_SPEED_RSTN;
+	envy_codec_write(sc, 0, AK4358_SPEED, reg);
+
+	/* back in normal state */
+	reg |= AK4358_SPEED_RSTN;
+	envy_codec_write(sc, 0, AK4358_SPEED, reg);
 }
 
 /*
@@ -1663,7 +1723,7 @@ envyattach(struct device *parent, struct device *self, void *aux)
 	sc->ibuf.addr = sc->obuf.addr = NULL;
 	sc->ccs_iosz = 0;
 	sc->mt_iosz = 0;
-	sc->isht = (PCI_PRODUCT(pa->pa_id) == PCI_PRODUCT_ICENSEMBLE_VT172x);
+	sc->isht = (PCI_PRODUCT(pa->pa_id) == PCI_PRODUCT_ICENSEMBLE_VT172X);
 
 	if (pci_mapreg_map(pa, ENVY_CTL_BAR, PCI_MAPREG_TYPE_IO, 0,
 		&sc->ccs_iot, &sc->ccs_ioh, NULL, &sc->ccs_iosz, 0)) {
@@ -1849,7 +1909,13 @@ envy_set_params(void *self, int setmode, int usemode,
 		DPRINTF("%s: play/rec rates mismatch\n", DEVNAME(sc));
 		r->sample_rate = p->sample_rate;
 	}
+
 	rate = (setmode & AUMODE_PLAY) ? p->sample_rate : r->sample_rate;
+
+	/* only HT model supports rates above 96kHz */
+	if (!sc->isht && rate > 96000)
+		rate = 96000;	
+
 	for (i = 0; envy_rates[i].rate < rate; i++) {
 		if (envy_rates[i].rate == -1) {
 			i--;
@@ -1857,10 +1923,24 @@ envy_set_params(void *self, int setmode, int usemode,
 			break;
 		}
 	}
+
+	if (sc->isht) {
+		reg = envy_mt_read_1(sc, ENVY_MT_FMT);
+		if (rate > 96000)
+			reg |= ENVY_MT_FMT_128X;
+		else
+			reg &= ~ENVY_MT_FMT_128X;
+		envy_mt_write_1(sc, ENVY_MT_FMT, reg);
+	}
+
+	if (sc->card->set_rate)
+		sc->card->set_rate(sc, rate);
+
 	reg = envy_mt_read_1(sc, ENVY_MT_RATE);
 	reg &= ~ENVY_MT_RATEMASK;
 	reg |= envy_rates[i].reg;
 	envy_mt_write_1(sc, ENVY_MT_RATE, reg);
+
 	if (setmode & AUMODE_PLAY) {
 		p->sample_rate = envy_rates[i].rate;
 		p->encoding = AUDIO_ENCODING_SLINEAR_LE;
@@ -2138,7 +2218,8 @@ envy_halt_output(void *self)
 	mtx_enter(&audio_lock);
 	sc->oactive = 0;
 	if (sc->obusy) {
-		err = msleep(&sc->obusy, &audio_lock, PWAIT, "envyobus", 4 * hz);
+		err = msleep_nsec(&sc->obusy, &audio_lock, PWAIT, "envyobus",
+		    SEC_TO_NSEC(4));
 		if (err)
 			printf("%s: output DMA halt timeout\n", DEVNAME(sc));
 	}
@@ -2159,7 +2240,8 @@ envy_halt_input(void *self)
 	mtx_enter(&audio_lock);
 	sc->iactive = 0;
 	if (sc->ibusy) {
-		err = msleep(&sc->ibusy, &audio_lock, PWAIT, "envyibus", 4 * hz); 
+		err = msleep_nsec(&sc->ibusy, &audio_lock, PWAIT, "envyibus",
+		    SEC_TO_NSEC(4));
 		if (err)
 			printf("%s: input DMA halt timeout\n", DEVNAME(sc));
 	}
@@ -2408,7 +2490,7 @@ envy_midi_close(void *self)
 	unsigned int reg;
 
 	/* wait for output fifo to drain */
-	tsleep(sc, PWAIT, "envymid", hz / 10);
+	tsleep_nsec(sc, PWAIT, "envymid", MSEC_TO_NSEC(100));
 
 	/* disable interrupts */
 	reg = envy_ccs_read(sc, ENVY_CCS_INTMASK);

@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vnops.c,v 1.52 2018/07/18 10:47:02 helg Exp $ */
+/* $OpenBSD: fuse_vnops.c,v 1.56 2019/12/31 13:48:32 visa Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -110,12 +110,26 @@ struct vops fusefs_vops = {
 	.vop_advlock	= fusefs_advlock,
 };
 
-struct filterops fusefsread_filtops =
-	{ 1, NULL, filt_fusefsdetach, filt_fusefsread };
-struct filterops fusefswrite_filtops =
-	{ 1, NULL, filt_fusefsdetach, filt_fusefswrite };
-struct filterops fusefsvnode_filtops =
-	{ 1, NULL, filt_fusefsdetach, filt_fusefsvnode };
+const struct filterops fusefsread_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_fusefsdetach,
+	.f_event	= filt_fusefsread,
+};
+
+const struct filterops fusefswrite_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_fusefsdetach,
+	.f_event	= filt_fusefswrite,
+};
+
+const struct filterops fusefsvnode_filtops = {
+	.f_isfd		= 1,
+	.f_attach	= NULL,
+	.f_detach	= filt_fusefsdetach,
+	.f_event	= filt_fusefsvnode,
+};
 
 int
 fusefs_kqfilter(void *v)
@@ -168,7 +182,7 @@ filt_fusefsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-	kn->kn_data = ip->filesize - kn->kn_fp->f_offset;
+	kn->kn_data = ip->filesize - foffset(kn->kn_fp);
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);

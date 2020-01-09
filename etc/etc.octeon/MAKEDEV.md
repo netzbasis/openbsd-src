@@ -1,6 +1,6 @@
 define(MACHINE,octeon)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.13 2016/09/04 15:38:59 naddy Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.15 2019/12/17 13:08:56 reyk Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -65,6 +65,8 @@ _TITLE(usb)
 _DEV(ttyU, 66)
 _DEV(uall)
 _DEV(usb, 61)
+_DEV(uhid, 62)
+_DEV(fido, 76)
 _TITLE(spec)
 _DEV(au, 44)
 _DEV(bio, 49)
@@ -86,6 +88,10 @@ _DEV(switch, 75)
 dnl
 divert(__mddivert)dnl
 dnl
+boot)
+	_recurse ramdisk random
+	M octboot	c 21 0 600
+	;;
 _std(2, 3, 35, 6)
 	M openprom	c 20 0 600
 	;;

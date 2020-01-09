@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ixl.c,v 1.18 2019/01/29 01:41:29 dlg Exp $ */
+/*	$OpenBSD: if_ixl.c,v 1.46 2019/11/19 03:33:43 yasuoka Exp $ */
 
 /*
  * Copyright (c) 2013-2015, Intel Corporation
@@ -51,6 +51,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/proc.h>
 #include <sys/sockio.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
@@ -60,6 +61,7 @@
 #include <sys/queue.h>
 #include <sys/timeout.h>
 #include <sys/task.h>
+#include <sys/syslog.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -168,6 +170,8 @@ struct ixl_aq_desc {
 #define IXL_AQ_OP_PHY_RESTART_AN	0x0605
 #define IXL_AQ_OP_PHY_LINK_STATUS	0x0607
 #define IXL_AQ_OP_PHY_SET_EVENT_MASK	0x0613
+#define IXL_AQ_OP_PHY_SET_REGISTER	0x0628
+#define IXL_AQ_OP_PHY_GET_REGISTER	0x0629
 #define IXL_AQ_OP_LLDP_GET_MIB		0x0a00
 #define IXL_AQ_OP_LLDP_MIB_CHG_EV	0x0a01
 #define IXL_AQ_OP_LLDP_ADD_TLV		0x0a02
@@ -315,12 +319,12 @@ struct ixl_aq_phy_abilities {
 	uint32_t	phy_type;
 
 	uint8_t		link_speed;
-#define IXL_AQ_PHY_LINK_SPEED_100MB	0x1
-#define IXL_AQ_PHY_LINK_SPEED_1000MB	0x2
-#define IXL_AQ_PHY_LINK_SPEED_10GB	0x3
-#define IXL_AQ_PHY_LINK_SPEED_40GB	0x4
-#define IXL_AQ_PHY_LINK_SPEED_20GB	0x5
-#define IXL_AQ_PHY_LINK_SPEED_25GB	0x6
+#define IXL_AQ_PHY_LINK_SPEED_100MB	(1 << 1)
+#define IXL_AQ_PHY_LINK_SPEED_1000MB	(1 << 2)
+#define IXL_AQ_PHY_LINK_SPEED_10GB	(1 << 3)
+#define IXL_AQ_PHY_LINK_SPEED_40GB	(1 << 4)
+#define IXL_AQ_PHY_LINK_SPEED_20GB	(1 << 5)
+#define IXL_AQ_PHY_LINK_SPEED_25GB	(1 << 6)
 	uint8_t		abilities;
 	uint16_t	eee_capability;
 
@@ -345,6 +349,10 @@ struct ixl_aq_phy_abilities {
 	uint8_t		phy_id[4];
 
 	uint8_t		module_type[3];
+#define IXL_SFF8024_ID_SFP		0x03
+#define IXL_SFF8024_ID_QSFP		0x0c
+#define IXL_SFF8024_ID_QSFP_PLUS	0x0d
+#define IXL_SFF8024_ID_QSFP28		0x11
 	uint8_t		qualified_module_count;
 #define IXL_AQ_PHY_MAX_QMS		16
 	struct ixl_aq_module_desc
@@ -594,6 +602,20 @@ struct ixl_aq_veb_reply {
 #define IXL_AQ_PHY_REPORT_QUAL		(1 << 0)
 #define IXL_AQ_PHY_REPORT_INIT		(1 << 1)
 
+struct ixl_aq_phy_reg_access {
+	uint8_t		phy_iface;
+#define IXL_AQ_PHY_IF_INTERNAL		0
+#define IXL_AQ_PHY_IF_EXTERNAL		1
+#define IXL_AQ_PHY_IF_MODULE		2
+	uint8_t		dev_addr;
+	uint16_t	recall;
+#define IXL_AQ_PHY_QSFP_DEV_ADDR	0
+#define IXL_AQ_PHY_QSFP_LAST		1
+	uint32_t	reg;
+	uint32_t	val;
+	uint32_t	_reserved2;
+} __packed __aligned(16);
+
 /* RESTART_AN param[0] */
 #define IXL_AQ_PHY_RESTART_AN		(1 << 1)
 #define IXL_AQ_PHY_LINK_ENABLE		(1 << 2)
@@ -607,6 +629,10 @@ struct ixl_aq_link_status { /* this occupies the iaq_param space */
 #define IXL_AQ_LSE_IS_ENABLED		0x1 /* only set in response */
 	uint8_t		phy_type;
 	uint8_t		link_speed;
+#define IXL_AQ_LINK_SPEED_1GB		(1 << 2)
+#define IXL_AQ_LINK_SPEED_10GB		(1 << 3)
+#define IXL_AQ_LINK_SPEED_40GB		(1 << 4)
+#define IXL_AQ_LINK_SPEED_25GB		(1 << 6)
 	uint8_t		link_info;
 #define IXL_AQ_LINK_UP_FUNCTION		0x01
 #define IXL_AQ_LINK_FAULT		0x02
@@ -1060,7 +1086,6 @@ struct ixl_rx_ring {
 };
 
 struct ixl_atq {
-	SIMPLEQ_ENTRY(ixl_atq)	  iatq_entry;
 	struct ixl_aq_desc	  iatq_desc;
 	void			 *iatq_arg;
 	void			(*iatq_fn)(struct ixl_softc *, void *);
@@ -1117,11 +1142,16 @@ struct ixl_softc {
 	struct ixl_dmamem	 sc_hmc_pd;
 	struct ixl_hmc_entry	 sc_hmc_entries[IXL_HMC_COUNT];
 
-	unsigned int		 sc_nrings;
-
 	unsigned int		 sc_tx_ring_ndescs;
 	unsigned int		 sc_rx_ring_ndescs;
 	unsigned int		 sc_nqueues;	/* 1 << sc_nqueues */
+
+	struct rwlock		 sc_cfg_lock;
+	unsigned int		 sc_dead;
+
+	struct rwlock		 sc_sff_lock;
+
+	uint8_t			 sc_enaddr[ETHER_ADDR_LEN];
 };
 #define DEVNAME(_sc) ((_sc)->sc_dev.dv_xname)
 
@@ -1151,7 +1181,7 @@ static int	ixl_lldp_shut(struct ixl_softc *);
 static int	ixl_get_mac(struct ixl_softc *);
 static int	ixl_get_switch_config(struct ixl_softc *);
 static int	ixl_phy_mask_ints(struct ixl_softc *);
-static int	ixl_get_phy_abilities(struct ixl_softc *, uint64_t *);
+static int	ixl_get_phy_types(struct ixl_softc *, uint64_t *);
 static int	ixl_restart_an(struct ixl_softc *);
 static int	ixl_hmc(struct ixl_softc *);
 static void	ixl_hmc_free(struct ixl_softc *);
@@ -1168,6 +1198,12 @@ static void	ixl_link_state_update(void *);
 static void	ixl_arq(void *);
 static void	ixl_hmc_pack(void *, const void *,
 		    const struct ixl_hmc_pack *, unsigned int);
+
+static int	ixl_get_sffpage(struct ixl_softc *, struct if_sffpage *);
+static int	ixl_sff_get_byte(struct ixl_softc *, uint8_t, uint32_t,
+		    uint8_t *);
+static int	ixl_sff_set_byte(struct ixl_softc *, uint8_t, uint32_t,
+		    uint8_t);
 
 static int	ixl_match(struct device *, void *, void *);
 static void	ixl_attach(struct device *, struct device *, void *);
@@ -1257,12 +1293,10 @@ static const struct ixl_phy_type ixl_phy_type_map[] = {
 };
 
 static const struct ixl_speed_type ixl_speed_type_map[] = {
-	{ IXL_AQ_PHY_LINK_SPEED_40GB,		IF_Gbps(40) },
-	{ IXL_AQ_PHY_LINK_SPEED_25GB,		IF_Gbps(25) },
-	{ IXL_AQ_PHY_LINK_SPEED_20GB,		IF_Gbps(20) },
-	{ IXL_AQ_PHY_LINK_SPEED_10GB,		IF_Gbps(10) },
-	{ IXL_AQ_PHY_LINK_SPEED_1000MB,		IF_Mbps(1000) },
-	{ IXL_AQ_PHY_LINK_SPEED_100MB,		IF_Mbps(100) },
+	{ IXL_AQ_LINK_SPEED_40GB,		IF_Gbps(40) },
+	{ IXL_AQ_LINK_SPEED_25GB,		IF_Gbps(25) },
+	{ IXL_AQ_LINK_SPEED_10GB,		IF_Gbps(10) },
+	{ IXL_AQ_LINK_SPEED_1GB,		IF_Gbps(1) },
 };
 
 static const struct ixl_aq_regs ixl_pf_aq_regs = {
@@ -1284,28 +1318,6 @@ static const struct ixl_aq_regs ixl_pf_aq_regs = {
 	.arq_bah	= I40E_PF_ARQBAH,
 	.arq_len_enable	= I40E_PF_ARQLEN_ARQENABLE_MASK,
 };
-
-#ifdef notyet
-static const struct ixl_aq_regs ixl_vf_aq_regs = {
-	.atq_tail	= I40E_VF_ATQT1,
-	.atq_tail_mask	= I40E_VF_ATQT1_ATQT_MASK;
-	.atq_head	= I40E_VF_ATQH1,
-	.atq_head_mask	= I40E_VF_ARQH1_ARQH_MASK;
-	.atq_len	= I40E_VF_ATQLEN1,
-	.atq_bal	= I40E_VF_ATQBAL1,
-	.atq_bah	= I40E_VF_ATQBAH1,
-	.atq_len_enable	= I40E_VF_ATQLEN1_ATQENABLE_MASK,
-
-	.arq_tail	= I40E_VF_ARQT1,
-	.arq_tail_mask	= I40E_VF_ARQT1_ARQT_MASK;
-	.arq_head	= I40E_VF_ARQH1,
-	.arq_head_mask	= I40E_VF_ARQH1_ARQH_MASK;
-	.arq_len	= I40E_VF_ARQLEN1,
-	.arq_bal	= I40E_VF_ARQBAL1,
-	.arq_bah	= I40E_VF_ARQBAH1,
-	.arq_len_enable	= I40E_VF_ARQLEN1_ARQENABLE_MASK,
-};
-#endif
 
 #define ixl_rd(_s, _r) \
 	bus_space_read_4((_s)->sc_memt, (_s)->sc_memh, (_r))
@@ -1345,11 +1357,9 @@ ixl_aq_dva(struct ixl_aq_desc *iaq, bus_addr_t addr)
 #define HTOLE16(_x)	(_x)
 #endif
 
+static struct rwlock ixl_sff_lock = RWLOCK_INITIALIZER("ixlsff");
+
 static const struct pci_matchid ixl_devices[] = {
-#ifdef notyet
-	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_XL710_VF },
-	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_XL710_VF_HV },
-#endif
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X710_10G_SFP },
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_XL710_40G_BP },
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X710_10G_BP },
@@ -1362,6 +1372,12 @@ static const struct pci_matchid ixl_devices[] = {
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X710_T4_10G },
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_XXV710_25G_BP },
 	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_XXV710_25G_SFP28 },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_10G_KX },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_10G_QSFP },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_10G_SFP_1 },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_1G },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_10G_T },
+	{ PCI_VENDOR_INTEL,	PCI_PRODUCT_INTEL_X722_10G_SFP_2 },
 };
 
 static int
@@ -1381,17 +1397,19 @@ ixl_attach(struct device *parent, struct device *self, void *aux)
 	uint64_t phy_types = 0;
 	int tries;
 
+	rw_init(&sc->sc_cfg_lock, "ixlcfg");
+
 	sc->sc_pc = pa->pa_pc;
 	sc->sc_tag = pa->pa_tag;
 	sc->sc_dmat = pa->pa_dmat;
-	sc->sc_aq_regs = &ixl_pf_aq_regs; /* VF? */
+	sc->sc_aq_regs = &ixl_pf_aq_regs;
 
 	sc->sc_nqueues = 0; /* 1 << 0 is 1 queue */
 	sc->sc_tx_ring_ndescs = 1024;
 	sc->sc_rx_ring_ndescs = 1024;
 
 	memtype = pci_mapreg_type(sc->sc_pc, sc->sc_tag, IXL_PCIREG);
-	if (pci_mapreg_map(pa, IXL_PCIREG, memtype, BUS_SPACE_MAP_PREFETCHABLE,
+	if (pci_mapreg_map(pa, IXL_PCIREG, memtype, 0,
 	    &sc->sc_memt, &sc->sc_memh, NULL, &sc->sc_mems, 0)) {
 		printf(": unable to map registers\n");
 		return;
@@ -1402,7 +1420,6 @@ ixl_attach(struct device *parent, struct device *self, void *aux)
 	    I40E_PFLAN_QALLOC_FIRSTQ_SHIFT;
 
 	ixl_clear_hw(sc);
-
 	if (ixl_pf_reset(sc) == -1) {
 		/* error printed by ixl_pf_reset */
 		goto unmap;
@@ -1418,9 +1435,6 @@ ixl_attach(struct device *parent, struct device *self, void *aux)
 	ari >>= I40E_GLPCI_CAPSUP_ARI_EN_SHIFT;
 
 	func = ixl_rd(sc, I40E_PF_FUNC_RID);
-	func &= I40E_GLPCI_CAPSUP_ARI_EN_MASK;
-	func >>= I40E_GLPCI_CAPSUP_ARI_EN_SHIFT;
-
 	sc->sc_pf_id = func & (ari ? 0xff : 0x7);
 
 	/* initialise the adminq */
@@ -1544,7 +1558,7 @@ ixl_attach(struct device *parent, struct device *self, void *aux)
 		goto free_hmc;
 	}
 
-	if (ixl_get_phy_abilities(sc, &phy_types) != 0) {
+	if (ixl_get_phy_types(sc, &phy_types) != 0) {
 		/* error printed by ixl_get_phy_abilities */
 		goto free_hmc;
 	}
@@ -1622,6 +1636,7 @@ ixl_attach(struct device *parent, struct device *self, void *aux)
 	    IXL_AQ_OP_ADD_MACVLAN_IGNORE_VLAN);
 	ixl_add_macvlan(sc, etherbroadcastaddr, 0,
 	    IXL_AQ_OP_ADD_MACVLAN_IGNORE_VLAN);
+	memcpy(sc->sc_enaddr, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN);
 
 	ixl_intr_enable(sc);
 
@@ -1771,6 +1786,15 @@ ixl_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		break;
 
+	case SIOCGIFSFFPAGE:
+		error = rw_enter(&ixl_sff_lock, RW_WRITE|RW_INTR);
+		if (error != 0)
+			break;
+
+		error = ixl_get_sffpage(sc, (struct if_sffpage *)data);
+		rw_exit(&ixl_sff_lock);
+		break;
+
 	default:
 		error = ether_ioctl(ifp, &sc->sc_ac, cmd, data);
 		break;
@@ -1817,6 +1841,12 @@ ixl_up(struct ixl_softc *sc)
 
 	nqueues = ixl_nqueues(sc);
 	KASSERT(nqueues == 1); /* XXX */
+
+	rw_enter_write(&sc->sc_cfg_lock);
+	if (sc->sc_dead) {
+		rw_exit_write(&sc->sc_cfg_lock);
+		return (ENXIO);
+	}
 
 	/* allocation is the only thing that can fail, so do it up front */
 	for (i = 0; i < nqueues; i++) {
@@ -1897,6 +1927,8 @@ ixl_up(struct ixl_softc *sc)
 	ixl_wr(sc, I40E_PFINT_ITR0(1), 0x7a);
 	ixl_wr(sc, I40E_PFINT_ITR0(2), 0);
 
+	rw_exit_write(&sc->sc_cfg_lock);
+
 	return (ENETRESET);
 
 free:
@@ -1915,8 +1947,10 @@ free:
 		ixl_txr_free(sc, txr);
 		ixl_rxr_free(sc, rxr);
 	}
+	rw_exit_write(&sc->sc_cfg_lock);
 	return (rv);
 down:
+	rw_exit_write(&sc->sc_cfg_lock);
 	ixl_down(sc);
 	return (ETIMEDOUT);
 }
@@ -1941,7 +1975,6 @@ ixl_iff(struct ixl_softc *sc)
 	param->flags = htole16(IXL_AQ_VSI_PROMISC_FLAG_BCAST |
 	    IXL_AQ_VSI_PROMISC_FLAG_VLAN);
 	if (ISSET(ifp->if_flags, IFF_PROMISC)) {
-		SET(ifp->if_flags, IFF_ALLMULTI);
 		param->flags |= htole16(IXL_AQ_VSI_PROMISC_FLAG_UCAST |
 		    IXL_AQ_VSI_PROMISC_FLAG_MCAST);
 	} else if (ISSET(ifp->if_flags, IFF_ALLMULTI)) {
@@ -1957,6 +1990,13 @@ ixl_iff(struct ixl_softc *sc)
 	if (iaq->iaq_retval != htole16(IXL_AQ_RC_OK))
 		return (EIO);
 
+	if (memcmp(sc->sc_enaddr, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN) != 0) {
+		ixl_remove_macvlan(sc, sc->sc_enaddr, 0,
+		    IXL_AQ_OP_REMOVE_MACVLAN_IGNORE_VLAN);
+		ixl_add_macvlan(sc, sc->sc_ac.ac_enaddr, 0,
+		    IXL_AQ_OP_ADD_MACVLAN_IGNORE_VLAN);
+		memcpy(sc->sc_enaddr, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN);
+	}
 	return (0);
 }
 
@@ -1972,7 +2012,11 @@ ixl_down(struct ixl_softc *sc)
 
 	nqueues = ixl_nqueues(sc);
 
+	rw_enter_write(&sc->sc_cfg_lock);
+
 	CLR(ifp->if_flags, IFF_RUNNING);
+
+	NET_UNLOCK();
 
 	/* mask interrupts */
 	reg = ixl_rd(sc, I40E_QINT_RQCTL(I40E_INTR_NOTX_QUEUE));
@@ -1993,11 +2037,9 @@ ixl_down(struct ixl_softc *sc)
 
 		ixl_txr_qdis(sc, txr, 0);
 
-		ifiq_barrier(ifp->if_iqs[i]);
 		ifq_barrier(ifp->if_ifqs[i]);
 
-		if (!timeout_del(&rxr->rxr_refill))
-			timeout_barrier(&rxr->rxr_refill);
+		timeout_del_barrier(&rxr->rxr_refill);
 	}
 
 	/* XXX wait at least 400 usec for all tx queues in one go */
@@ -2021,15 +2063,10 @@ ixl_down(struct ixl_softc *sc)
 		txr = ifp->if_ifqs[i]->ifq_softc;
 
 		if (ixl_txr_disabled(sc, txr) != 0)
-			error = ETIMEDOUT;
+			goto die;
 
 		if (ixl_rxr_disabled(sc, rxr) != 0)
-			error = ETIMEDOUT;
-	}
-
-	if (error) {
-		printf("%s: failed to shut down rings\n", DEVNAME(sc));
-		return (error);
+			goto die;
 	}
 
 	for (i = 0; i < nqueues; i++) {
@@ -2049,7 +2086,15 @@ ixl_down(struct ixl_softc *sc)
 		ifp->if_ifqs[i]->ifq_softc =  NULL;
 	}
 
-	return (0);
+out:
+	rw_exit_write(&sc->sc_cfg_lock);
+	NET_LOCK();
+	return (error);
+die:
+	sc->sc_dead = 1;
+	log(LOG_CRIT, "%s: failed to shut down rings", DEVNAME(sc));
+	error = ETIMEDOUT;
+	goto out;
 }
 
 static struct ixl_tx_ring *
@@ -2249,7 +2294,11 @@ ixl_load_mbuf(bus_dma_tag_t dmat, bus_dmamap_t map, struct mbuf *m)
 
 	error = bus_dmamap_load_mbuf(dmat, map, m,
 	    BUS_DMA_STREAMING | BUS_DMA_NOWAIT);
-	if (error != EFBIG || m_defrag(m, M_DONTWAIT) != 0)
+	if (error != EFBIG)
+		return (error);
+
+	error = m_defrag(m, M_DONTWAIT);
+	if (error != 0)
 		return (error);
 
 	return (bus_dmamap_load_mbuf(dmat, map, m,
@@ -2305,6 +2354,7 @@ ixl_start(struct ifqueue *ifq)
 		map = txm->txm_map;
 
 		if (ixl_load_mbuf(sc->sc_dmat, map, m) != 0) {
+			ifq->ifq_errors++;
 			m_freem(m);
 			continue;
 		}
@@ -2485,8 +2535,7 @@ ixl_rxr_clean(struct ixl_softc *sc, struct ixl_rx_ring *rxr)
 	bus_dmamap_t map;
 	unsigned int i;
 
-	if (!timeout_del(&rxr->rxr_refill))
-		timeout_barrier(&rxr->rxr_refill);
+	timeout_del_barrier(&rxr->rxr_refill);
 
 	maps = rxr->rxr_maps;
 	for (i = 0; i < sc->sc_rx_ring_ndescs; i++) {
@@ -2622,6 +2671,9 @@ ixl_rxeof(struct ixl_softc *sc, struct ifiqueue *ifiq)
 	unsigned int mask;
 	int done = 0;
 
+	if (!ISSET(ifp->if_flags, IFF_RUNNING))
+		return (0);
+
 	prod = rxr->rxr_prod;
 	cons = rxr->rxr_cons;
 
@@ -2686,8 +2738,9 @@ ixl_rxeof(struct ixl_softc *sc, struct ifiqueue *ifiq)
 
 	if (done) {
 		rxr->rxr_cons = cons;
+		if (ifiq_input(ifiq, &ml))
+			if_rxr_livelocked(&rxr->rxr_acct);
 		ixl_rxfill(sc, rxr);
-		if_input(ifp, &ml);
 	}
 
 	bus_dmamap_sync(sc->sc_dmat, IXL_DMA_MAP(&rxr->rxr_mem),
@@ -2724,8 +2777,8 @@ ixl_rxfill(struct ixl_softc *sc, struct ixl_rx_ring *rxr)
 		m = MCLGETI(NULL, M_DONTWAIT, NULL, MCLBYTES + ETHER_ALIGN);
 		if (m == NULL)
 			break;
+		m->m_data += (m->m_ext.ext_size - (MCLBYTES + ETHER_ALIGN));
 		m->m_len = m->m_pkthdr.len = MCLBYTES + ETHER_ALIGN;
-		m_adj(m, ETHER_ALIGN);
 
 		map = rxm->rxm_map;
 
@@ -2908,6 +2961,7 @@ ixl_arq(void *xsc)
 		iaq = &arq[cons];
 
 		aqb = SIMPLEQ_FIRST(&sc->sc_arq_live);
+		SIMPLEQ_REMOVE_HEAD(&sc->sc_arq_live, aqb_entry);
 		bus_dmamap_sync(sc->sc_dmat, aqb->aqb_map, 0, IXL_AQ_BUFLEN,
 		    BUS_DMASYNC_POSTREAD);
 
@@ -2978,7 +3032,6 @@ ixl_atq_post(struct ixl_softc *sc, struct ixl_atq *iatq)
 static void
 ixl_atq_done(struct ixl_softc *sc)
 {
-	struct ixl_atq_list cmds = SIMPLEQ_HEAD_INITIALIZER(cmds);
 	struct ixl_aq_desc *atq, *slot;
 	struct ixl_atq *iatq;
 	unsigned int cons;
@@ -2998,12 +3051,15 @@ ixl_atq_done(struct ixl_softc *sc)
 
 	do {
 		slot = &atq[cons];
+		if (!ISSET(slot->iaq_flags, htole16(IXL_AQ_DD)))
+			break;
 
 		iatq = (struct ixl_atq *)slot->iaq_cookie;
 		iatq->iatq_desc = *slot;
-		SIMPLEQ_INSERT_TAIL(&cmds, iatq, iatq_entry);
 
 		memset(slot, 0, sizeof(*slot));
+
+		(*iatq->iatq_fn)(sc, iatq->iatq_arg);
 
 		cons++;
 		cons &= IXL_AQ_MASK;
@@ -3014,49 +3070,27 @@ ixl_atq_done(struct ixl_softc *sc)
 	    BUS_DMASYNC_PREREAD|BUS_DMASYNC_PREWRITE);
 
 	sc->sc_atq_cons = cons;
-
-	while ((iatq = SIMPLEQ_FIRST(&cmds)) != NULL) {
-		SIMPLEQ_REMOVE_HEAD(&cmds, iatq_entry);
-
-		(*iatq->iatq_fn)(sc, iatq->iatq_arg);
-	}
 }
-
-struct ixl_wakeup {
-	struct mutex mtx;
-	int notdone;
-};
 
 static void
 ixl_wakeup(struct ixl_softc *sc, void *arg)
 {
-	struct ixl_wakeup *wake = arg;
+	struct cond *c = arg;
 
-	mtx_enter(&wake->mtx);
-	wake->notdone = 0;
-	mtx_leave(&wake->mtx);
-
-	wakeup(wake);
+	cond_signal(c);
 }
 
 static void
 ixl_atq_exec(struct ixl_softc *sc, struct ixl_atq *iatq, const char *wmesg)
 {
-	struct ixl_wakeup wake = { MUTEX_INITIALIZER(IPL_NET), 1 };
+	struct cond c = COND_INITIALIZER(); 
 
 	KASSERT(iatq->iatq_desc.iaq_cookie == 0);
 
-	ixl_atq_set(iatq, ixl_wakeup, &wake);
+	ixl_atq_set(iatq, ixl_wakeup, &c);
 	ixl_atq_post(sc, iatq);
 
-	mtx_enter(&wake.mtx);
-	while (wake.notdone) {
-		mtx_leave(&wake.mtx);
-		ixl_atq_done(sc);
-		mtx_enter(&wake.mtx);
-		msleep(&wake, &wake.mtx, 0, wmesg, 1);
-	}
-	mtx_leave(&wake.mtx);
+	cond_wait(&c, wmesg);
 }
 
 static int
@@ -3340,10 +3374,37 @@ ixl_phy_mask_ints(struct ixl_softc *sc)
 }
 
 static int
-ixl_get_phy_abilities(struct ixl_softc *sc, uint64_t *phy_types_ptr)
+ixl_get_phy_abilities(struct ixl_softc *sc,struct ixl_dmamem *idm)
+{
+	struct ixl_aq_desc iaq;
+	int rv;
+
+	memset(&iaq, 0, sizeof(iaq));
+	iaq.iaq_flags = htole16(IXL_AQ_BUF |
+	    (IXL_DMA_LEN(idm) > I40E_AQ_LARGE_BUF ? IXL_AQ_LB : 0));
+	iaq.iaq_opcode = htole16(IXL_AQ_OP_PHY_GET_ABILITIES);
+	htolem16(&iaq.iaq_datalen, IXL_DMA_LEN(idm));
+	iaq.iaq_param[0] = htole32(IXL_AQ_PHY_REPORT_INIT);
+	ixl_aq_dva(&iaq, IXL_DMA_DVA(idm));
+
+	bus_dmamap_sync(sc->sc_dmat, IXL_DMA_MAP(idm), 0, IXL_DMA_LEN(idm),
+	    BUS_DMASYNC_PREREAD);
+
+	rv = ixl_atq_poll(sc, &iaq, 250);
+
+	bus_dmamap_sync(sc->sc_dmat, IXL_DMA_MAP(idm), 0, IXL_DMA_LEN(idm),
+	    BUS_DMASYNC_POSTREAD);
+
+	if (rv != 0)
+		return (-1);
+
+	return (lemtoh16(&iaq.iaq_retval));
+}
+
+static int
+ixl_get_phy_types(struct ixl_softc *sc, uint64_t *phy_types_ptr)
 {
 	struct ixl_dmamem idm;
-	struct ixl_aq_desc iaq;
 	struct ixl_aq_phy_abilities *phy;
 	uint64_t phy_types;
 	int rv;
@@ -3354,37 +3415,18 @@ ixl_get_phy_abilities(struct ixl_softc *sc, uint64_t *phy_types_ptr)
 		return (-1);
 	}
 
-	memset(&iaq, 0, sizeof(iaq));
-	iaq.iaq_flags = htole16(IXL_AQ_BUF |
-	    (IXL_AQ_BUFLEN > I40E_AQ_LARGE_BUF ? IXL_AQ_LB : 0));
-	iaq.iaq_opcode = htole16(IXL_AQ_OP_PHY_GET_ABILITIES);
-	iaq.iaq_datalen = htole16(IXL_AQ_BUFLEN);
-	iaq.iaq_param[0] = htole32(IXL_AQ_PHY_REPORT_INIT);
-	ixl_aq_dva(&iaq, IXL_DMA_DVA(&idm));
-
-	bus_dmamap_sync(sc->sc_dmat, IXL_DMA_MAP(&idm), 0, IXL_DMA_LEN(&idm),
-	    BUS_DMASYNC_PREREAD);
-
-	rv = ixl_atq_poll(sc, &iaq, 250);
-
-	bus_dmamap_sync(sc->sc_dmat, IXL_DMA_MAP(&idm), 0, IXL_DMA_LEN(&idm),
-	    BUS_DMASYNC_POSTREAD);
-
-	if (rv != 0) {
+	rv = ixl_get_phy_abilities(sc, &idm);
+	switch (rv) {
+	case -1:
 		printf("%s: GET PHY ABILITIES timeout\n", DEVNAME(sc));
-		rv = -1;
 		goto done;
-	}
-	switch (iaq.iaq_retval) {
-	case HTOLE16(IXL_AQ_RC_OK):
+	case IXL_AQ_RC_OK:
 		break;
-	case HTOLE16(IXL_AQ_RC_EIO):
+	case IXL_AQ_RC_EIO:
 		printf("%s: unable to query phy types\n", DEVNAME(sc));
-		rv = 0;
-		goto done;
+		break;
 	default:
-		printf("%s: GET PHY ABILITIIES error\n", DEVNAME(sc));
-		rv = -1;
+		printf("%s: GET PHY ABILITIIES error %u\n", DEVNAME(sc), rv);
 		goto done;
 	}
 
@@ -3396,6 +3438,32 @@ ixl_get_phy_abilities(struct ixl_softc *sc, uint64_t *phy_types_ptr)
 	*phy_types_ptr = phy_types;
 
 	rv = 0;
+
+done:
+	ixl_dmamem_free(sc, &idm);
+	return (rv);
+}
+
+/* this returns -1 on failure, or the sff module type */
+static int
+ixl_get_module_type(struct ixl_softc *sc)
+{
+	struct ixl_dmamem idm;
+	struct ixl_aq_phy_abilities *phy;
+	int rv;
+
+	if (ixl_dmamem_alloc(sc, &idm, IXL_AQ_BUFLEN, 0) != 0)
+		return (-1);
+
+	rv = ixl_get_phy_abilities(sc, &idm);
+	if (rv != IXL_AQ_RC_OK) {
+		rv = -1;
+		goto done;
+	}
+
+	phy = IXL_DMA_KVA(&idm);
+
+	rv = phy->module_type[0];
 
 done:
 	ixl_dmamem_free(sc, &idm);
@@ -3423,6 +3491,208 @@ ixl_get_link_status(struct ixl_softc *sc)
 	}
 
 	sc->sc_ac.ac_if.if_link_state = ixl_set_link_status(sc, &iaq);
+
+	return (0);
+}
+
+struct ixl_sff_ops {
+	int (*open)(struct ixl_softc *sc, struct if_sffpage *, uint8_t *);
+	int (*get)(struct ixl_softc *sc, struct if_sffpage *, size_t);
+	int (*close)(struct ixl_softc *sc, struct if_sffpage *, uint8_t);
+};
+
+static int
+ixl_sfp_open(struct ixl_softc *sc, struct if_sffpage *sff, uint8_t *page)
+{
+	int error;
+
+	if (sff->sff_addr != IFSFF_ADDR_EEPROM)
+		return (0);
+
+	error = ixl_sff_get_byte(sc, IFSFF_ADDR_EEPROM, 127, page);
+	if (error != 0)
+		return (error);
+	if (*page == sff->sff_page)
+		return (0);
+	error = ixl_sff_set_byte(sc, IFSFF_ADDR_EEPROM, 127, sff->sff_page);
+	if (error != 0)
+		return (error);
+
+	return (0);
+}
+
+static int
+ixl_sfp_get(struct ixl_softc *sc, struct if_sffpage *sff, size_t i)
+{
+	return (ixl_sff_get_byte(sc, sff->sff_addr, i, &sff->sff_data[i]));
+}
+
+static int
+ixl_sfp_close(struct ixl_softc *sc, struct if_sffpage *sff, uint8_t page)
+{
+	int error;
+
+	if (sff->sff_addr != IFSFF_ADDR_EEPROM)
+		return (0);
+
+	if (page == sff->sff_page)
+		return (0);
+
+	error = ixl_sff_set_byte(sc, IFSFF_ADDR_EEPROM, 127, page);
+	if (error != 0)
+		return (error);
+
+	return (0);
+}
+
+static const struct ixl_sff_ops ixl_sfp_ops = {
+	ixl_sfp_open,
+	ixl_sfp_get,
+	ixl_sfp_close,
+};
+
+static int
+ixl_qsfp_open(struct ixl_softc *sc, struct if_sffpage *sff, uint8_t *page)
+{
+	if (sff->sff_addr != IFSFF_ADDR_EEPROM)
+		return (EIO);
+
+	return (0);
+}
+
+static int
+ixl_qsfp_get(struct ixl_softc *sc, struct if_sffpage *sff, size_t i)
+{
+	return (ixl_sff_get_byte(sc, sff->sff_page, i, &sff->sff_data[i]));
+}
+
+static int
+ixl_qsfp_close(struct ixl_softc *sc, struct if_sffpage *sff, uint8_t page)
+{
+	return (0);
+}
+
+static const struct ixl_sff_ops ixl_qsfp_ops = {
+	ixl_qsfp_open,
+	ixl_qsfp_get,
+	ixl_qsfp_close,
+};
+
+static int
+ixl_get_sffpage(struct ixl_softc *sc, struct if_sffpage *sff)
+{
+	const struct ixl_sff_ops *ops;
+	uint8_t page;
+	size_t i;
+	int error;
+
+	switch (ixl_get_module_type(sc)) {
+	case -1:
+		return (EIO);
+	case IXL_SFF8024_ID_SFP:
+		ops = &ixl_sfp_ops;
+		break;
+	case IXL_SFF8024_ID_QSFP:
+	case IXL_SFF8024_ID_QSFP_PLUS:
+	case IXL_SFF8024_ID_QSFP28:
+		ops = &ixl_qsfp_ops;
+		break;
+	default:
+		return (EOPNOTSUPP);
+	}
+
+	error = (*ops->open)(sc, sff, &page);
+	if (error != 0)
+		return (error);
+
+	for (i = 0; i < sizeof(sff->sff_data); i++) {
+		error = (*ops->get)(sc, sff, i);
+		if (error != 0)
+			return (error);
+	}
+
+	error = (*ops->close)(sc, sff, page);
+
+	return (0);
+}
+
+static int
+ixl_sff_get_byte(struct ixl_softc *sc, uint8_t dev, uint32_t reg, uint8_t *p)
+{
+	struct ixl_atq iatq;
+	struct ixl_aq_desc *iaq;
+	struct ixl_aq_phy_reg_access *param;
+
+	memset(&iatq, 0, sizeof(iatq));
+	iaq = &iatq.iatq_desc;
+	iaq->iaq_opcode = htole16(IXL_AQ_OP_PHY_GET_REGISTER);
+	param = (struct ixl_aq_phy_reg_access *)iaq->iaq_param;
+	param->phy_iface = IXL_AQ_PHY_IF_MODULE;
+	param->dev_addr = dev;
+	htolem32(&param->reg, reg);
+
+	ixl_atq_exec(sc, &iatq, "ixlsffget");
+
+	if (ISSET(sc->sc_ac.ac_if.if_flags, IFF_DEBUG)) {
+		printf("%s: %s(dev 0x%02x, reg 0x%02x) -> %04x\n",
+		    DEVNAME(sc), __func__,
+		    dev, reg, lemtoh16(&iaq->iaq_retval));
+	}
+
+	switch (iaq->iaq_retval) {
+	case htole16(IXL_AQ_RC_OK):
+		break;
+	case htole16(IXL_AQ_RC_EBUSY):
+		return (EBUSY);
+	case htole16(IXL_AQ_RC_ESRCH):
+		return (ENODEV);
+	case htole16(IXL_AQ_RC_EIO):
+	case htole16(IXL_AQ_RC_EINVAL):
+	default:
+		return (EIO);
+	}
+
+	*p = lemtoh32(&param->val);
+
+	return (0);
+}
+
+static int
+ixl_sff_set_byte(struct ixl_softc *sc, uint8_t dev, uint32_t reg, uint8_t v)
+{
+	struct ixl_atq iatq;
+	struct ixl_aq_desc *iaq;
+	struct ixl_aq_phy_reg_access *param;
+
+	memset(&iatq, 0, sizeof(iatq));
+	iaq = &iatq.iatq_desc;
+	iaq->iaq_opcode = htole16(IXL_AQ_OP_PHY_SET_REGISTER);
+	param = (struct ixl_aq_phy_reg_access *)iaq->iaq_param;
+	param->phy_iface = IXL_AQ_PHY_IF_MODULE;
+	param->dev_addr = dev;
+	htolem32(&param->reg, reg);
+	htolem32(&param->val, v);
+
+	ixl_atq_exec(sc, &iatq, "ixlsffset");
+
+	if (ISSET(sc->sc_ac.ac_if.if_flags, IFF_DEBUG)) {
+		printf("%s: %s(dev 0x%02x, reg 0x%02x, val 0x%02x) -> %04x\n",
+		    DEVNAME(sc), __func__,
+		    dev, reg, v, lemtoh16(&iaq->iaq_retval));
+	}
+
+	switch (iaq->iaq_retval) {
+	case htole16(IXL_AQ_RC_OK):
+		break;
+	case htole16(IXL_AQ_RC_EBUSY):
+		return (EBUSY);
+	case htole16(IXL_AQ_RC_ESRCH):
+		return (ENODEV);
+	case htole16(IXL_AQ_RC_EIO):
+	case htole16(IXL_AQ_RC_EINVAL):
+	default:
+		return (EIO);
+	}
 
 	return (0);
 }
@@ -3558,7 +3828,7 @@ ixl_search_link_speed(uint8_t link_speed)
 	const struct ixl_speed_type *type;
 	unsigned int i;
 
-	for (i = 0; i < nitems(ixl_phy_type_map); i++) {
+	for (i = 0; i < nitems(ixl_speed_type_map); i++) {
 		type = &ixl_speed_type_map[i];
 
 		if (ISSET(type->dev_speed, link_speed))

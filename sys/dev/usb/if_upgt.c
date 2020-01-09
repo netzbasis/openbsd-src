@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.82 2018/08/25 17:07:20 mestre Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.85 2020/01/04 11:35:03 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -906,7 +906,8 @@ upgt_eeprom_read(struct upgt_softc *sc)
 			    sc->sc_dev.dv_xname);
 			return (EIO);
 		}
-		if (tsleep(sc, 0, "eeprom_request", UPGT_USB_TIMEOUT)) {
+		if (tsleep_nsec(sc, 0, "eeprom_request",
+		    MSEC_TO_NSEC(UPGT_USB_TIMEOUT))) {
 			printf("%s: timeout while waiting for EEPROM data!\n",
 			    sc->sc_dev.dv_xname);
 			return (EIO);
@@ -1242,7 +1243,7 @@ upgt_media_change(struct ifnet *ifp)
 		upgt_init(ifp);
 	}
 
-	return (0);
+	return (error);
 }
 
 void
@@ -2014,7 +2015,6 @@ upgt_set_led(struct upgt_softc *sc, int action)
 	struct upgt_data *data_cmd = &sc->cmd_data;
 	struct upgt_lmac_mem *mem;
 	struct upgt_lmac_led *led;
-	struct timeval t;
 	int len;
 
 	/*
@@ -2063,9 +2063,7 @@ upgt_set_led(struct upgt_softc *sc, int action)
 		led->action_tmp_dur = htole16(UPGT_LED_ACTION_TMP_DUR);
 		/* lock blink */
 		sc->sc_led_blink = 1;
-		t.tv_sec = 0;
-		t.tv_usec = UPGT_LED_ACTION_TMP_DUR * 1000L;
-		timeout_add(&sc->led_to, tvtohz(&t));
+		timeout_add_msec(&sc->led_to, UPGT_LED_ACTION_TMP_DUR);
 		break;
 	default:
 		return;

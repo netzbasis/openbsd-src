@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.amd64,v 1.109 2019/01/20 09:57:23 anton Exp $
+#	$OpenBSD: Makefile.amd64,v 1.117 2019/11/07 20:42:28 guenther Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -21,7 +21,22 @@ S!=	cd ../../../..; pwd
 _machdir?=	$S/arch/${_mach}
 _archdir?=	$S/arch/${_arch}
 
-INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
+INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch \
+		-I$S/dev/pci/drm/include \
+		-I$S/dev/pci/drm/include/uapi \
+		-I$S/dev/pci/drm/amd/include/asic_reg \
+		-I$S/dev/pci/drm/amd/include \
+		-I$S/dev/pci/drm/amd/amdgpu \
+		-I$S/dev/pci/drm/amd/display \
+		-I$S/dev/pci/drm/amd/display/include \
+		-I$S/dev/pci/drm/amd/display/dc \
+		-I$S/dev/pci/drm/amd/display/amdgpu_dm \
+		-I$S/dev/pci/drm/amd/powerplay/inc \
+		-I$S/dev/pci/drm/amd/powerplay/smumgr \
+		-I$S/dev/pci/drm/amd/powerplay/hwmgr \
+		-I$S/dev/pci/drm/amd/display/dc/inc \
+		-I$S/dev/pci/drm/amd/display/dc/inc/hw \
+		-I$S/dev/pci/drm/amd/display/modules/inc
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
@@ -34,11 +49,12 @@ SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
 CMACHFLAGS+=	-fno-stack-protector
 .endif
-.if ${IDENT:M-DDDB} && !${COMPILER_VERSION:Mclang}
+.if ${IDENT:M-DDDB}
 CMACHFLAGS+=	-msave-args
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+COPTS?=		-Oz
 .if ${COMPILER_VERSION:Mclang}
 CMACHFLAGS+=	-mno-retpoline
 .endif
@@ -59,9 +75,9 @@ HOSTED_CPPFLAGS=${CPPFLAGS:S/^-nostdinc$//}
 HOSTED_CFLAGS=	${CFLAGS}
 HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
-NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
+NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -fno-ret-protector -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -96,6 +112,11 @@ LINKFLAGS+=	-S
 
 .if ${SYSTEM_OBJ:Mkcov.o} && ${COMPILER_VERSION:Mclang}
 PROF=		-fsanitize-coverage=trace-pc,trace-cmp
+.endif
+
+.if ${IDENT:M-DKUBSAN} && ${COMPILER_VERSION:Mclang}
+CFLAGS+=	-fsanitize=undefined
+CFLAGS+=	-fno-wrapv
 .endif
 
 %LOAD
@@ -155,6 +176,19 @@ kcov.o: $S/dev/kcov.c
 	${NORMAL_C} -fno-sanitize-coverage=trace-pc,trace-cmp
 .endif
 
+HARDFLOAT_CFLAGS= -msse -msse2
+
+dcn_calcs.o: $S/dev/pci/drm/amd/display/dc/calcs/dcn_calcs.c
+	${NORMAL_C} ${HARDFLOAT_CFLAGS}
+dcn_calc_auto.o: $S/dev/pci/drm/amd/display/dc/calcs/dcn_calc_auto.c
+	${NORMAL_C} ${HARDFLOAT_CFLAGS}
+dcn_calc_math.o: $S/dev/pci/drm/amd/display/dc/calcs/dcn_calc_math.c
+	${NORMAL_C} ${HARDFLOAT_CFLAGS}
+dml1_display_rq_dlg_calc.o: $S/dev/pci/drm/amd/display/dc/dml/dml1_display_rq_dlg_calc.c
+	${NORMAL_C} ${HARDFLOAT_CFLAGS}
+dml_common_defs.o: $S/dev/pci/drm/amd/display/dc/dml/dml_common_defs.c
+	${NORMAL_C} ${HARDFLOAT_CFLAGS}
+
 clean:
 	rm -f *bsd *bsd.gdb *.[dio] [a-z]*.s assym.* \
 	    gap.link gapdummy.c ld.script lorder makegap.sh param.c
@@ -165,15 +199,14 @@ cleandir: clean
 depend obj:
 
 locore0.o: ${_machdir}/${_mach}/locore0.S assym.h
-mutex.o vector.o copy.o spl.o: assym.h
+mutex.o vector.o copy.o spl.o mds.o: assym.h
 mptramp.o acpi_wakecode.o vmm_support.o: assym.h
 
 hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

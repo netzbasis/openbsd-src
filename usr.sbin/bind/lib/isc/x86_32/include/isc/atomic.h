@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2005  Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) Internet Systems Consortium, Inc. ("ISC")
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $ISC: atomic.h,v 1.2.2.3 2005/07/27 04:23:33 marka Exp $ */
+/* $Id: atomic.h,v 1.4 2020/01/07 19:08:10 florian Exp $ */
 
 #ifndef ISC_ATOMIC_H
 #define ISC_ATOMIC_H 1
@@ -27,14 +27,11 @@
  * This routine atomically increments the value stored in 'p' by 'val', and
  * returns the previous value.
  */
-static inline isc_int32_t
+static __inline__ isc_int32_t
 isc_atomic_xadd(isc_int32_t *p, isc_int32_t val) {
 	isc_int32_t prev = val;
 
 	__asm__ volatile(
-#ifdef ISC_PLATFORM_USETHREADS
-		"lock;"
-#endif
 		"xadd %0, %1"
 		:"=q"(prev)
 		:"m"(*p), "0"(prev)
@@ -43,19 +40,27 @@ isc_atomic_xadd(isc_int32_t *p, isc_int32_t val) {
 	return (prev);
 }
 
+#ifdef ISC_PLATFORM_HAVEXADDQ
+static __inline__ isc_int64_t
+isc_atomic_xaddq(isc_int64_t *p, isc_int64_t val) {
+	isc_int64_t prev = val;
+
+	__asm__ volatile(
+	    "xaddq %0, %1"
+	    :"=q"(prev)
+	    :"m"(*p), "0"(prev)
+	    :"memory", "cc");
+
+	return (prev);
+}
+#endif /* ISC_PLATFORM_HAVEXADDQ */
+
 /*
- * This routine atomically stores the value 'val' in 'p'.
+ * This routine atomically stores the value 'val' in 'p' (32-bit version).
  */
-static inline void
+static __inline__ void
 isc_atomic_store(isc_int32_t *p, isc_int32_t val) {
 	__asm__ volatile(
-#ifdef ISC_PLATFORM_USETHREADS
-		/*
-		 * xchg should automatically lock memory, but we add it
-		 * explicitly just in case (it at least doesn't harm)
-		 */
-		"lock;"		
-#endif
 
 		"xchgl %1, %0"
 		:
@@ -63,17 +68,29 @@ isc_atomic_store(isc_int32_t *p, isc_int32_t val) {
 		: "memory");
 }
 
+#ifdef ISC_PLATFORM_HAVEATOMICSTOREQ
+/*
+ * This routine atomically stores the value 'val' in 'p' (64-bit version).
+ */
+static __inline__ void
+isc_atomic_storeq(isc_int64_t *p, isc_int64_t val) {
+	__asm__ volatile(
+
+		"xchgq %1, %0"
+		:
+		: "r"(val), "m"(*p)
+		: "memory");
+}
+#endif /* ISC_PLATFORM_HAVEATOMICSTOREQ */
+
 /*
  * This routine atomically replaces the value in 'p' with 'val', if the
  * original value is equal to 'cmpval'.  The original value is returned in any
  * case.
  */
-static inline isc_int32_t
+static __inline__ isc_int32_t
 isc_atomic_cmpxchg(isc_int32_t *p, isc_int32_t cmpval, isc_int32_t val) {
 	__asm__ volatile(
-#ifdef ISC_PLATFORM_USETHREADS
-		"lock;"
-#endif
 		"cmpxchgl %1, %2"
 		: "=a"(cmpval)
 		: "r"(val), "m"(*p), "a"(cmpval)
@@ -90,19 +107,14 @@ isc_atomic_cmpxchg(isc_int32_t *p, isc_int32_t cmpval, isc_int32_t val) {
  * positions of the stack frame, which would not actually point to the
  * intended address in the embedded mnemonic.
  */
-#include <isc/util.h>		/* for 'UNUSED' macro */
-
 static isc_int32_t
 isc_atomic_xadd(isc_int32_t *p, isc_int32_t val) {
-	UNUSED(p);
-	UNUSED(val);
+	(void)(p);
+	(void)(val);
 
 	__asm (
 		"movl 8(%ebp), %ecx\n"
 		"movl 12(%ebp), %edx\n"
-#ifdef ISC_PLATFORM_USETHREADS
-		"lock;"
-#endif
 		"xadd %edx, (%ecx)\n"
 
 		/*
@@ -116,32 +128,26 @@ isc_atomic_xadd(isc_int32_t *p, isc_int32_t val) {
 
 static void
 isc_atomic_store(isc_int32_t *p, isc_int32_t val) {
-	UNUSED(p);
-	UNUSED(val);
+	(void)(p);
+	(void)(val);
 
 	__asm (
 		"movl 8(%ebp), %ecx\n"
 		"movl 12(%ebp), %edx\n"
-#ifdef ISC_PLATFORM_USETHREADS
-		"lock;"
-#endif
 		"xchgl (%ecx), %edx\n"
 		);
 }
 
 static isc_int32_t
 isc_atomic_cmpxchg(isc_int32_t *p, isc_int32_t cmpval, isc_int32_t val) {
-	UNUSED(p);
-	UNUSED(cmpval);
-	UNUSED(val);
+	(void)(p);
+	(void)(cmpval);
+	(void)(val);
 
 	__asm (
 		"movl 8(%ebp), %ecx\n"
 		"movl 12(%ebp), %eax\n"	/* must be %eax for cmpxchgl */
 		"movl 16(%ebp), %edx\n"
-#ifdef ISC_PLATFORM_USETHREADS
-		"lock;"
-#endif
 
 		/*
 		 * If (%ecx) == %eax then (%ecx) := %edx.

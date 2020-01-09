@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.108 2019/01/08 18:35:27 florian Exp $	*/
+/*	$OpenBSD: parse.y,v 1.113 2019/06/28 13:32:47 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -140,7 +140,7 @@ typedef struct {
 %token	PROTOCOLS REQUESTS ROOT SACK SERVER SOCKET STRIP STYLE SYSLOG TCP TICKET
 %token	TIMEOUT TLS TYPE TYPES HSTS MAXAGE SUBDOMAINS DEFAULT PRELOAD REQUEST
 %token	ERROR INCLUDE AUTHENTICATE WITH BLOCK DROP RETURN PASS REWRITE
-%token	CA CLIENT CRL OPTIONAL
+%token	CA CLIENT CRL OPTIONAL PARAM FORWARDED
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.port>	port
@@ -290,6 +290,7 @@ server		: SERVER optmatch STRING	{
 
 			SPLAY_INIT(&srv->srv_clients);
 			TAILQ_INIT(&srv->srv_hosts);
+			TAILQ_INIT(&srv_conf->fcgiparams);
 
 			TAILQ_INSERT_TAIL(&srv->srv_hosts, srv_conf, entry);
 		} '{' optnl serveropts_l '}'	{
@@ -315,7 +316,7 @@ server		: SERVER optmatch STRING	{
 			}
 
 			if ((s = server_match(srv, 0)) != NULL) {
-				if ((s->srv_conf.flags & SRVFLAG_TLS) != 
+				if ((s->srv_conf.flags & SRVFLAG_TLS) !=
 				    (srv->srv_conf.flags & SRVFLAG_TLS)) {
 					yyerror("server \"%s\": tls and "
 					    "non-tls on same address/port",
@@ -425,7 +426,7 @@ serveropts_l	: serveropts_l serveroptsl nl
 		| serveroptsl optnl
 		;
 
-serveroptsl	: LISTEN ON STRING opttls port 		{
+serveroptsl	: LISTEN ON STRING opttls port	{
 			if (listen_on($3, $4, &$5) == -1) {
 				free($3);
 				YYERROR;
@@ -657,6 +658,36 @@ fcgiflags	: SOCKET STRING		{
 			}
 			free($2);
 			srv_conf->flags |= SRVFLAG_SOCKET;
+		}
+		| PARAM STRING STRING	{
+			struct fastcgi_param	*param;
+
+			if ((param = calloc(1, sizeof(*param))) == NULL)
+				fatal("out of memory");
+
+			if (strlcpy(param->name, $2, sizeof(param->name)) >=
+			    sizeof(param->name)) {
+				yyerror("fastcgi_param name truncated");
+				free($2);
+				free($3);
+				free(param);
+				YYERROR;
+			}
+			if (strlcpy(param->value, $3, sizeof(param->value)) >=
+			    sizeof(param->value)) {
+				yyerror("fastcgi_param value truncated");
+				free($2);
+				free($3);
+				free(param);
+				YYERROR;
+			}
+			free($2);
+			free($3);
+
+			DPRINTF("[%s,%s,%d]: adding param \"%s\" value \"%s\"",
+			    srv_conf->location, srv_conf->name, srv_conf->id,
+			    param->name, param->value);
+			TAILQ_INSERT_HEAD(&srv_conf->fcgiparams, param, entry);
 		}
 		;
 
@@ -993,6 +1024,11 @@ logstyle	: COMMON		{
 			srv_conf->flags |= SRVFLAG_LOG;
 			srv_conf->logformat = LOG_FORMAT_CONNECTION;
 		}
+		| FORWARDED		{
+			srv_conf->flags &= ~SRVFLAG_NO_LOG;
+			srv_conf->flags |= SRVFLAG_LOG;
+			srv_conf->logformat = LOG_FORMAT_FORWARDED;
+		}
 		;
 
 filter		: block RETURN NUMBER optstring	{
@@ -1264,6 +1300,7 @@ lookup(char *s)
 		{ "ecdhe",		ECDHE },
 		{ "error",		ERR },
 		{ "fastcgi",		FCGI },
+		{ "forwarded",		FORWARDED },
 		{ "hsts",		HSTS },
 		{ "include",		INCLUDE },
 		{ "index",		INDEX },
@@ -1282,6 +1319,7 @@ lookup(char *s)
 		{ "ocsp",		OCSP },
 		{ "on",			ON },
 		{ "optional",		OPTIONAL },
+		{ "param",		PARAM },
 		{ "pass",		PASS },
 		{ "port",		PORT },
 		{ "prefork",		PREFORK },
@@ -1518,7 +1556,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -1557,7 +1595,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_' || c == '*') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -2300,7 +2338,7 @@ is_if_in_group(const char *ifname, const char *groupname)
 	int			 s;
 	int			 ret = 0;
 
-	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 		err(1, "socket");
 
 	memset(&ifgr, 0, sizeof(ifgr));

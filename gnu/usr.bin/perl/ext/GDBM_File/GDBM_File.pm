@@ -20,12 +20,28 @@ module you should really have a copy of the gdbm manualpage at hand.
 Most of the libgdbm.a functions are available through the GDBM_File
 interface.
 
+Unlike Perl's built-in hashes, it is not safe to C<delete> the current
+item from a GDBM_File tied hash while iterating over it with C<each>.
+This is a limitation of the gdbm library.
+
 =head1 AVAILABILITY
 
 gdbm is available from any GNU archive.  The master site is
 C<ftp.gnu.org>, but you are strongly urged to use one of the many
 mirrors.  You can obtain a list of mirror sites from
-http://www.gnu.org/order/ftp.html.
+L<http://www.gnu.org/order/ftp.html>.
+
+=head1 SECURITY AND PORTABILITY
+
+B<Do not accept GDBM files from untrusted sources.>
+
+GDBM files are not portable across platforms.
+
+The GDBM documentation doesn't imply that files from untrusted sources
+can be safely used with C<libgdbm>.
+
+A maliciously crafted file might cause perl to crash or even expose a
+security vulnerability.
 
 =head1 BUGS
 
@@ -69,7 +85,7 @@ require XSLoader;
 );
 
 # This module isn't dual life, so no need for dev version numbers.
-$VERSION = '1.15';
+$VERSION = '1.18';
 
 XSLoader::load();
 

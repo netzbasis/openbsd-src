@@ -1,4 +1,4 @@
-/*	$OpenBSD: su.c,v 1.73 2019/01/28 01:38:06 deraadt Exp $	*/
+/*	$OpenBSD: su.c,v 1.79 2019/12/07 19:23:21 millert Exp $	*/
 
 /*
  * Copyright (c) 1988 The Regents of the University of California.
@@ -149,11 +149,11 @@ main(int argc, char **argv)
 	if (pwd == NULL)
 		auth_errx(as, 1, "who are you?");
 	if ((username = strdup(pwd->pw_name)) == NULL)
-		auth_errx(as, 1, "can't allocate memory");
+		auth_err(as, 1, NULL);
 	if (asme && !altshell) {
 		if (pwd->pw_shell && *pwd->pw_shell) {
 			if ((shell = strdup(pwd->pw_shell)) == NULL)
-				auth_errx(as, 1, "can't allocate memory");
+				auth_err(as, 1, NULL);
 		} else {
 			shell = _PATH_BSHELL;
 			iscsh = NO;
@@ -161,6 +161,8 @@ main(int argc, char **argv)
 	}
 
 	if (unveil(_PATH_LOGIN_CONF, "r") == -1)
+		err(1, "unveil");
+	if (unveil(_PATH_LOGIN_CONF ".db", "r") == -1)
 		err(1, "unveil");
 	if (unveil(_PATH_AUTHPROGDIR, "x") == -1)
 		err(1, "unveil");
@@ -170,6 +172,8 @@ main(int argc, char **argv)
 		err(1, "unveil");
 
 	for (;;) {
+		char *pw_class = class;
+
 		/* get target user, default to root unless in -L mode */
 		if (*argv) {
 			user = *argv;
@@ -194,7 +198,7 @@ main(int argc, char **argv)
 		auth_clean(as);
 		if (auth_setitem(as, AUTHV_INTERACTIVE, "True") != 0 ||
 		    auth_setitem(as, AUTHV_NAME, user) != 0)
-			auth_errx(as, 1, "can't allocate memory");
+			auth_err(as, 1, NULL);
 		if ((user = auth_getitem(as, AUTHV_NAME)) == NULL)
 			auth_errx(as, 1, "internal error");
 		if (auth_setpwd(as, NULL) || (pwd = auth_getpwd(as)) == NULL) {
@@ -205,11 +209,11 @@ main(int argc, char **argv)
 		}
 
 		/* If the user specified a login class, use it */
-		if (!class && pwd && pwd->pw_class && pwd->pw_class[0] != '\0')
-			class = strdup(pwd->pw_class);
-		if ((lc = login_getclass(class)) == NULL)
+		if (pw_class == NULL && pwd != NULL)
+			pw_class = pwd->pw_class;
+		if ((lc = login_getclass(pw_class)) == NULL)
 			auth_errx(as, 1, "no such login class: %s",
-			    class ? class : LOGIN_DEFCLASS);
+			    pw_class ? pw_class : LOGIN_DEFCLASS);
 
 		if ((ruid == 0 && !emlogin) ||
 		    verify_user(username, pwd, style, lc, as) == 0)
@@ -223,18 +227,20 @@ main(int argc, char **argv)
 		}
 		fprintf(stderr, "Login incorrect\n");
 	}
+	if (pwd == NULL)
+		auth_errx(as, 1, "internal error");
 
 	if (pledge("stdio unveil rpath getpw exec id", NULL) == -1)
 		err(1, "pledge");
 
 	if (!altshell) {
 		if (asme) {
-			/* if asme and non-std target shell, must be root */
-			if (ruid && !chshell(shell))
+			/* must be root to override non-std target shell */
+			if (ruid && !chshell(pwd->pw_shell))
 				auth_errx(as, 1, "permission denied (shell).");
 		} else if (pwd->pw_shell && *pwd->pw_shell) {
 			if ((shell = strdup(pwd->pw_shell)) == NULL)
-				auth_errx(as, 1, "can't allocate memory");
+				auth_err(as, 1, NULL);
 			iscsh = UNSET;
 		} else {
 			shell = _PATH_BSHELL;
@@ -270,7 +276,7 @@ main(int argc, char **argv)
 			seteuid(pwd->pw_uid);
 
 			homeless = chdir(pwd->pw_dir);
-			if (homeless) {
+			if (homeless == -1) {
 				if (login_getcapbool(lc, "requirehome", 0)) {
 					auth_err(as, 1, "%s", pwd->pw_dir);
 				} else {
@@ -278,7 +284,7 @@ main(int argc, char **argv)
 						err(1, "unveil");
 					printf("No home directory %s!\n", pwd->pw_dir);
 					printf("Logging in with home = \"/\".\n");
-					if (chdir("/") < 0)
+					if (chdir("/") == -1)
 						auth_err(as, 1, "/");
 				}
 			}
@@ -351,7 +357,7 @@ main(int argc, char **argv)
 	if (pledge("stdio rpath exec", NULL) == -1)
 		err(1, "pledge");
 
-	if (pwd->pw_uid && auth_approval(as, lc, pwd->pw_name, "su") <= 0)
+	if (pwd->pw_uid && auth_approval(as, lc, pwd->pw_name, "su") == 0)
 		auth_err(as, 1, "approval failure");
 	auth_close(as);
 

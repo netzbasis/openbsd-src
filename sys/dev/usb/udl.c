@@ -1,4 +1,4 @@
-/*	$OpenBSD: udl.c,v 1.88 2017/09/05 12:22:23 jsg Exp $ */
+/*	$OpenBSD: udl.c,v 1.90 2020/01/05 19:13:48 mpi Exp $ */
 
 /*
  * Copyright (c) 2009 Marcus Glocker <mglocker@openbsd.org>
@@ -499,8 +499,8 @@ udl_ioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 
 	sc = v;
 
-	DPRINTF(1, "%s: %s: ('%c', %d, %d)\n",
-	    DN(sc), FUNC, IOCGROUP(cmd), cmd & 0xff, IOCPARM_LEN(cmd));
+	DPRINTF(1, "%s: %s: ('%c', %zu, %zu)\n",
+	    DN(sc), FUNC, (int) IOCGROUP(cmd), cmd & 0xff, IOCPARM_LEN(cmd));
 
 	switch (cmd) {
 	case WSDISPLAYIO_GTYPE:
@@ -542,7 +542,7 @@ udl_ioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 		d->status = UDLIO_STATUS_OK;
 		r = udl_damage(sc, sc->sc_fbmem, d->x1, d->x2, d->y1, d->y2);
 		if (r != 0) {
-			error = tsleep(sc, 0, "udlio", hz / 100);
+			error = tsleep_nsec(sc, 0, "udlio", MSEC_TO_NSEC(10));
 			if (error) {
 				d->status = UDLIO_STATUS_FAILED;
 			} else {
@@ -1945,7 +1945,7 @@ udl_init_chip(struct udl_softc *sc)
 	error = udl_write_1(sc, 0xc40b, 0x00);
 	if (error != USBD_NORMAL_COMPLETION)
 		return (error);
-	DPRINTF(1, "%s: %s: write 0x00 to 0xc40b\n", DN(sc), FUNC, ui8);
+	DPRINTF(1, "%s: %s: write 0x00 to 0xc40b\n", DN(sc), FUNC);
 
 	error = udl_set_decomp_table(sc, udl_decomp_table,
 	    sizeof(udl_decomp_table));

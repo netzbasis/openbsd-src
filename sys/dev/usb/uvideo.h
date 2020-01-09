@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvideo.h,v 1.57 2015/07/09 14:58:32 mpi Exp $ */
+/*	$OpenBSD: uvideo.h,v 1.60 2019/12/08 13:21:21 mglocker Exp $ */
 
 /*
  * Copyright (c) 2007 Robert Nagy <robert@openbsd.org>
@@ -302,11 +302,15 @@ struct usb_video_probe_commit {
 
 #define	UVIDEO_FORMAT_GUID_NV12	{			\
     0x4e, 0x56, 0x31, 0x32, 0x00, 0x00, 0x10, 0x00,	\
-    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38,	0x9b, 0x71 }
+    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 }
 
 #define	UVIDEO_FORMAT_GUID_UYVY	{			\
     0x55, 0x59, 0x56, 0x59, 0x00, 0x00, 0x10, 0x00,	\
-    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38,	0x9b, 0x71 }
+    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 }
+
+#define	UVIDEO_FORMAT_GUID_KSMEDIA_L8_IR	{	\
+    0x32, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x00,	\
+    0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 }
 
 /*
  * USB Video Payload MJPEG
@@ -451,7 +455,12 @@ struct uvideo_frame_buffer {
 	uint32_t	 fmt_flags;
 };
 
-#define UVIDEO_MAX_BUFFERS	32
+/*
+ * 1920x1080 uncompressed (e.g. YUYV422) requires ~4MB image data per frame.
+ * 4MB * 8 frame buffers = 32MB kernel memory required.
+ * With 8 frame buffers we are pretty safe not to run out of kernel memory.
+ */
+#define UVIDEO_MAX_BUFFERS	8
 struct uvideo_mmap {
 	SIMPLEQ_ENTRY(uvideo_mmap)	q_frames;
 	uint8_t				*buf;

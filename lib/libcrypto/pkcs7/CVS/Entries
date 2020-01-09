@@ -1,8 +1,8 @@
 /bio_pk7.c/1.5/Fri Dec 30 15:38:13 2016//
 /pk7_asn1.c/1.12/Sat Jul 25 15:33:06 2015//
 /pk7_attr.c/1.12/Sun Jan 29 17:49:23 2017//
-/pk7_doit.c/1.42/Tue May  2 03:59:45 2017//
-/pk7_lib.c/1.19/Sun Jan 29 17:49:23 2017//
+/pk7_doit.c/1.44/Fri Oct  4 18:03:55 2019//
+/pk7_lib.c/1.20/Wed Mar 13 20:34:00 2019//
 /pk7_mime.c/1.13/Fri Dec 30 15:38:13 2016//
 /pk7_smime.c/1.22/Sun Jan 29 17:49:23 2017//
 /pkcs7.h/1.18/Tue Dec 27 16:12:47 2016//

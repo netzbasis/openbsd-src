@@ -10,13 +10,13 @@ this file contains all dereferencing tests from ref.t but using postfix instead 
 
 BEGIN {
     chdir 't' if -d 't';
-    @INC = qw(. ../lib);
     require './test.pl';
+    set_up_inc(qw(. ../lib));
 }
 
 use strict qw(refs subs);
 
-plan(115);
+plan(128);
 
 {
     no strict 'refs';
@@ -326,13 +326,6 @@ is "@foo", "1 2 3 4 5 6 7 8 9", 'lvalue ->$#*';
 $_ = "foo";
 @foo = 7..9;
 %foo = qw( foo oof );
-{
-    no warnings 'deprecated';
-    $* = 42;
-    is "$_->$*", 'foo->42', '->$* interpolation without feature';
-    $# = 43;
-    is "$_->$#*", 'foo->43*', '->$#* interpolation without feature';
-}
 is "$_->@*", 'foo->@*', '->@* does not interpolate without feature';
 is "$_->@[0]", 'foo->@[0]', '->@[ does not interpolate without feature';
 is "$_->@{foo}", "foo->7 8 9", '->@{ does not interpolate without feature';
@@ -352,4 +345,39 @@ is "$_->@{foo}", "foo->7 8 9", '->@{ does not interpolate without feature';
     is "@{[foo->@*]}", "7 8 9", '->@* inside "@{...}"';
     is "@{[foo->@[0,1]]}", "7 8", '->@[ inside "@{...}"';
     is "@{[foo->@{foo}]}", "oof", '->@{ inside "@{...}"';
+
+    # "foo $_->$*" should be equivalent to "foo $$_", which uses concat
+    # overloading
+    package o {
+	use overload fallback=>1,
+	    '""' => sub { $_[0][0] },
+	    '.'  => sub { bless [ "$_[$_[2]]"." plus "."$_[!$_[2]]" ] };
+    }
+    my $o = bless ["overload"], o::;
+    my $ref = \$o;
+    is "foo$ref->$*bar", "foo plus overload plus bar",
+       '"foo $s->$* bar" does concat overloading';
+}
+
+# parsing of {} subscript as subscript rather than block
+{
+    sub ppp { "qqq" }
+    my $h = { ppp => "pp", qqq => "qq", rrr => 7 };
+    is ${$h}{ppp}, "pp";
+    is ${$h}{"rrr"} - 2, 5;
+    my $ar = [$h];
+    is $ar->[0]->{ppp}, "pp";
+    is $ar->[0]->{"rrr"} - 2, 5;
+    is $ar->[0]{ppp}, "pp";
+    is $ar->[0]{"rrr"} - 2, 5;
+    my $hr = {h=>$h};
+    is $hr->{"h"}->{ppp}, "pp";
+    is $hr->{"h"}->{"rrr"} - 2, 5;
+    is $hr->{"h"}{ppp}, "pp";
+    is $hr->{"h"}{"rrr"} - 2, 5;
+    my $cr = sub { $h };
+    is $cr->()->{ppp}, "pp";
+    is $cr->()->{"rrr"} - 2, 5;
+    is $cr->(){ppp}, "pp";
+    is $cr->(){"rrr"} - 2, 5;
 }

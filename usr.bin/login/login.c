@@ -1,4 +1,4 @@
-/*	$OpenBSD: login.c,v 1.70 2018/08/15 19:38:47 fcambus Exp $	*/
+/*	$OpenBSD: login.c,v 1.72 2019/12/04 09:51:07 deraadt Exp $	*/
 /*	$NetBSD: login.c,v 1.13 1996/05/15 23:50:16 jtc Exp $	*/
 
 /*-
@@ -161,7 +161,7 @@ main(int argc, char *argv[])
 	backoff = 3;
 
 	domain = NULL;
-	if (gethostname(localhost, sizeof(localhost)) < 0) {
+	if (gethostname(localhost, sizeof(localhost)) == -1) {
 		syslog(LOG_ERR, "couldn't get local hostname: %m");
 		strlcpy(localhost, "localhost", sizeof(localhost));
 	} else if ((domain = strchr(localhost, '.'))) {
@@ -303,12 +303,12 @@ main(int argc, char *argv[])
 	/*
 	 * Since login deals with sensitive information, turn off coredumps.
 	 */
-	if (getrlimit(RLIMIT_CORE, &scds) < 0) {
+	if (getrlimit(RLIMIT_CORE, &scds) == -1) {
 		syslog(LOG_ERR, "couldn't get core dump size: %m");
 		scds.rlim_cur = scds.rlim_max = QUAD_MIN;
 	}
 	cds.rlim_cur = cds.rlim_max = 0;
-	if (setrlimit(RLIMIT_CORE, &cds) < 0) {
+	if (setrlimit(RLIMIT_CORE, &cds) == -1) {
 		syslog(LOG_ERR, "couldn't set core dump size to 0: %m");
 		scds.rlim_cur = scds.rlim_max = QUAD_MIN;
 	}
@@ -340,8 +340,13 @@ main(int argc, char *argv[])
 		}
 		shell = strrchr(script, '/') + 1;
 		auth_setstate(as, AUTH_OKAY);
-		auth_call(as, script, shell,
-		    fflag ? "-f" : username, fflag ? username : 0, (char *)0);
+		if (fflag) {
+			auth_call(as, script, shell, "-f", "--", username,
+			    (char *)NULL);
+		} else {
+			auth_call(as, script, shell, "--", username,
+			    (char *)NULL);
+		}
 		if (!(auth_getstate(as) & AUTH_ALLOW))
 			quickexit(1);
 		auth_setenv(as);
@@ -367,7 +372,7 @@ main(int argc, char *argv[])
 	}
 
 	/*
-	 * Request the things like the approval script print things
+	 * Request that things like the approval script print things
 	 * to stdout (in particular, the nologins files)
 	 */
 	auth_setitem(as, AUTHV_INTERACTIVE, "True");
@@ -698,7 +703,7 @@ failed:
 	    p + 1 : shell, sizeof(tbuf) - 1);
 
 	if ((scds.rlim_cur != QUAD_MIN || scds.rlim_max != QUAD_MIN) &&
-	    setrlimit(RLIMIT_CORE, &scds) < 0)
+	    setrlimit(RLIMIT_CORE, &scds) == -1)
 		syslog(LOG_ERR, "couldn't reset core dump size: %m");
 
 	if (lastchance)
@@ -795,7 +800,7 @@ motd(void)
 
 	motd = login_getcapstr(lc, "welcome", _PATH_MOTDFILE, _PATH_MOTDFILE);
 
-	if ((fd = open(motd, O_RDONLY, 0)) < 0)
+	if ((fd = open(motd, O_RDONLY, 0)) == -1)
 		return;
 
 	memset(&sa, 0, sizeof(sa));

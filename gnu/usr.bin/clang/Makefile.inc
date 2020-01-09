@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile.inc,v 1.12 2019/01/19 00:02:15 tedu Exp $
+# $OpenBSD: Makefile.inc,v 1.18 2019/11/26 10:58:23 sthen Exp $
 
 LLVM_SRCS?=	${.CURDIR}/../../../llvm
 
@@ -25,11 +25,22 @@ CPPFLAGS+=	-DNDEBUG
 
 # Disable some protections in the compiler to regain performance.
 .if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "i386" || \
-    ${MACHINE_ARCH} == "aarch64"
+    ${MACHINE_ARCH} == "mips64" || ${MACHINE_ARCH} == "mips64el" || \
+    ${MACHINE_ARCH} == "aarch64" 
 CXXFLAGS+=	-fno-ret-protector
 .endif
 .if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "i386"
 CXXFLAGS+=	-mno-retpoline
+.endif
+
+# Omit frame pointer to improve performance.
+.if ${MACHINE_ARCH} == "mips64" || ${MACHINE_ARCH} == "mips64el"
+CXXFLAGS+=	-fomit-frame-pointer
+.endif
+
+# Compiling with -fno-pie doesn't work on powerpc.
+.if ${MACHINE_ARCH} == "powerpc"
+NOPIE_FLAGS=	-fPIE
 .endif
 
 CPPFLAGS+=	-D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS \
@@ -40,17 +51,8 @@ TRIPLE=		armv7-unknown-openbsd${OSREV}-gnueabi
 .else
 TRIPLE=		${MACHINE_ARCH}-unknown-openbsd${OSREV}
 .endif
-CPPFLAGS+=	-DLLVM_DEFAULT_TARGET_TRIPLE=\"${TRIPLE}\"
-CPPFLAGS+=	-DLLVM_HOST_TRIPLE=\"${TRIPLE}\"
 CPPFLAGS+=	-DLLVM_PREFIX=\"/usr\"
 .include "Makefile.arch"
-CPPFLAGS+=-DLLVM_NATIVE_ARCH=\"${LLVM_ARCH}\"
-CPPFLAGS+=-DLLVM_NATIVE_ASMPARSER=LLVMInitialize${LLVM_ARCH}AsmParser
-CPPFLAGS+=-DLLVM_NATIVE_ASMPRINTER=LLVMInitialize${LLVM_ARCH}AsmPrinter
-CPPFLAGS+=-DLLVM_NATIVE_DISASSEMBLER=LLVMInitialize${LLVM_ARCH}Disassembler
-CPPFLAGS+=-DLLVM_NATIVE_TARGET=LLVMInitialize${LLVM_ARCH}Target
-CPPFLAGS+=-DLLVM_NATIVE_TARGETINFO=LLVMInitialize${LLVM_ARCH}TargetInfo
-CPPFLAGS+=-DLLVM_NATIVE_TARGETMC=LLVMInitialize${LLVM_ARCH}TargetMC
 CPPFLAGS+=-DLLDB_DISABLE_PYTHON
 
 # upstream defaults
@@ -73,3 +75,7 @@ DPADD+=	${.OBJDIR}/../lib${lib}/lib${lib}.a
 LDADD+=	${.OBJDIR}/../lib${lib}/lib${lib}.a
 .endfor
 LDADD+=-Wl,--end-group
+
+.if ${MACHINE_ARCH} == "powerpc"
+LDFLAGS+=-Wl,-relax
+.endif

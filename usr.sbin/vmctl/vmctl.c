@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.65 2018/12/06 09:23:15 claudio Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.73 2019/12/15 14:36:59 kn Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -235,11 +235,6 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 				warnx("could not open disk image(s)");
 				*ret = ENOENT;
 				break;
-			case VMD_DISK_INVALID:
-				warnx("specified disk image(s) are "
-				    "not regular files");
-				*ret = ENOENT;
-				break;
 			case VMD_CDROM_MISSING:
 				warnx("could not find specified iso image");
 				*ret = ENOENT;
@@ -248,6 +243,10 @@ vm_start_complete(struct imsg *imsg, int *ret, int autoconnect)
 				warnx("specified iso image is not a regular "
 				    "file");
 				*ret = ENOENT;
+				break;
+			case VMD_PARENT_INVALID:
+				warnx("invalid template");
+				*ret = EINVAL;
 				break;
 			default:
 				errno = res;
@@ -703,6 +702,34 @@ add_info(struct imsg *imsg, int *ret)
 }
 
 /*
+ * vm_state
+ *
+ * Returns a string representing the current VM state, note that the order
+ * matters. A paused VM does have the VM_STATE_RUNNING bit set, but
+ * VM_STATE_PAUSED is more significant to report.
+ *
+ * Parameters
+ *  vm_state: mask indicating the vm state
+ */
+const char *
+vm_state(unsigned int mask)
+{
+	if (mask & VM_STATE_PAUSED)
+		return "paused";
+	else if (mask & VM_STATE_WAITING)
+		return "waiting";
+	else if (mask & VM_STATE_RUNNING)
+		return "running";
+	else if (mask & VM_STATE_SHUTDOWN)
+		return "stopping";
+	/* Presence of absence of other flags */
+	else if (!mask || (mask & VM_STATE_DISABLED))
+		return "stopped";
+
+	return "unknown";
+}
+
+/*
  * print_vm_info
  *
  * Prints the vm information returned from vmd in 'list' to stdout.
@@ -716,19 +743,21 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 {
 	struct vm_info_result *vir;
 	struct vmop_info_result *vmi;
-	size_t i, j;
-	char *vcpu_state, *tty;
+	size_t i;
+	char *tty;
 	char curmem[FMT_SCALED_STRSIZE];
 	char maxmem[FMT_SCALED_STRSIZE];
 	char user[16], group[16];
 	const char *name;
+	int running;
 
-	printf("%5s %5s %5s %7s %7s %7s %12s %s\n", "ID", "PID", "VCPUS",
-	    "MAXMEM", "CURMEM", "TTY", "OWNER", "NAME");
+	printf("%5s %5s %5s %7s %7s %7s %12s %8s %s\n", "ID", "PID", "VCPUS",
+	    "MAXMEM", "CURMEM", "TTY", "OWNER", "STATE", "NAME");
 
 	for (i = 0; i < ct; i++) {
 		vmi = &list[i];
 		vir = &vmi->vir_info;
+		running = (vir->vir_creator_pid != 0 && vir->vir_id != 0);
 		if (check_info_id(vir->vir_name, vir->vir_id)) {
 			/* get user name */
 			name = user_from_uid(vmi->vir_uid, 1);
@@ -739,8 +768,6 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 				(void)strlcpy(user, name, sizeof(user));
 			/* get group name */
 			if (vmi->vir_gid != -1) {
-				if (vmi->vir_uid == 0)
-					*user = '\0';
 				name = group_from_gid(vmi->vir_gid, 1);
 				if (name == NULL)
 					(void)snprintf(group, sizeof(group),
@@ -757,7 +784,7 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 			(void)fmt_scaled(vir->vir_memory_size * 1024 * 1024,
 			    maxmem);
 
-			if (vir->vir_creator_pid != 0 && vir->vir_id != 0) {
+			if (running) {
 				if (*vmi->vir_ttyname == '\0')
 					tty = "-";
 				/* get tty - skip /dev/ path */
@@ -768,31 +795,18 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 				(void)fmt_scaled(vir->vir_used_size, curmem);
 
 				/* running vm */
-				printf("%5u %5u %5zd %7s %7s %7s %12s %s\n",
+				printf("%5u %5u %5zd %7s %7s %7s %12s %8s %s\n",
 				    vir->vir_id, vir->vir_creator_pid,
 				    vir->vir_ncpus, maxmem, curmem,
-				    tty, user, vir->vir_name);
+				    tty, user, vm_state(vmi->vir_state),
+				    vir->vir_name);
 			} else {
 				/* disabled vm */
-				printf("%5u %5s %5zd %7s %7s %7s %12s %s\n",
+				printf("%5u %5s %5zd %7s %7s %7s %12s %8s %s\n",
 				    vir->vir_id, "-",
 				    vir->vir_ncpus, maxmem, curmem,
-				    "-", user, vir->vir_name);
-			}
-		}
-		if (check_info_id(vir->vir_name, vir->vir_id) > 0) {
-			for (j = 0; j < vir->vir_ncpus; j++) {
-				if (vir->vir_vcpu_state[j] ==
-				    VCPU_STATE_STOPPED)
-					vcpu_state = "STOPPED";
-				else if (vir->vir_vcpu_state[j] ==
-				    VCPU_STATE_RUNNING)
-					vcpu_state = "RUNNING";
-				else
-					vcpu_state = "UNKNOWN";
-
-				printf(" VCPU: %2zd STATE: %s\n",
-				    j, vcpu_state);
+				    "-", user, vm_state(vmi->vir_state),
+				    vir->vir_name);
 			}
 		}
 	}

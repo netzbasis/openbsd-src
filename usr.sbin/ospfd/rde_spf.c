@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_spf.c,v 1.76 2015/11/22 13:09:10 claudio Exp $ */
+/*	$OpenBSD: rde_spf.c,v 1.78 2019/11/19 09:55:55 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Esben Norby <norby@openbsd.org>
@@ -195,7 +195,7 @@ rt_calc(struct vertex *v, struct area *area, struct ospfd_conf *conf)
 			if (rtr_link->type != LINK_TYPE_STUB_NET)
 				continue;
 
-			addr.s_addr = rtr_link->id;
+			addr.s_addr = rtr_link->id & rtr_link->data;
 			adv_rtr.s_addr = htonl(v->adv_rtr);
 
 			rt_update(addr, mask2prefixlen(rtr_link->data),
@@ -373,6 +373,7 @@ calc_nexthop(struct vertex *dst, struct vertex *parent,
 {
 	struct v_nexthop	*vn;
 	struct iface		*iface;
+	struct rde_nbr		*nbr;
 	int			 i;
 
 	/* case 1 */
@@ -382,10 +383,14 @@ calc_nexthop(struct vertex *dst, struct vertex *parent,
 			if (rtr_link->type != LINK_TYPE_POINTTOPOINT)
 				fatalx("inconsistent SPF tree");
 			LIST_FOREACH(iface, &area->iface_list, entry) {
-				if (rtr_link->data == iface->addr.s_addr) {
-					vertex_nexthop_add(dst, parent,
-					    iface->dst.s_addr);
-					return;
+				if (rtr_link->data != iface->addr.s_addr)
+					continue;
+				LIST_FOREACH(nbr, &area->nbr_list, entry) {
+					if (nbr->ifindex == iface->ifindex) {
+						vertex_nexthop_add(dst, parent,
+						    nbr->addr.s_addr);
+						return;
+					}
 				}
 			}
 			fatalx("no interface found for interface");

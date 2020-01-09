@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.16 2017/04/30 13:04:49 mpi Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.18 2019/11/07 14:44:52 mpi Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.2 2003/04/29 17:06:04 scw Exp $	*/
 
 /* 
@@ -46,7 +46,7 @@ typedef struct trapframe db_regs_t;
 
 extern db_regs_t ddb_regs;	/* register state */
 
-#define	PC_REGS(regs)	((db_addr_t)(regs)->tf_rip)
+#define	PC_REGS(regs)	((vaddr_t)(regs)->tf_rip)
 #define	SET_PC_REGS(regs, value) (regs)->tf_rip = (int64_t)(value)
 
 #define	BKPT_ADDR(addr)	(addr)		/* breakpoint address */
@@ -85,8 +85,6 @@ int db_enter_ddb(void);
 void db_startcpu(int);
 void db_stopcpu(int);
 void x86_ipi_db(struct cpu_info *);
-
-extern struct mutex ddb_mp_mutex;
 
 #define DDB_STATE_NOT_RUNNING	0
 #define DDB_STATE_RUNNING	1

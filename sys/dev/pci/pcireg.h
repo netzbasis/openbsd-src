@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcireg.h,v 1.56 2018/08/03 22:18:13 kettenis Exp $	*/
+/*	$OpenBSD: pcireg.h,v 1.59 2019/11/02 10:14:57 kettenis Exp $	*/
 /*	$NetBSD: pcireg.h,v 1.26 2000/05/10 16:58:42 thorpej Exp $	*/
 
 /*
@@ -576,8 +576,18 @@ typedef u_int8_t pci_revision_t;
 #define PCI_PCIE_LCSR		0x10
 #define PCI_PCIE_LCSR_ASPM_L0S	0x00000001
 #define PCI_PCIE_LCSR_ASPM_L1	0x00000002
+#define PCI_PCIE_LCSR_RL	0x00000020
+#define PCI_PCIE_LCSR_CCC	0x00000040
 #define PCI_PCIE_LCSR_ES	0x00000080
 #define PCI_PCIE_LCSR_ECPM	0x00000100
+#define PCI_PCIE_LCSR_CLS	0x000f0000
+#define PCI_PCIE_LCSR_CLS_2_5	0x00010000
+#define PCI_PCIE_LCSR_CLS_5	0x00020000
+#define PCI_PCIE_LCSR_CLS_8	0x00030000
+#define PCI_PCIE_LCSR_CLS_16	0x00040000
+#define PCI_PCIE_LCSR_CLS_32	0x00050000
+#define PCI_PCIE_LCSR_LT	0x08000000
+#define PCI_PCIE_LCSR_SCC	0x10000000
 #define PCI_PCIE_SLCAP		0x14
 #define PCI_PCIE_SLCAP_ABP	0x00000001
 #define PCI_PCIE_SLCAP_PCP	0x00000002
@@ -602,7 +612,16 @@ typedef u_int8_t pci_revision_t;
 #define PCI_PCIE_SLCSR_PDS	0x00400000
 #define PCI_PCIE_SLCSR_LACS	0x01000000
 #define PCI_PCIE_RCSR		0x1c
+#define PCI_PCIE_DCSR2		0x28
+#define PCI_PCIE_DCSR2_LTREN	0x00000400
 #define PCI_PCIE_LCAP2		0x2c
+#define PCI_PCIE_LCSR2		0x30
+#define PCI_PCIE_LCSR2_TLS	0x0000000f
+#define PCI_PCIE_LCSR2_TLS_2_5	0x00000001
+#define PCI_PCIE_LCSR2_TLS_5	0x00000002
+#define PCI_PCIE_LCSR2_TLS_8	0x00000003
+#define PCI_PCIE_LCSR2_TLS_16	0x00000004
+#define PCI_PCIE_LCSR2_TLS_32	0x00000005
 
 /*
  * PCI Express; enhanced capabilities
@@ -617,6 +636,7 @@ typedef u_int8_t pci_revision_t;
  * Extended Message Signaled Interrups; access via capability pointer.
  */
 #define PCI_MSIX_MC_MSIXE	0x80000000
+#define PCI_MSIX_MC_FM		0x40000000
 #define PCI_MSIX_MC_TBLSZ_MASK	0x07ff0000
 #define PCI_MSIX_MC_TBLSZ_SHIFT	16
 #define PCI_MSIX_MC_TBLSZ(reg)	\
@@ -626,7 +646,7 @@ typedef u_int8_t pci_revision_t;
 #define  PCI_MSIX_TABLE_OFF	~(PCI_MSIX_TABLE_BIR)
 
 #define PCI_MSIX_MA(i)		((i) * 16 + 0)
-#define PCI_MSIX_MAU32(i)	((i) * 16 + 0)
+#define PCI_MSIX_MAU32(i)	((i) * 16 + 4)
 #define PCI_MSIX_MD(i)		((i) * 16 + 8)
 #define PCI_MSIX_VC(i)		((i) * 16 + 12)
 #define  PCI_MSIX_VC_MASK	0x00000001

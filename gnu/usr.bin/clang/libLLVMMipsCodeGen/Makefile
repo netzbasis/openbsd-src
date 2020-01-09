@@ -1,13 +1,11 @@
-# $OpenBSD: Makefile,v 1.4 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.7 2019/10/25 00:40:56 mortimer Exp $
 
 LIB=	LLVMMipsCodeGen
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${.OBJDIR}/../include/llvm/Mips -I${LLVM_SRCS}/lib/Target/Mips
 
-.include <bsd.own.mk>
-SRCS=	MicroMipsSizeReduction.cpp \
+SRCS+=	MicroMipsSizeReduction.cpp \
 	Mips16FrameLowering.cpp \
 	Mips16HardFloat.cpp \
 	Mips16HardFloatInfo.cpp \
@@ -35,8 +33,10 @@ SRCS=	MicroMipsSizeReduction.cpp \
 	MipsModuleISelDAGToDAG.cpp \
 	MipsOptimizePICCall.cpp \
 	MipsOs16.cpp \
+	MipsPreLegalizerCombiner.cpp \
 	MipsRegisterBankInfo.cpp \
 	MipsRegisterInfo.cpp \
+	MipsReturnProtectorLowering.cpp \
 	MipsSEFrameLowering.cpp \
 	MipsSEInstrInfo.cpp \
 	MipsSEISelDAGToDAG.cpp \
@@ -47,8 +47,3 @@ SRCS=	MicroMipsSizeReduction.cpp \
 	MipsTargetObjectFile.cpp
 
 .PATH:	${.CURDIR}/../../../llvm/lib/Target/Mips
-
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>

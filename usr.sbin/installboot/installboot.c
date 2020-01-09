@@ -1,4 +1,4 @@
-/*	$OpenBSD: installboot.c,v 1.11 2015/11/29 00:14:07 deraadt Exp $	*/
+/*	$OpenBSD: installboot.c,v 1.13 2019/10/29 17:41:45 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>
@@ -98,17 +98,19 @@ main(int argc, char **argv)
 	}
 
 	if ((devfd = opendev(dev, (nowrite ? O_RDONLY : O_RDWR), OPENDEV_PART,
-	    &realdev)) < 0)
+	    &realdev)) == -1)
 		err(1, "open: %s", realdev);
 
         if (verbose) {
 		fprintf(stderr, "%s bootstrap on %s\n",
 		    (nowrite ? "would install" : "installing"), realdev);
-		if (stage1)
-			fprintf(stderr, "using first-stage %s", stage1);
-		if (stage2)
-			fprintf(stderr, ", second-stage %s", stage2);
-		fprintf(stderr, "\n");
+		if (stage1 || stage2) {
+			if (stage1)
+				fprintf(stderr, "using first-stage %s", stage1);
+			if (stage2)
+				fprintf(stderr, ", second-stage %s", stage2);
+			fprintf(stderr, "\n");
+		}
 	}
 
 	md_loadboot();

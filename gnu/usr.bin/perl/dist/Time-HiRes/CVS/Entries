@@ -1,8 +1,8 @@
-/Changes/1.2/Sun Oct 29 22:37:20 2017/-ko/
-/HiRes.pm/1.5/Sun Oct 29 22:37:20 2017/-ko/
-/HiRes.xs/1.5/Sun Oct 29 22:37:20 2017/-ko/
-/Makefile.PL/1.5/Sun Oct 29 22:37:20 2017/-ko/
-/typemap/1.2/Sun Oct 29 22:37:20 2017/-ko/
+/Changes/1.4/Mon Dec 30 02:13:52 2019/-ko/
+/HiRes.pm/1.7/Mon Dec 30 02:13:52 2019/-ko/
+/HiRes.xs/1.7/Mon Dec 30 02:13:52 2019/-ko/
+/Makefile.PL/1.7/Mon Dec 30 02:13:52 2019/-ko/
+/typemap/1.3/Wed Feb 13 21:15:21 2019/-ko/
 D/fallback////
 D/hints////
 D/t////

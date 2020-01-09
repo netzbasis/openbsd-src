@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfd.c,v 1.105 2019/01/15 22:18:10 remi Exp $ */
+/*	$OpenBSD: ospfd.c,v 1.110 2019/11/23 15:05:21 remi Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -185,6 +185,8 @@ main(int argc, char *argv[])
 		kif_clear();
 		exit(1);
 	}
+        if (ospfd_conf->rtr_id.s_addr == 0)
+                ospfd_conf->rtr_id.s_addr = get_rtr_id();
 
 	if (sockname == NULL) {
 		if (asprintf(&sockname, "%s.%d", OSPFD_SOCKET,
@@ -642,6 +644,16 @@ ospf_reload(void)
 	if ((xconf = parse_config(conffile, ospfd_conf->opts)) == NULL)
 		return (-1);
 
+	/* No router-id was specified, keep existing value */
+        if (xconf->rtr_id.s_addr == 0)
+                xconf->rtr_id.s_addr = ospfd_conf->rtr_id.s_addr;
+
+	/* Abort the reload if rtr_id changed */
+	if (ospfd_conf->rtr_id.s_addr != xconf->rtr_id.s_addr) {
+		log_warnx("router-id changed: restart required");
+		return (-1);
+	}
+
 	/* send config to childs */
 	if (ospf_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
 		return (-1);
@@ -693,7 +705,6 @@ merge_config(struct ospfd_conf *conf, struct ospfd_conf *xconf)
 	struct redistribute	*r;
 	int			 rchange = 0;
 
-	/* change of rtr_id needs a restart */
 	conf->flags = xconf->flags;
 	conf->spf_delay = xconf->spf_delay;
 	conf->spf_hold_time = xconf->spf_hold_time;
@@ -891,6 +902,10 @@ merge_interfaces(struct area *a, struct area *xa)
 		md_list_clr(&i->auth_md_list);
 		md_list_copy(&i->auth_md_list, &xi->auth_md_list);
 
+		strlcpy(i->dependon, xi->dependon,
+		        sizeof(i->dependon));
+		i->depend_ok = xi->depend_ok;
+
 		if (i->passive != xi->passive) {
 			/* need to restart interface to cope with this change */
 			if (ospfd_process == PROC_OSPF_ENGINE)
@@ -900,9 +915,14 @@ merge_interfaces(struct area *a, struct area *xa)
 				if_fsm(i, IF_EVT_UP);
 		}
 
-		strlcpy(i->dependon, xi->dependon,
-		        sizeof(i->dependon));
-		i->depend_ok = xi->depend_ok;
+		if (i->p2p != xi->p2p) {
+			/* restart interface to enable or disable DR election */
+			if (ospfd_process == PROC_OSPF_ENGINE)
+				if_fsm(i, IF_EVT_DOWN);
+			i->p2p = xi->p2p;
+			if (ospfd_process == PROC_OSPF_ENGINE)
+				if_fsm(i, IF_EVT_UP);
+		}
 	}
 	return (dirty);
 }

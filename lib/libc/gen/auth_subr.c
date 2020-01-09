@@ -1,4 +1,4 @@
-/*	$OpenBSD: auth_subr.c,v 1.51 2019/01/25 00:19:25 millert Exp $	*/
+/*	$OpenBSD: auth_subr.c,v 1.54 2019/12/04 06:25:45 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2000-2002,2004 Todd C. Miller <millert@openbsd.org>
@@ -304,7 +304,8 @@ auth_challenge(auth_session_t *as)
 	char path[PATH_MAX];
 	int len;
 
-	if (as == NULL || as->style == NULL || as->name == NULL)
+	if (as == NULL || as->style == NULL || as->name == NULL ||
+	    !_auth_validuser(as->name))
 		return (NULL);
 
 	len = snprintf(path, sizeof(path), _PATH_AUTHPROG "%s", as->style);
@@ -316,7 +317,7 @@ auth_challenge(auth_session_t *as)
 	free(as->challenge);
 	as->challenge = NULL;
 
-	auth_call(as, path, as->style, "-s", "challenge", as->name,
+	auth_call(as, path, as->style, "-s", "challenge", "--", as->name,
 	    as->class, (char *)NULL);
 	if (as->state & AUTH_CHALLENGE)
 		as->challenge = auth_getvalue(as, "challenge");
@@ -476,6 +477,10 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 	case AUTHV_NAME:
 		if (value == as->name)
 			return (0);
+		if (value != NULL && !_auth_validuser(value)) {
+			errno = EINVAL;
+			return (-1);
+		}
 		if (value != NULL && (value = strdup(value)) == NULL)
 			return (-1);
 		free(as->name);
@@ -821,6 +826,7 @@ auth_call(auth_session_t *as, char *path, ...)
 		argv[argc++] = "-v";
 		argv[argc++] = "fd=4";		/* AUTH_FD, see below */
 	}
+	/* XXX - fail if out of space in argv */
 	for (opt = as->optlist; opt != NULL; opt = opt->next) {
 		if (argc < Nargc - 2) {
 			argv[argc++] = "-v";
@@ -848,13 +854,7 @@ auth_call(auth_session_t *as, char *path, ...)
 
 	argv[argc] = NULL;
 
-	if (secure_path(path) < 0) {
-		syslog(LOG_ERR, "%s: path not secure", path);
-		warnx("invalid script: %s", path);
-		goto fail;
-	}
-
-	if (socketpair(PF_LOCAL, SOCK_STREAM, 0, pfd) < 0) {
+	if (socketpair(PF_LOCAL, SOCK_STREAM, 0, pfd) == -1) {
 		syslog(LOG_ERR, "unable to create backchannel %m");
 		warnx("internal resource failure");
 		goto fail;
@@ -870,10 +870,10 @@ auth_call(auth_session_t *as, char *path, ...)
 	case 0:
 #define	COMM_FD	3
 #define	AUTH_FD	4
-		if (dup2(pfd[1], COMM_FD) < 0)
+		if (dup2(pfd[1], COMM_FD) == -1)
 			err(1, "dup of backchannel");
 		if (as->fd != -1) {
-			if (dup2(as->fd, AUTH_FD) < 0)
+			if (dup2(as->fd, AUTH_FD) == -1)
 				err(1, "dup of auth fd");
 			closefrom(AUTH_FD + 1);
 		} else
@@ -1009,7 +1009,7 @@ _recv_fd(auth_session_t *as, int fd)
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_control = &cmsgbuf.buf;
 	msg.msg_controllen = sizeof(cmsgbuf.buf);
-	if (recvmsg(fd, &msg, 0) < 0)
+	if (recvmsg(fd, &msg, 0) == -1)
 		syslog(LOG_ERR, "recvmsg: %m");
 	else if (msg.msg_flags & MSG_TRUNC)
 		syslog(LOG_ERR, "message truncated");

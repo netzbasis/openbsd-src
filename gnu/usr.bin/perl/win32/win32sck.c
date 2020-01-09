@@ -613,7 +613,7 @@ open_ifs_socket(int af, int type, int protocol)
     dTHX;
     char *s;
     unsigned long proto_buffers_len = 0;
-    int error_code;
+    int error_code, found = 0;
     SOCKET out = INVALID_SOCKET;
 
     if ((s = PerlEnv_getenv("PERL_ALLOW_NON_IFS_LSP")) && atoi(s))
@@ -645,11 +645,15 @@ open_ifs_socket(int af, int type, int protocol)
                 if ((proto_buffers[i].dwServiceFlags1 & XP1_IFS_HANDLES) == 0)
                     continue;
 
+                found = 1;
                 convert_proto_info_w2a(&(proto_buffers[i]), &proto_info);
 
                 out = WSASocket(af, type, protocol, &proto_info, 0, 0);
                 break;
             }
+
+            if (!found)
+                WSASetLastError(WSAEPROTONOSUPPORT);
         }
 
         Safefree(proto_buffers);
@@ -694,10 +698,15 @@ int my_close(int fd)
 	int err;
 	err = closesocket(osf);
 	if (err == 0) {
+#ifdef _set_osfhnd
 	    assert(_osfhnd(fd) == osf); /* catch a bad ioinfo struct def */
 	    /* don't close freed handle */
 	    _set_osfhnd(fd, INVALID_HANDLE_VALUE);
 	    return close(fd);
+#else
+	    (void)close(fd);    /* handle already closed, ignore error */
+	    return 0;
+#endif
 	}
 	else if (err == SOCKET_ERROR) {
 	    int wsaerr = WSAGetLastError();
@@ -726,10 +735,15 @@ my_fclose (FILE *pf)
 	win32_fflush(pf);
 	err = closesocket(osf);
 	if (err == 0) {
+#ifdef _set_osfhnd
 	    assert(_osfhnd(win32_fileno(pf)) == osf); /* catch a bad ioinfo struct def */
 	    /* don't close freed handle */
 	    _set_osfhnd(win32_fileno(pf), INVALID_HANDLE_VALUE);
 	    return fclose(pf);
+#else
+	    (void)fclose(pf);   /* handle already closed, ignore error */
+	    return 0;
+#endif
 	}
 	else if (err == SOCKET_ERROR) {
 	    int wsaerr = WSAGetLastError();

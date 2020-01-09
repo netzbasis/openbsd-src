@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.147 2019/01/23 21:53:42 cheloha Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.155 2019/11/30 11:19:17 visa Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -54,6 +54,10 @@
 #include <ddb/db_output.h>
 
 #include <machine/spinlock.h>
+
+#ifdef DIAGNOSTIC
+#include <sys/syslog.h>
+#endif
 
 #ifdef KTRACE
 #include <sys/ktrace.h>
@@ -143,9 +147,31 @@ tsleep(const volatile void *ident, int priority, const char *wmesg, int timo)
 
 	sleep_setup(&sls, ident, priority, wmesg);
 	sleep_setup_timeout(&sls, timo);
-	sleep_setup_signal(&sls, priority);
+	sleep_setup_signal(&sls);
 
 	return sleep_finish_all(&sls, 1);
+}
+
+int
+tsleep_nsec(const volatile void *ident, int priority, const char *wmesg,
+    uint64_t nsecs)
+{
+	uint64_t to_ticks;
+
+	if (nsecs == INFSLP)
+		return tsleep(ident, priority, wmesg, 0);
+#ifdef DIAGNOSTIC
+	if (nsecs == 0) {
+		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
+		    __func__, wmesg);
+	}
+#endif
+	to_ticks = nsecs / (tick * 1000);
+	if (to_ticks > INT_MAX)
+		to_ticks = INT_MAX;
+	if (to_ticks == 0)
+		to_ticks = 1;
+	return tsleep(ident, priority, wmesg, (int)to_ticks);
 }
 
 int
@@ -177,10 +203,12 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 #ifdef MULTIPROCESSOR
 	int hold_count;
 #endif
-	WITNESS_SAVE_DECL(lock_fl);
 
 	KASSERT((priority & ~(PRIMASK | PCATCH | PNORELOCK)) == 0);
 	KASSERT(mtx != NULL);
+
+	if (priority & PCATCH)
+		KERNEL_ASSERT_LOCKED();
 
 	if (cold || panicstr) {
 		/*
@@ -208,9 +236,7 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 
 	sleep_setup(&sls, ident, priority, wmesg);
 	sleep_setup_timeout(&sls, timo);
-	sleep_setup_signal(&sls, priority);
-
-	WITNESS_SAVE(MUTEX_LOCK_OBJECT(mtx), lock_fl);
+	sleep_setup_signal(&sls);
 
 	/* XXX - We need to make sure that the mutex doesn't
 	 * unblock splsched. This can be made a bit more
@@ -225,11 +251,32 @@ msleep(const volatile void *ident, struct mutex *mtx, int priority,
 	if ((priority & PNORELOCK) == 0) {
 		mtx_enter(mtx);
 		MUTEX_OLDIPL(mtx) = spl; /* put the ipl back */
-		WITNESS_RESTORE(MUTEX_LOCK_OBJECT(mtx), lock_fl);
 	} else
 		splx(spl);
 
 	return error;
+}
+
+int
+msleep_nsec(const volatile void *ident, struct mutex *mtx, int priority,
+    const char *wmesg, uint64_t nsecs)
+{
+	uint64_t to_ticks;
+
+	if (nsecs == INFSLP)
+		return msleep(ident, mtx, priority, wmesg, 0);
+#ifdef DIAGNOSTIC
+	if (nsecs == 0) {
+		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
+		    __func__, wmesg);
+	}
+#endif
+	to_ticks = nsecs / (tick * 1000);
+	if (to_ticks > INT_MAX)
+		to_ticks = INT_MAX;
+	if (to_ticks == 0)
+		to_ticks = 1;
+	return msleep(ident, mtx, priority, wmesg, (int)to_ticks);
 }
 
 /*
@@ -242,7 +289,6 @@ rwsleep(const volatile void *ident, struct rwlock *rwl, int priority,
 {
 	struct sleep_state sls;
 	int error, status;
-	WITNESS_SAVE_DECL(lock_fl);
 
 	KASSERT((priority & ~(PRIMASK | PCATCH | PNORELOCK)) == 0);
 	rw_assert_anylock(rwl);
@@ -250,20 +296,38 @@ rwsleep(const volatile void *ident, struct rwlock *rwl, int priority,
 
 	sleep_setup(&sls, ident, priority, wmesg);
 	sleep_setup_timeout(&sls, timo);
-	sleep_setup_signal(&sls, priority);
-
-	WITNESS_SAVE(&rwl->rwl_lock_obj, lock_fl);
+	sleep_setup_signal(&sls);
 
 	rw_exit(rwl);
 
 	error = sleep_finish_all(&sls, 1);
 
-	if ((priority & PNORELOCK) == 0) {
+	if ((priority & PNORELOCK) == 0)
 		rw_enter(rwl, status);
-		WITNESS_RESTORE(&rwl->rwl_lock_obj, lock_fl);
-	}
 
 	return error;
+}
+
+int
+rwsleep_nsec(const volatile void *ident, struct rwlock *rwl, int priority,
+    const char *wmesg, uint64_t nsecs)
+{
+	uint64_t to_ticks;
+
+	if (nsecs == INFSLP)
+		return rwsleep(ident, rwl, priority, wmesg, 0);
+#ifdef DIAGNOSTIC
+	if (nsecs == 0) {
+		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
+		    __func__, wmesg);
+	}
+#endif
+	to_ticks = nsecs / (tick * 1000);
+	if (to_ticks > INT_MAX)
+		to_ticks = INT_MAX;
+	if (to_ticks == 0)
+		to_ticks = 1;
+	return 	rwsleep(ident, rwl, priority, wmesg, (int)to_ticks);
 }
 
 void
@@ -281,9 +345,21 @@ sleep_setup(struct sleep_state *sls, const volatile void *ident, int prio,
 		panic("tsleep: not SONPROC");
 #endif
 
-	sls->sls_catch = 0;
+	sls->sls_catch = prio & PCATCH;
 	sls->sls_do_sleep = 1;
+	sls->sls_locked = 0;
 	sls->sls_sig = 1;
+	sls->sls_timeout = 0;
+
+	/*
+	 * The kernel has to be locked for signal processing.
+	 * This is done here and not in sleep_setup_signal() because
+	 * KERNEL_LOCK() has to be taken before SCHED_LOCK().
+	 */
+	if (sls->sls_catch != 0) {
+		KERNEL_LOCK();
+		sls->sls_locked = 1;
+	}
 
 	SCHED_LOCK(sls->sls_s);
 
@@ -326,8 +402,13 @@ sleep_finish(struct sleep_state *sls, int do_sleep)
 void
 sleep_setup_timeout(struct sleep_state *sls, int timo)
 {
-	if (timo)
-		timeout_add(&curproc->p_sleep_to, timo);
+	struct proc *p = curproc;
+
+	if (timo) {
+		KASSERT((p->p_flag & P_TIMEOUT) == 0);
+		sls->sls_timeout = 1;
+		timeout_add(&p->p_sleep_to, timo);
+	}
 }
 
 int
@@ -335,22 +416,30 @@ sleep_finish_timeout(struct sleep_state *sls)
 {
 	struct proc *p = curproc;
 
-	if (p->p_flag & P_TIMEOUT) {
-		atomic_clearbits_int(&p->p_flag, P_TIMEOUT);
-		return (EWOULDBLOCK);
-	} else
-		timeout_del(&p->p_sleep_to);
+	if (sls->sls_timeout) {
+		if (p->p_flag & P_TIMEOUT) {
+			atomic_clearbits_int(&p->p_flag, P_TIMEOUT);
+			return (EWOULDBLOCK);
+		} else {
+			/* This must not sleep. */
+			timeout_del_barrier(&p->p_sleep_to);
+			KASSERT((p->p_flag & P_TIMEOUT) == 0);
+		}
+	}
 
 	return (0);
 }
 
 void
-sleep_setup_signal(struct sleep_state *sls, int prio)
+sleep_setup_signal(struct sleep_state *sls)
 {
 	struct proc *p = curproc;
 
-	if ((sls->sls_catch = (prio & PCATCH)) == 0)
+	if (sls->sls_catch == 0)
 		return;
+
+	/* sleep_setup() has locked the kernel. */
+	KERNEL_ASSERT_LOCKED();
 
 	/*
 	 * We put ourselves on the sleep queue and start our timeout
@@ -377,20 +466,26 @@ int
 sleep_finish_signal(struct sleep_state *sls)
 {
 	struct proc *p = curproc;
-	int error;
+	int error = 0;
 
 	if (sls->sls_catch != 0) {
-		if ((error = single_thread_check(p, 1)))
-			return (error);
-		if (sls->sls_sig != 0 || (sls->sls_sig = CURSIG(p)) != 0) {
+		KERNEL_ASSERT_LOCKED();
+
+		error = single_thread_check(p, 1);
+		if (error == 0 &&
+		    (sls->sls_sig != 0 || (sls->sls_sig = CURSIG(p)) != 0)) {
 			if (p->p_p->ps_sigacts->ps_sigintr &
 			    sigmask(sls->sls_sig))
-				return (EINTR);
-			return (ERESTART);
+				error = EINTR;
+			else
+				error = ERESTART;
 		}
 	}
 
-	return (0);
+	if (sls->sls_locked)
+		KERNEL_UNLOCK();
+
+	return (error);
 }
 
 /*
@@ -482,6 +577,7 @@ int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
 	struct proc *q;
+	uint8_t newprio;
 	int s;
 
 	SCHED_LOCK(s);
@@ -490,11 +586,10 @@ sys_sched_yield(struct proc *p, void *v, register_t *retval)
 	 * sched_yield(2), drop its priority to ensure its siblings
 	 * can make some progress.
 	 */
-	p->p_priority = p->p_usrpri;
+	newprio = p->p_usrpri;
 	TAILQ_FOREACH(q, &p->p_p->ps_threads, p_thr_link)
-		p->p_priority = max(p->p_priority, q->p_priority);
-	p->p_stat = SRUN;
-	setrunqueue(p);
+		newprio = max(newprio, q->p_priority);
+	setrunqueue(p->p_cpu, p, newprio);
 	p->p_ru.ru_nvcsw++;
 	mi_switch();
 	SCHED_UNLOCK(s);
@@ -580,7 +675,7 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 		void *sleepaddr = &p->p_thrslpid;
 		if (ident == -1)
 			sleepaddr = &globalsleepaddr;
-		error = tsleep(sleepaddr, PUSER | PCATCH, "thrsleep",
+		error = tsleep(sleepaddr, PWAIT|PCATCH, "thrsleep",
 		    (int)to_ticks);
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.89 2018/12/10 21:30:33 claudio Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.98 2019/12/12 03:53:38 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -39,6 +39,7 @@
 #define SET(_v, _m)		((_v) |= (_m))
 #define CLR(_v, _m)		((_v) &= ~(_m))
 #define ISSET(_v, _m)		((_v) & (_m))
+#define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 #define VMD_USER		"_vmd"
 #define VMD_CONF		"/etc/vm.conf"
@@ -56,6 +57,8 @@
 #define VMD_SWITCH_TYPE		"bridge"
 #define VM_DEFAULT_MEMORY	512
 
+#define VMD_DEFAULT_STAGGERED_START_DELAY 30
+
 /* Rate-limit fast reboots */
 #define VM_START_RATE_SEC	6	/* min. seconds since last reboot */
 #define VM_START_RATE_LIMIT	3	/* max. number of fast reboots */
@@ -68,10 +71,11 @@
 /* vmd -> vmctl error codes */
 #define VMD_BIOS_MISSING	1001
 #define VMD_DISK_MISSING	1002
-#define VMD_DISK_INVALID	1003
+					/* 1003 is obsolete VMD_DISK_INVALID */
 #define VMD_VM_STOP_INVALID	1004
 #define VMD_CDROM_MISSING	1005
 #define VMD_CDROM_INVALID	1006
+#define VMD_PARENT_INVALID	1007
 
 /* Image file signatures */
 #define VM_MAGIC_QCOW		"QFI\xfb"
@@ -134,6 +138,7 @@ struct vmop_info_result {
 	char			 vir_ttyname[VM_TTYNAME_MAX];
 	uid_t			 vir_uid;
 	int64_t			 vir_gid;
+	unsigned int		 vir_state;
 };
 
 struct vmop_id {
@@ -214,7 +219,7 @@ struct vm_dump_header {
 #define VM_DUMP_SIGNATURE	 VMM_HV_SIGNATURE
 	uint8_t			 vmh_pad[3];
 	uint8_t			 vmh_version;
-#define VM_DUMP_VERSION		 5
+#define VM_DUMP_VERSION		 7
 	struct			 vm_dump_header_cpuid
 	    vmh_cpuids[VM_DUMP_HEADER_CPUID_COUNT];
 } __packed;
@@ -263,19 +268,22 @@ struct vmd_vm {
 	char			*vm_ttyname;
 	int			 vm_tty;
 	uint32_t		 vm_peerid;
-	/* When set, VM is running now (PROC_PARENT only) */
-	int			 vm_running;
-	/* When set, VM is not started by default (PROC_PARENT only) */
-	int			 vm_disabled;
 	/* When set, VM was defined in a config file */
 	int			 vm_from_config;
 	struct imsgev		 vm_iev;
-	int			 vm_shutdown;
 	uid_t			 vm_uid;
-	int			 vm_received;
-	int			 vm_paused;
 	int			 vm_receive_fd;
 	struct vmd_user		*vm_user;
+	unsigned int		 vm_state;
+/* When set, VM is running now (PROC_PARENT only) */
+#define VM_STATE_RUNNING	0x01
+/* When set, VM is not started by default (PROC_PARENT only) */
+#define VM_STATE_DISABLED	0x02
+/* When set, VM is marked to be shut down */
+#define VM_STATE_SHUTDOWN	0x04
+#define VM_STATE_RECEIVED	0x08
+#define VM_STATE_PAUSED		0x10
+#define VM_STATE_WAITING	0x20
 
 	/* For rate-limiting */
 	struct timeval		 vm_start_tv;
@@ -315,7 +323,10 @@ struct vmd_config {
 	unsigned int		 cfg_flags;
 #define VMD_CFG_INET6		0x01
 #define VMD_CFG_AUTOINET6	0x02
+#define VMD_CFG_STAGGERED_START	0x04
 
+	struct timeval		 delay;
+	int			 parallelism;
 	struct address		 cfg_localprefix;
 	struct address		 cfg_localprefix6;
 };
@@ -430,7 +441,6 @@ int	 vmm_pipe(struct vmd_vm *, int, void (*)(int, short, void *));
 
 /* vm.c */
 int	 start_vm(struct vmd_vm *, int);
-int receive_vm(struct vmd_vm *, int, int);
 __dead void vm_shutdown(unsigned int);
 
 /* control.c */

@@ -9,7 +9,10 @@ if ($] < 5.004_55) {
 use strict;
 use warnings;
 
-require "./filter-util.pl" ;
+use FindBin;
+use lib "$FindBin::Bin"; # required to load filter-util.pl
+
+require "filter-util.pl" ;
 
 use vars qw( $Inc $Perl) ;
 

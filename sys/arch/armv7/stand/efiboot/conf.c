@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.13 2018/03/31 18:19:12 patrick Exp $	*/
+/*	$OpenBSD: conf.c,v 1.21 2019/10/29 02:55:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -36,7 +36,7 @@
 #include "efidev.h"
 #include "efipxe.h"
 
-const char version[] = "1.1";
+const char version[] = "1.8";
 int	debug = 0;
 
 struct fs_ops file_system[] = {
@@ -45,7 +45,7 @@ struct fs_ops file_system[] = {
 	{ efitftp_open,tftp_close,   tftp_read,   tftp_write,   tftp_seek,
 	  tftp_stat,   tftp_readdir   },
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
-	  ufs_stat,    ufs_readdir    },
+	  ufs_stat,    ufs_readdir,  ufs_fchmod },
 };
 int nfsys = nitems(file_system);
 
@@ -57,6 +57,7 @@ int ndevs = nitems(devsw);
 
 struct consdev constab[] = {
 	{ efi_cons_probe, efi_cons_init, efi_cons_getc, efi_cons_putc },
+	{ efi_fb_probe, efi_fb_init, efi_cons_getc, efi_cons_putc },
 	{ NULL }
 };
 struct consdev *cn_tab;

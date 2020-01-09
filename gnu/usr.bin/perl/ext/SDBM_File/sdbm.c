@@ -7,7 +7,6 @@
  * core routines
  */
 
-#include "INTERN.h"
 #include "config.h"
 #ifdef WIN32
 #include "io.h"
@@ -23,13 +22,7 @@
 # include <sys/file.h>
 #endif
 
-#ifdef I_STRING
-# ifndef __ultrix__
-#  include <string.h>
-# endif
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 /*
  * externals
@@ -41,8 +34,8 @@
 extern "C" {
 #endif
 
-extern Malloc_t malloc proto((MEM_SIZE));
-extern Free_t free proto((Malloc_t));
+extern Malloc_t malloc(MEM_SIZE);
+extern Free_t free(Malloc_t);
 
 #ifdef __cplusplus
 }
@@ -53,11 +46,11 @@ const datum nullitem = {0, 0};
 /*
  * forward
  */
-static int getdbit proto((DBM *, long));
-static int setdbit proto((DBM *, long));
-static int getpage proto((DBM *, long));
-static datum getnext proto((DBM *));
-static int makroom proto((DBM *, long, int));
+static int getdbit(DBM *, long);
+static int setdbit(DBM *, long);
+static int getpage(DBM *, long);
+static datum getnext(DBM *);
+static int makroom(DBM *, long, int);
 
 /*
  * useful macros
@@ -404,6 +397,12 @@ sdbm_firstkey(DBM *db)
 	if (lseek(db->pagf, OFF_PAG(0), SEEK_SET) < 0
 	    || read(db->pagf, db->pagbuf, PBLKSIZ) < 0)
 		return ioerr(db), nullitem;
+        if (!chkpage(db->pagbuf)) {
+            errno = EINVAL;
+            ioerr(db);
+            db->pagbno = -1;
+            return nullitem;
+        }
 	db->pagbno = 0;
 	db->blkptr = 0;
 	db->keyptr = 0;
@@ -452,8 +451,12 @@ getpage(DBM *db, long int hash)
 		if (lseek(db->pagf, OFF_PAG(pagb), SEEK_SET) < 0
 		    || read(db->pagf, db->pagbuf, PBLKSIZ) < 0)
 			return 0;
-		if (!chkpage(db->pagbuf))
-			return 0;
+		if (!chkpage(db->pagbuf)) {
+                    errno = EINVAL;
+                    db->pagbno = -1;
+                    ioerr(db);
+                    return 0;
+                }
 		db->pagbno = pagb;
 
 		debug(("pag read: %d\n", pagb));
@@ -549,8 +552,12 @@ getnext(DBM *db)
 		db->pagbno = db->blkptr;
 		if (read(db->pagf, db->pagbuf, PBLKSIZ) <= 0)
 			break;
-		if (!chkpage(db->pagbuf))
-			break;
+		if (!chkpage(db->pagbuf)) {
+                    errno = EINVAL;
+                    db->pagbno = -1;
+                    ioerr(db);
+                    break;
+                }
 	}
 
 	return ioerr(db), nullitem;

@@ -1,16 +1,20 @@
-# $OpenBSD: Makefile,v 1.2 2019/01/27 16:59:42 patrick Exp $
+# $OpenBSD: Makefile,v 1.6 2019/12/21 13:16:25 mortimer Exp $
 
 LIB=	lldbPluginProcess
 NOPIC=
 NOPROFILE=
 
 .include <bsd.own.mk>
-SRCS=	DynamicRegisterInfo.cpp \
+SRCS=	CrashReason.cpp \
+	DynamicRegisterInfo.cpp \
 	FreeBSDSignals.cpp \
 	GDBRemoteClientBase.cpp \
 	GDBRemoteCommunication.cpp \
 	GDBRemoteCommunicationClient.cpp \
+	GDBRemoteCommunicationHistory.cpp \
+	GDBRemoteCommunicationReplayServer.cpp \
 	GDBRemoteCommunicationServer.cpp \
+	GDBRemoteCommunicationServerCommon.cpp \
 	GDBRemoteCommunicationServerLLGS.cpp \
 	GDBRemoteCommunicationServerPlatform.cpp \
 	GDBRemoteRegisterContext.cpp \
@@ -18,17 +22,26 @@ SRCS=	DynamicRegisterInfo.cpp \
 	HistoryThread.cpp \
 	HistoryUnwind.cpp \
 	InferiorCallPOSIX.cpp \
+	LinuxProcMaps.cpp \
 	LinuxSignals.cpp \
 	MinidumpParser.cpp \
 	MinidumpTypes.cpp \
 	MipsLinuxSignals.cpp \
+	NativeProcessOpenBSD.cpp \
+	NativeRegisterContextOpenBSD.cpp \
+	NativeRegisterContextOpenBSD_x86_64.cpp \
+	NativeRegisterContextOpenBSD_arm64.cpp \
 	NativeRegisterContextRegisterInfo.cpp \
+	NativeThreadOpenBSD.cpp \
 	NetBSDSignals.cpp \
+	OpenBSDSignals.cpp \
 	ProcessElfCore.cpp \
 	ProcessGDBRemote.cpp \
 	ProcessGDBRemoteLog.cpp \
 	ProcessMachCore.cpp \
+	ProcessMessage.cpp \
 	ProcessMinidump.cpp \
+	ProcessPOSIXLog.cpp \
 	RegisterContextDarwin_arm.cpp \
 	RegisterContextDarwin_arm64.cpp \
 	RegisterContextDarwin_i386.cpp \
@@ -50,6 +63,8 @@ SRCS=	DynamicRegisterInfo.cpp \
 	RegisterContextMach_i386.cpp \
 	RegisterContextMach_x86_64.cpp \
 	RegisterContextMemory.cpp \
+	RegisterContextMinidump_ARM.cpp \
+	RegisterContextMinidump_ARM64.cpp \
 	RegisterContextMinidump_x86_32.cpp \
 	RegisterContextMinidump_x86_64.cpp \
 	RegisterContextNetBSD_x86_64.cpp \
@@ -88,6 +103,8 @@ SRCS=	DynamicRegisterInfo.cpp \
 .PATH:	${.CURDIR}/../../../llvm/tools/lldb/source/Plugins/Process/gdb-remote
 .PATH:	${.CURDIR}/../../../llvm/tools/lldb/source/Plugins/Process/mach-core
 .PATH:	${.CURDIR}/../../../llvm/tools/lldb/source/Plugins/Process/minidump
+.PATH:	${.CURDIR}/../../../llvm/tools/lldb/source/Plugins/Process/POSIX
+.PATH:	${.CURDIR}/../../../llvm/tools/lldb/source/Plugins/Process/OpenBSD
 
 install:
 	@# Nothing here so far ...

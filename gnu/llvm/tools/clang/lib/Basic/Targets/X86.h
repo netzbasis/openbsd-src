@@ -98,7 +98,6 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasMOVBE = false;
   bool HasPREFETCHWT1 = false;
   bool HasRDPID = false;
-  bool HasRetpoline = false;
   bool HasRetpolineExternalThunk = false;
   bool HasLAHFSAHF = false;
   bool HasWBNOINVD = false;
@@ -107,6 +106,7 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasMOVDIR64B = false;
   bool HasPTWRITE = false;
   bool HasINVPCID = false;
+  bool HasSaveArgs = false;
 
 protected:
   /// Enumeration of all of the X86 CPUs supported by Clang.
@@ -226,6 +226,7 @@ public:
     case 'Y':
       if ((++I != E) && ((*I == '0') || (*I == 'z')))
         return "xmm0";
+      break;
     default:
       break;
     }
@@ -291,9 +292,6 @@ public:
     return checkCPUKind(CPU = getCPUKind(Name));
   }
 
-  bool supportsMultiVersioning() const override {
-    return getTriple().isOSBinFormatELF();
-  }
   unsigned multiVersionSortPriority(StringRef Name) const override;
 
   bool setFPMath(StringRef Name) override;

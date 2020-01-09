@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.94 2018/12/28 19:25:10 remi Exp $ */
+/*	$OpenBSD: parse.y,v 1.99 2019/11/19 09:55:55 remi Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Esben Norby <norby@openbsd.org>
@@ -83,7 +83,6 @@ int		 symset(const char *, const char *, int);
 char		*symget(const char *);
 
 void		 clear_config(struct ospfd_conf *xconf);
-u_int32_t	 get_rtr_id(void);
 int		 host(const char *, struct in_addr *, struct in_addr *);
 
 static struct ospfd_conf	*conf;
@@ -120,6 +119,7 @@ typedef struct {
 		int64_t		 number;
 		char		*string;
 		struct redistribute *redist;
+		struct in_addr	 id;
 	} v;
 	int lineno;
 } YYSTYPE;
@@ -129,7 +129,7 @@ typedef struct {
 %token	AREA INTERFACE ROUTERID FIBPRIORITY FIBUPDATE REDISTRIBUTE RTLABEL
 %token	RDOMAIN RFC1583COMPAT STUB ROUTER SPFDELAY SPFHOLDTIME EXTTAG
 %token	AUTHKEY AUTHTYPE AUTHMD AUTHMDKEYID
-%token	METRIC PASSIVE
+%token	METRIC P2P PASSIVE
 %token	HELLOINTERVAL FASTHELLOINTERVAL TRANSMITDELAY
 %token	RETRANSMITINTERVAL ROUTERDEADTIME ROUTERPRIORITY
 %token	SET TYPE
@@ -145,6 +145,7 @@ typedef struct {
 %type	<v.number>	deadtime
 %type	<v.string>	string dependon
 %type	<v.redist>	redistribute
+%type	<v.id>		areaid
 
 %%
 
@@ -588,15 +589,8 @@ comma		: ','
 		| /*empty*/
 		;
 
-area		: AREA STRING {
-			struct in_addr	id;
-			if (inet_aton($2, &id) == 0) {
-				yyerror("error parsing area");
-				free($2);
-				YYERROR;
-			}
-			free($2);
-			area = conf_get_area(id);
+area		: AREA areaid {
+			area = conf_get_area($2);
 
 			memcpy(&areadefs, defs, sizeof(areadefs));
 			md_list_copy(&areadefs.md_list, &defs->md_list);
@@ -610,6 +604,23 @@ area		: AREA STRING {
 
 demotecount	: NUMBER	{ $$ = $1; }
 		| /*empty*/	{ $$ = 1; }
+		;
+
+areaid		: NUMBER {
+			if ($1 < 0 || $1 > 0xffffffff) {
+				yyerror("invalid area id");
+				YYERROR;
+			}
+			$$.s_addr = htonl($1);
+		}
+		| STRING {
+			if (inet_aton($1, &$$) == 0) {
+				yyerror("error parsing area");
+				free($1);
+				YYERROR;
+			}
+			free($1);
+		}
 		;
 
 areaopts_l	: areaopts_l areaoptsl nl
@@ -732,6 +743,10 @@ interfaceopts_l	: interfaceopts_l interfaceoptsl nl
 		;
 
 interfaceoptsl	: PASSIVE		{ iface->passive = 1; }
+		| TYPE P2P		{
+			iface->p2p = 1;
+			iface->type = IF_TYPE_POINTOPOINT;
+		}
 		| DEMOTE STRING		{
 			if (strlcpy(iface->demote_group, $2,
 			    sizeof(iface->demote_group)) >=
@@ -822,6 +837,7 @@ lookup(char *s)
 		{"msec",		MSEC},
 		{"no",			NO},
 		{"on",			ON},
+		{"p2p",			P2P},
 		{"passive",		PASSIVE},
 		{"rdomain",		RDOMAIN},
 		{"redistribute",	REDISTRIBUTE},
@@ -1051,7 +1067,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -1090,7 +1106,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -1254,9 +1270,6 @@ parse_config(char *filename, int opts)
 		return (NULL);
 	}
 
-	if (conf->rtr_id.s_addr == 0)
-		conf->rtr_id.s_addr = get_rtr_id();
-
 	return (conf);
 }
 
@@ -1371,18 +1384,45 @@ conf_get_if(struct kif *kif, struct kif_addr *ka)
 int
 conf_check_rdomain(unsigned int rdomain)
 {
-	struct area	*a;
-	struct iface	*i;
-	int		 errs = 0;
+	struct area		*a;
+	struct iface		*i;
+	struct in_addr		 addr;
+	struct kif		*kif;
+	struct redistribute	*r;
+	int			 errs = 0;
+
+	SIMPLEQ_FOREACH(r, &conf->redist_list, entry)
+		if (r->dependon[0] != '\0') {
+			bzero(&addr, sizeof(addr));
+			kif = kif_findname(r->dependon, addr, NULL);
+			if (kif->rdomain != rdomain) {
+				logit(LOG_CRIT,
+				    "depend on %s: interface not in rdomain %u",
+				    kif->ifname, rdomain);
+				errs++;
+			}
+		}
 
 	LIST_FOREACH(a, &conf->area_list, entry)
-		LIST_FOREACH(i, &a->iface_list, entry)
+		LIST_FOREACH(i, &a->iface_list, entry) {
 			if (i->rdomain != rdomain) {
 				logit(LOG_CRIT,
 				    "interface %s not in rdomain %u",
 				    i->name, rdomain);
 				errs++;
 			}
+			if (i->dependon[0] != '\0') {
+				bzero(&addr, sizeof(addr));
+				kif = kif_findname(i->dependon, addr, NULL);
+				if (kif->rdomain != rdomain) {
+					logit(LOG_CRIT,
+					    "depend on %s: interface not in "
+					    "rdomain %u",
+					    kif->ifname, rdomain);
+					errs++;
+				}
+			}
+		}
 
 	return (errs);
 }

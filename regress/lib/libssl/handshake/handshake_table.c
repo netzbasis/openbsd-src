@@ -1,4 +1,4 @@
-/*	$OpenBSD: handshake_table.c,v 1.9 2019/01/27 03:59:23 tb Exp $	*/
+/*	$OpenBSD: handshake_table.c,v 1.11 2019/04/05 20:25:25 tb Exp $	*/
 /*
  * Copyright (c) 2019 Theo Buehler <tb@openbsd.org>
  *
@@ -93,6 +93,9 @@ static struct child stateinfo[][TLS13_NUM_MESSAGE_TYPES] = {
 		{CLIENT_HELLO_RETRY, WITH_HRR, 0, 0},
 	},
 	[CLIENT_HELLO_RETRY] = {
+		{SERVER_HELLO_RETRY, DEFAULT, 0, 0},
+	},
+	[SERVER_HELLO_RETRY] = {
 		{SERVER_ENCRYPTED_EXTENSIONS, DEFAULT, 0, 0},
 	},
 	[SERVER_ENCRYPTED_EXTENSIONS] = {
@@ -220,6 +223,9 @@ mt2str(enum tls13_message_type mt)
 		break;
 	case SERVER_HELLO:
 		ret = "SERVER_HELLO";
+		break;
+	case SERVER_HELLO_RETRY:
+		ret = "SERVER_HELLO_RETRY";
 		break;
 	case SERVER_NEW_SESSION_TICKET:
 		ret = "SERVER_NEW_SESSION_TICKET";
@@ -438,7 +444,8 @@ verify_table(enum tls13_message_type table[UINT8_MAX][TLS13_NUM_MESSAGE_TYPES],
 
 	num_valid = count_handshakes();
 	if (num_valid != num_found) {
-		printf("incorrect number of handshakes: want %zu, got %zu.\n",
+		fprintf(stderr,
+		    "incorrect number of handshakes: want %zu, got %zu.\n",
 		    num_valid, num_found);
 		success = 0;
 	}

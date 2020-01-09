@@ -28,27 +28,9 @@
 #include "perl.h"
 #include "keywords.h"
 
+#include "invlist_inline.h"
 #include "reentr.h"
 #include "regcharclass.h"
-
-/* XXX I can't imagine anyone who doesn't have this actually _needs_
-   it, since pid_t is an integral type.
-   --AD  2/20/1998
-*/
-#ifdef NEED_GETPID_PROTO
-extern Pid_t getpid (void);
-#endif
-
-/*
- * Some BSDs and Cygwin default to POSIX math instead of IEEE.
- * This switches them over to IEEE.
- */
-#if defined(LIBM_LIB_VERSION)
-    _LIB_VERSION_TYPE _LIB_VERSION = _IEEE_;
-#endif
-
-static const STRLEN small_mu_len = sizeof(GREEK_SMALL_LETTER_MU_UTF8) - 1;
-static const STRLEN capital_iota_len = sizeof(GREEK_CAPITAL_LETTER_IOTA_UTF8) - 1;
 
 /* variations on pp_null */
 
@@ -62,101 +44,7 @@ PP(pp_stub)
 
 /* Pushy stuff. */
 
-/* This is also called directly by pp_lvavref.  */
-PP(pp_padav)
-{
-    dSP; dTARGET;
-    U8 gimme;
-    assert(SvTYPE(TARG) == SVt_PVAV);
-    if (UNLIKELY( PL_op->op_private & OPpLVAL_INTRO ))
-	if (LIKELY( !(PL_op->op_private & OPpPAD_STATE) ))
-	    SAVECLEARSV(PAD_SVl(PL_op->op_targ));
-    EXTEND(SP, 1);
 
-    if (PL_op->op_flags & OPf_REF) {
-	PUSHs(TARG);
-	RETURN;
-    }
-    else if (PL_op->op_private & OPpMAYBE_LVSUB) {
-        const I32 flags = is_lvalue_sub();
-        if (flags && !(flags & OPpENTERSUB_INARGS)) {
-	    if (GIMME_V == G_SCALAR)
-                /* diag_listed_as: Can't return %s to lvalue scalar context */
-                Perl_croak(aTHX_ "Can't return array to lvalue scalar context");
-            PUSHs(TARG);
-            RETURN;
-       }
-    }
-
-    gimme = GIMME_V;
-    if (gimme == G_ARRAY) {
-        /* XXX see also S_pushav in pp_hot.c */
-	const SSize_t maxarg = AvFILL(MUTABLE_AV(TARG)) + 1;
-	EXTEND(SP, maxarg);
-	if (SvMAGICAL(TARG)) {
-	    SSize_t i;
-	    for (i=0; i < maxarg; i++) {
-		SV * const * const svp = av_fetch(MUTABLE_AV(TARG), i, FALSE);
-		SP[i+1] = (svp) ? *svp : &PL_sv_undef;
-	    }
-	}
-	else {
-	    SSize_t i;
-	    for (i=0; i < maxarg; i++) {
-		SV * const sv = AvARRAY((const AV *)TARG)[i];
-		SP[i+1] = sv ? sv : &PL_sv_undef;
-	    }
-	}
-	SP += maxarg;
-    }
-    else if (gimme == G_SCALAR) {
-	SV* const sv = sv_newmortal();
-	const SSize_t maxarg = AvFILL(MUTABLE_AV(TARG)) + 1;
-	sv_setiv(sv, maxarg);
-	PUSHs(sv);
-    }
-    RETURN;
-}
-
-PP(pp_padhv)
-{
-    dSP; dTARGET;
-    U8 gimme;
-
-    assert(SvTYPE(TARG) == SVt_PVHV);
-    XPUSHs(TARG);
-    if (UNLIKELY( PL_op->op_private & OPpLVAL_INTRO ))
-	if (LIKELY( !(PL_op->op_private & OPpPAD_STATE) ))
-	    SAVECLEARSV(PAD_SVl(PL_op->op_targ));
-
-    if (PL_op->op_flags & OPf_REF)
-	RETURN;
-    else if (PL_op->op_private & OPpMAYBE_LVSUB) {
-        const I32 flags = is_lvalue_sub();
-        if (flags && !(flags & OPpENTERSUB_INARGS)) {
-            if (GIMME_V == G_SCALAR)
-                /* diag_listed_as: Can't return %s to lvalue scalar context */
-                Perl_croak(aTHX_ "Can't return hash to lvalue scalar context");
-            RETURN;
-        }
-    }
-
-    gimme = GIMME_V;
-    if (gimme == G_ARRAY) {
-	RETURNOP(Perl_do_kv(aTHX));
-    }
-    else if ((PL_op->op_private & OPpTRUEBOOL
-	  || (  PL_op->op_private & OPpMAYBE_TRUEBOOL
-	     && block_gimme() == G_VOID  ))
-	  && (!SvRMAGICAL(TARG) || !mg_find(TARG, PERL_MAGIC_tied))
-    )
-	SETs(HvUSEDKEYS(TARG) ? &PL_sv_yes : sv_2mortal(newSViv(0)));
-    else if (gimme == G_SCALAR) {
-	SV* const sv = Perl_hv_scalar(aTHX_ MUTABLE_HV(TARG));
-	SETs(sv);
-    }
-    RETURN;
-}
 
 PP(pp_padcv)
 {
@@ -239,20 +127,18 @@ S_rv2gv(pTHX_ SV *sv, const bool vivify_sv, const bool strict,
 		 */
 		if (vivify_sv && sv != &PL_sv_undef) {
 		    GV *gv;
+		    HV *stash;
 		    if (SvREADONLY(sv))
 			Perl_croak_no_modify();
+		    gv = MUTABLE_GV(newSV(0));
+		    stash = CopSTASH(PL_curcop);
+		    if (SvTYPE(stash) != SVt_PVHV) stash = NULL;
 		    if (cUNOP->op_targ) {
 			SV * const namesv = PAD_SV(cUNOP->op_targ);
-			HV *stash = CopSTASH(PL_curcop);
-			if (SvTYPE(stash) != SVt_PVHV) stash = NULL;
-			gv = MUTABLE_GV(newSV(0));
 			gv_init_sv(gv, stash, namesv, 0);
 		    }
 		    else {
-			const char * const name = CopSTASHPV(PL_curcop);
-			gv = newGVgen_flags(name,
-                                HvNAMEUTF8(CopSTASH(PL_curcop)) ? SVf_UTF8 : 0 );
-			SvREFCNT_inc_simple_void_NN(gv);
+			gv_init_pv(gv, stash, "__ANONIO__", 0);
 		    }
 		    prepare_SV_for_RV(sv);
 		    SvRV_set(sv, MUTABLE_SV(gv));
@@ -403,6 +289,7 @@ PP(pp_rv2sv)
 	else if (PL_op->op_private & OPpDEREF)
 	    sv = vivify_ref(sv, PL_op->op_private & OPpDEREF);
     }
+    SPAGAIN; /* in case chasing soft refs reallocated the stack */
     SETs(sv);
     RETURN;
 }
@@ -439,11 +326,15 @@ PP(pp_pos)
     else {
 	    const MAGIC * const mg = mg_find_mglob(sv);
 	    if (mg && mg->mg_len != -1) {
-		dTARGET;
 		STRLEN i = mg->mg_len;
-		if (mg->mg_flags & MGf_BYTES && DO_UTF8(sv))
-		    i = sv_pos_b2u_flags(sv, i, SV_GMAGIC|SV_CONST_RETURN);
-		SETu(i);
+                if (PL_op->op_private & OPpTRUEBOOL)
+                    SETs(i ? &PL_sv_yes : &PL_sv_zero);
+                else {
+                    dTARGET;
+                    if (mg->mg_flags & MGf_BYTES && DO_UTF8(sv))
+                        i = sv_pos_b2u_flags(sv, i, SV_GMAGIC|SV_CONST_RETURN);
+                    SETu(i);
+                }
 		return NORMAL;
 	    }
 	    SETs(&PL_sv_undef);
@@ -471,7 +362,7 @@ PP(pp_rv2cv)
 	cv = SvTYPE(SvRV(gv)) == SVt_PVCV
 	    ? MUTABLE_CV(SvRV(gv))
 	    : MUTABLE_CV(gv);
-    }    
+    }
     else
 	cv = MUTABLE_CV(&PL_sv_undef);
     SETs(MUTABLE_SV(cv));
@@ -489,10 +380,10 @@ PP(pp_prototype)
     if (SvGMAGICAL(TOPs)) SETs(sv_mortalcopy(TOPs));
     if (SvPOK(TOPs) && SvCUR(TOPs) >= 7) {
 	const char * s = SvPVX_const(TOPs);
-	if (strnEQ(s, "CORE::", 6)) {
+        if (memBEGINs(s, SvCUR(TOPs), "CORE::")) {
 	    const int code = keyword(s + 6, SvCUR(TOPs) - 6, 1);
 	    if (!code)
-		DIE(aTHX_ "Can't find an opnumber for \"%"UTF8f"\"",
+		DIE(aTHX_ "Can't find an opnumber for \"%" UTF8f "\"",
 		   UTF8fARG(SvFLAGS(TOPs) & SVf_UTF8, SvCUR(TOPs)-6, s+6));
 	    {
 		SV * const sv = core_prototype(NULL, s + 6, code, NULL);
@@ -574,6 +465,8 @@ S_refto(pTHX_ SV *sv)
     else if (SvPADTMP(sv)) {
         sv = newSVsv(sv);
     }
+    else if (UNLIKELY(SvSMAGICAL(sv) && mg_find(sv, PERL_MAGIC_nonelem)))
+        sv_unmagic(SvREFCNT_inc_simple_NN(sv), PERL_MAGIC_nonelem);
     else {
 	SvTEMP_off(sv);
 	SvREFCNT_inc_void_NN(sv);
@@ -591,18 +484,49 @@ PP(pp_ref)
     SV * const sv = TOPs;
 
     SvGETMAGIC(sv);
-    if (!SvROK(sv))
+    if (!SvROK(sv)) {
 	SETs(&PL_sv_no);
-    else {
-	dTARGET;
-	SETs(TARG);
-	/* use the return value that is in a register, its the same as TARG */
-	TARG = sv_ref(TARG,SvRV(sv),TRUE);
-	SvSETMAGIC(TARG);
+        return NORMAL;
     }
 
-    return NORMAL;
+    /* op is in boolean context? */
+    if (   (PL_op->op_private & OPpTRUEBOOL)
+        || (   (PL_op->op_private & OPpMAYBE_TRUEBOOL)
+            && block_gimme() == G_VOID))
+    {
+        /* refs are always true - unless it's to an object blessed into a
+         * class with a false name, i.e. "0". So we have to check for
+         * that remote possibility. The following is is basically an
+         * unrolled SvTRUE(sv_reftype(rv)) */
+        SV * const rv = SvRV(sv);
+        if (SvOBJECT(rv)) {
+            HV *stash = SvSTASH(rv);
+            HEK *hek = HvNAME_HEK(stash);
+            if (hek) {
+                I32 len = HEK_LEN(hek);
+                /* bail out and do it the hard way? */
+                if (UNLIKELY(
+                       len == HEf_SVKEY
+                    || (len == 1 && HEK_KEY(hek)[0] == '0')
+                ))
+                    goto do_sv_ref;
+            }
+        }
+        SETs(&PL_sv_yes);
+        return NORMAL;
+    }
+
+  do_sv_ref:
+    {
+	dTARGET;
+	SETs(TARG);
+	sv_ref(TARG, SvRV(sv), TRUE);
+	SvSETMAGIC(TARG);
+	return NORMAL;
+    }
+
 }
+
 
 PP(pp_bless)
 {
@@ -658,10 +582,9 @@ PP(pp_gelem)
     sv = NULL;
     if (elem) {
 	/* elem will always be NUL terminated.  */
-	const char * const second_letter = elem + 1;
 	switch (*elem) {
 	case 'A':
-	    if (len == 5 && strEQ(second_letter, "RRAY"))
+	    if (memEQs(elem, len, "ARRAY"))
 	    {
 		tmpRef = MUTABLE_SV(GvAV(gv));
 		if (tmpRef && !AvREAL((const AV *)tmpRef)
@@ -670,42 +593,42 @@ PP(pp_gelem)
 	    }
 	    break;
 	case 'C':
-	    if (len == 4 && strEQ(second_letter, "ODE"))
+	    if (memEQs(elem, len, "CODE"))
 		tmpRef = MUTABLE_SV(GvCVu(gv));
 	    break;
 	case 'F':
-	    if (len == 10 && strEQ(second_letter, "ILEHANDLE")) {
+	    if (memEQs(elem, len, "FILEHANDLE")) {
 		tmpRef = MUTABLE_SV(GvIOp(gv));
 	    }
 	    else
-		if (len == 6 && strEQ(second_letter, "ORMAT"))
+		if (memEQs(elem, len, "FORMAT"))
 		    tmpRef = MUTABLE_SV(GvFORM(gv));
 	    break;
 	case 'G':
-	    if (len == 4 && strEQ(second_letter, "LOB"))
+	    if (memEQs(elem, len, "GLOB"))
 		tmpRef = MUTABLE_SV(gv);
 	    break;
 	case 'H':
-	    if (len == 4 && strEQ(second_letter, "ASH"))
+	    if (memEQs(elem, len, "HASH"))
 		tmpRef = MUTABLE_SV(GvHV(gv));
 	    break;
 	case 'I':
-	    if (*second_letter == 'O' && !elem[2] && len == 2)
+	    if (memEQs(elem, len, "IO"))
 		tmpRef = MUTABLE_SV(GvIOp(gv));
 	    break;
 	case 'N':
-	    if (len == 4 && strEQ(second_letter, "AME"))
+	    if (memEQs(elem, len, "NAME"))
 		sv = newSVhek(GvNAME_HEK(gv));
 	    break;
 	case 'P':
-	    if (len == 7 && strEQ(second_letter, "ACKAGE")) {
+	    if (memEQs(elem, len, "PACKAGE")) {
 		const HV * const stash = GvSTASH(gv);
 		const HEK * const hek = stash ? HvNAME_HEK(stash) : NULL;
 		sv = hek ? newSVhek(hek) : newSVpvs("__ANON__");
 	    }
 	    break;
 	case 'S':
-	    if (len == 6 && strEQ(second_letter, "CALAR"))
+	    if (memEQs(elem, len, "SCALAR"))
 		tmpRef = GvSVn(gv);
 	    break;
 	}
@@ -745,7 +668,7 @@ PP(pp_study)
 
 PP(pp_trans)
 {
-    dSP; 
+    dSP;
     SV *sv;
 
     if (PL_op->op_flags & OPf_STACKED)
@@ -766,8 +689,8 @@ PP(pp_trans)
 	PUSHs(newsv);
     }
     else {
-	I32 i = do_trans(sv);
-	mPUSHi(i);
+	Size_t i = do_trans(sv);
+	mPUSHi((UV)i);
     }
     RETURN;
 }
@@ -807,17 +730,6 @@ S_do_chomp(pTHX_ SV *retval, SV *sv, bool chomping)
     }
     else if (SvREADONLY(sv)) {
             Perl_croak_no_modify();
-    }
-
-    if (IN_ENCODING) {
-	if (!SvUTF8(sv)) {
-	    /* XXX, here sv is utf8-ized as a side-effect!
-	       If encoding.pm is used properly, almost string-generating
-	       operations, including literal strings, chr(), input data, etc.
-	       should have been utf8-ized already, right?
-	    */
-	    sv_recode_to_utf8(sv, _get_encoding());
-	}
     }
 
     s = SvPV(sv, len);
@@ -860,14 +772,6 @@ S_do_chomp(pTHX_ SV *retval, SV *sv, bool chomping)
 			    goto nope_free_sv;
 			}
 			rsptr = temp_buffer;
-		    }
-		    else if (IN_ENCODING) {
-			/* RS is 8 bit, encoding.pm is used.
-			 * Do not recode PL_rs as a side-effect. */
-			svrecode = newSVpvn(rsptr, rslen);
-			sv_recode_to_utf8(svrecode, _get_encoding());
-			rsptr = SvPV_const(svrecode, rslen);
-			rs_charlen = sv_len_utf8(svrecode);
 		    }
 		    else {
 			/* RS is 8 bit, scalar is utf8.  */
@@ -921,7 +825,7 @@ S_do_chomp(pTHX_ SV *retval, SV *sv, bool chomping)
 		}
 	    }
 	    else
-		sv_setpvs(retval, "");
+                SvPVCLEAR(retval);
 	}
 	else if (s && len) {
 	    s += --len;
@@ -932,7 +836,7 @@ S_do_chomp(pTHX_ SV *retval, SV *sv, bool chomping)
 	    SvNIOK_off(sv);
 	}
 	else
-	    sv_setpvs(retval, "");
+            SvPVCLEAR(retval);
 	SvSETMAGIC(sv);
     }
     return count;
@@ -1003,7 +907,7 @@ PP(pp_undef)
     case SVt_PVCV:
 	if (cv_const_sv((const CV *)sv))
 	    Perl_ck_warner(aTHX_ packWARN(WARN_MISC),
-                          "Constant subroutine %"SVf" undefined",
+                          "Constant subroutine %" SVf " undefined",
 			   SVfARG(CvANON((const CV *)sv)
                              ? newSVpvs_flags("(anonymous)", SVs_TEMP)
                              : sv_2mortal(newSVhek(
@@ -1255,18 +1159,18 @@ PP(pp_pow)
 			else if (result <= (UV)IV_MAX)
 			    /* answer negative, fits in IV */
 			    SETi( -(IV)result );
-			else if (result == (UV)IV_MIN) 
+			else if (result == (UV)IV_MIN)
 			    /* 2's complement assumption: special case IV_MIN */
 			    SETi( IV_MIN );
 			else
 			    /* answer negative, doesn't fit */
 			    SETn( -(NV)result );
 			RETURN;
-		    } 
+		    }
 		}
     }
   float_it:
-#endif    
+#endif
     {
 	NV right = SvNV_nomg(svr);
 	NV left  = SvNV_nomg(svl);
@@ -1412,8 +1316,9 @@ PP(pp_multiply)
 		    alow = aiv;
 		    auvok = TRUE; /* effectively it's a UV now */
 		} else {
-                    /* abs, auvok == false records sign */
-		    alow = (aiv == IV_MIN) ? (UV)aiv : (UV)(-aiv);
+                    /* abs, auvok == false records sign; Using 0- here and
+                     * later to silence bogus warning from MS VC */
+		    alow = (UV) (0 - (UV) aiv);
 		}
 	    }
 	    if (buvok) {
@@ -1425,7 +1330,7 @@ PP(pp_multiply)
 		    buvok = TRUE; /* effectively it's a UV now */
 		} else {
                     /* abs, buvok == false records sign */
-		    blow = (biv == IV_MIN) ? (UV)biv : (UV)(-biv);
+		    blow = (UV) (0 - (UV) biv);
 		}
 	    }
 
@@ -1534,15 +1439,9 @@ PP(pp_divide)
        can be too large to preserve, so don't need to compile the code to
        test the size of UVs.  */
 
-#ifdef SLOPPYDIVIDE
+#if defined(SLOPPYDIVIDE) || (defined(PERL_PRESERVE_IVUV) && !defined(NV_PRESERVES_UV))
 #  define PERL_TRY_UV_DIVIDE
     /* ensure that 20./5. == 4. */
-#else
-#  ifdef PERL_PRESERVE_IVUV
-#    ifndef NV_PRESERVES_UV
-#      define PERL_TRY_UV_DIVIDE
-#    endif
-#  endif
 #endif
 
 #ifdef PERL_TRY_UV_DIVIDE
@@ -1562,7 +1461,7 @@ PP(pp_divide)
                     right_non_neg = TRUE; /* effectively it's a UV now */
                 }
 		else {
-                    right = (biv == IV_MIN) ? (UV)biv : (UV)(-biv);
+                    right = -(UV)biv;
                 }
             }
             /* historically undef()/0 gives a "Use of uninitialized value"
@@ -1583,7 +1482,7 @@ PP(pp_divide)
                     left_non_neg = TRUE; /* effectively it's a UV now */
                 }
 		else {
-                    left = (aiv == IV_MIN) ? (UV)aiv : (UV)(-aiv);
+                    left = -(UV)aiv;
                 }
             }
 
@@ -1603,8 +1502,11 @@ PP(pp_divide)
 #endif
                 ) {
                 /* Integer division can't overflow, but it can be imprecise.  */
+
+                /* Modern compilers optimize division followed by
+                 * modulo into a single div instruction */
 		const UV result = left / right;
-                if (result * right == left) {
+                if (left % right == 0) {
                     SP--; /* result is valid */
                     if (left_non_neg == right_non_neg) {
                         /* signs identical, result is positive.  */
@@ -1663,7 +1565,7 @@ PP(pp_modulo)
                     right = biv;
                     right_neg = FALSE; /* effectively it's a UV now */
                 } else {
-                    right = (biv == IV_MIN) ? (UV)biv : (UV)(-biv);
+		    right = (UV) (0 - (UV) biv);
                 }
             }
         }
@@ -1693,7 +1595,7 @@ PP(pp_modulo)
                         left = aiv;
                         left_neg = FALSE; /* effectively it's a UV now */
                     } else {
-                        left = (aiv == IV_MIN) ? (UV)aiv : (UV)(-aiv);
+                        left = (UV) (0 - (UV) aiv);
                     }
                 }
         }
@@ -1771,8 +1673,9 @@ PP(pp_repeat)
     IV count;
     SV *sv;
     bool infnan = FALSE;
+    const U8 gimme = GIMME_V;
 
-    if (GIMME_V == G_ARRAY && PL_op->op_private & OPpREPEAT_DOLIST) {
+    if (gimme == G_ARRAY && PL_op->op_private & OPpREPEAT_DOLIST) {
 	/* TODO: think of some way of doing list-repeat overloading ??? */
 	sv = POPs;
 	SvGETMAGIC(sv);
@@ -1792,7 +1695,8 @@ PP(pp_repeat)
 	    else {
 		dTOPss;
 		ASSUME(MARK + 1 == SP);
-		XPUSHs(sv);
+                MEXTEND(SP, 1);
+                PUSHs(sv);
 		MARK[1] = &PL_sv_undef;
 	    }
 	    SP = MARK + 2;
@@ -1836,7 +1740,7 @@ PP(pp_repeat)
                        "Negative repeat count does nothing");
     }
 
-    if (GIMME_V == G_ARRAY && PL_op->op_private & OPpREPEAT_DOLIST) {
+    if (gimme == G_ARRAY && PL_op->op_private & OPpREPEAT_DOLIST) {
 	dMARK;
 	const SSize_t items = SP - MARK;
 	const U8 mod = PL_op->op_flags & OPf_MOD;
@@ -1989,8 +1893,8 @@ PP(pp_subtract)
 		    if (aiv >= 0) {
 			auv = aiv;
 			auvok = 1;	/* Now acting as a sign flag.  */
-		    } else { /* 2s complement assumption for IV_MIN */
-			auv = (aiv == IV_MIN) ? (UV)aiv : (UV)-aiv;
+		    } else {
+                        auv = (UV) (0 - (UV) aiv);
 		    }
 		}
 		a_valid = 1;
@@ -2001,7 +1905,7 @@ PP(pp_subtract)
 	    UV result;
 	    UV buv;
 	    bool buvok = SvUOK(svr);
-	
+
 	    if (buvok)
 		buv = SvUVX(svr);
 	    else {
@@ -2010,7 +1914,7 @@ PP(pp_subtract)
 		    buv = biv;
 		    buvok = 1;
 		} else
-                    buv = (biv == IV_MIN) ? (UV)biv : (UV)-biv;
+                    buv = (UV) (0 - (UV) biv);
 	    }
 	    /* ?uvok if value is >= 0. basically, flagged as UV if it's +ve,
 	       else "IV" now, independent of how it came in.
@@ -2151,7 +2055,7 @@ PP(pp_lt)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(lt_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(lt_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -2167,7 +2071,7 @@ PP(pp_gt)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(gt_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(gt_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -2183,7 +2087,7 @@ PP(pp_le)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(le_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(le_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -2199,7 +2103,7 @@ PP(pp_ge)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(ge_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(ge_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -2215,7 +2119,7 @@ PP(pp_ne)
     dSP;
     SV *left, *right;
 
-    tryAMAGICbin_MG(ne_amg, AMGf_set|AMGf_numeric);
+    tryAMAGICbin_MG(ne_amg, AMGf_numeric);
     right = POPs;
     left  = TOPs;
     SETs(boolSV(
@@ -2347,7 +2251,7 @@ PP(pp_sle)
 	break;
     }
 
-    tryAMAGICbin_MG(amg_type, AMGf_set);
+    tryAMAGICbin_MG(amg_type, 0);
     {
       dPOPTOPssrl;
       const int cmp =
@@ -2365,7 +2269,7 @@ PP(pp_sle)
 PP(pp_seq)
 {
     dSP;
-    tryAMAGICbin_MG(seq_amg, AMGf_set);
+    tryAMAGICbin_MG(seq_amg, 0);
     {
       dPOPTOPssrl;
       SETs(boolSV(sv_eq_flags(left, right, 0)));
@@ -2376,7 +2280,7 @@ PP(pp_seq)
 PP(pp_sne)
 {
     dSP;
-    tryAMAGICbin_MG(sne_amg, AMGf_set);
+    tryAMAGICbin_MG(sne_amg, 0);
     {
       dPOPTOPssrl;
       SETs(boolSV(!sv_eq_flags(left, right, 0)));
@@ -2609,8 +2513,11 @@ PP(pp_negate)
 PP(pp_not)
 {
     dSP;
-    tryAMAGICun_MG(not_amg, AMGf_set);
-    *PL_stack_sp = boolSV(!SvTRUE_nomg(*PL_stack_sp));
+    SV *sv;
+
+    tryAMAGICun_MG(not_amg, 0);
+    sv = *PL_stack_sp;
+    *PL_stack_sp = boolSV(!SvTRUE_nomg_NN(sv));
     return NORMAL;
 }
 
@@ -2623,64 +2530,17 @@ S_scomplement(pTHX_ SV *targ, SV *sv)
 
 	sv_copypv_nomg(TARG, sv);
 	tmps = (U8*)SvPV_nomg(TARG, len);
-	anum = len;
+
 	if (SvUTF8(TARG)) {
-	  /* Calculate exact length, let's not estimate. */
-	  STRLEN targlen = 0;
-	  STRLEN l;
-	  UV nchar = 0;
-	  UV nwide = 0;
-	  U8 * const send = tmps + len;
-	  U8 * const origtmps = tmps;
-	  const UV utf8flags = UTF8_ALLOW_ANYUV;
+            if (len && ! utf8_to_bytes(tmps, &len)) {
+                Perl_croak(aTHX_ FATAL_ABOVE_FF_MSG, PL_op_desc[PL_op->op_type]);
+            }
+            SvCUR(TARG) = len;
+            SvUTF8_off(TARG);
+        }
 
-	  while (tmps < send) {
-	    const UV c = utf8n_to_uvchr(tmps, send-tmps, &l, utf8flags);
-	    tmps += l;
-	    targlen += UVCHR_SKIP(~c);
-	    nchar++;
-	    if (c > 0xff)
-		nwide++;
-	  }
+	anum = len;
 
-	  /* Now rewind strings and write them. */
-	  tmps = origtmps;
-
-	  if (nwide) {
-	      U8 *result;
-	      U8 *p;
-
-              Perl_ck_warner_d(aTHX_ packWARN(WARN_DEPRECATED),
-                        deprecated_above_ff_msg, PL_op_desc[PL_op->op_type]);
-	      Newx(result, targlen + 1, U8);
-	      p = result;
-	      while (tmps < send) {
-		  const UV c = utf8n_to_uvchr(tmps, send-tmps, &l, utf8flags);
-		  tmps += l;
-		  p = uvchr_to_utf8_flags(p, ~c, UNICODE_ALLOW_ANY);
-	      }
-	      *p = '\0';
-	      sv_usepvn_flags(TARG, (char*)result, targlen,
-			      SV_HAS_TRAILING_NUL);
-	      SvUTF8_on(TARG);
-	  }
-	  else {
-	      U8 *result;
-	      U8 *p;
-
-	      Newx(result, nchar + 1, U8);
-	      p = result;
-	      while (tmps < send) {
-		  const U8 c = (U8)utf8n_to_uvchr(tmps, send-tmps, &l, utf8flags);
-		  tmps += l;
-		  *p++ = ~c;
-	      }
-	      *p = '\0';
-	      sv_usepvn_flags(TARG, (char*)result, nchar, SV_HAS_TRAILING_NUL);
-	      SvUTF8_off(TARG);
-	  }
-	  return;
-	}
 #ifdef LIBERAL
 	{
 	    long *tmpl;
@@ -2785,13 +2645,7 @@ PP(pp_i_divide)
     }
 }
 
-#if defined(__GLIBC__) && IVSIZE == 8 && !defined(PERL_DEBUG_READONLY_OPS) \
-    && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
-STATIC
-PP(pp_i_modulo_0)
-#else
 PP(pp_i_modulo)
-#endif
 {
      /* This is the vanilla old i_modulo. */
      dSP; dATARGET;
@@ -2809,11 +2663,10 @@ PP(pp_i_modulo)
      }
 }
 
-#if defined(__GLIBC__) && IVSIZE == 8 && !defined(PERL_DEBUG_READONLY_OPS) \
+#if defined(__GLIBC__) && IVSIZE == 8 \
     && ( __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 8))
-STATIC
-PP(pp_i_modulo_1)
 
+PP(pp_i_modulo_glibc_bugfix)
 {
      /* This is the i_modulo with the workaround for the _moddi3 bug
       * in (at least) glibc 2.2.5 (the PERL_ABS() the workaround).
@@ -2829,49 +2682,6 @@ PP(pp_i_modulo_1)
 	      SETi( 0 );
 	  else
 	      SETi( left % PERL_ABS(right) );
-	  RETURN;
-     }
-}
-
-PP(pp_i_modulo)
-{
-     dVAR; dSP; dATARGET;
-     tryAMAGICbin_MG(modulo_amg, AMGf_assign);
-     {
-	  dPOPTOPiirl_nomg;
-	  if (!right)
-	       DIE(aTHX_ "Illegal modulus zero");
-	  /* The assumption is to use hereafter the old vanilla version... */
-	  PL_op->op_ppaddr =
-	       PL_ppaddr[OP_I_MODULO] =
-	           Perl_pp_i_modulo_0;
-	  /* .. but if we have glibc, we might have a buggy _moddi3
-	   * (at least glibc 2.2.5 is known to have this bug), in other
-	   * words our integer modulus with negative quad as the second
-	   * argument might be broken.  Test for this and re-patch the
-	   * opcode dispatch table if that is the case, remembering to
-	   * also apply the workaround so that this first round works
-	   * right, too.  See [perl #9402] for more information. */
-	  {
-	       IV l =   3;
-	       IV r = -10;
-	       /* Cannot do this check with inlined IV constants since
-		* that seems to work correctly even with the buggy glibc. */
-	       if (l % r == -3) {
-		    /* Yikes, we have the bug.
-		     * Patch in the workaround version. */
-		    PL_op->op_ppaddr =
-			 PL_ppaddr[OP_I_MODULO] =
-			     &Perl_pp_i_modulo_1;
-		    /* Make certain we work right this time, too. */
-		    right = PERL_ABS(right);
-	       }
-	  }
-	  /* avoid FPE_INTOVF on some platforms when left is IV_MIN */
-	  if (right == -1)
-	      SETi( 0 );
-	  else
-	      SETi( left % right );
 	  RETURN;
      }
 }
@@ -2902,7 +2712,7 @@ PP(pp_i_subtract)
 PP(pp_i_lt)
 {
     dSP;
-    tryAMAGICbin_MG(lt_amg, AMGf_set);
+    tryAMAGICbin_MG(lt_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left < right));
@@ -2913,7 +2723,7 @@ PP(pp_i_lt)
 PP(pp_i_gt)
 {
     dSP;
-    tryAMAGICbin_MG(gt_amg, AMGf_set);
+    tryAMAGICbin_MG(gt_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left > right));
@@ -2924,7 +2734,7 @@ PP(pp_i_gt)
 PP(pp_i_le)
 {
     dSP;
-    tryAMAGICbin_MG(le_amg, AMGf_set);
+    tryAMAGICbin_MG(le_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left <= right));
@@ -2935,7 +2745,7 @@ PP(pp_i_le)
 PP(pp_i_ge)
 {
     dSP;
-    tryAMAGICbin_MG(ge_amg, AMGf_set);
+    tryAMAGICbin_MG(ge_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left >= right));
@@ -2946,7 +2756,7 @@ PP(pp_i_ge)
 PP(pp_i_eq)
 {
     dSP;
-    tryAMAGICbin_MG(eq_amg, AMGf_set);
+    tryAMAGICbin_MG(eq_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left == right));
@@ -2957,7 +2767,7 @@ PP(pp_i_eq)
 PP(pp_i_ne)
 {
     dSP;
-    tryAMAGICbin_MG(ne_amg, AMGf_set);
+    tryAMAGICbin_MG(ne_amg, 0);
     {
       dPOPTOPiirl_nomg;
       SETs(boolSV(left != right));
@@ -3034,7 +2844,11 @@ PP(pp_sin)
     {
       SV * const arg = TOPs;
       const NV value = SvNV_nomg(arg);
+#ifdef NV_NAN
       NV result = NV_NAN;
+#else
+      NV result = 0.0;
+#endif
       if (neg_report) { /* log or sqrt */
 	  if (
 #if defined(NAN_COMPARE_BROKEN) && defined(Perl_isnan)
@@ -3043,7 +2857,7 @@ PP(pp_sin)
 	      (op_type == OP_LOG ? (value <= 0.0) : (value < 0.0))) {
 	      SET_NUMERIC_STANDARD();
 	      /* diag_listed_as: Can't take log of %g */
-	      DIE(aTHX_ "Can't take %s of %"NVgf, neg_report, value);
+	      DIE(aTHX_ "Can't take %s of %" NVgf, neg_report, value);
 	  }
       }
       switch (op_type) {
@@ -3079,7 +2893,7 @@ PP(pp_rand)
     {
 	dSP;
 	NV value;
-    
+
 	if (MAXARG < 1)
 	{
 	    EXTEND(SP, 1);
@@ -3251,7 +3065,7 @@ PP(pp_oct)
 	 /* If Unicode, try to downgrade
 	  * If not possible, croak. */
 	 SV* const tsv = sv_2mortal(newSVsv(sv));
-	
+
 	 SvUTF8_on(tsv);
 	 sv_utf8_downgrade(tsv, FALSE);
 	 tmps = SvPV_const(tsv, len);
@@ -3283,51 +3097,73 @@ PP(pp_oct)
 
 /* String stuff. */
 
+
 PP(pp_length)
 {
     dSP; dTARGET;
     SV * const sv = TOPs;
 
     U32 in_bytes = IN_BYTES;
-    /* simplest case shortcut */
-    /* turn off SVf_UTF8 in tmp flags if HINT_BYTES on*/
+    /* Simplest case shortcut:
+     * set svflags to just the SVf_POK|SVs_GMG|SVf_UTF8 from the SV,
+     * with the SVf_UTF8 flag inverted if under 'use bytes' (HINT_BYTES
+     * set)
+     */
     U32 svflags = (SvFLAGS(sv) ^ (in_bytes << 26)) & (SVf_POK|SVs_GMG|SVf_UTF8);
-    STATIC_ASSERT_STMT(HINT_BYTES == 0x00000008 && SVf_UTF8 == 0x20000000 && (SVf_UTF8 == HINT_BYTES << 26));
+
+    STATIC_ASSERT_STMT(SVf_UTF8 == (HINT_BYTES << 26));
     SETs(TARG);
 
-    if(LIKELY(svflags == SVf_POK))
+    if (LIKELY(svflags == SVf_POK))
         goto simple_pv;
-    if(svflags & SVs_GMG)
+
+    if (svflags & SVs_GMG)
         mg_get(sv);
+
     if (SvOK(sv)) {
-	if (!IN_BYTES) /* reread to avoid using an C auto/register */
-	    sv_setiv(TARG, (IV)sv_len_utf8_nomg(sv));
-	else
-	{
-	    STRLEN len;
-            /* unrolled SvPV_nomg_const(sv,len) */
-            if(SvPOK_nog(sv)){
-                simple_pv:
+        STRLEN len;
+	if (!IN_BYTES) { /* reread to avoid using an C auto/register */
+            if ((SvFLAGS(sv) & (SVf_POK|SVf_UTF8)) == SVf_POK)
+                goto simple_pv;
+            if ( SvPOK(sv) && (PL_op->op_private & OPpTRUEBOOL)) {
+                /* no need to convert from bytes to chars */
                 len = SvCUR(sv);
-            } else  {
+                goto return_bool;
+            }
+	    len = sv_len_utf8_nomg(sv);
+        }
+	else {
+            /* unrolled SvPV_nomg_const(sv,len) */
+            if (SvPOK_nog(sv)) {
+              simple_pv:
+                len = SvCUR(sv);
+                if (PL_op->op_private & OPpTRUEBOOL) {
+                  return_bool:
+                    SETs(len ? &PL_sv_yes : &PL_sv_zero);
+                    return NORMAL;
+                }
+            }
+            else {
                 (void)sv_2pv_flags(sv, &len, 0|SV_CONST_RETURN);
             }
-	    sv_setiv(TARG, (IV)(len));
 	}
-    } else {
-	if (!SvPADTMP(TARG)) {
-	    sv_setsv_nomg(TARG, &PL_sv_undef);
-	} else { /* TARG is on stack at this point and is overwriten by SETs.
-                   This branch is the odd one out, so put TARG by default on
-                   stack earlier to let local SP go out of liveness sooner */
-            SETs(&PL_sv_undef);
-            goto no_set_magic;
-        }
+        TARGi((IV)(len), 1);
     }
-    SvSETMAGIC(TARG);
-    no_set_magic:
+    else {
+	if (!SvPADTMP(TARG)) {
+            /* OPpTARGET_MY: targ is var in '$lex = length()' */
+            sv_set_undef(TARG);
+            SvSETMAGIC(TARG);
+	}
+        else
+            /* TARG is on stack at this point and is overwriten by SETs.
+             * This branch is the odd one out, so put TARG by default on
+             * stack earlier to let local SP go out of liveness sooner */
+            SETs(&PL_sv_undef);
+    }
     return NORMAL; /* no putback, SP didn't move in this opcode */
 }
+
 
 /* Returns false if substring is completely outside original string.
    No length is indicated by len_iv = 0 and len_is_uv = 0.  len_is_uv must
@@ -3444,11 +3280,11 @@ PP(pp_substr)
 	LvTARGOFF(ret) =
 	    pos1_is_uv || pos1_iv >= 0
 		? (STRLEN)(UV)pos1_iv
-		: (LvFLAGS(ret) |= 1, (STRLEN)(UV)-pos1_iv);
+		: (LvFLAGS(ret) |= LVf_NEG_OFF, (STRLEN)(UV)-pos1_iv);
 	LvTARGLEN(ret) =
 	    len_is_uv || len_iv > 0
 		? (STRLEN)(UV)len_iv
-		: (LvFLAGS(ret) |= 2, (STRLEN)(UV)-len_iv);
+		: (LvFLAGS(ret) |= LVf_NEG_LEN, (STRLEN)(UV)-len_iv);
 
 	PUSHs(ret);    /* avoid SvSETMAGIC here */
 	RETURN;
@@ -3463,8 +3299,10 @@ PP(pp_substr)
 	tmps = SvPV_force_nomg(sv, curlen);
 	if (DO_UTF8(repl_sv) && repl_len) {
 	    if (!DO_UTF8(sv)) {
+                /* Upgrade the dest, and recalculate tmps in case the buffer
+                 * got reallocated; curlen may also have been changed */
 		sv_utf8_upgrade_nomg(sv);
-		curlen = SvCUR(sv);
+		tmps = SvPV_nomg(sv, curlen);
 	    }
 	}
 	else if (DO_UTF8(sv))
@@ -3514,7 +3352,7 @@ PP(pp_substr)
 		repl = SvPV_const(repl_sv_copy, repl_len);
 	    }
 	    if (!SvOK(sv))
-		sv_setpvs(sv, "");
+                SvPVCLEAR(sv);
 	    sv_insert_flags(sv, byte_pos, byte_len, repl, repl_len, 0);
 	    SvREFCNT_dec(repl_sv_copy);
 	}
@@ -3538,10 +3376,33 @@ PP(pp_vec)
 {
     dSP;
     const IV size   = POPi;
-    const IV offset = POPi;
+    SV* offsetsv   = POPs;
     SV * const src = POPs;
     const I32 lvalue = PL_op->op_flags & OPf_MOD || LVRET;
     SV * ret;
+    UV   retuv;
+    STRLEN offset = 0;
+    char errflags = 0;
+
+    /* extract a STRLEN-ranged integer value from offsetsv into offset,
+     * or flag that its out of range */
+    {
+        IV iv = SvIV(offsetsv);
+
+        /* avoid a large UV being wrapped to a negative value */
+        if (SvIOK_UV(offsetsv) && SvUVX(offsetsv) > (UV)IV_MAX)
+            errflags = LVf_OUT_OF_RANGE;
+        else if (iv < 0)
+            errflags = (LVf_NEG_OFF|LVf_OUT_OF_RANGE);
+#if PTRSIZE < IVSIZE
+        else if (iv > Size_t_MAX)
+            errflags = LVf_OUT_OF_RANGE;
+#endif
+        else
+            offset = (STRLEN)iv;
+    }
+
+    retuv = errflags ? 0 : do_vecget(src, offset, size);
 
     if (lvalue) {			/* it's an lvalue! */
 	ret = sv_2mortal(newSV_type(SVt_PVLV));  /* Not TARG RT#67838 */
@@ -3550,6 +3411,7 @@ PP(pp_vec)
 	LvTARG(ret) = SvREFCNT_inc_simple(src);
 	LvTARGOFF(ret) = offset;
 	LvTARGLEN(ret) = size;
+	LvFLAGS(ret)   = errflags;
     }
     else {
 	dTARGET;
@@ -3557,7 +3419,7 @@ PP(pp_vec)
 	ret = TARG;
     }
 
-    sv_setuv(ret, do_vecget(src, offset, size));
+    sv_setuv(ret, retuv);
     if (!lvalue)
 	SvSETMAGIC(ret);
     PUSHs(ret);
@@ -3595,7 +3457,7 @@ PP(pp_index)
     little_utf8 = DO_UTF8(little);
     if (big_utf8 ^ little_utf8) {
 	/* One needs to be upgraded.  */
-	if (little_utf8 && !IN_ENCODING) {
+	if (little_utf8) {
 	    /* Well, maybe instead we might be able to downgrade the small
 	       string?  */
 	    char * const pv = (char*)bytes_from_utf8((U8 *)little_p, &llen,
@@ -3605,7 +3467,7 @@ PP(pp_index)
 		   convert the small string to ISO-8859-1, then there is no
 		   way that it could be found anywhere by index.  */
 		retval = -1;
-		goto fail;
+		goto push_result;
 	    }
 
 	    /* At this point, pv is a malloc()ed string. So donate it to temp
@@ -3614,22 +3476,11 @@ PP(pp_index)
 	    sv_usepvn(temp, pv, llen);
 	    little_p = SvPVX(little);
 	} else {
-	    temp = little_utf8
-		? newSVpvn(big_p, biglen) : newSVpvn(little_p, llen);
+	    temp = newSVpvn(little_p, llen);
 
-	    if (IN_ENCODING) {
-		sv_recode_to_utf8(temp, _get_encoding());
-	    } else {
-		sv_utf8_upgrade(temp);
-	    }
-	    if (little_utf8) {
-		big = temp;
-		big_utf8 = TRUE;
-		big_p = SvPV_const(big, biglen);
-	    } else {
-		little = temp;
-		little_p = SvPV_const(little, llen);
-	    }
+	    sv_utf8_upgrade(temp);
+	    little = temp;
+	    little_p = SvPV_const(little, llen);
 	}
     }
     if (SvGAMAGIC(big)) {
@@ -3679,8 +3530,18 @@ PP(pp_index)
 	    retval = sv_pos_b2u_flags(big, retval, SV_CONST_RETURN);
     }
     SvREFCNT_dec(temp);
- fail:
-    PUSHi(retval);
+
+  push_result:
+    /* OPpTRUEBOOL indicates an '== -1' has been optimised away */
+    if (PL_op->op_private & OPpTRUEBOOL) {
+        PUSHs( ((retval != -1) ^ cBOOL(PL_op->op_private & OPpINDEX_BOOLNEG))
+                    ? &PL_sv_yes : &PL_sv_no);
+        if (PL_op->op_private & OPpTARGET_MY)
+            /* $lex = (index() == -1) */
+            sv_setsv(TARG, TOPs);
+    }
+    else
+        PUSHi(retval);
     RETURN;
 }
 
@@ -3703,15 +3564,8 @@ PP(pp_ord)
     STRLEN len;
     const U8 *s = (U8*)SvPV_const(argsv, len);
 
-    if (IN_ENCODING && SvPOK(argsv) && !DO_UTF8(argsv)) {
-        SV * const tmpsv = sv_2mortal(newSVsv(argsv));
-        s = (U8*)sv_recode_to_utf8(tmpsv, _get_encoding());
-        len = UTF8SKIP(s);  /* Should be well-formed; so this is its length */
-        argsv = tmpsv;
-    }
-
     SETu(DO_UTF8(argsv)
-           ? utf8n_to_uvchr(s, len, 0, UTF8_ALLOW_ANYUV)
+           ? (len ? utf8n_to_uvchr(s, len, 0, UTF8_ALLOW_ANYUV) : 0)
            : (UV)(*s));
 
     return NORMAL;
@@ -3728,7 +3582,7 @@ PP(pp_chr)
     if (UNLIKELY(SvAMAGIC(top)))
 	top = sv_2num(top);
     if (UNLIKELY(isinfnansv(top)))
-        Perl_croak(aTHX_ "Cannot chr %"NVgf, SvNV(top));
+        Perl_croak(aTHX_ "Cannot chr %" NVgf, SvNV(top));
     else {
         if (!IN_BYTES /* under bytes, chr(-1) eq chr(0xff), etc. */
             && ((SvIOKp(top) && !SvIsUV(top) && SvIV_nomg(top) < 0)
@@ -3743,7 +3597,7 @@ PP(pp_chr)
 		    top = top2;
 		}
                 Perl_warner(aTHX_ packWARN(WARN_UTF8),
-                            "Invalid negative number (%"SVf") in chr", SVfARG(top));
+                            "Invalid negative number (%" SVf ") in chr", SVfARG(top));
             }
             value = UNICODE_REPLACEMENT;
         } else {
@@ -3770,22 +3624,6 @@ PP(pp_chr)
     *tmps++ = (char)value;
     *tmps = '\0';
     (void)SvPOK_only(TARG);
-
-    if (IN_ENCODING && !IN_BYTES) {
-        sv_recode_to_utf8(TARG, _get_encoding());
-	tmps = SvPVX(TARG);
-	if (SvCUR(TARG) == 0
-	    || ! is_utf8_string((U8*)tmps, SvCUR(TARG))
-	    || UTF8_IS_REPLACEMENT((U8*) tmps, (U8*) tmps + SvCUR(TARG)))
-	{
-	    SvGROW(TARG, 2);
-	    tmps = SvPVX(TARG);
-	    SvCUR_set(TARG, 1);
-	    *tmps++ = (char)value;
-	    *tmps = '\0';
-	    SvUTF8_off(TARG);
-	}
-    }
 
     SETTARG;
     return NORMAL;
@@ -3819,8 +3657,12 @@ PP(pp_crypt)
 #if defined(__GLIBC__) || defined(__EMX__)
 	if (PL_reentrant_buffer->_crypt_struct_buffer) {
 	    PL_reentrant_buffer->_crypt_struct_buffer->initialized = 0;
-	    /* work around glibc-2.2.5 bug */
+#if (defined(__GLIBC__) && __GLIBC__ == 2) && \
+    (defined(__GLIBC_MINOR__) && __GLIBC_MINOR__ >= 2 && __GLIBC_MINOR__ < 4)
+	    /* work around glibc-2.2.5 bug, has been fixed at some
+	     * time in glibc-2.3.X */
 	    PL_reentrant_buffer->_crypt_struct_buffer->current_saltbits = 0;
+#endif
 	}
 #endif
     }
@@ -3840,7 +3682,7 @@ PP(pp_crypt)
 #endif
 }
 
-/* Generally UTF-8 and UTF-EBCDIC are indistinguishable at this level.  So 
+/* Generally UTF-8 and UTF-EBCDIC are indistinguishable at this level.  So
  * most comments below say UTF-8, when in fact they mean UTF-EBCDIC as well */
 
 
@@ -3870,6 +3712,7 @@ PP(pp_ucfirst)
     STRLEN tculen;  /* tculen is the byte length of the freshly titlecased (or
 		     * lowercased) character stored in tmpbuf.  May be either
 		     * UTF-8 or not, but in either case is the number of bytes */
+    bool remove_dot_above = FALSE;
 
     s = (const U8*)SvPV_const(source, slen);
 
@@ -3878,6 +3721,14 @@ PP(pp_ucfirst)
      * not convert in-place. */
     inplace = !SvREADONLY(source) && SvPADTMP(source);
 
+#ifdef USE_LOCALE_CTYPE
+
+    if (IN_LC_RUNTIME(LC_CTYPE)) {
+        _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
+    }
+
+#endif
+
     /* First calculate what the changed first character should be.  This affects
      * whether we can just swap it out, leaving the rest of the string unchanged,
      * or even if have to convert the dest to UTF-8 when the source isn't */
@@ -3885,24 +3736,58 @@ PP(pp_ucfirst)
     if (! slen) {   /* If empty */
 	need = 1; /* still need a trailing NUL */
 	ulen = 0;
+        *tmpbuf = '\0';
     }
     else if (DO_UTF8(source)) {	/* Is the source utf8? */
 	doing_utf8 = TRUE;
         ulen = UTF8SKIP(s);
         if (op_type == OP_UCFIRST) {
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_title_flags(s, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
+	    _toTITLE_utf8_flags(s, s +slen, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-	    _to_utf8_title_flags(s, tmpbuf, &tculen, 0);
+	    _toTITLE_utf8_flags(s, s +slen, tmpbuf, &tculen, 0);
 #endif
 	}
         else {
+
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_lower_flags(s, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
+
+	    _toLOWER_utf8_flags(s, s + slen, tmpbuf, &tculen, IN_LC_RUNTIME(LC_CTYPE));
+
+            /* In turkic locales, lower casing an 'I' normally yields U+0131,
+             * LATIN SMALL LETTER DOTLESS I, but not if the grapheme also
+             * contains a COMBINING DOT ABOVE.  Instead it is treated like
+             * LATIN CAPITAL LETTER I WITH DOT ABOVE lowercased to 'i'.  The
+             * call to lowercase above has handled this.  But SpecialCasing.txt
+             * says we are supposed to remove the COMBINING DOT ABOVE.  We can
+             * tell if we have this situation if I ==> i in a turkic locale. */
+            if (   UNLIKELY(PL_in_utf8_turkic_locale)
+                && IN_LC_RUNTIME(LC_CTYPE)
+                && (UNLIKELY(*s == 'I' && tmpbuf[0] == 'i')))
+            {
+                /* Here, we know there was a COMBINING DOT ABOVE.  We won't be
+                 * able to handle this in-place. */
+                inplace = FALSE;
+
+                /* It seems likely that the DOT will immediately follow the
+                 * 'I'.  If so, we can remove it simply by indicating to the
+                 * code below to start copying the source just beyond the DOT.
+                 * We know its length is 2 */
+                if (LIKELY(memBEGINs(s + 1, s + slen, COMBINING_DOT_ABOVE_UTF8))) {
+                    ulen += 2;
+                }
+                else {  /* But if it doesn't follow immediately, set a flag for
+                           the code below */
+                    remove_dot_above = TRUE;
+                }
+            }
 #else
-	    _to_utf8_lower_flags(s, tmpbuf, &tculen, 0);
+            PERL_UNUSED_VAR(remove_dot_above);
+
+	    _toLOWER_utf8_flags(s, s + slen, tmpbuf, &tculen, 0);
 #endif
-	}
+
+        }
 
         /* we can't do in-place if the length changes.  */
         if (ulen != tculen) inplace = FALSE;
@@ -3910,49 +3795,69 @@ PP(pp_ucfirst)
     }
     else { /* Non-zero length, non-UTF-8,  Need to consider locale and if
 	    * latin1 is treated as caseless.  Note that a locale takes
-	    * precedence */ 
+	    * precedence */
 	ulen = 1;	/* Original character is 1 byte */
 	tculen = 1;	/* Most characters will require one byte, but this will
 			 * need to be overridden for the tricky ones */
 	need = slen + 1;
 
-	if (op_type == OP_LCFIRST) {
 
-	    /* lower case the first letter: no trickiness for any character */
 #ifdef USE_LOCALE_CTYPE
-            if (IN_LC_RUNTIME(LC_CTYPE)) {
-                _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
+
+        if (IN_LC_RUNTIME(LC_CTYPE)) {
+            if (    UNLIKELY(PL_in_utf8_turkic_locale)
+                && (   (op_type == OP_LCFIRST && UNLIKELY(*s == 'I'))
+                    || (op_type == OP_UCFIRST && UNLIKELY(*s == 'i'))))
+            {
+                if (*s == 'I') { /* lcfirst('I') */
+                    tmpbuf[0] = UTF8_TWO_BYTE_HI(LATIN_SMALL_LETTER_DOTLESS_I);
+                    tmpbuf[1] = UTF8_TWO_BYTE_LO(LATIN_SMALL_LETTER_DOTLESS_I);
+                }
+                else {  /* ucfirst('i') */
+                    tmpbuf[0] = UTF8_TWO_BYTE_HI(LATIN_CAPITAL_LETTER_I_WITH_DOT_ABOVE);
+                    tmpbuf[1] = UTF8_TWO_BYTE_LO(LATIN_CAPITAL_LETTER_I_WITH_DOT_ABOVE);
+                }
+                tculen = 2;
+                inplace = FALSE;
+                doing_utf8 = TRUE;
+                convert_source_to_utf8 = TRUE;
+                need += variant_under_utf8_count(s, s + slen);
+            }
+            else if (op_type == OP_LCFIRST) {
+
+                /* For lc, there are no gotchas for UTF-8 locales (other than
+                 * the turkish ones already handled above) */
                 *tmpbuf = toLOWER_LC(*s);
             }
-            else
-#endif
-            {
-                *tmpbuf = (IN_UNI_8_BIT)
-                          ? toLOWER_LATIN1(*s)
-                          : toLOWER(*s);
-            }
-	}
-#ifdef USE_LOCALE_CTYPE
-	/* is ucfirst() */
-	else if (IN_LC_RUNTIME(LC_CTYPE)) {
-            if (IN_UTF8_CTYPE_LOCALE) {
-                goto do_uni_rules;
-            }
+            else { /* ucfirst */
 
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-            *tmpbuf = (U8) toUPPER_LC(*s); /* This would be a bug if any
-                                              locales have upper and title case
-                                              different */
-	}
+                /* But for uc, some characters require special handling */
+                if (IN_UTF8_CTYPE_LOCALE) {
+                    goto do_uni_rules;
+                }
+
+                /* This would be a bug if any locales have upper and title case
+                 * different */
+                *tmpbuf = (U8) toUPPER_LC(*s);
+            }
+        }
+        else
 #endif
-	else if (! IN_UNI_8_BIT) {
-	    *tmpbuf = toUPPER(*s);	/* Returns caseless for non-ascii, or
-					 * on EBCDIC machines whatever the
-					 * native function does */
-	}
+        /* Here, not in locale.  If not using Unicode rules, is a simple
+         * lower/upper, depending */
+        if (! IN_UNI_8_BIT) {
+            *tmpbuf = (op_type == OP_LCFIRST)
+                      ? toLOWER(*s)
+                      : toUPPER(*s);
+        }
+        else if (op_type == OP_LCFIRST) {
+            /* lower case the first letter: no trickiness for any character */
+            *tmpbuf = toLOWER_LATIN1(*s);
+        }
         else {
             /* Here, is ucfirst non-UTF-8, not in locale (unless that locale is
-             * UTF-8, which we treat as not in locale), and cased latin1 */
+             * non-turkic UTF-8, which we treat as not in locale), and cased
+             * latin1 */
 	    UV title_ord;
 #ifdef USE_LOCALE_CTYPE
       do_uni_rules:
@@ -3976,16 +3881,19 @@ PP(pp_ucfirst)
 		    inplace = FALSE;
 
                     /* If the result won't fit in a byte, the entire result
-                     * will have to be in UTF-8.  Assume worst case sizing in
-                     * conversion. (all latin1 characters occupy at most two
-                     * bytes in utf8) */
+                     * will have to be in UTF-8.  Allocate enough space for the
+                     * expanded first byte, and if UTF-8, the rest of the input
+                     * string, some or all of which may also expand to two
+                     * bytes, plus the terminating NUL. */
 		    if (title_ord > 255) {
 			doing_utf8 = TRUE;
 			convert_source_to_utf8 = TRUE;
-			need = slen * 2 + 1;
+			need = slen
+                            + variant_under_utf8_count(s, s + slen)
+                            + 1;
 
                         /* The (converted) UTF-8 and UTF-EBCDIC lengths of all
-                         * (both) characters whose title case is above 255 is
+                         * characters whose title case is above 255 is
                          * 2. */
 			ulen = 2;
 		    }
@@ -4029,6 +3937,29 @@ PP(pp_ucfirst)
 		 * of the string. */
 		sv_setpvn(dest, (char*)tmpbuf, tculen);
 		if (slen > ulen) {
+
+                    /* But this boolean being set means we are in a turkic
+                     * locale, and there is a DOT character that needs to be
+                     * removed, and it isn't immediately after the current
+                     * character.  Keep concatenating characters to the output
+                     * one at a time, until we find the DOT, which we simply
+                     * skip */
+                    if (UNLIKELY(remove_dot_above)) {
+                        do {
+                            Size_t this_len = UTF8SKIP(s + ulen);
+
+                            sv_catpvn(dest, (char*)(s + ulen), this_len);
+
+                            ulen += this_len;
+                            if (memBEGINs(s + ulen, s + slen, COMBINING_DOT_ABOVE_UTF8)) {
+                                ulen += 2;
+                                break;
+                            }
+                        } while (s + ulen < s + slen);
+                    }
+
+                    /* The rest of the string can be concatenated unchanged,
+                     * all at once */
 		    sv_catpvn(dest, (char*)(s + ulen), slen - ulen);
 		}
 	    }
@@ -4040,15 +3971,18 @@ PP(pp_ucfirst)
 		 * into tmpbuf.  First put that into dest, and then append the
 		 * rest of the source, converting it to UTF-8 as we go. */
 
-		/* Assert tculen is 2 here because the only two characters that
+		/* Assert tculen is 2 here because the only characters that
 		 * get to this part of the code have 2-byte UTF-8 equivalents */
+                assert(tculen == 2);
 		*d++ = *tmpbuf;
 		*d++ = *(tmpbuf + 1);
 		s++;	/* We have just processed the 1st char */
 
-		for (; s < send; s++) {
-		    d = uvchr_to_utf8(d, *s);
-		}
+                while (s < send) {
+                    append_utf8_from_native_byte(*s, &d);
+                    s++;
+                }
+
 		*d = '\0';
 		SvCUR_set(dest, d - (U8*)SvPVX_const(dest));
 	    }
@@ -4060,7 +3994,7 @@ PP(pp_ucfirst)
 	}
 
     }
-    else {  /* Neither source nor dest are in or need to be UTF-8 */
+    else {  /* Neither source nor dest are, nor need to be UTF-8 */
 	if (slen) {
 	    if (inplace) {  /* in-place, only need to change the 1st char */
 		*d = *tmpbuf;
@@ -4080,7 +4014,7 @@ PP(pp_ucfirst)
 
 	/* In a "use bytes" we don't treat the source as UTF-8, but, still want
 	 * the destination to retain that flag */
-	if (SvUTF8(source) && ! IN_BYTES)
+	if (DO_UTF8(source))
 	    SvUTF8_on(dest);
 
 	if (!inplace) {	/* Finish the rest of the string, unchanged */
@@ -4101,11 +4035,9 @@ PP(pp_ucfirst)
     return NORMAL;
 }
 
-/* There's so much setup/teardown code common between uc and lc, I wonder if
-   it would be worth merging the two, and just having a switch outside each
-   of the three tight loops.  There is less and less commonality though */
 PP(pp_uc)
 {
+    dVAR;
     dSP;
     SV *source = TOPs;
     STRLEN len;
@@ -4155,6 +4087,14 @@ PP(pp_uc)
 	SETs(dest);
     }
 
+#ifdef USE_LOCALE_CTYPE
+
+    if (IN_LC_RUNTIME(LC_CTYPE)) {
+        _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
+    }
+
+#endif
+
     /* Overloaded values may have toggled the UTF-8 flag on source, so we need
        to check DO_UTF8 again here.  */
 
@@ -4162,6 +4102,8 @@ PP(pp_uc)
 	const U8 *const send = s + len;
 	U8 tmpbuf[UTF8_MAXBYTES_CASE+1];
 
+#define GREEK_CAPITAL_LETTER_IOTA 0x0399
+#define COMBINING_GREEK_YPOGEGRAMMENI 0x0345
 	/* All occurrences of these are to be moved to follow any other marks.
 	 * This is context-dependent.  We may not be passed enough context to
 	 * move the iota subscript beyond all of them, but we do the best we can
@@ -4178,12 +4120,16 @@ PP(pp_uc)
 	    STRLEN u;
 	    STRLEN ulen;
 	    UV uv;
-	    if (in_iota_subscript && ! _is_utf8_mark(s)) {
+	    if (UNLIKELY(in_iota_subscript)) {
+                UV cp = utf8_to_uvchr_buf(s, send, NULL);
 
-		/* A non-mark.  Time to output the iota subscript */
-		Copy(GREEK_CAPITAL_LETTER_IOTA_UTF8, d, capital_iota_len, U8);
-                d += capital_iota_len;
-		in_iota_subscript = FALSE;
+                if (! _invlist_contains_cp(PL_utf8_mark, cp)) {
+
+                    /* A non-mark.  Time to output the iota subscript */
+                    *d++ = UTF8_TWO_BYTE_HI(GREEK_CAPITAL_LETTER_IOTA);
+                    *d++ = UTF8_TWO_BYTE_LO(GREEK_CAPITAL_LETTER_IOTA);
+                    in_iota_subscript = FALSE;
+                }
             }
 
             /* Then handle the current character.  Get the changed case value
@@ -4191,12 +4137,10 @@ PP(pp_uc)
 
             u = UTF8SKIP(s);
 #ifdef USE_LOCALE_CTYPE
-            uv = _to_utf8_upper_flags(s, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
+            uv = _toUPPER_utf8_flags(s, send, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
 #else
-            uv = _to_utf8_upper_flags(s, tmpbuf, &ulen, 0);
+            uv = _toUPPER_utf8_flags(s, send, tmpbuf, &ulen, 0);
 #endif
-#define GREEK_CAPITAL_LETTER_IOTA 0x0399
-#define COMBINING_GREEK_YPOGEGRAMMENI 0x0345
             if (uv == GREEK_CAPITAL_LETTER_IOTA
                 && utf8_to_uvchr_buf(s, send, 0) == COMBINING_GREEK_YPOGEGRAMMENI)
             {
@@ -4210,11 +4154,11 @@ PP(pp_uc)
 
                     /* If someone uppercases one million U+03B0s we SvGROW()
                      * one million times.  Or we could try guessing how much to
-                     * allocate without allocating too much.  Such is life.
-                     * See corresponding comment in lc code for another option
-                     * */
-                    SvGROW(dest, min);
-                    d = (U8*)SvPVX(dest) + o;
+                     * allocate without allocating too much.  But we can't
+                     * really guess without examining the rest of the string.
+                     * Such is life.  See corresponding comment in lc code for
+                     * another option */
+                    d = o + (U8*) SvGROW(dest, min);
                 }
                 Copy(tmpbuf, d, ulen, U8);
                 d += ulen;
@@ -4222,8 +4166,8 @@ PP(pp_uc)
             s += u;
 	}
 	if (in_iota_subscript) {
-            Copy(GREEK_CAPITAL_LETTER_IOTA_UTF8, d, capital_iota_len, U8);
-            d += capital_iota_len;
+            *d++ = UTF8_TWO_BYTE_HI(GREEK_CAPITAL_LETTER_IOTA);
+            *d++ = UTF8_TWO_BYTE_LO(GREEK_CAPITAL_LETTER_IOTA);
 	}
 	SvUTF8_on(dest);
 	*d = '\0';
@@ -4242,7 +4186,6 @@ PP(pp_uc)
                 if (IN_UTF8_CTYPE_LOCALE) {
                     goto do_uni_rules;
                 }
-                _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
 		for (; s < send; d++, s++)
                     *d = (U8) toUPPER_LC(*s);
 	    }
@@ -4258,16 +4201,27 @@ PP(pp_uc)
           do_uni_rules:
 #endif
 		for (; s < send; d++, s++) {
+                    Size_t extra;
+
 		    *d = toUPPER_LATIN1_MOD(*s);
-		    if (LIKELY(*d != LATIN_SMALL_LETTER_Y_WITH_DIAERESIS)) {
+		    if (   LIKELY(*d != LATIN_SMALL_LETTER_Y_WITH_DIAERESIS)
+
+#ifdef USE_LOCALE_CTYPE
+
+                        && (LIKELY(   ! PL_in_utf8_turkic_locale
+                                   || ! IN_LC_RUNTIME(LC_CTYPE))
+                                   || *s != 'i')
+#endif
+
+                    ) {
                         continue;
                     }
 
 		    /* The mainstream case is the tight loop above.  To avoid
-		     * extra tests in that, all three characters that require
-		     * special handling are mapped by the MOD to the one tested
-		     * just above.  
-		     * Use the source to distinguish between the three cases */
+                     * extra tests in that, all three characters that always
+                     * require special handling are mapped by the MOD to the
+                     * one tested just above.  Use the source to distinguish
+                     * between those cases */
 
 #if    UNICODE_MAJOR_VERSION > 2                                        \
    || (UNICODE_MAJOR_VERSION == 2 && UNICODE_DOT_VERSION >= 1		\
@@ -4276,69 +4230,114 @@ PP(pp_uc)
 
 			/* uc() of this requires 2 characters, but they are
 			 * ASCII.  If not enough room, grow the string */
-			if (SvLEN(dest) < ++min) {	
+			if (SvLEN(dest) < ++min) {
 			    const UV o = d - (U8*)SvPVX_const(dest);
-			    SvGROW(dest, min);
-			    d = (U8*)SvPVX(dest) + o;
+			    d = o + (U8*) SvGROW(dest, min);
 			}
 			*d++ = 'S'; *d = 'S'; /* upper case is 'SS' */
 			continue;   /* Back to the tight loop; still in ASCII */
 		    }
 #endif
 
-		    /* The other two special handling characters have their
+		    /* The other special handling characters have their
 		     * upper cases outside the latin1 range, hence need to be
-		     * in UTF-8, so the whole result needs to be in UTF-8.  So,
-		     * here we are somewhere in the middle of processing a
-		     * non-UTF-8 string, and realize that we will have to convert
-		     * the whole thing to UTF-8.  What to do?  There are
-		     * several possibilities.  The simplest to code is to
-		     * convert what we have so far, set a flag, and continue on
-		     * in the loop.  The flag would be tested each time through
-		     * the loop, and if set, the next character would be
-		     * converted to UTF-8 and stored.  But, I (khw) didn't want
-		     * to slow down the mainstream case at all for this fairly
-		     * rare case, so I didn't want to add a test that didn't
-		     * absolutely have to be there in the loop, besides the
-		     * possibility that it would get too complicated for
-		     * optimizers to deal with.  Another possibility is to just
-		     * give up, convert the source to UTF-8, and restart the
-		     * function that way.  Another possibility is to convert
-		     * both what has already been processed and what is yet to
-		     * come separately to UTF-8, then jump into the loop that
-		     * handles UTF-8.  But the most efficient time-wise of the
-		     * ones I could think of is what follows, and turned out to
-		     * not require much extra code.  */
+		     * in UTF-8, so the whole result needs to be in UTF-8.
+                     *
+                     * So, here we are somewhere in the middle of processing a
+                     * non-UTF-8 string, and realize that we will have to
+                     * convert the whole thing to UTF-8.  What to do?  There
+                     * are several possibilities.  The simplest to code is to
+                     * convert what we have so far, set a flag, and continue on
+                     * in the loop.  The flag would be tested each time through
+                     * the loop, and if set, the next character would be
+                     * converted to UTF-8 and stored.  But, I (khw) didn't want
+                     * to slow down the mainstream case at all for this fairly
+                     * rare case, so I didn't want to add a test that didn't
+                     * absolutely have to be there in the loop, besides the
+                     * possibility that it would get too complicated for
+                     * optimizers to deal with.  Another possibility is to just
+                     * give up, convert the source to UTF-8, and restart the
+                     * function that way.  Another possibility is to convert
+                     * both what has already been processed and what is yet to
+                     * come separately to UTF-8, then jump into the loop that
+                     * handles UTF-8.  But the most efficient time-wise of the
+                     * ones I could think of is what follows, and turned out to
+                     * not require much extra code.
+                     *
+                     * First, calculate the extra space needed for the
+                     * remainder of the source needing to be in UTF-8.  Except
+                     * for the 'i' in Turkic locales, in UTF-8 strings, the
+                     * uppercase of a character below 256 occupies the same
+                     * number of bytes as the original.  Therefore, the space
+                     * needed is the that number plus the number of characters
+                     * that become two bytes when converted to UTF-8, plus, in
+                     * turkish locales, the number of 'i's. */
 
-		    /* Convert what we have so far into UTF-8, telling the
+                    extra = send - s + variant_under_utf8_count(s, send);
+
+#ifdef USE_LOCALE_CTYPE
+
+                    if (UNLIKELY(*s == 'i')) {  /* We wouldn't get an 'i' here
+                                                   unless are in a Turkic
+                                                   locale */
+                        const U8 * s_peek = s;
+
+                        do {
+                            extra++;
+
+                            s_peek = (U8 *) memchr(s_peek + 1, 'i',
+                                                   send - (s_peek + 1));
+                        } while (s_peek != NULL);
+                    }
+#endif
+
+                    /* Convert what we have so far into UTF-8, telling the
 		     * function that we know it should be converted, and to
 		     * allow extra space for what we haven't processed yet.
-		     * Assume the worst case space requirements for converting
-		     * what we haven't processed so far: that it will require
-		     * two bytes for each remaining source character, plus the
-		     * NUL at the end.  This may cause the string pointer to
-		     * move, so re-find it. */
+                     *
+                     * This may cause the string pointer to move, so need to
+                     * save and re-find it. */
 
 		    len = d - (U8*)SvPVX_const(dest);
 		    SvCUR_set(dest, len);
 		    len = sv_utf8_upgrade_flags_grow(dest,
 						SV_GMAGIC|SV_FORCE_UTF8_UPGRADE,
-						(send -s) * 2 + 1);
+                                                extra
+                                              + 1 /* trailing NUL */ );
 		    d = (U8*)SvPVX(dest) + len;
 
-		    /* Now process the remainder of the source, converting to
-		     * upper and UTF-8.  If a resulting byte is invariant in
-		     * UTF-8, output it as-is, otherwise convert to UTF-8 and
-		     * append it to the output. */
-		    for (; s < send; s++) {
-			(void) _to_upper_title_latin1(*s, d, &len, 'S');
-			d += len;
-		    }
+                    /* Now process the remainder of the source, simultaneously
+                     * converting to upper and UTF-8.
+                     *
+                     * To avoid extra tests in the loop body, and since the
+                     * loop is so simple, split out the rare Turkic case into
+                     * its own loop */
 
-		    /* Here have processed the whole source; no need to continue
-		     * with the outer loop.  Each character has been converted
-		     * to upper case and converted to UTF-8 */
+#ifdef USE_LOCALE_CTYPE
+                    if (   UNLIKELY(PL_in_utf8_turkic_locale)
+                        && UNLIKELY(IN_LC_RUNTIME(LC_CTYPE)))
+                    {
+                        for (; s < send; s++) {
+                            if (*s == 'i') {
+                                *d++ = UTF8_TWO_BYTE_HI(LATIN_CAPITAL_LETTER_I_WITH_DOT_ABOVE);
+                                *d++ = UTF8_TWO_BYTE_LO(LATIN_CAPITAL_LETTER_I_WITH_DOT_ABOVE);
+                            }
+                            else {
+                                (void) _to_upper_title_latin1(*s, d, &len, 'S');
+                                d += len;
+                            }
+                        }
+                    }
+                    else
+#endif
+                        for (; s < send; s++) {
+                            (void) _to_upper_title_latin1(*s, d, &len, 'S');
+                            d += len;
+                        }
 
+                    /* Here have processed the whole source; no need to
+                     * continue with the outer loop.  Each character has been
+                     * converted to upper case and converted to UTF-8. */
 		    break;
 		} /* End of processing all latin1-style chars */
 	    } /* End of processing all chars */
@@ -4370,15 +4369,26 @@ PP(pp_lc)
     SV *dest;
     const U8 *s;
     U8 *d;
+    bool has_turkic_I = FALSE;
 
     SvGETMAGIC(source);
 
     if (   SvPADTMP(source)
 	&& !SvREADONLY(source) && SvPOK(source)
-	&& !DO_UTF8(source)) {
+	&& !DO_UTF8(source)
 
-	/* We can convert in place, as lowercasing anything in the latin1 range
-	 * (or else DO_UTF8 would have been on) doesn't lengthen it */
+#ifdef USE_LOCALE_CTYPE
+
+        && (   LIKELY(! IN_LC_RUNTIME(LC_CTYPE))
+            || LIKELY(! PL_in_utf8_turkic_locale))
+
+#endif
+
+    ) {
+
+        /* We can convert in place, as, outside of Turkic UTF-8 locales,
+         * lowercasing anything in the latin1 range (or else DO_UTF8 would have
+         * been on) doesn't lengthen it. */
 	dest = source;
 	s = d = (U8*)SvPV_force_nomg(source, len);
 	min = len + 1;
@@ -4397,25 +4407,93 @@ PP(pp_lc)
 	SETs(dest);
     }
 
+#ifdef USE_LOCALE_CTYPE
+
+    if (IN_LC_RUNTIME(LC_CTYPE)) {
+        const U8 * next_I;
+
+        _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
+
+        /* Lowercasing in a Turkic locale can cause non-UTF-8 to need to become
+         * UTF-8 for the single case of the character 'I' */
+        if (     UNLIKELY(PL_in_utf8_turkic_locale)
+            && ! DO_UTF8(source)
+            &&   (next_I = (U8 *) memchr(s, 'I', len)))
+        {
+            Size_t I_count = 0;
+            const U8 *const send = s + len;
+
+            do {
+                I_count++;
+
+                next_I = (U8 *) memchr(next_I + 1, 'I',
+                                        send - (next_I + 1));
+            } while (next_I != NULL);
+
+            /* Except for the 'I', in UTF-8 strings, the lower case of a
+             * character below 256 occupies the same number of bytes as the
+             * original.  Therefore, the space needed is the original length
+             * plus I_count plus the number of characters that become two bytes
+             * when converted to UTF-8 */
+            sv_utf8_upgrade_flags_grow(dest, 0, len
+                                              + I_count
+                                              + variant_under_utf8_count(s, send)
+                                              + 1 /* Trailing NUL */ );
+            d = (U8*)SvPVX(dest);
+            has_turkic_I = TRUE;
+        }
+    }
+
+#endif
+
     /* Overloaded values may have toggled the UTF-8 flag on source, so we need
        to check DO_UTF8 again here.  */
 
     if (DO_UTF8(source)) {
 	const U8 *const send = s + len;
 	U8 tmpbuf[UTF8_MAXBYTES_CASE+1];
+        bool remove_dot_above = FALSE;
 
 	while (s < send) {
 	    const STRLEN u = UTF8SKIP(s);
 	    STRLEN ulen;
 
 #ifdef USE_LOCALE_CTYPE
-	    _to_utf8_lower_flags(s, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
+
+	    _toLOWER_utf8_flags(s, send, tmpbuf, &ulen, IN_LC_RUNTIME(LC_CTYPE));
+
+            /* If we are in a Turkic locale, we have to do more work.  As noted
+             * in the comments for lcfirst, there is a special case if a 'I'
+             * is in a grapheme with COMBINING DOT ABOVE UTF8.  It turns into a
+             * 'i', and the DOT must be removed.  We check for that situation,
+             * and set a flag if the DOT is there.  Then each time through the
+             * loop, we have to see if we need to remove the next DOT above,
+             * and if so, do it.  We know that there is a DOT because
+             * _toLOWER_utf8_flags() wouldn't have returned 'i' unless there
+             * was one in a proper position. */
+            if (   UNLIKELY(PL_in_utf8_turkic_locale)
+                && IN_LC_RUNTIME(LC_CTYPE))
+            {
+                if (   UNLIKELY(remove_dot_above)
+                    && memBEGINs(tmpbuf, sizeof(tmpbuf), COMBINING_DOT_ABOVE_UTF8))
+                {
+                    s += u;
+                    remove_dot_above = FALSE;
+                    continue;
+                }
+                else if (UNLIKELY(*s == 'I' && tmpbuf[0] == 'i')) {
+                    remove_dot_above = TRUE;
+                }
+            }
 #else
-	    _to_utf8_lower_flags(s, tmpbuf, &ulen, 0);
+            PERL_UNUSED_VAR(remove_dot_above);
+
+	    _toLOWER_utf8_flags(s, send, tmpbuf, &ulen, 0);
 #endif
 
-	    /* Here is where we would do context-sensitive actions.  See the
-	     * commit message for 86510fb15 for why there isn't any */
+            /* Here is where we would do context-sensitive actions for the
+             * Greek final sigma.  See the commit message for 86510fb15 for why
+             * there isn't any */
 
 	    if (ulen > u && (SvLEN(dest) < (min += ulen - u))) {
 
@@ -4429,8 +4507,7 @@ PP(pp_lc)
 		 * Another option would be to grow an extra byte or two more
 		 * each time we need to grow, which would cut down the million
 		 * to 500K, with little waste */
-		SvGROW(dest, min);
-		d = (U8*)SvPVX(dest) + o;
+		d = o + (U8*) SvGROW(dest, min);
 	    }
 
 	    /* Copy the newly lowercased letter to the output buffer we're
@@ -4442,7 +4519,7 @@ PP(pp_lc)
 	SvUTF8_on(dest);
 	*d = '\0';
 	SvCUR_set(dest, d - (U8*)SvPVX_const(dest));
-    } else {	/* Not utf8 */
+    } else {	/* 'source' not utf8 */
 	if (len) {
 	    const U8 *const send = s + len;
 
@@ -4451,9 +4528,22 @@ PP(pp_lc)
 	     * whole thing in a tight loop, for speed, */
 #ifdef USE_LOCALE_CTYPE
             if (IN_LC_RUNTIME(LC_CTYPE)) {
-                _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
-		for (; s < send; d++, s++)
-		    *d = toLOWER_LC(*s);
+                if (LIKELY( ! has_turkic_I)) {
+                    for (; s < send; d++, s++)
+                        *d = toLOWER_LC(*s);
+                }
+                else {  /* This is the only case where lc() converts 'dest'
+                           into UTF-8 from a non-UTF-8 'source' */
+                    for (; s < send; s++) {
+                        if (*s == 'I') {
+                            *d++ = UTF8_TWO_BYTE_HI(LATIN_SMALL_LETTER_DOTLESS_I);
+                            *d++ = UTF8_TWO_BYTE_LO(LATIN_SMALL_LETTER_DOTLESS_I);
+                        }
+                        else {
+                            append_utf8_from_native_byte(toLOWER_LATIN1(*s), &d);
+                        }
+                    }
+                }
             }
 	    else
 #endif
@@ -4508,12 +4598,12 @@ PP(pp_quotemeta)
 			to_quote = TRUE;
 		    }
 		}
-		else if (UTF8_IS_DOWNGRADEABLE_START(*s)) {
+		else if (UTF8_IS_NEXT_CHAR_DOWNGRADEABLE(s, s + len)) {
 		    if (
 #ifdef USE_LOCALE_CTYPE
 		    /* In locale, we quote all non-ASCII Latin1 chars.
 		     * Otherwise use the quoting rules */
-		    
+
 		    IN_LC_RUNTIME(LC_CTYPE)
 			||
 #endif
@@ -4615,17 +4705,25 @@ PP(pp_fc)
     SETs(dest);
 
     send = s + len;
+
+#ifdef USE_LOCALE_CTYPE
+
+    if ( IN_LC_RUNTIME(LC_CTYPE) ) { /* Under locale */
+        _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
+    }
+
+#endif
+
     if (DO_UTF8(source)) { /* UTF-8 flagged string. */
         while (s < send) {
             const STRLEN u = UTF8SKIP(s);
             STRLEN ulen;
 
-            _to_utf8_fold_flags(s, tmpbuf, &ulen, flags);
+            _toFOLD_utf8_flags(s, send, tmpbuf, &ulen, flags);
 
             if (ulen > u && (SvLEN(dest) < (min += ulen - u))) {
                 const UV o = d - (U8*)SvPVX_const(dest);
-                SvGROW(dest, min);
-                d = (U8*)SvPVX(dest) + o;
+                d = o + (U8*) SvGROW(dest, min);
             }
 
             Copy(tmpbuf, d, ulen, U8);
@@ -4640,7 +4738,6 @@ PP(pp_fc)
             if (IN_UTF8_CTYPE_LOCALE) {
                 goto do_uni_folding;
             }
-            _CHECK_AND_WARN_PROBLEMATIC_LOCALE;
             for (; s < send; d++, s++)
                 *d = (U8) toFOLD_LC(*s);
         }
@@ -4654,64 +4751,90 @@ PP(pp_fc)
 #ifdef USE_LOCALE_CTYPE
       do_uni_folding:
 #endif
-            /* For ASCII and the Latin-1 range, there's only two troublesome
-             * folds, \x{DF} (\N{LATIN SMALL LETTER SHARP S}), which under full
-             * casefolding becomes 'ss'; and \x{B5} (\N{MICRO SIGN}), which
-             * under any fold becomes \x{3BC} (\N{GREEK SMALL LETTER MU}) --
+            /* For ASCII and the Latin-1 range, there's potentially three
+             * troublesome folds:
+             *      \x{DF} (\N{LATIN SMALL LETTER SHARP S}), which under full
+             *             casefolding becomes 'ss';
+             *      \x{B5} (\N{MICRO SIGN}), which under any fold becomes
+             *             \x{3BC} (\N{GREEK SMALL LETTER MU})
+             *      I      only in Turkic locales, this folds to \x{131}
+             *             \N{LATIN SMALL LETTER DOTLESS I}
              * For the rest, the casefold is their lowercase.  */
             for (; s < send; d++, s++) {
-                if (*s == MICRO_SIGN) {
+                if (    UNLIKELY(*s == MICRO_SIGN)
+#ifdef USE_LOCALE_CTYPE
+                    || (   UNLIKELY(PL_in_utf8_turkic_locale)
+                        && UNLIKELY(IN_LC_RUNTIME(LC_CTYPE))
+                        && UNLIKELY(*s == 'I'))
+#endif
+                ) {
+                    Size_t extra = send - s
+                                 + variant_under_utf8_count(s, send);
+
                     /* \N{MICRO SIGN}'s casefold is \N{GREEK SMALL LETTER MU},
-                     * which is outside of the latin-1 range. There's a couple
-                     * of ways to deal with this -- khw discusses them in
-                     * pp_lc/uc, so go there :) What we do here is upgrade what
-                     * we had already casefolded, then enter an inner loop that
-                     * appends the rest of the characters as UTF-8. */
+                     * and 'I' in Turkic locales is \N{LATIN SMALL LETTER
+                     * DOTLESS I} both of which are outside of the latin-1
+                     * range. There's a couple of ways to deal with this -- khw
+                     * discusses them in pp_lc/uc, so go there :) What we do
+                     * here is upgrade what we had already casefolded, then
+                     * enter an inner loop that appends the rest of the
+                     * characters as UTF-8.
+                     *
+                     * First we calculate the needed size of the upgraded dest
+                     * beyond what's been processed already (the upgrade
+                     * function figures that out).  Except for the 'I' in
+                     * Turkic locales, in UTF-8 strings, the fold case of a
+                     * character below 256 occupies the same number of bytes as
+                     * the original (even the Sharp S).  Therefore, the space
+                     * needed is the number of bytes remaining plus the number
+                     * of characters that become two bytes when converted to
+                     * UTF-8 plus, in turkish locales, the number of 'I's */
+
+                    if (UNLIKELY(*s == 'I')) {
+                        const U8 * s_peek = s;
+
+                        do {
+                            extra++;
+
+                            s_peek = (U8 *) memchr(s_peek + 1, 'i',
+                                                   send - (s_peek + 1));
+                        } while (s_peek != NULL);
+                    }
+
+                    /* Growing may move things, so have to save and recalculate
+                     * 'd' */
                     len = d - (U8*)SvPVX_const(dest);
                     SvCUR_set(dest, len);
                     len = sv_utf8_upgrade_flags_grow(dest,
                                                 SV_GMAGIC|SV_FORCE_UTF8_UPGRADE,
-						/* The max expansion for latin1
-						 * chars is 1 byte becomes 2 */
-                                                (send -s) * 2 + 1);
+                                                extra
+                                              + 1 /* Trailing NUL */ );
                     d = (U8*)SvPVX(dest) + len;
 
-                    Copy(GREEK_SMALL_LETTER_MU_UTF8, d, small_mu_len, U8);
-                    d += small_mu_len;
+                    *d++ = UTF8_TWO_BYTE_HI(GREEK_SMALL_LETTER_MU);
+                    *d++ = UTF8_TWO_BYTE_LO(GREEK_SMALL_LETTER_MU);
                     s++;
+
                     for (; s < send; s++) {
                         STRLEN ulen;
-                        UV fc = _to_uni_fold_flags(*s, tmpbuf, &ulen, flags);
-                        if UVCHR_IS_INVARIANT(fc) {
-                            if (full_folding
-                                && *s == LATIN_SMALL_LETTER_SHARP_S)
-                            {
-                                *d++ = 's';
-                                *d++ = 's';
-                            }
-                            else
-                                *d++ = (U8)fc;
-                        }
-                        else {
-                            Copy(tmpbuf, d, ulen, U8);
-                            d += ulen;
-                        }
+                        _to_uni_fold_flags(*s, d, &ulen, flags);
+                        d += ulen;
                     }
                     break;
                 }
-                else if (full_folding && *s == LATIN_SMALL_LETTER_SHARP_S) {
+                else if (   UNLIKELY(*s == LATIN_SMALL_LETTER_SHARP_S)
+                         && full_folding)
+                {
                     /* Under full casefolding, LATIN SMALL LETTER SHARP S
                      * becomes "ss", which may require growing the SV. */
                     if (SvLEN(dest) < ++min) {
                         const UV o = d - (U8*)SvPVX_const(dest);
-                        SvGROW(dest, min);
-                        d = (U8*)SvPVX(dest) + o;
+                        d = o + (U8*) SvGROW(dest, min);
                      }
                     *(d)++ = 's';
                     *d = 's';
                 }
-                else { /* If it's not one of those two, the fold is their lower
-                          case */
+                else { /* Else, the fold is the lower case */
                     *d = toLOWER_LATIN1(*s);
                 }
              }
@@ -4883,12 +5006,23 @@ PP(pp_akeys)
 	PUSHi(av_tindex(array) + 1);
     }
     else if (gimme == G_ARRAY) {
+      if (UNLIKELY(PL_op->op_private & OPpMAYBE_LVSUB)) {
+        const I32 flags = is_lvalue_sub();
+        if (flags && !(flags & OPpENTERSUB_INARGS))
+            /* diag_listed_as: Can't modify %s in %s */
+            Perl_croak(aTHX_
+                      "Can't modify keys on array in list assignment");
+      }
+      {
         IV n = Perl_av_len(aTHX_ array);
         IV i;
 
         EXTEND(SP, n + 1);
 
-	if (PL_op->op_type == OP_AKEYS) {
+	if (  PL_op->op_type == OP_AKEYS
+	   || (  PL_op->op_type == OP_AVHVSWITCH
+	      && (PL_op->op_private & 3) + OP_AEACH == OP_AKEYS  ))
+	{
 	    for (i = 0;  i <= n;  i++) {
 		mPUSHi(i);
 	    }
@@ -4899,6 +5033,7 @@ PP(pp_akeys)
 		PUSHs(elem ? *elem : &PL_sv_undef);
 	    }
 	}
+      }
     }
     RETURN;
 }
@@ -5053,20 +5188,33 @@ PP(pp_delete)
     gimme = GIMME_V;
     discard = (gimme == G_VOID) ? G_DISCARD : 0;
 
-    if (PL_op->op_private & OPpSLICE) {
+    if (PL_op->op_private & (OPpSLICE|OPpKVSLICE)) {
 	dMARK; dORIGMARK;
 	HV * const hv = MUTABLE_HV(POPs);
 	const U32 hvtype = SvTYPE(hv);
+        int skip = 0;
+        if (PL_op->op_private & OPpKVSLICE) {
+            SSize_t items = SP - MARK;
+
+            MEXTEND(SP,items);
+            while (items > 1) {
+                *(MARK+items*2-1) = *(MARK+items);
+                items--;
+            }
+            items = SP - MARK;
+            SP += items;
+            skip = 1;
+        }
 	if (hvtype == SVt_PVHV) {			/* hash element */
-	    while (++MARK <= SP) {
-		SV * const sv = hv_delete_ent(hv, *MARK, discard, 0);
+            while ((MARK += (1+skip)) <= SP) {
+                SV * const sv = hv_delete_ent(hv, *(MARK-skip), discard, 0);
 		*MARK = sv ? sv : &PL_sv_undef;
 	    }
 	}
 	else if (hvtype == SVt_PVAV) {                  /* array element */
             if (PL_op->op_flags & OPf_SPECIAL) {
-                while (++MARK <= SP) {
-                    SV * const sv = av_delete(MUTABLE_AV(hv), SvIV(*MARK), discard);
+                while ((MARK += (1+skip)) <= SP) {
+                    SV * const sv = av_delete(MUTABLE_AV(hv), SvIV(*(MARK-skip)), discard);
                     *MARK = sv ? sv : &PL_sv_undef;
                 }
             }
@@ -5178,7 +5326,7 @@ PP(pp_hslice)
                 DIE(aTHX_ PL_no_helem_sv, SVfARG(keysv));
             }
             if (localizing) {
-		if (HvNAME_get(hv) && isGV(*svp))
+		if (HvNAME_get(hv) && isGV_or_RVCV(*svp))
 		    save_gp(MUTABLE_GV(*svp), !(PL_op->op_flags & OPf_SPECIAL));
 		else if (preeminent)
 		    save_helem_flags(hv, keysv, svp,
@@ -5209,7 +5357,8 @@ PP(pp_kvhslice)
        if (flags) {
            if (!(flags & OPpENTERSUB_INARGS))
                /* diag_listed_as: Can't modify %s in %s */
-	       Perl_croak(aTHX_ "Can't modify key/value hash slice in list assignment");
+	       Perl_croak(aTHX_ "Can't modify key/value hash slice in %s assignment",
+				 GIMME_V == G_ARRAY ? "list" : "scalar");
 	   lval = flags;
        }
     }
@@ -5252,8 +5401,11 @@ PP(pp_list)
 {
     I32 markidx = POPMARK;
     if (GIMME_V != G_ARRAY) {
-	SV **mark = PL_stack_base + markidx;
+        /* don't initialize mark here, EXTEND() may move the stack */
+        SV **mark;
 	dSP;
+        EXTEND(SP, 1);          /* in case no arguments, as in @empty */
+        mark = PL_stack_base + markidx;
 	if (++MARK <= SP)
 	    *MARK = *SP;		/* unwanted list, return last item */
 	else
@@ -5278,6 +5430,7 @@ PP(pp_lslice)
 
     if (GIMME_V != G_ARRAY) {
         if (lastlelem < firstlelem) {
+            EXTEND(SP, 1);
             *firstlelem = &PL_sv_undef;
         }
         else {
@@ -5358,41 +5511,11 @@ PP(pp_anonhash)
     RETURN;
 }
 
-static AV *
-S_deref_plain_array(pTHX_ AV *ary)
-{
-    if (SvTYPE(ary) == SVt_PVAV) return ary;
-    SvGETMAGIC((SV *)ary);
-    if (!SvROK(ary) || SvTYPE(SvRV(ary)) != SVt_PVAV)
-	Perl_die(aTHX_ "Not an ARRAY reference");
-    else if (SvOBJECT(SvRV(ary)))
-	Perl_die(aTHX_ "Not an unblessed ARRAY reference");
-    return (AV *)SvRV(ary);
-}
-
-#if defined(__GNUC__) && !defined(PERL_GCC_BRACE_GROUPS_FORBIDDEN)
-# define DEREF_PLAIN_ARRAY(ary)       \
-   ({                                  \
-     AV *aRrRay = ary;                  \
-     SvTYPE(aRrRay) == SVt_PVAV          \
-      ? aRrRay                            \
-      : S_deref_plain_array(aTHX_ aRrRay); \
-   })
-#else
-# define DEREF_PLAIN_ARRAY(ary)            \
-   (                                        \
-     PL_Sv = (SV *)(ary),                    \
-     SvTYPE(PL_Sv) == SVt_PVAV                \
-      ? (AV *)PL_Sv                            \
-      : S_deref_plain_array(aTHX_ (AV *)PL_Sv)  \
-   )
-#endif
-
 PP(pp_splice)
 {
     dSP; dMARK; dORIGMARK;
     int num_args = (SP - MARK);
-    AV *ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV *ary = MUTABLE_AV(*++MARK);
     SV **src;
     SV **dst;
     SSize_t i;
@@ -5408,6 +5531,9 @@ PP(pp_splice)
 				    GIMME_V | TIED_METHOD_ARGUMENTS_ON_STACK,
 				    sp - mark);
     }
+
+    if (SvREADONLY(ary))
+        Perl_croak_no_modify();
 
     SP++;
 
@@ -5489,6 +5615,8 @@ PP(pp_splice)
 		for (i = length - 1, dst = &AvARRAY(ary)[offset]; i > 0; i--)
 		    SvREFCNT_dec(*dst++);	/* free them now */
 	    }
+	    if (!*MARK)
+		*MARK = &PL_sv_undef;
 	}
 	AvFILLp(ary) += diff;
 
@@ -5517,7 +5645,7 @@ PP(pp_splice)
 	i = -diff;
 	while (i)
 	    dst[--i] = NULL;
-	
+
 	if (newlen) {
  	    Copy( tmparyval, AvARRAY(ary) + offset, newlen, SV* );
 	    Safefree(tmparyval);
@@ -5585,6 +5713,8 @@ PP(pp_splice)
 		while (length-- > 0)
 		    SvREFCNT_dec(tmparyval[length]);
 	    }
+	    if (!*MARK)
+		*MARK = &PL_sv_undef;
 	}
 	else
 	    *MARK = &PL_sv_undef;
@@ -5601,7 +5731,7 @@ PP(pp_splice)
 PP(pp_push)
 {
     dSP; dMARK; dORIGMARK; dTARGET;
-    AV * const ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV * const ary = MUTABLE_AV(*++MARK);
     const MAGIC * const mg = SvTIED_mg((const SV *)ary, PERL_MAGIC_tied);
 
     if (mg) {
@@ -5644,7 +5774,7 @@ PP(pp_shift)
 {
     dSP;
     AV * const av = PL_op->op_flags & OPf_SPECIAL
-	? MUTABLE_AV(GvAV(PL_defgv)) : DEREF_PLAIN_ARRAY(MUTABLE_AV(POPs));
+	? MUTABLE_AV(GvAVn(PL_defgv)) : MUTABLE_AV(POPs);
     SV * const sv = PL_op->op_type == OP_SHIFT ? av_shift(av) : av_pop(av);
     EXTEND(SP, 1);
     assert (sv);
@@ -5657,7 +5787,7 @@ PP(pp_shift)
 PP(pp_unshift)
 {
     dSP; dMARK; dORIGMARK; dTARGET;
-    AV *ary = DEREF_PLAIN_ARRAY(MUTABLE_AV(*++MARK));
+    AV *ary = MUTABLE_AV(*++MARK);
     const MAGIC * const mg = SvTIED_mg((const SV *)ary, PERL_MAGIC_tied);
 
     if (mg) {
@@ -5771,20 +5901,25 @@ PP(pp_reverse)
     }
     else {
 	char *up;
-	char *down;
-	I32 tmp;
 	dTARGET;
 	STRLEN len;
 
 	SvUTF8_off(TARG);				/* decontaminate */
-	if (SP - MARK > 1)
+	if (SP - MARK > 1) {
 	    do_join(TARG, &PL_sv_no, MARK, SP);
-	else {
-	    sv_setsv(TARG, SP > MARK ? *SP : DEFSV);
+	    SP = MARK + 1;
+	    SETs(TARG);
+	} else if (SP > MARK) {
+	    sv_setsv(TARG, *SP);
+	    SETs(TARG);
+        } else {
+	    sv_setsv(TARG, DEFSV);
+	    XPUSHs(TARG);
 	}
 
 	up = SvPV_force(TARG, len);
 	if (len > 1) {
+            char *down;
 	    if (DO_UTF8(TARG)) {	/* first reverse each character */
 		U8* s = (U8*)SvPVX(TARG);
 		const U8* send = (U8*)(s + len);
@@ -5801,9 +5936,9 @@ PP(pp_reverse)
 			down = (char*)(s - 1);
 			/* reverse this character */
 			while (down > up) {
-			    tmp = *up;
+                            const char tmp = *up;
 			    *up++ = *down;
-			    *down-- = (char)tmp;
+                            *down-- = tmp;
 			}
 		    }
 		}
@@ -5811,14 +5946,12 @@ PP(pp_reverse)
 	    }
 	    down = SvPVX(TARG) + len - 1;
 	    while (down > up) {
-		tmp = *up;
+                const char tmp = *up;
 		*up++ = *down;
-		*down-- = (char)tmp;
+                *down-- = tmp;
 	    }
 	    (void)SvPOK_only_UTF8(TARG);
 	}
-	SP = MARK + 1;
-	SETTARG;
     }
     RETURN;
 }
@@ -5826,14 +5959,17 @@ PP(pp_reverse)
 PP(pp_split)
 {
     dSP; dTARG;
-    AV *ary = PL_op->op_flags & OPf_STACKED ? (AV *)POPs : NULL;
+    AV *ary = (   (PL_op->op_private & OPpSPLIT_ASSIGN) /* @a = split */
+               && (PL_op->op_flags & OPf_STACKED))      /* @{expr} = split */
+               ? (AV *)POPs : NULL;
     IV limit = POPi;			/* note, negative is forever */
     SV * const sv = POPs;
     STRLEN len;
     const char *s = SvPV_const(sv, len);
     const bool do_utf8 = DO_UTF8(sv);
+    const bool in_uni_8_bit = IN_UNI_8_BIT;
     const char *strend = s + len;
-    PMOP *pm;
+    PMOP *pm = cPMOPx(PL_op);
     REGEXP *rx;
     SV *dstr;
     const char *m;
@@ -5849,38 +5985,40 @@ PP(pp_split)
     I32 base;
     const U8 gimme = GIMME_V;
     bool gimme_scalar;
-    const I32 oldsave = PL_savestack_ix;
+    I32 oldsave = PL_savestack_ix;
     U32 make_mortal = SVs_TEMP;
     bool multiline = 0;
     MAGIC *mg = NULL;
 
-#ifdef DEBUGGING
-    Copy(&LvTARGOFF(POPs), &pm, 1, PMOP*);
-#else
-    pm = (PMOP*)POPs;
-#endif
-    if (!pm)
-	DIE(aTHX_ "panic: pp_split, pm=%p, s=%p", pm, s);
     rx = PM_GETRE(pm);
 
     TAINT_IF(get_regex_charset(RX_EXTFLAGS(rx)) == REGEX_LOCALE_CHARSET &&
              (RX_EXTFLAGS(rx) & (RXf_WHITE | RXf_SKIPWHITE)));
 
+    /* handle @ary = split(...) optimisation */
+    if (PL_op->op_private & OPpSPLIT_ASSIGN) {
+        if (!(PL_op->op_flags & OPf_STACKED)) {
+            if (PL_op->op_private & OPpSPLIT_LEX) {
+                if (PL_op->op_private & OPpLVAL_INTRO)
+                    SAVECLEARSV(PAD_SVl(pm->op_pmreplrootu.op_pmtargetoff));
+                ary = (AV *)PAD_SVl(pm->op_pmreplrootu.op_pmtargetoff);
+            }
+            else {
+                GV *gv =
 #ifdef USE_ITHREADS
-    if (pm->op_pmreplrootu.op_pmtargetoff) {
-	ary = GvAVn(MUTABLE_GV(PAD_SVl(pm->op_pmreplrootu.op_pmtargetoff)));
-	goto have_av;
-    }
+                        MUTABLE_GV(PAD_SVl(pm->op_pmreplrootu.op_pmtargetoff));
 #else
-    if (pm->op_pmreplrootu.op_pmtargetgv) {
-	ary = GvAVn(pm->op_pmreplrootu.op_pmtargetgv);
-	goto have_av;
-    }
+                        pm->op_pmreplrootu.op_pmtargetgv;
 #endif
-    else if (pm->op_targ)
-	ary = (AV *)PAD_SVl(pm->op_targ);
-    if (ary) {
-	have_av:
+                if (PL_op->op_private & OPpLVAL_INTRO)
+                    ary = save_ary(gv);
+                else
+                    ary = GvAVn(gv);
+            }
+            /* skip anything pushed by OPpLVAL_INTRO above */
+            oldsave = PL_savestack_ix;
+        }
+
 	realarray = 1;
 	PUTBACK;
 	av_extend(ary,0);
@@ -5904,19 +6042,24 @@ PP(pp_split)
 	    make_mortal = 0;
 	}
     }
+
     base = SP - PL_stack_base;
     orig = s;
     if (RX_EXTFLAGS(rx) & RXf_SKIPWHITE) {
 	if (do_utf8) {
-	    while (isSPACE_utf8(s))
+	    while (s < strend && isSPACE_utf8_safe(s, strend))
 		s += UTF8SKIP(s);
 	}
 	else if (get_regex_charset(RX_EXTFLAGS(rx)) == REGEX_LOCALE_CHARSET) {
-	    while (isSPACE_LC(*s))
+	    while (s < strend && isSPACE_LC(*s))
 		s++;
 	}
+        else if (in_uni_8_bit) {
+            while (s < strend && isSPACE_L1(*s))
+                s++;
+        }
 	else {
-	    while (isSPACE(*s))
+	    while (s < strend && isSPACE(*s))
 		s++;
 	}
     }
@@ -5933,9 +6076,9 @@ PP(pp_split)
 	    m = s;
 	    /* this one uses 'm' and is a negative test */
 	    if (do_utf8) {
-		while (m < strend && ! isSPACE_utf8(m) ) {
+		while (m < strend && ! isSPACE_utf8_safe(m, strend) ) {
 		    const int t = UTF8SKIP(m);
-		    /* isSPACE_utf8 returns FALSE for malform utf8 */
+		    /* isSPACE_utf8_safe returns FALSE for malform utf8 */
 		    if (strend - m < t)
 			m = strend;
 		    else
@@ -5946,10 +6089,14 @@ PP(pp_split)
             {
 	        while (m < strend && !isSPACE_LC(*m))
 		    ++m;
+            }
+            else if (in_uni_8_bit) {
+                while (m < strend && !isSPACE_L1(*m))
+                    ++m;
             } else {
                 while (m < strend && !isSPACE(*m))
                     ++m;
-            }  
+            }
 	    if (m >= strend)
 		break;
 
@@ -5973,17 +6120,21 @@ PP(pp_split)
 
 	    /* this one uses 's' and is a positive test */
 	    if (do_utf8) {
-		while (s < strend && isSPACE_utf8(s) )
+		while (s < strend && isSPACE_utf8_safe(s, strend) )
 	            s +=  UTF8SKIP(s);
 	    }
 	    else if (get_regex_charset(RX_EXTFLAGS(rx)) == REGEX_LOCALE_CHARSET)
             {
 	        while (s < strend && isSPACE_LC(*s))
 		    ++s;
+            }
+            else if (in_uni_8_bit) {
+                while (s < strend && isSPACE_L1(*s))
+                    ++s;
             } else {
                 while (s < strend && isSPACE(*s))
                     ++s;
-            } 	    
+            }
 	}
     }
     else if (RX_EXTFLAGS(rx) & RXf_START_ONLY) {
@@ -6097,7 +6248,7 @@ PP(pp_split)
 		/* The rx->minlen is in characters but we want to step
 		 * s ahead by bytes. */
  		if (do_utf8)
-		    s = (char*)utf8_hop((U8*)m, len);
+		    s = (char*)utf8_hop_forward((U8*) m, len, (U8*) strend);
  		else
 		    s = m + len; /* Fake \n at the end */
 	    }
@@ -6121,7 +6272,7 @@ PP(pp_split)
 		/* The rx->minlen is in characters but we want to step
 		 * s ahead by bytes. */
  		if (do_utf8)
-		    s = (char*)utf8_hop((U8*)m, len);
+		    s = (char*)utf8_hop_forward((U8*)m, len, (U8 *) strend);
  		else
 		    s = m + len; /* Fake \n at the end */
 	    }
@@ -6209,7 +6360,7 @@ PP(pp_split)
 	    while (iters > 0 && (!TOPs || !SvANY(TOPs) || SvCUR(TOPs) == 0)) {
 		if (TOPs && !make_mortal)
 		    sv_2mortal(TOPs);
-		*SP-- = &PL_sv_undef;
+		*SP-- = NULL;
 		iters--;
 	    }
 	}
@@ -6256,7 +6407,7 @@ PP(pp_split)
     }
 
     GETTARGET;
-    PUSHi(iters);
+    XPUSHi(iters);
     RETURN;
 }
 
@@ -6288,7 +6439,7 @@ PP(pp_lock)
 }
 
 
-/* used for: pp_padany(), pp_mapstart(), pp_custom(); plus any system ops
+/* used for: pp_padany(), pp_custom(); plus any system ops
  * that aren't implemented on a particular platform */
 
 PP(unimplemented_op)
@@ -6307,6 +6458,18 @@ PP(unimplemented_op)
     if(OP_IS_SOCKET(op_type))
 	DIE(aTHX_ PL_no_sock_func, name);
     DIE(aTHX_ "panic: unimplemented op %s (#%d) called", name,	op_type);
+}
+
+static void
+S_maybe_unwind_defav(pTHX)
+{
+    if (CX_CUR()->cx_type & CXp_HASARGS) {
+	PERL_CONTEXT *cx = CX_CUR();
+
+        assert(CxHASARGS(cx));
+        cx_popsub_args(cx);
+	cx->cx_type &= ~CXp_HASARGS;
+    }
 }
 
 /* For sorting out arguments passed to a &CORE:: subroutine */
@@ -6379,13 +6542,39 @@ PP(pp_coreargs)
 		svp++;
 	    }
 	    RETURN;
-	case OA_HVREF:
+	case OA_AVREF:
+	    if (!numargs) {
+		GV *gv;
+		if (CvUNIQUE(find_runcv_where(FIND_RUNCV_level_eq,1,NULL)))
+		    gv = PL_argvgv;
+		else {
+		    S_maybe_unwind_defav(aTHX);
+		    gv = PL_defgv;
+		}
+		PUSHs((SV *)GvAVn(gv));
+		break;
+	    }
 	    if (!svp || !*svp || !SvROK(*svp)
-	     || SvTYPE(SvRV(*svp)) != SVt_PVHV)
+	     || SvTYPE(SvRV(*svp)) != SVt_PVAV)
 		DIE(aTHX_
 		/* diag_listed_as: Type of arg %d to &CORE::%s must be %s*/
-		 "Type of arg %d to &CORE::%s must be hash reference",
-		  whicharg, OP_DESC(PL_op->op_next)
+		 "Type of arg %d to &CORE::%s must be array reference",
+		  whicharg, PL_op_desc[opnum]
+		);
+	    PUSHs(SvRV(*svp));
+	    break;
+	case OA_HVREF:
+	    if (!svp || !*svp || !SvROK(*svp)
+	     || (  SvTYPE(SvRV(*svp)) != SVt_PVHV
+		&& (  opnum == OP_DBMCLOSE || opnum == OP_DBMOPEN
+		   || SvTYPE(SvRV(*svp)) != SVt_PVAV  )))
+		DIE(aTHX_
+		/* diag_listed_as: Type of arg %d to &CORE::%s must be %s*/
+		 "Type of arg %d to &CORE::%s must be hash%s reference",
+		  whicharg, PL_op_desc[opnum],
+		  opnum == OP_DBMCLOSE || opnum == OP_DBMOPEN
+		     ? ""
+		     : " or array"
 		);
 	    PUSHs(SvRV(*svp));
 	    break;
@@ -6430,15 +6619,10 @@ PP(pp_coreargs)
 		       : "reference to one of [$@%*]"
 		);
 	    PUSHs(SvRV(*svp));
-	    if (opnum == OP_UNDEF && SvRV(*svp) == (SV *)PL_defgv
-	     && CX_CUR()->cx_type & CXp_HASARGS) {
+	    if (opnum == OP_UNDEF && SvRV(*svp) == (SV *)PL_defgv) {
 		/* Undo @_ localisation, so that sub exit does not undo
 		   part of our undeffing. */
-		PERL_CONTEXT *cx = CX_CUR();
-
-                assert(CxHASARGS(cx));
-                cx_popsub_args(cx);;
-		cx->cx_type &= ~CXp_HASARGS;
+		S_maybe_unwind_defav(aTHX);
 	    }
 	  }
 	  break;
@@ -6449,6 +6633,28 @@ PP(pp_coreargs)
     }
 
     RETURN;
+}
+
+/* Implement CORE::keys(),values(),each().
+ *
+ * We won't know until run-time whether the arg is an array or hash,
+ * so this op calls
+ *
+ *    pp_keys/pp_values/pp_each
+ * or
+ *    pp_akeys/pp_avalues/pp_aeach
+ *
+ * as appropriate (or whatever pp function actually implements the OP_FOO
+ * functionality for each FOO).
+ */
+
+PP(pp_avhvswitch)
+{
+    dVAR; dSP;
+    return PL_ppaddr[
+		(SvTYPE(TOPs) == SVt_PVAV ? OP_AEACH : OP_EACH)
+		    + (PL_op->op_private & OPpAVHVSWITCH_MASK)
+	   ](aTHX);
 }
 
 PP(pp_runcv)
@@ -6612,7 +6818,7 @@ PP(pp_lvref)
         }
       }
       else if (arg) {
-	S_localise_gv_slot(aTHX_ (GV *)arg, 
+	S_localise_gv_slot(aTHX_ (GV *)arg,
 				 PL_op->op_private & OPpLVREF_TYPE);
       }
       else if (!(PL_op->op_private & OPpPAD_STATE))
@@ -6651,10 +6857,12 @@ PP(pp_lvrefslice)
 
     while (++MARK <= SP) {
 	SV * const elemsv = *MARK;
-	if (SvTYPE(av) == SVt_PVAV)
-	    S_localise_aelem_lval(aTHX_ av, elemsv, can_preserve);
-	else
-	    S_localise_helem_lval(aTHX_ (HV *)av, elemsv, can_preserve);
+        if (UNLIKELY(localizing)) {
+            if (SvTYPE(av) == SVt_PVAV)
+                S_localise_aelem_lval(aTHX_ av, elemsv, can_preserve);
+            else
+                S_localise_helem_lval(aTHX_ (HV *)av, elemsv, can_preserve);
+        }
 	*MARK = sv_2mortal(newSV_type(SVt_PVMG));
 	sv_magic(*MARK,(SV *)av,PERL_MAGIC_lvref,(char *)elemsv,HEf_SVKEY);
     }
@@ -6685,6 +6893,247 @@ PP(pp_anonconst)
 					: NULL,
 				      NULL, SvREFCNT_inc_simple_NN(sv))));
     RETURN;
+}
+
+
+/* process one subroutine argument - typically when the sub has a signature:
+ * introduce PL_curpad[op_targ] and assign to it the value
+ *  for $:   (OPf_STACKED ? *sp : $_[N])
+ *  for @/%: @_[N..$#_]
+ *
+ * It's equivalent to
+ *    my $foo = $_[N];
+ * or
+ *    my $foo = (value-on-stack)
+ * or
+ *    my @foo = @_[N..$#_]
+ * etc
+ */
+
+PP(pp_argelem)
+{
+    dTARG;
+    SV *val;
+    SV ** padentry;
+    OP *o = PL_op;
+    AV *defav = GvAV(PL_defgv); /* @_ */
+    IV ix = PTR2IV(cUNOP_AUXo->op_aux);
+    IV argc;
+
+    /* do 'my $var, @var or %var' action */
+    padentry = &(PAD_SVl(o->op_targ));
+    save_clearsv(padentry);
+    targ = *padentry;
+
+    if ((o->op_private & OPpARGELEM_MASK) == OPpARGELEM_SV) {
+        if (o->op_flags & OPf_STACKED) {
+            dSP;
+            val = POPs;
+            PUTBACK;
+        }
+        else {
+            SV **svp;
+            /* should already have been checked */
+            assert(ix >= 0);
+#if IVSIZE > PTRSIZE
+            assert(ix <= SSize_t_MAX);
+#endif
+
+            svp = av_fetch(defav, ix, FALSE);
+            val = svp ? *svp : &PL_sv_undef;
+        }
+
+        /* $var = $val */
+
+        /* cargo-culted from pp_sassign */
+        assert(TAINTING_get || !TAINT_get);
+        if (UNLIKELY(TAINT_get) && !SvTAINTED(val))
+            TAINT_NOT;
+
+        SvSetMagicSV(targ, val);
+        return o->op_next;
+    }
+
+    /* must be AV or HV */
+
+    assert(!(o->op_flags & OPf_STACKED));
+    argc = ((IV)AvFILL(defav) + 1) - ix;
+
+    /* This is a copy of the relevant parts of pp_aassign().
+     */
+    if ((o->op_private & OPpARGELEM_MASK) == OPpARGELEM_AV) {
+        IV i;
+
+        if (AvFILL((AV*)targ) > -1) {
+            /* target should usually be empty. If we get get
+             * here, someone's been doing some weird closure tricks.
+             * Make a copy of all args before clearing the array,
+             * to avoid the equivalent of @a = ($a[0]) prematurely freeing
+             * elements. See similar code in pp_aassign.
+             */
+            for (i = 0; i < argc; i++) {
+                SV **svp = av_fetch(defav, ix + i, FALSE);
+                SV *newsv = newSV(0);
+                sv_setsv_flags(newsv,
+                                svp ? *svp : &PL_sv_undef,
+                                (SV_DO_COW_SVSETSV|SV_NOSTEAL));
+                if (!av_store(defav, ix + i, newsv))
+                    SvREFCNT_dec_NN(newsv);
+            }
+            av_clear((AV*)targ);
+        }
+
+        if (argc <= 0)
+            return o->op_next;
+
+        av_extend((AV*)targ, argc);
+
+        i = 0;
+        while (argc--) {
+            SV *tmpsv;
+            SV **svp = av_fetch(defav, ix + i, FALSE);
+            SV *val = svp ? *svp : &PL_sv_undef;
+            tmpsv = newSV(0);
+            sv_setsv(tmpsv, val);
+            av_store((AV*)targ, i++, tmpsv);
+            TAINT_NOT;
+        }
+
+    }
+    else {
+        IV i;
+
+        assert((o->op_private & OPpARGELEM_MASK) == OPpARGELEM_HV);
+
+        if (SvRMAGICAL(targ) || HvUSEDKEYS((HV*)targ)) {
+            /* see "target should usually be empty" comment above */
+            for (i = 0; i < argc; i++) {
+                SV **svp = av_fetch(defav, ix + i, FALSE);
+                SV *newsv = newSV(0);
+                sv_setsv_flags(newsv,
+                                svp ? *svp : &PL_sv_undef,
+                                (SV_DO_COW_SVSETSV|SV_NOSTEAL));
+                if (!av_store(defav, ix + i, newsv))
+                    SvREFCNT_dec_NN(newsv);
+            }
+            hv_clear((HV*)targ);
+        }
+
+        if (argc <= 0)
+            return o->op_next;
+        assert(argc % 2 == 0);
+
+        i = 0;
+        while (argc) {
+            SV *tmpsv;
+            SV **svp;
+            SV *key;
+            SV *val;
+
+            svp = av_fetch(defav, ix + i++, FALSE);
+            key = svp ? *svp : &PL_sv_undef;
+            svp = av_fetch(defav, ix + i++, FALSE);
+            val = svp ? *svp : &PL_sv_undef;
+
+            argc -= 2;
+            if (UNLIKELY(SvGMAGICAL(key)))
+                key = sv_mortalcopy(key);
+            tmpsv = newSV(0);
+            sv_setsv(tmpsv, val);
+            hv_store_ent((HV*)targ, key, tmpsv, 0);
+            TAINT_NOT;
+        }
+    }
+
+    return o->op_next;
+}
+
+/* Handle a default value for one subroutine argument (typically as part
+ * of a subroutine signature).
+ * It's equivalent to
+ *    @_ > op_targ ? $_[op_targ] : result_of(op_other)
+ *
+ * Intended to be used where op_next is an OP_ARGELEM
+ *
+ * We abuse the op_targ field slightly: it's an index into @_ rather than
+ * into PL_curpad.
+ */
+
+PP(pp_argdefelem)
+{
+    OP * const o = PL_op;
+    AV *defav = GvAV(PL_defgv); /* @_ */
+    IV ix = (IV)o->op_targ;
+
+    assert(ix >= 0);
+#if IVSIZE > PTRSIZE
+    assert(ix <= SSize_t_MAX);
+#endif
+
+    if (AvFILL(defav) >= ix) {
+        dSP;
+        SV **svp = av_fetch(defav, ix, FALSE);
+        SV  *val = svp ? *svp : &PL_sv_undef;
+        XPUSHs(val);
+        RETURN;
+    }
+    return cLOGOPo->op_other;
+}
+
+
+static SV *
+S_find_runcv_name(void)
+{
+    dTHX;
+    CV *cv;
+    GV *gv;
+    SV *sv;
+
+    cv = find_runcv(0);
+    if (!cv)
+        return &PL_sv_no;
+
+    gv = CvGV(cv);
+    if (!gv)
+        return &PL_sv_no;
+
+    sv = sv_2mortal(newSV(0));
+    gv_fullname4(sv, gv, NULL, TRUE);
+    return sv;
+}
+
+/* Check a  a subs arguments - i.e. that it has the correct number of args
+ * (and anything else we might think of in future). Typically used with
+ * signatured subs.
+ */
+
+PP(pp_argcheck)
+{
+    OP * const o       = PL_op;
+    UNOP_AUX_item *aux = cUNOP_AUXo->op_aux;
+    IV   params        = aux[0].iv;
+    IV   opt_params    = aux[1].iv;
+    char slurpy        = (char)(aux[2].iv);
+    AV  *defav         = GvAV(PL_defgv); /* @_ */
+    IV   argc;
+    bool too_few;
+
+    assert(!SvMAGICAL(defav));
+    argc = (AvFILLp(defav) + 1);
+    too_few = (argc < (params - opt_params));
+
+    if (UNLIKELY(too_few || (!slurpy && argc > params)))
+        /* diag_listed_as: Too few arguments for subroutine '%s' */
+        /* diag_listed_as: Too many arguments for subroutine '%s' */
+        Perl_croak_caller("Too %s arguments for subroutine '%" SVf "'",
+                          too_few ? "few" : "many", S_find_runcv_name());
+
+    if (UNLIKELY(slurpy == '%' && argc > params && (argc - params) % 2))
+        /* diag_listed_as: Odd name/value argument for subroutine '%s' */
+        Perl_croak_caller("Odd name/value argument for subroutine '%" SVf "'",
+                          S_find_runcv_name());
+
+    return NORMAL;
 }
 
 /*

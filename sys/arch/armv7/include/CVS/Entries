@@ -3,7 +3,7 @@
 /apmvar.h/1.1/Wed Sep  4 14:38:26 2013//
 /asm.h/1.1/Wed Sep  4 14:38:26 2013//
 /atomic.h/1.1/Wed Sep  4 14:38:26 2013//
-/bootconfig.h/1.1/Wed Sep  4 14:38:26 2013//
+/bootconfig.h/1.2/Mon May  6 03:34:43 2019//
 /bus.h/1.1/Wed Sep  4 14:38:26 2013//
 /cdefs.h/1.1/Wed Sep  4 14:38:26 2013//
 /conf.h/1.1/Wed Sep  4 14:38:26 2013//
@@ -18,11 +18,11 @@
 /frame.h/1.1/Wed Sep  4 14:38:27 2013//
 /ieee.h/1.1/Wed Sep  4 14:38:27 2013//
 /ieeefp.h/1.1/Wed Sep  4 14:38:27 2013//
-/intr.h/1.10/Mon Aug 20 15:02:07 2018//
+/intr.h/1.12/Sun Sep 29 10:36:52 2019//
 /limits.h/1.1/Wed Sep  4 14:38:27 2013//
-/loadfile_machdep.h/1.4/Sat May 14 18:04:02 2016//
+/loadfile_machdep.h/1.5/Wed Apr 10 04:17:34 2019//
 /lock.h/1.1/Wed Sep  4 14:38:28 2013//
-/machine_reg.h/1.2/Sun Apr 30 13:04:49 2017//
+/machine_reg.h/1.3/Mon May  6 03:34:43 2019//
 /math.h/1.1/Wed Sep  4 14:38:28 2013//
 /mplock.h/1.1/Mon Aug  6 18:39:13 2018//
 /mutex.h/1.1/Wed Sep  4 14:38:28 2013//

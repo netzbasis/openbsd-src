@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.86 2017/12/23 20:04:23 cheloha Exp $	*/
+/*	$OpenBSD: util.c,v 1.92 2019/11/18 04:37:35 deraadt Exp $	*/
 /*	$NetBSD: util.c,v 1.12 1997/08/18 10:20:27 lukem Exp $	*/
 
 /*-
@@ -282,8 +282,7 @@ tryagain:
 			tmp[strcspn(tmp, "\n")] = '\0';
 			if (tmp[0] != '\0')
 				user = tmp;
-		}
-		else
+		} else
 			exit(0);
 	}
 	n = command("USER %s", user);
@@ -404,7 +403,7 @@ remglob2(char *argv[], int doswitch, char **errbuf, FILE **ftemp, char *type)
 		if (temp[len-1] != '/')
 			temp[len++] = '/';
 		(void)strlcpy(&temp[len], TMPFILE, sizeof temp - len);
-		if ((fd = mkstemp(temp)) < 0) {
+		if ((fd = mkstemp(temp)) == -1) {
 			warn("unable to create temporary file: %s", temp);
 			return (NULL);
 		}
@@ -1089,7 +1088,7 @@ connect_wait(int s)
 
 	if (poll(pfd, 1, -1) == -1)
 		return -1;
-	if (getsockopt(s, SOL_SOCKET, SO_ERROR, &error, &len) < 0)
+	if (getsockopt(s, SOL_SOCKET, SO_ERROR, &error, &len) == -1)
 		return -1;
 	if (error != 0) {
 		errno = error;

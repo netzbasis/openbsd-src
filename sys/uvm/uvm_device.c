@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_device.c,v 1.55 2018/08/20 10:00:04 kettenis Exp $	*/
+/*	$OpenBSD: uvm_device.c,v 1.57 2019/12/08 12:37:45 mpi Exp $	*/
 /*	$NetBSD: uvm_device.c,v 1.30 2000/11/25 06:27:59 chs Exp $	*/
 
 /*
@@ -144,8 +144,8 @@ udv_attach(dev_t device, vm_prot_t accessprot, voff_t off, vsize_t size)
 			 */
 			if (lcv->u_flags & UVM_DEVICE_HOLD) {
 				lcv->u_flags |= UVM_DEVICE_WANTED;
-				msleep(lcv, &udv_lock, PVM | PNORELOCK,
-				    "udv_attach", 0);
+				msleep_nsec(lcv, &udv_lock, PVM | PNORELOCK,
+				    "udv_attach", INFSLP);
 				continue;
 			}
 
@@ -243,7 +243,8 @@ again:
 		 * lock interleaving. -- this is ok in this case since the
 		 * locks are both IPL_NONE
 		 */
-		msleep(udv, &udv_lock, PVM | PNORELOCK, "udv_detach", 0);
+		msleep_nsec(udv, &udv_lock, PVM | PNORELOCK, "udv_detach",
+		    INFSLP);
 		goto again;
 	}
 

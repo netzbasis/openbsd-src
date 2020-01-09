@@ -1,4 +1,4 @@
-/*	$OpenBSD: ehci.c,v 1.202 2019/01/19 18:50:24 uaa Exp $ */
+/*	$OpenBSD: ehci.c,v 1.205 2019/10/08 11:07:16 mpi Exp $ */
 /*	$NetBSD: ehci.c,v 1.66 2004/06/30 03:11:56 mycroft Exp $	*/
 
 /*
@@ -1431,7 +1431,7 @@ ehci_open(struct usbd_pipe *pipe)
 		);
 		/*
 		 * To reduce conflict with split isochronous transfer,
-		 * schedule (split) interrupt trasnfer at latter half of
+		 * schedule (split) interrupt transfer at latter half of
 		 * 1ms frame:
 		 *
 		 *         |<-------------- H-Frame -------------->|
@@ -1628,7 +1628,8 @@ ehci_sync_hc(struct ehci_softc *sc)
 	do {
 		EOWRITE4(sc, EHCI_USBCMD, EOREAD4(sc, EHCI_USBCMD) |
 		    EHCI_CMD_IAAD);
-		error = tsleep(&sc->sc_async_head, PZERO, "ehcidi", hz / 2);
+		error = tsleep_nsec(&sc->sc_async_head, PZERO, "ehcidi",
+		    MSEC_TO_NSEC(500));
 	} while (error && ++tries < 10);
 	splx(s);
 	/* release doorbell */
@@ -1733,7 +1734,7 @@ usb_config_descriptor_t ehci_confd = {
 	1,
 	1,
 	0,
-	UC_SELF_POWERED,
+	UC_BUS_POWERED | UC_SELF_POWERED,
 	0			/* max power */
 };
 
@@ -2648,7 +2649,7 @@ ehci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 		DPRINTFN(2, ("ehci_abort_xfer: waiting for abort to finish\n"));
 		ex->ehci_xfer_flags |= EHCI_XFER_ABORTWAIT;
 		while (ex->ehci_xfer_flags & EHCI_XFER_ABORTING)
-			tsleep(&ex->ehci_xfer_flags, PZERO, "ehciaw", 0);
+			tsleep_nsec(&ex->ehci_xfer_flags, PZERO, "ehciaw", INFSLP);
 		return;
 	}
 
@@ -2699,7 +2700,7 @@ ehci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 	s = splusb();
 	sc->sc_softwake = 1;
 	usb_schedsoftintr(&sc->sc_bus);
-	tsleep(&sc->sc_softwake, PZERO, "ehciab", 0);
+	tsleep_nsec(&sc->sc_softwake, PZERO, "ehciab", INFSLP);
 
 #ifdef DIAGNOSTIC
 	ex->isdone = 1;
@@ -2789,7 +2790,7 @@ ehci_abort_isoc_xfer(struct usbd_xfer *xfer, usbd_status status)
 
 	sc->sc_softwake = 1;
 	usb_schedsoftintr(&sc->sc_bus);
-	tsleep(&sc->sc_softwake, PZERO, "ehciab", 0);
+	tsleep_nsec(&sc->sc_softwake, PZERO, "ehciab", INFSLP);
 
 	usb_transfer_complete(xfer);
 }

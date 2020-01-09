@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpath.c,v 1.41 2015/08/23 01:55:39 tedu Exp $ */
+/*	$OpenBSD: mpath.c,v 1.43 2019/09/27 17:22:31 krw Exp $ */
 
 /*
  * Copyright (c) 2009 David Gwynne <dlg@openbsd.org>
@@ -165,7 +165,7 @@ mpath_next_path(struct mpath_dev *d)
 #ifdef DIAGNOSTIC
 	if (d == NULL)
 		panic("%s: d is NULL", __func__);
-#endif
+#endif /* DIAGNOSTIC */
 
 	p = d->d_next_path;
 	if (p != NULL) {
@@ -189,8 +189,8 @@ mpath_cmd(struct scsi_xfer *xs)
 
 #ifdef DIAGNOSTIC
 	if (d == NULL)
-		panic("mpath_cmd issued against nonexistant device");
-#endif
+		panic("mpath_cmd issued against nonexistent device");
+#endif /* DIAGNOSTIC */
 
 	if (ISSET(xs->flags, SCSI_POLL)) {
 		mtx_enter(&d->d_mtx);
@@ -320,7 +320,7 @@ mpath_done(struct scsi_xfer *mxs)
 #ifdef DIAGNOSTIC
 		default:
 			panic("unexpected return from checksense");
-#endif
+#endif /* DIAGNOSTIC */
 		}
 		break;
 	}
@@ -404,8 +404,8 @@ mpath_minphys(struct buf *bp, struct scsi_link *link)
 
 #ifdef DIAGNOSTIC
 	if (d == NULL)
-		panic("mpath_minphys against nonexistant device");
-#endif
+		panic("mpath_minphys against nonexistent device");
+#endif /* DIAGNOSTIC */
 
 	mtx_enter(&d->d_mtx);
 	TAILQ_FOREACH(g, &d->d_groups, g_entry) {
@@ -450,7 +450,7 @@ mpath_path_attach(struct mpath_path *p, u_int g_id, const struct mpath_ops *ops)
 		panic("mpath_path_attach: NULL link");
 	if (p->p_group != NULL)
 		panic("mpath_path_attach: group is not NULL");
-#endif
+#endif /* DIAGNOSTIC */
 
 	for (target = 0; target < MPATH_BUSWIDTH; target++) {
 		if ((d = sc->sc_devs[target]) == NULL)
@@ -548,8 +548,8 @@ mpath_path_detach(struct mpath_path *p)
 
 #ifdef DIAGNOSTIC
 	if (g == NULL)
-		panic("mpath: detaching a path from a nonexistant bus");
-#endif
+		panic("mpath: detaching a path from a nonexistent bus");
+#endif /* DIAGNOSTIC */
 	d = g->g_dev;
 	p->p_group = NULL;
 

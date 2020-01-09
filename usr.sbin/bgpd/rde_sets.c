@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_sets.c,v 1.7 2019/01/05 13:12:35 claudio Exp $ */
+/*	$OpenBSD: rde_sets.c,v 1.9 2019/08/05 08:46:55 claudio Exp $ */
 
 /*
  * Copyright (c) 2018 Claudio Jeker <claudio@openbsd.org>
@@ -84,7 +84,6 @@ as_sets_free(struct as_set_head *as_sets)
 		set_free(aset->set);
 		free(aset);
 	}
-	free(as_sets);
 }
 
 void
@@ -151,7 +150,7 @@ set_add(struct set_table *set, void *elms, size_t nelms)
 		u_int32_t *s;
 		size_t new_size;
 
-		if (set->nmemb >= SIZE_T_MAX - 4096 - nelms) {
+		if (set->nmemb >= SIZE_MAX - 4096 - nelms) {
 			errno = ENOMEM;
 			return -1;
 		}

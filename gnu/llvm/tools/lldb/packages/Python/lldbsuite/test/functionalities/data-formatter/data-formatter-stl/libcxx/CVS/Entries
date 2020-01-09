@@ -8,10 +8,12 @@ D/list////
 D/map////
 D/multimap////
 D/multiset////
+D/optional////
 D/queue////
 D/set////
 D/string////
 D/tuple////
 D/unordered////
+D/variant////
 D/vbool////
 D/vector////

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.52 2018/12/14 07:56:17 jmc Exp $	*/
+/*	$OpenBSD: main.c,v 1.62 2020/01/03 05:32:00 pd Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -72,7 +72,7 @@ int		 ctl_receive(struct parse_result *, int, char *[]);
 struct ctl_command ctl_commands[] = {
 	{ "console",	CMD_CONSOLE,	ctl_console,	"id" },
 	{ "create",	CMD_CREATE,	ctl_create,
-		"disk [-b base | -i disk] [-s size]", 1 },
+		"[-b base | -i disk] [-s size] disk", 1 },
 	{ "load",	CMD_LOAD,	ctl_load,	"filename" },
 	{ "log",	CMD_LOG,	ctl_log,	"[brief | verbose]" },
 	{ "pause",	CMD_PAUSE,	ctl_pause,	"id" },
@@ -81,11 +81,11 @@ struct ctl_command ctl_commands[] = {
 	{ "reset",	CMD_RESET,	ctl_reset,	"[all | switches | vms]" },
 	{ "send",	CMD_SEND,	ctl_send,	"id",	1},
 	{ "show",	CMD_STATUS,	ctl_status,	"[id]" },
-	{ "start",	CMD_START,	ctl_start,	"name"
-	    " [-cL] [-B device] [-b path] [-d disk] [-i count]\n"
-	    "\t\t[-m size] [-n switch] [-r path] [-t name]" },
+	{ "start",	CMD_START,	ctl_start,
+	    "[-cL] [-B device] [-b path] [-d disk] [-i count]\n"
+	    "\t\t[-m size] [-n switch] [-r path] [-t name] id | name" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
-	{ "stop",	CMD_STOP,	ctl_stop,	"[id | -a] [-fw]" },
+	{ "stop",	CMD_STOP,	ctl_stop,	"[-fw] [id | -a]" },
 	{ "unpause",	CMD_UNPAUSE,	ctl_unpause,	"id" },
 	{ "wait",	CMD_WAITFOR,	ctl_waitfor,	"id" },
 	{ NULL }
@@ -265,6 +265,7 @@ vmmaction(struct parse_result *res)
 	case CMD_SEND:
 		send_vm(res->id, res->name);
 		done = 1;
+		ret = 0;
 		break;
 	case CMD_RECEIVE:
 		vm_receive(res->id, res->name);
@@ -373,9 +374,9 @@ parse_ifs(struct parse_result *res, char *word, int val)
 	const char	*error;
 
 	if (word != NULL) {
-		val = strtonum(word, 0, INT_MAX, &error);
+		val = strtonum(word, 1, INT_MAX, &error);
 		if (error != NULL)  {
-			warnx("invalid count \"%s\": %s", word, error);
+			warnx("count is %s: %s", error, word);
 			return (-1);
 		}
 	}
@@ -407,8 +408,10 @@ parse_network(struct parse_result *res, char *word)
 }
 
 int
-parse_size(struct parse_result *res, char *word, long long val)
+parse_size(struct parse_result *res, char *word)
 {
+	long long val = 0;
+
 	if (word != NULL) {
 		if (scan_scaled(word, &val) != 0) {
 			warn("invalid size: %s", word);
@@ -561,21 +564,7 @@ int
 ctl_create(struct parse_result *res, int argc, char *argv[])
 {
 	int		 ch, ret, type;
-	const char	*disk, *format, *base, *input;
-
-	if (argc < 2)
-		ctl_usage(res->ctl);
-
-	base = input = NULL;
-	type = parse_disktype(argv[1], &disk);
-
-	if (pledge("stdio rpath wpath cpath unveil", NULL) == -1)
-		err(1, "pledge");
-	if (unveil(disk, "rwc") == -1)
-		err(1, "unveil");
-
-	argc--;
-	argv++;
+	const char	*disk, *format, *base = NULL, *input = NULL;
 
 	while ((ch = getopt(argc, argv, "b:i:s:")) != -1) {
 		switch (ch) {
@@ -590,7 +579,7 @@ ctl_create(struct parse_result *res, int argc, char *argv[])
 				err(1, "unveil");
 			break;
 		case 's':
-			if (parse_size(res, optarg, 0) != 0)
+			if (parse_size(res, optarg) != 0)
 				errx(1, "invalid size: %s", optarg);
 			break;
 		default:
@@ -598,6 +587,18 @@ ctl_create(struct parse_result *res, int argc, char *argv[])
 			/* NOTREACHED */
 		}
 	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc < 1)
+		ctl_usage(res->ctl);
+
+	type = parse_disktype(argv[0], &disk);
+
+	if (pledge("stdio rpath wpath cpath unveil", NULL) == -1)
+		err(1, "pledge");
+	if (unveil(disk, "rwc") == -1)
+		err(1, "unveil");
 
 	if (input) {
 		if (base && input)
@@ -834,15 +835,6 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 	char		 path[PATH_MAX];
 	const char	*s;
 
-	if (argc < 2)
-		ctl_usage(res->ctl);
-
-	if (parse_vmid(res, argv[1], 0) == -1)
-		errx(1, "invalid id: %s", argv[1]);
-
-	argc--;
-	argv++;
-
 	while ((ch = getopt(argc, argv, "b:B:cd:i:Lm:n:r:t:")) != -1) {
 		switch (ch) {
 		case 'b':
@@ -883,7 +875,7 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 		case 'm':
 			if (res->size)
 				errx(1, "memory specified multiple times");
-			if (parse_size(res, optarg, 0) != 0)
+			if (parse_size(res, optarg) != 0)
 				errx(1, "invalid memory size: %s", optarg);
 			break;
 		case 'n':
@@ -912,6 +904,14 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 			/* NOTREACHED */
 		}
 	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 1)
+		ctl_usage(res->ctl);
+
+	if (parse_vmid(res, argv[0], 0) == -1)
+		errx(1, "invalid id: %s", argv[0]);
 
 	for (i = res->nnets; i < res->nifs; i++) {
 		/* Add interface that is not attached to a switch */
@@ -929,14 +929,6 @@ ctl_stop(struct parse_result *res, int argc, char *argv[])
 {
 	int		 ch, ret;
 
-	if (argc < 2)
-		ctl_usage(res->ctl);
-
-	if ((ret = parse_vmid(res, argv[1], 0)) == 0) {
-		argc--;
-		argv++;
-	}
-
 	while ((ch = getopt(argc, argv, "afw")) != -1) {
 		switch (ch) {
 		case 'f':
@@ -953,6 +945,18 @@ ctl_stop(struct parse_result *res, int argc, char *argv[])
 			/* NOTREACHED */
 		}
 	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc == 0) {
+		if (res->action != CMD_STOPALL)
+			ctl_usage(res->ctl);
+	} else if (argc > 1)
+		ctl_usage(res->ctl);
+	else if (argc == 1)
+		ret = parse_vmid(res, argv[0], 0);
+	else
+		ret = -1;
 
 	/* VM id is only expected without the -a flag */
 	if ((res->action != CMD_STOPALL && ret == -1) ||
@@ -1044,6 +1048,7 @@ ctl_openconsole(const char *name)
 	closefrom(STDERR_FILENO + 1);
 	if (unveil(VMCTL_CU, "x") == -1)
 		err(1, "unveil");
-	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "115200", (char *)NULL);
+	execl(VMCTL_CU, VMCTL_CU, "-r", "-l", name, "-s", "115200",
+	    (char *)NULL);
 	err(1, "failed to open the console");
 }

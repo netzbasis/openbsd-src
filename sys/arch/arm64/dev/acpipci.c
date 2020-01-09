@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpipci.c,v 1.7 2018/08/19 08:23:47 kettenis Exp $	*/
+/*	$OpenBSD: acpipci.c,v 1.13 2019/08/22 17:14:21 kettenis Exp $	*/
 /*
  * Copyright (c) 2018 Mark Kettenis
  *
@@ -107,9 +107,6 @@ pcireg_t acpipci_conf_read(void *, pcitag_t, int);
 void	acpipci_conf_write(void *, pcitag_t, int, pcireg_t);
 
 int	acpipci_intr_map(struct pci_attach_args *, pci_intr_handle_t *);
-int	acpipci_intr_map_msi(struct pci_attach_args *, pci_intr_handle_t *);
-int	acpipci_intr_map_msix(struct pci_attach_args *, int,
-	    pci_intr_handle_t *);
 const char *acpipci_intr_string(void *, pci_intr_handle_t);
 void	*acpipci_intr_establish(void *, pci_intr_handle_t, int,
 	    int (*)(void *), void *, char *);
@@ -183,8 +180,8 @@ acpipci_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_pc->pc_intr_v = sc;
 	sc->sc_pc->pc_intr_map = acpipci_intr_map;
-	sc->sc_pc->pc_intr_map_msi = acpipci_intr_map_msi;
-	sc->sc_pc->pc_intr_map_msix = acpipci_intr_map_msix;
+	sc->sc_pc->pc_intr_map_msi = _pci_intr_map_msi;
+	sc->sc_pc->pc_intr_map_msix = _pci_intr_map_msix;
 	sc->sc_pc->pc_intr_string = acpipci_intr_string;
 	sc->sc_pc->pc_intr_establish = acpipci_intr_establish;
 	sc->sc_pc->pc_intr_disestablish = acpipci_intr_disestablish;
@@ -198,6 +195,7 @@ acpipci_attach(struct device *parent, struct device *self, void *aux)
 	pba.pba_busex = sc->sc_busex;
 	pba.pba_ioex = sc->sc_ioex;
 	pba.pba_memex = sc->sc_memex;
+	pba.pba_pmemex = sc->sc_memex;
 	pba.pba_domain = pci_ndomains++;
 	pba.pba_bus = sc->sc_bus;
 	pba.pba_flags |= PCI_FLAGS_MSI_ENABLED;
@@ -255,8 +253,10 @@ acpipci_parse_resources(int crsidx, union acpi_resource *crs, void *arg)
 		sc->sc_mem_trans = at;
 		break;
 	case LR_TYPE_IO:
-		if ((tflags & LR_IO_TTP) == 0)
-			return 0;
+		/*
+		 * Don't check _TTP as various firmwares don't set it,
+		 * even though they should!!
+		 */
 		extent_free(sc->sc_ioex, min, len, EX_WAITOK);
 		at = malloc(sizeof(struct acpipci_trans), M_DEVBUF, M_WAITOK);
 		at->at_iot = sc->sc_iot;
@@ -333,32 +333,20 @@ acpipci_conf_write(void *v, pcitag_t tag, int reg, pcireg_t data)
 	bus_space_write_4(am->am_iot, am->am_ioh, tag | reg, data);
 }
 
-struct acpipci_intr_handle {
-	pci_chipset_tag_t	ih_pc;
-	pcitag_t		ih_tag;
-	int			ih_intrpin;
-	int			ih_msi;
-};
-
 int
 acpipci_intr_swizzle(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 {
-	struct acpipci_intr_handle *ih;
 	int dev, swizpin;
 
-	if (pa->pa_bridgetag == NULL)
+	if (pa->pa_bridgeih == NULL)
 		return -1;
 
 	pci_decompose_tag(pa->pa_pc, pa->pa_tag, NULL, &dev, NULL);
 	swizpin = PPB_INTERRUPT_SWIZZLE(pa->pa_rawintrpin, dev);
-	if ((void *)pa->pa_bridgeih[swizpin - 1] == NULL)
+	if (pa->pa_bridgeih[swizpin - 1].ih_type == PCI_NONE)
 		return -1;
 
-	ih = malloc(sizeof(struct acpipci_intr_handle), M_DEVBUF, M_WAITOK);
-	memcpy(ih, (void *)pa->pa_bridgeih[swizpin - 1],
-	    sizeof(struct acpipci_intr_handle));
-	*ihp = (pci_intr_handle_t)ih;
-
+	*ihp = pa->pa_bridgeih[swizpin - 1];
 	return 0;
 }
 
@@ -369,7 +357,6 @@ acpipci_intr_map(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 	struct aml_node *node = sc->sc_node;
 	struct aml_value res;
 	uint64_t addr, pin, source, index;
-	struct acpipci_intr_handle *ih;
 	int i;
 
 	/*
@@ -412,13 +399,10 @@ acpipci_intr_map(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 		    pin != pa->pa_intrpin - 1 || source != 0)
 			continue;
 		
-		ih = malloc(sizeof(struct acpipci_intr_handle),
-		    M_DEVBUF, M_WAITOK);
-		ih->ih_pc = pa->pa_pc;
-		ih->ih_tag = pa->pa_tag;
-		ih->ih_intrpin = index;
-		ih->ih_msi = 0;
-		*ihp = (pci_intr_handle_t)ih;
+		ihp->ih_pc = pa->pa_pc;
+		ihp->ih_tag = pa->pa_tag;
+		ihp->ih_intrpin = index;
+		ihp->ih_type = PCI_INTX;
 
 		return 0;
 	}
@@ -426,52 +410,27 @@ acpipci_intr_map(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
 	return -1;
 }
 
-int
-acpipci_intr_map_msi(struct pci_attach_args *pa, pci_intr_handle_t *ihp)
-{
-	pci_chipset_tag_t pc = pa->pa_pc;
-	pcitag_t tag = pa->pa_tag;
-	struct acpipci_intr_handle *ih;
-
-	if ((pa->pa_flags & PCI_FLAGS_MSI_ENABLED) == 0 ||
-	    pci_get_capability(pc, tag, PCI_CAP_MSI, NULL, NULL) == 0)
-		return -1;
-
-	ih = malloc(sizeof(struct acpipci_intr_handle), M_DEVBUF, M_WAITOK);
-	ih->ih_pc = pa->pa_pc;
-	ih->ih_tag = pa->pa_tag;
-	ih->ih_intrpin = pa->pa_intrpin;
-	ih->ih_msi = 1;
-	*ihp = (pci_intr_handle_t)ih;
-
-	return 0;
-}
-
-int
-acpipci_intr_map_msix(struct pci_attach_args *pa, int vec,
-    pci_intr_handle_t *ihp)
-{
-	return -1;
-}
-
 const char *
-acpipci_intr_string(void *v, pci_intr_handle_t ihp)
+acpipci_intr_string(void *v, pci_intr_handle_t ih)
 {
-	struct acpipci_intr_handle *ih = (struct acpipci_intr_handle *)ihp;
 	static char irqstr[32];
 
-	if (ih->ih_msi)
+	switch (ih.ih_type) {
+	case PCI_MSI:
 		return "msi";
+	case PCI_MSIX:
+		return "msix";
+	}
 
-	snprintf(irqstr, sizeof(irqstr), "irq %d", ih->ih_intrpin);
+	snprintf(irqstr, sizeof(irqstr), "irq %d", ih.ih_intrpin);
 	return irqstr;
 }
 
 void *
-acpipci_intr_establish(void *v, pci_intr_handle_t ihp, int level,
+acpipci_intr_establish(void *v, pci_intr_handle_t ih, int level,
     int (*func)(void *), void *arg, char *name)
 {
-	struct acpipci_intr_handle *ih = (struct acpipci_intr_handle *)ihp;
+	struct acpipci_softc *sc = v;
 	struct interrupt_controller *ic;
 	void *cookie;
 
@@ -482,14 +441,14 @@ acpipci_intr_establish(void *v, pci_intr_handle_t ihp, int level,
 	}
 	if (ic == NULL)
 		return NULL;
-	
-	if (ih->ih_msi) {
+
+	KASSERT(ih.ih_type != PCI_NONE);
+
+	if (ih.ih_type != PCI_INTX) {
 		uint64_t addr, data;
-		pcireg_t reg;
-		int off;
 
 		/* Map Requester ID through IORT to get sideband data. */
-		data = acpipci_iort_map_msi(ih->ih_pc, ih->ih_tag);
+		data = acpipci_iort_map_msi(ih.ih_pc, ih.ih_tag);
 		cookie = ic->ic_establish_msi(ic->ic_cookie, &addr,
 		    &data, level, func, arg, name);
 		if (cookie == NULL)
@@ -497,31 +456,16 @@ acpipci_intr_establish(void *v, pci_intr_handle_t ihp, int level,
 
 		/* TODO: translate address to the PCI device's view */
 
-		if (pci_get_capability(ih->ih_pc, ih->ih_tag, PCI_CAP_MSI,
-		    &off, &reg) == 0)
-			panic("%s: no msi capability", __func__);
-
-		if (reg & PCI_MSI_MC_C64) {
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MA, addr);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MAU32, addr >> 32);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MD64, data);
-		} else {
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MA, addr);
-			pci_conf_write(ih->ih_pc, ih->ih_tag,
-			    off + PCI_MSI_MD32, data);
-		}
-		pci_conf_write(ih->ih_pc, ih->ih_tag,
-		    off, reg | PCI_MSI_MC_MSIE);
+		if (ih.ih_type == PCI_MSIX) {
+			pci_msix_enable(ih.ih_pc, ih.ih_tag,
+			    &sc->sc_bus_memt, ih.ih_intrpin, addr, data);
+		} else
+			pci_msi_enable(ih.ih_pc, ih.ih_tag, addr, data);
 	} else {
-		cookie = acpi_intr_establish(ih->ih_intrpin, 0, level,
+		cookie = acpi_intr_establish(ih.ih_intrpin, 0, level,
 		    func, arg, name);
 	}
 
-	free(ih, M_DEVBUF, sizeof(struct acpipci_intr_handle));
 	return cookie;
 }
 
@@ -629,6 +573,7 @@ struct acpi_iort_node {
 	uint8_t		type;
 #define ACPI_IORT_ITS		0
 #define ACPI_IORT_ROOT_COMPLEX	2
+#define ACPI_IORT_SMMU		3
 	uint16_t	length;
 	uint8_t		revision;
 	uint32_t	reserved1;
@@ -650,23 +595,45 @@ struct acpi_iort_mapping {
 #define ACPI_IORT_MAPPING_SINGLE	0x00000001
 } __packed;
 
+uint32_t acpipci_iort_map(struct acpi_iort *, uint32_t, uint32_t);
+
 uint32_t
-acpipci_iort_map_node(struct acpi_iort_node *node, uint32_t id, uint32_t reference)
+acpipci_iort_map_node(struct acpi_iort *iort,
+    struct acpi_iort_node *node, uint32_t id)
 {
 	struct acpi_iort_mapping *map =
 	    (struct acpi_iort_mapping *)((char *)node + node->mapping_offset);
 	int i;
-	
+
 	for (i = 0; i < node->number_of_mappings; i++) {
-		if (map[i].output_reference != reference)
-			continue;
-		
-		if (map[i].flags & ACPI_IORT_MAPPING_SINGLE)
-			return map[i].output_base;
+		uint32_t offset = map[i].output_reference;
+
+		if (map[i].flags & ACPI_IORT_MAPPING_SINGLE) {
+			id = map[i].output_base;
+			return acpipci_iort_map(iort, offset, id);
+		}
 
 		if (map[i].input_base <= id &&
-		    id < map[i].input_base + map[i].length)
-			return map[i].output_base + (id - map[i].input_base);
+		    id < map[i].input_base + map[i].length) {
+			id = map[i].output_base + (id - map[i].input_base);
+			return acpipci_iort_map(iort, offset, id);
+		}
+	}
+
+	return id;
+}
+
+uint32_t
+acpipci_iort_map(struct acpi_iort *iort, uint32_t offset, uint32_t id)
+{
+	struct acpi_iort_node *node =
+	    (struct acpi_iort_node *)((char *)iort + offset);
+
+	switch (node->type) {
+	case ACPI_IORT_ITS:
+		return id;
+	case ACPI_IORT_SMMU:
+		return acpipci_iort_map_node(iort, node, id);
 	}
 
 	return id;
@@ -680,8 +647,7 @@ acpipci_iort_map_msi(pci_chipset_tag_t pc, pcitag_t tag)
 	struct acpi_iort *iort = NULL;
 	struct acpi_iort_node *node;
 	struct acpi_q *entry;
-	uint32_t rid, its = 0;
-	uint32_t offset;
+	uint32_t rid, offset;
 	int i;
 
 	rid = pci_requester_id(pc, tag);
@@ -698,20 +664,6 @@ acpipci_iort_map_msi(pci_chipset_tag_t pc, pcitag_t tag)
 	if (iort == NULL)
 		return rid;
 
-	/* Find reference to ITS group. */
-	offset = iort->offset;
-	for (i = 0; i < iort->number_of_nodes; i++) {
-		node = (struct acpi_iort_node *)((char *)iort + offset);
-		switch (node->type) {
-		case ACPI_IORT_ITS:
-			its = offset;
-			break;
-		}
-		offset += node->length;
-	}
-	if (its == 0)
-		return rid;
-
 	/* Find our root complex and map. */
 	offset = iort->offset;
 	for (i = 0; i < iort->number_of_nodes; i++) {
@@ -719,7 +671,7 @@ acpipci_iort_map_msi(pci_chipset_tag_t pc, pcitag_t tag)
 		switch (node->type) {
 		case ACPI_IORT_ROOT_COMPLEX:
 			if (node->segment == sc->sc_seg)
-				return acpipci_iort_map_node(node, rid, its);
+				return acpipci_iort_map_node(iort, node, rid);
 			break;
 		}
 		offset += node->length;

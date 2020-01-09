@@ -17,8 +17,8 @@ my ($cfg, $x);
 foreach my $class ($mbi, $mbf) {
     # can do and defaults are okay?
     ok($class->can('config'), 'can config()');
-    is($class->config()->{trap_nan}, 0, 'trap_nan defaults to 0');
-    is($class->config()->{trap_inf}, 0, 'trap_inf defaults to 0');
+    is($class->config("trap_nan"), 0, 'trap_nan defaults to 0');
+    is($class->config("trap_inf"), 0, 'trap_inf defaults to 0');
 
     # can set?
     $cfg = $class->config( trap_nan => 1 );
@@ -26,7 +26,7 @@ foreach my $class ($mbi, $mbf) {
 
     # also test that new() still works normally
     eval ("\$x = \$class->new('42'); \$x->bnan();");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, 42, '$x after new() never modified');
 
     # can reset?
@@ -38,31 +38,31 @@ foreach my $class ($mbi, $mbf) {
     is($cfg->{trap_inf}, 1, 'trap_inf enabled');
 
     eval ("\$x = \$class->new('4711'); \$x->binf();");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, 4711, '$x after new() never modified');
 
     eval ("\$x = \$class->new('inf');");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, 4711, '$x after new() never modified');
 
     eval ("\$x = \$class->new('-inf');");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, 4711, '$x after new() never modified');
 
     # +$x/0 => +inf
     eval ("\$x = \$class->new('4711'); \$x->bdiv(0);");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, 4711, '$x after new() never modified');
 
     # -$x/0 => -inf
     eval ("\$x = \$class->new('-0815'); \$x->bdiv(0);");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, '-815', '$x after new not modified');
 
     $cfg = $class->config( trap_nan => 1 );
     # 0/0 => NaN
     eval ("\$x = \$class->new('0'); \$x->bdiv(0);");
-    like($@, qr/^Tried to set/, 'died');
+    like($@, qr/^Tried to create/, 'died');
     is($x, '0', '$x after new not modified');
 }
 

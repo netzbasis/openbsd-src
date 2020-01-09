@@ -21,8 +21,8 @@ use IPC::Cmd 'can_run';
 use HTTP::Tiny;
 use IO::Uncompress::Gunzip;
 
-my $corelist_file = 'dist/Module-CoreList/lib/Module/CoreList.pm';
-my $utils_file = 'dist/Module-CoreList/lib/Module/CoreList/Utils.pm';
+my $corelist_file = './dist/Module-CoreList/lib/Module/CoreList.pm';
+my $utils_file = './dist/Module-CoreList/lib/Module/CoreList/Utils.pm';
 
 my %lines;
 my %module_to_file;
@@ -98,8 +98,9 @@ find(
     sub {
         /(\.pm|_pm\.PL)$/ or return;
         /PPPort\.pm$/ and return;
+        /__Storable__\.pm$/ and return;
         my $module = $File::Find::name;
-        $module =~ /\b(demo|t|private)\b/ and return;    # demo or test modules
+        $module =~ /\b(demo|t|private|corpus)\b/ and return;    # demo or test modules
         my $version = MM->parse_version($_);
         defined $version or $version = 'undef';
         $version =~ /\d/ and $version = "'$version'";
@@ -291,6 +292,7 @@ foreach my $module ( sort keys %module_to_upstream ) {
     $bug_tracker = $bug_tracker->{web} if ref($bug_tracker) eq "HASH";
 
     $bug_tracker = defined $bug_tracker ? quote($bug_tracker) : 'undef';
+    next if $bug_tracker eq "'https://github.com/Perl/perl5/issues'";
 	next if $bug_tracker eq "'http://rt.perl.org/perlbug/'";
     $tracker .= sprintf "    %-24s=> %s,\n", "'$module'", $bug_tracker;
 }

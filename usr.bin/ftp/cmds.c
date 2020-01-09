@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmds.c,v 1.80 2018/01/24 13:25:25 tb Exp $	*/
+/*	$OpenBSD: cmds.c,v 1.84 2019/11/18 04:37:35 deraadt Exp $	*/
 /*	$NetBSD: cmds.c,v 1.27 1997/08/18 10:20:15 lukem Exp $	*/
 
 /*
@@ -286,12 +286,12 @@ usage:
 						tp = cp;
 						tp2 = tmpbuf;
 						while ((*tp2 = *tp) != '\0') {
-						     if (isupper((unsigned char)*tp2)) {
-							    *tp2 =
-								tolower((unsigned char)*tp2);
-						     }
-						     tp++;
-						     tp2++;
+							if (isupper((unsigned char)*tp2)) {
+								*tp2 =
+								    tolower((unsigned char)*tp2);
+							}
+							tp++;
+							tp2++;
 						}
 					}
 					tp = tmpbuf;
@@ -803,7 +803,7 @@ lcd(int argc, char *argv[])
 		code = -1;
 		return;
 	}
-	if (chdir(argv[1]) < 0) {
+	if (chdir(argv[1]) == -1) {
 		warn("local: %s", argv[1]);
 		code = -1;
 	} else {

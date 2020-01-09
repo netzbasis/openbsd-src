@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfutils.c,v 1.19 2018/12/07 12:52:47 henning Exp $ */
+/*	$OpenBSD: pfutils.c,v 1.21 2019/08/08 06:59:44 mestre Exp $ */
 /*
  * Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
  *
@@ -54,14 +54,17 @@ pftable_handler()
 
 	if ((fd = open(_PATH_DEV_PF, O_RDWR|O_NOFOLLOW, 0660)) == -1)
 		fatal("can't open pf device");
-	if (chroot(_PATH_VAREMPTY) == -1)
-		fatal("chroot %s", _PATH_VAREMPTY);
-	if (chdir("/") == -1)
-		fatal("chdir(\"/\")");
+
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	/* no filesystem visibility */
+	if (unveil("/", "") == -1)
+		fatal("unveil");
+	if (unveil(NULL, NULL) == -1)
+		fatal("unveil");
 
 	setproctitle("pf table handler");
 	l = sizeof(struct pf_cmd);
@@ -154,7 +157,7 @@ pf_change_table(int fd, int op, struct in_addr ip, char *table)
 	addr.pfra_af = AF_INET;
 	addr.pfra_net = 32;
 
-	if (ioctl(fd, op ? DIOCRADDADDRS : DIOCRDELADDRS, &io) &&
+	if (ioctl(fd, op ? DIOCRADDADDRS : DIOCRDELADDRS, &io) == -1 &&
 	    errno != ESRCH) {
 		log_warn( "DIOCR%sADDRS on table %s", op ? "ADD" : "DEL",
 		    table);
@@ -178,7 +181,7 @@ pf_kill_state(int fd, struct in_addr ip)
 	    sizeof(psk.psk_src.addr.v.a.addr));
 	memset(&psk.psk_src.addr.v.a.mask, 0xff,
 	    sizeof(psk.psk_src.addr.v.a.mask));
-	if (ioctl(fd, DIOCKILLSTATES, &psk)) {
+	if (ioctl(fd, DIOCKILLSTATES, &psk) == -1) {
 		log_warn("DIOCKILLSTATES failed");
 	}
 
@@ -188,7 +191,7 @@ pf_kill_state(int fd, struct in_addr ip)
 	    sizeof(psk.psk_dst.addr.v.a.addr));
 	memset(&psk.psk_dst.addr.v.a.mask, 0xff,
 	    sizeof(psk.psk_dst.addr.v.a.mask));
-	if (ioctl(fd, DIOCKILLSTATES, &psk)) {
+	if (ioctl(fd, DIOCKILLSTATES, &psk) == -1) {
 		log_warn("DIOCKILLSTATES failed");
 	}
 }

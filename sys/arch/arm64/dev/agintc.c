@@ -1,4 +1,4 @@
-/* $OpenBSD: agintc.c,v 1.15 2018/12/07 21:33:28 patrick Exp $ */
+/* $OpenBSD: agintc.c,v 1.22 2019/08/02 10:04:59 kettenis Exp $ */
 /*
  * Copyright (c) 2007, 2009, 2011, 2017 Dale Rahn <drahn@dalerahn.com>
  * Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
@@ -65,9 +65,10 @@
 #define GICD_CTLR		0x0000
 /* non-secure */
 #define  GICD_CTLR_RWP			(1U << 31)
-#define  GICD_CTRL_EnableGrp1		(1 << 0)
-#define  GICD_CTRL_EnableGrp1A		(1 << 1)
-#define  GICD_CTRL_ARE_NS		(1 << 4)
+#define  GICD_CTLR_EnableGrp1		(1 << 0)
+#define  GICD_CTLR_EnableGrp1A		(1 << 1)
+#define  GICD_CTLR_ARE_NS		(1 << 4)
+#define  GICD_CTLR_DS			(1 << 6)
 #define GICD_TYPER		0x0004
 #define  GICD_TYPER_LPIS		(1 << 16)
 #define  GICD_TYPER_ITLINE_M		0x1f
@@ -145,6 +146,8 @@ struct agintc_softc {
 	int			 sc_cpuremap[MAXCPUS];
 	int			 sc_nintr;
 	int			 sc_nlpi;
+	int			 sc_prio_shift;
+	int			 sc_pmr_shift;
 	int			 sc_rk3399_quirk;
 	struct evcount		 sc_spur;
 	int			 sc_ncells;
@@ -265,8 +268,9 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 	struct fdt_attach_args	*faa = aux;
 	uint32_t		 typer;
 	uint32_t		 nsacr, oldnsacr;
+	uint32_t		 pmr, oldpmr;
 	uint32_t		 ctrl, bits;
-	int			 i, j, nintr;
+	int			 i, j, nbits, nintr;
 	int			 psw;
 	int			 offset, nredist;
 #ifdef MULTIPROCESSOR
@@ -311,6 +315,38 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/*
+	 * We are guaranteed to have at least 16 priority levels, so
+	 * in principle we just want to use the top 4 bits of the
+	 * (non-secure) priority field.
+	 */
+	sc->sc_prio_shift = sc->sc_pmr_shift = 4;
+
+	/*
+	 * If the system supports two security states and SCR_EL3.FIQ
+	 * is zero, the non-secure shifted view applies.  We detect
+	 * this by checking whether the number of writable bits
+	 * matches the number of implemented priority bits.  If that
+	 * is the case we will need to adjust the priorities that we
+	 * write into ICC_PMR_EL1 accordingly.
+	 *
+	 * On Ampere eMAG it appears as if there are five writable
+	 * bits when we write 0xff.  But for higher priorities
+	 * (smaller values) only the top 4 bits stick.  So we use 0xbf
+	 * instead to determine the number of writable bits.
+	 */
+	ctrl = bus_space_read_4(sc->sc_iot, sc->sc_d_ioh, GICD_CTLR);
+	if ((ctrl & GICD_CTLR_DS) == 0) {
+		__asm volatile("mrs %x0, "STR(ICC_CTLR_EL1) : "=r"(ctrl));
+		nbits = ICC_CTLR_EL1_PRIBITS(ctrl) + 1;
+		__asm volatile("mrs %x0, "STR(ICC_PMR) : "=r"(oldpmr));
+		__asm volatile("msr "STR(ICC_PMR)", %x0" :: "r"(0xbf));
+		__asm volatile("mrs %x0, "STR(ICC_PMR) : "=r"(pmr));
+		__asm volatile("msr "STR(ICC_PMR)", %x0" :: "r"(oldpmr));
+		if (nbits == 8 - (ffs(pmr) - 1))
+			sc->sc_pmr_shift--;
+	}
+
+	/*
 	 * The Rockchip RK3399 is busted.  Its GIC-500 treats all
 	 * access to its memory mapped registers as "secure".  As a
 	 * result, several registers don't behave as expected.  For
@@ -323,7 +359,9 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 	 *
 	 * We check whether we have secure mode access to these
 	 * registers by attempting to write to the GICD_NSACR register
-	 * and check whether its contents actually change.
+	 * and check whether its contents actually change.  In that
+	 * case we need to adjust the priorities we write into
+	 * GICD_IPRIORITYRn and GICRIPRIORITYRn accordingly.
 	 */
 	oldnsacr = bus_space_read_4(sc->sc_iot, sc->sc_d_ioh, GICD_NSACR(32));
 	bus_space_write_4(sc->sc_iot, sc->sc_d_ioh, GICD_NSACR(32),
@@ -333,7 +371,11 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 		bus_space_write_4(sc->sc_iot, sc->sc_d_ioh, GICD_NSACR(32),
 		    oldnsacr);
 		sc->sc_rk3399_quirk = 1;
+		sc->sc_prio_shift--;
+		printf(" sec");
 	}
+
+	printf(" shift %d:%d", sc->sc_prio_shift, sc->sc_pmr_shift);
 
 	evcount_attach(&sc->sc_spur, "irq1023/spur", NULL);
 
@@ -370,7 +412,7 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 		}
 	}
 
-	printf(" nirq %d, nredist %d", nintr, sc->sc_num_redist);
+	printf(" nirq %d nredist %d", nintr, sc->sc_num_redist);
 	
 	sc->sc_r_ioh = mallocarray(sc->sc_num_redist,
 	    sizeof(*sc->sc_r_ioh), M_DEVBUF, M_WAITOK);
@@ -457,9 +499,9 @@ agintc_attach(struct device *parent, struct device *self, void *aux)
 
 	/* enable interrupts */
 	ctrl = bus_space_read_4(sc->sc_iot, sc->sc_d_ioh, GICD_CTLR);
-	bits = GICD_CTRL_ARE_NS | GICD_CTRL_EnableGrp1A | GICD_CTRL_EnableGrp1;
+	bits = GICD_CTLR_ARE_NS | GICD_CTLR_EnableGrp1A | GICD_CTLR_EnableGrp1;
 	if (sc->sc_rk3399_quirk) {
-		bits &= ~GICD_CTRL_EnableGrp1A;
+		bits &= ~GICD_CTLR_EnableGrp1A;
 		bits <<= 1;
 	}
 	bus_space_write_4(sc->sc_iot, sc->sc_d_ioh, GICD_CTLR, ctrl | bits);
@@ -633,21 +675,13 @@ agintc_cpuinit(void)
 }
 
 void
-agintc_set_priority(struct agintc_softc *sc, int irq, int pri)
+agintc_set_priority(struct agintc_softc *sc, int irq, int ipl)
 {
 	struct cpu_info	*ci = curcpu();
 	int		 hwcpu = sc->sc_cpuremap[ci->ci_cpuid];
 	uint32_t	 prival;
 
-	/*
-	 * The interrupt priority registers only expose the priorities
-	 * available in non-secure mode, so the top bit is hidden.  So
-	 * here we shift into bits 4-7.
-	 * Also low values are higher priority thus NIPL - pri
-	 */
-	prival = ((NIPL - pri) << 4);
-	if (sc->sc_rk3399_quirk)
-		prival = 0x80 | (prival >> 1);
+	prival = ((0xff - ipl) << sc->sc_prio_shift) & 0xff;
 
 	if (irq >= SPI_BASE) {
 		bus_space_write_1(sc->sc_iot, sc->sc_d_ioh,
@@ -660,29 +694,18 @@ agintc_set_priority(struct agintc_softc *sc, int irq, int pri)
 }
 
 void
-agintc_setipl(int new)
+agintc_setipl(int ipl)
 {
+	struct agintc_softc	*sc = agintc_sc;
 	struct cpu_info		*ci = curcpu();
 	int			 psw;
 	uint32_t		 prival;
 
 	/* disable here is only to keep hardware in sync with ci->ci_cpl */
 	psw = disable_interrupts();
-	ci->ci_cpl = new;
+	ci->ci_cpl = ipl;
 
-	/*
-	 * The priority mask register exposes the full range of
-	 * priorities available in secure mode, and at least bit 3-7
-	 * must be implemented.  For non-secure interrupts the top bit
-	 * must be one.  We only use 16 (13 really) interrupt
-	 * priorities, so shift into bits 3-6.
-	 * Low values are higher priority thus NIPL - pri
-	 */
-	if (new == IPL_NONE)
-		prival = 0xff;		/* minimum priority */
-	else
-		prival = 0x80 | ((NIPL - new) << 3);
-
+	prival = ((0xff - ipl) << sc->sc_pmr_shift) & 0xff;
 	__asm volatile("msr "STR(ICC_PMR)", %x0" : : "r" (prival));
 	__isb();
 
@@ -845,7 +868,6 @@ agintc_route(struct agintc_softc *sc, int irq, int enable, struct cpu_info *ci)
 #ifdef DEBUG_AGINTC
 		printf("router %x irq %d val %016llx\n", GICD_IROUTER(irq),
 		    irq, ci->ci_mpidr & MPIDR_AFF);
-		    val);
 #endif
 		bus_space_write_8(sc->sc_iot, sc->sc_d_ioh,
 		    GICD_IROUTER(irq), ci->ci_mpidr & MPIDR_AFF);
@@ -890,12 +912,10 @@ agintc_run_handler(struct intrhand *ih, void *frame, int s)
 void
 agintc_irq_handler(void *frame)
 {
-	struct cpu_info		*ci = curcpu();
 	struct agintc_softc	*sc = agintc_sc;
 	struct intrhand		*ih;
 	int			 irq, pri, s;
 
-	ci->ci_idepth++;
 	irq = agintc_iack();
 
 #ifdef DEBUG_AGINTC
@@ -914,29 +934,24 @@ agintc_irq_handler(void *frame)
 
 	if (irq == 1023) {
 		sc->sc_spur.ec_count++;
-		ci->ci_idepth--;
 		return;
 	}
 
 	if ((irq >= sc->sc_nintr && irq < LPI_BASE) ||
 	    irq >= LPI_BASE + sc->sc_nlpi) {
-		ci->ci_idepth--;
 		return;
 	}
 
 	if (irq >= LPI_BASE) {
 		ih = sc->sc_lpi_handler[irq - LPI_BASE];
-		if (ih == NULL) {
-			ci->ci_idepth--;
+		if (ih == NULL)
 			return;
-		}
 		
 		s = agintc_splraise(ih->ih_ipl);
 		agintc_run_handler(ih, frame, s);
 		agintc_eoi(irq);
 
 		agintc_splx(s);
-		ci->ci_idepth--;
 		return;
 	}
 
@@ -948,7 +963,6 @@ agintc_irq_handler(void *frame)
 	agintc_eoi(irq);
 
 	agintc_splx(s);
-	ci->ci_idepth--;
 }
 
 void *
@@ -1012,7 +1026,7 @@ agintc_intr_establish(int irqno, int level, int (*func)(void *),
 	} else {
 		uint8_t *prop = AGINTC_DMA_KVA(sc->sc_prop);
 
-		prop[irqno - LPI_BASE] = ((NIPL - ih->ih_ipl) << 4) |
+		prop[irqno - LPI_BASE] = (((0xff - ih->ih_ipl) << 4) & 0xff) |
 		    GICR_PROP_GROUP1 | GICR_PROP_ENABLE;
 
 		/* Make globally visible. */
@@ -1050,16 +1064,6 @@ agintc_eoi(uint32_t eoi)
 {
 	__asm volatile("msr "STR(ICC_EOIR1)", %x0" :: "r" (eoi));
 	__isb();
-}
-
-uint32_t
-agintc_r_ictlr(void)
-{
-	int ictlr;
-
-	__asm volatile("mrs %x0, "STR(ICC_CTLR) : "=r" (ictlr));
-	__isb();
-	return ictlr;
 }
 
 void
@@ -1155,6 +1159,7 @@ agintc_send_ipi(struct cpu_info *ci, int id)
 #define  GITS_TYPER_CIL		(1ULL << 36)
 #define  GITS_TYPER_HCC(x)	(((x) >> 24) & 0xff)
 #define  GITS_TYPER_PTA		(1ULL << 19)
+#define  GITS_TYPER_DEVBITS(x)	(((x) >> 13) & 0x1f)
 #define  GITS_TYPER_ITE_SZ(x)	(((x) >> 4) & 0xf)
 #define  GITS_TYPER_PHYS	(1ULL << 0)
 #define GITS_CBASER		0x0080
@@ -1169,8 +1174,15 @@ agintc_send_ipi(struct cpu_info *ci, int id)
 #define  GITS_BASER_IC_NORM_NC	(1ULL << 59)
 #define  GITS_BASER_TYPE_MASK	(7ULL << 56)
 #define  GITS_BASER_TYPE_DEVICE	(1ULL << 56)
-#define  GITS_BASER_MASK	0x7ffffffff000ULL
+#define  GITS_BASER_DTE_SZ(x)	(((x) >> 48) & 0x1f)
+#define  GITS_BASER_PGSZ_MASK	(3ULL << 8)
+#define  GITS_BASER_PGSZ_4K	(0ULL << 8)
+#define  GITS_BASER_PGSZ_16K	(1ULL << 8)
+#define  GITS_BASER_PGSZ_64K	(2ULL << 8)
+#define  GITS_BASER_PA_MASK	0x7ffffffff000ULL
 #define GITS_TRANSLATER		0x10040
+
+#define GITS_NUM_BASER		8
 
 struct gits_cmd {
 	uint8_t cmd;
@@ -1191,8 +1203,6 @@ struct gits_cmd {
 
 #define GITS_CMDQ_SIZE		(64 * 1024)
 #define GITS_CMDQ_NENTRIES	(GITS_CMDQ_SIZE / sizeof(struct gits_cmd))
-
-#define GITS_DTT_SIZE		(64 * 1024)
 
 struct agintc_msi_device {
 	LIST_ENTRY(agintc_msi_device) md_list;
@@ -1222,7 +1232,11 @@ struct agintc_msi_softc {
 
 	struct agintc_dmamem		*sc_cmdq;
 	uint16_t			sc_cmdidx;
+
+	int				sc_devbits;
 	struct agintc_dmamem		*sc_dtt;
+	size_t				sc_dtt_pgsz;
+	uint8_t				sc_dte_sz;
 	uint8_t				sc_ite_sz;
 
 	LIST_HEAD(, agintc_msi_device)	sc_msi_devices;
@@ -1286,6 +1300,7 @@ agintc_msi_attach(struct device *parent, struct device *self, void *aux)
 		goto unmap;
 	}
 	sc->sc_ite_sz = GITS_TYPER_ITE_SZ(typer) + 1;
+	sc->sc_devbits = GITS_TYPER_DEVBITS(typer) + 1;
 
 	sc->sc_nlpi = agintc_sc->sc_nlpi;
 	sc->sc_lpi = mallocarray(sc->sc_nlpi, sizeof(void *), M_DEVBUF,
@@ -1303,22 +1318,64 @@ agintc_msi_attach(struct device *parent, struct device *self, void *aux)
 	    (GITS_CMDQ_SIZE / PAGE_SIZE) - 1 | GITS_CBASER_VALID);
 
 	/* Set up device translation table. */
-	for (i = 0; i < 8; i++) {
+	for (i = 0; i < GITS_NUM_BASER; i++) {
 		uint64_t baser;
+		paddr_t dtt_pa;
+		size_t size;
 
 		baser = bus_space_read_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i));
 		if ((baser & GITS_BASER_TYPE_MASK) != GITS_BASER_TYPE_DEVICE)
 			continue;
 
+		/* Determine the maximum supported page size. */
+		bus_space_write_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i),
+		    (baser & ~GITS_BASER_PGSZ_MASK) | GITS_BASER_PGSZ_64K);
+		baser = bus_space_read_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i));
+		if ((baser & GITS_BASER_PGSZ_MASK) == GITS_BASER_PGSZ_64K)
+			goto found;
+		
+		bus_space_write_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i),
+		    (baser & ~GITS_BASER_PGSZ_MASK) | GITS_BASER_PGSZ_16K);
+		baser = bus_space_read_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i));
+		if ((baser & GITS_BASER_PGSZ_MASK) == GITS_BASER_PGSZ_16K)
+			goto found;
+
+		bus_space_write_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i),
+		    (baser & ~GITS_BASER_PGSZ_MASK) | GITS_BASER_PGSZ_4K);
+		baser = bus_space_read_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i));
+
+	found:
+		switch (baser & GITS_BASER_PGSZ_MASK) {
+		case GITS_BASER_PGSZ_4K:
+			sc->sc_dtt_pgsz = PAGE_SIZE;
+			break;
+		case GITS_BASER_PGSZ_16K:
+			sc->sc_dtt_pgsz = 4 * PAGE_SIZE;
+			break;
+		case GITS_BASER_PGSZ_64K:
+			sc->sc_dtt_pgsz = 16 * PAGE_SIZE;
+			break;
+		}
+
+		/* Calculate table size. */
+		sc->sc_dte_sz = GITS_BASER_DTE_SZ(baser) + 1;
+		size = (1ULL << sc->sc_devbits) * sc->sc_dte_sz;
+		size = roundup(size, sc->sc_dtt_pgsz);
+
+		/* Allocate table. */
 		sc->sc_dtt = agintc_dmamem_alloc(sc->sc_dmat,
-		    GITS_DTT_SIZE, GITS_DTT_SIZE);
+		    size, sc->sc_dtt_pgsz);
 		if (sc->sc_dtt == NULL) {
 			printf(": can't alloc translation table\n");
 			goto unmap;
 		}
+
+		/* Configure table. */
+		dtt_pa = AGINTC_DMA_DVA(sc->sc_dtt);
+		KASSERT((dtt_pa & GITS_BASER_PA_MASK) == dtt_pa);
 		bus_space_write_8(sc->sc_iot, sc->sc_ioh, GITS_BASER(i),
-		    AGINTC_DMA_DVA(sc->sc_dtt) | GITS_BASER_IC_NORM_NC |
-		    (GITS_DTT_SIZE / PAGE_SIZE) - 1 | GITS_BASER_VALID);
+		    GITS_BASER_IC_NORM_NC | baser & GITS_BASER_PGSZ_MASK | 
+		    dtt_pa | (size / sc->sc_dtt_pgsz) - 1 | GITS_BASER_VALID);
 	}
 
 	/* Enable ITS. */
@@ -1458,7 +1515,7 @@ agintc_intr_establish_msi(void *self, uint64_t *addr, uint64_t *data,
 		cmd.deviceid = deviceid;
 		cmd.eventid = eventid;
 		cmd.intid = LPI_BASE + i;
-		cmd.dw2 = GITS_CMD_VALID;
+		cmd.dw2 = 0;
 		agintc_msi_send_cmd(sc, &cmd);
 
 		memset(&cmd, 0, sizeof(cmd));

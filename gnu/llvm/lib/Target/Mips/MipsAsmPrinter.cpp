@@ -68,6 +68,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "mips-asm-printer"
 
+extern cl::opt<bool> EmitJalrReloc;
+
 MipsTargetStreamer &MipsAsmPrinter::getTargetStreamer() const {
   return static_cast<MipsTargetStreamer &>(*OutStreamer->getTargetStreamer());
 }
@@ -148,6 +150,40 @@ void MipsAsmPrinter::emitPseudoIndirectBranch(MCStreamer &OutStreamer,
   EmitToStreamer(OutStreamer, TmpInst0);
 }
 
+// If there is an MO_JALR operand, insert:
+//
+// .reloc tmplabel, R_{MICRO}MIPS_JALR, symbol
+// tmplabel:
+//
+// This is an optimization hint for the linker which may then replace
+// an indirect call with a direct branch.
+static void emitDirectiveRelocJalr(const MachineInstr &MI,
+                                   MCContext &OutContext,
+                                   TargetMachine &TM,
+                                   MCStreamer &OutStreamer,
+                                   const MipsSubtarget &Subtarget) {
+  for (unsigned int I = MI.getDesc().getNumOperands(), E = MI.getNumOperands();
+       I < E; ++I) {
+    MachineOperand MO = MI.getOperand(I);
+    if (MO.isMCSymbol() && (MO.getTargetFlags() & MipsII::MO_JALR)) {
+      MCSymbol *Callee = MO.getMCSymbol();
+      if (Callee && !Callee->getName().empty()) {
+        MCSymbol *OffsetLabel = OutContext.createTempSymbol();
+        const MCExpr *OffsetExpr =
+            MCSymbolRefExpr::create(OffsetLabel, OutContext);
+        const MCExpr *CaleeExpr =
+            MCSymbolRefExpr::create(Callee, OutContext);
+        OutStreamer.EmitRelocDirective
+            (*OffsetExpr,
+             Subtarget.inMicroMipsMode() ? "R_MICROMIPS_JALR" : "R_MIPS_JALR",
+             CaleeExpr, SMLoc(), *TM.getMCSubtargetInfo());
+        OutStreamer.EmitLabel(OffsetLabel);
+        return;
+      }
+    }
+  }
+}
+
 void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   MipsTargetStreamer &TS = getTargetStreamer();
   unsigned Opc = MI->getOpcode();
@@ -205,6 +241,88 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   case Mips::PATCHABLE_TAIL_CALL:
     LowerPATCHABLE_TAIL_CALL(*MI);
     return;
+  case Mips::RETGUARD_GET_FUNCTION_ADDR:
+    {
+      MCSymbol *PCSym = OutContext.createTempSymbol();
+      MCSymbol *FuncSym = OutContext.lookupSymbol(MI->getMF()->getName());
+      if (FuncSym == nullptr)
+        llvm_unreachable("Function name has no symbol");
+
+      // Branch and link forward, calculate the distance
+      // from here to the start of the function, and fill the
+      // address in the given dest register
+      unsigned OUT = MI->getOperand(0).getReg();
+      unsigned IN1 = MI->getOperand(1).getReg();
+      unsigned IN2 = MI->getOperand(2).getReg();
+      MCSymbol *ReturnSym = MI->getOperand(3).getMCSymbol();
+
+      // Save the value of RA in IN1
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::OR64)
+          .addReg(IN1)
+          .addReg(Mips::RA_64)
+          .addReg(Mips::ZERO_64));
+      // BAL to get the PC into RA
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::BAL)
+          .addExpr(MCSymbolRefExpr::create(ReturnSym, OutContext)));
+      // NOP
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::SLL)
+          .addReg(Mips::ZERO_64)
+          .addReg(Mips::ZERO_64)
+          .addImm(0));
+
+      // Emit a symbol for "here/PC" because BAL will put
+      // the address of the instruction following the NOP into RA
+      // and we need this symbol to do the math
+      OutStreamer->EmitLabel(PCSym);
+
+      // Store PC in IN2
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::OR64)
+          .addReg(IN2)
+          .addReg(Mips::RA_64)
+          .addReg(Mips::ZERO_64));
+      // Restore original RA
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::OR64)
+          .addReg(Mips::RA_64)
+          .addReg(IN1)
+          .addReg(Mips::ZERO_64));
+      // Load the offset from PCSym to the start of the function
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::LUi64)
+          .addReg(IN1)
+          .addExpr(MipsMCExpr::create(MipsMCExpr::MipsExprKind::MEK_HI,
+              MCBinaryExpr::createSub(
+                MCSymbolRefExpr::create(PCSym, OutContext),
+                MCSymbolRefExpr::create(FuncSym, OutContext),
+                OutContext),
+              OutContext)));
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::DADDiu)
+          .addReg(IN1)
+          .addReg(IN1)
+          .addExpr(MipsMCExpr::create(MipsMCExpr::MipsExprKind::MEK_LO,
+              MCBinaryExpr::createSub(
+                MCSymbolRefExpr::create(PCSym, OutContext),
+                MCSymbolRefExpr::create(FuncSym, OutContext),
+                OutContext),
+              OutContext)));
+
+      // Sub distance from here to start of function
+      // to get address of the start of function
+      EmitToStreamer(*OutStreamer, MCInstBuilder(Mips::DSUBu)
+          .addReg(OUT)
+          .addReg(IN2)
+          .addReg(IN1));
+      return;
+    }
+  case Mips::RETGUARD_EMIT_SYMBOL:
+    {
+      MCSymbol *ReturnSym = MI->getOperand(0).getMCSymbol();
+      OutStreamer->EmitLabel(ReturnSym);
+      return;
+    }
+  }
+
+  if (EmitJalrReloc &&
+      (MI->isReturn() || MI->isCall() || MI->isIndirectBranch())) {
+    emitDirectiveRelocJalr(*MI, OutContext, TM, *OutStreamer, *Subtarget);
   }
 
   MachineBasicBlock::const_instr_iterator I = MI->getIterator();
@@ -561,6 +679,7 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
         O << '$' << MipsInstPrinter::getRegisterName(Reg);
         return false;
       }
+      break;
     }
     case 'w':
       // Print MSA registers for the 'f' constraint
@@ -753,10 +872,12 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
       TS.emitDirectiveOptionPic0();
   }
 
+  MCSection *CS = OutStreamer->getCurrentSectionOnly();
   // Tell the assembler which ABI we are using
   std::string SectionName = std::string(".mdebug.") + getCurrentABIString();
   OutStreamer->SwitchSection(
       OutContext.getELFSection(SectionName, ELF::SHT_PROGBITS, 0));
+  OutStreamer->SwitchSection(CS);
 
   // NaN: At the moment we only support:
   // 1. .nan legacy (default)
@@ -771,7 +892,8 @@ void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
   // We should always emit a '.module fp=...' but binutils 2.24 does not accept
   // it. We therefore emit it when it contradicts the ABI defaults (-mfpxx or
   // -mfp64) and omit it otherwise.
-  if (ABI.IsO32() && (STI.isABI_FPXX() || STI.isFP64bit()))
+  if ((ABI.IsO32() && (STI.isABI_FPXX() || STI.isFP64bit())) ||
+      STI.useSoftFloat())
     TS.emitDirectiveModuleFP();
 
   // We should always emit a '.module [no]oddspreg' but binutils 2.24 does not
@@ -1203,18 +1325,23 @@ void MipsAsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
 
 // Emit .dtprelword or .dtpreldword directive
 // and value for debug thread local expression.
-void MipsAsmPrinter::EmitDebugThreadLocal(const MCExpr *Value,
-                                          unsigned Size) const {
-  switch (Size) {
-  case 4:
-    OutStreamer->EmitDTPRel32Value(Value);
-    break;
-  case 8:
-    OutStreamer->EmitDTPRel64Value(Value);
-    break;
-  default:
-    llvm_unreachable("Unexpected size of expression value.");
+void MipsAsmPrinter::EmitDebugValue(const MCExpr *Value, unsigned Size) const {
+  if (auto *MipsExpr = dyn_cast<MipsMCExpr>(Value)) {
+    if (MipsExpr && MipsExpr->getKind() == MipsMCExpr::MEK_DTPREL) {
+      switch (Size) {
+      case 4:
+        OutStreamer->EmitDTPRel32Value(MipsExpr->getSubExpr());
+        break;
+      case 8:
+        OutStreamer->EmitDTPRel64Value(MipsExpr->getSubExpr());
+        break;
+      default:
+        llvm_unreachable("Unexpected size of expression value.");
+      }
+      return;
+    }
   }
+  AsmPrinter::EmitDebugValue(Value, Size);
 }
 
 // Align all targets of indirect branches on bundle size.  Used only if target
@@ -1240,8 +1367,12 @@ void MipsAsmPrinter::NaClAlignIndirectJumpTargets(MachineFunction &MF) {
 
 bool MipsAsmPrinter::isLongBranchPseudo(int Opcode) const {
   return (Opcode == Mips::LONG_BRANCH_LUi
+          || Opcode == Mips::LONG_BRANCH_LUi2Op
+          || Opcode == Mips::LONG_BRANCH_LUi2Op_64
           || Opcode == Mips::LONG_BRANCH_ADDiu
-          || Opcode == Mips::LONG_BRANCH_DADDiu);
+          || Opcode == Mips::LONG_BRANCH_ADDiu2Op
+          || Opcode == Mips::LONG_BRANCH_DADDiu
+          || Opcode == Mips::LONG_BRANCH_DADDiu2Op);
 }
 
 // Force static initialization.

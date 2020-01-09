@@ -1,17 +1,15 @@
-# $OpenBSD: Makefile,v 1.7 2019/01/27 16:59:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.10 2019/06/23 22:07:39 patrick Exp $
 
 LIB=	LLVMAnalysis
-NOPIC=
 NOPROFILE=
 
 CPPFLAGS+=	-I${LLVM_SRCS}/include/llvm/Analysis
 
-.include <bsd.own.mk>
-SRCS=	AliasAnalysis.cpp \
+SRCS+=	AliasAnalysis.cpp \
 	AliasAnalysisEvaluator.cpp \
 	AliasAnalysisSummary.cpp \
 	AliasSetTracker.cpp \
-	Analysis.cpp \
+	AnalysisAnalysis.cpp \
 	AssumptionCache.cpp \
 	BasicAliasAnalysis.cpp \
 	BlockFrequencyInfo.cpp \
@@ -38,10 +36,13 @@ SRCS=	AliasAnalysis.cpp \
 	DominanceFrontier.cpp \
 	EHPersonalities.cpp \
 	GlobalsModRef.cpp \
+	GuardUtils.cpp \
+	IVDescriptors.cpp \
 	IVUsers.cpp \
 	IndirectCallPromotionAnalysis.cpp \
 	InlineCost.cpp \
 	InstCount.cpp \
+	InstructionPrecedenceTracking.cpp \
 	InstructionSimplify.cpp \
 	Interval.cpp \
 	IntervalPartition.cpp \
@@ -50,6 +51,7 @@ SRCS=	AliasAnalysis.cpp \
 	LazyBranchProbabilityInfo.cpp \
 	LazyCallGraph.cpp \
 	LazyValueInfo.cpp \
+	LegacyDivergenceAnalysis.cpp \
 	Lint.cpp \
 	Loads.cpp \
 	LoopAccessAnalysis.cpp \
@@ -72,6 +74,7 @@ SRCS=	AliasAnalysis.cpp \
 	ObjCARCInstKind.cpp \
 	OptimizationRemarkEmitter.cpp \
 	OrderedBasicBlock.cpp \
+	OrderedInstructions.cpp \
 	PHITransAddr.cpp \
 	PhiValues.cpp \
 	PostDominators.cpp \
@@ -84,6 +87,8 @@ SRCS=	AliasAnalysis.cpp \
 	ScalarEvolutionAliasAnalysis.cpp \
 	ScalarEvolutionExpander.cpp \
 	ScalarEvolutionNormalization.cpp \
+	StackSafetyAnalysis.cpp \
+	SyncDependenceAnalysis.cpp \
 	SyntheticCountsUtils.cpp \
 	TargetLibraryInfo.cpp \
 	TargetTransformInfo.cpp \
@@ -96,9 +101,9 @@ SRCS=	AliasAnalysis.cpp \
 	ValueTracking.cpp \
 	VectorUtils.cpp
 
+AnalysisAnalysis.cpp:
+	ln -s ${LLVM_SRCS}/lib/Analysis/Analysis.cpp $@
+
 .PATH:	${.CURDIR}/../../../llvm/lib/Analysis
 
-install:
-	@# Nothing here so far ...
-
-.include <bsd.lib.mk>
+CLEANFILES+= AnalysisAnalysis.cpp

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.92 2019/01/23 10:08:49 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.96 2019/11/06 13:55:44 stsp Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -90,7 +90,7 @@ ieee80211_proto_attach(struct ifnet *ifp)
 
 	ifp->if_hdrlen = sizeof(struct ieee80211_frame);
 
-	ic->ic_rtsthreshold = IEEE80211_RTS_DEFAULT;
+	ic->ic_rtsthreshold = IEEE80211_RTS_MAX;
 	ic->ic_fragthreshold = 2346;		/* XXX not used yet */
 	ic->ic_fixed_rate = -1;			/* no fixed rate */
 	ic->ic_fixed_mcs = -1;			/* no fixed mcs */
@@ -604,16 +604,24 @@ ieee80211_tx_ba_timeout(void *arg)
 	u_int8_t tid;
 	int s;
 
-	ic->ic_stats.is_ht_tx_ba_timeout++;
-
 	s = splnet();
+	tid = ((caddr_t)ba - (caddr_t)ni->ni_tx_ba) / sizeof(*ba);
 	if (ba->ba_state == IEEE80211_BA_REQUESTED) {
 		/* MLME-ADDBA.confirm(TIMEOUT) */
 		ba->ba_state = IEEE80211_BA_INIT;
-
+		if (ni->ni_addba_req_intval[tid] <
+		    IEEE80211_ADDBA_REQ_INTVAL_MAX)
+			ni->ni_addba_req_intval[tid]++;
+		/*
+		 * In case the peer believes there is an existing
+		 * block ack agreement with us, try to delete it.
+		 */
+		IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
+		    IEEE80211_ACTION_DELBA,
+		    IEEE80211_REASON_SETUP_REQUIRED << 16 | 1 << 8 | tid);
 	} else if (ba->ba_state == IEEE80211_BA_AGREED) {
 		/* Block Ack inactivity timeout */
-		tid = ((caddr_t)ba - (caddr_t)ni->ni_tx_ba) / sizeof(*ba);
+		ic->ic_stats.is_ht_tx_ba_timeout++;
 		ieee80211_delba_request(ic, ni, IEEE80211_REASON_TIMEOUT,
 		    1, tid);
 	}
@@ -649,9 +657,13 @@ ieee80211_addba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 {
 	struct ieee80211_tx_ba *ba = &ni->ni_tx_ba[tid];
 
+	if (ba->ba_state != IEEE80211_BA_INIT)
+		return EBUSY;
+
 	/* MLME-ADDBA.request */
 
 	/* setup Block Ack */
+	ba->ba_ni = ni;
 	ba->ba_state = IEEE80211_BA_REQUESTED;
 	ba->ba_token = ic->ic_dialog_token++;
 	ba->ba_timeout_val = 0;
@@ -661,7 +673,16 @@ ieee80211_addba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 	ba->ba_winend = (ba->ba_winstart + ba->ba_winsize - 1) & 0xfff;
 	ba->ba_params =
 	    (ba->ba_winsize << IEEE80211_ADDBA_BUFSZ_SHIFT) |
-	    (tid << IEEE80211_ADDBA_TID_SHIFT) | IEEE80211_ADDBA_AMSDU;
+	    (tid << IEEE80211_ADDBA_TID_SHIFT);
+#if 0
+	/*
+	 * XXX A-MSDUs inside A-MPDUs expose a problem with bad TCP connection
+	 * sharing behaviour. One connection eats all available bandwidth
+	 * while others stall. Leave this disabled for now to give packets
+	 * from disparate connections better chances of interleaving.
+	 */
+	ba->ba_params |= IEEE80211_ADDBA_AMSDU;
+#endif
 	if ((ic->ic_htcaps & IEEE80211_HTCAP_DELAYEDBA) == 0)
 		/* immediate BA */
 		ba->ba_params |= IEEE80211_ADDBA_BA_POLICY;
@@ -673,7 +694,7 @@ ieee80211_addba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 }
 
 /*
- * Request the deletion of Block Ack with a peer.
+ * Request the deletion of Block Ack with a peer and notify driver.
  */
 void
 ieee80211_delba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
@@ -681,9 +702,11 @@ ieee80211_delba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 {
 	/* MLME-DELBA.request */
 
-	/* transmit a DELBA frame */
-	IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
-	    IEEE80211_ACTION_DELBA, reason << 16 | dir << 8 | tid);
+	if (reason) {
+		/* transmit a DELBA frame */
+		IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
+		    IEEE80211_ACTION_DELBA, reason << 16 | dir << 8 | tid);
+	}
 	if (dir) {
 		/* MLME-DELBA.confirm(Originator) */
 		struct ieee80211_tx_ba *ba = &ni->ni_tx_ba[tid];
@@ -886,10 +909,11 @@ ieee80211_set_beacon_miss_threshold(struct ieee80211com *ic)
 
 	/*
 	 * Scale the missed beacon counter threshold to the AP's actual
-	 * beacon interval. Give the AP at least 700 ms to time out and
-	 * round up to ensure that at least one beacon may be missed.
+	 * beacon interval.
 	 */
-	int btimeout = MIN(7 * ic->ic_bss->ni_intval, 700);
+	int btimeout = MIN(IEEE80211_BEACON_MISS_THRES * ic->ic_bss->ni_intval,
+	    IEEE80211_BEACON_MISS_THRES * (IEEE80211_DUR_TU / 10));
+	/* Ensure that at least one beacon may be missed. */
 	btimeout = MAX(btimeout, 2 * ic->ic_bss->ni_intval);
 	if (ic->ic_bss->ni_intval > 0) /* don't crash if interval is bogus */
 		ic->ic_bmissthres = btimeout / ic->ic_bss->ni_intval;
@@ -898,6 +922,49 @@ ieee80211_set_beacon_miss_threshold(struct ieee80211com *ic)
 		printf("%s: missed beacon threshold set to %d beacons, "
 		    "beacon interval is %u TU\n", ifp->if_xname,
 		    ic->ic_bmissthres, ic->ic_bss->ni_intval);
+}
+
+/* Tell our peer, and the driver, to stop A-MPDU Tx for all TIDs. */
+void
+ieee80211_stop_ampdu_tx(struct ieee80211com *ic, struct ieee80211_node *ni,
+    int mgt)
+{
+	int tid;
+
+	for (tid = 0; tid < nitems(ni->ni_tx_ba); tid++) {
+		struct ieee80211_tx_ba *ba = &ni->ni_tx_ba[tid];
+		if (ba->ba_state != IEEE80211_BA_AGREED)
+			continue;
+		ieee80211_delba_request(ic, ni,
+		    mgt == -1 ? 0 : IEEE80211_REASON_AUTH_LEAVE, 1, tid);
+	}
+}
+
+void
+ieee80211_check_wpa_supplicant_failure(struct ieee80211com *ic,
+    struct ieee80211_node *ni)
+{
+	struct ieee80211_node *ni2;
+
+	if (ic->ic_opmode != IEEE80211_M_STA
+#ifndef IEEE80211_STA_ONLY
+	    && ic->ic_opmode != IEEE80211_M_IBSS
+#endif
+	    )
+		return;
+
+	if (ni->ni_rsn_supp_state != RSNA_SUPP_PTKNEGOTIATING)
+		return;
+
+	ni->ni_assoc_fail |= IEEE80211_NODE_ASSOCFAIL_WPA_KEY;
+
+	if (ni != ic->ic_bss)
+		return;
+
+	/* Also update the copy of our AP's node in the node cache. */
+	ni2 = ieee80211_find_node(ic, ic->ic_bss->ni_macaddr);
+	if (ni2)
+		ni2->ni_assoc_fail |= ic->ic_bss->ni_assoc_fail;
 }
 
 int
@@ -932,6 +999,8 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 		case IEEE80211_S_RUN:
 			if (mgt == -1)
 				goto justcleanup;
+			ieee80211_stop_ampdu_tx(ic, ni, mgt);
+			ieee80211_ba_del(ni);
 			switch (ic->ic_opmode) {
 			case IEEE80211_M_STA:
 				IEEE80211_SEND_MGMT(ic, ni,
@@ -986,6 +1055,7 @@ justcleanup:
 			if (ic->ic_opmode == IEEE80211_M_HOSTAP)
 				timeout_del(&ic->ic_rsn_timeout);
 #endif
+			ieee80211_ba_del(ni);
 			timeout_del(&ic->ic_bgscan_timeout);
 			ic->ic_bgscan_fail = 0;
 			ic->ic_mgt_timer = 0;
@@ -995,6 +1065,7 @@ justcleanup:
 			break;
 		}
 		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
+		ni->ni_assoc_fail = 0;
 		if (ic->ic_flags & IEEE80211_F_RSNON)
 			ieee80211_crypto_clear_groupkeys(ic);
 		break;
@@ -1041,6 +1112,7 @@ justcleanup:
 			}
 			timeout_del(&ic->ic_bgscan_timeout);
 			ic->ic_bgscan_fail = 0;
+			ieee80211_stop_ampdu_tx(ic, ni, mgt);
 			ieee80211_free_allnodes(ic, 1);
 			/* FALLTHROUGH */
 		case IEEE80211_S_AUTH:
@@ -1054,6 +1126,8 @@ justcleanup:
 		}
 		break;
 	case IEEE80211_S_AUTH:
+		if (ostate == IEEE80211_S_RUN)
+			ieee80211_check_wpa_supplicant_failure(ic, ni);
 		ni->ni_rsn_supp_state = RSNA_SUPP_INITIALIZE;
 		if (ic->ic_flags & IEEE80211_F_RSNON)
 			ieee80211_crypto_clear_groupkeys(ic);
@@ -1086,6 +1160,8 @@ justcleanup:
 		case IEEE80211_S_RUN:
 			timeout_del(&ic->ic_bgscan_timeout);
 			ic->ic_bgscan_fail = 0;
+			ieee80211_stop_ampdu_tx(ic, ni, mgt);
+			ieee80211_ba_del(ni);
 			switch (mgt) {
 			case IEEE80211_FC0_SUBTYPE_AUTH:
 				IEEE80211_SEND_MGMT(ic, ni,
@@ -1116,6 +1192,8 @@ justcleanup:
 			    IEEE80211_FC0_SUBTYPE_ASSOC_REQ, 0);
 			break;
 		case IEEE80211_S_RUN:
+			ieee80211_stop_ampdu_tx(ic, ni, mgt);
+			ieee80211_ba_del(ni);
 			IEEE80211_SEND_MGMT(ic, ni,
 			    IEEE80211_FC0_SUBTYPE_ASSOC_REQ, 1);
 			break;
@@ -1171,6 +1249,7 @@ justcleanup:
 				 * the link up until the port is valid.
 				 */
 				ieee80211_set_link_state(ic, LINK_STATE_UP);
+				ni->ni_assoc_fail = 0;
 			}
 			ic->ic_mgt_timer = 0;
 			ieee80211_set_beacon_miss_threshold(ic);

@@ -1,9 +1,8 @@
-/Makefile/1.51/Wed Jan 25 03:18:58 2017//
+/Makefile/1.52/Sat May 11 07:18:14 2019//
 D/alpha////
 D/amd64////
 D/arm64////
 D/armv7////
-D/common////
 D/hppa////
 D/i386////
 D/landisk////
@@ -13,10 +12,8 @@ D/macppc////
 D/miniroot////
 D/notes////
 D/octeon////
-D/ramdisk////
 D/sets////
 D/sgi////
-D/socppc////
 D/sparc64////
 D/special////
 D/syspatch////

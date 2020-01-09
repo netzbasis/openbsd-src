@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_ip6.c,v 1.133 2018/11/09 13:26:12 claudio Exp $	*/
+/*	$OpenBSD: raw_ip6.c,v 1.137 2019/11/29 16:41:02 nayden Exp $	*/
 /*	$KAME: raw_ip6.c,v 1.69 2001/03/04 15:55:44 itojun Exp $	*/
 
 /*
@@ -184,7 +184,16 @@ rip6_input(struct mbuf **mp, int *offp, int proto, int af)
 		}
 		if (proto != IPPROTO_ICMPV6 && in6p->inp_cksum6 != -1) {
 			rip6stat_inc(rip6s_isum);
-			if (in6_cksum(m, proto, *offp,
+			/*
+			 * Although in6_cksum() does not need the position of
+			 * the checksum field for verification, enforce that it
+			 * is located within the packet.  Userland has given
+			 * a checksum offset, a packet too short for that is
+			 * invalid.  Avoid overflow with user supplied offset.
+			 */
+			if (m->m_pkthdr.len < *offp + 2 ||
+			    m->m_pkthdr.len - *offp - 2 < in6p->inp_cksum6 ||
+			    in6_cksum(m, proto, *offp,
 			    m->m_pkthdr.len - *offp)) {
 				rip6stat_inc(rip6s_badsum);
 				continue;
@@ -439,7 +448,7 @@ rip6_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
 			off = offsetof(struct icmp6_hdr, icmp6_cksum);
 		else
 			off = in6p->inp_cksum6;
-		if (plen < off + 1) {
+		if (plen < 2 || plen - 2 < off) {
 			error = EINVAL;
 			goto bad;
 		}
@@ -571,7 +580,7 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 	case PRU_ABORT:
 		soisdisconnected(so);
 		if (in6p == NULL)
-			panic("rip6_detach");
+			panic("%s", __func__);
 #ifdef MROUTING
 		if (so == ip6_mrouter[in6p->inp_rtableid])
 			ip6_mrouter_done(so);
@@ -668,19 +677,17 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		/*
 		 * stat: don't bother with a blocksize
 		 */
-		return (0);
+		break;
 	/*
 	 * Not supported.
 	 */
 	case PRU_LISTEN:
 	case PRU_ACCEPT:
 	case PRU_SENDOOB:
-		error = EOPNOTSUPP;
-		break;
-
 	case PRU_RCVD:
 	case PRU_RCVOOB:
-		return (EOPNOTSUPP);	/* do not free mbuf's */
+		error = EOPNOTSUPP;
+		break;
 
 	case PRU_SOCKADDR:
 		in6_setsockaddr(in6p, nam);
@@ -691,11 +698,13 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		break;
 
 	default:
-		panic("rip6_usrreq");
+		panic("%s", __func__);
 	}
 release:
-	m_freem(control);
-	m_freem(m);
+	if (req != PRU_RCVD && req != PRU_RCVOOB && req != PRU_SENSE) {
+		m_freem(control);
+		m_freem(m);
+	}
 	return (error);
 }
 
@@ -706,7 +715,7 @@ rip6_attach(struct socket *so, int proto)
 	int error;
 
 	if (so->so_pcb)
-		panic("rip6_attach");
+		panic("%s", __func__);
 	if ((so->so_state & SS_PRIV) == 0)
 		return (EACCES);
 	if (proto < 0 || proto >= IPPROTO_MAX)
@@ -740,7 +749,7 @@ rip6_detach(struct socket *so)
 	soassertlocked(so);
 
 	if (in6p == NULL)
-		panic("rip6_detach");
+		panic("%s", __func__);
 #ifdef MROUTING
 	if (so == ip6_mrouter[in6p->inp_rtableid])
 		ip6_mrouter_done(so);
@@ -759,7 +768,7 @@ rip6_sysctl_rip6stat(void *oldp, size_t *oldplen, void *newp)
 	struct rip6stat rip6stat;
 
 	CTASSERT(sizeof(rip6stat) == rip6s_ncounters * sizeof(uint64_t));
-	counters_read(ip6counters, (uint64_t *)&rip6stat, rip6s_ncounters);
+	counters_read(rip6counters, (uint64_t *)&rip6stat, rip6s_ncounters);
 
 	return (sysctl_rdstruct(oldp, oldplen, newp,
 	    &rip6stat, sizeof(rip6stat)));

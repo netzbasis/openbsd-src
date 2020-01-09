@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.500 2019/01/19 21:43:56 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.511 2020/01/05 16:28:22 beck Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -60,6 +60,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <limits.h>
 #include <locale.h>
@@ -146,10 +147,16 @@ char *config = NULL;
 
 /*
  * Name of the host we are connecting to.  This is the name given on the
- * command line, or the HostName specified for the user-supplied name in a
+ * command line, or the Hostname specified for the user-supplied name in a
  * configuration file.
  */
 char *host;
+
+/*
+ * A config can specify a path to forward, overriding SSH_AUTH_SOCK. If this is
+ * not NULL, forward the socket at this path instead.
+ */
+char *forward_agent_sock_path = NULL;
 
 /* Various strings used to to percent_expand() arguments */
 static char thishost[NI_MAXHOST], shorthost[NI_MAXHOST], portstr[NI_MAXSERV];
@@ -220,7 +227,8 @@ resolve_host(const char *name, int port, int logerr, char *cname, size_t clen)
 {
 	char strport[NI_MAXSERV];
 	struct addrinfo hints, *res;
-	int gaierr, loglevel = SYSLOG_LEVEL_DEBUG1;
+	int gaierr;
+	LogLevel loglevel = SYSLOG_LEVEL_DEBUG1;
 
 	if (port <= 0)
 		port = default_ssh_port();
@@ -579,7 +587,6 @@ main(int ac, char **av)
 	struct ssh_digest_ctx *md;
 	u_char conn_hash[SSH_DIGEST_MAX_LENGTH];
 
-	ssh_malloc_init();	/* must be called before any mallocs */
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
 
@@ -747,7 +754,7 @@ main(int ac, char **av)
 			break;
 		case 'i':
 			p = tilde_expand_filename(optarg, getuid());
-			if (stat(p, &st) < 0)
+			if (stat(p, &st) == -1)
 				fprintf(stderr, "Warning: Identity file %s "
 				    "not accessible: %s.\n", p,
 				    strerror(errno));
@@ -764,8 +771,11 @@ main(int ac, char **av)
 #endif
 			break;
 		case 'J':
-			if (options.jump_host != NULL)
-				fatal("Only a single -J option permitted");
+			if (options.jump_host != NULL) {
+				fatal("Only a single -J option is permitted "
+				    "(use commas to separate multiple "
+				    "jump hops)");
+			}
 			if (options.proxy_command != NULL)
 				fatal("Cannot specify -J with ProxyCommand");
 			if (parse_jump(optarg, &options, 1) == -1)
@@ -848,7 +858,7 @@ main(int ac, char **av)
 			}
 			break;
 		case 'c':
-			if (!ciphers_valid(*optarg == '+' ?
+			if (!ciphers_valid(*optarg == '+' || *optarg == '^' ?
 			    optarg + 1 : optarg)) {
 				fprintf(stderr, "Unknown cipher type '%s'\n",
 				    optarg);
@@ -1320,6 +1330,22 @@ main(int ac, char **av)
 		exit(0);
 	}
 
+	/* Expand SecurityKeyProvider if it refers to an environment variable */
+	if (options.sk_provider != NULL && *options.sk_provider == '$' &&
+	    strlen(options.sk_provider) > 1) {
+		if ((cp = getenv(options.sk_provider + 1)) == NULL) {
+			debug("Security key provider %s did not resolve; "
+			    "disabling", options.sk_provider);
+			free(options.sk_provider);
+			options.sk_provider = NULL;
+		} else {
+			debug2("resolved SecurityKeyProvider %s => %s",
+			    options.sk_provider, cp);
+			free(options.sk_provider);
+			options.sk_provider = xstrdup(cp);
+		}
+	}
+
 	if (muxclient_command != 0 && options.control_path == NULL)
 		fatal("No ControlPath specified for \"-O\" command");
 	if (options.control_path != NULL) {
@@ -1345,7 +1371,7 @@ main(int ac, char **av)
 	timeout_ms = options.connection_timeout * 1000;
 
 	/* Open a connection to the remote host. */
-	if (ssh_connect(ssh, host, addrs, &hostaddr, options.port,
+	if (ssh_connect(ssh, host, host_arg, addrs, &hostaddr, options.port,
 	    options.address_family, options.connection_attempts,
 	    &timeout_ms, options.tcp_keep_alive) != 0)
 		exit(255);
@@ -1402,8 +1428,8 @@ main(int ac, char **av)
 	if (config == NULL) {
 		r = snprintf(buf, sizeof buf, "%s%s%s", pw->pw_dir,
 		    strcmp(pw->pw_dir, "/") ? "/" : "", _PATH_SSH_USER_DIR);
-		if (r > 0 && (size_t)r < sizeof(buf) && stat(buf, &st) < 0)
-			if (mkdir(buf, 0700) < 0)
+		if (r > 0 && (size_t)r < sizeof(buf) && stat(buf, &st) == -1)
+			if (mkdir(buf, 0700) == -1)
 				error("Could not create directory '%.200s'.",
 				    buf);
 	}
@@ -1448,6 +1474,32 @@ main(int ac, char **av)
 				setenv(SSH_AUTHSOCKET_ENV_NAME, cp, 1);
 			}
 			free(cp);
+		}
+	}
+
+	if (options.forward_agent && (options.forward_agent_sock_path != NULL)) {
+		p = tilde_expand_filename(options.forward_agent_sock_path, getuid());
+		cp = percent_expand(p,
+		    "d", pw->pw_dir,
+		    "h", host,
+		    "i", uidstr,
+		    "l", thishost,
+		    "r", options.user,
+		    "u", pw->pw_name,
+		    (char *)NULL);
+		free(p);
+
+		if (cp[0] == '$') {
+			if (!valid_env_name(cp + 1)) {
+				fatal("Invalid ForwardAgent environment variable name %s", cp);
+			}
+			if ((p = getenv(cp + 1)) != NULL)
+				forward_agent_sock_path = p;
+			else
+				options.forward_agent = 0;
+			free(cp);
+		} else {
+			forward_agent_sock_path = cp;
 		}
 	}
 
@@ -1563,7 +1615,7 @@ fork_postauth(void)
 		control_persist_detach();
 	debug("forking to background");
 	fork_after_authentication_flag = 0;
-	if (daemon(1, 1) < 0)
+	if (daemon(1, 1) == -1)
 		fatal("daemon() failed: %.200s", strerror(errno));
 }
 
@@ -1659,8 +1711,8 @@ ssh_init_stdio_forwarding(struct ssh *ssh)
 	debug3("%s: %s:%d", __func__, options.stdio_forward_host,
 	    options.stdio_forward_port);
 
-	if ((in = dup(STDIN_FILENO)) < 0 ||
-	    (out = dup(STDOUT_FILENO)) < 0)
+	if ((in = dup(STDIN_FILENO)) == -1 ||
+	    (out = dup(STDOUT_FILENO)) == -1)
 		fatal("channel_connect_stdio_fwd: dup() in/out failed");
 	if ((c = channel_connect_stdio_fwd(ssh, options.stdio_forward_host,
 	    options.stdio_forward_port, in, out)) == NULL)
@@ -1813,7 +1865,7 @@ ssh_session2_open(struct ssh *ssh)
 	out = dup(STDOUT_FILENO);
 	err = dup(STDERR_FILENO);
 
-	if (in < 0 || out < 0 || err < 0)
+	if (in == -1 || out == -1 || err == -1)
 		fatal("dup() in/out/err failed");
 
 	/* enable nonblocking unless tty */
@@ -1944,7 +1996,7 @@ ssh_session2(struct ssh *ssh, struct passwd *pw)
 		if ((devnull = open(_PATH_DEVNULL, O_WRONLY)) == -1)
 			error("%s: open %s: %s", __func__,
 			    _PATH_DEVNULL, strerror(errno));
-		if (dup2(devnull, STDOUT_FILENO) < 0)
+		if (dup2(devnull, STDOUT_FILENO) == -1)
 			fatal("%s: dup2() stdout failed", __func__);
 		if (devnull > STDERR_FILENO)
 			close(devnull);
@@ -2131,7 +2183,7 @@ main_sigchld_handler(int sig)
 	int status;
 
 	while ((pid = waitpid(-1, &status, WNOHANG)) > 0 ||
-	    (pid < 0 && errno == EINTR))
+	    (pid == -1 && errno == EINTR))
 		;
 	errno = save_errno;
 }

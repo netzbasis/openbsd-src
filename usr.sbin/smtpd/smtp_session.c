@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.387 2019/01/05 09:43:39 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.421 2020/01/08 00:05:38 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -126,6 +126,8 @@ struct smtp_tx {
 	int			 rcvcount;
 	int			 has_date;
 	int			 has_message_id;
+
+	uint8_t			 junk;
 };
 
 struct smtp_session {
@@ -154,6 +156,8 @@ struct smtp_session {
 	enum smtp_command	 last_cmd;
 	enum filter_phase	 filter_phase;
 	const char		*filter_param;
+
+	uint8_t			 junk;
 };
 
 #define ADVERTISE_TLS(s) \
@@ -211,8 +215,10 @@ static void smtp_filter_fd(struct smtp_tx *, int);
 static int  smtp_message_fd(struct smtp_tx *, int);
 static void smtp_message_begin(struct smtp_tx *);
 static void smtp_message_end(struct smtp_tx *);
-static int  smtp_filter_printf(struct smtp_tx *, const char *, ...);
-static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
+static int  smtp_filter_printf(struct smtp_tx *, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
+static int  smtp_message_printf(struct smtp_tx *, const char *, ...)
+    __attribute__((__format__ (printf, 2, 3)));
 
 static int  smtp_check_rset(struct smtp_session *, const char *);
 static int  smtp_check_helo(struct smtp_session *, const char *);
@@ -246,6 +252,28 @@ static void smtp_filter_begin(struct smtp_session *);
 static void smtp_filter_end(struct smtp_session *);
 static void smtp_filter_data_begin(struct smtp_session *);
 static void smtp_filter_data_end(struct smtp_session *);
+
+static void smtp_report_link_connect(struct smtp_session *, const char *, int,
+    const struct sockaddr_storage *,
+    const struct sockaddr_storage *);
+static void smtp_report_link_greeting(struct smtp_session *, const char *);
+static void smtp_report_link_identify(struct smtp_session *, const char *, const char *);
+static void smtp_report_link_tls(struct smtp_session *, const char *);
+static void smtp_report_link_disconnect(struct smtp_session *);
+static void smtp_report_link_auth(struct smtp_session *, const char *, const char *);
+static void smtp_report_tx_reset(struct smtp_session *, uint32_t);
+static void smtp_report_tx_begin(struct smtp_session *, uint32_t);
+static void smtp_report_tx_mail(struct smtp_session *, uint32_t, const char *, int);
+static void smtp_report_tx_rcpt(struct smtp_session *, uint32_t, const char *, int);
+static void smtp_report_tx_envelope(struct smtp_session *, uint32_t, uint64_t);
+static void smtp_report_tx_data(struct smtp_session *, uint32_t, int);
+static void smtp_report_tx_commit(struct smtp_session *, uint32_t, size_t);
+static void smtp_report_tx_rollback(struct smtp_session *, uint32_t);
+static void smtp_report_protocol_client(struct smtp_session *, const char *);
+static void smtp_report_protocol_server(struct smtp_session *, const char *);
+static void smtp_report_filter_response(struct smtp_session *, int, int, const char *);
+static void smtp_report_timeout(struct smtp_session *);
+
 
 static struct {
 	int code;
@@ -292,7 +320,6 @@ header_append_domain_buffer(char *buffer, char *domain, size_t len)
 	int	pos_bracket, pos_component, pos_insert;
 	char	copy[APPEND_DOMAIN_BUFFER_SIZE];
 
-	i = 0;
 	escape = quote = comment = bracket = 0;
 	has_domain = has_bracket = has_group = 0;
 	pos_bracket = pos_insert = pos_component = 0;
@@ -592,7 +619,6 @@ smtp_session(struct listener *listener, int sock,
 	io_set_fd(s->io, sock);
 	io_set_timeout(s->io, SMTPD_SESSION_TIMEOUT * 1000);
 	io_set_write(s->io);
-
 	s->state = STATE_NEW;
 
 	(void)strlcpy(s->smtpname, listener->hostname, sizeof(s->smtpname));
@@ -685,7 +711,8 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 {
 	struct smtp_session		*s;
 	struct smtp_rcpt		*rcpt;
-	char				 user[LOGIN_NAME_MAX];
+	char				 user[SMTPD_MAXMAILADDRSIZE];
+	char				 tmp[SMTP_LINE_MAX];
 	struct msg			 m;
 	const char			*line, *helo;
 	uint64_t			 reqid, evpid;
@@ -714,7 +741,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			break;
 		case LKA_TEMPFAIL:
 			smtp_tx_free(s->tx);
-			smtp_reply(s, "421 %s: Temporary Error",
+			smtp_reply(s, "421 %s Temporary Error",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 			break;
 		}
@@ -727,14 +754,26 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &line);
 		m_end(&m);
 		s = tree_xpop(&wait_lka_rcpt, reqid);
+
+		tmp[0] = '\0';
+		if (s->tx->evp.rcpt.user[0]) {
+			(void)strlcpy(tmp, s->tx->evp.rcpt.user, sizeof tmp);
+			if (s->tx->evp.rcpt.domain[0]) {
+				(void)strlcat(tmp, "@", sizeof tmp);
+				(void)strlcat(tmp, s->tx->evp.rcpt.domain,
+				    sizeof tmp);
+			}
+		}
+
 		switch (status) {
 		case LKA_OK:
 			fatalx("unexpected ok");
 		case LKA_PERMFAIL:
-			smtp_reply(s, "%s", line);
+			smtp_reply(s, "%s: <%s>", line, tmp);
 			break;
 		case LKA_TEMPFAIL:
-			smtp_reply(s, "%s", line);
+			smtp_reply(s, "%s: <%s>", line, tmp);
+			break;
 		}
 		return;
 
@@ -761,13 +800,12 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			s->tx->msgid = msgid;
 			s->tx->evp.id = msgid_to_evpid(msgid);
 			s->tx->rcptcount = 0;
-			report_smtp_tx_begin("smtp-in", s->id, s->tx->msgid);
-			smtp_reply(s, "250 %s: Ok",
+			smtp_reply(s, "250 %s Ok",
 			    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 		} else {
-			smtp_tx_free(s->tx);
-			smtp_reply(s, "421 %s: Temporary Error",
+			smtp_reply(s, "421 %s Temporary Error",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+			smtp_tx_free(s->tx);
 			smtp_enter_state(s, STATE_QUIT);
 		}
 		m_end(&m);
@@ -783,7 +821,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		if (!success || imsg->fd == -1) {
 			if (imsg->fd != -1)
 				close(imsg->fd);
-			smtp_reply(s, "421 %s: Temporary Error",
+			smtp_reply(s, "421 %s Temporary Error",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 			smtp_enter_state(s, STATE_QUIT);
 			return;
@@ -809,7 +847,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		if (!success || imsg->fd == -1) {
 			if (imsg->fd != -1)
 				close(imsg->fd);
-			smtp_reply(s, "421 %s: Temporary Error",
+			smtp_reply(s, "421 %s Temporary Error",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 			smtp_enter_state(s, STATE_QUIT);
 			return;
@@ -830,7 +868,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			m_get_evpid(&m, &evpid);
 			s->tx->evp.id = evpid;
 			s->tx->destcount++;
-			report_smtp_tx_envelope("smtp-in", s->id, s->tx->msgid, evpid);
+			smtp_report_tx_envelope(s, s->tx->msgid, evpid);
 		}
 		else
 			s->tx->error = TX_ERROR_ENVELOPE;
@@ -851,7 +889,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			 * RCPT only so we must cancel the whole transaction
 			 * and close the connection.
 			 */
-			smtp_reply(s, "421 %s: Temporary failure",
+			smtp_reply(s, "421 %s Temporary failure",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 			smtp_enter_state(s, STATE_QUIT);
 		}
@@ -877,16 +915,18 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		m_end(&m);
 		s = tree_xpop(&wait_queue_commit, reqid);
 		if (!success) {
-			smtp_tx_free(s->tx);
-			smtp_reply(s, "421 %s: Temporary failure",
+			smtp_reply(s, "421 %s Temporary failure",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+			smtp_tx_free(s->tx);
 			smtp_enter_state(s, STATE_QUIT);
 			return;
 		}
 
-		smtp_reply(s, "250 %s: %08x Message accepted for delivery",
+		smtp_reply(s, "250 %s %08x Message accepted for delivery",
 		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS),
 		    s->tx->msgid);
+		smtp_report_tx_commit(s, s->tx->msgid, s->tx->odatalen);
+		smtp_report_tx_reset(s, s->tx->msgid);
 
 		log_info("%016"PRIx64" smtp message "
 		    "msgid=%08x size=%zu nrcpt=%zu proto=%s",
@@ -926,7 +966,8 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			    "result=ok",
 			    s->id, user);
 			s->flags |= SF_AUTHENTICATED;
-			smtp_reply(s, "235 %s: Authentication succeeded",
+			smtp_report_link_auth(s, user, "pass");
+			smtp_reply(s, "235 %s Authentication succeeded",
 			    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 		}
 		else if (success == LKA_PERMFAIL) {
@@ -934,6 +975,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			    "authentication user=%s "
 			    "result=permfail",
 			    s->id, user);
+			smtp_report_link_auth(s, user, "fail");
 			smtp_auth_failure_pause(s);
 			return;
 		}
@@ -942,7 +984,8 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			    "authentication user=%s "
 			    "result=tempfail",
 			    s->id, user);
-			smtp_reply(s, "421 %s: Temporary failure",
+			smtp_report_link_auth(s, user, "error");
+			smtp_reply(s, "421 %s Temporary failure",
 			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 		}
 		else
@@ -955,7 +998,8 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
 		m_get_int(&m, &filter_response);
-		if (filter_response != FILTER_PROCEED)
+		if (filter_response != FILTER_PROCEED &&
+		    filter_response != FILTER_JUNK)
 			m_get_string(&m, &filter_param);
 		else
 			filter_param = NULL;
@@ -972,7 +1016,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			if (!strncmp(filter_param, "421", 3))
 				filter_response = FILTER_DISCONNECT;
 
-			report_smtp_filter_response("smtp-in", s->id, s->filter_phase,
+			smtp_report_filter_response(s, s->filter_phase,
 			    filter_response, filter_param);
 
 			smtp_reply(s, "%s", filter_param);
@@ -983,12 +1027,20 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 				smtp_proceed_rollback(s, NULL);
 			break;
 
+
+		case FILTER_JUNK:
+			if (s->tx)
+				s->tx->junk = 1;
+			else
+				s->junk = 1;
+			/* fallthrough */
+
 		case FILTER_PROCEED:
 			filter_param = s->filter_param;
-			/* fallthrough*/
+			/* fallthrough */
 
 		case FILTER_REWRITE:
-			report_smtp_filter_response("smtp-in", s->id, s->filter_phase,
+			smtp_report_filter_response(s, s->filter_phase,
 			    filter_response,
 			    filter_param == s->filter_param ? NULL : filter_param);
 			if (s->filter_phase == FILTER_CONNECT) {
@@ -1018,7 +1070,7 @@ smtp_tls_verified(struct smtp_session *s)
 {
 	X509 *x;
 
-	x = SSL_get_peer_certificate(io_ssl(s->io));
+	x = SSL_get_peer_certificate(io_tls(s->io));
 	if (x) {
 		log_info("%016"PRIx64" smtp "
 		    "client-cert-check result=\"%s\"",
@@ -1053,9 +1105,9 @@ smtp_io(struct io *io, int evt, void *arg)
 
 	case IO_TLSREADY:
 		log_info("%016"PRIx64" smtp tls ciphers=%s",
-		    s->id, ssl_to_text(io_ssl(s->io)));
+		    s->id, ssl_to_text(io_tls(s->io)));
 
-		report_smtp_link_tls("smtp-in", s->id, ssl_to_text(io_ssl(s->io)));
+		smtp_report_link_tls(s, ssl_to_text(io_tls(s->io)));
 
 		s->flags |= SF_SECURE;
 		s->helo[0] = '\0';
@@ -1069,7 +1121,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		if ((line == NULL && io_datalen(s->io) >= SMTP_LINE_MAX) ||
 		    (line && len >= SMTP_LINE_MAX)) {
 			s->flags |= SF_BADINPUT;
-			smtp_reply(s, "500 %s: Line too long",
+			smtp_reply(s, "500 %s Line too long",
 			    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_STATUS));
 			smtp_enter_state(s, STATE_QUIT);
 			io_set_write(io);
@@ -1116,7 +1168,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		/* Must be a command */
 		if (strlcpy(s->cmd, line, sizeof(s->cmd)) >= sizeof(s->cmd)) {
 			s->flags |= SF_BADINPUT;
-			smtp_reply(s, "500 %s: Command line too long",
+			smtp_reply(s, "500 %s Command line too long",
 			    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_STATUS));
 			smtp_enter_state(s, STATE_QUIT);
 			io_set_write(io);
@@ -1148,7 +1200,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		log_info("%016"PRIx64" smtp disconnected "
 		    "reason=timeout",
 		    s->id);
-		report_smtp_timeout("smtp-in", s->id);
+		smtp_report_timeout(s);
 		smtp_free(s, "timeout");
 		break;
 
@@ -1178,19 +1230,26 @@ smtp_command(struct smtp_session *s, char *line)
 	int				cmd, i;
 
 	log_trace(TRACE_SMTP, "smtp: %p: <<< %s", s, line);
-	report_smtp_protocol_client("smtp-in", s->id, line);
 
 	/*
 	 * These states are special.
 	 */
 	if (s->state == STATE_AUTH_INIT) {
+		smtp_report_protocol_client(s, "********");
 		smtp_rfc4954_auth_plain(s, line);
 		return;
 	}
 	if (s->state == STATE_AUTH_USERNAME || s->state == STATE_AUTH_PASSWORD) {
+		smtp_report_protocol_client(s, "********");
 		smtp_rfc4954_auth_login(s, line);
 		return;
 	}
+
+	if (s->state == STATE_HELO && strncasecmp(line, "AUTH PLAIN ", 11) == 0)
+		smtp_report_protocol_client(s, "AUTH PLAIN ********");
+	else
+		smtp_report_protocol_client(s, line);
+
 
 	/*
 	 * Unlike other commands, "mail from" and "rcpt to" contain a
@@ -1466,6 +1525,7 @@ smtp_check_mail_from(struct smtp_session *s, const char *args)
 {
 	char *copy;
 	char tmp[SMTP_LINE_MAX];
+	struct mailaddr	sender;
 
 	(void)strlcpy(tmp, args, sizeof tmp);
 	copy = tmp;  
@@ -1503,18 +1563,10 @@ smtp_check_mail_from(struct smtp_session *s, const char *args)
 		return 0;
 	}
 
-	if (!smtp_tx(s)) {
-		smtp_reply(s, "421 %s: Temporary Error",
-		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
-		smtp_enter_state(s, STATE_QUIT);
-		return 0;
-	}
-
-	if (smtp_mailaddr(&s->tx->evp.sender, copy, 1, &copy,
-		s->tx->session->smtpname) == 0) {
-		smtp_reply(s, "553 %s: Sender address syntax error",
+	if (smtp_mailaddr(&sender, copy, 1, &copy,
+		s->smtpname) == 0) {
+		smtp_reply(s, "553 %s Sender address syntax error",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
-		smtp_tx_free(s->tx);
 		return 0;
 	}
 
@@ -1547,7 +1599,7 @@ smtp_check_rcpt_to(struct smtp_session *s, const char *args)
 	if (smtp_mailaddr(&s->tx->evp.rcpt, copy, 0, &copy,
 		s->tx->session->smtpname) == 0) {
 		smtp_reply(s->tx->session,
-		    "501 %s: Recipient address syntax error",
+		    "501 %s Recipient address syntax error",
 		    esc_code(ESC_STATUS_PERMFAIL,
 		        ESC_BAD_DESTINATION_MAILBOX_ADDRESS_SYNTAX));
 		return 0;
@@ -1611,10 +1663,6 @@ smtp_filter_begin(struct smtp_session *s)
 	m_create(p_lka, IMSG_FILTER_SMTP_BEGIN, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_add_string(p_lka, s->listener->filter_name);
-	m_add_sockaddr(p_lka, (struct sockaddr *)&s->ss);
-	m_add_sockaddr(p_lka, (struct sockaddr *)&s->listener->ss);
-	m_add_string(p_lka, s->rdns);
-	m_add_int(p_lka, s->fcrdns);
 	m_close(p_lka);
 }
 
@@ -1686,14 +1734,14 @@ smtp_filter_phase(enum filter_phase phase, struct smtp_session *s, const char *p
 static void
 smtp_proceed_rset(struct smtp_session *s, const char *args)
 {
+	smtp_reply(s, "250 %s Reset state",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+
 	if (s->tx) {
 		if (s->tx->msgid)
 			smtp_tx_rollback(s->tx);
 		smtp_tx_free(s->tx);
 	}
-
-	smtp_reply(s, "250 %s: Reset state",
-	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 }
 
 static void
@@ -1702,13 +1750,16 @@ smtp_proceed_helo(struct smtp_session *s, const char *args)
 	(void)strlcpy(s->helo, args, sizeof(s->helo));
 	s->flags &= SF_SECURE | SF_AUTHENTICATED | SF_VERIFIED;
 
-	report_smtp_link_identify("smtp-in", s->id, s->helo);
+	smtp_report_link_identify(s, "HELO", s->helo);
 
 	smtp_enter_state(s, STATE_HELO);
-	smtp_reply(s, "250 %s Hello %s [%s], pleased to meet you",
+
+	smtp_reply(s, "250 %s Hello %s %s%s%s, pleased to meet you",
 	    s->smtpname,
 	    s->helo,
-	    ss_to_text(&s->ss));
+	    s->ss.ss_family == AF_INET6 ? "" : "[",
+	    ss_to_text(&s->ss),
+	    s->ss.ss_family == AF_INET6 ? "" : "]");
 }
 
 static void
@@ -1719,13 +1770,15 @@ smtp_proceed_ehlo(struct smtp_session *s, const char *args)
 	s->flags |= SF_EHLO;
 	s->flags |= SF_8BITMIME;
 
-	report_smtp_link_identify("smtp-in", s->id, s->helo);
+	smtp_report_link_identify(s, "EHLO", s->helo);
 
 	smtp_enter_state(s, STATE_HELO);
-	smtp_reply(s, "250-%s Hello %s [%s], pleased to meet you",
+	smtp_reply(s, "250-%s Hello %s %s%s%s, pleased to meet you",
 	    s->smtpname,
 	    s->helo,
-	    ss_to_text(&s->ss));
+	    s->ss.ss_family == AF_INET6 ? "" : "[",
+	    ss_to_text(&s->ss),
+	    s->ss.ss_family == AF_INET6 ? "" : "]");
 
 	smtp_reply(s, "250-8BITMIME");
 	smtp_reply(s, "250-ENHANCEDSTATUSCODES");
@@ -1767,7 +1820,7 @@ smtp_proceed_auth(struct smtp_session *s, const char *args)
 static void
 smtp_proceed_starttls(struct smtp_session *s, const char *args)
 {
-	smtp_reply(s, "220 %s: Ready to start TLS",
+	smtp_reply(s, "220 %s Ready to start TLS",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 	smtp_enter_state(s, STATE_TLS);
 }
@@ -1775,6 +1828,27 @@ smtp_proceed_starttls(struct smtp_session *s, const char *args)
 static void
 smtp_proceed_mail_from(struct smtp_session *s, const char *args)
 {
+	char *copy;
+	char tmp[SMTP_LINE_MAX];
+
+	(void)strlcpy(tmp, args, sizeof tmp);
+	copy = tmp;  
+
+       	if (!smtp_tx(s)) {
+		smtp_reply(s, "421 %s Temporary Error",
+		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+		smtp_enter_state(s, STATE_QUIT);
+		return;
+	}
+
+	if (smtp_mailaddr(&s->tx->evp.sender, copy, 1, &copy,
+		s->smtpname) == 0) {
+		smtp_reply(s, "553 %s Sender address syntax error",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
+		smtp_tx_free(s->tx);
+		return;
+	}
+
 	smtp_tx_mail_from(s->tx, args);
 }
 
@@ -1793,7 +1867,7 @@ smtp_proceed_data(struct smtp_session *s, const char *args)
 static void
 smtp_proceed_quit(struct smtp_session *s, const char *args)
 {
-	smtp_reply(s, "221 %s: Bye",
+	smtp_reply(s, "221 %s Bye",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 	smtp_enter_state(s, STATE_QUIT);
 }
@@ -1801,19 +1875,20 @@ smtp_proceed_quit(struct smtp_session *s, const char *args)
 static void
 smtp_proceed_noop(struct smtp_session *s, const char *args)
 {
-	smtp_reply(s, "250 %s: Ok",
+	smtp_reply(s, "250 %s Ok",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 }
 
 static void
 smtp_proceed_help(struct smtp_session *s, const char *args)
 {
-	smtp_reply(s, "214- This is " SMTPD_NAME);
-	smtp_reply(s, "214- To report bugs in the implementation, "
-	    "please contact bugs@openbsd.org");
-	smtp_reply(s, "214- with full details");
-	smtp_reply(s, "214 %s: End of HELP info",
-	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+	const char *code = esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS);
+
+	smtp_reply(s, "214-%s This is " SMTPD_NAME, code);
+	smtp_reply(s, "214-%s To report bugs in the implementation, "
+	    "please contact bugs@openbsd.org", code);
+	smtp_reply(s, "214-%s with full details", code);
+	smtp_reply(s, "214 %s End of HELP info", code);
 }
 
 static void
@@ -1963,7 +2038,7 @@ smtp_lookup_servername(struct smtp_session *s)
 		m_create(p_lka, IMSG_SMTP_LOOKUP_HELO, 0, 0, -1);
 		m_add_id(p_lka, s->id);
 		m_add_string(p_lka, s->listener->hostnametable);
-		m_add_sockaddr(p_lka, (struct sockaddr*)&s->ss);
+		m_add_sockaddr(p_lka, (struct sockaddr*)&s->listener->ss);
 		m_close(p_lka);
 		tree_xset(&wait_lka_helo, s->id, s);
 		return;
@@ -1982,7 +2057,7 @@ smtp_connected(struct smtp_session *s)
 
 	smtp_filter_begin(s);
 
-	report_smtp_link_connect("smtp-in", s->id, s->rdns, s->fcrdns, &s->ss,
+	smtp_report_link_connect(s, s->rdns, s->fcrdns, &s->ss,
 	    &s->listener->ss);
 
 	smtp_filter_phase(FILTER_CONNECT, s, ss_to_text(&s->ss));
@@ -2002,6 +2077,7 @@ smtp_send_banner(struct smtp_session *s)
 {
 	smtp_reply(s, "220 %s ESMTP %s", s->smtpname, SMTPD_NAME);
 	s->banner_sent = 1;
+	smtp_report_link_greeting(s, s->smtpname);
 }
 
 void
@@ -2019,28 +2095,41 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 {
 	va_list	 ap;
 	int	 n;
-	char	 buf[LINE_MAX], tmp[LINE_MAX];
+	char	 buf[LINE_MAX*2], tmp[LINE_MAX*2];
 
 	va_start(ap, fmt);
 	n = vsnprintf(buf, sizeof buf, fmt, ap);
 	va_end(ap);
-	if (n == -1 || n >= LINE_MAX)
-		fatalx("smtp_reply: line too long");
+	if (n < 0)
+		fatalx("smtp_reply: response format error");
 	if (n < 4)
 		fatalx("smtp_reply: response too short");
+	if (n >= (int)sizeof buf) {
+		/* only first three bytes are used by SMTP logic,
+		 * so if _our_ reply does not fit entirely in the
+		 * buffer, it's ok to truncate.
+		 */
+	}
 
 	log_trace(TRACE_SMTP, "smtp: %p: >>> %s", s, buf);
+	smtp_report_protocol_server(s, buf);
 
 	switch (buf[0]) {
 	case '2':
-		if (s->last_cmd == CMD_MAIL_FROM)
-			report_smtp_tx_mail("smtp-in", s->id, s->tx->msgid, s->cmd + 10, 1);
-		else if (s->last_cmd == CMD_RCPT_TO)
-			report_smtp_tx_rcpt("smtp-in", s->id, s->tx->msgid, s->cmd + 8, 1);
+		if (s->tx) {
+			if (s->last_cmd == CMD_MAIL_FROM) {
+				smtp_report_tx_begin(s, s->tx->msgid);
+				smtp_report_tx_mail(s, s->tx->msgid, s->cmd + 10, 1);
+			}
+			else if (s->last_cmd == CMD_RCPT_TO)
+				smtp_report_tx_rcpt(s, s->tx->msgid, s->cmd + 8, 1);
+		}
 		break;
 	case '3':
-		if (s->last_cmd == CMD_DATA)
-			report_smtp_tx_data("smtp-in", s->id, s->tx->msgid, 1);
+		if (s->tx) {
+			if (s->last_cmd == CMD_DATA)
+				smtp_report_tx_data(s, s->tx->msgid, 1);
+		}
 		break;
 	case '5':
 	case '4':
@@ -2049,13 +2138,13 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 		 */
 		if (s->tx) {
 			if (s->last_cmd == CMD_MAIL_FROM)
-				report_smtp_tx_mail("smtp-in", s->id, s->tx->msgid,
+				smtp_report_tx_mail(s, s->tx->msgid,
 				    s->cmd + 10, buf[0] == '4' ? -1 : 0);
 			else if (s->last_cmd == CMD_RCPT_TO)
-				report_smtp_tx_rcpt("smtp-in", s->id,
+				smtp_report_tx_rcpt(s,
 				    s->tx->msgid, s->cmd + 8, buf[0] == '4' ? -1 : 0);
 			else if (s->last_cmd == CMD_DATA && s->tx->rcptcount)
-				report_smtp_tx_data("smtp-in", s->id, s->tx->msgid,
+				smtp_report_tx_data(s, s->tx->msgid,
 				    buf[0] == '4' ? -1 : 0);
 		}
 
@@ -2093,7 +2182,6 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 	}
 
 	io_xprintf(s->io, "%s\r\n", buf);
-	report_smtp_protocol_server("smtp-in", s->id, buf);
 }
 
 static void
@@ -2105,7 +2193,7 @@ smtp_free(struct smtp_session *s, const char * reason)
 		smtp_tx_free(s->tx);
 	}
 
-	report_smtp_link_disconnect("smtp-in", s->id);
+	smtp_report_link_disconnect(s);
 	smtp_filter_end(s);
 
 	if (s->flags & SF_SECURE && s->listener->flags & F_SMTPS)
@@ -2227,7 +2315,7 @@ smtp_cert_verify(struct smtp_session *s)
 		fallback = 1;
 	}
 
-	if (cert_verify(io_ssl(s->io), name, fallback, smtp_cert_verify_cb, s)) {
+	if (cert_verify(io_tls(s->io), name, fallback, smtp_cert_verify_cb, s)) {
 		tree_xset(&wait_ssl_verify, s->id, s);
 		io_pause(s->io, IO_IN);
 	}
@@ -2318,6 +2406,7 @@ smtp_tx(struct smtp_session *s)
 	(void)strlcpy(tx->evp.smtpname, s->smtpname, sizeof(tx->evp.smtpname));
 	(void)strlcpy(tx->evp.hostname, s->rdns, sizeof tx->evp.hostname);
 	(void)strlcpy(tx->evp.helo, s->helo, sizeof(tx->evp.helo));
+	(void)strlcpy(tx->evp.username, s->username, sizeof(tx->evp.username));
 
 	if (s->flags & SF_BOUNCE)
 		tx->evp.flags |= EF_BOUNCE;
@@ -2364,7 +2453,7 @@ smtp_tx_mail_from(struct smtp_tx *tx, const char *line)
 
 	if (smtp_mailaddr(&tx->evp.sender, copy, 1, &copy,
 		tx->session->smtpname) == 0) {
-		smtp_reply(tx->session, "553 %s: Sender address syntax error",
+		smtp_reply(tx->session, "553 %s Sender address syntax error",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
 		smtp_tx_free(tx);
 		return;
@@ -2453,7 +2542,7 @@ smtp_tx_rcpt_to(struct smtp_tx *tx, const char *line)
 	if (smtp_mailaddr(&tx->evp.rcpt, copy, 0, &copy,
 	    tx->session->smtpname) == 0) {
 		smtp_reply(tx->session,
-		    "501 %s: Recipient address syntax error",
+		    "501 %s Recipient address syntax error",
 		    esc_code(ESC_STATUS_PERMFAIL,
 		        ESC_BAD_DESTINATION_MAILBOX_ADDRESS_SYNTAX));
 		return;
@@ -2522,7 +2611,6 @@ smtp_tx_commit(struct smtp_tx *tx)
 	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
 	tree_xset(&wait_queue_commit, tx->session->id, tx->session);
-	report_smtp_tx_commit("smtp-in", tx->session->id, tx->msgid, tx->odatalen);
 	smtp_filter_data_end(tx->session);
 }
 
@@ -2532,7 +2620,8 @@ smtp_tx_rollback(struct smtp_tx *tx)
 	m_create(p_queue, IMSG_SMTP_MESSAGE_ROLLBACK, 0, 0, -1);
 	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
-	report_smtp_tx_rollback("smtp-in", tx->session->id, tx->msgid);
+	smtp_report_tx_rollback(tx->session, tx->msgid);
+	smtp_report_tx_reset(tx->session, tx->msgid);
 	smtp_filter_data_end(tx->session);
 }
 
@@ -2545,7 +2634,7 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
 
 	if (!strcmp(line, ".")) {
-		report_smtp_protocol_client("smtp-in", tx->session->id, ".");
+		smtp_report_protocol_client(tx->session, ".");
 		log_trace(TRACE_SMTP, "<<< [EOM]");
 		if (tx->error)
 			return 1;
@@ -2672,7 +2761,7 @@ smtp_tx_filtered_dataline(struct smtp_tx *tx, const char *line)
 		if (tx->error)
 			return 0;
 	}
-	io_printf(tx->filter, "%s\r\n", line ? line : ".");
+	io_printf(tx->filter, "%s\n", line ? line : ".");
 	return line ? 0 : 1;
 }
 
@@ -2693,7 +2782,7 @@ smtp_message_fd(struct smtp_tx *tx, int fd)
 
 	if ((tx->ofile = fdopen(fd, "w")) == NULL) {
 		close(fd);
-		smtp_reply(s, "421 %s: Temporary Error",
+		smtp_reply(s, "421 %s Temporary Error",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 		smtp_enter_state(s, STATE_QUIT);
 		return 0;
@@ -2760,12 +2849,17 @@ smtp_message_begin(struct smtp_tx *tx)
 	smtp_reply(s, "354 Enter mail, end with \".\""
 	    " on a line by itself");	
 	
+	if (s->junk || (s->tx && s->tx->junk))
+		m_printf(tx, "X-Spam: Yes\n");
+
 	m_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
-		m_printf(tx, "from %s (%s [%s])",
+		m_printf(tx, "from %s (%s %s%s%s)",
 		    s->helo,
 		    s->rdns,
-		    ss_to_text(&s->ss));
+		    s->ss.ss_family == AF_INET6 ? "" : "[",
+		    ss_to_text(&s->ss),
+		    s->ss.ss_family == AF_INET6 ? "" : "]");
 	}
 	m_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
 	    s->smtpname,
@@ -2776,11 +2870,11 @@ smtp_message_begin(struct smtp_tx *tx)
 	    tx->msgid);
 
 	if (s->flags & SF_SECURE) {
-		x = SSL_get_peer_certificate(io_ssl(s->io));
+		x = SSL_get_peer_certificate(io_tls(s->io));
 		m_printf(tx, " (%s:%s:%d:%s)",
-		    SSL_get_version(io_ssl(s->io)),
-		    SSL_get_cipher_name(io_ssl(s->io)),
-		    SSL_get_cipher_bits(io_ssl(s->io), NULL),
+		    SSL_get_version(io_tls(s->io)),
+		    SSL_get_cipher_name(io_tls(s->io)),
+		    SSL_get_cipher_bits(io_tls(s->io), NULL),
 		    (s->flags & SF_VERIFIED) ? "YES" : (x ? "FAIL" : "NO"));
 		X509_free(x);
 
@@ -2840,7 +2934,7 @@ smtp_message_end(struct smtp_tx *tx)
 
 	case TX_ERROR_IO:
 	case TX_ERROR_RESOURCES:
-		smtp_reply(s, "421 %s: Temporary Error",
+		smtp_reply(s, "421 %s Temporary Error",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 		break;
 
@@ -2890,7 +2984,7 @@ smtp_message_printf(struct smtp_tx *tx, const char *fmt, ...)
 	len = vfprintf(tx->ofile, fmt, ap);
 	va_end(ap);
 
-	if (len < 0) {
+	if (len == -1) {
 		log_warn("smtp-in: session %016"PRIx64": vfprintf", tx->session->id);
 		tx->error = TX_ERROR_IO;
 	}
@@ -2922,4 +3016,190 @@ smtp_strstate(int state)
 		(void)snprintf(buf, sizeof(buf), "STATE_??? (%d)", state);
 		return (buf);
 	}
+}
+
+
+static void
+smtp_report_link_connect(struct smtp_session *s, const char *rdns, int fcrdns,
+    const struct sockaddr_storage *ss_src,
+    const struct sockaddr_storage *ss_dest)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_connect("smtp-in", s->id, rdns, fcrdns, ss_src, ss_dest);
+}
+
+static void
+smtp_report_link_greeting(struct smtp_session *s,
+    const char *domain)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_greeting("smtp-in", s->id, domain);
+}
+
+static void
+smtp_report_link_identify(struct smtp_session *s, const char *method, const char *identity)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_identify("smtp-in", s->id, method, identity);
+}
+
+static void
+smtp_report_link_tls(struct smtp_session *s, const char *ssl)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_tls("smtp-in", s->id, ssl);
+}
+
+static void
+smtp_report_link_disconnect(struct smtp_session *s)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_disconnect("smtp-in", s->id);
+}
+
+static void
+smtp_report_link_auth(struct smtp_session *s, const char *user, const char *result)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_link_auth("smtp-in", s->id, user, result);
+}
+
+static void
+smtp_report_tx_reset(struct smtp_session *s, uint32_t msgid)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_reset("smtp-in", s->id, msgid);
+}
+
+static void
+smtp_report_tx_begin(struct smtp_session *s, uint32_t msgid)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_begin("smtp-in", s->id, msgid);
+}
+
+static void
+smtp_report_tx_mail(struct smtp_session *s, uint32_t msgid, const char *address, int ok)
+{
+	char	mailaddr[SMTPD_MAXMAILADDRSIZE];
+	char    *p;
+
+	if (! SESSION_FILTERED(s))
+		return;
+
+	if ((p = strchr(address, '<')) == NULL)
+		return;
+	(void)strlcpy(mailaddr, p + 1, sizeof mailaddr);
+	if ((p = strchr(mailaddr, '>')) == NULL)
+		return;
+	*p = '\0';
+
+	report_smtp_tx_mail("smtp-in", s->id, msgid, mailaddr, ok);
+}
+
+static void
+smtp_report_tx_rcpt(struct smtp_session *s, uint32_t msgid, const char *address, int ok)
+{
+	char	mailaddr[SMTPD_MAXMAILADDRSIZE];
+	char    *p;
+
+	if (! SESSION_FILTERED(s))
+		return;
+
+	if ((p = strchr(address, '<')) == NULL)
+		return;
+	(void)strlcpy(mailaddr, p + 1, sizeof mailaddr);
+	if ((p = strchr(mailaddr, '>')) == NULL)
+		return;
+	*p = '\0';
+
+	report_smtp_tx_rcpt("smtp-in", s->id, msgid, mailaddr, ok);
+}
+
+static void
+smtp_report_tx_envelope(struct smtp_session *s, uint32_t msgid, uint64_t evpid)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_envelope("smtp-in", s->id, msgid, evpid);
+}
+
+static void
+smtp_report_tx_data(struct smtp_session *s, uint32_t msgid, int ok)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_data("smtp-in", s->id, msgid, ok);
+}
+
+static void
+smtp_report_tx_commit(struct smtp_session *s, uint32_t msgid, size_t msgsz)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_commit("smtp-in", s->id, msgid, msgsz);
+}
+
+static void
+smtp_report_tx_rollback(struct smtp_session *s, uint32_t msgid)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_tx_rollback("smtp-in", s->id, msgid);
+}
+
+static void
+smtp_report_protocol_client(struct smtp_session *s, const char *command)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_protocol_client("smtp-in", s->id, command);
+}
+
+static void
+smtp_report_protocol_server(struct smtp_session *s, const char *response)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_protocol_server("smtp-in", s->id, response);
+}
+
+static void
+smtp_report_filter_response(struct smtp_session *s, int phase, int response, const char *param)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_filter_response("smtp-in", s->id, phase, response, param);
+}
+
+static void
+smtp_report_timeout(struct smtp_session *s)
+{
+	if (! SESSION_FILTERED(s))
+		return;
+
+	report_smtp_timeout("smtp-in", s->id);
 }

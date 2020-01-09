@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vmxreg.h,v 1.3 2013/08/28 10:19:19 reyk Exp $	*/
+/*	$OpenBSD: if_vmxreg.h,v 1.6 2019/10/27 22:24:40 dlg Exp $	*/
 
 /*
  * Copyright (c) 2013 Tsubai Masanari
@@ -76,6 +76,18 @@ struct UPT1_RxStats {
 #define VMXNET3_CMD_GET_LINK	0xf00d0002	/* get link status */
 #define VMXNET3_CMD_GET_MACL	0xf00d0003
 #define VMXNET3_CMD_GET_MACH	0xf00d0004
+#define VMXNET3_CMD_GET_INTRCFG	0xf00d0008	/* get interrupt config */
+#define VMXNET3_INTRCFG_TYPE_SHIFT	0
+#define VMXNET3_INTRCFG_TYPE_MASK	(0x3 << VMXNET3_INTRCFG_TYPE_SHIFT)
+#define VMXNET3_INTRCFG_TYPE_AUTO	(0x0 << VMXNET3_INTRCFG_TYPE_SHIFT)
+#define VMXNET3_INTRCFG_TYPE_INTX	(0x1 << VMXNET3_INTRCFG_TYPE_SHIFT)
+#define VMXNET3_INTRCFG_TYPE_MSI	(0x2 << VMXNET3_INTRCFG_TYPE_SHIFT)
+#define VMXNET3_INTRCFG_TYPE_MSIX	(0x3 << VMXNET3_INTRCFG_TYPE_SHIFT)
+#define VMXNET3_INTRCFG_MODE_SHIFT	2
+#define VMXNET3_INTRCFG_MODE_MASK	(0x3 << VMXNET3_INTRCFG_MODE_SHIFT)
+#define VMXNET3_INTRCFG_MODE_AUTO	(0x0 << VMXNET3_INTRCFG_MODE_SHIFT)
+#define VMXNET3_INTRCFG_MODE_ACTIVE	(0x1 << VMXNET3_INTRCFG_MODE_SHIFT)
+#define VMXNET3_INTRCFG_MODE_LAZY	(0x2 << VMXNET3_INTRCFG_MODE_SHIFT)
 
 #define VMXNET3_DMADESC_ALIGN	128
 
@@ -86,7 +98,7 @@ struct vmxnet3_txdesc {
 	u_int32_t		tx_word2;
 #define	VMXNET3_TX_LEN_M	0x00003fff
 #define	VMXNET3_TX_LEN_S	0
-#define VMXNET3_TX_GEN_M	0x00000001	/* generation */
+#define VMXNET3_TX_GEN_M	0x00000001U	/* generation */
 #define VMXNET3_TX_GEN_S	14
 #define VMXNET3_TX_RES0		0x00008000
 #define	VMXNET3_TX_DTYPE_M	0x00000001	/* descriptor type */
@@ -127,7 +139,7 @@ struct vmxnet3_txcompdesc {
 #define VMXNET3_TXC_RES2_M	0x00ffffff
 #define VMXNET3_TXC_TYPE_M	0x0000007f
 #define VMXNET3_TXC_TYPE_S	24
-#define VMXNET3_TXC_GEN_M	0x00000001
+#define VMXNET3_TXC_GEN_M	0x00000001U
 #define VMXNET3_TXC_GEN_S	31
 } __packed;
 
@@ -143,7 +155,7 @@ struct vmxnet3_rxdesc {
 #define VMXNET3_RX_DTYPE_S	15
 #define VMXNET3_RX_RES0_M	0x00007fff
 #define VMXNET3_RX_RES0_S	16
-#define VMXNET3_RX_GEN_M	0x00000001
+#define VMXNET3_RX_GEN_M	0x00000001U
 #define VMXNET3_RX_GEN_S	31
 
 	u_int32_t		rx_word3;
@@ -192,7 +204,7 @@ struct vmxnet3_rxcompdesc {
 #define VMXNET3_RXC_FRAGMENT	0x00400000	/* IP fragment */
 #define VMXNET3_RXC_FCS		0x00800000	/* frame CRC correct */
 #define VMXNET3_RXC_TYPE_M	0x7f000000
-#define VMXNET3_RXC_GEN_M	0x00000001
+#define VMXNET3_RXC_GEN_M	0x00000001U
 #define VMXNET3_RXC_GEN_S	31
 } __packed;
 

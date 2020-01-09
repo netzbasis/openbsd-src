@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvideo.c,v 1.199 2018/05/01 18:14:46 landry Exp $ */
+/*	$OpenBSD: uvideo.c,v 1.205 2019/10/14 09:20:48 mpi Exp $ */
 
 /*
  * Copyright (c) 2008 Robert Nagy <robert@openbsd.org>
@@ -61,12 +61,13 @@ int uvideo_debug = 1;
 struct uvideo_softc {
 	struct device				 sc_dev;
 	struct usbd_device			*sc_udev;
+	int					 sc_iface;
 	int					 sc_nifaces;
-	struct usbd_interface			**sc_ifaces;
 
 	struct device				*sc_videodev;
 
 	int					 sc_enabled;
+	int					 sc_max_ctrl_size;
 	int					 sc_max_fbuf_size;
 	int					 sc_negotiated_flag;
 	int					 sc_frame_rate;
@@ -197,6 +198,8 @@ void		uvideo_dump_desc_input(struct uvideo_softc *,
 void		uvideo_dump_desc_output(struct uvideo_softc *,
 		    const usb_descriptor_t *);
 void		uvideo_dump_desc_endpoint(struct uvideo_softc *,
+		    const usb_descriptor_t *);
+void		uvideo_dump_desc_iface_assoc(struct uvideo_softc *,
 		    const usb_descriptor_t *);
 void		uvideo_dump_desc_interface(struct uvideo_softc *,
 		    const usb_descriptor_t *);
@@ -500,24 +503,66 @@ uvideo_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct uvideo_softc *sc = (struct uvideo_softc *)self;
 	struct usb_attach_arg *uaa = aux;
+	usb_interface_assoc_descriptor_t *iad;
 	usb_interface_descriptor_t *id;
+	const usb_descriptor_t *desc;
+	struct usbd_desc_iter iter;
 	int i;
 
 	sc->sc_udev = uaa->device;
-	sc->sc_nifaces = uaa->nifaces;
-	/*
-	 * Claim all video interfaces.  Interfaces must be claimed during
-	 * attach, during attach hooks is too late.
-	 */
-	for (i = 0; i < sc->sc_nifaces; i++) {
+
+	/* Find the first unclaimed video interface. */
+	for (i = 0; i < uaa->nifaces; i++) {
 		if (usbd_iface_claimed(sc->sc_udev, i))
 			continue;
 		id = usbd_get_interface_descriptor(&sc->sc_udev->ifaces[i]);
 		if (id == NULL)
 			continue;
 		if (id->bInterfaceClass == UICLASS_VIDEO)
-			usbd_claim_iface(sc->sc_udev, i);
+			break;
 	}
+	if (i == uaa->nifaces) {
+		printf("%s: can't find video interface\n", DEVNAME(sc));
+		return;
+	}
+
+	/* Find out which interface association we belong to. */
+	usbd_desc_iter_init(sc->sc_udev, &iter);
+	desc = usbd_desc_iter_next(&iter);
+	while (desc) {
+		if (desc->bDescriptorType != UDESC_IFACE_ASSOC) {
+			desc = usbd_desc_iter_next(&iter);
+			continue;
+		}
+		iad = (usb_interface_assoc_descriptor_t *)desc;
+		if (i >= iad->bFirstInterface &&
+		    i < iad->bFirstInterface + iad->bInterfaceCount)
+			break;
+		desc = usbd_desc_iter_next(&iter);
+	}
+	if (desc == NULL) {
+		printf("%s: can't find interface assoc descriptor\n",
+		    DEVNAME(sc));
+		return;
+	}
+
+	/*
+	 * Claim all interfaces of our association.  Interfaces must be
+	 * claimed during attach, during attach hooks is too late.
+	 */
+	for (i = iad->bFirstInterface;
+	    i < iad->bFirstInterface + iad->bInterfaceCount; i++) {
+		if (usbd_iface_claimed(sc->sc_udev, i)) {
+			printf("%s: interface already claimed\n",
+			    DEVNAME(sc));
+			return;
+		}
+		usbd_claim_iface(sc->sc_udev, i);
+	}
+
+	/* Remember our association by saving the first interface. */
+	sc->sc_iface = iad->bFirstInterface;
+	sc->sc_nifaces = iad->bInterfaceCount;
 
 	/* maybe the device has quirks */
 	sc->sc_quirk = uvideo_lookup(uaa->vendor, uaa->product);
@@ -612,6 +657,7 @@ uvideo_vc_parse_desc(struct uvideo_softc *sc)
 {
 	struct usbd_desc_iter iter;
 	const usb_descriptor_t *desc;
+	usb_interface_descriptor_t *id;
 	int vc_header_found;
 	usbd_status error;
 
@@ -622,6 +668,18 @@ uvideo_vc_parse_desc(struct uvideo_softc *sc)
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		if (desc->bDescriptorType != UDESC_CS_INTERFACE) {
 			desc = usbd_desc_iter_next(&iter);
 			continue;
@@ -679,6 +737,12 @@ uvideo_vc_parse_desc_header(struct uvideo_softc *sc,
 	
 	sc->sc_desc_vc_header.fix = d;
 	sc->sc_desc_vc_header.baInterfaceNr = (uByte *)(d + 1);
+	if (UGETW(d->bcdUVC) < 0x0110)
+		sc->sc_max_ctrl_size = 26;
+	else if (UGETW(d->bcdUVC) < 0x0150)
+		sc->sc_max_ctrl_size = 34;
+	else
+		sc->sc_max_ctrl_size = 48;
 
 	return (USBD_NORMAL_COMPLETION);
 }
@@ -818,6 +882,18 @@ uvideo_vs_parse_desc(struct uvideo_softc *sc, usb_config_descriptor_t *cdesc)
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		if (desc->bDescriptorType != UDESC_CS_INTERFACE) {
 			desc = usbd_desc_iter_next(&iter);
 			continue;
@@ -902,12 +978,25 @@ uvideo_vs_parse_desc_format(struct uvideo_softc *sc)
 {
 	struct usbd_desc_iter iter;
 	const usb_descriptor_t *desc;
+	usb_interface_descriptor_t *id;
 
 	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
 
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		if (desc->bDescriptorType != UDESC_CS_INTERFACE) {
 			desc = usbd_desc_iter_next(&iter);
 			continue;
@@ -989,6 +1078,7 @@ uvideo_vs_parse_desc_format_uncompressed(struct uvideo_softc *sc,
     const usb_descriptor_t *desc)
 {
 	struct usb_video_format_uncompressed_desc *d;
+	uint8_t guid_8bit_ir[16] = UVIDEO_FORMAT_GUID_KSMEDIA_L8_IR;
 	int i;
 
 	d = (struct usb_video_format_uncompressed_desc *)(uint8_t *)desc;
@@ -1021,6 +1111,9 @@ uvideo_vs_parse_desc_format_uncompressed(struct uvideo_softc *sc,
 		sc->sc_fmtgrp[i].pixelformat = V4L2_PIX_FMT_NV12;
 	} else if (!strcmp(sc->sc_fmtgrp[i].format->u.uc.guidFormat, "UYVY")) {
 		sc->sc_fmtgrp[i].pixelformat = V4L2_PIX_FMT_UYVY;
+	} else if (!memcmp(sc->sc_fmtgrp[i].format->u.uc.guidFormat,
+	    guid_8bit_ir, 16)) {
+		sc->sc_fmtgrp[i].pixelformat = V4L2_PIX_FMT_GREY;
 	} else {
 		sc->sc_fmtgrp[i].pixelformat = 0;
 	}
@@ -1040,6 +1133,7 @@ uvideo_vs_parse_desc_frame(struct uvideo_softc *sc)
 {
 	struct usbd_desc_iter iter;
 	const usb_descriptor_t *desc;
+	usb_interface_descriptor_t *id;
 	usbd_status error;
 
 	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
@@ -1047,6 +1141,18 @@ uvideo_vs_parse_desc_frame(struct uvideo_softc *sc)
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		if (desc->bDescriptorType == UDESC_CS_INTERFACE &&
 		    desc->bLength > sizeof(struct usb_video_frame_desc) &&
 		    (desc->bDescriptorSubtype == UDESCSUB_VS_FRAME_MJPEG ||
@@ -1134,6 +1240,18 @@ uvideo_vs_parse_desc_alt(struct uvideo_softc *sc, int vs_nr, int iface, int numa
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		/* find video stream interface */
 		if (desc->bDescriptorType != UDESC_INTERFACE)
 			goto next;
@@ -1204,6 +1322,18 @@ uvideo_vs_set_alt(struct uvideo_softc *sc, struct usbd_interface *ifaceh,
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
+		/* Skip all interfaces until we found our first. */
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			if (id->bInterfaceNumber == sc->sc_iface)
+				break;
+		}
+		desc = usbd_desc_iter_next(&iter);
+	}
+	while (desc) {
+		/* Crossed device function boundary. */
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC)
+			break;
 		/* find video stream interface */
 		if (desc->bDescriptorType != UDESC_INTERFACE)
 			goto next;
@@ -1330,7 +1460,7 @@ uvideo_vs_negotiation(struct uvideo_softc *sc, int commit)
 	struct usb_video_header_desc *hd;
 	struct usb_video_frame_desc *frame;
 	uint8_t *p, *cur;
-	uint8_t probe_data[34];
+	uint8_t probe_data[48];
 	uint32_t frame_ival, nivals, min, max, step, diff;
 	usbd_status error;
 	int i, ival_bytes, changed = 0;
@@ -1514,7 +1644,7 @@ uvideo_vs_set_probe(struct uvideo_softc *sc, uint8_t *probe_data)
 	tmp = tmp << 8;
 	USETW(req.wValue, tmp);
 	USETW(req.wIndex, sc->sc_vs_cur->iface);
-	USETW(req.wLength, 26);
+	USETW(req.wLength, sc->sc_max_ctrl_size);
 
 	pc = (struct usb_video_probe_commit *)probe_data;
 
@@ -1559,7 +1689,7 @@ uvideo_vs_get_probe(struct uvideo_softc *sc, uint8_t *probe_data,
 	tmp = tmp << 8;
 	USETW(req.wValue, tmp);
 	USETW(req.wIndex, sc->sc_vs_cur->iface);
-	USETW(req.wLength, 26);
+	USETW(req.wLength, sc->sc_max_ctrl_size);
 
 	pc = (struct usb_video_probe_commit *)probe_data;
 
@@ -1602,7 +1732,7 @@ uvideo_vs_set_commit(struct uvideo_softc *sc, uint8_t *probe_data)
 	tmp = tmp << 8;
 	USETW(req.wValue, tmp);
 	USETW(req.wIndex, sc->sc_vs_cur->iface);
-	USETW(req.wLength, 26);
+	USETW(req.wLength, sc->sc_max_ctrl_size);
 
 	error = usbd_do_request(sc->sc_udev, &req, probe_data);
 	if (error) {
@@ -2381,6 +2511,11 @@ uvideo_dump_desc_all(struct uvideo_softc *sc)
 			printf("|\n");
 			uvideo_dump_desc_interface(sc, desc);
 			break;
+		case UDESC_IFACE_ASSOC:
+			printf(" (UDESC_IFACE_ASSOC)\n");
+			printf("|\n");
+			uvideo_dump_desc_iface_assoc(sc, desc);
+			break;
 		default:
 			printf(" (unknown)\n");
 			break;
@@ -2500,6 +2635,24 @@ uvideo_dump_desc_endpoint(struct uvideo_softc *sc,
 		printf(" (UE_INTERRUPT)\n");
 	printf("wMaxPacketSize=%d\n", UGETW(d->wMaxPacketSize));
 	printf("bInterval=0x%02x\n", d->bInterval);
+}
+
+void
+uvideo_dump_desc_iface_assoc(struct uvideo_softc *sc,
+    const usb_descriptor_t *desc)
+{
+	usb_interface_assoc_descriptor_t *d;
+
+	d = (usb_interface_assoc_descriptor_t *)(uint8_t *)desc;
+
+	printf("bLength=%d\n", d->bLength);
+	printf("bDescriptorType=0x%02x\n", d->bDescriptorType);
+	printf("bFirstInterface=0x%02x\n", d->bFirstInterface);
+	printf("bInterfaceCount=%d\n", d->bInterfaceCount);
+	printf("bFunctionClass=0x%02x\n", d->bFunctionClass);
+	printf("bFunctionSubClass=0x%02x\n", d->bFunctionSubClass);
+	printf("bFunctionProtocol=0x%02x\n", d->bFunctionProtocol);
+	printf("iFunction=0x%02x\n", d->iFunction);
 }
 
 void
@@ -2732,7 +2885,7 @@ uvideo_debug_file_open(struct uvideo_softc *sc)
 	char name[] = "/tmp/uvideo.mjpeg";
 	int error;
 
-	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, p);
+	NDINIT(&nd, 0, 0, UIO_SYSSPACE, name, p);
 	error = vn_open(&nd, O_CREAT | FWRITE | O_NOFOLLOW, S_IRUSR | S_IWUSR);
 	if (error) {
 		DPRINTF(1, "%s: %s: can't create debug file %s!\n",
@@ -3233,7 +3386,7 @@ uvideo_dqbuf(void *v, struct v4l2_buffer *dqb)
 
 	if (SIMPLEQ_EMPTY(&sc->sc_mmap_q)) {
 		/* mmap queue is empty, block until first frame is queued */
-		error = tsleep(sc, 0, "vid_mmap", 10 * hz);
+		error = tsleep_nsec(sc, 0, "vid_mmap", SEC_TO_NSEC(10));
 		if (error)
 			return (EINVAL);
 	}

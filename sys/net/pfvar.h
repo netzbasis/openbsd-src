@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.489 2018/12/17 15:37:41 kn Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.493 2019/11/17 08:25:05 otto Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -39,6 +39,7 @@
 #include <sys/rwlock.h>
 #include <sys/syslimits.h>
 #include <sys/refcnt.h>
+#include <sys/timeout.h>
 
 #include <netinet/in.h>
 
@@ -1162,6 +1163,7 @@ struct pfi_kif {
 	int				 pfik_states;
 	int				 pfik_rules;
 	int				 pfik_routes;
+	int				 pfik_srcnodes;
 	TAILQ_HEAD(, pfi_dynaddr)	 pfik_dynaddrs;
 };
 
@@ -1169,7 +1171,8 @@ enum pfi_kif_refs {
 	PFI_KIF_REF_NONE,
 	PFI_KIF_REF_STATE,
 	PFI_KIF_REF_RULE,
-	PFI_KIF_REF_ROUTE
+	PFI_KIF_REF_ROUTE,
+	PFI_KIF_REF_SRCNODE
 };
 
 #define PFI_IFLAG_SKIP		0x0100	/* skip filtering on interface */
@@ -1430,7 +1433,7 @@ enum pf_divert_types {
 };
 
 struct pf_pktdelay {
-	struct timeout	*to;
+	struct timeout	 to;
 	struct mbuf	*m;
 	u_int		 ifidx;
 };
@@ -1496,7 +1499,7 @@ struct pfioc_state_kill {
 };
 
 struct pfioc_states {
-	int	ps_len;
+	size_t	ps_len;
 	union {
 		caddr_t			 psu_buf;
 		struct pfsync_state	*psu_states;
@@ -1506,7 +1509,7 @@ struct pfioc_states {
 };
 
 struct pfioc_src_nodes {
-	int	psn_len;
+	size_t	psn_len;
 	union {
 		caddr_t		 psu_buf;
 		struct pf_src_node	*psu_src_nodes;
@@ -1712,7 +1715,7 @@ extern int			 pf_state_insert(struct pfi_kif *,
 int				 pf_insert_src_node(struct pf_src_node **,
 				    struct pf_rule *, enum pf_sn_types,
 				    sa_family_t, struct pf_addr *,
-				    struct pf_addr *);
+				    struct pf_addr *, struct pfi_kif *);
 void				 pf_remove_src_node(struct pf_src_node *);
 struct pf_src_node		*pf_get_src_node(struct pf_state *,
 				    enum pf_sn_types);

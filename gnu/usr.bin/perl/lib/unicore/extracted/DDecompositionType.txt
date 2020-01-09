@@ -1,10 +1,11 @@
-# DerivedDecompositionType-8.0.0.txt
-# Date: 2015-02-13, 13:47:11 GMT [MD]
+# DerivedDecompositionType-12.1.0.txt
+# Date: 2019-04-01, 09:10:21 GMT
+# © 2019 Unicode®, Inc.
+# Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
 #
 # Unicode Character Database
-# Copyright (c) 1991-2015 Unicode, Inc.
-# For terms of use, see http://www.unicode.org/terms_of_use.html
-# For documentation, see http://www.unicode.org/reports/tr44/
+#   For documentation, see http://www.unicode.org/reports/tr44/
 
 # ================================================
 
@@ -860,9 +861,9 @@ A69C..A69D    ; Super # Lm   [2] MODIFIER LETTER CYRILLIC HARD SIGN..MODIFIER LE
 A770          ; Super # Lm       MODIFIER LETTER US
 A7F8..A7F9    ; Super # Lm   [2] MODIFIER LETTER CAPITAL H WITH STROKE..MODIFIER LETTER SMALL LIGATURE OE
 AB5C..AB5F    ; Super # Lm   [4] MODIFIER LETTER SMALL HENG..MODIFIER LETTER SMALL U WITH LEFT HOOK
-1F16A..1F16B  ; Super # So   [2] RAISED MC SIGN..RAISED MD SIGN
+1F16A..1F16C  ; Super # So   [3] RAISED MC SIGN..RAISED MR SIGN
 
-# Total code points: 152
+# Total code points: 153
 
 # ================================================
 
@@ -993,15 +994,15 @@ FE6A..FE6B    ; Small # Po   [2] SMALL PERCENT SIGN..SMALL COMMERCIAL AT
 
 3250          ; Square # So       PARTNERSHIP SIGN
 32CC..32CF    ; Square # So   [4] SQUARE HG..LIMITED LIABILITY SIGN
-3300..3357    ; Square # So  [88] SQUARE APAATO..SQUARE WATTO
+32FF..3357    ; Square # So  [89] SQUARE ERA NAME REIWA..SQUARE WATTO
 3371..33DF    ; Square # So [111] SQUARE HPA..SQUARE A OVER M
 33FF          ; Square # So       SQUARE GAL
 1F130..1F14F  ; Square # So  [32] SQUARED LATIN CAPITAL LETTER A..SQUARED WC
 1F190         ; Square # So       SQUARE DJ
 1F200..1F202  ; Square # So   [3] SQUARE HIRAGANA HOKA..SQUARED KATAKANA SA
-1F210..1F23A  ; Square # So  [43] SQUARED CJK UNIFIED IDEOGRAPH-624B..SQUARED CJK UNIFIED IDEOGRAPH-55B6
+1F210..1F23B  ; Square # So  [44] SQUARED CJK UNIFIED IDEOGRAPH-624B..SQUARED CJK UNIFIED IDEOGRAPH-914D
 
-# Total code points: 284
+# Total code points: 286
 
 # ================================================
 

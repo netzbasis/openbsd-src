@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.107 2018/12/27 18:00:15 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.109 2019/10/07 17:44:45 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -1325,7 +1325,7 @@ main(int argc, char **argv)
 	argc -= optind;
 
 	if (worker) {
-		int conffd;
+		int conffd = -1;
 
 		/* rewind "--" argument */
 		argv--;
@@ -1350,6 +1350,8 @@ main(int argc, char **argv)
 				break;
 			}
 		}
+		if (conffd == -1)
+			logerr("never received conffd");
 		argv += optind;
 		argc -= optind;
 		if (argc)
@@ -1393,6 +1395,10 @@ main(int argc, char **argv)
 	bindaddr.i6.sin6_addr = in6addr_loopback;
 
 	fd = socket(AF_INET6, SOCK_DGRAM, 0);
+	if (fd == -1 && errno == EPROTONOSUPPORT) {
+		logmsg(LOG_NOTICE, "no inet6 support available");
+		goto noinet6;
+	}
 	if (fd == -1)
 		logerr("socket: %s", strerror(errno));
 	if (bind(fd, &bindaddr.a, bindaddr.a.sa_len) == -1)
@@ -1408,7 +1414,7 @@ main(int argc, char **argv)
 	if (listen(fd, 10) == -1)
 		logerr("listen: %s", strerror(errno));
 	addfd(fd, &tcpfds, &numtcp);
-
+noinet6:
 	if (debug) {
 		int conffd = openconfig(confname, -1);
 		return workerloop(conffd, udpfds, numudp, tcpfds, numtcp);

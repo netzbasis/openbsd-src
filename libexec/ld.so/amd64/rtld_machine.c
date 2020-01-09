@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.30 2018/11/16 21:15:47 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.39 2019/12/07 22:57:47 guenther Exp $ */
 
 /*
  * Copyright (c) 2002,2004 Dale Rahn
@@ -179,44 +179,28 @@ _dl_md_reloc(elf_object_t *object, int rel, int relsz)
 	Elf_Addr prev_value = 0;
 	const Elf_Sym *prev_sym = NULL;
 	Elf_RelA *rels;
-	struct load_list *llist;
 
 	loff = object->obj_base;
 	numrel = object->Dyn.info[relsz] / sizeof(Elf_RelA);
 	relrel = rel == DT_RELA ? object->relacount : 0;
 	rels = (Elf_RelA *)(object->Dyn.info[rel]);
 	if (rels == NULL)
-		return(0);
+		return 0;
 
 	if (relrel > numrel)
 		_dl_die("relacount > numrel: %ld > %ld", relrel, numrel);
-
-	/*
-	 * unprotect some segments if we need it.
-	 */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list; llist != NULL; llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE))
-				_dl_mprotect(llist->start, llist->size,
-				    PROT_READ | PROT_WRITE);
-		}
-	}
 
 	/* tight loop for leading RELATIVE relocs */
 	for (i = 0; i < relrel; i++, rels++) {
 		Elf_Addr *where;
 
-#ifdef DEBUG
-		if (ELF_R_TYPE(rels->r_info) != R_TYPE(RELATIVE))
-			_dl_die("RELACOUNT wrong");
-#endif
 		where = (Elf_Addr *)(rels->r_offset + loff);
 		*where = rels->r_addend + loff;
 	}
 	for (; i < numrel; i++, rels++) {
-		Elf_Addr *where, value, ooff, mask;
+		Elf_Addr *where, value, mask;
 		Elf_Word type;
-		const Elf_Sym *sym, *this;
+		const Elf_Sym *sym;
 		const char *symn;
 
 		type = ELF_R_TYPE(rels->r_info);
@@ -250,14 +234,13 @@ _dl_md_reloc(elf_object_t *object, int rel, int relsz)
 			} else if (sym == prev_sym) {
 				value += prev_value;
 			} else {
-				this = NULL;
-				ooff = _dl_find_symbol_bysym(object,
-				    ELF_R_SYM(rels->r_info), &this,
+				struct sym_res sr;
+
+				sr = _dl_find_symbol(symn,
 				    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|
 				    ((type == R_TYPE(JUMP_SLOT))?
-					SYM_PLT:SYM_NOTPLT),
-				    sym, NULL);
-				if (this == NULL) {
+					SYM_PLT:SYM_NOTPLT), sym, object);
+				if (sr.sym == NULL) {
 resolve_failed:
 					if (ELF_ST_BIND(sym->st_info) !=
 					    STB_WEAK)
@@ -265,7 +248,8 @@ resolve_failed:
 					continue;
 				}
 				prev_sym = sym;
-				prev_value = (Elf_Addr)(ooff + this->st_value);
+				prev_value = (Elf_Addr)(sr.obj->obj_base +
+				    sr.sym->st_value);
 				value += prev_value;
 			}
 		}
@@ -278,16 +262,16 @@ resolve_failed:
 		if (type == R_TYPE(COPY)) {
 			void *dstaddr = where;
 			const void *srcaddr;
-			const Elf_Sym *dstsym = sym, *srcsym = NULL;
-			Elf_Addr soff;
+			const Elf_Sym *dstsym = sym;
+			struct sym_res sr;
 
-			soff = _dl_find_symbol(symn, &srcsym,
+			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_OTHER|SYM_WARNNOTFOUND|SYM_NOTPLT,
-			    dstsym, object, NULL);
-			if (srcsym == NULL)
+			    dstsym, object);
+			if (sr.sym == NULL)
 				goto resolve_failed;
 
-			srcaddr = (void *)(soff + srcsym->st_value);
+			srcaddr = (void *)(sr.obj->obj_base + sr.sym->st_value);
 			_dl_bcopy(srcaddr, dstaddr, dstsym->st_size);
 			continue;
 		}
@@ -312,16 +296,7 @@ resolve_failed:
 		}
 	}
 
-	/* reprotect the unprotected segments */
-	if ((object->dyn.textrel == 1) && (rel == DT_REL || rel == DT_RELA)) {
-		for (llist = object->load_list; llist != NULL; llist = llist->next) {
-			if (!(llist->prot & PROT_WRITE))
-				_dl_mprotect(llist->start, llist->size,
-				    llist->prot);
-		}
-	}
-
-	return (fails);
+	return fails;
 }
 
 void
@@ -337,10 +312,9 @@ Elf_Addr
 _dl_bind(elf_object_t *object, int index)
 {
 	Elf_RelA *rel;
-	const Elf_Sym *sym, *this;
+	const Elf_Sym *sym;
 	const char *symn;
-	const elf_object_t *sobj;
-	Elf_Addr ooff;
+	struct sym_res sr;
 	int64_t cookie = pcookie;
 	struct {
 		struct __kbind param;
@@ -353,16 +327,15 @@ _dl_bind(elf_object_t *object, int index)
 	sym += ELF_R_SYM(rel->r_info);
 	symn = object->dyn.strtab + sym->st_name;
 
-	this = NULL;
-	ooff = _dl_find_symbol(symn, &this,
-	    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT, sym, object, &sobj);
-	if (this == NULL)
+	sr = _dl_find_symbol(symn, SYM_SEARCH_ALL|SYM_WARNNOTFOUND|SYM_PLT,
+	    sym, object);
+	if (sr.sym == NULL)
 		_dl_die("lazy binding failed!");
 
-	buf.newval = ooff + this->st_value + rel->r_addend;
+	buf.newval = sr.obj->obj_base + sr.sym->st_value;
 
-	if (__predict_false(sobj->traced) && _dl_trace_plt(sobj, symn))
-		return (buf.newval);
+	if (__predict_false(sr.obj->traced) && _dl_trace_plt(sr.obj, symn))
+		return buf.newval;
 
 	buf.param.kb_addr = (Elf_Word *)(object->obj_base + rel->r_offset);
 	buf.param.kb_size = sizeof(Elf_Addr);
@@ -377,7 +350,7 @@ _dl_bind(elf_object_t *object, int index)
 		__asm volatile("syscall" : "+r" (syscall_num), "+r" (arg3) :
 		    "r" (arg1), "r" (arg2) : "cc", "rcx", "r11", "memory");
 	}
-	return (buf.newval);
+	return buf.newval;
 }
 
 int
@@ -390,13 +363,10 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	Elf_RelA *rel;
 
 	if (pltgot == NULL)
-		return (0); /* it is possible to have no PLT/GOT relocations */
+		return 0; /* it is possible to have no PLT/GOT relocations */
 
 	if (object->Dyn.info[DT_PLTREL] != DT_RELA)
-		return (0);
-
-	if (object->traced)
-		lazy = 1;
+		return 0;
 
 	if (__predict_false(!lazy)) {
 		fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
@@ -413,5 +383,5 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 		}
 	}
 
-	return (fails);
+	return fails;
 }

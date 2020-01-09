@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.10 2018/05/15 11:19:21 reyk Exp $ */
+/*	$OpenBSD: util.c,v 1.12 2019/10/24 12:39:26 tb Exp $ */
 
 /*
  * Copyright (c) 2009 Martin Hedenfalk <martin@bzero.se>
@@ -43,7 +43,7 @@ bsnprintf(char *str, size_t size, const char *format, ...)
 	va_start(ap, format);
 	ret = vsnprintf(str, size, format, ap);
 	va_end(ap);
-	if (ret == -1 || ret >= (int)size)
+	if (ret < 0 || ret >= size)
 		return 0;
 
 	return 1;
@@ -113,9 +113,9 @@ ber2db(struct ber_element *root, struct btval *val, int compression_level)
 	memset(val, 0, sizeof(*val));
 
 	memset(&ber, 0, sizeof(ber));
-	ber_write_elements(&ber, root);
+	ober_write_elements(&ber, root);
 
-	if ((len = ber_get_writebuf(&ber, &buf)) == -1)
+	if ((len = ober_get_writebuf(&ber, &buf)) == -1)
 		return -1;
 
 	if (compression_level > 0) {
@@ -123,7 +123,7 @@ ber2db(struct ber_element *root, struct btval *val, int compression_level)
 		val->data = malloc(val->size + sizeof(uint32_t));
 		if (val->data == NULL) {
 			log_warn("malloc(%zu)", val->size + sizeof(uint32_t));
-			ber_free(&ber);
+			ober_free(&ber);
 			return -1;
 		}
 		dest = (char *)val->data + sizeof(uint32_t);
@@ -132,7 +132,7 @@ ber2db(struct ber_element *root, struct btval *val, int compression_level)
 		    compression_level)) != Z_OK) {
 			log_warn("compress returned %d", rc);
 			free(val->data);
-			ber_free(&ber);
+			ober_free(&ber);
 			return -1;
 		}
 		log_debug("compressed entry from %zd -> %lu byte",
@@ -148,7 +148,7 @@ ber2db(struct ber_element *root, struct btval *val, int compression_level)
 		ber.br_wbuf = NULL;
 	}
 
-	ber_free(&ber);
+	ober_free(&ber);
 
 	return 0;
 }
@@ -190,13 +190,13 @@ db2ber(struct btval *val, int compression_level)
 		log_debug("uncompressed entry from %zu -> %lu byte",
 		    val->size, len);
 
-		ber_set_readbuf(&ber, buf, len);
-		elm = ber_read_elements(&ber, NULL);
+		ober_set_readbuf(&ber, buf, len);
+		elm = ober_read_elements(&ber, NULL);
 		free(buf);
 		return elm;
 	} else {
-		ber_set_readbuf(&ber, val->data, val->size);
-		return ber_read_elements(&ber, NULL);
+		ober_set_readbuf(&ber, val->data, val->size);
+		return ober_read_elements(&ber, NULL);
 	}
 }
 

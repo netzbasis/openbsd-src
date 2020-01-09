@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.11 2018/11/01 00:18:44 sashan Exp $	*/
+/*	$OpenBSD: parse.y,v 1.15 2019/10/18 06:03:25 otto Exp $	*/
 
 /*
  * Copyright (c) 2018 Florian Obser <florian@openbsd.org>
@@ -37,7 +37,6 @@
 #include <err.h>
 #include <errno.h>
 #include <event.h>
-#include <ifaddrs.h>
 #include <imsg.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -175,6 +174,8 @@ varset		: STRING '=' string		{
 				if (isspace((unsigned char)*s)) {
 					yyerror("macro name cannot contain "
 					    "whitespace");
+					free($1);
+					free($3);
 					YYERROR;
 				}
 			}
@@ -187,7 +188,7 @@ varset		: STRING '=' string		{
 
 conf_main	: ra_opt_block {
 			ra_options = &conf->ra_options;
-		} 
+		}
 		;
 
 ra_opt_block	: DEFAULT ROUTER yesno {
@@ -659,7 +660,7 @@ top:
 	if (c == '-' || isdigit(c)) {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}
@@ -698,7 +699,7 @@ nodigits:
 	if (isalnum(c) || c == ':' || c == '_') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				yyerror("string too long");
 				return (findeol());
 			}

@@ -1,5 +1,5 @@
-/Makefile/1.49/Mon Oct 16 01:46:09 2017//
-/Makefile.inc/1.10/Sun Aug 19 18:55:16 2012//
+/Makefile/1.51/Thu May 16 05:24:13 2019//
+/Makefile.inc/1.11/Tue May 14 16:43:26 2019//
 D/barrier////
 D/blocked_close////
 D/blocked_dup2////
@@ -39,6 +39,7 @@ D/pthread_kill////
 D/pthread_mutex////
 D/pthread_once////
 D/pthread_rwlock////
+D/pthread_rwlock2////
 D/pthread_specific////
 D/pw////
 D/readdir////

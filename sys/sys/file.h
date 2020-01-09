@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.h,v 1.53 2018/08/20 16:00:22 mpi Exp $	*/
+/*	$OpenBSD: file.h,v 1.59 2020/01/05 13:46:02 visa Exp $	*/
 /*	$NetBSD: file.h,v 1.11 1995/03/26 20:24:13 jtc Exp $	*/
 
 /*
@@ -46,6 +46,13 @@ struct stat;
 struct file;
 struct ucred;
 
+/**
+ * File operations.
+ * The following entries could be called without KERNEL_LOCK hold:
+ * - fo_read
+ * - fo_write
+ * - fo_close
+ */
 struct	fileops {
 	int	(*fo_read)(struct file *, struct uio *, int);
 	int	(*fo_write)(struct file *, struct uio *, int);
@@ -56,8 +63,7 @@ struct	fileops {
 	int	(*fo_close)(struct file *, struct proc *);
 	int	(*fo_seek)(struct file *, off_t *, int, struct proc *);
 };
-#define FO_POSITION 0x01	/* positioned read/write */
-
+#define FO_POSITION	0x00000001	/* positioned read/write */
 
 /*
  * Kernel descriptor table.
@@ -68,6 +74,7 @@ struct	fileops {
  *	F	global `fhdlk' mutex
  *	a	atomic operations
  *	f	per file `f_mtx'
+ *	v	vnode lock
  *	k	kernel lock
  */
 struct file {
@@ -82,8 +89,8 @@ struct file {
 	short	f_type;		/* [I] descriptor type */
 	u_int	f_count;	/* [a] reference count */
 	struct	ucred *f_cred;	/* [I] credentials associated with descriptor */
-	struct	fileops *f_ops; /* [I] file operation pointers */
-	off_t	f_offset;	/* [k] */
+	const struct fileops *f_ops; /* [I] file operation pointers */
+	off_t	f_offset;	/* [f,v] offset */
 	void 	*f_data;	/* [I] private data */
 	int	f_iflags;	/* [k] internal flags */
 	uint64_t f_rxfer;	/* [f] total number of read transfers */
@@ -110,9 +117,21 @@ struct file {
 
 int	fdrop(struct file *, struct proc *);
 
+static inline off_t
+foffset(struct file *fp)
+{
+	off_t offset;
+
+	mtx_enter(&fp->f_mtx);
+	offset = fp->f_offset;
+	mtx_leave(&fp->f_mtx);
+	return (offset);
+}
+
 LIST_HEAD(filelist, file);
 extern int maxfiles;			/* kernel limit on number of open files */
 extern int numfiles;			/* actual number of open files */
-extern struct fileops vnops;		/* vnode operations for files */
+extern const struct fileops socketops;	/* socket operations for files */
+extern const struct fileops vnops;	/* vnode operations for files */
 
 #endif /* _KERNEL */

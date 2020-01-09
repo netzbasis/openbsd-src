@@ -1,4 +1,4 @@
-#	$OpenBSD: files.acpi,v 1.49 2018/07/02 12:46:20 kettenis Exp $
+#	$OpenBSD: files.acpi,v 1.53 2019/12/23 08:05:42 kettenis Exp $
 #
 # Config file and device description for machine-independent ACPI code.
 # Included by ports that need it.
@@ -116,6 +116,11 @@ device	aibs
 attach	aibs at acpi
 file	dev/acpi/atk0110.c		aibs
 
+# Intel Apollo Lake GPIO
+device	aplgpio
+attach	aplgpio at acpi
+file	dev/acpi/aplgpio.c		aplgpio
+
 # Intel Bay Trail GPIO
 device	bytgpio
 attach	bytgpio at acpi
@@ -125,6 +130,11 @@ file	dev/acpi/bytgpio.c		bytgpio
 device	chvgpio
 attach	chvgpio at acpi
 file	dev/acpi/chvgpio.c		chvgpio
+
+# Intel Gemini Lake GPIO
+device	glkgpio
+attach	glkgpio at acpi
+file	dev/acpi/glkgpio.c		glkgpio
 
 # "Intel" Dollar Cove TI PMIC
 device	tipmic
@@ -193,3 +203,12 @@ file	dev/acpi/acpisurface.c		acpisurface
 # IPMI
 attach	ipmi at acpi with ipmi_acpi
 file	dev/acpi/ipmi_acpi.c		ipmi_acpi
+
+# AMD Cryptographic Co-processor
+attach	ccp at acpi with ccp_acpi
+file	dev/acpi/ccp_acpi.c		ccp_acpi
+
+# AMD GPIO Controller
+device	amdgpio
+attach	amdgpio at acpi
+file	dev/acpi/amdgpio.c		amdgpio

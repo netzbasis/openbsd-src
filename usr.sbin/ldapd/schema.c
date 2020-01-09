@@ -1,4 +1,4 @@
-/*	$OpenBSD: schema.c,v 1.17 2017/01/20 11:55:08 benno Exp $ */
+/*	$OpenBSD: schema.c,v 1.19 2019/10/24 12:39:26 tb Exp $ */
 
 /*
  * Copyright (c) 2010 Martin Hedenfalk <martinh@openbsd.org>
@@ -251,7 +251,7 @@ int
 is_oidstr(const char *oidstr)
 {
 	struct ber_oid	 oid;
-	return (ber_string2oid(oidstr, &oid) == 0);
+	return (ober_string2oid(oidstr, &oid) == 0);
 }
 
 static struct name_list *
@@ -401,7 +401,7 @@ top:
 	if (isalnum(c) || c == ':' || c == '_' || c == '*') {
 		do {
 			*p++ = c;
-			if ((unsigned)(p-buf) >= sizeof(buf)) {
+			if ((size_t)(p-buf) >= sizeof(buf)) {
 				log_warnx("string too long");
 				return (findeol(schema));
 			}

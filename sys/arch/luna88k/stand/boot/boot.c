@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.c,v 1.5 2017/03/16 18:08:58 miod Exp $	*/
+/*	$OpenBSD: boot.c,v 1.8 2019/10/29 02:55:51 deraadt Exp $	*/
 /*	$NetBSD: boot.c,v 1.3 2013/03/05 15:34:53 tsutsui Exp $	*/
 
 /*
@@ -87,6 +87,7 @@
 #include <luna88k/stand/boot/samachdep.h>
 #include <luna88k/stand/boot/status.h>
 #include <lib/libsa/loadfile.h>
+#include <lib/libsa/arc4.h>
 
 int howto;
 
@@ -100,6 +101,7 @@ uint32_t cpu_bootarg1;
 uint32_t cpu_bootarg2;
 
 char rnddata[BOOTRANDOM_MAX];
+struct rc4_ctx randomctx;
 
 #if 0
 int
@@ -164,7 +166,7 @@ bootunix(char *line)
 #if 0
 	int dev, unit, part;
 #endif
-	u_long marks[MARK_MAX];
+	uint64_t marks[MARK_MAX];
 	char *lparen, *rparen;
 	char rndpath[MAXPATHLEN];
 	static int rnd_loaded = 0;
@@ -197,6 +199,9 @@ bootunix(char *line)
 		rnd_loaded = loadrandom(rndpath, rnddata, sizeof(rnddata));
 	}
 
+	rc4_keysetup(&randomctx, rnddata, sizeof rnddata);
+	rc4_skip(&randomctx, 1536);
+
 	/* Note marks[MARK_START] is passed as an load address offset */
 	memset(marks, 0, sizeof(marks));
 
@@ -209,8 +214,9 @@ bootunix(char *line)
 #endif
 
 		cpu_bootarg1 = BOOT_MAGIC;
-		cpu_bootarg2 = marks[MARK_END];
-		cpu_boot = (void (*)(uint32_t, uint32_t))marks[MARK_ENTRY];
+		cpu_bootarg2 = (uint32_t)marks[MARK_END];
+		cpu_boot = (void (*)(uint32_t, uint32_t))
+		    (uint32_t)marks[MARK_ENTRY];
 		(*cpu_boot)(cpu_bootarg1, cpu_bootarg2);
 	}
 	printf("Booting kernel failed. (%s)\n", strerror(errno));

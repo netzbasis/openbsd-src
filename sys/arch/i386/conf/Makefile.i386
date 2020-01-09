@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.i386,v 1.132 2019/01/20 09:57:23 anton Exp $
+#	$OpenBSD: Makefile.i386,v 1.137 2019/12/08 12:25:30 mpi Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -21,7 +21,9 @@ S!=	cd ../../../..; pwd
 _machdir?=	$S/arch/${_mach}
 _archdir?=	$S/arch/${_arch}
 
-INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch
+INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch \
+		-I$S/dev/pci/drm/include \
+		-I$S/dev/pci/drm/include/uapi
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
@@ -35,6 +37,7 @@ CMACHFLAGS+=	-fno-stack-protector
 .endif
 .if ${IDENT:M-DSMALL_KERNEL}
 SORTR=		cat
+COPTS?=		-Oz -mtune=i486 -mno-retpoline
 .elif ${COMPILER_VERSION:Mclang}
 CMACHFLAGS+=	-mretpoline
 .endif
@@ -63,7 +66,7 @@ HOSTED_C=	${HOSTCC} ${HOSTED_CFLAGS} ${HOSTED_CPPFLAGS} -c $<
 
 NORMAL_C_NOP=	${CC} ${CFLAGS} ${CPPFLAGS} -c $<
 NORMAL_C=	${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} -c $<
-NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} -c $<
+NORMAL_S=	${CC} ${AFLAGS} ${CPPFLAGS} ${PROF} -c $<
 
 %OBJS
 
@@ -162,14 +165,13 @@ depend obj:
 
 locore0.o: ${_machdir}/${_mach}/locore0.S assym.h
 locore.o mutex.o in_cksum.o mptramp.o: assym.h
-kvm86call.o acpi_wakecode.o: assym.h
+acpi_wakecode.o: assym.h
 
 hardlink-obsd:
 	[[ ! -f /bsd ]] || cmp -s bsd /bsd || ln -f /bsd /obsd
 
 newinstall:
-	umask 077 && cp bsd /nbsd && mv /nbsd /bsd && \
-	    sha256 -h /var/db/kernel.SHA256 /bsd
+	install -F -m 700 bsd /bsd && sha256 -h /var/db/kernel.SHA256 /bsd
 
 install: update-link hardlink-obsd newinstall
 

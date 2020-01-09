@@ -1,4 +1,4 @@
-/Makefile/1.45/Sun Nov 19 12:11:54 2017//
+/Makefile/1.46/Mon May 13 23:18:22 2019//
 /Makefile.inc/1.8/Thu Oct 18 14:25:14 2018//
 D/arch////
 D/bioctl////
@@ -67,4 +67,5 @@ D/sleep////
 D/stty////
 D/sync////
 D/sysctl////
+D/tee////
 D/umount////

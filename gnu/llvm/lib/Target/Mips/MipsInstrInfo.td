@@ -1623,11 +1623,15 @@ let isCall=1, hasDelaySlot=1, isCTI=1, Defs = [RA] in {
   class JumpLinkRegPseudo<RegisterOperand RO, Instruction JALRInst,
                           Register RetReg, RegisterOperand ResRO = RO>:
     PseudoSE<(outs), (ins RO:$rs), [(MipsJmpLink RO:$rs)], II_JALR>,
-    PseudoInstExpansion<(JALRInst RetReg, ResRO:$rs)>;
+    PseudoInstExpansion<(JALRInst RetReg, ResRO:$rs)> {
+    let hasPostISelHook = 1;
+  }
 
   class JumpLinkReg<string opstr, RegisterOperand RO>:
     InstSE<(outs RO:$rd), (ins RO:$rs), !strconcat(opstr, "\t$rd, $rs"),
-           [], II_JALR, FrmR, opstr>;
+           [], II_JALR, FrmR, opstr> {
+    let hasPostISelHook = 1;
+  }
 
   class BGEZAL_FT<string opstr, DAGOperand opnd,
                   RegisterOperand RO> :
@@ -1646,7 +1650,9 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, hasDelaySlot = 1,
 
   class TailCallReg<Instruction JumpInst, RegisterOperand RO> :
     PseudoSE<(outs), (ins RO:$rs), [(MipsTailCall RO:$rs)], II_JR>,
-    PseudoInstExpansion<(JumpInst RO:$rs)>;
+    PseudoInstExpansion<(JumpInst RO:$rs)> {
+    let hasPostISelHook = 1;
+  }
 }
 
 class BAL_BR_Pseudo<Instruction RealInst, DAGOperand opnd> :
@@ -2002,13 +2008,44 @@ let isPseudo = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
 // branches.  See the comment in file MipsLongBranch.cpp for detailed
 // explanation.
 
-// Expands to: lui $dst, %hi($tgt - $baltgt)
+// Expands to: lui $dst, %highest/%higher/%hi/%lo($tgt - $baltgt)
 def LONG_BRANCH_LUi : PseudoSE<(outs GPR32Opnd:$dst),
   (ins brtarget:$tgt, brtarget:$baltgt), []>;
+// Expands to: lui $dst, highest/%higher/%hi/%lo($tgt)
+def LONG_BRANCH_LUi2Op : PseudoSE<(outs GPR32Opnd:$dst),
+  (ins brtarget:$tgt), []>;
 
-// Expands to: addiu $dst, $src, %lo($tgt - $baltgt)
+// Expands to: addiu $dst, $src, %highest/%higher/%hi/%lo($tgt - $baltgt)
 def LONG_BRANCH_ADDiu : PseudoSE<(outs GPR32Opnd:$dst),
   (ins GPR32Opnd:$src, brtarget:$tgt, brtarget:$baltgt), []>;
+// Expands to: addiu $dst, $src, %highest/%higher/%hi/%lo($tgt)
+def LONG_BRANCH_ADDiu2Op : PseudoSE<(outs GPR32Opnd:$dst),
+  (ins GPR32Opnd:$src, brtarget:$tgt), []>;
+
+// Pseudo instructions used by retguard. In order to calculste the PC
+// for PIC code, we use a pair of pseudos to get the function address
+// into T9, which is normally used to hold this value but is trashed
+// by function epilogue.
+let isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
+
+  // Use BAL to get the PC into RA, then calculate the address of the
+  // current function and save this value in $rd. $rs and $rt are used
+  // as scratch registers and are trashed by this pseudo. $tgt is the
+  // symbol to branch to when calling BAL.
+  let Size = 32 in {
+  def RETGUARD_GET_FUNCTION_ADDR: PseudoSE<(outs GPR64:$rd),
+    (ins GPR64:$rs, GPR64:$rt, brtarget:$tgt), []>;
+  }
+
+  // Emit the symbol used for $tgt in RETGUARD_GET_FUNCTION_ADDR. We
+  // emit this symbol immediately before the usual function return, with
+  // the effect that the BAL branches to an immediate return and resumes
+  // execution through the rest of the RETGUARD epilogue. We pair BAL
+  // with RET to satisfy return branch predictors.
+  let Size = 0 in {
+  def RETGUARD_EMIT_SYMBOL: PseudoSE<(outs), (ins brtarget:$tgt), []>;
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Instruction definition
@@ -2995,6 +3032,20 @@ def LDMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rt),
 def SDMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rt),
                                 (ins mem_simm16:$addr), "sd $rt, $addr">,
                                 ISA_MIPS1_NOT_MIPS3;
+
+def SGE : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                            (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                            "sge\t$rd, $rs, $rt">;
+def SGEU : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                             (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                             "sgeu\t$rd, $rs, $rt">;
+def SGEImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                               (ins GPR32Opnd:$rs, simm32_relaxed:$imm),
+                               "sge\t$rd, $rs, $imm">, GPR_32;
+def SGEUImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                (ins GPR32Opnd:$rs, simm32_relaxed:$imm),
+                                "sgeu\t$rd, $rs, $imm">, GPR_32;
+
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//

@@ -4,6 +4,8 @@ D/biosboot////
 D/boot////
 D/cdboot////
 D/cdbr////
+D/efi32////
+D/efi64////
 D/efiboot////
 D/etc////
 D/fdboot////

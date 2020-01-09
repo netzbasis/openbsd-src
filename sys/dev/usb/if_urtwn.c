@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urtwn.c,v 1.82 2019/01/14 06:25:26 jmatthew Exp $	*/
+/*	$OpenBSD: if_urtwn.c,v 1.87 2020/01/05 08:58:25 jsg Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -255,7 +255,6 @@ static const struct urtwn_type {
 	URTWN_DEV_8192CU(BELKIN,	RTL8188CUS),
 	URTWN_DEV_8192CU(BELKIN,	RTL8192CU),
 	URTWN_DEV_8192CU(BELKIN,	RTL8192CU_1),
-	URTWN_DEV_8192CU(BELKIN,	RTL8192CU_2),
 	URTWN_DEV_8192CU(CHICONY,	RTL8188CUS_1),
 	URTWN_DEV_8192CU(CHICONY,	RTL8188CUS_2),
 	URTWN_DEV_8192CU(CHICONY,	RTL8188CUS_3),
@@ -283,7 +282,7 @@ static const struct urtwn_type {
 	URTWN_DEV_8192CU(IODATA,	RTL8192CU),
 	URTWN_DEV_8192CU(NETGEAR,	N300MA),
 	URTWN_DEV_8192CU(NETGEAR,	WNA1000M),
-	URTWN_DEV_8192CU(NETGEAR,	WNA1000Mv2),
+	URTWN_DEV_8192CU(NETGEAR,	WNA1000MV2),
 	URTWN_DEV_8192CU(NETGEAR,	RTL8192CU),
 	URTWN_DEV_8192CU(NETGEAR4,	RTL8188CU),
 	URTWN_DEV_8192CU(NETWEEN,	RTL8192CU),
@@ -380,7 +379,8 @@ void		urtwn_set_key_cb(struct urtwn_softc *, void *);
 void		urtwn_delete_key(struct ieee80211com *,
 		    struct ieee80211_node *, struct ieee80211_key *);
 void		urtwn_delete_key_cb(struct urtwn_softc *, void *);
-void		urtwn_rx_frame(struct urtwn_softc *, uint8_t *, int);
+void		urtwn_rx_frame(struct urtwn_softc *, uint8_t *, int,
+		    struct mbuf_list *);
 void		urtwn_rxeof(struct usbd_xfer *, void *,
 		    usbd_status);
 void		urtwn_txeof(struct usbd_xfer *, void *,
@@ -396,8 +396,10 @@ int		urtwn_llt_init(struct urtwn_softc *, int);
 int		urtwn_fw_loadpage(void *, int, uint8_t *, int);
 int		urtwn_load_firmware(void *, u_char **, size_t *);
 int		urtwn_dma_init(void *);
+void		urtwn_aggr_init(void *);
 void		urtwn_mac_init(void *);
 void		urtwn_bb_init(void *);
+void		urtwn_burstlen_init(struct urtwn_softc *);
 int		urtwn_init(void *);
 void		urtwn_stop(void *);
 int		urtwn_is_oactive(void *);
@@ -463,6 +465,7 @@ urtwn_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_sc.sc_ops.dma_init = urtwn_dma_init;
 	sc->sc_sc.sc_ops.fw_loadpage = urtwn_fw_loadpage;
 	sc->sc_sc.sc_ops.load_firmware = urtwn_load_firmware;
+	sc->sc_sc.sc_ops.aggr_init = urtwn_aggr_init;
 	sc->sc_sc.sc_ops.mac_init = urtwn_mac_init;
 	sc->sc_sc.sc_ops.bb_init = urtwn_bb_init;
 	sc->sc_sc.sc_ops.alloc_buffers = urtwn_alloc_buffers;
@@ -1080,7 +1083,8 @@ urtwn_delete_key_cb(struct urtwn_softc *sc, void *arg)
 }
 
 void
-urtwn_rx_frame(struct urtwn_softc *sc, uint8_t *buf, int pktlen)
+urtwn_rx_frame(struct urtwn_softc *sc, uint8_t *buf, int pktlen,
+    struct mbuf_list *ml)
 {
 	struct ieee80211com *ic = &sc->sc_sc.sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
@@ -1191,7 +1195,7 @@ urtwn_rx_frame(struct urtwn_softc *sc, uint8_t *buf, int pktlen)
 	rxi.rxi_flags = 0;
 	rxi.rxi_rssi = rssi;
 	rxi.rxi_tstamp = 0;	/* Unused. */
-	ieee80211_input(ifp, m, ni, &rxi);
+	ieee80211_inputm(ifp, m, ni, &rxi, ml);
 	/* Node is no longer needed. */
 	ieee80211_release_node(ic, ni);
 	splx(s);
@@ -1201,8 +1205,10 @@ void
 urtwn_rxeof(struct usbd_xfer *xfer, void *priv,
     usbd_status status)
 {
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct urtwn_rx_data *data = priv;
 	struct urtwn_softc *sc = data->sc;
+	struct ieee80211com *ic = &sc->sc_sc.sc_ic;
 	struct r92c_rx_desc_usb *rxd;
 	uint32_t rxdw0;
 	uint8_t *buf;
@@ -1295,13 +1301,14 @@ urtwn_rxeof(struct usbd_xfer *xfer, void *priv,
 			break;
 
 		/* Process 802.11 frame. */
-		urtwn_rx_frame(sc, buf, pktlen);
+		urtwn_rx_frame(sc, buf, pktlen, &ml);
 
 		/* Handle chunk alignment. */
 		totlen = (totlen + align) & ~align;
 		buf += totlen;
 		len -= totlen;
 	}
+	if_input(&ic->ic_if, &ml);
 
  resubmit:
 	/* Setup a new transfer. */
@@ -1696,21 +1703,6 @@ urtwn_r92c_power_on(struct urtwn_softc *sc)
 	urtwn_write_2(sc, R92C_SYS_ISO_CTRL,
 	    urtwn_read_2(sc, R92C_SYS_ISO_CTRL) & ~R92C_SYS_ISO_CTRL_DIOR);
 
-	/* Initialize MAC. */
-	urtwn_write_1(sc, R92C_APSD_CTRL,
-	    urtwn_read_1(sc, R92C_APSD_CTRL) & ~R92C_APSD_CTRL_OFF);
-	for (ntries = 0; ntries < 200; ntries++) {
-		if (!(urtwn_read_1(sc, R92C_APSD_CTRL) &
-		    R92C_APSD_CTRL_OFF_STATUS))
-			break;
-		DELAY(5);
-	}
-	if (ntries == 200) {
-		printf("%s: timeout waiting for MAC initialization\n",
-		    sc->sc_dev.dv_xname);
-		return (ETIMEDOUT);
-	}
-
 	/* Enable MAC DMA/WMAC/SCHEDULE/SEC blocks. */
 	reg = urtwn_read_2(sc, R92C_CR);
 	reg |= R92C_CR_HCI_TXDMA_EN | R92C_CR_HCI_RXDMA_EN |
@@ -2061,6 +2053,55 @@ urtwn_dma_init(void *cookie)
 }
 
 void
+urtwn_aggr_init(void *cookie)
+{
+	struct urtwn_softc *sc = cookie;
+	uint32_t reg = 0;
+	int dmasize, dmatiming, ndesc;
+
+	/* Set burst packet length. */
+	if (sc->sc_sc.chip & RTWN_CHIP_92E)
+		urtwn_burstlen_init(sc);
+
+	if (sc->sc_sc.chip & RTWN_CHIP_92E) {
+		dmasize = 6;
+		dmatiming = 32;
+		ndesc = 3;
+	} else {
+		dmasize = 48;
+		dmatiming = 4;
+		ndesc = (sc->sc_sc.chip & RTWN_CHIP_88E) ? 1 : 6;
+	}
+
+	/* Tx aggregation setting. */
+	if (sc->sc_sc.chip & RTWN_CHIP_92E) {
+		urtwn_write_1(sc, R92E_DWBCN1_CTRL, ndesc << 1);
+	} else {
+		reg = urtwn_read_4(sc, R92C_TDECTRL);
+		reg = RW(reg, R92C_TDECTRL_BLK_DESC_NUM, ndesc);
+		urtwn_write_4(sc, R92C_TDECTRL, reg);
+	}
+
+	/* Rx aggregation setting. */
+	if (!(sc->sc_sc.chip & RTWN_CHIP_92E)) {
+		urtwn_write_1(sc, R92C_TRXDMA_CTRL,
+		    urtwn_read_1(sc, R92C_TRXDMA_CTRL) |
+		    R92C_TRXDMA_CTRL_RXDMA_AGG_EN);
+	}
+
+	urtwn_write_1(sc, R92C_RXDMA_AGG_PG_TH, dmasize);
+	if (sc->sc_sc.chip & (RTWN_CHIP_92C | RTWN_CHIP_88C))
+		urtwn_write_1(sc, R92C_USB_DMA_AGG_TO, dmatiming);
+	else
+		urtwn_write_1(sc, R92C_RXDMA_AGG_PG_TH + 1, dmatiming);
+
+	/* Drop incorrect bulk out. */ 
+	urtwn_write_4(sc, R92C_TXDMA_OFFSET_CHK,
+	    urtwn_read_4(sc, R92C_TXDMA_OFFSET_CHK) |
+	    R92C_TXDMA_OFFSET_CHK_DROP_DATA_EN);
+}
+
+void
 urtwn_mac_init(void *cookie)
 {
 	struct urtwn_softc *sc = cookie;
@@ -2214,6 +2255,23 @@ urtwn_bb_init(void *cookie)
 
 	if (urtwn_bb_read(sc, R92C_HSSI_PARAM2(0)) & R92C_HSSI_PARAM2_CCK_HIPWR)
 		sc->sc_sc.sc_flags |= RTWN_FLAG_CCK_HIPWR;
+}
+
+void
+urtwn_burstlen_init(struct urtwn_softc *sc)
+{
+	uint8_t reg;
+
+	reg = urtwn_read_1(sc, R92E_RXDMA_PRO);
+	reg &= ~0x30;
+	switch (sc->sc_udev->speed) {
+	case USB_SPEED_HIGH:
+		urtwn_write_1(sc, R92E_RXDMA_PRO, reg | 0x1e);
+		break;
+	default:
+		urtwn_write_1(sc, R92E_RXDMA_PRO, reg | 0x2e);
+		break;
+	}
 }
 
 int

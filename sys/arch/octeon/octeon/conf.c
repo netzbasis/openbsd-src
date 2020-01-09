@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.20 2016/09/04 10:51:24 naddy Exp $ */
+/*	$OpenBSD: conf.c,v 1.22 2019/12/17 13:08:56 reyk Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -133,6 +133,7 @@ cdev_decl(pci);
 
 #include "usb.h"
 #include "uhid.h"
+#include "fido.h"
 #include "ugen.h"
 #include "ulpt.h"
 #include "ucom.h"
@@ -140,6 +141,7 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "octboot.h"
 #include "openprom.h"
 #include "switch.h"
 
@@ -170,7 +172,7 @@ struct cdevsw	cdevsw[] =
 	cdev_disk_init(NWD,wd),		/* 18: ST506/ESDI/IDE disk */
 	cdev_disk_init(NAMDCF,amdcf),	/* 19: CF disk */
 	cdev_openprom_init(NOPENPROM,openprom),	/* 20: /dev/openprom */
-	cdev_notdef(),			/* 21: */
+	cdev_octboot_init(NOCTBOOT,octboot),	/* 21: /dev/octboot */
 	cdev_disk_init(NRD,rd),		/* 22: ramdisk device */
 	cdev_notdef(),			/* 23: was: concatenated disk driver */
 	cdev_notdef(),			/* 24: */
@@ -229,6 +231,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 73: fuse on other mips64 */
 	cdev_tun_init(NTUN,tap),	/* 74: Ethernet network tunnel */
 	cdev_switch_init(NSWITCH,switch), /* 75: switch(4) control interface */
+	cdev_fido_init(NFIDO,fido),	/* 76: FIDO/U2F security key */
 };
 
 int	nchrdev = nitems(cdevsw);

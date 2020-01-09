@@ -5,10 +5,12 @@ add_lldb_library(lldbPluginProcessUtility PLUGIN
   HistoryThread.cpp
   HistoryUnwind.cpp
   InferiorCallPOSIX.cpp
+  LinuxProcMaps.cpp
   LinuxSignals.cpp
   MipsLinuxSignals.cpp
   NativeRegisterContextRegisterInfo.cpp
   NetBSDSignals.cpp
+  OpenBSDSignals.cpp
   RegisterContextDarwin_arm.cpp
   RegisterContextDarwin_arm64.cpp
   RegisterContextDarwin_i386.cpp
