@@ -15,7 +15,7 @@
 /if_axen.c/1.27/Sun Jul  7 06:40:10 2019//
 /if_axenreg.h/1.6/Wed Sep 14 12:41:09 2016//
 /if_axereg.h/1.26/Fri Jun 12 15:47:31 2015//
-/if_bwfm_usb.c/1.16/Tue Jul 17 19:44:38 2018//
+/if_bwfm_usb.c/1.17/Fri Jan 10 09:25:51 2020//
 /if_cdce.c/1.76/Thu Nov 14 13:50:55 2019//
 /if_cdcereg.h/1.7/Wed Oct 12 21:51:11 2016//
 /if_cue.c/1.78/Tue Oct  2 19:49:10 2018//
