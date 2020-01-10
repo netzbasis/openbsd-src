@@ -15,7 +15,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: config.h.in,v 1.12 2020/01/07 19:06:07 florian Exp $ */
+/* $Id: config.h.in,v 1.14 2020/01/09 13:56:37 florian Exp $ */
 
 /*! \file */
 
@@ -260,18 +260,6 @@ int sigwait(const unsigned int *set, int *sig);
 /* Define to use gperftools CPU profiler. */
 #undef HAVE_GPERFTOOLS_PROFILER
 
-/* Define to 1 if you have the <gssapi/gssapi.h> header file. */
-#undef HAVE_GSSAPI_GSSAPI_H
-
-/* Define to 1 if you have the <gssapi/gssapi_krb5.h> header file. */
-#undef HAVE_GSSAPI_GSSAPI_KRB5_H
-
-/* Define to 1 if you have the <gssapi.h> header file. */
-#undef HAVE_GSSAPI_H
-
-/* Define to 1 if you have the <gssapi_krb5.h> header file. */
-#undef HAVE_GSSAPI_KRB5_H
-
 /* Define to 1 if you have the if_nametoindex function. */
 #undef HAVE_IF_NAMETOINDEX
 
@@ -376,18 +364,6 @@ int sigwait(const unsigned int *set, int *sig);
 
 /* Define if your OpenSSL version supports GOST. */
 #undef HAVE_OPENSSL_GOST
-
-/* Define if your PKCS11 provider supports ECDSA. */
-#undef HAVE_PKCS11_ECDSA
-
-/* Define if your PKCS11 provider supports Ed25519. */
-#undef HAVE_PKCS11_ED25519
-
-/* Define if your PKCS11 provider supports Ed448. */
-#undef HAVE_PKCS11_ED448
-
-/* Define if your PKCS11 provider supports GOST. */
-#undef HAVE_PKCS11_GOST
 
 /* Support for PTHREAD_MUTEX_ADAPTIVE_NP */
 #undef HAVE_PTHREAD_MUTEX_ADAPTIVE_NP

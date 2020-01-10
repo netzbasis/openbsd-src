@@ -18,6 +18,7 @@
 
 #include <config.h>
 
+#include <stdint.h>
 #include <string.h>
 
 #include <isc/lex.h>
@@ -1035,12 +1036,7 @@ options_clauses[] = {
 	{ "session-keyalg", &cfg_type_astring, 0 },
 	{ "session-keyfile", &cfg_type_qstringornone, 0 },
 	{ "session-keyname", &cfg_type_astring, 0 },
-#ifdef ISC_PLATFORM_USESIT
 	{ "sit-secret", &cfg_type_sstring, CFG_CLAUSEFLAG_EXPERIMENTAL },
-#else
-	{ "sit-secret", &cfg_type_sstring,
-	  CFG_CLAUSEFLAG_EXPERIMENTAL | CFG_CLAUSEFLAG_NOTCONFIGURED },
-#endif
 	{ "stacksize", &cfg_type_size, 0 },
 	{ "statistics-file", &cfg_type_qstring, 0 },
 	{ "statistics-interval", &cfg_type_uint32, CFG_CLAUSEFLAG_NYI },
@@ -1048,8 +1044,6 @@ options_clauses[] = {
 	{ "tcp-listen-queue", &cfg_type_uint32, 0 },
 	{ "tkey-dhkey", &cfg_type_tkey_dhkey, 0 },
 	{ "tkey-domain", &cfg_type_qstring, 0 },
-	{ "tkey-gssapi-credential", &cfg_type_qstring, 0 },
-	{ "tkey-gssapi-keytab", &cfg_type_qstring, 0 },
 	{ "transfers-in", &cfg_type_uint32, 0 },
 	{ "transfers-out", &cfg_type_uint32, 0 },
 	{ "transfers-per-ns", &cfg_type_uint32, 0 },
@@ -1593,12 +1587,7 @@ view_clauses[] = {
 	{ "min-roots", &cfg_type_uint32, CFG_CLAUSEFLAG_NOTIMP },
 	{ "minimal-responses", &cfg_type_boolean, 0 },
 	{ "no-case-compress", &cfg_type_bracketed_aml, 0 },
-#ifdef ISC_PLATFORM_USESIT
 	{ "nosit-udp-size", &cfg_type_uint32, CFG_CLAUSEFLAG_EXPERIMENTAL },
-#else
-	{ "nosit-udp-size", &cfg_type_uint32,
-	  CFG_CLAUSEFLAG_EXPERIMENTAL | CFG_CLAUSEFLAG_NOTCONFIGURED },
-#endif
 	{ "preferred-glue", &cfg_type_astring, 0 },
 	{ "prefetch", &cfg_type_prefetch, 0 },
 	{ "provide-ixfr", &cfg_type_boolean, 0 },
@@ -1614,12 +1603,7 @@ view_clauses[] = {
 	{ "rate-limit", &cfg_type_rrl, 0 },
 	{ "recursion", &cfg_type_boolean, 0 },
 	{ "request-nsid", &cfg_type_boolean, 0 },
-#ifdef ISC_PLATFORM_USESIT
 	{ "request-sit", &cfg_type_boolean, CFG_CLAUSEFLAG_EXPERIMENTAL },
-#else
-	{ "request-sit", &cfg_type_boolean,
-	  CFG_CLAUSEFLAG_EXPERIMENTAL | CFG_CLAUSEFLAG_NOTCONFIGURED },
-#endif
 	{ "resolver-query-timeout", &cfg_type_uint32, 0 },
 	{ "response-policy", &cfg_type_rpz, 0 },
 	{ "rfc2308-type1", &cfg_type_boolean, CFG_CLAUSEFLAG_NYI },
@@ -1772,7 +1756,7 @@ namedconf_clausesets[] = {
 	namedconf_or_view_clauses,
 	NULL
 };
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_namedconf = {
+cfg_type_t cfg_type_namedconf = {
 	"namedconf", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, namedconf_clausesets
 };
@@ -1783,7 +1767,7 @@ bindkeys_clausesets[] = {
 	bindkeys_clauses,
 	NULL
 };
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_bindkeys = {
+cfg_type_t cfg_type_bindkeys = {
 	"bindkeys", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, bindkeys_clausesets
 };
@@ -1883,12 +1867,7 @@ server_clauses[] = {
 	{ "query-source-v6", &cfg_type_querysource6, 0 },
 	{ "request-ixfr", &cfg_type_boolean, 0 },
 	{ "request-nsid", &cfg_type_boolean, 0 },
-#ifdef ISC_PLATFORM_USESIT
 	{ "request-sit", &cfg_type_boolean, CFG_CLAUSEFLAG_EXPERIMENTAL },
-#else
-	{ "request-sit", &cfg_type_boolean,
-	  CFG_CLAUSEFLAG_EXPERIMENTAL | CFG_CLAUSEFLAG_NOTCONFIGURED },
-#endif
 	{ "support-ixfr", &cfg_type_boolean, CFG_CLAUSEFLAG_OBSOLETE },
 	{ "tcp-only", &cfg_type_boolean, 0 },
 	{ "transfer-format", &cfg_type_transferformat, 0 },
@@ -1990,7 +1969,7 @@ addzoneconf_clausesets[] = {
 	NULL
 };
 
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_addzoneconf = {
+cfg_type_t cfg_type_addzoneconf = {
 	"addzoneconf", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, addzoneconf_clausesets
 };
@@ -2008,17 +1987,17 @@ newzones_clausesets[] = {
 	NULL
 };
 
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_newzones = {
+cfg_type_t cfg_type_newzones = {
 	"newzones", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, newzones_clausesets
 };
 
 static isc_result_t
-parse_unitstring(char *str, isc_resourcevalue_t *valuep) {
+parse_unitstring(char *str, uint64_t *valuep) {
 	char *endp;
 	unsigned int len;
-	isc_uint64_t value;
-	isc_uint64_t unit;
+	uint64_t value;
+	uint64_t unit;
 
 	value = isc_string_touint64(str, &endp, 10);
 	if (*endp == 0) {
@@ -2046,7 +2025,7 @@ parse_unitstring(char *str, isc_resourcevalue_t *valuep) {
 	default:
 		return (ISC_R_FAILURE);
 	}
-	if (value > ISC_UINT64_MAX / unit)
+	if (value > UINT64_MAX / unit)
 		return (ISC_R_FAILURE);
 	*valuep = value * unit;
 	return (ISC_R_SUCCESS);
@@ -2056,7 +2035,7 @@ static isc_result_t
 parse_sizeval(cfg_parser_t *pctx, const cfg_type_t *type, cfg_obj_t **ret) {
 	isc_result_t result;
 	cfg_obj_t *obj = NULL;
-	isc_uint64_t val;
+	uint64_t val;
 
 	UNUSED(type);
 
@@ -2299,7 +2278,7 @@ static cfg_type_t cfg_type_filter_aaaa = {
 
 static keyword_type_t key_kw = { "key", &cfg_type_astring };
 
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_keyref = {
+cfg_type_t cfg_type_keyref = {
 	"keyref", parse_keyvalue, print_keyvalue, doc_keyvalue,
 	&cfg_rep_string, &key_kw
 };
@@ -3059,7 +3038,7 @@ rndcconf_clausesets[] = {
 	NULL
 };
 
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_rndcconf = {
+cfg_type_t cfg_type_rndcconf = {
 	"rndcconf", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, rndcconf_clausesets
 };
@@ -3076,7 +3055,7 @@ rndckey_clausesets[] = {
 	NULL
 };
 
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_rndckey = {
+cfg_type_t cfg_type_rndckey = {
 	"rndckey", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, rndckey_clausesets
 };
@@ -3085,7 +3064,7 @@ LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_rndckey = {
  * session.key has exactly the same syntax as rndc.key, but it's defined
  * separately for clarity (and so we can extend it someday, if needed).
  */
-LIBISCCFG_EXTERNAL_DATA cfg_type_t cfg_type_sessionkey = {
+cfg_type_t cfg_type_sessionkey = {
 	"sessionkey", cfg_parse_mapbody, cfg_print_mapbody, cfg_doc_mapbody,
 	&cfg_rep_map, rndckey_clausesets
 };
@@ -3246,7 +3225,7 @@ static isc_result_t
 parse_ttlval(cfg_parser_t *pctx, const cfg_type_t *type, cfg_obj_t **ret) {
 	isc_result_t result;
 	cfg_obj_t *obj = NULL;
-	isc_uint32_t ttl;
+	uint32_t ttl;
 
 	UNUSED(type);
 
