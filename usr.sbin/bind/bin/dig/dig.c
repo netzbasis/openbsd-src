@@ -14,10 +14,10 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dig.c,v 1.30 2020/01/07 19:09:26 florian Exp $ */
+/* $Id: dig.c,v 1.36 2020/01/09 18:17:14 florian Exp $ */
 
 /*! \file */
-
+#include <sys/cdefs.h>
 #include <config.h>
 #include <stdlib.h>
 #include <time.h>
@@ -28,12 +28,12 @@
 #include <isc/netaddr.h>
 #include <isc/parseint.h>
 #include <isc/platform.h>
-#include <isc/print.h>
+
 #include <isc/string.h>
 #include <isc/task.h>
 #include <isc/util.h>
 
-#include <pk11/site.h>
+
 
 #include <dns/byaddr.h>
 #include <dns/fixedname.h>
@@ -76,16 +76,14 @@ static char *argv0;
 static int addresscount = 0;
 
 static char domainopt[DNS_NAME_MAXTEXT];
-#ifdef ISC_PLATFORM_USESIT
 static char sitvalue[256];
-#endif
 
 static isc_boolean_t short_form = ISC_FALSE, printcmd = ISC_TRUE,
 	ip6_int = ISC_FALSE, plusquest = ISC_FALSE, pluscomm = ISC_FALSE,
 	multiline = ISC_FALSE, nottl = ISC_FALSE, noclass = ISC_FALSE,
 	onesoa = ISC_FALSE, use_usec = ISC_FALSE, nocrypto = ISC_FALSE,
 	ipv4only = ISC_FALSE, ipv6only = ISC_FALSE;
-static isc_uint32_t splitwidth = 0xffffffff;
+static uint32_t splitwidth = 0xffffffff;
 
 /*% rrcomments are neither explicitly enabled nor disabled by default */
 static int rrcomments = 0;
@@ -165,8 +163,8 @@ print_usage(FILE *fp) {
 "           +[no]tcp +timeout=# +[no]trace +tries=# +[no]ttlid +[no]vc\n", fp);
 }
 
-ISC_PLATFORM_NORETURN_PRE static void
-usage(void) ISC_PLATFORM_NORETURN_POST;
+static __dead void
+usage(void);
 
 static void
 usage(void) {
@@ -191,7 +189,7 @@ help(void) {
  */
 static void
 received(unsigned int bytes, isc_sockaddr_t *from, dig_query_t *query) {
-	isc_uint64_t diff;
+	uint64_t diff;
 	time_t tnow;
 	struct tm tmnow;
 	char time_str[100];
@@ -214,7 +212,7 @@ received(unsigned int bytes, isc_sockaddr_t *from, dig_query_t *query) {
 			printf(";; WHEN: %s\n", time_str);
 		if (query->lookup->doing_xfr) {
 			printf(";; XFR size: %u records (messages %u, "
-			       "bytes %" ISC_PRINT_QUADFORMAT "u)\n",
+			       "bytes %llu)\n",
 			       query->rr_count, query->msg_count,
 			       query->byte_count);
 		} else {
@@ -232,18 +230,18 @@ received(unsigned int bytes, isc_sockaddr_t *from, dig_query_t *query) {
 	} else if (query->lookup->identify && !short_form) {
 		diff = isc_time_microdiff(&query->time_recv, &query->time_sent);
 		if (use_usec)
-			printf(";; Received %" ISC_PRINT_QUADFORMAT "u bytes "
+			printf(";; Received %llu bytes "
 			       "from %s(%s) in %ld us\n\n",
 			       query->lookup->doing_xfr
 				 ? query->byte_count
-				 : (isc_uint64_t)bytes,
+				 : (uint64_t)bytes,
 			       fromtext, query->userarg, (long) diff);
 		else
-			printf(";; Received %" ISC_PRINT_QUADFORMAT "u bytes "
+			printf(";; Received %llu bytes "
 			       "from %s(%s) in %ld ms\n\n",
 			       query->lookup->doing_xfr
 				 ?  query->byte_count
-				 : (isc_uint64_t)bytes,
+				 : (uint64_t)bytes,
 			       fromtext, query->userarg, (long) diff / 1000);
 	}
 }
@@ -265,7 +263,7 @@ trying(char *frm, dig_lookup_t *lookup) {
 static isc_result_t
 say_message(dns_rdata_t *rdata, dig_query_t *query, isc_buffer_t *buf) {
 	isc_result_t result;
-	isc_uint64_t diff;
+	uint64_t diff;
 	char store[sizeof(" in 18446744073709551616 us.")];
 	unsigned int styleflags = 0;
 
@@ -292,9 +290,9 @@ say_message(dns_rdata_t *rdata, dig_query_t *query, isc_buffer_t *buf) {
 		ADD_STRING(buf, " from server ");
 		ADD_STRING(buf, query->servname);
 		if (use_usec)
-			snprintf(store, sizeof(store), " in %" ISC_PLATFORM_QUADFORMAT "u us.", diff);
+			snprintf(store, sizeof(store), " in %llu us.", diff);
 		else
-			snprintf(store, sizeof(store), " in %" ISC_PLATFORM_QUADFORMAT "u ms.", diff / 1000);
+			snprintf(store, sizeof(store), " in %llu ms.", diff / 1000);
 		ADD_STRING(buf, store);
 	}
 	ADD_STRING(buf, "\n");
@@ -719,11 +717,9 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 	isc_result_t result;
 	char option_store[256];
 	char *cmd, *value, *ptr, *code;
-	isc_uint32_t num;
+	uint32_t num;
 	isc_boolean_t state = ISC_TRUE;
-#if defined(DIG_SIGCHASE) || defined(ISC_PLATFORM_USESIT)
 	size_t n;
-#endif
 
 	strlcpy(option_store, option, sizeof(option_store));
 	ptr = option_store;
@@ -841,23 +837,19 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 			printcmd = state;
 			break;
 		case 'o': /* comments */
-#ifdef ISC_PLATFORM_USESIT
 			switch (cmd[2]) {
 			case 'o':
 				FULLCHECK("cookie");
 				goto sit;
 			case 'm':
-#endif
 				FULLCHECK("comments");
 				lookup->comments = state;
 				if (lookup == default_lookup)
 					pluscomm = state;
-#ifdef ISC_PLATFORM_USESIT
 				break;
 			default:
 				goto invalid_option;
 			}
-#endif
 			break;
 		case 'r':
 			FULLCHECK("crypto");
@@ -990,11 +982,7 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 				break;
 			case 'n':
 				FULLCHECK("idnout");
-#ifndef WITH_IDN
 				fprintf(stderr, ";; IDN support not enabled\n");
-#else
-				lookup->idnout = state;
-#endif
 				break;
 			default:
 				goto invalid_option;
@@ -1185,7 +1173,6 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 				goto invalid_option;
 			}
 			break;
-#if defined(DIG_SIGCHASE) || defined(ISC_PLATFORM_USESIT)
 		case 'i':
 			switch (cmd[2]) {
 #ifdef DIG_SIGCHASE
@@ -1196,7 +1183,6 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 					lookup->dnssec = ISC_TRUE;
 				break;
 #endif
-#ifdef ISC_PLATFORM_USESIT
 			case 't': /* sit */
 				FULLCHECK("sit");
  sit:
@@ -1212,12 +1198,10 @@ plus_option(const char *option, isc_boolean_t is_batchfile,
 				} else
 					lookup->sitvalue = NULL;
 				break;
-#endif
 			default:
 				goto invalid_option;
 			}
 			break;
-#endif
 		case 'p': /* split */
 			FULLCHECK("split");
 			if (value != NULL && !state)
@@ -1401,7 +1385,7 @@ dash_option(char *option, char *next, dig_lookup_t **lookup,
 	struct in6_addr in6;
 	in_port_t srcport;
 	char *hash, *cmd;
-	isc_uint32_t num;
+	uint32_t num;
 
 	while (strpbrk(option, single_dash_opts) == &option[0]) {
 		/*
@@ -1573,7 +1557,7 @@ dash_option(char *option, char *next, dig_lookup_t **lookup,
 						"extra type option\n");
 			}
 			if (rdtype == dns_rdatatype_ixfr) {
-				isc_uint32_t serial;
+				uint32_t serial;
 				(*lookup)->rdtype = dns_rdatatype_ixfr;
 				(*lookup)->rdtypeset = ISC_TRUE;
 				result = parse_uint(&serial, &value[5],
@@ -1614,11 +1598,7 @@ dash_option(char *option, char *next, dig_lookup_t **lookup,
 			ptr = ptr2;
 			ptr2 = ptr3;
 		} else  {
-#ifndef PK11_MD5_DISABLE
-			hmacname = DNS_TSIG_HMACMD5_NAME;
-#else
 			hmacname = DNS_TSIG_HMACSHA256_NAME;
-#endif
 			digestbits = 0;
 		}
 		strlcpy(keynametext, ptr, sizeof(keynametext));
@@ -1867,7 +1847,7 @@ parse_args(isc_boolean_t is_batchfile, isc_boolean_t config_only,
 							"extra type option\n");
 					}
 					if (rdtype == dns_rdatatype_ixfr) {
-						isc_uint32_t serial;
+						uint32_t serial;
 						lookup->rdtype =
 							dns_rdatatype_ixfr;
 						lookup->rdtypeset = ISC_TRUE;

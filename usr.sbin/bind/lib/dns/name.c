@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: name.c,v 1.14 2020/01/07 19:08:09 florian Exp $ */
+/* $Id: name.c,v 1.18 2020/01/09 18:17:15 florian Exp $ */
 
 /*! \file */
 
@@ -27,8 +27,8 @@
 #include <isc/hash.h>
 #include <isc/mem.h>
 #include <isc/once.h>
-#include <isc/print.h>
-#include <isc/random.h>
+
+
 #include <isc/string.h>
 #include <isc/thread.h>
 #include <isc/util.h>
@@ -177,7 +177,7 @@ static unsigned char root_offsets[] = { 0 };
 static dns_name_t root = DNS_NAME_INITABSOLUTE(root_ndata, root_offsets);
 
 /* XXXDCL make const? */
-LIBDNS_EXTERNAL_DATA dns_name_t *dns_rootname = &root;
+dns_name_t *dns_rootname = &root;
 
 static unsigned char wild_ndata[] = { "\001*" };
 static unsigned char wild_offsets[] = { 0 };
@@ -186,7 +186,7 @@ static dns_name_t wild =
 	DNS_NAME_INITNONABSOLUTE(wild_ndata, wild_offsets);
 
 /* XXXDCL make const? */
-LIBDNS_EXTERNAL_DATA dns_name_t *dns_wildcardname = &wild;
+dns_name_t *dns_wildcardname = &wild;
 
 unsigned int
 dns_fullname_hash(dns_name_t *name, isc_boolean_t case_sensitive);
@@ -1915,10 +1915,10 @@ dns_name_towire(const dns_name_t *name, dns_compress_t *cctx,
 		isc_buffer_t *target)
 {
 	unsigned int methods;
-	isc_uint16_t offset;
+	uint16_t offset;
 	dns_name_t gp;	/* Global compression prefix */
 	isc_boolean_t gf;	/* Global compression target found */
-	isc_uint16_t go;	/* Global compression offset */
+	uint16_t go;	/* Global compression offset */
 	dns_offsets_t clo;
 	dns_name_t clname;
 

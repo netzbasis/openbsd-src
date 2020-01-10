@@ -2794,33 +2794,6 @@ char a[16],b[64]; return(inet_ntop(AF_INET6, a, b, sizeof(b)) == (char*)0);}],
 	ISC_PLATFORM_NEEDNTOP="#undef ISC_PLATFORM_NEEDNTOP"])
 
 
-# On NetBSD 1.4.2 and maybe others, inet_pton() incorrectly accepts
-# addresses with less than four octets, like "1.2.3".  Also leading
-# zeros should also be rejected.
-
-AC_MSG_CHECKING([for working inet_pton with IPv6 support])
-AC_TRY_RUN([
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-main() { char a[16]; return (inet_pton(AF_INET, "1.2.3", a) == 1 ? 1 :
-			     inet_pton(AF_INET, "1.2.3.04", a) == 1 ? 1 :
-			     (inet_pton(AF_INET6, "::1.2.3.4", a) != 1)); }],
-	[AC_MSG_RESULT(yes)
-	ISC_PLATFORM_NEEDPTON="#undef ISC_PLATFORM_NEEDPTON"],
-	[AC_MSG_RESULT(no)
-	ISC_EXTRA_OBJS="$ISC_EXTRA_OBJS inet_pton.$O"
-	ISC_EXTRA_SRCS="$ISC_EXTRA_SRCS inet_pton.c"
-	ISC_PLATFORM_NEEDPTON="#define ISC_PLATFORM_NEEDPTON 1"],
-	[AC_MSG_RESULT(assuming inet_pton needed)
-	ISC_EXTRA_OBJS="$ISC_EXTRA_OBJS inet_pton.$O"
-	ISC_EXTRA_SRCS="$ISC_EXTRA_SRCS inet_pton.c"
-	ISC_PLATFORM_NEEDPTON="#define ISC_PLATFORM_NEEDPTON 1"])
-
-AC_SUBST(ISC_PLATFORM_NEEDNTOP)
-AC_SUBST(ISC_PLATFORM_NEEDPTON)
-
 #
 # Look for a 4.4BSD-style sa_len member in struct sockaddr.
 #
@@ -3216,7 +3189,7 @@ AC_SUBST(DST_EXTRA_OBJS)
 AC_SUBST(DST_EXTRA_SRCS)
 
 # Determine the printf format characters to use when printing
-# values of type isc_int64_t. This will normally be "ll", but where
+# values of type int64_t. This will normally be "ll", but where
 # the compiler treats "long long" as a alias for "long" and printf
 # doesn't know about "long long" use "l".  Hopefully the sprintf
 # will produce a inconsistent result in the later case.  If the compiler
@@ -3318,7 +3291,7 @@ AC_DEFINE(NEED_OPTARG, 1, [Defined if extern char *optarg is not declared.])])
 # Check for nanoseconds in file stats
 #
 AC_MSG_CHECKING(st_mtim.tv_nsec)
-AC_TRY_COMPILE([#include <sys/fcntl.h>],[struct stat s; return(s.st_mtim.tv_nsec);],
+AC_TRY_COMPILE([#include <sys/stat.h>],[struct stat s; return(s.st_mtim.tv_nsec);],
 	[AC_MSG_RESULT(yes)
 	ISC_PLATFORM_HAVESTATNSEC="#define ISC_PLATFORM_HAVESTATNSEC 1"],
 	[AC_MSG_RESULT(no)
@@ -3335,7 +3308,7 @@ AC_TRY_COMPILE([
 #include <sys/resource.h>],
 [rlim_t rl = 19671212; return (0);],
 [AC_MSG_RESULT(yes)
- ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE rlim_t"],
+ rlim_t="#define ISC_PLATFORM_RLIMITTYPE rlim_t"],
 [AC_MSG_RESULT(no)
 
 AC_MSG_CHECKING(type of rlim_cur)
@@ -3345,7 +3318,7 @@ AC_TRY_RUN([
 #include <sys/resource.h>
 main() { struct rlimit r; exit(!(sizeof(r.rlim_cur) == sizeof(int)));}],
 [AC_MSG_RESULT(int)
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE int"],
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE int"],
 [
 AC_TRY_RUN([
 #include <sys/types.h>
@@ -3353,7 +3326,7 @@ AC_TRY_RUN([
 #include <sys/resource.h>
 main() { struct rlimit r; exit(!(sizeof(r.rlim_cur) == sizeof(long int)));}],
 [AC_MSG_RESULT(long int)
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE long int"],
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE long int"],
 [
 AC_TRY_RUN([
 #include <sys/types.h>
@@ -3361,16 +3334,16 @@ AC_TRY_RUN([
 #include <sys/resource.h>
 main() { struct rlimit r; exit((!sizeof(r.rlim_cur) == sizeof(long long int)));}],
 [AC_MSG_RESULT(long long int)
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE long long int"],
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE long long int"],
 [AC_MSG_ERROR([unable to determine sizeof rlim_cur])
 ],[AC_MSG_ERROR(this cannot happen)])
 ],[AC_MSG_ERROR(this cannot happen)])
 ],[
 AC_ARG_WITH(rlimtype, , rlimtype="$withval", rlimtype="long long int")
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE $rlimtype"
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE $rlimtype"
 AC_MSG_RESULT(cannot determine type of rlim_cur when cross compiling - assuming $rlimtype)])
 ])
-AC_SUBST(ISC_PLATFORM_RLIMITTYPE)
+AC_SUBST(rlim_t)
 
 #
 # Older HP-UX doesn't have gettune
@@ -4585,9 +4558,6 @@ AC_CONFIG_FILES([
 	lib/dns/include/Makefile
 	lib/dns/include/dns/Makefile
 	lib/dns/include/dst/Makefile
-	lib/isc/$arch/Makefile
-	lib/isc/$arch/include/Makefile
-	lib/isc/$arch/include/isc/Makefile
 	lib/isc/nothreads/Makefile
 	lib/isc/nothreads/include/Makefile
 	lib/isc/nothreads/include/isc/Makefile
@@ -4595,13 +4565,10 @@ AC_CONFIG_FILES([
 	lib/isc/include/Makefile
 	lib/isc/include/isc/Makefile
 	lib/isc/include/isc/platform.h
-	lib/isc/include/pk11/Makefile
-	lib/isc/include/pkcs11/Makefile
 	lib/isc/nls/Makefile
 	lib/isc/unix/Makefile
 	lib/isc/unix/include/Makefile
 	lib/isc/unix/include/isc/Makefile
-	lib/isc/unix/include/pkcs11/Makefile
 	lib/isccfg/Makefile
 	lib/isccfg/include/Makefile
 	lib/isccfg/include/isccfg/Makefile

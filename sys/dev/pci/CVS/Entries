@@ -18,11 +18,11 @@
 /alipm.c/1.16/Fri Oct  5 10:51:28 2012//
 /amas.c/1.6/Sat Jan  4 01:34:24 2020//
 /amas.h/1.1/Thu May  7 11:30:27 2009//
-/amdiic.c/1.11/Tue Oct  1 20:06:00 2013//
+/amdiic.c/1.12/Thu Jan  9 14:35:19 2020//
 /amdpcib.c/1.3/Sat Mar 14 03:38:48 2015//
-/amdpm.c/1.33/Sat Apr 28 15:44:59 2018//
+/amdpm.c/1.34/Thu Jan  9 14:35:19 2020//
 /ami_pci.c/1.43/Tue Oct 28 11:43:10 2008//
-/arc.c/1.107/Thu Sep 10 18:10:33 2015//
+/arc.c/1.108/Thu Jan  9 14:35:19 2020//
 /auacer.c/1.22/Sat Dec 14 12:35:19 2019//
 /auacerreg.h/1.1/Thu Aug 28 10:21:23 2008//
 /auglx.c/1.17/Sat Dec 14 12:37:05 2019//
@@ -54,10 +54,9 @@
 /cy82c693reg.h/1.2/Thu Jun 26 05:42:17 2008//
 /cy82c693var.h/1.2/Thu Jun 26 05:42:17 2008//
 /cy_pci.c/1.14/Sun Apr  3 15:36:02 2011//
-/cz.c/1.21/Mon Feb 19 08:59:52 2018//
+/cz.c/1.22/Thu Jan  9 14:35:19 2020//
 /czreg.h/1.2/Sun Nov 16 20:30:06 2003//
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
-/dpt_pci.c/1.9/Fri Dec 19 22:44:58 2014//
 /dwiic_pci.c/1.9/Wed Jul 31 16:04:16 2019//
 /eap.c/1.57/Sat Dec 14 12:48:32 2019//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
@@ -75,7 +74,7 @@
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.6/Tue Sep 21 20:11:44 2010//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//
-/files.pci/1.341/Mon Nov 18 03:03:37 2019//
+/files.pci/1.342/Fri Jan 10 01:13:19 2020//
 /fms.c/1.30/Tue Dec 20 15:31:00 2016//
 /fmsradio.c/1.6/Thu Jun  6 16:29:37 2002//
 /fmsreg.h/1.3/Thu Jun 26 05:42:17 2008//
@@ -92,7 +91,7 @@
 /hifn7751var.h/1.53/Wed Dec 15 23:34:23 2010//
 /i82365_pci.c/1.12/Fri Sep  8 05:36:52 2017//
 /i82365_pcivar.h/1.6/Thu Jun 26 05:42:17 2008//
-/ichiic.c/1.42/Wed May  8 15:20:05 2019//
+/ichiic.c/1.43/Thu Jan  9 14:35:19 2020//
 /ichreg.h/1.7/Sun Dec 18 12:09:04 2005//
 /ichwdt.c/1.6/Sat Mar 19 11:34:22 2016//
 /if_acx_pci.c/1.9/Tue Nov 24 17:11:39 2015//
@@ -114,7 +113,7 @@
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
 /if_bnxt.c/1.21/Tue Sep  3 09:00:44 2019//
 /if_bnxtreg.h/1.3/Wed Apr 24 10:09:49 2019//
-/if_bwfm_pci.c/1.29/Thu Feb  7 07:39:56 2019//
+/if_bwfm_pci.c/1.30/Thu Jan  9 14:35:19 2020//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.17/Fri May 10 16:44:36 2019//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//
@@ -202,7 +201,7 @@
 /if_stereg.h/1.12/Sat Mar  9 09:34:15 2013//
 /if_stge.c/1.69/Sun Jan 22 10:17:38 2017//
 /if_stgereg.h/1.11/Mon Aug 10 19:41:05 2009//
-/if_tht.c/1.140/Sun Jan 22 10:17:38 2017//
+/if_tht.c/1.141/Thu Jan  9 14:35:19 2020//
 /if_ti_pci.c/1.5/Tue Nov 24 17:11:39 2015//
 /if_tl.c/1.72/Sun Jan  5 01:07:58 2020//
 /if_tlreg.h/1.10/Fri Jan 31 06:05:40 2014//
@@ -268,9 +267,9 @@
 /pci_map.c/1.32/Mon Jun 17 11:04:06 2019//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1911/Sun Jan  5 12:54:21 2020//
-/pcidevs.h/1.1904/Sun Jan  5 12:55:12 2020//
-/pcidevs_data.h/1.1899/Sun Jan  5 12:55:12 2020//
+/pcidevs/1.1912/Thu Jan  9 00:58:28 2020//
+/pcidevs.h/1.1905/Thu Jan  9 00:59:15 2020//
+/pcidevs_data.h/1.1900/Thu Jan  9 00:59:15 2020//
 /pciide.c/1.359/Sun Jan  5 01:07:59 2020//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//
@@ -298,7 +297,7 @@
 /pcivar.h/1.72/Tue Jun 25 16:46:33 2019//
 /pcscp.c/1.20/Sat Mar 14 03:38:48 2015//
 /pcscpreg.h/1.3/Thu Jun 26 05:42:17 2008//
-/piixpm.c/1.40/Mon Dec 16 21:39:40 2019//
+/piixpm.c/1.41/Thu Jan  9 14:35:19 2020//
 /piixreg.h/1.5/Mon Dec 16 21:39:40 2019//
 /plx9060reg.h/1.2/Mon Nov 21 21:52:47 2005//
 /plx9060var.h/1.2/Thu Mar 14 01:26:59 2002//
@@ -338,7 +337,7 @@
 /vga_pci.c/1.88/Sun Oct 13 10:56:31 2019//
 /vga_pci_common.c/1.9/Wed Aug 21 02:18:33 2019//
 /vga_pcivar.h/1.20/Thu Oct 29 07:47:03 2015//
-/viapm.c/1.17/Thu Jul  5 10:09:11 2018//
+/viapm.c/1.18/Thu Jan  9 14:35:19 2020//
 /virtio_pci.c/1.28/Mon May 27 15:55:01 2019//
 /virtio_pcireg.h/1.2/Sun May 26 15:22:31 2019//
 /vmwpvs.c/1.14/Fri Aug 26 00:45:50 2016//

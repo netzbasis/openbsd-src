@@ -1,9 +1,9 @@
 /Makefile.in/1.11/Tue Jan  7 19:11:17 2020//
 /dig.1/1.32/Mon Jan  6 14:45:23 2020//
-/dig.c/1.30/Tue Jan  7 19:09:26 2020//
-/dighost.c/1.23/Mon Jan  6 17:46:59 2020//
+/dig.c/1.36/Thu Jan  9 18:17:14 2020//
+/dighost.c/1.29/Thu Jan  9 18:17:14 2020//
 /host.1/1.13/Tue Dec 24 17:48:47 2019//
-/host.c/1.15/Wed Dec 18 07:13:54 2019//
+/host.c/1.19/Thu Jan  9 18:17:14 2020//
 /nslookup.1/1.14/Fri Dec 27 12:56:45 2019//
-/nslookup.c/1.17/Tue Dec 17 18:10:11 2019//
+/nslookup.c/1.20/Thu Jan  9 18:25:49 2020//
 D/include////

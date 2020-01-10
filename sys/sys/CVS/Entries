@@ -55,7 +55,7 @@
 /mbuf.h/1.245/Tue Jul 16 17:39:02 2019//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.34/Fri Mar  1 01:46:18 2019//
-/mount.h/1.145/Thu Dec 26 13:30:54 2019//
+/mount.h/1.146/Fri Jan 10 10:33:35 2020//
 /mplock.h/1.13/Tue Apr 23 13:35:12 2019//
 /msg.h/1.19/Sun Nov 23 04:31:42 2014//
 /msgbuf.h/1.11/Thu Jun 23 13:15:21 2016//
@@ -65,7 +65,7 @@
 /param.h/1.129/Sat Aug 10 03:56:02 2019//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.8/Tue Aug 28 15:15:02 2018//
-/pipe.h/1.21/Wed Dec 25 09:32:01 2019//
+/pipe.h/1.22/Thu Jan  9 18:54:33 2020//
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
@@ -87,7 +87,7 @@
 /sensors.h/1.36/Mon Dec 10 13:35:54 2018//
 /shm.h/1.29/Sun Nov  3 20:16:01 2019//
 /siginfo.h/1.12/Fri Apr  7 04:48:44 2017//
-/sigio.h/1.3/Mon Jan  6 15:49:10 2020//
+/sigio.h/1.4/Wed Jan  8 16:27:42 2020//
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
 /signalvar.h/1.37/Fri Jan  3 09:46:41 2020//
 /smr.h/1.2/Sat Mar  9 06:15:48 2019//
@@ -131,7 +131,7 @@
 /varargs.h/1.3/Sat Dec  7 06:55:20 2019//
 /videoio.h/1.16/Fri Feb 17 06:48:33 2017//
 /vmmeter.h/1.15/Wed Jul 27 14:44:59 2016//
-/vnode.h/1.153/Mon Aug 26 18:56:29 2019//
+/vnode.h/1.154/Fri Jan 10 10:33:35 2020//
 /wait.h/1.17/Fri Jun 13 22:40:31 2014//
 /witness.h/1.5/Tue Apr 23 13:35:12 2019//
 D

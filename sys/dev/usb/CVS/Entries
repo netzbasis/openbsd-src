@@ -15,7 +15,7 @@
 /if_axen.c/1.27/Sun Jul  7 06:40:10 2019//
 /if_axenreg.h/1.6/Wed Sep 14 12:41:09 2016//
 /if_axereg.h/1.26/Fri Jun 12 15:47:31 2015//
-/if_bwfm_usb.c/1.16/Tue Jul 17 19:44:38 2018//
+/if_bwfm_usb.c/1.17/Fri Jan 10 09:25:51 2020//
 /if_cdce.c/1.76/Thu Nov 14 13:50:55 2019//
 /if_cdcereg.h/1.7/Wed Oct 12 21:51:11 2016//
 /if_cue.c/1.78/Tue Oct  2 19:49:10 2018//
@@ -82,8 +82,8 @@
 /ucrcom.c/1.1/Wed May  8 23:53:40 2019//
 /ucycom.c/1.37/Sat Dec 30 20:46:59 2017//
 /udcf.c/1.63/Sat Aug 10 23:29:59 2019//
-/udl.c/1.90/Sun Jan  5 19:13:48 2020//
-/udl.h/1.23/Sat Apr  8 02:57:25 2017//
+/udl.c/1.91/Thu Jan  9 14:36:26 2020//
+/udl.h/1.24/Thu Jan  9 14:36:26 2020//
 /udlio.h/1.1/Mon Sep 21 07:41:18 2009//
 /udsbr.c/1.27/Sun Nov  6 12:58:01 2016//
 /uftdi.c/1.75/Mon Dec 12 04:35:04 2016//
@@ -104,7 +104,7 @@
 /ukbdmap.c/1.44/Sat May 11 14:20:17 2019//
 /ukbdvar.h/1.5/Sat Jul 31 16:04:50 2010//
 /ukspan.c/1.2/Tue Jun 25 12:37:05 2019//
-/ulpt.c/1.55/Fri Sep  8 05:36:52 2017//
+/ulpt.c/1.56/Wed Jan  8 12:57:35 2020//
 /umass.c/1.74/Mon Jan  9 14:44:28 2017//
 /umass_quirks.c/1.32/Wed Jun 24 11:32:37 2015//
 /umass_quirks.h/1.4/Thu Jun 26 05:42:19 2008//

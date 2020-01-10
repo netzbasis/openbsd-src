@@ -18,7 +18,7 @@
 /db_disasm.c/1.21/Sun Nov 10 10:03:33 2019//
 /db_interface.c/1.35/Wed Nov  6 07:34:35 2019//
 /db_memrw.c/1.8/Sun Apr 30 13:04:49 2017//
-/db_trace.c/1.47/Sun Nov 10 10:03:33 2019//
+/db_trace.c/1.48/Thu Jan  9 15:18:58 2020//
 /disksubr.c/1.78/Tue Feb 28 10:49:37 2017//
 /dkcsum.c/1.21/Sun Sep 14 14:17:23 2014//
 /efifb.c/1.26/Tue Nov 26 02:20:50 2019//
@@ -55,7 +55,7 @@
 /softintr.c/1.9/Fri Aug 28 00:03:53 2015//
 /spl.S/1.17/Tue Jul 10 16:01:26 2018//
 /sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
-/trap.c/1.77/Fri Sep  6 12:22:01 2019//
+/trap.c/1.78/Thu Jan  9 15:18:58 2020//
 /tsc.c/1.15/Sat Oct 12 14:05:50 2019//
 /ucode.c/1.5/Fri Jun 28 21:54:05 2019//
 /vector.S/1.80/Wed Aug  7 18:53:28 2019//

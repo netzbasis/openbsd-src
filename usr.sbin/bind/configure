@@ -715,7 +715,7 @@ ISC_PLATFORM_HAVEIFNAMETOINDEX
 ISC_PLATFORM_HAVESTRINGSH
 ISC_PLATFORM_BRACEPTHREADONCEINIT
 ISC_PLATFORM_USEDECLSPEC
-ISC_PLATFORM_RLIMITTYPE
+rlim_t
 ISC_PLATFORM_HAVESTATNSEC
 ISC_PLATFORM_HAVESYSUNH
 ISC_PLATFORM_QUADFORMAT
@@ -751,8 +751,6 @@ ISC_LWRES_NEEDADDRINFO
 ISC_PLATFORM_NEEDPORTT
 ISC_PLATFORM_MSGHDRFLAVOR
 ISC_PLATFORM_HAVESALEN
-ISC_PLATFORM_NEEDPTON
-ISC_PLATFORM_NEEDNTOP
 ISC_PLATFORM_HAVEIF_LADDRCONF
 ISC_PLATFORM_HAVEIF_LADDRREQ
 ISC_PLATFORM_HAVESCOPEID
@@ -16841,49 +16839,6 @@ fi
 
 
 
-# On NetBSD 1.4.2 and maybe others, inet_pton() incorrectly accepts
-# addresses with less than four octets, like "1.2.3".  Also leading
-# zeros should also be rejected.
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for working inet_pton with IPv6 support" >&5
-$as_echo_n "checking for working inet_pton with IPv6 support... " >&6; }
-if test "$cross_compiling" = yes; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: assuming inet_pton needed" >&5
-$as_echo "assuming inet_pton needed" >&6; }
-	ISC_EXTRA_OBJS="$ISC_EXTRA_OBJS inet_pton.$O"
-	ISC_EXTRA_SRCS="$ISC_EXTRA_SRCS inet_pton.c"
-	ISC_PLATFORM_NEEDPTON="#define ISC_PLATFORM_NEEDPTON 1"
-else
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-main() { char a[16]; return (inet_pton(AF_INET, "1.2.3", a) == 1 ? 1 :
-			     inet_pton(AF_INET, "1.2.3.04", a) == 1 ? 1 :
-			     (inet_pton(AF_INET6, "::1.2.3.4", a) != 1)); }
-_ACEOF
-if ac_fn_c_try_run "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	ISC_PLATFORM_NEEDPTON="#undef ISC_PLATFORM_NEEDPTON"
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-	ISC_EXTRA_OBJS="$ISC_EXTRA_OBJS inet_pton.$O"
-	ISC_EXTRA_SRCS="$ISC_EXTRA_SRCS inet_pton.c"
-	ISC_PLATFORM_NEEDPTON="#define ISC_PLATFORM_NEEDPTON 1"
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext
-fi
-
-
-
-
-
 #
 # Look for a 4.4BSD-style sa_len member in struct sockaddr.
 #
@@ -17684,7 +17639,7 @@ fi
 
 
 # Determine the printf format characters to use when printing
-# values of type isc_int64_t. This will normally be "ll", but where
+# values of type int64_t. This will normally be "ll", but where
 # the compiler treats "long long" as a alias for "long" and printf
 # doesn't know about "long long" use "l".  Hopefully the sprintf
 # will produce a inconsistent result in the later case.  If the compiler
@@ -17945,7 +17900,7 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 $as_echo_n "checking st_mtim.tv_nsec... " >&6; }
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include <sys/fcntl.h>
+#include <sys/stat.h>
 int
 main ()
 {
@@ -17988,7 +17943,7 @@ _ACEOF
 if ac_fn_c_try_compile "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
- ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE rlim_t"
+ rlim_t="#define ISC_PLATFORM_RLIMITTYPE rlim_t"
 else
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
@@ -18005,7 +17960,7 @@ else
   rlimtype="long long int"
 fi
 
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE $rlimtype"
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE $rlimtype"
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: cannot determine type of rlim_cur when cross compiling - assuming $rlimtype" >&5
 $as_echo "cannot determine type of rlim_cur when cross compiling - assuming $rlimtype" >&6; }
 else
@@ -18020,7 +17975,7 @@ _ACEOF
 if ac_fn_c_try_run "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: int" >&5
 $as_echo "int" >&6; }
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE int"
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE int"
 else
 
 if test "$cross_compiling" = yes; then :
@@ -18037,7 +17992,7 @@ _ACEOF
 if ac_fn_c_try_run "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: long int" >&5
 $as_echo "long int" >&6; }
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE long int"
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE long int"
 else
 
 if test "$cross_compiling" = yes; then :
@@ -18054,7 +18009,7 @@ _ACEOF
 if ac_fn_c_try_run "$LINENO"; then :
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: long long int" >&5
 $as_echo "long long int" >&6; }
-ISC_PLATFORM_RLIMITTYPE="#define ISC_PLATFORM_RLIMITTYPE long long int"
+rlim_t="#define ISC_PLATFORM_RLIMITTYPE long long int"
 else
   as_fn_error $? "unable to determine sizeof rlim_cur" "$LINENO" 5
 
@@ -20395,7 +20350,7 @@ DNS_CRYPTO_LIBS="$NEWFLAGS"
 # elsewhere if there's a good reason for doing so.
 #
 
-ac_config_files="$ac_config_files make/Makefile make/mkdep Makefile bin/Makefile bin/dig/Makefile lib/Makefile lib/dns/Makefile lib/dns/include/Makefile lib/dns/include/dns/Makefile lib/dns/include/dst/Makefile lib/isc/$arch/Makefile lib/isc/$arch/include/Makefile lib/isc/$arch/include/isc/Makefile lib/isc/nothreads/Makefile lib/isc/nothreads/include/Makefile lib/isc/nothreads/include/isc/Makefile lib/isc/Makefile lib/isc/include/Makefile lib/isc/include/isc/Makefile lib/isc/include/isc/platform.h lib/isc/include/pk11/Makefile lib/isc/include/pkcs11/Makefile lib/isc/nls/Makefile lib/isc/unix/Makefile lib/isc/unix/include/Makefile lib/isc/unix/include/isc/Makefile lib/isc/unix/include/pkcs11/Makefile lib/isccfg/Makefile lib/isccfg/include/Makefile lib/isccfg/include/isccfg/Makefile lib/lwres/Makefile"
+ac_config_files="$ac_config_files make/Makefile make/mkdep Makefile bin/Makefile bin/dig/Makefile lib/Makefile lib/dns/Makefile lib/dns/include/Makefile lib/dns/include/dns/Makefile lib/dns/include/dst/Makefile lib/isc/nothreads/Makefile lib/isc/nothreads/include/Makefile lib/isc/nothreads/include/isc/Makefile lib/isc/Makefile lib/isc/include/Makefile lib/isc/include/isc/Makefile lib/isc/include/isc/platform.h lib/isc/nls/Makefile lib/isc/unix/Makefile lib/isc/unix/include/Makefile lib/isc/unix/include/isc/Makefile lib/isccfg/Makefile lib/isccfg/include/Makefile lib/isccfg/include/isccfg/Makefile lib/lwres/Makefile"
 
 
 #
@@ -21397,9 +21352,6 @@ do
     "lib/dns/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/dns/include/Makefile" ;;
     "lib/dns/include/dns/Makefile") CONFIG_FILES="$CONFIG_FILES lib/dns/include/dns/Makefile" ;;
     "lib/dns/include/dst/Makefile") CONFIG_FILES="$CONFIG_FILES lib/dns/include/dst/Makefile" ;;
-    "lib/isc/$arch/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/$arch/Makefile" ;;
-    "lib/isc/$arch/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/$arch/include/Makefile" ;;
-    "lib/isc/$arch/include/isc/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/$arch/include/isc/Makefile" ;;
     "lib/isc/nothreads/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/nothreads/Makefile" ;;
     "lib/isc/nothreads/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/nothreads/include/Makefile" ;;
     "lib/isc/nothreads/include/isc/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/nothreads/include/isc/Makefile" ;;
@@ -21407,13 +21359,10 @@ do
     "lib/isc/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/include/Makefile" ;;
     "lib/isc/include/isc/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/include/isc/Makefile" ;;
     "lib/isc/include/isc/platform.h") CONFIG_FILES="$CONFIG_FILES lib/isc/include/isc/platform.h" ;;
-    "lib/isc/include/pk11/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/include/pk11/Makefile" ;;
-    "lib/isc/include/pkcs11/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/include/pkcs11/Makefile" ;;
     "lib/isc/nls/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/nls/Makefile" ;;
     "lib/isc/unix/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/unix/Makefile" ;;
     "lib/isc/unix/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/unix/include/Makefile" ;;
     "lib/isc/unix/include/isc/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/unix/include/isc/Makefile" ;;
-    "lib/isc/unix/include/pkcs11/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isc/unix/include/pkcs11/Makefile" ;;
     "lib/isccfg/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isccfg/Makefile" ;;
     "lib/isccfg/include/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isccfg/include/Makefile" ;;
     "lib/isccfg/include/isccfg/Makefile") CONFIG_FILES="$CONFIG_FILES lib/isccfg/include/isccfg/Makefile" ;;
