@@ -308,9 +308,6 @@
 /siopreg.h/1.12/Fri Jul 23 07:47:13 2010//
 /siopvar.h/1.17/Fri Sep 23 10:40:06 2011//
 /siopvar_common.h/1.29/Tue Apr  5 22:37:39 2011//
-/sli.c/1.2/Sat May 19 04:05:40 2007//
-/slireg.h/1.4/Sat May 19 10:24:18 2007//
-/slivar.h/1.4/Sat May 19 04:10:20 2007//
 /smc83c170.c/1.28/Tue Jul  3 14:33:43 2018//
 /smc83c170reg.h/1.2/Thu Jun 26 05:42:16 2008//
 /smc83c170var.h/1.4/Fri Sep 11 13:02:28 2015//
