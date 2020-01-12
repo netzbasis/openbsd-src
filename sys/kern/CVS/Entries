@@ -32,7 +32,7 @@
 /kern_smr.c/1.6/Mon Dec 30 23:56:26 2019//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
-/kern_synch.c/1.155/Sat Nov 30 11:19:17 2019//
+/kern_synch.c/1.156/Sun Jan 12 00:01:12 2020//
 /kern_sysctl.c/1.369/Thu Jan  2 08:52:53 2020//
 /kern_task.c/1.27/Thu Dec 19 17:40:11 2019//
 /kern_tc.c/1.55/Thu Dec 12 19:30:21 2019//
@@ -48,10 +48,10 @@
 /subr_autoconf.c/1.94/Mon Dec 30 23:56:26 2019//
 /subr_disk.c/1.235/Thu Dec 26 22:38:00 2019//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
-/subr_extent.c/1.62/Wed Sep 11 12:30:34 2019//
+/subr_extent.c/1.63/Sat Jan 11 14:30:24 2020//
 /subr_hibernate.c/1.125/Thu Jun 21 07:49:13 2018//
 /subr_kubsan.c/1.12/Wed Nov  6 19:16:48 2019//
-/subr_log.c/1.63/Wed Jan  8 16:27:41 2020//
+/subr_log.c/1.64/Sat Jan 11 14:30:24 2020//
 /subr_percpu.c/1.8/Fri Sep  8 05:36:53 2017//
 /subr_poison.c/1.14/Fri Sep  8 05:36:53 2017//
 /subr_pool.c/1.228/Fri Jul 19 09:03:03 2019//
@@ -78,7 +78,7 @@
 /tty_endrun.c/1.8/Mon Feb 19 08:59:52 2018//
 /tty_msts.c/1.21/Mon Feb 19 08:59:52 2018//
 /tty_nmea.c/1.49/Thu Aug 15 15:08:14 2019//
-/tty_pty.c/1.95/Tue Dec 31 13:48:32 2019//
+/tty_pty.c/1.96/Sat Jan 11 14:30:24 2020//
 /tty_subr.c/1.33/Mon Mar 14 23:08:06 2016//
 /tty_tty.c/1.24/Wed May  2 02:24:56 2018//
 /uipc_domain.c/1.57/Wed Jul  3 10:19:45 2019//

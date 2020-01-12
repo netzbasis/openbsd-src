@@ -30,7 +30,7 @@
 /auixp.c/1.41/Sat Dec 14 12:46:47 2019//
 /auixpreg.h/1.1/Sun Aug  7 20:08:45 2005//
 /auixpvar.h/1.4/Mon Sep 19 06:46:44 2016//
-/autri.c/1.43/Wed Dec  4 20:21:35 2019//
+/autri.c/1.44/Sat Jan 11 09:08:39 2020//
 /autrireg.h/1.2/Fri Nov 29 04:59:59 2002//
 /autrivar.h/1.4/Fri Aug 27 18:50:56 2010//
 /auvia.c/1.60/Sun Dec  1 21:14:13 2019//
@@ -58,7 +58,7 @@
 /czreg.h/1.2/Sun Nov 16 20:30:06 2003//
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
 /dwiic_pci.c/1.9/Wed Jul 31 16:04:16 2019//
-/eap.c/1.57/Sat Dec 14 12:48:32 2019//
+/eap.c/1.58/Sat Jan 11 09:09:09 2020//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.31/Thu May  2 20:28:46 2019//
 /emuxki.c/1.53/Thu Sep 13 04:07:20 2018//
@@ -86,9 +86,9 @@
 /glxpcib.c/1.14/Wed Dec 10 12:27:57 2014//
 /glxreg.h/1.1/Thu Oct 14 21:23:05 2010//
 /glxvar.h/1.2/Mon Jan 14 21:18:47 2013//
-/hifn7751.c/1.178/Sat Apr 28 15:44:59 2018//
+/hifn7751.c/1.179/Sat Jan 11 21:34:03 2020//
 /hifn7751reg.h/1.46/Fri Dec 19 22:44:58 2014//
-/hifn7751var.h/1.53/Wed Dec 15 23:34:23 2010//
+/hifn7751var.h/1.54/Sat Jan 11 21:34:04 2020//
 /i82365_pci.c/1.12/Fri Sep  8 05:36:52 2017//
 /i82365_pcivar.h/1.6/Thu Jun 26 05:42:17 2008//
 /ichiic.c/1.43/Thu Jan  9 14:35:19 2020//

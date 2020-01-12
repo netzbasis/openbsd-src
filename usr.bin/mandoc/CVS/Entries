@@ -83,17 +83,17 @@
 /tag.h/1.9/Sat Jul 27 13:40:42 2019//
 /tbl.c/1.27/Fri Dec 14 06:33:03 2018//
 /tbl.h/1.5/Wed Dec 12 21:54:30 2018//
-/tbl_data.c/1.39/Sat Feb  9 16:00:06 2019//
+/tbl_data.c/1.40/Sat Jan 11 20:48:13 2020//
 /tbl_html.c/1.28/Sun Mar 17 18:20:07 2019//
 /tbl_int.h/1.2/Fri Dec 14 06:33:03 2018//
 /tbl_layout.c/1.35/Fri Dec 14 05:17:45 2018//
 /tbl_opts.c/1.16/Fri Dec 14 05:17:45 2018//
 /tbl_parse.h/1.2/Fri Dec 14 06:33:03 2018//
-/tbl_term.c/1.60/Mon Jul  1 22:43:03 2019//
+/tbl_term.c/1.61/Sat Jan 11 16:24:33 2020//
 /term.c/1.141/Mon Jun  3 20:23:39 2019//
 /term.h/1.75/Fri Jan  4 03:20:44 2019//
 /term_ascii.c/1.50/Fri Jul 19 21:45:37 2019//
 /term_ps.c/1.55/Fri Nov 10 14:16:28 2017//
 /term_tab.c/1.4/Sat Jun 17 14:55:02 2017//
-/tree.c/1.51/Tue Jan  1 05:56:26 2019//
+/tree.c/1.52/Sat Jan 11 16:02:48 2020//
 D
