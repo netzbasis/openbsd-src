@@ -65,7 +65,7 @@
 /param.h/1.129/Sat Aug 10 03:56:02 2019//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.8/Tue Aug 28 15:15:02 2018//
-/pipe.h/1.22/Thu Jan  9 18:54:33 2020//
+/pipe.h/1.23/Sun Jan 12 09:19:54 2020//
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
