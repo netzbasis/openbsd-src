@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.h,v 1.60 2019/01/11 01:56:54 kn Exp $ */
+/*	$OpenBSD: pfctl.h,v 1.62 2020/01/15 22:38:31 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -48,6 +48,14 @@ struct pfr_buffer {
 	    (var) != NULL;				\
 	    (var) = pfr_buf_next((buf), (var)))
 
+
+struct pfr_anchoritem {
+	SLIST_ENTRY(pfr_anchoritem)	pfra_sle;
+	char	*pfra_anchorname;
+};
+
+SLIST_HEAD(pfr_anchors, pfr_anchoritem);
+
 int	 pfr_get_fd(void);
 int	 pfr_clr_tables(struct pfr_table *, int *, int);
 int	 pfr_add_tables(struct pfr_table *, int, int *, int);
@@ -70,12 +78,12 @@ int	 pfr_buf_add(struct pfr_buffer *, const void *);
 void	*pfr_buf_next(struct pfr_buffer *, const void *);
 int	 pfr_buf_grow(struct pfr_buffer *, int);
 int	 pfr_buf_load(struct pfr_buffer *, char *, int, int);
-char	*pfr_strerror(int);
+char	*pf_strerror(int);
 int	 pfi_get_ifaces(const char *, struct pfi_kif *, int *);
 int	 pfi_clr_istats(const char *, int *, int);
 
 void	 pfctl_print_title(char *);
-void	 pfctl_clear_tables(const char *, int);
+int	 pfctl_clear_tables(const char *, int);
 void	 pfctl_show_tables(const char *, int);
 int	 pfctl_table(int, char *[], char *, const char *, char *,
 	    const char *, int);
@@ -96,5 +104,8 @@ u_int32_t
 int	 pfctl_trans(int, struct pfr_buffer *, u_long, int);
 
 int	 pfctl_show_queues(int, const char *, int, int);
+
+void	 pfctl_err(int, int, const char *, ...);
+void	 pfctl_errx(int, int, const char *, ...);
 
 #endif /* _PFCTL_H_ */

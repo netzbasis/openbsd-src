@@ -1,4 +1,4 @@
-/aac.c/1.71/Sat Oct  5 20:41:27 2019//
+/aac.c/1.72/Wed Jan 15 16:50:29 2020//
 /aac_tables.h/1.5/Fri Mar  6 07:28:10 2009//
 /aacreg.h/1.11/Fri Mar  6 07:28:10 2009//
 /aacvar.h/1.14/Sat Oct  5 20:41:27 2019//
@@ -199,7 +199,7 @@
 /lm700x.h/1.2/Thu Dec  6 16:28:18 2001//
 /lm78.c/1.25/Tue Dec 17 01:34:59 2019//
 /lm78var.h/1.19/Tue Dec 17 01:34:59 2019//
-/lpt.c/1.14/Mon May 11 02:01:01 2015//
+/lpt.c/1.15/Wed Jan 15 16:43:13 2020//
 /lptreg.h/1.4/Mon Jun  2 23:28:02 2003//
 /lptvar.h/1.4/Wed Jun 12 19:07:40 2013//
 /lsi64854.c/1.11/Fri Sep  8 05:36:52 2017//

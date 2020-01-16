@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.1 2020/01/14 11:16:36 tobhe Exp $
+#	$OpenBSD: Makefile,v 1.5 2020/01/15 22:47:24 tobhe Exp $
 
 # Copyright (c) 2020 Tobias Heider <tobhe@openbsd.org>
 #
@@ -14,18 +14,19 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+REGRESS_SETUP_ONCE =	setup_certs
 REGRESS_CLEANUP =	cleanup
-CLEANFILES =		*.conf
+CLEANFILES =		*.conf *.cnf *.csr *.key *.crt *.srl
 
-SSHLEFT ?=
-SSHRIGHT ?=
-LEFTGW ?=
-RIGHTGW ?=
+LEFT_SSH ?=
+RIGHT_SSH ?=
+LEFT_ADDR ?=
+RIGHT_ADDR ?=
 
-.if empty (SSHLEFT) || empty (SSHRIGHT) || empty (LEFTGW) || empty (RIGHTGW)
+.if empty(LEFT_SSH) || empty(RIGHT_SSH) || empty(LEFT_ADDR) || empty(RIGHT_ADDR)
 regress:
 	@echo this test needs two remote machines to operate
-	@echo SSHLEFT SSHRIGHT RIGHTGW LEFTGW are not defined
+	@echo LEFT_SSH RIGHT_SSH RIGHT_ADDR LEFT_ADDR are not defined
 	@echo SKIPPED
 .endif
 
@@ -33,12 +34,12 @@ TEST_FLOWS = \
 	success=false; \
 	count=0; \
 	while [[ $$count -le 3 ]]; do \
-		sasleft=`ssh ${SSHLEFT} ipsecctl -sa`; \
+		sasleft=`ssh ${LEFT_SSH} ipsecctl -sa`; \
 		flowleft=`echo "$$sasleft" \
-		    | sed -n "/^flow $$flowtype in from ${RIGHTGW} to ${LEFTGW}/p"`; \
-		sasright=`ssh ${SSHRIGHT} ipsecctl -sa`; \
+		    | sed -n "/^flow $$flowtype in from ${RIGHT_ADDR} to ${LEFT_ADDR}/p"`; \
+		sasright=`ssh ${RIGHT_SSH} ipsecctl -sa`; \
 		flowright=`echo "$$sasright" \
-		    | sed -n "/^flow $$flowtype in from ${LEFTGW} to ${RIGHTGW}/p"`; \
+		    | sed -n "/^flow $$flowtype in from ${LEFT_ADDR} to ${RIGHT_ADDR}/p"`; \
 		if [[ -n "$$flowleft" && -n "$$flowright" ]]; then \
 			 success=true; \
 			 break; \
@@ -51,12 +52,12 @@ TEST_FLOWS = \
 	fi
 
 TEST_PING = \
-	dump=`ssh ${SSHLEFT} "tcpdump -c2 -i enc0 -w '/tmp/test.pcap' > /dev/null & \
-	     ping -c 5 ${RIGHTGW} > /dev/null && tcpdump -r /tmp/test.pcap" && rm -f /tmp/test.pcap`; \
+	dump=`ssh ${LEFT_SSH} "tcpdump -c2 -i enc0 -w '/tmp/test.pcap' > /dev/null & \
+	     ping -c 5 ${RIGHT_ADDR} > /dev/null && tcpdump -r /tmp/test.pcap" && rm -f /tmp/test.pcap`; \
 	rtol=`echo "$$dump" \
-	    | sed -n "/(authentic,confidential): SPI 0x[0-9a-f]\{8\}: ${LEFTGW} > ${RIGHTGW}/p"`; \
+	    | sed -n "/(authentic,confidential): SPI 0x[0-9a-f]\{8\}: ${LEFT_ADDR} > ${RIGHT_ADDR}/p"`; \
 	ltor=`echo "$$dump" \
-	    | sed -n "/(authentic,confidential): SPI 0x[0-9a-f]\{8\}: ${RIGHTGW} > ${LEFTGW}/p"`; \
+	    | sed -n "/(authentic,confidential): SPI 0x[0-9a-f]\{8\}: ${RIGHT_ADDR} > ${LEFT_ADDR}/p"`; \
 	if [[ -z "$$rtol" || -z "$$ltor" ]]; then \
 		echo "error: no esp traffic."; \
 		exit 1; \
@@ -64,55 +65,177 @@ TEST_PING = \
 	echo "$$dump"
 
 SETUP_CONFIGS = \
-	psk=`openssl rand -hex 20`; \
-	echo "LEFTGW=\"${LEFTGW}\"" > $@_left.conf; \
-	echo "RIGHTGW=\"${RIGHTGW}\"" >> $@_left.conf; \
+	authstr=""; \
+	if [[ "$$auth" = "psk" ]]; then \
+		psk=`openssl rand -hex 20`; \
+		authstr="psk $$psk"; \
+	fi; \
 	ipcomp=""; \
 	if [[ "$$flowtype" = "ipcomp" ]]; then \
 		ipcomp="ipcomp"; \
 	fi; \
+	fragstr=""; \
+	if [ "$$fragmentation" = true ]; then \
+		fragstr="set fragmentation"; \
+	fi; \
+	echo "FRAGMENTATION=\"$$fragstr\"" > $@_left.conf; \
+	echo "LOCAL_ADDR=\"${LEFT_ADDR}\"" >> $@_left.conf; \
+	echo "PEER_ADDR=\"${RIGHT_ADDR}\"" >> $@_left.conf; \
 	echo "IPCOMP=\"$$ipcomp\"" >> $@_left.conf; \
-	echo "PSK=\"$$psk\"" >> $@_left.conf; \
+	echo "SRCID=\"$$leftid\"" >> $@_left.conf; \
+	echo "AUTH=\"$$authstr\"" >> $@_left.conf; \
 	cat ${.CURDIR}/iked.in >> $@_left.conf; \
 	chmod 0600 $@_left.conf; \
-	echo "cd /tmp\nrm test.conf\nput $@_left.conf test.conf" | sftp -q ${SSHLEFT}; \
-	echo "LEFTGW=\"${RIGHTGW}\"" > $@_right.conf; \
-	echo "RIGHTGW=\"${LEFTGW}\"" >> $@_right.conf; \
+	echo "cd /tmp\nput $@_left.conf test.conf" | sftp -q ${LEFT_SSH}; \
+	echo "FRAGMENTATION=\"$$fragstr\"" > $@_right.conf; \
+	echo "LOCAL_ADDR=\"${RIGHT_ADDR}\"" >> $@_right.conf; \
+	echo "PEER_ADDR=\"${LEFT_ADDR}\"" >> $@_right.conf; \
 	echo "IPCOMP=\"$$ipcomp\"" >> $@_right.conf; \
-	echo "PSK=\"$$psk\"" >> $@_right.conf; \
+	echo "SRCID=\"$$rightid\"" >> $@_right.conf; \
+	echo "AUTH=\"$$authstr\"" >> $@_right.conf; \
 	cat ${.CURDIR}/iked.in >> $@_right.conf; \
 	chmod 0600 $@_right.conf; \
-	echo "cd /tmp\nrm test.conf\nput $@_right.conf test.conf" | sftp -q ${SSHRIGHT}
+	echo "cd /tmp\nput $@_right.conf test.conf" | sftp -q ${RIGHT_SSH}
 
 SETUP_SYSCTL = \
-	ssh ${SSHLEFT} "sysctl net.inet.ipcomp.enable=1"; \
-	ssh ${SSHRIGHT} "sysctl net.inet.ipcomp.enable=1"
+	ssh ${LEFT_SSH} "sysctl net.inet.ipcomp.enable=1"; \
+	ssh ${RIGHT_SSH} "sysctl net.inet.ipcomp.enable=1"
 
 SETUP_START = \
-	ssh ${SSHLEFT} "ipsecctl -F; pkill iked; iked -6 -f /tmp/test.conf"; \
-	ssh ${SSHRIGHT} "ipsecctl -F; pkill iked; iked -6 -f /tmp/test.conf"
+	ssh ${LEFT_SSH} "ipsecctl -F; pkill iked; iked -6 -f /tmp/test.conf"; \
+	ssh ${RIGHT_SSH} "ipsecctl -F; pkill iked; iked -6 -f /tmp/test.conf"
+
+SETUP_CERT = \
+	echo "ALTNAME = $$name-from-$$caname" > $$name-from-$$caname.cnf; \
+	cat ${.CURDIR}/crt.in >> $$name-from-$$caname.cnf; \
+	openssl req -config $$name-from-$$caname.cnf -new -key $$name.key -nodes \
+	    -out $$name-from-$$caname.csr; \
+	openssl x509 -extfile $$name-from-$$caname.cnf -extensions req_cert_extensions \
+	     -req -in $$name-from-$$caname.csr -CA $$caname.crt -CAkey $$caname.key \
+	     -CAcreateserial -out $$name-from-$$caname.crt
+
+SETUP_CA = \
+	openssl genrsa -out $$caname.key 2048; \
+	openssl req -subj "/C=DE/ST=Bavaria/L=Munich/O=iked/CN=$$caname" \
+	     -new -x509 -key $$caname.key -out $$caname.crt
 
 cleanup:
-	-ssh ${SSHLEFT} 'rm -f /tmp/test.conf; ipsecctl -F; pkill iked'
-	-ssh ${SSHRIGHT} 'rm -f /tmp/test.conf; ipsecctl -F; pkill iked'
+	-ssh ${LEFT_SSH} 'rm -f /tmp/test.conf; ipsecctl -F; pkill iked; \
+	     rm -f /etc/iked/ca/*; rm -f /etc/iked/certs/*; rm -f /etc/iked/private/*'
+	-ssh ${RIGHT_SSH} 'rm -f /tmp/test.conf; ipsecctl -F; pkill iked; \
+	     rm -f /etc/iked/ca/*; rm -f /etc/iked/certs/*; rm -f /etc/iked/private/*'
 
-REGRESS_TARGETS = 	run-basic run-ipcomp
+setup_certs: ca-both.crt left-from-ca-both.crt left.key right-from-ca-both.crt \
+    right.key ca-left.crt right-from-ca-left.crt ca-right.crt left-from-ca-right.crt
+	echo "cd /etc/iked\n \
+	    put left-from-ca-both.crt certs\n \
+	    put left-from-ca-right.crt certs\n \
+	    put left.key private/local.key\n \
+	    put ca-left.crt ca\n \
+	    put ca-both.crt ca\n" | sftp ${LEFT_SSH} -q; \
+	echo "cd /etc/iked\n \
+	    put right-from-ca-both.crt certs\n \
+	    put right-from-ca-left.crt certs\n \
+	    put right.key private/local.key\n \
+	    put ca-right.crt ca\n \
+	    put ca-both.crt ca\n" | sftp ${RIGHT_SSH} -q
 
-run-basic:
+.PHONY: setup_certs
+
+test_flows:
+	${TEST_FLOWS}
+
+left.key right.key:
+	openssl genrsa -out $@ 2048
+
+ca-both.crt ca-both.key:
+	caname=ca-both; ${SETUP_CA}
+
+left-from-ca-both.crt: ca-both.crt ca-both.key left.key
+	caname=ca-both; name=left; ${SETUP_CERT}
+
+right-from-ca-both.crt: ca-both.crt ca-both.key right.key
+	caname=ca-both; name=right; ${SETUP_CERT}
+
+ca-left.crt ca-left.key:
+	caname=ca-left; ${SETUP_CA}
+
+right-from-ca-left.crt right.key: ca-left.crt ca-left.key
+	caname=ca-left; name=right; ${SETUP_CERT}
+
+ca-right.crt ca-right.key:
+	caname=ca-right; ${SETUP_CA}
+
+left-from-ca-right.crt left.key: ca-right.crt ca-right.key
+	caname=ca-right; name=left; ${SETUP_CERT}
+
+REGRESS_TARGETS = run-cert-single-ca
+run-cert-single-ca:
 	@echo '======= $@ ========'
-	flowtype=esp; \
-	${SETUP_CONFIGS}; \
-	${SETUP_START}; \
-	${TEST_FLOWS}; \
+	flowtype=esp;
+	leftid=left-from-ca-both; \
+	rightid=right-from-ca-both; \
+	    ${SETUP_CONFIGS}
+	${SETUP_START}
+	flowtype=esp; ${TEST_FLOWS}
 	${TEST_PING}
 
+REGRESS_TARGETS += run-cert-multi-ca
+run-cert-multi-ca:
+	@echo '======= $@ ========'
+	flowtype=esp; \
+	leftid=left-from-ca-right; \
+	rightid=right-from-ca-left; \
+	    ${SETUP_CONFIGS}
+	${SETUP_START}
+	flowtype=esp; ${TEST_FLOWS}
+	${TEST_PING}
+
+REGRESS_TARGETS += run-cert-second-altname
+run-cert-second-altname:
+	@echo '======= $@ ========'
+	flowtype=esp;
+	leftid=left-from-ca-both-alternative; \
+	rightid=right-from-ca-both@openbsd.org; \
+	    ${SETUP_CONFIGS}
+	${SETUP_START}
+	flowtype=esp; ${TEST_FLOWS}
+	${TEST_PING}
+
+REGRESS_TARGETS += run-psk
+run-psk:
+	@echo '======= $@ ========'
+	auth=psk; \
+	leftid=left; \
+	rightid=right; \
+	flowtype=esp; \
+	    ${SETUP_CONFIGS}
+	${SETUP_START}
+	flowtype=esp; ${TEST_FLOWS}
+	${TEST_PING}
+
+REGRESS_TARGETS += run-fragmentation
+run-fragmentation:
+	@echo '======= $@ ========'
+	flowtype=esp; \
+	fragmentation=true; \
+	leftid=left-from-ca-both; \
+	rightid=right-from-ca-both; \
+	    ${SETUP_CONFIGS}
+	${SETUP_START}
+	flowtype=esp; ${TEST_FLOWS}
+	${TEST_PING}
+
+REGRESS_TARGETS += run-ipcomp
 run-ipcomp:
 	@echo '======= $@ ========'
 	flowtype=ipcomp; \
-	${SETUP_CONFIGS}; \
-	${SETUP_SYSCTL}; \
-	${SETUP_START}; \
-	${TEST_FLOWS}; \
+	leftid=left-from-ca-both; \
+	rightid=right-from-ca-both; \
+	    ${SETUP_CONFIGS}
+	${SETUP_SYSCTL}
+	${SETUP_START}
+	flowtype=ipcomp; ${TEST_FLOWS}
 	${TEST_PING}
 
 .include <bsd.regress.mk>

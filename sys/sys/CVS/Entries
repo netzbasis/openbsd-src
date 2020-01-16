@@ -92,7 +92,7 @@
 /signalvar.h/1.37/Fri Jan  3 09:46:41 2020//
 /smr.h/1.2/Sat Mar  9 06:15:48 2019//
 /socket.h/1.98/Mon Jul 22 15:34:07 2019//
-/socketvar.h/1.90/Thu Dec 12 16:33:02 2019//
+/socketvar.h/1.91/Wed Jan 15 13:17:35 2020//
 /sockio.h/1.83/Wed Nov 13 11:54:01 2019//
 /specdev.h/1.39/Fri Dec 27 22:17:01 2019//
 /srp.h/1.14/Sun Mar 31 14:03:40 2019//
@@ -110,7 +110,7 @@
 /systm.h/1.144/Sat Nov 30 11:19:17 2019//
 /task.h/1.16/Sun Jun 23 12:56:10 2019//
 /termios.h/1.13/Tue Sep 20 21:10:22 2016//
-/time.h/1.49/Tue Jan 14 08:52:18 2020//
+/time.h/1.50/Wed Jan 15 13:17:35 2020//
 /timeout.h/1.36/Fri Jan  3 02:16:38 2020//
 /times.h/1.6/Sat Jul  6 18:44:21 2013//
 /timetc.h/1.10/Sat Oct 26 21:16:38 2019//

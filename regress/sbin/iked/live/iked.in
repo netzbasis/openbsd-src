@@ -1,6 +1,5 @@
-ikev2 "test" active $IPCOMP esp from $LEFTGW to $RIGHTGW \
-	peer $RIGHTGW \
-	psk $PSK
-ikev2 "test" active $IPCOMP esp from $LEFTGW to $RIGHTGW \
-	peer $RIGHTGW \
-	psk $PSK
+$FRAGMENTATION
+ikev2 "test" active $IPCOMP esp from $LOCAL_ADDR to $PEER_ADDR \
+	peer $PEER_ADDR \
+	srcid $SRCID \
+	$AUTH
