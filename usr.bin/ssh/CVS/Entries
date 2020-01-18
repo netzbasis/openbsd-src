@@ -157,8 +157,8 @@
 /smult_curve25519_ref.c/1.2/Sat Nov  2 22:02:14 2013//
 /sntrup4591761.c/1.3/Wed Jan 30 19:51:15 2019//
 /sntrup4591761.sh/1.3/Wed Jan 30 19:51:15 2019//
-/ssh-add.1/1.77/Sat Dec 21 20:22:34 2019//
-/ssh-add.c/1.149/Mon Jan  6 02:00:46 2020//
+/ssh-add.1/1.78/Fri Jan 17 20:13:47 2020//
+/ssh-add.c/1.150/Fri Jan 17 20:13:47 2020//
 /ssh-agent.1/1.70/Sat Dec 21 20:22:34 2019//
 /ssh-agent.c/1.251/Fri Dec 13 19:09:10 2019//
 /ssh-dss.c/1.38/Thu Sep 13 02:08:33 2018//
