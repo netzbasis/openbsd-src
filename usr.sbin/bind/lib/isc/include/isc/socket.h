@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: socket.h,v 1.9 2020/01/09 18:17:19 florian Exp $ */
+/* $Id: socket.h,v 1.11 2020/01/20 18:51:53 florian Exp $ */
 
 #ifndef ISC_SOCKET_H
 #define ISC_SOCKET_H 1
@@ -59,12 +59,12 @@
 #include <isc/event.h>
 #include <isc/eventclass.h>
 #include <isc/lang.h>
-#include <isc/json.h>
+
 #include <isc/region.h>
 #include <isc/sockaddr.h>
 #include <isc/time.h>
 #include <isc/types.h>
-#include <isc/xml.h>
+
 
 ISC_LANG_BEGINDECLS
 
@@ -968,14 +968,14 @@ isc_socket_sendto2(isc_socket_t *sock, isc_region_t *region,
 /*@}*/
 
 isc_result_t
-isc_socketmgr_createinctx(isc_mem_t *mctx, isc_appctx_t *actx,
+isc_socketmgr_createinctx(isc_appctx_t *actx,
 			  isc_socketmgr_t **managerp);
 
 isc_result_t
-isc_socketmgr_create(isc_mem_t *mctx, isc_socketmgr_t **managerp);
+isc_socketmgr_create(isc_socketmgr_t **managerp);
 
 isc_result_t
-isc_socketmgr_create2(isc_mem_t *mctx, isc_socketmgr_t **managerp,
+isc_socketmgr_create2(isc_socketmgr_t **managerp,
 		      unsigned int maxsocks);
 /*%<
  * Create a socket manager.  If "maxsocks" is non-zero, it specifies the
@@ -1102,7 +1102,7 @@ isc_socket_dscp(isc_socket_t *sock, isc_dscp_t dscp);
  */
 
 isc_socketevent_t *
-isc_socket_socketevent(isc_mem_t *mctx, void *sender,
+isc_socket_socketevent(void *sender,
 		       isc_eventtype_t eventtype, isc_taskaction_t action,
 		       void *arg);
 /*%<
@@ -1179,27 +1179,11 @@ isc__socketmgr_maxudp(isc_socketmgr_t *mgr, int maxudp);
  * Test interface. Drop UDP packet > 'maxudp'.
  */
 
-#ifdef HAVE_LIBXML2
-int
-isc_socketmgr_renderxml(isc_socketmgr_t *mgr, xmlTextWriterPtr writer);
-/*%<
- * Render internal statistics and other state into the XML document.
- */
-#endif /* HAVE_LIBXML2 */
-
-#ifdef HAVE_JSON
-isc_result_t
-isc_socketmgr_renderjson(isc_socketmgr_t *mgr, json_object *stats);
-/*%<
- * Render internal statistics and other state into JSON format.
- */
-#endif /* HAVE_JSON */
-
 /*%<
  * See isc_socketmgr_create() above.
  */
 typedef isc_result_t
-(*isc_socketmgrcreatefunc_t)(isc_mem_t *mctx, isc_socketmgr_t **managerp);
+(*isc_socketmgrcreatefunc_t)(isc_socketmgr_t **managerp);
 
 isc_result_t
 isc_socket_register(isc_socketmgrcreatefunc_t createfunc);

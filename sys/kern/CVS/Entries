@@ -44,7 +44,7 @@
 /kern_xxx.c/1.36/Tue Apr  2 11:00:22 2019//
 /makesyscalls.sh/1.13/Mon Sep 26 16:42:34 2016//
 /sched_bsd.c/1.60/Wed Dec 11 07:30:09 2019//
-/spec_vnops.c/1.99/Fri Dec 27 22:17:01 2019//
+/spec_vnops.c/1.100/Mon Jan 20 23:21:55 2020//
 /subr_autoconf.c/1.94/Mon Dec 30 23:56:26 2019//
 /subr_disk.c/1.235/Thu Dec 26 22:38:00 2019//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
@@ -59,7 +59,7 @@
 /subr_prof.c/1.30/Sun Sep  4 09:22:29 2016//
 /subr_tree.c/1.10/Tue Oct  9 08:28:43 2018//
 /subr_userconf.c/1.46/Fri Sep  6 21:30:31 2019//
-/subr_witness.c/1.35/Fri Nov 15 15:50:14 2019//
+/subr_witness.c/1.36/Mon Jan 20 15:58:23 2020//
 /subr_xxx.c/1.17/Fri May 17 03:53:08 2019//
 /sys_futex.c/1.14/Tue Jan 14 08:52:18 2020//
 /sys_generic.c/1.128/Thu Jan 16 16:35:04 2020//
@@ -97,8 +97,8 @@
 /vfs_init.c/1.43/Thu Dec 26 13:30:54 2019//
 /vfs_lockf.c/1.45/Mon Dec  2 15:02:32 2019//
 /vfs_lookup.c/1.83/Wed Sep 11 15:01:40 2019//
-/vfs_subr.c/1.298/Fri Jan 10 10:33:34 2020//
-/vfs_sync.c/1.62/Thu Jan 16 16:35:04 2020//
+/vfs_subr.c/1.299/Mon Jan 20 23:21:55 2020//
+/vfs_sync.c/1.63/Mon Jan 20 23:21:56 2020//
 /vfs_syscalls.c/1.340/Sat Jan 18 08:40:19 2020//
 /vfs_vnops.c/1.111/Sun Jan  5 13:46:02 2020//
 /vfs_vops.c/1.23/Sun Dec  8 12:29:42 2019//

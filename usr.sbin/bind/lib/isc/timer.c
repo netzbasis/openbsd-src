@@ -14,18 +14,18 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: timer.c,v 1.9 2020/01/09 18:17:19 florian Exp $ */
+/* $Id: timer.c,v 1.12 2020/01/20 18:51:53 florian Exp $ */
 
 /*! \file */
 
 #include <config.h>
-
+#include <stdlib.h>
 #include <isc/app.h>
 #include <isc/condition.h>
 #include <isc/heap.h>
 #include <isc/log.h>
 #include <isc/magic.h>
-#include <isc/mem.h>
+
 #include <isc/msgs.h>
 #include <isc/once.h>
 #include <isc/platform.h>
@@ -36,12 +36,7 @@
 #include <isc/timer.h>
 #include <isc/util.h>
 
-/* See task.c about the following definition: */
-#define USE_SHARED_MANAGER
-
-#ifndef USE_TIMER_THREAD
 #include "timer_p.h"
-#endif /* USE_TIMER_THREAD */
 
 #ifdef ISC_TIMER_TRACE
 #define XTRACE(s)			fprintf(stderr, "%s\n", (s))
@@ -92,20 +87,13 @@ struct isc__timer {
 struct isc__timermgr {
 	/* Not locked. */
 	isc_timermgr_t			common;
-	isc_mem_t *			mctx;
 	isc_mutex_t			lock;
 	/* Locked by manager lock. */
 	isc_boolean_t			done;
 	LIST(isc__timer_t)		timers;
 	unsigned int			nscheduled;
 	isc_time_t			due;
-#ifdef USE_TIMER_THREAD
-	isc_condition_t			wakeup;
-	isc_thread_t			thread;
-#endif	/* USE_TIMER_THREAD */
-#ifdef USE_SHARED_MANAGER
 	unsigned int			refs;
-#endif /* USE_SHARED_MANAGER */
 	isc_heap_t *			heap;
 };
 
@@ -133,7 +121,7 @@ isc__timer_attach(isc_timer_t *timer0, isc_timer_t **timerp);
 void
 isc__timer_detach(isc_timer_t **timerp);
 isc_result_t
-isc__timermgr_create(isc_mem_t *mctx, isc_timermgr_t **managerp);
+isc__timermgr_create(isc_timermgr_t **managerp);
 void
 isc_timermgr_poke(isc_timermgr_t *manager0);
 void
@@ -167,12 +155,10 @@ static struct isc__timermgrmethods {
 	(void *)isc_timermgr_poke
 };
 
-#ifdef USE_SHARED_MANAGER
 /*!
  * If the manager is supposed to be shared, there can be only one.
  */
 static isc__timermgr_t *timermgr = NULL;
-#endif /* USE_SHARED_MANAGER */
 
 static inline isc_result_t
 schedule(isc__timer_t *timer, isc_time_t *now, isc_boolean_t signal_ok) {
@@ -180,9 +166,6 @@ schedule(isc__timer_t *timer, isc_time_t *now, isc_boolean_t signal_ok) {
 	isc__timermgr_t *manager;
 	isc_time_t due;
 	int cmp;
-#ifdef USE_TIMER_THREAD
-	isc_boolean_t timedwait;
-#endif
 
 	/*!
 	 * Note: the caller must ensure locking.
@@ -190,20 +173,9 @@ schedule(isc__timer_t *timer, isc_time_t *now, isc_boolean_t signal_ok) {
 
 	REQUIRE(timer->type != isc_timertype_inactive);
 
-#ifndef USE_TIMER_THREAD
 	UNUSED(signal_ok);
-#endif /* USE_TIMER_THREAD */
 
 	manager = timer->manager;
-
-#ifdef USE_TIMER_THREAD
-	/*!
-	 * If the manager was timed wait, we may need to signal the
-	 * manager to force a wakeup.
-	 */
-	timedwait = ISC_TF(manager->nscheduled > 0 &&
-			   isc_time_seconds(&manager->due) != 0);
-#endif
 
 	/*
 	 * Compute the new due time.
@@ -257,8 +229,7 @@ schedule(isc__timer_t *timer, isc_time_t *now, isc_boolean_t signal_ok) {
 		manager->nscheduled++;
 	}
 
-	XTRACETIMER(isc_msgcat_get(isc_msgcat, ISC_MSGSET_TIMER,
-				   ISC_MSG_SCHEDULE, "schedule"), timer, due);
+	XTRACETIMER("schedule", timer, due);
 
 	/*
 	 * If this timer is at the head of the queue, we need to ensure
@@ -266,53 +237,15 @@ schedule(isc__timer_t *timer, isc_time_t *now, isc_boolean_t signal_ok) {
 	 * the current "next" timer.  We do this either by waking up the
 	 * run thread, or explicitly setting the value in the manager.
 	 */
-#ifdef USE_TIMER_THREAD
-
-	/*
-	 * This is a temporary (probably) hack to fix a bug on tru64 5.1
-	 * and 5.1a.  Sometimes, pthread_cond_timedwait() doesn't actually
-	 * return when the time expires, so here, we check to see if
-	 * we're 15 seconds or more behind, and if we are, we signal
-	 * the dispatcher.  This isn't such a bad idea as a general purpose
-	 * watchdog, so perhaps we should just leave it in here.
-	 */
-	if (signal_ok && timedwait) {
-		interval_t fifteen;
-		isc_time_t then;
-
-		interval_set(&fifteen, 15, 0);
-		result = isc_time_add(&manager->due, &fifteen, &then);
-
-		if (result == ISC_R_SUCCESS &&
-		    isc_time_compare(&then, now) < 0) {
-			SIGNAL(&manager->wakeup);
-			signal_ok = ISC_FALSE;
-			isc_log_write(isc_lctx, ISC_LOGCATEGORY_GENERAL,
-				      ISC_LOGMODULE_TIMER, ISC_LOG_WARNING,
-				      "*** POKED TIMER ***");
-		}
-	}
-
-	if (timer->index == 1 && signal_ok) {
-		XTRACE(isc_msgcat_get(isc_msgcat, ISC_MSGSET_TIMER,
-				      ISC_MSG_SIGNALSCHED,
-				      "signal (schedule)"));
-		SIGNAL(&manager->wakeup);
-	}
-#else /* USE_TIMER_THREAD */
 	if (timer->index == 1 &&
 	    isc_time_compare(&timer->due, &manager->due) < 0)
 		manager->due = timer->due;
-#endif /* USE_TIMER_THREAD */
 
 	return (ISC_R_SUCCESS);
 }
 
 static inline void
 deschedule(isc__timer_t *timer) {
-#ifdef USE_TIMER_THREAD
-	isc_boolean_t need_wakeup = ISC_FALSE;
-#endif
 	isc__timermgr_t *manager;
 
 	/*
@@ -321,22 +254,10 @@ deschedule(isc__timer_t *timer) {
 
 	manager = timer->manager;
 	if (timer->index > 0) {
-#ifdef USE_TIMER_THREAD
-		if (timer->index == 1)
-			need_wakeup = ISC_TRUE;
-#endif
 		isc_heap_delete(manager->heap, timer->index);
 		timer->index = 0;
 		INSIST(manager->nscheduled > 0);
 		manager->nscheduled--;
-#ifdef USE_TIMER_THREAD
-		if (need_wakeup) {
-			XTRACE(isc_msgcat_get(isc_msgcat, ISC_MSGSET_TIMER,
-					      ISC_MSG_SIGNALDESCHED,
-					      "signal (deschedule)"));
-			SIGNAL(&manager->wakeup);
-		}
-#endif /* USE_TIMER_THREAD */
 	}
 }
 
@@ -364,7 +285,7 @@ destroy(isc__timer_t *timer) {
 	DESTROYLOCK(&timer->lock);
 	timer->common.impmagic = 0;
 	timer->common.magic = 0;
-	isc_mem_put(manager->mctx, timer, sizeof(*timer));
+	free(timer);
 }
 
 isc_result_t
@@ -414,7 +335,7 @@ isc__timer_create(isc_timermgr_t *manager0, isc_timertype_t type,
 	}
 
 
-	timer = isc_mem_get(manager->mctx, sizeof(*timer));
+	timer = malloc(sizeof(*timer));
 	if (timer == NULL)
 		return (ISC_R_NOMEMORY);
 
@@ -424,7 +345,7 @@ isc__timer_create(isc_timermgr_t *manager0, isc_timertype_t type,
 	if (type == isc_timertype_once && !interval_iszero(interval)) {
 		result = isc_time_add(&now, interval, &timer->idle);
 		if (result != ISC_R_SUCCESS) {
-			isc_mem_put(manager->mctx, timer, sizeof(*timer));
+			free(timer);
 			return (result);
 		}
 	} else
@@ -451,7 +372,7 @@ isc__timer_create(isc_timermgr_t *manager0, isc_timertype_t type,
 	result = isc_mutex_init(&timer->lock);
 	if (result != ISC_R_SUCCESS) {
 		isc_task_detach(&timer->task);
-		isc_mem_put(manager->mctx, timer, sizeof(*timer));
+		free(timer);
 		return (result);
 	}
 	ISC_LINK_INIT(timer, link);
@@ -480,7 +401,7 @@ isc__timer_create(isc_timermgr_t *manager0, isc_timertype_t type,
 		timer->common.magic = 0;
 		DESTROYLOCK(&timer->lock);
 		isc_task_detach(&timer->task);
-		isc_mem_put(manager->mctx, timer, sizeof(*timer));
+		free(timer);
 		return (result);
 	}
 
@@ -712,25 +633,18 @@ dispatch(isc__timermgr_t *manager, isc_time_t *now) {
 					 * Idle timer has been touched;
 					 * reschedule.
 					 */
-					XTRACEID(isc_msgcat_get(isc_msgcat,
-								ISC_MSGSET_TIMER,
-								ISC_MSG_IDLERESCHED,
-								"idle reschedule"),
-						 timer);
+					XTRACEID("idle reschedule", timer);
 					post_event = ISC_FALSE;
 					need_schedule = ISC_TRUE;
 				}
 			}
 
 			if (post_event) {
-				XTRACEID(isc_msgcat_get(isc_msgcat,
-							ISC_MSGSET_TIMER,
-							ISC_MSG_POSTING,
-							"posting"), timer);
+				XTRACEID("posting", timer);
 				/*
 				 * XXX We could preallocate this event.
 				 */
-				event = (isc_timerevent_t *)isc_event_allocate(manager->mctx,
+				event = (isc_timerevent_t *)isc_event_allocate(
 							   timer,
 							   type,
 							   timer->action,
@@ -743,11 +657,7 @@ dispatch(isc__timermgr_t *manager, isc_time_t *now) {
 						      ISC_EVENT_PTR(&event));
 				} else
 					UNEXPECTED_ERROR(__FILE__, __LINE__, "%s",
-						 isc_msgcat_get(isc_msgcat,
-							 ISC_MSGSET_TIMER,
-							 ISC_MSG_EVENTNOTALLOC,
-							 "couldn't "
-							 "allocate event"));
+						 "couldn't allocate event");
 			}
 
 			timer->index = 0;
@@ -758,13 +668,9 @@ dispatch(isc__timermgr_t *manager, isc_time_t *now) {
 				result = schedule(timer, now, ISC_FALSE);
 				if (result != ISC_R_SUCCESS)
 					UNEXPECTED_ERROR(__FILE__, __LINE__,
-							 "%s: %u",
-						isc_msgcat_get(isc_msgcat,
-							ISC_MSGSET_TIMER,
-							ISC_MSG_SCHEDFAIL,
-							"couldn't schedule "
-							"timer"),
-							 result);
+						"%s: %u",
+						"couldn't schedule timer",
+						result);
 			}
 		} else {
 			manager->due = timer->due;
@@ -772,46 +678,6 @@ dispatch(isc__timermgr_t *manager, isc_time_t *now) {
 		}
 	}
 }
-
-#ifdef USE_TIMER_THREAD
-static isc_threadresult_t
-run(void *uap) {
-	isc__timermgr_t *manager = uap;
-	isc_time_t now;
-	isc_result_t result;
-
-	LOCK(&manager->lock);
-	while (!manager->done) {
-		TIME_NOW(&now);
-
-		XTRACETIME(isc_msgcat_get(isc_msgcat, ISC_MSGSET_GENERAL,
-					  ISC_MSG_RUNNING,
-					  "running"), now);
-
-		dispatch(manager, &now);
-
-		if (manager->nscheduled > 0) {
-			XTRACETIME2(isc_msgcat_get(isc_msgcat,
-						   ISC_MSGSET_GENERAL,
-						   ISC_MSG_WAITUNTIL,
-						   "waituntil"),
-				    manager->due, now);
-			result = WAITUNTIL(&manager->wakeup, &manager->lock, &manager->due);
-			INSIST(result == ISC_R_SUCCESS ||
-			       result == ISC_R_TIMEDOUT);
-		} else {
-			XTRACETIME(isc_msgcat_get(isc_msgcat, ISC_MSGSET_GENERAL,
-						  ISC_MSG_WAIT, "wait"), now);
-			WAIT(&manager->wakeup, &manager->lock);
-		}
-		XTRACE(isc_msgcat_get(isc_msgcat, ISC_MSGSET_TIMER,
-				      ISC_MSG_WAKEUP, "wakeup"));
-	}
-	UNLOCK(&manager->lock);
-
-	return ((isc_threadresult_t)0);
-}
-#endif /* USE_TIMER_THREAD */
 
 static isc_boolean_t
 sooner(void *v1, void *v2) {
@@ -838,7 +704,7 @@ set_index(void *what, unsigned int index) {
 }
 
 isc_result_t
-isc__timermgr_create(isc_mem_t *mctx, isc_timermgr_t **managerp) {
+isc__timermgr_create(isc_timermgr_t **managerp) {
 	isc__timermgr_t *manager;
 	isc_result_t result;
 
@@ -848,71 +714,38 @@ isc__timermgr_create(isc_mem_t *mctx, isc_timermgr_t **managerp) {
 
 	REQUIRE(managerp != NULL && *managerp == NULL);
 
-#ifdef USE_SHARED_MANAGER
 	if (timermgr != NULL) {
 		timermgr->refs++;
 		*managerp = (isc_timermgr_t *)timermgr;
 		return (ISC_R_SUCCESS);
 	}
-#endif /* USE_SHARED_MANAGER */
 
-	manager = isc_mem_get(mctx, sizeof(*manager));
+	manager = malloc(sizeof(*manager));
 	if (manager == NULL)
 		return (ISC_R_NOMEMORY);
 
 	manager->common.impmagic = TIMER_MANAGER_MAGIC;
 	manager->common.magic = ISCAPI_TIMERMGR_MAGIC;
 	manager->common.methods = (isc_timermgrmethods_t *)&timermgrmethods;
-	manager->mctx = NULL;
 	manager->done = ISC_FALSE;
 	INIT_LIST(manager->timers);
 	manager->nscheduled = 0;
 	isc_time_settoepoch(&manager->due);
 	manager->heap = NULL;
-	result = isc_heap_create(mctx, sooner, set_index, 0, &manager->heap);
+	result = isc_heap_create(sooner, set_index, 0, &manager->heap);
 	if (result != ISC_R_SUCCESS) {
 		INSIST(result == ISC_R_NOMEMORY);
-		isc_mem_put(mctx, manager, sizeof(*manager));
+		free(manager);
 		return (ISC_R_NOMEMORY);
 	}
 	result = isc_mutex_init(&manager->lock);
 	if (result != ISC_R_SUCCESS) {
 		isc_heap_destroy(&manager->heap);
-		isc_mem_put(mctx, manager, sizeof(*manager));
+		free(manager);
 		return (result);
 	}
-	isc_mem_attach(mctx, &manager->mctx);
-#ifdef USE_TIMER_THREAD
-	if (isc_condition_init(&manager->wakeup) != ISC_R_SUCCESS) {
-		isc_mem_detach(&manager->mctx);
-		DESTROYLOCK(&manager->lock);
-		isc_heap_destroy(&manager->heap);
-		isc_mem_put(mctx, manager, sizeof(*manager));
-		UNEXPECTED_ERROR(__FILE__, __LINE__,
-				 "isc_condition_init() %s",
-				 isc_msgcat_get(isc_msgcat, ISC_MSGSET_GENERAL,
-						ISC_MSG_FAILED, "failed"));
-		return (ISC_R_UNEXPECTED);
-	}
-	if (isc_thread_create(run, manager, &manager->thread) !=
-	    ISC_R_SUCCESS) {
-		isc_mem_detach(&manager->mctx);
-		(void)isc_condition_destroy(&manager->wakeup);
-		DESTROYLOCK(&manager->lock);
-		isc_heap_destroy(&manager->heap);
-		isc_mem_put(mctx, manager, sizeof(*manager));
-		UNEXPECTED_ERROR(__FILE__, __LINE__,
-				 "isc_thread_create() %s",
-				 isc_msgcat_get(isc_msgcat, ISC_MSGSET_GENERAL,
-						ISC_MSG_FAILED, "failed"));
-		return (ISC_R_UNEXPECTED);
-	}
-	isc_thread_setname(manager->thread, "isc-timer");
-#endif
-#ifdef USE_SHARED_MANAGER
 	manager->refs = 1;
 	timermgr = manager;
-#endif /* USE_SHARED_MANAGER */
 
 	*managerp = (isc_timermgr_t *)manager;
 
@@ -921,21 +754,12 @@ isc__timermgr_create(isc_mem_t *mctx, isc_timermgr_t **managerp) {
 
 void
 isc_timermgr_poke(isc_timermgr_t *manager0) {
-#ifdef USE_TIMER_THREAD
-	isc__timermgr_t *manager = (isc__timermgr_t *)manager0;
-
-	REQUIRE(VALID_MANAGER(manager));
-
-	SIGNAL(&manager->wakeup);
-#else
 	UNUSED(manager0);
-#endif
 }
 
 void
 isc__timermgr_destroy(isc_timermgr_t **managerp) {
 	isc__timermgr_t *manager;
-	isc_mem_t *mctx;
 
 	/*
 	 * Destroy a timer manager.
@@ -947,7 +771,6 @@ isc__timermgr_destroy(isc_timermgr_t **managerp) {
 
 	LOCK(&manager->lock);
 
-#ifdef USE_SHARED_MANAGER
 	manager->refs--;
 	if (manager->refs > 0) {
 		UNLOCK(&manager->lock);
@@ -955,64 +778,34 @@ isc__timermgr_destroy(isc_timermgr_t **managerp) {
 		return;
 	}
 	timermgr = NULL;
-#endif /* USE_SHARED_MANAGER */
 
-#ifndef USE_TIMER_THREAD
 	isc__timermgr_dispatch((isc_timermgr_t *)manager);
-#endif
 
 	REQUIRE(EMPTY(manager->timers));
 	manager->done = ISC_TRUE;
 
-#ifdef USE_TIMER_THREAD
-	XTRACE(isc_msgcat_get(isc_msgcat, ISC_MSGSET_TIMER,
-			      ISC_MSG_SIGNALDESTROY, "signal (destroy)"));
-	SIGNAL(&manager->wakeup);
-#endif /* USE_TIMER_THREAD */
-
 	UNLOCK(&manager->lock);
-
-#ifdef USE_TIMER_THREAD
-	/*
-	 * Wait for thread to exit.
-	 */
-	if (isc_thread_join(manager->thread, NULL) != ISC_R_SUCCESS)
-		UNEXPECTED_ERROR(__FILE__, __LINE__,
-				 "isc_thread_join() %s",
-				 isc_msgcat_get(isc_msgcat, ISC_MSGSET_GENERAL,
-						ISC_MSG_FAILED, "failed"));
-#endif /* USE_TIMER_THREAD */
 
 	/*
 	 * Clean up.
 	 */
-#ifdef USE_TIMER_THREAD
-	(void)isc_condition_destroy(&manager->wakeup);
-#endif /* USE_TIMER_THREAD */
 	DESTROYLOCK(&manager->lock);
 	isc_heap_destroy(&manager->heap);
 	manager->common.impmagic = 0;
 	manager->common.magic = 0;
-	mctx = manager->mctx;
-	isc_mem_put(mctx, manager, sizeof(*manager));
-	isc_mem_detach(&mctx);
+	free(manager);
 
 	*managerp = NULL;
 
-#ifdef USE_SHARED_MANAGER
 	timermgr = NULL;
-#endif
 }
 
-#ifndef USE_TIMER_THREAD
 isc_result_t
 isc__timermgr_nextevent(isc_timermgr_t *manager0, isc_time_t *when) {
 	isc__timermgr_t *manager = (isc__timermgr_t *)manager0;
 
-#ifdef USE_SHARED_MANAGER
 	if (manager == NULL)
 		manager = timermgr;
-#endif
 	if (manager == NULL || manager->nscheduled == 0)
 		return (ISC_R_NOTFOUND);
 	*when = manager->due;
@@ -1024,16 +817,13 @@ isc__timermgr_dispatch(isc_timermgr_t *manager0) {
 	isc__timermgr_t *manager = (isc__timermgr_t *)manager0;
 	isc_time_t now;
 
-#ifdef USE_SHARED_MANAGER
 	if (manager == NULL)
 		manager = timermgr;
-#endif
 	if (manager == NULL)
 		return;
 	TIME_NOW(&now);
 	dispatch(manager, &now);
 }
-#endif /* USE_TIMER_THREAD */
 
 isc_result_t
 isc__timer_register(void) {
@@ -1066,7 +856,7 @@ isc_timer_register(isc_timermgrcreatefunc_t createfunc) {
 }
 
 isc_result_t
-isc_timermgr_createinctx(isc_mem_t *mctx, isc_appctx_t *actx,
+isc_timermgr_createinctx(isc_appctx_t *actx,
 			 isc_timermgr_t **managerp)
 {
 	isc_result_t result;
@@ -1074,7 +864,7 @@ isc_timermgr_createinctx(isc_mem_t *mctx, isc_appctx_t *actx,
 	LOCK(&createlock);
 
 	REQUIRE(timermgr_createfunc != NULL);
-	result = (*timermgr_createfunc)(mctx, managerp);
+	result = (*timermgr_createfunc)(managerp);
 
 	UNLOCK(&createlock);
 
@@ -1085,16 +875,16 @@ isc_timermgr_createinctx(isc_mem_t *mctx, isc_appctx_t *actx,
 }
 
 isc_result_t
-isc_timermgr_create(isc_mem_t *mctx, isc_timermgr_t **managerp) {
+isc_timermgr_create(isc_timermgr_t **managerp) {
 	isc_result_t result;
 
 	if (isc_bind9)
-		return (isc__timermgr_create(mctx, managerp));
+		return (isc__timermgr_create(managerp));
 
 	LOCK(&createlock);
 
 	REQUIRE(timermgr_createfunc != NULL);
-	result = (*timermgr_createfunc)(mctx, managerp);
+	result = (*timermgr_createfunc)(managerp);
 
 	UNLOCK(&createlock);
 

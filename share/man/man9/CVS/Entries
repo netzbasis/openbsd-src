@@ -46,7 +46,7 @@
 /file.9/1.22/Fri Jan  3 05:37:00 2020//
 /fork1.9/1.30/Sun Jun 11 17:06:27 2017//
 /getdevvp.9/1.8/Tue Jun  4 19:27:06 2013//
-/getnewvnode.9/1.9/Wed Aug 14 06:32:32 2013//
+/getnewvnode.9/1.10/Mon Jan 20 23:23:04 2020//
 /getsn.9/1.2/Wed Apr 25 11:15:58 2018//
 /hardclock.9/1.12/Tue Sep 27 17:06:24 2016//
 /hashinit.9/1.9/Sat Sep 24 18:59:04 2016//
@@ -164,7 +164,7 @@
 /vgone.9/1.8/Wed Jul 17 20:21:55 2013//
 /vhold.9/1.9/Wed Jul 17 20:21:55 2013//
 /vinvalbuf.9/1.12/Thu Jul 25 01:43:20 2019//
-/vnode.9/1.32/Mon Dec 16 10:28:53 2019//
+/vnode.9/1.33/Mon Jan 20 23:23:04 2020//
 /vnsubr.9/1.16/Sun Oct  6 16:32:56 2019//
 /vput.9/1.10/Wed Aug 14 06:32:32 2013//
 /vrecycle.9/1.10/Tue Jun  4 19:27:17 2013//

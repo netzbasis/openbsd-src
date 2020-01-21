@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1912 2020/01/09 00:58:28 jsg Exp 
+ *	OpenBSD: pcidevs,v 1.1914 2020/01/20 23:25:33 jsg Exp 
  */
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
 
@@ -3343,6 +3343,12 @@
 #define	PCI_PRODUCT_INTEL_CORE4G_S_CRW_GT3	0x0d2a		/* HD Graphics */
 #define	PCI_PRODUCT_INTEL_CORE4G_R_CRW_GT3_1	0x0d2b		/* HD Graphics */
 #define	PCI_PRODUCT_INTEL_CORE4G_R_CRW_GT3_2	0x0d2e		/* HD Graphics */
+#define	PCI_PRODUCT_INTEL_I219_LM11	0x0d4c		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_V11	0x0d4d		/* I219-V */
+#define	PCI_PRODUCT_INTEL_I219_LM10	0x0d4e		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_V10	0x0d4f		/* I219-V */
+#define	PCI_PRODUCT_INTEL_I219_LM12	0x0d53		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_V12	0x0d55		/* I219-V */
 #define	PCI_PRODUCT_INTEL_E5V2_HB	0x0e00		/* E5 v2 Host */
 #define	PCI_PRODUCT_INTEL_E5V2_PCIE_1	0x0e01		/* E5 v2 PCIE */
 #define	PCI_PRODUCT_INTEL_E5V2_PCIE_2	0x0e02		/* E5 v2 PCIE */
@@ -3743,6 +3749,11 @@
 #define	PCI_PRODUCT_INTEL_I219_LM5	0x15e3		/* I219-LM */
 #define	PCI_PRODUCT_INTEL_X550EM_A_1G_T	0x15e4		/* X553 SGMII */
 #define	PCI_PRODUCT_INTEL_X550EM_A_1G_T_L	0x15e5		/* X553 SGMII */
+#define	PCI_PRODUCT_INTEL_I219_LM15	0x15f4		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_LM14	0x15f9		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_V14	0x15fa		/* I219-V */
+#define	PCI_PRODUCT_INTEL_I219_LM13	0x15fb		/* I219-LM */
+#define	PCI_PRODUCT_INTEL_I219_V13	0x15fc		/* I219-V */
 #define	PCI_PRODUCT_INTEL_CORE5G_H_PCIE_X16	0x1601		/* Core 5G PCIE */
 #define	PCI_PRODUCT_INTEL_CORE5G_M_GT1_1	0x1602		/* HD Graphics */
 #define	PCI_PRODUCT_INTEL_CORE5G_THERM	0x1603		/* Core 5G Thermal */
@@ -5617,6 +5628,8 @@
 #define	PCI_PRODUCT_INTEL_CORE_SCRATCH	0xd156		/* Core Scratch */
 #define	PCI_PRODUCT_INTEL_CORE_CONTROL	0xd157		/* Core Control */
 #define	PCI_PRODUCT_INTEL_CORE_MISC	0xd158		/* Core Misc */
+#define	PCI_PRODUCT_INTEL_NVME_2	0xf1a5		/* NVMe */
+#define	PCI_PRODUCT_INTEL_NVME_3	0xf1a6		/* NVMe */
 
 /* Intergraph products */
 #define	PCI_PRODUCT_INTERGRAPH_4D50T	0x00e4		/* Powerstorm 4D50T */

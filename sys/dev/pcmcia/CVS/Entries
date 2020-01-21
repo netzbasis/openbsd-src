@@ -4,8 +4,7 @@
 /cfxgareg.h/1.5/Tue Nov 28 12:01:27 2006//
 /com_pcmcia.c/1.57/Sat Dec 30 20:46:59 2017//
 /devlist2h.awk/1.4/Tue Feb  1 16:54:41 2000//
-/esp_pcmcia.c/1.11/Sat Jan 18 22:33:59 2014//
-/files.pcmcia/1.48/Fri Dec 13 20:57:54 2019//
+/files.pcmcia/1.49/Mon Jan 20 23:21:01 2020//
 /if_an_pcmcia.c/1.26/Tue Nov 24 17:11:40 2015//
 /if_ep_pcmcia.c/1.48/Wed Nov 25 11:20:38 2015//
 /if_malo.c/1.95/Sat Jan 11 08:23:05 2020//

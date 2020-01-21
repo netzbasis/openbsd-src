@@ -2,7 +2,7 @@
 /tls_accept_socket.3/1.4/Sat May 26 12:35:26 2018//
 /tls_client.3/1.4/Sat Aug 12 03:41:48 2017//
 /tls_config_ocsp_require_stapling.3/1.5/Tue Jan 31 20:53:50 2017//
-/tls_config_set_protocols.3/1.6/Sat Aug 12 04:24:49 2017//
+/tls_config_set_protocols.3/1.7/Mon Jan 20 08:39:21 2020//
 /tls_config_set_session_id.3/1.5/Sat Feb 10 06:07:43 2018//
 /tls_config_verify.3/1.4/Thu Mar  2 11:05:50 2017//
 /tls_conn_version.3/1.10/Sat Nov  2 13:43:14 2019//

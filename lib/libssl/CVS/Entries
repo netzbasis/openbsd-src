@@ -1,5 +1,5 @@
 /LICENSE/1.12/Fri Jul 11 09:48:48 2014//
-/Makefile/1.57/Sun Nov 17 06:35:30 2019//
+/Makefile/1.58/Mon Jan 20 13:10:37 2020//
 /Symbols.list/1.27/Thu Apr  4 15:03:21 2019//
 /bio_ssl.c/1.29/Fri Aug 24 20:30:21 2018//
 /bs_ber.c/1.9/Sat Dec  3 12:34:35 2016//
@@ -21,7 +21,7 @@
 /s3_lib.c/1.188/Thu Jan  2 06:37:13 2020//
 /shlib_version/1.86/Sat Nov  2 13:52:54 2019//
 /srtp.h/1.6/Tue Sep  1 15:18:23 2015//
-/ssl.h/1.167/Thu Jan  2 06:37:13 2020//
+/ssl.h/1.168/Tue Jan 21 05:19:02 2020//
 /ssl2.h/1.12/Sun Dec 14 15:30:50 2014//
 /ssl23.h/1.4/Sun Dec 14 15:30:50 2014//
 /ssl3.h/1.49/Thu Nov  8 22:28:52 2018//
@@ -32,9 +32,9 @@
 /ssl_ciph.c/1.108/Thu Apr  4 16:44:24 2019//
 /ssl_ciphers.c/1.3/Wed May 15 09:13:16 2019//
 /ssl_clnt.c/1.61/Sun Mar 31 15:49:03 2019//
-/ssl_err.c/1.36/Tue Mar 20 15:28:12 2018//
+/ssl_err.c/1.37/Tue Jan 21 05:19:02 2020//
 /ssl_init.c/1.2/Fri Mar 30 14:59:46 2018//
-/ssl_lib.c/1.207/Sun Nov 17 19:07:07 2019//
+/ssl_lib.c/1.208/Tue Jan 21 04:45:18 2020//
 /ssl_locl.h/1.248/Sun Nov 17 19:07:07 2019//
 /ssl_methods.c/1.5/Sun Nov 17 19:07:07 2019//
 /ssl_packet.c/1.8/Thu Nov  8 22:28:52 2018//
@@ -54,16 +54,17 @@
 /t1_lib.c/1.164/Thu Apr 25 04:57:36 2019//
 /tls1.h/1.40/Thu Jan  2 06:23:16 2020//
 /tls13_buffer.c/1.2/Wed Nov 20 16:21:20 2019//
-/tls13_client.c/1.19/Sun Nov 17 06:30:12 2019//
-/tls13_handshake.c/1.36/Sun Nov 17 06:43:46 2019//
+/tls13_client.c/1.21/Tue Jan 21 03:40:05 2020//
+/tls13_error.c/1.1/Mon Jan 20 13:10:37 2020//
+/tls13_handshake.c/1.38/Tue Jan 21 03:40:05 2020//
 /tls13_handshake.h/1.3/Fri Apr  5 20:23:38 2019//
 /tls13_handshake_msg.c/1.2/Wed Nov 20 16:21:20 2019//
-/tls13_internal.h/1.36/Tue Nov 26 23:46:18 2019//
+/tls13_internal.h/1.38/Tue Jan 21 03:40:05 2020//
 /tls13_key_schedule.c/1.8/Sun Nov 17 21:01:08 2019//
-/tls13_lib.c/1.13/Tue Nov 26 23:46:18 2019//
+/tls13_lib.c/1.16/Tue Jan 21 05:19:02 2020//
 /tls13_record.c/1.3/Mon Jan 21 00:24:19 2019//
 /tls13_record.h/1.3/Mon Jan 21 00:24:19 2019//
-/tls13_record_layer.c/1.16/Tue Nov 26 23:46:18 2019//
+/tls13_record_layer.c/1.17/Mon Jan 20 22:04:17 2020//
 /tls13_server.c/1.3/Sun Nov 17 14:25:03 2019//
 D/doc////
 D/man////

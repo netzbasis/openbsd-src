@@ -1,11 +1,11 @@
 /Makefile/1.33/Thu Feb  8 05:56:49 2018//
 /Symbols.list/1.12/Sat Nov  2 13:37:59 2019//
 /shlib_version/1.61/Sat Nov  2 13:52:54 2019//
-/tls.c/1.83/Mon Apr  1 15:58:02 2019//
-/tls.h/1.56/Sat Nov  2 13:37:59 2019//
+/tls.c/1.84/Mon Jan 20 08:39:21 2020//
+/tls.h/1.57/Mon Jan 20 08:39:21 2020//
 /tls_bio_cb.c/1.19/Thu Jan 12 16:18:39 2017//
 /tls_client.c/1.45/Mon Mar 19 16:34:47 2018//
-/tls_config.c/1.57/Sat Nov 16 06:44:33 2019//
+/tls_config.c/1.58/Mon Jan 20 08:39:21 2020//
 /tls_conninfo.c/1.21/Sat Nov  2 13:37:59 2019//
 /tls_internal.h/1.77/Sat Nov 16 21:39:52 2019//
 /tls_keypair.c/1.6/Sat Apr  7 16:35:34 2018//

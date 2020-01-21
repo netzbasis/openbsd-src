@@ -19,12 +19,13 @@
 #include <config.h>
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <isc/lex.h>
-#include <isc/mem.h>
+
 #include <isc/result.h>
-#include <isc/string.h>
+#include <string.h>
 #include <isc/util.h>
 
 #include <dns/ttl.h>
@@ -358,10 +359,9 @@ parse_updatepolicy(cfg_parser_t *pctx, const cfg_type_t *type,
 		cfg_obj_t *obj = NULL;
 		CHECK(cfg_create_obj(pctx, &cfg_type_ustring, &obj));
 		obj->value.string.length = strlen("local");
-		obj->value.string.base	= isc_mem_get(pctx->mctx,
-						obj->value.string.length + 1);
+		obj->value.string.base	= malloc(obj->value.string.length + 1);
 		if (obj->value.string.base == NULL) {
-			isc_mem_put(pctx->mctx, obj, sizeof(*obj));
+			free(obj);
 			return (ISC_R_NOMEMORY);
 		}
 		memmove(obj->value.string.base, "local", 5);
@@ -1999,7 +1999,7 @@ parse_unitstring(char *str, uint64_t *valuep) {
 	uint64_t value;
 	uint64_t unit;
 
-	value = isc_string_touint64(str, &endp, 10);
+	value = strtoull(str, &endp, 10);
 	if (*endp == 0) {
 		*valuep = value;
 		return (ISC_R_SUCCESS);

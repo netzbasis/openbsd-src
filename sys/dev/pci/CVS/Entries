@@ -122,10 +122,10 @@
 /if_dc_pci.c/1.76/Tue Apr 11 14:43:49 2017//
 /if_de.c/1.137/Wed Mar  8 12:02:41 2017//
 /if_devar.h/1.39/Sun Nov 25 19:52:08 2018//
-/if_em.c/1.342/Fri Mar  1 10:02:44 2019//
+/if_em.c/1.343/Mon Jan 20 23:45:02 2020//
 /if_em.h/1.74/Fri Mar  1 10:02:44 2019//
-/if_em_hw.c/1.104/Thu Sep  5 20:47:49 2019//
-/if_em_hw.h/1.78/Sat Jan  5 18:46:36 2019//
+/if_em_hw.c/1.105/Mon Jan 20 23:45:02 2020//
+/if_em_hw.h/1.79/Mon Jan 20 23:45:02 2020//
 /if_em_osdep.h/1.13/Thu Feb 18 14:24:39 2016//
 /if_em_soc.c/1.5/Thu Jan  7 04:37:53 2016//
 /if_em_soc.h/1.2/Thu Jun  4 18:33:41 2015//
@@ -267,9 +267,9 @@
 /pci_map.c/1.32/Mon Jun 17 11:04:06 2019//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1912/Thu Jan  9 00:58:28 2020//
-/pcidevs.h/1.1905/Thu Jan  9 00:59:15 2020//
-/pcidevs_data.h/1.1900/Thu Jan  9 00:59:15 2020//
+/pcidevs/1.1914/Mon Jan 20 23:25:33 2020//
+/pcidevs.h/1.1907/Mon Jan 20 23:26:13 2020//
+/pcidevs_data.h/1.1902/Mon Jan 20 23:26:13 2020//
 /pciide.c/1.359/Sun Jan  5 01:07:59 2020//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

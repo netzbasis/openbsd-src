@@ -26,7 +26,7 @@
 /libman.h/1.61/Mon Dec 31 10:03:38 2018//
 /libmandoc.h/1.63/Sun Jan 19 16:16:32 2020//
 /libmdoc.h/1.88/Mon Dec 31 04:55:42 2018//
-/main.c/1.243/Sun Jul 28 19:41:01 2019//
+/main.c/1.244/Mon Jan 20 10:29:31 2020//
 /main.h/1.25/Sun Mar  3 13:01:47 2019//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
 /man.1/1.34/Tue Jan  7 11:15:12 2020//
@@ -36,7 +36,7 @@
 /man.h/1.59/Thu Aug 23 19:32:03 2018//
 /man_html.c/1.127/Tue Apr 30 15:52:42 2019//
 /man_macro.c/1.106/Sat Jan  5 18:59:37 2019//
-/man_term.c/1.185/Tue Jul 23 17:42:14 2019//
+/man_term.c/1.186/Mon Jan 20 10:29:31 2020//
 /man_validate.c/1.120/Sun Jan 19 16:16:32 2020//
 /manconf.h/1.7/Thu Nov 22 11:30:15 2018//
 /mandoc.1/1.165/Sun Jan 19 16:16:32 2020//
@@ -63,7 +63,7 @@
 /mdoc_man.c/1.131/Sun Jan 19 17:59:01 2020//
 /mdoc_markdown.c/1.32/Sun Jan 19 17:59:01 2020//
 /mdoc_state.c/1.16/Sun Jan 19 17:59:01 2020//
-/mdoc_term.c/1.274/Sun Jan 19 17:59:01 2020//
+/mdoc_term.c/1.275/Mon Jan 20 10:29:31 2020//
 /mdoc_validate.c/1.292/Sun Jan 19 17:59:01 2020//
 /msec.c/1.13/Fri Dec 14 01:17:46 2018//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
@@ -79,8 +79,8 @@
 /roff_term.c/1.19/Fri Jan  4 03:24:30 2019//
 /roff_validate.c/1.18/Mon Dec 31 09:02:30 2018//
 /st.c/1.13/Fri Dec 14 01:17:46 2018//
-/tag.c/1.26/Sun Jan 19 17:59:01 2020//
-/tag.h/1.9/Sat Jul 27 13:40:42 2019//
+/tag.c/1.27/Mon Jan 20 10:29:31 2020//
+/tag.h/1.10/Mon Jan 20 10:29:31 2020//
 /tbl.c/1.27/Fri Dec 14 06:33:03 2018//
 /tbl.h/1.5/Wed Dec 12 21:54:30 2018//
 /tbl_data.c/1.40/Sat Jan 11 20:48:13 2020//
