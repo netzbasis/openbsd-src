@@ -11,7 +11,7 @@
 /cdefs.h/1.43/Mon Oct 29 17:10:40 2018//
 /cdio.h/1.17/Tue Oct 24 09:36:13 2017//
 /chio.h/1.7/Wed May 31 03:01:44 2006//
-/conf.h/1.146/Tue Dec 17 13:08:54 2019//
+/conf.h/1.147/Tue Jan 21 16:16:23 2020//
 /core.h/1.7/Sat Sep 17 06:09:08 2016//
 /ctf.h/1.5/Sun Aug 13 14:56:05 2017//
 /device.h/1.55/Mon Sep 10 16:18:34 2018//
@@ -69,7 +69,7 @@
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
-/proc.h/1.285/Thu Jan 16 16:35:04 2020//
+/proc.h/1.286/Tue Jan 21 15:20:47 2020//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.45/Thu Jul 12 14:22:54 2018//
@@ -102,9 +102,9 @@
 /stdarg.h/1.9/Thu Dec 12 15:55:36 2019//
 /stdint.h/1.11/Fri Jan 25 00:19:26 2019//
 /swap.h/1.7/Mon Sep 30 12:02:30 2013//
-/syscall.h/1.209/Mon Jan 13 14:02:24 2020//
-/syscall_mi.h/1.24/Fri Nov 29 06:34:46 2019//
-/syscallargs.h/1.212/Mon Jan 13 14:02:24 2020//
+/syscall.h/1.210/Tue Jan 21 15:21:42 2020//
+/syscall_mi.h/1.25/Tue Jan 21 16:16:23 2020//
+/syscallargs.h/1.213/Tue Jan 21 15:21:42 2020//
 /sysctl.h/1.199/Tue Dec 24 13:13:54 2019//
 /syslimits.h/1.13/Sun Jan 18 21:47:16 2015//
 /syslog.h/1.16/Tue Aug  8 14:23:23 2017//
@@ -116,6 +116,7 @@
 /times.h/1.6/Sat Jul  6 18:44:21 2013//
 /timetc.h/1.10/Sat Oct 26 21:16:38 2019//
 /tprintf.h/1.6/Sun Aug 24 01:27:07 2003//
+/tracepoint.h/1.1/Tue Jan 21 16:16:23 2020//
 /tree.h/1.29/Sun Jul 30 19:27:20 2017//
 /tty.h/1.38/Fri Jul 19 00:17:16 2019//
 /ttycom.h/1.17/Sat Jun 16 13:55:03 2018//

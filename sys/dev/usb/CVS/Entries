@@ -105,7 +105,7 @@
 /ukbdvar.h/1.5/Sat Jul 31 16:04:50 2010//
 /ukspan.c/1.2/Tue Jun 25 12:37:05 2019//
 /ulpt.c/1.56/Wed Jan  8 12:57:35 2020//
-/umass.c/1.74/Mon Jan  9 14:44:28 2017//
+/umass.c/1.75/Wed Jan 22 03:43:13 2020//
 /umass_quirks.c/1.32/Wed Jun 24 11:32:37 2015//
 /umass_quirks.h/1.4/Thu Jun 26 05:42:19 2008//
 /umass_scsi.c/1.46/Tue May  1 18:14:46 2018//
@@ -173,7 +173,7 @@
 /uvscom.c/1.38/Tue Nov 12 07:47:30 2019//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
 /uxrcom.c/1.1/Wed Mar 27 22:08:51 2019//
-/xhci.c/1.110/Mon Jan 13 16:17:33 2020//
+/xhci.c/1.111/Wed Jan 22 02:25:11 2020//
 /xhcireg.h/1.17/Tue Oct 15 03:31:35 2019//
 /xhcivar.h/1.11/Sun Oct  6 17:30:00 2019//
 D/dwc2////

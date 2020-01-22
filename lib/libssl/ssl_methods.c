@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_methods.c,v 1.5 2019/11/17 19:07:07 jsing Exp $ */
+/* $OpenBSD: ssl_methods.c,v 1.7 2020/01/22 02:34:39 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -211,7 +211,7 @@ dtls1_get_server_method(int ver)
 	return (NULL);
 }
 
-#ifdef LIBRESSL_HAS_TLS1_3
+#ifdef LIBRESSL_HAS_TLS1_3_CLIENT
 static const SSL_METHOD_INTERNAL TLS_client_method_internal_data = {
 	.version = TLS1_3_VERSION,
 	.min_version = TLS1_VERSION,
@@ -221,7 +221,7 @@ static const SSL_METHOD_INTERNAL TLS_client_method_internal_data = {
 	.ssl_free = tls1_free,
 	.ssl_accept = ssl_undefined_function,
 	.ssl_connect = tls13_legacy_connect,
-	.ssl_shutdown = ssl3_shutdown,
+	.ssl_shutdown = tls13_legacy_shutdown,
 	.get_ssl_method = tls1_get_client_method,
 	.get_timeout = tls1_default_timeout,
 	.ssl_version = ssl_undefined_void_function,
@@ -384,7 +384,7 @@ SSLv23_client_method(void)
 const SSL_METHOD *
 TLS_client_method(void)
 {
-#ifdef LIBRESSL_HAS_TLS1_3
+#ifdef LIBRESSL_HAS_TLS1_3_CLIENT
 	return (&TLS_client_method_data);
 #else
 	return tls_legacy_client_method();

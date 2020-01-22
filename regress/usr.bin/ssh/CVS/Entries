@@ -34,7 +34,7 @@
 /host-expand.sh/1.5/Sun Apr 30 23:34:55 2017//
 /hostkey-agent.sh/1.11/Mon Dec 16 02:39:05 2019//
 /hostkey-rotate.sh/1.8/Tue Nov 26 23:43:10 2019//
-/integrity.sh/1.23/Sun Apr 30 23:34:55 2017//
+/integrity.sh/1.24/Tue Jan 21 08:06:27 2020//
 /kextype.sh/1.6/Tue Mar 24 20:19:15 2015//
 /key-options.sh/1.9/Tue Jul  3 13:53:26 2018//
 /keygen-change.sh/1.9/Mon Dec 16 02:39:05 2019//
@@ -90,7 +90,7 @@
 /t11.ok/1.1/Mon Dec 22 02:15:52 2014//
 /t4.ok/1.2/Mon Dec 22 02:15:52 2014//
 /t5.ok/1.1/Thu Jan 17 13:21:28 2002//
-/test-exec.sh/1.69/Mon Dec 16 02:39:05 2019//
+/test-exec.sh/1.70/Tue Jan 21 08:06:27 2020//
 /transfer.sh/1.4/Sun Apr 30 23:34:55 2017//
 /try-ciphers.sh/1.26/Sun Apr 30 23:34:55 2017//
 /yes-head.sh/1.6/Sun Apr 30 23:34:55 2017//

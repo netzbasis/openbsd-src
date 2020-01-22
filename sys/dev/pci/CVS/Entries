@@ -297,8 +297,8 @@
 /pcivar.h/1.72/Tue Jun 25 16:46:33 2019//
 /pcscp.c/1.20/Sat Mar 14 03:38:48 2015//
 /pcscpreg.h/1.3/Thu Jun 26 05:42:17 2008//
-/piixpm.c/1.41/Thu Jan  9 14:35:19 2020//
-/piixreg.h/1.5/Mon Dec 16 21:39:40 2019//
+/piixpm.c/1.42/Tue Jan 21 06:37:24 2020//
+/piixreg.h/1.6/Tue Jan 21 06:37:24 2020//
 /plx9060reg.h/1.2/Mon Nov 21 21:52:47 2005//
 /plx9060var.h/1.2/Thu Mar 14 01:26:59 2002//
 /ppb.c/1.68/Tue Apr 23 19:37:35 2019//
