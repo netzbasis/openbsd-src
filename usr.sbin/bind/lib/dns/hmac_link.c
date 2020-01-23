@@ -33,10 +33,10 @@
 
 /*
  * Principal Author: Brian Wellington
- * $Id: hmac_link.c,v 1.7 2020/01/20 18:51:52 florian Exp $
+ * $Id: hmac_link.c,v 1.9 2020/01/22 13:02:09 florian Exp $
  */
 
-#include <config.h>
+
 
 #include <isc/buffer.h>
 #include <isc/hmacmd5.h>
@@ -53,9 +53,6 @@
 #include <dst/result.h>
 
 #include "dst_internal.h"
-#ifdef HAVE_FIPS_MODE
-#include "dst_openssl.h"	/* FIPS_mode() prototype */
-#endif
 #include "dst_parse.h"
 
 static isc_result_t

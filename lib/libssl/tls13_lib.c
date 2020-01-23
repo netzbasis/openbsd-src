@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_lib.c,v 1.19 2020/01/22 03:15:43 beck Exp $ */
+/*	$OpenBSD: tls13_lib.c,v 1.23 2020/01/23 05:08:30 jsing Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2019 Bob Beck <beck@openbsd.org>
@@ -349,12 +349,19 @@ tls13_legacy_error(SSL *ssl)
 	struct tls13_ctx *ctx = ssl->internal->tls13;
 	int reason = SSL_R_UNKNOWN;
 
+	/* If we received a fatal alert we already put an error on the stack. */
+	if (S3I(ssl)->fatal_alert != 0)
+		return;
+
 	switch (ctx->error.code) {
 	case TLS13_ERR_VERIFY_FAILED:
 		reason = SSL_R_CERTIFICATE_VERIFY_FAILED;
 		break;
 	case TLS13_ERR_HRR_FAILED:
 		reason = SSL_R_NO_CIPHERS_AVAILABLE;
+		break;
+	case TLS13_ERR_TRAILING_DATA:
+		reason = SSL_R_EXTRA_DATA_IN_MESSAGE;
 		break;
 	}
 
@@ -381,8 +388,11 @@ tls13_legacy_return_code(SSL *ssl, ssize_t ret)
 		return 0;
 
 	case TLS13_IO_FAILURE:
-		if (S3I(ssl)->fatal_alert == 0)
-			tls13_legacy_error(ssl);
+		tls13_legacy_error(ssl);
+		return -1;
+
+	case TLS13_IO_ALERT:
+		tls13_legacy_error(ssl);
 		return -1;
 
 	case TLS13_IO_WANT_POLLIN:
@@ -401,6 +411,22 @@ tls13_legacy_return_code(SSL *ssl, ssize_t ret)
 }
 
 int
+tls13_legacy_pending(const SSL *ssl)
+{
+	struct tls13_ctx *ctx = ssl->internal->tls13;
+	ssize_t ret;
+
+	if (ctx == NULL)
+		return 0;
+
+	ret = tls13_pending_application_data(ctx->rl);
+	if (ret < 0 || ret > INT_MAX)
+		return 0;
+
+	return ret;
+}
+
+int
 tls13_legacy_read_bytes(SSL *ssl, int type, unsigned char *buf, int len, int peek)
 {
 	struct tls13_ctx *ctx = ssl->internal->tls13;
@@ -412,12 +438,6 @@ tls13_legacy_read_bytes(SSL *ssl, int type, unsigned char *buf, int len, int pee
 		return tls13_legacy_return_code(ssl, TLS13_IO_WANT_POLLIN);
 	}
 
-	if (peek) {
-		/* XXX - support peek... */
-		SSLerror(ssl, ERR_R_INTERNAL_ERROR);
-		return -1;
-	}
-
 	if (type != SSL3_RT_APPLICATION_DATA) {
 		SSLerror(ssl, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
 		return -1;
@@ -427,7 +447,11 @@ tls13_legacy_read_bytes(SSL *ssl, int type, unsigned char *buf, int len, int pee
 		return -1;
 	}
 
-	ret = tls13_read_application_data(ctx->rl, buf, len);
+	if (peek)
+		ret = tls13_peek_application_data(ctx->rl, buf, len);
+	else
+		ret = tls13_read_application_data(ctx->rl, buf, len);
+
 	return tls13_legacy_return_code(ssl, ret);
 }
 

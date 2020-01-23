@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_handshake.c,v 1.39 2020/01/22 02:39:45 tb Exp $	*/
+/*	$OpenBSD: tls13_handshake.c,v 1.41 2020/01/23 02:24:38 jsing Exp $	*/
 /*
  * Copyright (c) 2018-2019 Theo Buehler <tb@openbsd.org>
  * Copyright (c) 2019 Joel Sing <jsing@openbsd.org>
@@ -30,9 +30,9 @@ struct tls13_handshake_action {
 	uint8_t			handshake_complete;
 	uint8_t			preserve_transcript_hash;
 
-	int (*send)(struct tls13_ctx *ctx);
+	int (*send)(struct tls13_ctx *ctx, CBB *cbb);
 	int (*sent)(struct tls13_ctx *ctx);
-	int (*recv)(struct tls13_ctx *ctx);
+	int (*recv)(struct tls13_ctx *ctx, CBS *cbs);
 };
 
 enum tls13_message_type tls13_handshake_active_state(struct tls13_ctx *ctx);
@@ -321,17 +321,22 @@ tls13_handshake_send_action(struct tls13_ctx *ctx,
     struct tls13_handshake_action *action)
 {
 	ssize_t ret;
+	CBB cbb;
 	CBS cbs;
 
 	/* If we have no handshake message, we need to build one. */
 	if (ctx->hs_msg == NULL) {
 		if ((ctx->hs_msg = tls13_handshake_msg_new()) == NULL)
 			return TLS13_IO_FAILURE;
-
-		/* XXX - provide CBB. */
-		if (!action->send(ctx))
+		if (!tls13_handshake_msg_start(ctx->hs_msg, &cbb,
+		    action->handshake_type))
 			return TLS13_IO_FAILURE;
-		else if (ctx->alert)
+		if (!action->send(ctx, &cbb))
+			return TLS13_IO_FAILURE;
+		if (!tls13_handshake_msg_finish(ctx->hs_msg))
+			return TLS13_IO_FAILURE;
+
+		if (ctx->alert)
 			return tls13_send_alert(ctx->rl, ctx->alert);
 	}
 
@@ -389,11 +394,21 @@ tls13_handshake_recv_action(struct tls13_ctx *ctx,
 	     action->handshake_type != TLS13_MT_CERTIFICATE_REQUEST))
 		return tls13_send_alert(ctx->rl, SSL_AD_UNEXPECTED_MESSAGE);
 
-	/* XXX provide CBS and check all consumed. */
+	if (!tls13_handshake_msg_content(ctx->hs_msg, &cbs))
+		return TLS13_IO_FAILURE;
+
 	ret = TLS13_IO_FAILURE;
-	if (action->recv(ctx))
-		ret = TLS13_IO_SUCCESS;
-	else if (ctx->alert)
+	if (action->recv(ctx, &cbs)) {
+		if (CBS_len(&cbs) != 0) {
+			tls13_set_errorx(ctx, TLS13_ERR_TRAILING_DATA, 0,
+			    "trailing data in handshake message", NULL);
+			ctx->alert = SSL_AD_DECODE_ERROR;
+		} else {
+			ret = TLS13_IO_SUCCESS;
+		}
+	}
+
+	if (ctx->alert)
 		ret = tls13_send_alert(ctx->rl, ctx->alert);
 
 	tls13_handshake_msg_free(ctx->hs_msg);

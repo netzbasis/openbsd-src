@@ -52,7 +52,7 @@
 /drm_syncobj.h/1.1/Sun Apr 14 10:14:52 2019//
 /drm_utils.h/1.1/Sun Apr 14 10:14:52 2019//
 /drm_vblank.h/1.2/Mon Sep 16 15:18:48 2019//
-/drm_vma_manager.h/1.1/Sun Apr 14 10:14:52 2019//
+/drm_vma_manager.h/1.2/Wed Jan 22 07:52:31 2020//
 /drm_writeback.h/1.1/Sun Apr 14 10:14:52 2019//
 /gpu_scheduler.h/1.2/Fri Nov 29 06:19:07 2019//
 /i915_component.h/1.1/Sun Apr 14 10:14:52 2019//

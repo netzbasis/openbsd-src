@@ -49,7 +49,7 @@
 /inet_ntop.3/1.4/Fri Aug 30 20:06:07 2019//
 /inet_ntop.c/1.13/Wed Sep 21 04:38:56 2016//
 /inet_pton.c/1.10/Sun Sep 13 21:36:08 2015//
-/ip6opt.c/1.9/Thu Apr 27 23:52:35 2017//
+/ip6opt.c/1.10/Wed Jan 22 07:52:37 2020//
 /link_ntoa.3/1.2/Thu Sep 10 10:14:20 2015//
 /linkaddr.c/1.9/Thu Dec  8 03:20:50 2016//
 /ntohl.c/1.7/Mon Jul 21 01:51:10 2014//

@@ -1,4 +1,4 @@
-/* $OpenBSD: s_client.c,v 1.39 2020/01/22 04:51:48 beck Exp $ */
+/* $OpenBSD: s_client.c,v 1.41 2020/01/23 03:35:54 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -292,7 +292,7 @@ s_client_main(int argc, char **argv)
 {
 	unsigned int off = 0, clr = 0;
 	SSL *con = NULL;
-	int s, k, p, state = 0, af = AF_UNSPEC;
+	int s, k, p, pending, state = 0, af = AF_UNSPEC;
 	char *cbuf = NULL, *sbuf = NULL, *mbuf = NULL, *pbuf = NULL;
 	int cbuf_len, cbuf_off;
 	int sbuf_len, sbuf_off;
@@ -1122,47 +1122,19 @@ re_start:
 			}
 #endif
 			if (peekaboo) {
-				p = SSL_peek(con, pbuf, 1024 /* BUFSIZZ */ );
-
-				switch (SSL_get_error(con, k)) {
-				case SSL_ERROR_NONE:
+				k = p = SSL_peek(con, pbuf, 1024 /* BUFSIZZ */ );
+				pending = SSL_pending(con);
+				if (SSL_get_error(con, p) == SSL_ERROR_NONE) {
 					if (p <= 0)
 						goto end;
 					pbuf_off = 0;
 					pbuf_len = p;
 
-					break;
-				case SSL_ERROR_WANT_WRITE:
-					BIO_printf(bio_c_out, "peek W BLOCK\n");
-					write_ssl = 1;
-					read_tty = 0;
-					break;
-				case SSL_ERROR_WANT_READ:
-					BIO_printf(bio_c_out, "peek R BLOCK\n");
-					write_tty = 0;
-					read_ssl = 1;
-					if ((read_tty == 0) && (write_ssl == 0))
-						write_ssl = 1;
-					break;
-				case SSL_ERROR_WANT_X509_LOOKUP:
-					BIO_printf(bio_c_out, "peek X BLOCK\n");
-					break;
-				case SSL_ERROR_SYSCALL:
-					ret = errno;
-					BIO_printf(bio_err, "peek:errno=%d\n", ret);
-					goto shut;
-				case SSL_ERROR_ZERO_RETURN:
-					BIO_printf(bio_c_out, "peek closed\n");
-					ret = 0;
-					goto shut;
-				case SSL_ERROR_SSL:
-					ERR_print_errors(bio_err);
-					goto shut;
-					/* break; */
+					k = SSL_read(con, sbuf, p);
 				}
+			} else {
+				k = SSL_read(con, sbuf, 1024 /* BUFSIZZ */ );
 			}
-
-			k = SSL_read(con, sbuf, 1024 /* BUFSIZZ */ );
 
 			switch (SSL_get_error(con, k)) {
 			case SSL_ERROR_NONE:
@@ -1171,6 +1143,12 @@ re_start:
 				sbuf_off = 0;
 				sbuf_len = k;
 				if (peekaboo) {
+					if (p != pending) {
+						ret = -1;
+						BIO_printf(bio_err,
+						    "peeked %d but pending %d!\n", p, pending);
+						goto shut;
+					}
 					if (k < p) {
 						ret = -1;
 						BIO_printf(bio_err,

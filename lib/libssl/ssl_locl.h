@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.248 2019/11/17 19:07:07 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.254 2020/01/23 06:15:44 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -185,6 +185,14 @@ __BEGIN_HIDDEN_DECLS
 
 #define s2n(s,c)	((c[0]=(unsigned char)(((s)>> 8)&0xff), \
 			  c[1]=(unsigned char)(((s)    )&0xff)),c+=2)
+
+#ifndef LIBRESSL_HAS_TLS1_3_CLIENT
+#define LIBRESSL_HAS_TLS1_3_CLIENT
+#endif
+
+#if defined(LIBRESSL_HAS_TLS1_3_CLIENT) || defined(LIBRESSL_HAS_TLS1_3_SERVER)
+#define LIBRESSL_HAS_TLS1_3
+#endif
 
 /* LOCAL STUFF */
 
@@ -383,8 +391,9 @@ typedef struct ssl_method_internal_st {
 
 	long (*ssl_get_message)(SSL *s, int st1, int stn, int mt,
 	    long max, int *ok);
-	int (*ssl_read_bytes)(SSL *s, int type, unsigned char *buf,
-	    int len, int peek);
+	int (*ssl_pending)(const SSL *s);
+	int (*ssl_read_bytes)(SSL *s, int type, unsigned char *buf, int len,
+	    int peek);
 	int (*ssl_write_bytes)(SSL *s, int type, const void *buf_, int len);
 
 	const struct ssl_method_st *(*get_ssl_method)(int version);
@@ -460,6 +469,10 @@ typedef struct ssl_handshake_tls13_st {
 	/* Preserved transcript hash. */
 	uint8_t transcript_hash[EVP_MAX_MD_SIZE];
 	size_t transcript_hash_len;
+
+	/* Legacy session ID. */
+	uint8_t legacy_session_id[SSL_MAX_SSL_SESSION_ID_LENGTH];
+	size_t legacy_session_id_len;
 } SSL_HANDSHAKE_TLS13;
 
 typedef struct ssl_ctx_internal_st {
@@ -1070,6 +1083,7 @@ int ssl_cipher_is_permitted(const SSL_CIPHER *cipher, uint16_t min_ver,
     uint16_t max_ver);
 
 const SSL_METHOD *tls_legacy_client_method(void);
+const SSL_METHOD *tls_legacy_server_method(void);
 
 const SSL_METHOD *dtls1_get_client_method(int ver);
 const SSL_METHOD *dtls1_get_server_method(int ver);
