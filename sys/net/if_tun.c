@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.199 2020/01/23 03:10:18 dlg Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.209 2020/01/24 01:45:31 dlg Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -78,16 +78,14 @@
 #include <net/if_tun.h>
 
 struct tun_softc {
-	struct arpcom	sc_ac;		/* ethernet common data */
-#define sc_if		sc_ac.ac_if
-	struct selinfo	sc_rsel;	/* read select */
-	struct selinfo	sc_wsel;	/* write select (not used) */
-	LIST_ENTRY(tun_softc)
-			sc_entry;	/* all tunnel interfaces */
-	int		sc_unit;
-	struct sigio_ref
-			sc_sigio;	/* async I/O registration */
-	u_short		sc_flags;	/* misc flags */
+	struct arpcom		sc_ac;		/* ethernet common data */
+#define sc_if			sc_ac.ac_if
+	struct selinfo		sc_rsel;	/* read select */
+	struct selinfo		sc_wsel;	/* write select (not used) */
+	LIST_ENTRY(tun_softc)	sc_entry;	/* all tunnel interfaces */
+	int			sc_unit;
+	struct sigio_ref	sc_sigio;	/* async I/O registration */
+	u_short			sc_flags;	/* misc flags */
 };
 
 #ifdef	TUN_DEBUG
@@ -102,35 +100,19 @@ int	tundebug = TUN_DEBUG;
 
 void	tunattach(int);
 
-/* cdev functions */
-int	tunopen(dev_t, int, int, struct proc *);
-int	tunclose(dev_t, int, int, struct proc *);
-int	tunioctl(dev_t, u_long, caddr_t, int, struct proc *);
-int	tunread(dev_t, struct uio *, int);
-int	tunwrite(dev_t, struct uio *, int);
-int	tunpoll(dev_t, int, struct proc *);
-int	tunkqfilter(dev_t, struct knote *);
-
-int	tapopen(dev_t, int, int, struct proc *);
-int	tapclose(dev_t, int, int, struct proc *);
-int	tapioctl(dev_t, u_long, caddr_t, int, struct proc *);
-int	tapread(dev_t, struct uio *, int);
-int	tapwrite(dev_t, struct uio *, int);
-int	tappoll(dev_t, int, struct proc *);
-int	tapkqfilter(dev_t, struct knote *);
-
 int	tun_dev_open(struct tun_softc *, int, int, struct proc *);
 int	tun_dev_close(struct tun_softc *, int, int, struct proc *);
 int	tun_dev_ioctl(struct tun_softc *, u_long, caddr_t, int, struct proc *);
 int	tun_dev_read(struct tun_softc *, struct uio *, int);
-int	tun_dev_write(struct tun_softc *, struct uio *, int);
+int	tun_dev_write(struct tun_softc *, struct uio *, int, int);
 int	tun_dev_poll(struct tun_softc *, int, struct proc *);
 int	tun_dev_kqfilter(struct tun_softc *, struct knote *);
 
-
 int	tun_ioctl(struct ifnet *, u_long, caddr_t);
+int	tun_input(struct ifnet *, struct mbuf *, void *);
 int	tun_output(struct ifnet *, struct mbuf *, struct sockaddr *,
 	    struct rtentry *);
+int	tun_enqueue(struct ifnet *, struct mbuf *);
 int	tun_clone_create(struct if_clone *, int);
 int	tap_clone_create(struct if_clone *, int);
 int	tun_create(struct if_clone *, int, int);
@@ -239,17 +221,20 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 	ifp->if_softc = sc;
 
 	ifp->if_ioctl = tun_ioctl;
-	ifp->if_output = tun_output;
+	ifp->if_enqueue = tun_enqueue;
 	ifp->if_start = tun_start;
 	ifp->if_hardmtu = TUNMRU;
 	ifp->if_link_state = LINK_STATE_DOWN;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+
+	if_counters_alloc(ifp);
 
 	if ((flags & TUN_LAYER2) == 0) {
 		if (tun_list_insert(&tun_softc_list, sc) != 0)
 			goto exists;
 
 		sc->sc_flags &= ~TUN_LAYER2;
+		ifp->if_output = tun_output;
 		ifp->if_mtu = ETHERMTU;
 		ifp->if_flags = (IFF_POINTOPOINT|IFF_MULTICAST);
 		ifp->if_type = IFT_TUNNEL;
@@ -258,9 +243,12 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 
 		if_attach(ifp);
 		if_alloc_sadl(ifp);
+
 #if NBPFILTER > 0
 		bpfattach(&ifp->if_bpf, ifp, DLT_LOOP, sizeof(u_int32_t));
 #endif
+
+		if_ih_insert(ifp, tun_input, NULL);
 	} else {
 		if (tun_list_insert(&tap_softc_list, sc) != 0)
 			goto exists;
@@ -269,7 +257,6 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 		ether_fakeaddr(ifp);
 		ifp->if_flags =
 		    (IFF_BROADCAST|IFF_SIMPLEX|IFF_MULTICAST);
-		ifp->if_capabilities = IFCAP_VLAN_MTU;
 
 		if_attach(ifp);
 		ether_ifattach(ifp);
@@ -294,7 +281,9 @@ tun_clone_destroy(struct ifnet *ifp)
 	klist_invalidate(&sc->sc_wsel.si_note);
 	splx(s);
 
-	if (sc->sc_flags & TUN_LAYER2)
+	if (!ISSET(sc->sc_flags, TUN_LAYER2))
+		if_ih_remove(ifp, tun_input, NULL);
+	else
 		ether_ifdetach(ifp);
 
 	if_detach(ifp);
@@ -389,8 +378,6 @@ tun_dev_open(struct tun_softc *sc, int flag, int mode, struct proc *p)
 
 	ifp = &sc->sc_if;
 	sc->sc_flags |= TUN_OPEN;
-	if (flag & FNONBLOCK)
-		sc->sc_flags |= TUN_NBIO;
 
 	/* automatically mark the interface running on open */
 	ifp->if_flags |= IFF_RUNNING;
@@ -431,7 +418,7 @@ tun_dev_close(struct tun_softc *sc, int flag, int mode, struct proc *p)
 	struct ifnet		*ifp;
 
 	ifp = &sc->sc_if;
-	sc->sc_flags &= ~(TUN_OPEN|TUN_NBIO|TUN_ASYNC);
+	sc->sc_flags &= ~(TUN_OPEN|TUN_ASYNC);
 
 	/*
 	 * junk all pending output
@@ -554,7 +541,6 @@ tun_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
     struct rtentry *rt)
 {
 	struct tun_softc	*sc = ifp->if_softc;
-	int			 error;
 	u_int32_t		*af;
 
 	if ((ifp->if_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING)) {
@@ -566,13 +552,10 @@ tun_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
 
 	if ((sc->sc_flags & TUN_READY) != TUN_READY) {
 		TUNDEBUG(("%s: not ready %#x\n", ifp->if_xname,
-		     sc->sc_flags));
+		    sc->sc_flags));
 		m_freem(m0);
 		return (EHOSTDOWN);
 	}
-
-	if (sc->sc_flags & TUN_LAYER2)
-		return (ether_output(ifp, m0, dst, rt));
 
 	M_PREPEND(m0, sizeof(*af), M_DONTWAIT);
 	if (m0 == NULL)
@@ -580,19 +563,21 @@ tun_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
 	af = mtod(m0, u_int32_t *);
 	*af = htonl(dst->sa_family);
 
-#if NBPFILTER > 0
-	if (ifp->if_bpf)
-		bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
-#endif
+	return (if_enqueue(ifp, m0));
+}
 
-	error = if_enqueue(ifp, m0);
+int
+tun_enqueue(struct ifnet *ifp, struct mbuf *m0)
+{
+	struct tun_softc	*sc = ifp->if_softc;
+	int			 error;
 
-	if (error) {
-		ifp->if_collisions++;
+	error = ifq_enqueue(&ifp->if_snd, m0);
+	if (error != 0)
 		return (error);
-	}
 
 	tun_wakeup(sc);
+
 	return (0);
 }
 
@@ -680,10 +665,6 @@ tun_dev_ioctl(struct tun_softc *sc, u_long cmd, caddr_t data, int flag,
 		break;
 
 	case FIONBIO:
-		if (*(int *)data)
-			sc->sc_flags |= TUN_NBIO;
-		else
-			sc->sc_flags &= ~TUN_NBIO;
 		break;
 	case FIOASYNC:
 		if (*(int *)data)
@@ -751,7 +732,6 @@ tun_dev_read(struct tun_softc *sc, struct uio *uio, int ioflag)
 	struct mbuf		*m, *m0;
 	unsigned int		 ifidx;
 	int			 error = 0;
-	size_t			 len;
 
 	if ((sc->sc_flags & TUN_READY) != TUN_READY)
 		return (EHOSTDOWN);
@@ -776,7 +756,7 @@ tun_dev_read(struct tun_softc *sc, struct uio *uio, int ioflag)
 		}
 		IFQ_DEQUEUE(&ifp->if_snd, m0);
 		if (m0 == NULL) {
-			if (sc->sc_flags & TUN_NBIO && ioflag & IO_NDELAY)
+			if (ioflag & IO_NDELAY)
 				return (EWOULDBLOCK);
 			sc->sc_flags |= TUN_RWAIT;
 			if ((error = tsleep_nsec(sc,
@@ -791,27 +771,26 @@ tun_dev_read(struct tun_softc *sc, struct uio *uio, int ioflag)
 		}
 	} while (m0 == NULL);
 
-	if (sc->sc_flags & TUN_LAYER2) {
 #if NBPFILTER > 0
-		if (ifp->if_bpf)
-			bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
+	if (ifp->if_bpf)
+		bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
 #endif
+
+	m = m0;
+	while (uio->uio_resid > 0) {
+		size_t len = ulmin(uio->uio_resid, m->m_len);
+		if (len > 0) {
+			error = uiomove(mtod(m, void *), len, uio);
+			if (error != 0)
+				break;
+		}
+
+		m = m->m_next;
+		if (m == NULL)
+			break;
 	}
 
-	while (m0 != NULL && uio->uio_resid > 0 && error == 0) {
-		len = ulmin(uio->uio_resid, m0->m_len);
-		if (len != 0)
-			error = uiomove(mtod(m0, caddr_t), len, uio);
-		m = m_free(m0);
-		m0 = m;
-	}
-
-	if (m0 != NULL) {
-		TUNDEBUG(("Dropping mbuf\n"));
-		m_freem(m0);
-	}
-	if (error)
-		ifp->if_oerrors++;
+	m_freem(m0);
 
 	return (error);
 }
@@ -826,7 +805,7 @@ tunwrite(dev_t dev, struct uio *uio, int ioflag)
 
 	if ((sc = tun_lookup(minor(dev))) == NULL)
 		return (ENXIO);
-	return (tun_dev_write(sc, uio, ioflag));
+	return (tun_dev_write(sc, uio, ioflag, 0));
 }
 
 int
@@ -836,16 +815,15 @@ tapwrite(dev_t dev, struct uio *uio, int ioflag)
 
 	if ((sc = tap_lookup(minor(dev))) == NULL)
 		return (ENXIO);
-	return (tun_dev_write(sc, uio, ioflag));
+	return (tun_dev_write(sc, uio, ioflag, ETHER_ALIGN));
 }
 
 int
-tun_dev_write(struct tun_softc *sc, struct uio *uio, int ioflag)
+tun_dev_write(struct tun_softc *sc, struct uio *uio, int ioflag, int align)
 {
 	struct ifnet		*ifp;
-	u_int32_t		*th;
-	struct mbuf		*top, **mp, *m;
-	int			error = 0, tlen;
+	struct mbuf		*m0;
+	int			error = 0;
 	size_t			mlen;
 
 	ifp = &sc->sc_if;
@@ -856,113 +834,71 @@ tun_dev_write(struct tun_softc *sc, struct uio *uio, int ioflag)
 		TUNDEBUG(("%s: len=%d!\n", ifp->if_xname, uio->uio_resid));
 		return (EMSGSIZE);
 	}
-	tlen = uio->uio_resid;
 
-	/* get a header mbuf */
-	MGETHDR(m, M_DONTWAIT, MT_DATA);
-	if (m == NULL)
-		return (ENOBUFS);
-	mlen = MHLEN;
-	if (uio->uio_resid >= MINCLSIZE) {
-		MCLGET(m, M_DONTWAIT);
-		if (!(m->m_flags & M_EXT)) {
-			m_free(m);
-			return (ENOBUFS);
-		}
-		mlen = MCLBYTES;
-	}
+	align += max_linkhdr;
+	mlen = align + uio->uio_resid;
 
-	top = NULL;
-	mp = &top;
-	if (sc->sc_flags & TUN_LAYER2) {
-		/*
-		 * Pad so that IP header is correctly aligned
-		 * this is necessary for all strict aligned architectures.
-		 */
-		mlen -= ETHER_ALIGN;
-		m->m_data += ETHER_ALIGN;
-	}
-	while (error == 0 && uio->uio_resid > 0) {
-		m->m_len = ulmin(mlen, uio->uio_resid);
-		error = uiomove(mtod (m, caddr_t), m->m_len, uio);
-		*mp = m;
-		mp = &m->m_next;
-		if (error == 0 && uio->uio_resid > 0) {
-			MGET(m, M_DONTWAIT, MT_DATA);
-			if (m == NULL) {
-				error = ENOBUFS;
-				break;
-			}
-			mlen = MLEN;
-			if (uio->uio_resid >= MINCLSIZE) {
-				MCLGET(m, M_DONTWAIT);
-				if (!(m->m_flags & M_EXT)) {
-					error = ENOBUFS;
-					m_free(m);
-					break;
-				}
-				mlen = MCLBYTES;
-			}
+	m0 = m_gethdr(M_DONTWAIT, MT_DATA);
+	if (m0 == NULL)
+		return (ENOMEM);
+	if (mlen > MHLEN) {
+		m_clget(m0, M_DONTWAIT, mlen);
+		if (!ISSET(m0->m_flags, M_EXT)) {
+			error = ENOMEM;
+			goto drop;
 		}
 	}
-	if (error) {
-		m_freem(top);
-		ifp->if_ierrors++;
-		return (error);
-	}
 
-	top->m_pkthdr.len = tlen;
+	m_align(m0, mlen);
+	m0->m_pkthdr.len = m0->m_len = mlen;
+	m_adj(m0, align);
 
-	if (sc->sc_flags & TUN_LAYER2) {
-		struct mbuf_list ml = MBUF_LIST_INITIALIZER();
+	error = uiomove(mtod(m0, void *), m0->m_len, uio);
+	if (error != 0)
+		goto drop;
 
-		ml_enqueue(&ml, top);
-		if_input(ifp, &ml);
-		return (0);
-	}
+	NET_RLOCK();
+	if_vinput(ifp, m0);
+	NET_RUNLOCK();
 
-#if NBPFILTER > 0
-	if (ifp->if_bpf) {
-		bpf_mtap(ifp->if_bpf, top, BPF_DIRECTION_IN);
-	}
-#endif
+	return (0);
 
-	th = mtod(top, u_int32_t *);
+drop:
+	m_freem(m0);
+	return (error);
+}
+
+int
+tun_input(struct ifnet *ifp, struct mbuf *m0, void *cookie)
+{
+	uint32_t		af;
+
+	KASSERT(m0->m_len >= sizeof(af));
+
+	af = *mtod(m0, uint32_t *);
 	/* strip the tunnel header */
-	top->m_data += sizeof(*th);
-	top->m_len  -= sizeof(*th);
-	top->m_pkthdr.len -= sizeof(*th);
-	top->m_pkthdr.ph_rtableid = ifp->if_rdomain;
-	top->m_pkthdr.ph_ifidx = ifp->if_index;
+	m_adj(m0, sizeof(af));
 
-	ifp->if_ipackets++;
-	ifp->if_ibytes += top->m_pkthdr.len;
-
-	NET_LOCK();
-
-	switch (ntohl(*th)) {
+	switch (ntohl(af)) {
 	case AF_INET:
-		ipv4_input(ifp, top);
+		ipv4_input(ifp, m0);
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ipv6_input(ifp, top);
+		ipv6_input(ifp, m0);
 		break;
 #endif
 #ifdef MPLS
 	case AF_MPLS:
-		mpls_input(ifp, top);
+		mpls_input(ifp, m0);
 		break;
 #endif
 	default:
-		m_freem(top);
-		error = EAFNOSUPPORT;
+		m_freem(m0);
 		break;
 	}
 
-	NET_UNLOCK();
-
-	return (error);
+	return (1);
 }
 
 /*

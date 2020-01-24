@@ -26,7 +26,7 @@
 /i2c_scan.c/1.146/Mon Dec 16 19:17:04 2019//
 /i2cvar.h/1.17/Mon Jul 22 14:37:06 2019//
 /iatp.c/1.7/Thu Jan  9 14:35:19 2020//
-/ihidev.c/1.21/Wed Jul 31 16:09:12 2019//
+/ihidev.c/1.22/Fri Jan 24 04:03:11 2020//
 /ihidev.h/1.7/Mon Jul 22 14:37:06 2019//
 /ikbd.c/1.1/Thu Jan 14 21:01:49 2016//
 /ims.c/1.2/Sat Sep  1 20:50:16 2018//

@@ -4,7 +4,7 @@
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
 /fido.c/1.2/Wed Dec 18 05:09:53 2019//
-/files.usb/1.141/Tue Dec 17 13:08:54 2019//
+/files.usb/1.142/Fri Jan 24 05:14:51 2020//
 /if_athn_usb.c/1.55/Mon Nov 25 11:32:17 2019//
 /if_athn_usb.h/1.10/Mon Feb  5 09:52:03 2018//
 /if_atu.c/1.128/Sun Jan  5 08:58:25 2020//
@@ -108,7 +108,7 @@
 /umass.c/1.75/Wed Jan 22 03:43:13 2020//
 /umass_quirks.c/1.32/Wed Jun 24 11:32:37 2015//
 /umass_quirks.h/1.4/Thu Jun 26 05:42:19 2008//
-/umass_scsi.c/1.46/Tue May  1 18:14:46 2018//
+/umass_scsi.c/1.47/Thu Jan 23 07:53:00 2020//
 /umass_scsi.h/1.6/Wed Aug  3 13:44:49 2016//
 /umassvar.h/1.15/Wed Dec 16 14:50:26 2015//
 /umbg.c/1.26/Fri Mar 22 12:04:25 2019//

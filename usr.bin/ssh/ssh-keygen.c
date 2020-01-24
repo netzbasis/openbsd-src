@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.386 2020/01/23 02:43:48 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.391 2020/01/24 05:33:01 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -387,6 +387,14 @@ do_convert_to_pem(struct sshkey *k)
 	case KEY_RSA:
 		if (!PEM_write_RSAPublicKey(stdout, k->rsa))
 			fatal("PEM_write_RSAPublicKey failed");
+		break;
+	case KEY_DSA:
+		if (!PEM_write_DSA_PUBKEY(stdout, k->dsa))
+			fatal("PEM_write_DSA_PUBKEY failed");
+		break;
+	case KEY_ECDSA:
+		if (!PEM_write_EC_PUBKEY(stdout, k->ecdsa))
+			fatal("PEM_write_EC_PUBKEY failed");
 		break;
 	default:
 		fatal("%s: unsupported key type %s", __func__, sshkey_type(k));
@@ -1760,10 +1768,14 @@ do_ca_sign(struct passwd *pw, const char *ca_key_path, int prefer_agent,
 	}
 	free(tmp);
 
-	if (key_type_name != NULL &&
-	    sshkey_type_from_name(key_type_name) != ca->type)  {
-		fatal("CA key type %s doesn't match specified %s",
-		    sshkey_ssh_name(ca), key_type_name);
+	if (key_type_name != NULL) {
+		if (sshkey_type_from_name(key_type_name) != ca->type) {
+			fatal("CA key type %s doesn't match specified %s",
+			    sshkey_ssh_name(ca), key_type_name);
+		}
+	} else if (ca->type == KEY_RSA) {
+		/* Default to a good signature algorithm */
+		key_type_name = "rsa-sha2-512";
 	}
 	ca_fp = sshkey_fingerprint(ca, fingerprint_hash, SSH_FP_DEFAULT);
 
@@ -2738,11 +2750,11 @@ done:
 }
 
 static int
-sig_find_principal(const char *signature, const char *allowed_keys) {
+sig_find_principals(const char *signature, const char *allowed_keys) {
 	int r, ret = -1, sigfd = -1;
 	struct sshbuf *sigbuf = NULL, *abuf = NULL;
 	struct sshkey *sign_key = NULL;
-	char *principal = NULL;
+	char *principals = NULL, *cp, *tmp;
 
 	if ((abuf = sshbuf_new()) == NULL)
 		fatal("%s: sshbuf_new() failed", __func__);
@@ -2762,12 +2774,11 @@ sig_find_principal(const char *signature, const char *allowed_keys) {
 	}
 	if ((r = sshsig_get_pubkey(sigbuf, &sign_key)) != 0) {
 		error("%s: sshsig_get_pubkey: %s",
-		      __func__, ssh_err(r));
+		    __func__, ssh_err(r));
 		goto done;
 	}
-
-	if ((r = sshsig_find_principal(allowed_keys, sign_key,
-				      &principal)) != 0) {
+	if ((r = sshsig_find_principals(allowed_keys, sign_key,
+	    &principals)) != 0) {
 		error("%s: sshsig_get_principal: %s",
 		      __func__, ssh_err(r));
 		goto done;
@@ -2775,16 +2786,19 @@ sig_find_principal(const char *signature, const char *allowed_keys) {
 	ret = 0;
 done:
 	if (ret == 0 ) {
-		printf("Found matching principal: %s\n", principal);
+		/* Emit matching principals one per line */
+		tmp = principals;
+		while ((cp = strsep(&tmp, ",")) != NULL && *cp != '\0')
+			puts(cp);
 	} else {
-		printf("Could not find matching principal.\n");
+		fprintf(stderr, "No principal matched.\n");
 	}
 	if (sigfd != -1)
 		close(sigfd);
 	sshbuf_free(sigbuf);
 	sshbuf_free(abuf);
 	sshkey_free(sign_key);
-	free(principal);
+	free(principals);
 	return ret;
 }
 
@@ -3073,7 +3087,7 @@ usage(void)
 	    "       ssh-keygen -k -f krl_file [-u] [-s ca_public] [-z version_number]\n"
 	    "                  file ...\n"
 	    "       ssh-keygen -Q -f krl_file file ...\n"
-	    "       ssh-keygen -Y find-principal -s signature_file -f allowed_signers_file\n"
+	    "       ssh-keygen -Y find-principals -s signature_file -f allowed_signers_file\n"
 	    "       ssh-keygen -Y check-novalidate -n namespace -s signature_file\n"
 	    "       ssh-keygen -Y sign -f key_file -n namespace file ...\n"
 	    "       ssh-keygen -Y verify -f allowed_signers_file -I signer_identity\n"
@@ -3334,25 +3348,25 @@ main(int argc, char **argv)
 	argc -= optind;
 
 	if (sign_op != NULL) {
-		if (strncmp(sign_op, "find-principal", 14) == 0) {
+		if (strncmp(sign_op, "find-principals", 15) == 0) {
 			if (ca_key_path == NULL) {
-				error("Too few arguments for find-principal:"
+				error("Too few arguments for find-principals:"
 				      "missing signature file");
 				exit(1);
 			}
 			if (!have_identity) {
-				error("Too few arguments for find-principal:"
+				error("Too few arguments for find-principals:"
 				      "missing allowed keys file");
 				exit(1);
 			}
-			return sig_find_principal(ca_key_path, identity_file);
-		}
-		if (cert_principals == NULL || *cert_principals == '\0') {
-			error("Too few arguments for sign/verify: "
-			    "missing namespace");
-			exit(1);
-		}
-		if (strncmp(sign_op, "sign", 4) == 0) {
+			return sig_find_principals(ca_key_path, identity_file);
+		} else if (strncmp(sign_op, "sign", 4) == 0) {
+			if (cert_principals == NULL ||
+			    *cert_principals == '\0') {
+				error("Too few arguments for sign: "
+				    "missing namespace");
+				exit(1);
+			}
 			if (!have_identity) {
 				error("Too few arguments for sign: "
 				    "missing key");
@@ -3369,6 +3383,12 @@ main(int argc, char **argv)
 			return sig_verify(ca_key_path, cert_principals,
 			    NULL, NULL, NULL);
 		} else if (strncmp(sign_op, "verify", 6) == 0) {
+			if (cert_principals == NULL ||
+			    *cert_principals == '\0') {
+				error("Too few arguments for verify: "
+				    "missing namespace");
+				exit(1);
+			}
 			if (ca_key_path == NULL) {
 				error("Too few arguments for verify: "
 				    "missing signature file");
@@ -3387,6 +3407,7 @@ main(int argc, char **argv)
 			return sig_verify(ca_key_path, cert_principals,
 			    cert_key_id, identity_file, rr_hostname);
 		}
+		error("Unsupported operation for -Y: \"%s\"", sign_op);
 		usage();
 		/* NOTREACHED */
 	}
@@ -3619,7 +3640,7 @@ main(int argc, char **argv)
 	sshkey_free(private);
 
 	if (!quiet) {
-		printf("Your identification has been saved in %s.\n",
+		printf("Your identification has been saved in %s\n",
 		    identity_file);
 	}
 
@@ -3636,7 +3657,7 @@ main(int argc, char **argv)
 		    SSH_FP_RANDOMART);
 		if (fp == NULL || ra == NULL)
 			fatal("sshkey_fingerprint failed");
-		printf("Your public key has been saved in %s.\n",
+		printf("Your public key has been saved in %s\n",
 		    identity_file);
 		printf("The key fingerprint is:\n");
 		printf("%s %s\n", fp, comment);

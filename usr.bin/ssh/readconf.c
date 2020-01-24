@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.320 2020/01/23 02:46:49 dtucker Exp $ */
+/* $OpenBSD: readconf.c,v 1.322 2020/01/23 10:24:29 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -514,7 +514,7 @@ execute_in_shell(const char *cmd)
 		execv(argv[0], argv);
 		error("Unable to execute '%.100s': %s", cmd, strerror(errno));
 		/* Die with signal to make this error apparent to parent. */
-		signal(SIGTERM, SIG_DFL);
+		ssh_signal(SIGTERM, SIG_DFL);
 		kill(getpid(), SIGTERM);
 		_exit(1);
 	}
@@ -823,6 +823,13 @@ static const struct multistate multistate_canonicalizehostname[] = {
 	{ "always",			SSH_CANONICALISE_ALWAYS },
 	{ NULL, -1 }
 };
+static const struct multistate multistate_compression[] = {
+#ifdef WITH_ZLIB
+	{ "yes",			COMP_ZLIB },
+#endif
+	{ "no",				COMP_NONE },
+	{ NULL, -1 }
+};
 
 /*
  * Processes a single option line as used in the configuration files. This
@@ -1032,7 +1039,8 @@ parse_time:
 
 	case oCompression:
 		intptr = &options->compression;
-		goto parse_flag;
+		multistate_ptr = multistate_compression;
+		goto parse_multistate;
 
 	case oTCPKeepAlive:
 		intptr = &options->tcp_keep_alive;

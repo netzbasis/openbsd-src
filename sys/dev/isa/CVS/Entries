@@ -24,7 +24,7 @@
 /fdc.c/1.23/Sat Dec 30 20:46:59 2017//
 /fdlink.h/1.9/Tue Apr 10 17:47:55 2007//
 /fdreg.h/1.12/Sun Aug 13 03:36:24 2006//
-/files.isa/1.125/Wed Jan 22 05:06:19 2020//
+/files.isa/1.126/Fri Jan 24 05:14:51 2020//
 /files.isapnp/1.36/Sat Sep  3 21:51:52 2016//
 /fins.c/1.4/Wed Dec 10 12:27:57 2014//
 /gscsio.c/1.13/Sun Sep 14 14:17:25 2014//
@@ -121,6 +121,6 @@
 /wbsioreg.h/1.5/Tue Dec 17 01:34:59 2019//
 /wdc_isa.c/1.16/Fri Sep  8 05:36:52 2017//
 /wdc_isapnp.c/1.11/Fri Sep  8 05:36:52 2017//
-/wds.c/1.44/Tue Dec 31 10:05:32 2019//
+/wds.c/1.45/Thu Jan 23 07:53:00 2020//
 /wdsreg.h/1.5/Wed Jun 29 12:17:40 2011//
 D
