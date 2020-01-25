@@ -1,4 +1,4 @@
-/Makefile/1.37/Sat Nov  2 13:38:04 2019//
+/Makefile/1.39/Wed Jan 22 07:58:27 2020//
 /Symbols.list/1.94/Sat Nov  2 13:52:31 2019//
 /alphacpuid.pl/1.3/Thu Apr 17 18:49:35 2014//
 /arm64cpuid.S/1.1/Tue Jul  2 19:31:28 2019//
@@ -27,7 +27,7 @@
 /o_time.h/1.7/Wed Dec 21 15:49:29 2016//
 /openssl.cnf/1.2/Wed Oct  1 13:19:51 2014//
 /opensslfeatures.h/1.20/Sat Nov  2 13:38:04 2019//
-/opensslv.h/1.55/Thu Oct 10 14:29:20 2019//
+/opensslv.h/1.56/Tue Jan 14 02:48:51 2020//
 /ossl_typ.h/1.13/Wed Sep 30 04:10:07 2015//
 /pariscid.pl/1.5/Thu May  1 22:26:21 2014//
 /ppccap.c/1.6/Thu Jul 17 23:48:24 2014//

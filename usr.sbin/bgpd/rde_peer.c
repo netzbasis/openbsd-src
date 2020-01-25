@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_peer.c,v 1.2 2020/01/09 13:31:52 claudio Exp $ */
+/*	$OpenBSD: rde_peer.c,v 1.4 2020/01/24 05:44:05 claudio Exp $ */
 
 /*
  * Copyright (c) 2019 Claudio Jeker <claudio@openbsd.org>
@@ -420,6 +420,7 @@ peer_up(struct rde_peer *peer, struct session_up *sup)
 			fatal("%s: prefix_dump_new", __func__);
 		peer_flush(peer, AID_UNSPEC, 0);
 		peer->prefix_cnt = 0;
+		peer->prefix_out_cnt = 0;
 		peer->state = PEER_DOWN;
 	}
 	peer->remote_bgpid = ntohl(sup->remote_bgpid);
@@ -461,6 +462,7 @@ peer_down(struct rde_peer *peer, void *bula)
 	/* flush Adj-RIB-In */
 	peer_flush(peer, AID_UNSPEC, 0);
 	peer->prefix_cnt = 0;
+	peer->prefix_out_cnt = 0;
 
 	peer_imsg_flush(peer);
 
@@ -486,7 +488,7 @@ peer_flush(struct rde_peer *peer, u_int8_t aid, time_t staletime)
 	/* Deletions may have been performed in peer_flush_upcall */
 	rde_send_pftable_commit();
 
-	/* flushed no need to keep staletime */
+	/* every route is gone so reset staletime */
 	if (aid == AID_UNSPEC) {
 		u_int8_t i;
 		for (i = 0; i < AID_MAX; i++)

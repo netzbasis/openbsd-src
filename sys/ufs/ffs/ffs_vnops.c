@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vnops.c,v 1.95 2019/11/27 16:12:13 beck Exp $	*/
+/*	$OpenBSD: ffs_vnops.c,v 1.97 2020/01/24 13:01:29 kurt Exp $	*/
 /*	$NetBSD: ffs_vnops.c,v 1.7 1996/05/11 18:27:24 mycroft Exp $	*/
 
 /*
@@ -57,7 +57,7 @@
 #include <ufs/ffs/fs.h>
 #include <ufs/ffs/ffs_extern.h>
 
-struct vops ffs_vops = {
+const struct vops ffs_vops = {
 	.vop_lookup	= ufs_lookup,
 	.vop_create	= ufs_create,
 	.vop_mknod	= ufs_mknod,
@@ -95,7 +95,7 @@ struct vops ffs_vops = {
 	.vop_bwrite	= vop_generic_bwrite
 };
 
-struct vops ffs_specvops = {
+const struct vops ffs_specvops = {
 	.vop_close	= ufsspec_close,
 	.vop_access	= ufs_access,
 	.vop_getattr	= ufs_getattr,
@@ -136,7 +136,7 @@ struct vops ffs_specvops = {
 };
 
 #ifdef FIFO
-struct vops ffs_fifovops = {
+const struct vops ffs_fifovops = {
 	.vop_close	= ufsfifo_close,
 	.vop_access	= ufs_access,
 	.vop_getattr	= ufs_getattr,
@@ -232,11 +232,15 @@ ffs_read(void *v)
 
 		if (lblktosize(fs, nextlbn) >= DIP(ip, size))
 			error = bread(vp, lbn, size, &bp);
-		else
+		else if (lbn - 1 == ip->i_ci.ci_lastr ||
+		    uio->uio_resid > xfersize) {
 			error = bread_cluster(vp, lbn, size, &bp);
+		} else
+			error = bread(vp, lbn, size, &bp);
 
 		if (error)
 			break;
+		ip->i_ci.ci_lastr = lbn;
 
 		/*
 		 * We should only get non-zero b_resid when an I/O error

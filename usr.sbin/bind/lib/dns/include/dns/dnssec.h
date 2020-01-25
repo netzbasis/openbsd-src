@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dnssec.h,v 1.5 2020/01/09 18:14:48 florian Exp $ */
+/* $Id: dnssec.h,v 1.7 2020/01/20 18:51:52 florian Exp $ */
 
 #ifndef DNS_DNSSEC_H
 #define DNS_DNSSEC_H 1
@@ -25,7 +25,7 @@
 #include <isc/stdtime.h>
 
 
-#include <dns/diff.h>
+
 #include <dns/types.h>
 
 #include <dst/dst.h>
@@ -73,7 +73,7 @@ struct dns_dnsseckey {
 };
 
 isc_result_t
-dns_dnssec_keyfromrdata(dns_name_t *name, dns_rdata_t *rdata, isc_mem_t *mctx,
+dns_dnssec_keyfromrdata(dns_name_t *name, dns_rdata_t *rdata,
 			dst_key_t **key);
 /*%<
  *	Creates a DST key from a DNS record.  Basically a wrapper around
@@ -96,7 +96,7 @@ dns_dnssec_keyfromrdata(dns_name_t *name, dns_rdata_t *rdata, isc_mem_t *mctx,
 isc_result_t
 dns_dnssec_sign(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
 		isc_stdtime_t *inception, isc_stdtime_t *expire,
-		isc_mem_t *mctx, isc_buffer_t *buffer, dns_rdata_t *sigrdata);
+		isc_buffer_t *buffer, dns_rdata_t *sigrdata);
 /*%<
  *	Generates a RRSIG record covering this rdataset.  This has no effect
  *	on existing RRSIG records.
@@ -124,18 +124,18 @@ dns_dnssec_sign(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
 
 isc_result_t
 dns_dnssec_verify(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
-		  isc_boolean_t ignoretime, isc_mem_t *mctx,
+		  isc_boolean_t ignoretime,
 		  dns_rdata_t *sigrdata);
 
 isc_result_t
 dns_dnssec_verify2(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
-		   isc_boolean_t ignoretime, isc_mem_t *mctx,
+		   isc_boolean_t ignoretime,
 		   dns_rdata_t *sigrdata, dns_name_t *wild);
 
 isc_result_t
 dns_dnssec_verify3(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
 		   isc_boolean_t ignoretime, unsigned int maxbits,
-		   isc_mem_t *mctx, dns_rdata_t *sigrdata, dns_name_t *wild);
+		   dns_rdata_t *sigrdata, dns_name_t *wild);
 /*%<
  *	Verifies the RRSIG record covering this rdataset signed by a specific
  *	key.  This does not determine if the key's owner is authorized to sign
@@ -166,25 +166,6 @@ dns_dnssec_verify3(dns_name_t *name, dns_rdataset_t *set, dst_key_t *key,
  *			authentication)
  *\li		DST_R_*
  */
-
-/*@{*/
-isc_result_t
-dns_dnssec_findzonekeys(dns_db_t *db, dns_dbversion_t *ver, dns_dbnode_t *node,
-			dns_name_t *name, isc_mem_t *mctx,
-			unsigned int maxkeys, dst_key_t **keys,
-			unsigned int *nkeys);
-
-isc_result_t
-dns_dnssec_findzonekeys2(dns_db_t *db, dns_dbversion_t *ver,
-			 dns_dbnode_t *node, dns_name_t *name,
-			 const char *directory, isc_mem_t *mctx,
-			 unsigned int maxkeys, dst_key_t **keys,
-			 unsigned int *nkeys);
-/*%<
- * 	Finds a set of zone keys.
- * 	XXX temporary - this should be handled in dns_zone_t.
- */
-/*@}*/
 
 isc_boolean_t
 dns_dnssec_keyactive(dst_key_t *key, isc_stdtime_t now);
@@ -244,13 +225,13 @@ dns_dnssec_verifymessage(isc_buffer_t *source, dns_message_t *msg,
 isc_boolean_t
 dns_dnssec_selfsigns(dns_rdata_t *rdata, dns_name_t *name,
 		     dns_rdataset_t *rdataset, dns_rdataset_t *sigrdataset,
-		     isc_boolean_t ignoretime, isc_mem_t *mctx);
+		     isc_boolean_t ignoretime);
 
 
 isc_boolean_t
 dns_dnssec_signs(dns_rdata_t *rdata, dns_name_t *name,
 		 dns_rdataset_t *rdataset, dns_rdataset_t *sigrdataset,
-		 isc_boolean_t ignoretime, isc_mem_t *mctx);
+		 isc_boolean_t ignoretime);
 /*%<
  * Verify that 'rdataset' is validly signed in 'sigrdataset' by
  * the key in 'rdata'.
@@ -261,7 +242,7 @@ dns_dnssec_signs(dns_rdata_t *rdata, dns_name_t *name,
 
 
 isc_result_t
-dns_dnsseckey_create(isc_mem_t *mctx, dst_key_t **dstkey,
+dns_dnsseckey_create(dst_key_t **dstkey,
 		     dns_dnsseckey_t **dkp);
 /*%<
  * Create and initialize a dns_dnsseckey_t structure.
@@ -275,7 +256,7 @@ dns_dnsseckey_create(isc_mem_t *mctx, dst_key_t **dstkey,
  */
 
 void
-dns_dnsseckey_destroy(isc_mem_t *mctx, dns_dnsseckey_t **dkp);
+dns_dnsseckey_destroy(dns_dnsseckey_t **dkp);
 /*%<
  * Reclaim a dns_dnsseckey_t structure.
  *
@@ -288,7 +269,7 @@ dns_dnsseckey_destroy(isc_mem_t *mctx, dns_dnsseckey_t **dkp);
 
 isc_result_t
 dns_dnssec_findmatchingkeys(dns_name_t *origin, const char *directory,
-			    isc_mem_t *mctx, dns_dnsseckeylist_t *keylist);
+			    dns_dnsseckeylist_t *keylist);
 /*%<
  * Search 'directory' for K* key files matching the name in 'origin'.
  * Append all such keys, along with use hints gleaned from their
@@ -310,7 +291,7 @@ dns_dnssec_findmatchingkeys(dns_name_t *origin, const char *directory,
 
 isc_result_t
 dns_dnssec_keylistfromrdataset(dns_name_t *origin,
-			       const char *directory, isc_mem_t *mctx,
+			       const char *directory,
 			       dns_rdataset_t *keyset, dns_rdataset_t *keysigs,
 			       dns_rdataset_t *soasigs, isc_boolean_t savekeys,
 			       isc_boolean_t publickey,
@@ -327,38 +308,6 @@ dns_dnssec_keylistfromrdataset(dns_name_t *origin,
  * whether a key is already active in the zone.
  */
 
-isc_result_t
-dns_dnssec_updatekeys(dns_dnsseckeylist_t *keys, dns_dnsseckeylist_t *newkeys,
-		      dns_dnsseckeylist_t *removed, dns_name_t *origin,
-		      dns_ttl_t hint_ttl, dns_diff_t *diff, isc_boolean_t allzsk,
-		      isc_mem_t *mctx, void (*report)(const char *, ...));
-/*%<
- * Update the list of keys in 'keys' with new key information in 'newkeys'.
- *
- * For each key in 'newkeys', see if it has a match in 'keys'.
- * - If not, and if the metadata says the key should be published:
- *   add it to 'keys', and place a dns_difftuple into 'diff' so
- *   the key can be added to the DNSKEY set.  If the metadata says it
- *   should be active, set the first_sign flag.
- * - If so, and if the metadata says it should be removed:
- *   remove it from 'keys', and place a dns_difftuple into 'diff' so
- *   the key can be removed from the DNSKEY set.  if 'removed' is non-NULL,
- *   copy the key into that list; otherwise destroy it.
- * - Otherwise, make sure keys has current metadata.
- *
- * If 'allzsk' is true, we are allowing KSK-flagged keys to be used as
- * ZSKs.
- *
- * 'hint_ttl' is the TTL to use for the DNSKEY RRset if there is no
- * existing RRset, and if none of the keys to be added has a default TTL
- * (in which case we would use the shortest one).  If the TTL is longer
- * than the time until a new key will be activated, then we have to delay
- * the key's activation.
- *
- * 'report' points to a function for reporting status.
- *
- * On completion, any remaining keys in 'newkeys' are freed.
- */
 ISC_LANG_ENDDECLS
 
 #endif /* DNS_DNSSEC_H */

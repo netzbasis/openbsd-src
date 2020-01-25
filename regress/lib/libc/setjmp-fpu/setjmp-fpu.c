@@ -1,46 +1,63 @@
+/*	$OpenBSD: setjmp-fpu.c,v 1.5 2020/01/16 13:04:02 bluhm Exp $	*/
+
+#include <err.h>
 #include <fenv.h>
 #include <setjmp.h>
 
 int
-TEST_SETJMP(int argc, char *argv[])
+TEST_SETJMP(void)
 {
 	JMP_BUF env;
+	fexcept_t flag;
 	int rv;
 
 	/* Set up the FPU control word register. */
-	fesetround(FE_UPWARD);
+	rv = fesetround(FE_UPWARD);
+	if (rv != 0)
+		errx(2, "fesetround FE_UPWARD returned %d", rv);
 	fedisableexcept(FE_ALL_EXCEPT);
 	feenableexcept(FE_DIVBYZERO);
 
 	rv = SETJMP(env, 0);
 
-	if (rv == 0) {
-		fexcept_t flag = FE_OVERFLOW;
-
+	switch(rv) {
+	case 0: {
 		/* Mess with the FPU control word. */
-		fesetround(FE_DOWNWARD);
+		rv = fesetround(FE_DOWNWARD);
+		if (rv != 0)
+			errx(2, "fesetround FE_DOWNWARD returned %d", rv);
 		fedisableexcept(FE_DIVBYZERO);
 
 		/* Set the FPU exception flags. */
-		fesetexceptflag(&flag, FE_ALL_EXCEPT);
+		flag = FE_OVERFLOW;
+		rv = fesetexceptflag(&flag, FE_ALL_EXCEPT);
+		if (rv != 0)
+			errx(2, "fesetexceptflag returned %d", rv);
 
 		LONGJMP(env, 1);
-	} else if (rv == 1) {
-		fexcept_t flag = 0;
-
+		errx(2, "longjmp returned");
+	}
+	case 1: {
 		/* Verify that the FPU control word is preserved. */
-		if (fegetround() != FE_UPWARD
-		    || fegetexcept() != FE_DIVBYZERO)
-			return (1);
+		rv = fegetround();
+		if (rv != FE_UPWARD)
+			errx(1, "fegetround returned %d, not FE_UPWARD", rv);
+		rv = fegetexcept();
+		if (rv != FE_DIVBYZERO)
+			errx(1, "fegetexcept returned %d, not FE_DIVBYZERO",
+			    rv);
 
 		/* Verify that the FPU exception flags weren't clobbered. */
-		fegetexceptflag(&flag, FE_ALL_EXCEPT);
+		flag = 0;
+		rv = fegetexceptflag(&flag, FE_ALL_EXCEPT);
+		if (rv != 0)
+			errx(2, "fegetexceptflag returned %d", rv);
 		if (flag != FE_OVERFLOW)
-			return (1);
+			errx(1, "except flag is %d, no FE_OVERFLOW", rv);
 
 		return (0);
 	}
-
-	/* This is not supposed to happen. */
-	return (1);
+	default:
+		errx(2, "setjmp returned %d", rv);
+	}
 }

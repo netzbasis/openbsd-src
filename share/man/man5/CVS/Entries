@@ -2,7 +2,7 @@
 /acct.5/1.20/Mon Sep  9 20:02:26 2019//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.13/Sun Dec  8 12:54:36 2019//
-/bsd.port.mk.5/1.523/Fri Dec 13 10:23:37 2019//
+/bsd.port.mk.5/1.525/Sun Jan 12 11:34:33 2020//
 /bsd.regress.mk.5/1.21/Tue Jul  9 15:01:08 2019//
 /changelist.5/1.9/Thu Jul 13 19:16:33 2017//
 /core.5/1.24/Fri Sep  6 19:25:08 2019//
@@ -31,14 +31,14 @@
 /myname.5/1.9/Thu Jul 13 19:16:33 2017//
 /netgroup.5/1.16/Thu Jul 13 19:16:33 2017//
 /passwd.5/1.41/Sun Nov  2 05:33:04 2014//
-/pf.conf.5/1.582/Wed Oct 23 23:02:55 2019//
+/pf.conf.5/1.583/Fri Jan 17 09:07:35 2020//
 /pf.os.5/1.8/Thu May 31 19:19:58 2007//
-/port-modules.5/1.241/Tue Aug 27 14:33:24 2019//
+/port-modules.5/1.242/Fri Jan 17 19:23:59 2020//
 /printcap.5/1.27/Sun May 14 12:01:52 2017//
 /protocols.5/1.12/Sun Mar  3 17:04:17 2019//
 /ranlib.5/1.2/Thu Sep 10 17:55:21 2015//
 /remote.5/1.27/Thu Nov  2 17:53:12 2017//
-/resolv.conf.5/1.58/Wed Dec 18 18:29:53 2019//
+/resolv.conf.5/1.59/Fri Jan 24 06:16:47 2020//
 /rpc.5/1.9/Wed Sep  1 14:43:34 2010//
 /ruby-module.5/1.28/Fri Jan 10 17:38:58 2020//
 /services.5/1.13/Sun Mar  3 17:04:17 2019//

@@ -1,4 +1,4 @@
-#	$OpenBSD: test-exec.sh,v 1.69 2019/12/16 02:39:05 djm Exp $
+#	$OpenBSD: test-exec.sh,v 1.74 2020/01/25 02:57:53 dtucker Exp $
 #	Placed in the Public Domain.
 
 USER=`id -un`
@@ -53,6 +53,9 @@ SCP=scp
 PLINK=/usr/local/bin/plink
 PUTTYGEN=/usr/local/bin/puttygen
 CONCH=/usr/local/bin/conch
+
+# Tools used by multiple tests
+NC=nc
 
 if [ "x$TEST_SSH_SSH" != "x" ]; then
 	SSH="${TEST_SSH_SSH}"
@@ -281,6 +284,31 @@ EOF
 # be abused to locally escalate privileges.
 if [ ! -z "$TEST_SSH_UNSAFE_PERMISSIONS" ]; then
 	echo "StrictModes no" >> $OBJ/sshd_config
+else
+	# check and warn if excessive permissions are likely to cause failures.
+	unsafe=""
+	dir="${OBJ}"
+	while test ${dir} != "/"; do
+		if test -d "${dir}" && ! test -h "${dir}"; then
+			perms=`ls -ld ${dir}`
+			case "${perms}" in
+			?????w????*|????????w?*) unsafe="${unsafe} ${dir}" ;;
+			esac
+		fi
+		dir=`dirname ${dir}`
+	done
+	if ! test  -z "${unsafe}"; then
+		cat <<EOD
+
+WARNING: Unsafe (group or world writable) directory permissions found:
+${unsafe}
+
+These could be abused to locally escalate privileges.  If you are
+sure that this is not a risk (eg there are no other users), you can
+bypass this check by setting TEST_SSH_UNSAFE_PERMISSIONS=1
+
+EOD
+	fi
 fi
 
 if [ ! -z "$TEST_SSH_SSHD_CONFOPTS" ]; then
@@ -432,7 +460,7 @@ fi
 # create a proxy version of the client config
 (
 	cat $OBJ/ssh_config
-	echo proxycommand ${SUDO} sh ${SRC}/sshd-log-wrapper.sh ${TEST_SSHD_LOGFILE} ${SSHD} -i -f $OBJ/sshd_proxy
+	echo proxycommand ${SUDO} env SSH_SK_HELPER=\"$SSH_SK_HELPER\" sh ${SRC}/sshd-log-wrapper.sh ${TEST_SSHD_LOGFILE} ${SSHD} -i -f $OBJ/sshd_proxy
 ) > $OBJ/ssh_proxy
 
 # check proxy config
@@ -442,7 +470,8 @@ start_sshd ()
 {
 	# start sshd
 	$SUDO ${SSHD} -f $OBJ/sshd_config "$@" -t || fatal "sshd_config broken"
-	$SUDO ${SSHD} -f $OBJ/sshd_config "$@" -E$TEST_SSHD_LOGFILE
+	$SUDO env SSH_SK_HELPER="$SSH_SK_HELPER" \
+	    ${SSHD} -f $OBJ/sshd_config "$@" -E$TEST_SSHD_LOGFILE
 
 	trace "wait for sshd"
 	i=0;

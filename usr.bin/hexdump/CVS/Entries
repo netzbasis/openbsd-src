@@ -1,11 +1,11 @@
 /Makefile/1.2/Wed Jun 26 05:34:16 1996//
 /conv.c/1.10/Sat Apr 19 09:28:20 2014//
 /display.c/1.25/Wed Aug 24 03:13:45 2016//
-/hexdump.1/1.26/Sat Sep 12 11:59:38 2015//
+/hexdump.1/1.27/Thu Jan 16 16:46:47 2020//
 /hexdump.c/1.20/Mon Feb  8 21:05:51 2016//
 /hexdump.h/1.12/Tue Mar 15 04:19:13 2016//
 /hexsyntax.c/1.13/Tue Mar 15 04:19:13 2016//
-/od.1/1.31/Wed Sep 16 08:47:26 2015//
+/od.1/1.32/Thu Jan 16 16:46:47 2020//
 /odsyntax.c/1.28/Tue May 30 05:58:44 2017//
 /parse.c/1.23/Thu Apr 26 12:42:51 2018//
 D

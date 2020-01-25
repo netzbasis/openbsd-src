@@ -16,13 +16,13 @@
 
 /*! \file */
 
-#include <config.h>
+
 
 #include <stdint.h>
 #include <stdlib.h>
 
 #include <isc/buffer.h>
-#include <isc/mem.h>
+
 
 #include <isc/serial.h>
 #include <isc/util.h>
@@ -339,7 +339,7 @@ towiresorted(dns_rdataset_t *rdataset, const dns_name_t *owner_name,
 	REQUIRE(rdataset->methods != NULL);
 	REQUIRE(countp != NULL);
 	REQUIRE((order == NULL) == (order_arg == NULL));
-	REQUIRE(cctx != NULL && cctx->mctx != NULL);
+	REQUIRE(cctx != NULL);
 
 	if ((rdataset->attributes & DNS_RDATASETATTR_QUESTION) != 0) {
 		question = ISC_TRUE;
@@ -373,8 +373,8 @@ towiresorted(dns_rdataset_t *rdataset, const dns_name_t *owner_name,
 		shuffle = ISC_TRUE;
 
 	if (shuffle && count > MAX_SHUFFLE) {
-		in = isc_mem_get(cctx->mctx, count * sizeof(*in));
-		out = isc_mem_get(cctx->mctx, count * sizeof(*out));
+		in = malloc(count * sizeof(*in));
+		out = malloc(count * sizeof(*out));
 		if (in == NULL || out == NULL)
 			shuffle = ISC_FALSE;
 	} else {
@@ -545,9 +545,9 @@ towiresorted(dns_rdataset_t *rdataset, const dns_name_t *owner_name,
 
  cleanup:
 	if (out != NULL && out != out_fixed)
-		isc_mem_put(cctx->mctx, out, count * sizeof(*out));
+		free(out);
 	if (in != NULL && in != in_fixed)
-		isc_mem_put(cctx->mctx, in, count * sizeof(*in));
+		free(in);
 	return (result);
 }
 
@@ -670,66 +670,6 @@ dns_rdataset_getclosest(dns_rdataset_t *rdataset, dns_name_t *name,
 	if (rdataset->methods->getclosest == NULL)
 		return (ISC_R_NOTIMPLEMENTED);
 	return((rdataset->methods->getclosest)(rdataset, name, neg, negsig));
-}
-
-/*
- * Additional cache stuff
- */
-isc_result_t
-dns_rdataset_getadditional(dns_rdataset_t *rdataset,
-			   dns_rdatasetadditional_t type,
-			   dns_rdatatype_t qtype,
-			   dns_acache_t *acache,
-			   dns_zone_t **zonep,
-			   dns_db_t **dbp,
-			   dns_dbversion_t **versionp,
-			   dns_dbnode_t **nodep,
-			   dns_name_t *fname,
-			   dns_message_t *msg,
-			   isc_stdtime_t now)
-{
-	REQUIRE(DNS_RDATASET_VALID(rdataset));
-	REQUIRE(rdataset->methods != NULL);
-	REQUIRE(zonep == NULL || *zonep == NULL);
-	REQUIRE(dbp != NULL && *dbp == NULL);
-	REQUIRE(versionp != NULL && *versionp == NULL);
-	REQUIRE(nodep != NULL && *nodep == NULL);
-	REQUIRE(fname != NULL);
-	REQUIRE(msg != NULL);
-
-	if (acache != NULL && rdataset->methods->getadditional != NULL) {
-		return ((rdataset->methods->getadditional)(rdataset, type,
-							   qtype, acache,
-							   zonep, dbp,
-							   versionp, nodep,
-							   fname, msg, now));
-	}
-
-	return (ISC_R_FAILURE);
-}
-
-isc_result_t
-dns_rdataset_setadditional(dns_rdataset_t *rdataset,
-			   dns_rdatasetadditional_t type,
-			   dns_rdatatype_t qtype,
-			   dns_acache_t *acache,
-			   dns_zone_t *zone,
-			   dns_db_t *db,
-			   dns_dbversion_t *version,
-			   dns_dbnode_t *node,
-			   dns_name_t *fname)
-{
-	REQUIRE(DNS_RDATASET_VALID(rdataset));
-	REQUIRE(rdataset->methods != NULL);
-
-	if (acache != NULL && rdataset->methods->setadditional != NULL) {
-		return ((rdataset->methods->setadditional)(rdataset, type,
-							   qtype, acache, zone,
-							   db, version,
-							   node, fname));
-	}
-
-	return (ISC_R_FAILURE);
 }
 
 isc_result_t

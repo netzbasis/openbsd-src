@@ -125,6 +125,8 @@
 ./usr/include/dev/dec
 ./usr/include/dev/dec/clockvar.h
 ./usr/include/dev/dec/mcclockvar.h
+./usr/include/dev/dt
+./usr/include/dev/dt/dtvar.h
 ./usr/include/dev/eisa
 ./usr/include/dev/eisa/eisadevs.h
 ./usr/include/dev/eisa/eisadevs_data.h
@@ -146,7 +148,6 @@
 ./usr/include/dev/fdt/sxiccmu_clocks.h
 ./usr/include/dev/fdt/sxipio_pins.h
 ./usr/include/dev/fdt/sxipiovar.h
-./usr/include/dev/flashvar.h
 ./usr/include/dev/gpio
 ./usr/include/dev/gpio/gpiovar.h
 ./usr/include/dev/hid
@@ -319,8 +320,6 @@
 ./usr/include/dev/ic/mpuvar.h
 ./usr/include/dev/ic/mtd8xxreg.h
 ./usr/include/dev/ic/mtd8xxvar.h
-./usr/include/dev/ic/ncr5380reg.h
-./usr/include/dev/ic/ncr5380var.h
 ./usr/include/dev/ic/ncr53c9xreg.h
 ./usr/include/dev/ic/ncr53c9xvar.h
 ./usr/include/dev/ic/ne2000reg.h
@@ -375,8 +374,6 @@
 ./usr/include/dev/ic/siopreg.h
 ./usr/include/dev/ic/siopvar.h
 ./usr/include/dev/ic/siopvar_common.h
-./usr/include/dev/ic/slireg.h
-./usr/include/dev/ic/slivar.h
 ./usr/include/dev/ic/smc83c170reg.h
 ./usr/include/dev/ic/smc83c170var.h
 ./usr/include/dev/ic/smc91cxxreg.h
@@ -1364,6 +1361,7 @@
 ./usr/include/sys/sockio.h
 ./usr/include/sys/specdev.h
 ./usr/include/sys/srp.h
+./usr/include/sys/stacktrace.h
 ./usr/include/sys/stat.h
 ./usr/include/sys/statvfs.h
 ./usr/include/sys/stdarg.h
@@ -1383,6 +1381,7 @@
 ./usr/include/sys/times.h
 ./usr/include/sys/timetc.h
 ./usr/include/sys/tprintf.h
+./usr/include/sys/tracepoint.h
 ./usr/include/sys/tree.h
 ./usr/include/sys/tty.h
 ./usr/include/sys/ttycom.h

@@ -1,4 +1,4 @@
-/*	$OpenBSD: iked.c,v 1.38 2019/11/30 16:07:12 tobhe Exp $	*/
+/*	$OpenBSD: iked.c,v 1.41 2020/01/16 20:05:00 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -56,8 +56,8 @@ usage(void)
 {
 	extern char	*__progname;
 
-	fprintf(stderr, "usage: %s [-6dnSTtv] [-D macro=value] "
-	    "[-f file]\n", __progname);
+	fprintf(stderr, "usage: %s [-dnSTtv] [-D macro=value] "
+	    "[-f file] [-p udpencap_port]\n", __progname);
 	exit(1);
 }
 
@@ -67,16 +67,18 @@ main(int argc, char *argv[])
 	int		 c;
 	int		 debug = 0, verbose = 0;
 	int		 opts = 0;
+	in_port_t	 port = IKED_NATT_PORT;
 	const char	*conffile = IKED_CONFIG;
 	struct iked	*env = NULL;
 	struct privsep	*ps;
 
 	log_init(1, LOG_DAEMON);
 
-	while ((c = getopt(argc, argv, "6dD:nf:vSTt")) != -1) {
+	while ((c = getopt(argc, argv, "6dD:nf:p:vSTt")) != -1) {
 		switch (c) {
 		case '6':
-			opts |= IKED_OPT_NOIPV6BLOCKING;
+			log_warnx("the -6 option is ignored and will be "
+			    "removed in the future.");
 			break;
 		case 'd':
 			debug++;
@@ -106,6 +108,10 @@ main(int argc, char *argv[])
 		case 't':
 			opts |= IKED_OPT_NATT;
 			break;
+		case 'p':
+			port = atoi(optarg);
+			opts |= IKED_OPT_NATT;
+			break;
 		default:
 			usage();
 		}
@@ -120,6 +126,7 @@ main(int argc, char *argv[])
 		fatal("calloc: env");
 
 	env->sc_opts = opts;
+	env->sc_nattport = port;
 
 	ps = &env->sc_ps;
 	ps->ps_env = env;
@@ -220,18 +227,18 @@ parent_configure(struct iked *env)
 	bzero(&ss, sizeof(ss));
 	ss.ss_family = AF_INET;
 
-	if ((env->sc_opts & IKED_OPT_NATT) == 0)
+	if ((env->sc_opts & IKED_OPT_NATT) == 0 && env->sc_nattport == IKED_NATT_PORT)
 		config_setsocket(env, &ss, ntohs(IKED_IKE_PORT), PROC_IKEV2);
 	if ((env->sc_opts & IKED_OPT_NONATT) == 0)
-		config_setsocket(env, &ss, ntohs(IKED_NATT_PORT), PROC_IKEV2);
+		config_setsocket(env, &ss, ntohs(env->sc_nattport), PROC_IKEV2);
 
 	bzero(&ss, sizeof(ss));
 	ss.ss_family = AF_INET6;
 
-	if ((env->sc_opts & IKED_OPT_NATT) == 0)
+	if ((env->sc_opts & IKED_OPT_NATT) == 0 && env->sc_nattport == IKED_NATT_PORT)
 		config_setsocket(env, &ss, ntohs(IKED_IKE_PORT), PROC_IKEV2);
 	if ((env->sc_opts & IKED_OPT_NONATT) == 0)
-		config_setsocket(env, &ss, ntohs(IKED_NATT_PORT), PROC_IKEV2);
+		config_setsocket(env, &ss, ntohs(env->sc_nattport), PROC_IKEV2);
 
 	/*
 	 * pledge in the parent process:
@@ -253,6 +260,7 @@ parent_configure(struct iked *env)
 
 	config_setmobike(env);
 	config_setfragmentation(env);
+	config_setnattport(env);
 	config_setcoupled(env, env->sc_decoupled ? 0 : 1);
 	config_setocsp(env);
 	/* Must be last */
@@ -286,6 +294,7 @@ parent_reload(struct iked *env, int reset, const char *filename)
 
 		config_setmobike(env);
 		config_setfragmentation(env);
+		config_setnattport(env);
 		config_setcoupled(env, env->sc_decoupled ? 0 : 1);
 		config_setocsp(env);
  		/* Must be last */

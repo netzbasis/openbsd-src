@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.141 2020/01/10 10:33:35 bluhm Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.143 2020/01/20 23:21:56 claudio Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -937,7 +937,7 @@ nfs_loadattrcache(struct vnode **vpp, struct mbuf **mdp, caddr_t *dposp,
 	struct vnode *vp = *vpp;
 	struct vattr *vap;
 	struct nfs_fattr *fp;
-	extern struct vops nfs_specvops;
+	extern const struct vops nfs_specvops;
 	struct nfsnode *np;
 	int32_t t1;
 	caddr_t cp2;
@@ -994,7 +994,7 @@ nfs_loadattrcache(struct vnode **vpp, struct mbuf **mdp, caddr_t *dposp,
 #ifndef FIFO
 			return (EOPNOTSUPP);
 #else
-                        extern struct vops nfs_fifovops;
+                        extern const struct vops nfs_fifovops;
 			vp->v_op = &nfs_fifovops;
 #endif /* FIFO */
 		}
@@ -1509,16 +1509,16 @@ netaddr_match(int family, union nethostaddr *haddr, struct mbuf *nam)
 void
 nfs_clearcommit(struct mount *mp)
 {
-	struct vnode *vp, *nvp;
-	struct buf *bp, *nbp;
+	struct vnode *vp;
+	struct buf *bp;
 	int s;
 
 	s = splbio();
 loop:
-	TAILQ_FOREACH_SAFE(vp, &mp->mnt_vnodelist, v_mntvnodes, nvp) {
+	TAILQ_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes) {
 		if (vp->v_mount != mp)	/* Paranoia */
 			goto loop;
-		LIST_FOREACH_SAFE(bp, &vp->v_dirtyblkhd, b_vnbufs, nbp) {
+		LIST_FOREACH(bp, &vp->v_dirtyblkhd, b_vnbufs) {
 			if ((bp->b_flags & (B_BUSY | B_DELWRI | B_NEEDCOMMIT))
 			    == (B_DELWRI | B_NEEDCOMMIT))
 				bp->b_flags &= ~B_NEEDCOMMIT;

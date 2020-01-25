@@ -17,8 +17,8 @@
 /npppd-users.5/1.9/Mon Sep  2 21:18:41 2019//
 /npppd.8/1.6/Mon Nov  9 01:14:22 2015//
 /npppd.c/1.50/Fri May 10 01:29:31 2019//
-/npppd.conf/1.2/Sat Mar 22 04:32:39 2014//
-/npppd.conf.5/1.24/Mon Apr  8 18:02:48 2019//
+/npppd.conf/1.3/Thu Jan 23 03:01:22 2020//
+/npppd.conf.5/1.26/Thu Jan 23 07:18:36 2020//
 /npppd.h/1.19/Sat Aug 12 11:20:34 2017//
 /npppd_auth.c/1.21/Wed Feb 27 04:52:19 2019//
 /npppd_auth.h/1.9/Fri Aug 11 16:41:47 2017//
@@ -41,7 +41,7 @@
 /pathnames.h/1.6/Wed Feb  6 11:47:18 2013//
 /ppp.c/1.28/Wed Feb 27 04:52:19 2019//
 /ppp.h/1.21/Sat Aug 12 11:20:34 2017//
-/privsep.c/1.23/Wed Apr 19 05:36:13 2017//
+/privsep.c/1.24/Thu Jan 23 00:17:27 2020//
 /privsep.h/1.7/Sun Oct 11 07:32:06 2015//
 /psm-opt.h/1.5/Tue May  8 13:18:37 2012//
 /radius_chap_const.h/1.4/Tue May  8 13:15:12 2012//

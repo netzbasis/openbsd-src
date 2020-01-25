@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.330 2019/12/21 02:19:13 djm Exp $ */
+/* $OpenBSD: clientloop.c,v 1.333 2020/01/25 00:21:08 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -777,7 +777,7 @@ process_cmdline(struct ssh *ssh)
 	memset(&fwd, 0, sizeof(fwd));
 
 	leave_raw_mode(options.request_tty == REQUEST_TTY_FORCE);
-	handler = signal(SIGINT, SIG_IGN);
+	handler = ssh_signal(SIGINT, SIG_IGN);
 	cmd = s = read_passphrase("\r\nssh> ", RP_ECHO);
 	if (s == NULL)
 		goto out;
@@ -875,7 +875,7 @@ process_cmdline(struct ssh *ssh)
 	}
 
 out:
-	signal(SIGINT, handler);
+	ssh_signal(SIGINT, handler);
 	enter_raw_mode(options.request_tty == REQUEST_TTY_FORCE);
 	free(cmd);
 	free(fwd.listen_host);
@@ -1298,15 +1298,15 @@ client_loop(struct ssh *ssh, int have_pty, int escape_char_arg,
 	 * Set signal handlers, (e.g. to restore non-blocking mode)
 	 * but don't overwrite SIG_IGN, matches behaviour from rsh(1)
 	 */
-	if (signal(SIGHUP, SIG_IGN) != SIG_IGN)
-		signal(SIGHUP, signal_handler);
-	if (signal(SIGINT, SIG_IGN) != SIG_IGN)
-		signal(SIGINT, signal_handler);
-	if (signal(SIGQUIT, SIG_IGN) != SIG_IGN)
-		signal(SIGQUIT, signal_handler);
-	if (signal(SIGTERM, SIG_IGN) != SIG_IGN)
-		signal(SIGTERM, signal_handler);
-	signal(SIGWINCH, window_change_handler);
+	if (ssh_signal(SIGHUP, SIG_IGN) != SIG_IGN)
+		ssh_signal(SIGHUP, signal_handler);
+	if (ssh_signal(SIGINT, SIG_IGN) != SIG_IGN)
+		ssh_signal(SIGINT, signal_handler);
+	if (ssh_signal(SIGQUIT, SIG_IGN) != SIG_IGN)
+		ssh_signal(SIGQUIT, signal_handler);
+	if (ssh_signal(SIGTERM, SIG_IGN) != SIG_IGN)
+		ssh_signal(SIGTERM, signal_handler);
+	ssh_signal(SIGWINCH, window_change_handler);
 
 	if (have_pty)
 		enter_raw_mode(options.request_tty == REQUEST_TTY_FORCE);
@@ -1405,7 +1405,7 @@ client_loop(struct ssh *ssh, int have_pty, int escape_char_arg,
 	/* Terminate the session. */
 
 	/* Stop watching for window change. */
-	signal(SIGWINCH, SIG_DFL);
+	ssh_signal(SIGWINCH, SIG_DFL);
 
 	if ((r = sshpkt_start(ssh, SSH2_MSG_DISCONNECT)) != 0 ||
 	    (r = sshpkt_put_u32(ssh, SSH2_DISCONNECT_BY_APPLICATION)) != 0 ||
@@ -1881,6 +1881,7 @@ update_known_hosts(struct hostkeys_update_ctx *ctx)
 	    SYSLOG_LEVEL_INFO : SYSLOG_LEVEL_VERBOSE;
 	char *fp, *response;
 	size_t i;
+	struct stat sb;
 
 	for (i = 0; i < ctx->nkeys; i++) {
 		if (ctx->keys_seen[i] != 2)
@@ -1927,19 +1928,37 @@ update_known_hosts(struct hostkeys_update_ctx *ctx)
 		if (was_raw)
 			enter_raw_mode(1);
 	}
-
+	if (options.update_hostkeys == 0)
+		return;
 	/*
 	 * Now that all the keys are verified, we can go ahead and replace
 	 * them in known_hosts (assuming SSH_UPDATE_HOSTKEYS_ASK didn't
 	 * cancel the operation).
 	 */
-	if (options.update_hostkeys != 0 &&
-	    (r = hostfile_replace_entries(options.user_hostfiles[0],
-	    ctx->host_str, ctx->ip_str, ctx->keys, ctx->nkeys,
-	    options.hash_known_hosts, 0,
-	    options.fingerprint_hash)) != 0)
-		error("%s: hostfile_replace_entries failed: %s",
-		    __func__, ssh_err(r));
+	for (i = 0; i < options.num_user_hostfiles; i++) {
+		/*
+		 * NB. keys are only added to hostfiles[0], for the rest we
+		 * just delete the hostname entries.
+		 */
+		if (stat(options.user_hostfiles[i], &sb) != 0) {
+			if (errno == ENOENT) {
+				debug("%s: known hosts file %s does not exist",
+				    __func__, strerror(errno));
+			} else {
+				error("%s: known hosts file %s inaccessible",
+				    __func__, strerror(errno));
+			}
+			continue;
+		}
+		if ((r = hostfile_replace_entries(options.user_hostfiles[i],
+		    ctx->host_str, ctx->ip_str,
+		    i == 0 ? ctx->keys : NULL, i == 0 ? ctx->nkeys : 0,
+		    options.hash_known_hosts, 0,
+		    options.fingerprint_hash)) != 0) {
+			error("%s: hostfile_replace_entries failed for %s: %s",
+			    __func__, options.user_hostfiles[i], ssh_err(r));
+		}
+	}
 }
 
 static void
@@ -2032,8 +2051,7 @@ static int
 key_accepted_by_hostkeyalgs(const struct sshkey *key)
 {
 	const char *ktype = sshkey_ssh_name(key);
-	const char *hostkeyalgs = options.hostkeyalgorithms != NULL ?
-	    options.hostkeyalgorithms : KEX_DEFAULT_PK_ALG;
+	const char *hostkeyalgs = options.hostkeyalgorithms;
 
 	if (key == NULL || key->type == KEY_UNSPEC)
 		return 0;
@@ -2133,11 +2151,21 @@ client_input_hostkeys(struct ssh *ssh)
 	    options.check_host_ip ? &ctx->ip_str : NULL);
 
 	/* Find which keys we already know about. */
-	if ((r = hostkeys_foreach(options.user_hostfiles[0], hostkeys_find,
-	    ctx, ctx->host_str, ctx->ip_str,
-	    HKF_WANT_PARSE_KEY|HKF_WANT_MATCH)) != 0) {
-		error("%s: hostkeys_foreach failed: %s", __func__, ssh_err(r));
-		goto out;
+	for (i = 0; i < options.num_user_hostfiles; i++) {
+		debug("%s: searching %s for %s / %s", __func__,
+		    options.user_hostfiles[i], ctx->host_str, ctx->ip_str);
+		if ((r = hostkeys_foreach(options.user_hostfiles[i],
+		    hostkeys_find, ctx, ctx->host_str, ctx->ip_str,
+		    HKF_WANT_PARSE_KEY|HKF_WANT_MATCH)) != 0) {
+			if (r == SSH_ERR_SYSTEM_ERROR && errno == ENOENT) {
+				error("%s: hostkeys file %s does not exist",
+				    __func__, options.user_hostfiles[i]);
+				continue;
+			}
+			error("%s: hostkeys_foreach failed for %s: %s",
+			    __func__, options.user_hostfiles[i], ssh_err(r));
+			goto out;
+		}
 	}
 
 	/* Figure out if we have any new keys to add */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ami.c,v 1.236 2019/12/31 10:05:32 mpi Exp $	*/
+/*	$OpenBSD: ami.c,v 1.238 2020/01/23 07:53:00 krw Exp $	*/
 
 /*
  * Copyright (c) 2001 Michael Shalayeff
@@ -98,13 +98,13 @@ int	ami_scsi_ioctl(struct scsi_link *, u_long, caddr_t, int);
 void	amiminphys(struct buf *bp, struct scsi_link *sl);
 
 struct scsi_adapter ami_switch = {
-	ami_scsi_cmd, amiminphys, 0, 0, ami_scsi_ioctl
+	ami_scsi_cmd, amiminphys, NULL, NULL, ami_scsi_ioctl
 };
 
 void	ami_scsi_raw_cmd(struct scsi_xfer *);
 
 struct scsi_adapter ami_raw_switch = {
-	ami_scsi_raw_cmd, amiminphys, 0, 0,
+	ami_scsi_raw_cmd, amiminphys, NULL, NULL, NULL
 };
 
 void *		ami_get_ccb(void *);
@@ -1813,8 +1813,8 @@ ami_mgmt(struct ami_softc *sc, u_int8_t opcode, u_int8_t par1, u_int8_t par2,
 		mtx_enter(&sc->sc_cmd_mtx);
 		sc->sc_drainio = 1;
 		while (!TAILQ_EMPTY(&sc->sc_ccb_runq)) {
-			if (msleep(sc, &sc->sc_cmd_mtx, PRIBIO,
-			    "amimgmt", hz * 60) == EWOULDBLOCK) {
+			if (msleep_nsec(sc, &sc->sc_cmd_mtx, PRIBIO,
+			    "amimgmt", SEC_TO_NSEC(60)) == EWOULDBLOCK) {
 				printf("%s: drain io timeout\n", DEVNAME(sc));
 				ccb->ccb_flags |= AMI_CCB_F_ERR;
 				goto restartio;

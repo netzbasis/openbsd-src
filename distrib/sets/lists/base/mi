@@ -181,7 +181,6 @@
 ./etc/rc.d/rarpd
 ./etc/rc.d/rbootd
 ./etc/rc.d/rc.subr
-./etc/rc.d/rebound
 ./etc/rc.d/relayd
 ./etc/rc.d/ripd
 ./etc/rc.d/route6d
@@ -218,10 +217,6 @@
 ./etc/rpki/ripe.tal
 ./etc/services
 ./etc/signify
-./etc/signify/openbsd-64-base.pub
-./etc/signify/openbsd-64-fw.pub
-./etc/signify/openbsd-64-pkg.pub
-./etc/signify/openbsd-64-syspatch.pub
 ./etc/signify/openbsd-65-base.pub
 ./etc/signify/openbsd-65-fw.pub
 ./etc/signify/openbsd-65-pkg.pub
@@ -2587,7 +2582,6 @@
 ./usr/sbin/rcctl
 ./usr/sbin/rdate
 ./usr/sbin/rdsetroot
-./usr/sbin/rebound
 ./usr/sbin/relayctl
 ./usr/sbin/relayd
 ./usr/sbin/repquota

@@ -21,7 +21,7 @@
 /conch-ciphers.sh/1.4/Fri Jul  5 04:12:46 2019//
 /connect-privsep.sh/1.9/Sun Apr 30 23:34:55 2017//
 /connect-uri.sh/1.1/Tue Oct 24 19:33:32 2017//
-/connect.sh/1.6/Sun Apr 30 23:34:55 2017//
+/connect.sh/1.8/Sat Jan 25 02:57:53 2020//
 /dhgex.sh/1.6/Sun Oct  6 11:49:50 2019//
 /dsa_ssh2.prv/1.1/Thu Jan 17 13:21:28 2002//
 /dsa_ssh2.pub/1.1/Thu Jan 17 13:21:28 2002//
@@ -34,7 +34,7 @@
 /host-expand.sh/1.5/Sun Apr 30 23:34:55 2017//
 /hostkey-agent.sh/1.11/Mon Dec 16 02:39:05 2019//
 /hostkey-rotate.sh/1.8/Tue Nov 26 23:43:10 2019//
-/integrity.sh/1.23/Sun Apr 30 23:34:55 2017//
+/integrity.sh/1.24/Tue Jan 21 08:06:27 2020//
 /kextype.sh/1.6/Tue Mar 24 20:19:15 2015//
 /key-options.sh/1.9/Tue Jul  3 13:53:26 2018//
 /keygen-change.sh/1.9/Mon Dec 16 02:39:05 2019//
@@ -42,7 +42,7 @@
 /keygen-knownhosts.sh/1.4/Fri Jun  1 03:52:37 2018//
 /keygen-moduli.sh/1.4/Thu Jan  2 13:25:38 2020//
 /keys-command.sh/1.6/Thu Jul 25 08:48:11 2019//
-/keyscan.sh/1.12/Mon Dec 16 02:39:05 2019//
+/keyscan.sh/1.13/Wed Jan 22 07:31:27 2020//
 /keytype.sh/1.10/Mon Dec 16 02:39:05 2019//
 /krl.sh/1.11/Mon Dec 16 02:39:05 2019//
 /limit-keytype.sh/1.9/Mon Dec 16 02:39:05 2019//
@@ -50,16 +50,16 @@
 /login-timeout.sh/1.9/Mon Aug  7 00:53:51 2017//
 /modpipe.c/1.6/Thu Nov 21 03:16:47 2013//
 /moduli.in/1.1/Mon Sep 12 02:25:46 2016//
-/multiplex.sh/1.30/Fri Jul  5 04:03:13 2019//
+/multiplex.sh/1.32/Sat Jan 25 02:57:53 2020//
 /multipubkey.sh/1.3/Wed Dec 11 18:47:14 2019//
 /portnum.sh/1.2/Fri May 17 10:34:30 2013//
 /principals-command.sh/1.11/Mon Dec 16 02:39:05 2019//
 /proto-mismatch.sh/1.5/Sun Apr 30 23:34:55 2017//
 /proto-version.sh/1.7/Wed Jun  7 01:48:15 2017//
-/proxy-connect.sh/1.11/Tue Sep 26 22:39:25 2017//
-/putty-ciphers.sh/1.6/Mon May  8 01:52:49 2017//
-/putty-kex.sh/1.4/Fri Nov 25 03:02:01 2016//
-/putty-transfer.sh/1.6/Fri Feb 23 03:03:00 2018//
+/proxy-connect.sh/1.12/Thu Jan 23 11:19:12 2020//
+/putty-ciphers.sh/1.7/Thu Jan 23 03:35:07 2020//
+/putty-kex.sh/1.5/Thu Jan 23 03:24:38 2020//
+/putty-transfer.sh/1.7/Thu Jan 23 11:19:12 2020//
 /reconfigure.sh/1.6/Sun Apr 30 23:34:55 2017//
 /reexec.sh/1.12/Mon Aug  7 03:52:55 2017//
 /rekey.sh/1.18/Tue Apr 10 00:14:10 2018//
@@ -90,7 +90,7 @@
 /t11.ok/1.1/Mon Dec 22 02:15:52 2014//
 /t4.ok/1.2/Mon Dec 22 02:15:52 2014//
 /t5.ok/1.1/Thu Jan 17 13:21:28 2002//
-/test-exec.sh/1.69/Mon Dec 16 02:39:05 2019//
+/test-exec.sh/1.74/Sat Jan 25 02:57:53 2020//
 /transfer.sh/1.4/Sun Apr 30 23:34:55 2017//
 /try-ciphers.sh/1.26/Sun Apr 30 23:34:55 2017//
 /yes-head.sh/1.6/Sun Apr 30 23:34:55 2017//

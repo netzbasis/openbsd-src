@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.542 2019/12/15 18:57:30 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.545 2020/01/24 23:56:01 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -240,6 +240,8 @@ void destroy_sensitive_data(void);
 void demote_sensitive_data(void);
 static void do_ssh2_kex(struct ssh *);
 
+static char *listener_proctitle;
+
 /*
  * Close all listening sockets
  */
@@ -290,7 +292,7 @@ sighup_restart(void)
 	close_listen_socks();
 	close_startup_pipes();
 	alarm(0);  /* alarm timer persists across exec */
-	signal(SIGHUP, SIG_IGN); /* will be restored after exec */
+	ssh_signal(SIGHUP, SIG_IGN); /* will be restored after exec */
 	execv(saved_argv[0], saved_argv);
 	logit("RESTART FAILED: av[0]='%.100s', error: %.100s.", saved_argv[0],
 	    strerror(errno));
@@ -319,6 +321,8 @@ main_sigchld_handler(int sig)
 	pid_t pid;
 	int status;
 
+	debug("main_sigchld_handler: %s", strsignal(sig));
+
 	while ((pid = waitpid(-1, &status, WNOHANG)) > 0 ||
 	    (pid == -1 && errno == EINTR))
 		;
@@ -340,7 +344,7 @@ grace_alarm_handler(int sig)
 	 * keys command helpers.
 	 */
 	if (getpgid(0) == getpid()) {
-		signal(SIGTERM, SIG_IGN);
+		ssh_signal(SIGTERM, SIG_IGN);
 		kill(0, SIGTERM);
 	}
 
@@ -1005,7 +1009,7 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 {
 	fd_set *fdset;
 	int i, j, ret, maxfd;
-	int startups = 0, listening = 0, lameduck = 0;
+	int ostartups = -1, startups = 0, listening = 0, lameduck = 0;
 	int startup_p[2] = { -1 , -1 };
 	char c = 0;
 	struct sockaddr_storage from;
@@ -1029,6 +1033,12 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 	 * the daemon is killed with a signal.
 	 */
 	for (;;) {
+		if (ostartups != startups) {
+			setproctitle("%s [listener] %d of %d-%d startups",
+			    listener_proctitle, startups,
+			    options.max_startups_begin, options.max_startups);
+			ostartups = startups;
+		}
 		if (received_sighup) {
 			if (!lameduck) {
 				debug("Received SIGHUP; waiting for children");
@@ -1337,6 +1347,17 @@ accumulate_host_timing_secret(struct sshbuf *server_cfg,
 		fatal("%s: ssh_digest_update", __func__);
 	sshbuf_reset(buf);
 	sshbuf_free(buf);
+}
+
+static char *
+prepare_proctitle(int ac, char **av)
+{
+	char *ret = NULL;
+	int i;
+
+	for (i = 0; i < ac; i++)
+		xextendf(&ret, " ", "%s", av[i]);
+	return ret;
 }
 
 /*
@@ -1766,6 +1787,7 @@ main(int ac, char **av)
 		rexec_argv[rexec_argc] = "-R";
 		rexec_argv[rexec_argc + 1] = NULL;
 	}
+	listener_proctitle = prepare_proctitle(ac, av);
 
 	/* Ensure that umask disallows at least group and world write */
 	new_umask = umask(0077) | 0022;
@@ -1798,7 +1820,7 @@ main(int ac, char **av)
 		error("chdir(\"/\"): %s", strerror(errno));
 
 	/* ignore SIGPIPE */
-	signal(SIGPIPE, SIG_IGN);
+	ssh_signal(SIGPIPE, SIG_IGN);
 
 	/* Get a connection, either from inetd or a listening TCP socket */
 	if (inetd_flag) {
@@ -1806,10 +1828,10 @@ main(int ac, char **av)
 	} else {
 		server_listen();
 
-		signal(SIGHUP, sighup_handler);
-		signal(SIGCHLD, main_sigchld_handler);
-		signal(SIGTERM, sigterm_handler);
-		signal(SIGQUIT, sigterm_handler);
+		ssh_signal(SIGHUP, sighup_handler);
+		ssh_signal(SIGCHLD, main_sigchld_handler);
+		ssh_signal(SIGTERM, sigterm_handler);
+		ssh_signal(SIGQUIT, sigterm_handler);
 
 		/*
 		 * Write out the pid file after the sigterm handler
@@ -1892,11 +1914,11 @@ main(int ac, char **av)
 	 * will not restart on SIGHUP since it no longer makes sense.
 	 */
 	alarm(0);
-	signal(SIGALRM, SIG_DFL);
-	signal(SIGHUP, SIG_DFL);
-	signal(SIGTERM, SIG_DFL);
-	signal(SIGQUIT, SIG_DFL);
-	signal(SIGCHLD, SIG_DFL);
+	ssh_signal(SIGALRM, SIG_DFL);
+	ssh_signal(SIGHUP, SIG_DFL);
+	ssh_signal(SIGTERM, SIG_DFL);
+	ssh_signal(SIGQUIT, SIG_DFL);
+	ssh_signal(SIGCHLD, SIG_DFL);
 
 	/*
 	 * Register our connection.  This turns encryption off because we do
@@ -1950,7 +1972,7 @@ main(int ac, char **av)
 	 * mode; it is just annoying to have the server exit just when you
 	 * are about to discover the bug.
 	 */
-	signal(SIGALRM, grace_alarm_handler);
+	ssh_signal(SIGALRM, grace_alarm_handler);
 	if (!debug_flag)
 		alarm(options.login_grace_time);
 
@@ -2006,7 +2028,7 @@ main(int ac, char **av)
 	 * authentication.
 	 */
 	alarm(0);
-	signal(SIGALRM, SIG_DFL);
+	ssh_signal(SIGALRM, SIG_DFL);
 	authctxt->authenticated = 1;
 	if (startup_pipe != -1) {
 		close(startup_pipe);

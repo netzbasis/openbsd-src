@@ -1,4 +1,4 @@
-/* $OpenBSD: serverloop.c,v 1.218 2019/11/27 05:38:43 dtucker Exp $ */
+/* $OpenBSD: serverloop.c,v 1.220 2020/01/25 04:48:26 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -397,15 +397,15 @@ server_loop2(struct ssh *ssh, Authctxt *authctxt)
 
 	debug("Entering interactive session for SSH2.");
 
-	signal(SIGCHLD, sigchld_handler);
+	ssh_signal(SIGCHLD, sigchld_handler);
 	child_terminated = 0;
 	connection_in = ssh_packet_get_connection_in(ssh);
 	connection_out = ssh_packet_get_connection_out(ssh);
 
 	if (!use_privsep) {
-		signal(SIGTERM, sigterm_handler);
-		signal(SIGINT, sigterm_handler);
-		signal(SIGQUIT, sigterm_handler);
+		ssh_signal(SIGTERM, sigterm_handler);
+		ssh_signal(SIGINT, sigterm_handler);
+		ssh_signal(SIGQUIT, sigterm_handler);
 	}
 
 	notify_setup();
@@ -675,9 +675,7 @@ server_input_channel_open(int type, u_int32_t seq, struct ssh *ssh)
 	debug("%s: ctype %s rchan %u win %u max %u", __func__,
 	    ctype, rchan, rwindow, rmaxpack);
 
-	if (rchan > INT_MAX) {
-		error("%s: invalid remote channel ID", __func__);
-	} else if (strcmp(ctype, "session") == 0) {
+	if (strcmp(ctype, "session") == 0) {
 		c = server_request_session(ssh);
 	} else if (strcmp(ctype, "direct-tcpip") == 0) {
 		c = server_request_direct_tcpip(ssh, &reason, &errmsg);
@@ -688,7 +686,7 @@ server_input_channel_open(int type, u_int32_t seq, struct ssh *ssh)
 	}
 	if (c != NULL) {
 		debug("%s: confirm %s", __func__, ctype);
-		c->remote_id = (int)rchan;
+		c->remote_id = rchan;
 		c->have_remote_id = 1;
 		c->remote_window = rwindow;
 		c->remote_maxpacket = rmaxpack;

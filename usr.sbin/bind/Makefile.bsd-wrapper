@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.bsd-wrapper,v 1.23 2020/01/07 19:11:17 florian Exp $
+#	$OpenBSD: Makefile.bsd-wrapper,v 1.25 2020/01/24 09:04:48 florian Exp $
 
 .include <bsd.own.mk>
 
@@ -7,13 +7,12 @@ CONFIGURE_OPTS=	--prefix=/usr \
 		--localstatedir=/var \
 		--sysconfdir=/etc \
 		--disable-isc-spnego \
-		--without-readline \
 		--with-python=no \
 		--without-idn \
 		--with-gssapi=no \
 		--with-docbook-xsl=no \
-		--with-libjson=no \
 		--disable-shared \
+		--enable-openssl-hash \
 		--enable-sit
 
 PROG=	bin/dig/dig \

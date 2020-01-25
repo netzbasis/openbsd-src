@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.382 2020/01/06 02:00:46 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.392 2020/01/25 00:03:36 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -387,6 +387,14 @@ do_convert_to_pem(struct sshkey *k)
 	case KEY_RSA:
 		if (!PEM_write_RSAPublicKey(stdout, k->rsa))
 			fatal("PEM_write_RSAPublicKey failed");
+		break;
+	case KEY_DSA:
+		if (!PEM_write_DSA_PUBKEY(stdout, k->dsa))
+			fatal("PEM_write_DSA_PUBKEY failed");
+		break;
+	case KEY_ECDSA:
+		if (!PEM_write_EC_PUBKEY(stdout, k->ecdsa))
+			fatal("PEM_write_EC_PUBKEY failed");
 		break;
 	default:
 		fatal("%s: unsupported key type %s", __func__, sshkey_type(k));
@@ -803,13 +811,13 @@ do_download(struct passwd *pw)
 	int i, nkeys;
 	enum sshkey_fp_rep rep;
 	int fptype;
-	char *fp, *ra;
+	char *fp, *ra, **comments = NULL;
 
 	fptype = print_bubblebabble ? SSH_DIGEST_SHA1 : fingerprint_hash;
 	rep =    print_bubblebabble ? SSH_FP_BUBBLEBABBLE : SSH_FP_DEFAULT;
 
 	pkcs11_init(1);
-	nkeys = pkcs11_add_provider(pkcs11provider, NULL, &keys);
+	nkeys = pkcs11_add_provider(pkcs11provider, NULL, &keys, &comments);
 	if (nkeys <= 0)
 		fatal("cannot read public key from pkcs11");
 	for (i = 0; i < nkeys; i++) {
@@ -827,10 +835,13 @@ do_download(struct passwd *pw)
 			free(fp);
 		} else {
 			(void) sshkey_write(keys[i], stdout); /* XXX check */
-			fprintf(stdout, "\n");
+			fprintf(stdout, "%s%s\n",
+			    *(comments[i]) == '\0' ? "" : " ", comments[i]);
 		}
+		free(comments[i]);
 		sshkey_free(keys[i]);
 	}
+	free(comments);
 	free(keys);
 	pkcs11_terminate();
 	exit(0);
@@ -1241,8 +1252,10 @@ known_hosts_find_delete(struct hostkey_foreach_line *l, void *_ctx)
 				if (fp == NULL || ra == NULL)
 					fatal("%s: sshkey_fingerprint failed",
 					    __func__);
-				mprintf("%s %s %s %s\n", ctx->host,
-				    sshkey_type(l->key), fp, l->comment);
+				mprintf("%s %s %s%s%s\n", ctx->host,
+				    sshkey_type(l->key), fp,
+				    l->comment[0] ? " " : "",
+				    l->comment);
 				if (log_level_get() >= SYSLOG_LEVEL_VERBOSE)
 					printf("%s\n", ra);
 				free(ra);
@@ -1673,7 +1686,8 @@ load_pkcs11_key(char *path)
 		fatal("Couldn't load CA public key \"%s\": %s",
 		    path, ssh_err(r));
 
-	nkeys = pkcs11_add_provider(pkcs11provider, identity_passphrase, &keys);
+	nkeys = pkcs11_add_provider(pkcs11provider, identity_passphrase,
+	    &keys, NULL);
 	debug3("%s: %d keys", __func__, nkeys);
 	if (nkeys <= 0)
 		fatal("cannot read public key from pkcs11");
@@ -1758,10 +1772,14 @@ do_ca_sign(struct passwd *pw, const char *ca_key_path, int prefer_agent,
 	}
 	free(tmp);
 
-	if (key_type_name != NULL &&
-	    sshkey_type_from_name(key_type_name) != ca->type)  {
-		fatal("CA key type %s doesn't match specified %s",
-		    sshkey_ssh_name(ca), key_type_name);
+	if (key_type_name != NULL) {
+		if (sshkey_type_from_name(key_type_name) != ca->type) {
+			fatal("CA key type %s doesn't match specified %s",
+			    sshkey_ssh_name(ca), key_type_name);
+		}
+	} else if (ca->type == KEY_RSA) {
+		/* Default to a good signature algorithm */
+		key_type_name = "rsa-sha2-512";
 	}
 	ca_fp = sshkey_fingerprint(ca, fingerprint_hash, SSH_FP_DEFAULT);
 
@@ -2145,7 +2163,6 @@ do_show_cert(struct passwd *pw)
 	exit(ok ? 0 : 1);
 }
 
-#ifdef WITH_OPENSSL
 static void
 load_krl(const char *path, struct ssh_krl **krlp)
 {
@@ -2440,7 +2457,6 @@ do_check_krl(struct passwd *pw, int argc, char **argv)
 	ssh_krl_free(krl);
 	exit(ret);
 }
-#endif
 
 static struct sshkey *
 load_sign_key(const char *keypath, const struct sshkey *pubkey)
@@ -2579,7 +2595,7 @@ sign_one(struct sshkey *signkey, const char *filename, int fd,
 }
 
 static int
-sign(const char *keypath, const char *sig_namespace, int argc, char **argv)
+sig_sign(const char *keypath, const char *sig_namespace, int argc, char **argv)
 {
 	int i, fd = -1, r, ret = -1;
 	int agent_fd = -1;
@@ -2650,8 +2666,8 @@ done:
 }
 
 static int
-verify(const char *signature, const char *sig_namespace, const char *principal,
-    const char *allowed_keys, const char *revoked_keys)
+sig_verify(const char *signature, const char *sig_namespace,
+    const char *principal, const char *allowed_keys, const char *revoked_keys)
 {
 	int r, ret = -1, sigfd = -1;
 	struct sshbuf *sigbuf = NULL, *abuf = NULL;
@@ -2674,7 +2690,7 @@ verify(const char *signature, const char *sig_namespace, const char *principal,
 	}
 	if ((r = sshsig_dearmor(abuf, &sigbuf)) != 0) {
 		error("%s: sshsig_armor: %s", __func__, ssh_err(r));
-		return r;
+		goto done;
 	}
 	if ((r = sshsig_verify_fd(sigbuf, STDIN_FILENO, sig_namespace,
 	    &sign_key, &sig_details)) != 0)
@@ -2734,6 +2750,59 @@ done:
 	sshkey_free(sign_key);
 	sshkey_sig_details_free(sig_details);
 	free(fp);
+	return ret;
+}
+
+static int
+sig_find_principals(const char *signature, const char *allowed_keys) {
+	int r, ret = -1, sigfd = -1;
+	struct sshbuf *sigbuf = NULL, *abuf = NULL;
+	struct sshkey *sign_key = NULL;
+	char *principals = NULL, *cp, *tmp;
+
+	if ((abuf = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new() failed", __func__);
+
+	if ((sigfd = open(signature, O_RDONLY)) < 0) {
+		error("Couldn't open signature file %s", signature);
+		goto done;
+	}
+
+	if ((r = sshkey_load_file(sigfd, abuf)) != 0) {
+		error("Couldn't read signature file: %s", ssh_err(r));
+		goto done;
+	}
+	if ((r = sshsig_dearmor(abuf, &sigbuf)) != 0) {
+		error("%s: sshsig_armor: %s", __func__, ssh_err(r));
+		goto done;
+	}
+	if ((r = sshsig_get_pubkey(sigbuf, &sign_key)) != 0) {
+		error("%s: sshsig_get_pubkey: %s",
+		    __func__, ssh_err(r));
+		goto done;
+	}
+	if ((r = sshsig_find_principals(allowed_keys, sign_key,
+	    &principals)) != 0) {
+		error("%s: sshsig_get_principal: %s",
+		      __func__, ssh_err(r));
+		goto done;
+	}
+	ret = 0;
+done:
+	if (ret == 0 ) {
+		/* Emit matching principals one per line */
+		tmp = principals;
+		while ((cp = strsep(&tmp, ",")) != NULL && *cp != '\0')
+			puts(cp);
+	} else {
+		fprintf(stderr, "No principal matched.\n");
+	}
+	if (sigfd != -1)
+		close(sigfd);
+	sshbuf_free(sigbuf);
+	sshbuf_free(abuf);
+	sshkey_free(sign_key);
+	free(principals);
 	return ret;
 }
 
@@ -2991,7 +3060,7 @@ usage(void)
 	fprintf(stderr,
 	    "usage: ssh-keygen [-q] [-b bits] [-C comment] [-f output_keyfile] [-m format]\n"
 	    "                  [-t dsa | ecdsa | ecdsa-sk | ed25519 | ed25519-sk | rsa]\n"
-	    "                  [-N new_passphrase] [-w provider] [-x flags]\n"
+	    "                  [-N new_passphrase] [-O option] [-w provider]\n"
 	    "       ssh-keygen -p [-f keyfile] [-m format] [-N new_passphrase]\n"
 	    "                   [-P old_passphrase]\n"
 	    "       ssh-keygen -i [-f input_keyfile] [-m key_format]\n"
@@ -3005,15 +3074,14 @@ usage(void)
 	    "       ssh-keygen -D pkcs11\n");
 #endif
 	fprintf(stderr,
-	    "       ssh-keygen -K path [-w sk_provider]\n");
-	fprintf(stderr,
 	    "       ssh-keygen -F hostname [-lv] [-f known_hosts_file]\n"
 	    "       ssh-keygen -H [-f known_hosts_file]\n"
+	    "       ssh-keygen -K [-w provider]\n"
 	    "       ssh-keygen -R hostname [-f known_hosts_file]\n"
 	    "       ssh-keygen -r hostname [-g] [-f input_keyfile]\n"
 #ifdef WITH_OPENSSL
-	    "       ssh-keygen -M generate [-O option] output\n"
-	    "       ssh-keygen -M screen [-f input_file] [-O option] [-a rounds] output_file\n"
+	    "       ssh-keygen -M generate [-O option] output_file\n"
+	    "       ssh-keygen -M screen [-f input_file] [-O option] output_file\n"
 #endif
 	    "       ssh-keygen -I certificate_identity -s ca_key [-hU] [-D pkcs11_provider]\n"
 	    "                  [-n principals] [-O option] [-V validity_interval]\n"
@@ -3023,6 +3091,7 @@ usage(void)
 	    "       ssh-keygen -k -f krl_file [-u] [-s ca_public] [-z version_number]\n"
 	    "                  file ...\n"
 	    "       ssh-keygen -Q -f krl_file file ...\n"
+	    "       ssh-keygen -Y find-principals -s signature_file -f allowed_signers_file\n"
 	    "       ssh-keygen -Y check-novalidate -n namespace -s signature_file\n"
 	    "       ssh-keygen -Y sign -f key_file -n namespace file ...\n"
 	    "       ssh-keygen -Y verify -f allowed_signers_file -I signer_identity\n"
@@ -3283,27 +3352,47 @@ main(int argc, char **argv)
 	argc -= optind;
 
 	if (sign_op != NULL) {
-		if (cert_principals == NULL || *cert_principals == '\0') {
-			error("Too few arguments for sign/verify: "
-			    "missing namespace");
-			exit(1);
-		}
-		if (strncmp(sign_op, "sign", 4) == 0) {
+		if (strncmp(sign_op, "find-principals", 15) == 0) {
+			if (ca_key_path == NULL) {
+				error("Too few arguments for find-principals:"
+				      "missing signature file");
+				exit(1);
+			}
+			if (!have_identity) {
+				error("Too few arguments for find-principals:"
+				      "missing allowed keys file");
+				exit(1);
+			}
+			return sig_find_principals(ca_key_path, identity_file);
+		} else if (strncmp(sign_op, "sign", 4) == 0) {
+			if (cert_principals == NULL ||
+			    *cert_principals == '\0') {
+				error("Too few arguments for sign: "
+				    "missing namespace");
+				exit(1);
+			}
 			if (!have_identity) {
 				error("Too few arguments for sign: "
 				    "missing key");
 				exit(1);
 			}
-			return sign(identity_file, cert_principals, argc, argv);
+			return sig_sign(identity_file, cert_principals,
+			    argc, argv);
 		} else if (strncmp(sign_op, "check-novalidate", 16) == 0) {
 			if (ca_key_path == NULL) {
 				error("Too few arguments for check-novalidate: "
 				      "missing signature file");
 				exit(1);
 			}
-			return verify(ca_key_path, cert_principals,
-				      NULL, NULL, NULL);
+			return sig_verify(ca_key_path, cert_principals,
+			    NULL, NULL, NULL);
 		} else if (strncmp(sign_op, "verify", 6) == 0) {
+			if (cert_principals == NULL ||
+			    *cert_principals == '\0') {
+				error("Too few arguments for verify: "
+				    "missing namespace");
+				exit(1);
+			}
 			if (ca_key_path == NULL) {
 				error("Too few arguments for verify: "
 				    "missing signature file");
@@ -3319,9 +3408,10 @@ main(int argc, char **argv)
 				    "missing principal ID");
 				exit(1);
 			}
-			return verify(ca_key_path, cert_principals,
+			return sig_verify(ca_key_path, cert_principals,
 			    cert_key_id, identity_file, rr_hostname);
 		}
+		error("Unsupported operation for -Y: \"%s\"", sign_op);
 		usage();
 		/* NOTREACHED */
 	}
@@ -3345,21 +3435,13 @@ main(int argc, char **argv)
 		usage();
 	}
 	if (gen_krl) {
-#ifdef WITH_OPENSSL
 		do_gen_krl(pw, update_krl, ca_key_path,
 		    cert_serial, identity_comment, argc, argv);
 		return (0);
-#else
-		fatal("KRL generation not supported");
-#endif
 	}
 	if (check_krl) {
-#ifdef WITH_OPENSSL
 		do_check_krl(pw, argc, argv);
 		return (0);
-#else
-		fatal("KRL checking not supported");
-#endif
 	}
 	if (ca_key_path != NULL) {
 		if (cert_key_id == NULL)
@@ -3562,7 +3644,7 @@ main(int argc, char **argv)
 	sshkey_free(private);
 
 	if (!quiet) {
-		printf("Your identification has been saved in %s.\n",
+		printf("Your identification has been saved in %s\n",
 		    identity_file);
 	}
 
@@ -3579,7 +3661,7 @@ main(int argc, char **argv)
 		    SSH_FP_RANDOMART);
 		if (fp == NULL || ra == NULL)
 			fatal("sshkey_fingerprint failed");
-		printf("Your public key has been saved in %s.\n",
+		printf("Your public key has been saved in %s\n",
 		    identity_file);
 		printf("The key fingerprint is:\n");
 		printf("%s %s\n", fp, comment);

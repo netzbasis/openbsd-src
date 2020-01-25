@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.749 2020/01/11 00:56:37 jsg Exp $
+#	$OpenBSD: Makefile,v 1.753 2020/01/22 05:06:18 tedu Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -12,7 +12,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
 	akbd.4 alipm.4 amas.4 amdgpio.4 amdiic.4 amdpm.4 ami.4 \
 	amlclock.4 amldwusb.4 amliic.4 amlmmc.4 amlpciephy.4 amlpinctrl.4 \
-	amlpwm.4 amlreset.4 amlrng.4 amluart.4 amlusbphy.4 \
+	amlpwm.4 amlreset.4 amlrng.4 amlsm.4 amltemp.4 amluart.4 amlusbphy.4 \
 	amphy.4 ams.4 an.4 andl.4 aplgpio.4 aps.4 arc.4 arcofi.4 \
 	asbtm.4 asmc.4 ast.4 atapiscsi.4 atphy.4 ath.4 athn.4 atu.4 atw.4 \
 	auacer.4 audio.4 aue.4 auglx.4 auich.4 auixp.4 autri.4 auvia.4 \
@@ -23,7 +23,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	cac.4 cas.4 cardbus.4 carp.4 ccp.4 ccpmic.4 cd.4 cdce.4 cfxga.4 \
 	ch.4 chvgpio.4 ciphy.4 ciss.4 clcs.4 clct.4 cmpci.4 \
 	com.4 cue.4 cy.4 cz.4 \
-	dc.4 dcphy.4 ddb.4 de.4 diskmap.4 divert.4 drm.4 dwctwo.4 \
+	dc.4 dcphy.4 ddb.4 de.4 diskmap.4 divert.4 drm.4 dt.4 dwctwo.4 \
 	dwdog.4 dwge.4 dwiic.4 dwmmc.4 dwpcie.4 dwxe.4 \
 	eap.4 ec.4 eephy.4 ef.4 eg.4 ehci.4 eisa.4 el.4 em.4 emc.4 gcu.4 \
 	emu.4 enc.4 endrun.4 envy.4 eoip.4 ep.4 epic.4 esa.4 \
@@ -64,7 +64,7 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	rge.4 ricohrtc.4 rkclock.4 rkdwusb.4 rkemmcphy.4 rkgpio.4 rkgrf.4 \
 	rkiic.4 rkpcie.4 rkpinctrl.4 rkpmic.4 rkpwm.4 rktemp.4 \
 	rl.4 rlphy.4 route.4 rsu.4 rtsx.4 rum.4 run.4 \
-	rtfps.4 rtw.4 rtwn.4 safe.4 safte.4 sbus.4 schsio.4 \
+	rtw.4 rtwn.4 safe.4 safte.4 sbus.4 schsio.4 \
 	scsi.4 sd.4 \
 	sdmmc.4 sdhc.4 se.4 ses.4 \
 	sf.4 sili.4 simplefb.4 siop.4 sis.4 sk.4 \

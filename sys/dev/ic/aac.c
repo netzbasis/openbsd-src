@@ -1,4 +1,4 @@
-/*	$OpenBSD: aac.c,v 1.71 2019/10/05 20:41:27 jan Exp $	*/
+/*	$OpenBSD: aac.c,v 1.73 2020/01/23 07:52:59 krw Exp $	*/
 
 /*-
  * Copyright (c) 2000 Michael Smith
@@ -130,11 +130,7 @@ struct cfdriver aac_cd = {
 };
 
 struct scsi_adapter aac_switch = {
-	aac_scsi_cmd,
-	scsi_minphys,
-	NULL,		/* probe */
-	NULL,		/* free */
-	NULL		/* ioctl */
+	aac_scsi_cmd, scsi_minphys, NULL, NULL, NULL
 };
 
 /* Falcon/PPC interface */
@@ -573,8 +569,8 @@ aac_command_thread(void *arg)
 				    ("%s: command thread sleeping\n",
 				     sc->aac_dev.dv_xname));
 			AAC_LOCK_RELEASE(&sc->aac_io_lock);
-			retval = tsleep(sc->aifthread, PRIBIO, "aifthd",
-					AAC_PERIODIC_INTERVAL * hz);
+			retval = tsleep_nsec(sc->aifthread, PRIBIO, "aifthd",
+			    SEC_TO_NSEC(AAC_PERIODIC_INTERVAL));
 			AAC_LOCK_ACQUIRE(&sc->aac_io_lock);
 		}
 
@@ -844,7 +840,7 @@ aac_bio_complete(struct aac_command *cm)
  *     spam the memory of a command that has been recycled.
  */
 int
-aac_wait_command(struct aac_command *cm, int timeout)
+aac_wait_command(struct aac_command *cm, int msecs)
 {
 	struct aac_softc *sc = cm->cm_sc;
 	int error = 0;
@@ -860,7 +856,7 @@ aac_wait_command(struct aac_command *cm, int timeout)
 		AAC_DPRINTF(AAC_D_MISC, ("%s: sleeping until command done\n",
 					 sc->aac_dev.dv_xname));
 		AAC_LOCK_RELEASE(&sc->aac_io_lock);
-		error = tsleep(cm, PRIBIO, "aacwait", timeout);
+		error = tsleep_nsec(cm, PRIBIO, "aacwait", MSEC_TO_NSEC(msecs));
 		AAC_LOCK_ACQUIRE(&sc->aac_io_lock);
 	}
 	return (error);

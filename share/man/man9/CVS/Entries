@@ -46,7 +46,7 @@
 /file.9/1.22/Fri Jan  3 05:37:00 2020//
 /fork1.9/1.30/Sun Jun 11 17:06:27 2017//
 /getdevvp.9/1.8/Tue Jun  4 19:27:06 2013//
-/getnewvnode.9/1.9/Wed Aug 14 06:32:32 2013//
+/getnewvnode.9/1.10/Mon Jan 20 23:23:04 2020//
 /getsn.9/1.2/Wed Apr 25 11:15:58 2018//
 /hardclock.9/1.12/Tue Sep 27 17:06:24 2016//
 /hashinit.9/1.9/Sat Sep 24 18:59:04 2016//
@@ -86,8 +86,8 @@
 /memcmp.9/1.1/Mon Apr 23 10:30:39 2018//
 /mi_switch.9/1.7/Tue Sep  5 03:49:56 2017//
 /microtime.9/1.19/Tue Oct 22 20:19:41 2019//
-/ml_init.9/1.13/Fri Apr 15 05:05:21 2016//
-/mq_init.9/1.9/Fri Feb  9 02:26:33 2018//
+/ml_init.9/1.15/Thu Jan 23 07:12:42 2020//
+/mq_init.9/1.11/Thu Jan 23 07:12:42 2020//
 /mutex.9/1.25/Mon Nov  4 18:18:03 2019//
 /namei.9/1.22/Mon Sep 30 19:57:44 2019//
 /panic.9/1.9/Sun Jul 13 23:03:03 2014//
@@ -135,7 +135,7 @@
 /thread_fork.9/1.2/Wed Feb 15 03:33:13 2017//
 /time_second.9/1.1/Sun Apr  3 06:43:59 2016//
 /timeout.9/1.50/Fri Jan  3 02:16:38 2020//
-/tsleep.9/1.13/Wed Jul  3 22:39:33 2019//
+/tsleep.9/1.14/Sun Jan 12 00:01:12 2020//
 /tvtohz.9/1.11/Fri Jan 18 03:34:58 2019//
 /uiomove.9/1.19/Tue Mar 15 06:49:21 2016//
 /usb_add_task.9/1.2/Thu Sep 15 18:26:22 2016//
@@ -164,7 +164,7 @@
 /vgone.9/1.8/Wed Jul 17 20:21:55 2013//
 /vhold.9/1.9/Wed Jul 17 20:21:55 2013//
 /vinvalbuf.9/1.12/Thu Jul 25 01:43:20 2019//
-/vnode.9/1.32/Mon Dec 16 10:28:53 2019//
+/vnode.9/1.33/Mon Jan 20 23:23:04 2020//
 /vnsubr.9/1.16/Sun Oct  6 16:32:56 2019//
 /vput.9/1.10/Wed Aug 14 06:32:32 2013//
 /vrecycle.9/1.10/Tue Jun  4 19:27:17 2013//

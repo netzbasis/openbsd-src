@@ -1,4 +1,4 @@
-/audio.c/1.184/Wed Dec 18 00:27:47 2019//
+/audio.c/1.185/Fri Jan 24 05:38:33 2020//
 /audio_if.h/1.36/Thu Sep  5 05:33:57 2019//
 /bio.c/1.17/Wed Aug 26 22:28:57 2015//
 /biovar.h/1.45/Sun Aug 14 04:08:03 2016//
@@ -8,10 +8,8 @@
 /cons.h/1.18/Tue May 17 23:43:47 2016//
 /diskmap.c/1.26/Tue Aug  6 07:16:48 2019//
 /firmload.c/1.16/Mon Aug 13 23:12:39 2018//
-/flash.c/1.32/Thu May  4 22:47:27 2017//
-/flashvar.h/1.7/Mon Nov 11 03:03:34 2013//
 /hotplug.c/1.18/Tue Dec 31 13:48:31 2019//
-/ipmi.c/1.107/Tue Dec 31 10:05:32 2019//
+/ipmi.c/1.108/Sat Jan 11 18:51:54 2020//
 /ipmi.h/1.1/Fri Feb  5 06:29:01 2016//
 /ipmivar.h/1.32/Thu Dec 19 09:01:50 2019//
 /kcov.c/1.15/Sun May 19 08:55:27 2019//
@@ -38,11 +36,11 @@
 /softraidvar.h/1.169/Thu Jul  4 18:09:17 2019//
 /spdmem.c/1.7/Sat Dec 21 12:33:03 2019//
 /spdmemvar.h/1.1/Mon Mar 22 21:20:56 2010//
-/video.c/1.42/Sun Oct  6 17:13:10 2019//
+/video.c/1.43/Thu Jan 16 09:59:26 2020//
 /video_if.h/1.18/Sat Oct 18 08:01:34 2014//
 /vnd.c/1.171/Wed Nov 27 16:12:13 2019//
 /vndioctl.h/1.11/Mon Nov 18 22:32:45 2019//
-/vscsi.c/1.45/Tue Dec 31 22:57:07 2019//
+/vscsi.c/1.46/Thu Jan 23 07:52:59 2020//
 /vscsivar.h/1.5/Tue Apr  5 15:28:49 2011//
 D/acpi////
 D/adb////
@@ -50,6 +48,7 @@ D/ata////
 D/atapiscsi////
 D/cardbus////
 D/dec////
+D/dt////
 D/eisa////
 D/fdt////
 D/gpio////

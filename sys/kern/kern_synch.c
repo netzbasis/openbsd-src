@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.155 2019/11/30 11:19:17 visa Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.161 2020/01/24 15:58:33 cheloha Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -51,6 +51,8 @@
 #include <sys/refcnt.h>
 #include <sys/atomic.h>
 #include <sys/witness.h>
+#include <sys/tracepoint.h>
+
 #include <ddb/db_output.h>
 
 #include <machine/spinlock.h>
@@ -162,15 +164,36 @@ tsleep_nsec(const volatile void *ident, int priority, const char *wmesg,
 		return tsleep(ident, priority, wmesg, 0);
 #ifdef DIAGNOSTIC
 	if (nsecs == 0) {
-		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
-		    __func__, wmesg);
+		log(LOG_WARNING,
+		    "%s: %s[%d]: %s: trying to sleep zero nanoseconds\n",
+		    __func__, curproc->p_p->ps_comm, curproc->p_p->ps_pid,
+		    wmesg);
 	}
 #endif
-	to_ticks = nsecs / (tick * 1000);
+	/*
+	 * We want to sleep at least nsecs nanoseconds worth of ticks.
+	 *
+	 *  - Clamp nsecs to prevent arithmetic overflow.
+	 *
+	 *  - Round nsecs up to account for any nanoseconds that do not
+	 *    divide evenly into tick_nsec, otherwise we'll lose them to
+	 *    integer division in the next step.  We add (tick_nsec - 1)
+	 *    to keep from introducing a spurious tick if there are no
+	 *    such nanoseconds, i.e. nsecs % tick_nsec == 0.
+	 *
+	 *  - Divide the rounded value to a count of ticks.  We divide
+	 *    by (tick_nsec + 1) to discard the extra tick introduced if,
+	 *    before rounding, nsecs % tick_nsec == 1.
+	 *
+	 *  - Finally, add a tick to the result.  We need to wait out
+	 *    the current tick before we can begin counting our interval,
+	 *    as we do not know how much time has elapsed since the
+	 *    current tick began.
+	 */
+	nsecs = MIN(nsecs, UINT64_MAX - tick_nsec);
+	to_ticks = (nsecs + tick_nsec - 1) / (tick_nsec + 1) + 1;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
-	if (to_ticks == 0)
-		to_ticks = 1;
 	return tsleep(ident, priority, wmesg, (int)to_ticks);
 }
 
@@ -267,15 +290,16 @@ msleep_nsec(const volatile void *ident, struct mutex *mtx, int priority,
 		return msleep(ident, mtx, priority, wmesg, 0);
 #ifdef DIAGNOSTIC
 	if (nsecs == 0) {
-		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
-		    __func__, wmesg);
+		log(LOG_WARNING,
+		    "%s: %s[%d]: %s: trying to sleep zero nanoseconds\n",
+		    __func__, curproc->p_p->ps_comm, curproc->p_p->ps_pid,
+		    wmesg);
 	}
 #endif
-	to_ticks = nsecs / (tick * 1000);
+	nsecs = MIN(nsecs, UINT64_MAX - tick_nsec);
+	to_ticks = (nsecs + tick_nsec - 1) / (tick_nsec + 1) + 1;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
-	if (to_ticks == 0)
-		to_ticks = 1;
 	return msleep(ident, mtx, priority, wmesg, (int)to_ticks);
 }
 
@@ -318,15 +342,16 @@ rwsleep_nsec(const volatile void *ident, struct rwlock *rwl, int priority,
 		return rwsleep(ident, rwl, priority, wmesg, 0);
 #ifdef DIAGNOSTIC
 	if (nsecs == 0) {
-		log(LOG_WARNING, "%s: %s: trying to sleep zero nanoseconds\n",
-		    __func__, wmesg);
+		log(LOG_WARNING,
+		    "%s: %s[%d]: %s: trying to sleep zero nanoseconds\n",
+		    __func__, curproc->p_p->ps_comm, curproc->p_p->ps_pid,
+		    wmesg);
 	}
 #endif
-	to_ticks = nsecs / (tick * 1000);
+	nsecs = MIN(nsecs, UINT64_MAX - tick_nsec);
+	to_ticks = (nsecs + tick_nsec - 1) / (tick_nsec + 1) + 1;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
-	if (to_ticks == 0)
-		to_ticks = 1;
 	return 	rwsleep(ident, rwl, priority, wmesg, (int)to_ticks);
 }
 
@@ -362,6 +387,8 @@ sleep_setup(struct sleep_state *sls, const volatile void *ident, int prio,
 	}
 
 	SCHED_LOCK(sls->sls_s);
+
+	TRACEPOINT(sched, sleep, NULL);
 
 	p->p_wchan = ident;
 	p->p_wmesg = wmesg;
@@ -452,8 +479,7 @@ sleep_setup_signal(struct sleep_state *sls)
 	 */
 	atomic_setbits_int(&p->p_flag, P_SINTR);
 	if (p->p_p->ps_single != NULL || (sls->sls_sig = CURSIG(p)) != 0) {
-		if (p->p_wchan)
-			unsleep(p);
+		unsleep(p);
 		p->p_stat = SONPROC;
 		sls->sls_do_sleep = 0;
 	} else if (p->p_wchan == 0) {
@@ -488,6 +514,25 @@ sleep_finish_signal(struct sleep_state *sls)
 	return (error);
 }
 
+int
+wakeup_proc(struct proc *p, const volatile void *chan)
+{
+	int s, awakened = 0;
+
+	SCHED_LOCK(s);
+	if (p->p_wchan != NULL &&
+	   ((chan == NULL) || (p->p_wchan == chan))) {
+		awakened = 1;
+		if (p->p_stat == SSLEEP)
+			setrunnable(p);
+		else
+			unsleep(p);
+	}
+	SCHED_UNLOCK(s);
+
+	return awakened;
+}
+
 /*
  * Implement timeout for tsleep.
  * If process hasn't been awakened (wchan non-zero),
@@ -501,13 +546,8 @@ endtsleep(void *arg)
 	int s;
 
 	SCHED_LOCK(s);
-	if (p->p_wchan) {
-		if (p->p_stat == SSLEEP)
-			setrunnable(p);
-		else
-			unsleep(p);
+	if (wakeup_proc(p, NULL))
 		atomic_setbits_int(&p->p_flag, P_TIMEOUT);
-	}
 	SCHED_UNLOCK(s);
 }
 
@@ -519,9 +559,10 @@ unsleep(struct proc *p)
 {
 	SCHED_ASSERT_LOCKED();
 
-	if (p->p_wchan) {
+	if (p->p_wchan != NULL) {
 		TAILQ_REMOVE(&slpque[LOOKUP(p->p_wchan)], p, p_runq);
 		p->p_wchan = NULL;
+		TRACEPOINT(sched, wakeup, p->p_tid, p->p_p->ps_pid);
 	}
 }
 
@@ -553,13 +594,8 @@ wakeup_n(const volatile void *ident, int n)
 		if (p->p_stat != SSLEEP && p->p_stat != SSTOP)
 			panic("wakeup: p_stat is %d", (int)p->p_stat);
 #endif
-		if (p->p_wchan == ident) {
+		if (wakeup_proc(p, ident))
 			--n;
-			p->p_wchan = 0;
-			TAILQ_REMOVE(qp, p, p_runq);
-			if (p->p_stat == SSLEEP)
-				setrunnable(p);
-		}
 	}
 	SCHED_UNLOCK(s);
 }
@@ -609,7 +645,14 @@ thrsleep_unlock(void *lock)
 	return copyout(&unlocked, atomiclock, sizeof(unlocked));
 }
 
-static int globalsleepaddr;
+struct tslpentry {
+	TAILQ_ENTRY(tslpentry)	tslp_link;
+	long			tslp_ident;
+};
+
+/* thrsleep queue shared between processes */
+static struct tslpqueue thrsleep_queue = TAILQ_HEAD_INITIALIZER(thrsleep_queue);
+static struct rwlock thrsleep_lock = RWLOCK_INITIALIZER("thrsleeplk");
 
 int
 thrsleep(struct proc *p, struct sys___thrsleep_args *v)
@@ -622,10 +665,13 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 		syscallarg(const int *) abort;
 	} */ *uap = v;
 	long ident = (long)SCARG(uap, ident);
+	struct tslpentry entry;
+	struct tslpqueue *queue;
+	struct rwlock *qlock;
 	struct timespec *tsp = (struct timespec *)SCARG(uap, tp);
 	void *lock = SCARG(uap, lock);
-	uint64_t to_ticks = 0;
-	int abort, error;
+	uint64_t nsecs = INFSLP;
+	int abort = 0, error;
 	clockid_t clock_id = SCARG(uap, clock_id);
 
 	if (ident == 0)
@@ -648,39 +694,44 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 		}
 
 		timespecsub(tsp, &now, tsp);
-		to_ticks = (uint64_t)hz * tsp->tv_sec +
-		    (tsp->tv_nsec + tick * 1000 - 1) / (tick * 1000) + 1;
-		if (to_ticks > INT_MAX)
-			to_ticks = INT_MAX;
+		nsecs = TIMESPEC_TO_NSEC(tsp);
 	}
 
-	p->p_thrslpid = ident;
+	if (ident == -1) {
+		queue = &thrsleep_queue;
+		qlock = &thrsleep_lock;
+	} else {
+		queue = &p->p_p->ps_tslpqueue;
+		qlock = &p->p_p->ps_lock;
+	}
 
-	if ((error = thrsleep_unlock(lock)))
+	/* Interlock with wakeup. */
+	entry.tslp_ident = ident;
+	rw_enter_write(qlock);
+	TAILQ_INSERT_TAIL(queue, &entry, tslp_link);
+	rw_exit_write(qlock);
+
+	error = thrsleep_unlock(lock);
+
+	if (error == 0 && SCARG(uap, abort) != NULL)
+		error = copyin(SCARG(uap, abort), &abort, sizeof(abort));
+
+	rw_enter_write(qlock);
+	if (error != 0)
 		goto out;
-
-	if (SCARG(uap, abort) != NULL) {
-		if ((error = copyin(SCARG(uap, abort), &abort,
-		    sizeof(abort))) != 0)
-			goto out;
-		if (abort) {
-			error = EINTR;
-			goto out;
-		}
+	if (abort != 0) {
+		error = EINTR;
+		goto out;
 	}
-
-	if (p->p_thrslpid == 0)
-		error = 0;
-	else {
-		void *sleepaddr = &p->p_thrslpid;
-		if (ident == -1)
-			sleepaddr = &globalsleepaddr;
-		error = tsleep(sleepaddr, PWAIT|PCATCH, "thrsleep",
-		    (int)to_ticks);
+	if (entry.tslp_ident != 0) {
+		error = rwsleep_nsec(&entry, qlock, PWAIT|PCATCH, "thrsleep",
+		    nsecs);
 	}
 
 out:
-	p->p_thrslpid = 0;
+	if (entry.tslp_ident != 0)
+		TAILQ_REMOVE(queue, &entry, tslp_link);
+	rw_exit_write(qlock);
 
 	if (error == ERESTART)
 		error = ECANCELED;
@@ -725,25 +776,48 @@ sys___thrwakeup(struct proc *p, void *v, register_t *retval)
 		syscallarg(const volatile void *) ident;
 		syscallarg(int) n;
 	} */ *uap = v;
+	struct tslpentry *entry, *tmp;
+	struct tslpqueue *queue;
+	struct rwlock *qlock;
 	long ident = (long)SCARG(uap, ident);
 	int n = SCARG(uap, n);
-	struct proc *q;
 	int found = 0;
 
 	if (ident == 0)
 		*retval = EINVAL;
-	else if (ident == -1)
-		wakeup(&globalsleepaddr);
 	else {
-		TAILQ_FOREACH(q, &p->p_p->ps_threads, p_thr_link) {
-			if (q->p_thrslpid == ident) {
-				wakeup_one(&q->p_thrslpid);
-				q->p_thrslpid = 0;
+		if (ident == -1) {
+			queue = &thrsleep_queue;
+			qlock = &thrsleep_lock;
+			/*
+			 * Wake up all waiters with ident -1. This is needed
+			 * because ident -1 can be shared by multiple userspace
+			 * lock state machines concurrently. The implementation
+			 * has no way to direct the wakeup to a particular
+			 * state machine.
+			 */
+			n = 0;
+		} else {
+			queue = &p->p_p->ps_tslpqueue;
+			qlock = &p->p_p->ps_lock;
+		}
+
+		rw_enter_write(qlock);
+		TAILQ_FOREACH_SAFE(entry, queue, tslp_link, tmp) {
+			if (entry->tslp_ident == ident) {
+				TAILQ_REMOVE(queue, entry, tslp_link);
+				entry->tslp_ident = 0;
+				wakeup_one(entry);
 				if (++found == n)
 					break;
 			}
 		}
-		*retval = found ? 0 : ESRCH;
+		rw_exit_write(qlock);
+
+		if (ident == -1)
+			*retval = 0;
+		else
+			*retval = found ? 0 : ESRCH;
 	}
 
 	return (0);
