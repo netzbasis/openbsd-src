@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.53 2020/01/24 08:21:24 jsing Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.55 2020/01/25 13:11:20 tb Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -50,6 +50,7 @@ typedef void (*tls13_phh_sent_cb)(void *_cb_arg);
 typedef ssize_t (*tls13_read_cb)(void *_buf, size_t _buflen, void *_cb_arg);
 typedef ssize_t (*tls13_write_cb)(const void *_buf, size_t _buflen,
     void *_cb_arg);
+typedef void (*tls13_handshake_message_cb)(void *_cb_arg, CBS *_cbs);
 
 struct tls13_buffer;
 
@@ -122,6 +123,7 @@ struct tls13_record_layer *tls13_record_layer_new(tls13_read_cb wire_read,
     tls13_phh_sent_cb phh_sent_cb, void *cb_arg);
 void tls13_record_layer_free(struct tls13_record_layer *rl);
 void tls13_record_layer_allow_ccs(struct tls13_record_layer *rl, int allow);
+void tls13_record_layer_allow_legacy_alerts(struct tls13_record_layer *rl, int allow);
 void tls13_record_layer_rbuf(struct tls13_record_layer *rl, CBS *cbs);
 void tls13_record_layer_set_aead(struct tls13_record_layer *rl,
     const EVP_AEAD *aead);
@@ -204,6 +206,9 @@ struct tls13_ctx {
 	uint8_t alert;
 	int phh_count;
 	time_t phh_last_seen;
+
+	tls13_handshake_message_cb handshake_message_sent_cb;
+	tls13_handshake_message_cb handshake_message_recv_cb;
 };
 #ifndef TLS13_PHH_LIMIT_TIME
 #define TLS13_PHH_LIMIT_TIME 3600
