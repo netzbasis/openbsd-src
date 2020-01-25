@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_handshake.c,v 1.44 2020/01/24 08:21:24 jsing Exp $	*/
+/*	$OpenBSD: tls13_handshake.c,v 1.48 2020/01/25 15:06:17 jsing Exp $	*/
 /*
  * Copyright (c) 2018-2019 Theo Buehler <tb@openbsd.org>
  * Copyright (c) 2019 Joel Sing <jsing@openbsd.org>
@@ -86,6 +86,7 @@ struct tls13_handshake_action state_machine[] = {
 	[CLIENT_FINISHED] = {
 		.handshake_type = TLS13_MT_FINISHED,
 		.sender = TLS13_HS_CLIENT,
+		.recv_preserve_transcript_hash = 1,
 		.send = tls13_client_finished_send,
 		.sent = tls13_client_finished_sent,
 		.recv = tls13_client_finished_recv,
@@ -123,7 +124,7 @@ struct tls13_handshake_action state_machine[] = {
 		.recv = tls13_server_certificate_recv,
 	},
 	[SERVER_CERTIFICATE_REQUEST] = {
-		.handshake_type = TLS13_MT_CERTIFICATE,
+		.handshake_type = TLS13_MT_CERTIFICATE_REQUEST,
 		.sender = TLS13_HS_SERVER,
 		.send = tls13_server_certificate_request_send,
 		.recv = tls13_server_certificate_request_recv,
@@ -363,6 +364,9 @@ tls13_handshake_send_action(struct tls13_ctx *ctx,
 			return TLS13_IO_FAILURE;
 	}
 
+	if (ctx->handshake_message_sent_cb != NULL)
+		ctx->handshake_message_sent_cb(ctx, &cbs);
+
 	tls13_handshake_msg_free(ctx->hs_msg);
 	ctx->hs_msg = NULL;
 
@@ -398,6 +402,9 @@ tls13_handshake_recv_action(struct tls13_ctx *ctx,
 	tls13_handshake_msg_data(ctx->hs_msg, &cbs);
 	if (!tls1_transcript_record(ctx->ssl, CBS_data(&cbs), CBS_len(&cbs)))
 		return TLS13_IO_FAILURE;
+
+	if (ctx->handshake_message_recv_cb != NULL)
+		ctx->handshake_message_recv_cb(ctx, &cbs);
 
 	/*
 	 * In TLSv1.3 there is no way to know if you're going to receive a
