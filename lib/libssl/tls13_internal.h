@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.55 2020/01/25 13:11:20 tb Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.57 2020/01/26 02:45:27 beck Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -45,7 +45,7 @@ __BEGIN_HIDDEN_DECLS
 #define TLS13_ERR_NO_SHARED_CIPHER	19
 
 typedef void (*tls13_alert_cb)(uint8_t _alert_desc, void *_cb_arg);
-typedef ssize_t (*tls13_phh_recv_cb)(void *_cb_arg, CBS *cbs);
+typedef ssize_t (*tls13_phh_recv_cb)(void *_cb_arg, CBS *_cbs);
 typedef void (*tls13_phh_sent_cb)(void *_cb_arg);
 typedef ssize_t (*tls13_read_cb)(void *_buf, size_t _buflen, void *_cb_arg);
 typedef ssize_t (*tls13_write_cb)(const void *_buf, size_t _buflen,
@@ -302,6 +302,8 @@ int tls13_server_finished_sent(struct tls13_ctx *ctx);
 
 void tls13_error_clear(struct tls13_error *error);
 
+int tls13_cert_add(CBB *cbb, X509 *cert);
+
 int tls13_error_set(struct tls13_error *error, int code, int subcode,
     const char *file, int line, const char *fmt, ...);
 int tls13_error_setx(struct tls13_error *error, int code, int subcode,
@@ -316,6 +318,9 @@ int tls13_error_setx(struct tls13_error *error, int code, int subcode,
 
 extern uint8_t tls13_downgrade_12[8];
 extern uint8_t tls13_downgrade_11[8];
+extern uint8_t tls13_cert_verify_pad[64];
+extern uint8_t tls13_cert_client_verify_context[];
+extern uint8_t tls13_cert_server_verify_context[];
 
 __END_HIDDEN_DECLS
 

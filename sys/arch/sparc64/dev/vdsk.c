@@ -1,4 +1,4 @@
-/*	$OpenBSD: vdsk.c,v 1.49 2018/01/17 15:52:34 stsp Exp $	*/
+/*	$OpenBSD: vdsk.c,v 1.51 2020/01/26 04:23:55 tedu Exp $	*/
 /*
  * Copyright (c) 2009, 2011 Mark Kettenis
  *
@@ -344,7 +344,7 @@ vdsk_attach(struct device *parent, struct device *self, void *aux)
 	scsi_iopool_init(&sc->sc_iopool, sc, vdsk_io_get, vdsk_io_put);
 
 	sc->sc_switch.scsi_cmd = vdsk_scsi_cmd;
-	sc->sc_switch.scsi_minphys = scsi_minphys;
+	sc->sc_switch.dev_minphys = scsi_minphys;
 	sc->sc_switch.dev_probe = vdsk_dev_probe;
 	sc->sc_switch.dev_free = vdsk_dev_free;
 
@@ -915,7 +915,7 @@ vdsk_io_put(void *xsc, void *io)
 
 #ifdef DIAGNOSTIC
 	if (sc != io)
-		panic("vsdk_io_put: unexpected io");
+		panic("vdsk_io_put: unexpected io");
 #endif
 
 	s = splbio();
