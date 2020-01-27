@@ -5,11 +5,11 @@
 /cfg.c/1.78/Thu Dec 19 09:22:33 2019//
 /client.c/1.136/Mon Dec 16 16:09:28 2019//
 /cmd-attach-session.c/1.79/Fri Nov 29 16:04:07 2019//
-/cmd-bind-key.c/1.34/Mon May 27 12:16:27 2019//
+/cmd-bind-key.c/1.35/Mon Jan 27 08:53:13 2020//
 /cmd-break-pane.c/1.50/Thu Nov 28 09:45:15 2019//
 /cmd-capture-pane.c/1.49/Thu Dec 12 11:39:56 2019//
 /cmd-choose-tree.c/1.43/Fri Aug 16 11:49:12 2019//
-/cmd-command-prompt.c/1.46/Thu May 23 11:13:30 2019//
+/cmd-command-prompt.c/1.47/Mon Jan 27 08:53:13 2020//
 /cmd-confirm-before.c/1.37/Thu May 23 11:13:30 2019//
 /cmd-copy-mode.c/1.38/Tue May  7 11:24:03 2019//
 /cmd-detach-client.c/1.32/Sat Apr 22 10:22:39 2017//
@@ -26,7 +26,7 @@
 /cmd-kill-window.c/1.24/Sat Apr 22 10:22:39 2017//
 /cmd-list-buffers.c/1.35/Mon May  1 12:20:55 2017//
 /cmd-list-clients.c/1.34/Mon May  1 12:20:55 2017//
-/cmd-list-keys.c/1.49/Mon Oct 14 09:16:48 2019//
+/cmd-list-keys.c/1.50/Mon Jan 27 08:53:13 2020//
 /cmd-list-panes.c/1.33/Mon May  1 12:20:55 2017//
 /cmd-list-sessions.c/1.30/Thu Oct 18 08:38:01 2018//
 /cmd-list-windows.c/1.43/Mon May  1 12:20:55 2017//
@@ -35,7 +35,7 @@
 /cmd-move-window.c/1.29/Sat Apr 22 10:22:39 2017//
 /cmd-new-session.c/1.122/Thu Nov 14 08:00:30 2019//
 /cmd-new-window.c/1.80/Thu Sep 19 09:02:30 2019//
-/cmd-parse.y/1.21/Thu Dec 12 15:01:54 2019//
+/cmd-parse.y/1.22/Mon Jan 27 08:23:42 2020//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
 /cmd-queue.c/1.79/Sun Jan  5 12:51:43 2020//
@@ -79,7 +79,7 @@
 /input-keys.c/1.67/Mon Jan 13 07:51:54 2020//
 /input.c/1.167/Thu Nov 28 09:50:09 2019//
 /job.c/1.55/Fri Jun 28 13:35:05 2019//
-/key-bindings.c/1.106/Sun Jan  5 20:39:25 2020//
+/key-bindings.c/1.107/Mon Jan 27 08:53:13 2020//
 /key-string.c/1.52/Thu Nov 14 07:55:01 2019//
 /layout-custom.c/1.19/Thu Nov 28 09:45:15 2019//
 /layout-set.c/1.28/Thu Nov 28 09:45:15 2019//
@@ -104,11 +104,11 @@
 /server.c/1.187/Thu Jun 20 06:51:36 2019//
 /session.c/1.86/Thu Dec 26 11:04:58 2019//
 /spawn.c/1.13/Wed Jan  1 21:51:33 2020//
-/status.c/1.200/Tue May 28 18:53:36 2019//
+/status.c/1.201/Mon Jan 27 08:53:13 2020//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.705/Sat Jan 25 16:40:32 2020//
+/tmux.1/1.707/Mon Jan 27 09:04:47 2020//
 /tmux.c/1.190/Mon Oct 14 08:38:07 2019//
-/tmux.h/1.948/Mon Jan 13 11:59:21 2020//
+/tmux.h/1.949/Mon Jan 27 08:53:13 2020//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
 /tty-keys.c/1.120/Mon Jan 13 08:12:53 2020//
 /tty-term.c/1.70/Sun Jan 12 21:07:07 2020//
