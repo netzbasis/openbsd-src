@@ -20,7 +20,7 @@
 /ci_dpm.c/1.2/Sun Apr 14 10:14:53 2019//
 /ci_dpm.h/1.2/Sun Apr 14 10:14:53 2019//
 /ci_smc.c/1.2/Sun Apr 14 10:14:53 2019//
-/cik.c/1.4/Sun Apr 14 10:14:53 2019//
+/cik.c/1.5/Tue Jan 28 02:37:20 2020//
 /cik_blit_shaders.c/1.2/Sun Apr 14 10:14:53 2019//
 /cik_blit_shaders.h/1.1/Wed Apr 25 01:27:46 2018//
 /cik_reg.h/1.2/Sun Apr 14 10:14:53 2019//
@@ -75,7 +75,7 @@
 /r500_reg.h/1.4/Wed Apr 25 01:27:46 2018//
 /r520.c/1.8/Sun Apr 14 10:14:54 2019//
 /r520d.h/1.4/Wed Apr 25 01:27:46 2018//
-/r600.c/1.24/Sun Apr 14 10:14:54 2019//
+/r600.c/1.25/Tue Jan 28 02:37:20 2020//
 /r600_blit_shaders.c/1.6/Sun Apr 14 10:14:54 2019//
 /r600_blit_shaders.h/1.4/Wed Apr 25 01:27:46 2018//
 /r600_cs.c/1.11/Sun Apr 14 10:14:54 2019//
@@ -177,7 +177,7 @@
 /rv770_smc.c/1.2/Sun Apr 14 10:14:54 2019//
 /rv770_smc.h/1.1/Wed Apr 25 01:27:46 2018//
 /rv770d.h/1.5/Sun Apr 14 10:14:54 2019//
-/si.c/1.28/Sun Apr 14 10:14:54 2019//
+/si.c/1.29/Tue Jan 28 02:37:20 2020//
 /si_blit_shaders.c/1.5/Sun Apr 14 10:14:54 2019//
 /si_blit_shaders.h/1.4/Wed Apr 25 01:27:46 2018//
 /si_dma.c/1.2/Sun Apr 14 10:14:54 2019//
