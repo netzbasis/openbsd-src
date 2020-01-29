@@ -1,4 +1,4 @@
-/*	$OpenBSD: btrace.c,v 1.2 2020/01/27 14:15:25 mpi Exp $ */
+/*	$OpenBSD: btrace.c,v 1.4 2020/01/28 16:39:51 mpi Exp $ */
 
 /*
  * Copyright (c) 2019 - 2020 Martin Pieuchot <mpi@openbsd.org>
@@ -84,7 +84,6 @@ void			 stmt_store(struct bt_stmt *, struct dt_evt *);
 void			 stmt_time(struct bt_stmt *, struct dt_evt *);
 void			 stmt_zero(struct bt_stmt *);
 struct bt_arg		*ba_read(struct bt_arg *);
-long			 ba2long(struct bt_arg *, struct dt_evt *);
 
 /* FIXME: use a real hash. */
 #define ba2hash(_b, _e)	ba2str((_b), (_e))
@@ -460,6 +459,9 @@ rules_setup(int fd)
 					dtrq->dtrq_evtflags |= DTEVT_RETVAL;
 					break;
 				case B_AT_MF_COUNT:
+				case B_AT_MF_MAX:
+				case B_AT_MF_MIN:
+				case B_AT_MF_SUM:
 				case B_AT_OP_ADD ... B_AT_OP_DIVIDE:
 					break;
 				default:
@@ -675,14 +677,16 @@ stmt_clear(struct bt_stmt *bs)
 void
 stmt_delete(struct bt_stmt *bs, struct dt_evt *dtev)
 {
-	struct bt_arg *bkey = SLIST_FIRST(&bs->bs_args);
-	struct bt_var *bv = bs->bs_var;
+	struct bt_arg *bkey, *bmap = SLIST_FIRST(&bs->bs_args);
+	struct bt_var *bv = bmap->ba_value;
 
-	assert(SLIST_NEXT(bkey, ba_next) == NULL);
+	assert(bmap->ba_type == B_AT_MAP);
+	assert(bs->bs_var == NULL);
+
+	bkey = bmap->ba_key;
+	debug("map=%p '%s' delete key=%p\n", bv->bv_value, bv->bv_name, bkey);
 
 	map_delete(bv, ba2hash(bkey, dtev));
-
-	debug("map=%p '%s' delete key=%p\n", bv->bv_value, bv->bv_name, bkey);
 }
 
 /*
@@ -694,16 +698,18 @@ stmt_delete(struct bt_stmt *bs, struct dt_evt *dtev)
 void
 stmt_insert(struct bt_stmt *bs, struct dt_evt *dtev)
 {
-	struct bt_arg *bkey, *bval = SLIST_FIRST(&bs->bs_args);
-	struct bt_var *bv = bs->bs_var;
+	struct bt_arg *bkey, *bmap = SLIST_FIRST(&bs->bs_args);
+	struct bt_arg *bval = (struct bt_arg *)bs->bs_var;
+	struct bt_var *bv = bmap->ba_value;
 
-	bkey = SLIST_NEXT(bval, ba_next);
-	assert(SLIST_NEXT(bkey, ba_next) == NULL);
+	assert(bmap->ba_type == B_AT_MAP);
+	assert(SLIST_NEXT(bval, ba_next) == NULL);
 
-	map_insert(bv, ba2hash(bkey, dtev), bval);
-
+	bkey = bmap->ba_key;
 	debug("map=%p '%s' insert key=%p bval=%p\n", bv->bv_value, bv->bv_name,
 	    bkey, bval);
+
+	map_insert(bv, ba2hash(bkey, dtev), bval);
 }
 
 /*
@@ -802,6 +808,7 @@ stmt_zero(struct bt_stmt *bs)
 
 	debug("map=%p '%s' zero\n", bv->bv_value, bv->bv_name);
 }
+
 struct bt_arg *
 ba_read(struct bt_arg *ba)
 {
@@ -936,6 +943,9 @@ ba2str(struct bt_arg *ba, struct dt_evt *dtev)
 		snprintf(buf, sizeof(buf) - 1, "%ld", (long)dtev->dtev_sysretval);
 		str = buf;
 		break;
+	case B_AT_MAP:
+		str = ba2str(map_get(ba->ba_value, ba2str(ba->ba_key, dtev)), dtev);
+		break;
 	case B_AT_VAR:
 		str = ba2str(ba_read(ba), dtev);
 		break;
@@ -944,6 +954,9 @@ ba2str(struct bt_arg *ba, struct dt_evt *dtev)
 		str = buf;
 		break;
 	case B_AT_MF_COUNT:
+	case B_AT_MF_MAX:
+	case B_AT_MF_MIN:
+	case B_AT_MF_SUM:
 		assert(0);
 		break;
 	default:

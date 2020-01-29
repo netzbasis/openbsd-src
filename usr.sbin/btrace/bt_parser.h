@@ -1,4 +1,4 @@
-/*	$OpenBSD: bt_parser.h,v 1.2 2020/01/27 14:15:25 mpi Exp $	*/
+/*	$OpenBSD: bt_parser.h,v 1.4 2020/01/28 16:39:51 mpi Exp $	*/
 
 /*
  * Copyright (c) 2019 Martin Pieuchot <mpi@openbsd.org>
@@ -98,10 +98,12 @@ struct bt_var {
 struct bt_arg {
 	SLIST_ENTRY(bt_arg)	 ba_next;
 	void			*ba_value;
+	struct bt_arg		*ba_key;	/* key for maps */
 	enum  bt_argtype {
 		B_AT_STR = 1,			/* C-style string */
 		B_AT_LONG,			/* Number (integer) */
 		B_AT_VAR,			/* global variable (@var) */
+		B_AT_MAP,			/* global map (@map[]) */
 
 		B_AT_BI_PID,
 		B_AT_BI_TID,
@@ -122,7 +124,10 @@ struct bt_arg {
 		B_AT_BI_ARGS,
 		B_AT_BI_RETVAL,
 
-		B_AT_MF_COUNT,			/* count() */
+		B_AT_MF_COUNT,			/* @map[key] = count() */
+		B_AT_MF_MAX,			/* @map[key] = max(nsecs) */
+		B_AT_MF_MIN,			/* @map[key] = min(pid) */
+		B_AT_MF_SUM,			/* @map[key] = sum(@elapsed) */
 
 		B_AT_OP_ADD,
 		B_AT_OP_MINUS,
