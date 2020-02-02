@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.55 2020/01/25 13:11:20 tb Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.58 2020/01/30 17:09:23 jsing Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -45,13 +45,16 @@ __BEGIN_HIDDEN_DECLS
 #define TLS13_ERR_NO_SHARED_CIPHER	19
 
 typedef void (*tls13_alert_cb)(uint8_t _alert_desc, void *_cb_arg);
-typedef ssize_t (*tls13_phh_recv_cb)(void *_cb_arg, CBS *cbs);
+typedef ssize_t (*tls13_phh_recv_cb)(void *_cb_arg, CBS *_cbs);
 typedef void (*tls13_phh_sent_cb)(void *_cb_arg);
 typedef ssize_t (*tls13_read_cb)(void *_buf, size_t _buflen, void *_cb_arg);
 typedef ssize_t (*tls13_write_cb)(const void *_buf, size_t _buflen,
     void *_cb_arg);
 typedef void (*tls13_handshake_message_cb)(void *_cb_arg, CBS *_cbs);
 
+/*
+ * Buffers.
+ */
 struct tls13_buffer;
 
 struct tls13_buffer *tls13_buffer_new(size_t init_size);
@@ -63,6 +66,9 @@ void tls13_buffer_cbs(struct tls13_buffer *buf, CBS *cbs);
 int tls13_buffer_finish(struct tls13_buffer *buf, uint8_t **out,
     size_t *out_len);
 
+/*
+ * Secrets.
+ */
 struct tls13_secret {
 	uint8_t *data;
 	size_t len;
@@ -111,6 +117,22 @@ int tls13_derive_application_secrets(struct tls13_secrets *secrets,
     const struct tls13_secret *context);
 int tls13_update_client_traffic_secret(struct tls13_secrets *secrets);
 int tls13_update_server_traffic_secret(struct tls13_secrets *secrets);
+
+/*
+ * Key shares.
+ */
+struct tls13_key_share;
+
+struct tls13_key_share *tls13_key_share_new(int nid);
+void tls13_key_share_free(struct tls13_key_share *ks);
+
+uint16_t tls13_key_share_group(struct tls13_key_share *ks);
+int tls13_key_share_generate(struct tls13_key_share *ks);
+int tls13_key_share_public(struct tls13_key_share *ks, CBB *cbb);
+int tls13_key_share_peer_public(struct tls13_key_share *ks, uint16_t group,
+    CBS *cbs);
+int tls13_key_share_derive(struct tls13_key_share *ks, uint8_t **shared_key,
+    size_t *shared_key_len);
 
 /*
  * Record Layer.
@@ -302,6 +324,8 @@ int tls13_server_finished_sent(struct tls13_ctx *ctx);
 
 void tls13_error_clear(struct tls13_error *error);
 
+int tls13_cert_add(CBB *cbb, X509 *cert);
+
 int tls13_error_set(struct tls13_error *error, int code, int subcode,
     const char *file, int line, const char *fmt, ...);
 int tls13_error_setx(struct tls13_error *error, int code, int subcode,
@@ -316,6 +340,9 @@ int tls13_error_setx(struct tls13_error *error, int code, int subcode,
 
 extern uint8_t tls13_downgrade_12[8];
 extern uint8_t tls13_downgrade_11[8];
+extern uint8_t tls13_cert_verify_pad[64];
+extern uint8_t tls13_cert_client_verify_context[];
+extern uint8_t tls13_cert_server_verify_context[];
 
 __END_HIDDEN_DECLS
 

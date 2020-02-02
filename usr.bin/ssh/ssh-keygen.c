@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.392 2020/01/25 00:03:36 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.395 2020/01/28 08:01:34 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -2167,15 +2167,10 @@ static void
 load_krl(const char *path, struct ssh_krl **krlp)
 {
 	struct sshbuf *krlbuf;
-	int r, fd;
+	int r;
 
-	if ((krlbuf = sshbuf_new()) == NULL)
-		fatal("sshbuf_new failed");
-	if ((fd = open(path, O_RDONLY)) == -1)
-		fatal("open %s: %s", path, strerror(errno));
-	if ((r = sshkey_load_file(fd, krlbuf)) != 0)
+	if ((r = sshbuf_load_file(path, &krlbuf)) != 0)
 		fatal("Unable to load KRL: %s", ssh_err(r));
-	close(fd);
 	/* XXX check sigs */
 	if ((r = ssh_krl_from_blob(krlbuf, krlp, NULL, 0)) != 0 ||
 	    *krlp == NULL)
@@ -2377,7 +2372,7 @@ do_gen_krl(struct passwd *pw, int updating, const char *ca_key_path,
 	struct ssh_krl *krl;
 	struct stat sb;
 	struct sshkey *ca = NULL;
-	int fd, i, r, wild_ca = 0;
+	int i, r, wild_ca = 0;
 	char *tmp;
 	struct sshbuf *kbuf;
 
@@ -2419,12 +2414,8 @@ do_gen_krl(struct passwd *pw, int updating, const char *ca_key_path,
 		fatal("sshbuf_new failed");
 	if (ssh_krl_to_blob(krl, kbuf, NULL, 0) != 0)
 		fatal("Couldn't generate KRL");
-	if ((fd = open(identity_file, O_WRONLY|O_CREAT|O_TRUNC, 0644)) == -1)
-		fatal("open %s: %s", identity_file, strerror(errno));
-	if (atomicio(vwrite, fd, sshbuf_mutable_ptr(kbuf), sshbuf_len(kbuf)) !=
-	    sshbuf_len(kbuf))
+	if ((r = sshbuf_write_file(identity_file, kbuf)) != 0)
 		fatal("write %s: %s", identity_file, strerror(errno));
-	close(fd);
 	sshbuf_free(kbuf);
 	ssh_krl_free(krl);
 	sshkey_free(ca);
@@ -2669,25 +2660,18 @@ static int
 sig_verify(const char *signature, const char *sig_namespace,
     const char *principal, const char *allowed_keys, const char *revoked_keys)
 {
-	int r, ret = -1, sigfd = -1;
+	int r, ret = -1;
 	struct sshbuf *sigbuf = NULL, *abuf = NULL;
 	struct sshkey *sign_key = NULL;
 	char *fp = NULL;
 	struct sshkey_sig_details *sig_details = NULL;
 
 	memset(&sig_details, 0, sizeof(sig_details));
-	if ((abuf = sshbuf_new()) == NULL)
-		fatal("%s: sshbuf_new() failed", __func__);
-
-	if ((sigfd = open(signature, O_RDONLY)) < 0) {
-		error("Couldn't open signature file %s", signature);
-		goto done;
-	}
-
-	if ((r = sshkey_load_file(sigfd, abuf)) != 0) {
+	if ((r = sshbuf_load_file(signature, &abuf)) != 0) {
 		error("Couldn't read signature file: %s", ssh_err(r));
 		goto done;
 	}
+
 	if ((r = sshsig_dearmor(abuf, &sigbuf)) != 0) {
 		error("%s: sshsig_armor: %s", __func__, ssh_err(r));
 		goto done;
@@ -2743,8 +2727,6 @@ done:
 			printf("Could not verify signature.\n");
 		}
 	}
-	if (sigfd != -1)
-		close(sigfd);
 	sshbuf_free(sigbuf);
 	sshbuf_free(abuf);
 	sshkey_free(sign_key);
@@ -2755,20 +2737,12 @@ done:
 
 static int
 sig_find_principals(const char *signature, const char *allowed_keys) {
-	int r, ret = -1, sigfd = -1;
+	int r, ret = -1;
 	struct sshbuf *sigbuf = NULL, *abuf = NULL;
 	struct sshkey *sign_key = NULL;
 	char *principals = NULL, *cp, *tmp;
 
-	if ((abuf = sshbuf_new()) == NULL)
-		fatal("%s: sshbuf_new() failed", __func__);
-
-	if ((sigfd = open(signature, O_RDONLY)) < 0) {
-		error("Couldn't open signature file %s", signature);
-		goto done;
-	}
-
-	if ((r = sshkey_load_file(sigfd, abuf)) != 0) {
+	if ((r = sshbuf_load_file(signature, &abuf)) != 0) {
 		error("Couldn't read signature file: %s", ssh_err(r));
 		goto done;
 	}
@@ -2797,8 +2771,6 @@ done:
 	} else {
 		fprintf(stderr, "No principal matched.\n");
 	}
-	if (sigfd != -1)
-		close(sigfd);
 	sshbuf_free(sigbuf);
 	sshbuf_free(abuf);
 	sshkey_free(sign_key);
@@ -3120,6 +3092,8 @@ main(int argc, char **argv)
 	unsigned long long cert_serial = 0;
 	char *identity_comment = NULL, *ca_key_path = NULL, **opts = NULL;
 	char *sk_application = NULL, *sk_device = NULL, *sk_user = NULL;
+	char *sk_attestaion_path = NULL;
+	struct sshbuf *challenge = NULL, *attest = NULL;
 	size_t i, nopts = 0;
 	u_int32_t bits = 0;
 	uint8_t sk_flags = SSH_SK_USER_PRESENCE_REQD;
@@ -3560,6 +3534,16 @@ main(int argc, char **argv)
 				sk_device = xstrdup(opts[i] + 7);
 			} else if (strncasecmp(opts[i], "user=", 5) == 0) {
 				sk_user = xstrdup(opts[i] + 5);
+			} else if (strncasecmp(opts[i], "challenge=", 10) == 0) {
+				if ((r = sshbuf_load_file(opts[i] + 10,
+				    &challenge)) != 0) {
+					fatal("Unable to load FIDO enrollment "
+					    "challenge \"%s\": %s",
+					    opts[i] + 10, ssh_err(r));
+				}
+			} else if (strncasecmp(opts[i],
+			    "write-attestation=", 18) == 0) {
+				sk_attestaion_path = opts[i] + 18;
 			} else if (strncasecmp(opts[i],
 			    "application=", 12) == 0) {
 				sk_application = xstrdup(opts[i] + 12);
@@ -3573,16 +3557,18 @@ main(int argc, char **argv)
 			    "to authorize key generation.\n");
 		}
 		passphrase = NULL;
+		if ((attest = sshbuf_new()) == NULL)
+			fatal("sshbuf_new failed");
 		for (i = 0 ; i < 3; i++) {
 			fflush(stdout);
 			r = sshsk_enroll(type, sk_provider, sk_device,
 			    sk_application == NULL ? "ssh:" : sk_application,
-			    sk_user, sk_flags, passphrase, NULL,
-			    &private, NULL);
+			    sk_user, sk_flags, passphrase, challenge,
+			    &private, attest);
 			if (r == 0)
 				break;
 			if (r != SSH_ERR_KEY_WRONG_PASSPHRASE)
-				exit(1); /* error message already printed */
+				fatal("Key enrollment failed: %s", ssh_err(r));
 			if (passphrase != NULL)
 				freezero(passphrase, strlen(passphrase));
 			passphrase = read_passphrase("Enter PIN for security "
@@ -3671,6 +3657,22 @@ main(int argc, char **argv)
 		free(fp);
 	}
 
+	if (sk_attestaion_path != NULL) {
+		if (attest == NULL || sshbuf_len(attest) == 0) {
+			fatal("Enrollment did not return attestation "
+			    "certificate");
+		}
+		if ((r = sshbuf_write_file(sk_attestaion_path, attest)) != 0) {
+			fatal("Unable to write attestation certificate "
+			    "\"%s\": %s", sk_attestaion_path, ssh_err(r));
+		}
+		if (!quiet) {
+			printf("Your FIDO attestation certificate has been "
+			    "saved in %s\n", sk_attestaion_path);
+		}
+	}
+	sshbuf_free(attest);
 	sshkey_free(public);
+
 	exit(0);
 }

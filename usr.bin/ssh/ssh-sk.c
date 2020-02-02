@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-sk.c,v 1.24 2020/01/06 02:00:47 djm Exp $ */
+/* $OpenBSD: ssh-sk.c,v 1.26 2020/01/28 08:01:34 djm Exp $ */
 /*
  * Copyright (c) 2019 Google LLC
  *
@@ -328,6 +328,8 @@ skerr_to_ssherr(int skerr)
 		return SSH_ERR_FEATURE_UNSUPPORTED;
 	case SSH_SK_ERR_PIN_REQUIRED:
 		return SSH_ERR_KEY_WRONG_PASSPHRASE;
+	case SSH_SK_ERR_DEVICE_NOT_FOUND:
+		return SSH_ERR_DEVICE_NOT_FOUND;
 	case SSH_SK_ERR_GENERAL:
 	default:
 		return SSH_ERR_INVALID_FORMAT;
@@ -480,7 +482,7 @@ sshsk_enroll(int type, const char *provider_path, const char *device,
 	/* enroll key */
 	if ((r = skp->sk_enroll(alg, challenge, challenge_len, application,
 	    flags, pin, opts, &resp)) != 0) {
-		error("Security key provider \"%s\" returned failure %d",
+		debug("%s: provider \"%s\" returned failure %d", __func__,
 		    provider_path, r);
 		r = skerr_to_ssherr(r);
 		goto out;
@@ -492,14 +494,14 @@ sshsk_enroll(int type, const char *provider_path, const char *device,
 
 	/* Optionally fill in the attestation information */
 	if (attest != NULL) {
-		if ((r = sshbuf_put_cstring(attest, "sk-attest-v00")) != 0 ||
-		    (r = sshbuf_put_u32(attest, 1)) != 0 || /* XXX U2F ver */
+		if ((r = sshbuf_put_cstring(attest,
+		    "ssh-sk-attest-v00")) != 0 ||
 		    (r = sshbuf_put_string(attest,
 		    resp->attestation_cert, resp->attestation_cert_len)) != 0 ||
 		    (r = sshbuf_put_string(attest,
 		    resp->signature, resp->signature_len)) != 0 ||
-		    (r = sshbuf_put_u32(attest, flags)) != 0 || /* XXX right? */
-		    (r = sshbuf_put_string(attest, NULL, 0)) != 0) {
+		    (r = sshbuf_put_u32(attest, 0)) != 0 || /* resvd flags */
+		    (r = sshbuf_put_string(attest, NULL, 0)) != 0 /* resvd */) {
 			error("%s: buffer error: %s", __func__, ssh_err(r));
 			goto out;
 		}

@@ -33,8 +33,8 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: ssh_config.5,v 1.317 2020/01/25 07:09:14 tedu Exp $
-.Dd $Mdocdate: January 25 2020 $
+.\" $OpenBSD: ssh_config.5,v 1.321 2020/01/31 22:25:59 jmc Exp $
+.Dd $Mdocdate: January 31 2020 $
 .Dt SSH_CONFIG 5
 .Os
 .Sh NAME
@@ -264,9 +264,11 @@ Valid arguments are
 .It Cm BatchMode
 If set to
 .Cm yes ,
-passphrase/password querying will be disabled.
+user interaction such as password prompts and host key confirmation requests
+will be disabled.
 This option is useful in scripts and other batch jobs where no user
-is present to supply the password.
+is present to interact with
+.Xr ssh 1 .
 The argument must be
 .Cm yes
 or
@@ -1038,6 +1040,7 @@ Accepted values are
 .Cm cs6 ,
 .Cm cs7 ,
 .Cm ef ,
+.Cm le ,
 .Cm lowdelay ,
 .Cm throughput ,
 .Cm reliability ,
@@ -1676,13 +1679,22 @@ after authentication has completed and add them to
 The argument must be
 .Cm yes ,
 .Cm no
-(the default) or
+or
 .Cm ask .
-Enabling this option allows learning alternate hostkeys for a server
+This option allows learning alternate hostkeys for a server
 and supports graceful key rotation by allowing a server to send replacement
 public keys before old ones are removed.
 Additional hostkeys are only accepted if the key used to authenticate the
 host was already trusted or explicitly accepted by the user.
+.Pp
+.Cm UpdateHostKeys
+is enabled by default if the user has not overridden the default
+.Cm UserKnownHostsFile
+setting, otherwise
+.Cm UpdateHostKeys
+will be set to
+.Cm ask .
+.Pp
 If
 .Cm UpdateHostKeys
 is set to

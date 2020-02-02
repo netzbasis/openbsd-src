@@ -36,7 +36,7 @@
 #include <dns/rdata.h>
 #include <dns/rdataclass.h>
 #include <dns/rdataset.h>
-#include <dns/rdatastruct.h>
+#include "rdatastruct.h"
 #include <dns/rdatatype.h>
 #include <dns/byaddr.h>
 
@@ -864,7 +864,7 @@ getinput(isc_task_t *task, isc_event_t *event) {
 }
 
 int
-main(int argc, char **argv) {
+nslookup_main(int argc, char **argv) {
 	isc_result_t result;
 
 	interactive = ISC_TF(isatty(0));
@@ -892,7 +892,7 @@ main(int argc, char **argv) {
 	setup_libs();
 	progname = argv[0];
 
-	if (pledge("stdio dns", NULL) == -1) {
+	if (pledge("stdio inet dns", NULL) == -1) {
 		perror("pledge");
 		exit(1);
 	}

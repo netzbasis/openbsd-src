@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.213 2020/01/25 10:56:43 dlg Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.217 2020/01/31 02:58:28 dlg Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -130,7 +130,7 @@ int	filt_tunread(struct knote *, long);
 int	filt_tunwrite(struct knote *, long);
 void	filt_tunrdetach(struct knote *);
 void	filt_tunwdetach(struct knote *);
-void	tun_link_state(struct tun_softc *);
+void	tun_link_state(struct tun_softc *, int);
 
 const struct filterops tunread_filtops = {
 	.f_isfd		= 1,
@@ -287,6 +287,10 @@ tun_clone_destroy(struct ifnet *ifp)
 	dev_t			 dev;
 	int			 s;
 
+	KERNEL_ASSERT_LOCKED();
+
+	if (ISSET(sc->sc_flags, TUN_DEAD))
+		return (ENXIO);
 	SET(sc->sc_flags, TUN_DEAD);
 
 	/* kick userland off the device */
@@ -299,10 +303,16 @@ tun_clone_destroy(struct ifnet *ifp)
 
 		KASSERT(sc->sc_dev == 0);
 	}
-	tun_wakeup(sc);
 
+	/* prevent userland from getting to the device again */
 	SMR_LIST_REMOVE_LOCKED(sc, sc_entry);
 	smr_barrier();
+
+	/* help read() give up */
+	if (sc->sc_reading)
+		wakeup(&ifp->if_snd);
+
+	/* wait for device entrypoints to finish */
 	refcnt_finalize(&sc->sc_refs, "tundtor");
 
 	s = splhigh();
@@ -405,7 +415,7 @@ tun_dev_open(dev_t dev, const struct if_clone *ifc, int mode, struct proc *p)
 
 	/* automatically mark the interface running on open */
 	SET(ifp->if_flags, IFF_UP | IFF_RUNNING);
-	tun_link_state(sc);
+	tun_link_state(sc, LINK_STATE_FULL_DUPLEX);
 
 	return (0);
 }
@@ -458,7 +468,7 @@ tun_dev_close(dev_t dev, struct proc *p)
 			strlcpy(name, ifp->if_xname, sizeof(name));
 		} else {
 			CLR(ifp->if_flags, IFF_UP | IFF_RUNNING);
-			tun_link_state(sc);
+			tun_link_state(sc, LINK_STATE_DOWN);
 		}
 	}
 
@@ -931,7 +941,7 @@ tun_dev_poll(dev_t dev, int events, struct proc *p)
 
 	sc = tun_get(dev);
 	if (sc == NULL)
-		return (ENXIO);
+		return (POLLERR);
 
 	ifp = &sc->sc_if;
 	revents = 0;
@@ -1005,28 +1015,18 @@ void
 filt_tunrdetach(struct knote *kn)
 {
 	int			 s;
-	struct tun_softc	*sc;
+	struct tun_softc	*sc = kn->kn_hook;
 
-	sc = (struct tun_softc *)kn->kn_hook;
 	s = splhigh();
-	if (!(kn->kn_status & KN_DETACHED))
-		SLIST_REMOVE(&sc->sc_rsel.si_note, kn, knote, kn_selnext);
+	SLIST_REMOVE(&sc->sc_rsel.si_note, kn, knote, kn_selnext);
 	splx(s);
 }
 
 int
 filt_tunread(struct knote *kn, long hint)
 {
-	struct tun_softc	*sc;
-	struct ifnet		*ifp;
-
-	if (kn->kn_status & KN_DETACHED) {
-		kn->kn_data = 0;
-		return (1);
-	}
-
-	sc = (struct tun_softc *)kn->kn_hook;
-	ifp = &sc->sc_if;
+	struct tun_softc	*sc = kn->kn_hook;
+	struct ifnet		*ifp = &sc->sc_if;
 
 	kn->kn_data = ifq_hdatalen(&ifp->if_snd);
 
@@ -1037,28 +1037,18 @@ void
 filt_tunwdetach(struct knote *kn)
 {
 	int			 s;
-	struct tun_softc	*sc;
+	struct tun_softc	*sc = kn->kn_hook;
 
-	sc = (struct tun_softc *)kn->kn_hook;
 	s = splhigh();
-	if (!(kn->kn_status & KN_DETACHED))
-		SLIST_REMOVE(&sc->sc_wsel.si_note, kn, knote, kn_selnext);
+	SLIST_REMOVE(&sc->sc_wsel.si_note, kn, knote, kn_selnext);
 	splx(s);
 }
 
 int
 filt_tunwrite(struct knote *kn, long hint)
 {
-	struct tun_softc	*sc;
-	struct ifnet		*ifp;
-
-	if (kn->kn_status & KN_DETACHED) {
-		kn->kn_data = 0;
-		return (1);
-	}
-
-	sc = (struct tun_softc *)kn->kn_hook;
-	ifp = &sc->sc_if;
+	struct tun_softc	*sc = kn->kn_hook;
+	struct ifnet		*ifp = &sc->sc_if;
 
 	kn->kn_data = ifp->if_hdrlen + ifp->if_hardmtu;
 
@@ -1077,13 +1067,9 @@ tun_start(struct ifnet *ifp)
 }
 
 void
-tun_link_state(struct tun_softc *sc)
+tun_link_state(struct tun_softc *sc, int link_state)
 {
 	struct ifnet *ifp = &sc->sc_if;
-	int link_state = LINK_STATE_DOWN;
-
-	if (sc->sc_dev != 0)
-		link_state = LINK_STATE_FULL_DUPLEX;
 
 	if (ifp->if_link_state != link_state) {
 		ifp->if_link_state = link_state;

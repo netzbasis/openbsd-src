@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.256 2020/01/23 10:48:37 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.260 2020/02/01 11:38:35 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -186,8 +186,10 @@ __BEGIN_HIDDEN_DECLS
 #define s2n(s,c)	((c[0]=(unsigned char)(((s)>> 8)&0xff), \
 			  c[1]=(unsigned char)(((s)    )&0xff)),c+=2)
 
+#if 0
 #ifndef LIBRESSL_HAS_TLS1_3_CLIENT
 #define LIBRESSL_HAS_TLS1_3_CLIENT
+#endif
 #endif
 
 #if defined(LIBRESSL_HAS_TLS1_3_CLIENT) || defined(LIBRESSL_HAS_TLS1_3_SERVER)
@@ -458,11 +460,7 @@ typedef struct ssl_handshake_tls13_st {
 	/* Version proposed by peer server. */
 	uint16_t server_version;
 
-	/* X25519 key share. */
-	uint8_t *x25519_public;
-	uint8_t *x25519_private;
-	uint8_t *x25519_peer_public;
-
+	struct tls13_key_share *key_share;
 	struct tls13_secrets *secrets;
 
 	uint8_t *cookie;
@@ -872,6 +870,7 @@ typedef struct ssl3_state_internal_st {
 		DH *dh;
 
 		EC_KEY *ecdh; /* holds short lived ECDH key */
+		int ecdh_nid;
 
 		uint8_t *x25519;
 
@@ -1017,6 +1016,7 @@ typedef struct sess_cert_st {
 	/* Obviously we don't have the private keys of these,
 	 * so maybe we shouldn't even use the CERT_PKEY type here. */
 
+	int peer_nid;
 	DH *peer_dh_tmp;
 	EC_KEY *peer_ecdh_tmp;
 	uint8_t *peer_x25519_tmp;
@@ -1278,6 +1278,12 @@ int ssl3_get_client_certificate(SSL *s);
 int ssl3_get_client_key_exchange(SSL *s);
 int ssl3_get_cert_verify(SSL *s);
 
+int ssl_kex_generate_ecdhe_ecp(EC_KEY *ecdh, int nid);
+int ssl_kex_public_ecdhe_ecp(EC_KEY *ecdh, CBB *cbb);
+int ssl_kex_peer_public_ecdhe_ecp(EC_KEY *ecdh, int nid, CBS *cbs);
+int ssl_kex_derive_ecdhe_ecp(EC_KEY *ecdh, EC_KEY *ecdh_peer,
+    uint8_t **shared_key, size_t *shared_key_len);
+
 int tls1_new(SSL *s);
 void tls1_free(SSL *s);
 void tls1_clear(SSL *s);
@@ -1353,15 +1359,6 @@ int tls1_process_ticket(SSL *s, CBS *session_id, CBS *ext_block,
 long ssl_get_algorithm2(SSL *s);
 
 int tls1_check_ec_server_key(SSL *s);
-
-int ssl_add_clienthello_use_srtp_ext(SSL *s, unsigned char *p,
-    int *len, int maxlen);
-int ssl_parse_clienthello_use_srtp_ext(SSL *s, const unsigned char *d,
-    int len, int *al);
-int ssl_add_serverhello_use_srtp_ext(SSL *s, unsigned char *p,
-    int *len, int maxlen);
-int ssl_parse_serverhello_use_srtp_ext(SSL *s, const unsigned char *d,
-    int len, int *al);
 
 /* s3_cbc.c */
 void ssl3_cbc_copy_mac(unsigned char *out, const SSL3_RECORD *rec,

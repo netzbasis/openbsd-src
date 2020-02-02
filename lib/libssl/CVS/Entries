@@ -1,5 +1,5 @@
 /LICENSE/1.12/Fri Jul 11 09:48:48 2014//
-/Makefile/1.60/Wed Jan 22 07:58:27 2020//
+/Makefile/1.62/Thu Jan 30 17:09:23 2020//
 /Symbols.list/1.27/Thu Apr  4 15:03:21 2019//
 /bio_ssl.c/1.29/Fri Aug 24 20:30:21 2018//
 /bs_ber.c/1.9/Sat Dec  3 12:34:35 2016//
@@ -18,7 +18,7 @@
 /pqueue.c/1.5/Thu Jun 12 15:49:31 2014//
 /pqueue.h/1.4/Fri Nov  4 18:28:58 2016//
 /s3_cbc.c/1.17/Sat Sep  8 14:39:41 2018//
-/s3_lib.c/1.189/Thu Jan 23 10:40:59 2020//
+/s3_lib.c/1.190/Thu Jan 30 17:09:23 2020//
 /shlib_version/1.86/Sat Nov  2 13:52:54 2019//
 /srtp.h/1.6/Tue Sep  1 15:18:23 2015//
 /ssl.h/1.170/Wed Jan 22 07:49:33 2020//
@@ -29,13 +29,14 @@
 /ssl_asn1.c/1.57/Mon Aug 27 16:42:48 2018//
 /ssl_both.c/1.16/Thu Jan 23 10:48:37 2020//
 /ssl_cert.c/1.76/Wed May 15 09:13:16 2019//
-/ssl_ciph.c/1.109/Fri Jan 24 04:38:12 2020//
+/ssl_ciph.c/1.110/Sun Jan 26 12:39:16 2020//
 /ssl_ciphers.c/1.3/Wed May 15 09:13:16 2019//
-/ssl_clnt.c/1.62/Thu Jan 23 10:48:37 2020//
+/ssl_clnt.c/1.63/Thu Jan 30 16:25:09 2020//
 /ssl_err.c/1.37/Tue Jan 21 05:19:02 2020//
 /ssl_init.c/1.2/Fri Mar 30 14:59:46 2018//
-/ssl_lib.c/1.210/Thu Jan 23 10:40:59 2020//
-/ssl_locl.h/1.256/Thu Jan 23 10:48:37 2020//
+/ssl_kex.c/1.1/Thu Jan 30 16:25:09 2020//
+/ssl_lib.c/1.211/Sun Jan 26 07:24:47 2020//
+/ssl_locl.h/1.260/Sat Feb  1 11:38:35 2020//
 /ssl_methods.c/1.11/Thu Jan 23 10:48:37 2020//
 /ssl_packet.c/1.8/Thu Nov  8 22:28:52 2018//
 /ssl_pkt.c/1.16/Tue Mar 19 16:53:03 2019//
@@ -43,9 +44,9 @@
 /ssl_sess.c/1.85/Mon Apr 22 15:12:20 2019//
 /ssl_sigalgs.c/1.20/Mon Apr  1 02:09:21 2019//
 /ssl_sigalgs.h/1.14/Mon Mar 25 17:33:26 2019//
-/ssl_srvr.c/1.70/Thu Jan 23 10:48:37 2020//
+/ssl_srvr.c/1.71/Thu Jan 30 16:25:09 2020//
 /ssl_stat.c/1.14/Sun May  7 04:22:24 2017//
-/ssl_tlsext.c/1.56/Sat Jan 25 12:37:06 2020//
+/ssl_tlsext.c/1.59/Sat Feb  1 12:41:58 2020//
 /ssl_tlsext.h/1.22/Sat Jan 25 12:58:27 2020//
 /ssl_transcript.c/1.1/Sat Feb  9 15:30:52 2019//
 /ssl_txt.c/1.28/Tue Feb  7 02:08:38 2017//
@@ -54,18 +55,19 @@
 /t1_lib.c/1.164/Thu Apr 25 04:57:36 2019//
 /tls1.h/1.40/Thu Jan  2 06:23:16 2020//
 /tls13_buffer.c/1.2/Wed Nov 20 16:21:20 2019//
-/tls13_client.c/1.34/Sat Jan 25 14:23:27 2020//
+/tls13_client.c/1.39/Thu Jan 30 17:09:23 2020//
 /tls13_error.c/1.1/Mon Jan 20 13:10:37 2020//
-/tls13_handshake.c/1.48/Sat Jan 25 15:06:17 2020//
+/tls13_handshake.c/1.49/Wed Jan 29 13:44:42 2020//
 /tls13_handshake.h/1.3/Fri Apr  5 20:23:38 2019//
 /tls13_handshake_msg.c/1.2/Wed Nov 20 16:21:20 2019//
-/tls13_internal.h/1.55/Sat Jan 25 13:11:20 2020//
+/tls13_internal.h/1.58/Thu Jan 30 17:09:23 2020//
 /tls13_key_schedule.c/1.8/Sun Nov 17 21:01:08 2019//
-/tls13_lib.c/1.30/Sat Jan 25 13:11:20 2020//
+/tls13_key_share.c/1.2/Sat Feb  1 12:41:58 2020//
+/tls13_lib.c/1.32/Wed Jan 29 17:03:58 2020//
 /tls13_record.c/1.3/Mon Jan 21 00:24:19 2019//
 /tls13_record.h/1.3/Mon Jan 21 00:24:19 2019//
-/tls13_record_layer.c/1.26/Sat Jan 25 09:20:56 2020//
-/tls13_server.c/1.16/Fri Jan 24 08:21:24 2020//
+/tls13_record_layer.c/1.27/Sun Jan 26 06:31:51 2020//
+/tls13_server.c/1.22/Thu Jan 30 17:09:23 2020//
 D/doc////
 D/man////
 D/test////
