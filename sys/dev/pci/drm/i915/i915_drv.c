@@ -47,10 +47,6 @@
 #include <drm/i915_drm.h>
 #include <drm/drm_utils.h>
 
-#ifdef __OpenBSD__
-#include <sys/gpuperf.h>
-#endif /* __OpenBSD__ */
-
 #include "i915_drv.h"
 #include "i915_trace.h"
 #include "i915_pmu.h"
@@ -3691,10 +3687,11 @@ fail:
 }
 
 #ifdef __OpenBSD__
+#define GPUPERF_DEBUG 1
 #ifdef GPUPERF_DEBUG
-#define PPRINTF(x...)   do { printf(x); } while(0)
+#define GPRINTF(x...) do { printf(x); } while(0)
 #else
-#define PPRINTF(x...)
+#define GPRINTF(x...)
 #endif /* GPUPERF_DEBUG */
 
 int
@@ -3705,13 +3702,14 @@ inteldrm_set_gpuperf(gpuperf_level level, void *arg)
 	u_int32_t min = rps->min_freq;
 	u_int32_t max = rps->max_freq;
 
-	PPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
+	GPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
 	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
 	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
 
 	/*
 	 * On haswell & broadwell min_freq_softlimit is higher than min_freq
-	 * by default. This allows those devices to clock down further.
+	 * by default. Allow those devices to clock down further by ignoring
+	 * this special case.
 	 */
 	switch (level) {
 	case GPU_AUTO:
@@ -3732,6 +3730,10 @@ inteldrm_set_gpuperf(gpuperf_level level, void *arg)
 	default:
 		return 1;
 	}
+
+	GPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
+	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
+	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
 
 	return 0;
 }

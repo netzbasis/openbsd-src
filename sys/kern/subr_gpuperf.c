@@ -25,7 +25,7 @@
 
 #define GPUPERF_DEBUG 1
 #ifdef GPUPERF_DEBUG
-#define DPRINTF(x...)	do { printf(x); } while(0)
+#define DPRINTF(x...) do { printf(x); } while(0)
 #else
 #define DPRINTF(x...)
 #endif /* GPUPERF_DEBUG */
@@ -68,7 +68,7 @@ gpuperf_set(gpuperf_level level)
 	struct gpuperf_dev *dev;
 	int status = 0;
 
-	if ((level < 0) || (level > 2))
+	if ((level < GPU_AUTO) || (level > GPU_HIGH))
 		return -1;
 
 	LIST_FOREACH(dev, &gpuperf_list, next) {
@@ -76,7 +76,6 @@ gpuperf_set(gpuperf_level level)
 
 		DPRINTF("gpuperf: requesting %d from %s, status %d\n",
 		    level, dev->name, status);
-
 	}
 
 	return status;
