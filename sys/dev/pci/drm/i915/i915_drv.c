@@ -3698,37 +3698,40 @@ fail:
 #endif /* GPUPERF_DEBUG */
 
 int
-inteldrm_set_gpuperf(int level, void *arg)
+inteldrm_set_gpuperf(gpuperf_level level, void *arg)
 {
 	struct inteldrm_softc *dev_priv = arg;
 	struct intel_rps *rps = &dev_priv->gt_pm.rps;
 	u_int32_t min = rps->min_freq;
 	u_int32_t max = rps->max_freq;
 
-	if (max <= min)
-		return (-1);
-
-	/*
-	 * On haswell & broadwell min_freq_softlimit is higher than
-	 * min_freq by default, this will override the drivers defaults
-	 */
-	if (level == GP_LOW) {
-		rps->max_freq_softlimit = min;
-		rps->boost_freq = min;
-		rps->min_freq_softlimit = min;
-	} else if (level == GP_AUTO) {
-		rps->max_freq_softlimit = max;
-		rps->boost_freq = max;
-		rps->min_freq_softlimit = min;
-	} else if (level == GP_HIGH) {
-		rps->max_freq_softlimit = max;
-		rps->boost_freq = max;
-		rps->min_freq_softlimit = max;
-	}
-
 	PPRINTF("inteldrm: min %u, max %u, min_s %u, max_s %u, b %u, act %d MHz\n",
 	    min, max, rps->min_freq_softlimit, rps->max_freq_softlimit,
 	    rps->boost_freq, intel_gpu_freq(dev_priv, rps->cur_freq));
+
+	/*
+	 * On haswell & broadwell min_freq_softlimit is higher than min_freq
+	 * by default. This allows those devices to clock down further.
+	 */
+	switch (level) {
+	case GPU_AUTO:
+		rps->max_freq_softlimit = max;
+		rps->boost_freq = max;
+		rps->min_freq_softlimit = min;
+		break;
+	case GPU_LOW:
+		rps->max_freq_softlimit = min;
+		rps->boost_freq = min;
+		rps->min_freq_softlimit = min;
+		break;
+	case GPU_HIGH:
+		rps->max_freq_softlimit = max;
+		rps->boost_freq = max;
+		rps->min_freq_softlimit = max;
+		break;
+	default:
+		return 1;
+	}
 
 	return 0;
 }

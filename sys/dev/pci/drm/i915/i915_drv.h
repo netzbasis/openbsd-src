@@ -4031,5 +4031,5 @@ static inline int intel_hws_csb_write_index(struct drm_i915_private *i915)
 #endif
 
 #ifdef __OpenBSD__
-int inteldrm_set_gpuperf(int level, void *arg);
+int inteldrm_set_gpuperf(gpuperf_level level, void *arg);
 #endif /* __OpenBSD__ */
