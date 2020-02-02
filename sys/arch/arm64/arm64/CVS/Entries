@@ -18,7 +18,7 @@
 /exception.S/1.10/Tue Dec 17 22:25:56 2019//
 /genassym.cf/1.6/Thu Mar 29 19:25:39 2018//
 /intr.c/1.14/Mon May 13 20:55:22 2019//
-/locore.S/1.25/Tue May 28 20:32:30 2019//
+/locore.S/1.26/Sat Feb  1 23:09:46 2020//
 /locore0.S/1.5/Tue May 28 20:32:30 2019//
 /machdep.c/1.43/Mon Aug 26 09:10:22 2019//
 /mem.c/1.6/Fri May  4 15:45:11 2018//

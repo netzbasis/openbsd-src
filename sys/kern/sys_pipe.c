@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_pipe.c,v 1.113 2020/01/12 09:18:39 anton Exp $	*/
+/*	$OpenBSD: sys_pipe.c,v 1.115 2020/02/01 15:52:34 anton Exp $	*/
 
 /*
  * Copyright (c) 1996 John S. Dyson
