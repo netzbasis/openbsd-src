@@ -20,8 +20,8 @@
 #define _SYS_GPUPERF_H_
 
 typedef enum {
-	GPU_AUTO
-	GPU_LOW
+	GPU_AUTO,
+	GPU_LOW,
 	GPU_HIGH
 } gpuperf_level;
 
