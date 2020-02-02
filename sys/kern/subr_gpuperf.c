@@ -23,58 +23,61 @@
 #include <sys/types.h>
 #include <sys/malloc.h>
 
+#define GPUPERF_DEBUG 1
 #ifdef GPUPERF_DEBUG
 #define DPRINTF(x...)	do { printf(x); } while(0)
 #else
 #define DPRINTF(x...)
 #endif /* GPUPERF_DEBUG */
 
-struct gpuperf_node {
-	char name[16];			/* gpu driver name */
-	int (*callback)(int, void *);	/* called with GP_LOW, GP_AUTO, GP_HIGH */
-	void *arg;			/* arg passthrough */
-	LIST_ENTRY(gpuperf_node) gp_list;
+struct gpuperf_dev {
+	char name[16];				/* device name */
+	void *arg;				/* arg passthrough */
+	int (*callback)(gpuperf_level, void *);
+	LIST_ENTRY(gpuperf_dev) next;
 };
 
-LIST_HEAD(, gpuperf_node) gpuperf_nodes =
-	LIST_HEAD_INITIALIZER(gpuperf_nodes);
+LIST_HEAD(, gpuperf_dev) gpuperf_list =
+	LIST_HEAD_INITIALIZER(gpuperf_list);
 
 int
-gpuperf_register(const char *name, int (*callback)(int, void *), void *arg)
+gpuperf_register(const char *name, int (*callback)(gpuperf_level, void *),
+    void *arg)
 {
-	struct gpuperf_node *node;
+	struct gpuperf_dev *dev;
+	int status = 0;
 
-	if ((node = malloc(sizeof(*node), M_DEVBUF, M_NOWAIT)) == NULL)
+	if ((dev = malloc(sizeof(*dev), M_DEVBUF, M_NOWAIT)) == NULL)
 		return -1;
 
-	strlcpy(node->name, name, sizeof(node->name));
-	node->callback = callback;
-	node->arg = arg;
+	strlcpy(dev->name, name, sizeof(dev->name));
+	dev->callback = callback;
+	dev->arg = arg;
 
-	LIST_INSERT_HEAD(&gpuperf_nodes, node, gp_list);
-	DPRINTF("gpuperf: %s registered\n", node->name);
+	LIST_INSERT_HEAD(&gpuperf_list, dev, next);
+	status = dev->callback(GPU_AUTO, dev->arg);
 
-	node->callback(GP_AUTO, node->arg);
+	DPRINTF("gpuperf: %s registered, status %d\n", dev->name, status);
 
-	return (0);
+	return status;
 }
 
 int
-gpuperf_set(int level)
+gpuperf_set(gpuperf_level level)
 {
-	struct gpuperf_node *node;
+	struct gpuperf_dev *dev;
 	int status = 0;
 
-	if ((level < GP_LOW) || (level > GP_HIGH))
+	if ((level < 0) || (level > 2))
 		return -1;
 
-	LIST_FOREACH(node, &gpuperf_nodes, gp_list) {
-		status = node->callback(level, node->arg);
+	LIST_FOREACH(dev, &gpuperf_list, next) {
+		status += dev->callback(level, dev->arg);
 
-		DPRINTF("gpuperf: req lvl %d (%s ret %d)\n",
-		    level, node->name, status);
+		DPRINTF("gpuperf: requesting %d from %s, status %d\n",
+		    level, dev->name, status);
 
 	}
 
-	return (0);
+	return status;
 }

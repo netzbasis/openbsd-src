@@ -1,7 +1,7 @@
 /*	$OpenBSD$	*/
 
 /*
- * Copyright (c) 2019 Benjamin Baier <ben@netzbasis.de>
+ * Copyright (c) 2019, 2020 Benjamin Baier <ben@netzbasis.de>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,11 +19,13 @@
 #ifndef _SYS_GPUPERF_H_
 #define _SYS_GPUPERF_H_
 
-#define GP_LOW 	1
-#define GP_AUTO	2
-#define GP_HIGH	3
+typedef enum {
+	GPU_AUTO
+	GPU_LOW
+	GPU_HIGH
+} gpuperf_level;
 
-int gpuperf_set(int);
-int gpuperf_register(const char *, int (*)(int, void *), void *);
+int gpuperf_set(gpuperf_level);
+int gpuperf_register(const char *, int (*)(gpuperf_level, void *), void *);
 
 #endif /* _SYS_GPUPERF_H_ */
