@@ -19,11 +19,8 @@
 #include <sys/gpuperf.h>
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/sysctl.h>
-#include <sys/types.h>
 #include <sys/malloc.h>
 
-#define GPUPERF_DEBUG 1
 #ifdef GPUPERF_DEBUG
 #define DPRINTF(x...) do { printf(x); } while(0)
 #else
