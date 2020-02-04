@@ -33,7 +33,7 @@
 
 /*
  * Principal Author: Brian Wellington
- * $Id: dst_api.c,v 1.22 2020/01/26 11:25:30 florian Exp $
+ * $Id: dst_api.c,v 1.24 2020/02/04 19:24:07 florian Exp $
  */
 
 /*! \file */
@@ -41,7 +41,6 @@
 #include <time.h>
 
 #include <isc/buffer.h>
-#include <isc/dir.h>
 #include <isc/hmacsha.h>
 #include <isc/lex.h>
 #include <isc/refcount.h>
@@ -135,16 +134,6 @@ dst_lib_init2(const char *engine) {
 	RETERR(dst__hmacsha384_init(&dst_t_func[DST_ALG_HMACSHA384]));
 	RETERR(dst__hmacsha512_init(&dst_t_func[DST_ALG_HMACSHA512]));
 	RETERR(dst__openssl_init(engine));
-	RETERR(dst__opensslrsa_init(&dst_t_func[DST_ALG_RSASHA1],
-				    DST_ALG_RSASHA1));
-	RETERR(dst__opensslrsa_init(&dst_t_func[DST_ALG_NSEC3RSASHA1],
-				    DST_ALG_NSEC3RSASHA1));
-	RETERR(dst__opensslrsa_init(&dst_t_func[DST_ALG_RSASHA256],
-				    DST_ALG_RSASHA256));
-	RETERR(dst__opensslrsa_init(&dst_t_func[DST_ALG_RSASHA512],
-				    DST_ALG_RSASHA512));
-	RETERR(dst__opensslecdsa_init(&dst_t_func[DST_ALG_ECDSA256]));
-	RETERR(dst__opensslecdsa_init(&dst_t_func[DST_ALG_ECDSA384]));
 	dst_initialized = ISC_TRUE;
 	return (ISC_R_SUCCESS);
 
@@ -360,49 +349,6 @@ dst_key_setexternal(dst_key_t *key, isc_boolean_t value) {
 isc_boolean_t
 dst_key_isexternal(dst_key_t *key) {
 	return (key->external);
-}
-
-isc_result_t
-dst_key_fromfile(dns_name_t *name, dns_keytag_t id,
-		 unsigned int alg, int type, const char *directory,
-		 dst_key_t **keyp)
-{
-	char filename[ISC_DIR_NAMEMAX];
-	isc_buffer_t b;
-	dst_key_t *key;
-	isc_result_t result;
-
-	REQUIRE(dst_initialized == ISC_TRUE);
-	REQUIRE(dns_name_isabsolute(name));
-	REQUIRE((type & (DST_TYPE_PRIVATE | DST_TYPE_PUBLIC)) != 0);
-	REQUIRE(keyp != NULL && *keyp == NULL);
-
-	CHECKALG(alg);
-
-	isc_buffer_init(&b, filename, sizeof(filename));
-	result = buildfilename(name, id, alg, type, directory, &b);
-	if (result != ISC_R_SUCCESS)
-		return (result);
-
-	key = NULL;
-	result = dst_key_fromnamedfile(filename, NULL, type, &key);
-	if (result != ISC_R_SUCCESS)
-		return (result);
-
-	result = computeid(key);
-	if (result != ISC_R_SUCCESS) {
-		dst_key_free(&key);
-		return (result);
-	}
-
-	if (!dns_name_equal(name, key->key_name) || id != key->key_id ||
-	    alg != key->key_alg) {
-		dst_key_free(&key);
-		return (DST_R_INVALIDPRIVATEKEY);
-	}
-
-	*keyp = key;
-	return (ISC_R_SUCCESS);
 }
 
 isc_result_t
@@ -1026,27 +972,6 @@ dst_key_sigsize(const dst_key_t *key, unsigned int *n) {
 
 	/* XXXVIX this switch statement is too sparse to gen a jump table. */
 	switch (key->key_alg) {
-	case DST_ALG_RSASHA1:
-	case DST_ALG_NSEC3RSASHA1:
-	case DST_ALG_RSASHA256:
-	case DST_ALG_RSASHA512:
-		*n = (key->key_size + 7) / 8;
-		break;
-	case DST_ALG_ECCGOST:
-		*n = DNS_SIG_GOSTSIGSIZE;
-		break;
-	case DST_ALG_ECDSA256:
-		*n = DNS_SIG_ECDSA256SIZE;
-		break;
-	case DST_ALG_ECDSA384:
-		*n = DNS_SIG_ECDSA384SIZE;
-		break;
-	case DST_ALG_ED25519:
-		*n = DNS_SIG_ED25519SIZE;
-		break;
-	case DST_ALG_ED448:
-		*n = DNS_SIG_ED448SIZE;
-		break;
 	case DST_ALG_HMACSHA1:
 		*n = ISC_SHA1_DIGESTLENGTH;
 		break;

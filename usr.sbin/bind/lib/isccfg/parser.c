@@ -16,21 +16,17 @@
 
 /*! \file */
 
-
-
+#include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <isc/buffer.h>
-#include <isc/dir.h>
 #include <isc/formatcheck.h>
 #include <isc/lex.h>
 #include <isc/log.h>
-
 #include <isc/net.h>
 #include <isc/netaddr.h>
 #include <isc/netscope.h>
-
-#include <string.h>
 #include <isc/sockaddr.h>
 #include <isc/symtab.h>
 #include <isc/util.h>
@@ -1153,7 +1149,7 @@ parser_complain(cfg_parser_t *pctx, isc_boolean_t is_warning,
 		va_list args)
 {
 	char tokenbuf[MAX_LOG_TOKEN + 10];
-	static char where[ISC_DIR_PATHMAX + 100];
+	static char where[PATH_MAX + 100];
 	static char message[2048];
 	int level = ISC_LOG_ERROR;
 	const char *prep = "";
