@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.260 2020/02/01 11:38:35 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.262 2020/02/05 17:30:30 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -456,6 +456,9 @@ typedef struct ssl_handshake_tls13_st {
 	uint16_t min_version;
 	uint16_t max_version;
 	uint16_t version;
+
+	int use_legacy;
+	int hrr;
 
 	/* Version proposed by peer server. */
 	uint16_t server_version;
@@ -1313,6 +1316,7 @@ void tls1_transcript_reset(SSL *s);
 int tls1_transcript_append(SSL *s, const unsigned char *buf, size_t len);
 int tls1_transcript_data(SSL *s, const unsigned char **data, size_t *len);
 void tls1_transcript_freeze(SSL *s);
+void tls1_transcript_unfreeze(SSL *s);
 int tls1_transcript_record(SSL *s, const unsigned char *buf, size_t len);
 
 void tls1_cleanup_key_block(SSL *s);

@@ -98,7 +98,7 @@
 /resize.c/1.38/Tue Jan 28 13:23:24 2020//
 /screen-redraw.c/1.65/Wed Jul 24 21:16:17 2019//
 /screen-write.c/1.160/Thu Nov 28 10:17:22 2019//
-/screen.c/1.57/Mon Feb  3 13:46:27 2020//
+/screen.c/1.58/Wed Feb  5 13:06:49 2020//
 /server-client.c/1.303/Tue Jan 28 08:06:11 2020//
 /server-fn.c/1.123/Thu Dec 12 11:39:56 2019//
 /server.c/1.187/Thu Jun 20 06:51:36 2019//
@@ -106,7 +106,7 @@
 /spawn.c/1.14/Tue Jan 28 10:21:21 2020//
 /status.c/1.201/Mon Jan 27 08:53:13 2020//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.709/Wed Jan 29 08:28:17 2020//
+/tmux.1/1.710/Wed Feb  5 13:06:49 2020//
 /tmux.c/1.192/Tue Jan 28 11:31:31 2020//
 /tmux.h/1.954/Mon Feb  3 13:46:27 2020//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
