@@ -20,7 +20,7 @@
 /scsi_message.h/1.10/Fri Sep 27 23:07:42 2019//
 /scsi_tape.h/1.11/Fri Sep 27 23:07:42 2019//
 /scsiconf.c/1.223/Wed Feb  5 16:29:30 2020//
-/scsiconf.h/1.184/Wed Feb  5 16:29:30 2020//
+/scsiconf.h/1.185/Thu Feb  6 21:06:15 2020//
 /sd.c/1.309/Wed Feb  5 16:29:30 2020//
 /sdvar.h/1.46/Wed Feb  5 16:29:30 2020//
 /ses.c/1.60/Sat Dec  7 13:03:57 2019//
