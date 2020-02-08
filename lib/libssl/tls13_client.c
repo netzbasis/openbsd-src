@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_client.c,v 1.40 2020/02/04 18:00:30 jsing Exp $ */
+/* $OpenBSD: tls13_client.c,v 1.43 2020/02/06 13:19:18 jsing Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  *
@@ -233,6 +233,8 @@ tls13_client_hello_sent(struct tls13_ctx *ctx)
 	tls13_record_layer_set_legacy_version(ctx->rl, TLS1_2_VERSION);
 	tls13_record_layer_allow_ccs(ctx->rl, 1);
 
+	tls1_transcript_freeze(ctx->ssl);
+
 	return 1;
 }
 
@@ -279,6 +281,7 @@ static int
 tls13_server_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 {
 	CBS server_random, session_id;
+	uint16_t tlsext_msg_type = SSL_TLSEXT_MSG_SH;
 	uint16_t cipher_suite, legacy_version;
 	uint8_t compression_method;
 	const SSL_CIPHER *cipher;
@@ -317,13 +320,22 @@ tls13_server_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 
 		if (!CBS_skip(cbs, CBS_len(cbs)))
 			goto err;
-		return tls13_use_legacy_client(ctx);
+
+		ctx->hs->use_legacy = 1;
+		return 1;
 	}
 
 	/* From here on in we know we are doing TLSv1.3. */
 	tls13_record_layer_allow_legacy_alerts(ctx->rl, 0);
 
-	if (!tlsext_client_parse(s, cbs, &alert_desc, SSL_TLSEXT_MSG_SH)) {
+	/* See if this is a Hello Retry Request. */
+	if (CBS_mem_equal(&server_random, tls13_hello_retry_request_hash,
+	    sizeof(tls13_hello_retry_request_hash))) {
+		tlsext_msg_type = SSL_TLSEXT_MSG_HRR;
+		ctx->hs->hrr = 1;
+	}
+
+	if (!tlsext_client_parse(s, cbs, &alert_desc, tlsext_msg_type)) {
 		ctx->alert = alert_desc;
 		goto err;
 	}
@@ -380,20 +392,60 @@ tls13_server_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 		goto err;
 	}
 
-	if (CBS_mem_equal(&server_random, tls13_hello_retry_request_hash,
-	    sizeof(tls13_hello_retry_request_hash)))
-		ctx->handshake_stage.hs_type |= WITH_HRR;
-
 	return 1;
 
  err:
 	if (ctx->alert == 0)
 		ctx->alert = TLS1_AD_DECODE_ERROR;
+
 	return 0;
 }
 
-int
-tls13_server_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
+static int
+tls13_client_synthetic_handshake_message(struct tls13_ctx *ctx)
+{
+	struct tls13_handshake_msg *hm = NULL;
+	unsigned char buf[EVP_MAX_MD_SIZE];
+	size_t hash_len;
+	CBB cbb;
+	CBS cbs;
+	SSL *s = ctx->ssl;
+	int ret = 0;
+
+	/*
+	 * Replace ClientHello with synthetic handshake message - see
+	 * RFC 8446 section 4.4.1.
+	 */
+	if (!tls1_transcript_hash_init(s))
+		goto err;
+	if (!tls1_transcript_hash_value(s, buf, sizeof(buf), &hash_len))
+		goto err;
+
+	if ((hm = tls13_handshake_msg_new()) == NULL)
+		goto err;
+	if (!tls13_handshake_msg_start(hm, &cbb, TLS13_MT_MESSAGE_HASH))
+		goto err;
+	if (!CBB_add_bytes(&cbb, buf, hash_len))
+		goto err;
+	if (!tls13_handshake_msg_finish(hm))
+		goto err;
+
+	tls13_handshake_msg_data(hm, &cbs);
+
+	tls1_transcript_reset(ctx->ssl);
+	if (!tls1_transcript_record(ctx->ssl, CBS_data(&cbs), CBS_len(&cbs)))
+		goto err;
+
+	ret = 1;
+
+ err:
+	tls13_handshake_msg_free(hm);
+
+	return ret;
+}
+
+static int
+tls13_client_engage_record_protection(struct tls13_ctx *ctx)
 {
 	struct tls13_secrets *secrets;
 	struct tls13_secret context;
@@ -404,18 +456,8 @@ tls13_server_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
 	SSL *s = ctx->ssl;
 	int ret = 0;
 
-	if (!tls13_server_hello_process(ctx, cbs))
-		goto err;
+	/* Derive the shared key and engage record protection. */
 
-	/* See if we switched back to the legacy client method. */
-	if (s->method->internal->version < TLS1_3_VERSION)
-		return 1;
-
-	/* XXX - handle other key share types. */
-	if (ctx->hs->key_share == NULL) {
-		/* XXX - alert. */
-		goto err;
-	}
 	if (!tls13_key_share_derive(ctx->hs->key_share, &shared_key,
 	    &shared_key_len))
 		goto err;
@@ -461,13 +503,99 @@ tls13_server_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
 	    &secrets->client_handshake_traffic))
 		goto err;
 
-	ctx->handshake_stage.hs_type |= NEGOTIATED;
 	ret = 1;
 
  err:
 	freezero(shared_key, shared_key_len);
 
 	return ret;
+}
+
+int
+tls13_server_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
+{
+	SSL *s = ctx->ssl;
+
+	/*
+	 * We may have received a legacy (pre-TLSv1.3) server hello,
+	 * a TLSv1.3 server hello or a TLSv1.3 hello retry request.
+	 */
+	if (!tls13_server_hello_process(ctx, cbs))
+		return 0;
+
+	tls1_transcript_unfreeze(s);
+
+	if (ctx->hs->hrr) {
+		if (!tls13_client_synthetic_handshake_message(ctx))
+			return 0;
+	}
+
+	if (!tls13_handshake_msg_record(ctx))
+		return 0;
+
+	if (ctx->hs->use_legacy)
+		return tls13_use_legacy_client(ctx);
+
+	if (!ctx->hs->hrr) {
+		if (!tls13_client_engage_record_protection(ctx))
+			return 0;
+	}
+
+	ctx->handshake_stage.hs_type |= NEGOTIATED;
+	if (ctx->hs->hrr)
+		ctx->handshake_stage.hs_type |= WITH_HRR;
+
+	ctx->hs->hrr = 0;
+
+	return 1;
+}
+
+int
+tls13_client_hello_retry_send(struct tls13_ctx *ctx, CBB *cbb)
+{
+	int nid;
+
+	/*
+	 * Ensure that the server supported group is not the same
+	 * as the one we previously offered and that it was one that
+	 * we listed in our supported groups.
+	 */
+	if (ctx->hs->server_group == tls13_key_share_group(ctx->hs->key_share))
+		return 0; /* XXX alert */
+	if ((nid = tls1_ec_curve_id2nid(ctx->hs->server_group)) == 0)
+		return 0;
+	if (nid != NID_X25519 && nid != NID_X9_62_prime256v1 && nid != NID_secp384r1)
+		return 0; /* XXX alert */
+
+	/* Switch to new key share. */
+	tls13_key_share_free(ctx->hs->key_share);
+	if ((ctx->hs->key_share = tls13_key_share_new(nid)) == NULL)
+		return 0;
+	if (!tls13_key_share_generate(ctx->hs->key_share))
+		return 0;
+
+	if (!tls13_client_hello_build(ctx, cbb))
+		return 0;
+
+	return 1;
+}
+
+int
+tls13_server_hello_retry_recv(struct tls13_ctx *ctx, CBS *cbs)
+{
+	if (!tls13_server_hello_process(ctx, cbs))
+		return 0;
+
+	if (ctx->hs->use_legacy)
+		return 0; /* XXX alert */
+
+	if (ctx->hs->hrr)
+		return 0; /* XXX alert */
+
+	if (!tls13_client_engage_record_protection(ctx))
+		return 0;
+
+	return 1;
 }
 
 int
@@ -485,6 +613,7 @@ tls13_server_encrypted_extensions_recv(struct tls13_ctx *ctx, CBS *cbs)
  err:
 	if (ctx->alert == 0)
 		ctx->alert = TLS1_AD_DECODE_ERROR;
+
 	return 0;
 }
 
@@ -841,62 +970,6 @@ tls13_client_finished_sent(struct tls13_ctx *ctx)
 	 */
 	return tls13_record_layer_set_write_traffic_key(ctx->rl,
 	    &secrets->client_application_traffic);
-}
-
-
-static int
-tls13_client_hello_retry_process(struct tls13_ctx *ctx, CBS *cbs)
-{
-	CBS server_random, session_id;
-	uint16_t cipher_suite, legacy_version;
-	uint8_t compression_method;
-	int alert_desc;
-	SSL *s = ctx->ssl;
-
-	if (!CBS_get_u16(cbs, &legacy_version))
-		goto err;
-	if (!CBS_get_bytes(cbs, &server_random, SSL3_RANDOM_SIZE))
-		goto err;
-	if (!CBS_get_u8_length_prefixed(cbs, &session_id))
-		goto err;
-	if (!CBS_get_u16(cbs, &cipher_suite))
-		goto err;
-	if (!CBS_get_u8(cbs, &compression_method))
-		goto err;
-
-	/*
-	 * XXX currently this will change state and be hazardous later
-	 * if we decide to support sending an updated client hello.
-	 * however, since we will not today (and are going to return
-	 * illegal parameter as per section 4.1.4) we just ensure
-	 * that the extensions parse correctly.
-	 */
-	if (!tlsext_client_parse(s, cbs, &alert_desc, SSL_TLSEXT_MSG_SH)) {
-		ctx->alert = alert_desc;
-		goto err;
-	}
-
-	/* XXX for now, just say no, we will not change our hello */
-	ctx->alert = SSL_AD_ILLEGAL_PARAMETER;
- err:
-	if (ctx->alert == 0)
-		ctx->alert = TLS1_AD_DECODE_ERROR;
-	return 0;
-}
-
-int
-tls13_client_hello_retry_recv(struct tls13_ctx *ctx, CBS *cbs)
-{
-	int ret = 0;
-
-	if (!tls13_client_hello_retry_process(ctx, cbs)) {
-		if (ctx->alert == SSL_AD_ILLEGAL_PARAMETER)
-			tls13_set_errorx(ctx, TLS13_ERR_HRR_FAILED, 0,
-			    "Unsatisfiable hello retry request", NULL);
-		goto err;
-	}
-err:
-	return ret;
 }
 
 int

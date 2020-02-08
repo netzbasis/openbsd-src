@@ -51,11 +51,11 @@
 /getthrid.2/1.4/Wed Mar 30 06:58:06 2016//
 /gettimeofday.2/1.31/Wed Sep  4 14:27:55 2019//
 /getuid.2/1.16/Thu Sep 10 17:55:21 2015//
-/intro.2/1.68/Sun Sep 30 13:24:33 2018//
+/intro.2/1.69/Sat Feb  8 01:09:57 2020//
 /ioctl.2/1.19/Sun Aug 11 15:48:08 2019//
 /issetugid.2/1.21/Thu Sep 10 17:55:21 2015//
 /kbind.2/1.3/Thu Sep  1 10:08:03 2016//
-/kill.2/1.25/Sat May  6 22:37:43 2017//
+/kill.2/1.26/Sat Feb  8 01:09:57 2020//
 /kqueue.2/1.39/Mon Jul  1 16:52:02 2019//
 /ktrace.2/1.37/Sun Jan  6 18:29:49 2019//
 /link.2/1.29/Thu Sep 10 17:55:21 2015//
@@ -87,7 +87,7 @@
 /open.2/1.49/Mon Jan 19 15:54:11 2015//
 /pathconf.2/1.25/Thu Jun 21 20:30:36 2018//
 /pipe.2/1.18/Wed Dec 10 19:30:22 2014//
-/pledge.2/1.57/Mon Jul 29 23:14:06 2019//
+/pledge.2/1.58/Wed Feb  5 10:44:25 2020//
 /poll.2/1.36/Sat Aug 18 16:55:30 2018//
 /posix_madvise.c/1.4/Fri Sep 11 13:26:20 2015//
 /pread.c/1.11/Sat May  7 19:05:22 2016//
