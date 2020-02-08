@@ -1,4 +1,4 @@
-/Makefile/1.161/Fri Aug  9 06:18:25 2019//
+/Makefile/1.162/Fri Feb  7 10:19:50 2020//
 /Makefile.inc/1.3/Fri Jul 11 13:13:04 2014//
 D/apply////
 D/arch////
@@ -35,6 +35,7 @@ D/dc////
 D/deroff////
 D/diff////
 D/diff3////
+D/dig////
 D/dirname////
 D/doas////
 D/du////

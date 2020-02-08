@@ -124,7 +124,7 @@
 /nftw.c/1.8/Fri Jan 25 00:19:25 2019//
 /nice.3/1.18/Thu Jul 18 10:14:48 2013//
 /nice.c/1.7/Mon Aug  8 08:05:34 2005//
-/nlist.3/1.13/Sun Oct 20 07:40:39 2013//
+/nlist.3/1.14/Sat Feb  8 01:09:57 2020//
 /nlist.c/1.71/Fri Jun 28 13:32:41 2019//
 /opendir.3/1.1/Mon Sep  2 21:18:41 2019//
 /opendir.c/1.30/Wed Sep 21 04:38:56 2016//
@@ -175,7 +175,7 @@
 /sigsetops.c/1.7/Sat Sep 12 16:46:12 2015//
 /sigwait.3/1.2/Sun Jan 13 16:16:43 2019//
 /sigwait.c/1.1/Sat Jan 12 00:16:03 2019//
-/sleep.3/1.15/Fri Feb 21 23:39:39 2014//
+/sleep.3/1.16/Sat Feb  8 01:09:57 2020//
 /sleep.c/1.12/Mon Dec 14 05:10:13 2009//
 /statvfs.3/1.8/Thu Jan 29 01:46:30 2015//
 /statvfs.c/1.2/Fri Jan 16 16:48:51 2015//
