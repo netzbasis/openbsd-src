@@ -1,0 +1,15 @@
+#	$OpenBSD: GENERIC.MP,v 1.14 2018/07/13 05:25:24 tb Exp $
+
+include "arch/amd64/conf/GENERIC"
+
+option	MULTIPROCESSOR
+#option	MP_LOCKDEBUG
+#option	WITNESS
+option  RAMDISK_HOOKS
+option  MINIROOTSIZE=71680	# 35MB
+
+config  bsd root on rd0a swap on rd0b and wd0b and sd0b
+
+cpu*		at mainbus?
+
+pseudo-device   rd 1
