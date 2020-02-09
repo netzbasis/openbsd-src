@@ -6,7 +6,7 @@ option	MULTIPROCESSOR
 #option	MP_LOCKDEBUG
 #option	WITNESS
 option  RAMDISK_HOOKS
-option  MINIROOTSIZE=71680	# 35MB
+option  MINIROOTSIZE=92160	# 45MB
 
 config  bsd root on rd0a swap on rd0b and wd0b and sd0b
 
