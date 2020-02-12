@@ -14,16 +14,14 @@
 /heap.h/1.1/Fri Feb  7 09:58:54 2020//
 /hex.h/1.1/Fri Feb  7 09:58:54 2020//
 /hmacmd5.h/1.1/Fri Feb  7 09:58:54 2020//
-/hmacsha.h/1.1/Fri Feb  7 09:58:54 2020//
+/hmacsha.h/1.2/Tue Feb 11 17:28:46 2020//
 /ipv6.h/1.1/Fri Feb  7 09:58:54 2020//
 /lang.h/1.1/Fri Feb  7 09:58:54 2020//
 /lex.h/1.1/Fri Feb  7 09:58:54 2020//
-/lib.h/1.1/Fri Feb  7 09:58:54 2020//
 /list.h/1.1/Fri Feb  7 09:58:54 2020//
 /log.h/1.1/Fri Feb  7 09:58:54 2020//
 /magic.h/1.1/Fri Feb  7 09:58:54 2020//
 /md5.h/1.1/Fri Feb  7 09:58:54 2020//
-/msgs.h/1.1/Fri Feb  7 09:58:54 2020//
 /netaddr.h/1.1/Fri Feb  7 09:58:54 2020//
 /netscope.h/1.1/Fri Feb  7 09:58:54 2020//
 /parseint.h/1.1/Fri Feb  7 09:58:54 2020//
@@ -34,7 +32,7 @@
 /resultclass.h/1.1/Fri Feb  7 09:58:54 2020//
 /safe.h/1.1/Fri Feb  7 09:58:54 2020//
 /serial.h/1.1/Fri Feb  7 09:58:54 2020//
-/sha1.h/1.1/Fri Feb  7 09:58:54 2020//
+/sha1.h/1.2/Tue Feb 11 17:28:46 2020//
 /sha2.h/1.1/Fri Feb  7 09:58:54 2020//
 /sockaddr.h/1.1/Fri Feb  7 09:58:54 2020//
 /socket.h/1.1/Fri Feb  7 09:58:54 2020//

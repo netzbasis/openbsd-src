@@ -16,14 +16,9 @@
 
 /*! \file */
 
-#include <sys/param.h>
-#include <sys/types.h>
-#include <sys/event.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/uio.h>
-#include <sys/un.h>
 
 #include <netinet/tcp.h>
 
@@ -33,14 +28,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <inttypes.h> /* uintptr_t */
 
 #include <isc/buffer.h>
 #include <isc/bufferlist.h>
 #include <isc/formatcheck.h>
 #include <isc/list.h>
 #include <isc/log.h>
-#include <isc/msgs.h>
 #include <isc/net.h>
 #include <isc/region.h>
 #include <isc/socket.h>
@@ -992,16 +985,12 @@ doio_recv(isc__socket_t *sock, isc_socketevent_t *dev) {
 		SOFT_OR_HARD(EADDRNOTAVAIL, ISC_R_ADDRNOTAVAIL);
 		ALWAYS_HARD(ENOBUFS, ISC_R_NORESOURCES);
 		/* Should never get this one but it was seen. */
-#ifdef ENOPROTOOPT
 		SOFT_OR_HARD(ENOPROTOOPT, ISC_R_HOSTUNREACH);
-#endif
 		/*
 		 * HPUX returns EPROTO and EINVAL on receiving some ICMP/ICMPv6
 		 * errors.
 		 */
-#ifdef EPROTO
 		SOFT_OR_HARD(EPROTO, ISC_R_HOSTUNREACH);
-#endif
 		SOFT_OR_HARD(EINVAL, ISC_R_HOSTUNREACH);
 
 #undef SOFT_OR_HARD
@@ -1153,9 +1142,7 @@ doio_send(isc__socket_t *sock, isc_socketevent_t *dev) {
 		ALWAYS_HARD(EAFNOSUPPORT, ISC_R_ADDRNOTAVAIL);
 		ALWAYS_HARD(EADDRNOTAVAIL, ISC_R_ADDRNOTAVAIL);
 		ALWAYS_HARD(EHOSTUNREACH, ISC_R_HOSTUNREACH);
-#ifdef EHOSTDOWN
 		ALWAYS_HARD(EHOSTDOWN, ISC_R_HOSTUNREACH);
-#endif
 		ALWAYS_HARD(ENETUNREACH, ISC_R_NETUNREACH);
 		ALWAYS_HARD(ENOBUFS, ISC_R_NORESOURCES);
 		ALWAYS_HARD(EPERM, ISC_R_HOSTUNREACH);
@@ -2434,9 +2421,7 @@ isc__socket_connect(isc_socket_t *sock0, isc_sockaddr_t *addr,
 			ERROR_MATCH(EAFNOSUPPORT, ISC_R_ADDRNOTAVAIL);
 			ERROR_MATCH(ECONNREFUSED, ISC_R_CONNREFUSED);
 			ERROR_MATCH(EHOSTUNREACH, ISC_R_HOSTUNREACH);
-#ifdef EHOSTDOWN
 			ERROR_MATCH(EHOSTDOWN, ISC_R_HOSTUNREACH);
-#endif
 			ERROR_MATCH(ENETUNREACH, ISC_R_NETUNREACH);
 			ERROR_MATCH(ENOBUFS, ISC_R_NORESOURCES);
 			ERROR_MATCH(EPERM, ISC_R_HOSTUNREACH);
@@ -2574,9 +2559,7 @@ internal_connect(isc_task_t *me, isc_event_t *ev) {
 			ERROR_MATCH(EAFNOSUPPORT, ISC_R_ADDRNOTAVAIL);
 			ERROR_MATCH(ECONNREFUSED, ISC_R_CONNREFUSED);
 			ERROR_MATCH(EHOSTUNREACH, ISC_R_HOSTUNREACH);
-#ifdef EHOSTDOWN
 			ERROR_MATCH(EHOSTDOWN, ISC_R_HOSTUNREACH);
-#endif
 			ERROR_MATCH(ENETUNREACH, ISC_R_NETUNREACH);
 			ERROR_MATCH(ENOBUFS, ISC_R_NORESOURCES);
 			ERROR_MATCH(EPERM, ISC_R_HOSTUNREACH);

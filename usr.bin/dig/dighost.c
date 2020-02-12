@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dighost.c,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: dighost.c,v 1.4 2020/02/11 23:26:11 jsg Exp $ */
 
 /*! \file
  *  \note
@@ -26,21 +26,18 @@
  * functions in most applications.
  */
 
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <limits.h>
 #include <locale.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <dns/byaddr.h>
 #include <dns/fixedname.h>
 #include <dns/log.h>
 #include <dns/message.h>
 #include <dns/name.h>
-#include <dns/rcode.h>
 #include <dns/rdata.h>
 #include <dns/rdataclass.h>
 #include <dns/rdatalist.h>
@@ -56,7 +53,6 @@
 #include <isc/app.h>
 #include <isc/base64.h>
 #include <isc/hex.h>
-#include <isc/lang.h>
 #include <isc/log.h>
 #include <isc/netaddr.h>
 #include <isc/parseint.h>
@@ -64,7 +60,6 @@
 #include <isc/safe.h>
 #include <isc/serial.h>
 #include <isc/sockaddr.h>
-#include <string.h>
 #include <isc/task.h>
 #include <isc/timer.h>
 #include <isc/types.h>
@@ -74,14 +69,6 @@
 #include <lwres/lwres.h>
 
 #include "dig.h"
-
-#if ! defined(NS_INADDRSZ)
-#define NS_INADDRSZ	 4
-#endif
-
-#if ! defined(NS_IN6ADDRSZ)
-#define NS_IN6ADDRSZ	16
-#endif
 
 static lwres_conf_t  lwconfdata;
 static lwres_conf_t *lwconf = &lwconfdata;
@@ -569,11 +556,11 @@ add_nameserver(lwres_conf_t *confdata, const char *addr, int af) {
 	switch (af) {
 	case AF_INET:
 		confdata->nameservers[i].family = LWRES_ADDRTYPE_V4;
-		confdata->nameservers[i].length = NS_INADDRSZ;
+		confdata->nameservers[i].length = sizeof(struct in_addr);
 		break;
 	case AF_INET6:
 		confdata->nameservers[i].family = LWRES_ADDRTYPE_V6;
-		confdata->nameservers[i].length = NS_IN6ADDRSZ;
+		confdata->nameservers[i].length = sizeof(struct in6_addr);
 		break;
 	default:
 		return (ISC_R_FAILURE);
@@ -2923,9 +2910,6 @@ launch_next_query(dig_query_t *query, isc_boolean_t include_question) {
 		debug("sendcount=%d", sendcount);
 	}
 	query->waiting_connect = ISC_FALSE;
-#if 0
-	check_next_lookup(query->lookup);
-#endif
 	return;
 }
 

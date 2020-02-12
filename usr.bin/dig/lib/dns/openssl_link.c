@@ -35,29 +35,17 @@
  * Principal Author: Brian Wellington
  */
 
-#include <stdlib.h>
-
-#include <string.h>
 #include <isc/util.h>
 
 #include <dns/log.h>
-
-#include <dst/result.h>
 
 #include "dst_internal.h"
 #include "dst_openssl.h"
 
 isc_result_t
-dst__openssl_init(const char *engine) {
-	isc_result_t result;
-
-	UNUSED(engine);
-
+dst__openssl_init(void) {
 	ERR_load_crypto_strings();
-
 	return (ISC_R_SUCCESS);
-
-	return (result);
 }
 
 void

@@ -99,14 +99,14 @@
 /screen-redraw.c/1.65/Wed Jul 24 21:16:17 2019//
 /screen-write.c/1.160/Thu Nov 28 10:17:22 2019//
 /screen.c/1.58/Wed Feb  5 13:06:49 2020//
-/server-client.c/1.303/Tue Jan 28 08:06:11 2020//
+/server-client.c/1.304/Tue Feb 11 07:01:08 2020//
 /server-fn.c/1.123/Thu Dec 12 11:39:56 2019//
 /server.c/1.187/Thu Jun 20 06:51:36 2019//
 /session.c/1.86/Thu Dec 26 11:04:58 2019//
 /spawn.c/1.14/Tue Jan 28 10:21:21 2020//
 /status.c/1.201/Mon Jan 27 08:53:13 2020//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.710/Wed Feb  5 13:06:49 2020//
+/tmux.1/1.711/Tue Feb 11 07:01:08 2020//
 /tmux.c/1.192/Tue Jan 28 11:31:31 2020//
 /tmux.h/1.954/Mon Feb  3 13:46:27 2020//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
@@ -114,7 +114,7 @@
 /tty-term.c/1.71/Tue Jan 28 11:39:51 2020//
 /tty.c/1.342/Wed Jan 29 15:07:49 2020//
 /utf8.c/1.44/Mon Nov 25 15:04:15 2019//
-/window-buffer.c/1.24/Fri Dec 13 09:15:13 2019//
+/window-buffer.c/1.25/Tue Feb 11 07:01:09 2020//
 /window-client.c/1.26/Tue Jan 28 08:06:11 2020//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
 /window-copy.c/1.244/Fri Dec 27 18:42:49 2019//
