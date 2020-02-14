@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: log.c,v 1.4 2020/02/12 13:05:04 jsg Exp $ */
+/* $Id: log.c,v 1.7 2020/02/13 16:57:55 florian Exp $ */
 
 /*! \file
  * \author  Principal Authors: DCL */
@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <limits.h>
+#include <syslog.h>
 
 #include <isc/log.h>
 #include <isc/magic.h>
@@ -216,7 +217,7 @@ static void
 isc_log_doit(isc_log_t *lctx, isc_logcategory_t *category,
 	     isc_logmodule_t *module, int level, isc_boolean_t write_once,
 	     const char *format, va_list args)
-     ISC_FORMAT_PRINTF(6, 0);
+     __attribute__((__format__(__printf__, 6, 0)));
 
 /*@{*/
 /*!
@@ -228,7 +229,6 @@ isc_log_doit(isc_log_t *lctx, isc_logcategory_t *category,
 #define FILE_STREAM(channel)	 (channel->destination.file.stream)
 #define FILE_VERSIONS(channel)	 (channel->destination.file.versions)
 #define FILE_MAXSIZE(channel)	 (channel->destination.file.maximum_size)
-#define FILE_MAXREACHED(channel) (channel->destination.file.maximum_reached)
 
 /*@}*/
 /****

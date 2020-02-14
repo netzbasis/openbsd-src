@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: log.h,v 1.2 2020/02/12 13:05:04 jsg Exp $ */
+/* $Id: log.h,v 1.5 2020/02/13 16:57:55 florian Exp $ */
 
 #ifndef ISC_LOG_H
 #define ISC_LOG_H 1
@@ -23,10 +23,8 @@
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <syslog.h> /* XXXDCL NT */
 
-#include <isc/formatcheck.h>
-#include <isc/lang.h>
+
 
 #include <isc/types.h>
 
@@ -167,8 +165,6 @@ extern isc_logmodule_t isc_modules[];
 #define ISC_LOGMODULE_TIMER (&isc_modules[3])
 #define ISC_LOGMODULE_FILE (&isc_modules[4])
 #define ISC_LOGMODULE_OTHER (&isc_modules[5])
-
-ISC_LANG_BEGINDECLS
 
 isc_result_t
 isc_log_create(isc_log_t **lctxp, isc_logconfig_t **lcfgp);
@@ -529,7 +525,7 @@ isc_log_write(isc_log_t *lctx, isc_logcategory_t *category,
 	       isc_logmodule_t *module, int level,
 	      const char *format, ...)
 
-ISC_FORMAT_PRINTF(5, 6);
+__attribute__((__format__(__printf__, 5, 6)));
 
 /*%
  * Write a message to the log channels.
@@ -568,7 +564,7 @@ isc_log_vwrite(isc_log_t *lctx, isc_logcategory_t *category,
 	       isc_logmodule_t *module, int level,
 	       const char *format, va_list args)
 
-ISC_FORMAT_PRINTF(5, 0);
+__attribute__((__format__(__printf__, 5, 0)));
 
 /*%
  * Write a message to the log channels, pruning duplicates that occur within
@@ -579,7 +575,7 @@ void
 isc_log_write1(isc_log_t *lctx, isc_logcategory_t *category,
 	       isc_logmodule_t *module, int level, const char *format, ...)
 
-ISC_FORMAT_PRINTF(5, 6);
+__attribute__((__format__(__printf__, 5, 6)));
 
 /*%
  * Write a message to the log channels, pruning duplicates that occur within
@@ -591,7 +587,7 @@ isc_log_vwrite1(isc_log_t *lctx, isc_logcategory_t *category,
 		isc_logmodule_t *module, int level, const char *format,
 		va_list args)
 
-ISC_FORMAT_PRINTF(5, 0);
+__attribute__((__format__(__printf__, 5, 0)));
 
 void
 isc_log_setdebuglevel(isc_log_t *lctx, unsigned int level);
@@ -649,7 +645,5 @@ isc_log_setcontext(isc_log_t *lctx);
  * Requires:
  *\li	lctx be a valid context.
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_LOG_H */

@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dig.c,v 1.4 2020/02/12 14:46:36 schwarze Exp $ */
+/* $Id: dig.c,v 1.8 2020/02/13 19:29:47 florian Exp $ */
 
 /*! \file */
 #include <sys/cdefs.h>
@@ -47,18 +47,6 @@
 	else 						\
 		isc_buffer_putstr(b, s); 		\
 }
-
-#define DIG_MAX_ADDRESSES 20
-
-#ifndef DNS_NAME_INITABSOLUTE
-#define DNS_NAME_INITABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, sizeof(A), sizeof(B), \
-	DNS_NAMEATTR_READONLY | DNS_NAMEATTR_ABSOLUTE, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
 
 dig_lookup_t *default_lookup = NULL;
 
@@ -1890,6 +1878,7 @@ void dig_setup(int argc, char **argv)
 
 	ISC_LIST_INIT(lookup_list);
 	ISC_LIST_INIT(server_list);
+	ISC_LIST_INIT(root_hints_server_list);
 	ISC_LIST_INIT(search_list);
 
 	if (pledge("stdio rpath inet dns", NULL) == -1) {
@@ -1945,11 +1934,6 @@ void dig_startup() {
 	result = isc_app_onrun(global_task, onrun_callback, NULL);
 	check_result(result, "isc_app_onrun");
 	isc_app_run();
-}
-
-void dig_query_start()
-{
-	start_lookup();
 }
 
 void

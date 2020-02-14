@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: rdata.c,v 1.3 2020/02/12 13:05:03 jsg Exp $ */
+/* $Id: rdata.c,v 1.7 2020/02/13 16:57:55 florian Exp $ */
 
 /*! \file */
 
@@ -38,7 +38,6 @@
 #include "enumtype.h"
 #include <dns/keyflags.h>
 #include <dns/keyvalues.h>
-#include <dns/message.h>
 #include <dns/rcode.h>
 #include <dns/rdata.h>
 #include "rdatastruct.h"
@@ -112,25 +111,6 @@
 			dns_rdatatype_t type, isc_boolean_t wildcard
 
 #define ARGS_CHECKNAMES dns_rdata_t *rdata, dns_name_t *owner, dns_name_t *bad
-
-#ifndef DNS_NAME_INITABSOLUTE
-#define DNS_NAME_INITABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, sizeof(A), sizeof(B), \
-	DNS_NAMEATTR_READONLY | DNS_NAMEATTR_ABSOLUTE, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
-#ifndef DNS_NAME_INITNONABSOLUTE
-#define DNS_NAME_INITNONABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, (sizeof(A) - 1), sizeof(B), \
-	DNS_NAMEATTR_READONLY, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
 
 /*%
  * Context structure for the totext_ functions.
@@ -218,7 +198,7 @@ atob_tobuffer(isc_lex_t *lexer, isc_buffer_t *target);
 
 static void
 default_fromtext_callback(dns_rdatacallbacks_t *callbacks, const char *, ...)
-     ISC_FORMAT_PRINTF(2, 3);
+     __attribute__((__format__(__printf__, 2, 3)));
 
 static void
 fromtext_error(void (*callback)(dns_rdatacallbacks_t *, const char *, ...),
@@ -584,9 +564,6 @@ static const char hexdigits[] = "0123456789abcdef";
 static const char decdigits[] = "0123456789";
 
 #include "code.h"
-
-#define META 0x0001
-#define RESERVED 0x0002
 
 /***
  *** Initialization

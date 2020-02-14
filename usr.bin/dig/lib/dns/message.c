@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: message.c,v 1.3 2020/02/12 13:05:03 jsg Exp $ */
+/* $Id: message.c,v 1.6 2020/02/13 12:03:51 jsg Exp $ */
 
 /*! \file */
 
@@ -35,54 +35,18 @@
 #include <dns/log.h>
 #include <dns/masterdump.h>
 #include <dns/message.h>
-#include <dns/opcode.h>
-#include <dns/rcode.h>
 #include <dns/rdata.h>
 #include <dns/rdatalist.h>
 #include <dns/rdataset.h>
-#include "rdatastruct.h"
 #include <dns/result.h>
 #include <dns/tsig.h>
 #include <dns/ttl.h>
-
-
-#ifdef SKAN_MSG_DEBUG
-static void
-hexdump(const char *msg, const char *msg2, void *base, size_t len) {
-	unsigned char *p;
-	unsigned int cnt;
-
-	p = base;
-	cnt = 0;
-
-	printf("*** %s [%s] (%u bytes @ %p)\n", msg, msg2, (unsigned)len, base);
-
-	while (cnt < len) {
-		if (cnt % 16 == 0)
-			printf("%p: ", p);
-		else if (cnt % 8 == 0)
-			printf(" |");
-		printf(" %02x %c", *p, (isprint(*p) ? *p : ' '));
-		p++;
-		cnt++;
-
-		if (cnt % 16 == 0)
-			printf("\n");
-	}
-
-	if (cnt % 16 != 0)
-		printf("\n");
-}
-#endif
 
 #define DNS_MESSAGE_OPCODE_MASK		0x7800U
 #define DNS_MESSAGE_OPCODE_SHIFT	11
 #define DNS_MESSAGE_RCODE_MASK		0x000fU
 #define DNS_MESSAGE_FLAG_MASK		0x8ff0U
 #define DNS_MESSAGE_EDNSRCODE_MASK	0xff000000U
-#define DNS_MESSAGE_EDNSRCODE_SHIFT	24
-#define DNS_MESSAGE_EDNSVERSION_MASK	0x00ff0000U
-#define DNS_MESSAGE_EDNSVERSION_SHIFT	16
 
 #define VALID_NAMED_SECTION(s)  (((s) > DNS_SECTION_ANY) \
 				 && ((s) < DNS_SECTION_MAX))
@@ -103,11 +67,9 @@ hexdump(const char *msg, const char *msg2, void *base, size_t len) {
  * XXXMLG These should come from a config setting.
  */
 #define SCRATCHPAD_SIZE		512
-#define NAME_COUNT		  8
 #define OFFSET_COUNT		  4
 #define RDATA_COUNT		  8
 #define RDATALIST_COUNT		  8
-#define RDATASET_COUNT		 RDATALIST_COUNT
 
 /*%
  * Text representation of the different items, for message_totext
@@ -2662,35 +2624,6 @@ dns_message_takebuffer(dns_message_t *msg, isc_buffer_t **buffer) {
 	ISC_LIST_APPEND(msg->cleanup, *buffer, link);
 	*buffer = NULL;
 }
-
-#ifdef SKAN_MSG_DEBUG
-void
-dns_message_dumpsig(dns_message_t *msg, char *txt1) {
-	dns_rdata_t querytsigrdata = DNS_RDATA_INIT;
-	dns_rdata_any_tsig_t querytsig;
-	isc_result_t result;
-
-	if (msg->tsig != NULL) {
-		result = dns_rdataset_first(msg->tsig);
-		RUNTIME_CHECK(result == ISC_R_SUCCESS);
-		dns_rdataset_current(msg->tsig, &querytsigrdata);
-		result = dns_rdata_tostruct(&querytsigrdata, &querytsig);
-		RUNTIME_CHECK(result == ISC_R_SUCCESS);
-		hexdump(txt1, "TSIG", querytsig.signature,
-			querytsig.siglen);
-	}
-
-	if (msg->querytsig != NULL) {
-		result = dns_rdataset_first(msg->querytsig);
-		RUNTIME_CHECK(result == ISC_R_SUCCESS);
-		dns_rdataset_current(msg->querytsig, &querytsigrdata);
-		result = dns_rdata_tostruct(&querytsigrdata, &querytsig);
-		RUNTIME_CHECK(result == ISC_R_SUCCESS);
-		hexdump(txt1, "QUERYTSIG", querytsig.signature,
-			querytsig.siglen);
-	}
-}
-#endif
 
 isc_result_t
 dns_message_sectiontotext(dns_message_t *msg, dns_section_t section,

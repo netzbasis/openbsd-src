@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: net.h,v 1.2 2020/02/11 17:22:31 florian Exp $ */
+/* $Id: net.h,v 1.5 2020/02/13 13:53:01 jsg Exp $ */
 
 #ifndef ISC_NET_H
 #define ISC_NET_H 1
@@ -72,17 +72,10 @@
  *** Imports.
  ***/
 
-
-#include <sys/types.h>
 #include <sys/socket.h>		/* Contractual promise. */
-
-#include <net/if.h>
 
 #include <netinet/in.h>		/* Contractual promise. */
 #include <arpa/inet.h>		/* Contractual promise. */
-
-#include <isc/lang.h>
-#include <isc/types.h>
 
 /*% IP address. */
 #define ISC__IPADDR(x)	((uint32_t)htonl((uint32_t)(x)))
@@ -99,8 +92,6 @@
 /***
  *** Functions.
  ***/
-
-ISC_LANG_BEGINDECLS
 
 void
 isc_net_disableipv4(void);
@@ -121,12 +112,5 @@ isc_net_probedscp(void);
 /*%<
  * Probe the level of DSCP support.
  */
-
-int
-isc_net_aton(const char *cp, struct in_addr *addr);
-#undef inet_aton
-#define inet_aton isc_net_aton
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_NET_H */

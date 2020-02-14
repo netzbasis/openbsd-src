@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: name.c,v 1.2 2020/02/12 13:05:03 jsg Exp $ */
+/* $Id: name.c,v 1.6 2020/02/13 16:55:20 florian Exp $ */
 
 /*! \file */
 #include <ctype.h>
@@ -31,25 +31,6 @@
 #include <dns/result.h>
 
 #define VALID_NAME(n)	ISC_MAGIC_VALID(n, DNS_NAME_MAGIC)
-
-#ifndef DNS_NAME_INITABSOLUTE
-#define DNS_NAME_INITABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, sizeof(A), sizeof(B), \
-	DNS_NAMEATTR_READONLY | DNS_NAMEATTR_ABSOLUTE, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
-#ifndef DNS_NAME_INITNONABSOLUTE
-#define DNS_NAME_INITNONABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, (sizeof(A) - 1), sizeof(B), \
-	DNS_NAMEATTR_READONLY, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
 
 typedef enum {
 	ft_init = 0,
@@ -185,7 +166,16 @@ dns_name_init(dns_name_t *name, unsigned char *offsets) {
 	/*
 	 * Initialize 'name'.
 	 */
-	DNS_NAME_INIT(name, offsets);
+	name->magic = DNS_NAME_MAGIC;
+	name->ndata = NULL;
+	name->length = 0;
+	name->labels = 0;
+	name->attributes = 0;
+	name->offsets = offsets;
+	name->buffer = NULL;
+	ISC_LINK_INIT(name, link);
+	ISC_LIST_INIT(name->list);
+
 }
 
 void
@@ -193,7 +183,12 @@ dns_name_reset(dns_name_t *name) {
 	REQUIRE(VALID_NAME(name));
 	REQUIRE(BINDABLE(name));
 
-	DNS_NAME_RESET(name);
+	name->ndata = NULL;
+	name->length = 0;
+	name->labels = 0;
+	name->attributes &= ~DNS_NAMEATTR_ABSOLUTE;
+	if (name->buffer != NULL)
+		isc_buffer_clear(name->buffer);
 }
 
 void
@@ -242,7 +237,6 @@ dns_name_isabsolute(const dns_name_t *name) {
 }
 
 #define hyphenchar(c) ((c) == 0x2d)
-#define asterchar(c) ((c) == 0x2a)
 #define alphachar(c) (((c) >= 0x41 && (c) <= 0x5a) \
 		      || ((c) >= 0x61 && (c) <= 0x7a))
 #define digitchar(c) ((c) >= 0x30 && (c) <= 0x39)
@@ -873,7 +867,8 @@ dns_name_toregion(dns_name_t *name, isc_region_t *r) {
 	REQUIRE(VALID_NAME(name));
 	REQUIRE(r != NULL);
 
-	DNS_NAME_TOREGION(name, r);
+	r->base = name->ndata;
+	r->length = name->length;
 }
 
 isc_result_t
@@ -1607,15 +1602,11 @@ dns_name_towire(const dns_name_t *name, dns_compress_t *cctx,
 	 * has one.
 	 */
 	if (name->offsets == NULL) {
-#if defined(__clang__)  && \
-       ( __clang_major__ < 3 || (__clang_major__ == 3 && __clang_minor__ < 2))
-		memset(&clname, 0, sizeof(clname));
-#endif
-		DNS_NAME_INIT(&clname, clo);
+		dns_name_init(&clname, clo);
 		dns_name_clone(name, &clname);
 		name = &clname;
 	}
-	DNS_NAME_INIT(&gp, NULL);
+	dns_name_init(&gp, NULL);
 
 	offset = target->used;	/*XXX*/
 
@@ -1700,7 +1691,7 @@ dns_name_concatenate(dns_name_t *prefix, dns_name_t *suffix, dns_name_t *name,
 		REQUIRE(!copy_suffix);
 	}
 	if (name == NULL) {
-		DNS_NAME_INIT(&tmp_name, odata);
+		dns_name_init(&tmp_name, odata);
 		name = &tmp_name;
 	}
 	if (target == NULL) {
@@ -1915,11 +1906,7 @@ dns_name_digest(dns_name_t *name, dns_digestfunc_t digest, void *arg) {
 	REQUIRE(VALID_NAME(name));
 	REQUIRE(digest != NULL);
 
-#if defined(__clang__)  && \
-       ( __clang_major__ < 3 || (__clang_major__ == 3 && __clang_minor__ < 2))
-	memset(&downname, 0, sizeof(downname));
-#endif
-	DNS_NAME_INIT(&downname, NULL);
+	dns_name_init(&downname, NULL);
 
 	isc_buffer_init(&buffer, data, sizeof(data));
 

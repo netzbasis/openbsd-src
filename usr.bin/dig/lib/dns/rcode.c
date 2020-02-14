@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: rcode.c,v 1.3 2020/02/12 13:05:03 jsg Exp $ */
+/* $Id: rcode.c,v 1.5 2020/02/13 10:40:24 jsg Exp $ */
 
 
 #include <ctype.h>
@@ -72,12 +72,6 @@
 	{ 13, "RESERVED13", TOTEXTONLY}, \
 	{ 14, "RESERVED14", TOTEXTONLY}, \
 	{ 15, "RESERVED15", TOTEXTONLY},
-
-#define ERCODENAMES \
-	/* extended rcodes */ \
-	{ dns_rcode_badvers, "BADVERS", 0}, \
-	{ dns_rcode_badcookie, "BADCOOKIE", 0}, \
-	{ 0, NULL, 0 }
 
 #define TSIGRCODENAMES \
 	/* extended rcodes */ \
@@ -400,10 +394,6 @@ dns_keyflags_fromtext(dns_keyflags_t *flagsp, isc_textregion_t *source)
 		if (p->name == NULL)
 			return (DNS_R_UNKNOWNFLAG);
 		value |= p->value;
-#ifdef notyet
-		if ((mask & p->mask) != 0)
-			warn("overlapping key flags");
-#endif
 		mask |= p->mask;
 		text += len;
 		if (delim != NULL)

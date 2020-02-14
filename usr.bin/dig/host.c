@@ -259,14 +259,7 @@ printsection(dns_message_t *msg, dns_section_t sectionid,
 							     &target);
 				if (result != ISC_R_SUCCESS)
 					return (result);
-#ifdef USEINITALWS
-				if (first) {
-					print_name = &empty_name;
-					first = ISC_FALSE;
-				}
-#else
 				UNUSED(first); /* Shut up compiler. */
-#endif
 			} else {
 				loopresult = dns_rdataset_first(rdataset);
 				while (loopresult == ISC_R_SUCCESS) {
@@ -814,6 +807,7 @@ host_main(int argc, char **argv) {
 
 	ISC_LIST_INIT(lookup_list);
 	ISC_LIST_INIT(server_list);
+	ISC_LIST_INIT(root_hints_server_list);
 	ISC_LIST_INIT(search_list);
 
 	fatalexit = 1;

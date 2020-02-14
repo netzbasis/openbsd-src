@@ -14,51 +14,18 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: stdtime.c,v 1.2 2020/02/11 23:26:12 jsg Exp $ */
+/* $Id: stdtime.c,v 1.4 2020/02/13 12:03:51 jsg Exp $ */
 
 /*! \file */
 
 
 
 #include <stddef.h>	/* NULL */
-#include <syslog.h>
 
 #include <sys/time.h>
 
 #include <isc/stdtime.h>
 #include <isc/util.h>
-
-#ifndef ISC_FIX_TV_USEC
-#define ISC_FIX_TV_USEC 1
-#endif
-
-#define US_PER_S 1000000
-
-#if ISC_FIX_TV_USEC
-static inline void
-fix_tv_usec(struct timeval *tv) {
-	isc_boolean_t fixed = ISC_FALSE;
-
-	if (tv->tv_usec < 0) {
-		fixed = ISC_TRUE;
-		do {
-			tv->tv_sec -= 1;
-			tv->tv_usec += US_PER_S;
-		} while (tv->tv_usec < 0);
-	} else if (tv->tv_usec >= US_PER_S) {
-		fixed = ISC_TRUE;
-		do {
-			tv->tv_sec += 1;
-			tv->tv_usec -= US_PER_S;
-		} while (tv->tv_usec >=US_PER_S);
-	}
-	/*
-	 * Call syslog directly as we are called from the logging functions.
-	 */
-	if (fixed)
-		(void)syslog(LOG_ERR, "gettimeofday returned bad tv_usec: corrected");
-}
-#endif
 
 void
 isc_stdtime_get(isc_stdtime_t *t) {
@@ -72,13 +39,6 @@ isc_stdtime_get(isc_stdtime_t *t) {
 	REQUIRE(t != NULL);
 
 	RUNTIME_CHECK(gettimeofday(&tv, NULL) != -1);
-
-#if ISC_FIX_TV_USEC
-	fix_tv_usec(&tv);
-	INSIST(tv.tv_usec >= 0);
-#else
-	INSIST(tv.tv_usec >= 0 && tv.tv_usec < US_PER_S);
-#endif
 
 	*t = (unsigned int)tv.tv_sec;
 }

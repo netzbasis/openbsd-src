@@ -15,7 +15,7 @@
  */
 
 /*
- * $Id: tsig.c,v 1.2 2020/02/11 23:26:11 jsg Exp $
+ * $Id: tsig.c,v 1.6 2020/02/13 16:57:55 florian Exp $
  */
 /*! \file */
 
@@ -46,10 +46,6 @@
 #define TSIG_MAGIC		ISC_MAGIC('T', 'S', 'I', 'G')
 #define VALID_TSIG_KEY(x)	ISC_MAGIC_VALID(x, TSIG_MAGIC)
 
-#ifndef DNS_TSIG_MAXGENERATEDKEYS
-#define DNS_TSIG_MAXGENERATEDKEYS 4096
-#endif
-
 #define is_response(msg) (msg->flags & DNS_MESSAGEFLAG_QR)
 #define algname_is_allocated(algname) \
 	((algname) != dns_tsig_hmacsha1_name && \
@@ -57,16 +53,6 @@
 	 (algname) != dns_tsig_hmacsha256_name && \
 	 (algname) != dns_tsig_hmacsha384_name && \
 	 (algname) != dns_tsig_hmacsha512_name)
-
-#ifndef DNS_NAME_INITABSOLUTE
-#define DNS_NAME_INITABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, sizeof(A), sizeof(B), \
-	DNS_NAMEATTR_READONLY | DNS_NAMEATTR_ABSOLUTE, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
 
 #define BADTIMELEN 6
 
@@ -105,7 +91,7 @@ tsig_verify_tcp(isc_buffer_t *source, dns_message_t *msg);
 
 static void
 tsig_log(dns_tsigkey_t *key, int level, const char *fmt, ...)
-     ISC_FORMAT_PRINTF(3, 4);
+     __attribute__((__format__(__printf__, 3, 4)));
 
 static void
 tsigkey_free(dns_tsigkey_t *key);
@@ -546,13 +532,6 @@ dns_tsig_sign(dns_message_t *msg) {
 			if (ret != ISC_R_SUCCESS)
 				goto cleanup_context;
 		}
-#if defined(__clang__)  && \
-       ( __clang_major__ < 3 || \
-	(__clang_major__ == 3 && __clang_minor__ < 2) || \
-	(__clang_major__ == 4 && __clang_minor__ < 2))
-	/* false positive: http://llvm.org/bugs/show_bug.cgi?id=14461 */
-		else memset(&querytsig, 0, sizeof(querytsig));
-#endif
 
 		/*
 		 * Digest the header.
@@ -813,14 +792,6 @@ dns_tsig_verify(isc_buffer_t *source, dns_message_t *msg)
 		if (ret != ISC_R_SUCCESS)
 			return (ret);
 	}
-#if defined(__clang__) && \
-       ( __clang_major__ < 3 || \
-	(__clang_major__ == 3 && __clang_minor__ < 2) || \
-	(__clang_major__ == 4 && __clang_minor__ < 2))
-	/* false positive: http://llvm.org/bugs/show_bug.cgi?id=14461 */
-		else memset(&querytsig, 0, sizeof(querytsig));
-#endif
-
 	/*
 	 * Do the key name and algorithm match that of the query?
 	 */

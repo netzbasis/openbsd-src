@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: sockaddr.c,v 1.4 2020/02/12 13:05:04 jsg Exp $ */
+/* $Id: sockaddr.c,v 1.6 2020/02/13 16:55:44 florian Exp $ */
 
 /*! \file */
 
@@ -23,7 +23,6 @@
 #include <stdio.h>
 
 #include <isc/buffer.h>
-#include <isc/hash.h>
 #include <isc/netaddr.h>
 
 #include <isc/region.h>
@@ -118,23 +117,6 @@ isc_sockaddr_totext(const isc_sockaddr_t *sockaddr, isc_buffer_t *target) {
 	case AF_INET6:
 		snprintf(pbuf, sizeof(pbuf), "%u", ntohs(sockaddr->type.sin6.sin6_port));
 		break;
-#ifdef ISC_PLAFORM_HAVESYSUNH
-	case AF_UNIX:
-		plen = strlen(sockaddr->type.sunix.sun_path);
-		if (plen >= isc_buffer_availablelength(target))
-			return (ISC_R_NOSPACE);
-
-		isc_buffer_putmem(target, sockaddr->type.sunix.sun_path, plen);
-
-		/*
-		 * Null terminate after used region.
-		 */
-		isc_buffer_availableregion(target, &avail);
-		INSIST(avail.length >= 1);
-		avail.base[0] = '\0';
-
-		return (ISC_R_SUCCESS);
-#endif
 	default:
 		return (ISC_R_FAILURE);
 	}

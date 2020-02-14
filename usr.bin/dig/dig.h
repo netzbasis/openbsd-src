@@ -19,18 +19,13 @@
 
 /*! \file */
 
-#include <dns/rdatalist.h>
-
 #include <dst/dst.h>
 
 #include <isc/boolean.h>
 #include <isc/buffer.h>
-#include <isc/bufferlist.h>
-#include <isc/formatcheck.h>
-#include <isc/lang.h>
+
 #include <isc/list.h>
-
-
+#include <isc/time.h>
 #include <isc/sockaddr.h>
 #include <isc/socket.h>
 
@@ -76,8 +71,6 @@
  * Defaults for the sigchase suboptions.  Consolidated here because
  * these control the layout of dig_lookup_t (among other things).
  */
-
-ISC_LANG_BEGINDECLS
 
 typedef struct dig_lookup dig_lookup_t;
 typedef struct dig_query dig_query_t;
@@ -228,6 +221,7 @@ typedef ISC_LIST(dig_lookup_t) dig_lookuplist_t;
 
 extern dig_lookuplist_t lookup_list;
 extern dig_serverlist_t server_list;
+extern dig_serverlist_t root_hints_server_list;
 extern dig_searchlistlist_t search_list;
 extern unsigned int extrabytes;
 
@@ -275,10 +269,10 @@ get_reverse(char *reverse, size_t len, char *value, isc_boolean_t ip6_int,
 
 __dead void
 fatal(const char *format, ...)
-ISC_FORMAT_PRINTF(1, 2);
+__attribute__((__format__(__printf__, 1, 2)));
 
 void
-debug(const char *format, ...) ISC_FORMAT_PRINTF(1, 2);
+debug(const char *format, ...) __attribute__((__format__(__printf__, 1, 2)));
 
 void
 check_result(isc_result_t result, const char *msg);
@@ -409,17 +403,9 @@ void
 dig_startup(void);
 
 /*%<
- * Initiates the next lookup cycle
- */
-void
-dig_query_start(void);
-
-/*%<
  * Cleans up the application
  */
 void
 dig_shutdown(void);
-
-ISC_LANG_ENDDECLS
 
 #endif
