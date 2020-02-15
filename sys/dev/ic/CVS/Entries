@@ -1,4 +1,4 @@
-/aac.c/1.74/Wed Feb  5 16:29:29 2020//
+/aac.c/1.75/Fri Feb 14 15:56:47 2020//
 /aac_tables.h/1.5/Fri Mar  6 07:28:10 2009//
 /aacreg.h/1.11/Fri Mar  6 07:28:10 2009//
 /aacvar.h/1.14/Sat Oct  5 20:41:27 2019//
@@ -151,9 +151,9 @@
 /fxp.c/1.131/Sun Jan 22 10:17:38 2017//
 /fxpreg.h/1.14/Tue Apr  3 23:39:09 2012//
 /fxpvar.h/1.37/Fri Dec  6 21:03:03 2013//
-/gdt_common.c/1.67/Sun Jan 26 00:53:31 2020//
+/gdt_common.c/1.68/Sat Feb 15 01:58:01 2020//
 /gdtreg.h/1.4/Sun May  7 23:18:59 2006//
-/gdtvar.h/1.23/Sun Jan 26 00:53:31 2020//
+/gdtvar.h/1.24/Sat Feb 15 01:58:01 2020//
 /gem.c/1.123/Wed Feb  7 22:35:14 2018//
 /gemreg.h/1.17/Sun Jul 12 15:54:32 2009//
 /gemvar.h/1.31/Sat Nov 28 09:42:10 2015//
@@ -225,7 +225,7 @@
 /mtd8xx.c/1.31/Sun Jan 22 10:17:38 2017//
 /mtd8xxreg.h/1.2/Tue Oct 21 18:58:49 2003//
 /mtd8xxvar.h/1.4/Sat Sep  6 05:41:35 2014//
-/ncr53c9x.c/1.67/Wed Feb  5 16:29:29 2020//
+/ncr53c9x.c/1.68/Fri Feb 14 18:37:03 2020//
 /ncr53c9xreg.h/1.9/Tue Oct 21 18:58:49 2003//
 /ncr53c9xvar.h/1.23/Sat Jan 18 23:09:04 2014//
 /ne2000.c/1.27/Tue Nov 24 17:11:39 2015//
@@ -237,10 +237,10 @@
 /nvme.c/1.65/Wed Feb  5 16:29:29 2020//
 /nvmereg.h/1.11/Tue Nov 15 12:01:11 2016//
 /nvmevar.h/1.11/Mon May 29 12:58:37 2017//
-/oosiop.c/1.24/Sat Jan 25 21:48:42 2020//
+/oosiop.c/1.25/Fri Feb 14 18:37:03 2020//
 /oosiopreg.h/1.2/Tue Apr 20 20:21:56 2010//
 /oosiopvar.h/1.5/Sun Apr  3 12:42:36 2011//
-/osiop.c/1.54/Wed Feb  5 16:29:29 2020//
+/osiop.c/1.55/Fri Feb 14 18:37:03 2020//
 /osiopreg.h/1.5/Mon Nov 21 21:52:47 2005//
 /osiopvar.h/1.11/Mon Jun 28 04:39:57 2010//
 /p9000.h/1.4/Tue May 22 04:14:03 2007//
@@ -300,7 +300,7 @@
 /sili.c/1.59/Tue May 21 09:19:25 2019//
 /silireg.h/1.22/Tue Nov 26 20:33:16 2013//
 /silivar.h/1.7/Thu Aug  5 20:21:36 2010//
-/siop.c/1.72/Thu Jan 23 07:53:00 2020//
+/siop.c/1.73/Fri Feb 14 18:37:03 2020//
 /siop_common.c/1.37/Sat Jan 25 21:48:42 2020//
 /siopreg.h/1.12/Fri Jul 23 07:47:13 2010//
 /siopvar.h/1.17/Fri Sep 23 10:40:06 2011//

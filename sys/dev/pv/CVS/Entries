@@ -14,12 +14,12 @@
 /pvclock.c/1.5/Fri Dec 13 06:43:46 2019//
 /pvreg.h/1.6/Mon May 13 15:40:34 2019//
 /pvvar.h/1.10/Thu Jun 22 06:21:12 2017//
-/vioblk.c/1.16/Wed Feb 12 14:08:56 2020//
+/vioblk.c/1.17/Fri Feb 14 15:56:47 2020//
 /vioblkreg.h/1.4/Sun Mar 24 18:22:36 2019//
 /viocon.c/1.7/Sun May 26 15:20:04 2019//
 /viomb.c/1.5/Sun May 26 15:20:04 2019//
 /viornd.c/1.3/Sun May 26 15:20:04 2019//
-/vioscsi.c/1.15/Wed Feb  5 16:29:30 2020//
+/vioscsi.c/1.16/Fri Feb 14 15:56:47 2020//
 /vioscsireg.h/1.2/Sun Mar 24 18:21:12 2019//
 /virtio.c/1.19/Sun May 26 15:20:04 2019//
 /virtioreg.h/1.4/Sun Mar 24 18:21:12 2019//
