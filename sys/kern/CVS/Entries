@@ -13,7 +13,7 @@
 /kern_clock.c/1.101/Tue Jan 21 16:16:23 2020//
 /kern_descrip.c/1.198/Wed Feb  5 17:03:13 2020//
 /kern_event.c/1.124/Fri Feb 14 16:50:25 2020//
-/kern_exec.c/1.212/Wed Dec 11 07:30:09 2019//
+/kern_exec.c/1.213/Sat Feb 15 09:35:48 2020//
 /kern_exit.c/1.183/Wed Feb 12 14:41:23 2020//
 /kern_fork.c/1.222/Thu Jan 30 08:51:27 2020//
 /kern_kthread.c/1.43/Wed Dec 11 07:30:09 2019//
@@ -21,14 +21,14 @@
 /kern_lock.c/1.70/Tue Jun  4 15:41:02 2019//
 /kern_malloc.c/1.141/Thu Dec 19 17:40:11 2019//
 /kern_physio.c/1.46/Sun Jan 26 23:06:39 2020//
-/kern_pledge.c/1.260/Tue Feb 11 16:02:39 2020//
+/kern_pledge.c/1.261/Sat Feb 15 09:35:48 2020//
 /kern_proc.c/1.86/Thu Jan 30 08:51:27 2020//
 /kern_prot.c/1.76/Tue Jul  9 12:23:25 2019//
 /kern_resource.c/1.68/Mon Jul 15 20:44:48 2019//
 /kern_rwlock.c/1.44/Sat Nov 30 11:19:17 2019//
 /kern_sched.c/1.65/Wed Feb  5 10:12:38 2020//
 /kern_sensors.c/1.39/Thu Dec 19 17:40:11 2019//
-/kern_sig.c/1.246/Fri Feb 14 14:32:44 2020//
+/kern_sig.c/1.247/Sat Feb 15 09:35:48 2020//
 /kern_smr.c/1.6/Mon Dec 30 23:56:26 2019//
 /kern_srp.c/1.12/Fri Sep  8 05:36:53 2017//
 /kern_subr.c/1.50/Sun Apr 29 17:26:31 2018//
