@@ -299,7 +299,7 @@ evloop(isc__appctx_t *ctx) {
 
 	while (!ctx->want_shutdown) {
 		int n;
-		isc_time_t when, now;
+		struct timespec when, now;
 		struct timeval tv, *tvp;
 		isc_socketwait_t *swait;
 		isc_boolean_t readytasks;
@@ -331,7 +331,7 @@ evloop(isc__appctx_t *ctx) {
 			else {
 				uint64_t us;
 
-				TIME_NOW(&now);
+				clock_gettime(CLOCK_REALTIME, &now);
 				us = isc_time_microdiff(&when, &now);
 				if (us == 0)
 					call_timer_dispatch = ISC_TRUE;

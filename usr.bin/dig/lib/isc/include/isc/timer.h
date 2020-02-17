@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: timer.h,v 1.5 2020/02/15 17:59:55 florian Exp $ */
+/* $Id: timer.h,v 1.9 2020/02/16 21:08:59 florian Exp $ */
 
 #ifndef ISC_TIMER_H
 #define ISC_TIMER_H 1
@@ -81,17 +81,10 @@
  ***/
 
 /*% Timer Type */
-typedef enum {
-	isc_timertype_undefined = -1,	/*%< Undefined */
-	isc_timertype_ticker = 0, 	/*%< Ticker */
-	isc_timertype_once = 1, 	/*%< Once */
-	isc_timertype_limited = 2, 	/*%< Limited */
-	isc_timertype_inactive = 3 	/*%< Inactive */
-} isc_timertype_t;
 
 typedef struct isc_timerevent {
 	struct isc_event	common;
-	isc_time_t		due;
+	struct timespec		due;
 } isc_timerevent_t;
 
 #define ISC_TIMEREVENT_FIRSTEVENT	(ISC_EVENTCLASS_TIMER + 0)
@@ -140,9 +133,7 @@ struct isc_timer {
 
 isc_result_t
 isc_timer_create(isc_timermgr_t *manager,
-		 isc_timertype_t type,
-		 const isc_time_t *expires,
-		 const interval_t *interval,
+		 const struct timespec *interval,
 		 isc_task_t *task,
 		 isc_taskaction_t action,
 		 void *arg,
@@ -204,9 +195,7 @@ isc_timer_create(isc_timermgr_t *manager,
 
 isc_result_t
 isc_timer_reset(isc_timer_t *timer,
-		isc_timertype_t type,
-		const isc_time_t *expires,
-		const interval_t *interval,
+		const struct timespec *interval,
 		isc_boolean_t purge);
 /*%<
  * Change the timer's type, expires, and interval values to the given
@@ -239,7 +228,7 @@ isc_timer_reset(isc_timer_t *timer,
  *\li	Unexpected error
  */
 
-isc_result_t
+void
 isc_timer_touch(isc_timer_t *timer);
 /*%<
  * Set the last-touched time of 'timer' to the current time.
@@ -254,10 +243,6 @@ isc_timer_touch(isc_timer_t *timer);
  *	timer's interval if 'timer' is a once timer with a non-zero
  *	interval.
  *
- * Returns:
- *
- *\li	Success
- *\li	Unexpected error
  */
 
 void
@@ -288,16 +273,6 @@ isc_timer_detach(isc_timer_t **timerp);
  *		of the timer's task, it is guaranteed that no more
  *		timer event callbacks will run after the call.
  *\endcode
- */
-
-isc_timertype_t
-isc_timer_gettype(isc_timer_t *timer);
-/*%<
- * Return the timer type.
- *
- * Requires:
- *
- *\li	'timer' to be a valid timer.
  */
 
 isc_result_t

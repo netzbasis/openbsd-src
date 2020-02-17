@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: log.c,v 1.7 2020/02/13 16:57:55 florian Exp $ */
+/* $Id: log.c,v 1.13 2020/02/16 21:11:02 florian Exp $ */
 
 /*! \file
  * \author  Principal Authors: DCL */
@@ -85,7 +85,7 @@ typedef struct isc_logmessage isc_logmessage_t;
 
 struct isc_logmessage {
 	char *				text;
-	isc_time_t			time;
+	struct timespec			time;
 	ISC_LINK(isc_logmessage_t)	link;
 };
 
@@ -943,11 +943,11 @@ isc_log_doit(isc_log_t *lctx, isc_logcategory_t *category,
 
 		if ((channel->flags & ISC_LOG_PRINTTIME) != 0 &&
 		    time_string[0] == '\0') {
-			isc_time_t isctime;
+			struct timespec now;
 
-			TIME_NOW(&isctime);
-			isc_time_formattimestamp(&isctime, time_string,
-						 sizeof(time_string));
+			clock_gettime(CLOCK_REALTIME, &now);
+			strftime(time_string, sizeof(time_string),
+			    "%d-%b-%Y %X", localtime(&now.tv_sec));
 		}
 
 		if ((channel->flags & ISC_LOG_PRINTLEVEL) != 0 &&
@@ -976,33 +976,24 @@ isc_log_doit(isc_log_t *lctx, isc_logcategory_t *category,
 			 */
 			if (write_once) {
 				isc_logmessage_t *message, *next;
-				isc_time_t oldest;
-				interval_t interval;
+				struct timespec oldest;
+				struct timespec interval;
 				size_t size;
-
-				interval_set(&interval,
-						 lcfg->duplicate_interval, 0);
+				interval.tv_sec = lcfg->duplicate_interval;
+				interval.tv_nsec = 0;
 
 				/*
 				 * 'oldest' is the age of the oldest messages
 				 * which fall within the duplicate_interval
 				 * range.
 				 */
-				TIME_NOW(&oldest);
-				if (isc_time_subtract(&oldest, &interval,
-						      &oldest)
-				    != ISC_R_SUCCESS)
-					/*
-					 * Can't effectively do the checking
-					 * without having a valid time.
-					 */
-					message = NULL;
-				else
-					message = ISC_LIST_HEAD(lctx->messages);
+				clock_gettime(CLOCK_REALTIME, &oldest);
+				timespecsub(&oldest, &interval, &oldest);
+				message = ISC_LIST_HEAD(lctx->messages);
 
 				while (message != NULL) {
-					if (isc_time_compare(&message->time,
-							     &oldest) < 0) {
+					if (timespeccmp(&message->time,
+					    &oldest, <)) {
 						/*
 						 * This message is older
 						 * than the duplicate_interval,
@@ -1059,7 +1050,7 @@ isc_log_doit(isc_log_t *lctx, isc_logcategory_t *category,
 					strlcpy(message->text, lctx->buffer,
 						size);
 
-					TIME_NOW(&message->time);
+					clock_gettime(CLOCK_REALTIME, &message->time);
 
 					ISC_LINK_INIT(message, link);
 					ISC_LIST_APPEND(lctx->messages,

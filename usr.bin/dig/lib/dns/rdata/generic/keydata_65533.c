@@ -18,7 +18,6 @@
 #define GENERIC_KEYDATA_65533_C 1
 
 #include <isc/time.h>
-#include <isc/stdtime.h>
 
 #include <dst/dst.h>
 
@@ -90,6 +89,25 @@ fromtext_keydata(ARGS_FROMTEXT) {
 		return (ISC_R_UNEXPECTEDEND);
 
 	return (ISC_R_SUCCESS);
+}
+
+/*
+ * ISC_FORMATHTTPTIMESTAMP_SIZE needs to be 30 in C locale and potentially
+ * more for other locales to handle longer national abbreviations when
+ * expanding strftime's %a and %b.
+ */
+#define ISC_FORMATHTTPTIMESTAMP_SIZE 50
+
+static void
+isc_time_formathttptimestamp(const struct timespec *t, char *buf, size_t len) {
+	size_t flen;
+	/*
+	 * 5 spaces, 1 comma, 3 GMT, 2 %d, 4 %Y, 8 %H:%M:%S, 3+ %a, 3+ %b (29+)
+	 */
+
+	flen = strftime(buf, len, "%a, %d %b %Y %H:%M:%S GMT",
+	    gmtime(&t->tv_sec));
+	INSIST(flen < len);
 }
 
 static inline isc_result_t
@@ -180,7 +198,7 @@ totext_keydata(ARGS_TOTEXT) {
 		char rbuf[ISC_FORMATHTTPTIMESTAMP_SIZE];
 		char abuf[ISC_FORMATHTTPTIMESTAMP_SIZE];
 		char dbuf[ISC_FORMATHTTPTIMESTAMP_SIZE];
-		isc_time_t t;
+		struct timespec t;
 
 		RETERR(str_totext(" ; ", target));
 		RETERR(str_totext(keyinfo, target));
@@ -197,13 +215,14 @@ totext_keydata(ARGS_TOTEXT) {
 		RETERR(str_totext(buf, target));
 
 		if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0) {
-			isc_stdtime_t now;
+			time_t now;
 
-			isc_stdtime_get(&now);
+			time(&now);
 
 			RETERR(str_totext(tctx->linebreak, target));
 			RETERR(str_totext("; next refresh: ", target));
-			isc_time_set(&t, refresh, 0);
+			t.tv_sec = refresh;
+			t.tv_nsec = 0;
 			isc_time_formathttptimestamp(&t, rbuf, sizeof(rbuf));
 			RETERR(str_totext(rbuf, target));
 
@@ -212,14 +231,15 @@ totext_keydata(ARGS_TOTEXT) {
 				RETERR(str_totext("; no trust", target));
 			} else {
 				RETERR(str_totext(tctx->linebreak, target));
-				if (add < now) {
+				if ((time_t)add < now) {
 					RETERR(str_totext("; trusted since: ",
 							  target));
 				} else {
 					RETERR(str_totext("; trust pending: ",
 							  target));
 				}
-				isc_time_set(&t, add, 0);
+				t.tv_sec = add;
+				t.tv_nsec = 0;
 				isc_time_formathttptimestamp(&t, abuf,
 							     sizeof(abuf));
 				RETERR(str_totext(abuf, target));
@@ -229,7 +249,8 @@ totext_keydata(ARGS_TOTEXT) {
 				RETERR(str_totext(tctx->linebreak, target));
 				RETERR(str_totext("; removal pending: ",
 						  target));
-				isc_time_set(&t, deltime, 0);
+				t.tv_sec = deltime;
+				t.tv_nsec = 0;
 				isc_time_formathttptimestamp(&t, dbuf,
 							     sizeof(dbuf));
 				RETERR(str_totext(dbuf, target));

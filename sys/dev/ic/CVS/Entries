@@ -237,10 +237,10 @@
 /nvme.c/1.66/Sat Feb 15 11:35:31 2020//
 /nvmereg.h/1.11/Tue Nov 15 12:01:11 2016//
 /nvmevar.h/1.11/Mon May 29 12:58:37 2017//
-/oosiop.c/1.25/Fri Feb 14 18:37:03 2020//
+/oosiop.c/1.26/Mon Feb 17 02:50:23 2020//
 /oosiopreg.h/1.2/Tue Apr 20 20:21:56 2010//
 /oosiopvar.h/1.5/Sun Apr  3 12:42:36 2011//
-/osiop.c/1.55/Fri Feb 14 18:37:03 2020//
+/osiop.c/1.56/Mon Feb 17 02:50:23 2020//
 /osiopreg.h/1.5/Mon Nov 21 21:52:47 2005//
 /osiopvar.h/1.11/Mon Jun 28 04:39:57 2010//
 /p9000.h/1.4/Tue May 22 04:14:03 2007//
@@ -300,11 +300,11 @@
 /sili.c/1.59/Tue May 21 09:19:25 2019//
 /silireg.h/1.22/Tue Nov 26 20:33:16 2013//
 /silivar.h/1.7/Thu Aug  5 20:21:36 2010//
-/siop.c/1.73/Fri Feb 14 18:37:03 2020//
-/siop_common.c/1.37/Sat Jan 25 21:48:42 2020//
+/siop.c/1.74/Mon Feb 17 02:50:23 2020//
+/siop_common.c/1.38/Mon Feb 17 02:50:23 2020//
 /siopreg.h/1.12/Fri Jul 23 07:47:13 2010//
 /siopvar.h/1.17/Fri Sep 23 10:40:06 2011//
-/siopvar_common.h/1.29/Tue Apr  5 22:37:39 2011//
+/siopvar_common.h/1.30/Mon Feb 17 02:50:23 2020//
 /smc83c170.c/1.28/Tue Jul  3 14:33:43 2018//
 /smc83c170reg.h/1.2/Thu Jun 26 05:42:16 2008//
 /smc83c170var.h/1.4/Fri Sep 11 13:02:28 2015//
