@@ -46,7 +46,7 @@
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
 /kcov.h/1.4/Sun Jan 20 09:57:23 2019//
 /kernel.h/1.22/Sat Sep  7 01:23:23 2019//
-/kthread.h/1.6/Mon Nov 18 20:21:51 2013//
+/kthread.h/1.7/Tue Feb 18 12:13:40 2020//
 /ktrace.h/1.38/Tue Feb 26 22:24:41 2019//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//

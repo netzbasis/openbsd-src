@@ -1,6 +1,6 @@
 /Makefile/1.4/Mon Oct 14 09:01:34 1996//
 /aac_pci.c/1.25/Fri Dec 19 22:44:58 2014//
-/adv_pci.c/1.12/Fri Sep  8 05:36:52 2017//
+/adv_pci.c/1.13/Tue Feb 18 20:24:52 2020//
 /adw_pci.c/1.18/Fri Sep  8 05:36:52 2017//
 /agp.c/1.49/Tue Dec 22 21:05:37 2015//
 /agp_ali.c/1.15/Tue May 27 12:40:00 2014//
@@ -57,7 +57,7 @@
 /cz.c/1.22/Thu Jan  9 14:35:19 2020//
 /czreg.h/1.2/Sun Nov 16 20:30:06 2003//
 /devlist2h.awk/1.8/Wed Feb 21 13:17:28 2007//
-/dwiic_pci.c/1.9/Wed Jul 31 16:04:16 2019//
+/dwiic_pci.c/1.10/Tue Feb 18 12:13:40 2020//
 /eap.c/1.58/Sat Jan 11 09:09:09 2020//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.31/Thu May  2 20:28:46 2019//
@@ -230,7 +230,7 @@
 /if_xgereg.h/1.5/Thu Apr 28 00:11:56 2016//
 /if_xl_pci.c/1.46/Tue Nov 24 17:11:40 2015//
 /iha_pci.c/1.12/Thu Oct 18 21:10:58 2007//
-/ips.c/1.117/Fri Feb 14 18:37:03 2020//
+/ips.c/1.118/Wed Feb 19 01:31:38 2020//
 /itherm.c/1.5/Thu Nov  6 05:49:00 2014//
 /ixgb_ee.c/1.7/Tue Nov 24 17:11:40 2015//
 /ixgb_ee.h/1.1/Mon Nov 14 23:25:43 2005//

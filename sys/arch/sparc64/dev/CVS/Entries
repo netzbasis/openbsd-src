@@ -85,7 +85,7 @@
 /ssm.c/1.2/Sat Jul 12 18:44:43 2014//
 /starfire.c/1.1/Sun Mar 16 22:18:53 2008//
 /starfire.h/1.1/Sun Mar 16 22:18:53 2008//
-/stp_sbus.c/1.10/Thu Jun 26 05:42:13 2008//
+/stp_sbus.c/1.11/Tue Feb 18 12:13:39 2020//
 /tda.c/1.8/Mon Mar  7 13:21:51 2016//
 /upa.c/1.10/Fri Sep  8 05:36:52 2017//
 /uperf.c/1.8/Fri Sep  8 05:36:52 2017//
@@ -97,7 +97,7 @@
 /vcctty.c/1.14/Mon Feb 19 08:59:52 2018//
 /vcons.c/1.17/Wed Jun 27 11:38:59 2018//
 /vds.c/1.1/Thu Dec 31 11:58:41 2009//
-/vdsk.c/1.52/Wed Feb  5 16:29:29 2020//
+/vdsk.c/1.53/Tue Feb 18 17:20:12 2020//
 /vdsp.c/1.47/Thu Jan 16 13:03:28 2020//
 /vgafb.c/1.66/Thu Dec 27 11:06:38 2018//
 /viommu.c/1.19/Thu May 25 03:19:39 2017//

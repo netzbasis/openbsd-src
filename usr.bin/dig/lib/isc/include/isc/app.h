@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: app.h,v 1.3 2020/02/17 18:58:39 jung Exp $ */
+/* $Id: app.h,v 1.5 2020/02/18 18:11:27 florian Exp $ */
 
 #ifndef ISC_APP_H
 #define ISC_APP_H 1
@@ -77,7 +77,6 @@
  */
 
 #include <isc/eventclass.h>
-#include <isc/magic.h>
 #include <isc/result.h>
 
 /***
@@ -89,48 +88,6 @@ typedef isc_event_t isc_appevent_t;
 #define ISC_APPEVENT_FIRSTEVENT		(ISC_EVENTCLASS_APP + 0)
 #define ISC_APPEVENT_SHUTDOWN		(ISC_EVENTCLASS_APP + 1)
 #define ISC_APPEVENT_LASTEVENT		(ISC_EVENTCLASS_APP + 65535)
-
-/*%
- * app module methods.  Only app driver implementations use this structure.
- * Other clients should use the top-level interfaces (i.e., isc_app_xxx
- * functions).  magic must be ISCAPI_APPMETHODS_MAGIC.
- */
-typedef struct isc_appmethods {
-	void		(*ctxdestroy)(isc_appctx_t **ctxp);
-	isc_result_t	(*ctxstart)(isc_appctx_t *ctx);
-	isc_result_t	(*ctxrun)(isc_appctx_t *ctx);
-	isc_result_t	(*ctxsuspend)(isc_appctx_t *ctx);
-	isc_result_t	(*ctxshutdown)(isc_appctx_t *ctx);
-	void		(*ctxfinish)(isc_appctx_t *ctx);
-	void		(*settaskmgr)(isc_appctx_t *ctx,
-				      isc_taskmgr_t *timermgr);
-	void		(*setsocketmgr)(isc_appctx_t *ctx,
-					isc_socketmgr_t *timermgr);
-	void		(*settimermgr)(isc_appctx_t *ctx,
-				       isc_timermgr_t *timermgr);
-	isc_result_t 	(*ctxonrun)(isc_appctx_t *ctx,
-				    isc_task_t *task, isc_taskaction_t action,
-				    void *arg);
-} isc_appmethods_t;
-
-/*%
- * This structure is actually just the common prefix of an application context
- * implementation's version of an isc_appctx_t.
- * \brief
- * Direct use of this structure by clients is forbidden.  app implementations
- * may change the structure.  'magic' must be ISCAPI_APPCTX_MAGIC for any
- * of the isc_app_ routines to work.  app implementations must maintain
- * all app context invariants.
- */
-struct isc_appctx {
-	unsigned int		impmagic;
-	unsigned int		magic;
-	isc_appmethods_t	*methods;
-};
-
-#define ISCAPI_APPCTX_MAGIC		ISC_MAGIC('A','a','p','c')
-#define ISCAPI_APPCTX_VALID(c)		((c) != NULL && \
-					 (c)->magic == ISCAPI_APPCTX_MAGIC)
 
 isc_result_t
 isc_app_start(void);
@@ -209,22 +166,6 @@ isc_app_shutdown(void);
  * Returns:
  *\li	ISC_R_SUCCESS
  *\li	ISC_R_UNEXPECTED
- */
-
-void
-isc_app_finish(void);
-/*!<
- * \brief Finish an ISC library application.
- *
- * Notes:
- *\li	This call should be made at or near the end of main().
- *
- * Requires:
- *\li	isc_app_start() has been called.
- *\li	'ctx' is a valid application context (for app_ctxfinish()).
- *
- * Ensures:
- *\li	Any resources allocated by isc_app_start() have been released.
  */
 
 void

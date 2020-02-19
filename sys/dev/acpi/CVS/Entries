@@ -42,7 +42,7 @@
 /com_acpi.c/1.1/Sun Jul  1 10:29:30 2018//
 /dsdt.c/1.249/Wed Oct 16 01:43:50 2019//
 /dsdt.h/1.77/Sun Aug 19 08:23:47 2018//
-/dwiic_acpi.c/1.12/Sun Aug  4 15:44:17 2019//
+/dwiic_acpi.c/1.13/Tue Feb 18 12:13:39 2020//
 /efi.h/1.4/Sun Aug  4 09:27:09 2019//
 /files.acpi/1.53/Mon Dec 23 08:05:42 2019//
 /glkgpio.c/1.1/Mon Jun 24 21:33:27 2019//
