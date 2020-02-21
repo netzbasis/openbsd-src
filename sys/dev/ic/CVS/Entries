@@ -141,7 +141,7 @@
 /dp8573areg.h/1.2/Sat Oct 11 18:40:21 2014//
 /ds1286reg.h/1.1/Wed Mar 28 20:44:23 2012//
 /ds1687reg.h/1.2/Mon Mar 31 07:14:00 2008//
-/dwiic.c/1.10/Tue Feb 18 12:13:39 2020//
+/dwiic.c/1.11/Thu Feb 20 15:33:41 2020//
 /dwiicreg.h/1.2/Tue Aug  6 06:56:29 2019//
 /dwiicvar.h/1.4/Tue Feb 18 12:13:39 2020//
 /elink3.c/1.96/Fri Nov  9 14:14:31 2018//
@@ -252,7 +252,7 @@
 /pcf8584var.h/1.5/Sat Oct 20 18:46:21 2007//
 /pckbc.c/1.53/Sat Nov 30 18:18:34 2019//
 /pckbcvar.h/1.16/Sat Mar 11 11:55:03 2017//
-/pgt.c/1.97/Thu Jan  9 14:35:19 2020//
+/pgt.c/1.98/Thu Feb 20 15:32:17 2020//
 /pgtreg.h/1.7/Wed Oct 11 12:10:19 2006//
 /pgtvar.h/1.17/Fri Dec 11 16:07:01 2015//
 /pluart.c/1.5/Fri Jan 10 04:10:15 2020//

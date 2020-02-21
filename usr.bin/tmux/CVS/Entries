@@ -106,7 +106,7 @@
 /spawn.c/1.14/Tue Jan 28 10:21:21 2020//
 /status.c/1.201/Mon Jan 27 08:53:13 2020//
 /style.c/1.24/Sun Sep 15 21:42:57 2019//
-/tmux.1/1.712/Sat Feb 15 15:08:08 2020//
+/tmux.1/1.713/Thu Feb 20 07:34:57 2020//
 /tmux.c/1.192/Tue Jan 28 11:31:31 2020//
 /tmux.h/1.954/Mon Feb  3 13:46:27 2020//
 /tty-acs.c/1.7/Fri May 17 05:48:25 2019//
@@ -117,7 +117,7 @@
 /window-buffer.c/1.25/Tue Feb 11 07:01:09 2020//
 /window-client.c/1.26/Tue Jan 28 08:06:11 2020//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
-/window-copy.c/1.245/Thu Feb 13 09:02:07 2020//
+/window-copy.c/1.246/Thu Feb 20 07:34:57 2020//
 /window-tree.c/1.44/Wed Jan  8 06:38:55 2020//
 /window.c/1.248/Fri Feb 14 13:57:58 2020//
 /xmalloc.c/1.13/Thu Nov 28 09:51:58 2019//
