@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dighost.c,v 1.12 2020/02/20 18:07:59 florian Exp $ */
+/* $Id: dighost.c,v 1.14 2020/02/21 19:53:39 jung Exp $ */
 
 /*! \file
  *  \note
@@ -380,7 +380,7 @@ debug(const char *format, ...) {
 	if (debugging) {
 		fflush(stdout);
 		if (debugtiming) {
-			clock_gettime(CLOCK_REALTIME, &t);
+			clock_gettime(CLOCK_MONOTONIC, &t);
 			fprintf(stderr, "%lld.%06ld: ", t.tv_sec, t.tv_nsec /
 			    1000);
 		}
@@ -1930,7 +1930,7 @@ compute_cookie(unsigned char *clientcookie, size_t len) {
 
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 static void
-populate_root_hints()
+populate_root_hints(void)
 {
 	dig_server_t *newsrv;
 	size_t i;
@@ -2704,7 +2704,7 @@ send_udp(dig_query_t *query) {
 	sendbuf = clone_buffer(&query->sendbuf);
 	ISC_LIST_ENQUEUE(query->sendlist, sendbuf, link);
 	debug("sending a request");
-	clock_gettime(CLOCK_REALTIME, &query->time_sent);
+	clock_gettime(CLOCK_MONOTONIC, &query->time_sent);
 	INSIST(query->sock != NULL);
 	query->waiting_senddone = ISC_TRUE;
 	result = isc_socket_sendtov2(query->sock, &query->sendlist,
@@ -2920,7 +2920,7 @@ launch_next_query(dig_query_t *query, isc_boolean_t include_question) {
 	debug("recvcount=%d", recvcount);
 	if (!query->first_soa_rcvd) {
 		debug("sending a request in launch_next_query");
-		clock_gettime(CLOCK_REALTIME, &query->time_sent);
+		clock_gettime(CLOCK_MONOTONIC, &query->time_sent);
 		query->waiting_senddone = ISC_TRUE;
 		result = isc_socket_sendv(query->sock, &query->sendlist,
 					  global_task, send_done, query);
@@ -3290,7 +3290,7 @@ recv_done(isc_task_t *task, isc_event_t *event) {
 	INSIST(recvcount >= 0);
 
 	query = event->ev_arg;
-	clock_gettime(CLOCK_REALTIME, &query->time_recv);
+	clock_gettime(CLOCK_MONOTONIC, &query->time_recv);
 	debug("lookup=%p, query=%p", query->lookup, query);
 
 	l = query->lookup;

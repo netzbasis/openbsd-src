@@ -69,7 +69,7 @@
 /pledge.h/1.40/Wed Jun 19 16:55:51 2019//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
-/proc.h/1.288/Sat Feb 15 09:35:48 2020//
+/proc.h/1.289/Fri Feb 21 11:10:23 2020//
 /protosw.h/1.31/Tue Jan 23 20:49:58 2018//
 /ptrace.h/1.15/Wed Oct 19 08:31:33 2016//
 /queue.h/1.45/Thu Jul 12 14:22:54 2018//
@@ -89,7 +89,7 @@
 /siginfo.h/1.12/Fri Apr  7 04:48:44 2017//
 /sigio.h/1.4/Wed Jan  8 16:27:42 2020//
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
-/signalvar.h/1.37/Fri Jan  3 09:46:41 2020//
+/signalvar.h/1.38/Fri Feb 21 11:10:23 2020//
 /smr.h/1.2/Sat Mar  9 06:15:48 2019//
 /socket.h/1.98/Mon Jul 22 15:34:07 2019//
 /socketvar.h/1.91/Wed Jan 15 13:17:35 2020//

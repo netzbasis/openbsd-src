@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.16 2020/02/20 20:38:44 kn Exp $	*/
+/*	$OpenBSD: parse.y,v 1.18 2020/02/21 19:39:28 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis <kettenis@openbsd.org>
@@ -77,6 +77,7 @@ struct vdisk_opts {
 struct vnet_opts {
 	uint64_t	mac_addr;
 	uint64_t	mtu;
+	const char	*devalias;
 } vnet_opts;
 
 void		vcput_opts_default(void);
@@ -105,10 +106,11 @@ typedef struct {
 %type	<v.number>		memory
 %type	<v.vcpu_opts>		vcpu
 %type	<v.vdisk_opts>		vdisk_opts vdisk_opts_l vdisk_opt
-%type	<v.vdisk_opts>		devalias
+%type	<v.vdisk_opts>		vdisk_devalias
 %type	<v.vnet_opts>		vnet_opts vnet_opts_l vnet_opt
 %type	<v.vnet_opts>		mac_addr
 %type	<v.vnet_opts>		mtu
+%type	<v.vnet_opts>		vnet_devalias
 %%
 
 grammar		: /* empty */
@@ -173,12 +175,14 @@ domainopts	: VCPU vcpu {
 		| VDISK STRING vdisk_opts {
 			struct vdisk *vdisk = xmalloc(sizeof(struct vdisk));
 			vdisk->path = $2;
+			vdisk->devalias = $3.devalias;
 			SIMPLEQ_INSERT_TAIL(&domain->vdisk_list, vdisk, entry);
 		}
 		| VNET vnet_opts {
 			struct vnet *vnet = xmalloc(sizeof(struct vnet));
 			vnet->mac_addr = $2.mac_addr;
 			vnet->mtu = $2.mtu;
+			vnet->devalias = $2.devalias;
 			SIMPLEQ_INSERT_TAIL(&domain->vnet_list, vnet, entry);
 		}
 		| VARIABLE STRING '=' STRING {
@@ -202,10 +206,10 @@ vdisk_opts	:	{ vdisk_opts_default(); }
 vdisk_opts_l	: vdisk_opts_l vdisk_opt
 		| vdisk_opt
 		;
-vdisk_opt	: devalias
+vdisk_opt	: vdisk_devalias
 		;
 
-devalias	: DEVALIAS '=' STRING {
+vdisk_devalias	: DEVALIAS '=' STRING {
 			vdisk_opts.devalias = $3;
 		}
 		;
@@ -220,6 +224,7 @@ vnet_opts_l	: vnet_opts_l vnet_opt
 		;
 vnet_opt	: mac_addr
 		| mtu
+		| vnet_devalias
 		;
 
 mac_addr	: MAC_ADDR '=' STRING {
@@ -242,6 +247,11 @@ mac_addr	: MAC_ADDR '=' STRING {
 
 mtu		: MTU '=' NUMBER {
 			vnet_opts.mtu = $3;
+		}
+		;
+
+vnet_devalias	: DEVALIAS '=' STRING {
+			vnet_opts.devalias = $3;
 		}
 		;
 
@@ -313,6 +323,7 @@ vnet_opts_default(void)
 {
 	vnet_opts.mac_addr = -1;
 	vnet_opts.mtu = 1500;
+	vnet_opts.devalias = NULL;
 }
 
 struct keywords {
