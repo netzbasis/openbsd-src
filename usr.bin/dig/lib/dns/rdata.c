@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: rdata.c,v 1.9 2020/02/20 18:08:51 florian Exp $ */
+/* $Id: rdata.c,v 1.12 2020/02/23 04:15:57 jsg Exp $ */
 
 /*! \file */
 
@@ -32,7 +32,6 @@
 
 #include <isc/util.h>
 
-#include <dns/callbacks.h>
 #include <dns/cert.h>
 #include <dns/compress.h>
 #include "enumtype.h"
@@ -53,30 +52,6 @@
 		if (_r != ISC_R_SUCCESS) \
 			return (_r); \
 	} while (0)
-
-#define RETTOK(x) \
-	do { \
-		isc_result_t _r = (x); \
-		if (_r != ISC_R_SUCCESS) { \
-			isc_lex_ungettoken(lexer, &token); \
-			return (_r); \
-		} \
-	} while (0)
-
-#define CHECK(op)						\
-	do { result = (op);					\
-		if (result != ISC_R_SUCCESS) goto cleanup;	\
-	} while (0)
-
-#define CHECKTOK(op)						\
-	do { result = (op);					\
-		if (result != ISC_R_SUCCESS) {			\
-			isc_lex_ungettoken(lexer, &token);	\
-			goto cleanup;				\
-		}						\
-	} while (0)
-
-#define DNS_AS_STR(t) ((t).value.as_textregion.base)
 
 #define ARGS_TOTEXT	dns_rdata_t *rdata, dns_rdata_textctx_t *tctx, \
 			isc_buffer_t *target
@@ -240,11 +215,6 @@ generic_tostruct_tlsa(ARGS_TOSTRUCT);
 
 static void
 generic_freestruct_tlsa(ARGS_FREESTRUCT);
-
-/*% INT16 Size */
-#define NS_INT16SZ	2
-/*% IPv6 Address Size */
-#define NS_LOCATORSZ	8
 
 /*
  * Active Diretory gc._msdcs.<forest> prefix.
@@ -1248,8 +1218,6 @@ struct state {
 #define word state->word
 #define bcount state->bcount
 
-#define times85(x)	((((((x<<2)+x)<<2)+x)<<2)+x)
-
 static isc_result_t	byte_btoa(int c, isc_buffer_t *, struct state *state);
 
 /*
@@ -1348,13 +1316,6 @@ dns_rdata_covers(dns_rdata_t *rdata) {
 	if (rdata->type == dns_rdatatype_rrsig)
 		return (covers_rrsig(rdata));
 	return (covers_sig(rdata));
-}
-
-isc_boolean_t
-dns_rdatatype_ismeta(dns_rdatatype_t type) {
-	if ((dns_rdatatype_attributes(type) & DNS_RDATATYPEATTR_META) != 0)
-		return (ISC_TRUE);
-	return (ISC_FALSE);
 }
 
 isc_boolean_t
