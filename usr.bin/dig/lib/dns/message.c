@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: message.c,v 1.8 2020/02/22 19:50:05 jung Exp $ */
+/* $Id: message.c,v 1.11 2020/02/23 08:56:03 florian Exp $ */
 
 /*! \file */
 
@@ -1624,17 +1624,7 @@ dns_message_parse(dns_message_t *msg, isc_buffer_t *source,
 	}
 
  truncated:
-	if ((options & DNS_MESSAGEPARSE_CLONEBUFFER) == 0)
-		isc_buffer_usedregion(&origsource, &msg->saved);
-	else {
-		msg->saved.length = isc_buffer_usedlength(&origsource);
-		msg->saved.base = malloc(msg->saved.length);
-		if (msg->saved.base == NULL)
-			return (ISC_R_NOMEMORY);
-		memmove(msg->saved.base, isc_buffer_base(&origsource),
-			msg->saved.length);
-		msg->free_saved = 1;
-	}
+	isc_buffer_usedregion(&origsource, &msg->saved);
 
 	if (ret == ISC_R_UNEXPECTEDEND && ignore_tc)
 		return (DNS_R_RECOVERABLE);
@@ -1704,7 +1694,7 @@ dns_message_renderreserve(dns_message_t *msg, unsigned int space) {
 }
 
 static inline isc_boolean_t
-wrong_priority(dns_rdataset_t *rds, int pass, dns_rdatatype_t preferred_glue) {
+wrong_priority(dns_rdataset_t *rds, int pass) {
 	int pass_needed;
 
 	/*
@@ -1716,10 +1706,7 @@ wrong_priority(dns_rdataset_t *rds, int pass, dns_rdatatype_t preferred_glue) {
 	switch (rds->type) {
 	case dns_rdatatype_a:
 	case dns_rdatatype_aaaa:
-		if (preferred_glue == rds->type)
-			pass_needed = 4;
-		else
-			pass_needed = 3;
+		pass_needed = 3;
 		break;
 	case dns_rdatatype_rrsig:
 	case dns_rdatatype_dnskey:
@@ -1766,8 +1753,7 @@ maybe_clear_ad(dns_message_t *msg, dns_section_t sectionid) {
 }
 
 isc_result_t
-dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
-			  unsigned int options)
+dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid)
 {
 	dns_namelist_t *section;
 	dns_name_t *name, *next_name;
@@ -1776,25 +1762,15 @@ dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
 	isc_result_t result;
 	isc_buffer_t st; /* for rollbacks */
 	int pass;
-	isc_boolean_t partial = ISC_FALSE;
-	dns_rdatatype_t preferred_glue = 0;
 
 	REQUIRE(msg->buffer != NULL);
 	REQUIRE(VALID_NAMED_SECTION(sectionid));
 
 	section = &msg->sections[sectionid];
 
-	if ((sectionid == DNS_SECTION_ADDITIONAL)
-	    && (options & DNS_MESSAGERENDER_ORDERED) == 0) {
-		if ((options & DNS_MESSAGERENDER_PREFER_A) != 0) {
-			preferred_glue = dns_rdatatype_a;
-			pass = 4;
-		} else if ((options & DNS_MESSAGERENDER_PREFER_AAAA) != 0) {
-			preferred_glue = dns_rdatatype_aaaa;
-			pass = 4;
-		} else
-			pass = 3;
-	} else
+	if (sectionid == DNS_SECTION_ADDITIONAL)
+		pass = 3;
+	else
 		pass = 1;
 
 	/*
@@ -1805,8 +1781,6 @@ dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
 	msg->buffer->length -= msg->reserved;
 
 	total = 0;
-	if (msg->reserved == 0 && (options & DNS_MESSAGERENDER_PARTIAL) != 0)
-		partial = ISC_TRUE;
 
 	/*
 	 * Render required glue first.  Set TC if it won't fit.
@@ -1820,30 +1794,14 @@ dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
 			const void *order_arg = msg->order_arg;
 			st = *(msg->buffer);
 			count = 0;
-			if (partial)
-				result = dns_rdataset_towirepartial(rdataset,
-								    name,
-								    msg->cctx,
-								    msg->buffer,
-								    msg->order,
-								    order_arg,
-								    &count,
-								    NULL);
-			else
-				result = dns_rdataset_towiresorted(rdataset,
-								   name,
-								   msg->cctx,
-								   msg->buffer,
-								   msg->order,
-								   order_arg,
-								   &count);
+			result = dns_rdataset_towiresorted(rdataset,
+							   name,
+							   msg->cctx,
+							   msg->buffer,
+							   msg->order,
+							   order_arg,
+							   &count);
 			total += count;
-			if (partial && result == ISC_R_NOSPACE) {
-				msg->flags |= DNS_MESSAGEFLAG_TC;
-				msg->buffer->length += msg->reserved;
-				msg->counts[sectionid] += total;
-				return (result);
-			}
 			if (result == ISC_R_NOSPACE)
 				msg->flags |= DNS_MESSAGEFLAG_TC;
 			if (result != ISC_R_SUCCESS) {
@@ -1878,35 +1836,21 @@ dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
 				     DNS_RDATASETATTR_RENDERED) != 0)
 					goto next;
 
-				if (((options & DNS_MESSAGERENDER_ORDERED)
-				     == 0)
-				    && (sectionid == DNS_SECTION_ADDITIONAL)
-				    && wrong_priority(rdataset, pass,
-						      preferred_glue))
+				if ((sectionid == DNS_SECTION_ADDITIONAL)
+				    && wrong_priority(rdataset, pass))
 					goto next;
 
 				st = *(msg->buffer);
 
 				count = 0;
-				if (partial)
-					result = dns_rdataset_towirepartial(
-							  rdataset,
-							  name,
-							  msg->cctx,
-							  msg->buffer,
-							  msg->order,
-							  msg->order_arg,
-							  &count,
-							  NULL);
-				else
-					result = dns_rdataset_towiresorted(
-							  rdataset,
-							  name,
-							  msg->cctx,
-							  msg->buffer,
-							  msg->order,
-							  msg->order_arg,
-							  &count);
+				result = dns_rdataset_towiresorted(
+						  rdataset,
+						  name,
+						  msg->cctx,
+						  msg->buffer,
+						  msg->order,
+						  msg->order_arg,
+						  &count);
 
 				total += count;
 
@@ -1914,20 +1858,7 @@ dns_message_rendersection(dns_message_t *msg, dns_section_t sectionid,
 				 * If out of space, record stats on what we
 				 * rendered so far, and return that status.
 				 *
-				 * XXXMLG Need to change this when
-				 * dns_rdataset_towire() can render partial
-				 * sets starting at some arbitrary point in the
-				 * set.  This will include setting a bit in the
-				 * rdataset to indicate that a partial
-				 * rendering was done, and some state saved
-				 * somewhere (probably in the message struct)
-				 * to indicate where to continue from.
 				 */
-				if (partial && result == ISC_R_NOSPACE) {
-					msg->buffer->length += msg->reserved;
-					msg->counts[sectionid] += total;
-					return (result);
-				}
 				if (result != ISC_R_SUCCESS) {
 					INSIST(st.used < 65536);
 					dns_compress_rollback(msg->cctx,
@@ -2034,8 +1965,7 @@ dns_message_renderend(dns_message_t *msg) {
 		isc_buffer_clear(msg->buffer);
 		isc_buffer_add(msg->buffer, DNS_MESSAGE_HEADERLEN);
 		dns_compress_rollback(msg->cctx, 0);
-		result = dns_message_rendersection(msg, DNS_SECTION_QUESTION,
-						   0);
+		result = dns_message_rendersection(msg, DNS_SECTION_QUESTION);
 		if (result != ISC_R_SUCCESS && result != ISC_R_NOSPACE)
 			return (result);
 	}

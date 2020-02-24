@@ -159,20 +159,8 @@ typedef int dns_messagetextflag_t;
 #define DNS_MESSAGEPARSE_BESTEFFORT	0x0002	/*%< return a message if a
 						   recoverable parse error
 						   occurs */
-#define DNS_MESSAGEPARSE_CLONEBUFFER	0x0004	/*%< save a copy of the
-						   source buffer */
 #define DNS_MESSAGEPARSE_IGNORETRUNCATION 0x0008 /*%< truncation errors are
 						  * not fatal. */
-
-/*
- * Control behavior of rendering
- */
-#define DNS_MESSAGERENDER_ORDERED	0x0001	/*%< don't change order */
-#define DNS_MESSAGERENDER_PARTIAL	0x0002	/*%< allow a partial rdataset */
-#define DNS_MESSAGERENDER_PREFER_A	0x0008	/*%< prefer A records in
-						      additional section. */
-#define DNS_MESSAGERENDER_PREFER_AAAA	0x0010	/*%< prefer AAAA records in
-						  additional section. */
 
 typedef struct dns_msgblock dns_msgblock_t;
 
@@ -450,8 +438,7 @@ dns_message_renderrelease(dns_message_t *msg, unsigned int space);
  */
 
 isc_result_t
-dns_message_rendersection(dns_message_t *msg, dns_section_t section,
-			  unsigned int options);
+dns_message_rendersection(dns_message_t *msg, dns_section_t section);
 /*%<
  * Render all names, rdatalists, etc from the given section at the
  * specified priority or higher.

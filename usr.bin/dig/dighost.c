@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dighost.c,v 1.14 2020/02/21 19:53:39 jung Exp $ */
+/* $Id: dighost.c,v 1.16 2020/02/23 19:54:25 jung Exp $ */
 
 /*! \file
  *  \note
@@ -169,7 +169,6 @@ dns_tsigkey_t *tsigkey = NULL;
 isc_boolean_t validated = ISC_TRUE;
 isc_boolean_t debugging = ISC_FALSE;
 isc_boolean_t debugtiming = ISC_FALSE;
-isc_boolean_t memdebugging = ISC_FALSE;
 char *progname = NULL;
 dig_lookup_t *current_lookup = NULL;
 
@@ -2330,10 +2329,10 @@ setup_lookup(dig_lookup_t *lookup) {
 	}
 
 	result = dns_message_rendersection(lookup->sendmsg,
-					   DNS_SECTION_QUESTION, 0);
+					   DNS_SECTION_QUESTION);
 	check_result(result, "dns_message_rendersection");
 	result = dns_message_rendersection(lookup->sendmsg,
-					   DNS_SECTION_AUTHORITY, 0);
+					   DNS_SECTION_AUTHORITY);
 	check_result(result, "dns_message_rendersection");
 	result = dns_message_renderend(lookup->sendmsg);
 	check_result(result, "dns_message_renderend");
@@ -3907,8 +3906,6 @@ destroy_libs(void) {
 	flush_server_list();
 
 	clear_searchlist();
-
-	dns_name_destroy();
 
 	if (socketmgr != NULL) {
 		debug("freeing socketmgr");

@@ -33,7 +33,7 @@
 
 /*
  * Principal Author: Brian Wellington
- * $Id: dst_api.c,v 1.7 2020/02/22 19:51:03 jung Exp $
+ * $Id: dst_api.c,v 1.11 2020/02/23 08:54:01 florian Exp $
  */
 
 /*! \file */
@@ -64,19 +64,14 @@ static isc_boolean_t dst_initialized = ISC_FALSE;
 /*
  * Static functions.
  */
-static dst_key_t *	get_key_struct(dns_name_t *name,
-				       unsigned int alg,
+static dst_key_t *	get_key_struct(unsigned int alg,
 				       unsigned int flags,
 				       unsigned int protocol,
-				       unsigned int bits,
-				       dns_rdataclass_t rdclass,
-				       dns_ttl_t ttl);
+				       unsigned int bits);
 static isc_result_t	computeid(dst_key_t *key);
-static isc_result_t	frombuffer(dns_name_t *name,
-				   unsigned int alg,
+static isc_result_t	frombuffer(unsigned int alg,
 				   unsigned int flags,
 				   unsigned int protocol,
-				   dns_rdataclass_t rdclass,
 				   isc_buffer_t *source,
 				   dst_key_t **keyp);
 
@@ -124,13 +119,9 @@ dst_lib_init(void) {
 
 void
 dst_lib_destroy(void) {
-	int i;
 	RUNTIME_CHECK(dst_initialized == ISC_TRUE);
 	dst_initialized = ISC_FALSE;
 
-	for (i = 0; i < DST_MAX_ALGS; i++)
-		if (dst_t_func[i] != NULL && dst_t_func[i]->cleanup != NULL)
-			dst_t_func[i]->cleanup();
 	dst__openssl_destroy();
 }
 
@@ -144,43 +135,15 @@ dst_algorithm_supported(unsigned int alg) {
 }
 
 isc_result_t
-dst_context_create(dst_key_t *key, dst_context_t **dctxp) {
-	return (dst_context_create4(key, DNS_LOGCATEGORY_GENERAL,
-				    ISC_TRUE, 0, dctxp));
-}
-
-isc_result_t
-dst_context_create2(dst_key_t *key,
-		    isc_logcategory_t *category, dst_context_t **dctxp)
-{
-	return (dst_context_create4(key, category, ISC_TRUE, 0, dctxp));
-}
-
-isc_result_t
 dst_context_create3(dst_key_t *key,
 		    isc_logcategory_t *category, isc_boolean_t useforsigning,
 		    dst_context_t **dctxp)
-{
-	return (dst_context_create4(key, category,
-				    useforsigning, 0, dctxp));
-}
-
-isc_result_t
-dst_context_create4(dst_key_t *key,
-		    isc_logcategory_t *category, isc_boolean_t useforsigning,
-		    int maxbits, dst_context_t **dctxp)
 {
 	dst_context_t *dctx;
 	isc_result_t result;
 
 	REQUIRE(dst_initialized == ISC_TRUE);
 	REQUIRE(dctxp != NULL && *dctxp == NULL);
-
-	if (key->func->createctx == NULL &&
-	    key->func->createctx2 == NULL)
-		return (DST_R_UNSUPPORTEDALG);
-	if (key->keydata.generic == NULL)
-		return (DST_R_NULLKEY);
 
 	dctx = malloc(sizeof(dst_context_t));
 	if (dctx == NULL)
@@ -192,10 +155,7 @@ dst_context_create4(dst_key_t *key,
 		dctx->use = DO_SIGN;
 	else
 		dctx->use = DO_VERIFY;
-	if (key->func->createctx2 != NULL)
-		result = key->func->createctx2(key, maxbits, dctx);
-	else
-		result = key->func->createctx(key, dctx);
+	result = key->func->createctx(key, dctx);
 	if (result != ISC_R_SUCCESS) {
 		if (dctx->key != NULL)
 			dst_key_free(&dctx->key);
@@ -213,7 +173,6 @@ dst_context_destroy(dst_context_t **dctxp) {
 	REQUIRE(dctxp != NULL);
 
 	dctx = *dctxp;
-	INSIST(dctx->key->func->destroyctx != NULL);
 	dctx->key->func->destroyctx(dctx);
 	if (dctx->key != NULL)
 		dst_key_free(&dctx->key);
@@ -224,8 +183,6 @@ dst_context_destroy(dst_context_t **dctxp) {
 isc_result_t
 dst_context_adddata(dst_context_t *dctx, const isc_region_t *data) {
 	REQUIRE(data != NULL);
-	INSIST(dctx->key->func->adddata != NULL);
-
 	return (dctx->key->func->adddata(dctx, data));
 }
 
@@ -237,14 +194,6 @@ dst_context_sign(dst_context_t *dctx, isc_buffer_t *sig) {
 
 	key = dctx->key;
 	CHECKALG(key->key_alg);
-	if (key->keydata.generic == NULL)
-		return (DST_R_NULLKEY);
-
-	if (key->func->sign == NULL)
-		return (DST_R_NOTPRIVATEKEY);
-	if (key->func->isprivate == NULL ||
-	    key->func->isprivate(key) == ISC_FALSE)
-		return (DST_R_NOTPRIVATEKEY);
 
 	return (key->func->sign(dctx, sig));
 }
@@ -254,30 +203,8 @@ dst_context_verify(dst_context_t *dctx, isc_region_t *sig) {
 	REQUIRE(sig != NULL);
 
 	CHECKALG(dctx->key->key_alg);
-	if (dctx->key->keydata.generic == NULL)
-		return (DST_R_NULLKEY);
-	if (dctx->key->func->verify == NULL)
-		return (DST_R_NOTPUBLICKEY);
 
 	return (dctx->key->func->verify(dctx, sig));
-}
-
-isc_result_t
-dst_context_verify2(dst_context_t *dctx, unsigned int maxbits,
-		    isc_region_t *sig)
-{
-	REQUIRE(sig != NULL);
-
-	CHECKALG(dctx->key->key_alg);
-	if (dctx->key->keydata.generic == NULL)
-		return (DST_R_NULLKEY);
-	if (dctx->key->func->verify == NULL &&
-	    dctx->key->func->verify2 == NULL)
-		return (DST_R_NOTPUBLICKEY);
-
-	return (dctx->key->func->verify2 != NULL ?
-		dctx->key->func->verify2(dctx, maxbits, sig) :
-		dctx->key->func->verify(dctx, sig));
 }
 
 isc_result_t
@@ -286,9 +213,6 @@ dst_key_todns(const dst_key_t *key, isc_buffer_t *target) {
 	REQUIRE(target != NULL);
 
 	CHECKALG(key->key_alg);
-
-	if (key->func->todns == NULL)
-		return (DST_R_UNSUPPORTEDALG);
 
 	if (isc_buffer_availablelength(target) < 4)
 		return (ISC_R_NOSPACE);
@@ -304,16 +228,11 @@ dst_key_todns(const dst_key_t *key, isc_buffer_t *target) {
 						    & 0xffff));
 	}
 
-	if (key->keydata.generic == NULL) /*%< NULL KEY */
-		return (ISC_R_SUCCESS);
-
 	return (key->func->todns(key, target));
 }
 
 isc_result_t
-dst_key_frombuffer(dns_name_t *name, unsigned int alg,
-		   unsigned int flags, unsigned int protocol,
-		   dns_rdataclass_t rdclass,
+dst_key_frombuffer(unsigned int alg, unsigned int flags, unsigned int protocol,
 		   isc_buffer_t *source, dst_key_t **keyp)
 {
 	dst_key_t *key = NULL;
@@ -321,8 +240,7 @@ dst_key_frombuffer(dns_name_t *name, unsigned int alg,
 
 	REQUIRE(dst_initialized);
 
-	result = frombuffer(name, alg, flags, protocol, rdclass, source,
-			    &key);
+	result = frombuffer(alg, flags, protocol, source, &key);
 	if (result != ISC_R_SUCCESS)
 		return (result);
 
@@ -361,19 +279,7 @@ dst_key_free(dst_key_t **keyp) {
 		return;
 
 	isc_refcount_destroy(&key->refs);
-	if (key->keydata.generic != NULL) {
-		INSIST(key->func->destroy != NULL);
-		key->func->destroy(key);
-	}
-	if (key->engine != NULL)
-		free(key->engine);
-	if (key->label != NULL)
-		free(key->label);
-	dns_name_free(key->key_name);
-	free(key->key_name);
-	if (key->key_tkeytoken) {
-		isc_buffer_free(&key->key_tkeytoken);
-	}
+	key->func->destroy(key);
 	isc_safe_memwipe(key, sizeof(*key));
 	free(key);
 	*keyp = NULL;
@@ -415,14 +321,12 @@ dst_key_sigsize(const dst_key_t *key, unsigned int *n) {
  * Allocates a key structure and fills in some of the fields.
  */
 static dst_key_t *
-get_key_struct(dns_name_t *name, unsigned int alg,
+get_key_struct(unsigned int alg,
 	       unsigned int flags, unsigned int protocol,
-	       unsigned int bits, dns_rdataclass_t rdclass,
-	       dns_ttl_t ttl)
+	       unsigned int bits)
 {
 	dst_key_t *key;
 	isc_result_t result;
-	int i;
 
 	key = (dst_key_t *) malloc(sizeof(dst_key_t));
 	if (key == NULL)
@@ -430,42 +334,16 @@ get_key_struct(dns_name_t *name, unsigned int alg,
 
 	memset(key, 0, sizeof(dst_key_t));
 
-	key->key_name = malloc(sizeof(dns_name_t));
-	if (key->key_name == NULL) {
-		free(key);
-		return (NULL);
-	}
-
-	dns_name_init(key->key_name, NULL);
-	result = dns_name_dup(name, key->key_name);
-	if (result != ISC_R_SUCCESS) {
-		free(key->key_name);
-		free(key);
-		return (NULL);
-	}
-
 	result = isc_refcount_init(&key->refs, 1);
 	if (result != ISC_R_SUCCESS) {
-		dns_name_free(key->key_name);
-		free(key->key_name);
 		free(key);
 		return (NULL);
 	}
 	key->key_alg = alg;
 	key->key_flags = flags;
 	key->key_proto = protocol;
-	key->keydata.generic = NULL;
 	key->key_size = bits;
-	key->key_class = rdclass;
-	key->key_ttl = ttl;
 	key->func = dst_t_func[alg];
-	key->fmt_major = 0;
-	key->fmt_minor = 0;
-	for (i = 0; i < (DST_MAX_TIMES + 1); i++) {
-		key->times[i] = 0;
-		key->timeset[i] = ISC_FALSE;
-	}
-	key->inactive = ISC_FALSE;
 	return (key);
 }
 
@@ -482,24 +360,20 @@ computeid(dst_key_t *key) {
 		return (ret);
 
 	isc_buffer_usedregion(&dnsbuf, &r);
-	key->key_id = dst_region_computeid(&r, key->key_alg);
-	key->key_rid = dst_region_computerid(&r, key->key_alg);
 	return (ISC_R_SUCCESS);
 }
 
 static isc_result_t
-frombuffer(dns_name_t *name, unsigned int alg, unsigned int flags,
-	   unsigned int protocol, dns_rdataclass_t rdclass,
-	   isc_buffer_t *source, dst_key_t **keyp)
+frombuffer(unsigned int alg, unsigned int flags,
+	   unsigned int protocol, isc_buffer_t *source, dst_key_t **keyp)
 {
 	dst_key_t *key;
 	isc_result_t ret;
 
-	REQUIRE(dns_name_isabsolute(name));
 	REQUIRE(source != NULL);
 	REQUIRE(keyp != NULL && *keyp == NULL);
 
-	key = get_key_struct(name, alg, flags, protocol, 0, rdclass, 0);
+	key = get_key_struct(alg, flags, protocol, 0);
 	if (key == NULL)
 		return (ISC_R_NOMEMORY);
 
@@ -508,10 +382,6 @@ frombuffer(dns_name_t *name, unsigned int alg, unsigned int flags,
 		if (ret != ISC_R_SUCCESS) {
 			dst_key_free(&key);
 			return (ret);
-		}
-		if (key->func->fromdns == NULL) {
-			dst_key_free(&key);
-			return (DST_R_UNSUPPORTEDALG);
 		}
 
 		ret = key->func->fromdns(key, source);

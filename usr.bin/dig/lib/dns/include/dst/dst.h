@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dst.h,v 1.7 2020/02/22 19:47:06 jung Exp $ */
+/* $Id: dst.h,v 1.10 2020/02/23 23:40:21 jsg Exp $ */
 
 #ifndef DST_DST_H
 #define DST_DST_H 1
@@ -141,21 +141,10 @@ dst_algorithm_supported(unsigned int alg);
  */
 
 isc_result_t
-dst_context_create(dst_key_t *key, dst_context_t **dctxp);
-
-isc_result_t
-dst_context_create2(dst_key_t *key,
-		    isc_logcategory_t *category, dst_context_t **dctxp);
-
-isc_result_t
 dst_context_create3(dst_key_t *key,
 		    isc_logcategory_t *category, isc_boolean_t useforsigning,
 		    dst_context_t **dctxp);
 
-isc_result_t
-dst_context_create4(dst_key_t *key,
-		    isc_logcategory_t *category, isc_boolean_t useforsigning,
-		    int maxbits, dst_context_t **dctxp);
 /*%<
  * Creates a context to be used for a sign or verify operation.
  *
@@ -221,27 +210,6 @@ isc_result_t
 dst_context_verify(dst_context_t *dctx, isc_region_t *sig);
 
 isc_result_t
-dst_context_verify2(dst_context_t *dctx, unsigned int maxbits,
-		    isc_region_t *sig);
-/*%<
- * Verifies the signature using the data and key stored in the context.
- *
- * 'maxbits' specifies the maximum number of bits permitted in the RSA
- * exponent.
- *
- * Requires:
- * \li	"dctx" is a valid context.
- * \li	"sig" is a valid region.
- *
- * Returns:
- * \li	ISC_R_SUCCESS
- * \li	all other errors indicate failure
- *
- * Ensures:
- * \li	"sig" will contain the signature
- */
-
-isc_result_t
 dst_key_todns(const dst_key_t *key, isc_buffer_t *target);
 /*%<
  * Converts a DST key into a DNS KEY record.
@@ -259,9 +227,7 @@ dst_key_todns(const dst_key_t *key, isc_buffer_t *target);
  */
 
 isc_result_t
-dst_key_frombuffer(dns_name_t *name, unsigned int alg,
-		   unsigned int flags, unsigned int protocol,
-		   dns_rdataclass_t rdclass,
+dst_key_frombuffer(unsigned int alg, unsigned int flags, unsigned int protocol,
 		   isc_buffer_t *source, dst_key_t **keyp);
 /*%<
  * Converts a buffer containing DNS KEY RDATA into a DST key.
@@ -337,8 +303,6 @@ dst_key_sigsize(const dst_key_t *key, unsigned int *n);
 
 uint16_t
 dst_region_computeid(const isc_region_t *source, unsigned int alg);
-uint16_t
-dst_region_computerid(const isc_region_t *source, unsigned int alg);
 /*%<
  * Computes the (revoked) key id of the key stored in the provided
  * region with the given algorithm.
