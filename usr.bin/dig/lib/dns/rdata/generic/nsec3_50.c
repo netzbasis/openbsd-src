@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: nsec3_50.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: nsec3_50.c,v 1.8 2020/02/25 05:00:43 jsg Exp $ */
 
 /*
  * Copyright (C) 2004  Nominet, Ltd.
@@ -168,112 +168,6 @@ towire_nsec3(ARGS_TOWIRE) {
 	return (mem_tobuffer(target, sr.base, sr.length));
 }
 
-static inline int
-compare_nsec3(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_nsec3);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_nsec3(ARGS_FROMSTRUCT) {
-	dns_rdata_nsec3_t *nsec3 = source;
-	isc_region_t region;
-
-	REQUIRE(type == dns_rdatatype_nsec3);
-	REQUIRE(source != NULL);
-	REQUIRE(nsec3->common.rdtype == type);
-	REQUIRE(nsec3->common.rdclass == rdclass);
-	REQUIRE(nsec3->typebits != NULL || nsec3->len == 0);
-	REQUIRE(nsec3->hash == dns_hash_sha1);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	RETERR(uint8_tobuffer(nsec3->hash, target));
-	RETERR(uint8_tobuffer(nsec3->flags, target));
-	RETERR(uint16_tobuffer(nsec3->iterations, target));
-	RETERR(uint8_tobuffer(nsec3->salt_length, target));
-	RETERR(mem_tobuffer(target, nsec3->salt, nsec3->salt_length));
-	RETERR(uint8_tobuffer(nsec3->next_length, target));
-	RETERR(mem_tobuffer(target, nsec3->next, nsec3->next_length));
-
-	region.base = nsec3->typebits;
-	region.length = nsec3->len;
-	RETERR(typemap_test(&region, ISC_TRUE));
-	return (mem_tobuffer(target, nsec3->typebits, nsec3->len));
-}
-
-static inline isc_result_t
-tostruct_nsec3(ARGS_TOSTRUCT) {
-	isc_region_t region;
-	dns_rdata_nsec3_t *nsec3 = target;
-
-	REQUIRE(rdata->type == dns_rdatatype_nsec3);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-
-	nsec3->common.rdclass = rdata->rdclass;
-	nsec3->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&nsec3->common, link);
-
-	region.base = rdata->data;
-	region.length = rdata->length;
-	nsec3->hash = uint8_consume_fromregion(&region);
-	nsec3->flags = uint8_consume_fromregion(&region);
-	nsec3->iterations = uint16_consume_fromregion(&region);
-
-	nsec3->salt_length = uint8_consume_fromregion(&region);
-	nsec3->salt = mem_maybedup(region.base, nsec3->salt_length);
-	if (nsec3->salt == NULL)
-		return (ISC_R_NOMEMORY);
-	isc_region_consume(&region, nsec3->salt_length);
-
-	nsec3->next_length = uint8_consume_fromregion(&region);
-	nsec3->next = mem_maybedup(region.base, nsec3->next_length);
-	if (nsec3->next == NULL)
-		goto cleanup;
-	isc_region_consume(&region, nsec3->next_length);
-
-	nsec3->len = region.length;
-	nsec3->typebits = mem_maybedup(region.base, region.length);
-	if (nsec3->typebits == NULL)
-		goto cleanup;
-
-	return (ISC_R_SUCCESS);
-
-  cleanup:
-	if (nsec3->next != NULL)
-		free(nsec3->next);
-	free(nsec3->salt);
-	return (ISC_R_NOMEMORY);
-}
-
-static inline void
-freestruct_nsec3(ARGS_FREESTRUCT) {
-	dns_rdata_nsec3_t *nsec3 = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(nsec3->common.rdtype == dns_rdatatype_nsec3);
-
-
-	if (nsec3->salt != NULL)
-		free(nsec3->salt);
-	if (nsec3->next != NULL)
-		free(nsec3->next);
-	if (nsec3->typebits != NULL)
-		free(nsec3->typebits);
-}
-
 #define NSEC3_MAX_HASH_LENGTH 155
 static inline isc_boolean_t
 checkowner_nsec3(ARGS_CHECKOWNER) {
@@ -297,11 +191,6 @@ checkowner_nsec3(ARGS_CHECKOWNER) {
 		return (ISC_TRUE);
 
 	return (ISC_FALSE);
-}
-
-static inline int
-casecompare_nsec3(ARGS_COMPARE) {
-	return (compare_nsec3(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_NSEC3_50_C */

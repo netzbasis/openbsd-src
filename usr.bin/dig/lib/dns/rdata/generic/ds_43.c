@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: ds_43.c,v 1.4 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: ds_43.c,v 1.10 2020/02/24 17:47:50 florian Exp $ */
 
 /* RFC3658 */
 
@@ -151,130 +151,6 @@ towire_ds(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_ds(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_ds);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-generic_fromstruct_ds(ARGS_FROMSTRUCT) {
-	dns_rdata_ds_t *ds = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(ds->common.rdtype == type);
-	REQUIRE(ds->common.rdclass == rdclass);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	switch (ds->digest_type) {
-	case DNS_DSDIGEST_SHA1:
-		REQUIRE(ds->length == ISC_SHA1_DIGESTLENGTH);
-		break;
-	case DNS_DSDIGEST_SHA256:
-		REQUIRE(ds->length == ISC_SHA256_DIGESTLENGTH);
-		break;
-	case DNS_DSDIGEST_SHA384:
-		REQUIRE(ds->length == ISC_SHA384_DIGESTLENGTH);
-		break;
-	}
-
-	RETERR(uint16_tobuffer(ds->key_tag, target));
-	RETERR(uint8_tobuffer(ds->algorithm, target));
-	RETERR(uint8_tobuffer(ds->digest_type, target));
-
-	return (mem_tobuffer(target, ds->digest, ds->length));
-}
-
-static inline isc_result_t
-fromstruct_ds(ARGS_FROMSTRUCT) {
-
-	REQUIRE(type == dns_rdatatype_ds);
-
-	return (generic_fromstruct_ds(rdclass, type, source, target));
-}
-
-static inline isc_result_t
-generic_tostruct_ds(ARGS_TOSTRUCT) {
-	dns_rdata_ds_t *ds = target;
-	isc_region_t region;
-
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-	REQUIRE(ds->common.rdtype == rdata->type);
-	REQUIRE(ds->common.rdclass == rdata->rdclass);
-	REQUIRE(!ISC_LINK_LINKED(&ds->common, link));
-
-	dns_rdata_toregion(rdata, &region);
-
-	ds->key_tag = uint16_fromregion(&region);
-	isc_region_consume(&region, 2);
-	ds->algorithm = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	ds->digest_type = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	ds->length = region.length;
-
-	ds->digest = mem_maybedup(region.base, region.length);
-	if (ds->digest == NULL)
-		return (ISC_R_NOMEMORY);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-tostruct_ds(ARGS_TOSTRUCT) {
-	dns_rdata_ds_t *ds = target;
-
-	REQUIRE(rdata->type == dns_rdatatype_ds);
-	REQUIRE(target != NULL);
-
-	ds->common.rdclass = rdata->rdclass;
-	ds->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&ds->common, link);
-
-	return (generic_tostruct_ds(rdata, target));
-}
-
-static inline void
-freestruct_ds(ARGS_FREESTRUCT) {
-	dns_rdata_ds_t *ds = source;
-
-	REQUIRE(ds != NULL);
-	REQUIRE(ds->common.rdtype == dns_rdatatype_ds);
-
-	free(ds->digest);
-}
-
-static inline isc_boolean_t
-checkowner_ds(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_ds);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_ds(ARGS_COMPARE) {
-	return (compare_ds(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_DS_43_C */

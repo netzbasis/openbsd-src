@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: unspec_103.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: unspec_103.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
 
 #ifndef RDATA_GENERIC_UNSPEC_103_C
 #define RDATA_GENERIC_UNSPEC_103_C
@@ -55,86 +55,6 @@ towire_unspec(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	return (mem_tobuffer(target, rdata->data, rdata->length));
-}
-
-static inline int
-compare_unspec(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_unspec);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_unspec(ARGS_FROMSTRUCT) {
-	dns_rdata_unspec_t *unspec = source;
-
-	REQUIRE(type == dns_rdatatype_unspec);
-	REQUIRE(source != NULL);
-	REQUIRE(unspec->common.rdtype == type);
-	REQUIRE(unspec->common.rdclass == rdclass);
-	REQUIRE(unspec->data != NULL || unspec->datalen == 0);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	return (mem_tobuffer(target, unspec->data, unspec->datalen));
-}
-
-static inline isc_result_t
-tostruct_unspec(ARGS_TOSTRUCT) {
-	dns_rdata_unspec_t *unspec = target;
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_unspec);
-	REQUIRE(target != NULL);
-
-	unspec->common.rdclass = rdata->rdclass;
-	unspec->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&unspec->common, link);
-
-	dns_rdata_toregion(rdata, &r);
-	unspec->datalen = r.length;
-	unspec->data = mem_maybedup(r.base, r.length);
-	if (unspec->data == NULL)
-		return (ISC_R_NOMEMORY);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_unspec(ARGS_FREESTRUCT) {
-	dns_rdata_unspec_t *unspec = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(unspec->common.rdtype == dns_rdatatype_unspec);
-
-	if (unspec->data != NULL)
-		free(unspec->data);
-}
-
-static inline isc_boolean_t
-checkowner_unspec(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_unspec);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_unspec(ARGS_COMPARE) {
-	return (compare_unspec(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_UNSPEC_103_C */

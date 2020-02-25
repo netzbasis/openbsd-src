@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: sshfp_44.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: sshfp_44.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
 
 /* RFC 4255 */
 
@@ -98,97 +98,6 @@ towire_sshfp(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_sshfp(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_sshfp);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_sshfp(ARGS_FROMSTRUCT) {
-	dns_rdata_sshfp_t *sshfp = source;
-
-	REQUIRE(type == dns_rdatatype_sshfp);
-	REQUIRE(source != NULL);
-	REQUIRE(sshfp->common.rdtype == type);
-	REQUIRE(sshfp->common.rdclass == rdclass);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	RETERR(uint8_tobuffer(sshfp->algorithm, target));
-	RETERR(uint8_tobuffer(sshfp->digest_type, target));
-
-	return (mem_tobuffer(target, sshfp->digest, sshfp->length));
-}
-
-static inline isc_result_t
-tostruct_sshfp(ARGS_TOSTRUCT) {
-	dns_rdata_sshfp_t *sshfp = target;
-	isc_region_t region;
-
-	REQUIRE(rdata->type == dns_rdatatype_sshfp);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-
-	sshfp->common.rdclass = rdata->rdclass;
-	sshfp->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&sshfp->common, link);
-
-	dns_rdata_toregion(rdata, &region);
-
-	sshfp->algorithm = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	sshfp->digest_type = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	sshfp->length = region.length;
-
-	sshfp->digest = mem_maybedup(region.base, region.length);
-	if (sshfp->digest == NULL)
-		return (ISC_R_NOMEMORY);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_sshfp(ARGS_FREESTRUCT) {
-	dns_rdata_sshfp_t *sshfp = source;
-
-	REQUIRE(sshfp != NULL);
-	REQUIRE(sshfp->common.rdtype == dns_rdatatype_sshfp);
-
-	if (sshfp->digest != NULL)
-		free(sshfp->digest);
-}
-
-static inline isc_boolean_t
-checkowner_sshfp(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_sshfp);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_sshfp(ARGS_COMPARE) {
-	return (compare_sshfp(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_SSHFP_44_C */

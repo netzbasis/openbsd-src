@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: key_25.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: key_25.c,v 1.10 2020/02/25 05:00:43 jsg Exp $ */
 
 /*
  * Reviewed: Wed Mar 15 16:47:10 PST 2000 by halley.
@@ -56,7 +56,6 @@ generic_totext_key(ARGS_TOTEXT) {
 			keyinfo = "KSK";
 	} else
 		keyinfo = "ZSK";
-
 
 	/* protocol */
 	snprintf(buf, sizeof(buf), "%u", sr.base[0]);
@@ -198,150 +197,6 @@ towire_key(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_key(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1 != NULL);
-	REQUIRE(rdata2 != NULL);
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_key);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-generic_fromstruct_key(ARGS_FROMSTRUCT) {
-	dns_rdata_key_t *key = source;
-
-	REQUIRE(key != NULL);
-	REQUIRE(key->common.rdtype == type);
-	REQUIRE(key->common.rdclass == rdclass);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	/* Flags */
-	RETERR(uint16_tobuffer(key->flags, target));
-
-	/* Protocol */
-	RETERR(uint8_tobuffer(key->protocol, target));
-
-	/* Algorithm */
-	RETERR(uint8_tobuffer(key->algorithm, target));
-
-	/* Data */
-	return (mem_tobuffer(target, key->data, key->datalen));
-}
-
-static inline isc_result_t
-generic_tostruct_key(ARGS_TOSTRUCT) {
-	dns_rdata_key_t *key = target;
-	isc_region_t sr;
-
-	REQUIRE(rdata != NULL);
-	REQUIRE(rdata->length != 0);
-
-	REQUIRE(key != NULL);
-	REQUIRE(key->common.rdclass == rdata->rdclass);
-	REQUIRE(key->common.rdtype == rdata->type);
-	REQUIRE(!ISC_LINK_LINKED(&key->common, link));
-
-	dns_rdata_toregion(rdata, &sr);
-
-	/* Flags */
-	if (sr.length < 2)
-		return (ISC_R_UNEXPECTEDEND);
-	key->flags = uint16_fromregion(&sr);
-	isc_region_consume(&sr, 2);
-
-	/* Protocol */
-	if (sr.length < 1)
-		return (ISC_R_UNEXPECTEDEND);
-	key->protocol = uint8_fromregion(&sr);
-	isc_region_consume(&sr, 1);
-
-	/* Algorithm */
-	if (sr.length < 1)
-		return (ISC_R_UNEXPECTEDEND);
-	key->algorithm = uint8_fromregion(&sr);
-	isc_region_consume(&sr, 1);
-
-	/* Data */
-	key->datalen = sr.length;
-	key->data = mem_maybedup(sr.base, key->datalen);
-	if (key->data == NULL)
-		return (ISC_R_NOMEMORY);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-generic_freestruct_key(ARGS_FREESTRUCT) {
-	dns_rdata_key_t *key = (dns_rdata_key_t *) source;
-
-	REQUIRE(key != NULL);
-
-	free(key->data);
-}
-
-static inline isc_result_t
-fromstruct_key(ARGS_FROMSTRUCT) {
-
-	REQUIRE(type == dns_rdatatype_key);
-
-	return (generic_fromstruct_key(rdclass, type, source, target));
-}
-
-static inline isc_result_t
-tostruct_key(ARGS_TOSTRUCT) {
-	dns_rdata_key_t *key = target;
-
-	REQUIRE(key != NULL);
-	REQUIRE(rdata != NULL);
-	REQUIRE(rdata->type == dns_rdatatype_key);
-
-	key->common.rdclass = rdata->rdclass;
-	key->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&key->common, link);
-
-	return (generic_tostruct_key(rdata, target));
-}
-
-static inline void
-freestruct_key(ARGS_FREESTRUCT) {
-	dns_rdata_key_t *key = (dns_rdata_key_t *) source;
-
-	REQUIRE(key != NULL);
-	REQUIRE(key->common.rdtype == dns_rdatatype_key);
-
-	generic_freestruct_key(source);
-}
-
-static inline isc_boolean_t
-checkowner_key(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_key);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_key(ARGS_COMPARE) {
-	return (compare_key(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_KEY_25_C */

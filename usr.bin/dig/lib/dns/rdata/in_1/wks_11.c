@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: wks_11.c,v 1.4 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: wks_11.c,v 1.10 2020/02/25 05:00:43 jsg Exp $ */
 
 /* Reviewed: Fri Mar 17 15:01:49 PST 2000 by explorer */
 
@@ -109,101 +109,6 @@ towire_in_wks(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_in_wks(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_wks);
-	REQUIRE(rdata1->rdclass == dns_rdataclass_in);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_in_wks(ARGS_FROMSTRUCT) {
-	dns_rdata_in_wks_t *wks = source;
-	uint32_t a;
-
-	REQUIRE(type == dns_rdatatype_wks);
-	REQUIRE(rdclass == dns_rdataclass_in);
-	REQUIRE(source != NULL);
-	REQUIRE(wks->common.rdtype == type);
-	REQUIRE(wks->common.rdclass == rdclass);
-	REQUIRE((wks->map != NULL && wks->map_len <= 8*1024) ||
-		 wks->map_len == 0);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	a = ntohl(wks->in_addr.s_addr);
-	RETERR(uint32_tobuffer(a, target));
-	RETERR(uint8_tobuffer(wks->protocol, target));
-	return (mem_tobuffer(target, wks->map, wks->map_len));
-}
-
-static inline isc_result_t
-tostruct_in_wks(ARGS_TOSTRUCT) {
-	dns_rdata_in_wks_t *wks = target;
-	uint32_t n;
-	isc_region_t region;
-
-	REQUIRE(rdata->type == dns_rdatatype_wks);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-	REQUIRE(rdata->length != 0);
-
-	wks->common.rdclass = rdata->rdclass;
-	wks->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&wks->common, link);
-
-	dns_rdata_toregion(rdata, &region);
-	n = uint32_fromregion(&region);
-	wks->in_addr.s_addr = htonl(n);
-	isc_region_consume(&region, 4);
-	wks->protocol = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	wks->map_len = region.length;
-	wks->map = mem_maybedup(region.base, region.length);
-	if (wks->map == NULL)
-		return (ISC_R_NOMEMORY);
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_in_wks(ARGS_FREESTRUCT) {
-	dns_rdata_in_wks_t *wks = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(wks->common.rdtype == dns_rdatatype_wks);
-	REQUIRE(wks->common.rdclass == dns_rdataclass_in);
-
-	if (wks->map != NULL)
-		free(wks->map);
-}
-
-static inline isc_boolean_t
-checkowner_in_wks(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_wks);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	return (dns_name_ishostname(name, wildcard));
-}
-
-static inline int
-casecompare_in_wks(ARGS_COMPARE) {
-	return (compare_in_wks(rdata1, rdata2));
 }
 
 #endif	/* RDATA_IN_1_WKS_11_C */

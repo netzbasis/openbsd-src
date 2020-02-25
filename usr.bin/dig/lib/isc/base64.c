@@ -14,16 +14,15 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: base64.c,v 1.2 2020/02/23 23:40:22 jsg Exp $ */
+/* $Id: base64.c,v 1.4 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file */
 
-
+#include <string.h>
 
 #include <isc/base64.h>
 #include <isc/buffer.h>
-#include <isc/lex.h>
-#include <string.h>
+#include <isc/region.h>
 #include <isc/util.h>
 
 #define RETERR(x) do { \
@@ -31,7 +30,6 @@
 	if (_r != ISC_R_SUCCESS) \
 		return (_r); \
 	} while (0)
-
 
 /*@{*/
 /*!

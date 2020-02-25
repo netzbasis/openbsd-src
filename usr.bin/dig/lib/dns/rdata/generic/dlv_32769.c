@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dlv_32769.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: dlv_32769.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
 
 /* RFC3658 */
 
@@ -56,71 +56,6 @@ towire_dlv(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_dlv(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_dlv);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_dlv(ARGS_FROMSTRUCT) {
-
-	REQUIRE(type == dns_rdatatype_dlv);
-
-	return (generic_fromstruct_ds(rdclass, type, source, target));
-}
-
-static inline isc_result_t
-tostruct_dlv(ARGS_TOSTRUCT) {
-	dns_rdata_dlv_t *dlv = target;
-
-	REQUIRE(rdata->type == dns_rdatatype_dlv);
-
-	dlv->common.rdclass = rdata->rdclass;
-	dlv->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&dlv->common, link);
-
-	return (generic_tostruct_ds(rdata, target));
-}
-
-static inline void
-freestruct_dlv(ARGS_FREESTRUCT) {
-	dns_rdata_dlv_t *dlv = source;
-
-	REQUIRE(dlv != NULL);
-	REQUIRE(dlv->common.rdtype == dns_rdatatype_dlv);
-
-	free(dlv->digest);
-}
-
-static inline isc_boolean_t
-checkowner_dlv(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_dlv);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_dlv(ARGS_COMPARE) {
-	return (compare_dlv(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_DLV_32769_C */

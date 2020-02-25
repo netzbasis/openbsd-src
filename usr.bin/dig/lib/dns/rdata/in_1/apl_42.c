@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: apl_42.c,v 1.4 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: apl_42.c,v 1.10 2020/02/25 05:00:43 jsg Exp $ */
 
 /* RFC3123 */
 
@@ -147,92 +147,6 @@ towire_in_apl(ARGS_TOWIRE) {
 	REQUIRE(rdata->rdclass == dns_rdataclass_in);
 
 	return (mem_tobuffer(target, rdata->data, rdata->length));
-}
-
-static inline int
-compare_in_apl(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_apl);
-	REQUIRE(rdata1->rdclass == dns_rdataclass_in);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_in_apl(ARGS_FROMSTRUCT) {
-	dns_rdata_in_apl_t *apl = source;
-	isc_buffer_t b;
-
-	REQUIRE(type == dns_rdatatype_apl);
-	REQUIRE(rdclass == dns_rdataclass_in);
-	REQUIRE(source != NULL);
-	REQUIRE(apl->common.rdtype == type);
-	REQUIRE(apl->common.rdclass == rdclass);
-	REQUIRE(apl->apl != NULL || apl->apl_len == 0);
-
-	isc_buffer_init(&b, apl->apl, apl->apl_len);
-	isc_buffer_add(&b, apl->apl_len);
-	isc_buffer_setactive(&b, apl->apl_len);
-	return(fromwire_in_apl(rdclass, type, &b, NULL, ISC_FALSE, target));
-}
-
-static inline isc_result_t
-tostruct_in_apl(ARGS_TOSTRUCT) {
-	dns_rdata_in_apl_t *apl = target;
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_apl);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	apl->common.rdclass = rdata->rdclass;
-	apl->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&apl->common, link);
-
-	dns_rdata_toregion(rdata, &r);
-	apl->apl_len = r.length;
-	apl->apl = mem_maybedup(r.base, r.length);
-	if (apl->apl == NULL)
-		return (ISC_R_NOMEMORY);
-
-	apl->offset = 0;
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_in_apl(ARGS_FREESTRUCT) {
-	dns_rdata_in_apl_t *apl = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(apl->common.rdtype == dns_rdatatype_apl);
-	REQUIRE(apl->common.rdclass == dns_rdataclass_in);
-
-	if (apl->apl != NULL)
-		free(apl->apl);
-}
-
-static inline isc_boolean_t
-checkowner_in_apl(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_apl);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_in_apl(ARGS_COMPARE) {
-	return (compare_in_apl(rdata1, rdata2));
 }
 
 #endif	/* RDATA_IN_1_APL_42_C */

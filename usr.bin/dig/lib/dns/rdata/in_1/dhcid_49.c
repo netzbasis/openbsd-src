@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dhcid_49.c,v 1.3 2020/02/23 19:54:26 jung Exp $ */
+/* $Id: dhcid_49.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
 
 /* RFC 4701 */
 
@@ -88,94 +88,6 @@ towire_in_dhcid(ARGS_TOWIRE) {
 
 	dns_rdata_toregion(rdata, &sr);
 	return (mem_tobuffer(target, sr.base, sr.length));
-}
-
-static inline int
-compare_in_dhcid(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_dhcid);
-	REQUIRE(rdata1->rdclass == dns_rdataclass_in);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_in_dhcid(ARGS_FROMSTRUCT) {
-	dns_rdata_in_dhcid_t *dhcid = source;
-
-	REQUIRE(type == dns_rdatatype_dhcid);
-	REQUIRE(rdclass == dns_rdataclass_in);
-	REQUIRE(source != NULL);
-	REQUIRE(dhcid->common.rdtype == type);
-	REQUIRE(dhcid->common.rdclass == rdclass);
-	REQUIRE(dhcid->length != 0);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	return (mem_tobuffer(target, dhcid->dhcid, dhcid->length));
-}
-
-static inline isc_result_t
-tostruct_in_dhcid(ARGS_TOSTRUCT) {
-	dns_rdata_in_dhcid_t *dhcid = target;
-	isc_region_t region;
-
-	REQUIRE(rdata->type == dns_rdatatype_dhcid);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-
-	dhcid->common.rdclass = rdata->rdclass;
-	dhcid->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&dhcid->common, link);
-
-	dns_rdata_toregion(rdata, &region);
-
-	dhcid->dhcid = mem_maybedup(region.base, region.length);
-	if (dhcid->dhcid == NULL)
-		return (ISC_R_NOMEMORY);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_in_dhcid(ARGS_FREESTRUCT) {
-	dns_rdata_in_dhcid_t *dhcid = source;
-
-	REQUIRE(dhcid != NULL);
-	REQUIRE(dhcid->common.rdtype == dns_rdatatype_dhcid);
-	REQUIRE(dhcid->common.rdclass == dns_rdataclass_in);
-
-	if (dhcid->dhcid != NULL)
-		free(dhcid->dhcid);
-}
-
-static inline isc_boolean_t
-checkowner_in_dhcid(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_dhcid);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_in_dhcid(ARGS_COMPARE) {
-	return (compare_in_dhcid(rdata1, rdata2));
 }
 
 #endif	/* RDATA_IN_1_DHCID_49_C */
