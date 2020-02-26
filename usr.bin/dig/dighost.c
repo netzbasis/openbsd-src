@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dighost.c,v 1.23 2020/02/25 05:00:42 jsg Exp $ */
+/* $Id: dighost.c,v 1.25 2020/02/25 18:10:17 florian Exp $ */
 
 /*! \file
  *  \note
@@ -58,7 +58,6 @@
 #include <isc/netaddr.h>
 #include <isc/parseint.h>
 #include <isc/result.h>
-#include <isc/safe.h>
 #include <isc/serial.h>
 #include <isc/sockaddr.h>
 #include <isc/task.h>
@@ -548,7 +547,7 @@ get_addresses(const char *hostname, in_port_t dstport,
 		return (ISC_R_SUCCESS);
 }
 
-void
+isc_result_t
 set_nameserver(char *opt) {
 	isc_result_t result;
 	isc_sockaddr_t sockaddrs[DIG_MAX_ADDRESSES];
@@ -558,13 +557,12 @@ set_nameserver(char *opt) {
 	char tmp[ISC_NETADDR_FORMATSIZE];
 
 	if (opt == NULL)
-		return;
+		return ISC_R_NOTFOUND;
 
 	result = get_addresses(opt, 0, sockaddrs,
 				    DIG_MAX_ADDRESSES, &count);
 	if (result != ISC_R_SUCCESS)
-		fatal("couldn't get address for '%s': %s",
-		      opt, isc_result_totext(result));
+		return (result);
 
 	flush_server_list();
 
@@ -576,6 +574,7 @@ set_nameserver(char *opt) {
 			fatal("memory allocation failure");
 		ISC_LIST_APPEND(server_list, srv, link);
 	}
+	return (ISC_R_SUCCESS);
 }
 
 static isc_result_t
@@ -3188,7 +3187,7 @@ process_sit(dig_lookup_t *l, dns_message_t *msg,
 
 	INSIST(msg->sitok == 0 && msg->sitbad == 0);
 	if (optlen >= len && optlen >= 8U) {
-		if (isc_safe_memequal(isc_buffer_current(optbuf), sit, 8)) {
+		if (timingsafe_bcmp(isc_buffer_current(optbuf), sit, 8) == 0) {
 			msg->sitok = 1;
 		} else {
 			printf(";; Warning: SIT client cookie mismatch\n");
