@@ -17,8 +17,6 @@
 #ifndef RDATA_GENERIC_AVC_258_C
 #define RDATA_GENERIC_AVC_258_C
 
-#define RRTYPE_AVC_ATTRIBUTES (0)
-
 static inline isc_result_t
 totext_avc(ARGS_TOTEXT) {
 
@@ -50,7 +48,7 @@ towire_avc(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_AVC_258_C */

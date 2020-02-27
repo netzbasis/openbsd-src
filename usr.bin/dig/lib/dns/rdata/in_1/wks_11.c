@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: wks_11.c,v 1.10 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: wks_11.c,v 1.13 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Fri Mar 17 15:01:49 PST 2000 by explorer */
 
@@ -26,8 +26,6 @@
 #include <stdlib.h>
 
 #include <isc/net.h>
-
-#define RRTYPE_WKS_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_wks(ARGS_TOTEXT) {
@@ -48,8 +46,8 @@ totext_in_wks(ARGS_TOTEXT) {
 
 	proto = uint8_fromregion(&sr);
 	snprintf(buf, sizeof(buf), "%u", proto);
-	RETERR(str_totext(" ", target));
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
 	isc_region_consume(&sr, 1);
 
 	INSIST(sr.length <= 8*1024);
@@ -59,8 +57,8 @@ totext_in_wks(ARGS_TOTEXT) {
 				if ((sr.base[i] & (0x80 >> j)) != 0) {
 					snprintf(buf, sizeof(buf),
 						 "%u", i * 8 + j);
-					RETERR(str_totext(" ", target));
-					RETERR(str_totext(buf, target));
+					RETERR(isc_str_tobuffer(" ", target));
+					RETERR(isc_str_tobuffer(buf, target));
 				}
 	}
 
@@ -108,7 +106,7 @@ towire_in_wks(ARGS_TOWIRE) {
 	REQUIRE(rdata->length != 0);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_IN_1_WKS_11_C */

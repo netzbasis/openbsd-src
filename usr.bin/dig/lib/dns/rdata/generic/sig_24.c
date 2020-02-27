@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: sig_24.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: sig_24.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Fri Mar 17 09:05:02 PST 2000 by gson */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_SIG_24_C
 #define RDATA_GENERIC_SIG_24_C
-
-#define RRTYPE_SIG_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_sig(ARGS_TOTEXT) {
@@ -48,33 +46,25 @@ totext_sig(ARGS_TOTEXT) {
 	 */
 	covered = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
-	/*
-	 * XXXAG We should have something like dns_rdatatype_isknown()
-	 * that does the right thing with type 0.
-	 */
-	if (dns_rdatatype_isknown(covered) && covered != 0) {
-		RETERR(dns_rdatatype_totext(covered, target));
-	} else {
-		snprintf(buf, sizeof(buf), "%u", covered);
-		RETERR(str_totext(buf, target));
-	}
-	RETERR(str_totext(" ", target));
+
+	RETERR(dns_rdatatype_totext(covered, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Algorithm.
 	 */
 	snprintf(buf, sizeof(buf), "%u", sr.base[0]);
 	isc_region_consume(&sr, 1);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Labels.
 	 */
 	snprintf(buf, sizeof(buf), "%u", sr.base[0]);
 	isc_region_consume(&sr, 1);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Ttl.
@@ -82,8 +72,8 @@ totext_sig(ARGS_TOTEXT) {
 	ttl = uint32_fromregion(&sr);
 	isc_region_consume(&sr, 4);
 	snprintf(buf, sizeof(buf), "%lu", ttl);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Sig exp.
@@ -93,8 +83,8 @@ totext_sig(ARGS_TOTEXT) {
 	RETERR(dns_time32_totext(exp, target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (", target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	/*
 	 * Time signed.
@@ -102,7 +92,7 @@ totext_sig(ARGS_TOTEXT) {
 	when = uint32_fromregion(&sr);
 	isc_region_consume(&sr, 4);
 	RETERR(dns_time32_totext(when, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Footprint.
@@ -110,8 +100,8 @@ totext_sig(ARGS_TOTEXT) {
 	foot = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%lu", foot);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Signer.
@@ -126,14 +116,14 @@ totext_sig(ARGS_TOTEXT) {
 	/*
 	 * Sig.
 	 */
-	RETERR(str_totext(tctx->linebreak, target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 	if (tctx->width == 0)   /* No splitting */
 		RETERR(isc_base64_totext(&sr, 60, "", target));
 	else
 		RETERR(isc_base64_totext(&sr, tctx->width - 2,
 					 tctx->linebreak, target));
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 
 	return (ISC_R_SUCCESS);
 }
@@ -164,7 +154,7 @@ fromwire_sig(ARGS_FROMWIRE) {
 		return (ISC_R_UNEXPECTEDEND);
 
 	isc_buffer_forward(source, 18);
-	RETERR(mem_tobuffer(target, sr.base, 18));
+	RETERR(isc_mem_tobuffer(target, sr.base, 18));
 
 	/*
 	 * Signer.
@@ -177,7 +167,7 @@ fromwire_sig(ARGS_FROMWIRE) {
 	 */
 	isc_buffer_activeregion(source, &sr);
 	isc_buffer_forward(source, sr.length);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline isc_result_t
@@ -200,7 +190,7 @@ towire_sig(ARGS_TOWIRE) {
 	 * time signed: 4
 	 * key footprint: 2
 	 */
-	RETERR(mem_tobuffer(target, sr.base, 18));
+	RETERR(isc_mem_tobuffer(target, sr.base, 18));
 	isc_region_consume(&sr, 18);
 
 	/*
@@ -214,7 +204,7 @@ towire_sig(ARGS_TOWIRE) {
 	/*
 	 * Signature.
 	 */
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline dns_rdatatype_t

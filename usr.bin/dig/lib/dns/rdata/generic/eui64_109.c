@@ -19,8 +19,6 @@
 
 #include <string.h>
 
-#define RRTYPE_EUI64_ATTRIBUTES (0)
-
 static inline isc_result_t
 totext_eui64(ARGS_TOTEXT) {
 	char buf[sizeof("xx-xx-xx-xx-xx-xx-xx-xx")];
@@ -36,7 +34,7 @@ totext_eui64(ARGS_TOTEXT) {
 		       rdata->data[2], rdata->data[3],
 		       rdata->data[4], rdata->data[5],
 		       rdata->data[6], rdata->data[7]);
-	return (str_totext(buf, target));
+	return (isc_str_tobuffer(buf, target));
 }
 
 static inline isc_result_t
@@ -54,7 +52,7 @@ fromwire_eui64(ARGS_FROMWIRE) {
 	if (sregion.length != 8)
 		return (DNS_R_FORMERR);
 	isc_buffer_forward(source, sregion.length);
-	return (mem_tobuffer(target, sregion.base, sregion.length));
+	return (isc_mem_tobuffer(target, sregion.base, sregion.length));
 }
 
 static inline isc_result_t
@@ -65,7 +63,7 @@ towire_eui64(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_EUI64_109_C */

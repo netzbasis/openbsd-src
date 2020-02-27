@@ -14,14 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: sshfp_44.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: sshfp_44.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* RFC 4255 */
 
 #ifndef RDATA_GENERIC_SSHFP_44_C
 #define RDATA_GENERIC_SSHFP_44_C
-
-#define RRTYPE_SSHFP_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_sshfp(ARGS_TOTEXT) {
@@ -42,7 +40,7 @@ totext_sshfp(ARGS_TOTEXT) {
 	n = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Digest type.
@@ -50,21 +48,21 @@ totext_sshfp(ARGS_TOTEXT) {
 	n = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Digest.
 	 */
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (", target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 	if (tctx->width == 0) /* No splitting */
 		RETERR(isc_hex_totext(&sr, 0, "", target));
 	else
 		RETERR(isc_hex_totext(&sr, tctx->width - 2,
 				      tctx->linebreak, target));
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 	return (ISC_R_SUCCESS);
 }
 
@@ -84,7 +82,7 @@ fromwire_sshfp(ARGS_FROMWIRE) {
 		return (ISC_R_UNEXPECTEDEND);
 
 	isc_buffer_forward(source, sr.length);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline isc_result_t
@@ -97,7 +95,7 @@ towire_sshfp(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_SSHFP_44_C */

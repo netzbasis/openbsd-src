@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: nxt_30.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: nxt_30.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* reviewed: Wed Mar 15 18:21:15 PST 2000 by brister */
 
@@ -27,7 +27,6 @@
  * The attributes do not include DNS_RDATATYPEATTR_SINGLETON
  * because we must be able to handle a parent/child NXT pair.
  */
-#define RRTYPE_NXT_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_nxt(ARGS_TOTEXT) {
@@ -53,17 +52,8 @@ totext_nxt(ARGS_TOTEXT) {
 			for (j = 0; j < 8; j++)
 				if ((sr.base[i] & (0x80 >> j)) != 0) {
 					dns_rdatatype_t t = i * 8 + j;
-					RETERR(str_totext(" ", target));
-					if (dns_rdatatype_isknown(t)) {
-						RETERR(dns_rdatatype_totext(t,
-								      target));
-					} else {
-						char buf[sizeof("65535")];
-						snprintf(buf, sizeof(buf),
-							 "%u", t);
-						RETERR(str_totext(buf,
-								  target));
-					}
+					RETERR(isc_str_tobuffer(" ", target));
+					RETERR(dns_rdatatype_totext(t, target));
 				}
 	}
 	return (ISC_R_SUCCESS);
@@ -88,7 +78,7 @@ fromwire_nxt(ARGS_FROMWIRE) {
 	if (sr.length > 0 && (sr.base[0] & 0x80) == 0 &&
 	    ((sr.length > 16) || sr.base[sr.length - 1] == 0))
 		return (DNS_R_BADBITMAP);
-	RETERR(mem_tobuffer(target, sr.base, sr.length));
+	RETERR(isc_mem_tobuffer(target, sr.base, sr.length));
 	isc_buffer_forward(source, sr.length);
 	return (ISC_R_SUCCESS);
 }
@@ -109,7 +99,7 @@ towire_nxt(ARGS_TOWIRE) {
 	isc_region_consume(&sr, name_length(&name));
 	RETERR(dns_name_towire(&name, cctx, target));
 
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_NXT_30_C */

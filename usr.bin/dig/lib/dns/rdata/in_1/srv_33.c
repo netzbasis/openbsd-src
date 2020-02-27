@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: srv_33.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: srv_33.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Fri Mar 17 13:01:00 PST 2000 by bwelling */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_IN_1_SRV_33_C
 #define RDATA_IN_1_SRV_33_C
-
-#define RRTYPE_SRV_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_srv(ARGS_TOTEXT) {
@@ -48,8 +46,8 @@ totext_in_srv(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof buf, "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Weight.
@@ -57,8 +55,8 @@ totext_in_srv(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof buf, "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Port.
@@ -66,8 +64,8 @@ totext_in_srv(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof buf, "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Target.
@@ -98,7 +96,7 @@ fromwire_in_srv(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sr);
 	if (sr.length < 6)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sr.base, 6));
+	RETERR(isc_mem_tobuffer(target, sr.base, 6));
 	isc_buffer_forward(source, 6);
 
 	/*
@@ -121,7 +119,7 @@ towire_in_srv(ARGS_TOWIRE) {
 	 * Priority, weight, port.
 	 */
 	dns_rdata_toregion(rdata, &sr);
-	RETERR(mem_tobuffer(target, sr.base, 6));
+	RETERR(isc_mem_tobuffer(target, sr.base, 6));
 	isc_region_consume(&sr, 6);
 
 	/*

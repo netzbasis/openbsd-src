@@ -19,8 +19,6 @@
 #ifndef RDATA_GENERIC_TXT_16_C
 #define RDATA_GENERIC_TXT_16_C
 
-#define RRTYPE_TXT_ATTRIBUTES (0)
-
 static inline isc_result_t
 generic_totext_txt(ARGS_TOTEXT) {
 	isc_region_t region;
@@ -32,7 +30,7 @@ generic_totext_txt(ARGS_TOTEXT) {
 	while (region.length > 0) {
 		RETERR(txt_totext(&region, ISC_TRUE, target));
 		if (region.length > 0)
-			RETERR(str_totext(" ", target));
+			RETERR(isc_str_tobuffer(" ", target));
 	}
 
 	return (ISC_R_SUCCESS);
@@ -79,7 +77,7 @@ towire_txt(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_TXT_16_C */

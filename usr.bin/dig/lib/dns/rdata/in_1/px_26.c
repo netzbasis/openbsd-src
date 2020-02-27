@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: px_26.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: px_26.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Mon Mar 20 10:44:27 PST 2000 */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_IN_1_PX_26_C
 #define RDATA_IN_1_PX_26_C
-
-#define RRTYPE_PX_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_px(ARGS_TOTEXT) {
@@ -48,8 +46,8 @@ totext_in_px(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * MAP822.
@@ -58,7 +56,7 @@ totext_in_px(ARGS_TOTEXT) {
 	sub = name_prefix(&name, tctx->origin, &prefix);
 	isc_region_consume(&region, name_length(&name));
 	RETERR(dns_name_totext(&prefix, sub, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * MAPX400.
@@ -89,7 +87,7 @@ fromwire_in_px(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sregion);
 	if (sregion.length < 2)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sregion.base, 2));
+	RETERR(isc_mem_tobuffer(target, sregion.base, 2));
 	isc_buffer_forward(source, 2);
 
 	/*
@@ -118,7 +116,7 @@ towire_in_px(ARGS_TOWIRE) {
 	 * Preference.
 	 */
 	dns_rdata_toregion(rdata, &region);
-	RETERR(mem_tobuffer(target, region.base, 2));
+	RETERR(isc_mem_tobuffer(target, region.base, 2));
 	isc_region_consume(&region, 2);
 
 	/*

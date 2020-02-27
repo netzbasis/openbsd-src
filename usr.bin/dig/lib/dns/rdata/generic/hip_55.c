@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: hip_55.c,v 1.10 2020/02/24 17:47:50 florian Exp $ */
+/* $Id: hip_55.c,v 1.14 2020/02/26 18:49:02 florian Exp $ */
 
 /* reviewed: TBC */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_HIP_5_C
 #define RDATA_GENERIC_HIP_5_C
-
-#define RRTYPE_HIP_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_hip(ARGS_TOTEXT) {
@@ -48,13 +46,13 @@ totext_hip(ARGS_TOTEXT) {
 	isc_region_consume(&region, 2);
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext("( ", target));
+		RETERR(isc_str_tobuffer("( ", target));
 
 	/*
 	 * Algorithm
 	 */
 	snprintf(buf, sizeof(buf), "%u ", algorithm);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * HIT.
@@ -64,7 +62,7 @@ totext_hip(ARGS_TOTEXT) {
 	region.length = hit_len;
 	RETERR(isc_hex_totext(&region, 1, "", target));
 	region.length = length - hit_len;
-	RETERR(str_totext(tctx->linebreak, target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	/*
 	 * Public KEY.
@@ -74,7 +72,7 @@ totext_hip(ARGS_TOTEXT) {
 	region.length = key_len;
 	RETERR(isc_base64_totext(&region, 1, "", target));
 	region.length = length - key_len;
-	RETERR(str_totext(tctx->linebreak, target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	/*
 	 * Rendezvous Servers.
@@ -86,10 +84,10 @@ totext_hip(ARGS_TOTEXT) {
 		RETERR(dns_name_totext(&name, ISC_FALSE, target));
 		isc_region_consume(&region, name.length);
 		if (region.length > 0)
-			RETERR(str_totext(tctx->linebreak, target));
+			RETERR(isc_str_tobuffer(tctx->linebreak, target));
 	}
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 	return (ISC_R_SUCCESS);
 }
 
@@ -107,21 +105,21 @@ fromwire_hip(ARGS_FROMWIRE) {
 
 	isc_buffer_activeregion(source, &region);
 	if (region.length < 4U)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 
 	rr = region;
 	hit_len = uint8_fromregion(&region);
 	if (hit_len == 0)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	isc_region_consume(&region, 2);  	/* hit length + algorithm */
 	key_len = uint16_fromregion(&region);
 	if (key_len == 0)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	isc_region_consume(&region, 2);
 	if (region.length < (unsigned) (hit_len + key_len))
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 
-	RETERR(mem_tobuffer(target, rr.base, 4 + hit_len + key_len));
+	RETERR(isc_mem_tobuffer(target, rr.base, 4 + hit_len + key_len));
 	isc_buffer_forward(source, 4 + hit_len + key_len);
 
 	dns_decompress_setmethods(dctx, DNS_COMPRESS_NONE);
@@ -142,6 +140,6 @@ towire_hip(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &region);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 #endif	/* RDATA_GENERIC_HIP_5_C */

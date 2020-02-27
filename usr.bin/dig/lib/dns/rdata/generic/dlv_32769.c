@@ -14,14 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dlv_32769.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: dlv_32769.c,v 1.11 2020/02/26 18:47:24 florian Exp $ */
 
 /* RFC3658 */
 
 #ifndef RDATA_GENERIC_DLV_32769_C
 #define RDATA_GENERIC_DLV_32769_C
-
-#define RRTYPE_DLV_ATTRIBUTES 0
 
 #include <isc/sha1.h>
 #include <isc/sha2.h>
@@ -55,7 +53,7 @@ towire_dlv(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_DLV_32769_C */

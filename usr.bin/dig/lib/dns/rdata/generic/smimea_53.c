@@ -17,8 +17,6 @@
 #ifndef RDATA_GENERIC_SMIMEA_53_C
 #define RDATA_GENERIC_SMIMEA_53_C
 
-#define RRTYPE_SMIMEA_ATTRIBUTES 0
-
 static inline isc_result_t
 totext_smimea(ARGS_TOTEXT) {
 
@@ -46,7 +44,7 @@ towire_smimea(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_SMIMEA_53_C */

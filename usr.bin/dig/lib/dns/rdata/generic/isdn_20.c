@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: isdn_20.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: isdn_20.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Wed Mar 15 16:53:11 PST 2000 by bwelling */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_ISDN_20_C
 #define RDATA_GENERIC_ISDN_20_C
-
-#define RRTYPE_ISDN_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_isdn(ARGS_TOTEXT) {
@@ -38,7 +36,7 @@ totext_isdn(ARGS_TOTEXT) {
 	RETERR(txt_totext(&region, ISC_TRUE, target));
 	if (region.length == 0)
 		return (ISC_R_SUCCESS);
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 	return (txt_totext(&region, ISC_TRUE, target));
 }
 
@@ -64,7 +62,7 @@ towire_isdn(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_isdn);
 	REQUIRE(rdata->length != 0);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_ISDN_20_C */

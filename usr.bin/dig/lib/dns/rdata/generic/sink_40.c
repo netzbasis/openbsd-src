@@ -19,8 +19,6 @@
 
 #include <dst/dst.h>
 
-#define RRTYPE_SINK_ATTRIBUTES (0)
-
 static inline isc_result_t
 totext_sink(ARGS_TOTEXT) {
 	isc_region_t sr;
@@ -40,16 +38,16 @@ totext_sink(ARGS_TOTEXT) {
 	subcoding = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u %u %u", meaning, coding, subcoding);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	if (sr.length == 0U)
 		return (ISC_R_SUCCESS);
 
 	/* data */
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
+		RETERR(isc_str_tobuffer(" (", target));
 
-	RETERR(str_totext(tctx->linebreak, target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	if (tctx->width == 0)   /* No splitting */
 		RETERR(isc_base64_totext(&sr, 60, "", target));
@@ -58,7 +56,7 @@ totext_sink(ARGS_TOTEXT) {
 					 tctx->linebreak, target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 
 	return (ISC_R_SUCCESS);
 }
@@ -78,7 +76,7 @@ fromwire_sink(ARGS_FROMWIRE) {
 	if (sr.length < 3)
 		return (ISC_R_UNEXPECTEDEND);
 
-	RETERR(mem_tobuffer(target, sr.base, sr.length));
+	RETERR(isc_mem_tobuffer(target, sr.base, sr.length));
 	isc_buffer_forward(source, sr.length);
 	return (ISC_R_SUCCESS);
 }
@@ -91,7 +89,7 @@ towire_sink(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_SINK_40_C */

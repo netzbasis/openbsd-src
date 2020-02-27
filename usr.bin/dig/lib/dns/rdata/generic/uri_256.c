@@ -14,12 +14,10 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: uri_256.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: uri_256.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 #ifndef GENERIC_URI_256_C
 #define GENERIC_URI_256_C 1
-
-#define RRTYPE_URI_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_uri(ARGS_TOTEXT) {
@@ -40,7 +38,7 @@ totext_uri(ARGS_TOTEXT) {
 	priority = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u ", priority);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Weight
@@ -48,7 +46,7 @@ totext_uri(ARGS_TOTEXT) {
 	weight = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u ", weight);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Target URI
@@ -79,7 +77,7 @@ fromwire_uri(ARGS_FROMWIRE) {
 	 * Priority, weight and target URI
 	 */
 	isc_buffer_forward(source, region.length);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 
 static inline isc_result_t
@@ -92,7 +90,7 @@ towire_uri(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &region);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 
 #endif /* GENERIC_URI_256_C */

@@ -17,8 +17,6 @@
 #ifndef RDATA_GENERIC_OPENPGPKEY_61_C
 #define RDATA_GENERIC_OPENPGPKEY_61_C
 
-#define RRTYPE_OPENPGPKEY_ATTRIBUTES 0
-
 static inline isc_result_t
 totext_openpgpkey(ARGS_TOTEXT) {
 	isc_region_t sr;
@@ -32,7 +30,7 @@ totext_openpgpkey(ARGS_TOTEXT) {
 	 * Keyring
 	 */
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext("( ", target));
+		RETERR(isc_str_tobuffer("( ", target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_NOCRYPTO) == 0) {
 		if (tctx->width == 0)   /* No splitting */
@@ -41,10 +39,10 @@ totext_openpgpkey(ARGS_TOTEXT) {
 			RETERR(isc_base64_totext(&sr, tctx->width - 2,
 						 tctx->linebreak, target));
 	} else
-		RETERR(str_totext("[omitted]", target));
+		RETERR(isc_str_tobuffer("[omitted]", target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 
 	return (ISC_R_SUCCESS);
 }
@@ -67,7 +65,7 @@ fromwire_openpgpkey(ARGS_FROMWIRE) {
 	if (sr.length < 1)
 		return (ISC_R_UNEXPECTEDEND);
 	isc_buffer_forward(source, sr.length);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline isc_result_t
@@ -80,7 +78,7 @@ towire_openpgpkey(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_OPENPGPKEY_61_C */

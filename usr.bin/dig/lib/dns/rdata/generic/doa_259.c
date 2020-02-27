@@ -17,8 +17,6 @@
 #ifndef RDATA_GENERIC_DOA_259_C
 #define RDATA_GENERIC_DOA_259_C
 
-#define RRTYPE_DOA_ATTRIBUTES (0)
-
 static inline isc_result_t
 totext_doa(ARGS_TOTEXT) {
 	char buf[sizeof("4294967295 ")];
@@ -39,7 +37,7 @@ totext_doa(ARGS_TOTEXT) {
 	n = uint32_fromregion(&region);
 	isc_region_consume(&region, 4);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * DOA-TYPE
@@ -47,7 +45,7 @@ totext_doa(ARGS_TOTEXT) {
 	n = uint32_fromregion(&region);
 	isc_region_consume(&region, 4);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * DOA-LOCATION
@@ -55,19 +53,19 @@ totext_doa(ARGS_TOTEXT) {
 	n = uint8_fromregion(&region);
 	isc_region_consume(&region, 1);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * DOA-MEDIA-TYPE
 	 */
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * DOA-DATA
 	 */
 	if (region.length == 0) {
-		return (str_totext("-", target));
+		return (isc_str_tobuffer("-", target));
 	} else {
 		return (isc_base64_totext(&region, 60, "", target));
 	}
@@ -101,7 +99,7 @@ fromwire_doa(ARGS_FROMWIRE) {
 	}
 
 	isc_buffer_forward(source, region.length);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 
 static inline isc_result_t
@@ -115,7 +113,7 @@ towire_doa(ARGS_TOWIRE) {
 	REQUIRE(rdata->length != 0);
 
 	dns_rdata_toregion(rdata, &region);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 
 #endif	/* RDATA_GENERIC_DOA_259_C */

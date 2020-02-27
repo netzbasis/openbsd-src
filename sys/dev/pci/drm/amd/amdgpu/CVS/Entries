@@ -12,7 +12,7 @@
 /amdgpu_amdkfd_gfx_v9.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_amdkfd_gpuvm.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_atom.c/1.2/Fri Aug  9 09:21:41 2019//
-/amdgpu_atombios.c/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_atombios.c/1.2/Thu Feb 27 05:21:44 2020//
 /amdgpu_atombios.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_atombios_crtc.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_atombios_dp.c/1.1/Tue May 21 22:40:06 2019//
@@ -205,7 +205,7 @@
 /sislands_smc.h/1.1/Tue May 21 22:40:07 2019//
 /soc15.c/1.9/Tue Jan 21 07:43:48 2020//
 /soc15.h/1.1/Tue May 21 22:40:07 2019//
-/soc15_common.h/1.1/Tue May 21 22:40:07 2019//
+/soc15_common.h/1.2/Thu Feb 27 05:24:51 2020//
 /soc15d.h/1.1/Tue May 21 22:40:07 2019//
 /tonga_ih.c/1.1/Tue May 21 22:40:07 2019//
 /tonga_ih.h/1.1/Tue May 21 22:40:07 2019//

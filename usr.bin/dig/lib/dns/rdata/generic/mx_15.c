@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: mx_15.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: mx_15.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* reviewed: Wed Mar 15 18:05:46 PST 2000 by brister */
 
@@ -24,8 +24,6 @@
 #include <string.h>
 
 #include <isc/net.h>
-
-#define RRTYPE_MX_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_mx(ARGS_TOTEXT) {
@@ -46,9 +44,9 @@ totext_mx(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u", num);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	dns_name_fromregion(&name, &region);
 	sub = name_prefix(&name, tctx->origin, &prefix);
@@ -72,7 +70,7 @@ fromwire_mx(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sregion);
 	if (sregion.length < 2)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sregion.base, 2));
+	RETERR(isc_mem_tobuffer(target, sregion.base, 2));
 	isc_buffer_forward(source, 2);
 	return (dns_name_fromwire(&name, source, dctx, options, target));
 }
@@ -89,7 +87,7 @@ towire_mx(ARGS_TOWIRE) {
 	dns_compress_setmethods(cctx, DNS_COMPRESS_GLOBAL14);
 
 	dns_rdata_toregion(rdata, &region);
-	RETERR(mem_tobuffer(target, region.base, 2));
+	RETERR(isc_mem_tobuffer(target, region.base, 2));
 	isc_region_consume(&region, 2);
 
 	dns_name_init(&name, offsets);

@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: tkey_249.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: tkey_249.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /*
  * Reviewed: Thu Mar 16 17:35:30 PST 2000 by halley.
@@ -24,8 +24,6 @@
 
 #ifndef RDATA_GENERIC_TKEY_249_C
 #define RDATA_GENERIC_TKEY_249_C
-
-#define RRTYPE_TKEY_ATTRIBUTES (DNS_RDATATYPEATTR_META)
 
 static inline isc_result_t
 totext_tkey(ARGS_TOTEXT) {
@@ -49,7 +47,7 @@ totext_tkey(ARGS_TOTEXT) {
 	dns_name_fromregion(&name, &sr);
 	sub = name_prefix(&name, tctx->origin, &prefix);
 	RETERR(dns_name_totext(&prefix, sub, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 	isc_region_consume(&sr, name_length(&name));
 
 	/*
@@ -58,7 +56,7 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint32_fromregion(&sr);
 	isc_region_consume(&sr, 4);
 	snprintf(buf, sizeof(buf), "%lu ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Expiration.
@@ -66,7 +64,7 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint32_fromregion(&sr);
 	isc_region_consume(&sr, 4);
 	snprintf(buf, sizeof(buf), "%lu ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Mode.
@@ -74,7 +72,7 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%lu ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Error.
@@ -82,10 +80,10 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	if (dns_tsigrcode_totext((dns_rcode_t)n, target) == ISC_R_SUCCESS)
-		RETERR(str_totext(" ", target));
+		RETERR(isc_str_tobuffer(" ", target));
 	else {
 		snprintf(buf, sizeof(buf), "%lu ", n);
-		RETERR(str_totext(buf, target));
+		RETERR(isc_str_tobuffer(buf, target));
 	}
 
 	/*
@@ -94,7 +92,7 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%lu", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Key Data.
@@ -103,17 +101,17 @@ totext_tkey(ARGS_TOTEXT) {
 	dr = sr;
 	dr.length = n;
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (", target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 	if (tctx->width == 0)   /* No splitting */
 		RETERR(isc_base64_totext(&dr, 60, "", target));
 	else
 		RETERR(isc_base64_totext(&dr, tctx->width - 2,
 					 tctx->linebreak, target));
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" ) ", target));
+		RETERR(isc_str_tobuffer(" ) ", target));
 	else
-		RETERR(str_totext(" ", target));
+		RETERR(isc_str_tobuffer(" ", target));
 	isc_region_consume(&sr, n);
 
 	/*
@@ -122,7 +120,7 @@ totext_tkey(ARGS_TOTEXT) {
 	n = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%lu", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Other Data.
@@ -132,15 +130,15 @@ totext_tkey(ARGS_TOTEXT) {
 	    dr = sr;
 	    dr.length = n;
 	    if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		    RETERR(str_totext(" (", target));
-	    RETERR(str_totext(tctx->linebreak, target));
+		    RETERR(isc_str_tobuffer(" (", target));
+	    RETERR(isc_str_tobuffer(tctx->linebreak, target));
 		if (tctx->width == 0)   /* No splitting */
 			RETERR(isc_base64_totext(&dr, 60, "", target));
 		else
 			RETERR(isc_base64_totext(&dr, tctx->width - 2,
 						 tctx->linebreak, target));
 	    if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		    RETERR(str_totext(" )", target));
+		    RETERR(isc_str_tobuffer(" )", target));
 	}
 	return (ISC_R_SUCCESS);
 }
@@ -173,7 +171,7 @@ fromwire_tkey(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sr);
 	if (sr.length < 12)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sr.base, 12));
+	RETERR(isc_mem_tobuffer(target, sr.base, 12));
 	isc_region_consume(&sr, 12);
 	isc_buffer_forward(source, 12);
 
@@ -185,7 +183,7 @@ fromwire_tkey(ARGS_FROMWIRE) {
 	n = uint16_fromregion(&sr);
 	if (sr.length < n + 2)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sr.base, n + 2));
+	RETERR(isc_mem_tobuffer(target, sr.base, n + 2));
 	isc_region_consume(&sr, n + 2);
 	isc_buffer_forward(source, n + 2);
 
@@ -198,7 +196,7 @@ fromwire_tkey(ARGS_FROMWIRE) {
 	if (sr.length < n + 2)
 		return (ISC_R_UNEXPECTEDEND);
 	isc_buffer_forward(source, n + 2);
-	return (mem_tobuffer(target, sr.base, n + 2));
+	return (isc_mem_tobuffer(target, sr.base, n + 2));
 }
 
 static inline isc_result_t
@@ -220,7 +218,7 @@ towire_tkey(ARGS_TOWIRE) {
 	RETERR(dns_name_towire(&name, cctx, target));
 	isc_region_consume(&sr, name_length(&name));
 
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_TKEY_249_C */

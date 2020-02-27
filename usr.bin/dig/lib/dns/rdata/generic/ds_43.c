@@ -14,15 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: ds_43.c,v 1.10 2020/02/24 17:47:50 florian Exp $ */
+/* $Id: ds_43.c,v 1.13 2020/02/26 18:47:59 florian Exp $ */
 
 /* RFC3658 */
 
 #ifndef RDATA_GENERIC_DS_43_C
 #define RDATA_GENERIC_DS_43_C
-
-#define RRTYPE_DS_ATTRIBUTES \
-	(DNS_RDATATYPEATTR_DNSSEC|DNS_RDATATYPEATTR_ATPARENT)
 
 #include <isc/sha1.h>
 #include <isc/sha2.h>
@@ -47,7 +44,7 @@ generic_totext_ds(ARGS_TOTEXT) {
 	n = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Algorithm.
@@ -55,7 +52,7 @@ generic_totext_ds(ARGS_TOTEXT) {
 	n = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u ", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Digest type.
@@ -63,14 +60,14 @@ generic_totext_ds(ARGS_TOTEXT) {
 	n = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u", n);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Digest.
 	 */
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (", target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 	if ((tctx->flags & DNS_STYLEFLAG_NOCRYPTO) == 0) {
 		if (tctx->width == 0) /* No splitting */
 			RETERR(isc_hex_totext(&sr, 0, "", target));
@@ -78,9 +75,9 @@ generic_totext_ds(ARGS_TOTEXT) {
 			RETERR(isc_hex_totext(&sr, tctx->width - 2,
 					      tctx->linebreak, target));
 	} else
-		RETERR(str_totext("[omitted]", target));
+		RETERR(isc_str_tobuffer("[omitted]", target));
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 	return (ISC_R_SUCCESS);
 }
 
@@ -128,7 +125,7 @@ generic_fromwire_ds(ARGS_FROMWIRE) {
 		sr.length = 4 + ISC_SHA384_DIGESTLENGTH;
 
 	isc_buffer_forward(source, sr.length);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline isc_result_t
@@ -150,7 +147,7 @@ towire_ds(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_DS_43_C */

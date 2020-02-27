@@ -1,4 +1,4 @@
-/Makefile/1.15/Sun Jan  6 04:41:15 2019//
+/Makefile/1.16/Thu Feb 27 01:25:58 2020//
 /badarg.in/1.2/Tue Jul  4 14:53:24 2017//
 /badarg.out_ascii/1.2/Tue Aug 26 11:32:54 2014//
 /broken.in/1.3/Tue Jul  4 14:53:24 2017//
@@ -27,6 +27,9 @@
 /sameline.out_ascii/1.2/Tue Aug 26 11:32:54 2014//
 /spacing.in/1.2/Tue Jul  4 14:53:24 2017//
 /spacing.out_ascii/1.1/Mon Sep 21 13:24:32 2015//
+/vert.in/1.1/Thu Feb 27 01:25:58 2020//
+/vert.out_ascii/1.1/Thu Feb 27 01:25:58 2020//
+/vert.out_html/1.1/Thu Feb 27 01:25:58 2020//
 /width.in/1.6/Tue Jul  4 14:53:24 2017//
 /width.out_ascii/1.6/Tue Dec 23 13:48:15 2014//
 D

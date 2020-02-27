@@ -1,4 +1,8 @@
-/Makefile/1.9/Sun Jan  6 04:41:15 2019//
+/Makefile/1.10/Thu Feb 27 01:25:58 2020//
+/bullet.in/1.1/Thu Feb 27 01:25:58 2020//
+/bullet.out_ascii/1.1/Thu Feb 27 01:25:58 2020//
+/bullet.out_html/1.1/Thu Feb 27 01:25:58 2020//
+/bullet.out_utf8/1.1/Thu Feb 27 01:25:58 2020//
 /empty.in/1.2/Tue Jul  4 14:53:23 2017//
 /empty.out_ascii/1.2/Tue Aug 26 11:32:53 2014//
 /empty.out_lint/1.4/Tue Jul  4 14:53:23 2017//
@@ -11,6 +15,8 @@
 /manyargs.out_ascii/1.6/Tue Aug 26 11:32:53 2014//
 /spacing.in/1.4/Tue Jul  4 14:53:23 2017//
 /spacing.out_ascii/1.5/Mon Sep 21 13:24:32 2015//
+/vert.in/1.1/Thu Feb 27 01:25:58 2020//
+/vert.out_ascii/1.1/Thu Feb 27 01:25:58 2020//
 /width.in/1.9/Tue Jul  4 14:53:23 2017//
 /width.out_ascii/1.9/Tue Dec 23 13:48:15 2014//
 D

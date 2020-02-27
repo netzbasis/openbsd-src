@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: nsec3_50.c,v 1.8 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: nsec3_50.c,v 1.12 2020/02/26 18:49:02 florian Exp $ */
 
 /*
  * Copyright (C) 2004  Nominet, Ltd.
@@ -39,8 +39,6 @@
 
 #include <isc/base32.h>
 
-#define RRTYPE_NSEC3_ATTRIBUTES DNS_RDATATYPEATTR_DNSSEC
-
 static inline isc_result_t
 totext_nsec3(ARGS_TOTEXT) {
 	isc_region_t sr;
@@ -59,19 +57,19 @@ totext_nsec3(ARGS_TOTEXT) {
 	hash = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u ", hash);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/* Flags */
 	flags = uint8_fromregion(&sr);
 	isc_region_consume(&sr, 1);
 	snprintf(buf, sizeof(buf), "%u ", flags);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/* Iterations */
 	iterations = uint16_fromregion(&sr);
 	isc_region_consume(&sr, 2);
 	snprintf(buf, sizeof(buf), "%u ", iterations);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/* Salt */
 	j = uint8_fromregion(&sr);
@@ -84,11 +82,11 @@ totext_nsec3(ARGS_TOTEXT) {
 		RETERR(isc_hex_totext(&sr, 1, "", target));
 		sr.length = i - j;
 	} else
-		RETERR(str_totext("-", target));
+		RETERR(isc_str_tobuffer("-", target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" (", target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (", target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	/* Next hash */
 	j = uint8_fromregion(&sr);
@@ -104,12 +102,12 @@ totext_nsec3(ARGS_TOTEXT) {
 	 * Don't leave a trailing space when there's no typemap present.
 	 */
 	if (((tctx->flags & DNS_STYLEFLAG_MULTILINE) == 0) && (sr.length > 0)) {
-		RETERR(str_totext(" ", target));
+		RETERR(isc_str_tobuffer(" ", target));
 	}
 	RETERR(typemap_totext(&sr, tctx, target));
 
 	if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-		RETERR(str_totext(" )", target));
+		RETERR(isc_str_tobuffer(" )", target));
 
 	return (ISC_R_SUCCESS);
 }
@@ -131,26 +129,26 @@ fromwire_nsec3(ARGS_FROMWIRE) {
 
 	/* hash(1), flags(1), iteration(2), saltlen(1) */
 	if (sr.length < 5U)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	saltlen = sr.base[4];
 	isc_region_consume(&sr, 5);
 
 	if (sr.length < saltlen)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	isc_region_consume(&sr, saltlen);
 
 	if (sr.length < 1U)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	hashlen = sr.base[0];
 	isc_region_consume(&sr, 1);
 
 	if (sr.length < hashlen)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 	isc_region_consume(&sr, hashlen);
 
 	RETERR(typemap_test(&sr, ISC_TRUE));
 
-	RETERR(mem_tobuffer(target, rr.base, rr.length));
+	RETERR(isc_mem_tobuffer(target, rr.base, rr.length));
 	isc_buffer_forward(source, rr.length);
 	return (ISC_R_SUCCESS);
 }
@@ -165,7 +163,7 @@ towire_nsec3(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #define NSEC3_MAX_HASH_LENGTH 155

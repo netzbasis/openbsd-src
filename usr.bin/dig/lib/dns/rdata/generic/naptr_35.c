@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: naptr_35.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: naptr_35.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Thu Mar 16 16:52:50 PST 2000 by bwelling */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_NAPTR_35_C
 #define RDATA_GENERIC_NAPTR_35_C
-
-#define RRTYPE_NAPTR_ATTRIBUTES (0)
 
 #include <isc/regex.h>
 
@@ -142,8 +140,8 @@ totext_naptr(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Preference.
@@ -151,26 +149,26 @@ totext_naptr(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u", num);
-	RETERR(str_totext(buf, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(buf, target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Flags.
 	 */
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Service.
 	 */
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Regexp.
 	 */
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Replacement.
@@ -201,7 +199,7 @@ fromwire_naptr(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sr);
 	if (sr.length < 4)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sr.base, 4));
+	RETERR(isc_mem_tobuffer(target, sr.base, 4));
 	isc_buffer_forward(source, 4);
 
 	/*
@@ -241,25 +239,25 @@ towire_naptr(ARGS_TOWIRE) {
 	 * Order, preference.
 	 */
 	dns_rdata_toregion(rdata, &sr);
-	RETERR(mem_tobuffer(target, sr.base, 4));
+	RETERR(isc_mem_tobuffer(target, sr.base, 4));
 	isc_region_consume(&sr, 4);
 
 	/*
 	 * Flags.
 	 */
-	RETERR(mem_tobuffer(target, sr.base, sr.base[0] + 1));
+	RETERR(isc_mem_tobuffer(target, sr.base, sr.base[0] + 1));
 	isc_region_consume(&sr, sr.base[0] + 1);
 
 	/*
 	 * Service.
 	 */
-	RETERR(mem_tobuffer(target, sr.base, sr.base[0] + 1));
+	RETERR(isc_mem_tobuffer(target, sr.base, sr.base[0] + 1));
 	isc_region_consume(&sr, sr.base[0] + 1);
 
 	/*
 	 * Regexp.
 	 */
-	RETERR(mem_tobuffer(target, sr.base, sr.base[0] + 1));
+	RETERR(isc_mem_tobuffer(target, sr.base, sr.base[0] + 1));
 	isc_region_consume(&sr, sr.base[0] + 1);
 
 	/*

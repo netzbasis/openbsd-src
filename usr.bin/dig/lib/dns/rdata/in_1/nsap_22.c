@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: nsap_22.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: nsap_22.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Fri Mar 17 10:41:07 PST 2000 by gson */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_IN_1_NSAP_22_C
 #define RDATA_IN_1_NSAP_22_C
-
-#define RRTYPE_NSAP_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_nsap(ARGS_TOTEXT) {
@@ -37,11 +35,11 @@ totext_in_nsap(ARGS_TOTEXT) {
 	UNUSED(tctx);
 
 	dns_rdata_toregion(rdata, &region);
-	RETERR(str_totext("0x", target));
+	RETERR(isc_str_tobuffer("0x", target));
 	while (region.length != 0) {
 		snprintf(buf, sizeof(buf), "%02x", region.base[0]);
 		isc_region_consume(&region, 1);
-		RETERR(str_totext(buf, target));
+		RETERR(isc_str_tobuffer(buf, target));
 	}
 	return (ISC_R_SUCCESS);
 }
@@ -62,7 +60,7 @@ fromwire_in_nsap(ARGS_FROMWIRE) {
 	if (region.length < 1)
 		return (ISC_R_UNEXPECTEDEND);
 
-	RETERR(mem_tobuffer(target, region.base, region.length));
+	RETERR(isc_mem_tobuffer(target, region.base, region.length));
 	isc_buffer_forward(source, region.length);
 	return (ISC_R_SUCCESS);
 }
@@ -75,7 +73,7 @@ towire_in_nsap(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_IN_1_NSAP_22_C */

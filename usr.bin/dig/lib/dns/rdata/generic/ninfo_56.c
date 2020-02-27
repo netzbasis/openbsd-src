@@ -17,8 +17,6 @@
 #ifndef RDATA_GENERIC_NINFO_56_C
 #define RDATA_GENERIC_NINFO_56_C
 
-#define RRTYPE_NINFO_ATTRIBUTES (0)
-
 static inline isc_result_t
 totext_ninfo(ARGS_TOTEXT) {
 
@@ -50,7 +48,7 @@ towire_ninfo(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_NINFO_56_C */

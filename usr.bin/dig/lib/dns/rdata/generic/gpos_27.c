@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: gpos_27.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: gpos_27.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* reviewed: Wed Mar 15 16:48:45 PST 2000 by brister */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_GPOS_27_C
 #define RDATA_GENERIC_GPOS_27_C
-
-#define RRTYPE_GPOS_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_gpos(ARGS_TOTEXT) {
@@ -40,7 +38,7 @@ totext_gpos(ARGS_TOTEXT) {
 	for (i = 0; i < 3; i++) {
 		RETERR(txt_totext(&region, ISC_TRUE, target));
 		if (i != 2)
-			RETERR(str_totext(" ", target));
+			RETERR(isc_str_tobuffer(" ", target));
 	}
 
 	return (ISC_R_SUCCESS);
@@ -70,7 +68,7 @@ towire_gpos(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_GPOS_27_C */

@@ -17,8 +17,6 @@
 #ifndef GENERIC_CAA_257_C
 #define GENERIC_CAA_257_C 1
 
-#define RRTYPE_CAA_ATTRIBUTES (0)
-
 static unsigned char const alphanumeric[256] = {
 	/* 0x00-0x0f */ 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0,
 	/* 0x10-0x1f */ 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0,
@@ -57,13 +55,13 @@ totext_caa(ARGS_TOTEXT) {
 	 */
 	flags = uint8_consume_fromregion(&region);
 	snprintf(buf, sizeof(buf), "%u ", flags);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
 	/*
 	 * Tag
 	 */
 	RETERR(txt_totext(&region, ISC_FALSE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	/*
 	 * Value
@@ -94,7 +92,7 @@ fromwire_caa(ARGS_FROMWIRE) {
 	/*
 	 * Flags, tag length
 	 */
-	RETERR(mem_tobuffer(target, sr.base, 2));
+	RETERR(isc_mem_tobuffer(target, sr.base, 2));
 	len = sr.base[1];
 	isc_region_consume(&sr, 2);
 	isc_buffer_forward(source, 2);
@@ -103,17 +101,17 @@ fromwire_caa(ARGS_FROMWIRE) {
 	 * Zero length tag fields are illegal.
 	 */
 	if (sr.length < len || len == 0)
-		RETERR(DNS_R_FORMERR);
+		return (DNS_R_FORMERR);
 
 	/* Check the Tag's value */
 	for (i = 0; i < len; i++)
 		if (!alphanumeric[sr.base[i]])
-			RETERR(DNS_R_FORMERR);
+			return (DNS_R_FORMERR);
 	/*
 	 * Tag + Value
 	 */
 	isc_buffer_forward(source, sr.length);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 static inline isc_result_t
@@ -127,7 +125,7 @@ towire_caa(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &region);
-	return (mem_tobuffer(target, region.base, region.length));
+	return (isc_mem_tobuffer(target, region.base, region.length));
 }
 
 #endif /* GENERIC_CAA_257_C */

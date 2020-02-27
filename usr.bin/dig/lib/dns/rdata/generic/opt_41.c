@@ -21,10 +21,6 @@
 #ifndef RDATA_GENERIC_OPT_41_C
 #define RDATA_GENERIC_OPT_41_C
 
-#define RRTYPE_OPT_ATTRIBUTES (DNS_RDATATYPEATTR_SINGLETON | \
-			       DNS_RDATATYPEATTR_META | \
-			       DNS_RDATATYPEATTR_NOTQUESTION)
-
 static inline isc_result_t
 totext_opt(ARGS_TOTEXT) {
 	isc_region_t r;
@@ -46,12 +42,12 @@ totext_opt(ARGS_TOTEXT) {
 		length = uint16_fromregion(&r);
 		isc_region_consume(&r, 2);
 		snprintf(buf, sizeof(buf), "%u %u", option, length);
-		RETERR(str_totext(buf, target));
+		RETERR(isc_str_tobuffer(buf, target));
 		INSIST(r.length >= length);
 		if (length > 0) {
 			if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-				RETERR(str_totext(" (", target));
-			RETERR(str_totext(tctx->linebreak, target));
+				RETERR(isc_str_tobuffer(" (", target));
+			RETERR(isc_str_tobuffer(tctx->linebreak, target));
 			or = r;
 			or.length = length;
 			if (tctx->width == 0)   /* No splitting */
@@ -62,10 +58,10 @@ totext_opt(ARGS_TOTEXT) {
 							 target));
 			isc_region_consume(&r, length);
 			if ((tctx->flags & DNS_STYLEFLAG_MULTILINE) != 0)
-				RETERR(str_totext(" )", target));
+				RETERR(isc_str_tobuffer(" )", target));
 		}
 		if (r.length > 0)
-			RETERR(str_totext(" ", target));
+			RETERR(isc_str_tobuffer(" ", target));
 	}
 
 	return (ISC_R_SUCCESS);
@@ -197,7 +193,7 @@ towire_opt(ARGS_TOWIRE) {
 
 	UNUSED(cctx);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_OPT_41_C */

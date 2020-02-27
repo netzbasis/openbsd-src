@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: hinfo_13.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: hinfo_13.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /*
  * Reviewed: Wed Mar 15 16:47:10 PST 2000 by halley.
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_GENERIC_HINFO_13_C
 #define RDATA_GENERIC_HINFO_13_C
-
-#define RRTYPE_HINFO_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_hinfo(ARGS_TOTEXT) {
@@ -36,7 +34,7 @@ totext_hinfo(ARGS_TOTEXT) {
 
 	dns_rdata_toregion(rdata, &region);
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 	return (txt_totext(&region, ISC_TRUE, target));
 }
 
@@ -62,7 +60,7 @@ towire_hinfo(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_hinfo);
 	REQUIRE(rdata->length != 0);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_GENERIC_HINFO_13_C */

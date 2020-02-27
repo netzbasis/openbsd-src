@@ -14,14 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: rp_17.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: rp_17.c,v 1.11 2020/02/26 18:47:59 florian Exp $ */
 
 /* RFC1183 */
 
 #ifndef RDATA_GENERIC_RP_17_C
 #define RDATA_GENERIC_RP_17_C
-
-#define RRTYPE_RP_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_rp(ARGS_TOTEXT) {
@@ -49,7 +47,7 @@ totext_rp(ARGS_TOTEXT) {
 	sub = name_prefix(&rmail, tctx->origin, &prefix);
 	RETERR(dns_name_totext(&prefix, sub, target));
 
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	sub = name_prefix(&email, tctx->origin, &prefix);
 	return (dns_name_totext(&prefix, sub, target));

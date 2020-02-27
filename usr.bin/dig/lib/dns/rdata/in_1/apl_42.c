@@ -14,14 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: apl_42.c,v 1.10 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: apl_42.c,v 1.13 2020/02/26 18:47:59 florian Exp $ */
 
 /* RFC3123 */
 
 #ifndef RDATA_IN_1_APL_42_C
 #define RDATA_IN_1_APL_42_C
-
-#define RRTYPE_APL_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_apl(ARGS_TOTEXT) {
@@ -58,7 +56,7 @@ totext_in_apl(ARGS_TOTEXT) {
 		n = snprintf(txt, sizeof(txt), "%s%s%u:", sep,
 			     neg ? "!" : "", afi);
 		INSIST(n < (int)sizeof(txt));
-		RETERR(str_totext(txt, target));
+		RETERR(isc_str_tobuffer(txt, target));
 		switch (afi) {
 		case 1:
 			INSIST(len <= 4);
@@ -81,7 +79,7 @@ totext_in_apl(ARGS_TOTEXT) {
 		}
 		n = snprintf(txt, sizeof(txt), "/%u", prefix);
 		INSIST(n < (int)sizeof(txt));
-		RETERR(str_totext(txt, target));
+		RETERR(isc_str_tobuffer(txt, target));
 		isc_region_consume(&sr, len);
 		sep = " ";
 	}
@@ -136,7 +134,7 @@ fromwire_in_apl(ARGS_FROMWIRE) {
 		isc_region_consume(&sr, len);
 	}
 	isc_buffer_forward(source, sr2.length);
-	return (mem_tobuffer(target, sr2.base, sr2.length));
+	return (isc_mem_tobuffer(target, sr2.base, sr2.length));
 }
 
 static inline isc_result_t
@@ -146,7 +144,7 @@ towire_in_apl(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_apl);
 	REQUIRE(rdata->rdclass == dns_rdataclass_in);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_IN_1_APL_42_C */

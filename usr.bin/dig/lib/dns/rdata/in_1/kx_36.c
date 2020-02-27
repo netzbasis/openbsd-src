@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: kx_36.c,v 1.9 2020/02/25 05:00:43 jsg Exp $ */
+/* $Id: kx_36.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Thu Mar 16 17:24:54 PST 2000 by explorer */
 
@@ -22,8 +22,6 @@
 
 #ifndef RDATA_IN_1_KX_36_C
 #define RDATA_IN_1_KX_36_C
-
-#define RRTYPE_KX_ATTRIBUTES (0)
 
 static inline isc_result_t
 totext_in_kx(ARGS_TOTEXT) {
@@ -45,9 +43,9 @@ totext_in_kx(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u", num);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	dns_name_fromregion(&name, &region);
 	sub = name_prefix(&name, tctx->origin, &prefix);
@@ -72,7 +70,7 @@ fromwire_in_kx(ARGS_FROMWIRE) {
 	isc_buffer_activeregion(source, &sregion);
 	if (sregion.length < 2)
 		return (ISC_R_UNEXPECTEDEND);
-	RETERR(mem_tobuffer(target, sregion.base, 2));
+	RETERR(isc_mem_tobuffer(target, sregion.base, 2));
 	isc_buffer_forward(source, 2);
 	return (dns_name_fromwire(&name, source, dctx, options, target));
 }
@@ -89,7 +87,7 @@ towire_in_kx(ARGS_TOWIRE) {
 
 	dns_compress_setmethods(cctx, DNS_COMPRESS_NONE);
 	dns_rdata_toregion(rdata, &region);
-	RETERR(mem_tobuffer(target, region.base, 2));
+	RETERR(isc_mem_tobuffer(target, region.base, 2));
 	isc_region_consume(&region, 2);
 
 	dns_name_init(&name, offsets);

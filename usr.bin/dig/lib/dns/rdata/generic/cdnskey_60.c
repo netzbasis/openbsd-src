@@ -21,8 +21,6 @@
 
 #include <dst/dst.h>
 
-#define RRTYPE_CDNSKEY_ATTRIBUTES 0
-
 static inline isc_result_t
 totext_cdnskey(ARGS_TOTEXT) {
 
@@ -51,7 +49,7 @@ towire_cdnskey(ARGS_TOWIRE) {
 	UNUSED(cctx);
 
 	dns_rdata_toregion(rdata, &sr);
-	return (mem_tobuffer(target, sr.base, sr.length));
+	return (isc_mem_tobuffer(target, sr.base, sr.length));
 }
 
 #endif	/* RDATA_GENERIC_CDNSKEY_60_C */
