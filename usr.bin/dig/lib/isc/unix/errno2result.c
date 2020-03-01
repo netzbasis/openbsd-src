@@ -14,14 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: errno2result.c,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: errno2result.c,v 1.4 2020/02/13 21:34:06 jung Exp $ */
 
 /*! \file */
 
-
+#include <errno.h>
+#include <string.h>
 
 #include <isc/result.h>
-#include <isc/strerror.h>
 #include <isc/util.h>
 
 #include "errno2result.h"
@@ -36,8 +36,6 @@ isc_result_t
 isc___errno2result(int posixerrno, isc_boolean_t dolog,
 		   const char *file, unsigned int line)
 {
-	char strbuf[ISC_STRERRORSIZE];
-
 	switch (posixerrno) {
 	case ENOTDIR:
 	case ELOOP:
@@ -59,64 +57,39 @@ isc___errno2result(int posixerrno, isc_boolean_t dolog,
 	case ENFILE:
 	case EMFILE:
 		return (ISC_R_TOOMANYOPENFILES);
-#ifdef EOVERFLOW
 	case EOVERFLOW:
 		return (ISC_R_RANGE);
-#endif
 	case EPIPE:
-#ifdef ECONNRESET
 	case ECONNRESET:
-#endif
-#ifdef ECONNABORTED
 	case ECONNABORTED:
-#endif
 		return (ISC_R_CONNECTIONRESET);
-#ifdef ENOTCONN
 	case ENOTCONN:
 		return (ISC_R_NOTCONNECTED);
-#endif
-#ifdef ETIMEDOUT
 	case ETIMEDOUT:
 		return (ISC_R_TIMEDOUT);
-#endif
-#ifdef ENOBUFS
 	case ENOBUFS:
 		return (ISC_R_NORESOURCES);
-#endif
-#ifdef EAFNOSUPPORT
 	case EAFNOSUPPORT:
 		return (ISC_R_FAMILYNOSUPPORT);
-#endif
-#ifdef ENETDOWN
 	case ENETDOWN:
 		return (ISC_R_NETDOWN);
-#endif
-#ifdef EHOSTDOWN
 	case EHOSTDOWN:
 		return (ISC_R_HOSTDOWN);
-#endif
-#ifdef ENETUNREACH
 	case ENETUNREACH:
 		return (ISC_R_NETUNREACH);
-#endif
-#ifdef EHOSTUNREACH
 	case EHOSTUNREACH:
 		return (ISC_R_HOSTUNREACH);
-#endif
-#ifdef EADDRINUSE
 	case EADDRINUSE:
 		return (ISC_R_ADDRINUSE);
-#endif
 	case EADDRNOTAVAIL:
 		return (ISC_R_ADDRNOTAVAIL);
 	case ECONNREFUSED:
 		return (ISC_R_CONNREFUSED);
 	default:
 		if (dolog) {
-			isc__strerror(posixerrno, strbuf, sizeof(strbuf));
 			UNEXPECTED_ERROR(file, line, "unable to convert errno "
 					 "to isc_result: %d: %s",
-					 posixerrno, strbuf);
+					 posixerrno, strerror(posixerrno));
 		}
 		/*
 		 * XXXDCL would be nice if perhaps this function could

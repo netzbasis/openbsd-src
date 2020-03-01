@@ -3,7 +3,7 @@
 /cardbus_exrom.h/1.4/Thu Jun 20 09:52:09 2013//
 /cardbus_map.c/1.15/Sat Mar 14 03:38:47 2015//
 /cardbusvar.h/1.20/Thu Dec 18 10:51:35 2014//
-/cardslot.c/1.21/Thu Sep 15 02:00:17 2016//
+/cardslot.c/1.22/Tue Feb 18 12:13:39 2020//
 /cardslotvar.h/1.6/Wed Oct 30 08:47:20 2013//
 /com_cardbus.c/1.43/Sat Nov 14 14:47:56 2015//
 /ehci_cardbus.c/1.22/Wed Nov 11 02:29:14 2015//

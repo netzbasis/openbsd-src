@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: hmacsha.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: hmacsha.h,v 1.5 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file isc/hmacsha.h
  * This is the header file for the HMAC-SHA1, HMAC-SHA224, HMAC-SHA256,
@@ -24,11 +24,8 @@
 #ifndef ISC_HMACSHA_H
 #define ISC_HMACSHA_H 1
 
-#include <isc/lang.h>
-
 #include <isc/sha1.h>
 #include <isc/sha2.h>
-#include <isc/types.h>
 
 #define ISC_HMACSHA1_KEYLENGTH ISC_SHA1_BLOCK_LENGTH
 #define ISC_HMACSHA224_KEYLENGTH ISC_SHA224_BLOCK_LENGTH
@@ -36,7 +33,6 @@
 #define ISC_HMACSHA384_KEYLENGTH ISC_SHA384_BLOCK_LENGTH
 #define ISC_HMACSHA512_KEYLENGTH ISC_SHA512_BLOCK_LENGTH
 
-#include <openssl/opensslv.h>
 #include <openssl/hmac.h>
 
 typedef struct {
@@ -48,8 +44,6 @@ typedef isc_hmacsha_t isc_hmacsha224_t;
 typedef isc_hmacsha_t isc_hmacsha256_t;
 typedef isc_hmacsha_t isc_hmacsha384_t;
 typedef isc_hmacsha_t isc_hmacsha512_t;
-
-ISC_LANG_BEGINDECLS
 
 void
 isc_hmacsha1_init(isc_hmacsha1_t *ctx, const unsigned char *key,
@@ -68,10 +62,6 @@ isc_hmacsha1_sign(isc_hmacsha1_t *ctx, unsigned char *digest, size_t len);
 isc_boolean_t
 isc_hmacsha1_verify(isc_hmacsha1_t *ctx, unsigned char *digest, size_t len);
 
-isc_boolean_t
-isc_hmacsha1_check(int testing);
-
-
 void
 isc_hmacsha224_init(isc_hmacsha224_t *ctx, const unsigned char *key,
 		    unsigned int len);
@@ -88,7 +78,6 @@ isc_hmacsha224_sign(isc_hmacsha224_t *ctx, unsigned char *digest, size_t len);
 
 isc_boolean_t
 isc_hmacsha224_verify(isc_hmacsha224_t *ctx, unsigned char *digest, size_t len);
-
 
 void
 isc_hmacsha256_init(isc_hmacsha256_t *ctx, const unsigned char *key,
@@ -107,7 +96,6 @@ isc_hmacsha256_sign(isc_hmacsha256_t *ctx, unsigned char *digest, size_t len);
 isc_boolean_t
 isc_hmacsha256_verify(isc_hmacsha256_t *ctx, unsigned char *digest, size_t len);
 
-
 void
 isc_hmacsha384_init(isc_hmacsha384_t *ctx, const unsigned char *key,
 		    unsigned int len);
@@ -125,7 +113,6 @@ isc_hmacsha384_sign(isc_hmacsha384_t *ctx, unsigned char *digest, size_t len);
 isc_boolean_t
 isc_hmacsha384_verify(isc_hmacsha384_t *ctx, unsigned char *digest, size_t len);
 
-
 void
 isc_hmacsha512_init(isc_hmacsha512_t *ctx, const unsigned char *key,
 		    unsigned int len);
@@ -142,7 +129,5 @@ isc_hmacsha512_sign(isc_hmacsha512_t *ctx, unsigned char *digest, size_t len);
 
 isc_boolean_t
 isc_hmacsha512_verify(isc_hmacsha512_t *ctx, unsigned char *digest, size_t len);
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_HMACSHA_H */

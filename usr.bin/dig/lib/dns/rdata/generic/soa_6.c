@@ -14,73 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: soa_6.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: soa_6.c,v 1.8 2020/02/26 18:47:59 florian Exp $ */
 
 /* Reviewed: Thu Mar 16 15:18:32 PST 2000 by explorer */
 
 #ifndef RDATA_GENERIC_SOA_6_C
 #define RDATA_GENERIC_SOA_6_C
-
-#define RRTYPE_SOA_ATTRIBUTES (DNS_RDATATYPEATTR_SINGLETON)
-
-static inline isc_result_t
-fromtext_soa(ARGS_FROMTEXT) {
-	isc_token_t token;
-	dns_name_t name;
-	isc_buffer_t buffer;
-	int i;
-	uint32_t n;
-	isc_boolean_t ok;
-
-	REQUIRE(type == dns_rdatatype_soa);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(callbacks);
-
-	if (origin == NULL)
-		origin = dns_rootname;
-
-	for (i = 0; i < 2; i++) {
-		RETERR(isc_lex_getmastertoken(lexer, &token,
-					      isc_tokentype_string,
-					      ISC_FALSE));
-
-		dns_name_init(&name, NULL);
-		buffer_fromregion(&buffer, &token.value.as_region);
-		RETTOK(dns_name_fromtext(&name, &buffer, origin,
-					 options, target));
-		ok = ISC_TRUE;
-		if ((options & DNS_RDATA_CHECKNAMES) != 0)
-			switch (i) {
-			case 0:
-				ok = dns_name_ishostname(&name, ISC_FALSE);
-				break;
-			case 1:
-				ok = dns_name_ismailbox(&name);
-				break;
-
-			}
-		if (!ok && (options & DNS_RDATA_CHECKNAMESFAIL) != 0)
-			RETTOK(DNS_R_BADNAME);
-		if (!ok && callbacks != NULL)
-			warn_badname(&name, lexer, callbacks);
-	}
-
-	RETERR(isc_lex_getmastertoken(lexer, &token, isc_tokentype_number,
-				      ISC_FALSE));
-	RETERR(uint32_tobuffer(token.value.as_ulong, target));
-
-	for (i = 0; i < 4; i++) {
-		RETERR(isc_lex_getmastertoken(lexer, &token,
-					      isc_tokentype_string,
-					      ISC_FALSE));
-		RETTOK(dns_counter_fromtext(&token.value.as_textregion, &n));
-		RETERR(uint32_tobuffer(n, target));
-	}
-
-	return (ISC_R_SUCCESS);
-}
 
 static const char *soa_fieldnames[5] = {
 	"serial", "refresh", "retry", "expire", "minimum"
@@ -106,7 +45,6 @@ totext_soa(ARGS_TOTEXT) {
 	else
 		comm = ISC_FALSE;
 
-
 	dns_name_init(&mname, NULL);
 	dns_name_init(&rname, NULL);
 	dns_name_init(&prefix, NULL);
@@ -122,14 +60,14 @@ totext_soa(ARGS_TOTEXT) {
 	sub = name_prefix(&mname, tctx->origin, &prefix);
 	RETERR(dns_name_totext(&prefix, sub, target));
 
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 
 	sub = name_prefix(&rname, tctx->origin, &prefix);
 	RETERR(dns_name_totext(&prefix, sub, target));
 
 	if (multiline)
-		RETERR(str_totext(" (" , target));
-	RETERR(str_totext(tctx->linebreak, target));
+		RETERR(isc_str_tobuffer(" (" , target));
+	RETERR(isc_str_tobuffer(tctx->linebreak, target));
 
 	for (i = 0; i < 5; i++) {
 		char buf[sizeof("0123456789 ; ")];
@@ -137,23 +75,23 @@ totext_soa(ARGS_TOTEXT) {
 		num = uint32_fromregion(&dregion);
 		isc_region_consume(&dregion, 4);
 		snprintf(buf, sizeof(buf), comm ? "%-10lu ; " : "%lu", num);
-		RETERR(str_totext(buf, target));
+		RETERR(isc_str_tobuffer(buf, target));
 		if (comm) {
-			RETERR(str_totext(soa_fieldnames[i], target));
+			RETERR(isc_str_tobuffer(soa_fieldnames[i], target));
 			/* Print times in week/day/hour/minute/second form */
 			if (i >= 1) {
-				RETERR(str_totext(" (", target));
+				RETERR(isc_str_tobuffer(" (", target));
 				RETERR(dns_ttl_totext(num, ISC_TRUE, target));
-				RETERR(str_totext(")", target));
+				RETERR(isc_str_tobuffer(")", target));
 			}
-			RETERR(str_totext(tctx->linebreak, target));
+			RETERR(isc_str_tobuffer(tctx->linebreak, target));
 		} else if (i < 4) {
-			RETERR(str_totext(tctx->linebreak, target));
+			RETERR(isc_str_tobuffer(tctx->linebreak, target));
 		}
 	}
 
 	if (multiline)
-		RETERR(str_totext(")", target));
+		RETERR(isc_str_tobuffer(")", target));
 
 	return (ISC_R_SUCCESS);
 }
@@ -229,52 +167,6 @@ towire_soa(ARGS_TOWIRE) {
 	return (ISC_R_SUCCESS);
 }
 
-static inline int
-compare_soa(ARGS_COMPARE) {
-	isc_region_t region1;
-	isc_region_t region2;
-	dns_name_t name1;
-	dns_name_t name2;
-	int order;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_soa);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_name_init(&name1, NULL);
-	dns_name_init(&name2, NULL);
-
-	dns_rdata_toregion(rdata1, &region1);
-	dns_rdata_toregion(rdata2, &region2);
-
-	dns_name_fromregion(&name1, &region1);
-	dns_name_fromregion(&name2, &region2);
-
-	order = dns_name_rdatacompare(&name1, &name2);
-	if (order != 0)
-		return (order);
-
-	isc_region_consume(&region1, name_length(&name1));
-	isc_region_consume(&region2, name_length(&name2));
-
-	dns_name_init(&name1, NULL);
-	dns_name_init(&name2, NULL);
-
-	dns_name_fromregion(&name1, &region1);
-	dns_name_fromregion(&name2, &region2);
-
-	order = dns_name_rdatacompare(&name1, &name2);
-	if (order != 0)
-		return (order);
-
-	isc_region_consume(&region1, name_length(&name1));
-	isc_region_consume(&region2, name_length(&name2));
-
-	return (isc_region_compare(&region1, &region2));
-}
-
 static inline isc_result_t
 fromstruct_soa(ARGS_FROMSTRUCT) {
 	dns_rdata_soa_t *soa = source;
@@ -313,7 +205,6 @@ tostruct_soa(ARGS_TOSTRUCT) {
 	soa->common.rdclass = rdata->rdclass;
 	soa->common.rdtype = rdata->type;
 	ISC_LINK_INIT(&soa->common, link);
-
 
 	dns_rdata_toregion(rdata, &region);
 
@@ -360,84 +251,6 @@ freestruct_soa(ARGS_FREESTRUCT) {
 
 	dns_name_free(&soa->origin);
 	dns_name_free(&soa->contact);
-}
-
-static inline isc_result_t
-additionaldata_soa(ARGS_ADDLDATA) {
-	UNUSED(rdata);
-	UNUSED(add);
-	UNUSED(arg);
-
-	REQUIRE(rdata->type == dns_rdatatype_soa);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-digest_soa(ARGS_DIGEST) {
-	isc_region_t r;
-	dns_name_t name;
-
-	REQUIRE(rdata->type == dns_rdatatype_soa);
-
-	dns_rdata_toregion(rdata, &r);
-
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &r);
-	RETERR(dns_name_digest(&name, digest, arg));
-	isc_region_consume(&r, name_length(&name));
-
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &r);
-	RETERR(dns_name_digest(&name, digest, arg));
-	isc_region_consume(&r, name_length(&name));
-
-	return ((digest)(arg, &r));
-}
-
-static inline isc_boolean_t
-checkowner_soa(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_soa);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline isc_boolean_t
-checknames_soa(ARGS_CHECKNAMES) {
-	isc_region_t region;
-	dns_name_t name;
-
-	REQUIRE(rdata->type == dns_rdatatype_soa);
-
-	UNUSED(owner);
-
-	dns_rdata_toregion(rdata, &region);
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &region);
-	if (!dns_name_ishostname(&name, ISC_FALSE)) {
-		if (bad != NULL)
-			dns_name_clone(&name, bad);
-		return (ISC_FALSE);
-	}
-	isc_region_consume(&region, name_length(&name));
-	dns_name_fromregion(&name, &region);
-	if (!dns_name_ismailbox(&name)) {
-		if (bad != NULL)
-			dns_name_clone(&name, bad);
-		return (ISC_FALSE);
-	}
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_soa(ARGS_COMPARE) {
-	return (compare_soa(rdata1, rdata2));
 }
 
 #endif	/* RDATA_GENERIC_SOA_6_C */

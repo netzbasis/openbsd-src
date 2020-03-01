@@ -1,4 +1,4 @@
-/Makefile/1.85/Sat Nov  9 21:12:03 2019//
+/Makefile/1.86/Fri Feb 28 12:50:06 2020//
 D/__syscall////
 D/accept////
 D/access////
@@ -41,6 +41,7 @@ D/pread////
 D/preadv////
 D/ptmget////
 D/ptrace////
+D/ptrace2////
 D/pty////
 D/pwrite////
 D/pwritev////

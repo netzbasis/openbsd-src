@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: afsdb_18.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: afsdb_18.c,v 1.11 2020/02/26 18:47:58 florian Exp $ */
 
 /* Reviewed: Wed Mar 15 14:59:00 PST 2000 by explorer */
 
@@ -22,50 +22,6 @@
 
 #ifndef RDATA_GENERIC_AFSDB_18_C
 #define RDATA_GENERIC_AFSDB_18_C
-
-#define RRTYPE_AFSDB_ATTRIBUTES (0)
-
-static inline isc_result_t
-fromtext_afsdb(ARGS_FROMTEXT) {
-	isc_token_t token;
-	isc_buffer_t buffer;
-	dns_name_t name;
-	isc_boolean_t ok;
-
-	REQUIRE(type == dns_rdatatype_afsdb);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(callbacks);
-
-	/*
-	 * Subtype.
-	 */
-	RETERR(isc_lex_getmastertoken(lexer, &token, isc_tokentype_number,
-				      ISC_FALSE));
-	if (token.value.as_ulong > 0xffffU)
-		RETTOK(ISC_R_RANGE);
-	RETERR(uint16_tobuffer(token.value.as_ulong, target));
-
-	/*
-	 * Hostname.
-	 */
-	RETERR(isc_lex_getmastertoken(lexer, &token, isc_tokentype_string,
-				      ISC_FALSE));
-	dns_name_init(&name, NULL);
-	buffer_fromregion(&buffer, &token.value.as_region);
-	if (origin == NULL)
-		origin = dns_rootname;
-	RETTOK(dns_name_fromtext(&name, &buffer, origin, options, target));
-	ok = ISC_TRUE;
-	if ((options & DNS_RDATA_CHECKNAMES) != 0)
-		ok = dns_name_ishostname(&name, ISC_FALSE);
-	if (!ok && (options & DNS_RDATA_CHECKNAMESFAIL) != 0)
-		RETTOK(DNS_R_BADNAME);
-	if (!ok && callbacks != NULL)
-		warn_badname(&name, lexer, callbacks);
-	return (ISC_R_SUCCESS);
-}
 
 static inline isc_result_t
 totext_afsdb(ARGS_TOTEXT) {
@@ -86,7 +42,7 @@ totext_afsdb(ARGS_TOTEXT) {
 	num = uint16_fromregion(&region);
 	isc_region_consume(&region, 2);
 	snprintf(buf, sizeof(buf), "%u ", num);
-	RETERR(str_totext(buf, target));
+	RETERR(isc_str_tobuffer(buf, target));
 	dns_name_fromregion(&name, &region);
 	sub = name_prefix(&name, tctx->origin, &prefix);
 	return (dns_name_totext(&prefix, sub, target));
@@ -144,165 +100,4 @@ towire_afsdb(ARGS_TOWIRE) {
 	return (dns_name_towire(&name, cctx, target));
 }
 
-static inline int
-compare_afsdb(ARGS_COMPARE) {
-	int result;
-	dns_name_t name1;
-	dns_name_t name2;
-	isc_region_t region1;
-	isc_region_t region2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_afsdb);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	result = memcmp(rdata1->data, rdata2->data, 2);
-	if (result != 0)
-		return (result < 0 ? -1 : 1);
-
-	dns_name_init(&name1, NULL);
-	dns_name_init(&name2, NULL);
-
-	dns_rdata_toregion(rdata1, &region1);
-	dns_rdata_toregion(rdata2, &region2);
-
-	isc_region_consume(&region1, 2);
-	isc_region_consume(&region2, 2);
-
-	dns_name_fromregion(&name1, &region1);
-	dns_name_fromregion(&name2, &region2);
-
-	return (dns_name_rdatacompare(&name1, &name2));
-}
-
-static inline isc_result_t
-fromstruct_afsdb(ARGS_FROMSTRUCT) {
-	dns_rdata_afsdb_t *afsdb = source;
-	isc_region_t region;
-
-	REQUIRE(type == dns_rdatatype_afsdb);
-	REQUIRE(source != NULL);
-	REQUIRE(afsdb->common.rdclass == rdclass);
-	REQUIRE(afsdb->common.rdtype == type);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	RETERR(uint16_tobuffer(afsdb->subtype, target));
-	dns_name_toregion(&afsdb->server, &region);
-	return (isc_buffer_copyregion(target, &region));
-}
-
-static inline isc_result_t
-tostruct_afsdb(ARGS_TOSTRUCT) {
-	isc_region_t region;
-	dns_rdata_afsdb_t *afsdb = target;
-	dns_name_t name;
-
-	REQUIRE(rdata->type == dns_rdatatype_afsdb);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-
-	afsdb->common.rdclass = rdata->rdclass;
-	afsdb->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&afsdb->common, link);
-
-	dns_name_init(&afsdb->server, NULL);
-
-	dns_rdata_toregion(rdata, &region);
-
-	afsdb->subtype = uint16_fromregion(&region);
-	isc_region_consume(&region, 2);
-
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &region);
-
-	RETERR(name_duporclone(&name, &afsdb->server));
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_afsdb(ARGS_FREESTRUCT) {
-	dns_rdata_afsdb_t *afsdb = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(afsdb->common.rdtype == dns_rdatatype_afsdb);
-
-	dns_name_free(&afsdb->server);
-}
-
-static inline isc_result_t
-additionaldata_afsdb(ARGS_ADDLDATA) {
-	dns_name_t name;
-	dns_offsets_t offsets;
-	isc_region_t region;
-
-	REQUIRE(rdata->type == dns_rdatatype_afsdb);
-
-	dns_name_init(&name, offsets);
-	dns_rdata_toregion(rdata, &region);
-	isc_region_consume(&region, 2);
-	dns_name_fromregion(&name, &region);
-
-	return ((add)(arg, &name, dns_rdatatype_a));
-}
-
-static inline isc_result_t
-digest_afsdb(ARGS_DIGEST) {
-	isc_region_t r1, r2;
-	dns_name_t name;
-
-	REQUIRE(rdata->type == dns_rdatatype_afsdb);
-
-	dns_rdata_toregion(rdata, &r1);
-	r2 = r1;
-	isc_region_consume(&r2, 2);
-	r1.length = 2;
-	RETERR((digest)(arg, &r1));
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &r2);
-
-	return (dns_name_digest(&name, digest, arg));
-}
-
-static inline isc_boolean_t
-checkowner_afsdb(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_afsdb);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline isc_boolean_t
-checknames_afsdb(ARGS_CHECKNAMES) {
-	isc_region_t region;
-	dns_name_t name;
-
-	REQUIRE(rdata->type == dns_rdatatype_afsdb);
-
-	UNUSED(owner);
-
-	dns_rdata_toregion(rdata, &region);
-	isc_region_consume(&region, 2);
-	dns_name_init(&name, NULL);
-	dns_name_fromregion(&name, &region);
-	if (!dns_name_ishostname(&name, ISC_FALSE)) {
-		if (bad != NULL)
-			dns_name_clone(&name, bad);
-		return (ISC_FALSE);
-	}
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_afsdb(ARGS_COMPARE) {
-	return (compare_afsdb(rdata1, rdata2));
-}
 #endif	/* RDATA_GENERIC_AFSDB_18_C */

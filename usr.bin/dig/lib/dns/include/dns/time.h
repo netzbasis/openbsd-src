@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: time.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: time.h,v 1.3 2020/02/23 19:54:26 jung Exp $ */
 
 #ifndef DNS_TIME_H
 #define DNS_TIME_H 1
@@ -26,29 +26,10 @@
  ***/
 
 #include <isc/buffer.h>
-#include <isc/lang.h>
-
-ISC_LANG_BEGINDECLS
 
 /***
  ***	Functions
  ***/
-
-isc_result_t
-dns_time64_fromtext(const char *source, int64_t *target);
-/*%<
- * Convert a date and time in YYYYMMDDHHMMSS text format at 'source'
- * into to a 64-bit count of seconds since Jan 1 1970 0:00 GMT.
- * Store the count at 'target'.
- */
-
-isc_result_t
-dns_time32_fromtext(const char *source, uint32_t *target);
-/*%<
- * Like dns_time64_fromtext, but returns the second count modulo 2^32
- * as per RFC2535.
- */
-
 
 isc_result_t
 dns_time64_totext(int64_t value, isc_buffer_t *target);
@@ -71,7 +52,5 @@ dns_time64_from32(uint32_t value);
 /*%<
  * Covert a 32-bit cyclic time value into a 64 bit time stamp.
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_TIME_H */

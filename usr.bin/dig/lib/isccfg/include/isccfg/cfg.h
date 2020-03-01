@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: cfg.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: cfg.h,v 1.5 2020/02/25 05:00:43 jsg Exp $ */
 
 #ifndef ISCCFG_CFG_H
 #define ISCCFG_CFG_H 1
@@ -32,12 +32,9 @@
  *** Imports
  ***/
 
-#include <isc/formatcheck.h>
-#include <isc/lang.h>
 #include <isc/refcount.h>
 #include <isc/types.h>
 #include <isc/list.h>
-
 
 /***
  *** Types
@@ -72,8 +69,6 @@ typedef struct cfg_listelt cfg_listelt_t;
 /***
  *** Functions
  ***/
-
-ISC_LANG_BEGINDECLS
 
 isc_result_t
 cfg_parser_create(isc_log_t *lctx, cfg_parser_t **ret);
@@ -147,12 +142,6 @@ cfg_map_getname(const cfg_obj_t *mapobj);
  * Returns:
  * \li     A pointer to a configuration object naming the map object,
  *	or NULL if the map object does not have a name.
- */
-
-isc_boolean_t
-cfg_obj_isstring(const cfg_obj_t *obj);
-/*%<
- * Return true iff 'obj' is of string type.
  */
 
 const char *
@@ -247,7 +236,5 @@ cfg_obj_destroy(cfg_parser_t *pctx, cfg_obj_t **obj);
  * \li     '*obj' is a valid cfg_obj_t.
  * \li     'pctx' is a valid cfg_parser_t.
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISCCFG_CFG_H */

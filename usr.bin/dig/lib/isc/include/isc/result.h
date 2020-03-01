@@ -14,14 +14,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: result.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: result.h,v 1.3 2020/02/19 20:57:10 jung Exp $ */
 
 #ifndef ISC_RESULT_H
 #define ISC_RESULT_H 1
 
 /*! \file isc/result.h */
 
-#include <isc/lang.h>
 #include <isc/types.h>
 
 #define ISC_R_SUCCESS			0	/*%< success */
@@ -40,8 +39,6 @@
 #define ISC_R_NORESOURCES		13	/*%< not enough free resources */
 #define ISC_R_EOF			14	/*%< end of file */
 #define ISC_R_BOUND			15	/*%< socket already bound */
-#define ISC_R_RELOAD			16	/*%< reload */
-#define ISC_R_SUSPEND	      ISC_R_RELOAD	/*%< alias of 'reload' */
 #define ISC_R_LOCKBUSY			17	/*%< lock busy */
 #define ISC_R_EXISTS			18	/*%< already exists */
 #define ISC_R_NOSPACE			19	/*%< ran out of space */
@@ -93,8 +90,6 @@
 /*% Not a result code: the number of results. */
 #define ISC_R_NRESULTS 			64
 
-ISC_LANG_BEGINDECLS
-
 const char *
 isc_result_totext(isc_result_t);
 /*%<
@@ -104,7 +99,5 @@ isc_result_totext(isc_result_t);
 isc_result_t
 isc_result_register(unsigned int base, unsigned int nresults,
 		    const char **text, int set);
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_RESULT_H */

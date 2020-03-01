@@ -14,97 +14,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: apl_42.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: apl_42.c,v 1.13 2020/02/26 18:47:59 florian Exp $ */
 
 /* RFC3123 */
 
 #ifndef RDATA_IN_1_APL_42_C
 #define RDATA_IN_1_APL_42_C
-
-#define RRTYPE_APL_ATTRIBUTES (0)
-
-static inline isc_result_t
-fromtext_in_apl(ARGS_FROMTEXT) {
-	isc_token_t token;
-	unsigned char addr[16];
-	unsigned long afi;
-	uint8_t prefix;
-	uint8_t len;
-	isc_boolean_t neg;
-	char *cp, *ap, *slash;
-	int n;
-
-	REQUIRE(type == dns_rdatatype_apl);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(origin);
-	UNUSED(options);
-	UNUSED(callbacks);
-
-	do {
-		RETERR(isc_lex_getmastertoken(lexer, &token,
-					      isc_tokentype_string, ISC_TRUE));
-		if (token.type != isc_tokentype_string)
-			break;
-
-		cp = DNS_AS_STR(token);
-		neg = ISC_TF(*cp == '!');
-		if (neg)
-			cp++;
-		afi = strtoul(cp, &ap, 10);
-		if (*ap++ != ':' || cp == ap)
-			RETTOK(DNS_R_SYNTAX);
-		if (afi > 0xffffU)
-			RETTOK(ISC_R_RANGE);
-		slash = strchr(ap, '/');
-		if (slash == NULL || slash == ap)
-			RETTOK(DNS_R_SYNTAX);
-		RETTOK(isc_parse_uint8(&prefix, slash + 1, 10));
-		switch (afi) {
-		case 1:
-			*slash = '\0';
-			n = inet_pton(AF_INET, ap, addr);
-			*slash = '/';
-			if (n != 1)
-				RETTOK(DNS_R_BADDOTTEDQUAD);
-			if (prefix > 32)
-				RETTOK(ISC_R_RANGE);
-			for (len = 4; len > 0; len--)
-				if (addr[len - 1] != 0)
-					break;
-			break;
-
-		case 2:
-			*slash = '\0';
-			n = inet_pton(AF_INET6, ap, addr);
-			*slash = '/';
-			if (n != 1)
-				RETTOK(DNS_R_BADAAAA);
-			if (prefix > 128)
-				RETTOK(ISC_R_RANGE);
-			for (len = 16; len > 0; len--)
-				if (addr[len - 1] != 0)
-					break;
-			break;
-
-		default:
-			RETTOK(ISC_R_NOTIMPLEMENTED);
-		}
-		RETERR(uint16_tobuffer(afi, target));
-		RETERR(uint8_tobuffer(prefix, target));
-		RETERR(uint8_tobuffer(len | ((neg) ? 0x80 : 0), target));
-		RETERR(mem_tobuffer(target, addr, len));
-	} while (1);
-
-	/*
-	 * Let upper layer handle eol/eof.
-	 */
-	isc_lex_ungettoken(lexer, &token);
-
-	return (ISC_R_SUCCESS);
-}
 
 static inline isc_result_t
 totext_in_apl(ARGS_TOTEXT) {
@@ -141,7 +56,7 @@ totext_in_apl(ARGS_TOTEXT) {
 		n = snprintf(txt, sizeof(txt), "%s%s%u:", sep,
 			     neg ? "!" : "", afi);
 		INSIST(n < (int)sizeof(txt));
-		RETERR(str_totext(txt, target));
+		RETERR(isc_str_tobuffer(txt, target));
 		switch (afi) {
 		case 1:
 			INSIST(len <= 4);
@@ -164,7 +79,7 @@ totext_in_apl(ARGS_TOTEXT) {
 		}
 		n = snprintf(txt, sizeof(txt), "/%u", prefix);
 		INSIST(n < (int)sizeof(txt));
-		RETERR(str_totext(txt, target));
+		RETERR(isc_str_tobuffer(txt, target));
 		isc_region_consume(&sr, len);
 		sep = " ";
 	}
@@ -219,7 +134,7 @@ fromwire_in_apl(ARGS_FROMWIRE) {
 		isc_region_consume(&sr, len);
 	}
 	isc_buffer_forward(source, sr2.length);
-	return (mem_tobuffer(target, sr2.base, sr2.length));
+	return (isc_mem_tobuffer(target, sr2.base, sr2.length));
 }
 
 static inline isc_result_t
@@ -229,225 +144,7 @@ towire_in_apl(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_apl);
 	REQUIRE(rdata->rdclass == dns_rdataclass_in);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
-}
-
-static inline int
-compare_in_apl(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_apl);
-	REQUIRE(rdata1->rdclass == dns_rdataclass_in);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_in_apl(ARGS_FROMSTRUCT) {
-	dns_rdata_in_apl_t *apl = source;
-	isc_buffer_t b;
-
-	REQUIRE(type == dns_rdatatype_apl);
-	REQUIRE(rdclass == dns_rdataclass_in);
-	REQUIRE(source != NULL);
-	REQUIRE(apl->common.rdtype == type);
-	REQUIRE(apl->common.rdclass == rdclass);
-	REQUIRE(apl->apl != NULL || apl->apl_len == 0);
-
-	isc_buffer_init(&b, apl->apl, apl->apl_len);
-	isc_buffer_add(&b, apl->apl_len);
-	isc_buffer_setactive(&b, apl->apl_len);
-	return(fromwire_in_apl(rdclass, type, &b, NULL, ISC_FALSE, target));
-}
-
-static inline isc_result_t
-tostruct_in_apl(ARGS_TOSTRUCT) {
-	dns_rdata_in_apl_t *apl = target;
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_apl);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	apl->common.rdclass = rdata->rdclass;
-	apl->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&apl->common, link);
-
-	dns_rdata_toregion(rdata, &r);
-	apl->apl_len = r.length;
-	apl->apl = mem_maybedup(r.base, r.length);
-	if (apl->apl == NULL)
-		return (ISC_R_NOMEMORY);
-
-	apl->offset = 0;
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_in_apl(ARGS_FREESTRUCT) {
-	dns_rdata_in_apl_t *apl = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(apl->common.rdtype == dns_rdatatype_apl);
-	REQUIRE(apl->common.rdclass == dns_rdataclass_in);
-
-	if (apl->apl != NULL)
-		free(apl->apl);
-}
-
-isc_result_t
-dns_rdata_apl_first(dns_rdata_in_apl_t *apl) {
-	uint32_t length;
-
-	REQUIRE(apl != NULL);
-	REQUIRE(apl->common.rdtype == dns_rdatatype_apl);
-	REQUIRE(apl->common.rdclass == dns_rdataclass_in);
-	REQUIRE(apl->apl != NULL || apl->apl_len == 0);
-
-	/*
-	 * If no APL return ISC_R_NOMORE.
-	 */
-	if (apl->apl == NULL)
-		return (ISC_R_NOMORE);
-
-	/*
-	 * Sanity check data.
-	 */
-	INSIST(apl->apl_len > 3U);
-	length = apl->apl[apl->offset + 3] & 0x7f;
-	INSIST(length <= apl->apl_len);
-
-	apl->offset = 0;
-	return (ISC_R_SUCCESS);
-}
-
-isc_result_t
-dns_rdata_apl_next(dns_rdata_in_apl_t *apl) {
-	uint32_t length;
-
-	REQUIRE(apl != NULL);
-	REQUIRE(apl->common.rdtype == dns_rdatatype_apl);
-	REQUIRE(apl->common.rdclass == dns_rdataclass_in);
-	REQUIRE(apl->apl != NULL || apl->apl_len == 0);
-
-	/*
-	 * No APL or have already reached the end return ISC_R_NOMORE.
-	 */
-	if (apl->apl == NULL || apl->offset == apl->apl_len)
-		return (ISC_R_NOMORE);
-
-	/*
-	 * Sanity check data.
-	 */
-	INSIST(apl->offset < apl->apl_len);
-	INSIST(apl->apl_len > 3U);
-	INSIST(apl->offset <= apl->apl_len - 4U);
-	length = apl->apl[apl->offset + 3] & 0x7f;
-	/*
-	 * 16 to 32 bits promotion as 'length' is 32 bits so there is
-	 * no overflow problems.
-	 */
-	INSIST(length + apl->offset <= apl->apl_len);
-
-	apl->offset += apl->apl[apl->offset + 3] & 0x7f;
-	return ((apl->offset >= apl->apl_len) ? ISC_R_SUCCESS : ISC_R_NOMORE);
-}
-
-isc_result_t
-dns_rdata_apl_current(dns_rdata_in_apl_t *apl, dns_rdata_apl_ent_t *ent) {
-	uint32_t length;
-
-	REQUIRE(apl != NULL);
-	REQUIRE(apl->common.rdtype == dns_rdatatype_apl);
-	REQUIRE(apl->common.rdclass == dns_rdataclass_in);
-	REQUIRE(ent != NULL);
-	REQUIRE(apl->apl != NULL || apl->apl_len == 0);
-	REQUIRE(apl->offset <= apl->apl_len);
-
-	if (apl->offset == apl->apl_len)
-		return (ISC_R_NOMORE);
-
-	/*
-	 * Sanity check data.
-	 */
-	INSIST(apl->apl_len > 3U);
-	INSIST(apl->offset <= apl->apl_len - 4U);
-	length = apl->apl[apl->offset + 3] & 0x7f;
-	/*
-	 * 16 to 32 bits promotion as 'length' is 32 bits so there is
-	 * no overflow problems.
-	 */
-	INSIST(length + apl->offset <= apl->apl_len);
-
-	ent->family = (apl->apl[apl->offset] << 8) + apl->apl[apl->offset + 1];
-	ent->prefix = apl->apl[apl->offset + 2];
-	ent->length = apl->apl[apl->offset + 3] & 0x7f;
-	ent->negative = ISC_TF((apl->apl[apl->offset + 3] & 0x80) != 0);
-	if (ent->length != 0)
-		ent->data = &apl->apl[apl->offset + 4];
-	else
-		ent->data = NULL;
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-additionaldata_in_apl(ARGS_ADDLDATA) {
-	REQUIRE(rdata->type == dns_rdatatype_apl);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	(void)add;
-	(void)arg;
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-digest_in_apl(ARGS_DIGEST) {
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_apl);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	dns_rdata_toregion(rdata, &r);
-
-	return ((digest)(arg, &r));
-}
-
-static inline isc_boolean_t
-checkowner_in_apl(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_apl);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-
-static inline isc_boolean_t
-checknames_in_apl(ARGS_CHECKNAMES) {
-
-	REQUIRE(rdata->type == dns_rdatatype_apl);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	UNUSED(rdata);
-	UNUSED(owner);
-	UNUSED(bad);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_in_apl(ARGS_COMPARE) {
-	return (compare_in_apl(rdata1, rdata2));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
 #endif	/* RDATA_IN_1_APL_42_C */

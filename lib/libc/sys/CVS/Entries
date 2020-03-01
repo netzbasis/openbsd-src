@@ -37,7 +37,7 @@
 /getgid.2/1.19/Thu Sep 10 17:55:21 2015//
 /getgroups.2/1.15/Mon Jul  8 18:48:30 2019//
 /getitimer.2/1.33/Mon Jun 24 21:20:12 2019//
-/getlogin.2/1.21/Thu Sep 10 17:55:21 2015//
+/getlogin.2/1.22/Sun Feb  9 02:32:43 2020//
 /getpeername.2/1.26/Thu Sep 10 17:55:21 2015//
 /getpgrp.2/1.18/Thu Sep 10 17:55:21 2015//
 /getpid.2/1.13/Thu Sep 10 17:55:21 2015//
@@ -99,7 +99,7 @@
 /pwrite.c/1.11/Sat May  7 19:05:22 2016//
 /pwritev.c/1.11/Sat May  7 19:05:22 2016//
 /quotactl.2/1.15/Mon Jan 19 15:54:11 2015//
-/read.2/1.36/Fri Sep 30 10:53:11 2016//
+/read.2/1.37/Tue Feb 11 13:19:17 2020//
 /readlink.2/1.19/Sun May 31 23:54:25 2015//
 /reboot.2/1.19/Sat Apr 15 18:55:27 2017//
 /recv.2/1.47/Fri Jan 11 06:10:13 2019//
@@ -137,7 +137,7 @@
 /stat.2/1.47/Sat Oct 28 15:28:53 2017//
 /statfs.2/1.26/Fri Apr 27 13:42:08 2018//
 /swapctl.2/1.24/Tue Apr  2 13:07:28 2019//
-/symlink.2/1.20/Thu Sep 10 17:55:21 2015//
+/symlink.2/1.21/Tue Feb 11 13:19:17 2020//
 /sync.2/1.16/Sat Jan  9 21:27:28 2016//
 /sysarch.2/1.11/Thu Sep 10 17:55:21 2015//
 /syscall.2/1.13/Mon May 30 06:48:21 2016//
@@ -148,7 +148,7 @@
 /timer_getoverrun.c/1.6/Sat Sep 12 13:13:34 2015//
 /timer_gettime.c/1.7/Sat Sep 12 13:13:34 2015//
 /timer_settime.c/1.7/Sat Sep 12 13:13:34 2015//
-/truncate.2/1.19/Sun Feb 28 14:38:25 2016//
+/truncate.2/1.20/Tue Feb 11 13:19:17 2020//
 /truncate.c/1.14/Fri Sep 11 13:26:20 2015//
 /umask.2/1.12/Mon Oct 12 17:51:55 2015//
 /unlink.2/1.27/Wed Jun  1 23:00:40 2016//

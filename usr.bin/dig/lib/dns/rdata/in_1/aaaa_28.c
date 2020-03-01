@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: aaaa_28.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: aaaa_28.c,v 1.10 2020/02/26 18:38:15 florian Exp $ */
 
 /* Reviewed: Thu Mar 16 16:52:50 PST 2000 by bwelling */
 
@@ -24,36 +24,6 @@
 #define RDATA_IN_1_AAAA_28_C
 
 #include <isc/net.h>
-
-#define RRTYPE_AAAA_ATTRIBUTES (0)
-
-static inline isc_result_t
-fromtext_in_aaaa(ARGS_FROMTEXT) {
-	isc_token_t token;
-	unsigned char addr[16];
-	isc_region_t region;
-
-	REQUIRE(type == dns_rdatatype_aaaa);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(type);
-	UNUSED(origin);
-	UNUSED(options);
-	UNUSED(rdclass);
-	UNUSED(callbacks);
-
-	RETERR(isc_lex_getmastertoken(lexer, &token, isc_tokentype_string,
-				      ISC_FALSE));
-
-	if (inet_pton(AF_INET6, DNS_AS_STR(token), addr) != 1)
-		RETTOK(DNS_R_BADAAAA);
-	isc_buffer_availableregion(target, &region);
-	if (region.length < 16)
-		return (ISC_R_NOSPACE);
-	memmove(region.base, addr, 16);
-	isc_buffer_add(target, 16);
-	return (ISC_R_SUCCESS);
-}
 
 static inline isc_result_t
 totext_in_aaaa(ARGS_TOTEXT) {
@@ -113,136 +83,4 @@ towire_in_aaaa(ARGS_TOWIRE) {
 	return (ISC_R_SUCCESS);
 }
 
-static inline int
-compare_in_aaaa(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_aaaa);
-	REQUIRE(rdata1->rdclass == dns_rdataclass_in);
-	REQUIRE(rdata1->length == 16);
-	REQUIRE(rdata2->length == 16);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_in_aaaa(ARGS_FROMSTRUCT) {
-	dns_rdata_in_aaaa_t *aaaa = source;
-
-	REQUIRE(type == dns_rdatatype_aaaa);
-	REQUIRE(rdclass == dns_rdataclass_in);
-	REQUIRE(source != NULL);
-	REQUIRE(aaaa->common.rdtype == type);
-	REQUIRE(aaaa->common.rdclass == rdclass);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	return (mem_tobuffer(target, aaaa->in6_addr.s6_addr, 16));
-}
-
-static inline isc_result_t
-tostruct_in_aaaa(ARGS_TOSTRUCT) {
-	dns_rdata_in_aaaa_t *aaaa = target;
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_aaaa);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length == 16);
-
-	aaaa->common.rdclass = rdata->rdclass;
-	aaaa->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&aaaa->common, link);
-
-	dns_rdata_toregion(rdata, &r);
-	INSIST(r.length == 16);
-	memmove(aaaa->in6_addr.s6_addr, r.base, 16);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline void
-freestruct_in_aaaa(ARGS_FREESTRUCT) {
-	dns_rdata_in_aaaa_t *aaaa = source;
-
-	REQUIRE(source != NULL);
-	REQUIRE(aaaa->common.rdclass == dns_rdataclass_in);
-	REQUIRE(aaaa->common.rdtype == dns_rdatatype_aaaa);
-
-	UNUSED(aaaa);
-}
-
-static inline isc_result_t
-additionaldata_in_aaaa(ARGS_ADDLDATA) {
-	REQUIRE(rdata->type == dns_rdatatype_aaaa);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	UNUSED(rdata);
-	UNUSED(add);
-	UNUSED(arg);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-digest_in_aaaa(ARGS_DIGEST) {
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_aaaa);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	dns_rdata_toregion(rdata, &r);
-
-	return ((digest)(arg, &r));
-}
-
-static inline isc_boolean_t
-checkowner_in_aaaa(ARGS_CHECKOWNER) {
-	dns_name_t prefix, suffix;
-
-	REQUIRE(type == dns_rdatatype_aaaa);
-	REQUIRE(rdclass == dns_rdataclass_in);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	/*
-	 * Handle Active Diretory gc._msdcs.<forest> name.
-	 */
-	if (dns_name_countlabels(name) > 2U) {
-		dns_name_init(&prefix, NULL);
-		dns_name_init(&suffix, NULL);
-		dns_name_split(name, dns_name_countlabels(name) - 2,
-			       &prefix, &suffix);
-		if (dns_name_equal(&gc_msdcs, &prefix) &&
-		    dns_name_ishostname(&suffix, ISC_FALSE))
-			return (ISC_TRUE);
-	}
-
-	return (dns_name_ishostname(name, wildcard));
-}
-
-static inline isc_boolean_t
-checknames_in_aaaa(ARGS_CHECKNAMES) {
-
-	REQUIRE(rdata->type == dns_rdatatype_aaaa);
-	REQUIRE(rdata->rdclass == dns_rdataclass_in);
-
-	UNUSED(rdata);
-	UNUSED(owner);
-	UNUSED(bad);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_in_aaaa(ARGS_COMPARE) {
-	return (compare_in_aaaa(rdata1, rdata2));
-}
 #endif	/* RDATA_IN_1_AAAA_28_C */

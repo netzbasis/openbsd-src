@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: symtab.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: symtab.h,v 1.3 2020/02/17 18:58:39 jung Exp $ */
 
 #ifndef ISC_SYMTAB_H
 #define ISC_SYMTAB_H 1
@@ -50,7 +50,7 @@
  *
  * The symbol table library does not make a copy the key field, so the
  * caller must ensure that any key it passes to isc_symtab_define() will not
- * change until it calls isc_symtab_undefine() or isc_symtab_destroy().
+ * change until it calls isc_symtab_destroy().
  *
  * A user-specified action will be called (if provided) when a symbol is
  * undefined.  It can be used to free memory associated with keys and/or
@@ -84,7 +84,6 @@
  *** Imports.
  ***/
 
-#include <isc/lang.h>
 #include <isc/types.h>
 
 /*
@@ -107,8 +106,6 @@ typedef enum {
 	isc_symexists_add = 2		/*%< Add the new tuple */
 } isc_symexists_t;
 
-ISC_LANG_BEGINDECLS
-
 /*% Create a symbol table. */
 isc_result_t
 isc_symtab_create(unsigned int size,
@@ -128,14 +125,5 @@ isc_symtab_lookup(isc_symtab_t *symtab, const char *key, unsigned int type,
 isc_result_t
 isc_symtab_define(isc_symtab_t *symtab, const char *key, unsigned int type,
 		  isc_symvalue_t value, isc_symexists_t exists_policy);
-
-/*% Undefine a symbol table. */
-isc_result_t
-isc_symtab_undefine(isc_symtab_t *symtab, const char *key, unsigned int type);
-
-/*% Return the number of items in a symbol table. */
-unsigned int
-isc_symtab_count(isc_symtab_t *symtab);
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_SYMTAB_H */

@@ -1,6 +1,6 @@
-/Makefile/1.13/Tue Dec 26 15:23:33 2017//
-/Symbols.map/1.1/Tue Dec 26 19:12:22 2017//
-/amsg.h/1.12/Fri Jul 12 06:30:55 2019//
+/Makefile/1.14/Wed Feb 26 13:53:58 2020//
+/Symbols.map/1.2/Wed Feb 26 13:53:58 2020//
+/amsg.h/1.13/Wed Feb 26 13:53:58 2020//
 /aucat.c/1.77/Fri Jul 12 06:30:55 2019//
 /aucat.h/1.8/Fri Jul  5 22:53:47 2019//
 /debug.c/1.5/Wed Sep 26 08:33:22 2018//
@@ -10,11 +10,16 @@
 /mio_open.3/1.18/Tue Dec 18 20:37:27 2018//
 /mio_priv.h/1.12/Sun Nov 22 12:01:23 2015//
 /mio_rmidi.c/1.28/Sat Jun 29 06:05:26 2019//
-/shlib_version/1.11/Tue Dec 26 15:23:33 2017//
+/shlib_version/1.12/Wed Feb 26 13:53:58 2020//
 /sio.c/1.24/Sat Jun 29 06:05:26 2019//
 /sio_aucat.c/1.20/Sat Jan  9 08:27:24 2016//
 /sio_open.3/1.48/Fri Jan 18 08:43:49 2019//
 /sio_priv.h/1.9/Fri Jan 16 16:48:52 2015//
 /sio_sun.c/1.28/Fri Jun 28 13:32:42 2019//
+/sioctl.c/1.1/Wed Feb 26 13:53:58 2020//
+/sioctl_aucat.c/1.1/Wed Feb 26 13:53:58 2020//
+/sioctl_open.3/1.2/Wed Feb 26 14:41:42 2020//
+/sioctl_priv.h/1.1/Wed Feb 26 13:53:58 2020//
+/sioctl_sun.c/1.1/Wed Feb 26 13:53:58 2020//
 /sndio.7/1.20/Sat Jul 28 09:11:55 2018//
 D

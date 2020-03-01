@@ -14,19 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: assertions.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: assertions.c,v 1.5 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file */
-
-
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <isc/assertions.h>
-#include <isc/msgs.h>
-
-#include <isc/result.h>
 
 /*%
  * Forward.
@@ -41,7 +36,6 @@ static isc_assertioncallback_t isc_assertion_failed_cb = default_callback;
  */
 
 /*% assertion failed handler */
-/* coverity[+kill] */
 void
 isc_assertion_failed(const char *file, int line, isc_assertiontype_t type,
 		     const char *cond)
@@ -49,15 +43,6 @@ isc_assertion_failed(const char *file, int line, isc_assertiontype_t type,
 	isc_assertion_failed_cb(file, line, type, cond);
 	abort();
 	/* NOTREACHED */
-}
-
-/*% Set callback. */
-void
-isc_assertion_setcallback(isc_assertioncallback_t cb) {
-	if (cb == NULL)
-		isc_assertion_failed_cb = default_callback;
-	else
-		isc_assertion_failed_cb = cb;
 }
 
 /*% Type to Text */

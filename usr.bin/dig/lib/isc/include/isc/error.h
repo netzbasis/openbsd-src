@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: error.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: error.h,v 1.5 2020/02/25 05:00:43 jsg Exp $ */
 
 #ifndef ISC_ERROR_H
 #define ISC_ERROR_H 1
@@ -24,32 +24,17 @@
 #include <sys/cdefs.h>
 #include <stdarg.h>
 
-#include <isc/formatcheck.h>
-#include <isc/lang.h>
-
-
-
-ISC_LANG_BEGINDECLS
-
 typedef void (*isc_errorcallback_t)(const char *, int, const char *, va_list);
-
-/*% set unexpected error */
-void
-isc_error_setunexpected(isc_errorcallback_t);
-
-/*% set fatal error */
-void
-isc_error_setfatal(isc_errorcallback_t);
 
 /*% unexpected error */
 void
 isc_error_unexpected(const char *, int, const char *, ...)
-     ISC_FORMAT_PRINTF(3, 4);
+     __attribute__((__format__(__printf__, 3, 4)));
 
 /*% fatal error */
 __dead void
 isc_error_fatal(const char *, int, const char *, ...)
-ISC_FORMAT_PRINTF(3, 4);
+__attribute__((__format__(__printf__, 3, 4)));
 
 /*% runtimecheck error */
 __dead void
@@ -58,7 +43,5 @@ isc_error_runtimecheck(const char *, int, const char *);
 #define ISC_ERROR_RUNTIMECHECK(cond) \
 	((void) ((cond) || \
 		 ((isc_error_runtimecheck)(__FILE__, __LINE__, #cond), 0)))
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_ERROR_H */

@@ -14,48 +14,28 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: error.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: error.c,v 1.5 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file */
-
-
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <isc/error.h>
-#include <isc/msgs.h>
-
 
 /*% Default unexpected callback. */
 static void
 default_unexpected_callback(const char *, int, const char *, va_list)
-     ISC_FORMAT_PRINTF(3, 0);
+     __attribute__((__format__(__printf__, 3, 0)));
 
 /*% Default fatal callback. */
 static void
 default_fatal_callback(const char *, int, const char *, va_list)
-     ISC_FORMAT_PRINTF(3, 0);
+     __attribute__((__format__(__printf__, 3, 0)));
 
 /*% unexpected_callback */
 static isc_errorcallback_t unexpected_callback = default_unexpected_callback;
 static isc_errorcallback_t fatal_callback = default_fatal_callback;
-
-void
-isc_error_setunexpected(isc_errorcallback_t cb) {
-	if (cb == NULL)
-		unexpected_callback = default_unexpected_callback;
-	else
-		unexpected_callback = cb;
-}
-
-void
-isc_error_setfatal(isc_errorcallback_t cb) {
-	if (cb == NULL)
-		fatal_callback = default_fatal_callback;
-	else
-		fatal_callback = cb;
-}
 
 void
 isc_error_unexpected(const char *file, int line, const char *format, ...) {

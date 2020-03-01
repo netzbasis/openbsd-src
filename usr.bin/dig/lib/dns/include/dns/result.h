@@ -14,14 +14,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: result.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: result.h,v 1.4 2020/02/23 19:54:25 jung Exp $ */
 
 #ifndef DNS_RESULT_H
 #define DNS_RESULT_H 1
 
 /*! \file dns/result.h */
 
-#include <isc/lang.h>
 #include <isc/resultclass.h>
 
 #include <dns/types.h>
@@ -187,17 +186,7 @@
 #define DNS_RESULT_ISRCODE(result) \
 	(ISC_RESULTCLASS_INCLASS(ISC_RESULTCLASS_DNSRCODE, (result)))
 
-ISC_LANG_BEGINDECLS
-
-const char *
-dns_result_totext(isc_result_t);
-
 void
 dns_result_register(void);
-
-dns_rcode_t
-dns_result_torcode(isc_result_t result);
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_RESULT_H */

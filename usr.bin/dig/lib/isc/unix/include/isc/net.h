@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: net.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: net.h,v 1.5 2020/02/13 13:53:01 jsg Exp $ */
 
 #ifndef ISC_NET_H
 #define ISC_NET_H 1
@@ -72,30 +72,10 @@
  *** Imports.
  ***/
 
-
-#include <sys/types.h>
 #include <sys/socket.h>		/* Contractual promise. */
-
-#include <net/if.h>
 
 #include <netinet/in.h>		/* Contractual promise. */
 #include <arpa/inet.h>		/* Contractual promise. */
-
-#include <isc/lang.h>
-#include <isc/types.h>
-
-#ifndef IN6_IS_ADDR_SITELOCAL
-/*% is IPv6 address sitelocal? */
-#define IN6_IS_ADDR_SITELOCAL(a) \
-	(((a)->s6_addr[0] == 0xfe) && (((a)->s6_addr[1] & 0xc0) == 0xc0))
-#endif
-
-
-#ifndef IN6_IS_ADDR_LOOPBACK
-/*% is IPv6 address loopback? */
-#define IN6_IS_ADDR_LOOPBACK(x) \
-	(memcmp((x)->s6_addr, in6addr_loopback.s6_addr, 16) == 0)
-#endif
 
 /*% IP address. */
 #define ISC__IPADDR(x)	((uint32_t)htonl((uint32_t)(x)))
@@ -112,8 +92,6 @@
 /***
  *** Functions.
  ***/
-
-ISC_LANG_BEGINDECLS
 
 void
 isc_net_disableipv4(void);
@@ -134,12 +112,5 @@ isc_net_probedscp(void);
 /*%<
  * Probe the level of DSCP support.
  */
-
-int
-isc_net_aton(const char *cp, struct in_addr *addr);
-#undef inet_aton
-#define inet_aton isc_net_aton
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_NET_H */

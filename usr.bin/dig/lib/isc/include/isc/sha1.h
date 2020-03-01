@@ -17,7 +17,7 @@
 #ifndef ISC_SHA1_H
 #define ISC_SHA1_H 1
 
-/* $Id: sha1.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: sha1.h,v 1.6 2020/02/25 05:00:43 jsg Exp $ */
 
 /*	$NetBSD: sha1.h,v 1.2 1998/05/29 22:55:44 thorpej Exp $	*/
 
@@ -27,37 +27,22 @@
  * \note 100% Public Domain
  */
 
-#include <isc/lang.h>
-
-#include <isc/types.h>
-
 #define ISC_SHA1_DIGESTLENGTH 20U
 #define ISC_SHA1_BLOCK_LENGTH 64U
 
-#include <openssl/opensslv.h>
 #include <openssl/evp.h>
 
 typedef struct {
 	EVP_MD_CTX *ctx;
 } isc_sha1_t;
 
-ISC_LANG_BEGINDECLS
-
 void
 isc_sha1_init(isc_sha1_t *ctx);
-
-void
-isc_sha1_invalidate(isc_sha1_t *ctx);
 
 void
 isc_sha1_update(isc_sha1_t *ctx, const unsigned char *data, unsigned int len);
 
 void
 isc_sha1_final(isc_sha1_t *ctx, unsigned char *digest);
-
-isc_boolean_t
-isc_sha1_check(isc_boolean_t testing);
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_SHA1_H */

@@ -14,15 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: serial.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: serial.h,v 1.4 2020/02/17 18:58:39 jung Exp $ */
 
 #ifndef ISC_SERIAL_H
 #define ISC_SERIAL_H 1
 
 #include <inttypes.h>
 
-#include <isc/lang.h>
-#include <isc/types.h>
+#include <isc/boolean.h>
 
 /*! \file isc/serial.h
  *	\brief Implement 32 bit serial space arithmetic comparison functions.
@@ -33,14 +32,6 @@
  ***	Functions
  ***/
 
-ISC_LANG_BEGINDECLS
-
-isc_boolean_t
-isc_serial_lt(uint32_t a, uint32_t b);
-/*%<
- *	Return true if 'a' < 'b' otherwise false.
- */
-
 isc_boolean_t
 isc_serial_gt(uint32_t a, uint32_t b);
 /*%<
@@ -48,29 +39,9 @@ isc_serial_gt(uint32_t a, uint32_t b);
  */
 
 isc_boolean_t
-isc_serial_le(uint32_t a, uint32_t b);
-/*%<
- *	Return true if 'a' <= 'b' otherwise false.
- */
-
-isc_boolean_t
 isc_serial_ge(uint32_t a, uint32_t b);
 /*%<
  *	Return true if 'a' >= 'b' otherwise false.
  */
-
-isc_boolean_t
-isc_serial_eq(uint32_t a, uint32_t b);
-/*%<
- *	Return true if 'a' == 'b' otherwise false.
- */
-
-isc_boolean_t
-isc_serial_ne(uint32_t a, uint32_t b);
-/*%<
- *	Return true if 'a' != 'b' otherwise false.
- */
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_SERIAL_H */

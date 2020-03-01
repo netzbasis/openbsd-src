@@ -14,14 +14,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: result.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: result.h,v 1.3 2020/02/13 13:53:01 jsg Exp $ */
 
 #ifndef DST_RESULT_H
 #define DST_RESULT_H 1
 
 /*! \file dst/result.h */
 
-#include <isc/lang.h>
 #include <isc/resultclass.h>
 
 /*
@@ -60,14 +59,7 @@
 
 #define DST_R_NRESULTS			23	/* Number of results */
 
-ISC_LANG_BEGINDECLS
-
-const char *
-dst_result_totext(isc_result_t);
-
 void
 dst_result_register(void);
-
-ISC_LANG_ENDDECLS
 
 #endif /* DST_RESULT_H */

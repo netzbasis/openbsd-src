@@ -1,4 +1,4 @@
-/FIXES/1.16/Wed Sep 28 19:27:18 2011//
+/FIXES/1.17/Thu Feb 27 21:43:46 2020//
 /Makefile/1.16/Mon Jul 10 21:30:37 2017//
 /README/1.7/Wed Sep 28 19:27:18 2011//
 /awk.1/1.46/Wed Jan 22 03:47:38 2020//
@@ -7,10 +7,10 @@
 /b.c/1.20/Wed Jan 24 16:28:25 2018//
 /lex.c/1.12/Wed Sep 28 19:27:18 2011//
 /lib.c/1.25/Fri Dec  8 17:04:15 2017//
-/main.c/1.21/Mon Oct  9 14:51:31 2017//
+/main.c/1.22/Thu Feb 27 21:43:46 2020//
 /maketab.c/1.11/Sun Jun 13 17:58:19 2010//
 /parse.c/1.7/Mon Oct  9 14:51:31 2017//
-/proto.h/1.10/Mon Sep 25 17:36:35 2017//
+/proto.h/1.11/Thu Feb 27 21:43:46 2020//
 /run.c/1.44/Tue Aug 13 10:45:56 2019//
-/tran.c/1.17/Wed Jan 24 16:28:25 2018//
+/tran.c/1.18/Thu Feb 27 21:43:46 2020//
 D/USD.doc////

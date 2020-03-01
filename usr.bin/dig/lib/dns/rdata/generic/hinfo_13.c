@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: hinfo_13.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: hinfo_13.c,v 1.12 2020/02/26 18:47:59 florian Exp $ */
 
 /*
  * Reviewed: Wed Mar 15 16:47:10 PST 2000 by halley.
@@ -22,30 +22,6 @@
 
 #ifndef RDATA_GENERIC_HINFO_13_C
 #define RDATA_GENERIC_HINFO_13_C
-
-#define RRTYPE_HINFO_ATTRIBUTES (0)
-
-static inline isc_result_t
-fromtext_hinfo(ARGS_FROMTEXT) {
-	isc_token_t token;
-	int i;
-
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(origin);
-	UNUSED(options);
-	UNUSED(callbacks);
-
-	REQUIRE(type == dns_rdatatype_hinfo);
-
-	for (i = 0; i < 2; i++) {
-		RETERR(isc_lex_getmastertoken(lexer, &token,
-					      isc_tokentype_qstring,
-					      ISC_FALSE));
-		RETTOK(txt_fromtext(&token.value.as_textregion, target));
-	}
-	return (ISC_R_SUCCESS);
-}
 
 static inline isc_result_t
 totext_hinfo(ARGS_TOTEXT) {
@@ -58,7 +34,7 @@ totext_hinfo(ARGS_TOTEXT) {
 
 	dns_rdata_toregion(rdata, &region);
 	RETERR(txt_totext(&region, ISC_TRUE, target));
-	RETERR(str_totext(" ", target));
+	RETERR(isc_str_tobuffer(" ", target));
 	return (txt_totext(&region, ISC_TRUE, target));
 }
 
@@ -84,136 +60,7 @@ towire_hinfo(ARGS_TOWIRE) {
 	REQUIRE(rdata->type == dns_rdatatype_hinfo);
 	REQUIRE(rdata->length != 0);
 
-	return (mem_tobuffer(target, rdata->data, rdata->length));
+	return (isc_mem_tobuffer(target, rdata->data, rdata->length));
 }
 
-static inline int
-compare_hinfo(ARGS_COMPARE) {
-	isc_region_t r1;
-	isc_region_t r2;
-
-	REQUIRE(rdata1->type == rdata2->type);
-	REQUIRE(rdata1->rdclass == rdata2->rdclass);
-	REQUIRE(rdata1->type == dns_rdatatype_hinfo);
-	REQUIRE(rdata1->length != 0);
-	REQUIRE(rdata2->length != 0);
-
-	dns_rdata_toregion(rdata1, &r1);
-	dns_rdata_toregion(rdata2, &r2);
-	return (isc_region_compare(&r1, &r2));
-}
-
-static inline isc_result_t
-fromstruct_hinfo(ARGS_FROMSTRUCT) {
-	dns_rdata_hinfo_t *hinfo = source;
-
-	REQUIRE(type == dns_rdatatype_hinfo);
-	REQUIRE(source != NULL);
-	REQUIRE(hinfo->common.rdtype == type);
-	REQUIRE(hinfo->common.rdclass == rdclass);
-
-	UNUSED(type);
-	UNUSED(rdclass);
-
-	RETERR(uint8_tobuffer(hinfo->cpu_len, target));
-	RETERR(mem_tobuffer(target, hinfo->cpu, hinfo->cpu_len));
-	RETERR(uint8_tobuffer(hinfo->os_len, target));
-	return (mem_tobuffer(target, hinfo->os, hinfo->os_len));
-}
-
-static inline isc_result_t
-tostruct_hinfo(ARGS_TOSTRUCT) {
-	dns_rdata_hinfo_t *hinfo = target;
-	isc_region_t region;
-
-	REQUIRE(rdata->type == dns_rdatatype_hinfo);
-	REQUIRE(target != NULL);
-	REQUIRE(rdata->length != 0);
-
-	hinfo->common.rdclass = rdata->rdclass;
-	hinfo->common.rdtype = rdata->type;
-	ISC_LINK_INIT(&hinfo->common, link);
-
-	dns_rdata_toregion(rdata, &region);
-	hinfo->cpu_len = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	hinfo->cpu = mem_maybedup(region.base, hinfo->cpu_len);
-	if (hinfo->cpu == NULL)
-		return (ISC_R_NOMEMORY);
-	isc_region_consume(&region, hinfo->cpu_len);
-
-	hinfo->os_len = uint8_fromregion(&region);
-	isc_region_consume(&region, 1);
-	hinfo->os = mem_maybedup(region.base, hinfo->os_len);
-	if (hinfo->os == NULL)
-		goto cleanup;
-
-	return (ISC_R_SUCCESS);
-
- cleanup:
-	free(hinfo->cpu);
-	return (ISC_R_NOMEMORY);
-}
-
-static inline void
-freestruct_hinfo(ARGS_FREESTRUCT) {
-	dns_rdata_hinfo_t *hinfo = source;
-
-	REQUIRE(source != NULL);
-
-	free(hinfo->cpu);
-	free(hinfo->os);
-}
-
-static inline isc_result_t
-additionaldata_hinfo(ARGS_ADDLDATA) {
-	REQUIRE(rdata->type == dns_rdatatype_hinfo);
-
-	UNUSED(add);
-	UNUSED(arg);
-	UNUSED(rdata);
-
-	return (ISC_R_SUCCESS);
-}
-
-static inline isc_result_t
-digest_hinfo(ARGS_DIGEST) {
-	isc_region_t r;
-
-	REQUIRE(rdata->type == dns_rdatatype_hinfo);
-
-	dns_rdata_toregion(rdata, &r);
-
-	return ((digest)(arg, &r));
-}
-
-static inline isc_boolean_t
-checkowner_hinfo(ARGS_CHECKOWNER) {
-
-	REQUIRE(type == dns_rdatatype_hinfo);
-
-	UNUSED(name);
-	UNUSED(type);
-	UNUSED(rdclass);
-	UNUSED(wildcard);
-
-	return (ISC_TRUE);
-}
-
-static inline isc_boolean_t
-checknames_hinfo(ARGS_CHECKNAMES) {
-
-	REQUIRE(rdata->type == dns_rdatatype_hinfo);
-
-	UNUSED(rdata);
-	UNUSED(owner);
-	UNUSED(bad);
-
-	return (ISC_TRUE);
-}
-
-static inline int
-casecompare_hinfo(ARGS_COMPARE) {
-	return (compare_hinfo(rdata1, rdata2));
-}
 #endif	/* RDATA_GENERIC_HINFO_13_C */

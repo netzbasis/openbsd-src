@@ -20,38 +20,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <isc/event.h>
-#include <isc/magic.h>
-#include <isc/stdio.h>
-#include <isc/task.h>
-#include <isc/time.h>
 #include <isc/types.h>
 #include <isc/util.h>
 
 #include <dns/fixedname.h>
-#include <dns/lib.h>
-#include <dns/log.h>
 #include <dns/masterdump.h>
 #include <dns/rdata.h>
 #include <dns/rdataclass.h>
 #include <dns/rdataset.h>
 #include <dns/rdatatype.h>
 #include <dns/result.h>
-#include <dns/time.h>
-#include <dns/ttl.h>
-
-#define DNS_DCTX_MAGIC		ISC_MAGIC('D', 'c', 't', 'x')
-#define DNS_DCTX_VALID(d)	ISC_MAGIC_VALID(d, DNS_DCTX_MAGIC)
 
 #define RETERR(x) do { \
 	isc_result_t _r = (x); \
 	if (_r != ISC_R_SUCCESS) \
 		return (_r); \
-	} while (0)
-
-#define CHECK(x) do { \
-	if ((x) != ISC_R_SUCCESS) \
-		goto cleanup; \
 	} while (0)
 
 struct dns_master_style {
@@ -88,71 +71,6 @@ typedef struct dns_totext_ctx {
 	isc_boolean_t 		current_ttl_valid;
 } dns_totext_ctx_t;
 
-const dns_master_style_t
-dns_master_style_keyzone = {
-	DNS_STYLEFLAG_OMIT_OWNER |
-	DNS_STYLEFLAG_OMIT_CLASS |
-	DNS_STYLEFLAG_REL_OWNER |
-	DNS_STYLEFLAG_REL_DATA |
-	DNS_STYLEFLAG_OMIT_TTL |
-	DNS_STYLEFLAG_TTL |
-	DNS_STYLEFLAG_COMMENT |
-	DNS_STYLEFLAG_RRCOMMENT |
-	DNS_STYLEFLAG_MULTILINE |
-	DNS_STYLEFLAG_KEYDATA,
-	24, 24, 24, 32, 80, 8, UINT_MAX
-};
-
-const dns_master_style_t
-dns_master_style_default = {
-	DNS_STYLEFLAG_OMIT_OWNER |
-	DNS_STYLEFLAG_OMIT_CLASS |
-	DNS_STYLEFLAG_REL_OWNER |
-	DNS_STYLEFLAG_REL_DATA |
-	DNS_STYLEFLAG_OMIT_TTL |
-	DNS_STYLEFLAG_TTL |
-	DNS_STYLEFLAG_COMMENT |
-	DNS_STYLEFLAG_RRCOMMENT |
-	DNS_STYLEFLAG_MULTILINE,
-	24, 24, 24, 32, 80, 8, UINT_MAX
-};
-
-const dns_master_style_t
-dns_master_style_full = {
-	DNS_STYLEFLAG_COMMENT |
-	DNS_STYLEFLAG_RESIGN,
-	46, 46, 46, 64, 120, 8, UINT_MAX
-};
-
-const dns_master_style_t
-dns_master_style_explicitttl = {
-	DNS_STYLEFLAG_OMIT_OWNER |
-	DNS_STYLEFLAG_OMIT_CLASS |
-	DNS_STYLEFLAG_REL_OWNER |
-	DNS_STYLEFLAG_REL_DATA |
-	DNS_STYLEFLAG_COMMENT |
-	DNS_STYLEFLAG_RRCOMMENT |
-	DNS_STYLEFLAG_MULTILINE,
-	24, 32, 32, 40, 80, 8, UINT_MAX
-};
-
-const dns_master_style_t
-dns_master_style_cache = {
-	DNS_STYLEFLAG_OMIT_OWNER |
-	DNS_STYLEFLAG_OMIT_CLASS |
-	DNS_STYLEFLAG_MULTILINE |
-	DNS_STYLEFLAG_RRCOMMENT |
-	DNS_STYLEFLAG_TRUST |
-	DNS_STYLEFLAG_NCACHE,
-	24, 32, 32, 40, 80, 8, UINT_MAX
-};
-
-const dns_master_style_t
-dns_master_style_simple = {
-	0,
-	24, 32, 32, 40, 80, 8, UINT_MAX
-};
-
 /*%
  * A style suitable for dns_rdataset_totext().
  */
@@ -162,26 +80,11 @@ dns_master_style_debug = {
 	24, 32, 40, 48, 80, 8, UINT_MAX
 };
 
-/*%
- * Similar, but with each line commented out.
- */
-const dns_master_style_t
-dns_master_style_comment = {
-	DNS_STYLEFLAG_REL_OWNER |
-	DNS_STYLEFLAG_MULTILINE |
-	DNS_STYLEFLAG_RRCOMMENT |
-	DNS_STYLEFLAG_COMMENTDATA,
-	24, 32, 40, 48, 80, 8, UINT_MAX
-};
-
-
 #define N_SPACES 10
 static char spaces[N_SPACES+1] = "          ";
 
 #define N_TABS 10
 static char tabs[N_TABS+1] = "\t\t\t\t\t\t\t\t\t\t";
-
-#define NXDOMAIN(x) (((x)->attributes & DNS_RDATASETATTR_NXDOMAIN) != 0)
 
 /*%
  * Output tabs and spaces to go from column '*current' to
@@ -324,23 +227,6 @@ totext_ctx_init(const dns_master_style_t *style, dns_totext_ctx_t *ctx) {
 			    return (result); \
 	} while (0)
 
-
-static isc_result_t
-str_totext(const char *source, isc_buffer_t *target) {
-	unsigned int l;
-	isc_region_t region;
-
-	isc_buffer_availableregion(target, &region);
-	l = strlen(source);
-
-	if (l > region.length)
-		return (ISC_R_NOSPACE);
-
-	memmove(region.base, source, l);
-	isc_buffer_add(target, l);
-	return (ISC_R_SUCCESS);
-}
-
 /*
  * Convert 'rdataset' to master file text format according to 'ctx',
  * storing the result in 'target'.  If 'owner_name' is NULL, it
@@ -363,8 +249,6 @@ rdataset_totext(dns_rdataset_t *rdataset,
 	dns_rdatatype_t type;
 	unsigned int type_start;
 
-	REQUIRE(DNS_RDATASET_VALID(rdataset));
-
 	rdataset->attributes |= DNS_RDATASETATTR_LOADORDER;
 	result = dns_rdataset_first(rdataset);
 
@@ -378,7 +262,7 @@ rdataset_totext(dns_rdataset_t *rdataset,
 		 * Comment?
 		 */
 		if ((ctx->style.flags & DNS_STYLEFLAG_COMMENTDATA) != 0)
-			RETERR(str_totext(";", target));
+			RETERR(isc_str_tobuffer(";", target));
 
 		/*
 		 * Owner name.
@@ -534,7 +418,6 @@ question_totext(dns_rdataset_t *rdataset,
 	isc_result_t result;
 	isc_region_t r;
 
-	REQUIRE(DNS_RDATASET_VALID(rdataset));
 	result = dns_rdataset_first(rdataset);
 	REQUIRE(result == ISC_R_NOMORE);
 
@@ -649,18 +532,6 @@ dns_master_questiontotext(dns_name_t *owner_name,
 
 	return (question_totext(rdataset, owner_name, &ctx,
 				ISC_FALSE, target));
-}
-
-isc_result_t
-dns_master_stylecreate(dns_master_style_t **stylep, unsigned int flags,
-		       unsigned int ttl_column, unsigned int class_column,
-		       unsigned int type_column, unsigned int rdata_column,
-		       unsigned int line_length, unsigned int tab_width)
-{
-	return (dns_master_stylecreate2(stylep, flags, ttl_column,
-					class_column, type_column,
-					rdata_column, line_length,
-					tab_width, 0xffffffff));
 }
 
 isc_result_t

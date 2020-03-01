@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: dig.c,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: dig.c,v 1.12 2020/02/24 13:49:38 jsg Exp $ */
 
 /*! \file */
 #include <sys/cdefs.h>
@@ -22,17 +22,13 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
-#include <ctype.h>
 
 #include <isc/app.h>
-#include <isc/netaddr.h>
-#include <isc/parseint.h>
 
 #include <string.h>
-#include <isc/task.h>
 #include <isc/util.h>
+#include <isc/time.h>
 
-#include <dns/byaddr.h>
 #include <dns/fixedname.h>
 #include <dns/masterdump.h>
 #include <dns/message.h>
@@ -52,18 +48,6 @@
 	else 						\
 		isc_buffer_putstr(b, s); 		\
 }
-
-#define DIG_MAX_ADDRESSES 20
-
-#ifndef DNS_NAME_INITABSOLUTE
-#define DNS_NAME_INITABSOLUTE(A,B) { \
-	DNS_NAME_MAGIC, \
-	A, sizeof(A), sizeof(B), \
-	DNS_NAMEATTR_READONLY | DNS_NAMEATTR_ABSOLUTE, \
-	B, NULL, { (void *)-1, (void *)-1}, \
-	{NULL, NULL} \
-}
-#endif
 
 dig_lookup_t *default_lookup = NULL;
 
@@ -145,7 +129,7 @@ rcode_totext(dns_rcode_t rcode)
 static void
 print_usage(FILE *fp) {
 	fputs(
-"usage: dig [@server] [-46hiuv] [-b address[#port]] [-c class] [-f file]\n"
+"usage: dig [@server] [-46hiuv] [-b sourceaddr[#port]] [-c class] [-f file]\n"
 "           [-k keyfile] [-p port] [-q name] [-t type] [-x addr]\n"
 "           [-y [hmac:]name:key] [name] [type] [class]\n"
 "           +[no]aaonly +[no]additional +[no]adflag +[no]all +[no]answer\n"
@@ -642,13 +626,6 @@ printgreeting(int argc, char **argv, dig_lookup_t *lookup) {
 		}
 	}
 }
-
-/*%
- * We're not using isc_commandline_parse() here since the command line
- * syntax of dig is quite a bit different from that which can be described
- * by that routine.
- * XXX doc options
- */
 
 static void
 plus_option(const char *option, isc_boolean_t is_batchfile,
@@ -1605,10 +1582,6 @@ parse_args(isc_boolean_t is_batchfile, isc_boolean_t config_only,
 	char *bargv[64];
 	int rc;
 	char **rv;
-#ifndef NOPOSIX
-	char *homedir;
-	char rcfile[256];
-#endif
 	char *input;
 	int i;
 	isc_boolean_t need_clone = ISC_TRUE;
@@ -1630,45 +1603,6 @@ parse_args(isc_boolean_t is_batchfile, isc_boolean_t config_only,
 		default_lookup = make_empty_lookup();
 		default_lookup->adflag = ISC_TRUE;
 		default_lookup->edns = 0;
-
-#ifndef NOPOSIX
-		/*
-		 * Treat ${HOME}/.digrc as a special batchfile
-		 */
-		INSIST(batchfp == NULL);
-		homedir = getenv("HOME");
-		if (homedir != NULL) {
-			unsigned int n;
-			n = snprintf(rcfile, sizeof(rcfile), "%s/.digrc",
-				     homedir);
-			if (n < sizeof(rcfile))
-				batchfp = fopen(rcfile, "r");
-		}
-		if (batchfp != NULL) {
-			while (fgets(batchline, sizeof(batchline),
-				     batchfp) != 0) {
-				debug("config line %s", batchline);
-				bargc = 1;
-				input = batchline;
-				bargv[bargc] = next_token(&input, " \t\r\n");
-				while ((bargc < 62) && (bargv[bargc] != NULL)) {
-					bargc++;
-					bargv[bargc] =
-						next_token(&input, " \t\r\n");
-				}
-
-				bargv[0] = argv[0];
-				argv0 = argv[0];
-
-				for(i = 0; i < bargc; i++)
-					debug(".digrc argv %d: %s",
-					      i, bargv[i]);
-				parse_args(ISC_TRUE, ISC_TRUE, bargc,
-					   (char **)bargv);
-			}
-			fclose(batchfp);
-		}
-#endif
 	}
 
 	if (is_batchfile && !config_only) {
@@ -1834,7 +1768,7 @@ parse_args(isc_boolean_t is_batchfile, isc_boolean_t config_only,
 		}
 		/* XXX Remove code dup from shutdown code */
 	next_line:
-		if (fgets(batchline, sizeof(batchline), batchfp) != 0) {
+		if (fgets(batchline, sizeof(batchline), batchfp) != NULL) {
 			bargc = 1;
 			debug("batch line %s", batchline);
 			if (batchline[0] == '\r' || batchline[0] == '\n'
@@ -1907,7 +1841,7 @@ query_finished(void) {
 		return;
 	}
 
-	if (fgets(batchline, sizeof(batchline), batchfp) != 0) {
+	if (fgets(batchline, sizeof(batchline), batchfp) != NULL) {
 		debug("batch line %s", batchline);
 		bargc = 1;
 		input = batchline;
@@ -1938,6 +1872,7 @@ void dig_setup(int argc, char **argv)
 
 	ISC_LIST_INIT(lookup_list);
 	ISC_LIST_INIT(server_list);
+	ISC_LIST_INIT(root_hints_server_list);
 	ISC_LIST_INIT(search_list);
 
 	if (pledge("stdio rpath inet dns", NULL) == -1) {
@@ -1995,11 +1930,6 @@ void dig_startup() {
 	isc_app_run();
 }
 
-void dig_query_start()
-{
-	start_lookup();
-}
-
 void
 dig_shutdown() {
 	destroy_lookup(default_lookup);
@@ -2011,7 +1941,6 @@ dig_shutdown() {
 
 	cancel_all();
 	destroy_libs();
-	isc_app_finish();
 }
 
 /*% Main processing routine for dig */

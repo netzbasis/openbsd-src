@@ -22,10 +22,8 @@
 #include <isc/app.h>
 #include <isc/buffer.h>
 #include <isc/event.h>
-#include <isc/parseint.h>
 #include <isc/util.h>
 #include <isc/task.h>
-#include <isc/netaddr.h>
 
 #include <dns/message.h>
 #include <dns/name.h>
@@ -33,9 +31,7 @@
 #include <dns/rdata.h>
 #include <dns/rdataclass.h>
 #include <dns/rdataset.h>
-#include "rdatastruct.h"
 #include <dns/rdatatype.h>
-#include <dns/byaddr.h>
 
 #include "dig.h"
 
@@ -165,8 +161,8 @@ printsoa(dns_rdata_t *rdata) {
 	isc_result_t result;
 	char namebuf[DNS_NAME_FORMATSIZE];
 
-	result = dns_rdata_tostruct(rdata, &soa);
-	check_result(result, "dns_rdata_tostruct");
+	result = dns_rdata_tostruct_soa(rdata, &soa);
+	check_result(result, "dns_rdata_tostruct_soa");
 
 	dns_name_format(&soa.origin, namebuf, sizeof(namebuf));
 	printf("\torigin = %s\n", namebuf);
@@ -177,7 +173,7 @@ printsoa(dns_rdata_t *rdata) {
 	printf("\tretry = %u\n", soa.retry);
 	printf("\texpire = %u\n", soa.expire);
 	printf("\tminimum = %u\n", soa.minimum);
-	dns_rdata_freestruct(&soa);
+	dns_rdata_freestruct_soa(&soa);
 }
 
 static void
@@ -728,11 +724,17 @@ do_next_command(char *input) {
 		setoption(arg);
 	else if ((strcasecmp(ptr, "server") == 0) ||
 		 (strcasecmp(ptr, "lserver") == 0)) {
-		isc_app_block();
-		set_nameserver(arg);
-		check_ra = ISC_FALSE;
-		isc_app_unblock();
-		show_settings(ISC_TRUE, ISC_TRUE);
+		isc_result_t res;
+
+		if (arg == NULL)
+			printf("usage: server hostname\n");
+		else if ((res = set_nameserver(arg))) {
+			printf("couldn't get address for '%s': %s\n",
+			    arg, isc_result_totext(res));
+		} else {
+			check_ra = ISC_FALSE;
+			show_settings(ISC_TRUE, ISC_TRUE);
+		}
 	} else if (strcasecmp(ptr, "exit") == 0) {
 		in_use = ISC_FALSE;
 	} else if (strcasecmp(ptr, "help") == 0 ||
@@ -756,14 +758,12 @@ get_next_command(void) {
 	buf = malloc(COMMSIZE);
 	if (buf == NULL)
 		fatal("memory allocation failure");
-	isc_app_block();
 	if (interactive) {
 		fputs("> ", stderr);
 		fflush(stderr);
 		ptr = fgets(buf, COMMSIZE, stdin);
 	} else
 		ptr = fgets(buf, COMMSIZE, stdin);
-	isc_app_unblock();
 	if (ptr == NULL) {
 		in_use = ISC_FALSE;
 	} else
@@ -792,7 +792,11 @@ parse_args(int argc, char **argv) {
 				in_use = ISC_TRUE;
 				addlookup(argv[0]);
 			} else {
-				set_nameserver(argv[0]);
+				isc_result_t res;
+
+				if ((res = set_nameserver(argv[0])))
+					fatal("couldn't get address for '%s': %s",
+					    argv[0], isc_result_totext(res));
 				check_ra = ISC_FALSE;
 			}
 		}
@@ -868,6 +872,7 @@ nslookup_main(int argc, char **argv) {
 
 	ISC_LIST_INIT(lookup_list);
 	ISC_LIST_INIT(server_list);
+	ISC_LIST_INIT(root_hints_server_list);
 	ISC_LIST_INIT(search_list);
 
 	check_ra = ISC_TRUE;
@@ -915,7 +920,6 @@ nslookup_main(int argc, char **argv) {
 		isc_event_free(&global_event);
 	cancel_all();
 	destroy_libs();
-	isc_app_finish();
 
 	return (query_error | print_error);
 }

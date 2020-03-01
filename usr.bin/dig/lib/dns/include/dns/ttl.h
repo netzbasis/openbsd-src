@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: ttl.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: ttl.h,v 1.3 2020/02/22 19:47:06 jung Exp $ */
 
 #ifndef DNS_TTL_H
 #define DNS_TTL_H 1
@@ -25,10 +25,7 @@
  ***	Imports
  ***/
 
-#include <isc/lang.h>
 #include <isc/types.h>
-
-ISC_LANG_BEGINDECLS
 
 /***
  ***	Functions
@@ -51,27 +48,5 @@ dns_ttl_totext(uint32_t src, isc_boolean_t verbose,
  * \li	ISC_R_SUCCESS
  * \li	ISC_R_NOSPACE
  */
-
-isc_result_t
-dns_counter_fromtext(isc_textregion_t *source, uint32_t *ttl);
-/*%<
- * Converts a counter from either a plain number or a BIND 8 style value.
- *
- * Returns:
- *\li	ISC_R_SUCCESS
- *\li	DNS_R_SYNTAX
- */
-
-isc_result_t
-dns_ttl_fromtext(isc_textregion_t *source, uint32_t *ttl);
-/*%<
- * Converts a ttl from either a plain number or a BIND 8 style value.
- *
- * Returns:
- *\li	ISC_R_SUCCESS
- *\li	DNS_R_BADTTL
- */
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_TTL_H */

@@ -37,7 +37,7 @@
 /fb.h/1.1/Sun Apr 14 10:14:53 2019//
 /fdtable.h/1.1/Sun Apr 14 10:14:53 2019//
 /file.h/1.1/Sun Apr 14 10:14:53 2019//
-/firmware.h/1.1/Sun Apr 14 10:14:53 2019//
+/firmware.h/1.2/Thu Feb 20 19:55:47 2020//
 /fs.h/1.2/Tue Apr 23 11:38:55 2019//
 /gcd.h/1.1/Sun Apr 14 10:14:53 2019//
 /gfp.h/1.2/Sun Jun  9 12:58:30 2019//
@@ -131,7 +131,7 @@
 /reservation.h/1.1/Sun Apr 14 10:14:53 2019//
 /rwlock_types.h/1.1/Sun Apr 14 10:14:53 2019//
 /scatterlist.h/1.1/Sun Apr 14 10:14:53 2019//
-/sched.h/1.1/Sun Apr 14 10:14:53 2019//
+/sched.h/1.2/Tue Feb 18 12:13:40 2020//
 /seq_file.h/1.1/Sun Apr 14 10:14:53 2019//
 /seqlock.h/1.2/Thu Jul  4 01:53:23 2019//
 /shmem_fs.h/1.1/Sun Apr 14 10:14:53 2019//

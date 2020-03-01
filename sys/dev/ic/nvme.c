@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.65 2020/02/05 16:29:29 krw Exp $ */
+/*	$OpenBSD: nvme.c,v 1.68 2020/02/28 21:12:26 krw Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -44,7 +44,7 @@ struct cfdriver nvme_cd = {
 };
 
 int	nvme_ready(struct nvme_softc *, u_int32_t);
-int	nvme_enable(struct nvme_softc *, u_int);
+int	nvme_enable(struct nvme_softc *);
 int	nvme_disable(struct nvme_softc *);
 int	nvme_shutdown(struct nvme_softc *);
 int	nvme_resume(struct nvme_softc *);
@@ -212,7 +212,7 @@ nvme_ready(struct nvme_softc *sc, u_int32_t rdy)
 }
 
 int
-nvme_enable(struct nvme_softc *sc, u_int mps)
+nvme_enable(struct nvme_softc *sc)
 {
 	u_int32_t cc;
 
@@ -235,7 +235,7 @@ nvme_enable(struct nvme_softc *sc, u_int mps)
 	SET(cc, NVME_CC_SHN(NVME_CC_SHN_NONE));
 	SET(cc, NVME_CC_CSS(NVME_CC_CSS_NVM));
 	SET(cc, NVME_CC_AMS(NVME_CC_AMS_RR));
-	SET(cc, NVME_CC_MPS(mps));
+	SET(cc, NVME_CC_MPS(sc->sc_mps_bits));
 	SET(cc, NVME_CC_EN);
 
 	nvme_write4(sc, NVME_CC, cc);
@@ -322,7 +322,7 @@ nvme_attach(struct nvme_softc *sc)
 	}
 	nccbs = 16;
 
-	if (nvme_enable(sc, mps) != 0) {
+	if (nvme_enable(sc) != 0) {
 		printf("%s: unable to enable controller\n", DEVNAME(sc));
 		goto free_ccbs;
 	}
@@ -405,7 +405,7 @@ nvme_resume(struct nvme_softc *sc)
 		return (1);
 	}
 
-	if (nvme_enable(sc, sc->sc_mps_bits) != 0) {
+	if (nvme_enable(sc) != 0) {
 		printf("%s: unable to enable controller\n", DEVNAME(sc));
 		return (1);
 	}
@@ -953,8 +953,8 @@ nvme_poll_done(struct nvme_softc *sc, struct nvme_ccb *ccb,
 {
 	struct nvme_poll_state *state = ccb->ccb_cookie;
 
-	SET(cqe->flags, htole16(NVME_CQE_PHASE));
 	state->c = *cqe;
+	SET(state->c.flags, htole16(NVME_CQE_PHASE));
 }
 
 void
@@ -1186,7 +1186,7 @@ nvme_ccbs_alloc(struct nvme_softc *sc, u_int nccbs)
 	if (sc->sc_ccbs == NULL)
 		return (1);
 
-	sc->sc_ccb_prpls = nvme_dmamem_alloc(sc, 
+	sc->sc_ccb_prpls = nvme_dmamem_alloc(sc,
 	    sizeof(*prpl) * sc->sc_max_sgl * nccbs);
 
 	prpl = NVME_DMA_KVA(sc->sc_ccb_prpls);
@@ -1454,7 +1454,7 @@ nvme_hibernate_admin_cmd(struct nvme_softc *sc, struct nvme_sqe *sqe,
 		flags = lemtoh16(&acqe->flags);
 		if ((flags & NVME_CQE_PHASE) == q->q_cq_phase)
 			break;
-	
+
 		delay(10);
 	}
 
@@ -1517,7 +1517,7 @@ nvme_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 		}
 		if (my->nsid == 0)
 			return (EIO);
-		
+
 		my->poffset = blkno;
 		my->psize = size;
 
@@ -1525,7 +1525,7 @@ nvme_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 		    my->sc->sc_hib_q->q_entries * sizeof(struct nvme_cqe));
 		memset(NVME_DMA_KVA(my->sc->sc_hib_q->q_sq_dmamem), 0,
 		    my->sc->sc_hib_q->q_entries * sizeof(struct nvme_sqe));
-		
+
 		my->sq_tail = 0;
 		my->cq_head = 0;
 		my->cqe_phase = NVME_CQE_PHASE;
@@ -1578,7 +1578,7 @@ nvme_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 	} else if (size > my->sc->sc_mps * 2) {
 		pmap_extract(pmap_kernel(), (vaddr_t)page, &page_phys);
 		page_bus_phys = page_phys;
-		htolem64(&isqe->entry.prp[1], page_bus_phys + 
+		htolem64(&isqe->entry.prp[1], page_bus_phys +
 		    offsetof(struct nvme_hibernate_page, prpl));
 		for (i = 1; i < (size / my->sc->sc_mps); i++) {
 			htolem64(&my->prpl[i - 1], data_bus_phys +
@@ -1599,7 +1599,7 @@ nvme_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 		flags = lemtoh16(&icqe->flags);
 		if ((flags & NVME_CQE_PHASE) == my->cqe_phase)
 			break;
-	
+
 		delay(10);
 	}
 

@@ -14,20 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: tsig.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: tsig.h,v 1.5 2020/02/18 18:11:27 florian Exp $ */
 
 #ifndef DNS_TSIG_H
 #define DNS_TSIG_H 1
 
 /*! \file dns/tsig.h */
 
-#include <isc/lang.h>
 #include <isc/refcount.h>
-
-#include <isc/stdio.h>
-#include <isc/stdtime.h>
-
-
 
 #include <dns/types.h>
 #include <dns/name.h>
@@ -55,14 +49,13 @@ extern dns_name_t *dns_tsig_hmacsha512_name;
 
 struct dns_tsigkey {
 	/* Unlocked */
-	unsigned int		magic;		/*%< Magic number. */
 	dst_key_t		*key;		/*%< Key */
 	dns_name_t		name;		/*%< Key name */
 	dns_name_t		*algorithm;	/*%< Algorithm name */
 	dns_name_t		*creator;	/*%< name that created secret */
 	isc_boolean_t		generated;	/*%< was this generated? */
-	isc_stdtime_t		inception;	/*%< start of validity period */
-	isc_stdtime_t		expire;		/*%< end of validity period */
+	time_t		inception;	/*%< start of validity period */
+	time_t		expire;		/*%< end of validity period */
 	isc_refcount_t		refs;		/*%< reference counter */
 	ISC_LINK(dns_tsigkey_t) link;
 };
@@ -72,20 +65,18 @@ struct dns_tsigkey {
 	 (tsigkey)->generated ? ((tsigkey)->creator) : \
 	 (&((tsigkey)->name)))
 
-ISC_LANG_BEGINDECLS
-
 isc_result_t
 dns_tsigkey_create(dns_name_t *name, dns_name_t *algorithm,
 		   unsigned char *secret, int length, isc_boolean_t generated,
-		   dns_name_t *creator, isc_stdtime_t inception,
-		   isc_stdtime_t expire,
+		   dns_name_t *creator, time_t inception,
+		   time_t expire,
 		   dns_tsigkey_t **key);
 
 isc_result_t
 dns_tsigkey_createfromkey(dns_name_t *name, dns_name_t *algorithm,
 			  dst_key_t *dstkey, isc_boolean_t generated,
-			  dns_name_t *creator, isc_stdtime_t inception,
-			  isc_stdtime_t expire,
+			  dns_name_t *creator, time_t inception,
+			  time_t expire,
 			  dns_tsigkey_t **key);
 /*%<
  *	Creates a tsig key structure and saves it in the keyring.  If key is
@@ -185,7 +176,5 @@ dns_tsig_verify(isc_buffer_t *source, dns_message_t *msg);
  *					 should have been a response,
  *					 but was not.
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_TSIG_H */

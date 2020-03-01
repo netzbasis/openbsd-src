@@ -14,17 +14,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: result.c,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: result.c,v 1.4 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file */
-
-
 
 #include <stddef.h>
 #include <stdlib.h>
 
-#include <isc/lib.h>
-#include <isc/msgs.h>
 #include <isc/resultclass.h>
 #include <isc/util.h>
 
@@ -104,7 +100,6 @@ static const char *description[ISC_R_NRESULTS] = {
 };
 
 #define ISC_RESULT_RESULTSET			2
-#define ISC_RESULT_UNAVAILABLESET		3
 
 static isc_boolean_t 				once = ISC_FALSE;
 static ISC_LIST(resulttable)			tables;

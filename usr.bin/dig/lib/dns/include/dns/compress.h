@@ -14,17 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: compress.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: compress.h,v 1.4 2020/02/18 18:11:27 florian Exp $ */
 
 #ifndef DNS_COMPRESS_H
 #define DNS_COMPRESS_H 1
 
-#include <isc/lang.h>
 #include <isc/region.h>
 
 #include <dns/types.h>
-
-ISC_LANG_BEGINDECLS
 
 #define DNS_COMPRESS_NONE		0x00	/*%< no compression */
 #define DNS_COMPRESS_GLOBAL14		0x01	/*%< "normal" compression. */
@@ -49,7 +46,6 @@ struct dns_compressnode {
 };
 
 struct dns_compress {
-	unsigned int		magic;		/*%< Magic number. */
 	unsigned int		allowed;	/*%< Allowed methods. */
 	int			edns;		/*%< Edns version or -1. */
 	/*% Global compression table. */
@@ -66,7 +62,6 @@ typedef enum {
 } dns_decompresstype_t;
 
 struct dns_decompress {
-	unsigned int		magic;		/*%< Magic number. */
 	unsigned int		allowed;	/*%< Allowed methods. */
 	int			edns;		/*%< Edns version or -1. */
 	dns_decompresstype_t	type;		/*%< Strict checking */
@@ -118,39 +113,6 @@ dns_compress_getmethods(dns_compress_t *cctx);
  *
  *	Returns:
  *\li		allowed compression bitmap.
- */
-
-void
-dns_compress_setsensitive(dns_compress_t *cctx, isc_boolean_t sensitive);
-
-/*
- *	Preserve the case of compressed domain names.
- *
- *	Requires:
- *		'cctx' to be initialized.
- */
-
-isc_boolean_t
-dns_compress_getsensitive(dns_compress_t *cctx);
-/*
- *	Return whether case is to be preserved when compressing
- *	domain names.
- *
- *	Requires:
- *		'cctx' to be initialized.
- */
-
-int
-dns_compress_getedns(dns_compress_t *cctx);
-
-/*%<
- *	Gets edns value.
- *
- *	Requires:
- *\li		'cctx' to be initialized.
- *
- *	Returns:
- *\li		-1 .. 255
  */
 
 isc_boolean_t
@@ -231,26 +193,6 @@ dns_decompress_setmethods(dns_decompress_t *dctx, unsigned int allowed);
  *\li		'dctx' to be initialized
  */
 
-unsigned int
-dns_decompress_getmethods(dns_decompress_t *dctx);
-
-/*%<
- *	Returns 'dctx->allowed'
- *
- *	Requires:
- *\li		'dctx' to be initialized
- */
-
-int
-dns_decompress_edns(dns_decompress_t *dctx);
-
-/*%<
- *	Returns 'dctx->edns'
- *
- *	Requires:
- *\li		'dctx' to be initialized
- */
-
 dns_decompresstype_t
 dns_decompress_type(dns_decompress_t *dctx);
 
@@ -260,7 +202,5 @@ dns_decompress_type(dns_decompress_t *dctx);
  *	Requires:
  *\li		'dctx' to be initialized
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_COMPRESS_H */

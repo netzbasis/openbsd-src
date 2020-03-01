@@ -14,17 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: base64.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: base64.h,v 1.4 2020/02/23 23:40:22 jsg Exp $ */
 
 #ifndef ISC_BASE64_H
 #define ISC_BASE64_H 1
 
 /*! \file isc/base64.h */
 
-#include <isc/lang.h>
 #include <isc/types.h>
-
-ISC_LANG_BEGINDECLS
 
 /***
  *** Functions
@@ -70,29 +67,6 @@ isc_base64_decodestring(const char *cstr, isc_buffer_t *target);
  *
  * 	Other error returns are any possible error code from:
  *\li		isc_lex_create(),
- *\li		isc_lex_openbuffer(),
- *\li		isc_base64_tobuffer().
  */
-
-isc_result_t
-isc_base64_tobuffer(isc_lex_t *lexer, isc_buffer_t *target, int length);
-/*!<
- * \brief Convert base64 encoded text from a lexer context into data.
- *
- * Requires:
- *\li	'lex' is a valid lexer context
- *\li	'target' is a buffer containing binary data
- *\li	'length' is an integer
- *
- * Ensures:
- *\li	target will contain the data represented by the base64 encoded
- *	string parsed by the lexer.  No more than length bytes will be read,
- *	if length is positive.  The 'used' pointer in target will be
- *	advanced as necessary.
- */
-
-
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_BASE64_H */

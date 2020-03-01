@@ -14,11 +14,9 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: bufferlist.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: bufferlist.c,v 1.3 2020/02/25 05:00:43 jsg Exp $ */
 
 /*! \file */
-
-
 
 #include <stddef.h>
 
@@ -36,7 +34,6 @@ isc_bufferlist_usedcount(isc_bufferlist_t *bl) {
 	length = 0;
 	buffer = ISC_LIST_HEAD(*bl);
 	while (buffer != NULL) {
-		REQUIRE(ISC_BUFFER_VALID(buffer));
 		length += isc_buffer_usedlength(buffer);
 		buffer = ISC_LIST_NEXT(buffer, link);
 	}
@@ -54,7 +51,6 @@ isc_bufferlist_availablecount(isc_bufferlist_t *bl) {
 	length = 0;
 	buffer = ISC_LIST_HEAD(*bl);
 	while (buffer != NULL) {
-		REQUIRE(ISC_BUFFER_VALID(buffer));
 		length += isc_buffer_availablelength(buffer);
 		buffer = ISC_LIST_NEXT(buffer, link);
 	}

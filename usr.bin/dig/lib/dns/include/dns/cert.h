@@ -14,35 +14,14 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: cert.h,v 1.1 2020/02/07 09:58:52 florian Exp $ */
+/* $Id: cert.h,v 1.3 2020/02/23 19:54:25 jung Exp $ */
 
 #ifndef DNS_CERT_H
 #define DNS_CERT_H 1
 
 /*! \file dns/cert.h */
 
-#include <isc/lang.h>
-
 #include <dns/types.h>
-
-ISC_LANG_BEGINDECLS
-
-isc_result_t
-dns_cert_fromtext(dns_cert_t *certp, isc_textregion_t *source);
-/*%<
- * Convert the text 'source' refers to into a certificate type.
- * The text may contain either a mnemonic type name or a decimal type number.
- *
- * Requires:
- *\li	'certp' is a valid pointer.
- *
- *\li	'source' is a valid text region.
- *
- * Returns:
- *\li	#ISC_R_SUCCESS			on success
- *\li	#ISC_R_RANGE			numeric type is out of range
- *\li	#DNS_R_UNKNOWN			mnemonic type is unknown
- */
 
 isc_result_t
 dns_cert_totext(dns_cert_t cert, isc_buffer_t *target);
@@ -62,7 +41,5 @@ dns_cert_totext(dns_cert_t cert, isc_buffer_t *target);
  *\li	#ISC_R_SUCCESS			on success
  *\li	#ISC_R_NOSPACE			target buffer is too small
  */
-
-ISC_LANG_ENDDECLS
 
 #endif /* DNS_CERT_H */

@@ -14,16 +14,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: refcount.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: refcount.h,v 1.3 2020/02/25 05:00:43 jsg Exp $ */
 
 #ifndef ISC_REFCOUNT_H
 #define ISC_REFCOUNT_H 1
 
 #include <isc/assertions.h>
-
 #include <isc/error.h>
-#include <isc/lang.h>
-
 #include <isc/types.h>
 
 /*! \file isc/refcount.h
@@ -34,8 +31,6 @@
  * The isc_refcount_t type should not be accessed directly, as its contents
  * depend on the implementation.
  */
-
-ISC_LANG_BEGINDECLS
 
 /*
  * Function prototypes
@@ -89,7 +84,6 @@ ISC_LANG_BEGINDECLS
  *	ref != NULL.
  */
 
-
 /*
  * Sample implementations
  */
@@ -131,7 +125,5 @@ typedef struct isc_refcount {
 
 isc_result_t
 isc_refcount_init(isc_refcount_t *ref, unsigned int n);
-
-ISC_LANG_ENDDECLS
 
 #endif /* ISC_REFCOUNT_H */

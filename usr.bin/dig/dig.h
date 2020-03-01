@@ -19,18 +19,13 @@
 
 /*! \file */
 
-#include <dns/rdatalist.h>
+#include <time.h>
 
 #include <dst/dst.h>
 
 #include <isc/boolean.h>
 #include <isc/buffer.h>
-#include <isc/bufferlist.h>
-#include <isc/formatcheck.h>
-#include <isc/lang.h>
 #include <isc/list.h>
-
-
 #include <isc/sockaddr.h>
 #include <isc/socket.h>
 
@@ -40,10 +35,6 @@
 /*% Buffer Size */
 #define BUFSIZE 512
 #define COMMSIZE 0xffff
-#ifndef RESOLV_CONF
-/*% location of resolve.conf */
-#define RESOLV_CONF "/etc/resolv.conf"
-#endif
 /*% output buffer */
 #define OUTPUTBUF 32767
 /*% Max RR Limit */
@@ -76,8 +67,6 @@
  * Defaults for the sigchase suboptions.  Consolidated here because
  * these control the layout of dig_lookup_t (among other things).
  */
-
-ISC_LANG_BEGINDECLS
 
 typedef struct dig_lookup dig_lookup_t;
 typedef struct dig_query dig_query_t;
@@ -138,7 +127,7 @@ struct dig_lookup {
 	isc_buffer_t renderbuf;
 	char *sendspace;
 	dns_name_t *name;
-	interval_t interval;
+	struct timespec interval;
 	dns_message_t *sendmsg;
 	dns_name_t *oname;
 	ISC_LINK(dig_lookup_t) link;
@@ -201,8 +190,8 @@ struct dig_query {
 	ISC_LINK(dig_query_t) link;
 	ISC_LINK(dig_query_t) clink;
 	isc_sockaddr_t sockaddr;
-	isc_time_t time_sent;
-	isc_time_t time_recv;
+	struct timespec time_sent;
+	struct timespec time_recv;
 	uint64_t byte_count;
 	isc_buffer_t sendbuf;
 	isc_timer_t *timer;
@@ -228,6 +217,7 @@ typedef ISC_LIST(dig_lookup_t) dig_lookuplist_t;
 
 extern dig_lookuplist_t lookup_list;
 extern dig_serverlist_t server_list;
+extern dig_serverlist_t root_hints_server_list;
 extern dig_searchlistlist_t search_list;
 extern unsigned int extrabytes;
 
@@ -275,10 +265,10 @@ get_reverse(char *reverse, size_t len, char *value, isc_boolean_t ip6_int,
 
 __dead void
 fatal(const char *format, ...)
-ISC_FORMAT_PRINTF(1, 2);
+__attribute__((__format__(__printf__, 1, 2)));
 
 void
-debug(const char *format, ...) ISC_FORMAT_PRINTF(1, 2);
+debug(const char *format, ...) __attribute__((__format__(__printf__, 1, 2)));
 
 void
 check_result(isc_result_t result, const char *msg);
@@ -336,7 +326,7 @@ make_server(const char *servname, const char *userarg);
 void
 flush_server_list(void);
 
-void
+isc_result_t
 set_nameserver(char *opt);
 
 void
@@ -409,17 +399,9 @@ void
 dig_startup(void);
 
 /*%<
- * Initiates the next lookup cycle
- */
-void
-dig_query_start(void);
-
-/*%<
  * Cleans up the application
  */
 void
 dig_shutdown(void);
-
-ISC_LANG_ENDDECLS
 
 #endif

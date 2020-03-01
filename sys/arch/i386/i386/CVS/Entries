@@ -5,7 +5,7 @@
 /amdmsr.c/1.10/Mon Feb 19 08:59:52 2018//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//
 /apicvec.s/1.35/Mon Jun 18 23:15:05 2018//
-/apm.c/1.121/Tue Dec 31 13:48:31 2019//
+/apm.c/1.122/Thu Feb 20 16:56:51 2020//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.106/Sun Dec  8 12:25:30 2019//
 /bios.c/1.124/Wed Oct 23 10:14:46 2019//
@@ -13,7 +13,7 @@
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
 /codepatch.c/1.4/Mon Jul 10 00:59:24 2017//
 /conf.c/1.167/Fri Jan 24 05:14:51 2020//
-/cpu.c/1.98/Fri Dec 20 07:55:30 2019//
+/cpu.c/1.103/Fri Feb 28 05:31:42 2020//
 /db_disasm.c/1.23/Thu Nov  7 14:44:53 2019//
 /db_interface.c/1.42/Wed Nov  6 07:34:35 2019//
 /db_memrw.c/1.17/Sun Apr 30 13:04:49 2017//

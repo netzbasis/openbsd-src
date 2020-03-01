@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: util.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: util.h,v 1.3 2020/02/25 05:00:43 jsg Exp $ */
 
 #ifndef ISC_UTIL_H
 #define ISC_UTIL_H 1
@@ -113,7 +113,6 @@
  * Performance
  */
 
-
 /*
  * Assertions
  */
@@ -139,10 +138,5 @@
 #define FATAL_ERROR			isc_error_fatal
 /*% Runtime Check */
 #define RUNTIME_CHECK(cond)		ISC_ERROR_RUNTIMECHECK(cond)
-
-/*%
- * Time
- */
-#define TIME_NOW(tp) 	RUNTIME_CHECK(isc_time_now((tp)) == ISC_R_SUCCESS)
 
 #endif /* ISC_UTIL_H */

@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: lwres.h,v 1.1 2020/02/07 09:58:54 florian Exp $ */
+/* $Id: lwres.h,v 1.3 2020/02/12 13:05:04 jsg Exp $ */
 
 #ifndef LWRES_LWRES_H
 #define LWRES_LWRES_H 1
@@ -82,7 +82,6 @@
  *	response_free().
  */
 
-#define LWRES_ADDR_MAXLEN	16	/*%< changing this breaks ABI */
 #define LWRES_USEIPV4		0x0001
 #define LWRES_USEIPV6		0x0002
 
@@ -93,7 +92,7 @@ typedef struct lwres_addr lwres_addr_t;
 struct lwres_addr {
 	uint32_t			family;
 	uint16_t			length;
-	unsigned char			address[LWRES_ADDR_MAXLEN];
+	unsigned char			address[sizeof(struct in6_addr)];
 	uint32_t			zone;
 };
 
@@ -155,15 +154,6 @@ lwres_conf_parse(lwres_conf_t *confdata, const char *filename);
  *	LWRES_R_SUCCESS on a successful parse.
  *	Anything else on error, although the structure may be partially filled
  *	in.
- */
-
-lwres_result_t
-lwres_conf_print(lwres_conf_t *confdata, FILE *fp);
-/**<
- * Prints a resolv.conf-format of confdata output to fp.
- *
- * Requires:
- *	confdata != NULL
  */
 
 void

@@ -1,4 +1,4 @@
-/Makefile/1.6/Sun Jan  6 04:41:15 2019//
+/Makefile/1.7/Thu Feb 27 01:25:58 2020//
 /broken.in/1.2/Tue Jul  4 14:53:23 2017//
 /broken.out_ascii/1.2/Tue Aug 26 11:32:54 2014//
 /broken.out_lint/1.4/Tue Jul  4 14:53:23 2017//
@@ -16,4 +16,6 @@
 /paragraph.in/1.1/Sun Jan  6 04:41:15 2019//
 /paragraph.out_ascii/1.1/Sun Jan  6 04:41:15 2019//
 /paragraph.out_html/1.4/Tue Sep  3 18:17:51 2019//
+/vert.in/1.1/Thu Feb 27 01:25:58 2020//
+/vert.out_ascii/1.1/Thu Feb 27 01:25:58 2020//
 D

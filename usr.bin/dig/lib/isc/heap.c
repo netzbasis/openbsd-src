@@ -14,7 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: heap.c,v 1.1 2020/02/07 09:58:53 florian Exp $ */
+/* $Id: heap.c,v 1.6 2020/02/25 16:54:24 deraadt Exp $ */
 
 /*! \file
  * Heap implementation of priority queues adapted from the following:
@@ -26,10 +26,8 @@
  *	ISBN 0-201-06673-4, chapter 11.
  */
 
-
 #include <stdlib.h>
 #include <isc/heap.h>
-#include <isc/magic.h>
 #include <string.h>
 #include <isc/util.h>
 
@@ -46,9 +44,6 @@
 
 #define SIZE_INCREMENT			1024
 
-#define HEAP_MAGIC			ISC_MAGIC('H', 'E', 'A', 'P')
-#define VALID_HEAP(h)			ISC_MAGIC_VALID(h, HEAP_MAGIC)
-
 /*%
  * When the heap is in a consistent state, the following invariant
  * holds true: for every element i > 1, heap_parent(i) has a priority
@@ -60,7 +55,6 @@
 
 /*% ISC heap structure. */
 struct isc_heap {
-	unsigned int			magic;
 	unsigned int			size;
 	unsigned int			size_increment;
 	unsigned int			last;
@@ -68,18 +62,6 @@ struct isc_heap {
 	isc_heapcompare_t		compare;
 	isc_heapindex_t			index;
 };
-
-#ifdef ISC_HEAP_CHECK
-static void
-heap_check(isc_heap_t *heap) {
-	unsigned int i;
-	for (i = 1; i <= heap->last; i++) {
-		INSIST(HEAPCONDITION(i));
-	}
-}
-#else
-#define heap_check(x) (void)0
-#endif
 
 isc_result_t
 isc_heap_create(isc_heapcompare_t compare,
@@ -94,7 +76,6 @@ isc_heap_create(isc_heapcompare_t compare,
 	heap = malloc(sizeof(*heap));
 	if (heap == NULL)
 		return (ISC_R_NOMEMORY);
-	heap->magic = HEAP_MAGIC;
 	heap->size = 0;
 	if (size_increment == 0)
 		heap->size_increment = SIZE_INCREMENT;
@@ -116,10 +97,8 @@ isc_heap_destroy(isc_heap_t **heapp) {
 
 	REQUIRE(heapp != NULL);
 	heap = *heapp;
-	REQUIRE(VALID_HEAP(heap));
 
 	free(heap->array);
-	heap->magic = 0;
 	free(heap);
 
 	*heapp = NULL;
@@ -130,10 +109,8 @@ resize(isc_heap_t *heap) {
 	void **new_array;
 	unsigned int new_size;
 
-	REQUIRE(VALID_HEAP(heap));
-
 	new_size = heap->size + heap->size_increment;
-	new_array = malloc(new_size * sizeof(void *));
+	new_array = reallocarray(NULL, new_size, sizeof(void *));
 	if (new_array == NULL)
 		return (ISC_FALSE);
 	if (heap->array != NULL) {
@@ -162,7 +139,6 @@ float_up(isc_heap_t *heap, unsigned int i, void *elt) {
 		(heap->index)(heap->array[i], i);
 
 	INSIST(HEAPCONDITION(i));
-	heap_check(heap);
 }
 
 static void
@@ -188,16 +164,12 @@ sink_down(isc_heap_t *heap, unsigned int i, void *elt) {
 		(heap->index)(heap->array[i], i);
 
 	INSIST(HEAPCONDITION(i));
-	heap_check(heap);
 }
 
 isc_result_t
 isc_heap_insert(isc_heap_t *heap, void *elt) {
 	unsigned int new_last;
 
-	REQUIRE(VALID_HEAP(heap));
-
-	heap_check(heap);
 	new_last = heap->last + 1;
 	RUNTIME_CHECK(new_last > 0); /* overflow check */
 	if (new_last >= heap->size && !resize(heap))
@@ -214,16 +186,13 @@ isc_heap_delete(isc_heap_t *heap, unsigned int idx) {
 	void *elt;
 	isc_boolean_t less;
 
-	REQUIRE(VALID_HEAP(heap));
 	REQUIRE(idx >= 1 && idx <= heap->last);
 
-	heap_check(heap);
 	if (heap->index != NULL)
 		(heap->index)(heap->array[idx], 0);
 	if (idx == heap->last) {
 		heap->array[heap->last] = NULL;
 		heap->last--;
-		heap_check(heap);
 	} else {
 		elt = heap->array[heap->last];
 		heap->array[heap->last] = NULL;
@@ -240,7 +209,6 @@ isc_heap_delete(isc_heap_t *heap, unsigned int idx) {
 
 void
 isc_heap_increased(isc_heap_t *heap, unsigned int idx) {
-	REQUIRE(VALID_HEAP(heap));
 	REQUIRE(idx >= 1 && idx <= heap->last);
 
 	float_up(heap, idx, heap->array[idx]);
@@ -248,7 +216,6 @@ isc_heap_increased(isc_heap_t *heap, unsigned int idx) {
 
 void
 isc_heap_decreased(isc_heap_t *heap, unsigned int idx) {
-	REQUIRE(VALID_HEAP(heap));
 	REQUIRE(idx >= 1 && idx <= heap->last);
 
 	sink_down(heap, idx, heap->array[idx]);
@@ -256,22 +223,9 @@ isc_heap_decreased(isc_heap_t *heap, unsigned int idx) {
 
 void *
 isc_heap_element(isc_heap_t *heap, unsigned int idx) {
-	REQUIRE(VALID_HEAP(heap));
 	REQUIRE(idx >= 1);
 
-	heap_check(heap);
 	if (idx <= heap->last)
 		return (heap->array[idx]);
 	return (NULL);
-}
-
-void
-isc_heap_foreach(isc_heap_t *heap, isc_heapaction_t action, void *uap) {
-	unsigned int i;
-
-	REQUIRE(VALID_HEAP(heap));
-	REQUIRE(action != NULL);
-
-	for (i = 1 ; i <= heap->last ; i++)
-		(action)(heap->array[i], uap);
 }
