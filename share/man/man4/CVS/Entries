@@ -1,4 +1,4 @@
-/Makefile/1.754/Sat Feb 15 08:48:30 2020//
+/Makefile/1.755/Mon Mar  2 10:57:32 2020//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -427,6 +427,7 @@
 /rgephy.4/1.9/Fri Jul 31 14:20:29 2009//
 /ricohrtc.4/1.5/Mon Jun 18 06:06:52 2018//
 /rkclock.4/1.2/Sat Mar 31 09:44:35 2018//
+/rkdwhdmi.4/1.2/Mon Mar  2 20:19:22 2020//
 /rkdwusb.4/1.1/Mon Aug 27 20:09:29 2018//
 /rkemmcphy.4/1.1/Tue Dec  3 09:46:46 2019//
 /rkgpio.4/1.1/Sun Apr  1 09:03:25 2018//
