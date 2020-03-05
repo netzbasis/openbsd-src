@@ -1,4 +1,4 @@
-.\"	$OpenBSD: rkdwhdmi.4,v 1.4 2020/03/04 23:10:55 jmc Exp $
+.\"	$OpenBSD: rkdrm.4,v 1.3 2020/03/04 23:10:55 jmc Exp $
 .\"
 .\" Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
 .\"
@@ -15,23 +15,25 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: March 4 2020 $
-.Dt RKDWHDMI 4
+.Dt RKDRM 4
 .Os
 .Sh NAME
-.Nm rkdwhdmi
-.Nd Rockchip HDMI transmitter
+.Nm rkdrm
+.Nd Rockchip DRM subsystem
 .Sh SYNOPSIS
-.Cd "rkdwhdmi* at fdt?"
+.Cd "rkdrm* at fdt?"
+.Cd "drm* at rkdrm?"
+.Cd "wsdisplay* at rkdrm?"
 .Sh DESCRIPTION
 The
 .Nm
-driver controls the Synopsys DesignWare HDMI transmitter integrated on
-Rockchip SoCs.
+driver provides kernel mode setting (KMS) functionality for the
+graphics hardware integrated on Rockchip SoCs.
 .Sh SEE ALSO
 .Xr drm 4 ,
 .Xr intro 4 ,
 .Xr rkanxdp 4 ,
-.Xr rkdrm 4 ,
+.Xr rkdwhdmi 4 ,
 .Xr rkvop 4
 .Sh HISTORY
 The
@@ -49,4 +51,4 @@ for
 and ported to
 .Ox
 by
-.An Mark Kettenis Mt kettenis@openbsd.org .
+.An Patrick Wildt Aq Mt patrick@blueri.se .
