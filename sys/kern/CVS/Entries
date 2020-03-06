@@ -18,7 +18,7 @@
 /kern_fork.c/1.223/Fri Feb 21 11:10:23 2020//
 /kern_kthread.c/1.44/Fri Feb 21 11:10:23 2020//
 /kern_ktrace.c/1.100/Sun Oct  6 16:24:14 2019//
-/kern_lock.c/1.70/Tue Jun  4 15:41:02 2019//
+/kern_lock.c/1.71/Thu Mar  5 09:28:31 2020//
 /kern_malloc.c/1.141/Thu Dec 19 17:40:11 2019//
 /kern_physio.c/1.47/Thu Feb 20 16:26:01 2020//
 /kern_pledge.c/1.261/Sat Feb 15 09:35:48 2020//

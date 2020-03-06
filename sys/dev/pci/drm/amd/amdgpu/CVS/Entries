@@ -52,7 +52,7 @@
 /amdgpu_gem.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_gfx.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_gfx.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_gmc.h/1.1/Tue May 21 22:40:06 2019//
+/amdgpu_gmc.h/1.2/Fri Mar  6 00:16:15 2020//
 /amdgpu_gtt_mgr.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_i2c.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_i2c.h/1.1/Tue May 21 22:40:06 2019//
@@ -165,7 +165,7 @@
 /gmc_v7_0.h/1.1/Tue May 21 22:40:07 2019//
 /gmc_v8_0.c/1.2/Mon Aug 19 09:34:13 2019//
 /gmc_v8_0.h/1.1/Tue May 21 22:40:07 2019//
-/gmc_v9_0.c/1.5/Mon Aug 19 09:34:13 2019//
+/gmc_v9_0.c/1.6/Fri Mar  6 00:16:15 2020//
 /gmc_v9_0.h/1.1/Tue May 21 22:40:07 2019//
 /iceland_ih.c/1.1/Tue May 21 22:40:07 2019//
 /iceland_ih.h/1.1/Tue May 21 22:40:07 2019//
