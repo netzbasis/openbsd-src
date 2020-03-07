@@ -1,8 +1,8 @@
 /Makefile/1.1/Thu Jun  1 21:15:40 2006//
 /devlist2h.awk/1.2/Fri Jun  2 21:16:44 2006//
 /files.sdmmc/1.6/Tue Mar 20 04:18:40 2018//
-/if_bwfm_sdio.c/1.31/Tue Feb 25 14:24:58 2020//
-/if_bwfm_sdio.h/1.2/Sat May 19 10:43:10 2018//
+/if_bwfm_sdio.c/1.32/Fri Mar  6 08:41:57 2020//
+/if_bwfm_sdio.h/1.3/Fri Mar  6 09:28:40 2020//
 /sdhc.c/1.63/Wed Jan 22 07:52:37 2020//
 /sdhcreg.h/1.9/Thu Sep  6 10:15:17 2018//
 /sdhcvar.h/1.12/Tue Apr  2 07:08:40 2019//

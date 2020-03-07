@@ -46,6 +46,7 @@
 /cmpci.c/1.45/Fri Sep 14 08:37:34 2018//
 /cmpcireg.h/1.5/Sun Jun  5 14:13:47 2011//
 /cmpcivar.h/1.7/Fri Oct  8 14:01:07 2010//
+/com_pci.c/1.1/Fri Mar  6 08:39:34 2020//
 /cs4280.c/1.53/Fri Jan 24 03:29:55 2020//
 /cs4280reg.h/1.1/Fri Jun 30 03:28:08 2000//
 /cs4281.c/1.37/Sat Dec 28 07:55:48 2019//
@@ -74,7 +75,7 @@
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.7/Sun Jan 19 00:03:46 2020//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//
-/files.pci/1.344/Sat Feb 15 08:47:14 2020//
+/files.pci/1.345/Fri Mar  6 08:39:34 2020//
 /fms.c/1.30/Tue Dec 20 15:31:00 2016//
 /fmsradio.c/1.6/Thu Jun  6 16:29:37 2002//
 /fmsreg.h/1.3/Thu Jun 26 05:42:17 2008//
@@ -113,7 +114,7 @@
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
 /if_bnxt.c/1.21/Tue Sep  3 09:00:44 2019//
 /if_bnxtreg.h/1.3/Wed Apr 24 10:09:49 2019//
-/if_bwfm_pci.c/1.34/Tue Feb 25 14:24:58 2020//
+/if_bwfm_pci.c/1.35/Fri Mar  6 09:02:19 2020//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.17/Fri May 10 16:44:36 2019//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//
