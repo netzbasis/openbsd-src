@@ -114,7 +114,7 @@
 /if_bnxreg.h/1.49/Sat Dec  5 16:23:37 2015//
 /if_bnxt.c/1.21/Tue Sep  3 09:00:44 2019//
 /if_bnxtreg.h/1.3/Wed Apr 24 10:09:49 2019//
-/if_bwfm_pci.c/1.35/Fri Mar  6 09:02:19 2020//
+/if_bwfm_pci.c/1.36/Sat Mar  7 09:56:46 2020//
 /if_bwfm_pci.h/1.2/Fri Jan  5 23:30:16 2018//
 /if_bwi_pci.c/1.17/Fri May 10 16:44:36 2019//
 /if_cas.c/1.51/Sun Jan 22 10:17:38 2017//
