@@ -1,4 +1,4 @@
-/*	$OpenBSD: output.c,v 1.6 2020/03/06 17:36:42 benno Exp $ */
+/*	$OpenBSD: output.c,v 1.8 2020/03/09 23:50:01 jca Exp $ */
 /*
  * Copyright (c) 2019 Theo de Raadt <deraadt@openbsd.org>
  *
@@ -67,18 +67,23 @@ outputfiles(struct vrp_tree *v)
 
 		fout = output_createtmp(outputs[i].name);
 		if (fout == NULL) {
-			logx("cannot create %s", outputs[i].name);
+			warn("cannot create %s", outputs[i].name);
 			rc = 1;
 			continue;
 		}
 		if ((*outputs[i].fn)(fout, v) != 0) {
-			logx("output for %s format failed", outputs[i].name);
+			warn("output for %s format failed", outputs[i].name);
 			fclose(fout);
 			output_cleantmp();
 			rc = 1;
 			continue;
 		}
-		output_finish(fout);
+		if (output_finish(fout) != 0) {
+			warn("finish for %s format failed", outputs[i].name);
+			output_cleantmp();
+			rc = 1;
+			continue;
+		}
 	}
 
 	return rc;
@@ -108,14 +113,15 @@ output_createtmp(char *name)
 	return f;
 }
 
-void
+int
 output_finish(FILE *out)
 {
-	fclose(out);
-	out = NULL;
-
-	rename(output_tmpname, output_name);
+	if (fclose(out) != 0)
+		return -1;
+	if (rename(output_tmpname, output_name) == -1)
+		return -1;
 	output_tmpname[0] = '\0';
+	return 0;
 }
 
 void
