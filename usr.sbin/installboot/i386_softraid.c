@@ -1,4 +1,4 @@
-/*	$OpenBSD: i386_softraid.c,v 1.13 2020/02/28 12:26:30 otto Exp $	*/
+/*	$OpenBSD: i386_softraid.c,v 1.15 2020/03/09 06:16:56 otto Exp $	*/
 /*
  * Copyright (c) 2012 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2010 Otto Moerbeek <otto@drijf.net>

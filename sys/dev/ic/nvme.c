@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.68 2020/02/28 21:12:26 krw Exp $ */
+/*	$OpenBSD: nvme.c,v 1.72 2020/03/10 14:49:20 krw Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -231,11 +231,12 @@ nvme_enable(struct nvme_softc *sc)
 
 	CLR(cc, NVME_CC_IOCQES_MASK | NVME_CC_IOSQES_MASK | NVME_CC_SHN_MASK |
 	    NVME_CC_AMS_MASK | NVME_CC_MPS_MASK | NVME_CC_CSS_MASK);
-	SET(cc, NVME_CC_IOSQES(ffs(64) - 1) | NVME_CC_IOCQES(ffs(16) - 1));
+	SET(cc, NVME_CC_IOSQES(6));	/* Submission queue size == 2**6 (64) */
+	SET(cc, NVME_CC_IOCQES(4));	/* Completion queue size == 2**4 (16) */
 	SET(cc, NVME_CC_SHN(NVME_CC_SHN_NONE));
 	SET(cc, NVME_CC_CSS(NVME_CC_CSS_NVM));
 	SET(cc, NVME_CC_AMS(NVME_CC_AMS_RR));
-	SET(cc, NVME_CC_MPS(sc->sc_mps_bits));
+	SET(cc, NVME_CC_MPS(ffs(sc->sc_mps) - 1));
 	SET(cc, NVME_CC_EN);
 
 	nvme_write4(sc, NVME_CC, cc);
@@ -273,7 +274,6 @@ nvme_attach(struct nvme_softc *sc)
 	struct scsibus_attach_args saa;
 	u_int64_t cap;
 	u_int32_t reg;
-	u_int mps = PAGE_SHIFT;
 	u_int nccbs = 0;
 
 	mtx_init(&sc->sc_ccb_mtx, IPL_BIO);
@@ -296,14 +296,11 @@ nvme_attach(struct nvme_softc *sc)
 		    1 << NVME_CAP_MPSMIN(cap), 1 << PAGE_SHIFT);
 		return (1);
 	}
-	if (NVME_CAP_MPSMAX(cap) < mps)
-		mps = NVME_CAP_MPSMAX(cap);
 
+	sc->sc_mps = 1 << PAGE_SHIFT;	/* mps == memory page size */
 	sc->sc_rdy_to = NVME_CAP_TO(cap);
-	sc->sc_mps = 1 << mps;
-	sc->sc_mps_bits = mps;
 	sc->sc_mdts = MAXPHYS;
-	sc->sc_max_sgl = 2;
+	sc->sc_max_prpl = sc->sc_mdts / sc->sc_mps;
 
 	if (nvme_disable(sc) != 0) {
 		printf("%s: unable to disable controller\n", DEVNAME(sc));
@@ -332,9 +329,7 @@ nvme_attach(struct nvme_softc *sc)
 		goto disable;
 	}
 
-	/* we know how big things are now */
-	sc->sc_max_sgl = sc->sc_mdts / sc->sc_mps;
-
+	/* We now know the real values of sc_mdts and sc_max_prpl. */
 	nvme_ccbs_free(sc, nccbs);
 	if (nvme_ccbs_alloc(sc, 64) != 0) {
 		printf("%s: unable to allocate ccbs\n", DEVNAME(sc));
@@ -1013,13 +1008,12 @@ nvme_q_complete(struct nvme_softc *sc, struct nvme_queue *q)
 }
 
 int
-nvme_identify(struct nvme_softc *sc, u_int mps)
+nvme_identify(struct nvme_softc *sc, u_int mpsmin)
 {
 	char sn[41], mn[81], fr[17];
 	struct nvm_identify_controller *identify;
 	struct nvme_dmamem *mem;
 	struct nvme_ccb *ccb;
-	u_int mdts;
 	int rv = 1;
 
 	ccb = nvme_ccb_get(sc);
@@ -1051,9 +1045,10 @@ nvme_identify(struct nvme_softc *sc, u_int mps)
 	printf("%s: %s, firmware %s, serial %s\n", DEVNAME(sc), mn, fr, sn);
 
 	if (identify->mdts > 0) {
-		mdts = (1 << identify->mdts) * (1 << mps);
-		if (mdts < sc->sc_mdts)
-			sc->sc_mdts = mdts;
+		sc->sc_mdts = (1 << identify->mdts) * (1 << mpsmin);
+		if (sc->sc_mdts > MAXPHYS)
+			sc->sc_mdts = MAXPHYS;
+		sc->sc_max_prpl = sc->sc_mdts / sc->sc_mps;
 	}
 
 	sc->sc_nn = lemtoh32(&identify->nn);
@@ -1187,7 +1182,7 @@ nvme_ccbs_alloc(struct nvme_softc *sc, u_int nccbs)
 		return (1);
 
 	sc->sc_ccb_prpls = nvme_dmamem_alloc(sc,
-	    sizeof(*prpl) * sc->sc_max_sgl * nccbs);
+	    sizeof(*prpl) * sc->sc_max_prpl * nccbs);
 
 	prpl = NVME_DMA_KVA(sc->sc_ccb_prpls);
 	off = 0;
@@ -1196,7 +1191,7 @@ nvme_ccbs_alloc(struct nvme_softc *sc, u_int nccbs)
 		ccb = &sc->sc_ccbs[i];
 
 		if (bus_dmamap_create(sc->sc_dmat, sc->sc_mdts,
-		    sc->sc_max_sgl + 1 /* we get a free prp in the sqe */,
+		    sc->sc_max_prpl + 1, /* we get a free prp in the sqe */
 		    sc->sc_mps, sc->sc_mps, BUS_DMA_WAITOK | BUS_DMA_ALLOCNOW,
 		    &ccb->ccb_dmamap) != 0)
 			goto free_maps;
@@ -1208,8 +1203,8 @@ nvme_ccbs_alloc(struct nvme_softc *sc, u_int nccbs)
 
 		SIMPLEQ_INSERT_TAIL(&sc->sc_ccb_list, ccb, ccb_entry);
 
-		prpl += sc->sc_max_sgl;
-		off += sizeof(*prpl) * sc->sc_max_sgl;
+		prpl += sc->sc_max_prpl;
+		off += sizeof(*prpl) * sc->sc_max_prpl;
 	}
 
 	return (0);

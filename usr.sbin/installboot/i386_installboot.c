@@ -1,4 +1,4 @@
-/*	$OpenBSD: i386_installboot.c,v 1.34 2020/02/28 12:26:30 otto Exp $	*/
+/*	$OpenBSD: i386_installboot.c,v 1.36 2020/03/09 06:16:56 otto Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*

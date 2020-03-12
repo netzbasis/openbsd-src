@@ -4,7 +4,7 @@
 /arm64var.h/1.2/Tue May 15 11:12:35 2018//
 /ast.c/1.7/Fri Jun 22 16:08:12 2018//
 /autoconf.c/1.10/Wed Jan  9 13:18:50 2019//
-/bus_dma.c/1.10/Thu Jan 11 15:49:34 2018//
+/bus_dma.c/1.12/Tue Mar  3 10:33:50 2020//
 /conf.c/1.12/Thu Jan 23 02:40:21 2020//
 /copy.S/1.7/Wed Jun 19 08:00:17 2019//
 /copystr.S/1.6/Sat Jan 11 16:41:30 2020//
@@ -18,7 +18,7 @@
 /exception.S/1.10/Tue Dec 17 22:25:56 2019//
 /genassym.cf/1.6/Thu Mar 29 19:25:39 2018//
 /intr.c/1.14/Mon May 13 20:55:22 2019//
-/locore.S/1.29/Sun Feb 16 09:33:47 2020//
+/locore.S/1.30/Wed Mar 11 13:41:53 2020//
 /locore0.S/1.5/Tue May 28 20:32:30 2019//
 /machdep.c/1.43/Mon Aug 26 09:10:22 2019//
 /mem.c/1.6/Fri May  4 15:45:11 2018//

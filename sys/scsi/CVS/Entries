@@ -12,7 +12,7 @@
 /safte.c/1.61/Sat Dec  7 14:13:49 2019//
 /safte.h/1.8/Fri Sep 27 23:07:42 2019//
 /scsi_all.h/1.61/Mon Nov 25 17:02:56 2019//
-/scsi_base.c/1.261/Wed Jan 22 00:17:46 2020//
+/scsi_base.c/1.262/Wed Mar 11 19:23:08 2020//
 /scsi_changer.h/1.8/Fri Nov 29 14:06:21 2019//
 /scsi_debug.h/1.21/Mon Sep 30 11:27:37 2019//
 /scsi_disk.h/1.40/Tue Dec  3 15:58:28 2019//
@@ -21,7 +21,7 @@
 /scsi_tape.h/1.11/Fri Sep 27 23:07:42 2019//
 /scsiconf.c/1.223/Wed Feb  5 16:29:30 2020//
 /scsiconf.h/1.185/Thu Feb  6 21:06:15 2020//
-/sd.c/1.310/Thu Feb 20 16:26:02 2020//
+/sd.c/1.311/Tue Mar 10 02:01:21 2020//
 /sdvar.h/1.46/Wed Feb  5 16:29:30 2020//
 /ses.c/1.60/Sat Dec  7 13:03:57 2019//
 /ses.h/1.10/Thu May 11 00:45:59 2006//
