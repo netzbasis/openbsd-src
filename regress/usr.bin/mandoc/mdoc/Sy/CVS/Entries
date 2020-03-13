@@ -1,4 +1,4 @@
-/Makefile/1.7/Wed Mar  8 22:53:36 2017//
+/Makefile/1.8/Fri Mar 13 00:31:06 2020//
 /font.in/1.2/Tue Jul  4 14:53:26 2017//
 /font.out_ascii/1.3/Tue Jul  4 14:53:26 2017//
 /font.out_markdown/1.2/Tue Jul  4 14:53:26 2017//
@@ -10,4 +10,9 @@
 /punct.out_ascii/1.4/Tue Jul  4 14:53:26 2017//
 /punct.out_lint/1.7/Tue Jul  4 14:53:26 2017//
 /punct.out_markdown/1.4/Tue Jul  4 14:53:26 2017//
+/tag.in/1.1/Fri Mar 13 00:31:06 2020//
+/tag.out_ascii/1.1/Fri Mar 13 00:31:06 2020//
+/tag.out_html/1.1/Fri Mar 13 00:31:06 2020//
+/tag.out_markdown/1.1/Fri Mar 13 00:31:06 2020//
+/tag.out_tag/1.1/Fri Mar 13 00:31:06 2020//
 D
