@@ -47,7 +47,7 @@
 /cmd-respawn-pane.c/1.29/Sun Apr 28 20:05:50 2019//
 /cmd-respawn-window.c/1.40/Thu Sep 19 09:02:30 2019//
 /cmd-rotate-window.c/1.27/Wed Aug 14 09:58:31 2019//
-/cmd-run-shell.c/1.60/Thu Mar 12 13:25:45 2020//
+/cmd-run-shell.c/1.61/Fri Mar 13 06:19:33 2020//
 /cmd-save-buffer.c/1.47/Thu Dec 12 11:39:56 2019//
 /cmd-select-layout.c/1.36/Wed Apr 17 14:43:49 2019//
 /cmd-select-pane.c/1.54/Mon Feb  3 13:46:27 2020//
