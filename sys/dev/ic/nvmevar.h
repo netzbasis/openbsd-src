@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvmevar.h,v 1.14 2020/03/13 14:55:46 krw Exp $ */
+/*	$OpenBSD: nvmevar.h,v 1.16 2020/03/15 20:50:46 krw Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>

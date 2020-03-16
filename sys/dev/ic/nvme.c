@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.73 2020/03/13 14:55:46 krw Exp $ */
+/*	$OpenBSD: nvme.c,v 1.75 2020/03/15 20:50:46 krw Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -297,8 +297,11 @@ nvme_attach(struct nvme_softc *sc)
 		    1 << NVME_CAP_MPSMIN(cap), 1 << PAGE_SHIFT);
 		return (1);
 	}
+	if (NVME_CAP_MPSMAX(cap) < PAGE_SHIFT)
+		sc->sc_mps = 1 << NVME_CAP_MPSMAX(cap);
+	else
+		sc->sc_mps = 1 << PAGE_SHIFT;
 
-	sc->sc_mps = 1 << PAGE_SHIFT;	/* mps == memory page size */
 	sc->sc_rdy_to = NVME_CAP_TO(cap);
 	sc->sc_mdts = MAXPHYS;
 	sc->sc_max_prpl = sc->sc_mdts / sc->sc_mps;
