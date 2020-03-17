@@ -98,7 +98,7 @@
 /uhid_rdesc.h/1.1/Fri Oct 25 03:09:59 2013//
 /uhidev.c/1.79/Sat Feb 22 14:01:34 2020//
 /uhidev.h/1.25/Sat Aug 25 18:32:05 2018//
-/uhub.c/1.93/Sat Feb 22 14:01:34 2020//
+/uhub.c/1.94/Mon Mar 16 13:17:17 2020//
 /uipaq.c/1.27/Sat Feb 22 14:01:34 2020//
 /ukbd.c/1.78/Fri May 12 09:16:55 2017//
 /ukbdmap.c/1.44/Sat May 11 14:20:17 2019//
@@ -116,7 +116,7 @@
 /umcs.h/1.3/Thu Dec 24 16:54:37 2015//
 /umct.c/1.47/Sat Dec 30 20:47:00 2017//
 /umct.h/1.5/Sun Apr 26 06:38:04 2015//
-/umidi.c/1.52/Wed Jan 23 15:27:44 2019//
+/umidi.c/1.53/Mon Mar 16 16:12:43 2020//
 /umidi_quirks.c/1.16/Thu Jan 18 18:09:38 2018//
 /umidi_quirks.h/1.4/Thu Jun 26 05:42:19 2008//
 /umidireg.h/1.8/Mon Apr 15 09:23:02 2013//
