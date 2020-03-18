@@ -4,7 +4,7 @@
 /in6.c/1.235/Sun Mar 15 05:34:14 2020//
 /in6.h/1.105/Mon Nov 11 17:42:29 2019//
 /in6_cksum.c/1.18/Mon Apr 22 22:47:49 2019//
-/in6_ifattach.c/1.115/Fri Nov  8 07:16:29 2019//
+/in6_ifattach.c/1.116/Tue Mar 17 09:53:59 2020//
 /in6_ifattach.h/1.10/Wed Aug 21 15:32:18 2019//
 /in6_pcb.c/1.110/Fri Nov 29 16:41:01 2019//
 /in6_proto.c/1.104/Thu Jun 13 08:12:11 2019//
