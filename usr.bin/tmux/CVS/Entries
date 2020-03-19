@@ -13,7 +13,7 @@
 /cmd-confirm-before.c/1.37/Thu May 23 11:13:30 2019//
 /cmd-copy-mode.c/1.39/Thu Mar 12 13:19:20 2020//
 /cmd-detach-client.c/1.32/Sat Apr 22 10:22:39 2017//
-/cmd-display-menu.c/1.4/Tue May 28 07:18:42 2019//
+/cmd-display-menu.c/1.5/Wed Mar 18 09:13:49 2020//
 /cmd-display-message.c/1.50/Thu May 30 20:54:03 2019//
 /cmd-display-panes.c/1.29/Wed Jun 26 18:28:31 2019//
 /cmd-find-window.c/1.46/Thu Jun 20 20:31:04 2019//
