@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.72 2020/03/10 14:49:20 krw Exp $ */
+/*	$OpenBSD: nvme.c,v 1.75 2020/03/15 20:50:46 krw Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -85,6 +85,7 @@ void	nvme_dmamem_free(struct nvme_softc *, struct nvme_dmamem *);
 void	nvme_dmamem_sync(struct nvme_softc *, struct nvme_dmamem *, int);
 
 void	nvme_scsi_cmd(struct scsi_xfer *);
+void	nvme_minphys(struct buf *, struct scsi_link *);
 int	nvme_scsi_probe(struct scsi_link *);
 void	nvme_scsi_free(struct scsi_link *);
 
@@ -98,7 +99,7 @@ int	nvme_hibernate_io(dev_t, daddr_t, vaddr_t, size_t, int, void *);
 #endif
 
 struct scsi_adapter nvme_switch = {
-	nvme_scsi_cmd, NULL, nvme_scsi_probe, nvme_scsi_free, NULL
+	nvme_scsi_cmd, nvme_minphys, nvme_scsi_probe, nvme_scsi_free, NULL
 };
 
 void	nvme_scsi_io(struct scsi_xfer *, int);
@@ -296,8 +297,11 @@ nvme_attach(struct nvme_softc *sc)
 		    1 << NVME_CAP_MPSMIN(cap), 1 << PAGE_SHIFT);
 		return (1);
 	}
+	if (NVME_CAP_MPSMAX(cap) < PAGE_SHIFT)
+		sc->sc_mps = 1 << NVME_CAP_MPSMAX(cap);
+	else
+		sc->sc_mps = 1 << PAGE_SHIFT;
 
-	sc->sc_mps = 1 << PAGE_SHIFT;	/* mps == memory page size */
 	sc->sc_rdy_to = NVME_CAP_TO(cap);
 	sc->sc_mdts = MAXPHYS;
 	sc->sc_max_prpl = sc->sc_mdts / sc->sc_mps;
@@ -580,6 +584,15 @@ nvme_scsi_cmd(struct scsi_xfer *xs)
 
 	xs->error = XS_DRIVER_STUFFUP;
 	scsi_done(xs);
+}
+
+void
+nvme_minphys(struct buf *bp, struct scsi_link *link)
+{
+	struct nvme_softc *sc = link->adapter_softc;
+
+	if (bp->b_bcount > sc->sc_mdts)
+		bp->b_bcount = sc->sc_mdts;
 }
 
 void
@@ -1046,8 +1059,8 @@ nvme_identify(struct nvme_softc *sc, u_int mpsmin)
 
 	if (identify->mdts > 0) {
 		sc->sc_mdts = (1 << identify->mdts) * (1 << mpsmin);
-		if (sc->sc_mdts > MAXPHYS)
-			sc->sc_mdts = MAXPHYS;
+		if (sc->sc_mdts > NVME_MAXPHYS)
+			sc->sc_mdts = NVME_MAXPHYS;
 		sc->sc_max_prpl = sc->sc_mdts / sc->sc_mps;
 	}
 

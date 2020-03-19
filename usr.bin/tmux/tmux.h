@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.955 2020/03/11 14:17:56 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.961 2020/03/19 14:03:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -166,6 +166,7 @@ enum {
 	/* Mouse keys. */
 	KEYC_MOUSE, /* unclassified mouse event */
 	KEYC_DRAGGING, /* dragging in progress */
+	KEYC_DOUBLECLICK, /* double click complete */
 	KEYC_MOUSE_KEY(MOUSEMOVE),
 	KEYC_MOUSE_KEY(MOUSEDOWN1),
 	KEYC_MOUSE_KEY(MOUSEDOWN2),
@@ -560,6 +561,7 @@ struct msg_write_close {
 
 #define ALL_MODES 0xffffff
 #define ALL_MOUSE_MODES (MODE_MOUSE_STANDARD|MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
+#define MOTION_MOUSE_MODES (MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
 
 /*
  * A single UTF-8 character. UTF8_SIZE must be big enough to hold
@@ -808,7 +810,6 @@ struct menu {
 	u_int			 width;
 };
 typedef void (*menu_choice_cb)(struct menu *, u_int, key_code, void *);
-#define MENU_NOMOUSE 0x1
 
 /*
  * Window mode. Windows can be in several modes and this is used to call the
@@ -1116,6 +1117,7 @@ RB_HEAD(sessions, session);
 /* Mouse input. */
 struct mouse_event {
 	int		valid;
+	int		ignore;
 
 	key_code	key;
 
@@ -1547,6 +1549,7 @@ struct client {
 
 	struct event	 click_timer;
 	u_int		 click_button;
+	struct mouse_event click_event;
 
 	struct status_line status;
 
@@ -1577,6 +1580,8 @@ struct client {
 #define CLIENT_REDRAWSTATUSALWAYS 0x1000000
 #define CLIENT_REDRAWOVERLAY 0x2000000
 #define CLIENT_CONTROL_NOOUTPUT 0x4000000
+#define CLIENT_DEFAULTSOCKET 0x8000000
+#define CLIENT_STARTSERVER 0x10000000
 #define CLIENT_ALLREDRAWFLAGS		\
 	(CLIENT_REDRAWWINDOW|		\
 	 CLIENT_REDRAWSTATUS|		\
@@ -1765,7 +1770,7 @@ extern const char	*socket_path;
 extern const char	*shell_command;
 extern int		 ptm_fd;
 extern const char	*shell_command;
-int		 areshell(const char *);
+int		 checkshell(const char *);
 void		 setblocking(int, int);
 const char	*find_cwd(void);
 const char	*find_home(void);
@@ -1923,8 +1928,11 @@ typedef void (*job_update_cb) (struct job *);
 typedef void (*job_complete_cb) (struct job *);
 typedef void (*job_free_cb) (void *);
 #define JOB_NOWAIT 0x1
+#define JOB_KEEPWRITE 0x2
+#define JOB_PTY 0x4
 struct job	*job_run(const char *, struct session *, const char *,
-		     job_update_cb, job_complete_cb, job_free_cb, void *, int);
+		     job_update_cb, job_complete_cb, job_free_cb, void *, int,
+		     int, int);
 void		 job_free(struct job *);
 void		 job_check_died(pid_t, int);
 int		 job_get_status(struct job *);
@@ -2200,7 +2208,7 @@ void	 server_clear_marked(void);
 int	 server_is_marked(struct session *, struct winlink *,
 	     struct window_pane *);
 int	 server_check_marked(void);
-int	 server_start(struct tmuxproc *, struct event_base *, int, char *);
+int	 server_start(struct tmuxproc *, int, struct event_base *, int, char *);
 void	 server_update_socket(void);
 void	 server_add_accept(int);
 
@@ -2279,15 +2287,19 @@ void	 recalculate_size(struct window *);
 void	 recalculate_sizes(void);
 
 /* input.c */
-void	 input_init(struct window_pane *);
-void	 input_free(struct window_pane *);
-void	 input_reset(struct window_pane *, int);
-struct evbuffer *input_pending(struct window_pane *);
-void	 input_parse(struct window_pane *);
+struct input_ctx *input_init(struct window_pane *);
+void	 input_free(struct input_ctx *);
+void	 input_reset(struct input_ctx *, int);
+struct evbuffer *input_pending(struct input_ctx *);
+void	 input_parse_pane(struct window_pane *);
 void	 input_parse_buffer(struct window_pane *, u_char *, size_t);
+void	 input_parse_screen(struct input_ctx *, struct screen *, u_char *,
+	     size_t);
 
 /* input-key.c */
-int	 input_key(struct window_pane *, key_code, struct mouse_event *);
+int	 input_key_pane(struct window_pane *, key_code, struct mouse_event *);
+int	 input_key(struct window_pane *, struct screen *, struct bufferevent *,
+	     key_code);
 
 /* xterm-keys.c */
 char	*xterm_keys_lookup(key_code);
@@ -2722,6 +2734,7 @@ __dead void printflike(1, 2) fatal(const char *, ...);
 __dead void printflike(1, 2) fatalx(const char *, ...);
 
 /* menu.c */
+#define MENU_NOMOUSE 0x1
 struct menu	*menu_create(const char *);
 void		 menu_add_items(struct menu *, const struct menu_item *,
 		    struct cmdq_item *, struct client *,
@@ -2729,7 +2742,6 @@ void		 menu_add_items(struct menu *, const struct menu_item *,
 void 		 menu_add_item(struct menu *, const struct menu_item *,
 		    struct cmdq_item *, struct client *,
 		    struct cmd_find_state *);
-
 void		 menu_free(struct menu *);
 int		 menu_display(struct menu *, int, struct cmdq_item *, u_int,
 		    u_int, struct client *, struct cmd_find_state *,

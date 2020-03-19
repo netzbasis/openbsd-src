@@ -19,7 +19,7 @@
 /adw.h/1.11/Tue Feb 18 20:24:52 2020//
 /adwlib.c/1.26/Tue Feb 18 20:24:52 2020//
 /adwlib.h/1.15/Tue Feb 18 20:24:52 2020//
-/ahci.c/1.34/Mon Jul  8 22:02:59 2019//
+/ahci.c/1.36/Sat Mar 14 18:53:13 2020//
 /ahcireg.h/1.5/Wed Feb 11 07:13:44 2015//
 /ahcivar.h/1.10/Mon Aug 21 21:43:46 2017//
 /aic6250.c/1.7/Wed Feb  5 16:29:29 2020//
@@ -57,7 +57,7 @@
 /an.c/1.75/Thu Nov  7 12:56:34 2019//
 /anreg.h/1.12/Fri Oct  5 23:23:55 2007//
 /anvar.h/1.23/Tue Oct 13 19:33:16 2009//
-/anxdp.c/1.1/Fri Feb 21 15:49:09 2020//
+/anxdp.c/1.3/Mon Mar 16 22:44:12 2020//
 /anxdp.h/1.1/Fri Feb 21 15:49:09 2020//
 /apcdmareg.h/1.2/Mon Jun  2 18:53:18 2003//
 /ar5008.c/1.55/Mon Feb 17 14:37:36 2020//
@@ -109,7 +109,7 @@
 /bt8xx.h/1.3/Thu Jun 23 14:57:48 2005//
 /bwfm.c/1.70/Fri Mar  6 08:41:57 2020//
 /bwfmreg.h/1.18/Sat Nov  9 20:53:55 2019//
-/bwfmvar.h/1.18/Fri Mar  6 08:41:57 2020//
+/bwfmvar.h/1.19/Fri Mar 13 15:30:58 2020//
 /bwi.c/1.128/Thu Sep 12 12:55:07 2019//
 /bwireg.h/1.10/Fri May 10 16:44:36 2019//
 /bwivar.h/1.31/Wed Nov  5 01:02:10 2014//
@@ -239,9 +239,9 @@
 /nec765reg.h/1.4/Mon Jun  2 23:28:02 2003//
 /ns16450reg.h/1.3/Mon Jun  2 23:28:02 2003//
 /ns16550reg.h/1.5/Mon Jun  2 23:28:02 2003//
-/nvme.c/1.72/Tue Mar 10 14:49:20 2020//
+/nvme.c/1.75/Sun Mar 15 20:50:46 2020//
 /nvmereg.h/1.11/Tue Nov 15 12:01:11 2016//
-/nvmevar.h/1.13/Tue Mar 10 14:08:40 2020//
+/nvmevar.h/1.16/Sun Mar 15 20:50:46 2020//
 /oosiop.c/1.26/Mon Feb 17 02:50:23 2020//
 /oosiopreg.h/1.2/Tue Apr 20 20:21:56 2010//
 /oosiopvar.h/1.5/Sun Apr  3 12:42:36 2011//
