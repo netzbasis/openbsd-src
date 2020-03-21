@@ -1,7 +1,6 @@
 /LICENSE/1.1.1.2/Sun Mar 16 11:38:07 2014//
 /Makefile.bsd-wrapper/1.18/Sat Dec 21 21:40:01 2019//
 /Makefile.in/1.33/Thu Mar 19 17:48:06 2020//
-/README/1.5/Thu Mar 19 17:48:06 2020//
 /README.md/1.4/Thu Mar 19 17:48:06 2020//
 /ac_pkg_swig.m4/1.2/Sat Aug 12 11:22:45 2017//
 /aclocal.m4/1.8/Thu Mar 19 17:48:06 2020//
@@ -16,7 +15,6 @@
 /install-sh/1.5/Thu Mar 19 17:48:06 2020//
 /ltmain.sh/1.4/Fri Feb  8 10:29:08 2019//
 /systemd.m4/1.1/Fri Feb 17 18:53:32 2017//
-D/.github////
 D/cachedb////
 D/daemon////
 D/dns64////
