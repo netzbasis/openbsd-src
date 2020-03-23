@@ -1,4 +1,4 @@
-/* $OpenBSD: wsmouse.c,v 1.58 2020/01/08 16:27:41 visa Exp $ */
+/* $OpenBSD: wsmouse.c,v 1.60 2020/03/22 16:39:51 bru Exp $ */
 /* $NetBSD: wsmouse.c,v 1.35 2005/02/27 00:27:52 perry Exp $ */
 
 /*
@@ -143,7 +143,7 @@ void	wsmouse_attach(struct device *, struct device *, void *);
 int	wsmouse_detach(struct device *, int);
 int	wsmouse_activate(struct device *, int);
 
-int	wsmouse_do_ioctl(struct wsmouse_softc *, u_long, caddr_t, 
+int	wsmouse_do_ioctl(struct wsmouse_softc *, u_long, caddr_t,
 			      int, struct proc *);
 
 #if NWSMUX > 0
@@ -151,7 +151,7 @@ int	wsmouse_mux_open(struct wsevsrc *, struct wseventvar *);
 int	wsmouse_mux_close(struct wsevsrc *);
 #endif
 
-int	wsmousedoioctl(struct device *, u_long, caddr_t, int, 
+int	wsmousedoioctl(struct device *, u_long, caddr_t, int,
 			    struct proc *);
 int	wsmousedoopen(struct wsmouse_softc *, struct wseventvar *);
 
@@ -770,7 +770,7 @@ wsmouse_set(struct device *sc, enum wsmouseval type, int value, int aux)
 		wsmouse_position(sc, value, input->motion.pos.y);
 		return;
 	case WSMOUSE_REL_Y:
-		value += input->motion.pos.y;
+		value += input->motion.pos.y; /* fall through */
 	case WSMOUSE_ABS_Y:
 		wsmouse_position(sc, input->motion.pos.x, value);
 		return;
@@ -796,7 +796,7 @@ wsmouse_set(struct device *sc, enum wsmouseval type, int value, int aux)
 		wsmouse_mtstate(sc, aux, value, mts->pos.y, mts->pressure);
 		return;
 	case WSMOUSE_MT_REL_Y:
-		value += mts->pos.y;
+		value += mts->pos.y; /* fall through */
 	case WSMOUSE_MT_ABS_Y:
 		wsmouse_mtstate(sc, aux, mts->pos.x, value, mts->pressure);
 		return;
