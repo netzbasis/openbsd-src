@@ -1,4 +1,4 @@
-/*	$OpenBSD: btrace.c,v 1.8 2020/03/19 15:55:55 mpi Exp $ */
+/*	$OpenBSD: btrace.c,v 1.11 2020/03/23 15:36:30 mpi Exp $ */
 
 /*
  * Copyright (c) 2019 - 2020 Martin Pieuchot <mpi@openbsd.org>
@@ -69,6 +69,7 @@ void			 rules_setup(int);
 void			 rules_apply(struct dt_evt *);
 void			 rules_teardown(int);
 void			 rule_eval(struct bt_rule *, struct dt_evt *);
+void			 rule_printmaps(struct bt_rule *);
 
 /*
  * Language builtins & functions.
@@ -506,6 +507,10 @@ rules_teardown(int fd)
 
 	if (rend)
 		rule_eval(rend, NULL);
+	else {
+		TAILQ_FOREACH(r, &g_rules, br_next)
+			rule_printmaps(r);
+	}
 }
 
 void
@@ -550,6 +555,24 @@ rule_eval(struct bt_rule *r, struct dt_evt *dtev)
 	}
 }
 
+void
+rule_printmaps(struct bt_rule *r)
+{
+	struct bt_stmt *bs;
+
+	SLIST_FOREACH(bs, &r->br_action, bs_next) {
+		struct bt_arg *ba;
+
+		SLIST_FOREACH(ba, &bs->bs_args, ba_next) {
+			if (ba->ba_type != B_AT_MAP)
+				continue;
+
+			map_print(ba->ba_value, SIZE_T_MAX);
+			map_clear(ba->ba_value);
+		}
+	}
+}
+
 time_t
 builtin_gettime(struct dt_evt *dtev)
 {
@@ -586,6 +609,7 @@ builtin_nsecs(struct dt_evt *dtev)
 }
 
 #include <machine/vmparam.h>
+#include <machine/param.h>
 #define	INKERNEL(va)	((va) >= VM_MIN_KERNEL_ADDRESS)
 
 const char *
@@ -623,6 +647,10 @@ builtin_arg(struct dt_evt *dtev, enum bt_argtype dat)
 	return buf;
 }
 
+
+/*
+ * Empty a map:		{ clear(@map); }
+ */
 void
 stmt_clear(struct bt_stmt *bs)
 {
@@ -764,6 +792,9 @@ stmt_time(struct bt_stmt *bs, struct dt_evt *dtev)
 	printf("%s", buf);
 }
 
+/*
+ * Set entries to 0:	{ zero(@map); }
+ */
 void
 stmt_zero(struct bt_stmt *bs)
 {
