@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.199 2020/03/22 15:59:05 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.202 2020/03/24 19:14:53 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -700,6 +700,8 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 			/* restore */
 			msg->msg_policy = sa->sa_policy = old;
 		}
+		if (ikev2_handle_certreq(env, msg) != 0)
+			return (-1);
 	}
 
 	if (msg->msg_id.id_type) {
@@ -2488,9 +2490,6 @@ ikev2_resp_recv(struct iked *env, struct iked_message *msg,
 		    sa->sa_policy->pol_auth.auth_eap)
 			sa_state(env, sa, IKEV2_STATE_EAP);
 
-		if (ikev2_handle_certreq(env, msg) != 0)
-			return;
-
 		if (ikev2_ike_auth_recv(env, sa, msg) != 0) {
 			log_debug("%s: failed to send auth response", __func__);
 			ikev2_send_error(env, sa, msg, hdr->ike_exchange);
@@ -2526,11 +2525,8 @@ ikev2_handle_notifies(struct iked *env, struct iked_message *msg)
 	if ((sa = msg->msg_sa) == NULL)
 		return (-1);
 
-	if (msg->msg_flags & IKED_MSG_FLAGS_CHILD_SA_NOT_FOUND) {
+	if (msg->msg_flags & IKED_MSG_FLAGS_CHILD_SA_NOT_FOUND)
 		sa->sa_stateflags &= ~IKED_REQ_CHILDSA;
-		ibuf_release(sa->sa_simult);
-		sa->sa_simult = NULL;
-	}
 
 	if ((msg->msg_flags & IKED_MSG_FLAGS_FRAGMENTATION) && env->sc_frag) {
 		log_debug("%s: fragmentation enabled", __func__);
@@ -2940,8 +2936,11 @@ ikev2_handle_certreq(struct iked* env, struct iked_message *msg)
 	if ((sa = msg->msg_sa) == NULL)
 		return (-1);
 
+	/* Ignore CERTREQ when policy uses PSK authentication */
+	if (sa->sa_policy->pol_auth.auth_method == IKEV2_AUTH_SHARED_KEY_MIC)
+		return (0);
+
 	while ((cr = SLIST_FIRST(&msg->msg_certreqs))) {
-		/* Optional certreq for PSK */
 		if (sa->sa_hdr.sh_initiator)
 			sa->sa_stateinit |= IKED_REQ_CERT;
 		else
@@ -3281,6 +3280,8 @@ ikev2_send_create_child_sa(struct iked *env, struct iked_sa *sa,
 		return (-1);
 	}
 
+	ibuf_release(sa->sa_simult);
+	sa->sa_simult = NULL;
 	sa->sa_rekeyspi = 0;	/* clear rekey spi */
 	initiator = sa->sa_hdr.sh_initiator ? 1 : 0;
 
@@ -3744,8 +3745,6 @@ ikev2_init_create_child_sa(struct iked *env, struct iked_message *msg)
 
 done:
 	sa->sa_stateflags &= ~IKED_REQ_CHILDSA;
-	ibuf_release(sa->sa_simult);
-	sa->sa_simult = NULL;
 
 	if (ret)
 		ikev2_childsa_delete(env, sa, 0, 0, NULL, 1);
@@ -5949,6 +5948,29 @@ ikev2_drop_sa(struct iked *env, struct iked_spi *drop)
 done:
 	ibuf_release(buf);
 	return (0);
+}
+
+int
+ikev2_print_static_id(struct iked_static_id *id, char *idstr, size_t idstrlen)
+{
+	struct iked_id	idp;
+	int		ret = -1;
+
+	bzero(&idp, sizeof(idp));
+	if ((idp.id_buf = ibuf_new(id->id_data, id->id_length)) == NULL) {
+		bzero(&idstr, sizeof(idstr));
+		return (-1);
+	}
+	idp.id_type = id->id_type;
+	idp.id_offset = id->id_offset;
+	if (ikev2_print_id(&idp, idstr, sizeof(idstr)) == -1) {
+		bzero(&idstr, sizeof(idstr));
+		goto done;
+	}
+	ret = 0;
+ done:
+	ibuf_release(idp.id_buf);
+	return (ret);
 }
 
 int

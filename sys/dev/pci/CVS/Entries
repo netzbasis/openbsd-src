@@ -123,7 +123,7 @@
 /if_dc_pci.c/1.76/Tue Apr 11 14:43:49 2017//
 /if_de.c/1.137/Wed Mar  8 12:02:41 2017//
 /if_devar.h/1.39/Sun Nov 25 19:52:08 2018//
-/if_em.c/1.348/Mon Mar 23 15:02:51 2020//
+/if_em.c/1.349/Tue Mar 24 09:30:06 2020//
 /if_em.h/1.76/Mon Mar 23 15:02:51 2020//
 /if_em_hw.c/1.107/Sun Mar  8 11:43:43 2020//
 /if_em_hw.h/1.82/Mon Mar 23 15:02:51 2020//
@@ -312,7 +312,7 @@
 /pucvar.h/1.16/Wed May  2 19:11:01 2018//
 /pwdog.c/1.10/Fri Sep  8 05:36:52 2017//
 /qla_pci.c/1.8/Thu Apr  3 20:01:47 2014//
-/qle.c/1.51/Wed Feb  5 16:29:30 2020//
+/qle.c/1.52/Wed Mar 25 05:30:18 2020//
 /qlereg.h/1.9/Sun Apr 20 09:49:23 2014//
 /qlw_pci.c/1.10/Thu Aug 17 12:21:31 2017//
 /rtsx_pci.c/1.14/Wed Sep  6 13:07:38 2017//

@@ -1,4 +1,4 @@
-/* $OpenBSD: wskbd.c,v 1.101 2020/03/22 07:59:59 anton Exp $ */
+/* $OpenBSD: wskbd.c,v 1.103 2020/03/24 08:11:59 anton Exp $ */
 /* $NetBSD: wskbd.c,v 1.80 2005/05/04 01:52:16 augustss Exp $ */
 
 /*
@@ -780,9 +780,6 @@ wskbd_mux_open(struct wsevsrc *me, struct wseventvar *evp)
 	if (sc->sc_dying)
 		return (EIO);
 
-	if (sc->sc_base.me_evp != NULL)
-		return (EBUSY);
-
 	return (wskbd_do_open(sc, evp));
 }
 #endif
@@ -828,22 +825,27 @@ wskbdopen(dev_t dev, int flags, int mode, struct proc *p)
 		return (EBUSY);
 
 	error = wskbd_do_open(sc, evar);
-	if (error) {
-		DPRINTF(("%s: %s open failed\n", __func__,
-			 sc->sc_base.me_dv.dv_xname));
-		sc->sc_base.me_evp = NULL;
+	if (error)
 		wsevent_fini(evar);
-	}
 	return (error);
 }
 
 int
 wskbd_do_open(struct wskbd_softc *sc, struct wseventvar *evp)
 {
+	int error;
+
+	/* The device could already be attached to a mux. */
+	if (sc->sc_base.me_evp != NULL)
+		return (EBUSY);
+
 	sc->sc_base.me_evp = evp;
 	sc->sc_translating = 0;
 
-	return (wskbd_enable(sc, 1));
+	error = wskbd_enable(sc, 1);
+	if (error)
+		sc->sc_base.me_evp = NULL;
+	return (error);
 }
 
 int
