@@ -1,4 +1,4 @@
-/* $OpenBSD: popup.c,v 1.1 2020/03/24 08:09:44 nicm Exp $ */
+/* $OpenBSD: popup.c,v 1.3 2020/03/28 09:51:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2020 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -260,7 +260,8 @@ popup_key_cb(struct client *c, struct key_event *event)
 	if (pd->ictx != NULL && (pd->flags & POPUP_WRITEKEYS)) {
 		if (KEYC_IS_MOUSE(event->key))
 			return (0);
-		if ((~pd->flags & POPUP_CLOSEEXIT) &&
+		if (((pd->flags & (POPUP_CLOSEEXIT|POPUP_CLOSEEXITZERO)) == 0 ||
+		    pd->job == NULL) &&
 		    (event->key == '\033' || event->key == '\003'))
 			return (1);
 		if (pd->job == NULL)
@@ -347,6 +348,24 @@ popup_job_complete_cb(struct job *job)
 
 	if (pd->flags & POPUP_CLOSEEXIT)
 		server_client_clear_overlay(pd->c);
+	if ((pd->flags & POPUP_CLOSEEXITZERO) && pd->status == 0)
+		server_client_clear_overlay(pd->c);
+}
+
+u_int
+popup_height(u_int nlines, const char **lines)
+{
+	char	*copy, *next, *loop;
+	u_int	 i, height = 0;
+
+	for (i = 0; i < nlines; i++) {
+		copy = next = xstrdup(lines[i]);
+		while ((loop = strsep(&next, "\n")) != NULL)
+			height++;
+		free(copy);
+	}
+
+	return (height);
 }
 
 u_int
@@ -372,8 +391,8 @@ popup_width(struct cmdq_item *item, u_int nlines, const char **lines,
 				width = tmpwidth;
 			free(tmp);
 		}
+		free(copy);
 	}
-	free(copy);
 
 	format_free(ft);
 	return (width);
@@ -394,8 +413,6 @@ popup_display(int flags, struct cmdq_item *item, u_int px, u_int py, u_int sx,
 		return (-1);
 	if (c->tty.sx < sx || c->tty.sy < sy)
 		return (-1);
-	if (nlines > sy - 2)
-		nlines = sy - 2;
 
 	pd = xcalloc(1, sizeof *pd);
 	pd->item = item;

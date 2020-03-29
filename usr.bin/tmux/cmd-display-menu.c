@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-display-menu.c,v 1.7 2020/03/24 08:09:43 nicm Exp $ */
+/* $OpenBSD: cmd-display-menu.c,v 1.10 2020/03/28 09:55:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2019 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -73,12 +73,10 @@ cmd_display_menu_get_position(struct client *c, struct cmdq_item *item,
 	u_int			 ox, oy, sx, sy;
 
 	xp = args_get(args, 'x');
-	if (xp == NULL)
-		*px = 0;
+	if (xp == NULL || strcmp(xp, "C") == 0)
+		*px = (c->tty.sx - 1) / 2 - w / 2;
 	else if (strcmp(xp, "R") == 0)
 		*px = c->tty.sx - 1;
-	else if (strcmp(xp, "C") == 0)
-		*px = (c->tty.sx - 1) / 2 - w / 2;
 	else if (strcmp(xp, "P") == 0) {
 		tty_window_offset(&c->tty, &ox, &oy, &sx, &sy);
 		if (wp->xoff >= ox)
@@ -111,9 +109,7 @@ cmd_display_menu_get_position(struct client *c, struct cmdq_item *item,
 		*px = c->tty.sx - w;
 
 	yp = args_get(args, 'y');
-	if (yp == NULL)
-		*py = 0;
-	else if (strcmp(yp, "C") == 0)
+	if (yp == NULL || strcmp(yp, "C") == 0)
 		*py = (c->tty.sy - 1) / 2 + h / 2;
 	else if (strcmp(yp, "P") == 0) {
 		tty_window_offset(&c->tty, &ox, &oy, &sx, &sy);
@@ -237,7 +233,7 @@ cmd_display_popup_exec(struct cmd *self, struct cmdq_item *item)
 	}
 
 	if (nlines != 0)
-		h = nlines + 2;
+		h = popup_height(nlines, lines) + 2;
 	else
 		h = c->tty.sy / 2;
 	if (args_has(args, 'h')) {
@@ -262,6 +258,10 @@ cmd_display_popup_exec(struct cmd *self, struct cmdq_item *item)
 		}
 	}
 
+	if (w > c->tty.sx - 1)
+		w = c->tty.sx - 1;
+	if (h > c->tty.sy - 1)
+		h = c->tty.sy - 1;
 	cmd_display_menu_get_position(c, item, args, &px, &py, w, h);
 
 	value = args_get(args, 'd');
@@ -276,7 +276,9 @@ cmd_display_popup_exec(struct cmd *self, struct cmdq_item *item)
 
 	if (args_has(args, 'K'))
 		flags |= POPUP_WRITEKEYS;
-	if (args_has(args, 'E'))
+	if (args_has(args, 'E') > 1)
+		flags |= POPUP_CLOSEEXITZERO;
+	else if (args_has(args, 'E'))
 		flags |= POPUP_CLOSEEXIT;
 	if (popup_display(flags, item, px, py, w, h, nlines, lines, shellcmd,
 	    cmd, cwd, c, fs) != 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.202 2020/03/24 19:14:53 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.204 2020/03/27 15:50:31 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -3860,7 +3860,10 @@ ikev2_ikesa_enable(struct iked *env, struct iked_sa *sa, struct iked_sa *nsa)
 		nsa->sa_tag = sa->sa_tag;
 		sa->sa_tag = NULL;
 	}
-
+	if (sa->sa_eapid) {
+		nsa->sa_eapid = sa->sa_eapid;
+		sa->sa_eapid = NULL;
+	}
 	log_debug("%s: activating new IKE SA", __func__);
 	sa_state(env, nsa, IKEV2_STATE_ESTABLISHED);
 	ikev2_enable_timer(env, nsa);
@@ -5958,13 +5961,13 @@ ikev2_print_static_id(struct iked_static_id *id, char *idstr, size_t idstrlen)
 
 	bzero(&idp, sizeof(idp));
 	if ((idp.id_buf = ibuf_new(id->id_data, id->id_length)) == NULL) {
-		bzero(&idstr, sizeof(idstr));
+		bzero(idstr, idstrlen);
 		return (-1);
 	}
 	idp.id_type = id->id_type;
 	idp.id_offset = id->id_offset;
-	if (ikev2_print_id(&idp, idstr, sizeof(idstr)) == -1) {
-		bzero(&idstr, sizeof(idstr));
+	if (ikev2_print_id(&idp, idstr, idstrlen) == -1) {
+		bzero(idstr, idstrlen);
 		goto done;
 	}
 	ret = 0;

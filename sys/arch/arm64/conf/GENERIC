@@ -1,4 +1,4 @@
-# $OpenBSD: GENERIC,v 1.146 2020/03/20 09:25:42 patrick Exp $
+# $OpenBSD: GENERIC,v 1.148 2020/03/29 09:31:10 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -78,6 +78,7 @@ sdmmc*		at sdhc?
 bwfm*		at sdmmc?	# Broadcom FullMAC
 xhci*		at fdt?
 ccp*		at fdt?		# AMD Cryptographic Co-processor
+ipmi*		at fdt?
 
 # NS16550 compatible serial ports
 com*		at fdt?
@@ -130,6 +131,7 @@ iic*		at imxiic?
 bdpmic*		at iic?
 imxesdhc*	at fdt?
 sdmmc*		at imxesdhc?
+imxpwm*		at fdt?
 imxspi*		at fdt?
 ssdfb*		at iic?
 ssdfb*		at spi?
