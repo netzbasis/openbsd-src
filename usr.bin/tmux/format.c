@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.230 2020/03/28 09:39:27 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.232 2020/03/31 11:58:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2477,6 +2477,7 @@ format_defaults_session(struct format_tree *ft, struct session *s)
 	ft->s = s;
 
 	format_add(ft, "session_name", "%s", s->name);
+	format_add(ft, "session_path", "%s", s->cwd);
 	format_add(ft, "session_windows", "%u", winlink_count(&s->windows));
 	format_add(ft, "session_id", "$%u", s->id);
 
@@ -2729,9 +2730,11 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	format_add(ft, "scroll_region_upper", "%u", wp->base.rupper);
 	format_add(ft, "scroll_region_lower", "%u", wp->base.rlower);
 
-	format_add(ft, "alternate_on", "%d", wp->saved_grid ? 1 : 0);
-	format_add(ft, "alternate_saved_x", "%u", wp->saved_cx);
-	format_add(ft, "alternate_saved_y", "%u", wp->saved_cy);
+	format_add(ft, "alternate_on", "%d", wp->base.saved_grid != NULL);
+	if (wp->base.saved_cx != UINT_MAX)
+		format_add(ft, "alternate_saved_x", "%u", wp->base.saved_cx);
+	if (wp->base.saved_cy != UINT_MAX)
+		format_add(ft, "alternate_saved_y", "%u", wp->base.saved_cy);
 
 	format_add(ft, "cursor_flag", "%d",
 	    !!(wp->base.mode & MODE_CURSOR));

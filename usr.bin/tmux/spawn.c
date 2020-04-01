@@ -1,4 +1,4 @@
-/* $OpenBSD: spawn.c,v 1.17 2020/03/19 14:03:49 nicm Exp $ */
+/* $OpenBSD: spawn.c,v 1.19 2020/03/31 17:14:40 nicm Exp $ */
 
 /*
  * Copyright (c) 2019 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -256,7 +256,7 @@ spawn_pane(struct spawn_context *sc, char **cause)
 		window_pane_reset_mode_all(sc->wp0);
 		screen_reinit(&sc->wp0->base);
 		input_free(sc->wp0->ictx);
-		sc->wp0->ictx = input_init(sc->wp0);
+		sc->wp0->ictx = NULL;
 		new_wp = sc->wp0;
 		new_wp->flags &= ~(PANE_STATUSREADY|PANE_STATUSDRAWN);
 	} else if (sc->lc == NULL) {
@@ -303,7 +303,7 @@ spawn_pane(struct spawn_context *sc, char **cause)
 	child = environ_for_session(s, 0);
 	if (sc->environ != NULL)
 		environ_copy(sc->environ, child);
-	environ_set(child, "TMUX_PANE", "%%%u", new_wp->id);
+	environ_set(child, "TMUX_PANE", 0, "%%%u", new_wp->id);
 
 	/*
 	 * Then the PATH environment variable. The session one is replaced from
@@ -313,10 +313,10 @@ spawn_pane(struct spawn_context *sc, char **cause)
 	if (c != NULL && c->session == NULL) { /* only unattached clients */
 		ee = environ_find(c->environ, "PATH");
 		if (ee != NULL)
-			environ_set(child, "PATH", "%s", ee->value);
+			environ_set(child, "PATH", 0, "%s", ee->value);
 	}
 	if (environ_find(child, "PATH") == NULL)
-		environ_set(child, "%s", _PATH_DEFPATH);
+		environ_set(child, "PATH", 0, "%s", _PATH_DEFPATH);
 
 	/* Then the shell. If respawning, use the old one. */
 	if (~sc->flags & SPAWN_RESPAWN) {
@@ -326,7 +326,7 @@ spawn_pane(struct spawn_context *sc, char **cause)
 		free(new_wp->shell);
 		new_wp->shell = xstrdup(tmp);
 	}
-	environ_set(child, "SHELL", "%s", new_wp->shell);
+	environ_set(child, "SHELL", 0, "%s", new_wp->shell);
 
 	/* Log the arguments we are going to use. */
 	log_debug("%s: shell=%s", __func__, new_wp->shell);
