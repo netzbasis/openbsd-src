@@ -58,13 +58,13 @@
 /mdoc.c/1.163/Mon Dec 31 07:45:42 2018//
 /mdoc.h/1.71/Sun Dec 30 00:48:47 2018//
 /mdoc_argv.c/1.76/Thu Jul 11 16:56:52 2019//
-/mdoc_html.c/1.211/Fri Mar 13 00:31:05 2020//
+/mdoc_html.c/1.212/Wed Apr  1 20:10:17 2020//
 /mdoc_macro.c/1.191/Sun Jan 19 17:59:01 2020//
 /mdoc_man.c/1.134/Thu Feb 27 01:25:57 2020//
 /mdoc_markdown.c/1.34/Thu Feb 27 01:25:57 2020//
 /mdoc_state.c/1.16/Sun Jan 19 17:59:01 2020//
 /mdoc_term.c/1.278/Fri Mar 13 00:31:05 2020//
-/mdoc_validate.c/1.295/Fri Mar 13 00:31:05 2020//
+/mdoc_validate.c/1.296/Wed Apr  1 20:10:17 2020//
 /msec.c/1.13/Fri Dec 14 01:17:46 2018//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
 /out.c/1.51/Tue Dec 31 22:49:17 2019//
