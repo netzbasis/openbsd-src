@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.302 2020/03/31 11:32:43 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.305 2020/04/02 13:17:53 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -373,7 +373,6 @@ void	iwm_rx_rx_phy_cmd(struct iwm_softc *, struct iwm_rx_packet *,
 int	iwm_get_noise(const struct iwm_statistics_rx_non_phy *);
 void	iwm_rx_frame(struct iwm_softc *, struct mbuf *, int, int, int, uint32_t,
 	    struct ieee80211_rxinfo *, struct mbuf_list *);
-void	iwm_enable_ht_cck_fallback(struct iwm_softc *, struct iwm_node *);
 void	iwm_rx_tx_cmd_single(struct iwm_softc *, struct iwm_rx_packet *,
 	    struct iwm_node *);
 void	iwm_rx_tx_cmd(struct iwm_softc *, struct iwm_rx_packet *,
@@ -453,8 +452,7 @@ int	iwm_run(struct iwm_softc *);
 int	iwm_run_stop(struct iwm_softc *);
 struct ieee80211_node *iwm_node_alloc(struct ieee80211com *);
 void	iwm_calib_timeout(void *);
-void	iwm_setrates_task(void *);
-void	iwm_setrates(struct iwm_node *);
+void	iwm_setrates(struct iwm_node *, int);
 int	iwm_media_change(struct ifnet *);
 void	iwm_newstate_task(void *);
 int	iwm_newstate(struct ieee80211com *, enum ieee80211_state, int);
@@ -4127,37 +4125,6 @@ iwm_rx_mpdu_mq(struct iwm_softc *sc, struct mbuf *m, void *pktdata,
 }
 
 void
-iwm_enable_ht_cck_fallback(struct iwm_softc *sc, struct iwm_node *in)
-{
-	struct ieee80211com *ic = &sc->sc_ic;
-	struct ieee80211_node *ni = &in->in_ni;
-	struct ieee80211_rateset *rs = &ni->ni_rates;
-	uint8_t rval = (rs->rs_rates[ni->ni_txrate] & IEEE80211_RATE_VAL);
-	uint8_t min_rval = ieee80211_min_basic_rate(ic);
-	int i;
-
-	/* Are CCK frames forbidden in our BSS? */
-	if (IWM_RVAL_IS_OFDM(min_rval))
-		return;
-
-	in->ht_force_cck = 1;
-
-	ieee80211_mira_cancel_timeouts(&in->in_mn);
-	ieee80211_mira_node_init(&in->in_mn);
-	ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
-
-	/* Choose initial CCK Tx rate. */
-	ni->ni_txrate = 0;
-	for (i = 0; i < rs->rs_nrates; i++) {
-		rval = (rs->rs_rates[i] & IEEE80211_RATE_VAL);
-		if (rval == min_rval) {
-			ni->ni_txrate = i;
-			break;
-		}
-	}
-}
-
-void
 iwm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
     struct iwm_node *in)
 {
@@ -4174,16 +4141,11 @@ iwm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	    status != IWM_TX_STATUS_DIRECT_DONE);
 
 	/* Update rate control statistics. */
-	if ((ni->ni_flags & IEEE80211_NODE_HT) == 0 || in->ht_force_cck) {
+	if ((ni->ni_flags & IEEE80211_NODE_HT) == 0) {
 		in->in_amn.amn_txcnt++;
-		if (in->ht_force_cck) {
-			/*
-			 * We want to move back to OFDM quickly if possible.
-			 * Only show actual Tx failures to AMRR, not retries.
-			 */
-			if (txfail)
-				in->in_amn.amn_retrycnt++;
-		} else if (tx_resp->failure_frame > 0)
+		if (txfail)
+			in->in_amn.amn_retrycnt++;
+		if (tx_resp->failure_frame > 0)
 			in->in_amn.amn_retrycnt++;
 	} else if (ic->ic_fixed_mcs == -1) {
 		in->in_mn.frames += tx_resp->frame_count;
@@ -4193,7 +4155,7 @@ iwm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 			in->in_mn.retries += tx_resp->failure_frame;
 		if (txfail)
 			in->in_mn.txfail += tx_resp->frame_count;
-		if (ic->ic_state == IEEE80211_S_RUN && !in->ht_force_cck) {
+		if (ic->ic_state == IEEE80211_S_RUN) {
 			int best_mcs;
 
 			ieee80211_mira_choose(&in->in_mn, ic, &in->in_ni);
@@ -4206,13 +4168,8 @@ iwm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 			best_mcs = ieee80211_mira_get_best_mcs(&in->in_mn);
 			if (best_mcs != in->chosen_txmcs) {
 				in->chosen_txmcs = best_mcs;
-				iwm_add_task(sc, systq, &sc->setrates_task);
+				iwm_setrates(in, 1);
 			}
-
-			/* Fall back to CCK rates if MCS 0 is failing. */
-			if (txfail && IEEE80211_IS_CHAN_2GHZ(ni->ni_chan) &&
-			    in->chosen_txmcs == 0 && best_mcs == 0)
-				iwm_enable_ht_cck_fallback(sc, in);
 		}
 	}
 
@@ -4234,9 +4191,6 @@ iwm_txd_done(struct iwm_softc *sc, struct iwm_tx_data *txd)
 	KASSERT(txd->in);
 	ieee80211_release_node(ic, &txd->in->in_ni);
 	txd->in = NULL;
-
-	KASSERT(txd->done == 0);
-	txd->done = 1;
 }
 
 void
@@ -4257,7 +4211,7 @@ iwm_rx_tx_cmd(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	sc->sc_tx_timer = 0;
 
 	txd = &ring->data[idx];
-	if (txd->done)
+	if (txd->m == NULL)
 		return;
 
 	iwm_rx_tx_cmd_single(sc, pkt, txd->in);
@@ -4270,7 +4224,7 @@ iwm_rx_tx_cmd(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	 */
 	while (ring->tail != idx) {
 		txd = &ring->data[ring->tail];
-		if (!txd->done) {
+		if (txd->m != NULL) {
 			DPRINTF(("%s: missed Tx completion: tail=%d idx=%d\n",
 			    __func__, ring->tail, idx));
 			iwm_txd_done(sc, txd);
@@ -4760,11 +4714,11 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		ridx = sc->sc_fixed_ridx;
 	} else if (ic->ic_fixed_rate != -1) {
 		ridx = sc->sc_fixed_ridx;
-	} else if ((ni->ni_flags & IEEE80211_NODE_HT) && !in->ht_force_cck &&
+	} else if ((ni->ni_flags & IEEE80211_NODE_HT) &&
 	    ieee80211_mira_is_probing(&in->in_mn)) {
 		/* Keep Tx rate constant while mira is probing. */
 		ridx = iwm_mcs2ridx[ni->ni_txmcs];
-	} else if ((ni->ni_flags & IEEE80211_NODE_HT) && in->ht_force_cck) {
+	} else if ((ni->ni_flags & IEEE80211_NODE_HT)) {
 		uint8_t rval;
 		rval = (rs->rs_rates[ni->ni_txrate] & IEEE80211_RATE_VAL);
 		ridx = iwm_rval2ridx(rval);
@@ -4990,7 +4944,6 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	}
 	data->m = m;
 	data->in = in;
-	data->done = 0;
 
 	/* Fill TX descriptor. */
 	desc->num_tbs = 2 + data->map->dm_nsegs;
@@ -6757,7 +6710,7 @@ iwm_run(struct iwm_softc *sc)
 	in->in_ni.ni_txmcs = 0;
 	in->chosen_txrate = 0;
 	in->chosen_txmcs = 0;
-	iwm_setrates(in);
+	iwm_setrates(in, 0);
 
 	timeout_add_msec(&sc->sc_calib_to, 500);
 	iwm_led_enable(sc);
@@ -6827,7 +6780,7 @@ iwm_calib_timeout(void *arg)
 
 	s = splnet();
 	if ((ic->ic_fixed_rate == -1 || ic->ic_fixed_mcs == -1) &&
-	    ((ni->ni_flags & IEEE80211_NODE_HT) == 0 || in->ht_force_cck) &&
+	    (ni->ni_flags & IEEE80211_NODE_HT) == 0 &&
 	    ic->ic_opmode == IEEE80211_M_STA && ic->ic_bss) {
 		ieee80211_amrr_choose(&sc->sc_amrr, &in->in_ni, &in->in_amn);
 		/* 
@@ -6838,14 +6791,7 @@ iwm_calib_timeout(void *arg)
 		 */
 		if (ni->ni_txrate != in->chosen_txrate) {
 			in->chosen_txrate = ni->ni_txrate;
-			iwm_add_task(sc, systq, &sc->setrates_task);
-		}
-		if (in->ht_force_cck) {
-			struct ieee80211_rateset *rs = &ni->ni_rates;
-			uint8_t rv;
-			rv = (rs->rs_rates[ni->ni_txrate] & IEEE80211_RATE_VAL);
-			if (IWM_RVAL_IS_OFDM(rv))
-				in->ht_force_cck = 0;
+			iwm_setrates(in, 1);
 		}
 	}
 
@@ -6855,27 +6801,7 @@ iwm_calib_timeout(void *arg)
 }
 
 void
-iwm_setrates_task(void *arg)
-{
-	struct iwm_softc *sc = arg;
-	struct ieee80211com *ic = &sc->sc_ic;
-	struct iwm_node *in = (struct iwm_node *)ic->ic_bss;
-	int s = splnet();
-
-	if (sc->sc_flags & IWM_FLAG_SHUTDOWN) {
-		refcnt_rele_wake(&sc->task_refs);
-		splx(s);
-		return;
-	}
-
-	/* Update rates table based on new TX rate determined by AMRR. */
-	iwm_setrates(in);
-	refcnt_rele_wake(&sc->task_refs);
-	splx(s);
-}
-
-void
-iwm_setrates(struct iwm_node *in)
+iwm_setrates(struct iwm_node *in, int async)
 {
 	struct ieee80211_node *ni = &in->in_ni;
 	struct ieee80211com *ic = ni->ni_ic;
@@ -6887,6 +6813,8 @@ iwm_setrates(struct iwm_node *in)
 		.id = IWM_LQ_CMD,
 		.len = { sizeof(lqcmd), },
 	};
+
+	cmd.flags = async ? IWM_CMD_ASYNC : 0;
 
 	memset(&lqcmd, 0, sizeof(lqcmd));
 	lqcmd.sta_id = IWM_STATION_ID;
@@ -7132,7 +7060,6 @@ iwm_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 		ieee80211_mira_cancel_timeouts(&in->in_mn);
 		iwm_del_task(sc, systq, &sc->ba_task);
 		iwm_del_task(sc, systq, &sc->htprot_task);
-		iwm_del_task(sc, systq, &sc->setrates_task);
 	}
 
 	sc->ns_nstate = nstate;
@@ -7906,7 +7833,6 @@ iwm_stop(struct ifnet *ifp)
 	/* Cancel scheduled tasks and let any stale tasks finish up. */
 	task_del(systq, &sc->init_task);
 	iwm_del_task(sc, sc->sc_nswq, &sc->newstate_task);
-	iwm_del_task(sc, systq, &sc->setrates_task);
 	iwm_del_task(sc, systq, &sc->ba_task);
 	iwm_del_task(sc, systq, &sc->htprot_task);
 	KASSERT(sc->task_refs.refs >= 1);
@@ -9334,7 +9260,6 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	timeout_set(&sc->sc_led_blink_to, iwm_led_blink_timeout, sc);
 	task_set(&sc->init_task, iwm_init_task, sc);
 	task_set(&sc->newstate_task, iwm_newstate_task, sc);
-	task_set(&sc->setrates_task, iwm_setrates_task, sc);
 	task_set(&sc->ba_task, iwm_ba_task, sc);
 	task_set(&sc->htprot_task, iwm_htprot_task, sc);
 
