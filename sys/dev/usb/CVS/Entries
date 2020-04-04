@@ -1,6 +1,6 @@
 /Makefile/1.3/Mon Jun  4 10:34:04 2007//
 /devlist2h.awk/1.11/Mon Jun  4 10:34:04 2007//
-/ehci.c/1.209/Mon Mar 30 22:29:04 2020//
+/ehci.c/1.210/Fri Apr  3 20:11:47 2020//
 /ehcireg.h/1.21/Sun Oct  2 06:36:39 2016//
 /ehcivar.h/1.37/Sun Oct  2 06:36:39 2016//
 /fido.c/1.2/Wed Dec 18 05:09:53 2019//
@@ -68,7 +68,7 @@
 /makemap.awk/1.14/Wed Nov 20 17:27:32 2013//
 /mbim.h/1.4/Tue Apr 18 13:27:55 2017//
 /moscom.c/1.24/Fri Sep  2 09:14:59 2016//
-/ohci.c/1.160/Sat Mar 21 12:08:31 2020//
+/ohci.c/1.161/Fri Apr  3 20:11:47 2020//
 /ohcireg.h/1.14/Mon Apr 15 09:23:01 2013//
 /ohcivar.h/1.39/Thu Jun  1 09:47:55 2017//
 /uark.c/1.24/Fri Sep  2 09:14:59 2016//
@@ -88,12 +88,12 @@
 /udsbr.c/1.27/Sun Nov  6 12:58:01 2016//
 /uftdi.c/1.76/Sat Feb 22 14:01:34 2020//
 /uftdireg.h/1.13/Tue Sep 11 16:04:44 2012//
-/ugen.c/1.103/Sat Feb 22 14:01:34 2020//
+/ugen.c/1.104/Fri Apr  3 08:24:53 2020//
 /ugold.c/1.14/Thu Oct  5 17:29:00 2017//
-/uhci.c/1.151/Sat Mar 21 12:08:31 2020//
+/uhci.c/1.152/Fri Apr  3 20:11:47 2020//
 /uhcireg.h/1.16/Tue Dec 27 14:41:45 2016//
 /uhcivar.h/1.33/Sun May 18 17:10:27 2014//
-/uhid.c/1.77/Thu Feb 20 16:56:52 2020//
+/uhid.c/1.78/Fri Apr  3 08:24:53 2020//
 /uhid.h/1.1/Tue Dec 17 13:08:54 2019//
 /uhid_rdesc.h/1.1/Fri Oct 25 03:09:59 2013//
 /uhidev.c/1.79/Sat Feb 22 14:01:34 2020//
@@ -147,7 +147,7 @@
 /usbdevs/1.712/Tue Mar 10 01:11:30 2020//
 /usbdevs.h/1.724/Tue Mar 10 01:11:58 2020//
 /usbdevs_data.h/1.718/Tue Mar 10 01:11:58 2020//
-/usbdi.c/1.105/Wed Apr  1 08:43:33 2020//
+/usbdi.c/1.106/Fri Apr  3 20:11:47 2020//
 /usbdi.h/1.70/Tue May  1 18:14:46 2018//
 /usbdi_util.c/1.44/Sun Oct  6 17:11:51 2019//
 /usbdi_util.h/1.29/Mon Dec  8 22:00:11 2014//
@@ -173,7 +173,7 @@
 /uvscom.c/1.38/Tue Nov 12 07:47:30 2019//
 /uwacom.c/1.1/Mon Sep 12 08:12:06 2016//
 /uxrcom.c/1.1/Wed Mar 27 22:08:51 2019//
-/xhci.c/1.113/Mon Mar  2 16:30:39 2020//
+/xhci.c/1.114/Fri Apr  3 20:11:47 2020//
 /xhcireg.h/1.17/Tue Oct 15 03:31:35 2019//
 /xhcivar.h/1.11/Sun Oct  6 17:30:00 2019//
 D/dwc2////

@@ -1,6 +1,6 @@
 /acpi_machdep.c/1.72/Fri Dec 20 07:55:30 2019//
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
-/acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
+/acpiapm.c/1.2/Fri Apr  3 08:24:52 2020//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
 /amdmsr.c/1.10/Mon Feb 19 08:59:52 2018//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//

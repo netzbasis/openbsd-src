@@ -33,12 +33,12 @@
 /cmd-load-buffer.c/1.57/Thu Dec 12 11:39:56 2019//
 /cmd-lock-server.c/1.26/Sat Apr 22 10:22:39 2017//
 /cmd-move-window.c/1.29/Sat Apr 22 10:22:39 2017//
-/cmd-new-session.c/1.122/Thu Nov 14 08:00:30 2019//
-/cmd-new-window.c/1.81/Tue Mar 31 17:14:40 2020//
+/cmd-new-session.c/1.123/Fri Apr  3 13:54:31 2020//
+/cmd-new-window.c/1.82/Fri Apr  3 13:54:31 2020//
 /cmd-parse.y/1.24/Tue Mar 31 17:14:40 2020//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.51/Thu Mar 14 23:14:27 2019//
-/cmd-queue.c/1.79/Sun Jan  5 12:51:43 2020//
+/cmd-queue.c/1.80/Fri Apr  3 12:59:22 2020//
 /cmd-refresh-client.c/1.30/Thu Nov 28 09:05:34 2019//
 /cmd-rename-session.c/1.28/Wed Apr 11 09:54:45 2018//
 /cmd-rename-window.c/1.22/Fri Mar 23 19:17:03 2018//
@@ -118,7 +118,7 @@
 /window-buffer.c/1.25/Tue Feb 11 07:01:09 2020//
 /window-client.c/1.26/Tue Jan 28 08:06:11 2020//
 /window-clock.c/1.28/Tue Mar 12 20:02:47 2019//
-/window-copy.c/1.264/Thu Apr  2 17:03:10 2020//
+/window-copy.c/1.265/Fri Apr  3 05:18:02 2020//
 /window-tree.c/1.45/Fri Mar 20 17:26:14 2020//
 /window.c/1.252/Tue Mar 31 07:00:34 2020//
 /xmalloc.c/1.13/Thu Nov 28 09:51:58 2019//
