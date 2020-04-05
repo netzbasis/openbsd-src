@@ -34,10 +34,10 @@
 /man.cgi.8/1.22/Sun May 20 21:48:23 2018//
 /man.conf.5/1.8/Mon Feb 10 14:42:03 2020//
 /man.h/1.59/Thu Aug 23 19:32:03 2018//
-/man_html.c/1.130/Fri Mar 13 00:31:05 2020//
+/man_html.c/1.131/Sat Apr  4 20:23:06 2020//
 /man_macro.c/1.106/Sat Jan  5 18:59:37 2019//
 /man_term.c/1.188/Fri Mar 13 00:31:05 2020//
-/man_validate.c/1.121/Fri Mar 13 00:31:05 2020//
+/man_validate.c/1.122/Sat Apr  4 20:23:07 2020//
 /manconf.h/1.8/Thu Apr  2 22:10:27 2020//
 /mandoc.1/1.166/Sat Feb 15 15:28:01 2020//
 /mandoc.c/1.85/Sun Jan 19 16:16:32 2020//
