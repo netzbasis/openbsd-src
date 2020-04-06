@@ -56,7 +56,7 @@
 /spl.S/1.17/Tue Jul 10 16:01:26 2018//
 /sys_machdep.c/1.20/Mon Feb 19 08:59:52 2018//
 /trap.c/1.79/Tue Jan 21 03:06:39 2020//
-/tsc.c/1.15/Sat Oct 12 14:05:50 2019//
+/tsc.c/1.16/Mon Apr  6 00:01:08 2020//
 /ucode.c/1.5/Fri Jun 28 21:54:05 2019//
 /vector.S/1.80/Wed Aug  7 18:53:28 2019//
 /via.c/1.32/Tue Jun  5 06:39:10 2018//
