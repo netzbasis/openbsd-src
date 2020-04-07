@@ -1,4 +1,14 @@
-/Makefile/1.1/Fri Mar 13 00:31:06 2020//
+/Makefile/1.2/Mon Apr  6 09:55:50 2020//
+/column.in/1.1/Mon Apr  6 09:55:50 2020//
+/column.out_ascii/1.1/Mon Apr  6 09:55:50 2020//
+/column.out_html/1.1/Mon Apr  6 09:55:50 2020//
+/column.out_markdown/1.1/Mon Apr  6 09:55:50 2020//
+/column.out_tag/1.1/Mon Apr  6 09:55:50 2020//
+/list.in/1.1/Mon Apr  6 09:55:50 2020//
+/list.out_ascii/1.1/Mon Apr  6 09:55:50 2020//
+/list.out_html/1.1/Mon Apr  6 09:55:50 2020//
+/list.out_markdown/1.1/Mon Apr  6 09:55:50 2020//
+/list.out_tag/1.1/Mon Apr  6 09:55:50 2020//
 /warn.in/1.2/Thu Apr  2 14:55:29 2020//
 /warn.out_ascii/1.2/Thu Apr  2 14:55:29 2020//
 /warn.out_html/1.2/Thu Apr  2 14:55:29 2020//
