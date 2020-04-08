@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pppx.c,v 1.79 2020/04/06 12:31:30 claudio Exp $ */
+/*	$OpenBSD: if_pppx.c,v 1.82 2020/04/07 13:27:52 visa Exp $ */
 
 /*
  * Copyright (c) 2010 Claudio Jeker <claudio@openbsd.org>
@@ -537,7 +537,7 @@ pppxkqfilter(dev_t dev, struct knote *kn)
 	kn->kn_hook = (caddr_t)pxd;
 
 	mtx_enter(mtx);
-	SLIST_INSERT_HEAD(klist, kn, kn_selnext);
+	klist_insert(klist, kn);
 	mtx_leave(mtx);
 
 	return (0);
@@ -550,7 +550,7 @@ filt_pppx_rdetach(struct knote *kn)
 	struct klist *klist = &pxd->pxd_rsel.si_note;
 
 	mtx_enter(&pxd->pxd_rsel_mtx);
-	SLIST_REMOVE(klist, kn, knote, kn_selnext);
+	klist_remove(klist, kn);
 	mtx_leave(&pxd->pxd_rsel_mtx);
 }
 
@@ -571,7 +571,7 @@ filt_pppx_wdetach(struct knote *kn)
 	struct klist *klist = &pxd->pxd_wsel.si_note;
 
 	mtx_enter(&pxd->pxd_wsel_mtx);
-	SLIST_REMOVE(klist, kn, knote, kn_selnext);
+	klist_remove(klist, kn);
 	mtx_leave(&pxd->pxd_wsel_mtx);
 }
 
@@ -719,9 +719,12 @@ pppx_add_session(struct pppx_dev *pxd, struct pipex_session_req *req)
 		return (EPROTONOSUPPORT);
 	}
 
+	session = pipex_lookup_by_session_id(req->pr_protocol,
+	    req->pr_session_id);
+	if (session)
+		return (EEXIST);
+
 	pxi = pool_get(pppx_if_pl, PR_WAITOK | PR_ZERO);
-	if (pxi == NULL)
-		return (ENOMEM);
 
 	session = &pxi->pxi_session;
 	ifp = &pxi->pxi_if;
@@ -1493,7 +1496,7 @@ pppackqfilter(dev_t dev, struct knote *kn)
 	kn->kn_hook = sc;
 
 	mtx_enter(mtx);
-	SLIST_INSERT_HEAD(klist, kn, kn_selnext);
+	klist_insert(klist, kn);
 	mtx_leave(mtx);
 
 	return (0);
@@ -1506,7 +1509,7 @@ filt_pppac_rdetach(struct knote *kn)
 	struct klist *klist = &sc->sc_rsel.si_note;
 
 	mtx_enter(&sc->sc_rsel_mtx);
-	SLIST_REMOVE(klist, kn, knote, kn_selnext);
+	klist_remove(klist, kn);
 	mtx_leave(&sc->sc_rsel_mtx);
 }
 
@@ -1527,7 +1530,7 @@ filt_pppac_wdetach(struct knote *kn)
 	struct klist *klist = &sc->sc_wsel.si_note;
 
 	mtx_enter(&sc->sc_wsel_mtx);
-	SLIST_REMOVE(klist, kn, knote, kn_selnext);
+	klist_remove(klist, kn);
 	mtx_leave(&sc->sc_wsel_mtx);
 }
 

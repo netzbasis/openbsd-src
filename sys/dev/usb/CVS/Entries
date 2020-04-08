@@ -88,12 +88,12 @@
 /udsbr.c/1.27/Sun Nov  6 12:58:01 2016//
 /uftdi.c/1.76/Sat Feb 22 14:01:34 2020//
 /uftdireg.h/1.13/Tue Sep 11 16:04:44 2012//
-/ugen.c/1.104/Fri Apr  3 08:24:53 2020//
+/ugen.c/1.105/Tue Apr  7 13:27:51 2020//
 /ugold.c/1.14/Thu Oct  5 17:29:00 2017//
 /uhci.c/1.152/Fri Apr  3 20:11:47 2020//
 /uhcireg.h/1.16/Tue Dec 27 14:41:45 2016//
 /uhcivar.h/1.33/Sun May 18 17:10:27 2014//
-/uhid.c/1.78/Fri Apr  3 08:24:53 2020//
+/uhid.c/1.79/Tue Apr  7 13:27:51 2020//
 /uhid.h/1.1/Tue Dec 17 13:08:54 2019//
 /uhid_rdesc.h/1.1/Fri Oct 25 03:09:59 2013//
 /uhidev.c/1.79/Sat Feb 22 14:01:34 2020//

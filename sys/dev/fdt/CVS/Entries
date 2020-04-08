@@ -91,7 +91,7 @@
 /rkdwhdmi.c/1.3/Mon Mar 16 21:51:25 2020//
 /rkdwusb.c/1.3/Thu Aug 29 11:51:48 2019//
 /rkemmcphy.c/1.3/Fri Apr  3 22:03:45 2020//
-/rkgpio.c/1.2/Sat May 11 14:56:12 2019//
+/rkgpio.c/1.3/Tue Apr  7 09:06:52 2020//
 /rkgrf.c/1.3/Fri Nov 29 21:59:55 2019//
 /rkiic.c/1.5/Sun Mar  1 10:18:19 2020//
 /rkpcie.c/1.10/Thu Feb 20 23:50:01 2020//
@@ -100,7 +100,7 @@
 /rkpwm.c/1.1/Tue Dec  3 09:08:48 2019//
 /rkrng.c/1.1/Fri Apr  3 16:29:17 2020//
 /rktemp.c/1.5/Tue Jul  2 20:14:44 2019//
-/rkvop.c/1.2/Mon Mar 16 21:51:25 2020//
+/rkvop.c/1.3/Tue Apr  7 15:23:42 2020//
 /rsbvar.h/1.3/Thu Aug 29 11:51:48 2019//
 /sdhc_fdt.c/1.5/Fri Apr  3 16:26:14 2020//
 /sfp.c/1.1/Sat Sep  7 13:32:36 2019//
