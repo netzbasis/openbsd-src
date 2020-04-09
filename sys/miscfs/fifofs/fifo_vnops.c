@@ -1,4 +1,4 @@
-/*	$OpenBSD: fifo_vnops.c,v 1.74 2020/04/07 13:27:51 visa Exp $	*/
+/*	$OpenBSD: fifo_vnops.c,v 1.76 2020/04/08 08:07:52 mpi Exp $	*/
 /*	$NetBSD: fifo_vnops.c,v 1.18 1996/03/16 23:52:42 christos Exp $	*/
 
 /*
@@ -507,16 +507,23 @@ int
 fifo_kqfilter(void *v)
 {
 	struct vop_kqfilter_args *ap = v;
-	struct socket *so = (struct socket *)ap->a_vp->v_fifoinfo->fi_readsock;
+	struct fifoinfo *fip = ap->a_vp->v_fifoinfo;
 	struct sockbuf *sb;
+	struct socket *so;
 
 	switch (ap->a_kn->kn_filter) {
 	case EVFILT_READ:
+		if (!(ap->a_fflag & FREAD))
+			return (EINVAL);
 		ap->a_kn->kn_fop = &fiforead_filtops;
+		so = fip->fi_readsock;
 		sb = &so->so_rcv;
 		break;
 	case EVFILT_WRITE:
+		if (!(ap->a_fflag & FWRITE))
+			return (EINVAL);
 		ap->a_kn->kn_fop = &fifowrite_filtops;
+		so = fip->fi_writesock;
 		sb = &so->so_snd;
 		break;
 	default:

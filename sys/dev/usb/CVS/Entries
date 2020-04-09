@@ -39,7 +39,7 @@
 /if_rumvar.h/1.9/Mon Apr 15 09:23:01 2013//
 /if_run.c/1.128/Sun Jan  5 08:58:25 2020//
 /if_runvar.h/1.10/Sat May 24 10:10:17 2014//
-/if_smsc.c/1.33/Sun Jul  7 06:40:10 2019//
+/if_smsc.c/1.34/Wed Apr  8 09:49:32 2020//
 /if_smscreg.h/1.5/Thu Jun 18 09:28:54 2015//
 /if_uath.c/1.84/Tue Nov 12 07:47:30 2019//
 /if_uathreg.h/1.2/Mon Sep 18 16:34:23 2006//
