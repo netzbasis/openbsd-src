@@ -2,7 +2,7 @@
 /abuf.c/1.4/Fri Jan  8 16:17:31 2016//
 /abuf.h/1.2/Wed Mar 23 06:11:52 2016//
 /defs.h/1.5/Wed Feb 26 13:53:58 2020//
-/dev.c/1.65/Sun Mar  8 14:52:20 2020//
+/dev.c/1.66/Tue Mar 31 06:29:05 2020//
 /dev.h/1.24/Sun Mar  8 14:52:20 2020//
 /dev_sioctl.c/1.2/Sun Mar  8 14:52:20 2020//
 /dev_sioctl.h/1.1/Wed Feb 26 13:53:58 2020//
@@ -22,8 +22,8 @@
 /opt.h/1.2/Tue Jun 26 07:12:35 2018//
 /siofile.c/1.18/Wed Feb 26 13:53:58 2020//
 /siofile.h/1.4/Sat Sep 21 04:42:46 2019//
-/sndiod.8/1.5/Sat Sep 21 05:49:38 2019//
-/sndiod.c/1.38/Wed Feb 26 13:53:58 2020//
+/sndiod.8/1.6/Wed Apr  1 16:54:17 2020//
+/sndiod.c/1.39/Wed Apr  1 16:54:17 2020//
 /sock.c/1.33/Sun Mar  8 14:52:20 2020//
 /sock.h/1.6/Wed Feb 26 13:53:58 2020//
 /sysex.h/1.2/Fri Dec 20 08:47:37 2013//

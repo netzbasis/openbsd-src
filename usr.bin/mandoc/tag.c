@@ -1,4 +1,4 @@
-/* $OpenBSD: tag.c,v 1.29 2020/03/13 16:14:14 schwarze Exp $ */
+/* $OpenBSD: tag.c,v 1.34 2020/04/08 11:54:14 schwarze Exp $ */
 /*
  * Copyright (c) 2015,2016,2018,2019,2020 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -22,12 +22,14 @@
 #include <assert.h>
 #include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "mandoc_aux.h"
 #include "mandoc_ohash.h"
 #include "roff.h"
+#include "mdoc.h"
 #include "tag.h"
 
 struct tag_entry {
@@ -37,6 +39,8 @@ struct tag_entry {
 	int	 prio;
 	char	 s[];
 };
+
+static void		 tag_move_id(struct roff_node *);
 
 static struct ohash	 tag_data;
 
@@ -77,6 +81,7 @@ void
 tag_put(const char *s, int prio, struct roff_node *n)
 {
 	struct tag_entry	*entry;
+	struct roff_node	*nold;
 	const char		*se;
 	size_t			 len;
 	unsigned int		 slot;
@@ -87,8 +92,24 @@ tag_put(const char *s, int prio, struct roff_node *n)
 		if (n->child == NULL || n->child->type != ROFFT_TEXT)
 			return;
 		s = n->child->string;
-		if (s[0] == '\\' && (s[1] == '&' || s[1] == 'e'))
-			s += 2;
+		switch (s[0]) {
+		case '-':
+			s++;
+			break;
+		case '\\':
+			switch (s[1]) {
+			case '&':
+			case '-':
+			case 'e':
+				s += 2;
+				break;
+			default:
+				break;
+			}
+			break;
+		default:
+			break;
+		}
 	}
 
 	/*
@@ -133,9 +154,12 @@ tag_put(const char *s, int prio, struct roff_node *n)
 	 */
 
 	else if (entry->prio > prio || prio == TAG_FALLBACK) {
-		while (entry->nnodes > 0)
-			entry->nodes[--entry->nnodes]->flags &= ~NODE_ID;
-
+		while (entry->nnodes > 0) {
+			nold = entry->nodes[--entry->nnodes];
+			nold->flags &= ~NODE_ID;
+			free(nold->tag);
+			nold->tag = NULL;
+		}
 		if (prio == TAG_FALLBACK) {
 			entry->prio = TAG_DELETE;
 			return;
@@ -153,21 +177,107 @@ tag_put(const char *s, int prio, struct roff_node *n)
 	entry->prio = prio;
 	n->flags |= NODE_ID;
 	if (n->child == NULL || n->child->string != s || *se != '\0') {
-		assert(n->string == NULL);
-		n->string = mandoc_strndup(s, len);
+		assert(n->tag == NULL);
+		n->tag = mandoc_strndup(s, len);
 	}
 }
 
-enum tag_result
-tag_check(const char *test_tag)
+int
+tag_exists(const char *tag)
 {
-	unsigned int slot;
+	return ohash_find(&tag_data, ohash_qlookup(&tag_data, tag)) != NULL;
+}
 
-	if (ohash_first(&tag_data, &slot) == NULL)
-		return TAG_EMPTY;
-	else if (test_tag != NULL && ohash_find(&tag_data,
-	    ohash_qlookup(&tag_data, test_tag)) == NULL)
-		return TAG_MISS;
-	else
-		return TAG_OK;
+/*
+ * For in-line elements, move the link target
+ * to the enclosing paragraph when appropriate.
+ */
+static void
+tag_move_id(struct roff_node *n)
+{
+	struct roff_node *np;
+
+	np = n;
+	for (;;) {
+		if (np->prev != NULL)
+			np = np->prev;
+		else if ((np = np->parent) == NULL)
+			return;
+		switch (np->tok) {
+		case MDOC_It:
+			switch (np->parent->parent->norm->Bl.type) {
+			case LIST_column:
+				/* Target the ROFFT_BLOCK = <tr>. */
+				np = np->parent;
+				break;
+			case LIST_diag:
+			case LIST_hang:
+			case LIST_inset:
+			case LIST_ohang:
+			case LIST_tag:
+				/* Target the ROFFT_HEAD = <dt>. */
+				np = np->parent->head;
+				break;
+			default:
+				/* Target the ROFF_BODY = <li>. */
+				break;
+			}
+			/* FALLTHROUGH */
+		case MDOC_Pp:	/* Target the ROFFT_ELEM = <p>. */
+			if (np->tag == NULL) {
+				np->tag = mandoc_strdup(n->tag == NULL ?
+				    n->child->string : n->tag);
+				np->flags |= NODE_ID;
+				n->flags &= ~NODE_ID;
+			}
+			return;
+		case MDOC_Sh:
+		case MDOC_Ss:
+		case MDOC_Bd:
+		case MDOC_Bl:
+		case MDOC_D1:
+		case MDOC_Dl:
+		case MDOC_Rs:
+			/* Do not move past major blocks. */
+			return;
+		default:
+			/*
+			 * Move past in-line content and partial
+			 * blocks, for example .It Xo or .It Bq Er.
+			 */
+			break;
+		}
+	}
+}
+
+/*
+ * When all tags have been set, decide where to put
+ * the associated permalinks, and maybe move some tags
+ * to the beginning of the respective paragraphs.
+ */
+void
+tag_postprocess(struct roff_node *n)
+{
+	if (n->flags & NODE_ID) {
+		switch (n->tok) {
+		case MDOC_Bd:
+		case MDOC_Bl:
+		case MDOC_Pp:
+			/* XXX No permalink for now. */
+			break;
+		default:
+			if (n->type == ROFFT_ELEM || n->tok == MDOC_Fo)
+				tag_move_id(n);
+			if (n->tok != MDOC_Tg)
+				n->flags |= NODE_HREF;
+			else if ((n->flags & NODE_ID) == 0) {
+				n->flags |= NODE_NOPRT;
+				free(n->tag);
+				n->tag = NULL;
+			}
+			break;
+		}
+	}
+	for (n = n->child; n != NULL; n = n->next)
+		tag_postprocess(n);
 }

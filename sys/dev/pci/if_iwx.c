@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwx.c,v 1.7 2020/02/29 09:42:15 stsp Exp $	*/
+/*	$OpenBSD: if_iwx.c,v 1.10 2020/04/03 08:32:21 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -336,7 +336,7 @@ void	iwx_rx_frame(struct iwx_softc *, struct mbuf *, int, int, int, uint32_t,
 	    struct ieee80211_rxinfo *, struct mbuf_list *);
 void	iwx_enable_ht_cck_fallback(struct iwx_softc *, struct iwx_node *);
 void	iwx_rx_tx_cmd_single(struct iwx_softc *, struct iwx_rx_packet *,
-	    struct iwx_node *);
+	    struct iwx_node *, int, int);
 void	iwx_rx_tx_cmd(struct iwx_softc *, struct iwx_rx_packet *,
 	    struct iwx_rx_data *);
 void	iwx_rx_bmiss(struct iwx_softc *, struct iwx_rx_packet *,
@@ -3563,7 +3563,7 @@ iwx_enable_ht_cck_fallback(struct iwx_softc *sc, struct iwx_node *in)
 
 void
 iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
-    struct iwx_node *in)
+    struct iwx_node *in, int txmcs, int txrate)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_node *ni = &in->in_ni;
@@ -3577,19 +3577,23 @@ iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
 	txfail = (status != IWX_TX_STATUS_SUCCESS &&
 	    status != IWX_TX_STATUS_DIRECT_DONE);
 
-	/* Update rate control statistics. */
+	/*
+	 * Update rate control statistics.
+	 * Only report frames which were actually queued with the currently
+	 * selected Tx rate. Because Tx queues are relatively long we may
+	 * encounter previously selected rates here during Tx bursts.
+	 * Providing feedback based on such frames can lead to suboptimal
+	 * Tx rate control decisions.
+	 */
 	if ((ni->ni_flags & IEEE80211_NODE_HT) == 0 || in->ht_force_cck) {
-		in->in_amn.amn_txcnt++;
-		if (in->ht_force_cck) {
-			/*
-			 * We want to move back to OFDM quickly if possible.
-			 * Only show actual Tx failures to AMRR, not retries.
-			 */
+		if (txrate == ni->ni_txrate) {
+			in->in_amn.amn_txcnt++;
 			if (txfail)
 				in->in_amn.amn_retrycnt++;
-		} else if (tx_resp->failure_frame > 0)
-			in->in_amn.amn_retrycnt++;
-	} else if (ic->ic_fixed_mcs == -1) {
+			if (tx_resp->failure_frame > 0)
+				in->in_amn.amn_retrycnt++;
+		}
+	} else if (ic->ic_fixed_mcs == -1 && txmcs == ni->ni_txmcs) {
 		in->in_mn.frames += tx_resp->frame_count;
 		in->in_mn.ampdu_size = le16toh(tx_resp->byte_cnt);
 		in->in_mn.agglen = tx_resp->frame_count;
@@ -3627,9 +3631,6 @@ iwx_txd_done(struct iwx_softc *sc, struct iwx_tx_data *txd)
 	KASSERT(txd->in);
 	ieee80211_release_node(ic, &txd->in->in_ni);
 	txd->in = NULL;
-
-	KASSERT(txd->done == 0);
-	txd->done = 1;
 }
 
 void
@@ -3650,10 +3651,10 @@ iwx_rx_tx_cmd(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
 	sc->sc_tx_timer = 0;
 
 	txd = &ring->data[idx];
-	if (txd->done)
+	if (txd->m == NULL)
 		return;
 
-	iwx_rx_tx_cmd_single(sc, pkt, txd->in);
+	iwx_rx_tx_cmd_single(sc, pkt, txd->in, txd->txmcs, txd->txrate);
 	iwx_txd_done(sc, txd);
 
 	/*
@@ -3663,7 +3664,7 @@ iwx_rx_tx_cmd(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
 	 */
 	while (ring->tail != idx) {
 		txd = &ring->data[ring->tail];
-		if (!txd->done) {
+		if (txd->m != NULL) {
 			DPRINTF(("%s: missed Tx completion: tail=%d idx=%d\n",
 			    __func__, ring->tail, idx));
 			iwx_txd_done(sc, txd);
@@ -4141,6 +4142,8 @@ iwx_tx_fill_cmd(struct iwx_softc *sc, struct iwx_node *in,
 	if ((ni->ni_flags & IEEE80211_NODE_HT) &&
 	    rinfo->ht_plcp != IWX_RATE_HT_SISO_MCS_INV_PLCP) {
 		rate_flags |= IWX_RATE_MCS_HT_MSK; 
+		if (ieee80211_node_supports_ht_sgi20(ni))
+			rate_flags |= IWX_RATE_MCS_SGI_MSK;
 		tx->rate_n_flags = htole32(rate_flags | rinfo->ht_plcp);
 	} else
 		tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
@@ -4307,7 +4310,8 @@ iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	}
 	data->m = m;
 	data->in = in;
-	data->done = 0;
+	data->txmcs = ni->ni_txmcs;
+	data->txrate = ni->ni_txrate;
 
 	/* Fill TX descriptor. */
 	num_tbs = 2 + data->map->dm_nsegs;

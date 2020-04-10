@@ -70,7 +70,7 @@
 /goto_xs.t/1.10/Wed Feb 13 21:15:31 2019/-ko/
 /grent.t/1.1.1.5/Wed Feb 13 21:11:41 2019/-ko/
 /grep.t/1.3/Wed Feb 13 21:15:31 2019/-ko/
-/groups.t/1.14/Mon Dec 30 02:13:56 2019/-ko/
+/groups.t/1.15/Thu Apr  9 01:32:15 2020/-ko/
 /gv.t/1.16/Wed Feb 13 21:15:31 2019/-ko/
 /hash-rt85026.t/1.3/Wed Feb 13 21:15:31 2019/-ko/
 /hash.t/1.7/Wed Feb 13 21:15:31 2019/-ko/
@@ -160,7 +160,7 @@
 /split.t/1.17/Wed Feb 13 21:15:31 2019/-ko/
 /split_unicode.t/1.3/Wed Feb 13 21:15:31 2019/-ko/
 /sprintf.t/1.17/Wed Feb 13 21:15:31 2019/-ko/
-/sprintf2.t/1.11/Mon Dec 30 02:13:56 2019/-ko/
+/sprintf2.t/1.12/Thu Apr  9 01:32:15 2020/-ko/
 /srand.t/1.3/Wed Feb 13 21:15:31 2019/-ko/
 /sselect.t/1.3/Wed Feb 13 21:15:31 2019/-ko/
 /stash.t/1.4/Wed Feb 13 21:15:31 2019/-ko/

@@ -1,4 +1,4 @@
-/* $OpenBSD: rkdrm.c,v 1.3 2020/03/16 21:51:25 kettenis Exp $ */
+/* $OpenBSD: rkdrm.c,v 1.7 2020/04/08 11:30:48 kettenis Exp $ */
 /* $NetBSD: rk_drm.c,v 1.3 2019/12/15 01:00:58 mrg Exp $ */
 /*-
  * Copyright (c) 2019 Jared D. McNeill <jmcneill@invisible.ca>
@@ -124,6 +124,13 @@ rkdrm_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_node = faa->fa_node;
 
 	printf("\n");
+
+	/*
+	 * Update our understanding of the console output node if
+	 * we're using the framebuffer console.
+	 */
+	if (OF_is_compatible(stdout_node, "simple-framebuffer"))
+		stdout_node = sc->sc_node;
 
 	memset(&arg, 0, sizeof(arg));
 	arg.driver = &rkdrm_driver;
@@ -312,6 +319,14 @@ rkdrm_wsioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 	struct wsdisplay_fbinfo *wdf;
 
 	switch (cmd) {
+	case WSDISPLAYIO_GETPARAM:
+		if (ws_get_param)
+			return ws_get_param(dp);
+		return -1;
+	case WSDISPLAYIO_SETPARAM:
+		if (ws_set_param)
+			return ws_set_param(dp);
+		return -1;
 	case WSDISPLAYIO_GTYPE:
 		*(u_int *)data = WSDISPLAY_TYPE_RKDRM;
 		return 0;
@@ -422,6 +437,12 @@ rkdrm_attachhook(struct device *dev)
 	struct drm_device *ddev;
 	uint32_t *ports;
 	int i, portslen, nports;
+	int console = 0;
+	long defattr;
+	int error;
+
+	if (sc->sc_node == stdout_node)
+		console = 1;
 
 	portslen = OF_getproplen(sc->sc_node, "ports");
 	if (portslen < 0) {
@@ -441,8 +462,9 @@ rkdrm_attachhook(struct device *dev)
 	ports = malloc(portslen, M_TEMP, M_WAITOK);
 	OF_getpropintarray(sc->sc_node, "ports", ports, portslen);
 	for (i = 0; i < portslen / sizeof(uint32_t); i++) {
-		device_port_activate(ports[i], &sc->sc_ddev);
-		nports++;
+		error = device_port_activate(ports[i], &sc->sc_ddev);
+		if (error == 0)
+			nports++;
 	}
 	free(ports, M_TEMP, portslen);
 
@@ -483,7 +505,13 @@ rkdrm_attachhook(struct device *dev)
 	ri->ri_width = helper->fb->width;
 	ri->ri_height = helper->fb->height;
 	ri->ri_stride = ri->ri_width * ri->ri_depth / 8;
-	rasops_init(ri, helper->fb->height, helper->fb->width);
+	ri->ri_rnum = 8;	/* ARGB8888 */
+	ri->ri_rpos = 16;
+	ri->ri_gnum = 8;
+	ri->ri_gpos = 8;
+	ri->ri_bnum = 8;
+	ri->ri_bpos = 0;
+	rasops_init(ri, 160, 160);
 	ri->ri_hw = sc;
 
 	rkdrm_stdscreen.capabilities = ri->ri_caps;
@@ -493,10 +521,17 @@ rkdrm_attachhook(struct device *dev)
 	rkdrm_stdscreen.fontwidth = ri->ri_font->fontwidth;
 	rkdrm_stdscreen.fontheight = ri->ri_font->fontheight;
 
+	if (console) {
+		ri->ri_ops.alloc_attr(ri->ri_active, 0, 0, 0, &defattr);
+		wsdisplay_cnattach(&rkdrm_stdscreen, ri->ri_active,
+		    ri->ri_ccol, ri->ri_crow, defattr);
+	}
+
 	memset(&aa, 0, sizeof(aa));
 	aa.scrdata = &rkdrm_screenlist;
 	aa.accessops = &rkdrm_accessops;
 	aa.accesscookie = ri;
+	aa.console = console;
 
 	printf("%s: %dx%d, %dbpp\n", sc->sc_dev.dv_xname,
 	    ri->ri_width, ri->ri_height, ri->ri_depth);

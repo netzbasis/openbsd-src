@@ -1,4 +1,4 @@
-/*	$OpenBSD: ohci.c,v 1.159 2020/03/19 14:18:38 patrick Exp $ */
+/*	$OpenBSD: ohci.c,v 1.161 2020/04/03 20:11:47 patrick Exp $ */
 /*	$NetBSD: ohci.c,v 1.139 2003/02/22 05:24:16 tsutsui Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/ohci.c,v 1.22 1999/11/17 22:33:40 n_hibma Exp $	*/
 
@@ -394,9 +394,8 @@ ohci_alloc_sed(struct ohci_softc *sc)
 	s = splusb();
 	if (sc->sc_freeeds == NULL) {
 		DPRINTFN(2, ("ohci_alloc_sed: allocating chunk\n"));
-		dma.flags |= USB_DMA_COHERENT;
 		err = usb_allocmem(&sc->sc_bus, OHCI_SED_SIZE * OHCI_SED_CHUNK,
-			  OHCI_ED_ALIGN, &dma);
+			  OHCI_ED_ALIGN, USB_DMA_COHERENT, &dma);
 		if (err)
 			goto out;
 		for (i = 0; i < OHCI_SED_CHUNK; i++) {
@@ -440,9 +439,8 @@ ohci_alloc_std(struct ohci_softc *sc)
 	s = splusb();
 	if (sc->sc_freetds == NULL) {
 		DPRINTFN(2, ("ohci_alloc_std: allocating chunk\n"));
-		dma.flags |= USB_DMA_COHERENT;
 		err = usb_allocmem(&sc->sc_bus, OHCI_STD_SIZE * OHCI_STD_CHUNK,
-			  OHCI_TD_ALIGN, &dma);
+			  OHCI_TD_ALIGN, USB_DMA_COHERENT, &dma);
 		if (err)
 			goto out;
 		for (i = 0; i < OHCI_STD_CHUNK; i++) {
@@ -492,6 +490,10 @@ ohci_alloc_std_chain(struct ohci_softc *sc, u_int alen, struct usbd_xfer *xfer,
 	u_int16_t flags = xfer->flags;
 
 	DPRINTFN(alen < 4096,("ohci_alloc_std_chain: start len=%u\n", alen));
+
+	usb_syncmem(&xfer->dmabuf, 0, xfer->length,
+	    usbd_xfer_isread(xfer) ?
+	    BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE);
 
 	len = alen;
 	cur = sp;
@@ -599,9 +601,8 @@ ohci_alloc_sitd(struct ohci_softc *sc)
 
 	if (sc->sc_freeitds == NULL) {
 		DPRINTFN(2, ("ohci_alloc_sitd: allocating chunk\n"));
-		dma.flags |= USB_DMA_COHERENT;
 		err = usb_allocmem(&sc->sc_bus, OHCI_SITD_SIZE * OHCI_SITD_CHUNK,
-			  OHCI_ITD_ALIGN, &dma);
+			  OHCI_ITD_ALIGN, USB_DMA_COHERENT, &dma);
 		if (err)
 			return (NULL);
 		s = splusb();
@@ -731,9 +732,8 @@ ohci_init(struct ohci_softc *sc)
 
 	/* XXX determine alignment by R/W */
 	/* Allocate the HCCA area. */
-	sc->sc_hccadma.flags |= USB_DMA_COHERENT;
-	err = usb_allocmem(&sc->sc_bus, OHCI_HCCA_SIZE,
-			 OHCI_HCCA_ALIGN, &sc->sc_hccadma);
+	err = usb_allocmem(&sc->sc_bus, OHCI_HCCA_SIZE, OHCI_HCCA_ALIGN,
+	    USB_DMA_COHERENT, &sc->sc_hccadma);
 	if (err)
 		return (err);
 	sc->sc_hcca = KERNADDR(&sc->sc_hccadma, 0);
@@ -1283,6 +1283,12 @@ ohci_softintr(void *v)
 
 			ohci_free_std(sc, std);
 			if (done) {
+				if (xfer->actlen)
+					usb_syncmem(&xfer->dmabuf, 0,
+					    xfer->actlen,
+					    usbd_xfer_isread(xfer) ?
+					    BUS_DMASYNC_POSTREAD :
+					    BUS_DMASYNC_POSTWRITE);
 				xfer->status = USBD_NORMAL_COMPLETION;
 				s = splusb();
 				usb_transfer_complete(xfer);
@@ -1313,9 +1319,15 @@ ohci_softintr(void *v)
 
 			if (cc == OHCI_CC_STALL)
 				xfer->status = USBD_STALLED;
-			else if (cc == OHCI_CC_DATA_UNDERRUN)
+			else if (cc == OHCI_CC_DATA_UNDERRUN) {
+				if (xfer->actlen)
+					usb_syncmem(&xfer->dmabuf, 0,
+					    xfer->actlen,
+					    usbd_xfer_isread(xfer) ?
+					    BUS_DMASYNC_POSTREAD :
+					    BUS_DMASYNC_POSTWRITE);
 				xfer->status = USBD_NORMAL_COMPLETION;
-			else
+			} else
 				xfer->status = USBD_IOERROR;
 			s = splusb();
 			usb_transfer_complete(xfer);
@@ -1392,6 +1404,13 @@ ohci_softintr(void *v)
 			    xfer->status == USBD_NORMAL_COMPLETION)
 				xfer->actlen = actlen;
 			xfer->hcpriv = NULL;
+
+			if (xfer->status == USBD_NORMAL_COMPLETION) {
+				usb_syncmem(&xfer->dmabuf, 0, xfer->length,
+				    usbd_xfer_isread(xfer) ?
+				    BUS_DMASYNC_POSTREAD :
+				    BUS_DMASYNC_POSTWRITE);
+			}
 
 			s = splusb();
 			usb_transfer_complete(xfer);
@@ -1935,10 +1954,10 @@ ohci_open(struct usbd_pipe *pipe)
 		switch (xfertype) {
 		case UE_CONTROL:
 			pipe->methods = &ohci_device_ctrl_methods;
-			opipe->u.ctl.reqdma.flags |= USB_DMA_COHERENT;
 			err = usb_allocmem(&sc->sc_bus,
 				  sizeof(usb_device_request_t),
-				  0, &opipe->u.ctl.reqdma);
+				  0, USB_DMA_COHERENT,
+				  &opipe->u.ctl.reqdma);
 			if (err)
 				goto bad;
 			s = splusb();
@@ -2850,6 +2869,10 @@ ohci_device_intr_start(struct usbd_xfer *xfer)
 		panic("ohci_device_intr_transfer: a request");
 #endif
 
+	usb_syncmem(&xfer->dmabuf, 0, xfer->length,
+	    usbd_xfer_isread(xfer) ?
+	    BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE);
+
 	len = xfer->length;
 	endpt = xfer->pipe->endpoint->edesc->bEndpointAddress;
 
@@ -3060,6 +3083,10 @@ ohci_device_isoc_enter(struct usbd_xfer *xfer)
 
 	if (sc->sc_bus.dying)
 		return;
+
+	usb_syncmem(&xfer->dmabuf, 0, xfer->length,
+	    usbd_xfer_isread(xfer) ?
+	    BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE);
 
 	if (iso->next == -1) {
 		/* Not in use yet, schedule it a few frames ahead. */

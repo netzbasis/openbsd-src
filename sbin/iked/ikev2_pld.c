@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_pld.c,v 1.79 2020/03/16 09:13:01 tobhe Exp $	*/
+/*	$OpenBSD: ikev2_pld.c,v 1.81 2020/04/08 20:04:19 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -719,6 +719,7 @@ ikev2_pld_id(struct iked *env, struct ikev2_payload *pld,
 		return (-1);
 
 	if (ikev2_print_id(&idb, idstr, sizeof(idstr)) == -1) {
+		ibuf_release(idb.id_buf);
 		log_debug("%s: malformed id", __func__);
 		return (-1);
 	}
@@ -732,12 +733,14 @@ ikev2_pld_id(struct iked *env, struct ikev2_payload *pld,
 
 	if (!((sa->sa_hdr.sh_initiator && payload == IKEV2_PAYLOAD_IDr) ||
 	    (!sa->sa_hdr.sh_initiator && payload == IKEV2_PAYLOAD_IDi))) {
+		ibuf_release(idb.id_buf);
 		log_debug("%s: unexpected id payload", __func__);
 		return (0);
 	}
 
 	idp = &msg->msg_parent->msg_id;
 	if (idp->id_type) {
+		ibuf_release(idb.id_buf);
 		log_debug("%s: duplicate id payload", __func__);
 		return (-1);
 	}
@@ -1189,7 +1192,7 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 			    " notification (policy)", __func__);
 			return (0);
 		}
-		msg->msg_sa->sa_use_transport_mode = 1;
+		msg->msg_parent->msg_flags |= IKED_MSG_FLAGS_USE_TRANSPORT;
 		break;
 	case IKEV2_N_UPDATE_SA_ADDRESSES:
 		if (!msg->msg_e) {

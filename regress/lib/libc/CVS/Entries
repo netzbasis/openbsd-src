@@ -1,4 +1,4 @@
-/Makefile/1.54/Mon Jan 13 15:35:57 2020//
+/Makefile/1.55/Mon Mar 23 03:01:21 2020//
 D/_setjmp////
 D/alloca////
 D/arc4random-fork////
@@ -19,6 +19,7 @@ D/fread////
 D/gcvt////
 D/getaddrinfo////
 D/getcap////
+D/getopt////
 D/getopt_long////
 D/glob////
 D/hsearch////

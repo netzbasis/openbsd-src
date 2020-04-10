@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofw_misc.c,v 1.15 2020/03/16 21:51:26 kettenis Exp $	*/
+/*	$OpenBSD: ofw_misc.c,v 1.19 2020/04/07 09:08:15 kettenis Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis
  *
@@ -22,7 +22,9 @@
 #include <machine/bus.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_gpio.h>
 #include <dev/ofw/ofw_misc.h>
+#include <dev/ofw/ofw_regulator.h>
 
 /*
  * Register maps.
@@ -128,10 +130,40 @@ phy_register(struct phy_device *pd)
 }
 
 int
+phy_usb_nop_enable(int node)
+{
+	uint32_t vcc_supply;
+	uint32_t *gpio;
+	int len;
+
+	vcc_supply = OF_getpropint(node, "vcc-supply", 0);
+	if (vcc_supply)
+		regulator_enable(vcc_supply);
+
+	len = OF_getproplen(node, "reset-gpios");
+	if (len <= 0)
+		return 0;
+
+	/* There should only be a single GPIO pin. */
+	gpio = malloc(len, M_TEMP, M_WAITOK);
+	OF_getpropintarray(node, "reset-gpios", gpio, len);
+
+	gpio_controller_config_pin(gpio, GPIO_CONFIG_OUTPUT);
+	gpio_controller_set_pin(gpio, 1);
+	delay(10000);
+	gpio_controller_set_pin(gpio, 0);
+
+	free(gpio, M_TEMP, len);
+
+	return 0;
+}
+
+int
 phy_enable_cells(uint32_t *cells)
 {
 	struct phy_device *pd;
 	uint32_t phandle = cells[0];
+	int node;
 
 	LIST_FOREACH(pd, &phy_devices, pd_list) {
 		if (pd->pd_phandle == phandle)
@@ -141,7 +173,14 @@ phy_enable_cells(uint32_t *cells)
 	if (pd && pd->pd_enable)
 		return pd->pd_enable(pd->pd_cookie, &cells[1]);
 
-	return -1;
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return ENXIO;
+
+	if (OF_is_compatible(node, "usb-nop-xceiv"))
+		return phy_usb_nop_enable(node);
+
+	return ENXIO;
 }
 
 uint32_t *
@@ -301,9 +340,9 @@ pwm_init_state(uint32_t *cells, struct pwm_state *ps)
 			memset(ps, 0, sizeof(struct pwm_state));
 			pd->pd_get_state(pd->pd_cookie, &cells[1], ps);
 			ps->ps_pulse_width = 0;
-			if (pd->pd_cells > 2)
+			if (pd->pd_cells >= 2)
 				ps->ps_period = cells[2];
-			if (pd->pd_cells > 3)
+			if (pd->pd_cells >= 3)
 				ps->ps_flags = cells[3];
 			return 0;
 		}
@@ -565,12 +604,12 @@ endpoint_get_cookie(struct endpoint *ep)
 	return ports->dp_ep_get_cookie(ports->dp_cookie, ep);
 }
 
-void
+int
 device_port_activate(uint32_t phandle, void *arg)
 {
-	struct device_ports *ports;
-	struct device_port *dp;
+	struct device_port *dp = NULL;
 	struct endpoint *ep, *rep;
+	int count;
 	int error;
 
 	LIST_FOREACH(ep, &endpoints, ep_list) {
@@ -580,9 +619,9 @@ device_port_activate(uint32_t phandle, void *arg)
 		}
 	}
 	if (dp == NULL)
-		return;
+		return ENXIO;
 
-	ports = dp->dp_ports;
+	count = 0;
 	LIST_FOREACH(ep, &dp->dp_endpoints, ep_plist) {
 		rep = endpoint_remote(ep);
 		if (rep == NULL)
@@ -594,5 +633,8 @@ device_port_activate(uint32_t phandle, void *arg)
 		error = endpoint_activate(rep, arg);
 		if (error)
 			continue;
+		count++;
 	}
+
+	return count ? 0 : ENXIO;
 }

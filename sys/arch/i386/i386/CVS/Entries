@@ -1,11 +1,11 @@
 /acpi_machdep.c/1.72/Fri Dec 20 07:55:30 2019//
 /acpi_wakecode.S/1.31/Sun Dec 10 21:44:07 2017//
-/acpiapm.c/1.1/Sun Nov 25 15:45:17 2007//
+/acpiapm.c/1.2/Fri Apr  3 08:24:52 2020//
 /amd64errata.c/1.12/Sat Mar 31 22:52:30 2018//
 /amdmsr.c/1.10/Mon Feb 19 08:59:52 2018//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//
 /apicvec.s/1.35/Mon Jun 18 23:15:05 2018//
-/apm.c/1.122/Thu Feb 20 16:56:51 2020//
+/apm.c/1.123/Tue Apr  7 13:27:50 2020//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.106/Sun Dec  8 12:25:30 2019//
 /bios.c/1.124/Wed Oct 23 10:14:46 2019//
@@ -18,7 +18,7 @@
 /db_interface.c/1.42/Wed Nov  6 07:34:35 2019//
 /db_memrw.c/1.17/Sun Apr 30 13:04:49 2017//
 /db_mp.c/1.12/Wed Nov  6 07:34:35 2019//
-/db_trace.c/1.38/Mon Jan 20 15:58:23 2020//
+/db_trace.c/1.40/Sun Mar 29 15:14:28 2020//
 /disksubr.c/1.116/Tue Feb 28 10:49:37 2017//
 /dkcsum.c/1.32/Sun Sep 14 14:17:23 2014//
 /esm.c/1.61/Sat Oct 12 15:56:17 2019//

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.961 2020/03/19 14:03:49 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.976 2020/04/08 11:26:07 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -102,24 +102,24 @@ struct winlink;
 #define VISUAL_BOTH 2
 
 /* Special key codes. */
-#define KEYC_NONE 0xffff00000000ULL
-#define KEYC_UNKNOWN 0xfffe00000000ULL
-#define KEYC_BASE 0x000010000000ULL
-#define KEYC_USER 0x000020000000ULL
+#define KEYC_NONE    0x00ff000000000ULL
+#define KEYC_UNKNOWN 0x00fe000000000ULL
+#define KEYC_BASE    0x0001000000000ULL
+#define KEYC_USER    0x0002000000000ULL
+
+/* Key modifier bits. */
+#define KEYC_ESCAPE  0x0100000000000ULL
+#define KEYC_CTRL    0x0200000000000ULL
+#define KEYC_SHIFT   0x0400000000000ULL
+#define KEYC_XTERM   0x0800000000000ULL
+#define KEYC_LITERAL 0x1000000000000ULL
 
 /* Available user keys. */
 #define KEYC_NUSER 1000
 
-/* Key modifier bits. */
-#define KEYC_ESCAPE 0x200000000000ULL
-#define KEYC_CTRL 0x400000000000ULL
-#define KEYC_SHIFT 0x800000000000ULL
-#define KEYC_XTERM 0x1000000000000ULL
-#define KEYC_LITERAL 0x2000000000000ULL
-
 /* Mask to obtain key w/o modifiers. */
-#define KEYC_MASK_MOD (KEYC_ESCAPE|KEYC_CTRL|KEYC_SHIFT|KEYC_XTERM|KEYC_LITERAL)
-#define KEYC_MASK_KEY (~KEYC_MASK_MOD)
+#define KEYC_MASK_MOD 0xff00000000000ULL
+#define KEYC_MASK_KEY 0x00fffffffffffULL
 
 /* Is this a mouse key? */
 #define KEYC_IS_MOUSE(key) (((key) & KEYC_MASK_KEY) >= KEYC_MOUSE &&	\
@@ -182,6 +182,9 @@ enum {
 	KEYC_MOUSE_KEY(MOUSEDRAGEND3),
 	KEYC_MOUSE_KEY(WHEELUP),
 	KEYC_MOUSE_KEY(WHEELDOWN),
+	KEYC_MOUSE_KEY(SECONDCLICK1),
+	KEYC_MOUSE_KEY(SECONDCLICK2),
+	KEYC_MOUSE_KEY(SECONDCLICK3),
 	KEYC_MOUSE_KEY(DOUBLECLICK1),
 	KEYC_MOUSE_KEY(DOUBLECLICK2),
 	KEYC_MOUSE_KEY(DOUBLECLICK3),
@@ -754,8 +757,13 @@ struct screen {
 
 	int			 mode;
 
-	bitstr_t		*tabs;
+	u_int			 saved_cx;
+	u_int			 saved_cy;
+	struct grid		*saved_grid;
+	struct grid_cell	 saved_cell;
+	int			 saved_flags;
 
+	bitstr_t		*tabs;
 	struct screen_sel	*sel;
 };
 
@@ -897,7 +905,6 @@ struct window_pane {
 
 	int		 fd;
 	struct bufferevent *event;
-	u_int		 disabled;
 
 	struct event	 resize_timer;
 
@@ -917,16 +924,10 @@ struct window_pane {
 	struct screen	 status_screen;
 	size_t		 status_size;
 
-	/* Saved in alternative screen mode. */
-	u_int		 saved_cx;
-	u_int		 saved_cy;
-	struct grid	*saved_grid;
-	struct grid_cell saved_cell;
-
 	TAILQ_HEAD (, window_mode_entry) modes;
-	struct event	 modetimer;
-	time_t		 modelast;
+
 	char		*searchstr;
+	int		 searchregex;
 
 	TAILQ_ENTRY(window_pane) entry;
 	RB_ENTRY(window_pane) tree_entry;
@@ -1044,6 +1045,9 @@ struct layout_cell {
 struct environ_entry {
 	char		*name;
 	char		*value;
+
+	int		 flags;
+#define ENVIRON_HIDDEN 0x1
 
 	RB_ENTRY(environ_entry) entry;
 };
@@ -1515,6 +1519,8 @@ RB_HEAD(client_files, client_file);
 /* Client connection. */
 typedef int (*prompt_input_cb)(struct client *, void *, const char *, int);
 typedef void (*prompt_free_cb)(void *);
+typedef int (*overlay_check_cb)(struct client *, u_int, u_int);
+typedef int (*overlay_mode_cb)(struct client *, u_int *, u_int *);
 typedef void (*overlay_draw_cb)(struct client *, struct screen_redraw_ctx *);
 typedef int (*overlay_key_cb)(struct client *, struct key_event *);
 typedef void (*overlay_free_cb)(struct client *);
@@ -1630,6 +1636,8 @@ struct client {
 	u_int		 pan_ox;
 	u_int		 pan_oy;
 
+	overlay_check_cb overlay_check;
+	overlay_mode_cb	 overlay_mode;
 	overlay_draw_cb	 overlay_draw;
 	overlay_key_cb	 overlay_key;
 	overlay_free_cb	 overlay_free;
@@ -1934,6 +1942,7 @@ struct job	*job_run(const char *, struct session *, const char *,
 		     job_update_cb, job_complete_cb, job_free_cb, void *, int,
 		     int, int);
 void		 job_free(struct job *);
+void		 job_resize(struct job *, u_int, u_int);
 void		 job_check_died(pid_t, int);
 int		 job_get_status(struct job *);
 void		*job_get_data(struct job *);
@@ -1949,10 +1958,10 @@ struct environ_entry *environ_first(struct environ *);
 struct environ_entry *environ_next(struct environ_entry *);
 void	environ_copy(struct environ *, struct environ *);
 struct environ_entry *environ_find(struct environ *, const char *);
-void printflike(3, 4) environ_set(struct environ *, const char *, const char *,
-	    ...);
+void printflike(4, 5) environ_set(struct environ *, const char *, int,
+	    const char *, ...);
 void	environ_clear(struct environ *, const char *);
-void	environ_put(struct environ *, const char *);
+void	environ_put(struct environ *, const char *, int);
 void	environ_unset(struct environ *, const char *);
 void	environ_update(struct options *, struct environ *, struct environ *);
 void	environ_push(struct environ *);
@@ -2060,6 +2069,8 @@ const char	*args_first_value(struct args *, u_char, struct args_value **);
 const char	*args_next_value(struct args_value **);
 long long	 args_strtonum(struct args *, u_char, long long, long long,
 		     char **);
+long long	 args_percentage(struct args *, u_char, long long,
+		     long long, long long, char **);
 
 /* cmd-find.c */
 int		 cmd_find_target(struct cmd_find_state *, struct cmdq_item *,
@@ -2214,8 +2225,10 @@ void	 server_add_accept(int);
 
 /* server-client.c */
 u_int	 server_client_how_many(void);
-void	 server_client_set_overlay(struct client *, u_int, overlay_draw_cb,
-    overlay_key_cb, overlay_free_cb, void *);
+void	 server_client_set_overlay(struct client *, u_int, overlay_check_cb,
+	     overlay_mode_cb, overlay_draw_cb, overlay_key_cb,
+	     overlay_free_cb, void *);
+void	 server_client_clear_overlay(struct client *);
 void	 server_client_set_key_table(struct client *, const char *);
 const char *server_client_get_key_table(struct client *);
 int	 server_client_check_nested(struct client *);
@@ -2287,7 +2300,7 @@ void	 recalculate_size(struct window *);
 void	 recalculate_sizes(void);
 
 /* input.c */
-struct input_ctx *input_init(struct window_pane *);
+struct input_ctx *input_init(struct window_pane *, struct bufferevent *);
 void	 input_free(struct input_ctx *);
 void	 input_reset(struct input_ctx *, int);
 struct evbuffer *input_pending(struct input_ctx *);
@@ -2300,6 +2313,8 @@ void	 input_parse_screen(struct input_ctx *, struct screen *, u_char *,
 int	 input_key_pane(struct window_pane *, key_code, struct mouse_event *);
 int	 input_key(struct window_pane *, struct screen *, struct bufferevent *,
 	     key_code);
+int	 input_key_get_mouse(struct screen *, struct mouse_event *, u_int,
+	     u_int, const char **, size_t *);
 
 /* xterm-keys.c */
 char	*xterm_keys_lookup(key_code);
@@ -2325,6 +2340,7 @@ struct grid *grid_create(u_int, u_int, u_int);
 void	 grid_destroy(struct grid *);
 int	 grid_compare(struct grid *, struct grid *);
 void	 grid_collect_history(struct grid *);
+void	 grid_remove_history(struct grid *, u_int );
 void	 grid_scroll_history(struct grid *, u_int);
 void	 grid_scroll_history_region(struct grid *, u_int, u_int, u_int);
 void	 grid_clear_history(struct grid *);
@@ -2449,6 +2465,9 @@ void	 screen_hide_selection(struct screen *);
 int	 screen_check_selection(struct screen *, u_int, u_int);
 void	 screen_select_cell(struct screen *, struct grid_cell *,
 	     const struct grid_cell *);
+void	 screen_alternate_on(struct screen *, struct grid_cell *, int);
+void	 screen_alternate_off(struct screen *, struct grid_cell *, int);
+
 
 /* window.c */
 extern struct windows windows;
@@ -2636,6 +2655,8 @@ void printflike(2, 3) window_copy_add(struct window_pane *, const char *, ...);
 void		 window_copy_vadd(struct window_pane *, const char *, va_list);
 void		 window_copy_pageup(struct window_pane *, int);
 void		 window_copy_start_drag(struct client *, struct mouse_event *);
+char		*window_copy_get_word(struct window_pane *, u_int, u_int);
+char		*window_copy_get_line(struct window_pane *, u_int);
 
 /* names.c */
 void	 check_window_name(struct window *);
@@ -2722,6 +2743,7 @@ int		 utf8_cstrhas(const char *, const struct utf8_data *);
 
 /* procname.c */
 char   *get_proc_name(int, char *);
+char   *get_proc_cwd(int);
 
 /* log.c */
 void	log_add_level(void);
@@ -2746,6 +2768,17 @@ void		 menu_free(struct menu *);
 int		 menu_display(struct menu *, int, struct cmdq_item *, u_int,
 		    u_int, struct client *, struct cmd_find_state *,
 		    menu_choice_cb, void *);
+
+/* popup.c */
+#define POPUP_WRITEKEYS 0x1
+#define POPUP_CLOSEEXIT 0x2
+#define POPUP_CLOSEEXITZERO 0x4
+u_int		 popup_width(struct cmdq_item *, u_int, const char **,
+		    struct client *, struct cmd_find_state *);
+u_int		 popup_height(u_int, const char **);
+int		 popup_display(int, struct cmdq_item *, u_int, u_int, u_int,
+		    u_int, u_int, const char **, const char *, const char *,
+		    const char *, struct client *, struct cmd_find_state *);
 
 /* style.c */
 int		 style_parse(struct style *,const struct grid_cell *,

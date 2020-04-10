@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.227 2020/03/19 13:43:18 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.233 2020/04/08 11:26:07 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -741,6 +741,21 @@ format_cb_current_command(struct format_tree *ft, struct format_entry *fe)
 	free(cmd);
 }
 
+/* Callback for pane_current_path. */
+static void
+format_cb_current_path(struct format_tree *ft, struct format_entry *fe)
+{
+	struct window_pane	*wp = ft->wp;
+	char			*cwd;
+
+	if (wp == NULL)
+		return;
+
+	cwd = get_proc_cwd(wp->fd);
+	if (cwd != NULL)
+		fe->value = xstrdup(cwd);
+}
+
 /* Callback for history_bytes. */
 static void
 format_cb_history_bytes(struct format_tree *ft, struct format_entry *fe)
@@ -948,7 +963,6 @@ format_grid_word(struct grid *gd, u_int x, u_int y)
 
 	ws = options_get_string(global_s_options, "word-separators");
 
-	y = gd->hsize + y;
 	for (;;) {
 		grid_get_cell(gd, x, y, &gc);
 		if (gc.flags & GRID_FLAG_PADDING)
@@ -1009,6 +1023,7 @@ static void
 format_cb_mouse_word(struct format_tree *ft, struct format_entry *fe)
 {
 	struct window_pane	*wp;
+	struct grid		*gd;
 	u_int			 x, y;
 	char			*s;
 
@@ -1017,12 +1032,19 @@ format_cb_mouse_word(struct format_tree *ft, struct format_entry *fe)
 	wp = cmd_mouse_pane(&ft->m, NULL, NULL);
 	if (wp == NULL)
 		return;
-	if (!TAILQ_EMPTY (&wp->modes))
-		return;
 	if (cmd_mouse_at(wp, &ft->m, &x, &y, 0) != 0)
 		return;
 
-	s = format_grid_word(wp->base.grid, x, y);
+	if (!TAILQ_EMPTY(&wp->modes)) {
+		if (TAILQ_FIRST(&wp->modes)->mode == &window_copy_mode ||
+		    TAILQ_FIRST(&wp->modes)->mode == &window_view_mode)
+			s = window_copy_get_word(wp, x, y);
+		else
+			s = NULL;
+	} else {
+		gd = wp->base.grid;
+		s = format_grid_word(gd, x, gd->hsize + y);
+	}
 	if (s != NULL)
 		fe->value = s;
 }
@@ -1037,7 +1059,6 @@ format_grid_line(struct grid *gd, u_int y)
 	size_t			 size = 0;
 	char			*s = NULL;
 
-	y = gd->hsize + y;
 	for (x = 0; x < grid_line_length(gd, y); x++) {
 		grid_get_cell(gd, x, y, &gc);
 		if (gc.flags & GRID_FLAG_PADDING)
@@ -1059,6 +1080,7 @@ static void
 format_cb_mouse_line(struct format_tree *ft, struct format_entry *fe)
 {
 	struct window_pane	*wp;
+	struct grid		*gd;
 	u_int			 x, y;
 	char			*s;
 
@@ -1067,12 +1089,19 @@ format_cb_mouse_line(struct format_tree *ft, struct format_entry *fe)
 	wp = cmd_mouse_pane(&ft->m, NULL, NULL);
 	if (wp == NULL)
 		return;
-	if (!TAILQ_EMPTY (&wp->modes))
-		return;
 	if (cmd_mouse_at(wp, &ft->m, &x, &y, 0) != 0)
 		return;
 
-	s = format_grid_line(wp->base.grid, y);
+	if (!TAILQ_EMPTY(&wp->modes)) {
+		if (TAILQ_FIRST(&wp->modes)->mode == &window_copy_mode ||
+		    TAILQ_FIRST(&wp->modes)->mode == &window_view_mode)
+			s = window_copy_get_line(wp, y);
+		else
+			s = NULL;
+	} else {
+		gd = wp->base.grid;
+		s = format_grid_line(gd, gd->hsize + y);
+	}
 	if (s != NULL)
 		fe->value = s;
 }
@@ -2407,6 +2436,8 @@ void
 format_defaults(struct format_tree *ft, struct client *c, struct session *s,
     struct winlink *wl, struct window_pane *wp)
 {
+	struct paste_buffer	*pb;
+
 	if (c != NULL && c->name != NULL)
 		log_debug("%s: c=%s", __func__, c->name);
 	else
@@ -2446,6 +2477,10 @@ format_defaults(struct format_tree *ft, struct client *c, struct session *s,
 		format_defaults_winlink(ft, wl);
 	if (wp != NULL)
 		format_defaults_pane(ft, wp);
+
+	pb = paste_get_top (NULL);
+	if (pb != NULL)
+		format_defaults_paste_buffer(ft, pb);
 }
 
 /* Set default format keys for a session. */
@@ -2457,6 +2492,7 @@ format_defaults_session(struct format_tree *ft, struct session *s)
 	ft->s = s;
 
 	format_add(ft, "session_name", "%s", s->name);
+	format_add(ft, "session_path", "%s", s->cwd);
 	format_add(ft, "session_windows", "%u", winlink_count(&s->windows));
 	format_add(ft, "session_id", "$%u", s->id);
 
@@ -2701,6 +2737,7 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	format_add(ft, "pane_pid", "%ld", (long) wp->pid);
 	format_add_cb(ft, "pane_start_command", format_cb_start_command);
 	format_add_cb(ft, "pane_current_command", format_cb_current_command);
+	format_add_cb(ft, "pane_current_path", format_cb_current_path);
 
 	format_add(ft, "cursor_x", "%u", wp->base.cx);
 	format_add(ft, "cursor_y", "%u", wp->base.cy);
@@ -2709,9 +2746,11 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	format_add(ft, "scroll_region_upper", "%u", wp->base.rupper);
 	format_add(ft, "scroll_region_lower", "%u", wp->base.rlower);
 
-	format_add(ft, "alternate_on", "%d", wp->saved_grid ? 1 : 0);
-	format_add(ft, "alternate_saved_x", "%u", wp->saved_cx);
-	format_add(ft, "alternate_saved_y", "%u", wp->saved_cy);
+	format_add(ft, "alternate_on", "%d", wp->base.saved_grid != NULL);
+	if (wp->base.saved_cx != UINT_MAX)
+		format_add(ft, "alternate_saved_x", "%u", wp->base.saved_cx);
+	if (wp->base.saved_cy != UINT_MAX)
+		format_add(ft, "alternate_saved_y", "%u", wp->base.saved_cy);
 
 	format_add(ft, "cursor_flag", "%d",
 	    !!(wp->base.mode & MODE_CURSOR));

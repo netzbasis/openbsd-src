@@ -10,10 +10,10 @@
 /mainbus.c/1.25/Sun Sep  6 16:46:53 2015//
 /mem.c/1.27/Mon Feb 19 08:59:52 2018//
 /ofw_machdep.c/1.57/Tue Sep  3 17:51:52 2019//
-/ofw_machdep.h/1.9/Tue Apr  7 14:36:34 2015//
-/ofwreal.S/1.5/Tue Sep  3 14:37:22 2019//
-/opendev.c/1.9/Thu Mar  9 23:06:19 2006//
-/openfirm.c/1.12/Tue Sep  3 17:51:52 2019//
+/ofw_machdep.h/1.10/Thu Apr  2 19:27:51 2020//
+/ofwreal.S/1.6/Thu Apr  2 19:27:51 2020//
+/opendev.c/1.10/Thu Apr  2 19:27:51 2020//
+/openfirm.c/1.13/Thu Apr  2 19:27:51 2020//
 /openprom.c/1.4/Sat Sep 19 21:07:04 2015//
 /rbus_machdep.c/1.13/Wed Aug  7 07:29:19 2013//
 /wscons_machdep.c/1.6/Wed Jan 23 16:37:56 2008//

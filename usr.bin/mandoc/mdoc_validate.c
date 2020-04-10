@@ -1,4 +1,4 @@
-/* $OpenBSD: mdoc_validate.c,v 1.295 2020/03/13 00:31:05 schwarze Exp $ */
+/* $OpenBSD: mdoc_validate.c,v 1.299 2020/04/08 11:54:14 schwarze Exp $ */
 /*
  * Copyright (c) 2010-2020 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -94,7 +94,6 @@ static	void	 post_fn(POST_ARGS);
 static	void	 post_fname(POST_ARGS);
 static	void	 post_fo(POST_ARGS);
 static	void	 post_hyph(POST_ARGS);
-static	void	 post_ignpar(POST_ARGS);
 static	void	 post_it(POST_ARGS);
 static	void	 post_lb(POST_ARGS);
 static	void	 post_nd(POST_ARGS);
@@ -107,6 +106,7 @@ static	void	 post_prevpar(POST_ARGS);
 static	void	 post_root(POST_ARGS);
 static	void	 post_rs(POST_ARGS);
 static	void	 post_rv(POST_ARGS);
+static	void	 post_section(POST_ARGS);
 static	void	 post_sh(POST_ARGS);
 static	void	 post_sh_head(POST_ARGS);
 static	void	 post_sh_name(POST_ARGS);
@@ -127,7 +127,7 @@ static	const v_post mdoc_valids[MDOC_MAX - MDOC_Dd] = {
 	post_dt,	/* Dt */
 	post_os,	/* Os */
 	post_sh,	/* Sh */
-	post_ignpar,	/* Ss */
+	post_section,	/* Ss */
 	post_par,	/* Pp */
 	post_display,	/* D1 */
 	post_display,	/* Dl */
@@ -1090,6 +1090,7 @@ post_tg(POST_ARGS)
 	struct roff_node *n;	/* The .Tg node. */
 	struct roff_node *nch;	/* The first child of the .Tg node. */
 	struct roff_node *nn;   /* The next node after the .Tg node. */
+	struct roff_node *np;	/* The parent of the next node. */
 	struct roff_node *nt;	/* The TEXT node containing the tag. */
 	size_t		  len;	/* The number of bytes in the tag. */
 
@@ -1135,7 +1136,7 @@ post_tg(POST_ARGS)
 	}
 
 	/* By default, tag the .Tg node itself. */
-	if (nn == NULL)
+	if (nn == NULL || nn->flags & NODE_ID)
 		nn = n;
 
 	/* Explicit tagging of specific macros. */
@@ -1143,8 +1144,41 @@ post_tg(POST_ARGS)
 	case MDOC_Sh:
 	case MDOC_Ss:
 	case MDOC_Fo:
-		nn = nn->head;
-		/* FALLTHROUGH */
+		nn = nn->head->child == NULL ? n : nn->head;
+		break;
+	case MDOC_It:
+		np = nn->parent;
+		while (np->tok != MDOC_Bl)
+			np = np->parent;
+		switch (np->norm->Bl.type) {
+		case LIST_column:
+			break;
+		case LIST_diag:
+		case LIST_hang:
+		case LIST_inset:
+		case LIST_ohang:
+		case LIST_tag:
+			nn = nn->head;
+			break;
+		case LIST_bullet:
+		case LIST_dash:
+		case LIST_enum:
+		case LIST_hyphen:
+		case LIST_item:
+			nn = nn->body->child == NULL ? n : nn->body;
+			break;
+		default:
+			abort();
+		}
+		break;
+	case MDOC_Bd:
+	case MDOC_Bl:
+	case MDOC_D1:
+	case MDOC_Dl:
+		nn = nn->body->child == NULL ? n : nn->body;
+		break;
+	case MDOC_Pp:
+		break;
 	case MDOC_Cm:
 	case MDOC_Dv:
 	case MDOC_Em:
@@ -1157,9 +1191,9 @@ post_tg(POST_ARGS)
 	case MDOC_Ms:
 	case MDOC_No:
 	case MDOC_Sy:
-		if (nn->child != NULL && (nn->flags & NODE_ID) == 0)
-			break;
-		/* FALLTHROUGH */
+		if (nn->child == NULL)
+			nn = n;
+		break;
 	default:
 		nn = n;
 		break;
@@ -2149,10 +2183,11 @@ post_rs(POST_ARGS)
 static void
 post_hyph(POST_ARGS)
 {
-	struct roff_node	*nch;
+	struct roff_node	*n, *nch;
 	char			*cp;
 
-	for (nch = mdoc->last->child; nch != NULL; nch = nch->next) {
+	n = mdoc->last;
+	for (nch = n->child; nch != NULL; nch = nch->next) {
 		if (nch->type != ROFFT_TEXT)
 			continue;
 		cp = nch->string;
@@ -2161,8 +2196,11 @@ post_hyph(POST_ARGS)
 		while (*(++cp) != '\0')
 			if (*cp == '-' &&
 			    isalpha((unsigned char)cp[-1]) &&
-			    isalpha((unsigned char)cp[1]))
+			    isalpha((unsigned char)cp[1])) {
+				if (n->tag == NULL && n->flags & NODE_ID)
+					n->tag = mandoc_strdup(nch->string);
 				*cp = ASCII_HYPH;
+			}
 	}
 }
 
@@ -2187,7 +2225,7 @@ post_sx(POST_ARGS)
 static void
 post_sh(POST_ARGS)
 {
-	post_ignpar(mdoc);
+	post_section(mdoc);
 
 	switch (mdoc->last->type) {
 	case ROFFT_HEAD:
@@ -2520,15 +2558,31 @@ post_xr(POST_ARGS)
 }
 
 static void
-post_ignpar(POST_ARGS)
+post_section(POST_ARGS)
 {
-	struct roff_node *np;
+	struct roff_node *n, *nch;
+	char		 *cp, *tag;
 
-	switch (mdoc->last->type) {
+	n = mdoc->last;
+	switch (n->type) {
 	case ROFFT_BLOCK:
 		post_prevpar(mdoc);
 		return;
 	case ROFFT_HEAD:
+		tag = NULL;
+		deroff(&tag, n);
+		if (tag != NULL) {
+			for (cp = tag; *cp != '\0'; cp++)
+				if (*cp == ' ')
+					*cp = '_';
+			if ((nch = n->child) != NULL &&
+			    nch->type == ROFFT_TEXT &&
+			    strcmp(nch->string, tag) == 0)
+				tag_put(NULL, TAG_WEAK, n);
+			else
+				tag_put(tag, TAG_FALLBACK, n);
+			free(tag);
+		}
 		post_delim(mdoc);
 		post_hyph(mdoc);
 		return;
@@ -2537,23 +2591,21 @@ post_ignpar(POST_ARGS)
 	default:
 		return;
 	}
-
-	if ((np = mdoc->last->child) != NULL)
-		if (np->tok == MDOC_Pp ||
-		    np->tok == ROFF_br || np->tok == ROFF_sp) {
-			mandoc_msg(MANDOCERR_PAR_SKIP, np->line, np->pos,
-			    "%s after %s", roff_name[np->tok],
-			    roff_name[mdoc->last->tok]);
-			roff_node_delete(mdoc, np);
-		}
-
-	if ((np = mdoc->last->last) != NULL)
-		if (np->tok == MDOC_Pp || np->tok == ROFF_br) {
-			mandoc_msg(MANDOCERR_PAR_SKIP, np->line, np->pos,
-			    "%s at the end of %s", roff_name[np->tok],
-			    roff_name[mdoc->last->tok]);
-			roff_node_delete(mdoc, np);
-		}
+	if ((nch = n->child) != NULL &&
+	    (nch->tok == MDOC_Pp || nch->tok == ROFF_br ||
+	     nch->tok == ROFF_sp)) {
+		mandoc_msg(MANDOCERR_PAR_SKIP, nch->line, nch->pos,
+		    "%s after %s", roff_name[nch->tok],
+		    roff_name[n->tok]);
+		roff_node_delete(mdoc, nch);
+	}
+	if ((nch = n->last) != NULL &&
+	    (nch->tok == MDOC_Pp || nch->tok == ROFF_br)) {
+		mandoc_msg(MANDOCERR_PAR_SKIP, nch->line, nch->pos,
+		    "%s at the end of %s", roff_name[nch->tok],
+		    roff_name[n->tok]);
+		roff_node_delete(mdoc, nch);
+	}
 }
 
 static void
