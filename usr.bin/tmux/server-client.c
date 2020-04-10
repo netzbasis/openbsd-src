@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.313 2020/04/01 11:47:44 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.315 2020/04/09 13:52:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -606,10 +606,9 @@ have_event:
 			wp = window_get_active_at(s->curw->window, px, py);
 			if (wp != NULL)
 				where = PANE;
+			else
+				return (KEYC_UNKNOWN);
 		}
-
-		if (where == NOWHERE)
-			return (KEYC_UNKNOWN);
 		if (where == PANE)
 			log_debug("mouse %u,%u on pane %%%u", x, y, wp->id);
 		else if (where == BORDER)
@@ -1543,7 +1542,7 @@ server_client_reset_state(struct client *c)
 	struct window_pane	*wp = w->active, *loop;
 	struct screen		*s;
 	struct options		*oo = c->session->options;
-	int			 mode, cursor = 0;
+	int			 mode, cursor;
 	u_int			 cx = 0, cy = 0, ox, oy, sx, sy;
 
 	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
@@ -1898,6 +1897,8 @@ server_client_command_done(struct cmdq_item *item, __unused void *data)
 
 	if (~c->flags & CLIENT_ATTACHED)
 		c->flags |= CLIENT_EXIT;
+	else if (~c->flags & CLIENT_DETACHING)
+		tty_send_requests(&c->tty);
 	return (CMD_RETURN_NORMAL);
 }
 
