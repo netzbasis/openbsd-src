@@ -1,13 +1,13 @@
 /Makefile/1.16/Fri Nov 20 18:53:42 2015//
 /client.c/1.113/Thu Jan 30 15:55:41 2020//
-/config.c/1.32/Sun Jul  7 07:14:57 2019//
+/config.c/1.33/Sun Apr 12 14:20:56 2020//
 /constraint.c/1.50/Thu Feb 20 14:41:01 2020//
 /control.c/1.18/Wed Feb 12 19:14:56 2020//
 /log.c/1.19/Wed Jul  3 05:04:19 2019//
 /log.h/1.5/Thu Jun 27 15:18:42 2019//
 /ntp.c/1.164/Sat Apr 11 07:49:48 2020//
 /ntp.h/1.14/Thu Jan 30 15:55:41 2020//
-/ntp_dns.c/1.25/Sat Apr 11 07:49:48 2020//
+/ntp_dns.c/1.26/Sun Apr 12 14:20:56 2020//
 /ntp_msg.c/1.22/Sat Sep  3 11:52:06 2016//
 /ntpctl.8/1.8/Wed Mar 11 19:38:48 2015//
 /ntpd.8/1.45/Mon Nov 11 17:42:28 2019//
