@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-buffers.c,v 1.36 2020/04/12 08:36:18 nicm Exp $ */
+/* $OpenBSD: cmd-list-buffers.c,v 1.38 2020/04/13 10:59:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -46,7 +46,7 @@ const struct cmd_entry cmd_list_buffers_entry = {
 static enum cmd_retval
 cmd_list_buffers_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
+	struct args		*args = cmd_get_args(self);
 	struct paste_buffer	*pb;
 	struct format_tree	*ft;
 	const char		*template, *filter;
@@ -59,7 +59,7 @@ cmd_list_buffers_exec(struct cmd *self, struct cmdq_item *item)
 
 	pb = NULL;
 	while ((pb = paste_walk(pb)) != NULL) {
-		ft = format_create(item->client, item, FORMAT_NONE, 0);
+		ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
 		format_defaults_paste_buffer(ft, pb);
 
 		if (filter != NULL) {

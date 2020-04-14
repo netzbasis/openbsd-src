@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.117 2020/04/06 17:51:34 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.122 2020/04/13 15:55:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -521,7 +521,7 @@ key_bindings_init(void)
 		pr = cmd_parse_from_string(defaults[i], NULL);
 		if (pr->status != CMD_PARSE_SUCCESS)
 			fatalx("bad default key: %s", defaults[i]);
-		cmdq_append(NULL, cmdq_get_command(pr->cmdlist, NULL, NULL, 0));
+		cmdq_append(NULL, cmdq_get_command(pr->cmdlist, NULL));
 		cmd_list_free(pr->cmdlist);
 	}
 }
@@ -535,27 +535,24 @@ key_bindings_read_only(struct cmdq_item *item, __unused void *data)
 
 struct cmdq_item *
 key_bindings_dispatch(struct key_binding *bd, struct cmdq_item *item,
-    struct client *c, struct mouse_event *m, struct cmd_find_state *fs)
+    struct client *c, struct key_event *event, struct cmd_find_state *fs)
 {
-	struct cmd		*cmd;
 	struct cmdq_item	*new_item;
-	int			 readonly;
+	struct cmdq_state	*new_state;
+	int			 readonly, flags = 0;
 
 	if (c == NULL || (~c->flags & CLIENT_READONLY))
 		readonly = 1;
-	else {
-		readonly = 1;
-		TAILQ_FOREACH(cmd, &bd->cmdlist->list, qentry) {
-			if (~cmd->entry->flags & CMD_READONLY)
-				readonly = 0;
-		}
-	}
+	else
+		readonly = cmd_list_all_have(bd->cmdlist, CMD_READONLY);
 	if (!readonly)
 		new_item = cmdq_get_callback(key_bindings_read_only, NULL);
 	else {
-		new_item = cmdq_get_command(bd->cmdlist, fs, m, 0);
 		if (bd->flags & KEY_BINDING_REPEAT)
-			new_item->shared->flags |= CMDQ_SHARED_REPEAT;
+			flags |= CMDQ_STATE_REPEAT;
+		new_state = cmdq_new_state(fs, event, flags);
+		new_item = cmdq_get_command(bd->cmdlist, new_state);
+		cmdq_free_state(new_state);
 	}
 	if (item != NULL)
 		new_item = cmdq_insert_after(item, new_item);

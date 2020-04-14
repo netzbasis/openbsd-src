@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.255 2020/04/10 07:44:26 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.257 2020/04/13 20:51:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1150,7 +1150,7 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 
 	wme = TAILQ_FIRST(&wp->modes);
 	if (wme != NULL) {
-		if (wme->mode->key != NULL)
+		if (wme->mode->key != NULL && c != NULL)
 			wme->mode->key(wme, c, s, wl, (key & ~KEYC_XTERM), m);
 		return (0);
 	}
@@ -1536,7 +1536,7 @@ int
 window_pane_start_input(struct window_pane *wp, struct cmdq_item *item,
     char **cause)
 {
-	struct client			*c = item->client;
+	struct client			*c = cmdq_get_client(item);
 	struct window_pane_input_data	*cdata;
 
 	if (~wp->flags & PANE_EMPTY) {

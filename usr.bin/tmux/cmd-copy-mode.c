@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-copy-mode.c,v 1.41 2020/04/10 07:44:26 nicm Exp $ */
+/* $OpenBSD: cmd-copy-mode.c,v 1.46 2020/04/13 14:46:04 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -56,11 +56,13 @@ const struct cmd_entry cmd_clock_mode_entry = {
 static enum cmd_retval
 cmd_copy_mode_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args		*args = self->args;
-	struct cmdq_shared	*shared = item->shared;
-	struct client		*c = item->client;
+	struct args		*args = cmd_get_args(self);
+	struct key_event	*event = cmdq_get_event(item);
+	struct cmd_find_state	*source = cmdq_get_source(item);
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct client		*c = cmdq_get_client(item);
 	struct session		*s;
-	struct window_pane	*wp = item->target.wp, *swp;
+	struct window_pane	*wp = target->wp, *swp;
 
 	if (args_has(args, 'q')) {
 		window_pane_reset_mode_all(wp);
@@ -68,26 +70,26 @@ cmd_copy_mode_exec(struct cmd *self, struct cmdq_item *item)
 	}
 
 	if (args_has(args, 'M')) {
-		if ((wp = cmd_mouse_pane(&shared->mouse, &s, NULL)) == NULL)
+		if ((wp = cmd_mouse_pane(&event->m, &s, NULL)) == NULL)
 			return (CMD_RETURN_NORMAL);
 		if (c == NULL || c->session != s)
 			return (CMD_RETURN_NORMAL);
 	}
 
-	if (self->entry == &cmd_clock_mode_entry) {
+	if (cmd_get_entry(self) == &cmd_clock_mode_entry) {
 		window_pane_set_mode(wp, NULL, &window_clock_mode, NULL, NULL);
 		return (CMD_RETURN_NORMAL);
 	}
 
 	if (args_has(args, 's'))
-		swp = item->source.wp;
+		swp = source->wp;
 	else
 		swp = wp;
 	if (!window_pane_set_mode(wp, swp, &window_copy_mode, NULL, args)) {
 		if (args_has(args, 'M'))
-			window_copy_start_drag(c, &shared->mouse);
+			window_copy_start_drag(c, &event->m);
 	}
-	if (args_has(self->args, 'u'))
+	if (args_has(args, 'u'))
 		window_copy_pageup(wp, 0);
 
 	return (CMD_RETURN_NORMAL);
