@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.991 2020/04/14 06:00:52 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.994 2020/04/15 17:50:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2312,6 +2312,7 @@ int	 attributes_fromstring(const char *);
 
 /* grid.c */
 extern const struct grid_cell grid_default_cell;
+void	 grid_empty_line(struct grid *, u_int, u_int);
 int	 grid_cells_equal(const struct grid_cell *, const struct grid_cell *);
 struct grid *grid_create(u_int, u_int, u_int);
 void	 grid_destroy(struct grid *);
@@ -2381,7 +2382,8 @@ void	 screen_write_fast_copy(struct screen_write_ctx *, struct screen *,
 	     u_int, u_int, u_int, u_int);
 void	 screen_write_hline(struct screen_write_ctx *, u_int, int, int);
 void	 screen_write_vline(struct screen_write_ctx *, u_int, int, int);
-void	 screen_write_menu(struct screen_write_ctx *, struct menu *, int);
+void	 screen_write_menu(struct screen_write_ctx *, struct menu *, int,
+	     const struct grid_cell *);
 void	 screen_write_box(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_preview(struct screen_write_ctx *, struct screen *, u_int,
 	     u_int);
@@ -2435,6 +2437,8 @@ void	 screen_set_path(struct screen *, const char *);
 void	 screen_push_title(struct screen *);
 void	 screen_pop_title(struct screen *);
 void	 screen_resize(struct screen *, u_int, u_int, int);
+void	 screen_resize_cursor(struct screen *, u_int, u_int, int, int, u_int *,
+	     u_int *);
 void	 screen_set_selection(struct screen *, u_int, u_int, u_int, u_int,
 	     u_int, int, struct grid_cell *);
 void	 screen_clear_selection(struct screen *);
