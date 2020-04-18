@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.233 2020/04/08 11:26:07 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.243 2020/04/18 07:19:28 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -900,11 +900,12 @@ static void
 format_cb_pane_at_top(struct format_tree *ft, struct format_entry *fe)
 {
 	struct window_pane	*wp = ft->wp;
-	struct window		*w = wp->window;
+	struct window		*w;
 	int			 status, flag;
 
 	if (wp == NULL)
 		return;
+	w = wp->window;
 
 	status = options_get_number(w->options, "pane-border-status");
 	if (status == PANE_STATUS_TOP)
@@ -919,11 +920,12 @@ static void
 format_cb_pane_at_bottom(struct format_tree *ft, struct format_entry *fe)
 {
 	struct window_pane	*wp = ft->wp;
-	struct window		*w = wp->window;
+	struct window		*w;
 	int			 status, flag;
 
 	if (wp == NULL)
 		return;
+	w = wp->window;
 
 	status = options_get_number(w->options, "pane-border-status");
 	if (status == PANE_STATUS_BOTTOM)
@@ -1106,8 +1108,8 @@ format_cb_mouse_line(struct format_tree *ft, struct format_entry *fe)
 		fe->value = s;
 }
 
-/* Merge a format tree. */
-static void
+/* Merge one format tree into another. */
+void
 format_merge(struct format_tree *ft, struct format_tree *from)
 {
 	struct format_entry	*fe;
@@ -1122,19 +1124,13 @@ format_merge(struct format_tree *ft, struct format_tree *from)
 static void
 format_create_add_item(struct format_tree *ft, struct cmdq_item *item)
 {
-	struct mouse_event	*m;
+	struct key_event	*event = cmdq_get_event(item);
+	struct mouse_event	*m = &event->m;
 	struct window_pane	*wp;
 	u_int			 x, y;
 
-	if (item->cmd != NULL)
-		format_add(ft, "command", "%s", item->cmd->entry->name);
+	cmdq_merge_formats(item, ft);
 
-	if (item->shared == NULL)
-		return;
-	if (item->shared->formats != NULL)
-		format_merge(ft, item->shared->formats);
-
-	m = &item->shared->mouse;
 	if (m->valid && ((wp = cmd_mouse_pane(m, NULL, NULL)) != NULL)) {
 		format_add(ft, "mouse_pane", "%%%u", wp->id);
 		if (cmd_mouse_at(wp, m, &x, &y, 0) == 0) {
@@ -1615,7 +1611,7 @@ format_build_modifiers(struct format_tree *ft, const char **s, u_int *count)
 		return (NULL);
 	}
 	*s = cp + 1;
-	return list;
+	return (list);
 }
 
 /* Match against an fnmatch(3) pattern or regular expression. */
@@ -1907,7 +1903,7 @@ format_replace_expression(struct format_modifier *mexp, struct format_tree *ft,
 
 	free(right);
 	free(left);
-	return value;
+	return (value);
 
 fail:
 	free(right);
@@ -2421,7 +2417,7 @@ format_single(struct cmdq_item *item, const char *fmt, struct client *c,
 	char			*expanded;
 
 	if (item != NULL)
-		ft = format_create(item->client, item, FORMAT_NONE, 0);
+		ft = format_create(cmdq_get_client(item), item, FORMAT_NONE, 0);
 	else
 		ft = format_create(NULL, item, FORMAT_NONE, 0);
 	format_defaults(ft, c, s, wl, wp);
@@ -2429,6 +2425,16 @@ format_single(struct cmdq_item *item, const char *fmt, struct client *c,
 	expanded = format_expand(ft, fmt);
 	format_free(ft);
 	return (expanded);
+}
+
+/* Expand a single string using target. */
+char *
+format_single_from_target(struct cmdq_item *item, const char *fmt)
+{
+	struct cmd_find_state	*target = cmdq_get_target(item);
+	struct client		*tc = cmdq_get_target_client(item);
+
+	return (format_single(item, fmt, tc, target->s, target->wl, target->wp));
 }
 
 /* Set defaults for any of arguments that are not NULL. */
@@ -2563,7 +2569,7 @@ format_defaults_client(struct format_tree *ft, struct client *c)
 		format_add(ft, "client_prefix", "%d", 1);
 	format_add(ft, "client_key_table", "%s", c->keytable->name);
 
-	if (tty->flags & TTY_UTF8)
+	if (tty_get_flags(tty) & TERM_UTF8)
 		format_add(ft, "client_utf8", "%d", 1);
 	else
 		format_add(ft, "client_utf8", "%d", 0);
@@ -2683,6 +2689,9 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	format_add(ft, "history_size", "%u", gd->hsize);
 	format_add(ft, "history_limit", "%u", gd->hlimit);
 	format_add_cb(ft, "history_bytes", format_cb_history_bytes);
+
+	format_add(ft, "pane_written", "%zu", wp->written);
+	format_add(ft, "pane_skipped", "%zu", wp->skipped);
 
 	if (window_pane_index(wp, &idx) != 0)
 		fatalx("index not found");

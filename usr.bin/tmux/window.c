@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.253 2020/04/06 17:51:34 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.257 2020/04/13 20:51:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1067,8 +1067,9 @@ window_pane_get_palette(struct window_pane *wp, int c)
 }
 
 int
-window_pane_set_mode(struct window_pane *wp, const struct window_mode *mode,
-    struct cmd_find_state *fs, struct args *args)
+window_pane_set_mode(struct window_pane *wp, struct window_pane *swp,
+    const struct window_mode *mode, struct cmd_find_state *fs,
+    struct args *args)
 {
 	struct window_mode_entry	*wme;
 
@@ -1085,6 +1086,7 @@ window_pane_set_mode(struct window_pane *wp, const struct window_mode *mode,
 	} else {
 		wme = xcalloc(1, sizeof *wme);
 		wme->wp = wp;
+		wme->swp = swp;
 		wme->mode = mode;
 		wme->prefix = 1;
 		TAILQ_INSERT_HEAD(&wp->modes, wme, entry);
@@ -1148,7 +1150,7 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 
 	wme = TAILQ_FIRST(&wp->modes);
 	if (wme != NULL) {
-		if (wme->mode->key != NULL)
+		if (wme->mode->key != NULL && c != NULL)
 			wme->mode->key(wme, c, s, wl, (key & ~KEYC_XTERM), m);
 		return (0);
 	}
@@ -1213,7 +1215,7 @@ window_pane_search(struct window_pane *wp, const char *term, int regex,
 		}
 		log_debug("%s: %s", __func__, line);
 		if (!regex)
-			found = (fnmatch(new, line, 0) == 0);
+			found = (fnmatch(new, line, flags) == 0);
 		else
 			found = (regexec(&r, line, 0, NULL, 0) == 0);
 		free(line);
@@ -1534,7 +1536,7 @@ int
 window_pane_start_input(struct window_pane *wp, struct cmdq_item *item,
     char **cause)
 {
-	struct client			*c = item->client;
+	struct client			*c = cmdq_get_client(item);
 	struct window_pane_input_data	*cdata;
 
 	if (~wp->flags & PANE_EMPTY) {

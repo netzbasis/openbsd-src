@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pppx.c,v 1.82 2020/04/07 13:27:52 visa Exp $ */
+/*	$OpenBSD: if_pppx.c,v 1.84 2020/04/18 04:03:56 yasuoka Exp $ */
 
 /*
  * Copyright (c) 2010 Claudio Jeker <claudio@openbsd.org>
@@ -344,7 +344,7 @@ pppxwrite(dev_t dev, struct uio *uio, int ioflag)
 	if (m == NULL)
 		return (ENOBUFS);
 	mlen = MHLEN;
-	if (uio->uio_resid >= MINCLSIZE) {
+	if (uio->uio_resid > MHLEN) {
 		MCLGET(m, M_DONTWAIT);
 		if (!(m->m_flags & M_EXT)) {
 			m_free(m);
@@ -643,20 +643,20 @@ pppx_if_next_unit(void)
 struct pppx_if *
 pppx_if_find(struct pppx_dev *pxd, int session_id, int protocol)
 {
-	struct pppx_if *s, *p;
-	s = malloc(sizeof(*s), M_DEVBUF, M_WAITOK | M_ZERO);
+	struct pppx_if_key key;
+	struct pppx_if *pxi;
 
-	s->pxi_key.pxik_session_id = session_id;
-	s->pxi_key.pxik_protocol = protocol;
+	memset(&key, 0, sizeof(key));
+	key.pxik_session_id = session_id;
+	key.pxik_protocol = protocol;
 
 	rw_enter_read(&pppx_ifs_lk);
-	p = RBT_FIND(pppx_ifs, &pppx_ifs, s);
-	if (p && p->pxi_ready == 0)
-		p = NULL;
+	pxi = RBT_FIND(pppx_ifs, &pppx_ifs, (struct pppx_if *)&key);
+	if (pxi && pxi->pxi_ready == 0)
+		pxi = NULL;
 	rw_exit_read(&pppx_ifs_lk);
 
-	free(s, M_DEVBUF, sizeof(*s));
-	return (p);
+	return pxi;
 }
 
 int
@@ -1368,7 +1368,7 @@ pppacwrite(dev_t dev, struct uio *uio, int ioflag)
 	if (m == NULL)
 		return (ENOMEM);
 
-	if (uio->uio_resid > MINCLSIZE) {
+	if (uio->uio_resid > MHLEN) {
 		m_clget(m, M_WAITOK, uio->uio_resid);
 		if (!ISSET(m->m_flags, M_EXT)) {
 			m_free(m);

@@ -1244,10 +1244,13 @@
 ./usr/share/man/man4/armv7/intc.4
 ./usr/share/man/man4/armv7/intro.4
 ./usr/share/man/man4/armv7/omap.4
+./usr/share/man/man4/armv7/omclock.4
+./usr/share/man/man4/armv7/omcm.4
 ./usr/share/man/man4/armv7/omdog.4
 ./usr/share/man/man4/armv7/omgpio.4
 ./usr/share/man/man4/armv7/ommmc.4
 ./usr/share/man/man4/armv7/omrng.4
+./usr/share/man/man4/armv7/omsysc.4
 ./usr/share/man/man4/armv7/omwugen.4
 ./usr/share/man/man4/armv7/prcm.4
 ./usr/share/man/man4/armv7/sxie.4
@@ -1297,6 +1300,7 @@
 ./usr/share/man/man4/brgphy.4
 ./usr/share/man/man4/bridge.4
 ./usr/share/man/man4/brswphy.4
+./usr/share/man/man4/bse.4
 ./usr/share/man/man4/bwfm.4
 ./usr/share/man/man4/bwi.4
 ./usr/share/man/man4/bytgpio.4
@@ -1817,6 +1821,7 @@
 ./usr/share/man/man4/sgi/zs.4
 ./usr/share/man/man4/sili.4
 ./usr/share/man/man4/simplefb.4
+./usr/share/man/man4/simplepanel.4
 ./usr/share/man/man4/siop.4
 ./usr/share/man/man4/sis.4
 ./usr/share/man/man4/sk.4
