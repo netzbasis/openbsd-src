@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.351 2020/04/16 15:14:25 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.354 2020/04/17 22:16:28 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -340,6 +340,7 @@ tty_start_tty(struct tty *tty)
 			tty->flags |= TTY_FOCUS;
 			tty_puts(tty, "\033[?1004h");
 		}
+		tty_puts(tty, "\033[?7727h");
 	}
 
 	evtimer_set(&tty->start_timer, tty_start_timer_callback, tty);
@@ -426,6 +427,7 @@ tty_stop_tty(struct tty *tty)
 			tty->flags &= ~TTY_FOCUS;
 			tty_raw(tty, "\033[?1004l");
 		}
+		tty_raw(tty, "\033[?7727l");
 	}
 
 	if (tty_use_margin(tty))
@@ -1737,7 +1739,10 @@ tty_cmd_scrollup(struct tty *tty, const struct tty_ctx *ctx)
 		for (i = 0; i < ctx->num; i++)
 			tty_putc(tty, '\n');
 	} else {
-		tty_cursor(tty, 0, tty->cy);
+		if (tty->cy == UINT_MAX)
+			tty_cursor(tty, 0, 0);
+		else
+			tty_cursor(tty, 0, tty->cy);
 		tty_putcode1(tty, TTYC_INDN, ctx->num);
 	}
 }
@@ -2061,8 +2066,12 @@ tty_region(struct tty *tty, u_int rupper, u_int rlower)
 	 * flag so further output causes a line feed). As a workaround, do an
 	 * explicit move to 0 first.
 	 */
-	if (tty->cx >= tty->sx)
-		tty_cursor(tty, 0, tty->cy);
+	if (tty->cx >= tty->sx) {
+		if (tty->cy == UINT_MAX)
+			tty_cursor(tty, 0, 0);
+		else
+			tty_cursor(tty, 0, tty->cy);
+	}
 
 	tty_putcode2(tty, TTYC_CSR, tty->rupper, tty->rlower);
 	tty->cx = tty->cy = UINT_MAX;
@@ -2141,6 +2150,9 @@ tty_cursor(struct tty *tty, u_int cx, u_int cy)
 	struct tty_term	*term = tty->term;
 	u_int		 thisx, thisy;
 	int		 change;
+
+	if (tty->flags & TTY_BLOCK)
+		return;
 
 	if (cx > tty->sx - 1)
 		cx = tty->sx - 1;
