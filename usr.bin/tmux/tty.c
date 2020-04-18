@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.354 2020/04/17 22:16:28 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.358 2020/04/18 07:32:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -944,6 +944,7 @@ tty_fake_bce(const struct tty *tty, struct window_pane *wp, u_int bg)
 static void
 tty_redraw_region(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct client		*c = tty->client;
 	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
 	u_int			 i;
@@ -953,6 +954,7 @@ tty_redraw_region(struct tty *tty, const struct tty_ctx *ctx)
 	 * likely to be followed by some more scrolling.
 	 */
 	if (tty_large_region(tty, ctx)) {
+		log_debug("%s: %s, large redraw of %%%u", __func__, c->name, wp->id);
 		wp->flags |= PANE_REDRAW;
 		return;
 	}
@@ -1438,15 +1440,19 @@ tty_draw_line(struct tty *tty, struct window_pane *wp, struct screen *s,
 void
 tty_sync_start(struct tty *tty)
 {
-	if (tty_get_flags(tty) & TERM_SYNC)
+	if ((~tty->flags & TTY_SYNCING) && (tty_get_flags(tty) & TERM_SYNC)) {
 		tty_puts(tty, "\033P=1s\033\\");
+		tty->flags |= TTY_SYNCING;
+	}
 }
 
 void
 tty_sync_end(struct tty *tty)
 {
-	if (tty_get_flags(tty) & TERM_SYNC)
+	if (tty_get_flags(tty) & TERM_SYNC) {
 		tty_puts(tty, "\033P=2s\033\\");
+		tty->flags &= ~TTY_SYNCING;
+	}
 }
 
 static int
@@ -1480,6 +1486,14 @@ tty_write(void (*cmdfn)(struct tty *, const struct tty_ctx *),
 	TAILQ_FOREACH(c, &clients, entry) {
 		if (!tty_client_ready(c, wp))
 			continue;
+		if (c->flags & CLIENT_REDRAWPANES) {
+			/*
+			 * Redraw is already deferred to redraw another pane -
+			 * redraw this one also when that happens.
+			 */
+			wp->flags |= PANE_REDRAW;
+			break;
+		}
 
 		ctx->bigger = tty_window_offset(&c->tty, &ctx->ox, &ctx->oy,
 		    &ctx->sx, &ctx->sy);

@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.320 2020/04/17 22:16:28 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.325 2020/04/18 07:32:53 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1370,7 +1370,6 @@ server_client_loop(void)
 				if (resize)
 					server_client_check_resize(wp);
 			}
-			wp->flags &= ~PANE_REDRAW;
 		}
 		check_window_name(w);
 	}
@@ -1681,7 +1680,7 @@ server_client_check_redraw(struct client *c)
 	struct session		*s = c->session;
 	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
-	int			 needed, flags, mode = tty->mode;
+	int			 needed, flags, mode = tty->mode, new_flags = 0;
 	struct timeval		 tv = { .tv_usec = 1000 };
 	static struct event	 ev;
 	size_t			 left;
@@ -1689,11 +1688,12 @@ server_client_check_redraw(struct client *c)
 	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
 	if (c->flags & CLIENT_ALLREDRAWFLAGS) {
-		log_debug("%s: redraw%s%s%s%s", c->name,
+		log_debug("%s: redraw%s%s%s%s%s", c->name,
 		    (c->flags & CLIENT_REDRAWWINDOW) ? " window" : "",
 		    (c->flags & CLIENT_REDRAWSTATUS) ? " status" : "",
 		    (c->flags & CLIENT_REDRAWBORDERS) ? " borders" : "",
-		    (c->flags & CLIENT_REDRAWOVERLAY) ? " overlay" : "");
+		    (c->flags & CLIENT_REDRAWOVERLAY) ? " overlay" : "",
+		    (c->flags & CLIENT_REDRAWPANES) ? " panes" : "");
 	}
 
 	/*
@@ -1711,6 +1711,8 @@ server_client_check_redraw(struct client *c)
 				break;
 			}
 		}
+		if (needed)
+			new_flags |= CLIENT_REDRAWPANES;
 	}
 	if (needed && (left = EVBUFFER_LENGTH(tty->out)) != 0) {
 		log_debug("%s: redraw deferred (%zu left)", c->name, left);
@@ -1720,19 +1722,13 @@ server_client_check_redraw(struct client *c)
 			log_debug("redraw timer started");
 			evtimer_add(&ev, &tv);
 		}
-
-		/*
-		 * We may have got here for a single pane redraw, but force a
-		 * full redraw next time in case other panes have been updated.
-		 */
-		c->flags |= CLIENT_ALLREDRAWFLAGS;
+		c->flags |= new_flags;
 		return;
 	} else if (needed)
 		log_debug("%s: redraw needed", c->name);
 
 	flags = tty->flags & (TTY_BLOCK|TTY_FREEZE|TTY_NOCURSOR);
 	tty->flags = (tty->flags & ~(TTY_BLOCK|TTY_FREEZE)) | TTY_NOCURSOR;
-	tty_update_mode(tty, mode, NULL);
 
 	if (~c->flags & CLIENT_REDRAWWINDOW) {
 		/*
@@ -1741,13 +1737,16 @@ server_client_check_redraw(struct client *c)
 		 */
 		TAILQ_FOREACH(wp, &c->session->curw->window->panes, entry) {
 			if (wp->flags & PANE_REDRAW) {
-				tty_update_mode(tty, tty->mode, NULL);
+				log_debug("%s: redrawing pane %%%u", __func__, wp->id);
+				tty_update_mode(tty, mode, NULL);
 				screen_redraw_pane(c, wp);
 			}
 		}
+		c->flags &= ~CLIENT_REDRAWPANES;
 	}
 
 	if (c->flags & CLIENT_ALLREDRAWFLAGS) {
+		tty_update_mode(tty, mode, NULL);
 		if (options_get_number(s->options, "set-titles"))
 			server_client_set_title(c);
 		screen_redraw_screen(c);
