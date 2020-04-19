@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_ciph.c,v 1.114 2020/04/17 17:26:00 jsing Exp $ */
+/* $OpenBSD: ssl_ciph.c,v 1.116 2020/04/18 14:41:05 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1171,7 +1171,7 @@ ssl_create_cipher_list(const SSL_METHOD *ssl_method,
 	CIPHER_ORDER *co_list = NULL, *head = NULL, *tail = NULL, *curr;
 	const SSL_CIPHER **ca_list = NULL;
 	int tls13_seen = 0;
-	int active;
+	int any_active;
 
 	/*
 	 * Return with error if nothing to do.
@@ -1275,9 +1275,8 @@ ssl_create_cipher_list(const SSL_METHOD *ssl_method,
 		SSLerrorx(ERR_R_MALLOC_FAILURE);
 		return(NULL);	/* Failure */
 	}
-	ssl_cipher_collect_aliases(ca_list, num_of_group_aliases,
-	disabled_mkey, disabled_auth, disabled_enc,
-	disabled_mac, disabled_ssl, head);
+	ssl_cipher_collect_aliases(ca_list, num_of_group_aliases, disabled_mkey,
+	    disabled_auth, disabled_enc, disabled_mac, disabled_ssl, head);
 
 	/*
 	 * If the rule_string begins with DEFAULT, apply the default rule
@@ -1324,15 +1323,14 @@ ssl_create_cipher_list(const SSL_METHOD *ssl_method,
 	 * TLSv1.3 cipher suites. If the rule string resulted in no active
 	 * cipher suites then we return an empty stack.
 	 */
-	active = 0;
+	any_active = 0;
 	for (curr = head; curr != NULL; curr = curr->next) {
 		if (curr->active ||
 		    (!tls13_seen && curr->cipher->algorithm_ssl == SSL_TLSV1_3))
 			sk_SSL_CIPHER_push(cipherstack, curr->cipher);
-		if (curr->active)
-			active++;
+		any_active |= curr->active;
 	}
-	if (active == 0)
+	if (!any_active)
 		sk_SSL_CIPHER_zero(cipherstack);
 
 	free(co_list);	/* Not needed any longer */

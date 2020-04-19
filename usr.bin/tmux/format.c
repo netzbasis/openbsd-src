@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.243 2020/04/18 07:19:28 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.245 2020/04/18 14:21:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -954,7 +954,7 @@ format_cb_cursor_character(struct format_tree *ft, struct format_entry *fe)
 char *
 format_grid_word(struct grid *gd, u_int x, u_int y)
 {
-	struct grid_line	*gl;
+	const struct grid_line	*gl;
 	struct grid_cell	 gc;
 	const char		*ws;
 	struct utf8_data	*ud = NULL;
@@ -977,7 +977,7 @@ format_grid_word(struct grid *gd, u_int x, u_int y)
 		if (x == 0) {
 			if (y == 0)
 				break;
-			gl = &gd->linedata[y - 1];
+			gl = grid_peek_line(gd, y - 1);
 			if (~gl->flags & GRID_LINE_WRAPPED)
 				break;
 			y--;
@@ -993,7 +993,7 @@ format_grid_word(struct grid *gd, u_int x, u_int y)
 			if (end == 0 || x == end - 1) {
 				if (y == gd->hsize + gd->sy - 1)
 					break;
-				gl = &gd->linedata[y];
+				gl = grid_peek_line(gd, y);
 				if (~gl->flags & GRID_LINE_WRAPPED)
 					break;
 				y++;

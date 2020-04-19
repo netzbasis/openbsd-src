@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_key_share.c,v 1.4 2020/04/17 17:16:53 jsing Exp $ */
+/* $OpenBSD: tls13_key_share.c,v 1.6 2020/04/18 14:07:56 jsing Exp $ */
 /*
  * Copyright (c) 2020 Joel Sing <jsing@openbsd.org>
  *
@@ -86,6 +86,22 @@ tls13_key_share_group(struct tls13_key_share *ks)
 	return ks->group_id;
 }
 
+int
+tls13_key_share_peer_pkey(struct tls13_key_share *ks, EVP_PKEY *pkey)
+{
+	if (ks->nid == NID_X25519 && ks->x25519_peer_public != NULL) {
+		if (!ssl_kex_dummy_ecdhe_x25519(pkey))
+			return 0;
+	} else if (ks->ecdhe_peer != NULL) {
+		if (!EVP_PKEY_set1_EC_KEY(pkey, ks->ecdhe_peer))
+			return 0;
+	} else {
+		return 0;
+	}
+
+	return 1;
+}
+
 static int
 tls13_key_share_generate_ecdhe_ecp(struct tls13_key_share *ks)
 {
@@ -144,12 +160,10 @@ tls13_key_share_generate_x25519(struct tls13_key_share *ks)
 int
 tls13_key_share_generate(struct tls13_key_share *ks)
 {
-	if (ks->nid == NID_X9_62_prime256v1 || ks->nid == NID_secp384r1)
-		return tls13_key_share_generate_ecdhe_ecp(ks);
-	else if (ks->nid == NID_X25519)
+	if (ks->nid == NID_X25519)
 		return tls13_key_share_generate_x25519(ks);
 
-	return 0;
+	return tls13_key_share_generate_ecdhe_ecp(ks);
 }
 
 static int
@@ -180,14 +194,12 @@ tls13_key_share_public(struct tls13_key_share *ks, CBB *cbb)
 	if (!CBB_add_u16_length_prefixed(cbb, &key_exchange))
 		goto err;
 
-	if (ks->nid == NID_X9_62_prime256v1 || ks->nid == NID_secp384r1) {
-		if (!tls13_key_share_public_ecdhe_ecp(ks, &key_exchange))
-			goto err;
-	} else if (ks->nid == NID_X25519) {
+	if (ks->nid == NID_X25519) {
 		if (!tls13_key_share_public_x25519(ks, &key_exchange))
 			goto err;
 	} else {
-		goto err;
+		if (!tls13_key_share_public_ecdhe_ecp(ks, &key_exchange))
+			goto err;
 	}
 
 	if (!CBB_flush(cbb))
@@ -245,14 +257,12 @@ tls13_key_share_peer_public(struct tls13_key_share *ks, uint16_t group,
 	if (ks->group_id != group)
 		return 0;
 
-	if (ks->nid == NID_X9_62_prime256v1 || ks->nid == NID_secp384r1) {
-		if (!tls13_key_share_peer_public_ecdhe_ecp(ks, cbs))
-			return 0;
-	} else if (ks->nid == NID_X25519) {
+	if (ks->nid == NID_X25519) {
 		if (!tls13_key_share_peer_public_x25519(ks, cbs))
 			return 0;
 	} else {
-		return 0;
+		if (!tls13_key_share_peer_public_ecdhe_ecp(ks, cbs))
+			return 0;
 	}
 
 	return 1;
@@ -305,13 +315,10 @@ tls13_key_share_derive(struct tls13_key_share *ks, uint8_t **shared_key,
 
 	*shared_key_len = 0;
 
-	if (ks->nid == NID_X9_62_prime256v1 || ks->nid == NID_secp384r1) {
-		return tls13_key_share_derive_ecdhe_ecp(ks, shared_key,
-		    shared_key_len);
-	} else if (ks->nid == NID_X25519) {
+	if (ks->nid == NID_X25519)
 		return tls13_key_share_derive_x25519(ks, shared_key,
 		    shared_key_len);
-	}
 
-	return 0;
+	return tls13_key_share_derive_ecdhe_ecp(ks, shared_key,
+	    shared_key_len);
 }
