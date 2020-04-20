@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.114 2020/04/18 07:55:06 kettenis Exp $
+# $OpenBSD: RAMDISK,v 1.117 2020/04/19 16:04:34 tobhe Exp $
 #
 # GENERIC machine description file
 #
@@ -128,11 +128,16 @@ sdmmc*		at imxesdhc?
 bcmaux*		at fdt?
 bcmintc*	at fdt?
 bcmdog*		at fdt?
+bcmirng*	at fdt?
+bcmpcie*	at fdt?
+pci*		at bcmpcie?
 bcmrng*		at fdt?
 bse*		at fdt?
 bse*		at acpi?
 dwctwo*		at fdt?
 usb*		at dwctwo?
+bcmmbox*	at fdt? early 1
+bcmclock*	at fdt? early 1
 
 # Amlogic SoCs
 amlclock*	at fdt? early 1

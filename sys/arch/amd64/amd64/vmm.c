@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.271 2020/04/08 07:39:48 pd Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.273 2020/04/19 19:29:52 krw Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -4448,7 +4448,7 @@ vmm_translate_gva(struct vcpu *vcpu, uint64_t va, uint64_t *pa, int mode)
 		}
 	}
 
-	low_mask = (1 << shift) - 1;
+	low_mask = ((uint64_t)1ULL << shift) - 1;
 	high_mask = (((uint64_t)1ULL << ((pte_size * 8) - 1)) - 1) ^ low_mask;
 	*pa = (pte & high_mask) | (va & low_mask);
 
@@ -5415,6 +5415,7 @@ vmx_get_guest_faulttype(void)
 	if (exit_qual & IA32_VMX_EPT_FAULT_WAS_EXECABLE)
 		was_prot |= PROT_EXEC;
 
+	prot = 0;
 	if (exit_qual & IA32_VMX_EPT_FAULT_READ)
 		prot = PROT_READ;
 	else if (exit_qual & IA32_VMX_EPT_FAULT_WRITE)
