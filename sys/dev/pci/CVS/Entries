@@ -168,7 +168,7 @@
 /if_lii.c/1.44/Sun Jan 22 10:17:38 2017//
 /if_liireg.h/1.4/Mon Sep  1 14:38:31 2008//
 /if_malo_pci.c/1.10/Tue Nov 24 17:11:39 2015//
-/if_mcx.c/1.39/Mon Apr  6 11:27:23 2020//
+/if_mcx.c/1.42/Mon Apr 20 12:33:03 2020//
 /if_msk.c/1.134/Sun Jan  5 01:07:58 2020//
 /if_mskvar.h/1.14/Sat Jan  6 03:11:04 2018//
 /if_mtd_pci.c/1.11/Mon Dec 22 02:28:52 2014//
@@ -271,9 +271,9 @@
 /pci_map.c/1.32/Mon Jun 17 11:04:06 2019//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1919/Wed Feb  5 14:50:57 2020//
-/pcidevs.h/1.1912/Wed Feb  5 14:51:29 2020//
-/pcidevs_data.h/1.1907/Wed Feb  5 14:51:29 2020//
+/pcidevs/1.1921/Mon Apr 20 21:52:02 2020//
+/pcidevs.h/1.1914/Mon Apr 20 21:52:25 2020//
+/pcidevs_data.h/1.1909/Mon Apr 20 21:52:25 2020//
 /pciide.c/1.360/Fri Jan 24 03:29:55 2020//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mcx.c,v 1.39 2020/04/06 11:27:23 jmatthew Exp $ */
+/*	$OpenBSD: if_mcx.c,v 1.42 2020/04/20 12:33:03 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2017 David Gwynne <dlg@openbsd.org>
@@ -71,7 +71,7 @@
 
 /* queue sizes */
 #define MCX_LOG_EQ_SIZE		 6		/* one page */
-#define MCX_LOG_CQ_SIZE		 11
+#define MCX_LOG_CQ_SIZE		 12
 #define MCX_LOG_RQ_SIZE		 10
 #define MCX_LOG_SQ_SIZE		 11
 
@@ -2450,11 +2450,8 @@ mcx_cmdq_poll(struct mcx_softc *sc, struct mcx_cmdq_entry *cqe,
 		    0, MCX_DMA_LEN(&sc->sc_cmdq_mem), BUS_DMASYNC_POSTRW);
 
 		if ((cqe->cq_status & MCX_CQ_STATUS_OWN_MASK) ==
-		    MCX_CQ_STATUS_OWN_SW) {
-			if (sc->sc_eqn != 0)
-				mcx_intr(sc);
+		    MCX_CQ_STATUS_OWN_SW)
 			return (0);
-		}
 
 		delay(1000);
 	}
@@ -2779,13 +2776,13 @@ mcx_cmdq_mboxes_pas(struct mcx_dmamem *mxm, int offset, int npages,
 	pas += (offset / sizeof(*pas));
 	mbox_pages = (MCX_CMDQ_MAILBOX_DATASIZE - offset) / sizeof(*pas);
 	for (i = 0; i < npages; i++) {
-		*pas = htobe64(MCX_DMA_DVA(buf) + (i * MCX_PAGE_SIZE));
-		pas++;
 		if (i == mbox_pages) {
 			mbox++;
 			pas = mcx_cq_mbox_data(mcx_cq_mbox(mxm, mbox));
 			mbox_pages += MCX_CMDQ_MAILBOX_DATASIZE / sizeof(*pas);
 		}
+		*pas = htobe64(MCX_DMA_DVA(buf) + (i * MCX_PAGE_SIZE));
+		pas++;
 	}
 }
 
