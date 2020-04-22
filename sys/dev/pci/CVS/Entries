@@ -147,7 +147,7 @@
 /if_iwm.c/1.307/Thu Apr  9 21:36:50 2020//
 /if_iwmreg.h/1.46/Thu Mar  5 14:56:50 2020//
 /if_iwmvar.h/1.55/Fri Apr  3 08:32:21 2020//
-/if_iwn.c/1.223/Mon Apr 13 18:41:30 2020//
+/if_iwn.c/1.225/Tue Apr 21 10:34:24 2020//
 /if_iwnreg.h/1.56/Mon Jul 29 10:50:08 2019//
 /if_iwnvar.h/1.36/Thu Apr  9 07:20:08 2020//
 /if_iwx.c/1.10/Fri Apr  3 08:32:21 2020//
@@ -168,7 +168,7 @@
 /if_lii.c/1.44/Sun Jan 22 10:17:38 2017//
 /if_liireg.h/1.4/Mon Sep  1 14:38:31 2008//
 /if_malo_pci.c/1.10/Tue Nov 24 17:11:39 2015//
-/if_mcx.c/1.42/Mon Apr 20 12:33:03 2020//
+/if_mcx.c/1.43/Tue Apr 21 05:49:25 2020//
 /if_msk.c/1.134/Sun Jan  5 01:07:58 2020//
 /if_mskvar.h/1.14/Sat Jan  6 03:11:04 2018//
 /if_mtd_pci.c/1.11/Mon Dec 22 02:28:52 2014//
