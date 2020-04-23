@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.746 2020/04/20 14:59:31 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.749 2020/04/22 21:15:33 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: April 20 2020 $
+.Dd $Mdocdate: April 22 2020 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1714,7 +1714,7 @@ from which the layout was originally defined.
 Commands related to windows and panes are as follows:
 .Bl -tag -width Ds
 .It Xo Ic break-pane
-.Op Fl dP
+.Op Fl adP
 .Op Fl F Ar format
 .Op Fl n Ar window-name
 .Op Fl s Ar src-pane
@@ -1725,6 +1725,10 @@ Break
 .Ar src-pane
 off from its containing window to make it the only pane in
 .Ar dst-window .
+With
+.Fl a ,
+the window is moved to the next index up (following windows
+are moved if necessary).
 If
 .Fl d
 is given, the new window does not become the current window.
@@ -1873,12 +1877,15 @@ The following keys may be used in tree mode:
 .It Li "<" Ta "Scroll list of previews left"
 .It Li ">" Ta "Scroll list of previews right"
 .It Li "C-s" Ta "Search by name"
+.It Li "m" Ta "Set the marked pane"
+.It Li "M" Ta "Clear the marked pane"
 .It Li "n" Ta "Repeat last search"
 .It Li "t" Ta "Toggle if item is tagged"
 .It Li "T" Ta "Tag no items"
 .It Li "C-t" Ta "Tag all items"
 .It Li "\&:" Ta "Run a command for each tagged item"
 .It Li "f" Ta "Enter a format to filter items"
+.It Li "H" Ta "Jump to the starting pane"
 .It Li "O" Ta "Change sort field"
 .It Li "r" Ta "Reverse sort order"
 .It Li "v" Ta "Toggle preview"
@@ -2125,19 +2132,14 @@ See the
 .Sx FORMATS
 section.
 .It Xo Ic move-pane
-.Op Fl bdhv
+.Op Fl bdfhv
 .Op Fl l Ar size
 .Op Fl s Ar src-pane
 .Op Fl t Ar dst-pane
 .Xc
 .D1 (alias: Ic movep )
-Like
-.Ic join-pane ,
-but
-.Ar src-pane
-and
-.Ar dst-pane
-may belong to the same window.
+Does the same as
+.Ic join-pane .
 .It Xo Ic move-window
 .Op Fl ardk
 .Op Fl s Ar src-window
@@ -3711,6 +3713,9 @@ Set the width or height of the main (left or top) pane in the
 or
 .Ic main-vertical
 layouts.
+If suffixed by
+.Ql % ,
+this is a percentage of the window size.
 .Pp
 .It Xo Ic mode-keys
 .Op Ic vi | emacs
@@ -3764,6 +3769,9 @@ and
 .Ic other-pane-height
 options are set, the main pane will grow taller to make the other panes the
 specified height, but will never shrink to do so.
+If suffixed by
+.Ql % ,
+this is a percentage of the window size.
 .Pp
 .It Ic other-pane-width Ar width
 Like
@@ -4558,6 +4566,7 @@ The following variables are available, where appropriate:
 .It Li "session_id" Ta "" Ta "Unique session ID"
 .It Li "session_last_attached" Ta "" Ta "Time session last attached"
 .It Li "session_many_attached" Ta "" Ta "1 if multiple clients attached"
+.It Li "session_marked" Ta "" Ta "1 if this session contains the marked pane"
 .It Li "session_name" Ta "#S" Ta "Name of session"
 .It Li "session_path" Ta "" Ta "Working directory of session"
 .It Li "session_stack" Ta "" Ta "Window indexes in most recent order"
