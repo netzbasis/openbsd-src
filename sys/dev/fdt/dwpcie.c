@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwpcie.c,v 1.15 2019/08/26 11:24:03 patrick Exp $	*/
+/*	$OpenBSD: dwpcie.c,v 1.17 2020/04/23 19:50:52 patrick Exp $	*/
 /*
  * Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -652,7 +652,8 @@ dwpcie_imx8mq_init(struct dwpcie_softc *sc)
 	}
 	regmap_write_4(gpr, IOMUXC_GPR12, reg);
 
-	if (OF_getproplen(sc->sc_node, "ext_osc") == 0) {
+	if (OF_getproplen(sc->sc_node, "ext_osc") == 0 ||
+	    OF_getpropint(sc->sc_node, "ext_osc", 0)) {
 		reg = regmap_read_4(gpr, off);
 		reg |= IMX8MQ_GPR_PCIE_REF_USE_PAD;
 		regmap_write_4(gpr, off, reg);
@@ -670,6 +671,7 @@ dwpcie_imx8mq_init(struct dwpcie_softc *sc)
 	clock_enable(sc->sc_node, "pcie_phy");
 	clock_enable(sc->sc_node, "pcie_bus");
 	clock_enable(sc->sc_node, "pcie");
+	clock_enable(sc->sc_node, "pcie_aux");
 
 	/* Allow clocks to stabilize. */
 	delay(200);
