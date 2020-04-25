@@ -1,4 +1,4 @@
-/*	$OpenBSD: uaudio.c,v 1.151 2020/03/23 17:10:02 bluhm Exp $	*/
+/*	$OpenBSD: uaudio.c,v 1.153 2020/04/24 21:36:06 ratchov Exp $	*/
 /*
  * Copyright (c) 2018 Alexandre Ratchov <alex@caoua.org>
  *
@@ -1895,6 +1895,25 @@ uaudio_mixer_nchan(struct uaudio_mixent *m, struct uaudio_mixent **rnext)
 }
 
 /*
+ * Skip redundant mixer entries that we don't want to expose to userland.
+ * For instance if there is a mute-all-channels control and per-channel
+ * mute controls, we don't want both (we expose the per-channel mute)
+ */
+void
+uaudio_mixer_skip(struct uaudio_mixent **pm)
+{
+	struct uaudio_mixent *m = *pm;
+
+	if (m != NULL &&
+	    m->chan == -1 &&
+	    m->next != NULL &&
+	    strcmp(m->fname, m->next->fname) == 0)
+		m = m->next;
+
+	*pm = m;
+}
+
+/*
  * Return pointer to the unit and mixer entry which have the given
  * index exposed by the mixer(4) API.
  */
@@ -1911,6 +1930,7 @@ uaudio_mixer_byindex(struct uaudio_softc *sc, int index,
 	for (u = sc->unit_list; u != NULL; u = u->unit_next) {
 		m = u->mixent_list;
 		while (1) {
+			uaudio_mixer_skip(&m);
 			if (m == NULL)
 				break;
 			if (index == i) {
@@ -3663,8 +3683,14 @@ uaudio_print(struct uaudio_softc *sc)
 	int nctl = 0;
 
 	for (u = sc->unit_list; u != NULL; u = u->unit_next) {
-		for (m = u->mixent_list; m != NULL; m = m->next)
+		m = u->mixent_list;
+		while (1) {
+			uaudio_mixer_skip(&m);
+			if (m == NULL)
+				break;
+			m = m->next;
 			nctl++;
+		}
 	}
 
 	for (p = sc->params_list; p != NULL; p = p->next) {
@@ -4289,8 +4315,13 @@ uaudio_query_devinfo(void *arg, struct mixer_devinfo *devinfo)
 		 */
 		strlcpy(devinfo->label.name, u->name, MAX_AUDIO_DEV_LEN);
 	} else {
-		snprintf(devinfo->label.name,
-		    MAX_AUDIO_DEV_LEN, "%s_%s", u->name, m->fname);
+		if (m->chan == -1) {
+			snprintf(devinfo->label.name, MAX_AUDIO_DEV_LEN,
+			    "%s_%s", u->name, m->fname);
+		} else {
+			snprintf(devinfo->label.name, MAX_AUDIO_DEV_LEN,
+			    "%s_%s%u", u->name, m->fname, m->chan);
+		}
 	}
 
 	devinfo->mixer_class = u->mixer_class;

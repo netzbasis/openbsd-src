@@ -1,4 +1,4 @@
-/Makefile/1.767/Wed Apr 22 10:10:41 2020//
+/Makefile/1.768/Fri Apr 24 10:05:18 2020//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
@@ -107,6 +107,7 @@
 /bcmclock.4/1.1/Sun Apr 19 16:09:45 2020//
 /bcmdmac.4/1.2/Wed Apr 22 11:35:03 2020//
 /bcmdog.4/1.1/Sun Apr  1 09:03:25 2018//
+/bcmgpio.4/1.1/Fri Apr 24 10:05:18 2020//
 /bcmirng.4/1.1/Sun Apr 19 16:06:48 2020//
 /bcmmbox.4/1.1/Sun Apr 19 16:09:45 2020//
 /bcmpcie.4/1.1/Sun Apr 19 09:27:44 2020//

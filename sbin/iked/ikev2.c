@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.218 2020/04/23 20:17:48 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.220 2020/04/24 21:20:52 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -29,6 +29,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
@@ -536,7 +537,9 @@ ikev2_recv(struct iked *env, struct iked_message *msg)
 	if (policy_lookup(env, msg, NULL) != 0)
 		return;
 
-	log_info("%srecv %s %s %u peer %s local %s, %ld bytes, policy '%s'",
+	logit(hdr->ike_exchange == IKEV2_EXCHANGE_INFORMATIONAL ?
+	    LOG_DEBUG : LOG_INFO,
+	    "%srecv %s %s %u peer %s local %s, %ld bytes, policy '%s'",
 	    SPI_IH(hdr),
 	    print_map(hdr->ike_exchange, ikev2_exchange_map),
 	    msg->msg_response ? "res" : "req",
@@ -1027,7 +1030,7 @@ ikev2_init_ike_sa(struct iked *env, void *arg)
 			continue;
 		}
 
-		log_debug("%s: initiating \"%s\"", __func__, pol->pol_name);
+		log_info("%s: initiating \"%s\"", __func__, pol->pol_name);
 
 		if (ikev2_init_ike_sa_peer(env, pol, &pol->pol_peer, NULL))
 			log_debug("%s: failed to initiate with peer %s",
@@ -2597,6 +2600,8 @@ ikev2_handle_notifies(struct iked *env, struct iked_message *msg)
 
 	if (msg->msg_flags & IKED_MSG_FLAGS_AUTHENTICATION_FAILED) {
 		log_debug("%s: AUTHENTICATION_FAILED, closing SA", __func__);
+		ikev2_log_cert_info(SPI_SA(sa, __func__),
+		    sa->sa_hdr.sh_initiator ? &sa->sa_rcert : &sa->sa_icert);
 		ikev2_ike_sa_setreason(sa,
 		    "authentication failed notification from peer");
 		sa_state(env, sa, IKEV2_STATE_CLOSED);
@@ -3514,6 +3519,7 @@ ikev2_ike_sa_rekey(struct iked *env, void *arg)
 		 * We cannot initiate multiple concurrent CREATE_CHILD_SA
 		 * exchanges, so retry in one minute.
 		 */
+		log_info("%s: busy, delaying rekey", SPI_SA(sa, __func__));
 		timer_add(env, &sa->sa_rekey, 60);
 		return;
 	}
