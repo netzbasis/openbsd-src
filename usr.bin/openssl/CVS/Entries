@@ -24,7 +24,7 @@
 /genrsa.c/1.17/Wed Jul 24 14:23:25 2019//
 /nseq.c/1.9/Sun Jul 14 03:30:46 2019//
 /ocsp.c/1.15/Wed Feb  7 05:49:36 2018//
-/openssl.1/1.120/Wed Feb 19 20:42:12 2020//
+/openssl.1/1.121/Sat Apr 25 19:18:40 2020//
 /openssl.c/1.30/Mon Nov  4 15:25:54 2019//
 /passwd.c/1.10/Sun Jul 14 03:30:46 2019//
 /pkcs12.c/1.14/Fri Jul 26 12:35:59 2019//
@@ -40,8 +40,8 @@
 /rsa.c/1.14/Sun Jul 14 03:30:46 2019//
 /rsautl.c/1.18/Sun Jul 14 03:30:46 2019//
 /s_apps.h/1.5/Wed Apr 25 07:12:33 2018//
-/s_cb.c/1.13/Sat Jan 25 05:29:10 2020//
-/s_client.c/1.43/Sun Apr 19 17:05:55 2020//
+/s_cb.c/1.14/Sun Apr 26 02:09:21 2020//
+/s_client.c/1.44/Sun Apr 26 01:59:27 2020//
 /s_server.c/1.33/Sun Apr 19 17:05:55 2020//
 /s_socket.c/1.11/Fri Jun 28 13:35:02 2019//
 /s_time.c/1.34/Sun Jul 14 03:30:46 2019//

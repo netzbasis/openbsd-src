@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.121 2020/04/24 09:52:43 kettenis Exp $
+# $OpenBSD: RAMDISK,v 1.124 2020/04/25 22:28:12 kettenis Exp $
 #
 # GENERIC machine description file
 #
@@ -128,6 +128,8 @@ sdmmc*		at imxesdhc?
 
 # Raspberry Pi 3/4
 bcmaux*		at fdt? early 1
+bcmbsc*		at fdt?
+iic*		at bcmbsc?
 bcmclock*	at fdt? early 1
 bcmdmac*	at fdt? early 1
 bcmdog*		at fdt?
@@ -296,9 +298,12 @@ uk*		at scsibus?
 
 # I2C devices
 abcrtc*		at iic?			# Abracon x80x RTC
+dsxrtc*		at iic?			# DS3231 RTC
 fusbtc*		at iic?			# USB Type-C controller
 islrtc*		at iic?			# ISL1208 RTC
+maxrtc*		at iic?			# DS1307 RTC
 mcprtc*		at iic?			# MCP794XX RTC
+pcfrtc*		at iic?			# PCF8523 RTC
 pcxrtc*		at iic?			# PCF8563 RTC
 rkpmic*		at iic?			# RK808 PMIC
 
