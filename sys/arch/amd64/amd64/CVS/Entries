@@ -37,7 +37,7 @@
 /lapic.c/1.55/Sat Aug  3 14:57:51 2019//
 /locore.S/1.119/Wed Aug  7 18:53:28 2019//
 /locore0.S/1.19/Wed Feb 19 16:55:04 2020//
-/machdep.c/1.261/Fri Jan 24 05:27:31 2020//
+/machdep.c/1.262/Tue Apr 28 12:58:27 2020//
 /mainbus.c/1.49/Sat Sep  7 13:46:19 2019//
 /mds.S/1.2/Fri Nov 29 17:47:10 2019//
 /mem.c/1.34/Mon Feb 19 08:59:52 2018//
