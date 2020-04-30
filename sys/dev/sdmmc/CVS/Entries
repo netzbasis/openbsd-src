@@ -7,7 +7,7 @@
 /sdhcreg.h/1.9/Thu Sep  6 10:15:17 2018//
 /sdhcvar.h/1.13/Sun Apr 19 16:25:33 2020//
 /sdmmc.c/1.54/Tue Dec 31 10:05:33 2019//
-/sdmmc_cis.c/1.7/Sat Apr 23 14:15:59 2016//
+/sdmmc_cis.c/1.8/Wed Apr 29 09:44:49 2020//
 /sdmmc_io.c/1.41/Tue Dec 31 10:05:33 2019//
 /sdmmc_ioreg.h/1.11/Thu Aug  9 13:50:15 2018//
 /sdmmc_mem.c/1.33/Mon Jun  4 13:33:10 2018//
