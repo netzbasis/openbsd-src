@@ -32,12 +32,12 @@
 /ex_script.c/1.27/Tue Apr 18 01:45:35 2017//
 /ex_set.c/1.6/Wed Nov 12 04:28:41 2014//
 /ex_shell.c/1.15/Sat Mar 28 12:54:37 2015//
-/ex_shift.c/1.8/Wed Jan  6 22:28:52 2016//
+/ex_shift.c/1.9/Thu Apr 30 10:40:21 2020//
 /ex_source.c/1.10/Mon Dec  7 20:39:19 2015//
 /ex_stop.c/1.6/Wed Nov 12 04:28:41 2014//
 /ex_subst.c/1.30/Tue Apr 18 01:45:35 2017//
 /ex_tag.c/1.25/Tue Apr 18 01:45:35 2017//
-/ex_txt.c/1.16/Fri May 27 09:18:12 2016//
+/ex_txt.c/1.17/Thu Apr 30 10:40:21 2020//
 /ex_undo.c/1.6/Wed Nov 12 04:28:41 2014//
 /ex_usage.c/1.10/Fri Jul 13 09:02:07 2018//
 /ex_util.c/1.9/Wed Jan  6 22:28:52 2016//
