@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.34 2020/04/28 20:37:22 jsing Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.40 2020/05/09 20:38:19 tb Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -89,6 +89,8 @@ tls13_client_hello_is_legacy(CBS *cbs)
 	return (max_version < TLS1_3_VERSION);
 }
 
+static const uint8_t tls13_compression_null_only[] = { 0 };
+
 static int
 tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 {
@@ -96,8 +98,7 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	STACK_OF(SSL_CIPHER) *ciphers = NULL;
 	const SSL_CIPHER *cipher;
 	uint16_t legacy_version;
-	uint8_t compression_method;
-	int alert_desc, comp_null;
+	int alert_desc;
 	SSL *s = ctx->ssl;
 	int ret = 0;
 
@@ -155,15 +156,9 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	}
 	S3I(s)->hs.new_cipher = cipher;
 
-	/* Ensure they advertise the NULL compression method. */
-	comp_null = 0;
-	while (CBS_len(&compression_methods) > 0) {
-		if (!CBS_get_u8(&compression_methods, &compression_method))
-			goto err;
-		if (compression_method == 0)
-			comp_null = 1;
-	}
-	if (!comp_null) {
+	/* Ensure only the NULL compression method is advertised. */
+	if (!CBS_mem_equal(&compression_methods, tls13_compression_null_only,
+	    sizeof(tls13_compression_null_only))) {
 		ctx->alert = SSL_AD_ILLEGAL_PARAMETER;
 		goto err;
 	}
@@ -210,17 +205,25 @@ tls13_client_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
 }
 
 static int
-tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb)
+tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb, int hrr)
 {
+	uint16_t tlsext_msg_type = SSL_TLSEXT_MSG_SH;
+	const uint8_t *server_random;
 	CBB session_id;
 	SSL *s = ctx->ssl;
 	uint16_t cipher;
 
 	cipher = SSL_CIPHER_get_value(S3I(s)->hs.new_cipher);
+	server_random = s->s3->server_random;
+
+	if (hrr) {
+		server_random = tls13_hello_retry_request_hash;
+		tlsext_msg_type = SSL_TLSEXT_MSG_HRR;
+	}
 
 	if (!CBB_add_u16(cbb, TLS1_2_VERSION))
 		goto err;
-	if (!CBB_add_bytes(cbb, s->s3->server_random, SSL3_RANDOM_SIZE))
+	if (!CBB_add_bytes(cbb, server_random, SSL3_RANDOM_SIZE))
 		goto err;
 	if (!CBB_add_u8_length_prefixed(cbb, &session_id))
 		goto err;
@@ -231,7 +234,7 @@ tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb)
 		goto err;
 	if (!CBB_add_u8(cbb, 0))
 		goto err;
-	if (!tlsext_server_build(s, cbb, SSL_TLSEXT_MSG_SH))
+	if (!tlsext_server_build(s, cbb, tlsext_msg_type))
 		goto err;
 
 	if (!CBB_flush(cbb))
@@ -242,35 +245,8 @@ err:
 	return 0;
 }
 
-int
-tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb)
-{
-	return 0;
-}
-
-int
-tls13_client_hello_retry_recv(struct tls13_ctx *ctx, CBS *cbs)
-{
-	return 0;
-}
-
-int
-tls13_server_hello_send(struct tls13_ctx *ctx, CBB *cbb)
-{
-	if (ctx->hs->key_share == NULL)
-		return 0;
-
-	if (!tls13_key_share_generate(ctx->hs->key_share))
-		return 0;
-
-	if (!tls13_server_hello_build(ctx, cbb))
-		return 0;
-
-	return 1;
-}
-
-int
-tls13_server_hello_sent(struct tls13_ctx *ctx)
+static int
+tls13_server_engage_record_protection(struct tls13_ctx *ctx) 
 {
 	struct tls13_secrets *secrets;
 	struct tls13_secret context;
@@ -335,6 +311,64 @@ tls13_server_hello_sent(struct tls13_ctx *ctx)
  err:
 	freezero(shared_key, shared_key_len);
 	return ret;
+}
+
+int
+tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb)
+{
+	int nid;
+
+	if (!tls13_synthetic_handshake_message(ctx))
+		return 0;
+
+	if (ctx->hs->key_share != NULL)
+		return 0;
+	if ((nid = tls1_get_shared_curve(ctx->ssl)) == NID_undef)
+		return 0;
+	if ((ctx->hs->server_group = tls1_ec_nid2curve_id(nid)) == 0)
+		return 0;
+
+	if (!tls13_server_hello_build(ctx, cbb, 1))
+		return 0;
+
+	return 1;
+}
+
+int
+tls13_client_hello_retry_recv(struct tls13_ctx *ctx, CBS *cbs)
+{
+	SSL *s = ctx->ssl;
+
+	if (!tls13_client_hello_process(ctx, cbs))
+		return 0;
+
+	/* XXX - need further checks. */
+	if (s->method->internal->version < TLS1_3_VERSION)
+		return 0;
+
+	return 1;
+}
+
+int
+tls13_server_hello_send(struct tls13_ctx *ctx, CBB *cbb)
+{
+	if (ctx->hs->key_share == NULL)
+		return 0;
+	if (!tls13_key_share_generate(ctx->hs->key_share))
+		return 0;
+
+	ctx->hs->server_group = 0;
+
+	if (!tls13_server_hello_build(ctx, cbb, 0))
+		return 0;
+
+	return 1;
+}
+
+int
+tls13_server_hello_sent(struct tls13_ctx *ctx)
+{
+	return tls13_server_engage_record_protection(ctx);
 }
 
 int

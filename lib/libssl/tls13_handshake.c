@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_handshake.c,v 1.55 2020/05/02 00:30:55 inoguchi Exp $	*/
+/*	$OpenBSD: tls13_handshake.c,v 1.59 2020/05/09 20:38:19 tb Exp $	*/
 /*
  * Copyright (c) 2018-2019 Theo Buehler <tb@openbsd.org>
  * Copyright (c) 2019 Joel Sing <jsing@openbsd.org>
@@ -309,13 +309,16 @@ tls13_handshake_perform(struct tls13_ctx *ctx)
 		if (ctx->alert)
 			return tls13_send_alert(ctx->rl, ctx->alert);
 
-		if (action->sender == ctx->mode) {
-			if ((ret = tls13_handshake_send_action(ctx, action)) <= 0)
-				return ret;
-		} else {
-			if ((ret = tls13_handshake_recv_action(ctx, action)) <= 0)
-				return ret;
-		}
+		if (action->sender == ctx->mode)
+			ret = tls13_handshake_send_action(ctx, action);
+		else
+			ret = tls13_handshake_recv_action(ctx, action);
+
+		if (ctx->alert)
+			return tls13_send_alert(ctx->rl, ctx->alert);
+
+		if (ret <= 0)
+			return ret;
 
 		if (!tls13_handshake_advance_state_machine(ctx))
 			return TLS13_IO_FAILURE;
@@ -329,6 +332,12 @@ tls13_handshake_send_action(struct tls13_ctx *ctx,
 	ssize_t ret;
 	CBB cbb;
 
+	if (ctx->send_dummy_ccs) {
+		if ((ret = tls13_send_dummy_ccs(ctx->rl)) != TLS13_IO_SUCCESS)
+			return ret;
+		ctx->send_dummy_ccs = 0;
+	}
+
 	/* If we have no handshake message, we need to build one. */
 	if (ctx->hs_msg == NULL) {
 		if ((ctx->hs_msg = tls13_handshake_msg_new()) == NULL)
@@ -340,9 +349,6 @@ tls13_handshake_send_action(struct tls13_ctx *ctx,
 			return TLS13_IO_FAILURE;
 		if (!tls13_handshake_msg_finish(ctx->hs_msg))
 			return TLS13_IO_FAILURE;
-
-		if (ctx->alert)
-			return tls13_send_alert(ctx->rl, ctx->alert);
 	}
 
 	if ((ret = tls13_handshake_msg_send(ctx->hs_msg, ctx->rl)) <= 0)
@@ -423,9 +429,6 @@ tls13_handshake_recv_action(struct tls13_ctx *ctx,
 			ret = TLS13_IO_SUCCESS;
 		}
 	}
-
-	if (ctx->alert)
-		ret = tls13_send_alert(ctx->rl, ctx->alert);
 
 	tls13_handshake_msg_free(ctx->hs_msg);
 	ctx->hs_msg = NULL;
