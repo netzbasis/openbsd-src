@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.72 2020/05/09 20:38:19 tb Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.75 2020/05/10 17:13:30 tb Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -43,6 +43,38 @@ __BEGIN_HIDDEN_DECLS
 #define TLS13_ERR_HRR_FAILED		17
 #define TLS13_ERR_TRAILING_DATA		18
 #define TLS13_ERR_NO_SHARED_CIPHER	19
+#define TLS13_ERR_NO_PEER_CERTIFICATE	20
+
+#define TLS13_ALERT_LEVEL_WARNING			1
+#define TLS13_ALERT_LEVEL_FATAL				2
+
+#define TLS13_ALERT_CLOSE_NOTIFY			0
+#define TLS13_ALERT_UNEXPECTED_MESSAGE			10
+#define TLS13_ALERT_BAD_RECORD_MAC			20
+#define TLS13_ALERT_RECORD_OVERFLOW			22
+#define TLS13_ALERT_HANDSHAKE_FAILURE			40
+#define TLS13_ALERT_BAD_CERTIFICATE			42
+#define TLS13_ALERT_UNSUPPORTED_CERTIFICATE		43
+#define TLS13_ALERT_CERTIFICATE_REVOKED			44
+#define TLS13_ALERT_CERTIFICATE_EXPIRED			45
+#define TLS13_ALERT_CERTIFICATE_UNKNOWN			46
+#define TLS13_ALERT_ILLEGAL_PARAMETER			47
+#define TLS13_ALERT_UNKNOWN_CA				48
+#define TLS13_ALERT_ACCESS_DENIED			49
+#define TLS13_ALERT_DECODE_ERROR			50
+#define TLS13_ALERT_DECRYPT_ERROR			51
+#define TLS13_ALERT_PROTOCOL_VERSION			70
+#define TLS13_ALERT_INSUFFICIENT_SECURITY		71
+#define TLS13_ALERT_INTERNAL_ERROR			80
+#define TLS13_ALERT_INAPPROPRIATE_FALLBACK		86
+#define TLS13_ALERT_USER_CANCELED			90
+#define TLS13_ALERT_MISSING_EXTENSION			109
+#define TLS13_ALERT_UNSUPPORTED_EXTENSION		110
+#define TLS13_ALERT_UNRECOGNIZED_NAME			112
+#define TLS13_ALERT_BAD_CERTIFICATE_STATUS_RESPONSE	113
+#define TLS13_ALERT_UNKNOWN_PSK_IDENTITY		115
+#define TLS13_ALERT_CERTIFICATE_REQUIRED		116
+#define TLS13_ALERT_NO_APPLICATION_PROTOCOL		120
 
 typedef void (*tls13_alert_cb)(uint8_t _alert_desc, void *_cb_arg);
 typedef ssize_t (*tls13_phh_recv_cb)(void *_cb_arg, CBS *_cbs);
@@ -221,6 +253,7 @@ struct tls13_ctx {
 	int handshake_completed;
 	int middlebox_compat;
 	int send_dummy_ccs;
+	int send_dummy_ccs_after;
 
 	int close_notify_sent;
 	int close_notify_recv;
@@ -323,6 +356,7 @@ int tls13_server_hello_send(struct tls13_ctx *ctx, CBB *cbb);
 int tls13_server_hello_sent(struct tls13_ctx *ctx);
 int tls13_server_hello_retry_request_recv(struct tls13_ctx *ctx, CBS *cbs);
 int tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb);
+int tls13_server_hello_retry_request_sent(struct tls13_ctx *ctx);
 int tls13_server_encrypted_extensions_recv(struct tls13_ctx *ctx, CBS *cbs);
 int tls13_server_encrypted_extensions_send(struct tls13_ctx *ctx, CBB *cbb);
 int tls13_server_certificate_recv(struct tls13_ctx *ctx, CBS *cbs);

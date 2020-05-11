@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.40 2020/05/09 20:38:19 tb Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.43 2020/05/10 17:13:30 tb Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -129,13 +129,13 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	 * TLS 1.3 or later. This requires the legacy version be set to 0x0303.
 	 */
 	if (legacy_version != TLS1_2_VERSION) {
-		ctx->alert = SSL_AD_PROTOCOL_VERSION;
+		ctx->alert = TLS13_ALERT_PROTOCOL_VERSION;
 		goto err;
 	}
 
 	/* Store legacy session identifier so we can echo it. */
 	if (CBS_len(&session_id) > sizeof(ctx->hs->legacy_session_id)) {
-		ctx->alert = SSL_AD_ILLEGAL_PARAMETER;
+		ctx->alert = TLS13_ALERT_ILLEGAL_PARAMETER;
 		goto err;
 	}
 	if (!CBS_write_bytes(&session_id, ctx->hs->legacy_session_id,
@@ -144,14 +144,14 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 
 	/* Parse cipher suites list and select preferred cipher. */
 	if ((ciphers = ssl_bytes_to_cipher_list(s, &cipher_suites)) == NULL) {
-		ctx->alert = SSL_AD_ILLEGAL_PARAMETER;
+		ctx->alert = TLS13_ALERT_ILLEGAL_PARAMETER;
 		goto err;
 	}
 	cipher = ssl3_choose_cipher(s, ciphers, SSL_get_ciphers(s));
 	if (cipher == NULL) {
 		tls13_set_errorx(ctx, TLS13_ERR_NO_SHARED_CIPHER, 0,
 		    "no shared cipher found", NULL);
-		ctx->alert = SSL_AD_HANDSHAKE_FAILURE;
+		ctx->alert = TLS13_ALERT_HANDSHAKE_FAILURE;
 		goto err;
 	}
 	S3I(s)->hs.new_cipher = cipher;
@@ -159,7 +159,7 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	/* Ensure only the NULL compression method is advertised. */
 	if (!CBS_mem_equal(&compression_methods, tls13_compression_null_only,
 	    sizeof(tls13_compression_null_only))) {
-		ctx->alert = SSL_AD_ILLEGAL_PARAMETER;
+		ctx->alert = TLS13_ALERT_ILLEGAL_PARAMETER;
 		goto err;
 	}
 
@@ -335,6 +335,20 @@ tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb)
 }
 
 int
+tls13_server_hello_retry_request_sent(struct tls13_ctx *ctx)
+{
+	/*
+	 * If the client has requested middlebox compatibility mode,
+	 * we MUST send a dummy CCS following our first handshake message.
+	 * See RFC 8446 Appendix D.4.
+	 */
+	if (ctx->hs->legacy_session_id_len > 0)
+		ctx->send_dummy_ccs_after = 1;
+
+	return 1;
+}
+
+int
 tls13_client_hello_retry_recv(struct tls13_ctx *ctx, CBS *cbs)
 {
 	SSL *s = ctx->ssl;
@@ -368,6 +382,15 @@ tls13_server_hello_send(struct tls13_ctx *ctx, CBB *cbb)
 int
 tls13_server_hello_sent(struct tls13_ctx *ctx)
 {
+	/*
+	 * If the client has requested middlebox compatibility mode,
+	 * we MUST send a dummy CCS following our first handshake message.
+	 * See RFC 8446 Appendix D.4.
+	 */
+	if ((ctx->handshake_stage.hs_type & WITHOUT_HRR) &&
+	    ctx->hs->legacy_session_id_len > 0)
+		ctx->send_dummy_ccs_after = 1;
+
 	return tls13_server_engage_record_protection(ctx);
 }
 
@@ -517,7 +540,7 @@ tls13_server_certificate_verify_send(struct tls13_ctx *ctx, CBB *cbb)
 
  err:
 	if (!ret && ctx->alert == 0)
-		ctx->alert = TLS1_AD_INTERNAL_ERROR;
+		ctx->alert = TLS13_ALERT_INTERNAL_ERROR;
 
 	CBB_cleanup(&sig_cbb);
 	EVP_MD_CTX_free(mdctx);
@@ -619,9 +642,14 @@ tls13_client_certificate_recv(struct tls13_ctx *ctx, CBS *cbs)
 		goto err;
 	if (!CBS_get_u24_length_prefixed(cbs, &cert_list))
 		goto err;
-
-	if (CBS_len(&cert_list) == 0)
-		return 1;
+	if (CBS_len(&cert_list) == 0) {
+		if (!(s->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT))
+			return 1;
+		ctx->alert = TLS13_ALERT_CERTIFICATE_REQUIRED;
+		tls13_set_errorx(ctx, TLS13_ERR_NO_PEER_CERTIFICATE, 0,
+		    "peer did not provide a certificate", NULL);
+		goto err;
+	}
 
 	if ((certs = sk_X509_new_null()) == NULL)
 		goto err;
@@ -648,8 +676,7 @@ tls13_client_certificate_recv(struct tls13_ctx *ctx, CBS *cbs)
 	 * be preferable to keep the chain and verify once we have successfully
 	 * processed the CertificateVerify message.
 	 */
-	if (ssl_verify_cert_chain(s, certs) <= 0 &&
-	    s->verify_mode != SSL_VERIFY_NONE) {
+	if (ssl_verify_cert_chain(s, certs) <= 0) {
 		ctx->alert = ssl_verify_alarm_type(s->verify_result);
 		tls13_set_errorx(ctx, TLS13_ERR_VERIFY_FAILED, 0,
 		    "failed to verify peer certificate", NULL);
@@ -757,12 +784,12 @@ tls13_client_certificate_verify_recv(struct tls13_ctx *ctx, CBS *cbs)
 			goto err;
 	}
 	if (!EVP_DigestVerifyUpdate(mdctx, sig_content, sig_content_len)) {
-		ctx->alert = TLS1_AD_DECRYPT_ERROR;
+		ctx->alert = TLS13_ALERT_DECRYPT_ERROR;
 		goto err;
 	}
 	if (EVP_DigestVerifyFinal(mdctx, CBS_data(&signature),
 	    CBS_len(&signature)) <= 0) {
-		ctx->alert = TLS1_AD_DECRYPT_ERROR;
+		ctx->alert = TLS13_ALERT_DECRYPT_ERROR;
 		goto err;
 	}
 
@@ -770,7 +797,7 @@ tls13_client_certificate_verify_recv(struct tls13_ctx *ctx, CBS *cbs)
 
  err:
 	if (!ret && ctx->alert == 0) {
-		ctx->alert = TLS1_AD_DECODE_ERROR;
+		ctx->alert = TLS13_ALERT_DECODE_ERROR;
 	}
 	CBB_cleanup(&cbb);
 	EVP_MD_CTX_free(mdctx);
@@ -826,7 +853,7 @@ tls13_client_finished_recv(struct tls13_ctx *ctx, CBS *cbs)
 		goto err;
 
 	if (!CBS_mem_equal(cbs, verify_data, verify_data_len)) {
-		ctx->alert = TLS1_AD_DECRYPT_ERROR;
+		ctx->alert = TLS13_ALERT_DECRYPT_ERROR;
 		goto err;
 	}
 
