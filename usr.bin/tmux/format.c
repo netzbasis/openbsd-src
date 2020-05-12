@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.243 2020/04/18 07:19:28 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.247 2020/04/22 20:47:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -954,7 +954,7 @@ format_cb_cursor_character(struct format_tree *ft, struct format_entry *fe)
 char *
 format_grid_word(struct grid *gd, u_int x, u_int y)
 {
-	struct grid_line	*gl;
+	const struct grid_line	*gl;
 	struct grid_cell	 gc;
 	const char		*ws;
 	struct utf8_data	*ud = NULL;
@@ -977,7 +977,7 @@ format_grid_word(struct grid *gd, u_int x, u_int y)
 		if (x == 0) {
 			if (y == 0)
 				break;
-			gl = &gd->linedata[y - 1];
+			gl = grid_peek_line(gd, y - 1);
 			if (~gl->flags & GRID_LINE_WRAPPED)
 				break;
 			y--;
@@ -993,7 +993,7 @@ format_grid_word(struct grid *gd, u_int x, u_int y)
 			if (end == 0 || x == end - 1) {
 				if (y == gd->hsize + gd->sy - 1)
 					break;
-				gl = &gd->linedata[y];
+				gl = grid_peek_line(gd, y);
 				if (~gl->flags & GRID_LINE_WRAPPED)
 					break;
 				y++;
@@ -2529,6 +2529,11 @@ format_defaults_session(struct format_tree *ft, struct session *s)
 
 	format_add_cb(ft, "session_alerts", format_cb_session_alerts);
 	format_add_cb(ft, "session_stack", format_cb_session_stack);
+
+	if (server_check_marked() && marked_pane.s == s)
+	    format_add(ft, "session_marked", "1");
+	else
+	    format_add(ft, "session_marked", "0");
 }
 
 /* Set default format keys for a client. */
@@ -2553,8 +2558,9 @@ format_defaults_client(struct format_tree *ft, struct client *c)
 	format_add(ft, "client_control_mode", "%d",
 		!!(c->flags & CLIENT_CONTROL));
 
-	if (tty->term_name != NULL)
-		format_add(ft, "client_termname", "%s", tty->term_name);
+	format_add(ft, "client_termname", "%s", c->term_name);
+	format_add(ft, "client_termfeatures", "%s",
+	    tty_get_features(c->term_features));
 
 	format_add_tv(ft, "client_created", &c->creation_time);
 	format_add_tv(ft, "client_activity", &c->activity_time);
@@ -2569,7 +2575,7 @@ format_defaults_client(struct format_tree *ft, struct client *c)
 		format_add(ft, "client_prefix", "%d", 1);
 	format_add(ft, "client_key_table", "%s", c->keytable->name);
 
-	if (tty_get_flags(tty) & TERM_UTF8)
+	if (c->flags & CLIENT_UTF8)
 		format_add(ft, "client_utf8", "%d", 1);
 	else
 		format_add(ft, "client_utf8", "%d", 0);

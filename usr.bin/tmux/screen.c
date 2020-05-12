@@ -1,4 +1,4 @@
-/* $OpenBSD: screen.c,v 1.63 2020/04/17 14:06:42 nicm Exp $ */
+/* $OpenBSD: screen.c,v 1.66 2020/04/22 08:48:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -48,7 +48,7 @@ struct screen_title_entry {
 };
 TAILQ_HEAD(screen_titles, screen_title_entry);
 
-static void	screen_resize_y(struct screen *, u_int, int);
+static void	screen_resize_y(struct screen *, u_int, int, u_int *);
 static void	screen_reflow(struct screen *, u_int, u_int *, u_int *);
 
 /* Free titles stack. */
@@ -84,6 +84,8 @@ screen_init(struct screen *s, u_int sx, u_int sy, u_int hlimit)
 	s->ccolour = xstrdup("");
 	s->tabs = NULL;
 	s->sel = NULL;
+
+	s->write_list = NULL;
 
 	screen_reinit(s);
 }
@@ -121,6 +123,9 @@ screen_free(struct screen *s)
 	free(s->tabs);
 	free(s->title);
 	free(s->ccolour);
+
+	if (s->write_list != NULL)
+		screen_write_free_list(s);
 
 	if (s->saved_grid != NULL)
 		grid_destroy(s->saved_grid);
@@ -222,6 +227,9 @@ screen_resize_cursor(struct screen *s, u_int sx, u_int sy, int reflow,
 {
 	u_int	tcx, tcy;
 
+	if (s->write_list != NULL)
+		screen_write_free_list(s);
+
 	if (cx == NULL)
 		cx = &tcx;
 	*cx = s->cx;
@@ -246,7 +254,7 @@ screen_resize_cursor(struct screen *s, u_int sx, u_int sy, int reflow,
 		reflow = 0;
 
 	if (sy != screen_size_y(s))
-		screen_resize_y(s, sy, eat_empty);
+		screen_resize_y(s, sy, eat_empty, cy);
 
 	if (reflow)
 		screen_reflow(s, sx, cx, cy);
@@ -260,6 +268,9 @@ screen_resize_cursor(struct screen *s, u_int sx, u_int sy, int reflow,
 	}
 	log_debug("%s: cursor finished at %u,%u = %u,%u", __func__, s->cx,
 	    s->cy, *cx, *cy);
+
+	if (s->write_list != NULL)
+		screen_write_make_list(s);
 }
 
 /* Resize screen. */
@@ -270,7 +281,7 @@ screen_resize(struct screen *s, u_int sx, u_int sy, int reflow)
 }
 
 static void
-screen_resize_y(struct screen *s, u_int sy, int eat_empty)
+screen_resize_y(struct screen *s, u_int sy, int eat_empty, u_int *cy)
 {
 	struct grid	*gd = s->grid;
 	u_int		 needed, available, oldy, i;
@@ -319,6 +330,7 @@ screen_resize_y(struct screen *s, u_int sy, int eat_empty)
 			if (available > needed)
 				available = needed;
 			grid_view_delete_lines(gd, 0, available, 8);
+			(*cy) -= available;
 		}
 	}
 

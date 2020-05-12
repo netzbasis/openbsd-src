@@ -1,4 +1,4 @@
-/*	$OpenBSD: policy.c,v 1.58 2020/04/04 20:36:34 tobhe Exp $	*/
+/*	$OpenBSD: policy.c,v 1.61 2020/05/11 20:11:35 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -88,6 +88,11 @@ policy_lookup(struct iked *env, struct iked_message *msg,
 	if (proposals != NULL)
 		pol.pol_proposals = *proposals;
 	pol.pol_af = msg->msg_peer.ss_family;
+	if (msg->msg_flags & IKED_MSG_FLAGS_USE_TRANSPORT) {
+		log_info("Checking transport mode.");
+		pol.pol_flags |= IKED_POLICY_TRANSPORT;
+	} else
+		log_info("Checking without transport mode.");
 	memcpy(&pol.pol_peer.addr, &msg->msg_peer, sizeof(msg->msg_peer));
 	memcpy(&pol.pol_local.addr, &msg->msg_local, sizeof(msg->msg_local));
 	if (msg->msg_id.id_type &&
@@ -101,8 +106,11 @@ policy_lookup(struct iked *env, struct iked_message *msg,
 	}
 
 	/* Try to find a matching policy for this message */
-	if ((msg->msg_policy = policy_test(env, &pol)) != NULL)
+	if ((msg->msg_policy = policy_test(env, &pol)) != NULL) {
+		log_debug("%s: setting policy '%s'", __func__,
+		    msg->msg_policy->pol_name);
 		return (0);
+	}
 
 	/* No matching policy found, try the default */
 	if ((msg->msg_policy = env->sc_defaultcon) != NULL)
@@ -170,10 +178,17 @@ policy_test(struct iked *env, struct iked_policy *key)
 				continue;
 			}
 
+			/* check transport mode */
+			if ((key->pol_flags & IKED_POLICY_TRANSPORT) &&
+			    !(p->pol_flags & IKED_POLICY_TRANSPORT)) {
+				p = TAILQ_NEXT(p, pol_entry);
+				continue;
+			}
+
 			/* Make sure the proposals are compatible */
 			if (TAILQ_FIRST(&key->pol_proposals) &&
-			    proposals_negotiate(NULL, &key->pol_proposals,
-			    &p->pol_proposals, 0) == -1) {
+			    proposals_negotiate(NULL, &p->pol_proposals,
+			    &key->pol_proposals, 0) == -1) {
 				p = TAILQ_NEXT(p, pol_entry);
 				continue;
 			}
@@ -874,6 +889,8 @@ flow_cmp(struct iked_flow *a, struct iked_flow *b)
 {
 	int		diff = 0;
 
+	if (!diff)
+		diff = a->flow_rdomain - b->flow_rdomain;
 	if (!diff)
 		diff = (int)a->flow_ipproto - (int)b->flow_ipproto;
 	if (!diff)

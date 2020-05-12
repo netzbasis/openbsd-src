@@ -1,4 +1,4 @@
-/* $OpenBSD: tag.c,v 1.34 2020/04/08 11:54:14 schwarze Exp $ */
+/* $OpenBSD: tag.c,v 1.36 2020/04/19 16:26:11 schwarze Exp $ */
 /*
  * Copyright (c) 2015,2016,2018,2019,2020 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -30,6 +30,7 @@
 #include "mandoc_ohash.h"
 #include "roff.h"
 #include "mdoc.h"
+#include "roff_int.h"
 #include "tag.h"
 
 struct tag_entry {
@@ -40,6 +41,8 @@ struct tag_entry {
 	char	 s[];
 };
 
+static void		 tag_move_href(struct roff_man *,
+				struct roff_node *, const char *);
 static void		 tag_move_id(struct roff_node *);
 
 static struct ohash	 tag_data;
@@ -251,18 +254,57 @@ tag_move_id(struct roff_node *n)
 }
 
 /*
+ * When a paragraph is tagged and starts with text,
+ * move the permalink to the first few words.
+ */
+static void
+tag_move_href(struct roff_man *man, struct roff_node *n, const char *tag)
+{
+	char	*cp;
+
+	if (n == NULL || n->type != ROFFT_TEXT ||
+	    *n->string == '\0' || *n->string == ' ')
+		return;
+
+	cp = n->string;
+	while (cp != NULL && cp - n->string < 5)
+		cp = strchr(cp + 1, ' ');
+
+	/* If the first text node is longer, split it. */
+
+	if (cp != NULL && cp[1] != '\0') {
+		man->last = n;
+		man->next = ROFF_NEXT_SIBLING;
+		roff_word_alloc(man, n->line,
+		    n->pos + (cp - n->string), cp + 1);
+		man->last->flags = n->flags & ~NODE_LINE;
+		*cp = '\0';
+	}
+
+	assert(n->tag == NULL);
+	n->tag = mandoc_strdup(tag);
+	n->flags |= NODE_HREF;
+}
+
+/*
  * When all tags have been set, decide where to put
  * the associated permalinks, and maybe move some tags
  * to the beginning of the respective paragraphs.
  */
 void
-tag_postprocess(struct roff_node *n)
+tag_postprocess(struct roff_man *man, struct roff_node *n)
 {
 	if (n->flags & NODE_ID) {
 		switch (n->tok) {
-		case MDOC_Bd:
-		case MDOC_Bl:
 		case MDOC_Pp:
+			tag_move_href(man, n->next, n->tag);
+			break;
+		case MDOC_Bd:
+		case MDOC_D1:
+		case MDOC_Dl:
+			tag_move_href(man, n->child, n->tag);
+			break;
+		case MDOC_Bl:
 			/* XXX No permalink for now. */
 			break;
 		default:
@@ -279,5 +321,5 @@ tag_postprocess(struct roff_node *n)
 		}
 	}
 	for (n = n->child; n != NULL; n = n->next)
-		tag_postprocess(n);
+		tag_postprocess(man, n);
 }

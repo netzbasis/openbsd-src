@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.271 2020/03/16 15:25:14 tb Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.274 2020/05/11 18:19:19 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -171,6 +171,10 @@ __BEGIN_HIDDEN_DECLS
 
 #ifndef LIBRESSL_HAS_TLS1_3_CLIENT
 #define LIBRESSL_HAS_TLS1_3_CLIENT
+#endif
+
+#ifndef LIBRESSL_HAS_TLS1_3_SERVER
+#define LIBRESSL_HAS_TLS1_3_SERVER
 #endif
 
 #if defined(LIBRESSL_HAS_TLS1_3_CLIENT) || defined(LIBRESSL_HAS_TLS1_3_SERVER)
@@ -747,9 +751,10 @@ typedef struct ssl_internal_st {
 	/* OCSP status request only */
 	STACK_OF(OCSP_RESPID) *tlsext_ocsp_ids;
 	X509_EXTENSIONS *tlsext_ocsp_exts;
+
 	/* OCSP response received or to be sent */
 	unsigned char *tlsext_ocsp_resp;
-	int tlsext_ocsp_resplen;
+	size_t tlsext_ocsp_resp_len;
 
 	/* RFC4507 session ticket expected to be received or sent */
 	int tlsext_ticket_expected;
@@ -1288,6 +1293,7 @@ int ssl3_get_client_certificate(SSL *s);
 int ssl3_get_client_key_exchange(SSL *s);
 int ssl3_get_cert_verify(SSL *s);
 
+int ssl_kex_dummy_ecdhe_x25519(EVP_PKEY *pkey);
 int ssl_kex_generate_ecdhe_ecp(EC_KEY *ecdh, int nid);
 int ssl_kex_public_ecdhe_ecp(EC_KEY *ecdh, CBB *cbb);
 int ssl_kex_peer_public_ecdhe_ecp(EC_KEY *ecdh, int nid, CBS *cbs);

@@ -2,7 +2,7 @@
 /acct.5/1.20/Mon Sep  9 20:02:26 2019//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.13/Sun Dec  8 12:54:36 2019//
-/bsd.port.mk.5/1.529/Thu Mar 26 14:58:34 2020//
+/bsd.port.mk.5/1.530/Mon Apr 20 16:07:43 2020//
 /bsd.regress.mk.5/1.21/Tue Jul  9 15:01:08 2019//
 /changelist.5/1.9/Thu Jul 13 19:16:33 2017//
 /core.5/1.24/Fri Sep  6 19:25:08 2019//
@@ -24,7 +24,7 @@
 /intro.5/1.9/Sun Sep 30 13:24:32 2018//
 /login.conf.5/1.66/Mon Sep  2 21:18:41 2019//
 /mandoc.db.5/1.4/Mon Aug  1 12:24:37 2016//
-/mixerctl.conf.5/1.9/Sat Apr  4 08:43:08 2020//
+/mixerctl.conf.5/1.10/Tue Apr 21 21:32:26 2020//
 /mk.conf.5/1.38/Thu Aug  8 12:06:50 2019//
 /moduli.5/1.18/Wed Nov 19 04:19:54 2014//
 /motd.5/1.10/Wed May  6 19:43:16 2009//
@@ -38,7 +38,7 @@
 /protocols.5/1.12/Sun Mar  3 17:04:17 2019//
 /ranlib.5/1.2/Thu Sep 10 17:55:21 2015//
 /remote.5/1.28/Mon Feb 10 13:18:20 2020//
-/resolv.conf.5/1.59/Fri Jan 24 06:16:47 2020//
+/resolv.conf.5/1.60/Sat Apr 25 14:22:04 2020//
 /rpc.5/1.9/Wed Sep  1 14:43:34 2010//
 /ruby-module.5/1.28/Fri Jan 10 17:38:58 2020//
 /services.5/1.13/Sun Mar  3 17:04:17 2019//

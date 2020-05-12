@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_pld.c,v 1.83 2020/04/16 19:28:22 tobhe Exp $	*/
+/*	$OpenBSD: ikev2_pld.c,v 1.86 2020/05/11 20:11:35 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -1187,10 +1187,12 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 			    " notification: %zu", __func__, len);
 			return (0);
 		}
-		if (!(msg->msg_policy->pol_flags & IKED_POLICY_TRANSPORT)) {
-			log_debug("%s: ignoring transport mode"
-			    " notification (policy)", __func__);
-			return (0);
+		if (msg->msg_parent->msg_response) {
+			if (!(msg->msg_policy->pol_flags & IKED_POLICY_TRANSPORT)) {
+				log_debug("%s: ignoring transport mode"
+				    " notification (policy)", __func__);
+				return (0);
+			}
 		}
 		msg->msg_parent->msg_flags |= IKED_MSG_FLAGS_USE_TRANSPORT;
 		break;
@@ -1418,7 +1420,8 @@ ikev2_pld_delete(struct iked *env, struct ikev2_payload *pld,
 		if ((peersas[i] = childsa_lookup(sa, spi,
 		    del.del_protoid)) == NULL) {
 			log_warnx("%s: CHILD SA doesn't exist for spi %s",
-			    __func__, print_spi(spi, del.del_spisize));
+			    SPI_SA(sa, __func__),
+			    print_spi(spi, del.del_spisize));
 			continue;
 		}
 
@@ -1478,7 +1481,7 @@ ikev2_pld_delete(struct iked *env, struct ikev2_payload *pld,
 				break;
 			}
 		}
-		log_info("%s: deleted %zu SPI%s: %.*s",
+		log_info("%sdeleted %zu SPI%s: %.*s",
 		    SPI_SA(sa, NULL), found,
 		    found == 1 ? "" : "s",
 		    spibuf ? ibuf_strlen(spibuf) : 0,
@@ -1933,7 +1936,7 @@ ikev2_pld_eap(struct iked *env, struct ikev2_payload *pld,
 	len = betoh16(hdr.eap_length);
 
 	if (len < sizeof(*eap)) {
-		log_info("%s: %s id %d length %d", __func__,
+		log_info("%s: %s id %d length %d", SPI_SA(sa, __func__),
 		    print_map(hdr.eap_code, eap_code_map),
 		    hdr.eap_id, betoh16(hdr.eap_length));
 	} else {
@@ -1943,7 +1946,7 @@ ikev2_pld_eap(struct iked *env, struct ikev2_payload *pld,
 			return (-1);
 		}
 
-		log_info("%s: %s id %d length %d EAP-%s", __func__,
+		log_info("%s: %s id %d length %d EAP-%s", SPI_SA(sa, __func__),
 		    print_map(eap->eap_code, eap_code_map),
 		    eap->eap_id, betoh16(eap->eap_length),
 		    print_map(eap->eap_type, eap_type_map));

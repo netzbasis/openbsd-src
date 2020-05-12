@@ -1,4 +1,4 @@
-/* $OpenBSD: mdoc_html.c,v 1.213 2020/04/06 09:55:49 schwarze Exp $ */
+/* $OpenBSD: mdoc_html.c,v 1.215 2020/04/19 15:15:54 schwarze Exp $ */
 /*
  * Copyright (c) 2014-2020 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -375,10 +375,13 @@ print_mdoc_node(MDOC_ARGS)
 		}
 		t = h->tag;
 		t->refcnt++;
-		if (NODE_DELIMC & n->flags)
+		if (n->flags & NODE_DELIMC)
 			h->flags |= HTML_NOSPACE;
-		print_text(h, n->string);
-		if (NODE_DELIMO & n->flags)
+		if (n->flags & NODE_HREF)
+			print_tagged_text(h, n->string, n);
+		else
+			print_text(h, n->string);
+		if (n->flags & NODE_DELIMO)
 			h->flags |= HTML_NOSPACE;
 		break;
 	case ROFFT_EQN:
@@ -690,8 +693,10 @@ mdoc_tg_pre(MDOC_ARGS)
 {
 	char	*id;
 
-	if ((id = html_make_id(n, 1)) != NULL)
+	if ((id = html_make_id(n, 1)) != NULL) {
 		print_tagq(h, print_otag(h, TAG_MARK, "i", id));
+		free(id);
+	}
 	return 0;
 }
 
@@ -1206,6 +1211,8 @@ mdoc_skip_pre(MDOC_ARGS)
 static int
 mdoc_pp_pre(MDOC_ARGS)
 {
+	char	*id;
+
 	if (n->flags & NODE_NOFILL) {
 		print_endline(h);
 		if (n->flags & NODE_ID)
@@ -1216,8 +1223,9 @@ mdoc_pp_pre(MDOC_ARGS)
 		}
 	} else {
 		html_close_paragraph(h);
-		print_otag(h, TAG_P, "ci", "Pp",
-		    n->flags & NODE_ID ? html_make_id(n, 1) : NULL);
+		id = n->flags & NODE_ID ? html_make_id(n, 1) : NULL;
+		print_otag(h, TAG_P, "ci", "Pp", id);
+		free(id);
 	}
 	return 0;
 }
