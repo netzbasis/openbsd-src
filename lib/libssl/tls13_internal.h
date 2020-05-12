@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.75 2020/05/10 17:13:30 tb Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.79 2020/05/11 18:08:11 jsing Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -27,17 +27,19 @@
 
 __BEGIN_HIDDEN_DECLS
 
-#define TLS13_HS_CLIENT		1
-#define TLS13_HS_SERVER		2
+#define TLS13_HS_CLIENT			1
+#define TLS13_HS_SERVER			2
 
-#define TLS13_IO_SUCCESS	 1
-#define TLS13_IO_EOF		 0
-#define TLS13_IO_FAILURE	-1
-#define TLS13_IO_ALERT		-2
-#define TLS13_IO_WANT_POLLIN	-3
-#define TLS13_IO_WANT_POLLOUT	-4
-#define TLS13_IO_WANT_RETRY	-5 /* Retry the previous call immediately. */
-#define TLS13_IO_USE_LEGACY	-6
+#define TLS13_IO_SUCCESS		 1
+#define TLS13_IO_EOF			 0
+#define TLS13_IO_FAILURE		-1
+#define TLS13_IO_ALERT			-2
+#define TLS13_IO_WANT_POLLIN		-3
+#define TLS13_IO_WANT_POLLOUT		-4
+#define TLS13_IO_WANT_RETRY		-5 /* Retry the previous call immediately. */
+#define TLS13_IO_USE_LEGACY		-6
+#define TLS13_IO_RECORD_VERSION		-7
+#define TLS13_IO_RECORD_OVERFLOW	-8
 
 #define TLS13_ERR_VERIFY_FAILED		16
 #define TLS13_ERR_HRR_FAILED		17
@@ -174,10 +176,17 @@ int tls13_key_share_derive(struct tls13_key_share *ks, uint8_t **shared_key,
  */
 struct tls13_record_layer;
 
-struct tls13_record_layer *tls13_record_layer_new(tls13_read_cb wire_read,
-    tls13_write_cb wire_write, tls13_alert_cb alert_cb,
-    tls13_phh_recv_cb phh_recv_cb,
-    tls13_phh_sent_cb phh_sent_cb, void *cb_arg);
+struct tls13_record_layer_callbacks {
+	tls13_read_cb wire_read;
+	tls13_write_cb wire_write;
+	tls13_alert_cb alert_recv;
+	tls13_alert_cb alert_sent;
+	tls13_phh_recv_cb phh_recv;
+	tls13_phh_sent_cb phh_sent;
+};
+
+struct tls13_record_layer *tls13_record_layer_new(
+    const struct tls13_record_layer_callbacks *callbacks, void *cb_arg);
 void tls13_record_layer_free(struct tls13_record_layer *rl);
 void tls13_record_layer_allow_ccs(struct tls13_record_layer *rl, int allow);
 void tls13_record_layer_allow_legacy_alerts(struct tls13_record_layer *rl, int allow);

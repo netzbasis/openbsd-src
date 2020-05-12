@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.43 2020/05/10 17:13:30 tb Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.45 2020/05/11 17:49:46 jsing Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -34,10 +34,12 @@ tls13_server_init(struct tls13_ctx *ctx)
 	}
 	s->version = ctx->hs->max_version;
 
-	if (!tls1_transcript_init(s))
+	if (!ssl_get_new_session(s, 0)) /* XXX */
 		return 0;
 
-	if ((s->session = SSL_SESSION_new()) == NULL)
+	tls13_record_layer_set_legacy_version(ctx->rl, TLS1_VERSION);
+
+	if (!tls1_transcript_init(s))
 		return 0;
 
 	arc4random_buf(s->s3->server_random, SSL3_RANDOM_SIZE);
@@ -183,6 +185,8 @@ tls13_client_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
 	if (s->method->internal->version < TLS1_3_VERSION)
 		return 1;
 
+	tls13_record_layer_set_legacy_version(ctx->rl, TLS1_2_VERSION);
+
 	/*
 	 * If a matching key share was provided, we do not need to send a
 	 * HelloRetryRequest.
@@ -262,7 +266,6 @@ tls13_server_engage_record_protection(struct tls13_ctx *ctx)
 		goto err;
 
 	s->session->cipher = S3I(s)->hs.new_cipher;
-	s->session->ssl_version = ctx->hs->server_version;
 
 	if ((ctx->aead = tls13_cipher_aead(S3I(s)->hs.new_cipher)) == NULL)
 		goto err;

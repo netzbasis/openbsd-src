@@ -1,6 +1,6 @@
 /api_up1000.c/1.12/Thu May  8 20:46:49 2014//
 /autoconf.c/1.38/Sat Jan 27 22:55:23 2018//
-/clock.c/1.22/Fri Feb 26 02:07:03 2016//
+/clock.c/1.23/Mon May 11 19:42:53 2020//
 /clockvar.h/1.5/Thu Mar 14 01:26:26 2002//
 /conf.c/1.87/Fri Jan 24 14:11:01 2020//
 /cpu.c/1.42/Thu Oct 27 09:46:14 2016//
@@ -31,7 +31,7 @@
 /lock_machdep.c/1.8/Thu Mar  5 09:28:31 2020//
 /locore.s/1.47/Mon Jun  5 17:49:05 2017//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
-/machdep.c/1.187/Mon Apr  1 07:00:51 2019//
+/machdep.c/1.188/Mon May 11 19:42:53 2020//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//
 /mcclock.c/1.5/Thu Mar 14 01:26:26 2002//
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//
