@@ -31,7 +31,7 @@
 /SSL_CTX_set_generate_session_id.3/1.5/Thu Mar 22 21:09:18 2018//
 /SSL_CTX_set_info_callback.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_set_max_cert_list.3/1.6/Wed Jun 12 09:36:30 2019//
-/SSL_CTX_set_min_proto_version.3/1.3/Sat Mar 24 00:55:37 2018//
+/SSL_CTX_set_min_proto_version.3/1.4/Tue May 12 20:12:44 2020//
 /SSL_CTX_set_mode.3/1.6/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_set_msg_callback.3/1.4/Thu Mar 22 21:09:18 2018//
 /SSL_CTX_set_options.3/1.12/Wed Apr 11 18:05:49 2018//
