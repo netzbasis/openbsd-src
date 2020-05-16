@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: appstest.sh,v 1.34 2020/05/14 14:09:11 inoguchi Exp $
+# $OpenBSD: appstest.sh,v 1.37 2020/05/15 15:44:16 inoguchi Exp $
 #
 # Copyright (c) 2016 Kinichiro Inoguchi <inoguchi@openbsd.org>
 #
@@ -733,6 +733,37 @@ revoke.test_dummy.com
 __EOF__
 	check_exit_status $?
 
+	ecdsa_key=$server_dir/ecdsa_key.pem
+	ecdsa_csr=$server_dir/ecdsa_csr.pem
+	ecdsa_pass=test-ecdsa-pass
+
+	if [ $mingw = 0 ] ; then
+		subj='/C=JP/ST=Tokyo/O=TEST_DUMMY_COMPANY/CN=ecdsa.test_dummy.com/'
+	else
+		subj='//C=JP\ST=Tokyo\O=TEST_DUMMY_COMPANY\CN=ecdsa.test_dummy.com\'
+	fi
+	
+	start_message "ecparam ... generate server key#3"
+
+	$openssl_bin ecparam -name prime256v1 -genkey -out $ecdsa_key
+	check_exit_status $?
+
+	start_message "req ... generate server csr#3"
+
+	$openssl_bin req -new -subj $subj -sha256 \
+		-key $ecdsa_key -keyform pem -passin pass:$ecdsa_pass \
+		-addext 'subjectAltName = DNS:localhost.test_dummy.com' \
+		-out $ecdsa_csr -outform pem
+	check_exit_status $?
+	
+	start_message "req ... verify server csr#3"
+
+	$openssl_bin req -verify -in $ecdsa_csr -inform pem \
+		-newhdr -noout -pubkey -subject -modulus -text \
+		-nameopt multiline -reqopt compatible \
+		-out $ecdsa_csr.verify.out
+	check_exit_status $?
+
 	#---------#---------#---------#---------#---------#---------#---------
 	
 	# --- CA operations (issue cert for server) ---
@@ -752,6 +783,13 @@ __EOF__
 		-CAkey $ca_key -CAkeyform pem \
 		-CAserial $ca_dir/serial -set_serial 10 \
 		-passin pass:$ca_pass -CAcreateserial -out $revoke_cert
+	check_exit_status $?
+	
+	start_message "ca ... issue cert for server csr#3"
+	
+	ecdsa_cert=$server_dir/ecdsa_cert.pem
+	$openssl_bin ca -batch -cert $ca_cert -keyfile $ca_key -key $ca_pass \
+		-in $ecdsa_csr -out $ecdsa_cert
 	check_exit_status $?
 	
 	#---------#---------#---------#---------#---------#---------#---------
@@ -1298,6 +1336,133 @@ function test_sc_by_protocol_version {
 	check_exit_status $?
 }
 
+function test_sc_all_cipher {
+	sc=$1
+	ver=$2
+
+	s_ciph=$server_dir/s_ciph_${sc}_${ver}
+	cipher_string=""
+	if [ $s_id = "0" ] ; then
+		if [ $ver = "tls1_3" ] ; then
+			cipher_string="TLSv1.3"
+		else
+			if [ $ecdsa_tests = 0 ] ; then
+				cipher_string="ALL:!ECDSA:!kGOST:!TLSv1.3"
+			else
+				cipher_string="ECDSA+TLSv1.2:!TLSv1.3"
+			fi
+		fi
+	fi
+	$s_bin ciphers -v $cipher_string | awk '{print $1}' > $s_ciph
+
+	c_ciph=$user1_dir/c_ciph_${sc}_${ver}
+	cipher_string=""
+	if [ $c_id = "0" ] ; then
+		if [ $ver = "tls1_3" ] ; then
+			cipher_string="TLSv1.3"
+		else
+			if [ $ecdsa_tests = 0 ] ; then
+				cipher_string="ALL:!ECDSA:!kGOST:!TLSv1.3"
+			else
+				cipher_string="ECDSA+TLSv1.2:!TLSv1.3"
+			fi
+		fi
+	fi
+	$c_bin ciphers -v $cipher_string | awk '{print $1}' > $c_ciph
+
+	ciphers=$user1_dir/ciphers_${sc}_${ver}
+	grep -x -f $s_ciph $c_ciph | sort -R > $ciphers
+
+	cnum=0
+	for c in `cat $ciphers` ; do
+		cnum=`expr $cnum + 1`
+		cnstr=`printf %03d $cnum`
+		s_client_out=$user1_dir/s_client_${sc}_${ver}_tls_${cnstr}_${c}.out
+	
+		start_message "s_client ... connect to TLS/SSL test server with [ $cnstr ] $ver $c"
+		sleep $test_pause_sec
+		$c_bin s_client -connect $host:$port -CAfile $ca_cert \
+			-$ver -cipher $c \
+			-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+		check_exit_status $?
+	
+		grep "Cipher    : $c" $s_client_out > /dev/null
+		check_exit_status $?
+	
+		grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
+		check_exit_status $?
+	done
+}
+
+function test_sc_session_reuse {
+	sc=$1
+	ver=$2
+	sess_dat=$user1_dir/s_client_${sc}_${ver}_sess.dat
+
+	# Get session ticket to reuse
+	
+	s_client_out=$user1_dir/s_client_${sc}_${ver}_tls_reuse_1.out
+	
+	start_message "s_client ... connect to TLS/SSL test server to get session id $ver"
+	sleep $test_pause_sec
+	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
+		-$ver -alpn "spdy/3,http/1.1" -sess_out $sess_dat \
+		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+	check_exit_status $?
+	
+	grep '^New, TLS.*$' $s_client_out > /dev/null
+	check_exit_status $?
+	
+	grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
+	check_exit_status $?
+	
+	# Reuse session ticket
+	
+	s_client_out=$user1_dir/s_client_${sc}_${ver}_tls_reuse_2.out
+	
+	start_message "s_client ... connect to TLS/SSL test server reusing session id $ver"
+	sleep $test_pause_sec
+	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
+		-$ver -sess_in $sess_dat \
+		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+	check_exit_status $?
+	
+	grep '^Reused, TLS.*$' $s_client_out > /dev/null
+	check_exit_status $?
+	
+	grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
+	check_exit_status $?
+
+	# sess_id
+
+	start_message "sess_id"
+	$c_bin sess_id -in $sess_dat -text -out $sess_dat.out
+	check_exit_status $?
+}
+
+function test_sc_verify {
+	sc=$1
+	ver=$2
+
+	# invalid verification pattern
+	
+	s_client_out=$user1_dir/s_client_${sc}_${ver}_tls_invalid.out
+	
+	start_message "s_client ... connect to tls/ssl test server but verify error $ver"
+	sleep $test_pause_sec
+	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
+		-$ver -showcerts -crl_check -issuer_checks -policy_check \
+		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+	check_exit_status $?
+	
+	grep 'verify return code: 0 (ok)' $s_client_out > /dev/null
+	if [ $? -eq 0 ] ; then
+		check_exit_status 1
+	else
+		check_exit_status 0
+	fi
+}
+
 function test_server_client {
 	# --- client/server operations (TLS) ---
 	section_message "client/server operations (TLS)"
@@ -1325,8 +1490,19 @@ function test_server_client {
 
 	host="localhost"
 	port=4433
-	sess_dat=$user1_dir/s_client_${sc}_sess.dat
 	s_server_out=$server_dir/s_server_${sc}_tls.out
+
+	if [ $ecdsa_tests = 0 ] ; then
+		echo "Using RSA certificate"
+		crt=$server_cert
+		key=$server_key
+		pwd=$server_pass
+	else
+		echo "Using ECDSA certificate"
+		crt=$ecdsa_cert
+		key=$ecdsa_key
+		pwd=$ecdsa_pass
+	fi
 
 	$s_bin version | grep 'OpenSSL 1.1.1' > /dev/null
 	if [ $? -eq 0 ] ; then
@@ -1337,7 +1513,7 @@ function test_server_client {
 	
 	start_message "s_server ... start TLS/SSL test server"
 	$s_bin s_server -accept $port -CAfile $ca_cert \
-		-cert $server_cert -key $server_key -pass pass:$server_pass \
+		-cert $crt -key $key -pass pass:$pwd \
 		-context "appstest.sh" -id_prefix "APPSTEST.SH" -crl_check \
 		-alpn "http/1.1,spdy/3" -www -cipher ALL $extra_opts \
 		-msg -tlsextdebug > $s_server_out 2>&1 &
@@ -1353,104 +1529,19 @@ function test_server_client {
 	test_sc_by_protocol_version $c_id tls1_3 'Protocol  : TLSv1\.3$'
 	
 	# all available ciphers with random order
+	test_sc_all_cipher $sc tls1_2
+	test_sc_all_cipher $sc tls1_3
 	
-	s_ciph=$server_dir/s_ciph_${sc}
-	if [ $s_id = "0" ] ; then
-		$s_bin ciphers -v ALL:!ECDSA:!kGOST:!TLSv1.3 | awk '{print $1}' > $s_ciph
-	else
-		$s_bin ciphers -v | awk '{print $1}' > $s_ciph
-	fi
-
-	c_ciph=$user1_dir/c_ciph_${sc}
-	if [ $c_id = "0" ] ; then
-		$c_bin ciphers -v ALL:!ECDSA:!kGOST:!TLSv1.3 | awk '{print $1}' > $c_ciph
-	else
-		$c_bin ciphers -v | awk '{print $1}' > $c_ciph
-	fi
-
-	ciphers=$user1_dir/ciphers_${sc}
-	grep -x -f $s_ciph $c_ciph | sort -R > $ciphers
-
-	cnum=0
-	for c in `cat $ciphers` ; do
-		cnum=`expr $cnum + 1`
-		cnstr=`printf %03d $cnum`
-		s_client_out=$user1_dir/s_client_${sc}_tls_${cnstr}_${c}.out
-	
-		start_message "s_client ... connect to TLS/SSL test server with [ $cnstr ] $c"
-		sleep $test_pause_sec
-		$c_bin s_client -connect $host:$port -CAfile $ca_cert \
-			-tls1_2 -cipher $c \
-			-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
-		check_exit_status $?
-	
-		grep "Cipher    : $c" $s_client_out > /dev/null
-		check_exit_status $?
-	
-		grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
-		check_exit_status $?
-	done
-	
-	# Get session ticket to reuse
-	
-	s_client_out=$user1_dir/s_client_${sc}_tls_reuse_1.out
-	
-	start_message "s_client ... connect to TLS/SSL test server to get session id"
-	sleep $test_pause_sec
-	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
-		-tls1_2 -alpn "spdy/3,http/1.1" -sess_out $sess_dat \
-		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
-	check_exit_status $?
-	
-	grep '^New, TLS.*$' $s_client_out > /dev/null
-	check_exit_status $?
-	
-	grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
-	check_exit_status $?
-	
-	# Reuse session ticket
-	
-	s_client_out=$user1_dir/s_client_${sc}_tls_reuse_2.out
-	
-	start_message "s_client ... connect to TLS/SSL test server reusing session id"
-	sleep $test_pause_sec
-	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
-		-tls1_2 -sess_in $sess_dat \
-		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
-	check_exit_status $?
-	
-	grep '^Reused, TLS.*$' $s_client_out > /dev/null
-	check_exit_status $?
-	
-	grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
-	check_exit_status $?
+	# session resumption
+	test_sc_session_reuse $sc tls1_2
 	
 	# invalid verification pattern
-	
-	s_client_out=$user1_dir/s_client_${sc}_tls_invalid.out
-	
-	start_message "s_client ... connect to TLS/SSL test server but verify error"
-	sleep $test_pause_sec
-	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
-		-tls1_2 -showcerts -crl_check -issuer_checks -policy_check \
-		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
-	check_exit_status $?
-	
-	grep 'Verify return code: 0 (ok)' $s_client_out > /dev/null
-	if [ $? -eq 0 ] ; then
-		check_exit_status 1
-	else
-		check_exit_status 0
-	fi
+	test_sc_verify $sc tls1_2
+	test_sc_verify $sc tls1_3
 	
 	# s_time
 	start_message "s_time ... connect to TLS/SSL test server"
 	$c_bin s_time -connect $host:$port -CApath $ca_dir -time 2
-	check_exit_status $?
-	
-	# sess_id
-	start_message "sess_id"
-	$c_bin sess_id -in $sess_dat -text -out $sess_dat.out
 	check_exit_status $?
 	
 	stop_s_server
@@ -1483,11 +1574,16 @@ function test_version {
 openssl_bin=${OPENSSL:-/usr/bin/openssl}
 other_openssl_bin=${OTHER_OPENSSL:-/usr/local/bin/eopenssl11}
 
+ecdsa_tests=0
 interop_tests=0
 no_long_tests=0
 
 while [ "$1" != "" ]; do
 	case $1 in
+		-e | --ecdsa)
+					shift
+					ecdsa_tests=1
+					;;
 		-i | --interop)		shift
 					interop_tests=1
 					;;

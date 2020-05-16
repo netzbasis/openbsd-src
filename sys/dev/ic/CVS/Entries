@@ -60,7 +60,7 @@
 /anxdp.c/1.3/Mon Mar 16 22:44:12 2020//
 /anxdp.h/1.1/Fri Feb 21 15:49:09 2020//
 /apcdmareg.h/1.2/Mon Jun  2 18:53:18 2003//
-/ar5008.c/1.57/Thu Apr 30 08:52:56 2020//
+/ar5008.c/1.58/Fri May 15 14:21:08 2020//
 /ar5008reg.h/1.7/Mon Apr 27 08:21:34 2020//
 /ar5210.c/1.47/Tue Jan 12 09:28:09 2016//
 /ar5210reg.h/1.13/Mon Mar 12 01:04:52 2007//
@@ -113,9 +113,9 @@
 /bt485reg.h/1.2/Sat Apr 21 20:03:55 2001//
 /bt485var.h/1.4/Thu Jun 26 05:42:15 2008//
 /bt8xx.h/1.3/Thu Jun 23 14:57:48 2005//
-/bwfm.c/1.70/Fri Mar  6 08:41:57 2020//
-/bwfmreg.h/1.18/Sat Nov  9 20:53:55 2019//
-/bwfmvar.h/1.19/Fri Mar 13 15:30:58 2020//
+/bwfm.c/1.71/Fri May 15 14:09:14 2020//
+/bwfmreg.h/1.19/Fri May 15 14:09:14 2020//
+/bwfmvar.h/1.20/Fri May 15 14:09:14 2020//
 /bwi.c/1.128/Thu Sep 12 12:55:07 2019//
 /bwireg.h/1.10/Fri May 10 16:44:36 2019//
 /bwivar.h/1.31/Wed Nov  5 01:02:10 2014//
