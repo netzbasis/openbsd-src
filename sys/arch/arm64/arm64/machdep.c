@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.48 2020/05/16 14:44:44 kettenis Exp $ */
+/* $OpenBSD: machdep.c,v 1.50 2020/05/17 15:03:06 kettenis Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -30,6 +30,7 @@
 #include <sys/buf.h>
 #include <sys/termios.h>
 #include <sys/sensors.h>
+#include <sys/malloc.h>
 
 #include <net/if.h>
 #include <uvm/uvm.h>
@@ -291,12 +292,25 @@ int
 cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen, struct proc *p)
 {
+	char *compatible;
+	int node, len, error;
+
 	/* all sysctl names at this level are terminal */
 	if (namelen != 1)
 		return (ENOTDIR);		/* overloaded */
 
 	switch (name[0]) {
-		// none supported currently
+	case CPU_COMPATIBLE:
+		node = OF_finddevice("/");
+		len = OF_getproplen(node, "compatible");
+		if (len <= 0)
+			return (EOPNOTSUPP); 
+		compatible = malloc(len, M_TEMP, M_WAITOK | M_ZERO);
+		OF_getprop(node, "compatible", compatible, len);
+		compatible[len - 1] = 0;
+		error = sysctl_rdstring(oldp, oldlenp, newp, compatible);
+		free(compatible, M_TEMP, len);
+		return error;
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -769,6 +783,10 @@ initarm(struct arm64_bootparams *abp)
 		if (len > 0)
 			collect_kernel_args(prop);
 
+		len = fdt_node_property(node, "openbsd,boothowto", &prop);
+		if (len == sizeof(boothowto))
+			boothowto = bemtoh32((uint32_t *)prop);
+
 		len = fdt_node_property(node, "openbsd,bootduid", &prop);
 		if (len == sizeof(bootduid))
 			memcpy(bootduid, prop, sizeof(bootduid));
@@ -1135,23 +1153,20 @@ process_kernel_args(void)
 {
 	char *cp = bootargs;
 
-	if (cp[0] == '\0') {
-		boothowto = RB_AUTOBOOT;
+	if (*cp == 0)
 		return;
-	}
 
-	boothowto = 0;
 	boot_file = bootargs;
 
 	/* Skip the kernel image filename */
 	while (*cp != ' ' && *cp != 0)
-		++cp;
+		cp++;
 
 	if (*cp != 0)
 		*cp++ = 0;
 
 	while (*cp == ' ')
-		++cp;
+		cp++;
 
 	boot_args = cp;
 
@@ -1163,28 +1178,25 @@ process_kernel_args(void)
 		if (*cp++ == '\0')
 			return;
 
-	for (;*++cp;) {
-		int fl;
-
-		fl = 0;
+	while (*cp != 0) {
 		switch(*cp) {
 		case 'a':
-			fl |= RB_ASKNAME;
+			boothowto |= RB_ASKNAME;
 			break;
 		case 'c':
-			fl |= RB_CONFIG;
+			boothowto |= RB_CONFIG;
 			break;
 		case 'd':
-			fl |= RB_KDB;
+			boothowto |= RB_KDB;
 			break;
 		case 's':
-			fl |= RB_SINGLE;
+			boothowto |= RB_SINGLE;
 			break;
 		default:
 			printf("unknown option `%c'\n", *cp);
 			break;
 		}
-		boothowto |= fl;
+		cp++;
 	}
 }
 

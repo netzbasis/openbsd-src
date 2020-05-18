@@ -35,7 +35,7 @@
 /k1x-pstate.c/1.12/Sat Mar 31 13:45:03 2018//
 /k6_mem.c/1.13/Mon Jul 30 14:19:12 2018//
 /lapic.c/1.47/Mon Jul 30 14:19:12 2018//
-/locore.s/1.190/Mon Jul  9 19:20:29 2018//
+/locore.s/1.191/Sun May 17 13:48:31 2020//
 /locore0.S/1.4/Mon May 28 20:52:44 2018//
 /longrun.c/1.17/Mon Jul 30 14:19:12 2018//
 /machdep.c/1.633/Sat May 16 14:44:44 2020//

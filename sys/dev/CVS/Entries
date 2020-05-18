@@ -2,7 +2,7 @@
 /audio_if.h/1.36/Thu Sep  5 05:33:57 2019//
 /bio.c/1.17/Wed Aug 26 22:28:57 2015//
 /biovar.h/1.45/Sun Aug 14 04:08:03 2016//
-/clock_subr.h/1.5/Thu Jun 26 05:42:14 2008//
+/clock_subr.h/1.6/Sun May 17 13:21:20 2020//
 /cninit.c/1.15/Sat Dec 30 20:46:59 2017//
 /cons.c/1.29/Fri Apr  3 08:24:52 2020//
 /cons.h/1.18/Tue May 17 23:43:47 2016//
@@ -12,7 +12,7 @@
 /ipmi.c/1.112/Sun Mar 29 09:31:10 2020//
 /ipmi.h/1.1/Fri Feb  5 06:29:01 2016//
 /ipmivar.h/1.33/Sun Mar 29 09:31:10 2020//
-/kcov.c/1.17/Sat May 16 08:38:34 2020//
+/kcov.c/1.18/Sun May 17 08:46:05 2020//
 /ksyms.c/1.32/Fri Jan 25 00:19:26 2019//
 /midi.c/1.47/Tue Apr  7 13:27:51 2020//
 /midi_if.h/1.9/Sat May 16 10:04:20 2015//

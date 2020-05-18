@@ -25,7 +25,8 @@ struct cpu_info {
 
 extern struct cpu_info cpu_info_primary;
 
-#define curcpu()	(&cpu_info_primary)
+register struct cpu_info *__curcpu asm("r13");
+#define curcpu()	__curcpu
 
 #define MAXCPUS			1
 #define CPU_IS_PRIMARY(ci)	1
@@ -44,6 +45,7 @@ extern struct cpu_info cpu_info_primary;
 
 #define cpu_kick(ci)
 #define cpu_unidle(ci)
+#define CPU_BUSY_CYCLE()	do {} while (0)
 #define signotify(p)		setsoftast()
 
 void need_resched(struct cpu_info *);
@@ -56,5 +58,8 @@ void delay(u_int);
 
 #define PROC_STACK(p)		0
 #define PROC_PC(p)		0
+
+#define intr_disable()		0
+#define intr_restore(s)		do {} while (0)
 
 #endif /* _MACHINE_CPU_H_ */

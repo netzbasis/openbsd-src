@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.2 2020/05/16 23:06:27 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.4 2020/05/17 14:54:15 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -67,6 +67,9 @@ init_powernv(void *fdt)
 	void *node;
 	int len;
 	int i;
+
+	/* Store pointer to our struct cpu_info. */
+	__asm volatile("mr %%r13, %0" :: "r"(&cpu_info_primary));
 
 	/* Clear BSS. */
 	memset(__bss_start, 0, _end - __bss_start);
@@ -149,15 +152,14 @@ init_powernv(void *fdt)
 	reg.size = round_page((paddr_t)fdt + fdt_get_size(fdt)) - reg.addr;
 	memreg_remove(&reg);
 
+	uvm_setpagesize();
+
 	for (i = 0; i < nmemreg; i++) {
 		paddr_t start = memreg[i].addr;
 		paddr_t end = start + memreg[i].size;
 
-		printf("0x%016lx - 0x%016lx\n", start, end - 1);
-#ifdef notyet
 		uvm_page_physload(atop(start), atop(end),
 		    atop(start), atop(end), 0);
-#endif
 		physmem += atop(end - start);
 	}
 

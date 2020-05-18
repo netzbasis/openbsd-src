@@ -29,7 +29,7 @@
 /interrupt.c/1.40/Sat Jan 21 05:42:03 2017//
 /ipifuncs.c/1.6/Sun Feb  2 22:49:38 2014//
 /lock_machdep.c/1.8/Thu Mar  5 09:28:31 2020//
-/locore.s/1.47/Mon Jun  5 17:49:05 2017//
+/locore.s/1.48/Sun May 17 13:48:29 2020//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
 /machdep.c/1.189/Sat May 16 14:44:44 2020//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//

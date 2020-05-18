@@ -3,8 +3,8 @@
 /bus.h/1.1/Sat May 16 17:11:14 2020//
 /cdefs.h/1.1/Sat May 16 17:11:14 2020//
 /conf.h/1.1/Sat May 16 17:11:14 2020//
-/cpu.h/1.1/Sat May 16 17:11:14 2020//
-/db_machdep.h/1.1/Sat May 16 17:11:14 2020//
+/cpu.h/1.4/Sun May 17 23:27:44 2020//
+/db_machdep.h/1.2/Sun May 17 23:27:44 2020//
 /disklabel.h/1.1/Sat May 16 17:11:14 2020//
 /endian.h/1.1/Sat May 16 17:11:14 2020//
 /exec.h/1.1/Sat May 16 17:11:14 2020//
@@ -24,5 +24,5 @@
 /softintr.h/1.1/Sat May 16 17:11:14 2020//
 /spinlock.h/1.1/Sat May 16 17:11:14 2020//
 /tcb.h/1.1/Sat May 16 17:11:14 2020//
-/vmparam.h/1.1/Sat May 16 17:11:14 2020//
+/vmparam.h/1.2/Sun May 17 14:54:14 2020//
 D
