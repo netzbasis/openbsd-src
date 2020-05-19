@@ -27,7 +27,7 @@
 /genassym.cf/1.18/Sun Oct 27 10:26:12 2019//
 /in_cksum_arm.S/1.8/Fri Feb 28 11:38:56 2020//
 /irq_dispatch.S/1.16/Wed Mar 11 21:04:58 2020//
-/locore.S/1.21/Sun May 17 13:48:30 2020//
+/locore.S/1.22/Mon May 18 17:24:03 2020//
 /mem.c/1.22/Sun May 17 11:12:55 2020//
 /openprom.c/1.2/Mon May 23 00:05:34 2016//
 /pmap7.c/1.59/Thu Dec 19 17:53:27 2019//

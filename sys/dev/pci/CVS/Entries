@@ -144,8 +144,8 @@
 /if_iwi.c/1.143/Mon Sep 30 01:53:05 2019//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.308/Wed Apr 29 13:13:30 2020//
-/if_iwmreg.h/1.47/Fri May 15 13:05:04 2020//
+/if_iwm.c/1.309/Mon May 18 17:56:41 2020//
+/if_iwmreg.h/1.48/Mon May 18 17:56:41 2020//
 /if_iwmvar.h/1.55/Fri Apr  3 08:32:21 2020//
 /if_iwn.c/1.230/Fri May 15 14:21:08 2020//
 /if_iwnreg.h/1.56/Mon Jul 29 10:50:08 2019//

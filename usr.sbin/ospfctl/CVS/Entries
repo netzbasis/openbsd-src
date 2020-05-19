@@ -1,6 +1,8 @@
-/Makefile/1.5/Fri Sep  2 14:02:48 2016//
+/Makefile/1.6/Mon May 18 17:52:18 2020//
 /ospfctl.8/1.27/Mon Jul 27 18:48:05 2015//
-/ospfctl.c/1.66/Fri Nov  1 18:15:28 2019//
+/ospfctl.c/1.67/Mon May 18 17:52:18 2020//
+/ospfctl.h/1.1/Mon May 18 17:52:18 2020//
+/output.c/1.1/Mon May 18 17:52:18 2020//
 /parser.c/1.21/Thu May 16 21:07:33 2019//
 /parser.h/1.14/Thu May 16 21:07:33 2019//
 D
