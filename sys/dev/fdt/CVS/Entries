@@ -3,11 +3,11 @@
 /amlclock.c/1.11/Mon May 18 10:40:38 2020//
 /amldwusb.c/1.2/Mon May 18 10:41:29 2020//
 /amliic.c/1.1/Mon Oct  7 18:54:03 2019//
-/amlmmc.c/1.5/Sun May 17 22:19:43 2020//
+/amlmmc.c/1.6/Tue May 19 15:47:32 2020//
 /amlpciephy.c/1.2/Thu Mar 26 12:58:18 2020//
 /amlpinctrl.c/1.5/Sun Oct  6 16:17:06 2019//
 /amlpwm.c/1.1/Mon Sep 30 20:42:45 2019//
-/amlpwrc.c/1.1/Mon May 18 10:39:33 2020//
+/amlpwrc.c/1.2/Tue May 19 08:11:25 2020//
 /amlreset.c/1.1/Mon Aug 26 09:42:31 2019//
 /amlrng.c/1.1/Tue Aug 27 22:21:52 2019//
 /amlsm.c/1.1/Tue Jan 14 20:43:20 2020//
