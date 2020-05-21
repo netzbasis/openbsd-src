@@ -5,7 +5,7 @@
 /ast.c/1.7/Fri Jun 22 16:08:12 2018//
 /autoconf.c/1.10/Wed Jan  9 13:18:50 2019//
 /bus_dma.c/1.13/Tue Apr 21 07:57:17 2020//
-/conf.c/1.12/Thu Jan 23 02:40:21 2020//
+/conf.c/1.13/Wed May 13 08:10:03 2020//
 /copy.S/1.7/Wed Jun 19 08:00:17 2019//
 /copystr.S/1.6/Sat Jan 11 16:41:30 2020//
 /cpu.c/1.37/Tue Oct  1 03:53:26 2019//
@@ -20,7 +20,7 @@
 /intr.c/1.15/Sun Apr 26 10:35:05 2020//
 /locore.S/1.31/Fri Mar 13 00:14:38 2020//
 /locore0.S/1.5/Tue May 28 20:32:30 2019//
-/machdep.c/1.47/Mon May 11 13:25:32 2020//
+/machdep.c/1.50/Sun May 17 15:03:06 2020//
 /mem.c/1.6/Fri May  4 15:45:11 2018//
 /openprom.c/1.1/Mon Jan 23 12:34:06 2017//
 /pmap.c/1.67/Thu Dec 19 17:53:27 2019//

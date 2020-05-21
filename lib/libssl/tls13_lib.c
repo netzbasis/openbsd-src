@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_lib.c,v 1.43 2020/05/11 17:46:46 jsing Exp $ */
+/*	$OpenBSD: tls13_lib.c,v 1.46 2020/05/19 01:30:34 beck Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2019 Bob Beck <beck@openbsd.org>
@@ -21,6 +21,7 @@
 #include <openssl/evp.h>
 
 #include "ssl_locl.h"
+#include "ssl_tlsext.h"
 #include "tls13_internal.h"
 
 /*
@@ -257,28 +258,41 @@ tls13_phh_limit_check(struct tls13_ctx *ctx)
 static ssize_t
 tls13_key_update_recv(struct tls13_ctx *ctx, CBS *cbs)
 {
-	ssize_t ret = TLS13_IO_FAILURE;
+	uint8_t alert = TLS13_ALERT_INTERNAL_ERROR;
+	uint8_t key_update_request;
+	ssize_t ret;
 
-	if (!CBS_get_u8(cbs, &ctx->key_update_request))
+	if (!CBS_get_u8(cbs, &key_update_request)) {
+		alert = TLS13_ALERT_DECODE_ERROR;
 		goto err;
-	if (CBS_len(cbs) != 0)
+	}
+	if (CBS_len(cbs) != 0) {
+		alert = TLS13_ALERT_DECODE_ERROR;
 		goto err;
+	}
+	if (key_update_request > 1) {
+		alert = TLS13_ALERT_ILLEGAL_PARAMETER;
+		goto err;
+	}
 
 	if (!tls13_phh_update_peer_traffic_secret(ctx))
 		goto err;
 
-	if (ctx->key_update_request) {
+	if (key_update_request) {
 		CBB cbb;
 		CBS cbs; /* XXX */
 
-		free(ctx->hs_msg);
+		tls13_handshake_msg_free(ctx->hs_msg);
 		ctx->hs_msg = tls13_handshake_msg_new();
+
 		if (!tls13_handshake_msg_start(ctx->hs_msg, &cbb, TLS13_MT_KEY_UPDATE))
 			goto err;
 		if (!CBB_add_u8(&cbb, 0))
 			goto err;
 		if (!tls13_handshake_msg_finish(ctx->hs_msg))
 			goto err;
+
+		ctx->key_update_request = key_update_request;
 		tls13_handshake_msg_data(ctx->hs_msg, &cbs);
 		ret = tls13_record_layer_phh(ctx->rl, &cbs);
 
@@ -289,9 +303,7 @@ tls13_key_update_recv(struct tls13_ctx *ctx, CBS *cbs)
 
 	return ret;
  err:
-	ctx->key_update_request = 0;
-	/* XXX alert */
-	return TLS13_IO_FAILURE;
+	return tls13_send_alert(ctx->rl, alert);
 }
 
 static void
@@ -399,9 +411,10 @@ tls13_ctx_free(struct tls13_ctx *ctx)
 }
 
 int
-tls13_cert_add(CBB *cbb, X509 *cert)
+tls13_cert_add(struct tls13_ctx *ctx, CBB *cbb, X509 *cert,
+    int(*build_extensions)(SSL *s, CBB *cbb, uint16_t msg_type))
 {
-	CBB cert_data, cert_exts;
+	CBB cert_data;
 	uint8_t *data;
 	int cert_len;
 
@@ -414,10 +427,8 @@ tls13_cert_add(CBB *cbb, X509 *cert)
 		return 0;
 	if (i2d_X509(cert, &data) != cert_len)
 		return 0;
-
-	if (!CBB_add_u16_length_prefixed(cbb, &cert_exts))
+	if (!build_extensions(ctx->ssl, cbb, SSL_TLSEXT_MSG_CT))
 		return 0;
-
 	if (!CBB_flush(cbb))
 		return 0;
 

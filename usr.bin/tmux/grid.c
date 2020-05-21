@@ -1,4 +1,4 @@
-/* $OpenBSD: grid.c,v 1.106 2020/04/15 12:59:20 nicm Exp $ */
+/* $OpenBSD: grid.c,v 1.109 2020/05/16 16:22:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -211,19 +211,28 @@ grid_check_y(struct grid *gd, const char *from, u_int py)
 	return (0);
 }
 
+/* Check if two styles are (visibly) the same. */
+int
+grid_cells_look_equal(const struct grid_cell *gc1, const struct grid_cell *gc2)
+{
+	if (gc1->fg != gc2->fg || gc1->bg != gc2->bg)
+		return (0);
+	if (gc1->attr != gc2->attr || gc1->flags != gc2->flags)
+		return (0);
+	return (1);
+}
+
 /* Compare grid cells. Return 1 if equal, 0 if not. */
 int
-grid_cells_equal(const struct grid_cell *gca, const struct grid_cell *gcb)
+grid_cells_equal(const struct grid_cell *gc1, const struct grid_cell *gc2)
 {
-	if (gca->fg != gcb->fg || gca->bg != gcb->bg)
+	if (!grid_cells_look_equal(gc1, gc2))
 		return (0);
-	if (gca->attr != gcb->attr || gca->flags != gcb->flags)
+	if (gc1->data.width != gc2->data.width)
 		return (0);
-	if (gca->data.width != gcb->data.width)
+	if (gc1->data.size != gc2->data.size)
 		return (0);
-	if (gca->data.size != gcb->data.size)
-		return (0);
-	return (memcmp(gca->data.data, gcb->data.data, gca->data.size) == 0);
+	return (memcmp(gc1->data.data, gc2->data.data, gc1->data.size) == 0);
 }
 
 /* Free one line. */
@@ -1276,7 +1285,7 @@ grid_reflow(struct grid *gd, u_int sx)
 
 		/*
 		 * If the line is exactly right or the first character is wider
-		 * than the targe width, just move it across unchanged.
+		 * than the target width, just move it across unchanged.
 		 */
 		if (width == sx || first > sx) {
 			grid_reflow_move(target, gl);
@@ -1382,7 +1391,9 @@ grid_line_length(struct grid *gd, u_int py)
 		px = gd->sx;
 	while (px > 0) {
 		grid_get_cell(gd, px - 1, py, &gc);
-		if (gc.data.size != 1 || *gc.data.data != ' ')
+		if ((gc.flags & GRID_FLAG_PADDING) ||
+		    gc.data.size != 1 ||
+		    *gc.data.data != ' ')
 			break;
 		px--;
 	}

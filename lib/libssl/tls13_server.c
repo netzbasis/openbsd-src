@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.45 2020/05/11 17:49:46 jsing Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.48 2020/05/19 01:30:34 beck Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -115,7 +115,7 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	if (!CBS_get_u8_length_prefixed(cbs, &compression_methods))
 		goto err;
 
-	if (tls13_client_hello_is_legacy(cbs)) {
+	if (tls13_client_hello_is_legacy(cbs) || s->version < TLS1_3_VERSION) {
 		if (!CBS_skip(cbs, CBS_len(cbs)))
 			goto err;
 		return tls13_use_legacy_server(ctx);
@@ -438,6 +438,13 @@ tls13_server_certificate_send(struct tls13_ctx *ctx, CBB *cbb)
 
 	/* XXX - Need to revisit certificate selection. */
 	cpk = &s->cert->pkeys[SSL_PKEY_RSA_ENC];
+	if (cpk->x509 == NULL) {
+		/* A server must always provide a certificate. */
+		ctx->alert = TLS13_ALERT_HANDSHAKE_FAILURE;
+		tls13_set_errorx(ctx, TLS13_ERR_NO_CERTIFICATE, 0,
+		    "no server certificate", NULL);
+		goto err;
+	}
 
 	if ((chain = cpk->chain) == NULL)
 		chain = s->ctx->extra_certs;
@@ -447,19 +454,15 @@ tls13_server_certificate_send(struct tls13_ctx *ctx, CBB *cbb)
 	if (!CBB_add_u24_length_prefixed(cbb, &cert_list))
 		goto err;
 
-	if (cpk->x509 == NULL)
-		goto done;
-
-	if (!tls13_cert_add(&cert_list, cpk->x509))
+	if (!tls13_cert_add(ctx, &cert_list, cpk->x509, tlsext_server_build))
 		goto err;
 
 	for (i = 0; i < sk_X509_num(chain); i++) {
 		cert = sk_X509_value(chain, i);
-		if (!tls13_cert_add(&cert_list, cert))
+		if (!tls13_cert_add(ctx, &cert_list, cert, tlsext_server_build))
 			goto err;
 	}
 
- done:
 	if (!CBB_flush(cbb))
 		goto err;
 

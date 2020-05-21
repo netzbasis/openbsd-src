@@ -1,4 +1,4 @@
-/*	$OpenBSD: mips64_machdep.c,v 1.28 2020/05/11 13:25:32 kettenis Exp $ */
+/*	$OpenBSD: mips64_machdep.c,v 1.30 2020/05/16 14:44:45 kettenis Exp $ */
 
 /*
  * Copyright (c) 2009, 2010, 2012 Miodrag Vallat.
@@ -343,28 +343,30 @@ cp0_get_timecount(struct timecounter *tc)
 void
 cp0_calibrate(struct cpu_info *ci)
 {
-	struct tod_desc *cd = &sys_tod;
-	struct tod_time ct;
+	struct timeval rtctime;
 	u_int first_cp0, second_cp0, cycles_per_sec;
 	int first_sec;
 
-	if (cd->tod_get == NULL)
+	if (todr_handle == NULL)
 		return;
 
-	(*cd->tod_get)(cd->tod_cookie, 0, &ct);
-	first_sec = ct.sec;
+	if (todr_gettime(todr_handle, &rtctime) != 0)
+		return;
+	first_sec = rtctime.tv_sec;
 
 	/* Let the clock tick one second. */
 	do {
 		first_cp0 = cp0_get_count();
-		(*cd->tod_get)(cd->tod_cookie, 0, &ct);
-	} while (ct.sec == first_sec);
-	first_sec = ct.sec;
+		if (todr_gettime(todr_handle, &rtctime) != 0)
+			return;
+	} while (rtctime.tv_sec == first_sec);
+	first_sec = rtctime.tv_sec;
 	/* Let the clock tick one more second. */
 	do {
 		second_cp0 = cp0_get_count();
-		(*cd->tod_get)(cd->tod_cookie, 0, &ct);
-	} while (ct.sec == first_sec);
+		if (todr_gettime(todr_handle, &rtctime) != 0)
+			return;
+	} while (rtctime.tv_sec == first_sec);
 
 	cycles_per_sec = second_cp0 - first_cp0;
 	ci->ci_hw.clock = cycles_per_sec * CP0_CYCLE_DIVIDER;
@@ -489,94 +491,4 @@ unmap_startup(void)
 
 	while (word < endboot)
 		*word++ = 0x00000034u;	/* TEQ zero, zero */
-}
-
-
-todr_chip_handle_t todr_handle;
-
-#define MINYEAR		((OpenBSD / 100) - 1)	/* minimum plausible year */
-
-/*
- * inittodr:
- *
- *      Initialize time from the time-of-day register.
- */
-void
-inittodr(time_t base)
-{
-	time_t deltat;
-	struct timeval rtctime;
-	struct timespec ts;
-	int badbase;
-
-	if (base < (MINYEAR - 1970) * SECYR) {
-		printf("WARNING: preposterous time in file system\n");
-		/* read the system clock anyway */
-		base = (MINYEAR - 1970) * SECYR;
-		badbase = 1;
-	} else
-		badbase = 0;
-
-	rtctime.tv_sec = base;
-	rtctime.tv_usec = 0;
-
-	if (todr_handle == NULL ||
-	    todr_gettime(todr_handle, &rtctime) != 0 ||
-	    rtctime.tv_sec < (MINYEAR - 1970) * SECYR) {
-		/*
-		 * Believe the time in the file system for lack of
-		 * anything better, resetting the TODR.
-		 */
-		rtctime.tv_sec = base;
-		rtctime.tv_usec = 0;
-		if (todr_handle != NULL && !badbase)
-			printf("WARNING: bad clock chip time\n");
-		ts.tv_sec = rtctime.tv_sec;
-		ts.tv_nsec = rtctime.tv_usec * 1000;
-		tc_setclock(&ts);
-		goto bad;
-	} else {
-		ts.tv_sec = rtctime.tv_sec;
-		ts.tv_nsec = rtctime.tv_usec * 1000;
-		tc_setclock(&ts);
-	}
-
-	if (!badbase) {
-		/*
-		 * See if we gained/lost two or more days; if
-		 * so, assume something is amiss.
-		 */
-		deltat = rtctime.tv_sec - base;
-		if (deltat < 0)
-			deltat = -deltat;
-		if (deltat < 2 * SECDAY)
-			return;         /* all is well */
-#ifndef SMALL_KERNEL
-		printf("WARNING: clock %s %lld days\n",
-		    rtctime.tv_sec < base ? "lost" : "gained",
-		    (long long)(deltat / SECDAY));
-#endif
-	}
- bad:
-	printf("WARNING: CHECK AND RESET THE DATE!\n");
-}
-
-/*
- * resettodr:
- *
- *      Reset the time-of-day register with the current time.
- */
-void
-resettodr(void)
-{
-	struct timeval rtctime;
-
-	if (time_second == 1)
-		return;
-
-	microtime(&rtctime);
-
-	if (todr_handle != NULL &&
-	    todr_settime(todr_handle, &rtctime) != 0)
-		printf("WARNING: can't update clock chip time\n");
 }

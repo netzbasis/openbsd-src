@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_client.c,v 1.58 2020/05/10 16:56:11 jsing Exp $ */
+/* $OpenBSD: tls13_client.c,v 1.62 2020/05/19 01:30:34 beck Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  *
@@ -145,7 +145,6 @@ tls13_client_hello_send(struct tls13_ctx *ctx, CBB *cbb)
 int
 tls13_client_hello_sent(struct tls13_ctx *ctx)
 {
-	tls13_record_layer_set_legacy_version(ctx->rl, TLS1_2_VERSION);
 	tls13_record_layer_allow_ccs(ctx->rl, 1);
 
 	tls1_transcript_freeze(ctx->ssl);
@@ -252,6 +251,7 @@ tls13_server_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	}
 
 	/* From here on in we know we are doing TLSv1.3. */
+	tls13_record_layer_set_legacy_version(ctx->rl, TLS1_2_VERSION);
 	tls13_record_layer_allow_legacy_alerts(ctx->rl, 0);
 
 	/* See if this is a HelloRetryRequest. */
@@ -595,6 +595,14 @@ tls13_server_certificate_recv(struct tls13_ctx *ctx, CBS *cbs)
 		cert = NULL;
 	}
 
+	/* A server must always provide a non-empty certificate list. */
+	if (sk_X509_num(certs) < 1) {
+		ctx->alert = TLS13_ALERT_DECODE_ERROR;
+		tls13_set_errorx(ctx, TLS13_ERR_NO_PEER_CERTIFICATE, 0,
+		    "peer failed to provide a certificate", NULL);
+		goto err;
+	}
+
 	/*
 	 * At this stage we still have no proof of possession. As such, it would
 	 * be preferable to keep the chain and verify once we have successfully
@@ -839,12 +847,12 @@ tls13_client_certificate_send(struct tls13_ctx *ctx, CBB *cbb)
 	if (cpk->x509 == NULL)
 		goto done;
 
-	if (!tls13_cert_add(&cert_list, cpk->x509))
+	if (!tls13_cert_add(ctx, &cert_list, cpk->x509, tlsext_client_build))
 		goto err;
 
 	for (i = 0; i < sk_X509_num(chain); i++) {
 		cert = sk_X509_value(chain, i);
-		if (!tls13_cert_add(&cert_list, cert))
+		if (!tls13_cert_add(ctx, &cert_list, cert, tlsext_client_build))
 			goto err;
 	}
 

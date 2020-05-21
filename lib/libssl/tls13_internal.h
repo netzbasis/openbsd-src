@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_internal.h,v 1.79 2020/05/11 18:08:11 jsing Exp $ */
+/* $OpenBSD: tls13_internal.h,v 1.81 2020/05/19 01:30:34 beck Exp $ */
 /*
  * Copyright (c) 2018 Bob Beck <beck@openbsd.org>
  * Copyright (c) 2018 Theo Buehler <tb@openbsd.org>
@@ -45,7 +45,8 @@ __BEGIN_HIDDEN_DECLS
 #define TLS13_ERR_HRR_FAILED		17
 #define TLS13_ERR_TRAILING_DATA		18
 #define TLS13_ERR_NO_SHARED_CIPHER	19
-#define TLS13_ERR_NO_PEER_CERTIFICATE	20
+#define TLS13_ERR_NO_CERTIFICATE	20
+#define TLS13_ERR_NO_PEER_CERTIFICATE	21
 
 #define TLS13_ALERT_LEVEL_WARNING			1
 #define TLS13_ALERT_LEVEL_FATAL				2
@@ -379,8 +380,9 @@ int tls13_server_finished_send(struct tls13_ctx *ctx, CBB *cbb);
 int tls13_server_finished_sent(struct tls13_ctx *ctx);
 
 void tls13_error_clear(struct tls13_error *error);
+int tls13_cert_add(struct tls13_ctx *ctx, CBB *cbb, X509 *cert,
+    int(*build_extensions)(SSL *s, CBB *cbb, uint16_t msg_type));
 
-int tls13_cert_add(CBB *cbb, X509 *cert);
 int tls13_synthetic_handshake_message(struct tls13_ctx *ctx);
 
 int tls13_error_set(struct tls13_error *error, int code, int subcode,

@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_tlsext.c,v 1.67 2020/05/10 14:17:48 jsing Exp $ */
+/* $OpenBSD: ssl_tlsext.c,v 1.70 2020/05/19 02:16:16 beck Exp $ */
 /*
  * Copyright (c) 2016, 2017, 2019 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2017 Doug Hogan <doug@openbsd.org>
@@ -909,12 +909,35 @@ tlsext_ocsp_server_parse(SSL *s, CBS *cbs, int *alert)
 int
 tlsext_ocsp_server_needs(SSL *s)
 {
+	if (s->version >= TLS1_3_VERSION &&
+	    s->tlsext_status_type == TLSEXT_STATUSTYPE_ocsp &&
+	    s->ctx->internal->tlsext_status_cb != NULL) {
+		s->internal->tlsext_status_expected = 0;
+		if (s->ctx->internal->tlsext_status_cb(s,
+		    s->ctx->internal->tlsext_status_arg) == SSL_TLSEXT_ERR_OK &&
+		    s->internal->tlsext_ocsp_resp_len > 0)
+			s->internal->tlsext_status_expected = 1;
+	}
 	return s->internal->tlsext_status_expected;
 }
 
 int
 tlsext_ocsp_server_build(SSL *s, CBB *cbb)
 {
+	CBB ocsp_response;
+
+	if (s->version >= TLS1_3_VERSION) {
+		if (!CBB_add_u8(cbb, TLSEXT_STATUSTYPE_ocsp))
+			return 0;
+		if (!CBB_add_u24_length_prefixed(cbb, &ocsp_response))
+			return 0;
+		if (!CBB_add_bytes(&ocsp_response,
+		    s->internal->tlsext_ocsp_resp,
+		    s->internal->tlsext_ocsp_resp_len))
+			return 0;
+		if (!CBB_flush(cbb))
+			return 0;
+	}
 	return 1;
 }
 
@@ -1487,7 +1510,7 @@ tlsext_versions_server_parse(SSL *s, CBS *cbs, int *alert)
 	if (!CBS_get_u8_length_prefixed(cbs, &versions))
 		goto err;
 
-	 while (CBS_len(&versions) > 0) {
+	while (CBS_len(&versions) > 0) {
 		if (!CBS_get_u16(&versions, &version))
 			goto err;
 		/*

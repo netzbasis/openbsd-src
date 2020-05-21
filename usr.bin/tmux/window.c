@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.257 2020/04/13 20:51:57 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.262 2020/05/16 16:50:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -440,13 +440,15 @@ window_pane_send_resize(struct window_pane *wp, int yadjust)
 {
 	struct window	*w = wp->window;
 	struct winsize	 ws;
+	u_int  		 sy = wp->sy + yadjust;
 
 	if (wp->fd == -1)
 		return;
+	log_debug("%s: %%%u resize to %u,%u", __func__, wp->id, wp->sx, sy);
 
 	memset(&ws, 0, sizeof ws);
 	ws.ws_col = wp->sx;
-	ws.ws_row = wp->sy + yadjust;
+	ws.ws_row = sy;
 	ws.ws_xpixel = w->xpixel * ws.ws_col;
 	ws.ws_ypixel = w->ypixel * ws.ws_row;
 	if (ioctl(wp->fd, TIOCSWINSZ, &ws) == -1)
@@ -488,8 +490,8 @@ window_set_active_pane(struct window *w, struct window_pane *wp, int notify)
 void
 window_redraw_active_switch(struct window *w, struct window_pane *wp)
 {
-	struct style	*sy1, *sy2;
-	int		 c1, c2;
+	struct grid_cell	*gc1, *gc2;
+	int			 c1, c2;
 
 	if (wp == w->active)
 		return;
@@ -499,18 +501,18 @@ window_redraw_active_switch(struct window *w, struct window_pane *wp)
 		 * If the active and inactive styles or palettes are different,
 		 * need to redraw the panes.
 		 */
-		sy1 = &wp->cached_style;
-		sy2 = &wp->cached_active_style;
-		if (!style_equal(sy1, sy2))
+		gc1 = &wp->cached_gc;
+		gc2 = &wp->cached_active_gc;
+		if (!grid_cells_look_equal(gc1, gc2))
 			wp->flags |= PANE_REDRAW;
 		else {
-			c1 = window_pane_get_palette(wp, sy1->gc.fg);
-			c2 = window_pane_get_palette(wp, sy2->gc.fg);
+			c1 = window_pane_get_palette(wp, gc1->fg);
+			c2 = window_pane_get_palette(wp, gc2->fg);
 			if (c1 != c2)
 				wp->flags |= PANE_REDRAW;
 			else {
-				c1 = window_pane_get_palette(wp, sy1->gc.bg);
-				c2 = window_pane_get_palette(wp, sy2->gc.bg);
+				c1 = window_pane_get_palette(wp, gc1->bg);
+				c2 = window_pane_get_palette(wp, gc2->bg);
 				if (c1 != c2)
 					wp->flags |= PANE_REDRAW;
 			}
@@ -865,6 +867,9 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 	wp->fd = -1;
 	wp->event = NULL;
 
+	wp->fg = 8;
+	wp->bg = 8;
+
 	TAILQ_INIT(&wp->modes);
 
 	wp->layout_cell = NULL;
@@ -988,28 +993,7 @@ window_pane_resize(struct window_pane *wp, u_int sx, u_int sy)
 	wme = TAILQ_FIRST(&wp->modes);
 	if (wme != NULL && wme->mode->resize != NULL)
 		wme->mode->resize(wme, sx, sy);
-
 	wp->flags |= (PANE_RESIZE|PANE_RESIZED);
-}
-
-void
-window_pane_alternate_on(struct window_pane *wp, struct grid_cell *gc,
-    int cursor)
-{
-	if (!options_get_number(wp->options, "alternate-screen"))
-		return;
-	screen_alternate_on(&wp->base, gc, cursor);
-	wp->flags |= PANE_REDRAW;
-}
-
-void
-window_pane_alternate_off(struct window_pane *wp, struct grid_cell *gc,
-    int cursor)
-{
-	if (!options_get_number(wp->options, "alternate-screen"))
-		return;
-	screen_alternate_off(&wp->base, gc, cursor);
-	wp->flags |= PANE_REDRAW;
 }
 
 void
@@ -1096,6 +1080,7 @@ window_pane_set_mode(struct window_pane *wp, struct window_pane *swp,
 	wp->screen = wme->screen;
 	wp->flags |= (PANE_REDRAW|PANE_CHANGED);
 
+	server_redraw_window_borders(wp->window);
 	server_status_window(wp->window);
 	notify_pane("pane-mode-changed", wp);
 
@@ -1127,6 +1112,7 @@ window_pane_reset_mode(struct window_pane *wp)
 	}
 	wp->flags |= (PANE_REDRAW|PANE_CHANGED);
 
+	server_redraw_window_borders(wp->window);
 	server_status_window(wp->window);
 	notify_pane("pane-mode-changed", wp);
 }
@@ -1150,8 +1136,10 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 
 	wme = TAILQ_FIRST(&wp->modes);
 	if (wme != NULL) {
-		if (wme->mode->key != NULL && c != NULL)
-			wme->mode->key(wme, c, s, wl, (key & ~KEYC_XTERM), m);
+		if (wme->mode->key != NULL && c != NULL) {
+			key &= ~KEYC_MASK_FLAGS;
+			wme->mode->key(wme, c, s, wl, key, m);
+		}
 		return (0);
 	}
 
