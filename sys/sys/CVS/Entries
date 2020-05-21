@@ -45,7 +45,7 @@
 /ipc.h/1.13/Sat Nov 15 21:42:50 2014//
 /kcore.h/1.1/Thu Apr 18 21:40:57 1996//
 /kcov.h/1.4/Sun Jan 20 09:57:23 2019//
-/kernel.h/1.22/Sat Sep  7 01:23:23 2019//
+/kernel.h/1.23/Wed May 20 17:24:17 2020//
 /kthread.h/1.7/Tue Feb 18 12:13:40 2020//
 /ktrace.h/1.38/Tue Feb 26 22:24:41 2019//
 /limits.h/1.10/Sat Jun 30 20:21:10 2012//
@@ -107,11 +107,11 @@
 /syscallargs.h/1.218/Wed Mar 18 19:35:00 2020//
 /sysctl.h/1.206/Sun May 10 00:56:06 2020//
 /syslimits.h/1.14/Thu Apr  2 18:00:00 2020//
-/syslog.h/1.16/Tue Aug  8 14:23:23 2017//
+/syslog.h/1.17/Thu May 21 01:39:56 2020//
 /systm.h/1.145/Fri Mar 20 03:37:08 2020//
 /task.h/1.16/Sun Jun 23 12:56:10 2019//
 /termios.h/1.13/Tue Sep 20 21:10:22 2016//
-/time.h/1.50/Wed Jan 15 13:17:35 2020//
+/time.h/1.51/Wed May 20 17:21:08 2020//
 /timeout.h/1.36/Fri Jan  3 02:16:38 2020//
 /times.h/1.6/Sat Jul  6 18:44:21 2013//
 /timetc.h/1.10/Sat Oct 26 21:16:38 2019//

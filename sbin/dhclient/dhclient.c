@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.671 2020/05/15 19:40:44 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.673 2020/05/20 19:13:34 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -1981,8 +1981,8 @@ lease_as_proposal(struct client_lease *lease)
 	struct option_data	 fake;
 	struct option_data	*opt;
 	struct proposal		*proposal;
-	uint8_t			*routes, *search, *dns;
-	unsigned int		 routes_len = 0, search_len = 0, dns_len = 0;
+	uint8_t			*ns, *p, *routes, *domains;
+	unsigned int		 routes_len = 0, domains_len = 0, ns_len = 0;
 	uint16_t		 mtu;
 
 	/* Determine sizes of variable length data. */
@@ -2011,18 +2011,19 @@ lease_as_proposal(struct client_lease *lease)
 	else if (lease->options[DHO_DOMAIN_NAME].len != 0)
 		opt = &lease->options[DHO_DOMAIN_NAME];
 	if (opt != NULL) {
-		search_len = opt->len;
-		search = opt->data;
+		domains_len = opt->len;
+		domains = opt->data;
 	}
 
 	if (lease->options[DHO_DOMAIN_NAME_SERVERS].len != 0) {
 		opt = &lease->options[DHO_DOMAIN_NAME_SERVERS];
-		dns = opt->data;
-		dns_len = opt->len;
+		ns_len = opt->len;
+		ns = opt->data;
 	}
 
 	/* Allocate proposal. */
-	proposal = calloc(1, sizeof(*proposal));
+	proposal = calloc(1, sizeof(*proposal) + routes_len + domains_len +
+	    ns_len);
 	if (proposal == NULL)
 		fatal("proposal");
 
@@ -2039,18 +2040,16 @@ lease_as_proposal(struct client_lease *lease)
 	if (opt->len == sizeof(proposal->netmask))
 		memcpy(&proposal->netmask, opt->data, opt->len);
 
-	if (routes_len > 0 && routes_len < sizeof(proposal->rtstatic)) {
-		memcpy(proposal->rtstatic, routes, routes_len);
-		proposal->rtstatic_len = routes_len;
-	}
-	if (search_len > 0 && search_len < sizeof(proposal->rtsearch)) {
-		memcpy(proposal->rtsearch, search, search_len);
-		proposal->rtsearch_len = search_len;
-	}
-	if (dns_len > 0 && dns_len <= sizeof(proposal->rtdns)) {
-		memcpy(proposal->rtdns, dns, dns_len);
-		proposal->rtdns_len = dns_len;
-	}
+	/* Append variable length uint8_t data. */
+	p = (uint8_t *)proposal + sizeof(struct proposal);
+	memcpy(p, routes, routes_len);
+	p += routes_len;
+	proposal->routes_len = routes_len;
+	memcpy(p, domains, domains_len);
+	p += domains_len;
+	proposal->domains_len = domains_len;
+	memcpy(p, ns, ns_len);
+	proposal->ns_len = ns_len;
 
 	return proposal;
 }

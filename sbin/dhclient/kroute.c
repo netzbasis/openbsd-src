@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.176 2020/05/19 17:59:47 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.182 2020/05/21 01:07:52 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -57,7 +57,7 @@ void		 delete_address(char *, int, struct in_addr);
 
 char		*get_routes(int, size_t *);
 void		 get_rtaddrs(int, struct sockaddr *, struct sockaddr **);
-unsigned int	 route_in_rtstatic(struct rt_msghdr *, uint8_t *, unsigned int,
+unsigned int	 route_pos(struct rt_msghdr *, uint8_t *, unsigned int,
     struct in_addr);
 void		 flush_routes(int, int, int, uint8_t *, unsigned int,
     struct in_addr);
@@ -256,13 +256,13 @@ get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 	}
 }
 /*
- * route_in_rtstatic() finds the position of the route in *rtm withing
+ * route_pos() finds the position of the route in *rtm within
  * the list of routes in rtstatic.
  *
  * If the route is not contained in rtstatic, return rtstatic_len.
  */
 unsigned int
-route_in_rtstatic(struct rt_msghdr *rtm, uint8_t *rtstatic,
+route_pos(struct rt_msghdr *rtm, uint8_t *rtstatic,
     unsigned int rtstatic_len, struct in_addr ifa)
 {
 	struct sockaddr		*rti_info[RTAX_MAX];
@@ -294,7 +294,7 @@ route_in_rtstatic(struct rt_msghdr *rtm, uint8_t *rtstatic,
 	dstaddr &= netmaskaddr;
 	i = 0;
 	while (i < rtstatic_len)  {
-		len = extract_classless_route(&rtstatic[i], rtstatic_len - i,
+		len = extract_route(&rtstatic[i], rtstatic_len - i,
 		    &rtstaticdstaddr, &rtstaticnetmaskaddr,
 		    &rtstaticgatewayaddr);
 		if (len == 0)
@@ -361,7 +361,7 @@ flush_routes(int index, int routefd, int rdomain, uint8_t *rtstatic,
 			continue;
 
 		/* Don't bother deleting a route we're going to add. */
-		pos = route_in_rtstatic(rtm, rtstatic, rtstatic_len, ifa);
+		pos = route_pos(rtm, rtstatic, rtstatic_len, ifa);
 		if (pos < rtstatic_len)
 			continue;
 
@@ -483,15 +483,14 @@ set_routes(char *name, int index, int rdomain, int routefd, struct in_addr addr,
 	in_addr_t		 addrnet, gatewaynet;
 	unsigned int		 i, len;
 
-	if (rtstatic_len <= RTLEN)
-		flush_routes(index, routefd, rdomain, rtstatic, rtstatic_len, addr);
+	flush_routes(index, routefd, rdomain, rtstatic, rtstatic_len, addr);
 
 	addrnet = addr.s_addr & addrmask.s_addr;
 
 	/* Add classless static routes. */
 	i = 0;
 	while (i < rtstatic_len) {
-		len = extract_classless_route(&rtstatic[i], rtstatic_len - i,
+		len = extract_route(&rtstatic[i], rtstatic_len - i,
 		    &dest.s_addr, &netmask.s_addr, &gateway.s_addr);
 		if (len == 0)
 			return;
@@ -774,11 +773,13 @@ set_mtu(char *name, int ioctlfd, uint16_t mtu)
 }
 
 /*
- * extract_classless_route() extracts the encoded route pointed to by rtstatic.
+ * extract_route() decodes the route pointed to by rtstatic into its
+ * {destination, netmask, gateway} and returns the number of bytes consumed
+ * from rtstatic.
  */
 unsigned int
-extract_classless_route(uint8_t *rtstatic, unsigned int rtstatic_len,
-    in_addr_t *dest, in_addr_t *netmask, in_addr_t *gateway)
+extract_route(uint8_t *rtstatic, unsigned int rtstatic_len, in_addr_t *dest,
+    in_addr_t *netmask, in_addr_t *gateway)
 {
 	unsigned int	 bits, bytes, len;
 
@@ -884,19 +885,30 @@ propose(struct proposal *proposal)
 	int			 rslt;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_PROPOSE, 0, 0, -1, proposal,
-	    sizeof(*proposal));
+	    sizeof(*proposal) + proposal->routes_len +
+	    proposal->domains_len + proposal->ns_len);
 	if (rslt == -1)
 		log_warn("%s: imsg_compose(IMSG_PROPOSE)", log_procname);
 }
 
 void
 priv_propose(char *name, int ioctlfd, struct proposal *proposal,
-    char **resolv_conf, int routefd, int rdomain, int index)
+    size_t sz, char **resolv_conf, int routefd, int rdomain, int index)
 {
 	struct unwind_info	 unwind_info;
 	struct ifreq		 ifr;
+	uint8_t			*dns, *domains, *routes;
 	char			*search = NULL;
 	int			 rslt;
+
+	if (sz != proposal->routes_len + proposal->domains_len + proposal->ns_len) {
+		log_warnx("%s: bad IMSG_PROPOSE data", log_procname);
+		return;
+	}
+
+	routes = (uint8_t *)proposal + sizeof(struct proposal);
+	domains = routes + proposal->routes_len;
+	dns = domains + proposal->domains_len;
 
 	memset(&ifr, 0, sizeof(ifr));
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
@@ -905,15 +917,22 @@ priv_propose(char *name, int ioctlfd, struct proposal *proposal,
 	if ((ifr.ifr_flags & IFXF_AUTOCONF4) == 0)
 		return;
 
-	memset(unwind_info.ns, 0, sizeof(unwind_info.ns));
-	if (proposal->rtdns_len > sizeof(unwind_info.ns))
-		proposal->rtdns_len = sizeof(unwind_info.ns);
-	memcpy(unwind_info.ns, proposal->rtdns, proposal->rtdns_len);
-	unwind_info.count = proposal->rtdns_len / sizeof(in_addr_t);
+	memset(&unwind_info, 0, sizeof(unwind_info));
+	if (proposal->ns_len >= sizeof(in_addr_t)) {
+		if (proposal->ns_len > sizeof(unwind_info.ns)) {
+			memcpy(unwind_info.ns, dns, sizeof(unwind_info.ns));
+			unwind_info.count = sizeof(unwind_info.ns) /
+			    sizeof(in_addr_t);
+		} else {
+			memcpy(unwind_info.ns, dns, proposal->ns_len);
+			unwind_info.count = proposal->ns_len /
+			    sizeof(in_addr_t);
+		}
+	}
 
-	if (proposal->rtsearch_len > 0) {
+	if (proposal->domains_len > 0) {
 		rslt = asprintf(&search, "search %.*s\n",
-		    proposal->rtsearch_len, proposal->rtsearch);
+		    proposal->domains_len, domains);
 		if (rslt == -1)
 			search = NULL;
 	}
@@ -933,7 +952,7 @@ priv_propose(char *name, int ioctlfd, struct proposal *proposal,
 	set_address(name, ioctlfd, proposal->ifa, proposal->netmask);
 
 	set_routes(name, index, rdomain, routefd, proposal->ifa,
-	    proposal->netmask, proposal->rtstatic, proposal->rtstatic_len);
+	    proposal->netmask, routes, proposal->routes_len);
 }
 
 /*
