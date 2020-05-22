@@ -1,6 +1,6 @@
 #!/bin/sh -
 #
-#	$OpenBSD: netstart,v 1.202 2020/01/15 00:19:40 kn Exp $
+#	$OpenBSD: netstart,v 1.204 2020/05/21 13:42:02 kn Exp $
 
 # Turn off Strict Bourne shell mode.
 set +o sh
@@ -11,8 +11,7 @@ usage() {
 	exit 1
 }
 
-# Echo file $1 to stdout. Skip comment lines and delete everything
-# after the first '#' from other lines. Strip leading and trailing
+# Echo file $1 to stdout. Skip comment lines. Strip leading and trailing
 # whitespace if IFS is set.
 # Usage: stripcom /path/to/file
 stripcom() {
@@ -134,7 +133,7 @@ ifstart() {
 	# Parse the hostname.if(5) file and fill _cmds array with interface
 	# configuration commands.
 	set -o noglob
-	while IFS= read -- _line; do
+	while IFS= read -r -- _line; do
 		parse_hn_line $_line
 	done <$_hn
 

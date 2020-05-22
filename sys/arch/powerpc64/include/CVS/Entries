@@ -24,5 +24,6 @@
 /softintr.h/1.1/Sat May 16 17:11:14 2020//
 /spinlock.h/1.1/Sat May 16 17:11:14 2020//
 /tcb.h/1.1/Sat May 16 17:11:14 2020//
+/trap.h/1.1/Thu May 21 19:54:14 2020//
 /vmparam.h/1.2/Sun May 17 14:54:14 2020//
 D

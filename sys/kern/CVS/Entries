@@ -78,7 +78,7 @@
 /tty_endrun.c/1.8/Mon Feb 19 08:59:52 2018//
 /tty_msts.c/1.21/Mon Feb 19 08:59:52 2018//
 /tty_nmea.c/1.49/Thu Aug 15 15:08:14 2019//
-/tty_pty.c/1.98/Tue Apr  7 13:27:51 2020//
+/tty_pty.c/1.99/Thu May 21 09:34:06 2020//
 /tty_subr.c/1.33/Mon Mar 14 23:08:06 2016//
 /tty_tty.c/1.25/Wed Apr  8 08:07:51 2020//
 /uipc_domain.c/1.57/Wed Jul  3 10:19:45 2019//

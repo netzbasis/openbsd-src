@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_lib.c,v 1.46 2020/05/19 01:30:34 beck Exp $ */
+/*	$OpenBSD: tls13_lib.c,v 1.50 2020/05/22 02:37:27 beck Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2019 Bob Beck <beck@openbsd.org>
@@ -258,6 +258,9 @@ tls13_phh_limit_check(struct tls13_ctx *ctx)
 static ssize_t
 tls13_key_update_recv(struct tls13_ctx *ctx, CBS *cbs)
 {
+	struct tls13_handshake_msg *hs_msg = NULL;
+	CBB cbb_hs;
+	CBS cbs_hs;
 	uint8_t alert = TLS13_ALERT_INTERNAL_ERROR;
 	uint8_t key_update_request;
 	ssize_t ret;
@@ -278,31 +281,31 @@ tls13_key_update_recv(struct tls13_ctx *ctx, CBS *cbs)
 	if (!tls13_phh_update_peer_traffic_secret(ctx))
 		goto err;
 
-	if (key_update_request) {
-		CBB cbb;
-		CBS cbs; /* XXX */
+	if (key_update_request == 0)
+		return TLS13_IO_SUCCESS;
 
-		tls13_handshake_msg_free(ctx->hs_msg);
-		ctx->hs_msg = tls13_handshake_msg_new();
+	/* key_update_request == 1 */
+	if ((hs_msg = tls13_handshake_msg_new()) == NULL)
+		goto err;
+	if (!tls13_handshake_msg_start(hs_msg, &cbb_hs, TLS13_MT_KEY_UPDATE))
+		goto err;
+	if (!CBB_add_u8(&cbb_hs, 0))
+		goto err;
+	if (!tls13_handshake_msg_finish(hs_msg))
+		goto err;
 
-		if (!tls13_handshake_msg_start(ctx->hs_msg, &cbb, TLS13_MT_KEY_UPDATE))
-			goto err;
-		if (!CBB_add_u8(&cbb, 0))
-			goto err;
-		if (!tls13_handshake_msg_finish(ctx->hs_msg))
-			goto err;
+	ctx->key_update_request = 1;
+	tls13_handshake_msg_data(hs_msg, &cbs_hs);
+	ret = tls13_record_layer_phh(ctx->rl, &cbs_hs);
 
-		ctx->key_update_request = key_update_request;
-		tls13_handshake_msg_data(ctx->hs_msg, &cbs);
-		ret = tls13_record_layer_phh(ctx->rl, &cbs);
-
-		tls13_handshake_msg_free(ctx->hs_msg);
-		ctx->hs_msg = NULL;
-	} else
-		ret = TLS13_IO_SUCCESS;
+	tls13_handshake_msg_free(hs_msg);
+	hs_msg = NULL;
 
 	return ret;
+
  err:
+	tls13_handshake_msg_free(hs_msg);
+
 	return tls13_send_alert(ctx->rl, alert);
 }
 
@@ -427,8 +430,14 @@ tls13_cert_add(struct tls13_ctx *ctx, CBB *cbb, X509 *cert,
 		return 0;
 	if (i2d_X509(cert, &data) != cert_len)
 		return 0;
-	if (!build_extensions(ctx->ssl, cbb, SSL_TLSEXT_MSG_CT))
-		return 0;
+	if (build_extensions != NULL) {
+		if (!build_extensions(ctx->ssl, cbb, SSL_TLSEXT_MSG_CT))
+			return 0;
+	} else {
+		CBB cert_exts;
+		if (!CBB_add_u16_length_prefixed(cbb, &cert_exts))
+			return 0;
+	}
 	if (!CBB_flush(cbb))
 		return 0;
 
