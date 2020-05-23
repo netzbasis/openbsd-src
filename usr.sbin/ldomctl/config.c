@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.36 2020/03/17 21:24:22 kn Exp $	*/
+/*	$OpenBSD: config.c,v 1.38 2020/05/22 21:54:20 kn Exp $	*/
 
 /*
  * Copyright (c) 2012, 2018 Mark Kettenis

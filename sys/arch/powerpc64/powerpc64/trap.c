@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.2 2020/05/22 15:07:47 kettenis Exp $	*/
+/*	$OpenBSD: trap.c,v 1.2 2020/05/22 15:34:43 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -16,6 +16,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-char cpu_model[64];
+#include <sys/param.h>
+#include <sys/systm.h>
 
-struct cpu_info *cpu_info_primary;
+#include <machine/trap.h>
+
+void
+trap(struct trapframe *frame)
+{
+	panic("trap type %lx at lr %lx", frame->exc, frame->lr);
+}
