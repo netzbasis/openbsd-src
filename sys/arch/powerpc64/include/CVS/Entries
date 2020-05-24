@@ -14,11 +14,13 @@
 /intr.h/1.1/Sat May 16 17:11:14 2020//
 /limits.h/1.1/Sat May 16 17:11:14 2020//
 /mutex.h/1.1/Sat May 16 17:11:14 2020//
+/opal.h/1.1/Sat May 23 11:40:16 2020//
 /param.h/1.1/Sat May 16 17:11:14 2020//
 /pcb.h/1.1/Sat May 16 17:11:14 2020//
 /pmap.h/1.1/Sat May 16 17:11:14 2020//
 /proc.h/1.1/Sat May 16 17:11:14 2020//
 /psl.h/1.2/Fri May 22 15:07:47 2020//
+/pte.h/1.1/Sat May 23 14:49:32 2020//
 /ptrace.h/1.1/Sat May 16 17:11:14 2020//
 /reg.h/1.1/Sat May 16 17:11:14 2020//
 /signal.h/1.2/Fri May 22 15:07:47 2020//
