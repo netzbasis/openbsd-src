@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.347 2020/05/22 15:43:38 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.350 2020/05/24 14:45:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -229,7 +229,6 @@ server_client_create(int fd)
 	RB_INIT(&c->windows);
 	RB_INIT(&c->files);
 
-	c->tty.fd = -1;
 	c->tty.sx = 80;
 	c->tty.sy = 24;
 
@@ -302,15 +301,12 @@ server_client_lost(struct client *c)
 		RB_REMOVE(client_windows, &c->windows, cw);
 		free(cw);
 	}
-	control_free_offsets(c);
 
 	TAILQ_REMOVE(&clients, c, entry);
 	log_debug("lost client %p", c);
 
-	/*
-	 * If CLIENT_TERMINAL hasn't been set, then tty_init hasn't been called
-	 * and tty_free might close an unrelated fd.
-	 */
+	if (c->flags & CLIENT_CONTROL)
+		control_stop(c);
 	if (c->flags & CLIENT_TERMINAL)
 		tty_free(&c->tty);
 	free(c->ttyname);
@@ -342,6 +338,10 @@ server_client_lost(struct client *c)
 	proc_remove_peer(c->peer);
 	c->peer = NULL;
 
+	if (c->fd != -1) {
+		close(c->fd);
+		c->fd = -1;
+	}
 	server_client_unref(c);
 
 	server_add_accept(0); /* may be more file descriptors now */
@@ -2008,7 +2008,7 @@ server_client_dispatch(struct imsg *imsg, void *arg)
 			break;
 		c->flags &= ~CLIENT_SUSPENDED;
 
-		if (c->tty.fd == -1) /* exited in the meantime */
+		if (c->fd == -1) /* exited in the meantime */
 			break;
 		s = c->session;
 
@@ -2210,11 +2210,9 @@ server_client_dispatch_identify(struct client *c, struct imsg *imsg)
 	if (c->flags & CLIENT_CONTROL) {
 		close(c->fd);
 		c->fd = -1;
-
 		control_start(c);
-		c->tty.fd = -1;
 	} else if (c->fd != -1) {
-		if (tty_init(&c->tty, c, c->fd) != 0) {
+		if (tty_init(&c->tty, c) != 0) {
 			close(c->fd);
 			c->fd = -1;
 		} else {
@@ -2345,15 +2343,18 @@ server_client_set_flags(struct client *c, const char *flags)
 		if (not)
 			next++;
 
-		if (strcmp(next, "no-output") == 0)
-			flag = CLIENT_CONTROL_NOOUTPUT;
-		else if (strcmp(next, "read-only") == 0)
+		flag = 0;
+		if (c->flags & CLIENT_CONTROL) {
+			if (strcmp(next, "no-output") == 0)
+				flag = CLIENT_CONTROL_NOOUTPUT;
+		}
+		if (strcmp(next, "read-only") == 0)
 			flag = CLIENT_READONLY;
 		else if (strcmp(next, "ignore-size") == 0)
 			flag = CLIENT_IGNORESIZE;
 		else if (strcmp(next, "active-pane") == 0)
 			flag = CLIENT_ACTIVEPANE;
-		else
+		if (flag == 0)
 			continue;
 
 		log_debug("client %s set flag %s", c->name, next);

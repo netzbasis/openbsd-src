@@ -33,7 +33,7 @@
 /cmd-load-buffer.c/1.60/Mon Apr 13 20:51:57 2020//
 /cmd-lock-server.c/1.30/Mon Apr 13 20:54:15 2020//
 /cmd-move-window.c/1.32/Wed Apr 22 21:15:33 2020//
-/cmd-new-session.c/1.133/Sat May 16 15:45:29 2020//
+/cmd-new-session.c/1.134/Sun May 24 09:13:06 2020//
 /cmd-new-window.c/1.87/Mon Apr 13 20:51:57 2020//
 /cmd-parse.y/1.26/Mon Apr 13 18:59:41 2020//
 /cmd-paste-buffer.c/1.40/Mon Apr 13 10:59:58 2020//
@@ -69,7 +69,7 @@
 /cmd.c/1.161/Sat May 16 16:02:24 2020//
 /colour.c/1.18/Thu Jun 27 15:17:41 2019//
 /control-notify.c/1.27/Thu May 21 07:24:13 2020//
-/control.c/1.32/Fri May 22 11:07:04 2020//
+/control.c/1.33/Sun May 24 09:40:17 2020//
 /environ.c/1.25/Sat May 16 15:40:44 2020//
 /file.c/1.6/Fri May  8 14:15:11 2020//
 /format-draw.c/1.20/Sat May 16 16:26:34 2020//
@@ -100,7 +100,7 @@
 /screen-redraw.c/1.78/Sat May 16 16:26:34 2020//
 /screen-write.c/1.180/Sat May 16 16:22:01 2020//
 /screen.c/1.67/Sat May 16 15:49:20 2020//
-/server-client.c/1.347/Fri May 22 15:43:38 2020//
+/server-client.c/1.350/Sun May 24 14:45:00 2020//
 /server-fn.c/1.126/Sat May 16 16:20:59 2020//
 /server.c/1.192/Sat May 16 16:30:59 2020//
 /session.c/1.87/Sat May 16 14:49:50 2020//
@@ -109,12 +109,12 @@
 /style.c/1.28/Sat May 16 16:02:24 2020//
 /tmux.1/1.773/Thu May 21 07:24:13 2020//
 /tmux.c/1.201/Sat May 16 16:07:55 2020//
-/tmux.h/1.1050/Fri May 22 11:07:05 2020//
+/tmux.h/1.1052/Sun May 24 09:40:17 2020//
 /tty-acs.c/1.10/Sat May 16 16:26:34 2020//
 /tty-features.c/1.15/Tue May 19 10:59:09 2020//
 /tty-keys.c/1.137/Fri May 22 15:43:38 2020//
 /tty-term.c/1.81/Sat May 16 16:44:54 2020//
-/tty.c/1.379/Fri May 22 15:08:38 2020//
+/tty.c/1.380/Sun May 24 09:13:06 2020//
 /utf8.c/1.44/Mon Nov 25 15:04:15 2019//
 /window-buffer.c/1.31/Sat May 16 16:13:09 2020//
 /window-client.c/1.28/Sat May 16 16:02:24 2020//
