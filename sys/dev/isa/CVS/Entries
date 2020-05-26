@@ -89,7 +89,7 @@
 /nsclpcsio_isa.c/1.14/Mon Jun  4 05:24:11 2018//
 /pas.c/1.29/Mon Sep 19 06:46:44 2016//
 /pasreg.h/1.3/Tue Feb 11 19:20:27 2003//
-/pcdisplay.c/1.12/Sun Oct 20 20:07:29 2013//
+/pcdisplay.c/1.14/Mon May 25 09:55:48 2020//
 /pcdisplayvar.h/1.4/Fri Apr  2 04:39:51 2004//
 /pckbc_isa.c/1.19/Tue Aug 18 06:54:00 2015//
 /pcppi.c/1.16/Mon Apr  6 17:54:50 2020//

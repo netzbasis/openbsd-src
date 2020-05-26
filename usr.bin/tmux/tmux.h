@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1052 2020/05/24 09:40:17 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.1056 2020/05/25 18:57:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -30,7 +30,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <termios.h>
-#include <wchar.h>
 
 #include "xmalloc.h"
 
@@ -596,12 +595,15 @@ struct msg_write_close {
 #define ALL_MOUSE_MODES (MODE_MOUSE_STANDARD|MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
 #define MOTION_MOUSE_MODES (MODE_MOUSE_BUTTON|MODE_MOUSE_ALL)
 
+/* A single UTF-8 character. */
+typedef u_int utf8_char;
+
 /*
- * A single UTF-8 character. UTF8_SIZE must be big enough to hold
- * combining characters as well, currently at most five (of three
- * bytes) are supported.
-*/
-#define UTF8_SIZE 18
+ * An expanded UTF-8 character. UTF8_SIZE must be big enough to hold combining
+ * characters as well. It can't be more than 32 bytes without changes to how
+ * characters are stored.
+ */
+#define UTF8_SIZE 21
 struct utf8_data {
 	u_char	data[UTF8_SIZE];
 
@@ -609,7 +611,7 @@ struct utf8_data {
 	u_char	size;
 
 	u_char	width;	/* 0xff if invalid */
-} __packed;
+};
 enum utf8_state {
 	UTF8_MORE,
 	UTF8_DONE,
@@ -663,13 +665,25 @@ enum utf8_state {
 
 /* Grid cell data. */
 struct grid_cell {
-	struct utf8_data	data; /* 21 bytes */
+	struct utf8_data	data;
+	u_short			attr;
+	u_char			flags;
+	int			fg;
+	int			bg;
+	int			us;
+};
+
+/* Grid extended cell entry. */
+struct grid_extd_entry {
+	utf8_char		data;
 	u_short			attr;
 	u_char			flags;
 	int			fg;
 	int			bg;
 	int			us;
 } __packed;
+
+/* Grid cell entry. */
 struct grid_cell_entry {
 	u_char			flags;
 	union {
@@ -690,7 +704,7 @@ struct grid_line {
 	struct grid_cell_entry	*celldata;
 
 	u_int			 extdsize;
-	struct grid_cell	*extddata;
+	struct grid_extd_entry	*extddata;
 
 	int			 flags;
 } __packed;
@@ -2877,12 +2891,13 @@ u_int		 session_group_attached_count(struct session_group *);
 void		 session_renumber_windows(struct session *);
 
 /* utf8.c */
+utf8_char	 utf8_build_one(char, u_int);
+enum utf8_state	 utf8_from_data(const struct utf8_data *, utf8_char *);
+void		 utf8_to_data(utf8_char, struct utf8_data *);
 void		 utf8_set(struct utf8_data *, u_char);
 void		 utf8_copy(struct utf8_data *, const struct utf8_data *);
 enum utf8_state	 utf8_open(struct utf8_data *, u_char);
 enum utf8_state	 utf8_append(struct utf8_data *, u_char);
-enum utf8_state	 utf8_combine(const struct utf8_data *, wchar_t *);
-enum utf8_state	 utf8_split(wchar_t, struct utf8_data *);
 int		 utf8_isvalid(const char *);
 int		 utf8_strvis(char *, const char *, size_t, int);
 int		 utf8_stravis(char **, const char *, int);

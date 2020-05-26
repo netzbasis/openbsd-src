@@ -82,7 +82,7 @@
 /ucrcom.c/1.1/Wed May  8 23:53:40 2019//
 /ucycom.c/1.38/Tue Feb 25 10:03:39 2020//
 /udcf.c/1.63/Sat Aug 10 23:29:59 2019//
-/udl.c/1.91/Thu Jan  9 14:36:26 2020//
+/udl.c/1.93/Mon May 25 09:55:49 2020//
 /udl.h/1.24/Thu Jan  9 14:36:26 2020//
 /udlio.h/1.1/Mon Sep 21 07:41:18 2009//
 /udsbr.c/1.27/Sun Nov  6 12:58:01 2016//
@@ -144,9 +144,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.150/Sun Oct  6 17:11:51 2019//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.712/Tue Mar 10 01:11:30 2020//
-/usbdevs.h/1.724/Tue Mar 10 01:11:58 2020//
-/usbdevs_data.h/1.718/Tue Mar 10 01:11:58 2020//
+/usbdevs/1.713/Mon May 25 12:45:56 2020//
+/usbdevs.h/1.725/Mon May 25 12:46:06 2020//
+/usbdevs_data.h/1.719/Mon May 25 12:46:06 2020//
 /usbdi.c/1.106/Fri Apr  3 20:11:47 2020//
 /usbdi.h/1.70/Tue May  1 18:14:46 2018//
 /usbdi_util.c/1.44/Sun Oct  6 17:11:51 2019//

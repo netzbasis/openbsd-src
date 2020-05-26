@@ -20,7 +20,7 @@
 /cons.h/1.4/Sun Apr 30 13:04:49 2017//
 /consinit.c/1.17/Sat Dec 30 20:46:59 2017//
 /core.c/1.1/Fri Jul 11 14:23:53 2008//
-/creator.c/1.51/Fri Sep  8 05:36:52 2017//
+/creator.c/1.53/Mon May 25 09:55:48 2020//
 /creatorreg.h/1.9/Mon Nov 30 23:32:57 2009//
 /creatorvar.h/1.11/Mon May 15 21:38:36 2006//
 /ebus.c/1.25/Thu Dec  5 12:46:54 2019//
@@ -28,7 +28,7 @@
 /ebusreg.h/1.6/Thu Dec  5 12:46:54 2019//
 /ebusvar.h/1.8/Thu Dec  5 12:46:54 2019//
 /environ.c/1.1/Fri Jan 18 20:12:38 2008//
-/fb.c/1.28/Tue Mar 29 22:06:50 2016//
+/fb.c/1.30/Mon May 25 09:55:48 2020//
 /fd.c/1.51/Thu Feb 20 02:05:18 2020//
 /fdreg.h/1.1/Wed Mar  9 18:41:49 2005//
 /fdvar.h/1.3/Thu Jun 26 05:42:13 2008//
@@ -38,8 +38,8 @@
 /fhcreg.h/1.4/Tue May  1 19:44:56 2007//
 /fhcvar.h/1.8/Fri Oct  1 18:18:49 2004//
 /gfb.c/1.2/Sun Oct 20 20:07:27 2013//
-/gfxp.c/1.13/Sun Oct 20 20:07:27 2013//
-/ifb.c/1.22/Sun Oct 20 20:07:27 2013//
+/gfxp.c/1.14/Mon May 25 09:55:48 2020//
+/ifb.c/1.23/Mon May 25 09:55:48 2020//
 /ifb_ident.c/1.2/Sat Jun 27 22:43:41 2009//
 /iommu.c/1.80/Wed Jan  1 15:00:07 2020//
 /iommureg.h/1.18/Tue Jun 25 22:30:56 2019//
@@ -49,7 +49,7 @@
 /led.c/1.2/Fri Jun 21 08:12:35 2019//
 /lom.c/1.27/Sat Oct 12 15:55:31 2019//
 /lpt_ebus.c/1.10/Thu Dec  5 12:46:54 2019//
-/machfb.c/1.10/Mon Jul 28 15:00:27 2014//
+/machfb.c/1.11/Mon May 25 09:55:48 2020//
 /mgiic.c/1.3/Thu May  7 00:00:52 2015//
 /msi.c/1.4/Tue Sep  8 10:24:25 2015//
 /msivar.h/1.1/Wed Jul  6 05:35:53 2011//
@@ -60,7 +60,7 @@
 /pcfiic_ebus.c/1.13/Sun Jun  8 03:07:40 2008//
 /pci_machdep.c/1.49/Thu Dec  5 12:46:54 2019//
 /pckbc_ebus.c/1.14/Fri Sep  8 05:36:52 2017//
-/pcons.c/1.24/Mon Feb 19 08:59:52 2018//
+/pcons.c/1.25/Mon May 25 09:55:48 2020//
 /pmc.c/1.4/Wed Dec 10 12:27:57 2014//
 /power.c/1.8/Fri Sep  8 05:36:52 2017//
 /ppm.c/1.2/Fri Sep  8 05:36:52 2017//
@@ -70,8 +70,8 @@
 /psychovar.h/1.8/Thu Dec  5 12:46:54 2019//
 /pyro.c/1.33/Tue Jun 25 22:30:56 2019//
 /pyrovar.h/1.4/Wed Jul  6 05:48:57 2011//
-/radeonfb.c/1.5/Sun Oct 20 20:07:27 2013//
-/raptor.c/1.8/Sun Oct 20 20:07:27 2013//
+/radeonfb.c/1.6/Mon May 25 09:55:48 2020//
+/raptor.c/1.9/Mon May 25 09:55:48 2020//
 /rtc.c/1.10/Fri Jul 11 08:18:31 2014//
 /sab.c/1.37/Sat Oct 12 15:55:31 2019//
 /sab82532reg.h/1.3/Mon Jun  2 20:02:49 2003//

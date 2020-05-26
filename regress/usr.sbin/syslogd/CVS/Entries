@@ -170,6 +170,8 @@
 /args-sigterm.pl/1.9/Wed Apr  5 22:32:14 2017//
 /args-socket-tcp.pl/1.4/Tue Jul  7 18:03:11 2015//
 /args-socket-tls.pl/1.3/Tue Jul  7 18:03:11 2015//
+/args-socket-udp-close.pl/1.1/Mon May 25 10:59:18 2020//
+/args-socket-udp-keep.pl/1.1/Mon May 25 10:59:18 2020//
 /args-socket.pl/1.5/Tue Sep 12 15:24:21 2017//
 /args-sync-tcp.pl/1.12/Tue May 22 15:01:16 2018//
 /args-tls-cafile-default.pl/1.10/Wed Apr  5 22:32:14 2017//

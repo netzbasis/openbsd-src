@@ -66,7 +66,7 @@
 /amdgpu_irq.h/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_job.c/1.2/Wed Nov 13 06:04:41 2019//
 /amdgpu_job.h/1.1/Tue May 21 22:40:06 2019//
-/amdgpu_kms.c/1.8/Wed Dec 25 11:42:05 2019//
+/amdgpu_kms.c/1.10/Mon May 25 09:55:48 2020//
 /amdgpu_kv_dpm.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_kv_smc.c/1.1/Tue May 21 22:40:06 2019//
 /amdgpu_mn.c/1.1/Tue May 21 22:40:06 2019//

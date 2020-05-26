@@ -257,8 +257,8 @@
 /p9000.h/1.4/Tue May 22 04:14:03 2007//
 /pcdisplay.h/1.2/Fri Feb  2 20:25:39 2001//
 /pcdisplay_chars.c/1.5/Sat Aug 28 12:48:14 2010//
-/pcdisplay_subr.c/1.13/Tue May 30 21:42:54 2017//
-/pcdisplayvar.h/1.12/Tue May 30 08:24:56 2017//
+/pcdisplay_subr.c/1.14/Mon May 25 09:55:48 2020//
+/pcdisplayvar.h/1.13/Mon May 25 09:55:48 2020//
 /pcf8584.c/1.11/Sun Aug  1 18:48:41 2010//
 /pcf8584var.h/1.5/Sat Oct 20 18:46:21 2007//
 /pckbc.c/1.53/Sat Nov 30 18:18:34 2019//
@@ -324,7 +324,7 @@
 /smc91cxxvar.h/1.8/Tue Oct 13 19:33:16 2009//
 /smc93cx6.c/1.18/Sat Mar 24 20:19:05 2012//
 /smc93cx6var.h/1.17/Sat Sep 12 16:24:14 2015//
-/sti.c/1.78/Sun Jun 11 02:06:36 2017//
+/sti.c/1.80/Mon May 25 09:55:48 2020//
 /stireg.h/1.14/Sun Apr  5 23:25:57 2015//
 /stivar.h/1.25/Sun Apr  5 23:25:57 2015//
 /tc921x.c/1.3/Tue May 22 04:14:03 2007//
@@ -345,7 +345,7 @@
 /uha.c/1.30/Sat Feb 15 18:02:00 2020//
 /uhareg.h/1.5/Wed Jun 30 19:06:16 2010//
 /uhavar.h/1.4/Sun Apr  3 12:42:36 2011//
-/vga.c/1.71/Sun May 17 14:06:02 2020//
+/vga.c/1.73/Mon May 25 09:55:48 2020//
 /vga_subr.c/1.5/Sat Jul 18 00:48:05 2015//
 /vgareg.h/1.5/Sun Feb  1 14:37:22 2009//
 /vgavar.h/1.13/Sun Jul 26 03:17:07 2015//
