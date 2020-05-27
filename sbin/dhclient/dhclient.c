@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.673 2020/05/20 19:13:34 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.675 2020/05/26 23:42:11 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -2233,12 +2233,16 @@ res_hnok_list(const char *names)
 }
 
 /*
- * Decode a byte string encoding a list of domain names as specified in RFC 1035
+ * Decode a byte string encoding a list of domain names as specified in RFC1035
  * section 4.1.4.
  *
  * The result is a string consisting of a blank separated list of domain names.
  *
- e.g. 3:65:6e:67:5:61:70:70:6c:65:3:63:6f:6d:0:9:6d:61:72:6b:65:74:69:6e:67:c0:04
+ * e.g.
+ *
+ * 3:65:6e:67:5:61:70:70:6c:65:3:63:6f:6d:0:9:6d:61:72:6b:65:74:69:6e:67:c0:04
+ *
+ * which represents
  *
  *    3 |'e'|'n'|'g'| 5 |'a'|'p'|'p'|'l'|
  *   'e'| 3 |'c'|'o'|'m'| 0 | 9 |'m'|'a'|
@@ -2759,7 +2763,6 @@ tick_msg(const char *preamble, int success, time_t start)
 void
 release_lease(struct interface_info *ifi)
 {
-	char			 destbuf[INET_ADDRSTRLEN];
 	char			 ifabuf[INET_ADDRSTRLEN];
 	struct option_data	*opt;
 
@@ -2772,7 +2775,6 @@ release_lease(struct interface_info *ifi)
 		ifi->destination.s_addr = *(in_addr_t *)opt->data;
 	else
 		ifi->destination.s_addr = INADDR_BROADCAST;
-	strlcpy(destbuf, inet_ntoa(ifi->destination), sizeof(destbuf));
 
 	ifi->xid = arc4random();
 	make_release(ifi, ifi->active);
@@ -2799,7 +2801,8 @@ release_lease(struct interface_info *ifi)
 	free(ifi->unwind_info);
 	ifi->unwind_info = NULL;
 
-	log_warnx("%s: %s RELEASED to %s", log_procname, ifabuf, destbuf);
+	log_warnx("%s: %s RELEASED to %s", log_procname, ifabuf,
+	    inet_ntoa(ifi->destination));
 }
 
 void
