@@ -71,7 +71,6 @@
 /tcb.h/1.4/Sun Sep  4 08:49:35 2016//
 /trap.h/1.6/Sun Jun 28 01:11:27 2015//
 /tss.h/1.12/Fri Jun 22 13:21:14 2018//
-/varargs.h/1.6/Wed Mar 23 16:54:35 2011//
 /vga_post.h/1.2/Wed Mar 23 16:54:35 2011//
 /vmmvar.h/1.19/Fri Jan 18 01:34:50 2019//
 /vmparam.h/1.56/Tue Apr 17 15:50:05 2018//
