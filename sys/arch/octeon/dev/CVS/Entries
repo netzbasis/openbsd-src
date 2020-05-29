@@ -60,7 +60,7 @@
 /octohci.c/1.4/Mon Jan  7 03:41:06 2019//
 /octpcie.c/1.2/Sun Sep 22 04:43:24 2019//
 /octpip.c/1.2/Sat Sep 28 22:20:25 2019//
-/octrng.c/1.8/Mon Apr  6 00:01:08 2020//
+/octrng.c/1.9/Fri May 29 04:42:24 2020//
 /octrtc.c/1.11/Mon Nov 20 15:20:03 2017//
 /octsctl.c/1.2/Sat Jan 12 13:50:52 2019//
 /octuctl.c/1.2/Tue Jul 25 11:01:28 2017//

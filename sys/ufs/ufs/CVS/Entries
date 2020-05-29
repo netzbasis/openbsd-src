@@ -1,7 +1,7 @@
-/dinode.h/1.18/Thu May 30 19:19:09 2013//
+/dinode.h/1.19/Thu May 28 15:48:29 2020//
 /dir.h/1.12/Sat May  4 15:38:12 2019//
 /dirhash.h/1.6/Thu Oct 26 02:38:54 2017//
-/inode.h/1.51/Mon Jan 21 18:09:21 2019//
+/inode.h/1.52/Thu May 28 15:48:29 2020//
 /quota.h/1.12/Wed Jul  3 04:58:40 2013//
 /ufs_bmap.c/1.36/Fri Jul 19 00:24:32 2019//
 /ufs_dirhash.c/1.42/Fri Mar 15 05:42:38 2019//
