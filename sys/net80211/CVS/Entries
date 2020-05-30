@@ -19,7 +19,7 @@
 /ieee80211_pae_input.c/1.33/Mon Sep  2 12:54:21 2019//
 /ieee80211_pae_output.c/1.30/Thu Dec 21 12:09:38 2017//
 /ieee80211_priv.h/1.5/Mon Jan 26 19:09:41 2009//
-/ieee80211_proto.c/1.96/Wed Nov  6 13:55:44 2019//
+/ieee80211_proto.c/1.98/Fri May 29 07:37:51 2020//
 /ieee80211_proto.h/1.46/Thu Sep 12 12:55:07 2019//
 /ieee80211_radiotap.h/1.15/Tue Feb 19 08:12:30 2019//
 /ieee80211_regdomain.c/1.10/Tue Nov 24 13:45:06 2015//

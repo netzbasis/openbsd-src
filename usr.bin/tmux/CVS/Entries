@@ -16,7 +16,7 @@
 /cmd-display-menu.c/1.19/Sat May 16 15:24:28 2020//
 /cmd-display-message.c/1.54/Sat May 16 15:54:20 2020//
 /cmd-display-panes.c/1.35/Sat May 16 15:34:08 2020//
-/cmd-find-window.c/1.49/Mon Apr 13 10:59:58 2020//
+/cmd-find-window.c/1.50/Fri May 29 13:42:13 2020//
 /cmd-find.c/1.79/Sat May 16 16:20:59 2020//
 /cmd-if-shell.c/1.74/Mon Apr 13 20:51:57 2020//
 /cmd-join-pane.c/1.45/Sat May 16 16:20:59 2020//
@@ -107,7 +107,7 @@
 /spawn.c/1.24/Thu May 21 07:24:13 2020//
 /status.c/1.216/Tue May 26 08:56:48 2020//
 /style.c/1.28/Sat May 16 16:02:24 2020//
-/tmux.1/1.774/Tue May 26 13:19:21 2020//
+/tmux.1/1.775/Fri May 29 13:42:13 2020//
 /tmux.c/1.201/Sat May 16 16:07:55 2020//
 /tmux.h/1.1057/Tue May 26 08:41:47 2020//
 /tty-acs.c/1.10/Sat May 16 16:26:34 2020//
