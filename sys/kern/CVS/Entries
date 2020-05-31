@@ -12,7 +12,7 @@
 /kern_bufq.c/1.33/Thu Dec 19 17:40:10 2019//
 /kern_clock.c/1.101/Tue Jan 21 16:16:23 2020//
 /kern_descrip.c/1.201/Fri Mar 13 10:07:01 2020//
-/kern_event.c/1.133/Mon May 25 15:54:10 2020//
+/kern_event.c/1.134/Sat May 30 14:10:17 2020//
 /kern_exec.c/1.213/Sat Feb 15 09:35:48 2020//
 /kern_exit.c/1.188/Wed Mar 18 15:48:21 2020//
 /kern_fork.c/1.225/Fri Mar 20 08:14:07 2020//
@@ -43,7 +43,7 @@
 /kern_watchdog.c/1.14/Fri Jul  5 22:10:50 2019//
 /kern_xxx.c/1.36/Tue Apr  2 11:00:22 2019//
 /makesyscalls.sh/1.13/Mon Sep 26 16:42:34 2016//
-/sched_bsd.c/1.62/Thu Jan 30 08:51:27 2020//
+/sched_bsd.c/1.63/Sat May 30 14:42:59 2020//
 /spec_vnops.c/1.100/Mon Jan 20 23:21:55 2020//
 /subr_autoconf.c/1.94/Mon Dec 30 23:56:26 2019//
 /subr_disk.c/1.237/Fri May 29 04:42:25 2020//
