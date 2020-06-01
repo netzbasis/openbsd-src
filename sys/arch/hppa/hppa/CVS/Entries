@@ -12,7 +12,7 @@
 /lock_machdep.c/1.14/Tue Apr 23 13:35:12 2019//
 /locore.S/1.200/Sun May 17 13:48:31 2020//
 /locore0.S/1.1/Mon Jun  5 18:59:06 2017//
-/machdep.c/1.258/Sat May 16 14:44:44 2020//
+/machdep.c/1.259/Sun May 31 06:23:57 2020//
 /mainbus.c/1.88/Mon May 14 13:54:39 2018//
 /mem.c/1.5/Sat Dec 30 20:46:59 2017//
 /mutex.c/1.17/Tue Apr 23 13:35:12 2019//

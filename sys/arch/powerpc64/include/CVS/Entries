@@ -1,9 +1,10 @@
+/_float.h/1.1/Mon Jun  1 00:13:37 2020//
 /_types.h/1.2/Wed May 27 22:22:04 2020//
 /atomic.h/1.1/Sat May 16 17:11:14 2020//
 /bus.h/1.1/Sat May 16 17:11:14 2020//
 /cdefs.h/1.1/Sat May 16 17:11:14 2020//
 /conf.h/1.1/Sat May 16 17:11:14 2020//
-/cpu.h/1.5/Fri May 22 16:27:49 2020//
+/cpu.h/1.6/Sun May 31 06:23:58 2020//
 /cpufunc.h/1.1/Fri May 22 15:07:47 2020//
 /db_machdep.h/1.3/Wed May 27 22:22:04 2020//
 /disklabel.h/1.1/Sat May 16 17:11:14 2020//
@@ -11,6 +12,8 @@
 /exec.h/1.2/Wed May 27 22:22:04 2020//
 /fpu.h/1.1/Sat May 16 17:11:14 2020//
 /frame.h/1.2/Fri May 22 15:07:47 2020//
+/ieee.h/1.1/Mon Jun  1 00:13:37 2020//
+/ieeefp.h/1.1/Mon Jun  1 00:13:37 2020//
 /intr.h/1.1/Sat May 16 17:11:14 2020//
 /limits.h/1.1/Sat May 16 17:11:14 2020//
 /mutex.h/1.1/Sat May 16 17:11:14 2020//
