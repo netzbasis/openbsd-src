@@ -1,4 +1,4 @@
-#   $OpenBSD: tlsfuzzer.py,v 1.3 2020/05/24 10:35:57 tb Exp $
+#   $OpenBSD: tlsfuzzer.py,v 1.5 2020/06/01 10:46:45 tb Exp $
 #
 # Copyright (c) 2020 Theo Buehler <tb@openbsd.org>
 #
@@ -79,6 +79,15 @@ tls13_tests = TestGroup("TLSv1.3 tests", [
     Test("test-tls13-legacy-version.py"),
     Test("test-tls13-nociphers.py"),
     Test("test-tls13-record-padding.py"),
+
+    # The skipped tests fail due to a bug in BIO_gets() which masks the retry
+    # signalled from an SSL_read() failure. Testing with httpd(8) shows we're
+    # handling these corner cases correctly since tls13_record_layer.c -r1.47.
+    Test("test-tls13-zero-length-data.py", [
+        "-e", "zero-length app data",
+        "-e", "zero-length app data with large padding",
+        "-e", "zero-length app data with padding",
+    ]),
 ])
 
 # Tests that take a lot of time (> ~30s on an x280)
@@ -125,13 +134,6 @@ tls13_failing_tests = TestGroup("failing TLSv1.3 tests", [
     # Most failing tests expect the CCS right before finished.
     # What's up with that?
     Test("test-tls13-version-negotiation.py"),
-
-    # The following three tests fail due to broken pipe.
-    # AssertionError: Unexpected closure from peer:
-    # 'zero-length app data'
-    # 'zero-length app data with large padding'
-    # 'zero-length app data with padding'
-    Test("test-tls13-zero-length-data.py"),
 ])
 
 tls13_slow_failing_tests = TestGroup("slow, failing TLSv1.3 tests", [
@@ -219,6 +221,7 @@ tls12_tests = TestGroup("TLSv1.2 tests", [
     Test("test-conversation.py"),
     Test("test-cve-2016-2107.py"),
     Test("test-dhe-rsa-key-exchange.py"),
+    Test("test-dhe-rsa-key-exchange-with-bad-messages.py"),
     Test("test-early-application-data.py"),
     Test("test-empty-extensions.py"),
     Test("test-fuzzed-MAC.py"),
@@ -304,9 +307,6 @@ tls12_failing_tests = TestGroup("failing TLSv1.2 tests", [
     # abrupt closure
     Test("test-cve-2016-6309.py"),
 
-    # failing tests are fixed by sending illegal_parameter alert after
-    # DH_compute_keyTest() in ssl_srvr.c
-    Test("test-dhe-rsa-key-exchange-with-bad-messages.py"),
     # Tests expect an illegal_parameter alert
     Test("test-ecdhe-rsa-key-exchange-with-bad-messages.py"),
 
