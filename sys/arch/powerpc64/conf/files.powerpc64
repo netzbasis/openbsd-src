@@ -1,4 +1,4 @@
-# $OpenBSD: files.powerpc64,v 1.2 2020/05/17 23:27:44 gkoehler Exp $
+# $OpenBSD: files.powerpc64,v 1.4 2020/05/27 22:22:04 gkoehler Exp $
 
 maxpartitions	16
 maxusers	2 8 128
@@ -19,6 +19,7 @@ file	arch/powerpc64/powerpc64/autoconf.c
 file	arch/powerpc64/powerpc64/conf.c
 file	arch/powerpc64/powerpc64/cpu.c
 file	arch/powerpc64/powerpc64/db_disasm.c		ddb
+file	arch/powerpc64/powerpc64/db_interface.c		ddb
 file	arch/powerpc64/powerpc64/db_memrw.c		ddb
 file	arch/powerpc64/powerpc64/db_trace.c		ddb
 file	arch/powerpc64/powerpc64/disksubr.c
@@ -26,8 +27,11 @@ file	arch/powerpc64/powerpc64/machdep.c
 file	arch/powerpc64/powerpc64/pmap.c
 file	arch/powerpc64/powerpc64/process_machdep.c
 file	arch/powerpc64/powerpc64/softintr.c
+file	arch/powerpc64/powerpc64/syncicache.c
 file	arch/powerpc64/powerpc64/syscall.c
 file	arch/powerpc64/powerpc64/sys_machdep.c
+file	arch/powerpc64/powerpc64/trap.c
+file	arch/powerpc64/powerpc64/trap_subr.S
 file	arch/powerpc64/powerpc64/vm_machdep.c
 
 file	netinet/in_cksum.c

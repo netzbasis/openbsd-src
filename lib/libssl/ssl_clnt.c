@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_clnt.c,v 1.66 2020/05/10 14:17:47 jsing Exp $ */
+/* $OpenBSD: ssl_clnt.c,v 1.68 2020/05/31 16:36:35 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -873,7 +873,7 @@ ssl3_get_server_hello(SSL *s)
 	    sizeof(s->s3->server_random), NULL))
 		goto err;
 
-	if (!SSL_IS_DTLS(s) && !ssl_enabled_version_range(s, NULL, &max_version))
+	if (!ssl_downgrade_max_version(s, &max_version))
 		goto err;
 	if (!SSL_IS_DTLS(s) && max_version >= TLS1_2_VERSION &&
 	    s->version < max_version) {
@@ -1264,7 +1264,7 @@ ssl3_get_server_kex_dhe(SSL *s, EVP_PKEY **pkey, CBS *cbs)
 	}
 
 	if (alg_a & SSL_aRSA)
-		*pkey = X509_get_pubkey(sc->peer_pkeys[SSL_PKEY_RSA_ENC].x509);
+		*pkey = X509_get_pubkey(sc->peer_pkeys[SSL_PKEY_RSA].x509);
 	else
 		/* XXX - Anonymous DH, so no certificate or pkey. */
 		*pkey = NULL;
@@ -1397,7 +1397,7 @@ ssl3_get_server_kex_ecdhe(SSL *s, EVP_PKEY **pkey, CBS *cbs)
 	 * and ECDSA.
 	 */
 	if (alg_a & SSL_aRSA)
-		*pkey = X509_get_pubkey(sc->peer_pkeys[SSL_PKEY_RSA_ENC].x509);
+		*pkey = X509_get_pubkey(sc->peer_pkeys[SSL_PKEY_RSA].x509);
 	else if (alg_a & SSL_aECDSA)
 		*pkey = X509_get_pubkey(sc->peer_pkeys[SSL_PKEY_ECC].x509);
 	else
@@ -1933,7 +1933,7 @@ ssl3_send_client_kex_rsa(SSL *s, SESS_CERT *sess_cert, CBB *cbb)
 	 * RSA-Encrypted Premaster Secret Message - RFC 5246 section 7.4.7.1.
 	 */
 
-	pkey = X509_get_pubkey(sess_cert->peer_pkeys[SSL_PKEY_RSA_ENC].x509);
+	pkey = X509_get_pubkey(sess_cert->peer_pkeys[SSL_PKEY_RSA].x509);
 	if (pkey == NULL || pkey->type != EVP_PKEY_RSA ||
 	    pkey->pkey.rsa == NULL) {
 		SSLerror(s, ERR_R_INTERNAL_ERROR);

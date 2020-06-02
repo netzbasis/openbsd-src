@@ -6,7 +6,7 @@
 /bus.h/1.32/Mon May  8 00:27:45 2017//
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /conf.h/1.6/Mon Nov 14 14:29:53 2011//
-/cpu.h/1.91/Wed Dec  5 10:28:21 2018//
+/cpu.h/1.92/Sun May 31 06:23:57 2020//
 /cpufunc.h/1.29/Sat Mar 29 18:09:29 2014//
 /db_machdep.h/1.21/Thu Nov  7 14:44:53 2019//
 /disklabel.h/1.24/Wed Sep 30 15:13:54 2015//
@@ -49,6 +49,5 @@
 /stdarg.h/1.11/Tue Mar 11 19:45:27 2014//
 /tcb.h/1.2/Tue Nov  8 15:39:50 2011//
 /trap.h/1.12/Thu May 26 04:34:52 2005//
-/varargs.h/1.2/Mon Dec  8 08:25:17 2003//
 /vmparam.h/1.47/Sun Nov  1 20:09:59 2015//
 D

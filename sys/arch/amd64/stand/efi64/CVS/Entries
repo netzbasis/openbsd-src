@@ -2,7 +2,7 @@
 /Makefile.common/1.5/Thu Mar  5 16:36:30 2020//
 /Makefile.inc/1.1/Sat May 11 02:36:10 2019//
 /cmd_i386.c/1.1/Sat May 11 02:36:10 2019//
-/conf.c/1.6/Thu Mar  5 16:36:30 2020//
+/conf.c/1.7/Tue May 26 14:00:42 2020//
 /dev_i386.c/1.1/Sat May 11 02:36:10 2019//
 /diskprobe.c/1.1/Sat May 11 02:36:10 2019//
 /efiboot.c/1.2/Sat May 11 19:14:41 2019//
@@ -13,7 +13,7 @@
 /efidev.h/1.1/Sat May 11 02:36:10 2019//
 /efipxe.c/1.4/Tue Nov 26 19:08:02 2019//
 /efipxe.h/1.1/Sat May 11 02:36:10 2019//
-/efirng.c/1.1/Sat May 11 02:36:10 2019//
+/efirng.c/1.2/Mon May 25 14:53:59 2020//
 /exec_i386.c/1.2/Sat May 11 19:14:41 2019//
 /heap.h/1.1/Sat May 11 02:36:10 2019//
 /ldscript.amd64/1.1/Sat May 11 02:36:10 2019//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.4 2020/05/17 14:54:15 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.11 2020/05/31 06:23:58 dlg Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -17,14 +17,28 @@
  */
 
 #include <sys/param.h>
+#include <sys/systm.h>
 #include <sys/exec.h>
 #include <sys/exec_elf.h>
 #include <sys/extent.h>
+
+#include <machine/cpufunc.h>
+#include <machine/opal.h>
+#include <machine/psl.h>
+#include <machine/trap.h>
 
 #include <uvm/uvm_extern.h>
 
 #include <dev/ofw/fdt.h>
 #include <dev/cons.h>
+
+#ifdef DDB
+#include <machine/db_machdep.h>
+#include <ddb/db_extern.h>
+#include <ddb/db_interface.h>
+#endif
+
+int cacheline_size = 128;
 
 struct uvm_constraint_range  dma_constraint = { 0x0, (paddr_t)-1 };
 struct uvm_constraint_range *uvm_md_constraints[] = { NULL };
@@ -42,34 +56,39 @@ struct user *proc0paddr;
 
 caddr_t esym;
 
-extern void opal_console_write(int64_t, int64_t *, const uint8_t *);
-extern void opal_cec_reboot(void);
-
-void opal_printf(const char *fmt, ...);
-
 extern char _start[], _end[];
 extern char __bss_start[];
 
 extern uint64_t opal_base;
 extern uint64_t opal_entry;
 
+extern char trapcode[], trapcodeend[];
+extern char generictrap[];
+
 struct fdt_reg memreg[VM_PHYSSEG_MAX];
 int nmemreg;
+
+#ifdef DDB
+struct fdt_reg initrd_reg;
+#endif
 
 void memreg_add(const struct fdt_reg *);
 void memreg_remove(const struct fdt_reg *);
 
 void
-init_powernv(void *fdt)
+init_powernv(void *fdt, void *tocbase)
 {
 	struct fdt_reg reg;
+	paddr_t trap;
+	uint64_t msr;
 	char *prop;
 	void *node;
 	int len;
 	int i;
 
 	/* Store pointer to our struct cpu_info. */
-	__asm volatile("mr %%r13, %0" :: "r"(&cpu_info_primary));
+	__asm volatile ("mtsprg0 %0" :: "r"(&cpu_info_primary));
+	__asm volatile ("mr %%r13, %0" :: "r"(&cpu_info_primary));
 
 	/* Clear BSS. */
 	memset(__bss_start, 0, _end - __bss_start);
@@ -86,31 +105,24 @@ init_powernv(void *fdt)
 		fdt_node_property(node, "compatible", &prop);
 	}
 
-	node = fdt_find_node("/");
-	fdt_node_property(node, "compatible", &prop);
-	printf("%s\n", prop);
+	printf("Hello, World!\n");
 
-	fdt_node_property(node, "model-name", &prop);
-	printf("%s\n", prop);
+	printf("MSR 0x%016llx\n", mfmsr());
 
-	fdt_node_property(node, "model", &prop);
-	printf("%s\n", prop);
+	/*
+	 * Initialize all traps with the stub that calls the generic
+	 * trap handler.
+	 */
+	for (trap = EXC_RST; trap < EXC_LAST; trap += 32)
+		memcpy((void *)trap, trapcode, trapcodeend - trapcode);
+	__syncicache(EXC_RSVD, EXC_LAST - EXC_RSVD);
 
-	uint32_t pvr;
-	__asm volatile("mfspr %0,287" : "=r"(pvr));
-	printf("PVR %x\n", pvr);
+	*((void **)TRAP_ENTRY) = generictrap;
+	*((void **)TRAP_TOCBASE) = tocbase;
 
-	uint64_t lpcr;
-	__asm volatile("mfspr %0,318" : "=r"(lpcr));
-	printf("LPCR %llx\n", lpcr);
-
-	uint64_t lpidr;
-	__asm volatile("mfspr %0,319" : "=r"(lpidr));
-	printf("LPIDR %llx\n", lpidr);
-
-	uint64_t msr;
-	__asm volatile("mfmsr %0" : "=r"(msr));
-	printf("MSR %llx\n", msr);
+	/* We're now ready to take traps. */
+	msr = mfmsr();
+	mtmsr(msr | PSL_RI);
 
 	/* Add all memory. */
 	node = fdt_find_node("/");
@@ -142,6 +154,11 @@ init_powernv(void *fdt)
 		}
 	}
 
+	/* Remove interrupt vectors. */
+	reg.addr = trunc_page(EXC_RSVD);
+	reg.size = round_page(EXC_LAST);
+	memreg_remove(&reg);
+
 	/* Remove kernel. */
 	reg.addr = trunc_page((paddr_t)_start);
 	reg.size = round_page((paddr_t)_end) - reg.addr;
@@ -151,6 +168,13 @@ init_powernv(void *fdt)
 	reg.addr = trunc_page((paddr_t)fdt);
 	reg.size = round_page((paddr_t)fdt + fdt_get_size(fdt)) - reg.addr;
 	memreg_remove(&reg);
+
+#ifdef DDB
+	/* Load symbols from initrd. */
+	db_machine_init();
+	if (initrd_reg.addr != 0)
+		memreg_remove(&initrd_reg);
+#endif
 
 	uvm_setpagesize();
 
@@ -163,7 +187,7 @@ init_powernv(void *fdt)
 		physmem += atop(end - start);
 	}
 
-	printf("Hello, World!\n");
+	__asm volatile ("trap");
 	opal_cec_reboot();
 }
 
@@ -288,7 +312,16 @@ opal_cninit(struct consdev *cd)
 int
 opal_cngetc(dev_t dev)
 {
-	return -1;
+	uint64_t len;
+	char ch;
+
+	for (;;) {
+		len = 1;
+		opal_console_read(0, &len, &ch);
+		if (len)
+			return ch;
+		opal_poll_events(NULL);
+	}
 }
 
 void
@@ -421,7 +454,18 @@ consinit(void)
 __dead void
 boot(int howto)
 {
+	opal_cec_reboot();
+
 	for (;;)
 		continue;
 	/* NOTREACHED */
+}
+
+unsigned int
+cpu_rnd_messybits(void)
+{
+	struct timespec ts;
+
+	nanotime(&ts);
+	return (ts.tv_nsec ^ (ts.tv_sec << 20));
 }

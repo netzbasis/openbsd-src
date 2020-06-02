@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpc.c,v 1.24 2020/05/10 21:14:30 martijn Exp $	*/
+/*	$OpenBSD: snmpc.c,v 1.26 2020/05/31 21:01:59 martijn Exp $	*/
 
 /*
  * Copyright (c) 2019 Martijn van Duren <martijn@openbsd.org>
@@ -1034,7 +1034,7 @@ snmpc_mibtree(int argc, char *argv[])
 	struct oid *oid;
 	char buf[BUFSIZ];
 
-	for (oid = NULL; (oid = smi_foreach(oid, 0)) != NULL;) {
+	for (oid = NULL; (oid = smi_foreach(oid)) != NULL;) {
 		smi_oid2string(&oid->o_id, buf, sizeof(buf), oid_lookup);
 		printf("%s\n", buf);
 	}
@@ -1098,7 +1098,7 @@ snmpc_printerror(enum snmp_error error, struct ber_element *varbind,
 
 	if (index >= 1) {
 		/* Only print if the index is in the reply */
-		for (i = 1; varbind != NULL && i <= index;
+		for (i = 1; varbind != NULL && i < index;
 		    varbind = varbind->be_next)
 			i++;
 		if (varbind != NULL &&

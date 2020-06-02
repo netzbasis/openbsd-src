@@ -14,6 +14,9 @@ struct cpu_info {
 
 	struct proc	*ci_curproc;
 
+#define CPUSAVE_LEN	9
+	register_t	ci_tempsave[CPUSAVE_LEN];
+
 	uint32_t	ci_ipending;
 #ifdef DIAGNOSTIC
 	int		ci_mutex_level;
@@ -47,6 +50,8 @@ register struct cpu_info *__curcpu asm("r13");
 #define cpu_unidle(ci)
 #define CPU_BUSY_CYCLE()	do {} while (0)
 #define signotify(p)		setsoftast()
+
+unsigned int cpu_rnd_messybits(void);
 
 void need_resched(struct cpu_info *);
 #define clear_resched(ci)	((ci)->ci_want_resched = 0)

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: appstest.sh,v 1.42 2020/05/18 13:55:04 inoguchi Exp $
+# $OpenBSD: appstest.sh,v 1.45 2020/05/29 14:26:01 inoguchi Exp $
 #
 # Copyright (c) 2016 Kinichiro Inoguchi <inoguchi@openbsd.org>
 #
@@ -1433,14 +1433,53 @@ function test_sc_by_protocol_version {
 		return
 	fi
 
+	groups_and_cipher=""
+	if [ $ver = "tls1_3" ] ; then
+		# Expect HelloRetryRequest
+		groups_and_cipher="-groups P-521:P-384 -cipher ALL"
+	fi
+
 	s_client_out=$user1_dir/s_client_${sc}_${ver}.out
 	
 	start_message "s_client ... connect to TLS/SSL test server by $ver"
 	sleep $test_pause_sec
 	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
-		-$ver -msg -tlsextdebug < /dev/null > $s_client_out 2>&1
+		-$ver $groups_and_cipher \
+		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
 	check_exit_status $?
 	
+	# check downgrade bits in SH
+	if [ $ver = "tls1" -o $ver = "tls1_1" ] ; then
+		perl -0ne \
+		    'exit (!/ServerHello\n.*\n.*44 4f\n.*57 4e 47 52 44 00/m)' \
+		    $s_client_out
+		check_exit_status $?
+	elif [ $ver = "tls1_2" ] ; then
+		perl -0ne \
+		    'exit (!/ServerHello\n.*\n.*44 4f\n.*57 4e 47 52 44 01/m)' \
+		    $s_client_out
+		check_exit_status $?
+	elif [ $ver = "tls1_3" ] ; then
+		perl -0ne \
+		    'exit (/ServerHello\n.*\n.*44 4f\n.*57 4e 47 52 44/m)' \
+		    $s_client_out
+		check_exit_status $?
+	fi
+
+	# check HRR hash
+	if [ $ver = "tls1_3" ] ; then
+		perl -0ne \
+		    'exit (!/ServerHello\n.*cf 21 ad 74 e5 9a 61 11 be 1d\n.*8c 02 1e 65 b8 91 c2 a2 11 16 7a bb 8c 5e 07 9e\n.*09 e2 c8 a8 33 9c/m)' \
+		    $s_client_out
+		check_exit_status $?
+	fi
+
+	if [ $ver = "tls1_3" ] ; then
+		grep 'Server Temp Key: ECDH, P-384, 384 bits' $s_client_out \
+			> /dev/null
+		check_exit_status $?
+	fi
+
 	# OpenSSL1.1.1 with TLSv1.3 does not call SSL_SESSION_print() until 
 	# NewSessionTicket arrival
 	if ! [ $cid = "1" -a $ver = "tls1_3" ] ; then
@@ -1592,6 +1631,7 @@ function test_sc_verify {
 	sleep $test_pause_sec
 	$c_bin s_client -connect $host:$port -CAfile $ca_cert \
 		-$ver -showcerts -crl_check -issuer_checks -policy_check \
+		-status -servername xyz \
 		-msg -tlsextdebug < /dev/null > $s_client_out 2>&1
 	check_exit_status $?
 	
@@ -1693,7 +1733,9 @@ function test_server_client {
 		-cert $crt -key $key -pass pass:$pwd \
 		-context "appstest.sh" -id_prefix "APPSTEST.SH" -crl_check \
 		-alpn "http/1.1,spdy/3" -www -cipher ALL $extra_opts \
-		-msg -tlsextdebug -verify 3 > $s_server_out 2>&1 &
+		-msg -tlsextdebug -verify 3 -groups X25519:P-384:P-256 \
+		-status -servername xyz -cert2 $crt -key2 $key \
+		> $s_server_out 2>&1 &
 	check_exit_status $?
 	s_server_pid=$!
 	echo "s_server pid = [ $s_server_pid ]"

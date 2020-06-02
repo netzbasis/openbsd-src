@@ -3,7 +3,7 @@
 /clock.c/1.23/Mon May 11 19:42:53 2020//
 /clockvar.h/1.5/Thu Mar 14 01:26:26 2002//
 /conf.c/1.87/Fri Jan 24 14:11:01 2020//
-/cpu.c/1.42/Thu Oct 27 09:46:14 2016//
+/cpu.c/1.43/Fri May 29 04:42:23 2020//
 /cpuconf.c/1.14/Sat Mar  9 02:10:47 2013//
 /db_disasm.c/1.25/Thu Nov  7 14:44:52 2019//
 /db_instruction.h/1.5/Wed Jul 10 20:30:14 2002//
@@ -31,7 +31,7 @@
 /lock_machdep.c/1.8/Thu Mar  5 09:28:31 2020//
 /locore.s/1.48/Sun May 17 13:48:29 2020//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
-/machdep.c/1.189/Sat May 16 14:44:44 2020//
+/machdep.c/1.191/Sun May 31 06:23:56 2020//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//
 /mcclock.c/1.5/Thu Mar 14 01:26:26 2002//
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//

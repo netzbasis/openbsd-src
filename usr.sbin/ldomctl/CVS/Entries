@@ -1,5 +1,5 @@
 /Makefile/1.11/Thu Nov 28 18:40:42 2019//
-/config.c/1.36/Tue Mar 17 21:24:22 2020//
+/config.c/1.40/Sun May 24 22:08:54 2020//
 /ldom.conf.5/1.13/Fri Feb 21 19:39:28 2020//
 /ldom_util.h/1.1/Thu Nov 28 18:40:42 2019//
 /ldomctl.8/1.29/Sun May 17 17:04:29 2020//
@@ -9,7 +9,7 @@
 /mdesc.h/1.8/Sun Jul 14 14:40:55 2019//
 /mdstore.c/1.12/Thu Nov 28 18:40:42 2019//
 /mdstore.h/1.4/Sat Sep 15 13:20:16 2018//
-/parse.y/1.18/Fri Feb 21 19:39:28 2020//
+/parse.y/1.20/Sat May 23 13:19:13 2020//
 /pri.c/1.2/Thu Nov 28 18:40:42 2019//
 /util.c/1.5/Thu Nov 28 18:40:42 2019//
 D

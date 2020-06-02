@@ -1,4 +1,4 @@
-/*	$OpenBSD: signal.h,v 1.1 2020/05/16 17:11:14 kettenis Exp $	*/
+/*	$OpenBSD: signal.h,v 1.2 2020/05/22 15:07:47 kettenis Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996 Wolfgang Solfrank.
@@ -30,14 +30,16 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef	_POWERPC_SIGNAL_H_
-#define	_POWERPC_SIGNAL_H_
+
+#ifndef	_MACHDEP_SIGNAL_H_
+#define	_MACHDEP_SIGNAL_H_
 
 #include <sys/cdefs.h>
 
 typedef int sig_atomic_t;
 
 #if __BSD_VISIBLE || __XPG_VISIBLE >= 420
+
 #include <machine/_types.h>
 
 /*
@@ -55,10 +57,10 @@ struct trapframe {
 	__register_t cr;
 	__register_t xer;
 	__register_t ctr;
-	int srr0;
-	int srr1;
-	int dar;			/* dar & dsisr are only filled on a DSI trap */
-	int dsisr;
+	__register_t srr0;
+	__register_t srr1;
+	__register_t dar;	/* dar & dsisr are only filled on a DSI trap */
+	__register_t dsisr;
 	__register_t exc;
 };
 
@@ -67,5 +69,7 @@ struct sigcontext {
 	int sc_mask;			/* saved signal mask */
 	struct trapframe sc_frame;	/* saved registers */
 };
+
 #endif /* __BSD_VISIBLE || __XPG_VISIBLE >= 420 */
-#endif	/* _POWERPC_SIGNAL_H_ */
+
+#endif	/* _MACHDEP_SIGNAL_H_ */

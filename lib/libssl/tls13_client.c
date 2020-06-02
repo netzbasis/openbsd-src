@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_client.c,v 1.62 2020/05/19 01:30:34 beck Exp $ */
+/* $OpenBSD: tls13_client.c,v 1.64 2020/05/23 11:58:46 jsing Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  *
@@ -37,6 +37,9 @@ tls13_client_init(struct tls13_ctx *ctx)
 		return 0;
 	}
 	s->client_version = s->version = ctx->hs->max_version;
+
+	tls13_record_layer_set_retry_after_phh(ctx->rl,
+	    (s->internal->mode & SSL_MODE_AUTO_RETRY) != 0);
 
 	if (!ssl_get_new_session(s, 0)) /* XXX */
 		return 0;
@@ -834,7 +837,7 @@ tls13_client_certificate_send(struct tls13_ctx *ctx, CBB *cbb)
 	int i, ret = 0;
 
 	/* XXX - Need to revisit certificate selection. */
-	cpk = &s->cert->pkeys[SSL_PKEY_RSA_ENC];
+	cpk = &s->cert->pkeys[SSL_PKEY_RSA];
 
 	if ((chain = cpk->chain) == NULL)
 		chain = s->ctx->extra_certs;
@@ -884,7 +887,7 @@ tls13_client_certificate_verify_send(struct tls13_ctx *ctx, CBB *cbb)
 	memset(&sig_cbb, 0, sizeof(sig_cbb));
 
 	/* XXX - Need to revisit certificate selection. */
-	cpk = &s->cert->pkeys[SSL_PKEY_RSA_ENC];
+	cpk = &s->cert->pkeys[SSL_PKEY_RSA];
 	pkey = cpk->privatekey;
 
 	if ((sigalg = ssl_sigalg_select(s, pkey)) == NULL) {

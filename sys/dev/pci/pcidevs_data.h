@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1922 2020/04/25 15:23:48 kevlo Exp 
+ *	OpenBSD: pcidevs,v 1.1925 2020/06/01 03:42:18 jcs Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -2456,6 +2456,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "ASM1042A xHCI",
 	},
 	{
+	    PCI_VENDOR_ASMEDIA, PCI_PRODUCT_ASMEDIA_ASM1182E,
+	    "ASM1182e",
+	},
+	{
 	    PCI_VENDOR_ASMEDIA, PCI_PRODUCT_ASMEDIA_ASM1184E,
 	    "ASM1184e",
 	},
@@ -2590,6 +2594,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_ATHEROS, PCI_PRODUCT_ATHEROS_AR9565,
 	    "AR9565",
+	},
+	{
+	    PCI_VENDOR_ATHEROS, PCI_PRODUCT_ATHEROS_QCA988X,
+	    "QCA986x/988x",
 	},
 	{
 	    PCI_VENDOR_ATHEROS, PCI_PRODUCT_ATHEROS_AR5210_AP,
@@ -27192,6 +27200,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "82C101",
 	},
 	{
+	    PCI_VENDOR_SKHYNIX, PCI_PRODUCT_SKHYNIX_SSD,
+	    "BC501 NVMe",
+	},
+	{
 	    PCI_VENDOR_TAMARACK, PCI_PRODUCT_TAMARACK_TC9021,
 	    "TC9021",
 	},
@@ -30722,6 +30734,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_SYMPHONY2,
 	    "Symphony Labs",
+	},
+	{
+	    PCI_VENDOR_SKHYNIX,
+	    "SK hynix",
 	},
 	{
 	    PCI_VENDOR_ADATA,

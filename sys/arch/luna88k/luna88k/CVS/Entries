@@ -10,7 +10,7 @@
 /locore.S/1.32/Sun Jul 23 09:17:17 2017//
 /locore0.S/1.2/Wed Jun  6 12:58:05 2018//
 /m8820x.c/1.16/Tue Jun  3 12:11:19 2014//
-/machdep.c/1.132/Sat May 16 14:44:44 2020//
+/machdep.c/1.134/Sun May 31 06:23:57 2020//
 /mainbus.c/1.15/Fri Nov  3 09:07:54 2017//
 /pmap_table.c/1.14/Mon Mar 20 19:42:51 2017//
 D
