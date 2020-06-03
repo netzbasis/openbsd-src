@@ -1,9 +1,9 @@
-/Makefile/1.773/Sun May 31 18:15:36 2020//
+/Makefile/1.774/Tue Jun  2 16:24:24 2020//
 /aac.4/1.27/Tue Jul 16 16:05:48 2013//
 /abcrtc.4/1.2/Fri Jan 11 20:39:46 2019//
 /ac97.4/1.18/Fri Feb 26 14:14:14 2010//
 /acphy.4/1.7/Thu May 31 19:19:48 2007//
-/acpi.4/1.61/Tue Apr 14 21:46:24 2020//
+/acpi.4/1.62/Tue Jun  2 16:24:24 2020//
 /acpiac.4/1.7/Wed Dec 10 07:36:38 2014//
 /acpials.4/1.1/Sat Jul 30 16:25:04 2016//
 /acpiasus.4/1.2/Tue Jul 16 16:05:48 2013//
@@ -13,6 +13,7 @@
 /acpicpu.4/1.9/Fri Jan 12 04:36:44 2018//
 /acpidock.4/1.5/Tue Jul 16 16:05:48 2013//
 /acpiec.4/1.5/Tue Jul 16 16:05:48 2013//
+/acpihid.4/1.2/Tue Jun  2 16:47:11 2020//
 /acpihpet.4/1.6/Tue Jul 16 16:05:48 2013//
 /acpihve.4/1.2/Sat Apr 28 15:44:59 2018//
 /acpimadt.4/1.5/Tue Jul 16 16:05:48 2013//

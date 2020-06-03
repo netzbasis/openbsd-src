@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.291 2020/05/25 18:19:29 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.294 2020/06/02 19:16:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2934,15 +2934,6 @@ window_copy_search(struct window_mode_entry *wme, int direction, int regex)
 	return (found);
 }
 
-static uint64_t
-window_copy_get_time(void)
-{
-	struct timeval	tv;
-
-	gettimeofday(&tv, NULL);
-	return ((tv.tv_sec * 1000ULL) + (tv.tv_usec / 1000ULL));
-}
-
 static int
 window_copy_search_marks(struct window_mode_entry *wme, struct screen *ssp,
     int regex)
@@ -2985,11 +2976,11 @@ window_copy_search_marks(struct window_mode_entry *wme, struct screen *ssp,
 			return (0);
 		}
 	}
-	tstart = window_copy_get_time();
+	tstart = get_timer();
 
 	start = 0;
 	end = gd->hsize + gd->sy;
-	stop = window_copy_get_time() + WINDOW_COPY_SEARCH_ALL_TIMEOUT;
+	stop = get_timer() + WINDOW_COPY_SEARCH_ALL_TIMEOUT;
 
 again:
 	free(data->searchmark);
@@ -3027,7 +3018,7 @@ again:
 			px++;
 		}
 
-		t = window_copy_get_time();
+		t = get_timer();
 		if (t - tstart > WINDOW_COPY_SEARCH_TIMEOUT) {
 			data->timeout = 1;
 			break;
@@ -3637,6 +3628,8 @@ window_copy_get_selection(struct window_mode_entry *wme, size_t *len)
 		buf = window_copy_match_at_cursor(data);
 		if (buf != NULL)
 			*len = strlen(buf);
+		else
+			*len = 0;
 		return (buf);
 	}
 
@@ -3728,6 +3721,7 @@ window_copy_get_selection(struct window_mode_entry *wme, size_t *len)
 	/* Don't bother if no data. */
 	if (off == 0) {
 		free(buf);
+		*len = 0;
 		return (NULL);
 	}
 	if (keys == MODEKEY_EMACS || lastex <= ey_last)
@@ -3762,9 +3756,6 @@ window_copy_copy_pipe(struct window_mode_entry *wme, struct session *s,
 	struct job	*job;
 
 	buf = window_copy_get_selection(wme, &len);
-	if (buf == NULL)
-		return;
-
 	if (cmd == NULL || *cmd == '\0')
 		cmd = options_get_string(global_options, "copy-command");
 	if (cmd != NULL && *cmd != '\0') {
@@ -3772,7 +3763,8 @@ window_copy_copy_pipe(struct window_mode_entry *wme, struct session *s,
 		    -1, -1);
 		bufferevent_write(job_get_event(job), buf, len);
 	}
-	window_copy_copy_buffer(wme, prefix, buf, len);
+	if (buf != NULL)
+		window_copy_copy_buffer(wme, prefix, buf, len);
 }
 
 static void

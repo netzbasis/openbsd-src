@@ -1,4 +1,4 @@
-/* $OpenBSD: grid.c,v 1.114 2020/05/27 06:23:23 nicm Exp $ */
+/* $OpenBSD: grid.c,v 1.116 2020/06/02 20:51:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -40,8 +40,16 @@ const struct grid_cell grid_default_cell = {
 	{ { ' ' }, 0, 1, 1 }, 0, 0, 8, 8, 0
 };
 
+/*
+ * Padding grid cell data. Padding cells are the only zero width cell that
+ * appears in the grid - because of this, they are always extended cells.
+ */
+static const struct grid_cell grid_padding_cell = {
+	{ { '!' }, 0, 0, 0 }, 0, GRID_FLAG_PADDING, 8, 8, 0
+};
+
 /* Cleared grid cell data. */
-const struct grid_cell grid_cleared_cell = {
+static const struct grid_cell grid_cleared_cell = {
 	{ { ' ' }, 0, 1, 1 }, 0, GRID_FLAG_CLEARED, 8, 8, 0
 };
 static const struct grid_cell_entry grid_cleared_entry = {
@@ -76,7 +84,7 @@ grid_need_extended_cell(const struct grid_cell_entry *gce,
 		return (1);
 	if (gc->attr > 0xff)
 		return (1);
-	if (gc->data.size > 1 || gc->data.width > 1)
+	if (gc->data.size != 1 || gc->data.width != 1)
 		return (1);
 	if ((gc->fg & COLOUR_FLAG_RGB) || (gc->bg & COLOUR_FLAG_RGB))
 		return (1);
@@ -524,7 +532,7 @@ grid_get_cell(struct grid *gd, u_int px, u_int py, struct grid_cell *gc)
 		grid_get_cell1(&gd->linedata[py], px, gc);
 }
 
-/* Set cell at relative position. */
+/* Set cell at position. */
 void
 grid_set_cell(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc)
 {
@@ -547,7 +555,14 @@ grid_set_cell(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc)
 		grid_store_cell(gce, gc, gc->data.data[0]);
 }
 
-/* Set cells at relative position. */
+/* Set padding at position. */
+void
+grid_set_padding(struct grid *gd, u_int px, u_int py)
+{
+	grid_set_cell(gd, px, py, &grid_padding_cell);
+}
+
+/* Set cells at position. */
 void
 grid_set_cells(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc,
     const char *s, size_t slen)
@@ -570,7 +585,7 @@ grid_set_cells(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc,
 		gce = &gl->celldata[px + i];
 		if (grid_need_extended_cell(gce, gc)) {
 			gee = grid_extended_cell(gl, gce, gc);
-			gee->data = utf8_build_one(s[i], 1);
+			gee->data = utf8_build_one(s[i]);
 		} else
 			grid_store_cell(gce, gc, s[i]);
 	}
