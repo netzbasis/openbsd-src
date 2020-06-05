@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.775 2020/05/29 13:42:13 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.777 2020/06/04 10:34:40 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 29 2020 $
+.Dd $Mdocdate: June 4 2020 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -552,17 +552,14 @@ is removed) and are not treated as having any special meaning - so for example
 variable.
 .El
 .Pp
-Braces are similar to single quotes in that the text inside is taken literally
-without any replacements but this also includes line continuation.
-Braces can span multiple lines in which case a literal newline is included in the
-string.
-They are designed to avoid the need for additional escaping when passing a group
-of
+Braces are parsed as a configuration file (so conditions such as
+.Ql %if
+are processed) and then converted into a string.
+They are designed to avoid the need for additional escaping when passing a
+group of
 .Nm
-or shell commands as an argument (for example to
-.Ic if-shell
-or
-.Ic pipe-pane ) .
+commands as an argument (for example to
+.Ic if-shell ) .
 These two examples produce an identical command - note that no escaping is
 needed when using {}:
 .Bd -literal -offset indent
@@ -570,7 +567,7 @@ if-shell true {
     display -p 'brace-dollar-foo: }$foo'
 }
 
-if-shell true "\en    display -p 'brace-dollar-foo: }\e$foo'\en"
+if-shell true "display -p 'brace-dollar-foo: }\e$foo'"
 .Ed
 .Pp
 Braces may be enclosed inside braces, for example:
@@ -2522,7 +2519,8 @@ Reactivate a pane in which the command has exited (see the
 window option).
 If
 .Ar shell-command
-is not given, the command used when the pane was created is executed.
+is not given, the command used when the pane was created or last respawned is
+executed.
 The pane must be already inactive, unless
 .Fl k
 is given, in which case any existing command is killed.
@@ -2546,7 +2544,8 @@ Reactivate a window in which the command has exited (see the
 window option).
 If
 .Ar shell-command
-is not given, the command used when the window was created is executed.
+is not given, the command used when the window was created or last respawned is
+executed.
 The window must be already inactive, unless
 .Fl k
 is given, in which case any existing command is killed.
