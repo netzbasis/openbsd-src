@@ -6,7 +6,7 @@
 /genassym.cf/1.26/Mon Jan 22 10:04:46 2018//
 /locore.S/1.57/Tue Sep  3 14:34:53 2019//
 /locore0.S/1.2/Tue Sep  3 14:37:22 2019//
-/machdep.c/1.191/Sun May 31 06:23:57 2020//
+/machdep.c/1.192/Fri Jun  5 14:25:05 2020//
 /mainbus.c/1.25/Sun Sep  6 16:46:53 2015//
 /mem.c/1.27/Mon Feb 19 08:59:52 2018//
 /ofw_machdep.c/1.59/Mon May 25 09:55:48 2020//
