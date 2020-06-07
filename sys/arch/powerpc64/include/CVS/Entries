@@ -5,7 +5,7 @@
 /cdefs.h/1.1/Sat May 16 17:11:14 2020//
 /conf.h/1.1/Sat May 16 17:11:14 2020//
 /cpu.h/1.6/Sun May 31 06:23:58 2020//
-/cpufunc.h/1.1/Fri May 22 15:07:47 2020//
+/cpufunc.h/1.2/Sat Jun  6 22:36:22 2020//
 /db_machdep.h/1.3/Wed May 27 22:22:04 2020//
 /disklabel.h/1.1/Sat May 16 17:11:14 2020//
 /endian.h/1.1/Sat May 16 17:11:14 2020//
@@ -20,10 +20,10 @@
 /opal.h/1.2/Wed May 27 22:22:04 2020//
 /param.h/1.1/Sat May 16 17:11:14 2020//
 /pcb.h/1.1/Sat May 16 17:11:14 2020//
-/pmap.h/1.1/Sat May 16 17:11:14 2020//
+/pmap.h/1.2/Sat Jun  6 22:36:22 2020//
 /proc.h/1.1/Sat May 16 17:11:14 2020//
 /psl.h/1.2/Fri May 22 15:07:47 2020//
-/pte.h/1.1/Sat May 23 14:49:32 2020//
+/pte.h/1.2/Sat Jun  6 22:36:22 2020//
 /ptrace.h/1.1/Sat May 16 17:11:14 2020//
 /reg.h/1.1/Sat May 16 17:11:14 2020//
 /signal.h/1.2/Fri May 22 15:07:47 2020//
@@ -31,5 +31,5 @@
 /spinlock.h/1.1/Sat May 16 17:11:14 2020//
 /tcb.h/1.1/Sat May 16 17:11:14 2020//
 /trap.h/1.2/Fri May 22 15:07:47 2020//
-/vmparam.h/1.2/Sun May 17 14:54:14 2020//
+/vmparam.h/1.3/Sat Jun  6 22:36:22 2020//
 D

@@ -115,7 +115,7 @@
 /tty-keys.c/1.139/Tue Jun  2 08:17:27 2020//
 /tty-term.c/1.82/Fri Jun  5 09:32:15 2020//
 /tty.c/1.382/Fri Jun  5 09:32:15 2020//
-/utf8.c/1.52/Tue Jun  2 20:10:23 2020//
+/utf8.c/1.53/Sat Jun  6 12:38:32 2020//
 /window-buffer.c/1.31/Sat May 16 16:13:09 2020//
 /window-client.c/1.29/Mon Jun  1 09:43:01 2020//
 /window-clock.c/1.29/Sat May 16 15:34:08 2020//
