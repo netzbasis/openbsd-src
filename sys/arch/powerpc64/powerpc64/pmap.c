@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.3 2020/06/06 22:36:22 kettenis Exp $ */
+/*	$OpenBSD: pmap.c,v 1.5 2020/06/07 09:59:45 kettenis Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -470,8 +470,17 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 extern struct fdt_reg memreg[];
 extern int nmemreg;
 
+#ifdef DDB
+extern struct fdt_reg initrd_reg;
+#endif
+
 void memreg_add(const struct fdt_reg *);
 void memreg_remove(const struct fdt_reg *);
+
+vaddr_t zero_page;
+vaddr_t copy_src_page;
+vaddr_t copy_dst_page;
+vaddr_t virtual_avail = VM_MIN_KERNEL_ADDRESS;
 
 void *
 pmap_steal_avail(size_t size, size_t align)
@@ -498,7 +507,7 @@ pmap_steal_avail(size_t size, size_t align)
 void
 pmap_virtual_space(vaddr_t *start, vaddr_t *end)
 {
-	*start = VM_MIN_KERNEL_ADDRESS;
+	*start = virtual_avail;
 	*end = VM_MAX_KERNEL_ADDRESS;
 }
 
@@ -639,13 +648,27 @@ pmap_collect(pmap_t pm)
 void
 pmap_zero_page(struct vm_page *pg)
 {
-	panic(__func__);
+	paddr_t pa = VM_PAGE_TO_PHYS(pg);
+	paddr_t va = zero_page + cpu_number() * PAGE_SIZE;
+
+	pmap_kenter_pa(va, pa, PROT_READ | PROT_WRITE);
+	memset((void *)va, 0, PAGE_SIZE);
+	pmap_kremove(va, PAGE_SIZE);
 }
 
 void
 pmap_copy_page(struct vm_page *srcpg, struct vm_page *dstpg)
 {
-	panic(__func__);
+	paddr_t srcpa = VM_PAGE_TO_PHYS(srcpg);
+	paddr_t dstpa = VM_PAGE_TO_PHYS(dstpg);
+	vaddr_t srcva = copy_src_page + cpu_number() * PAGE_SIZE;
+	vaddr_t dstva = copy_dst_page + cpu_number() * PAGE_SIZE;
+
+	pmap_kenter_pa(srcva, srcpa, PROT_READ);
+	pmap_kenter_pa(dstva, dstpa, PROT_READ | PROT_WRITE);
+	memcpy((void *)dstva, (void *)srcva, PAGE_SIZE);
+	pmap_kremove(srcva, PAGE_SIZE);
+	pmap_kremove(dstva, PAGE_SIZE);
 }
 
 void
@@ -700,6 +723,14 @@ pmap_bootstrap(void)
 		pmap_kenter_pa(pa, pa, prot);
 	}
 
+#ifdef DDB
+	/* Map initrd. */
+	start = initrd_reg.addr;
+	end = initrd_reg.addr + initrd_reg.size;
+	for (pa = start; pa < end; pa += PAGE_SIZE)
+		pmap_kenter_pa(pa, pa, PROT_READ | PROT_WRITE);
+#endif
+
 	/* Allocate partition table. */
 	pmap_pat = pmap_steal_avail(PATMEMSZ, PATMEMSZ);
 	memset(pmap_pat, 0, PATMEMSZ);
@@ -726,4 +757,11 @@ pmap_bootstrap(void)
 		slbv = pmap_kernel_vsid(esid) << SLBV_VSID_SHIFT;
 		slbmte(slbv, slbe);
 	}
+
+	zero_page = virtual_avail;
+	virtual_avail += MAXCPUS * PAGE_SIZE;
+	copy_src_page = virtual_avail;
+	virtual_avail += MAXCPUS * PAGE_SIZE;
+	copy_dst_page = virtual_avail;
+	virtual_avail += MAXCPUS * PAGE_SIZE;
 }

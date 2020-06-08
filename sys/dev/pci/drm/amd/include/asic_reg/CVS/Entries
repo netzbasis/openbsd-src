@@ -1,8 +1,10 @@
 D/athub////
 D/bif////
+D/clk////
 D/dce////
 D/dcn////
 D/df////
+D/dpcs////
 D/gc////
 D/gca////
 D/gmc////
@@ -12,8 +14,15 @@ D/mp////
 D/nbif////
 D/nbio////
 D/oss////
+D/rsmu////
 D/sdma0////
 D/sdma1////
+D/sdma2////
+D/sdma3////
+D/sdma4////
+D/sdma5////
+D/sdma6////
+D/sdma7////
 D/smu////
 D/smuio////
 D/thm////
@@ -21,3 +30,5 @@ D/umc////
 D/uvd////
 D/vce////
 D/vcn////
+D/wafl////
+D/xgmi////
