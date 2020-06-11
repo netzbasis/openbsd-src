@@ -30,7 +30,7 @@
 /drm_drv.c/1.176/Mon Jun  8 04:47:58 2020//
 /drm_dsc.c/1.1/Mon Jun  8 04:47:58 2020//
 /drm_dumb_buffers.c/1.2/Mon Jun  8 04:47:58 2020//
-/drm_edid.c/1.27/Mon Jun  8 04:47:58 2020//
+/drm_edid.c/1.28/Wed Jun 10 18:18:57 2020//
 /drm_encoder.c/1.2/Mon Jun  8 04:47:58 2020//
 /drm_encoder_slave.c/1.1/Mon Jun  8 04:47:58 2020//
 /drm_fb_helper.c/1.22/Mon Jun  8 04:47:58 2020//

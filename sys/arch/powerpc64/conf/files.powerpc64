@@ -1,4 +1,4 @@
-# $OpenBSD: files.powerpc64,v 1.8 2020/06/08 18:44:32 kettenis Exp $
+# $OpenBSD: files.powerpc64,v 1.11 2020/06/10 19:06:53 kettenis Exp $
 
 maxpartitions	16
 maxusers	2 8 128
@@ -7,6 +7,7 @@ file	arch/powerpc64/powerpc64/locore.S
 file	arch/powerpc64/powerpc64/autoconf.c
 file	arch/powerpc64/powerpc64/bus_dma.c
 file	arch/powerpc64/powerpc64/bus_space.c
+file	arch/powerpc64/powerpc64/clock.c
 file	arch/powerpc64/powerpc64/conf.c
 file	arch/powerpc64/powerpc64/cpu.c
 file	arch/powerpc64/powerpc64/db_disasm.c		ddb
@@ -44,12 +45,26 @@ attach  cpu at mainbus
 # FDT support
 include "dev/ofw/files.ofw"
 
+# Machine-independent SCSI drivers
 include "scsi/files.scsi"
+
+# Machine-independent ATA drivers
+include "dev/ata/files.ata"
 
 # MII and PCI
 include "dev/mii/files.mii"
 include "dev/pci/files.pci"
 
+device	opal
+attach	opal at fdt
+file	arch/powerpc64/dev/opal.c		opal
+
 device	phb: pcibus
 attach	phb at fdt
 file	arch/powerpc64/dev/phb.c		phb
+
+# Machine-independent HID support
+include	"dev/hid/files.hid"
+
+# Include USB stuff
+include "dev/usb/files.usb"

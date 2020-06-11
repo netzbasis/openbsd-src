@@ -150,9 +150,9 @@
 /if_iwn.c/1.232/Wed Jun  3 11:37:39 2020//
 /if_iwnreg.h/1.56/Mon Jul 29 10:50:08 2019//
 /if_iwnvar.h/1.37/Mon Apr 27 08:02:24 2020//
-/if_iwx.c/1.19/Tue May 26 12:07:36 2020//
+/if_iwx.c/1.21/Wed Jun 10 09:29:27 2020//
 /if_iwxreg.h/1.6/Tue May 26 11:59:48 2020//
-/if_iwxvar.h/1.6/Tue May 26 12:05:51 2020//
+/if_iwxvar.h/1.7/Wed Jun 10 09:29:27 2020//
 /if_ix.c/1.166/Sun Jun  7 23:52:05 2020//
 /if_ix.h/1.41/Sun Jun  7 23:52:05 2020//
 /if_ixgb.c/1.71/Sun Jan 22 10:17:38 2017//

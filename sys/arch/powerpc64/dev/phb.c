@@ -1,4 +1,4 @@
-/*	$OpenBSD: phb.c,v 1.3 2020/06/08 19:06:47 kettenis Exp $	*/
+/*	$OpenBSD: phb.c,v 1.5 2020/06/10 19:02:41 kettenis Exp $	*/
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -56,6 +56,8 @@ struct phb_softc {
 
 	uint64_t		sc_phb_id;
 	uint64_t		sc_pe_number;
+	uint32_t		sc_msi_ranges[2];
+	uint32_t		sc_xive;
 
 	struct bus_space	sc_bus_iot;
 	struct bus_space	sc_bus_memt;
@@ -268,6 +270,9 @@ phb_attach(struct device *parent, struct device *self, void *aux)
 		window++;
 	}
 
+	OF_getpropintarray(sc->sc_node, "ibm,opal-msi-ranges",
+	    sc->sc_msi_ranges, sizeof(sc->sc_msi_ranges));
+
 	printf("\n");
 
 	memcpy(&sc->sc_bus_iot, sc->sc_iot, sizeof(sc->sc_bus_iot));
@@ -420,7 +425,8 @@ const char *
 phb_intr_string(void *v, pci_intr_handle_t ih)
 {
 	switch (ih.ih_type) {
-	case PCI_MSI:
+	case PCI_MSI32:
+	case PCI_MSI64:
 		return "msi";
 	case PCI_MSIX:
 		return "msix";
@@ -433,7 +439,52 @@ void *
 phb_intr_establish(void *v, pci_intr_handle_t ih, int level,
     int (*func)(void *), void *arg, char *name)
 {
-	return NULL;
+	struct phb_softc *sc = v;
+	void *cookie;
+
+	KASSERT(ih.ih_type != PCI_NONE);
+
+	if (ih.ih_type != PCI_INTX) {
+		uint32_t addr32, data;
+		uint64_t addr;
+		uint32_t xive;
+		int64_t error;
+
+		if (sc->sc_xive >= sc->sc_msi_ranges[1])
+			return NULL;
+
+		/* Allocate an MSI. */
+		xive = sc->sc_xive++;
+
+		error = opal_pci_set_xive_pe(sc->sc_phb_id,
+		    sc->sc_pe_number, xive);
+		if (error != OPAL_SUCCESS)
+			return NULL;
+
+		if (ih.ih_type == PCI_MSI32) {
+			error = opal_get_msi_32(sc->sc_phb_id, 0, xive,
+			    1, &addr32, &data);
+			addr = addr32;
+		} else {
+			error = opal_get_msi_64(sc->sc_phb_id, 0, xive,
+			    1, &addr, &data);
+		}
+		if (error != OPAL_SUCCESS)
+			return NULL;
+
+		cookie = intr_establish(sc->sc_msi_ranges[0] + xive,
+		    IST_EDGE, level, func, arg);
+		if (cookie == NULL)
+			return NULL;
+
+		if (ih.ih_type == PCI_MSIX) {
+			pci_msix_enable(ih.ih_pc, ih.ih_tag,
+			    sc->sc_iot, ih.ih_intrpin, addr, data);
+		} else
+			pci_msi_enable(ih.ih_pc, ih.ih_tag, addr, data);
+	}
+	
+	return cookie;
 }
 
 void

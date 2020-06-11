@@ -26,7 +26,7 @@
 /kern_prot.c/1.76/Tue Jul  9 12:23:25 2019//
 /kern_resource.c/1.68/Mon Jul 15 20:44:48 2019//
 /kern_rwlock.c/1.45/Mon Mar  2 17:07:49 2020//
-/kern_sched.c/1.66/Fri Feb 21 11:10:23 2020//
+/kern_sched.c/1.67/Thu Jun 11 00:00:01 2020//
 /kern_sensors.c/1.39/Thu Dec 19 17:40:11 2019//
 /kern_sig.c/1.256/Tue Apr  7 13:27:51 2020//
 /kern_smr.c/1.8/Fri Apr  3 03:36:56 2020//
@@ -87,7 +87,7 @@
 /uipc_proto.c/1.18/Mon Jul 15 12:28:06 2019//
 /uipc_socket.c/1.244/Sun Apr 12 16:15:18 2020//
 /uipc_socket2.c/1.104/Sat Apr 11 14:07:06 2020//
-/uipc_syscalls.c/1.185/Thu May 28 07:17:50 2020//
+/uipc_syscalls.c/1.186/Wed Jun 10 13:24:57 2020//
 /uipc_usrreq.c/1.142/Tue Jul 16 21:41:37 2019//
 /vfs_bio.c/1.200/Wed Apr 29 02:25:48 2020//
 /vfs_biomem.c/1.48/Wed Apr 15 16:46:34 2020//

@@ -276,7 +276,7 @@
 /qlw.c/1.34/Wed Feb  5 16:29:30 2020//
 /qlwreg.h/1.7/Sat Mar 15 21:49:47 2014//
 /qlwvar.h/1.10/Sat Mar 15 13:08:52 2014//
-/r92creg.h/1.24/Mon Mar 11 06:19:33 2019//
+/r92creg.h/1.25/Thu Jun 11 00:56:12 2020//
 /ramdac.h/1.7/Thu Jun 26 05:42:16 2008//
 /re.c/1.204/Tue Nov 19 06:34:10 2019//
 /revar.h/1.7/Tue Jul 27 20:53:39 2010//
@@ -300,7 +300,7 @@
 /rtsxreg.h/1.4/Wed Sep  6 13:07:38 2017//
 /rtsxvar.h/1.6/Mon Oct  9 16:12:20 2017//
 /rtw.c/1.101/Thu Sep 12 12:55:07 2019//
-/rtwn.c/1.49/Thu Jan  9 14:35:19 2020//
+/rtwn.c/1.50/Thu Jun 11 00:56:12 2020//
 /rtwnvar.h/1.15/Mon Mar 11 06:19:33 2019//
 /rtwreg.h/1.14/Sun Aug 16 18:21:57 2009//
 /rtwvar.h/1.31/Wed Nov  4 12:11:59 2015//
