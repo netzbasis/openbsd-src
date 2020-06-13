@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.116 2019/04/28 17:59:51 mpi Exp $	*/
+/*	$OpenBSD: main.c,v 1.119 2020/06/12 12:22:21 remi Exp $	*/
 /*	$NetBSD: main.c,v 1.9 1996/05/07 02:55:02 thorpej Exp $	*/
 
 /*
@@ -127,7 +127,7 @@ main(int argc, char *argv[])
 	tableid = getrtable();
 
 	while ((ch = getopt(argc, argv,
-	    "AaBbc:deFf:ghI:iLlM:mN:np:P:qrsT:tuvW:w:")) != -1)
+	    "AaBbc:deFf:ghI:iLlM:mN:np:P:qRrsT:tuvW:w:")) != -1)
 		switch (ch) {
 		case 'A':
 			Aflag = 1;
@@ -225,6 +225,9 @@ main(int argc, char *argv[])
 		case 'q':
 			qflag = 1;
 			break;
+		case 'R':
+			Rflag = 1;
+			break;
 		case 'r':
 			rflag = 1;
 			break;
@@ -318,6 +321,11 @@ main(int argc, char *argv[])
 			mroutepr();
 		if (af == AF_INET6 || af == AF_UNSPEC)
 			mroute6pr();
+		exit(0);
+	}
+
+	if (Rflag) {
+		rdomainpr();
 		exit(0);
 	}
 
@@ -452,9 +460,10 @@ usage(void)
 	    "       %s [-v] [-M core] [-N system] -P pcbaddr\n"
 	    "       %s [-s] [-M core] [-N system] [-p protocol]\n"
 	    "       %s [-a] [-f address_family] [-i | -I interface]\n"
-	    "       %s [-W interface]\n",
+	    "       %s [-W interface]\n"
+	    "       %s [-R]\n",
 	    __progname, __progname, __progname, __progname,
-	    __progname, __progname, __progname);
+	    __progname, __progname, __progname, __progname);
 	exit(1);
 }
 
