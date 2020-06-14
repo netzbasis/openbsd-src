@@ -1,4 +1,4 @@
-/*	$OpenBSD: completion.h,v 1.4 2020/06/08 04:48:14 jsg Exp $	*/
+/*	$OpenBSD: completion.h,v 1.6 2020/06/13 06:22:41 jsg Exp $	*/
 /*
  * Copyright (c) 2015, 2018 Mark Kettenis
  *
@@ -71,7 +71,7 @@ wait_for_completion(struct completion *x)
 
 	mtx_enter(&x->wait.lock);
 	while (x->done == 0) {
-		ret = msleep_nsec(x, &x->wait.lock, 0, "wfci", INFSLP);
+		ret = msleep_nsec(x, &x->wait.lock, 0, "wfcom", INFSLP);
 		if (ret) {
 			mtx_leave(&x->wait.lock);
 			return (ret == EWOULDBLOCK) ? 0 : -ret;
@@ -132,7 +132,7 @@ complete(struct completion *x)
 	if (x->done != UINT_MAX)
 		x->done++;
 	mtx_leave(&x->wait.lock);
-	wakeup(x);
+	wakeup_one(x);
 }
 
 static inline void
