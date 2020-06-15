@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.10 2020/06/13 22:58:42 kettenis Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.12 2020/06/14 20:15:09 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -90,7 +90,14 @@ register struct cpu_info *__curcpu asm("r13");
 #define CPU_BUSY_CYCLE()	do {} while (0)
 #define signotify(p)		setsoftast()
 
-unsigned int cpu_rnd_messybits(void);
+static inline unsigned int
+cpu_rnd_messybits(void)
+{
+	uint64_t tb;
+
+	__asm volatile("mftb %0" : "=r" (tb));
+	return ((tb > 32) ^ tb);
+}
 
 void need_resched(struct cpu_info *);
 #define clear_resched(ci)	((ci)->ci_want_resched = 0)
@@ -102,6 +109,8 @@ void delay(u_int);
 
 #define PROC_STACK(p)		0
 #define PROC_PC(p)		0
+
+void	proc_trampoline(void);
 
 static inline void
 intr_enable(void)

@@ -1,7 +1,7 @@
-/*	$OpenBSD: proc.h,v 1.2 2020/06/14 17:56:54 kettenis Exp $	*/
+/*	$OpenBSD: pslid.S,v 1.2 2020/06/14 17:05:45 deraadt Exp $	*/
 
 /*
- * Copyright (c) 1991 Regents of the University of California.
+ * Copyright (c) 1997 Michael Shalayeff
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,13 +12,10 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR 
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
@@ -28,18 +25,27 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)proc.h	7.1 (Berkeley) 5/15/91
  */
 
-#ifndef _MACHINE_PROC_H_
-#define _MACHINE_PROC_H_
+	.file "pslid.S"
 
-/*
- * Machine-dependent part of the proc structure for arm64.
- */
-struct mdproc {
-	struct trapframe *md_regs;
-	volatile int md_astpending;
-};
+#include <machine/asm.h>
+#include <machine/psl.h>
 
-#endif /* _MACHINE_PROC_H_ */
+	.globl	_C_LABEL(pslid)
+ENTRY(pslid)
+	// See if we have CPU identification.
+	pushfl
+	popl	%eax
+	movl	%eax, %ecx
+	orl	$PSL_ID, %eax
+	pushl	%eax
+	popfl
+	pushfl
+	popl	%eax
+	pushl	%ecx
+	popfl
+	andl	$PSL_ID, %eax
+	ret
+
+	.end
