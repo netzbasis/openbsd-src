@@ -1,4 +1,4 @@
-/* $OpenBSD: ns8250.c,v 1.25 2019/12/11 06:45:16 pd Exp $ */
+/* $OpenBSD: ns8250.c,v 1.27 2020/06/16 08:46:03 pd Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *

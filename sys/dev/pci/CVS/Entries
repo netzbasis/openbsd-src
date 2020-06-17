@@ -62,7 +62,7 @@
 /eap.c/1.58/Sat Jan 11 09:09:09 2020//
 /eapreg.h/1.4/Fri Mar 30 08:18:19 2012//
 /ehci_pci.c/1.31/Thu May  2 20:28:46 2019//
-/emuxki.c/1.53/Thu Sep 13 04:07:20 2018//
+/emuxki.c/1.54/Wed Jun 17 00:03:13 2020//
 /emuxkireg.h/1.6/Thu Jun 26 05:42:17 2008//
 /emuxkivar.h/1.11/Mon Sep 19 06:46:44 2016//
 /envy.c/1.81/Sun Jan  5 01:07:58 2020//
@@ -75,7 +75,7 @@
 /esoreg.h/1.2/Sun Nov 11 01:32:52 2007//
 /esovar.h/1.7/Sun Jan 19 00:03:46 2020//
 /files.agp/1.5/Tue Dec  4 10:42:04 2012//
-/files.pci/1.345/Fri Mar  6 08:39:34 2020//
+/files.pci/1.346/Tue Jun 16 05:31:15 2020//
 /fms.c/1.30/Tue Dec 20 15:31:00 2016//
 /fmsradio.c/1.6/Thu Jun  6 16:29:37 2002//
 /fmsreg.h/1.3/Thu Jun 26 05:42:17 2008//
@@ -215,8 +215,8 @@
 /if_vgereg.h/1.2/Mon Nov 26 09:28:33 2007//
 /if_vgevar.h/1.5/Fri Mar 15 01:33:23 2013//
 /if_vic.c/1.99/Sat Nov  9 03:53:44 2019//
-/if_vmx.c/1.56/Thu May 28 07:21:56 2020//
-/if_vmxreg.h/1.6/Sun Oct 27 22:24:40 2019//
+/if_vmx.c/1.57/Tue Jun 16 05:31:15 2020//
+/if_vmxreg.h/1.7/Tue Jun 16 05:24:07 2020//
 /if_vr.c/1.153/Sun Jan 22 10:17:38 2017//
 /if_vrreg.h/1.37/Tue Oct 20 17:08:39 2015//
 /if_vte.c/1.22/Fri Nov  9 14:14:31 2018//
@@ -267,7 +267,7 @@
 /pccbbreg.h/1.12/Thu Oct 18 21:40:49 2012//
 /pccbbvar.h/1.16/Mon Sep  6 18:34:34 2010//
 /pchtemp.c/1.5/Sat Jun  6 18:56:32 2020//
-/pci.c/1.115/Wed Jan 15 14:01:19 2020//
+/pci.c/1.116/Wed Jun 17 01:43:04 2020//
 /pci_map.c/1.32/Mon Jun 17 11:04:06 2019//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
@@ -298,7 +298,7 @@
 /pciidereg.h/1.10/Tue Nov 26 20:33:17 2013//
 /pciidevar.h/1.21/Thu Sep 10 18:10:34 2015//
 /pcireg.h/1.59/Sat Nov  2 10:14:57 2019//
-/pcivar.h/1.72/Tue Jun 25 16:46:33 2019//
+/pcivar.h/1.73/Wed Jun 17 01:43:04 2020//
 /pcscp.c/1.20/Sat Mar 14 03:38:48 2015//
 /pcscpreg.h/1.3/Thu Jun 26 05:42:17 2008//
 /piixpm.c/1.42/Tue Jan 21 06:37:24 2020//

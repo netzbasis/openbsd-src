@@ -1,4 +1,4 @@
-/* $OpenBSD: atomic.h,v 1.6 2020/06/08 04:48:14 jsg Exp $ */
+/* $OpenBSD: atomic.h,v 1.10 2020/06/17 01:03:57 jsg Exp $ */
 /**
  * \file drm_atomic.h
  * Atomic operations used in the DRM which may or may not be provided by the OS.
@@ -41,8 +41,8 @@
 
 #define ATOMIC_INIT(x)		(x)
 
-#define atomic_set(p, v)	(*(p) = (v))
-#define atomic_read(p)		(*(p))
+#define atomic_set(p, v)	WRITE_ONCE(*(p), (v))
+#define atomic_read(p)		READ_ONCE(*(p))
 #define atomic_inc(p)		__sync_fetch_and_add(p, 1)
 #define atomic_dec(p)		__sync_fetch_and_sub(p, 1)
 #define atomic_add(n, p)	__sync_fetch_and_add(p, n)
@@ -58,6 +58,9 @@
 #define atomic_cmpxchg(p, o, n)	__sync_val_compare_and_swap(p, o, n)
 #define cmpxchg(p, o, n)	__sync_val_compare_and_swap(p, o, n)
 #define atomic_set_release(p, v)	atomic_set((p), (v))
+#define atomic_andnot(bits, p)		atomic_clearbits_int(p,bits)
+#define atomic_fetch_inc(p)		__sync_fetch_and_add(p, 1)
+#define atomic_fetch_xor(n, p)		__sync_fetch_and_xor(p, n)
 
 #define try_cmpxchg(p, op, n)						\
 ({									\
@@ -87,7 +90,7 @@ atomic_xchg(volatile int *v, int n)
 static inline int
 atomic_add_unless(volatile int *v, int n, int u)
 {
-	int o = *v;
+	int o;
 
 	do {
 		o = *v;
@@ -97,6 +100,8 @@ atomic_add_unless(volatile int *v, int n, int u)
 
 	return 1;
 }
+
+#define atomic_inc_not_zero(v)	atomic_add_unless((v), 1, 0)
 
 static inline int
 atomic_dec_if_positive(volatile int *v)
@@ -113,15 +118,15 @@ atomic_dec_if_positive(volatile int *v)
 	return r;
 }
 
-#define atomic_long_read(p)	(*(p))
+#define atomic_long_read(p)	READ_ONCE(*(p))
 
 #ifdef __LP64__
 typedef int64_t atomic64_t;
 
 #define ATOMIC64_INIT(x)	(x)
 
-#define atomic64_set(p, v)	(*(p) = (v))
-#define atomic64_read(p)	(*(p))
+#define atomic64_set(p, v)	WRITE_ONCE(*(p), (v))
+#define atomic64_read(p)	READ_ONCE(*(p))
 
 static inline int64_t
 atomic64_xchg(volatile int64_t *v, int64_t n)
@@ -223,27 +228,6 @@ typedef int32_t atomic_long_t;
 #define atomic_long_cmpxchg(p, o, n)	atomic_cmpxchg(p, o, n)
 #endif
 
-static inline int
-atomic_inc_not_zero(atomic_t *p)
-{
-	if (*p == 0)
-		return (0);
-
-	*(p) += 1;
-	return (*p);
-}
-
-/* FIXME */
-#define atomic_set_int(p, bits)		atomic_setbits_int(p,bits)
-#define atomic_set_mask(bits, p)	atomic_setbits_int(p,bits)
-#define atomic_clear_int(p, bits)	atomic_clearbits_int(p,bits)
-#define atomic_clear_mask(bits, p)	atomic_clearbits_int(p,bits)
-#define atomic_andnot(bits, p)		atomic_clearbits_int(p,bits)
-#define atomic_fetchadd_int(p, n) __sync_fetch_and_add(p, n)
-#define atomic_fetchsub_int(p, n) __sync_fetch_and_sub(p, n)
-#define atomic_fetch_inc(p) __sync_fetch_and_add(p, 1)
-#define atomic_fetch_xor(n, p) __sync_fetch_and_xor(p, n)
-
 static inline atomic_t
 test_and_set_bit(u_int b, volatile void *p)
 {
@@ -255,7 +239,7 @@ test_and_set_bit(u_int b, volatile void *p)
 static inline void
 clear_bit(u_int b, volatile void *p)
 {
-	atomic_clear_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+	atomic_clearbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
 }
 
 static inline void
@@ -268,7 +252,7 @@ clear_bit_unlock(u_int b, volatile void *p)
 static inline void
 set_bit(u_int b, volatile void *p)
 {
-	atomic_set_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+	atomic_setbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
 }
 
 static inline void
