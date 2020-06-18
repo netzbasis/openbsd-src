@@ -53,7 +53,7 @@
 /lock.h/1.27/Sun Jun 19 11:54:33 2016//
 /lockf.h/1.17/Sat Apr 20 08:28:59 2019//
 /malloc.h/1.119/Thu Nov 28 16:23:11 2019//
-/mbuf.h/1.246/Wed Jan 22 22:56:35 2020//
+/mbuf.h/1.247/Wed Jun 17 06:45:22 2020//
 /memrange.h/1.10/Tue Aug 18 20:19:32 2015//
 /mman.h/1.34/Fri Mar  1 01:46:18 2019//
 /mount.h/1.147/Sat Jan 18 08:40:19 2020//
@@ -66,7 +66,7 @@
 /param.h/1.130/Sun Apr  5 06:34:20 2020//
 /pciio.h/1.7/Sun Sep  5 18:14:33 2010//
 /percpu.h/1.8/Tue Aug 28 15:15:02 2018//
-/pipe.h/1.24/Fri Jan 24 11:07:41 2020//
+/pipe.h/1.25/Wed Jun 17 18:29:28 2020//
 /pledge.h/1.41/Sun Apr  5 07:31:45 2020//
 /poll.h/1.15/Tue Jun  7 06:12:37 2016//
 /pool.h/1.77/Fri Jul 19 09:03:03 2019//
@@ -91,7 +91,7 @@
 /sigio.h/1.4/Wed Jan  8 16:27:42 2020//
 /signal.h/1.29/Wed Apr 18 16:05:20 2018//
 /signalvar.h/1.41/Sun May 10 00:56:06 2020//
-/smr.h/1.6/Sun Apr 12 07:20:33 2020//
+/smr.h/1.7/Wed Jun 17 14:12:19 2020//
 /socket.h/1.98/Mon Jul 22 15:34:07 2019//
 /socketvar.h/1.91/Wed Jan 15 13:17:35 2020//
 /sockio.h/1.83/Wed Nov 13 11:54:01 2019//

@@ -122,7 +122,7 @@
 /umidireg.h/1.8/Mon Apr 15 09:23:02 2013//
 /umidivar.h/1.16/Sun Nov 10 10:22:39 2013//
 /umodem.c/1.65/Sat Feb 22 14:01:35 2020//
-/ums.c/1.43/Tue Jan 12 19:16:21 2016//
+/ums.c/1.44/Wed Jun 17 23:43:08 2020//
 /umsm.c/1.117/Wed Feb  5 16:01:32 2020//
 /umstc.c/1.1/Sun May 31 18:15:37 2020//
 /umt.c/1.1/Sat Aug 25 20:31:31 2018//
@@ -145,9 +145,9 @@
 /usb_quirks.h/1.16/Mon Jul 19 05:08:37 2010//
 /usb_subr.c/1.150/Sun Oct  6 17:11:51 2019//
 /usbcdc.h/1.9/Mon Apr 15 09:23:02 2013//
-/usbdevs/1.715/Sun May 31 18:12:04 2020//
-/usbdevs.h/1.727/Sun May 31 18:12:28 2020//
-/usbdevs_data.h/1.721/Sun May 31 18:12:28 2020//
+/usbdevs/1.716/Wed Jun 17 23:43:08 2020//
+/usbdevs.h/1.728/Wed Jun 17 23:43:08 2020//
+/usbdevs_data.h/1.722/Wed Jun 17 23:43:08 2020//
 /usbdi.c/1.106/Fri Apr  3 20:11:47 2020//
 /usbdi.h/1.70/Tue May  1 18:14:46 2018//
 /usbdi_util.c/1.44/Sun Oct  6 17:11:51 2019//

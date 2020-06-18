@@ -33,7 +33,7 @@
 /i8259.h/1.4/Wed Sep  2 13:39:23 2015//
 /ieee.h/1.2/Sun Sep  7 20:36:06 2008//
 /ieeefp.h/1.2/Wed Mar 23 16:54:34 2011//
-/intr.h/1.31/Fri Dec 21 01:51:07 2018//
+/intr.h/1.32/Wed Jun 17 06:14:52 2020//
 /intrdefs.h/1.20/Mon Mar 25 18:48:12 2019//
 /ioctl_fd.h/1.2/Wed Mar 23 16:54:34 2011//
 /isa_machdep.h/1.9/Thu Dec 11 17:07:14 2008//
@@ -48,7 +48,7 @@
 /mutex.h/1.11/Thu Jan 25 15:06:29 2018//
 /param.h/1.28/Mon Dec 23 21:42:01 2019//
 /pcb.h/1.17/Tue Jun  5 06:39:11 2018//
-/pci_machdep.h/1.28/Tue Jun 25 16:46:32 2019//
+/pci_machdep.h/1.29/Wed Jun 17 06:14:52 2020//
 /pctr.h/1.7/Mon Aug 26 12:41:47 2019//
 /pic.h/1.7/Tue Dec 16 21:20:23 2014//
 /pio.h/1.5/Sat Apr 25 21:31:24 2015//
