@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.228 2020/05/30 17:44:35 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.232 2020/06/15 18:37:37 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -633,8 +633,10 @@ ikev2_recv(struct iked *env, struct iked_message *msg)
 		sa->sa_msgid_current = msg->msg_msgid;
 	}
 
-	if (sa_address(sa, &sa->sa_peer, &msg->msg_peer) == -1 ||
-	    sa_address(sa, &sa->sa_local, &msg->msg_local) == -1)
+	if (sa_address(sa, &sa->sa_peer, (struct sockaddr *)&msg->msg_peer)
+	    == -1 ||
+	    sa_address(sa, &sa->sa_local, (struct sockaddr *)&msg->msg_local)
+	    == -1)
 		return;
 
 	sa->sa_fd = msg->msg_fd;
@@ -714,6 +716,16 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 	struct iked_auth	 ikeauth;
 	struct iked_policy	*policy = sa->sa_policy;
 	int			 ret = -1;
+
+	/* The AUTH payload indicates if the responder wants EAP or not */
+	if (msg->msg_auth.id_type != IKEV2_AUTH_NONE &&
+	    !sa_stateok(sa, IKEV2_STATE_EAP))
+		sa_state(env, sa, IKEV2_STATE_AUTH_REQUEST);
+
+	if (!sa->sa_hdr.sh_initiator &&
+	    !sa_stateok(sa, IKEV2_STATE_AUTH_REQUEST) &&
+	    sa->sa_policy->pol_auth.auth_eap)
+		sa_state(env, sa, IKEV2_STATE_EAP);
 
 	if (sa->sa_hdr.sh_initiator) {
 		id = &sa->sa_rid;
@@ -1257,8 +1269,10 @@ ikev2_init_auth(struct iked *env, struct iked_message *msg)
 
 	if (ca_setauth(env, sa, authmsg, PROC_CERT) == -1) {
 		log_debug("%s: failed to get cert", __func__);
+		ibuf_release(authmsg);
 		return (-1);
 	}
+	ibuf_release(authmsg);
 
 	return (ikev2_init_ike_auth(env, sa));
 }
@@ -2537,10 +2551,6 @@ ikev2_resp_recv(struct iked *env, struct iked_message *msg,
 			return;
 		}
 
-		if (!sa_stateok(sa, IKEV2_STATE_AUTH_REQUEST) &&
-		    sa->sa_policy->pol_auth.auth_eap)
-			sa_state(env, sa, IKEV2_STATE_EAP);
-
 		if (ikev2_ike_auth_recv(env, sa, msg) != 0) {
 			log_debug("%s: failed to send auth response", __func__);
 			ikev2_send_error(env, sa, msg, hdr->ike_exchange);
@@ -3718,8 +3728,10 @@ ikev2_init_create_child_sa(struct iked *env, struct iked_message *msg)
 			sa->sa_nextr = NULL;
 			/* Setup address, socket and NAT information */
 			sa_state(env, dsa, IKEV2_STATE_CLOSING);
-			sa_address(dsa, &dsa->sa_peer, &sa->sa_peer.addr);
-			sa_address(dsa, &dsa->sa_local, &sa->sa_local.addr);
+			sa_address(dsa, &dsa->sa_peer,
+			    (struct sockaddr *)&sa->sa_peer.addr);
+			sa_address(dsa, &dsa->sa_local,
+			    (struct sockaddr *)&sa->sa_local.addr);
 			dsa->sa_fd = sa->sa_fd;
 			dsa->sa_natt = sa->sa_natt;
 			dsa->sa_udpencap = sa->sa_udpencap;
@@ -4576,7 +4588,8 @@ ikev2_sa_initiator_dh(struct iked_sa *sa, struct iked_message *msg,
 	if (!ibuf_length(sa->sa_dhiexchange)) {
 		if ((sa->sa_dhiexchange = ibuf_new(NULL,
 		    dh_getlen(sa->sa_dhgroup))) == NULL) {
-			log_debug("%s: failed to alloc dh exchange", __func__);
+			log_info("%s: failed to alloc dh exchange",
+			    SPI_SA(msg->msg_sa, __func__));
 			return (-1);
 		}
 		if (dh_create_exchange(sa->sa_dhgroup,
@@ -4597,7 +4610,8 @@ ikev2_sa_initiator_dh(struct iked_sa *sa, struct iked_message *msg,
 		}
 		if ((ssize_t)ibuf_length(msg->msg_ke) !=
 		    dh_getlen(sa->sa_dhgroup)) {
-			log_debug("%s: invalid dh length, size %d", __func__,
+			log_info("%s: invalid dh length, size %d",
+			    SPI_SA(msg->msg_sa, __func__),
 			    dh_getlen(sa->sa_dhgroup) * 8);
 			return (-1);
 		}
@@ -4691,7 +4705,8 @@ ikev2_sa_initiator(struct iked *env, struct iked_sa *sa,
 
 	if (!ibuf_length(sa->sa_inonce)) {
 		if ((sa->sa_inonce = ibuf_random(IKED_NONCE_SIZE)) == NULL) {
-			log_debug("%s: failed to get local nonce", __func__);
+			log_info("%s: failed to get local nonce",
+			    SPI_SA(sa, __func__));
 			return (-1);
 		}
 	}
@@ -4702,11 +4717,13 @@ ikev2_sa_initiator(struct iked *env, struct iked_sa *sa,
 
 	if (!ibuf_length(sa->sa_rnonce)) {
 		if (!ibuf_length(msg->msg_nonce)) {
-			log_debug("%s: invalid peer nonce", __func__);
+			log_info("%s: invalid peer nonce",
+			    SPI_SA(sa, __func__));
 			return (-1);
 		}
 		if ((sa->sa_rnonce = ibuf_dup(msg->msg_nonce)) == NULL) {
-			log_debug("%s: failed to get peer nonce", __func__);
+			log_info("%s: failed to get peer nonce",
+			    SPI_SA(sa, __func__));
 			return (-1);
 		}
 	}
@@ -4759,13 +4776,14 @@ ikev2_sa_responder_dh(struct iked_kex *kex, struct iked_proposals *proposals,
 	if (!ibuf_length(kex->kex_dhrexchange)) {
 		if ((kex->kex_dhrexchange = ibuf_new(NULL,
 		    dh_getlen(kex->kex_dhgroup))) == NULL) {
-			log_debug("%s: failed to alloc dh exchange",
+			log_info("%s: failed to alloc dh exchange",
 			    SPI_SA(msg->msg_sa, __func__));
 			return (-1);
 		}
 		if (dh_create_exchange(kex->kex_dhgroup,
 		    kex->kex_dhrexchange->buf) == -1) {
-			log_debug("%s: failed to get dh exchange", __func__);
+			log_info("%s: failed to get dh exchange",
+			    SPI_SA(msg->msg_sa ,__func__));
 			return (-1);
 		}
 	}
@@ -4775,7 +4793,7 @@ ikev2_sa_responder_dh(struct iked_kex *kex, struct iked_proposals *proposals,
 		    ((ssize_t)ibuf_length(kex->kex_dhiexchange) !=
 		    dh_getlen(kex->kex_dhgroup))) {
 			/* XXX send notification to peer */
-			log_debug("%s: invalid dh, size %d",
+			log_info("%s: invalid dh, size %d",
 			    SPI_SA(msg->msg_sa, __func__),
 			    dh_getlen(kex->kex_dhgroup) * 8);
 			return (-1);

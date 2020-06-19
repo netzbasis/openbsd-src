@@ -1,21 +1,27 @@
-/dc.h/1.1/Tue May 21 22:40:07 2019//
-/dc_bios_types.h/1.1/Tue May 21 22:40:07 2019//
-/dc_ddc_types.h/1.1/Tue May 21 22:40:07 2019//
-/dc_dp_types.h/1.1/Tue May 21 22:40:07 2019//
-/dc_helper.c/1.1/Tue May 21 22:40:07 2019//
-/dc_hw_types.h/1.1/Tue May 21 22:40:07 2019//
-/dc_link.h/1.1/Tue May 21 22:40:07 2019//
-/dc_stream.h/1.1/Tue May 21 22:40:07 2019//
-/dc_types.h/1.1/Tue May 21 22:40:07 2019//
-/dm_helpers.h/1.1/Tue May 21 22:40:07 2019//
-/dm_pp_smu.h/1.1/Tue May 21 22:40:07 2019//
-/dm_services.h/1.1/Tue May 21 22:40:07 2019//
-/dm_services_types.h/1.1/Tue May 21 22:40:07 2019//
-/irq_types.h/1.1/Tue May 21 22:40:07 2019//
-/os_types.h/1.1/Tue May 21 22:40:07 2019//
+/dc.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_bios_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_ddc_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_dmub_srv.c/1.1/Mon Jun  8 04:48:00 2020//
+/dc_dmub_srv.h/1.1/Mon Jun  8 04:48:00 2020//
+/dc_dp_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_dsc.h/1.1/Mon Jun  8 04:48:00 2020//
+/dc_helper.c/1.2/Mon Jun  8 04:48:00 2020//
+/dc_hw_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_link.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_stream.h/1.2/Mon Jun  8 04:48:00 2020//
+/dc_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/dm_cp_psp.h/1.1/Mon Jun  8 04:48:00 2020//
+/dm_event_log.h/1.1/Mon Jun  8 04:48:00 2020//
+/dm_helpers.h/1.2/Mon Jun  8 04:48:00 2020//
+/dm_pp_smu.h/1.2/Mon Jun  8 04:48:00 2020//
+/dm_services.h/1.2/Mon Jun  8 04:48:00 2020//
+/dm_services_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/irq_types.h/1.2/Mon Jun  8 04:48:00 2020//
+/os_types.h/1.2/Mon Jun  8 04:48:00 2020//
 D/basics////
 D/bios////
 D/calcs////
+D/clk_mgr////
 D/core////
 D/dce////
 D/dce100////
@@ -24,9 +30,12 @@ D/dce112////
 D/dce120////
 D/dce80////
 D/dcn10////
+D/dcn20////
+D/dcn21////
 D/dml////
+D/dsc////
 D/gpio////
-D/i2caux////
+D/hdcp////
 D/inc////
 D/irq////
 D/virtual////

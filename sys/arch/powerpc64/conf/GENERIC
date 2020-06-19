@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.1 2020/05/16 17:11:14 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.7 2020/06/14 19:09:59 kettenis Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -13,6 +13,29 @@ machine		powerpc64
 include		"../../../conf/GENERIC"
 maxusers	80
 
+option		PCIVERBOSE
+
 config		bsd	swap generic
 
 mainbus0	at root
+cpu0		at mainbus?
+opal0		at fdt?
+phb*		at fdt?
+pci*		at phb?
+xive*		at fdt?
+
+ppb*		at pci?
+pci*		at ppb?
+ahci*		at pci?
+bge*		at pci?
+xhci*		at pci? disable
+usb*		at xhci?
+
+scsibus*	at scsi?
+sd*		at scsibus?
+
+# USB devices
+uhub*		at usb?			# USB Hubs
+uhub*		at uhub?		# USB Hubs
+
+brgphy*		at mii?			# Broadcom Gigabit PHYs

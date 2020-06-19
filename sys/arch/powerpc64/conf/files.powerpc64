@@ -1,21 +1,13 @@
-# $OpenBSD: files.powerpc64,v 1.4 2020/05/27 22:22:04 gkoehler Exp $
+# $OpenBSD: files.powerpc64,v 1.12 2020/06/13 22:58:42 kettenis Exp $
 
 maxpartitions	16
 maxusers	2 8 128
 
-define	fdt {[early = 0]}
-
-define	mainbus {}
-device	mainbus: fdt
-attach	mainbus at root
-
-# FDT support
-include "dev/ofw/files.ofw"
-
-include "scsi/files.scsi"
-
 file	arch/powerpc64/powerpc64/locore.S
 file	arch/powerpc64/powerpc64/autoconf.c
+file	arch/powerpc64/powerpc64/bus_dma.c
+file	arch/powerpc64/powerpc64/bus_space.c
+file	arch/powerpc64/powerpc64/clock.c
 file	arch/powerpc64/powerpc64/conf.c
 file	arch/powerpc64/powerpc64/cpu.c
 file	arch/powerpc64/powerpc64/db_disasm.c		ddb
@@ -23,6 +15,7 @@ file	arch/powerpc64/powerpc64/db_interface.c		ddb
 file	arch/powerpc64/powerpc64/db_memrw.c		ddb
 file	arch/powerpc64/powerpc64/db_trace.c		ddb
 file	arch/powerpc64/powerpc64/disksubr.c
+file	arch/powerpc64/powerpc64/intr.c
 file	arch/powerpc64/powerpc64/machdep.c
 file	arch/powerpc64/powerpc64/pmap.c
 file	arch/powerpc64/powerpc64/process_machdep.c
@@ -34,5 +27,49 @@ file	arch/powerpc64/powerpc64/trap.c
 file	arch/powerpc64/powerpc64/trap_subr.S
 file	arch/powerpc64/powerpc64/vm_machdep.c
 
+file	arch/powerpc64/dev/pci_machdep.c
+
 file	netinet/in_cksum.c
 file	netinet/in4_cksum.c
+
+define	fdt {[early = 0]}
+
+# mainbus files
+define	mainbus {}
+device	mainbus: fdt
+attach	mainbus at root
+file	arch/powerpc64/dev/mainbus.c		mainbus
+
+device  cpu {}
+attach  cpu at mainbus
+
+# FDT support
+include "dev/ofw/files.ofw"
+
+# Machine-independent SCSI drivers
+include "scsi/files.scsi"
+
+# Machine-independent ATA drivers
+include "dev/ata/files.ata"
+
+# MII and PCI
+include "dev/mii/files.mii"
+include "dev/pci/files.pci"
+
+device	opal
+attach	opal at fdt
+file	arch/powerpc64/dev/opal.c		opal
+
+device	phb: pcibus
+attach	phb at fdt
+file	arch/powerpc64/dev/phb.c		phb
+
+device	xive
+attach	xive at fdt
+file	arch/powerpc64/dev/xive.c		xive
+
+# Machine-independent HID support
+include	"dev/hid/files.hid"
+
+# Include USB stuff
+include "dev/usb/files.usb"

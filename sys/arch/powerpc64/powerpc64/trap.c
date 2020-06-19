@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.3 2020/05/27 22:22:04 gkoehler Exp $	*/
+/*	$OpenBSD: trap.c,v 1.8 2020/06/18 22:51:38 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -17,24 +17,70 @@
  */
 
 #include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/user.h>
+#include <sys/syscall.h>
+#include <sys/syscall_mi.h>
 #include <sys/systm.h>
+
+#include <uvm/uvm_extern.h>
 
 #ifdef DDB
 #include <machine/db_machdep.h>
 #endif
 #include <machine/trap.h>
 
+void	decr_intr(struct trapframe *); /* clock.c */
+void	hvi_intr(struct trapframe *);
+
 void
 trap(struct trapframe *frame)
 {
-#ifdef DDB
-	/* At a trap instruction, enter the debugger. */
-	if (frame->exc == EXC_PGM && (frame->srr1 & EXC_PGM_TRAP)) {
-		db_ktrap(T_BREAKPOINT, frame);
-		frame->srr0 += 4; /* Step to next instruction. */
+	struct cpu_info *ci = curcpu();
+	struct proc *p = curproc;
+	int type = frame->exc;
+
+	switch (type) {
+	case EXC_DECR:
+		decr_intr(frame);
+		return;
+	case EXC_HVI:
+		hvi_intr(frame);
 		return;
 	}
-#endif
 
-	panic("trap type %lx at lr %lx", frame->exc, frame->lr);
+	if (frame->srr1 & PSL_PR) {
+		type |= EXC_USER;
+		refreshcreds(p);
+	}
+
+	switch (type) {
+#ifdef DDB
+	case EXC_PGM:
+		/* At a trap instruction, enter the debugger. */
+		if (frame->srr1 & EXC_PGM_TRAP) {
+			/* Return from db_enter(). */
+			if (frame->srr0 == (register_t)db_enter)
+				frame->srr0 = frame->lr;
+			db_ktrap(T_BREAKPOINT, frame);
+			return;
+		}
+		break;
+	case EXC_TRC:
+		db_ktrap(T_BREAKPOINT, frame); /* single-stepping */
+		return;
+#endif
+	case EXC_AST|EXC_USER:
+		p->p_md.md_astpending = 0;
+		intr_enable();
+		uvmexp.softs++;
+		mi_ast(p, ci->ci_want_resched);
+		break;
+
+	default:
+		panic("trap type %lx srr1 %lx at %lx lr %lx",
+		    frame->exc, frame->srr1, frame->srr0, frame->lr);
+	}
+
+	userret(p);
 }

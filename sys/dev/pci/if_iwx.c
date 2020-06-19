@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwx.c,v 1.19 2020/05/26 12:07:36 stsp Exp $	*/
+/*	$OpenBSD: if_iwx.c,v 1.27 2020/06/17 08:18:21 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -160,6 +160,20 @@ const uint8_t iwx_nvm_channels_8000[] = {
 	149, 153, 157, 161, 165, 169, 173, 177, 181
 };
 
+static const uint8_t iwx_nvm_channels_uhb[] = {
+	/* 2.4 GHz */
+	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+	/* 5 GHz */
+	36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92,
+	96, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144,
+	149, 153, 157, 161, 165, 169, 173, 177, 181,
+	/* 6-7 GHz */
+	1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69,
+	73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129,
+	133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185,
+	189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229, 233
+};
+
 #define IWX_NUM_2GHZ_CHANNELS	14
 
 const struct iwx_rate {
@@ -230,7 +244,7 @@ int	iwx_alloc_fw_monitor_block(struct iwx_softc *, uint8_t, uint8_t);
 int	iwx_alloc_fw_monitor(struct iwx_softc *, uint8_t);
 int	iwx_apply_debug_destination(struct iwx_softc *);
 int	iwx_ctxt_info_init(struct iwx_softc *, const struct iwx_fw_sects *);
-void	iwx_ctxt_info_free(struct iwx_softc *);
+void	iwx_ctxt_info_free_fw_img(struct iwx_softc *);
 void	iwx_ctxt_info_free_paging(struct iwx_softc *);
 int	iwx_init_fw_sec(struct iwx_softc *, const struct iwx_fw_sects *,
 	    struct iwx_context_info_dram *);
@@ -291,8 +305,7 @@ int	iwx_nvm_read_chunk(struct iwx_softc *, uint16_t, uint16_t, uint16_t,
 	    uint8_t *, uint16_t *);
 int	iwx_nvm_read_section(struct iwx_softc *, uint16_t, uint8_t *,
 	    uint16_t *, size_t);
-void	iwx_init_channel_map(struct iwx_softc *, const uint16_t * const,
-	    const uint8_t *nvm_channels, int nchan);
+void	iwx_init_channel_map(struct iwx_softc *, uint16_t *, uint32_t *, int);
 void	iwx_setup_ht_rates(struct iwx_softc *);
 int	iwx_mimo_enabled(struct iwx_softc *);
 void	iwx_htprot_task(void *);
@@ -315,6 +328,9 @@ int	iwx_parse_nvm_data(struct iwx_softc *, const uint16_t *,
 	    const uint16_t *, const uint16_t *,
 	    const uint16_t *, const uint16_t *,
 	    const uint16_t *, int);
+int	iwx_set_mac_addr_from_csr(struct iwx_softc *, struct iwx_nvm_data *);
+int	iwx_is_valid_mac_addr(const uint8_t *);
+int	iwx_nvm_get(struct iwx_softc *);
 void	iwx_set_hw_address_8000(struct iwx_softc *, struct iwx_nvm_data *,
 	    const uint16_t *, const uint16_t *);
 int	iwx_parse_nvm_sections(struct iwx_softc *, struct iwx_nvm_section *);
@@ -376,6 +392,7 @@ int	iwx_rm_sta_cmd(struct iwx_softc *, struct iwx_node *);
 int	iwx_fill_probe_req(struct iwx_softc *, struct iwx_scan_probe_req *);
 int	iwx_config_umac_scan(struct iwx_softc *);
 int	iwx_umac_scan(struct iwx_softc *, int);
+void	iwx_mcc_update(struct iwx_softc *, struct iwx_mcc_chub_notif *);
 uint8_t	iwx_ridx2rate(struct ieee80211_rateset *, int);
 int	iwx_rval2ridx(int);
 void	iwx_ack_rates(struct iwx_softc *, struct iwx_node *, int *, int *);
@@ -392,6 +409,9 @@ int	iwx_scan(struct iwx_softc *);
 int	iwx_bgscan(struct ieee80211com *);
 int	iwx_umac_scan_abort(struct iwx_softc *);
 int	iwx_scan_abort(struct iwx_softc *);
+int	iwx_rs_rval2idx(uint8_t);
+uint16_t iwx_rs_ht_rates(struct iwx_softc *, struct ieee80211_node *, int);
+int	iwx_rs_init(struct iwx_softc *, struct iwx_node *);
 int	iwx_enable_data_tx_queues(struct iwx_softc *);
 int	iwx_auth(struct iwx_softc *);
 int	iwx_deauth(struct iwx_softc *);
@@ -535,52 +555,60 @@ iwx_init_fw_sec(struct iwx_softc *sc, const struct iwx_fw_sects *fws,
     struct iwx_context_info_dram *ctxt_dram)
 {
 	struct iwx_self_init_dram *dram = &sc->init_dram;
-	int i, ret, lmac_cnt, umac_cnt, paging_cnt;
+	int i, ret, fw_cnt = 0;
 
 	KASSERT(dram->paging == NULL);
 
-	lmac_cnt = iwx_get_num_sections(fws, 0);
+	dram->lmac_cnt = iwx_get_num_sections(fws, 0);
 	/* add 1 due to separator */
-	umac_cnt = iwx_get_num_sections(fws, lmac_cnt + 1);
+	dram->umac_cnt = iwx_get_num_sections(fws, dram->lmac_cnt + 1);
 	/* add 2 due to separators */
-	paging_cnt = iwx_get_num_sections(fws, lmac_cnt + umac_cnt + 2);
+	dram->paging_cnt = iwx_get_num_sections(fws,
+	    dram->lmac_cnt + dram->umac_cnt + 2);
 
-	dram->fw = mallocarray(umac_cnt + lmac_cnt, sizeof(*dram->fw),
-	    M_DEVBUF,  M_ZERO | M_NOWAIT);
-	if (!dram->fw)
+	dram->fw = mallocarray(dram->umac_cnt + dram->lmac_cnt,
+	    sizeof(*dram->fw), M_DEVBUF,  M_ZERO | M_NOWAIT);
+	if (!dram->fw) {
+		printf("%s: could not allocate memory for firmware sections\n",
+		    DEVNAME(sc));
 		return ENOMEM;
-	dram->paging = mallocarray(paging_cnt, sizeof(*dram->paging),
+	}
+
+	dram->paging = mallocarray(dram->paging_cnt, sizeof(*dram->paging),
 	    M_DEVBUF, M_ZERO | M_NOWAIT);
-	if (!dram->paging)
+	if (!dram->paging) {
+		printf("%s: could not allocate memory for firmware paging\n",
+		    DEVNAME(sc));
 		return ENOMEM;
+	}
 
 	/* initialize lmac sections */
-	for (i = 0; i < lmac_cnt; i++) {
+	for (i = 0; i < dram->lmac_cnt; i++) {
 		ret = iwx_ctxt_info_alloc_dma(sc, &fws->fw_sect[i],
-						   &dram->fw[dram->fw_cnt]);
+						   &dram->fw[fw_cnt]);
 		if (ret)
 			return ret;
 		ctxt_dram->lmac_img[i] =
-			htole64(dram->fw[dram->fw_cnt].paddr);
+			htole64(dram->fw[fw_cnt].paddr);
 		DPRINTF(("%s: firmware LMAC section %d at 0x%llx size %lld\n", __func__, i,
-		    (unsigned long long)dram->fw[dram->fw_cnt].paddr,
-		    (unsigned long long)dram->fw[dram->fw_cnt].size));
-		dram->fw_cnt++;
+		    (unsigned long long)dram->fw[fw_cnt].paddr,
+		    (unsigned long long)dram->fw[fw_cnt].size));
+		fw_cnt++;
 	}
 
 	/* initialize umac sections */
-	for (i = 0; i < umac_cnt; i++) {
+	for (i = 0; i < dram->umac_cnt; i++) {
 		/* access FW with +1 to make up for lmac separator */
 		ret = iwx_ctxt_info_alloc_dma(sc,
-		    &fws->fw_sect[dram->fw_cnt + 1], &dram->fw[dram->fw_cnt]);
+		    &fws->fw_sect[fw_cnt + 1], &dram->fw[fw_cnt]);
 		if (ret)
 			return ret;
 		ctxt_dram->umac_img[i] =
-			htole64(dram->fw[dram->fw_cnt].paddr);
+			htole64(dram->fw[fw_cnt].paddr);
 		DPRINTF(("%s: firmware UMAC section %d at 0x%llx size %lld\n", __func__, i,
-			(unsigned long long)dram->fw[dram->fw_cnt].paddr,
-			(unsigned long long)dram->fw[dram->fw_cnt].size));
-		dram->fw_cnt++;
+			(unsigned long long)dram->fw[fw_cnt].paddr,
+			(unsigned long long)dram->fw[fw_cnt].size));
+		fw_cnt++;
 	}
 
 	/*
@@ -593,9 +621,9 @@ iwx_init_fw_sec(struct iwx_softc *sc, const struct iwx_fw_sects *fws,
 	 * Given that, the logic here in accessing the fw image is a bit
 	 * different - fw_cnt isn't changing so loop counter is added to it.
 	 */
-	for (i = 0; i < paging_cnt; i++) {
+	for (i = 0; i < dram->paging_cnt; i++) {
 		/* access FW with +2 to make up for lmac & umac separators */
-		int fw_idx = dram->fw_cnt + i + 2;
+		int fw_idx = fw_cnt + i + 2;
 
 		ret = iwx_ctxt_info_alloc_dma(sc,
 		    &fws->fw_sect[fw_idx], &dram->paging[i]);
@@ -606,7 +634,6 @@ iwx_init_fw_sec(struct iwx_softc *sc, const struct iwx_fw_sects *fws,
 		DPRINTF(("%s: firmware paging section %d at 0x%llx size %lld\n", __func__, i,
 		    (unsigned long long)dram->paging[i].paddr,
 		    (unsigned long long)dram->paging[i].size));
-		dram->paging_cnt++;
 	}
 
 	return 0;
@@ -758,13 +785,6 @@ iwx_ctxt_info_init(struct iwx_softc *sc, const struct iwx_fw_sects *fws)
 	uint32_t control_flags = 0, rb_size;
 	int err;
 
-	err = iwx_dma_contig_alloc(sc->sc_dmat, &sc->ctxt_info_dma,
-	    sizeof(*ctxt_info), 0);
-	if (err) {
-		printf("%s: could not allocate context info DMA memory\n",
-		    DEVNAME(sc));
-		return err;
-	}
 	ctxt_info = sc->ctxt_info_dma.vaddr;
 
 	ctxt_info->version.version = 0;
@@ -800,15 +820,17 @@ iwx_ctxt_info_init(struct iwx_softc *sc, const struct iwx_fw_sects *fws)
 	/* allocate ucode sections in dram and set addresses */
 	err = iwx_init_fw_sec(sc, fws, &ctxt_info->dram);
 	if (err) {
-		iwx_ctxt_info_free(sc);
+		iwx_ctxt_info_free_fw_img(sc);
 		return err;
 	}
 
 	/* Configure debug, if exists */
 	if (sc->sc_fw.dbg_dest_tlv_v1) {
 		err = iwx_apply_debug_destination(sc);
-		if (err)
+		if (err) {
+			iwx_ctxt_info_free_fw_img(sc);
 			return err;
+		}
 	}
 
 	/* kick FW self load */
@@ -829,24 +851,17 @@ iwx_ctxt_info_free_fw_img(struct iwx_softc *sc)
 	struct iwx_self_init_dram *dram = &sc->init_dram;
 	int i;
 
-	if (!dram->fw) {
-		KASSERT(dram->fw_cnt == 0);
+	if (!dram->fw)
 		return;
-	}
 
-	for (i = 0; i < dram->fw_cnt; i++)
+	for (i = 0; i < dram->lmac_cnt + dram->umac_cnt; i++)
 		iwx_dma_contig_free(&dram->fw[i]);
 
-	free(dram->fw, M_DEVBUF, dram->fw_cnt * sizeof(dram->fw[0]));
-	dram->fw_cnt = 0;
+	free(dram->fw, M_DEVBUF,
+	    (dram->lmac_cnt + dram->umac_cnt) * sizeof(*dram->fw));
+	dram->lmac_cnt = 0;
+	dram->umac_cnt = 0;
 	dram->fw = NULL;
-}
-
-void
-iwx_ctxt_info_free(struct iwx_softc *sc)
-{
-	iwx_dma_contig_free(&sc->ctxt_info_dma);
-	iwx_ctxt_info_free_fw_img(sc);
 }
 
 int
@@ -1670,13 +1685,13 @@ iwx_alloc_tx_ring(struct iwx_softc *sc, struct iwx_tx_ring *ring, int qid)
 	 *
 	 * In DQA mode we use 1 command queue + 4 DQA mgmt/data queues.
 	 * The command is queue 0 (sc->txq[0]), and 4 mgmt/data frame queues
-	 * are sc->tqx[IWX_DQA_MIN_MGMT_QUEUE + ac], i.e. sc->txq[5:8],
+	 * are sc->tqx[ac + IWX_DQA_AUX_QUEUE + 1], i.e. sc->txq[2:5],
 	 * in order to provide one queue per EDCA category.
 	 *
 	 * Tx aggregation will require additional queues (one queue per TID
 	 * for which aggregation is enabled) but we do not implement this yet.
 	 */
-	if (qid > IWX_DQA_MAX_MGMT_QUEUE)
+	if (qid > IWX_DQA_MIN_MGMT_QUEUE)
 		return 0;
 
 	err = iwx_dma_contig_alloc(sc->sc_dmat, &ring->bc_tbl,
@@ -2410,7 +2425,6 @@ void
 iwx_post_alive(struct iwx_softc *sc)
 {
 	iwx_ict_reset(sc);
-	iwx_ctxt_info_free(sc);
 }
 
 /*
@@ -2668,31 +2682,46 @@ iwx_fw_valid_rx_ant(struct iwx_softc *sc)
 }
 
 void
-iwx_init_channel_map(struct iwx_softc *sc, const uint16_t * const nvm_ch_flags,
-    const uint8_t *nvm_channels, int nchan)
+iwx_init_channel_map(struct iwx_softc *sc, uint16_t *channel_profile_v3,
+    uint32_t *channel_profile_v4, int nchan_profile)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct iwx_nvm_data *data = &sc->sc_nvm;
 	int ch_idx;
 	struct ieee80211_channel *channel;
-	uint16_t ch_flags;
+	uint32_t ch_flags;
 	int is_5ghz;
 	int flags, hw_value;
+	int nchan;
+	const uint8_t *nvm_channels;
 
-	for (ch_idx = 0; ch_idx < nchan; ch_idx++) {
-		ch_flags = le16_to_cpup(nvm_ch_flags + ch_idx);
+	if (sc->sc_uhb_supported) {
+		nchan = nitems(iwx_nvm_channels_uhb);
+		nvm_channels = iwx_nvm_channels_uhb;
+	} else {
+		nchan = nitems(iwx_nvm_channels_8000);
+		nvm_channels = iwx_nvm_channels_8000;
+	}
 
-		if (ch_idx >= IWX_NUM_2GHZ_CHANNELS &&
-		    !data->sku_cap_band_52GHz_enable)
+	for (ch_idx = 0; ch_idx < nchan && ch_idx < nchan_profile; ch_idx++) {
+		if (channel_profile_v4)
+			ch_flags = le32_to_cpup(channel_profile_v4 + ch_idx);
+		else
+			ch_flags = le16_to_cpup(channel_profile_v3 + ch_idx);
+
+		is_5ghz = ch_idx >= IWX_NUM_2GHZ_CHANNELS;
+		if (is_5ghz && !data->sku_cap_band_52GHz_enable)
 			ch_flags &= ~IWX_NVM_CHANNEL_VALID;
-
-		if (!(ch_flags & IWX_NVM_CHANNEL_VALID))
-			continue;
 
 		hw_value = nvm_channels[ch_idx];
 		channel = &ic->ic_channels[hw_value];
 
-		is_5ghz = ch_idx >= IWX_NUM_2GHZ_CHANNELS;
+		if (!(ch_flags & IWX_NVM_CHANNEL_VALID)) {
+			channel->ic_freq = 0;
+			channel->ic_flags = 0;
+			continue;
+		}
+
 		if (!is_5ghz) {
 			flags = IEEE80211_CHAN_2GHZ;
 			channel->ic_flags
@@ -2895,6 +2924,134 @@ iwx_ampdu_rx_stop(struct ieee80211com *ic, struct ieee80211_node *ni,
 	iwx_add_task(sc, systq, &sc->ba_task);
 }
 
+/* Read the mac address from WFMP registers. */
+int
+iwx_set_mac_addr_from_csr(struct iwx_softc *sc, struct iwx_nvm_data *data)
+{
+	const uint8_t *hw_addr;
+	uint32_t mac_addr0, mac_addr1;
+
+	if (!iwx_nic_lock(sc))
+		return EBUSY;
+
+	mac_addr0 = htole32(iwx_read_prph(sc, IWX_WFMP_MAC_ADDR_0));
+	mac_addr1 = htole32(iwx_read_prph(sc, IWX_WFMP_MAC_ADDR_1));
+
+	hw_addr = (const uint8_t *)&mac_addr0;
+	data->hw_addr[0] = hw_addr[3];
+	data->hw_addr[1] = hw_addr[2];
+	data->hw_addr[2] = hw_addr[1];
+	data->hw_addr[3] = hw_addr[0];
+
+	hw_addr = (const uint8_t *)&mac_addr1;
+	data->hw_addr[4] = hw_addr[1];
+	data->hw_addr[5] = hw_addr[0];
+
+	iwx_nic_unlock(sc);
+	return 0;
+}
+
+int
+iwx_is_valid_mac_addr(const uint8_t *addr)
+{
+	static const uint8_t reserved_mac[] = {
+		0x02, 0xcc, 0xaa, 0xff, 0xee, 0x00
+	};
+
+	return (memcmp(reserved_mac, addr, ETHER_ADDR_LEN) != 0 &&
+	    memcmp(etherbroadcastaddr, addr, sizeof(etherbroadcastaddr)) != 0 &&
+	    memcmp(etheranyaddr, addr, sizeof(etheranyaddr)) != 0 &&
+	    !ETHER_IS_MULTICAST(addr));
+}
+
+int
+iwx_nvm_get(struct iwx_softc *sc)
+{
+	struct iwx_nvm_get_info cmd = {};
+	struct iwx_nvm_data *nvm = &sc->sc_nvm;
+	struct iwx_host_cmd hcmd = {
+		.flags = IWX_CMD_WANT_RESP | IWX_CMD_SEND_IN_RFKILL,
+		.data = { &cmd, },
+		.len = { sizeof(cmd) },
+		.id = IWX_WIDE_ID(IWX_REGULATORY_AND_NVM_GROUP,
+		    IWX_NVM_GET_INFO)
+	};
+	int err;
+	uint32_t mac_flags;
+	/*
+	 * All the values in iwx_nvm_get_info_rsp v4 are the same as
+	 * in v3, except for the channel profile part of the
+	 * regulatory.  So we can just access the new struct, with the
+	 * exception of the latter.
+	 */
+	struct iwx_nvm_get_info_rsp *rsp;
+	struct iwx_nvm_get_info_rsp_v3 *rsp_v3;
+	int v4 = isset(sc->sc_ucode_api, IWX_UCODE_TLV_API_REGULATORY_NVM_INFO);
+	size_t resp_len = v4 ? sizeof(*rsp) : sizeof(*rsp_v3);
+
+	hcmd.resp_pkt_len = sizeof(struct iwx_rx_packet) + resp_len;
+	err = iwx_send_cmd(sc, &hcmd);
+	if (err)
+		return err;
+
+	if (iwx_rx_packet_payload_len(hcmd.resp_pkt) != resp_len) {
+		err = EIO;
+		goto out;
+	}
+
+	memset(nvm, 0, sizeof(*nvm));
+
+	iwx_set_mac_addr_from_csr(sc, nvm);
+	if (!iwx_is_valid_mac_addr(nvm->hw_addr)) {
+		printf("%s: no valid mac address was found\n", DEVNAME(sc));
+		err = EINVAL;
+		goto out;
+	}
+
+	rsp = (void *)hcmd.resp_pkt->data;
+
+	/* Initialize general data */
+	nvm->nvm_version = le16toh(rsp->general.nvm_version);
+	nvm->n_hw_addrs = rsp->general.n_hw_addrs;
+
+	/* Initialize MAC sku data */
+	mac_flags = le32toh(rsp->mac_sku.mac_sku_flags);
+	nvm->sku_cap_11ac_enable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_802_11AC_ENABLED);
+	nvm->sku_cap_11n_enable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_802_11N_ENABLED);
+	nvm->sku_cap_11ax_enable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_802_11AX_ENABLED);
+	nvm->sku_cap_band_24GHz_enable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_BAND_2_4_ENABLED);
+	nvm->sku_cap_band_52GHz_enable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_BAND_5_2_ENABLED);
+	nvm->sku_cap_mimo_disable =
+		!!(mac_flags & IWX_NVM_MAC_SKU_FLAGS_MIMO_DISABLED);
+
+	/* Initialize PHY sku data */
+	nvm->valid_tx_ant = (uint8_t)le32toh(rsp->phy_sku.tx_chains);
+	nvm->valid_rx_ant = (uint8_t)le32toh(rsp->phy_sku.rx_chains);
+
+	if (le32toh(rsp->regulatory.lar_enabled) &&
+	    isset(sc->sc_enabled_capa, IWX_UCODE_TLV_CAPA_LAR_SUPPORT)) {
+		nvm->lar_enabled = 1;
+	}
+
+	if (v4) {
+		iwx_init_channel_map(sc, NULL,
+		    rsp->regulatory.channel_profile, IWX_NUM_CHANNELS);
+	} else {
+		rsp_v3 = (void *)rsp;
+		iwx_init_channel_map(sc, rsp_v3->regulatory.channel_profile,
+		    NULL, IWX_NUM_CHANNELS_V1);
+	}
+out:
+	iwx_free_resp(sc, &hcmd);
+	return err;
+}
+
+#if 0
 void
 iwx_set_hw_address_8000(struct iwx_softc *sc, struct iwx_nvm_data *data,
     const uint16_t *mac_override, const uint16_t *nvm_hw)
@@ -3091,6 +3248,7 @@ iwx_nvm_init(struct iwx_softc *sc)
 
 	return err;
 }
+#endif
 
 int
 iwx_load_firmware(struct iwx_softc *sc)
@@ -3113,6 +3271,9 @@ iwx_load_firmware(struct iwx_softc *sc)
 	}
 	if (err || !sc->sc_uc.uc_ok)
 		printf("%s: could not load firmware\n", DEVNAME(sc));
+
+	iwx_ctxt_info_free_fw_img(sc);
+
 	if (!sc->sc_uc.uc_ok)
 		return EINVAL;
 
@@ -3232,14 +3393,6 @@ iwx_run_init_mvm_ucode(struct iwx_softc *sc, int readnvm)
 	if (err)
 		return err;
 
-	if (readnvm) {
-		err = iwx_nvm_init(sc);
-		if (err) {
-			printf("%s: failed to read nvm\n", DEVNAME(sc));
-			return err;
-		}
-	}
-
 	err = iwx_send_cmd_pdu(sc, IWX_WIDE_ID(IWX_REGULATORY_AND_NVM_GROUP,
 	    IWX_NVM_ACCESS_COMPLETE), 0, sizeof(nvm_complete), &nvm_complete);
 	if (err)
@@ -3253,9 +3406,17 @@ iwx_run_init_mvm_ucode(struct iwx_softc *sc, int readnvm)
 			return err;
 	}
 
-	if (readnvm && IEEE80211_ADDR_EQ(etheranyaddr, sc->sc_ic.ic_myaddr))
-		IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
-		    sc->sc_nvm.hw_addr);
+	if (readnvm) {
+		err = iwx_nvm_get(sc);
+		if (err) {
+			printf("%s: failed to read nvm\n", DEVNAME(sc));
+			return err;
+		}
+		if (IEEE80211_ADDR_EQ(etheranyaddr, sc->sc_ic.ic_myaddr))
+			IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
+			    sc->sc_nvm.hw_addr);
+		
+	}
 	return 0;
 }
 
@@ -3617,6 +3778,7 @@ iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
 			in->in_mn.retries += tx_resp->failure_frame;
 		if (txfail)
 			in->in_mn.txfail += tx_resp->frame_count;
+#if 0
 		if (ic->ic_state == IEEE80211_S_RUN && !in->ht_force_cck) {
 			int otxmcs = ni->ni_txmcs;
 
@@ -3627,6 +3789,7 @@ iwx_rx_tx_cmd_single(struct iwx_softc *sc, struct iwx_rx_packet *pkt,
 			    otxmcs == 0 && ni->ni_txmcs == 0)
 				iwx_enable_ht_cck_fallback(sc, in);
 		}
+#endif
 	}
 
 	if (txfail)
@@ -4136,10 +4299,13 @@ iwx_tx_fill_cmd(struct iwx_softc *sc, struct iwx_node *in,
 	    type != IEEE80211_FC0_TYPE_DATA) {
 		/* for non-data, use the lowest supported rate */
 		ridx = min_ridx;
+		flags |= IWX_TX_FLAGS_CMD_RATE;
 	} else if (ic->ic_fixed_mcs != -1) {
 		ridx = sc->sc_fixed_ridx;
+		flags |= IWX_TX_FLAGS_CMD_RATE;
 	} else if (ic->ic_fixed_rate != -1) {
 		ridx = sc->sc_fixed_ridx;
+		flags |= IWX_TX_FLAGS_CMD_RATE;
 	} else if ((ni->ni_flags & IEEE80211_NODE_HT) && !in->ht_force_cck) {
 		ridx = iwx_mcs2ridx[ni->ni_txmcs];
 	} else {
@@ -4150,7 +4316,7 @@ iwx_tx_fill_cmd(struct iwx_softc *sc, struct iwx_node *in,
 			ridx = min_ridx;
 	}
 
-	flags = (IWX_TX_FLAGS_CMD_RATE | IWX_TX_FLAGS_ENCRYPT_DIS);
+	flags |= IWX_TX_FLAGS_ENCRYPT_DIS;
 	if ((ic->ic_flags & IEEE80211_F_RSNON) &&
 	    ni->ni_rsn_supp_state == RSNA_SUPP_PTKNEGOTIATING)
 		flags |= IWX_TX_FLAGS_HIGH_PRI;
@@ -4175,10 +4341,6 @@ iwx_tx_fill_cmd(struct iwx_softc *sc, struct iwx_node *in,
 	return rinfo;
 }
 
-#if 0
-/*
- * necessary only for block ack mode
- */
 void
 iwx_tx_update_byte_tbl(struct iwx_tx_ring *txq, uint16_t byte_cnt,
     uint16_t num_tbs)
@@ -4205,7 +4367,6 @@ iwx_tx_update_byte_tbl(struct iwx_tx_ring *txq, uint16_t byte_cnt,
 	bc_ent = htole16(len | (num_fetch_chunks << 12));
 	scd_bc_tbl->tfd_offset[txq->cur] = bc_ent;
 }
-#endif
 
 int
 iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
@@ -4242,7 +4403,7 @@ iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	 * Tx aggregation will require additional queues (one queue per TID
 	 * for which aggregation is enabled) but we do not implement this yet.
 	 */
-	ring = &sc->txq[IWX_DQA_MIN_MGMT_QUEUE + ac];
+	ring = &sc->txq[ac + IWX_DQA_AUX_QUEUE + 1];
 	desc = &ring->desc[ring->cur];
 	memset(desc, 0, sizeof(*desc));
 	data = &ring->data[ring->cur];
@@ -4373,9 +4534,7 @@ iwx_tx(struct iwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	    (char *)(void *)desc - (char *)(void *)ring->desc_dma.vaddr,
 	    sizeof (*desc), BUS_DMASYNC_PREWRITE);
 
-#if 0
 	iwx_tx_update_byte_tbl(ring, totlen, num_tbs);
-#endif
 
 	/* Kick TX ring. */
 	ring->cur = (ring->cur + 1) % IWX_TX_RING_COUNT;
@@ -4705,7 +4864,6 @@ int
 iwx_fill_probe_req(struct iwx_softc *sc, struct iwx_scan_probe_req *preq)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
-	struct ifnet *ifp = IC2IFP(ic);
 	struct ieee80211_frame *wh = (struct ieee80211_frame *)preq->buf;
 	struct ieee80211_rateset *rs;
 	size_t remain = sizeof(preq->buf);
@@ -4723,7 +4881,6 @@ iwx_fill_probe_req(struct iwx_softc *sc, struct iwx_scan_probe_req *preq)
 	wh->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT |
 	    IEEE80211_FC0_SUBTYPE_PROBE_REQ;
 	wh->i_fc[1] = IEEE80211_FC1_DIR_NODS;
-	IEEE80211_ADDR_COPY(ic->ic_myaddr, LLADDR(ifp->if_sadl));
 	IEEE80211_ADDR_COPY(wh->i_addr1, etherbroadcastaddr);
 	IEEE80211_ADDR_COPY(wh->i_addr2, ic->ic_myaddr);
 	IEEE80211_ADDR_COPY(wh->i_addr3, etherbroadcastaddr);
@@ -5089,6 +5246,24 @@ iwx_umac_scan(struct iwx_softc *sc, int bgscan)
 	err = iwx_send_cmd(sc, &hcmd);
 	free(req, M_DEVBUF, req_len);
 	return err;
+}
+
+void
+iwx_mcc_update(struct iwx_softc *sc, struct iwx_mcc_chub_notif *notif)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ifnet *ifp = IC2IFP(ic);
+	char alpha2[3];
+
+	snprintf(alpha2, sizeof(alpha2), "%c%c",
+	    (le16toh(notif->mcc) & 0xff00) >> 8, le16toh(notif->mcc) & 0xff);
+
+	if (ifp->if_flags & IFF_DEBUG) {
+		printf("%s: firmware has detected regulatory domain '%s' "
+		    "(0x%x)\n", DEVNAME(sc), alpha2, le16toh(notif->mcc));
+	}
+
+	/* TODO: Schedule a task to send MCC_UPDATE_CMD? */
 }
 
 uint8_t
@@ -5575,6 +5750,120 @@ iwx_enable_data_tx_queues(struct iwx_softc *sc)
 }
 
 int
+iwx_rs_rval2idx(uint8_t rval)
+{
+	/* Firmware expects indices which match our 11g rate set. */
+	const struct ieee80211_rateset *rs = &ieee80211_std_rateset_11g;
+	int i;
+
+	for (i = 0; i < rs->rs_nrates; i++) {
+		if ((rs->rs_rates[i] & IEEE80211_RATE_VAL) == rval)
+			return i;
+	}
+
+	return -1;
+}
+
+uint16_t
+iwx_rs_ht_rates(struct iwx_softc *sc, struct ieee80211_node *ni, int rsidx)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	const struct ieee80211_ht_rateset *rs;
+	uint16_t htrates = 0;
+	int mcs;
+
+	rs = &ieee80211_std_ratesets_11n[rsidx];
+	for (mcs = rs->min_mcs; mcs <= rs->max_mcs; mcs++) {
+		if (!isset(ni->ni_rxmcs, mcs) ||
+		    !isset(ic->ic_sup_mcs, mcs))
+			continue;
+		htrates |= (1 << (mcs - rs->min_mcs));
+	}
+
+	return htrates;
+}
+
+int
+iwx_rs_init(struct iwx_softc *sc, struct iwx_node *in)
+{
+	struct ieee80211_node *ni = &in->in_ni;
+	struct ieee80211_rateset *rs = &ni->ni_rates;
+	struct iwx_tlc_config_cmd cfg_cmd;
+	uint32_t cmd_id;
+	int i;
+
+	memset(&cfg_cmd, 0, sizeof(cfg_cmd));
+
+	for (i = 0; i < rs->rs_nrates; i++) {
+		uint8_t rval = rs->rs_rates[i] & IEEE80211_RATE_VAL;
+		int idx = iwx_rs_rval2idx(rval);
+		if (idx == -1)
+			return EINVAL;
+		cfg_cmd.non_ht_rates |= (1 << idx);
+	}
+
+	if (ni->ni_flags & IEEE80211_NODE_HT) {
+		cfg_cmd.mode = IWX_TLC_MNG_MODE_HT;
+		cfg_cmd.ht_rates[IWX_TLC_NSS_1][IWX_TLC_HT_BW_NONE_160] =
+		    iwx_rs_ht_rates(sc, ni, IEEE80211_HT_RATESET_SISO);
+		cfg_cmd.ht_rates[IWX_TLC_NSS_2][IWX_TLC_HT_BW_NONE_160] =
+		    iwx_rs_ht_rates(sc, ni, IEEE80211_HT_RATESET_MIMO2);
+	} else
+		cfg_cmd.mode = IWX_TLC_MNG_MODE_NON_HT;
+
+	cfg_cmd.sta_id = IWX_STATION_ID;
+	cfg_cmd.max_ch_width = IWX_RATE_MCS_CHAN_WIDTH_20;
+	cfg_cmd.chains = IWX_TLC_MNG_CHAIN_A_MSK | IWX_TLC_MNG_CHAIN_B_MSK;
+	cfg_cmd.max_mpdu_len = IEEE80211_MAX_LEN;
+	if (ieee80211_node_supports_ht_sgi20(ni))
+		cfg_cmd.sgi_ch_width_supp = (1 << IWX_TLC_MNG_CH_WIDTH_20MHZ);
+
+	cmd_id = iwx_cmd_id(IWX_TLC_MNG_CONFIG_CMD, IWX_DATA_PATH_GROUP, 0);
+	return iwx_send_cmd_pdu(sc, cmd_id, IWX_CMD_ASYNC, sizeof(cfg_cmd),
+	    &cfg_cmd);
+}
+
+void
+iwx_rs_update(struct iwx_softc *sc, struct iwx_tlc_update_notif *notif)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ieee80211_node *ni = ic->ic_bss;
+	struct ieee80211_rateset *rs = &ni->ni_rates;
+	uint32_t rate_n_flags;
+	int i;
+
+	if (notif->sta_id != IWX_STATION_ID ||
+	    (le32toh(notif->flags) & IWX_TLC_NOTIF_FLAG_RATE) == 0)
+		return;
+
+	rate_n_flags = le32toh(notif->rate);
+	if (rate_n_flags & IWX_RATE_MCS_HT_MSK) {
+		ni->ni_txmcs = (rate_n_flags &
+		    (IWX_RATE_HT_MCS_RATE_CODE_MSK |
+		    IWX_RATE_HT_MCS_NSS_MSK));
+	} else {
+		uint8_t plcp = (rate_n_flags & IWX_RATE_LEGACY_RATE_MSK);
+		uint8_t rval = 0;
+		for (i = IWX_RATE_1M_INDEX; i < nitems(iwx_rates); i++) {
+			if (iwx_rates[i].plcp == plcp) {
+				rval = iwx_rates[i].rate;
+				break;
+			}
+		}
+		if (rval) {
+			uint8_t rv;
+			for (i = 0; i < rs->rs_nrates; i++) {
+				rv = rs->rs_rates[i] & IEEE80211_RATE_VAL;
+				if (rv == rval) {
+					ni->ni_txrate = i;
+					break;
+				}
+			}
+		}
+	}
+}
+
+int
 iwx_auth(struct iwx_softc *sc)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
@@ -5858,11 +6147,17 @@ iwx_run(struct iwx_softc *sc)
 	in->in_ni.ni_txrate = 0;
 	in->in_ni.ni_txmcs = 0;
 
-	if (isset(sc->sc_enabled_capa, IWX_UCODE_TLV_CAPA_TLC_OFFLOAD))
-		DPRINTF(("%s: TODO: Enable firmware rate scaling?\n",
-		    DEVNAME(sc)));
-
+	if (isset(sc->sc_enabled_capa, IWX_UCODE_TLV_CAPA_TLC_OFFLOAD)) {
+		err = iwx_rs_init(sc, in);
+		if (err) {
+			printf("%s: could not init rate scaling (error %d)\n",
+			    DEVNAME(sc), err);
+			return err;
+		}
+	}
+#if 0
 	timeout_add_msec(&sc->sc_calib_to, 500);
+#endif
 	return 0;
 }
 
@@ -6300,6 +6595,9 @@ iwx_send_update_mcc_cmd(struct iwx_softc *sc, const char *alpha2)
 		.flags = IWX_CMD_WANT_RESP,
 		.data = { &mcc_cmd },
 	};
+	struct iwx_rx_packet *pkt;
+	struct iwx_mcc_update_resp *resp;
+	size_t resp_len;
 	int err;
 
 	memset(&mcc_cmd, 0, sizeof(mcc_cmd));
@@ -6311,16 +6609,41 @@ iwx_send_update_mcc_cmd(struct iwx_softc *sc, const char *alpha2)
 		mcc_cmd.source_id = IWX_MCC_SOURCE_OLD_FW;
 
 	hcmd.len[0] = sizeof(struct iwx_mcc_update_cmd);
-	hcmd.resp_pkt_len = sizeof(struct iwx_rx_packet) +
-	    sizeof(struct iwx_mcc_update_resp);
+	hcmd.resp_pkt_len = IWX_CMD_RESP_MAX;
 
 	err = iwx_send_cmd(sc, &hcmd);
 	if (err)
 		return err;
 
+	pkt = hcmd.resp_pkt;
+	if (!pkt || (pkt->hdr.flags & IWX_CMD_FAILED_MSK)) {
+		err = EIO;
+		goto out;
+	}
+
+	resp_len = iwx_rx_packet_payload_len(pkt);
+	if (resp_len < sizeof(*resp)) {
+		err = EIO;
+		goto out;
+	}
+
+	resp = (void *)pkt->data;
+	if (resp_len != sizeof(*resp) +
+	    resp->n_channels * sizeof(resp->channels[0])) {
+		err = EIO;
+		goto out;
+	}
+
+	DPRINTF(("MCC status=0x%x mcc=0x%x cap=0x%x time=0x%x geo_info=0x%x source_id=0x%d n_channels=%u\n",
+	    resp->status, resp->mcc, resp->cap, resp->time, resp->geo_info, resp->source_id, resp->n_channels));
+
+	/* Update channel map for net80211 and our scan configuration. */
+	iwx_init_channel_map(sc, NULL, resp->channels, resp->n_channels);
+
+out:
 	iwx_free_resp(sc, &hcmd);
 
-	return 0;
+	return err;
 }
 
 int
@@ -6342,20 +6665,6 @@ iwx_init_hw(struct iwx_softc *sc)
 	err = iwx_run_init_mvm_ucode(sc, 0);
 	if (err)
 		return err;
-
-	/* Should stop and start HW since INIT image just loaded. */
-	iwx_stop_device(sc);
-	err = iwx_start_hw(sc);
-	if (err) {
-		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return err;
-	}
-
-	err = iwx_load_ucode_wait_alive(sc);
-	if (err) {
-		printf("%s: could not load firmware\n", DEVNAME(sc));
-		goto err;
-	}
 
 	if (!iwx_nic_lock(sc))
 		return EBUSY;
@@ -6428,7 +6737,7 @@ iwx_init_hw(struct iwx_softc *sc)
 		goto err;
 	}
 
-	if (isset(sc->sc_enabled_capa, IWX_UCODE_TLV_CAPA_LAR_SUPPORT)) {
+	if (sc->sc_nvm.lar_enabled) {
 		err = iwx_send_update_mcc_cmd(sc, "ZZ");
 		if (err) {
 			printf("%s: could not init LAR (error %d)\n",
@@ -7141,6 +7450,8 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
 				 IWX_DTS_MEASUREMENT_NOTIF_WIDE):
 			break;
 
+		case IWX_WIDE_ID(IWX_REGULATORY_AND_NVM_GROUP,
+		    IWX_NVM_GET_INFO):
 		case IWX_PHY_CONFIGURATION_CMD:
 		case IWX_TX_ANT_CONFIGURATION_CMD:
 		case IWX_ADD_STA:
@@ -7209,6 +7520,13 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
 			break;
 		}
 
+		case IWX_MCC_CHUB_UPDATE_CMD: {
+			struct iwx_mcc_chub_notif *notif;
+			SYNC_RESP_STRUCT(notif, pkt);
+			iwx_mcc_update(sc, notif);
+			break;
+		}
+	
 		case IWX_REPLY_ERROR: {
 			struct iwx_error_resp *resp;
 			SYNC_RESP_STRUCT(resp, pkt);
@@ -7260,6 +7578,18 @@ iwx_rx_pkt(struct iwx_softc *sc, struct iwx_rx_data *data, struct mbuf_list *ml)
 
 		case IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_RX_NO_DATA_NOTIF):
 			break; /* happens in monitor mode; ignore for now */
+
+		case IWX_WIDE_ID(IWX_DATA_PATH_GROUP, IWX_TLC_MNG_CONFIG_CMD):
+			break;
+
+		case IWX_WIDE_ID(IWX_DATA_PATH_GROUP,
+		    IWX_TLC_MNG_UPDATE_NOTIF): {
+			struct iwx_tlc_update_notif *notif;
+			SYNC_RESP_STRUCT(notif, pkt);
+			if (iwx_rx_packet_payload_len(pkt) == sizeof(*notif))
+				iwx_rs_update(sc, notif);
+			break;
+		}
 
 		default:
 			handled = 0;
@@ -7721,6 +8051,7 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_low_latency_xtal = 0;
 		sc->sc_xtal_latency = 0;
 		sc->sc_tx_with_siso_diversity = 0;
+		sc->sc_uhb_supported = 0;
 		break;
 	default:
 		printf("%s: unknown adapter type\n", DEVNAME(sc));
@@ -7774,6 +8105,15 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
+	/* Allocate DMA memory for loading firmware. */
+	err = iwx_dma_contig_alloc(sc->sc_dmat, &sc->ctxt_info_dma,
+	    sizeof(struct iwx_context_info), 0);
+	if (err) {
+		printf("%s: could not allocate memory for loading firmware\n",
+		    DEVNAME(sc));
+		return;
+	}
+
 	/* 
 	 * Allocate DMA memory for firmware transfers.
 	 * Must be aligned on a 16-byte boundary.
@@ -7781,9 +8121,9 @@ iwx_attach(struct device *parent, struct device *self, void *aux)
 	err = iwx_dma_contig_alloc(sc->sc_dmat, &sc->fw_dma,
 	    sc->sc_fwdmasegsz, 16);
 	if (err) {
-		printf("%s: could not allocate memory for firmware\n",
+		printf("%s: could not allocate memory for firmware transfers\n",
 		    DEVNAME(sc));
-		return;
+		goto fail0;
 	}
 
 	/* Allocate interrupt cause table (ICT).*/
@@ -7915,6 +8255,7 @@ fail3:	if (sc->ict_dma.vaddr != NULL)
 		iwx_dma_contig_free(&sc->ict_dma);
 	
 fail1:	iwx_dma_contig_free(&sc->fw_dma);
+fail0:	iwx_dma_contig_free(&sc->ctxt_info_dma);
 	return;
 }
 

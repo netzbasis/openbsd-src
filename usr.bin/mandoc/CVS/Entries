@@ -26,10 +26,10 @@
 /libman.h/1.61/Mon Dec 31 10:03:38 2018//
 /libmandoc.h/1.64/Fri Apr  3 11:34:19 2020//
 /libmdoc.h/1.88/Mon Dec 31 04:55:42 2018//
-/main.c/1.251/Thu Apr  2 22:10:27 2020//
+/main.c/1.253/Mon Jun 15 17:25:03 2020//
 /main.h/1.25/Sun Mar  3 13:01:47 2019//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
-/man.1/1.36/Mon Feb 10 13:49:04 2020//
+/man.1/1.37/Wed Jun 17 19:41:25 2020//
 /man.c/1.135/Sat Jan  5 00:36:46 2019//
 /man.cgi.8/1.22/Sun May 20 21:48:23 2018//
 /man.conf.5/1.8/Mon Feb 10 14:42:03 2020//
@@ -39,7 +39,7 @@
 /man_term.c/1.188/Fri Mar 13 00:31:05 2020//
 /man_validate.c/1.124/Fri Apr 24 11:58:02 2020//
 /manconf.h/1.8/Thu Apr  2 22:10:27 2020//
-/mandoc.1/1.167/Fri Apr 24 11:58:02 2020//
+/mandoc.1/1.168/Mon Jun 15 18:05:25 2020//
 /mandoc.c/1.85/Sun Jan 19 16:16:32 2020//
 /mandoc.css/1.33/Sun Jun  2 16:50:46 2019//
 /mandoc.h/1.210/Fri Apr 24 11:58:02 2020//

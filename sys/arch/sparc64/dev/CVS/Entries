@@ -58,7 +58,7 @@
 /pcf8591_envctrl.c/1.6/Thu Oct 25 21:17:20 2007//
 /pcf8591_ofw.c/1.5/Mon Oct 22 20:53:10 2007//
 /pcfiic_ebus.c/1.13/Sun Jun  8 03:07:40 2008//
-/pci_machdep.c/1.49/Thu Dec  5 12:46:54 2019//
+/pci_machdep.c/1.50/Wed Jun 17 01:15:32 2020//
 /pckbc_ebus.c/1.14/Fri Sep  8 05:36:52 2017//
 /pcons.c/1.25/Mon May 25 09:55:48 2020//
 /pmc.c/1.4/Wed Dec 10 12:27:57 2014//

@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.380 2020/05/24 09:13:06 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.382 2020/06/05 09:32:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -564,7 +564,7 @@ tty_putc(struct tty *tty, u_char ch)
 {
 	const char	*acs;
 
-	if ((tty->term->flags & TERM_NOXENL) &&
+	if ((tty->term->flags & TERM_NOAM) &&
 	    ch >= 0x20 && ch != 0x7f &&
 	    tty->cy == tty->sy - 1 &&
 	    tty->cx + 1 >= tty->sx)
@@ -586,11 +586,11 @@ tty_putc(struct tty *tty, u_char ch)
 				tty->cy++;
 
 			/*
-			 * On !xenl terminals, force the cursor position to
-			 * where we think it should be after a line wrap - this
-			 * means it works on sensible terminals as well.
+			 * On !am terminals, force the cursor position to where
+			 * we think it should be after a line wrap - this means
+			 * it works on sensible terminals as well.
 			 */
-			if (tty->term->flags & TERM_NOXENL)
+			if (tty->term->flags & TERM_NOAM)
 				tty_putcode2(tty, TTYC_CUP, tty->cy, tty->cx);
 		} else
 			tty->cx++;
@@ -600,7 +600,7 @@ tty_putc(struct tty *tty, u_char ch)
 void
 tty_putn(struct tty *tty, const void *buf, size_t len, u_int width)
 {
-	if ((tty->term->flags & TERM_NOXENL) &&
+	if ((tty->term->flags & TERM_NOAM) &&
 	    tty->cy == tty->sy - 1 &&
 	    tty->cx + len >= tty->sx)
 		len = tty->sx - tty->cx - 1;
@@ -1380,9 +1380,10 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 			screen_select_cell(s, &last, gcp);
 		else
 			memcpy(&last, gcp, sizeof last);
-		if (!tty_check_overlay(tty, atx + ux, aty))
-			ux += gcp->data.width;
-		else if (ux + gcp->data.width > nx) {
+		if (!tty_check_overlay(tty, atx + ux, aty)) {
+			if (~gcp->flags & GRID_FLAG_PADDING)
+				ux += gcp->data.width;
+		} else if (ux + gcp->data.width > nx) {
 			tty_attributes(tty, &last, defaults, palette);
 			tty_cursor(tty, atx + ux, aty);
 			for (j = 0; j < gcp->data.width; j++) {
@@ -1397,7 +1398,7 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 			for (j = 0; j < gcp->data.size; j++)
 				tty_putc(tty, gcp->data.data[j]);
 			ux += gcp->data.width;
-		} else {
+		} else if (~gcp->flags & GRID_FLAG_PADDING) {
 			memcpy(buf + len, gcp->data.data, gcp->data.size);
 			len += gcp->data.size;
 			width += gcp->data.width;
@@ -1874,7 +1875,7 @@ tty_cmd_cells(struct tty *tty, const struct tty_ctx *ctx)
 	    ctx->xoff + ctx->ocx + ctx->num > ctx->wox + ctx->wsx)) {
 		if (!ctx->wrapped ||
 		    !tty_full_width(tty, ctx) ||
-		    (tty->term->flags & TERM_NOXENL) ||
+		    (tty->term->flags & TERM_NOAM) ||
 		    ctx->xoff + ctx->ocx != 0 ||
 		    ctx->yoff + ctx->ocy != tty->cy + 1 ||
 		    tty->cx < tty->sx ||
@@ -1930,7 +1931,7 @@ tty_cell(struct tty *tty, const struct grid_cell *gc,
 	const struct grid_cell	*gcp;
 
 	/* Skip last character if terminal is stupid. */
-	if ((tty->term->flags & TERM_NOXENL) &&
+	if ((tty->term->flags & TERM_NOAM) &&
 	    tty->cy == tty->sy - 1 &&
 	    tty->cx == tty->sx - 1)
 		return;
@@ -2086,7 +2087,7 @@ tty_cursor_pane_unless_wrap(struct tty *tty, const struct tty_ctx *ctx,
 {
 	if (!ctx->wrapped ||
 	    !tty_full_width(tty, ctx) ||
-	    (tty->term->flags & TERM_NOXENL) ||
+	    (tty->term->flags & TERM_NOAM) ||
 	    ctx->xoff + cx != 0 ||
 	    ctx->yoff + cy != tty->cy + 1 ||
 	    tty->cx < tty->sx ||

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.71 2020/04/24 11:33:28 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.73 2020/06/18 05:11:13 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -59,7 +59,6 @@ struct dev *dev_new(char *, struct aparams *, unsigned int, unsigned int,
 void dev_adjpar(struct dev *, int, int, int);
 int dev_allocbufs(struct dev *);
 int dev_open(struct dev *);
-void dev_exitall(struct dev *);
 void dev_freebufs(struct dev *);
 void dev_close(struct dev *);
 int dev_ref(struct dev *);
@@ -1018,10 +1017,11 @@ dev_new(char *path, struct aparams *par,
 		return NULL;
 	}
 	d = xmalloc(sizeof(struct dev));
-	d->path_list = NULL;
-	namelist_add(&d->path_list, path);
+	d->alt_list = NULL;
+	dev_addname(d,path);
 	d->num = dev_sndnum++;
 	d->opt_list = NULL;
+	d->alt_num = 1;
 
 	/*
 	 * XXX: below, we allocate a midi input buffer, since we don't
@@ -1064,6 +1064,27 @@ dev_new(char *path, struct aparams *par,
 	d->next = dev_list;
 	dev_list = d;
 	return d;
+}
+
+/*
+ * add a alternate name
+ */
+int
+dev_addname(struct dev *d, char *name)
+{
+	struct dev_alt *a;
+
+	if (d->alt_list != NULL && d->alt_list->idx == DEV_NMAX - 1) {
+		log_puts(name);
+		log_puts(": too many alternate names\n");
+		return 0;
+	}
+	a = xmalloc(sizeof(struct dev_alt));
+	a->name = name;
+	a->idx = (d->alt_list == NULL) ? 0 : d->alt_list->idx + 1;
+	a->next = d->alt_list;
+	d->alt_list = a;
+	return 1;
 }
 
 /*
@@ -1193,10 +1214,10 @@ dev_open(struct dev *d)
 }
 
 /*
- * Force all slots to exit
+ * Force all slots to exit and close device, called after an error
  */
 void
-dev_exitall(struct dev *d)
+dev_abort(struct dev *d)
 {
 	int i;
 	struct slot *s;
@@ -1214,6 +1235,9 @@ dev_exitall(struct dev *d)
 			c->ops->exit(c->arg);
 		c->ops = NULL;
 	}
+
+	if (d->pstate != DEV_CFG)
+		dev_close(d);
 }
 
 /*
@@ -1249,7 +1273,6 @@ dev_close(struct dev *d)
 {
 	struct ctl *c;
 
-	dev_exitall(d);
 	d->pstate = DEV_CFG;
 	dev_sio_close(d);
 	dev_freebufs(d);
@@ -1417,6 +1440,7 @@ void
 dev_del(struct dev *d)
 {
 	struct dev **p;
+	struct dev_alt *a;
 
 #ifdef DEBUG
 	if (log_level >= 3) {
@@ -1439,7 +1463,10 @@ dev_del(struct dev *d)
 	}
 	midi_del(d->midi);
 	*p = d->next;
-	namelist_clear(&d->path_list);
+	while ((a = d->alt_list) != NULL) {
+		d->alt_list = a->next;
+		xfree(a);
+	}
 	xfree(d);
 }
 

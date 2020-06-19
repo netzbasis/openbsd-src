@@ -18,8 +18,8 @@
 /if_malo_cardbus.c/1.12/Fri Dec  6 21:03:02 2013//
 /if_pgt_cardbus.c/1.18/Fri Dec 11 16:07:01 2015//
 /if_ral_cardbus.c/1.22/Tue Nov 24 17:11:39 2015//
-/if_re_cardbus.c/1.28/Tue Nov 24 17:11:39 2015//
-/if_rl_cardbus.c/1.30/Tue Nov 24 17:11:39 2015//
+/if_re_cardbus.c/1.29/Wed Jun 17 10:48:44 2020//
+/if_rl_cardbus.c/1.31/Wed Jun 17 10:48:44 2020//
 /if_rtw_cardbus.c/1.26/Tue Nov 24 17:11:39 2015//
 /if_xl_cardbus.c/1.33/Tue Nov 24 17:11:39 2015//
 /ohci_cardbus.c/1.22/Mon Jan  7 03:41:06 2019//

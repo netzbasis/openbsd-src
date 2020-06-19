@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.182 2020/05/27 06:23:23 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.185 2020/06/18 08:41:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -37,10 +37,6 @@ static int	screen_write_overwrite(struct screen_write_ctx *,
 		    struct grid_cell *, u_int);
 static const struct grid_cell *screen_write_combine(struct screen_write_ctx *,
 		    const struct utf8_data *, u_int *);
-
-static const struct grid_cell screen_write_pad_cell = {
-	{ { ' ' }, 0, 1, 1 }, 0, GRID_FLAG_PADDING, 8, 8, 0
-};
 
 struct screen_write_collect_item {
 	u_int			 x;
@@ -107,7 +103,8 @@ screen_write_redraw_cb(const struct tty_ctx *ttyctx)
 {
 	struct window_pane	*wp = ttyctx->arg;
 
-	wp->flags |= PANE_REDRAW;
+	if (wp != NULL)
+		wp->flags |= PANE_REDRAW;
 }
 
 /* Update context for client. */
@@ -1774,7 +1771,7 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 	 */
 	for (xx = s->cx + 1; xx < s->cx + width; xx++) {
 		log_debug("%s: new padding at %u,%u", __func__, xx, s->cy);
-		grid_view_set_cell(gd, xx, s->cy, &screen_write_pad_cell);
+		grid_view_set_padding(gd, xx, s->cy);
 		skip = 0;
 	}
 

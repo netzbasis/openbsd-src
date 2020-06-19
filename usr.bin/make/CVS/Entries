@@ -34,12 +34,12 @@
 /gnode.h/1.39/Sun Jan 26 12:41:21 2020//
 /init.c/1.8/Thu Jan 16 16:07:18 2020//
 /init.h/1.3/Mon Jul 19 19:46:44 2010//
-/job.c/1.160/Wed Jan 29 17:06:51 2020//
-/job.h/1.37/Thu Jan 16 16:07:18 2020//
+/job.c/1.162/Tue Jun  2 12:24:44 2020//
+/job.h/1.38/Wed Jun  3 12:41:39 2020//
 /location.h/1.1/Thu Mar 22 13:47:12 2012//
 /lowparse.c/1.35/Fri Oct 21 16:12:38 2016//
 /lowparse.h/1.11/Tue Oct  2 10:29:31 2012//
-/lst.h/1.31/Wed Oct 14 13:52:11 2015//
+/lst.h/1.32/Wed Jun  3 12:47:33 2020//
 /lst_t.h/1.3/Mon Jul 19 19:46:44 2010//
 /main.c/1.127/Mon Jan 13 15:41:53 2020//
 /main.h/1.6/Mon Jan 13 14:51:50 2020//

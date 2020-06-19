@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.264 2020/06/01 09:43:01 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.266 2020/06/13 09:05:53 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -436,14 +436,21 @@ window_resize(struct window *w, u_int sx, u_int sy, int xpixel, int ypixel)
 }
 
 void
-window_pane_send_resize(struct window_pane *wp, int yadjust)
+window_pane_send_resize(struct window_pane *wp, int force)
 {
 	struct window	*w = wp->window;
 	struct winsize	 ws;
-	u_int  		 sy = wp->sy + yadjust;
+	u_int  		 sy;
 
 	if (wp->fd == -1)
 		return;
+
+	if (!force)
+		sy = wp->sy;
+	else if (wp->sy <= 1)
+		sy = wp->sy + 1;
+	else
+		sy = wp->sy - 1;
 	log_debug("%s: %%%u resize to %u,%u", __func__, wp->id, wp->sx, sy);
 
 	memset(&ws, 0, sizeof ws);
@@ -877,8 +884,8 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 	wp->xoff = 0;
 	wp->yoff = 0;
 
-	wp->sx = wp->osx = sx;
-	wp->sy = wp->osx = sy;
+	wp->sx = sx;
+	wp->sy = sy;
 
 	wp->pipe_fd = -1;
 	wp->pipe_event = NULL;
@@ -918,6 +925,8 @@ window_pane_destroy(struct window_pane *wp)
 
 	if (event_initialized(&wp->resize_timer))
 		event_del(&wp->resize_timer);
+	if (event_initialized(&wp->force_timer))
+		event_del(&wp->force_timer);
 
 	RB_REMOVE(window_pane_tree, &all_window_panes, wp);
 
@@ -998,7 +1007,14 @@ window_pane_resize(struct window_pane *wp, u_int sx, u_int sy)
 	wme = TAILQ_FIRST(&wp->modes);
 	if (wme != NULL && wme->mode->resize != NULL)
 		wme->mode->resize(wme, sx, sy);
-	wp->flags |= (PANE_RESIZE|PANE_RESIZED);
+
+	/*
+	 * If the pane has already been resized, set the force flag and make
+	 * the application resize twice to force it to redraw.
+	 */
+	if (wp->flags & PANE_RESIZE)
+		wp->flags |= PANE_RESIZEFORCE;
+	wp->flags |= PANE_RESIZE;
 }
 
 void
@@ -1474,13 +1490,16 @@ winlink_clear_flags(struct winlink *wl)
 
 /* Shuffle window indexes up. */
 int
-winlink_shuffle_up(struct session *s, struct winlink *wl)
+winlink_shuffle_up(struct session *s, struct winlink *wl, int before)
 {
 	int	 idx, last;
 
 	if (wl == NULL)
 		return (-1);
-	idx = wl->idx + 1;
+	if (before)
+		idx = wl->idx;
+	else
+		idx = wl->idx + 1;
 
 	/* Find the next free index. */
 	for (last = idx; last < INT_MAX; last++) {
@@ -1493,8 +1512,9 @@ winlink_shuffle_up(struct session *s, struct winlink *wl)
 	/* Move everything from last - 1 to idx up a bit. */
 	for (; last > idx; last--) {
 		wl = winlink_find_by_index(&s->windows, last - 1);
-		server_link_window(s, wl, s, last, 0, 0, NULL);
-		server_unlink_window(s, wl);
+		RB_REMOVE(winlinks, &s->windows, wl);
+		wl->idx++;
+		RB_INSERT(winlinks, &s->windows, wl);
 	}
 
 	return (idx);

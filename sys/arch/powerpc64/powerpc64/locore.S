@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.4 2020/05/27 22:22:04 gkoehler Exp $	*/
+/*	$OpenBSD: locore.S,v 1.13 2020/06/14 17:56:54 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -16,7 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "assym.h"
+
 #include <machine/opal.h>
+#include <machine/psl.h>
 
 	.abiversion 2
 
@@ -54,7 +57,77 @@ cpu_idle_leave:
 
 	.globl cpu_switchto
 cpu_switchto:
+	mflr	%r0
+	std	%r0, 16(%r1)
+	mfcr	%r10
+	stdu	%r1, -SFRAMELEN(%r1)
+	std	%r10, SF_CR(%r1)
+	std	%r14, SF_R14(%r1)
+	std	%r15, SF_R15(%r1)
+	std	%r16, SF_R16(%r1)
+	std	%r17, SF_R17(%r1)
+	std	%r18, SF_R18(%r1)
+	std	%r19, SF_R19(%r1)
+	std	%r20, SF_R20(%r1)
+	std	%r21, SF_R21(%r1)
+	std	%r22, SF_R22(%r1)
+	std	%r23, SF_R23(%r1)
+	std	%r24, SF_R24(%r1)
+	std	%r25, SF_R25(%r1)
+	std	%r26, SF_R26(%r1)
+	std	%r27, SF_R27(%r1)
+	std	%r28, SF_R28(%r1)
+	std	%r29, SF_R29(%r1)
+	std	%r30, SF_R30(%r1)
+	std	%r31, SF_R31(%r1)
+
+	ld	%r31, P_ADDR(%r3)
+	std	%r1, PCB_SP(%r31)
+
+	li	%r31, SONPROC
+	stb	%r31, P_STAT(%r4)
+	std	%r4, CI_CURPROC(%r13)
+
+	ld	%r31, P_ADDR(%r4)
+	ld	%r1, PCB_SP(%r31)
+
+	ld	%r31, SF_R31(%r1)
+	ld	%r30, SF_R30(%r1)
+	ld	%r29, SF_R29(%r1)
+	ld	%r28, SF_R28(%r1)
+	ld	%r27, SF_R27(%r1)
+	ld	%r26, SF_R26(%r1)
+	ld	%r25, SF_R25(%r1)
+	ld	%r24, SF_R24(%r1)
+	ld	%r23, SF_R23(%r1)
+	ld	%r22, SF_R22(%r1)
+	ld	%r21, SF_R21(%r1)
+	ld	%r20, SF_R20(%r1)
+	ld	%r19, SF_R19(%r1)
+	ld	%r18, SF_R18(%r1)
+	ld	%r17, SF_R17(%r1)
+	ld	%r16, SF_R16(%r1)
+	ld	%r15, SF_R15(%r1)
+	ld	%r14, SF_R14(%r1)
+	ld	%r10, SF_CR(%r1)
+	addi	%r1, %r1, SFRAMELEN
+	mtcr	%r10
+	ld	%r0, 16(%r1)
+	mtlr	%r0
 	blr
+
+	.globl proc_trampoline
+proc_trampoline:
+#ifdef MULTIPROCESSOR
+	bl	proc_trampoline_mp
+#endif
+	li	%r3, IPL_NONE
+	bl	splx
+	mr	%r12, %r31
+	mr	%r3, %r30
+	mtctr	%r12
+	bctrl
+	b	trapexit
 
 /*
  * OPAL interfaces
@@ -80,10 +153,34 @@ name:					\
 OPAL_CALL(OPAL_TEST, opal_test)
 OPAL_CALL(OPAL_CONSOLE_WRITE, opal_console_write)
 OPAL_CALL(OPAL_CONSOLE_READ, opal_console_read)
+OPAL_CALL(OPAL_RTC_READ, opal_rtc_read)
+OPAL_CALL(OPAL_RTC_WRITE, opal_rtc_write)
 OPAL_CALL(OPAL_CEC_POWER_DOWN, opal_cec_power_down)
 OPAL_CALL(OPAL_CEC_REBOOT, opal_cec_reboot)
-OPAL_CALL(OPAL_POLL_EVENTS, opal_poll_events)	
-	
+OPAL_CALL(OPAL_POLL_EVENTS, opal_poll_events)
+OPAL_CALL(OPAL_PCI_CONFIG_READ_WORD, opal_pci_config_read_word)
+OPAL_CALL(OPAL_PCI_CONFIG_WRITE_WORD, opal_pci_config_write_word)
+OPAL_CALL(OPAL_PCI_EEH_FREEZE_STATUS, opal_pci_eeh_freeze_status)
+OPAL_CALL(OPAL_PCI_EEH_FREEZE_CLEAR, opal_pci_eeh_freeze_clear)
+OPAL_CALL(OPAL_PCI_PHB_MMIO_ENABLE, opal_pci_phb_mmio_enable)
+OPAL_CALL(OPAL_PCI_SET_PHB_MEM_WINDOW, opal_pci_set_phb_mem_window)
+OPAL_CALL(OPAL_PCI_MAP_PE_MMIO_WINDOW, opal_pci_map_pe_mmio_window)
+OPAL_CALL(OPAL_PCI_SET_PE, opal_pci_set_pe)
+OPAL_CALL(OPAL_PCI_SET_XIVE_PE, opal_pci_set_xive_pe)
+OPAL_CALL(OPAL_GET_MSI_32, opal_get_msi_32)
+OPAL_CALL(OPAL_GET_MSI_64, opal_get_msi_64)
+OPAL_CALL(OPAL_PCI_MAP_PE_DMA_WINDOW_REAL, opal_pci_map_pe_dma_window_real)
+OPAL_CALL(OPAL_PCI_RESET, opal_pci_reset)
+OPAL_CALL(OPAL_XIVE_RESET, opal_xive_reset)
+OPAL_CALL(OPAL_XIVE_GET_IRQ_INFO, opal_xive_get_irq_info)
+OPAL_CALL(OPAL_XIVE_GET_IRQ_CONFIG, opal_xive_get_irq_config)
+OPAL_CALL(OPAL_XIVE_SET_IRQ_CONFIG, opal_xive_set_irq_config)
+OPAL_CALL(OPAL_XIVE_GET_QUEUE_INFO, opal_xive_get_queue_info)
+OPAL_CALL(OPAL_XIVE_SET_QUEUE_INFO, opal_xive_set_queue_info)
+OPAL_CALL(OPAL_XIVE_GET_VP_INFO, opal_xive_get_vp_info)
+OPAL_CALL(OPAL_XIVE_SET_VP_INFO, opal_xive_set_vp_info)
+OPAL_CALL(OPAL_XIVE_DUMP, opal_xive_dump)
+
 opal_call:
 	mflr	%r11
 	std	%r11, 16(%r1)
@@ -97,9 +194,23 @@ opal_call:
 	ld	%r11, 0(%r11)
 	ld	%r12, 0(%r12)
 
+	/* Save MSR */
+	std	%r31, 12(%r1)
+	mfmsr	%r31
+
+	/* Disable transaltion and external interrupts */
+	andi.	%r2, %r31, ~(PSL_DR|PSL_IR|PSL_EE)@l
+	mtmsr	%r2
+	isync
+
 	mr	%r2, %r11
 	mtctr	%r12
 	bctrl
+
+	/* Restore MSR */
+	mtmsrd	%r31
+	isync
+	ld	%r31, 12(%r1)
 
 	ld	%r2, 24(%r1)
 	addi	%r1, %r1, 32
@@ -115,8 +226,8 @@ opal_call:
 	.globl db_enter
 db_enter:
 	trap
-	blr
-	
+	/* The trap handler will return from db_enter(). */
+
 	.globl setjmp
 setjmp:
 	mflr	%r0

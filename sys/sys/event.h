@@ -1,4 +1,4 @@
-/*	$OpenBSD: event.h,v 1.38 2020/05/25 15:54:10 visa Exp $	*/
+/*	$OpenBSD: event.h,v 1.43 2020/06/15 15:42:11 mpi Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -129,6 +129,10 @@ struct klist {
 
 #ifdef _KERNEL
 
+/* kernel-only flags */
+#define __EV_POLL	0x1000		/* match behavior of poll & select */
+#define __EV_HUP	EV_FLAG1	/* device or socket disconnected */
+
 #define EVFILT_MARKER	0xf			/* placemarker for tailq */
 
 /*
@@ -192,6 +196,7 @@ struct knote {
 struct proc;
 
 extern const struct filterops sig_filtops;
+extern const struct filterops dead_filtops;
 
 extern void	knote(struct klist *list, long hint);
 extern void	knote_activate(struct knote *);

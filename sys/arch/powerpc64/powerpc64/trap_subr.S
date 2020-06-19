@@ -1,4 +1,4 @@
-/* $OpenBSD: trap_subr.S,v 1.3 2020/05/27 22:22:04 gkoehler Exp $ */
+/* $OpenBSD: trap_subr.S,v 1.9 2020/06/18 22:51:38 kettenis Exp $ */
 /* $NetBSD: trap_subr.S,v 1.20 2002/04/22 23:20:08 kleink Exp $	*/
 
 /*-
@@ -43,7 +43,40 @@
 	mfsprg0  r
 
 #define GET_TOCBASE(r) \
-	ld	r, TRAP_TOCBASE(0)
+	bl	99f;							\
+99:	mflr	r;							\
+	addis	r, r, (.TOC. - 99b)@ha;					\
+	addi	r, r, (.TOC. - 99b)@l;
+
+/*
+ * Restore SRs for a pmap
+ *
+ * Requires that r28-r31 be scratch, with r28 initialized to the SLB cache
+ */
+
+restore_kernsrs:
+	GET_CPUINFO(%r28)
+	addi	%r28, %r28, CI_KERNEL_SLB
+
+	li	%r29, 0			/* Set the counter to zero */
+
+	/* Invalidate entire SLB */
+	slbia
+	slbmfee	%r31, %r29
+	clrrdi	%r31, %r31, 28
+	slbie	%r31
+
+1:	ld	%r31, 0(%r28)		/* Load SLBE */
+	cmpdi	%r31, 0			/* If SLBE is not valid, stop */
+	beqlr
+	ld	%r30, 8(%r28)		/* Load SLBV  */
+	slbmte	%r30, %r31		/* Install SLB entry */
+
+	addi	%r28, %r28, 16		/* Advance pointer */
+	addi	%r29, %r29, 1
+	cmpdi	%r29, 31		/* Repeat if we are not at the end */
+	blt	1b
+	blr
 
 /*
  * FRAME_SETUP assumes:
@@ -69,7 +102,7 @@
 	std	%r30, (savearea+CPUSAVE_SRR1)(%r31);	/* save SRR1 */	\
 	mfsprg1	%r31;			/* get saved SP (clears SPRG1) */ \
 	mfmsr	%r30;							\
-	ori	%r30, %r30, (PSL_RI)@l;	/* XXX */			\
+	ori	%r30, %r30, (PSL_DR|PSL_IR|PSL_RI)@l; /* relocation on */ \
 	mtmsr	%r30;			/* stack can now be accessed */	\
 	isync;								\
 	stdu	%r31, -(FRAMELEN+288)(%r1); /* save it in the callframe */ \
@@ -120,60 +153,82 @@
 	mfxer	%r3;							\
 	mfctr	%r4;							\
 	mfsprg3	%r5;							\
-	std	%r3,FRAME_XER+48(%r1);	/* save xer/ctr/exc */		\
-	std	%r4,FRAME_CTR+48(%r1);					\
-	std	%r5,FRAME_EXC+48(%r1);					\
+	std	%r3, FRAME_XER+48(%r1);	/* save xer/ctr/exc */		\
+	std	%r4, FRAME_CTR+48(%r1);					\
+	std	%r5, FRAME_EXC+48(%r1);					\
 	std	%r28, FRAME_DAR+48(%r1);				\
 	std	%r29, FRAME_DSISR+48(%r1); /* save dsisr/srr0/srr1 */	\
 	std	%r30, FRAME_SRR0+48(%r1);				\
 	std	%r31, FRAME_SRR1+48(%r1);
 
 #define FRAME_LEAVE(savearea)						\
+/* Disable exceptions: */						\
+	mfmsr	%r2;							\
+	andi.	%r2,%r2,~PSL_EE@l;					\
+	mtmsr	%r2;							\
+	isync;								\
 /* Now restore regs: */							\
-	ld	%r3, FRAME_LR+48(%r1);					\
-	ld	%r4, FRAME_CR+48(%r1);					\
+	ld	%r2, FRAME_SRR0+48(%r1);				\
+	ld	%r3, FRAME_SRR1+48(%r1);				\
+	ld	%r4, FRAME_CTR+48(%r1);					\
 	ld	%r5, FRAME_XER+48(%r1);					\
-	ld	%r6, FRAME_CTR+48(%r1);					\
-	ld	%r7, FRAME_SRR0+48(%r1);				\
-	ld	%r8, FRAME_SRR1+48(%r1);				\
-	mtlr	%r3;							\
-	mtcr	%r4;							\
+	ld	%r6, FRAME_LR+48(%r1);					\
+	GET_CPUINFO(%r7);						\
+	std	%r2, (savearea+CPUSAVE_SRR0)(%r7); /* save SRR0 */	\
+	std	%r3, (savearea+CPUSAVE_SRR1)(%r7); /* save SRR1 */	\
+	ld	%r7, FRAME_CR+48(%r1);					\
+	mtctr	%r4;							\
 	mtxer	%r5;							\
-	mtctr	%r6;							\
-	mtsrr0	%r7;							\
-	mtsrr1	%r8;							\
-	ld	%r0, FRAME_0+48(%r1);					\
-	ld	%r2, FRAME_2+48(%r1);					\
-	ld	%r3, FRAME_3+48(%r1);					\
-	ld	%r4, FRAME_4+48(%r1);					\
-	ld	%r5, FRAME_5+48(%r1);					\
-	ld	%r6, FRAME_6+48(%r1);					\
-	ld	%r7, FRAME_7+48(%r1);					\
-	ld	%r8, FRAME_8+48(%r1);					\
-	ld	%r9, FRAME_9+48(%r1);					\
-	ld	%r10, FRAME_10+48(%r1);					\
-	ld	%r11, FRAME_11+48(%r1);					\
-	ld	%r12, FRAME_12+48(%r1);					\
-	ld	%r13, FRAME_13+48(%r1);					\
-	ld	%r14, FRAME_14+48(%r1);					\
-	ld	%r15, FRAME_15+48(%r1);					\
-	ld	%r16, FRAME_16+48(%r1);					\
-	ld	%r17, FRAME_17+48(%r1);					\
-	ld	%r18, FRAME_18+48(%r1);					\
-	ld	%r19, FRAME_19+48(%r1);					\
-	ld	%r20, FRAME_20+48(%r1);					\
-	ld	%r21, FRAME_21+48(%r1);					\
-	ld	%r22, FRAME_22+48(%r1);					\
-	ld	%r23, FRAME_23+48(%r1);					\
-	ld	%r24, FRAME_24+48(%r1);					\
-	ld	%r25, FRAME_25+48(%r1);					\
-	ld	%r26, FRAME_26+48(%r1);					\
-	ld	%r27, FRAME_27+48(%r1);					\
-	ld	%r28, FRAME_28+48(%r1);					\
-	ld	%r29, FRAME_29+48(%r1);					\
+	mtlr	%r6;							\
+	mtsprg2	%r7;							\
+	ld	%r31, FRAME_31+48(%r1);	/* restore r0-31 */		\
 	ld	%r30, FRAME_30+48(%r1);					\
-	ld	%r31, FRAME_31+48(%r1);					\
-	ld	%r1, FRAME_1+48(%r1);
+	ld	%r29, FRAME_29+48(%r1);					\
+	ld	%r28, FRAME_28+48(%r1);					\
+	ld	%r27, FRAME_27+48(%r1);					\
+	ld	%r26, FRAME_26+48(%r1);					\
+	ld	%r25, FRAME_25+48(%r1);					\
+	ld	%r24, FRAME_24+48(%r1);					\
+	ld	%r23, FRAME_23+48(%r1);					\
+	ld	%r22, FRAME_22+48(%r1);					\
+	ld	%r21, FRAME_21+48(%r1);					\
+	ld	%r20, FRAME_20+48(%r1);					\
+	ld	%r19, FRAME_19+48(%r1);					\
+	ld	%r18, FRAME_18+48(%r1);					\
+	ld	%r17, FRAME_17+48(%r1);					\
+	ld	%r16, FRAME_16+48(%r1);					\
+	ld	%r15, FRAME_15+48(%r1);					\
+	ld	%r14, FRAME_14+48(%r1);					\
+	ld	%r13, FRAME_13+48(%r1);					\
+	ld	%r12, FRAME_12+48(%r1);					\
+	ld	%r11, FRAME_11+48(%r1);					\
+	ld	%r10, FRAME_10+48(%r1);					\
+	ld	%r9, FRAME_9+48(%r1);					\
+	ld	%r8, FRAME_8+48(%r1);					\
+	ld	%r7, FRAME_7+48(%r1);					\
+	ld	%r6, FRAME_6+48(%r1);					\
+	ld	%r5, FRAME_5+48(%r1);					\
+	ld	%r4, FRAME_4+48(%r1);					\
+	ld	%r3, FRAME_3+48(%r1);					\
+	ld	%r2, FRAME_2+48(%r1);					\
+	ld	%r0, FRAME_0+48(%r1);					\
+	ld	%r1, FRAME_1+48(%r1);					\
+/* Can't touch %r1 from here on */					\
+	mtsprg3	%r3;			/* save r3 */			\
+/* Disable translation, machine check and recoverability: */		\
+	mfmsr	%r3;							\
+	andi.	%r3, %r3, ~(PSL_DR|PSL_IR|PSL_ME|PSL_RI)@l;		\
+	mtmsr	%r3;							\
+	isync;								\
+1:	mfsprg2	%r3;			/* restore cr */		\
+	mtcr	%r3;							\
+	GET_CPUINFO(%r3);						\
+	ld	%r3, (savearea+CPUSAVE_SRR0)(%r3); /* restore srr0 */	\
+	mtsrr0	%r3;							\
+	GET_CPUINFO(%r3);						\
+	ld	%r3, (savearea+CPUSAVE_SRR1)(%r3); /* restore srr1 */	\
+	mtsrr1	%r3;							\
+	mfsprg3	%r3			/* restore r3 */
 
 
 	.text
@@ -188,6 +243,32 @@ trapcode:
 	li	%r1, 0xe0
 	blrl
 trapcodeend:
+
+	.globl hvtrapcode, hvtrapcodeend
+hvtrapcode:
+	mtsprg1	%r1
+	mflr	%r1
+	mtsprg2	%r1
+	ld	%r1, TRAP_HVENTRY(0)
+	mtlr	%r1
+	li	%r1, 0xe0
+	blrl
+hvtrapcodeend:
+
+/*
+ * generichvtrap makes a hypervisor trap look like a normal trap.
+ */
+
+	.globl generichvtrap
+generichvtrap:
+	/* Move HSRR0/HSRR1 to SSR0/SRR1 */
+	mtsprg3	%r1
+	mfspr	%r1, 314	/* HSRR0 */
+	mtsrr0	%r1
+	mfspr	%r1, 315	/* HSRR1 */
+	mtsrr1	%r1
+	mfsprg3	%r1
+	/* FALLTHROUGH */
 
 /*
  * generictrap does some standard setup for trap handling to minimize
@@ -227,10 +308,39 @@ generictrap:
 	and	%r30, %r30, %r31
 	mtsprg3	%r30
 
+	/* XXX skip this unless we come for userland */
+	mr	%r27, %r28
+	mtsprg2	%r29
+	bl	restore_kernsrs		/* enable kernel mapping */
+	mfsprg2	%r29
+	mr	%r28, %r27
+
 	FRAME_SETUP(CI_TEMPSAVE)
 	GET_TOCBASE(%r2)
+trapagain:
 	addi	%r3, %r1, 48
 	bl	trap
 
+	.globl	trapexit
+trapexit:
+/* Disable interrupts: */
+	mfmsr	%r3
+	andi.	%r3, %r3, ~PSL_EE@l
+	mtmsr	%r3
+	isync
+/* Test AST pending: */
+	ld	%r5,FRAME_SRR1+48(%r1)
+	mtcr	%r5
+	bf	17,1f			/* branch if PSL_PR is false */
+
+	GET_CPUINFO(%r3)		/* get per-CPU pointer */
+	ld	%r4, CI_CURPROC(%r3)
+	lwz	%r4, P_MD_ASTPENDING(%r4)
+	cmpwi	%r4, 0
+	beq	1f
+	li	%r6, EXC_AST
+	std	%r6, FRAME_EXC+48(%r1)
+	b	trapagain
+1:
 	FRAME_LEAVE(CI_TEMPSAVE)
 	rfid

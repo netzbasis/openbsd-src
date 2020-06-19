@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.powerpc64,v 1.2 2020/05/27 22:22:04 gkoehler Exp $
+#	$OpenBSD: Makefile.powerpc64,v 1.5 2020/06/16 17:38:12 kettenis Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -40,14 +40,17 @@ INCLUDES=	-nostdinc -I$S -I${.OBJDIR} -I$S/arch \
 		-I$S/dev/pci/drm/amd/powerplay/hwmgr \
 		-I$S/dev/pci/drm/amd/display/dc/inc \
 		-I$S/dev/pci/drm/amd/display/dc/inc/hw \
-		-I$S/dev/pci/drm/amd/display/modules/inc
+		-I$S/dev/pci/drm/amd/display/dc/clk_mgr \
+		-I$S/dev/pci/drm/amd/display/modules/inc \
+		-I$S/dev/pci/drm/amd/display/modules/hdcp \
+		-I$S/dev/pci/drm/amd/display/dmub/inc
 CPPFLAGS=	${INCLUDES} ${IDENT} ${PARAM} -D_KERNEL -MD -MP
 CWARNFLAGS=	-Werror -Wall -Wimplicit-function-declaration \
 		-Wno-uninitialized -Wno-pointer-sign \
 		-Wno-constant-conversion -Wno-address-of-packed-member \
 		-Wframe-larger-than=2047
 
-CMACHFLAGS=	-mabi=elfv2
+CMACHFLAGS=	-mabi=elfv2 -msoft-float -mno-altivec -mno-vsx
 CMACHFLAGS+=	-ffreestanding
 SORTR=		sort -R
 .if ${IDENT:M-DNO_PROPOLICE}
@@ -160,7 +163,7 @@ cleandir: clean
 depend obj:
 
 locore0.o: ${_machdir}/${_mach}/locore0.S assym.h
-
+locore.o: ${_machdir}/${_mach}/locore.S assym.h
 trap_subr.o: ${_machdir}/${_mach}/trap_subr.S assym.h
 
 hardlink-obsd:

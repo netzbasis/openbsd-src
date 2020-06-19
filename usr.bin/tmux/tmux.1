@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.775 2020/05/29 13:42:13 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.786 2020/06/18 08:34:22 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 29 2020 $
+.Dd $Mdocdate: June 18 2020 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -552,17 +552,14 @@ is removed) and are not treated as having any special meaning - so for example
 variable.
 .El
 .Pp
-Braces are similar to single quotes in that the text inside is taken literally
-without any replacements but this also includes line continuation.
-Braces can span multiple lines in which case a literal newline is included in the
-string.
-They are designed to avoid the need for additional escaping when passing a group
-of
+Braces are parsed as a configuration file (so conditions such as
+.Ql %if
+are processed) and then converted into a string.
+They are designed to avoid the need for additional escaping when passing a
+group of
 .Nm
-or shell commands as an argument (for example to
-.Ic if-shell
-or
-.Ic pipe-pane ) .
+commands as an argument (for example to
+.Ic if-shell ) .
 These two examples produce an identical command - note that no escaping is
 needed when using {}:
 .Bd -literal -offset indent
@@ -570,7 +567,7 @@ if-shell true {
     display -p 'brace-dollar-foo: }$foo'
 }
 
-if-shell true "\en    display -p 'brace-dollar-foo: }\e$foo'\en"
+if-shell true "display -p 'brace-dollar-foo: }\e$foo'"
 .Ed
 .Pp
 Braces may be enclosed inside braces, for example:
@@ -980,14 +977,20 @@ detaching the client, typically causing it to exit.
 sets a comma-separated list of client flags.
 The flags are:
 .Bl -tag -width Ds
-.It read-only
-the client is read-only
+.It active-pane
+the client has an independent active pane
 .It ignore-size
 the client does not affect the size of other clients
 .It no-output
 the client does not receive pane output in control mode
-.It active-pane
-the client has an independent active pane
+.It pause-after=seconds
+output is paused once the pane is
+.Ar seconds
+behind in control mode
+.It read-only
+the client is read-only
+.It wait-exit
+wait for an empty line input before exiting in control mode
 .El
 .Pp
 A leading
@@ -1298,22 +1301,32 @@ it.
 .Fl C
 sets the width and height of a control mode client.
 .Fl A
-informs
-.Nm
-of a control mode client's interest in a pane.
+allows a control mode client to trigger actions on a pane.
 The argument is a pane ID (with leading
 .Ql % ) ,
 a colon, then one of
-.Ql on
+.Ql on ,
+.Ql off ,
+.Ql continue
 or
-.Ql off .
+.Ql pause .
 If
 .Ql off ,
 .Nm
 will not send output from the pane to the client and if all clients have turned
 the pane off, will stop reading from the pane.
+If
+.Ql continue ,
+.Nm
+will return to sending output to the pane if it was paused (manually or with the
+.Ar pause-after
+flag).
+If
+.Ql pause ,
+.Nm
+will pause the pane.
 .Fl A
-may be given multiple times.
+may be given multiple times for different panes.
 .Pp
 .Fl f
 sets a comma-separated list of client flags, see
@@ -1781,7 +1794,7 @@ from which the layout was originally defined.
 Commands related to windows and panes are as follows:
 .Bl -tag -width Ds
 .It Xo Ic break-pane
-.Op Fl adP
+.Op Fl abdP
 .Op Fl F Ar format
 .Op Fl n Ar window-name
 .Op Fl s Ar src-pane
@@ -1793,9 +1806,11 @@ Break
 off from its containing window to make it the only pane in
 .Ar dst-window .
 With
-.Fl a ,
-the window is moved to the next index up (following windows
-are moved if necessary).
+.Fl a
+or
+.Fl b ,
+the window is moved to the next index after or before (existing windows are
+moved if necessary).
 If
 .Fl d
 is given, the new window does not become the current window.
@@ -2018,6 +2033,8 @@ The following keys may be used in customize mode:
 .It Li "s" Ta "Set option value or key attribute"
 .It Li "S" Ta "Set global option value"
 .It Li "w" Ta "Set window option value, if option is for pane and window"
+.It Li "d" Ta "Set an option or key to the default"
+.It Li "D" Ta "Set tagged options and tagged keys to the default"
 .It Li "u" Ta "Unset an option (set to default value if global) or unbind a key"
 .It Li "U" Ta "Unset tagged options and unbind tagged keys"
 .It Li "C-s" Ta "Search by name"
@@ -2177,7 +2194,7 @@ If no
 .Ar target-session
 is specified, select the last window of the current session.
 .It Xo Ic link-window
-.Op Fl adk
+.Op Fl abdk
 .Op Fl s Ar src-window
 .Op Fl t Ar dst-window
 .Xc
@@ -2192,9 +2209,12 @@ is specified and no such window exists, the
 .Ar src-window
 is linked there.
 With
-.Fl a ,
-the window is moved to the next index up (following windows
-are moved if necessary).
+.Fl a
+or
+.Fl b
+the window is moved to the next index after or before
+.Ar dst-window
+(existing windows are moved if necessary).
 If
 .Fl k
 is given and
@@ -2261,7 +2281,7 @@ section.
 Does the same as
 .Ic join-pane .
 .It Xo Ic move-window
-.Op Fl ardk
+.Op Fl abrdk
 .Op Fl s Ar src-window
 .Op Fl t Ar dst-window
 .Xc
@@ -2279,7 +2299,7 @@ the
 .Ic base-index
 option.
 .It Xo Ic new-window
-.Op Fl adkP
+.Op Fl abdkP
 .Op Fl c Ar start-directory
 .Op Fl e Ar environment
 .Op Fl F Ar format
@@ -2290,10 +2310,12 @@ option.
 .D1 (alias: Ic neww )
 Create a new window.
 With
-.Fl a ,
-the new window is inserted at the next index up from the specified
+.Fl a
+or
+.Fl b ,
+the new window is inserted at the next index after or before the specified
 .Ar target-window ,
-moving windows up if necessary,
+moving windows up if necessary;
 otherwise
 .Ar target-window
 is the new window location.
@@ -2522,7 +2544,8 @@ Reactivate a pane in which the command has exited (see the
 window option).
 If
 .Ar shell-command
-is not given, the command used when the pane was created is executed.
+is not given, the command used when the pane was created or last respawned is
+executed.
 The pane must be already inactive, unless
 .Fl k
 is given, in which case any existing command is killed.
@@ -2546,7 +2569,8 @@ Reactivate a window in which the command has exited (see the
 window option).
 If
 .Ar shell-command
-is not given, the command used when the window was created is executed.
+is not given, the command used when the window was created or last respawned is
+executed.
 The window must be already inactive, unless
 .Fl k
 is given, in which case any existing command is killed.
@@ -2630,6 +2654,7 @@ The marked pane is the default target for
 .Fl s
 to
 .Ic join-pane ,
+.Ic move-pane ,
 .Ic swap-pane
 and
 .Ic swap-window .
@@ -3346,6 +3371,10 @@ Allows setting the system clipboard.
 Allows setting the cursor colour.
 .It cstyle
 Allows setting the cursor style.
+.It extkeys
+Supports extended keys.
+.It focus
+Supports focus reporting.
 .It margins
 Supports DECSLRM margins.
 .It overline
@@ -3354,6 +3383,8 @@ Supports the overline SGR attribute.
 Supports the DECFRA rectangle fill escape sequence.
 .It RGB
 Supports RGB colour with the SGR escape sequences.
+.It strikethrough
+Supports the strikethrough SGR escape sequence.
 .It sync
 Supports synchronized updates.
 .It title
@@ -4730,6 +4761,8 @@ The following variables are available, where appropriate:
 .It Li "scroll_position" Ta "" Ta "Scroll position in copy mode"
 .It Li "scroll_region_lower" Ta "" Ta "Bottom of scroll region in pane"
 .It Li "scroll_region_upper" Ta "" Ta "Top of scroll region in pane"
+.It Li "search_present" Ta "" Ta "1 if search started in copy mode"
+.It Li "search_match" Ta "" Ta "Search match if any"
 .It Li "selection_active" Ta "" Ta "1 if selection started and changes with the cursor in copy mode"
 .It Li "selection_end_x" Ta "" Ta "X position of the end of the selection"
 .It Li "selection_end_y" Ta "" Ta "Y position of the end of the selection"
@@ -5713,29 +5746,32 @@ When a
 client detaches, it prints a message.
 This may be one of:
 .Bl -tag -width Ds
-.It [detached (from session ...)]
+.It detached (from session ...)
 The client was detached normally.
-.It [detached and SIGHUP]
+.It detached and SIGHUP
 The client was detached and its parent sent the
 .Dv SIGHUP
 signal (for example with
 .Ic detach-client
 .Fl P ) .
-.It [lost tty]
+.It lost tty
 The client's
 .Xr tty 4
 or
 .Xr pty 4
 was unexpectedly destroyed.
-.It [terminated]
+.It terminated
 The client was killed with
 .Dv SIGTERM .
-.It [exited]
+.It too far behind
+The client is in control mode and became unable to keep up with the data from
+.Nm .
+.It exited
 The server exited when it had no sessions.
-.It [server exited]
+.It server exited
 The server exited when it received
 .Dv SIGTERM .
-.It [server exited unexpectedly]
+.It server exited unexpectedly
 The server crashed or otherwise exited without telling the client the reason.
 .El
 .Sh TERMINFO EXTENSIONS
@@ -5882,6 +5918,12 @@ The client is now attached to the session with ID
 .Ar session-id ,
 which is named
 .Ar name .
+.It Ic %continue Ar pane-id
+The pane has been continued after being paused (if the
+.Ar pause-after
+flag is set, see
+.Ic refresh-client
+.Fl A ) .
 .It Ic %exit Op Ar reason
 The
 .Nm
@@ -5890,6 +5932,17 @@ or an error occurred.
 If present,
 .Ar reason
 describes why the client exited.
+.It Ic %extended-output Ar pane-id Ar age Ar ... : Ar value
+New form of
+.Ic %output
+sent when the
+.Ar pause-after
+flag is set.
+.Ar age
+is the time in milliseconds for which tmux had buffered the output before it was sent.
+Any subsequent arguments up until a single
+.Ql \&:
+are for future use and should be ignored.
 .It Ic %layout-change Ar window-id Ar window-layout Ar window-visible-layout Ar window-flags
 The layout of a window with ID
 .Ar window-id
@@ -5908,6 +5961,10 @@ escapes non-printable characters and backslash as octal \\xxx.
 The pane with ID
 .Ar pane-id
 has changed mode.
+.It Ic %pause Ar pane-id
+The pane has been paused (if the
+.Ar pause-after
+flag is set).
 .It Ic %session-changed Ar session-id Ar name
 The client is now attached to the session with ID
 .Ar session-id ,

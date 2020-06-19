@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore0.S,v 1.2 2020/05/22 15:07:47 kettenis Exp $	*/
+/*	$OpenBSD: locore0.S,v 1.4 2020/06/14 17:56:54 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -33,7 +33,7 @@ _start:
 
 	addis	%r1, %r30, (initstack_end - 1b)@ha
 	addi	%r1, %r1, (initstack_end - 1b)@l
-	addi	%r1, %r1, -32
+	addi	%r1, %r1, -(FRAMELEN + 32)
 
 	/*
 	 * Not all kexec(8) flavours actually pass the OPAL entry point.
@@ -61,12 +61,14 @@ _start:
 	mr	%r3, %r14	/* device tree */
 	mr	%r4, %r2	/* TOC pointer */
 	bl	init_powernv
+	bl	main
 
 	b	.
 
 	.data
 
 	.align PAGE_SHIFT
+	.globl initstack
 initstack:
 	.space USPACE
 initstack_end:

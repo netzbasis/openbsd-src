@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1925 2020/06/01 03:42:18 jcs Exp 
+ *	OpenBSD: pcidevs,v 1.1927 2020/06/09 22:22:39 kettenis Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -9842,6 +9842,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_IBM, PCI_PRODUCT_IBM_CALGARY_IOMMU,
 	    "Calgary IOMMU",
+	},
+	{
+	    PCI_VENDOR_IBM, PCI_PRODUCT_IBM_POWER9_HB,
+	    "POWER9 Host",
 	},
 	{
 	    PCI_VENDOR_ICENSEMBLE, PCI_PRODUCT_ICENSEMBLE_ICE1712,
@@ -20980,8 +20984,16 @@ static const struct pci_known_product pci_known_products[] = {
 	    "88SE9172 SATA",
 	},
 	{
+	    PCI_VENDOR_MARVELL2, PCI_PRODUCT_MARVELL2_88SE9215,
+	    "88SE9215 AHCI",
+	},
+	{
 	    PCI_VENDOR_MARVELL2, PCI_PRODUCT_MARVELL2_88SE9230,
 	    "88SE9230 AHCI",
+	},
+	{
+	    PCI_VENDOR_MARVELL2, PCI_PRODUCT_MARVELL2_88SE9235,
+	    "88SE9235 AHCI",
 	},
 	{
 	    PCI_VENDOR_MATROX, PCI_PRODUCT_MATROX_ATLAS,

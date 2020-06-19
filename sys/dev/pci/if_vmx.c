@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vmx.c,v 1.56 2020/05/28 07:21:56 jmatthew Exp $	*/
+/*	$OpenBSD: if_vmx.c,v 1.59 2020/06/17 07:08:39 dlg Exp $	*/
 
 /*
  * Copyright (c) 2013 Tsubai Masanari
@@ -25,9 +25,11 @@
 #include <sys/sockio.h>
 #include <sys/systm.h>
 #include <sys/atomic.h>
+#include <sys/intrmap.h>
 
 #include <net/bpf.h>
 #include <net/if.h>
+#include <net/toeplitz.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -42,7 +44,7 @@
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcidevs.h>
 
-#define VMX_MAX_QUEUES	1
+#define VMX_MAX_QUEUES	MIN(VMXNET3_MAX_TX_QUEUES, VMXNET3_MAX_RX_QUEUES)
 
 #define NTXDESC 512 /* tx ring size */
 #define NTXSEGS 8 /* tx descriptors per packet */
@@ -91,24 +93,27 @@ struct vmxnet3_comp_ring {
 };
 
 struct vmxnet3_txqueue {
+	struct vmxnet3_softc *sc; /* sigh */
 	struct vmxnet3_txring cmd_ring;
 	struct vmxnet3_comp_ring comp_ring;
 	struct vmxnet3_txq_shared *ts;
 	struct ifqueue *ifq;
-};
+} __aligned(64);
 
 struct vmxnet3_rxqueue {
+	struct vmxnet3_softc *sc; /* sigh */
 	struct vmxnet3_rxring cmd_ring[2];
 	struct vmxnet3_comp_ring comp_ring;
 	struct vmxnet3_rxq_shared *rs;
 	struct ifiqueue *ifiq;
-};
+} __aligned(64);
 
 struct vmxnet3_queue {
 	struct vmxnet3_txqueue tx;
 	struct vmxnet3_rxqueue rx;
 	struct vmxnet3_softc *sc;
-	char intrname[8];
+	char intrname[16];
+	void *ih;
 	int intr;
 };
 
@@ -123,13 +128,14 @@ struct vmxnet3_softc {
 	bus_space_handle_t sc_ioh1;
 	bus_dma_tag_t sc_dmat;
 	void *sc_ih;
-	void *sc_qih[VMX_MAX_QUEUES];
-	int sc_nintr;
-	int sc_nqueues;
 
-	struct vmxnet3_queue sc_q[VMX_MAX_QUEUES];
+	int sc_nqueues;
+	struct vmxnet3_queue *sc_q;
+	struct intrmap *sc_intrmap;
+
 	struct vmxnet3_driver_shared *sc_ds;
 	u_int8_t *sc_mcast;
+	struct vmxnet3_upt1_rss_conf *sc_rss;
 };
 
 #define VMXNET3_STAT
@@ -225,6 +231,7 @@ vmxnet3_attach(struct device *parent, struct device *self, void *aux)
 	u_int memtype, ver, macl, mach, intrcfg;
 	u_char enaddr[ETHER_ADDR_LEN];
 	int (*isr)(void *);
+	int msix = 0;
 	int i;
 
 	memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, 0x10);
@@ -259,15 +266,23 @@ vmxnet3_attach(struct device *parent, struct device *self, void *aux)
 	WRITE_CMD(sc, VMXNET3_CMD_GET_INTRCFG);
 	intrcfg = READ_BAR1(sc, VMXNET3_BAR1_CMD);
 	isr = vmxnet3_intr;
-	sc->sc_nintr = 0;
 	sc->sc_nqueues = 1;
 
 	switch (intrcfg & VMXNET3_INTRCFG_TYPE_MASK) {
 	case VMXNET3_INTRCFG_TYPE_AUTO:
 	case VMXNET3_INTRCFG_TYPE_MSIX:
-		if (pci_intr_map_msix(pa, 0, &ih) == 0) {
-			isr = vmxnet3_intr_event;
-			sc->sc_nintr = sc->sc_nqueues + 1;
+		msix = pci_intr_msix_count(pa->pa_pc, pa->pa_tag);
+		if (msix > 0) {
+			if (pci_intr_map_msix(pa, 0, &ih) == 0) {
+				msix--; /* are there spares for tx/rx qs? */
+				if (msix == 0)
+					break;
+
+				isr = vmxnet3_intr_event;
+				sc->sc_intrmap = intrmap_create(&sc->sc_dev,
+				    msix, VMX_MAX_QUEUES, 0);
+				sc->sc_nqueues = intrmap_count(sc->sc_intrmap);
+			}
 			break;
 		}
 
@@ -291,7 +306,10 @@ vmxnet3_attach(struct device *parent, struct device *self, void *aux)
 	if (intrstr)
 		printf(": %s", intrstr);
 
-	if (sc->sc_nintr > 1) {
+	sc->sc_q = mallocarray(sc->sc_nqueues, sizeof(*sc->sc_q),
+	    M_DEVBUF, M_WAITOK|M_ZERO);
+
+	if (sc->sc_intrmap != NULL) {
 		for (i = 0; i < sc->sc_nqueues; i++) {
 			struct vmxnet3_queue *q;
 			int vec;
@@ -304,9 +322,11 @@ vmxnet3_attach(struct device *parent, struct device *self, void *aux)
 			}
 			snprintf(q->intrname, sizeof(q->intrname), "%s:%d",
 			    self->dv_xname, i);
-			sc->sc_qih[i] = pci_intr_establish(pa->pa_pc, ih,
-			    IPL_NET | IPL_MPSAFE, vmxnet3_intr_queue, q,
-			    q->intrname);
+			/* this should be pci_intr_establish_cpu */
+			q->ih = pci_intr_establish(pa->pa_pc, ih,
+			    IPL_NET | IPL_MPSAFE,
+			    /* intrmap_cpu(sc->sc_intrmap, i), */
+			    vmxnet3_intr_queue, q, q->intrname);
 
 			q->intr = vec;
 			q->sc = sc;
@@ -397,10 +417,7 @@ vmxnet3_dma_init(struct vmxnet3_softc *sc)
 		sc->sc_q[queue].rx.rs = rs++;
 
 	for (queue = 0; queue < sc->sc_nqueues; queue++) {
-		if (sc->sc_nintr > 0)
-			intr = queue + 1;
-		else
-			intr = 0;
+		intr = sc->sc_q[queue].intr;
 
 		if (vmxnet3_alloc_txring(sc, queue, intr))
 			return -1;
@@ -451,11 +468,38 @@ vmxnet3_dma_init(struct vmxnet3_softc *sc)
 	ds->nrxqueue = sc->sc_nqueues;
 	ds->mcast_table = mcast_pa;
 	ds->automask = 1;
-	ds->nintr = sc->sc_nintr;
+	ds->nintr = 1 + (sc->sc_intrmap != NULL ? sc->sc_nqueues : 0);
 	ds->evintr = 0;
 	ds->ictrl = VMXNET3_ICTRL_DISABLE_ALL;
-	for (i = 0; i < sc->sc_nintr; i++)
+	for (i = 0; i < ds->nintr; i++)
 		ds->modlevel[i] = UPT1_IMOD_ADAPTIVE;
+
+	if (sc->sc_nqueues > 1) {
+		struct vmxnet3_upt1_rss_conf *rsscfg;
+		bus_addr_t rss_pa;
+
+		rsscfg = vmxnet3_dma_allocmem(sc, sizeof(*rsscfg), 8, &rss_pa);
+
+		rsscfg->hash_type = UPT1_RSS_HASH_TYPE_TCP_IPV4 |
+		    UPT1_RSS_HASH_TYPE_IPV4 |
+		    UPT1_RSS_HASH_TYPE_TCP_IPV6 |
+		    UPT1_RSS_HASH_TYPE_IPV6;
+		rsscfg->hash_func = UPT1_RSS_HASH_FUNC_TOEPLITZ;
+		rsscfg->hash_key_size = sizeof(rsscfg->hash_key);
+		stoeplitz_to_key(rsscfg->hash_key, sizeof(rsscfg->hash_key));
+
+		rsscfg->ind_table_size = sizeof(rsscfg->ind_table);
+		for (i = 0; i < sizeof(rsscfg->ind_table); i++)
+			rsscfg->ind_table[i] = i % sc->sc_nqueues;
+
+		ds->upt_features |= UPT1_F_RSS;
+		ds->rss.version = 1;
+		ds->rss.len = sizeof(*rsscfg);
+		ds->rss.paddr = rss_pa;
+
+		sc->sc_rss = rsscfg;
+	}
+
 	WRITE_BAR1(sc, VMXNET3_BAR1_DSL, ds_pa);
 	WRITE_BAR1(sc, VMXNET3_BAR1_DSH, (u_int64_t)ds_pa >> 32);
 	return 0;
@@ -737,8 +781,11 @@ vmxnet3_enable_all_intrs(struct vmxnet3_softc *sc)
 	int i;
 
 	sc->sc_ds->ictrl &= ~VMXNET3_ICTRL_DISABLE_ALL;
-	for (i = 0; i < sc->sc_nintr; i++)
-		vmxnet3_enable_intr(sc, i);
+	vmxnet3_enable_intr(sc, 0);
+	if (sc->sc_intrmap) {
+		for (i = 0; i < sc->sc_nqueues; i++)
+			vmxnet3_enable_intr(sc, sc->sc_q[i].intr);
+	}
 }
 
 void
@@ -747,8 +794,11 @@ vmxnet3_disable_all_intrs(struct vmxnet3_softc *sc)
 	int i;
 
 	sc->sc_ds->ictrl |= VMXNET3_ICTRL_DISABLE_ALL;
-	for (i = 0; i < sc->sc_nintr; i++)
-		vmxnet3_disable_intr(sc, i);
+	vmxnet3_disable_intr(sc, 0);
+	if (sc->sc_intrmap) {
+		for (i = 0; i < sc->sc_nqueues; i++)
+			vmxnet3_disable_intr(sc, sc->sc_q[i].intr);
+	}
 }
 
 int
@@ -965,6 +1015,11 @@ vmxnet3_rxintr(struct vmxnet3_softc *sc, struct vmxnet3_rxqueue *rq)
 			m->m_pkthdr.ether_vtag = letoh32((rxcd->rxc_word2 >>
 			    VMXNET3_RXC_VLANTAG_S) & VMXNET3_RXC_VLANTAG_M);
 		}
+		if (((letoh32(rxcd->rxc_word0) >> VMXNET3_RXC_RSSTYPE_S) &
+		    VMXNET3_RXC_RSSTYPE_M) != VMXNET3_RXC_RSSTYPE_NONE) {
+			m->m_pkthdr.ph_flowid = letoh32(rxcd->rxc_word1);
+			SET(m->m_pkthdr.csum_flags, M_FLOWID);
+		}
 
 		ml_enqueue(&ml, m);
 
@@ -1087,12 +1142,11 @@ vmxnet3_stop(struct ifnet *ifp)
 
 	WRITE_CMD(sc, VMXNET3_CMD_DISABLE);
 
-	if (sc->sc_nintr == 1)
-		intr_barrier(sc->sc_ih);
-	else {
+	if (sc->sc_intrmap != NULL) {
 		for (queue = 0; queue < sc->sc_nqueues; queue++)
-			intr_barrier(sc->sc_qih[queue]);
-	}
+			intr_barrier(sc->sc_q[queue].ih);
+	} else
+		intr_barrier(sc->sc_ih);
 
 	for (queue = 0; queue < sc->sc_nqueues; queue++)
 		vmxnet3_txstop(sc, &sc->sc_q[queue].tx);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pte.h,v 1.1 2020/05/23 14:49:32 kettenis Exp $	*/
+/*	$OpenBSD: pte.h,v 1.3 2020/06/18 21:52:57 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -16,7 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MACHINE_PTE_H
+#ifndef _MACHINE_PTE_H_
+#define _MACHINE_PTE_H_
 
 /*
  * Page Table Entry bits that should work for all 64-bit POWER CPUs as
@@ -33,6 +34,7 @@ struct pte {
 #define PTE_HID			0x0000000000000002ULL
 #define PTE_WIRED		0x0000000000000004ULL /* SW */
 #define PTE_AVPN		0x3fffffffffffff80ULL
+#define PTE_VSID_SHIFT		12
 
 /* Low doubleword: */
 #define PTE_PP			0x0000000000000003ULL
@@ -47,4 +49,24 @@ struct pte {
 #define PTE_REF			0x0000000000000100ULL
 #define PTE_RPGN		0x0ffffffffffff000ULL
 
-#endif
+#define ADDR_PIDX		0x000000000ffff000ULL
+#define ADDR_PIDX_SHIFT		12
+#define ADDR_ESID_SHIFT		28
+#define ADDR_VSID_SHIFT		28
+
+struct pate {
+	uint64_t pate_htab;
+	uint64_t pate_prt;
+};
+
+#define SLBE_ESID_SHIFT	28
+#define SLBE_VALID	0x0000000008000000UL
+
+#define SLBV_VSID_SHIFT	12
+
+struct slb {
+	uint64_t slb_slbe;
+	uint64_t slb_slbv;
+};
+
+#endif /* _MACHINE_PTE_H_ */

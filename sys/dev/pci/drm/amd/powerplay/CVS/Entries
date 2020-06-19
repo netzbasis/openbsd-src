@@ -1,4 +1,16 @@
-/amd_powerplay.c/1.1/Tue May 21 22:40:14 2019//
+/amd_powerplay.c/1.2/Mon Jun  8 04:48:10 2020//
+/amdgpu_smu.c/1.1/Mon Jun  8 04:48:10 2020//
+/arcturus_ppt.c/1.1/Mon Jun  8 04:48:10 2020//
+/arcturus_ppt.h/1.1/Mon Jun  8 04:48:10 2020//
+/navi10_ppt.c/1.1/Mon Jun  8 04:48:10 2020//
+/navi10_ppt.h/1.1/Mon Jun  8 04:48:10 2020//
+/renoir_ppt.c/1.1/Mon Jun  8 04:48:10 2020//
+/renoir_ppt.h/1.1/Mon Jun  8 04:48:10 2020//
+/smu_internal.h/1.1/Mon Jun  8 04:48:10 2020//
+/smu_v11_0.c/1.1/Mon Jun  8 04:48:10 2020//
+/smu_v12_0.c/1.1/Mon Jun  8 04:48:10 2020//
+/vega20_ppt.c/1.1/Mon Jun  8 04:48:10 2020//
+/vega20_ppt.h/1.1/Mon Jun  8 04:48:10 2020//
 D/hwmgr////
 D/inc////
 D/smumgr////

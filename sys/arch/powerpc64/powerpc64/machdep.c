@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.11 2020/05/31 06:23:58 dlg Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.24 2020/06/14 20:15:09 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -18,9 +18,12 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/buf.h>
 #include <sys/exec.h>
 #include <sys/exec_elf.h>
-#include <sys/extent.h>
+#include <sys/msgbuf.h>
+#include <sys/proc.h>
+#include <sys/reboot.h>
 
 #include <machine/cpufunc.h>
 #include <machine/opal.h>
@@ -46,6 +49,7 @@ struct uvm_constraint_range *uvm_md_constraints[] = { NULL };
 int cold = 1;
 int safepri = 0;
 int physmem;
+paddr_t physmax;
 
 struct vm_map *exec_map;
 struct vm_map *phys_map;
@@ -63,7 +67,11 @@ extern uint64_t opal_base;
 extern uint64_t opal_entry;
 
 extern char trapcode[], trapcodeend[];
+extern char hvtrapcode[], hvtrapcodeend[];
 extern char generictrap[];
+extern char generichvtrap[];
+
+extern char initstack[];
 
 struct fdt_reg memreg[VM_PHYSSEG_MAX];
 int nmemreg;
@@ -75,14 +83,20 @@ struct fdt_reg initrd_reg;
 void memreg_add(const struct fdt_reg *);
 void memreg_remove(const struct fdt_reg *);
 
+void parse_bootargs(const char *);
+
+paddr_t fdt_pa;
+size_t fdt_size;
+
 void
 init_powernv(void *fdt, void *tocbase)
 {
 	struct fdt_reg reg;
+	register_t uspace;
 	paddr_t trap;
 	uint64_t msr;
-	char *prop;
 	void *node;
+	char *prop;
 	int len;
 	int i;
 
@@ -94,8 +108,9 @@ init_powernv(void *fdt, void *tocbase)
 	memset(__bss_start, 0, _end - __bss_start);
 
 	if (!fdt_init(fdt) || fdt_get_size(fdt) == 0)
-		panic("%s: no FDT\r\n", __func__);
+		panic("no FDT");
 
+	/* Get OPAL base and entry addresses from FDT. */
 	node = fdt_find_node("/ibm,opal");
 	if (node) {
 		fdt_node_property(node, "opal-base-address", &prop);
@@ -105,9 +120,12 @@ init_powernv(void *fdt, void *tocbase)
 		fdt_node_property(node, "compatible", &prop);
 	}
 
+	/* At this point we can call OPAL runtime services and use printf(9). */
 	printf("Hello, World!\n");
 
-	printf("MSR 0x%016llx\n", mfmsr());
+	/* Stash these such that we can remap the FDT later. */
+	fdt_pa = (paddr_t)fdt;
+	fdt_size = fdt_get_size(fdt);
 
 	/*
 	 * Initialize all traps with the stub that calls the generic
@@ -115,14 +133,25 @@ init_powernv(void *fdt, void *tocbase)
 	 */
 	for (trap = EXC_RST; trap < EXC_LAST; trap += 32)
 		memcpy((void *)trap, trapcode, trapcodeend - trapcode);
-	__syncicache(EXC_RSVD, EXC_LAST - EXC_RSVD);
+
+	/* Hypervisor Virtualization interrupt needs special handling. */
+	memcpy((void *)EXC_HVI, hvtrapcode, hvtrapcodeend - hvtrapcode);
 
 	*((void **)TRAP_ENTRY) = generictrap;
-	*((void **)TRAP_TOCBASE) = tocbase;
+	*((void **)TRAP_HVENTRY) = generichvtrap;
+
+	/* Make the stubs visible to the CPU. */
+	__syncicache(EXC_RSVD, EXC_LAST - EXC_RSVD);
 
 	/* We're now ready to take traps. */
 	msr = mfmsr();
 	mtmsr(msr | PSL_RI);
+
+#define LPCR_LPES	0x0000000000000008UL
+#define LPCR_HVICE	0x0000000000000002UL
+
+	mtlpcr(LPCR_LPES | LPCR_HVICE);
+	isync();
 
 	/* Add all memory. */
 	node = fdt_find_node("/");
@@ -138,6 +167,8 @@ init_powernv(void *fdt, void *tocbase)
 			if (reg.size == 0)
 				continue;
 			memreg_add(&reg);
+			physmem += atop(reg.size);
+			physmax = MAX(physmax, reg.addr + reg.size);
 		}
 	}
 
@@ -172,10 +203,11 @@ init_powernv(void *fdt, void *tocbase)
 #ifdef DDB
 	/* Load symbols from initrd. */
 	db_machine_init();
-	if (initrd_reg.addr != 0)
+	if (initrd_reg.size != 0)
 		memreg_remove(&initrd_reg);
 #endif
 
+	pmap_bootstrap();
 	uvm_setpagesize();
 
 	for (i = 0; i < nmemreg; i++) {
@@ -184,11 +216,18 @@ init_powernv(void *fdt, void *tocbase)
 
 		uvm_page_physload(atop(start), atop(end),
 		    atop(start), atop(end), 0);
-		physmem += atop(end - start);
 	}
 
-	__asm volatile ("trap");
-	opal_cec_reboot();
+	/* Enable translation. */
+	msr = mfmsr();
+	mtmsr(msr | (PSL_DR|PSL_IR));
+	isync();
+
+	initmsgbuf((caddr_t)uvm_pageboot_alloc(MSGBUFSIZE), MSGBUFSIZE);
+
+	proc0paddr = (struct user *)initstack;
+	uspace = (register_t)proc0paddr + USPACE - FRAMELEN;
+	proc0.p_md.md_regs = (struct trapframe *)uspace;
 }
 
 void
@@ -281,6 +320,15 @@ self_reloc(Elf_Dyn *dynamic, Elf_Addr base)
 	}
 }
 
+void *
+opal_phys(void *va)
+{
+	paddr_t pa;
+
+	pmap_extract(pmap_kernel(), (vaddr_t)va, &pa);
+	return (void *)pa;
+}
+
 void
 opal_printf(const char *fmt, ...)
 {
@@ -296,7 +344,7 @@ opal_printf(const char *fmt, ...)
 		 len = sizeof(buf) - 1;
 	va_end(ap);
 
-	opal_console_write(0, &len, buf);
+	opal_console_write(0, opal_phys(&len), opal_phys(buf));
 }
 
 void
@@ -317,7 +365,7 @@ opal_cngetc(dev_t dev)
 
 	for (;;) {
 		len = 1;
-		opal_console_read(0, &len, &ch);
+		opal_console_read(0, opal_phys(&len), opal_phys(&ch));
 		if (len)
 			return ch;
 		opal_poll_events(NULL);
@@ -330,7 +378,7 @@ opal_cnputc(dev_t dev, int c)
 	uint64_t len = 1;
 	char ch = c;
 
-	opal_console_write(0, &len, &ch);
+	opal_console_write(0, opal_phys(&len), opal_phys(&ch));
 }
 
 void
@@ -351,36 +399,42 @@ struct consdev *cn_tab = &opal_consdev;
 int
 copyin(const void *src, void *dst, size_t size)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
 int
 copyout(const void *src, void *dst, size_t size)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
 int
 copystr(const void *src, void *dst, size_t len, size_t *lenp)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
 int
 copyinstr(const void *src, void *dst, size_t size, size_t *lenp)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
 int
 copyoutstr(const void *src, void *dst, size_t size, size_t *lenp)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
 int
 kcopy(const void *src, void *dst, size_t size)
 {
+	printf("%s\n", __func__);
 	return EFAULT;
 }
 
@@ -391,39 +445,100 @@ need_resched(struct cpu_info *ci)
 }
 
 void
-delay(u_int us)
-{
-}
-
-void
 cpu_startup(void)
 {
+	paddr_t pa, epa;
+	vaddr_t va;
+	void *fdt;
+	void *node;
+	char *prop;
+	int len;
+
+	printf("%s", version);
+
+	bufinit();
+
+	/* Remap the FDT. */
+	pa = trunc_page(fdt_pa);
+	epa = round_page(fdt_pa + fdt_size);
+	va = (vaddr_t)km_alloc(epa - pa, &kv_any, &kp_none, &kd_waitok);
+	fdt = (void *)(va + (fdt_pa & PAGE_MASK));
+	while (pa < epa) {
+		pmap_kenter_pa(va, pa, PROT_READ | PROT_WRITE);
+		va += PAGE_SIZE;
+		pa += PAGE_SIZE;
+	}
+
+	if (!fdt_init(fdt) || fdt_get_size(fdt) == 0)
+		panic("can't remap FDT");
+
+	intr_init();
+
+	node = fdt_find_node("/chosen");
+	if (node) {
+		len = fdt_node_property(node, "bootargs", &prop);
+		if (len > 0)
+			parse_bootargs(prop);
+	}
+
+	if (boothowto & RB_CONFIG) {
+#ifdef BOOT_CONFIG
+		user_config();
+#else
+		printf("kernel does not support -c; continuing..\n");
+#endif
+	}
 }
 
 void
-cpu_initclocks(void)
+parse_bootargs(const char *bootargs)
 {
-}
+	const char *cp = bootargs;
 
-void
-setstatclockrate(int new)
-{
+	while (*cp != '-')
+		if (*cp++ == '\0')
+			return;
+	cp++;
+
+	while (*cp != 0) {
+		switch(*cp) {
+		case 'a':
+			boothowto |= RB_ASKNAME;
+			break;
+		case 'c':
+			boothowto |= RB_CONFIG;
+			break;
+		case 'd':
+			boothowto |= RB_KDB;
+			break;
+		case 's':
+			boothowto |= RB_SINGLE;
+			break;
+		default:
+			printf("unknown option `%c'\n", *cp);
+			break;
+		}
+		cp++;
+	}
 }
 
 void
 setregs(struct proc *p, struct exec_package *pack, u_long stack,
     register_t *retval)
 {
+	printf("%s\n", __func__);
 }
 
 void
 sendsig(sig_t catcher, int sig, sigset_t mask, const siginfo_t *ksip)
 {
+	printf("%s\n", __func__);
 }
 
 int
 sys_sigreturn(struct proc *p, void *v, register_t *retval)
 {
+	printf("%s\n", __func__);
 	return EJUSTRETURN;
 }
 
@@ -451,21 +566,37 @@ consinit(void)
 {
 }
 
+void
+opal_powerdown(void)
+{
+	int64_t error;
+
+	do {
+		error = opal_cec_power_down(0);
+		if (error == OPAL_BUSY_EVENT)
+			opal_poll_events(NULL);
+	} while (error == OPAL_BUSY || error == OPAL_BUSY_EVENT);
+
+	if (error != OPAL_SUCCESS)
+		return;
+
+	/* Wait for the actual powerdown to happen. */
+	for (;;)
+		opal_poll_events(NULL);
+}
+
 __dead void
 boot(int howto)
 {
+	if ((howto & RB_HALT) != 0) {
+		if ((howto & RB_POWERDOWN) != 0)
+			opal_powerdown();
+	}
+
+	printf("rebooting...\n");
 	opal_cec_reboot();
 
 	for (;;)
 		continue;
 	/* NOTREACHED */
-}
-
-unsigned int
-cpu_rnd_messybits(void)
-{
-	struct timespec ts;
-
-	nanotime(&ts);
-	return (ts.tv_nsec ^ (ts.tv_sec << 20));
 }

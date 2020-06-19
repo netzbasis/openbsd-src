@@ -1,8 +1,9 @@
-#	$OpenBSD: Makefile,v 1.773 2020/05/31 18:15:36 jcs Exp $
+#	$OpenBSD: Makefile,v 1.779 2020/06/18 19:30:53 kettenis Exp $
 
 MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
 	acpibtn.4 acpicbkbd.4 acpicpu.4 acpidock.4 acpihve.4 acpiec.4 \
+	acpihid.4 \
 	acpihpet.4 acpimadt.4 acpimcfg.4 acpipci.4 acpiprt.4 acpipwrres.4 \
 	acpisbs.4 acpisony.4 acpisurface.4 acpithinkpad.4 acpitoshiba.4 \
 	acpitimer.4 acpivideo.4 acpivout.4 acpitz.4 \
@@ -24,11 +25,11 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	boca.4 bpf.4 brgphy.4 bridge.4 brswphy.4 bse.4 bwfm.4 bwi.4 bytgpio.4 \
 	cac.4 cas.4 cardbus.4 carp.4 ccp.4 ccpmic.4 cd.4 cdce.4 cfxga.4 \
 	ch.4 chvgpio.4 ciphy.4 ciss.4 clcs.4 clct.4 cmpci.4 \
-	com.4 cue.4 cy.4 cz.4 \
+	com.4 cue.4 cwfg.4 cy.4 cz.4 \
 	dc.4 dcphy.4 ddb.4 de.4 diskmap.4 divert.4 drm.4 dsxrtc.4 dt.4 \
 	dwctwo.4 dwdog.4 dwge.4 dwiic.4 dwmmc.4 dwpcie.4 dwxe.4 \
 	eap.4 ec.4 eephy.4 ef.4 eg.4 ehci.4 eisa.4 el.4 em.4 emc.4 gcu.4 \
-	emu.4 enc.4 endrun.4 envy.4 eoip.4 ep.4 epic.4 esa.4 \
+	emu.4 enc.4 endrun.4 envy.4 eoip.4 ep.4 epic.4 esa.4 escodec.4 \
 	eso.4 ess.4 et.4 etherip.4 etphy.4 ex.4 exphy.4 exrtc.4 \
 	fanpwr.4 fd.4 fdc.4 fec.4 fido.4 fins.4 fintek.4 fms.4 fusbtc.4 fuse.4 \
 	fxp.4 gdt.4 gentbi.4 gem.4 gif.4 \
@@ -55,7 +56,8 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	nsclpcsio.4 nsgphy.4 nsphy.4 nsphyter.4 null.4 nviic.4 nvme.4 nvt.4 \
 	oce.4 ohci.4 onewire.4 oosiop.4 openprom.4 options.4 osiop.4 otus.4 \
 	owid.4 owctr.4 owsbm.4 owtemp.4 \
-	pair.4 pcagpio.4 pcaled.4 pcdisplay.4 pchb.4 pchtemp.4 pci.4 pcib.4 \
+	pair.4 pcagpio.4 pcaled.4 pcamux.4 \
+	pcdisplay.4 pchb.4 pchtemp.4 pci.4 pcib.4 \
 	pcfadc.4 pcfiic.4 pcfrtc.4 pcxrtc.4 pciide.4 pckbc.4 pckbd.4 \
 	pcmcia.4 pcn.4 pcppi.4 pcscp.4 pf.4 pflog.4 pflow.4 pfsync.4 \
 	pgt.4 piixpm.4 pinctrl.4 pipex.4 plgpio.4 plrtc.4 pluart.4 \
@@ -64,12 +66,12 @@ MAN=	aac.4 abcrtc.4 ac97.4 acphy.4 acrtc.4 \
 	qla.4 qle.4 qlw.4 qsphy.4 \
 	radio.4 ral.4 random.4 rdomain.4 rd.4 rdac.4 re.4 rdcphy.4 rgephy.4 \
 	rge.4 ricohrtc.4 rkanxdp.4 rkclock.4 rkdrm.4 rkdwhdmi.4 rkdwusb.4 \
-	rkemmcphy.4 rkgpio.4 rkgrf.4 rkiic.4 rkpcie.4 rkpinctrl.4 rkpmic.4 \
-	rkpwm.4 rkrng.4 rktemp.4 rkvop.4 \
+	rkemmcphy.4 rkgpio.4 rkgrf.4 rkiic.4 rkiis.4 rkpcie.4 rkpinctrl.4 \
+	rkpmic.4 rkpwm.4 rkrng.4 rktemp.4 rkvop.4 \
 	rl.4 rlphy.4 route.4 rsu.4 rtsx.4 rum.4 run.4 rtw.4 rtwn.4 \
 	safe.4 safte.4 sbus.4 schsio.4 scsi.4 sd.4 \
-	sdmmc.4 sdhc.4 se.4 ses.4 \
-	sf.4 sili.4 simplefb.4 simplepanel.4 siop.4 sis.4 sk.4 \
+	sdmmc.4 sdhc.4 se.4 ses.4 sf.4 sili.4 \
+	simpleamp.4 simpleaudio.4 simplefb.4 simplepanel.4 siop.4 sis.4 sk.4 \
 	sm.4 smsc.4 softraid.4 spdmem.4 sdtemp.4 speaker.4 sppp.4 sqphy.4 \
 	ssdfb.4 st.4 ste.4 stge.4 sti.4 stp.4 sv.4 switch.4 sxiccmu.4 \
 	sxidog.4 sximmc.4 sxipio.4 sxipwm.4 sxirsb.4 sxirtc.4 sxisid.4 \

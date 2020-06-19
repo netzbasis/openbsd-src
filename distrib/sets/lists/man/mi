@@ -1119,6 +1119,7 @@
 ./usr/share/man/man4/acpicpu.4
 ./usr/share/man/man4/acpidock.4
 ./usr/share/man/man4/acpiec.4
+./usr/share/man/man4/acpihid.4
 ./usr/share/man/man4/acpihpet.4
 ./usr/share/man/man4/acpihve.4
 ./usr/share/man/man4/acpimadt.4
@@ -1328,6 +1329,7 @@
 ./usr/share/man/man4/cmpci.4
 ./usr/share/man/man4/com.4
 ./usr/share/man/man4/cue.4
+./usr/share/man/man4/cwfg.4
 ./usr/share/man/man4/cy.4
 ./usr/share/man/man4/cz.4
 ./usr/share/man/man4/dc.4
@@ -1364,6 +1366,7 @@
 ./usr/share/man/man4/ep.4
 ./usr/share/man/man4/epic.4
 ./usr/share/man/man4/esa.4
+./usr/share/man/man4/escodec.4
 ./usr/share/man/man4/eso.4
 ./usr/share/man/man4/ess.4
 ./usr/share/man/man4/et.4
@@ -1704,6 +1707,7 @@
 ./usr/share/man/man4/pair.4
 ./usr/share/man/man4/pcagpio.4
 ./usr/share/man/man4/pcaled.4
+./usr/share/man/man4/pcamux.4
 ./usr/share/man/man4/pcdisplay.4
 ./usr/share/man/man4/pcfadc.4
 ./usr/share/man/man4/pcfiic.4
@@ -1769,6 +1773,7 @@
 ./usr/share/man/man4/rkgpio.4
 ./usr/share/man/man4/rkgrf.4
 ./usr/share/man/man4/rkiic.4
+./usr/share/man/man4/rkiis.4
 ./usr/share/man/man4/rkpcie.4
 ./usr/share/man/man4/rkpinctrl.4
 ./usr/share/man/man4/rkpmic.4
@@ -1828,6 +1833,8 @@
 ./usr/share/man/man4/sgi/xheart.4
 ./usr/share/man/man4/sgi/zs.4
 ./usr/share/man/man4/sili.4
+./usr/share/man/man4/simpleamp.4
+./usr/share/man/man4/simpleaudio.4
 ./usr/share/man/man4/simplefb.4
 ./usr/share/man/man4/simplepanel.4
 ./usr/share/man/man4/siop.4
