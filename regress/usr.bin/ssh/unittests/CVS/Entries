@@ -1,4 +1,4 @@
-/Makefile/1.11/Sun Apr 28 22:53:26 2019//
+/Makefile/1.12/Fri Jun 19 04:34:21 2020//
 /Makefile.inc/1.14/Mon Nov 25 10:32:35 2019//
 D/authopt////
 D/bitmap////
@@ -9,5 +9,6 @@ D/match////
 D/misc////
 D/sshbuf////
 D/sshkey////
+D/sshsig////
 D/test_helper////
 D/utf8////

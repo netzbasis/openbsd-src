@@ -1,4 +1,4 @@
-/* $OpenBSD: toeplitz.c,v 1.3 2020/06/18 03:53:38 tb Exp $ */
+/* $OpenBSD: toeplitz.c,v 1.6 2020/06/18 12:22:39 tb Exp $ */
 
 /*
  * Copyright (c) 2009 The DragonFly Project.  All rights reserved.
@@ -36,6 +36,7 @@
 
 /*
  * Copyright (c) 2019 David Gwynne <dlg@openbsd.org>
+ * Copyright (c) 2020 Theo Buehler <tb@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -116,44 +117,14 @@ uint16_t
 stoeplitz_hash_ip4(const struct stoeplitz_cache *scache,
     in_addr_t faddr, in_addr_t laddr)
 {
-	uint16_t lo, hi;
-
-	lo  = faddr >> 0;
-	lo ^= faddr >> 16;
-	lo ^= laddr >> 0;
-	lo ^= laddr >> 16;
-
-	hi  = faddr >> 8;
-	hi ^= faddr >> 24;
-	hi ^= laddr >> 8;
-	hi ^= laddr >> 24;
-
-	return (swap16(stoeplitz_cache_entry(scache, lo))
-	    ^ stoeplitz_cache_entry(scache, hi));
+	return (stoeplitz_hash_n32(scache, faddr ^ laddr));
 }
 
 uint16_t
 stoeplitz_hash_ip4port(const struct stoeplitz_cache *scache,
     in_addr_t faddr, in_addr_t laddr, in_port_t fport, in_port_t lport)
 {
-	uint16_t hi, lo;
-
-	lo  = faddr >> 0;
-	lo ^= faddr >> 16;
-	lo ^= laddr >> 0;
-	lo ^= laddr >> 16;
-	lo ^= fport >> 0;
-	lo ^= lport >> 0;
-
-	hi  = faddr >> 8;
-	hi ^= faddr >> 24;
-	hi ^= laddr >> 8;
-	hi ^= laddr >> 24;
-	hi ^= fport >> 8;
-	hi ^= lport >> 8;
-
-	return (swap16(stoeplitz_cache_entry(scache, lo))
-	    ^ stoeplitz_cache_entry(scache, hi));
+	return (stoeplitz_hash_n32(scache, faddr ^ laddr ^ fport ^ lport));
 }
 
 #ifdef INET6
@@ -161,59 +132,29 @@ uint16_t
 stoeplitz_hash_ip6(const struct stoeplitz_cache *scache,
     const struct in6_addr *faddr6, const struct in6_addr *laddr6)
 {
-	uint16_t hi = 0, lo = 0;
+	uint32_t n32 = 0;
 	size_t i;
 
-	for (i = 0; i < nitems(faddr6->s6_addr32); i++) {
-		uint32_t faddr = faddr6->s6_addr32[i];
-		uint32_t laddr = laddr6->s6_addr32[i];
+	for (i = 0; i < nitems(faddr6->s6_addr32); i++)
+		n32 ^= faddr6->s6_addr32[i] ^ laddr6->s6_addr32[i];
 
-		lo ^= faddr >> 0;
-		lo ^= faddr >> 16;
-		lo ^= laddr >> 0;
-		lo ^= laddr >> 16;
-
-		hi ^= faddr >> 8;
-		hi ^= faddr >> 24;
-		hi ^= laddr >> 8;
-		hi ^= laddr >> 24;
-	}
-
-	return (swap16(stoeplitz_cache_entry(scache, lo))
-	    ^ stoeplitz_cache_entry(scache, hi));
+	return (stoeplitz_hash_n32(scache, n32));
 }
 
 uint16_t
 stoeplitz_hash_ip6port(const struct stoeplitz_cache *scache,
-    const struct in6_addr *faddr6, const struct in6_addr * laddr6,
+    const struct in6_addr *faddr6, const struct in6_addr *laddr6,
     in_port_t fport, in_port_t lport)
 {
-	uint16_t hi = 0, lo = 0;
+	uint32_t n32 = 0;
 	size_t i;
 
-	for (i = 0; i < nitems(faddr6->s6_addr32); i++) {
-		uint32_t faddr = faddr6->s6_addr32[i];
-		uint32_t laddr = laddr6->s6_addr32[i];
+	for (i = 0; i < nitems(faddr6->s6_addr32); i++)
+		n32 ^= faddr6->s6_addr32[i] ^ laddr6->s6_addr32[i];
 
-		lo ^= faddr >> 0;
-		lo ^= faddr >> 16;
-		lo ^= laddr >> 0;
-		lo ^= laddr >> 16;
+	n32 ^= fport ^ lport;
 
-		hi ^= faddr >> 8;
-		hi ^= faddr >> 24;
-		hi ^= laddr >> 8;
-		hi ^= laddr >> 24;
-	}
-
-	lo ^= fport >> 0;
-	lo ^= lport >> 0;
-
-	hi ^= fport >> 8;
-	hi ^= lport >> 8;
-
-	return (swap16(stoeplitz_cache_entry(scache, lo))
-	    ^ stoeplitz_cache_entry(scache, hi));
+	return (stoeplitz_hash_n32(scache, n32));
 }
 #endif /* INET6 */
 
