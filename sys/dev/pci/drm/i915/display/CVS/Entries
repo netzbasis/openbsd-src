@@ -62,7 +62,7 @@
 /intel_dvo_dev.h/1.1/Mon Jun  8 04:48:12 2020//
 /intel_fbc.c/1.1/Mon Jun  8 04:48:12 2020//
 /intel_fbc.h/1.1/Mon Jun  8 04:48:12 2020//
-/intel_fbdev.c/1.1/Mon Jun  8 04:48:12 2020//
+/intel_fbdev.c/1.2/Sat Jun 20 01:04:23 2020//
 /intel_fbdev.h/1.1/Mon Jun  8 04:48:12 2020//
 /intel_fifo_underrun.c/1.1/Mon Jun  8 04:48:12 2020//
 /intel_fifo_underrun.h/1.1/Mon Jun  8 04:48:12 2020//
