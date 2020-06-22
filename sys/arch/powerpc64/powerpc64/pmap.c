@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.10 2020/06/18 21:52:57 kettenis Exp $ */
+/*	$OpenBSD: pmap.c,v 1.14 2020/06/21 18:23:43 kettenis Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -99,6 +99,8 @@ struct pte_desc {
 #define PTED_VA_WIRED_M		0x20
 #define PTED_VA_EXEC_M		0x40
 
+void	pmap_pted_syncicache(struct pte_desc *);
+
 struct slb_desc {
 	LIST_ENTRY(slb_desc) slbd_list;
 	uint64_t	slbd_esid;
@@ -107,6 +109,8 @@ struct slb_desc {
 };
 
 struct slb_desc	kernel_slb_desc[32];
+
+struct slb_desc *pmap_slbd_lookup(pmap_t, vaddr_t);
 
 struct pmapvp1 {
 	struct pmapvp2 *vp[VP_IDX1_CNT];
@@ -234,10 +238,16 @@ static inline uint64_t
 pmap_va2vsid(pmap_t pm, vaddr_t va)
 {
 	uint64_t esid = va >> ADDR_ESID_SHIFT;
+	struct slb_desc *slbd;
 
 	if (pm == pmap_kernel())
 		return pmap_kernel_vsid(esid);
-	panic("userland");
+
+	slbd = pmap_slbd_lookup(pm, va);
+	if (slbd)
+		return slbd->slbd_vsid;
+
+	return 0;
 }
 
 void
@@ -285,8 +295,8 @@ pmap_ptedinhash(struct pte_desc *pted)
 struct slb_desc *
 pmap_slbd_lookup(pmap_t pm, vaddr_t va)
 {
-	struct slb_desc *slbd;
 	uint64_t esid = va >> ADDR_ESID_SHIFT;
+	struct slb_desc *slbd;
 
 	LIST_FOREACH(slbd, &pm->pm_slbd, slbd_list) {
 		if (slbd->slbd_esid == esid)
@@ -294,6 +304,68 @@ pmap_slbd_lookup(pmap_t pm, vaddr_t va)
 	}
 
 	return NULL;
+}
+
+int pmap_vsid = 1;
+
+struct slb_desc *
+pmap_slbd_alloc(pmap_t pm, vaddr_t va)
+{
+	uint64_t esid = va >> ADDR_ESID_SHIFT;
+	struct slb_desc *slbd;
+
+	KASSERT(pm != pmap_kernel());
+
+	slbd = pool_get(&pmap_slbd_pool, PR_NOWAIT | PR_ZERO);
+	if (slbd == NULL)
+		return NULL;
+
+	slbd->slbd_esid = esid;
+	slbd->slbd_vsid = pmap_vsid++;
+	LIST_INSERT_HEAD(&pm->pm_slbd, slbd, slbd_list);
+	return slbd;
+}
+
+int
+pmap_set_user_slb(pmap_t pm, vaddr_t va)
+{
+	struct cpu_info *ci = curcpu();
+	struct slb_desc *slbd;
+	uint64_t slbe, slbv;
+
+	KASSERT(pm != pmap_kernel());
+
+	slbd = pmap_slbd_lookup(pm, va);
+	if (slbd == NULL) {
+		slbd = pmap_slbd_alloc(pm, va);
+		if (slbd == NULL)
+			return EFAULT;
+	}
+
+	slbe = (slbd->slbd_esid << SLBE_ESID_SHIFT) | SLBE_VALID | 31;
+	slbv = slbd->slbd_vsid << SLBV_VSID_SHIFT;
+
+	ci->ci_kernel_slb[31].slb_slbe = slbe;
+	ci->ci_kernel_slb[31].slb_slbv = slbv;
+
+	isync();
+	slbmte(slbv, slbe);
+	isync();
+
+	return 0;
+}
+
+void
+pmap_unset_user_slb(void)
+{
+	struct cpu_info *ci = curcpu();
+
+	isync();
+	slbie(ci->ci_kernel_slb[31].slb_slbe);
+	isync();
+	
+	ci->ci_kernel_slb[31].slb_slbe = 0;
+	ci->ci_kernel_slb[31].slb_slbv = 0;
 }
 
 /*
@@ -484,7 +556,7 @@ pmap_fill_pte(pmap_t pm, vaddr_t va, paddr_t pa, struct pte_desc *pted,
 	pted->pted_va = va & ~PAGE_MASK;
 	pted->pted_vsid = pmap_va2vsid(pm, va);
 
-	pte->pte_hi = (pmap_pted2avpn(pted) & PTE_AVPN);
+	pte->pte_hi = (pmap_pted2avpn(pted) & PTE_AVPN) | PTE_VALID;
 	pte->pte_lo = (pa & PTE_RPGN);
 
 	if (prot & PROT_WRITE)
@@ -615,8 +687,6 @@ pmap_remove_pted(pmap_t pm, struct pte_desc *pted)
 	struct pte *pte;
 	int s;
 
-	printf("%s: va 0x%lx\n", __func__, pted->pted_va);
-
 	KASSERT(pm == pted->pted_pmap);
 	PMAP_VP_ASSERT_LOCKED(pm);
 
@@ -687,6 +757,7 @@ pmap_create(void)
 	pmap_t pm;
 
 	pm = pool_get(&pmap_pmap_pool, PR_WAITOK | PR_ZERO);
+	pm->pm_refs = 1;
 	LIST_INIT(&pm->pm_slbd);
 	return pm;
 }
@@ -809,7 +880,8 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	struct pte_desc *pted;
 	struct vm_page *pg;
 	int cache = PMAP_CACHE_WB;
-	int error;
+	int need_sync = 0;
+	int error = 0;
 
 	if (pa & PMAP_NOCACHE)
 		cache = PMAP_CACHE_CI;
@@ -847,8 +919,30 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	if (pg != NULL)
 		pmap_enter_pv(pted, pg); /* only managed mem */
 
-	KASSERT(pm == pmap_kernel());
-	pmap_kenter_pa(va, pa, prot);
+	pte_insert(pted);
+
+	if (prot & PROT_EXEC) {
+		if (pg != NULL) {
+			need_sync = ((pg->pg_flags & PG_PMAP_EXE) == 0);
+			if (prot & PROT_WRITE)
+				atomic_clearbits_int(&pg->pg_flags,
+				    PG_PMAP_EXE);
+			else
+				atomic_setbits_int(&pg->pg_flags,
+				    PG_PMAP_EXE);
+		} else
+			need_sync = 1;
+	} else {
+		/*
+		 * Should we be paranoid about writeable non-exec 
+		 * mappings ? if so, clear the exec tag
+		 */
+		if ((prot & PROT_WRITE) && (pg != NULL))
+			atomic_clearbits_int(&pg->pg_flags, PG_PMAP_EXE);
+	}
+
+	if (need_sync)
+		pmap_pted_syncicache(pted);
 
 out:
 	PMAP_VP_UNLOCK(pm);
@@ -1105,6 +1199,8 @@ pmap_extract(pmap_t pm, vaddr_t va, paddr_t *pa)
 	}
 
 	vsid = pmap_va2vsid(pm, va);
+	if (vsid == 0)
+		return 0;
 
 	PMAP_HASH_LOCK(s);
 	pte = pte_lookup(vsid, va);
@@ -1172,7 +1268,7 @@ pmap_set_kernel_slb(int idx, vaddr_t va)
 {
 	struct cpu_info *ci = curcpu();
 	uint64_t esid, slbe, slbv;
-	
+
 	esid = va >> ADDR_ESID_SHIFT;
 	kernel_slb_desc[idx].slbd_esid = esid;
 	slbe = (esid << SLBE_ESID_SHIFT) | SLBE_VALID | idx;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.25 2020/06/19 22:09:49 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.28 2020/06/21 18:39:38 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -24,9 +24,11 @@
 #include <sys/msgbuf.h>
 #include <sys/proc.h>
 #include <sys/reboot.h>
+#include <sys/user.h>
 
 #include <machine/cpufunc.h>
 #include <machine/opal.h>
+#include <machine/pcb.h>
 #include <machine/psl.h>
 #include <machine/trap.h>
 
@@ -145,7 +147,7 @@ init_powernv(void *fdt, void *tocbase)
 
 	/* We're now ready to take traps. */
 	msr = mfmsr();
-	mtmsr(msr | PSL_RI);
+	mtmsr(msr | (PSL_ME|PSL_RI));
 
 #define LPCR_LPES	0x0000000000000008UL
 #define LPCR_HVICE	0x0000000000000002UL
@@ -226,6 +228,8 @@ init_powernv(void *fdt, void *tocbase)
 	initmsgbuf((caddr_t)uvm_pageboot_alloc(MSGBUFSIZE), MSGBUFSIZE);
 
 	proc0paddr = (struct user *)initstack;
+	proc0.p_addr = proc0paddr;
+	curpcb = &proc0.p_addr->u_pcb;
 	uspace = (register_t)proc0paddr + USPACE - FRAMELEN;
 	proc0.p_md.md_regs = (struct trapframe *)uspace;
 }
@@ -397,17 +401,46 @@ struct consdev opal_consdev = {
 struct consdev *cn_tab = &opal_consdev;
 
 int
-copyin(const void *src, void *dst, size_t size)
+kcopy(const void *kfaddr, void *kdaddr, size_t len)
 {
-	printf("%s\n", __func__);
-	return EFAULT;
+	memcpy(kdaddr, kfaddr, len);
+	return 0;
 }
 
 int
-copyout(const void *src, void *dst, size_t size)
+copyin(const void *uaddr, void *kaddr, size_t len)
 {
-	printf("%s\n", __func__);
-	return EFAULT;
+	pmap_t pm = curproc->p_p->ps_vmspace->vm_map.pmap;
+	int error;
+
+	error = pmap_set_user_slb(pm, (vaddr_t)uaddr);
+	if (error)
+		return error;
+
+	curpcb->pcb_onfault = (caddr_t)1;
+	error = kcopy(uaddr, kaddr, len);
+	curpcb->pcb_onfault = NULL;
+
+	pmap_unset_user_slb();
+	return error;
+}
+
+int
+copyout(const void *kaddr, void *uaddr, size_t len)
+{
+	pmap_t pm = curproc->p_p->ps_vmspace->vm_map.pmap;
+	int error;
+
+	error = pmap_set_user_slb(pm, (vaddr_t)uaddr);
+	if (error)
+		return error;
+
+	curpcb->pcb_onfault = (caddr_t)1;
+	error = kcopy(kaddr, uaddr, len);
+	curpcb->pcb_onfault = NULL;
+
+	pmap_unset_user_slb();
+	return error;
 }
 
 int
@@ -431,24 +464,39 @@ copystr(const void *kfaddr, void *kdaddr, size_t len, size_t *done)
 }
 
 int
-copyinstr(const void *src, void *dst, size_t size, size_t *lenp)
+copyinstr(const void *uaddr, void *kaddr, size_t len, size_t *done)
 {
-	printf("%s\n", __func__);
-	return EFAULT;
+	pmap_t pm = curproc->p_p->ps_vmspace->vm_map.pmap;
+	int error;
+
+	error = pmap_set_user_slb(pm, (vaddr_t)uaddr);
+	if (error)
+		return error;
+
+	curpcb->pcb_onfault = (caddr_t)1;
+	error = copystr(uaddr, kaddr, len, done);
+	curpcb->pcb_onfault = NULL;
+
+	pmap_unset_user_slb();
+	return error;
 }
 
 int
-copyoutstr(const void *src, void *dst, size_t size, size_t *lenp)
+copyoutstr(const void *kaddr, void *uaddr, size_t len, size_t *done)
 {
-	printf("%s\n", __func__);
-	return EFAULT;
-}
+	pmap_t pm = curproc->p_p->ps_vmspace->vm_map.pmap;
+	int error;
 
-int
-kcopy(const void *kfaddr, void *kdaddr, size_t len)
-{
-	memcpy(kdaddr, kfaddr, len);
-	return 0;
+	error = pmap_set_user_slb(pm, (vaddr_t)uaddr);
+	if (error)
+		return error;
+
+	curpcb->pcb_onfault = (caddr_t)1;
+	error = copystr(kaddr, uaddr, len, done);
+	curpcb->pcb_onfault = NULL;
+
+	pmap_unset_user_slb();
+	return error;
 }
 
 void
@@ -460,8 +508,8 @@ need_resched(struct cpu_info *ci)
 void
 cpu_startup(void)
 {
+	vaddr_t minaddr, maxaddr, va;
 	paddr_t pa, epa;
-	vaddr_t va;
 	void *fdt;
 	void *node;
 	char *prop;
@@ -469,6 +517,24 @@ cpu_startup(void)
 
 	printf("%s", version);
 
+	/*
+	 * Allocate a submap for exec arguments.  This map effectively
+	 * limits the number of processes exec'ing at any time.
+	 */
+	minaddr = vm_map_min(kernel_map);
+	exec_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
+	    16 * NCARGS, VM_MAP_PAGEABLE, FALSE, NULL);
+
+
+	/*
+	 * Allocate a submap for physio.
+	 */
+	phys_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
+	    VM_PHYS_SIZE, 0, FALSE, NULL);
+
+	/*
+	 * Set up buffers, so they can be used to read disk labels.
+	 */
 	bufinit();
 
 	/* Remap the FDT. */
@@ -539,7 +605,7 @@ void
 setregs(struct proc *p, struct exec_package *pack, u_long stack,
     register_t *retval)
 {
-	printf("%s\n", __func__);
+	panic("%s", __func__);
 }
 
 void
