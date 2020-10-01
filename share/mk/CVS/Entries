@@ -1,18 +1,18 @@
 /Makefile/1.14/Mon Oct 26 10:43:42 2015//
-/bsd.README/1.84/Fri Nov 15 00:06:46 2019//
+/bsd.README/1.85/Tue Sep 22 10:31:46 2020//
 /bsd.dep.mk/1.24/Tue Oct 17 19:31:56 2017//
 /bsd.lib.mk/1.101/Tue May 26 17:44:23 2020//
 /bsd.man.mk/1.42/Fri Jul 21 15:18:35 2017//
 /bsd.obj.mk/1.19/Tue Jan 24 03:22:13 2017//
-/bsd.own.mk/1.202/Sat May 30 19:22:00 2020//
+/bsd.own.mk/1.204/Mon Jul 20 08:14:53 2020//
 /bsd.port.arch.mk/1.1/Sat Sep 24 07:26:01 2011//
 /bsd.port.mk/1.95/Sat Sep 24 07:26:01 2011//
 /bsd.port.subdir.mk/1.9/Sat Sep 24 07:26:01 2011//
-/bsd.prog.mk/1.81/Fri Nov 15 00:06:46 2019//
+/bsd.prog.mk/1.82/Tue Sep 22 10:31:46 2020//
 /bsd.regress.mk/1.21/Mon Jun 17 17:20:24 2019//
 /bsd.subdir.mk/1.22/Sat Oct  8 09:43:46 2016//
 /bsd.sys.mk/1.13/Sun Jul  9 14:04:50 2017//
 /bsd.xconf.mk/1.1/Tue Mar 25 23:35:56 2008//
 /bsd.xorg.mk/1.2/Sun Dec 31 10:38:18 2006//
-/sys.mk/1.87/Sun Apr  5 06:34:19 2020//
+/sys.mk/1.88/Mon Aug 31 16:08:28 2020//
 D

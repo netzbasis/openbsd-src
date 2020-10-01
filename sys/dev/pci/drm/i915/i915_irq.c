@@ -3092,6 +3092,7 @@ static void gen11_hpd_irq_setup(struct drm_i915_private *dev_priv)
 
 	val = I915_READ(GEN11_DE_HPD_IMR);
 	val &= ~hotplug_irqs;
+	val |= ~enabled_irqs & hotplug_irqs;
 	I915_WRITE(GEN11_DE_HPD_IMR, val);
 	POSTING_READ(GEN11_DE_HPD_IMR);
 
@@ -4171,5 +4172,9 @@ bool intel_irqs_enabled(struct drm_i915_private *dev_priv)
 
 void intel_synchronize_irq(struct drm_i915_private *i915)
 {
+#ifdef __linux__
 	synchronize_irq(i915->drm.pdev->irq);
+#else
+	intr_barrier(i915->irqh);
+#endif
 }

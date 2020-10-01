@@ -1,4 +1,4 @@
-.\"	$OpenBSD: awk.1,v 1.53 2020/06/17 15:34:11 tim Exp $
+.\"	$OpenBSD: awk.1,v 1.57 2020/08/28 16:29:16 millert Exp $
 .\"
 .\" Copyright (C) Lucent Technologies 1997
 .\" All Rights Reserved
@@ -22,7 +22,7 @@
 .\" ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 .\" THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 17 2020 $
+.Dd $Mdocdate: August 28 2020 $
 .Dt AWK 1
 .Os
 .Sh NAME
@@ -130,13 +130,21 @@ and newlines are used as field separators
 This is convenient when working with multi-line records.
 .Pp
 An input line is normally made up of fields separated by whitespace,
-or by the regular expression
-.Va FS .
+or by the value of the field separator
+.Va FS
+at the time the line is read.
 The fields are denoted
 .Va $1 , $2 , ... ,
 while
 .Va $0
 refers to the entire line.
+.Va FS
+may be set to either a single character or a regular expression.
+As as special case, if
+.Va FS
+is a single space
+.Pq the default ,
+fields will be split by one or more whitespace characters.
 If
 .Va FS
 is null, the input line is split into one field per character.
@@ -161,6 +169,11 @@ as the field separator, use the
 .Fl F
 option with a value of
 .Sq [t] .
+The field separator is usually set via the
+.Fl F
+option or from inside a
+.Ic BEGIN
+block so that it takes effect before the input is read.
 .Pp
 A pattern-action statement has the form:
 .Pp
@@ -397,9 +410,9 @@ The name of the current input file.
 .It Va FNR
 Ordinal number of the current record in the current file.
 .It Va FS
-Regular expression used to separate fields; also settable
-by option
-.Fl F Ar fs .
+Regular expression used to separate fields (default whitespace);
+also settable by option
+.Fl F Ar fs
 .It Va NF
 Number of fields in the current record.
 .Va $NF
@@ -671,6 +684,41 @@ This version of
 provides the following functions for obtaining and formatting time
 stamps.
 .Bl -tag -width indent
+.It Fn mktime datespec
+Converts
+.Fa datespec
+into a timestamp in the same form as a value returned by
+.Fn systime .
+The
+.Fa datespec
+is a string composed of six or seven numbers separated by whitespace:
+.Bd -literal -offset indent
+YYYY MM DD HH MM SS [DST]
+.Ed
+.Pp
+The fields in
+.Fa datespec
+are as follows:
+.Bl -tag -width "YYYY"
+.It YYY
+Year: a four-digit year, including the century.
+.It MM
+Month: a number from 1 to 12.
+.It DD
+Day: a number from 1 to 31.
+.It HH
+Hour: a number from 0 to 23.
+.It MM
+Minute: a number from 0 to 59.
+.It SS
+Second: a number from 0 to 60 (permitting a leap second).
+.It DST
+Daylight Saving Time: a positive or zero value indicates that
+DST is or is not in effect.
+If DST is not specified, or is negative,
+.Fn mktime
+will attempt to determine the correct value.
+.El
 .It Fn strftime "[format [, timestamp]]"
 Formats
 .Ar timestamp
@@ -683,6 +731,8 @@ manual page, as well as any arbitrary text.
 The
 .Ar timestamp
 must be in the same form as a value returned by
+.Fn mktime
+and
 .Fn systime .
 If
 .Ar timestamp
@@ -911,6 +961,8 @@ The flags
 .Op Fl \&dV
 and
 .Op Fl safe ,
+support for regular expressions in
+.Va RS ,
 as well as the functions
 .Fn fflush ,
 .Fn gensub ,
@@ -920,6 +972,7 @@ as well as the functions
 .Fn xor ,
 .Fn lshift ,
 .Fn rshift ,
+.Fn mktime ,
 .Fn strftime
 and
 .Fn systime

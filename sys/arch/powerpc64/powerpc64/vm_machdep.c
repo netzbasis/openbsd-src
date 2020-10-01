@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.2 2020/06/14 17:56:54 kettenis Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.5 2020/08/17 16:55:41 kettenis Exp $	*/
 
 /*-
  * Copyright (c) 1995 Charles M. Hannum.  All rights reserved.
@@ -76,6 +76,11 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 	/* Copy the pcb. */
 	*pcb = p1->p_addr->u_pcb;
 
+	/* XXX This should not be necessary but things explodes without it. */
+	memset(&pcb->pcb_slb, 0, sizeof(pcb->pcb_slb));
+
+	pmap_extract(pmap_kernel(), (vaddr_t)&pcb->pcb_slb,
+	    &p2->p_md.md_user_slb_pa);
 	pmap_activate(p2);
 
 	kstack = (register_t)p2->p_addr + USPACE - FRAMELEN -
@@ -108,12 +113,6 @@ cpu_fork(struct proc *p1, struct proc *p2, void *stack, void *tcb,
 void
 cpu_exit(struct proc *p)
 {
-#if 0
-	/* If we were using the FPU, forget about it. */
-	if (p->p_addr->u_pcb.pcb_fpcpu != NULL)
-		vfp_discard(p);
-#endif
-
 	pmap_deactivate(p);
 	sched_exit(p);
 }

@@ -1,4 +1,4 @@
-/Makefile/1.33/Tue May 19 11:23:54 2020//
+/Makefile/1.35/Sat Jun 27 18:35:07 2020//
 /boot.h/1.30/Fri May 10 13:29:21 2019//
 /crt0.c/1.14/Fri May 10 13:29:21 2019//
 /crtbegin.c/1.26/Wed Jan  9 16:42:38 2019//
@@ -16,5 +16,6 @@ D/i386////
 D/m88k////
 D/mips64////
 D/powerpc////
+D/powerpc64////
 D/sh////
 D/sparc64////

@@ -9,6 +9,8 @@
 /nm-ppc64-linux.h/1.1.1.1/Fri May 21 19:15:32 2004//
 /obsd.mh/1.9/Sun Apr  8 20:06:49 2012//
 /obsd.mt/1.2/Mon Dec 27 14:00:50 2004//
+/obsd64.mh/1.1/Wed Sep 30 17:17:37 2020//
+/obsd64.mt/1.1/Wed Sep 30 17:17:37 2020//
 /ppc-eabi.mt/1.4/Mon Dec 27 14:00:50 2004//
 /ppc-sim.mt/1.4/Mon Dec 27 14:00:50 2004//
 /ppc64-linux.mh/1.1.1.2/Mon Dec 27 13:13:37 2004//

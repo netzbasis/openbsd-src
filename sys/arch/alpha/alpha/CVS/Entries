@@ -1,9 +1,9 @@
 /api_up1000.c/1.12/Thu May  8 20:46:49 2014//
 /autoconf.c/1.38/Sat Jan 27 22:55:23 2018//
-/clock.c/1.23/Mon May 11 19:42:53 2020//
+/clock.c/1.24/Mon Jul  6 13:33:06 2020//
 /clockvar.h/1.5/Thu Mar 14 01:26:26 2002//
-/conf.c/1.87/Fri Jan 24 14:11:01 2020//
-/cpu.c/1.43/Fri May 29 04:42:23 2020//
+/conf.c/1.88/Mon Jul  6 04:32:25 2020//
+/cpu.c/1.44/Wed Jul 15 08:24:29 2020//
 /cpuconf.c/1.14/Sat Mar  9 02:10:47 2013//
 /db_disasm.c/1.25/Thu Nov  7 14:44:52 2019//
 /db_instruction.h/1.5/Wed Jul 10 20:30:14 2002//
@@ -31,7 +31,7 @@
 /lock_machdep.c/1.8/Thu Mar  5 09:28:31 2020//
 /locore.s/1.48/Sun May 17 13:48:29 2020//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
-/machdep.c/1.192/Fri Jun  5 14:25:05 2020//
+/machdep.c/1.193/Wed Aug 26 03:29:05 2020//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//
 /mcclock.c/1.5/Thu Mar 14 01:26:26 2002//
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//
@@ -44,6 +44,6 @@
 /prom_disp.s/1.7/Sun Jan 13 20:59:52 2008//
 /promcons.c/1.19/Mon Feb 19 08:59:52 2018//
 /sys_machdep.c/1.7/Thu Jun 26 05:42:08 2008//
-/trap.c/1.88/Fri Sep  6 12:22:01 2019//
+/trap.c/1.91/Thu Sep 24 20:33:10 2020//
 /vm_machdep.c/1.47/Thu Aug 17 20:50:51 2017//
 D

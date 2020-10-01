@@ -27,7 +27,7 @@
 /drm_edid.h/1.3/Mon Jun  8 04:48:14 2020//
 /drm_encoder.h/1.2/Mon Jun  8 04:48:14 2020//
 /drm_encoder_slave.h/1.1/Mon Jun  8 04:48:14 2020//
-/drm_fb_helper.h/1.2/Mon Jun  8 04:48:14 2020//
+/drm_fb_helper.h/1.3/Sun Jun 28 05:27:42 2020//
 /drm_file.h/1.2/Mon Jun  8 04:48:14 2020//
 /drm_fixed.h/1.1/Sun Apr 14 10:14:52 2019//
 /drm_flip_work.h/1.1/Mon Jun  8 04:48:14 2020//
@@ -45,7 +45,7 @@
 /drm_legacy.h/1.1/Mon Jun  8 04:48:14 2020//
 /drm_mipi_dsi.h/1.2/Mon Jun  8 04:48:14 2020//
 /drm_mm.h/1.1/Sun Apr 14 10:14:52 2019//
-/drm_mode_config.h/1.2/Mon Jun  8 04:48:14 2020//
+/drm_mode_config.h/1.3/Wed Aug 12 03:48:22 2020//
 /drm_mode_object.h/1.1/Sun Apr 14 10:14:52 2019//
 /drm_modes.h/1.2/Mon Jun  8 04:48:14 2020//
 /drm_modeset_helper.h/1.2/Mon Jun  8 04:48:14 2020//

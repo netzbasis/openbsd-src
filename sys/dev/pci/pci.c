@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.c,v 1.117 2020/06/22 04:11:37 dlg Exp $	*/
+/*	$OpenBSD: pci.c,v 1.119 2020/09/08 20:13:52 kettenis Exp $	*/
 /*	$NetBSD: pci.c,v 1.31 1997/06/06 23:48:04 thorpej Exp $	*/
 
 /*
@@ -672,6 +672,38 @@ pci_get_ht_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
 			return (1);
 		}
 		ofs = PCI_CAPLIST_NEXT(reg);
+	}
+
+	return (0);
+}
+
+int
+pci_get_ext_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
+    int *offset, pcireg_t *value)
+{
+	pcireg_t reg;
+	unsigned int ofs;
+
+	/* Make sure this is a PCI Express device. */
+	if (pci_get_capability(pc, tag, PCI_CAP_PCIEXPRESS, NULL, NULL) == 0)
+		return (0);
+
+	/* Scan PCI Express extended capabilities. */
+	ofs = PCI_PCIE_ECAP;
+	while (ofs != 0) {
+#ifdef DIAGNOSTIC
+		if ((ofs & 3) || (ofs < PCI_PCIE_ECAP))
+			panic("pci_get_ext_capability");
+#endif
+		reg = pci_conf_read(pc, tag, ofs);
+		if (PCI_PCIE_ECAP_ID(reg) == capid) {
+			if (offset)
+				*offset = ofs;
+			if (value)
+				*value = reg;
+			return (1);
+		}
+		ofs = PCI_PCIE_ECAP_NEXT(reg);
 	}
 
 	return (0);
@@ -1375,6 +1407,7 @@ pciioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		struct pci_vpd_req *pv = (struct pci_vpd_req *)data;
 		pcireg_t *data;
 		size_t len;
+		unsigned int i;
 		int s;
 
 		CTASSERT(sizeof(*data) == sizeof(*pv->pv_data));
@@ -1393,8 +1426,12 @@ pciioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 
 		len = pv->pv_count * sizeof(*pv->pv_data);
 
-		if (error == 0)
+		if (error == 0) {
+			for (i = 0; i < pv->pv_count; i++)
+				data[i] = letoh32(data[i]);
+
 			error = copyout(data, pv->pv_data, len);
+		}
 
 		free(data, M_TEMP, len);
 		break;

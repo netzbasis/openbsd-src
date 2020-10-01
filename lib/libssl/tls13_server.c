@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.58 2020/06/06 01:40:09 beck Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.61 2020/07/03 04:12:51 tb Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -96,6 +96,44 @@ tls13_client_hello_is_legacy(CBS *cbs)
 	return (max_version < TLS1_3_VERSION);
 }
 
+int
+tls13_client_hello_required_extensions(struct tls13_ctx *ctx)
+{
+	SSL *ssl = ctx->ssl;
+
+	/*
+	 * RFC 8446, section 9.2. If the ClientHello has supported_versions
+	 * containing TLSv1.3, presence or absence of some extensions requires
+	 * presence or absence of others.
+	 */
+
+	/*
+	 * If we got no pre_shared_key, then signature_algorithms and
+	 * supported_groups must both be present.
+	 */
+	if (!tlsext_extension_seen(ssl, TLSEXT_TYPE_pre_shared_key)) {
+		if (!tlsext_extension_seen(ssl, TLSEXT_TYPE_signature_algorithms))
+			return 0;
+		if (!tlsext_extension_seen(ssl, TLSEXT_TYPE_supported_groups))
+			return 0;
+	}
+
+	/*
+	 * supported_groups and key_share must either both be present or
+	 * both be absent.
+	 */
+	if (tlsext_extension_seen(ssl, TLSEXT_TYPE_supported_groups) !=
+	    tlsext_extension_seen(ssl, TLSEXT_TYPE_key_share))
+		return 0;
+
+	/*
+	 * XXX - Require server_name from client? If so, we SHOULD enforce
+	 * this here - RFC 8446, 9.2.
+	 */
+
+	return 1;
+}
+
 static const uint8_t tls13_compression_null_only[] = { 0 };
 
 static int
@@ -153,7 +191,7 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 		goto err;
 	}
 
-	if (!tlsext_server_parse(s, cbs, &alert_desc, SSL_TLSEXT_MSG_CH)) {
+	if (!tlsext_server_parse(s, SSL_TLSEXT_MSG_CH, cbs, &alert_desc)) {
 		ctx->alert = alert_desc;
 		goto err;
 	}
@@ -170,6 +208,11 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 			goto err;
 		}
 		tls13_clienthello_hash_clear(ctx->hs);
+	}
+
+	if (!tls13_client_hello_required_extensions(ctx)) {
+		ctx->alert = TLS13_ALERT_MISSING_EXTENSION;
+		goto err;
 	}
 
 	/*
@@ -287,7 +330,7 @@ tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb, int hrr)
 		goto err;
 	if (!CBB_add_u8(cbb, 0))
 		goto err;
-	if (!tlsext_server_build(s, cbb, tlsext_msg_type))
+	if (!tlsext_server_build(s, tlsext_msg_type, cbb))
 		goto err;
 
 	if (!CBB_flush(cbb))
@@ -468,7 +511,7 @@ tls13_server_hello_sent(struct tls13_ctx *ctx)
 int
 tls13_server_encrypted_extensions_send(struct tls13_ctx *ctx, CBB *cbb)
 {
-	if (!tlsext_server_build(ctx->ssl, cbb, SSL_TLSEXT_MSG_EE))
+	if (!tlsext_server_build(ctx->ssl, SSL_TLSEXT_MSG_EE, cbb))
 		goto err;
 
 	return 1;
@@ -483,7 +526,7 @@ tls13_server_certificate_request_send(struct tls13_ctx *ctx, CBB *cbb)
 
 	if (!CBB_add_u8_length_prefixed(cbb, &certificate_request_context))
 		goto err;
-	if (!tlsext_server_build(ctx->ssl, cbb, SSL_TLSEXT_MSG_CR))
+	if (!tlsext_server_build(ctx->ssl, SSL_TLSEXT_MSG_CR, cbb))
 		goto err;
 
 	if (!CBB_flush(cbb))

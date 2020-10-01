@@ -1,4 +1,4 @@
-/Makefile/1.52/Sat May 11 07:18:14 2019//
+/Makefile/1.53/Sat Jul  4 21:11:03 2020//
 D/alpha////
 D/amd64////
 D/arm64////
@@ -12,6 +12,7 @@ D/macppc////
 D/miniroot////
 D/notes////
 D/octeon////
+D/powerpc64////
 D/sets////
 D/sgi////
 D/sparc64////

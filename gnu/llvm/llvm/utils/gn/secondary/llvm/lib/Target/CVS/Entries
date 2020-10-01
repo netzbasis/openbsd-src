@@ -1,0 +1,20 @@
+/BUILD.gn/1.1.1.1/Mon Aug  3 14:30:26 2020/-ko/
+/targets.gni/1.1.1.1/Mon Aug  3 14:30:26 2020/-ko/
+/targets_string.gni/1.1.1.1/Mon Aug  3 14:30:26 2020/-ko/
+/targets_with_asm_parsers.gni/1.1.1.1/Mon Aug  3 14:30:26 2020/-ko/
+/targets_with_disassemblers.gni/1.1.1.1/Mon Aug  3 14:30:26 2020/-ko/
+D/AArch64////
+D/AMDGPU////
+D/ARM////
+D/AVR////
+D/BPF////
+D/Hexagon////
+D/Lanai////
+D/Mips////
+D/NVPTX////
+D/PowerPC////
+D/RISCV////
+D/Sparc////
+D/SystemZ////
+D/WebAssembly////
+D/X86////

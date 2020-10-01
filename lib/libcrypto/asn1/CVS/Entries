@@ -1,4 +1,4 @@
-/a_bitstr.c/1.29/Sat Oct 20 16:07:09 2018//
+/a_bitstr.c/1.30/Thu Sep  3 17:19:27 2020//
 /a_bool.c/1.8/Sun Jan 29 17:49:22 2017//
 /a_d2i_fp.c/1.16/Sun Jan 29 17:49:22 2017//
 /a_digest.c/1.16/Fri Apr  6 09:19:36 2018//
@@ -65,7 +65,7 @@
 /x_bignum.c/1.10/Mon Apr  1 15:49:22 2019//
 /x_crl.c/1.34/Wed Mar 13 20:34:00 2019//
 /x_exten.c/1.16/Fri Jul 24 15:09:52 2015//
-/x_info.c/1.17/Sun Jan 29 17:49:22 2017//
+/x_info.c/1.18/Thu Sep  3 17:29:05 2020//
 /x_long.c/1.16/Sat Apr 20 11:13:15 2019//
 /x_name.c/1.34/Tue Feb 20 17:09:20 2018//
 /x_nx509.c/1.6/Wed Feb 11 04:00:39 2015//

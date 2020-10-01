@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_record_layer.c,v 1.49 2020/06/01 19:51:31 tb Exp $ */
+/* $OpenBSD: tls13_record_layer.c,v 1.53 2020/09/11 15:03:36 jsing Exp $ */
 /*
  * Copyright (c) 2018, 2019 Joel Sing <jsing@openbsd.org>
  *
@@ -435,6 +435,8 @@ tls13_record_layer_set_traffic_key(const EVP_AEAD *aead, EVP_AEAD_CTX *aead_ctx,
 	struct tls13_secret key = { .data = NULL, .len = 0 };
 	int ret = 0;
 
+	EVP_AEAD_CTX_cleanup(aead_ctx);
+
 	freezero(iv->data, iv->len);
 	iv->data = NULL;
 	iv->len = 0;
@@ -508,7 +510,7 @@ tls13_record_layer_open_record_plaintext(struct tls13_record_layer *rl)
 		return 0;
 
 	if (CBS_len(&cbs) > TLS13_RECORD_MAX_PLAINTEXT_LEN) {
-		rl->alert = SSL_AD_RECORD_OVERFLOW;
+		rl->alert = TLS13_ALERT_RECORD_OVERFLOW;
 		return 0;
 	}
 
@@ -528,8 +530,9 @@ static int
 tls13_record_layer_open_record_protected(struct tls13_record_layer *rl)
 {
 	CBS header, enc_record;
+	ssize_t inner_len;
 	uint8_t *content = NULL;
-	ssize_t content_len = 0;
+	size_t content_len = 0;
 	uint8_t content_type;
 	size_t out_len;
 
@@ -557,7 +560,7 @@ tls13_record_layer_open_record_protected(struct tls13_record_layer *rl)
 		goto err;
 
 	if (out_len > TLS13_RECORD_MAX_INNER_PLAINTEXT_LEN) {
-		rl->alert = SSL_AD_RECORD_OVERFLOW;
+		rl->alert = TLS13_ALERT_RECORD_OVERFLOW;
 		goto err;
 	}
 
@@ -570,22 +573,25 @@ tls13_record_layer_open_record_protected(struct tls13_record_layer *rl)
 	 * Time to hunt for that elusive content type!
 	 */
 	/* XXX - CBS from end? CBS_get_end_u8()? */
-	content_len = out_len - 1;
-	while (content_len >= 0 && content[content_len] == 0)
-		content_len--;
-	if (content_len < 0)
-		goto err;
-	if (content_len > TLS13_RECORD_MAX_PLAINTEXT_LEN) {
-		rl->alert = SSL_AD_RECORD_OVERFLOW;
+	inner_len = out_len - 1;
+	while (inner_len >= 0 && content[inner_len] == 0)
+		inner_len--;
+	if (inner_len < 0) {
+		/* Unexpected message per RFC 8446 section 5.4. */
+		rl->alert = TLS13_ALERT_UNEXPECTED_MESSAGE;
 		goto err;
 	}
-	content_type = content[content_len];
+	if (inner_len > TLS13_RECORD_MAX_PLAINTEXT_LEN) {
+		rl->alert = TLS13_ALERT_RECORD_OVERFLOW;
+		goto err;
+	}
+	content_type = content[inner_len];
 
 	tls13_record_layer_rbuf_free(rl);
 
 	rl->rbuf_content_type = content_type;
 	rl->rbuf = content;
-	rl->rbuf_len = content_len;
+	rl->rbuf_len = inner_len;
 
 	CBS_init(&rl->rbuf_cbs, rl->rbuf, rl->rbuf_len);
 
@@ -796,16 +802,16 @@ tls13_record_layer_read_record(struct tls13_record_layer *rl)
 	if ((ret = tls13_record_recv(rl->rrec, rl->cb.wire_read, rl->cb_arg)) <= 0) {
 		switch (ret) {
 		case TLS13_IO_RECORD_VERSION:
-			return tls13_send_alert(rl, SSL_AD_PROTOCOL_VERSION);
+			return tls13_send_alert(rl, TLS13_ALERT_PROTOCOL_VERSION);
 		case TLS13_IO_RECORD_OVERFLOW:
-			return tls13_send_alert(rl, SSL_AD_RECORD_OVERFLOW);
+			return tls13_send_alert(rl, TLS13_ALERT_RECORD_OVERFLOW);
 		}
 		return ret;
 	}
  
 	if (rl->legacy_version == TLS1_2_VERSION &&
 	    tls13_record_version(rl->rrec) != TLS1_2_VERSION)
-		return tls13_send_alert(rl, SSL_AD_PROTOCOL_VERSION);
+		return tls13_send_alert(rl, TLS13_ALERT_PROTOCOL_VERSION);
  
 	content_type = tls13_record_content_type(rl->rrec);
 

@@ -231,6 +231,7 @@ radeondrm_wsioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
 	struct rasops_info *ri = v;
 	struct wsdisplay_fbinfo *wdf;
+	struct wsdisplay_param *dp = (struct wsdisplay_param *)data;
 
 	switch (cmd) {
 	case WSDISPLAYIO_GTYPE:
@@ -243,6 +244,14 @@ radeondrm_wsioctl(void *v, u_long cmd, caddr_t data, int flag, struct proc *p)
 		wdf->depth = ri->ri_depth;
 		wdf->cmsize = 0;
 		return 0;
+	case WSDISPLAYIO_GETPARAM:
+		if (ws_get_param == NULL)
+			return 0;
+		return ws_get_param(dp);
+	case WSDISPLAYIO_SETPARAM:
+		if (ws_set_param == NULL)
+			return 0;
+		return ws_set_param(dp);
 	default:
 		return -1;
 	}
@@ -799,7 +808,6 @@ radeondrm_attachhook(struct device *self)
 	}
 
 {
-	struct drm_fb_helper *fb_helper = (void *)rdev->mode_info.rfbdev;
 	struct wsemuldisplaydev_attach_args aa;
 	struct rasops_info *ri = &rdev->ro;
 
@@ -811,7 +819,6 @@ radeondrm_attachhook(struct device *self)
 #ifdef __sparc64__
 	fbwscons_setcolormap(&rdev->sf, radeondrm_setcolor);
 #endif
-	drm_fb_helper_restore_fbdev_mode_unlocked(fb_helper);
 
 #ifndef __sparc64__
 	ri->ri_flg = RI_CENTER | RI_VCONS | RI_WRONLY;
@@ -1359,8 +1366,10 @@ int radeon_driver_open_kms(struct drm_device *dev, struct drm_file *file_priv)
 	file_priv->driver_priv = NULL;
 
 	r = pm_runtime_get_sync(dev->dev);
-	if (r < 0)
+	if (r < 0) {
+		pm_runtime_put_autosuspend(dev->dev);
 		return r;
+	}
 
 	/* new gpu have virtual address space support */
 	if (rdev->family >= CHIP_CAYMAN) {

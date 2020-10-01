@@ -1,6 +1,6 @@
 /BIO_f_ssl.3/1.11/Wed Jun 12 09:36:30 2019//
 /DTLSv1_listen.3/1.4/Tue Mar 27 17:35:50 2018//
-/Makefile/1.66/Fri Apr  5 18:29:43 2019//
+/Makefile/1.69/Mon Sep 21 08:53:56 2020//
 /OPENSSL_init_ssl.3/1.4/Fri Jun 14 13:41:31 2019//
 /PEM_read_SSL_SESSION.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_CIPHER_get_name.3/1.11/Tue Apr 14 15:27:35 2020//
@@ -47,7 +47,7 @@
 /SSL_CTX_set_tlsext_use_srtp.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_set_tmp_dh_callback.3/1.8/Mon Mar 30 10:28:59 2020//
 /SSL_CTX_set_tmp_rsa_callback.3/1.8/Tue Mar 27 17:35:50 2018//
-/SSL_CTX_set_verify.3/1.7/Tue Mar 27 17:35:50 2018//
+/SSL_CTX_set_verify.3/1.8/Thu Sep 17 08:04:22 2020//
 /SSL_CTX_use_certificate.3/1.14/Thu Nov 14 20:48:48 2019//
 /SSL_SESSION_free.3/1.7/Wed Jun 12 09:36:30 2019//
 /SSL_SESSION_get0_peer.3/1.2/Fri Mar 23 05:50:30 2018//
@@ -72,7 +72,7 @@
 /SSL_free.3/1.5/Mon Mar 30 10:28:59 2020//
 /SSL_get_SSL_CTX.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_get_certificate.3/1.5/Wed Jun 12 09:36:30 2019//
-/SSL_get_ciphers.3/1.7/Tue Jan 22 01:18:24 2019//
+/SSL_get_ciphers.3/1.11/Wed Sep 16 07:25:15 2020//
 /SSL_get_client_CA_list.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_get_client_random.3/1.2/Sat Mar 24 00:55:37 2018//
 /SSL_get_current_cipher.3/1.4/Tue Mar 27 17:35:50 2018//
@@ -82,13 +82,13 @@
 /SSL_get_ex_new_index.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_get_fd.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_get_peer_cert_chain.3/1.5/Tue Mar 27 17:35:50 2018//
-/SSL_get_peer_certificate.3/1.4/Tue Mar 27 17:35:50 2018//
+/SSL_get_peer_certificate.3/1.5/Thu Sep 17 08:04:22 2020//
 /SSL_get_rbio.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_get_server_tmp_key.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_get_session.3/1.7/Tue Mar 27 17:35:50 2018//
 /SSL_get_shared_ciphers.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_get_state.3/1.5/Wed Jun 12 09:36:30 2019//
-/SSL_get_verify_result.3/1.4/Tue Mar 27 17:35:50 2018//
+/SSL_get_verify_result.3/1.5/Thu Sep 17 08:04:22 2020//
 /SSL_get_version.3/1.7/Mon Mar 18 18:31:15 2019//
 /SSL_library_init.3/1.7/Fri Jun 14 13:41:31 2019//
 /SSL_load_client_CA_file.3/1.9/Wed Jun 12 09:36:30 2019//
@@ -96,10 +96,13 @@
 /SSL_num_renegotiations.3/1.5/Wed Jun 12 09:36:30 2019//
 /SSL_pending.3/1.5/Thu Jan 23 03:40:18 2020//
 /SSL_read.3/1.7/Tue May 26 19:45:58 2020//
+/SSL_read_early_data.3/1.2/Mon Sep 21 15:18:13 2020//
 /SSL_renegotiate.3/1.9/Wed Jun 12 09:36:30 2019//
 /SSL_rstate_string.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_session_reused.3/1.6/Wed Jun 12 09:36:30 2019//
+/SSL_set1_host.3/1.2/Tue Sep 22 16:31:37 2020//
 /SSL_set1_param.3/1.5/Wed Jun 12 09:36:30 2019//
+/SSL_set_SSL_CTX.3/1.3/Tue Sep 22 13:27:08 2020//
 /SSL_set_bio.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_set_connect_state.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_set_fd.3/1.5/Tue Mar 27 17:35:50 2018//
@@ -113,5 +116,5 @@
 /SSL_want.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_write.3/1.5/Tue Mar 27 17:35:50 2018//
 /d2i_SSL_SESSION.3/1.7/Sat Jun  8 15:25:43 2019//
-/ssl.3/1.17/Fri Jun 14 13:41:31 2019//
+/ssl.3/1.20/Mon Sep 21 08:53:56 2020//
 D

@@ -1,4 +1,4 @@
-/*	$OpenBSD: event.h,v 1.43 2020/06/15 15:42:11 mpi Exp $	*/
+/*	$OpenBSD: event.h,v 1.45 2020/08/23 07:05:29 mpi Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -39,8 +39,9 @@
 #define EVFILT_SIGNAL		(-6)	/* attached to struct process */
 #define EVFILT_TIMER		(-7)	/* timers */
 #define EVFILT_DEVICE		(-8)	/* devices */
+#define EVFILT_EXCEPT		(-9)	/* exceptional conditions */
 
-#define EVFILT_SYSCOUNT		8
+#define EVFILT_SYSCOUNT		9
 
 #define EV_SET(kevp, a, b, c, d, e, f) do {	\
 	struct kevent *__kevp = (kevp);		\
@@ -85,6 +86,12 @@ struct kevent {
  */
 #define NOTE_LOWAT	0x0001			/* low water mark */
 #define NOTE_EOF	0x0002			/* return on EOF */
+
+/*
+ * data/hint flags for EVFILT_EXCEPT, shared with userspace and with
+ * EVFILT_{READ|WRITE}
+ */
+#define NOTE_OOB	0x0004			/* OOB data on a socket */
 
 /*
  * data/hint flags for EVFILT_VNODE, shared with userspace

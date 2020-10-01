@@ -218,7 +218,7 @@
 /elf64-s390.c/1.1.1.2/Tue Nov  2 20:22:27 2004//
 /elf64-sh64.c/1.1.1.2/Tue Nov  2 20:22:27 2004//
 /elf64-sparc.c/1.10/Thu Dec 25 23:10:17 2014//
-/elf64-x86-64.c/1.3/Mon Aug 14 19:41:30 2017//
+/elf64-x86-64.c/1.4/Thu Jul 23 14:53:48 2020//
 /elf64.c/1.1/Mon Jan  8 11:04:49 1996//
 /elfarm-nabi.c/1.1.1.3/Mon May 17 20:42:17 2004//
 /elfarm-oabi.c/1.1.1.3/Mon May 17 20:42:17 2004//
@@ -228,7 +228,7 @@
 /elflink.h/1.8/Mon May 17 21:54:22 2004//
 /elfn32-mips.c/1.1.1.2/Tue Nov  2 20:22:28 2004//
 /elfxx-ia64.c/1.2/Mon Dec 22 14:09:58 2014//
-/elfxx-mips.c/1.4/Mon Dec 22 14:09:58 2014//
+/elfxx-mips.c/1.5/Fri Jul 31 14:27:30 2020//
 /elfxx-mips.h/1.1.1.2/Tue Nov  2 20:22:29 2004//
 /elfxx-target.h/1.7/Tue Nov  2 20:45:09 2004//
 /epoc-pe-arm.c/1.1.1.2/Mon May 13 13:25:59 2002//

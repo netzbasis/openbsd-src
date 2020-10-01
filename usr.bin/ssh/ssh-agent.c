@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-agent.c,v 1.259 2020/06/19 07:21:42 dtucker Exp $ */
+/* $OpenBSD: ssh-agent.c,v 1.264 2020/09/18 08:16:38 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -79,8 +79,8 @@
 #include "ssh-pkcs11.h"
 #include "sk-api.h"
 
-#ifndef DEFAULT_PROVIDER_WHITELIST
-# define DEFAULT_PROVIDER_WHITELIST "/usr/lib*/*,/usr/local/lib*/*"
+#ifndef DEFAULT_ALLOWED_PROVIDERS
+# define DEFAULT_ALLOWED_PROVIDERS "/usr/lib*/*,/usr/local/lib*/*"
 #endif
 
 /* Maximum accepted message length */
@@ -136,8 +136,8 @@ pid_t cleanup_pid = 0;
 char socket_name[PATH_MAX];
 char socket_dir[PATH_MAX];
 
-/* PKCS#11/Security key path whitelist */
-static char *provider_whitelist;
+/* Pattern-list of allowed PKCS#11/Security key paths */
+static char *allowed_providers;
 
 /* locking */
 #define LOCK_SIZE	32
@@ -393,9 +393,10 @@ process_sign_request2(SocketEntry *e)
 			    sshkey_type(id->key), fp);
 		}
 	}
+	/* XXX support PIN required FIDO keys */
 	if ((r = sshkey_sign(id->key, &signature, &slen,
 	    data, dlen, agent_decode_alg(key, flags),
-	    id->sk_provider, compat)) != 0) {
+	    id->sk_provider, NULL, compat)) != 0) {
 		error("%s: sshkey_sign: %s", __func__, ssh_err(r));
 		goto send;
 	}
@@ -598,9 +599,9 @@ process_add_identity(SocketEntry *e)
 			free(sk_provider);
 			sk_provider = xstrdup(canonical_provider);
 			if (match_pattern_list(sk_provider,
-			    provider_whitelist, 0) != 1) {
+			    allowed_providers, 0) != 1) {
 				error("Refusing add key: "
-				    "provider %s not whitelisted", sk_provider);
+				    "provider %s not allowed", sk_provider);
 				free(sk_provider);
 				goto send;
 			}
@@ -755,9 +756,9 @@ process_add_smartcard_key(SocketEntry *e)
 		    provider, strerror(errno));
 		goto send;
 	}
-	if (match_pattern_list(canonical_provider, provider_whitelist, 0) != 1) {
+	if (match_pattern_list(canonical_provider, allowed_providers, 0) != 1) {
 		verbose("refusing PKCS#11 add of \"%.100s\": "
-		    "provider not whitelisted", canonical_provider);
+		    "provider not allowed", canonical_provider);
 		goto send;
 	}
 	debug("%s: add %.100s", __func__, canonical_provider);
@@ -837,8 +838,10 @@ send:
 }
 #endif /* ENABLE_PKCS11 */
 
-/* dispatch incoming messages */
-
+/*
+ * dispatch incoming message.
+ * returns 1 on success, 0 for incomplete messages or -1 on error.
+ */
 static int
 process_message(u_int socknum)
 {
@@ -892,7 +895,7 @@ process_message(u_int socknum)
 			/* send a fail message for all other request types */
 			send_status(e, 0);
 		}
-		return 0;
+		return 1;
 	}
 
 	switch (type) {
@@ -936,7 +939,7 @@ process_message(u_int socknum)
 		send_status(e, 0);
 		break;
 	}
-	return 0;
+	return 1;
 }
 
 static void
@@ -1027,7 +1030,12 @@ handle_conn_read(u_int socknum)
 	if ((r = sshbuf_put(sockets[socknum].input, buf, len)) != 0)
 		fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	explicit_bzero(buf, sizeof(buf));
-	process_message(socknum);
+	for (;;) {
+		if ((r = process_message(socknum)) == -1)
+			return -1;
+		else if (r == 0)
+			break;
+	}
 	return 0;
 }
 
@@ -1240,8 +1248,8 @@ usage(void)
 {
 	fprintf(stderr,
 	    "usage: ssh-agent [-c | -s] [-Dd] [-a bind_address] [-E fingerprint_hash]\n"
-	    "                 [-P provider_whitelist] [-t life]\n"
-	    "       ssh-agent [-a bind_address] [-E fingerprint_hash] [-P provider_whitelist]\n"
+	    "                 [-P allowed_providers] [-t life]\n"
+	    "       ssh-agent [-a bind_address] [-E fingerprint_hash] [-P allowed_providers]\n"
 	    "                 [-t life] command [arg ...]\n"
 	    "       ssh-agent [-c | -s] -k\n");
 	exit(1);
@@ -1301,9 +1309,9 @@ main(int ac, char **av)
 				fatal("Unknown -O option");
 			break;
 		case 'P':
-			if (provider_whitelist != NULL)
+			if (allowed_providers != NULL)
 				fatal("-P option already specified");
-			provider_whitelist = xstrdup(optarg);
+			allowed_providers = xstrdup(optarg);
 			break;
 		case 's':
 			if (c_flag)
@@ -1339,8 +1347,8 @@ main(int ac, char **av)
 	if (ac > 0 && (c_flag || k_flag || s_flag || d_flag || D_flag))
 		usage();
 
-	if (provider_whitelist == NULL)
-		provider_whitelist = xstrdup(DEFAULT_PROVIDER_WHITELIST);
+	if (allowed_providers == NULL)
+		allowed_providers = xstrdup(DEFAULT_ALLOWED_PROVIDERS);
 
 	if (ac == 0 && !c_flag && !s_flag) {
 		shell = getenv("SHELL");

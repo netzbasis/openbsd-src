@@ -25,7 +25,7 @@
 /kbd.h/1.19/Thu Mar 19 21:48:05 2015//
 /key.h/1.6/Sat Jun 22 15:38:15 2019//
 /keymap.c/1.58/Tue Dec 29 19:44:32 2015//
-/line.c/1.61/Wed Aug 29 07:50:16 2018//
+/line.c/1.62/Wed Jul 22 13:22:53 2020//
 /log.c/1.11/Thu Jul 18 10:50:24 2019//
 /log.h/1.5/Thu Jul 18 10:50:24 2019//
 /macro.c/1.16/Thu Mar 19 21:22:15 2015//
@@ -36,7 +36,7 @@
 /modes.c/1.21/Tue May 30 07:05:22 2017//
 /paragraph.c/1.46/Sat Nov 17 09:52:34 2018//
 /pathnames.h/1.1/Mon Jun 18 07:14:55 2012//
-/re_search.c/1.33/Sun Aug  6 04:39:45 2017//
+/re_search.c/1.35/Wed Jul 22 13:29:05 2020//
 /region.c/1.38/Mon Jun 17 11:39:26 2019//
 /search.c/1.47/Wed Jul 11 12:21:37 2018//
 /spawn.c/1.12/Thu Mar 19 21:22:15 2015//

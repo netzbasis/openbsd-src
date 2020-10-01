@@ -1,3 +1,4 @@
+/*	$OpenBSD: chachapoly.c,v 1.6 2020/07/22 13:54:30 tobhe Exp $	*/
 /*
  * Copyright (c) 2015 Mike Belopuhov
  *
@@ -218,8 +219,7 @@ xchacha20poly1305_encrypt(
     const uint8_t key[CHACHA20POLY1305_KEY_SIZE]
 ) {
 	int i;
-	uint32_t derived_key[CHACHA20POLY1305_KEY_SIZE / sizeof(uint32_t)]
-	    __aligned(16);
+	uint32_t derived_key[CHACHA20POLY1305_KEY_SIZE / sizeof(uint32_t)];
 	uint64_t h_nonce;
 
 	memcpy(&h_nonce, nonce + 16, sizeof(h_nonce));
@@ -245,8 +245,7 @@ xchacha20poly1305_decrypt(
     const uint8_t key[CHACHA20POLY1305_KEY_SIZE]
 ) {
 	int ret, i;
-	uint32_t derived_key[CHACHA20POLY1305_KEY_SIZE / sizeof(uint32_t)]
-	    __aligned(16);
+	uint32_t derived_key[CHACHA20POLY1305_KEY_SIZE / sizeof(uint32_t)];
 	uint64_t h_nonce;
 
 	memcpy(&h_nonce, nonce + 16, sizeof(h_nonce));

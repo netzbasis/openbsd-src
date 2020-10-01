@@ -1,6 +1,6 @@
 /INSTALL/1.55/Wed Nov 27 23:41:23 2019//
-/Makefile/1.48/Sat May 11 07:18:14 2019//
-/m4.common/1.129/Sun May 17 17:04:27 2020//
+/Makefile/1.49/Sat Jul  4 21:11:04 2020//
+/m4.common/1.130/Sun Jul  5 22:27:46 2020//
 /mirrors/1.120/Fri Sep  2 12:17:32 2016//
 /packages/1.51/Thu Aug  1 19:42:51 2019//
 D/alpha////
@@ -14,5 +14,6 @@ D/loongson////
 D/luna88k////
 D/macppc////
 D/octeon////
+D/powerpc64////
 D/sgi////
 D/sparc64////

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.344 2020/03/19 13:55:20 anton Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.347 2020/08/23 09:35:32 kn Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -251,7 +251,7 @@ update:
 	 */
 	error = VFS_MOUNT(mp, fspath, args, &nd, p);
 	if (!error) {
-		mp->mnt_stat.f_ctime = time_second;
+		mp->mnt_stat.f_ctime = gettime();
 	}
 	if (mp->mnt_flag & MNT_UPDATE) {
 		vfs_unbusy(vp->v_mount);
@@ -523,11 +523,6 @@ dounmount_leaf(struct mount *mp, int flags, struct proc *p)
 /*
  * Sync each mounted filesystem.
  */
-#ifdef DEBUG
-int syncprt = 0;
-struct ctldebug debug0 = { "syncprt", &syncprt };
-#endif
-
 int
 sys_sync(struct proc *p, void *v, register_t *retval)
 {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.4 2020/06/21 21:57:35 kettenis Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.7 2020/09/25 17:10:46 kettenis Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.15 1996/02/22 23:23:41 gwr Exp $	*/
 
 /*
@@ -28,7 +28,10 @@
  */
 
 #include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/stacktrace.h>
 #include <sys/systm.h>
+#include <sys/user.h>
 
 #include <machine/db_machdep.h>
 
@@ -97,6 +100,7 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 	char		 c, *cp = modif;
 	Elf_Sym		*sym;
 	int		 has_frame, trace_proc = 0;
+	int		 end_trace = 0;
 
 	while ((c = *cp++) != 0) {
 		if (c == 't')
@@ -153,7 +157,7 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 
 		if (lr == (vaddr_t)&trapexit) {
 			struct trapframe *frame =
-			    (struct trapframe *)(sp + 48);
+			    (struct trapframe *)(sp + 32);
 
 			if ((frame->srr1 & PSL_PR) && frame->exc == EXC_SC) {
 				(*pr)("--- syscall (number %ld) ---\n",
@@ -162,6 +166,9 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 				(*pr)("--- trap (type 0x%x) ---\n",
 				      frame->exc);
 			}
+
+			if (frame->srr1 & PSL_PR)
+				end_trace = 1;
 
 			sp = frame->fixreg[1];
 			lr = frame->srr0 + 4;
@@ -180,6 +187,46 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 		}
 		callpc = lr - 4;
 
+		if (end_trace) {
+			(*pr)("End of kernel: 0x%lx lr 0x%lx\n", sp, callpc);
+			break;
+		}
+
 		--count;
+	}
+}
+
+extern char _start[], _etext[];
+
+void
+stacktrace_save_at(struct stacktrace *st, unsigned int skip)
+{
+	struct callframe *frame, *lastframe, *limit;
+	struct proc *p = curproc;
+
+	st->st_count = 0;
+
+	if (p == NULL)
+		return;
+
+	frame = __builtin_frame_address(0);
+	limit = (struct callframe *)(p->p_addr + USPACE - FRAMELEN);
+
+	while (st->st_count < STACKTRACE_MAX) {
+		if (skip == 0)
+			st->st_pc[st->st_count++] = frame->cf_lr;
+		else
+			skip--;
+
+		lastframe = frame;
+		frame = (struct callframe *)frame->cf_sp;
+
+		if (frame <= lastframe)
+			break;
+		if (frame >= limit)
+			break;
+		if (frame->cf_lr < (vaddr_t)_start ||
+		    frame->cf_lr >= (vaddr_t)_etext)
+			break;
 	}
 }

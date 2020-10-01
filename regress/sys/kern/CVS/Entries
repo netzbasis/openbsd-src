@@ -1,4 +1,4 @@
-/Makefile/1.86/Fri Feb 28 12:50:06 2020//
+/Makefile/1.87/Wed Sep 16 14:03:02 2020//
 D/__syscall////
 D/accept////
 D/access////
@@ -51,15 +51,7 @@ D/realpath-unmount////
 D/recvwait////
 D/rlimit-file////
 D/setuid////
-D/sig-stop////
-D/siginfo-fault////
-D/sigio////
 D/signal////
-D/signal-stress////
-D/sigpending////
-D/sigprof////
-D/sigpthread////
-D/sigsuspend////
 D/sosplice////
 D/stackjmp////
 D/stackpivot////

@@ -1,4 +1,4 @@
-/Makefile/1.37/Sat Nov  2 15:39:44 2019//
+/Makefile/1.40/Fri Sep 18 10:19:31 2020//
 /Makefile.inc/1.2/Tue Jul 17 17:06:49 2018//
 D/CA////
 D/aead////
@@ -10,6 +10,7 @@ D/bio////
 D/bn////
 D/botan////
 D/cast////
+D/certs////
 D/chacha////
 D/cms////
 D/cts128////
@@ -35,6 +36,7 @@ D/md4////
 D/md5////
 D/ocsp////
 D/pbkdf2////
+D/pem////
 D/pkcs7////
 D/poly1305////
 D/rand////
@@ -48,6 +50,7 @@ D/sha256////
 D/sha512////
 D/sm3////
 D/sm4////
+D/symbols////
 D/utf8////
 D/wycheproof////
 D/x509////

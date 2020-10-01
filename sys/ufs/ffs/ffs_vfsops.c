@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vfsops.c,v 1.184 2020/05/28 15:48:29 otto Exp $	*/
+/*	$OpenBSD: ffs_vfsops.c,v 1.187 2020/08/10 06:25:02 jsg Exp $	*/
 /*	$NetBSD: ffs_vfsops.c,v 1.19 1996/02/09 22:22:26 christos Exp $	*/
 
 /*
@@ -754,14 +754,6 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		fs = (struct fs *) bp->b_data;
 		sbloc = sbtry[i];
 
-#if 0
-		if (fs->fs_magic == FS_UFS2_MAGIC) {
-			printf("ffs_mountfs(): Sorry, no UFS2 support (yet)\n");
-			error = EFTYPE;
-			goto out;
-		}
-#endif
-
 		/*
 		 * Do not look for an FFS1 file system at SBLOCK_UFS2. Doing so
 		 * will find the wrong super-block for file systems with 64k
@@ -813,7 +805,7 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		printf("ffs_mountfs(): obsolete rotational table format, "
 		    "please use fsck_ffs(8) -c 1\n");
 #endif
-		error = EFTYPE;
+		error = EROFS;
 		goto out;
 	}
 
@@ -1525,7 +1517,7 @@ ffs_sbupdate(struct ufsmount *mp, int waitfor)
 	    fs->fs_sblockloc >> (fs->fs_fshift - fs->fs_fsbtodb),
 	    (int)fs->fs_sbsize, 0, INFSLP);
 	fs->fs_fmod = 0;
-	fs->fs_time = time_second;
+	fs->fs_time = gettime();
 	memcpy(bp->b_data, fs, fs->fs_sbsize);
 	/* Restore compatibility to old file systems.		   XXX */
 	dfs = (struct fs *)bp->b_data;				/* XXX */

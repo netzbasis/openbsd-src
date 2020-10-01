@@ -7,7 +7,7 @@
 /autoconf.h/1.2/Thu Jun  8 12:02:52 2017//
 /cache.h/1.9/Wed Dec 21 13:59:57 2016//
 /cdefs.h/1.6/Thu Mar 28 17:30:45 2013//
-/cpu.h/1.129/Sun May 31 06:23:58 2020//
+/cpu.h/1.130/Sat Jul 11 15:18:08 2020//
 /cpustate.h/1.11/Sun Sep 27 18:17:08 2015//
 /db_machdep.h/1.20/Thu Nov  7 14:44:53 2019//
 /endian.h/1.9/Sat Jul 12 16:25:08 2014//
@@ -23,7 +23,7 @@
 /loongson2.h/1.4/Wed Jan 16 20:28:06 2013//
 /loongson3.h/1.3/Wed May 10 16:04:21 2017//
 /memconf.h/1.7/Mon May 30 22:25:21 2011//
-/mips_cpu.h/1.8/Mon Apr  9 13:46:15 2018//
+/mips_cpu.h/1.9/Sat Jul 18 08:37:43 2020//
 /mips_opcode.h/1.9/Thu Apr 20 15:42:26 2017//
 /mplock.h/1.2/Sat Oct 21 06:11:22 2017//
 /mutex.h/1.5/Thu Jan 25 15:06:29 2018//
@@ -41,9 +41,9 @@
 /setjmp.h/1.4/Mon Jan  8 16:44:32 2018//
 /signal.h/1.13/Mon Jan  8 16:44:32 2018//
 /spinlock.h/1.5/Tue Sep  5 02:40:54 2017//
-/stdarg.h/1.8/Wed Mar 23 16:54:36 2011//
 /sysarch.h/1.2/Wed Dec  5 23:20:13 2012//
 /tcb.h/1.4/Thu Apr 20 16:07:52 2017//
+/timetc.h/1.3/Sat Jul 18 08:37:43 2020//
 /trap.h/1.16/Wed Apr  9 21:10:34 2014//
 /vmparam.h/1.29/Fri Dec 23 12:38:16 2016//
 D

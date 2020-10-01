@@ -43,9 +43,9 @@
 /setjmp.h/1.1/Fri Aug  6 21:12:19 2004//
 /signal.h/1.1/Fri Aug  6 21:12:19 2004//
 /spinlock.h/1.1/Fri Aug  6 21:12:19 2004//
-/stdarg.h/1.1/Fri Aug  6 21:12:19 2004//
 /sysarch.h/1.1/Sun Sep 27 18:20:13 2009//
 /tcb.h/1.2/Sat Jun  1 21:20:54 2013//
+/timetc.h/1.2/Sat Jul 18 08:37:44 2020//
 /trap.h/1.1/Fri Aug  6 21:12:19 2004//
 /vmparam.h/1.10/Sun Jul 13 15:48:32 2014//
 /z8530var.h/1.4/Sun Apr 21 14:44:16 2013//

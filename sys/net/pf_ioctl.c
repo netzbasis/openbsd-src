@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.352 2020/05/27 11:19:28 mpi Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.357 2020/10/01 14:02:08 kn Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -97,7 +97,7 @@ int			 pf_rollback_rules(u_int32_t, char *);
 void			 pf_remove_queues(void);
 int			 pf_commit_queues(void);
 void			 pf_free_queues(struct pf_queuehead *);
-int			 pf_setup_pfsync_matching(struct pf_ruleset *);
+void			 pf_calc_chksum(struct pf_ruleset *);
 void			 pf_hash_rule(MD5_CTX *, struct pf_rule *);
 void			 pf_hash_rule_addr(MD5_CTX *, struct pf_rule_addr *);
 int			 pf_commit_rules(u_int32_t, char *);
@@ -337,6 +337,9 @@ pf_purge_rule(struct pf_rule *rule)
 	ruleset->rules.active.ticket++;
 	pf_calc_skip_steps(ruleset->rules.active.ptr);
 	pf_remove_if_empty_ruleset(ruleset);
+
+	if (ruleset == &pf_main_ruleset)
+		pf_calc_chksum(ruleset);
 }
 
 u_int16_t
@@ -741,7 +744,9 @@ pf_hash_rule_addr(MD5_CTX *ctx, struct pf_rule_addr *pfr)
 			PF_MD5_UPD(pfr, addr.iflags);
 			break;
 		case PF_ADDR_TABLE:
-			PF_MD5_UPD(pfr, addr.v.tblname);
+			if (strncmp(pfr->addr.v.tblname, PF_OPTIMIZER_TABLE_PFX,
+			    strlen(PF_OPTIMIZER_TABLE_PFX)))
+				PF_MD5_UPD(pfr, addr.v.tblname);
 			break;
 		case PF_ADDR_ADDRMASK:
 			/* XXX ignore af? */
@@ -803,9 +808,8 @@ int
 pf_commit_rules(u_int32_t ticket, char *anchor)
 {
 	struct pf_ruleset	*rs;
-	struct pf_rule		*rule, **old_array;
+	struct pf_rule		*rule;
 	struct pf_rulequeue	*old_rules;
-	int			 error;
 	u_int32_t		 old_rcount;
 
 	/* Make sure any expired rules get removed from active rules first. */
@@ -816,23 +820,16 @@ pf_commit_rules(u_int32_t ticket, char *anchor)
 	    ticket != rs->rules.inactive.ticket)
 		return (EBUSY);
 
-	/* Calculate checksum for the main ruleset */
-	if (rs == &pf_main_ruleset) {
-		error = pf_setup_pfsync_matching(rs);
-		if (error != 0)
-			return (error);
-	}
+	if (rs == &pf_main_ruleset)
+		pf_calc_chksum(rs);
 
 	/* Swap rules, keep the old. */
 	old_rules = rs->rules.active.ptr;
 	old_rcount = rs->rules.active.rcount;
-	old_array = rs->rules.active.ptr_array;
 
 	rs->rules.active.ptr = rs->rules.inactive.ptr;
-	rs->rules.active.ptr_array = rs->rules.inactive.ptr_array;
 	rs->rules.active.rcount = rs->rules.inactive.rcount;
 	rs->rules.inactive.ptr = old_rules;
-	rs->rules.inactive.ptr_array = old_array;
 	rs->rules.inactive.rcount = old_rcount;
 
 	rs->rules.active.ticket = rs->rules.inactive.ticket;
@@ -842,9 +839,6 @@ pf_commit_rules(u_int32_t ticket, char *anchor)
 	/* Purge the old rule list. */
 	while ((rule = TAILQ_FIRST(old_rules)) != NULL)
 		pf_rm_rule(old_rules, rule);
-	if (rs->rules.inactive.ptr_array)
-		free(rs->rules.inactive.ptr_array, M_TEMP, 0);
-	rs->rules.inactive.ptr_array = NULL;
 	rs->rules.inactive.rcount = 0;
 	rs->rules.inactive.open = 0;
 	pf_remove_if_empty_ruleset(rs);
@@ -855,35 +849,23 @@ pf_commit_rules(u_int32_t ticket, char *anchor)
 	return (pf_commit_queues());
 }
 
-int
-pf_setup_pfsync_matching(struct pf_ruleset *rs)
+void
+pf_calc_chksum(struct pf_ruleset *rs)
 {
 	MD5_CTX			 ctx;
 	struct pf_rule		*rule;
 	u_int8_t		 digest[PF_MD5_DIGEST_LENGTH];
 
 	MD5Init(&ctx);
-	if (rs->rules.inactive.ptr_array)
-		free(rs->rules.inactive.ptr_array, M_TEMP, 0);
-	rs->rules.inactive.ptr_array = NULL;
 
 	if (rs->rules.inactive.rcount) {
-		rs->rules.inactive.ptr_array =
-		    mallocarray(rs->rules.inactive.rcount, sizeof(caddr_t),
-		    M_TEMP, M_NOWAIT);
-
-		if (!rs->rules.inactive.ptr_array)
-			return (ENOMEM);
-
 		TAILQ_FOREACH(rule, rs->rules.inactive.ptr, entries) {
 			pf_hash_rule(&ctx, rule);
-			(rs->rules.inactive.ptr_array)[rule->nr] = rule;
 		}
 	}
 
 	MD5Final(digest, &ctx);
 	memcpy(pf_status.pf_chksum, digest, sizeof(pf_status.pf_chksum));
-	return (0);
 }
 
 int
@@ -1033,9 +1015,9 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			error = EEXIST;
 		else {
 			pf_status.running = 1;
-			pf_status.since = time_uptime;
+			pf_status.since = getuptime();
 			if (pf_status.stateid == 0) {
-				pf_status.stateid = time_second;
+				pf_status.stateid = gettime();
 				pf_status.stateid = pf_status.stateid << 32;
 			}
 			timeout_add_sec(&pf_purge_to, 1);
@@ -1051,7 +1033,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 			error = ENOENT;
 		else {
 			pf_status.running = 0;
-			pf_status.since = time_uptime;
+			pf_status.since = getuptime();
 			pf_remove_queues();
 			DPFPRINTF(LOG_NOTICE, "pf: stopped");
 		}
@@ -1793,7 +1775,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		memset(pf_status.counters, 0, sizeof(pf_status.counters));
 		memset(pf_status.fcounters, 0, sizeof(pf_status.fcounters));
 		memset(pf_status.scounters, 0, sizeof(pf_status.scounters));
-		pf_status.since = time_uptime;
+		pf_status.since = getuptime();
 
 		PF_UNLOCK();
 		break;
@@ -2571,7 +2553,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 
 		p = psn->psn_src_nodes;
 		RB_FOREACH(n, pf_src_tree, &tree_src_tracking) {
-			int	secs = time_uptime, diff;
+			int	secs = getuptime(), diff;
 
 			if ((nr + 1) * sizeof(*p) > psn->psn_len)
 				break;
@@ -2838,10 +2820,8 @@ pf_rule_copyin(struct pf_rule *from, struct pf_rule *to,
 	if (to->rtableid >= 0 && !rtable_exists(to->rtableid))
 		return (EBUSY);
 	to->onrdomain = from->onrdomain;
-	if (to->onrdomain >= 0 && !rtable_exists(to->onrdomain))
-		return (EBUSY);
-	if (to->onrdomain >= 0)		/* make sure it is a real rdomain */
-		to->onrdomain = rtable_l2(to->onrdomain);
+	if (to->onrdomain < 0 || to->onrdomain > RT_TABLEID_MAX)
+		return (EINVAL);
 
 	for (i = 0; i < PFTM_MAX; i++)
 		to->timeout[i] = from->timeout[i];

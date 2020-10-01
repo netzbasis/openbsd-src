@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mvneta.c,v 1.11 2020/06/22 02:23:21 dlg Exp $	*/
+/*	$OpenBSD: if_mvneta.c,v 1.13 2020/07/10 13:26:36 patrick Exp $	*/
 /*	$NetBSD: if_mvneta.c,v 1.41 2015/04/15 10:15:40 hsuenaga Exp $	*/
 /*
  * Copyright (c) 2007, 2008, 2013 KIYOHARA Takashi
@@ -50,7 +50,6 @@
 #include <dev/ofw/fdt.h>
 
 #include <dev/fdt/if_mvnetareg.h>
-#include <dev/fdt/mvmdiovar.h>
 
 #ifdef __armv7__
 #include <armv7/marvell/mvmbusvar.h>
@@ -128,7 +127,7 @@ struct mvneta_buf {
 
 struct mvneta_softc {
 	struct device sc_dev;
-	struct device *sc_mdio;
+	struct mii_bus *sc_mdio;
 
 	bus_space_tag_t sc_iot;
 	bus_space_handle_t sc_ioh;
@@ -164,6 +163,7 @@ struct mvneta_softc {
 	int			 sc_fixed_link;
 	int			 sc_inband_status;
 	int			 sc_phy;
+	int			 sc_phyloc;
 	int			 sc_link;
 	int			 sc_sfp;
 };
@@ -220,14 +220,14 @@ int
 mvneta_miibus_readreg(struct device *dev, int phy, int reg)
 {
 	struct mvneta_softc *sc = (struct mvneta_softc *) dev;
-	return mvmdio_miibus_readreg(sc->sc_mdio, phy, reg);
+	return sc->sc_mdio->md_readreg(sc->sc_mdio->md_cookie, phy, reg);
 }
 
 void
 mvneta_miibus_writereg(struct device *dev, int phy, int reg, int val)
 {
 	struct mvneta_softc *sc = (struct mvneta_softc *) dev;
-	return mvmdio_miibus_writereg(sc->sc_mdio, phy, reg, val);
+	return sc->sc_mdio->md_writereg(sc->sc_mdio->md_cookie, phy, reg, val);
 }
 
 void
@@ -419,14 +419,14 @@ mvneta_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	if (!sc->sc_fixed_link) {
-		node = OF_getnodebyphandle(OF_getpropint(faa->fa_node,
-		    "phy", 0));
+		sc->sc_phy = OF_getpropint(faa->fa_node, "phy", 0);
+		node = OF_getnodebyphandle(sc->sc_phy);
 		if (!node) {
 			printf("%s: cannot find phy in fdt\n", self->dv_xname);
 			return;
 		}
 
-		if ((sc->sc_phy = OF_getpropint(node, "reg", -1)) == -1) {
+		if ((sc->sc_phyloc = OF_getpropint(node, "reg", -1)) == -1) {
 			printf("%s: cannot extract phy addr\n", self->dv_xname);
 			return;
 		}
@@ -621,7 +621,7 @@ mvneta_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_capabilities &= ~IFCAP_CSUM_TCPv4;
 #endif
 
-	IFQ_SET_MAXLEN(&ifp->if_snd, max(MVNETA_TX_RING_CNT - 1, IFQ_MAXLEN));
+	ifq_set_maxlen(&ifp->if_snd, max(MVNETA_TX_RING_CNT - 1, IFQ_MAXLEN));
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, sizeof(ifp->if_xname));
 
 	/*
@@ -645,15 +645,13 @@ mvneta_attach_deferred(struct device *self)
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 
 	if (!sc->sc_fixed_link) {
-		extern void *mvmdio_sc;
-		sc->sc_mdio = mvmdio_sc;
-
+		sc->sc_mdio = mii_byphandle(sc->sc_phy);
 		if (sc->sc_mdio == NULL) {
 			printf("%s: mdio bus not yet attached\n", self->dv_xname);
 			return;
 		}
 
-		mii_attach(self, &sc->sc_mii, 0xffffffff, sc->sc_phy,
+		mii_attach(self, &sc->sc_mii, 0xffffffff, sc->sc_phyloc,
 		    MII_OFFSET_ANY, 0);
 		if (LIST_FIRST(&sc->sc_mii.mii_phys) == NULL) {
 			printf("%s: no PHY found!\n", self->dv_xname);
@@ -730,7 +728,7 @@ mvneta_intr(void *arg)
 	if (ic & MVNETA_PRXTXTI_RBICTAPQ(0))
 		mvneta_rx_proc(sc);
 
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
+	if (!ifq_empty(&ifp->if_snd))
 		mvneta_start(ifp);
 
 	return 1;
@@ -749,7 +747,7 @@ mvneta_start(struct ifnet *ifp)
 		return;
 	if (ifq_is_oactive(&ifp->if_snd))
 		return;
-	if (IFQ_IS_EMPTY(&ifp->if_snd))
+	if (ifq_empty(&ifp->if_snd))
 		return;
 
 	/* If Link is DOWN, can't start TX */

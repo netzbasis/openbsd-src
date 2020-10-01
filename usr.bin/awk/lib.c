@@ -1,4 +1,4 @@
-/*	$OpenBSD: lib.c,v 1.37 2020/06/16 16:14:22 millert Exp $	*/
+/*	$OpenBSD: lib.c,v 1.41 2020/07/30 17:46:54 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -32,7 +32,6 @@ THIS SOFTWARE.
 #include <stdarg.h>
 #include <limits.h>
 #include "awk.h"
-#include "ytab.h"
 
 char	EMPTY[] = { '\0' };
 FILE	*infile	= NULL;
@@ -146,8 +145,8 @@ int getrec(char **pbuf, int *pbufsize, bool isrecord)	/* get next input record *
 		firsttime = false;
 		initgetrec();
 	}
-	   DPRINTF( ("RS=<%s>, FS=<%s>, ARGC=%g, FILENAME=%s\n",
-		*RS, *FS, *ARGC, *FILENAME) );
+	DPRINTF("RS=<%s>, FS=<%s>, ARGC=%g, FILENAME=%s\n",
+		*RS, *FS, *ARGC, *FILENAME);
 	if (isrecord) {
 		donefld = false;
 		donerec = true;
@@ -156,7 +155,7 @@ int getrec(char **pbuf, int *pbufsize, bool isrecord)	/* get next input record *
 	saveb0 = buf[0];
 	buf[0] = 0;
 	while (argno < *ARGC || infile == stdin) {
-		   DPRINTF( ("argno=%d, file=|%s|\n", argno, file) );
+		DPRINTF("argno=%d, file=|%s|\n", argno, file);
 		if (infile == NULL) {	/* have to open a new file */
 			file = getargv(argno);
 			if (file == NULL || *file == '\0') {	/* deleted or zapped */
@@ -169,7 +168,7 @@ int getrec(char **pbuf, int *pbufsize, bool isrecord)	/* get next input record *
 				continue;
 			}
 			*FILENAME = file;
-			   DPRINTF( ("opening file %s\n", file) );
+			DPRINTF("opening file %s\n", file);
 			if (*file == '-' && *(file+1) == '\0')
 				infile = stdin;
 			else if ((infile = fopen(file, "r")) == NULL)
@@ -270,7 +269,7 @@ int readrec(char **pbuf, int *pbufsize, FILE *inf, bool newflag)	/* read one rec
 	*pbuf = buf;
 	*pbufsize = bufsize;
 	isrec = *buf || !feof(inf);
-	DPRINTF( ("readrec saw <%s>, returns %d\n", buf, isrec) );
+	DPRINTF("readrec saw <%s>, returns %d\n", buf, isrec);
 	return isrec;
 }
 
@@ -285,7 +284,7 @@ char *getargv(int n)	/* get ARGV[n] */
 		return NULL;
 	x = setsymtab(temp, "", 0.0, STR, ARGVtab);
 	s = getsval(x);
-	   DPRINTF( ("getargv(%d) returns |%s|\n", n, s) );
+	DPRINTF("getargv(%d) returns |%s|\n", n, s);
 	return s;
 }
 
@@ -304,7 +303,7 @@ void setclvar(char *s)	/* set var=value from s */
 		q->fval = atof(q->sval);
 		q->tval |= NUM;
 	}
-	   DPRINTF( ("command line set %s to |%s|\n", s, p) );
+	DPRINTF("command line set %s to |%s|\n", s, p);
 }
 
 
@@ -503,7 +502,7 @@ int refldbld(const char *rec, const char *fs)	/* build fields from reg expr in F
 	if (*rec == '\0')
 		return 0;
 	pfa = makedfa(fs, 1);
-	   DPRINTF( ("into refldbld, rec = <%s>, pat = <%s>\n", rec, fs) );
+	DPRINTF("into refldbld, rec = <%s>, pat = <%s>\n", rec, fs);
 	tempstat = pfa->initstat;
 	for (i = 1; ; i++) {
 		const size_t fss_rem = fields + fieldssize + 1 - fr;
@@ -513,11 +512,11 @@ int refldbld(const char *rec, const char *fs)	/* build fields from reg expr in F
 			xfree(fldtab[i]->sval);
 		fldtab[i]->tval = FLD | STR | DONTFREE;
 		fldtab[i]->sval = fr;
-		   DPRINTF( ("refldbld: i=%d\n", i) );
+		DPRINTF("refldbld: i=%d\n", i);
 		if (nematch(pfa, rec)) {
 			const size_t reclen = patbeg - rec;
 			pfa->initstat = 2;	/* horrible coupling to b.c */
-			   DPRINTF( ("match %s (%d chars)\n", patbeg, patlen) );
+			DPRINTF("match %s (%d chars)\n", patbeg, patlen);
 			if (reclen >= fss_rem)
 				FATAL("out of space for fields in refldbld");
 			memcpy(fr, rec, reclen);
@@ -525,7 +524,7 @@ int refldbld(const char *rec, const char *fs)	/* build fields from reg expr in F
 			*fr++ = '\0';
 			rec = patbeg + patlen;
 		} else {
-			   DPRINTF( ("no match %s\n", rec) );
+			DPRINTF("no match %s\n", rec);
 			if (strlcpy(fr, rec, fss_rem) >= fss_rem)
 				FATAL("out of space for fields in refldbld");
 			pfa->initstat = tempstat;
@@ -560,15 +559,15 @@ void recbld(void)	/* create $0 from $1..$NF if necessary */
 	if (!adjbuf(&record, &recsize, 2+r-record, recsize, &r, "recbld 3"))
 		FATAL("built giant record `%.30s...'", record);
 	*r = '\0';
-	   DPRINTF( ("in recbld inputFS=%s, fldtab[0]=%p\n", inputFS, (void*)fldtab[0]) );
+	DPRINTF("in recbld inputFS=%s, fldtab[0]=%p\n", inputFS, (void*)fldtab[0]);
 
 	if (freeable(fldtab[0]))
 		xfree(fldtab[0]->sval);
 	fldtab[0]->tval = REC | STR | DONTFREE;
 	fldtab[0]->sval = record;
 
-	   DPRINTF( ("in recbld inputFS=%s, fldtab[0]=%p\n", inputFS, (void*)fldtab[0]) );
-	   DPRINTF( ("recbld = |%s|\n", record) );
+	DPRINTF("in recbld inputFS=%s, fldtab[0]=%p\n", inputFS, (void*)fldtab[0]);
+	DPRINTF("recbld = |%s|\n", record);
 	donerec = true;
 }
 
@@ -674,12 +673,11 @@ void error()
 			fprintf(stderr, " source line number %d", curnode->lineno);
 		else if (lineno)
 			fprintf(stderr, " source line number %d", lineno);
+		if (compile_time == COMPILING && cursource() != NULL)
+			fprintf(stderr, " source file %s", cursource());
+		fprintf(stderr, "\n");
+		eprint();
 	}
-
-	if (compile_time == COMPILING && cursource() != NULL)
-		fprintf(stderr, " source file %s", cursource());
-	fprintf(stderr, "\n");
-	eprint();
 }
 
 void eprint(void)	/* try to print context around error */
@@ -760,6 +758,9 @@ int isclvar(const char *s)	/* is s of form var=something ? */
 /* strtod is supposed to be a proper test of what's a valid number */
 /* appears to be broken in gcc on linux: thinks 0x123 is a valid FP number */
 /* wrong: violates 4.10.1.4 of ansi C standard */
+/* well, not quite. As of C99, hex floating point is allowed. so this is
+ * a bit of a mess.
+ */
 
 #include <math.h>
 int is_number(const char *s)
@@ -770,7 +771,8 @@ int is_number(const char *s)
 	r = strtod(s, &ep);
 	if (ep == s || r == HUGE_VAL || errno == ERANGE)
 		return 0;
-	while (*ep == ' ' || *ep == '\t' || *ep == '\n')
+	/* allow \r as well. windows files aren't going to go away. */
+	while (*ep == ' ' || *ep == '\t' || *ep == '\n' || *ep == '\r')
 		ep++;
 	if (*ep == '\0')
 		return 1;

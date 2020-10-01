@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.33 2020/05/19 11:23:54 mortimer Exp $
+#	$OpenBSD: Makefile,v 1.35 2020/06/27 18:35:07 kettenis Exp $
 
 OBJS=		crt0.o gcrt0.o
 OBJS+=		crtbegin.o crtend.o
@@ -37,8 +37,13 @@ RCFLAGS+=-fno-stack-protector
 RCFLAGS+=-fno-builtin
 .endif
 
+.if ${MACHINE_CPU} == "powerpc64"
+RCFLAGS+= -mno-vsx -mno-altivec
+.endif
+
 # Prevent use of jump tables in _dl_boot_bind().
-.if ${MACHINE_CPU} == "mips64" || ${MACHINE_CPU} == "powerpc"
+.if ${MACHINE_CPU} == "mips64" || ${MACHINE_CPU} == "powerpc" || \
+    ${MACHINE_CPU} == "powerpc64"
 RCFLAGS+=-fno-jump-tables
 .endif
 

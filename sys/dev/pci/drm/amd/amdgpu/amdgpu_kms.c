@@ -718,8 +718,12 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 		 * in the bitfields */
 		if (se_num == AMDGPU_INFO_MMR_SE_INDEX_MASK)
 			se_num = 0xffffffff;
+		else if (se_num >= AMDGPU_GFX_MAX_SE)
+			return -EINVAL;
 		if (sh_num == AMDGPU_INFO_MMR_SH_INDEX_MASK)
 			sh_num = 0xffffffff;
+		else if (sh_num >= AMDGPU_GFX_MAX_SH_PER_SE)
+			return -EINVAL;
 
 		if (info->read_mmr_reg.count > 128)
 			return -EINVAL;
@@ -747,9 +751,10 @@ static int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file
 		return n ? -EFAULT : 0;
 	}
 	case AMDGPU_INFO_DEV_INFO: {
-		struct drm_amdgpu_info_device dev_info = {};
+		struct drm_amdgpu_info_device dev_info;
 		uint64_t vm_size;
 
+		memset(&dev_info, 0, sizeof(dev_info));
 		dev_info.device_id = dev->pdev->device;
 		dev_info.chip_rev = adev->rev_id;
 		dev_info.external_rev = adev->external_rev_id;
@@ -2002,7 +2007,6 @@ amdgpu_attachhook(struct device *self)
 		pm_runtime_put_autosuspend(dev->dev);
 	}
 {
-	struct drm_fb_helper *fb_helper = (void *)adev->mode_info.rfbdev;
 	struct wsemuldisplaydev_attach_args aa;
 	struct rasops_info *ri = &adev->ro;
 
@@ -2010,8 +2014,6 @@ amdgpu_attachhook(struct device *self)
 
 	if (ri->ri_bits == NULL)
 		return;
-
-	drm_fb_helper_restore_fbdev_mode_unlocked(fb_helper);
 
 	ri->ri_flg = RI_CENTER | RI_VCONS | RI_WRONLY;
 	rasops_init(ri, 160, 160);

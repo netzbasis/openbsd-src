@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.h,v 1.5 2020/06/21 13:23:59 kettenis Exp $	*/
+/*	$OpenBSD: pmap.h,v 1.15 2020/08/25 17:49:58 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -18,6 +18,10 @@
 
 #ifndef _MACHINE_PMAP_H_
 #define _MACHINE_PMAP_H_
+
+#ifdef _KERNEL
+
+#include <machine/pte.h>
 
 /* V->P mapping data */
 #define VP_IDX1_CNT	256
@@ -51,16 +55,6 @@ typedef struct pmap *pmap_t;
 #define PMAP_PA_MASK	~((paddr_t)PAGE_MASK) /* to remove the flags */
 #define PMAP_NOCACHE	0x1		/* map uncached */
 
-struct vm_page_md {
-	struct mutex pv_mtx;
-	LIST_HEAD(,pte_desc) pv_list;
-};
-
-#define VM_MDPAGE_INIT(pg) do {                 \
-	mtx_init(&(pg)->mdpage.pv_mtx, IPL_VM); \
-	LIST_INIT(&((pg)->mdpage.pv_list)); 	\
-} while (0)
-
 extern struct pmap kernel_pmap_store;
 
 #define pmap_kernel()	(&kernel_pmap_store)
@@ -71,13 +65,31 @@ extern struct pmap kernel_pmap_store;
 #define pmap_update(pm)
 
 void	pmap_bootstrap(void);
+void	pmap_bootstrap_cpu(void);
 
-int	pmap_set_user_slb(pmap_t, vaddr_t);
+int	pmap_slbd_fault(pmap_t, vaddr_t);
+int	pmap_set_user_slb(pmap_t, vaddr_t, vaddr_t *, vsize_t *);
+void	pmap_clear_user_slb(void);
 void	pmap_unset_user_slb(void);
 
 #ifdef DDB
 struct pte;
 struct pte *pmap_get_kernel_pte(vaddr_t);
 #endif
+
+#endif	/* _KERNEL */
+
+#include <sys/mutex.h>
+#include <sys/queue.h>
+
+struct vm_page_md {
+	struct mutex pv_mtx;
+	LIST_HEAD(,pte_desc) pv_list;
+};
+
+#define VM_MDPAGE_INIT(pg) do {                 \
+	mtx_init(&(pg)->mdpage.pv_mtx, IPL_VM); \
+	LIST_INIT(&((pg)->mdpage.pv_list)); 	\
+} while (0)
 
 #endif /* _MACHINE_PMAP_H_ */

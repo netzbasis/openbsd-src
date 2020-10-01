@@ -4,7 +4,7 @@
 /boot_config.8/1.31/Fri Sep  6 21:30:32 2019//
 /bulk.8/1.5/Thu Jun 27 17:29:16 2019//
 /crash.8/1.35/Tue Nov 29 13:57:34 2016//
-/daily.8/1.27/Thu Jul 13 19:16:33 2017//
+/daily.8/1.28/Sun Jul 26 13:27:24 2020//
 /diskless.8/1.69/Sun Jun 11 14:03:46 2017//
 /genassym.sh.8/1.9/Fri Mar 13 19:58:41 2015//
 /intro.8/1.29/Sun May 26 00:52:22 2019//
@@ -14,7 +14,7 @@
 /rc.d.8/1.35/Tue Aug 27 20:05:02 2019//
 /rc.shutdown.8/1.16/Sat May 16 16:58:12 2020//
 /rc.subr.8/1.37/Fri Feb 21 00:47:21 2020//
-/release.8/1.95/Wed Apr 29 15:02:51 2020//
+/release.8/1.96/Thu Aug 20 06:45:48 2020//
 /security.8/1.26/Thu Jul 13 19:16:33 2017//
 /ssl.8/1.68/Fri May 10 12:41:49 2019//
 /starttls.8/1.27/Mon Aug 12 19:49:14 2019//
@@ -31,5 +31,6 @@ D/man8.loongson////
 D/man8.luna88k////
 D/man8.macppc////
 D/man8.octeon////
+D/man8.powerpc64////
 D/man8.sgi////
 D/man8.sparc64////

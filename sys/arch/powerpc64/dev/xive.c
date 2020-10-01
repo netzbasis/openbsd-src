@@ -1,4 +1,4 @@
-/*	$OpenBSD: xive.c,v 1.3 2020/06/14 19:21:43 kettenis Exp $	*/
+/*	$OpenBSD: xive.c,v 1.14 2020/09/26 17:56:54 kettenis Exp $	*/
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -44,6 +44,8 @@
 #define  XIVE_TM_SPC_ACK_HE_PHYS	0x8000
 
 #define XIVE_ESB_STORE_TRIGGER	0x000
+#define XIVE_ESB_LOAD_EOI	0x000
+#define XIVE_ESB_STORE_EOI	0x400
 #define XIVE_ESB_SET_PQ_00	0xc00
 #define XIVE_ESB_SET_PQ_01	0xd00
 #define XIVE_ESB_SET_PQ_10	0xe00
@@ -92,7 +94,7 @@ struct xive_softc {
 	bus_dma_tag_t		sc_dmat;
 
 	struct intrhand		*sc_handler[XIVE_NUM_IRQS];
-	struct xive_eq		sc_eq[XIVE_NUM_PRIORITIES];
+	struct xive_eq		sc_eq[MAXCPUS][XIVE_NUM_PRIORITIES];
 
 	uint32_t		sc_page_size;
 	uint32_t		sc_lirq;
@@ -128,11 +130,19 @@ xive_read_2(struct xive_softc *sc, bus_size_t off)
 	return bus_space_read_2(sc->sc_iot, sc->sc_ioh, off);
 }
 
+static inline void
+xive_unmask(struct xive_softc *sc, struct intrhand *ih)
+{
+	bus_space_read_8(sc->sc_iot, ih->ih_esb_eoi, XIVE_ESB_SET_PQ_00);
+}
+
 int	xive_match(struct device *, void *, void *);
 void	xive_attach(struct device *, struct device *, void *);
+int	xive_activate(struct device *, int);
 
 struct cfattach	xive_ca = {
-	sizeof (struct xive_softc), xive_match, xive_attach
+	sizeof (struct xive_softc), xive_match, xive_attach, NULL,
+	xive_activate
 };
 
 struct cfdriver xive_cd = {
@@ -140,8 +150,9 @@ struct cfdriver xive_cd = {
 };
 
 void	xive_hvi(struct trapframe *);
-void 	*xive_intr_establish(uint32_t, int, int,
+void 	*xive_intr_establish(uint32_t, int, int, struct cpu_info *,
 	    int (*)(void *), void *, const char *);
+void	xive_intr_send_ipi(void *);
 void	xive_setipl(int);
 
 int
@@ -157,7 +168,8 @@ xive_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct xive_softc *sc = (struct xive_softc *)self;
 	struct fdt_attach_args *faa = aux;
-	struct cpu_info *ci = curcpu();
+	struct cpu_info *ci;
+	CPU_INFO_ITERATOR cii;
 	int64_t error;
 	int i;
 
@@ -184,25 +196,29 @@ xive_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
-	for (i = 0; i < XIVE_NUM_PRIORITIES; i++) {
-		sc->sc_eq[i].eq_queue = xive_dmamem_alloc(sc->sc_dmat,
-		    1 << XIVE_EQ_SIZE, 1 << XIVE_EQ_SIZE);
-		if (sc->sc_eq[i].eq_queue == NULL) {
-			printf("%s: can't allocate event queue\n",
-			    sc->sc_dev.dv_xname);
-			return;
-		}
+	CPU_INFO_FOREACH(cii, ci) {
+		for (i = 0; i < XIVE_NUM_PRIORITIES; i++) {
+			sc->sc_eq[ci->ci_cpuid][i].eq_queue =
+			    xive_dmamem_alloc(sc->sc_dmat,
+			    1 << XIVE_EQ_SIZE, 1 << XIVE_EQ_SIZE);
+			if (sc->sc_eq[ci->ci_cpuid][i].eq_queue == NULL) {
+				printf("%s: can't allocate event queue\n",
+				    sc->sc_dev.dv_xname);
+				return;
+			}
 
-		error = opal_xive_set_queue_info(mfpir(), i,
-		    XIVE_DMA_DVA(sc->sc_eq[i].eq_queue), XIVE_EQ_SIZE,
-		    OPAL_XIVE_EQ_ENABLED | OPAL_XIVE_EQ_ALWAYS_NOTIFY);
-		if (error != OPAL_SUCCESS) {
-			printf("%s: can't enable event queue\n",
-			    sc->sc_dev.dv_xname);
-			return;
-		}
+			error = opal_xive_set_queue_info(ci->ci_pir, i,
+			    XIVE_DMA_DVA(sc->sc_eq[ci->ci_cpuid][i].eq_queue),
+			    XIVE_EQ_SIZE, OPAL_XIVE_EQ_ENABLED |
+			    OPAL_XIVE_EQ_ALWAYS_NOTIFY);
+			if (error != OPAL_SUCCESS) {
+				printf("%s: can't enable event queue\n",
+				    sc->sc_dev.dv_xname);
+				return;
+			}
 
-		sc->sc_eq[i].eq_gen = XIVE_EQ_GEN_MASK;
+			sc->sc_eq[ci->ci_cpuid][i].eq_gen = XIVE_EQ_GEN_MASK;
+		}
 	}
 
 	/* There can be only one. */
@@ -211,14 +227,28 @@ xive_attach(struct device *parent, struct device *self, void *aux)
 
 	_hvi = xive_hvi;
 	_intr_establish = xive_intr_establish;
+	_intr_send_ipi = xive_intr_send_ipi;
 	_setipl = xive_setipl;
 
 	/* Synchronize hardware state to software state. */
-	xive_write_1(sc, XIVE_TM_CPPR_HV, ci->ci_cpl);
+	xive_write_1(sc, XIVE_TM_CPPR_HV, xive_prio(curcpu()->ci_cpl));
+	eieio();
+}
+
+int
+xive_activate(struct device *self, int act)
+{
+	switch (act) {
+	case DVACT_POWERDOWN:
+		opal_xive_reset(OPAL_XIVE_MODE_EMU);
+		break;
+	}
+
+	return 0;
 }
 
 void *
-xive_intr_establish(uint32_t girq, int type, int level,
+xive_intr_establish(uint32_t girq, int type, int level, struct cpu_info *ci,
     int (*func)(void *), void *arg, const char *name)
 {
 	struct xive_softc *sc = xive_sc;
@@ -228,6 +258,9 @@ xive_intr_establish(uint32_t girq, int type, int level,
 	uint64_t flags, eoi_page, trig_page;
 	uint32_t esb_shift, lirq;
 	int64_t error;
+
+	if (ci == NULL)
+		ci = cpu_info_primary;
 
 	/* Allocate a logical IRQ. */
 	if (sc->sc_lirq >= XIVE_NUM_IRQS)
@@ -255,7 +288,7 @@ xive_intr_establish(uint32_t girq, int type, int level,
 		return NULL;
 	}
 
-	error = opal_xive_set_irq_config(girq, mfpir(),
+	error = opal_xive_set_irq_config(girq, ci->ci_pir,
 	    xive_prio(level & IPL_IRQMASK), lirq);
 	if (error != OPAL_SUCCESS) {
 		if (trig != eoi && trig != 0)
@@ -274,9 +307,25 @@ xive_intr_establish(uint32_t girq, int type, int level,
 	ih->ih_esb_eoi = eoi;
 	ih->ih_esb_trig = trig;
 	ih->ih_xive_flags = flags;
-
 	sc->sc_handler[lirq] = ih;
+
+	if (name != NULL)
+		evcount_attach(&ih->ih_count, name, &ih->ih_girq);
+
+	xive_unmask(sc, ih);
+
 	return ih;
+}
+
+void
+xive_intr_send_ipi(void *cookie)
+{
+	struct xive_softc *sc = xive_sc;
+	struct intrhand *ih = cookie;
+
+	if (ih && ih->ih_esb_trig)
+		bus_space_write_8(sc->sc_iot, ih->ih_esb_trig,
+		    XIVE_ESB_STORE_TRIGGER, 0);
 }
 
 void
@@ -284,10 +333,19 @@ xive_eoi(struct xive_softc *sc, struct intrhand *ih)
 {
 	uint64_t eoi;
 
-	eoi = bus_space_read_8(sc->sc_iot, ih->ih_esb_eoi, XIVE_ESB_SET_PQ_00);
-	if ((eoi & XIVE_ESB_VAL_Q) && ih->ih_esb_trig != 0)
-		bus_space_write_8(sc->sc_iot, ih->ih_esb_trig,
-		    XIVE_ESB_STORE_TRIGGER, 0);
+	if (ih->ih_xive_flags & OPAL_XIVE_IRQ_STORE_EOI) {
+		bus_space_write_8(sc->sc_iot, ih->ih_esb_eoi,
+		    XIVE_ESB_STORE_EOI, 0);
+	} else if (ih->ih_xive_flags & OPAL_XIVE_IRQ_LSI) {
+		eoi = bus_space_read_8(sc->sc_iot, ih->ih_esb_eoi,
+		    XIVE_ESB_LOAD_EOI);
+	} else {
+		eoi = bus_space_read_8(sc->sc_iot, ih->ih_esb_eoi,
+		    XIVE_ESB_SET_PQ_00);
+		if ((eoi & XIVE_ESB_VAL_Q) && ih->ih_esb_trig != 0)
+			bus_space_write_8(sc->sc_iot, ih->ih_esb_trig,
+			    XIVE_ESB_STORE_TRIGGER, 0);
+	}
 }
 
 void
@@ -301,8 +359,10 @@ xive_setipl(int new)
 
 	msr = intr_disable();
 	ci->ci_cpl = new;
-	if (newprio != oldprio)
+	if (newprio != oldprio) {
 		xive_write_1(sc, XIVE_TM_CPPR_HV, newprio);
+		eieio();
+	}
 	intr_restore(msr);
 }
 
@@ -325,12 +385,6 @@ xive_hvi(struct trapframe *frame)
 	while (1) {
 		ack = xive_read_2(sc, XIVE_TM_SPC_ACK_HV);
 
-		/* Synchronize software state to hardware state. */
-		cppr = ack;
-		new = xive_ipl(cppr);
-		KASSERT(new >= ci->ci_cpl);
-		ci->ci_cpl = new;
-
 		he = (ack & XIVE_TM_SPC_ACK_HE_MASK);
 		if (he == XIVE_TM_SPC_ACK_HE_NONE)
 			break;
@@ -338,19 +392,40 @@ xive_hvi(struct trapframe *frame)
 
 		eieio();
 
+		/* Synchronize software state to hardware state. */
+		cppr = ack;
+		new = xive_ipl(cppr);
+		ci->ci_cpl = new;
+		KASSERT(new > old);
+
 		KASSERT(cppr < XIVE_NUM_PRIORITIES);
-		eq = &sc->sc_eq[cppr];
+		eq = &sc->sc_eq[ci->ci_cpuid][cppr];
 		event = XIVE_DMA_KVA(eq->eq_queue);
 		while ((event[eq->eq_idx] & XIVE_EQ_GEN_MASK) == eq->eq_gen) {
 			lirq = event[eq->eq_idx] & ~XIVE_EQ_GEN_MASK;
 			KASSERT(lirq < XIVE_NUM_IRQS);
 			ih = sc->sc_handler[lirq];
 			if (ih != NULL) {
+#ifdef MULTIPROCESSOR
+				int need_lock;
+
+				if (ih->ih_flags & IPL_MPSAFE)
+					need_lock = 0;
+				else
+					need_lock = (ih->ih_ipl < IPL_SCHED);
+
+				if (need_lock)
+					KERNEL_LOCK();
+#endif
 				intr_enable();
 				handled = ih->ih_func(ih->ih_arg);
 				intr_disable();
 				if (handled)
 					ih->ih_count.ec_count++;
+#ifdef MULTIPROCESSOR
+				if (need_lock)
+					KERNEL_UNLOCK();
+#endif
 				xive_eoi(sc, ih);
 			}
 			eq->eq_idx = (eq->eq_idx + 1) & XIVE_EQ_IDX_MASK;
@@ -359,10 +434,11 @@ xive_hvi(struct trapframe *frame)
 			if (eq->eq_idx == 0)
 				eq->eq_gen ^= XIVE_EQ_GEN_MASK;
 		}
-	}
 
-	ci->ci_cpl = old;
-	xive_write_1(sc, XIVE_TM_CPPR_HV, xive_prio(old));
+		ci->ci_cpl = old;
+		xive_write_1(sc, XIVE_TM_CPPR_HV, xive_prio(old));
+		eieio();
+	}
 }
 
 struct xive_dmamem *

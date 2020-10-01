@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.246 2020/06/18 14:05:21 mvs Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.249 2020/09/29 11:48:54 claudio Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <sys/pool.h>
 #include <sys/atomic.h>
 #include <sys/rwlock.h>
+#include <sys/time.h>
 
 #ifdef DDB
 #include <machine/db_machdep.h>
@@ -93,6 +94,12 @@ const struct filterops sowrite_filtops = {
 	.f_event	= filt_sowrite,
 };
 
+const struct filterops soexcept_filtops = {
+	.f_flags	= FILTEROP_ISFD,
+	.f_attach	= NULL,
+	.f_detach	= filt_sordetach,
+	.f_event	= filt_soread,
+};
 
 #ifndef SOMINCONN
 #define SOMINCONN 80
@@ -185,7 +192,9 @@ sobind(struct socket *so, struct mbuf *nam, struct proc *p)
 int
 solisten(struct socket *so, int backlog)
 {
-	int s, error;
+	int error;
+
+	soassertlocked(so);
 
 	if (so->so_state & (SS_ISCONNECTED|SS_ISCONNECTING|SS_ISDISCONNECTING))
 		return (EINVAL);
@@ -193,13 +202,10 @@ solisten(struct socket *so, int backlog)
 	if (isspliced(so) || issplicedback(so))
 		return (EOPNOTSUPP);
 #endif /* SOCKET_SPLICE */
-	s = solock(so);
 	error = (*so->so_proto->pr_usrreq)(so, PRU_LISTEN, NULL, NULL, NULL,
 	    curproc);
-	if (error) {
-		sounlock(so, s);
+	if (error)
 		return (error);
-	}
 	if (TAILQ_FIRST(&so->so_q) == NULL)
 		so->so_options |= SO_ACCEPTCONN;
 	if (backlog < 0 || backlog > somaxconn)
@@ -207,7 +213,6 @@ solisten(struct socket *so, int backlog)
 	if (backlog < sominconn)
 		backlog = sominconn;
 	so->so_qlimit = backlog;
-	sounlock(so, s);
 	return (0);
 }
 
@@ -1193,7 +1198,7 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 	if (max && max < 0)
 		return (EINVAL);
 
-	if (tv && (tv->tv_sec < 0 || tv->tv_usec < 0))
+	if (tv && (tv->tv_sec < 0 || !timerisvalid(tv)))
 		return (EINVAL);
 
 	/* Find sosp, the drain socket where data will be spliced into. */
@@ -2026,6 +2031,10 @@ soo_kqfilter(struct file *fp, struct knote *kn)
 		kn->kn_fop = &sowrite_filtops;
 		sb = &so->so_snd;
 		break;
+	case EVFILT_EXCEPT:
+		kn->kn_fop = &soexcept_filtops;
+		sb = &so->so_rcv;
+		break;
 	default:
 		return (EINVAL);
 	}
@@ -2052,7 +2061,7 @@ int
 filt_soread(struct knote *kn, long hint)
 {
 	struct socket *so = kn->kn_fp->f_data;
-	int s, rv;
+	int s, rv = 0;
 
 	if ((hint & NOTE_SUBMIT) == 0)
 		s = solock(so);
@@ -2062,7 +2071,13 @@ filt_soread(struct knote *kn, long hint)
 		rv = 0;
 	} else
 #endif /* SOCKET_SPLICE */
-	if (so->so_state & SS_CANTRCVMORE) {
+	if (kn->kn_sfflags & NOTE_OOB) {
+		if (so->so_oobmark || (so->so_state & SS_RCVATMARK)) {
+			kn->kn_fflags |= NOTE_OOB;
+			kn->kn_data -= so->so_oobmark;
+			rv = 1;
+		}
+	} else if (so->so_state & SS_CANTRCVMORE) {
 		kn->kn_flags |= EV_EOF;
 		if (kn->kn_flags & __EV_POLL) {
 			if (so->so_state & SS_ISDISCONNECTED)

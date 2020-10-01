@@ -50,7 +50,7 @@
 /syslog.h/1.4/Mon Mar 21 22:41:28 2016//
 /termios.h/1.2/Mon Sep 14 08:13:01 2015//
 /tib.h/1.3/Sun Jun  2 01:03:01 2019//
-/time.h/1.6/Tue Oct 30 16:28:42 2018//
+/time.h/1.7/Mon Jul  6 13:33:06 2020//
 /ttyent.h/1.1/Sun Sep 13 11:47:54 2015//
 /unistd.h/1.11/Fri Jul 13 09:25:22 2018//
 /utime.h/1.1/Sun Sep 13 11:43:03 2015//

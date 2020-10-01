@@ -1,0 +1,19 @@
+/env-args-last-is-assign.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-args-last-is-u-arg.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-args-last-is-u.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-args-nested-none.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-args-none.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-cd.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-colon.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-echo.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-env.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-export.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-mkdir.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-not-builtin.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-calls-rm.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env-u.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/env.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/lit.cfg/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/mixed.txt/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+/print_environment.py/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+D

@@ -4,8 +4,8 @@
 /lib2funcs.asm/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /linux-unwind.h/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /milli64.S/1.1.1.1/Thu Oct 15 17:11:29 2009//
-/openbsd.h/1.8/Thu Apr  2 11:54:27 2015//
-/openbsd64.h/1.4/Sun Feb  3 20:47:57 2013//
+/openbsd.h/1.9/Wed Sep 23 17:01:51 2020//
+/openbsd64.h/1.5/Wed Sep 23 17:01:51 2020//
 /pa-64.h/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /pa-hpux.h/1.1.1.1/Thu Oct 15 17:11:29 2009//
 /pa-hpux.opt/1.1.1.1/Thu Oct 15 17:11:29 2009//

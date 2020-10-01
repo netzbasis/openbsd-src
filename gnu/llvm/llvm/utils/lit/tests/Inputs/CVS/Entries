@@ -1,0 +1,26 @@
+/lit.cfg/1.1.1.1/Mon Aug  3 14:30:27 2020/-ko/
+D/config-map-discovery////
+D/discovery////
+D/exec-discovery////
+D/exec-discovery-in-tree////
+D/fake-externals////
+D/googletest-format////
+D/googletest-timeout////
+D/googletest-upstream-format////
+D/lit-opts////
+D/max-failures////
+D/parallelism-groups////
+D/progress-bar////
+D/py-config-discovery////
+D/shtest-env////
+D/shtest-format////
+D/shtest-not////
+D/shtest-output-printing////
+D/shtest-run-at-line////
+D/shtest-shell////
+D/shtest-timeout////
+D/test-data////
+D/test-data-micro////
+D/testrunner-custom-parsers////
+D/unittest-adaptor////
+D/xunit-output////

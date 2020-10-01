@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: sysupgrade.sh,v 1.38 2020/06/17 16:29:02 florian Exp $
+# $OpenBSD: sysupgrade.sh,v 1.40 2020/09/05 16:52:25 florian Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015 Robert Peichaer <rpe@openbsd.org>
@@ -51,10 +51,7 @@ unpriv()
 	fi
 	(($# >= 1))
 
-	# XXX ksh(1) bug; send error code to the caller instead of failing hard
-	set +e
 	eval su -s /bin/sh ${_user} -c "'$@'" || _rc=$?
-	set -e
 
 	[[ -n ${_file} ]] && chown root "${_file}"
 
@@ -180,7 +177,7 @@ fi
 
 cat <<__EOT >/auto_upgrade.conf
 Location of sets = disk
-Pathname to the sets = /home/_sysupgrade/
+Pathname to the sets = ${SETSDIR}/
 Set name(s) = done
 Directory does not contain SHA256.sig. Continue without verification = yes
 __EOT
@@ -188,7 +185,7 @@ __EOT
 if ! ${KEEP}; then
 	CLEAN=$(echo SHA256 ${SETS} | sed -e 's/ /,/g')
 	cat <<__EOT > /etc/rc.firsttime
-rm -f /home/_sysupgrade/{${CLEAN}}
+rm -f ${SETSDIR}/{${CLEAN}}
 __EOT
 fi
 

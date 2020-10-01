@@ -9,7 +9,7 @@
 /cdefs.h/1.2/Thu Mar 28 17:30:45 2013//
 /clock.h/1.2/Thu Jun 26 05:42:12 2008//
 /cpgreg.h/1.1.1.1/Fri Oct  6 21:02:55 2006//
-/cpu.h/1.29/Sun May 31 06:23:58 2020//
+/cpu.h/1.30/Fri Sep 25 14:42:39 2020//
 /cputypes.h/1.2/Thu Jun 26 05:42:12 2008//
 /db_machdep.h/1.10/Thu Nov  7 16:08:07 2019//
 /devreg.h/1.3/Thu Jun 26 05:42:12 2008//
@@ -46,7 +46,6 @@
 /sh_opcode.h/1.1.1.1/Fri Oct  6 21:02:55 2006//
 /signal.h/1.7/Tue May 10 18:39:47 2016//
 /spinlock.h/1.6/Tue Sep  5 02:40:54 2017//
-/stdarg.h/1.3/Wed Mar  2 18:31:58 2011//
 /tcb.h/1.2/Wed May 18 20:21:13 2016//
 /tmureg.h/1.1.1.1/Fri Oct  6 21:02:55 2006//
 /trap.h/1.4/Wed Mar 23 16:54:37 2011//

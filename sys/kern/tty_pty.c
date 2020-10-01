@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.100 2020/06/15 15:29:40 mpi Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.104 2020/09/09 16:29:14 mpi Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -289,8 +289,7 @@ ptsread(dev_t dev, struct uio *uio, int flag)
 again:
 	if (pti->pt_flags & PF_REMOTE) {
 		while (isbackground(pr, tp)) {
-			if ((pr->ps_sigacts->ps_sigignore & sigmask(SIGTTIN)) ||
-			    (p->p_sigmask & sigmask(SIGTTIN)) ||
+			if (sigismasked(p, SIGTTIN) ||
 			    pr->ps_pgrp->pg_jobc == 0 ||
 			    pr->ps_flags & PS_PPWAIT)
 				return (EIO);
@@ -564,7 +563,9 @@ again:
 				wakeup(&tp->t_rawq);
 				goto block;
 			}
-			(*linesw[tp->t_line].l_rint)(*cp++, tp);
+			if ((*linesw[tp->t_line].l_rint)(*cp++, tp) == 1 &&
+			    tsleep(tp, TTIPRI | PCATCH, "ttyretype", 1) == EINTR)
+				goto interrupt;
 			cnt++;
 			cc--;
 		}
@@ -591,6 +592,7 @@ block:
 	if (error == 0)
 		goto again;
 
+interrupt:
 	/* adjust for data copied in but not written */
 	uio->uio_resid += cc;
 done:
@@ -668,6 +670,16 @@ filt_ptcread(struct knote *kn, long hint)
 	tp = pti->pt_tty;
 	kn->kn_data = 0;
 
+	if (kn->kn_sfflags & NOTE_OOB) {
+		/* If in packet or user control mode, check for data. */
+		if (((pti->pt_flags & PF_PKT) && pti->pt_send) ||
+		    ((pti->pt_flags & PF_UCNTL) && pti->pt_ucntl)) {
+			kn->kn_fflags |= NOTE_OOB;
+			kn->kn_data = 1;
+			return (1);
+		}
+		return (0);
+	}
 	if (ISSET(tp->t_state, TS_ISOPEN)) {
 		if (!ISSET(tp->t_state, TS_TTSTOP))
 			kn->kn_data = tp->t_outq.c_cc;
@@ -733,6 +745,13 @@ const struct filterops ptcwrite_filtops = {
 	.f_event	= filt_ptcwrite,
 };
 
+const struct filterops ptcexcept_filtops = {
+	.f_flags	= FILTEROP_ISFD,
+	.f_attach	= NULL,
+	.f_detach	= filt_ptcrdetach,
+	.f_event	= filt_ptcread,
+};
+
 int
 ptckqfilter(dev_t dev, struct knote *kn)
 {
@@ -748,6 +767,10 @@ ptckqfilter(dev_t dev, struct knote *kn)
 	case EVFILT_WRITE:
 		klist = &pti->pt_selw.si_note;
 		kn->kn_fop = &ptcwrite_filtops;
+		break;
+	case EVFILT_EXCEPT:
+		klist = &pti->pt_selr.si_note;
+		kn->kn_fop = &ptcexcept_filtops;
 		break;
 	default:
 		return (EINVAL);

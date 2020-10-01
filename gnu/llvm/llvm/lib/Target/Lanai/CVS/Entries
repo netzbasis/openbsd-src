@@ -1,0 +1,40 @@
+/CMakeLists.txt/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LLVMBuild.txt/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/Lanai.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/Lanai.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiAluCode.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiAsmPrinter.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiCallingConv.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiCondCode.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiDelaySlotFiller.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiFrameLowering.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiFrameLowering.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiISelDAGToDAG.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiISelLowering.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiISelLowering.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiInstrFormats.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiInstrInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiInstrInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiInstrInfo.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiMCInstLower.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiMCInstLower.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiMachineFunctionInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiMachineFunctionInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiMemAluCombiner.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiRegisterInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiRegisterInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiRegisterInfo.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiSchedule.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiSelectionDAGInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiSelectionDAGInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiSubtarget.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiSubtarget.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiTargetMachine.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiTargetMachine.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiTargetObjectFile.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiTargetObjectFile.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LanaiTargetTransformInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+D/AsmParser////
+D/Disassembler////
+D/MCTargetDesc////
+D/TargetInfo////

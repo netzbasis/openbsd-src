@@ -1,0 +1,25 @@
+/.arcconfig/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/.clang-format/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/.clang-tidy/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/CMakeLists.txt/1.1.1.2/Sun Aug  9 15:50:00 2020/-ko/
+/CODE_OWNERS.TXT/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/CREDITS.TXT/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/LICENSE.TXT/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/LLVMBuild.txt/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/README.txt/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/RELEASE_TESTERS.TXT/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/configure/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+/llvm.spec.in/1.1.1.1/Mon Aug  3 14:30:22 2020/-ko/
+D/benchmarks////
+D/bindings////
+D/cmake////
+D/docs////
+D/examples////
+D/include////
+D/lib////
+D/projects////
+D/resources////
+D/runtimes////
+D/tools////
+D/unittests////
+D/utils////

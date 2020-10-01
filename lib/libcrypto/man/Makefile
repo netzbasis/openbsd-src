@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.168 2020/06/12 11:37:42 schwarze Exp $
+# $OpenBSD: Makefile,v 1.171 2020/07/23 17:34:53 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -68,6 +68,7 @@ MAN=	\
 	BN_swap.3 \
 	BN_zero.3 \
 	BUF_MEM_new.3 \
+	CMAC_Init.3 \
 	CMS_ContentInfo_new.3 \
 	CMS_add0_cert.3 \
 	CMS_add1_recipient_cert.3 \
@@ -91,6 +92,7 @@ MAN=	\
 	CRYPTO_lock.3 \
 	CRYPTO_memcmp.3 \
 	CRYPTO_set_ex_data.3 \
+	ChaCha.3 \
 	DES_set_key.3 \
 	DH_generate_key.3 \
 	DH_generate_parameters.3 \
@@ -204,6 +206,7 @@ MAN=	\
 	OPENSSL_sk_new.3 \
 	OpenSSL_add_all_algorithms.3 \
 	PEM_ASN1_read.3 \
+	PEM_X509_INFO_read.3 \
 	PEM_bytes_read_bio.3 \
 	PEM_read.3 \
 	PEM_read_bio_PrivateKey.3 \

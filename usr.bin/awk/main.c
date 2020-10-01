@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.40 2020/06/13 01:19:55 millert Exp $	*/
+/*	$OpenBSD: main.c,v 1.45 2020/08/11 16:57:05 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -23,7 +23,7 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ****************************************************************/
 
-const char	*version = "version 20200605";
+const char	*version = "version 20200807";
 
 #define DEBUG
 #include <stdio.h>
@@ -34,7 +34,6 @@ const char	*version = "version 20200605";
 #include <signal.h>
 #include <unistd.h>
 #include "awk.h"
-#include "ytab.h"
 
 extern	char	**environ;
 extern	int	nfields;
@@ -233,7 +232,7 @@ int main(int argc, char *argv[])
 				exit(0);
 			FATAL("no program given");
 		}
-		   DPRINTF( ("program = |%s|\n", argv[1]) );
+		DPRINTF("program = |%s|\n", argv[1]);
 		lexprog = argv[1];
 		argc--;
 		argv++;
@@ -242,7 +241,7 @@ int main(int argc, char *argv[])
 	syminit();
 	compile_time = COMPILING;
 	argv[0] = cmdname;	/* put prog name at front of arglist */
-	   DPRINTF( ("argc=%d, argv[0]=%s\n", argc, argv[0]) );
+	DPRINTF("argc=%d, argv[0]=%s\n", argc, argv[0]);
 	arginit(argc, argv);
 	if (!safe)
 		envinit(environ);
@@ -254,7 +253,7 @@ int main(int argc, char *argv[])
 #endif
 	if (fs)
 		*FS = qstring(fs, '\0');
-	   DPRINTF( ("errorflag=%d\n", errorflag) );
+	DPRINTF("errorflag=%d\n", errorflag);
 	if (errorflag == 0) {
 		compile_time = RUNNING;
 		run(winner);
@@ -289,7 +288,7 @@ int pgetc(void)		/* get 1 character from awk program */
 char *cursource(void)	/* current source file name */
 {
 	if (npfile > 0)
-		return pfile[curpfile];
+		return pfile[curpfile < npfile ? curpfile : curpfile - 1];
 	else
 		return NULL;
 }

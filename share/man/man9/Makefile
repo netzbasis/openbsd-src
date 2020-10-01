@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.303 2020/06/18 07:06:23 fcambus Exp $
+#	$OpenBSD: Makefile,v 1.306 2020/08/01 08:40:20 anton Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -22,7 +22,8 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	ifiq_input.9 ifq_enqueue.9 \
 	ifq_deq_begin.9 imax.9 iic.9 intro.9 inittodr.9 \
 	intr_barrier.9 intrmap_create.9 \
-	KASSERT.9 km_alloc.9 knote.9 kthread.9 ktrace.9 \
+	KASSERT.9 kcov_remote_register.9 km_alloc.9 knote.9 kstat_create.9 \
+	kstat_kv_init.9 kthread.9 ktrace.9 \
 	lim_cur.9 loadfirmware.9 log.9 \
 	malloc.9 membar_sync.9 memcmp.9 mbuf.9 mbuf_tags.9 md5.9 mi_switch.9 \
 	microtime.9 ml_init.9 mq_init.9 mutex.9 \
@@ -39,7 +40,7 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	spl.9 srp_enter.9 srpl_rc_init.9 startuphook_establish.9 socreate.9 \
 	sosplice.9 stoeplitz_to_key.9 strcmp.9 style.9 syscall.9 sysctl_int.9 \
 	task_add.9 tc_init.9 tfind.9 thread_fork.9 \
-	time_second.9 timeout.9 tsleep.9 tvtohz.9 \
+	timeout.9 tsleep.9 tvtohz.9 \
 	uiomove.9 \
 	usb_add_task.9 usbd_close_pipe.9 usbd_open_pipe.9 \
 	usbd_ref_wait.9 usbd_transfer.9 \

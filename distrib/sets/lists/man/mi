@@ -244,6 +244,7 @@
 ./usr/share/man/man1/perl5300delta.1
 ./usr/share/man/man1/perl5301delta.1
 ./usr/share/man/man1/perl5302delta.1
+./usr/share/man/man1/perl5303delta.1
 ./usr/share/man/man1/perl561delta.1
 ./usr/share/man/man1/perl56delta.1
 ./usr/share/man/man1/perl581delta.1
@@ -1107,6 +1108,7 @@
 ./usr/share/man/man3p/warnings::register.3p
 ./usr/share/man/man4/aac.4
 ./usr/share/man/man4/abcrtc.4
+./usr/share/man/man4/abl.4
 ./usr/share/man/man4/ac97.4
 ./usr/share/man/man4/acphy.4
 ./usr/share/man/man4/acpi.4
@@ -1651,6 +1653,7 @@
 ./usr/share/man/man4/mviic.4
 ./usr/share/man/man4/mvneta.4
 ./usr/share/man/man4/mvpinctrl.4
+./usr/share/man/man4/mvpp.4
 ./usr/share/man/man4/mvrng.4
 ./usr/share/man/man4/mvrtc.4
 ./usr/share/man/man4/mvspi.4
@@ -2110,6 +2113,7 @@
 ./usr/share/man/man5/bsd.port.arch.mk.5
 ./usr/share/man/man5/bsd.port.mk.5
 ./usr/share/man/man5/bsd.regress.mk.5
+./usr/share/man/man5/bt.5
 ./usr/share/man/man5/changelist.5
 ./usr/share/man/man5/chio.conf.5
 ./usr/share/man/man5/core.5
@@ -2294,6 +2298,7 @@
 ./usr/share/man/man8/bgplgsh.8
 ./usr/share/man/man8/bioctl.8
 ./usr/share/man/man8/boot_config.8
+./usr/share/man/man8/btrace.8
 ./usr/share/man/man8/bulk.8
 ./usr/share/man/man8/chat.8
 ./usr/share/man/man8/chown.8
@@ -2387,6 +2392,7 @@
 ./usr/share/man/man8/locate.updatedb.8
 ./usr/share/man/man8/login_chpass.8
 ./usr/share/man/man8/login_lchpass.8
+./usr/share/man/man8/login_ldap.8
 ./usr/share/man/man8/login_passwd.8
 ./usr/share/man/man8/login_radius.8
 ./usr/share/man/man8/login_reject.8
@@ -2473,6 +2479,7 @@
 ./usr/share/man/man8/ping.8
 ./usr/share/man/man8/pkg_check.8
 ./usr/share/man/man8/portmap.8
+./usr/share/man/man8/powerpc64/eeprom.8
 ./usr/share/man/man8/pppd.8
 ./usr/share/man/man8/pppstats.8
 ./usr/share/man/man8/pstat.8

@@ -1,4 +1,4 @@
-/*	$OpenBSD: awk.h,v 1.25 2020/06/13 01:21:01 millert Exp $	*/
+/*	$OpenBSD: awk.h,v 1.27 2020/08/28 16:29:16 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -49,10 +49,9 @@ typedef	unsigned char uschar;
 */
 #define	DEBUG
 #ifdef	DEBUG
-			/* uses have to be doubly parenthesized */
-#	define	DPRINTF(x)	if (dbg) printf x
+#	define	DPRINTF(...)	if (dbg) printf(__VA_ARGS__)
 #else
-#	define	DPRINTF(x)
+#	define	DPRINTF(...)
 #endif
 
 extern enum compile_states {
@@ -161,6 +160,7 @@ extern Cell	*symtabloc;	/* SYMTAB */
 #define FRSHIFT	20
 #define FSYSTIME	21
 #define FSTRFTIME	22
+#define FMKTIME	23
 
 /* Node:  parse tree is made of nodes, with Cell's at bottom */
 

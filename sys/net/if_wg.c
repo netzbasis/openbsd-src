@@ -1,3 +1,5 @@
+/*	$OpenBSD: if_wg.c,v 1.14 2020/09/01 19:06:59 tb Exp $ */
+
 /*
  * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
  * Copyright (C) 2019-2020 Matt Dunwoodie <ncon@noconroy.net>
@@ -16,6 +18,7 @@
  */
 
 #include "bpfilter.h"
+#include "pf.h"
 
 #include <sys/types.h>
 #include <sys/systm.h>
@@ -1658,19 +1661,15 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 		goto error;
 	}
 
-	/*
-	 * We can mark incoming packet csum OK. We mark all flags OK
-	 * irrespective to the packet type.
-	 */
-	m->m_pkthdr.csum_flags |= (M_IPV4_CSUM_IN_OK | M_TCP_CSUM_IN_OK |
-	    M_UDP_CSUM_IN_OK | M_ICMP_CSUM_IN_OK);
-	m->m_pkthdr.csum_flags &= ~(M_IPV4_CSUM_IN_BAD | M_TCP_CSUM_IN_BAD |
-	    M_UDP_CSUM_IN_BAD | M_ICMP_CSUM_IN_BAD);
+	/* tunneled packet was not offloaded */
+	m->m_pkthdr.csum_flags = 0;
 
 	m->m_pkthdr.ph_ifidx = sc->sc_if.if_index;
 	m->m_pkthdr.ph_rtableid = sc->sc_if.if_rdomain;
 	m->m_flags &= ~(M_MCAST | M_BCAST);
+#if NPF > 0
 	pf_pkt_addr_changed(m);
+#endif /* NPF > 0 */
 
 done:
 	t->t_mbuf = m;
@@ -1830,8 +1829,8 @@ wg_queue_out(struct wg_softc *sc, struct wg_peer *peer)
 
 	/*
 	 * We delist all staged packets and then add them to the queues. This
-	 * can race with wg_start when called from wg_send_keepalive, however
-	 * wg_start will not race as it is serialised.
+	 * can race with wg_qstart when called from wg_send_keepalive, however
+	 * wg_qstart will not race as it is serialised.
 	 */
 	mq_delist(&peer->p_stage_queue, &ml);
 	ml_init(&ml_free);
@@ -2023,7 +2022,13 @@ wg_input(void *_sc, struct mbuf *m, struct ip *ip, struct ip6_hdr *ip6,
 	/* m has a IP/IPv6 header of hlen length, we don't need it anymore. */
 	m_adj(m, hlen);
 
-	if (m_defrag(m, M_NOWAIT) != 0)
+	/*
+	 * Ensure mbuf is contiguous over full length of packet. This is done
+	 * os we can directly read the handshake values in wg_handshake, and so
+	 * we can decrypt a transport packet by passing a single buffer to
+	 * noise_remote_decrypt in wg_decap.
+	 */
+	if ((m = m_pullup(m, m->m_pkthdr.len)) == NULL)
 		return NULL;
 
 	if ((m->m_pkthdr.len == sizeof(struct wg_pkt_initiation) &&
@@ -2065,8 +2070,9 @@ wg_input(void *_sc, struct mbuf *m, struct ip *ip, struct ip6_hdr *ip6,
 }
 
 void
-wg_start(struct ifnet *ifp)
+wg_qstart(struct ifqueue *ifq)
 {
+	struct ifnet		*ifp = ifq->ifq_if;
 	struct wg_softc		*sc = ifp->if_softc;
 	struct wg_peer		*peer;
 	struct wg_tag		*t;
@@ -2077,11 +2083,10 @@ wg_start(struct ifnet *ifp)
 
 	/*
 	 * We should be OK to modify p_start_list, p_start_onlist in this
-	 * function as the interface is not IFXF_MPSAFE and therefore should
-	 * only be one instance of this function running at a time. These
-	 * values are not modified anywhere else.
+	 * function as there should only be one ifp->if_qstart invoked at a
+	 * time.
 	 */
-	while ((m = ifq_dequeue(&ifp->if_snd)) != NULL) {
+	while ((m = ifq_dequeue(ifq)) != NULL) {
 		t = wg_tag_get(m);
 		peer = t->t_peer;
 		if (mq_push(&peer->p_stage_queue, m) != 0)
@@ -2161,7 +2166,7 @@ wg_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 	 * delayed packet without doing some refcnting. If a peer is removed
 	 * while a delayed holds a reference, bad things will happen. For the
 	 * time being, delayed packets are unsupported. This may be fixed with
-	 * another aip_lookup in wg_start, or refcnting as mentioned before.
+	 * another aip_lookup in wg_qstart, or refcnting as mentioned before.
 	 */
 	if (m->m_pkthdr.pf.delay > 0) {
 		DPRINTF(sc, "PF Delay Unsupported");
@@ -2176,7 +2181,7 @@ wg_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 
 	/*
 	 * We still have an issue with ifq that will count a packet that gets
-	 * dropped in wg_start, or not encrypted. These get counted as
+	 * dropped in wg_qstart, or not encrypted. These get counted as
 	 * ofails or oqdrops, so the packet gets counted twice.
 	 */
 	return if_enqueue(ifp, m);
@@ -2450,10 +2455,14 @@ wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	switch (cmd) {
 	case SIOCSWG:
+		NET_UNLOCK();
 		ret = wg_ioctl_set(sc, (struct wg_data_io *) data);
+		NET_LOCK();
 		break;
 	case SIOCGWG:
+		NET_UNLOCK();
 		ret = wg_ioctl_get(sc, (struct wg_data_io *) data);
+		NET_LOCK();
 		break;
 	/* Interface IOCTLs */
 	case SIOCSIFADDR:
@@ -2644,14 +2653,15 @@ wg_clone_create(struct if_clone *ifc, int unit)
 
 	ifp->if_mtu = DEFAULT_MTU;
 	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST | IFF_NOARP;
-	ifp->if_xflags = IFXF_CLONED;
+	ifp->if_xflags = IFXF_CLONED | IFXF_MPSAFE;
+	ifp->if_txmit = 64; /* Keep our workers active for longer. */
 
 	ifp->if_ioctl = wg_ioctl;
-	ifp->if_start = wg_start;
+	ifp->if_qstart = wg_qstart;
 	ifp->if_output = wg_output;
 
 	ifp->if_type = IFT_WIREGUARD;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifp->if_rtrequest = p2p_rtrequest;
 
 	if_attach(ifp);
 	if_alloc_sadl(ifp);

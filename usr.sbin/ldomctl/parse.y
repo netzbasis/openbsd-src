@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.20 2020/05/23 13:19:13 kn Exp $	*/
+/*	$OpenBSD: parse.y,v 1.22 2020/09/14 18:09:57 kn Exp $	*/
 
 /*
  * Copyright (c) 2012 Mark Kettenis <kettenis@openbsd.org>
@@ -80,7 +80,7 @@ struct vnet_opts {
 	const char	*devalias;
 } vnet_opts;
 
-void		vcput_opts_default(void);
+void		vcpu_opts_default(void);
 void		vdisk_opts_default(void);
 void		vnet_opts_default(void);
 
@@ -181,12 +181,22 @@ domainopts	: VCPU vcpu {
 			domain->memory = $2;
 		}
 		| VDISK STRING vdisk_opts {
+			if (strcmp(domain->name, "primary") == 0) {
+				yyerror("vdisk option invalid for primary"
+				    " domain");
+				YYERROR;
+			}
 			struct vdisk *vdisk = xmalloc(sizeof(struct vdisk));
 			vdisk->path = $2;
 			vdisk->devalias = $3.devalias;
 			SIMPLEQ_INSERT_TAIL(&domain->vdisk_list, vdisk, entry);
 		}
 		| VNET vnet_opts {
+			if (strcmp(domain->name, "primary") == 0) {
+				yyerror("vnet option invalid for primary"
+				    " domain");
+				YYERROR;
+			}
 			struct vnet *vnet = xmalloc(sizeof(struct vnet));
 			vnet->mac_addr = $2.mac_addr;
 			vnet->mtu = $2.mtu;
@@ -200,6 +210,11 @@ domainopts	: VCPU vcpu {
 			SIMPLEQ_INSERT_TAIL(&domain->var_list, var, entry);
 		}
 		| IODEVICE STRING {
+			if (strcmp(domain->name, "primary") == 0) {
+				yyerror("iodevice option invalid for primary"
+				    " domain");
+				YYERROR;
+			}
 			struct domain *odomain;
 			struct iodev *iodev;
 			SIMPLEQ_FOREACH(odomain, &conf->domain_list, entry)

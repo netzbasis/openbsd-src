@@ -12,7 +12,7 @@
 /dcn20_hubbub.h/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_hubp.c/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_hubp.h/1.1/Mon Jun  8 04:48:02 2020//
-/dcn20_hwseq.c/1.1/Mon Jun  8 04:48:02 2020//
+/dcn20_hwseq.c/1.3/Wed Aug 26 12:44:22 2020//
 /dcn20_hwseq.h/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_init.c/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_init.h/1.1/Mon Jun  8 04:48:02 2020//
@@ -26,7 +26,7 @@
 /dcn20_opp.h/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_optc.c/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_optc.h/1.1/Mon Jun  8 04:48:02 2020//
-/dcn20_resource.c/1.1/Mon Jun  8 04:48:02 2020//
+/dcn20_resource.c/1.3/Wed Aug 26 12:36:55 2020//
 /dcn20_resource.h/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_stream_encoder.c/1.1/Mon Jun  8 04:48:02 2020//
 /dcn20_stream_encoder.h/1.1/Mon Jun  8 04:48:02 2020//

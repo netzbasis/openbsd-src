@@ -1,4 +1,4 @@
-/Makefile/1.6/Sat Jan 11 20:56:26 2020//
+/Makefile/1.7/Tue Sep  1 18:24:10 2020//
 /badspan.in/1.1/Sat Jan 11 20:56:26 2020//
 /badspan.out_ascii/1.1/Sat Jan 11 20:56:26 2020//
 /badspan.out_lint/1.1/Sat Jan 11 20:56:26 2020//
@@ -22,6 +22,11 @@
 /numbers.out_ascii/1.2/Sat Jun 17 22:46:26 2017//
 /shortlines.in/1.2/Sat Jan 11 20:56:26 2020//
 /shortlines.out_ascii/1.2/Sat Jan 11 20:56:26 2020//
+/spacing-nogroff.in/1.1/Tue Sep  1 18:24:10 2020//
+/spacing-nogroff.out_ascii/1.1/Tue Sep  1 18:24:10 2020//
+/spacing-nogroff.out_lint/1.1/Tue Sep  1 18:24:10 2020//
+/spacing.in/1.1/Tue Sep  1 18:24:10 2020//
+/spacing.out_ascii/1.1/Tue Sep  1 18:24:10 2020//
 /span.in/1.5/Tue Jul  4 14:53:27 2017//
 /span.out_ascii/1.4/Sat Jun 17 22:46:26 2017//
 D

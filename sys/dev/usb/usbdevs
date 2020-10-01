@@ -1,4 +1,4 @@
-$OpenBSD: usbdevs,v 1.716 2020/06/17 23:43:08 bru Exp $
+$OpenBSD: usbdevs,v 1.720 2020/08/03 14:25:44 deraadt Exp $
 /* $NetBSD: usbdevs,v 1.322 2003/05/10 17:47:14 hamajima Exp $ */
 
 /*
@@ -406,6 +406,7 @@ vendor NEODIO		0x0aec  Neodio
 vendor OPTION		0x0af0  Option
 vendor ASUS		0x0b05	ASUS
 vendor TODOS		0x0b0c	Todos Data System
+vendor GEARHEAD		0x0b38	Gear Head
 vendor OCT		0x0b39	Omnidirectional Control Technology
 vendor TEKRAM		0x0b3b	Tekram Technology
 vendor HAL		0x0b41	HAL Corporation
@@ -420,6 +421,7 @@ vendor USR		0x0baf	U.S. Robotics
 vendor AMBIT		0x0bb2	Ambit Microsystems
 vendor HTC		0x0bb4	HTC
 vendor REALTEK		0x0bda	Realtek
+vendor ERICSSON		0x0bdb  Ericsson
 vendor MEI		0x0bed	MEI
 vendor ADDONICS2	0x0bf6	Addonics Technology
 vendor FSC		0x0bf8	Fujitsu Siemens Computers
@@ -1564,6 +1566,7 @@ product DLINK DWA125D1		0x330f	DWA-125 rev D1
 product DLINK DWA123D1		0x3310	DWA-123 rev D1
 product DLINK DWA137A1		0x3317	DWA-137 rev A1
 product DLINK DWA131E1		0x3319	DWA-131 rev E1
+product DLINK DWA121B1		0x331b	DWA-121 rev B1
 product DLINK DWA182D1		0x331c	DWA-182 rev D1
 product DLINK DWA171C1		0x331d	DWA-171 rev C1
 product DLINK DWL122		0x3700	DWL-122
@@ -1766,6 +1769,9 @@ product EPSON DX3800		0x0818	Stylus DX3800
 product EPSON DX5000		0x082b	Stylus DX5000
 product EPSON DX6000		0x082e	Stylus DX6000
 product EPSON DX4000		0x082f	Stylus DX4000
+
+/* Ericsson products */
+product ERICSSON F5521GW	0x1911	Mobile Broadband Module
 
 /* e-TEK Labs products */
 product ETEK 1COM		0x8007	Serial
@@ -2049,6 +2055,10 @@ product GARMIN GPSMAP62S	0x2459	GPSmap 62s
 
 /* GCT Semiconductor products */
 product GCTSEMICON INSTALL	0x7f40	GDM720x MASS storage mode	
+
+/* Gear Head products */
+product GEARHEAD GHKB		0x0003	Gear Head Keyboard
+product GEARHEAD GHKB107	0x0010	Gear Head 107-Key Keyboard
 
 /* GEMPLUS products */
 product GEMPLUS PROXPU		0x5501	Prox-PU/CU
@@ -2342,6 +2352,7 @@ product INTEL TESTBOARD		0x9890	82930 test board
 product INTEL2 RMH_1		0x0020	Rate Matching Hub
 product INTEL2 RMH_2		0x0024	Rate Matching Hub
 product INTEL2 BLUETOOTH3	0x0025	Bluetooth
+product INTEL2 BLUETOOTH4	0x0029	Bluetooth
 product INTEL2 BLUETOOTH	0x0a2a	Bluetooth
 product INTEL2 BLUETOOTH2	0x0a2b	Bluetooth
 product INTEL2 RMH_3		0x8000	Rate Matching Hub

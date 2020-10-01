@@ -1,7 +1,15 @@
-/Makefile/1.5/Tue Nov 22 23:06:48 2011//
+/Makefile/1.6/Wed Sep 16 14:02:23 2020//
 D/cansig////
 D/earlysig////
 D/fpsig////
+D/sig-stop////
 D/sigaltstack_fork////
 D/sigfpe////
+D/siginfo-fault////
 D/siginfo_addr////
+D/sigio////
+D/signal-stress////
+D/sigpending////
+D/sigprof////
+D/sigpthread////
+D/sigsuspend////

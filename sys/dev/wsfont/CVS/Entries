@@ -1,12 +1,13 @@
-/bold8x16-iso1.h/1.4/Fri Jan  6 14:55:38 2012//
-/bold8x16.h/1.4/Fri Jan  6 14:55:38 2012//
+/bold8x16-iso1.h/1.5/Wed Jun 24 17:24:35 2020//
+/bold8x16.h/1.5/Wed Jun 24 17:24:35 2020//
 /files.wsfont/1.4/Fri Jan  6 14:55:38 2012//
-/gallant12x22.h/1.5/Fri Jan  6 14:55:38 2012//
-/spleen12x24.h/1.6/Sun Jun 21 19:03:29 2020//
-/spleen16x32.h/1.5/Sun Jun 21 19:03:29 2020//
-/spleen32x64.h/1.6/Sun Jun 21 19:03:29 2020//
-/spleen5x8.h/1.5/Sun Jun 21 19:03:29 2020//
-/spleen8x16.h/1.4/Sun Jun 21 19:03:29 2020//
-/wsfont.c/1.56/Thu Jul 11 18:07:54 2019//
+/gallant12x22.h/1.6/Wed Jun 24 17:24:35 2020//
+/spleen12x24.h/1.8/Mon Jul 20 13:34:31 2020//
+/spleen16x32.h/1.8/Fri Jul 31 20:14:47 2020//
+/spleen32x64.h/1.9/Fri Jul 31 20:14:47 2020//
+/spleen5x8.h/1.8/Mon Jul 20 13:34:31 2020//
+/spleen6x12.h/1.2/Mon Jul 20 13:34:31 2020//
+/spleen8x16.h/1.7/Fri Jul 31 20:14:48 2020//
+/wsfont.c/1.58/Fri Jul 10 08:28:04 2020//
 /wsfont.h/1.12/Thu Jul 11 18:07:54 2019//
 D

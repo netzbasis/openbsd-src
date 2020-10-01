@@ -1,0 +1,18 @@
+/AnalysisDeclContext.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/AnalysisDiagnostic.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/AnyCall.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/BodyFarm.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/CFG.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/CFGStmtMap.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/CallGraph.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/CloneDetection.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/CodeInjector.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/ConstructionContext.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/PathDiagnostic.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/ProgramPoint.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/RetainSummaryManager.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+/SelectorExtras.h/1.1.1.1/Mon Aug  3 14:31:32 2020/-ko/
+D/Analyses////
+D/DomainSpecific////
+D/FlowSensitive////
+D/Support////

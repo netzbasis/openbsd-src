@@ -48,9 +48,9 @@
 /setjmp.h/1.1.1.1/Fri Jul 31 09:26:26 2009//
 /signal.h/1.1.1.1/Fri Jul 31 09:26:26 2009//
 /spinlock.h/1.1.1.1/Fri Jul 31 09:26:26 2009//
-/stdarg.h/1.1.1.1/Fri Jul 31 09:26:26 2009//
 /sysarch.h/1.1.1.1/Sun Nov 22 18:12:44 2009//
 /tcb.h/1.2/Sat Jun  1 21:20:54 2013//
+/timetc.h/1.2/Sat Jul 18 08:37:43 2020//
 /trap.h/1.1.1.1/Fri Jul 31 09:26:26 2009//
 /vmparam.h/1.5/Sun May 21 13:00:53 2017//
 D

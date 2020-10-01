@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcb.h,v 1.2 2020/06/14 17:56:54 kettenis Exp $	*/
+/*	$OpenBSD: tcb.h,v 1.4 2020/07/14 16:48:13 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2011 Philip Guenther <guenther@openbsd.org>
@@ -22,9 +22,9 @@
 #ifdef _KERNEL
 
 #define TCB_GET(p)		\
-	((void *)(p)->p_md.md_regs->fixreg[2])
+	((void *)(p)->p_md.md_regs->fixreg[13])
 #define TCB_SET(p, addr)	\
-	((p)->p_md.md_regs->fixreg[2] = (__register_t)(addr))
+	((p)->p_md.md_regs->fixreg[13] = (__register_t)(addr))
 
 #else /* _KERNEL */
 
@@ -32,7 +32,7 @@
 #define TLS_VARIANT	1
 
 /* powerpc offsets the TCB pointer 0x7000 bytes after the data */
-#define TCB_OFFSET	0x7000
+#define TCB_OFFSET	0x7008
 
 register void *__tcb __asm__ ("r13");
 #define TCB_GET()		(__tcb)

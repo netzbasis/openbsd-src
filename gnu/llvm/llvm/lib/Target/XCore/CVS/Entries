@@ -1,0 +1,38 @@
+/CMakeLists.txt/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/LLVMBuild.txt/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/README.txt/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCore.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCore.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreAsmPrinter.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreCallingConv.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreFrameLowering.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreFrameLowering.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreFrameToArgsOffsetElim.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreISelDAGToDAG.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreISelLowering.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreISelLowering.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreInstrFormats.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreInstrInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreInstrInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreInstrInfo.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreLowerThreadLocal.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreMCInstLower.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreMCInstLower.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreMachineFunctionInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreMachineFunctionInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreRegisterInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreRegisterInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreRegisterInfo.td/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreSelectionDAGInfo.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreSelectionDAGInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreSubtarget.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreSubtarget.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetMachine.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetMachine.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetObjectFile.cpp/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetObjectFile.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetStreamer.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+/XCoreTargetTransformInfo.h/1.1.1.1/Mon Aug  3 14:30:25 2020/-ko/
+D/Disassembler////
+D/MCTargetDesc////
+D/TargetInfo////

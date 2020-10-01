@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.139 2020/06/15 15:42:11 mpi Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.142 2020/08/12 13:49:24 visa Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -66,7 +66,7 @@ void	KQRELE(struct kqueue *);
 int	kqueue_sleep(struct kqueue *, struct timespec *);
 int	kqueue_scan(struct kqueue *kq, int maxevents,
 		    struct kevent *ulistp, struct timespec *timeout,
-		    struct proc *p, int *retval);
+		    struct kevent *kev, struct proc *p, int *retval);
 
 int	kqueue_read(struct file *, struct uio *, int);
 int	kqueue_write(struct file *, struct uio *, int);
@@ -158,6 +158,7 @@ const struct filterops *const sysfilt_ops[] = {
 	&sig_filtops,			/* EVFILT_SIGNAL */
 	&timer_filtops,			/* EVFILT_TIMER */
 	&file_filtops,			/* EVFILT_DEVICE */
+	&file_filtops,			/* EVFILT_EXCEPT */
 };
 
 void
@@ -637,7 +638,7 @@ sys_kevent(struct proc *p, void *v, register_t *retval)
 	KQREF(kq);
 	FRELE(fp, p);
 	error = kqueue_scan(kq, SCARG(uap, nevents), SCARG(uap, eventlist),
-	    tsp, p, &n);
+	    tsp, kev, p, &n);
 	KQRELE(kq);
 	*retval = n;
 	return (error);
@@ -895,12 +896,14 @@ kqueue_sleep(struct kqueue *kq, struct timespec *tsp)
 
 int
 kqueue_scan(struct kqueue *kq, int maxevents, struct kevent *ulistp,
-    struct timespec *tsp, struct proc *p, int *retval)
+    struct timespec *tsp, struct kevent *kev, struct proc *p, int *retval)
 {
 	struct kevent *kevp;
 	struct knote mend, mstart, *kn;
-	int s, count, nkev = 0, error = 0;
-	struct kevent kev[KQ_NEVENTS];
+	int s, count, nkev, error = 0;
+
+	nkev = 0;
+	kevp = kev;
 
 	count = maxevents;
 	if (count == 0)
@@ -910,12 +913,14 @@ kqueue_scan(struct kqueue *kq, int maxevents, struct kevent *ulistp,
 	memset(&mend, 0, sizeof(mend));
 
 retry:
+	KASSERT(count == maxevents);
+	KASSERT(nkev == 0);
+
 	if (kq->kq_state & KQ_DYING) {
 		error = EBADF;
 		goto done;
 	}
 
-	kevp = &kev[0];
 	s = splhigh();
 	if (kq->kq_count == 0) {
 		if (tsp != NULL && !timespecisset(tsp)) {
@@ -1018,7 +1023,7 @@ retry:
 			    sizeof(struct kevent) * nkev);
 			ulistp += nkev;
 			nkev = 0;
-			kevp = &kev[0];
+			kevp = kev;
 			s = splhigh();
 			if (error)
 				break;
@@ -1335,10 +1340,12 @@ knote_processexit(struct proc *p)
 {
 	struct process *pr = p->p_p;
 
+	KASSERT(p == curproc);
+
 	KNOTE(&pr->ps_klist, NOTE_EXIT);
 
 	/* remove other knotes hanging off the process */
-	knote_remove(p, &pr->ps_klist.kl_list);
+	klist_invalidate(&pr->ps_klist);
 }
 
 void
@@ -1445,6 +1452,7 @@ void
 klist_invalidate(struct klist *list)
 {
 	struct knote *kn;
+	struct proc *p = curproc;
 	int s;
 
 	/*
@@ -1459,10 +1467,15 @@ klist_invalidate(struct klist *list)
 			continue;
 		splx(s);
 		kn->kn_fop->f_detach(kn);
-		kn->kn_fop = &dead_filtops;
-		knote_activate(kn);
-		s = splhigh();
-		knote_release(kn);
+		if (kn->kn_fop->f_flags & FILTEROP_ISFD) {
+			kn->kn_fop = &dead_filtops;
+			knote_activate(kn);
+			s = splhigh();
+			knote_release(kn);
+		} else {
+			knote_drop(kn, p);
+			s = splhigh();
+		}
 	}
 	splx(s);
 }

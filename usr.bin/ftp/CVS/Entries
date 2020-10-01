@@ -6,17 +6,17 @@
 /cookie.c/1.9/Thu May 16 12:44:17 2019//
 /domacro.c/1.22/Mon Nov 18 04:37:35 2019//
 /extern.h/1.51/Thu May 16 12:44:17 2019//
-/fetch.c/1.195/Sat Jun 20 09:59:48 2020//
-/ftp.1/1.119/Tue Feb 11 18:41:39 2020//
+/fetch.c/1.197/Sat Jul  4 11:23:35 2020//
+/ftp.1/1.121/Sun Sep  6 09:15:04 2020//
 /ftp.c/1.107/Mon Nov 18 04:37:35 2019//
-/ftp_var.h/1.44/Mon Nov 18 04:37:35 2019//
+/ftp_var.h/1.45/Tue Sep  1 12:33:48 2020//
 /list.c/1.9/Thu May 16 12:44:18 2019//
-/main.c/1.131/Tue Feb 11 18:41:39 2020//
+/main.c/1.135/Sun Sep  6 09:49:11 2020//
 /pathnames.h/1.9/Thu May 16 12:44:18 2019//
 /ruserpass.c/1.33/Fri Jun 28 13:35:01 2019//
 /small.c/1.12/Mon Nov 18 04:37:35 2019//
 /small.h/1.3/Thu May 16 12:44:18 2019//
 /stringlist.c/1.14/Thu May 16 12:44:18 2019//
 /stringlist.h/1.8/Thu May 16 12:44:18 2019//
-/util.c/1.92/Mon Nov 18 04:37:35 2019//
+/util.c/1.93/Mon Jul  6 17:11:29 2020//
 D

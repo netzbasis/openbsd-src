@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.557 2020/06/18 23:34:19 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.561 2020/08/27 01:06:19 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -920,7 +920,7 @@ send_rexec_state(int fd, struct sshbuf *conf)
 	    (r = sshbuf_put_stringb(m, inc)) != 0)
 		fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	if (ssh_msg_send(fd, 0, m) == -1)
-		fatal("%s: ssh_msg_send failed", __func__);
+		error("%s: ssh_msg_send failed", __func__);
 
 	sshbuf_free(m);
 	sshbuf_free(inc);
@@ -1616,6 +1616,7 @@ main(int ac, char **av)
 	if ((cfg = sshbuf_new()) == NULL)
 		fatal("%s: sshbuf_new failed", __func__);
 	if (rexeced_flag) {
+		setproctitle("%s", "[rexeced]");
 		recv_rexec_state(REEXEC_CONFIG_PASS_FD, cfg);
 		if (!debug_flag) {
 			startup_pipe = dup(REEXEC_STARTUP_PIPE_FD);
@@ -1964,6 +1965,7 @@ main(int ac, char **av)
 		dup2(config_s[1], REEXEC_CONFIG_PASS_FD);
 		close(config_s[1]);
 
+		ssh_signal(SIGHUP, SIG_IGN); /* avoid reset to SIG_DFL */
 		execv(rexec_argv[0], rexec_argv);
 
 		/* Reexec has failed, fall back and continue */
@@ -2157,19 +2159,19 @@ sshd_hostkey_sign(struct ssh *ssh, struct sshkey *privkey,
 	if (use_privsep) {
 		if (privkey) {
 			if (mm_sshkey_sign(ssh, privkey, signature, slenp,
-			    data, dlen, alg, options.sk_provider,
+			    data, dlen, alg, options.sk_provider, NULL,
 			    ssh->compat) < 0)
 				fatal("%s: privkey sign failed", __func__);
 		} else {
 			if (mm_sshkey_sign(ssh, pubkey, signature, slenp,
-			    data, dlen, alg, options.sk_provider,
+			    data, dlen, alg, options.sk_provider, NULL,
 			    ssh->compat) < 0)
 				fatal("%s: pubkey sign failed", __func__);
 		}
 	} else {
 		if (privkey) {
 			if (sshkey_sign(privkey, signature, slenp, data, dlen,
-			    alg, options.sk_provider, ssh->compat) < 0)
+			    alg, options.sk_provider, NULL, ssh->compat) < 0)
 				fatal("%s: privkey sign failed", __func__);
 		} else {
 			if ((r = ssh_agent_sign(auth_sock, pubkey,
