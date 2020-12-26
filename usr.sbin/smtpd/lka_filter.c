@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_filter.c,v 1.63 2020/09/16 11:19:42 martijn Exp $	*/
+/*	$OpenBSD: lka_filter.c,v 1.65 2020/12/23 20:17:49 millert Exp $	*/
 
 /*
  * Copyright (c) 2018 Gilles Chehade <gilles@poolp.org>
@@ -535,6 +535,7 @@ lka_filter_end(uint64_t reqid)
 	free(fs->mail_from);
 	free(fs->username);
 	free(fs->lastparam);
+	free(fs->filter_name);
 	free(fs);
 	log_trace(TRACE_FILTERS, "%016"PRIx64" filters session-end", reqid);
 }
@@ -599,11 +600,6 @@ filter_session_io(struct io *io, int evt, void *arg)
 		filter_data(fs->id, line);
 
 		goto nextline;
-
-	case IO_DISCONNECTED:
-		io_free(fs->io);
-		fs->io = NULL;
-		break;
 	}
 }
 

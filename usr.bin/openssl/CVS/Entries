@@ -1,9 +1,9 @@
 /Makefile/1.11/Mon Nov  4 15:25:54 2019//
-/apps.c/1.55/Wed Sep  9 12:47:46 2020//
+/apps.c/1.57/Mon Oct 26 11:48:39 2020//
 /apps.h/1.24/Wed Sep  9 12:47:46 2020//
 /apps_posix.c/1.5/Fri Jul 13 18:36:56 2018//
 /asn1pars.c/1.10/Sun Jul 14 03:30:45 2019//
-/ca.c/1.27/Wed Jul  3 03:24:02 2019//
+/ca.c/1.28/Wed Dec 16 18:53:10 2020//
 /certhash.c/1.17/Sun Jul 14 03:30:45 2019//
 /ciphers.c/1.10/Sun Jul 14 03:30:45 2019//
 /cms.c/1.17/Sat Jan  4 14:17:55 2020//
@@ -23,8 +23,8 @@
 /genpkey.c/1.13/Sun Jul 14 03:30:46 2019//
 /genrsa.c/1.17/Wed Jul 24 14:23:25 2019//
 /nseq.c/1.9/Sun Jul 14 03:30:46 2019//
-/ocsp.c/1.19/Wed Sep  9 13:57:36 2020//
-/openssl.1/1.125/Tue Jul 14 09:52:46 2020//
+/ocsp.c/1.21/Tue Oct 13 18:25:35 2020//
+/openssl.1/1.127/Sun Nov  1 21:32:03 2020//
 /openssl.c/1.30/Mon Nov  4 15:25:54 2019//
 /passwd.c/1.10/Sun Jul 14 03:30:46 2019//
 /pkcs12.c/1.14/Fri Jul 26 12:35:59 2019//
@@ -41,8 +41,8 @@
 /rsautl.c/1.18/Sun Jul 14 03:30:46 2019//
 /s_apps.h/1.5/Wed Apr 25 07:12:33 2018//
 /s_cb.c/1.14/Sun Apr 26 02:09:21 2020//
-/s_client.c/1.51/Fri Jul 10 12:25:57 2020//
-/s_server.c/1.43/Mon Jul 27 13:46:48 2020//
+/s_client.c/1.52/Wed Oct 14 05:36:18 2020//
+/s_server.c/1.44/Fri Oct  2 15:43:48 2020//
 /s_socket.c/1.11/Fri Jun 28 13:35:02 2019//
 /s_time.c/1.34/Sun Jul 14 03:30:46 2019//
 /sess_id.c/1.10/Sun Jul 14 03:30:46 2019//
@@ -53,7 +53,7 @@
 /testrsa.h/1.1/Tue Aug 26 17:47:25 2014//
 /timeouts.h/1.1/Tue Aug 26 17:47:25 2014//
 /ts.c/1.15/Wed Feb  7 05:47:55 2018//
-/verify.c/1.8/Tue Jul 14 19:08:30 2020//
+/verify.c/1.13/Tue Nov  3 18:50:25 2020//
 /version.c/1.9/Sun Jul 14 03:30:46 2019//
 /x509.c/1.18/Sun May 10 17:13:31 2020//
 D

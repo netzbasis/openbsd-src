@@ -1,10 +1,10 @@
 /COPYRIGHT/1.3/Mon Jun  2 20:18:36 2003//
 /Makefile.inc/1.8/Wed Mar 30 06:38:41 2016//
-/cclass.h/1.5/Mon Jun  2 20:18:36 2003//
+/cclass.h/1.6/Tue Oct 13 04:42:28 2020//
 /cname.h/1.5/Mon Jun  2 20:18:36 2003//
 /engine.c/1.25/Wed Jul 11 12:38:46 2018//
 /re_format.7/1.22/Mon Sep 14 20:06:58 2015//
-/regcomp.c/1.34/Tue Feb  5 20:57:30 2019//
+/regcomp.c/1.35/Tue Oct 13 04:42:28 2020//
 /regerror.c/1.14/Sun Nov  1 03:45:29 2015//
 /regex.3/1.27/Thu May 26 05:46:44 2016//
 /regex2.h/1.8/Wed Apr 17 17:39:29 2013//

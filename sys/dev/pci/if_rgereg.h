@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rgereg.h,v 1.2 2020/07/22 00:48:02 kevlo Exp $	*/
+/*	$OpenBSD: if_rgereg.h,v 1.6 2020/12/24 01:00:00 kevlo Exp $	*/
 
 /*
  * Copyright (c) 2019, 2020 Kevin Lo <kevlo@openbsd.org>
@@ -88,7 +88,7 @@
 
 #define RGE_INTRS		\
 	(RGE_ISR_RX_OK | RGE_ISR_RX_ERR | RGE_ISR_TX_OK |		\
-	RGE_ISR_TX_ERR | RGE_ISR_RX_DESC_UNAVAIL | RGE_ISR_LINKCHG |	\
+	RGE_ISR_TX_ERR | RGE_ISR_LINKCHG |	\
 	RGE_ISR_TX_DESC_UNAVAIL | RGE_ISR_PCS_TIMEOUT | RGE_ISR_SYSTEM_ERR)
 
 #define RGE_INTRS_TIMER		\
@@ -111,16 +111,24 @@
 #define RGE_EECMD_WRITECFG	0xc0
 
 /* Flags for register RGE_CFG1 */
+#define RGE_CFG1_PM_EN		0x01
 #define RGE_CFG1_SPEED_DOWN	0x10
 
 /* Flags for register RGE_CFG2 */
+#define RGE_CFG2_PMSTS_EN	0x20
 #define RGE_CFG2_CLKREQ_EN	0x80
 
 /* Flags for register RGE_CFG3 */
 #define RGE_CFG3_RDY_TO_L23	0x02
+#define RGE_CFG3_WOL_LINK	0x10
+#define RGE_CFG3_WOL_MAGIC	0x20
 
 /* Flags for register RGE_CFG5 */
 #define RGE_CFG5_PME_STS	0x01
+#define RGE_CFG5_WOL_LANWAKE	0x02
+#define RGE_CFG5_WOL_UCAST	0x10
+#define RGE_CFG5_WOL_MCAST	0x20
+#define RGE_CFG5_WOL_BCAST	0x40
 
 /* Flags for register RGE_CSIAR */
 #define RGE_CSIAR_BYTE_EN	0x0000000f
@@ -316,7 +324,6 @@ struct rge_softc {
 	uint32_t		rge_intrs;
 	uint32_t		rge_tx_ack;
 	uint32_t		rge_rx_ack;
-	int			rge_rxbufsz;
 	int			rge_timerintr;
 #define RGE_IMTYPE_NONE		0
 #define RGE_IMTYPE_SIM		1
@@ -4517,24 +4524,26 @@ static const struct {
 	{ 0xa438, 0x1800 },	\
 	{ 0xa438, 0x8010 },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x801e },	\
+	{ 0xa438, 0x8020 },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x8026 },	\
+	{ 0xa438, 0x802a },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x802f },	\
+	{ 0xa438, 0x8035 },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x8036 },	\
+	{ 0xa438, 0x803c },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x8036 },	\
+	{ 0xa438, 0x803c },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x8036 },	\
+	{ 0xa438, 0x803c },	\
 	{ 0xa438, 0x1800 },	\
-	{ 0xa438, 0x8036 },	\
+	{ 0xa438, 0x803c },	\
 	{ 0xa438, 0xd107 },	\
 	{ 0xa438, 0xd042 },	\
 	{ 0xa438, 0xa404 },	\
+	{ 0xa438, 0x1000 },	\
+	{ 0xa438, 0x09df },	\
 	{ 0xa438, 0xd700 },	\
-	{ 0xa438, 0x5ff4 },	\
+	{ 0xa438, 0x5fb4 },	\
 	{ 0xa438, 0x8280 },	\
 	{ 0xa438, 0xd700 },	\
 	{ 0xa438, 0x6065 },	\
@@ -4548,8 +4557,10 @@ static const struct {
 	{ 0xa438, 0x0c50 },	\
 	{ 0xa438, 0xd104 },	\
 	{ 0xa438, 0xd040 },	\
+	{ 0xa438, 0x1000 },	\
+	{ 0xa438, 0x0aa8 },	\
 	{ 0xa438, 0xd700 },	\
-	{ 0xa438, 0x5ff4 },	\
+	{ 0xa438, 0x5fb4 },	\
 	{ 0xa438, 0x1800 },	\
 	{ 0xa438, 0x0a2e },	\
 	{ 0xa438, 0xcb9b },	\
@@ -4557,8 +4568,10 @@ static const struct {
 	{ 0xa438, 0xd040 },	\
 	{ 0xa438, 0x1000 },	\
 	{ 0xa438, 0x0b7b },	\
+	{ 0xa438, 0x1000 },	\
+	{ 0xa438, 0x09df },	\
 	{ 0xa438, 0xd700 },	\
-	{ 0xa438, 0x5ff4 },	\
+	{ 0xa438, 0x5fb4 },	\
 	{ 0xa438, 0x1800 },	\
 	{ 0xa438, 0x081b },	\
 	{ 0xa438, 0x1000 },	\
@@ -4952,4 +4965,4 @@ static const struct {
 	{ 0xa438, 0x0000 },	\
 	{ 0xb820, 0x0000 },	\
 	{ 0xa436, 0x801e },	\
-	{ 0xa438, 0x0015 }
+	{ 0xa438, 0x0016 }

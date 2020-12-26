@@ -1,4 +1,4 @@
-/Makefile/1.109/Fri Jun 19 05:07:09 2020//
+/Makefile/1.110/Tue Dec 22 06:03:36 2020//
 /addrmatch.sh/1.6/Fri Aug 28 03:17:13 2020//
 /agent-getpeereid.sh/1.11/Tue Nov 26 23:43:10 2019//
 /agent-pkcs11.sh/1.7/Tue Nov 26 23:43:10 2019//
@@ -23,7 +23,7 @@
 /connect-privsep.sh/1.9/Sun Apr 30 23:34:55 2017//
 /connect-uri.sh/1.1/Tue Oct 24 19:33:32 2017//
 /connect.sh/1.8/Sat Jan 25 02:57:53 2020//
-/dhgex.sh/1.6/Sun Oct  6 11:49:50 2019//
+/dhgex.sh/1.7/Mon Dec 21 22:48:41 2020//
 /dsa_ssh2.prv/1.1/Thu Jan 17 13:21:28 2002//
 /dsa_ssh2.pub/1.1/Thu Jan 17 13:21:28 2002//
 /dynamic-forward.sh/1.13/Thu Sep 21 19:18:12 2017//
@@ -34,7 +34,7 @@
 /forwarding.sh/1.23/Sat Jul 20 09:50:58 2019//
 /host-expand.sh/1.5/Sun Apr 30 23:34:55 2017//
 /hostkey-agent.sh/1.11/Mon Dec 16 02:39:05 2019//
-/hostkey-rotate.sh/1.8/Tue Nov 26 23:43:10 2019//
+/hostkey-rotate.sh/1.9/Wed Oct  7 06:38:16 2020//
 /integrity.sh/1.24/Tue Jan 21 08:06:27 2020//
 /kextype.sh/1.6/Tue Mar 24 20:19:15 2015//
 /key-options.sh/1.9/Tue Jul  3 13:53:26 2018//
@@ -46,6 +46,7 @@
 /keys-command.sh/1.6/Thu Jul 25 08:48:11 2019//
 /keyscan.sh/1.13/Wed Jan 22 07:31:27 2020//
 /keytype.sh/1.10/Mon Dec 16 02:39:05 2019//
+/knownhosts-command.sh/1.2/Tue Dec 22 06:47:24 2020//
 /krl.sh/1.11/Mon Dec 16 02:39:05 2019//
 /limit-keytype.sh/1.9/Mon Dec 16 02:39:05 2019//
 /localcommand.sh/1.4/Sun Apr 30 23:34:55 2017//

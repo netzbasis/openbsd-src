@@ -20,7 +20,7 @@
 /ci_dpm.c/1.5/Sat Aug 22 05:04:46 2020//
 /ci_dpm.h/1.3/Mon Jun  8 04:48:15 2020//
 /ci_smc.c/1.3/Mon Jun  8 04:48:15 2020//
-/cik.c/1.6/Mon Jun  8 04:48:15 2020//
+/cik.c/1.7/Wed Oct 28 10:27:20 2020//
 /cik_blit_shaders.c/1.2/Sun Apr 14 10:14:53 2019//
 /cik_blit_shaders.h/1.1/Wed Apr 25 01:27:46 2018//
 /cik_reg.h/1.2/Sun Apr 14 10:14:53 2019//
@@ -59,7 +59,7 @@
 /nislands_smc.h/1.1/Wed Apr 25 01:27:46 2018//
 /ppsmc.h/1.1/Wed Apr 25 01:27:46 2018//
 /pptable.h/1.1/Wed Apr 25 01:27:46 2018//
-/r100.c/1.22/Mon Jun  8 04:48:15 2020//
+/r100.c/1.24/Sat Nov 21 14:17:16 2020//
 /r100_reg_safe.h/1.1/Mon Aug 12 04:11:53 2013//
 /r100_track.h/1.6/Mon Jun  8 04:48:15 2020//
 /r100d.h/1.4/Wed Apr 25 01:27:46 2018//
@@ -86,7 +86,7 @@
 /r600_reg.h/1.5/Mon Jun  8 04:48:15 2020//
 /r600_reg_safe.h/1.2/Wed Jan 28 05:29:30 2015//
 /r600d.h/1.7/Sun Apr 14 10:14:54 2019//
-/radeon.h/1.24/Mon Jun  8 04:48:15 2020//
+/radeon.h/1.25/Wed Oct 28 10:27:21 2020//
 /radeon_acpi.c/1.7/Mon Jun  8 04:48:15 2020//
 /radeon_acpi.h/1.5/Sun Apr 14 10:14:54 2019//
 /radeon_agp.c/1.11/Mon Jun  8 04:48:15 2020//
@@ -102,7 +102,7 @@
 /radeon_connectors.c/1.14/Mon Jun  8 04:48:16 2020//
 /radeon_cs.c/1.9/Mon Jun  8 04:48:16 2020//
 /radeon_cursor.c/1.8/Mon Jun  8 04:48:16 2020//
-/radeon_device.c/1.21/Mon Jun  8 04:48:16 2020//
+/radeon_device.c/1.24/Thu Oct 29 13:47:46 2020//
 /radeon_devlist.h/1.4/Wed Apr 25 01:27:46 2018//
 /radeon_display.c/1.21/Sat Aug 22 04:30:55 2020//
 /radeon_dp_auxch.c/1.3/Mon Jun  8 04:48:16 2020//
@@ -118,7 +118,7 @@
 /radeon_i2c.c/1.12/Mon Jun  8 04:48:16 2020//
 /radeon_ib.c/1.3/Mon Jun  8 04:48:16 2020//
 /radeon_irq_kms.c/1.15/Mon Jun  8 04:48:16 2020//
-/radeon_kms.c/1.71/Tue Sep 15 18:36:18 2020//
+/radeon_kms.c/1.73/Wed Oct 28 10:27:21 2020//
 /radeon_legacy_crtc.c/1.9/Mon Jun  8 04:48:16 2020//
 /radeon_legacy_encoders.c/1.11/Mon Jun  8 04:48:16 2020//
 /radeon_legacy_tv.c/1.7/Mon Jun  8 04:48:16 2020//
@@ -136,7 +136,7 @@
 /radeon_test.c/1.9/Mon Jun  8 04:48:16 2020//
 /radeon_trace.h/1.8/Mon Jun  8 04:48:16 2020//
 /radeon_trace_points.c/1.7/Mon Jun  8 04:48:16 2020//
-/radeon_ttm.c/1.19/Mon Jun  8 04:48:16 2020//
+/radeon_ttm.c/1.20/Wed Oct 21 02:16:53 2020//
 /radeon_ucode.c/1.3/Mon Jun  8 04:48:16 2020//
 /radeon_ucode.h/1.1/Wed Apr 25 01:27:46 2018//
 /radeon_uvd.c/1.3/Mon Jun  8 04:48:16 2020//

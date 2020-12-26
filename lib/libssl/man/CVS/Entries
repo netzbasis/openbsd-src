@@ -15,7 +15,7 @@
 /SSL_CTX_get_ex_new_index.3/1.3/Wed Mar 21 08:06:34 2018//
 /SSL_CTX_get_verify_mode.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_load_verify_locations.3/1.4/Tue Mar 27 17:35:50 2018//
-/SSL_CTX_new.3/1.12/Thu Jun  4 18:06:43 2020//
+/SSL_CTX_new.3/1.15/Mon Oct 12 09:26:57 2020//
 /SSL_CTX_sess_number.3/1.9/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_sess_set_cache_size.3/1.5/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_sess_set_get_cb.3/1.6/Wed Apr 25 14:07:57 2018//
@@ -32,7 +32,7 @@
 /SSL_CTX_set_info_callback.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_CTX_set_max_cert_list.3/1.6/Wed Jun 12 09:36:30 2019//
 /SSL_CTX_set_min_proto_version.3/1.4/Tue May 12 20:12:44 2020//
-/SSL_CTX_set_mode.3/1.6/Wed Jun 12 09:36:30 2019//
+/SSL_CTX_set_mode.3/1.7/Thu Oct  8 16:02:38 2020//
 /SSL_CTX_set_msg_callback.3/1.4/Thu Mar 22 21:09:18 2018//
 /SSL_CTX_set_options.3/1.12/Wed Apr 11 18:05:49 2018//
 /SSL_CTX_set_quiet_shutdown.3/1.6/Mon Mar 30 10:28:59 2020//
@@ -57,7 +57,7 @@
 /SSL_SESSION_get_protocol_version.3/1.2/Sat Mar 24 00:55:37 2018//
 /SSL_SESSION_get_time.3/1.8/Sat Jun  8 15:25:43 2019//
 /SSL_SESSION_has_ticket.3/1.2/Sat Mar 24 00:55:37 2018//
-/SSL_SESSION_new.3/1.7/Wed Jun 12 09:36:30 2019//
+/SSL_SESSION_new.3/1.8/Thu Dec  3 22:47:22 2020//
 /SSL_SESSION_print.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_SESSION_set1_id_context.3/1.4/Sat Mar 24 00:55:37 2018//
 /SSL_accept.3/1.6/Sat Jun  8 15:25:43 2019//
@@ -103,7 +103,7 @@
 /SSL_set1_host.3/1.2/Tue Sep 22 16:31:37 2020//
 /SSL_set1_param.3/1.5/Wed Jun 12 09:36:30 2019//
 /SSL_set_SSL_CTX.3/1.3/Tue Sep 22 13:27:08 2020//
-/SSL_set_bio.3/1.5/Tue Mar 27 17:35:50 2018//
+/SSL_set_bio.3/1.6/Thu Oct  8 18:21:30 2020//
 /SSL_set_connect_state.3/1.6/Tue Mar 27 17:35:50 2018//
 /SSL_set_fd.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_set_max_send_fragment.3/1.5/Wed Jun 12 09:36:30 2019//
@@ -114,7 +114,7 @@
 /SSL_shutdown.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_state_string.3/1.4/Tue Mar 27 17:35:50 2018//
 /SSL_want.3/1.5/Tue Mar 27 17:35:50 2018//
-/SSL_write.3/1.5/Tue Mar 27 17:35:50 2018//
+/SSL_write.3/1.6/Thu Oct  8 16:02:38 2020//
 /d2i_SSL_SESSION.3/1.7/Sat Jun  8 15:25:43 2019//
 /ssl.3/1.20/Mon Sep 21 08:53:56 2020//
 D

@@ -1,4 +1,4 @@
-/Makefile/1.40/Mon Sep 21 15:13:24 2020//
+/Makefile/1.42/Wed Oct 14 15:53:22 2020//
 /Makefile.inc/1.1/Fri Nov  4 17:51:54 2016//
 D/asn1////
 D/buffer////
@@ -6,6 +6,7 @@ D/bytestring////
 D/certs////
 D/ciphers////
 D/client////
+D/dtls////
 D/handshake////
 D/interop////
 D/key_schedule////
@@ -16,4 +17,5 @@ D/server////
 D/ssl////
 D/tlsext////
 D/tlsfuzzer////
+D/tlslegacy////
 D/unit////

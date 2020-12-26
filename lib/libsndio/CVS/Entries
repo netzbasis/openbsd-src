@@ -11,9 +11,9 @@
 /mio_priv.h/1.12/Sun Nov 22 12:01:23 2015//
 /mio_rmidi.c/1.28/Sat Jun 29 06:05:26 2019//
 /shlib_version/1.12/Wed Feb 26 13:53:58 2020//
-/sio.c/1.24/Sat Jun 29 06:05:26 2019//
+/sio.c/1.25/Thu Nov 19 08:14:19 2020//
 /sio_aucat.c/1.20/Sat Jan  9 08:27:24 2016//
-/sio_open.3/1.50/Sat Jun 20 09:26:54 2020//
+/sio_open.3/1.52/Sun Nov 29 08:02:42 2020//
 /sio_priv.h/1.9/Fri Jan 16 16:48:52 2015//
 /sio_sun.c/1.28/Fri Jun 28 13:32:42 2019//
 /sioctl.c/1.1/Wed Feb 26 13:53:58 2020//
@@ -21,5 +21,5 @@
 /sioctl_open.3/1.12/Sun Jun 28 05:39:30 2020//
 /sioctl_priv.h/1.1/Wed Feb 26 13:53:58 2020//
 /sioctl_sun.c/1.2/Thu Apr 30 12:30:47 2020//
-/sndio.7/1.24/Sat Jul 18 05:01:14 2020//
+/sndio.7/1.26/Fri Nov 20 12:13:11 2020//
 D

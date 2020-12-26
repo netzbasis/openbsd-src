@@ -2,7 +2,7 @@
 /rec_close.c/1.13/Wed Sep 21 04:38:56 2016//
 /rec_delete.c/1.10/Fri Aug  5 13:03:00 2005//
 /rec_get.c/1.11/Wed Aug  8 07:16:50 2007//
-/rec_open.c/1.13/Wed Sep 21 04:38:56 2016//
+/rec_open.c/1.14/Tue Dec  1 16:19:38 2020//
 /rec_put.c/1.11/Wed Aug  8 07:16:50 2007//
 /rec_search.c/1.11/Fri Aug  5 13:03:00 2005//
 /rec_seq.c/1.8/Fri Aug  5 13:03:00 2005//

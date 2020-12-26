@@ -31,7 +31,7 @@
 /lock_machdep.c/1.8/Thu Mar  5 09:28:31 2020//
 /locore.s/1.48/Sun May 17 13:48:29 2020//
 /locore0.S/1.2/Fri Jul 14 05:34:10 2017//
-/machdep.c/1.193/Wed Aug 26 03:29:05 2020//
+/machdep.c/1.195/Sun Nov  8 20:37:21 2020//
 /mainbus.c/1.14/Sun Dec 22 18:52:34 2013//
 /mcclock.c/1.5/Thu Mar 14 01:26:26 2002//
 /mcclockvar.h/1.4/Thu Mar 14 01:26:26 2002//
@@ -44,6 +44,6 @@
 /prom_disp.s/1.7/Sun Jan 13 20:59:52 2008//
 /promcons.c/1.19/Mon Feb 19 08:59:52 2018//
 /sys_machdep.c/1.7/Thu Jun 26 05:42:08 2008//
-/trap.c/1.91/Thu Sep 24 20:33:10 2020//
+/trap.c/1.99/Sat Nov  7 16:12:20 2020//
 /vm_machdep.c/1.47/Thu Aug 17 20:50:51 2017//
 D

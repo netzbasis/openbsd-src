@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.10 2020/01/15 20:47:13 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.12 2020/12/24 16:25:15 bluhm Exp $
 
 # Copyright (c) 2016-2020 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -22,9 +22,9 @@
 
 .if ! (make(clean) || make(cleandir) || make(obj))
 
-.if ! exists(/usr/local/bin/scapy)
+.if ! exists(/usr/local/bin/scapy-3)
 regress:
-	@echo Install scapy package to run this regress.
+	@echo Install py3-scapy package to run this regress.
 	@echo SKIPPED
 .endif
 
@@ -78,10 +78,10 @@ regress:
 
 .if make (regress) || make (all)
 .BEGIN:
-	@echo
 	${SUDO} true
 	ssh -t ${REMOTE_SSH} ${SUDO} true
 	rm -f stamp-pfctl
+	@echo
 .endif
 
 # Create python include file containing the addresses.
@@ -108,20 +108,18 @@ stamp-pfctl: addr.py pf.conf
 # Set variables so that make runs with and without obj directory.
 # Only do that if necessary to keep visible output short.
 .if ${.CURDIR} == ${.OBJDIR}
-PYTHON =	python2.7 -u ./
+PYTHON =	python3 -u ./
 .else
-PYTHON =	PYTHONPATH=${.OBJDIR} python2.7 -u ${.CURDIR}/
+PYTHON =	PYTHONPATH=${.OBJDIR} python3 -u ${.CURDIR}/
 .endif
 
 REGRESS_TARGETS +=	run-challenge-ack
 run-challenge-ack: challenge_ack.py addr.py
-	@echo '\n======== $@ ========'
 	${SUDO} ${PYTHON}challenge_ack.py
 
 .if ! empty(PF_ANCHOR:Mregress)
 REGRESS_CLEANUP +=	cleanup
 cleanup:
-	@echo '\n======== $@ ========'
 	${SUDO} pfctl -a regress -Fr
 	rm -f stamp-pfctl
 .endif

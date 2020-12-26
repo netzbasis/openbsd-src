@@ -165,9 +165,8 @@
 /s_fminl.c/1.2/Tue Nov 12 18:28:02 2013//
 /s_frexpf.c/1.4/Wed Jul 20 21:02:51 2011//
 /s_frexpl.c/1.2/Mon Sep 12 19:47:02 2016//
-/s_ilogb.c/1.11/Mon Sep 12 19:47:02 2016//
-/s_ilogbf.c/1.4/Mon Sep 12 19:47:02 2016//
-/s_ilogbl.c/1.2/Mon Sep 12 19:47:02 2016//
+/s_ilogb.c/1.12/Sat Nov  7 08:57:43 2020//
+/s_ilogbf.c/1.5/Sat Nov  7 08:57:43 2020//
 /s_llrint.c/1.6/Mon Sep 12 19:47:02 2016//
 /s_llrintf.c/1.2/Mon Sep 25 22:16:48 2006//
 /s_llrintl.c/1.1/Wed Jul  6 00:02:42 2011//

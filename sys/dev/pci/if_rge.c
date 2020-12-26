@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rge.c,v 1.6 2020/08/07 13:53:58 kevlo Exp $	*/
+/*	$OpenBSD: if_rge.c,v 1.11 2020/12/24 06:34:03 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2019, 2020 Kevin Lo <kevlo@openbsd.org>
@@ -59,6 +59,7 @@ int rge_debug = 0;
 
 int		rge_match(struct device *, void *, void *);
 void		rge_attach(struct device *, struct device *, void *);
+int		rge_activate(struct device *, int);
 int		rge_intr(void *);
 int		rge_encap(struct rge_softc *, struct mbuf *, int);
 int		rge_ioctl(struct ifnet *, u_long, caddr_t);
@@ -111,6 +112,10 @@ int		rge_get_link_status(struct rge_softc *);
 void		rge_txstart(void *);
 void		rge_tick(void *);
 void		rge_link_state(struct rge_softc *);
+#ifndef SMALL_KERNEL
+int		rge_wol(struct ifnet *, int);
+void		rge_wol_power(struct rge_softc *);
+#endif
 
 static const struct {
 	uint16_t reg;
@@ -126,7 +131,7 @@ static const struct {
 };
 
 struct cfattach rge_ca = {
-	sizeof(struct rge_softc), rge_match, rge_attach
+	sizeof(struct rge_softc), rge_match, rge_attach, NULL, rge_activate
 };
 
 struct cfdriver rge_cd = {
@@ -272,6 +277,11 @@ rge_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_capabilities |= IFCAP_VLAN_HWTAGGING;
 #endif
 
+#ifndef SMALL_KERNEL
+	ifp->if_capabilities |= IFCAP_WOL;
+	ifp->if_wol = rge_wol;
+	rge_wol(ifp, 0);
+#endif
 	timeout_set(&sc->sc_timeout, rge_tick, sc);
 	task_set(&sc->sc_task, rge_txstart, sc);
 
@@ -285,6 +295,27 @@ rge_attach(struct device *parent, struct device *self, void *aux)
 
 	if_attach(ifp);
 	ether_ifattach(ifp);
+}
+
+int
+rge_activate(struct device *self, int act)
+{
+#ifndef SMALL_KERNEL
+	struct rge_softc *sc = (struct rge_softc *)self;
+#endif
+	int rv = 0;
+
+	switch (act) {
+	case DVACT_POWERDOWN:
+		rv = config_activate_children(self, act);
+#ifndef SMALL_KERNEL
+		rge_wol_power(sc);
+#endif
+	default:
+		rv = config_activate_children(self, act);
+		break;
+	}
+	return (rv);
 }
 
 int
@@ -598,19 +629,8 @@ rge_init(struct ifnet *ifp)
 	/* Set MAC address. */
 	rge_set_macaddr(sc, sc->sc_arpcom.ac_enaddr);
 
-	/* Set Maximum frame size but don't let MTU be lass than ETHER_MTU. */
-	if (ifp->if_mtu < ETHERMTU)
-		sc->rge_rxbufsz = ETHERMTU;
-	else
-		sc->rge_rxbufsz = ifp->if_mtu;
-
-	sc->rge_rxbufsz += ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN +
-	    ETHER_CRC_LEN + 1;
-
-	if (sc->rge_rxbufsz > RGE_JUMBO_FRAMELEN)
-		sc->rge_rxbufsz -= 1; 
-
-	RGE_WRITE_2(sc, RGE_RXMAXSIZE, sc->rge_rxbufsz);
+	/* Set Maximum frame size. */
+	RGE_WRITE_2(sc, RGE_RXMAXSIZE, RGE_JUMBO_FRAMELEN);
 
 	/* Initialize RX and TX descriptors lists. */
 	rge_rx_list_init(sc);
@@ -1054,12 +1074,11 @@ rge_newbuf(struct rge_softc *sc)
 	bus_dmamap_t rxmap;
 	int idx;
 
-	m = MCLGETI(NULL, M_DONTWAIT, NULL, sc->rge_rxbufsz);
+	m = MCLGETL(NULL, M_DONTWAIT, RGE_JUMBO_FRAMELEN);
 	if (m == NULL)
 		return (ENOBUFS);
 
-	m->m_data += (m->m_ext.ext_size - sc->rge_rxbufsz);
-	m->m_len = m->m_pkthdr.len = sc->rge_rxbufsz;
+	m->m_len = m->m_pkthdr.len = RGE_JUMBO_FRAMELEN;
 
 	idx = sc->rge_ldata.rge_rxq_prodidx;
 	rxq = &sc->rge_ldata.rge_rxq[idx];
@@ -1271,6 +1290,9 @@ rge_rxeof(struct rge_softc *sc)
 
 		ml_enqueue(&ml, m);
 	}
+
+	if (ifiq_input(&ifp->if_rcv, &ml))
+		if_rxr_livelocked(rxr);
 
 	sc->rge_ldata.rge_rxq_considx = i;
 	rge_fill_rx_ring(sc);
@@ -1577,7 +1599,6 @@ rge_phy_config_mac_cfg2(struct rge_softc *sc)
 void
 rge_phy_config_mac_cfg3(struct rge_softc *sc)
 {
-	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
 	uint16_t val;
 	int i;
 	static const uint16_t mac_cfg3_a438_value[] =
@@ -1640,7 +1661,8 @@ rge_phy_config_mac_cfg3(struct rge_softc *sc)
 	rge_write_phy_ocp(sc, 0xb87c, 0x8159);
 	val = rge_read_phy_ocp(sc, 0xb87e) & ~0xff00;
 	rge_write_phy_ocp(sc, 0xb87e, val | 0x0700);
-	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, ifp->if_mtu + ETHER_HDR_LEN + 32);
+	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, RGE_JUMBO_MTU + ETHER_HDR_LEN +
+	    32);
 	rge_write_phy_ocp(sc, 0xb87c, 0x80a2);
 	rge_write_phy_ocp(sc, 0xb87e, 0x0153);
 	rge_write_phy_ocp(sc, 0xb87c, 0x809c);
@@ -1681,7 +1703,6 @@ rge_phy_config_mac_cfg3(struct rge_softc *sc)
 void
 rge_phy_config_mac_cfg4(struct rge_softc *sc)
 {
-	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
 	uint16_t val;
 	int i;
 	static const uint16_t mac_cfg4_b87c_value[] =
@@ -1754,7 +1775,8 @@ rge_phy_config_mac_cfg4(struct rge_softc *sc)
 	RGE_PHY_CLRBIT(sc, 0xa432, 0x0040);
 	rge_write_phy_ocp(sc, 0xb87c, 0x8529);
 	rge_write_phy_ocp(sc, 0xb87e, 0x050e);
-	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, ifp->if_mtu + ETHER_HDR_LEN + 32);
+	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, RGE_JUMBO_MTU + ETHER_HDR_LEN +
+	    32);
 	rge_write_phy_ocp(sc, 0xa436, 0x816c);
 	rge_write_phy_ocp(sc, 0xa438, 0xc4a0);
 	rge_write_phy_ocp(sc, 0xa436, 0x8170);
@@ -1870,7 +1892,6 @@ rge_phy_config_mac_cfg4(struct rge_softc *sc)
 void
 rge_phy_config_mac_cfg5(struct rge_softc *sc)
 {
-	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
 	uint16_t val;
 	int i;
 
@@ -1883,16 +1904,6 @@ rge_phy_config_mac_cfg5(struct rge_softc *sc)
 	val = rge_read_ephy(sc, 0x0062) & ~0x0030;
 	rge_write_ephy(sc, 0x0062, val | 0x0020);
 
-	rge_write_phy_ocp(sc, 0xbf86, 0x9000);
-	RGE_PHY_SETBIT(sc, 0xc402, 0x0400);
-	RGE_PHY_CLRBIT(sc, 0xc402, 0x0400);
-	rge_write_phy_ocp(sc, 0xbd86, 0x1010);
-	rge_write_phy_ocp(sc, 0xbd88, 0x1010);
-	val = rge_read_phy_ocp(sc, 0xbd4e) & ~0x0c00;
-	rge_write_phy_ocp(sc, 0xbd4e, val | 0x0800);
-	val = rge_read_phy_ocp(sc, 0xbf46) & ~0x0f00;
-	rge_write_phy_ocp(sc, 0xbf46, val | 0x0700);
-
 	rge_phy_config_mcu(sc, RGE_MAC_CFG5_MCODE_VER);
 
 	RGE_PHY_SETBIT(sc, 0xa442, 0x0800);
@@ -1900,7 +1911,8 @@ rge_phy_config_mac_cfg5(struct rge_softc *sc)
 	rge_write_phy_ocp(sc, 0xac46, val | 0x0090);
 	val = rge_read_phy_ocp(sc, 0xad30) & ~0x0003;
 	rge_write_phy_ocp(sc, 0xad30, val | 0x0001);
-	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, ifp->if_mtu + ETHER_HDR_LEN + 32);
+	RGE_WRITE_2(sc, RGE_EEE_TXIDLE_TIMER, RGE_JUMBO_MTU + ETHER_HDR_LEN +
+	    32);
 	rge_write_phy_ocp(sc, 0xb87c, 0x80f5);
 	rge_write_phy_ocp(sc, 0xb87e, 0x760e);
 	rge_write_phy_ocp(sc, 0xb87c, 0x8107);
@@ -1917,6 +1929,8 @@ rge_phy_config_mac_cfg5(struct rge_softc *sc)
 		rge_write_phy_ocp(sc, 0xa438, 0x2417);
 	}
 	RGE_PHY_SETBIT(sc, 0xa4ca, 0x0040);
+	val = rge_read_phy_ocp(sc, 0xbf84) & ~0xe000;
+	rge_write_phy_ocp(sc, 0xbf84, val | 0xa000);
 }
 
 void
@@ -2042,6 +2056,7 @@ rge_hw_init(struct rge_softc *sc)
 	/* Set PCIe uncorrectable error status. */
 	rge_write_csi(sc, 0x108,
 	    rge_read_csi(sc, 0x108) | 0x00100000);
+
 }
 
 void
@@ -2408,3 +2423,48 @@ rge_link_state(struct rge_softc *sc)
 		if_link_state_change(ifp);
 	}
 }
+
+#ifndef SMALL_KERNEL
+int
+rge_wol(struct ifnet *ifp, int enable)
+{
+	struct rge_softc *sc = ifp->if_softc;
+
+	if (enable) {
+		if (!(RGE_READ_1(sc, RGE_CFG1) & RGE_CFG1_PM_EN)) {
+			printf("%s: power management is disabled, "
+			    "cannot do WOL\n", sc->sc_dev.dv_xname);
+			return (ENOTSUP);
+		}
+
+	}
+
+	rge_iff(sc);
+
+	if (enable)
+		RGE_MAC_SETBIT(sc, 0xc0b6, 0x0001);
+	else
+		RGE_MAC_CLRBIT(sc, 0xc0b6, 0x0001);
+
+	RGE_SETBIT_1(sc, RGE_EECMD, RGE_EECMD_WRITECFG);
+	RGE_CLRBIT_1(sc, RGE_CFG5, RGE_CFG5_WOL_LANWAKE | RGE_CFG5_WOL_UCAST |
+	    RGE_CFG5_WOL_MCAST | RGE_CFG5_WOL_BCAST);
+	RGE_CLRBIT_1(sc, RGE_CFG3, RGE_CFG3_WOL_LINK | RGE_CFG3_WOL_MAGIC);
+	if (enable)
+		RGE_SETBIT_1(sc, RGE_CFG5, RGE_CFG5_WOL_LANWAKE);
+	RGE_CLRBIT_1(sc, RGE_EECMD, RGE_EECMD_WRITECFG);
+
+	return (0);
+}
+
+void
+rge_wol_power(struct rge_softc *sc)
+{
+	/* Disable RXDV gate. */
+	RGE_CLRBIT_1(sc, RGE_PPSW, 0x08);
+	DELAY(2000);
+
+	RGE_SETBIT_1(sc, RGE_CFG1, RGE_CFG1_PM_EN);
+	RGE_SETBIT_1(sc, RGE_CFG2, RGE_CFG2_PMSTS_EN);
+}
+#endif

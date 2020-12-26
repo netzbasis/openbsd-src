@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1078 2020/09/22 05:23:34 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.1082 2020/12/22 09:22:14 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -448,6 +448,7 @@ enum tty_code_code {
 	TTYC_KUP6,
 	TTYC_KUP7,
 	TTYC_MS,
+	TTYC_OL,
 	TTYC_OP,
 	TTYC_REV,
 	TTYC_RGB,
@@ -459,6 +460,7 @@ enum tty_code_code {
 	TTYC_SE,
 	TTYC_SETAB,
 	TTYC_SETAF,
+	TTYC_SETAL,
 	TTYC_SETRGBB,
 	TTYC_SETRGBF,
 	TTYC_SETULC,
@@ -724,6 +726,13 @@ struct grid {
 	struct grid_line	*linedata;
 };
 
+/* Virtual cursor in a grid. */
+struct grid_reader {
+	struct grid	*gd;
+	u_int		 cx;
+	u_int		 cy;
+};
+
 /* Style alignment. */
 enum style_align {
 	STYLE_ALIGN_DEFAULT,
@@ -885,6 +894,7 @@ struct window_mode {
 			     struct cmd_find_state *, struct args *);
 	void		 (*free)(struct window_mode_entry *);
 	void		 (*resize)(struct window_mode_entry *, u_int, u_int);
+	void		 (*update)(struct window_mode_entry *);
 	void		 (*key)(struct window_mode_entry *, struct client *,
 			     struct session *, struct winlink *, key_code,
 			     struct mouse_event *);
@@ -2545,6 +2555,22 @@ void	 grid_wrap_position(struct grid *, u_int, u_int, u_int *, u_int *);
 void	 grid_unwrap_position(struct grid *, u_int *, u_int *, u_int, u_int);
 u_int	 grid_line_length(struct grid *, u_int);
 
+/* grid-reader.c */
+void	 grid_reader_start(struct grid_reader *, struct grid *, u_int, u_int);
+void	 grid_reader_get_cursor(struct grid_reader *, u_int *, u_int *);
+u_int	 grid_reader_line_length(struct grid_reader *);
+int	 grid_reader_in_set(struct grid_reader *, const char *);
+void	 grid_reader_cursor_right(struct grid_reader *, int, int);
+void	 grid_reader_cursor_left(struct grid_reader *);
+void	 grid_reader_cursor_down(struct grid_reader *);
+void	 grid_reader_cursor_up(struct grid_reader *);
+void	 grid_reader_cursor_start_of_line(struct grid_reader *, int);
+void	 grid_reader_cursor_end_of_line(struct grid_reader *, int, int);
+void	 grid_reader_cursor_next_word(struct grid_reader *, const char *);
+void	 grid_reader_cursor_next_word_end(struct grid_reader *, const char *);
+void	 grid_reader_cursor_previous_word(struct grid_reader *, const char *,
+	     int);
+
 /* grid-view.c */
 void	 grid_view_get_cell(struct grid *, u_int, u_int, struct grid_cell *);
 void	 grid_view_set_cell(struct grid *, u_int, u_int,
@@ -2976,6 +3002,7 @@ __dead void printflike(1, 2) fatalx(const char *, ...);
 /* menu.c */
 #define MENU_NOMOUSE 0x1
 #define MENU_TAB 0x2
+#define MENU_STAYOPEN 0x4
 struct menu	*menu_create(const char *);
 void		 menu_add_items(struct menu *, const struct menu_item *,
 		    struct cmdq_item *, struct client *,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tal.c,v 1.20 2020/09/30 14:42:14 claudio Exp $ */
+/*	$OpenBSD: tal.c,v 1.25 2020/12/21 11:35:55 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -31,9 +31,12 @@ static int
 base64_decode(const unsigned char *in, size_t inlen, unsigned char **out,
    size_t *outlen)
 {
-	EVP_ENCODE_CTX ctx;
+	static EVP_ENCODE_CTX *ctx;
 	unsigned char *to;
 	int tolen;
+
+	if (ctx == NULL && (ctx = EVP_ENCODE_CTX_new()) == NULL)
+		err(1, "EVP_ENCODE_CTX_new");
 
 	*out = NULL;
 	*outlen = 0;
@@ -44,11 +47,11 @@ base64_decode(const unsigned char *in, size_t inlen, unsigned char **out,
 	if ((to = malloc(tolen)) == NULL)
 		return -1;
 
-	EVP_DecodeInit(&ctx);
-	if (EVP_DecodeUpdate(&ctx, to, &tolen, in, inlen) == -1)
+	EVP_DecodeInit(ctx);
+	if (EVP_DecodeUpdate(ctx, to, &tolen, in, inlen) == -1)
 		goto fail;
 	*outlen = tolen;
-	if (EVP_DecodeFinal(&ctx, to + tolen, &tolen) == -1)
+	if (EVP_DecodeFinal(ctx, to + tolen, &tolen) == -1)
 		goto fail;
 	*outlen += tolen;
 	*out = to;
@@ -59,20 +62,28 @@ fail:
 	return -1;
 }
 
+static int
+tal_cmp(const void *a, const void *b)
+{
+	char * const *sa = a;
+	char * const *sb = b;
+
+	return strcmp(*sa, *sb);
+}
+
 /*
- * Inner function for parsing RFC 7730 from a buffer.
+ * Inner function for parsing RFC 8630 from a buffer.
  * Returns a valid pointer on success, NULL otherwise.
  * The pointer must be freed with tal_free().
  */
 static struct tal *
 tal_parse_buffer(const char *fn, char *buf)
 {
-	char		*nl, *line;
+	char		*nl, *line, *f, *file = NULL;
 	unsigned char	*der;
 	size_t		 sz, dersz;
 	int		 rc = 0;
 	struct tal	*tal = NULL;
-	enum rtype	 rp;
 	EVP_PKEY	*pkey = NULL;
 
 	if ((tal = calloc(1, sizeof(struct tal))) == NULL)
@@ -90,10 +101,15 @@ tal_parse_buffer(const char *fn, char *buf)
 		if (*line == '\0')
 			break;
 
-		/* ignore https URI for now. */
-		if (strncasecmp(line, "https://", 8) == 0) {
-			warnx("%s: https schema ignored", line);
-			continue;
+		/* Check that the URI is sensible */
+		if (!(strncasecmp(line, "https://", 8) == 0 ||
+		    strncasecmp(line, "rsync://", 8) == 0)) {
+			warnx("%s: unsupported URL schema: %s", fn, line);
+			goto out;
+		}
+		if (strcasecmp(nl - 4, ".cer")) {
+			warnx("%s: not a certificate URL: %s", fn, line);
+			goto out;
 		}
 
 		/* Append to list of URIs. */
@@ -107,27 +123,24 @@ tal_parse_buffer(const char *fn, char *buf)
 			err(1, NULL);
 		tal->urisz++;
 
-		/* Make sure we're a proper rsync URI. */
-		if (!rsync_uri_parse(NULL, NULL,
-		    NULL, NULL, NULL, NULL, &rp, line)) {
-			warnx("%s: RFC 7730 section 2.1: "
-			    "failed to parse URL: %s", fn, line);
-			goto out;
-		}
-		if (rp != RTYPE_CER) {
-			warnx("%s: RFC 7730 section 2.1: "
-			    "not a certificate URL: %s", fn, line);
-			goto out;
-		}
-
+		f = strrchr(line, '/') + 1; /* can not fail */
+		if (file) {
+			if (strcmp(file, f)) {
+				warnx("%s: URL with different file name %s, "
+				    "instead of %s", fn, f, file);
+				goto out;
+			}
+		} else
+			file = f;
 	}
 
 	if (tal->urisz == 0) {
 		warnx("%s: no URIs in manifest part", fn);
 		goto out;
-	} else if (tal->urisz > 1)
-		warnx("%s: multiple URIs: using the first", fn);
-		/* XXX no support for TAL files with multiple TALs yet */
+	}
+
+	/* sort uri lexicographically so https:// is preferred */
+	qsort(tal->uri, tal->urisz, sizeof(tal->uri[0]), tal_cmp);
 
 	sz = strlen(buf);
 	if (sz == 0) {
@@ -183,12 +196,10 @@ tal_parse(const char *fn, char *buf)
 	else
 		d++;
 	dlen = strlen(d);
-	if (strcasecmp(d + dlen - 4, ".tal") == 0)
+	if (dlen > 4 && strcasecmp(d + dlen - 4, ".tal") == 0)
 		dlen -= 4;
-	if ((p->descr = malloc(dlen + 1)) == NULL)
+	if ((p->descr = strndup(d, dlen)) == NULL)
 		err(1, NULL);
-	memcpy(p->descr, d, dlen);
-	p->descr[dlen] = '\0';
 
 	return p;
 }
@@ -319,14 +330,17 @@ tal_read(int fd)
 	io_buf_read_alloc(fd, (void **)&p->pkey, &p->pkeysz);
 	assert(p->pkeysz > 0);
 	io_str_read(fd, &p->descr);
+	assert(p->descr);
 	io_simple_read(fd, &p->urisz, sizeof(size_t));
 	assert(p->urisz > 0);
 
 	if ((p->uri = calloc(p->urisz, sizeof(char *))) == NULL)
 		err(1, NULL);
 
-	for (i = 0; i < p->urisz; i++)
+	for (i = 0; i < p->urisz; i++) {
 		io_str_read(fd, &p->uri[i]);
+		assert(p->uri[i]);
+	}
 
 	return p;
 }

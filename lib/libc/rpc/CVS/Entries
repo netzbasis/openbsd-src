@@ -15,7 +15,7 @@
 /clnt_udp.c/1.37/Mon Jul  6 13:33:06 2020//
 /get_myaddress.c/1.15/Sun Sep 13 15:36:56 2015//
 /getrpcent.3/1.13/Wed Jun  5 03:39:23 2013//
-/getrpcent.c/1.21/Sun Sep 13 15:36:56 2015//
+/getrpcent.c/1.22/Tue Oct 13 04:42:28 2020//
 /getrpcport.3/1.10/Wed Jun  5 03:39:23 2013//
 /getrpcport.c/1.8/Wed Sep  1 14:43:34 2010//
 /pmap_clnt.c/1.19/Sun Sep 13 15:36:56 2015//

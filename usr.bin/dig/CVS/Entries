@@ -1,9 +1,9 @@
 /COPYRIGHT/1.1/Fri Feb  7 09:58:52 2020//
 /Makefile/1.4/Mon Sep 14 08:39:12 2020//
 /dig.1/1.4/Fri Feb 21 10:51:28 2020//
-/dig.c/1.18/Tue Sep 15 11:47:42 2020//
+/dig.c/1.19/Sun Dec 20 11:27:47 2020//
 /dig.h/1.15/Tue Sep 15 11:47:42 2020//
-/dighost.c/1.34/Tue Sep 15 11:47:42 2020//
+/dighost.c/1.37/Mon Dec 21 11:41:08 2020//
 /host.1/1.1/Fri Feb  7 09:58:52 2020//
 /host.c/1.17/Tue Sep 15 11:47:42 2020//
 /nslookup.1/1.1/Fri Feb  7 09:58:52 2020//

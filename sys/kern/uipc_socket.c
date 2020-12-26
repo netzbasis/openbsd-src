@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.249 2020/09/29 11:48:54 claudio Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.252 2020/12/25 12:59:52 visa Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -597,9 +597,9 @@ m_getuio(struct mbuf **mp, int atomic, long space, struct uio *uio)
 
 		resid = ulmin(resid, space);
 		if (resid >= MINCLSIZE) {
-			MCLGETI(m, M_NOWAIT, NULL, ulmin(resid, MAXMCLBYTES));
+			MCLGETL(m, M_NOWAIT, ulmin(resid, MAXMCLBYTES));
 			if ((m->m_flags & M_EXT) == 0)
-				MCLGETI(m, M_NOWAIT, NULL, MCLBYTES);
+				MCLGETL(m, M_NOWAIT, MCLBYTES);
 			if ((m->m_flags & M_EXT) == 0)
 				goto nopages;
 			mlen = m->m_ext.ext_size;
@@ -892,10 +892,9 @@ dontblock:
 			nextrecord = so->so_rcv.sb_mb->m_nextpkt;
 		else
 			nextrecord = so->so_rcv.sb_mb;
-		if (controlp && !skip) {
-			orig_resid = 0;
+		if (controlp && !skip)
 			controlp = &(*controlp)->m_next;
-		}
+		orig_resid = 0;
 	}
 
 	/* If m is non-NULL, we have some data to read. */
@@ -963,6 +962,7 @@ dontblock:
 			if (flags & MSG_PEEK) {
 				m = m->m_next;
 				moff = 0;
+				orig_resid = 0;
 			} else {
 				nextrecord = m->m_nextpkt;
 				sbfree(&so->so_rcv, m);
@@ -992,9 +992,10 @@ dontblock:
 				SBLASTMBUFCHK(&so->so_rcv, "soreceive 3");
 			}
 		} else {
-			if (flags & MSG_PEEK)
+			if (flags & MSG_PEEK) {
 				moff += len;
-			else {
+				orig_resid = 0;
+			} else {
 				if (mp)
 					*mp = m_copym(m, 0, len, M_WAIT);
 				m->m_data += len;
@@ -2039,7 +2040,7 @@ soo_kqfilter(struct file *fp, struct knote *kn)
 		return (EINVAL);
 	}
 
-	klist_insert(&sb->sb_sel.si_note, kn);
+	klist_insert_locked(&sb->sb_sel.si_note, kn);
 	sb->sb_flagsintr |= SB_KNOTE;
 
 	return (0);
@@ -2052,7 +2053,7 @@ filt_sordetach(struct knote *kn)
 
 	KERNEL_ASSERT_LOCKED();
 
-	klist_remove(&so->so_rcv.sb_sel.si_note, kn);
+	klist_remove_locked(&so->so_rcv.sb_sel.si_note, kn);
 	if (klist_empty(&so->so_rcv.sb_sel.si_note))
 		so->so_rcv.sb_flagsintr &= ~SB_KNOTE;
 }
@@ -2105,7 +2106,7 @@ filt_sowdetach(struct knote *kn)
 
 	KERNEL_ASSERT_LOCKED();
 
-	klist_remove(&so->so_snd.sb_sel.si_note, kn);
+	klist_remove_locked(&so->so_snd.sb_sel.si_note, kn);
 	if (klist_empty(&so->so_snd.sb_sel.si_note))
 		so->so_snd.sb_flagsintr &= ~SB_KNOTE;
 }

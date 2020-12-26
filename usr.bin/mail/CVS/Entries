@@ -1,5 +1,4 @@
-/Makefile/1.12/Sun Sep 16 02:38:57 2018//
-/aux.c/1.31/Fri Jun 28 13:35:01 2019//
+/Makefile/1.13/Tue Dec 15 00:50:01 2020//
 /cmd1.c/1.29/Wed Apr  6 11:36:26 2011//
 /cmd2.c/1.22/Fri Oct 16 17:56:07 2015//
 /cmd3.c/1.28/Fri Jun 28 13:35:01 2019//
@@ -24,6 +23,7 @@
 /strings.c/1.10/Fri Oct 16 17:56:07 2015//
 /temp.c/1.18/Sun Sep 16 02:38:57 2018//
 /tty.c/1.22/Fri Jun 28 13:35:02 2019//
+/util.c/1.1/Tue Dec 15 00:50:01 2020//
 /v7.local.c/1.18/Sun Sep 16 02:38:57 2018//
 /vars.c/1.13/Fri Oct 16 17:56:07 2015//
 /version.c/1.7/Tue Oct 27 23:59:40 2009//

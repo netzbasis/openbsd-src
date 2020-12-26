@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.45 2020/08/11 16:57:05 millert Exp $	*/
+/*	$OpenBSD: main.c,v 1.47 2020/12/18 21:36:24 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -23,7 +23,7 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ****************************************************************/
 
-const char	*version = "version 20200807";
+const char	*version = "version 20201218";
 
 #define DEBUG
 #include <stdio.h>
@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
 			fn = getarg(&argc, &argv, "no program filename");
 			if (npfile >= maxpfile) {
 				maxpfile += 20;
-				pfile = realloc(pfile, maxpfile * sizeof(*pfile));
+				pfile = (char **) realloc(pfile, maxpfile * sizeof(*pfile));
 				if (pfile == NULL)
 					FATAL("error allocating space for -f options");
  			}

@@ -1,11 +1,11 @@
-/dnstap.c/1.6/Mon Aug 24 09:41:52 2020//
-/dnstap.h/1.1.1.2/Mon Aug 24 09:41:13 2020//
+/dnstap.c/1.8/Thu Dec 10 21:44:58 2020//
+/dnstap.h/1.1.1.3/Wed Oct 28 11:30:15 2020//
 /dnstap.m4/1.1.1.2/Mon Aug 24 09:41:13 2020//
 /dnstap.proto/1.3/Thu Mar 29 19:44:35 2018//
 /dnstap_config.h.in/1.1.1.1/Thu Nov 20 00:00:32 2014//
 /dnstap_fstrm.c/1.1.1.1/Mon Aug 24 09:41:13 2020//
 /dnstap_fstrm.h/1.1.1.1/Mon Aug 24 09:41:13 2020//
-/dtstream.c/1.1.1.1/Mon Aug 24 09:41:13 2020//
-/dtstream.h/1.1.1.1/Mon Aug 24 09:41:13 2020//
-/unbound-dnstap-socket.c/1.1.1.1/Mon Aug 24 09:41:13 2020//
+/dtstream.c/1.1.1.3/Thu Dec 10 21:44:24 2020//
+/dtstream.h/1.1.1.2/Wed Oct 28 11:30:15 2020//
+/unbound-dnstap-socket.c/1.1.1.2/Wed Oct 28 11:30:15 2020//
 D

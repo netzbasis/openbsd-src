@@ -1,4 +1,4 @@
-/Makefile/1.16/Fri Sep 20 12:45:43 2019//
+/Makefile/1.17/Mon Oct 26 19:55:01 2020//
 D/minherit_zero////
 D/mmap0////
 D/mmap_4g////
@@ -8,4 +8,5 @@ D/mmap_mod////
 D/mmap_noreplace////
 D/mmap_size////
 D/mmap_write_self////
+D/vnode////
 D/wx_syscall////

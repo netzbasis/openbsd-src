@@ -19,10 +19,10 @@
 /pmap.c/1.86/Tue Jun 23 02:18:58 2020//
 /process.S/1.26/Fri May 17 22:35:19 2013//
 /process_machdep.c/1.4/Mon Jul 28 17:50:11 2008//
-/sig_machdep.c/1.29/Tue Jul 10 04:19:59 2018//
-/softintr.c/1.7/Fri Mar  6 05:49:20 2015//
+/sig_machdep.c/1.30/Sun Nov  8 20:37:23 2020//
+/softintr.c/1.8/Wed Oct  7 12:13:23 2020//
 /subr.S/1.27/Mon May 29 06:06:52 2017//
-/trap.c/1.116/Sun Sep 27 16:40:26 2020//
+/trap.c/1.119/Fri Oct 30 17:11:20 2020//
 /vectors_88100.S/1.7/Mon Jun  9 15:00:57 2014//
 /vectors_88110.S/1.9/Mon Jun  9 15:00:57 2014//
 /vm_machdep.c/1.25/Sun Feb 12 04:55:08 2017//

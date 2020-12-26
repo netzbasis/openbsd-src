@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_pipe.c,v 1.123 2020/06/29 18:23:18 anton Exp $	*/
+/*	$OpenBSD: sys_pipe.c,v 1.125 2020/12/25 12:59:52 visa Exp $	*/
 
 /*
  * Copyright (c) 1996 John S. Dyson
@@ -886,7 +886,8 @@ pipe_kqfilter(struct file *fp, struct knote *kn)
 	switch (kn->kn_filter) {
 	case EVFILT_READ:
 		kn->kn_fop = &pipe_rfiltops;
-		klist_insert(&rpipe->pipe_sel.si_note, kn);
+		kn->kn_hook = rpipe;
+		klist_insert_locked(&rpipe->pipe_sel.si_note, kn);
 		break;
 	case EVFILT_WRITE:
 		if (wpipe == NULL) {
@@ -895,7 +896,8 @@ pipe_kqfilter(struct file *fp, struct knote *kn)
 			break;
 		}
 		kn->kn_fop = &pipe_wfiltops;
-		klist_insert(&wpipe->pipe_sel.si_note, kn);
+		kn->kn_hook = wpipe;
+		klist_insert_locked(&wpipe->pipe_sel.si_note, kn);
 		break;
 	default:
 		error = EINVAL;
@@ -909,24 +911,11 @@ pipe_kqfilter(struct file *fp, struct knote *kn)
 void
 filt_pipedetach(struct knote *kn)
 {
-	struct pipe *rpipe = kn->kn_fp->f_data, *wpipe;
-	struct rwlock *lock = rpipe->pipe_lock;
+	struct pipe *cpipe = kn->kn_hook;
 
-	rw_enter_write(lock);
-	wpipe = pipe_peer(rpipe);
-
-	switch (kn->kn_filter) {
-	case EVFILT_READ:
-		klist_remove(&rpipe->pipe_sel.si_note, kn);
-		break;
-	case EVFILT_WRITE:
-		if (wpipe == NULL)
-			break;
-		klist_remove(&wpipe->pipe_sel.si_note, kn);
-		break;
-	}
-
-	rw_exit_write(lock);
+	rw_enter_write(cpipe->pipe_lock);
+	klist_remove_locked(&cpipe->pipe_sel.si_note, kn);
+	rw_exit_write(cpipe->pipe_lock);
 }
 
 int

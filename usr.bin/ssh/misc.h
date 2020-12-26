@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.87 2020/05/29 11:17:56 dtucker Exp $ */
+/* $OpenBSD: misc.h,v 1.91 2020/12/22 00:12:22 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -53,6 +53,8 @@ void	 set_nodelay(int);
 int	 set_reuseaddr(int);
 char	*get_rdomain(int);
 int	 set_rdomain(int, const char *);
+int	 get_sock_af(int);
+void	 set_sock_tos(int, int);
 int	 waitrfd(int, int *);
 int	 timeout_connect(int, const struct sockaddr *, socklen_t, int *);
 int	 a2port(const char *);
@@ -90,9 +92,20 @@ const char *atoi_err(const char *, int *);
 int	 parse_absolute_time(const char *, uint64_t *);
 void	 format_absolute_time(uint64_t, char *, size_t);
 int	 path_absolute(const char *);
+int	 stdfd_devnull(int, int, int);
 
 struct passwd *pwcopy(struct passwd *);
 const char *ssh_gai_strerror(int);
+
+typedef void privdrop_fn(struct passwd *);
+typedef void privrestore_fn(void);
+#define	SSH_SUBPROCESS_STDOUT_DISCARD	(1)     /* Discard stdout */
+#define	SSH_SUBPROCESS_STDOUT_CAPTURE	(1<<1)  /* Redirect stdout */
+#define	SSH_SUBPROCESS_STDERR_DISCARD	(1<<2)  /* Discard stderr */
+#define	SSH_SUBPROCESS_UNSAFE_PATH	(1<<3)	/* Don't check for safe cmd */
+#define	SSH_SUBPROCESS_PRESERVE_ENV	(1<<4)	/* Keep parent environment */
+pid_t subprocess(const char *, const char *, int, char **, FILE **, u_int,
+    struct passwd *, privdrop_fn *, privrestore_fn *);
 
 typedef struct arglist arglist;
 struct arglist {
@@ -188,7 +201,8 @@ char	*read_passphrase(const char *, int);
 int	 ask_permission(const char *, ...) __attribute__((format(printf, 1, 2)));
 struct notifier_ctx *notify_start(int, const char *, ...)
 	__attribute__((format(printf, 2, 3)));
-void	notify_complete(struct notifier_ctx *);
+void	notify_complete(struct notifier_ctx *, const char *, ...)
+	__attribute__((format(printf, 2, 3)));
 
 #define MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
 #define MAXIMUM(a, b)	(((a) > (b)) ? (a) : (b))

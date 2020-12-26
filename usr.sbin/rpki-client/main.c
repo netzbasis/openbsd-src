@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.82 2020/10/01 11:06:47 claudio Exp $ */
+/*	$OpenBSD: main.c,v 1.88 2020/12/21 11:35:55 claudio Exp $ */
 /*
  * Copyright (c) 2019 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -114,7 +114,6 @@ struct	entity {
 	int		 has_pkey; /* whether pkey/sz is specified */
 	unsigned char	*pkey; /* public key (optional) */
 	size_t		 pkeysz; /* public key length (optional) */
-	int		 has_descr; /* whether descr is specified */
 	char		*descr; /* tal description */
 	TAILQ_ENTRY(entity) entries;
 };
@@ -202,19 +201,6 @@ filepath_exists(char *file)
 
 RB_GENERATE(filepath_tree, filepath, entry, filepathcmp);
 
-/*
- * Resolve the media type of a resource by looking at its suffice.
- * Returns the type of RTYPE_EOF if not found.
- */
-static enum rtype
-rtype_resolve(const char *uri)
-{
-	enum rtype	 rp;
-
-	rsync_uri_parse(NULL, NULL, NULL, NULL, NULL, NULL, &rp, uri);
-	return rp;
-}
-
 static void
 entity_free(struct entity *ent)
 {
@@ -246,9 +232,7 @@ entity_read_req(int fd, struct entity *ent)
 	io_simple_read(fd, &ent->has_pkey, sizeof(int));
 	if (ent->has_pkey)
 		io_buf_read_alloc(fd, (void **)&ent->pkey, &ent->pkeysz);
-	io_simple_read(fd, &ent->has_descr, sizeof(int));
-	if (ent->has_descr)
-		io_str_read(fd, &ent->descr);
+	io_str_read(fd, &ent->descr);
 }
 
 /*
@@ -269,9 +253,7 @@ entity_buffer_req(char **b, size_t *bsz, size_t *bmax,
 	io_simple_buffer(b, bsz, bmax, &ent->has_pkey, sizeof(int));
 	if (ent->has_pkey)
 		io_buf_buffer(b, bsz, bmax, ent->pkey, ent->pkeysz);
-	io_simple_buffer(b, bsz, bmax, &ent->has_descr, sizeof(int));
-	if (ent->has_descr)
-		io_str_buffer(b, bsz, bmax, ent->descr);
+	io_str_buffer(b, bsz, bmax, ent->descr);
 }
 
 /*
@@ -314,6 +296,8 @@ repo_lookup(int fd, const char *uri)
 	const char	*host, *mod;
 	size_t		 hostsz, modsz, i;
 	struct repo	*rp;
+	char		*b = NULL;
+	size_t		 bsz = 0, bmax = 0;
 
 	if (!rsync_uri_parse(&host, &hostsz,
 	    &mod, &modsz, NULL, NULL, NULL, uri))
@@ -350,9 +334,12 @@ repo_lookup(int fd, const char *uri)
 
 	if (!noop) {
 		logx("%s/%s: pulling from network", rp->host, rp->module);
-		io_simple_write(fd, &i, sizeof(size_t));
-		io_str_write(fd, rp->host);
-		io_str_write(fd, rp->module);
+		io_simple_buffer(&b, &bsz, &bmax, &i, sizeof(size_t));
+		io_str_buffer(&b, &bsz, &bmax, rp->host);
+		io_str_buffer(&b, &bsz, &bmax, rp->module);
+
+		io_simple_write(fd, b, bsz);
+		free(b);
 	} else {
 		rp->loaded = 1;
 		logx("%s/%s: using cache", rp->host, rp->module);
@@ -360,6 +347,21 @@ repo_lookup(int fd, const char *uri)
 		/* there is nothing in the queue so no need to flush */
 	}
 	return rp;
+}
+
+/*
+ * Build local file name base on the URI and the repo info.
+ */
+static char *
+repo_filename(const struct repo *repo, const char *uri)
+{
+	char *nfile;
+
+	uri += 8 + strlen(repo->host) + 1 + strlen(repo->module) + 1;
+
+	if (asprintf(&nfile, "%s/%s/%s", repo->host, repo->module, uri) == -1)
+		err(1, "asprintf");
+	return nfile;
 }
 
 /*
@@ -411,7 +413,6 @@ entityq_add(int fd, struct entityq *q, char *file, enum rtype type,
 	p->repo = (rp != NULL) ? (ssize_t)rp->id : -1;
 	p->has_dgst = dgst != NULL;
 	p->has_pkey = pkey != NULL;
-	p->has_descr = descr != NULL;
 	if (p->has_dgst)
 		memcpy(p->dgst, dgst, sizeof(p->dgst));
 	if (p->has_pkey) {
@@ -420,7 +421,7 @@ entityq_add(int fd, struct entityq *q, char *file, enum rtype type,
 			err(1, "malloc");
 		memcpy(p->pkey, pkey, pkeysz);
 	}
-	if (p->has_descr)
+	if (descr != NULL)
 		if ((p->descr = strdup(descr)) == NULL)
 			err(1, "strdup");
 
@@ -444,23 +445,16 @@ static void
 queue_add_from_mft(int fd, struct entityq *q, const char *mft,
     const struct mftfile *file, enum rtype type, size_t *eid)
 {
-	size_t		 sz;
 	char		*cp, *nfile;
 
 	/* Construct local path from filename. */
-
-	sz = strlen(file->file) + strlen(mft);
-	if ((nfile = calloc(sz + 1, 1)) == NULL)
-		err(1, "calloc");
-
 	/* We know this is host/module/... */
 
-	strlcpy(nfile, mft, sz + 1);
-	cp = strrchr(nfile, '/');
+	cp = strrchr(mft, '/');
 	assert(cp != NULL);
-	cp++;
-	*cp = '\0';
-	strlcat(nfile, file->file, sz + 1);
+	assert(cp - mft < INT_MAX);
+	if (asprintf(&nfile, "%.*s/%s", (int)(cp - mft), mft, file->file) == -1)
+		err(1, "asprintf");
 
 	/*
 	 * Since we're from the same directory as the MFT file, we know
@@ -511,6 +505,27 @@ queue_add_from_mft_set(int fd, struct entityq *q, const struct mft *mft,
 			continue;
 		queue_add_from_mft(fd, q, mft->file, f, RTYPE_ROA, eid);
 	}
+
+	for (i = 0; i < mft->filesz; i++) {
+		f = &mft->files[i];
+		sz = strlen(f->file);
+		assert(sz > 4);
+		if (strcasecmp(f->file + sz - 4, ".gbr"))
+			continue;
+		queue_add_from_mft(fd, q, mft->file, f, RTYPE_GBR, eid);
+	}
+
+	for (i = 0; i < mft->filesz; i++) {
+		f = &mft->files[i];
+		sz = strlen(f->file);
+		assert(sz > 4);
+		if (strcasecmp(f->file + sz - 4, ".crl") == 0 ||
+		    strcasecmp(f->file + sz - 4, ".cer") == 0 ||
+		    strcasecmp(f->file + sz - 4, ".roa") == 0 ||
+		    strcasecmp(f->file + sz - 4, ".gbr") == 0)
+			continue;
+		logx("%s: unsupported file type: %s", mft->file, f->file);
+	}
 }
 
 /*
@@ -543,8 +558,7 @@ queue_add_tal(int fd, struct entityq *q, const char *file, size_t *eid)
 }
 
 /*
- * Add rsync URIs (CER) from a TAL file, RFC 7730.
- * Only use the first URI of the set.
+ * Add URIs (CER) from a TAL file, RFC 8630.
  */
 static void
 queue_add_from_tal(int proc, int rsync, struct entityq *q,
@@ -552,49 +566,45 @@ queue_add_from_tal(int proc, int rsync, struct entityq *q,
 {
 	char			*nfile;
 	const struct repo	*repo;
-	const char		*uri;
+	const char		*uri = NULL;
+	size_t			 i;
 
 	assert(tal->urisz);
-	uri = tal->uri[0];
+
+	for (i = 0; i < tal->urisz; i++) {
+		uri = tal->uri[i];
+		if (strncasecmp(uri, "rsync://", 8) == 0)
+			break;
+	}
+	if (uri == NULL)
+		errx(1, "TAL file has no rsync:// URI");
 
 	/* Look up the repository. */
-
-	assert(rtype_resolve(uri) == RTYPE_CER);
 	repo = repo_lookup(rsync, uri);
-	uri += 8 + strlen(repo->host) + 1 + strlen(repo->module) + 1;
-
-	if (asprintf(&nfile, "%s/%s/%s", repo->host, repo->module, uri) == -1)
-		err(1, "asprintf");
+	nfile = repo_filename(repo, uri);
 
 	entityq_add(proc, q, nfile, RTYPE_CER, repo, NULL, tal->pkey,
 	    tal->pkeysz, tal->descr, eid);
 }
 
 /*
- * Add a manifest (MFT) or CRL found in an X509 certificate, RFC 6487.
+ * Add a manifest (MFT) found in an X509 certificate, RFC 6487.
  */
 static void
 queue_add_from_cert(int proc, int rsync, struct entityq *q,
-    const char *uri, size_t *eid)
+    const char *rsyncuri, const char *rrdpuri, size_t *eid)
 {
 	char			*nfile;
-	enum rtype		 type;
 	const struct repo	*repo;
 
-	if ((type = rtype_resolve(uri)) == RTYPE_EOF)
-		errx(1, "%s: unknown file type", uri);
-	if (type != RTYPE_MFT)
-		errx(1, "%s: invalid file type", uri);
+	if (rsyncuri == NULL)
+		return;
 
 	/* Look up the repository. */
+	repo = repo_lookup(rsync, rsyncuri);
+	nfile = repo_filename(repo, rsyncuri);
 
-	repo = repo_lookup(rsync, uri);
-	uri += 8 + strlen(repo->host) + 1 + strlen(repo->module) + 1;
-
-	if (asprintf(&nfile, "%s/%s/%s", repo->host, repo->module, uri) == -1)
-		err(1, "asprintf");
-
-	entityq_add(proc, q, nfile, type, repo, NULL, NULL, 0, NULL, eid);
+	entityq_add(proc, q, nfile, RTYPE_MFT, repo, NULL, NULL, 0, NULL, eid);
 }
 
 /*
@@ -935,6 +945,49 @@ proc_parser_crl(struct entity *entp, X509_STORE *store,
 	}
 }
 
+/*
+ * Parse a ghostbuster record
+ */
+static void
+proc_parser_gbr(struct entity *entp, X509_STORE *store,
+    X509_STORE_CTX *ctx, struct auth_tree *auths, struct crl_tree *crlt)
+{
+	struct gbr		*gbr;
+	X509			*x509;
+	int			 c;
+	struct auth		*a;
+	STACK_OF(X509)		*chain;
+	STACK_OF(X509_CRL)	*crls;
+
+	if ((gbr = gbr_parse(&x509, entp->uri)) == NULL)
+		return;
+
+	a = valid_ski_aki(entp->uri, auths, gbr->ski, gbr->aki);
+
+	build_chain(a, &chain);
+	build_crls(a, crlt, &crls);
+
+	assert(x509 != NULL);
+	if (!X509_STORE_CTX_init(ctx, store, x509, chain))
+		cryptoerrx("X509_STORE_CTX_init");
+	X509_STORE_CTX_set_flags(ctx,
+	    X509_V_FLAG_IGNORE_CRITICAL | X509_V_FLAG_CRL_CHECK);
+	X509_STORE_CTX_set0_crls(ctx, crls);
+
+	if (X509_verify_cert(ctx) <= 0) {
+		c = X509_STORE_CTX_get_error(ctx);
+		if (verbose > 0 || c != X509_V_ERR_UNABLE_TO_GET_CRL)
+			warnx("%s: %s", entp->uri,
+			    X509_verify_cert_error_string(c));
+	}
+
+	X509_STORE_CTX_cleanup(ctx);
+	sk_X509_free(chain);
+	sk_X509_CRL_free(crls);
+	X509_free(x509);
+	gbr_free(gbr);
+}
+
 /* use the parent (id) to walk the tree to the root and
    build a certificate chain from cert->x509 */
 static void
@@ -1127,6 +1180,9 @@ proc_parser(int fd)
 				roa_buffer(&b, &bsz, &bmax, roa);
 			roa_free(roa);
 			break;
+		case RTYPE_GBR:
+			proc_parser_gbr(entp, store, ctx, &auths, &crlt);
+			break;
 		default:
 			abort();
 		}
@@ -1198,9 +1254,8 @@ entity_process(int proc, int rsync, struct stats *st,
 			 * we're revoked and then we don't want to
 			 * process the MFT.
 			 */
-			if (cert->mft != NULL)
-				queue_add_from_cert(proc, rsync,
-				    q, cert->mft, eid);
+			queue_add_from_cert(proc, rsync,
+			    q, cert->mft, cert->notify, eid);
 		} else
 			st->certs_invalid++;
 		cert_free(cert);
@@ -1234,6 +1289,9 @@ entity_process(int proc, int rsync, struct stats *st,
 		else
 			st->roas_invalid++;
 		roa_free(roa);
+		break;
+	case RTYPE_GBR:
+		st->gbrs++;
 		break;
 	default:
 		abort();
@@ -1639,7 +1697,7 @@ main(int argc, char *argv[])
 	}
 
 	if (killme) {
-		syslog(LOG_CRIT|LOG_DAEMON, 
+		syslog(LOG_CRIT|LOG_DAEMON,
 		    "excessive runtime (%d seconds), giving up", timeout);
 		errx(1, "excessive runtime (%d seconds), giving up", timeout);
 	}
@@ -1695,6 +1753,7 @@ main(int argc, char *argv[])
 	logx("Manifests: %zu (%zu failed parse, %zu stale)",
 	    stats.mfts, stats.mfts_fail, stats.mfts_stale);
 	logx("Certificate revocation lists: %zu", stats.crls);
+	logx("Ghostbuster records: %zu", stats.gbrs);
 	logx("Repositories: %zu", stats.repos);
 	logx("Files removed: %zu", stats.del_files);
 	logx("VRP Entries: %zu (%zu unique)", stats.vrps, stats.uniqs);

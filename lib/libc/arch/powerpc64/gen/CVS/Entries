@@ -10,7 +10,7 @@
 /fpsetsticky.c/1.1/Thu Jun 25 02:03:55 2020//
 /infinity.c/1.1/Thu Jun 25 02:03:55 2020//
 /nan.c/1.1/Thu Jun 25 02:03:55 2020//
-/setjmp.S/1.3/Thu Jul  2 08:59:45 2020//
-/sigsetjmp.S/1.2/Sat Jun 27 14:18:42 2020//
+/setjmp.S/1.4/Sun Oct 18 17:51:39 2020//
+/sigsetjmp.S/1.3/Mon Oct 19 23:24:17 2020//
 /usertc.c/1.1/Sat Jul 11 16:21:29 2020//
 D

@@ -1,9 +1,20 @@
-# $OpenBSD: Makefile,v 1.1 2020/09/15 01:45:16 bluhm Exp $
+# $OpenBSD: Makefile,v 1.4 2020/12/17 00:51:11 bluhm Exp $
+
+.include <bsd.own.mk>
 
 .if ! exists(/usr/local/bin/botan)
 regress:
 	# install botan2 from ports for interop tests
 	@echo SKIPPED
+.elif (${COMPILER_VERSION:L} != "clang" && ! exists(/usr/local/bin/eg++))
+regress:
+	# on gcc-archs install g++ from ports for botan2 interop tests
+	@echo SKIPPED
+.else
+
+# C++11
+.if ${COMPILER_VERSION:L} != "clang" && ${CXX} == "c++"
+CXX = /usr/local/bin/eg++
 .endif
 
 LIBRARIES =		libressl
@@ -26,7 +37,6 @@ DPADD =		/usr/local/lib/libbotan-2.a
 REGRESS_TARGETS += run-client-botan-server-${lib}
 
 run-client-botan-server-${lib}: client server.crt
-	@echo '\n======== $@ ========'
 	LD_LIBRARY_PATH=/usr/local/lib/e${lib} \
 	    ../${lib}/server >server-${lib}.out \
 	    -c server.crt -k server.key \
@@ -66,5 +76,7 @@ server.req: ${@:R}.key
 server.crt: ca.crt ${@:R}.req
 	/usr/local/bin/botan sign_cert ca.crt ca.key ${@:R}.req >$@.tmp
 	mv $@.tmp $@
+
+.endif # exists(/usr/local/bin/botan)
 
 .include <bsd.regress.mk>

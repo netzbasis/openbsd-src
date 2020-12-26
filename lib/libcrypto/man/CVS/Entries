@@ -12,11 +12,11 @@
 /ASN1_item_d2i.3/1.8/Tue Mar 27 17:35:50 2018//
 /ASN1_item_new.3/1.5/Fri Jun 14 13:59:32 2019//
 /ASN1_put_object.3/1.1/Mon Aug 26 11:41:31 2019//
-/ASN1_time_parse.3/1.8/Thu Jun  6 01:06:58 2019//
+/ASN1_time_parse.3/1.9/Mon Nov  2 17:45:35 2020//
 /AUTHORITY_KEYID_new.3/1.4/Thu Jun  6 01:06:58 2019//
 /BASIC_CONSTRAINTS_new.3/1.5/Thu Aug 22 15:15:35 2019//
 /BF_set_key.3/1.10/Thu Jun  6 01:06:58 2019//
-/BIO_ctrl.3/1.14/Tue Mar 27 17:35:50 2018//
+/BIO_ctrl.3/1.15/Thu Dec  3 22:47:21 2020//
 /BIO_f_base64.3/1.11/Thu Jun  6 01:06:58 2019//
 /BIO_f_buffer.3/1.10/Tue May  1 17:05:05 2018//
 /BIO_f_cipher.3/1.12/Thu Jun  6 01:06:58 2019//
@@ -148,7 +148,7 @@
 /EVP_DigestSignInit.3/1.7/Mon Jun 10 14:58:48 2019//
 /EVP_DigestVerifyInit.3/1.8/Mon Jun 10 14:58:48 2019//
 /EVP_EncodeInit.3/1.7/Thu Jun  6 01:06:58 2019//
-/EVP_EncryptInit.3/1.39/Sun Jan 26 08:00:31 2020//
+/EVP_EncryptInit.3/1.40/Thu Dec  3 22:47:21 2020//
 /EVP_OpenInit.3/1.8/Fri Jun  7 20:46:25 2019//
 /EVP_PKEY_CTX_ctrl.3/1.22/Fri Nov  1 13:53:25 2019//
 /EVP_PKEY_CTX_new.3/1.11/Wed Jun 24 19:55:55 2020//
@@ -271,7 +271,7 @@
 /X509_ALGOR_dup.3/1.14/Thu Jun  6 01:06:59 2019//
 /X509_ATTRIBUTE_new.3/1.8/Thu Jun  4 10:24:27 2020//
 /X509_CINF_new.3/1.6/Thu Jun  6 01:06:59 2019//
-/X509_CRL_get0_by_serial.3/1.10/Fri Jun 14 13:59:32 2019//
+/X509_CRL_get0_by_serial.3/1.11/Wed Oct 21 17:17:43 2020//
 /X509_CRL_new.3/1.10/Tue Aug 20 13:27:19 2019//
 /X509_EXTENSION_set_object.3/1.10/Thu Jun  6 01:06:59 2019//
 /X509_INFO_new.3/1.2/Thu Jul 23 17:34:53 2020//
@@ -308,8 +308,8 @@
 /X509_get1_email.3/1.1/Fri Aug 23 12:23:39 2019//
 /X509_get_pubkey.3/1.8/Fri Jun 19 14:31:29 2020//
 /X509_get_serialNumber.3/1.5/Fri Jun 19 12:01:20 2020//
-/X509_get_subject_name.3/1.9/Fri Jun 14 13:59:32 2019//
-/X509_get_version.3/1.7/Fri Jun 14 13:59:32 2019//
+/X509_get_subject_name.3/1.10/Wed Oct 21 17:17:44 2020//
+/X509_get_version.3/1.8/Wed Oct 21 17:17:44 2020//
 /X509_new.3/1.22/Fri Aug 23 12:23:39 2019//
 /X509_sign.3/1.8/Fri Jun 14 13:59:32 2019//
 /X509_verify_cert.3/1.8/Thu Jun  6 01:06:59 2019//

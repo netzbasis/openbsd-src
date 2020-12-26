@@ -1,4 +1,4 @@
-/*	$OpenBSD: uaccess.h,v 1.3 2020/06/08 04:48:15 jsg Exp $	*/
+/*	$OpenBSD: uaccess.h,v 1.5 2020/12/20 03:42:01 jsg Exp $	*/
 /*
  * Copyright (c) 2015 Mark Kettenis
  *
@@ -18,8 +18,10 @@
 #ifndef _LINUX_UACCESS_H
 #define _LINUX_UACCESS_H
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/systm.h>
+#include <uvm/uvm_extern.h>
+
 #include <linux/sched.h>
 
 static inline unsigned long
@@ -64,12 +66,13 @@ copy_from_user(void *to, const void *from, unsigned len)
 		goto err;					\
 })
 
-#define VERIFY_READ     0x1
-#define VERIFY_WRITE    0x2
 static inline int
 access_ok(const void *addr, unsigned long size)
 {
-	return 1;
+	vaddr_t startva = (vaddr_t)addr;
+	vaddr_t endva = ((vaddr_t)addr) + size;
+	return (startva >= VM_MIN_ADDRESS && endva >= VM_MIN_ADDRESS) &&
+	    (startva <= VM_MAXUSER_ADDRESS && endva <= VM_MAXUSER_ADDRESS);
 }
 
 #define user_access_begin(addr, size)	access_ok(addr, size)

@@ -7,7 +7,7 @@
 /busop_h.in/1.2/Sun Apr  4 12:49:30 2010//
 /cache.c/1.4/Mon Mar  7 13:21:51 2016//
 /cache.h/1.6/Sun Mar 30 12:30:01 2008//
-/clock.c/1.66/Fri Jul 31 11:19:12 2020//
+/clock.c/1.67/Tue Oct 20 15:59:17 2020//
 /conf.c/1.84/Mon Jul  6 04:32:25 2020//
 /cpu.c/1.71/Fri Jul 31 11:19:12 2020//
 /db_disasm.c/1.9/Fri Sep 11 09:27:10 2020//
@@ -23,7 +23,7 @@
 /intreg.h/1.3/Mon Jun  2 23:27:56 2003//
 /ipifuncs.c/1.19/Tue Aug  6 18:06:32 2019//
 /locore.s/1.190/Fri Jul 31 11:19:12 2020//
-/machdep.c/1.198/Tue Jun 23 01:21:29 2020//
+/machdep.c/1.199/Sun Nov  8 20:37:24 2020//
 /mdesc.c/1.8/Sun Oct 20 16:27:19 2019//
 /mem.c/1.20/Sun May 17 11:12:55 2020//
 /ofw_machdep.c/1.34/Tue Aug 28 00:00:42 2018//
@@ -34,6 +34,6 @@
 /rbus_machdep.c/1.5/Wed Sep 22 02:28:37 2010//
 /sys_machdep.c/1.4/Sat Dec 30 20:46:59 2017//
 /timerreg.h/1.5/Tue May 29 09:54:23 2007//
-/trap.c/1.105/Thu Sep 24 23:49:59 2020//
+/trap.c/1.107/Fri Oct 23 16:54:35 2020//
 /vm_machdep.c/1.39/Thu Aug 17 20:50:51 2017//
 D

@@ -8,8 +8,8 @@
 /getaddrinfo_async.c/1.56/Sat Nov  3 09:13:24 2018//
 /gethostnamadr.c/1.13/Mon Sep 14 07:38:37 2015//
 /gethostnamadr_async.c/1.45/Thu Jun 27 05:26:37 2019//
-/getnameinfo.c/1.9/Wed Jul  3 03:24:03 2019//
-/getnameinfo_async.c/1.14/Wed Jul  3 03:24:03 2019//
+/getnameinfo.c/1.10/Mon Dec 21 09:40:35 2020//
+/getnameinfo_async.c/1.15/Mon Dec 21 09:40:35 2020//
 /getnetnamadr.c/1.9/Fri Jan 16 16:48:51 2015//
 /getnetnamadr_async.c/1.26/Sat Apr 28 15:16:49 2018//
 /getrrsetbyname.c/1.6/Mon Sep 14 07:38:37 2015//

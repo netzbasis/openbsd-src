@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvmexp.h,v 1.5 2020/04/23 07:57:27 mpi Exp $	*/
+/*	$OpenBSD: uvmexp.h,v 1.7 2020/12/14 13:29:18 mpi Exp $	*/
 
 #ifndef	_UVM_UVMEXP_
 #define	_UVM_UVMEXP_
@@ -39,6 +39,11 @@
 /*
  * uvmexp: global data structures that are exported to parts of the kernel
  * other than the vm system.
+ *
+ *  Locks used to protect struct members in this file:
+ *	I	immutable after creation
+ *	K	kernel lock
+ *	F	uvm_lock_fpageq
  */
 struct uvmexp {
 	/* vm_page constants */
@@ -47,16 +52,16 @@ struct uvmexp {
 	int pageshift;  /* page shift */
 
 	/* vm_page counters */
-	int npages;     /* number of pages we manage */
-	int free;       /* number of free pages */
+	int npages;     /* [I] number of pages we manage */
+	int free;       /* [F] number of free pages */
 	int active;     /* number of active pages */
 	int inactive;   /* number of pages that we free'd but may want back */
 	int paging;	/* number of pages in the process of being paged out */
 	int wired;      /* number of wired pages */
 
-	int zeropages;		/* number of zero'd pages */
-	int reserve_pagedaemon; /* number of pages reserved for pagedaemon */
-	int reserve_kernel;	/* number of pages reserved for kernel */
+	int zeropages;		/* [F] number of zero'd pages */
+	int reserve_pagedaemon; /* [I] # of pages reserved for pagedaemon */
+	int reserve_kernel;	/* [I] # of pages reserved for kernel */
 	int unused01;		/* formerly anonpages */
 	int vnodepages;		/* XXX # of pages used by vnode page cache */
 	int vtextpages;		/* XXX # of pages used by vtext vnodes */
@@ -75,9 +80,9 @@ struct uvmexp {
 
 	/* swap */
 	int nswapdev;	/* number of configured swap devices in system */
-	int swpages;	/* number of PAGE_SIZE'ed swap pages */
+	int swpages;	/* [K] number of PAGE_SIZE'ed swap pages */
 	int swpginuse;	/* number of swap pages in use */
-	int swpgonly;	/* number of swap pages in use, not also in RAM */
+	int swpgonly;	/* [K] number of swap pages in use, not also in RAM */
 	int nswget;	/* number of swap pages moved from disk to RAM */
 	int nanon;	/* XXX number total of anon's in system */
 	int unused05;	/* formerly nanonneeded */

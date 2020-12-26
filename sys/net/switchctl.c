@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchctl.c,v 1.21 2020/04/07 13:27:52 visa Exp $	*/
+/*	$OpenBSD: switchctl.c,v 1.23 2020/12/25 12:59:53 visa Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -224,7 +224,7 @@ switchwrite(dev_t dev, struct uio *uio, int ioflag)
 		if (m == NULL)
 			return (ENOBUFS);
 		if (len >= MHLEN) {
-			MCLGETI(m, M_DONTWAIT, NULL, MIN(MAXMCLBYTES, len));
+			MCLGETL(m, M_DONTWAIT, MIN(MAXMCLBYTES, len));
 			if ((m->m_flags & M_EXT) == 0) {
 				m_free(m);
 				return (ENOBUFS);
@@ -262,7 +262,7 @@ switchwrite(dev_t dev, struct uio *uio, int ioflag)
 			goto save_return;
 		}
 		if (len >= MLEN) {
-			MCLGETI(n, M_DONTWAIT, NULL, MIN(MAXMCLBYTES, len));
+			MCLGETL(n, M_DONTWAIT, MIN(MAXMCLBYTES, len));
 			if ((n->m_flags & M_EXT) == 0) {
 				m_free(n);
 				error = ENOBUFS;
@@ -409,7 +409,7 @@ switchkqfilter(dev_t dev, struct knote *kn)
 
 	kn->kn_hook = (caddr_t)sc;
 
-	klist_insert(klist, kn);
+	klist_insert_locked(klist, kn);
 
 	return (0);
 }
@@ -420,7 +420,7 @@ filt_switch_rdetach(struct knote *kn)
 	struct switch_softc	*sc = (struct switch_softc *)kn->kn_hook;
 	struct klist		*klist = &sc->sc_swdev->swdev_rsel.si_note;
 
-	klist_remove(klist, kn);
+	klist_remove_locked(klist, kn);
 }
 
 int
@@ -444,7 +444,7 @@ filt_switch_wdetach(struct knote *kn)
 	struct switch_softc	*sc = (struct switch_softc *)kn->kn_hook;
 	struct klist		*klist = &sc->sc_swdev->swdev_wsel.si_note;
 
-	klist_remove(klist, kn);
+	klist_remove_locked(klist, kn);
 }
 
 int

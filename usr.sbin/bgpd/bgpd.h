@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.403 2020/05/10 13:38:46 deraadt Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.406 2020/12/23 13:20:47 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -120,7 +120,7 @@ enum bgpd_process {
 	PROC_MAIN,
 	PROC_SE,
 	PROC_RDE
-} bgpd_process;
+};
 
 enum reconf_action {
 	RECONF_NONE,
@@ -995,6 +995,7 @@ enum action_types {
 	ACTION_SET_PREPEND_PEER,
 	ACTION_SET_AS_OVERRIDE,
 	ACTION_SET_NEXTHOP,
+	ACTION_SET_NEXTHOP_REF,
 	ACTION_SET_NEXTHOP_REJECT,
 	ACTION_SET_NEXTHOP_BLACKHOLE,
 	ACTION_SET_NEXTHOP_NOMODIFY,
@@ -1017,7 +1018,7 @@ struct filter_set {
 		u_int32_t			 metric;
 		int32_t				 relative;
 		struct bgpd_addr		 nexthop;
-		struct nexthop			*nh;
+		struct nexthop			*nh_ref;
 		struct community		 community;
 		char				 pftable[PFTABLE_LEN];
 		char				 rtlabel[RTLABEL_LEN];
@@ -1376,6 +1377,7 @@ static const char * const eventnames[] = {
 	"ConnectRetryTimer expired",
 	"HoldTimer expired",
 	"KeepaliveTimer expired",
+	"SendHoldTimer expired",
 	"OPEN message received",
 	"KEEPALIVE message received",
 	"UPDATE message received",
@@ -1466,6 +1468,7 @@ static const char * const timernames[] = {
 	"ConnectRetryTimer",
 	"KeepaliveTimer",
 	"HoldTimer",
+	"SendHoldTimer",
 	"IdleHoldTimer",
 	"IdleHoldResetTimer",
 	"CarpUndemoteTimer",

@@ -116,9 +116,9 @@
 /ungetwc.c/1.6/Mon Aug 31 02:53:57 2015//
 /vasprintf.c/1.23/Fri Jan 25 00:19:25 2019//
 /vdprintf.c/1.3/Sun Mar  3 16:41:41 2019//
-/vfprintf.c/1.78/Tue Nov 21 17:48:19 2017//
+/vfprintf.c/1.79/Tue Oct 27 21:06:57 2020//
 /vfscanf.c/1.34/Sun Oct 30 05:07:06 2016//
-/vfwprintf.c/1.19/Thu Nov 16 08:16:03 2017//
+/vfwprintf.c/1.20/Tue Oct 27 21:06:57 2020//
 /vfwscanf.c/1.7/Fri Dec  8 01:03:51 2017//
 /vprintf.c/1.9/Mon Aug 31 02:53:57 2015//
 /vscanf.c/1.9/Mon Aug 31 02:53:57 2015//

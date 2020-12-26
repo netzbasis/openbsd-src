@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.226 2020/08/21 22:59:27 kn Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.228 2020/12/25 12:59:53 visa Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -297,7 +297,7 @@ tun_clone_destroy(struct ifnet *ifp)
 		struct vnode *vp;
 
 		if (vfinddev(dev, VCHR, &vp))
-                        VOP_REVOKE(vp, REVOKEALL);
+			VOP_REVOKE(vp, REVOKEALL);
 
 		KASSERT(sc->sc_dev == 0);
 	}
@@ -995,7 +995,7 @@ tun_dev_kqfilter(dev_t dev, struct knote *kn)
 	kn->kn_hook = (caddr_t)sc; /* XXX give the sc_ref to the hook? */
 
 	s = splhigh();
-	klist_insert(klist, kn);
+	klist_insert_locked(klist, kn);
 	splx(s);
 
 put:
@@ -1010,7 +1010,7 @@ filt_tunrdetach(struct knote *kn)
 	struct tun_softc	*sc = kn->kn_hook;
 
 	s = splhigh();
-	klist_remove(&sc->sc_rsel.si_note, kn);
+	klist_remove_locked(&sc->sc_rsel.si_note, kn);
 	splx(s);
 }
 
@@ -1032,7 +1032,7 @@ filt_tunwdetach(struct knote *kn)
 	struct tun_softc	*sc = kn->kn_hook;
 
 	s = splhigh();
-	klist_remove(&sc->sc_wsel.si_note, kn);
+	klist_remove_locked(&sc->sc_wsel.si_note, kn);
 	splx(s);
 }
 

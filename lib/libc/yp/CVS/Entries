@@ -20,7 +20,7 @@
 /xdr_ypresp_val.c/1.7/Fri Jan 16 16:48:51 2015//
 /xdr_ypstat.c/1.8/Fri Jan 16 16:48:51 2015//
 /yp_all.c/1.13/Mon Sep 28 14:51:04 2015//
-/yp_bind.3/1.1/Fri Aug 30 22:41:51 2019//
+/yp_bind.3/1.2/Thu Dec  3 22:47:21 2020//
 /yp_bind.c/1.28/Mon May 30 02:53:29 2016//
 /yp_first.c/1.11/Sun Sep 13 20:57:28 2015//
 /yp_get_default_domain.c/1.9/Sun Sep 13 20:57:28 2015//

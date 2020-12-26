@@ -1,11 +1,11 @@
 /dname.c/1.7/Tue May 19 08:48:50 2020//
 /dname.h/1.4/Thu Mar 19 17:48:08 2020//
-/msgencode.c/1.9/Thu Mar 19 17:48:08 2020//
+/msgencode.c/1.10/Thu Dec 10 21:44:58 2020//
 /msgencode.h/1.1.1.4/Wed Sep 11 14:11:37 2019//
 /msgparse.c/1.7/Tue May 19 08:48:50 2020//
 /msgparse.h/1.5/Thu Mar 19 17:48:08 2020//
 /msgreply.c/1.17/Thu Mar 19 17:48:08 2020//
-/msgreply.h/1.9/Fri Jun 28 15:17:17 2019//
+/msgreply.h/1.10/Thu Dec 10 21:44:58 2020//
 /packed_rrset.c/1.5/Thu Mar 19 17:48:08 2020//
 /packed_rrset.h/1.5/Thu Mar 19 17:48:08 2020//
 D
