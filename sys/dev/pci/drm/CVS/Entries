@@ -51,7 +51,7 @@
 /drm_kms_helper_common.c/1.1/Mon Jun  8 04:47:58 2020//
 /drm_legacy.h/1.1/Mon Jun  8 04:47:58 2020//
 /drm_legacy_misc.c/1.2/Mon Jul 13 06:25:17 2020//
-/drm_linux.c/1.73/Sun Dec 13 04:00:38 2020//
+/drm_linux.c/1.75/Fri Jan  8 23:02:09 2021//
 /drm_lock.c/1.19/Mon Jun  8 04:47:58 2020//
 /drm_memory.c/1.30/Fri Jun 12 10:05:43 2020//
 /drm_mipi_dsi.c/1.4/Sat Aug 22 04:59:44 2020//

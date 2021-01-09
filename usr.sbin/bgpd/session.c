@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.c,v 1.407 2020/12/23 13:20:47 claudio Exp $ */
+/*	$OpenBSD: session.c,v 1.410 2021/01/05 10:02:44 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004, 2005 Henning Brauer <henning@openbsd.org>
@@ -1086,7 +1086,7 @@ session_connect(struct peer *peer)
 		bind_addr = &peer->conf.local_addr_v6;
 		break;
 	}
-	if (bind_addr && (sa = addr2sa(bind_addr, 0, &sa_len)) != NULL) {
+	if ((sa = addr2sa(bind_addr, 0, &sa_len)) != NULL) {
 		if (bind(peer->fd, sa, sa_len) == -1) {
 			log_peer_warn(&peer->conf, "session_connect bind");
 			bgp_fsm(peer, EVNT_CON_OPENFAIL);
@@ -1232,7 +1232,8 @@ get_alternate_addr(struct sockaddr *sa, struct bgpd_addr *alt)
 		fatal("getifaddrs");
 
 	for (match = ifap; match != NULL; match = match->ifa_next)
-		if (sa_cmp(sa, match->ifa_addr) == 0)
+		if (match->ifa_addr != NULL &&
+		    sa_cmp(sa, match->ifa_addr) == 0)
 			break;
 
 	if (match == NULL) {
@@ -1243,7 +1244,8 @@ get_alternate_addr(struct sockaddr *sa, struct bgpd_addr *alt)
 	switch (sa->sa_family) {
 	case AF_INET6:
 		for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
-			if (ifa->ifa_addr->sa_family == AF_INET &&
+			if (ifa->ifa_addr != NULL &&
+			    ifa->ifa_addr->sa_family == AF_INET &&
 			    strcmp(ifa->ifa_name, match->ifa_name) == 0) {
 				sa2addr(ifa->ifa_addr, alt, NULL);
 				break;
@@ -1252,10 +1254,12 @@ get_alternate_addr(struct sockaddr *sa, struct bgpd_addr *alt)
 		break;
 	case AF_INET:
 		for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
-			struct sockaddr_in6 *s =
-			    (struct sockaddr_in6 *)ifa->ifa_addr;
-			if (ifa->ifa_addr->sa_family == AF_INET6 &&
+			if (ifa->ifa_addr != NULL &&
+			    ifa->ifa_addr->sa_family == AF_INET6 &&
 			    strcmp(ifa->ifa_name, match->ifa_name) == 0) {
+				struct sockaddr_in6 *s =
+				    (struct sockaddr_in6 *)ifa->ifa_addr;
+
 				/* only accept global scope addresses */
 				if (IN6_IS_ADDR_LINKLOCAL(&s->sin6_addr) ||
 				    IN6_IS_ADDR_SITELOCAL(&s->sin6_addr))
@@ -2837,6 +2841,7 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 		case IMSG_CTL_SHOW_RIB_HASH:
 		case IMSG_CTL_SHOW_NETWORK:
 		case IMSG_CTL_SHOW_NEIGHBOR:
+		case IMSG_CTL_SHOW_SET:
 			if (idx != PFD_PIPE_ROUTE_CTL)
 				fatalx("ctl rib request not from RDE");
 			control_imsg_relay(&imsg);

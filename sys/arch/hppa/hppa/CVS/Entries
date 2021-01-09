@@ -10,9 +10,9 @@
 /intr.c/1.50/Mon May 14 13:54:39 2018//
 /ipi.c/1.5/Fri Sep  8 05:36:51 2017//
 /lock_machdep.c/1.14/Tue Apr 23 13:35:12 2019//
-/locore.S/1.200/Sun May 17 13:48:31 2020//
+/locore.S/1.201/Sat Jan  9 18:03:19 2021//
 /locore0.S/1.1/Mon Jun  5 18:59:06 2017//
-/machdep.c/1.262/Sun Nov  8 20:37:22 2020//
+/machdep.c/1.263/Sat Jan  9 18:03:19 2021//
 /mainbus.c/1.88/Mon May 14 13:54:39 2018//
 /mem.c/1.5/Sat Dec 30 20:46:59 2017//
 /mutex.c/1.17/Tue Apr 23 13:35:12 2019//

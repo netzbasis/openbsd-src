@@ -32,7 +32,7 @@
 /x509_ia5.c/1.1/Thu Jun  4 15:19:31 2020//
 /x509_info.c/1.1/Thu Jun  4 15:19:31 2020//
 /x509_int.c/1.1/Thu Jun  4 15:19:31 2020//
-/x509_internal.h/1.5/Wed Nov 18 17:00:59 2020//
+/x509_internal.h/1.6/Tue Jan  5 16:45:59 2021//
 /x509_issuer_cache.c/1.2/Wed Nov 18 17:00:59 2020//
 /x509_issuer_cache.h/1.1/Fri Sep 11 14:30:51 2020//
 /x509_lcl.h/1.5/Wed Dec 21 15:49:29 2016//
@@ -57,7 +57,7 @@
 /x509_txt.c/1.19/Fri Jul 11 08:44:49 2014//
 /x509_utl.c/1.2/Sun Sep 13 15:06:17 2020//
 /x509_v3.c/1.17/Sat May 19 10:54:40 2018//
-/x509_verify.c/1.25/Wed Dec 16 18:46:29 2020//
+/x509_verify.c/1.30/Sat Jan  9 03:51:42 2021//
 /x509_verify.h/1.1/Sun Sep 13 15:06:17 2020//
 /x509_vfy.c/1.84/Wed Nov 18 17:40:42 2020//
 /x509_vfy.h/1.31/Sun Sep 13 15:06:17 2020//

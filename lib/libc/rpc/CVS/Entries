@@ -13,7 +13,7 @@
 /clnt_simple.c/1.18/Thu Aug 20 21:49:29 2015//
 /clnt_tcp.c/1.34/Mon Jul  6 13:33:06 2020//
 /clnt_udp.c/1.37/Mon Jul  6 13:33:06 2020//
-/get_myaddress.c/1.15/Sun Sep 13 15:36:56 2015//
+/get_myaddress.c/1.16/Wed Dec 30 18:56:35 2020//
 /getrpcent.3/1.13/Wed Jun  5 03:39:23 2013//
 /getrpcent.c/1.22/Tue Oct 13 04:42:28 2020//
 /getrpcport.3/1.10/Wed Jun  5 03:39:23 2013//
@@ -23,7 +23,7 @@
 /pmap_getport.c/1.13/Sun Sep 13 15:36:56 2015//
 /pmap_prot.c/1.8/Sun Sep 13 15:36:56 2015//
 /pmap_prot2.c/1.8/Sun Sep 13 15:36:56 2015//
-/pmap_rmt.c/1.35/Fri Jun 28 13:32:42 2019//
+/pmap_rmt.c/1.36/Wed Dec 30 18:56:35 2020//
 /rpc.3/1.48/Tue Nov 10 23:48:18 2015//
 /rpc_callmsg.c/1.12/Sun Sep 13 15:36:56 2015//
 /rpc_commondata.c/1.6/Wed Sep  1 14:43:34 2010//

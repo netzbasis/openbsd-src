@@ -102,7 +102,7 @@
 /mem_encrypt.h/1.1/Sun Apr 14 10:14:53 2019//
 /mempolicy.h/1.2/Mon Jun  8 04:48:15 2020//
 /miscdevice.h/1.1/Sun Apr 14 10:14:53 2019//
-/mm.h/1.6/Mon Dec  7 09:10:42 2020//
+/mm.h/1.7/Fri Jan  8 23:02:09 2021//
 /mm_types.h/1.3/Fri Nov  6 03:10:44 2020//
 /mman.h/1.1/Sun Apr 14 10:14:53 2019//
 /mmu_context.h/1.1/Sun Apr 14 10:14:53 2019//
@@ -196,7 +196,7 @@
 /version.h/1.1/Sun Apr 14 10:14:53 2019//
 /vga_switcheroo.h/1.2/Mon Jun  8 04:48:15 2020//
 /vgaarb.h/1.2/Mon Jun  8 04:48:15 2020//
-/vmalloc.h/1.1/Sun Apr 14 10:14:53 2019//
+/vmalloc.h/1.2/Fri Jan  8 23:02:09 2021//
 /vt.h/1.1/Sun Apr 14 10:14:53 2019//
 /wait.h/1.7/Sun Dec 13 03:15:52 2020//
 /wait_bit.h/1.2/Mon Jun  8 04:48:15 2020//

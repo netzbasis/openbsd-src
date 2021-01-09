@@ -1,4 +1,4 @@
-/Makefile/1.5/Mon Jun 17 13:13:03 2019//
+/Makefile/1.7/Mon Jan  4 11:28:50 2021//
 /rde_community_test.c/1.2/Thu Jul  4 10:20:59 2019//
 /rde_community_test.h/1.1/Mon Jun 17 13:13:03 2019//
 /rde_sets_test.c/1.7/Tue Dec 17 11:57:16 2019//
@@ -15,7 +15,10 @@
 /rde_trie_test.4.in/1.1/Tue Sep 11 08:55:49 2018//
 /rde_trie_test.4.out/1.2/Tue Sep 18 15:15:32 2018//
 /rde_trie_test.5.check/1.1/Tue Sep 18 15:15:32 2018//
-/rde_trie_test.5.in/1.1/Tue Sep 18 15:15:32 2018//
+/rde_trie_test.5.in/1.2/Tue Dec 29 15:35:57 2020//
 /rde_trie_test.5.out/1.2/Wed Sep 26 08:36:00 2018//
-/rde_trie_test.c/1.11/Mon Jun 17 13:14:23 2019//
+/rde_trie_test.6.check/1.1/Tue Dec 29 16:57:50 2020//
+/rde_trie_test.6.in/1.1/Tue Dec 29 16:57:50 2020//
+/rde_trie_test.6.out/1.1/Tue Dec 29 16:57:50 2020//
+/rde_trie_test.c/1.12/Tue Dec 29 15:35:57 2020//
 D

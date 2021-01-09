@@ -4,12 +4,12 @@
 /coverage_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /dfsan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /hwasan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
-/linux_syscall_hooks.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
+/linux_syscall_hooks.h/1.1.1.2/Sat Jan  2 17:10:07 2021/-ko/
 /lsan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /msan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /netbsd_syscall_hooks.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /scudo_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
-/tsan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
+/tsan_interface.h/1.1.1.2/Sat Jan  2 17:10:07 2021/-ko/
 /tsan_interface_atomic.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 /ubsan_interface.h/1.1.1.1/Mon Aug 10 21:03:41 2020/-ko/
 D

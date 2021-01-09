@@ -86,7 +86,7 @@
 /SSL_get_rbio.3/1.5/Tue Mar 27 17:35:50 2018//
 /SSL_get_server_tmp_key.3/1.4/Wed Jun 12 09:36:30 2019//
 /SSL_get_session.3/1.7/Tue Mar 27 17:35:50 2018//
-/SSL_get_shared_ciphers.3/1.4/Wed Jun 12 09:36:30 2019//
+/SSL_get_shared_ciphers.3/1.5/Sat Jan  9 10:50:02 2021//
 /SSL_get_state.3/1.5/Wed Jun 12 09:36:30 2019//
 /SSL_get_verify_result.3/1.5/Thu Sep 17 08:04:22 2020//
 /SSL_get_version.3/1.7/Mon Mar 18 18:31:15 2019//
