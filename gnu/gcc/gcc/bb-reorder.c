@@ -61,7 +61,7 @@
 
    "Software Trace Cache"
    A. Ramirez, J. Larriba-Pey, C. Navarro, J. Torrellas and M. Valero; 1999
-   http://citeseer.nj.nec.com/15361.html
+   https://doi.org/10.1145/305138.305178
 
 */
 
